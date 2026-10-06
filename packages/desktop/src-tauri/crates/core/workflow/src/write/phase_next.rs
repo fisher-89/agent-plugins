@@ -1,24 +1,23 @@
 //! 相位路由状态机（只读）：初始 / 推进 / fail 重试（≤[`MAX_RETRY_TIMES`]）/
 //! 重试上限判定 / backtrack 目标路由 / mid-phase interruption（会话锚点比对
-//! ——进程内复活，中断相位由重入的窗口比对标定）。[`phase_next`] 不改 eval
-//! store（只读路由，stale 标记归 [`backtrack`](super::backtrack) 单点）；
-//! executor / evaluator prompt 已插值随行下发，白名单随行（walker 缓存带
-//! 走，不自相位表推导——守住路由红线）。
+//! ——进程内复活，中断相位由重入的窗口比对标定）。[`phase_next`] 不改状态库
+//! （只读路由，stale 标记归 [`backtrack`](super::backtrack) 单点）；executor /
+//! evaluator prompt 已插值随行下发，白名单随行（walker 缓存带
+//! 走，不自相位表推导——守住路由红线）。状态读取单源自 workspace 库（经
+//! [`ChangeStateStore`](crate::state::ChangeStateStore) port 缝，D8：锚点基线
+//! 平移为 PhaseRecord 行数）。
 
 use std::collections::HashMap;
 use std::sync::Mutex;
 
-use time::OffsetDateTime;
-
-use crate::model::{PhaseLog, Verdict};
-use crate::write::persist::{load_doc, ChangeDoc};
+use crate::model::Verdict;
+use crate::state::{ChangeStateStore, PhaseStateRecord};
 use crate::write::phase_table::{
     allowed_backtrack_phases, interpolate, phase_table, PhaseAgentSpec, PhaseDefinition,
     MAX_RETRY_TIMES, MAX_ROUNDS,
 };
-use foundation::layout::Layout;
 
-/// 进程内会话锚点：(change, run_id) → 首见时 eval 条目数基线。每 run 一个
+/// 进程内会话锚点：(change, run_id) → 首见时 PhaseRecord 行数基线。每 run 一个
 /// 实例（组合根创建后注入工具步缝；run_id 键隔离，跨 run / 跨实例不共享，
 /// 无进程级全局可变状态）。
 #[derive(Default)]
@@ -49,13 +48,14 @@ pub enum PhaseNextError {
     MaxRetriesExceeded { phase: String, round: u32 },
 }
 
-/// 最近一次 eval 条目快照（决策输入面）。
+/// 最近一次评估条目快照（决策输入面）。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LastResult {
     pub phase: String,
     pub verdict: Verdict,
     pub report: String,
-    pub timestamp: Option<OffsetDateTime>,
+    /// 落账时刻（UTC unix 毫秒；条目恒在位，位保留消费方可空语义）
+    pub timestamp: Option<i64>,
 }
 
 /// 路由产出（executor / evaluator prompt 已插值；白名单随行下发）。
@@ -73,10 +73,10 @@ pub struct PhaseNextOutcome {
     pub error: Option<PhaseNextError>,
 }
 
-/// 只读路由状态机：不改 eval store。路由权威唯一——walker 每步过渡都问
+/// 只读路由状态机：不改状态库。路由权威唯一——walker 每步过渡都问
 /// 本函数，白名单经其缓存下发。
 pub fn phase_next(
-    layout: &Layout,
+    store: &dyn ChangeStateStore,
     change: &str,
     run_id: &str,
     anchors: &SessionAnchors,
@@ -84,24 +84,35 @@ pub fn phase_next(
     if run_id.trim().is_empty() {
         return Err("missing_run_id: 缺少必需参数 run_id".to_owned());
     }
-    let doc = load_doc(layout, change)?;
-    let table = phase_table_of(&doc)?;
+    let record = store
+        .get_change(change)
+        .map_err(|error| error.to_string())?
+        .ok_or_else(|| format!("change \"{change}\" 未建档（无 ChangeRecord），无从路由"))?;
+    let table = phase_table(&record.workflow_type).ok_or_else(|| {
+        format!(
+            "workflow_type \"{}\" 不受支持（V1 仅 requirement 工作流）",
+            record.workflow_type
+        )
+    })?;
+    let entries = store
+        .list_phase_records(change)
+        .map_err(|error| error.to_string())?;
     let anchor = anchors
-        .get_or_create(change, run_id, doc.typed.eval.len())
-        .min(doc.typed.eval.len());
-    let round = (doc.typed.eval.len() - anchor) as u32 + 1;
-    let last_result = latest_result(&doc.typed.eval);
+        .get_or_create(change, run_id, entries.len())
+        .min(entries.len());
+    let round = (entries.len() - anchor) as u32 + 1;
+    let last_result = latest_result(&entries);
 
     if round > MAX_ROUNDS {
         return Err(format!(
             "round_limit_exceeded: 超过 {MAX_ROUNDS} 轮限制，可能存在循环回溯。请检查 \
-             workflow.json 中的 backtrack 记录，或手动清理后重试。"
+             回溯记录，或手动清理后重试。"
         ));
     }
 
     // backtrack 检测：最新条目的 backtrack_to 在位 → 路由到最早有效目标
     //（旧 phase_log 机制遗留的 backtrack 条目兼容面，与插件 handleBacktrack 同语义）
-    if let Some(entry) = latest_entry(&doc.typed.eval) {
+    if let Some(entry) = latest_entry(&entries) {
         if let Some(target) = entry
             .backtrack_to
             .as_deref()
@@ -127,7 +138,7 @@ pub fn phase_next(
     // 默认路由：全 pass → done；首个未过相位 → 重试上限判定 → 正常下发
     let all_passed = table
         .iter()
-        .all(|def| has_phase_passed(&doc.typed.eval, def.id));
+        .all(|def| has_phase_passed(&entries, def.id));
     if all_passed {
         return Ok(PhaseNextOutcome {
             done: true,
@@ -142,9 +153,9 @@ pub fn phase_next(
     }
     let next = table
         .iter()
-        .find(|def| !has_phase_passed(&doc.typed.eval, def.id))
+        .find(|def| !has_phase_passed(&entries, def.id))
         .expect("存在未过相位（all_passed 已排除空判）");
-    let window_fails = doc.typed.eval[anchor..]
+    let window_fails = entries[anchor..]
         .iter()
         .filter(|entry| entry.phase == next.id && entry.verdict == Verdict::Fail)
         .count() as u32;
@@ -173,34 +184,22 @@ pub fn phase_next(
     ))
 }
 
-/// 相位表解析（workflow_type 不受支持 → `Err`，W8 口径的相位机侧兜底）。
-fn phase_table_of(doc: &ChangeDoc) -> Result<&'static [PhaseDefinition], String> {
-    phase_table(&doc.typed.workflow_type).ok_or_else(|| {
-        format!(
-            "workflow_type \"{}\" 不受支持（V1 仅 requirement 工作流）",
-            doc.typed.workflow_type
-        )
-    })
-}
-
 /// 相位是否已过（非 stale 的 pass / skipped 条目在位；与插件 `hasPhasePassed`
 /// 同语义）。
-fn has_phase_passed(entries: &[PhaseLog], phase_id: &str) -> bool {
+fn has_phase_passed(entries: &[PhaseStateRecord], phase_id: &str) -> bool {
     entries.iter().any(|entry| {
         entry.phase == phase_id && (entry.verdict == Verdict::Pass || entry.skipped) && !entry.stale
     })
 }
 
-/// 最新 eval 条目（timestamp 降序取首；缺失 / 非法时间戳视为最旧；同时间戳
-/// 保序取先）。
-fn latest_entry(entries: &[PhaseLog]) -> Option<&PhaseLog> {
-    let mut best: Option<&PhaseLog> = None;
+/// 最新条目（timestamp 降序取首；同时间戳保序取先——按落行序扫描，严格大于
+/// 才替换）。
+fn latest_entry(entries: &[PhaseStateRecord]) -> Option<&PhaseStateRecord> {
+    let mut best: Option<&PhaseStateRecord> = None;
     for entry in entries {
         let replace = match best {
             None => true,
-            Some(current) => entry
-                .timestamp
-                .is_some_and(|time| current.timestamp.is_none_or(|current| time > current)),
+            Some(current) => entry.timestamp > current.timestamp,
         };
         if replace {
             best = Some(entry);
@@ -210,12 +209,12 @@ fn latest_entry(entries: &[PhaseLog]) -> Option<&PhaseLog> {
 }
 
 /// 最新条目快照（决策输入面）。
-fn latest_result(entries: &[PhaseLog]) -> Option<LastResult> {
+fn latest_result(entries: &[PhaseStateRecord]) -> Option<LastResult> {
     latest_entry(entries).map(|entry| LastResult {
         phase: entry.phase.clone(),
         verdict: entry.verdict,
         report: entry.report.clone(),
-        timestamp: entry.timestamp,
+        timestamp: Some(entry.timestamp),
     })
 }
 

@@ -56,7 +56,13 @@ const FAMILIES: Array<{
     label: '决策',
     role: 'decision',
   },
-  { runStepKind: 'phaseStart', group: 'toolStep', badge: 'ToolStep', label: '开启阶段', role: null },
+  {
+    runStepKind: 'phaseStart',
+    group: 'toolStep',
+    badge: 'ToolStep',
+    label: '开启阶段',
+    role: null,
+  },
   {
     runStepKind: 'staticCheck',
     group: 'toolStep',

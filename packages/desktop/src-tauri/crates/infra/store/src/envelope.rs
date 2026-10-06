@@ -12,8 +12,8 @@ use serde_json::Value;
 use specta::Type;
 
 use crate::model::{
-    AgentInstanceRecord, AgentProviderRecord, AgentRunRecord, ExploreRecord, SessionEventRecord,
-    SessionRecord, WorkspaceRecord,
+    AgentInstanceRecord, AgentProviderRecord, AgentRunRecord, ChangeRecord, ChecklistItemRecord,
+    ExploreRecord, PhaseRecord, SessionEventRecord, SessionRecord, StepRecord, WorkspaceRecord,
 };
 use crate::store::{db_err, DbDimension, StoreError};
 
@@ -109,6 +109,34 @@ const MODEL_ENTRIES: &[ModelEntry] = &[
         count: count_model::<ExploreRecord>,
         scan: scan_explores,
         key_of: explore_key,
+    },
+    ModelEntry {
+        name: "change",
+        dimension: DbDimension::Workspace,
+        count: count_model::<ChangeRecord>,
+        scan: scan_changes,
+        key_of: change_key,
+    },
+    ModelEntry {
+        name: "phase",
+        dimension: DbDimension::Workspace,
+        count: count_model::<PhaseRecord>,
+        scan: scan_phases,
+        key_of: phase_key,
+    },
+    ModelEntry {
+        name: "checklist_item",
+        dimension: DbDimension::Workspace,
+        count: count_model::<ChecklistItemRecord>,
+        scan: scan_checklist_items,
+        key_of: checklist_item_key,
+    },
+    ModelEntry {
+        name: "step",
+        dimension: DbDimension::Workspace,
+        count: count_model::<StepRecord>,
+        scan: scan_steps,
+        key_of: step_key,
     },
 ];
 
@@ -248,6 +276,42 @@ fn scan_explores(
     scan_model::<ExploreRecord>(db, offset, limit, key_of)
 }
 
+fn scan_changes(
+    db: &Database<'static>,
+    offset: u32,
+    limit: u32,
+    key_of: KeyOfFn,
+) -> Result<Vec<RecordEnvelope>, StoreError> {
+    scan_model::<ChangeRecord>(db, offset, limit, key_of)
+}
+
+fn scan_phases(
+    db: &Database<'static>,
+    offset: u32,
+    limit: u32,
+    key_of: KeyOfFn,
+) -> Result<Vec<RecordEnvelope>, StoreError> {
+    scan_model::<PhaseRecord>(db, offset, limit, key_of)
+}
+
+fn scan_checklist_items(
+    db: &Database<'static>,
+    offset: u32,
+    limit: u32,
+    key_of: KeyOfFn,
+) -> Result<Vec<RecordEnvelope>, StoreError> {
+    scan_model::<ChecklistItemRecord>(db, offset, limit, key_of)
+}
+
+fn scan_steps(
+    db: &Database<'static>,
+    offset: u32,
+    limit: u32,
+    key_of: KeyOfFn,
+) -> Result<Vec<RecordEnvelope>, StoreError> {
+    scan_model::<StepRecord>(db, offset, limit, key_of)
+}
+
 /// workspace 主键 = canonical root。
 fn workspace_key(value: &Value) -> Value {
     value["root"].clone()
@@ -281,5 +345,26 @@ fn session_event_key(value: &Value) -> Value {
 
 /// explore 主键 = id。
 fn explore_key(value: &Value) -> Value {
+    value["id"].clone()
+}
+
+/// change 主键 = change 名。
+fn change_key(value: &Value) -> Value {
+    value["name"].clone()
+}
+
+/// phase 主键 = id。
+fn phase_key(value: &Value) -> Value {
+    value["id"].clone()
+}
+
+/// checklist item 主键还原 `{phaseId, itemKey}` 形态（u128 打包键的 JSON 可
+/// 读投影——键为十六进制串原值，`session_event_key` 先例同型）。
+fn checklist_item_key(value: &Value) -> Value {
+    serde_json::json!({ "phaseId": value["phaseId"], "itemKey": value["itemKey"] })
+}
+
+/// step 主键 = id。
+fn step_key(value: &Value) -> Value {
     value["id"].clone()
 }

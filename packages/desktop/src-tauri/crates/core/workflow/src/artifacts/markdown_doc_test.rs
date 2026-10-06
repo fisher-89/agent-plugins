@@ -1,4 +1,6 @@
-//! `artifacts::markdown_doc` 的单元测试：目录树 .md 收录、代际名单 title/排序（AC-8）。
+//! `artifacts::markdown_doc` 的单元测试（适配入参面演进）：目录树 .md 收录、
+//! 代际名单 title/排序（AC-8）。`Inventory` 入参随签名演进退役——切片入参恒
+//! 传 `&[]`（markdown-doc 不消费相位条目）。
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -6,7 +8,6 @@ use std::path::{Path, PathBuf};
 use super::markdown_doc::{MarkdownDocPlugin, KIND};
 use super::registry::{discover_artifacts, ArtifactInput, ArtifactPlugin};
 use super::ArtifactCandidate;
-use crate::model::Inventory;
 
 /// 临时 change 目录 RAII：测试结束自动清理。
 struct TempChange(PathBuf);
@@ -37,15 +38,14 @@ impl Drop for TempChange {
     }
 }
 
-/// 以单个文件候选直接调用插件。
+/// 以单个文件候选直接调用插件（切片入参恒 `&[]`）。
 fn parse_file(change_dir: &Path, rel_path: &str) -> Option<super::ArtifactEnvelope> {
     let candidate = ArtifactCandidate::File {
         relative_path: PathBuf::from(rel_path),
     };
     let input = ArtifactInput {
         change_dir,
-        inventory: Inventory::V0,
-        workflow: None,
+        phases: &[],
         candidate: &candidate,
     };
     MarkdownDocPlugin.parse(&input)
@@ -57,8 +57,7 @@ fn matches_file(change_dir: &Path, rel_path: &str) -> bool {
     };
     let input = ArtifactInput {
         change_dir,
-        inventory: Inventory::V0,
-        workflow: None,
+        phases: &[],
         candidate: &candidate,
     };
     MarkdownDocPlugin.matches(&input)
@@ -108,7 +107,7 @@ fn legacy名单命中时title标注与排序生效() {
 
     // 排序：legacy 名单整体位于现役名单之后（经 discover 的 kind 内 order 断言）
     change.write("proposal.md", "# 现役提案");
-    let descriptors = discover_artifacts(&change.0, Inventory::V0, None);
+    let descriptors = discover_artifacts(&change.0, &[]);
     let doc_titles: Vec<&str> = descriptors
         .iter()
         .filter(|d| d.kind == KIND)
@@ -123,7 +122,7 @@ fn legacy名单命中时title标注与排序生效() {
 
     // specs/ 目录的规格标注（现役名单之外的规则路径仍在本插件内，无并行探测）
     change.write("specs/glob-matching/spec.md", "# 规格");
-    let descriptors = discover_artifacts(&change.0, Inventory::V0, None);
+    let descriptors = discover_artifacts(&change.0, &[]);
     assert!(descriptors
         .iter()
         .any(|d| d.title == "规格 · glob-matching"));
@@ -139,12 +138,29 @@ fn 非md文件不命中matches() {
     assert!(!matches_file(&change.0, "data.json"));
     assert!(!matches_file(&change.0, "code.ts"));
     assert!(!matches_file(&change.0, "README.TXT"));
-    // eval 候选永不命中 markdown-doc
+    // eval 候选永不命中 markdown-doc（切片入参下同样成立）
+    let change_with_phases = TempChange::new("non-md-eval");
     let candidate = ArtifactCandidate::EvalEntry { index: 0 };
     let input = ArtifactInput {
-        change_dir: &change.0,
-        inventory: Inventory::V2,
-        workflow: None,
+        change_dir: &change_with_phases.0,
+        phases: &[crate::state::PhaseStateRecord {
+            id: 1,
+            change: "demo-change".to_owned(),
+            phase: "proposal".to_owned(),
+            attempt: 1,
+            verdict: crate::model::Verdict::Pass,
+            report: "报告".to_owned(),
+            checklist: Vec::new(),
+            skipped: false,
+            stale: false,
+            backtrack_to: None,
+            backtrack_reason: None,
+            executor_session_id: None,
+            evaluator_session_id: None,
+            decision_session_id: None,
+            start_at: None,
+            timestamp: 1_727_000_000_000,
+        }],
         candidate: &candidate,
     };
     assert!(!MarkdownDocPlugin.matches(&input));
@@ -184,7 +200,7 @@ fn 子目录内md一并收录_目录树全量() {
     change.write("reports/inner.md", "# 子目录内层");
     change.write("reports/deep/deeper.md", "# 更深层");
 
-    let descriptors = discover_artifacts(&change.0, Inventory::V0, None);
+    let descriptors = discover_artifacts(&change.0, &[]);
     let sources: Vec<&str> = descriptors
         .iter()
         .filter(|d| d.kind == KIND)
@@ -204,7 +220,7 @@ fn 文件名含中文空格特殊字符时source为相对posix路径() {
     change.write("会议纪要 备忘.md", "# 中文与空格");
     change.write("带(括号)&符号.md", "# 特殊字符");
 
-    let descriptors = discover_artifacts(&change.0, Inventory::V0, None);
+    let descriptors = discover_artifacts(&change.0, &[]);
     let sources: Vec<&str> = descriptors
         .iter()
         .filter(|d| d.kind == KIND)

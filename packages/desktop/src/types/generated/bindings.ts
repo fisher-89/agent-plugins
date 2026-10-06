@@ -4,22 +4,30 @@ import { invoke as __TAURI_INVOKE, Channel } from "@tauri-apps/api/core";
 
 /** Commands */
 export const commands = {
-	/**  change 列表（active + archive 按月分组）。 */
+	/**
+	 *  change 列表（db 记录 ∪ 磁盘目录去重并集；active + archive 按月分组）。
+	 *  IPC 签名不变（Result 面不引入）：blank root 与开库失败均给出空列表（与
+	 *  缺目录空结果同语义，不 panic）。
+	 */
 	listChanges: (root: string) => __TAURI_INVOKE<ChangeList>("list_changes", { root }),
-	/**  单 change 详情聚合；未知 change 名返回 `None`。 */
+	/**
+	 *  单 change 详情聚合；未知 change 名返回 `None`（db 缺记录 change 以文档
+	 *  形态返回：空流水线 + 产物清单）。IPC 签名不变：blank root 与开库失败均
+	 *  `None`。
+	 */
 	getChangeDetail: (root: string, change: string) => __TAURI_INVOKE<{
 	name: string,
 	source: ChangeSource,
-	inventory: Inventory,
+	status: ChangeStatus | null,
 	created: string | null,
-	unparsable: boolean,
 	pipeline: PhaseEntry[],
 	activePhase: ActivePhase | null,
-	/**  v1 及更早代际无此字段 → `None`，对应区块降级留空 */
-	fileLog: FileLogEntry[] | null,
 	artifacts: ArtifactDescriptor[],
 } | null>("get_change_detail", { root, change }),
-	/**  按信封读取单个产物；kind 未注册、source 非法或解析失败返回 `None`。 */
+	/**
+	 *  按信封读取单个产物；kind 未注册、source 非法或解析失败返回 `None`。
+	 *  IPC 签名不变：blank root 与开库失败均 `None`。
+	 */
 	readArtifact: (root: string, change: string, kind: string, source: string) => __TAURI_INVOKE<{
 	/**  契约 ID（如 "eval-checklist"），前端据此路由 renderer */
 	kind: string,
@@ -31,6 +39,11 @@ export const commands = {
 	/**  渲染器缺席时的保底文本 */
 	fallbackText: string | null,
 } | null>("read_artifact", { root, change, kind, source }).then((v) => (v==null?v:v as typeof v)),
+	/**
+	 *  归档 change（双写：目录改名 + db status 翻转，写面 `archive` 单点）；
+	 *  blank root / change 显式 `Err`。IPC 薄命令（design D11：本轮无前端入口）。
+	 */
+	archiveChange: (root: string, change: string) => __TAURI_INVOKE<ArchiveOutcome>("archive_change", { root, change }),
 	/**  清单（表主键 canonical root 自然序，顺序与使用时间无关）。 */
 	listWorkspaces: () => __TAURI_INVOKE<WorkspaceRecord[]>("list_workspaces"),
 	/**
@@ -105,8 +118,8 @@ export const commands = {
 } | null>("change_flow_state", { root, change }),
 	changeFlowWatch: (onEvent: Channel<RunUpdate>, root: string, change: string) => __TAURI_INVOKE<null>("change_flow_watch", { onEvent, root, change }),
 	/**
-	 *  新建 change：目录建树、workflow.json 初始文档与 explore.md（落最初
-	 *  goal）写出均在写面 `create`；blank root 显式 `Err`。
+	 *  新建 change：db 建档、目录建树与 explore.md（落最初 goal）均在写面
+	 *  `create` 三合一双写；blank root 显式 `Err`。
 	 */
 	createChange: (root: string, name: string, goal: string) => __TAURI_INVOKE<CreateOutcome>("create_change", { root, name, goal }),
 	/**  读取单篇笔记全文；未知 stem、穿越名或文件缺失返回 `None`（不报错）。 */
@@ -360,6 +373,13 @@ export type ArchiveGroup = {
 	changes: ChangeSummary[],
 };
 
+/**  归档产出（IPC DTO）。 */
+export type ArchiveOutcome = {
+	name: string,
+	/**  归档日期 UTC `YYYY-MM-DD`（本日；续半边命中带前缀目录时取前缀日期） */
+	archivedDate: string,
+};
+
 /**  产物寻址清单项：`source` 为 change 内相对 POSIX 路径或 eval 条目序号串。 */
 export type ArtifactDescriptor = {
 	kind: string,
@@ -388,7 +408,8 @@ export type AskPayload = {
 
 /**
  *  单次尝试记录：backtrack 目标与原因随条目可查；会话槽位（executor /
- *  evaluator / decision）自 eval 条目直读透出，无槽位字段三值均 `null`。
+ *  evaluator / decision）自 PhaseRecord 三槽位列直读透出，无槽位字段三值均
+ *  `null`。
  */
 export type AttemptRecord = {
 	attempt: number | null,
@@ -406,17 +427,17 @@ export type AttemptRecord = {
 	decisionSessionId: string | null,
 };
 
-/**  change 详情聚合。 */
+/**
+ *  change 详情聚合。`status` 为建档判别面：`Some` = db 已建档（完整状态面），
+ *  `None` = 文档形态（db 缺记录的存量 CLI change，空流水线 + 产物清单）。
+ */
 export type ChangeDetail = {
 	name: string,
 	source: ChangeSource,
-	inventory: Inventory,
+	status: ChangeStatus | null,
 	created: string | null,
-	unparsable: boolean,
 	pipeline: PhaseEntry[],
 	activePhase: ActivePhase | null,
-	/**  v1 及更早代际无此字段 → `None`，对应区块降级留空 */
-	fileLog: FileLogEntry[] | null,
 	artifacts: ArtifactDescriptor[],
 };
 
@@ -471,6 +492,13 @@ export type ChangeRunSummary = {
 /**  change 来源：进行中 / 已归档。 */
 export type ChangeSource = "active" | "archive";
 
+/**  change 状态二值（线格式小写词；queries DTO 直接复用本类型）。 */
+export type ChangeStatus = 
+/**  进行中（建档后默认态） */
+"active" | 
+/**  已归档（写面 archive 翻转） */
+"archived";
+
 /**
  *  步词汇（三类节点可辨）：WorkerAgent 三角色 + 相位机 / 工具步三步 + Gate
  *  三门。
@@ -524,13 +552,17 @@ export type ChangeStepStatus =
 /**  步因停止 / 终止收敛（非失败语义） */
 "stopped";
 
-/**  列表条目摘要。 */
+/**
+ *  列表条目摘要。`name` 为磁盘目录名（归档条目含日期前缀；db 条目按磁盘事
+ *  实取位，目录缺失回退建档名）。db 建档条目携状态面（`status` /
+ *  `active_phase`），文档形态条目两值为 `null`。
+ */
 export type ChangeSummary = {
 	name: string,
 	source: ChangeSource,
-	inventory: Inventory,
+	status: ChangeStatus | null,
+	activePhase: ActivePhase | null,
 	created: string | null,
-	unparsable: boolean,
 };
 
 /**  checklist 检查项。 */
@@ -604,7 +636,10 @@ export type CoverageThresholds = {
 /**  创建产出（IPC DTO）：仅名称与创建日期，磁盘路径知识不下沉前端。 */
 export type CreateOutcome = {
 	name: string,
-	/**  UTC 日历日期 `YYYY-MM-DD`（写面铸出后随 DTO 直达命令返回，无需回读） */
+	/**
+	 *  UTC 日历日期 `YYYY-MM-DD`（取 db 建档 `created_at`，写面铸出后随 DTO
+	 *  直达命令返回，无需回读）
+	 */
 	created: string,
 };
 
@@ -618,7 +653,10 @@ export type DbDimension =
  *  已落地代表，desktop-data-dimensions 留痕）
  */
 "user" | 
-/**  workspace 维度（per-workspace 库，轮统计行 / 会话 / 转录 / explore 四模型） */
+/**
+ *  workspace 维度（per-workspace 库，轮统计行 / 会话 / 转录 / explore /
+ *  change 流程状态八模型）
+ */
 "workspace";
 
 /**
@@ -700,18 +738,6 @@ export type ExploreScanEntry = {
 	modifiedAt: number | null,
 };
 
-/**  一条日志式文件清单（线面）。 */
-export type FileLogEntry = {
-	op: FileLogOp,
-	scope: string,
-	attempt: number | null,
-	path: string,
-	at: string | null,
-};
-
-/**  file_log 记录的文件操作。 */
-export type FileLogOp = "write" | "delete" | "revert";
-
 /**
  *  文件叶节点：单个被解析文件的行统计；父目录在深度内时挂其 `children`
  *  （目录级数 0 = 根层直属文件挂树顶层），深度外的文件不出叶（仅并入祖先聚合）。
@@ -734,19 +760,6 @@ export type FileWatchEvent = {
 	/**  被修改目标的订阅路径 */
 	path: string,
 };
-
-/**
- *  三代结构代际：v2（现在）/ v1（中期）/ v0（早期）。
- * 
- *  判定规则见 `crate::parse::detect_inventory`，这里只承载结果。
- */
-export type Inventory = 
-/**  有 workflow.json 且含 file_log */
-"v2" | 
-/**  有 workflow.json 无 file_log */
-"v1" | 
-/**  无 workflow.json，仅 markdown 产物 */
-"v0";
 
 /**
  *  单语言统计行：`name` 取 tokei `LanguageType::name()`；`share` 为代码行份额
@@ -943,7 +956,7 @@ export type TurnSummary = {
 	error: string | null,
 };
 
-/**  评估 verdict。条目级严格：非法值触发该条降级跳过。 */
+/**  评估 verdict。 */
 export type Verdict = "pass" | "fail";
 
 /**

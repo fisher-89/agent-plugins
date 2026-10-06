@@ -170,7 +170,7 @@ fn db_records_scope_global扫描全局库记录信封_key为root串() {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn db_models_scope_workspace返回三行且与直连serde一致() {
+fn db_models_scope_workspace返回八行且与直连serde一致() {
     let env = Env::new("models-workspace");
     let app = app_with_stores(&env);
     let state = app.state::<WorkspaceStores>();
@@ -201,8 +201,12 @@ fn db_models_scope_workspace返回三行且与直连serde一致() {
             ("session".to_owned(), 1),
             ("session_event".to_owned(), 2),
             ("explore".to_owned(), 1),
+            ("change".to_owned(), 0),
+            ("phase".to_owned(), 0),
+            ("checklist_item".to_owned(), 0),
+            ("step".to_owned(), 0),
         ],
-        "Workspace scope 返回该 root 的 workspace 库四行（计数与实有记录数一致）"
+        "Workspace scope 返回该 root 的 workspace 库八行（change 流程状态四模型计数 0 也列出，计数与实有记录数一致）"
     );
 }
 
@@ -290,8 +294,17 @@ fn 两库清单互不混列_跨维度模型名扫描err() {
     let ws_names = names_of(&ws_models);
     assert_eq!(
         ws_names,
-        vec!["agent_run", "session", "session_event", "explore"],
-        "Workspace scope 仅 workspace 维度四行"
+        vec![
+            "agent_run",
+            "session",
+            "session_event",
+            "explore",
+            "change",
+            "phase",
+            "checklist_item",
+            "step"
+        ],
+        "Workspace scope 仅 workspace 维度八行（change 流程状态四模型在列）"
     );
 
     // 跨维度模型名扫描 Err（维度由实例锁定；workspace 库实例扫 user 维度

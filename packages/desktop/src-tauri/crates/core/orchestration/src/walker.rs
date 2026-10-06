@@ -774,9 +774,7 @@ async fn decision_session(
     }
 }
 
-/// 决策有界输入组装（全部来自 workflow.json 只读装配 + phase-next 缓存白
-/// 名单）：失败相位的最新 attempt 清单 fail 项 + 白名单候选相位的最近
-/// eval report。
+/// 决策有界输入组装
 fn build_decision_input(
     detail: &ChangeDetail,
     fail_phase: &str,

@@ -9,7 +9,6 @@ import type {
 import { mountMaterials } from './attachments';
 import { buildFlowGraph } from './graph';
 import { PIPELINE_PHASES } from './layout';
-import type { FileLogEntry } from './types';
 
 // ---------------------------------------------------------------------------
 // mountMaterials 单测：挂载层为纯函数（无 Mock）；文档 → 列映射表 docColumn 为
@@ -43,31 +42,18 @@ function descriptor(kind: string, source: string, title: string): ArtifactDescri
   return { kind, source, title };
 }
 
-function fileEntry(overrides: Partial<FileLogEntry> = {}): FileLogEntry {
-  return {
-    op: 'write',
-    scope: 'workflow',
-    attempt: null,
-    path: 'workflow.json',
-    at: null,
-    ...overrides,
-  };
-}
-
-/** v2 详情底座：dev-design 站 1 条 eval（多挂载定位用例共用），其余站空。 */
+/** 建档详情底座：dev-design 站 1 条 eval（多挂载定位用例共用），其余站空。 */
 function detail(overrides: Partial<ChangeDetail> = {}): ChangeDetail {
   return {
     name: 'add-feature',
     source: 'active',
-    inventory: 'v2',
+    status: 'active',
     created: null,
-    unparsable: false,
     pipeline: PIPELINE_PHASES.map((phase) => ({
       phase,
       attempts: phase === 'dev-design' ? [attempt({ attempt: 2 })] : [],
     })),
     activePhase: null,
-    fileLog: [],
     artifacts: [],
     ...overrides,
   };
@@ -134,7 +120,7 @@ describe('mountMaterials：文档挂列（静态映射 docColumn）', () => {
   });
 });
 
-describe('mountMaterials：记录挂节点（eval-checklist / file_log）', () => {
+describe('mountMaterials：记录挂节点（eval-checklist）', () => {
   it('eval-checklist 信封 payload { phase, attempt } → 按节点 id 方案定位 eval 节点挂载', () => {
     const base = detail();
     const checklist = envelope('eval-checklist', '评估清单', {
@@ -145,16 +131,6 @@ describe('mountMaterials：记录挂节点（eval-checklist / file_log）', () =
     });
     const materials = mountMaterials(buildFlowGraph(base), base, [checklist]);
     expect(materials.nodeChecklists['eval:dev-design:2']).toEqual([checklist]);
-  });
-
-  it('file_log 条目 scope 为 9 站 phase id 且 attempt 非 null → 挂到对应节点', () => {
-    const base = detail({
-      fileLog: [fileEntry({ scope: 'dev-design', attempt: 2, path: 'src/design.ts' })],
-    });
-    const materials = mountMaterials(buildFlowGraph(base), base, []);
-    expect(materials.nodeFiles['eval:dev-design:2']).toHaveLength(1);
-    expect(materials.nodeFiles['eval:dev-design:2'][0].path).toBe('src/design.ts');
-    expect(materials.outsideFiles).toEqual([]);
   });
 
   it('eval-checklist payload 形状不合规（null / 缺字段 / 类型不符）→ 不挂载任何节点', () => {
@@ -169,35 +145,6 @@ describe('mountMaterials：记录挂节点（eval-checklist / file_log）', () =
     const materials = mountMaterials(graph, base, broken);
     expect(materials.nodeChecklists).toEqual({});
   });
-
-  it("file_log scope='workflow' 条目 → outsideFiles，不出现在任何 nodeFiles", () => {
-    const entry = fileEntry({ scope: 'workflow', path: 'workflow.json' });
-    const base = detail({ fileLog: [entry] });
-    const materials = mountMaterials(buildFlowGraph(base), base, []);
-    expect(materials.nodeFiles).toEqual({});
-    expect(materials.outsideFiles).toEqual([entry]);
-  });
-
-  it('file_log scope 为 phase id 但 attempt=null → outsideFiles', () => {
-    const base = detail({
-      fileLog: [fileEntry({ scope: 'dev-design', attempt: null, path: 'src/d.ts' })],
-    });
-    const materials = mountMaterials(buildFlowGraph(base), base, []);
-    expect(materials.nodeFiles).toEqual({});
-    expect(materials.outsideFiles).toHaveLength(1);
-  });
-
-  it('scope 为非 9 站字符串（未知 phase）或该站无任何事件节点 → outsideFiles', () => {
-    const base = detail({
-      fileLog: [
-        fileEntry({ scope: 'unknown-phase', attempt: 1, path: 'a.txt' }),
-        fileEntry({ scope: 'code-review', attempt: 1, path: 'b.txt' }),
-      ],
-    });
-    const materials = mountMaterials(buildFlowGraph(base), base, []);
-    expect(materials.nodeFiles).toEqual({});
-    expect(materials.outsideFiles.map((entry) => entry.path)).toEqual(['a.txt', 'b.txt']);
-  });
 });
 
 describe('mountMaterials：聚合与空态', () => {
@@ -206,13 +153,7 @@ describe('mountMaterials：聚合与空态', () => {
       descriptor('markdown-doc', 'proposal.md', '提案'),
       descriptor('markdown-doc', 'specs/x/spec.md', '规格'),
     ];
-    const base = detail({
-      artifacts,
-      fileLog: [
-        fileEntry({ scope: 'dev-design', attempt: 2, path: 'src/1.ts' }),
-        fileEntry({ scope: 'dev-design', attempt: 2, path: 'src/2.ts' }),
-      ],
-    });
+    const base = detail({ artifacts });
     const first = envelope('eval-checklist', '清单一', {
       phase: 'dev-design',
       attempt: 2,
@@ -234,30 +175,14 @@ describe('mountMaterials：聚合与空态', () => {
       '提案',
       '规格',
     ]);
-    expect(materials.nodeFiles['eval:dev-design:2'].map((entry) => entry.path)).toEqual([
-      'src/1.ts',
-      'src/2.ts',
-    ]);
     expect(materials.nodeChecklists['eval:dev-design:2']).toEqual([first, second]);
   });
 
-  it('全空入参（envelopes=[]、fileLog=[]）→ FlowMaterials 四键齐全且全空，不抛错', () => {
+  it('全空入参（envelopes=[]）→ FlowMaterials 两键齐全且全空，不抛错', () => {
     const base = detail();
     expect(mountMaterials(buildFlowGraph(base), base, [])).toEqual({
       columnDocs: {},
       nodeChecklists: {},
-      nodeFiles: {},
-      outsideFiles: [],
-    });
-  });
-
-  it('fileLog=null（v1 及更早代际字段缺失形态）→ 与空数组同型全空输出，不抛错', () => {
-    const base = detail({ fileLog: null });
-    expect(mountMaterials(buildFlowGraph(base), base, [])).toEqual({
-      columnDocs: {},
-      nodeChecklists: {},
-      nodeFiles: {},
-      outsideFiles: [],
     });
   });
 });
@@ -265,15 +190,14 @@ describe('mountMaterials：聚合与空态', () => {
 // ---------------------------------------------------------------------------
 // NODE_PRECEDENCE 两段收敛（desktop-drawer-session-column，AC-5）：checklist
 // 定位降级链 eval → active 两段（interrupted 段无构造输入）；挂载规则本体
-// （文档挂列 / checklist 挂节点 / file_log 挂节点 / outsideFiles 兜底）零改动
+// （文档挂列 / checklist 挂节点）零改动
 // ---------------------------------------------------------------------------
 
 describe('mountMaterials：NODE_PRECEDENCE 两段收敛（eval → active）', () => {
-  it('仅 active 在场（eval 缺席）→ checklist 与 file_log 条目挂 active:<phase>:<attempt> 节点（降级链末段语义保留）', () => {
+  it('仅 active 在场（eval 缺席）→ checklist 挂 active:<phase>:<attempt> 节点（降级链末段语义保留）', () => {
     const base = detail({
       pipeline: PIPELINE_PHASES.map((phase) => ({ phase, attempts: [] })),
       activePhase: { phase: 'dev-design', attempt: 3, startAt: '2026-09-05T00:00:00Z' },
-      fileLog: [fileEntry({ scope: 'dev-design', attempt: 3, path: 'src/active.ts' })],
     });
     const checklist = envelope('eval-checklist', '评估清单', {
       phase: 'dev-design',
@@ -284,10 +208,6 @@ describe('mountMaterials：NODE_PRECEDENCE 两段收敛（eval → active）', (
     const materials = mountMaterials(buildFlowGraph(base), base, [checklist]);
     expect(Object.keys(materials.nodeChecklists)).toEqual(['active:dev-design:3']);
     expect(materials.nodeChecklists['active:dev-design:3']).toEqual([checklist]);
-    expect(materials.nodeFiles['active:dev-design:3'].map((entry) => entry.path)).toEqual([
-      'src/active.ts',
-    ]);
-    expect(materials.outsideFiles).toEqual([]);
   });
 
   it('eval 与 active 并存 → checklist 恒挂 eval 节点（优先级首位断言；不重复挂 active）', () => {
@@ -305,10 +225,8 @@ describe('mountMaterials：NODE_PRECEDENCE 两段收敛（eval → active）', (
     expect(materials.nodeChecklists['active:dev-design:2']).toBeUndefined();
   });
 
-  it('同号 eval / active 均缺席（仅他号节点在场）→ checklist 与 file_log 条目均不误挂他号节点（miss 兜底）', () => {
-    const base = detail({
-      fileLog: [fileEntry({ scope: 'implement', attempt: 1, path: 'src/miss.ts' })],
-    });
+  it('同号 eval / active 均缺席（仅他号节点在场）→ checklist 不误挂他号节点（miss 兜底）', () => {
+    const base = detail();
     const checklist = envelope('eval-checklist', '评估清单', {
       phase: 'implement',
       attempt: 1,
@@ -317,7 +235,46 @@ describe('mountMaterials：NODE_PRECEDENCE 两段收敛（eval → active）', (
     });
     const materials = mountMaterials(buildFlowGraph(base), base, [checklist]);
     expect(materials.nodeChecklists).toEqual({});
-    expect(materials.nodeFiles).toEqual({});
-    expect(materials.outsideFiles.map((entry) => entry.path)).toEqual(['src/miss.ts']);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// file_log 挂载分支退役（desktop-workflow-db-state）：file_log 挂节点分支与
+// scope='workflow' 图外素材分支删除，`nodeFiles` / `outsideFiles` 状态字段
+// 退役——FlowMaterials / ChangeDetail 类型面已无对应字段（编译期锚定），
+// 运行时产物键集经本节锚定。
+// ---------------------------------------------------------------------------
+
+describe('mountMaterials：file_log 挂载分支退役', () => {
+  it('detail 夹具无 fileLog 字段 → 产物零文件挂载节点、零图外素材；产物状态面无 nodeFiles / outsideFiles 键', () => {
+    // 历史上会产文件挂载的多 attempt 形态（fileLog 已不在 ChangeDetail 类型面，
+    // 夹具带该字段即编译失败——编译期锚定半边）
+    const base = detail({
+      pipeline: PIPELINE_PHASES.map((phase) => ({
+        phase,
+        attempts: phase === 'dev-design' ? [attempt({ attempt: 1 }), attempt({ attempt: 2 })] : [],
+      })),
+    });
+    const envelopes = [
+      envelope('eval-checklist', '评估清单', {
+        phase: 'dev-design',
+        attempt: 2,
+        verdict: 'pass',
+        items: [],
+      }),
+      // 历史 file-log 信封 kind：分支删除后不再落入任何挂载产物（直接跳过）
+      envelope('file-log', '文件清单', null),
+    ];
+
+    const materials = mountMaterials(buildFlowGraph(base), base, envelopes);
+
+    // 运行时锚定半边：产物状态面恰两键，退役键零驻留
+    expect(Object.keys(materials).sort()).toEqual(['columnDocs', 'nodeChecklists']);
+    expect('nodeFiles' in materials).toBe(false);
+    expect('outsideFiles' in materials).toBe(false);
+    // 零文件挂载节点、零图外素材：仅 eval-checklist 挂 eval 节点，文档列全空
+    expect(Object.keys(materials.nodeChecklists)).toEqual(['eval:dev-design:2']);
+    expect(materials.nodeChecklists['eval:dev-design:2']).toEqual([envelopes[0]]);
+    expect(materials.columnDocs).toEqual({});
   });
 });

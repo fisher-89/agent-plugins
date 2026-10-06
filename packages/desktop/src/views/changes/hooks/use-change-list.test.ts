@@ -14,7 +14,7 @@ vi.mock('@tauri-apps/api/core', () => ({
 function fakeList(activeName: string): ChangeList {
   return {
     active: [
-      { name: activeName, source: 'active', inventory: 'v2', created: null, unparsable: false },
+      { name: activeName, source: 'active', status: 'active', activePhase: null, created: null },
     ],
     archiveGroups: [],
   };

@@ -14,9 +14,8 @@ function fakeDetail(artifacts: ArtifactDescriptor[]): ChangeDetail {
   return {
     name: 'add-feature',
     source: 'active',
-    inventory: 'v2',
+    status: 'active',
     created: '2026-09-01',
-    unparsable: false,
     pipeline: [
       {
         phase: 'proposal',
@@ -40,7 +39,6 @@ function fakeDetail(artifacts: ArtifactDescriptor[]): ChangeDetail {
       },
     ],
     activePhase: null,
-    fileLog: [],
     artifacts,
   };
 }

@@ -1,24 +1,25 @@
-# fixtures 语料说明
+# 语料夹具（desktop-corpus-regression）
 
-本目录是 desktop 解析器的入仓只读快照语料（golden 回归的输入），与实盘
-`openspec/` 数据解耦。清单与来源：
+历史 workflow.json 目录树语料（v0-a … v3-a 与 corrupt-* 共 13 个）已随 parse
+面整体退役删除（desktop-workflow-db-state，design D12 处置定稿 = 删除；旧语
+料可考于 git 历史）。desktop 对 workflow.json 双向墙（零读零写），语料失去解
+析主体；`workflow.json` 惰性字节样本仅在 db 种子构造时按「目录存在即 change、
+字节零读取」的发现语义少量保留，不进任何投影。
 
-| fixture     | 来源                                                                                      | 覆盖点                                                                          |
-| ----------- | ----------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------- |
-| `v0-a`      | archive 快照 `2025-06-18-use-fast-glob`（全量拷贝）                                       | 无 workflow.json + 遗留 eval.json 干扰 + markdown 四件套 + reports/             |
-| `v0-b`      | archive 快照 `2026-05-18-pge-workflow-architecture`（全量拷贝）                           | proposal/design/tasks/specs 纯文档形态                                          |
-| `v1-a`      | archive 快照 `2026-07-06-backtrack-reason-propagation`（全量拷贝）                        | 最小 workflow.json（仅 workflow_type，无 created / eval）+ 遗留 eval.json       |
-| `v1-b`      | archive 快照 `2026-09-17-workflow-file-inventory`（剔除 reports/ 构建产物）               | eval 含 backtrack_to / backtrack_reason、stale、skipped                         |
-| `v1-c`      | archive 快照 `2026-09-18-move-files-write-into-workflow-module`（剔除 reports/ 构建产物） | eval + legacy `files{}` 桶与 `source` 未知键                                    |
-| `v2-a`      | active change 快照（workflow.json + 顶层 markdown + specs/）                              | file_log 键存在的临界形态                                                       |
-| `v2-b`      | 合成样本（非 archive 快照）                                                               | 全量 v2：file_log 三种 op、active_phase、interrupted、eval 含 backtrack         |
-| `v3-a`      | 合成样本（非归档快照）                                                                    | eval 条目会话槽位三形态：三槽位齐全 / 仅 executor 槽位 / 无槽位键（旧形态对照） |
-| `corrupt-*` | 合成样本 × 5                                                                              | 整体非法 JSON / 单条 eval 损坏 / 单条 file_log 损坏 / 非法 verdict / 非法时间戳 |
+## db 种子语料矩阵（覆盖面清单）
 
-`v1-b` / `v1-c` 的 `reports/` 目录仅含测试报告构建产物（JSON / HTML，合计约 9MB），
-对解析与投影无信息量，入仓时剔除以控制仓库体积；其余文件为逐字节快照。
+新语料 = **db 种子构造器**（经 store 真实 change 域操作面：建档 / 开相 / 落
+账 / 回跳 / 步骤追加）+ **运行时合成磁盘产物树**（沿 layout fixture 先例）。
+覆盖面：
 
-`layout-*` 合成 workspace 树（无日期前缀 archive 目录、空目录树、目录树混入普通文件）
-不落盘于本目录——其内部结构会再现 `openspec/changes/**/workflow.json` 形态，
-与仓库写入保护冲突；改由 `corpus_golden_test.rs` 在临时目录中确定性搭建，
-投影同样进入 golden 对比。
+| 维度 | 形态 | 构造路径 |
+|------|------|----------|
+| 多 attempt | 同 phase 多条 PhaseRecord（fail → retry → pass），attempt 连续递增 | 重复 `log_change_phase`（active_phase 开 / 清交替） |
+| backtrack stale | 回跳标记 + 目标最新 pass 置 stale + 下游全条目 stale | `apply_backtrack`（`stale_dependents` 闭包由写面计算） |
+| 槽位全缺 | 三会话槽位列恒 None 的 PhaseRecord（缺省落账） | 不携槽位的 `log_change_phase` |
+| 文档形态 | 仅磁盘目录 + 产物 markdown，零 db 记录（存量 CLI change） | 只建目录树（含惰性 workflow.json 字节样本），不走建档 |
+| 坏行 | 库内 native_model 解码失败行（坏字节） | db 文件直写字节注入（store_test 裸 redb 注入用例 `建档表坏行直写注入_读侧store_error显式记因不静默` 承载；store 读面 `StoreError` 路径） |
+
+golden 快照纪律与显式重写流程（`DESKTOP_GOLDEN_REWRITE=1` + diff 人工确认留
+痕）延续，归 test-design / test-gen 阶段承接落地；`golden/layout-*.json` 三
+份 layout golden 与 layout_queries_test 同期保留。

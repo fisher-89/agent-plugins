@@ -1,0 +1,60 @@
+{
+  "active": [
+    {
+      "activePhase": null,
+      "created": null,
+      "name": "disk-only",
+      "source": "active",
+      "status": null
+    },
+    {
+      "activePhase": {
+        "attempt": 1,
+        "phase": "implement",
+        "startAt": "2024-09-22T10:13:26Z"
+      },
+      "created": "2024-09-22",
+      "name": "list-active",
+      "source": "active",
+      "status": "active"
+    }
+  ],
+  "archiveGroups": [
+    {
+      "changes": [
+        {
+          "activePhase": null,
+          "created": "2026-09-15",
+          "name": "2026-09-15-disk-archived",
+          "source": "archive",
+          "status": null
+        }
+      ],
+      "month": "2026-09-15"
+    },
+    {
+      "changes": [
+        {
+          "activePhase": null,
+          "created": "2024-09-22",
+          "name": "list-archived",
+          "source": "archive",
+          "status": "archived"
+        }
+      ],
+      "month": "2026-05"
+    },
+    {
+      "changes": [
+        {
+          "activePhase": null,
+          "created": null,
+          "name": "unknown-date-archived",
+          "source": "archive",
+          "status": null
+        }
+      ],
+      "month": null
+    }
+  ]
+}

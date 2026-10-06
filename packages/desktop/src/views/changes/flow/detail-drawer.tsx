@@ -4,11 +4,9 @@ import { Button } from '@/components/ui/button';
 import type { AgentEvent, ArtifactEnvelope, ChecklistItem } from '../../../types/dto';
 import { ArtifactTabs } from '../renderers/artifact-tabs';
 import { ArtifactView } from '../renderers/artifact-view';
-import { FileLogTable } from './file-log-table';
 import { SessionTranscriptPanel } from './session-transcript-panel';
 import type {
   DrawerSelection,
-  FileLogEntry,
   FlowGraph,
   FlowMaterials,
   FlowNode,
@@ -20,8 +18,6 @@ interface DetailDrawerProps {
   selection: DrawerSelection | null;
   graph: FlowGraph;
   materials: FlowMaterials;
-  /** detail.fileLog !== null（v1 及更早代际无此字段 → false，文件表节降级） */
-  hasFileLog: boolean;
   /** workspace root（会话转录反查） */
   root: string | null;
   /** change 名（sourceRef 定式组装 `<change>/<phase>/<role>/<attempt>`） */
@@ -146,29 +142,6 @@ function DrawerEvalSection({
   );
 }
 
-function DrawerFilesSection({
-  nodeId,
-  files,
-  hasFileLog,
-}: {
-  nodeId: string | null;
-  files: FileLogEntry[];
-  hasFileLog: boolean;
-}): React.JSX.Element {
-  return (
-    <section className="mb-4" data-testid="drawer-files-section">
-      <h3 className="m-0 mb-2 text-[13px] text-muted-foreground">文件清单</h3>
-      {!hasFileLog ? (
-        <div className="text-muted-foreground">（无 file_log 数据：v1 及更早代际无此字段）</div>
-      ) : nodeId === null ? (
-        <div className="text-muted-foreground">（列头未对应单一 attempt，不聚合文件表）</div>
-      ) : (
-        <FileLogTable entries={files} />
-      )}
-    </section>
-  );
-}
-
 /** 选中标题：列头为 phase 名；节点为 phase + attempt + kind（节点缺失时中性占位） */
 function selectionTitle(selection: DrawerSelection, node: FlowNode | null): string {
   if (selection.scope === 'column') return selection.phase;
@@ -177,18 +150,16 @@ function selectionTitle(selection: DrawerSelection, node: FlowNode | null): stri
   return `${node.phase} · attempt ${attempt ?? '—'} · ${node.kind}`;
 }
 
-/** 右列三分节（本站文档 / 评估记录 / 文件表）：列内滚动，节结构与 data-testid
- * 锚点零变化。 */
+/** 右列二分节（本站文档 / 评估记录 report+checklist）：列内滚动，节结构与
+ * data-testid 锚点零变化。 */
 function RightSections({
   node,
   materials,
   columnId,
-  hasFileLog,
 }: {
   node: FlowNode | null;
   materials: FlowMaterials;
   columnId: string;
-  hasFileLog: boolean;
 }): React.JSX.Element {
   return (
     <div className="min-w-0 flex-1 overflow-y-auto">
@@ -196,11 +167,6 @@ function RightSections({
       <DrawerEvalSection
         node={node}
         checklists={node === null ? [] : (materials.nodeChecklists[node.id] ?? [])}
-      />
-      <DrawerFilesSection
-        nodeId={node?.id ?? null}
-        files={node === null ? [] : (materials.nodeFiles[node.id] ?? [])}
-        hasFileLog={hasFileLog}
       />
     </div>
   );
@@ -211,7 +177,6 @@ export function DetailDrawer({
   selection,
   graph,
   materials,
-  hasFileLog,
   root,
   change,
   liveEvents,
@@ -245,12 +210,7 @@ export function DetailDrawer({
           <div className="flex w-[60%] min-w-0 flex-col">
             <SessionTranscriptPanel root={root} roleRefs={roleRefs} liveEvents={live} />
           </div>
-          <RightSections
-            node={node}
-            materials={materials}
-            columnId={columnId}
-            hasFileLog={hasFileLog}
-          />
+          <RightSections node={node} materials={materials} columnId={columnId} />
         </div>
       </aside>
     </div>

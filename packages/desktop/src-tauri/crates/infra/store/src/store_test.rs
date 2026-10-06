@@ -7,11 +7,17 @@ use agent::{
 };
 use native_db::{Builder, Models};
 
+use crate::model::pack_checklist_item_key;
 use crate::store::{workspace_db_file_name, GLOBAL_DB_FILE_NAME};
 use crate::{
     AgentEngineKind, AgentInstanceRecord, AgentModelTiers, AgentProviderRecord, AgentRunRecord,
-    ExploreRecord, SessionConfigSnapshot, SessionRecord, Store, StoreError, WorkspaceRecord,
-    WorkspaceStores,
+    ChangeRecord, ExploreRecord, PhaseRecord, SessionConfigSnapshot, SessionRecord, Store,
+    StoreError, WorkspaceRecord, WorkspaceStores,
+};
+use workflow::model::{ChecklistItem, Verdict};
+use workflow::state::{
+    ActivePhaseState, BacktrackCommand, ChangeStateRecord, ChangeStatus, PhaseLogCommand,
+    PhaseStartState, StepCommand, StepKind,
 };
 
 // ---------------------------------------------------------------------------
@@ -129,7 +135,7 @@ fn add_ok(store: &Store, dir: &Path) -> WorkspaceRecord {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn open_global列user维度三模型_open_workspace仅列workspace维度四行() {
+fn open_global列user维度三模型_open_workspace仅列workspace维度八行() {
     let env = Env::new("registry-split");
 
     let global = open_global_ok(&env.db_path("global"));
@@ -152,8 +158,11 @@ fn open_global列user维度三模型_open_workspace仅列workspace维度四行()
             .iter()
             .map(|model| model.name.as_str())
             .collect::<Vec<_>>(),
-        vec!["agent_run", "session", "session_event", "explore"],
-        "workspace 组静态注册恰轮统计行 / 会话 / 转录 / explore 四模型（agent_event 退役出注册），两组无交叉"
+        vec![
+            "agent_run", "session", "session_event", "explore", "change", "phase",
+            "checklist_item", "step"
+        ],
+        "workspace 组静态注册 4→8：轮统计行 / 会话 / 转录 / explore 四既有模型 + change 流程状态四模型（agent_event 退役出注册），两组无交叉"
     );
     assert!(ws_models.iter().all(|model| model.count == 0));
 }
@@ -197,7 +206,9 @@ fn 跨维度模型名不可达_workspace库scan_workspace与全局库scan_agent_
     drop(ws);
 
     let global = open_global_ok(&env.db_path("global"));
-    for name in ["agent_run", "agent_event", "explore"] {
+    for name in [
+        "agent_run", "agent_event", "explore", "change", "phase", "checklist_item", "step",
+    ] {
         let err = global
             .scan(name, 0, 10)
             .expect_err("全局库 scan workspace 维度模型名应 Err");
@@ -569,9 +580,13 @@ fn 组合链open注册后for_root落库会话与explore且全局库无混入() {
             ("agent_run", 0),
             ("session", 1),
             ("session_event", 0),
-            ("explore", 1)
+            ("explore", 1),
+            ("change", 0),
+            ("phase", 0),
+            ("checklist_item", 0),
+            ("step", 0)
         ],
-        "workspace 库按会话域布局写入 session / explore，无注册表混入"
+        "workspace 库八模型组：按会话域布局写入 session / explore，change 流程状态四模型计数 0 也列出，无注册表混入"
     );
     assert_eq!(
         stores.global().list_workspaces().unwrap(),
@@ -2965,4 +2980,1307 @@ fn 组合链provider新建_sdkagent新建引用_set_default_解析命中_重开�
         snapshot.2,
         "默认标记跨重开一致"
     );
+}
+
+// ---------------------------------------------------------------------------
+// change 流程状态域（workspace 库，desktop-change-state-store）：建档 / 相位
+// 落账 / 回跳 / decision 挂账 / status 翻转 / 步骤审计 / 相位史重组。种子经
+// 真实 store change 域操作面（进程边界真实组合不 mock），时间戳全部显式注入
+// 与钟面无关；db 缺行即 id 域从 1 起（写事务内 max+1 口径）。
+// ---------------------------------------------------------------------------
+
+/// 建档命令 fixture（active 起步、无 active_phase，workflow_type 恒 requirement）。
+fn change_archive(name: &str, created_at: i64) -> ChangeStateRecord {
+    ChangeStateRecord {
+        name: name.to_owned(),
+        workflow_type: "requirement".to_owned(),
+        created_at,
+        status: ChangeStatus::Active,
+        archived_at: None,
+        active_phase: None,
+    }
+}
+
+fn create_change_ok(store: &Store, name: &str, created_at: i64) -> ChangeStateRecord {
+    store
+        .create_change_record(change_archive(name, created_at))
+        .unwrap_or_else(|e| panic!("create_change_record({name}) 应成功: {e}"))
+}
+
+fn start_phase_ok(store: &Store, change: &str, phase: &str, now: i64) -> PhaseStartState {
+    store
+        .start_change_phase(change, phase, now)
+        .unwrap_or_else(|e| panic!("start_change_phase({change}, {phase}) 应成功: {e}"))
+}
+
+/// checklist 检查项 fixture（三面可区分）。
+fn check_item(text: &str, pass: bool) -> ChecklistItem {
+    ChecklistItem {
+        item: text.to_owned(),
+        pass,
+        evidence: format!("证据-{text}"),
+    }
+}
+
+/// 落账命令 fixture（三会话槽位恒 None；start_at 可选注入，None 走兜底）。
+#[allow(clippy::too_many_arguments)]
+fn log_command(
+    change: &str,
+    phase: &str,
+    verdict: Verdict,
+    checklist: Vec<ChecklistItem>,
+    start_at: Option<i64>,
+    timestamp: i64,
+) -> PhaseLogCommand {
+    PhaseLogCommand {
+        change: change.to_owned(),
+        phase: phase.to_owned(),
+        verdict,
+        report: format!("{phase} 评估报告"),
+        skipped: false,
+        checklist,
+        executor_session_id: None,
+        evaluator_session_id: None,
+        decision_session_id: None,
+        start_at,
+        timestamp,
+    }
+}
+
+/// 步骤审计命令 fixture（timestamp 显式注入）。
+fn step_command(
+    run_id: &str,
+    change: &str,
+    step_kind: StepKind,
+    status: &str,
+    summary: &str,
+    timestamp: i64,
+) -> StepCommand {
+    StepCommand {
+        run_id: run_id.to_owned(),
+        change: change.to_owned(),
+        step_kind,
+        status: status.to_owned(),
+        summary: summary.to_owned(),
+        reference: None,
+        timestamp,
+    }
+}
+
+/// 种子一个 pass 相位条目（start + pass 落账），时间戳显式注入，返回 attempt。
+fn seed_phase_pass(
+    store: &Store,
+    change: &str,
+    phase: &str,
+    start_at: i64,
+    timestamp: i64,
+    checklist: &[ChecklistItem],
+) -> u32 {
+    start_phase_ok(store, change, phase, start_at);
+    store
+        .log_change_phase(&log_command(
+            change,
+            phase,
+            Verdict::Pass,
+            checklist.to_vec(),
+            Some(start_at),
+            timestamp,
+        ))
+        .unwrap_or_else(|e| panic!("落账 {change}/{phase} 应成功: {e}"))
+}
+
+#[test]
+fn create_change_record建档find逐字段一致_重开db再读仍逐字段一致() {
+    let env = Env::new("change-create-reopen");
+    let ws_path = env.db_path("ws");
+
+    let seeded = {
+        let store = open_workspace_ok(&ws_path);
+        let created = create_change_ok(&store, "alpha-change", 1727000000000);
+        assert_eq!(created.name, "alpha-change", "name 主键");
+        assert_eq!(created.workflow_type, "requirement");
+        assert_eq!(created.created_at, 1727000000000);
+        assert_eq!(created.status, ChangeStatus::Active, "建档恒 active 起步");
+        assert_eq!(created.archived_at, None);
+        assert_eq!(created.active_phase, None);
+        assert_eq!(
+            store.find_change_record("alpha-change").unwrap(),
+            Some(created.clone()),
+            "主键直查逐字段一致"
+        );
+        created
+    };
+
+    // drop 重开同一 db 文件：建档记录逐字段一致（AC-1 回环建档半边）
+    let reopened = open_workspace_ok(&ws_path);
+    assert_eq!(
+        reopened.find_change_record("alpha-change").unwrap(),
+        Some(seeded),
+        "重开 db 后建档记录逐字段一致"
+    );
+    assert_eq!(
+        reopened.find_change_record("ghost").unwrap(),
+        None,
+        "未建档名 Ok(None)（文档形态契约）"
+    );
+}
+
+#[test]
+fn create_change_record同名active冲突_归档同名亦拒绝_零重复行() {
+    let env = Env::new("change-create-conflict");
+    let store = open_workspace_ok(&env.db_path("ws"));
+    let first = create_change_ok(&store, "dup-change", 1000);
+
+    // 同名 active 再建档 → Conflict，记录表零重复行
+    let err = store
+        .create_change_record(change_archive("dup-change", 2000))
+        .expect_err("同名 active 再建档应 Conflict");
+    assert!(
+        matches!(err, StoreError::Conflict(_)),
+        "变体为 Conflict，实际: {err:?}"
+    );
+    assert!(
+        err.to_string().starts_with("conflict:"),
+        "错误串以 conflict: 前缀，实际: {err}"
+    );
+    assert_eq!(
+        store.list_change_records().unwrap(),
+        vec![first.clone()],
+        "冲突拒绝零重复行"
+    );
+
+    // 归档后同名再建档：主键 name 不复用，同样 Conflict（实现口径——查重不限
+    // status=active；test-design「同名 archived 再建档成功」行为与实现不一致，
+    // 以实现为准断言 Conflict）
+    store.set_change_archived("dup-change", 3000).unwrap();
+    let err = store
+        .create_change_record(change_archive("dup-change", 4000))
+        .expect_err("同名 archived 在场再建档应 Conflict（主键 name 不复用）");
+    assert!(matches!(err, StoreError::Conflict(_)));
+    assert!(
+        err.to_string().contains("主键 name 不复用"),
+        "错误串含名字不复用记因，实际: {err}"
+    );
+    assert_eq!(
+        store.list_change_records().unwrap().len(),
+        1,
+        "仍恰一行（归档记录原样）"
+    );
+}
+
+#[test]
+fn list_change_records空库空vec_多建档按主键name自然序与建档顺序无关() {
+    let env = Env::new("change-list");
+    let store = open_workspace_ok(&env.db_path("ws"));
+    assert!(
+        store.list_change_records().unwrap().is_empty(),
+        "空 db 空 vec"
+    );
+
+    // 刻意乱序建档
+    create_change_ok(&store, "zebra", 1000);
+    create_change_ok(&store, "alpha", 2000);
+    create_change_ok(&store, "mid", 3000);
+
+    let names: Vec<String> = store
+        .list_change_records()
+        .unwrap()
+        .into_iter()
+        .map(|record| record.name)
+        .collect();
+    assert_eq!(
+        names,
+        vec!["alpha", "mid", "zebra"],
+        "主键 name 自然序（native_db 主键迭代序，与建档顺序无关）"
+    );
+}
+
+#[test]
+fn start_change_phase开相写active_phase_清位后同相位再start_attempt事务内推导为2() {
+    let env = Env::new("change-start");
+    let store = open_workspace_ok(&env.db_path("ws"));
+    create_change_ok(&store, "flow", 1000);
+
+    // 首轮开相：attempt=1、start_at=now 逐字段落库，find 读出 active_phase 一致
+    let started = start_phase_ok(&store, "flow", "proposal", 2000);
+    assert_eq!(
+        started,
+        PhaseStartState {
+            attempt: 1,
+            start_at: 2000
+        },
+        "首轮 attempt=1"
+    );
+    assert_eq!(
+        store.find_change_record("flow").unwrap().unwrap().active_phase,
+        Some(ActivePhaseState {
+            phase: "proposal".to_owned(),
+            attempt: 1,
+            start_at: 2000
+        }),
+        "active_phase 快照逐字段一致"
+    );
+
+    // 落账清位后同相位再 start：attempt 事务内推导为 2（重开 attempt 递增，
+    // 无应用层计数器）
+    store
+        .log_change_phase(&log_command(
+            "flow",
+            "proposal",
+            Verdict::Pass,
+            vec![],
+            None,
+            3000,
+        ))
+        .expect("落账应成功");
+    assert_eq!(
+        store.find_change_record("flow").unwrap().unwrap().active_phase,
+        None,
+        "落账即清位 active_phase"
+    );
+    let restarted = start_phase_ok(&store, "flow", "proposal", 4000);
+    assert_eq!(restarted.attempt, 2, "attempt 自 db 条目数推导");
+    assert_eq!(restarted.start_at, 4000);
+}
+
+#[test]
+fn start_change_phase无建档change返回not_found且不隐式建档() {
+    let env = Env::new("change-start-miss");
+    let store = open_workspace_ok(&env.db_path("ws"));
+
+    let err = store
+        .start_change_phase("ghost", "proposal", 1000)
+        .expect_err("无建档 change 开相应 Err（不做隐式建档）");
+    assert!(
+        matches!(err, StoreError::NotFound(_)),
+        "变体为 NotFound，实际: {err:?}"
+    );
+    assert!(
+        err.to_string().starts_with("not_found:"),
+        "错误串以 not_found: 前缀，实际: {err}"
+    );
+    assert!(
+        store.list_change_records().unwrap().is_empty(),
+        "零副作用：不隐式建档"
+    );
+}
+
+#[test]
+fn log_change_phase单事务原子_相位行与checklist子行同落清位_重开db逐字段一致() {
+    let env = Env::new("change-log-atomic");
+    let ws_path = env.db_path("ws");
+    let checklist = vec![
+        check_item("检查项一", true),
+        check_item("检查项二", false),
+        check_item("检查项三", true),
+    ];
+
+    let attempt = {
+        let store = open_workspace_ok(&ws_path);
+        create_change_ok(&store, "flow", 1000);
+        let started = start_phase_ok(&store, "flow", "proposal", 2000);
+
+        // 单次调用同落 PhaseRecord 行 + ChecklistItemRecord 子行 + active_phase
+        // 清位，返回事务内推导 attempt（AC-1 / AC-2 原子半边）
+        let attempt = store
+            .log_change_phase(&log_command(
+                "flow",
+                "proposal",
+                Verdict::Pass,
+                checklist.clone(),
+                Some(started.start_at),
+                3000,
+            ))
+            .expect("落账应成功");
+        assert_eq!(attempt, 1, "首条目 attempt=1");
+        assert_eq!(
+            store.find_change_record("flow").unwrap().unwrap().active_phase,
+            None,
+            "落账即收相位"
+        );
+        attempt
+    };
+
+    // 重开 db 读出逐字段一致
+    let reopened = open_workspace_ok(&ws_path);
+    let phases = reopened.list_phase_records("flow").unwrap();
+    assert_eq!(phases.len(), 1, "恰一条相位行");
+    let row = &phases[0];
+    assert_eq!(row.id, 1, "写事务内 max+1 分配，空库首行 id=1");
+    assert_eq!(row.change, "flow");
+    assert_eq!(row.phase, "proposal");
+    assert_eq!(row.attempt, attempt);
+    assert_eq!(row.verdict, Verdict::Pass);
+    assert_eq!(row.report, "proposal 评估报告");
+    assert_eq!(
+        row.checklist, checklist,
+        "checklist 子行按打包键序内联重组"
+    );
+    assert!(!row.skipped);
+    assert!(!row.stale, "新落条目 stale 初值 false");
+    assert_eq!(row.backtrack_to, None);
+    assert_eq!(row.backtrack_reason, None);
+    assert_eq!(row.executor_session_id, None);
+    assert_eq!(row.evaluator_session_id, None);
+    assert_eq!(row.decision_session_id, None);
+    assert_eq!(row.start_at, Some(2000), "start_at 落条目");
+    assert_eq!(row.timestamp, 3000, "落账时刻");
+}
+
+#[test]
+fn log_change_phase_checklist空vec零子行_start_at_none兜底active_phase开相时刻() {
+    let env = Env::new("change-log-empty");
+    let store = open_workspace_ok(&env.db_path("ws"));
+    create_change_ok(&store, "flow", 1000);
+
+    // start_at=None / 三槽位 None 的命令合法落库：start_at 兜底自 active_phase
+    start_phase_ok(&store, "flow", "design", 2000);
+    store
+        .log_change_phase(&log_command(
+            "flow",
+            "design",
+            Verdict::Fail,
+            vec![],
+            None,
+            3000,
+        ))
+        .expect("空 checklist 落账应成功");
+    let phases = store.list_phase_records("flow").unwrap();
+    assert_eq!(phases.len(), 1, "相位行落库");
+    assert!(phases[0].checklist.is_empty(), "checklist 空 vec → 子行集为空");
+    assert_eq!(phases[0].verdict, Verdict::Fail);
+    assert_eq!(
+        phases[0].start_at,
+        Some(2000),
+        "start_at=None 兜底 active_phase.start_at（事务内权威）"
+    );
+    for slot in [
+        &phases[0].executor_session_id,
+        &phases[0].evaluator_session_id,
+        &phases[0].decision_session_id,
+    ] {
+        assert_eq!(*slot, None, "三会话槽位 None 合法落库透出 null 面");
+    }
+
+    // start_at 显式在位：原值透传不兜底
+    start_phase_ok(&store, "flow", "tasks", 4000);
+    store
+        .log_change_phase(&log_command(
+            "flow",
+            "tasks",
+            Verdict::Pass,
+            vec![],
+            Some(1234),
+            5000,
+        ))
+        .expect("落账应成功");
+    let phases = store.list_phase_records("flow").unwrap();
+    assert_eq!(
+        phases[1].start_at,
+        Some(1234),
+        "命令显式 start_at 原值落库"
+    );
+}
+
+#[test]
+fn log_change_phase同相位同轮二次落账返回err且零重复行() {
+    // 「同相位同轮二次 log」经公共 API 的可见行为：首轮落账即清位 active_phase，
+    // 二次 log 命中 active_phase 匹配前置守卫（NotFound）——(change, phase,
+    // attempt) 查重为事务内纵深防御，见下例 preset 缺口行用例。
+    let env = Env::new("change-log-repeat");
+    let store = open_workspace_ok(&env.db_path("ws"));
+    create_change_ok(&store, "flow", 1000);
+    start_phase_ok(&store, "flow", "proposal", 2000);
+    store
+        .log_change_phase(&log_command(
+            "flow",
+            "proposal",
+            Verdict::Pass,
+            vec![check_item("检查项", true)],
+            None,
+            3000,
+        ))
+        .expect("首轮落账应成功");
+
+    let err = store
+        .log_change_phase(&log_command(
+            "flow",
+            "proposal",
+            Verdict::Pass,
+            vec![],
+            None,
+            4000,
+        ))
+        .expect_err("同相位同轮二次落账应 Err");
+    assert!(
+        matches!(err, StoreError::NotFound(_)),
+        "active_phase 前置守卫 NotFound，实际: {err:?}"
+    );
+    assert_eq!(
+        store.list_phase_records("flow").unwrap().len(),
+        1,
+        "零重复相位行"
+    );
+}
+
+/// 预置带缺口 attempt 序的建档行 + 相位行（attempt 1 与 3，native_db 裸构造
+/// 不经 Store，沿 `preset_old_layout_db` 先例）：公共 API 的 attempt 恒「既有
+/// 条目数 + 1」连续分配，缺口形态公共 API 不可达，恰使 `(change, phase,
+/// attempt)` 事务内查重分支可达。
+fn preset_phase_rows_with_attempt_gap(path: &Path, change: &str, phase: &str) {
+    let mut models = Models::new();
+    models
+        .define::<ChangeRecord>()
+        .expect("定义 ChangeRecord 失败");
+    models
+        .define::<PhaseRecord>()
+        .expect("定义 PhaseRecord 失败");
+    let db = Builder::new().create(&models, path).expect("预置库失败");
+    let rw = db.rw_transaction().expect("开启写事务失败");
+    rw.insert(ChangeRecord {
+        name: change.to_owned(),
+        workflow_type: "requirement".to_owned(),
+        created_at: 1000,
+        status: ChangeStatus::Active,
+        archived_at: None,
+        active_phase: None,
+    })
+    .expect("写入建档记录失败");
+    for (id, attempt) in [(1i64, 1u32), (3, 3u32)] {
+        rw.insert(PhaseRecord {
+            id,
+            change: change.to_owned(),
+            phase: phase.to_owned(),
+            attempt,
+            verdict: Verdict::Pass,
+            report: String::new(),
+            skipped: false,
+            stale: false,
+            backtrack_to: None,
+            backtrack_reason: None,
+            executor_session_id: None,
+            evaluator_session_id: None,
+            decision_session_id: None,
+            start_at: None,
+            timestamp: 2000,
+        })
+        .expect("写入相位行失败");
+    }
+    rw.commit().expect("提交预置事务失败");
+}
+
+#[test]
+fn log_change_phase重复attempt查重返回conflict且事务零残留() {
+    // AC-2 零残留半边：`(change, phase, attempt)` 查重与全部守卫均在首个
+    // rw.insert 之前（前置守卫路径），失败即零写入。native_db 对合法
+    // native_model 记录的 insert 无可注入的中途失败面，故原子性以「失败路径
+    // 零残留 + 成功路径单事务全落」（上例）双断言承载，不伪造失败。
+    let env = Env::new("change-log-attempt-conflict");
+    let ws_path = env.db_path("ws");
+    preset_phase_rows_with_attempt_gap(&ws_path, "gap-change", "proposal");
+
+    let store = open_workspace_ok(&ws_path);
+    let started = start_phase_ok(&store, "gap-change", "proposal", 5000);
+    assert_eq!(
+        started.attempt, 3,
+        "attempt 事务内推导 = 既有条目数 + 1（缺口下为 3）"
+    );
+
+    let err = store
+        .log_change_phase(&log_command(
+            "gap-change",
+            "proposal",
+            Verdict::Fail,
+            vec![check_item("检查项", false)],
+            None,
+            6000,
+        ))
+        .expect_err("重复 attempt 落账应 Conflict");
+    assert!(
+        matches!(err, StoreError::Conflict(_)),
+        "变体为 Conflict，实际: {err:?}"
+    );
+    assert!(
+        err.to_string().contains("评估条目已存在"),
+        "错误串含查重记因，实际: {err}"
+    );
+
+    // 零残留：无新相位行、无孤立 checklist 子行、active_phase 原样在位
+    assert_eq!(
+        store.list_phase_records("gap-change").unwrap().len(),
+        2,
+        "无半截相位行"
+    );
+    assert_eq!(
+        store.scan("checklist_item", 0, 10).unwrap().len(),
+        0,
+        "无孤立 checklist 子行"
+    );
+    assert_eq!(
+        store
+            .find_change_record("gap-change")
+            .unwrap()
+            .unwrap()
+            .active_phase,
+        Some(ActivePhaseState {
+            phase: "proposal".to_owned(),
+            attempt: 3,
+            start_at: 5000
+        }),
+        "失败不触碰 active_phase"
+    );
+}
+
+#[test]
+fn apply_change_backtrack回跳标记与stale闭包翻转_仅目标最新pass置stale() {
+    let env = Env::new("change-backtrack");
+    let store = open_workspace_ok(&env.db_path("ws"));
+    create_change_ok(&store, "flow", 1000);
+    // 相位链种子：proposal 两轮 pass（历史 + 最新）、design / tasks /
+    // implementation 各一轮 pass；回跳发起相位 = design，目标 = proposal
+    seed_phase_pass(&store, "flow", "proposal", 2000, 2500, &[check_item("p1", true)]);
+    seed_phase_pass(&store, "flow", "design", 3000, 3500, &[]);
+    seed_phase_pass(&store, "flow", "tasks", 4000, 4500, &[]);
+    seed_phase_pass(&store, "flow", "implementation", 5000, 5500, &[]);
+    seed_phase_pass(&store, "flow", "proposal", 6000, 6500, &[check_item("p2", true)]);
+
+    store
+        .apply_change_backtrack(&BacktrackCommand {
+            change: "flow".to_owned(),
+            phase: "design".to_owned(),
+            to: "proposal".to_owned(),
+            reason: "需求理解偏差".to_owned(),
+            stale_dependents: vec!["tasks".to_owned(), "implementation".to_owned()],
+        })
+        .expect("回跳应成功");
+
+    let phases = store.list_phase_records("flow").unwrap();
+    let design = phases
+        .iter()
+        .rev()
+        .find(|row| row.phase == "design")
+        .expect("design 条目在场");
+    assert_eq!(
+        design.backtrack_to.as_deref(),
+        Some("proposal"),
+        "发起相位最新条目落回跳标记"
+    );
+    assert_eq!(
+        design.backtrack_reason.as_deref(),
+        Some("需求理解偏差"),
+        "回跳因由落库"
+    );
+    assert!(!design.stale, "发起相位标记行本身不置 stale");
+
+    // 目标最新 pass 置 stale；历史 attempt 不误伤
+    let proposal_rows: Vec<_> = phases
+        .iter()
+        .filter(|row| row.phase == "proposal")
+        .collect();
+    assert_eq!(proposal_rows.len(), 2);
+    assert!(!proposal_rows[0].stale, "历史 pass attempt 不误伤");
+    assert!(proposal_rows[1].stale, "目标最新 pass 置 stale");
+
+    // stale 闭包内全部相位条目翻转（多条闭包逐支核对）
+    for dependent in ["tasks", "implementation"] {
+        assert!(
+            phases
+                .iter()
+                .filter(|row| row.phase == dependent)
+                .all(|row| row.stale),
+            "{dependent} 闭包内全条目 stale=true"
+        );
+    }
+}
+
+#[test]
+fn apply_change_backtrack_stale闭包空vec仅回跳标记与目标stale无误伤() {
+    let env = Env::new("change-backtrack-empty-closure");
+    let store = open_workspace_ok(&env.db_path("ws"));
+    create_change_ok(&store, "flow", 1000);
+    seed_phase_pass(&store, "flow", "proposal", 2000, 2500, &[]);
+    seed_phase_pass(&store, "flow", "design", 3000, 3500, &[]);
+    seed_phase_pass(&store, "flow", "tasks", 4000, 4500, &[]);
+
+    store
+        .apply_change_backtrack(&BacktrackCommand {
+            change: "flow".to_owned(),
+            phase: "design".to_owned(),
+            to: "proposal".to_owned(),
+            reason: "回跳".to_owned(),
+            stale_dependents: vec![],
+        })
+        .expect("空闭包回跳应成功");
+
+    let phases = store.list_phase_records("flow").unwrap();
+    let design = phases.iter().find(|row| row.phase == "design").unwrap();
+    assert_eq!(
+        design.backtrack_to.as_deref(),
+        Some("proposal"),
+        "仅回跳标记落库"
+    );
+    assert!(
+        phases
+            .iter()
+            .find(|row| row.phase == "proposal")
+            .expect("目标条目在场")
+            .stale,
+        "目标最新 pass 置 stale 独立于闭包"
+    );
+    assert!(
+        phases.iter().filter(|row| row.phase == "tasks").all(|row| !row.stale),
+        "stale_dependents 空 vec：无 stale 误伤"
+    );
+}
+
+#[test]
+fn apply_change_backtrack目标无pass条目不传播stale_发起相位无条目not_found() {
+    let env = Env::new("change-backtrack-no-pass");
+    let store = open_workspace_ok(&env.db_path("ws"));
+    create_change_ok(&store, "flow", 1000);
+    // 目标 proposal 仅有 fail 条目（无 pass）
+    start_phase_ok(&store, "flow", "proposal", 2000);
+    store
+        .log_change_phase(&log_command(
+            "flow",
+            "proposal",
+            Verdict::Fail,
+            vec![],
+            None,
+            2500,
+        ))
+        .expect("目标 fail 落账");
+    seed_phase_pass(&store, "flow", "design", 3000, 3500, &[]);
+    seed_phase_pass(&store, "flow", "tasks", 4000, 4500, &[]);
+
+    store
+        .apply_change_backtrack(&BacktrackCommand {
+            change: "flow".to_owned(),
+            phase: "design".to_owned(),
+            to: "proposal".to_owned(),
+            reason: "目标无 pass".to_owned(),
+            stale_dependents: vec!["tasks".to_owned()],
+        })
+        .expect("目标无 pass 条目回跳仍成功（no-op 不传播）");
+
+    let phases = store.list_phase_records("flow").unwrap();
+    let design = phases.iter().find(|row| row.phase == "design").unwrap();
+    assert_eq!(
+        design.backtrack_to.as_deref(),
+        Some("proposal"),
+        "回跳标记照常落库"
+    );
+    assert!(
+        phases
+            .iter()
+            .filter(|row| row.phase == "proposal" || row.phase == "tasks")
+            .all(|row| !row.stale),
+        "目标无 pass 条目：不置 stale 也不向闭包传播（沿既往 mark_phase_stale 语义）"
+    );
+
+    // 发起相位无条目 → NotFound
+    let err = store
+        .apply_change_backtrack(&BacktrackCommand {
+            change: "flow".to_owned(),
+            phase: "ghost-phase".to_owned(),
+            to: "proposal".to_owned(),
+            reason: "发起相位无条目".to_owned(),
+            stale_dependents: vec![],
+        })
+        .expect_err("发起相位无条目回跳应 Err");
+    assert!(
+        matches!(err, StoreError::NotFound(_)),
+        "变体为 NotFound，实际: {err:?}"
+    );
+}
+
+/// C3 回归锚定（state.rs 回跳标记契约）：发起相位常在其自身 stale 闭包内
+/// （真实管线常态：test-gen 回跳 dev-design，下游闭包含 test-gen 自身）——
+/// 回跳标记（backtrack_to / backtrack_reason）与闭包 stale 翻转同行叠加
+/// 并存，任一写不得整行覆写另一写；重开 db 再读终态仍并存（与既往 JSON
+/// 载体上标记 + 传播两次读改写的合成终态一致，corpus-backtrack-stale
+/// golden 的 store 单点对应面）。
+#[test]
+fn apply_change_backtrack发起相位在自身stale闭包内_标记与stale同行叠加() {
+    let env = Env::new("change-backtrack-origin-in-closure");
+    let ws_path = env.db_path("ws");
+    {
+        let store = open_workspace_ok(&ws_path);
+        create_change_ok(&store, "flow", 1000);
+        // 真实管线相位链：回跳发起相位 = test-gen（下游闭包含自身），目标 =
+        // dev-design；stale_dependents 与写面 stale_closure 同闭包口径
+        seed_phase_pass(&store, "flow", "proposal", 2000, 2500, &[]);
+        seed_phase_pass(&store, "flow", "dev-design", 3000, 3500, &[]);
+        seed_phase_pass(&store, "flow", "test-design", 4000, 4500, &[]);
+        seed_phase_pass(&store, "flow", "implement", 5000, 5500, &[]);
+        seed_phase_pass(&store, "flow", "test-gen", 6000, 6500, &[]);
+
+        store
+            .apply_change_backtrack(&BacktrackCommand {
+                change: "flow".to_owned(),
+                phase: "test-gen".to_owned(),
+                to: "dev-design".to_owned(),
+                reason: "设计返工：缺产物区组件".to_owned(),
+                stale_dependents: vec![
+                    "test-design".to_owned(),
+                    "implement".to_owned(),
+                    "test-gen".to_owned(),
+                ],
+            })
+            .expect("发起相位在闭包内的回跳应成功");
+
+        let phases = store.list_phase_records("flow").unwrap();
+        assert_eq!(phases.len(), 5, "回跳不增删条目行");
+
+        let origin = phases
+            .iter()
+            .find(|row| row.phase == "test-gen")
+            .expect("发起相位条目在场");
+        assert_eq!(
+            origin.backtrack_to.as_deref(),
+            Some("dev-design"),
+            "回跳标记落库"
+        );
+        assert_eq!(
+            origin.backtrack_reason.as_deref(),
+            Some("设计返工：缺产物区组件"),
+            "回跳因由落库"
+        );
+        assert!(
+            origin.stale,
+            "发起相位在自身闭包内：标记与 stale 翻转同行并存（不得互相覆写）"
+        );
+
+        let target = phases
+            .iter()
+            .find(|row| row.phase == "dev-design")
+            .expect("目标相位条目在场");
+        assert!(target.stale, "目标最新 pass 置 stale");
+        assert_eq!(target.backtrack_to, None, "目标行不落回跳标记");
+        for dependent in ["test-design", "implement"] {
+            assert!(
+                phases
+                    .iter()
+                    .find(|row| row.phase == dependent)
+                    .expect("闭包相位条目在场")
+                    .stale,
+                "{dependent} 闭包内翻转 stale=true"
+            );
+        }
+        assert!(
+            !phases
+                .iter()
+                .find(|row| row.phase == "proposal")
+                .expect("上游相位条目在场")
+                .stale,
+            "上游相位（闭包外）不受影响"
+        );
+    }
+
+    // drop 重开同一 db 文件：同位叠加终态持久（标记字段与 stale 位仍并存）
+    let reopened = open_workspace_ok(&ws_path);
+    let origin = reopened
+        .list_phase_records("flow")
+        .unwrap()
+        .into_iter()
+        .find(|row| row.phase == "test-gen")
+        .expect("重开后发起相位条目在场");
+    assert_eq!(origin.backtrack_to.as_deref(), Some("dev-design"));
+    assert_eq!(
+        origin.backtrack_reason.as_deref(),
+        Some("设计返工：缺产物区组件")
+    );
+    assert!(origin.stale, "重开 db 后标记与 stale 同位叠加终态保持");
+}
+
+#[test]
+fn amend_change_decision_session最新条目定点改写_重复幂等覆写_无条目not_found() {
+    let env = Env::new("change-amend");
+    let store = open_workspace_ok(&env.db_path("ws"));
+    create_change_ok(&store, "flow", 1000);
+    seed_phase_pass(&store, "flow", "proposal", 2000, 2500, &[]);
+    seed_phase_pass(&store, "flow", "proposal", 3000, 3500, &[]);
+
+    store
+        .amend_change_decision_session("flow", "proposal", "ses-decision-1")
+        .expect("挂账应成功");
+    let phases = store.list_phase_records("flow").unwrap();
+    assert_eq!(
+        phases[0].decision_session_id,
+        None,
+        "多 attempt 在场时仅最新条目被改（定点锚定）"
+    );
+    assert_eq!(phases[1].decision_session_id.as_deref(), Some("ses-decision-1"));
+
+    // 重复挂账幂等覆写（D9）：值替换不重复追加
+    store
+        .amend_change_decision_session("flow", "proposal", "ses-decision-2")
+        .expect("重复挂账应成功");
+    let phases = store.list_phase_records("flow").unwrap();
+    assert_eq!(
+        phases[1].decision_session_id.as_deref(),
+        Some("ses-decision-2"),
+        "幂等覆写同槽位"
+    );
+
+    // 该相位无任何条目 → NotFound
+    let err = store
+        .amend_change_decision_session("flow", "design", "ses-x")
+        .expect_err("无条目相位挂账应 Err");
+    assert!(
+        matches!(err, StoreError::NotFound(_)),
+        "变体为 NotFound（NotFound 面），实际: {err:?}"
+    );
+}
+
+#[test]
+fn set_change_archived翻转status与archived_at_主键name不变_miss_not_found() {
+    let env = Env::new("change-archived");
+    let store = open_workspace_ok(&env.db_path("ws"));
+    create_change_ok(&store, "flow", 1000);
+
+    store
+        .set_change_archived("flow", 9000)
+        .expect("归档翻转应成功");
+    let record = store
+        .find_change_record("flow")
+        .unwrap()
+        .expect("归档后仍可按主键寻址");
+    assert_eq!(record.status, ChangeStatus::Archived, "status 翻转");
+    assert_eq!(record.archived_at, Some(9000), "archived_at 落库");
+    assert_eq!(record.name, "flow", "主键 name 不变");
+
+    let err = store
+        .set_change_archived("ghost", 1)
+        .expect_err("name miss 应 Err");
+    assert!(
+        matches!(err, StoreError::NotFound(_)),
+        "变体为 NotFound，实际: {err:?}"
+    );
+}
+
+#[test]
+fn append_change_step连续追加id严格max加1_逐字段回读_超长summary原样透传不截断() {
+    let env = Env::new("change-step-append");
+    let store = open_workspace_ok(&env.db_path("ws"));
+    create_change_ok(&store, "flow", 1000);
+
+    // 恰 500 字符不截断；超 500 字符原样透传——store 不做截断（StepRecord::new
+    // 逐字拷贝；「≤500 字截断留痕」纪律归编排侧 D10，test-design「store 截断」
+    // 行为与实现不一致，以实现为准断言原样落库）
+    let exact_500 = "字".repeat(500);
+    let long_800 = "长".repeat(800);
+    assert_eq!(exact_500.chars().count(), 500);
+
+    store
+        .append_change_step(&step_command(
+            "run-1",
+            "flow",
+            StepKind::PhaseNext,
+            "ok",
+            "轮次推进摘要",
+            100,
+        ))
+        .expect("追加应成功");
+    store
+        .append_change_step(&step_command(
+            "run-1",
+            "flow",
+            StepKind::StaticCheck,
+            "ok",
+            &exact_500,
+            200,
+        ))
+        .expect("追加应成功");
+    store
+        .append_change_step(&step_command(
+            "run-2",
+            "flow",
+            StepKind::TestExecution,
+            "error",
+            &long_800,
+            300,
+        ))
+        .expect("追加应成功");
+
+    let steps = store.list_change_steps("flow", None).unwrap();
+    assert_eq!(steps.len(), 3, "三行齐落");
+    assert_eq!(
+        steps.iter().map(|row| row.id).collect::<Vec<_>>(),
+        vec![1, 2, 3],
+        "行 id 写事务内 max+1 严格递增"
+    );
+
+    // 逐字段回读一致
+    assert_eq!(steps[0].run_id, "run-1");
+    assert_eq!(steps[0].change, "flow");
+    assert_eq!(steps[0].step_kind, StepKind::PhaseNext);
+    assert_eq!(steps[0].status, "ok");
+    assert_eq!(steps[0].timestamp, 100);
+    assert_eq!(steps[0].summary, "轮次推进摘要");
+    assert_eq!(steps[0].reference, None);
+    assert_eq!(steps[1].step_kind, StepKind::StaticCheck);
+    assert_eq!(
+        steps[1].summary, exact_500,
+        "恰 500 字符不截断（chars 口径原样）"
+    );
+    assert_eq!(steps[1].summary.chars().count(), 500);
+    assert_eq!(
+        steps[2].summary, long_800,
+        "超 500 字符 store 原样透传（截断在编排侧）"
+    );
+    assert_eq!(steps[2].summary.chars().count(), 800);
+    assert_eq!(steps[2].status, "error");
+}
+
+#[test]
+fn append_change_step_reference随行落库() {
+    let env = Env::new("change-step-reference");
+    let store = open_workspace_ok(&env.db_path("ws"));
+    let mut command = step_command("run-1", "flow", StepKind::StaticCheck, "ok", "摘要", 100);
+    command.reference = Some("checks/reports/proposal".to_owned());
+
+    store.append_change_step(&command).expect("追加应成功");
+
+    let steps = store.list_change_steps("flow", None).unwrap();
+    assert_eq!(
+        steps[0].reference.as_deref(),
+        Some("checks/reports/proposal"),
+        "全量输出引用（报告目录 / 会话 id）随行落库"
+    );
+}
+
+#[test]
+fn list_change_steps多run全量按id序_run圈定单run_无步骤空vec() {
+    let env = Env::new("change-steps-list");
+    let store = open_workspace_ok(&env.db_path("ws"));
+
+    // flow 名下三行跨两 run，另一 change 一行干扰项
+    for (run, kind, status, ts) in [
+        ("run-1", StepKind::PhaseNext, "ok", 100),
+        ("run-2", StepKind::StaticCheck, "ok", 200),
+        ("run-1", StepKind::TestExecution, "error", 300),
+    ] {
+        store
+            .append_change_step(&step_command(run, "flow", kind, status, "摘要", ts))
+            .expect("追加应成功");
+    }
+    store
+        .append_change_step(&step_command("run-9", "solo", StepKind::PhaseNext, "ok", "他档", 400))
+        .expect("追加应成功");
+
+    let all = store.list_change_steps("flow", None).unwrap();
+    assert_eq!(
+        all.iter().map(|row| row.id).collect::<Vec<_>>(),
+        vec![1, 2, 3],
+        "按 change 全量枚举，落行序（id 升序）"
+    );
+    assert!(all.iter().all(|row| row.change == "flow"), "无他档混入");
+
+    let run1 = store.list_change_steps("flow", Some("run-1")).unwrap();
+    assert_eq!(
+        run1.iter().map(|row| row.id).collect::<Vec<_>>(),
+        vec![1, 3],
+        "run_id 传 Some 圈定单 run 序列"
+    );
+    assert!(run1.iter().all(|row| row.run_id == "run-1"));
+
+    assert!(
+        store.list_change_steps("solo", None).unwrap().len() == 1,
+        "他档各自枚举"
+    );
+    assert_eq!(
+        store.list_change_steps("ghost", None).unwrap(),
+        vec![],
+        "无任何步骤返回空 vec（不 Err）"
+    );
+}
+
+#[test]
+fn list_phase_records多相位多attempt交错落账_按落行序checklist内联打包键序() {
+    let env = Env::new("change-phases-list");
+    let store = open_workspace_ok(&env.db_path("ws"));
+    create_change_ok(&store, "flow", 1000);
+
+    // 交错落账：proposal attempt1（三检查项）→ design attempt1（一项）→
+    // proposal attempt2（两项）
+    let proposal_v1 = vec![
+        check_item("提案-检查一", true),
+        check_item("提案-检查二", false),
+        check_item("提案-检查三", true),
+    ];
+    let design_v1 = vec![check_item("设计-检查一", true)];
+    let proposal_v2 = vec![check_item("提案二轮-检查一", true), check_item("提案二轮-检查二", false)];
+    start_phase_ok(&store, "flow", "proposal", 2000);
+    store
+        .log_change_phase(&log_command(
+            "flow",
+            "proposal",
+            Verdict::Pass,
+            proposal_v1.clone(),
+            Some(2000),
+            2500,
+        ))
+        .expect("落账应成功");
+    start_phase_ok(&store, "flow", "design", 3000);
+    store
+        .log_change_phase(&log_command(
+            "flow",
+            "design",
+            Verdict::Pass,
+            design_v1.clone(),
+            Some(3000),
+            3500,
+        ))
+        .expect("落账应成功");
+    start_phase_ok(&store, "flow", "proposal", 4000);
+    store
+        .log_change_phase(&log_command(
+            "flow",
+            "proposal",
+            Verdict::Fail,
+            proposal_v2.clone(),
+            Some(4000),
+            4500,
+        ))
+        .expect("落账应成功");
+
+    let phases = store.list_phase_records("flow").unwrap();
+    assert_eq!(
+        phases.iter().map(|row| (row.id, row.phase.as_str(), row.attempt)).collect::<Vec<_>>(),
+        vec![(1, "proposal", 1), (2, "design", 1), (3, "proposal", 2)],
+        "相位行序列按落行序（id 升序），多相位多 attempt 交错不重排"
+    );
+    assert_eq!(phases[0].checklist, proposal_v1, "checklist 内联按打包键序");
+    assert_eq!(phases[1].checklist, design_v1);
+    assert_eq!(phases[2].checklist, proposal_v2);
+
+    // 与直查 ChecklistItemRecord 序一致：信封主键自然序即打包键序
+    // （高 64 位 phase_id → 低 64 位 item_index）
+    let keys = store
+        .scan("checklist_item", 0, 10)
+        .unwrap()
+        .into_iter()
+        .map(|envelope| envelope.key["itemKey"].as_str().expect("itemKey 为串").to_owned())
+        .collect::<Vec<_>>();
+    let expected_keys: Vec<String> = [(1i64, 0u32), (1, 1), (1, 2), (2, 0), (3, 0), (3, 1)]
+        .into_iter()
+        .map(|(phase_id, index)| format!("{:#034x}", pack_checklist_item_key(phase_id, index)))
+        .collect();
+    assert_eq!(
+        keys, expected_keys,
+        "直查子行主键自然序 = 打包键序 = evaluator 输出序"
+    );
+}
+
+#[test]
+fn 信封零改动覆盖四新模型_list_models计数与scan信封可读() {
+    let env = Env::new("change-envelope");
+    let store = open_workspace_ok(&env.db_path("ws"));
+
+    // 种子：建档 1 + 相位行 1（含两条检查项子行）+ 步骤审计行 1
+    create_change_ok(&store, "flow", 1000);
+    start_phase_ok(&store, "flow", "proposal", 2000);
+    store
+        .log_change_phase(&log_command(
+            "flow",
+            "proposal",
+            Verdict::Pass,
+            vec![check_item("检查项一", true), check_item("检查项二", false)],
+            Some(2000),
+            3000,
+        ))
+        .expect("落账应成功");
+    store
+        .append_change_step(&step_command(
+            "run-1",
+            "flow",
+            StepKind::PhaseLog,
+            "ok",
+            "落账",
+            4000,
+        ))
+        .expect("追加应成功");
+
+    // 既有信封注册面零改动：workspace 组 4→8 后计数与实有记录数一致
+    let models = store.list_models().unwrap();
+    assert_eq!(
+        models
+            .iter()
+            .map(|model| (model.name.as_str(), model.count))
+            .collect::<Vec<_>>(),
+        vec![
+            ("agent_run", 0),
+            ("session", 0),
+            ("session_event", 0),
+            ("explore", 0),
+            ("change", 1),
+            ("phase", 1),
+            ("checklist_item", 2),
+            ("step", 1)
+        ],
+        "change 流程状态四模型经既有 list_models 零改动覆盖"
+    );
+
+    // scan 零改动可读四新模型记录信封
+    let changes = store.scan("change", 0, 10).unwrap();
+    assert_eq!(changes.len(), 1);
+    assert_eq!(changes[0].key, serde_json::json!("flow"), "change 主键 = name");
+    assert_eq!(changes[0].value["name"], serde_json::json!("flow"));
+    assert_eq!(
+        changes[0].value["activePhase"],
+        serde_json::Value::Null,
+        "active_phase 清位后信封出 null"
+    );
+
+    let phases = store.scan("phase", 0, 10).unwrap();
+    assert_eq!(phases.len(), 1);
+    assert_eq!(phases[0].key, serde_json::json!(1), "phase 主键 = id");
+
+    // checklist_item 信封 key 为 {phaseId, itemKey} 对象，itemKey 为十六进制串
+    let items = store.scan("checklist_item", 0, 10).unwrap();
+    assert_eq!(items.len(), 2);
+    for (envelope, index) in items.iter().zip([0u32, 1]) {
+        assert_eq!(
+            envelope.key["phaseId"], serde_json::json!(1),
+            "信封 key 为 {{phaseId, itemKey}} 对象"
+        );
+        assert_eq!(
+            envelope.key["itemKey"],
+            serde_json::json!(format!("{:#034x}", pack_checklist_item_key(1, index))),
+            "itemKey 为打包键十六进制串原值"
+        );
+    }
+
+    let steps = store.scan("step", 0, 10).unwrap();
+    assert_eq!(steps.len(), 1);
+    assert_eq!(steps[0].key, serde_json::json!(1), "step 主键 = id");
+    assert_eq!(steps[0].value["runId"], serde_json::json!("run-1"));
+}
+
+// ---------------------------------------------------------------------------
+// change 建档表坏行语料（fixtures/README 矩阵「坏行」覆盖面）：db 文件直写
+// 字节注入 native_model 解码失败行 → 读侧 StoreError 显式记因不静默。坏字节
+// 行经公共 API 不可达（native_db 不暴露裸表句柄），经裸 redb 同文件直写注入
+// ——注入前后均不触碰 Store 内部状态，调用方须先 drop Store 归还文件锁。
+// ---------------------------------------------------------------------------
+
+/// change 建档表 redb 裸表键镜像（仅为坏行直写注入而设）：与 native_db 内部
+/// 键类型同 TypeName（`DatabaseInnerKeyValue`，UserDefined 分类）且按原始
+/// 字节比较——任一不符 redb open_table 即 TableTypeMismatch 拒开。
+#[derive(Debug)]
+struct RawNativeDbKey(Vec<u8>);
+
+impl redb::Value for RawNativeDbKey {
+    type SelfType<'a> = RawNativeDbKey;
+    type AsBytes<'a> = &'a [u8];
+
+    fn fixed_width() -> Option<usize> {
+        None
+    }
+
+    fn from_bytes<'a>(data: &'a [u8]) -> Self::SelfType<'a>
+    where
+        Self: 'a,
+    {
+        Self(data.to_vec())
+    }
+
+    fn as_bytes<'a, 'b: 'a>(value: &'a Self::SelfType<'b>) -> Self::AsBytes<'a> {
+        &value.0
+    }
+
+    fn type_name() -> redb::TypeName {
+        redb::TypeName::new("DatabaseInnerKeyValue")
+    }
+}
+
+impl redb::Key for RawNativeDbKey {
+    fn compare(data1: &[u8], data2: &[u8]) -> std::cmp::Ordering {
+        data1.cmp(data2)
+    }
+}
+
+/// change 建档表裸表名（native_db 内部表命名公式：
+/// `{native_model_id}_{native_model_version}_{主键字段名小写}`；ChangeRecord
+/// id=9 / version=1 / 主键 `name`）。
+const CHANGE_RECORD_TABLE: &str = "9_1_name";
+
+/// db 文件直写字节注入：向 change 建档表插入一行 native_model 解码失败行
+/// （合法建档行的库内字节截去尾部 payload——头部 8 字节保全使 native_model
+/// 信封解析仍可走通，bincode 解码必然失败）。调用方必须先 drop Store 释放
+/// 文件锁（redb 单写者文件锁语义）。
+fn inject_corrupt_change_row(path: &Path, name: &str, created_at: i64) {
+    assert_eq!(
+        CHANGE_RECORD_TABLE,
+        format!(
+            "{}_{}_{}",
+            <ChangeRecord as native_model::Model>::native_model_id(),
+            <ChangeRecord as native_model::Model>::native_model_version(),
+            "name"
+        ),
+        "裸表名与 native_db 内部命名公式一致（模型 id / 版本演进时随动改写）"
+    );
+    let valid = <ChangeRecord as native_model::Model>::native_model_encode(&ChangeRecord::new(
+        name,
+        "requirement",
+        created_at,
+    ))
+    .expect("编码合法建档行失败");
+    let valid_len = valid.len();
+    let mut corrupt = valid;
+    corrupt.truncate(9); // 头部 8 字节 + 1 字节 payload：截断形态的坏字节行
+    assert!(corrupt.len() < valid_len, "坏行须为合法行的截断形态");
+
+    let db = redb::Database::open(path).expect("裸开 db 注入坏行应成功");
+    let table: redb::TableDefinition<RawNativeDbKey, &[u8]> =
+        redb::TableDefinition::new(CHANGE_RECORD_TABLE);
+    let rw = db.begin_write().expect("开启注入写事务失败");
+    {
+        let mut rows = rw.open_table(table).expect("打开 change 建档表应成功");
+        rows.insert(RawNativeDbKey(name.as_bytes().to_vec()), corrupt.as_slice())
+            .expect("注入坏行应成功");
+    }
+    rw.commit().expect("提交注入事务失败");
+}
+
+#[test]
+fn 建档表坏行直写注入_读侧store_error显式记因不静默() {
+    let env = Env::new("change-corrupt-row");
+    let ws_path = env.db_path("ws");
+
+    // 种子：合法建档行经公共 API 落库（坏行与良行同表共存）
+    {
+        let store = open_workspace_ok(&ws_path);
+        create_change_ok(&store, "good-change", 1000);
+    } // 文件锁归还
+
+    inject_corrupt_change_row(&ws_path, "corrupt-change", 2000);
+
+    // 单行坏字节 ≠ 整库损坏：重开成功（与整库损坏 open Err 用例相区分）
+    let store = open_workspace_ok(&ws_path);
+
+    // 全表读：清单读面 StoreError 显式记因（db: 前缀 + 遍历语境），不静默
+    // 跳过坏行仅返回良行
+    let err = store
+        .list_change_records()
+        .expect_err("坏行在场的全表读必须显式 Err，不得静默跳过");
+    assert!(matches!(err, StoreError::Db(_)), "变体为 Db，实际: {err:?}");
+    assert!(
+        err.to_string().starts_with("db:") && err.to_string().contains("遍历建档清单"),
+        "错误串带 db: 前缀与读语境记因，实际: {err}"
+    );
+
+    // 主键直查坏行：解码失败显式 Err，不静默降级 Ok(None)（文档形态误判防线）
+    let err = store
+        .find_change_record("corrupt-change")
+        .expect_err("坏行主键直查必须显式 Err，不得误判为文档形态 None");
+    assert!(matches!(err, StoreError::Db(_)), "变体为 Db，实际: {err:?}");
+    assert!(
+        err.to_string().contains("读取建档记录"),
+        "错误串含直查语境记因，实际: {err}"
+    );
+
+    // 持久性：坏行是库内持久状态，再读仍 Err（非瞬时故障）
+    assert!(store.list_change_records().is_err());
 }

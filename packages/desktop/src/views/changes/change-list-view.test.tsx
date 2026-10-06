@@ -49,17 +49,17 @@ function ipc(command: string): Promise<unknown> {
 /** 空清单 fixture（空态形态）。 */
 const emptyList: ChangeList = { active: [], archiveGroups: [] };
 
-/** 清单 fixture：active 两条（v2 + v0/unparsable）+ archive 三分组（未知时间置尾）。 */
+/** 清单 fixture：active 两条（建档 + 文档形态）+ archive 三分组（未知时间置尾）。 */
 const fixtureList: ChangeList = {
   active: [
     {
       name: 'add-feature',
       source: 'active',
-      inventory: 'v2',
+      status: 'active',
+      activePhase: null,
       created: '2026-09-01',
-      unparsable: false,
     },
-    { name: 'docs-only', source: 'active', inventory: 'v0', created: null, unparsable: true },
+    { name: 'docs-only', source: 'active', status: null, activePhase: null, created: null },
   ],
   archiveGroups: [
     {
@@ -68,9 +68,9 @@ const fixtureList: ChangeList = {
         {
           name: '2026-09-01-first',
           source: 'archive',
-          inventory: 'v1',
+          status: 'archived',
+          activePhase: null,
           created: '2026-09-01',
-          unparsable: false,
         },
       ],
     },
@@ -80,9 +80,9 @@ const fixtureList: ChangeList = {
         {
           name: '2026-05-15-second',
           source: 'archive',
-          inventory: 'v0',
+          status: null,
+          activePhase: null,
           created: '2026-05-15',
-          unparsable: false,
         },
       ],
     },
@@ -92,9 +92,9 @@ const fixtureList: ChangeList = {
         {
           name: 'no-date-archived',
           source: 'archive',
-          inventory: 'v1',
+          status: 'archived',
+          activePhase: null,
           created: null,
-          unparsable: false,
         },
       ],
     },
@@ -177,23 +177,34 @@ async function renderLoaded(list: ChangeList = fixtureList, root: string | null 
 // 状态回灌改经 mock IPC fixture
 // ---------------------------------------------------------------------------
 
-describe('ChangeListView：分组列表、代际徽标与进入详情', () => {
+describe('ChangeListView：分组列表、运行中徽标与进入详情', () => {
   it('清单页挂载即以 root 发起 list_changes 取数（布线经进程边界观察）', async () => {
     await renderLoaded();
 
     expect(listCalls()).toEqual([{ root: ROOT }]);
   });
 
-  it('active 列表逐条渲染并带正确代际徽标（v2 / v1 / v0）', async () => {
-    await renderLoaded();
+  it('active 列表逐条渲染，运行中条目（activePhase 在场）带运行中徽标', async () => {
+    const running: ChangeList = {
+      active: [
+        {
+          name: 'add-feature',
+          source: 'active',
+          status: 'active',
+          activePhase: { phase: 'implement', attempt: 2, startAt: null },
+          created: null,
+        },
+      ],
+      archiveGroups: [],
+    };
+    await renderLoaded(running);
 
     expect(screen.getByText('add-feature') !== null).toBe(true);
-    expect(screen.getByText('docs-only') !== null).toBe(true);
-    // 徽标宿主为 Badge 组件（INVENTORY_VARIANT 显式映射），在各 change-row 作用域内收集文本
-    const badgeTexts = screen
-      .getAllByTestId('change-row')
-      .map((row) => within(row).getByText(/^v[012]$/).textContent ?? '');
-    expect(badgeTexts).toEqual(expect.arrayContaining(['v2', 'v0', 'v1']));
+    // 运行中徽标：activePhase 三元组随行呈现
+    const badge = within(screen.getAllByTestId('change-row')[0]).getByText(
+      /运行中 · implement · attempt 2/,
+    );
+    expect(badge !== null).toBe(true);
   });
 
   it('archive 按月分组渲染，month=null 的"未知时间"组渲染在序列尾', async () => {
@@ -235,10 +246,11 @@ describe('ChangeListView：分组列表、代际徽标与进入详情', () => {
     expect(emptyView.container.textContent).toContain('未发现任何 change 目录');
   });
 
-  it('unparsable 条目附"无法解析"标注且仍入列', async () => {
+  it('文档形态条目（status 缺席）照常入列且无状态标注', async () => {
     await renderLoaded();
 
-    expect(screen.getByText('workflow.json 无法解析') !== null).toBe(true);
+    expect(screen.getByText('docs-only') !== null).toBe(true);
+    expect(screen.queryByText(/无法解析/)).toBeNull();
   });
 });
 
@@ -440,5 +452,90 @@ describe('ChangeListView：新建入口挂载与创建流转（创建 → refres
     expect(error.textContent).toContain('已存在');
     expect(probePathname()).toBe('/changes');
     expect(listCalls().length).toBe(before);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 退役面负断言与状态面消费（desktop-workflow-db-state）：清单 DTO 已无
+// inventory / unparsable 字段（TS 类型面随 bindings 同步删除，夹具带该字段
+// 即编译失败），视图退役 InventoryBadge 与「无法解析」标注；条目状态面改
+// status / activePhase 两态消费，文档形态条目照常入列。
+// ---------------------------------------------------------------------------
+
+describe('ChangeListView：退役面负断言与状态面消费', () => {
+  it('清单 DTO 无 inventory 字段 → V0/V1/V2 代际徽章零渲染（任何形态不出现）；月分组与归档条目渲染持衡', async () => {
+    const { container } = await renderLoaded();
+
+    // 代际词汇零残留：historical InventoryBadge 徽章文本（v0/v1/v2）任何形态不出现
+    expect(container.textContent).not.toMatch(/v[012]/i);
+    // 月分组与归档条目渲染持衡（同夹具双半边——退役不挤掉既有呈现）
+    const headings = screen.getAllByRole('heading').map((h) => h.textContent ?? '');
+    expect(headings.some((text) => text.startsWith('2026-09'))).toBe(true);
+    expect(screen.getByText('2026-09-01-first') !== null).toBe(true);
+    expect(screen.getByText('no-date-archived') !== null).toBe(true);
+  });
+
+  it('DTO 无 unparsable 字段（含历史损坏样本形态条目）→「无法解析」标注与警示零出现', async () => {
+    // corrupt-invalid-json：历史上 unparsable=true 的损坏样本同名形态（新 DTO 无该字段）
+    const corruptLike: ChangeList = {
+      active: [
+        {
+          name: 'corrupt-invalid-json',
+          source: 'active',
+          status: null,
+          activePhase: null,
+          created: null,
+        },
+      ],
+      archiveGroups: [],
+    };
+    const { container } = await renderLoaded(corruptLike);
+
+    expect(screen.getByText('corrupt-invalid-json') !== null).toBe(true);
+    expect(container.textContent).not.toContain('无法解析');
+    expect(container.textContent).not.toContain('workflow.json');
+  });
+
+  it('状态面消费：active+activePhase → 运行中相位呈现；archived → 归档条目月分组呈现无运行中徽标；双 null → 无状态位照常入列', async () => {
+    const mixed: ChangeList = {
+      active: [
+        {
+          name: 'run-now',
+          source: 'active',
+          status: 'active',
+          activePhase: { phase: 'test-gen', attempt: 1, startAt: null },
+          created: null,
+        },
+        { name: 'doc-only', source: 'active', status: null, activePhase: null, created: null },
+      ],
+      archiveGroups: [
+        {
+          month: '2026-08',
+          changes: [
+            {
+              name: '2026-08-01-done',
+              source: 'archive',
+              status: 'archived',
+              activePhase: null,
+              created: null,
+            },
+          ],
+        },
+      ],
+    };
+    await renderLoaded(mixed);
+
+    const rows = screen.getAllByTestId('change-row');
+    // active + activePhase 在场 → 进行中相位徽标呈现
+    const runRow = rows.find((row) => (row.textContent ?? '').includes('run-now'));
+    expect(within(runRow!).getByText(/运行中 · test-gen · attempt 1/) !== null).toBe(true);
+    // archived → 归档条目照常呈现（月分组内），无运行中徽标、无独立状态 chip
+    const doneRow = rows.find((row) => (row.textContent ?? '').includes('2026-08-01-done'));
+    expect(doneRow !== undefined).toBe(true);
+    expect(within(doneRow!).queryByText(/运行中|已归档|未建档/)).toBeNull();
+    // 双 null（文档形态）→ 无任何状态位，条目照常入列
+    const docRow = rows.find((row) => (row.textContent ?? '').includes('doc-only'));
+    expect(docRow !== undefined).toBe(true);
+    expect(within(docRow!).queryByText(/运行中|已归档|未建档/)).toBeNull();
   });
 });

@@ -154,9 +154,8 @@ function detail(
   return {
     name: 'add-feature',
     source: 'active',
-    inventory: 'v2',
+    status: 'active',
     created: null,
-    unparsable: false,
     pipeline: [
       'proposal',
       'dev-design',
@@ -169,7 +168,6 @@ function detail(
       'code-analyze',
     ].map((phase) => ({ phase, attempts: attemptsByPhase[phase] ?? [] })),
     activePhase: null,
-    fileLog: [],
     artifacts: [DOC_DESCRIPTOR],
     ...overrides,
   };
@@ -223,8 +221,6 @@ describe('ChangeFlowGraph：ReactFlow 薄层挂载与交互上抛', () => {
     const materials: FlowMaterials = {
       columnDocs: {},
       nodeChecklists: {},
-      nodeFiles: {},
-      outsideFiles: [],
     };
     expect(() => renderGraph({ columns: [], nodes: [], edges: [] }, materials)).not.toThrow();
     expect(screen.getByTestId('flow-graph') !== null).toBe(true);

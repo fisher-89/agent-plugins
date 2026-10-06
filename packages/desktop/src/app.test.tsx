@@ -43,7 +43,7 @@ const SECOND: WorkspaceRecord = {
 
 const fakeList: ChangeList = {
   active: [
-    { name: 'add-feature', source: 'active', inventory: 'v2', created: null, unparsable: false },
+    { name: 'add-feature', source: 'active', status: 'active', activePhase: null, created: null },
   ],
   archiveGroups: [],
 };
@@ -51,12 +51,10 @@ const fakeList: ChangeList = {
 const fakeDetail: ChangeDetail = {
   name: 'add-feature',
   source: 'active',
-  inventory: 'v2',
+  status: 'active',
   created: null,
-  unparsable: false,
   pipeline: [],
   activePhase: null,
-  fileLog: [],
   artifacts: [],
 };
 
@@ -267,6 +265,25 @@ function fakeUpdate(version = '0.2.0') {
     downloadAndInstall: vi.fn().mockResolvedValue(undefined),
   };
 }
+
+// 流程图区（建档详情，status 在场）挂载 ReactFlow：jsdom 缺口垫片（环境 stub
+// 而非业务 mock）——进入详情视图的用例全局兜底（xyflow 边标签度量另需
+// SVGGraphicsElement.getBBox 零包围盒垫片）
+class ResizeObserverStub {
+  observe = vi.fn();
+  unobserve = vi.fn();
+  disconnect = vi.fn();
+}
+
+beforeEach(() => {
+  vi.stubGlobal('ResizeObserver', ResizeObserverStub);
+  const svgPrototype = globalThis.SVGElement?.prototype as unknown as
+    | Record<string, unknown>
+    | undefined;
+  if (svgPrototype !== undefined && typeof svgPrototype.getBBox !== 'function') {
+    svgPrototype.getBBox = () => ({ x: 0, y: 0, width: 0, height: 0 });
+  }
+});
 
 describe('App：启动恢复、欢迎屏清单与视图状态（AC-9）', () => {
   beforeEach(() => {

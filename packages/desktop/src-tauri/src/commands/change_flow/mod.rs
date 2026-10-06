@@ -1,4 +1,3 @@
-use std::path::Path;
 use std::sync::Arc;
 
 #[cfg(test)]
@@ -10,16 +9,16 @@ use tauri::{AppHandle, Manager};
 use ::agent::StopRegistry;
 use agent_runtime::{compose_turn, ComposedTurn, GitDiffSource, KernelWorkerPort};
 use checks_runtime::{ProcessStaticCheck, ProcessTestExecution};
-use foundation::layout;
 use orchestration::control::ChangeFlowControl;
 use orchestration::port::{
     DiffContextPort, RunEventSink, ToolStepPort, WorkerAgentPort, WorkflowSnapshotPort,
 };
-use orchestration::snapshot::FsSnapshot;
+use orchestration::snapshot::StoreSnapshot;
 use orchestration::state::{ChangeRunSnapshot, ChangeRunStatus, ChangeRunSummary, RunUpdate};
 use orchestration::steps::LocalToolSteps;
 use orchestration::walker::{new_run_id, walk_run, RunRequest};
 use store::WorkspaceStores;
+use workflow::state::ChangeStateStore;
 use workflow::write::{phase_table, SessionAnchors};
 
 /// 参数显式格式检查：空/空白串不进入库解析 / 注册表链路（与 exec 轨道同
@@ -72,22 +71,20 @@ pub(crate) async fn change_flow_start_with<R: tauri::Runtime>(
     if is_blank(&change) {
         return Err("非法 change: 不得为空白（无 change 无从发起）".to_owned());
     }
-    // 前置校验 1：change 存在且 workflow.json 可解析
-    let detail = FsSnapshot::new(root.clone()).detail(&root, &change)?;
-    if detail.unparsable {
-        return Err(format!(
-            "change \"{change}\" 的 workflow.json 无法解析，无从编排"
-        ));
-    }
+    // 前置校验 1：目标 change 已建档（db `ChangeRecord` 在案；存量 CLI change
+    // 无建档不可发起——文档形态 change 不可运行，显式拒绝）
+    let stores = app.state::<WorkspaceStores>();
+    let store = stores.for_root(&root).map_err(|e| e.to_string())?;
+    let record = store
+        .find_change_record(&change)
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| format!("change \"{change}\" 未建档（无 ChangeRecord），无从编排"))?;
     // 前置校验 2：workflow_type=requirement（写面相位表 None → 显式拒绝；
     // V1 范围显式拒绝 bug-fix / test-only，优于相位机半途报错）
-    let workflow_layout = layout::resolve(Path::new(&root));
-    let workflow = workflow::parse::load_workflow(&workflow_layout.changes_root.join(&change))
-        .ok_or_else(|| format!("change \"{change}\" 的 workflow.json 无法解析，无从编排"))?;
-    if phase_table(&workflow.workflow_type).is_none() {
+    if phase_table(&record.workflow_type).is_none() {
         return Err(format!(
             "仅支持 requirement 工作流（change \"{change}\" 的 workflow_type 为 \"{}\"）",
-            workflow.workflow_type
+            record.workflow_type
         ));
     }
     // 前置校验 3：无并行 run（begin_run 冲突检测）
@@ -96,8 +93,8 @@ pub(crate) async fn change_flow_start_with<R: tauri::Runtime>(
     let guard = control.begin_run(&change, run_id.clone())?;
 
     // 组合根装配（run 作用域一次）：组合 turn + 三 port + 快照源 + 事件桥
-    // + run 级会话锚点（每 run 一个实例，W7）
-    let stores = app.state::<WorkspaceStores>();
+    // + run 级会话锚点（每 run 一个实例，W7）+ store 缝（写面落库 / 快照
+    // db 读源共用 `for_root` 实例）
     let registry = Arc::clone(app.state::<Arc<StopRegistry>>().inner());
     let composed: ComposedTurn = compose_turn(stores.inner(), Arc::clone(&registry), &root, None)?;
     let sink: Arc<dyn RunEventSink> = Arc::new(ChangeFlowSink {
@@ -106,13 +103,17 @@ pub(crate) async fn change_flow_start_with<R: tauri::Runtime>(
     });
     let worker: Arc<dyn WorkerAgentPort> = Arc::new(KernelWorkerPort::new(composed, sink));
     let anchors = Arc::new(SessionAnchors::new());
+    let store_port: Arc<dyn ChangeStateStore> = store; // Arc<Store> → port 缝对象
     let tools: Arc<dyn ToolStepPort> = Arc::new(LocalToolSteps::new(
         Arc::clone(&anchors),
         Arc::new(ProcessStaticCheck::new()),
         Arc::new(ProcessTestExecution::new()),
+        Arc::clone(&store_port),
+        run_id.clone(),
     ));
     let diff: Arc<dyn DiffContextPort> = Arc::new(GitDiffSource::new());
-    let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(FsSnapshot::new(root.clone()));
+    let snapshot: Arc<dyn WorkflowSnapshotPort> =
+        Arc::new(StoreSnapshot::new(root.clone(), Arc::clone(&store_port)));
     let request = RunRequest {
         root,
         change: change.clone(),

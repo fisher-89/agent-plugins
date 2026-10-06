@@ -1,62 +1,214 @@
-use std::fs;
-use std::path::PathBuf;
+//! `write::phase_log` 的单元测试（test-design「phase_log.rs ->
+//! phase_log_test.rs」节）：落账写操作 port 落库——verdict 推导（空 checklist
+//! → pass）/ report ≤2000 / 表位 / active_phase 匹配校验前置保留（任一失败
+//! 零写命令下发），持久化经 [`ChangeStateStore::log_phase`]（PhaseLogCommand
+//! 逐字段捕获比对），`StoreFault::Conflict`（重复 attempt）传播，形状随行
+//!（skipped / 三会话槽位透传）。
+//!
+//! Mock策略（test-design 本节 Mock 表 = AC-2 七操作代表行）：进程内假件实现
+//! trait——捕获 PhaseLogCommand 逐字段比对 + 可编程 `StoreFault`；零残留原子
+//! 性证据归 store_test 真件节，本节不重复。
 
-use foundation::layout::resolve;
+use std::sync::Mutex;
 
 use super::phase_log::{phase_log, PhaseLogInput};
-use crate::model::ChecklistItem;
-use crate::parse::{parse_workflow_file, WorkflowFileParse};
+use crate::model::{ChecklistItem, Verdict};
+use crate::state::{
+    ActivePhaseState, BacktrackCommand, ChangeStateRecord, ChangeStateStore, ChangeStatus,
+    PhaseLogCommand, PhaseStateRecord, StepCommand, StepStateRecord, StoreFault,
+};
 
-/// 临时 workspace 根 RAII（沿 detail_test 装置先例）。
-struct TempWs(PathBuf);
+const CHANGE: &str = "demo-change";
 
-impl TempWs {
-    fn new(tag: &str) -> Self {
-        let dir = std::env::temp_dir().join(format!(
-            "workflow-phase-log-test-{}-{}",
-            std::process::id(),
-            tag
-        ));
-        let _ = fs::remove_dir_all(&dir);
-        Self(dir)
+/// 确定性时间戳基（UTC unix millis）。
+const T0: i64 = 1_727_000_000_000;
+
+/// 开相 active_phase 形态（dev-design，start_at 固定值供继承断言）。
+const ACTIVE_START_AT: i64 = 1_727_000_080_000;
+
+// ---------------------------------------------------------------------------
+// 假件 store：get_change 只读 + log_phase 捕获命令并镜像真件落库语义
+//（attempt = 该相位既有条目数 + 1、条目追加、active_phase 清位）。
+// ---------------------------------------------------------------------------
+
+struct LogStore {
+    record: Mutex<Option<ChangeStateRecord>>,
+    entries: Mutex<Vec<PhaseStateRecord>>,
+    /// 捕获的落账写命令（零写断言 + 逐字段比对观察面）。
+    commands: Mutex<Vec<PhaseLogCommand>>,
+    fault: Mutex<Option<StoreFault>>,
+}
+
+impl LogStore {
+    fn with_active_phase(active: Option<ActivePhaseState>) -> Self {
+        Self {
+            record: Mutex::new(Some(ChangeStateRecord {
+                name: CHANGE.to_owned(),
+                workflow_type: "requirement".to_owned(),
+                created_at: T0,
+                status: ChangeStatus::Active,
+                archived_at: None,
+                active_phase: active,
+            })),
+            entries: Mutex::new(Vec::new()),
+            commands: Mutex::new(Vec::new()),
+            fault: Mutex::new(None),
+        }
     }
 
-    fn change(&self, name: &str, workflow_json: impl AsRef<str>) {
-        let dir = self.0.join("openspec/changes").join(name);
-        fs::create_dir_all(&dir).expect("创建 change 目录失败");
-        fs::write(dir.join("workflow.json"), workflow_json.as_ref())
-            .expect("写 workflow.json 失败");
+    fn missing() -> Self {
+        Self {
+            record: Mutex::new(None),
+            entries: Mutex::new(Vec::new()),
+            commands: Mutex::new(Vec::new()),
+            fault: Mutex::new(None),
+        }
     }
 
-    fn workflow_json_bytes(&self, name: &str) -> Vec<u8> {
-        fs::read(
-            self.0
-                .join("openspec/changes")
-                .join(name)
-                .join("workflow.json"),
-        )
-        .expect("读 workflow.json 失败")
+    fn set_fault(&self, fault: StoreFault) {
+        *self.fault.lock().expect("故障锁不可中毒") = Some(fault);
     }
 
-    fn log(
+    /// 重开 dev-design 相位（落账清位后再次落账用例的开相步，镜像
+    /// start → 落账 → 再 start 节奏）。
+    fn reopen_active(&self) {
+        if let Some(record) = self.record.lock().expect("记录锁不可中毒").as_mut() {
+            record.active_phase = active_dev_design();
+        }
+    }
+
+    fn command_count(&self) -> usize {
+        self.commands.lock().expect("命令锁不可中毒").len()
+    }
+
+    fn last_command(&self) -> PhaseLogCommand {
+        self.commands
+            .lock()
+            .expect("命令锁不可中毒")
+            .last()
+            .expect("落账命令应在场")
+            .clone()
+    }
+
+    fn log(&self, input: &PhaseLogInput) -> Result<super::phase_log::PhaseLogOutcome, String> {
+        phase_log(self, CHANGE, input)
+    }
+}
+
+impl ChangeStateStore for LogStore {
+    fn get_change(&self, _name: &str) -> Result<Option<ChangeStateRecord>, StoreFault> {
+        Ok(self.record.lock().expect("记录锁不可中毒").clone())
+    }
+
+    fn list_change_records(&self) -> Result<Vec<ChangeStateRecord>, StoreFault> {
+        unimplemented!("本用例不可达")
+    }
+
+    fn list_phase_records(&self, _change: &str) -> Result<Vec<PhaseStateRecord>, StoreFault> {
+        Ok(self.entries.lock().expect("条目锁不可中毒").clone())
+    }
+
+    fn list_steps(
         &self,
-        name: &str,
-        input: &PhaseLogInput,
-    ) -> Result<super::phase_log::PhaseLogOutcome, String> {
-        let layout = resolve(&self.0);
-        phase_log(&layout, name, input)
+        _change: &str,
+        _run_id: Option<&str>,
+    ) -> Result<Vec<StepStateRecord>, StoreFault> {
+        unimplemented!("本用例不可达")
+    }
+
+    fn create_change_record(&self, _record: ChangeStateRecord) -> Result<(), StoreFault> {
+        unimplemented!("本用例不可达")
+    }
+
+    fn delete_change_record(&self, _name: &str) -> Result<bool, StoreFault> {
+        unimplemented!("本用例不可达")
+    }
+
+    fn start_phase(
+        &self,
+        _change: &str,
+        _phase: &str,
+        _now: i64,
+    ) -> Result<crate::state::PhaseStartState, StoreFault> {
+        unimplemented!("本用例不可达")
+    }
+
+    fn log_phase(&self, command: &PhaseLogCommand) -> Result<u32, StoreFault> {
+        if let Some(fault) = self.fault.lock().expect("故障锁不可中毒").clone() {
+            return Err(fault);
+        }
+        let attempt = self
+            .entries
+            .lock()
+            .expect("条目锁不可中毒")
+            .iter()
+            .filter(|entry| entry.phase == command.phase)
+            .count() as u32
+            + 1;
+        self.entries
+            .lock()
+            .expect("条目锁不可中毒")
+            .push(PhaseStateRecord {
+                id: i64::from(attempt),
+                change: command.change.clone(),
+                phase: command.phase.clone(),
+                attempt,
+                verdict: command.verdict,
+                report: command.report.clone(),
+                checklist: command.checklist.clone(),
+                skipped: command.skipped,
+                stale: false,
+                backtrack_to: None,
+                backtrack_reason: None,
+                executor_session_id: command.executor_session_id.clone(),
+                evaluator_session_id: command.evaluator_session_id.clone(),
+                decision_session_id: command.decision_session_id.clone(),
+                start_at: command.start_at,
+                timestamp: command.timestamp,
+            });
+        if let Some(record) = self.record.lock().expect("记录锁不可中毒").as_mut() {
+            record.active_phase = None; // 落账即收相位（开相才可落账）
+        }
+        self.commands
+            .lock()
+            .expect("命令锁不可中毒")
+            .push(command.clone());
+        Ok(attempt)
+    }
+
+    fn apply_backtrack(&self, _command: &BacktrackCommand) -> Result<(), StoreFault> {
+        unimplemented!("本用例不可达")
+    }
+
+    fn amend_decision_session(
+        &self,
+        _change: &str,
+        _phase: &str,
+        _session_id: &str,
+    ) -> Result<(), StoreFault> {
+        unimplemented!("本用例不可达")
+    }
+
+    fn set_archived(&self, _name: &str, _archived_at: i64) -> Result<(), StoreFault> {
+        unimplemented!("本用例不可达")
+    }
+
+    fn append_step(&self, _command: &StepCommand) -> Result<(), StoreFault> {
+        unimplemented!("本用例不可达")
     }
 }
 
-impl Drop for TempWs {
-    fn drop(&mut self) {
-        let _ = fs::remove_dir_all(&self.0);
-    }
-}
+// ---------------------------------------------------------------------------
+// 输入工厂
+// ---------------------------------------------------------------------------
 
-fn parse_of(ws: &TempWs, name: &str) -> serde_json::Value {
-    let text = String::from_utf8(ws.workflow_json_bytes(name)).expect("workflow.json 应为 UTF-8");
-    serde_json::from_str(&text).expect("写回应可再解析")
+/// dev-design 的 active_phase 开态（attempt 2、start_at 固定）。
+fn active_dev_design() -> Option<ActivePhaseState> {
+    Some(ActivePhaseState {
+        phase: "dev-design".to_owned(),
+        attempt: 2,
+        start_at: ACTIVE_START_AT,
+    })
 }
 
 /// pass checklist 行构造。
@@ -80,793 +232,358 @@ fn with_fail_item(mut items: Vec<ChecklistItem>) -> Vec<ChecklistItem> {
     items
 }
 
-/// 带 active_phase 的 workflow.json fixture。
-fn fixture_with_active_phase(eval: &str, active_phase: Option<&str>) -> String {
-    let active = active_phase.unwrap_or("null");
-    format!(
-        r#"{{
-  "workflow_type": "requirement",
-  "eval": [{eval}
-  ],
-  "active_phase": {active}
-}}"#
-    )
+/// 基础落账输入（dev-design、无槽位）。
+fn base_input() -> PhaseLogInput {
+    PhaseLogInput {
+        phase: "dev-design".to_owned(),
+        report: "设计与任务拆解齐备".to_owned(),
+        checklist: pass_items(2),
+        skipped: false,
+        executor_session_id: None,
+        evaluator_session_id: None,
+        decision_session_id: None,
+    }
 }
 
-/// dev-design 的 active_phase fixture（start_at 在场供继承断言）。
-const ACTIVE_DEV_DESIGN: &str =
-    r#"{ "phase": "dev-design", "attempt": 2, "start_at": "2026-10-01T08:15:00Z" }"#;
-
-/// test-gen 的 active_phase fixture（skipped 形态用例的开相前置）。
-const ACTIVE_TEST_GEN: &str =
-    r#"{ "phase": "test-gen", "attempt": 1, "start_at": "2026-10-01T09:00:00Z" }"#;
-
-/// proposal 的 active_phase fixture（保形用例的开相前置）。
-const ACTIVE_PROPOSAL: &str =
-    r#"{ "phase": "proposal", "attempt": 1, "start_at": "2026-10-01T07:30:00Z" }"#;
-
-const CHANGE: &str = "demo-change";
+/// 当前 UTC unix 毫秒（timestamp 上界断言用；不与 wall-clock 比等值）。
+fn now_upper() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_millis() as i64)
+        .unwrap_or(i64::MAX)
+}
 
 // ---------------------------------------------------------------------------
-// 正向：pass / fail 落账、W9 纯追加回归
+// 正向：pass / fail 落账（命令逐字段 + active_phase 清位）
 // ---------------------------------------------------------------------------
 
-/// phase_log pass 落账：checklist 全 pass → eval 追加条目 verdict=pass、
-/// phase/attempt/checklist/skipped/start_at 齐全（start_at 自 active_phase
-/// 继承）、落账后 active_phase 清除。
+/// checklist 全 pass → verdict=pass；PhaseLogCommand 逐字段与输入一致
+///（start_at 自匹配 active_phase 继承、timestamp 写面铸出），outcome.phase /
+/// attempt 与命令一致，落账后 active_phase 清位。
 #[test]
-fn pass落账条目齐全且active_phase清除() {
-    let ws = TempWs::new("pass-log");
-    ws.change(
-        CHANGE,
-        fixture_with_active_phase("", Some(ACTIVE_DEV_DESIGN)),
-    );
+fn pass落账_command逐字段一致且active_phase清位() {
+    let fake = LogStore::with_active_phase(active_dev_design());
+    let before = now_upper();
 
-    let outcome = ws
-        .log(
-            CHANGE,
-            &PhaseLogInput {
-                phase: "dev-design".to_owned(),
-                report: "设计与任务拆解齐备".to_owned(),
-                checklist: pass_items(2),
-                skipped: false,
-                executor_session_id: None,
-                evaluator_session_id: None,
-                decision_session_id: None,
-            },
-        )
+    let outcome = fake
+        .log(&PhaseLogInput {
+            executor_session_id: Some("ses-exec-1".to_owned()),
+            evaluator_session_id: Some("ses-eval-1".to_owned()),
+            ..base_input()
+        })
         .expect("落账应成功");
 
+    let after = now_upper();
     assert_eq!(outcome.phase, "dev-design");
     assert_eq!(outcome.attempt, 1, "无既有条目 → attempt 1");
 
-    let doc = parse_of(&ws, CHANGE);
-    let entry = &doc["eval"][0];
-    assert_eq!(entry["phase"], serde_json::json!("dev-design"));
-    assert_eq!(entry["attempt"], serde_json::json!(1));
+    let command = fake.last_command();
+    assert_eq!(command.change, CHANGE);
+    assert_eq!(command.phase, "dev-design");
+    assert_eq!(command.verdict, Verdict::Pass, "checklist 全 pass → pass");
+    assert_eq!(command.report, "设计与任务拆解齐备");
+    assert_eq!(command.checklist, pass_items(2), "checklist 逐项透传");
+    assert!(!command.skipped);
     assert_eq!(
-        entry["verdict"],
-        serde_json::json!("pass"),
-        "checklist 全 pass → pass"
+        command.executor_session_id.as_deref(),
+        Some("ses-exec-1"),
+        "会话槽位逐字透传"
     );
-    assert_eq!(entry["report"], serde_json::json!("设计与任务拆解齐备"));
-    assert_eq!(entry["checklist"].as_array().map(Vec::len), Some(2));
-    assert!(
-        entry.get("skipped").is_none(),
-        "skipped=false 不落扩展字段（与插件 buildEntry 同形态——仅显式在位时写入）"
+    assert_eq!(command.evaluator_session_id.as_deref(), Some("ses-eval-1"));
+    assert_eq!(
+        command.decision_session_id, None,
+        "decision 槽位不走本输入，恒 None"
     );
     assert_eq!(
-        entry["start_at"],
-        serde_json::json!("2026-10-01T08:15:00Z"),
+        command.start_at,
+        Some(ACTIVE_START_AT),
         "start_at 自匹配的 active_phase 继承"
     );
     assert!(
-        entry["timestamp"]
-            .as_str()
-            .expect("timestamp 在场")
-            .starts_with("20"),
-        "timestamp 以 ISO 串落盘"
+        command.timestamp >= before && command.timestamp <= after,
+        "timestamp 写面铸出（边界内 i64 millis），实际: {}",
+        command.timestamp
     );
-    // 落账后 active_phase 清除（匹配才清）
-    assert!(doc["active_phase"].is_null(), "落账后 active_phase 清除");
+
+    // 假件落库侧：active_phase 清位（匹配才清）
+    let record = fake
+        .get_change(CHANGE)
+        .expect("假件读半边应可用")
+        .expect("建档记录应在场");
+    assert!(record.active_phase.is_none(), "落账后 active_phase 清除");
+    let entries = fake
+        .list_phase_records(CHANGE)
+        .expect("假件读半边应可用");
+    assert_eq!(entries.len(), 1, "落账追加一条评估条目");
 }
 
-/// phase_log fail 落账：checklist 含 fail 项 → verdict=fail 条目追加（进重试
-/// / 决策分叉的输入面——AC-4 升格代写形态同通道）。
+/// 含 fail 项 → verdict=fail（verdict 推导前置保留；进重试 / 决策分叉的
+/// 输入面）。
 #[test]
 fn fail落账verdict推导为fail() {
-    let ws = TempWs::new("fail-log");
-    ws.change(
-        CHANGE,
-        fixture_with_active_phase("", Some(ACTIVE_DEV_DESIGN)),
-    );
+    let fake = LogStore::with_active_phase(active_dev_design());
 
-    let outcome = ws
-        .log(
-            CHANGE,
-            &PhaseLogInput {
-                phase: "dev-design".to_owned(),
-                report: "首轮未过".to_owned(),
-                checklist: with_fail_item(pass_items(1)),
-                skipped: false,
-                executor_session_id: None,
-                evaluator_session_id: None,
-                decision_session_id: None,
-            },
-        )
+    let outcome = fake
+        .log(&PhaseLogInput {
+            report: "首轮未过".to_owned(),
+            checklist: with_fail_item(pass_items(1)),
+            ..base_input()
+        })
         .expect("落账应成功");
 
     assert_eq!(outcome.attempt, 1);
-    let entry = &parse_of(&ws, CHANGE)["eval"][0];
-    assert_eq!(entry["verdict"], serde_json::json!("fail"));
-    assert_eq!(entry["checklist"][1]["pass"], serde_json::json!(false));
-    assert_eq!(
-        entry["checklist"][1]["evidence"],
-        serde_json::json!("缺 renderers 职责")
-    );
+    let command = fake.last_command();
+    assert_eq!(command.verdict, Verdict::Fail, "含 fail 项 → fail");
+    assert_eq!(command.checklist.len(), 2);
+    assert!(!command.checklist[1].pass);
+    assert_eq!(command.checklist[1].evidence, "缺 renderers 职责");
 }
 
-/// 纯追加缺陷回归（W9）：backtrack 回跳后同相位重评——既有 pass 条目在场仍
-/// 追加新条目、attempt=该相位既有条目数+1，不因「相位已存在 pass 条目」短路
-/// 跳过（AC-9 缺陷不复发的主回归行）。
+/// checklist 空 vec → verdict 推导 pass（与插件 resolveVerdict 的 every 语义
+/// 一致——空集全真）。
 #[test]
-fn 纯追加回归_既有pass条目在场仍追加新条目() {
-    // backtrack 后形态 fixture：proposal pass 在场 + dev-design 曾 pass 但被
-    // backtrack 标 stale（回跳重评场景）
-    let ws = TempWs::new("append-only");
-    ws.change(
-        CHANGE,
-        fixture_with_active_phase(
-            r#"
-    { "phase": "proposal", "attempt": 1, "verdict": "pass", "report": "提案通过", "checklist": [], "timestamp": "2026-10-01T08:00:00Z" },
-    { "phase": "dev-design", "attempt": 1, "verdict": "pass", "report": "首轮已过", "checklist": [], "stale": true, "backtrack_to": "dev-design", "backtrack_reason": "缺产物区组件", "timestamp": "2026-10-01T08:10:00Z" },
-    { "phase": "dev-design", "attempt": 2, "verdict": "fail", "report": "重评未过", "checklist": [], "timestamp": "2026-10-01T08:20:00Z" }"#,
-            Some(ACTIVE_DEV_DESIGN),
-        ),
-    );
+fn checklist空vec_verdict推导为pass() {
+    let fake = LogStore::with_active_phase(active_dev_design());
 
-    let outcome = ws
-        .log(
-            CHANGE,
-            &PhaseLogInput {
-                phase: "dev-design".to_owned(),
-                report: "回跳后重评通过".to_owned(),
-                checklist: pass_items(2),
-                skipped: false,
-                executor_session_id: None,
-                evaluator_session_id: None,
-                decision_session_id: None,
-            },
-        )
-        .expect("回跳后重评应照常落账");
+    fake.log(&PhaseLogInput {
+        checklist: Vec::new(),
+        ..base_input()
+    })
+    .expect("空 checklist 落账应成功");
 
-    assert_eq!(outcome.attempt, 3, "attempt = 该相位既有条目数 2 + 1");
-
-    let doc = parse_of(&ws, CHANGE);
-    assert_eq!(
-        doc["eval"].as_array().map(Vec::len),
-        Some(4),
-        "纯追加：既有 3 条 + 新 1 条（不短路跳过、不覆盖历史）"
-    );
-    let fresh = &doc["eval"][3];
-    assert_eq!(fresh["report"], serde_json::json!("回跳后重评通过"));
-    assert_eq!(fresh["verdict"], serde_json::json!("pass"));
-    assert_eq!(fresh["attempt"], serde_json::json!(3));
-    // 历史条目原样
-    assert_eq!(doc["eval"][1]["report"], serde_json::json!("首轮已过"));
-    assert_eq!(doc["eval"][1]["stale"], serde_json::json!(true));
-}
-
-/// attempt 推导含历史条目：同相位既有条目含 stale / pass / fail 混合历史 →
-/// attempt 计数含全部历史条目 +1（不挑食）。
-#[test]
-fn attempt推导含stale_pass_fail混合历史() {
-    let ws = TempWs::new("attempt-history");
-    ws.change(
-        CHANGE,
-        fixture_with_active_phase(
-            r#"
-    { "phase": "dev-design", "attempt": 1, "verdict": "fail", "report": "一", "checklist": [] },
-    { "phase": "dev-design", "attempt": 2, "verdict": "pass", "report": "二", "checklist": [], "stale": true },
-    { "phase": "dev-design", "attempt": 3, "verdict": "fail", "report": "三", "checklist": [] }"#,
-            Some(ACTIVE_DEV_DESIGN),
-        ),
-    );
-
-    let outcome = ws
-        .log(
-            CHANGE,
-            &PhaseLogInput {
-                phase: "dev-design".to_owned(),
-                report: "第四轮".to_owned(),
-                checklist: pass_items(1),
-                skipped: false,
-                executor_session_id: None,
-                evaluator_session_id: None,
-                decision_session_id: None,
-            },
-        )
-        .expect("落账应成功");
-
-    assert_eq!(
-        outcome.attempt, 4,
-        "stale/pass/fail 混合历史全数 +1（不挑食）"
-    );
+    assert_eq!(fake.last_command().verdict, Verdict::Pass);
 }
 
 // ---------------------------------------------------------------------------
-// 边界：report 2000 端点 / skipped 形态 / 保形与 file_log 零触碰
+// 异常：校验前置保留（零写命令下发）
 // ---------------------------------------------------------------------------
 
-// ---------------------------------------------------------------------------
-// 异常：开相前置（无 active_phase / 停留他相）/ 表外相位
-// ---------------------------------------------------------------------------
-
-/// report 恰 2000 字符 → 落账成功（≤2000 边界含端点）。
+/// report 超 2000 字符 → `Err` 且零写命令下发（长度校验保留）。
 #[test]
-fn report恰2000字符落账成功() {
-    let ws = TempWs::new("report-2000");
-    ws.change(
-        CHANGE,
-        fixture_with_active_phase("", Some(ACTIVE_DEV_DESIGN)),
-    );
+fn report超长2001拒绝且零写命令() {
+    let fake = LogStore::with_active_phase(active_dev_design());
 
-    let report = "评".repeat(2000);
-    let outcome = ws
-        .log(
-            CHANGE,
-            &PhaseLogInput {
-                phase: "dev-design".to_owned(),
-                report,
-                checklist: pass_items(1),
-                skipped: false,
-                executor_session_id: None,
-                evaluator_session_id: None,
-                decision_session_id: None,
-            },
-        )
-        .expect("恰 2000 字符应落账成功（边界含端点）");
-    assert_eq!(outcome.attempt, 1);
-    assert_eq!(
-        parse_of(&ws, CHANGE)["eval"][0]["report"]
-            .as_str()
-            .expect("report 在场")
-            .chars()
-            .count(),
-        2000
-    );
-}
-
-/// report 超长拒绝：2001 字符 → Err 且 eval 零新增。
-#[test]
-fn report超长2001拒绝且eval零新增() {
-    let ws = TempWs::new("report-2001");
-    ws.change(
-        CHANGE,
-        fixture_with_active_phase("", Some(ACTIVE_DEV_DESIGN)),
-    );
-    let before = ws.workflow_json_bytes(CHANGE);
-
-    let err = ws
-        .log(
-            CHANGE,
-            &PhaseLogInput {
-                phase: "dev-design".to_owned(),
-                report: "评".repeat(2001),
-                checklist: pass_items(1),
-                skipped: false,
-                executor_session_id: None,
-                evaluator_session_id: None,
-                decision_session_id: None,
-            },
-        )
+    let err = fake
+        .log(&PhaseLogInput {
+            report: "评".repeat(2001),
+            ..base_input()
+        })
         .expect_err("2001 字符应 Err");
 
     assert!(
         err.contains("2000") && err.contains("2001"),
         "错误携带上限与实际值，实际: {err}"
     );
-    assert_eq!(
-        ws.workflow_json_bytes(CHANGE),
-        before,
-        "拒绝零写入（eval 零新增）"
-    );
+    assert_eq!(fake.command_count(), 0, "校验前置：零写命令下发");
 }
 
-/// skipped 形态：skipped=true（约束：verdict 必须 pass）落账形态——all-pass
-/// 清单约束校验不误拒、`skipped: true` 字段落盘；fail 清单配 skipped=true 仍
-/// 被约束显式拒绝（约束的另一面）。
+/// report 恰 2000 字符 → 通过（chars().count() 口径边界含端点）。
 #[test]
-fn skipped形态落盘且约束两面各就位() {
-    // 合法形态：skipped=true + 全 pass 清单
-    let ws = TempWs::new("skipped-ok");
-    ws.change(CHANGE, fixture_with_active_phase("", Some(ACTIVE_TEST_GEN)));
-    let outcome = ws
-        .log(
-            CHANGE,
-            &PhaseLogInput {
-                phase: "test-gen".to_owned(),
-                report: "相位跳过".to_owned(),
-                checklist: pass_items(1),
-                skipped: true,
-                executor_session_id: None,
-                evaluator_session_id: None,
-                decision_session_id: None,
-            },
-        )
-        .expect("skipped=true 配 pass 清单不误拒");
-    let entry = &parse_of(&ws, CHANGE)["eval"][0];
-    assert_eq!(entry["verdict"], serde_json::json!("pass"));
-    assert_eq!(
-        entry["skipped"],
-        serde_json::json!(true),
-        "skipped 字段落盘"
-    );
-    let _ = outcome;
+fn report恰2000字符落账成功() {
+    let fake = LogStore::with_active_phase(active_dev_design());
 
-    // 约束另一面：skipped=true + 含 fail 项 → Err 零写入
-    let ws_fail = TempWs::new("skipped-fail");
-    ws_fail.change(CHANGE, fixture_with_active_phase("", Some(ACTIVE_TEST_GEN)));
-    let before = ws_fail.workflow_json_bytes(CHANGE);
-    let err = ws_fail
-        .log(
-            CHANGE,
-            &PhaseLogInput {
-                phase: "test-gen".to_owned(),
-                report: "跳过但清单未过".to_owned(),
-                checklist: with_fail_item(Vec::new()),
-                skipped: true,
-                executor_session_id: None,
-                evaluator_session_id: None,
-                decision_session_id: None,
-            },
-        )
-        .expect_err("skipped=true 配 fail 清单应 Err");
-    assert!(
-        err.contains("pass") && err.contains("fail"),
-        "约束记因，实际: {err}"
-    );
-    assert_eq!(
-        ws_fail.workflow_json_bytes(CHANGE),
-        before,
-        "约束拒绝零写入"
-    );
+    let outcome = fake
+        .log(&PhaseLogInput {
+            report: "评".repeat(2000),
+            ..base_input()
+        })
+        .expect("恰 2000 字符应落账成功（边界含端点）");
+
+    assert_eq!(outcome.attempt, 1);
+    assert_eq!(fake.last_command().report.chars().count(), 2000);
 }
 
-/// phase_log 保形与 file_log 零触碰：未知字段保形 + file_log 逐字节不变 +
-/// pretty 写回可再读（W2/W3/AC-3 口径）。
-#[test]
-fn 落账保形_file_log零触碰_pretty可再读() {
-    let ws = TempWs::new("preserve-and-filelog");
-    ws.change(
-        CHANGE,
-        r#"{
-  "workflow_type": "requirement",
-  "created": "2026-03-03",
-  "custom_note": "保留我",
-  "file_log": [
-    { "op": "write", "scope": "workflow", "attempt": 1, "path": "a.md", "at": "2026-10-01T07:00:00Z" }
-  ],
-  "eval": [],
-  "active_phase": { "phase": "proposal", "attempt": 1, "start_at": "2026-10-01T07:30:00Z" }
-}"#,
-    );
-    let before_file_log = parse_of(&ws, CHANGE)["file_log"].clone();
-
-    ws.log(
-        CHANGE,
-        &PhaseLogInput {
-            phase: "proposal".to_owned(),
-            report: "通过".to_owned(),
-            checklist: pass_items(1),
-            skipped: false,
-            executor_session_id: None,
-            evaluator_session_id: None,
-            decision_session_id: None,
-        },
-    )
-    .expect("落账应成功");
-
-    let doc = parse_of(&ws, CHANGE);
-    assert_eq!(
-        doc["custom_note"],
-        serde_json::json!("保留我"),
-        "未知字段保形"
-    );
-    assert_eq!(doc["created"], serde_json::json!("2026-03-03"));
-    assert_eq!(
-        doc["file_log"], before_file_log,
-        "file_log 逐字节不变（desktop run 零 file_log 新增——AC-3）"
-    );
-
-    // pretty 写回可再读：2 空格缩进 + 尾换行
-    let text = String::from_utf8(ws.workflow_json_bytes(CHANGE)).expect("UTF-8");
-    assert!(
-        text.contains("\n  \"") && text.ends_with('\n'),
-        "pretty 形态"
-    );
-    serde_json::from_str::<serde_json::Value>(&text).expect("写回应可再解析");
-}
-
-/// 无 active_phase 的落账拒绝
+/// active_phase 缺失 → `Err` 且零写（开相前置保留在 core，不在 store）。
 #[test]
 fn 无active_phase落账显式拒绝零写入() {
-    let ws = TempWs::new("no-active");
-    ws.change(CHANGE, fixture_with_active_phase("", None));
-    let before = ws.workflow_json_bytes(CHANGE);
+    let fake = LogStore::with_active_phase(None);
 
-    let err = ws
-        .log(
-            CHANGE,
-            &PhaseLogInput {
-                phase: "dev-design".to_owned(),
-                report: "无运行态落账".to_owned(),
-                checklist: pass_items(1),
-                skipped: false,
-                executor_session_id: None,
-                evaluator_session_id: None,
-                decision_session_id: None,
-            },
-        )
-        .expect_err("无 active_phase 应 Err（开相前置）");
+    let err = fake.log(&base_input()).expect_err("无 active_phase 应 Err");
 
     assert!(
         err.contains("dev-design") && err.contains("active_phase"),
         "错误记因相位与开相前置，实际: {err}"
     );
-    assert_eq!(ws.workflow_json_bytes(CHANGE), before, "拒绝零写入");
+    assert_eq!(fake.command_count(), 0, "零写命令");
 }
 
-/// active_phase 停留他相的落账拒绝：跨相落账显式 Err（开相前置的另一面——
-/// 只认匹配相位的开态，不静默按非匹配 active_phase 落账）。
+/// active_phase 停留他相 → 跨相落账显式 `Err` 且零写。
 #[test]
 fn active_phase停留他相落账拒绝零写入() {
-    let ws = TempWs::new("stale-active");
-    ws.change(CHANGE, fixture_with_active_phase("", Some(ACTIVE_PROPOSAL)));
-    let before = ws.workflow_json_bytes(CHANGE);
+    let fake = LogStore::with_active_phase(Some(ActivePhaseState {
+        phase: "proposal".to_owned(),
+        attempt: 1,
+        start_at: ACTIVE_START_AT,
+    }));
 
-    let err = ws
-        .log(
-            CHANGE,
-            &PhaseLogInput {
-                phase: "dev-design".to_owned(),
-                report: "跨相落账".to_owned(),
-                checklist: pass_items(1),
-                skipped: false,
-                executor_session_id: None,
-                evaluator_session_id: None,
-                decision_session_id: None,
-            },
-        )
-        .expect_err("active_phase 停留 proposal 时落 dev-design 应 Err");
+    let err = fake.log(&base_input()).expect_err("跨相落账应 Err");
 
     assert!(
         err.contains("proposal") && err.contains("dev-design"),
         "错误记因停留相位与目标相位，实际: {err}"
     );
-    assert_eq!(ws.workflow_json_bytes(CHANGE), before, "拒绝零写入");
+    assert_eq!(fake.command_count(), 0, "零写命令");
 }
 
-/// 非法相位拒绝：相位不在 requirement 表 → Err 且零写入（表位前置在开相
-/// 前置之前——表外相位不进开相比对）。
+/// 相位不在 requirement 表 → `Err` 且零写（表位前置在开相比对之前）。
 #[test]
-fn 非法相位落账拒绝零写入() {
-    let ws = TempWs::new("off-table-phase");
-    ws.change(
-        CHANGE,
-        fixture_with_active_phase("", Some(ACTIVE_DEV_DESIGN)),
-    );
-    let before = ws.workflow_json_bytes(CHANGE);
+fn 表外相位落账拒绝零写入() {
+    let fake = LogStore::with_active_phase(active_dev_design());
 
-    let err = ws
-        .log(
-            CHANGE,
-            &PhaseLogInput {
-                phase: "不存在的相位".to_owned(),
-                report: "表外相位".to_owned(),
-                checklist: pass_items(1),
-                skipped: false,
-                executor_session_id: None,
-                evaluator_session_id: None,
-                decision_session_id: None,
-            },
-        )
+    let err = fake
+        .log(&PhaseLogInput {
+            phase: "幽灵相位".to_owned(),
+            ..base_input()
+        })
         .expect_err("表外相位应 Err");
 
     assert!(
-        err.contains("不存在的相位") && err.contains("不包含"),
+        err.contains("幽灵相位") && err.contains("不包含"),
         "错误记因表位缺失，实际: {err}"
     );
-    assert_eq!(ws.workflow_json_bytes(CHANGE), before, "拒绝零写入");
+    assert_eq!(fake.command_count(), 0, "零写命令");
 }
 
-// ---------------------------------------------------------------------------
-// 异常：workflow_type 非 requirement / change 不存在
-// ---------------------------------------------------------------------------
-
+/// skipped 约束两面：skipped=true 配全 pass 清单放行且 skipped 透传落库；
+/// skipped=true 配 fail 清单显式 `Err` 零写。
 #[test]
-fn workflow_type非requirement拒绝零写入() {
-    let ws = TempWs::new("bad-type");
-    ws.change(CHANGE, r#"{ "workflow_type": "refactor", "eval": [] }"#);
-    let before = ws.workflow_json_bytes(CHANGE);
-
-    let err = ws
-        .log(
-            CHANGE,
-            &PhaseLogInput {
-                phase: "proposal".to_owned(),
-                report: "任意".to_owned(),
-                checklist: pass_items(1),
-                skipped: false,
-                executor_session_id: None,
-                evaluator_session_id: None,
-                decision_session_id: None,
-            },
-        )
-        .expect_err("非 requirement 应 Err");
-    assert!(err.contains("refactor"), "W8 分层出口记因，实际: {err}");
-    assert_eq!(ws.workflow_json_bytes(CHANGE), before, "拒绝零写入");
-}
-
-#[test]
-fn change不存在显式err() {
-    let ws = TempWs::new("missing-change");
-
-    let err = ws
-        .log(
-            "不存在的-change",
-            &PhaseLogInput {
-                phase: "proposal".to_owned(),
-                report: "任意".to_owned(),
-                checklist: pass_items(1),
-                skipped: false,
-                executor_session_id: None,
-                evaluator_session_id: None,
-                decision_session_id: None,
-            },
-        )
-        .expect_err("未知 change 应 Err");
-    assert!(!err.is_empty(), "Err 显式，实际: {err}");
-}
-
-// ---------------------------------------------------------------------------
-// 会话槽位显式在位落账（AC-4）：仅 Some 槽位以 raw snake_case 键 insert，
-// 缺省槽位不产生键；宽松解析面读回逐字还原
-// ---------------------------------------------------------------------------
-
-/// 双槽位（executor + evaluator，decision None）落账：两 raw 键在场、值逐字
-/// 透传（写面不解释不改写），`decision_session_id` 键不在场。
-#[test]
-fn 双槽位显式在位落账_raw键逐字透传且decision键不在场() {
-    let ws = TempWs::new("slots-dual");
-    ws.change(
-        CHANGE,
-        fixture_with_active_phase("", Some(ACTIVE_DEV_DESIGN)),
-    );
-
-    ws.log(
-        CHANGE,
-        &PhaseLogInput {
-            phase: "dev-design".to_owned(),
-            report: "双槽位落账".to_owned(),
+fn skipped约束两面各就位() {
+    // 合法形态：skipped=true + 全 pass 清单
+    let fake = LogStore::with_active_phase(Some(ActivePhaseState {
+        phase: "test-gen".to_owned(),
+        attempt: 1,
+        start_at: ACTIVE_START_AT,
+    }));
+    let outcome = fake
+        .log(&PhaseLogInput {
+            phase: "test-gen".to_owned(),
+            report: "相位跳过".to_owned(),
             checklist: pass_items(1),
-            skipped: false,
-            executor_session_id: Some("ses-exec-1".to_owned()),
-            evaluator_session_id: Some("ses-eval-1".to_owned()),
-            decision_session_id: None,
-        },
-    )
-    .expect("落账应成功");
-
-    let entry = &parse_of(&ws, CHANGE)["eval"][0];
-    assert_eq!(
-        entry["executor_session_id"],
-        serde_json::json!("ses-exec-1"),
-        "raw snake_case 键、值逐字透传"
-    );
-    assert_eq!(
-        entry["evaluator_session_id"],
-        serde_json::json!("ses-eval-1")
-    );
-    assert!(
-        entry.get("decision_session_id").is_none(),
-        "decision 槽位不走本输入（归 decision_log 单点挂账），缺省不产生键"
-    );
-}
-
-/// 仅 executor 槽位（static-check 升格 fail 形态）：仅 `executor_session_id`
-/// 单键在场，其余两键不产生。
-#[test]
-fn 仅executor槽位落账单键在场() {
-    let ws = TempWs::new("slot-executor-only");
-    ws.change(
-        CHANGE,
-        fixture_with_active_phase("", Some(ACTIVE_DEV_DESIGN)),
-    );
-
-    ws.log(
-        CHANGE,
-        &PhaseLogInput {
-            phase: "dev-design".to_owned(),
-            report: "升格 fail".to_owned(),
-            checklist: with_fail_item(Vec::new()),
-            skipped: false,
-            executor_session_id: Some("ses-exec-2".to_owned()),
-            evaluator_session_id: None,
-            decision_session_id: None,
-        },
-    )
-    .expect("落账应成功");
-
-    let entry = &parse_of(&ws, CHANGE)["eval"][0];
-    assert_eq!(entry["verdict"], serde_json::json!("fail"));
-    assert_eq!(
-        entry["executor_session_id"],
-        serde_json::json!("ses-exec-2"),
-        "仅 executor 单键在场"
-    );
-    assert!(entry.get("evaluator_session_id").is_none());
-    assert!(entry.get("decision_session_id").is_none());
-}
-
-/// 三槽位全 None：条目形状与既有形态逐字段一致（零新键——显式在位纪律使
-/// 「缺省槽位条目与既有形态一致」静态保证）。
-#[test]
-fn 三槽位全none落账零新键_条目形状与既有形态一致() {
-    let ws = TempWs::new("slots-none");
-    ws.change(
-        CHANGE,
-        fixture_with_active_phase("", Some(ACTIVE_DEV_DESIGN)),
-    );
-
-    ws.log(
-        CHANGE,
-        &PhaseLogInput {
-            phase: "dev-design".to_owned(),
-            report: "无槽位形态".to_owned(),
-            checklist: pass_items(1),
-            skipped: false,
+            skipped: true,
             executor_session_id: None,
             evaluator_session_id: None,
             decision_session_id: None,
-        },
-    )
-    .expect("落账应成功");
+        })
+        .expect("skipped=true 配 pass 清单不误拒");
+    assert_eq!(outcome.phase, "test-gen");
+    let command = fake.last_command();
+    assert!(command.skipped, "skipped 透传落库");
+    assert_eq!(command.verdict, Verdict::Pass);
 
-    let entry = &parse_of(&ws, CHANGE)["eval"][0];
-    let keys: Vec<&str> = entry
-        .as_object()
-        .expect("条目对象")
-        .keys()
-        .map(String::as_str)
-        .collect();
-    for key in &keys {
-        assert!(
-            !key.ends_with("_session_id"),
-            "零会话槽位新键，实际含: {key}"
-        );
-    }
-    // 条目形状与既有形态一致（phase / attempt / verdict / report / checklist /
-    // timestamp / start_at 七键）
-    assert_eq!(keys.len(), 7, "条目键集与既有形态一致: {keys:?}");
-}
-
-/// 旧 workflow.json（eval 条目无槽位键）在场时落新条目：全文件经宽松解析不
-/// 报错（`PhaseLog` `#[serde(default)]` 读兼容——旧条目槽位字段 None）；旧
-/// 条目原样、未知字段保形、file_log 零触碰。
-#[test]
-fn 旧workflow无槽位键条目在场落新条目宽松解析不报错() {
-    let ws = TempWs::new("legacy-compat");
-    ws.change(
-        CHANGE,
-        r#"{
-  "workflow_type": "requirement",
-  "created": "2026-03-03",
-  "custom_note": "保留我",
-  "file_log": [
-    { "op": "write", "scope": "workflow", "path": "a.md", "at": "2026-10-01T07:00:00Z" }
-  ],
-  "eval": [
-    { "phase": "proposal", "attempt": 1, "verdict": "pass", "report": "旧形态条目", "checklist": [], "timestamp": "2026-10-01T08:00:00Z" }
-  ],
-  "active_phase": { "phase": "dev-design", "attempt": 1, "start_at": "2026-10-01T08:15:00Z" }
-}"#,
-    );
-
-    ws.log(
-        CHANGE,
-        &PhaseLogInput {
-            phase: "dev-design".to_owned(),
-            report: "新条目携槽位".to_owned(),
-            checklist: pass_items(1),
-            skipped: false,
-            executor_session_id: Some("ses-exec-3".to_owned()),
-            evaluator_session_id: Some("ses-eval-3".to_owned()),
+    // 约束另一面：skipped=true + 含 fail 项 → Err 零写
+    let fake_fail = LogStore::with_active_phase(Some(ActivePhaseState {
+        phase: "test-gen".to_owned(),
+        attempt: 1,
+        start_at: ACTIVE_START_AT,
+    }));
+    let err = fake_fail
+        .log(&PhaseLogInput {
+            phase: "test-gen".to_owned(),
+            report: "跳过但清单未过".to_owned(),
+            checklist: with_fail_item(Vec::new()),
+            skipped: true,
+            executor_session_id: None,
+            evaluator_session_id: None,
             decision_session_id: None,
-        },
-    )
-    .expect("旧文件在场落新条目应成功");
-
-    let doc = parse_of(&ws, CHANGE);
-    assert_eq!(doc["eval"].as_array().map(Vec::len), Some(2), "纯追加");
-    // 旧条目原样（无槽位键、未知字段保留）
-    assert_eq!(doc["eval"][0]["report"], serde_json::json!("旧形态条目"));
-    assert!(doc["eval"][0].get("executor_session_id").is_none());
-    assert_eq!(doc["custom_note"], serde_json::json!("保留我"));
-    assert_eq!(doc["file_log"].as_array().map(Vec::len), Some(1));
-
-    // 全文件经宽松解析面读回不报错：旧条目槽位字段 None
-    let path =
-        ws.0.join("openspec/changes")
-            .join(CHANGE)
-            .join("workflow.json");
-    let typed = match parse_workflow_file(&path) {
-        WorkflowFileParse::Parsed(workflow) => workflow,
-        WorkflowFileParse::Unparsable { reason } => {
-            panic!("旧文件落新条目后应可宽松解析: {reason}")
-        }
-    };
-    assert_eq!(typed.eval.len(), 2);
-    assert_eq!(
-        typed.eval[0].executor_session_id, None,
-        "旧条目槽位字段 None（#[serde(default)] 读兼容）"
+        })
+        .expect_err("skipped=true 配 fail 清单应 Err");
+    assert!(
+        err.contains("pass") && err.contains("fail"),
+        "约束记因，实际: {err}"
     );
-    assert_eq!(typed.eval[0].evaluator_session_id, None);
-    assert_eq!(typed.eval[0].decision_session_id, None);
-    assert_eq!(
-        typed.eval[1].executor_session_id.as_deref(),
-        Some("ses-exec-3"),
-        "新条目槽位承接"
-    );
+    assert_eq!(fake_fail.command_count(), 0, "约束拒绝零写命令");
 }
 
-/// 落账产物经宽松解析面（`workflow::parse::parse_workflow_file`）读回：三槽
-/// 位值逐字还原（alias 承接 snake_case 磁盘键——「serde 写出仍可被插件解析
-/// 面读取」的 desktop 侧机械证明）。
+/// workflow_type 非 requirement → Err 且零写（W8 分层出口）。
 #[test]
-fn 落账产物经宽松解析面读回三槽位值逐字还原() {
-    let ws = TempWs::new("slots-roundtrip");
-    ws.change(
-        CHANGE,
-        fixture_with_active_phase("", Some(ACTIVE_DEV_DESIGN)),
-    );
+fn workflow_type非requirement拒绝零写入() {
+    let missing_active = LogStore::with_active_phase(None);
+    if let Some(record) = missing_active.record.lock().expect("记录锁").as_mut() {
+        record.workflow_type = "refactor".to_owned();
+    }
 
-    ws.log(
-        CHANGE,
-        &PhaseLogInput {
-            phase: "dev-design".to_owned(),
-            report: "三槽位往返".to_owned(),
-            checklist: pass_items(1),
-            skipped: false,
-            executor_session_id: Some("ses-1-1727000000001".to_owned()),
-            evaluator_session_id: Some("ses-2-1727000000002".to_owned()),
-            decision_session_id: Some("ses-3-1727000000003".to_owned()),
-        },
-    )
-    .expect("落账应成功");
+    let err = missing_active
+        .log(&PhaseLogInput {
+            phase: "proposal".to_owned(),
+            ..base_input()
+        })
+        .expect_err("非 requirement 应 Err");
 
-    let path =
-        ws.0.join("openspec/changes")
-            .join(CHANGE)
-            .join("workflow.json");
-    let typed = match parse_workflow_file(&path) {
-        WorkflowFileParse::Parsed(workflow) => workflow,
-        WorkflowFileParse::Unparsable { reason } => {
-            panic!("落账产物应可经宽松解析面读回: {reason}")
-        }
-    };
-    let entry = typed.eval.last().expect("新条目在场");
-    assert_eq!(
-        entry.executor_session_id.as_deref(),
-        Some("ses-1-1727000000001"),
-        "alias 承接 snake_case 磁盘键、值逐字还原"
-    );
-    assert_eq!(
-        entry.evaluator_session_id.as_deref(),
-        Some("ses-2-1727000000002")
-    );
-    assert_eq!(
-        entry.decision_session_id.as_deref(),
-        Some("ses-3-1727000000003")
+    assert!(err.contains("refactor"), "W8 分层出口记因，实际: {err}");
+    assert_eq!(missing_active.command_count(), 0, "零写命令");
+}
+
+/// change 未建档 → Err 显式（零写命令）。
+#[test]
+fn change未建档显式err零写入() {
+    let fake = LogStore::missing();
+
+    let err = fake.log(&base_input()).expect_err("未建档应 Err");
+
+    assert!(err.contains("未建档"), "Err 显式记因，实际: {err}");
+    assert_eq!(fake.command_count(), 0, "零写命令");
+}
+
+// ---------------------------------------------------------------------------
+// 异常：StoreFault 传播；边界：三槽位 None / Some 形状随行
+// ---------------------------------------------------------------------------
+
+/// 假件 store 返回 `StoreFault::Conflict`（重复 attempt）→ `Err` 记因传播。
+#[test]
+fn store_conflict故障传播记因() {
+    let fake = LogStore::with_active_phase(active_dev_design());
+    fake.set_fault(StoreFault::Conflict("重复落账注入".to_owned()));
+
+    let err = fake.log(&base_input()).expect_err("StoreFault 应传播");
+
+    assert!(
+        err.contains("conflict:") && err.contains("重复落账注入"),
+        "Err 记因携带 fault 语境，实际: {err}"
     );
 }
+
+/// 三槽位全 None：命令槽位三列恒 None（缺省落账恒 None——中性命令层不再有
+/// 「不落键」形态，null 面由 db 列缺省承接）。
+#[test]
+fn 三槽位全none命令三列恒none() {
+    let fake = LogStore::with_active_phase(active_dev_design());
+
+    fake.log(&base_input()).expect("落账应成功");
+
+    let command = fake.last_command();
+    assert_eq!(command.executor_session_id, None);
+    assert_eq!(command.evaluator_session_id, None);
+    assert_eq!(command.decision_session_id, None);
+}
+
+/// 双槽位 Some / decision None 与三槽位全 Some：槽位值逐字透传（写面不解释
+/// 不改写）。
+#[test]
+fn 槽位some值逐字透传() {
+    let fake = LogStore::with_active_phase(active_dev_design());
+
+    fake.log(&PhaseLogInput {
+        executor_session_id: Some("ses-1-1727000000001".to_owned()),
+        evaluator_session_id: Some("ses-2-1727000000002".to_owned()),
+        decision_session_id: None,
+        ..base_input()
+    })
+    .expect("落账应成功");
+    let command = fake.last_command();
+    assert_eq!(command.executor_session_id.as_deref(), Some("ses-1-1727000000001"));
+    assert_eq!(command.evaluator_session_id.as_deref(), Some("ses-2-1727000000002"));
+    assert_eq!(command.decision_session_id, None);
+
+    fake.reopen_active(); // 首次落账已清位（镜像 start → 落账节奏），重开再落账
+    fake.log(&PhaseLogInput {
+        decision_session_id: Some("ses-3-1727000000003".to_owned()),
+        ..base_input()
+    })
+    .expect("携 decision 槽位的输入同样透传（形状不变）");
+    assert_eq!(
+        fake.last_command().decision_session_id.as_deref(),
+        Some("ses-3-1727000000003"),
+        "decision 槽位透传（表位不校验、值不改写）"
+    );
+}
+

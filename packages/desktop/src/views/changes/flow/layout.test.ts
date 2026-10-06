@@ -31,20 +31,18 @@ function attempt(overrides: Partial<AttemptRecord> = {}): AttemptRecord {
   };
 }
 
-/** proposal + dev-design 各 1 条 eval 的最小 v2 详情（产出可用于坐标取样的节点）。 */
+/** proposal + dev-design 各 1 条 eval 的最小建档详情（产出可用于坐标取样的节点）。 */
 function detailWithTwoEvals(): ChangeDetail {
   return {
     name: 'add-feature',
     source: 'active',
-    inventory: 'v2',
+    status: 'active',
     created: null,
-    unparsable: false,
     pipeline: PIPELINE_PHASES.map((phase) => ({
       phase,
       attempts: phase === 'proposal' || phase === 'dev-design' ? [attempt()] : [],
     })),
     activePhase: null,
-    fileLog: [],
     artifacts: [],
   };
 }

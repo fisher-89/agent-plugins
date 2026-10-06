@@ -1,0 +1,35 @@
+{
+  "activePhase": null,
+  "artifacts": [
+    {
+      "kind": "tasks-progress",
+      "source": "tasks.md",
+      "title": "任务进度"
+    },
+    {
+      "kind": "markdown-doc",
+      "source": "proposal.md",
+      "title": "提案"
+    },
+    {
+      "kind": "markdown-doc",
+      "source": "design.md",
+      "title": "设计"
+    },
+    {
+      "kind": "markdown-doc",
+      "source": "tasks.md",
+      "title": "任务"
+    },
+    {
+      "kind": "markdown-doc",
+      "source": "reports/test/report.md",
+      "title": "report"
+    }
+  ],
+  "created": null,
+  "name": "document-form",
+  "pipeline": [],
+  "source": "active",
+  "status": null
+}

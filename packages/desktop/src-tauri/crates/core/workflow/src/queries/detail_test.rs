@@ -1,20 +1,37 @@
-//! `queries::change_detail` 的单元测试：9 站流水线聚合 + 运行状态 + 产物清单（AC-6）；
-//! AttemptRecord 三会话槽位透出（desktop-change-session-visibility）——
-//! `From<&PhaseLog>` 直读不派生不回填，旧条目三值均 null 不报错且 wire 三键
-//! 恒在场（纯 derive 零字段属性口径不变）。
+//! `queries::change_detail` 的单元测试（test-design「queries/detail.rs ->
+//! detail_test.rs」节）：db 重组 9 站流水线（attempt 升序、checklist 内联、
+//! 槽位三列直读、stale / backtrack 字段透出）、时间出线单点（i64 millis →
+//! RFC3339 ISO 串 + null；epoch 0 → `1970-01-01T00:00:00Z` 口径）、文档形态
+//!（磁盘目录在场 db 缺记录 → 空流水线 + 产物清单，workflow.json 字节零进
+//! 投影零读取）、槽位全缺（三会话槽位 + start_at 全 null 面）、未找到 `None`。
+//!
+//! Mock策略（test-design 本节 Mock 表）：磁盘树真实 tempdir（产物文件 + 惰性
+//! workflow.json 字节样本）；db 半边以进程内假件实现 [`ChangeStateStore`]
+//!（可编程记录 / 条目序列——`start_at=None` 形态仅此可达：真实 store 落账恒
+//! 回填 active start_at，见变更报告；真实 tempfile Store 的重组 / ISO 组合行
+//! 收 tests/corpus_golden_test.rs 集成面）。时间戳全部确定性 i64 常量。
 
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
+use std::sync::Mutex;
 
 use super::change_detail;
 use super::detail::PIPELINE_PHASES;
-use crate::model::{FileLogOp, Inventory};
-use foundation::layout::resolve;
+use crate::model::{ChecklistItem, Verdict};
+use crate::state::{
+    ActivePhaseState, BacktrackCommand, ChangeStateRecord, ChangeStateStore, ChangeStatus,
+    PhaseLogCommand, PhaseStateRecord, StepCommand, StepStateRecord, StoreFault,
+};
+use foundation::layout::{resolve, Layout};
 
-/// 临时 workspace 根 RAII：测试结束自动清理。
-struct TempWs(PathBuf);
+/// 临时 workspace 根 RAII + 进程内假件 store。
+struct Env {
+    root: PathBuf,
+    store: DetailStore,
+    layout: Layout,
+}
 
-impl TempWs {
+impl Env {
     fn new(tag: &str) -> Self {
         let dir = std::env::temp_dir().join(format!(
             "workflow-detail-test-{}-{}",
@@ -22,296 +39,464 @@ impl TempWs {
             tag
         ));
         let _ = fs::remove_dir_all(&dir);
-        Self(dir)
+        Self {
+            root: dir.clone(),
+            store: DetailStore::new(),
+            layout: resolve(&dir),
+        }
     }
 
-    fn change(&self, rel_dir: &str, files: &[(&str, &str)]) {
-        let dir = self.0.join(rel_dir);
+    fn seed_record(&self, name: &str, created_at: i64, active_phase: Option<ActivePhaseState>) {
+        self.store.set_record(ChangeStateRecord {
+            name: name.to_owned(),
+            workflow_type: "requirement".to_owned(),
+            created_at,
+            status: ChangeStatus::Active,
+            archived_at: None,
+            active_phase,
+        });
+    }
+
+    fn seed_archived_record(&self, name: &str, created_at: i64, archived_at: i64) {
+        self.store.set_record(ChangeStateRecord {
+            name: name.to_owned(),
+            workflow_type: "requirement".to_owned(),
+            created_at,
+            status: ChangeStatus::Archived,
+            archived_at: Some(archived_at),
+            active_phase: None,
+        });
+    }
+
+    fn push_entry(&self, entry: PhaseStateRecord) {
+        self.store.push_entry(entry);
+    }
+
+    fn file(&self, name: &str, rel: &str, content: &str) {
+        let dir = self.layout.changes_root.join(name);
         fs::create_dir_all(&dir).expect("创建 change 目录失败");
-        for (name, content) in files {
-            fs::write(dir.join(name), content).expect("写文件失败");
+        if let Some(parent) = dir.join(rel).parent() {
+            fs::create_dir_all(parent).expect("创建子目录失败");
         }
+        fs::write(dir.join(rel), content).expect("写文件失败");
     }
 
     fn detail(&self, name: &str) -> super::ChangeDetail {
-        change_detail(&resolve(&self.0), name).unwrap_or_else(|| panic!("应能定位 change {name}"))
+        change_detail(&self.layout, &self.store, name)
+            .unwrap_or_else(|| panic!("应能定位 change {name}"))
     }
 }
 
-impl Drop for TempWs {
+impl Drop for Env {
     fn drop(&mut self) {
-        let _ = fs::remove_dir_all(&self.0);
+        let _ = fs::remove_dir_all(&self.root);
     }
 }
 
-fn fixtures_dir() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("tests")
-        .join("fixtures")
+// ---------------------------------------------------------------------------
+// 假件 store：get_change / list_phase_records 读半边（可编程序列），其余
+// unimplemented（纯读面——越权触写即 panic）。
+// ---------------------------------------------------------------------------
+
+struct DetailStore {
+    record: Mutex<Option<ChangeStateRecord>>,
+    entries: Mutex<Vec<PhaseStateRecord>>,
 }
 
-/// 把 fixture change 目录拷入临时 workspace 的 archive 树（保留目录名）。
-fn install_fixture(ws: &TempWs, fixture: &str, archived_name: &str) {
-    let source = fixtures_dir().join(fixture);
-    let target = ws.0.join("openspec/changes/archive").join(archived_name);
-    copy_dir(&source, &target);
-}
-
-fn copy_dir(src: &Path, dst: &Path) {
-    fs::create_dir_all(dst).expect("创建目标目录失败");
-    for entry in fs::read_dir(src).expect("读取源目录失败").flatten() {
-        let target = dst.join(entry.file_name());
-        if entry.path().is_dir() {
-            copy_dir(&entry.path(), &target);
-        } else {
-            fs::copy(entry.path(), target).expect("拷贝文件失败");
+impl DetailStore {
+    fn new() -> Self {
+        Self {
+            record: Mutex::new(None),
+            entries: Mutex::new(Vec::new()),
         }
     }
+
+    fn set_record(&self, record: ChangeStateRecord) {
+        *self.record.lock().expect("记录锁不可中毒") = Some(record);
+    }
+
+    fn push_entry(&self, entry: PhaseStateRecord) {
+        self.entries
+            .lock()
+            .expect("条目锁不可中毒")
+            .push(entry);
+    }
 }
 
-const MULTI_ATTEMPT_WORKFLOW: &str = r#"{
-  "workflow_type": "requirement",
-  "eval": [
-    { "phase": "dev-design", "attempt": 2, "verdict": "pass", "report": "第二次通过", "checklist": [
-      { "item": "组件表完整", "pass": true, "evidence": "五组件齐全" }
-    ], "backtrack_to": "dev-design", "backtrack_reason": "首轮缺产物区组件" },
-    { "phase": "proposal", "attempt": 1, "verdict": "pass", "report": "提案通过", "checklist": [] },
-    { "phase": "dev-design", "attempt": 1, "verdict": "fail", "report": "首轮未过", "checklist": [
-      { "item": "组件表完整", "pass": false, "evidence": "缺 renderers 职责" }
-    ] }
-  ]
-}"#;
+impl ChangeStateStore for DetailStore {
+    fn get_change(&self, _name: &str) -> Result<Option<ChangeStateRecord>, StoreFault> {
+        Ok(self.record.lock().expect("记录锁不可中毒").clone())
+    }
 
+    fn list_change_records(&self) -> Result<Vec<ChangeStateRecord>, StoreFault> {
+        unimplemented!("本用例不可达")
+    }
+
+    fn list_phase_records(&self, _change: &str) -> Result<Vec<PhaseStateRecord>, StoreFault> {
+        Ok(self.entries.lock().expect("条目锁不可中毒").clone())
+    }
+
+    fn list_steps(
+        &self,
+        _change: &str,
+        _run_id: Option<&str>,
+    ) -> Result<Vec<StepStateRecord>, StoreFault> {
+        unimplemented!("本用例不可达")
+    }
+
+    fn create_change_record(&self, _record: ChangeStateRecord) -> Result<(), StoreFault> {
+        unimplemented!("本用例不可达")
+    }
+
+    fn delete_change_record(&self, _name: &str) -> Result<bool, StoreFault> {
+        unimplemented!("本用例不可达")
+    }
+
+    fn start_phase(
+        &self,
+        _change: &str,
+        _phase: &str,
+        _now: i64,
+    ) -> Result<crate::state::PhaseStartState, StoreFault> {
+        unimplemented!("本用例不可达")
+    }
+
+    fn log_phase(&self, _command: &PhaseLogCommand) -> Result<u32, StoreFault> {
+        unimplemented!("本用例不可达")
+    }
+
+    fn apply_backtrack(&self, _command: &BacktrackCommand) -> Result<(), StoreFault> {
+        unimplemented!("本用例不可达")
+    }
+
+    fn amend_decision_session(
+        &self,
+        _change: &str,
+        _phase: &str,
+        _session_id: &str,
+    ) -> Result<(), StoreFault> {
+        unimplemented!("本用例不可达")
+    }
+
+    fn set_archived(&self, _name: &str, _archived_at: i64) -> Result<(), StoreFault> {
+        unimplemented!("本用例不可达")
+    }
+
+    fn append_step(&self, _command: &StepCommand) -> Result<(), StoreFault> {
+        unimplemented!("本用例不可达")
+    }
+}
+
+/// 确定性时间戳基（UTC unix millis）。
+const T0: i64 = 1_727_000_000_000;
+fn t(n: u32) -> i64 {
+    T0 + i64::from(n) * 1000
+}
+
+fn item(name: &str, pass: bool, evidence: &str) -> ChecklistItem {
+    ChecklistItem {
+        item: name.to_owned(),
+        pass,
+        evidence: evidence.to_owned(),
+    }
+}
+
+/// 内存构造一条相位评估条目（聚合输入面全字段可控）。
+#[allow(clippy::too_many_arguments)]
+fn entry(
+    phase: &str,
+    attempt: u32,
+    verdict: Verdict,
+    report: &str,
+    checklist: Vec<ChecklistItem>,
+    executor: Option<&str>,
+    evaluator: Option<&str>,
+    start_at: Option<i64>,
+    timestamp: i64,
+) -> PhaseStateRecord {
+    PhaseStateRecord {
+        id: i64::from(attempt),
+        change: "multi".to_owned(),
+        phase: phase.to_owned(),
+        attempt,
+        verdict,
+        report: report.to_owned(),
+        checklist,
+        skipped: false,
+        stale: false,
+        backtrack_to: None,
+        backtrack_reason: None,
+        executor_session_id: executor.map(str::to_owned),
+        evaluator_session_id: evaluator.map(str::to_owned),
+        decision_session_id: None,
+        start_at,
+        timestamp,
+    }
+}
+
+// ---------------------------------------------------------------------------
+// 正向：db 重组流水线（9 站 / attempt 升序 / checklist 内联 / 槽位与
+// stale / backtrack 字段透出）
+// ---------------------------------------------------------------------------
+
+/// 记录序列（多相位多 attempt + checklist + 回跳 stale 标记）→ 9 站流水线
+/// 重组：站序固定、attempt 升序、checklist 随行、槽位三列直读、stale /
+/// backtrack_to / backtrack_reason 字段透出（AttemptRecord 形状不变——AC-4）。
 #[test]
-fn 同phase多attempt折叠为单站且attempts升序() {
-    let ws = TempWs::new("multi-attempt");
-    ws.change(
-        "openspec/changes/multi",
-        &[("workflow.json", MULTI_ATTEMPT_WORKFLOW)],
+fn db重组流水线_九站与attempt升序与checklist内联() {
+    let env = Env::new("pipeline");
+    env.seed_record(
+        "multi",
+        T0,
+        Some(ActivePhaseState {
+            phase: "test-gen".to_owned(),
+            attempt: 1,
+            start_at: t(5),
+        }),
     );
+    env.push_entry(entry("proposal", 1, Verdict::Pass, "提案通过", Vec::new(), None, None, Some(t(1)), t(1)));
+    env.push_entry(entry(
+        "dev-design",
+        1,
+        Verdict::Fail,
+        "首轮未过",
+        vec![item("组件表完整", false, "缺 renderers 职责")],
+        Some("ses-exec-a1"),
+        None,
+        Some(t(2)),
+        t(2),
+    ));
+    // attempt 2：回跳目标 → stale 翻转形态（stale 位由回跳落库半边写入）
+    let mut pass_a2 = entry(
+        "dev-design",
+        2,
+        Verdict::Pass,
+        "第二次通过",
+        vec![item("组件表完整", true, "五组件齐全")],
+        Some("ses-exec-a2"),
+        Some("ses-eval-a2"),
+        Some(t(3)),
+        t(3),
+    );
+    pass_a2.stale = true;
+    env.push_entry(pass_a2);
+    // implement：回跳发起相位 → backtrack 标记随条目
+    let mut implement = entry("implement", 1, Verdict::Pass, "实现完成", Vec::new(), None, None, Some(t(4)), t(4));
+    implement.stale = true;
+    implement.backtrack_to = Some("dev-design".to_owned());
+    implement.backtrack_reason = Some("设计返工：缺产物区组件".to_owned());
+    env.push_entry(implement);
+    env.file("multi", "proposal.md", "# 提案");
 
-    let detail = ws.detail("multi");
+    let detail = env.detail("multi");
 
     // 9 站全量输出，顺序固定
-    let phases: Vec<&str> = detail.pipeline.iter().map(|s| s.phase.as_str()).collect();
+    let phases: Vec<&str> = detail.pipeline.iter().map(|station| station.phase.as_str()).collect();
     assert_eq!(phases, PIPELINE_PHASES.to_vec());
 
-    // dev-design 单站折叠两条 attempt，按 attempt 升序
+    // dev-design 单站折叠两条 attempt，按 attempt 升序、checklist 随行
     let dev_design = &detail.pipeline[1];
     assert_eq!(dev_design.phase, "dev-design");
-    let attempts: Vec<Option<u32>> = dev_design.attempts.iter().map(|r| r.attempt).collect();
-    assert_eq!(attempts, vec![Some(1), Some(2)]);
-    assert_eq!(dev_design.attempts[0].report, "首轮未过");
-    assert_eq!(dev_design.attempts[1].report, "第二次通过");
-}
-
-#[test]
-fn attempt记录携带verdict_report_checklist全量字段() {
-    let ws = TempWs::new("record-fields");
-    ws.change(
-        "openspec/changes/full-record",
-        &[("workflow.json", MULTI_ATTEMPT_WORKFLOW)],
-    );
-
-    let detail = ws.detail("full-record");
-    let pass_record = &detail.pipeline[0].attempts[0]; // proposal
-    assert_eq!(pass_record.verdict, crate::model::Verdict::Pass);
-    assert_eq!(pass_record.report, "提案通过");
-    assert!(pass_record.checklist.is_empty());
-    assert!(!pass_record.skipped);
-    assert!(!pass_record.stale);
-    assert_eq!(pass_record.timestamp, None);
-    assert_eq!(pass_record.backtrack_to, None);
-
-    let fail_record = &detail.pipeline[1].attempts[0]; // dev-design attempt 1
-    assert_eq!(fail_record.verdict, crate::model::Verdict::Fail);
-    assert_eq!(fail_record.checklist.len(), 1);
-    assert_eq!(fail_record.checklist[0].item, "组件表完整");
-    assert!(!fail_record.checklist[0].pass);
-    assert_eq!(fail_record.checklist[0].evidence, "缺 renderers 职责");
-}
-
-#[test]
-fn v1_b_fixture的backtrack字段随条目暴露() {
-    let ws = TempWs::new("v1b-backtrack");
-    install_fixture(&ws, "v1-b", "2026-09-17-workflow-file-inventory");
-
-    let detail = ws.detail("2026-09-17-workflow-file-inventory");
-    assert_eq!(detail.inventory, Inventory::V1);
-    assert_eq!(detail.source, crate::queries::ChangeSource::Archive);
-    // v1-b：12 条 eval、1 条含 backtrack_to / backtrack_reason
-    let with_backtrack: Vec<_> = detail
-        .pipeline
+    let attempts: Vec<Option<u32>> = dev_design
+        .attempts
         .iter()
-        .flat_map(|station| station.attempts.iter())
-        .filter(|record| record.backtrack_to.is_some())
+        .map(|record| record.attempt)
         .collect();
-    assert_eq!(with_backtrack.len(), 1);
-    assert!(!with_backtrack[0]
-        .backtrack_reason
-        .as_deref()
-        .unwrap_or_default()
-        .is_empty());
-    // v1 无 active_phase 与 file_log
-    assert!(detail.active_phase.is_none());
-    assert!(detail.file_log.is_none());
-}
-
-#[test]
-fn v2_b_fixture暴露active_phase与file_log条目() {
-    let ws = TempWs::new("v2b-blocks");
-    install_fixture(&ws, "v2-b", "v2-b");
-
-    let detail = ws.detail("v2-b");
-    assert_eq!(detail.inventory, Inventory::V2);
-
-    let active = detail.active_phase.expect("v2-b 应有 active_phase");
-    assert_eq!(active.phase, "implement");
-    assert_eq!(active.attempt, 2);
-    assert!(active.start_at.is_some());
-
-    // file_log：三种 op 全量透出
-    let file_log = detail.file_log.as_ref().expect("v2 应有 file_log");
-    assert_eq!(file_log.len(), 3);
-    assert_eq!(file_log[0].op, FileLogOp::Write);
-    assert_eq!(file_log[1].op, FileLogOp::Delete);
-    assert_eq!(file_log[2].op, FileLogOp::Revert);
-    assert_eq!(file_log[0].scope, "workflow");
-    assert!(file_log[0].at.is_some());
-}
-
-#[test]
-fn 未知change名返回none() {
-    let ws = TempWs::new("unknown");
-    ws.change("openspec/changes/real", &[("proposal.md", "# 提案")]);
-
-    let layout = resolve(&ws.0);
-    assert!(change_detail(&layout, "不存在的change").is_none());
-    assert!(change_detail(&layout, "").is_none());
-}
-
-#[test]
-fn v0_change为空流水线加纯文档形态不报错() {
-    // 实现语义：v0（无 workflow.json）→ pipeline 为空序列（纯文档形态），
-    // 与 v1/v2 的 9 站全量输出相区分
-    let ws = TempWs::new("v0-detail");
-    ws.change(
-        "openspec/changes/old-docs",
-        &[("proposal.md", "# v0 提案"), ("design.md", "# v0 设计")],
+    assert_eq!(attempts, vec![Some(1), Some(2)], "attempt 升序");
+    assert_eq!(dev_design.attempts[0].report, "首轮未过");
+    assert_eq!(dev_design.attempts[0].verdict, Verdict::Fail);
+    assert_eq!(dev_design.attempts[0].checklist.len(), 1);
+    assert_eq!(dev_design.attempts[0].checklist[0].item, "组件表完整");
+    assert!(!dev_design.attempts[0].checklist[0].pass);
+    assert_eq!(
+        dev_design.attempts[0].executor_session_id.as_deref(),
+        Some("ses-exec-a1")
     );
-
-    let detail = ws.detail("old-docs");
-    assert_eq!(detail.inventory, Inventory::V0);
-    assert!(detail.pipeline.is_empty(), "v0 无流水线区块");
-    assert!(detail.file_log.is_none());
-    assert!(detail.active_phase.is_none());
-    // 文档产物照常进入产物清单
-    assert!(
-        detail.artifacts.iter().any(|a| a.kind == "markdown-doc"),
-        "v0 仍产出 markdown-doc 产物清单"
-    );
-}
-
-#[test]
-fn v1_change缺file_log时区块留空其余正常() {
-    let ws = TempWs::new("v1-detail");
-    ws.change(
-        "openspec/changes/v1-change",
-        &[(
-            "workflow.json",
-            r#"{ "workflow_type": "requirement", "created": "2026-03-03",
-                 "eval": [ { "phase": "proposal", "attempt": 1, "verdict": "pass", "report": "OK", "checklist": [] } ] }"#,
-        )],
-    );
-
-    let detail = ws.detail("v1-change");
-    assert_eq!(detail.inventory, Inventory::V1);
-    assert!(
-        detail.file_log.is_none(),
-        "v1 的 file_log 区块为 None（留空降级）"
+    assert_eq!(dev_design.attempts[0].evaluator_session_id, None);
+    // attempt 2：stale 透出、槽位三列直读
+    assert!(dev_design.attempts[1].stale, "回跳目标最新 pass 条目 stale 位透出");
+    assert_eq!(dev_design.attempts[1].report, "第二次通过");
+    assert_eq!(
+        dev_design.attempts[1].executor_session_id.as_deref(),
+        Some("ses-exec-a2")
     );
     assert_eq!(
-        detail.pipeline.len(),
-        PIPELINE_PHASES.len(),
-        "其余区块正常（9 站全量）"
+        dev_design.attempts[1].evaluator_session_id.as_deref(),
+        Some("ses-eval-a2")
     );
-    assert_eq!(detail.pipeline[0].attempts.len(), 1);
-    assert_eq!(detail.created.as_deref(), Some("2026-03-03"));
+    assert_eq!(dev_design.attempts[1].decision_session_id, None);
+
+    // implement 站：backtrack 字段随条目透出
+    let implement = &detail.pipeline[3];
+    assert_eq!(implement.attempts.len(), 1);
+    assert_eq!(implement.attempts[0].backtrack_to.as_deref(), Some("dev-design"));
+    assert_eq!(
+        implement.attempts[0].backtrack_reason.as_deref(),
+        Some("设计返工：缺产物区组件")
+    );
+
+    // proposal 站零标记
+    assert!(!detail.pipeline[0].attempts[0].stale);
+    assert!(detail.pipeline[0].attempts[0].backtrack_to.is_none());
+
+    // 运行态 / 状态面
+    let active = detail.active_phase.as_ref().expect("active_phase 应在场");
+    assert_eq!(active.phase, "test-gen");
+    assert_eq!(active.attempt, 1);
+    assert!(active.start_at.is_some(), "start_at 出 ISO 串");
+    assert_eq!(detail.status, Some(ChangeStatus::Active));
+    assert_eq!(detail.source, super::ChangeSource::Active);
+    assert!(detail.created.is_some());
+    assert!(
+        detail
+            .artifacts
+            .iter()
+            .any(|artifact| artifact.kind == "markdown-doc" && artifact.source == "proposal.md"),
+        "产物清单随磁盘树在场"
+    );
 }
 
+/// 未覆盖相位站点仍在且 attempts 为空（9 站全量输出，顺序不依赖落行排列）。
 #[test]
-fn eval未覆盖的phase站点仍在且attempts为空() {
-    let ws = TempWs::new("uncovered-phases");
-    ws.change(
-        "openspec/changes/partial",
-        &[
-            ("workflow.json", MULTI_ATTEMPT_WORKFLOW),
-            ("tasks.md", "- [x] 完成"),
-        ],
-    );
+fn 未覆盖相位站点仍在且attempts为空() {
+    let env = Env::new("partial");
+    env.seed_record("partial", T0, None);
+    env.push_entry(entry("proposal", 1, Verdict::Pass, "提案通过", Vec::new(), None, None, Some(t(1)), t(1)));
+    env.file("partial", "tasks.md", "- [x] 完成\n");
 
-    let detail = ws.detail("partial");
-    let phases: Vec<&str> = detail.pipeline.iter().map(|s| s.phase.as_str()).collect();
-    assert_eq!(
-        phases,
-        PIPELINE_PHASES.to_vec(),
-        "顺序固定，不依赖 eval 排列"
-    );
+    let detail = env.detail("partial");
 
+    let phases: Vec<&str> = detail.pipeline.iter().map(|station| station.phase.as_str()).collect();
+    assert_eq!(phases, PIPELINE_PHASES.to_vec(), "顺序固定，不依赖条目排列");
     let test_gen = &detail.pipeline[4]; // "test-gen"
     assert_eq!(test_gen.phase, "test-gen");
     assert!(test_gen.attempts.is_empty(), "未覆盖站 attempts 为空序列");
-
-    // 有记录的站不受空站影响
-    assert_eq!(detail.pipeline[0].attempts.len(), 1);
-    assert_eq!(detail.pipeline[1].attempts.len(), 2);
+    assert_eq!(detail.pipeline[0].attempts.len(), 1, "有记录的站不受空站影响");
 }
 
+// ---------------------------------------------------------------------------
+// 正向：时间出线单点（ISO 串 + null；epoch 边界）
+// ---------------------------------------------------------------------------
+
+/// created_at / start_at / timestamp 的 i64 millis → RFC3339 ISO 串（epoch 0
+/// → `1970-01-01T00:00:00Z` 口径）；active_phase 缺席 → wire null（冻结契约
+/// 半边，golden 守卫绿的前提断言——AC-4）。转换收 queries 单点。
 #[test]
-fn 无attempt字段的条目归入对应站且不影响其他条目排序() {
-    let ws = TempWs::new("no-attempt");
-    ws.change(
-        "openspec/changes/no-attempt",
-        &[(
-            "workflow.json",
-            r#"{
-              "workflow_type": "requirement",
-              "eval": [
-                { "phase": "implement", "attempt": 5, "verdict": "pass", "report": "高序号", "checklist": [] },
-                { "phase": "implement", "verdict": "pass", "report": "无序号（视为 0）", "checklist": [] }
-              ]
-            }"#,
-        )],
-    );
+fn 时间出线iso串_epoch零口径与null留位() {
+    let env = Env::new("epoch-zero");
+    env.seed_record("zero-ts", 0, None);
+    env.push_entry(entry(
+        "proposal",
+        1,
+        Verdict::Pass,
+        "通过",
+        Vec::new(),
+        None,
+        None,
+        Some(0),
+        0,
+    ));
+    env.file("zero-ts", "proposal.md", "# 提案");
 
-    let detail = ws.detail("no-attempt");
-    let implement = &detail.pipeline[3]; // "implement"
-    let attempts: Vec<Option<u32>> = implement.attempts.iter().map(|r| r.attempt).collect();
+    let detail = env.detail("zero-ts");
+    assert_eq!(detail.created.as_deref(), Some("1970-01-01"), "created = epoch 日");
+
+    let record = &detail.pipeline[0].attempts[0];
+    assert_eq!(record.timestamp.as_deref(), Some("1970-01-01T00:00:00Z"));
+    assert_eq!(record.start_at.as_deref(), Some("1970-01-01T00:00:00Z"));
+
+    let value = serde_json::to_value(&detail).expect("线面序列化应成功");
+    assert_eq!(value["activePhase"], serde_json::Value::Null);
+    assert_eq!(value["status"], "active", "状态面小写线值直出");
     assert_eq!(
-        attempts,
-        vec![None, Some(5)],
-        "缺省 attempt 视为 0 稳定排序"
+        value["pipeline"][0]["attempts"][0]["timestamp"],
+        "1970-01-01T00:00:00Z",
+        "时间戳恒 ISO 串（timestamp 恒在位）"
     );
 }
 
+// ---------------------------------------------------------------------------
+// 边界：槽位全缺 + start_at None → null 留位 / 文档形态 / 未找到
+// ---------------------------------------------------------------------------
+
+/// PhaseRecord 三会话槽位 None 且 start_at None → AttemptRecord 四值 null 不
+/// 报错且 wire 四键恒在场（纯 derive 零字段属性口径；既有语义持衡）。
+/// 注记：`start_at=None` 仅假件可达——真实 store 落账恒回填 active start_at
+///（log_change_phase `command.start_at.or(Some(active_start_at))`）。
+#[test]
+fn 槽位与start_at全缺_wire四键null恒在场() {
+    let env = Env::new("slots-null");
+    env.seed_record("bare", T0, None);
+    env.push_entry(entry(
+        "proposal",
+        1,
+        Verdict::Pass,
+        "提案通过",
+        Vec::new(),
+        None,
+        None,
+        None, // start_at=None（缺省形态）
+        T0,
+    ));
+    env.file("bare", "proposal.md", "# 提案");
+
+    let detail = env.detail("bare");
+    let record = &detail.pipeline[0].attempts[0];
+    assert_eq!(record.executor_session_id, None);
+    assert_eq!(record.evaluator_session_id, None);
+    assert_eq!(record.decision_session_id, None);
+    assert_eq!(record.start_at, None, "start_at=None → null 不报错");
+
+    let value = serde_json::to_value(&detail).expect("线面序列化应成功");
+    let wire = &value["pipeline"][0]["attempts"][0];
+    for key in [
+        "executorSessionId",
+        "evaluatorSessionId",
+        "decisionSessionId",
+        "startAt",
+    ] {
+        assert_eq!(
+            wire.get(key),
+            Some(&serde_json::Value::Null),
+            "wire 键 {key} 恒在场（null 不省略）"
+        );
+    }
+}
+
+/// skipped 与 stale 标记随条目透出（聚合直读，不派生不改写）。
 #[test]
 fn skipped与stale标记随条目透出() {
-    let ws = TempWs::new("flags");
-    ws.change(
-        "openspec/changes/flags",
-        &[(
-            "workflow.json",
-            r#"{
-              "workflow_type": "requirement",
-              "eval": [
-                { "phase": "test-gen", "attempt": 1, "verdict": "pass", "report": "跳过项", "checklist": [], "skipped": true },
-                { "phase": "test-execution", "attempt": 1, "verdict": "pass", "report": "过期项", "checklist": [], "stale": true }
-              ]
-            }"#,
-        )],
+    let env = Env::new("flags");
+    env.seed_record("flags", T0, None);
+    let mut skipped = entry(
+        "test-gen",
+        1,
+        Verdict::Pass,
+        "跳过项",
+        Vec::new(),
+        None,
+        None,
+        Some(t(1)),
+        t(1),
     );
+    skipped.skipped = true;
+    env.push_entry(skipped);
+    let mut stale = entry(
+        "test-execution",
+        1,
+        Verdict::Pass,
+        "过期项",
+        Vec::new(),
+        None,
+        None,
+        Some(t(2)),
+        t(2),
+    );
+    stale.stale = true;
+    env.push_entry(stale);
+    env.file("flags", "proposal.md", "# 提案");
 
-    let detail = ws.detail("flags");
+    let detail = env.detail("flags");
     // test-gen = 第 5 站（下标 4），test-execution = 第 6 站（下标 5）
     assert!(detail.pipeline[4].attempts[0].skipped);
     assert!(!detail.pipeline[4].attempts[0].stale);
@@ -319,267 +504,111 @@ fn skipped与stale标记随条目透出() {
     assert!(!detail.pipeline[5].attempts[0].skipped);
 }
 
+/// 磁盘目录在场（含 workflow.json 惰性字节样本）db 缺记录 → 空流水线 + 产物
+/// 清单，字节零进投影；全程无 workflow.json 读取（损坏字节样本即证据）。
 #[test]
-fn 线面契约缺省为null且时间戳为iso串() {
-    let ws = TempWs::new("wire-shape");
-    ws.change(
-        "openspec/changes/wire",
-        &[(
-            "workflow.json",
-            r#"{
-              "workflow_type": "requirement",
-              "created": "2026-09-18",
-              "eval": [
-                { "phase": "proposal", "attempt": 1, "verdict": "pass", "report": "提案通过", "checklist": [], "start_at": "2026-09-18T08:00:00Z", "timestamp": "2026-09-18T08:30:00Z" },
-                { "phase": "dev-design", "attempt": 1, "verdict": "fail", "report": "首轮未过", "checklist": [], "backtrack_to": "proposal", "backtrack_reason": "缺组件" }
-              ],
-              "active_phase": { "phase": "dev-design", "attempt": 2, "start_at": "2026-09-18T09:00:00Z" },
-              "interrupted": [ { "phase": "test-gen", "attempt": 1, "start_at": "2026-09-18T07:00:00Z", "end_at": "2026-09-18T07:30:00Z" } ],
-              "file_log": [
-                { "op": "write", "scope": "workflow", "attempt": 2, "path": "a.md", "at": "2026-09-18T07:00:00Z" },
-                { "op": "delete", "scope": "workflow", "path": "b.md" }
-              ]
-            }"#,
-        )],
+fn 文档形态_空流水线与产物清单且字节零进投影() {
+    let env = Env::new("document-form");
+    env.file("legacy-docs", "proposal.md", "# v0 提案");
+    env.file("legacy-docs", "tasks.md", "- [x] 完成\n- [ ] 待办\n");
+    env.file(
+        "legacy-docs",
+        "workflow.json",
+        "{ CORRUPT_MARKER_桌面不解析此字节 }",
     );
 
-    let detail = ws.detail("wire");
-    let value = serde_json::to_value(&detail).expect("线面序列化应成功");
+    let detail = env.detail("legacy-docs");
 
-    // 缺省 → null（golden 契约：线面与数据源形态一致，不省键）
-    assert_eq!(
-        value["pipeline"][1]["attempts"][0]["startAt"],
-        serde_json::Value::Null
-    );
-    assert_eq!(
-        value["pipeline"][1]["attempts"][0]["timestamp"],
-        serde_json::Value::Null
-    );
-    assert_eq!(value["fileLog"][1]["attempt"], serde_json::Value::Null);
-    assert_eq!(value["fileLog"][1]["at"], serde_json::Value::Null);
-
-    // 有值时间戳 → ISO 串原样往返（含 AttemptRecord，修正前的组件数组伪影不再出现）
-    assert_eq!(value["activePhase"]["startAt"], "2026-09-18T09:00:00Z");
-    assert_eq!(value["fileLog"][0]["at"], "2026-09-18T07:00:00Z");
-    assert_eq!(
-        value["pipeline"][0]["attempts"][0]["timestamp"], "2026-09-18T08:30:00Z",
-        "AttemptRecord 时间戳应为 ISO 串（非裸 OffsetDateTime 组件数组）"
-    );
-
-    // v1 形态：无 active_phase / file_log 的代际，缺省为 null
-    let ws_v1 = TempWs::new("wire-v1");
-    ws_v1.change(
-        "openspec/changes/wire-v1",
-        &[(
-            "workflow.json",
-            r#"{ "workflow_type": "requirement", "eval": [] }"#,
-        )],
-    );
-    let v1 = ws_v1.detail("wire-v1");
-    let v1_value = serde_json::to_value(&v1).expect("线面序列化应成功");
-    assert_eq!(v1_value["activePhase"], serde_json::Value::Null);
-    assert_eq!(v1_value["fileLog"], serde_json::Value::Null);
-}
-
-// ---------------------------------------------------------------------------
-// AttemptRecord 三会话槽位透出（desktop-change-session-visibility，AC-6）：
-// `From<&PhaseLog>` 直读透出，无槽位三值 null 不报错，wire 三键恒在场
-// ---------------------------------------------------------------------------
-
-/// 三形态条目 fixture：三槽位齐全 pass 条目 / 仅 executor 槽位 fail 升格形态 /
-/// 无槽位键旧形态对照。
-const SLOTS_WORKFLOW: &str = r#"{
-  "workflow_type": "requirement",
-  "eval": [
-    { "phase": "implement", "attempt": 2, "verdict": "pass", "report": "三槽位齐全", "checklist": [], "executor_session_id": "ses-1-1727740000001", "evaluator_session_id": "ses-2-1727740000002", "decision_session_id": "ses-3-1727740000003" },
-    { "phase": "implement", "attempt": 1, "verdict": "fail", "report": "仅 executor 槽位（升格形态）", "checklist": [], "executor_session_id": "ses-4-1727740000004" },
-    { "phase": "proposal", "attempt": 1, "verdict": "pass", "report": "无槽位键旧形态", "checklist": [] }
-  ]
-}"#;
-
-#[test]
-fn 三槽位键在场时attempt记录逐字直读透出() {
-    let ws = TempWs::new("slots-full");
-    ws.change(
-        "openspec/changes/slots",
-        &[("workflow.json", SLOTS_WORKFLOW)],
-    );
-
-    let detail = ws.detail("slots");
-    let implement = &detail.pipeline[3]; // "implement"
-    assert_eq!(implement.attempts.len(), 2);
-
-    // attempt 2（升序后末位）：三字段逐字直读（From 直读不派生不回填）
-    let full = &implement.attempts[1];
-    assert_eq!(full.attempt, Some(2));
-    assert_eq!(
-        full.executor_session_id.as_deref(),
-        Some("ses-1-1727740000001"),
-        "值与条目记录一致"
-    );
-    assert_eq!(
-        full.evaluator_session_id.as_deref(),
-        Some("ses-2-1727740000002")
-    );
-    assert_eq!(
-        full.decision_session_id.as_deref(),
-        Some("ses-3-1727740000003")
-    );
-
-    // attempt 1（升格形态）：仅 executor 承接，evaluator / decision null（缺字段
-    // 降级 null 不报错）
-    let partial = &implement.attempts[0];
-    assert_eq!(
-        partial.executor_session_id.as_deref(),
-        Some("ses-4-1727740000004")
-    );
-    assert_eq!(partial.evaluator_session_id, None);
-    assert_eq!(partial.decision_session_id, None);
-}
-
-#[test]
-fn 旧条目无槽位键投影三值均null且wire三键恒在场() {
-    let ws = TempWs::new("slots-legacy");
-    ws.change(
-        "openspec/changes/legacy",
-        &[("workflow.json", SLOTS_WORKFLOW)],
-    );
-
-    let detail = ws.detail("legacy");
-    let value = serde_json::to_value(&detail).expect("线面序列化应成功");
-
-    // 旧形态条目（proposal）：三字段均 None 不报错
-    let proposal = &detail.pipeline[0].attempts[0];
-    assert_eq!(proposal.executor_session_id, None);
-    assert_eq!(proposal.evaluator_session_id, None);
-    assert_eq!(proposal.decision_session_id, None);
-
-    // wire 三键恒在场、值 null 不省略（golden 线面「缺省字段 null」契约；纯
-    // derive 零字段属性口径不破）
-    let record = &value["pipeline"][0]["attempts"][0];
-    for key in [
-        "executorSessionId",
-        "evaluatorSessionId",
-        "decisionSessionId",
-    ] {
-        assert_eq!(
-            record.get(key),
-            Some(&serde_json::Value::Null),
-            "wire 键 {key} 恒在场（null 不省略）"
-        );
-    }
-
-    // 有值条目 wire 键逐字透出（camelCase 线面）
-    let full = &value["pipeline"][3]["attempts"][1];
-    assert_eq!(
-        full["executorSessionId"],
-        serde_json::json!("ses-1-1727740000001")
-    );
-    assert_eq!(
-        full["evaluatorSessionId"],
-        serde_json::json!("ses-2-1727740000002")
-    );
-    assert_eq!(
-        full["decisionSessionId"],
-        serde_json::json!("ses-3-1727740000003")
-    );
-}
-
-// ---------------------------------------------------------------------------
-// 线面 interrupted 键删除（desktop-drawer-session-column，AC-6）：磁盘模型
-// 停提取 `interrupted` 后 detail 聚合投影不再携带该键（AC-5「存量留档不出图」
-// 的上游保证——detail 不再携带则转换层无从收集）；存量文件解析照常
-// ---------------------------------------------------------------------------
-
-/// 存量含 `interrupted[]` 的 v2 形态（磁盘 `interrupted[]` 键保留在场——
-/// fixture 形状实证，proposal「不要修改」；键由 serde 未知字段忽略承接）。
-const LEGACY_INTERRUPTED_WORKFLOW: &str = r#"{
-  "workflow_type": "requirement",
-  "created": "2026-09-01",
-  "eval": [
-    { "phase": "proposal", "attempt": 1, "verdict": "pass", "report": "提案通过", "checklist": [] }
-  ],
-  "active_phase": { "phase": "implement", "attempt": 1, "start_at": "2026-09-01T09:00:00Z" },
-  "interrupted": [
-    { "phase": "test-gen", "attempt": 1, "start_at": "2026-09-01T07:00:00Z", "end_at": "2026-09-01T07:30:00Z" }
-  ],
-  "file_log": [
-    { "op": "write", "scope": "workflow", "attempt": 1, "path": "a.md", "at": "2026-09-01T08:00:00Z" }
-  ]
-}"#;
-
-#[test]
-fn 含interrupted的存量文件detail照常聚合且wire无interrupted键() {
-    let ws = TempWs::new("detail-legacy-interrupted");
-    ws.change(
-        "openspec/changes/legacy-interrupted",
-        &[
-            ("workflow.json", LEGACY_INTERRUPTED_WORKFLOW),
-            ("tasks.md", "- [x] 任务"),
-        ],
-    );
-
-    // change_detail 返回 Some，聚合投影逐字段照常
-    let detail = ws.detail("legacy-interrupted");
-    assert_eq!(detail.name, "legacy-interrupted");
-    assert!(!detail.unparsable);
-    assert_eq!(detail.created.as_deref(), Some("2026-09-01"));
-
-    // pipeline 9 站聚合照常（proposal 站一条 pass 记录）
-    let phases: Vec<&str> = detail.pipeline.iter().map(|s| s.phase.as_str()).collect();
-    assert_eq!(phases, PIPELINE_PHASES.to_vec());
-    assert_eq!(detail.pipeline[0].attempts.len(), 1);
-    assert_eq!(detail.pipeline[0].attempts[0].report, "提案通过");
-
-    // active_phase / fileLog 投影照常
-    let active = detail.active_phase.as_ref().expect("应有 active_phase");
-    assert_eq!(active.phase, "implement");
-    assert_eq!(active.attempt, 1);
-    assert_eq!(active.start_at.as_deref(), Some("2026-09-01T09:00:00Z"));
-    let file_log = detail.file_log.as_ref().expect("v2 应有 file_log");
-    assert_eq!(file_log.len(), 1);
-    assert_eq!(file_log[0].path, "a.md");
-
-    // 序列化 wire 无 interrupted 键（线面删除的直接证据）
-    let value = serde_json::to_value(&detail).expect("线面序列化应成功");
+    assert!(detail.pipeline.is_empty(), "文档形态空流水线");
+    assert_eq!(detail.status, None, "db 缺记录 → 无状态面");
+    assert!(detail.active_phase.is_none());
+    assert_eq!(detail.created, None, "active 树文档形态无 created 回退");
     assert!(
-        value.get("interrupted").is_none(),
-        "detail 线面不再携带 interrupted 键: {value}"
+        detail
+            .artifacts
+            .iter()
+            .any(|artifact| artifact.kind == "markdown-doc" && artifact.source == "proposal.md"),
+        "文档产物照常进入产物清单，实际: {:?}",
+        detail.artifacts
+    );
+    assert!(
+        detail
+            .artifacts
+            .iter()
+            .any(|artifact| artifact.kind == "tasks-progress"),
+        "tasks.md 勾选计数照常可达"
+    );
+
+    // 字节零进投影：序列化全量不含惰性样本字节
+    let serialized = serde_json::to_string(&detail).expect("序列化应成功");
+    assert!(
+        !serialized.contains("CORRUPT_MARKER"),
+        "workflow.json 字节零进投影"
     );
 }
 
+/// archive 树文档形态：created 回退查询名的日期前缀——实现语义为「回退查询
+/// 名」（`archive_prefix_date(name)`）：以 db 名（裸名）查询时回退为 None；
+/// 以带前缀目录名查询时出前缀日期（定位经 archive 精确名命中）。
 #[test]
-fn 含interrupted且eval条目损坏的存量文件宽松降级后照常聚合() {
-    // 一条 eval 条目损坏（checklist 非数组）：宽松解析跳过该条，其余照常聚合
-    // ——停提取 interrupted 不改变容错语义
-    let ws = TempWs::new("detail-legacy-corrupted");
-    ws.change(
-        "openspec/changes/legacy-corrupted",
-        &[(
-            "workflow.json",
-            r#"{
-              "workflow_type": "requirement",
-              "eval": [
-                { "phase": "proposal", "attempt": 1, "verdict": "pass", "report": "完好", "checklist": [] },
-                { "phase": "dev-design", "attempt": 1, "verdict": "pass", "report": "损坏", "checklist": "不是数组" }
-              ],
-              "interrupted": [ { "phase": "test-gen", "attempt": 1, "start_at": null, "end_at": null } ]
-            }"#,
-            )],
-    );
+fn archive树文档形态_created回退查询名前缀() {
+    let env = Env::new("archive-document");
+    let dir = env.layout.archive_root.join("2026-07-06-archived-docs");
+    fs::create_dir_all(&dir).expect("创建 archive 目录失败");
+    fs::write(dir.join("proposal.md"), "# 归档提案").expect("写产物失败");
 
-    let detail = ws.detail("legacy-corrupted");
-    assert!(!detail.unparsable, "单条损坏不整体降级");
-    // proposal 站保留完好条目，dev-design 站损坏条目被跳过
-    assert_eq!(detail.pipeline[0].attempts.len(), 1);
-    assert!(
-        detail.pipeline[1].attempts.is_empty(),
-        "损坏条目跳过后站内无记录"
-    );
+    // db 名（裸名）查询：经日期前缀后缀匹配定位到 archive 目录，但 created
+    // 回退以裸名判前缀 → None
+    let by_bare_name = env.detail("archived-docs");
+    assert!(by_bare_name.pipeline.is_empty());
+    assert_eq!(by_bare_name.source, super::ChangeSource::Archive);
+    assert_eq!(by_bare_name.status, None);
+    assert_eq!(by_bare_name.created, None);
 
-    let value = serde_json::to_value(&detail).expect("线面序列化应成功");
+    // 带前缀目录名查询：archive 精确名命中、created 出目录前缀日期
+    let by_prefixed_name = env.detail("2026-07-06-archived-docs");
+    assert!(by_prefixed_name.pipeline.is_empty());
+    assert_eq!(by_prefixed_name.source, super::ChangeSource::Archive);
+    assert_eq!(
+        by_prefixed_name.created.as_deref(),
+        Some("2026-07-06"),
+        "created 回退查询名的日期前缀"
+    );
+}
+
+/// db archived 建档：created 取 db created_at（优先于目录前缀）。
+#[test]
+fn db归档建档_created优先取created_at() {
+    let env = Env::new("archive-db-record");
+    env.seed_archived_record("archived-record", T0, t(9));
+    let dir = env.layout.archive_root.join("2026-01-01-archived-record");
+    fs::create_dir_all(&dir).expect("创建 archive 目录失败");
+
+    let detail = env.detail("archived-record");
+
+    assert_eq!(detail.status, Some(ChangeStatus::Archived));
+    assert_eq!(
+        detail.created.as_deref(),
+        Some("2024-09-22"),
+        "db created_at 优先（T0 = 2024-09-22 UTC）"
+    );
+}
+
+/// 两树均无目录且 db 无记录 → `None`（不 Err 不虚构）；空白 / 穿越名 →
+/// None；db 有档但目录缺失（两树未命中）同样 None（定位先于状态读取）。
+#[test]
+fn 未找到_none() {
+    let env = Env::new("not-found");
+    env.file("real", "proposal.md", "# 提案");
+
+    assert!(change_detail(&env.layout, &env.store, "不存在的change").is_none());
+    assert!(change_detail(&env.layout, &env.store, "").is_none());
+    assert!(change_detail(&env.layout, &env.store, "a/b").is_none());
+
+    // db 有档但两树无目录 → None（locate_change 未命中先于状态面读取）
+    env.seed_record("ghost-with-record", T0, None);
     assert!(
-        value.get("interrupted").is_none(),
-        "容错路径同样不携带 interrupted 键"
+        change_detail(&env.layout, &env.store, "ghost-with-record").is_none(),
+        "目录缺失不虚构文档形态"
     );
 }

@@ -10,6 +10,9 @@ pub use list::{list_changes, ArchiveGroup, ChangeList, ChangeSource, ChangeSumma
 
 use std::path::PathBuf;
 
+use time::format_description::well_known::Rfc3339;
+use time::OffsetDateTime;
+
 use foundation::layout::Layout;
 
 /// change 目录在 workspace 中的定位结果。
@@ -19,8 +22,10 @@ pub struct ChangeLocation {
     pub source: ChangeSource,
 }
 
-/// 按名称在 active 与 archive 两棵树中定位 change 目录；
-/// 名称必须是单个普通目录名（拒绝路径穿越），未知名称返回 `None`。
+/// 按名称在 active 与 archive 两棵树中定位 change 目录：active 树精确名 →
+/// archive 树精确名 → archive 树日期前缀后缀匹配（db 名 `foo` ↔
+/// `YYYY-MM-DD-foo`，归档改名后 db 名不变可达）；名称必须是单个普通目录名
+///（拒绝路径穿越），未知名称返回 `None`。
 pub fn locate_change(layout: &Layout, name: &str) -> Option<ChangeLocation> {
     if !is_single_component_name(name) {
         return None;
@@ -39,6 +44,30 @@ pub fn locate_change(layout: &Layout, name: &str) -> Option<ChangeLocation> {
             source: ChangeSource::Archive,
         });
     }
+    let prefixed = locate_prefixed_archive_dir(layout, name)?;
+    Some(ChangeLocation {
+        dir: prefixed,
+        source: ChangeSource::Archive,
+    })
+}
+
+/// archive 树日期前缀后缀匹配：目录名 = `YYYY-MM-DD-<name>` 且前缀为合法
+/// 日期形态。目录缺省（无归档树）返回 `None`。
+fn locate_prefixed_archive_dir(layout: &Layout, name: &str) -> Option<PathBuf> {
+    let entries = std::fs::read_dir(&layout.archive_root).ok()?;
+    for entry in entries.flatten() {
+        let is_dir = entry.file_type().map(|t| t.is_dir()).unwrap_or(false);
+        if !is_dir {
+            continue;
+        }
+        let dir_name = entry.file_name().to_string_lossy().into_owned();
+        let suffix_hit = list::archive_prefix_date(&dir_name)
+            .and_then(|date| dir_name.strip_prefix(&date))
+            .and_then(|rest| rest.strip_prefix('-'));
+        if suffix_hit == Some(name) {
+            return Some(layout.archive_root.join(dir_name));
+        }
+    }
     None
 }
 
@@ -53,8 +82,25 @@ pub(crate) fn is_single_component_name(name: &str) -> bool {
         && !name.contains(':')
 }
 
+/// 时间戳出线转换单点：UTC unix 毫秒 → ISO 8601 串（Rfc3339；格式失败降级
+/// 空串，与既往 `lenient_timestamp::serialize` 同式）。
+pub(crate) fn iso_from_millis(millis: i64) -> String {
+    let secs = if millis < 0 { 0 } else { millis / 1000 };
+    let millis_part = if millis < 0 { 0 } else { millis % 1000 };
+    let timestamp =
+        OffsetDateTime::from_unix_timestamp(secs).unwrap_or(OffsetDateTime::UNIX_EPOCH);
+    timestamp
+        .replace_millisecond(millis_part as u16)
+        .unwrap_or(timestamp)
+        .format(&Rfc3339)
+        .unwrap_or_default()
+}
+
 #[cfg(test)]
 mod list_test;
+
+#[cfg(test)]
+mod mod_test;
 
 #[cfg(test)]
 mod detail_test;

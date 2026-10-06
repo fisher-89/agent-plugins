@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::fmt;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock};
@@ -17,12 +17,20 @@ use crate::canonical;
 use crate::envelope::{self, ModelInfo, RecordEnvelope};
 use crate::model::{
     dir_name, now_millis, AgentEngineKind, AgentInstanceRecord, AgentProviderRecord,
-    AgentRunRecord, ExploreRecord, SessionEventRecord, SessionRecord, WorkspaceRecord,
+    AgentRunRecord, ChangeActivePhase, ChangeRecord, ChecklistItemRecord, ExploreRecord,
+    PhaseRecord, SessionEventRecord, SessionRecord, StepRecord, WorkspaceRecord,
+};
+use workflow::model::{ChecklistItem, Verdict};
+use workflow::state::{
+    BacktrackCommand, ChangeStateRecord, ChangeStatus, PhaseLogCommand, PhaseStartState,
+    PhaseStateRecord, StepCommand, StepStateRecord,
 };
 
-/// store 内部错误面：两变体对应两类故障模式；`Display` 恒带 `db:` /
-/// `canonicalize:` 前缀，直接服务「清单丢失」的可排查性。迁移失败经
-/// [`StoreError::Db`]（`迁移:` 语境前缀）呈现，不扩变体。
+/// store 内部错误面：四变体对应四类故障模式；`Display` 恒带 `db:` /
+/// `canonicalize:` / `conflict:` / `not_found:` 前缀，直接服务「清单丢失」
+/// 的可排查性。迁移失败经 [`StoreError::Db`]（`迁移:` 语境前缀）呈现。
+/// `Conflict` / `NotFound` 为 change 域操作面新增（唯一性查重与 miss 非幂
+/// 等写的类型化呈现，port 适配器据此映射 [`workflow::state::StoreFault`]）。
 ///
 /// 命令层以 `.to_string()` 转换为 `Err(String)`，本类型不进入命令签名。
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -31,6 +39,10 @@ pub enum StoreError {
     Db(String),
     /// 路径 canonicalize 失败
     Canonicalize(String),
+    /// 唯一性冲突（同名建档 / 重复落账）
+    Conflict(String),
+    /// 目标记录不存在（miss 非幂等写面）
+    NotFound(String),
 }
 
 impl fmt::Display for StoreError {
@@ -38,6 +50,8 @@ impl fmt::Display for StoreError {
         match self {
             Self::Db(msg) => write!(f, "db: {msg}"),
             Self::Canonicalize(msg) => write!(f, "canonicalize: {msg}"),
+            Self::Conflict(msg) => write!(f, "conflict: {msg}"),
+            Self::NotFound(msg) => write!(f, "not_found: {msg}"),
         }
     }
 }
@@ -48,6 +62,35 @@ impl std::error::Error for StoreError {}
 /// [`StoreError::Db`]，错误串携带操作语境。
 pub(crate) fn db_err<E: fmt::Display>(context: &str) -> impl Fn(E) -> StoreError + '_ {
     move |e| StoreError::Db(format!("{context}: {e}"))
+}
+
+/// 建档记录 → 中性快照（记录 ↔ 中性类型映射单点，design D2）。
+fn change_state(record: &ChangeRecord) -> ChangeStateRecord {
+    ChangeStateRecord {
+        name: record.name.clone(),
+        workflow_type: record.workflow_type.clone(),
+        created_at: record.created_at,
+        status: record.status,
+        archived_at: record.archived_at,
+        active_phase: record.active_phase.as_ref().map(|active| {
+            workflow::state::ActivePhaseState {
+                phase: active.phase.clone(),
+                attempt: active.attempt,
+                start_at: active.start_at,
+            }
+        }),
+    }
+}
+
+/// 运行中 phase 中性快照 → 建档记录嵌套结构（映射单点）。
+fn change_active_phase_stored(
+    active: workflow::state::ActivePhaseState,
+) -> ChangeActivePhase {
+    ChangeActivePhase {
+        phase: active.phase,
+        attempt: active.attempt,
+        start_at: active.start_at,
+    }
 }
 
 /// store 记录 → core 会话契约行（快照出线为 JSON 形态，core 不解释）。
@@ -146,7 +189,8 @@ pub enum DbDimension {
     /// user 维度（全局库，`WorkspaceRecord` 与 agent 管理两模型——user 维度
     /// 已落地代表，desktop-data-dimensions 留痕）
     User,
-    /// workspace 维度（per-workspace 库，轮统计行 / 会话 / 转录 / explore 四模型）
+    /// workspace 维度（per-workspace 库，轮统计行 / 会话 / 转录 / explore /
+    /// change 流程状态八模型）
     Workspace,
 }
 
@@ -168,7 +212,8 @@ pub(crate) fn global_models() -> &'static Models {
     })
 }
 
-/// workspace 库模型组
+/// workspace 库模型组（八模型：轮统计行 / 会话 / 转录 / explore 四既有模型
+/// + change 流程状态四模型，additive 注册零迁移）
 pub(crate) fn workspace_models() -> &'static Models {
     static MODELS: OnceLock<Models> = OnceLock::new();
     MODELS.get_or_init(|| {
@@ -185,6 +230,18 @@ pub(crate) fn workspace_models() -> &'static Models {
         models
             .define::<ExploreRecord>()
             .expect("定义 ExploreRecord 失败");
+        models
+            .define::<ChangeRecord>()
+            .expect("定义 ChangeRecord 失败");
+        models
+            .define::<PhaseRecord>()
+            .expect("定义 PhaseRecord 失败");
+        models
+            .define::<ChecklistItemRecord>()
+            .expect("定义 ChecklistItemRecord 失败");
+        models
+            .define::<StepRecord>()
+            .expect("定义 StepRecord 失败");
         models
     })
 }
@@ -244,7 +301,7 @@ pub(crate) fn workspace_db_path(workspaces_dir: &Path, canonical_root: &str) -> 
 /// 锁定），私有持有 [`Database`] 与实例维度，可安全挂 Tauri State，同步调用
 /// 无需 async。全局库经 [`Store::open_global`]（workspace 注册表 + agent
 /// 管理两模型）、workspace 库经 [`Store::open_workspace`]（轮统计行 / 会话 /
-/// 转录 / explore 四模型）。
+/// 转录 / explore / change 流程状态八模型）。
 ///
 /// 单进程约束：双开（如 dev 与正式版指向同一 db 文件）不保证安全，见 crate 文档。
 pub struct Store {
@@ -260,7 +317,7 @@ impl Store {
     }
 
     /// 打开 workspace 库（workspace 维度模型组，轮统计行 / 会话 / 转录 /
-    /// explore 四模型）。
+    /// explore / change 流程状态八模型）。
     pub fn open_workspace(path: &Path) -> Result<Self, StoreError> {
         Self::open_with(path, workspace_models(), DbDimension::Workspace)
     }
@@ -948,6 +1005,396 @@ impl Store {
         rw.commit()
             .map_err(db_err("提交 set_default_agent_instance 事务"))?;
         Ok(target)
+    }
+
+    // --- change 流程状态域（desktop-change-state-store：建档 / 相位落账 /
+    // 回跳 / 步骤审计 / status 翻转；记录 ↔ `workflow::state` 中性类型映射收
+    // 本文件单点，design D2）---------------------------------------------
+
+    /// 建档：同名记录已存在 → [`StoreError::Conflict`]（active 记录为建档冲
+    /// 突；archived 记录为名字占用——主键 name 不复用）。返回落库记录。
+    pub fn create_change_record(
+        &self,
+        record: ChangeStateRecord,
+    ) -> Result<ChangeStateRecord, StoreError> {
+        if let Some(existing) = self.find_change_record(&record.name)? {
+            return Err(match existing.status {
+                ChangeStatus::Active => StoreError::Conflict(format!(
+                    "change 已存在同名建档记录: {}",
+                    existing.name
+                )),
+                ChangeStatus::Archived => StoreError::Conflict(format!(
+                    "change 名已被归档记录占用（主键 name 不复用）: {}",
+                    existing.name
+                )),
+            });
+        }
+        let stored = ChangeRecord {
+            name: record.name.clone(),
+            workflow_type: record.workflow_type,
+            created_at: record.created_at,
+            status: record.status,
+            archived_at: record.archived_at,
+            active_phase: record.active_phase.map(change_active_phase_stored),
+        };
+        let rw = self.db.rw_transaction().map_err(db_err("开启写事务"))?;
+        rw.insert(stored.clone()).map_err(db_err("写入建档记录"))?;
+        rw.commit()
+            .map_err(db_err("提交 create_change_record 事务"))?;
+        Ok(change_state(&stored))
+    }
+
+    /// 补偿删除（create 双写 fs 半边失败回滚面，design D5）：按主键删除本次
+    /// 自插行；miss 幂等 `Ok(false)`。
+    pub fn delete_change_record(&self, name: &str) -> Result<bool, StoreError> {
+        let rw = self.db.rw_transaction().map_err(db_err("开启写事务"))?;
+        let stored: Option<ChangeRecord> =
+            rw.get().primary(name).map_err(db_err("读取建档记录"))?;
+        let Some(record) = stored else {
+            return Ok(false); // miss 幂等
+        };
+        rw.remove(record).map_err(db_err("删除建档记录"))?;
+        rw.commit()
+            .map_err(db_err("提交 delete_change_record 事务"))?;
+        Ok(true)
+    }
+
+    /// 主键直查建档记录（None = 文档形态）。
+    pub fn find_change_record(&self, name: &str) -> Result<Option<ChangeStateRecord>, StoreError> {
+        let r = self.db.r_transaction().map_err(db_err("开启读事务"))?;
+        let hit: Option<ChangeRecord> =
+            r.get().primary(name).map_err(db_err("读取建档记录"))?;
+        Ok(hit.as_ref().map(change_state))
+    }
+
+    /// 建档全量：主键 name 自然序。
+    pub fn list_change_records(&self) -> Result<Vec<ChangeStateRecord>, StoreError> {
+        Ok(self
+            .read_all::<ChangeRecord>("遍历建档清单")?
+            .iter()
+            .map(change_state)
+            .collect())
+    }
+
+    /// 开相：单写事务内 attempt 推导（该相位既有条目数 + 1）+ active_phase
+    /// 写入；change miss → [`StoreError::NotFound`]。active_phase 无条件覆写
+    ///（与既往 phase_start 定点写语义一致）。
+    pub fn start_change_phase(
+        &self,
+        change: &str,
+        phase: &str,
+        now: i64,
+    ) -> Result<PhaseStartState, StoreError> {
+        let rw = self.db.rw_transaction().map_err(db_err("开启写事务"))?;
+        let mut stored: ChangeRecord = rw
+            .get()
+            .primary(change)
+            .map_err(db_err("读取建档记录"))?
+            .ok_or_else(|| StoreError::NotFound(format!("change 不存在: {change}")))?;
+        let attempt = rw
+            .scan()
+            .primary::<PhaseRecord>()
+            .map_err(db_err("扫描评估条目"))?
+            .all()
+            .map_err(db_err("扫描评估条目"))?
+            .collect::<native_db::db_type::Result<Vec<_>>>()
+            .map_err(db_err("扫描评估条目"))?
+            .into_iter()
+            .filter(|record| record.change == change && record.phase == phase)
+            .count() as u32
+            + 1;
+        stored.active_phase = Some(ChangeActivePhase {
+            phase: phase.to_owned(),
+            attempt,
+            start_at: now,
+        });
+        rw.upsert(stored).map_err(db_err("写入开相状态"))?;
+        rw.commit()
+            .map_err(db_err("提交 start_change_phase 事务"))?;
+        Ok(PhaseStartState {
+            attempt,
+            start_at: now,
+        })
+    }
+
+    /// 相位落账单事务原子（design AC-2）：PhaseRecord 落行（id 写事务内
+    /// max+1）+ checklist 子行落行 + active_phase 清位 + `(change, phase,
+    /// attempt)` 写事务内查重；change miss / active_phase 不匹配 →
+    /// [`StoreError::NotFound`]，重复落账 → [`StoreError::Conflict`]。任一环
+    /// 节失败整体回滚零残留。
+    pub fn log_change_phase(&self, command: &PhaseLogCommand) -> Result<u32, StoreError> {
+        let rw = self.db.rw_transaction().map_err(db_err("开启写事务"))?;
+        let mut change_row: ChangeRecord = rw
+            .get()
+            .primary(command.change.as_str())
+            .map_err(db_err("读取建档记录"))?
+            .ok_or_else(|| StoreError::NotFound(format!("change 不存在: {}", command.change)))?;
+        // active_phase 匹配复核（事务内权威；start_at 随行兜底）
+        let active_start_at = change_row
+            .active_phase
+            .as_ref()
+            .filter(|active| active.phase == command.phase)
+            .map(|active| active.start_at)
+            .ok_or_else(|| {
+                StoreError::NotFound(format!(
+                    "phase \"{}\" 未开启（active_phase 不匹配），不可落账",
+                    command.phase
+                ))
+            })?;
+        let all: Vec<PhaseRecord> = rw
+            .scan()
+            .primary::<PhaseRecord>()
+            .map_err(db_err("扫描评估条目"))?
+            .all()
+            .map_err(db_err("扫描评估条目"))?
+            .collect::<native_db::db_type::Result<Vec<_>>>()
+            .map_err(db_err("扫描评估条目"))?;
+        // attempt 事务内推导（该相位既有条目数 + 1）+ 查重（沿 store 唯一性惯例）
+        let attempt = all
+            .iter()
+            .filter(|record| {
+                record.change == command.change && record.phase == command.phase
+            })
+            .count() as u32
+            + 1;
+        if all.iter().any(|record| {
+            record.change == command.change
+                && record.phase == command.phase
+                && record.attempt == attempt
+        }) {
+            return Err(StoreError::Conflict(format!(
+                "评估条目已存在: change={} phase={} attempt={attempt}",
+                command.change, command.phase
+            )));
+        }
+        // 主键自然序表尾即最大 id（max+1 分配，与插入原子）
+        let next_id = all.last().map_or(1, |last| last.id + 1);
+        let record = PhaseRecord {
+            id: next_id,
+            change: command.change.clone(),
+            phase: command.phase.clone(),
+            attempt,
+            verdict: command.verdict,
+            report: command.report.clone(),
+            skipped: command.skipped,
+            stale: false,
+            backtrack_to: None,
+            backtrack_reason: None,
+            executor_session_id: command.executor_session_id.clone(),
+            evaluator_session_id: command.evaluator_session_id.clone(),
+            decision_session_id: command.decision_session_id.clone(),
+            start_at: command.start_at.or(Some(active_start_at)),
+            timestamp: command.timestamp,
+        };
+        rw.insert(record).map_err(db_err("写入评估条目"))?;
+        for (index, item) in command.checklist.iter().enumerate() {
+            rw.insert(ChecklistItemRecord::new(next_id, index as u32, item.clone()))
+                .map_err(db_err("写入检查项子行"))?;
+        }
+        // 落账即收相位（开相才可落账）
+        change_row.active_phase = None;
+        rw.upsert(change_row).map_err(db_err("清位 active_phase"))?;
+        rw.commit()
+            .map_err(db_err("提交 log_change_phase 事务"))?;
+        Ok(attempt)
+    }
+
+    /// 回跳单事务：发起相位最新条目落 backtrack 标记 + 目标相位最新 pass 置
+    /// stale（无 pass 条目 no-op 且不传播，沿既往 `mark_phase_stale` 语义）+
+    /// `stale_dependents` 闭包全条目置 stale；发起相位无条目 →
+    /// [`StoreError::NotFound`]。
+    ///
+    /// 多处标记落同一行时按主键组装逐位叠加（回跳发起相位常在目标下游闭包
+    /// 内——标记行的 `backtrack_to` / `backtrack_reason` 与闭包 stale 翻转同
+    /// 行并存，与既往 JSON 载体上标记 + 传播两次读改写的合成终态一致），禁止
+    /// 快照克隆整行后推覆写先写标记。
+    pub fn apply_change_backtrack(&self, command: &BacktrackCommand) -> Result<(), StoreError> {
+        let rw = self.db.rw_transaction().map_err(db_err("开启写事务"))?;
+        let rows: Vec<PhaseRecord> = rw
+            .scan()
+            .primary::<PhaseRecord>()
+            .map_err(db_err("扫描评估条目"))?
+            .all()
+            .map_err(db_err("扫描评估条目"))?
+            .collect::<native_db::db_type::Result<Vec<_>>>()
+            .map_err(db_err("扫描评估条目"))?
+            .into_iter()
+            .filter(|record| record.change == command.change)
+            .collect();
+        // 待写集按主键 id 组装：同 id 多处标记在同一克隆行上叠加，后写不再
+        // 整行覆写先写；id 序写出（确定性，审计可读）
+        let mut updates: BTreeMap<i64, PhaseRecord> = BTreeMap::new();
+        // 回跳标记：发起相位最新条目（timestamp 降序取首，并列取落行序后者）
+        let latest = rows
+            .iter()
+            .filter(|record| record.phase == command.phase)
+            .max_by_key(|record| (record.timestamp, record.id))
+            .ok_or_else(|| {
+                StoreError::NotFound(format!(
+                    "Phase \"{}\" 没有评估条目，无法设置回溯",
+                    command.phase
+                ))
+            })?;
+        let marked = updates.entry(latest.id).or_insert_with(|| latest.clone());
+        marked.backtrack_to = Some(command.to.clone());
+        marked.backtrack_reason = Some(command.reason.clone());
+        // 目标相位最新 pass 置 stale；无 pass 条目 no-op 且不传播
+        let target_pass = rows
+            .iter()
+            .filter(|record| record.phase == command.to && record.verdict == Verdict::Pass)
+            .max_by_key(|record| (record.timestamp, record.id));
+        if let Some(target) = target_pass {
+            updates
+                .entry(target.id)
+                .or_insert_with(|| target.clone())
+                .stale = true;
+            for dependent in &command.stale_dependents {
+                for row in rows.iter().filter(|record| &record.phase == dependent) {
+                    updates.entry(row.id).or_insert_with(|| row.clone()).stale = true;
+                }
+            }
+        }
+        for update in updates.into_values() {
+            rw.upsert(update).map_err(db_err("写入回跳标记"))?;
+        }
+        rw.commit()
+            .map_err(db_err("提交 apply_change_backtrack 事务"))?;
+        Ok(())
+    }
+
+    /// decision 槽位幂等挂账：该相位最新条目定点改写；无条目 →
+    /// [`StoreError::NotFound`]。
+    pub fn amend_change_decision_session(
+        &self,
+        change: &str,
+        phase: &str,
+        session_id: &str,
+    ) -> Result<(), StoreError> {
+        let rw = self.db.rw_transaction().map_err(db_err("开启写事务"))?;
+        let latest = rw
+            .scan()
+            .primary::<PhaseRecord>()
+            .map_err(db_err("扫描评估条目"))?
+            .all()
+            .map_err(db_err("扫描评估条目"))?
+            .collect::<native_db::db_type::Result<Vec<_>>>()
+            .map_err(db_err("扫描评估条目"))?
+            .into_iter()
+            .filter(|record| record.change == change && record.phase == phase)
+            .max_by_key(|record| (record.timestamp, record.id))
+            .ok_or_else(|| {
+                StoreError::NotFound(format!(
+                    "Phase \"{phase}\" 没有评估条目，无法挂账决策会话"
+                ))
+            })?;
+        let mut marked = latest;
+        marked.decision_session_id = Some(session_id.to_owned());
+        rw.upsert(marked).map_err(db_err("写入决策槽位"))?;
+        rw.commit()
+            .map_err(db_err("提交 amend_change_decision_session 事务"))?;
+        Ok(())
+    }
+
+    /// status 翻转（归档 db 半边）：status=archived + archived_at；主键 name
+    /// 不变；miss → [`StoreError::NotFound`]。
+    pub fn set_change_archived(&self, name: &str, archived_at: i64) -> Result<(), StoreError> {
+        let rw = self.db.rw_transaction().map_err(db_err("开启写事务"))?;
+        let mut stored: ChangeRecord = rw
+            .get()
+            .primary(name)
+            .map_err(db_err("读取建档记录"))?
+            .ok_or_else(|| StoreError::NotFound(format!("change 不存在: {name}")))?;
+        stored.status = ChangeStatus::Archived;
+        stored.archived_at = Some(archived_at);
+        rw.upsert(stored).map_err(db_err("写入归档状态"))?;
+        rw.commit()
+            .map_err(db_err("提交 set_change_archived 事务"))?;
+        Ok(())
+    }
+
+    /// 步骤审计行追加（行 id 写事务内 max+1）。
+    pub fn append_change_step(&self, command: &StepCommand) -> Result<(), StoreError> {
+        let rw = self.db.rw_transaction().map_err(db_err("开启写事务"))?;
+        // 主键自然序表尾即最大 id（max+1 分配，与插入原子）
+        let next_id = match rw
+            .scan()
+            .primary::<StepRecord>()
+            .map_err(db_err("读取最大 id"))?
+            .all()
+            .map_err(db_err("读取最大 id"))?
+            .next_back()
+        {
+            Some(Ok(record)) => record.id + 1,
+            Some(Err(e)) => return Err(StoreError::Db(format!("读取最大 id: {e}"))),
+            None => 1,
+        };
+        let mut record = StepRecord::new(command);
+        record.id = next_id;
+        rw.insert(record).map_err(db_err("写入步骤审计行"))?;
+        rw.commit()
+            .map_err(db_err("提交 append_change_step 事务"))?;
+        Ok(())
+    }
+
+    /// 相位评估史：按 change 过滤，落行序（id 升序）返回；checklist 子行按
+    /// 打包键自然序（= item_index 升序 = evaluator 输出序）内联重组。
+    pub fn list_phase_records(&self, change: &str) -> Result<Vec<PhaseStateRecord>, StoreError> {
+        let mut items: HashMap<i64, Vec<ChecklistItem>> = HashMap::new();
+        // 主键自然序读出：同相位子行自然序即打包键序，重组保序直插
+        for record in self.read_all::<ChecklistItemRecord>("遍历检查项子行")? {
+            items.entry(record.phase_id).or_default().push(ChecklistItem {
+                item: record.item,
+                pass: record.pass,
+                evidence: record.evidence,
+            });
+        }
+        Ok(self
+            .read_all::<PhaseRecord>("遍历评估条目")?
+            .into_iter()
+            .filter(|record| record.change == change)
+            .map(|record| PhaseStateRecord {
+                checklist: items.remove(&record.id).unwrap_or_default(),
+                change: record.change,
+                phase: record.phase,
+                attempt: record.attempt,
+                verdict: record.verdict,
+                report: record.report,
+                skipped: record.skipped,
+                stale: record.stale,
+                backtrack_to: record.backtrack_to,
+                backtrack_reason: record.backtrack_reason,
+                executor_session_id: record.executor_session_id,
+                evaluator_session_id: record.evaluator_session_id,
+                decision_session_id: record.decision_session_id,
+                start_at: record.start_at,
+                timestamp: record.timestamp,
+                id: record.id,
+            })
+            .collect())
+    }
+
+    /// 步骤审计枚举：按 change（可选 run 圈定）过滤，落行序（id 升序）返回。
+    pub fn list_change_steps(
+        &self,
+        change: &str,
+        run_id: Option<&str>,
+    ) -> Result<Vec<StepStateRecord>, StoreError> {
+        Ok(self
+            .read_all::<StepRecord>("遍历步骤审计行")?
+            .into_iter()
+            .filter(|record| record.change == change)
+            .filter(|record| run_id.is_none_or(|run| record.run_id == run))
+            .map(|record| StepStateRecord {
+                id: record.id,
+                run_id: record.run_id,
+                change: record.change,
+                step_kind: record.step_kind,
+                status: record.status,
+                timestamp: record.timestamp,
+                summary: record.summary,
+                reference: record.reference,
+            })
+            .collect())
     }
 
     /// 本库已注册模型清单与记录计数

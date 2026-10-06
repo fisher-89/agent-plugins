@@ -6321,7 +6321,8 @@ dependencies = [
  "serde",
  "serde_json",
  "specta",
- "time",
+ "store",
+ "tempfile",
  "tokio",
  "workflow",
 ]
@@ -8650,11 +8651,13 @@ dependencies = [
  "dunce",
  "native_db",
  "native_model",
+ "redb 2.6.3",
  "serde",
  "serde_json",
  "sha2",
  "specta",
  "tempfile",
+ "workflow",
 ]
 
 [[package]]
@@ -11111,6 +11114,8 @@ dependencies = [
  "serde",
  "serde_json",
  "specta",
+ "store",
+ "tempfile",
  "time",
 ]
 

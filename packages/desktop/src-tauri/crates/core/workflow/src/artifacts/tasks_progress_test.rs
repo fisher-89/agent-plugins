@@ -1,12 +1,12 @@
-//! `artifacts::tasks_progress` 的单元测试：tasks.md 勾选计数（AC-9）。
+//! `artifacts::tasks_progress` 的单元测试（适配入参面演进）：tasks.md 勾选
+//! 计数（AC-9）。`Inventory` 入参随签名演进退役——切片入参恒传 `&[]`。
 
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use super::registry::{ArtifactInput, ArtifactPlugin};
+use super::registry::{discover_artifacts, ArtifactInput, ArtifactPlugin};
 use super::tasks_progress::{TasksProgressPlugin, KIND};
 use super::ArtifactCandidate;
-use crate::model::Inventory;
 
 /// 临时 change 目录 RAII：测试结束自动清理。
 struct TempChange(PathBuf);
@@ -47,8 +47,7 @@ fn tasks_candidate() -> ArtifactCandidate {
 fn input_for<'a>(change_dir: &'a Path, candidate: &'a ArtifactCandidate) -> ArtifactInput<'a> {
     ArtifactInput {
         change_dir,
-        inventory: Inventory::V0,
-        workflow: None,
+        phases: &[],
         candidate,
     }
 }
@@ -113,7 +112,7 @@ fn tasks_md不存在时matcher按名命中但解析产出none() {
         "文件缺失 → 解析 None"
     );
     assert!(
-        !super::discover_artifacts(&change.0, Inventory::V0, None)
+        !discover_artifacts(&change.0, &[])
             .iter()
             .any(|d| d.kind == KIND),
         "discover 不产出 tasks-progress descriptor"

@@ -1,9 +1,5 @@
 //! 领域类型模块根。
 
-pub mod inventory;
-pub mod workflow;
+pub mod domain;
 
-pub use inventory::Inventory;
-pub use workflow::{
-    ActivePhase, ChecklistItem, FileLogEntry, FileLogOp, PhaseLog, Verdict, Workflow,
-};
+pub use domain::{ChecklistItem, Verdict};

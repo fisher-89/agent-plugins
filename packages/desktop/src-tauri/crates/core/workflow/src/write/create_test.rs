@@ -1,54 +1,65 @@
 //! `write::create` 的单元测试（test-design「create.rs -> create_test.rs」节）：
-//! 三道前置校验（kebab-case 字符级判定 + ≤128 → goal 非空白 → 已存在拒绝，
-//! 全 IO 前置零产生）→ `create_dir_all` 建树 → workflow.json 键序定形写出
-//!（2 空格 pretty + 尾换行、无 `eval` 键）→ explore.md 落 goal 原文；
-//! CreateOutcome serde 线形状；跨模块组合用例（链路发起方 = 写面 create）：
-//! 创建 → 既有清单读面 / flow 前置校验输入面 / 详情读面（含探索条目）/
-//! 插件 createChange 形态对照。
+//! create 建档三合一双写（D5）——目录 + explore.md（goal 原文）+ ChangeRecord
+//! 建档；冲突双检查全 IO 前置（目录已存在 / db 同名 active 拒绝零副作用）；
+//! kebab-case / goal 校验保留；fs 失败补偿删除本次建档（真实 fs 注入：预置
+//! 目录位文件占位）+ 补偿后 db 零残留；补偿再失败呈现残留记录名；created
+//! 出线取 db created_at 日期；成功后清单立即可见（组合行）；目录树零
+//! workflow.json 产出（双向墙写半边）。
 //!
-//! Mock策略：无进程边界 mock（fs 真实组合）——tempdir 空白 workspace 根 RAII
-//! 装置（沿 phase_next_test TempWs 先例）；插件 createChange 形态以紧凑单行
-//! fixture 字符串锚定（进程内字符串常量，非 mock）；「零产生 / 零改动」以
-//! 目录枚举与调用前后字节比对断言。
+//! Mock策略（test-design 本节 Mock 表）：db 半边以进程内假件实现
+//! [`ChangeStateStore`]（捕获建档 / 补偿删除调用 + 可编程补偿故障；真实
+//! tempfile Store 组合行收 tests/corpus_golden_test.rs 集成面——workflow 自环
+//! dev-dep 在 lib-test 与普通 lib 双工件下类型不统一，见变更报告）；文件系统
+//! 真实 tempdir + 预置目录位文件占位注入写失败（不经 mock）。「当日」断言用
+//! 调用前后 UTC 日期并集界，零 wall-clock 等值比较。
 
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 
 use foundation::layout::{resolve, Layout};
 use time::OffsetDateTime;
 
-use super::persist::load_doc;
-use super::{create, phase_table, CreateOutcome};
+use super::create;
+use super::CreateOutcome;
+use crate::queries::list_changes;
+use crate::state::{
+    BacktrackCommand, ChangeStateRecord, ChangeStateStore, ChangeStatus, PhaseLogCommand,
+    PhaseStateRecord, StepCommand, StepStateRecord, StoreFault,
+};
 
-/// 临时 workspace 根 RAII（沿 phase_next_test TempWs 先例）：测试结束自动
-/// 清理；`new` 不建目录——「空白树」用例依赖根全链不存在的前置。
-struct TempWs(PathBuf);
+// ---------------------------------------------------------------------------
+// 装置：真实 tempdir workspace 根（fs 半边全真实）+ 进程内假件 store
+// ---------------------------------------------------------------------------
 
-impl TempWs {
+struct Env {
+    root: PathBuf,
+    store: CreateStore,
+    layout: Layout,
+}
+
+impl Env {
     fn new(tag: &str) -> Self {
-        let dir = std::env::temp_dir().join(format!(
+        let root = std::env::temp_dir().join(format!(
             "workflow-create-test-{}-{}",
             std::process::id(),
             tag
         ));
-        let _ = fs::remove_dir_all(&dir);
-        Self(dir)
-    }
-
-    fn layout(&self) -> Layout {
-        resolve(&self.0)
+        let _ = fs::remove_dir_all(&root);
+        let layout = resolve(&root);
+        Self {
+            root,
+            store: CreateStore::new(),
+            layout,
+        }
     }
 
     fn create(&self, name: &str, goal: &str) -> Result<CreateOutcome, String> {
-        create(&self.layout(), name, goal)
+        create(&self.layout, &self.store, name, goal)
     }
 
     fn change_dir(&self, name: &str) -> PathBuf {
-        self.layout().changes_root.join(name)
-    }
-
-    fn workflow_bytes(&self, name: &str) -> Vec<u8> {
-        fs::read(self.change_dir(name).join("workflow.json")).expect("读 workflow.json 失败")
+        self.layout.changes_root.join(name)
     }
 
     fn explore_bytes(&self, name: &str) -> Vec<u8> {
@@ -57,33 +68,190 @@ impl TempWs {
 
     /// changes_root 下现存目录名（根不存在即空集）——「零产生」观察面。
     fn active_dir_names(&self) -> Vec<String> {
-        let root = self.layout().changes_root;
-        let Ok(entries) = fs::read_dir(&root) else {
-            return Vec::new();
-        };
-        entries
-            .flatten()
-            .filter(|entry| entry.file_type().map(|t| t.is_dir()).unwrap_or(false))
-            .map(|entry| entry.file_name().to_string_lossy().into_owned())
-            .collect()
+        dir_names(&self.layout.changes_root)
     }
 
-    /// 预置既有 change（同名拒绝用例的对照物）。
-    fn seed_existing(&self, name: &str, workflow_json: &str, explore: &str) {
-        let dir = self.change_dir(name);
-        fs::create_dir_all(&dir).expect("预置 change 目录失败");
-        fs::write(dir.join("workflow.json"), workflow_json).expect("预置 workflow.json 失败");
-        fs::write(dir.join("explore.md"), explore).expect("预置 explore.md 失败");
+    /// changes_root 全树下文件名集合（递归；根不存在即空集）——「零
+    /// workflow.json 产出」观察面。
+    fn tree_file_names(&self) -> Vec<String> {
+        let mut names = Vec::new();
+        collect_file_names(&self.layout.changes_root, &mut names);
+        names
     }
 }
 
-impl Drop for TempWs {
+impl Drop for Env {
     fn drop(&mut self) {
-        let _ = fs::remove_dir_all(&self.0);
+        let _ = fs::remove_dir_all(&self.root);
     }
 }
 
-/// 当前 UTC 日历日期 `YYYY-MM-DD`（与写面同式）。
+fn dir_names(root: &Path) -> Vec<String> {
+    let Ok(entries) = fs::read_dir(root) else {
+        return Vec::new();
+    };
+    entries
+        .flatten()
+        .filter(|entry| entry.file_type().map(|t| t.is_dir()).unwrap_or(false))
+        .map(|entry| entry.file_name().to_string_lossy().into_owned())
+        .collect()
+}
+
+fn collect_file_names(root: &Path, out: &mut Vec<String>) {
+    let Ok(entries) = fs::read_dir(root) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let Ok(file_type) = entry.file_type() else {
+            continue;
+        };
+        if file_type.is_dir() {
+            collect_file_names(&entry.path(), out);
+        } else {
+            out.push(entry.file_name().to_string_lossy().into_owned());
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// 假件 store：get_change / list_change_records / create_change_record /
+// delete_change_record 四个 min 操作镜像真件语义（主键 name 存取、补偿删除
+// 可编程故障），其余 unimplemented（越权触达即 panic）。
+// ---------------------------------------------------------------------------
+
+struct CreateStore {
+    /// 建档记录（建档即插入、补偿删除即移除——db 存活的内存像）。
+    records: Mutex<Vec<ChangeStateRecord>>,
+    /// create_change_record 调用捕获（零建档断言观察面）。
+    creates: Mutex<Vec<ChangeStateRecord>>,
+    /// delete_change_record 调用捕获（补偿路径断言观察面）。
+    deletes: Mutex<Vec<String>>,
+    /// 补偿删除注入故障（双故障角落行）。
+    delete_fault: Mutex<Option<StoreFault>>,
+}
+
+impl CreateStore {
+    fn new() -> Self {
+        Self {
+            records: Mutex::new(Vec::new()),
+            creates: Mutex::new(Vec::new()),
+            deletes: Mutex::new(Vec::new()),
+            delete_fault: Mutex::new(None),
+        }
+    }
+
+    fn seed_active(&self, name: &str) {
+        self.records
+            .lock()
+            .expect("记录锁不可中毒")
+            .push(ChangeStateRecord {
+                name: name.to_owned(),
+                workflow_type: "requirement".to_owned(),
+                created_at: 1_727_000_000_000,
+                status: ChangeStatus::Active,
+                archived_at: None,
+                active_phase: None,
+            });
+    }
+
+    fn set_delete_fault(&self, fault: StoreFault) {
+        *self.delete_fault.lock().expect("故障锁不可中毒") = Some(fault);
+    }
+
+    fn create_call_count(&self) -> usize {
+        self.creates.lock().expect("建档锁不可中毒").len()
+    }
+
+    fn find(&self, name: &str) -> Option<ChangeStateRecord> {
+        self.records
+            .lock()
+            .expect("记录锁不可中毒")
+            .iter()
+            .find(|record| record.name == name)
+            .cloned()
+    }
+}
+
+impl ChangeStateStore for CreateStore {
+    fn get_change(&self, name: &str) -> Result<Option<ChangeStateRecord>, StoreFault> {
+        Ok(self.find(name))
+    }
+
+    fn list_change_records(&self) -> Result<Vec<ChangeStateRecord>, StoreFault> {
+        Ok(self.records.lock().expect("记录锁不可中毒").clone())
+    }
+
+    fn list_phase_records(&self, _change: &str) -> Result<Vec<PhaseStateRecord>, StoreFault> {
+        unimplemented!("本用例不可达")
+    }
+
+    fn list_steps(
+        &self,
+        _change: &str,
+        _run_id: Option<&str>,
+    ) -> Result<Vec<StepStateRecord>, StoreFault> {
+        unimplemented!("本用例不可达")
+    }
+
+    fn create_change_record(&self, record: ChangeStateRecord) -> Result<(), StoreFault> {
+        self.creates
+            .lock()
+            .expect("建档锁不可中毒")
+            .push(record.clone());
+        self.records.lock().expect("记录锁不可中毒").push(record);
+        Ok(())
+    }
+
+    fn delete_change_record(&self, name: &str) -> Result<bool, StoreFault> {
+        self.deletes
+            .lock()
+            .expect("删除锁不可中毒")
+            .push(name.to_owned());
+        if let Some(fault) = self.delete_fault.lock().expect("故障锁不可中毒").clone() {
+            return Err(fault);
+        }
+        let mut records = self.records.lock().expect("记录锁不可中毒");
+        let before = records.len();
+        records.retain(|record| record.name != name);
+        Ok(records.len() < before)
+    }
+
+    fn start_phase(
+        &self,
+        _change: &str,
+        _phase: &str,
+        _now: i64,
+    ) -> Result<crate::state::PhaseStartState, StoreFault> {
+        unimplemented!("本用例不可达")
+    }
+
+    fn log_phase(&self, _command: &PhaseLogCommand) -> Result<u32, StoreFault> {
+        unimplemented!("本用例不可达")
+    }
+
+    fn apply_backtrack(&self, _command: &BacktrackCommand) -> Result<(), StoreFault> {
+        unimplemented!("本用例不可达")
+    }
+
+    fn amend_decision_session(
+        &self,
+        _change: &str,
+        _phase: &str,
+        _session_id: &str,
+    ) -> Result<(), StoreFault> {
+        unimplemented!("本用例不可达")
+    }
+
+    fn set_archived(&self, _name: &str, _archived_at: i64) -> Result<(), StoreFault> {
+        unimplemented!("本用例不可达")
+    }
+
+    fn append_step(&self, _command: &StepCommand) -> Result<(), StoreFault> {
+        unimplemented!("本用例不可达")
+    }
+}
+
+/// 当前 UTC 日历日期 `YYYY-MM-DD`（与写面同式；「当日」断言的界用）。
 fn utc_date_today() -> String {
     let now = OffsetDateTime::now_utc();
     format!(
@@ -103,71 +271,258 @@ fn assert_today(created: &str, before: &str, after: &str) {
 }
 
 // ---------------------------------------------------------------------------
-// 正向：合法输入建域 / explore.md 落 goal 原文
+// 正向：三合一成功
 // ---------------------------------------------------------------------------
 
-/// create 合法输入建域：Ok(CreateOutcome{name, created=当日 UTC 日期})，
-/// workflow.json 字节恰为 2 空格 pretty 三键文档 + 尾换行（键序
-/// workflow_type → created → file_log、无 eval 键——AC-1/D2 字节级契约）。
+/// 成功 → 目录创建 + explore.md 含 goal 原文 + ChangeRecord 建档
+///（workflow_type=requirement、active、零 active_phase）；目录树内零
+/// workflow.json 产出（双向墙写半边——AC-6）。
 #[test]
-fn 合法输入建域_ok返回名称与当日且workflow_json字节定形() {
-    let ws = TempWs::new("happy");
+fn 三合一成功_目录与explore与db建档且零workflow_json产出() {
+    let env = Env::new("happy");
     let before = utc_date_today();
-    let outcome = ws
+
+    let outcome = env
         .create("fix-bug", "修复登录重试的竞态问题")
         .expect("合法输入应 Ok");
-    let after = utc_date_today();
 
+    let after = utc_date_today();
     assert_eq!(outcome.name, "fix-bug");
     assert_today(&outcome.created, &before, &after);
 
-    let bytes = String::from_utf8(ws.workflow_bytes("fix-bug")).expect("UTF-8");
-    let expected = format!(
-        "{{\n  \"workflow_type\": \"requirement\",\n  \"created\": \"{}\",\n  \"file_log\": []\n}}\n",
-        outcome.created
-    );
-    assert_eq!(
-        bytes, expected,
-        "2 空格 pretty 三键文档 + 尾换行（键序定形、无 eval 键）"
-    );
-}
+    // fs 半边：目录 + explore.md 落 goal 原文
+    assert!(env.change_dir("fix-bug").is_dir(), "change 目录创建");
+    assert_eq!(env.explore_bytes("fix-bug"), "修复登录重试的竞态问题".as_bytes());
 
-/// explore.md 落 goal 原文：字节恰为 goal 原文（UTF-8 零标题前缀零包装——
-/// AC-1/AC-5/D7）。
-#[test]
-fn explore_md落goal原文零包装() {
-    let ws = TempWs::new("explore-raw");
-    let goal = "探索目标正文：把清单页新建入口收进对话框";
-    ws.create("raw-goal", goal).expect("合法输入应 Ok");
+    // db 半边：ChangeRecord 建档（workflow_type 随表）
+    let record = env.store.find("fix-bug").expect("建档记录应在场");
+    assert_eq!(record.name, "fix-bug");
+    assert_eq!(record.workflow_type, "requirement");
+    assert_eq!(record.status, ChangeStatus::Active);
+    assert_eq!(record.archived_at, None);
+    assert!(record.active_phase.is_none(), "建档默认零 active_phase");
 
-    assert_eq!(ws.explore_bytes("raw-goal"), goal.as_bytes());
-}
-
-// ---------------------------------------------------------------------------
-// 边界：空白树深层建树 / CreateOutcome serde 线形状 / 名称宽度与正则正样本 /
-// goal 保真（首尾空白 / 多行 + emoji + 超长）/ 校验顺序
-// ---------------------------------------------------------------------------
-
-/// 空白树深层建树：调用前 changes_root 全链不存在，create_dir_all 建全树后
-/// 目录链完整、两文件落位（AC-1「空白树」字面）。
-#[test]
-fn 空白树深层建树_全链不存在时建全树且两文件落位() {
-    let ws = TempWs::new("blank-tree");
+    // 双向墙：目录树内零 workflow.json 产出
+    let files = env.tree_file_names();
     assert!(
-        !ws.layout().changes_root.exists(),
+        !files.iter().any(|name| name == "workflow.json"),
+        "目录树零 workflow.json 产出，实际: {files:?}"
+    );
+    assert_eq!(files, vec!["explore.md"], "目录树仅 explore.md 一文件");
+}
+
+/// 空白树深层建树：调用前 changes_root 全链不存在，建树后目录链完整
+///（AC-1「空白树」字面）。
+#[test]
+fn 空白树深层建树_全链不存在时建全树() {
+    let env = Env::new("blank-tree");
+    assert!(
+        !env.layout.changes_root.exists(),
         "前置：changes_root 全链不存在"
     );
 
-    ws.create("deep-root", "空白树首个 change")
+    env.create("deep-root", "空白树首个 change")
         .expect("空白树应建树成功");
 
+    assert!(env.change_dir("deep-root").join("explore.md").is_file());
+}
+
+/// goal 多行 + emoji + 超长字符 + 首尾空白：explore.md 字节保真（UTF-8
+/// free-form 原文直写，写面零 trim）。
+#[test]
+fn explore_md落goal原文零包装零trim() {
+    let env = Env::new("goal-rich");
+    let long_tail = "长".repeat(1000);
+    let goal = format!("  第一行\n第二行\t制表符 🚀 emoji\n{long_tail}  ");
+    assert!(goal.chars().count() > 1000, "前置：超 1000 字符");
+
+    env.create("rich-goal", &goal).expect("合法输入应 Ok");
+
+    assert_eq!(env.explore_bytes("rich-goal"), goal.as_bytes(), "写面零 trim 保真");
+}
+
+// ---------------------------------------------------------------------------
+// 异常：冲突双检查前置（D5 全 IO 前置）
+// ---------------------------------------------------------------------------
+
+/// 目录已存在 → 显式 `Err` 且 db 零建档（零副作用）。
+#[test]
+fn 目录已存在拒绝且db零建档() {
+    let env = Env::new("dir-taken");
+    fs::create_dir_all(env.change_dir("taken")).expect("预置目录失败");
+    fs::write(env.change_dir("taken").join("proposal.md"), "# 既有").expect("预置文件失败");
+
+    let error = env.create("taken", "新建 goal").expect_err("同名目录应 Err");
+
     assert!(
-        ws.change_dir("deep-root").join("workflow.json").is_file(),
-        "workflow.json 落位"
+        error.contains("已存在") && error.contains("taken"),
+        "错误归因已存在并携带目录语境，实际: {error}"
+    );
+    assert_eq!(env.store.create_call_count(), 0, "db 零建档");
+    assert!(
+        env.change_dir("taken").join("proposal.md").is_file(),
+        "既有目录零触碰"
+    );
+}
+
+/// db 已有同名 active → 显式 `Err` 且零目录创建（检查全 IO 前置——D5）。
+#[test]
+fn db同名active拒绝且零目录创建() {
+    let env = Env::new("db-taken");
+    env.store.seed_active("taken");
+
+    let error = env.create("taken", "新建 goal").expect_err("同名 active 应 Err");
+
+    assert!(
+        error.contains("已存在") && error.contains("taken"),
+        "错误归因同名建档冲突，实际: {error}"
     );
     assert!(
-        ws.change_dir("deep-root").join("explore.md").is_file(),
-        "explore.md 落位"
+        env.active_dir_names().is_empty(),
+        "零目录创建（检查全 IO 前置），实际: {:?}",
+        env.active_dir_names()
+    );
+    assert_eq!(env.store.create_call_count(), 0, "建档调用零下发");
+}
+
+// ---------------------------------------------------------------------------
+// 异常：校验保留（kebab-case / 长度 / goal 空白，全 IO 前置）
+// ---------------------------------------------------------------------------
+
+/// 非法名（kebab-case 违例 / 非单分量）与空白 goal → `Err` 且零目录零建档；
+/// 校验顺序名称优先（D4 顺序锚）。
+#[test]
+fn 非法名与空白goal拒绝且零目录零建档() {
+    let env = Env::new("bad-inputs");
+    let invalid_names = [
+        "Fix-Bug",  // 大写
+        "fix_bug",  // 下划线
+        "1fix",     // 前导数字
+        "fix-",     // 尾连字符
+        "fix--bug", // 连号连字符
+        "",         // 空串
+        "a/b",      // 穿越分量
+    ];
+    for name in invalid_names {
+        assert!(env.create(name, "拒绝面 goal").is_err(), "非法名 {name:?} 应 Err");
+    }
+    for goal in ["", "   ", "\n\t"] {
+        assert!(env.create("fix-bug", goal).is_err(), "空白 goal {goal:?} 应 Err");
+    }
+
+    assert!(
+        env.active_dir_names().is_empty(),
+        "零目录（校验全 IO 前置），实际: {:?}",
+        env.active_dir_names()
+    );
+    assert_eq!(env.store.create_call_count(), 0, "db 零建档");
+
+    // 校验顺序：非法名 + 空白 goal 同投，Err 归因名称校验
+    let error = env.create("Bad_Name", "   ").expect_err("非法名应 Err");
+    assert!(
+        error.contains("kebab-case") && !error.contains("goal"),
+        "归因名称校验（名称先决），实际: {error}"
+    );
+}
+
+/// 超 128 字符拒绝：129 字符合法字符集名 Err 且零产生（AC-3）。
+#[test]
+fn 超128字符拒绝且零产生() {
+    let env = Env::new("width-129");
+    let name = format!("a{}", "b".repeat(128));
+    assert_eq!(name.len(), 129, "前置：129 字节");
+
+    let error = env.create(&name, "越界 goal").expect_err("超 128 应 Err");
+    assert!(error.contains("128"), "错误归因长度限制，实际: {error}");
+    assert!(env.active_dir_names().is_empty(), "零产生");
+    assert_eq!(env.store.create_call_count(), 0, "db 零建档");
+}
+
+// ---------------------------------------------------------------------------
+// 异常：fs 失败补偿（D5）——真实 fs 注入写失败
+// ---------------------------------------------------------------------------
+
+/// 预置 changes_root 为文件占位（真实 fs 注入写失败——目录位占位会先被
+/// 「目录已存在」前置检查拦截，故占位打在 create_dir_all 的路径分量上）→
+/// 补偿删除本次新插建档记录（独立写面调用只删自插行）；补偿后 db 零残留。
+#[test]
+fn fs失败补偿删除本次建档且db零残留() {
+    let env = Env::new("fs-fail-compensate");
+    fs::create_dir_all(env.layout.changes_root.parent().expect("域根应存在"))
+        .expect("预置域根失败");
+    fs::write(&env.layout.changes_root, "changes_root 文件占位").expect("预置占位失败");
+
+    let error = env.create("fix-bug", "补偿路径 goal").expect_err("fs 半边失败应 Err");
+
+    assert!(
+        error.contains("补偿"),
+        "Err 呈现补偿回滚事实，实际: {error}"
+    );
+    assert!(
+        env.store.find("fix-bug").is_none(),
+        "补偿删除本次自插行（db 零残留）"
+    );
+    assert_eq!(
+        env.store.deletes.lock().expect("删除锁不可中毒").as_slice(),
+        ["fix-bug"],
+        "补偿删除恰针对本次自插行调用一次"
+    );
+}
+
+/// 补偿再失败（双故障角落）：假件 store 补偿删除返回 `Err` → `Err` 呈现
+/// 残留记录名（不静默自愈——D5）。
+#[test]
+fn 补偿再失败呈现残留记录名() {
+    let env = Env::new("compensate-fault");
+    env.store
+        .set_delete_fault(StoreFault::Db("注入的补偿删除故障".to_owned()));
+    fs::create_dir_all(env.layout.changes_root.parent().expect("域根应存在"))
+        .expect("预置域根失败");
+    fs::write(&env.layout.changes_root, "changes_root 文件占位").expect("预置占位失败");
+
+    let error = env
+        .create("orphan-name", "双故障角落 goal")
+        .expect_err("补偿再失败应 Err");
+
+    assert!(
+        error.contains("残留") && error.contains("orphan-name"),
+        "Err 呈现残留记录名（不静默自愈），实际: {error}"
+    );
+    assert!(
+        error.contains("注入的补偿删除故障"),
+        "Err 同时呈现补偿失败记因，实际: {error}"
+    );
+    assert_eq!(env.store.create_call_count(), 1, "建档先行恰好一次");
+    // 双故障角落：记录滞留假件（「目录在而记录缺」被禁破口的反面——显式报错）
+    assert!(env.store.find("orphan-name").is_some(), "残留记录在场（随下次同名建档显式暴露）");
+}
+
+// ---------------------------------------------------------------------------
+// 边界：created 出线 + 清单立即可见（组合行）+ CreateOutcome 线形状
+// ---------------------------------------------------------------------------
+
+/// CreateOutcome.created 取 db created_at 日期（UTC 日界口径）；成功后立即
+/// 经 list_changes 可见（db 形态状态面在场——AC-6「成功即可见」半边）。
+#[test]
+fn created出线且成功立即可见() {
+    let env = Env::new("visible");
+    let before = utc_date_today();
+
+    let outcome = env.create("combo-visible", "组合用例 goal").expect("create 应 Ok");
+    let after = utc_date_today();
+
+    assert_today(&outcome.created, &before, &after);
+
+    // 清单立即可见（db 形态：status / created 状态面在场）
+    let list = list_changes(&env.layout, &env.store);
+    assert_eq!(list.active.len(), 1, "active 恰一条");
+    assert_eq!(list.active[0].name, "combo-visible");
+    assert_eq!(list.active[0].status, Some(ChangeStatus::Active));
+    assert!(
+        list.active[0].created.as_deref() == Some(before.as_str())
+            || list.active[0].created.as_deref() == Some(after.as_str()),
+        "created 透传建档日期，实际: {:?}",
+        list.active[0].created
     );
 }
 
@@ -187,283 +542,4 @@ fn create_outcome_serde线形状恰两键零磁盘路径字段() {
     assert_eq!(keys, vec!["created", "name"], "恰两键且零磁盘路径字段");
     assert_eq!(object["name"], "fix-bug");
     assert_eq!(object["created"], "2026-10-02");
-}
-
-/// 恰 128 字符放行（≤128 含端点——D3 宽度上界）。
-#[test]
-fn 恰128字符合法名放行() {
-    let ws = TempWs::new("width-128");
-    let name = format!("a{}", "b".repeat(127));
-    assert_eq!(name.len(), 128, "前置：恰 128 字节");
-
-    let outcome = ws.create(&name, "宽度上界 goal").expect("≤128 含端点应 Ok");
-    assert_eq!(outcome.name, name);
-}
-
-/// 单字符与数字段放行（正则正样本）。
-#[test]
-fn 单字符与数字段名放行() {
-    let ws = TempWs::new("positive-samples");
-    for name in ["a", "fix-bug-2"] {
-        let outcome = ws
-            .create(name, "正样本 goal")
-            .unwrap_or_else(|error| panic!("合法名 {name:?} 应 Ok，实际: {error}"));
-        assert_eq!(outcome.name, name);
-    }
-}
-
-/// goal 首尾空白保真：explore.md 原样保留（写面零 trim——trim 为前端提交前
-/// 职责 D6）。
-#[test]
-fn goal首尾空白保真_写面零trim() {
-    let ws = TempWs::new("goal-pad");
-    let goal = "  带首尾空白的 goal  ";
-    ws.create("padded-goal", goal).expect("合法输入应 Ok");
-
-    assert_eq!(ws.explore_bytes("padded-goal"), goal.as_bytes());
-}
-
-/// goal 多行 + emoji + 超 1000 字符：explore.md 字节保真（UTF-8 free-form——
-/// AC-5；str 边界映射空 / 空白 / 特殊字符 / 超长全覆盖）。
-#[test]
-fn goal多行emoji与超长字符保真() {
-    let ws = TempWs::new("goal-rich");
-    let long_tail = "长".repeat(1000);
-    let goal = format!("第一行\n第二行\t制表符 🚀 emoji\n{long_tail}");
-    assert!(goal.chars().count() > 1000, "前置：超 1000 字符");
-
-    ws.create("rich-goal", &goal).expect("合法输入应 Ok");
-
-    assert_eq!(ws.explore_bytes("rich-goal"), goal.as_bytes());
-}
-
-/// 校验顺序名称优先：非法名 + 空白 goal 同投，Err 归因名称校验（D4 顺序
-/// 第一锚：名称 → goal → 已存在）。
-#[test]
-fn 校验顺序_非法名与空白goal同投时归因名称() {
-    let ws = TempWs::new("order-name-first");
-
-    let error = ws.create("Bad_Name", "   ").expect_err("非法名应 Err");
-    assert!(
-        error.contains("kebab-case"),
-        "归因名称校验（D4 顺序第一锚），实际: {error}"
-    );
-    assert!(
-        !error.contains("goal"),
-        "goal 校验未参与（名称先决），实际: {error}"
-    );
-}
-
-/// 校验顺序 goal 先于已存在：合法名 + 空白 goal + 同名已预置，Err 归因
-/// goal 空白（D4 顺序第二锚）。
-#[test]
-fn 校验顺序_合法名空白goal且同名已存在时归因goal() {
-    let ws = TempWs::new("order-goal-second");
-    ws.seed_existing(
-        "seeded",
-        r#"{ "workflow_type": "requirement", "file_log": [] }"#,
-        "既有探索正文",
-    );
-
-    let error = ws.create("seeded", "\n\t ").expect_err("空白 goal 应 Err");
-    assert!(
-        error.contains("goal"),
-        "归因 goal 空白（D4 顺序第二锚），实际: {error}"
-    );
-    assert!(
-        !error.contains("已存在"),
-        "已存在校验未参与（goal 先决），实际: {error}"
-    );
-}
-
-// ---------------------------------------------------------------------------
-// 异常：非法 kebab-case 全族 / 超 128 字符 / goal 空白 / 已存在同名
-// ---------------------------------------------------------------------------
-
-/// 非法 kebab-case 全族拒绝：大写 / 下划线 / 空格 / 前导数字 / 尾连字符 /
-/// 连号连字符 / 前导连字符 / 空串 / 穿越分量——各 Err 且 changes_root 下
-/// 零目录零文件（AC-3/D3 spec 正则语义）。
-#[test]
-fn 非法kebab全族拒绝且零产生() {
-    let ws = TempWs::new("bad-names");
-    let invalid_names = [
-        "Fix-Bug",  // 大写
-        "fix_bug",  // 下划线
-        "fix bug",  // 空格
-        "1fix",     // 前导数字
-        "fix-",     // 尾连字符
-        "-fix",     // 前导连字符
-        "fix--bug", // 连号连字符
-        "",         // 空串
-        "a/b",      // 穿越分量
-        "../x",     // 穿越分量
-    ];
-
-    for name in invalid_names {
-        let result = ws.create(name, "拒绝面 goal");
-        assert!(result.is_err(), "非法名 {name:?} 应 Err");
-    }
-
-    assert!(
-        ws.active_dir_names().is_empty(),
-        "changes_root 下零目录零文件（全 IO 前置拒绝），实际: {:?}",
-        ws.active_dir_names()
-    );
-}
-
-/// 超 128 字符拒绝：129 字符合法字符集名 Err 且零产生（AC-3）。
-#[test]
-fn 超128字符拒绝且零产生() {
-    let ws = TempWs::new("width-129");
-    let name = format!("a{}", "b".repeat(128));
-    assert_eq!(name.len(), 129, "前置：129 字节");
-
-    let error = ws.create(&name, "越界 goal").expect_err("超 128 应 Err");
-    assert!(error.contains("128"), "错误归因长度限制，实际: {error}");
-    assert!(ws.active_dir_names().is_empty(), "零产生（校验全 IO 前置）");
-}
-
-/// goal 空白拒绝："" / "   " / "\n\t" 各 Err 且目标目录与文件零产生（AC-3）。
-#[test]
-fn goal空白拒绝且目标目录与文件零产生() {
-    let ws = TempWs::new("blank-goal");
-    for goal in ["", "   ", "\n\t"] {
-        let result = ws.create("fix-bug", goal);
-        assert!(result.is_err(), "空白 goal {goal:?} 应 Err");
-    }
-
-    assert!(ws.active_dir_names().is_empty(), "目标目录与文件零产生");
-}
-
-/// 已存在同名拒绝：预置既有 change 再 create 同名，Err（错误串含目录路径）
-/// 且既有 workflow.json / explore.md 字节零变更（AC-3）。
-#[test]
-fn 已存在同名拒绝且既有产物字节零变更() {
-    let ws = TempWs::new("name-taken");
-    let existing_workflow = r#"{ "workflow_type": "requirement", "file_log": [] }"#;
-    let existing_explore = "既有探索正文";
-    ws.seed_existing("taken", existing_workflow, existing_explore);
-    let workflow_before = ws.workflow_bytes("taken");
-    let explore_before = ws.explore_bytes("taken");
-
-    let error = ws.create("taken", "新建 goal").expect_err("同名应 Err");
-    assert!(error.contains("已存在"), "错误归因已存在，实际: {error}");
-    let dir_string = ws.change_dir("taken").to_string_lossy().into_owned();
-    assert!(
-        error.contains(dir_string.as_str()),
-        "错误串含目录路径，实际: {error}"
-    );
-
-    assert_eq!(
-        ws.workflow_bytes("taken"),
-        workflow_before,
-        "既有 workflow.json 字节零变更"
-    );
-    assert_eq!(
-        ws.explore_bytes("taken"),
-        explore_before,
-        "既有 explore.md 字节零变更"
-    );
-}
-
-// ---------------------------------------------------------------------------
-// 组合（链路：创建 → 既有读面 / flow 前置校验 / 详情读面 / 插件形态对照）
-// ---------------------------------------------------------------------------
-
-/// `创建 → 既有清单读面`：create 后真实组合 queries::list_changes——active
-/// 恰一条、inventory=v2、source=active、created=当日、unparsable=false
-///（AC-2 v2 识别半边——file_log 键在位判 v2）。
-#[test]
-fn 创建后既有清单读面识别为v2单条active() {
-    let ws = TempWs::new("combo-list");
-    let before = utc_date_today();
-    ws.create("combo-list", "组合用例 goal")
-        .expect("create 应 Ok");
-    let after = utc_date_today();
-
-    let list = crate::queries::list_changes(&ws.layout());
-
-    assert_eq!(list.active.len(), 1, "active 恰一条");
-    let summary = &list.active[0];
-    assert_eq!(summary.name, "combo-list");
-    assert_eq!(summary.source, crate::queries::ChangeSource::Active);
-    assert_eq!(
-        summary.inventory,
-        crate::model::Inventory::V2,
-        "file_log 键在位判 v2"
-    );
-    assert!(
-        summary.created.as_deref() == Some(before.as_str())
-            || summary.created.as_deref() == Some(after.as_str()),
-        "created 透传当日日期，实际: {:?}",
-        summary.created
-    );
-    assert!(!summary.unparsable, "新文档可解析");
-}
-
-/// `创建 → flow 前置校验输入面`：create 后 persist::load_doc Ok 且
-/// workflow_type="requirement"、phase_table("requirement") 为 Some——
-/// change_flow_start 三项前置（存在 + 可解析 + 相位表在位）对新文档天然
-/// 通过（AC-2 发起半边）。
-#[test]
-fn 创建后flow前置三项_存在可解析相位表在位() {
-    let ws = TempWs::new("combo-flow");
-    ws.create("combo-flow", "发起前置输入面 goal")
-        .expect("create 应 Ok");
-
-    // 前置 2/3：可解析 + workflow_type=requirement（前置 1「存在」由 Ok 联合
-    // 承载——文件缺失时 load_doc 即 Err）
-    let doc = load_doc(&ws.layout(), "combo-flow").expect("load_doc 应 Ok");
-    assert_eq!(doc.typed.workflow_type, "requirement");
-    assert!(
-        phase_table(&doc.typed.workflow_type).is_some(),
-        "requirement 相位表在位"
-    );
-}
-
-/// `创建 → 详情读面（含探索条目）`：create 后真实组合 queries::change_detail
-/// ——Some 且产物清单含 explore.md→「探索」条目（markdown_doc 既有收录规则
-/// 零改动沿用的组合证据——AC-2 detail 可达半边 + AC-5 详情条目的数据面）。
-#[test]
-fn 创建后详情读面可达且产物清单含探索条目() {
-    let ws = TempWs::new("combo-detail");
-    ws.create("combo-detail", "详情组合 goal")
-        .expect("create 应 Ok");
-
-    let detail = crate::queries::change_detail(&ws.layout(), "combo-detail").expect("详情应可达");
-    assert_eq!(detail.name, "combo-detail");
-    assert!(
-        detail
-            .artifacts
-            .iter()
-            .any(|artifact| artifact.kind == "markdown-doc"
-                && artifact.source == "explore.md"
-                && artifact.title == "探索"),
-        "产物清单含 explore.md→「探索」条目，实际: {:?}",
-        detail.artifacts
-    );
-}
-
-/// `创建 → 插件 create_change 形态对照`：磁盘 workflow.json 解析 Value 与
-/// 插件 createChange 紧凑单行 fixture 解析 Value 全等（字段集 / 值一致；
-/// 序列化差异仅空白布局，键序已由字节级行锚定——AC-2 zod 可解析半边 /
-/// 风险表「形状漂移」缓解锚）。
-#[test]
-fn 创建产物与插件create_change紧凑单行形状全等() {
-    let ws = TempWs::new("combo-shape");
-    ws.create("combo-shape", "形状对照 goal")
-        .expect("create 应 Ok");
-
-    let disk_text = fs::read_to_string(ws.change_dir("combo-shape").join("workflow.json"))
-        .expect("读 workflow.json 失败");
-    let disk: serde_json::Value = serde_json::from_str(&disk_text).expect("磁盘文档可解析");
-
-    // 插件紧凑单行 fixture（created 与磁盘文档同日；序列化差异仅空白布局）
-    let created = disk["created"].as_str().expect("created 为字符串");
-    let plugin_text =
-        format!(r#"{{"workflow_type":"requirement","created":"{created}","file_log":[]}}"#);
-    let plugin: serde_json::Value =
-        serde_json::from_str(&plugin_text).expect("插件 fixture 可解析");
-
-    assert_eq!(disk, plugin, "字段集 / 值一致");
 }

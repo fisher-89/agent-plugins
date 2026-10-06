@@ -11,14 +11,14 @@ use super::envelope::{ArtifactCandidate, ArtifactDescriptor, ArtifactEnvelope};
 use super::eval_checklist::EvalChecklistPlugin;
 use super::markdown_doc::MarkdownDocPlugin;
 use super::tasks_progress::TasksProgressPlugin;
-use crate::model::{Inventory, Workflow};
+use crate::state::PhaseStateRecord;
 
 /// matcher / parser 的入参。
 #[derive(Debug, Clone, Copy)]
 pub struct ArtifactInput<'a> {
     pub change_dir: &'a Path,
-    pub inventory: Inventory,
-    pub workflow: Option<&'a Workflow>,
+    /// 相位评估史（db 读源；eval-checklist 候选锚定面）
+    pub phases: &'a [PhaseStateRecord],
     pub candidate: &'a ArtifactCandidate,
 }
 
@@ -33,7 +33,7 @@ pub trait ArtifactPlugin: Send + Sync {
     fn parse(&self, input: &ArtifactInput) -> Option<ArtifactEnvelope>;
 }
 
-// 第一波三插件，全部自包含模块、编译期注册。
+// 三插件，全部自包含模块、编译期注册。
 // 输出顺序：特化 kind（tasks-progress / eval-checklist）先于 markdown-doc。
 static TASKS_PROGRESS: TasksProgressPlugin = TasksProgressPlugin;
 static EVAL_CHECKLIST: EvalChecklistPlugin = EvalChecklistPlugin;
@@ -41,9 +41,9 @@ static MARKDOWN_DOC: MarkdownDocPlugin = MarkdownDocPlugin;
 
 static PLUGINS: &[&dyn ArtifactPlugin] = &[&TASKS_PROGRESS, &EVAL_CHECKLIST, &MARKDOWN_DOC];
 
-/// 枚举候选：文件树遍历（跳过点前缀项）+ eval 条目。
+/// 枚举候选：文件树遍历（跳过点前缀项）+ 相位评估条目。
 /// 文件按相对 POSIX 路径排序保证确定性。
-fn enumerate_candidates(change_dir: &Path, workflow: Option<&Workflow>) -> Vec<ArtifactCandidate> {
+fn enumerate_candidates(change_dir: &Path, phases: &[PhaseStateRecord]) -> Vec<ArtifactCandidate> {
     let mut files: Vec<PathBuf> = Vec::new();
     collect_files(change_dir, PathBuf::new(), &mut files);
     files.sort_by_key(|a| encode_file_source(a));
@@ -52,10 +52,9 @@ fn enumerate_candidates(change_dir: &Path, workflow: Option<&Workflow>) -> Vec<A
         .into_iter()
         .map(|relative_path| ArtifactCandidate::File { relative_path })
         .collect();
-    if let Some(workflow) = workflow {
-        candidates
-            .extend((0..workflow.eval.len()).map(|index| ArtifactCandidate::EvalEntry { index }));
-    }
+    candidates.extend(
+        (0..phases.len()).map(|index| ArtifactCandidate::EvalEntry { index }),
+    );
     candidates
 }
 
@@ -82,7 +81,7 @@ fn collect_files(root: &Path, prefix: PathBuf, out: &mut Vec<PathBuf>) {
     }
 }
 
-/// 候选 → source 串：文件为相对 POSIX 路径，eval 条目为序号串。
+/// 候选 → source 串：文件为相对 POSIX 路径，评估条目为序号串。
 pub(crate) fn encode_source(candidate: &ArtifactCandidate) -> String {
     match candidate {
         ArtifactCandidate::File { relative_path } => encode_file_source(relative_path),
@@ -94,7 +93,7 @@ fn encode_file_source(relative_path: &Path) -> String {
     relative_path.to_string_lossy().replace('\\', "/")
 }
 
-/// source 串 → 候选：纯数字解析为 eval 条目序号，否则视为相对 POSIX 路径。
+/// source 串 → 候选：纯数字解析为评估条目序号，否则视为相对 POSIX 路径。
 fn decode_source(source: &str) -> ArtifactCandidate {
     if let Ok(index) = source.parse::<usize>() {
         return ArtifactCandidate::EvalEntry { index };
@@ -110,11 +109,11 @@ fn is_valid_kind(kind: &str) -> bool {
 }
 
 /// IPC `source` 参数的包含性校验（与 change 名防护同一风格，字符串层即可
-/// 保证 join 后不逃出 change 目录）：合法形态为 eval 条目序号串，或各分量
+/// 保证 join 后不逃出 change 目录）：合法形态为评估条目序号串，或各分量
 /// 非空且非 `.`/`..`、无反斜杠、无盘符冒号、无绝对路径前缀的相对 POSIX 路径。
 fn is_valid_source(source: &str) -> bool {
     if source.parse::<usize>().is_ok() {
-        return true; // eval 条目序号串
+        return true; // 评估条目序号串
     }
     if source.is_empty()
         || source.starts_with('/')
@@ -133,17 +132,15 @@ fn is_valid_source(source: &str) -> bool {
 /// 输出按（插件顺序，插件内排序键）稳定排序：kind 分组且组内顺序确定。
 pub fn discover_artifacts(
     change_dir: &Path,
-    inventory: Inventory,
-    workflow: Option<&Workflow>,
+    phases: &[PhaseStateRecord],
 ) -> Vec<ArtifactDescriptor> {
-    let candidates = enumerate_candidates(change_dir, workflow);
+    let candidates = enumerate_candidates(change_dir, phases);
     let mut hits: Vec<(usize, u32, ArtifactDescriptor)> = Vec::new();
     for (plugin_index, plugin) in PLUGINS.iter().enumerate() {
         for candidate in &candidates {
             let input = ArtifactInput {
                 change_dir,
-                inventory,
-                workflow,
+                phases,
                 candidate,
             };
             if !plugin.matches(&input) {
@@ -177,8 +174,7 @@ pub fn discover_artifacts(
 /// 路径兜底确认包含关系（防 symlink 类逃逸）；任一校验不过返回 `None`。
 pub fn read_artifact(
     change_dir: &Path,
-    inventory: Inventory,
-    workflow: Option<&Workflow>,
+    phases: &[PhaseStateRecord],
     kind: &str,
     source: &str,
 ) -> Option<ArtifactEnvelope> {
@@ -195,8 +191,7 @@ pub fn read_artifact(
     }
     let input = ArtifactInput {
         change_dir,
-        inventory,
-        workflow,
+        phases,
         candidate: &candidate,
     };
     let plugin = PLUGINS.iter().find(|plugin| plugin.kind() == kind)?;

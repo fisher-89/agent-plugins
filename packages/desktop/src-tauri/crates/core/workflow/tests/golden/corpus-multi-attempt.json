@@ -1,0 +1,161 @@
+{
+  "activePhase": {
+    "attempt": 3,
+    "phase": "dev-design",
+    "startAt": "2024-09-22T10:13:24Z"
+  },
+  "artifacts": [
+    {
+      "kind": "tasks-progress",
+      "source": "tasks.md",
+      "title": "任务进度"
+    },
+    {
+      "kind": "eval-checklist",
+      "source": "0",
+      "title": "评估清单 · proposal · 第 1 次"
+    },
+    {
+      "kind": "eval-checklist",
+      "source": "1",
+      "title": "评估清单 · dev-design · 第 1 次"
+    },
+    {
+      "kind": "eval-checklist",
+      "source": "2",
+      "title": "评估清单 · dev-design · 第 2 次"
+    },
+    {
+      "kind": "markdown-doc",
+      "source": "proposal.md",
+      "title": "提案"
+    },
+    {
+      "kind": "markdown-doc",
+      "source": "tasks.md",
+      "title": "任务"
+    }
+  ],
+  "created": "2024-09-22",
+  "name": "multi-attempt",
+  "pipeline": [
+    {
+      "attempts": [
+        {
+          "attempt": 1,
+          "backtrackReason": null,
+          "backtrackTo": null,
+          "checklist": [
+            {
+              "evidence": "L1-10",
+              "item": "问题清晰",
+              "pass": true
+            },
+            {
+              "evidence": "四能力边界齐备",
+              "item": "范围明确",
+              "pass": true
+            },
+            {
+              "evidence": "AC-1..AC-10",
+              "item": "验收可判",
+              "pass": true
+            }
+          ],
+          "decisionSessionId": null,
+          "evaluatorSessionId": "ses-prop-eval",
+          "executorSessionId": "ses-prop-exec",
+          "report": "提案通过",
+          "skipped": false,
+          "stale": false,
+          "startAt": "2024-09-22T10:13:21Z",
+          "timestamp": "2024-09-22T10:13:21Z",
+          "verdict": "pass"
+        }
+      ],
+      "phase": "proposal"
+    },
+    {
+      "attempts": [
+        {
+          "attempt": 1,
+          "backtrackReason": null,
+          "backtrackTo": null,
+          "checklist": [
+            {
+              "evidence": "缺 renderers 职责",
+              "item": "组件表完整",
+              "pass": false
+            },
+            {
+              "evidence": "阶段拆解连续",
+              "item": "任务可执行",
+              "pass": true
+            }
+          ],
+          "decisionSessionId": null,
+          "evaluatorSessionId": null,
+          "executorSessionId": "ses-dd-exec-a1",
+          "report": "首轮未过",
+          "skipped": false,
+          "stale": false,
+          "startAt": "2024-09-22T10:13:22Z",
+          "timestamp": "2024-09-22T10:13:22Z",
+          "verdict": "fail"
+        },
+        {
+          "attempt": 2,
+          "backtrackReason": null,
+          "backtrackTo": null,
+          "checklist": [
+            {
+              "evidence": "五组件齐全",
+              "item": "组件表完整",
+              "pass": true
+            }
+          ],
+          "decisionSessionId": null,
+          "evaluatorSessionId": "ses-dd-eval-a2",
+          "executorSessionId": "ses-dd-exec-a2",
+          "report": "第二轮通过",
+          "skipped": false,
+          "stale": false,
+          "startAt": "2024-09-22T10:13:23Z",
+          "timestamp": "2024-09-22T10:13:23Z",
+          "verdict": "pass"
+        }
+      ],
+      "phase": "dev-design"
+    },
+    {
+      "attempts": [],
+      "phase": "test-design"
+    },
+    {
+      "attempts": [],
+      "phase": "implement"
+    },
+    {
+      "attempts": [],
+      "phase": "test-gen"
+    },
+    {
+      "attempts": [],
+      "phase": "test-execution"
+    },
+    {
+      "attempts": [],
+      "phase": "code-review"
+    },
+    {
+      "attempts": [],
+      "phase": "acceptance"
+    },
+    {
+      "attempts": [],
+      "phase": "code-analyze"
+    }
+  ],
+  "source": "active",
+  "status": "active"
+}

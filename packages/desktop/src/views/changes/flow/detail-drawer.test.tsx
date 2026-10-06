@@ -27,8 +27,8 @@ const { defaultInvoke, invokeMock } = vi.hoisted(() => {
 vi.mock('@tauri-apps/api/core', () => ({ invoke: invokeMock }));
 
 // ---------------------------------------------------------------------------
-// DetailDrawer 单测：右侧抽屉三分节（无跨进程 Mock —— ArtifactView 与
-// FileLogTable 以真实实现消费；信封与 file_log 条目以 fixture 构造）。
+// DetailDrawer 单测：右侧抽屉二分节（无跨进程 Mock —— ArtifactView 以真实实
+// 现消费；信封以 fixture 构造）。
 // 列头与节点点击共用同一入口；selection 为 null 时不渲染（AC-5）。
 // ---------------------------------------------------------------------------
 
@@ -55,15 +55,13 @@ function detail(overrides: Partial<ChangeDetail> = {}): ChangeDetail {
   return {
     name: 'add-feature',
     source: 'active',
-    inventory: 'v2',
+    status: 'active',
     created: null,
-    unparsable: false,
     pipeline: PIPELINE_PHASES.map((phase) => ({
       phase,
       attempts: phase === 'dev-design' ? [attempt({ attempt: 2 })] : [],
     })),
     activePhase: null,
-    fileLog: [],
     artifacts: [],
     ...overrides,
   };
@@ -76,7 +74,6 @@ function envelope(kind: string, title: string, payload: unknown) {
 interface World {
   graph: FlowGraph;
   materials: FlowMaterials;
-  hasFileLog: boolean;
 }
 
 /** 真实 buildFlowGraph + mountMaterials 组装抽屉输入；按需覆盖素材面。 */
@@ -84,7 +81,6 @@ function world(
   overrides: {
     detail?: Partial<ChangeDetail>;
     materials?: Partial<FlowMaterials>;
-    hasFileLog?: boolean;
   } = {},
 ): World {
   const base = detail(overrides.detail);
@@ -93,7 +89,7 @@ function world(
     ...mountMaterials(graph, base, []),
     ...overrides.materials,
   };
-  return { graph, materials, hasFileLog: overrides.hasFileLog ?? base.fileLog !== null };
+  return { graph, materials };
 }
 
 function renderDrawer(worldState: World, selection: DrawerSelection | null, onClose = vi.fn()) {
@@ -102,7 +98,6 @@ function renderDrawer(worldState: World, selection: DrawerSelection | null, onCl
       selection={selection}
       graph={worldState.graph}
       materials={worldState.materials}
-      hasFileLog={worldState.hasFileLog}
       root="root-a"
       change="test-change"
       liveEvents={[]}
@@ -111,8 +106,8 @@ function renderDrawer(worldState: World, selection: DrawerSelection | null, onCl
   );
 }
 
-describe('DetailDrawer：三分节内容组装', () => {
-  it('selection 为 eval 节点 → 三分节齐备：文档节经 ArtifactView 渲染、eval 节渲染 report 与挂载 checklist 信封、文件表节渲染 nodeFiles', () => {
+describe('DetailDrawer：二分节内容组装', () => {
+  it('selection 为 eval 节点 → 二分节齐备：文档节经 ArtifactView 渲染、eval 节渲染 report 与挂载 checklist 信封', () => {
     const state = world({
       materials: {
         columnDocs: {
@@ -128,18 +123,12 @@ describe('DetailDrawer：三分节内容组装', () => {
             }),
           ],
         },
-        nodeFiles: {
-          'eval:dev-design:2': [
-            { op: 'write', scope: 'dev-design', attempt: 2, path: 'src/design.ts', at: null },
-          ],
-        },
       },
     });
     renderDrawer(state, { scope: 'node', nodeId: 'eval:dev-design:2' });
 
     expect(screen.getByTestId('drawer-docs-section') !== null).toBe(true);
     expect(screen.getByTestId('drawer-eval-section') !== null).toBe(true);
-    expect(screen.getByTestId('drawer-files-section') !== null).toBe(true);
     // 文档节：该列文档经 registry 渲染
     const docsSection = screen.getByTestId('drawer-docs-section');
     expect(within(docsSection).getByTestId('artifact-card').textContent).toContain('设计文档');
@@ -148,16 +137,12 @@ describe('DetailDrawer：三分节内容组装', () => {
     expect(evalSection.textContent).toContain('评估记录');
     expect(within(evalSection).getAllByTestId('artifact-card').length).toBe(1);
     expect(within(evalSection).getByTestId('checklist') !== null).toBe(true);
-    // 文件表节：该节点 file_log 条目
-    expect(
-      within(screen.getByTestId('drawer-files-section')).getByTestId('filelog-table') !== null,
-    ).toBe(true);
     expect(screen.getByTestId('detail-drawer').textContent).toContain(
       'dev-design · attempt 2 · eval',
     );
   });
 
-  it('selection 为列头 → 本站文档节渲染该列文档，eval 节与文件表节呈空态', () => {
+  it('selection 为列头 → 本站文档节渲染该列文档，eval 节呈空态', () => {
     const state = world({
       materials: {
         columnDocs: {
@@ -171,9 +156,6 @@ describe('DetailDrawer：三分节内容组装', () => {
       within(screen.getByTestId('drawer-docs-section')).getAllByTestId('artifact-card'),
     ).toHaveLength(1);
     expect(screen.getByTestId('drawer-eval-section').textContent).toContain('（无评估记录）');
-    expect(screen.getByTestId('drawer-files-section').textContent).toContain(
-      '（列头未对应单一 attempt，不聚合文件表）',
-    );
     expect(screen.getByTestId('detail-drawer').textContent).toContain('dev-design');
   });
 
@@ -243,16 +225,6 @@ describe('DetailDrawer：三分节内容组装', () => {
     expect(checklist.textContent).toContain('含验收清单');
     expect(checklist.textContent).toContain('proposal 缺 AC 段');
     expect(within(checklist).getByTestId('checklist-verdict').textContent).toBe('fail');
-    // 无挂载文件 → 文件表节空态占位
-    expect(screen.getByTestId('drawer-files-section').textContent).toContain('（空）');
-  });
-
-  it('v1 代际（hasFileLog=false）→ 文件表节呈降级文案', () => {
-    const state = world({ hasFileLog: false });
-    renderDrawer(state, { scope: 'node', nodeId: 'eval:dev-design:2' });
-    expect(screen.getByTestId('drawer-files-section').textContent).toContain(
-      '（无 file_log 数据：v1 及更早代际无此字段）',
-    );
   });
 });
 
@@ -333,7 +305,7 @@ let detailFixture: Record<string, SessionSummary | null> = {};
 function runtimeWorld(node: RuntimeFlowNode): World {
   const base = detail();
   const graph = buildFlowGraph(base, [node]);
-  return { graph, materials: mountMaterials(graph, base, []), hasFileLog: true };
+  return { graph, materials: mountMaterials(graph, base, []) };
 }
 
 /** 直挂 DetailDrawer（自定义 liveEvents；change 名沿用 renderDrawer 的 test-change）。 */
@@ -347,7 +319,6 @@ function renderTranscriptDrawer(
       selection={selection}
       graph={worldState.graph}
       materials={worldState.materials}
-      hasFileLog={worldState.hasFileLog}
       root="root-a"
       change="test-change"
       liveEvents={liveEvents}
@@ -688,7 +659,6 @@ describe('DetailDrawer：会话转录联动（双键寻址：直查优先 / 反�
         selection={selection}
         graph={state.graph}
         materials={state.materials}
-        hasFileLog
         root="root-a"
         change="test-change"
         liveEvents={[
@@ -710,12 +680,12 @@ describe('DetailDrawer：会话转录联动（双键寻址：直查优先 / 反�
 // ---------------------------------------------------------------------------
 // 双列壳（desktop-drawer-session-column，AC-1 / D1）：aside w-[960px] +
 // max-w-[85vw]、去整列单滚、内容行 flex min-h-0 flex-1、左列 w-[60%] min-w-0
-// 会话区恒渲染 / 右列 min-w-0 flex-1 overflow-y-auto 三分节——jsdom 无布局
+// 会话区恒渲染 / 右列 min-w-0 flex-1 overflow-y-auto 二分节——jsdom 无布局
 // 引擎，以类契约断言列结构
 // ---------------------------------------------------------------------------
 
 describe('DetailDrawer：双列壳布局（AC-1 / D1）', () => {
-  it('打开抽屉（eval 节点选中）→ 左列会话区与右列三分节同时渲染；壳类含 w-[960px] 与 max-w-[85vw]、右列容器列内滚动', () => {
+  it('打开抽屉（eval 节点选中）→ 左列会话区与右列二分节同时渲染；壳类含 w-[960px] 与 max-w-[85vw]、右列容器列内滚动', () => {
     const { container } = renderDrawer(world(), { scope: 'node', nodeId: 'eval:dev-design:2' });
 
     // 抽屉壳：定宽 + 视口钳制
@@ -731,27 +701,25 @@ describe('DetailDrawer：双列壳布局（AC-1 / D1）', () => {
     expect(contentRow?.className).toContain('flex');
     expect(contentRow?.className).toContain('min-h-0');
     expect(contentRow?.className).toContain('flex-1');
-    // 右列三分节同时渲染，容器 min-w-0 flex-1 overflow-y-auto（列内滚动）
+    // 右列二分节同时渲染，容器 min-w-0 flex-1 overflow-y-auto（列内滚动）
     expect(screen.getByTestId('drawer-docs-section') !== null).toBe(true);
     expect(screen.getByTestId('drawer-eval-section') !== null).toBe(true);
-    expect(screen.getByTestId('drawer-files-section') !== null).toBe(true);
     const rightColumn = screen.getByTestId('drawer-docs-section').parentElement;
     expect(rightColumn?.className).toContain('min-w-0');
     expect(rightColumn?.className).toContain('flex-1');
     expect(rightColumn?.className).toContain('overflow-y-auto');
   });
 
-  it('列头选中（非会话选中）→ 左列 drawer-session-empty 空态占位、右列三分节保持、双列结构不跳变', () => {
+  it('列头选中（非会话选中）→ 左列 drawer-session-empty 空态占位、右列二分节保持、双列结构不跳变', () => {
     renderDrawer(world(), { scope: 'column', phase: 'dev-design' });
 
     expect(screen.getByTestId('drawer-session-empty') !== null).toBe(true);
     expect(screen.queryByTestId('session-transcript-panel')).toBeNull();
     expect(screen.getByTestId('drawer-docs-section') !== null).toBe(true);
     expect(screen.getByTestId('drawer-eval-section') !== null).toBe(true);
-    expect(screen.getByTestId('drawer-files-section') !== null).toBe(true);
   });
 
-  it('role=null 运行步选中（ToolStep）→ 左列 drawer-session-empty、右列三分节保持（ToolStep / Gate 呈现不变）', () => {
+  it('role=null 运行步选中（ToolStep）→ 左列 drawer-session-empty、右列二分节保持（ToolStep / Gate 呈现不变）', () => {
     const toolStep = runtimeNode({
       id: 'run:implement:2:staticCheck',
       runStepKind: 'staticCheck',
@@ -766,7 +734,6 @@ describe('DetailDrawer：双列壳布局（AC-1 / D1）', () => {
 
     expect(screen.getByTestId('drawer-session-empty') !== null).toBe(true);
     expect(screen.getByTestId('drawer-eval-section').textContent).toContain('（无评估记录）');
-    expect(screen.getByTestId('drawer-files-section') !== null).toBe(true);
     // 抽屉标题：phase · attempt · runtime（ToolStep 词汇不变）
     expect(screen.getByTestId('detail-drawer').textContent).toContain(
       'implement · attempt 2 · runtime',
@@ -788,7 +755,7 @@ function activeWorld(): World {
     activePhase: { phase: 'implement', attempt: 2, startAt: '2026-09-05T00:00:00Z' },
   });
   const graph = buildFlowGraph(base);
-  return { graph, materials: mountMaterials(graph, base, []), hasFileLog: true };
+  return { graph, materials: mountMaterials(graph, base, []) };
 }
 
 describe('DetailDrawer：active 节点三会话反查（AC-2 / D3）', () => {
@@ -956,5 +923,70 @@ describe('DetailDrawer：active 节点三会话反查（AC-2 / D3）', () => {
     const params = call?.[1] as { sourceRef?: string } | undefined;
     expect(params?.sourceRef).toBe('test-change/implement/executor/2');
     expect(panel.getAttribute('data-role')).toBe('executor');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 右列二分节退役面（desktop-workflow-db-state）：FileLogTable 载体与 hasFileLog
+// 链路删除——右列恒「本站文档 / 评估记录」二分节，文件表节与「文件」标题在
+// 任何输入（含历史上曾有 fileLog 的形态）下不出现。
+// ---------------------------------------------------------------------------
+
+/** 多 attempt + 多产物夹具：历史上会带 fileLog（文件表节挂载）的形态——
+ * fileLog 已不在 ChangeDetail 类型面，夹具携带该字段即编译失败。 */
+function fileLogShapedWorld(): World {
+  return world({
+    detail: {
+      pipeline: PIPELINE_PHASES.map((phase) => ({
+        phase,
+        attempts: phase === 'dev-design' ? [attempt({ attempt: 1 }), attempt({ attempt: 2 })] : [],
+      })),
+      artifacts: [
+        { kind: 'markdown-doc', source: 'design.md', title: '设计' },
+        { kind: 'tasks-progress', source: 'tasks.md', title: '任务进度' },
+      ],
+    },
+    materials: {
+      columnDocs: {
+        'col:dev-design': [envelope('markdown-doc', '设计文档', { markdown: '# 设计' })],
+      },
+    },
+  });
+}
+
+describe('DetailDrawer：右列二分节退役面（文件表节删除）', () => {
+  it('多 attempt + 多产物夹具（历史上曾有 fileLog 的形态）→ 右列恰二分节，文件表节与「文件」标题不出现', () => {
+    const { container } = renderDrawer(fileLogShapedWorld(), {
+      scope: 'column',
+      phase: 'dev-design',
+    });
+
+    // 二分节：右列容器恰两个直接子节（本站文档 / 评估记录），挂载 testid 齐备
+    const rightColumn = screen.getByTestId('drawer-docs-section').parentElement;
+    expect(rightColumn?.childElementCount).toBe(2);
+    expect(screen.getByTestId('drawer-eval-section') !== null).toBe(true);
+    // 文件表节退役：historical testid、节标题与降级文案零残留
+    expect(screen.queryByTestId('drawer-files-section')).toBeNull();
+    const fileHeadings = within(container)
+      .queryAllByRole('heading')
+      .filter((heading) => (heading.textContent ?? '').includes('文件'));
+    expect(fileHeadings).toHaveLength(0);
+    expect(container.textContent).not.toContain('文件清单');
+    expect(container.textContent).not.toContain('不聚合文件表');
+  });
+
+  it('文件表挂载分支退役：任意 selection（列头 / eval 节点）下文件表恒不挂载，右列分节数恒为 2', () => {
+    const selections: DrawerSelection[] = [
+      { scope: 'column', phase: 'dev-design' },
+      { scope: 'node', nodeId: 'eval:dev-design:2' },
+    ];
+    for (const selection of selections) {
+      const { container, unmount } = renderDrawer(fileLogShapedWorld(), selection);
+      expect(screen.queryByTestId('drawer-files-section')).toBeNull();
+      const rightColumn = screen.getByTestId('drawer-docs-section').parentElement;
+      expect(rightColumn?.childElementCount).toBe(2);
+      expect(container.textContent).not.toContain('文件清单');
+      unmount();
+    }
   });
 });

@@ -1,7 +1,6 @@
-use std::path::Path;
 use std::sync::Arc;
 
-use foundation::layout;
+use workflow::state::{ChangeStateStore, StepCommand, StepKind};
 use workflow::write::SessionAnchors;
 
 use crate::port::{
@@ -9,12 +8,13 @@ use crate::port::{
     ToolStepPort, ToolStepRequest,
 };
 
-/// 进程内工具步：绑定 run 级会话锚点（W7——锚点只在 phase_next 消费，每 run
-/// 一个实例）与检查域两个 spawn 缝（static-check / test-execution）。
+/// 进程内工具步骤
 pub struct LocalToolSteps {
     anchors: Arc<SessionAnchors>,
     static_check: Arc<dyn StaticCheckRunner>,
     test_execution: Arc<dyn TestExecutionRunner>,
+    store: Arc<dyn ChangeStateStore>,
+    run_id: String,
 }
 
 impl LocalToolSteps {
@@ -23,11 +23,15 @@ impl LocalToolSteps {
         anchors: Arc<SessionAnchors>,
         static_check: Arc<dyn StaticCheckRunner>,
         test_execution: Arc<dyn TestExecutionRunner>,
+        store: Arc<dyn ChangeStateStore>,
+        run_id: String,
     ) -> Self {
         Self {
             anchors,
             static_check,
             test_execution,
+            store,
+            run_id,
         }
     }
 }
@@ -37,45 +41,206 @@ impl ToolStepPort for LocalToolSteps {
         let anchors = Arc::clone(&self.anchors);
         let static_check = Arc::clone(&self.static_check);
         let test_execution = Arc::clone(&self.test_execution);
-        Box::pin(async move { execute(anchors, static_check, test_execution, step).await })
+        let store = Arc::clone(&self.store);
+        let run_id = self.run_id.clone();
+        Box::pin(async move {
+            execute(anchors, static_check, test_execution, store, run_id, step).await
+        })
     }
 }
 
-/// 一次工具步执行：命令封闭集按臂分发——相位机四步 layout 解析后直调写面，
-/// StaticCheck / TestExecution 委托注入 runner。
+/// 执行一次工具步骤
 async fn execute(
     anchors: Arc<SessionAnchors>,
     static_check: Arc<dyn StaticCheckRunner>,
     test_execution: Arc<dyn TestExecutionRunner>,
+    store: Arc<dyn ChangeStateStore>,
+    run_id: String,
     step: ToolStepRequest,
 ) -> Result<ToolStepOutput, String> {
-    let layout = layout::resolve(Path::new(&step.root));
     match step.command {
         ToolCommand::PhaseNext { change, run_id } => {
-            let outcome = workflow::write::phase_next(&layout, &change, &run_id, &anchors)?;
-            Ok(ToolStepOutput::PhaseNext(Box::new(outcome)))
+            let outcome = workflow::write::phase_next(store.as_ref(), &change, &run_id, &anchors);
+            audit_outcome(
+                store.as_ref(),
+                &run_id,
+                &change,
+                StepKind::PhaseNext,
+                outcome.as_ref().map(|value| {
+                    (
+                        format!(
+                            "phase_next → {}（round {}）",
+                            value.next_phase.as_deref().unwrap_or("done"),
+                            value.round
+                        ),
+                        None,
+                    )
+                }),
+            );
+            Ok(ToolStepOutput::PhaseNext(Box::new(outcome?)))
         }
         ToolCommand::PhaseStart { change, phase } => {
-            let outcome = workflow::write::phase_start(&layout, &change, &phase)?;
-            Ok(ToolStepOutput::PhaseStart(outcome))
+            let outcome = workflow::write::phase_start(store.as_ref(), &change, &phase);
+            audit_outcome(
+                store.as_ref(),
+                &run_id,
+                &change,
+                StepKind::PhaseStart,
+                outcome.as_ref().map(|value| {
+                    (
+                        format!("phase_start {} attempt={}", value.phase, value.attempt),
+                        None,
+                    )
+                }),
+            );
+            Ok(ToolStepOutput::PhaseStart(outcome?))
         }
         ToolCommand::PhaseLog { change, input, .. } => {
-            let outcome = workflow::write::phase_log(&layout, &change, &input)?;
-            Ok(ToolStepOutput::PhaseLog(outcome))
+            let outcome = workflow::write::phase_log(store.as_ref(), &change, &input);
+            let reference = input
+                .evaluator_session_id
+                .clone()
+                .or_else(|| input.executor_session_id.clone());
+            audit_outcome(
+                store.as_ref(),
+                &run_id,
+                &change,
+                StepKind::PhaseLog,
+                outcome.as_ref().map(|value| {
+                    (
+                        format!("phase_log {} attempt={}", value.phase, value.attempt),
+                        reference,
+                    )
+                }),
+            );
+            Ok(ToolStepOutput::PhaseLog(outcome?))
         }
         ToolCommand::Backtrack { change, input, .. } => {
-            let outcome = workflow::write::backtrack(&layout, &change, &input)?;
-            Ok(ToolStepOutput::Backtrack(outcome))
+            let outcome = workflow::write::backtrack(store.as_ref(), &change, &input);
+            audit_outcome(
+                store.as_ref(),
+                &run_id,
+                &change,
+                StepKind::Backtrack,
+                outcome.as_ref().map(|value| {
+                    (
+                        format!(
+                            "backtrack {} → {}（{}）",
+                            value.phase, value.target, input.reason
+                        ),
+                        None,
+                    )
+                }),
+            );
+            Ok(ToolStepOutput::Backtrack(outcome?))
         }
         ToolCommand::DecisionLog {
             change,
             phase,
             session_id,
         } => {
-            let outcome = workflow::write::decision_log(&layout, &change, &phase, &session_id)?;
-            Ok(ToolStepOutput::DecisionLog(outcome))
+            let outcome =
+                workflow::write::decision_log(store.as_ref(), &change, &phase, &session_id);
+            audit_outcome(
+                store.as_ref(),
+                &run_id,
+                &change,
+                StepKind::DecisionLog,
+                outcome
+                    .as_ref()
+                    .map(|_| (format!("decision_log {phase}"), Some(session_id))),
+            );
+            Ok(ToolStepOutput::DecisionLog(outcome?))
         }
-        ToolCommand::StaticCheck => static_check.run(&step.root).await,
-        ToolCommand::TestExecution { change } => test_execution.run(&step.root, &change).await,
+        ToolCommand::StaticCheck => {
+            // 命令载荷无 change 位（port 契约不动）：审计行 change 以空串占
+            // 位，run_id 仍串链本 run 步骤序列
+            let output = static_check.run(&step.root).await;
+            audit_outcome(
+                store.as_ref(),
+                &run_id,
+                "",
+                StepKind::StaticCheck,
+                match &output {
+                    Ok(ToolStepOutput::StaticCheck(outcome)) => {
+                        Ok((format!("static_check passed={}", outcome.passed), None))
+                    }
+                    Ok(_) => Err("static_check 输出漂移：产出类型不匹配".to_owned()),
+                    Err(error) => Err(error.clone()),
+                },
+            );
+            output
+        }
+        ToolCommand::TestExecution { change } => {
+            let output = test_execution.run(&step.root, &change).await;
+            audit_outcome(
+                store.as_ref(),
+                &run_id,
+                &change,
+                StepKind::TestExecution,
+                match &output {
+                    Ok(ToolStepOutput::TestExecution(outcome)) => Ok((
+                        format!(
+                            "test_execution conclusion={} total={} passed={} failed={} skipped={}",
+                            outcome.conclusion.as_str(),
+                            outcome.total,
+                            outcome.passed,
+                            outcome.failed,
+                            outcome.skipped
+                        ),
+                        Some(outcome.report_dir.clone()),
+                    )),
+                    Ok(_) => Err("test_execution 输出漂移：产出类型不匹配".to_owned()),
+                    Err(error) => Err(error.clone()),
+                },
+            );
+            output
+        }
     }
+}
+
+/// 审计落行出口：成功行携摘要 + 引用（status `ok`），失败行携错误串（status
+/// `error`）；best-effort——审计失败不阻断步本身（审计 only，不做恢复依据）。
+fn audit_outcome<E: std::fmt::Display>(
+    store: &dyn ChangeStateStore,
+    run_id: &str,
+    change: &str,
+    step_kind: StepKind,
+    outcome: Result<(String, Option<String>), E>,
+) {
+    let (status, summary, reference) = match outcome {
+        Ok((summary, reference)) => ("ok", summary, reference),
+        Err(error) => ("error", error.to_string(), None),
+    };
+    let _ = store.append_step(&StepCommand {
+        run_id: run_id.to_owned(),
+        change: change.to_owned(),
+        step_kind,
+        status: status.to_owned(),
+        summary: clip_summary(summary),
+        reference,
+        timestamp: now_millis(),
+    });
+}
+
+/// 摘要有界截断（design D10）：≤500 字符（`chars().count()` 口径）原样透传；
+/// 超出截断前 500 字符并追加 `…（截断，共 N 字符）` 留痕（N 为原文全长）。
+fn clip_summary(summary: String) -> String {
+    const MAX_CHARS: usize = 500;
+    let total = summary.chars().count();
+    if total <= MAX_CHARS {
+        return summary;
+    }
+    format!(
+        "{}…（截断，共 {total} 字符）",
+        summary.chars().take(MAX_CHARS).collect::<String>()
+    )
+}
+
+/// 当前 UTC unix 毫秒（时钟早于 epoch 取 0，不 panic）。
+fn now_millis() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_millis() as i64)
+        .unwrap_or(0)
 }

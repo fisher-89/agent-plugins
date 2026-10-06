@@ -93,7 +93,7 @@ class ResizeObserverStub {
 }
 
 beforeEach(() => {
-  // 流程图区（v1 / v2 详情）挂载 ReactFlow：jsdom 缺口垫片（环境 stub 而非业务 mock）
+  // 流程图区（建档详情）挂载 ReactFlow：jsdom 缺口垫片（环境 stub 而非业务 mock）
   vi.stubGlobal('ResizeObserver', ResizeObserverStub);
   // xyflow 边标签度量依赖 SVGGraphicsElement.getBBox，jsdom 未实现 → 零包围盒垫片
   const svgPrototype = globalThis.SVGElement?.prototype as unknown as
@@ -152,9 +152,8 @@ function detail(overrides: Partial<ChangeDetail> = {}): ChangeDetail {
   return {
     name: 'add-feature',
     source: 'active',
-    inventory: 'v2',
+    status: 'active',
     created: '2026-09-01',
-    unparsable: false,
     pipeline: PIPELINE.map((phase) => ({
       phase,
       attempts:
@@ -179,7 +178,6 @@ function detail(overrides: Partial<ChangeDetail> = {}): ChangeDetail {
             : [],
     })),
     activePhase: null,
-    fileLog: [{ op: 'write', scope: 'workflow', attempt: null, path: 'workflow.json', at: null }],
     artifacts: [{ kind: 'markdown-doc', source: 'proposal.md', title: '提案' }],
     ...overrides,
   };
@@ -277,27 +275,25 @@ function detailCalls(): Array<Record<string, unknown>> {
     .map(([, args]) => args as Record<string, unknown>);
 }
 
-describe('ChangeDetailView：页面组装（图区 / workflow 面板 / 产物区 / 抽屉）', () => {
-  it('v2 详情 → flow-graph 图区、workflow-panel 面板（内含 filelog-table）、产物区三者并存', async () => {
+describe('ChangeDetailView：页面组装（图区 / 产物区 / 抽屉）', () => {
+  it('建档详情 → flow-graph 图区、产物区并存，无 workflow 独立面板与文件表', async () => {
     const { container } = renderDetail({
       detail: detail(),
       artifacts: PROPOSAL_ENVELOPES,
     });
     await screen.findByTestId('flow-graph');
-    const panel = screen.getByTestId('workflow-panel');
-    expect(within(panel).getByTestId('filelog-table') !== null).toBe(true);
-    // 面板行集 = outsideFiles（workflow-scope 条目不入图）
-    expect(within(panel).getAllByRole('row')).toHaveLength(2);
-    // 产物区独立于面板照常渲染
+    // file_log 独立面板随载体退役：workflow-panel / filelog-table 零残留
+    expect(within(container).queryByTestId('workflow-panel')).toBeNull();
+    expect(within(container).queryByTestId('filelog-table')).toBeNull();
+    // 产物区照常渲染
     expect(within(container).getAllByTestId('artifact-card')).toHaveLength(1);
   });
 
-  it('Header 元信息：name / inventory 徽标（detail-header 域）/ source / created；activePhase 运行中 badge（startAt null 不拼时间与占位）', async () => {
+  it('Header 元信息：name / source / created（无代际徽标）；activePhase 运行中 badge（startAt null 不拼时间与占位）', async () => {
     const { container } = renderDetail({ detail: detail() });
     await screen.findByTestId('flow-graph');
     const header = within(container).getByTestId('detail-header');
     expect(within(header).getByText('add-feature') !== null).toBe(true);
-    expect(within(header).getByText('v2') !== null).toBe(true);
     expect(within(header).getByText('进行中') !== null).toBe(true);
     expect(within(header).getByText('2026-09-01') !== null).toBe(true);
     expect(container.textContent).not.toContain('已归档');
@@ -339,19 +335,22 @@ describe('ChangeDetailView：页面组装（图区 / workflow 面板 / 产物区
     expect(screen.getByTestId('drawer-eval-section').textContent).toContain('提案评估未过');
   });
 
-  it('unparsable 警示条正负两例（warn-note 有 / 无）', async () => {
-    const warned = renderDetail({ detail: detail({ unparsable: true }) });
+  it('建档判别两态：文档形态（status 缺席）→ flow-empty 占位、无「无法解析」警示；建档 → 图区照常', async () => {
+    const doc = renderDetail({
+      detail: detail({ status: null, pipeline: [] }),
+    });
     await waitFor(() =>
-      expect(within(warned.container).getByTestId('warn-note').textContent).toContain(
-        'workflow.json 无法解析',
+      expect(within(doc.container).getByTestId('flow-empty').textContent).toContain(
+        '文档形态：未建档',
       ),
     );
-    warned.unmount();
+    expect(doc.container.textContent).not.toContain('无法解析');
+    doc.unmount();
 
     const clean = renderDetail({ detail: detail() });
     await screen.findByTestId('flow-graph');
+    expect(within(clean.container).queryByTestId('flow-empty')).toBeNull();
     expect(within(clean.container).queryByTestId('warn-note')).toBeNull();
-    expect(clean.container.textContent).not.toContain('workflow.json 无法解析');
   });
 
   it('产物区多文档 tab 切换：tab 按信封顺序、默认首项选中、点击切换仅渲染当前卡片；清单变短 active 收敛', async () => {
@@ -448,12 +447,11 @@ describe('ChangeDetailView：页面组装（图区 / workflow 面板 / 产物区
     expect(screen.getByTestId('nav-stub') !== null).toBe(true);
   });
 
-  it('v0（inventory v0 + pipeline 空）→ 不挂 flow-graph，渲染 flow-empty 占位，产物区照常', async () => {
+  it('文档形态（status 缺席 + pipeline 空）→ 不挂 flow-graph，渲染 flow-empty 占位，产物区照常', async () => {
     const { container } = renderDetail({
       detail: detail({
-        inventory: 'v0',
+        status: null,
         pipeline: [],
-        fileLog: null,
         artifacts: [{ kind: 'markdown-doc', source: 'proposal.md', title: '提案' }],
       }),
       artifacts: PROPOSAL_ENVELOPES,
@@ -461,19 +459,18 @@ describe('ChangeDetailView：页面组装（图区 / workflow 面板 / 产物区
     await waitFor(() => expect(within(container).getAllByTestId('artifact-card')).toHaveLength(1));
     expect(screen.queryByTestId('flow-graph')).toBeNull();
     expect(within(container).getByTestId('flow-empty').textContent).toContain(
-      'v0 早期代际：无 workflow.json，仅文档形态',
+      '文档形态：未建档，仅产物清单',
     );
     // 产物区不受图区缺位影响照常
     expect(within(container).getAllByTestId('artifact-card')).toHaveLength(1);
   });
 
-  it('v1（fileLog null）→ flow-graph 正常渲染且无 workflow-panel', async () => {
-    const { container } = renderDetail({
-      detail: detail({ inventory: 'v1', fileLog: null }),
+  it('建档 change 零 attempt（pipeline 9 空站）→ flow-graph 正常渲染 9 列', async () => {
+    renderDetail({
+      detail: detail({ pipeline: PIPELINE.map((phase) => ({ phase, attempts: [] })) }),
     });
     await waitFor(() => expect(screen.getAllByTestId('flow-column')).toHaveLength(9));
-    expect(screen.getAllByTestId('flow-node').length).toBeGreaterThan(0);
-    expect(within(container).queryByTestId('workflow-panel')).toBeNull();
+    expect(screen.queryByTestId('flow-empty')).toBeNull();
   });
 
   it('error / loading（无 detail）/ 未找到三态降级页与 detail-note / error-note 挂钩归属正确', async () => {
@@ -719,8 +716,7 @@ describe('ChangeDetailView：run 控制面板与运行 overlay 组装', () => {
     expect(screen.queryByTestId('run-stop')).toBeNull();
     expect(screen.queryByTestId('run-status')).toBeNull();
     expect(screen.queryByTestId('run-error')).toBeNull();
-    // 既有组装（新增为加法）：Header + 图区 + workflow 独立面板 + 产物区
-    expect(within(container).getByTestId('workflow-panel') !== null).toBe(true);
+    // 既有组装（新增为加法）：Header + 图区 + 产物区
     expect(within(container).getAllByTestId('artifact-card')).toHaveLength(1);
 
     // 发起入口接通 useChangeFlowRun：change_flow_start 携 root/change 与
@@ -814,5 +810,57 @@ describe('ChangeDetailView：run 控制面板与运行 overlay 组装', () => {
       expect(screen.getByTestId('session-transcript-panel').textContent).toContain('实时增量正文'),
     );
     expect(screen.getByTestId('session-transcript-panel').textContent).toContain('重放正文');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 退役面负断言与建档两态分流（desktop-workflow-db-state）：detail DTO 已删
+// inventory / unparsable / fileLog 三字段（TS 类型面随 bindings 同步删除），
+// 视图退役代际徽章、「workflow.json 无法解析」警示条与 workflow 独立面板
+// （含文件表）；建档判别改 status 在场与否的两态分流。
+// ---------------------------------------------------------------------------
+
+describe('ChangeDetailView：退役元素零渲染与建档两态分流', () => {
+  it('detail DTO 删三字段 → 代际徽章、「workflow.json 无法解析」警示条、workflow 独立面板（含文件表）零渲染', async () => {
+    const { container } = renderDetail({ detail: detail(), artifacts: PROPOSAL_ENVELOPES });
+    await screen.findByTestId('flow-graph');
+
+    // 代际徽章退役：historical InventoryBadge 挂点（detail-header 域内）无 v0/v1/v2 文本
+    // （产物卡版本脚注 v1 为信封版本面，不在该域内）
+    const header = within(container).getByTestId('detail-header');
+    expect(within(header).queryByText(/v[012]/)).toBeNull();
+    // 「workflow.json 无法解析」警示条退役：historical warn-note 挂点与文案零残留
+    expect(within(container).queryByTestId('warn-note')).toBeNull();
+    expect(container.textContent).not.toContain('无法解析');
+    expect(container.textContent).not.toContain('workflow.json');
+    // workflow 独立面板（含文件表）退役：historical testid 零残留
+    expect(within(container).queryByTestId('workflow-panel')).toBeNull();
+    expect(within(container).queryByTestId('filelog-table')).toBeNull();
+  });
+
+  it('建档两态分流：status 在场 → 9 站流水线图 + 抽屉入口完整状态面；status 缺席 → 降级产物清单面不崩溃不空白', async () => {
+    // 建档：9 列流水线 + 列头点击开抽屉（单一交互入口可达）
+    const filed = renderDetail({ detail: detail(), artifacts: PROPOSAL_ENVELOPES });
+    await waitFor(() => expect(screen.getAllByTestId('flow-column')).toHaveLength(9));
+    fireEvent.click(screen.getAllByTestId('flow-column')[0]);
+    expect(screen.getByTestId('detail-drawer') !== null).toBe(true);
+    fireEvent.click(screen.getByRole('button', { name: '关闭' }));
+    filed.unmount();
+
+    // 文档形态：空图占位 + 产物卡片照常渲染（有实质内容，非空白非崩溃）
+    const doc = renderDetail({
+      detail: detail({
+        status: null,
+        pipeline: [],
+        artifacts: [{ kind: 'markdown-doc', source: 'proposal.md', title: '提案' }],
+      }),
+      artifacts: PROPOSAL_ENVELOPES,
+    });
+    await waitFor(() =>
+      expect(within(doc.container).getAllByTestId('artifact-card')).toHaveLength(1),
+    );
+    expect(within(doc.container).getByTestId('flow-empty') !== null).toBe(true);
+    expect(doc.container.textContent).toContain('提案正文');
+    expect(doc.container.textContent).not.toContain('无法解析');
   });
 });

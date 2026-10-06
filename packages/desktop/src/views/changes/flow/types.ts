@@ -1,16 +1,9 @@
 import type {
   ArtifactEnvelope,
   AttemptRecord,
-  ChangeDetail,
   ChangeStepKind,
   ChangeStepStatus,
 } from '../../../types/dto';
-
-/**
- * file_log 条目前端镜像：由 ChangeDetail['fileLog'] 派生（dto 不导出该条目类型，
- * 派生即可拿到与线格式同源的结构，dto.ts 零改动）。
- */
-export type FileLogEntry = NonNullable<ChangeDetail['fileLog']>[number];
 
 /** 事件节点两分类 */
 export type FlowNodeKind = 'eval' | 'active';
@@ -105,14 +98,11 @@ export interface FlowGraph {
 
 /**
  * 挂载后的过程素材：文档挂列（columnDocs 键 = 列 id `col:<phase>`），
- * 记录挂节点（nodeChecklists / nodeFiles 键 = 事件节点 id）；未命中条目归
- * outsideFiles 图外展示，信息不丢。
+ * 记录挂节点（nodeChecklists 键 = 事件节点 id）。
  */
 export interface FlowMaterials {
   columnDocs: Record<string, ArtifactEnvelope[]>;
   nodeChecklists: Record<string, ArtifactEnvelope[]>;
-  nodeFiles: Record<string, FileLogEntry[]>;
-  outsideFiles: FileLogEntry[];
 }
 
 /** 抽屉选中对象：列头（按 phase）与事件节点（按节点 id）共用同一交互入口 */

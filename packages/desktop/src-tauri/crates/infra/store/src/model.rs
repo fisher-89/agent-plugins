@@ -6,6 +6,8 @@ use native_model::{native_model, Model};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use specta::Type;
+use workflow::model::{ChecklistItem, Verdict};
+use workflow::state::{ChangeStatus, StepCommand, StepKind};
 
 /// v3 历史形态的环境档位枚举（仅升级链解码用；线值与退役的 core 枚举一致，
 /// `default` | `bare`）。
@@ -327,6 +329,199 @@ impl SessionEventRecord {
     /// 事件序号（同会话内单调递增；打包键低 64 位，与 `event.seq` 同源）。
     pub fn seq(&self) -> u64 {
         self.event.seq
+    }
+}
+
+// --- change 流程状态记录（workspace 维度，落所属 workspace 库）--------------
+
+/// change 建档记录（desktop-change-state-store 四模型之一）：change 流程状态
+/// 的身份主行——`name` 即 change 名（身份主键，不随归档目录改名变），状态 /
+/// 时间戳与运行中 phase 随行。markdown 产物（proposal / design / tasks /
+/// specs / reports / explore）留磁盘 change 目录，双载体边界与 `ExploreRecord`
+/// 先例同构（记录在 db、产物在磁盘）。
+///
+/// 时间戳为 UTC unix 毫秒 `i64`，与 `WorkspaceRecord` 同口径。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+#[native_model(id = 9, version = 1)]
+#[native_db]
+pub struct ChangeRecord {
+    /// change 名（主键，建档即定；归档改名只动磁盘目录，主键不变）
+    #[primary_key]
+    pub name: String,
+    /// 工作流类型（V1 恒 `requirement`，相位表键）
+    pub workflow_type: String,
+    /// 建档时间（UTC unix 毫秒）
+    pub created_at: i64,
+    /// change 状态（active | archived）
+    pub status: ChangeStatus,
+    /// 归档时间（UTC unix 毫秒；active 恒 None）
+    #[serde(default)]
+    pub archived_at: Option<i64>,
+    /// 运行中 phase（开相在位、落账清位；嵌套 struct 不落独立模型，先例
+    /// `SessionConfigSnapshot`）
+    #[serde(default)]
+    pub active_phase: Option<ChangeActivePhase>,
+}
+
+impl ChangeRecord {
+    /// 由建档档案构造新记录（`status` 恒 active 起步、无 active_phase）。
+    pub fn new(name: &str, workflow_type: &str, created_at: i64) -> Self {
+        Self {
+            name: name.to_owned(),
+            workflow_type: workflow_type.to_owned(),
+            created_at,
+            status: ChangeStatus::Active,
+            archived_at: None,
+            active_phase: None,
+        }
+    }
+}
+
+/// 运行中 phase 快照（`ChangeRecord` 嵌套结构）。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct ChangeActivePhase {
+    pub phase: String,
+    pub attempt: u32,
+    /// 开相时刻（UTC unix 毫秒）
+    pub start_at: i64,
+}
+
+/// 相位评估条目记录（desktop-change-state-store 四模型之二）：一次评估落账
+/// 一行（原 workflow.json `eval[]` 条目的库形态）。checklist 子项不内嵌，落
+/// [`ChecklistItemRecord`] 子表（写时机不变——phase_log 单事务内同落，拆存
+/// 储不拆原子性）；evidence 长文本走独立版本链。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+#[native_model(id = 10, version = 1)]
+#[native_db]
+pub struct PhaseRecord {
+    /// 条目 id（主键，写事务内 max+1 分配）
+    #[primary_key]
+    pub id: i64,
+    /// 所属 change 名（非唯一二级索引；名称引用非外键约束）
+    #[secondary_key]
+    pub change: String,
+    pub phase: String,
+    pub attempt: u32,
+    /// 评估 verdict（pass | fail，core 域枚举直用）
+    pub verdict: Verdict,
+    /// 评估报告（内联 ≤2000 字，写面校验）
+    pub report: String,
+    #[serde(default)]
+    pub skipped: bool,
+    #[serde(default)]
+    pub stale: bool,
+    /// 回跳目标（backtrack 写面在该相位最新条目定点标记）
+    #[serde(default)]
+    pub backtrack_to: Option<String>,
+    #[serde(default)]
+    pub backtrack_reason: Option<String>,
+    /// 会话槽位三列（与 `SessionRecord` 同库 join；缺省落账恒 None）
+    #[serde(default)]
+    pub executor_session_id: Option<String>,
+    #[serde(default)]
+    pub evaluator_session_id: Option<String>,
+    #[serde(default)]
+    pub decision_session_id: Option<String>,
+    /// 开相时刻（UTC unix 毫秒；缺省 None）
+    #[serde(default)]
+    pub start_at: Option<i64>,
+    /// 落账时刻（UTC unix 毫秒）
+    pub timestamp: i64,
+}
+
+/// checklist 检查项子行（desktop-change-state-store 四模型之三）：挂
+/// [`PhaseRecord`] 的独立子表，打包主键序即 evaluator 输出序。独立
+/// native_model 版本链（evidence 长文本演进与 PhaseRecord 解耦）。
+///
+/// 主键为合成 u128 打包键（native_db 复合主键不受支持，`SessionEventRecord`
+/// 先例同构）：高 64 位 phase_id、低 64 位 item_index，`to_key()` 大端字节序
+/// 保证同相位内自然序即 item_index 升序。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+#[native_model(id = 11, version = 1)]
+#[native_db]
+pub struct ChecklistItemRecord {
+    /// 复合键打包：`(phase_id as u128) << 64 | item_index`
+    ///
+    /// serde 定制为十六进制字符串：serde_json 无 u128 数字面（信封 API 要把
+    /// 记录转 JSON），字符串形态保住 JSON 可表达性（`event_key_serde` 先例
+    /// 复用）。
+    #[primary_key]
+    #[serde(with = "event_key_serde")]
+    pub item_key: u128,
+    /// 所属相位条目 id（非唯一二级索引，子表重组查询入口）
+    #[secondary_key]
+    pub phase_id: i64,
+    pub item: String,
+    pub pass: bool,
+    pub evidence: String,
+}
+
+impl ChecklistItemRecord {
+    /// 由所属相位条目 id 与检查项构造记录：`item_key` 打包自 phase_id +
+    /// item_index（evaluator 输出序）。
+    pub fn new(phase_id: i64, item_index: u32, item: ChecklistItem) -> Self {
+        Self {
+            item_key: pack_checklist_item_key(phase_id, item_index),
+            phase_id,
+            item: item.item,
+            pass: item.pass,
+            evidence: item.evidence,
+        }
+    }
+}
+
+/// 复合键打包：高 64 位 phase_id、低 64 位 item_index。store 内唯一组装点。
+pub(crate) fn pack_checklist_item_key(phase_id: i64, item_index: u32) -> u128 {
+    ((phase_id as u128) << 64) | (item_index as u128)
+}
+
+/// 相位机步骤审计行（desktop-change-state-store 四模型之四）：编排七臂命令
+/// 包络逐条落行，`run_id` 串链同 run 步骤序列。审计 only——MUST NOT 作为
+/// run 恢复依据（run 状态驻内存 ChangeFlowControl，续走由 phase_next 依
+/// eval 历史重算）。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+#[native_model(id = 12, version = 1)]
+#[native_db]
+pub struct StepRecord {
+    /// 行 id（主键，写事务内 max+1 分配）
+    #[primary_key]
+    pub id: i64,
+    /// 所属 change 名（非唯一二级索引）
+    #[secondary_key]
+    pub change: String,
+    /// 所属 run（`run-<millis>` 铸造标识，同 run 步骤串链键）
+    pub run_id: String,
+    /// 步骤种类（封闭集七值，core 域枚举直用）
+    pub step_kind: StepKind,
+    /// 步终态（线格式词：ok | error）
+    pub status: String,
+    /// 落行时刻（UTC unix 毫秒）
+    pub timestamp: i64,
+    /// 有界输出摘要（≤500 字截断留痕，编排侧截断）
+    pub summary: String,
+    /// 全量输出引用（checks 报告目录 / 会话 id）
+    #[serde(default)]
+    pub reference: Option<String>,
+}
+
+impl StepRecord {
+    /// 由审计载荷构造新记录：`id` 置 0（写事务内 max+1 分配覆盖）。
+    pub fn new(command: &StepCommand) -> Self {
+        Self {
+            id: 0,
+            change: command.change.clone(),
+            run_id: command.run_id.clone(),
+            step_kind: command.step_kind,
+            status: command.status.clone(),
+            timestamp: command.timestamp,
+            summary: command.summary.clone(),
+            reference: command.reference.clone(),
+        }
     }
 }
 

@@ -1,57 +1,55 @@
-use time::format_description::well_known::Rfc3339;
-use time::OffsetDateTime;
-
-use crate::write::persist::{load_doc, now_iso, save};
+use crate::state::{ChangeStateStore, PhaseStartState};
 use crate::write::phase_table::phase_table;
-use foundation::layout::Layout;
 
 /// 开启阶段产出。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PhaseStartOutcome {
     pub phase: String,
     pub attempt: u32,
-    pub start_at: OffsetDateTime,
+    /// 开相时刻（UTC unix 毫秒，写事务内铸出）
+    pub start_at: i64,
 }
 
 /// 开启阶段：`active_phase` 定点写入。phase 必须属于该 change workflow_type 的
-/// 相位表（非法 phase 显式 `Err`，workflow.json 原文不动）。
+/// 相位表（非法 phase 显式 `Err`，状态库不动）；attempt 在写事务内推导，
+/// 持久化经 [`ChangeStateStore`] port 缝落库。
 pub fn phase_start(
-    layout: &Layout,
+    store: &dyn ChangeStateStore,
     change: &str,
     phase: &str,
 ) -> Result<PhaseStartOutcome, String> {
-    let mut doc = load_doc(layout, change)?;
-    let table = phase_table(&doc.typed.workflow_type).ok_or_else(|| {
+    let record = store
+        .get_change(change)
+        .map_err(|error| error.to_string())?
+        .ok_or_else(|| format!("change \"{change}\" 未建档（无 ChangeRecord），无从开相"))?;
+    let table = phase_table(&record.workflow_type).ok_or_else(|| {
         format!(
             "workflow_type \"{}\" 不受支持（V1 仅 requirement 工作流）",
-            doc.typed.workflow_type
+            record.workflow_type
         )
     })?;
     if !table.iter().any(|def| def.id == phase) {
         return Err(format!(
             "phase \"{phase}\" 不属于 workflow_type \"{}\" 的 phase 表 (change: {change})，\
              active_phase 未写入。",
-            doc.typed.workflow_type
+            record.workflow_type
         ));
     }
 
-    let attempt = doc
-        .typed
-        .eval
-        .iter()
-        .filter(|entry| entry.phase == phase)
-        .count() as u32
-        + 1;
-    let start_at = OffsetDateTime::now_utc();
-    doc.raw["active_phase"] = serde_json::json!({
-        "phase": phase,
-        "attempt": attempt,
-        "start_at": start_at.format(&Rfc3339).unwrap_or_else(|_| now_iso()),
-    });
-    save(&doc)?;
+    let PhaseStartState { attempt, start_at } = store
+        .start_phase(change, phase, now_millis())
+        .map_err(|error| error.to_string())?;
     Ok(PhaseStartOutcome {
         phase: phase.to_owned(),
         attempt,
         start_at,
     })
+}
+
+/// 当前 UTC unix 毫秒（时钟早于 epoch 取 0，不 panic）。
+fn now_millis() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_millis() as i64)
+        .unwrap_or(0)
 }

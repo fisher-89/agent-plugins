@@ -4,20 +4,9 @@ import { useNavigate } from 'react-router';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 
-import type { ChangeList, ChangeSummary, Inventory } from '../../types/dto';
+import type { ChangeList, ChangeSummary } from '../../types/dto';
 import { ChangeCreateDialog } from './components/change-create-dialog';
 import { useChangeList } from './hooks/use-change-list';
-
-// Tailwind 无法静态识别模板串类名：`badge-in${inventory}` 收敛为显式 variant 映射（spec 硬性要求）
-const INVENTORY_VARIANT: Record<Inventory, 'inv0' | 'inv1' | 'inv2'> = {
-  v0: 'inv0',
-  v1: 'inv1',
-  v2: 'inv2',
-};
-
-function InventoryBadge({ inventory }: { inventory: Inventory }) {
-  return <Badge variant={INVENTORY_VARIANT[inventory]}>{inventory}</Badge>;
-}
 
 function ChangeRow({
   summary,
@@ -33,14 +22,15 @@ function ChangeRow({
       data-testid="change-row"
     >
       <span className="font-semibold">{summary.name}</span>
-      <InventoryBadge inventory={summary.inventory} />
+      {summary.activePhase !== null && (
+        <Badge variant="active">
+          运行中 · {summary.activePhase.phase} · attempt {summary.activePhase.attempt}
+        </Badge>
+      )}
       {summary.created !== null && (
         <span className="text-xs text-muted-foreground" data-testid="created">
           {summary.created}
         </span>
-      )}
-      {summary.unparsable && (
-        <span className="text-xs text-muted-foreground">workflow.json 无法解析</span>
       )}
     </Button>
   );
@@ -101,7 +91,8 @@ function ListSections({ data, onSelect }: { data: ChangeList; onSelect: (name: s
 /** change 列表视图：清单页自取数（useChangeList 挂载 / root 变更 / 显式刷新触发，
  * 页面重挂即重取）+ 头部刷新行（始终渲染）+ 新建入口（root 非空时挂载）+
  * 加载/error-note 空态 + 列表数据区；active 列表 + archive 按月分组（"未知时间"
- * 组置尾）、代际徽标、点击进详情；创建成功刷新清单并导航进详情（不自动发起 run） */
+ * 组置尾）、运行中 active_phase 徽标、点击进详情；创建成功刷新清单并导航进
+ * 详情（不自动发起 run） */
 export function ChangeListView({ root }: { root: string | null }) {
   const state = useChangeList(root);
   const { data, loading, error } = state;

@@ -29,8 +29,7 @@ pub struct CandidateReport {
     pub report: Option<String>,
 }
 
-/// 决策有界输入：全部来自 workflow.json 只读装配与 phase-next 缓存白名单，
-/// 无其它上下文（有界性 = 输入白名单三面，prompt 组装不增料）。
+/// 决策有界输入
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DecisionInput {
     /// 失败相位 id

@@ -1,324 +1,345 @@
-use std::fs;
-use std::path::PathBuf;
+//! `write::phase_start` 的单元测试（test-design「phase_start.rs ->
+//! phase_start_test.rs」节）：开相写操作 port 落库——表位校验保留在 core（校验
+//! 前置零写命令）、持久化经 [`ChangeStateStore::start_phase`]（attempt 写事务
+//! 内推导）、`PhaseStartOutcome.start_at` 出 i64 millis、StoreFault 故障传播、
+//! 重开 attempt 自 db 推导递增。
+//!
+//! Mock策略（test-design 本节 Mock 表）：全部用例走进程内假件实现 trait
+//!（记录写命令与调用序、可编程 `StoreFault`）；假件 start_phase 以「该相位
+//! 既有条目数 + 1」推导 attempt 并落 active_phase（镜像真件事务内推导语义）。
 
-use foundation::layout::resolve;
+use std::sync::Mutex;
 
-use super::phase_start::{phase_start, PhaseStartOutcome};
-
-/// 临时 workspace 根 RAII（沿 detail_test 装置先例）。
-struct TempWs(PathBuf);
-
-impl TempWs {
-    fn new(tag: &str) -> Self {
-        let dir = std::env::temp_dir().join(format!(
-            "workflow-phase-start-test-{}-{}",
-            std::process::id(),
-            tag
-        ));
-        let _ = fs::remove_dir_all(&dir);
-        Self(dir)
-    }
-
-    fn change(&self, name: &str, workflow_json: &str) {
-        let dir = self.0.join("openspec/changes").join(name);
-        fs::create_dir_all(&dir).expect("创建 change 目录失败");
-        fs::write(dir.join("workflow.json"), workflow_json).expect("写 workflow.json 失败");
-    }
-
-    fn workflow_json_bytes(&self, name: &str) -> Vec<u8> {
-        fs::read(
-            self.0
-                .join("openspec/changes")
-                .join(name)
-                .join("workflow.json"),
-        )
-        .expect("读 workflow.json 失败")
-    }
-
-    fn start(&self, name: &str, phase: &str) -> Result<PhaseStartOutcome, String> {
-        let layout = resolve(&self.0);
-        phase_start(&layout, name, phase)
-    }
-}
-
-impl Drop for TempWs {
-    fn drop(&mut self) {
-        let _ = fs::remove_dir_all(&self.0);
-    }
-}
-
-/// 解析当前 workflow.json（写回面断言用）。
-fn parse_of(ws: &TempWs, name: &str) -> serde_json::Value {
-    let text = String::from_utf8(ws.workflow_json_bytes(name)).expect("workflow.json 应为 UTF-8");
-    serde_json::from_str(&text).expect("写回文件应可再解析")
-}
+use super::phase_start::phase_start;
+use crate::state::{
+    ActivePhaseState, ChangeStateRecord, ChangeStateStore, ChangeStatus, PhaseLogCommand,
+    PhaseStateRecord, PhaseStartState, StepCommand, StepStateRecord, StoreFault,
+};
 
 const CHANGE: &str = "demo-change";
 
+/// 确定性时间戳基（UTC unix millis）。
+const T0: i64 = 1_727_000_000_000;
+
 // ---------------------------------------------------------------------------
-// 正向：开启阶段落盘 / attempt 递增
+// 假件 store：get_change 只读 + start_phase 捕获调用并镜像真件语义
+//（attempt = 该相位既有条目数 + 1、active_phase 定点写入）；其余写半边
+// unimplemented（越权触达即 panic）。
 // ---------------------------------------------------------------------------
 
-/// 开启阶段落盘：workflow.json active_phase 定点写入 {phase, attempt, start_at}，
-/// outcome 三字段与落盘一致（AC-9 attempt 计时对照面）。
+struct StartStore {
+    record: Mutex<Option<ChangeStateRecord>>,
+    entries: Mutex<Vec<PhaseStateRecord>>,
+    /// 捕获的 start_phase 调用（change, phase, now）。
+    start_calls: Mutex<Vec<(String, String, i64)>>,
+    fault: Mutex<Option<StoreFault>>,
+}
+
+impl StartStore {
+    fn requirement() -> Self {
+        Self::with_workflow_type("requirement")
+    }
+
+    fn with_workflow_type(workflow_type: &str) -> Self {
+        Self {
+            record: Mutex::new(Some(ChangeStateRecord {
+                name: CHANGE.to_owned(),
+                workflow_type: workflow_type.to_owned(),
+                created_at: T0,
+                status: ChangeStatus::Active,
+                archived_at: None,
+                active_phase: None,
+            })),
+            entries: Mutex::new(Vec::new()),
+            start_calls: Mutex::new(Vec::new()),
+            fault: Mutex::new(None),
+        }
+    }
+
+    fn missing() -> Self {
+        Self {
+            record: Mutex::new(None),
+            entries: Mutex::new(Vec::new()),
+            start_calls: Mutex::new(Vec::new()),
+            fault: Mutex::new(None),
+        }
+    }
+
+    fn set_fault(&self, fault: StoreFault) {
+        *self.fault.lock().expect("故障锁不可中毒") = Some(fault);
+    }
+
+    /// 模拟 run 期间落账：追加条目 + 清位 active_phase（重开 attempt 用例的
+    /// 节奏步，沿 start → 落账 → 再 start 的真实重试节奏）。
+    fn log_entry(&self, phase: &str, ts: i64) {
+        let mut entries = self.entries.lock().expect("条目锁不可中毒");
+        let attempt = entries
+            .iter()
+            .filter(|entry| entry.phase == phase)
+            .count() as u32
+            + 1;
+        entries.push(PhaseStateRecord {
+            id: i64::from(attempt),
+            change: CHANGE.to_owned(),
+            phase: phase.to_owned(),
+            attempt,
+            verdict: crate::model::Verdict::Fail,
+            report: "首轮未过".to_owned(),
+            checklist: Vec::new(),
+            skipped: false,
+            stale: false,
+            backtrack_to: None,
+            backtrack_reason: None,
+            executor_session_id: None,
+            evaluator_session_id: None,
+            decision_session_id: None,
+            start_at: Some(ts),
+            timestamp: ts,
+        });
+        drop(entries);
+        if let Some(record) = self.record.lock().expect("记录锁不可中毒").as_mut() {
+            record.active_phase = None;
+        }
+    }
+
+    fn start_call_count(&self) -> usize {
+        self.start_calls.lock().expect("调用锁不可中毒").len()
+    }
+
+    fn start(&self, phase: &str) -> Result<super::phase_start::PhaseStartOutcome, String> {
+        phase_start(self, CHANGE, phase)
+    }
+}
+
+impl ChangeStateStore for StartStore {
+    fn get_change(&self, _name: &str) -> Result<Option<ChangeStateRecord>, StoreFault> {
+        Ok(self.record.lock().expect("记录锁不可中毒").clone())
+    }
+
+    fn list_change_records(&self) -> Result<Vec<ChangeStateRecord>, StoreFault> {
+        unimplemented!("本用例不可达")
+    }
+
+    fn list_phase_records(&self, _change: &str) -> Result<Vec<PhaseStateRecord>, StoreFault> {
+        Ok(self.entries.lock().expect("条目锁不可中毒").clone())
+    }
+
+    fn list_steps(
+        &self,
+        _change: &str,
+        _run_id: Option<&str>,
+    ) -> Result<Vec<StepStateRecord>, StoreFault> {
+        unimplemented!("本用例不可达")
+    }
+
+    fn create_change_record(&self, _record: ChangeStateRecord) -> Result<(), StoreFault> {
+        unimplemented!("本用例不可达")
+    }
+
+    fn delete_change_record(&self, _name: &str) -> Result<bool, StoreFault> {
+        unimplemented!("本用例不可达")
+    }
+
+    fn start_phase(
+        &self,
+        change: &str,
+        phase: &str,
+        now: i64,
+    ) -> Result<PhaseStartState, StoreFault> {
+        if let Some(fault) = self.fault.lock().expect("故障锁不可中毒").clone() {
+            return Err(fault);
+        }
+        let attempt = self
+            .entries
+            .lock()
+            .expect("条目锁不可中毒")
+            .iter()
+            .filter(|entry| entry.phase == phase)
+            .count() as u32
+            + 1;
+        {
+            let mut guard = self.record.lock().expect("记录锁不可中毒");
+            let record = guard.as_mut().expect("建档记录应在场");
+            record.active_phase = Some(ActivePhaseState {
+                phase: phase.to_owned(),
+                attempt,
+                start_at: now,
+            });
+        }
+        self.start_calls
+            .lock()
+            .expect("调用锁不可中毒")
+            .push((change.to_owned(), phase.to_owned(), now));
+        Ok(PhaseStartState { attempt, start_at: now })
+    }
+
+    fn log_phase(&self, _command: &PhaseLogCommand) -> Result<u32, StoreFault> {
+        unimplemented!("本用例不可达")
+    }
+
+    fn apply_backtrack(
+        &self,
+        _command: &crate::state::BacktrackCommand,
+    ) -> Result<(), StoreFault> {
+        unimplemented!("本用例不可达")
+    }
+
+    fn amend_decision_session(
+        &self,
+        _change: &str,
+        _phase: &str,
+        _session_id: &str,
+    ) -> Result<(), StoreFault> {
+        unimplemented!("本用例不可达")
+    }
+
+    fn set_archived(&self, _name: &str, _archived_at: i64) -> Result<(), StoreFault> {
+        unimplemented!("本用例不可达")
+    }
+
+    fn append_step(&self, _command: &StepCommand) -> Result<(), StoreFault> {
+        unimplemented!("本用例不可达")
+    }
+}
+
+/// 当前 UTC unix 毫秒（start_at 上界断言用；不与 wall-clock 比等值）。
+fn now_upper() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_millis() as i64)
+        .unwrap_or(i64::MAX)
+}
+
+// ---------------------------------------------------------------------------
+// 正向：开相落库（outcome 与 active_phase 一致）
+// ---------------------------------------------------------------------------
+
+/// 合法表位开相 → `store.start_phase` 落 active_phase；outcome.phase /
+/// attempt / start_at（i64）与假件落库的 active_phase 逐字段一致。
 #[test]
-fn 开启阶段落盘active_phase三字段与outcome一致() {
-    let ws = TempWs::new("start-basic");
-    ws.change(CHANGE, r#"{ "workflow_type": "requirement", "eval": [] }"#);
+fn 开相落库_outcome与active_phase逐字段一致() {
+    let fake = StartStore::requirement();
+    let before = now_upper();
 
-    let outcome = ws.start(CHANGE, "proposal").expect("开启阶段应成功");
+    let outcome = fake.start("proposal").expect("开启阶段应成功");
 
+    let after = now_upper();
     assert_eq!(outcome.phase, "proposal");
     assert_eq!(outcome.attempt, 1, "无既有条目 → attempt 1");
-
-    let doc = parse_of(&ws, CHANGE);
-    let active = &doc["active_phase"];
-    assert_eq!(active["phase"], serde_json::json!("proposal"));
-    assert_eq!(active["attempt"], serde_json::json!(1));
-    let start_at = active["start_at"].as_str().expect("start_at 应为 ISO 串");
     assert!(
-        start_at.starts_with("20"),
-        "start_at 应为 RFC3339 形态，实际: {start_at}"
+        outcome.start_at >= before && outcome.start_at <= after,
+        "start_at 为写事务内铸出的 i64 millis（边界内），实际: {}",
+        outcome.start_at
     );
 
-    // outcome.start_at 与落盘串可互证（RFC3339 再解析等值）
-    let parsed =
-        time::OffsetDateTime::parse(start_at, &time::format_description::well_known::Rfc3339)
-            .expect("落盘 start_at 应可 RFC3339 解析");
-    assert_eq!(parsed, outcome.start_at, "outcome 三字段与落盘一致");
-}
-
-/// attempt 自既有值递增：既有 eval 条目 2 条（active_phase.attempt=2 残留）→
-/// start 后 attempt=3（推导 = 该相位既有条目数 + 1，与插件 phase-start 语义
-/// 一致——重试自然递增）。
-#[test]
-fn attempt自既有eval条目数递增() {
-    let ws = TempWs::new("attempt-increment");
-    ws.change(
-        CHANGE,
-        r#"{
-  "workflow_type": "requirement",
-  "eval": [
-    { "phase": "dev-design", "attempt": 1, "verdict": "fail", "report": "首轮未过", "checklist": [], "timestamp": "2026-10-01T08:10:00Z" },
-    { "phase": "dev-design", "attempt": 2, "verdict": "fail", "report": "次轮未过", "checklist": [], "timestamp": "2026-10-01T08:20:00Z" }
-  ],
-  "active_phase": { "phase": "dev-design", "attempt": 2, "start_at": "2026-10-01T08:15:00Z" }
-}"#,
-    );
-
-    let outcome = ws.start(CHANGE, "dev-design").expect("开启阶段应成功");
-
-    assert_eq!(outcome.attempt, 3, "既有 2 条 + 1（重试自然递增）");
-    let doc = parse_of(&ws, CHANGE);
-    assert_eq!(doc["active_phase"]["attempt"], serde_json::json!(3));
-    assert_eq!(
-        doc["active_phase"]["phase"],
-        serde_json::json!("dev-design")
-    );
+    // 假件落库侧：active_phase 与 outcome 一致、调用恰一次
+    assert_eq!(fake.start_call_count(), 1, "start_phase 恰一次落库调用");
+    let record = fake
+        .get_change(CHANGE)
+        .expect("假件读半边应可用")
+        .expect("建档记录应在场");
+    let active = record.active_phase.expect("active_phase 应已写入");
+    assert_eq!(active.phase, "proposal");
+    assert_eq!(active.attempt, 1);
+    assert_eq!(active.start_at, outcome.start_at, "outcome 与落库一致");
 }
 
 // ---------------------------------------------------------------------------
-// 边界：重入新一轮计时 / 未知字段保形 / file_log 零触碰 / pretty 写回可再读
+// 异常：表位校验保留（零写入）/ 故障传播
 // ---------------------------------------------------------------------------
 
-/// phase_start 重入新一轮计时：同相位重复 start（重试节奏：start → 落账 →
-/// 再 start）attempt 再递增、start_at 刷新（重入即新一轮计时）。
+/// 相位不在相位表 → `Err` 且 store 零写入（校验前置——假件记录零写命令）。
 #[test]
-fn 重入开启阶段attempt再递增且start_at刷新() {
-    let ws = TempWs::new("restart");
-    ws.change(CHANGE, r#"{ "workflow_type": "requirement", "eval": [] }"#);
+fn 非法相位拒绝且store零写入() {
+    let fake = StartStore::requirement();
 
-    let first = ws.start(CHANGE, "implement").expect("首次 start 应成功");
-    assert_eq!(first.attempt, 1);
+    let err = fake.start("不存在的相位").expect_err("非法相位应 Err");
 
-    // 模拟 run 期间 phase-log 落账一条 fail（重试节奏中的落账步）
-    ws.change(
-        CHANGE,
-        r#"{
-  "workflow_type": "requirement",
-  "eval": [
-    { "phase": "implement", "attempt": 1, "verdict": "fail", "report": "首轮未过", "checklist": [], "timestamp": "2026-10-01T08:10:00Z" }
-  ]
-}"#,
-    );
-    std::thread::sleep(std::time::Duration::from_millis(5));
-
-    let second = ws.start(CHANGE, "implement").expect("重入 start 应成功");
-    assert_eq!(second.attempt, 2, "重入 attempt 再递增");
-    assert!(
-        second.start_at >= first.start_at,
-        "start_at 刷新（重入即新一轮计时）"
-    );
-
-    let doc = parse_of(&ws, CHANGE);
-    assert_eq!(doc["active_phase"]["attempt"], serde_json::json!(2));
-}
-
-/// 未知字段保形：预置未知 / legacy 字段的 fixture 写后原样保留（W2 raw Value
-/// 定点改写——serde↔zod 兼容最强形态，AC-9）。
-#[test]
-fn 未知字段与legacy字段写后原样保留() {
-    let ws = TempWs::new("preserve-fields");
-    ws.change(
-        CHANGE,
-        r#"{
-  "workflow_type": "requirement",
-  "created": "2026-03-03",
-  "custom_note": "保留我",
-  "legacy_files_bucket": { "files": ["a.rs"], "count": 2 },
-  "eval": [
-    { "phase": "proposal", "attempt": 1, "verdict": "pass", "report": "OK", "checklist": [], "legacy_extra": "条目级保留" }
-  ]
-}"#,
-    );
-
-    ws.start(CHANGE, "dev-design").expect("开启阶段应成功");
-
-    let doc = parse_of(&ws, CHANGE);
-    assert_eq!(doc["custom_note"], serde_json::json!("保留我"));
-    assert_eq!(
-        doc["legacy_files_bucket"],
-        serde_json::json!({ "files": ["a.rs"], "count": 2 }),
-        "legacy 字段原样保留"
-    );
-    assert_eq!(doc["created"], serde_json::json!("2026-03-03"));
-    assert_eq!(
-        doc["eval"][0]["legacy_extra"],
-        serde_json::json!("条目级保留"),
-        "既有 eval 条目零触碰（条目级未知字段保留）"
-    );
-}
-
-/// file_log 零触碰：既有 file_log 条目写前后逐字节不变（AC-3 写面半边——
-/// desktop run 零 file_log 新增）。
-#[test]
-fn file_log既有条目写前后零触碰() {
-    let ws = TempWs::new("file-log-untouched");
-    ws.change(
-        CHANGE,
-        r#"{
-  "workflow_type": "requirement",
-  "eval": [],
-  "file_log": [
-    { "op": "write", "scope": "workflow", "attempt": 2, "path": "a.md", "at": "2026-10-01T07:00:00Z" },
-    { "op": "delete", "scope": "workflow", "path": "b.md" }
-  ]
-}"#,
-    );
-
-    let before = parse_of(&ws, CHANGE)["file_log"].clone();
-
-    ws.start(CHANGE, "proposal").expect("开启阶段应成功");
-
-    let after = parse_of(&ws, CHANGE);
-    assert_eq!(
-        after["file_log"], before,
-        "file_log 逐字节不变（写面零触点）"
-    );
-    assert_eq!(
-        after["eval"].as_array().map(Vec::len),
-        Some(0),
-        "eval 亦零新增（phase_start 不落账）"
-    );
-}
-
-/// pretty 写回可再读：写回文件 serde 再解析成功、键集与字段形状不变（W3
-/// zod 兼容 fixture 对照口径：插件直跑形态 fixture 为基准样本）。
-#[test]
-fn pretty写回可再读且键集形状不变() {
-    let ws = TempWs::new("pretty-roundtrip");
-    ws.change(
-        CHANGE,
-        r#"{ "workflow_type": "requirement", "created": "2026-03-03", "eval": [] }"#,
-    );
-    let before: serde_json::Value =
-        serde_json::from_str(&String::from_utf8(ws.workflow_json_bytes(CHANGE)).expect("UTF-8"))
-            .expect("fixture 应合法");
-
-    ws.start(CHANGE, "test-gen").expect("开启阶段应成功");
-
-    let text = String::from_utf8(ws.workflow_json_bytes(CHANGE)).expect("workflow.json 应为 UTF-8");
-    // pretty 形态：2 空格缩进 + 尾换行（与插件 writeEvalJson 输出形态一致）
-    assert!(text.contains("\n  \""), "应为 2 空格缩进 pretty 形态");
-    assert!(text.ends_with('\n'), "应以尾换行收口");
-
-    let after: serde_json::Value = serde_json::from_str(&text).expect("写回应可再解析");
-    // 键集不变（active_phase 新增 / 覆写除外）
-    let mut before_keys: Vec<&str> = before
-        .as_object()
-        .expect("顶层对象")
-        .keys()
-        .map(String::as_str)
-        .collect();
-    before_keys.push("active_phase");
-    before_keys.sort_unstable();
-    let mut after_keys: Vec<&str> = after
-        .as_object()
-        .expect("顶层对象")
-        .keys()
-        .map(String::as_str)
-        .collect();
-    after_keys.sort_unstable();
-    assert_eq!(after_keys, before_keys, "键集与字段形状不变");
-
-    // 既有字段值不变
-    assert_eq!(after["workflow_type"], before["workflow_type"]);
-    assert_eq!(after["created"], before["created"]);
-    assert_eq!(after["eval"], before["eval"]);
-}
-
-// ---------------------------------------------------------------------------
-// 异常：非法相位 / 非 requirement / change 不存在（全部零写入）
-// ---------------------------------------------------------------------------
-
-/// phase_start 非法相位拒绝：相位不在 requirement 表 → Err 且文件零变更。
-#[test]
-fn 非法相位拒绝且文件零变更() {
-    let ws = TempWs::new("bad-phase");
-    ws.change(
-        CHANGE,
-        r#"{ "workflow_type": "requirement", "eval": [], "custom_note": "在场" }"#,
-    );
-    let before = ws.workflow_json_bytes(CHANGE);
-
-    let err = ws
-        .start(CHANGE, "不存在的相位")
-        .expect_err("非法相位应 Err");
     assert!(
         err.contains("不存在的相位") && err.contains("requirement"),
         "错误显式携带相位与 workflow_type 语境，实际: {err}"
     );
-    assert_eq!(
-        ws.workflow_json_bytes(CHANGE),
-        before,
-        "拒绝零写入（workflow.json 原文不动）"
-    );
+    assert_eq!(fake.start_call_count(), 0, "校验前置：零 start_phase 调用");
+    let record = fake
+        .get_change(CHANGE)
+        .expect("假件读半边应可用")
+        .expect("建档记录应在场");
+    assert!(record.active_phase.is_none(), "active_phase 未被写入");
 }
 
-/// phase_start workflow_type 非 requirement：Err（W8 分层出口）。
+/// workflow_type 非 requirement → Err 且零写入（W8 分层出口）。
 #[test]
-fn workflow_type非requirement拒绝() {
-    let ws = TempWs::new("bad-type");
-    ws.change(CHANGE, r#"{ "workflow_type": "test-only", "eval": [] }"#);
-    let before = ws.workflow_json_bytes(CHANGE);
+fn workflow_type非requirement拒绝零写入() {
+    let fake = StartStore::with_workflow_type("test-only");
 
-    let err = ws
-        .start(CHANGE, "proposal")
-        .expect_err("非 requirement 应 Err");
+    let err = fake.start("proposal").expect_err("非 requirement 应 Err");
+
     assert!(err.contains("test-only"), "W8 分层出口记因，实际: {err}");
-    assert_eq!(ws.workflow_json_bytes(CHANGE), before, "拒绝零写入");
+    assert_eq!(fake.start_call_count(), 0, "零写入");
 }
 
-/// phase_start change 不存在：Err 显式。
+/// change 未建档 → Err 显式（假件 get_change 返回 None）。
 #[test]
-fn change不存在显式err() {
-    let ws = TempWs::new("missing-change");
+fn change未建档显式err() {
+    let fake = StartStore::missing();
 
-    let err = ws
-        .start("不存在的-change", "proposal")
-        .expect_err("未知 change 应 Err");
+    let err = fake.start("proposal").expect_err("未建档应 Err");
+
+    assert!(err.contains("未建档"), "Err 显式记因，实际: {err}");
+    assert_eq!(fake.start_call_count(), 0, "零写入");
+}
+
+/// 假件 store 注入 `StoreFault` → `Err` 记因传播不静默。
+#[test]
+fn store故障传播记因不静默() {
+    let fake = StartStore::requirement();
+    fake.set_fault(StoreFault::Db("注入的开相写故障".to_owned()));
+
+    let err = fake.start("proposal").expect_err("StoreFault 应传播");
+
     assert!(
-        !err.is_empty(),
-        "Err 显式（文件缺失 / 无法解析人读文案），实际: {err}"
+        err.contains("db:") && err.contains("注入的开相写故障"),
+        "Err 记因携带 fault 语境，实际: {err}"
     );
+}
+
+// ---------------------------------------------------------------------------
+// 边界：重开 attempt（自 db 推导递增）
+// ---------------------------------------------------------------------------
+
+/// start → 落账清位 → 再 start 同相位 → attempt=2（自既有条目数推导）；
+/// start_at 出 i64 millis 直透（重入即新一轮计时）。
+#[test]
+fn 重开attempt自既有条目数推导递增() {
+    let fake = StartStore::requirement();
+
+    let first = fake.start("implement").expect("首次 start 应成功");
+    assert_eq!(first.attempt, 1);
+
+    // 模拟 run 期间 phase-log 落账一条 fail（清位 + 条目追加）
+    fake.log_entry("implement", T0);
+
+    let before = now_upper();
+    let second = fake.start("implement").expect("重入 start 应成功");
+    let after = now_upper();
+
+    assert_eq!(second.attempt, 2, "attempt = 该相位既有条目数 1 + 1");
+    assert!(
+        second.start_at >= before && second.start_at <= after,
+        "start_at 刷新（重入即新一轮计时，i64 millis 直透），实际: {}",
+        second.start_at
+    );
+    assert!(
+        second.start_at >= first.start_at,
+        "重入 start_at 不早于首次"
+    );
+    // 落库侧 active_phase 同步为 attempt 2
+    let active = fake
+        .get_change(CHANGE)
+        .expect("假件读半边应可用")
+        .expect("建档记录应在场")
+        .active_phase
+        .expect("active_phase 应在位");
+    assert_eq!(active.attempt, 2);
+    assert_eq!(active.phase, "implement");
 }

@@ -1,51 +1,24 @@
-//! `snapshot.rs` 的单元测试（test-design「snapshot.rs -> snapshot_test.rs」节）。
-//!
-//! 装置：无 store mock——tempdir 真实 change fixture（workflow.json 真盘落盘
-//! 与 openspec 目录骨架），沿 core/workflow detail_test 的临时根 RAII 装置先例
-//! （std::env::temp_dir + 进程 id + Drop 清理，不引新 dev-dependency）。
-//!
-//! 线面注记：对编排面严格——「change 不存在」与「workflow.json 无法解析」
-//! 双 `Err` 出口（坏文档不进决策输入，编排停给用户而非带病续走）；`unparsable`
-//! 旗标建模保留在 `change_detail` 读面、归 UI 展示面消费，FsSnapshot 端口
-//! 层将旗标置位的 detail 显式转译为 `Err`。
-
 use std::fs;
 use std::path::PathBuf;
+use std::sync::Arc;
 
-use workflow::model::{FileLogOp, Inventory, Verdict};
-use workflow::queries::detail::PIPELINE_PHASES;
-use workflow::queries::ChangeSource;
+use foundation::layout::resolve;
+use store::Store;
+use workflow::model::{ChecklistItem, Verdict};
+use workflow::queries::{change_detail, ChangeSource};
+use workflow::state::{ChangeStateRecord, ChangeStateStore, ChangeStatus, PhaseLogCommand};
 
 use crate::port::WorkflowSnapshotPort;
-use crate::snapshot::FsSnapshot;
+use crate::snapshot::StoreSnapshot;
 
-/// 合法 v2 形态 workflow.json（file_log 在场 → Inventory::V2；active_phase /
-/// interrupted / eval 多站记录齐备）。
-const VALID_WORKFLOW: &str = r#"{
-  "workflow_type": "requirement",
-  "created": "2026-10-01",
-  "eval": [
-    { "phase": "proposal", "attempt": 1, "verdict": "pass", "report": "提案通过", "checklist": [] },
-    { "phase": "dev-design", "attempt": 1, "verdict": "fail", "report": "首轮未过", "checklist": [
-      { "item": "组件表完整", "pass": false, "evidence": "缺产物区组件" }
-    ] }
-  ],
-  "active_phase": { "phase": "dev-design", "attempt": 2, "start_at": "2026-10-01T09:00:00Z" },
-  "interrupted": [ { "phase": "test-gen", "attempt": 1, "start_at": "2026-10-01T07:00:00Z", "end_at": "2026-10-01T07:30:00Z" } ],
-  "file_log": [
-    { "op": "write", "scope": "implement", "attempt": 2, "path": "src/lib.rs", "at": "2026-10-01T08:00:00Z" },
-    { "op": "delete", "scope": "workflow", "path": "old.md" }
-  ]
-}"#;
+// ---------------------------------------------------------------------------
+// 装置：tempdir 磁盘根 + 真实 workspace 库 + store 种子
+// ---------------------------------------------------------------------------
 
-/// 另一 workspace 的同位 change（root 寻址隔离断言的对照内容）。
-const OTHER_WORKFLOW: &str = r#"{
-  "workflow_type": "requirement",
-  "created": "2026-05-05",
-  "eval": [
-    { "phase": "proposal", "attempt": 1, "verdict": "pass", "report": "另一工作区", "checklist": [] }
-  ]
-}"#;
+/// 种子基准时刻：2026-10-01T08:00:00Z 定值 UTC unix 毫秒（确定性断言面）。
+const TS_BASE: i64 = 1_790_841_600_000;
+
+const CHANGE: &str = "demo-change";
 
 /// 临时 workspace 根 RAII（沿 core/workflow detail_test 装置先例）：测试结束
 /// 自动清理。
@@ -67,12 +40,12 @@ impl TempRoot {
         self.0.to_string_lossy().into_owned()
     }
 
-    /// 预置一个 change 目录：workflow.json + openspec 目录骨架（proposal /
-    /// tasks / specs 能力树）。
-    fn change(&self, name: &str, workflow_json: &str) {
+    /// 预置一个 change 目录：openspec 骨架文档（产物发现面）。磁盘仅产物树
+    /// ——状态面单源 workspace 库，workflow.json 零产出（存量 CLI 惰性字节
+    /// 样本另有退役回归行显式写入）。
+    fn change(&self, name: &str) {
         let dir = self.0.join("openspec/changes").join(name);
         fs::create_dir_all(dir.join("specs/demo-capability")).expect("创建 change 骨架目录失败");
-        fs::write(dir.join("workflow.json"), workflow_json).expect("写 workflow.json 失败");
         fs::write(dir.join("proposal.md"), "# 提案\n").expect("写 proposal.md 失败");
         fs::write(dir.join("tasks.md"), "- [ ] 任务\n").expect("写 tasks.md 失败");
         fs::write(
@@ -82,15 +55,9 @@ impl TempRoot {
         .expect("写 spec.md 失败");
     }
 
-    /// 读取 change 的 workflow.json 原始字节（只读性比对面）。
-    fn workflow_json_bytes(&self, name: &str) -> Vec<u8> {
-        fs::read(
-            self.0
-                .join("openspec/changes")
-                .join(name)
-                .join("workflow.json"),
-        )
-        .expect("读 workflow.json 失败")
+    /// 读取 change 目录内任意文件字节（只读性 / 惰性样本比对面）。
+    fn file_bytes(&self, name: &str, file: &str) -> Vec<u8> {
+        fs::read(self.0.join("openspec/changes").join(name).join(file)).expect("读文件失败")
     }
 }
 
@@ -100,228 +67,294 @@ impl Drop for TempRoot {
     }
 }
 
-/// detail 只读装配：tempdir 真实 change fixture（合法 workflow.json + openspec
-/// 目录骨架）→ ChangeDetail 逐字段装配（决策输入与前置校验的输入面——AC-2
-/// 有界输入来源）。
+/// 真实 workspace 库装置：tempfile db 文件（store crate dev-dep 真件组合）。
+struct TestDb {
+    /// store 句柄（字段声明先于 db 目录：drop 序先关库再删目录，Windows 句柄
+    /// 纪律）
+    store: Arc<Store>,
+    _db_dir: tempfile::TempDir,
+}
+
+impl TestDb {
+    fn open(tag: &str) -> Self {
+        let db_dir = tempfile::Builder::new()
+            .prefix(&format!("orchestration-snapshot-test-{tag}-db-"))
+            .tempdir()
+            .expect("创建 db 临时目录失败");
+        let store =
+            Store::open_workspace(&db_dir.path().join("ws.redb")).expect("打开 workspace 库应成功");
+        Self {
+            store: Arc::new(store),
+            _db_dir: db_dir,
+        }
+    }
+
+    /// store 缝注入面（`Arc<dyn ChangeStateStore>` 类型擦除——组合根同式装配）。
+    fn store_arc(&self) -> Arc<dyn ChangeStateStore> {
+        Arc::clone(&self.store) as Arc<dyn ChangeStateStore>
+    }
+}
+
+/// 建档种子：workflow_type requirement、active 起步。
+fn seed_change(store: &Store, name: &str) {
+    store
+        .create_change_record(ChangeStateRecord {
+            name: name.to_owned(),
+            workflow_type: "requirement".to_owned(),
+            created_at: TS_BASE,
+            status: ChangeStatus::Active,
+            archived_at: None,
+            active_phase: None,
+        })
+        .expect("建档种子应成功");
+}
+
+/// 评估条目种子：开相 + 落账一条（store change 域操作面种子路径）。
+fn seed_entry(
+    store: &Store,
+    change: &str,
+    phase: &str,
+    verdict: Verdict,
+    report: &str,
+    checklist: Vec<ChecklistItem>,
+    ts: i64,
+) {
+    let started = store
+        .start_change_phase(change, phase, ts)
+        .expect("开相种子应成功");
+    store
+        .log_change_phase(&PhaseLogCommand {
+            change: change.to_owned(),
+            phase: phase.to_owned(),
+            verdict,
+            report: report.to_owned(),
+            skipped: false,
+            checklist,
+            executor_session_id: Some(format!("sess-exec-{phase}")),
+            evaluator_session_id: Some(format!("sess-eval-{phase}")),
+            decision_session_id: None,
+            start_at: Some(started.start_at),
+            timestamp: ts + 30_000,
+        })
+        .expect("落账种子应成功");
+}
+
+/// 建档 + 两条相位条目种子（proposal pass 带 checklist 行 / implement fail）
+/// + dev-design 开相在途（active_phase 状态面在场）。
+fn seed_documented_change(db: &TestDb) {
+    seed_change(db.store.as_ref(), CHANGE);
+    seed_entry(
+        db.store.as_ref(),
+        CHANGE,
+        "proposal",
+        Verdict::Pass,
+        "提案通过",
+        vec![ChecklistItem {
+            item: "验收标准在场".to_owned(),
+            pass: true,
+            evidence: "proposal.md 含验收节".to_owned(),
+        }],
+        TS_BASE,
+    );
+    seed_entry(
+        db.store.as_ref(),
+        CHANGE,
+        "implement",
+        Verdict::Fail,
+        "首轮未过",
+        Vec::new(),
+        TS_BASE + 120_000,
+    );
+    db.store
+        .start_change_phase(CHANGE, "dev-design", TS_BASE + 180_000)
+        .expect("开相种子应成功");
+}
+
+// ---------------------------------------------------------------------------
+// db 读源 detail：与 queries 直调 serde 等值（换血不加工）
+// ---------------------------------------------------------------------------
+
+/// db 读源 detail：store 种子（建档 + 相位行 + active_phase）→ detail(root,
+/// change) 与 queries::change_detail 直调结果 serde 等值（port 实现零加工换血
+/// ——AC-5 快照读源半边）；字段面抽查建档判别 / 状态面 / 流水线重组。
 #[test]
-fn detail_assembles_fields_from_real_fs_fixture() {
-    let root = TempRoot::new("assemble");
-    root.change("demo-change", VALID_WORKFLOW);
+fn db读源detail与queries直调serde等值() {
+    let root = TempRoot::new("db-source");
+    root.change(CHANGE);
+    let db = TestDb::open("db-source");
+    seed_documented_change(&db);
     let root_str = root.root_str();
 
-    let snapshot = FsSnapshot::new(root_str.clone());
+    let snapshot = StoreSnapshot::new(root_str.clone(), db.store_arc());
     assert_eq!(snapshot.root, root_str, "构造绑定根原样承接");
 
     let detail = snapshot
-        .detail(&root_str, "demo-change")
-        .expect("合法 change 应装配成功");
+        .detail(&root_str, CHANGE)
+        .expect("建档 change 应装配成功");
 
-    // 身份与代际面
-    assert_eq!(detail.name, "demo-change");
+    // 与 queries::change_detail 直调逐字节 serde 等值（换血不加工）
+    let direct =
+        change_detail(&resolve(&root.0), db.store.as_ref(), CHANGE).expect("直调应命中同记录");
+    assert_eq!(
+        serde_json::to_value(&detail).expect("线面序列化应成功"),
+        serde_json::to_value(&direct).expect("直调序列化应成功"),
+        "detail 与 queries 直调 serde 等值"
+    );
+
+    // 字段面抽查：身份 / 建档判别 / 状态面 / 9 站流水线重组
+    assert_eq!(detail.name, CHANGE);
     assert_eq!(detail.source, ChangeSource::Active);
-    assert_eq!(detail.inventory, Inventory::V2);
-    assert_eq!(detail.created.as_deref(), Some("2026-10-01"));
-    assert!(!detail.unparsable);
-
-    // 9 站全量流水线，顺序固定
-    let phases: Vec<&str> = detail.pipeline.iter().map(|s| s.phase.as_str()).collect();
-    assert_eq!(phases, PIPELINE_PHASES.to_vec());
-
-    // proposal 站：一条 pass 记录
+    assert_eq!(detail.status, Some(ChangeStatus::Active));
+    assert_eq!(
+        detail.created.as_deref(),
+        Some("2026-10-01"),
+        "created 取 db created_at 日期（UTC 日界口径）"
+    );
+    assert_eq!(detail.pipeline.len(), 9, "固定 9 站全量流水线");
     let proposal = &detail.pipeline[0];
-    assert_eq!(proposal.phase, "proposal");
     assert_eq!(proposal.attempts.len(), 1);
     assert_eq!(proposal.attempts[0].verdict, Verdict::Pass);
-    assert_eq!(proposal.attempts[0].report, "提案通过");
-    assert!(proposal.attempts[0].checklist.is_empty());
-
-    // dev-design 站：一条 fail 记录携 checklist 行
-    let dev_design = &detail.pipeline[1];
-    assert_eq!(dev_design.attempts[0].verdict, Verdict::Fail);
-    assert_eq!(dev_design.attempts[0].report, "首轮未过");
-    assert_eq!(dev_design.attempts[0].checklist.len(), 1);
-    assert_eq!(dev_design.attempts[0].checklist[0].item, "组件表完整");
-    assert!(!dev_design.attempts[0].checklist[0].pass);
-    assert_eq!(dev_design.attempts[0].checklist[0].evidence, "缺产物区组件");
-
-    // 未覆盖站 attempts 为空
-    assert!(detail.pipeline[4].attempts.is_empty(), "test-gen 站无记录");
-
-    let active = detail.active_phase.as_ref().expect("v2 应有 active_phase");
+    assert_eq!(proposal.attempts[0].checklist.len(), 1);
+    assert_eq!(proposal.attempts[0].checklist[0].item, "验收标准在场");
+    assert_eq!(
+        proposal.attempts[0].executor_session_id.as_deref(),
+        Some("sess-exec-proposal"),
+        "会话槽位三列自 PhaseRecord 直读透出"
+    );
+    let implement = &detail.pipeline[3];
+    assert_eq!(implement.attempts[0].verdict, Verdict::Fail);
+    let active = detail
+        .active_phase
+        .as_ref()
+        .expect("开相在途应有 active_phase");
     assert_eq!(active.phase, "dev-design");
-    assert_eq!(active.attempt, 2);
-    assert_eq!(active.start_at.as_deref(), Some("2026-10-01T09:00:00Z"));
+    assert_eq!(active.attempt, 1);
+    assert!(
+        active.start_at.is_some(),
+        "start_at ISO 串出线（millis 转换收 queries 单点）"
+    );
 
-    // file_log：条目字段面（op / scope / attempt / path / at）
-    let file_log = detail.file_log.as_ref().expect("v2 应有 file_log");
-    assert_eq!(file_log.len(), 2);
-    assert_eq!(file_log[0].op, FileLogOp::Write);
-    assert_eq!(file_log[0].scope, "implement");
-    assert_eq!(file_log[0].attempt, Some(2));
-    assert_eq!(file_log[0].path, "src/lib.rs");
-    assert!(file_log[0].at.is_some());
-    assert_eq!(file_log[1].op, FileLogOp::Delete);
-    assert_eq!(file_log[1].scope, "workflow");
-    assert_eq!(file_log[1].attempt, None);
-
-    // 产物清单：骨架文档树进入（markdown-doc 可辨）
+    // 产物清单：骨架文档树进入（磁盘扫描保留为产物发现）
     assert!(
         detail.artifacts.iter().any(|a| a.kind == "markdown-doc"),
         "openspec 骨架文档应进入产物清单"
     );
 }
 
-/// change 不存在：detail(root, 不存在 change) → Err 显式携 change 名
-/// （change_flow_start 前置校验第二分支输入面）。
+/// 文档形态（db 缺记录磁盘在场）：detail 走通不 Err——空流水线 + 产物清单，
+/// status / created / active_phase 状态面缺位（None = 文档形态契约）。
 #[test]
-fn missing_change_yields_explicit_error() {
-    let root = TempRoot::new("missing");
-    root.change("real-change", VALID_WORKFLOW);
+fn 文档形态db缺记录磁盘在场走通不err() {
+    let root = TempRoot::new("doc-form");
+    root.change("legacy-cli-change");
+    let db = TestDb::open("doc-form");
     let root_str = root.root_str();
 
-    let snapshot = FsSnapshot::new(root_str.clone());
-    let err = snapshot
+    let snapshot = StoreSnapshot::new(root_str.clone(), db.store_arc());
+    let detail = snapshot
+        .detail(&root_str, "legacy-cli-change")
+        .expect("文档形态走通不 Err");
+
+    assert_eq!(detail.name, "legacy-cli-change");
+    assert_eq!(detail.source, ChangeSource::Active);
+    assert_eq!(detail.status, None, "db 缺记录 → status None（建档判别面）");
+    assert!(detail.pipeline.is_empty(), "文档形态零状态面（空流水线）");
+    assert!(detail.active_phase.is_none());
+    assert_eq!(detail.created, None, "active 树文档形态 created 无回退源");
+    assert!(
+        detail.artifacts.iter().any(|a| a.kind == "markdown-doc"),
+        "产物清单照常装配（磁盘仅产物发现）"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// port 契约持衡：trait object 装配 + 未知 change / root 失配显式 Err
+// ---------------------------------------------------------------------------
+
+/// WorkflowSnapshotPort trait object 装配（walker 消费面）可达；未知 change
+/// 与 root 失配（layout 无此 change 目录）→ `Err` 显式携 change 名——port
+/// 契约不随读源换血漂移。
+#[test]
+fn port契约_traitobject装配且未知change与root失配显式err() {
+    let root = TempRoot::new("port-contract");
+    root.change(CHANGE);
+    let db = TestDb::open("port-contract");
+    seed_change(db.store.as_ref(), CHANGE);
+    let root_str = root.root_str();
+
+    // walker 消费面同式：trait object 装配后经 `dyn` 调用可达
+    let port: Arc<dyn WorkflowSnapshotPort> =
+        Arc::new(StoreSnapshot::new(root_str.clone(), db.store_arc()));
+    assert!(port.detail(&root_str, CHANGE).is_ok(), "在场 change 可达");
+
+    // 未知 change（两树均无目录且 db 无记录）→ change_detail None → Err
+    let err = port
         .detail(&root_str, "不存在的-change")
         .expect_err("未知 change 应显式 Err");
     assert!(
-        err.contains("不存在的-change"),
-        "错误显式携带 change 名: {err}"
+        err.contains("不存在的-change") && err.contains("change 不存在"),
+        "miss 记因显式携带 change 名: {err}"
     );
-    assert!(err.contains("change 不存在"), "miss 记因: {err}");
 
-    // 在位 change 不受误伤
-    assert!(snapshot.detail(&root_str, "real-change").is_ok());
-}
-
-/// workflow.json 不可解析：预置损坏 workflow.json → 端口层显式 `Err`
-/// 「无法解析」（不静默空 detail、不把旗标 detail 带进决策输入——坏文档
-/// 停给用户；test-design「Err 显式」行在端口面的直接承载）。
-#[test]
-fn corrupt_workflow_json_yields_explicit_error() {
-    let root = TempRoot::new("corrupt");
-    root.change("broken-change", "{ not valid json !!!");
-    let root_str = root.root_str();
-
-    let snapshot = FsSnapshot::new(root_str.clone());
-    let err = snapshot
-        .detail(&root_str, "broken-change")
-        .expect_err("损坏 workflow.json 应显式 Err（不静默降级）");
-
+    // root 失配：空白根 layout 下无此 change 目录 → 同一 Err 出口
+    let err = port
+        .detail("/tmp/不存在的根", CHANGE)
+        .expect_err("root 失配应显式 Err");
     assert!(
-        err.contains("broken-change") && err.contains("无法解析"),
-        "错误显式携带 change 名与无法解析记因: {err}"
-    );
-}
-
-/// 只读性：调用前后 workflow.json 字节不变（读不属写通道约束的锚——AC-6）。
-#[test]
-fn detail_call_leaves_workflow_json_bytes_unchanged() {
-    let root = TempRoot::new("readonly");
-    root.change("demo-change", VALID_WORKFLOW);
-    let root_str = root.root_str();
-
-    let bytes_before = root.workflow_json_bytes("demo-change");
-
-    let snapshot = FsSnapshot::new(root_str.clone());
-    for _ in 0..3 {
-        snapshot
-            .detail(&root_str, "demo-change")
-            .expect("重复只读装配应成功");
-    }
-
-    let bytes_after = root.workflow_json_bytes("demo-change");
-    assert_eq!(
-        bytes_after, bytes_before,
-        "只读：调用前后 workflow.json 字节不变"
-    );
-}
-
-/// root 寻址：root 指向不同 workspace 目录时各取各 change（跨 workspace 隔离），
-/// 仅存在于单一 root 的 change 在另一 root 寻址显式 Err。
-#[test]
-fn two_roots_resolve_changes_independently() {
-    let root_a = TempRoot::new("root-a");
-    let root_b = TempRoot::new("root-b");
-    root_a.change("shared-change", VALID_WORKFLOW);
-    root_a.change("only-in-a", VALID_WORKFLOW);
-    root_b.change("shared-change", OTHER_WORKFLOW);
-
-    let a_str = root_a.root_str();
-    let b_str = root_b.root_str();
-    let snapshot_a = FsSnapshot::new(a_str.clone());
-    let snapshot_b = FsSnapshot::new(b_str.clone());
-
-    // 同名 change 各取各内容
-    let detail_a = snapshot_a
-        .detail(&a_str, "shared-change")
-        .expect("root A 应命中自身 change");
-    assert_eq!(detail_a.created.as_deref(), Some("2026-10-01"));
-    assert_eq!(detail_a.pipeline[0].attempts[0].report, "提案通过");
-
-    let detail_b = snapshot_b
-        .detail(&b_str, "shared-change")
-        .expect("root B 应命中自身 change");
-    assert_eq!(detail_b.created.as_deref(), Some("2026-05-05"));
-    assert_eq!(detail_b.pipeline[0].attempts[0].report, "另一工作区");
-    assert_ne!(
-        detail_a.pipeline[0].attempts[0].report, detail_b.pipeline[0].attempts[0].report,
-        "同名 change 内容按 root 隔离"
+        err.contains("change 不存在"),
+        "root 失配同样收敛 miss 记因（layout 无此目录 → None → Err）: {err}"
     );
 
-    // 仅存在于 A 的 change 在 B 寻址 → Err
-    let err = snapshot_b
-        .detail(&b_str, "only-in-a")
-        .expect_err("root B 不应跨树取到 A 的 change");
-    assert!(err.contains("only-in-a"), "错误显式携带 change 名: {err}");
+    // 在场 change 不受误伤（对照面）
+    assert!(port.detail(&root_str, CHANGE).is_ok());
 }
 
 // ---------------------------------------------------------------------------
-// interrupted 断言随动（desktop-drawer-session-column，AC-6 半边）：
-// `Workflow.interrupted` / `ChangeDetail.interrupted` 删除后跨 crate 消费面的
-// detail 线面零漂移证据——VALID_WORKFLOW fixture 的 `interrupted[]` 磁盘键
-// 保留在场（磁盘形状零改写），端到端全链路不炸、wire 无该键
+// unparsable 分支退役：损坏 workflow.json 字节零读取
 // ---------------------------------------------------------------------------
 
-/// 含 `interrupted[]` 留档的 fixture 上 snapshot 全链路端到端不炸：detail 聚合
-/// 照常（active_phase / pipeline 9 站 / file_log 逐字段）且序列化 wire 无
-/// interrupted 键（停解析后读路径零漂移——删除仅限断言面）。
+/// 磁盘 workflow.json 损坏字节样本在场（db 已建档）→ 不再显式 `Err`、零读取
+/// 照常出建档 detail（退役回归行——AC-3 双向墙读半边随动）；调用前后磁盘字节
+/// 原样（读触点退役的进程内证据）。
 #[test]
-fn interrupted留档fixture全链路装配不炸且wire无interrupted键() {
-    let root = TempRoot::new("interrupted-legacy");
-    root.change("demo-change", VALID_WORKFLOW);
+fn 损坏workflowjson字节样本零读取照常出detail() {
+    let root = TempRoot::new("corrupt-retired");
+    root.change(CHANGE);
+    // 惰性损坏字节样本（存量 CLI 残照——desktop 不解析）
+    let corrupt_path = root
+        .0
+        .join("openspec/changes")
+        .join(CHANGE)
+        .join("workflow.json");
+    fs::write(&corrupt_path, "{ not valid json !!!").expect("写损坏样本失败");
+    let db = TestDb::open("corrupt-retired");
+    seed_documented_change(&db);
     let root_str = root.root_str();
 
-    let snapshot = FsSnapshot::new(root_str);
+    let bytes_before = root.file_bytes(CHANGE, "workflow.json");
+
+    let snapshot = StoreSnapshot::new(root_str.clone(), db.store_arc());
     let detail = snapshot
-        .detail(&root.root_str(), "demo-change")
-        .expect("含 interrupted[] 留档的存量 fixture 应照常装配");
+        .detail(&root_str, CHANGE)
+        .expect("损坏字节样本在场应照常装配（unparsable 分支退役）");
 
-    // 聚合面零漂移：active_phase / 9 站 / file_log 逐字段照常
-    let phases: Vec<&str> = detail.pipeline.iter().map(|s| s.phase.as_str()).collect();
-    assert_eq!(phases, PIPELINE_PHASES.to_vec());
-    let active = detail.active_phase.as_ref().expect("应有 active_phase");
-    assert_eq!(active.phase, "dev-design");
-    let file_log = detail.file_log.as_ref().expect("v2 应有 file_log");
-    assert_eq!(file_log.len(), 2);
+    // 建档 detail 照常（db 读源单源，磁盘字节零进投影）
+    assert_eq!(detail.status, Some(ChangeStatus::Active));
+    assert_eq!(detail.pipeline.len(), 9);
+    assert_eq!(detail.pipeline[3].attempts[0].verdict, Verdict::Fail);
 
-    // wire 无 interrupted 键（detail 线面收敛的跨 crate 直接证据）
-    let value = serde_json::to_value(&detail).expect("线面序列化应成功");
-    assert!(
-        value.get("interrupted").is_none(),
-        "detail 线面不再携带 interrupted 键: {value}"
+    // 与 queries 直调 serde 等值（读源换血不加工的退役形态复核）
+    let direct =
+        change_detail(&resolve(&root.0), db.store.as_ref(), CHANGE).expect("直调应命中同记录");
+    assert_eq!(
+        serde_json::to_value(&detail).expect("线面序列化应成功"),
+        serde_json::to_value(&direct).expect("直调序列化应成功")
     );
-}
 
-/// VALID_WORKFLOW fixture 的 `interrupted[]` 键保留在场（磁盘形状实证——
-/// proposal「不要修改」；键由 serde 未知字段忽略承接，fixture 本身不改写）。
-#[test]
-fn valid_workflow_fixture的interrupted磁盘键保留在场() {
-    let root = TempRoot::new("fixture-shape");
-    root.change("demo-change", VALID_WORKFLOW);
-
-    let raw = String::from_utf8(root.workflow_json_bytes("demo-change")).expect("fixture 为 UTF-8");
-    assert!(
-        raw.contains("\"interrupted\""),
-        "fixture 的 interrupted[] 键应原样保留（磁盘形状零改写）: {raw}"
+    // 字节原样：调用前后 workflow.json 不变（零读取）
+    assert_eq!(
+        root.file_bytes(CHANGE, "workflow.json"),
+        bytes_before,
+        "只读：调用前后 workflow.json 字节不变"
     );
 }

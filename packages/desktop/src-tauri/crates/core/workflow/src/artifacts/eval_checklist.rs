@@ -1,18 +1,18 @@
-//! `eval-checklist` 插件：逐条含非空 checklist 的 eval 条目产出信封。
+//! `eval-checklist` 插件：逐条含非空 checklist 的相位评估条目产出信封。
 
 use serde_json::json;
 
 use super::envelope::{ArtifactCandidate, ArtifactEnvelope};
 use super::registry::{ArtifactInput, ArtifactPlugin};
-use crate::model::PhaseLog;
+use crate::state::PhaseStateRecord;
 
 pub const KIND: &str = "eval-checklist";
 const VERSION: u32 = 1;
 
 pub struct EvalChecklistPlugin;
 
-/// eval 条目 checklist → 保底文本清单。
-fn checklist_fallback(entry: &PhaseLog) -> String {
+/// 评估条目 checklist → 保底文本清单。
+fn checklist_fallback(entry: &PhaseStateRecord) -> String {
     let lines: Vec<String> = entry
         .checklist
         .iter()
@@ -28,11 +28,8 @@ fn checklist_fallback(entry: &PhaseLog) -> String {
     lines.join("\n")
 }
 
-fn entry_title(entry: &PhaseLog) -> String {
-    match entry.attempt {
-        Some(attempt) => format!("评估清单 · {} · 第 {attempt} 次", entry.phase),
-        None => format!("评估清单 · {}", entry.phase),
-    }
+fn entry_title(entry: &PhaseStateRecord) -> String {
+    format!("评估清单 · {} · 第 {} 次", entry.phase, entry.attempt)
 }
 
 impl ArtifactPlugin for EvalChecklistPlugin {
@@ -40,7 +37,7 @@ impl ArtifactPlugin for EvalChecklistPlugin {
         KIND
     }
 
-    /// 排序键 = eval 条目下标：多个 checklist 信封按历史顺序排列。
+    /// 排序键 = 评估条目下标：多个 checklist 信封按历史顺序排列。
     fn order(&self, input: &ArtifactInput) -> u32 {
         match input.candidate {
             ArtifactCandidate::EvalEntry { index } => *index as u32,
@@ -49,21 +46,21 @@ impl ArtifactPlugin for EvalChecklistPlugin {
     }
 
     fn matches(&self, input: &ArtifactInput) -> bool {
-        match (input.workflow, input.candidate) {
-            (Some(workflow), ArtifactCandidate::EvalEntry { index }) => workflow
-                .eval
+        match input.candidate {
+            ArtifactCandidate::EvalEntry { index } => input
+                .phases
                 .get(*index)
                 .is_some_and(|entry| !entry.checklist.is_empty()),
-            _ => false,
+            ArtifactCandidate::File { .. } => false,
         }
     }
 
     fn parse(&self, input: &ArtifactInput) -> Option<ArtifactEnvelope> {
-        let (workflow, index) = match (input.workflow, input.candidate) {
-            (Some(workflow), ArtifactCandidate::EvalEntry { index }) => (workflow, *index),
-            _ => return None,
+        let index = match input.candidate {
+            ArtifactCandidate::EvalEntry { index } => *index,
+            ArtifactCandidate::File { .. } => return None,
         };
-        let entry = workflow.eval.get(index)?;
+        let entry = input.phases.get(index)?;
         if entry.checklist.is_empty() {
             return None;
         }

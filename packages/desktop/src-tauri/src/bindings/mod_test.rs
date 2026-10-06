@@ -40,11 +40,14 @@ impl Drop for RestoreOnDrop {
     }
 }
 
-/// 31 条命令的生成包装名（camelCase，与 `generate_handler!` 时代命令清单一一对应）。
+/// 32 条命令的生成包装名（camelCase，与 `generate_handler!` 时代命令清单一一
+/// 对应；历史缺录为既有滞后债，contains 语义不致红、按现行口径只补录本变更
+/// 自身新命令）。
 const COMMAND_WRAPPERS: &[&str] = &[
     "listChanges",
     "getChangeDetail",
     "readArtifact",
+    "archiveChange",
     "listWorkspaces",
     "addWorkspace",
     "removeWorkspace",
@@ -75,11 +78,12 @@ const COMMAND_WRAPPERS: &[&str] = &[
     "workspaceConfig",
 ];
 
-/// 31 条命令的 IPC 命令名（snake_case，invoke 目标）。
+/// 32 条命令的 IPC 命令名（snake_case，invoke 目标；补录口径同上）。
 const COMMAND_NAMES: &[&str] = &[
     "list_changes",
     "get_change_detail",
     "read_artifact",
+    "archive_change",
     "list_workspaces",
     "add_workspace",
     "remove_workspace",
@@ -128,12 +132,14 @@ const DTO_TYPES: &[&str] = &[
     "SessionSummary",
     "TurnSummary",
     "ArchiveGroup",
+    "ArchiveOutcome",
     "ArtifactDescriptor",
     "ArtifactEnvelope",
     "AttemptRecord",
     "ChangeDetail",
     "ChangeList",
     "ChangeSource",
+    "ChangeStatus",
     "ChangeSummary",
     "ChecklistItem",
     "CodeStatsReport",
@@ -146,11 +152,8 @@ const DTO_TYPES: &[&str] = &[
     "ExploreDoc",
     "ExploreRecord",
     "ExploreScanEntry",
-    "FileLogEntry",
-    "FileLogOp",
     "FileNode",
     "FileWatchEvent",
-    "Inventory",
     "LanguageStats",
     "ModelInfo",
     "MutationConfig",
@@ -187,7 +190,7 @@ fn type_section(content: &str, type_name: &str) -> String {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn 导出产物包含全部31条命令包装名与invoke命令名及出线dto类型名() {
+fn 导出产物包含全部32条命令包装名与invoke命令名及出线dto类型名() {
     let _lock = lock();
     let content = String::from_utf8(authoritative_snapshot()).expect("产物为 UTF-8 文本");
 
@@ -710,35 +713,43 @@ fn framework与diagnostic_kind出线为camel_case字面量联合() {
 }
 
 // ---------------------------------------------------------------------------
-// interrupted 词汇出线退役（desktop-drawer-session-column，AC-7）：
-// `InterruptedEntry` 类型删除 + `ChangeDetail.interrupted` 键删除——清单与产物
-// 集重新一致（清单不残留幽灵条目；本变更零新命令，COMMAND 清单零增删）
+// 退役类型出线收缩（desktop-workflow-db-state，AC-8 / AC-9 后端半边随动）：
+// `Inventory` / `FileLogEntry` / `FileLogOp` 镜像类型随 `parse/` 退役从产物
+// 消失，`ChangeDetail` 三字段（inventory / unparsable / fileLog）删除、状态面
+// 两键（status / created）新增——清单与产物集重新一致
 // ---------------------------------------------------------------------------
 
 #[test]
-fn interrupted_entry类型与detail的interrupted键从产物退役() {
+fn 退役类型inventory与filelog族从产物收缩_detail三字段删除状态面两键新增() {
     let _lock = lock();
     let content = String::from_utf8(authoritative_snapshot()).expect("产物为 UTF-8 文本");
 
-    // 产物文本不含 InterruptedEntry 类型名（bindings:export 再生后的直接证据）
-    assert!(
-        !content.contains("InterruptedEntry"),
-        "产物不应含已删除的 InterruptedEntry 类型名"
-    );
+    // 产物文本不含退役类型名（bindings:export 再生后的直接证据）
+    for retired in ["Inventory", "FileLogEntry", "FileLogOp"] {
+        assert!(
+            !content.contains(retired),
+            "产物不应含已退役的 {retired} 类型名"
+        );
+    }
 
-    // getChangeDetail 返回面无 interrupted 键：ChangeDetail 类型段逐字段清点
+    // getChangeDetail 返回面无 inventory / unparsable / fileLog 三键：
+    // ChangeDetail 类型段逐字段清点
     let detail = type_section(&content, "ChangeDetail");
-    assert!(
-        !detail.contains("interrupted"),
-        "ChangeDetail 出线面不应含 interrupted 字段，实际: {detail}"
-    );
-    // 返回面收敛后的字段集仍在场（线面其余口径零变化）
+    for retired_key in ["inventory", "unparsable", "fileLog"] {
+        assert!(
+            !detail.contains(retired_key),
+            "ChangeDetail 出线面不应含已退役字段 {retired_key}，实际: {detail}"
+        );
+    }
+    // 收敛后的字段集在场：三字段删除 + 状态面两键新增（字段面演进由生成物
+    // 幂等重导 + golden diff 守卫承载，此处为出线形态对位）
     for field in [
         "name: string,",
-        "inventory: Inventory,",
+        "source: ChangeSource,",
+        "status: ChangeStatus | null,",
+        "created: string | null,",
         "pipeline: PhaseEntry[],",
         "activePhase: ActivePhase | null,",
-        "fileLog: FileLogEntry[] | null,",
         "artifacts: ArtifactDescriptor[],",
     ] {
         assert!(detail.contains(field), "ChangeDetail 缺字段出线 {field}");
@@ -746,14 +757,16 @@ fn interrupted_entry类型与detail的interrupted键从产物退役() {
 }
 
 #[test]
-fn dto_types清单不残留interrupted幽灵条目() {
-    // 门禁语义回归：DTO_TYPES 与产物集强耦合（产物缺出线类型 panic）——移除
-    // InterruptedEntry 后清单必须不残留该条目，否则覆盖性用例在产物侧命中
-    // 不到类型声明即挂（删类型后不随动必挂的反向证明即本断言恢复绿）
-    assert!(
-        !DTO_TYPES.contains(&"InterruptedEntry"),
-        "DTO_TYPES 清单不应残留已删除的 InterruptedEntry 条目"
-    );
+fn dto_types清单不残留退役幽灵条目() {
+    // 门禁语义回归：DTO_TYPES 与产物集强耦合（产物缺出线类型 panic）——退役
+    // 类型移除后清单必须不残留对应条目，否则覆盖性用例在产物侧命中不到类型
+    // 声明即挂（删类型后不随动必挂的反向证明即本断言恢复绿）
+    for retired in ["InterruptedEntry", "Inventory", "FileLogEntry", "FileLogOp"] {
+        assert!(
+            !DTO_TYPES.contains(&retired),
+            "DTO_TYPES 清单不应残留已退役的 {retired} 条目"
+        );
+    }
     // 清单与产物集重新一致：既有覆盖性用例所遍历的每个类型名都能在产物命中
     let _lock = lock();
     let content = String::from_utf8(authoritative_snapshot()).expect("产物为 UTF-8 文本");
@@ -766,18 +779,82 @@ fn dto_types清单不残留interrupted幽灵条目() {
 }
 
 #[test]
-fn command清单零变化_本变更无新命令不补录() {
-    // COMMAND_NAMES / COMMAND_WRAPPERS 零增删（含语义对历史滞后容忍的既有
-    // 口径不变）：条目数与首尾锚点逐项一致
-    assert_eq!(COMMAND_NAMES.len(), 31, "命令清单条目数不变");
-    assert_eq!(COMMAND_WRAPPERS.len(), 31, "包装清单条目数不变");
+fn command清单补录_archive_change后32条且既有锚点与在册命令保持() {
+    // 本变更自身新命令补录（历史缺录为既有滞后债，contains 语义不致红、不在
+    // 本变更范围）：条目数 31 → 32，首尾锚点不变
+    assert_eq!(COMMAND_NAMES.len(), 32, "命令清单恰补录一条");
+    assert_eq!(COMMAND_WRAPPERS.len(), 32, "包装清单恰补录一条");
     assert_eq!(COMMAND_NAMES.first(), Some(&"list_changes"));
     assert_eq!(COMMAND_NAMES.last(), Some(&"workspace_config"));
-    // 无 interrupted 相关命令混入（本变更零新命令）
+    assert!(COMMAND_NAMES.contains(&"archive_change"), "invoke 名补录");
+    assert!(COMMAND_WRAPPERS.contains(&"archiveChange"), "包装名补录");
+    // 无 interrupted 相关命令混入（历史口径持衡）
     assert!(
         COMMAND_NAMES
             .iter()
             .all(|name| !name.contains("interrupted")),
         "命令清单不应含 interrupted 相关命令"
     );
+}
+
+// ---------------------------------------------------------------------------
+// archive_change 与新 DTO 出线形态（desktop-workflow-db-state，AC-8 bindings
+// 出线半边）：新命令包装 + ArchiveOutcome / ChangeStatus 两类型
+// ---------------------------------------------------------------------------
+
+#[test]
+fn archive_change绑定为root_change入参的outcome直返() {
+    let _lock = lock();
+    let content = String::from_utf8(authoritative_snapshot()).expect("产物为 UTF-8 文本");
+
+    // 包装形态逐字：camelCase 包装名 + (root: string, change: string) 入参 +
+    // `__TAURI_INVOKE<ArchiveOutcome>` 直返（Throw 模式 Promise，错误面 reject
+    // 透传——D11 无 UI 入口的 IPC 薄命令出线）
+    assert!(
+        content.contains(
+            "archiveChange: (root: string, change: string) => __TAURI_INVOKE<ArchiveOutcome>(\"archive_change\", { root, change })",
+        ),
+        "archiveChange 包装形态不符（入参 / 返回类型 / invoke 命令名）"
+    );
+}
+
+#[test]
+fn archive_outcome与change_status出线且change_status小写线值联合() {
+    let _lock = lock();
+    let content = String::from_utf8(authoritative_snapshot()).expect("产物为 UTF-8 文本");
+
+    // ArchiveOutcome：双字段 camelCase 出线（name + archivedDate）
+    let outcome = type_section(&content, "ArchiveOutcome");
+    assert!(outcome.contains("name: string,"), "实际: {outcome}");
+    assert!(outcome.contains("archivedDate: string,"), "实际: {outcome}");
+
+    // ChangeStatus：二值小写线格式联合（active / archived——建档判别面线词）
+    let status = type_section(&content, "ChangeStatus");
+    assert!(status.contains("\"active\""), "实际: {status}");
+    assert!(status.contains("\"archived\""), "实际: {status}");
+    assert_eq!(
+        status.matches('|').count(),
+        1,
+        "二值恰一分隔（不多不少，枚举 +1 侧不外溢）"
+    );
+}
+
+#[test]
+fn 在册类型不重录_既有五型各恰一条() {
+    // ChangeDetail / ChangeSummary / ActivePhase / AttemptRecord / ChecklistItem
+    // 已在册类型不重复补录：字段面演进由生成物幂等重导 + golden diff 守卫承载
+    //（核实结论行——清单只做类型名集合，零重复条目）
+    for existing in [
+        "ChangeDetail",
+        "ChangeSummary",
+        "ActivePhase",
+        "AttemptRecord",
+        "ChecklistItem",
+    ] {
+        assert_eq!(
+            DTO_TYPES.iter().filter(|dto| **dto == existing).count(),
+            1,
+            "在册类型 {existing} 应恰一条（不重录）"
+        );
+    }
 }

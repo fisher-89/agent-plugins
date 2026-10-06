@@ -18,7 +18,7 @@ Desktop 后端 SHALL 提供编排运行时（walker，core/orchestration），�
 6. 解析 verdict → 桌面代调写面 `phase_log`；
 7. 写面 `phase_next` → pass 推进 / fail 重试（≤5，与插件 `MAX_RETRY_TIMES` 一致）/ 重试上限唤决策 agent 分叉。
 
-红线：walker MUST NOT 持有任何相位转移规则——每步过渡 SHALL 问写面 `phase_next`（路由权威与 walker 同进程仍不自持规则）；`PIPELINE_PHASES` 与后端 `detail.rs` 相位列 SHALL 保持纯布局身份，MUST NOT 上位为路由权威。推进节奏 SHALL 为 phase 内自动、phase 间停等用户确认后继续（`auto_next_phase` 发起参数开启时 phase 间停等跳过，语义见「自动确认运行模式」）；重启 run SHALL 自 `active_phase` 续走（已 pass 相位 MUST NOT 重头执行）。
+红线：walker MUST NOT 持有任何相位转移规则——每步过渡 SHALL 问写面 `phase_next`（路由权威与 walker 同进程仍不自持规则）；`PIPELINE_PHASES` 与后端 `detail.rs` 相位列 SHALL 保持纯布局身份，MUST NOT 上位为路由权威。推进节奏 SHALL 为 phase 内自动、phase 间停等用户确认后继续（`auto_next_phase` 发起参数开启时 phase 间停等跳过，语义见「自动确认运行模式」）；重启 run SHALL 自 active_phase 续走（active_phase 持久化于 db `ChangeRecord`，已 pass 相位 MUST NOT 重头执行，续走由 `phase_next` 依 eval 历史重算）。写面全部落库载体为 workspace 库（desktop-workflow-write-face / desktop-change-state-store），walker 对载体无感知。
 
 #### Scenario: 相位内全循环自动走完
 
@@ -38,7 +38,7 @@ Desktop 后端 SHALL 提供编排运行时（walker，core/orchestration），�
 #### Scenario: 中断续走不重头
 
 - **WHEN** walker 于 implement#2 运行中被停止（或桌面重启）后重新发起该 change 的 run
-- **THEN** walker 自 active_phase=implement 的下一 attempt 续走，已 pass 的 proposal / dev-design 等相位不重新执行；中断相位经进程内锚点（sessionAnchors 复活）可感知并被标定
+- **THEN** walker 自 db `ChangeRecord.active_phase`=implement 的下一 attempt 续走，已 pass 的 proposal / dev-design 等相位不重新执行；中断相位经进程内锚点（sessionAnchors 复活）可感知并被标定
 
 ### Requirement: 自动确认运行模式（auto_next_phase）
 
@@ -79,7 +79,7 @@ Walker SHALL 将每相位循环表达为三类节点：
 - **ToolStep 节点**（phase-start / phase-log / backtrack 相位机步进程内直调写面 + static-check / test-execution 检查域 spawn 步落 checks 边界）：无智能；
 - **Gate 节点**（verdict 解析 / retry 计数 / 白名单校验）：纯 Rust 分支。
 
-ToolStep MUST NOT 以命令式内联实现：其执行结果 SHALL 作为图上节点状态可观测（失败 = 可见失败态，与 WorkerAgent 失败同等呈现）。节点状态 SHALL 为派生视图 = workflow.json 状态（active_phase / eval）× 按 provenance 反查的 session 集；MUST NOT 为节点状态建立持久表（不建 flow_runs 表、workflow.json schema 不动）。
+ToolStep MUST NOT 以命令式内联实现：其执行结果 SHALL 作为图上节点状态可观测（失败 = 可见失败态，与 WorkerAgent 失败同等呈现）。节点状态 SHALL 为派生视图 = db 状态（`ChangeRecord.active_phase` / PhaseRecord eval 序列）× 按 provenance 反查的 session 集；MUST NOT 为节点状态建立 run 私有持久表（不建 flow_runs 表；StepRecord 为步骤审计行，MUST NOT 承担节点状态源——任一节点状态 SHALL 仍可由 db 状态 + 会话记录重算得出）。
 
 #### Scenario: ToolStep 失败同等可见
 
@@ -89,16 +89,16 @@ ToolStep MUST NOT 以命令式内联实现：其执行结果 SHALL 作为图上�
 #### Scenario: 节点状态纯派生
 
 - **WHEN** 审查编排运行时的持久化面
-- **THEN** 无 flow_runs 表、无 workflow.json 之外的 run 私有状态文件；任一节点状态均可由 workflow.json + 会话记录（按 provenance）重算得出
+- **THEN** 无 flow_runs 表、无 run 私有状态文件；任一节点状态均可由 workspace 库 change 状态 + 会话记录（按 provenance）重算得出
 
 ### Requirement: 零 CLI 子进程写通道与 crate 依赖方向
 
-Walker MUST NOT 经任何 CLI 子进程写 workflow.json（dev-team CLI 子命令面不存在）：所有 workflow 状态变更 SHALL 经 core/workflow 写面进程内直调（desktop-workflow-write-face 契约）。依赖方向 SHALL 为 orchestration → workflow；`crates/infra/devteam` MUST NOT 存在（整体删除）。检查域门禁（static-check 与 test-execution）的进程 spawn 为编排域的 spawn 例外家族且 MUST 落 checks 边界 infra 层 `crates/infra/checks`（spawn 不进 core——core/orchestration 自身零进程 spawn，经 port 缝下沉；边界定义见 desktop-checks-domain）。
+Walker MUST NOT 经任何 CLI 子进程变更 change 流程状态（dev-team CLI 子命令面不存在）：所有 workflow 状态变更 SHALL 经 core/workflow 写面进程内直调（desktop-workflow-write-face 契约，落库 workspace 库），MUST NOT 读写 workflow.json。依赖方向 SHALL 为 orchestration → workflow；`crates/infra/devteam` MUST NOT 存在（整体删除）。检查域门禁（static-check 与 test-execution）的进程 spawn 为编排域的 spawn 例外家族且 MUST 落 checks 边界 infra 层 `crates/infra/checks`（spawn 不进 core——core/orchestration 自身零进程 spawn，经 port 缝下沉；边界定义见 desktop-checks-domain）。
 
 #### Scenario: 零 CLI 写触点
 
-- **WHEN** 审查编排运行时与命令组源码中对 workflow.json 的写触点
-- **THEN** 零 CLI 子进程调用、零 devteam 子进程依赖；全部状态变更经进程内写面调用返回确认
+- **WHEN** 审查编排运行时与命令组源码中对 change 流程状态的变更触点
+- **THEN** 零 CLI 子进程调用、零 devteam 子进程依赖、零 workflow.json 读写；全部状态变更经进程内写面调用返回确认并落库
 
 #### Scenario: spawn 边界保持
 
@@ -121,17 +121,17 @@ Walker 发起的 executor / evaluator / decision 会话 SHALL 携带 provenance�
 
 ### Requirement: 变更文件上下文降级 git diff
 
-Desktop run 的 executor / evaluator prompt 组装 SHALL 以 git diff（工作区变更面）提供变更文件上下文（承接 file_log 在插件流程中「让 agent 识别变更文件」的既有用途）。Desktop run MUST NOT 写入 file_log：run 全程 workflow.json 的 `file_log` SHALL 零新增条目（不提取转录写路径、不调 `change-files`）。既有 skill 路径产生的 file_log 数据 SHALL 不受影响，其流程图节点挂载与图外面板显示规则不变。
+Desktop run 的 executor / evaluator prompt 组装 SHALL 以 git diff（工作区变更面）提供变更文件上下文（承接原 file_log「让 agent 识别变更文件」的既有用途）。file_log 概念 SHALL 随双向墙整体退役：desktop 全链 MUST NOT 读写任何 `file_log`（不提取转录写路径、不调 `change-files`、不展示 file_log 条目）；存量 skill 路径 workflow.json 内的 file_log 数据随其文件留档不动，desktop 不再解析与展示。
 
 #### Scenario: prompt 含变更文件上下文
 
 - **WHEN** executor 会话发起前工作区存在未提交变更
 - **THEN** 组装 prompt 含 git diff 变更文件上下文，executor 无需 file_log 即可识别在改文件
 
-#### Scenario: run 不产生 file_log 条目
+#### Scenario: desktop 全链零 file_log 触点
 
-- **WHEN** 一次 run 走完若干相位后检查 workflow.json
-- **THEN** `file_log` 相对 run 发起前零新增条目；run 之前由 skill 路径写入的既有条目原样保留且视图显示不变
+- **WHEN** 扫描 desktop 源码（core / infra / commands / views）对 file_log 的读与写触点
+- **THEN** 零触点；既有 skill 路径产生的 file_log 数据不被触碰（workflow.json 原样留档）
 
 ### Requirement: static-check spawn 步门禁
 
@@ -154,7 +154,7 @@ implement / test-gen 相位的 executor 收口后，walker SHALL 必经 static-c
 
 ### Requirement: verdict 解析与 phase-log 代写
 
-Evaluator 会话 SHALL 依 prompt 约定在最终消息输出 checklist JSON（不自调 MCP `phase_log`）。Walker SHALL 解析该 JSON 并代调写面 `phase_log`（进程内）落 eval 记录；解析失败 SHALL 将运行停给用户（呈现原始输出与失败原因），MUST NOT 臆测 verdict、MUST NOT 静默跳过落账。checklist JSON 结构 SHALL 以插件既有 eval-checklist 形态为准（phase / attempt 信封 + 逐项 pass / evidence）。
+Evaluator 会话 SHALL 依 prompt 约定在最终消息输出 checklist JSON（不自调 MCP `phase_log`）。Walker SHALL 解析该 JSON 并代调写面 `phase_log`（进程内）落 eval 记录（PhaseRecord + ChecklistItemRecord 原子落库）；解析失败 SHALL 将运行停给用户（呈现原始输出与失败原因），MUST NOT 臆测 verdict、MUST NOT 静默跳过落账。checklist JSON 结构 SHALL 以插件既有 eval-checklist 形态为准（phase / attempt 信封 + 逐项 pass / evidence）。
 
 #### Scenario: verdict 代写落账
 
@@ -164,28 +164,28 @@ Evaluator 会话 SHALL 依 prompt 约定在最终消息输出 checklist JSON（�
 #### Scenario: 解析失败停给用户
 
 - **WHEN** evaluator 最终消息不含可解析的 checklist JSON（结构漂移或空输出）
-- **THEN** run 停止并呈现 evaluator 原始输出与解析失败原因，workflow.json 无新增 eval 记录，用户可显式重试该 attempt
+- **THEN** run 停止并呈现 evaluator 原始输出与解析失败原因，状态库无新增 eval 记录，用户可显式重试该 attempt
 
 ### Requirement: 决策协议
 
-写面 `phase_next` 返回重试上限（fail 且需跨相位跳转）时，walker SHALL 唤起决策 agent（compose_turn 新会话）；retry 预算内 SHALL NOT 唤起（walker 自走重试）。决策 agent 输入 SHALL 有界且来自 workflow.json / 写面响应：fail checklist（fail 项 + evidence）、`allowed_backtrack_phases`（写面 `phase_next` 白名单）、候选相位最近一次 eval report。决策输出 SHALL 为封闭集：
+写面 `phase_next` 返回重试上限（fail 且需跨相位跳转）时，walker SHALL 唤起决策 agent（compose_turn 新会话）；retry 预算内 SHALL NOT 唤起（walker 自走重试）。决策 agent 输入 SHALL 有界且来自 db 状态与写面响应：fail checklist（fail 项 + evidence）、`allowed_backtrack_phases`（写面 `phase_next` 白名单）、候选相位最近一次 eval report。决策输出 SHALL 为封闭集：
 
 - `{ action: "backtrack", backtrack_to ∈ 白名单, reason ≤500 }` — 自治，walker 经写面 `backtrack` 执行；
 - `{ action: "retry" }` — 同相位重试；
 - `{ action: "stop", reason }` — 终止 run；
 - `{ action: "ask", question, options[] }` — 无法裁决，UI 中断提问。
 
-写面 `backtrack` SHALL 对 `backtrack_to` 做白名单二次校验（工具侧兜底）：越权目标 SHALL 被拒绝且 run 停给用户，MUST NOT 写入越权回跳。决策输出解析失败按「verdict 解析失败」同款停给用户处理。
+写面 `backtrack` SHALL 对 `backtrack_to` 做白名单二次校验（工具侧兜底）：越权目标 SHALL 被拒绝且 run 停给用户，MUST NOT 落任何越权回跳账（状态库零变更）。决策输出解析失败按「verdict 解析失败」同款停给用户处理。
 
 #### Scenario: 白名单内自治回跳
 
 - **WHEN** test-execution#1 fail 达重试上限且决策 agent 输出 `{action:"backtrack", backtrack_to:"test-gen", reason:...}`（test-gen 在白名单内）
-- **THEN** walker 经写面 `backtrack` 落回跳记录，`phase_next` 随后路由至 test-gen 重做，reason 随边标签可读
+- **THEN** walker 经写面 `backtrack` 落回跳记录（落库），`phase_next` 随后路由至 test-gen 重做，reason 随边标签可读
 
 #### Scenario: 越权决议被兜底拦截
 
 - **WHEN** 决策 agent 输出的 backtrack_to 不在 allowed_backtrack_phases 内
-- **THEN** 写面 `backtrack` 二次校验拒绝（不写 workflow.json），run 停给用户并呈现越权详情
+- **THEN** 写面 `backtrack` 二次校验拒绝（状态库零变更），run 停给用户并呈现越权详情
 
 #### Scenario: ask 中断提问
 
@@ -201,7 +201,7 @@ Evaluator 会话 SHALL 依 prompt 约定在最终消息输出 checklist JSON（�
 - **应答**：ask 中断态下回传用户应答（选项或自由文本），驱动 run 继续；
 - **确认**：phase 间停等点的用户确认（继续 / 终止）。
 
-运行状态 Channel SHALL 与 agent 执行流同构（执行流通道例外，不属轮询取数）。发起前置校验 SHALL 覆盖：目标 change 存在且 workflow.json 可解析、无同 change 并行 run（CLI 可发现校验随子进程写通道消失）。
+运行状态 Channel SHALL 与 agent 执行流同构（执行流通道例外，不属轮询取数）。发起前置校验 SHALL 覆盖：目标 change 已建档（db `ChangeRecord` 在案且 `workflow_type=requirement` 相位表在位）、无同 change 并行 run——无建档的 change（存量 CLI change）SHALL 显式拒绝发起（文档形态 change 不可运行；CLI 可发现校验随子进程写通道消失，「workflow.json 可解析」校验随双向墙退役）。
 
 #### Scenario: 发起提前 resolve 与状态流
 
@@ -215,8 +215,8 @@ Evaluator 会话 SHALL 依 prompt 约定在最终消息输出 checklist JSON（�
 
 #### Scenario: 发起前置校验
 
-- **WHEN** 对 workflow.json 损坏（unparsable）的 change 发起 run，或该 change 已有运行中的 run
-- **THEN** 发起命令显式 `Err`（呈现损坏警示或并行冲突），不进入运行态
+- **WHEN** 对无 db 建档的 change（存量 CLI change）发起 run，或该 change 已有运行中的 run
+- **THEN** 发起命令显式 `Err`（呈现未建档或并行冲突原因），不进入运行态、不落任何账
 
 #### Scenario: auto_next_phase 随发起透传
 
@@ -230,10 +230,10 @@ Evaluator 会话 SHALL 依 prompt 约定在最终消息输出 checklist JSON（�
 1. **引擎恒 CLI**：change 执行会话恒走 claude code CLI 引擎（插件 dev-team 天然加载，protect-files 护栏过渡期依赖）；SDK 引擎 MUST NOT 承载 change 执行（无插件加载机制）。
 2. **工作流类型**：仅 requirement 工作流全链；bug-fix / test-only 相位表后续独立 change。
 3. **单图硬编码**：walker 只硬编码 walk 本相位循环图；MUST NOT 实现通用图引擎或图定义文件格式。
-4. **file_log 不记录**：desktop run 不产生 file_log 条目（git diff 供变更上下文）为刻意边界；既有 skill 路径 file_log 数据显示不动。
+4. **file_log 载体退役**：desktop run 与视图全链零 file_log 触点（git diff 供变更上下文）为既定裁定；外部归档对账（openspec CLI 归档改名后的 db status 翻转时机）留 design 定稿（见 proposal 待决问题）。
 5. **protect-files 过渡依赖**：步前实时护栏过渡期依赖插件 hook；插件真下线前需独立 change 补桌面原生护栏（内核 permission 层方向），本期仅留痕。
 
-（原「sessionAnchors 精度损失」「sweep-phase 缺口」两条边界随写面进程内锚点复活而消失，不再留痕。）
+（原「sessionAnchors 精度损失」「sweep-phase 缺口」两条边界随写面进程内锚点复活而消失，不再留痕；原「file_log 不记录」边界随本变更升级为载体退役，不再是单侧不写。）
 
 #### Scenario: 边界留痕可考
 
@@ -258,15 +258,17 @@ Evaluator 会话 SHALL 依 prompt 约定在最终消息输出 checklist JSON（�
 
 | 模块 | 职责 | 关键契约 |
 |------|------|----------|
-| `crates/core/orchestration`（运行时域，tokio） | 薄图 walker：相位循环、三类节点执行、Gate 分支 | 红线：零相位转移规则（每步过渡问写面 phase-next）；ToolStep 节点化（不内联）；节点状态纯派生（workflow.json × provenance 反查）；模块内零进程 spawn（static-check spawn 经 port 缝下沉 infra）；依赖方向 orchestration → workflow |
+| `crates/core/orchestration`（运行时域，tokio） | 薄图 walker：相位循环、三类节点执行、Gate 分支 | 红线：零相位转移规则（每步过渡问写面 phase-next）；ToolStep 节点化（不内联）；节点状态纯派生（db 状态 × provenance 反查）；模块内零进程 spawn；依赖方向 orchestration → workflow；对落库载体无感知 |
 | `crates/core/orchestration/src/port.rs` | 「相位机 + 工具步」进程内缝（语义换血） | ToolStepPort 进程内直调 core/workflow 写面；ToolCommand 封闭集收缩（ChangeFiles 出局）；WorkerAgentPort 契约不变；测试假引擎 + 假写面双缝直驱 |
-| `crates/core/orchestration/src/verdict.rs` + `decision.rs` | 结构化输出解析 | 封闭 schema（checklist 信封 + 决策四动作封闭集）；解析失败显式失败停给用户，不臆测 |
-| `crates/core/orchestration/src/prompt.rs` | prompt 组装与运行时插值 | 模板取自 core/workflow 相位表单源；运行时插值 git diff 变更文件上下文；executor 角色要点来自模板 |
+| `crates/core/orchestration/src/steps.rs`（LocalToolSteps） | 相位机步进程内直调写面 | 直调面签名不变（载体在写面内换血）；每步结果落 StepRecord 审计行（经写面） |
+| `crates/core/orchestration/src/snapshot.rs` | ChangeDetail 只读装配 | 读源改 workspace 库 change 状态（经 queries）；磁盘扫描保留产物发现 |
+| `crates/core/orchestration/src/verdict.rs` + `decision.rs`（不改） | 结构化输出解析 | 封闭 schema（checklist 信封 + 决策四动作封闭集）；解析失败显式失败停给用户 |
+| `crates/core/orchestration/src/prompt.rs`（不改） | prompt 组装与运行时插值 | 模板取自 core/workflow 相位表单源；git diff 变更文件上下文 |
 | `crates/core/orchestration/src/transcript.rs`（砍半） | 会话转录消费 | 仅保留 `final_assistant_text`（verdict 提取）；`extract_write_paths` 出局 |
 | `crates/infra/agent/src/worker.rs` | WorkerAgentPort 实现 + static-check spawn 缝 | compose_turn 新会话 + StopRegistry 终止 + 密封转录；provenance `source="change"`；spawn 不进 core |
-| `src/commands/` change_flow 命令组 | 运行控制 IPC 面 | 发起（提前 resolve）/ 停止（幂等）/ 应答 / 确认 / 状态 Channel；三件事纪律薄包装；`Result<T, String>` 模板；前置校验无 CLI 可发现项 |
-| `crates/core/workflow`（写面 + 读面，见 desktop-workflow-write-face） | workflow.json 域权威 | 读写同屋檐；walker 经进程内直调消费，不复制路由语义 |
-| `crates/infra/store`（复用，不改） | 会话记录与反查 | `agentSessions` 按 source / sourceRef 过滤派生节点状态；不建 flow_runs 表 |
+| `src/commands/` change_flow 命令组 | 运行控制 IPC 面 | 发起前置校验改 db 建档校验（workflow.json 可解析校验退役）；发起 / 停止 / 应答 / 确认契约不变 |
+| `crates/core/workflow`（写面 + 读面，见 desktop-workflow-write-face） | change 状态域权威 | 读写同屋檐、落库 workspace 库；walker 经进程内直调消费，不复制路由语义 |
+| `crates/infra/store`（复用） | 会话记录与反查 + change 状态落库 | `agentSessions` 按 source / sourceRef 过滤派生节点状态；不建 flow_runs 表 |
 | `crates/infra/devteam` | **（删除）** | 整体删除（discover / runner），零遗留 |
 | 既有 hooks（复用，不改） | 步前护栏与无外围账 | protect-files 原样生效（过渡期）；record-files / sweep-phase 未绑定 no-op（fail-open 刻意设计）；static-check 桌面模式由 spawn 步承接 |
 | `crates/core/orchestration/src/walker.rs` | 停等节奏分支 | `RunRequest` + `auto_next_phase` 字段（run 级、发起定格）；drive() 确认点 `if !auto_next_phase` 才 emit `ConfirmWait` + `wait_confirm`；auto 模式不进 `WaitingConfirm`、零新事件；头注释口径同步 |

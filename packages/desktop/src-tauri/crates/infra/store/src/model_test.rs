@@ -2,11 +2,14 @@ use agent::{
     AgentBlock, AgentEvent, AgentEventKind, AgentMessageRole, AgentPermissionMode, AgentRunStatus,
 };
 
+use workflow::model::{ChecklistItem, Verdict};
+
 use crate::model::{
-    pack_session_event_key, AgentEngineKind, AgentInstanceRecord, AgentModelTiers,
-    AgentProviderRecord, AgentProviderRecordV1, AgentRunRecord, AgentRunRecordV3,
-    SessionConfigSnapshot, SessionEventRecord, SessionRecord,
+    pack_checklist_item_key, pack_session_event_key, AgentEngineKind, AgentInstanceRecord,
+    AgentModelTiers, AgentProviderRecord, AgentProviderRecordV1, AgentRunRecord, AgentRunRecordV3,
+    ChecklistItemRecord, PhaseRecord, SessionConfigSnapshot, SessionEventRecord, SessionRecord,
 };
+use crate::store::Store;
 
 // ---------------------------------------------------------------------------
 // 装置：固定时间戳事件构造（等值断言与钟面无关）
@@ -899,4 +902,168 @@ fn serde线格式非法engine串反序列化err() {
     // 受控值域拒绝：非 "cli"/"sdk" 串反序列化 Err（与既有三枚举线格式口径同型）
     let result = serde_json::from_value::<AgentEngineKind>(serde_json::json!("yolo"));
     assert!(result.is_err(), "非法 engine 串应 Err，实际: {result:?}");
+}
+
+// ---------------------------------------------------------------------------
+// change 流程状态四模型（desktop-change-state-store）：打包键自然序 / 十六
+// 进制 serde 出线 / 注册面零改动覆盖 / 缺省构造与 native_model 往返。纯内存
+// 构造 + tempfile 真实 workspace db 注册（Env 装置先例，进程边界用真实临时
+// 实例不 mock）；native_model 编解码自身语义不逐项验证（库语义），只测自研
+// 打包键与注册面。
+// ---------------------------------------------------------------------------
+
+/// checklist 检查项 fixture（item / pass / evidence 三面可区分）。
+fn checklist_item(item: &str, pass: bool) -> ChecklistItem {
+    ChecklistItem {
+        item: item.to_owned(),
+        pass,
+        evidence: format!("证据-{item}"),
+    }
+}
+
+#[test]
+fn checklist打包键同phase_id下item_index升序则item_key严格递增() {
+    // 主键自然序 = item_index 升序 = evaluator 输出序（AC-1 打包键序半边）：
+    // 高 64 位 phase_id 恒一致，序完全由低 64 位 item_index 决定
+    let keys: Vec<u128> = (0..6u32)
+        .map(|item_index| {
+            ChecklistItemRecord::new(7, item_index, checklist_item(&format!("项-{item_index}"), true))
+                .item_key
+        })
+        .collect();
+
+    for pair in keys.windows(2) {
+        assert!(
+            pair[0] < pair[1],
+            "同 phase_id 下 item_index 升序则 item_key 严格递增（大端序字典序 = 数值序）: {keys:?}"
+        );
+    }
+}
+
+#[test]
+fn checklist打包键组合不串位_还原往返与跨phase_id隔离() {
+    // 打包口径：高 64 位 phase_id、低 64 位 item_index（组装点唯一）
+    let packed = pack_checklist_item_key(7, 5);
+    assert_eq!(packed & (u64::MAX as u128), 5u128, "低 64 位为 item_index");
+    assert_eq!(packed >> 64, 7u128, "高 64 位为 phase_id（组合不串位）");
+
+    // 打包 / 还原往返：(phase_id, item_index) 逐字段一致
+    let record = ChecklistItemRecord::new(7, 5, checklist_item("项-5", false));
+    assert_eq!(record.item_key, packed, "构造器与打包单点同源");
+    assert_eq!(record.item_key & (u64::MAX as u128), 5u128, "还原 item_index");
+    assert_eq!(record.item_key >> 64, 7u128, "还原 phase_id");
+
+    // 跨 phase_id 隔离：同 item_index 高 64 位互异、低 64 位相等（互不串键）
+    let phase_a = pack_checklist_item_key(7, 3);
+    let phase_b = pack_checklist_item_key(8, 3);
+    assert_ne!(phase_a >> 64, phase_b >> 64, "高 64 位 phase_id 隔离区间");
+    assert_eq!(
+        phase_a & (u64::MAX as u128),
+        phase_b & (u64::MAX as u128),
+        "低 64 位同源 item_index"
+    );
+
+    // 极值不溢出不回绕：phase_id 高位满幅 + item_index 低 64 位内最大仍保序
+    let min = pack_checklist_item_key(0, 0);
+    let max = pack_checklist_item_key(i64::MAX, u32::MAX);
+    assert!(min < max, "极值组合保序");
+    assert_eq!(max >> 64, i64::MAX as u128, "极值高 64 位不回绕");
+    assert_eq!(max & (u64::MAX as u128), u32::MAX as u128, "极值低 64 位不回绕");
+}
+
+#[test]
+fn checklist_item_record_item_key十六进制串serde出线与反向解码往返无损() {
+    let record = ChecklistItemRecord::new(7, 5, checklist_item("检查项", true));
+
+    // serde 定制出线：itemKey 为 `{:#034x}` 十六进制字符串（serde_json 无
+    // u128 数字面，信封 API 要把记录转 JSON——自研绕法与 event_key 同型）
+    let value = serde_json::to_value(&record).expect("serde 序列化应成功");
+    assert_eq!(
+        value["itemKey"],
+        serde_json::json!(format!("{:#034x}", record.item_key)),
+        "itemKey 以 34 位（含 0x 前缀）十六进制字符串呈现（合法 JSON、无二进制）"
+    );
+    assert_eq!(value["phaseId"], serde_json::json!(7), "phaseId 常规数字面");
+    assert_eq!(value["item"], serde_json::json!("检查项"));
+
+    // 反向解码往返无损
+    let back: ChecklistItemRecord = serde_json::from_value(value).expect("反序列化成功");
+    assert_eq!(back, record, "十六进制串出线往返逐字段一致");
+}
+
+#[test]
+fn 四模型注册workspace组八模型全注册id无冲突_list_models零改动覆盖() {
+    let db_dir = tempfile::Builder::new()
+        .prefix("store-test-model-registry-")
+        .tempdir()
+        .expect("创建临时目录失败");
+
+    // 真实 workspace db：id 9 / 10 / 11 / 12 与既有 id（1/2/4/5/6/7/8）无一
+    // 冲突即打开点注册成功；id=3 历史退役空缺不复用（D3）
+    let store = Store::open_workspace(&db_dir.path().join("ws.redb"))
+        .unwrap_or_else(|e| panic!("open_workspace 应成功（四新模型注册无 id 冲突）: {e}"));
+
+    // list_models 零改动覆盖四新模型：既有信封注册面不写一行即可浏览八模型
+    // （空库计数 0 也列出）
+    let models = store.list_models().unwrap();
+    assert_eq!(
+        models
+            .iter()
+            .map(|model| model.name.as_str())
+            .collect::<Vec<_>>(),
+        vec![
+            "agent_run", "session", "session_event", "explore", "change", "phase",
+            "checklist_item", "step"
+        ],
+        "workspace 组注册 4→8：change 流程状态四模型随既有四模型在册"
+    );
+    assert!(
+        models.iter().all(|model| model.count == 0),
+        "空库全部计数 0（注册面覆盖先于任何写入）"
+    );
+}
+
+#[test]
+fn phase_record缺省构造三槽位与start_at与backtrack全none可落且native_model往返保真() {
+    // 缺省构造合法：三会话槽位 / start_at / backtrack 字段全 None（native_model
+    // 平直字段无 flatten、默认 bincode——D3 附加约束的编译锚定）
+    let record = PhaseRecord {
+        id: 11,
+        change: "demo-change".to_owned(),
+        phase: "proposal".to_owned(),
+        attempt: 1,
+        verdict: Verdict::Pass,
+        report: "评估报告".to_owned(),
+        skipped: false,
+        stale: false,
+        backtrack_to: None,
+        backtrack_reason: None,
+        executor_session_id: None,
+        evaluator_session_id: None,
+        decision_session_id: None,
+        start_at: None,
+        timestamp: 1727000000000,
+    };
+
+    let bytes = native_model::encode(&record).expect("native_model encode 应成功");
+    let (decoded, version) =
+        native_model::decode::<PhaseRecord>(bytes).expect("native_model decode 应成功");
+
+    assert_eq!(version, 1, "native_model 版本封装为 version 1");
+    assert_eq!(decoded, record, "缺省构造记录往返逐字段相等（None 槽位不漂移）");
+}
+
+#[test]
+fn checklist_item_record_native_model往返版本1逐字段保真() {
+    // 独立版本链：checklist 子行与 PhaseRecord 解耦（evidence 长文本演进面）
+    let record = ChecklistItemRecord::new(7, 2, checklist_item("往返检查项", false));
+
+    let bytes = native_model::encode(&record).expect("native_model encode 应成功");
+    let (decoded, version) =
+        native_model::decode::<ChecklistItemRecord>(bytes).expect("native_model decode 应成功");
+
+    assert_eq!(version, 1, "native_model 版本封装为 version 1");
+    assert_eq!(decoded, record, "打包键与三面载荷往返逐字段相等");
+    assert_eq!(decoded.phase_id, 7, "二级索引列往返保真");
+    assert_eq!(decoded.pass, false);
 }

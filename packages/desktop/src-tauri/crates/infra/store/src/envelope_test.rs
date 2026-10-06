@@ -121,8 +121,8 @@ fn 注册表按维度分组列出模型且list_models计数与写入量一致() 
     );
     drop(global);
 
-    // workspace 库：四行按登记序，计数与各模型写入量一致（轮统计行与 explore
-    // 计数 0 也列出；agent_event 退役出注册）
+    // workspace 库：八行按登记序，计数与各模型写入量一致（轮统计行 / explore
+    // 与 change 流程状态四模型计数 0 也列出；agent_event 退役出注册）
     let ws = open_ws_ok(&env.db_path("ws"));
     let session_id = seed_session(&ws, "ses-registry");
     append_raw(&ws, &session_id, 0);
@@ -133,11 +133,18 @@ fn 注册表按维度分组列出模型且list_models计数与写入量一致() 
             .iter()
             .map(|model| model.name.as_str())
             .collect::<Vec<_>>(),
-        vec!["agent_run", "session", "session_event", "explore"],
-        "workspace 库静态注册表恰四行，顺序即登记序"
+        vec![
+            "agent_run", "session", "session_event", "explore", "change", "phase",
+            "checklist_item", "step"
+        ],
+        "workspace 库静态注册表 4→8 恰八行，顺序即登记序"
     );
     let counts: Vec<u64> = models.iter().map(|model| model.count).collect();
-    assert_eq!(counts, vec![0, 1, 1, 0], "计数与各模型写入量一致");
+    assert_eq!(
+        counts,
+        vec![0, 1, 1, 0, 0, 0, 0, 0],
+        "计数与各模型写入量一致"
+    );
 }
 
 // ---------------------------------------------------------------------------

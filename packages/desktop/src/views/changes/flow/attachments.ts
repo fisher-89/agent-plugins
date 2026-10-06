@@ -45,8 +45,7 @@ function append<T>(record: Record<string, T[]>, key: string, value: T): void {
 }
 
 /**
- * 三类素材按挂载规则归位；未命中条目归 outsideFiles，不丢信息。
- * fileLog 为 null（v1 及更早代际）与空数组同型：文件类素材全空输出。
+ * 两类素材按挂载规则归位：文档挂列、eval-checklist 挂节点。
  */
 export function mountMaterials(
   graph: FlowGraph,
@@ -56,8 +55,6 @@ export function mountMaterials(
   const materials: FlowMaterials = {
     columnDocs: {},
     nodeChecklists: {},
-    nodeFiles: {},
-    outsideFiles: [],
   };
   for (let index = 0; index < envelopes.length; index += 1) {
     const envelope = envelopes[index];
@@ -70,14 +67,6 @@ export function mountMaterials(
     } else if (envelope.kind === 'eval-checklist' && isChecklistRef(envelope.payload)) {
       const node = locateNode(graph.nodes, envelope.payload.phase, envelope.payload.attempt ?? 0);
       if (node !== null) append(materials.nodeChecklists, node.id, envelope);
-    }
-  }
-  if (detail.fileLog !== null) {
-    for (const entry of detail.fileLog) {
-      const node =
-        entry.attempt === null ? null : locateNode(graph.nodes, entry.scope, entry.attempt);
-      if (node === null) materials.outsideFiles.push(entry);
-      else append(materials.nodeFiles, node.id, entry);
     }
   }
   return materials;

@@ -1,4 +1,5 @@
 use std::fs;
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -9,6 +10,7 @@ use ::agent::StopRegistry;
 use orchestration::control::ChangeFlowControl;
 use orchestration::state::{ChangeStepKind, ChangeStepState, ChangeStepStatus};
 use store::{AgentEngineKind, AgentInstanceRecord, WorkspaceStores};
+use workflow::state::{ChangeStateRecord, ChangeStatus};
 
 use super::{
     change_flow_answer_with, change_flow_confirm_with, change_flow_start_with,
@@ -20,7 +22,7 @@ use super::{
 use crate::commands::TEST_PATH_LOCK as PATH_LOCK;
 
 // ---------------------------------------------------------------------------
-// 装置：tempdir 双根 + mock app 托管三态
+// 装置：tempdir 双根 + mock app 托管三态 + db 建档种子
 // ---------------------------------------------------------------------------
 
 /// 数据根 + workspace 根临时环境（tempfile RAII）。
@@ -46,11 +48,12 @@ impl Env {
         self.ws_root.path().to_string_lossy().into_owned()
     }
 
-    /// 预置 change 的 workflow.json（前置校验 / 组合根 fixture）。
-    fn change(&self, name: &str, workflow_json: &str) {
+    /// 预置 change 的磁盘目录（建档记录由 [`seed_change`] 经 db 落，双载体
+    /// 真实组合；存量 CLI 形态用例则只建目录不建档）。
+    fn change_dir(&self, name: &str) -> PathBuf {
         let dir = self.ws_root.path().join("openspec/changes").join(name);
         fs::create_dir_all(&dir).expect("创建 change 目录失败");
-        fs::write(dir.join("workflow.json"), workflow_json).expect("写 workflow.json 失败");
+        dir
     }
 }
 
@@ -64,6 +67,24 @@ fn app_with(env: &Env) -> App<tauri::test::MockRuntime> {
     app.manage(Arc::new(ChangeFlowControl::new()));
     app.manage(Arc::new(StopRegistry::new()));
     app
+}
+
+/// db 建档种子（前置校验 1/2 的正向与反相 fixture）：经 store change 域操作
+/// 面落 `ChangeRecord`（workflow_type 决定相位表校验走向），返回 workspace 库
+/// 实例供落库证据断言复用。
+fn seed_change(app: &App<tauri::test::MockRuntime>, root: &str, name: &str, workflow_type: &str) {
+    app.state::<WorkspaceStores>()
+        .for_root(root)
+        .expect("for_root 应成功")
+        .create_change_record(ChangeStateRecord {
+            name: name.to_owned(),
+            workflow_type: workflow_type.to_owned(),
+            created_at: 1727000000000,
+            status: ChangeStatus::Active,
+            archived_at: None,
+            active_phase: None,
+        })
+        .expect("建档种子应成功");
 }
 
 /// cli 默认实例 fixture（组合根缺省解析可走通——发起链路真实驱动的用例共用）。
@@ -139,60 +160,44 @@ fn wait_for(what: &str, mut probe: impl FnMut() -> bool) {
     }
 }
 
-/// 合法 requirement workflow.json（前置校验通过形态）。
-const REQUIREMENT_WORKFLOW: &str = r#"{ "workflow_type": "requirement", "eval": [] }"#;
-
 const CHANGE: &str = "flow-change";
 
 // ---------------------------------------------------------------------------
-// start 前置校验三失败分支（W8 换血后）
+// start 前置校验（db 建档校验）：无建档拒绝 / 相位表校验（W8 语义平移）
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
-async fn start前置校验三失败分支各自err且成因互不重合() {
+async fn start前置校验无建档与相位表缺失各自err且成因互不重合() {
     let env = Env::new("guard-branches");
-    // 分支 2 的两类 fixture：不存在 change / workflow.json 不可解析
-    env.change(CHANGE, REQUIREMENT_WORKFLOW);
-    env.change("broken-change", "{ not valid json !!!");
-    env.change(
-        "bugfix-change",
-        r#"{ "workflow_type": "bug-fix", "eval": [] }"#,
-    );
     let root = env.root();
-
+    // 无建档 fixture：存量 CLI change 形态（workflow.json 在场、db 零记录——
+    // 双向墙用户路径：文档形态 change 不可运行）
+    let legacy_dir = env.change_dir("legacy-cli-change");
+    fs::write(
+        legacy_dir.join("workflow.json"),
+        r#"{ "workflow_type": "requirement", "eval": [] }"#,
+    )
+    .expect("写 workflow.json 失败");
+    // 相位表 fixture：db 有档但 workflow_type 无相位表（bug-fix）
     let app = app_with(&env);
+    seed_change(&app, &root, "bugfix-change", "bug-fix");
 
-    // 分支 1：change 不存在（FsSnapshot detail miss）
+    // 前置校验 1：db 无建档记录（存量 CLI change）→ 显式 Err 携 change 名
     let err = change_flow_start_with(
         app.handle().clone(),
         discarding_channel(),
         root.clone(),
-        "不存在的-change".to_owned(),
+        "legacy-cli-change".to_owned(),
         false,
     )
     .await
-    .expect_err("未知 change 应 Err");
+    .expect_err("无建档应 Err");
     assert!(
-        err.contains("不存在的-change") && err.contains("change 不存在"),
-        "成因一（change miss）: {err}"
+        err.contains("legacy-cli-change") && err.contains("未建档"),
+        "成因一（db 缺 ChangeRecord）: {err}"
     );
 
-    // 分支 2：workflow.json 不可解析（unparsable 旗标 → 显式 Err）
-    let err = change_flow_start_with(
-        app.handle().clone(),
-        discarding_channel(),
-        root.clone(),
-        "broken-change".to_owned(),
-        false,
-    )
-    .await
-    .expect_err("不可解析应 Err");
-    assert!(
-        err.contains("broken-change") && err.contains("无法解析"),
-        "成因二（unparsable）: {err}"
-    );
-
-    // 分支 3：workflow_type 非 requirement（写面相位表 None → 显式拒绝，W8）
+    // 前置校验 2：workflow_type 无相位表（phase_table None → 显式拒绝）
     let err = change_flow_start_with(
         app.handle().clone(),
         discarding_channel(),
@@ -203,48 +208,32 @@ async fn start前置校验三失败分支各自err且成因互不重合() {
     .await
     .expect_err("非 requirement 应 Err");
     assert!(
-        err.contains("bug-fix") && err.contains("requirement"),
-        "成因三（W8 分层出口）: {err}"
+        err.contains("bugfix-change") && err.contains("bug-fix") && err.contains("requirement"),
+        "成因二（相位表缺失）: {err}"
     );
 
-    // 三成因互不重合且登记面零副作用（并行冲突分支另见「start同change并行」
+    // 两成因互不重合且登记面零副作用（并行冲突分支另见「start同change并行」
     // 用例——本用例失败分支零 begin_run 登记）
     let control = app.state::<Arc<ChangeFlowControl>>();
-    for name in ["不存在的-change", "broken-change", "bugfix-change"] {
+    for name in ["legacy-cli-change", "bugfix-change"] {
         assert!(control.snapshot(name).is_none(), "失败分支零登记: {name}");
     }
 }
 
 // ---------------------------------------------------------------------------
-// start 提前 resolve 与组合根装配（真实组合根，PATH 隔离驱动收敛）
+// start 提前 resolve 与组合根装配（db 种子，PATH 隔离驱动收敛）
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
 async fn start提前resolve返回running摘要且channel首事件到达后台驱动不阻塞() {
     let env = Env::new("early-resolve");
-    env.change(CHANGE, REQUIREMENT_WORKFLOW);
+    env.change_dir(CHANGE);
     let app = app_with(&env);
     let root = env.root();
+    seed_change(&app, &root, CHANGE, "requirement");
 
     // cli 默认实例 fixture（组合根缺省解析可走通）
-    {
-        let stores = app.state::<WorkspaceStores>();
-        let id = stores
-            .inner()
-            .global()
-            .upsert_agent_instance(AgentInstanceRecord::new(
-                "组合根实例".to_owned(),
-                AgentEngineKind::Cli,
-                None,
-            ))
-            .expect("落 cli 实例 fixture")
-            .id;
-        stores
-            .inner()
-            .global()
-            .set_default_agent_instance(id)
-            .expect("置默认实例 fixture");
-    }
+    seed_cli_default_instance(&app);
 
     // PATH 隔离：executor 会话以 CliMissing 合成收敛（不 spawn 真实 claude）。
     // 隔离窗口覆盖至后台 turn 收敛（提前 resolve 后 walker 仍在驱动，窗口
@@ -288,8 +277,8 @@ async fn start提前resolve返回running摘要且channel首事件到达后台驱
         !captured.lock().expect("捕获锁不可中毒").is_empty()
     });
 
-    // 后台 walker 真实驱动：真实 LocalToolSteps 相位机步直调写面（fixture
-    // workflow.json 被 phase-start 写入 active_phase），更新流含步状态与终态
+    // 后台 walker 真实驱动：真实 LocalToolSteps 相位机步直调写面（phase-start
+    // 经 port 落库 active_phase），更新流含步状态与终态
     wait_for("Finished 信封", || {
         captured
             .lock()
@@ -322,27 +311,29 @@ async fn start提前resolve返回running摘要且channel首事件到达后台驱
     // 终态收口：注册表除名（run 仅进程内——AC-7 半边）
     wait_for("终态除名", || control.snapshot(CHANGE).is_none());
 
-    // 组合根装配动态证据：phase-start 经进程内缝直调写面落盘
-    let workflow_text = fs::read_to_string(
-        env.ws_root
-            .path()
-            .join("openspec/changes")
-            .join(CHANGE)
-            .join("workflow.json"),
-    )
-    .expect("读 workflow.json 失败");
-    let doc: serde_json::Value = serde_json::from_str(&workflow_text).expect("应可解析");
-    assert!(
-        doc.get("active_phase").is_some(),
-        "组合根 LocalToolSteps 直调写面落盘（进程内缝证据）"
-    );
+    // 组合根装配动态证据：phase-start 经进程内缝直调写面落库（db active_phase
+    // 在位——写面经 ChangeStateStore port，executor 失败前已开相未落账）
+    let record = app
+        .state::<WorkspaceStores>()
+        .for_root(&root)
+        .expect("for_root 应成功")
+        .find_change_record(CHANGE)
+        .expect("查档应成功")
+        .expect("建档在案");
+    let active = record
+        .active_phase
+        .expect("phase-start 落库证据（active_phase 在位——组合根 LocalToolSteps 直调写面经 port）");
+    assert_eq!(active.phase, "proposal", "建档零相位行 → 首相位开相");
+    assert_eq!(active.attempt, 1, "attempt 事务内推导（零条目 + 1）");
 }
 
 #[tokio::test]
 async fn start同change并行run冲突err() {
     let env = Env::new("parallel-conflict");
-    env.change(CHANGE, REQUIREMENT_WORKFLOW);
+    env.change_dir(CHANGE);
     let app = app_with(&env);
+    let root = env.root();
+    seed_change(&app, &root, CHANGE, "requirement");
 
     // 预登记同 change 的 run（前置校验第三分支：begin_run 冲突检测）
     let control = app.state::<Arc<ChangeFlowControl>>();
@@ -353,7 +344,7 @@ async fn start同change并行run冲突err() {
     let err = change_flow_start_with(
         app.handle().clone(),
         discarding_channel(),
-        env.root(),
+        root,
         CHANGE.to_owned(),
         false,
     )
@@ -378,8 +369,10 @@ async fn start同change并行run冲突err() {
 #[tokio::test]
 async fn auto_next_phase_true透传受理零confirmwait照常后台收敛() {
     let env = Env::new("auto-true");
-    env.change(CHANGE, REQUIREMENT_WORKFLOW);
+    env.change_dir(CHANGE);
     let app = app_with(&env);
+    let root = env.root();
+    seed_change(&app, &root, CHANGE, "requirement");
     seed_cli_default_instance(&app);
 
     // PATH 隔离：executor 会话以 CliMissing 合成收敛（窗口覆盖至后台 turn 收敛）
@@ -389,7 +382,7 @@ async fn auto_next_phase_true透传受理零confirmwait照常后台收敛() {
     let result = change_flow_start_with(
         app.handle().clone(),
         channel,
-        env.root(),
+        root.clone(),
         CHANGE.to_owned(),
         true,
     )
@@ -449,28 +442,28 @@ async fn auto_next_phase_true透传受理零confirmwait照常后台收敛() {
     );
     drop(updates);
 
-    // 终态收口除名 + phase-start 落盘证据（组合根装配照常）
+    // 终态收口除名 + phase-start 落库证据（组合根装配照常，写面经 port 落 db）
     wait_for("终态除名", || control.snapshot(CHANGE).is_none());
-    let workflow_text = fs::read_to_string(
-        env.ws_root
-            .path()
-            .join("openspec/changes")
-            .join(CHANGE)
-            .join("workflow.json"),
-    )
-    .expect("读 workflow.json 失败");
-    let doc: serde_json::Value = serde_json::from_str(&workflow_text).expect("应可解析");
+    let record = app
+        .state::<WorkspaceStores>()
+        .for_root(&root)
+        .expect("for_root 应成功")
+        .find_change_record(CHANGE)
+        .expect("查档应成功")
+        .expect("建档在案");
     assert!(
-        doc.get("active_phase").is_some(),
-        "phase-start 落盘证据在场（组合根 LocalToolSteps 直调写面）"
+        record.active_phase.is_some(),
+        "phase-start 落库证据在场（组合根 LocalToolSteps 直调写面经 port）"
     );
 }
 
 #[tokio::test]
 async fn auto_next_phase_false默认档受理面回归() {
     let env = Env::new("auto-false");
-    env.change(CHANGE, REQUIREMENT_WORKFLOW);
+    env.change_dir(CHANGE);
     let app = app_with(&env);
+    let root = env.root();
+    seed_change(&app, &root, CHANGE, "requirement");
     seed_cli_default_instance(&app);
 
     let (path_guard, original) = isolate_path();
@@ -479,7 +472,7 @@ async fn auto_next_phase_false默认档受理面回归() {
     let result = change_flow_start_with(
         app.handle().clone(),
         channel,
-        env.root(),
+        root,
         CHANGE.to_owned(),
         false,
     )
@@ -532,9 +525,9 @@ async fn auto_next_phase_false默认档受理面回归() {
 #[tokio::test]
 async fn auto_next_phase_true不绕过守卫与前置校验() {
     let env = Env::new("auto-guard");
-    env.change(CHANGE, REQUIREMENT_WORKFLOW);
     let app = app_with(&env);
     let root = env.root();
+    seed_change(&app, &root, CHANGE, "requirement");
 
     // blank root + true：Err（blank 守卫先行）
     let err = change_flow_start_with(
@@ -548,7 +541,7 @@ async fn auto_next_phase_true不绕过守卫与前置校验() {
     .expect_err("blank root start 应 Err");
     assert!(err.contains("root"), "blank 守卫 Err 文案: {err}");
 
-    // 不存在 change + true：Err 携 change 名（前置校验 1）
+    // 无建档 change + true：Err 携 change 名（前置校验 1，db 缺 ChangeRecord）
     let err = change_flow_start_with(
         app.handle().clone(),
         discarding_channel(),
@@ -559,8 +552,8 @@ async fn auto_next_phase_true不绕过守卫与前置校验() {
     .await
     .expect_err("未知 change 应 Err");
     assert!(
-        err.contains("不存在的-change") && err.contains("change 不存在"),
-        "成因（change miss）: {err}"
+        err.contains("不存在的-change") && err.contains("未建档"),
+        "成因（db 缺 ChangeRecord）: {err}"
     );
 
     // 注册表零登记（auto 参数不绕过守卫直入运行态）
@@ -579,7 +572,7 @@ async fn auto_next_phase_true不绕过守卫与前置校验() {
 #[test]
 fn stop运行中置位且幂等忽略不报错() {
     let env = Env::new("stop");
-    env.change(CHANGE, REQUIREMENT_WORKFLOW);
+    env.change_dir(CHANGE);
     let app = app_with(&env);
     let control = app.state::<Arc<ChangeFlowControl>>();
 
@@ -603,7 +596,7 @@ fn stop运行中置位且幂等忽略不报错() {
 #[test]
 fn answer与confirm无等待方时err透传() {
     let env = Env::new("pending");
-    env.change(CHANGE, REQUIREMENT_WORKFLOW);
+    env.change_dir(CHANGE);
     let app = app_with(&env);
 
     // 无运行 run：Err 携 change 名（单次通道错误面透传）
@@ -640,7 +633,7 @@ fn answer与confirm无等待方时err透传() {
 #[test]
 fn state快照查询运行中some_无run与终态后none() {
     let env = Env::new("state");
-    env.change(CHANGE, REQUIREMENT_WORKFLOW);
+    env.change_dir(CHANGE);
     let app = app_with(&env);
     let root = env.root();
 
@@ -681,7 +674,7 @@ fn state快照查询运行中some_无run与终态后none() {
 #[test]
 fn watch补订运行中接收后续信封_无run时ok非错误() {
     let env = Env::new("watch");
-    env.change(CHANGE, REQUIREMENT_WORKFLOW);
+    env.change_dir(CHANGE);
     let app = app_with(&env);
     let root = env.root();
 
@@ -716,13 +709,14 @@ fn watch补订运行中接收后续信封_无run时ok非错误() {
 }
 
 // ---------------------------------------------------------------------------
-// 参数转换守卫：blank root（root 寻址与 `Result<T, String>` 模板保留）
+// 参数转换守卫：blank root / blank change（守卫先行于前置校验，root 寻址与
+// `Result<T, String>` 模板保留）
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
 async fn 参数转换守卫blank_root各命令模板保留() {
     let env = Env::new("blank-root");
-    env.change(CHANGE, REQUIREMENT_WORKFLOW);
+    env.change_dir(CHANGE);
     let app = app_with(&env);
     let blank = "   ".to_owned();
 
@@ -766,7 +760,7 @@ async fn 参数转换守卫blank_root各命令模板保留() {
 #[tokio::test]
 async fn 参数转换守卫blank_change六缝各就位() {
     let env = Env::new("blank-change");
-    env.change(CHANGE, REQUIREMENT_WORKFLOW);
+    env.change_dir(CHANGE);
     let app = app_with(&env);
     let root = env.root();
     let blank = "   ".to_owned();

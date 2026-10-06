@@ -1,0 +1,95 @@
+{
+  "activePhase": null,
+  "artifacts": [
+    {
+      "kind": "eval-checklist",
+      "source": "1",
+      "title": "评估清单 · implement · 第 1 次"
+    },
+    {
+      "kind": "markdown-doc",
+      "source": "design.md",
+      "title": "设计"
+    }
+  ],
+  "created": "2024-09-22",
+  "name": "slots-null",
+  "pipeline": [
+    {
+      "attempts": [
+        {
+          "attempt": 1,
+          "backtrackReason": null,
+          "backtrackTo": null,
+          "checklist": [],
+          "decisionSessionId": null,
+          "evaluatorSessionId": null,
+          "executorSessionId": null,
+          "report": "提案通过",
+          "skipped": false,
+          "stale": false,
+          "startAt": "2024-09-22T10:13:21Z",
+          "timestamp": "2024-09-22T10:13:21Z",
+          "verdict": "pass"
+        }
+      ],
+      "phase": "proposal"
+    },
+    {
+      "attempts": [],
+      "phase": "dev-design"
+    },
+    {
+      "attempts": [],
+      "phase": "test-design"
+    },
+    {
+      "attempts": [
+        {
+          "attempt": 1,
+          "backtrackReason": null,
+          "backtrackTo": null,
+          "checklist": [
+            {
+              "evidence": "测试未过",
+              "item": "构建绿",
+              "pass": false
+            }
+          ],
+          "decisionSessionId": null,
+          "evaluatorSessionId": null,
+          "executorSessionId": null,
+          "report": "首轮未过",
+          "skipped": false,
+          "stale": false,
+          "startAt": "2024-09-22T10:13:22Z",
+          "timestamp": "2024-09-22T10:13:22Z",
+          "verdict": "fail"
+        }
+      ],
+      "phase": "implement"
+    },
+    {
+      "attempts": [],
+      "phase": "test-gen"
+    },
+    {
+      "attempts": [],
+      "phase": "test-execution"
+    },
+    {
+      "attempts": [],
+      "phase": "code-review"
+    },
+    {
+      "attempts": [],
+      "phase": "acceptance"
+    },
+    {
+      "attempts": [],
+      "phase": "code-analyze"
+    }
+  ],
+  "source": "active",
+  "status": "active"
+}

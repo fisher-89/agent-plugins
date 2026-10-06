@@ -1,9 +1,7 @@
-use serde_json::Value;
-
 use crate::model::{ChecklistItem, Verdict};
-use crate::write::persist::{eval_entries_mut, format_timestamp, load_doc, now_iso, save};
+use crate::state::{ChangeStateStore, PhaseLogCommand};
 use crate::write::phase_table::{phase_table, MAX_REPORT_CHARS};
-use foundation::layout::Layout;
+use crate::write::now_millis;
 
 /// 落账输入（checklist 用 `workflow::model::ChecklistItem` 域类型）。会话槽
 /// 位由调用方（walker）从 `WorkerTurnOutcome.session_id` 取值传入，写面不
@@ -38,11 +36,12 @@ fn derive_verdict(checklist: &[ChecklistItem]) -> Verdict {
 }
 
 /// 评估落账：校验（verdict-skipped 约束 / report 长度 / 表位 / 开相前置）→
-/// 纯追加 → 清 `active_phase`。落账不做 gate-check（gate 逻辑全归
+/// 经 [`ChangeStateStore`] port 缝单事务原子落库（PhaseRecord 行 + checklist
+/// 子行 + active_phase 清位）。落账不做 gate-check（gate 逻辑全归
 /// [`phase_next`](super::phase_next)），不触 backtrack 状态（归
 /// [`backtrack`](super::backtrack) 单点）。
 pub fn phase_log(
-    layout: &Layout,
+    store: &dyn ChangeStateStore,
     change: &str,
     input: &PhaseLogInput,
 ) -> Result<PhaseLogOutcome, String> {
@@ -60,11 +59,14 @@ pub fn phase_log(
         ));
     }
 
-    let mut doc = load_doc(layout, change)?;
-    let table = phase_table(&doc.typed.workflow_type).ok_or_else(|| {
+    let record = store
+        .get_change(change)
+        .map_err(|error| error.to_string())?
+        .ok_or_else(|| format!("change \"{change}\" 未建档（无 ChangeRecord），无从落账"))?;
+    let table = phase_table(&record.workflow_type).ok_or_else(|| {
         format!(
             "workflow_type \"{}\" 不受支持（V1 仅 requirement 工作流）",
-            doc.typed.workflow_type
+            record.workflow_type
         )
     })?;
     // 表位前置：未知 / 非表内相位显式 `Err`（与插件 validatePhaseTarget 同
@@ -72,18 +74,18 @@ pub fn phase_log(
     if !table.iter().any(|def| def.id == input.phase) {
         return Err(format!(
             "工作流 \"{}\" 不包含 phase \"{}\"",
-            doc.typed.workflow_type, input.phase
+            record.workflow_type, input.phase
         ));
     }
-    // 开启阶段
-    let start_at = match doc.typed.active_phase.as_ref() {
+    // 开启阶段前置：active_phase 匹配校验（开相才可落账）
+    let start_at = match record.active_phase.as_ref() {
         None => {
             return Err(format!(
                 "phase \"{}\" 未开启（无 active_phase），请先 phase_start 开启阶段",
                 input.phase
             ))
         }
-        Some(active) if active.phase == input.phase => active.start_at,
+        Some(active) if active.phase == input.phase => Some(active.start_at),
         Some(active) => {
             return Err(format!(
                 "phase \"{}\" 未开启（active_phase 停留在 \"{}\"），不可跨相落账",
@@ -92,59 +94,21 @@ pub fn phase_log(
         }
     };
 
-    // 纯追加（W9）：attempt 只数该相位既有条目 + 1，无任何短路跳过
-    let attempt = doc
-        .typed
-        .eval
-        .iter()
-        .filter(|entry| entry.phase == input.phase)
-        .count() as u32
-        + 1;
-
-    let mut entry = serde_json::json!({
-        "phase": input.phase,
-        "attempt": attempt,
-        "verdict": verdict.as_str(),
-        "report": input.report,
-        "checklist": input.checklist,
-        "timestamp": now_iso(),
-    });
-    if let Some(object) = entry.as_object_mut() {
-        // 扩展字段仅在显式在位时写入（与插件 buildEntry 同形态）；会话槽位
-        // 缺省不产生键（条目形状与既有形态一致）
-        if input.skipped {
-            object.insert("skipped".to_owned(), Value::Bool(true));
-        }
-        if let Some(start_at) = start_at {
-            object.insert(
-                "start_at".to_owned(),
-                Value::String(format_timestamp(start_at)),
-            );
-        }
-        if let Some(session_id) = &input.executor_session_id {
-            object.insert(
-                "executor_session_id".to_owned(),
-                Value::String(session_id.clone()),
-            );
-        }
-        if let Some(session_id) = &input.evaluator_session_id {
-            object.insert(
-                "evaluator_session_id".to_owned(),
-                Value::String(session_id.clone()),
-            );
-        }
-        if let Some(session_id) = &input.decision_session_id {
-            object.insert(
-                "decision_session_id".to_owned(),
-                Value::String(session_id.clone()),
-            );
-        }
-    }
-    eval_entries_mut(&mut doc.raw).push(entry);
-
-    // 落账后清 `active_phase`（开相才可落账 → 落账即收相位）
-    doc.raw["active_phase"] = Value::Null;
-    save(&doc)?;
+    let attempt = store
+        .log_phase(&PhaseLogCommand {
+            change: change.to_owned(),
+            phase: input.phase.clone(),
+            verdict,
+            report: input.report.clone(),
+            skipped: input.skipped,
+            checklist: input.checklist.clone(),
+            executor_session_id: input.executor_session_id.clone(),
+            evaluator_session_id: input.evaluator_session_id.clone(),
+            decision_session_id: input.decision_session_id.clone(),
+            start_at,
+            timestamp: now_millis(),
+        })
+        .map_err(|error| error.to_string())?;
     Ok(PhaseLogOutcome {
         phase: input.phase.clone(),
         attempt,

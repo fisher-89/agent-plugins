@@ -4,11 +4,10 @@ import { useNavigate, useParams } from 'react-router';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 
-import type { AgentEvent, ArtifactEnvelope, ChangeDetail, Inventory } from '../../types/dto';
+import type { AgentEvent, ArtifactEnvelope, ChangeDetail } from '../../types/dto';
 import { mountMaterials } from './flow/attachments';
 import { ChangeFlowGraph } from './flow/change-flow-graph';
 import { DetailDrawer } from './flow/detail-drawer';
-import { FileLogTable } from './flow/file-log-table';
 import { buildFlowGraph } from './flow/graph';
 import { RunControlPanel } from './flow/run-control-panel';
 import { runStepNodes } from './flow/run-state';
@@ -17,20 +16,11 @@ import { useChangeDetail } from './hooks/use-change-detail';
 import { useChangeFlowRun } from './hooks/use-change-flow-run';
 import { ArtifactTabs } from './renderers/artifact-tabs';
 
-// Tailwind 无法静态识别模板串类名：`badge-in${inventory}` 收敛为显式 variant 映射（spec 硬性要求）
-const INVENTORY_VARIANT: Record<Inventory, 'inv0' | 'inv1' | 'inv2'> = {
-  v0: 'inv0',
-  v1: 'inv1',
-  v2: 'inv2',
-};
-
 // detail 为 null（降级页分支）时 hooks 仍需无条件产出图数据的空底座
 const EMPTY_GRAPH: FlowGraph = { columns: [], nodes: [], edges: [] };
 const EMPTY_MATERIALS: FlowMaterials = {
   columnDocs: {},
   nodeChecklists: {},
-  nodeFiles: {},
-  outsideFiles: [],
 };
 
 function formatTime(value: string | null): string {
@@ -56,7 +46,6 @@ function DetailHeader({
         刷新详情
       </Button>
       <h2 className="m-0 break-all text-[17px]">{detail.name}</h2>
-      <Badge variant={INVENTORY_VARIANT[detail.inventory]}>{detail.inventory}</Badge>
       <span className="text-muted-foreground">
         {detail.source === 'archive' ? '已归档' : '进行中'}
       </span>
@@ -71,7 +60,8 @@ function DetailHeader({
   );
 }
 
-/** 流程图区：v0（pipeline 空，无 workflow.json）空图占位，其余挂载 ChangeFlowGraph */
+/** 流程图区：建档判别两态分流（status 在场 = 建档挂载 ChangeFlowGraph；缺席
+ * = 文档形态空图占位，产物区照常不挤掉） */
 function FlowSection({
   detail,
   graph,
@@ -83,14 +73,14 @@ function FlowSection({
   materials: FlowMaterials;
   onSelect: (selection: DrawerSelection) => void;
 }) {
-  if (detail.pipeline.length === 0) {
+  if (detail.status === null) {
     return (
       <section
         className="mb-4 rounded-lg border border-border bg-card px-4 py-3.5"
         data-testid="flow-empty"
       >
         <h2 className="m-0 mb-2.5 text-[15px]">流程图</h2>
-        <div className="text-muted-foreground">（v0 早期代际：无 workflow.json，仅文档形态）</div>
+        <div className="text-muted-foreground">（文档形态：未建档，仅产物清单）</div>
       </section>
     );
   }
@@ -154,31 +144,6 @@ function DetailFallback({
   );
 }
 
-/** workflow.json 损坏警示条（unparsable 时呈现） */
-function UnparsableNote() {
-  return (
-    <div
-      className="my-2 rounded-md bg-warn-bg px-2.5 py-1.5 text-[13px] text-warn"
-      data-testid="warn-note"
-    >
-      workflow.json 无法解析（可能已损坏），以下仅展示文件系统层信息与产物。
-    </div>
-  );
-}
-
-/** workflow 独立面板：scope='workflow' 与未命中节点的 file_log 条目（图外完整展示） */
-function WorkflowPanel({ entries }: { entries: ChangeDetail['fileLog'] }) {
-  return (
-    <section
-      className="mb-4 rounded-lg border border-border bg-card px-4 py-3.5"
-      data-testid="workflow-panel"
-    >
-      <h2 className="m-0 mb-2.5 text-[15px]">workflow 文件清单 (file_log)</h2>
-      <FileLogTable entries={entries ?? []} />
-    </section>
-  );
-}
-
 /**
  * 根切换抑制（原 ChangeView 语义迁入）：workspace 根变更（select / 移除当前根 /
  * 添加新根）且详情仍带旧选中时，过渡轮以 null 抑制取数（防「新根 + 旧名」误发
@@ -238,9 +203,9 @@ function isTerminalStatus(status: string): boolean {
  * change 详情视图：详情页自取数（useChangeDetail 按 (root, URL name) 调
  * get_change_detail，与清单页互不依赖；根切换抑制见 useRootSwitchSuppress）
  * + Header + 运行控制面板 + attempt 级流程图（运行步 overlay 并入）+
- * workflow 独立面板 + 产物区 + 抽屉（WorkerAgent 运行节点与 eval 节点的
- * 会话转录联动）。三代际降级（design）：v0（pipeline 空）空图占位 + 产物区；
- * v1（fileLog null）图正常绘制、无 workflow 面板、抽屉文件表节降级；v2 完整图。
+ * 产物区 + 抽屉（WorkerAgent 运行节点与 eval 节点的会话转录联动）。
+ * 建档两态分流（design）：建档（status 在场）完整状态面；文档形态（status
+ * 缺席，存量 CLI change）空图占位 + 产物区。
  *
  * run 生命周期：useChangeFlowRun 承载 invoke 与订阅；run 终态时触发一次
  * 显式 refresh（图回落派生规则——运行外显式刷新仍是唯一全量更新途径）。
@@ -278,15 +243,12 @@ export function ChangeDetailView({ root }: { root: string | null }) {
     <div>
       <DetailHeader detail={detail} loading={loading} onBack={backToList} refresh={refresh} />
       {selected !== null && <RunControlPanel change={selected} run={run} />}
-      {detail.unparsable && <UnparsableNote />}
       <FlowSection detail={detail} graph={graph} materials={materials} onSelect={setSelection} />
-      {detail.fileLog !== null && <WorkflowPanel entries={materials.outsideFiles} />}
       <DetailSectionArtifacts artifacts={artifacts} />
       <DetailDrawer
         selection={selection}
         graph={graph}
         materials={materials}
-        hasFileLog={detail.fileLog !== null}
         root={root}
         change={detail.name}
         liveEvents={liveEvents}

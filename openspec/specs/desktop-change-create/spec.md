@@ -2,56 +2,40 @@
 
 ## Purpose
 
-desktop 桌面端补充"新建变更"入口：用户在变更清单页输入 change 名称与最初目标（goal），经 core/workflow 写面新增的 `create` 操作在进程内创建 change 目录（workflow.json + explore.md），与插件 `createChange` 产物逐字段 parity；goal 原文写入 explore.md，经既有 proposal 相位交接通道进入工作流。插件面零改动，禁止 CLI 子进程。
+desktop 桌面端补充"新建变更"入口：用户在变更清单页输入 change 名称与最初目标（goal），经 core/workflow 写面 `create` 操作在进程内创建 change 目录（explore.md）并在 workspace 库建档（`ChangeRecord`）；goal 原文写入 explore.md，经既有 proposal 相位交接通道进入工作流。MUST NOT 产出 workflow.json（双向墙），插件面零改动，禁止 CLI 子进程。
 
 ## Requirements
 
 ### Requirement: 写面 create 操作进程内创建 change
 
-`core/workflow` 写面 SHALL 新增 `create` 操作：给定 `Layout`、change 名称与 goal 文本，创建 `changes_root/<name>/` 目录（含父树，`create_dir_all` 语义）并写出两个文件——`workflow.json` 与 `explore.md`。该操作 SHALL 为进程内同步调用（MUST NOT 引入 tokio / async runtime，沿写面 sync 纪律），SHALL 仅依赖 `foundation`（零 Tauri、零 store），SHALL 经 `Layout` 取全部磁盘路径（MUST NOT 自拼 `openspec` 目录名字面量）。目标 active 目录已存在时 SHALL 显式失败且 MUST NOT 改动既有目录内任何文件。既有写面四操作（`phase_next` / `phase_start` / `phase_log` / `backtrack`）语义 MUST NOT 因新增操作改变；写触点收口为 change 域目录内上述两文件，MUST NOT 泛化为任意 workspace 写通道。
+`core/workflow` 写面 `create` 操作 SHALL 创建 `changes_root/<name>/` 目录（含父树，`create_dir_all` 语义）、写出 `explore.md`（goal 原文）并在 workspace 库建档（`ChangeRecord`：name / workflow_type=requirement / created_at / status=active）——三者为一次创建语义（db 建档与目录创建的双写顺序及失败补偿由 design 定稿；MUST NOT 出现「目录在而记录缺」的可用性破口：任一环节失败 SHALL 收敛为显式错误且可重试）。MUST NOT 产出 workflow.json。该操作 SHALL 为进程内同步调用（MUST NOT 引入 tokio / async runtime，沿写面 sync 纪律；落库经 port 缝由壳层装配 store 实现，core/workflow 零 infra 依赖），SHALL 经 `Layout` 取全部磁盘路径（MUST NOT 自拼 `openspec` 目录名字面量）。目标 active 目录已存在或 db 已有同名 `ChangeRecord`（status=active）时 SHALL 显式失败且 MUST NOT 改动既有目录内任何文件、MUST NOT 改写既有 db 记录。既有写面操作（`phase_next` / `phase_start` / `phase_log` / `backtrack` / `archive`）语义 MUST NOT 因新增语义改变；写触点收口为 change 域目录内产物文件与 workspace 库 change 状态，MUST NOT 泛化为任意 workspace 写通道。
 
-#### Scenario: 空白树上创建成功且文件形状正确
+#### Scenario: 空白树上创建成功且建档
 
 - **WHEN** 对无 `changes` 目录树的 workspace 以合法名称与 goal 调用写面 `create`
-- **THEN** `changes_root/<name>/` 目录被创建（含父树）
-- **AND** `workflow.json` 内容恰为 `{"workflow_type":"requirement","created":"<UTC 日期 YYYY-MM-DD>","file_log":[]}`（2 空格 pretty + 尾换行，键序 workflow_type → created → file_log）
-- **AND** `workflow.json` 不含 `eval` 键，`eval.json` 与 `.openspec.yaml` 不存在
-- **AND** `explore.md` 存在且内容为 goal 原文（UTF-8，无附加结构包装）
+- **THEN** `changes_root/<name>/` 目录被创建（含父树），`explore.md` 存在且内容为 goal 原文（UTF-8，无附加结构包装），db 出现 `ChangeRecord`（status=active、created_at 在案）
+- **AND** 目录内无 workflow.json，`eval.json` 与 `.openspec.yaml` 不存在
+
+#### Scenario: 新建 change 立即可见可发起
+
+- **WHEN** 写面 `create` 成功后立即调用列表 / 详情查询与 `change_flow_start` 前置校验
+- **THEN** 该 change 以 db 建档条目出现在清单、详情可达（active 状态面）、发起校验通过（已建档且 requirement 相位表在位）
 
 #### Scenario: 已存在同名 active change 被拒绝且零副作用
 
-- **WHEN** `changes_root/<name>/` 已存在时调用写面 `create`
-- **THEN** 返回显式错误（错误信息含该目录路径）
-- **AND** 既有目录内 workflow.json / explore.md 及其他文件内容与结构零变化
+- **WHEN** `changes_root/<name>/` 已存在（或 db 已有同名 active `ChangeRecord`）时调用写面 `create`
+- **THEN** 返回显式错误（错误信息含该目录路径或记录名）
+- **AND** 既有目录内文件内容与结构零变化、既有 db 记录零改写、无新记录产生
 
 #### Scenario: goal 空白被拒绝
 
 - **WHEN** 以空白（空串或全空白字符）goal 调用写面 `create`
-- **THEN** 返回显式错误，目标目录与任何文件均不产生
+- **THEN** 返回显式错误，目标目录与 db 记录均不产生
 
-#### Scenario: sync 与零 Tauri 纪律保持
+#### Scenario: sync 与 port 缝纪律保持
 
 - **WHEN** 审查写面 `create` 的依赖与签名
-- **THEN** 无 tokio / async runtime 依赖、函数为同步签名、crate 依赖仅 foundation 与 serde 系、无 Tauri 相关依赖
-
-### Requirement: 新建 workflow.json 形状与既有消费面兼容
-
-写面 `create` 产出的 `workflow.json` SHALL 与插件 `createChange`（`plugins/dev-team/bin/src/commands/change-create.ts`）输出逐字段一致：键序 `workflow_type` → `created` → `file_log`，`created` 取 UTC 当前日期 `YYYY-MM-DD`，`file_log` 恒为空数组。该产出 SHALL 被既有消费面无缝识别：parse 层代际检测判为 v2、`list_changes` / `change_detail` 正常呈现、`change_flow_start` 三项前置校验（存在、可解析、requirement 相位表在位）通过、serde 写出形状可被插件 zod `workflowFileSchema` 解析。`workflow_type` SHALL 恒为 `"requirement"`（V1 唯一支持的工作流类型，与发起前置校验同口径），MUST NOT 作为入参暴露枚举选择。
-
-#### Scenario: 新建 change 立即可见可发起
-
-- **WHEN** 写面 `create` 成功后立即调用 `list_changes` / `change_detail` / `change_flow_start` 前置校验
-- **THEN** 该 change 以 v2 代际出现在清单、详情可达、发起校验三项全通过（无 workflow.json 无法解析或 workflow_type 不支持类错误）
-
-#### Scenario: 与插件 zod schema 兼容
-
-- **WHEN** 以插件 `workflowFileSchema` 解析写面 `create` 产出的 workflow.json
-- **THEN** 解析通过且语义等价（workflow_type / created / file_log 三字段齐备，未知键为零）
-
-#### Scenario: created 取 UTC 日期
-
-- **WHEN** 跨 UTC 日界时刻调用写面 `create`
-- **THEN** `created` 值为当时的 UTC 日历日期（与插件 `toISOString().slice(0, 10)` 同式）
+- **THEN** 无 tokio / async runtime 依赖、函数为同步签名、crate 依赖零 infra/store（落库经 port 缝）、无 Tauri 相关依赖
 
 ### Requirement: 名称与入参校验
 
@@ -143,11 +127,13 @@ desktop-app 命令层 SHALL 新增 `create_change` 命令（落位 `commands/cha
 
 | 模块 | 职责 | 关键契约 |
 |------|------|----------|
-| `packages/desktop/src-tauri/crates/core/workflow/src/write/create.rs`（新） | change 创建域操作 | kebab-case（`^[a-z][a-z0-9]*(-[a-z0-9]+)*$`、≤128）+ goal 非空白校验；`create_dir_all` 建树；workflow.json `{workflow_type:"requirement", created:<UTC YYYY-MM-DD>, file_log:[]}`（键序固定、无 eval 键、2 空格 pretty + 尾换行）+ explore.md goal 原文；已存在拒绝零副作用；sync、零 Tauri、仅依赖 foundation |
+| `packages/desktop/src-tauri/crates/core/workflow/src/write/create.rs` | change 创建域操作 | kebab-case（`^[a-z][a-z0-9]*(-[a-z0-9]+)*$`、≤128）+ goal 非空白校验；目录 + explore.md（goal 原文）+ db 建档三合一；无 workflow.json 产出；同名 active 冲突拒绝零副作用；sync、零 Tauri、落库经 port 缝 |
+| `packages/desktop/src-tauri/crates/infra/store/src/store.rs`（change 域操作面） | 建档半边 | `ChangeRecord` 写入（name 唯一、status=active）；与目录创建的双写顺序 / 失败补偿 design 定稿 |
 | `packages/desktop/src-tauri/crates/core/workflow/src/write/mod.rs` | 写面导出面 | 追加导出 `create`（入参 `&Layout` / name / goal；签名与返回 DTO 形状 design 定稿）；既有四操作导出不变 |
-| `packages/desktop/src-tauri/src/commands/changes/mod.rs`（change 域读 + 记录面命令组） | `create_change` IPC 命令（与三读命令同组） | 三件事薄包装；blank root → `Err`；`Result<T, String>`；返回 DTO 仅 `name` + `created`（路径不下沉）；`#[specta::specta]` |
+| `packages/desktop/src-tauri/src/commands/changes/mod.rs`（不改面） | `create_change` IPC 命令 | 三件事薄包装；blank root → `Err`；返回 DTO 仅 `name` + `created`（created 改取 db created_at，出线 ISO 口径不变）；`#[specta::specta]` |
 | `packages/desktop/src-tauri/src/commands/mod.rs` | 单一登记面 | `all_commands!` 追加 `create_change` |
 | `packages/desktop/src/types/generated/bindings.ts`（重导出） | 前端唯一 IPC 类型面 | `createChange` typed 包装 + 返回 DTO 出线；check/build 前置重导出 + diff 守卫既有管线 |
-| `packages/desktop/src/views/changes/components/change-create-dialog.test.tsx` 同目录 `change-create-dialog.tsx`（新） | 新建对话框 | toggle 展开；名称（kebab-case 本地校验）+ goal 必填；不合法禁提交不发起 invoke；错误行内呈现；data-testid 挂钩 |
+| `packages/desktop/src/views/changes/components/change-create-dialog.test.tsx` 同目录 `change-create-dialog.tsx`（不改） | 新建对话框 | 名称（kebab-case 本地校验）+ goal 必填；错误行内呈现；成功回调刷新 + 导航 |
 | `packages/desktop/src/views/changes/change-list-view.tsx` | 入口挂载与流转 | 挂新建对话框；成功回调 refresh 清单 + `navigate('/changes/<name>')` |
 | `packages/desktop/package.json` | 版本交付 | 0.4.0 → 0.4.1；`plugins/dev-team` 不动 |
+| `crates/core/workflow/src/write/create.rs` 内 workflow.json 初始文档写出段 | **（退役）** | 初始 workflow.json 写出职责随载体退役删除（`persist.rs` raw Value 保形改写退役见 desktop-workflow-write-face） |

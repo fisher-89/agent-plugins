@@ -1,20 +1,3 @@
-//! `port.rs`（编排 port 契约）的单元测试（test-design「port.rs -> port_test.rs」
-//! 节）：ToolCommand 六变体封闭集（match 穷尽编译期锚定，DecisionLog 为
-//! desktop-change-session-visibility 增量）、ToolStepOutput 载荷
-//! 换血（写面原生类型逐字段相等）、StaticCheckOutcome 字段面、StaticCheckRunner
-//! / DiffContextPort trait 面（object safety + Send+Sync 编译锚）、BoxDiffFuture
-//! 别名跨 await、既有三契约保持回归（AC-1 双缝装置前提）。
-//!
-//! Mock策略：五 port 内存假实现（注入依赖，入参例外）——Vec 记录调用序与载荷、
-//! 可编程产出 / Err(String)；trait 本身即注入面，真实实现分别在 steps_test /
-//! worker_test / snapshot_test / static_check_test / git_diff_test 组合。
-//!
-//! 废弃注记（test-design 废弃行，断言不落）：ToolCommand 含 ChangeFiles 变体、
-//! ToolStepError 三态映射两行随封闭集收缩与 `Result<_, String>` 换血退役——
-//! ChangeFiles / Spawn-Exit-Drift 断言不再存在即本节废弃行的承载形态（第六
-//! 变体 DecisionLog 为 desktop-change-session-visibility 在册增量，非废弃行
-//! 复活）。
-
 use std::sync::{Arc, Mutex};
 
 use agent::{AgentPermissionMode, AgentRunStatus, SessionProvenance};
@@ -264,7 +247,8 @@ fn tool_step_output各变体载荷写面原生类型逐字段相等() {
     let start = PhaseStartOutcome {
         phase: "implement".to_owned(),
         attempt: 2,
-        start_at: time::OffsetDateTime::now_utc(),
+        // 开相时刻 i64 UTC unix 毫秒（db 时间戳原样直透——ISO 转换不在此层）
+        start_at: 1_790_841_600_000,
     };
     let log = PhaseLogOutcome {
         phase: "implement".to_owned(),

@@ -3,9 +3,6 @@ name = "store"
 version = "0.1.0"
 edition = "2021"
 
-# db 边界基础设施：native_db / native_model 模型层 + dunce / serde 系依赖；
-# 仅依赖 `agent` 纯类型作嵌装载荷（禁 agent 域行为）；specta 为类型导出
-# derive（非 Tauri 系）；禁 Tauri。sha2 仅服务 workspace 库文件名哈希成分。
 [dependencies]
 agent = { workspace = true }
 dunce = { workspace = true }
@@ -15,6 +12,8 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 sha2 = { workspace = true }
 specta = { workspace = true }
+workflow = { workspace = true }
 
 [dev-dependencies]
+redb = "2"
 tempfile = { workspace = true }

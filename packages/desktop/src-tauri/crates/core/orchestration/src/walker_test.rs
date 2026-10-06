@@ -13,20 +13,23 @@ use crate::port::{
     ToolCommand, ToolStepOutput, ToolStepPort, ToolStepRequest, WorkerAgentPort, WorkerRole,
     WorkerTurnOutcome, WorkerTurnRequest, WorkflowSnapshotPort,
 };
-use crate::snapshot::FsSnapshot;
+use crate::snapshot::StoreSnapshot;
 use crate::state::{ChangeRunStatus, RunUpdate};
 use crate::steps::LocalToolSteps;
 use crate::walker::{
     new_run_id, walk_run, RunRequest, STATIC_CHECK_FEEDBACK_LIMIT, STATIC_CHECK_PHASES,
 };
-use workflow::model::Verdict;
+use store::Store;
+use workflow::model::{ChecklistItem, Verdict};
+use workflow::state::{ChangeStateRecord, ChangeStateStore, ChangeStatus, PhaseLogCommand};
 use workflow::write::{
     BacktrackOutcome, DecisionLogOutcome, LastResult, PhaseLogOutcome, PhaseNextError,
     PhaseNextOutcome, PhaseStartOutcome, SessionAnchors,
 };
 
 // ---------------------------------------------------------------------------
-// 装置：tempdir fixture（真实写面组合用例）
+// 装置：tempdir fixture + 真实 workspace 库（store 种子装置——workflow.json
+// 夹具随双向墙退役，状态种子改经 store change 域操作面）
 // ---------------------------------------------------------------------------
 
 /// 临时 workspace 根 RAII。
@@ -47,21 +50,11 @@ impl TempRoot {
         self.0.to_string_lossy().into_owned()
     }
 
-    fn change(&self, name: &str, workflow_json: &str) {
+    /// 预置一个 change 目录（active 树定位面；workflow.json 零产出——db 状态
+    /// 单源，磁盘仅产物发现）。
+    fn change(&self, name: &str) {
         let dir = self.0.join("openspec/changes").join(name);
         fs_create(&dir);
-        std::fs::write(dir.join("workflow.json"), workflow_json).expect("写 workflow.json 失败");
-    }
-
-    fn workflow_json(&self, name: &str) -> serde_json::Value {
-        let text = std::fs::read_to_string(
-            self.0
-                .join("openspec/changes")
-                .join(name)
-                .join("workflow.json"),
-        )
-        .expect("读 workflow.json 失败");
-        serde_json::from_str(&text).expect("workflow.json 应可解析")
     }
 }
 
@@ -77,6 +70,132 @@ fn fs_remove(dir: &std::path::Path) -> std::io::Result<()> {
 
 fn fs_create(dir: &std::path::Path) {
     std::fs::create_dir_all(dir).expect("创建 change 目录失败");
+}
+
+/// 种子基准时刻：2026-10-01T08:00:00Z 定值 UTC unix 毫秒（确定性断言面）。
+const TS_BASE: i64 = 1_790_841_600_000;
+
+/// 真实 workspace 库装置：tempfile db 文件（store crate dev-dep 真件组合，
+/// `Store::open_workspace` 即 `ChangeStateStore` 实现——进程边界真实组合，
+/// 沿 workflow crate dev-dep store 先例）。
+struct TestDb {
+    /// store 句柄（字段声明先于 db 目录：drop 序先关库再删目录，Windows 句柄
+    /// 纪律）
+    store: Arc<Store>,
+    _db_dir: tempfile::TempDir,
+}
+
+impl TestDb {
+    fn open(tag: &str) -> Self {
+        let db_dir = tempfile::Builder::new()
+            .prefix(&format!("orchestration-walker-test-{tag}-db-"))
+            .tempdir()
+            .expect("创建 db 临时目录失败");
+        let store =
+            Store::open_workspace(&db_dir.path().join("ws.redb")).expect("打开 workspace 库应成功");
+        Self {
+            store: Arc::new(store),
+            _db_dir: db_dir,
+        }
+    }
+
+    /// store 缝注入面（`Arc<dyn ChangeStateStore>` 类型擦除——LocalToolSteps /
+    /// StoreSnapshot 组合根同式装配）。
+    fn store_arc(&self) -> Arc<dyn ChangeStateStore> {
+        Arc::clone(&self.store) as Arc<dyn ChangeStateStore>
+    }
+}
+
+/// 建档种子：workflow_type requirement、active 起步（created_at 取定值毫秒）。
+fn seed_change(store: &Store, name: &str) {
+    store
+        .create_change_record(ChangeStateRecord {
+            name: name.to_owned(),
+            workflow_type: "requirement".to_owned(),
+            created_at: TS_BASE,
+            status: ChangeStatus::Active,
+            archived_at: None,
+            active_phase: None,
+        })
+        .expect("建档种子应成功");
+}
+
+/// 评估条目种子：开相 + 落账一条（store change 域操作面种子路径，active_phase
+/// 随落账清位——链路末态与真实 run 一致）。
+fn seed_entry(
+    store: &Store,
+    change: &str,
+    phase: &str,
+    verdict: Verdict,
+    report: &str,
+    checklist: Vec<ChecklistItem>,
+    ts: i64,
+) {
+    let started = store
+        .start_change_phase(change, phase, ts)
+        .expect("开相种子应成功");
+    store
+        .log_change_phase(&PhaseLogCommand {
+            change: change.to_owned(),
+            phase: phase.to_owned(),
+            verdict,
+            report: report.to_owned(),
+            skipped: false,
+            checklist,
+            executor_session_id: None,
+            evaluator_session_id: None,
+            decision_session_id: None,
+            start_at: Some(started.start_at),
+            timestamp: ts + 30_000,
+        })
+        .expect("落账种子应成功");
+}
+
+/// 决策分叉族种子（store 半边）：proposal pass / dev-design pass / implement
+/// fail 带 fail checklist——决策输入内容与既往 workflow.json fixture 同源。
+fn seed_decision_fixture(store: &Store) {
+    seed_change(store, CHANGE);
+    seed_entry(
+        store,
+        CHANGE,
+        "proposal",
+        Verdict::Pass,
+        "提案通过",
+        Vec::new(),
+        TS_BASE,
+    );
+    seed_entry(
+        store,
+        CHANGE,
+        "dev-design",
+        Verdict::Pass,
+        "设计齐备",
+        Vec::new(),
+        TS_BASE + 60_000,
+    );
+    seed_entry(
+        store,
+        CHANGE,
+        "implement",
+        Verdict::Fail,
+        "首轮未过",
+        vec![ChecklistItem {
+            item: "写面保形".to_owned(),
+            pass: false,
+            evidence: "custom_note 丢失".to_owned(),
+        }],
+        TS_BASE + 120_000,
+    );
+}
+
+/// 决策分叉族装置：tempdir change 目录（active 树定位面）+ 真实库种子
+///（决策输入取自 ChangeDetail 只读装配——db 读源真实组合）。
+fn decision_fixture(tag: &str) -> (TempRoot, TestDb) {
+    let root = TempRoot::new(tag);
+    root.change(CHANGE);
+    let db = TestDb::open(tag);
+    seed_decision_fixture(db.store.as_ref());
+    (root, db)
 }
 
 // ---------------------------------------------------------------------------
@@ -356,7 +475,8 @@ impl ToolStepPort for FakeTools {
                 let outcome = PhaseStartOutcome {
                     phase: phase.clone(),
                     attempt,
-                    start_at: time::OffsetDateTime::now_utc(),
+                    // 开相时刻 i64 UTC unix 毫秒（定值——确定性断言面）
+                    start_at: TS_BASE,
                 };
                 Box::pin(async move { Ok(ToolStepOutput::PhaseStart(outcome)) })
             }
@@ -552,19 +672,6 @@ fn failing_check(diagnostics: &str) -> StaticCheckOutcome {
 }
 
 const CHANGE: &str = "walker-change";
-
-/// 决策分叉族 fixture（三 entry：proposal pass / dev-design pass / implement
-/// fail 带 fail checklist）——真实 FsSnapshot 的决策输入来源（AC-2 有界输入）。
-const DECISION_FIXTURE: &str = r#"{
-  "workflow_type": "requirement",
-  "eval": [
-    { "phase": "proposal", "attempt": 1, "verdict": "pass", "report": "提案通过", "checklist": [], "timestamp": "2026-10-01T08:00:00Z" },
-    { "phase": "dev-design", "attempt": 1, "verdict": "pass", "report": "设计齐备", "checklist": [], "timestamp": "2026-10-01T08:10:00Z" },
-    { "phase": "implement", "attempt": 1, "verdict": "fail", "report": "首轮未过", "checklist": [
-      { "item": "写面保形", "pass": false, "evidence": "custom_note 丢失" }
-    ], "timestamp": "2026-10-01T08:20:00Z" }
-  ]
-}"#;
 
 /// run 驱动
 fn spawn_run(
@@ -787,25 +894,30 @@ async fn pass自动推进至done且载荷逐条对齐() {
 }
 
 /// walk_run 真实写面组合演进对照（边界）：walker + 假 WorkerAgentPort + 真实
-/// LocalToolSteps + tempdir 真盘 fixture——全程推进后 workflow.json 的
-/// active_phase / eval 演进与插件直跑形态对照一致（AC-1 尾句 + AC-9 对照口径
-/// 的循环级承载；转移判定恒问写面 phase-next——9 次路由调用的权威面）。
+/// LocalToolSteps（store 缝注入真实 workspace 库）——全程推进后 db 的
+/// PhaseRecord 演进与插件直跑形态对照一致（AC-1 尾句 + AC-9 对照口径的循环级
+/// 承载；转移判定恒问写面 phase-next——9 次路由调用的权威面）。
 #[tokio::test]
 async fn 真实写面组合全程演进对照一致() {
     let root = TempRoot::new("real-compose");
-    root.change(CHANGE, r#"{ "workflow_type": "requirement", "eval": [] }"#);
+    root.change(CHANGE);
+    let db = TestDb::open("real-compose");
+    seed_change(db.store.as_ref(), CHANGE);
 
     let timeline = Arc::new(Mutex::new(Vec::new()));
     let (worker, _requests, _sessions) = FakeWorker::new(&timeline).assemble();
-    // 真实 LocalToolSteps：命令捕获无独立缝——经 workflow.json 演进断言承载
+    // 真实 LocalToolSteps：命令捕获无独立缝——经 db PhaseRecord 演进断言承载
     //（进程内缝真实组合，最小 mock）
     let steps: Arc<dyn ToolStepPort> = Arc::new(LocalToolSteps::new(
         Arc::new(SessionAnchors::new()),
         Arc::new(NullRunner),
         Arc::new(NullTestExecutionRunner),
+        db.store_arc(),
+        "run-1".to_owned(),
     ));
     let (diff, _) = FakeDiff::new(vec![]).assemble();
-    let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(FsSnapshot::new(root.root_str()));
+    let snapshot: Arc<dyn WorkflowSnapshotPort> =
+        Arc::new(StoreSnapshot::new(root.root_str(), db.store_arc()));
     let control = Arc::new(ChangeFlowControl::new());
 
     let (task, _rx) = spawn_run(
@@ -825,14 +937,13 @@ async fn 真实写面组合全程演进对照一致() {
         "全相位 pass 收敛 completed"
     );
 
-    // eval 演进与插件直跑形态对照一致：8 相位各 1 条 pass（attempt 1、表序）
-    let doc = root.workflow_json(CHANGE);
-    let eval = doc["eval"].as_array().expect("eval 数组");
-    assert_eq!(eval.len(), 8, "八相位各落账一条");
-    let phases: Vec<&str> = eval
-        .iter()
-        .map(|entry| entry["phase"].as_str().expect("phase 串"))
-        .collect();
+    // 落库演进与插件直跑形态对照一致：8 相位各 1 条 pass（attempt 1、表序）
+    let entries = db
+        .store
+        .list_phase_records(CHANGE)
+        .expect("读相位条目应成功");
+    assert_eq!(entries.len(), 8, "八相位各落账一条");
+    let phases: Vec<&str> = entries.iter().map(|entry| entry.phase.as_str()).collect();
     assert_eq!(
         phases,
         [
@@ -847,57 +958,117 @@ async fn 真实写面组合全程演进对照一致() {
         ],
         "落账表序与插件相位表一致"
     );
-    for entry in eval {
-        assert_eq!(entry["verdict"], serde_json::json!("pass"));
-        assert_eq!(entry["attempt"], serde_json::json!(1));
+    for entry in &entries {
+        assert_eq!(entry.verdict, Verdict::Pass);
+        assert_eq!(entry.attempt, 1);
         assert!(
-            entry["report"].is_string() && entry["checklist"].is_array(),
-            "条目形状与插件 buildEntry 同形: {entry}"
+            !entry.report.is_empty() && !entry.checklist.is_empty(),
+            "条目形状与插件 buildEntry 同形: {entry:?}"
         );
         assert!(
-            entry.get("skipped").is_none() && entry.get("stale").is_none(),
-            "干净 run 无 skipped / stale 扩展字段"
+            !entry.skipped && !entry.stale,
+            "干净 run 无 skipped / stale 标记"
         );
     }
 
-    // active_phase 演进：逐相位开跑、落账清除 → 终态 null
+    // active_phase 演进：逐相位开跑、落账清除 → 终态清位
+    let record = db
+        .store
+        .find_change_record(CHANGE)
+        .expect("读建档记录应成功")
+        .expect("建档记录在场");
     assert!(
-        doc.get("active_phase").map_or(true, |v| v.is_null()),
+        record.active_phase.is_none(),
         "run 收口后 active_phase 清除"
-    );
-    // file_log 零触碰（AC-3 写面半边）：全程零新增
-    assert!(
-        doc.get("file_log").is_none(),
-        "desktop run 全程 file_log 零新增"
     );
 }
 
-/// walk_run 重入自 active_phase 续走（AC-7 续走半边）：预置中段 fixture
+/// walk_run 重入自 active_phase 续走（AC-7 续走半边）：预置中段 db 种子
 ///（前序相位已落 pass、active_phase 指向中段）——发起 run 首次 phase-next 即
 /// 解析到 active_phase、已 pass 相位零 phase-start / executor 调用；中断相位
 /// 承接重试（attempt 2）而非新开回合。
 #[tokio::test]
 async fn 重入自active_phase续走不重跑已pass相位() {
     let root = TempRoot::new("resume");
-    // 中段 fixture：proposal 已 pass、test-design 及其后已 pass、dev-design
-    // 中断残留（1 条 fail + active_phase attempt 2）
-    root.change(
+    let db = TestDb::open("resume");
+    // 中段种子：proposal 已 pass、test-design 及其后已 pass、dev-design
+    // 中断残留（1 条 fail），再开相 dev-design（attempt 事务内推导 = 2）
+    seed_change(db.store.as_ref(), CHANGE);
+    seed_entry(
+        db.store.as_ref(),
         CHANGE,
-        r#"{
-  "workflow_type": "requirement",
-  "eval": [
-    { "phase": "proposal", "attempt": 1, "verdict": "pass", "report": "提案通过", "checklist": [], "timestamp": "2026-10-01T08:00:00Z" },
-    { "phase": "dev-design", "attempt": 1, "verdict": "fail", "report": "中断前未过", "checklist": [], "timestamp": "2026-10-01T08:10:00Z" },
-    { "phase": "test-design", "attempt": 1, "verdict": "pass", "report": "测试设计通过", "checklist": [], "timestamp": "2026-10-01T08:20:00Z" },
-    { "phase": "implement", "attempt": 1, "verdict": "pass", "report": "实现通过", "checklist": [], "timestamp": "2026-10-01T08:30:00Z" },
-    { "phase": "test-gen", "attempt": 1, "verdict": "pass", "report": "测试通过", "checklist": [], "timestamp": "2026-10-01T08:40:00Z" },
-    { "phase": "test-execution", "attempt": 1, "verdict": "pass", "report": "执行通过", "checklist": [], "timestamp": "2026-10-01T08:50:00Z" },
-    { "phase": "code-review", "attempt": 1, "verdict": "pass", "report": "审查通过", "checklist": [], "timestamp": "2026-10-01T09:00:00Z" },
-    { "phase": "acceptance", "attempt": 1, "verdict": "pass", "report": "验收通过", "checklist": [], "timestamp": "2026-10-01T09:10:00Z" }
-  ],
-  "active_phase": { "phase": "dev-design", "attempt": 2, "start_at": "2026-10-01T08:15:00Z" }
-}"#,
+        "proposal",
+        Verdict::Pass,
+        "提案通过",
+        Vec::new(),
+        TS_BASE,
     );
+    seed_entry(
+        db.store.as_ref(),
+        CHANGE,
+        "dev-design",
+        Verdict::Fail,
+        "中断前未过",
+        Vec::new(),
+        TS_BASE + 60_000,
+    );
+    seed_entry(
+        db.store.as_ref(),
+        CHANGE,
+        "test-design",
+        Verdict::Pass,
+        "测试设计通过",
+        Vec::new(),
+        TS_BASE + 120_000,
+    );
+    seed_entry(
+        db.store.as_ref(),
+        CHANGE,
+        "implement",
+        Verdict::Pass,
+        "实现通过",
+        Vec::new(),
+        TS_BASE + 180_000,
+    );
+    seed_entry(
+        db.store.as_ref(),
+        CHANGE,
+        "test-gen",
+        Verdict::Pass,
+        "测试通过",
+        Vec::new(),
+        TS_BASE + 240_000,
+    );
+    seed_entry(
+        db.store.as_ref(),
+        CHANGE,
+        "test-execution",
+        Verdict::Pass,
+        "执行通过",
+        Vec::new(),
+        TS_BASE + 300_000,
+    );
+    seed_entry(
+        db.store.as_ref(),
+        CHANGE,
+        "code-review",
+        Verdict::Pass,
+        "审查通过",
+        Vec::new(),
+        TS_BASE + 360_000,
+    );
+    seed_entry(
+        db.store.as_ref(),
+        CHANGE,
+        "acceptance",
+        Verdict::Pass,
+        "验收通过",
+        Vec::new(),
+        TS_BASE + 420_000,
+    );
+    db.store
+        .start_change_phase(CHANGE, "dev-design", TS_BASE + 450_000)
+        .expect("中断相位开相种子应成功");
 
     let timeline = Arc::new(Mutex::new(Vec::new()));
     let (worker, requests, _sessions) = FakeWorker::new(&timeline).assemble();
@@ -905,9 +1076,12 @@ async fn 重入自active_phase续走不重跑已pass相位() {
         Arc::new(SessionAnchors::new()),
         Arc::new(NullRunner),
         Arc::new(NullTestExecutionRunner),
+        db.store_arc(),
+        "run-1".to_owned(),
     ));
     let (diff, _) = FakeDiff::new(vec![]).assemble();
-    let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(FsSnapshot::new(root.root_str()));
+    let snapshot: Arc<dyn WorkflowSnapshotPort> =
+        Arc::new(StoreSnapshot::new(root.root_str(), db.store_arc()));
     let control = Arc::new(ChangeFlowControl::new());
 
     let (task, _rx) = spawn_run(
@@ -948,14 +1122,24 @@ async fn 重入自active_phase续走不重跑已pass相位() {
     );
     drop(requests);
 
-    // 落盘演进：dev-design 追加 pass 条目（attempt 2）、active_phase 清除
-    let doc = root.workflow_json(CHANGE);
-    let eval = doc["eval"].as_array().expect("eval 数组");
-    assert_eq!(eval.len(), 9, "dev-design 重评条目纯追加（既有 8 + 1）");
-    assert_eq!(eval[8]["phase"], serde_json::json!("dev-design"));
-    assert_eq!(eval[8]["attempt"], serde_json::json!(2));
-    assert_eq!(eval[8]["verdict"], serde_json::json!("pass"));
-    assert!(doc.get("active_phase").map_or(true, |v| v.is_null()));
+    // 落库演进：dev-design 追加 pass 条目（attempt 2）、active_phase 清位
+    let entries = db
+        .store
+        .list_phase_records(CHANGE)
+        .expect("读相位条目应成功");
+    assert_eq!(entries.len(), 9, "dev-design 重评条目纯追加（既有 8 + 1）");
+    assert_eq!(entries[8].phase, "dev-design");
+    assert_eq!(entries[8].attempt, 2);
+    assert_eq!(entries[8].verdict, Verdict::Pass);
+    let record = db
+        .store
+        .find_change_record(CHANGE)
+        .expect("读建档记录应成功")
+        .expect("建档记录在场");
+    assert!(
+        record.active_phase.is_none(),
+        "run 收口后 active_phase 清位"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -1016,8 +1200,7 @@ async fn fail预算内重试attempt递增重跑() {
 /// 写面下发白名单 + 候选相位 eval report 取自 snapshot detail——AC-2 唤起半边）。
 #[tokio::test]
 async fn 决策分叉唤起恰一次且输入有界() {
-    let root = TempRoot::new("decision-input");
-    root.change(CHANGE, DECISION_FIXTURE);
+    let (root, db) = decision_fixture("decision-input");
 
     let timeline = Arc::new(Mutex::new(Vec::new()));
     let (worker, requests, sessions) = FakeWorker::new(&timeline).assemble();
@@ -1035,8 +1218,9 @@ async fn 决策分叉唤起恰一次且输入有界() {
         ])
         .assemble();
     let (diff, _) = FakeDiff::new(vec![]).assemble();
-    // 真实快照源：决策输入取自 ChangeDetail 只读装配（AC-2 有界输入来源）
-    let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(FsSnapshot::new(root.root_str()));
+    // 真实快照源：决策输入取自 ChangeDetail 只读装配（db 读源——AC-2 有界输入来源）
+    let snapshot: Arc<dyn WorkflowSnapshotPort> =
+        Arc::new(StoreSnapshot::new(root.root_str(), db.store_arc()));
     let control = Arc::new(ChangeFlowControl::new());
 
     let (task, _rx) = spawn_run(
@@ -1100,8 +1284,7 @@ async fn 决策分叉唤起恰一次且输入有界() {
 /// Backtrack 携 allowed 白名单发起 → 目标相位自该处重跑（AC-2 执行半边）。
 #[tokio::test]
 async fn backtrack决议携白名单执行并重路由() {
-    let root = TempRoot::new("backtrack-decision");
-    root.change(CHANGE, DECISION_FIXTURE);
+    let (root, db) = decision_fixture("backtrack-decision");
 
     let timeline = Arc::new(Mutex::new(Vec::new()));
     let (worker, _requests, _) = FakeWorker::new(&timeline)
@@ -1123,8 +1306,9 @@ async fn backtrack决议携白名单执行并重路由() {
         ])
         .assemble();
     let (diff, _) = FakeDiff::new(vec![]).assemble();
-    // 真实快照源：决策会话的 detail 读取（决策输入面）
-    let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(FsSnapshot::new(root.root_str()));
+    // 真实快照源：决策会话的 detail 读取（db 读源——决策输入面）
+    let snapshot: Arc<dyn WorkflowSnapshotPort> =
+        Arc::new(StoreSnapshot::new(root.root_str(), db.store_arc()));
     let control = Arc::new(ChangeFlowControl::new());
 
     let (task, _rx) = spawn_run(
@@ -1230,8 +1414,7 @@ async fn retry预算内决策agent零调用() {
 /// 兜底见 backtrack_test——AC-2）。
 #[tokio::test]
 async fn 越权backtrack预校验拒绝零发起() {
-    let root = TempRoot::new("overreach-decision");
-    root.change(CHANGE, DECISION_FIXTURE);
+    let (root, db) = decision_fixture("overreach-decision");
 
     let timeline = Arc::new(Mutex::new(Vec::new()));
     let (worker, _requests, _) = FakeWorker::new(&timeline)
@@ -1251,8 +1434,9 @@ async fn 越权backtrack预校验拒绝零发起() {
         ])
         .assemble();
     let (diff, _) = FakeDiff::new(vec![]).assemble();
-    // 真实快照源：决策会话的 detail 读取（越权决议走完快照面后由白名单门拦下）
-    let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(FsSnapshot::new(root.root_str()));
+    // 真实快照源：决策会话的 detail 读取（db 读源；越权决议走完快照面后由白名单门拦下）
+    let snapshot: Arc<dyn WorkflowSnapshotPort> =
+        Arc::new(StoreSnapshot::new(root.root_str(), db.store_arc()));
     let control = Arc::new(ChangeFlowControl::new());
 
     let (task, mut rx) = spawn_run(
@@ -1301,8 +1485,7 @@ async fn 越权backtrack预校验拒绝零发起() {
 ///（AC-2 ask 半边）。
 #[tokio::test]
 async fn ask中断与应答回流continue决策会话() {
-    let root = TempRoot::new("ask-decision");
-    root.change(CHANGE, DECISION_FIXTURE);
+    let (root, db) = decision_fixture("ask-decision");
 
     let timeline = Arc::new(Mutex::new(Vec::new()));
     let (worker, requests, sessions) = FakeWorker::new(&timeline)
@@ -1325,8 +1508,9 @@ async fn ask中断与应答回流continue决策会话() {
         ])
         .assemble();
     let (diff, _) = FakeDiff::new(vec![]).assemble();
-    // 真实快照源：决策会话的 detail 读取（ask 挂起前的输入面）
-    let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(FsSnapshot::new(root.root_str()));
+    // 真实快照源：决策会话的 detail 读取（db 读源——ask 挂起前的输入面）
+    let snapshot: Arc<dyn WorkflowSnapshotPort> =
+        Arc::new(StoreSnapshot::new(root.root_str(), db.store_arc()));
     let control = Arc::new(ChangeFlowControl::new());
 
     let (task, mut rx) = spawn_run(
@@ -1753,8 +1937,7 @@ async fn auto确认写面失败显式failed零confirmwait() {
 
 #[tokio::test]
 async fn auto确认ask照常停等应答回流后收敛全程零confirmwait() {
-    let root = TempRoot::new("auto-ask");
-    root.change(CHANGE, DECISION_FIXTURE);
+    let (root, db) = decision_fixture("auto-ask");
 
     let timeline = Arc::new(Mutex::new(Vec::new()));
     let (worker, requests, sessions) = FakeWorker::new(&timeline)
@@ -1777,8 +1960,9 @@ async fn auto确认ask照常停等应答回流后收敛全程零confirmwait() {
         ])
         .assemble();
     let (diff, _) = FakeDiff::new(vec![]).assemble();
-    // 真实快照源：决策会话的 detail 读取真实组合（tempdir 真盘 DECISION_FIXTURE）
-    let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(FsSnapshot::new(root.root_str()));
+    // 真实快照源：决策会话的 detail 读取真实组合（db 种子——StoreSnapshot 读源）
+    let snapshot: Arc<dyn WorkflowSnapshotPort> =
+        Arc::new(StoreSnapshot::new(root.root_str(), db.store_arc()));
     let control = Arc::new(ChangeFlowControl::new());
 
     let (task, mut rx) = spawn_run(
@@ -2284,8 +2468,7 @@ async fn 工具步失败显式failed且原因流出() {
 ///（仅剩 retry / stop / ask 出口——AC-2）。
 #[tokio::test]
 async fn 空白名单backtrack决议被拒() {
-    let root = TempRoot::new("empty-whitelist-decision");
-    root.change(CHANGE, DECISION_FIXTURE);
+    let (root, db) = decision_fixture("empty-whitelist-decision");
 
     let timeline = Arc::new(Mutex::new(Vec::new()));
     let (worker, requests, _) = FakeWorker::new(&timeline)
@@ -2301,8 +2484,9 @@ async fn 空白名单backtrack决议被拒() {
         ])
         .assemble();
     let (diff, _) = FakeDiff::new(vec![]).assemble();
-    // 真实快照源：决策会话的 detail 读取（空白名单出口的决策输入面）
-    let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(FsSnapshot::new(root.root_str()));
+    // 真实快照源：决策会话的 detail 读取（db 读源——空白名单出口的决策输入面）
+    let snapshot: Arc<dyn WorkflowSnapshotPort> =
+        Arc::new(StoreSnapshot::new(root.root_str(), db.store_arc()));
     let control = Arc::new(ChangeFlowControl::new());
 
     let (task, _rx) = spawn_run(
@@ -2360,14 +2544,16 @@ fn 步门控常量锚定() {
 // AC-5：会话槽位落账与决策挂账（desktop-change-session-visibility）
 // ---------------------------------------------------------------------------
 
-/// walk_run 真实写面组合（LocalToolSteps + TempRoot 真盘）：verdict 条目落账
-/// 携 executor + evaluator 双槽位、值自 `WorkerTurnOutcome.session_id` 与假
-/// 引擎会话序逐一对应；decision 槽位在 verdict 落账时恒缺省（D5），决策会话
+/// walk_run 真实写面组合（LocalToolSteps + store 缝真实 workspace 库）：verdict
+/// 条目落库携 executor + evaluator 双槽位、值自 `WorkerTurnOutcome.session_id`
+/// 与假引擎会话序逐一对应；decision 槽位在 verdict 落账时恒缺省（D5），决策会话
 /// 收口后经 decision_log 写面单点定点挂账（AC-5 全链真实组合）。
 #[tokio::test]
 async fn 真实写面组合_会话槽位落账与决策挂账全链对应() {
     let root = TempRoot::new("slots-real-compose");
-    root.change(CHANGE, r#"{ "workflow_type": "requirement", "eval": [] }"#);
+    root.change(CHANGE);
+    let db = TestDb::open("slots-real-compose");
+    seed_change(db.store.as_ref(), CHANGE);
 
     let timeline = Arc::new(Mutex::new(Vec::new()));
     let (worker, _requests, sessions) = FakeWorker::new(&timeline)
@@ -2386,9 +2572,12 @@ async fn 真实写面组合_会话槽位落账与决策挂账全链对应() {
         Arc::new(SessionAnchors::new()),
         Arc::new(NullRunner),
         Arc::new(NullTestExecutionRunner),
+        db.store_arc(),
+        "run-1".to_owned(),
     ));
     let (diff, _) = FakeDiff::new(vec![]).assemble();
-    let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(FsSnapshot::new(root.root_str()));
+    let snapshot: Arc<dyn WorkflowSnapshotPort> =
+        Arc::new(StoreSnapshot::new(root.root_str(), db.store_arc()));
     let control = Arc::new(ChangeFlowControl::new());
 
     let (task, _rx) = spawn_run(
@@ -2414,46 +2603,50 @@ async fn 真实写面组合_会话槽位落账与决策挂账全链对应() {
     assert_eq!(decisions.len(), 1, "决策会话恰一轮（收口即 completed）");
     drop(sessions);
 
-    // verdict 条目落账：executor / evaluator 槽位与会话序逐一对应（取值自
+    // verdict 条目落库：executor / evaluator 槽位与会话序逐一对应（取值自
     // WorkerTurnOutcome.session_id——AC-5）
-    let doc = root.workflow_json(CHANGE);
-    let eval = doc["eval"].as_array().expect("eval 数组");
-    assert_eq!(eval.len(), 5, "五条 fail 条目纯追加");
-    for (idx, entry) in eval.iter().enumerate() {
-        assert_eq!(entry["phase"], serde_json::json!("proposal"));
-        assert_eq!(entry["verdict"], serde_json::json!("fail"));
+    let entries = db
+        .store
+        .list_phase_records(CHANGE)
+        .expect("读相位条目应成功");
+    assert_eq!(entries.len(), 5, "五条 fail 条目纯追加");
+    for (idx, entry) in entries.iter().enumerate() {
+        assert_eq!(entry.phase, "proposal");
+        assert_eq!(entry.verdict, Verdict::Fail);
         assert_eq!(
-            entry["executor_session_id"],
-            serde_json::json!(executors[idx]),
+            entry.executor_session_id.as_deref(),
+            Some(executors[idx].as_str()),
             "executor 槽位与会话序逐一对应"
         );
         assert_eq!(
-            entry["evaluator_session_id"],
-            serde_json::json!(evaluators[idx]),
+            entry.evaluator_session_id.as_deref(),
+            Some(evaluators[idx].as_str()),
             "evaluator 槽位随行落账"
         );
     }
     // verdict 落账时 decision 槽位恒缺省（D5）；决策收口后最新条目定点挂账
-    for entry in eval.iter().take(4) {
+    for entry in entries.iter().take(4) {
         assert!(
-            entry.get("decision_session_id").is_none(),
-            "verdict 条目落账无 decision 槽位键"
+            entry.decision_session_id.is_none(),
+            "verdict 条目落账无 decision 槽位"
         );
     }
     assert_eq!(
-        eval[4]["decision_session_id"],
-        serde_json::json!(decisions[0]),
+        entries[4].decision_session_id.as_deref(),
+        Some(decisions[0].as_str()),
         "决策会话收口后其 id 记录在案（walk_run → LocalToolSteps → decision_log 写面）"
     );
 }
 
 /// 挂账先于决策解析（真实组合链留痕）：决策会话产出漂移文本 → parse 失败路
-/// 径 run 显式 failed，但 workflow.json 最新条目已携 decision_session_id——
-/// 写挂时机在 parse 之前，parse 失败同样留痕。
+/// 径 run 显式 failed，但 db 最新条目已携 decision_session_id——写挂时机在
+/// parse 之前，parse 失败同样留痕。
 #[tokio::test]
 async fn 真实写面组合_决策挂账先于解析_parse失败同样留痕() {
     let root = TempRoot::new("relog-before-parse");
-    root.change(CHANGE, r#"{ "workflow_type": "requirement", "eval": [] }"#);
+    root.change(CHANGE);
+    let db = TestDb::open("relog-before-parse");
+    seed_change(db.store.as_ref(), CHANGE);
 
     let timeline = Arc::new(Mutex::new(Vec::new()));
     let (worker, _requests, sessions) = FakeWorker::new(&timeline)
@@ -2470,9 +2663,12 @@ async fn 真实写面组合_决策挂账先于解析_parse失败同样留痕() {
         Arc::new(SessionAnchors::new()),
         Arc::new(NullRunner),
         Arc::new(NullTestExecutionRunner),
+        db.store_arc(),
+        "run-1".to_owned(),
     ));
     let (diff, _) = FakeDiff::new(vec![]).assemble();
-    let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(FsSnapshot::new(root.root_str()));
+    let snapshot: Arc<dyn WorkflowSnapshotPort> =
+        Arc::new(StoreSnapshot::new(root.root_str(), db.store_arc()));
     let control = Arc::new(ChangeFlowControl::new());
 
     let (task, mut rx) = spawn_run(
@@ -2510,33 +2706,54 @@ async fn 真实写面组合_决策挂账先于解析_parse失败同样留痕() {
     let decisions = sessions_of(&sessions, WorkerRole::Decision);
     assert_eq!(decisions.len(), 1);
     drop(sessions);
-    let doc = root.workflow_json(CHANGE);
-    let eval = doc["eval"].as_array().expect("eval 数组");
-    assert_eq!(eval.len(), 5);
+    let entries = db
+        .store
+        .list_phase_records(CHANGE)
+        .expect("读相位条目应成功");
+    assert_eq!(entries.len(), 5);
     assert_eq!(
-        eval[4]["decision_session_id"],
-        serde_json::json!(decisions[0]),
+        entries[4].decision_session_id.as_deref(),
+        Some(decisions[0].as_str()),
         "parse 失败路径同样留痕"
     );
 }
 
-/// static-check 反馈边超限升格（真实组合链）：fail 条目仅携 executor 单键
+/// static-check 反馈边超限升格（真实组合链）：fail 条目仅携 executor 单槽位
 ///（evaluator 未跑无会话可记）；反馈修复轮 Continue 同 executor 会话——槽位
 /// 值续注不漂移；决策 stop 收口后最新 fail 条目携 decision 挂账键。前置三相
-/// 位预置 pass（fixture 让 implement 站先行——升格门控相位）。
+/// 位预置 pass（db 种子让 implement 站先行——升格门控相位）。
 #[tokio::test]
 async fn 真实写面组合_升格fail条目仅携executor槽位且修复轮续注同会话() {
     let root = TempRoot::new("upgrade-slots");
-    root.change(
+    root.change(CHANGE);
+    let db = TestDb::open("upgrade-slots");
+    seed_change(db.store.as_ref(), CHANGE);
+    seed_entry(
+        db.store.as_ref(),
         CHANGE,
-        r#"{
-  "workflow_type": "requirement",
-  "eval": [
-    { "phase": "proposal", "attempt": 1, "verdict": "pass", "report": "提案通过", "checklist": [], "timestamp": "2026-10-01T08:00:00Z" },
-    { "phase": "dev-design", "attempt": 1, "verdict": "pass", "report": "设计通过", "checklist": [], "timestamp": "2026-10-01T08:10:00Z" },
-    { "phase": "test-design", "attempt": 1, "verdict": "pass", "report": "测试设计通过", "checklist": [], "timestamp": "2026-10-01T08:20:00Z" }
-  ]
-}"#,
+        "proposal",
+        Verdict::Pass,
+        "提案通过",
+        Vec::new(),
+        TS_BASE,
+    );
+    seed_entry(
+        db.store.as_ref(),
+        CHANGE,
+        "dev-design",
+        Verdict::Pass,
+        "设计通过",
+        Vec::new(),
+        TS_BASE + 60_000,
+    );
+    seed_entry(
+        db.store.as_ref(),
+        CHANGE,
+        "test-design",
+        Verdict::Pass,
+        "测试设计通过",
+        Vec::new(),
+        TS_BASE + 120_000,
     );
 
     let timeline = Arc::new(Mutex::new(Vec::new()));
@@ -2549,9 +2766,12 @@ async fn 真实写面组合_升格fail条目仅携executor槽位且修复轮续�
         Arc::new(SessionAnchors::new()),
         Arc::new(FailingRunner),
         Arc::new(NullTestExecutionRunner),
+        db.store_arc(),
+        "run-1".to_owned(),
     ));
     let (diff, _) = FakeDiff::new(vec![]).assemble();
-    let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(FsSnapshot::new(root.root_str()));
+    let snapshot: Arc<dyn WorkflowSnapshotPort> =
+        Arc::new(StoreSnapshot::new(root.root_str(), db.store_arc()));
     let control = Arc::new(ChangeFlowControl::new());
 
     let (task, _rx) = spawn_run(
@@ -2616,30 +2836,29 @@ async fn 真实写面组合_升格fail条目仅携executor槽位且修复轮续�
     }
     drop(requests);
 
-    // fail 条目仅携 executor 单键（evaluator 未跑）；最新条目携决策挂账键
-    let doc = root.workflow_json(CHANGE);
-    let eval = doc["eval"].as_array().expect("eval 数组");
-    assert_eq!(eval.len(), 8, "预置三条 pass + 五轮升格 fail 纯追加");
-    let upgrades = &eval[3..];
+    // fail 条目仅携 executor 单槽位（evaluator 未跑）；最新条目携决策挂账键
+    let entries = db
+        .store
+        .list_phase_records(CHANGE)
+        .expect("读相位条目应成功");
+    assert_eq!(entries.len(), 8, "预置三条 pass + 五轮升格 fail 纯追加");
+    let upgrades = &entries[3..];
     for (idx, entry) in upgrades.iter().enumerate() {
-        assert_eq!(entry["phase"], serde_json::json!("implement"));
-        assert_eq!(entry["verdict"], serde_json::json!("fail"));
+        assert_eq!(entry.phase, "implement");
+        assert_eq!(entry.verdict, Verdict::Fail);
         assert_eq!(
-            entry["executor_session_id"],
-            serde_json::json!(attempt_sessions[idx]),
+            entry.executor_session_id.as_deref(),
+            Some(attempt_sessions[idx].as_str()),
             "fail 条目仅携 executor 槽位、值续注该轮首发会话"
         );
-        assert!(
-            entry.get("evaluator_session_id").is_none(),
-            "evaluator 未跑无槽位键"
-        );
+        assert!(entry.evaluator_session_id.is_none(), "evaluator 未跑无槽位");
     }
     for entry in upgrades.iter().take(4) {
-        assert!(entry.get("decision_session_id").is_none());
+        assert!(entry.decision_session_id.is_none());
     }
     assert_eq!(
-        upgrades[4]["decision_session_id"],
-        serde_json::json!(decisions[0]),
+        upgrades[4].decision_session_id.as_deref(),
+        Some(decisions[0].as_str()),
         "决策收口后最新 fail 条目定点挂账"
     );
 }
@@ -2649,8 +2868,7 @@ async fn 真实写面组合_升格fail条目仅携executor槽位且修复轮续�
 /// 之后、phase-next 重路由之前。
 #[tokio::test]
 async fn 决策会话收口即挂账_decisionlog载荷逐字段捕获() {
-    let root = TempRoot::new("decisionlog-capture");
-    root.change(CHANGE, DECISION_FIXTURE);
+    let (root, db) = decision_fixture("decisionlog-capture");
 
     let timeline = Arc::new(Mutex::new(Vec::new()));
     let (worker, _requests, sessions) = FakeWorker::new(&timeline).assemble();
@@ -2666,7 +2884,8 @@ async fn 决策会话收口即挂账_decisionlog载荷逐字段捕获() {
         ])
         .assemble();
     let (diff, _) = FakeDiff::new(vec![]).assemble();
-    let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(FsSnapshot::new(root.root_str()));
+    let snapshot: Arc<dyn WorkflowSnapshotPort> =
+        Arc::new(StoreSnapshot::new(root.root_str(), db.store_arc()));
     let control = Arc::new(ChangeFlowControl::new());
 
     let (task, _rx) = spawn_run(
@@ -2721,8 +2940,7 @@ async fn 决策会话收口即挂账_decisionlog载荷逐字段捕获() {
 /// 记因为挂账失败即「挂账先于解析」的结构证明（写面严格语义，不静默吞）。
 #[tokio::test]
 async fn 决策挂账失败显式failed且未达解析() {
-    let root = TempRoot::new("decisionlog-fail");
-    root.change(CHANGE, DECISION_FIXTURE);
+    let (root, db) = decision_fixture("decisionlog-fail");
 
     let timeline = Arc::new(Mutex::new(Vec::new()));
     let (worker, _requests, _sessions) = FakeWorker::new(&timeline)
@@ -2740,7 +2958,8 @@ async fn 决策挂账失败显式failed且未达解析() {
         .fail_on("decision-log")
         .assemble();
     let (diff, _) = FakeDiff::new(vec![]).assemble();
-    let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(FsSnapshot::new(root.root_str()));
+    let snapshot: Arc<dyn WorkflowSnapshotPort> =
+        Arc::new(StoreSnapshot::new(root.root_str(), db.store_arc()));
     let control = Arc::new(ChangeFlowControl::new());
 
     let (task, mut rx) = spawn_run(
@@ -2784,8 +3003,7 @@ async fn 决策挂账失败显式failed且未达解析() {
 /// DecisionLog 调用序两次且载荷逐字段相同（写面幂等覆写的调用方面）。
 #[tokio::test]
 async fn ask续轮同会话重挂同值幂等() {
-    let root = TempRoot::new("ask-relog");
-    root.change(CHANGE, DECISION_FIXTURE);
+    let (root, db) = decision_fixture("ask-relog");
 
     let timeline = Arc::new(Mutex::new(Vec::new()));
     let (worker, requests, sessions) = FakeWorker::new(&timeline)
@@ -2805,7 +3023,8 @@ async fn ask续轮同会话重挂同值幂等() {
         ])
         .assemble();
     let (diff, _) = FakeDiff::new(vec![]).assemble();
-    let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(FsSnapshot::new(root.root_str()));
+    let snapshot: Arc<dyn WorkflowSnapshotPort> =
+        Arc::new(StoreSnapshot::new(root.root_str(), db.store_arc()));
     let control = Arc::new(ChangeFlowControl::new());
 
     let (task, mut rx) = spawn_run(
@@ -2869,8 +3088,7 @@ async fn ask续轮同会话重挂同值幂等() {
 /// 改」口径）：决策挂账全程更新流的步词汇封闭于既有九词，无新步状态信封。
 #[tokio::test]
 async fn 步状态词汇零新增_决策挂账全程无新步信封() {
-    let root = TempRoot::new("vocab-closed");
-    root.change(CHANGE, DECISION_FIXTURE);
+    let (root, db) = decision_fixture("vocab-closed");
 
     let timeline = Arc::new(Mutex::new(Vec::new()));
     let (worker, _, _) = FakeWorker::new(&timeline).assemble();
@@ -2886,7 +3104,8 @@ async fn 步状态词汇零新增_决策挂账全程无新步信封() {
         ])
         .assemble();
     let (diff, _) = FakeDiff::new(vec![]).assemble();
-    let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(FsSnapshot::new(root.root_str()));
+    let snapshot: Arc<dyn WorkflowSnapshotPort> =
+        Arc::new(StoreSnapshot::new(root.root_str(), db.store_arc()));
     let control = Arc::new(ChangeFlowControl::new());
 
     let (task, mut rx) = spawn_run(
@@ -2933,7 +3152,7 @@ async fn 步状态词汇零新增_决策挂账全程无新步信封() {
 }
 
 // ---------------------------------------------------------------------------
-// 装置：无产出快照占位（假双缝用例不触快照面——决策分叉用例另用真实 FsSnapshot）
+// 装置：无产出快照占位（假双缝用例不触快照面——决策分叉用例另用真实 StoreSnapshot）
 // ---------------------------------------------------------------------------
 
 /// 决策分叉未触发的用例的快照占位（walker 仅在 MaxRetriesExceeded 分叉读快照）。

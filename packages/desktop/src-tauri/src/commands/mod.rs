@@ -24,6 +24,7 @@ macro_rules! all_commands {
             $crate::commands::changes::list_changes,
             $crate::commands::changes::get_change_detail,
             $crate::commands::changes::read_artifact,
+            $crate::commands::changes::archive_change,
             $crate::commands::workspaces::list_workspaces,
             $crate::commands::workspaces::add_workspace,
             $crate::commands::workspaces::remove_workspace,

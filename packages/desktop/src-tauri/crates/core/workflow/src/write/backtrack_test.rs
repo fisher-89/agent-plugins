@@ -1,479 +1,509 @@
 //! `write::backtrack` 的单元测试（test-design「backtrack.rs ->
-//! backtrack_test.rs」节）：白名单二次校验（越权 Err 不写——坏决议损坏不了
-//! 状态）、reason 长度门、最新条目标记 backtrack_to / backtrack_reason、stale
-//! 标记与相位表依赖向后传播。
+//! backtrack_test.rs」节）：回跳写操作 port 落库——白名单二次校验（越权 Err
+//! 零写）、双端表位（目标不超前）、reason ≤500、发起相位条目在位校验，全部
+//! 前置保留；stale 闭包计算自 persist 迁入本文件——[`BacktrackCommand
+//! .stale_dependents`] = `dependents` BFS 全量闭包（不含目标自身），逐支核对
+//! 与末端空闭包边界；`StoreFault` 故障传播。
 //!
-//! Mock策略：无进程边界 mock（fs 真实组合）——tempdir 真实 change fixture
-//! 真盘；「越权 / 超长零写入」以调用前后字节比对断言（沿原工具侧字节比对
-//! 装置口径迁入写面）。
+//! Mock策略（test-design 本节 Mock 表）：进程内假件实现 trait（捕获
+//! BacktrackCommand 与 stale_dependents 闭包逐项比对 + 可编程故障）；
+//! `phase_table` 真实组合（不变组件零 mock——闭包期望值按 requirement 前置
+//! 表手工推导）。零写断言 = 假件写命令捕获表为空。
 
-use std::fs;
-use std::path::PathBuf;
-
-use foundation::layout::resolve;
+use std::sync::Mutex;
 
 use super::backtrack::{backtrack, BacktrackInput};
-
-/// 临时 workspace 根 RAII（沿 detail_test 装置先例）。
-struct TempWs(PathBuf);
-
-impl TempWs {
-    fn new(tag: &str) -> Self {
-        let dir = std::env::temp_dir().join(format!(
-            "workflow-backtrack-test-{}-{}",
-            std::process::id(),
-            tag
-        ));
-        let _ = fs::remove_dir_all(&dir);
-        Self(dir)
-    }
-
-    fn change(&self, name: &str, workflow_json: &str) {
-        let dir = self.0.join("openspec/changes").join(name);
-        fs::create_dir_all(&dir).expect("创建 change 目录失败");
-        fs::write(dir.join("workflow.json"), workflow_json).expect("写 workflow.json 失败");
-    }
-
-    fn workflow_json_bytes(&self, name: &str) -> Vec<u8> {
-        fs::read(
-            self.0
-                .join("openspec/changes")
-                .join(name)
-                .join("workflow.json"),
-        )
-        .expect("读 workflow.json 失败")
-    }
-
-    fn run(
-        &self,
-        name: &str,
-        input: &BacktrackInput,
-    ) -> Result<super::backtrack::BacktrackOutcome, String> {
-        let layout = resolve(&self.0);
-        backtrack(&layout, name, input)
-    }
-}
-
-impl Drop for TempWs {
-    fn drop(&mut self) {
-        let _ = fs::remove_dir_all(&self.0);
-    }
-}
-
-fn parse_of(ws: &TempWs, name: &str) -> serde_json::Value {
-    let text = String::from_utf8(ws.workflow_json_bytes(name)).expect("workflow.json 应为 UTF-8");
-    serde_json::from_str(&text).expect("应可再解析")
-}
-
-/// 全相位 pass 历史 fixture（stale 传播断言的底座；条目按表序）。
-fn full_pass_history() -> String {
-    let phases = [
-        ("proposal", "08:00:00Z"),
-        ("dev-design", "08:10:00Z"),
-        ("test-design", "08:20:00Z"),
-        ("implement", "08:30:00Z"),
-        ("test-gen", "08:40:00Z"),
-        ("test-execution", "08:50:00Z"),
-        ("code-review", "09:00:00Z"),
-        ("acceptance", "09:10:00Z"),
-    ];
-    let entries = phases
-        .iter()
-        .enumerate()
-        .map(|(idx, (phase, ts))| {
-            format!(
-                r#"
-    {{ "phase": "{phase}", "attempt": {}, "verdict": "pass", "report": "{phase} 通过", "checklist": [], "timestamp": "2026-10-01T{ts}" }}"#,
-                idx + 1
-            )
-        })
-        .collect::<Vec<_>>()
-        .join(",");
-    format!(
-        r#"{{
-  "workflow_type": "requirement",
-  "eval": [{entries}
-  ]
-}}"#
-    )
-}
+use crate::model::Verdict;
+use crate::state::{
+    BacktrackCommand, ChangeStateRecord, ChangeStateStore, ChangeStatus, PhaseLogCommand,
+    PhaseStateRecord, StepCommand, StepStateRecord, StoreFault,
+};
 
 const CHANGE: &str = "demo-change";
 
+/// 确定性时间戳基（UTC unix millis）。
+const T0: i64 = 1_727_000_000_000;
+fn t(n: u32) -> i64 {
+    T0 + i64::from(n) * 1000
+}
+
 // ---------------------------------------------------------------------------
-// 正向：白名单内落盘 / stale 传播 / 表首回跳
+// 假件 store：get_change / list_phase_records 只读 + apply_backtrack 捕获
+// 命令；可注入 StoreFault。
 // ---------------------------------------------------------------------------
 
-/// backtrack 白名单内落盘：to ∈ allowed → 最新条目标记 backtrack_to/reason、
-/// outcome{phase, target}（AC-2 写面执行半边）。
-#[test]
-fn 白名单内回溯落盘且最新条目带标记() {
-    let ws = TempWs::new("in-whitelist");
-    ws.change(
-        CHANGE,
-        r#"{
-  "workflow_type": "requirement",
-  "eval": [
-    { "phase": "proposal", "attempt": 1, "verdict": "pass", "report": "提案通过", "checklist": [], "timestamp": "2026-10-01T08:00:00Z" },
-    { "phase": "dev-design", "attempt": 1, "verdict": "fail", "report": "首轮未过", "checklist": [], "timestamp": "2026-10-01T08:10:00Z" },
-    { "phase": "dev-design", "attempt": 2, "verdict": "fail", "report": "次轮未过", "checklist": [], "timestamp": "2026-10-01T08:20:00Z" }
-  ]
-}"#,
+struct BacktrackStore {
+    record: Mutex<Option<ChangeStateRecord>>,
+    entries: Mutex<Vec<PhaseStateRecord>>,
+    /// 捕获的回跳写命令（零写断言 + 闭包逐项比对观察面）。
+    commands: Mutex<Vec<BacktrackCommand>>,
+    fault: Mutex<Option<StoreFault>>,
+}
+
+impl BacktrackStore {
+    fn with_entries(entries: Vec<PhaseStateRecord>) -> Self {
+        Self {
+            record: Mutex::new(Some(ChangeStateRecord {
+                name: CHANGE.to_owned(),
+                workflow_type: "requirement".to_owned(),
+                created_at: T0,
+                status: ChangeStatus::Active,
+                archived_at: None,
+                active_phase: None,
+            })),
+            entries: Mutex::new(entries),
+            commands: Mutex::new(Vec::new()),
+            fault: Mutex::new(None),
+        }
+    }
+
+    fn missing() -> Self {
+        Self {
+            record: Mutex::new(None),
+            entries: Mutex::new(Vec::new()),
+            commands: Mutex::new(Vec::new()),
+            fault: Mutex::new(None),
+        }
+    }
+
+    fn set_fault(&self, fault: StoreFault) {
+        *self.fault.lock().expect("故障锁不可中毒") = Some(fault);
+    }
+
+    fn command_count(&self) -> usize {
+        self.commands.lock().expect("命令锁不可中毒").len()
+    }
+
+    fn run(&self, input: &BacktrackInput) -> Result<super::backtrack::BacktrackOutcome, String> {
+        backtrack(self, CHANGE, input)
+    }
+}
+
+impl ChangeStateStore for BacktrackStore {
+    fn get_change(&self, _name: &str) -> Result<Option<ChangeStateRecord>, StoreFault> {
+        Ok(self.record.lock().expect("记录锁不可中毒").clone())
+    }
+
+    fn list_change_records(&self) -> Result<Vec<ChangeStateRecord>, StoreFault> {
+        unimplemented!("本用例不可达")
+    }
+
+    fn list_phase_records(&self, _change: &str) -> Result<Vec<PhaseStateRecord>, StoreFault> {
+        Ok(self.entries.lock().expect("条目锁不可中毒").clone())
+    }
+
+    fn list_steps(
+        &self,
+        _change: &str,
+        _run_id: Option<&str>,
+    ) -> Result<Vec<StepStateRecord>, StoreFault> {
+        unimplemented!("本用例不可达")
+    }
+
+    fn create_change_record(&self, _record: ChangeStateRecord) -> Result<(), StoreFault> {
+        unimplemented!("本用例不可达")
+    }
+
+    fn delete_change_record(&self, _name: &str) -> Result<bool, StoreFault> {
+        unimplemented!("本用例不可达")
+    }
+
+    fn start_phase(
+        &self,
+        _change: &str,
+        _phase: &str,
+        _now: i64,
+    ) -> Result<crate::state::PhaseStartState, StoreFault> {
+        unimplemented!("本用例不可达")
+    }
+
+    fn log_phase(&self, _command: &PhaseLogCommand) -> Result<u32, StoreFault> {
+        unimplemented!("本用例不可达")
+    }
+
+    fn apply_backtrack(&self, command: &BacktrackCommand) -> Result<(), StoreFault> {
+        if let Some(fault) = self.fault.lock().expect("故障锁不可中毒").clone() {
+            return Err(fault);
+        }
+        self.commands
+            .lock()
+            .expect("命令锁不可中毒")
+            .push(command.clone());
+        Ok(())
+    }
+
+    fn amend_decision_session(
+        &self,
+        _change: &str,
+        _phase: &str,
+        _session_id: &str,
+    ) -> Result<(), StoreFault> {
+        unimplemented!("本用例不可达")
+    }
+
+    fn set_archived(&self, _name: &str, _archived_at: i64) -> Result<(), StoreFault> {
+        unimplemented!("本用例不可达")
+    }
+
+    fn append_step(&self, _command: &StepCommand) -> Result<(), StoreFault> {
+        unimplemented!("本用例不可达")
+    }
+}
+
+// ---------------------------------------------------------------------------
+// 种子工厂
+// ---------------------------------------------------------------------------
+
+fn pass_entry(phase: &str, attempt: u32, ts: i64) -> PhaseStateRecord {
+    PhaseStateRecord {
+        id: i64::from(attempt),
+        change: CHANGE.to_owned(),
+        phase: phase.to_owned(),
+        attempt,
+        verdict: Verdict::Pass,
+        report: format!("{phase} 通过"),
+        checklist: Vec::new(),
+        skipped: false,
+        stale: false,
+        backtrack_to: None,
+        backtrack_reason: None,
+        executor_session_id: None,
+        evaluator_session_id: None,
+        decision_session_id: None,
+        start_at: None,
+        timestamp: ts,
+    }
+}
+
+/// 全相位 pass 历史（stale 传播断言的底座；条目按表序、时间戳递进）。
+fn full_pass_history() -> Vec<PhaseStateRecord> {
+    [
+        "proposal",
+        "dev-design",
+        "test-design",
+        "implement",
+        "test-gen",
+        "test-execution",
+        "code-review",
+        "acceptance",
+    ]
+    .iter()
+    .enumerate()
+    .map(|(idx, phase)| pass_entry(phase, 1, t(idx as u32 + 1)))
+    .collect()
+}
+
+/// 白名单输入构造（allowed = 表序前置全量至发起相位）。
+fn input_at(phase: &str, to: &str, reason: &str, allowed: &[&str]) -> BacktrackInput {
+    BacktrackInput {
+        phase: phase.to_owned(),
+        to: to.to_owned(),
+        reason: reason.to_owned(),
+        allowed: allowed.iter().map(|id| (*id).to_owned()).collect(),
+    }
+}
+
+/// 闭包集合断言（顺序无关——闭包按相位名集合语义下发，store 按名置 stale）。
+fn assert_closure_set(command: &BacktrackCommand, expected: &[&str]) {
+    let mut actual = command.stale_dependents.clone();
+    actual.sort();
+    let mut expected_sorted: Vec<String> = expected.iter().map(|id| id.to_string()).collect();
+    expected_sorted.sort();
+    assert_eq!(
+        actual, expected_sorted,
+        "stale 闭包集合不符，实际: {:?}",
+        command.stale_dependents
     );
+}
 
-    let outcome = ws
-        .run(
-            CHANGE,
-            &BacktrackInput {
-                phase: "dev-design".to_owned(),
-                to: "proposal".to_owned(),
-                reason: "提案缺验收标准".to_owned(),
-                allowed: vec!["proposal".to_owned(), "dev-design".to_owned()],
-            },
-        )
+// ---------------------------------------------------------------------------
+// 正向：白名单内回跳落库 + stale 闭包计算（迁入本文件后的行为断言）
+// ---------------------------------------------------------------------------
+
+/// 白名单内目标回跳 → BacktrackCommand（change / phase / to / reason）经
+/// `store.apply_backtrack` 落库，outcome 与命令一致。
+#[test]
+fn 白名单内回跳_command逐字段落库且outcome一致() {
+    let fake = BacktrackStore::with_entries(vec![
+        pass_entry("proposal", 1, t(1)),
+        pass_entry("dev-design", 1, t(2)),
+        pass_entry("test-gen", 1, t(3)),
+    ]);
+
+    let outcome = fake
+        .run(&input_at(
+            "test-gen",
+            "proposal",
+            "需求基线返工",
+            &["proposal", "dev-design", "test-design", "implement", "test-gen"],
+        ))
         .expect("白名单内回溯应成功");
 
-    assert_eq!(outcome.phase, "dev-design", "outcome 承载 phase 与 target");
-    assert_eq!(outcome.target, "proposal");
-
-    let doc = parse_of(&ws, CHANGE);
-    // 失败相位的「最新」条目（timestamp 降序）标记 backtrack_to / backtrack_reason
-    let latest = &doc["eval"][2];
-    assert_eq!(latest["backtrack_to"], serde_json::json!("proposal"));
     assert_eq!(
-        latest["backtrack_reason"],
-        serde_json::json!("提案缺验收标准")
-    );
-    // 更早条目不带标记
-    assert!(doc["eval"][0].get("backtrack_to").is_none());
-    assert!(doc["eval"][1].get("backtrack_to").is_none());
-}
-
-/// stale 按依赖向后传播：目标相位最新 pass 条目标 stale、依赖下游相位全部
-/// 条目标 stale、更早相位条目不动（AC-9 传播面；白名单=表序前置与传播方向
-/// 自洽——proposal 为 dev-design 的前置，绝不被回跳标 stale）。
-#[test]
-fn stale按依赖向后传播且更早相位不动() {
-    let ws = TempWs::new("stale-propagation");
-    ws.change(CHANGE, &full_pass_history());
-
-    ws.run(
-        CHANGE,
-        &BacktrackInput {
+        outcome,
+        super::backtrack::BacktrackOutcome {
             phase: "test-gen".to_owned(),
-            to: "dev-design".to_owned(),
-            reason: "设计返工".to_owned(),
-            allowed: vec![
-                "proposal".to_owned(),
-                "dev-design".to_owned(),
-                "test-design".to_owned(),
-                "implement".to_owned(),
-                "test-gen".to_owned(),
-            ],
+            target: "proposal".to_owned(),
         },
-    )
-    .expect("回溯应成功");
-
-    let doc = parse_of(&ws, CHANGE);
-    let eval = doc["eval"].as_array().expect("eval 数组");
-    let verdict_of = |idx: usize| eval[idx]["stale"].as_bool().unwrap_or(false);
-
-    assert!(verdict_of(1), "目标相位 dev-design 最新 pass 条目标 stale");
-    // 依赖下游（test-design → implement → test-gen → test-execution →
-    // code-review → acceptance）全部条目标 stale
-    for idx in 2..8 {
-        assert!(verdict_of(idx), "下游相位条目 {idx} 应标 stale");
-    }
-    assert!(!verdict_of(0), "更早相位 proposal 条目不动（传播方向自洽）");
-}
-
-/// backtrack 目标为表首：全部既有条目按表序标 stale、首相位自身承接重跑
-///（proposal 既有 pass 条目亦被标 stale）。
-#[test]
-fn 目标为表首时全部既有条目标stale() {
-    let ws = TempWs::new("target-first");
-    ws.change(CHANGE, &full_pass_history());
-
-    ws.run(
-        CHANGE,
-        &BacktrackInput {
-            phase: "implement".to_owned(),
-            to: "proposal".to_owned(),
-            reason: "需求基线返工".to_owned(),
-            allowed: vec![
-                "proposal".to_owned(),
-                "dev-design".to_owned(),
-                "test-design".to_owned(),
-                "implement".to_owned(),
-            ],
-        },
-    )
-    .expect("回溯应成功");
-
-    let doc = parse_of(&ws, CHANGE);
-    let eval = doc["eval"].as_array().expect("eval 数组");
-    assert_eq!(eval.len(), 8);
-    for entry in eval {
-        assert_eq!(
-            entry["stale"],
-            serde_json::json!(true),
-            "首相位回跳 → 全部既有条目标 stale（含 proposal 自身承接重跑）"
-        );
-    }
-}
-
-// ---------------------------------------------------------------------------
-// 边界：空白名单 / reason 端点 / 保形与 file_log 零触碰
-// ---------------------------------------------------------------------------
-
-/// backtrack 空白名单拒绝：allowed 空数组 + 任何 backtrack → Err（无跳转出口）。
-#[test]
-fn 空白名单拒绝零写入() {
-    let ws = TempWs::new("empty-whitelist");
-    ws.change(CHANGE, &full_pass_history());
-    let before = ws.workflow_json_bytes(CHANGE);
-
-    let err = ws
-        .run(
-            CHANGE,
-            &BacktrackInput {
-                phase: "dev-design".to_owned(),
-                to: "proposal".to_owned(),
-                reason: "任意".to_owned(),
-                allowed: Vec::new(),
-            },
-        )
-        .expect_err("空白名单应 Err");
-
-    assert!(
-        err.contains("越权") || err.contains("白名单"),
-        "记因: {err}"
+        "outcome {{ phase, target }} 与输入一致"
     );
-    assert_eq!(ws.workflow_json_bytes(CHANGE), before, "零写入");
+    assert_eq!(fake.command_count(), 1, "恰一条回跳写命令");
+    let command = &fake.commands.lock().expect("命令锁不可中毒")[0];
+    assert_eq!(command.change, CHANGE);
+    assert_eq!(command.phase, "test-gen", "回跳发起相位");
+    assert_eq!(command.to, "proposal");
+    assert_eq!(command.reason, "需求基线返工");
 }
 
-/// backtrack reason 恰 500 → 成功（≤500 边界含端点）。
+/// stale 闭包（迁入）：目标 dev-design → 全部依赖相位闭包
+///（test-design → implement → test-gen → test-execution / code-review →
+/// acceptance 多支逐支核对），目标自身不在闭包内。
+#[test]
+fn stale闭包_target为dev_design_多支逐支核对() {
+    let fake = BacktrackStore::with_entries(full_pass_history());
+
+    fake.run(&input_at(
+        "test-gen",
+        "dev-design",
+        "设计返工",
+        &["proposal", "dev-design", "test-design", "implement", "test-gen"],
+    ))
+    .expect("回溯应成功");
+
+    let command = &fake.commands.lock().expect("命令锁不可中毒")[0];
+    assert_closure_set(
+        command,
+        &[
+            "test-design",
+            "implement",
+            "test-gen",
+            "test-execution",
+            "code-review",
+            "acceptance",
+        ],
+    );
+    assert!(
+        !command.stale_dependents.iter().any(|id| id == "dev-design"),
+        "目标自身不在闭包内（其「最新 pass 置 stale」由 store 落账半边单独承接）"
+    );
+    assert!(
+        !command.stale_dependents.iter().any(|id| id == "proposal"),
+        "上游相位不进闭包（传播方向自洽）"
+    );
+}
+
+/// stale 闭包（迁入）：目标 test-design → 闭包仅 test-gen 一支及其下游
+///（test-execution / code-review）；implement / acceptance 不依赖
+/// test-design，不入闭包（表依赖链多支时逐支核对）。
+#[test]
+fn stale闭包_target为test_design_支链不含implement与acceptance() {
+    let fake = BacktrackStore::with_entries(full_pass_history());
+
+    fake.run(&input_at(
+        "implement",
+        "test-design",
+        "测试设计返工",
+        &["proposal", "dev-design", "test-design", "implement"],
+    ))
+    .expect("回溯应成功");
+
+    let command = &fake.commands.lock().expect("命令锁不可中毒")[0];
+    assert_closure_set(command, &["test-gen", "test-execution", "code-review"]);
+}
+
+/// stale 闭包（迁入）：目标为末端相位 acceptance → 空闭包（无下游依赖）。
+#[test]
+fn stale闭包_target为末端acceptance_空闭包() {
+    let fake = BacktrackStore::with_entries(full_pass_history());
+
+    fake.run(&input_at(
+        "acceptance",
+        "acceptance",
+        "验收口径返工",
+        &[
+            "proposal",
+            "dev-design",
+            "test-design",
+            "implement",
+            "test-gen",
+            "test-execution",
+            "code-review",
+            "acceptance",
+        ],
+    ))
+    .expect("自回溯（同相位）应成功");
+
+    let command = &fake.commands.lock().expect("命令锁不可中毒")[0];
+    assert!(
+        command.stale_dependents.is_empty(),
+        "末端相位无下游 → 空闭包，实际: {:?}",
+        command.stale_dependents
+    );
+}
+
+/// reason 恰 500 字符 → 成功（≤500 边界含端点）。
 #[test]
 fn reason恰500字符成功() {
-    let ws = TempWs::new("reason-500");
-    ws.change(
-        CHANGE,
-        r#"{
-  "workflow_type": "requirement",
-  "eval": [
-    { "phase": "proposal", "attempt": 1, "verdict": "pass", "report": "提案通过", "checklist": [], "timestamp": "2026-10-01T08:00:00Z" },
-    { "phase": "dev-design", "attempt": 1, "verdict": "fail", "report": "未过", "checklist": [], "timestamp": "2026-10-01T08:10:00Z" }
-  ]
-}"#,
-    );
+    let fake = BacktrackStore::with_entries(vec![
+        pass_entry("proposal", 1, t(1)),
+        pass_entry("dev-design", 1, t(2)),
+    ]);
 
-    let outcome = ws
-        .run(
-            CHANGE,
-            &BacktrackInput {
-                phase: "dev-design".to_owned(),
-                to: "proposal".to_owned(),
-                reason: "因".repeat(500),
-                allowed: vec!["proposal".to_owned(), "dev-design".to_owned()],
-            },
-        )
+    let outcome = fake
+        .run(&input_at(
+            "dev-design",
+            "proposal",
+            &"因".repeat(500),
+            &["proposal", "dev-design"],
+        ))
         .expect("恰 500 字符应成功（边界含端点）");
+
     assert_eq!(outcome.target, "proposal");
     assert_eq!(
-        parse_of(&ws, CHANGE)["eval"][1]["backtrack_reason"]
-            .as_str()
-            .expect("reason 在场")
-            .chars()
-            .count(),
+        fake.commands.lock().expect("命令锁不可中毒")[0].reason.chars().count(),
         500
     );
 }
 
-/// backtrack 保形与 file_log 零触碰：未知字段保形 + file_log 逐字节不变 +
-/// pretty 写回可再读（W2/W3/AC-3 口径）。
-#[test]
-fn 回溯保形_file_log零触碰_pretty可再读() {
-    let ws = TempWs::new("preserve");
-    ws.change(
-        CHANGE,
-        r#"{
-  "workflow_type": "requirement",
-  "created": "2026-03-03",
-  "custom_note": "保留我",
-  "file_log": [
-    { "op": "write", "scope": "workflow", "path": "a.md", "at": "2026-10-01T07:00:00Z" }
-  ],
-  "eval": [
-    { "phase": "proposal", "attempt": 1, "verdict": "pass", "report": "提案通过", "checklist": [], "legacy_extra": "条目级保留", "timestamp": "2026-10-01T08:00:00Z" },
-    { "phase": "dev-design", "attempt": 1, "verdict": "fail", "report": "未过", "checklist": [] }
-  ]
-}"#,
-    );
-    let before_file_log = parse_of(&ws, CHANGE)["file_log"].clone();
-
-    ws.run(
-        CHANGE,
-        &BacktrackInput {
-            phase: "dev-design".to_owned(),
-            to: "proposal".to_owned(),
-            reason: "设计返工".to_owned(),
-            allowed: vec!["proposal".to_owned(), "dev-design".to_owned()],
-        },
-    )
-    .expect("回溯应成功");
-
-    let doc = parse_of(&ws, CHANGE);
-    assert_eq!(
-        doc["custom_note"],
-        serde_json::json!("保留我"),
-        "未知字段保形"
-    );
-    assert_eq!(
-        doc["eval"][0]["legacy_extra"],
-        serde_json::json!("条目级保留"),
-        "未被触碰条目的条目级未知字段保留"
-    );
-    assert_eq!(
-        doc["file_log"], before_file_log,
-        "file_log 逐字节不变（写面零触点——AC-3）"
-    );
-
-    let text = String::from_utf8(ws.workflow_json_bytes(CHANGE)).expect("UTF-8");
-    assert!(
-        text.contains("\n  \"") && text.ends_with('\n'),
-        "pretty 形态"
-    );
-    serde_json::from_str::<serde_json::Value>(&text).expect("写回应可再解析");
-}
-
 // ---------------------------------------------------------------------------
-// 异常：越权 / 超长 / 非法目标 / 无 eval 条目（全部零写入）
+// 异常：校验前置保留（零写）
 // ---------------------------------------------------------------------------
 
-/// backtrack 越权拒绝零写入：to ∉ allowed → Err 且 workflow.json 字节零变更
-///（写面二次校验兜底——坏决议损坏不了状态，AC-2/AC-9）。
+/// 目标不在白名单 → `Err` 零写（写面二次校验兜底——坏决议损坏不了状态）。
 #[test]
-fn 越权回溯拒绝且字节零变更() {
-    let ws = TempWs::new("overreach");
-    ws.change(CHANGE, &full_pass_history());
-    let before = ws.workflow_json_bytes(CHANGE);
+fn 越权回溯拒绝且零写() {
+    let fake = BacktrackStore::with_entries(full_pass_history());
 
-    let err = ws
-        .run(
-            CHANGE,
-            &BacktrackInput {
-                phase: "dev-design".to_owned(),
-                to: "proposal".to_owned(),
-                reason: "任意".to_owned(),
-                allowed: vec!["dev-design".to_owned(), "test-design".to_owned()],
-            },
-        )
+    let err = fake
+        .run(&input_at(
+            "dev-design",
+            "proposal",
+            "任意",
+            &["dev-design", "test-design"],
+        ))
         .expect_err("越权目标应 Err");
 
     assert!(
         err.contains("proposal") && err.contains("越权"),
         "错误显式携带目标与越权记因，实际: {err}"
     );
-    assert_eq!(
-        ws.workflow_json_bytes(CHANGE),
-        before,
-        "字节零变更（二次校验兜底）"
-    );
+    assert_eq!(fake.command_count(), 0, "零写命令");
 }
 
-/// backtrack reason 超长拒绝：501 字符 → Err 且零写入（≤500 约定的写面承载
-/// ——decision 解析层对端）。
+/// reason 超 500 → `Err` 零写（≤500 约定的写面承载）。
 #[test]
-fn reason超长501拒绝零写入() {
-    let ws = TempWs::new("reason-501");
-    ws.change(CHANGE, &full_pass_history());
-    let before = ws.workflow_json_bytes(CHANGE);
+fn reason超长501拒绝零写() {
+    let fake = BacktrackStore::with_entries(full_pass_history());
 
-    let err = ws
-        .run(
-            CHANGE,
-            &BacktrackInput {
-                phase: "dev-design".to_owned(),
-                to: "proposal".to_owned(),
-                reason: "因".repeat(501),
-                allowed: vec!["proposal".to_owned(), "dev-design".to_owned()],
-            },
-        )
+    let err = fake
+        .run(&input_at(
+            "dev-design",
+            "proposal",
+            &"因".repeat(501),
+            &["proposal", "dev-design"],
+        ))
         .expect_err("501 字符应 Err");
 
     assert!(
         err.contains("500") && err.contains("501"),
         "错误携带上限与实际值，实际: {err}"
     );
-    assert_eq!(ws.workflow_json_bytes(CHANGE), before, "零写入");
+    assert_eq!(fake.command_count(), 0, "零写命令");
 }
 
-/// backtrack 非法目标相位：to 不在表 → Err 零写入；回溯到未来相位同样 Err
-///（双端表位校验——与插件 validatePhaseTarget 同语义）。
+/// 非法目标相位与未来目标 → `Err` 零写（双端表位校验：双端在表内、目标不
+/// 超前）。
 #[test]
-fn 非法目标相位与未来目标拒绝零写入() {
-    let ws = TempWs::new("bad-target");
-    ws.change(CHANGE, &full_pass_history());
-    let before = ws.workflow_json_bytes(CHANGE);
+fn 非法目标相位与未来目标拒绝零写() {
+    let fake = BacktrackStore::with_entries(full_pass_history());
 
     // to 不在表（allowed 随行含该目标——walker 预校验 normally 拦下，写面
     // 二次校验兜底直达表位门）
-    let err = ws
-        .run(
-            CHANGE,
-            &BacktrackInput {
-                phase: "dev-design".to_owned(),
-                to: "幽灵相位".to_owned(),
-                reason: "任意".to_owned(),
-                allowed: vec!["幽灵相位".to_owned(), "dev-design".to_owned()],
-            },
-        )
+    let err = fake
+        .run(&input_at(
+            "dev-design",
+            "幽灵相位",
+            "任意",
+            &["幽灵相位", "dev-design"],
+        ))
         .expect_err("表外目标应 Err");
     assert!(err.contains("幽灵相位"), "记因: {err}");
-    assert_eq!(ws.workflow_json_bytes(CHANGE), before, "零写入");
+    assert_eq!(fake.command_count(), 0, "零写命令");
 
-    // 回溯到未来相位（target 在 phase 之后）→ Err
-    let err = ws
-        .run(
-            CHANGE,
-            &BacktrackInput {
-                phase: "proposal".to_owned(),
-                to: "implement".to_owned(),
-                reason: "任意".to_owned(),
-                allowed: vec!["implement".to_owned(), "proposal".to_owned()],
-            },
-        )
+    // 回溯到未来相位（target 在发起相位之后）→ Err
+    let err = fake
+        .run(&input_at(
+            "proposal",
+            "implement",
+            "任意",
+            &["implement", "proposal"],
+        ))
         .expect_err("未来相位应 Err");
     assert!(
         err.contains("未来") || err.contains("不支持"),
         "记因: {err}"
     );
-    assert_eq!(ws.workflow_json_bytes(CHANGE), before, "零写入");
+    assert_eq!(fake.command_count(), 0, "零写命令");
 }
 
-/// backtrack 无 eval 条目拒绝：全新 change 直接 backtrack → Err（无可标记
-/// 条目）。
+/// 发起相位无评估条目 → `Err` 零写（无可标记条目不可回溯——语义与既往一致）。
 #[test]
-fn 无eval条目拒绝() {
-    let ws = TempWs::new("no-entries");
-    ws.change(CHANGE, r#"{ "workflow_type": "requirement", "eval": [] }"#);
-    let before = ws.workflow_json_bytes(CHANGE);
+fn 发起相位无条目拒绝零写() {
+    let fake = BacktrackStore::with_entries(vec![pass_entry("proposal", 1, t(1))]);
 
-    let err = ws
-        .run(
-            CHANGE,
-            &BacktrackInput {
-                phase: "dev-design".to_owned(),
-                to: "proposal".to_owned(),
-                reason: "任意".to_owned(),
-                allowed: vec!["proposal".to_owned(), "dev-design".to_owned()],
-            },
-        )
-        .expect_err("无评估条目应 Err");
+    let err = fake
+        .run(&input_at(
+            "dev-design",
+            "proposal",
+            "任意",
+            &["proposal", "dev-design"],
+        ))
+        .expect_err("发起相位无条目应 Err");
 
     assert!(
         err.contains("dev-design") && (err.contains("评估") || err.contains("条目")),
         "记因: {err}"
     );
-    assert_eq!(ws.workflow_json_bytes(CHANGE), before, "零写入");
+    assert_eq!(fake.command_count(), 0, "零写命令");
+}
+
+/// change 未建档 → `Err` 显式（零写）。
+#[test]
+fn change未建档显式err零写() {
+    let fake = BacktrackStore::missing();
+
+    let err = fake
+        .run(&input_at("dev-design", "proposal", "任意", &["proposal", "dev-design"]))
+        .expect_err("未建档应 Err");
+
+    assert!(err.contains("未建档"), "记因: {err}");
+    assert_eq!(fake.command_count(), 0, "零写命令");
+}
+
+// ---------------------------------------------------------------------------
+// 异常：StoreFault 故障传播（stale 翻转与回跳同事务由 store 节承载）
+// ---------------------------------------------------------------------------
+
+/// 假件 store 注入 `StoreFault` → `Err` 传播（命令不下发成功面）。
+#[test]
+fn store故障传播err记因() {
+    let fake = BacktrackStore::with_entries(vec![
+        pass_entry("proposal", 1, t(1)),
+        pass_entry("dev-design", 1, t(2)),
+    ]);
+    fake.set_fault(StoreFault::Db("注入的回跳写故障".to_owned()));
+
+    let err = fake
+        .run(&input_at(
+            "dev-design",
+            "proposal",
+            "任意",
+            &["proposal", "dev-design"],
+        ))
+        .expect_err("StoreFault 应传播");
+
+    assert!(
+        err.contains("db:") && err.contains("注入的回跳写故障"),
+        "Err 记因携带 fault 语境，实际: {err}"
+    );
 }

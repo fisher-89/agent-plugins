@@ -29,17 +29,15 @@ function station(phase: string, attempts: AttemptRecord[]): PhaseEntry {
   return { phase, attempts };
 }
 
-/** v2 详情底座：9 站全空 attempts，逐用例按需注入事件。 */
+/** 建档详情底座：9 站全空 attempts，逐用例按需注入事件。 */
 function detail(overrides: Partial<ChangeDetail> = {}): ChangeDetail {
   return {
     name: 'add-feature',
     source: 'active',
-    inventory: 'v2',
+    status: 'active',
     created: '2026-09-01',
-    unparsable: false,
     pipeline: PIPELINE_PHASES.map((phase) => station(phase, [])),
     activePhase: null,
-    fileLog: [],
     artifacts: [],
     ...overrides,
   };
@@ -111,8 +109,8 @@ describe('buildFlowGraph：列与坐标骨架', () => {
     });
   });
 
-  it('unparsable 详情（各站 attempts 全空）→ 恒 9 空列、零事件节点、零边，不抛错', () => {
-    const graph = buildFlowGraph(detail({ unparsable: true }));
+  it('建档详情（各站 attempts 全空）→ 恒 9 空列、零事件节点、零边，不抛错', () => {
+    const graph = buildFlowGraph(detail());
     expect(graph.columns).toHaveLength(9);
     expect(graph.nodes).toHaveLength(0);
     expect(graph.edges).toHaveLength(0);

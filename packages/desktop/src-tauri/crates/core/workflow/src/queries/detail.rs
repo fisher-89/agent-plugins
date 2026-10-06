@@ -1,28 +1,25 @@
-//! change 详情查询：固定 9 站流水线聚合 + 运行状态 + 产物清单。
+//! change 详情查询：固定 9 站流水线聚合 + 状态面 + 产物清单。
 //!
-//! 出线 DTO 约定（API 层转换，golden 契约）：磁盘模型（`model`，snake_case
-//! alias + 宽松时间戳）不出线；本层 DTO 为自然结构体纯 derive（零字段属性、
-//! 零手动序列化——`alias`/`skip_serializing_if`/自定义编解码任一都会被
-//! specta phases 模式判为相位差，分裂出 `*_Serialize/_Deserialize` 联合
-//! 别名）。线面：缺省字段 `null`、时间戳 ISO 串（与磁盘数据源形态一致，
-//! 由 `tests/golden` 逐字节钉死）；时间戳在 `From` 转换时定格为字符串。
+//! 出线 DTO 约定（API 层转换，golden 契约）：db 中性状态类型（`state`）不出
+//! 线；本层 DTO 为自然结构体纯 derive（零字段属性、零手动序列化——
+//! `alias`/`skip_serializing_if`/自定义编解码任一都会被 specta phases 模式
+//! 判为相位差，分裂出 `*_Serialize/_Deserialize` 联合别名）。线面：缺省字段
+//! `null`、时间戳 ISO 串（由 `tests/golden` 逐字节钉死）；时间戳在 `From`
+//! 转换时定格为字符串（i64 毫秒 → RFC3339 收 queries 层单点）。状态面单源
+//! workspace 库（经 port 缝）；磁盘扫描保留为产物发现。
 
 use serde::{Deserialize, Serialize};
 use specta::Type;
-use time::format_description::well_known::Rfc3339;
-use time::OffsetDateTime;
 
 use super::list::ChangeSource;
-use super::locate_change;
+use super::{iso_from_millis, locate_change};
 use crate::artifacts::{discover_artifacts, ArtifactDescriptor};
-use crate::model::{
-    ActivePhase as DiskActivePhase, ChecklistItem, FileLogEntry as DiskFileLogEntry, FileLogOp,
-    Inventory, PhaseLog, Verdict,
-};
-use crate::parse::{detect_inventory, parse_workflow_file, WorkflowFileParse, WORKFLOW_FILE_NAME};
+use crate::model::{ChecklistItem, Verdict};
+use crate::state::{ChangeStateStore, ChangeStatus, PhaseStateRecord};
+use crate::write::utc_date;
 use foundation::layout::Layout;
 
-/// 固定 9 站流水线（顺序固定，不依赖 eval 排列）。
+/// 固定 9 站流水线（顺序固定，不依赖落行排列）。
 pub const PIPELINE_PHASES: [&str; 9] = [
     "proposal",
     "dev-design",
@@ -35,12 +32,6 @@ pub const PIPELINE_PHASES: [&str; 9] = [
     "code-analyze",
 ];
 
-/// 时间戳出线转换：ISO 串。与 `model` 层 `lenient_timestamp::serialize`
-/// 语义逐字一致（Rfc3339 + `unwrap_or_default` 空串降级）。
-fn to_iso(timestamp: &OffsetDateTime) -> String {
-    timestamp.format(&Rfc3339).unwrap_or_default()
-}
-
 /// 运行中 phase 状态（线面）。
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
@@ -50,41 +41,9 @@ pub struct ActivePhase {
     pub start_at: Option<String>,
 }
 
-impl From<&DiskActivePhase> for ActivePhase {
-    fn from(entry: &DiskActivePhase) -> Self {
-        ActivePhase {
-            phase: entry.phase.clone(),
-            attempt: entry.attempt,
-            start_at: entry.start_at.as_ref().map(to_iso),
-        }
-    }
-}
-
-/// 一条日志式文件清单（线面）。
-#[derive(Debug, Clone, Serialize, Deserialize, Type)]
-#[serde(rename_all = "camelCase")]
-pub struct FileLogEntry {
-    pub op: FileLogOp,
-    pub scope: String,
-    pub attempt: Option<u32>,
-    pub path: String,
-    pub at: Option<String>,
-}
-
-impl From<&DiskFileLogEntry> for FileLogEntry {
-    fn from(entry: &DiskFileLogEntry) -> Self {
-        FileLogEntry {
-            op: entry.op,
-            scope: entry.scope.clone(),
-            attempt: entry.attempt,
-            path: entry.path.clone(),
-            at: entry.at.as_ref().map(to_iso),
-        }
-    }
-}
-
 /// 单次尝试记录：backtrack 目标与原因随条目可查；会话槽位（executor /
-/// evaluator / decision）自 eval 条目直读透出，无槽位字段三值均 `null`。
+/// evaluator / decision）自 PhaseRecord 三槽位列直读透出，无槽位字段三值均
+/// `null`。
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct AttemptRecord {
@@ -103,17 +62,17 @@ pub struct AttemptRecord {
     pub decision_session_id: Option<String>,
 }
 
-impl From<&PhaseLog> for AttemptRecord {
-    fn from(entry: &PhaseLog) -> Self {
+impl From<&PhaseStateRecord> for AttemptRecord {
+    fn from(entry: &PhaseStateRecord) -> Self {
         AttemptRecord {
-            attempt: entry.attempt,
+            attempt: Some(entry.attempt),
             verdict: entry.verdict,
             report: entry.report.clone(),
             checklist: entry.checklist.clone(),
             skipped: entry.skipped,
             stale: entry.stale,
-            start_at: entry.start_at.as_ref().map(to_iso),
-            timestamp: entry.timestamp.as_ref().map(to_iso),
+            start_at: entry.start_at.map(iso_from_millis),
+            timestamp: Some(iso_from_millis(entry.timestamp)),
             backtrack_to: entry.backtrack_to.clone(),
             backtrack_reason: entry.backtrack_reason.clone(),
             executor_session_id: entry.executor_session_id.clone(),
@@ -131,52 +90,48 @@ pub struct PhaseEntry {
     pub attempts: Vec<AttemptRecord>,
 }
 
-/// change 详情聚合。
+/// change 详情聚合。`status` 为建档判别面：`Some` = db 已建档（完整状态面），
+/// `None` = 文档形态（db 缺记录的存量 CLI change，空流水线 + 产物清单）。
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct ChangeDetail {
     pub name: String,
     pub source: ChangeSource,
-    pub inventory: Inventory,
+    pub status: Option<ChangeStatus>,
     pub created: Option<String>,
-    pub unparsable: bool,
     pub pipeline: Vec<PhaseEntry>,
     pub active_phase: Option<ActivePhase>,
-    /// v1 及更早代际无此字段 → `None`，对应区块降级留空
-    pub file_log: Option<Vec<FileLogEntry>>,
     pub artifacts: Vec<ArtifactDescriptor>,
 }
 
-/// 聚合单个 change 的详情；未知 change 名返回 `None`。纯读。
-pub fn change_detail(layout: &Layout, name: &str) -> Option<ChangeDetail> {
+/// 聚合单个 change 的详情；未知 change 名返回 `None`。纯读：db 缺记录的
+/// change 返回空流水线 + 产物清单（文档形态），零 workflow.json 读取。
+pub fn change_detail(
+    layout: &Layout,
+    store: &dyn ChangeStateStore,
+    name: &str,
+) -> Option<ChangeDetail> {
     let location = locate_change(layout, name)?;
-    let inventory = detect_inventory(&location.dir);
-
-    let workflow_path = location.dir.join(WORKFLOW_FILE_NAME);
-    let parse_result = if workflow_path.is_file() {
-        Some(parse_workflow_file(&workflow_path))
-    } else {
-        None
-    };
-    let (workflow, unparsable) = match &parse_result {
-        Some(WorkflowFileParse::Parsed(workflow)) => (Some(workflow), false),
-        Some(WorkflowFileParse::Unparsable { .. }) => (None, true),
-        None => (None, false),
+    let record = store.get_change(name).ok().flatten();
+    let entries = match record {
+        // 建档 change：读相位评估史组装流水线
+        Some(_) => store.list_phase_records(name).unwrap_or_default(),
+        // 文档形态：零状态面（空流水线 + 产物清单）
+        None => Vec::new(),
     };
 
-    // created：优先 workflow.json，archive 回退目录名日期前缀
-    let created = workflow
-        .and_then(|workflow| workflow.created.clone())
+    // created：优先 db created_at，archive 回退目录名日期前缀
+    let created = record
+        .as_ref()
+        .map(|record| utc_date(record.created_at))
         .or_else(|| match location.source {
             ChangeSource::Archive => super::list::archive_prefix_date(name),
             ChangeSource::Active => None,
         });
 
-    // 固定 9 站全量输出（无 attempt 记录的站为空序列）；
-    // v0 早期代际无 workflow.json → 空流水线 + 纯文档清单形态
-    let mut pipeline: Vec<PhaseEntry> = if inventory == Inventory::V0 {
-        Vec::new()
-    } else {
+    // 固定 9 站全量输出（无 attempt 记录的站为空序列）；文档形态（db 缺记
+    // 录）空流水线
+    let mut pipeline: Vec<PhaseEntry> = if record.is_some() {
         PIPELINE_PHASES
             .iter()
             .map(|phase| PhaseEntry {
@@ -184,41 +139,41 @@ pub fn change_detail(layout: &Layout, name: &str) -> Option<ChangeDetail> {
                 attempts: Vec::new(),
             })
             .collect()
+    } else {
+        Vec::new()
     };
-    if let Some(workflow) = workflow {
-        for entry in &workflow.eval {
-            if let Some(station) = pipeline
-                .iter_mut()
-                .find(|station| station.phase == entry.phase)
-            {
-                station.attempts.push(AttemptRecord::from(entry));
-            }
-        }
-        for station in &mut pipeline {
-            // 稳定排序：attempt 相同（或缺省视为 0）者保持 eval 原始顺序
-            station
-                .attempts
-                .sort_by_key(|record| record.attempt.unwrap_or(0));
+    for entry in &entries {
+        if let Some(station) = pipeline
+            .iter_mut()
+            .find(|station| station.phase == entry.phase)
+        {
+            station.attempts.push(AttemptRecord::from(entry));
         }
     }
+    for station in &mut pipeline {
+        // 稳定排序：落行序（id 升序）即既有 eval 顺序，attempt 相同者保持原序
+        station
+            .attempts
+            .sort_by_key(|record| record.attempt.unwrap_or(0));
+    }
 
-    let active_phase = workflow
-        .and_then(|workflow| workflow.active_phase.as_ref())
-        .map(ActivePhase::from);
-    let file_log = workflow
-        .and_then(|workflow| workflow.file_log.as_ref())
-        .map(|entries| entries.iter().map(FileLogEntry::from).collect());
-    let artifacts = discover_artifacts(&location.dir, inventory, workflow);
+    let active_phase = record
+        .as_ref()
+        .and_then(|record| record.active_phase.as_ref())
+        .map(|active| ActivePhase {
+            phase: active.phase.clone(),
+            attempt: active.attempt,
+            start_at: Some(iso_from_millis(active.start_at)),
+        });
+    let artifacts = discover_artifacts(&location.dir, &entries);
 
     Some(ChangeDetail {
         name: name.to_string(),
         source: location.source,
-        inventory,
+        status: record.map(|record| record.status),
         created,
-        unparsable,
         pipeline,
         active_phase,
-        file_log,
         artifacts,
     })
 }

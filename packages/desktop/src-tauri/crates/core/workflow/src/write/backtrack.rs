@@ -1,10 +1,7 @@
-use serde_json::Value;
+use std::collections::HashSet;
 
-use crate::write::persist::{
-    entry_phase, eval_entries_mut, latest_entry_index, load_doc, mark_phase_stale, save,
-};
-use crate::write::phase_table::{phase_table, MAX_REASON_CHARS};
-use foundation::layout::Layout;
+use crate::state::{BacktrackCommand, ChangeStateStore};
+use crate::write::phase_table::{dependents, phase_table, PhaseDefinition, MAX_REASON_CHARS};
 
 /// 回溯输入（allowed 随行走带——phase_next 缓存白名单，写面二次校验兜底）。
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -22,18 +19,23 @@ pub struct BacktrackOutcome {
     pub target: String,
 }
 
-/// 回溯：校验（白名单 / 表位 / reason 长度）→ 最新条目标记 → stale 标记与
-/// 传播 → 保形写回。workflow.json 原文之外的字段零触碰。
+/// 回溯：校验（白名单 / 双端表位 / reason 长度）→ 最新条目在位校验 →
+/// stale 闭包计算（目标最新 pass + `dependents` BFS 全条目，自 persist 迁入
+/// 本文件）→ 经 [`ChangeStateStore`] port 缝单事务落库（回跳标记 + stale
+/// 翻转传播原子完成）。
 pub fn backtrack(
-    layout: &Layout,
+    store: &dyn ChangeStateStore,
     change: &str,
     input: &BacktrackInput,
 ) -> Result<BacktrackOutcome, String> {
-    let mut doc = load_doc(layout, change)?;
-    let table = phase_table(&doc.typed.workflow_type).ok_or_else(|| {
+    let record = store
+        .get_change(change)
+        .map_err(|error| error.to_string())?
+        .ok_or_else(|| format!("change \"{change}\" 未建档（无 ChangeRecord），无从回溯"))?;
+    let table = phase_table(&record.workflow_type).ok_or_else(|| {
         format!(
             "workflow_type \"{}\" 不受支持（V1 仅 requirement 工作流）",
-            doc.typed.workflow_type
+            record.workflow_type
         )
     })?;
 
@@ -52,7 +54,7 @@ pub fn backtrack(
         .ok_or_else(|| {
             format!(
                 "工作流 \"{}\" 不包含 phase \"{}\"",
-                doc.typed.workflow_type, input.phase
+                record.workflow_type, input.phase
             )
         })?;
     let target_idx = table
@@ -61,7 +63,7 @@ pub fn backtrack(
         .ok_or_else(|| {
             format!(
                 "工作流 \"{}\" 不包含 phase \"{}\"",
-                doc.typed.workflow_type, input.to
+                record.workflow_type, input.to
             )
         })?;
     if target_idx > phase_idx {
@@ -77,32 +79,45 @@ pub fn backtrack(
         ));
     }
 
-    // 最新条目标记 backtrack_to / backtrack_reason（raw 定点改写）
-    {
-        let entries = eval_entries_mut(&mut doc.raw);
-        let latest = latest_entry_index(entries, |entry| {
-            entry_phase(entry) == Some(input.phase.as_str())
-        })
-        .ok_or_else(|| {
-            format!(
-                "Phase \"{}\" 没有评估条目，无法设置回溯。请先执行该 phase 并记录评估结果。",
-                input.phase
-            )
-        })?;
-        if let Some(object) = entries[latest].as_object_mut() {
-            object.insert("backtrack_to".to_owned(), Value::String(input.to.clone()));
-            object.insert(
-                "backtrack_reason".to_owned(),
-                Value::String(input.reason.clone()),
-            );
-        }
+    // 最新条目在位校验（发起相位无评估条目不可回溯——语义与既往一致）
+    let entries = store
+        .list_phase_records(change)
+        .map_err(|error| error.to_string())?;
+    if !entries.iter().any(|entry| entry.phase == input.phase) {
+        return Err(format!(
+            "Phase \"{}\" 没有评估条目，无法设置回溯。请先执行该 phase 并记录评估结果。",
+            input.phase
+        ));
     }
 
-    // 目标相位最新 pass 条目 stale + 依赖向后传播（无 pass 条目 no-op）
-    mark_phase_stale(&mut doc.raw, table, &input.to);
-    save(&doc)?;
+    store
+        .apply_backtrack(&BacktrackCommand {
+            change: change.to_owned(),
+            phase: input.phase.clone(),
+            to: input.to.clone(),
+            reason: input.reason.clone(),
+            stale_dependents: stale_closure(table, &input.to),
+        })
+        .map_err(|error| error.to_string())?;
     Ok(BacktrackOutcome {
         phase: input.phase.clone(),
         target: input.to.clone(),
     })
+}
+
+/// stale 传播闭包：目标相位的全部下游相位（`dependents` BFS；依赖图为 DAG，
+/// visited 集防御式保留，与插件 `propagateStale` 一致——目标自身不在闭包内，
+/// 其「最新 pass 置 stale」由 store 落账半边单独承接）。
+fn stale_closure(table: &[PhaseDefinition], target: &str) -> Vec<String> {
+    let mut visited = HashSet::from([target.to_owned()]);
+    let mut closure = Vec::new();
+    let mut queue = dependents(table, target);
+    while let Some(phase) = queue.pop() {
+        if !visited.insert(phase.clone()) {
+            continue;
+        }
+        closure.push(phase.clone());
+        queue.extend(dependents(table, &phase));
+    }
+    closure
 }
