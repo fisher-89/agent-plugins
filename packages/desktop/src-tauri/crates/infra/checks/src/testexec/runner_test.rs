@@ -101,9 +101,9 @@ fn 模板展开五占位符替换_config_args双形态() {
 
 /// 正向：Windows .cmd / Unix cp 真实 spawn——命令把预置 spec 工件拷到
 /// {results_file} 占位路径 → PlanExecution 携解析后用例行与覆盖实测（退出码
-/// 0、诊断无 error 面、报告目录清空重建——重跑幂等）。注：Windows 模板路径
-/// 不加引号——Rust 对 cmd /C 的 \" 转引序列会被 cmd 解析为反斜杠附着路径
-///（tempdir 无空格，免引号即稳；生产注册表模板的引号形态属实现域行为）。
+/// 0、诊断无 error 面、报告目录清空重建——重跑幂等）。注：本用例走免引号
+/// 形态；生产注册表模板的引号形态由
+/// `windows引号占位模板_重定向工件落位` 回归锚定。
 #[tokio::test]
 async fn 真实spawn_预置工件拷贝到占位路径_解析产出() {
     let ws = TempDir::new().expect("临时目录");
@@ -168,6 +168,43 @@ async fn 真实spawn_预置工件拷贝到占位路径_解析产出() {
         execution.source_files.is_empty(),
         "node-test 无逐文件原始计数（V1 形态）"
     );
+}
+
+/// 回归：引号占位形态（生产注册表模板形——源路径与 `{results_file}` 重定向
+/// 目标均带引号）。Windows 臂曾因 `arg` 的 MSVC 转引把 `"` 写成 `\"`、cmd
+/// 解析为反斜杠附着路径而全工件缺失（错误面「结果工件缺失」+ 零用例——
+/// 2026-10 真实 gate 故障形态）；`raw_arg` 原样入线后引号形态必须正常产出。
+#[tokio::test]
+async fn windows引号占位模板_重定向工件落位() {
+    let ws = TempDir::new().expect("临时目录");
+    let cwd = ws.path().join("app");
+    std::fs::create_dir_all(&cwd).expect("创建 suite cwd");
+    let spec_src = preset(ws.path(), "quoted-preset.txt", SPEC_OUTPUT);
+
+    // 双臂同走引号形态：Windows 是回归面（cmd 解析），Unix 是同语义锚
+    //（sh -c 对引号本就透明）
+    let template = if cfg!(windows) {
+        format!(
+            "cmd /C type \"{}\" > \"{{results_file}}\"",
+            spec_src.to_string_lossy().replace('/', "\\")
+        )
+    } else {
+        format!("cp \"{}\" \"{{results_file}}\"", spec_src.to_string_lossy())
+    };
+    let plan = node_test_plan(&cwd, template);
+
+    let execution = execute_plan(&plan, &ws.path().join("reports").join("it_node-test"))
+        .await
+        .expect("引号形态应正常执行");
+
+    assert_eq!(execution.exit_code, 0, "退出码透传（引号模板免转引破坏）");
+    assert!(
+        execution.error.is_none(),
+        "引号路径工件须落位零错误面，实际: {:?}",
+        execution.error
+    );
+    assert_eq!(execution.cases.len(), 5, "引号路径工件解析产出五用例行");
+    assert!(execution.measured.is_some(), "覆盖实测块随工件解析在场");
 }
 
 /// 异常：裸名程序不可达 → Err 显式记因（程序解析前置——shell 吞缺失不产假

@@ -1,4 +1,3 @@
-
 use std::path::Path;
 
 use checks::aggregate::derive_plan_id;

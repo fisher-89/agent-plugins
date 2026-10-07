@@ -346,11 +346,17 @@ fn ensure_program_resolvable(cwd: &Path, command: &str) -> Result<(), String> {
 
 /// shell 语义包装：Windows 经 cmd /C，其余经 sh -c（static_check spawn 同
 /// 口径）。
+///
+/// Windows 臂以 `raw_arg` 原样入线：命令串是 shell 行而非单 argv，`arg` 的
+/// MSVC 转引会把模板内引号写成 `\"`，cmd 将其解析为反斜杠附着路径——注册表
+/// 模板的引号形态（rust 档 `> "{results_file}"` 重定向、jest/vitest 档
+/// `--outputFile="{results_file}"` 参数）即被破坏，重定向目标不可达、报告目录
+/// 零工件（CLI `execSync(cmd, { shell })` 直传同语义）。
 fn shell_command(command: &str) -> tokio::process::Command {
     #[cfg(target_os = "windows")]
     {
         let mut shell = tokio::process::Command::new("cmd");
-        shell.arg("/C").arg(command);
+        shell.arg("/C").raw_arg(command);
         shell
     }
     #[cfg(not(target_os = "windows"))]
