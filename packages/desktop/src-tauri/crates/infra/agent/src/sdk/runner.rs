@@ -189,6 +189,7 @@ async fn session_pump(
         session_id: SdkRunner::next_session_id(),
         defense: payload.defense,
         liveness: Default::default(),
+        retry: Default::default(),
     };
     crate::sdk::log::append_engine_log(&format!(
         "泵启动 session={} model={model_name}",

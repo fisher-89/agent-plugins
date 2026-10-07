@@ -44,6 +44,7 @@ struct FakeState {
     completion_outcomes: Mutex<VecDeque<Result<String, String>>>,
     rewrite_on_first_stream: Mutex<Option<(PathBuf, String)>>,
     hang: Option<HangPoint>,
+    flaky: Mutex<VecDeque<StreamGlitch>>,
 }
 
 /// 悬挂点：`Request` = 首帧永不到达（发送 / 响应头相位死）；`Stream` = 首帧
@@ -52,6 +53,28 @@ struct FakeState {
 enum HangPoint {
     Request,
     Stream,
+}
+
+/// 流故障单点注入（重试路径用例装置）：前 N 次流请求按脚本故障，弹空后
+/// 走正常轮脚本——「首发故障，重发成功」形态。
+enum StreamGlitch {
+    /// 流起手即失败（Opened::failed——对应流 Err 路径）
+    Fail(String),
+    /// 悬挂（首帧永不到达 / 首帧后无新帧）
+    Hang(HangPoint),
+}
+
+/// 悬挂 Opening 装置（恒悬挂与单点注入共享）。
+fn hanging_opening(point: HangPoint) -> Opening<MockFrame> {
+    match point {
+        HangPoint::Request => Opening::new(std::future::pending()),
+        HangPoint::Stream => Opening::ready(Opened::new(
+            futures::stream::iter([Ok(MockFrame::Event(MockStreamEvent::Text(
+                "首帧".to_owned(),
+            )))])
+            .chain(futures::stream::pending()),
+        )),
+    }
 }
 
 /// 假流缝模型句柄（断言面：请求捕获 / 钩子装配；`erased` 产物供 loop 消费）。
@@ -112,6 +135,11 @@ impl FakeModel {
             .expect("改写锁不可中毒") = Some((path, content.to_owned()));
     }
 
+    /// 前 N 次流请求单点故障注入（重试路径用例：首发故障，重发走正常脚本）。
+    fn flaky_first_streams(&self, glitches: Vec<StreamGlitch>) {
+        *self.state.flaky.lock().expect("故障锁不可中毒") = glitches.into();
+    }
+
     fn captured_requests(&self) -> Vec<CompletionRequest> {
         self.state
             .requests
@@ -142,6 +170,7 @@ fn empty_state() -> FakeState {
         completion_outcomes: Mutex::new(VecDeque::new()),
         rewrite_on_first_stream: Mutex::new(None),
         hang: None,
+        flaky: Mutex::new(VecDeque::new()),
     }
 }
 
@@ -203,23 +232,20 @@ impl Transport<MockScript> for FakeTransport {
                 {
                     std::fs::write(path, content).expect("轮间改写 AGENT.md 失败");
                 }
+                // 单点故障注入优先于恒故障装置（首发故障，重发走正常脚本）
+                match self.state.flaky.lock().expect("故障锁不可中毒").pop_front() {
+                    Some(StreamGlitch::Fail(error)) => {
+                        return Opening::ready(Opened::failed(ProviderError::Provider(error)));
+                    }
+                    Some(StreamGlitch::Hang(point)) => return hanging_opening(point),
+                    None => {}
+                }
                 if let Some(error) = &self.state.stream_failure {
                     return Opening::ready(Opened::failed(ProviderError::Provider(error.clone())));
                 }
                 // 悬挂装置：请求相位死 = 首帧永不到达；流帧死 = 首帧后无新帧且永不 EOF
-                match self.state.hang {
-                    Some(HangPoint::Request) => {
-                        return Opening::new(std::future::pending());
-                    }
-                    Some(HangPoint::Stream) => {
-                        return Opening::ready(Opened::new(
-                            futures::stream::iter([Ok(MockFrame::Event(MockStreamEvent::Text(
-                                "首帧".to_owned(),
-                            )))])
-                            .chain(futures::stream::pending()),
-                        ));
-                    }
-                    None => {}
+                if let Some(point) = self.state.hang {
+                    return hanging_opening(point);
                 }
                 let mut items = self
                     .state
@@ -283,6 +309,7 @@ async fn drive_loop(model: &FakeModel, turn: &LoopTurn, handle: &RunHandle) -> V
             session_id: turn.session_id.clone(),
             defense: ContextDefense::resolve(None),
             liveness: turn.liveness,
+            retry: turn.retry,
         };
         let handle = handle.clone();
         async move { r#loop::run(&dyn_model, &turn, Vec::new(), sender, handle).await }
@@ -304,6 +331,7 @@ fn loop_turn(cwd: &Path, mode: AgentPermissionMode) -> LoopTurn {
         session_id: "sdk-test-0".to_owned(),
         defense: ContextDefense::resolve(None),
         liveness: crate::sdk::r#loop::StreamLiveness::default(),
+        retry: crate::sdk::r#loop::StreamRetry::default(),
     }
 }
 
@@ -319,12 +347,17 @@ fn loop_turn_with_defense(
     }
 }
 
-/// 携毫秒级活性预算的轮参数（悬挂超时路径用例底座：不等待产品级分钟预算）。
-fn loop_turn_with_fast_liveness(cwd: &Path, mode: AgentPermissionMode) -> LoopTurn {
+/// 携毫秒级 IO 护栏的轮参数（活性 + 重试预算；悬挂 / 重试路径用例底座：
+/// 不等待产品级分钟预算与秒级退避）。
+fn loop_turn_with_fast_io(cwd: &Path, mode: AgentPermissionMode) -> LoopTurn {
     LoopTurn {
         liveness: crate::sdk::r#loop::StreamLiveness {
             request: std::time::Duration::from_millis(50),
             frame: std::time::Duration::from_millis(50),
+        },
+        retry: crate::sdk::r#loop::StreamRetry {
+            max_attempts: 3,
+            backoff_base: std::time::Duration::from_millis(1),
         },
         ..loop_turn(cwd, mode)
     }
@@ -761,24 +794,33 @@ async fn turn_done组装唯一口径_cost恒none_session_id收口_usage承接fin
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
-async fn 假流stream_err时api_error记因与is_error收敛且恒最后() {
+async fn 假流stream_err时重试耗尽后api_error记因与is_error收敛且恒最后() {
     let dir = tempdir("api-error");
     let model = FakeModel::failing("连接被重置");
     let handle = RunHandle::default();
 
     let events = drive_loop(
         &model,
-        &loop_turn(dir.path(), AgentPermissionMode::BypassPermissions),
+        &loop_turn_with_fast_io(dir.path(), AgentPermissionMode::BypassPermissions),
         &handle,
     )
     .await;
 
-    // RunStarted + user 提示词先产出（失败前已入史），随后记因 + 收敛
+    // RunStarted + user 提示词先产出（失败前已入史），随后 3 次重试留痕 +
+    // 记因 + 收敛（恒失败装置：首发与全部重试都失败）
     let notices = notices_of(&events);
-    assert_eq!(notices.len(), 1, "恰一条记因通知");
-    assert_eq!(notices[0].0, "api_error");
+    let subtypes: Vec<&str> = notices.iter().map(|(s, _)| *s).collect();
     assert!(
-        serde_json::to_value(notices[0].1)
+        subtypes == vec!["api_retry", "api_retry", "api_retry", "api_error"],
+        "重试逐次留痕后耗尽失败收敛: {subtypes:?}"
+    );
+    assert_eq!(
+        model.captured_requests().len(),
+        4,
+        "首发 + 3 次重试共 4 次请求"
+    );
+    assert!(
+        serde_json::to_value(notices[3].1)
             .expect("payload 序列化")
             .to_string()
             .contains("连接被重置"),
@@ -799,22 +841,30 @@ async fn 假流stream_err时api_error记因与is_error收敛且恒最后() {
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
-async fn 请求相位悬挂时活性护栏超时失败收敛api_error不悬挂() {
+async fn 请求相位悬挂时重试耗尽后超时失败收敛api_error不悬挂() {
     let dir = tempdir("hang-request");
     let model = FakeModel::hanging(HangPoint::Request); // 首帧永不到达
     let handle = RunHandle::default();
 
     let events = drive_loop(
         &model,
-        &loop_turn_with_fast_liveness(dir.path(), AgentPermissionMode::BypassPermissions),
+        &loop_turn_with_fast_io(dir.path(), AgentPermissionMode::BypassPermissions),
         &handle,
     )
     .await;
 
     let notices = notices_of(&events);
-    assert_eq!(notices.len(), 1, "恰一条记因通知");
-    assert_eq!(notices[0].0, "api_error");
-    let payload = serde_json::to_value(notices[0].1).expect("payload 序列化");
+    let subtypes: Vec<&str> = notices.iter().map(|(s, _)| *s).collect();
+    assert!(
+        subtypes == vec!["api_retry", "api_retry", "api_retry", "api_error"],
+        "悬挂逐次重试留痕后耗尽失败收敛: {subtypes:?}"
+    );
+    assert_eq!(
+        model.captured_requests().len(),
+        4,
+        "首发 + 3 次重试共 4 次请求（悬挂 Opening 逐次重新发起）"
+    );
+    let payload = serde_json::to_value(notices[3].1).expect("payload 序列化");
     assert!(
         payload["error"]
             .as_str()
@@ -832,22 +882,25 @@ async fn 请求相位悬挂时活性护栏超时失败收敛api_error不悬挂()
 }
 
 #[tokio::test]
-async fn 流帧空闲悬挂时活性护栏超时失败收敛api_error不悬挂() {
+async fn 流帧空闲悬挂时重试耗尽后超时失败收敛api_error不悬挂() {
     let dir = tempdir("hang-stream");
     let model = FakeModel::hanging(HangPoint::Stream); // 首帧后无新帧且永不 EOF
     let handle = RunHandle::default();
 
     let events = drive_loop(
         &model,
-        &loop_turn_with_fast_liveness(dir.path(), AgentPermissionMode::BypassPermissions),
+        &loop_turn_with_fast_io(dir.path(), AgentPermissionMode::BypassPermissions),
         &handle,
     )
     .await;
 
     let notices = notices_of(&events);
-    assert_eq!(notices.len(), 1, "恰一条记因通知");
-    assert_eq!(notices[0].0, "api_error");
-    let payload = serde_json::to_value(notices[0].1).expect("payload 序列化");
+    let subtypes: Vec<&str> = notices.iter().map(|(s, _)| *s).collect();
+    assert!(
+        subtypes == vec!["api_retry", "api_retry", "api_retry", "api_error"],
+        "流死逐次重试留痕后耗尽失败收敛: {subtypes:?}"
+    );
+    let payload = serde_json::to_value(notices[3].1).expect("payload 序列化");
     assert!(
         payload["error"]
             .as_str()
@@ -862,6 +915,107 @@ async fn 流帧空闲悬挂时活性护栏超时失败收敛api_error不悬挂()
     };
     assert_eq!(subtype, "api_error", "流死悬挂以超时失败收敛（可观测）");
     assert!(*is_error);
+}
+
+// ---------------------------------------------------------------------------
+// 流 IO 重试恢复（2026-10-07 dev-design 三连败止血：断流不再一次定死 run）
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn 流起手失败退避重试后成功_api_retry留痕且重发史与首发一致() {
+    let dir = tempdir("retry-recover-fail");
+    let model = FakeModel::with_turns(vec![vec![raw_text("重试后正文"), raw_final(usage(9, 9))]]);
+    model.flaky_first_streams(vec![StreamGlitch::Fail("连接被重置".to_owned())]);
+    let handle = RunHandle::default();
+
+    let events = drive_loop(
+        &model,
+        &loop_turn_with_fast_io(dir.path(), AgentPermissionMode::BypassPermissions),
+        &handle,
+    )
+    .await;
+
+    // 恰一条重试留痕，无 api_error（恢复即无失败收敛）
+    let notices = notices_of(&events);
+    let subtypes: Vec<&str> = notices.iter().map(|(s, _)| *s).collect();
+    assert_eq!(subtypes, vec!["api_retry"], "恰一条重试留痕: {subtypes:?}");
+    let payload = serde_json::to_value(notices[0].1).expect("payload 序列化");
+    assert_eq!(payload["attempt"], serde_json::json!(1), "attempt 记第几次");
+    assert_eq!(
+        payload["max_attempts"],
+        serde_json::json!(3),
+        "max_attempts 在场"
+    );
+    assert!(payload.get("delay_ms").is_some(), "退避间隔在场");
+    assert!(
+        payload["error"]
+            .as_str()
+            .is_some_and(|cause| cause.contains("连接被重置")),
+        "留痕携带失败成因，实际: {payload}"
+    );
+
+    // 重发请求与首发同史（幂等重发：同一轮、同一史）
+    let requests = model.captured_requests();
+    assert_eq!(requests.len(), 2, "首发失败 + 重发成功共 2 次请求");
+    assert_eq!(
+        requests[0].chat_history.len(),
+        requests[1].chat_history.len(),
+        "重发史与首发同长（幂等重发）"
+    );
+
+    // 恢复后正常收口：恰一条密封 assistant + success 收敛
+    let sealed = sealed_messages(&events);
+    assert_eq!(sealed.len(), 1, "恢复轮恰一条密封 Message");
+    let AgentEventKind::TurnDone {
+        subtype, is_error, ..
+    } = turn_done_of(&events)
+    else {
+        panic!("应为 TurnDone");
+    };
+    assert_eq!(subtype, "success", "重试恢复以正常收敛收口");
+    assert!(!*is_error);
+}
+
+#[tokio::test]
+async fn 帧空闲悬挂退避重试后成功_不再一次定死run() {
+    let dir = tempdir("retry-recover-hang");
+    // 生产现场形态（2026-10-07 dev-design 三连败）：大上下文轮首帧后断流 →
+    // 帧空闲超时 → 重发成功续跑
+    let model = FakeModel::with_turns(vec![vec![raw_text("恢复正文"), raw_final(usage(1, 1))]]);
+    model.flaky_first_streams(vec![StreamGlitch::Hang(HangPoint::Stream)]);
+    let handle = RunHandle::default();
+
+    let events = drive_loop(
+        &model,
+        &loop_turn_with_fast_io(dir.path(), AgentPermissionMode::BypassPermissions),
+        &handle,
+    )
+    .await;
+
+    let notices = notices_of(&events);
+    let subtypes: Vec<&str> = notices.iter().map(|(s, _)| *s).collect();
+    assert_eq!(
+        subtypes,
+        vec!["api_retry"],
+        "断流重试恰一条留痕: {subtypes:?}"
+    );
+    let payload = serde_json::to_value(notices[0].1).expect("payload 序列化");
+    assert!(
+        payload["error"]
+            .as_str()
+            .is_some_and(|cause| cause.contains("流空闲超时")),
+        "留痕成因指明帧空闲超时，实际: {payload}"
+    );
+    let sealed = sealed_messages(&events);
+    assert_eq!(sealed.len(), 1, "恢复轮恰一条密封 Message");
+    let AgentEventKind::TurnDone {
+        subtype, is_error, ..
+    } = turn_done_of(&events)
+    else {
+        panic!("应为 TurnDone");
+    };
+    assert_eq!(subtype, "success", "断流重试恢复以正常收敛收口");
+    assert!(!*is_error);
 }
 
 // ---------------------------------------------------------------------------
@@ -1160,6 +1314,7 @@ fn loop_turn字段面完整构造锚定() {
         session_id: "sdk-0-1".to_owned(),
         defense: ContextDefense::resolve(None),
         liveness: crate::sdk::r#loop::StreamLiveness::default(),
+        retry: crate::sdk::r#loop::StreamRetry::default(),
     };
     assert_eq!(turn.question, "q");
     assert_eq!(turn.session_id, "sdk-0-1");

@@ -447,7 +447,7 @@ async fn runstarted_tools恰七工具清单() {
     drop(session);
 }
 
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn ask泵观察回流未盖戳词汇_变体序以收敛收尾且remote_id_sdk前缀上报() {
     let runner = SdkRunner::new(complete_config(), None, None);
     let mut session = runner.open_session(open_new()).expect("open 应成功");
@@ -461,14 +461,16 @@ async fn ask泵观察回流未盖戳词汇_变体序以收敛收尾且remote_id_
         .expect("问题送达");
 
     // 未盖戳观察词汇：泵产出 agent::AgentEventKind（盖戳收内核）。有界读取：
-    // 泵一轮一命，本轮恒产 4 事件后泵任务返回（观测通道随之关闭）
+    // 泵一轮一命，拒连端点恒失败——重试护栏逐次留痕（退避经 paused 时钟快
+    // 进）后耗尽失败收敛，本轮恒产 7 事件后泵任务返回（观测通道随之关闭）
     let mut events = Vec::new();
-    for _ in 0..4 {
+    for _ in 0..7 {
         events.push(session.observations.recv().await.expect("本轮事件"));
     }
 
-    // 变体序：RunStarted 先导 → user 密封提示词 → SystemNotice 记因 →
-    // TurnDone 收敛（拒连端点：流失败即收敛，delta 面由 loop_test 假流承载）
+    // 变体序：RunStarted 先导 → user 密封提示词 → api_retry × 3 逐次留痕 →
+    // api_error 记因 → TurnDone 收敛（拒连端点：重试耗尽即收敛，delta 面由
+    // loop_test 假流承载）
     assert!(
         matches!(&events[0], AgentEventKind::RunStarted { .. }),
         "RunStarted 先导，实际: {:?}",
@@ -478,8 +480,15 @@ async fn ask泵观察回流未盖戳词汇_变体序以收敛收尾且remote_id_
         &events[1],
         AgentEventKind::Message { role, .. } if role == &AgentMessageRole::User
     ));
+    for (index, event) in events[2..5].iter().enumerate() {
+        assert!(
+            matches!(event, AgentEventKind::SystemNotice { subtype, .. } if subtype == "api_retry"),
+            "第 {} 次重试留痕应为 api_retry，实际: {event:?}",
+            index + 1
+        );
+    }
     assert!(matches!(
-        &events[2],
+        &events[5],
         AgentEventKind::SystemNotice { subtype, .. } if subtype == "api_error"
     ));
     let AgentEventKind::TurnDone {
@@ -565,7 +574,7 @@ async fn 停止先置位时泵select停止臂命中_future_drop不合成收敛()
     );
 }
 
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn 停止晚于eof时泵已收敛无二次收敛事件() {
     let runner = SdkRunner::new(complete_config(), None, None);
     let mut session = runner.open_session(open_new()).expect("open 应成功");
@@ -577,9 +586,10 @@ async fn 停止晚于eof时泵已收敛无二次收敛事件() {
         })
         .await
         .expect("问题送达");
-    // 本轮事件有界读取至收敛事件（泵一轮一命，收敛即泵返回）
+    // 本轮事件有界读取至收敛事件（泵一轮一命，收敛即泵返回；拒连端点恒失
+    // 败：重试护栏 3 次留痕 + 记因 + 收敛共 7 事件，退避经 paused 时钟快进）
     let mut events = Vec::new();
-    for _ in 0..4 {
+    for _ in 0..7 {
         events.push(session.observations.recv().await.expect("本轮事件"));
     }
     assert!(matches!(

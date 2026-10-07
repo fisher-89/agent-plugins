@@ -21,6 +21,11 @@ const SUBTYPE_SUCCESS: &str = "success";
 const REQUEST_LIVENESS: Duration = Duration::from_secs(300);
 const FRAME_IDLE: Duration = Duration::from_secs(120);
 
+/// 提供者 IO 重试护栏
+const STREAM_RETRY_MAX: u32 = 3;
+const STREAM_RETRY_BACKOFF: Duration = Duration::from_secs(2);
+const STREAM_RETRY_BACKOFF_STEP: u32 = 4;
+
 /// 提供者 IO 活性预算
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct StreamLiveness {
@@ -36,6 +41,31 @@ impl Default for StreamLiveness {
             request: REQUEST_LIVENESS,
             frame: FRAME_IDLE,
         }
+    }
+}
+
+/// 提供者 IO 失败重试预算（泵装配缺省，测试注小值）。
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct StreamRetry {
+    /// 同轮重发上限（不含首发；耗尽以 api_error 失败收敛）
+    pub(crate) max_attempts: u32,
+    /// 退避基数（指数步进 ×4：2s → 8s → 32s）
+    pub(crate) backoff_base: Duration,
+}
+
+impl Default for StreamRetry {
+    fn default() -> Self {
+        Self {
+            max_attempts: STREAM_RETRY_MAX,
+            backoff_base: STREAM_RETRY_BACKOFF,
+        }
+    }
+}
+
+impl StreamRetry {
+    /// 第 n 次（1 起）重试的退避间隔（基数 × 4^(n-1)）。
+    fn backoff(&self, attempt: u32) -> Duration {
+        self.backoff_base * STREAM_RETRY_BACKOFF_STEP.saturating_pow(attempt - 1)
     }
 }
 
@@ -56,6 +86,8 @@ pub(crate) struct LoopTurn {
     pub defense: ContextDefense,
     /// 提供者 IO 活性预算（缺省缺省常量；泵装配缺省，测试注小值）
     pub liveness: StreamLiveness,
+    /// 提供者 IO 失败重试预算（泵装配缺省，测试注小值）
+    pub retry: StreamRetry,
 }
 
 /// loop 主体
@@ -131,59 +163,24 @@ pub(crate) async fn run(
             chat_history.push(Message::system(preamble));
         }
         chat_history.extend(history.iter().cloned());
-        let request = CompletionRequest {
-            model: None,
-            chat_history,
-            documents: Vec::new(),
-            tools: definitions.clone(),
-            temperature: None,
-            max_tokens: None,
-            tool_choice: None,
-            additional_params: None,
-            output_schema: None,
-            record_telemetry_content: false,
-        };
-        // 0.43 起 `stream` 同步返回（编码错误即时 Err；请求发送推迟到首次轮
-        // 询），请求相位活性护栏挪至首帧等待
-        let mut response = match model.stream(request) {
-            Ok(response) => response,
-            Err(error) => {
-                finish_error(
-                    &sender,
-                    turn_index,
-                    started,
-                    &usage,
-                    turn,
-                    "api_error",
-                    format!("API 请求失败: {error}"),
-                )
-                .await;
-                return history;
-            }
-        };
-
-        let mut stream_error: Option<String> = None;
-        let mut first_frame = true;
-        loop {
-            let budget = if first_frame {
-                turn.liveness.request
-            } else {
-                turn.liveness.frame
+        // 同轮重发装置
+        let mut attempt: u32 = 0;
+        let (choice, turn_usage) = 'attempt: loop {
+            let request = CompletionRequest {
+                model: None,
+                chat_history: chat_history.clone(),
+                documents: Vec::new(),
+                tools: definitions.clone(),
+                temperature: None,
+                max_tokens: None,
+                tool_choice: None,
+                additional_params: None,
+                output_schema: None,
+                record_telemetry_content: false,
             };
-            let item = match tokio::time::timeout(budget, response.next()).await {
-                Ok(item) => item,
-                Err(_) => {
-                    let cause = if first_frame {
-                        format!(
-                            "API 请求超时（{} s 无响应帧）",
-                            turn.liveness.request.as_secs()
-                        )
-                    } else {
-                        format!(
-                            "API 流空闲超时（{} s 无新帧）",
-                            turn.liveness.frame.as_secs()
-                        )
-                    };
+            let mut response = match model.stream(request) {
+                Ok(response) => response,
+                Err(error) => {
                     finish_error(
                         &sender,
                         turn_index,
@@ -191,56 +188,80 @@ pub(crate) async fn run(
                         &usage,
                         turn,
                         "api_error",
-                        cause,
+                        format!("API 请求失败: {error}"),
                     )
                     .await;
                     return history;
                 }
             };
-            first_frame = false;
-            let Some(item) = item else {
-                break;
-            };
-            match item {
-                Ok(item) => {
-                    if let Some(kind) = normalize::stream_item(&item) {
-                        if sender.send(kind).await.is_err() {
-                            append_engine_log(&format!(
-                                "loop 事件通道关闭退出（流帧发送）session={}",
-                                turn.session_id
-                            ));
-                            return history; // 消费端关闭：泵自行退出，不合成 TurnDone
+
+            let mut failure: Option<String> = None;
+            let mut first_frame = true;
+            loop {
+                let budget = if first_frame {
+                    turn.liveness.request
+                } else {
+                    turn.liveness.frame
+                };
+                let item = match tokio::time::timeout(budget, response.next()).await {
+                    Ok(item) => item,
+                    Err(_) => {
+                        failure = Some(if first_frame {
+                            format!(
+                                "API 请求超时（{} s 无响应帧）",
+                                turn.liveness.request.as_secs()
+                            )
+                        } else {
+                            format!(
+                                "API 流空闲超时（{} s 无新帧）",
+                                turn.liveness.frame.as_secs()
+                            )
+                        });
+                        break;
+                    }
+                };
+                first_frame = false;
+                let Some(item) = item else {
+                    break;
+                };
+                match item {
+                    Ok(item) => {
+                        if let Some(kind) = normalize::stream_item(&item) {
+                            if sender.send(kind).await.is_err() {
+                                append_engine_log(&format!(
+                                    "loop 事件通道关闭退出（流帧发送）session={}",
+                                    turn.session_id
+                                ));
+                                return history; // 消费端关闭：泵自行退出，不合成 TurnDone
+                            }
                         }
                     }
-                }
-                Err(error) => {
-                    stream_error.get_or_insert_with(|| error.to_string());
-                    break; // 0.43 契约：Err 即流尾
+                    Err(error) => {
+                        // 0.43 契约：Err 即流尾；已读帧不足以收口，按 IO 失败进重试
+                        failure = Some(format!("API 流失败: {error}"));
+                        break;
+                    }
                 }
             }
-        }
-        if let Some(error) = stream_error {
-            finish_error(
-                &sender,
-                turn_index,
-                started,
-                &usage,
-                turn,
-                "api_error",
-                format!("API 流失败: {error}"),
-            )
-            .await;
-            return history;
-        }
-        // 轮末收口：`finish` 把已读帧折叠为完整响应（choice 与 usage 单口
-        // 径；0.43 起终局记录不再以独立流帧出现）
-        let rig::completion::CompletionResponse {
-            choice,
-            usage: turn_usage,
-            ..
-        } = match response.finish().await {
-            Ok(response) => response,
-            Err(error) => {
+            if failure.is_none() {
+                // 轮末收口：`finish` 把已读帧折叠为完整响应（choice 与 usage
+                // 单口径；0.43 起终局记录不再以独立流帧出现）；EOF 而折叠失
+                // 败同按 IO 失败进重试
+                match response.finish().await {
+                    Ok(rig::completion::CompletionResponse {
+                        choice,
+                        usage: attempt_usage,
+                        ..
+                    }) => break 'attempt (choice, attempt_usage),
+                    Err(error) => {
+                        failure = Some(format!("API 流失败: {error}"));
+                    }
+                }
+            }
+            // 重试决策：预算内退避重发（同一轮、同一史；api_retry 留痕），
+            // 耗尽以 api_error 失败收敛
+            let cause = failure.expect("重试路径必有失败成因");
+            if attempt >= turn.retry.max_attempts {
                 finish_error(
                     &sender,
                     turn_index,
@@ -248,11 +269,32 @@ pub(crate) async fn run(
                     &usage,
                     turn,
                     "api_error",
-                    format!("API 流失败: {error}"),
+                    cause,
                 )
                 .await;
                 return history;
             }
+            attempt += 1;
+            let delay = turn.retry.backoff(attempt);
+            append_engine_log(&format!(
+                "loop 流重试 session={} turn_index={turn_index} attempt={attempt}/{} delay={}ms cause={cause}",
+                turn.session_id,
+                turn.retry.max_attempts,
+                delay.as_millis()
+            ));
+            // 重试留痕尽力流出（消费端关闭时外层续 attempt 的下一发自然退出）
+            let _ = sender
+                .send(AgentEventKind::SystemNotice {
+                    subtype: "api_retry".to_owned(),
+                    payload: serde_json::json!({
+                        "attempt": attempt,
+                        "max_attempts": turn.retry.max_attempts,
+                        "delay_ms": delay.as_millis() as u64,
+                        "error": cause,
+                    }),
+                })
+                .await;
+            tokio::time::sleep(delay).await;
         };
         usage += turn_usage;
         if choice.is_empty() {
