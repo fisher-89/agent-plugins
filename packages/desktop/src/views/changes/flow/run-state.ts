@@ -7,6 +7,7 @@ import type {
   AgentEvent,
   ChangeRunSnapshot,
   ChangeRunStatus,
+  ChangeRunSummary,
   ChangeStepKind,
   ChangeStepState,
   RunUpdate,
@@ -47,6 +48,24 @@ export function initialRunState(snapshot: ChangeRunSnapshot | null): ChangeFlowR
     attempt: snapshot.attempt,
     ask: snapshot.ask,
     confirmPhase: snapshot.status === 'waitingConfirm' ? snapshot.phase : null,
+    steps: [],
+    finishedReason: null,
+    liveEvents: {},
+  };
+}
+
+/** 发起摘要 → run 视图模型初值（发起路径唯一状态种子）：发起即替换空态 /
+ * 旧终态冻结面，后续 update 归并自此起步——否则 null 态与终态守卫会把
+ * 新 run 的全部信封丢弃（发起后流程图零呈现）。相位 / attempt 未知置
+ * null，步表与事件缓存为空态（与重挂快照种子同形）。 */
+export function seedRunState(summary: ChangeRunSummary): ChangeFlowRunState {
+  return {
+    runId: summary.runId,
+    status: summary.status,
+    phase: null,
+    attempt: null,
+    ask: null,
+    confirmPhase: null,
     steps: [],
     finishedReason: null,
     liveEvents: {},

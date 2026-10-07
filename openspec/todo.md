@@ -53,3 +53,4 @@
 - [x] 【Desktop】增加全局agent管理页，不关联工作区；每个agent可自定义名称，选择agent engine，配置url、api_key等参数；配置好的agent实例与workspace关联；
 - [ ] 【Desktop】core/checks仅定义测试的执行过程、报告数据格式，具体语言、框架实现应该移入infra/checks
 - [ ] 【Desktop】change会话失败或中断后重新启动流程，页面应显示最新进行中的会话
+- [x] 【Desktop】修复问题：change_flow_watch接口返回null，流程图消失

@@ -8,7 +8,12 @@ import { Channel } from '@tauri-apps/api/core';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { commands, type RunUpdate } from '../../../types/generated/bindings';
-import { applyRunUpdate, initialRunState, type ChangeFlowRunState } from '../flow/run-state';
+import {
+  applyRunUpdate,
+  initialRunState,
+  seedRunState,
+  type ChangeFlowRunState,
+} from '../flow/run-state';
 
 export interface UseChangeFlowRunResult {
   state: ChangeFlowRunState | null;
@@ -85,7 +90,10 @@ function useRunActions(
       const channel = ensureChannel(channelRef, (update) => {
         setState((current) => applyRunUpdate(current, update));
       });
-      return run(() => commands.changeFlowStart(channel, root, change, autoNextPhase));
+      return run(async () => {
+        const summary = await commands.changeFlowStart(channel, root, change, autoNextPhase);
+        setState(seedRunState(summary));
+      });
     },
     [root, change, channelRef, run, setState],
   );

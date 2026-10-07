@@ -250,7 +250,7 @@ describe('useChangeFlowRun：挂载快照恢复（D9）', () => {
 });
 
 describe('useChangeFlowRun：start 发起与订阅（运行期订阅）', () => {
-  it('start(false) → invoke change_flow_start 携 root/change 与新 Channel 实例（state 初值不臆造，保持快照面）', async () => {
+  it('start(false) → invoke change_flow_start 携 root/change 与新 Channel 实例，成功即以返回摘要置状态种子（权威面非臆造）', async () => {
     const { result } = await mounted();
     expect(ChannelMock.instances).toHaveLength(0);
 
@@ -263,8 +263,71 @@ describe('useChangeFlowRun：start 发起与订阅（运行期订阅）', () => 
     expect(args.root).toBe(ROOT);
     expect(args.change).toBe(CHANGE);
     expect(args.onEvent).toBeInstanceOf(ChannelMock);
-    // state 初值仅来自快照恢复（change_flow_state）：发起本身不臆造运行态
+    // 发起成功即置种子（change_flow_start 提前 resolve 契约的权威摘要）
+    expect(result.current.state).toEqual({
+      runId: 'run-1727',
+      status: 'running',
+      phase: null,
+      attempt: null,
+      ask: null,
+      confirmPhase: null,
+      steps: [],
+      finishedReason: null,
+      liveEvents: {},
+    });
+  });
+
+  it('空态发起（无运行 run 的常态路径）：发起后 RunUpdate 信封流入归并 state（null 态守卫不再吃掉首 run 信封——流程图 / 面板呈现）', async () => {
+    const { result } = await mounted();
     expect(result.current.state).toBeNull();
+
+    await act(async () => {
+      await result.current.start(false);
+    });
+
+    deliver({ ipc: 'step', step: stepRow() });
+    expect(result.current.state).toMatchObject({
+      runId: 'run-1727',
+      status: 'running',
+      phase: 'implement',
+      attempt: 1,
+      steps: [stepRow()],
+    });
+
+    deliver(textMessage(0, '首 run 实时片段'));
+    expect(result.current.state?.liveEvents['ses-exec-1']).toHaveLength(1);
+  });
+
+  it('终态后再发起（会话失败 / 中断后重启）：种子替换冻结终态面，新 run 信封照常归并、旧记因清空', async () => {
+    stateResult = snapshot({ status: 'running', phase: 'implement', attempt: 2 });
+    const { result } = await mounted();
+    await waitFor(() => expect(calls('change_flow_watch')).toHaveLength(1));
+
+    deliver({ ipc: 'finished', status: 'failed', reason: '会话失败收敛' });
+    expect(result.current.state).toMatchObject({
+      status: 'failed',
+      finishedReason: '会话失败收敛',
+    });
+
+    await act(async () => {
+      await result.current.start(false);
+    });
+
+    // 冻结终态面被新 run 种子替换（终态守卫不再吞掉重启 run 的信封）
+    expect(result.current.state).toMatchObject({
+      runId: 'run-1727',
+      status: 'running',
+      finishedReason: null,
+      steps: [],
+    });
+
+    deliver({ ipc: 'step', step: stepRow({ step: 'phaseStart', sessionId: null }) });
+    expect(result.current.state).toMatchObject({
+      status: 'running',
+      phase: 'implement',
+      attempt: 1,
+      steps: [stepRow({ step: 'phaseStart', sessionId: null })],
+    });
   });
 
   it('RunUpdate 信封流入归并 state（重挂恢复态上订阅）：Step 入步表、sessionEvent 入缓存、confirmWait 置等待相位', async () => {

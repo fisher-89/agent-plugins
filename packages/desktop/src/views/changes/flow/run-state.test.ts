@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vite-plus/test';
 import type {
   AgentEvent,
   ChangeRunSnapshot,
+  ChangeRunSummary,
   ChangeStepKind,
   ChangeStepState,
   RunUpdate,
@@ -11,6 +12,7 @@ import {
   applyRunUpdate,
   initialRunState,
   runStepNodes,
+  seedRunState,
   type ChangeFlowRunState,
 } from './run-state';
 
@@ -119,6 +121,39 @@ describe('initialRunState：重挂快照恢复面（D9）', () => {
       status: 'waitingAsk',
       ask: { question: 'backtrack 到哪个相位？', options: ['dev-design', 'test-design'] },
       confirmPhase: null,
+    });
+  });
+});
+
+describe('seedRunState：发起摘要种子（发起路径状态面）', () => {
+  it('ChangeRunSummary → 逐字段镜像：runId/status 承接，相位 / attempt / ask / 停等 / 记因为空态，步表与事件缓存空底座', () => {
+    const summary: ChangeRunSummary = { runId: 'run-1728', status: 'running' };
+    expect(seedRunState(summary)).toEqual({
+      runId: 'run-1728',
+      status: 'running',
+      phase: null,
+      attempt: null,
+      ask: null,
+      confirmPhase: null,
+      steps: [],
+      finishedReason: null,
+      liveEvents: {},
+    });
+  });
+
+  it('种子承接后续 update 归并：Step 入步表、ask 置停等载荷（null 态守卫不再吃掉发起后信封——流程图 / 面板呈现的输入面）', () => {
+    const seeded = seedRunState({ runId: 'run-1728', status: 'running' });
+    const stepped = applyRunUpdate(seeded, stepUpdate(stepRow()));
+    expect(stepped).toMatchObject({ phase: 'implement', attempt: 1, steps: [stepRow()] });
+
+    const asked = applyRunUpdate(stepped, {
+      ipc: 'ask',
+      question: '选择哪个方向？',
+      options: ['A', 'B'],
+    });
+    expect(asked).toMatchObject({
+      status: 'waitingAsk',
+      ask: { question: '选择哪个方向？', options: ['A', 'B'] },
     });
   });
 });

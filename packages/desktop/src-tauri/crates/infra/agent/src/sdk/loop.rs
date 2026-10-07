@@ -19,7 +19,8 @@ const SUBTYPE_SUCCESS: &str = "success";
 
 /// 提供者 IO 活性护栏
 const REQUEST_LIVENESS: Duration = Duration::from_secs(300);
-const FRAME_IDLE: Duration = Duration::from_secs(120);
+/// 流帧空闲预算分档宽于请求相位
+const FRAME_IDLE: Duration = Duration::from_secs(600);
 
 /// 提供者 IO 重试护栏
 const STREAM_RETRY_MAX: u32 = 3;
