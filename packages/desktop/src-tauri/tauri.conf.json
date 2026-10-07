@@ -10,7 +10,18 @@
     "frontendDist": "../dist"
   },
   "app": {
-    "windows": [],
+    "windows": [
+      {
+        "title": "Dev Team",
+        "width": 1200,
+        "height": 800,
+        "minWidth": 900,
+        "minHeight": 600,
+        "resizable": true,
+        "backgroundColor": "#161a22",
+        "theme": "Dark"
+      }
+    ],
     "security": {
       "csp": null
     }

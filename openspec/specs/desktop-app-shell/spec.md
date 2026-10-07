@@ -54,7 +54,7 @@ dev-team SHALL 按 queries / exec / db 三轨组织 Tauri command（queries 轨�
 
 header SHALL 瘦身为终态：折叠钮 + 标题（Desktop Terminal）+ 版本/更新指示（`UpdateIndicator` 含「重试更新」按钮语义不变）；workspace `select`、移除、刷新控件 MUST NOT 留在 header。
 
-侧栏 SHALL 采用 `collapsible="icon"`：折叠态仅图标并经 Tooltip 补足信息；SHALL 支持内建 Ctrl/Cmd+B 折叠快捷键；折叠态持久化方式（localStorage vs 会话内 state）由 design 定夺。系统 PC-only：极小分辨率不适配，窗口最小尺寸 SHALL 由主窗建窗代码限定（`main.rs` `min_inner_size` 900×600；主窗自 `tauri.conf.json` 平移为代码创建，见交付物表）。sidebar 导航 SHALL 路由化：页面导航组与列表 ↔ 详情切换均由路由承载（路由表与选中态 URL 化契约见 desktop-page-routing 能力）。
+侧栏 SHALL 采用 `collapsible="icon"`：折叠态仅图标并经 Tooltip 补足信息；SHALL 支持内建 Ctrl/Cmd+B 折叠快捷键；折叠态持久化方式（localStorage vs 会话内 state）由 design 定夺。系统 PC-only：极小分辨率不适配，窗口最小尺寸 SHALL 由 `tauri.conf.json` 限定（minWidth 900 / minHeight 600）。sidebar 导航 SHALL 路由化：页面导航组与列表 ↔ 详情切换均由路由承载（路由表与选中态 URL 化契约见 desktop-page-routing 能力）。
 
 侧栏 SHALL 以两个导航组组织顶层视图入口：「页面」组承载数据视图入口 [变更]；「系统工具」组承载系统级工具入口 [Agent 调试]（自页面组平移）与 [数据库]（desktop-db-inspector，`TopPage` 增 `db` 变体）（AppSidebar 首次出现非 workspace 入口语义）。点击经路由切换顶层视图（`/changes` ↔ `/agent`，NavLink 化契约见 desktop-page-routing 能力）；workspace 清单组语义不变。系统工具页不依赖 change 选中状态，切换页面 MUST NOT 触发 change 取数。
 
@@ -391,8 +391,7 @@ desktop 前端样式 SHALL 以 Tailwind v4 为唯一样式体系:
 | `packages/desktop/src/lib/utils.ts` | 类名合并 | `cn()` = clsx + tailwind-merge |
 | `packages/desktop/src/components/ui/**` | shadcn 内部化控件 | Button / Badge / Table / Progress 及 sidebar 系生成件(sidebar / separator / tooltip / context-menu / sonner 按需);过 fmt/lint/knip 全管线无豁免;无 Next 语境残留 |
 | `packages/desktop/components.json` | shadcn 生成配置 | alias `@/*`;内部化纪律适用 |
-| `packages/desktop/src-tauri/tauri.conf.json` | 打包配置 | `windows` 置空（主窗建窗平移至 `main.rs`,devtools 启动参数门控需建窗期 `.devtools()` 出口,配置窗口无此能力）;updater endpoint 与 pubkey 不变 |
-| `packages/desktop/src-tauri/src/main.rs` 主窗建窗 | 窗口配置代码化 | 默认窗口 1200×800、最小 900×600（PC-only 兜底）;dark 主题与 `backgroundColor`（同 `--background`,消启动白闪）逐项平移;`--dev` 启动参数门控原生 devtools——release 无参时 devtools 完全关闭（同未编 devtools feature 的产物）,传入时开启并自动弹出,debug 构建恒开;devtools 门控在建窗期,运行期 MUST NOT 可补开（首实例未带 `--dev` 时二实例再传该参仅为唤起无操作） |
+| `packages/desktop/src-tauri/tauri.conf.json` | 窗口与打包配置 | 默认窗口 1200×800、最小 900×600（PC-only 兜底：极小分辨率不适配,由窗口最小尺寸约束保证）;窗口固定 dark 主题与 `backgroundColor`（同 `--background`,消启动白闪）;updater endpoint 与 pubkey |
 | `@/*` 路径别名(tsconfig + vite 双处) | ui/** import 解析 | 双处同步配置 |
 | `src/views/changes/renderers/markdown-doc-renderer.tsx` | markdown 渲染 | `prose` 接管后代样式;无自定义类后代选择器 |
 | `src/views/changes/renderers/tasks-progress-renderer.tsx` | 任务进度渲染 | Progress 组件 value 承载百分比;无内联 `style={{ width }}` |

@@ -93,8 +93,6 @@ tempfile = "3"
 time = { version = "0.3", features = ["parsing", "formatting", "serde"] }
 tokei = { version = "=13.0.0", default-features = false }
 tokio = { version = "1", default-features = false, features = ["sync"] }
-# devtools feature：release 下 devtools API 可用性的编译开关；是否真开由
-# main.rs 建窗时的 .devtools(参数门控) 决定（无 --dev 的 release 仍全关）
 tauri = { version = "2", features = ["specta", "devtools"] }
 tauri-build = { version = "2", features = [] }
 tauri-plugin-dialog = "2"

@@ -2,7 +2,7 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use tauri::{generate_handler, window::Color, Manager, Theme, WebviewUrl, WebviewWindowBuilder};
+use tauri::{generate_handler, Manager};
 
 use store::WorkspaceStores;
 
@@ -20,30 +20,18 @@ const DATA_DIR: &str = ".dev-team";
 /// 引擎异常日志子树目录名（数据根下）。
 const LOGS_DIR_NAME: &str = "logs";
 
-/// 启动参数：开启原生 webview devtools（F12 / 右键检查）。
-/// 门控在主窗 `.devtools()` 建窗参数上——release 无此参数时 devtools 完全关闭
-/// （同未编 devtools feature 的产物），传入时开启并自动弹出；debug 构建恒开。
-const DEV_FLAG: &str = "--dev";
-
 fn main() {
-    let dev = std::env::args().any(|arg| arg == DEV_FLAG);
     let mut builder =
         tauri::Builder::default().plugin(tauri_plugin_updater::Builder::new().build());
     #[cfg(desktop)]
     {
-        builder = builder.plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
+        builder = builder.plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             if let Some(window) = app.get_webview_window("main") {
                 if let Ok(true) = window.is_minimized() {
                     let _ = window.unminimize();
                 }
                 let _ = window.show();
                 let _ = window.set_focus();
-                // 二实例的 --dev 转发为再开 devtools（如面板被关后再唤起）。
-                // 仅当首实例建窗时已启用 devtools 才生效——门控在建窗期，
-                // 首实例未带 --dev 时此处为无操作，无法事后补开。
-                if args.iter().any(|arg| arg == DEV_FLAG) {
-                    window.open_devtools();
-                }
             }
         }));
     }
@@ -53,23 +41,7 @@ fn main() {
     }
     builder
         .plugin(tauri_plugin_dialog::init())
-        .setup(move |app| {
-            // 主窗由代码创建（tauri.conf.json windows 置空）：devtools 门控需要
-            // 建窗期 .devtools()，配置窗口无此出口。尺寸/最小尺寸/dark 主题/
-            // 背景色（消启动白闪）逐项平移自原窗口配置。
-            let window =
-                WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
-                    .title("Dev Team")
-                    .inner_size(1200.0, 800.0)
-                    .min_inner_size(900.0, 600.0)
-                    .resizable(true)
-                    .theme(Some(Theme::Dark))
-                    .background_color(Color(0x16, 0x1a, 0x22, 0xff))
-                    .devtools(dev || cfg!(debug_assertions))
-                    .build()?;
-            if dev {
-                window.open_devtools();
-            }
+        .setup(|app| {
             // 数据根解析在此（home_dir 依赖 Tauri 上下文），store 内无环境解析。
             // 任一步失败即 setup Err → run Err → expect 报错启动失败：
             // fail fast，无静默空清单降级。
