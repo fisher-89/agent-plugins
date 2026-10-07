@@ -927,8 +927,12 @@ fn checklist打包键同phase_id下item_index升序则item_key严格递增() {
     // 高 64 位 phase_id 恒一致，序完全由低 64 位 item_index 决定
     let keys: Vec<u128> = (0..6u32)
         .map(|item_index| {
-            ChecklistItemRecord::new(7, item_index, checklist_item(&format!("项-{item_index}"), true))
-                .item_key
+            ChecklistItemRecord::new(
+                7,
+                item_index,
+                checklist_item(&format!("项-{item_index}"), true),
+            )
+            .item_key
         })
         .collect();
 
@@ -950,7 +954,11 @@ fn checklist打包键组合不串位_还原往返与跨phase_id隔离() {
     // 打包 / 还原往返：(phase_id, item_index) 逐字段一致
     let record = ChecklistItemRecord::new(7, 5, checklist_item("项-5", false));
     assert_eq!(record.item_key, packed, "构造器与打包单点同源");
-    assert_eq!(record.item_key & (u64::MAX as u128), 5u128, "还原 item_index");
+    assert_eq!(
+        record.item_key & (u64::MAX as u128),
+        5u128,
+        "还原 item_index"
+    );
     assert_eq!(record.item_key >> 64, 7u128, "还原 phase_id");
 
     // 跨 phase_id 隔离：同 item_index 高 64 位互异、低 64 位相等（互不串键）
@@ -968,7 +976,11 @@ fn checklist打包键组合不串位_还原往返与跨phase_id隔离() {
     let max = pack_checklist_item_key(i64::MAX, u32::MAX);
     assert!(min < max, "极值组合保序");
     assert_eq!(max >> 64, i64::MAX as u128, "极值高 64 位不回绕");
-    assert_eq!(max & (u64::MAX as u128), u32::MAX as u128, "极值低 64 位不回绕");
+    assert_eq!(
+        max & (u64::MAX as u128),
+        u32::MAX as u128,
+        "极值低 64 位不回绕"
+    );
 }
 
 #[test]
@@ -1012,8 +1024,14 @@ fn 四模型注册workspace组八模型全注册id无冲突_list_models零改动
             .map(|model| model.name.as_str())
             .collect::<Vec<_>>(),
         vec![
-            "agent_run", "session", "session_event", "explore", "change", "phase",
-            "checklist_item", "step"
+            "agent_run",
+            "session",
+            "session_event",
+            "explore",
+            "change",
+            "phase",
+            "checklist_item",
+            "step"
         ],
         "workspace 组注册 4→8：change 流程状态四模型随既有四模型在册"
     );
@@ -1050,7 +1068,10 @@ fn phase_record缺省构造三槽位与start_at与backtrack全none可落且nativ
         native_model::decode::<PhaseRecord>(bytes).expect("native_model decode 应成功");
 
     assert_eq!(version, 1, "native_model 版本封装为 version 1");
-    assert_eq!(decoded, record, "缺省构造记录往返逐字段相等（None 槽位不漂移）");
+    assert_eq!(
+        decoded, record,
+        "缺省构造记录往返逐字段相等（None 槽位不漂移）"
+    );
 }
 
 #[test]
@@ -1066,4 +1087,158 @@ fn checklist_item_record_native_model往返版本1逐字段保真() {
     assert_eq!(decoded, record, "打包键与三面载荷往返逐字段相等");
     assert_eq!(decoded.phase_id, 7, "二级索引列往返保真");
     assert_eq!(decoded.pass, false);
+}
+
+// ---------------------------------------------------------------------------
+// ChangeRecord v1→v2（design D7 / AC-1）：decode-only 存量升级 / 回环 / 双向
+// From / new 增参——provider context_length v1→v2 先例同模式
+// ---------------------------------------------------------------------------
+
+use crate::model::{ChangeActivePhase, ChangeRecord, ChangeRecordV1};
+use workflow::state::ChangeStatus;
+
+fn change_v1_record(name: &str) -> ChangeRecordV1 {
+    ChangeRecordV1 {
+        name: name.to_owned(),
+        workflow_type: "requirement".to_owned(),
+        created_at: 1_727_000_000_000,
+        status: ChangeStatus::Active,
+        archived_at: None,
+        active_phase: None,
+    }
+}
+
+/// v1→v2 decode-only：`ChangeRecordV1` 构造 → native_model 编码字节 →
+/// `decode::<ChangeRecord>` → 既有六字段逐字一致且 `worktree` / `base_commit`
+/// 均为 None（存量记录自动升级读出——AC-1 字面）；v1 载荷按 v1 模型自解码
+/// 逐字段相等、版本头 = 1。
+#[test]
+fn change_record存量v1行经版本机制升级读出且两字段置none() {
+    let legacy = ChangeRecordV1 {
+        active_phase: Some(ChangeActivePhase {
+            phase: "implement".to_owned(),
+            attempt: 2,
+            start_at: 1_727_000_005_000,
+        }),
+        archived_at: None,
+        ..change_v1_record("存量升级")
+    };
+    let legacy_bytes = native_model::encode(&legacy).expect("encode v1 应成功");
+
+    // v1 载荷自解码（存量形态封装 version 1）
+    let (legacy_decoded, legacy_version) =
+        native_model::decode::<ChangeRecordV1>(legacy_bytes.clone())
+            .expect("v1 载荷可按 v1 模型解码");
+    assert_eq!(legacy_version, 1, "存量形态封装为 version 1");
+    assert_eq!(legacy_decoded, legacy, "v1 载荷按 v1 解码逐字段相等");
+
+    // 同一载荷经版本机制自动升级为 v2：两新字段 None（worktree 之前的主 root
+    // 编辑语义），既有字段原值保留
+    let (upgraded, _version) =
+        native_model::decode::<ChangeRecord>(legacy_bytes).expect("v1 载荷应升级为 v2");
+    assert_eq!(upgraded.name, "存量升级");
+    assert_eq!(upgraded.workflow_type, "requirement");
+    assert_eq!(upgraded.created_at, 1_727_000_000_000);
+    assert_eq!(upgraded.status, ChangeStatus::Active);
+    assert_eq!(upgraded.archived_at, None);
+    assert!(
+        upgraded.active_phase.is_some(),
+        "嵌套 active_phase 升级保留"
+    );
+    assert_eq!(
+        upgraded.worktree, None,
+        "升级读出 worktree = None（legacy 主 root 语义）"
+    );
+    assert_eq!(upgraded.base_commit, None, "升级读出 base_commit = None");
+}
+
+/// v2 回环：带 Some(worktree) / Some(base_commit) 构造 → encode / decode 往
+/// 返逐字段相等（含 None / Some 两态）。
+#[test]
+fn change_record_v2回环含worktree双态逐字段相等() {
+    for (worktree, base_commit) in [
+        (
+            Some(r"C:\app-data\worktrees\seg\fix-bug".to_owned()),
+            Some("0000000000000000000000000000000000000001".to_owned()),
+        ),
+        (None, None),
+    ] {
+        let record = ChangeRecord::new(
+            "回回归",
+            "requirement",
+            1_727_000_000_000,
+            worktree.clone(),
+            base_commit.clone(),
+        );
+        let bytes = native_model::encode(&record).expect("encode v2 应成功");
+        let (decoded, version) =
+            native_model::decode::<ChangeRecord>(bytes).expect("decode v2 应成功");
+        assert_eq!(version, 2, "v2 编码载荷按 v2 解出（版本头 = 2）");
+        assert_eq!(
+            decoded, record,
+            "v2 往返逐字段相等（worktree {worktree:?} / base_commit {base_commit:?}）"
+        );
+    }
+}
+
+/// 双向 From：`From<ChangeRecordV1>` 升级两字段 None；`From<ChangeRecord> for
+/// ChangeRecordV1>` 降级两字段丢弃（降级形态不作数据承诺——字段缺席即空）。
+#[test]
+fn change_record_v1_from双向upgrade补none与downgrade丢新字段() {
+    // upgrade：V1 → v2，补两字段 None
+    let legacy = change_v1_record("双向升级");
+    let upgraded = ChangeRecord::from(legacy.clone());
+    assert_eq!(
+        upgraded.worktree, None,
+        "升级补 worktree = None（缺列读兼容）"
+    );
+    assert_eq!(upgraded.base_commit, None, "升级补 base_commit = None");
+    assert_eq!(upgraded.name, legacy.name);
+    assert_eq!(upgraded.workflow_type, legacy.workflow_type);
+    assert_eq!(upgraded.created_at, legacy.created_at);
+    assert_eq!(upgraded.status, legacy.status);
+    assert_eq!(upgraded.archived_at, legacy.archived_at);
+
+    // downgrade：v2 → V1，两新字段丢弃（六字段原形还原）
+    let record = ChangeRecord::new(
+        "双向降级",
+        "requirement",
+        1_727_000_000_000,
+        Some(r"D:\wt\seg\双向降级".to_owned()),
+        Some("0000000000000000000000000000000000000002".to_owned()),
+    );
+    let downgraded = ChangeRecordV1::from(record);
+    assert_eq!(
+        downgraded,
+        change_v1_record("双向降级"),
+        "降级还原六字段原形（新字段丢弃）"
+    );
+}
+
+/// new 增参：两 Option 显式传入构造字段一致；默认建档传 None = legacy 形态
+///（status 恒 active 起步、archived_at / active_phase 空起步既有语义持衡）。
+#[test]
+fn change_record_new增参两option显式传入与none_legacy形态() {
+    let worktree = r"C:\app-data\worktrees\seg\fix-bug".to_owned();
+    let base = "0000000000000000000000000000000000000001".to_owned();
+    let record = ChangeRecord::new(
+        "显式传入",
+        "requirement",
+        1_727_000_000_000,
+        Some(worktree.clone()),
+        Some(base.clone()),
+    );
+    assert_eq!(record.worktree.as_deref(), Some(worktree.as_str()));
+    assert_eq!(record.base_commit.as_deref(), Some(base.as_str()));
+    assert_eq!(record.status, ChangeStatus::Active, "status 恒 active 起步");
+
+    let legacy_shape =
+        ChangeRecord::new("legacy形态", "requirement", 1_727_000_000_000, None, None);
+    assert_eq!(
+        legacy_shape.worktree, None,
+        "None 传入 = legacy 主 root 形态"
+    );
+    assert_eq!(legacy_shape.base_commit, None);
+    assert_eq!(legacy_shape.archived_at, None, "archived_at 空起步持衡");
+    assert_eq!(legacy_shape.active_phase, None, "active_phase 空起步持衡");
 }

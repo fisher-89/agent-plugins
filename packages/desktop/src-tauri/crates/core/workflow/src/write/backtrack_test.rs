@@ -50,6 +50,8 @@ impl BacktrackStore {
                 status: ChangeStatus::Active,
                 archived_at: None,
                 active_phase: None,
+                worktree: None,
+                base_commit: None,
             })),
             entries: Mutex::new(entries),
             commands: Mutex::new(Vec::new()),
@@ -235,7 +237,13 @@ fn 白名单内回跳_command逐字段落库且outcome一致() {
             "test-gen",
             "proposal",
             "需求基线返工",
-            &["proposal", "dev-design", "test-design", "implement", "test-gen"],
+            &[
+                "proposal",
+                "dev-design",
+                "test-design",
+                "implement",
+                "test-gen",
+            ],
         ))
         .expect("白名单内回溯应成功");
 
@@ -266,7 +274,13 @@ fn stale闭包_target为dev_design_多支逐支核对() {
         "test-gen",
         "dev-design",
         "设计返工",
-        &["proposal", "dev-design", "test-design", "implement", "test-gen"],
+        &[
+            "proposal",
+            "dev-design",
+            "test-design",
+            "implement",
+            "test-gen",
+        ],
     ))
     .expect("回溯应成功");
 
@@ -360,7 +374,10 @@ fn reason恰500字符成功() {
 
     assert_eq!(outcome.target, "proposal");
     assert_eq!(
-        fake.commands.lock().expect("命令锁不可中毒")[0].reason.chars().count(),
+        fake.commands.lock().expect("命令锁不可中毒")[0]
+            .reason
+            .chars()
+            .count(),
         500
     );
 }
@@ -473,7 +490,12 @@ fn change未建档显式err零写() {
     let fake = BacktrackStore::missing();
 
     let err = fake
-        .run(&input_at("dev-design", "proposal", "任意", &["proposal", "dev-design"]))
+        .run(&input_at(
+            "dev-design",
+            "proposal",
+            "任意",
+            &["proposal", "dev-design"],
+        ))
         .expect_err("未建档应 Err");
 
     assert!(err.contains("未建档"), "记因: {err}");

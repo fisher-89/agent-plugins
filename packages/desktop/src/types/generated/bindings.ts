@@ -13,7 +13,7 @@ export const commands = {
 	/**
 	 *  单 change 详情聚合；未知 change 名返回 `None`（db 缺记录 change 以文档
 	 *  形态返回：空流水线 + 产物清单）。IPC 签名不变：blank root 与开库失败均
-	 *  `None`。
+	 *  `None`。worktree 感知在 core `change_detail` 内（record 先读后定位）。
 	 */
 	getChangeDetail: (root: string, change: string) => __TAURI_INVOKE<{
 	name: string,
@@ -23,10 +23,16 @@ export const commands = {
 	pipeline: PhaseEntry[],
 	activePhase: ActivePhase | null,
 	artifacts: ArtifactDescriptor[],
+	/**
+	 *  本 change 的 worktree 绝对路径（自建档记录直读透出，None → null；
+	 *  legacy 记录不渲染——路径为刻意出线的执行锚，review / merge 可达）
+	 */
+	worktree: string | null,
 } | null>("get_change_detail", { root, change }),
 	/**
 	 *  按信封读取单个产物；kind 未注册、source 非法或解析失败返回 `None`。
-	 *  IPC 签名不变：blank root 与开库失败均 `None`。
+	 *  IPC 签名不变：blank root 与开库失败均 `None`。worktree 感知：record 的
+	 *  `worktree` 字段直传 `locate_change` 回退参（merge 前产物在 worktree 内）。
 	 */
 	readArtifact: (root: string, change: string, kind: string, source: string) => __TAURI_INVOKE<{
 	/**  契约 ID（如 "eval-checklist"），前端据此路由 renderer */
@@ -118,8 +124,10 @@ export const commands = {
 } | null>("change_flow_state", { root, change }),
 	changeFlowWatch: (onEvent: Channel<RunUpdate>, root: string, change: string) => __TAURI_INVOKE<null>("change_flow_watch", { onEvent, root, change }),
 	/**
-	 *  新建 change：db 建档、目录建树与 explore.md（落最初 goal）均在写面
-	 *  `create` 三合一双写；blank root 显式 `Err`。
+	 *  新建 change（建域四段：建档 + worktree add + worktree 内目录树与
+	 *  explore.md + bootstrap）；blank root 显式 `Err`。async + `spawn_blocking`
+	 *  调 sync 写面（bootstrap 是分钟级 spawn——同步命令会冻结 UI，IPC 入参与
+	 *  返回类型面不变）。
 	 */
 	createChange: (root: string, name: string, goal: string) => __TAURI_INVOKE<CreateOutcome>("create_change", { root, name, goal }),
 	/**  读取单篇笔记全文；未知 stem、穿越名或文件缺失返回 `None`（不报错）。 */
@@ -439,6 +447,11 @@ export type ChangeDetail = {
 	pipeline: PhaseEntry[],
 	activePhase: ActivePhase | null,
 	artifacts: ArtifactDescriptor[],
+	/**
+	 *  本 change 的 worktree 绝对路径（自建档记录直读透出，None → null；
+	 *  legacy 记录不渲染——路径为刻意出线的执行锚，review / merge 可达）
+	 */
+	worktree: string | null,
 };
 
 /**  change 列表：active 全量 + archive 按月分组。 */
@@ -633,7 +646,11 @@ export type CoverageThresholds = {
 	functions: number | null,
 };
 
-/**  创建产出（IPC DTO）：仅名称与创建日期，磁盘路径知识不下沉前端。 */
+/**
+ *  创建产出（IPC DTO）：名称、创建日期、worktree 绝对路径（刻意出线的执行
+ *  锚——review / 手动 commit / merge 可达）与警告清单（脏仓 / bootstrap 注记，
+ *  持久入 DTO 抵达前端行内呈现）。
+ */
 export type CreateOutcome = {
 	name: string,
 	/**
@@ -641,6 +658,10 @@ export type CreateOutcome = {
 	 *  直达命令返回，无需回读）
 	 */
 	created: string,
+	/**  本 change 分配的 worktree 绝对路径（执行锚；db 记录同源） */
+	worktree: string,
+	/**  警告清单（脏仓引导 / 依赖引导注记与失败；干净仓且顺利 → 空清单） */
+	warnings: string[],
 };
 
 /**

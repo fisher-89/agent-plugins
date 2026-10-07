@@ -49,6 +49,8 @@ impl LogStore {
                 status: ChangeStatus::Active,
                 archived_at: None,
                 active_phase: active,
+                worktree: None,
+                base_commit: None,
             })),
             entries: Mutex::new(Vec::new()),
             commands: Mutex::new(Vec::new()),
@@ -311,9 +313,7 @@ fn pass落账_command逐字段一致且active_phase清位() {
         .expect("假件读半边应可用")
         .expect("建档记录应在场");
     assert!(record.active_phase.is_none(), "落账后 active_phase 清除");
-    let entries = fake
-        .list_phase_records(CHANGE)
-        .expect("假件读半边应可用");
+    let entries = fake.list_phase_records(CHANGE).expect("假件读半边应可用");
     assert_eq!(entries.len(), 1, "落账追加一条评估条目");
 }
 
@@ -570,8 +570,14 @@ fn 槽位some值逐字透传() {
     })
     .expect("落账应成功");
     let command = fake.last_command();
-    assert_eq!(command.executor_session_id.as_deref(), Some("ses-1-1727000000001"));
-    assert_eq!(command.evaluator_session_id.as_deref(), Some("ses-2-1727000000002"));
+    assert_eq!(
+        command.executor_session_id.as_deref(),
+        Some("ses-1-1727000000001")
+    );
+    assert_eq!(
+        command.evaluator_session_id.as_deref(),
+        Some("ses-2-1727000000002")
+    );
     assert_eq!(command.decision_session_id, None);
 
     fake.reopen_active(); // 首次落账已清位（镜像 start → 落账节奏），重开再落账
@@ -586,4 +592,3 @@ fn 槽位some值逐字透传() {
         "decision 槽位透传（表位不校验、值不改写）"
     );
 }
-

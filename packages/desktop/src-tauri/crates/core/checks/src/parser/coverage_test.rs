@@ -68,6 +68,56 @@ fn node_test路由可达_逐文件空集与实测块提取() {
     assert!(parse_coverage_measured(CoverageFormat::NodeTest, "no summary line").is_none());
 }
 
+/// 正向：llvm-cov 实测块 null 感知——`count` 0 维度（未插桩，稳定工具链
+/// 分支维度的真实形态：count 0 / percent 0.0）→ `None`（未测维度，非
+/// 「测得 0%」）；`count` 在场且 >0 的维度 percent 保真；`count` 缺席的
+/// percent-only 形态按 percent 保真（语料 fixture 同形态）。
+#[test]
+fn llvm_cov实测块_count零维度none且在场维度保真() {
+    // 稳定工具链真实形态：branches / mcdc 未插桩（count 0 + percent 0.0），
+    // lines / functions 带真实计数
+    let stable = r#"{
+        "data": [ { "totals": {
+            "lines":     { "count": 6103, "covered": 5872, "percent": 96.21 },
+            "branches":  { "count": 0, "covered": 0, "percent": 0.0 },
+            "functions": { "count": 537, "covered": 475, "percent": 88.45 }
+        } } ]
+    }"#;
+    let measured =
+        parse_coverage_measured(CoverageFormat::LlvmCov, stable).expect("totals 在场应可提取");
+    assert_eq!(measured.lines, Some(96.21), "count>0 维度 percent 保真");
+    assert_eq!(
+        measured.branches, None,
+        "count 0 = 维度未插桩（未测）→ None，不是 Some(0.0)"
+    );
+    assert_eq!(measured.functions, Some(88.45));
+
+    // count 缺席的 percent-only 形态：percent 保真（不因缺 count 降级 None）
+    let percent_only = r#"{
+        "data": [ { "totals": {
+            "lines": { "percent": 66.67 },
+            "branches": { "percent": 75.0 },
+            "functions": { "percent": 50.0 }
+        } } ]
+    }"#;
+    let measured = parse_coverage_measured(CoverageFormat::LlvmCov, percent_only)
+        .expect("percent-only 形态应可提取");
+    assert_eq!(measured.lines, Some(66.67));
+    assert_eq!(measured.branches, Some(75.0));
+    assert_eq!(measured.functions, Some(50.0));
+
+    // 夜间工具链插桩形态（branches count>0）：percent 保真参与阈值判定
+    let instrumented = r#"{
+        "data": [ { "totals": {
+            "branches": { "count": 40, "covered": 34, "percent": 85.0 }
+        } } ]
+    }"#;
+    let measured =
+        parse_coverage_measured(CoverageFormat::LlvmCov, instrumented).expect("插桩形态应可提取");
+    assert_eq!(measured.branches, Some(85.0));
+    assert_eq!(measured.lines, None, "缺维度键 → None（缺维度语义不变）");
+}
+
 /// 异常：结构残缺样本经各路由 Err 上抛且记因（路由层不吞错不换语义）。
 #[test]
 fn 结构残缺样本经各路由err上抛且记因() {

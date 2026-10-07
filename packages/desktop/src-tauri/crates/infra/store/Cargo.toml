@@ -6,6 +6,7 @@ edition = "2021"
 [dependencies]
 agent = { workspace = true }
 dunce = { workspace = true }
+foundation = { workspace = true }
 native_db = { workspace = true }
 native_model = { workspace = true }
 serde = { workspace = true }

@@ -4,7 +4,7 @@ use agent::{
     AgentRunner, RunningTurn, SessionCtx, SessionKernel, SessionProvenance, SessionQuery,
     SessionRef, StopRegistry, TurnRequest,
 };
-use store::{AgentEngineKind, WorkspaceStores};
+use store::{AgentEngineKind, Store, WorkspaceStores};
 
 use crate::store_port::{StoreQuery, StoreSink};
 use crate::{EngineConfig, EngineFacade, EngineKind};
@@ -39,18 +39,18 @@ pub struct ComposedTurn {
 }
 
 /// 运行发起解析 + 装配（解析单点）：`registry` 为壳层托管的停止注册表（内核
-/// 治理面的挂载注入）。
+/// 治理面的挂载注入）；`store` 为命令层预解析注入的 workspace root 库实例
+///（design D8 拆参——store 身份锚恒 workspace root，worktree 路径在类型上
+/// 不可能进 `for_root`；cwd 半边经既有 `SessionCtx` 通道不经 compose）。
 pub fn compose_turn(
     stores: &WorkspaceStores,
     registry: Arc<StopRegistry>,
-    root: &str,
+    store: Arc<Store>,
     agent: Option<i64>,
 ) -> Result<ComposedTurn, String> {
     // 解析语义自命令层原样平移（缺省 / 显式 / sdk provider 组装 / high 档 /
     // 无默认 Err 引导管理页）
     let resolved = resolve_agent_engine(stores, agent)?;
-    // cwd 恒为当前 workspace root（root 已由命令面 blank 检查，for_root 可解析）
-    let store = stores.for_root(root).map_err(|e| e.to_string())?;
     let query = Arc::new(StoreQuery::new(Arc::clone(&store)));
     let kernel = SessionKernel::new(Arc::new(StoreSink::new(store)), registry);
     // resume 装载缝以会话全史转录闭合（引擎中立数据：session_id → 密封事件

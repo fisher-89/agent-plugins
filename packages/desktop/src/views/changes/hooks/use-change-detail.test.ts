@@ -39,6 +39,7 @@ function fakeDetail(artifacts: ArtifactDescriptor[]): ChangeDetail {
       },
     ],
     activePhase: null,
+    worktree: null,
     artifacts,
   };
 }

@@ -28,7 +28,15 @@ function LocationProbe() {
 // ---------------------------------------------------------------------------
 
 /** create_change 应答：DTO = resolve、字符串 = reject。 */
-type CreateAnswer = { name: string; created: string } | string | null;
+type CreateAnswer =
+  | {
+      name: string;
+      created: string;
+      worktree: string;
+      warnings: string[];
+    }
+  | string
+  | null;
 
 let listAnswer: Promise<unknown> = Promise.resolve(null);
 let createAnswer: CreateAnswer = null;
@@ -408,7 +416,12 @@ describe('ChangeListView：新建入口挂载与创建流转（创建 → refres
 
   it('清单挂载 → 对话框提交 → refresh + navigate：create_change 恰一次、清单刷新、pathname 落 /changes/:name、change_flow_start 零调用', async () => {
     listAnswer = Promise.resolve(fixtureList);
-    createAnswer = { name: 'fix-bug', created: '2026-10-02' };
+    createAnswer = {
+      name: 'fix-bug',
+      created: '2026-10-02',
+      worktree: 'C:home.dev-teamworktrees\repo-ab12\fix-bug',
+      warnings: [],
+    };
     render(flowTree(ROOT));
     await screen.findByText('add-feature');
     expect(listCalls().length).toBe(1);
@@ -422,6 +435,8 @@ describe('ChangeListView：新建入口挂载与创建流转（创建 → refres
     });
     fireEvent.click(screen.getByTestId('change-create-submit'));
 
+    // 成功面（D14）：进入详情按钮触发 onCreated → refresh + navigate
+    fireEvent.click(await screen.findByTestId('change-create-open-detail'));
     await waitFor(() => expect(probePathname()).toBe('/changes/fix-bug'));
     expect(createCalls()).toEqual([
       { root: ROOT, name: 'fix-bug', goal: '修复登录重试的竞态问题' },

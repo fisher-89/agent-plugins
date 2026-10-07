@@ -43,7 +43,9 @@ impl ChangeStateStore for Store {
     }
 
     fn create_change_record(&self, record: ChangeStateRecord) -> Result<(), StoreFault> {
-        Store::create_change_record(self, record).map(|_| ()).map_err(fault)
+        Store::create_change_record(self, record)
+            .map(|_| ())
+            .map_err(fault)
     }
 
     fn delete_change_record(&self, name: &str) -> Result<bool, StoreFault> {

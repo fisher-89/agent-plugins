@@ -601,3 +601,32 @@ fn save_api_key回填与新context_length参正交() {
         "context_length 无回填语义（有值即落，与 api_key 区分）"
     );
 }
+
+/// 留空 api_key 更新：回填存量原值（不覆写为空串——密钥一次填写后，前端
+/// 后续更新不回传原文的契约半边）。
+#[test]
+fn save_agent_provider留空key更新回填原值不落空串() {
+    let env = Env::new("key-backfill");
+    let app = app_with_stores(&env);
+    let state = app.state::<WorkspaceStores>();
+
+    let created = save_new_provider(&state, "backfill-p", "secret-1").expect("新建应成功");
+    let updated =
+        save_provider_with_key(&state, created.id, &created.name, "").expect("留空 key 更新应成功");
+
+    assert_eq!(
+        updated.api_key, "secret-1",
+        "空 key 回填原值（读存量记录半边）"
+    );
+    assert_ne!(updated.api_key, "", "不落空串");
+    assert_eq!(
+        list_agent_providers(state.clone())
+            .expect("清单应成功")
+            .into_iter()
+            .find(|record| record.id == created.id)
+            .expect("落库记录在场")
+            .api_key,
+        "secret-1",
+        "回填值持久化（非仅返回面）"
+    );
+}

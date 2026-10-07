@@ -35,11 +35,12 @@ fn counting_loader(
 
 #[test]
 fn crate根导出面锚定_组合根与查询面与既有门面re_export可达() {
-    // compose_turn / ComposedTurn 以签名锚定（零调用、零 store 参与）
+    // compose_turn / ComposedTurn 以签名锚定（零调用；store 半边 = 命令层
+    // 预解析注入的 workspace root 库实例，design D8 拆参）
     let compose_signature: fn(
         &WorkspaceStores,
         Arc<agent::StopRegistry>,
-        &str,
+        Arc<store::Store>,
         Option<i64>,
     ) -> Result<ComposedTurn, String> = compose_turn;
     let _ = compose_signature;

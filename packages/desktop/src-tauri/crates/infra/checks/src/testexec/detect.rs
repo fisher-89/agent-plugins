@@ -39,7 +39,8 @@ struct FrameworkEntry {
     config_flag: Option<&'static str>,
 }
 
-/// 五框架注册表（常量表移植；模板串与 CLI `test-framework.ts` 逐字对齐）。
+/// 五框架注册表（常量表移植；模板串与 CLI `test-framework.ts` 逐字对齐——
+/// 唯 rust cmd 臂单侧修复偏离：CLI 保留旧 `if errorlevel` 形态）。
 const REGISTRY: [FrameworkEntry; 5] = [
     FrameworkEntry {
         framework: "jest",
@@ -78,7 +79,7 @@ const REGISTRY: [FrameworkEntry; 5] = [
         framework: "rust",
         version_command: "cargo --version",
         shell_template: "cargo test --workspace; _X=$?; cargo llvm-cov --json --output-path \"{coverage_file}\"; exit $_X",
-        cmd_template: "cargo test --workspace & if errorlevel 1 set _X=%errorlevel% & cargo llvm-cov --json --output-path \"{coverage_file}\" & exit /b %_X%",
+        cmd_template: "cargo llvm-cov --json --output-path \"{coverage_file}\" & cargo test --workspace",
         coverage_format: CoverageFormat::LlvmCov,
         coverage_output: "coverage-summary.json",
         results_output: "results.txt",

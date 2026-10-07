@@ -18,6 +18,9 @@ use crate::state::{ChangeRunStatus, ChangeStepKind, ChangeStepState, ChangeStepS
 /// 测试用 change 寻址键（注册表键 = change 名）。
 const CHANGE: &str = "demo-change";
 
+/// 复合键 workspace root 段（测试固定值）
+const ROOT: &str = "/ws/root-a";
+
 /// 信封出线形态（`RunUpdate` 无 `PartialEq`，等值经线面 JSON 比对）。
 fn wire(update: &RunUpdate) -> serde_json::Value {
     serde_json::to_value(update).expect("RunUpdate 出线序列化应成功")
@@ -54,18 +57,18 @@ async fn until_ok(mut attempt: impl FnMut() -> Result<(), String>) -> bool {
 async fn begin_run_registers_and_detects_parallel_conflict() {
     let control = Arc::new(ChangeFlowControl::new());
     let guard = control
-        .begin_run(CHANGE, "run-1".to_owned())
+        .begin_run(ROOT, CHANGE, "run-1".to_owned())
         .expect("新 change 首次 begin_run 应成功");
     assert!(!guard.cancelled(), "新登记 run 未置取消信号");
 
     assert_eq!(
-        control.snapshot(CHANGE).map(|snap| snap.run_id),
+        control.snapshot(ROOT, CHANGE).map(|snap| snap.run_id),
         Some("run-1".to_owned()),
         "登记即快照可见"
     );
 
     let err = control
-        .begin_run(CHANGE, "run-2".to_owned())
+        .begin_run(ROOT, CHANGE, "run-2".to_owned())
         .err()
         .expect("同 change 二次 begin 应 Err");
     assert!(err.contains(CHANGE), "错误显式携带 change 名: {err}");
@@ -73,7 +76,7 @@ async fn begin_run_registers_and_detects_parallel_conflict() {
 
     // 冲突被拒后首个 run 不受扰动（登记面稳定）
     assert_eq!(
-        control.snapshot(CHANGE).map(|snap| snap.run_id),
+        control.snapshot(ROOT, CHANGE).map(|snap| snap.run_id),
         Some("run-1".to_owned())
     );
 }
@@ -83,11 +86,15 @@ async fn begin_run_registers_and_detects_parallel_conflict() {
 #[tokio::test]
 async fn cross_change_parallel_isolation() {
     let control = Arc::new(ChangeFlowControl::new());
-    let guard_a = control.begin_run("change-a", "run-a".to_owned()).unwrap();
-    let guard_b = control.begin_run("change-b", "run-b".to_owned()).unwrap();
+    let guard_a = control
+        .begin_run(ROOT, "change-a", "run-a".to_owned())
+        .unwrap();
+    let guard_b = control
+        .begin_run(ROOT, "change-b", "run-b".to_owned())
+        .unwrap();
 
-    let mut rx_a = control.subscribe("change-a").unwrap();
-    let mut rx_b = control.subscribe("change-b").unwrap();
+    let mut rx_a = control.subscribe(ROOT, "change-a").unwrap();
+    let mut rx_b = control.subscribe(ROOT, "change-b").unwrap();
 
     // A 的状态流不串台到 B
     guard_a.emit(RunUpdate::ConfirmWait {
@@ -104,17 +111,17 @@ async fn cross_change_parallel_isolation() {
     );
 
     // 停止寻址按 change 独立：A 置位不波及 B
-    assert!(control.request_stop("change-a"));
+    assert!(control.request_stop(ROOT, "change-a"));
     assert!(guard_a.cancelled(), "A 的取消信号同步观测");
     assert!(!guard_b.cancelled(), "B 不受 A 停止影响");
 
     // 快照面各自独立
     assert_eq!(
-        control.snapshot("change-a").map(|snap| snap.run_id),
+        control.snapshot(ROOT, "change-a").map(|snap| snap.run_id),
         Some("run-a".to_owned())
     );
     assert_eq!(
-        control.snapshot("change-b").map(|snap| snap.run_id),
+        control.snapshot(ROOT, "change-b").map(|snap| snap.run_id),
         Some("run-b".to_owned())
     );
 }
@@ -127,12 +134,15 @@ async fn request_stop_sets_cancel_flag_and_miss_is_idempotent() {
     let control = Arc::new(ChangeFlowControl::new());
 
     // miss 半边：无运行 run 幂等返回 false
-    assert!(!control.request_stop(CHANGE), "无运行 run 应返回 false");
+    assert!(
+        !control.request_stop(ROOT, CHANGE),
+        "无运行 run 应返回 false"
+    );
 
-    let guard = control.begin_run(CHANGE, "run-1".to_owned()).unwrap();
+    let guard = control.begin_run(ROOT, CHANGE, "run-1".to_owned()).unwrap();
     assert!(!guard.cancelled(), "未停止前取消信号为假");
 
-    assert!(control.request_stop(CHANGE), "运行中置位返回 true");
+    assert!(control.request_stop(ROOT, CHANGE), "运行中置位返回 true");
     assert!(guard.cancelled(), "取消信号同步观测（watch 置位）");
 }
 
@@ -141,11 +151,11 @@ async fn request_stop_sets_cancel_flag_and_miss_is_idempotent() {
 #[tokio::test]
 async fn subscribe_some_with_run_none_without() {
     let control = Arc::new(ChangeFlowControl::new());
-    assert!(control.subscribe(CHANGE).is_none(), "无 run → None");
+    assert!(control.subscribe(ROOT, CHANGE).is_none(), "无 run → None");
 
-    let _guard = control.begin_run(CHANGE, "run-1".to_owned()).unwrap();
+    let _guard = control.begin_run(ROOT, CHANGE, "run-1".to_owned()).unwrap();
     assert!(
-        control.subscribe(CHANGE).is_some(),
+        control.subscribe(ROOT, CHANGE).is_some(),
         "有 run → Some(receiver)"
     );
 }
@@ -155,9 +165,9 @@ async fn subscribe_some_with_run_none_without() {
 #[tokio::test]
 async fn emit_flows_to_broadcast_subscriber() {
     let control = Arc::new(ChangeFlowControl::new());
-    let guard = control.begin_run(CHANGE, "run-1".to_owned()).unwrap();
+    let guard = control.begin_run(ROOT, CHANGE, "run-1".to_owned()).unwrap();
 
-    let mut rx = control.subscribe(CHANGE).unwrap();
+    let mut rx = control.subscribe(ROOT, CHANGE).unwrap();
     let update = RunUpdate::Step {
         step: sample_step(),
     };
@@ -172,19 +182,25 @@ async fn emit_flows_to_broadcast_subscriber() {
 #[tokio::test]
 async fn session_slot_set_clear_roundtrip() {
     let control = Arc::new(ChangeFlowControl::new());
-    let guard = control.begin_run(CHANGE, "run-1".to_owned()).unwrap();
+    let guard = control.begin_run(ROOT, CHANGE, "run-1".to_owned()).unwrap();
 
-    assert_eq!(control.current_session(CHANGE), None, "初值空槽");
+    assert_eq!(control.current_session(ROOT, CHANGE), None, "初值空槽");
 
     guard.set_session(Some("sess-1".to_owned()));
-    assert_eq!(control.current_session(CHANGE), Some("sess-1".to_owned()));
+    assert_eq!(
+        control.current_session(ROOT, CHANGE),
+        Some("sess-1".to_owned())
+    );
 
     guard.set_session(None);
-    assert_eq!(control.current_session(CHANGE), None, "置 None 清槽");
+    assert_eq!(control.current_session(ROOT, CHANGE), None, "置 None 清槽");
 
     // control 侧直写同槽（命令层 sink 桥在首个会话事件到达时同步）
-    control.set_session(CHANGE, Some("sess-2".to_owned()));
-    assert_eq!(control.current_session(CHANGE), Some("sess-2".to_owned()));
+    control.set_session(ROOT, CHANGE, Some("sess-2".to_owned()));
+    assert_eq!(
+        control.current_session(ROOT, CHANGE),
+        Some("sess-2".to_owned())
+    );
 }
 
 /// confirm 应答回传：`wait_confirm` 挂起后 confirm(proceed=true/false) 回传
@@ -193,18 +209,20 @@ async fn session_slot_set_clear_roundtrip() {
 async fn confirm_resolves_suspended_waiter_single_shot() {
     // proceed=true 臂
     let control = Arc::new(ChangeFlowControl::new());
-    let guard = Arc::new(control.begin_run(CHANGE, "run-1".to_owned()).unwrap());
+    let guard = Arc::new(control.begin_run(ROOT, CHANGE, "run-1".to_owned()).unwrap());
     let waiter_guard = Arc::clone(&guard);
     let waiter = tokio::spawn(async move { waiter_guard.wait_confirm().await });
 
     assert!(
-        until_ok(|| control.confirm(CHANGE, true)).await,
+        until_ok(|| control.confirm(ROOT, CHANGE, true)).await,
         "confirm 的 Ok 即 pending 通道登记证明"
     );
     assert!(waiter.await.unwrap(), "proceed=true 回传 true");
 
     // take 语义：应答已消费，重复应答落空 Err
-    let err = control.confirm(CHANGE, true).expect_err("重复应答应 Err");
+    let err = control
+        .confirm(ROOT, CHANGE, true)
+        .expect_err("重复应答应 Err");
     assert!(
         err.contains("无等待中的 phase 确认"),
         "单次通道已取走: {err}"
@@ -212,11 +230,15 @@ async fn confirm_resolves_suspended_waiter_single_shot() {
 
     // proceed=false 臂：独立 run，false 原样回传（收敛归 walker）
     let control_b = Arc::new(ChangeFlowControl::new());
-    let guard_b = Arc::new(control_b.begin_run(CHANGE, "run-2".to_owned()).unwrap());
+    let guard_b = Arc::new(
+        control_b
+            .begin_run(ROOT, CHANGE, "run-2".to_owned())
+            .unwrap(),
+    );
     let waiter_b_guard = Arc::clone(&guard_b);
     let waiter_b = tokio::spawn(async move { waiter_b_guard.wait_confirm().await });
 
-    assert!(until_ok(|| control_b.confirm(CHANGE, false)).await);
+    assert!(until_ok(|| control_b.confirm(ROOT, CHANGE, false)).await);
     assert!(!waiter_b.await.unwrap(), "proceed=false 回传 false");
 }
 
@@ -227,13 +249,17 @@ async fn confirm_without_waiter_errors() {
     let control = Arc::new(ChangeFlowControl::new());
 
     // 无运行 run
-    let err = control.confirm(CHANGE, true).expect_err("无 run 应 Err");
+    let err = control
+        .confirm(ROOT, CHANGE, true)
+        .expect_err("无 run 应 Err");
     assert!(err.contains(CHANGE), "错误显式携带 change 名: {err}");
     assert!(err.contains("无运行中的 run"), "miss 记因: {err}");
 
     // 有 run 无等待方
-    let _guard = control.begin_run(CHANGE, "run-1".to_owned()).unwrap();
-    let err = control.confirm(CHANGE, true).expect_err("无挂起应 Err");
+    let _guard = control.begin_run(ROOT, CHANGE, "run-1".to_owned()).unwrap();
+    let err = control
+        .confirm(ROOT, CHANGE, true)
+        .expect_err("无挂起应 Err");
     assert_eq!(err, "当前无等待中的 phase 确认");
 }
 
@@ -242,12 +268,12 @@ async fn confirm_without_waiter_errors() {
 #[tokio::test]
 async fn answer_returns_text_to_suspended_waiter() {
     let control = Arc::new(ChangeFlowControl::new());
-    let guard = Arc::new(control.begin_run(CHANGE, "run-1".to_owned()).unwrap());
+    let guard = Arc::new(control.begin_run(ROOT, CHANGE, "run-1".to_owned()).unwrap());
     let waiter_guard = Arc::clone(&guard);
     let waiter = tokio::spawn(async move { waiter_guard.wait_answer().await });
 
     assert!(
-        until_ok(|| control.answer(CHANGE, "采用方案 B".to_owned())).await,
+        until_ok(|| control.answer(ROOT, CHANGE, "采用方案 B".to_owned())).await,
         "answer 的 Ok 即 pending 通道登记证明"
     );
     assert_eq!(
@@ -258,7 +284,7 @@ async fn answer_returns_text_to_suspended_waiter() {
 
     // take 语义：应答已消费，重复应答落空 Err
     let err = control
-        .answer(CHANGE, "再来一次".to_owned())
+        .answer(ROOT, CHANGE, "再来一次".to_owned())
         .expect_err("重复应答应 Err");
     assert!(err.contains("无等待中的 ask"), "单次通道已取走: {err}");
 }
@@ -271,15 +297,15 @@ async fn answer_without_waiter_errors() {
 
     // 无运行 run
     let err = control
-        .answer(CHANGE, "应答".to_owned())
+        .answer(ROOT, CHANGE, "应答".to_owned())
         .expect_err("无 run 应 Err");
     assert!(err.contains(CHANGE), "错误显式携带 change 名: {err}");
     assert!(err.contains("无运行中的 run"), "miss 记因: {err}");
 
     // 有 run 无等待方
-    let _guard = control.begin_run(CHANGE, "run-1".to_owned()).unwrap();
+    let _guard = control.begin_run(ROOT, CHANGE, "run-1".to_owned()).unwrap();
     let err = control
-        .answer(CHANGE, "应答".to_owned())
+        .answer(ROOT, CHANGE, "应答".to_owned())
         .expect_err("无挂起应 Err");
     assert_eq!(err, "当前无等待中的 ask");
 }
@@ -290,8 +316,8 @@ async fn answer_without_waiter_errors() {
 #[tokio::test]
 async fn finish_removes_entry_and_allows_rebegin() {
     let control = Arc::new(ChangeFlowControl::new());
-    let guard = control.begin_run(CHANGE, "run-1".to_owned()).unwrap();
-    let mut rx = control.subscribe(CHANGE).unwrap();
+    let guard = control.begin_run(ROOT, CHANGE, "run-1".to_owned()).unwrap();
+    let mut rx = control.subscribe(ROOT, CHANGE).unwrap();
 
     guard.finish(ChangeRunStatus::Stopped, Some("用户停止".to_owned()));
 
@@ -303,16 +329,22 @@ async fn finish_removes_entry_and_allows_rebegin() {
     );
 
     // 终态除名三面
-    assert!(control.snapshot(CHANGE).is_none(), "快照面除名 → None");
     assert!(
-        !control.request_stop(CHANGE),
+        control.snapshot(ROOT, CHANGE).is_none(),
+        "快照面除名 → None"
+    );
+    assert!(
+        !control.request_stop(ROOT, CHANGE),
         "除名后 request_stop 幂等返回 false"
     );
-    assert!(control.subscribe(CHANGE).is_none(), "订阅面除名 → None");
+    assert!(
+        control.subscribe(ROOT, CHANGE).is_none(),
+        "订阅面除名 → None"
+    );
 
     // 可重新登记（run 仅进程内，桌面重启后自然消失）
     control
-        .begin_run(CHANGE, "run-2".to_owned())
+        .begin_run(ROOT, CHANGE, "run-2".to_owned())
         .expect("终态除名后应可重新登记");
 }
 
@@ -322,13 +354,15 @@ async fn finish_removes_entry_and_allows_rebegin() {
 #[tokio::test]
 async fn finish_single_shot_consumes_terminal_state() {
     let control = Arc::new(ChangeFlowControl::new());
-    let guard = control.begin_run(CHANGE, "run-1".to_owned()).unwrap();
+    let guard = control.begin_run(ROOT, CHANGE, "run-1".to_owned()).unwrap();
     guard.emit(RunUpdate::Step {
         step: sample_step(),
     });
 
     // finish 前：快照 Some（状态机镜像运行态）
-    let before = control.snapshot(CHANGE).expect("finish 前快照应 Some");
+    let before = control
+        .snapshot(ROOT, CHANGE)
+        .expect("finish 前快照应 Some");
     assert_eq!(before.status, ChangeRunStatus::Running);
     assert_eq!(before.run_id, "run-1");
 
@@ -336,6 +370,7 @@ async fn finish_single_shot_consumes_terminal_state() {
 
     // 除名后迟滞 publish 落空：无残留可改写面（首个终态不被改写）
     control.publish(
+        ROOT,
         CHANGE,
         RunUpdate::Finished {
             status: ChangeRunStatus::Failed,
@@ -343,7 +378,7 @@ async fn finish_single_shot_consumes_terminal_state() {
         },
     );
     assert!(
-        control.snapshot(CHANGE).is_none(),
+        control.snapshot(ROOT, CHANGE).is_none(),
         "除名后终态不可被改写（快照面无残留）"
     );
 }
@@ -353,13 +388,13 @@ async fn finish_single_shot_consumes_terminal_state() {
 #[tokio::test]
 async fn publish_mirrors_snapshot_state_machine() {
     let control = Arc::new(ChangeFlowControl::new());
-    let guard = control.begin_run(CHANGE, "run-1".to_owned()).unwrap();
+    let guard = control.begin_run(ROOT, CHANGE, "run-1".to_owned()).unwrap();
 
     // Step：phase / attempt 推进，状态保持 running
     guard.emit(RunUpdate::Step {
         step: sample_step(),
     });
-    let snap = control.snapshot(CHANGE).unwrap();
+    let snap = control.snapshot(ROOT, CHANGE).unwrap();
     assert_eq!(snap.status, ChangeRunStatus::Running);
     assert_eq!(snap.phase.as_deref(), Some("implement"));
     assert_eq!(snap.attempt, Some(2));
@@ -369,7 +404,7 @@ async fn publish_mirrors_snapshot_state_machine() {
     guard.emit(RunUpdate::ConfirmWait {
         phase: "test-gen".to_owned(),
     });
-    let snap = control.snapshot(CHANGE).unwrap();
+    let snap = control.snapshot(ROOT, CHANGE).unwrap();
     assert_eq!(snap.status, ChangeRunStatus::WaitingConfirm);
     assert_eq!(snap.phase.as_deref(), Some("test-gen"));
 
@@ -378,7 +413,7 @@ async fn publish_mirrors_snapshot_state_machine() {
         question: "越权 backtrack 是否放行?".to_owned(),
         options: vec!["拒绝".to_owned(), "放行".to_owned()],
     });
-    let snap = control.snapshot(CHANGE).unwrap();
+    let snap = control.snapshot(ROOT, CHANGE).unwrap();
     assert_eq!(snap.status, ChangeRunStatus::WaitingAsk);
     let ask = snap.ask.expect("waitingAsk 应携中断载荷");
     assert_eq!(ask.question, "越权 backtrack 是否放行?");
@@ -396,7 +431,7 @@ async fn publish_mirrors_snapshot_state_machine() {
             },
         },
     });
-    let snap = control.snapshot(CHANGE).unwrap();
+    let snap = control.snapshot(ROOT, CHANGE).unwrap();
     assert_eq!(
         snap.status,
         ChangeRunStatus::WaitingAsk,
@@ -410,7 +445,7 @@ async fn publish_mirrors_snapshot_state_machine() {
 #[tokio::test]
 async fn cancel_interrupts_pending_waits() {
     let control = Arc::new(ChangeFlowControl::new());
-    let guard = Arc::new(control.begin_run(CHANGE, "run-1".to_owned()).unwrap());
+    let guard = Arc::new(control.begin_run(ROOT, CHANGE, "run-1".to_owned()).unwrap());
 
     let confirm_guard = Arc::clone(&guard);
     let confirm_waiter = tokio::spawn(async move { confirm_guard.wait_confirm().await });
@@ -420,7 +455,7 @@ async fn cancel_interrupts_pending_waits() {
     // 让 waiter 起跑挂起（取消语义与登记次序无关：先置位亦即刻收敛）
     tokio::task::yield_now().await;
 
-    assert!(control.request_stop(CHANGE), "停止置位");
+    assert!(control.request_stop(ROOT, CHANGE), "停止置位");
     assert!(
         !confirm_waiter.await.unwrap(),
         "取消置位 → proceed=false 收敛"
@@ -429,5 +464,162 @@ async fn cancel_interrupts_pending_waits() {
         answer_waiter.await.unwrap(),
         None,
         "取消置位 → None（walker 收敛 stopped）"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// 复合键并行（design D10）：异 workspace 同名不误拒 / 订阅隔离 / guard 除名
+// 不误伤他键 / DTO 键集零 root 渗出
+// ---------------------------------------------------------------------------
+
+/// 异 workspace 同名不误拒（先例 bug 修正锚）：(rootA, x) run 运行中 →
+/// (rootB, x) begin 成功（复合键含 workspace root 段——同名 change 在异
+/// workspace 互不冲突）；同 workspace 两 change 并行互不干扰。
+#[tokio::test]
+async fn 复合键异workspace同名不误拒_同workspace两change并行() {
+    let control = Arc::new(ChangeFlowControl::new());
+    const ROOT_B: &str = "/ws/root-b";
+
+    // (rootA, x) 登记
+    let guard_a = control
+        .begin_run(ROOT, CHANGE, "run-a".to_owned())
+        .expect("(rootA, x) 首登应成功");
+    // (rootB, x) 同名 change 异 workspace → 不误拒
+    let guard_b = control
+        .begin_run(ROOT_B, CHANGE, "run-b".to_owned())
+        .expect("异 workspace 同名 change 不误拒（复合键 root 段生效）");
+    assert!(
+        !guard_b.cancelled(),
+        "rootB 的 run 未受 rootA 同名 run 置位影响"
+    );
+    // 同 workspace 两 change 并行：互不冲突
+    let guard_c = control
+        .begin_run(ROOT, "other-change", "run-c".to_owned())
+        .expect("同 workspace 两 change 并行（真并行解锁）");
+
+    // 三键各自快照可达
+    assert_eq!(
+        control.snapshot(ROOT, CHANGE).map(|snap| snap.run_id),
+        Some("run-a".to_owned())
+    );
+    assert_eq!(
+        control.snapshot(ROOT_B, CHANGE).map(|snap| snap.run_id),
+        Some("run-b".to_owned())
+    );
+    assert_eq!(
+        control
+            .snapshot(ROOT, "other-change")
+            .map(|snap| snap.run_id),
+        Some("run-c".to_owned())
+    );
+    drop((guard_a, guard_b, guard_c));
+}
+
+/// 订阅隔离：(rootA, x) 与 (rootB, x) 各自 run 运行中——rootA 订阅者收到
+/// (rootA, x) 的 publish 而**收不到** (rootB, x) 的任何信封（broadcast 按
+/// 复合键寻址不串台）。
+#[tokio::test]
+async fn 复合键订阅隔离_broadcast按复合键寻址不串台() {
+    let control = Arc::new(ChangeFlowControl::new());
+    const ROOT_B: &str = "/ws/root-b";
+
+    let guard_a = control.begin_run(ROOT, CHANGE, "run-a".to_owned()).unwrap();
+    let guard_b = control
+        .begin_run(ROOT_B, CHANGE, "run-b".to_owned())
+        .unwrap();
+
+    let mut rx_a = control.subscribe(ROOT, CHANGE).unwrap();
+    let mut rx_b = control.subscribe(ROOT_B, CHANGE).unwrap();
+
+    // 各自 publish：载荷可辨（同一 change 名，仅 root 不同）
+    guard_a.emit(RunUpdate::ConfirmWait {
+        phase: "proposal".to_owned(),
+    });
+    guard_b.emit(RunUpdate::Ask {
+        question: "root-b 的提问".to_owned(),
+        options: vec!["甲".to_owned()],
+    });
+
+    // rootA 订阅者：仅收到 (rootA, x) 的信封
+    let got_a = rx_a.recv().await.unwrap();
+    assert_eq!(
+        wire(&got_a),
+        json!({ "ipc": "confirmWait", "phase": "proposal" })
+    );
+    // rootB 信封未串台（下一帧为空）
+    assert!(
+        rx_a.try_recv().is_err(),
+        "rootA 订阅者收不到 (rootB, x) 的任何信封"
+    );
+    // rootB 订阅者：收到自己的 Ask
+    let got_b = rx_b.recv().await.unwrap();
+    assert_eq!(
+        wire(&got_b),
+        json!({ "ipc": "ask", "question": "root-b 的提问", "options": ["甲"] }),
+        "rootB 订阅者收到 (rootB, x) 自己的信封"
+    );
+    drop((guard_a, guard_b));
+}
+
+/// RunGuard 复合键除名：(rootA, x) guard finish → 仅该键除名（snapshot
+/// None）；(rootB, x) 同名键存活（snapshot 仍在）——guard 不误伤他键。
+#[tokio::test]
+async fn runguard复合键除名_仅本键除名他键存活() {
+    let control = Arc::new(ChangeFlowControl::new());
+    const ROOT_B: &str = "/ws/root-b";
+
+    let guard_a = control.begin_run(ROOT, CHANGE, "run-a".to_owned()).unwrap();
+    let guard_b = control
+        .begin_run(ROOT_B, CHANGE, "run-b".to_owned())
+        .unwrap();
+
+    guard_a.finish(ChangeRunStatus::Completed, None);
+
+    assert!(
+        control.snapshot(ROOT, CHANGE).is_none(),
+        "仅 (rootA, x) 键除名"
+    );
+    assert_eq!(
+        control.snapshot(ROOT_B, CHANGE).map(|snap| snap.run_id),
+        Some("run-b".to_owned()),
+        "(rootB, x) 同名键存活（guard 不误伤他键）"
+    );
+    // 他键停止面照常可用
+    assert!(control.request_stop(ROOT_B, CHANGE), "他键停止面不受扰");
+    drop(guard_b);
+}
+
+/// DTO 零改动：`RunUpdate` / `ChangeRunSnapshot` / `ChangeRunStatus` 线面
+/// JSON 形状键集无 root 渗出（复合键是注册表内部寻址——IPC 面零改动）。
+#[tokio::test]
+async fn dto线面零root渗出_复合键不出线() {
+    let control = Arc::new(ChangeFlowControl::new());
+    let guard = control.begin_run(ROOT, CHANGE, "run-1".to_owned()).unwrap();
+    guard.emit(RunUpdate::Step {
+        step: sample_step(),
+    });
+
+    let snapshot = control.snapshot(ROOT, CHANGE).expect("快照应在场");
+    let wire = serde_json::to_value(&snapshot).expect("快照序列化应成功");
+    for key in wire.as_object().expect("快照为对象").keys() {
+        assert!(
+            !key.to_lowercase().contains("root") && !key.to_lowercase().contains("workspace"),
+            "快照键集无 root / workspace 渗出（复合键不出线），实际键: {key}"
+        );
+    }
+    assert_eq!(
+        wire.get("runId"),
+        Some(&serde_json::Value::String("run-1".to_owned())),
+        "快照形状不变（runId 在场）"
+    );
+
+    let update = serde_json::to_value(RunUpdate::Finished {
+        status: ChangeRunStatus::Stopped,
+        reason: None,
+    })
+    .expect("信封序列化应成功");
+    assert!(
+        !update.to_string().to_lowercase().contains("root"),
+        "RunUpdate 信封零 root 渗出，实际: {update}"
     );
 }

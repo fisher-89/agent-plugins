@@ -2,10 +2,13 @@
 //!
 //! 发现语义（proposal 拍板）：目录存在即 change——workspace 库 ChangeRecord
 //! 全量 + changes / archive 两棵目录树内的目录，同名条目以 db 为准合并一条。
-//! 读时以磁盘事实归组（D7）：条目来源树以磁盘目录存在性为准，查询路径不回
-//! 写 db（纯读纪律）。db 缺记录条目（存量 CLI change）以文档形态入列（无状
-//! 态面）。归档按月分组：db 取 `archived_at`、磁盘回退目录名日期前缀、无前
-//! 缀入「未知时间」组置尾。
+//! **归组以 db status 权威**（design D11——对 desktop-workflow-db-state D7
+//! 「读时以磁盘事实归组」的显式修订）：active → 进行中组、archived → 归档
+//! 组，worktree 条目不因主仓目录缺席被丢弃 / 误归未知组；磁盘目录仅决定
+//! **目录名取位**（archived → archive 树精确 / 日期前缀名；未命中 → 建档名）
+//! 与产物解析定位，查询路径不回写 db（纯读纪律）。db 缺记录条目（存量 CLI
+//! change）以文档形态入列（无状态面）。归档按月分组：db 取 `archived_at`、
+//! 磁盘回退目录名日期前缀、无前缀入「未知时间」组置尾。
 
 use std::collections::{BTreeMap, HashSet};
 use std::fs;
@@ -117,18 +120,17 @@ pub fn list_changes(layout: &Layout, store: &dyn ChangeStateStore) -> ChangeList
     }
 }
 
-/// db 建档条目：来源树与目录名按磁盘事实取位（D7 读时归组，不回写 db）。
+/// db 建档条目：归组以 `record.status` 权威（D11——db status 是桌面写面唯一
+/// 事实）；磁盘目录仅决定目录名取位（archived → archive 树精确 / 日期前缀
+/// 名；active 与未命中 → 建档名），不回写 db。
 fn db_entry(layout: &Layout, record: &ChangeStateRecord) -> ChangeSummary {
-    let active_dir = layout.changes_root.join(&record.name);
-    let dir_name = if active_dir.is_dir() {
-        record.name.clone()
-    } else {
-        locate_prefixed_archive_name(layout, &record.name).unwrap_or_else(|| record.name.clone())
-    };
-    let source = if active_dir.is_dir() {
-        ChangeSource::Active
-    } else {
-        ChangeSource::Archive
+    let (source, dir_name) = match record.status {
+        ChangeStatus::Active => (ChangeSource::Active, record.name.clone()),
+        ChangeStatus::Archived => {
+            let dir_name = locate_prefixed_archive_name(layout, &record.name)
+                .unwrap_or_else(|| record.name.clone());
+            (ChangeSource::Archive, dir_name)
+        }
     };
     ChangeSummary {
         name: dir_name,

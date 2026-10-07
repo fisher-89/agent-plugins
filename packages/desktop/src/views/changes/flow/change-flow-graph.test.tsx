@@ -168,6 +168,7 @@ function detail(
       'code-analyze',
     ].map((phase) => ({ phase, attempts: attemptsByPhase[phase] ?? [] })),
     activePhase: null,
+    worktree: null,
     artifacts: [DOC_DESCRIPTOR],
     ...overrides,
   };

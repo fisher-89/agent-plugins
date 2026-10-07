@@ -1,3 +1,4 @@
+use std::path::Path;
 use std::sync::Arc;
 
 #[cfg(test)]
@@ -29,7 +30,9 @@ fn is_blank(value: &str) -> bool {
 
 /// run 事件出口的注册表桥：WorkerAgent 会话事件（早于 turn 收口）据此先行
 /// 同步 run 会话槽（停止寻址）与广播总线（Channel 由订阅转发任务回流）。
+/// 复合键（workspace root, change）随行（D10）。
 struct ChangeFlowSink {
+    root: String,
     change: String,
     control: Arc<ChangeFlowControl>,
 }
@@ -38,9 +41,9 @@ impl RunEventSink for ChangeFlowSink {
     fn emit(&self, update: RunUpdate) {
         if let RunUpdate::SessionEvent { session_id, .. } = &update {
             self.control
-                .set_session(&self.change, Some(session_id.clone()));
+                .set_session(&self.root, &self.change, Some(session_id.clone()));
         }
-        self.control.publish(&self.change, update);
+        self.control.publish(&self.root, &self.change, update);
     }
 }
 
@@ -87,17 +90,40 @@ pub(crate) async fn change_flow_start_with<R: tauri::Runtime>(
             record.workflow_type
         ));
     }
-    // 前置校验 3：无并行 run（begin_run 冲突检测）
+    // 前置校验 3：exec root 解析（design D9 双 root 拆分）——record.worktree
+    // 非 None → 该绝对路径为 exec root（会话 cwd / 工件根 / 检查器执行目录），
+    // is_dir 存在性校验（worktree 被手动删除后发起点一行显式 Err 优于深埋在
+    // 引擎 cwd 的失败）；None → 主 workspace root（legacy 零变化）。store 半
+    // 边恒 workspace root（双 root 不变量——worktree 路径不进 `for_root`）
+    let exec_root = match record.worktree.as_deref() {
+        Some(worktree) if Path::new(worktree).is_dir() => worktree.to_owned(),
+        Some(worktree) => {
+            return Err(format!(
+                "worktree 目录不存在（可能已被手动删除）: {worktree}；\
+                 请恢复目录或手动清理后重建 change"
+            ));
+        }
+        None => root.clone(),
+    };
+    // 前置校验 4：无并行 run（begin_run 复合键冲突检测——同 workspace 同
+    // change 二次发起 Err，异 workspace 同名不误拒）
     let control = Arc::clone(app.state::<Arc<ChangeFlowControl>>().inner());
     let run_id = new_run_id();
-    let guard = control.begin_run(&change, run_id.clone())?;
+    let guard = control.begin_run(&root, &change, run_id.clone())?;
 
     // 组合根装配（run 作用域一次）：组合 turn + 三 port + 快照源 + 事件桥
     // + run 级会话锚点（每 run 一个实例，W7）+ store 缝（写面落库 / 快照
-    // db 读源共用 `for_root` 实例）
+    // db 读源共用 `for_root` 实例；compose 注入 workspace root 实例——cwd
+    // 半边经 turn 通道携带 exec root）
     let registry = Arc::clone(app.state::<Arc<StopRegistry>>().inner());
-    let composed: ComposedTurn = compose_turn(stores.inner(), Arc::clone(&registry), &root, None)?;
+    let composed: ComposedTurn = compose_turn(
+        stores.inner(),
+        Arc::clone(&registry),
+        Arc::clone(&store),
+        None,
+    )?;
     let sink: Arc<dyn RunEventSink> = Arc::new(ChangeFlowSink {
+        root: root.clone(),
         change: change.clone(),
         control: Arc::clone(&control),
     });
@@ -112,10 +138,12 @@ pub(crate) async fn change_flow_start_with<R: tauri::Runtime>(
         run_id.clone(),
     ));
     let diff: Arc<dyn DiffContextPort> = Arc::new(GitDiffSource::new());
-    let snapshot: Arc<dyn WorkflowSnapshotPort> =
-        Arc::new(StoreSnapshot::new(root.clone(), Arc::clone(&store_port)));
+    let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StoreSnapshot::new(
+        exec_root.clone(),
+        Arc::clone(&store_port),
+    ));
     let request = RunRequest {
-        root,
+        root: exec_root,
         change: change.clone(),
         run_id: run_id.clone(),
         auto_next_phase,
@@ -123,7 +151,7 @@ pub(crate) async fn change_flow_start_with<R: tauri::Runtime>(
 
     // 提前 resolve：run_id 立即可知，运行态经 Channel 流出（订阅先行于 walker 启动）
     let updates = control
-        .subscribe(&change)
+        .subscribe(&root, &change)
         .ok_or_else(|| "run 订阅失败（注册表条目缺失）".to_owned())?;
     spawn_channel_forward(on_event, updates);
     tauri::async_runtime::spawn(async move {
@@ -152,9 +180,9 @@ pub(crate) fn change_flow_stop_with<R: tauri::Runtime>(
         return Ok(());
     }
     let control = app.state::<Arc<ChangeFlowControl>>();
-    if control.request_stop(&change) {
+    if control.request_stop(&root, &change) {
         // 当前 WorkerAgent 会话经既有 StopRegistry 请求终止（miss 幂等）
-        if let Some(session_id) = control.current_session(&change) {
+        if let Some(session_id) = control.current_session(&root, &change) {
             let registry = app.state::<Arc<StopRegistry>>();
             registry.request_stop(&session_id);
         }
@@ -187,7 +215,7 @@ pub(crate) fn change_flow_answer_with<R: tauri::Runtime>(
         return Err("非法 change: 不得为空白".to_owned());
     }
     app.state::<Arc<ChangeFlowControl>>()
-        .answer(&change, answer)
+        .answer(&root, &change, answer)
 }
 
 #[tauri::command]
@@ -215,7 +243,7 @@ pub(crate) fn change_flow_confirm_with<R: tauri::Runtime>(
         return Err("非法 change: 不得为空白".to_owned());
     }
     app.state::<Arc<ChangeFlowControl>>()
-        .confirm(&change, proceed)
+        .confirm(&root, &change, proceed)
 }
 
 #[tauri::command]
@@ -237,7 +265,9 @@ pub(crate) fn change_flow_state_with<R: tauri::Runtime>(
     if is_blank(&root) || is_blank(&change) {
         return Ok(None);
     }
-    Ok(app.state::<Arc<ChangeFlowControl>>().snapshot(&change))
+    Ok(app
+        .state::<Arc<ChangeFlowControl>>()
+        .snapshot(&root, &change))
 }
 
 #[tauri::command]
@@ -262,7 +292,7 @@ pub(crate) fn change_flow_watch_with<R: tauri::Runtime>(
         return Ok(());
     }
     let control = app.state::<Arc<ChangeFlowControl>>();
-    match control.subscribe(&change) {
+    match control.subscribe(&root, &change) {
         Some(updates) => {
             spawn_channel_forward(on_event, updates);
             Ok(())

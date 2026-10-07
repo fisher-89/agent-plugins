@@ -5,10 +5,12 @@ use orchestration::port::{StaticCheckRunner, ToolStepOutput};
 
 use crate::static_check::ProcessStaticCheck;
 
-/// PATH 环境变量修改串行化（进程全局变量边界；与 worker_test 的 CLI shim /
-/// PATH 隔离窗口共用 crate 级锁——拉起本体失败用例仅在 Unix 触达 PATH 隔离臂）。
-#[cfg(not(windows))]
-use crate::TEST_PATH_LOCK as PATH_LOCK;
+/// 进程环境锁窗口（RAII）
+struct EnvWindow(std::sync::MutexGuard<'static, ()>);
+
+fn env_window() -> EnvWindow {
+    EnvWindow(crate::TEST_ENV_LOCK.lock().expect("crate 环境锁不可中毒"))
+}
 
 /// 临时 workspace 根 RAII。
 struct TempWs(PathBuf);
@@ -63,6 +65,7 @@ async fn check(root: &str) -> Result<orchestration::port::StaticCheckOutcome, St
 
 #[tokio::test]
 async fn 通过形态_passed真_诊断空_cwd为root() {
+    let _env = env_window();
     let ws = TempWs::new("pass");
     // 命令以相对路径读取 root 下文件：仅在 cwd = root 时成功（W4 spawn 语义）；
     // 首 token 为真实可达程序（cmd 在系统目录、test 在 PATH），且不经 shell
@@ -87,6 +90,7 @@ async fn 通过形态_passed真_诊断空_cwd为root() {
 
 #[tokio::test]
 async fn 失败形态_passed假_诊断捕获不丢() {
+    let _env = env_window();
     let ws = TempWs::new("fail");
     #[cfg(windows)]
     let command =
@@ -122,6 +126,7 @@ async fn 无配置或空命令直接过() {
 
 #[tokio::test]
 async fn 非零退出码判定_诊断空亦不误判通过() {
+    let _env = env_window();
     let ws = TempWs::new("nonzero-silent");
     // 首 token 为真实可达程序（shell 内建字不构成可达程序——程序解析前置会先拒）
     #[cfg(windows)]
@@ -140,6 +145,7 @@ async fn 非零退出码判定_诊断空亦不误判通过() {
 /// 反馈边空转烧预算，配置错误停给用户，不静默直过也不落产出）。
 #[tokio::test]
 async fn 命令不存在err显式不静默() {
+    let _env = env_window();
     let ws = TempWs::new("missing-command");
     ws.write_config(Some("no-such-static-check-command-xyz"));
 
@@ -158,6 +164,7 @@ async fn 命令不存在err显式不静默() {
 /// 以正斜杠书写——config.json 内反斜杠转义非法，Path 分量解析跨平台一致）。
 #[tokio::test]
 async fn 相对路径不可达err显式() {
+    let _env = env_window();
     let ws = TempWs::new("relative-missing");
     #[cfg(windows)]
     let command = "tools/absent-check.cmd";
@@ -182,10 +189,10 @@ async fn 相对路径不可达err显式() {
 #[cfg(not(windows))]
 #[tokio::test]
 async fn 拉起本体失败err显式() {
+    let _env = env_window();
     let ws = TempWs::new("launch-fail");
     ws.write_config(Some("false"));
 
-    let _guard = PATH_LOCK.lock().expect("PATH 锁不可中毒");
     let original = std::env::var_os("PATH");
     std::env::set_var("PATH", "");
     let result = check(&ws.root_str()).await;
@@ -193,7 +200,6 @@ async fn 拉起本体失败err显式() {
         Some(value) => std::env::set_var("PATH", value),
         None => std::env::remove_var("PATH"),
     }
-    drop(_guard);
 
     let err = result.expect_err("shell 不可达应 Err");
     assert!(

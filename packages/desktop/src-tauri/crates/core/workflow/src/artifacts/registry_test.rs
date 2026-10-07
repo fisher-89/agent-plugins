@@ -85,7 +85,11 @@ fn 相位序列候选_序号串与切片下标一一对应且可回放() {
 
     // 切片行序 ≠ attempt 号序：attempt 乱序排布，候选锚定仍按切片下标
     let phases = vec![
-        phase_entry("dev-design", 2, vec![item("组件表完整", true, "五组件齐全")]),
+        phase_entry(
+            "dev-design",
+            2,
+            vec![item("组件表完整", true, "五组件齐全")],
+        ),
         phase_entry("proposal", 1, Vec::new()), // 空 checklist → 不产出候选
         phase_entry(
             "dev-design",
@@ -108,11 +112,14 @@ fn 相位序列候选_序号串与切片下标一一对应且可回放() {
     );
 
     // read_artifact 按序号读出对应条目信封（下标 2 = dev-design attempt 1）
-    let envelope = read_artifact(&change.0, &phases, "eval-checklist", "2")
-        .expect("序号候选应可回放成信封");
+    let envelope =
+        read_artifact(&change.0, &phases, "eval-checklist", "2").expect("序号候选应可回放成信封");
     assert_eq!(envelope.kind, "eval-checklist");
     assert_eq!(envelope.payload["phase"], "dev-design");
-    assert_eq!(envelope.payload["attempt"], 1, "锚定按切片下标而非 attempt 排序");
+    assert_eq!(
+        envelope.payload["attempt"], 1,
+        "锚定按切片下标而非 attempt 排序"
+    );
     assert_eq!(envelope.payload["verdict"], "pass");
     assert_eq!(envelope.payload["items"].as_array().map(Vec::len), Some(1));
     assert_eq!(
@@ -156,7 +163,10 @@ fn 文件候选持衡_遍历与跳过点前缀与kind顺序() {
     let kinds: Vec<&str> = descriptors.iter().map(|d| d.kind.as_str()).collect();
     let tasks_pos = kinds.iter().position(|k| *k == "tasks-progress").unwrap();
     let doc_pos = kinds.iter().position(|k| *k == "markdown-doc").unwrap();
-    assert!(tasks_pos < doc_pos, "tasks-progress 应排在 markdown-doc 之前");
+    assert!(
+        tasks_pos < doc_pos,
+        "tasks-progress 应排在 markdown-doc 之前"
+    );
 }
 
 /// 同一候选多 kind 命中并存（无排他）：tasks.md 同时命中 tasks-progress 与
@@ -170,9 +180,15 @@ fn 同一候选多kind命中并存() {
 
     let hits: Vec<&str> = descriptors.iter().map(|d| d.kind.as_str()).collect();
     assert!(hits.contains(&"tasks-progress"), "tasks-progress 命中");
-    assert!(hits.contains(&"markdown-doc"), "同一 tasks.md 仍以 markdown-doc 并存命中");
+    assert!(
+        hits.contains(&"markdown-doc"),
+        "同一 tasks.md 仍以 markdown-doc 并存命中"
+    );
     assert_eq!(
-        descriptors.iter().filter(|d| d.kind == "tasks-progress").count(),
+        descriptors
+            .iter()
+            .filter(|d| d.kind == "tasks-progress")
+            .count(),
         1
     );
 }
@@ -190,7 +206,9 @@ fn 空切片仅文件候选_文档形态不panic() {
 
     let descriptors = discover_artifacts(&change.0, &[]);
     assert!(
-        descriptors.iter().all(|d| d.kind == "markdown-doc" || d.kind == "tasks-progress"),
+        descriptors
+            .iter()
+            .all(|d| d.kind == "markdown-doc" || d.kind == "tasks-progress"),
         "零 eval 候选，仅文件候选"
     );
     assert!(
@@ -228,7 +246,11 @@ fn 无插件命中时返回空清单() {
 fn 越界序号与非法source与未注册kind返回none() {
     let change = TempChange::new("bad-source");
     change.write("proposal.md", "# 提案正文");
-    let phases = vec![phase_entry("proposal", 1, vec![item("问题清晰", true, "L1-10")])];
+    let phases = vec![phase_entry(
+        "proposal",
+        1,
+        vec![item("问题清晰", true, "L1-10")],
+    )];
 
     // 越界 eval 序号（切片长度 1）
     assert!(read_artifact(&change.0, &phases, "eval-checklist", "99").is_none());
@@ -254,10 +276,7 @@ fn 敌意source在注册表层被拒绝_不逃逸change目录() {
 
     // 越权目标：change 目录树外的秘密文件（workspace 侧真实存在，
     // 排除"恰好读不到"的假阳性）
-    let outside = change
-        .0
-        .parent()
-        .unwrap_or_else(|| Path::new("/"));
+    let outside = change.0.parent().unwrap_or_else(|| Path::new("/"));
     let secret = outside.join("registry-test-secret.md");
     fs::write(&secret, "# 不应被越权读取").expect("写外部 secret 失败");
 
@@ -308,7 +327,10 @@ fn 已注册kind与有效source返回五字段齐全的信封() {
     assert_eq!(envelope.version, 1, "version 从 1 起");
     assert_eq!(envelope.title, "任务进度");
     assert!(envelope.payload.is_object());
-    assert!(envelope.fallback_text.is_some(), "五字段之 fallback_text 齐全");
+    assert!(
+        envelope.fallback_text.is_some(),
+        "五字段之 fallback_text 齐全"
+    );
 
     let envelope = read_artifact(&change.0, &[], "markdown-doc", "proposal.md")
         .expect("markdown-doc 信封应可读取");
@@ -323,14 +345,26 @@ fn 已注册kind与有效source返回五字段齐全的信封() {
 fn discover寻址与read回放一致() {
     let change = TempChange::new("roundtrip");
     change.write("tasks.md", "- [x] 完成\n");
-    let phases = vec![phase_entry("proposal", 1, vec![item("问题清晰", true, "L1-10")])];
+    let phases = vec![phase_entry(
+        "proposal",
+        1,
+        vec![item("问题清晰", true, "L1-10")],
+    )];
 
     let descriptors = discover_artifacts(&change.0, &phases);
-    assert!(descriptors.len() >= 3, "tasks.md 两 kind + eval 条目，实际: {descriptors:?}");
+    assert!(
+        descriptors.len() >= 3,
+        "tasks.md 两 kind + eval 条目，实际: {descriptors:?}"
+    );
 
     for descriptor in &descriptors {
         let envelope = read_artifact(&change.0, &phases, &descriptor.kind, &descriptor.source)
-            .unwrap_or_else(|| panic!("descriptor ({}, {}) 应可回放", descriptor.kind, descriptor.source));
+            .unwrap_or_else(|| {
+                panic!(
+                    "descriptor ({}, {}) 应可回放",
+                    descriptor.kind, descriptor.source
+                )
+            });
         assert_eq!(envelope.kind, descriptor.kind);
         assert_eq!(envelope.title, descriptor.title);
     }

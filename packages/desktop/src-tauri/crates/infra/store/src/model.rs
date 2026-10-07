@@ -334,6 +334,61 @@ impl SessionEventRecord {
 
 // --- change 流程状态记录（workspace 维度，落所属 workspace 库）--------------
 
+/// change 建档记录的 version 1 历史形态（仅作 native_model 升级链的解码
+/// 目标，不注册进库模型组）：无 `worktree` / `base_commit` 列（worktree 之前
+/// 的主 root 编辑形态）。存量 v1 行经版本机制自动升级为 v2（两字段 `None` =
+/// legacy 主 root 语义，零迁移代码路径；provider `context_length` 先例同模式）。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[native_model(id = 9, version = 1)]
+pub(crate) struct ChangeRecordV1 {
+    /// change 名（主键，建档即定；归档改名只动磁盘目录，主键不变）
+    pub name: String,
+    /// 工作流类型（V1 恒 `requirement`，相位表键）
+    pub workflow_type: String,
+    /// 建档时间（UTC unix 毫秒）
+    pub created_at: i64,
+    /// change 状态（active | archived）
+    pub status: ChangeStatus,
+    /// 归档时间（UTC unix 毫秒；active 恒 None）
+    pub archived_at: Option<i64>,
+    /// 运行中 phase（开相在位、落账清位）
+    pub active_phase: Option<ChangeActivePhase>,
+}
+
+/// 升级半边：缺列读兼容（旧记录无 worktree / 基线列，`None` = legacy 主
+/// root change 语义）。
+impl From<ChangeRecordV1> for ChangeRecord {
+    fn from(previous: ChangeRecordV1) -> Self {
+        Self {
+            name: previous.name,
+            workflow_type: previous.workflow_type,
+            created_at: previous.created_at,
+            status: previous.status,
+            archived_at: previous.archived_at,
+            active_phase: previous.active_phase,
+            // 缺列读兼容：worktree 之前的存量记录读出 None = 主 root 执行
+            worktree: None,
+            base_commit: None,
+        }
+    }
+}
+
+/// 降级半边（native_model `from` 属性要求双向 `From`；运行时无降级读取路径，
+/// 两新列丢弃占位——只保升级语义真实性，降级形态不作数据承诺）。
+impl From<ChangeRecord> for ChangeRecordV1 {
+    fn from(record: ChangeRecord) -> Self {
+        Self {
+            name: record.name,
+            workflow_type: record.workflow_type,
+            created_at: record.created_at,
+            status: record.status,
+            archived_at: record.archived_at,
+            active_phase: record.active_phase,
+        }
+    }
+}
+
 /// change 建档记录（desktop-change-state-store 四模型之一）：change 流程状态
 /// 的身份主行——`name` 即 change 名（身份主键，不随归档目录改名变），状态 /
 /// 时间戳与运行中 phase 随行。markdown 产物（proposal / design / tasks /
@@ -343,7 +398,7 @@ impl SessionEventRecord {
 /// 时间戳为 UTC unix 毫秒 `i64`，与 `WorkspaceRecord` 同口径。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
-#[native_model(id = 9, version = 1)]
+#[native_model(id = 9, version = 2, from = ChangeRecordV1)]
 #[native_db]
 pub struct ChangeRecord {
     /// change 名（主键，建档即定；归档改名只动磁盘目录，主键不变）
@@ -362,11 +417,26 @@ pub struct ChangeRecord {
     /// `SessionConfigSnapshot`）
     #[serde(default)]
     pub active_phase: Option<ChangeActivePhase>,
+    /// 该 change 分配的 worktree 绝对路径（执行锚）；`None` = legacy 主 root
+    /// change（存量记录升级读出，照旧主 root 执行）。执行锚引用，MUST NOT
+    /// 反向参与库身份派生（`for_root` 恒以 workspace root 为锚）。
+    #[serde(default)]
+    pub worktree: Option<String>,
+    /// 创建基线 fork 点（主仓 HEAD，git worktree 建域时铸出）；调试 / UI 价值。
+    #[serde(default)]
+    pub base_commit: Option<String>,
 }
 
 impl ChangeRecord {
-    /// 由建档档案构造新记录（`status` 恒 active 起步、无 active_phase）。
-    pub fn new(name: &str, workflow_type: &str, created_at: i64) -> Self {
+    /// 由建档档案构造新记录（`status` 恒 active 起步、无 active_phase；
+    /// `worktree` / `base_commit` 建域组合随建档入列，legacy 形态传 `None`）。
+    pub fn new(
+        name: &str,
+        workflow_type: &str,
+        created_at: i64,
+        worktree: Option<String>,
+        base_commit: Option<String>,
+    ) -> Self {
         Self {
             name: name.to_owned(),
             workflow_type: workflow_type.to_owned(),
@@ -374,6 +444,8 @@ impl ChangeRecord {
             status: ChangeStatus::Active,
             archived_at: None,
             active_phase: None,
+            worktree,
+            base_commit,
         }
     }
 }

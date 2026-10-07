@@ -52,9 +52,7 @@ fn enumerate_candidates(change_dir: &Path, phases: &[PhaseStateRecord]) -> Vec<A
         .into_iter()
         .map(|relative_path| ArtifactCandidate::File { relative_path })
         .collect();
-    candidates.extend(
-        (0..phases.len()).map(|index| ArtifactCandidate::EvalEntry { index }),
-    );
+    candidates.extend((0..phases.len()).map(|index| ArtifactCandidate::EvalEntry { index }));
     candidates
 }
 

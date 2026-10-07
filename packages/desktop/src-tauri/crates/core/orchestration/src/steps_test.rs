@@ -81,6 +81,8 @@ fn seed_change(store: &Store, name: &str, workflow_type: &str) {
             status: ChangeStatus::Active,
             archived_at: None,
             active_phase: None,
+            worktree: None,
+            base_commit: None,
         })
         .expect("建档种子应成功");
 }
@@ -1076,6 +1078,8 @@ async fn store故障_落账臂err记因上抛不静默() {
         status: ChangeStatus::Active,
         archived_at: None,
         active_phase: None,
+        worktree: None,
+        base_commit: None,
     })
     .expect("建档种子应成功");
     let assembled = assemble(
@@ -1141,6 +1145,8 @@ async fn store故障_审计落行失败不阻断臂业务结果() {
         status: ChangeStatus::Active,
         archived_at: None,
         active_phase: None,
+        worktree: None,
+        base_commit: None,
     })
     .expect("建档种子应成功");
     let assembled = assemble(

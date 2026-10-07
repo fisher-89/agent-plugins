@@ -84,6 +84,13 @@ pub fn archive(
                 archived_date: prefix_date.unwrap_or(today),
             })
         }
+        // 未命中 Err 前的 worktree merge-first 前置（design D13）：带 worktree
+        // 记录的 change 在 merge 前主仓两树必然未命中——显式引导 merge 优于
+        // 泛化「目录未找到」；归档不触碰 worktree / branch（清理为手动边界）
+        None if record.worktree.is_some() => Err(format!(
+            "change \"{change}\" 的目录未在主仓出现（active / archive 两树未命中）：\
+             请先将 worktree 分支 change/{change} merge 回主仓，再发起归档"
+        )),
         None => Err(format!(
             "change \"{change}\" 目录未找到（active 与 archive 两棵树均未命中），不可归档"
         )),
@@ -92,7 +99,10 @@ pub fn archive(
 
 /// archive 树定位：精确名优先，其次 `YYYY-MM-DD-<name>` 前缀后缀匹配；返回
 /// （目录路径，前缀日期）。
-fn locate_archived_dir(layout: &Layout, change: &str) -> Option<(std::path::PathBuf, Option<String>)> {
+fn locate_archived_dir(
+    layout: &Layout,
+    change: &str,
+) -> Option<(std::path::PathBuf, Option<String>)> {
     let exact = layout.archive_root.join(change);
     if exact.is_dir() {
         return Some((exact, None));

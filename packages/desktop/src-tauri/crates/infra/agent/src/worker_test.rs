@@ -29,10 +29,12 @@ use crate::TEST_PATH_LOCK as PATH_LOCK;
 // 装置：tempdir 真库双环境 + 假 sink + PATH 隔离 + 假 CLI shim
 // ---------------------------------------------------------------------------
 
-/// 数据根 + workspace 根双临时目录装置。
+/// 数据根 + workspace 根双临时目录装置（stores 以 OnceLock 缓存——redb 单
+/// 进程单句柄，重复 open 同一 db 文件不安全）。
 struct DualEnv {
     data_root: tempfile::TempDir,
     ws_root: tempfile::TempDir,
+    stores: std::sync::OnceLock<WorkspaceStores>,
 }
 
 impl DualEnv {
@@ -45,16 +47,29 @@ impl DualEnv {
             .prefix(&format!("worker-test-{tag}-root-"))
             .tempdir()
             .expect("创建 workspace 根临时目录失败");
-        Self { data_root, ws_root }
+        Self {
+            data_root,
+            ws_root,
+            stores: std::sync::OnceLock::new(),
+        }
     }
 
     fn root(&self) -> String {
         self.ws_root.path().to_string_lossy().into_owned()
     }
 
-    fn stores(&self) -> WorkspaceStores {
-        WorkspaceStores::open(self.data_root.path())
-            .unwrap_or_else(|e| panic!("WorkspaceStores::open 应成功: {e}"))
+    fn stores(&self) -> &WorkspaceStores {
+        self.stores.get_or_init(|| {
+            WorkspaceStores::open(self.data_root.path())
+                .unwrap_or_else(|e| panic!("WorkspaceStores::open 应成功: {e}"))
+        })
+    }
+
+    /// 预解析 workspace root 库实例（compose 拆参后的命令层注入面同构）。
+    fn store(&self) -> std::sync::Arc<store::Store> {
+        self.stores()
+            .for_root(&self.root())
+            .expect("for_root 应成功")
     }
 }
 
@@ -306,7 +321,7 @@ async fn change_provenance_and_permission_are_assembled_into_session_row() {
     let registry = Arc::new(StopRegistry::new());
     let (sink, updates) = CapturingSink::capturing();
     let composed: ComposedTurn =
-        compose_turn(&stores, Arc::clone(&registry), &env.root(), None).expect("解析应成功");
+        compose_turn(&stores, Arc::clone(&registry), env.store(), None).expect("解析应成功");
     let port = KernelWorkerPort::new(composed, sink);
     let root = env.root();
     let request = turn_request(&root, "chg-flow/implement/executor/1", WorkerRole::Executor);
@@ -373,7 +388,7 @@ async fn continue_session_reuses_existing_row_without_duplicates() {
     );
     let (sink, updates) = CapturingSink::capturing();
     let composed: ComposedTurn =
-        compose_turn(&stores, Arc::clone(&registry), &env.root(), None).expect("解析应成功");
+        compose_turn(&stores, Arc::clone(&registry), env.store(), None).expect("解析应成功");
     let port = KernelWorkerPort::new(composed, sink);
     let root = env.root();
 
@@ -422,7 +437,7 @@ fn empty_store_default_resolution_errs_with_management_hint() {
     let env = DualEnv::new("no-default");
     let stores = env.stores();
 
-    let error = match compose_turn(&stores, Arc::new(StopRegistry::new()), &env.root(), None) {
+    let error = match compose_turn(&stores, Arc::new(StopRegistry::new()), env.store(), None) {
         Err(error) => error,
         Ok(_) => panic!("空库缺省解析必须 Err"),
     };
@@ -448,7 +463,7 @@ async fn open_stage_failure_propagates_err_without_half_records() {
     seed_sdk_default_with_blank_provider(&stores);
     let (sink, _updates) = CapturingSink::capturing();
     let composed: ComposedTurn =
-        compose_turn(&stores, Arc::new(StopRegistry::new()), &env.root(), None)
+        compose_turn(&stores, Arc::new(StopRegistry::new()), env.store(), None)
             .expect("解析应成功");
     let port = KernelWorkerPort::new(composed, sink);
 
@@ -494,7 +509,7 @@ async fn path_isolated_cli_missing_errs_with_zero_half_records() {
     seed_cli_default(&stores, "隔离实例");
     let (sink, updates) = CapturingSink::capturing();
     let composed: ComposedTurn =
-        compose_turn(&stores, Arc::new(StopRegistry::new()), &env.root(), None)
+        compose_turn(&stores, Arc::new(StopRegistry::new()), env.store(), None)
             .expect("解析应成功");
     let port = KernelWorkerPort::new(composed, sink);
     let root = env.root();
@@ -547,7 +562,7 @@ async fn sealed_pump_collects_transcript_and_forwards_session_events() {
     let (sink, updates) = CapturingSink::capturing();
     let registry = Arc::new(StopRegistry::new());
     let composed: ComposedTurn =
-        compose_turn(&stores, Arc::clone(&registry), &env.root(), None).expect("解析应成功");
+        compose_turn(&stores, Arc::clone(&registry), env.store(), None).expect("解析应成功");
     let port = KernelWorkerPort::new(composed, sink);
     let root = env.root();
     let request = turn_request(&root, "chg-flow/implement/executor/1", WorkerRole::Executor);
@@ -658,7 +673,7 @@ async fn mid_drive_stop_converges_stopped_and_keeps_collected_events() {
     let registry = Arc::new(StopRegistry::new());
     let (sink, updates) = CapturingSink::capturing();
     let composed: ComposedTurn =
-        compose_turn(&stores, Arc::clone(&registry), &env.root(), None).expect("解析应成功");
+        compose_turn(&stores, Arc::clone(&registry), env.store(), None).expect("解析应成功");
     let port = KernelWorkerPort::new(composed, sink);
     let root = env.root();
     let request = turn_request(&root, "chg-flow/implement/executor/1", WorkerRole::Executor);
@@ -723,7 +738,7 @@ async fn three_roles_map_verbatim_into_source_ref_segments() {
     let registry = Arc::new(StopRegistry::new());
     let (sink, updates) = CapturingSink::capturing();
     let composed: ComposedTurn =
-        compose_turn(&stores, Arc::clone(&registry), &env.root(), None).expect("解析应成功");
+        compose_turn(&stores, Arc::clone(&registry), env.store(), None).expect("解析应成功");
     let port = KernelWorkerPort::new(composed, sink);
     let root = env.root();
 

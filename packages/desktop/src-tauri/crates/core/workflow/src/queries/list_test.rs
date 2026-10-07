@@ -32,11 +32,8 @@ struct Env {
 
 impl Env {
     fn new(tag: &str) -> Self {
-        let dir = std::env::temp_dir().join(format!(
-            "workflow-list-test-{}-{}",
-            std::process::id(),
-            tag
-        ));
+        let dir =
+            std::env::temp_dir().join(format!("workflow-list-test-{}-{}", std::process::id(), tag));
         let _ = fs::remove_dir_all(&dir);
         Self {
             root: dir.clone(),
@@ -54,6 +51,8 @@ impl Env {
             status: ChangeStatus::Active,
             archived_at: None,
             active_phase,
+            worktree: None,
+            base_commit: None,
         });
     }
 
@@ -66,6 +65,8 @@ impl Env {
             status: ChangeStatus::Archived,
             archived_at: Some(archived_at),
             active_phase: None,
+            worktree: None,
+            base_commit: None,
         });
     }
 
@@ -108,10 +109,7 @@ impl ListStore {
     }
 
     fn push(&self, record: ChangeStateRecord) {
-        self.records
-            .lock()
-            .expect("记录锁不可中毒")
-            .push(record);
+        self.records.lock().expect("记录锁不可中毒").push(record);
     }
 
     fn snapshot(&self) -> Vec<ChangeStateRecord> {
@@ -206,10 +204,7 @@ fn by_name<'a>(active: &'a [super::ChangeSummary], name: &str) -> &'a super::Cha
         .unwrap_or_else(|| panic!("active 中应含 {name}"))
 }
 
-fn archive_entry<'a>(
-    groups: &'a [super::ArchiveGroup],
-    name: &str,
-) -> &'a super::ChangeSummary {
+fn archive_entry<'a>(groups: &'a [super::ArchiveGroup], name: &str) -> &'a super::ChangeSummary {
     groups
         .iter()
         .flat_map(|group| group.changes.iter())
@@ -243,7 +238,11 @@ fn 并集与去重_同名共存以db形态为准() {
 
     let list = env.list();
 
-    let names: Vec<&str> = list.active.iter().map(|entry| entry.name.as_str()).collect();
+    let names: Vec<&str> = list
+        .active
+        .iter()
+        .map(|entry| entry.name.as_str())
+        .collect();
     assert_eq!(
         names,
         vec!["db-change", "disk-only", "dual-change"],
@@ -253,7 +252,10 @@ fn 并集与去重_同名共存以db形态为准() {
     // db 形态：状态面在场
     let db_entry = by_name(&list.active, "db-change");
     assert_eq!(db_entry.status, Some(ChangeStatus::Active));
-    let active_phase = db_entry.active_phase.as_ref().expect("运行态应有 active_phase");
+    let active_phase = db_entry
+        .active_phase
+        .as_ref()
+        .expect("运行态应有 active_phase");
     assert_eq!(active_phase.phase, "dev-design");
     assert_eq!(active_phase.attempt, 1);
     assert!(active_phase.start_at.is_some(), "start_at 出 ISO 串");
@@ -283,7 +285,10 @@ fn 文档形态_存量cli目录照常入列无状态面() {
     env.change(
         "openspec/changes/legacy-cli-change",
         &[
-            ("workflow.json", "{ \"workflow_type\": \"requirement\", \"eval\": [] }"),
+            (
+                "workflow.json",
+                "{ \"workflow_type\": \"requirement\", \"eval\": [] }",
+            ),
             ("proposal.md", "# 存量提案"),
         ],
     );
@@ -311,8 +316,16 @@ fn 文档形态_存量cli目录照常入列无状态面() {
 fn 按月分组_db取archived_at_磁盘回退目录前缀() {
     let env = Env::new("month-groups");
     // db 归档两条（archived_at 锚定 2026-05 / 2026-01）
-    env.seed_archived("db-archived-may", T0, utc_millis(2026, time::Month::May, 20));
-    env.seed_archived("db-archived-jan", T0, utc_millis(2026, time::Month::January, 5));
+    env.seed_archived(
+        "db-archived-may",
+        T0,
+        utc_millis(2026, time::Month::May, 20),
+    );
+    env.seed_archived(
+        "db-archived-jan",
+        T0,
+        utc_millis(2026, time::Month::January, 5),
+    );
     // 磁盘 archive 条目（目录前缀 2026-09-15，db 缺记录）
     env.change(
         "openspec/changes/archive/2026-09-15-disk-archived",
@@ -382,22 +395,27 @@ fn 磁盘归档组_同前缀月内新名在前() {
         .iter()
         .map(|entry| entry.name.as_str())
         .collect();
-    assert_eq!(names, vec!["2026-01-02-z", "2026-01-02-a"], "组内按目录名倒序");
+    assert_eq!(
+        names,
+        vec!["2026-01-02-z", "2026-01-02-a"],
+        "组内按目录名倒序"
+    );
 }
 
 // ---------------------------------------------------------------------------
-// 边界：D7 读时对账（纯读纪律）+ 未知时间组 + 空列表
+// 边界：D11 归组语义修订（db status 权威）+ 未知时间组 + 空列表
 // ---------------------------------------------------------------------------
 
-/// D7：外部 CLI 归档（目录已改名入 archive 树）而 db 仍 active → 以磁盘事实
-/// 归入 archive 月组，查询路径不回写 store（读后假件记录序列逐字段不变）；
-/// 反向（db archived、目录仍在 active 树）→ 按 active 归组。
+/// D11（对既有 D7「读时以磁盘事实归组」的显式修订）：db active 而目录已改名
+/// 入 archive 树 → 仍随 db 留 active 组（条目名 = 建档名，磁盘目录仅决定目录
+/// 名取位），查询路径不回写 store；反向（db archived、目录仍在 active 树）→
+/// 归 archive 组（db status 权威归组单口径）。
 #[test]
-fn d7读时对账_以磁盘事实归组且不回写store() {
-    let env = Env::new("d7-reconcile");
+fn d11归组_db_status权威且不回写store() {
+    let env = Env::new("d11-reconcile");
     // 正向：db active + 磁盘目录已被改名入 archive 树
     env.seed_record(
-        "d7-change",
+        "d11-change",
         T0,
         Some(ActivePhaseState {
             phase: "proposal".to_owned(),
@@ -406,43 +424,49 @@ fn d7读时对账_以磁盘事实归组且不回写store() {
         }),
     );
     env.change(
-        "openspec/changes/archive/2026-10-01-d7-change",
+        "openspec/changes/archive/2026-10-01-d11-change",
         &[("proposal.md", "# 归档")],
     );
     // 反向：db archived + 目录仍在 active 树
-    env.seed_archived("d8-change", T0, utc_millis(2026, time::Month::February, 1));
-    env.change("openspec/changes/d8-change", &[("proposal.md", "# 仍在场")]);
+    env.seed_archived("d12-change", T0, utc_millis(2026, time::Month::February, 1));
+    env.change(
+        "openspec/changes/d12-change",
+        &[("proposal.md", "# 仍在场")],
+    );
 
     let before = env.store.snapshot();
     let list = env.list();
 
-    // 正向：磁盘事实归 archive（按目录前缀分组），状态面仍来自 db（active）
-    let d7 = archive_entry(&list.archive_groups, "2026-10-01-d7-change");
-    assert_eq!(d7.source, super::ChangeSource::Archive);
-    assert_eq!(d7.status, Some(ChangeStatus::Active), "status 面 = db 记录");
-    let d7_group = list
-        .archive_groups
-        .iter()
-        .find(|group| {
-            group
-                .changes
-                .iter()
-                .any(|entry| entry.name == "2026-10-01-d7-change")
-        })
-        .expect("d7 条目应有分组");
-    assert_eq!(
-        d7_group.month.as_deref(),
-        Some("2026-10"),
-        "db 条目按目录前缀回退并截月（[..7]；磁盘-only 条目才用前缀全日期成组）"
+    // 正向：db active → active 组（条目名 = 建档名；磁盘 archive 目录不牵引归组）
+    let d11 = by_name(&list.active, "d11-change");
+    assert_eq!(d11.source, super::ChangeSource::Active);
+    assert_eq!(d11.status, Some(ChangeStatus::Active), "状态面 = db 记录");
+    assert!(
+        !list
+            .archive_groups
+            .iter()
+            .flat_map(|group| group.changes.iter())
+            .any(|entry| entry.name.contains("d11-change")),
+        "db active 条目不因磁盘目录误归 archive 组"
     );
 
     // 纯读纪律：查询路径不回写 store（记录序列逐字段不变）
-    assert_eq!(env.store.snapshot(), before, "读后 db 仍 active（零回写）");
+    assert_eq!(env.store.snapshot(), before, "读后 db 记录零回写");
 
-    // 反向：db archived + 目录仍在 active 树 → 按 active 归组
-    let d8 = by_name(&list.active, "d8-change");
-    assert_eq!(d8.source, super::ChangeSource::Active);
-    assert_eq!(d8.status, Some(ChangeStatus::Archived), "状态面随 db");
+    // 反向：db archived + 目录仍在 active 树 → 归 archive 组（条目名 = 建档名）
+    let d12 = archive_entry(&list.archive_groups, "d12-change");
+    assert_eq!(d12.source, super::ChangeSource::Archive);
+    assert_eq!(d12.status, Some(ChangeStatus::Archived), "状态面随 db");
+    let d12_group = list
+        .archive_groups
+        .iter()
+        .find(|group| group.changes.iter().any(|entry| entry.name == "d12-change"))
+        .expect("d12 条目应有分组");
+    assert_eq!(
+        d12_group.month.as_deref(),
+        Some("2026-02"),
+        "db 条目按 archived_at 截月分组"
+    );
 }
 
 /// archive 目录无日期前缀 → 入未知时间组置尾不丢弃；空 db + 空磁盘 → 空
@@ -502,30 +526,135 @@ fn 既有守卫_active扫描跳过archive目录与混入文件() {
     .expect("写散落文件失败");
     // changes 树下混入普通文件
     fs::create_dir_all(&env.layout.changes_root).expect("创建 changes_root 失败");
-    fs::write(env.layout.changes_root.join("stray.md"), "散落文件")
-        .expect("写散落文件失败");
-    // db active 条目无任何目录 → 以磁盘事实归 archive（未知时间组），条目名
-    // 回退建档名（磁盘目录名回退链）
+    fs::write(env.layout.changes_root.join("stray.md"), "散落文件").expect("写散落文件失败");
+    // db active 条目无任何目录 → D11 db status 权威归 active 组（worktree
+    // change 主仓目录缺席同形态），条目名 = 建档名
     env.seed_record("db-no-dir", T0, None);
 
     let list = env.list();
 
-    let names: Vec<&str> = list.active.iter().map(|entry| entry.name.as_str()).collect();
+    let names: Vec<&str> = list
+        .active
+        .iter()
+        .map(|entry| entry.name.as_str())
+        .collect();
     assert_eq!(
         names,
-        vec!["real-change"],
-        "active 扫描跳过 archive 目录本身与散落文件"
+        vec!["db-no-dir", "real-change"],
+        "active 扫描跳过 archive 目录本身与散落文件；目录缺失 db 条目随 db 归组"
     );
-    assert!(!names.contains(&"archive"), "archive 目录不得误入 active 列表");
+    assert!(
+        !names.contains(&"archive"),
+        "archive 目录不得误入 active 列表"
+    );
 
-    // 目录缺失的 db active 条目 → 未知时间组、条目名回退建档名
-    let orphan = archive_entry(&list.archive_groups, "db-no-dir");
-    assert_eq!(orphan.source, super::ChangeSource::Archive);
+    // 目录缺失的 db active 条目 → active 组（D11）、条目名 = 建档名
+    let orphan = by_name(&list.active, "db-no-dir");
+    assert_eq!(orphan.source, super::ChangeSource::Active);
     assert_eq!(orphan.status, Some(ChangeStatus::Active));
-    assert_eq!(list.archive_groups.len(), 2, "仅当月组与未知时间组");
+    assert_eq!(list.archive_groups.len(), 1, "仅磁盘归档条目成组");
 
-    // archive 树只有目录条目入组（散落文件不入组）
+    // archive 树只有目录条目入组（散落文件不入组；db-no-dir 已随 db 归
+    // active 组，未知时间组随之消失）
     let archived = archive_entry(&list.archive_groups, "2026-02-03-archived");
-    assert_eq!(archived.name, "2026-02-03-archived", "name 语义 = 磁盘目录名");
-    assert_eq!(list.archive_groups.len(), 2, "当月组 + 未知时间组");
+    assert_eq!(
+        archived.name, "2026-02-03-archived",
+        "name 语义 = 磁盘目录名"
+    );
+    assert_eq!(
+        list.archive_groups.len(),
+        1,
+        "仅磁盘归档条目成组（未知时间组随 D11 归组修订消失）"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// worktree 维度（design D11）：worktree 条目入进行中组 + 目录名取位三态
+// ---------------------------------------------------------------------------
+
+/// worktree 条目归组（AC-9 scenario 字面）：db active（worktree=Some）+ 主仓
+/// 两树均未命中 → 进行中组、状态面完整（status / created / active_phase）、
+/// 目录名 = 建档名——不报错、不丢弃、不误归未知时间组。
+#[test]
+fn worktree条目入进行中组_状态面完整且不误归未知时间组() {
+    let env = Env::new("wt-entry");
+    env.store.push(ChangeStateRecord {
+        name: "wt-change".to_owned(),
+        workflow_type: "requirement".to_owned(),
+        created_at: T0,
+        status: ChangeStatus::Active,
+        archived_at: None,
+        active_phase: Some(ActivePhaseState {
+            phase: "implement".to_owned(),
+            attempt: 2,
+            start_at: T0 + 5_000,
+        }),
+        worktree: Some(r"C:\app-data\worktrees\seg\wt-change".to_owned()),
+        base_commit: Some("0000000000000000000000000000000000000001".to_owned()),
+    });
+    // 主仓两树零目录（merge 前形态）
+
+    let list = env.list();
+
+    let entry = by_name(&list.active, "wt-change");
+    assert_eq!(entry.source, super::ChangeSource::Active, "进行中组");
+    assert_eq!(entry.name, "wt-change", "目录名 = 建档名（未命中回退）");
+    assert_eq!(entry.status, Some(ChangeStatus::Active), "状态面 status 在");
+    assert_eq!(
+        entry.created.as_deref(),
+        Some("2024-09-22"),
+        "状态面 created 在"
+    );
+    assert!(
+        entry.active_phase.is_some(),
+        "状态面 active_phase 在（运行态透出）"
+    );
+    // 不误归未知时间组（archive_groups 空——不因目录缺席虚构归档形态）
+    assert!(
+        list.archive_groups.is_empty(),
+        "worktree 条目不误归任何归档组（含未知时间组）"
+    );
+}
+
+/// 目录名取位规则三态：active 主仓命中 → 建档名；archived → archive 树精确
+/// / 日期前缀名；未命中 → 建档名（磁盘目录仅决定目录名取位，归组恒 db
+/// status 权威）。
+#[test]
+fn 目录名取位三态_主仓命中建档名_archived前缀名_未命中建档名() {
+    let env = Env::new("dir-name-placement");
+
+    // 态一：active + 主仓 active 树命中 → 建档名
+    env.seed_record("placed-active", T0, None);
+    env.change(
+        "openspec/changes/placed-active",
+        &[("proposal.md", "# 提案")],
+    );
+
+    // 态二：archived + archive 树日期前缀目录在场 → 取位前缀名
+    env.seed_archived(
+        "placed-archived",
+        T0,
+        utc_millis(2026, time::Month::March, 5),
+    );
+    env.change(
+        "openspec/changes/archive/2026-03-05-placed-archived",
+        &[("proposal.md", "# 归档")],
+    );
+
+    // 态三：archived + 主仓两树未命中 → 建档名回退
+    env.seed_archived("placed-miss", T0, utc_millis(2026, time::Month::April, 1));
+
+    let list = env.list();
+
+    let active = by_name(&list.active, "placed-active");
+    assert_eq!(active.name, "placed-active", "active 主仓命中 → 建档名");
+
+    let archived = archive_entry(&list.archive_groups, "2026-03-05-placed-archived");
+    assert_eq!(
+        archived.name, "2026-03-05-placed-archived",
+        "archived archive 树前缀命中 → 目录名取位日期前缀名"
+    );
+
+    let miss = archive_entry(&list.archive_groups, "placed-miss");
+    assert_eq!(miss.name, "placed-miss", "archived 未命中 → 建档名回退");
 }

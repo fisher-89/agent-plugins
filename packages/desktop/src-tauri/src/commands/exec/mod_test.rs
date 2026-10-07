@@ -855,3 +855,31 @@ fn agent_stop对未运行会话与不存在session_id幂等ok() {
     // blank root 天然 miss：Ok 不报错
     agent_stop(registry, String::new(), "ses-live".to_owned()).expect("blank root Ok");
 }
+
+/// 错误透传：root 不可寻址（`for_root` canonicalize 失败）→ 三查询命令显式
+/// `Err` 记因（不 panic、不产半截结果——查询面错误同口径，blank root 早退
+/// 空结果语义之外的显式失败面）。
+#[test]
+fn root不可寻址_三查询命令err透传不panic() {
+    let env = Env::new("for-root-err");
+    let app = app_with_stores(&env);
+    let state = app.state::<WorkspaceStores>();
+    let missing = env
+        .data_dir
+        .path()
+        .join("absent-ws")
+        .to_string_lossy()
+        .into_owned();
+
+    for err in [
+        agent_sessions(state.clone(), missing.clone(), None, None).expect_err("清单应 Err"),
+        agent_session_transcript(state.clone(), missing.clone(), "ses-x".to_owned())
+            .expect_err("转录应 Err"),
+        session_detail(state.clone(), missing.clone(), "ses-x".to_owned()).expect_err("详情应 Err"),
+    ] {
+        assert!(
+            err.contains("canonicalize") && err.contains("absent-ws"),
+            "Err 记因 canonicalize 失败与 root 线索，实际: {err}"
+        );
+    }
+}

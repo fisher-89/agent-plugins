@@ -53,35 +53,23 @@ const SPEC_OUTPUT: &str = "▶ math\n\
 | file | line % | branch % | funcs % |\n\
 | All files | 82.5 | 74.1 | 90.3 | 12 |\n";
 
-impl Drop for ChainWs {
-    fn drop(&mut self) {
-        let _ = fs::remove_dir_all(&self.dir);
-    }
-}
-
 const CHANGE: &str = "demo-change";
 
 // ---------------------------------------------------------------------------
 // 装置：全链 workspace fixture + 命令 shim
 // ---------------------------------------------------------------------------
 
-/// 全链 workspace fixture：config tests[]（node-test suite）+ suite cwd 内
-/// 平台 shim + 输入文件 + change 目录。suite cwd = `<root>/app`——Windows
-/// 裸名 `node` 先搜 cwd（cmd /C 语义）、Unix 经 PATH 窗口前置 cwd 解析。
-/// 注：根目录名不以 `.` 起手（detect 的 dot 目录剪枝按任意路径分量执法，
-/// dot 前缀临时目录会让全部样本被剪）。
 struct ChainWs {
-    dir: PathBuf,
+    tmp: TempDir,
 }
 
 impl ChainWs {
     fn new(tag: &str) -> Self {
-        let dir = std::env::temp_dir().join(format!(
-            "checks-runtime-chain-test-{}-{tag}",
-            std::process::id()
-        ));
-        let _ = fs::remove_dir_all(&dir);
-        let root = &dir;
+        let tmp = tempfile::Builder::new()
+            .prefix(&format!("checks-runtime-chain-test-{tag}-"))
+            .tempdir()
+            .expect("创建临时 workspace 失败");
+        let root = tmp.path();
 
         // config：node-test suite，root app，阈值 60/70/75（实测 82.5 达阈）；
         // includes brace-free（`glob` crate 不展开花锳——见 detect_test 注记）
@@ -143,15 +131,15 @@ impl ChainWs {
         fs::create_dir_all(root.join("openspec").join("changes").join(CHANGE))
             .expect("创建 change 目录");
 
-        Self { dir }
+        Self { tmp }
     }
 
     fn root(&self) -> &Path {
-        &self.dir
+        self.tmp.path()
     }
 
     fn root_str(&self) -> String {
-        self.dir.to_string_lossy().into_owned()
+        self.tmp.path().to_string_lossy().into_owned()
     }
 
     fn reports_dir(&self) -> PathBuf {
@@ -194,8 +182,8 @@ impl ChainWs {
     }
 }
 
-/// PATH / SHIM_* 环境窗口（进程全局变量边界串行化——Unix 与 static_check_test
-/// 的 crate 级锁互斥，Windows 本地锁串行化 SHIM_* 面）。
+/// PATH / SHIM_* 环境窗口（进程全局变量边界串行化——持 crate 级
+/// TEST_ENV_LOCK，与一切触 spawn / PATH 的用例互斥）。
 fn path_window() -> PathWindowGuard {
     PathWindowGuard::enter()
 }
@@ -203,20 +191,14 @@ fn path_window() -> PathWindowGuard {
 struct PathWindowGuard {
     original_path: Option<std::ffi::OsString>,
     _shim_env: MutexGuard<'static, ()>,
-    #[cfg(not(target_os = "windows"))]
-    _outer: std::sync::MutexGuard<'static, ()>,
 }
 
 impl PathWindowGuard {
     fn enter() -> Self {
-        #[cfg(not(target_os = "windows"))]
-        let outer = crate::TEST_PATH_LOCK.lock().expect("crate PATH 锁不可中毒");
         let shim_env = crate::TEST_ENV_LOCK.lock().expect("crate 环境锁不可中毒");
         Self {
             original_path: std::env::var_os("PATH"),
             _shim_env: shim_env,
-            #[cfg(not(target_os = "windows"))]
-            _outer: outer,
         }
     }
 }
@@ -419,13 +401,11 @@ async fn 复用门装配_输入失效重跑() {
 /// 目录且 PATH 隔离：裸名 `node` cwd / PATH 双不可达 → 程序解析前置 Err。
 #[tokio::test]
 async fn 测试程序不可达_run_err() {
-    // 根目录名不以 `.` 起手（同 ChainWs——detect dot 分量剪枝）
-    let dir = std::env::temp_dir().join(format!(
-        "checks-runtime-unreachable-test-{}",
-        std::process::id()
-    ));
-    let _ = fs::remove_dir_all(&dir);
-    let root = dir.clone();
+    let tmp = tempfile::Builder::new()
+        .prefix("checks-runtime-unreachable-test-")
+        .tempdir()
+        .expect("创建临时 workspace 失败");
+    let root = tmp.path();
     // suite cwd = app/empty（无 shim）；文件清单命中 app/empty 内样本
     fs::create_dir_all(root.join("openspec")).expect("创建 openspec");
     fs::write(
@@ -453,7 +433,6 @@ async fn 测试程序不可达_run_err() {
         err.contains("node") && err.contains("未找到"),
         "Err 记因裸名与解析失败面（不产部分结论），实际: {err}"
     );
-    let _ = fs::remove_dir_all(&dir);
 }
 
 /// 异常：命令 fixture 非零退出且工件不可解析 → conclusion=error 产出 +

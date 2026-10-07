@@ -148,6 +148,21 @@ impl ArchiveStore {
             status: ChangeStatus::Active,
             archived_at: None,
             active_phase: None,
+            worktree: None,
+            base_commit: None,
+        }
+    }
+
+    /// 带 worktree 执行锚的建档形态（worktree change 的 merge 前 / 后各用例
+    /// 共用；base_commit 随行占位——映射面断言归 store 域测试）。
+    fn active_with_worktree(worktree: &Path) -> Self {
+        let mut record = Self::active_record();
+        record.worktree = Some(worktree.to_string_lossy().into_owned());
+        record.base_commit = Some("0000000000000000000000000000000000000001".to_owned());
+        Self {
+            record: Mutex::new(Some(record)),
+            set_calls: Mutex::new(Vec::new()),
+            set_fault: Mutex::new(None),
         }
     }
 
@@ -410,7 +425,10 @@ fn 翻转失败呈现半完成态且目录已改名() {
     );
     let today = utc_date_today();
     assert!(
-        env.layout.archive_root.join(format!("{today}-{CHANGE}")).is_dir(),
+        env.layout
+            .archive_root
+            .join(format!("{today}-{CHANGE}"))
+            .is_dir(),
         "archive 树目标目录在场"
     );
 }
@@ -441,7 +459,10 @@ fn 双树同名_active精确名优先() {
         "active 树源目录被改名（active 精确名优先）"
     );
     assert!(
-        env.layout.archive_root.join("2026-01-01-seed-change").is_dir(),
+        env.layout
+            .archive_root
+            .join("2026-01-01-seed-change")
+            .is_dir(),
         "archive 树既有目录不被触碰"
     );
     assert_eq!(env.archive_dirs_suffixed(CHANGE).len(), 2, "仅新增当日目录");
@@ -471,7 +492,11 @@ fn archive树无前缀同名目录_续半边命中补翻转() {
         env.layout.archive_root.join(CHANGE).is_dir(),
         "无前缀目录原位不动（不重复改名）"
     );
-    assert_eq!(env.store.record().status, ChangeStatus::Archived, "db 补翻转");
+    assert_eq!(
+        env.store.record().status,
+        ChangeStatus::Archived,
+        "db 补翻转"
+    );
 }
 
 /// 两树均未命中（db 有档、目录不存在）→ `Err`（不虚构归档）。
@@ -487,4 +512,160 @@ fn 两树均未命中_err() {
     );
     assert_eq!(env.store.record().status, ChangeStatus::Active, "db 零变更");
     assert_eq!(env.store.set_call_count(), 0, "翻转调用零下发");
+}
+
+// ---------------------------------------------------------------------------
+// worktree merge-first 引导（design D13）：未 merge 显式拒绝引导；merge 后
+// 零特判；归档不触碰 worktree / branch
+// ---------------------------------------------------------------------------
+
+/// 未 merge 引导拒绝：记录携 `worktree=Some` 且主仓 active / archive 两树均
+/// 未命中 → `Err` 引导「先 merge worktree 分支 change/{name} 回主仓再归档」
+///（含 change 名与 branch 名文案锚；**非**泛化「目录未找到」——负断言不含
+/// 该旧文案）；db 与磁盘零变化。
+#[test]
+fn 未merge引导拒绝_显式引导merge且非泛化未找到() {
+    let env = Env::new("worktree-unmerged");
+    let worktree = std::env::temp_dir().join(format!(
+        "workflow-archive-wt-{}-unmerged",
+        std::process::id()
+    ));
+    let store = ArchiveStore::active_with_worktree(&worktree);
+
+    let error = archive(&env.layout, &store, CHANGE).expect_err("未 merge 应显式拒绝");
+
+    assert!(
+        error.contains("merge") && error.contains(&format!("change/{CHANGE}")),
+        "Err 引导先 merge worktree 分支 change/{CHANGE}（含 branch 名锚），实际: {error}"
+    );
+    assert!(
+        error.contains(CHANGE),
+        "引导文案含 change 名，实际: {error}"
+    );
+    assert!(
+        !error.contains("未找到"),
+        "非泛化「目录未找到」（merge-first 引导优先于旧文案），实际: {error}"
+    );
+    // db 与磁盘零变化（拒绝先于一切变更）
+    assert_eq!(store.record().status, ChangeStatus::Active, "db 零变更");
+    assert_eq!(store.set_call_count(), 0, "翻转调用零下发");
+    assert!(
+        env.archive_dirs_suffixed(CHANGE).is_empty(),
+        "archive 树零新增"
+    );
+}
+
+/// merge 后零特判：记录携 worktree + 主仓 active 目录在场（模拟 merge 后）→
+/// 既有双写成功（status 翻转 + 日期前缀改名），路径无 worktree 特判行为（与
+/// 无 worktree 记录的成功行输出等形）。
+#[test]
+fn merge后零特判_既有双写成功输出等形() {
+    let env = Env::new("worktree-merged");
+    env.make_active_dir(CHANGE);
+    let worktree =
+        std::env::temp_dir().join(format!("workflow-archive-wt-{}-merged", std::process::id()));
+    let store = ArchiveStore::active_with_worktree(&worktree);
+    let before = utc_date_today();
+
+    let outcome = archive(&env.layout, &store, CHANGE).expect("merge 后归档应成功");
+
+    let after = utc_date_today();
+    // 与无 worktree 记录的成功行输出等形（双写成功行断言同构复用）
+    assert_eq!(outcome.name, CHANGE, "主键 name 不变");
+    assert!(
+        outcome.archived_date == before || outcome.archived_date == after,
+        "archived_date 为 UTC 当日，实际: {}",
+        outcome.archived_date
+    );
+    assert!(
+        !env.layout.changes_root.join(CHANGE).exists(),
+        "active 树源目录改名挪走（常规双写路径）"
+    );
+    let archived_dirs = env.archive_dirs_suffixed(CHANGE);
+    assert_eq!(archived_dirs.len(), 1, "archive 树恰一个日期前缀目录");
+    assert_eq!(store.record().status, ChangeStatus::Archived, "db 翻转");
+    assert_eq!(store.set_call_count(), 1, "翻转恰一次");
+}
+
+/// archive 树命中续半边：记录携 worktree + archive 树前缀目录在场（merge 后
+/// 已被外部挪入 archive 树的半完成形态）→ 续半边仅补 db 翻转（既有语义对
+/// worktree 记录同样成立）。
+#[test]
+fn worktree记录archive树命中续半边_仅补翻转() {
+    let env = Env::new("worktree-resume");
+    let archived_name = "2026-10-06-seed-change";
+    env.make_archive_dir(archived_name);
+    let worktree =
+        std::env::temp_dir().join(format!("workflow-archive-wt-{}-resume", std::process::id()));
+    let store = ArchiveStore::active_with_worktree(&worktree);
+
+    let outcome = archive(&env.layout, &store, CHANGE).expect("续半边应成功");
+
+    assert_eq!(outcome.archived_date, "2026-10-06", "前缀日期沿用");
+    assert!(
+        env.layout.archive_root.join(archived_name).is_dir(),
+        "archive 树源目录不被二次挪动（仅补翻转）"
+    );
+    assert_eq!(store.record().status, ChangeStatus::Archived, "db 补翻转");
+}
+
+/// legacy 未命中持衡：`worktree=None` + 两树未命中 → 既有泛化「目录未找到」
+/// Err 原样（legacy 语义零变化——与 worktree 引导行文案互斥的对拍锚）。
+#[test]
+fn legacy未命中持衡_泛化目录未找到原样() {
+    let env = Env::new("legacy-miss");
+    // 对照组：同形态但记录携 worktree → merge-first 引导（文案互斥对拍）
+    let worktree =
+        std::env::temp_dir().join(format!("workflow-archive-wt-{}-legacy", std::process::id()));
+
+    // legacy 半边（既有行为）：泛化未找到文案
+    let legacy_error = env.archive(CHANGE).expect_err("两树未命中应 Err");
+    assert!(
+        legacy_error.contains("未找到") && !legacy_error.contains("merge"),
+        "legacy 记录 → 既有泛化「目录未找到」Err 原样（零 worktree 语境），实际: {legacy_error}"
+    );
+
+    // worktree 半边（新行为）：merge-first 引导文案——两文案互斥
+    let store = ArchiveStore::active_with_worktree(&worktree);
+    let worktree_error = archive(&env.layout, &store, CHANGE).expect_err("应 Err");
+    assert!(
+        worktree_error.contains("merge") && !worktree_error.contains("未找到"),
+        "worktree 记录 → merge-first 引导（与 legacy 文案互斥），实际: {worktree_error}"
+    );
+}
+
+/// 归档不触碰 worktree：归档成功行中 worktree 目录与 branch 原样未动
+///（`archive` 签名零 vcs 参为编译期锚——归档面无任何 git 触点；清理为手动
+/// 边界）。
+#[test]
+fn 归档成功行_worktree目录原样未动() {
+    let env = Env::new("worktree-untouched");
+    env.make_active_dir(CHANGE);
+    // worktree 目录实体在场（真实 tempdir + 探针文件——归档前后逐字节对照）
+    let worktree = tempfile::Builder::new()
+        .prefix(&format!(
+            "workflow-archive-wt-{}-untouched-",
+            std::process::id()
+        ))
+        .tempdir()
+        .expect("创建 worktree 临时目录失败");
+    let probe = worktree.path().join("openspec/changes").join(CHANGE);
+    fs::create_dir_all(&probe).expect("预置 worktree 树失败");
+    fs::write(probe.join("explore.md"), "# worktree 侧产物").expect("预置探针失败");
+
+    let store = ArchiveStore::active_with_worktree(worktree.path());
+    archive(&env.layout, &store, CHANGE).expect("归档应成功");
+
+    // worktree 目录原样未动（归档不触碰 worktree / branch——清理为手动边界）
+    assert!(probe.join("explore.md").is_file(), "worktree 目录原样未动");
+    assert_eq!(
+        fs::read_to_string(probe.join("explore.md")).expect("读探针失败"),
+        "# worktree 侧产物",
+        "worktree 内容零变化"
+    );
+    assert_eq!(
+        store.record().worktree.as_deref(),
+        Some(worktree.path().to_string_lossy().as_ref()),
+        "记录的 worktree 执行锚不因归档清除"
+    );
 }

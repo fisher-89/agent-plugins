@@ -52,15 +52,12 @@ fn err_of<T>(result: Result<T, String>) -> String {
 // 装置：tempdir 真库 WorkspaceStores + fixture 落库
 // ---------------------------------------------------------------------------
 
-/// 打开两级库注册表（数据根注入，零环境解析）。
-fn open_stores(data_root: &PathBuf) -> WorkspaceStores {
-    WorkspaceStores::open(data_root).unwrap_or_else(|e| panic!("WorkspaceStores::open 应成功: {e}"))
-}
-
-/// 数据根 + workspace 根双临时目录装置。
+/// 数据根 + workspace 根双临时目录装置（stores 以 OnceLock 缓存——redb 单
+/// 进程单句柄，重复 open 同一 db 文件不安全）。
 struct DualEnv {
     data_root: tempfile::TempDir,
     ws_root: tempfile::TempDir,
+    stores: std::sync::OnceLock<WorkspaceStores>,
 }
 
 impl DualEnv {
@@ -73,15 +70,29 @@ impl DualEnv {
             .prefix(&format!("compose-test-{tag}-root-"))
             .tempdir()
             .expect("创建 workspace 根临时目录失败");
-        Self { data_root, ws_root }
+        Self {
+            data_root,
+            ws_root,
+            stores: std::sync::OnceLock::new(),
+        }
     }
 
     fn root(&self) -> String {
         self.ws_root.path().to_string_lossy().into_owned()
     }
 
-    fn stores(&self) -> WorkspaceStores {
-        open_stores(&self.data_root.path().to_path_buf())
+    fn stores(&self) -> &WorkspaceStores {
+        self.stores.get_or_init(|| {
+            WorkspaceStores::open(self.data_root.path())
+                .unwrap_or_else(|e| panic!("WorkspaceStores::open 应成功: {e}"))
+        })
+    }
+
+    /// 预解析 workspace root 库实例（compose 拆参后的命令层注入面同构）。
+    fn store(&self) -> std::sync::Arc<store::Store> {
+        self.stores()
+            .for_root(&self.root())
+            .expect("for_root 应成功")
     }
 }
 
@@ -214,7 +225,7 @@ async fn 缺省解析默认sdk实例_快照承接provider组装与high档模型(
     let provider_id = seed_provider(&stores, "解析供应");
     seed_sdk_instance(&stores, "解析实例", Some(provider_id));
 
-    let composed = compose_turn(&stores, Arc::new(StopRegistry::new()), &env.root(), None)
+    let composed = compose_turn(&stores, Arc::new(StopRegistry::new()), env.store(), None)
         .expect("缺省解析应成功");
 
     // 快照定型双面（解析产物的可观测投影）：sdk 引擎 + provider high 档模型
@@ -254,7 +265,7 @@ async fn 显式cli实例解析_快照engine为cli且模型为none() {
     let composed = compose_turn(
         &stores,
         Arc::new(StopRegistry::new()),
-        &env.root(),
+        env.store(),
         Some(cli_id),
     )
     .expect("显式 cli 解析应成功");
@@ -289,7 +300,7 @@ fn 空库缺省解析err引导管理页且零落库() {
     let error = err_of(compose_turn(
         &stores,
         Arc::new(StopRegistry::new()),
-        &env.root(),
+        env.store(),
         None,
     ));
 
@@ -316,7 +327,7 @@ fn 显式不存在agent的id解析err携id记因() {
     let error = err_of(compose_turn(
         &stores,
         Arc::new(StopRegistry::new()),
-        &env.root(),
+        env.store(),
         Some(404),
     ));
     assert!(error.contains("404"), "Err 携 id 记因，实际: {error}");
@@ -343,7 +354,7 @@ async fn provider引用完整性守卫使悬空成因不可达_解析照常成�
     );
 
     // provider 完好在库：解析照常成功（默认实例可发起）
-    let composed = compose_turn(&stores, Arc::new(StopRegistry::new()), &env.root(), None)
+    let composed = compose_turn(&stores, Arc::new(StopRegistry::new()), env.store(), None)
         .expect("provider 完好时缺省解析应成功");
     let store = stores.for_root(&env.root()).expect("for_root 应成功");
     let running = composed
@@ -379,7 +390,7 @@ async fn continue快照校验通过时begin成功且会话行不重复建() {
     seed_sdk_session(&store, "ses-continue-ok", Some("sdk-11-1727000000001"));
     seed_transcript(&store, "ses-continue-ok");
 
-    let composed = compose_turn(&stores, Arc::new(StopRegistry::new()), &env.root(), None)
+    let composed = compose_turn(&stores, Arc::new(StopRegistry::new()), env.store(), None)
         .expect("解析应成功");
     let running = composed
         .begin(
@@ -412,7 +423,7 @@ fn continue会话不存在时显式失败() {
     let provider_id = seed_provider(&stores, "续话404供应");
     seed_sdk_instance(&stores, "续话404实例", Some(provider_id));
 
-    let composed = compose_turn(&stores, Arc::new(StopRegistry::new()), &env.root(), None)
+    let composed = compose_turn(&stores, Arc::new(StopRegistry::new()), env.store(), None)
         .expect("解析应成功");
     let error = err_of(composed.begin(
         SessionRef::Continue {
@@ -453,7 +464,7 @@ fn continue跨引擎续会话被快照比对拒绝() {
         .create_session(&cli_session)
         .expect("落 cli 快照会话行");
 
-    let composed = compose_turn(&stores, Arc::new(StopRegistry::new()), &env.root(), None)
+    let composed = compose_turn(&stores, Arc::new(StopRegistry::new()), env.store(), None)
         .expect("解析应成功");
     let error = err_of(composed.begin(
         SessionRef::Continue {
@@ -478,7 +489,7 @@ fn continue引擎句柄缺失时拒绝且三成因消息互不重合() {
     let store = stores.for_root(&env.root()).expect("for_root 应成功");
     seed_sdk_session(&store, "ses-no-remote", None);
 
-    let composed = compose_turn(&stores, Arc::new(StopRegistry::new()), &env.root(), None)
+    let composed = compose_turn(&stores, Arc::new(StopRegistry::new()), env.store(), None)
         .expect("解析应成功");
     let error = err_of(composed.begin(
         SessionRef::Continue {
@@ -513,7 +524,7 @@ async fn 装配产物真实驱动_cli臂隔离path下failed收敛且会话行轮
     let composed = compose_turn(
         &stores,
         Arc::new(StopRegistry::new()),
-        &env.root(),
+        env.store(),
         Some(cli_id),
     )
     .expect("解析应成功");
@@ -579,7 +590,7 @@ async fn 装配产物含查询面_continue校验经真实库行成立() {
 
     // ComposedTurn 产物即真实装配（query 直查 store 行 → 校验通过形态复用）
     let composed: ComposedTurn =
-        compose_turn(&stores, Arc::new(StopRegistry::new()), &env.root(), None)
+        compose_turn(&stores, Arc::new(StopRegistry::new()), env.store(), None)
             .expect("解析应成功");
     composed
         .begin(
@@ -625,7 +636,7 @@ fn sdk实例缺provider_id的存量形态解析err引导管理页() {
     let error = err_of(compose_turn(
         &stores,
         Arc::new(StopRegistry::new()),
-        &env.root(),
+        env.store(),
         None,
     ));
 
@@ -706,5 +717,88 @@ fn resolve_cli臂context_window恒none() {
     assert_eq!(
         resolved.context_window, None,
         "cli 臂恒 None（窗长载荷为 sdk 引擎旁路，CLI 不消费）"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// store 注入化拆参（design D8 / AC-6）：store 半边唯一入口 = 注入参
+// ---------------------------------------------------------------------------
+
+/// 注入实例消费：以 `for_root(rootA)` 预解析实例注入 → `composed.begin(...)`
+/// 落会话行 / 轮行于**注入实例**（注入 store 的 list_sessions 可查）；异根
+/// rootB 库零行——store 半边唯一入口是注入参（cwd / rootB 不触发第二处库解
+/// 析；worktree 路径在类型上不可能进入库解析）。
+#[tokio::test]
+async fn 注入实例消费_会话行轮行落注入库且异根库零行() {
+    let env = DualEnv::new("inject-isolation");
+    let stores = env.stores();
+    let cli_id = seed_cli_instance(&stores, "注入消费实例");
+    let root_b = tempfile::Builder::new()
+        .prefix("compose-test-inject-other-root-")
+        .tempdir()
+        .expect("创建异根临时目录失败");
+    let root_b_str = root_b.path().to_string_lossy().into_owned();
+
+    // 注入实例 = for_root(rootA) 预解析（命令层装配同构）
+    let injected = env.store();
+    let composed = compose_turn(
+        &stores,
+        Arc::new(StopRegistry::new()),
+        std::sync::Arc::clone(&injected),
+        Some(cli_id),
+    )
+    .expect("解析应成功");
+
+    let _guard = PATH_LOCK.lock().expect("PATH 锁不可中毒");
+    let original = std::env::var_os("PATH");
+    std::env::set_var("PATH", ""); // cli 缺失合成收敛（不 spawn 真实引擎）
+
+    let running = composed
+        .begin(
+            SessionRef::New,
+            "注入实例消费验证".to_owned(),
+            ctx(&env.root()),
+            debug_provenance(),
+        )
+        .expect("begin 应成功");
+    let outcome = running.drive(|_output| {}).await;
+
+    match original {
+        Some(value) => std::env::set_var("PATH", value),
+        None => std::env::remove_var("PATH"),
+    }
+
+    assert_eq!(
+        outcome.status,
+        agent::AgentRunStatus::Failed,
+        "PATH 隔离下 CLI 合成收敛 failed（落库面不受收敛形态影响）"
+    );
+
+    // 注入实例：会话行 + 轮行在场（begin 即落库，逐字段可查）
+    let summaries = injected
+        .list_sessions(None, None)
+        .expect("注入库清单应成功");
+    assert_eq!(summaries.len(), 1, "会话行落注入实例");
+    let row = &summaries[0].row;
+    assert_eq!(
+        row.provenance.source, "debug",
+        "provenance source 逐字段一致"
+    );
+    assert_eq!(summaries[0].turns.len(), 1, "轮行落注入实例");
+    assert_eq!(
+        summaries[0].turns[0].status,
+        agent::AgentRunStatus::Failed,
+        "轮行状态逐字段一致"
+    );
+
+    // 异根 rootB 库零行（注入参是 store 半边唯一入口——cwd / 其他 root 不产
+    // 生第二处落库；for_root(rootB) 实例化亦零行）
+    let other = stores
+        .for_root(&root_b_str)
+        .expect("异根 for_root 应成功（实例化本身合法）");
+    let other_summaries = other.list_sessions(None, None).expect("异根库清单应成功");
+    assert!(
+        other_summaries.is_empty(),
+        "异根库零行（store 半边唯一入口 = 注入参）"
     );
 }

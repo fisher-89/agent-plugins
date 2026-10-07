@@ -1,7 +1,7 @@
 use crate::model::{ChecklistItem, Verdict};
 use crate::state::{ChangeStateStore, PhaseLogCommand};
-use crate::write::phase_table::{phase_table, MAX_REPORT_CHARS};
 use crate::write::now_millis;
+use crate::write::phase_table::{phase_table, MAX_REPORT_CHARS};
 
 /// 落账输入（checklist 用 `workflow::model::ChecklistItem` 域类型）。会话槽
 /// 位由调用方（walker）从 `WorkerTurnOutcome.session_id` 取值传入，写面不

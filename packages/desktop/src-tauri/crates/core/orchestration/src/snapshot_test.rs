@@ -105,6 +105,8 @@ fn seed_change(store: &Store, name: &str) {
             status: ChangeStatus::Active,
             archived_at: None,
             active_phase: None,
+            worktree: None,
+            base_commit: None,
         })
         .expect("建档种子应成功");
 }
@@ -296,14 +298,13 @@ fn port契约_traitobject装配且未知change与root失配显式err() {
         "miss 记因显式携带 change 名: {err}"
     );
 
-    // root 失配：空白根 layout 下无此 change 目录 → 同一 Err 出口
-    let err = port
+    // root 失配：layout 无此 change 目录，但 db 建档记录在场 → D12 建档记录
+    // 恒可达详情（定位 miss → dir 缺席、产物清单空、状态面在）→ Ok 而非 Err
+    let mismatched = port
         .detail("/tmp/不存在的根", CHANGE)
-        .expect_err("root 失配应显式 Err");
-    assert!(
-        err.contains("change 不存在"),
-        "root 失配同样收敛 miss 记因（layout 无此目录 → None → Err）: {err}"
-    );
+        .expect("建档记录恒可达（db 状态面权威，定位 miss 不虚构 None）");
+    assert_eq!(mismatched.status, Some(ChangeStatus::Active), "状态面在");
+    assert!(mismatched.artifacts.is_empty(), "定位 miss 产物清单空");
 
     // 在场 change 不受误伤（对照面）
     assert!(port.detail(&root_str, CHANGE).is_ok());

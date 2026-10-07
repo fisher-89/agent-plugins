@@ -17,6 +17,13 @@
       "name": "list-active",
       "source": "active",
       "status": "active"
+    },
+    {
+      "activePhase": null,
+      "created": "2024-09-22",
+      "name": "list-worktree",
+      "source": "active",
+      "status": "active"
     }
   ],
   "archiveGroups": [

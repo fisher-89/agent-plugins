@@ -134,8 +134,14 @@ fn 注册表按维度分组列出模型且list_models计数与写入量一致() 
             .map(|model| model.name.as_str())
             .collect::<Vec<_>>(),
         vec![
-            "agent_run", "session", "session_event", "explore", "change", "phase",
-            "checklist_item", "step"
+            "agent_run",
+            "session",
+            "session_event",
+            "explore",
+            "change",
+            "phase",
+            "checklist_item",
+            "step"
         ],
         "workspace 库静态注册表 4→8 恰八行，顺序即登记序"
     );

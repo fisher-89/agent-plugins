@@ -101,27 +101,18 @@ fn probe_tree(ws: &TempWs) {
 /// brace-free 测试文件 glob（`glob` crate 不展开花锳——见模块注记）。
 const TS_TESTS_GLOB: &str = "**/*.test.ts";
 
-/// PATH 隔离窗口（RAII）：持 crate 级 TEST_ENV_LOCK 期间改写进程 PATH、drop
-/// 恢复（static_check / testexec 各测试文件的环境窗口经同锁互斥，防并行
-/// 用例互踩进程 PATH）。Unix 侧另与 static_check_test 的 crate 级
-/// TEST_PATH_LOCK 互斥（拉起本体失败臂共享进程 PATH）。
+/// PATH 隔离窗口（RAII）
 struct PathWindow {
     original: Option<std::ffi::OsString>,
     _inner: std::sync::MutexGuard<'static, ()>,
-    #[cfg(not(target_os = "windows"))]
-    _outer: std::sync::MutexGuard<'static, ()>,
 }
 
 impl PathWindow {
     fn enter() -> Self {
-        #[cfg(not(target_os = "windows"))]
-        let outer = crate::TEST_PATH_LOCK.lock().expect("crate PATH 锁不可中毒");
         let inner = crate::TEST_ENV_LOCK.lock().expect("crate 环境锁不可中毒");
         Self {
             original: std::env::var_os("PATH"),
             _inner: inner,
-            #[cfg(not(target_os = "windows"))]
-            _outer: outer,
         }
     }
 
@@ -165,7 +156,8 @@ fn 五框架注册表常量与cli逐字对齐() {
     let vitest_template = "npx vitest run --sequence.shuffle --reporter=json --outputFile.json=\"{results_file}\" --coverage --coverage.reportsDirectory=\"{report_dir}\" --coverage.reporter=json-summary {config_args} {files}";
     let vite_plus_template = "vp test --sequence.shuffle --reporter=json --outputFile.json=\"{results_file}\" --coverage --coverage.reportsDirectory=\"{report_dir}\" --coverage.reporter=json-summary {config_args} {files}";
     let rust_shell = "cargo test --workspace; _X=$?; cargo llvm-cov --json --output-path \"{coverage_file}\"; exit $_X";
-    let rust_cmd = "cargo test --workspace & if errorlevel 1 set _X=%errorlevel% & cargo llvm-cov --json --output-path \"{coverage_file}\" & exit /b %_X%";
+    let rust_cmd =
+        "cargo llvm-cov --json --output-path \"{coverage_file}\" & cargo test --workspace";
     let node_test = "node --test --experimental-test-coverage --test-reporter=spec --test-reporter-destination=\"{results_file}\" {files}";
 
     let expected: [(
@@ -258,14 +250,17 @@ fn 五框架注册表常量与cli逐字对齐() {
         assert_eq!(entry.config_flag, want.7, "{} config_flag", want.0);
     }
 
-    // jest cmd 模板与 shell 同串（CLI 双形态一致）；rust cmd 模板逐字（CLI
-    // cmd 形态 & 链 / %errorlevel% 语法）
+    // jest cmd 模板与 shell 同串
     let jest = &REGISTRY[0];
     assert_eq!(
         jest.cmd_template, jest.shell_template,
         "jest 双形态模板一致（CLI jest shell/cmd 同 builder 同串）"
     );
     assert_eq!(REGISTRY[3].cmd_template, rust_cmd);
+    assert!(
+        !rust_cmd.contains('%') && !rust_cmd.contains("if "),
+        "rust cmd 模板不含 cmd 单行解析期展开构造（%var% / if 体）"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -277,6 +272,8 @@ fn 五框架注册表常量与cli逐字对齐() {
 /// coverage_format=istanbul、excludes 过滤 + dot 目录剪枝后的文件清单）。
 #[tokio::test]
 async fn vite_plus_suite探测_清单排除与剪枝() {
+    // 版本探测臂 spawn 读 PATH——持环境锁与 PATH 改写用例互斥
+    let _window = PathWindow::enter();
     let ws = TempWs::new("vite-plus");
     probe_tree(&ws);
 
@@ -321,6 +318,7 @@ async fn vite_plus_suite探测_清单排除与剪枝() {
 /// 拼接（旗标 + suite root 下绝对 POSIX 路径）。
 #[tokio::test]
 async fn config注入_旗标与绝对posix路径拼接() {
+    let _window = PathWindow::enter();
     let ws = TempWs::new("config-inject");
     ws.write("app/vitest.config.ts", "export default {};");
     ws.write("app/src/a.test.ts", "test");
@@ -347,6 +345,7 @@ async fn config注入_旗标与绝对posix路径拼接() {
 /// default_glob 圈定 tests 树——brace-free 缺省 glob 可直接命中）。
 #[tokio::test]
 async fn rust_suite探测_llvm_cov档() {
+    let _window = PathWindow::enter();
     let ws = TempWs::new("rust");
     probe_tree(&ws);
 
@@ -386,6 +385,7 @@ async fn rust_suite探测_llvm_cov档() {
 /// AC-4 反向半边）；不支持注入的框架声明 config 同族显式 Err。
 #[tokio::test]
 async fn 不支持框架显式err不静默() {
+    let _window = PathWindow::enter();
     let ws = TempWs::new("unsupported");
     probe_tree(&ws);
 
@@ -421,6 +421,7 @@ async fn 不支持框架显式err不静默() {
 /// 边界：includes 全不命中 → 该 suite 不产 plan（空清单面）且整体不 panic。
 #[tokio::test]
 async fn includes全不命中_不产plan不panic() {
+    let _window = PathWindow::enter();
     let ws = TempWs::new("no-match");
     probe_tree(&ws);
 

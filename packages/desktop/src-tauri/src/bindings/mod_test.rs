@@ -133,6 +133,7 @@ const DTO_TYPES: &[&str] = &[
     "TurnSummary",
     "ArchiveGroup",
     "ArchiveOutcome",
+    "CreateOutcome",
     "ArtifactDescriptor",
     "ArtifactEnvelope",
     "AttemptRecord",
@@ -857,4 +858,86 @@ fn 在册类型不重录_既有五型各恰一条() {
             "在册类型 {existing} 应恰一条（不重录）"
         );
     }
+}
+
+// ---------------------------------------------------------------------------
+// worktree 维度 DTO 出线（design D2 / D14 / AC-9）：CreateOutcome 四字段 +
+// ChangeDetail.worktree
+// ---------------------------------------------------------------------------
+
+/// `CreateOutcome` 类型段恰 `name` / `created` / `worktree` / `warnings` 四
+/// 字段（`worktree: string`、`warnings: string[]`）——无主仓 openspec 目录
+/// 树路径字段（D2 恰四字段面）。
+#[test]
+fn create_outcome出线恰四字段_worktree与warnings类型对位() {
+    let _lock = lock();
+    let content = String::from_utf8(authoritative_snapshot()).expect("产物为 UTF-8 文本");
+    let outcome = type_section(&content, "CreateOutcome");
+
+    for field in ["name", "created", "worktree", "warnings"] {
+        assert!(
+            outcome.contains(&format!(" {field}: ")) || outcome.contains(&format!("\t{field}: ")),
+            "CreateOutcome 出线字段 {field} 缺席，实际:\n{outcome}"
+        );
+    }
+    assert!(
+        outcome.contains("worktree: string"),
+        "worktree 出线为非空 string（执行锚恒在场），实际:\n{outcome}"
+    );
+    assert!(
+        outcome.contains("warnings: string[]"),
+        "warnings 出线为 string[]（清单恒在场空不省键），实际:\n{outcome}"
+    );
+    // 恰四字段：类型段内字段声明恰 4 行
+    let field_count = outcome
+        .lines()
+        .filter(|line| {
+            line.contains(":")
+                && !line.trim_start().starts_with('*')
+                && !line.trim_start().starts_with('/')
+        })
+        .filter(|line| {
+            line.trim_start()
+                .chars()
+                .next()
+                .is_some_and(|c| c.is_alphanumeric() || c == '_')
+        })
+        .filter(|line| line.contains("string") || line.contains("[]"))
+        .count();
+    assert_eq!(
+        field_count, 4,
+        "恰四字段面（无主仓 openspec 目录树路径字段），实际:\n{outcome}"
+    );
+}
+
+/// `ChangeDetail` 类型段含 `worktree: string | null`（None → null 出线——
+/// 类型面与 golden 面双锚）。
+#[test]
+fn change_detail出线含worktree_string_or_null() {
+    let _lock = lock();
+    let content = String::from_utf8(authoritative_snapshot()).expect("产物为 UTF-8 文本");
+    let detail = type_section(&content, "ChangeDetail");
+
+    assert!(
+        detail.contains("worktree: string | null"),
+        "ChangeDetail 含 worktree: string | null（legacy null 出线），实际:\n{detail}"
+    );
+}
+
+/// 签面不变：`create_change` 命令包装参数面不变（root / name / goal——async
+/// 化零 bindings 漂移）。
+#[test]
+fn create_change命令签面_root_name_goal三参不变() {
+    let _lock = lock();
+    let content = String::from_utf8(authoritative_snapshot()).expect("产物为 UTF-8 文本");
+
+    // 命令包装形态：invoke 目标 + 三参对象（async 化零漂移）
+    assert!(
+        content.contains("createChange: (root: string, name: string, goal: string) =>"),
+        "createChange 参数面不变（root / name / goal），实际段缺失"
+    );
+    assert!(
+        content.contains(r#"__TAURI_INVOKE<CreateOutcome>("create_change", { root, name, goal })"#),
+        "invoke 目标 create_change 与三参对象不变"
+    );
 }

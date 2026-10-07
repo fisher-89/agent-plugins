@@ -19,6 +19,7 @@
 | 槽位全缺 | 三会话槽位列恒 None 的 PhaseRecord（缺省落账） | 不携槽位的 `log_change_phase` |
 | 文档形态 | 仅磁盘目录 + 产物 markdown，零 db 记录（存量 CLI change） | 只建目录树（含惰性 workflow.json 字节样本），不走建档 |
 | 坏行 | 库内 native_model 解码失败行（坏字节） | db 文件直写字节注入（store_test 裸 redb 注入用例 `建档表坏行直写注入_读侧store_error显式记因不静默` 承载；store 读面 `StoreError` 路径） |
+| worktree 两态 | 建档携 `worktree` / `base_commit` 执行锚 + worktree 内磁盘产物树（merge 前主仓两树未命中，`corpus-worktree`）；legacy `worktree=None` 投影 null（既有建档语料全量重写后覆盖） | `create_change_record` 携 Some 两字段 + worktree 树（投影路径经 `<WORKTREE_ROOT>` 占位归一）；detail `worktree` 键恒在场（spec desktop-corpus-regression「各至少一个」） |
 
 golden 快照纪律与显式重写流程（`DESKTOP_GOLDEN_REWRITE=1` + diff 人工确认留
 痕）延续，归 test-design / test-gen 阶段承接落地；`golden/layout-*.json` 三

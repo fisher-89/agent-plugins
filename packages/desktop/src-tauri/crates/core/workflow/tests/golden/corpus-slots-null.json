@@ -91,5 +91,6 @@
     }
   ],
   "source": "active",
-  "status": "active"
+  "status": "active",
+  "worktree": null
 }

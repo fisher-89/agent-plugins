@@ -13,7 +13,7 @@ use std::sync::Mutex;
 use super::phase_start::phase_start;
 use crate::state::{
     ActivePhaseState, ChangeStateRecord, ChangeStateStore, ChangeStatus, PhaseLogCommand,
-    PhaseStateRecord, PhaseStartState, StepCommand, StepStateRecord, StoreFault,
+    PhaseStartState, PhaseStateRecord, StepCommand, StepStateRecord, StoreFault,
 };
 
 const CHANGE: &str = "demo-change";
@@ -49,6 +49,8 @@ impl StartStore {
                 status: ChangeStatus::Active,
                 archived_at: None,
                 active_phase: None,
+                worktree: None,
+                base_commit: None,
             })),
             entries: Mutex::new(Vec::new()),
             start_calls: Mutex::new(Vec::new()),
@@ -73,11 +75,7 @@ impl StartStore {
     /// 节奏步，沿 start → 落账 → 再 start 的真实重试节奏）。
     fn log_entry(&self, phase: &str, ts: i64) {
         let mut entries = self.entries.lock().expect("条目锁不可中毒");
-        let attempt = entries
-            .iter()
-            .filter(|entry| entry.phase == phase)
-            .count() as u32
-            + 1;
+        let attempt = entries.iter().filter(|entry| entry.phase == phase).count() as u32 + 1;
         entries.push(PhaseStateRecord {
             id: i64::from(attempt),
             change: CHANGE.to_owned(),
@@ -166,21 +164,22 @@ impl ChangeStateStore for StartStore {
                 start_at: now,
             });
         }
-        self.start_calls
-            .lock()
-            .expect("调用锁不可中毒")
-            .push((change.to_owned(), phase.to_owned(), now));
-        Ok(PhaseStartState { attempt, start_at: now })
+        self.start_calls.lock().expect("调用锁不可中毒").push((
+            change.to_owned(),
+            phase.to_owned(),
+            now,
+        ));
+        Ok(PhaseStartState {
+            attempt,
+            start_at: now,
+        })
     }
 
     fn log_phase(&self, _command: &PhaseLogCommand) -> Result<u32, StoreFault> {
         unimplemented!("本用例不可达")
     }
 
-    fn apply_backtrack(
-        &self,
-        _command: &crate::state::BacktrackCommand,
-    ) -> Result<(), StoreFault> {
+    fn apply_backtrack(&self, _command: &crate::state::BacktrackCommand) -> Result<(), StoreFault> {
         unimplemented!("本用例不可达")
     }
 

@@ -116,6 +116,8 @@ fn seed_change(store: &Store, name: &str) {
             status: ChangeStatus::Active,
             archived_at: None,
             active_phase: None,
+            worktree: None,
+            base_commit: None,
         })
         .expect("建档种子应成功");
 }
@@ -371,6 +373,9 @@ impl WorkerAgentPort for FakeWorker {
 struct FakeTools {
     timeline: Arc<Mutex<Vec<String>>>,
     commands: Arc<Mutex<Vec<ToolCommand>>>,
+    /// 收到的 step root 序（RunRequest.root 透传锚的捕获面——exec root 换源
+    /// 后写面 root 恒随 request 的防漂移断言）
+    roots: Arc<Mutex<Vec<String>>>,
     phase_next: Mutex<VecDeque<PhaseNextOutcome>>,
     static_check: Mutex<VecDeque<StaticCheckOutcome>>,
     /// test-execution 可编程产出序列（pass / fail / error 四态——耗尽回落
@@ -387,12 +392,18 @@ impl FakeTools {
         Self {
             timeline: Arc::clone(timeline),
             commands: Arc::new(Mutex::new(Vec::new())),
+            roots: Arc::new(Mutex::new(Vec::new())),
             phase_next: Mutex::new(VecDeque::new()),
             static_check: Mutex::new(VecDeque::new()),
             test_execution: Mutex::new(VecDeque::new()),
             fail_on: Mutex::new(None),
             attempt_counter: AtomicUsize::new(0),
         }
+    }
+
+    /// roots 捕获柄（assemble 消费 self 前取——exec root 透传锚用例的观察面）。
+    fn roots_handle(&self) -> Arc<Mutex<Vec<String>>> {
+        Arc::clone(&self.roots)
     }
 
     fn with_phase_next(mut self, outcomes: Vec<PhaseNextOutcome>) -> Self {
@@ -443,6 +454,10 @@ impl ToolStepPort for FakeTools {
             .lock()
             .expect("命令捕获锁不可中毒")
             .push(step.command.clone());
+        self.roots
+            .lock()
+            .expect("root 捕获锁不可中毒")
+            .push(step.root.clone());
         self.timeline
             .lock()
             .expect("时间线锁不可中毒")
@@ -673,6 +688,9 @@ fn failing_check(diagnostics: &str) -> StaticCheckOutcome {
 
 const CHANGE: &str = "walker-change";
 
+/// 复合键 workspace root 段（测试固定值）
+const ROOT: &str = "/ws/root-a";
+
 /// run 驱动
 fn spawn_run(
     worker: Arc<dyn WorkerAgentPort>,
@@ -687,9 +705,9 @@ fn spawn_run(
     tokio::sync::broadcast::Receiver<RunUpdate>,
 ) {
     let guard = control
-        .begin_run(CHANGE, "run-1".to_owned())
+        .begin_run(ROOT, CHANGE, "run-1".to_owned())
         .expect("登记 run 应成功");
-    let rx = control.subscribe(CHANGE).expect("run 订阅应成功");
+    let rx = control.subscribe(ROOT, CHANGE).expect("run 订阅应成功");
     let request = RunRequest {
         root: root.to_owned(),
         change: CHANGE.to_owned(),
@@ -725,11 +743,11 @@ async fn wait_for(what: &str, mut probe: impl FnMut() -> bool) {
 /// walker 首个 ConfirmWait 广播）。
 fn spawn_confirmer(control: &Arc<ChangeFlowControl>, proceed: bool) -> tokio::task::JoinHandle<()> {
     let control = Arc::clone(control);
-    let mut rx = control.subscribe(CHANGE).expect("run 订阅应成功");
+    let mut rx = control.subscribe(ROOT, CHANGE).expect("run 订阅应成功");
     tokio::spawn(async move {
         while let Ok(update) = rx.recv().await {
             if matches!(update, RunUpdate::ConfirmWait { .. }) {
-                let _ = control.confirm(CHANGE, proceed);
+                let _ = control.confirm(ROOT, CHANGE, proceed);
             }
         }
     })
@@ -1547,7 +1565,7 @@ async fn ask中断与应答回流continue决策会话() {
 
     // 应答回流：walker 以应答文本 Continue 决策会话重出封闭集
     control
-        .answer(CHANGE, "采用方案 A".to_owned())
+        .answer(ROOT, CHANGE, "采用方案 A".to_owned())
         .expect("应答回传应成功");
     let status = task.await.expect("run 任务正常结束");
     assert_eq!(status, ChangeRunStatus::Completed);
@@ -1709,7 +1727,7 @@ async fn confirm否决收敛stopped且不再发起新相位() {
             .contains("proposal"),
         "否决记因携停等相位: {value}"
     );
-    assert!(control.snapshot(CHANGE).is_none(), "终态除名");
+    assert!(control.snapshot(ROOT, CHANGE).is_none(), "终态除名");
 }
 
 /// walk_run 停止收敛（异常）：request_stop 置位 → 当前会话收口后终态
@@ -1745,7 +1763,7 @@ async fn 停止置位收敛stopped且不再发起新相位() {
             .any(|request| request.role == WorkerRole::Evaluator)
     })
     .await;
-    assert!(control.request_stop(CHANGE), "运行中置位返回 true");
+    assert!(control.request_stop(ROOT, CHANGE), "运行中置位返回 true");
 
     // 放行当前会话收口：proposal 落账后循环顶观测取消 → stopped
     *gate.armed.lock().expect("门锁不可中毒") = false;
@@ -1787,7 +1805,7 @@ async fn 停止置位收敛stopped且不再发起新相位() {
     }
     let value = wire(&finished.expect("Finished 信封流出"));
     assert_eq!(value["status"], serde_json::json!("stopped"));
-    assert!(control.snapshot(CHANGE).is_none(), "终态除名");
+    assert!(control.snapshot(ROOT, CHANGE).is_none(), "终态除名");
 }
 
 // ---------------------------------------------------------------------------
@@ -2007,7 +2025,7 @@ async fn auto确认ask照常停等应答回流后收敛全程零confirmwait() {
 
     // 应答回流：Continue 决策会话重出封闭集 → retry → done 收敛
     control
-        .answer(CHANGE, "采用方案 A".to_owned())
+        .answer(ROOT, CHANGE, "采用方案 A".to_owned())
         .expect("应答回传应成功");
     let status = task.await.expect("run 任务正常结束");
     assert_eq!(
@@ -3049,7 +3067,7 @@ async fn ask续轮同会话重挂同值幂等() {
         std::thread::sleep(Duration::from_millis(5));
     }
     control
-        .answer(CHANGE, "终止".to_owned())
+        .answer(ROOT, CHANGE, "终止".to_owned())
         .expect("应答回传应成功");
     let status = task.await.expect("run 任务正常结束");
     assert_eq!(status, ChangeRunStatus::Stopped, "决策 stop 收敛");
@@ -3739,5 +3757,109 @@ fn test_execution门控常量锚定() {
     assert_eq!(
         TEST_EXECUTION_FEEDBACK_LIMIT, STATIC_CHECK_FEEDBACK_LIMIT,
         "取值对齐（计数分立）"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// exec root 透传锚（design D9 / AC-6）：RunRequest.root 语义换 exec root 后
+// 全链透传的防漂移钉——walker 对 root 透明（零改动组件的语义演进锚）
+// ---------------------------------------------------------------------------
+
+/// 快照源 root 捕获假件（detail 入参 root 的记录面；返回最小合法
+/// ChangeDetail——决策输入组装只消费 pipeline / attempts 骨架）。
+struct RootCaptureSnapshot {
+    roots: Arc<Mutex<Vec<String>>>,
+}
+
+impl RootCaptureSnapshot {
+    fn new(roots: Arc<Mutex<Vec<String>>>) -> Self {
+        Self { roots }
+    }
+}
+
+impl WorkflowSnapshotPort for RootCaptureSnapshot {
+    fn detail(&self, root: &str, _change: &str) -> Result<workflow::queries::ChangeDetail, String> {
+        self.roots
+            .lock()
+            .expect("快照 root 锁不可中毒")
+            .push(root.to_owned());
+        Ok(workflow::queries::ChangeDetail {
+            name: "exec-root-anchor".to_owned(),
+            source: workflow::queries::ChangeSource::Active,
+            status: None,
+            created: None,
+            pipeline: Vec::new(),
+            active_phase: None,
+            artifacts: Vec::new(),
+            worktree: None,
+        })
+    }
+}
+
+/// exec root 透传锚：`RunRequest.root` 置 worktree 形路径驱动一相位（假引擎 +
+/// 假写面 + 决策分叉触快照）→ 假 worker 捕获的 turn root、假工具捕获的 step
+/// root、diff 源与快照源收到的 root 四者恒等于该 exec root（root 透明性防
+/// 漂移钉——cwd / 检查器执行目录 / 快照读源随 exec root 落位的全链证据）。
+#[tokio::test]
+async fn exec_root透传锚_四缝root恒等于request_root() {
+    const EXEC_ROOT: &str = r"C:\app-data\worktrees\demo-segment\walker-change";
+
+    let timeline = Arc::new(Mutex::new(Vec::new()));
+    let (worker, requests, _sessions) = FakeWorker::new(&timeline).assemble();
+    let tools_device = FakeTools::new(&timeline).with_phase_next(vec![
+        // 首轮正常路由 → 预算内 fail（evaluator 缺省 PASS_JSON，改注入 fail 报
+        // 告走 max_retries 分叉触快照）用 max_retries 直驱
+        max_retries_outcome("implement", &["proposal", "implement"], "首轮未过"),
+        route_outcome("implement", &["proposal", "implement"]),
+        done_outcome(),
+    ]);
+    let tool_roots = tools_device.roots_handle();
+    let (tools, _commands) = tools_device.assemble();
+    let (diff, diff_roots) = FakeDiff::new(vec![]).assemble();
+    let snapshot_roots = Arc::new(Mutex::new(Vec::new()));
+    let snapshot: Arc<dyn WorkflowSnapshotPort> =
+        Arc::new(RootCaptureSnapshot::new(Arc::clone(&snapshot_roots)));
+    let control = Arc::new(ChangeFlowControl::new());
+
+    let (task, _rx) = spawn_run(worker, tools, diff, snapshot, &control, false, EXEC_ROOT);
+    let _confirmer = spawn_confirmer(&control, true);
+    let status = task.await.expect("run 任务正常结束");
+    assert_eq!(
+        status,
+        ChangeRunStatus::Completed,
+        "max_retries → 决策 retry → 重路由 done"
+    );
+
+    // 四缝捕获的 root 恒等于 exec root（worker turn / 工具步 / diff 源 / 快照源）
+    let turn_roots: Vec<String> = requests
+        .lock()
+        .expect("请求捕获锁不可中毒")
+        .iter()
+        .map(|request| request.root.clone())
+        .collect();
+    assert!(!turn_roots.is_empty(), "worker turn 捕获面非空（前置）");
+    assert!(
+        turn_roots.iter().all(|root| root == EXEC_ROOT),
+        "worker turn root 恒 = exec root，实际: {turn_roots:?}"
+    );
+
+    let step_roots = tool_roots.lock().expect("root 捕获锁不可中毒").clone();
+    assert!(!step_roots.is_empty(), "工具步 root 捕获面非空（前置）");
+    assert!(
+        step_roots.iter().all(|root| root == EXEC_ROOT),
+        "工具步 root 恒 = exec root（写面 layout / 检查器执行目录随 exec root），实际: {step_roots:?}"
+    );
+
+    let diff_roots = diff_roots.lock().expect("diff root 锁不可中毒").clone();
+    assert!(
+        diff_roots.iter().all(|root| root == EXEC_ROOT),
+        "diff 源 root 恒 = exec root，实际: {diff_roots:?}"
+    );
+
+    let snap_roots = snapshot_roots.lock().expect("快照 root 锁不可中毒").clone();
+    assert_eq!(
+        snap_roots,
+        vec![EXEC_ROOT.to_owned()],
+        "快照源 detail root 恒 = exec root（恰一次——决策分叉读源）"
     );
 }

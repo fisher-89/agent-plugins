@@ -641,3 +641,41 @@ fn delete_explore_record删除已绑定记录返回true再删返回false幂等()
     assert!(!second, "miss 幂等返回 false");
     assert!(note.exists(), "删除记录不动磁盘文件（store 不触磁盘）");
 }
+
+/// 错误透传：root 不可寻址（`for_root` canonicalize 失败）→ 五命令显式
+/// `Err` 记因（不 panic、不产半截结果）——命令层 `map_err` 透传半边（读 /
+/// 写命令同口径）。
+#[test]
+fn root不可寻址_五命令err透传不panic() {
+    let env = Env::new("for-root-err");
+    let app = app_with_stores(&env);
+    let state = app.state::<WorkspaceStores>();
+    // 数据根下不存在的 workspace 目录（canonicalize 失败 → for_root Err）
+    let missing = env
+        .data_dir
+        .path()
+        .join("absent-ws")
+        .to_string_lossy()
+        .into_owned();
+
+    for err in [
+        scan_explores(missing.clone(), state.clone()).expect_err("scan 应 Err"),
+        list_explore_records(state.clone(), missing.clone()).expect_err("清单应 Err"),
+        create_explore_record(state.clone(), missing.clone(), "topic".to_owned())
+            .expect_err("建档应 Err"),
+        rename_explore_record(
+            state.clone(),
+            missing.clone(),
+            "a".to_owned(),
+            "b".to_owned(),
+        )
+        .expect_err("改名应 Err"),
+        delete_explore_record(state.clone(), missing.clone(), "a".to_owned())
+            .expect_err("删除应 Err"),
+    ] {
+        assert!(
+            err.contains("canonicalize") && err.contains("absent-ws"),
+            "Err 记因 canonicalize 失败与 root 线索，实际: {err}"
+        );
+    }
+}

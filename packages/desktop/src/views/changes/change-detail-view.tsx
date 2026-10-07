@@ -40,21 +40,28 @@ function DetailHeader({
   refresh: () => void;
 }) {
   return (
-    <div className="mb-3 flex flex-wrap items-center gap-2.5" data-testid="detail-header">
-      <Button onClick={onBack}>← 返回列表</Button>
-      <Button onClick={refresh} disabled={loading}>
-        刷新详情
-      </Button>
-      <h2 className="m-0 break-all text-[17px]">{detail.name}</h2>
-      <span className="text-muted-foreground">
-        {detail.source === 'archive' ? '已归档' : '进行中'}
-      </span>
-      {detail.created !== null && <span className="text-muted-foreground">{detail.created}</span>}
-      {detail.activePhase !== null && (
-        <Badge variant="active">
-          运行中 · {detail.activePhase.phase} · attempt {detail.activePhase.attempt}
-          {detail.activePhase.startAt !== null && ` · ${formatTime(detail.activePhase.startAt)}`}
-        </Badge>
+    <div className="mb-3" data-testid="detail-header">
+      <div className="flex flex-wrap items-center gap-2.5">
+        <Button onClick={onBack}>← 返回列表</Button>
+        <Button onClick={refresh} disabled={loading}>
+          刷新详情
+        </Button>
+        <h2 className="m-0 break-all text-[17px]">{detail.name}</h2>
+        <span className="text-muted-foreground">
+          {detail.source === 'archive' ? '已归档' : '进行中'}
+        </span>
+        {detail.created !== null && <span className="text-muted-foreground">{detail.created}</span>}
+        {detail.activePhase !== null && (
+          <Badge variant="active">
+            运行中 · {detail.activePhase.phase} · attempt {detail.activePhase.attempt}
+            {detail.activePhase.startAt !== null && ` · ${formatTime(detail.activePhase.startAt)}`}
+          </Badge>
+        )}
+      </div>
+      {detail.worktree !== null && (
+        <div className="mt-1 break-all text-xs text-muted-foreground" data-testid="detail-worktree">
+          worktree：{detail.worktree}
+        </div>
       )}
     </div>
   );

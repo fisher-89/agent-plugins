@@ -47,11 +47,36 @@ fn node_test_plan(cwd: &Path, template: String) -> TestPlan {
     }
 }
 
+/// 手工 TestPlan 构造（结果 / 覆盖双工件分离形态——rust 档链形态语义锚用：
+/// 覆盖段与测试段各写各的工件面，实测块读独立 coverage 工件）。
+fn split_outputs_plan(cwd: &Path, template: String) -> TestPlan {
+    TestPlan {
+        id: "it_chain-shape".to_owned(),
+        framework: "node-test".to_owned(),
+        root: "app".to_owned(),
+        cwd: cwd.to_path_buf(),
+        files: vec!["src/add.test.mjs".to_owned()],
+        config_args: None,
+        shell_template: template.clone(),
+        cmd_template: template,
+        coverage_format: CoverageFormat::NodeTest,
+        coverage_output: "coverage.txt",
+        results_output: "results.txt",
+    }
+}
+
 /// 把预置文本写到 workspace 外的临时工件源（拷贝命令的 src）。
 fn preset(dir: &Path, name: &str, content: &str) -> PathBuf {
     let path = dir.join(name);
     std::fs::write(&path, content).expect("写预置工件失败");
     path
+}
+
+/// 进程环境锁窗口（RAII）
+struct EnvWindow(std::sync::MutexGuard<'static, ()>);
+
+fn env_window() -> EnvWindow {
+    EnvWindow(crate::TEST_ENV_LOCK.lock().expect("crate 环境锁不可中毒"))
 }
 
 // ---------------------------------------------------------------------------
@@ -106,6 +131,7 @@ fn 模板展开五占位符替换_config_args双形态() {
 /// `windows引号占位模板_重定向工件落位` 回归锚定。
 #[tokio::test]
 async fn 真实spawn_预置工件拷贝到占位路径_解析产出() {
+    let _env = env_window();
     let ws = TempDir::new().expect("临时目录");
     let cwd = ws.path().join("app");
     std::fs::create_dir_all(&cwd).expect("创建 suite cwd");
@@ -176,6 +202,7 @@ async fn 真实spawn_预置工件拷贝到占位路径_解析产出() {
 /// 2026-10 真实 gate 故障形态）；`raw_arg` 原样入线后引号形态必须正常产出。
 #[tokio::test]
 async fn windows引号占位模板_重定向工件落位() {
+    let _env = env_window();
     let ws = TempDir::new().expect("临时目录");
     let cwd = ws.path().join("app");
     std::fs::create_dir_all(&cwd).expect("创建 suite cwd");
@@ -207,10 +234,85 @@ async fn windows引号占位模板_重定向工件落位() {
     assert!(execution.measured.is_some(), "覆盖实测块随工件解析在场");
 }
 
+#[tokio::test]
+async fn rust档链形态_覆盖段恒执行_尾段退出码透传() {
+    let _env = env_window();
+    let ws = TempDir::new().expect("临时目录");
+    let cwd = ws.path().join("app");
+    std::fs::create_dir_all(&cwd).expect("创建 suite cwd");
+    let cov_src = preset(ws.path(), "chain-cov-preset.txt", SPEC_OUTPUT);
+    let res_src = preset(ws.path(), "chain-res-preset.txt", SPEC_OUTPUT);
+
+    // 绿跑形态：覆盖段 + 测试段双产出，终码 0
+    let green = if cfg!(windows) {
+        format!(
+            "cmd /C type \"{}\" > \"{{coverage_file}}\" & cmd /C type \"{}\" > \"{{results_file}}\"",
+            cov_src.to_string_lossy().replace('/', "\\"),
+            res_src.to_string_lossy().replace('/', "\\"),
+        )
+    } else {
+        format!(
+            "cp \"{}\" \"{{coverage_file}}\"; cp \"{}\" \"{{results_file}}\"",
+            cov_src.to_string_lossy(),
+            res_src.to_string_lossy(),
+        )
+    };
+    let plan = split_outputs_plan(&cwd, green);
+    let execution = execute_plan(&plan, &ws.path().join("reports").join("g"))
+        .await
+        .expect("绿跑形态应 Ok");
+    assert_eq!(execution.exit_code, 0, "绿跑终码 0");
+    assert!(
+        execution.error.is_none(),
+        "绿跑零错误面，实际: {:?}",
+        execution.error
+    );
+    assert_eq!(execution.cases.len(), 5, "测试段结果工件解析五用例");
+    assert!(
+        execution.measured.is_some(),
+        "覆盖段产出实测块（& 无条件链——绿跑不产覆盖的旧病免疫）"
+    );
+
+    // 红跑形态：测试段替身退 3——覆盖段仍执行、终码 3 原样透传
+    let red = if cfg!(windows) {
+        format!(
+            "cmd /C type \"{}\" > \"{{coverage_file}}\" & cmd /C exit /b 3",
+            cov_src.to_string_lossy().replace('/', "\\"),
+        )
+    } else {
+        format!(
+            "cp \"{}\" \"{{coverage_file}}\"; exit 3",
+            cov_src.to_string_lossy(),
+        )
+    };
+    let plan = split_outputs_plan(&cwd, red);
+    let execution = execute_plan(&plan, &ws.path().join("reports").join("r"))
+        .await
+        .expect("红跑形态走产出（不 Err）");
+    assert_eq!(
+        execution.exit_code, 3,
+        "终码 = 尾段（测试步）退出码，不被前置段洗 0"
+    );
+    assert!(
+        execution.measured.is_some(),
+        "红跑覆盖段仍执行（if 体吞尾段旧病免疫），覆盖工件在场"
+    );
+    assert!(
+        execution
+            .error
+            .as_deref()
+            .is_some_and(|error| error.contains("非零退出") && error.contains("3")),
+        "错误面记因尾段退出码，实际: {:?}",
+        execution.error
+    );
+    assert!(execution.cases.is_empty(), "零结果工件零用例（不产假用例）");
+}
+
 /// 异常：裸名程序不可达 → Err 显式记因（程序解析前置——shell 吞缺失不产假
 /// 产出，复用 static_check 经验）。
 #[tokio::test]
 async fn 裸名程序不可达err显式() {
+    let _env = env_window();
     let ws = TempDir::new().expect("临时目录");
     let cwd = ws.path().join("app");
     std::fs::create_dir_all(&cwd).expect("创建 suite cwd");
@@ -229,6 +331,7 @@ async fn 裸名程序不可达err显式() {
 /// 分隔符的命令查相对 spawn cwd 的可达性口径）。
 #[tokio::test]
 async fn 相对cwd程序不可达err显式() {
+    let _env = env_window();
     let ws = TempDir::new().expect("临时目录");
     let cwd = ws.path().join("app");
     std::fs::create_dir_all(&cwd).expect("创建 suite cwd");
@@ -252,6 +355,7 @@ async fn 相对cwd程序不可达err显式() {
 /// error 两态分立——被测域失败走产出供反馈边，基础设施失败才 Err）。
 #[tokio::test]
 async fn 非零退出且工件不可解析_error面产出() {
+    let _env = env_window();
     let ws = TempDir::new().expect("临时目录");
     let cwd = ws.path().join("app");
     std::fs::create_dir_all(&cwd).expect("创建 suite cwd");
@@ -279,16 +383,15 @@ async fn 非零退出且工件不可解析_error面产出() {
     assert!(execution.measured.is_none());
 }
 
-/// 异常：非零退出且 stderr 携进程报错文本 → 错误面携带该文本（输出捕获随
-/// 非零退出进错误面——rust 模板仅重定向 stdout，编译错误面在 stderr；CLI
-/// runCommand 捕获 stderr 同向）。
+/// 异常：非零退出且 stderr 携进程报错文本 → 错误面携带该文本
 #[tokio::test]
 async fn 非零退出错误面携带进程报错文本() {
+    let _env = env_window();
     let ws = TempDir::new().expect("临时目录");
     let cwd = ws.path().join("app");
     std::fs::create_dir_all(&cwd).expect("创建 suite cwd");
     let template = if cfg!(windows) {
-        "echo compile error detail>&2 & exit /b 7".to_owned()
+        "cmd /C \"echo compile error detail>&2 & exit /b 7\"".to_owned()
     } else {
         "echo compile error detail >&2; exit 7".to_owned()
     };
@@ -356,6 +459,7 @@ fn 合并输出尾部_短原样超长尾部截断() {
 ///（不 panic 不误判绿——error 面供诊断归因）。
 #[tokio::test]
 async fn 成功退出零工件_解析错误面() {
+    let _env = env_window();
     let ws = TempDir::new().expect("临时目录");
     let cwd = ws.path().join("app");
     std::fs::create_dir_all(&cwd).expect("创建 suite cwd");

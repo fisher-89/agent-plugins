@@ -1,0 +1,99 @@
+//! vcs 边界（分类学第七类首成员）：外部进程 + 版本控制工作面——git worktree
+//! 建域 / 脏仓探测 / 依赖引导安装的进程执行（port 流量词汇驻 `core/workflow`
+//! 的 [`workflow::write::WorktreePort`]，本 crate 只做进程执行；checks 先例
+//! 同构）。零 Tauri 零 tokio：`std::process` 同步 spawn，安装命令超时以轮询
+//! `try_wait` 到点 kill 收口。
+//!
+//! 另承载 worktree 落位派生单点 [`worktree_dir`]（消费 foundation 身份段——
+//! db 文件名与 worktree 子目录同源；`worktrees/` 目录名的裸名消费方唯一来源
+//! 即本 crate，desktop-app 不自拼）。
+
+use std::path::{Path, PathBuf};
+
+use workflow::write::WorktreePort;
+
+mod bootstrap;
+mod git;
+
+#[cfg(test)]
+mod bootstrap_test;
+#[cfg(test)]
+mod git_test;
+#[cfg(test)]
+mod lib_test;
+
+/// PATH 环境变量修改串行化（进程全局变量边界；沿 checks / agent crate 的
+/// TEST_PATH_LOCK 先例——「git 不可发现」注入窗口与真实 git 真件用例互斥）。
+#[cfg(test)]
+pub(crate) static TEST_PATH_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+/// PATH 锁获取（中毒容错——持锁用例 panic 不级联炸掉同二进制内其余用例；
+/// bindings mod_test 先例同式）。
+#[cfg(test)]
+pub(crate) fn test_path_lock() -> std::sync::MutexGuard<'static, ()> {
+    TEST_PATH_LOCK
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
+/// worktrees 子树目录名（数据根直下，每 workspace 恒一段子树）。
+pub const WORKTREES_DIR_NAME: &str = "worktrees";
+
+/// worktree 落位派生单点：`data_root/worktrees/{身份段}/<change>`——身份段
+/// 消费 foundation 单点（与 workspace db 文件名同源：同根恒同名、异根必不同
+/// 名）。canonical 锚口径同身份段（命令入参 canonical root 契约，纯字符串
+/// 零路径 IO）；change 名不做任何清洗 / 截断（清洗权威在 create 前置）。
+pub fn worktree_dir(data_root: &Path, workspace_root: &str, change: &str) -> PathBuf {
+    data_root
+        .join(WORKTREES_DIR_NAME)
+        .join(foundation::identity::workspace_identity_segment(
+            workspace_root,
+        ))
+        .join(change)
+}
+
+/// git 工作面进程执行器（无状态，组合根按需构造）。
+pub struct ProcessWorktree;
+
+impl ProcessWorktree {
+    /// 构造（组合根装配）。
+    pub fn new() -> Self {
+        Self
+    }
+}
+
+impl Default for ProcessWorktree {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl WorktreePort for ProcessWorktree {
+    fn probe(&self, main_root: &Path) -> Result<workflow::write::RepoProbe, String> {
+        git::probe(main_root)
+    }
+
+    fn branch_exists(&self, main_root: &Path, branch: &str) -> Result<bool, String> {
+        git::branch_exists(main_root, branch)
+    }
+
+    fn add_worktree(&self, main_root: &Path, worktree: &Path, branch: &str) -> Result<(), String> {
+        git::add_worktree(main_root, worktree, branch)
+    }
+
+    fn remove_worktree(&self, main_root: &Path, worktree: &Path) -> Result<(), String> {
+        git::remove_worktree(main_root, worktree)
+    }
+
+    fn delete_branch(&self, main_root: &Path, branch: &str) -> Result<(), String> {
+        git::delete_branch(main_root, branch)
+    }
+
+    fn run_install(
+        &self,
+        worktree: &Path,
+        command: &str,
+    ) -> Result<workflow::write::InstallRun, String> {
+        bootstrap::run_install(worktree, command)
+    }
+}

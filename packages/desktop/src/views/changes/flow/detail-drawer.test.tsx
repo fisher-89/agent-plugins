@@ -62,6 +62,7 @@ function detail(overrides: Partial<ChangeDetail> = {}): ChangeDetail {
       attempts: phase === 'dev-design' ? [attempt({ attempt: 2 })] : [],
     })),
     activePhase: null,
+    worktree: null,
     artifacts: [],
     ...overrides,
   };

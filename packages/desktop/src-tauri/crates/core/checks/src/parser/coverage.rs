@@ -63,14 +63,21 @@ fn istanbul_measured(text: &str) -> Option<CoverageMeasured> {
     })
 }
 
-/// llvm-cov `data[0].totals` → 实测块（结构残缺 → `None`）。
+/// llvm-cov `data[0].totals` → 实测块（结构残缺 → `None`）
 fn llvm_cov_measured(text: &str) -> Option<CoverageMeasured> {
     let raw: Value = serde_json::from_str(text).ok()?;
     let totals = raw.pointer("/data/0/totals")?;
+    let metric = |dimension: &str| -> Option<f64> {
+        let metric = totals.get(dimension)?;
+        if metric.get("count").and_then(Value::as_u64) == Some(0) {
+            return None;
+        }
+        metric.get("percent").and_then(Value::as_f64)
+    };
     Some(CoverageMeasured {
-        lines: totals.pointer("/lines/percent").and_then(Value::as_f64),
-        branches: totals.pointer("/branches/percent").and_then(Value::as_f64),
-        functions: totals.pointer("/functions/percent").and_then(Value::as_f64),
+        lines: metric("lines"),
+        branches: metric("branches"),
+        functions: metric("functions"),
     })
 }
 

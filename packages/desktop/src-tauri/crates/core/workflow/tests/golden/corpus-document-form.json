@@ -31,5 +31,6 @@
   "name": "document-form",
   "pipeline": [],
   "source": "active",
-  "status": null
+  "status": null,
+  "worktree": null
 }

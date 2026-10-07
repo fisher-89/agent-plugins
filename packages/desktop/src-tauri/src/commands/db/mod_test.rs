@@ -456,3 +456,38 @@ fn db_records_limit超500截断且截断后剩余可经offset续读() {
         "两页拼接覆盖全部 505 条不重不漏（同序逐字一致）"
     );
 }
+
+/// 错误透传：Workspace 维度 root 不可寻址（`for_root` canonicalize 失败）→
+/// db_models / db_records 显式 `Err` 记因（不 panic、不产半截结果——寻址
+/// 失败先于模型名校验）。
+#[test]
+fn workspace维度root不可寻址_两命令err透传不panic() {
+    let env = Env::new("for-root-err");
+    let app = app_with_stores(&env);
+    let state = app.state::<WorkspaceStores>();
+    let missing = env
+        .data_dir
+        .path()
+        .join("absent-ws")
+        .to_string_lossy()
+        .into_owned();
+
+    for err in [
+        db_models(state.clone(), DbDimension::Workspace, missing.clone())
+            .expect_err("db_models 应 Err"),
+        db_records(
+            state.clone(),
+            DbDimension::Workspace,
+            missing,
+            "ChangeRecord".to_owned(),
+            0,
+            10,
+        )
+        .expect_err("db_records 应 Err"),
+    ] {
+        assert!(
+            err.contains("canonicalize") && err.contains("absent-ws"),
+            "Err 记因 canonicalize 失败与 root 线索，实际: {err}"
+        );
+    }
+}

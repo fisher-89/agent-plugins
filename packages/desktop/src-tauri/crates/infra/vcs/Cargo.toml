@@ -1,0 +1,15 @@
+[package]
+name = "vcs-runtime"
+version = "0.1.0"
+edition = "2021"
+
+# vcs 边界首成员（分类学第七类）：git 工作面进程执行 + worktree 落位派生。
+# 依赖白名单：workspace 内恰 `workflow`（WorktreePort port 类型）+ `foundation`
+#（身份段单点）；零 tokio 零 Tauri（std::process 同步 spawn，超时轮询 kill）。
+[dependencies]
+foundation = { workspace = true }
+workflow = { workspace = true }
+
+# 真件测试（真实 git tempdir 仓 / 真实快命令子进程）的夹具装置。
+[dev-dependencies]
+tempfile = { workspace = true }

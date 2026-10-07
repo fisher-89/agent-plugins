@@ -3,5 +3,7 @@ name = "foundation"
 version = "0.1.0"
 edition = "2021"
 
-# 刻意零依赖：只装 layout 解析，第二个消费者出现再下沉新能力
+# 刻意极小：layout 解析 + workspace 身份段派生（哈希成分 sha2）两能力，
+# 不预铺其他通用工具（第二个消费者出现再下沉）
 [dependencies]
+sha2 = { workspace = true }

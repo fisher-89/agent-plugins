@@ -12,9 +12,13 @@ use orchestration::state::{ChangeStepKind, ChangeStepState, ChangeStepStatus};
 use store::{AgentEngineKind, AgentInstanceRecord, WorkspaceStores};
 use workflow::state::{ChangeStateRecord, ChangeStatus};
 
+use ::agent::{AgentEvent, AgentEventKind};
+use orchestration::state::RunUpdate;
+use orchestration::RunEventSink;
+
 use super::{
     change_flow_answer_with, change_flow_confirm_with, change_flow_start_with,
-    change_flow_state_with, change_flow_stop_with, change_flow_watch_with,
+    change_flow_state_with, change_flow_stop_with, change_flow_watch_with, ChangeFlowSink,
 };
 
 /// PATH 环境变量修改串行化（进程全局变量边界；与 exec/mod_test 的 PATH 隔离
@@ -83,6 +87,8 @@ fn seed_change(app: &App<tauri::test::MockRuntime>, root: &str, name: &str, work
             status: ChangeStatus::Active,
             archived_at: None,
             active_phase: None,
+            worktree: None,
+            base_commit: None,
         })
         .expect("建档种子应成功");
 }
@@ -216,7 +222,10 @@ async fn start前置校验无建档与相位表缺失各自err且成因互不重
     // 用例——本用例失败分支零 begin_run 登记）
     let control = app.state::<Arc<ChangeFlowControl>>();
     for name in ["legacy-cli-change", "bugfix-change"] {
-        assert!(control.snapshot(name).is_none(), "失败分支零登记: {name}");
+        assert!(
+            control.snapshot(&env.root(), name).is_none(),
+            "失败分支零登记: {name}"
+        );
     }
 }
 
@@ -268,7 +277,9 @@ async fn start提前resolve返回running摘要且channel首事件到达后台驱
     // 订阅先行于 walker：run 登记即快照可见（重挂快照恢复输入面）
     let control = app.state::<Arc<ChangeFlowControl>>();
     assert_eq!(
-        control.snapshot(CHANGE).map(|snap| snap.run_id),
+        control
+            .snapshot(&env.root(), CHANGE)
+            .map(|snap| snap.run_id),
         Some(summary.run_id.clone())
     );
 
@@ -309,7 +320,9 @@ async fn start提前resolve返回running摘要且channel首事件到达后台驱
     drop(updates);
 
     // 终态收口：注册表除名（run 仅进程内——AC-7 半边）
-    wait_for("终态除名", || control.snapshot(CHANGE).is_none());
+    wait_for("终态除名", || {
+        control.snapshot(&env.root(), CHANGE).is_none()
+    });
 
     // 组合根装配动态证据：phase-start 经进程内缝直调写面落库（db active_phase
     // 在位——写面经 ChangeStateStore port，executor 失败前已开相未落账）
@@ -338,7 +351,7 @@ async fn start同change并行run冲突err() {
     // 预登记同 change 的 run（前置校验第三分支：begin_run 冲突检测）
     let control = app.state::<Arc<ChangeFlowControl>>();
     let _guard = control
-        .begin_run(CHANGE, "run-existing".to_owned())
+        .begin_run(&root, CHANGE, "run-existing".to_owned())
         .expect("预登记应成功");
 
     let err = change_flow_start_with(
@@ -356,7 +369,9 @@ async fn start同change并行run冲突err() {
     );
     // 既有 run 不受扰动
     assert_eq!(
-        control.snapshot(CHANGE).map(|snap| snap.run_id),
+        control
+            .snapshot(&env.root(), CHANGE)
+            .map(|snap| snap.run_id),
         Some("run-existing".to_owned())
     );
 }
@@ -404,7 +419,9 @@ async fn auto_next_phase_true透传受理零confirmwait照常后台收敛() {
     // 订阅先行于 walker：run 登记即快照可见
     let control = app.state::<Arc<ChangeFlowControl>>();
     assert_eq!(
-        control.snapshot(CHANGE).map(|snap| snap.run_id),
+        control
+            .snapshot(&env.root(), CHANGE)
+            .map(|snap| snap.run_id),
         Some(summary.run_id.clone())
     );
 
@@ -443,7 +460,9 @@ async fn auto_next_phase_true透传受理零confirmwait照常后台收敛() {
     drop(updates);
 
     // 终态收口除名 + phase-start 落库证据（组合根装配照常，写面经 port 落 db）
-    wait_for("终态除名", || control.snapshot(CHANGE).is_none());
+    wait_for("终态除名", || {
+        control.snapshot(&env.root(), CHANGE).is_none()
+    });
     let record = app
         .state::<WorkspaceStores>()
         .for_root(&root)
@@ -484,7 +503,9 @@ async fn auto_next_phase_false默认档受理面回归() {
     assert_eq!(summary.status, super::ChangeRunStatus::Running);
     let control = app.state::<Arc<ChangeFlowControl>>();
     assert_eq!(
-        control.snapshot(CHANGE).map(|snap| snap.run_id),
+        control
+            .snapshot(&env.root(), CHANGE)
+            .map(|snap| snap.run_id),
         Some(summary.run_id.clone()),
         "begin_run 登记 + 订阅先行零变更"
     );
@@ -519,7 +540,9 @@ async fn auto_next_phase_false默认档受理面回归() {
     );
     drop(updates);
 
-    wait_for("终态除名", || control.snapshot(CHANGE).is_none());
+    wait_for("终态除名", || {
+        control.snapshot(&env.root(), CHANGE).is_none()
+    });
 }
 
 #[tokio::test]
@@ -558,9 +581,12 @@ async fn auto_next_phase_true不绕过守卫与前置校验() {
 
     // 注册表零登记（auto 参数不绕过守卫直入运行态）
     let control = app.state::<Arc<ChangeFlowControl>>();
-    assert!(control.snapshot(CHANGE).is_none(), "合法 change 零登记");
     assert!(
-        control.snapshot("不存在的-change").is_none(),
+        control.snapshot(&env.root(), CHANGE).is_none(),
+        "合法 change 零登记"
+    );
+    assert!(
+        control.snapshot(&env.root(), "不存在的-change").is_none(),
         "失败分支零登记"
     );
 }
@@ -582,7 +608,7 @@ fn stop运行中置位且幂等忽略不报错() {
 
     // 运行中置位：Ok 且注册表 cancelled 置位（经 guard.cancelled 观测）
     let guard = control
-        .begin_run(CHANGE, "run-1".to_owned())
+        .begin_run(&env.root(), CHANGE, "run-1".to_owned())
         .expect("登记应成功");
     change_flow_stop_with(app.handle().clone(), env.root(), CHANGE.to_owned())
         .expect("运行中 stop 应 Ok");
@@ -615,7 +641,7 @@ fn answer与confirm无等待方时err透传() {
     // 有 run 无挂起：Err「当前无等待」
     let control = app.state::<Arc<ChangeFlowControl>>();
     let _guard = control
-        .begin_run(CHANGE, "run-1".to_owned())
+        .begin_run(&env.root(), CHANGE, "run-1".to_owned())
         .expect("登记应成功");
     let err = change_flow_answer_with(
         app.handle().clone(),
@@ -645,7 +671,7 @@ fn state快照查询运行中some_无run与终态后none() {
     // 运行中 → Some(ChangeRunSnapshot)（状态机镜像）
     let control = app.state::<Arc<ChangeFlowControl>>();
     let guard = control
-        .begin_run(CHANGE, "run-1".to_owned())
+        .begin_run(&env.root(), CHANGE, "run-1".to_owned())
         .expect("登记应成功");
     guard.emit(super::RunUpdate::Step {
         step: ChangeStepState {
@@ -690,7 +716,7 @@ fn watch补订运行中接收后续信封_无run时ok非错误() {
     // 运行中补订：后续信封经 Channel 到达（重挂补订）
     let control = app.state::<Arc<ChangeFlowControl>>();
     let guard = control
-        .begin_run(CHANGE, "run-1".to_owned())
+        .begin_run(&env.root(), CHANGE, "run-1".to_owned())
         .expect("登记应成功");
     let (channel, captured) = capturing_channel();
     change_flow_watch_with(app.handle().clone(), channel, root, CHANGE.to_owned())
@@ -811,5 +837,327 @@ async fn 参数转换守卫blank_change六缝各就位() {
 
     // 守卫先行于前置校验：合法 root 在位而 change 空白 → 零登记零 spawn 副作用
     let control = app.state::<Arc<ChangeFlowControl>>();
-    assert!(control.snapshot(CHANGE).is_none(), "守卫分支零登记");
+    assert!(
+        control.snapshot(&env.root(), CHANGE).is_none(),
+        "守卫分支零登记"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// worktree 维度（design D9 / D10 / AC-6 / AC-7 / AC-8）：exec root 解析三态 +
+// 复合键命令面
+// ---------------------------------------------------------------------------
+
+/// db 建档携 worktree 执行锚的种子（exec root 解析三态用例共用）。
+fn seed_change_with_worktree(
+    app: &App<tauri::test::MockRuntime>,
+    root: &str,
+    name: &str,
+    worktree: &std::path::Path,
+) {
+    app.state::<WorkspaceStores>()
+        .for_root(root)
+        .expect("for_root 应成功")
+        .create_change_record(ChangeStateRecord {
+            name: name.to_owned(),
+            workflow_type: "requirement".to_owned(),
+            created_at: 1727000000000,
+            status: ChangeStatus::Active,
+            archived_at: None,
+            active_phase: None,
+            worktree: Some(worktree.to_string_lossy().into_owned()),
+            base_commit: Some("0000000000000000000000000000000000000001".to_owned()),
+        })
+        .expect("worktree 建档种子应成功");
+}
+
+/// worktree 目录缺失拒绝：记录携 `worktree=Some(不存在路径)` → 发起 `Err`
+/// 含「worktree 目录不存在（可能已被手动删除）」引导且零 run 登记；仅带
+/// worktree 记录生效——legacy 记录不经此校验（对照半边）。
+#[tokio::test]
+async fn worktree目录缺失拒绝_显式err且零run登记() {
+    let env = Env::new("wt-missing");
+    let app = app_with(&env);
+    let root = env.root();
+    let missing_worktree = env
+        .data_dir
+        .path()
+        .join("worktrees")
+        .join("gone-seg")
+        .join(CHANGE);
+    // 目录不创建（被手动删除形态）
+    seed_change_with_worktree(&app, &root, CHANGE, &missing_worktree);
+
+    let err = change_flow_start_with(
+        app.handle().clone(),
+        discarding_channel(),
+        root.clone(),
+        CHANGE.to_owned(),
+        false,
+    )
+    .await
+    .expect_err("worktree 目录缺失应显式 Err");
+
+    assert!(
+        err.contains("worktree 目录不存在") && err.contains("可能已被手动删除"),
+        "Err 引导文案（手动删除语境），实际: {err}"
+    );
+    assert!(
+        err.contains(missing_worktree.to_string_lossy().as_ref()),
+        "Err 携带缺失路径，实际: {err}"
+    );
+    let control = app.state::<Arc<ChangeFlowControl>>();
+    assert!(
+        control.snapshot(&root, CHANGE).is_none(),
+        "零 run 登记（前置校验先于 begin_run）"
+    );
+
+    // 对照：legacy 记录（worktree=None）不经此校验（发起链路零变化——
+    // 正向可达性由既有正向行承载）
+    let store = app
+        .state::<WorkspaceStores>()
+        .for_root(&root)
+        .expect("for_root 应成功");
+    store
+        .delete_change_record(CHANGE)
+        .expect("清理 worktree 建档");
+    drop(store);
+    seed_change(&app, &root, CHANGE, "requirement");
+    seed_cli_default_instance(&app); // 组合根缺省解析可走通（发起链路半边）
+                                     // legacy 发起不因本分支 Err（PATH 隔离下真实驱动收敛 failed 即证可达）
+    let (_path_guard, original) = isolate_path();
+    let result = change_flow_start_with(
+        app.handle().clone(),
+        discarding_channel(),
+        root.clone(),
+        CHANGE.to_owned(),
+        false,
+    )
+    .await;
+    restore_path(_path_guard, original);
+    assert!(
+        result.is_ok(),
+        "legacy 记录（worktree=None）不经 worktree 存在性校验，实际: {result:?}"
+    );
+}
+
+/// exec root 解析成功：记录携 worktree + 目录在场（tempdir 预置 openspec 树）
+/// → 发起成功（提前 resolve summary running）；发起后相位半边落 **workspace
+/// root 库**（for_root(root) 实例可查），且数据根 `workspaces/` 子树无以
+/// worktree 路径派生的第二库文件（store 身份恒 workspace root——AC-6 db
+/// 半边；PATH 隔离下 CLI 引擎合成收敛既有装置驱动）。
+#[tokio::test]
+async fn exec_root解析成功_相位落workspace库且无第二库文件() {
+    let env = Env::new("wt-exec-root");
+    env.change_dir(CHANGE);
+    let app = app_with(&env);
+    let root = env.root();
+    // worktree 在场（openspec 树预置——exec root 即此目录）
+    let worktree = env
+        .data_dir
+        .path()
+        .join("worktrees")
+        .join("seg")
+        .join(CHANGE);
+    fs::create_dir_all(worktree.join("openspec/changes").join(CHANGE))
+        .expect("预置 worktree openspec 树失败");
+    seed_change_with_worktree(&app, &root, CHANGE, &worktree);
+    seed_cli_default_instance(&app); // 组合根缺省解析可走通（发起链路半边）
+
+    let (_path_guard, original) = isolate_path();
+    let summary = change_flow_start_with(
+        app.handle().clone(),
+        discarding_channel(),
+        root.clone(),
+        CHANGE.to_owned(),
+        false,
+    )
+    .await
+    .expect("worktree 在场发起应成功");
+
+    assert_eq!(
+        summary.status,
+        super::ChangeRunStatus::Running,
+        "提前 resolve summary running"
+    );
+
+    // 等待后台收敛（phase-start 落库先于 executor 失败）
+    let control = app.state::<Arc<ChangeFlowControl>>();
+    wait_for("run 终态除名", || {
+        control.snapshot(&root, CHANGE).is_none()
+    });
+    restore_path(_path_guard, original);
+
+    // 相位半边落 workspace root 库（active_phase 在位——写入经注入的
+    // for_root(root) 实例）
+    let record = app
+        .state::<WorkspaceStores>()
+        .for_root(&root)
+        .expect("for_root 应成功")
+        .find_change_record(CHANGE)
+        .expect("查档应成功")
+        .expect("建档在案");
+    assert!(
+        record.active_phase.is_some(),
+        "phase-start 落 workspace root 库（active_phase 在位）"
+    );
+
+    // 数据根 workspaces/ 子树恰一个库文件且 = workspace root 身份派生（无以
+    // worktree 路径派生的第二库——store 身份恒 workspace root）
+    let workspaces_dir = env.data_dir.path().join("workspaces");
+    let mut files: Vec<String> = fs::read_dir(&workspaces_dir)
+        .expect("workspaces 子树应存在")
+        .flatten()
+        .map(|entry| entry.file_name().to_string_lossy().into_owned())
+        .collect();
+    files.sort();
+    assert_eq!(files.len(), 1, "恰一个 workspace 库文件，实际: {files:?}");
+    assert_eq!(
+        files[0],
+        format!(
+            "{}.redb",
+            foundation::identity::workspace_identity_segment(&root)
+        ),
+        "库文件名 = workspace root 身份段派生（非 worktree 路径派生）"
+    );
+}
+
+/// 复合键命令面（AC-7）：同 app 双 root——rootA 同名 change run 运行中 →
+/// rootB 同名 change 发起成功（互不误拒）；同 root 同 change 二次发起 Err
+///（并行冲突）；stop(rootA) 不影响 rootB 的 state 快照。
+#[tokio::test]
+async fn 复合键命令面_异root同名并行互不误拒且stop隔离() {
+    let env = Env::new("composite-key");
+    env.change_dir(CHANGE);
+    let app = app_with(&env);
+    let root_a = env.root();
+    let root_b_dir = tempfile::Builder::new()
+        .prefix("change-flow-cmd-test-composite-b-")
+        .tempdir()
+        .expect("创建 rootB 临时目录失败");
+    let root_b = root_b_dir.path().to_string_lossy().into_owned();
+    fs::create_dir_all(root_b_dir.path().join("openspec/changes").join(CHANGE))
+        .expect("预置 rootB change 目录失败");
+    seed_change(&app, &root_a, CHANGE, "requirement");
+    seed_change(&app, &root_b, CHANGE, "requirement");
+    seed_cli_default_instance(&app);
+
+    let (_path_guard, original) = isolate_path();
+
+    // rootA 预登记运行中 run（guard 在手不收敛——确定性并存锚；注记：
+    // `run-<millis>` 同毫秒可同号，run_id 不作唯一性断言面）
+    let control = app.state::<Arc<ChangeFlowControl>>();
+    let guard_a = control
+        .begin_run(&root_a, CHANGE, "run-a-pre".to_owned())
+        .expect("rootA 预登记应成功");
+
+    // rootB 同名 change 发起成功（复合键 root 段——异 workspace 不误拒；命令
+    // 面真实驱动，run 登记在案）
+    let summary_b = change_flow_start_with(
+        app.handle().clone(),
+        discarding_channel(),
+        root_b.clone(),
+        CHANGE.to_owned(),
+        false,
+    )
+    .await
+    .expect("rootB 同名 change 发起应成功（复合键并行解锁）");
+    assert_eq!(
+        summary_b.status,
+        super::ChangeRunStatus::Running,
+        "提前 resolve summary running"
+    );
+    assert!(
+        control.snapshot(&root_b, CHANGE).is_some(),
+        "rootB run 登记在案（与 rootA 预登记 run 并行并存——复合键生效）"
+    );
+
+    // 同 root 同 change 二次发起 Err（并行冲突——既有行随复合键适配）
+    let err = change_flow_start_with(
+        app.handle().clone(),
+        discarding_channel(),
+        root_a.clone(),
+        CHANGE.to_owned(),
+        false,
+    )
+    .await
+    .expect_err("同 root 同 change 二次发起应 Err");
+    assert!(
+        err.contains(CHANGE) && err.contains("已有运行中的 run"),
+        "并行冲突记因: {err}"
+    );
+
+    // stop(rootA, x)：置位 rootA 预登记 run（不波及 rootB——寻址按复合键）
+    change_flow_stop_with(app.handle().clone(), root_a.clone(), CHANGE.to_owned())
+        .expect("stop 应 Ok");
+    assert!(guard_a.cancelled(), "rootA run 取消信号置位");
+    // rootB 的 state 查询照常 Ok（复合键寻址可达——stop(rootA) 零影响）
+    assert!(
+        change_flow_state_with(app.handle().clone(), root_b.clone(), CHANGE.to_owned()).is_ok(),
+        "rootB state 经复合键寻址可达（stop(rootA) 零影响）"
+    );
+
+    // 等 rootB 自然收敛（非 stop(rootA) 所停——独立驱动到自身终态）
+    wait_for("rootB run 终态除名", || {
+        control.snapshot(&root_b, CHANGE).is_none()
+    });
+    restore_path(_path_guard, original);
+    drop(guard_a); // rootA 预登记 run 随 guard 终结除名
+
+    // rootB 的 run 独立驱动证据：其 workspace 库 StepRecord 以 rootB run_id 串
+    // 链在案（phase-start / 步审计经注入的 for_root(rootB) 实例落库）
+    let steps = app
+        .state::<WorkspaceStores>()
+        .for_root(&root_b)
+        .expect("for_root rootB 应成功")
+        .list_change_steps(CHANGE, Some(&summary_b.run_id))
+        .expect("rootB 步行清单应成功");
+    assert!(
+        !steps.is_empty(),
+        "rootB run 以自身 run_id 独立驱动落步（不被 rootA stop 波及）"
+    );
+}
+
+/// sink 事件桥接半边（ChangeFlowSink::emit）：`SessionEvent` 记 run 级会话锚
+///（`current_session` 可查）且原样 `publish`（订阅端收到同 session_id 载荷
+/// ——worker 内核 → 控制注册表的唯一桥，直调锚定转发不改写）。
+#[test]
+fn sink事件桥接_session_event记会话锚且publish透传() {
+    let env = Env::new("sink-bridge");
+    let app = app_with(&env);
+    let root = env.root();
+    let change = "sink-change";
+    let control = Arc::clone(app.state::<Arc<ChangeFlowControl>>().inner());
+    let _guard = control
+        .begin_run(&root, change, "run-sink-1".to_owned())
+        .expect("发起应成功");
+    let mut updates = control.subscribe(&root, change).expect("订阅应成功");
+
+    let sink = ChangeFlowSink {
+        root: root.clone(),
+        change: change.to_owned(),
+        control: Arc::clone(&control),
+    };
+    sink.emit(RunUpdate::SessionEvent {
+        session_id: "ses-sink".to_owned(),
+        event: AgentEvent::stamp(
+            0,
+            AgentEventKind::Raw {
+                event_type: "probe".to_owned(),
+                raw_json: "{}".to_owned(),
+            },
+        ),
+    });
+
+    assert_eq!(
+        control.current_session(&root, change).as_deref(),
+        Some("ses-sink"),
+        "SessionEvent 记 run 级会话锚"
+    );
+    match updates.try_recv() {
+        Ok(RunUpdate::SessionEvent { session_id, .. }) => {
+            assert_eq!(session_id, "ses-sink", "publish 原样透传（载荷不改写）")
+        }
+        other => panic!("订阅端应收到 SessionEvent，实际: {other:?}"),
+    }
 }

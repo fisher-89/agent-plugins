@@ -34,7 +34,10 @@ use store::Store;
 use workflow::model::{ChecklistItem, Verdict};
 use workflow::queries::{change_detail, list_changes, ChangeDetail};
 use workflow::state::{BacktrackCommand, ChangeStateRecord, ChangeStatus, PhaseLogCommand};
-use workflow::write::{archive, create, phase_next, ArchiveOutcome, CreateOutcome, SessionAnchors};
+use workflow::write::{
+    archive, create, phase_next, ArchiveOutcome, CreateOutcome, InstallRun, RepoProbe,
+    SessionAnchors, WorktreePort,
+};
 
 /// golden 重写开关环境变量（沿既有 harness 命名）。
 const REWRITE_ENV: &str = "DESKTOP_GOLDEN_REWRITE";
@@ -47,6 +50,7 @@ const CORPORA: &[&str] = &[
     "corpus-slots-null",
     "corpus-document-form",
     "corpus-list-mixed",
+    "corpus-worktree",
 ];
 
 fn manifest_dir() -> PathBuf {
@@ -83,8 +87,12 @@ fn utc_millis(year: i32, month: time::Month, day: u8) -> i64 {
 
 struct Corpus {
     root: PathBuf,
+    /// worktree 落位父锚夹具根（create 建域组合的 vcs 半边以进程内假件承载，
+    /// 真实 git 夹具行收 vcs-runtime crate 测试面）
+    worktree_root: PathBuf,
     _db: tempfile::TempDir,
     store: Store,
+    vcs: FakeVcs,
 }
 
 impl Corpus {
@@ -99,11 +107,31 @@ impl Corpus {
         let db = tempfile::tempdir().expect("创建临时 db 目录失败");
         let store =
             Store::open_workspace(&db.path().join("ws.redb")).expect("打开 workspace db 失败");
+        let worktree_root = std::env::temp_dir().join(format!(
+            "workflow-corpus-worktrees-{}-{}",
+            std::process::id(),
+            tag
+        ));
+        let _ = fs::remove_dir_all(&worktree_root);
         Self {
             root,
+            worktree_root,
             _db: db,
             store,
+            vcs: FakeVcs::new(),
         }
+    }
+
+    /// create 建域（假件 vcs + worktree 落位夹具根）。
+    fn create(&self, name: &str, goal: &str) -> Result<CreateOutcome, String> {
+        create(
+            &self.root,
+            &self.worktree_root,
+            &self.store,
+            &self.vcs,
+            name,
+            goal,
+        )
     }
 
     /// 建档（requirement、active、created_at 固定）。
@@ -116,6 +144,8 @@ impl Corpus {
                 status: ChangeStatus::Active,
                 archived_at: None,
                 active_phase: None,
+                worktree: None,
+                base_commit: None,
             })
             .expect("建档失败");
     }
@@ -194,6 +224,73 @@ impl Corpus {
 impl Drop for Corpus {
     fn drop(&mut self) {
         let _ = fs::remove_dir_all(&self.root);
+        let _ = fs::remove_dir_all(&self.worktree_root);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// 假件 vcs（WorktreePort）：probe 固定干净仓（HEAD 恒定）、add 即建目录
+// （HEAD 检出的最小模拟——真实进程 git 夹具行收 vcs-runtime crate 测试面）
+// ---------------------------------------------------------------------------
+
+struct FakeVcs;
+
+impl FakeVcs {
+    fn new() -> Self {
+        Self
+    }
+}
+
+/// 递归复制目录内容（假件 add_worktree 的「HEAD 检出」最小模拟）。
+fn mirror_tree(from: &Path, to: &Path) -> Result<(), String> {
+    fs::create_dir_all(to).map_err(|error| format!("假件建 worktree 失败: {error}"))?;
+    let Ok(entries) = fs::read_dir(from) else {
+        return Ok(()); // 空主仓 → 空 worktree 检出
+    };
+    for entry in entries.flatten() {
+        let target = to.join(entry.file_name());
+        if entry.file_type().map(|t| t.is_dir()).unwrap_or(false) {
+            mirror_tree(&entry.path(), &target)?;
+        } else {
+            fs::copy(entry.path(), &target)
+                .map(|_| ())
+                .map_err(|error| format!("假件镜像检出失败: {error}"))?;
+        }
+    }
+    Ok(())
+}
+
+impl WorktreePort for FakeVcs {
+    fn probe(&self, _main_root: &Path) -> Result<RepoProbe, String> {
+        Ok(RepoProbe {
+            head: "0000000000000000000000000000000000000001".to_owned(),
+            dirty: false,
+        })
+    }
+
+    fn branch_exists(&self, _main_root: &Path, _branch: &str) -> Result<bool, String> {
+        Ok(false)
+    }
+
+    fn add_worktree(&self, main_root: &Path, worktree: &Path, _branch: &str) -> Result<(), String> {
+        // 建目录 + 镜像主仓树（HEAD 检出的最小模拟——lockfile / 目录树用例的
+        // 检出半边；真实进程 git 夹具行收 vcs-runtime crate 测试面）
+        mirror_tree(main_root, worktree)
+    }
+
+    fn remove_worktree(&self, _main_root: &Path, worktree: &Path) -> Result<(), String> {
+        fs::remove_dir_all(worktree).map_err(|error| format!("假件移除 worktree 失败: {error}"))
+    }
+
+    fn delete_branch(&self, _main_root: &Path, _branch: &str) -> Result<(), String> {
+        Ok(())
+    }
+
+    fn run_install(&self, _worktree: &Path, _command: &str) -> Result<InstallRun, String> {
+        Ok(InstallRun {
+            success: true,
+            summary: String::new(),
+        })
     }
 }
 
@@ -254,7 +351,11 @@ fn build_multi_attempt() -> Corpus {
     // 重开 attempt 残留：开相未落账（active_phase 在场）
     corpus.open_only("multi-attempt", "dev-design", t(4));
     // 磁盘产物树
-    corpus.file("multi-attempt", "proposal.md", "# 提案\n\n多 attempt 语料。");
+    corpus.file(
+        "multi-attempt",
+        "proposal.md",
+        "# 提案\n\n多 attempt 语料。",
+    );
     corpus.file(
         "multi-attempt",
         "tasks.md",
@@ -268,7 +369,16 @@ fn build_multi_attempt() -> Corpus {
 fn build_backtrack_stale() -> Corpus {
     let corpus = Corpus::new("backtrack-stale");
     corpus.seed_record("backtrack-stale");
-    corpus.run_phase("backtrack-stale", "proposal", Verdict::Pass, "提案通过", Vec::new(), None, None, t(1));
+    corpus.run_phase(
+        "backtrack-stale",
+        "proposal",
+        Verdict::Pass,
+        "提案通过",
+        Vec::new(),
+        None,
+        None,
+        t(1),
+    );
     corpus.run_phase(
         "backtrack-stale",
         "dev-design",
@@ -279,9 +389,36 @@ fn build_backtrack_stale() -> Corpus {
         None,
         t(2),
     );
-    corpus.run_phase("backtrack-stale", "test-design", Verdict::Pass, "测试设计通过", Vec::new(), None, None, t(3));
-    corpus.run_phase("backtrack-stale", "implement", Verdict::Pass, "实现完成", Vec::new(), None, None, t(4));
-    corpus.run_phase("backtrack-stale", "test-gen", Verdict::Pass, "测试生成通过", Vec::new(), None, None, t(5));
+    corpus.run_phase(
+        "backtrack-stale",
+        "test-design",
+        Verdict::Pass,
+        "测试设计通过",
+        Vec::new(),
+        None,
+        None,
+        t(3),
+    );
+    corpus.run_phase(
+        "backtrack-stale",
+        "implement",
+        Verdict::Pass,
+        "实现完成",
+        Vec::new(),
+        None,
+        None,
+        t(4),
+    );
+    corpus.run_phase(
+        "backtrack-stale",
+        "test-gen",
+        Verdict::Pass,
+        "测试生成通过",
+        Vec::new(),
+        None,
+        None,
+        t(5),
+    );
     corpus.backtrack(&BacktrackCommand {
         change: "backtrack-stale".to_owned(),
         phase: "test-gen".to_owned(),
@@ -296,7 +433,11 @@ fn build_backtrack_stale() -> Corpus {
             "acceptance".to_owned(),
         ],
     });
-    corpus.file("backtrack-stale", "proposal.md", "# 提案\n\nbacktrack stale 语料。");
+    corpus.file(
+        "backtrack-stale",
+        "proposal.md",
+        "# 提案\n\nbacktrack stale 语料。",
+    );
     corpus
 }
 
@@ -309,7 +450,16 @@ fn build_backtrack_stale() -> Corpus {
 fn build_slots_null() -> Corpus {
     let corpus = Corpus::new("slots-null");
     corpus.seed_record("slots-null");
-    corpus.run_phase("slots-null", "proposal", Verdict::Pass, "提案通过", Vec::new(), None, None, t(1));
+    corpus.run_phase(
+        "slots-null",
+        "proposal",
+        Verdict::Pass,
+        "提案通过",
+        Vec::new(),
+        None,
+        None,
+        t(1),
+    );
     corpus.run_phase(
         "slots-null",
         "implement",
@@ -329,7 +479,11 @@ fn build_slots_null() -> Corpus {
 /// 投影。
 fn build_document_form() -> Corpus {
     let corpus = Corpus::new("document-form");
-    corpus.file("document-form", "proposal.md", "# 存量提案\n\nCLI 时代产物。");
+    corpus.file(
+        "document-form",
+        "proposal.md",
+        "# 存量提案\n\nCLI 时代产物。",
+    );
     corpus.file("document-form", "design.md", "# 设计\n\n零 db 记录。");
     corpus.file("document-form", "tasks.md", "- [x] 迁移\n- [ ] 收尾\n");
     corpus.file(
@@ -364,10 +518,7 @@ fn build_list_mixed() -> Corpus {
         .set_change_archived("list-archived", utc_millis(2026, time::Month::May, 20))
         .expect("归档翻转失败");
     // 磁盘-only active（文档形态）
-    corpus.dir_with_files(
-        "openspec/changes/disk-only",
-        &[("proposal.md", "# 存量")],
-    );
+    corpus.dir_with_files("openspec/changes/disk-only", &[("proposal.md", "# 存量")]);
     // 磁盘 archive（日期前缀，db 缺记录）
     corpus.dir_with_files(
         "openspec/changes/archive/2026-09-15-disk-archived",
@@ -377,6 +528,74 @@ fn build_list_mixed() -> Corpus {
     corpus.dir_with_files(
         "openspec/changes/archive/unknown-date-archived",
         &[("proposal.md", "# 无前缀归档")],
+    );
+    // worktree 条目（D11 / AC-9）：db active + worktree 执行锚 + 主仓两树未
+    // 命中 → 进行中组（目录名 = 建档名——不丢弃不误归未知时间组）
+    let wt_entry = ChangeStateRecord {
+        name: "list-worktree".to_owned(),
+        workflow_type: "requirement".to_owned(),
+        created_at: T0,
+        status: ChangeStatus::Active,
+        archived_at: None,
+        active_phase: None,
+        worktree: Some("<WORKTREE_ROOT>/list-worktree".to_owned()),
+        base_commit: Some("0000000000000000000000000000000000000001".to_owned()),
+    };
+    corpus
+        .store
+        .create_change_record(wt_entry)
+        .expect("worktree 条目建档失败");
+    corpus
+}
+
+/// worktree 建档语料（spec desktop-corpus-regression「worktree 两态」行）：
+/// 建档携 worktree 执行锚（占位路径经投影归一映射到真实 tempdir 目录）+
+/// base_commit 固定 sha + worktree 内磁盘产物树（merge 前主仓两树未命中）；
+/// detail 全读链投影经路径归一（`<WORKTREE_ROOT>` 占位）保持 golden 确定性
+///——投影只消费记录字段与目录树，不依赖真实 git。
+fn build_worktree() -> Corpus {
+    let corpus = Corpus::new("worktree");
+    // worktree 内产物树（changes_root 下 change 目录 + 产物文件）
+    let worktree = corpus.worktree_root.join("corpus-worktree");
+    let change_dir = resolve(&worktree).changes_root.join("corpus-worktree");
+    fs::create_dir_all(&change_dir).expect("创建 worktree change 目录失败");
+    fs::write(
+        change_dir.join("proposal.md"),
+        "# worktree 内提案
+
+merge 前主仓两树未命中的产物形态。",
+    )
+    .expect("写 worktree 产物失败");
+    fs::write(
+        change_dir.join("tasks.md"),
+        "- [x] 建域
+- [ ] 实现
+",
+    )
+    .expect("写 worktree 产物失败");
+    // 建档（created_at 固定 T0——golden 确定性；worktree 执行锚经归一投影）
+    corpus
+        .store
+        .create_change_record(ChangeStateRecord {
+            name: "corpus-worktree".to_owned(),
+            workflow_type: "requirement".to_owned(),
+            created_at: T0,
+            status: ChangeStatus::Active,
+            archived_at: None,
+            active_phase: None,
+            worktree: Some(worktree.to_string_lossy().into_owned()),
+            base_commit: Some("0000000000000000000000000000000000000001".to_owned()),
+        })
+        .expect("worktree 建档失败");
+    corpus.run_phase(
+        "corpus-worktree",
+        "proposal",
+        Verdict::Pass,
+        "提案通过",
+        vec![item("worktree 出线", true, "detail.worktree 与记录一致")],
+        Some("ses-wt-exec"),
+        Some("ses-wt-eval"),
+        t(1),
     );
     corpus
 }
@@ -428,7 +647,10 @@ fn project_list(corpus: &Corpus) -> serde_json::Value {
 #[test]
 fn corpus多attempt语料_golden对拍() {
     let corpus = build_multi_attempt();
-    check_or_rewrite("corpus-multi-attempt", &project_detail(&corpus, "multi-attempt"));
+    check_or_rewrite(
+        "corpus-multi-attempt",
+        &project_detail(&corpus, "multi-attempt"),
+    );
 }
 
 /// backtrack stale 语料：回跳 + dependents 闭包翻转种子 → stale 位与
@@ -436,7 +658,10 @@ fn corpus多attempt语料_golden对拍() {
 #[test]
 fn corpusbacktrack_stale语料_golden对拍() {
     let corpus = build_backtrack_stale();
-    check_or_rewrite("corpus-backtrack-stale", &project_detail(&corpus, "backtrack-stale"));
+    check_or_rewrite(
+        "corpus-backtrack-stale",
+        &project_detail(&corpus, "backtrack-stale"),
+    );
 }
 
 /// 槽位全缺语料：三会话槽位全 None + active_phase 缺席种子 → 槽位三列 null
@@ -468,6 +693,66 @@ fn corpus文档形态语料_golden对拍() {
 fn corpus列表混合语料_golden对拍() {
     let corpus = build_list_mixed();
     check_or_rewrite("corpus-list-mixed", &project_list(&corpus));
+}
+
+/// worktree 建档语料（D16 ②）：worktree 执行锚 + worktree 内产物树 → detail
+/// 全读链投影 golden——`worktree` 出线与库内记录逐字一致（归一占位）、
+/// artifacts 命中 worktree 树（主仓两树未命中）。
+#[test]
+fn corpusworktree建档语料_golden对拍() {
+    let corpus = build_worktree();
+    let projection = project_worktree_detail(&corpus);
+    // worktree 出线与库内记录逐字一致（归一前缀下的记录值对照）
+    let record = corpus
+        .store
+        .find_change_record("corpus-worktree")
+        .expect("查档应成功")
+        .expect("建档在案");
+    let expected = record
+        .worktree
+        .as_deref()
+        .expect("记录携 worktree")
+        .replace(
+            corpus.worktree_root.to_string_lossy().as_ref(),
+            "<WORKTREE_ROOT>",
+        );
+    assert_eq!(
+        projection.get("worktree").and_then(|value| value.as_str()),
+        Some(expected.as_str()),
+        "worktree 出线与库内记录逐字一致（占位归一）"
+    );
+    // artifacts 命中 worktree 树（产物清单自 worktree 目录发现）
+    let sources: Vec<&str> = projection["artifacts"]
+        .as_array()
+        .expect("产物清单为数组")
+        .iter()
+        .filter_map(|artifact| artifact["source"].as_str())
+        .collect();
+    assert!(
+        sources.contains(&"proposal.md") && sources.contains(&"tasks.md"),
+        "artifacts 命中 worktree 内文件，实际: {sources:?}"
+    );
+    check_or_rewrite("corpus-worktree", &projection);
+}
+
+/// worktree 语料投影：detail 全读链 + 路径归一（tempdir 绝对路径前缀 →
+/// `<WORKTREE_ROOT>` 固定占位——golden 确定性；归一只作用 worktree 执行锚
+/// 字符串值，其余投影零改写）。
+fn project_worktree_detail(corpus: &Corpus) -> serde_json::Value {
+    let mut value =
+        serde_json::to_value(&corpus.detail("corpus-worktree")).expect("ChangeDetail 序列化失败");
+    if let Some(worktree) = value
+        .get("worktree")
+        .and_then(|worktree| worktree.as_str())
+        .map(str::to_owned)
+    {
+        let normalized = worktree.replace(
+            corpus.worktree_root.to_string_lossy().as_ref(),
+            "<WORKTREE_ROOT>",
+        );
+        value["worktree"] = serde_json::Value::String(normalized);
+    }
+    value
 }
 
 // ---------------------------------------------------------------------------
@@ -505,7 +790,11 @@ fn corpusgolden重写后_diff范围键集断言() {
         // 重写模式正在覆写 golden，键集断言延至复核轮
         return;
     }
-    for name in ["corpus-multi-attempt", "corpus-backtrack-stale", "corpus-slots-null"] {
+    for name in [
+        "corpus-multi-attempt",
+        "corpus-backtrack-stale",
+        "corpus-slots-null",
+    ] {
         let text = fs::read_to_string(golden_dir().join(format!("{name}.json")))
             .unwrap_or_else(|err| panic!("golden {name}.json 应存在: {err}"));
         let value: serde_json::Value = serde_json::from_str(&text)
@@ -520,6 +809,15 @@ fn corpusgolden重写后_diff范围键集断言() {
         assert!(
             value.get("activePhase").is_some(),
             "{name} activePhase 键恒在场（null 不省键）"
+        );
+        assert!(
+            value.get("worktree").is_some(),
+            "{name} worktree 键恒在场（legacy 建档样本 null 留位——防静默漂移）"
+        );
+        assert_eq!(
+            value.get("worktree"),
+            Some(&serde_json::Value::Null),
+            "{name} legacy 建档样本 worktree 出线 null（D16 ①）"
         );
         // 尝试序列键恒在场（AttemptRecord 形状不变）
         let first_attempt = &value["pipeline"][0]["attempts"][0];
@@ -539,9 +837,38 @@ fn corpusgolden重写后_diff范围键集断言() {
     assert_no_retired_keys(&value, "corpus-document-form");
     assert_eq!(value.get("status"), Some(&serde_json::Value::Null));
     assert_eq!(value.get("activePhase"), Some(&serde_json::Value::Null));
+    assert_eq!(
+        value.get("worktree"),
+        Some(&serde_json::Value::Null),
+        "文档形态 worktree 键 null 留位（恒在场）"
+    );
     assert!(
-        value.get("pipeline").and_then(|pipeline| pipeline.as_array()).is_some_and(Vec::is_empty),
+        value
+            .get("pipeline")
+            .and_then(|pipeline| pipeline.as_array())
+            .is_some_and(Vec::is_empty),
         "文档形态空流水线"
+    );
+
+    // worktree 建档语料（非 null 投影——两态齐备的对拍半边；D16 ②）
+    let text = fs::read_to_string(golden_dir().join("corpus-worktree.json"))
+        .expect("corpus-worktree golden 应存在");
+    let value: serde_json::Value =
+        serde_json::from_str(&text).expect("corpus-worktree golden 应为合法 JSON");
+    assert_no_retired_keys(&value, "corpus-worktree");
+    assert_eq!(
+        value.get("worktree").and_then(|worktree| worktree.as_str()),
+        Some(if cfg!(windows) {
+            r"<WORKTREE_ROOT>\corpus-worktree"
+        } else {
+            "<WORKTREE_ROOT>/corpus-worktree"
+        }),
+        "worktree 建档样本出线执行锚（占位归一——非 null 投影）"
+    );
+    assert_eq!(
+        value.get("status").and_then(|status| status.as_str()),
+        Some("active"),
+        "worktree 建档样本状态面在"
     );
 }
 
@@ -552,10 +879,7 @@ fn 语料完整性_golden目录与语料集合一致() {
         // 重写模式下 golden 目录正在被覆写，跳过该一致性断言（复核轮再验）
         return;
     }
-    let mut expected: Vec<String> = CORPORA
-        .iter()
-        .map(|name| format!("{name}.json"))
-        .collect();
+    let mut expected: Vec<String> = CORPORA.iter().map(|name| format!("{name}.json")).collect();
     expected.push("README.md".to_string());
     expected.sort();
 
@@ -578,7 +902,14 @@ fn 语料完整性_fixtures说明文档在位() {
         .join("README.md");
     assert!(readme.is_file(), "tests/fixtures/README.md 应存在");
     let text = fs::read_to_string(&readme).expect("fixtures README 应可读");
-    for row in ["多 attempt", "backtrack stale", "槽位全缺", "文档形态", "坏行"] {
+    for row in [
+        "多 attempt",
+        "backtrack stale",
+        "槽位全缺",
+        "文档形态",
+        "坏行",
+        "worktree 两态",
+    ] {
         assert!(
             text.contains(row),
             "fixtures/README.md 覆盖面矩阵应含「{row}」行（矩阵语义与语料集合对账）"
@@ -622,19 +953,27 @@ fn collect_file_names(root: &Path, out: &mut Vec<String>) {
     }
 }
 
-/// create 三合一：目录 + explore.md（goal 原文）+ ChangeRecord 建档；目录树
-/// 零 workflow.json 产出（双向墙写半边——AC-6）。
+/// create 建域四段（真件 db 半边 + 假件 vcs 半边）：worktree 内目录树 +
+/// explore.md（goal 原文）+ ChangeRecord 建档（携 worktree / base_commit）；
+/// 主仓 active 树不含该目录；目录树零 workflow.json 产出（双向墙写半边）。
 #[test]
-fn 真件create三合一_目录与explore与db建档且零workflow_json产出() {
+fn 真件create建域_worktree内目录与explore与db建档且主仓零目录() {
     let corpus = Corpus::new("create-triple");
     let layout = resolve(&corpus.root);
 
-    let outcome: CreateOutcome = create(&layout, &corpus.store, "create-triple", "三合一 goal 正文")
+    let outcome: CreateOutcome = corpus
+        .create("create-triple", "三合一 goal 正文")
         .expect("建档应成功");
 
     assert_eq!(outcome.name, "create-triple");
-    let dir = layout.changes_root.join("create-triple");
-    assert!(dir.is_dir(), "change 目录创建");
+    let worktree = corpus.worktree_root.join("create-triple");
+    assert_eq!(
+        outcome.worktree,
+        worktree.to_string_lossy(),
+        "worktree 出线"
+    );
+    let dir = resolve(&worktree).changes_root.join("create-triple");
+    assert!(dir.is_dir(), "worktree 内 change 目录创建");
     assert_eq!(
         fs::read(dir.join("explore.md")).expect("读 explore.md 失败"),
         "三合一 goal 正文".as_bytes(),
@@ -647,9 +986,23 @@ fn 真件create三合一_目录与explore与db建档且零workflow_json产出() 
         .expect("建档记录应在场");
     assert_eq!(record.workflow_type, "requirement");
     assert_eq!(record.status, ChangeStatus::Active);
+    assert_eq!(
+        record.worktree.as_deref(),
+        Some(worktree.to_string_lossy().as_ref()),
+        "建档记录携 worktree 执行锚"
+    );
+    assert_eq!(
+        record.base_commit.as_deref(),
+        Some("0000000000000000000000000000000000000001"),
+        "建档记录携 base_commit 基线"
+    );
+    assert!(
+        !layout.changes_root.join("create-triple").exists(),
+        "主仓 active 树不含该目录"
+    );
 
     let mut files = Vec::new();
-    collect_file_names(&layout.changes_root, &mut files);
+    collect_file_names(&resolve(&worktree).changes_root, &mut files);
     assert!(
         !files.iter().any(|name| name == "workflow.json"),
         "目录树零 workflow.json 产出，实际: {files:?}"
@@ -665,7 +1018,9 @@ fn 真件create冲突双检查前置零副作用() {
 
     // 目录已存在 → Err 且 db 零建档
     fs::create_dir_all(layout.changes_root.join("taken")).expect("预置目录失败");
-    let error = create(&layout, &corpus.store, "taken", "新建 goal").expect_err("同名目录应 Err");
+    let error = corpus
+        .create("taken", "新建 goal")
+        .expect_err("同名目录应 Err");
     assert!(error.contains("已存在"), "实际: {error}");
     assert!(
         corpus
@@ -678,7 +1033,8 @@ fn 真件create冲突双检查前置零副作用() {
 
     // db 同名 active → Err 且零目录创建
     corpus.seed_record("db-taken");
-    let error = create(&layout, &corpus.store, "db-taken", "新建 goal")
+    let error = corpus
+        .create("db-taken", "新建 goal")
         .expect_err("同名 active 应 Err");
     assert!(error.contains("已存在"), "实际: {error}");
     assert!(
@@ -696,15 +1052,35 @@ fn 真件create_fs失败补偿_重开db零残留() {
     let ws = tempfile::tempdir().expect("创建临时 workspace 根失败");
     let db = tempfile::tempdir().expect("创建临时 db 目录失败");
     let db_path = db.path().join("ws.redb");
-    let layout = resolve(ws.path());
-    fs::create_dir_all(layout.changes_root.parent().expect("域根应存在")).expect("预置域根失败");
-    fs::write(&layout.changes_root, "changes_root 文件占位").expect("预置占位失败");
+    // worktree 落位父锚独立 tempdir（嵌在主仓根内会使假件 mirror_tree 自我
+    // 递归——主仓树包含 worktrees 子树自身）
+    let worktree_anchor = tempfile::tempdir().expect("创建 worktree 锚临时目录失败");
+    let worktree_root = worktree_anchor.path().to_path_buf();
+    // 占位打在主仓 openspec/changes 路径分量上（假件 add 镜像检出携入
+    // worktree，目录树 / explore.md 写出段真实失败；直接预置 worktree 会先
+    // 被「worktree 目录已存在」前置拦截）
+    fs::create_dir_all(ws.path().join("openspec")).expect("预置主仓域根失败");
+    fs::write(
+        ws.path().join("openspec").join("changes"),
+        "changes 文件占位",
+    )
+    .expect("预置占位失败");
 
     {
         let store = Store::open_workspace(&db_path).expect("打开 workspace db 失败");
-        let error = create(&layout, &store, "fix-bug", "补偿路径 goal")
-            .expect_err("fs 半边失败应 Err");
-        assert!(error.contains("补偿"), "Err 呈现补偿回滚事实，实际: {error}");
+        let error = create(
+            ws.path(),
+            &worktree_root,
+            &store,
+            &FakeVcs::new(),
+            "fix-bug",
+            "补偿路径 goal",
+        )
+        .expect_err("fs 半边失败应 Err");
+        assert!(
+            error.contains("补偿"),
+            "Err 呈现补偿回滚事实，实际: {error}"
+        );
         assert!(
             store
                 .find_change_record("fix-bug")
@@ -732,7 +1108,8 @@ fn 真件create成功立即可见可发起() {
     let corpus = Corpus::new("create-visible");
     let layout = resolve(&corpus.root);
 
-    create(&layout, &corpus.store, "visible-change", "组合用例 goal")
+    corpus
+        .create("visible-change", "组合用例 goal")
         .expect("create 应 Ok");
 
     let list = list_changes(&layout, &corpus.store);
@@ -743,8 +1120,13 @@ fn 真件create成功立即可见可发起() {
     let detail = change_detail(&layout, &corpus.store, "visible-change").expect("详情应可达");
     assert_eq!(detail.status, Some(ChangeStatus::Active));
 
-    let route = phase_next(&corpus.store, "visible-change", "run-visible", &SessionAnchors::new())
-        .expect("建档后路由应可达");
+    let route = phase_next(
+        &corpus.store,
+        "visible-change",
+        "run-visible",
+        &SessionAnchors::new(),
+    )
+    .expect("建档后路由应可达");
     assert_eq!(
         route.next_phase.as_deref(),
         Some("proposal"),
@@ -764,7 +1146,8 @@ fn 真件archive双写_目录改名与db翻转且按月分组可达() {
     fs::create_dir_all(&layout.archive_root).expect("预置 archive 树失败");
     let before = utc_date_today();
 
-    let outcome: ArchiveOutcome = archive(&layout, &corpus.store, "seed-change").expect("归档应成功");
+    let outcome: ArchiveOutcome =
+        archive(&layout, &corpus.store, "seed-change").expect("归档应成功");
 
     let after = utc_date_today();
     assert_eq!(outcome.name, "seed-change", "主键 name 不随目录改名变");
@@ -796,7 +1179,12 @@ fn 真件archive双写_目录改名与db翻转且按月分组可达() {
     let group = list
         .archive_groups
         .iter()
-        .find(|group| group.changes.iter().any(|entry| entry.name == archived_name))
+        .find(|group| {
+            group
+                .changes
+                .iter()
+                .any(|entry| entry.name == archived_name)
+        })
         .unwrap_or_else(|| panic!("归档条目应按月分组可达"));
     assert_eq!(
         group.month.as_deref(),
@@ -849,7 +1237,10 @@ fn 真件archive无建档拒绝_零fs零db变更() {
         error.contains("未建档") && error.contains("seed-change"),
         "Err 显式记因建档缺失，实际: {error}"
     );
-    assert!(layout.changes_root.join("seed-change").is_dir(), "零 fs 变更");
+    assert!(
+        layout.changes_root.join("seed-change").is_dir(),
+        "零 fs 变更"
+    );
     assert!(
         corpus
             .store
@@ -892,12 +1283,26 @@ fn 真件archive目标冲突_db零变更() {
 fn 真件phase_next读源db_零workflow_json读取() {
     let corpus = Corpus::new("route-read-db");
     corpus.seed_record("demo-change");
-    corpus.run_phase("demo-change", "proposal", Verdict::Pass, "提案通过", Vec::new(), None, None, t(1));
+    corpus.run_phase(
+        "demo-change",
+        "proposal",
+        Verdict::Pass,
+        "提案通过",
+        Vec::new(),
+        None,
+        None,
+        t(1),
+    );
     // 损坏 workflow.json 惰性字节在场（若被读取即路由失败）
     corpus.file("demo-change", "workflow.json", "{ 残缺字节 not json");
 
-    let outcome = phase_next(&corpus.store, "demo-change", "run-read", &SessionAnchors::new())
-        .expect("读源 db 路由应成功");
+    let outcome = phase_next(
+        &corpus.store,
+        "demo-change",
+        "run-read",
+        &SessionAnchors::new(),
+    )
+    .expect("读源 db 路由应成功");
 
     assert_eq!(
         outcome.next_phase.as_deref(),
@@ -912,26 +1317,62 @@ fn 真件phase_next读源db_零workflow_json读取() {
 fn 真件phase_next锚点基线平移_首见与复见与run隔离() {
     let corpus = Corpus::new("route-anchor");
     corpus.seed_record("demo-change");
-    corpus.run_phase("demo-change", "proposal", Verdict::Pass, "提案通过", Vec::new(), None, None, t(1));
-    corpus.run_phase("demo-change", "dev-design", Verdict::Fail, "历史失败一", Vec::new(), None, None, t(2));
-    corpus.run_phase("demo-change", "dev-design", Verdict::Fail, "历史失败二", Vec::new(), None, None, t(3));
+    corpus.run_phase(
+        "demo-change",
+        "proposal",
+        Verdict::Pass,
+        "提案通过",
+        Vec::new(),
+        None,
+        None,
+        t(1),
+    );
+    corpus.run_phase(
+        "demo-change",
+        "dev-design",
+        Verdict::Fail,
+        "历史失败一",
+        Vec::new(),
+        None,
+        None,
+        t(2),
+    );
+    corpus.run_phase(
+        "demo-change",
+        "dev-design",
+        Verdict::Fail,
+        "历史失败二",
+        Vec::new(),
+        None,
+        None,
+        t(3),
+    );
 
     let anchors = SessionAnchors::new();
-    let first = phase_next(&corpus.store, "demo-change", "run-a", &anchors)
-        .expect("路由应成功");
-    assert_eq!(first.round, 1, "首见锚点 = PhaseRecord 行数 3，round 自 1 起");
+    let first = phase_next(&corpus.store, "demo-change", "run-a", &anchors).expect("路由应成功");
+    assert_eq!(
+        first.round, 1,
+        "首见锚点 = PhaseRecord 行数 3，round 自 1 起"
+    );
     assert_eq!(first.next_phase.as_deref(), Some("dev-design"));
     assert!(first.error.is_none(), "窗口外历史 fail 不虚触上限");
 
     // 锚点复见：基线后新落 1 行 → round = 1（窗口）+ 1 = 2
-    corpus.run_phase("demo-change", "dev-design", Verdict::Fail, "run 内新增", Vec::new(), None, None, t(4));
-    let second = phase_next(&corpus.store, "demo-change", "run-a", &anchors)
-        .expect("路由应成功");
+    corpus.run_phase(
+        "demo-change",
+        "dev-design",
+        Verdict::Fail,
+        "run 内新增",
+        Vec::new(),
+        None,
+        None,
+        t(4),
+    );
+    let second = phase_next(&corpus.store, "demo-change", "run-a", &anchors).expect("路由应成功");
     assert_eq!(second.round, 2, "round = 窗口条目数 + 1（非全量行数 + 1）");
 
     // run_id 键隔离：新键重新锚定当前行数 4 → round 归位 1
-    let third = phase_next(&corpus.store, "demo-change", "run-b", &anchors)
-        .expect("路由应成功");
+    let third = phase_next(&corpus.store, "demo-change", "run-b", &anchors).expect("路由应成功");
     assert_eq!(third.round, 1);
 }
 
@@ -941,11 +1382,34 @@ fn 真件phase_next锚点基线平移_首见与复见与run隔离() {
 fn 真件phase_next重启续走_直接推进不重头() {
     let corpus = Corpus::new("route-restart");
     corpus.seed_record("demo-change");
-    corpus.run_phase("demo-change", "proposal", Verdict::Pass, "提案通过", Vec::new(), None, None, t(1));
-    corpus.run_phase("demo-change", "dev-design", Verdict::Pass, "设计通过", Vec::new(), None, None, t(2));
+    corpus.run_phase(
+        "demo-change",
+        "proposal",
+        Verdict::Pass,
+        "提案通过",
+        Vec::new(),
+        None,
+        None,
+        t(1),
+    );
+    corpus.run_phase(
+        "demo-change",
+        "dev-design",
+        Verdict::Pass,
+        "设计通过",
+        Vec::new(),
+        None,
+        None,
+        t(2),
+    );
 
-    let outcome = phase_next(&corpus.store, "demo-change", "run-after-restart", &SessionAnchors::new())
-        .expect("重启后续走路由应成功");
+    let outcome = phase_next(
+        &corpus.store,
+        "demo-change",
+        "run-after-restart",
+        &SessionAnchors::new(),
+    )
+    .expect("重启后续走路由应成功");
 
     assert_eq!(
         outcome.next_phase.as_deref(),
@@ -955,37 +1419,40 @@ fn 真件phase_next重启续走_直接推进不重头() {
     assert_eq!(outcome.round, 1, "新锚点基线 = 全量行数，round 自 1 起");
 }
 
-/// list D7 读时对账（真件）：db active 而目录已改名入 archive 树 → 以磁盘
-/// 事实归入 archive 月组，查询路径不回写 db（纯读纪律）。
+/// list D11 归组语义修订（真件）：db active 而目录已改名入 archive 树 →
+/// 仍随 db 留 active 组（db status 权威归组，磁盘目录仅决定目录名取位），
+/// 查询路径不回写 db（纯读纪律）。
 #[test]
-fn 真件list_d7读时对账_以磁盘事实归组且不回写db() {
-    let corpus = Corpus::new("list-d7");
-    corpus.seed_record("d7-change");
+fn 真件list_d11归组_db_status权威且不回写db() {
+    let corpus = Corpus::new("list-d11");
+    corpus.seed_record("d11-change");
     corpus.dir_with_files(
-        "openspec/changes/archive/2026-10-01-d7-change",
+        "openspec/changes/archive/2026-10-01-d11-change",
         &[("proposal.md", "# 归档")],
     );
 
     let list = list_changes(&resolve(&corpus.root), &corpus.store);
 
     let entry = list
-        .archive_groups
+        .active
         .iter()
-        .flat_map(|group| group.changes.iter())
-        .find(|entry| entry.name == "2026-10-01-d7-change")
-        .expect("d7 条目应按磁盘事实归 archive 组");
+        .find(|entry| entry.name == "d11-change")
+        .expect("db active 条目应留 active 组（db status 权威）");
     assert_eq!(entry.status, Some(ChangeStatus::Active), "状态面 = db 记录");
-    let group = list
-        .archive_groups
-        .iter()
-        .find(|group| group.changes.iter().any(|entry| entry.name == "2026-10-01-d7-change"))
-        .expect("应有分组");
-    assert_eq!(group.month.as_deref(), Some("2026-10"), "按目录日期前缀分组");
+    assert_eq!(entry.source, workflow::queries::ChangeSource::Active);
+    assert!(
+        !list
+            .archive_groups
+            .iter()
+            .flat_map(|group| group.changes.iter())
+            .any(|entry| entry.name == "d11-change"),
+        "db active 条目不因磁盘目录误归 archive 组"
+    );
 
     // 纯读纪律：查询路径不回写 db
     let record = corpus
         .store
-        .find_change_record("d7-change")
+        .find_change_record("d11-change")
         .expect("db 读应成功")
         .expect("db 记录应在场");
     assert_eq!(record.status, ChangeStatus::Active, "读后 db 仍 active");
@@ -1008,7 +1475,11 @@ fn 真件list并集与去重_db形态为准() {
 
     let list = list_changes(&resolve(&corpus.root), &corpus.store);
 
-    let names: Vec<&str> = list.active.iter().map(|entry| entry.name.as_str()).collect();
+    let names: Vec<&str> = list
+        .active
+        .iter()
+        .map(|entry| entry.name.as_str())
+        .collect();
     assert_eq!(
         names,
         vec!["db-change", "disk-only", "dual-change"],
@@ -1019,7 +1490,11 @@ fn 真件list并集与去重_db形态为准() {
         .iter()
         .find(|entry| entry.name == "dual-change")
         .expect("dual 条目应在场");
-    assert_eq!(dual.status, Some(ChangeStatus::Active), "同名共存以 db 为准");
+    assert_eq!(
+        dual.status,
+        Some(ChangeStatus::Active),
+        "同名共存以 db 为准"
+    );
     let disk = list
         .active
         .iter()
@@ -1044,13 +1519,24 @@ fn 真件detail时间出线_epoch零口径() {
             status: ChangeStatus::Active,
             archived_at: None,
             active_phase: None,
+            worktree: None,
+            base_commit: None,
         })
         .expect("建档失败");
-    corpus.run_phase("zero-ts", "proposal", Verdict::Pass, "通过", Vec::new(), None, None, 0);
+    corpus.run_phase(
+        "zero-ts",
+        "proposal",
+        Verdict::Pass,
+        "通过",
+        Vec::new(),
+        None,
+        None,
+        0,
+    );
     corpus.dir_with_files("openspec/changes/zero-ts", &[("proposal.md", "# 提案")]);
 
-    let detail = change_detail(&resolve(&corpus.root), &corpus.store, "zero-ts")
-        .expect("详情应可达");
+    let detail =
+        change_detail(&resolve(&corpus.root), &corpus.store, "zero-ts").expect("详情应可达");
 
     assert_eq!(detail.created.as_deref(), Some("1970-01-01"));
     let record = &detail.pipeline[0].attempts[0];
@@ -1058,10 +1544,11 @@ fn 真件detail时间出线_epoch零口径() {
     assert_eq!(record.start_at.as_deref(), Some("1970-01-01T00:00:00Z"));
 }
 
-/// detail 未找到：两树均无目录且 db 无记录 → `None`；db 有档但两树未命中
-/// 同样 `None`（定位先于状态读取，不虚构文档形态）。
+/// detail 未找到与恒可达：record 与定位双缺 → `None`（文档形态未知名）；
+/// 建档记录定位全 miss（worktree 缺席、主仓两树未命中）→ 恒可达（D12：
+/// dir 缺席、产物清单空、状态面在——source 自 record.status 映射）。
 #[test]
-fn 真件detail未找到_none() {
+fn 真件detail未找到与建档恒可达() {
     let corpus = Corpus::new("detail-not-found");
     let layout = resolve(&corpus.root);
     corpus.dir_with_files("openspec/changes/real", &[("proposal.md", "# 提案")]);
@@ -1071,8 +1558,14 @@ fn 真件detail未找到_none() {
     assert!(change_detail(&layout, &corpus.store, "a/b").is_none());
 
     corpus.seed_record("ghost-with-record");
-    assert!(
-        change_detail(&layout, &corpus.store, "ghost-with-record").is_none(),
-        "目录缺失不虚构文档形态"
+    let detail = change_detail(&layout, &corpus.store, "ghost-with-record")
+        .expect("建档记录恒可达详情（定位 miss 不虚构 None）");
+    assert_eq!(detail.status, Some(ChangeStatus::Active), "状态面在");
+    assert_eq!(
+        detail.source,
+        workflow::queries::ChangeSource::Active,
+        "source 自 record.status 映射"
     );
+    assert!(detail.artifacts.is_empty(), "定位 miss 产物清单空");
+    assert!(!detail.pipeline.is_empty(), "建档流水线 9 站全量输出");
 }

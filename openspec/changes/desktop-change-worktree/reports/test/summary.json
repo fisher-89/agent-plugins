@@ -1,0 +1,25 @@
+{
+  "phase": "test-execution",
+  "command": "desktop change run: test-execution gate",
+  "timestamp": "2026-10-07T16:07:23.8150499Z",
+  "duration_seconds": 44.0,
+  "total": 1243,
+  "passed": 1243,
+  "failed": 0,
+  "skipped": 0,
+  "conclusion": "pass",
+  "problems": [],
+  "coverage": null,
+  "mutation": null,
+  "plans": [
+    {
+      "id": "packages_desktop_src-tauri_rust",
+      "framework": "rust",
+      "root": "packages/desktop/src-tauri",
+      "path": "reports/test/packages_desktop_src-tauri_rust"
+    }
+  ],
+  "findings": [
+    "全部框架未产出覆盖数据（未配置采集或命令未及覆盖阶段即结束）"
+  ]
+}

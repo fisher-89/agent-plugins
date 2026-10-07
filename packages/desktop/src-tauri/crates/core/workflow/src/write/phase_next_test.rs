@@ -55,13 +55,7 @@ fn entry(phase: &str, attempt: u32, verdict: Verdict, ts: i64) -> PhaseStateReco
 }
 
 /// 携 backtrack 回跳标记的条目（backtrack 路由用例的种子形态）。
-fn backtrack_entry(
-    phase: &str,
-    attempt: u32,
-    ts: i64,
-    to: &str,
-    reason: &str,
-) -> PhaseStateRecord {
+fn backtrack_entry(phase: &str, attempt: u32, ts: i64, to: &str, reason: &str) -> PhaseStateRecord {
     let mut record = entry(phase, attempt, Verdict::Pass, ts);
     record.backtrack_to = Some(to.to_owned());
     record.backtrack_reason = Some(reason.to_owned());
@@ -77,6 +71,8 @@ fn requirement_record(name: &str) -> ChangeStateRecord {
         status: ChangeStatus::Active,
         archived_at: None,
         active_phase: None,
+        worktree: None,
+        base_commit: None,
     }
 }
 
@@ -106,10 +102,7 @@ impl RouteStore {
         Self::with_record(Some(record), Vec::new())
     }
 
-    fn with_record(
-        record: Option<ChangeStateRecord>,
-        entries: Vec<PhaseStateRecord>,
-    ) -> Self {
+    fn with_record(record: Option<ChangeStateRecord>, entries: Vec<PhaseStateRecord>) -> Self {
         Self {
             record: Mutex::new(record),
             entries: Mutex::new(entries),
@@ -175,17 +168,11 @@ impl ChangeStateStore for RouteStore {
         unimplemented!("本用例不可达")
     }
 
-    fn log_phase(
-        &self,
-        _command: &crate::state::PhaseLogCommand,
-    ) -> Result<u32, StoreFault> {
+    fn log_phase(&self, _command: &crate::state::PhaseLogCommand) -> Result<u32, StoreFault> {
         unimplemented!("本用例不可达")
     }
 
-    fn apply_backtrack(
-        &self,
-        _command: &crate::state::BacktrackCommand,
-    ) -> Result<(), StoreFault> {
+    fn apply_backtrack(&self, _command: &crate::state::BacktrackCommand) -> Result<(), StoreFault> {
         unimplemented!("本用例不可达")
     }
 
@@ -230,7 +217,11 @@ fn 初始路由落首相位且prompt已插值白名单为空() {
     let outcome = route(&fake, RUN, &SessionAnchors::new());
 
     assert!(!outcome.done);
-    assert_eq!(outcome.next_phase.as_deref(), Some("proposal"), "首相位路由");
+    assert_eq!(
+        outcome.next_phase.as_deref(),
+        Some("proposal"),
+        "首相位路由"
+    );
     assert_eq!(outcome.round, 1, "零相位行窗口首轮");
     assert!(outcome.error.is_none());
 
@@ -261,13 +252,9 @@ fn 初始路由落首相位且prompt已插值白名单为空() {
 fn 无建档显式err不静默空产出() {
     let fake = RouteStore::missing();
 
-    let err = phase_next(&fake, CHANGE, RUN, &SessionAnchors::new())
-        .expect_err("未建档应 Err");
+    let err = phase_next(&fake, CHANGE, RUN, &SessionAnchors::new()).expect_err("未建档应 Err");
 
-    assert!(
-        err.contains("未建档"),
-        "Err 显式记因建档缺失，实际: {err}"
-    );
+    assert!(err.contains("未建档"), "Err 显式记因建档缺失，实际: {err}");
 }
 
 /// workflow_type 非 requirement → Err 显式分层出口（W8 写面侧）。
@@ -293,7 +280,10 @@ fn pass推进到下一相位且白名单随行() {
     let outcome = route(&fake, RUN, &SessionAnchors::new());
 
     assert_eq!(outcome.next_phase.as_deref(), Some("dev-design"));
-    assert_eq!(outcome.round, 1, "round 归位（锚点 = 首见 PhaseRecord 行数）");
+    assert_eq!(
+        outcome.round, 1,
+        "round 归位（锚点 = 首见 PhaseRecord 行数）"
+    );
     assert_eq!(
         outcome.allowed_backtrack_phases,
         vec!["proposal".to_owned(), "dev-design".to_owned()],
@@ -318,7 +308,11 @@ fn fail预算内重试同相位且round递增() {
     // run 期间逐条落账两条 fail（窗口 fail 数 2 < 5）
     fake.push(entry("dev-design", 1, Verdict::Fail, t(2)));
     let second = route(&fake, RUN, &anchors);
-    assert_eq!(second.next_phase.as_deref(), Some("dev-design"), "fail 同相位重试");
+    assert_eq!(
+        second.next_phase.as_deref(),
+        Some("dev-design"),
+        "fail 同相位重试"
+    );
     assert_eq!(second.round, 2, "窗口条目数 + 1");
     assert!(second.error.is_none(), "预算内不触发上限");
     assert!(
@@ -366,10 +360,7 @@ fn 重试上限恰达返回max_retries_exceeded() {
         ));
         let outcome = route(&fake, RUN, &anchors);
         if attempt < MAX_RETRY_TIMES {
-            assert!(
-                outcome.error.is_none(),
-                "第 {attempt} 条 fail 未达上限"
-            );
+            assert!(outcome.error.is_none(), "第 {attempt} 条 fail 未达上限");
         } else {
             assert_eq!(
                 outcome.error,
@@ -423,7 +414,13 @@ fn backtrack字段落库路由至目标相位() {
     let fake = RouteStore::seeded(vec![
         entry("proposal", 1, Verdict::Pass, t(1)),
         entry("dev-design", 1, Verdict::Pass, t(2)),
-        backtrack_entry("test-design", 1, t(3), "dev-design", "设计返工：缺产物区组件"),
+        backtrack_entry(
+            "test-design",
+            1,
+            t(3),
+            "dev-design",
+            "设计返工：缺产物区组件",
+        ),
     ]);
 
     let outcome = route(&fake, RUN, &SessionAnchors::new());
@@ -435,7 +432,9 @@ fn backtrack字段落库路由至目标相位() {
     );
     let executor = outcome.executor.expect("目标相位应有 executor");
     assert!(
-        executor.prompt.contains("⚠️ 回溯原因: 设计返工：缺产物区组件"),
+        executor
+            .prompt
+            .contains("⚠️ 回溯原因: 设计返工：缺产物区组件"),
         "回溯原因后缀随 prompt 下发: {}",
         executor.prompt
     );
@@ -470,7 +469,9 @@ fn backtrack标记与stale同行并存仍路由至目标相位() {
     );
     let executor = outcome.executor.expect("目标相位应有 executor");
     assert!(
-        executor.prompt.contains("⚠️ 回溯原因: 设计返工：缺产物区组件"),
+        executor
+            .prompt
+            .contains("⚠️ 回溯原因: 设计返工：缺产物区组件"),
         "回溯原因后缀随 prompt 下发: {}",
         executor.prompt
     );
@@ -498,7 +499,10 @@ fn 锚点首见登记行数基线且窗口外历史不重复记账() {
 
     let anchors = SessionAnchors::new();
     let first = route(&fake, RUN, &anchors);
-    assert_eq!(first.round, 1, "基线 = 首见时 PhaseRecord 行数 3，round 自 1 起");
+    assert_eq!(
+        first.round, 1,
+        "基线 = 首见时 PhaseRecord 行数 3，round 自 1 起"
+    );
     assert_eq!(first.next_phase.as_deref(), Some("dev-design"));
     assert!(
         first.error.is_none(),
@@ -628,9 +632,7 @@ fn 只读路由_零写面触达() {
 
     assert_eq!(fake.entry_count(), before, "只读路由：条目序列零变更");
     // 复核条目内容未被改写（stale / backtrack 位不被动）
-    let entries = fake
-        .list_phase_records(CHANGE)
-        .expect("假件读半边应可用");
+    let entries = fake.list_phase_records(CHANGE).expect("假件读半边应可用");
     assert_eq!(entries.len(), 1);
     assert!(!entries[0].stale);
     assert!(entries[0].backtrack_to.is_none());

@@ -53,4 +53,5 @@
 - [x] 【Desktop】增加全局agent管理页，不关联工作区；每个agent可自定义名称，选择agent engine，配置url、api_key等参数；配置好的agent实例与workspace关联；
 - [ ] 【Desktop】core/checks仅定义测试的执行过程、报告数据格式，具体语言、框架实现应该移入infra/checks
 - [ ] 【Desktop】change会话失败或中断后重新启动流程，页面应显示最新进行中的会话
-- [x] 【Desktop】修复问题：change_flow_watch接口返回null，流程图消失
+- [ ] 【Desktop】修复问题：进行中的流程，进入详情页很短事件内，流程图消失
+- [ ] 【Desktop】testexec detect 探测用 glob crate 无 `{a,b}` 交替方言（`*.{ts,tsx}` 恒零命中），vite-plus suite 被静默跳过不产 plan——与 CLI（JS glob 方言）plan 集漂移；修需对拍 CLI includes 语义（desktop-checks-domain 域）

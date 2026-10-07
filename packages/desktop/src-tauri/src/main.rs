@@ -51,6 +51,9 @@ fn main() {
             //（泵任务 panic 默认只进无控制台的 stderr，日志面补观测）
             agent_runtime::init_engine_log(&data_root.join(LOGS_DIR_NAME));
             agent_runtime::install_engine_panic_hook();
+            // 数据根注入（worktrees 落位派生的注入面，沿 store 注入式打开
+            // 纪律——`create_change` 经 vcs 单点派生 worktree 落位）
+            app.manage(data_root.clone());
             app.manage(stores);
             // watch 订阅注册表：消费页面生命周期由命令面退订承载，此处只挂空表
             app.manage(WatchRegistry::default());
@@ -58,9 +61,9 @@ fn main() {
             // 内核 begin_turn 登记 / drive 终态除名 / agent_stop 查询，此处
             // 只挂空表（Arc 承载跨内核实例共享，与 WatchRegistry 同型托管）
             app.manage(Arc::new(StopRegistry::default()));
-            // change-flow run 控制注册表（进程内，键 = change 名）：
-            // change_flow_* 命令面读写 / walker 持 RunGuard 写，此处只挂空表
-            //（Arc 承载跨 sink 桥共享，与 StopRegistry 同型托管）
+            // change-flow run 控制注册表（进程内，键 = (workspace root, change)
+            // 复合）：change_flow_* 命令面读写 / walker 持 RunGuard 写，此处只
+            // 挂空表（Arc 承载跨 sink 桥共享，与 StopRegistry 同型托管）
             app.manage(Arc::new(ChangeFlowControl::new()));
             Ok(())
         })

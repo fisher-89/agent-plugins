@@ -29,7 +29,9 @@ use workflow::model::{ChecklistItem, Verdict};
 use workflow::queries as core_queries;
 use workflow::state::{ChangeStateRecord, ChangeStatus, PhaseLogCommand};
 
-use super::{archive_change_with, create_change, get_change_detail, list_changes, read_artifact};
+use super::{
+    archive_change_with, create_change_with, get_change_detail, list_changes, read_artifact,
+};
 
 /// 确定性时间戳（UTC unix 毫秒；2024-09-22 / 2026-02-02）。
 const CREATED_AT: i64 = 1727000000000;
@@ -84,6 +86,33 @@ impl Env {
         fs::create_dir_all(&dir).expect("创建 change 目录失败");
         dir
     }
+
+    /// 主仓初始化为含一个提交的 git 仓（create 建域命令面的真实 git worktree
+    /// 依赖；测试环境 PATH 可达 git 与产品硬依赖同口径）。
+    fn as_git_repo(&self) {
+        fs::write(self.ws_root.path().join("README.md"), "# 主仓夹具\n")
+            .expect("写主仓初始文件失败");
+        for args in [
+            vec!["init"],
+            vec!["config", "user.email", "test@example.com"],
+            vec!["config", "user.name", "desktop-test"],
+            vec!["add", "README.md"],
+            vec!["commit", "-m", "init"],
+        ] {
+            let output = std::process::Command::new("git")
+                .arg("-C")
+                .arg(self.ws_root.path())
+                .args(&args)
+                .output()
+                .expect("git 拉起失败");
+            assert!(
+                output.status.success(),
+                "git {} 失败: {}",
+                args.join(" "),
+                String::from_utf8_lossy(&output.stderr)
+            );
+        }
+    }
 }
 
 /// 以 MockRuntime 建测用 app，并 manage 真实 WorkspaceStores（打开 env 数据
@@ -91,6 +120,8 @@ impl Env {
 fn app_with(env: &Env) -> App<tauri::test::MockRuntime> {
     let app = tauri::test::mock_app();
     let stores = WorkspaceStores::open(env.data_dir.path()).expect("打开测试全局库失败");
+    // 数据根注入（worktrees 落位派生的注入面，与 main.rs setup 同构）
+    app.manage(env.data_dir.path().to_path_buf());
     app.manage(stores);
     app
 }
@@ -112,6 +143,8 @@ fn seed_active(store: &Store, name: &str) {
             status: ChangeStatus::Active,
             archived_at: None,
             active_phase: None,
+            worktree: None,
+            base_commit: None,
         })
         .expect("建档 fixture 应成功");
 }
@@ -126,6 +159,8 @@ fn seed_archived(store: &Store, name: &str) {
             status: ChangeStatus::Archived,
             archived_at: Some(ARCHIVED_AT),
             active_phase: None,
+            worktree: None,
+            base_commit: None,
         })
         .expect("建档 fixture 应成功");
 }
@@ -361,23 +396,30 @@ fn read_artifact信封出线持衡_五字段往返与负路径越权source拒绝
 // create 接线（AC-6 命令半边）：写面三合一 + 返回 DTO + 立即可见可发起
 // ---------------------------------------------------------------------------
 
-#[test]
-fn create接线_三合一落位_零workflow_json_返回dto且立即可见可发起() {
+#[tokio::test]
+async fn create接线_建域落位_零workflow_json_返回dto且立即可见可发起() {
+    // 真实 git 仓夹具 + ProcessWorktree spawn 均依赖 PATH 可达 git——与
+    // PATH 隔离用例（change_flow / exec）经共享锁串行化（命令级先例）
+    let _path_guard = crate::commands::TEST_PATH_LOCK
+        .lock()
+        .expect("PATH 锁不可中毒");
     let env = Env::new("create-wire");
+    env.as_git_repo();
     let app = app_with(&env);
     let state = app.state::<WorkspaceStores>();
     let root = env.root();
     let goal = "修复登录重试的竞态问题";
 
-    let outcome = create_change(
-        state.clone(),
+    let outcome = create_change_with(
+        app.handle().clone(),
         root.clone(),
         "fix-bug".to_owned(),
         goal.to_owned(),
     )
+    .await
     .expect("合法输入经命令层应 Ok");
 
-    // 返回 DTO 仅两字段：恰 `{"name":…,"created":…}` 零磁盘路径字段
+    // 返回 DTO 恰四键：name / created / worktree（刻意出线的执行锚）/ warnings
     let value = serde_json::to_value(&outcome).expect("序列化失败");
     let mut keys: Vec<&str> = value
         .as_object()
@@ -386,21 +428,36 @@ fn create接线_三合一落位_零workflow_json_返回dto且立即可见可发�
         .map(String::as_str)
         .collect();
     keys.sort_unstable();
-    assert_eq!(keys, vec!["created", "name"], "恰两键且零磁盘路径字段");
+    assert_eq!(
+        keys,
+        vec!["created", "name", "warnings", "worktree"],
+        "恰四键面（worktree 为刻意出线的执行锚）"
+    );
     assert_eq!(outcome.name, "fix-bug");
     assert_eq!(
         outcome.created.len(),
         10,
         "created 为 UTC YYYY-MM-DD（取 db 建档 created_at）"
     );
+    let worktree = vcs_runtime::worktree_dir(env.data_dir.path(), &root, "fix-bug");
+    assert_eq!(
+        outcome.worktree,
+        worktree.to_string_lossy(),
+        "worktree 落位 = data_root/worktrees/{{身份段}}/<name>（vcs 单点派生）"
+    );
 
-    // 三合一磁盘半边：目录 + explore.md（goal 原文）；零 workflow.json 产出
-    let dir = env.changes_dir().join("fix-bug");
-    assert!(dir.is_dir(), "目录建树落位");
+    // 建域磁盘半边：worktree 内目录 + explore.md（goal 原文）；主仓 active 树
+    // 零目录（编辑落点囚于 worktree）；零 workflow.json 产出
+    let dir = resolve(&worktree).changes_root.join("fix-bug");
+    assert!(dir.is_dir(), "worktree 内目录建树落位");
     assert_eq!(
         fs::read_to_string(dir.join("explore.md")).expect("读 explore.md 失败"),
         goal,
         "explore.md 落最初 goal 原文"
+    );
+    assert!(
+        !env.changes_dir().join("fix-bug").exists(),
+        "主仓 active 树不含该目录"
     );
     assert!(
         !dir.join("workflow.json").exists(),
@@ -415,6 +472,12 @@ fn create接线_三合一落位_零workflow_json_返回dto且立即可见可发�
     assert_eq!(record.status, ChangeStatus::Active);
     assert_eq!(record.workflow_type, "requirement");
     assert!(record.active_phase.is_none(), "建档起步零开相");
+    assert_eq!(
+        record.worktree.as_deref(),
+        Some(worktree.to_string_lossy().as_ref()),
+        "建档记录携 worktree 执行锚"
+    );
+    assert!(record.base_commit.is_some(), "建档记录携 base_commit 基线");
 
     // 成功立即可见可发起：list / detail 即刻呈现
     let list = list_changes(state.clone(), root.clone());
@@ -589,11 +652,10 @@ fn archive错误映射_无建档与目标冲突与blank参数各自显式err() {
 // create 错误映射：同名 active 冲突 → Err 且零目录零建档（D5 前置检查可达）
 // ---------------------------------------------------------------------------
 
-#[test]
-fn create错误映射_同名active冲突err且零目录零建档() {
+#[tokio::test]
+async fn create错误映射_同名active冲突err且零目录零建档() {
     let env = Env::new("create-conflict");
     let app = app_with(&env);
-    let state = app.state::<WorkspaceStores>();
     let root = env.root();
 
     // 种子：db 同名 active 在场（零磁盘目录——纯 db 冲突形态）
@@ -602,12 +664,13 @@ fn create错误映射_同名active冲突err且零目录零建档() {
         seed_active(&store, "fix-bug");
     }
 
-    let err = create_change(
-        state.clone(),
+    let err = create_change_with(
+        app.handle().clone(),
         root.clone(),
         "fix-bug".to_owned(),
         "goal".to_owned(),
     )
+    .await
     .expect_err("同名 active 冲突应 Err");
     assert!(
         err.contains("fix-bug") && err.contains("已存在同名建档记录"),
@@ -627,8 +690,8 @@ fn create错误映射_同名active冲突err且零目录零建档() {
 // blank root 双口径（既有口径持衡）：读命令早退空结果 / create 显式 Err
 // ---------------------------------------------------------------------------
 
-#[test]
-fn blank_root双口径_读命令早退空结果_create显式err() {
+#[tokio::test]
+async fn blank_root双口径_读命令早退空结果_create显式err() {
     let env = Env::new("blank-root");
     let app = app_with(&env);
     let state = app.state::<WorkspaceStores>();
@@ -655,12 +718,13 @@ fn blank_root双口径_读命令早退空结果_create显式err() {
         );
 
         // 写命令：显式 Err（不进入写面链路）
-        let err = create_change(
-            state.clone(),
+        let err = create_change_with(
+            app.handle().clone(),
             root.clone(),
             "fix-bug".to_owned(),
             "goal".to_owned(),
         )
+        .await
         .expect_err("blank root create 应 Err");
         assert_eq!(
             err, "非法 root: 不得为空白",
@@ -672,4 +736,197 @@ fn blank_root双口径_读命令早退空结果_create显式err() {
         !env.layout().changes_root.exists(),
         "零产生（拒绝面无目录无文件）"
     );
+}
+
+// ---------------------------------------------------------------------------
+// worktree 维度（design D2/D12/D13）：create 拒绝映射 / detail 与 read_artifact
+// worktree 感知 / list 归组随动 / 归档引导命令面
+// ---------------------------------------------------------------------------
+
+/// db 建档携 worktree 执行锚的 active 记录 + worktree 内产物树（merge 前主仓
+/// 两树未命中的读命令夹具）。
+fn seed_worktree_change(env: &Env, app: &App<tauri::test::MockRuntime>, name: &str) -> PathBuf {
+    let worktree = env
+        .data_dir
+        .path()
+        .join("worktrees")
+        .join("fixture-segment")
+        .join(name);
+    let change_dir = resolve(&worktree).changes_root.join(name);
+    fs::create_dir_all(&change_dir).expect("预置 worktree change 目录失败");
+    fs::write(change_dir.join("proposal.md"), "# worktree 内提案").expect("预置产物失败");
+    store_of(app, &env.root())
+        .create_change_record(ChangeStateRecord {
+            name: name.to_owned(),
+            workflow_type: "requirement".to_owned(),
+            created_at: CREATED_AT,
+            status: ChangeStatus::Active,
+            archived_at: None,
+            active_phase: None,
+            worktree: Some(worktree.to_string_lossy().into_owned()),
+            base_commit: Some("0000000000000000000000000000000000000001".to_owned()),
+        })
+        .expect("worktree 建档 fixture 应成功");
+    worktree
+}
+
+/// create 命令拒绝映射：非 git 仓 root → 写面 Err 透传前端（引导文案面——
+/// 不静默回退主 root 创建）；零目录零建档。
+#[tokio::test]
+async fn create拒绝映射_非git仓err透传且零产生() {
+    let _path_guard = crate::commands::TEST_PATH_LOCK
+        .lock()
+        .expect("PATH 锁不可中毒");
+    let env = Env::new("create-not-git");
+    // 普通目录形态（不调 as_git_repo——非 git 仓）
+    let app = app_with(&env);
+
+    let err = create_change_with(
+        app.handle().clone(),
+        env.root(),
+        "fix-bug".to_owned(),
+        "goal".to_owned(),
+    )
+    .await
+    .expect_err("非 git 仓应 Err");
+
+    assert!(
+        err.contains("非 git 仓"),
+        "写面 Err 透传前端（引导文案面），实际: {err}"
+    );
+    let records = store_of(&app, &env.root())
+        .list_change_records()
+        .expect("查清单应成功");
+    assert!(records.is_empty(), "零建档");
+    assert!(!env.changes_dir().exists(), "零目录（主仓 active 树未建）");
+    let worktrees = env.data_dir.path().join("worktrees");
+    assert!(
+        !worktrees.exists() || worktrees.read_dir().map(|d| d.count()).unwrap_or(0) == 0,
+        "零 worktree 目录"
+    );
+}
+
+/// detail worktree 感知：记录携 worktree + 主仓两树未命中 + worktree 内产物
+/// 树 → `get_change_detail` Some 且 `worktree` 出线、artifacts 命中 worktree
+/// 内文件（record 先读后定位的命令面证据）。
+#[tokio::test]
+async fn detail_worktree感知_出线且产物命中worktree内文件() {
+    let env = Env::new("detail-worktree");
+    let app = app_with(&env);
+    let worktree = seed_worktree_change(&env, &app, "wt-detail-change");
+
+    let detail = get_change_detail(
+        app.state::<WorkspaceStores>(),
+        env.root(),
+        "wt-detail-change".to_owned(),
+    )
+    .expect("worktree 记录详情应 Some");
+
+    assert_eq!(
+        detail.worktree.as_deref(),
+        Some(worktree.to_string_lossy().as_ref()),
+        "worktree 出线（与库内记录同源）"
+    );
+    assert!(
+        detail
+            .artifacts
+            .iter()
+            .any(|artifact| artifact.kind == "markdown-doc" && artifact.source == "proposal.md"),
+        "artifacts 命中 worktree 内文件（主仓两树未命中），实际: {:?}",
+        detail.artifacts
+    );
+    assert_eq!(detail.status, Some(ChangeStatus::Active), "状态面在");
+}
+
+/// read_artifact worktree 命中：同上夹具 → `read_artifact` 经 worktree 回退
+/// 读取产物信封成功（主仓 miss 不致落空）；legacy 记录 → 主仓两树既有解析
+/// 持衡（miss → None）。
+#[tokio::test]
+async fn read_artifact_worktree命中_主仓miss不落空且legacy持衡() {
+    let env = Env::new("artifact-worktree");
+    let app = app_with(&env);
+    seed_worktree_change(&env, &app, "wt-artifact-change");
+
+    // worktree 回退命中：markdown-doc 信封读取成功
+    let envelope = read_artifact(
+        app.state::<WorkspaceStores>(),
+        env.root(),
+        "wt-artifact-change".to_owned(),
+        "markdown-doc".to_owned(),
+        "proposal.md".to_owned(),
+    )
+    .expect("worktree 回退应命中");
+    let payload = serde_json::to_value(&envelope).expect("信封序列化应成功");
+    assert!(
+        payload.to_string().contains("# worktree 内提案"),
+        "信封载荷命中 worktree 内文件内容，实际: {payload}"
+    );
+
+    // legacy 半边：无 worktree 记录 + 主仓两树未命中 → None（既有解析持衡）
+    let store = store_of(&app, &env.root());
+    seed_active(&store, "legacy-miss");
+    assert!(
+        read_artifact(
+            app.state::<WorkspaceStores>(),
+            env.root(),
+            "legacy-miss".to_owned(),
+            "markdown-doc".to_owned(),
+            "proposal.md".to_owned(),
+        )
+        .is_none(),
+        "legacy 记录无 worktree 回退（主仓 miss → None 持衡）"
+    );
+}
+
+/// list 归组随动：worktree 条目（active + 两树未命中）经 `list_changes` 命令
+/// 入 active 组且状态面完整（读命令透传持衡——与 core list 行对拍）。
+#[tokio::test]
+async fn list归组随动_worktree条目入active组状态面完整() {
+    let env = Env::new("list-worktree");
+    let app = app_with(&env);
+    let store = store_of(&app, &env.root());
+    seed_worktree_change(&env, &app, "wt-list-change");
+    seed_active(&store, "regular-change"); // 对照组（同 active 组）
+
+    let list = list_changes(app.state::<WorkspaceStores>(), env.root());
+
+    let names: Vec<&str> = list
+        .active
+        .iter()
+        .map(|entry| entry.name.as_str())
+        .collect();
+    assert_eq!(
+        names,
+        vec!["regular-change", "wt-list-change"],
+        "worktree 条目入 active 组（按名排序）"
+    );
+    let entry = list
+        .active
+        .iter()
+        .find(|entry| entry.name == "wt-list-change")
+        .expect("worktree 条目应在场");
+    assert_eq!(entry.status, Some(ChangeStatus::Active), "状态面 status 在");
+    assert!(entry.created.is_some(), "状态面 created 在");
+}
+
+/// 归档引导命令面：记录携 worktree + 两树未命中 → `archive_change_with` Err
+/// 引导 merge 文案透传（AC-10 命令半边；与 core archive_test 文案同锚）。
+#[tokio::test]
+async fn 归档引导命令面_unmerged_err透传merge文案() {
+    let env = Env::new("archive-guide");
+    let app = app_with(&env);
+    seed_worktree_change(&env, &app, "wt-unmerged");
+
+    let err = archive_change_with(app.handle().clone(), env.root(), "wt-unmerged".to_owned())
+        .expect_err("未 merge 归档应显式拒绝");
+
+    assert!(
+        err.contains("merge") && err.contains("change/wt-unmerged"),
+        "merge 引导文案透传（与 core archive_test 同锚），实际: {err}"
+    );
+    let record = store_of(&app, &env.root())
+        .find_change_record("wt-unmerged")
+        .expect("查档应成功")
+        .expect("建档在案");
+    assert_eq!(record.status, ChangeStatus::Active, "db 零变更");
 }

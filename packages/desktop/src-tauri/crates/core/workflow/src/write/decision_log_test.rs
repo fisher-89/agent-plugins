@@ -110,10 +110,11 @@ impl ChangeStateStore for AmendStore {
         phase: &str,
         session_id: &str,
     ) -> Result<(), StoreFault> {
-        self.calls
-            .lock()
-            .expect("调用锁不可中毒")
-            .push((change.to_owned(), phase.to_owned(), session_id.to_owned()));
+        self.calls.lock().expect("调用锁不可中毒").push((
+            change.to_owned(),
+            phase.to_owned(),
+            session_id.to_owned(),
+        ));
         if let Some(fault) = self.fault.lock().expect("故障锁不可中毒").clone() {
             return Err(fault);
         }
@@ -173,7 +174,9 @@ fn amend定点改写_多attempt仅最新条目被改() {
         entry("proposal", 1, Verdict::Pass, t(3)), // 全局最新、他相位
     ]);
 
-    let outcome = fake.log("dev-design", "ses-decision-1").expect("挂账应成功");
+    let outcome = fake
+        .log("dev-design", "ses-decision-1")
+        .expect("挂账应成功");
 
     assert_eq!(
         outcome,
@@ -184,9 +187,7 @@ fn amend定点改写_多attempt仅最新条目被改() {
     );
     assert_eq!(fake.call_count(), 1, "恰一次 amend 调用");
 
-    let entries = fake
-        .list_phase_records(CHANGE)
-        .expect("假件读半边应可用");
+    let entries = fake.list_phase_records(CHANGE).expect("假件读半边应可用");
     assert_eq!(
         entries[1].decision_session_id.as_deref(),
         Some("ses-decision-1"),
@@ -213,9 +214,7 @@ fn 幂等同值二连挂账值不追加() {
     fake.log("implement", "ses-decision-9")
         .expect("同值重挂应成功");
 
-    let entries = fake
-        .list_phase_records(CHANGE)
-        .expect("假件读半边应可用");
+    let entries = fake.list_phase_records(CHANGE).expect("假件读半边应可用");
     assert_eq!(entries.len(), 1, "不新增条目");
     assert_eq!(
         entries[0].decision_session_id.as_deref(),
@@ -235,13 +234,15 @@ fn 挂账不新增条目且其余字段零触碰() {
     fake.log("code-review", "ses-decision-2")
         .expect("挂账应成功");
 
-    let entries = fake
-        .list_phase_records(CHANGE)
-        .expect("假件读半边应可用");
+    let entries = fake.list_phase_records(CHANGE).expect("假件读半边应可用");
     let after = &entries[0];
     assert_eq!(after.decision_session_id.as_deref(), Some("ses-decision-2"));
     assert!(after.stale, "stale 标记原样保留（只改槽位列）");
-    assert_eq!(after.backtrack_to.as_deref(), Some("implement"), "回跳键零触碰");
+    assert_eq!(
+        after.backtrack_to.as_deref(),
+        Some("implement"),
+        "回跳键零触碰"
+    );
     assert_eq!(after.report, "code-review 报告", "其余字段零触碰");
 }
 
@@ -254,7 +255,9 @@ fn 挂账不新增条目且其余字段零触碰() {
 fn 该相位无条目err显式() {
     let fake = AmendStore::with_entries(vec![entry("proposal", 1, Verdict::Pass, t(1))]);
 
-    let err = fake.log("dev-design", "ses-decision-1").expect_err("无条目必须 Err");
+    let err = fake
+        .log("dev-design", "ses-decision-1")
+        .expect_err("无条目必须 Err");
 
     assert!(
         err.contains("not_found") && err.contains("dev-design"),
@@ -268,16 +271,16 @@ fn store故障传播err记因() {
     let fake = AmendStore::with_entries(vec![entry("implement", 1, Verdict::Fail, t(1))]);
     fake.set_fault(StoreFault::Db("注入的挂账故障".to_owned()));
 
-    let err = fake.log("implement", "ses-decision-3").expect_err("StoreFault 应传播");
+    let err = fake
+        .log("implement", "ses-decision-3")
+        .expect_err("StoreFault 应传播");
 
     assert!(
         err.contains("db:") && err.contains("注入的挂账故障"),
         "Err 记因携带 fault 语境，实际: {err}"
     );
     assert_eq!(fake.call_count(), 1, "调用已捕获（不静默吞）");
-    let entries = fake
-        .list_phase_records(CHANGE)
-        .expect("假件读半边应可用");
+    let entries = fake.list_phase_records(CHANGE).expect("假件读半边应可用");
     assert_eq!(
         entries[0].decision_session_id, None,
         "故障路径不新增条目不改写槽位"
@@ -289,12 +292,12 @@ fn store故障传播err记因() {
 fn 不做表位校验_表外相位名照常透传() {
     let fake = AmendStore::with_entries(vec![entry("幽灵相位", 1, Verdict::Fail, t(1))]);
 
-    let outcome = fake.log("幽灵相位", "ses-decision-4").expect("表外相位应照常挂账");
+    let outcome = fake
+        .log("幽灵相位", "ses-decision-4")
+        .expect("表外相位应照常挂账");
 
     assert_eq!(outcome.phase, "幽灵相位");
-    let entries = fake
-        .list_phase_records(CHANGE)
-        .expect("假件读半边应可用");
+    let entries = fake.list_phase_records(CHANGE).expect("假件读半边应可用");
     assert_eq!(
         entries[0].decision_session_id.as_deref(),
         Some("ses-decision-4"),

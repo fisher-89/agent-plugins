@@ -178,6 +178,7 @@ function detail(overrides: Partial<ChangeDetail> = {}): ChangeDetail {
             : [],
     })),
     activePhase: null,
+    worktree: null,
     artifacts: [{ kind: 'markdown-doc', source: 'proposal.md', title: '提案' }],
     ...overrides,
   };
@@ -318,6 +319,24 @@ describe('ChangeDetailView：页面组装（图区 / 产物区 / 抽屉）', () 
     // activePhase startAt null → badge 不拼接时间与「 · —」占位
     expect(within(archivedHeader).getByText('运行中 · implement · attempt 2') !== null).toBe(true);
     expect(archivedHeader.textContent).not.toContain(' · —');
+  });
+
+  it('worktree 信息行：detail.worktree 非 null → 头部呈现路径（break-all 类锚）；legacy null 不渲染（零占位）', async () => {
+    const worktreePath = 'C:home.dev-teamworktrees\repo-ab12add-feature';
+    renderDetail({
+      detail: detail({ worktree: worktreePath }),
+    });
+    await screen.findByTestId('flow-graph');
+
+    const row = screen.getByTestId('detail-worktree');
+    expect(row.textContent).toContain(worktreePath);
+    expect(row.textContent).toContain('worktree');
+    expect(row.className).toContain('break-all');
+
+    // legacy 半边（负断言）：worktree null → 信息行不出现（零占位）
+    const legacy = renderDetail({ detail: detail({ worktree: null }) });
+    await screen.findByTestId('flow-graph');
+    expect(legacy.container.querySelector('[data-testid="detail-worktree"]')).toBeNull();
   });
 
   it('列头 / 节点点击 → detail-drawer 挂载（selection 状态在本组件）；关闭后卸载', async () => {

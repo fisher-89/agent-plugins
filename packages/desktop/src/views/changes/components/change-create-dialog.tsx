@@ -1,6 +1,6 @@
 import { useCallback, useState } from 'react';
 
-import { commands } from '../../../types/generated/bindings';
+import { commands, type CreateOutcome } from '../../../types/generated/bindings';
 
 export interface ChangeCreateDialogProps {
   /** 当前 workspace root（建档入参） */
@@ -84,8 +84,55 @@ function GoalField({
   );
 }
 
+/** 提交成功面（design D14）：替换表单呈现——名称、worktree 绝对路径
+ * （break-all，review / 手动 commit / merge 可达的执行锚）、警告清单（有则
+ * 行内逐条：脏仓引导 / 依赖引导注记）、「进入详情」按钮（调 onCreated）。
+ * toggle 收起重开即重置（CreateForm 卸载重建）。 */
+function CreateSuccess({
+  outcome,
+  onCreated,
+}: {
+  outcome: CreateOutcome;
+  onCreated: (name: string) => void;
+}): React.JSX.Element {
+  return (
+    <div className="mt-2" data-testid="change-create-success">
+      <div className="text-sm">
+        变更 <span className="font-medium">{outcome.name}</span> 已创建（{outcome.created}）
+      </div>
+      <div
+        className="mt-1.5 break-all text-xs text-muted-foreground"
+        data-testid="change-create-worktree"
+      >
+        worktree：{outcome.worktree}
+      </div>
+      {outcome.warnings.length > 0 && (
+        <ul
+          className="mt-1.5 mb-0 list-disc space-y-1 pl-5 text-xs text-warn"
+          data-testid="change-create-warnings"
+        >
+          {outcome.warnings.map((warning) => (
+            <li key={warning} className="break-all">
+              {warning}
+            </li>
+          ))}
+        </ul>
+      )}
+      <button
+        type="button"
+        className="mt-3 cursor-pointer rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground outline-none transition-colors hover:bg-primary/90"
+        data-testid="change-create-open-detail"
+        onClick={() => onCreated(outcome.name)}
+      >
+        进入详情
+      </button>
+    </div>
+  );
+}
+
 /** 展开态表单：名称与 goal 提交前 trim；本地同口径校验不合法或 goal 空白
- * 时禁提交且不发起 invoke；成功回调 onCreated，后端错误 break-all 行内块 */
+ * 时禁提交且不发起 invoke；成功后成功面替换表单（worktree 路径 + 警告清单
+ * 行内呈现，D14），后端错误 break-all 行内块 */
 function CreateForm({
   root,
   onCreated,
@@ -93,6 +140,7 @@ function CreateForm({
   const [name, setName] = useState('');
   const [goal, setGoal] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [outcome, setOutcome] = useState<CreateOutcome | null>(null);
 
   const create = () => {
     const trimmedName = name.trim();
@@ -100,9 +148,13 @@ function CreateForm({
     setError(null);
     commands
       .createChange(root, trimmedName, trimmedGoal)
-      .then(() => onCreated(trimmedName))
+      .then((result) => setOutcome(result))
       .catch((err: unknown) => setError(String(err)));
   };
+
+  if (outcome !== null) {
+    return <CreateSuccess onCreated={onCreated} outcome={outcome} />;
+  }
 
   return (
     <>

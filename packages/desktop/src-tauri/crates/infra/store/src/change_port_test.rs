@@ -50,6 +50,8 @@ fn change_archive(name: &str, created_at: i64) -> ChangeStateRecord {
         status: workflow::state::ChangeStatus::Active,
         archived_at: None,
         active_phase: None,
+        worktree: None,
+        base_commit: None,
     }
 }
 
@@ -180,7 +182,8 @@ fn trait_object全链映射_建档开相落账读史与直调store逐字段一�
 fn mirror_sequence_port(port: &dyn ChangeStateStore) {
     port.create_change_record(change_archive("flow", 1000))
         .expect("建档应成功");
-    port.start_phase("flow", "proposal", 2000).expect("开相应成功");
+    port.start_phase("flow", "proposal", 2000)
+        .expect("开相应成功");
     port.log_phase(&log_command(
         "flow",
         "proposal",
@@ -190,7 +193,8 @@ fn mirror_sequence_port(port: &dyn ChangeStateStore) {
         2500,
     ))
     .expect("落账应成功");
-    port.start_phase("flow", "proposal", 3000).expect("重开相应成功");
+    port.start_phase("flow", "proposal", 3000)
+        .expect("重开相应成功");
     port.log_phase(&log_command(
         "flow",
         "proposal",
@@ -200,9 +204,17 @@ fn mirror_sequence_port(port: &dyn ChangeStateStore) {
         4000,
     ))
     .expect("落账应成功");
-    port.start_phase("flow", "design", 5000).expect("开相应成功");
-    port.log_phase(&log_command("flow", "design", Verdict::Pass, vec![], None, 6000))
-        .expect("落账应成功");
+    port.start_phase("flow", "design", 5000)
+        .expect("开相应成功");
+    port.log_phase(&log_command(
+        "flow",
+        "design",
+        Verdict::Pass,
+        vec![],
+        None,
+        6000,
+    ))
+    .expect("落账应成功");
     port.amend_decision_session("flow", "proposal", "ses-decision")
         .expect("挂账应成功");
     port.apply_backtrack(&BacktrackCommand {
@@ -238,7 +250,9 @@ fn mirror_sequence_native(store: &Store) {
     store
         .create_change_record(change_archive("flow", 1000))
         .expect("建档应成功");
-    store.start_change_phase("flow", "proposal", 2000).expect("开相应成功");
+    store
+        .start_change_phase("flow", "proposal", 2000)
+        .expect("开相应成功");
     store
         .log_change_phase(&log_command(
             "flow",
@@ -249,7 +263,9 @@ fn mirror_sequence_native(store: &Store) {
             2500,
         ))
         .expect("落账应成功");
-    store.start_change_phase("flow", "proposal", 3000).expect("重开相应成功");
+    store
+        .start_change_phase("flow", "proposal", 3000)
+        .expect("重开相应成功");
     store
         .log_change_phase(&log_command(
             "flow",
@@ -260,9 +276,18 @@ fn mirror_sequence_native(store: &Store) {
             4000,
         ))
         .expect("落账应成功");
-    store.start_change_phase("flow", "design", 5000).expect("开相应成功");
     store
-        .log_change_phase(&log_command("flow", "design", Verdict::Pass, vec![], None, 6000))
+        .start_change_phase("flow", "design", 5000)
+        .expect("开相应成功");
+    store
+        .log_change_phase(&log_command(
+            "flow",
+            "design",
+            Verdict::Pass,
+            vec![],
+            None,
+            6000,
+        ))
         .expect("落账应成功");
     store
         .amend_change_decision_session("flow", "proposal", "ses-decision")
@@ -330,13 +355,19 @@ fn 写命令翻译_trait入口与store原生直调落库行逐字段等值() {
     );
     assert_eq!(
         store_via_port.list_steps("flow", Some("run-1")).unwrap(),
-        store_native.list_change_steps("flow", Some("run-1")).unwrap(),
+        store_native
+            .list_change_steps("flow", Some("run-1"))
+            .unwrap(),
     );
 
     // 翻译语义抽验：amend 定点最新条目、backtrack 标记落发起相位且目标最新
     // pass 置 stale
     let phases = store_via_port.list_phase_records("flow").unwrap();
-    let proposal_v2 = phases.iter().rev().find(|row| row.phase == "proposal").unwrap();
+    let proposal_v2 = phases
+        .iter()
+        .rev()
+        .find(|row| row.phase == "proposal")
+        .unwrap();
     assert_eq!(
         proposal_v2.decision_session_id.as_deref(),
         Some("ses-decision"),
@@ -402,8 +433,14 @@ fn store_fault映射_冲突与未找到分支对应store_error且display前缀�
 
     // 三分支 Display 前缀契约（Db 分支为 store 域故障的收敛形态，前缀单点
     // 断言；Conflict / NotFound 已由上方真件路径驱动）
-    assert_eq!(StoreFault::Db("io 失败".to_owned()).to_string(), "db: io 失败");
-    assert_eq!(StoreFault::Conflict("重复".to_owned()).to_string(), "conflict: 重复");
+    assert_eq!(
+        StoreFault::Db("io 失败".to_owned()).to_string(),
+        "db: io 失败"
+    );
+    assert_eq!(
+        StoreFault::Conflict("重复".to_owned()).to_string(),
+        "conflict: 重复"
+    );
     assert_eq!(
         StoreFault::NotFound("缺失".to_owned()).to_string(),
         "not_found: 缺失"
@@ -476,5 +513,56 @@ fn delete_change_record补偿删除_命中true_miss幂等false() {
         port.delete_change_record("从未存在").unwrap(),
         false,
         "miss 幂等 Ok(false)"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// 双字段 trait 往返（design D7 / AC-1 中性映射半边的 trait 面）
+// ---------------------------------------------------------------------------
+
+/// 双字段 trait 往返：经 `&dyn ChangeStateStore` 类型擦除建档（携 Some 两字
+/// 段）→ get / list 中性快照逐字段一致（映射单点无加工——worktree /
+/// base_commit 不在 port 面丢失）。
+#[test]
+fn 双字段trait往返_类型擦除建档get与list逐字段一致() {
+    let env = PortEnv::new("worktree-fields");
+    let store = open_workspace_ok(&env.db_path("ws"));
+    let port: &dyn ChangeStateStore = &store;
+
+    let mut record = change_archive("wt-port-change", 1000);
+    record.worktree = Some(r"C:\app-data\worktrees\seg\wt-port-change".to_owned());
+    record.base_commit = Some("0000000000000000000000000000000000000001".to_owned());
+    port.create_change_record(record)
+        .expect("trait 建档（携两字段）应成功");
+
+    // get 半边：中性快照逐字段一致
+    let got = port
+        .get_change("wt-port-change")
+        .expect("trait 查档应成功")
+        .expect("建档在案");
+    assert_eq!(
+        got.worktree.as_deref(),
+        Some(r"C:\app-data\worktrees\seg\wt-port-change"),
+        "worktree 不在 port 映射面丢失（get）"
+    );
+    assert_eq!(
+        got.base_commit.as_deref(),
+        Some("0000000000000000000000000000000000000001"),
+        "base_commit 不在 port 映射面丢失（get）"
+    );
+
+    // list 半边：同往返
+    let records = port.list_change_records().expect("trait 清单应成功");
+    let listed = records
+        .iter()
+        .find(|record| record.name == "wt-port-change")
+        .expect("清单应含建档行");
+    assert_eq!(
+        listed.worktree, got.worktree,
+        "worktree trait 往返一致（list）"
+    );
+    assert_eq!(
+        listed.base_commit, got.base_commit,
+        "base_commit trait 往返一致（list）"
     );
 }

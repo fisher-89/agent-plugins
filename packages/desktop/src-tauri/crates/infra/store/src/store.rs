@@ -10,15 +10,14 @@ use agent::{
 use native_db::{Builder, Database, Models};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use sha2::{Digest, Sha256};
 use specta::Type;
 
 use crate::canonical;
 use crate::envelope::{self, ModelInfo, RecordEnvelope};
 use crate::model::{
-    dir_name, now_millis, AgentEngineKind, AgentInstanceRecord, AgentProviderRecord,
-    AgentRunRecord, ChangeActivePhase, ChangeRecord, ChecklistItemRecord, ExploreRecord,
-    PhaseRecord, SessionEventRecord, SessionRecord, StepRecord, WorkspaceRecord,
+    now_millis, AgentEngineKind, AgentInstanceRecord, AgentProviderRecord, AgentRunRecord,
+    ChangeActivePhase, ChangeRecord, ChecklistItemRecord, ExploreRecord, PhaseRecord,
+    SessionEventRecord, SessionRecord, StepRecord, WorkspaceRecord,
 };
 use workflow::model::{ChecklistItem, Verdict};
 use workflow::state::{
@@ -79,13 +78,13 @@ fn change_state(record: &ChangeRecord) -> ChangeStateRecord {
                 start_at: active.start_at,
             }
         }),
+        worktree: record.worktree.clone(),
+        base_commit: record.base_commit.clone(),
     }
 }
 
 /// 运行中 phase 中性快照 → 建档记录嵌套结构（映射单点）。
-fn change_active_phase_stored(
-    active: workflow::state::ActivePhaseState,
-) -> ChangeActivePhase {
+fn change_active_phase_stored(active: workflow::state::ActivePhaseState) -> ChangeActivePhase {
     ChangeActivePhase {
         phase: active.phase,
         attempt: active.attempt,
@@ -239,9 +238,7 @@ pub(crate) fn workspace_models() -> &'static Models {
         models
             .define::<ChecklistItemRecord>()
             .expect("定义 ChecklistItemRecord 失败");
-        models
-            .define::<StepRecord>()
-            .expect("定义 StepRecord 失败");
+        models.define::<StepRecord>().expect("定义 StepRecord 失败");
         models
     })
 }
@@ -253,43 +250,16 @@ pub(crate) const GLOBAL_DB_FILE_NAME: &str = "desktop-global.redb";
 /// workspace 库子树目录名（全局数据目录根直下，每 workspace 恰一个 db 文件）。
 pub(crate) const WORKSPACES_DIR_NAME: &str = "workspaces";
 
-/// 可读段截断上限（字符数）：文件名防超长的清洗预算。
-const READABLE_SEGMENT_MAX_CHARS: usize = 24;
-
-/// 文件名非法字符（`/` `\` `:` 路径分隔与盘符、`< > " | ? *` Windows 保留、
-/// 控制字符不可见）：可读段清洗时逐字置换 `_`。
-fn is_illegal_name_char(c: char) -> bool {
-    matches!(c, '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|') || c.is_control()
-}
-
-/// workspace 库文件名可读段（与 `WorkspaceRecord::name` 同源取 `dir_name`
-/// 末段）清洗：非法字符置换 `_` → 按 char boundary 截断 ≤24 字符 → 去尾部
-/// `.` 与空格（Windows 保留语义）；清洗后为空返回 `None`。
-fn readable_segment(canonical_root: &str) -> Option<String> {
-    let cleaned: String = dir_name(canonical_root)
-        .chars()
-        .map(|c| if is_illegal_name_char(c) { '_' } else { c })
-        .collect();
-    let truncated: String = cleaned.chars().take(READABLE_SEGMENT_MAX_CHARS).collect();
-    let trimmed = truncated.trim_end_matches(['.', ' ']);
-    (!trimmed.is_empty()).then(|| trimmed.to_owned())
-}
-
-/// workspace 库文件名派生（**单点**，消费侧零派生逻辑）：`{可读段}-{hash}.redb`
-/// ——哈希 = SHA-256(canonical root UTF-8 字节) 前 16 字节的 32 位小写 hex
-/// （128-bit 抗碰撞，异根必不同名）；可读段 = [`readable_segment`] 清洗结果，
-/// 为空回退纯哈希名。纯函数确定性：同根恒同名、跨重启可复现；文件名不含路径
-/// 分隔符与 OS 非法字符。
+/// workspace 库文件名派生（委托 foundation 身份段单点，消费侧零派生逻辑）：
+/// `{身份段}.redb`——身份段 = `{可读段}-{hash}`（可读段清洗后为空回退纯
+/// 哈希名；算法与实现驻 foundation，db 文件名与 worktree 子目录同源）。
+/// 纯函数确定性：同根恒同名、跨重启可复现；文件名不含路径分隔符与 OS 非
+/// 法字符。
 pub(crate) fn workspace_db_file_name(canonical_root: &str) -> String {
-    let digest = Sha256::digest(canonical_root.as_bytes());
-    let hash: String = digest[..16]
-        .iter()
-        .map(|byte| format!("{byte:02x}"))
-        .collect();
-    match readable_segment(canonical_root) {
-        Some(readable) => format!("{readable}-{hash}.redb"),
-        None => format!("{hash}.redb"),
-    }
+    format!(
+        "{}.redb",
+        foundation::identity::workspace_identity_segment(canonical_root)
+    )
 }
 
 /// workspace 库文件路径派生（收口单点）：`workspaces/` 子树 + 文件名单点。
@@ -1019,10 +989,9 @@ impl Store {
     ) -> Result<ChangeStateRecord, StoreError> {
         if let Some(existing) = self.find_change_record(&record.name)? {
             return Err(match existing.status {
-                ChangeStatus::Active => StoreError::Conflict(format!(
-                    "change 已存在同名建档记录: {}",
-                    existing.name
-                )),
+                ChangeStatus::Active => {
+                    StoreError::Conflict(format!("change 已存在同名建档记录: {}", existing.name))
+                }
                 ChangeStatus::Archived => StoreError::Conflict(format!(
                     "change 名已被归档记录占用（主键 name 不复用）: {}",
                     existing.name
@@ -1036,6 +1005,8 @@ impl Store {
             status: record.status,
             archived_at: record.archived_at,
             active_phase: record.active_phase.map(change_active_phase_stored),
+            worktree: record.worktree,
+            base_commit: record.base_commit,
         };
         let rw = self.db.rw_transaction().map_err(db_err("开启写事务"))?;
         rw.insert(stored.clone()).map_err(db_err("写入建档记录"))?;
@@ -1062,8 +1033,7 @@ impl Store {
     /// 主键直查建档记录（None = 文档形态）。
     pub fn find_change_record(&self, name: &str) -> Result<Option<ChangeStateRecord>, StoreError> {
         let r = self.db.r_transaction().map_err(db_err("开启读事务"))?;
-        let hit: Option<ChangeRecord> =
-            r.get().primary(name).map_err(db_err("读取建档记录"))?;
+        let hit: Option<ChangeRecord> = r.get().primary(name).map_err(db_err("读取建档记录"))?;
         Ok(hit.as_ref().map(change_state))
     }
 
@@ -1152,9 +1122,7 @@ impl Store {
         // attempt 事务内推导（该相位既有条目数 + 1）+ 查重（沿 store 唯一性惯例）
         let attempt = all
             .iter()
-            .filter(|record| {
-                record.change == command.change && record.phase == command.phase
-            })
+            .filter(|record| record.change == command.change && record.phase == command.phase)
             .count() as u32
             + 1;
         if all.iter().any(|record| {
@@ -1188,14 +1156,17 @@ impl Store {
         };
         rw.insert(record).map_err(db_err("写入评估条目"))?;
         for (index, item) in command.checklist.iter().enumerate() {
-            rw.insert(ChecklistItemRecord::new(next_id, index as u32, item.clone()))
-                .map_err(db_err("写入检查项子行"))?;
+            rw.insert(ChecklistItemRecord::new(
+                next_id,
+                index as u32,
+                item.clone(),
+            ))
+            .map_err(db_err("写入检查项子行"))?;
         }
         // 落账即收相位（开相才可落账）
         change_row.active_phase = None;
         rw.upsert(change_row).map_err(db_err("清位 active_phase"))?;
-        rw.commit()
-            .map_err(db_err("提交 log_change_phase 事务"))?;
+        rw.commit().map_err(db_err("提交 log_change_phase 事务"))?;
         Ok(attempt)
     }
 
@@ -1283,9 +1254,7 @@ impl Store {
             .filter(|record| record.change == change && record.phase == phase)
             .max_by_key(|record| (record.timestamp, record.id))
             .ok_or_else(|| {
-                StoreError::NotFound(format!(
-                    "Phase \"{phase}\" 没有评估条目，无法挂账决策会话"
-                ))
+                StoreError::NotFound(format!("Phase \"{phase}\" 没有评估条目，无法挂账决策会话"))
             })?;
         let mut marked = latest;
         marked.decision_session_id = Some(session_id.to_owned());
@@ -1342,11 +1311,14 @@ impl Store {
         let mut items: HashMap<i64, Vec<ChecklistItem>> = HashMap::new();
         // 主键自然序读出：同相位子行自然序即打包键序，重组保序直插
         for record in self.read_all::<ChecklistItemRecord>("遍历检查项子行")? {
-            items.entry(record.phase_id).or_default().push(ChecklistItem {
-                item: record.item,
-                pass: record.pass,
-                evidence: record.evidence,
-            });
+            items
+                .entry(record.phase_id)
+                .or_default()
+                .push(ChecklistItem {
+                    item: record.item,
+                    pass: record.pass,
+                    evidence: record.evidence,
+                });
         }
         Ok(self
             .read_all::<PhaseRecord>("遍历评估条目")?

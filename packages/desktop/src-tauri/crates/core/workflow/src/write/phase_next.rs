@@ -136,9 +136,7 @@ pub fn phase_next(
     }
 
     // 默认路由：全 pass → done；首个未过相位 → 重试上限判定 → 正常下发
-    let all_passed = table
-        .iter()
-        .all(|def| has_phase_passed(&entries, def.id));
+    let all_passed = table.iter().all(|def| has_phase_passed(&entries, def.id));
     if all_passed {
         return Ok(PhaseNextOutcome {
             done: true,

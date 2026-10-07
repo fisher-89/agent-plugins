@@ -85,10 +85,13 @@ pub(crate) async fn agent_start_with<R: tauri::Runtime>(
         workspace_root: Path::new(&root).to_path_buf(),
         permission_mode,
     };
-    // 调用段：组合根 + 内核（解析/快照/编排全部下沉；命令体零解析残留）
+    // 调用段：组合根 + 内核（解析/快照/编排全部下沉；命令体零解析残留）。
+    // store 半边注入 workspace root 库实例（compose 拆参，design D8；会话仍
+    // 主 root——exec / explore 轨道与 change 域工作面分离，D7 拍板）
     let stores = app.state::<WorkspaceStores>();
     let registry = app.state::<Arc<StopRegistry>>();
-    let composed = compose_turn(stores.inner(), Arc::clone(registry.inner()), &root, agent)?;
+    let store = stores.for_root(&root).map_err(|e| e.to_string())?;
+    let composed = compose_turn(stores.inner(), Arc::clone(registry.inner()), store, agent)?;
     let running = composed.begin(session, prompt, ctx, provenance)?;
     // 后台转发任务：内核泵输出 → Channel（事件与终态同构流出）；提前 resolve
     // 返回 running 态轮行（id 立即可知），终态 MUST NOT 依赖 invoke 返回

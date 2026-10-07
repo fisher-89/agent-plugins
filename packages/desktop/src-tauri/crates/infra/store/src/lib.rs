@@ -7,8 +7,8 @@ mod store;
 pub use envelope::{ModelInfo, RecordEnvelope};
 pub use model::{
     AgentEngineKind, AgentInstanceRecord, AgentModelTiers, AgentProviderRecord, AgentRunRecord,
-    ChangeActivePhase, ChangeRecord, ChecklistItemRecord, ExploreRecord, PhaseRecord, StepRecord,
-    SessionConfigSnapshot, SessionEventRecord, SessionRecord, WorkspaceRecord,
+    ChangeActivePhase, ChangeRecord, ChecklistItemRecord, ExploreRecord, PhaseRecord,
+    SessionConfigSnapshot, SessionEventRecord, SessionRecord, StepRecord, WorkspaceRecord,
 };
 pub use store::{DbDimension, Store, StoreError, WorkspaceStores};
 

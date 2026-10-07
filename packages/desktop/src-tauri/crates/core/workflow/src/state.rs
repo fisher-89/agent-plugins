@@ -86,6 +86,12 @@ pub struct ChangeStateRecord {
     pub archived_at: Option<i64>,
     /// 运行中 phase（开相在位、落账清位）
     pub active_phase: Option<ActivePhaseState>,
+    /// 该 change 分配的 worktree 绝对路径（执行锚）；`None` = legacy 主 root
+    /// change。**执行锚引用**，MUST NOT 反向参与库身份派生（`for_root` 恒以
+    /// workspace root 为锚——双 root 不变量）。
+    pub worktree: Option<String>,
+    /// 创建基线 fork 点（主仓 HEAD，建域时铸出）；调试 / UI 价值。
+    pub base_commit: Option<String>,
 }
 
 /// 相位评估条目中性快照（`PhaseRecord` 行 + checklist 子行内联重组的 port
@@ -256,8 +262,12 @@ pub trait ChangeStateStore: Send + Sync {
 
     /// 写 active_phase（attempt 写事务内推导 = 该相位既有条目数 + 1）；miss
     /// → [`StoreFault::NotFound`]。
-    fn start_phase(&self, change: &str, phase: &str, now: i64)
-    -> Result<PhaseStartState, StoreFault>;
+    fn start_phase(
+        &self,
+        change: &str,
+        phase: &str,
+        now: i64,
+    ) -> Result<PhaseStartState, StoreFault>;
 
     /// 落账单事务原子（PhaseRecord 行 + checklist 子行 + active_phase 清位 +
     /// `(change, phase, attempt)` 查重），返回事务内推导的 attempt。

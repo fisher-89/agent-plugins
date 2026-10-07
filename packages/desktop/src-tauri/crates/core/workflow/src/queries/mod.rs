@@ -8,12 +8,12 @@ pub use detail::{change_detail, AttemptRecord, ChangeDetail, PhaseEntry};
 pub use explore::{read_explore, scan_explores, ExploreDoc, ExploreScanEntry};
 pub use list::{list_changes, ArchiveGroup, ChangeList, ChangeSource, ChangeSummary};
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
 
-use foundation::layout::Layout;
+use foundation::layout::{resolve, Layout};
 
 /// change 目录在 workspace 中的定位结果。
 #[derive(Debug, Clone)]
@@ -22,11 +22,17 @@ pub struct ChangeLocation {
     pub source: ChangeSource,
 }
 
-/// 按名称在 active 与 archive 两棵树中定位 change 目录：active 树精确名 →
-/// archive 树精确名 → archive 树日期前缀后缀匹配（db 名 `foo` ↔
-/// `YYYY-MM-DD-foo`，归档改名后 db 名不变可达）；名称必须是单个普通目录名
-///（拒绝路径穿越），未知名称返回 `None`。
-pub fn locate_change(layout: &Layout, name: &str) -> Option<ChangeLocation> {
+/// 按名称定位 change 目录：解析链四级（design D12）——主仓 active 树精确名
+/// → archive 树精确名 → archive 树日期前缀后缀匹配（db 名 `foo` ↔
+/// `YYYY-MM-DD-foo`，归档改名后 db 名不变可达）→ **worktree 回退**
+///（`resolve(worktree).changes_root/<name>` is_dir → `ChangeSource::Active`
+/// ——merge 前主仓两树必然未命中，worktree change 经记录回退可达）；名称
+/// 必须是单个普通目录名（拒绝路径穿越），未知名称返回 `None`。
+pub fn locate_change(
+    layout: &Layout,
+    worktree: Option<&str>,
+    name: &str,
+) -> Option<ChangeLocation> {
     if !is_single_component_name(name) {
         return None;
     }
@@ -44,11 +50,22 @@ pub fn locate_change(layout: &Layout, name: &str) -> Option<ChangeLocation> {
             source: ChangeSource::Archive,
         });
     }
-    let prefixed = locate_prefixed_archive_dir(layout, name)?;
-    Some(ChangeLocation {
-        dir: prefixed,
-        source: ChangeSource::Archive,
-    })
+    if let Some(prefixed) = locate_prefixed_archive_dir(layout, name) {
+        return Some(ChangeLocation {
+            dir: prefixed,
+            source: ChangeSource::Archive,
+        });
+    }
+    // worktree 回退：带 worktree 记录的 change（merge 前）目录在 worktree 内
+    let worktree_root = worktree?;
+    let worktree_dir = resolve(Path::new(worktree_root)).changes_root.join(name);
+    if worktree_dir.is_dir() {
+        return Some(ChangeLocation {
+            dir: worktree_dir,
+            source: ChangeSource::Active,
+        });
+    }
+    None
 }
 
 /// archive 树日期前缀后缀匹配：目录名 = `YYYY-MM-DD-<name>` 且前缀为合法
@@ -87,8 +104,7 @@ pub(crate) fn is_single_component_name(name: &str) -> bool {
 pub(crate) fn iso_from_millis(millis: i64) -> String {
     let secs = if millis < 0 { 0 } else { millis / 1000 };
     let millis_part = if millis < 0 { 0 } else { millis % 1000 };
-    let timestamp =
-        OffsetDateTime::from_unix_timestamp(secs).unwrap_or(OffsetDateTime::UNIX_EPOCH);
+    let timestamp = OffsetDateTime::from_unix_timestamp(secs).unwrap_or(OffsetDateTime::UNIX_EPOCH);
     timestamp
         .replace_millisecond(millis_part as u16)
         .unwrap_or(timestamp)

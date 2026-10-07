@@ -138,7 +138,12 @@ fn 空切片与越界下标均不产出信封() {
     assert!(EvalChecklistPlugin.parse(&input_eval).is_none());
 
     // 非空切片下越界下标同样不产出（matches / parse 双入口）
-    let phases = vec![entry("proposal", 1, Verdict::Pass, vec![item("项", true, "据")])];
+    let phases = vec![entry(
+        "proposal",
+        1,
+        Verdict::Pass,
+        vec![item("项", true, "据")],
+    )];
     let candidate_oob = ArtifactCandidate::EvalEntry { index: 7 };
     let input_oob = ArtifactInput {
         change_dir: Path::new("/unused"),
