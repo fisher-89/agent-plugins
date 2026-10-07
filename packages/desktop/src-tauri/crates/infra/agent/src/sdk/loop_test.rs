@@ -865,7 +865,7 @@ async fn 流帧空闲悬挂时活性护栏超时失败收敛api_error不悬挂()
 }
 
 // ---------------------------------------------------------------------------
-// 空轮 / 熔断语义
+// 空轮 / 轮数无上限语义
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
@@ -898,10 +898,11 @@ async fn 空流轮以正常收敛防死循环不悬挂() {
 }
 
 #[tokio::test]
-async fn 连续被拒工具轮耗尽上限时熔断收敛error_max_turns() {
-    let dir = tempdir("max-turns");
-    // default 档 write 工具恒被 policy 拒绝（无 IO，50 轮快速耗尽）
-    let turns: Vec<Vec<MockStreamEvent>> = (0..50)
+async fn 超过旧熔断手数的工具轮持续驱动至自然收敛() {
+    let dir = tempdir("no-max-turns");
+    // default 档 write 工具恒被 policy 拒绝（无 IO）：60 轮被拒工具轮（越过
+    // 旧 50 轮熔断线）后模型给出纯文本轮 → 正常收敛（轮数不设上限）
+    let mut turns: Vec<Vec<MockStreamEvent>> = (0..60)
         .map(|_| {
             vec![
                 raw_tool_call(
@@ -913,6 +914,7 @@ async fn 连续被拒工具轮耗尽上限时熔断收敛error_max_turns() {
             ]
         })
         .collect();
+    turns.push(vec![raw_text("收尾"), raw_final(usage(1, 1))]);
     let model = FakeModel::with_turns(turns);
     let handle = RunHandle::default();
 
@@ -925,22 +927,29 @@ async fn 连续被拒工具轮耗尽上限时熔断收敛error_max_turns() {
 
     let notices = notices_of(&events);
     assert!(
-        notices.len() == 51
-            && notices[..50]
+        notices.len() == 60
+            && notices
                 .iter()
-                .all(|(subtype, _)| *subtype == "permission_denied")
-            && notices[50].0 == "api_error",
-        "50 轮 permission_denied（无 IO 快速拒绝）+ 熔断记因一条，实际: {:?}",
+                .all(|(subtype, _)| *subtype == "permission_denied"),
+        "60 轮 permission_denied（无 IO 快速拒绝）无熔断记因，实际: {:?}",
         notices.iter().map(|(s, _)| *s).collect::<Vec<_>>()
     );
     let AgentEventKind::TurnDone {
-        subtype, is_error, ..
+        subtype,
+        is_error,
+        num_turns,
+        ..
     } = turn_done_of(&events)
     else {
         panic!("应为 TurnDone");
     };
-    assert_eq!(subtype, "error_max_turns", "轮数熔断 subtype 区分成因");
-    assert!(*is_error, "熔断以失败收敛");
+    assert_eq!(subtype, "success", "文本轮以正常收敛收口");
+    assert!(!*is_error);
+    assert_eq!(
+        *num_turns,
+        Some(61),
+        "61 轮驱动（60 被拒工具轮 + 1 文本轮），旧 50 轮上限不再截停"
+    );
 }
 
 // ---------------------------------------------------------------------------

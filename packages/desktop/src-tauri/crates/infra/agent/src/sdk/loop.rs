@@ -14,9 +14,6 @@ use crate::sdk::context::{ContextDefense, DefenseNotice};
 use crate::sdk::log::append_engine_log;
 use crate::sdk::{compact, context, normalize, policy, preamble, sandbox, tools};
 
-/// 轮数上限（熔断）：模型持续要求工具而不收敛时以失败收敛，防失控烧 token。
-const MAX_TURNS: u64 = 50;
-
 /// 正常收敛 / 失败收敛的 `TurnDone.subtype`（core 协议收敛事件口径）。
 const SUBTYPE_SUCCESS: &str = "success";
 
@@ -113,7 +110,11 @@ pub(crate) async fn run(
     }
     history.push(Message::user(turn.question.clone()));
 
-    for turn_index in 1..=MAX_TURNS {
+    // 轮驱动主循环：不设轮数上限（change 任务重型 phase agent 的工具轮数
+    // 远超手数启发，熔断误伤正常收敛）；失控防护交停止信号、活性护栏与
+    // 空轮收敛三线
+    let mut turn_index: u64 = 1;
+    loop {
         // 轮间空档停止检查（泵 select 之外的快速路径）
         if handle.stop_requested() {
             append_engine_log(&format!(
@@ -369,19 +370,8 @@ pub(crate) async fn run(
                 content,
             ));
         }
+        turn_index += 1;
     }
-    // 轮数熔断：以失败收敛（模型持续要求工具不收敛）
-    finish_error(
-        &sender,
-        MAX_TURNS,
-        started,
-        &usage,
-        turn,
-        "error_max_turns",
-        format!("轮数达到上限 {MAX_TURNS} 仍未收敛"),
-    )
-    .await;
-    history
 }
 
 /// 拒绝合成：`SystemNotice{subtype}` + is_error ToolResult 密封 tool 消息
@@ -530,9 +520,9 @@ async fn finish_success(
 }
 
 /// 失败收敛：`SystemNotice{api_error}` 记因 + `TurnDone{is_error:true}`
-/// （`result_subtype` 区分成因：API 失败 `api_error`、轮数熔断
-/// `error_max_turns`——core 协议收敛事件的命名口径）。记因同落引擎异常
-/// 日志（消费端已关时事件面失声，日志面保观测）。
+/// （`result_subtype` 记成因，现行唯一成因 `api_error`——core 协议收敛事件
+/// 的命名口径）。记因同落引擎异常日志（消费端已关时事件面失声，日志面保
+/// 观测）。
 async fn finish_error(
     sender: &mpsc::Sender<AgentEventKind>,
     turns: u64,
