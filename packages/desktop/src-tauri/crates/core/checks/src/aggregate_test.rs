@@ -4,7 +4,7 @@ use config::{MutationConfig, TestFramework, TestSuite};
 
 use crate::aggregate::{
     aggregate_coverage, build_summary_report, coverage_meets_thresholds, derive_plan_id,
-    determine_conclusion,
+    determine_conclusion, in_suite_scope,
 };
 use crate::model::{
     CaseSummary, Conclusion, CoverageBlock, CoverageMeasured, CoverageThresholds, MutationBlock,
@@ -503,6 +503,57 @@ fn suite_glob不命中_override组不产条目() {
     assert!(
         !result.pass,
         "全局实测 lines 50% 低于 80% 阈值（无 override 组时的纯全局判定）"
+    );
+}
+
+/// 花括号方言（CLI picomatch `{a,b}` 交替）：includes / excludes 花括号形态
+/// 经共享 `globmatch` 展开——override 圈定面与本仓库 config 同形模式对齐。
+#[test]
+fn suite范围_花括号includes与excludes() {
+    let suites = vec![suite(
+        "app",
+        TestFramework::VitePlus,
+        config_thresholds(80.0, 70.0, 75.0),
+        Some(vec!["src/**/*.{ts,tsx}".to_owned()]),
+        Some(vec!["src/{legacy,old}/**".to_owned()]),
+    )];
+    let scoped = |path: &str| in_suite_scope(path, &suites[0], &suites);
+
+    assert!(scoped("app/src/a.ts"), "includes 花括号 .ts 选枝命中");
+    assert!(
+        scoped("app/src/nested/b.tsx"),
+        "includes 花括号 .tsx 选枝命中"
+    );
+    assert!(!scoped("app/src/c.md"), "非选枝扩展不命中");
+    assert!(!scoped("app/src/legacy/x.ts"), "excludes 花括号剪除");
+    assert!(!scoped("app/src/old/y.tsx"), "excludes 花括号剪除");
+    assert!(!scoped("other/src/a.ts"), "root 树外不命中");
+}
+
+/// 缺省 glob 花括号形态命中（jest / vitest / vite-plus 档镜像
+/// `**/*.{test,spec}.{js,ts,jsx,tsx}`——修复前引擎无交替方言恒零命中，
+/// 逐文件 override 圈定静默失效）。
+#[test]
+fn suite范围_缺省glob花括号命中() {
+    let suites = vec![suite(
+        "app",
+        TestFramework::VitePlus,
+        config_thresholds(80.0, 70.0, 75.0),
+        None,
+        None,
+    )];
+
+    assert!(
+        in_suite_scope("app/src/a.test.ts", &suites[0], &suites),
+        "缺省 glob .test.ts 命中"
+    );
+    assert!(
+        in_suite_scope("app/src/b.spec.tsx", &suites[0], &suites),
+        "缺省 glob .spec.tsx 命中"
+    );
+    assert!(
+        !in_suite_scope("app/src/c.ts", &suites[0], &suites),
+        "非测试命名不命中"
     );
 }
 

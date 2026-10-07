@@ -1,5 +1,6 @@
 pub mod aggregate;
 pub mod diagnose;
+pub mod globmatch;
 pub mod model;
 pub mod parser;
 pub mod reuse;
@@ -25,6 +26,8 @@ pub use reuse::is_reusable;
 mod aggregate_test;
 #[cfg(test)]
 mod diagnose_test;
+#[cfg(test)]
+mod globmatch_test;
 #[cfg(test)]
 mod model_test;
 #[cfg(test)]

@@ -98,8 +98,9 @@ fn probe_tree(ws: &TempWs) {
     ws.write("crates/src/lib.rs", "not under tests glob");
 }
 
-/// brace-free 测试文件 glob（`glob` crate 不展开花锳——见模块注记）。
-const TS_TESTS_GLOB: &str = "**/*.test.ts";
+/// 测试文件 glob（花括号交替形态——本仓库 config 同形；方言经
+/// `checks::globmatch` 展开对齐 CLI picomatch 语义）。
+const TS_TESTS_GLOB: &str = "**/*.{test,spec}.{ts,tsx}";
 
 /// PATH 隔离窗口（RAII）
 struct PathWindow {
@@ -267,8 +268,8 @@ fn 五框架注册表常量与cli逐字对齐() {
 // detect_plans：探测矩阵
 // ---------------------------------------------------------------------------
 
-/// 正向：tempdir 树 + vite-plus 形态 suite 配置（brace-free includes 命中
-/// 样本文件）→ TestPlan 产出（id 沿 colocated 命名映射、cwd、
+/// 正向：tempdir 树 + vite-plus 形态 suite 配置（花括号 includes 命中样本
+/// 文件）→ TestPlan 产出（id 沿 colocated 命名映射、cwd、
 /// coverage_format=istanbul、excludes 过滤 + dot 目录剪枝后的文件清单）。
 #[tokio::test]
 async fn vite_plus_suite探测_清单排除与剪枝() {
@@ -342,7 +343,7 @@ async fn config注入_旗标与绝对posix路径拼接() {
 }
 
 /// 正向：rust suite → plan（coverage_format=llvm-cov、命令模板与 CLI 同源、
-/// default_glob 圈定 tests 树——brace-free 缺省 glob 可直接命中）。
+/// default_glob 圈定 tests 树——rust 档缺省 glob 天然无花括号）。
 #[tokio::test]
 async fn rust_suite探测_llvm_cov档() {
     let _window = PathWindow::enter();
@@ -378,6 +379,61 @@ async fn rust_suite探测_llvm_cov档() {
     assert!(
         plan.config_args.is_none(),
         "rust 不支持配置注入（未声明即无）"
+    );
+}
+
+/// 回归锚（vite-plus 静默跳过缺陷面）：缺省 default_glob 花括号形态
+/// （`**/*.{test,spec}.{js,ts,jsx,tsx}`）命中 .test / .spec 多扩展样本 →
+/// suite 产 plan（修复前 `glob` crate 无交替方言恒零命中 → 静默不产 plan，
+/// 与 CLI plan 集漂移）。
+#[tokio::test]
+async fn 缺省glob花括号形态命中_产plan不静默跳过() {
+    let _window = PathWindow::enter();
+    let ws = TempWs::new("default-brace");
+    ws.write("app/src/a.test.ts", "test");
+    ws.write("app/src/b.spec.tsx", "test");
+    ws.write("app/src/c.test.js", "test");
+    ws.write("app/src/d.notes.md", "not a test");
+
+    let suites = vec![suite("app", TestFramework::VitePlus, None, None, None)];
+    let plans = detect_plans(ws.root(), &suites).expect("缺省 glob 花括号形态应探测成功");
+
+    assert_eq!(plans.len(), 1, "命中样本在场 → 产 plan（修复前静默跳过）");
+    assert_eq!(
+        plans[0].files,
+        vec!["src/a.test.ts", "src/b.spec.tsx", "src/c.test.js"],
+        "交替选枝 .test / .spec 与 .ts / .tsx / .js 全命中；非测试扩展不命中"
+    );
+}
+
+/// 花括号方言 includes / excludes 双面 + 依赖目录剪枝（node_modules / dist
+/// ——CLI `collectFiles` excludedDirs 同集的非 dot 成员）。
+#[tokio::test]
+async fn 花括号includes与excludes_依赖目录剪枝() {
+    let _window = PathWindow::enter();
+    let ws = TempWs::new("brace-dialect");
+    ws.write("app/src/a.ts", "hit");
+    ws.write("app/src/b.tsx", "hit");
+    ws.write("app/src/legacy/x.ts", "brace excludes");
+    ws.write("app/src/old/y.ts", "brace excludes");
+    ws.write("app/node_modules/pkg/z.ts", "依赖目录剪枝");
+    ws.write("app/dist/w.tsx", "依赖目录剪枝");
+    ws.write("app/src/notes.md", "不命中");
+
+    let suites = vec![suite(
+        "app",
+        TestFramework::VitePlus,
+        Some(vec!["**/*.{ts,tsx}".to_owned()]),
+        Some(vec!["src/{legacy,old}/**".to_owned()]),
+        None,
+    )];
+    let plans = detect_plans(ws.root(), &suites).expect("花括号方言应探测成功");
+
+    assert_eq!(plans.len(), 1);
+    assert_eq!(
+        plans[0].files,
+        vec!["src/a.ts", "src/b.tsx"],
+        "includes 花括号命中；excludes 花括号剪除 legacy / old；node_modules / dist 剪枝"
     );
 }
 

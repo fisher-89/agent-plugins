@@ -2,6 +2,8 @@ use time::OffsetDateTime;
 
 use config::TestSuite;
 
+use crate::globmatch::match_glob;
+
 use crate::model::{
     CaseSummary, Conclusion, CoverageBlock, CoverageMeasured, CoverageOverride, CoverageThresholds,
     MutationBlock, MutationMeasured, PlanIndexEntry, Problem, ProblemType, SourceFileEntry,
@@ -258,31 +260,10 @@ fn to_thresholds(coverage: &config::CoverageThresholds) -> CoverageThresholds {
 }
 
 // ---------------------------------------------------------------------------
-// suite 范围匹配（CLI isInSuiteScope / isExcludedBySuite 同语义纯移植）
+// suite 范围匹配（CLI isInSuiteScope / isExcludedBySuite 同语义纯移植；
+// glob 匹配经 crate::globmatch——CLI `matchGlob` 同语义 + 花括号交替方言，
+// detect 与本模块共用实现）
 // ---------------------------------------------------------------------------
-
-/// glob 匹配选项（picomatch `{ dot: true }` 对齐：`*` 不跨路径分隔符、
-/// dot 文件可匹配）。
-fn match_options() -> glob::MatchOptions {
-    glob::MatchOptions {
-        case_sensitive: true,
-        require_literal_separator: true,
-        require_literal_leading_dot: false,
-    }
-}
-
-/// glob 匹配（CLI `matchGlob` 同语义）：无通配符模式按目录前缀匹配，含
-/// 通配符模式经 `glob::Pattern` 全匹配。
-fn match_glob(path: &str, pattern: &str) -> bool {
-    let pattern = to_forward_slash(pattern);
-    if !pattern.contains(['*', '?', '{', '[']) {
-        let path = to_forward_slash(path);
-        return path == pattern || path.starts_with(&format!("{pattern}/"));
-    }
-    glob::Pattern::new(&pattern)
-        .map(|compiled| compiled.matches_with(&to_forward_slash(path), match_options()))
-        .unwrap_or(false)
-}
 
 /// POSIX 正斜杠归一。
 fn to_forward_slash(path: &str) -> String {

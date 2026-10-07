@@ -72,12 +72,14 @@ impl ChainWs {
         let root = tmp.path();
 
         // config：node-test suite，root app，阈值 60/70/75（实测 82.5 达阈）；
-        // includes brace-free（`glob` crate 不展开花锳——见 detect_test 注记）
+        // includes 缺省吃注册表 default_glob 花括号形态
+        // （`**/*.test.{mjs,js,cjs}`）——全链经 checks::globmatch 展开对齐
+        // CLI picomatch 方言
         let config_dir = root.join("openspec");
         fs::create_dir_all(&config_dir).expect("创建 openspec 目录");
         fs::write(
             config_dir.join("config.json"),
-            r#"{ "tests": [ { "root": "app", "framework": "node-test", "includes": ["**/*.test.mjs"], "coverage": { "lines": 60, "branches": 70, "functions": 75 } } ] }"#,
+            r#"{ "tests": [ { "root": "app", "framework": "node-test", "coverage": { "lines": 60, "branches": 70, "functions": 75 } } ] }"#,
         )
         .expect("写 config 失败");
 
