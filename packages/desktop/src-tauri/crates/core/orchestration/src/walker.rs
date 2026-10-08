@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use agent::{AgentPermissionMode, AgentRunStatus, SessionProvenance};
+use agent::{AgentPermissionMode, AgentRunStatus, ModelLevel, SessionProvenance};
 use workflow::model::ChecklistItem;
 use workflow::queries::ChangeDetail;
 use workflow::write::{
@@ -172,7 +172,24 @@ async fn drive(
         // 会话，executor / evaluator 会话与 verdict 解析门全部跳过）；其余相位
         // 走 executor / evaluator 会话主链
         if TEST_EXECUTION_PHASES.contains(&phase.as_str()) {
-            match test_execution_loop(worker, tools, guard, request, &phase, attempt).await {
+            // 修复边续注 executor 会话：等级随相位表 executor spec（缺 executor
+            // 定义的漂移形态退 High 档）
+            let executor_level = next
+                .executor
+                .as_ref()
+                .map(|spec| spec.model_level)
+                .unwrap_or_default();
+            match test_execution_loop(
+                worker,
+                tools,
+                guard,
+                request,
+                &phase,
+                attempt,
+                executor_level,
+            )
+            .await
+            {
                 Ok(TestExecutionFlow::Proceed) => {}
                 Ok(TestExecutionFlow::Upgraded) => continue, // fail 已落账，回 phase-next 分叉
                 Err(terminal) => return terminal.into_pair(),
@@ -193,6 +210,7 @@ async fn drive(
                     attempt,
                     WorkerRole::Executor,
                     prompt,
+                    executor.model_level,
                     None,
                 )
                 .await
@@ -211,6 +229,7 @@ async fn drive(
                         phase: &phase,
                         attempt,
                         executor_session: outcome.session_id.clone(),
+                        model_level: executor.model_level,
                     };
                     match static_check_loop(loop_in).await {
                         Ok(StaticCheckFlow::Proceed) => {}
@@ -232,6 +251,7 @@ async fn drive(
                 attempt,
                 WorkerRole::Evaluator,
                 eval_prompt,
+                evaluator.model_level,
                 None,
             )
             .await
@@ -342,6 +362,8 @@ struct FeedbackLoop<'a> {
     phase: &'a str,
     attempt: u32,
     executor_session: String,
+    /// 续注 executor 会话的模型档位（反馈边不换档）
+    model_level: ModelLevel,
 }
 
 /// ④ static-check 定向反馈边：失败诊断 Continue 注入同一 executor 会话修复
@@ -356,6 +378,7 @@ async fn static_check_loop(loop_in: FeedbackLoop<'_>) -> Result<StaticCheckFlow,
         phase,
         attempt,
         executor_session,
+        model_level,
     } = loop_in;
     let mut feedback: u32 = 0;
     loop {
@@ -424,6 +447,7 @@ async fn static_check_loop(loop_in: FeedbackLoop<'_>) -> Result<StaticCheckFlow,
             attempt,
             WorkerRole::Executor,
             fix_prompt,
+            model_level,
             Some(executor_session.clone()),
         )
         .await?;
@@ -732,6 +756,8 @@ async fn decision_session(
             input.attempt,
             WorkerRole::Decision,
             prompt.clone(),
+            // 决策 agent 恒 High 档（重试上限分叉的决策质量面）
+            ModelLevel::High,
             continue_session.clone(),
         )
         .await?;
@@ -856,6 +882,7 @@ async fn run_worker(
     attempt: u32,
     role: WorkerRole,
     prompt: String,
+    model_level: ModelLevel,
     continue_session: Option<String>,
 ) -> Result<WorkerTurnOutcome, Terminal> {
     let kind = match role {
@@ -886,6 +913,7 @@ async fn run_worker(
             )),
         },
         permission: AgentPermissionMode::BypassPermissions,
+        model_level,
         continue_session,
         agent: None,
         role,
@@ -1015,7 +1043,8 @@ enum TestExecutionFlow {
     Upgraded,
 }
 
-/// test-execution 相位确定性门禁循环
+/// test-execution 相位确定性门禁循环（`model_level` 随相位表 executor spec——
+/// 修复边续注 executor 会话不换档）
 async fn test_execution_loop(
     worker: &Arc<dyn WorkerAgentPort>,
     tools: &Arc<dyn ToolStepPort>,
@@ -1023,6 +1052,7 @@ async fn test_execution_loop(
     request: &RunRequest,
     phase: &str,
     attempt: u32,
+    model_level: ModelLevel,
 ) -> Result<TestExecutionFlow, Terminal> {
     let mut feedback: u32 = 0;
     let mut fix_session: Option<String> = None;
@@ -1086,9 +1116,9 @@ async fn test_execution_loop(
         feedback += 1;
         let fix_prompt = format!(
             "测试执行未通过（第 {feedback}/{TEST_EXECUTION_FEEDBACK_LIMIT} 次反馈修复，conclusion={}），\
-             请修复以下问题后重新提交：\n\n{}\n\n全量诊断与用例明细见报告目录：{}",
+             请根据以下结果明细修复后重新提交：\n\n{}\n\n全量报告见目录：{}",
             outcome.conclusion.as_str(),
-            outcome.findings_brief,
+            outcome.findings_detail,
             outcome.report_dir
         );
         let turn = run_worker(
@@ -1099,6 +1129,7 @@ async fn test_execution_loop(
             attempt,
             WorkerRole::Executor,
             fix_prompt,
+            model_level,
             fix_session.clone(),
         )
         .await?;

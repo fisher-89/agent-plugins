@@ -6,6 +6,7 @@ edition = "2021"
 # change 状态域 crate（写面 + 读面 + 状态缝）：禁 Tauri 依赖、无指令（exec）
 # 概念、零 infra/store 依赖（落库经 `state::ChangeStateStore` port 缝由壳层装配）
 [dependencies]
+agent = { workspace = true }
 foundation = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

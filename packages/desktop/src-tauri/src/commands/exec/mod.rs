@@ -12,8 +12,8 @@ use tauri::{AppHandle, Manager, State};
 // `mod agent`（本地薄包装模块）与外部 `agent` 契约 crate 同名：外部 crate
 // 以 `::agent::` 显式消歧
 use ::agent::{
-    KernelOutput, SessionCtx, SessionProvenance, SessionRef, SessionSummary, StopRegistry,
-    TurnSummary,
+    KernelOutput, ModelLevel, SessionCtx, SessionProvenance, SessionRef, SessionSummary,
+    StopRegistry, TurnSummary,
 };
 use agent_runtime::compose_turn;
 use store::WorkspaceStores;
@@ -84,6 +84,8 @@ pub(crate) async fn agent_start_with<R: tauri::Runtime>(
     let ctx = SessionCtx {
         workspace_root: Path::new(&root).to_path_buf(),
         permission_mode,
+        // exec / explore 轨道恒 High 档
+        model_level: ModelLevel::High,
     };
     // 调用段：组合根 + 内核（解析/快照/编排全部下沉；命令体零解析残留）。
     // store 半边注入 workspace root 库实例（compose 拆参，design D8；会话仍

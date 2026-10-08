@@ -1,11 +1,8 @@
-//! `write::phase_table` 的单元测试（test-design「phase_table.rs ->
-//! phase_table_test.rs」节）：requirement 相位表全表对照（移植面——AC-9 对照
-//! 口径）、非 requirement 拒绝（W8 写面侧依据）、重试上限常量锚、占位符插值
-//! 语义、backtrack 白名单计算。无进程边界依赖：相位表为内置静态数据、
-//! interpolate / 白名单为纯函数，纯字符串与静态表入参内存构造（Mock策略：
-//! 无 mock）。
+use agent::ModelLevel;
 
-use super::phase_table::{allowed_backtrack_phases, interpolate, phase_table, MAX_RETRY_TIMES};
+use super::phase_table::{
+    allowed_backtrack_phases, interpolate, phase_table, PhaseAgentSpec, MAX_RETRY_TIMES,
+};
 
 /// 插件 requirement 相位表表序（与 `lib/workflow.ts` PHASES 一比一——AC-9
 /// 逐项对照口径）。
@@ -97,6 +94,54 @@ fn phase_table_非requirement类型拒绝返回none() {
             "workflow_type \"{workflow_type}\" 应拒绝（None）"
         );
     }
+}
+
+#[test]
+fn phase_table各相位模型档位分派对照() {
+    let table = phase_table("requirement").expect("requirement 应返回 Some");
+    let expected: &[(&str, Option<ModelLevel>, Option<ModelLevel>)] = &[
+        ("proposal", Some(ModelLevel::High), Some(ModelLevel::High)),
+        ("dev-design", Some(ModelLevel::High), Some(ModelLevel::High)),
+        (
+            "test-design",
+            Some(ModelLevel::High),
+            Some(ModelLevel::High),
+        ),
+        ("implement", Some(ModelLevel::Low), Some(ModelLevel::High)),
+        ("test-gen", Some(ModelLevel::Low), Some(ModelLevel::High)),
+        (
+            "test-execution",
+            Some(ModelLevel::Low),
+            Some(ModelLevel::Low),
+        ),
+        ("code-review", None, Some(ModelLevel::High)),
+        ("acceptance", None, Some(ModelLevel::High)),
+    ];
+    for def in table {
+        let (_, executor_level, evaluator_level) = expected
+            .iter()
+            .find(|(phase, _, _)| *phase == def.id)
+            .unwrap_or_else(|| panic!("对照表缺相位 {}", def.id));
+        assert_eq!(
+            def.executor.as_ref().map(|spec| spec.model_level),
+            *executor_level,
+            "相位 {} executor 档位",
+            def.id
+        );
+        assert_eq!(
+            def.evaluator.as_ref().map(|spec| spec.model_level),
+            *evaluator_level,
+            "相位 {} evaluator 档位",
+            def.id
+        );
+    }
+    // PhaseAgentSpec 档位字段随 Clone 派生保持（相位表驻留 'static 只读共享）
+    let spec = table[0]
+        .executor
+        .clone()
+        .unwrap_or_else(|| panic!("首相位有 executor"));
+    let PhaseAgentSpec { model_level, .. } = &spec;
+    assert_eq!(*model_level, ModelLevel::High, "Clone 后档位保真");
 }
 
 #[test]

@@ -606,11 +606,9 @@ impl StepRecord {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct AgentModelTiers {
-    /// high 档模型标识（运行发起解析消费档）
     pub high: String,
     /// medium 档模型标识（本期只存不选）
     pub medium: String,
-    /// low 档模型标识（本期只存不选）
     pub low: String,
 }
 

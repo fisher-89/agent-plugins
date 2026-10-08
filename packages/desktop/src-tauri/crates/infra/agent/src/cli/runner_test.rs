@@ -6,8 +6,8 @@ use tokio::io::{AsyncWriteExt, BufReader};
 use tokio::sync::mpsc;
 
 use agent::{
-    AgentEvent, AgentEventKind, AgentMessageRole, AgentPermissionMode, AgentRunner, RunHandle,
-    SessionCtx, SessionInjections, SessionOpen, SessionRef, TurnQuestion,
+    AgentEvent, AgentEventKind, AgentMessageRole, AgentPermissionMode, AgentRunner, ModelLevel,
+    RunHandle, SessionCtx, SessionInjections, SessionOpen, SessionRef, TurnQuestion,
 };
 
 use crate::runner::{pump_lines, ClaudeCliRunner};
@@ -260,6 +260,7 @@ fn open_with(cwd: PathBuf) -> SessionOpen {
         ctx: SessionCtx {
             workspace_root: cwd,
             permission_mode: AgentPermissionMode::BypassPermissions,
+            model_level: ModelLevel::High,
         },
         session: SessionRef::New,
         prior_handle: Some("s-resume-1".to_owned()),

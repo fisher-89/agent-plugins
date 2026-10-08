@@ -1,12 +1,3 @@
-//! `identity` 的单元测试（test-design「identity.rs -> identity_test.rs」节）：
-//! workspace 身份段清洗算法行为平移（自 store_test「派生单点纯函数可读段
-//! 清洗_截断_非法字符_尾点空格与空回退」整体迁移——算法与参数逐字平移，
-//! 断言零丢失）；哈希半边以 sha2 独立对拍 + 固定期望向量钉死跨实现稳定。
-//!
-//! 同源锚注记：db 文件名（store 半边）与 worktree 落位（vcs 半边）的同源
-//! 消费对拍经各自 crate 的委托等值行承载（crate 图：core 无 store / vcs
-//! 依赖边——跨 crate 对拍在消费侧），本节钉单点形态与确定性。
-
 use sha2::{Digest, Sha256};
 
 use super::identity::workspace_identity_segment;

@@ -232,6 +232,7 @@ fn build_phase_response(
     let resolve = |spec: &PhaseAgentSpec| PhaseAgentSpec {
         agent_type: spec.agent_type.clone(),
         prompt: interpolate(&spec.prompt, change, Some(def.id)) + &reason_suffix,
+        model_level: spec.model_level,
     };
     PhaseNextOutcome {
         done: false,

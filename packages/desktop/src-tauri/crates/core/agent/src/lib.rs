@@ -9,8 +9,8 @@ pub use event::{AgentBlock, AgentDelta, AgentEvent, AgentEventKind, AgentMessage
 pub use kernel::{KernelOutput, RunningTurn, SessionKernel, StopRegistry, TurnRequest};
 pub use port::{SessionQuery, SessionSink, TurnOutcome};
 pub use runner::{
-    AgentPermissionMode, AgentRunStatus, AgentRunner, AgentSession, AgentStartError, RunHandle,
-    SessionCtx, SessionInjections, SessionOpen, SessionRef, TurnQuestion,
+    AgentPermissionMode, AgentRunStatus, AgentRunner, AgentSession, AgentStartError, ModelLevel,
+    RunHandle, SessionCtx, SessionInjections, SessionOpen, SessionRef, TurnQuestion,
 };
 pub use session::{
     new_session_id, NewSessionRow, SessionProvenance, SessionRow, SessionStats, SessionSummary,

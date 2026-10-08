@@ -1,27 +1,3 @@
-//! 工作区配置 crate：读取 + 解析 + 校验 + 默认值填充。
-//!
-//! 配置语义的唯一实现，校验规则逐条复刻 CLI zod schema
-//! （`config.schema.ts`：框架八值枚举 / 0–100 值域 / suite root 通配符禁令 /
-//! `schema` 字面量 / prefault 默认值 / 顶层 passthrough）；CLI `readConfig`
-//! 的「非法即静默整体回默认」吞错语义**不复刻**——任意输入（文件缺失 /
-//! 读取失败 / JSON 语法非法 / 字段非法）MUST NOT 使 [`load`] 失败收场，
-//! 恒产出「永远合法」的 config + diagnostics 信封：违例字段以默认值填充、
-//! 细节进 diagnostics，未来模块永远拿到合法配置。
-//!
-//! 本 crate 是工作区配置的唯一合法出口（desktop-crate-layout 依赖规则）：
-//! 未来任何需要配置的模块仅准经 [`load`] 获取配置项，MUST NOT 自行读取
-//! 配置文件。路径一律经 `foundation::layout::config_path` 取得，crate 内
-//! 零路径拼接、零文件名字面量（layout_test 命名隔离扫描执法）。
-//!
-//! 自洽不变量（「config 输出永远合法」的机械形态）：任意输入产出的
-//! [`WorkspaceConfig`] 经 `serde_json::to_value` 回写后再过同一 [`assemble`]，
-//! diagnostics 必为空。机械前提是 **null 位语义**：DTO 全家为纯 derive
-//! serde（与代码库线面惯例一致），`None` 字段线面序列化为 `null`，因此
-//! 组装层对**可选（Option）字段位**的显式 `null` 与键缺失同处置（视为未
-//! 设、无诊断）；null 在其余位置（阈值 / 容器 / 必需字段 / 顶层）仍为违例。
-//!
-//! 能力 spec：`specs/desktop-workspace-config/spec.md`（路径相对域根）。
-
 use std::{fs, path::Path};
 
 use foundation::layout::config_path;

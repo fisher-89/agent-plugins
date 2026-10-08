@@ -1,6 +1,8 @@
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use agent::{AgentRunner, AgentSession, AgentStartError, RunHandle, SessionOpen, TurnQuestion};
+use agent::{
+    AgentRunner, AgentSession, AgentStartError, ModelLevel, RunHandle, SessionOpen, TurnQuestion,
+};
 use rig::driver::DynModel;
 use rig::message::Message;
 use rig::operation::Completion;
@@ -77,11 +79,15 @@ impl SdkRunner {
 
 impl AgentRunner for SdkRunner {
     fn open_session(&self, open: SessionOpen) -> Result<AgentSession, AgentStartError> {
+        let (model_field, model_name) = match open.ctx.model_level {
+            ModelLevel::High => ("model_high", self.config.model_high.clone()),
+            ModelLevel::Low => ("model_low", self.config.model_low.clone()),
+        };
         // 配置三件套校验（消息区分成因；单一中性变体承载全部启动失败）
         let missing: Vec<&str> = [
             ("api_key", self.config.api_key.is_empty()),
             ("base_url", self.config.base_url.is_empty()),
-            ("model", self.config.model.is_empty()),
+            (model_field, model_name.is_empty()),
         ]
         .into_iter()
         .filter(|(_, is_missing)| *is_missing)
@@ -96,8 +102,7 @@ impl AgentRunner for SdkRunner {
         // Continue：经装载缝取会话全史转录重建（New 空史）；先行句柄 sdk 引擎
         // 不消费（引擎侧标识每轮铸造，重建源即会话全史转录）
         let history = self.resolve_resume(&continue_session_id(&open))?;
-        let model = build_model(&self.config);
-        let model_name = self.config.model.clone();
+        let model = build_model(&self.config, &model_name);
         let (question_tx, question_rx) = mpsc::channel::<TurnQuestion>(QUESTION_CHANNEL_CAPACITY);
         let (observation_tx, observation_rx) =
             mpsc::channel::<agent::AgentEventKind>(EVENT_CHANNEL_CAPACITY);
@@ -136,15 +141,12 @@ fn continue_session_id(open: &SessionOpen) -> Option<String> {
     }
 }
 
-/// rig 模型组装（0.43 起模型 = wire + transport 配对，经 `DynModel` 擦除为
-/// 操作面持有）：openai 兼容端点（自定义 base_url）+ chat completions 线 +
-/// 模型标识。构造恒成功——端点不可达 / URL 非法在请求期才暴露（首帧 Err
-/// 收敛为 api_error），启动失败面只剩配置三件套校验。
-fn build_model(config: &EngineConfig) -> DynModel<Completion> {
+/// rig 模型组装
+fn build_model(config: &EngineConfig, model_name: &str) -> DynModel<Completion> {
     OpenAIConfig::new(config.api_key.clone())
         .with_base_url(config.base_url.clone())
         .client()
-        .chat(config.model.clone())
+        .chat(model_name.to_owned())
         .erase()
 }
 

@@ -35,6 +35,19 @@ const FINDING_BRIEF_LIMIT: usize = 200;
 /// 诊断摘要条数上限。
 const FINDING_BRIEF_MAX_ITEMS: usize = 10;
 
+/// 修复边明细单条错误消息截断上限（runner `OUTPUT_TAIL_LIMIT` 同量级——
+/// 报告面归因原料口径）。
+const DETAIL_MESSAGE_LIMIT: usize = 500;
+
+/// 修复边明细单条堆栈截断上限（定位帧通常在前几行）。
+const DETAIL_STACK_LIMIT: usize = 800;
+
+/// 修复边明细每 suite 失败用例条数上限（超出记余量指向报告）。
+const DETAIL_CASES_PER_SUITE_LIMIT: usize = 20;
+
+/// 修复边明细总字符预算（chars 口径；超限截断尾注指向报告目录）。
+const DETAIL_TOTAL_LIMIT: usize = 12000;
+
 /// test-execution 进程执行器（无状态，组合根按需构造）。
 pub struct ProcessTestExecution;
 
@@ -83,7 +96,7 @@ async fn execute(root: &str, change: &str) -> Result<ToolStepOutput, String> {
             && check_integrity(&existing, &disk_reports).is_empty()
             && is_reusable(&existing, newest)
         {
-            return Ok(outcome(&existing, &reports_dir));
+            return Ok(outcome(&existing, &disk_reports, &reports_dir));
         }
     }
 
@@ -96,7 +109,7 @@ async fn execute(root: &str, change: &str) -> Result<ToolStepOutput, String> {
     }
 
     // ④ 聚合 → 诊断 → 报告写盘（子报告批量落盘后 summary 写一次；findings
-    // 随 summary 持久化，修复会话经 report_dir 自读全量）
+    // 随 summary 持久化——修复边 prompt 直嵌有界明细，全量以报告文件为权威）
     let mut summary = build_summary_report(&sub_reports, suites, DESKTOP_COMMAND_LABEL, started_at);
     let findings = diagnose_findings(&summary);
     if !findings.is_empty() {
@@ -104,11 +117,16 @@ async fn execute(root: &str, change: &str) -> Result<ToolStepOutput, String> {
     }
     report::write_reports(&reports_dir, &sub_reports, &summary)?;
 
-    Ok(outcome(&summary, &reports_dir))
+    Ok(outcome(&summary, &sub_reports, &reports_dir))
 }
 
-/// checks 结论 → port 最小载荷映射（checks-runtime 装配点唯一映射面）。
-fn outcome(summary: &SummaryReport, reports_dir: &Path) -> ToolStepOutput {
+/// checks 结论 → port 载荷映射（checks-runtime 装配点唯一映射面：摘要面
+/// 服务步状态 detail，明细面服务反馈边修复 prompt——双面同源装配）。
+fn outcome(
+    summary: &SummaryReport,
+    sub_reports: &[SubReport],
+    reports_dir: &Path,
+) -> ToolStepOutput {
     let conclusion = match summary.conclusion {
         Conclusion::Pass => TestExecutionConclusion::Pass,
         Conclusion::Fail => TestExecutionConclusion::Fail,
@@ -121,6 +139,7 @@ fn outcome(summary: &SummaryReport, reports_dir: &Path) -> ToolStepOutput {
         failed: summary.failed,
         skipped: summary.skipped,
         findings_brief: findings_brief(summary),
+        findings_detail: findings_detail(summary, sub_reports),
         report_dir: detect::to_posix(reports_dir),
     })
 }
@@ -129,28 +148,177 @@ fn outcome(summary: &SummaryReport, reports_dir: &Path) -> ToolStepOutput {
 /// 口径对齐）；findings 缺省回落 problems 消息面（CLI 产出的复用 summary
 /// 无 findings 时诊断面不空转）。
 fn findings_brief(summary: &SummaryReport) -> String {
-    let source: Vec<String> = summary
-        .findings
-        .clone()
-        .unwrap_or_else(|| summary.problems.iter().map(|p| p.message.clone()).collect());
-    source
+    diagnose_source(summary)
         .iter()
         .take(FINDING_BRIEF_MAX_ITEMS)
-        .map(|finding| {
-            if finding.chars().count() <= FINDING_BRIEF_LIMIT {
-                finding.clone()
-            } else {
-                format!(
-                    "{}…",
-                    finding
-                        .chars()
-                        .take(FINDING_BRIEF_LIMIT)
-                        .collect::<String>()
-                )
-            }
-        })
+        .map(|finding| clip_chars(finding, FINDING_BRIEF_LIMIT))
         .collect::<Vec<_>>()
         .join("\n")
+}
+
+/// 诊断面来源：findings 全量，缺省回落 problems 消息面（摘要 / 明细双装配
+/// 共用回落）。
+fn diagnose_source(summary: &SummaryReport) -> Vec<String> {
+    summary
+        .findings
+        .clone()
+        .unwrap_or_else(|| summary.problems.iter().map(|p| p.message.clone()).collect())
+}
+
+/// chars 口径有界截断（≤limit 原样；超限取前 limit 字符 + 省略号——
+/// `findings_brief` 单条截断同式抽公共）。
+fn clip_chars(text: &str, limit: usize) -> String {
+    if text.chars().count() <= limit {
+        text.to_owned()
+    } else {
+        format!("{}…", text.chars().take(limit).collect::<String>())
+    }
+}
+
+/// 修复边明细文本装配（反馈边修复 prompt 直嵌面）：诊断面（findings 全量，
+/// 缺省回落 problems 消息面）+ suite 执行概览 + 失败用例明细。pass 态恒
+/// 空串（反馈边仅 fail / error 消费）；全量以报告文件为权威——本文本有界
+///（单条消息 500 / 堆栈 800 / 每 suite 20 条 / 总预算 12000 字符），超限
+/// 以尾注指向报告目录。
+fn findings_detail(summary: &SummaryReport, sub_reports: &[SubReport]) -> String {
+    if summary.conclusion == Conclusion::Pass {
+        return String::new();
+    }
+    let mut sections: Vec<String> = Vec::new();
+
+    // ① 诊断面（诊断树措辞全量——执行错误归因 / 聚类 / 覆盖缺口在此携带）
+    let source = diagnose_source(summary);
+    if !source.is_empty() {
+        sections.push(format!("## 诊断\n\n{}", source.join("\n")));
+    }
+
+    // ② suite 执行概览（框架 / 锚点 / 退出码 / 计数 / 覆盖对照一行一 suite）
+    if !sub_reports.is_empty() {
+        let mut overview = String::from("## suite 执行概览\n");
+        for report in sub_reports {
+            let coverage = report
+                .coverage
+                .as_ref()
+                .map(coverage_brief)
+                .filter(|brief| !brief.is_empty())
+                .map(|brief| format!(" {brief}"))
+                .unwrap_or_default();
+            overview.push_str(&format!(
+                "- [{}] root={} exit={} total={} passed={} failed={} skipped={}{}\n",
+                report.framework,
+                report.root,
+                report.exit_code,
+                report.summary.total,
+                report.summary.passed,
+                report.summary.failed,
+                report.summary.skipped,
+                coverage,
+            ));
+        }
+        sections.push(overview.trim_end().to_owned());
+    }
+
+    // ③ 失败用例明细（名称 / 文件行号 / 错误类型 / 消息 / 堆栈；每 suite
+    // 至多 20 条，余量记数指向报告）
+    let case_blocks: Vec<String> = sub_reports
+        .iter()
+        .filter(|report| !report.error_cases.is_empty())
+        .map(|report| {
+            let mut block = format!("[{}]", report.framework);
+            for (index, case) in report
+                .error_cases
+                .iter()
+                .take(DETAIL_CASES_PER_SUITE_LIMIT)
+                .enumerate()
+            {
+                block.push_str(&format!("\n{}", case_detail(index + 1, case)));
+            }
+            let overflow = report
+                .error_cases
+                .len()
+                .saturating_sub(DETAIL_CASES_PER_SUITE_LIMIT);
+            if overflow > 0 {
+                block.push_str(&format!("\n（另有 {overflow} 条见报告）"));
+            }
+            block
+        })
+        .collect();
+    if !case_blocks.is_empty() {
+        sections.push(format!("## 失败用例明细\n\n{}", case_blocks.join("\n\n")));
+    }
+
+    let joined = sections.join("\n\n");
+    if joined.chars().count() <= DETAIL_TOTAL_LIMIT {
+        return joined;
+    }
+    format!(
+        "{}…\n（明细超预算截断，全量见报告目录）",
+        joined.chars().take(DETAIL_TOTAL_LIMIT).collect::<String>()
+    )
+}
+
+/// 覆盖三维度人读对照（null 维度跳过；全维度无数据 → 空串）。
+fn coverage_brief(coverage: &CoverageBlock) -> String {
+    let mut parts: Vec<String> = Vec::new();
+    for (name, value, threshold) in [
+        ("行覆盖", coverage.measured.lines, coverage.thresholds.lines),
+        (
+            "分支覆盖",
+            coverage.measured.branches,
+            coverage.thresholds.branches,
+        ),
+        (
+            "函数覆盖",
+            coverage.measured.functions,
+            coverage.thresholds.functions,
+        ),
+    ] {
+        if let Some(value) = value {
+            parts.push(format!("{name} {value:.1}%（阈值 {threshold}%）"));
+        }
+    }
+    parts.join(" ")
+}
+
+/// 单条失败用例明细块：定位行（序号 + 名称 + 文件行号）+ 类型 / 消息 /
+/// 堆栈行（空面字段跳过；消息 / 堆栈有界截断）。
+fn case_detail(index: usize, case: &TestCaseResult) -> String {
+    let mut location = case.name.clone();
+    match (&case.file, case.line) {
+        (Some(file), Some(line)) => location.push_str(&format!("（{file}:{}）", line_number(line))),
+        (Some(file), None) => location.push_str(&format!("（{file}）")),
+        _ => {}
+    }
+    let mut block = format!("{index}. {location}");
+    if let Some(error_type) = case.error_type.as_deref().filter(|t| !t.is_empty()) {
+        block.push_str(&format!("\n   类型: {error_type}"));
+    }
+    if let Some(message) = case
+        .error_message
+        .as_deref()
+        .filter(|m| !m.trim().is_empty())
+    {
+        block.push_str(&format!(
+            "\n   消息: {}",
+            clip_chars(message, DETAIL_MESSAGE_LIMIT)
+        ));
+    }
+    if let Some(stack) = case.stack_trace.as_deref().filter(|s| !s.trim().is_empty()) {
+        block.push_str(&format!(
+            "\n   堆栈: {}",
+            clip_chars(stack.trim(), DETAIL_STACK_LIMIT)
+        ));
+    }
+    block
+}
+
+/// 用例行号显示形式（整数值去小数尾——JSON 整数经 f64 载运的显示面归一）。
+fn line_number(line: f64) -> String {
+    if line.fract() == 0.0 {
+        format!("{}", line as i64)
+    } else {
+        line.to_string()
+    }
 }
 
 /// 子报告组装：suite 阈值（findSuite 语义——framework + root 精确命中 →

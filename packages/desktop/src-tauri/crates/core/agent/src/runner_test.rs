@@ -5,8 +5,8 @@ use serde_json::json;
 
 use crate::event::AgentEventKind;
 use crate::runner::{
-    AgentPermissionMode, AgentRunner, AgentSession, AgentStartError, RunHandle, SessionCtx,
-    SessionInjections, SessionOpen, SessionRef,
+    AgentPermissionMode, AgentRunner, AgentSession, AgentStartError, ModelLevel, RunHandle,
+    SessionCtx, SessionInjections, SessionOpen, SessionRef,
 };
 
 /// 假 runner：捕获 SessionOpen 入参（参数转换断言缝）、预录未盖戳事件经
@@ -85,6 +85,8 @@ fn new_open() -> SessionOpen {
         ctx: SessionCtx {
             workspace_root: PathBuf::from("D:\\工作区\\demo 🎉"),
             permission_mode: AgentPermissionMode::BypassPermissions,
+            // 非 High 档入参（passthrough 断言与缺省档可区分）
+            model_level: ModelLevel::Low,
         },
         session: SessionRef::New,
         prior_handle: None,
@@ -141,6 +143,11 @@ async fn open_session_new注入与上下文原样到达实现且返回三件套(
         captured[0].ctx.permission_mode,
         AgentPermissionMode::BypassPermissions
     );
+    assert_eq!(
+        captured[0].ctx.model_level,
+        ModelLevel::Low,
+        "model_level 原样传递（轮级上下文的档位半边）"
+    );
     assert!(matches!(captured[0].session, SessionRef::New));
     assert_eq!(captured[0].prior_handle, None, "New 恒 None");
 }
@@ -153,6 +160,7 @@ async fn open_session_continue携会话id与prior_handle原样传递() {
         ctx: SessionCtx {
             workspace_root: PathBuf::from("C:\\ws"),
             permission_mode: AgentPermissionMode::AcceptEdits,
+            model_level: ModelLevel::High,
         },
         session: SessionRef::Continue {
             id: "ses-1-1727000000000".to_owned(),
@@ -280,11 +288,13 @@ fn session_ctx序列化驼峰键且未知字段忽略往返无损() {
     let ctx = SessionCtx {
         workspace_root: PathBuf::from("D:\\工作区"),
         permission_mode: AgentPermissionMode::AcceptEdits,
+        model_level: ModelLevel::High,
     };
 
     let value = serde_json::to_value(&ctx).expect("序列化成功");
     assert_eq!(value["workspaceRoot"], json!("D:\\工作区"), "驼峰键");
     assert_eq!(value["permissionMode"], json!("acceptEdits"), "档位线值");
+    assert_eq!(value["modelLevel"], json!("high"), "模型档位线值");
 
     // 不加 deny_unknown_fields：多余 JSON 键反序列化成功（additive 演进）
     let mut additive = value.clone();
@@ -294,6 +304,15 @@ fn session_ctx序列化驼峰键且未知字段忽略往返无损() {
 
     let back: SessionCtx = serde_json::from_value(value).expect("反序列化成功");
     assert_eq!(back, ctx);
+
+    // 旧形态 JSON（无 modelLevel 键）反序列化承接缺省 High（additive 演进
+    // 不破线格式——serde(default) 半边）
+    let legacy = serde_json::json!({
+        "workspaceRoot": "D:\\工作区",
+        "permissionMode": "acceptEdits",
+    });
+    let legacy_ctx: SessionCtx = serde_json::from_value(legacy).expect("旧形态承接");
+    assert_eq!(legacy_ctx.model_level, ModelLevel::High, "缺省 High 档");
 }
 
 #[test]

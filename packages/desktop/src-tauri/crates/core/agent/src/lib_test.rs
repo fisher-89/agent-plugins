@@ -4,8 +4,8 @@ use crate::event::{AgentBlock, AgentDelta, AgentEvent, AgentEventKind};
 use crate::kernel::{KernelOutput, RunningTurn, SessionKernel, StopRegistry, TurnRequest};
 use crate::port::{SessionQuery, SessionSink, TurnOutcome};
 use crate::runner::{
-    AgentPermissionMode, AgentRunStatus, AgentRunner, AgentSession, AgentStartError, RunHandle,
-    SessionCtx, SessionInjections, SessionOpen, SessionRef, TurnQuestion,
+    AgentPermissionMode, AgentRunStatus, AgentRunner, AgentSession, AgentStartError, ModelLevel,
+    RunHandle, SessionCtx, SessionInjections, SessionOpen, SessionRef, TurnQuestion,
 };
 use crate::session::{
     new_session_id, NewSessionRow, SessionProvenance, SessionRow, SessionStats, SessionSummary,
@@ -62,6 +62,7 @@ fn crate根导出面锚定_session_port_kernel新模块类型可达() {
         ctx: SessionCtx {
             workspace_root: std::path::PathBuf::from("."),
             permission_mode: AgentPermissionMode::Default,
+            model_level: ModelLevel::High,
         },
         provenance,
         config_snapshot: serde_json::json!({}),

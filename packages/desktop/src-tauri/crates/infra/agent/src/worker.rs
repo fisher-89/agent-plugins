@@ -51,6 +51,7 @@ async fn execute(
     let ctx = SessionCtx {
         workspace_root: PathBuf::from(&turn.root),
         permission_mode: turn.permission,
+        model_level: turn.model_level,
     };
     let running = composed.begin(session, turn.prompt, ctx, turn.provenance)?;
     let session_id = running.session_id.clone();

@@ -4,7 +4,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use agent::AgentRunStatus;
+use agent::{AgentRunStatus, ModelLevel};
 
 use crate::control::ChangeFlowControl;
 use crate::port::{
@@ -543,6 +543,7 @@ impl ToolStepPort for FakeTools {
                         failed: 0,
                         skipped: 0,
                         findings_brief: String::new(),
+                        findings_detail: String::new(),
                         report_dir: String::new(),
                     });
                 Box::pin(async move { Ok(ToolStepOutput::TestExecution(outcome)) })
@@ -627,10 +628,12 @@ fn route_with_round(
         executor: Some(workflow::write::PhaseAgentSpec {
             agent_type: "__CALL_AGENT:implementation-generator__".to_owned(),
             prompt: format!("Implement the code for change \"c\" ({phase})."),
+            model_level: ModelLevel::Low,
         }),
         evaluator: Some(workflow::write::PhaseAgentSpec {
             agent_type: "__CALL_AGENT:implementation-evaluator__".to_owned(),
             prompt: format!("Evaluate {phase} phase for change \"c\"."),
+            model_level: ModelLevel::High,
         }),
         allowed_backtrack_phases: allowed.iter().map(|id| id.to_string()).collect(),
         last_result,
@@ -2188,6 +2191,15 @@ async fn 反馈边诊断同会话注入修复() {
             && requests[1].prompt.contains("clippy error E0308"),
         "失败诊断注入修复 prompt"
     );
+    // 模型档位随行（相位表 spec → WorkerTurnRequest 穿线）：executor 首发与
+    // 反馈边续注同 Low 档、evaluator High 档
+    assert_eq!(
+        requests[0].model_level,
+        ModelLevel::Low,
+        "executor 首发档位"
+    );
+    assert_eq!(requests[1].model_level, ModelLevel::Low, "反馈边续注不换档");
+    assert_eq!(requests[2].model_level, ModelLevel::High, "evaluator 档位");
 }
 
 /// walk_run 反馈边独立计数与超限升格（边界）：反馈循环恰 ≤5 次（
@@ -3224,6 +3236,7 @@ impl TestExecutionRunner for NullTestExecutionRunner {
                 failed: 0,
                 skipped: 0,
                 findings_brief: String::new(),
+                findings_detail: String::new(),
                 report_dir: String::new(),
             }))
         })
@@ -3243,8 +3256,7 @@ fn futures_poll(rx: &mut tokio::sync::broadcast::Receiver<RunUpdate>) -> Option<
 
 use crate::walker::{TEST_EXECUTION_FEEDBACK_LIMIT, TEST_EXECUTION_PHASES};
 
-/// test-execution 门禁产出 fixture（conclusion 可编程；计数面带值——机械
-/// checklist report 摘要断言的事实源）。
+/// test-execution 门禁产出 fixture
 fn execution_outcome(conclusion: TestExecutionConclusion, total: u64) -> TestExecutionOutcome {
     TestExecutionOutcome {
         conclusion,
@@ -3255,6 +3267,13 @@ fn execution_outcome(conclusion: TestExecutionConclusion, total: u64) -> TestExe
         findings_brief: match conclusion {
             TestExecutionConclusion::Pass => "全部测试通过且覆盖率达阈值".to_owned(),
             _ => "「node-test」1 项测试失败——单点失败（疑似 flaky 用例或孤立回归）".to_owned(),
+        },
+        findings_detail: match conclusion {
+            TestExecutionConclusion::Pass => String::new(),
+            _ => "## 诊断\n\n「node-test」1 项测试失败——单点失败（疑似 flaky 用例或孤立回归）\n\n\
+                  ## suite 执行概览\n- [node-test] root=. exit=1 total=5 passed=4 failed=1 skipped=0\n\n\
+                  ## 失败用例明细\n\n[node-test]\n1. 汇总导出_空清单回落（src/export.test.mjs:23）\n   消息: expected '[]' to equal '[a]'"
+                .to_owned(),
         },
         report_dir: "C:/ws/openspec/changes/walker-change/reports/test".to_owned(),
     }
@@ -3434,12 +3453,18 @@ async fn 反馈边fail_新会话与provenance定式() {
         "修复 prompt 携反馈计数与结论: {prompt}"
     );
     assert!(
-        prompt.contains("单点失败"),
-        "findings 摘要注入修复会话: {prompt}"
+        prompt.contains("## 失败用例明细")
+            && prompt.contains("汇总导出_空清单回落（src/export.test.mjs:23）")
+            && prompt.contains("expected '[]' to equal '[a]'"),
+        "结果明细直嵌修复 prompt（用例名 / 文件行号 / 错误消息——agent 免自读报告）: {prompt}"
     );
     assert!(
-        prompt.contains("reports/test"),
-        "报告路径注入（修复会话经 report_dir 自读全量 findings）: {prompt}"
+        prompt.contains("## 诊断") && prompt.contains("单点失败"),
+        "诊断面随明细文本注入: {prompt}"
+    );
+    assert!(
+        prompt.contains("全量报告见目录") && prompt.contains("reports/test"),
+        "全量报告路径兜底注入: {prompt}"
     );
     drop(requests);
 

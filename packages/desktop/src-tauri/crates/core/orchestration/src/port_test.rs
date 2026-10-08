@@ -1,6 +1,6 @@
 use std::sync::{Arc, Mutex};
 
-use agent::{AgentPermissionMode, AgentRunStatus, SessionProvenance};
+use agent::{AgentPermissionMode, AgentRunStatus, ModelLevel, SessionProvenance};
 
 use crate::port::{
     BoxDiffFuture, DiffContextPort, RunEventSink, StaticCheckOutcome, StaticCheckRunner,
@@ -441,8 +441,8 @@ async fn box_diff_future别名跨await持有可用() {
 /// AC-1 双缝装置前提）。
 #[test]
 fn 既有三契约与中性类型保持() {
-    // WorkerTurnRequest 中性类型构造（provenance / permission / continue_session
-    // / agent / role 字段面）
+    // WorkerTurnRequest 中性类型构造（provenance / permission / model_level
+    // / continue_session / agent / role 字段面）
     let request = WorkerTurnRequest {
         root: "/tmp/ws".to_owned(),
         prompt: "轮 prompt".to_owned(),
@@ -451,12 +451,14 @@ fn 既有三契约与中性类型保持() {
             source_ref: Some("c/implement/executor/1".to_owned()),
         },
         permission: AgentPermissionMode::BypassPermissions,
+        model_level: ModelLevel::Low,
         continue_session: Some("sess-1".to_owned()),
         agent: None,
         role: WorkerRole::Executor,
     };
     assert_eq!(request.provenance.source, "change");
     assert_eq!(request.permission, AgentPermissionMode::BypassPermissions);
+    assert_eq!(request.model_level, ModelLevel::Low, "模型档位字段面");
     assert_eq!(request.clone(), request, "Clone/PartialEq 派生保持");
 
     // WorkerTurnOutcome 中性类型构造（密封转录全集 + 终态 + final_message）
@@ -535,6 +537,11 @@ fn sample_execution_outcome(conclusion: TestExecutionConclusion) -> TestExecutio
         failed: 2,
         skipped: 0,
         findings_brief: "「vite-plus」2 项测试失败——聚类失败".to_owned(),
+        findings_detail: match conclusion {
+            TestExecutionConclusion::Pass => String::new(),
+            _ => "## 失败用例明细\n\n[vite-plus]\n1. 汇总导出_空清单回落（src/export.test.ts:23）"
+                .to_owned(),
+        },
         report_dir: "C:/ws/openspec/changes/c/reports/test".to_owned(),
     }
 }
@@ -652,11 +659,12 @@ async fn test_execution_runner_err臂上抛() {
     assert_eq!(err, "报告目录创建失败", "Err(String) 原样（无再包装）");
 }
 
-/// 边界：TestExecutionOutcome 最小载荷字段面——conclusion + 四计数 +
-/// findings_brief + report_dir 构造、Clone / PartialEq 派生可用（IPC 面零
-/// 全量透传——全量 findings 留报告文件由 report_dir 定位）。
+/// 边界：TestExecutionOutcome 载荷字段面——conclusion + 四计数 +
+/// findings_brief + findings_detail + report_dir 构造、Clone / PartialEq
+/// 派生可用（载荷零 Serialize 不进 IPC：摘要面服务步 detail，明细面服务
+/// 反馈边修复 prompt，全量 findings 留报告文件由 report_dir 定位）。
 #[test]
-fn test_execution_outcome最小载荷字段面() {
+fn test_execution_outcome载荷字段面() {
     let outcome = sample_execution_outcome(TestExecutionConclusion::Error);
     assert_eq!(outcome.conclusion, TestExecutionConclusion::Error);
     assert_eq!(
@@ -671,6 +679,17 @@ fn test_execution_outcome最小载荷字段面() {
     assert!(
         outcome.findings_brief.contains("聚类失败"),
         "诊断摘要随载荷（200 截断 + 10 条上限在装配点执法）"
+    );
+    assert!(
+        outcome.findings_detail.contains("失败用例明细")
+            && outcome.findings_detail.contains("汇总导出_空清单回落"),
+        "修复边明细文本随载荷（有界装配，反馈边 prompt 直嵌面）"
+    );
+    assert!(
+        sample_execution_outcome(TestExecutionConclusion::Pass)
+            .findings_detail
+            .is_empty(),
+        "pass 态明细恒空串（反馈边不消费）"
     );
     assert!(
         outcome.report_dir.ends_with("reports/test"),

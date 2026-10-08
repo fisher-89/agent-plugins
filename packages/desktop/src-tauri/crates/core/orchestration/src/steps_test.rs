@@ -443,6 +443,7 @@ impl FakeTestExecutionRunner {
             failed: 0,
             skipped: 1,
             findings_brief: "全部测试通过且覆盖率达阈值".to_owned(),
+            findings_detail: String::new(),
             report_dir: "reports/test/app_node-test".to_owned(),
         }))
     }
@@ -1667,6 +1668,7 @@ async fn 五参构造双runner注入_分发臂委托() {
         failed: 0,
         skipped: 1,
         findings_brief: "全部测试通过且覆盖率达阈值".to_owned(),
+        findings_detail: String::new(),
         report_dir: "reports/test/app_node-test".to_owned(),
     }));
     let assembled = assemble(

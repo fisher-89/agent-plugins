@@ -4,12 +4,17 @@ use std::sync::{Arc, MutexGuard};
 
 use tempfile::TempDir;
 
-use checks::model::{Conclusion, SummaryReport};
+use checks::model::{
+    CaseSummary, Conclusion, CoverageBlock, CoverageMeasured, CoverageThresholds, Problem,
+    ProblemType, SubReport, SummaryReport, TestCaseResult, TestCaseStatus,
+};
 use foundation::layout::change_test_reports;
 use orchestration::port::{TestExecutionConclusion, TestExecutionRunner, ToolStepOutput};
 
 use super::detect::to_posix;
-use super::{findings_brief, newest_input_mtime_ms, outcome, ProcessTestExecution};
+use super::{
+    findings_brief, findings_detail, newest_input_mtime_ms, outcome, ProcessTestExecution,
+};
 
 /// 设置 shim 环境面（预置工件源 / 目的工件路径 / marker 路径 / 退出码；
 /// None 侧摘除键）。dest 用 POSIX 形态（Copy-Item / cp 双侧可读）。
@@ -525,15 +530,207 @@ fn findings_brief装配口径_截断与条数上限() {
     // findings 缺省回落 problems 消息面（CLI 产出的复用 summary 诊断面不空转）
     let mut no_findings = hand_summary(Conclusion::Error, Vec::new());
     no_findings.findings = None;
-    no_findings.problems = vec![checks::model::Problem {
+    no_findings.problems = vec![Problem {
         framework: "node-test".to_owned(),
-        problem_type: checks::model::ProblemType::ExecutionError,
+        problem_type: ProblemType::ExecutionError,
         message: "Exit code 1".to_owned(),
     }];
     assert_eq!(
         findings_brief(&no_findings),
         "Exit code 1",
         "回落 problems 消息面"
+    );
+}
+
+/// 失败用例 fixture（名称 + 文件行号 + 类型 / 消息可编程，堆栈缺省无）。
+fn failed_case(name: &str, message: &str) -> TestCaseResult {
+    TestCaseResult {
+        name: name.to_owned(),
+        file: Some("src/export.test.mjs".to_owned()),
+        duration_ms: None,
+        status: TestCaseStatus::Failed,
+        line: Some(23.0),
+        error_type: Some("AssertionError".to_owned()),
+        error_message: Some(message.to_owned()),
+        stack_trace: None,
+    }
+}
+
+/// 子报告 fixture（框架 / 失败计数 / 错误用例 / 覆盖块可编程）。
+fn hand_sub_report(
+    framework: &str,
+    failed: u64,
+    cases: Vec<TestCaseResult>,
+    coverage: Option<CoverageBlock>,
+) -> SubReport {
+    SubReport {
+        framework: framework.to_owned(),
+        root: format!("packages/{framework}"),
+        timestamp: "2026-10-06T08:00:00Z".to_owned(),
+        exit_code: 1,
+        duration_ms: 10.0,
+        summary: CaseSummary {
+            total: cases.len() as u64 + 3,
+            passed: 3,
+            failed,
+            skipped: 0,
+        },
+        error_cases: cases,
+        test_files: Vec::new(),
+        source_files: Vec::new(),
+        coverage,
+        mutation: None,
+        findings: None,
+    }
+}
+
+/// 边界：findings_detail 装配口径——pass 恒空串；fail / error 三段齐装（诊断
+/// 全量、suite 概览含覆盖对照（null 维度跳过）、失败用例明细携名称 / 文件
+/// 行号 / 类型 / 消息）——反馈边修复 prompt 直嵌面。
+#[test]
+fn findings_detail装配口径_诊断概览与用例明细() {
+    // pass 态恒空串（反馈边不消费）
+    let pass = hand_summary(
+        Conclusion::Pass,
+        vec!["全部测试通过且覆盖率达阈值".to_owned()],
+    );
+    assert_eq!(findings_detail(&pass, &[]), "", "pass 态恒空串");
+
+    let summary = hand_summary(
+        Conclusion::Fail,
+        vec!["「node-test」1 项测试失败——单点失败（疑似 flaky 用例或孤立回归）".to_owned()],
+    );
+    let sub = hand_sub_report(
+        "node-test",
+        1,
+        vec![failed_case(
+            "汇总导出_空清单回落",
+            "expected '[]' to equal '[a]'",
+        )],
+        Some(CoverageBlock {
+            pass: false,
+            measured: CoverageMeasured {
+                lines: Some(62.4),
+                branches: None,
+                functions: None,
+            },
+            thresholds: CoverageThresholds {
+                lines: 80.0,
+                branches: 70.0,
+                functions: 75.0,
+            },
+            overrides: None,
+        }),
+    );
+
+    let detail = findings_detail(&summary, &[sub]);
+    assert!(detail.contains("## 诊断"), "诊断段在场: {detail}");
+    assert!(
+        detail.contains("单点失败"),
+        "诊断 findings 全量（非 200 截断摘要）"
+    );
+    assert!(detail.contains("## suite 执行概览"), "概览段在场: {detail}");
+    assert!(
+        detail.contains(
+            "- [node-test] root=packages/node-test exit=1 total=4 passed=3 failed=1 skipped=0"
+        ),
+        "概览行携框架 / 锚点 / 退出码 / 计数: {detail}"
+    );
+    assert!(
+        detail.contains("行覆盖 62.4%（阈值 80%）"),
+        "覆盖对照随概览行: {detail}"
+    );
+    assert!(!detail.contains("分支覆盖"), "null 维度跳过: {detail}");
+    assert!(
+        detail.contains("## 失败用例明细"),
+        "用例明细段在场: {detail}"
+    );
+    assert!(
+        detail.contains("1. 汇总导出_空清单回落（src/export.test.mjs:23）"),
+        "用例定位行携名称 + 文件行号（整数值去小数尾）: {detail}"
+    );
+    assert!(
+        detail.contains("类型: AssertionError"),
+        "错误类型随行: {detail}"
+    );
+    assert!(
+        detail.contains("消息: expected '[]' to equal '[a]'"),
+        "错误消息随行: {detail}"
+    );
+
+    // findings 缺省回落 problems 消息面（摘要 / 明细双装配同回落）
+    let mut no_findings = hand_summary(Conclusion::Error, Vec::new());
+    no_findings.findings = None;
+    no_findings.problems = vec![Problem {
+        framework: "node-test".to_owned(),
+        problem_type: ProblemType::ExecutionError,
+        message: "Exit code 1".to_owned(),
+    }];
+    assert_eq!(
+        findings_detail(&no_findings, &[]),
+        "## 诊断\n\nExit code 1",
+        "回落 problems 消息面"
+    );
+}
+
+/// 边界：findings_detail 有界执法——单条消息 500 / 堆栈 800 截断、每 suite
+/// 20 条上限（余量记数）、总预算 12000 截断尾注指向报告目录。
+#[test]
+fn findings_detail装配口径_截断与条数上限() {
+    let summary = hand_summary(Conclusion::Fail, vec!["失败措辞".to_owned()]);
+
+    // 单条消息 500 / 堆栈 800 截断（chars 口径 + 省略号）
+    let mut long_case = failed_case("超长面用例", &"错".repeat(600));
+    long_case.stack_trace = Some("帧".repeat(900));
+    let detail = findings_detail(
+        &summary,
+        &[hand_sub_report("rust", 1, vec![long_case], None)],
+    );
+    let message_line = detail
+        .lines()
+        .find(|line| line.trim_start().starts_with("消息: "))
+        .expect("消息行在场");
+    assert!(
+        message_line.chars().count() <= "   消息: ".chars().count() + 501,
+        "消息截 500 字符 + 省略号: {message_line}"
+    );
+    assert!(message_line.ends_with('…'), "截断带省略号");
+    let stack_line = detail
+        .lines()
+        .find(|line| line.trim_start().starts_with("堆栈: "))
+        .expect("堆栈行在场");
+    assert!(
+        stack_line.chars().count() <= "   堆栈: ".chars().count() + 801,
+        "堆栈截 800 字符 + 省略号: {stack_line}"
+    );
+
+    // 每 suite 20 条上限 + 余量记数指向报告
+    let cases: Vec<TestCaseResult> = (0..25)
+        .map(|index| failed_case(&format!("用例{index}"), "m"))
+        .collect();
+    let detail = findings_detail(&summary, &[hand_sub_report("rust", 25, cases, None)]);
+    assert!(detail.contains("20. 用例19"), "至多 20 条: {detail}");
+    assert!(!detail.contains("21. "), "第 21 条起弃: {detail}");
+    assert!(detail.contains("另有 5 条见报告"), "余量记数: {detail}");
+
+    // 总预算 12000 截断尾注（20 条 × 满额消息 + 堆栈远超预算）
+    let heavy: Vec<TestCaseResult> = (0..25)
+        .map(|index| {
+            let mut case = failed_case(&format!("重用例{index}"), &"错".repeat(600));
+            case.stack_trace = Some("帧".repeat(900));
+            case
+        })
+        .collect();
+    let detail = findings_detail(&summary, &[hand_sub_report("rust", 25, heavy, None)]);
+    assert!(
+        detail.contains("明细超预算截断，全量见报告目录"),
+        "总预算超限尾注在场: 尾部 = {}",
+        detail.chars().rev().take(60).collect::<String>()
+    );
+    assert!(
+        detail.chars().count() <= 12000 + "…\n（明细超预算截断，全量见报告目录）".chars().count(),
+        "总长受预算 + 尾注约束，实际 {}",
+        detail.chars().count()
     );
 }
 
@@ -547,7 +744,11 @@ fn conclusion三值映射逐字() {
         (Conclusion::Fail, "fail"),
         (Conclusion::Error, "error"),
     ] {
-        let output = outcome(&hand_summary(checks_conclusion, Vec::new()), reports_dir);
+        let output = outcome(
+            &hand_summary(checks_conclusion, Vec::new()),
+            &[],
+            reports_dir,
+        );
         match output {
             ToolStepOutput::TestExecution(mapped) => {
                 assert_eq!(

@@ -12,18 +12,21 @@ fn empty返回api_key_base_url_model三字段全空串() {
     let empty = EngineConfig::empty();
     assert_eq!(empty.api_key, "", "api_key 缺省空串");
     assert_eq!(empty.base_url, "", "base_url 缺省空串");
-    assert_eq!(empty.model, "", "model 缺省空串");
+    assert_eq!(empty.model_high, "", "model 缺省空串");
+    assert_eq!(empty.model_low, "", "model 缺省空串");
 
     // 构造体三字段形状冻结（api_key / base_url / model 三 String）：手填构造
     // 逐字段保真可读（解析单点产物的字段面）
     let config = EngineConfig {
         api_key: "sk-test-🎉".to_owned(),
         base_url: "https://api.example.com/v1".to_owned(),
-        model: "test-model".to_owned(),
+        model_high: "test-model-high".to_owned(),
+        model_low: "test-model-low".to_owned(),
     };
     assert_eq!(config.api_key, "sk-test-🎉");
     assert_eq!(config.base_url, "https://api.example.com/v1");
-    assert_eq!(config.model, "test-model");
+    assert_eq!(config.model_high, "test-model-high");
+    assert_eq!(config.model_low, "test-model-low");
 }
 
 // ---------------------------------------------------------------------------
@@ -43,11 +46,13 @@ fn 重复调用empty返回等值结构且特殊字符字段构造保真() {
     let special = EngineConfig {
         api_key: "带 空格 的 key 中文 🎉\n换行".to_owned(),
         base_url: "https://例子.测试/v1 🚀".to_owned(),
-        model: "模型/名: v1".to_owned(),
+        model_high: "模型/名: v1".to_owned(),
+        model_low: "模型/名: v2".to_owned(),
     };
     assert_eq!(special.api_key, "带 空格 的 key 中文 🎉\n换行");
     assert_eq!(special.base_url, "https://例子.测试/v1 🚀");
-    assert_eq!(special.model, "模型/名: v1");
+    assert_eq!(special.model_high, "模型/名: v1");
+    assert_eq!(special.model_low, "模型/名: v2");
     let cloned = special.clone();
     assert!(cloned == special, "Clone 后逐字段保真");
 }
@@ -73,6 +78,7 @@ fn empty经is_complete判定为缺失且sdk启动以config_missing失败且文�
             ctx: agent::SessionCtx {
                 workspace_root: PathBuf::from("C:\\ws"),
                 permission_mode: agent::AgentPermissionMode::BypassPermissions,
+                model_level: agent::ModelLevel::High,
             },
             session: agent::SessionRef::New,
             prior_handle: None,
@@ -94,7 +100,8 @@ fn 手填齐备形态三字段齐备is_complete判定翻正() {
     let complete = EngineConfig {
         api_key: "sk-live-1234567890".to_owned(),
         base_url: "https://api.example.com/v1".to_owned(),
-        model: "m-high".to_owned(),
+        model_high: "m-high".to_owned(),
+        model_low: "m-low".to_owned(),
     };
     assert!(complete.is_complete(), "三字段齐备 is_complete 判定翻正");
 
@@ -102,17 +109,20 @@ fn 手填齐备形态三字段齐备is_complete判定翻正() {
     let no_key = EngineConfig {
         api_key: String::new(),
         base_url: "https://api.example.com/v1".to_owned(),
-        model: "m-high".to_owned(),
+        model_high: "m-high".to_owned(),
+        model_low: "m-low".to_owned(),
     };
     let no_url = EngineConfig {
         api_key: "k".to_owned(),
         base_url: String::new(),
-        model: "m-high".to_owned(),
+        model_high: "m-high".to_owned(),
+        model_low: "m-low".to_owned(),
     };
     let no_model = EngineConfig {
         api_key: "k".to_owned(),
         base_url: "https://api.example.com/v1".to_owned(),
-        model: String::new(),
+        model_high: String::new(),
+        model_low: String::new(),
     };
     assert!(!no_key.is_complete(), "缺 api_key 判定缺失");
     assert!(!no_url.is_complete(), "缺 base_url 判定缺失");

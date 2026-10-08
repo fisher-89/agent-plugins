@@ -3,7 +3,7 @@ use std::path::Path;
 use std::sync::{Arc, Mutex};
 
 use agent::{
-    AgentBlock, AgentEventKind, AgentMessageRole, AgentPermissionMode, AgentRunStatus,
+    AgentBlock, AgentEventKind, AgentMessageRole, AgentPermissionMode, AgentRunStatus, ModelLevel,
     SessionProvenance, StopRegistry,
 };
 use orchestration::port::{RunEventSink, WorkerAgentPort, WorkerRole, WorkerTurnRequest};
@@ -274,6 +274,7 @@ fn turn_request(root: &str, source_ref: &str, role: WorkerRole) -> WorkerTurnReq
             source_ref: Some(source_ref.to_owned()),
         },
         permission: AgentPermissionMode::BypassPermissions,
+        model_level: ModelLevel::High,
         continue_session: None,
         agent: None,
         role,

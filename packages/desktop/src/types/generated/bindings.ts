@@ -309,11 +309,9 @@ export type AgentMessageRole =
  *  器为后续迭代，本期只存不选）。
  */
 export type AgentModelTiers = {
-	/**  high 档模型标识（运行发起解析消费档） */
 	high: string,
 	/**  medium 档模型标识（本期只存不选） */
 	medium: string,
-	/**  low 档模型标识（本期只存不选） */
 	low: string,
 };
 

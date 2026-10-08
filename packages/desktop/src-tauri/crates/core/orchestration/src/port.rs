@@ -1,7 +1,7 @@
 use std::future::Future;
 use std::pin::Pin;
 
-use agent::{AgentEvent, AgentPermissionMode, AgentRunStatus, SessionProvenance};
+use agent::{AgentEvent, AgentPermissionMode, AgentRunStatus, ModelLevel, SessionProvenance};
 use workflow::write::{BacktrackInput, PhaseLogInput, PhaseNextOutcome, PhaseStartOutcome};
 
 use crate::state::RunUpdate;
@@ -46,6 +46,8 @@ pub struct WorkerTurnRequest {
     pub provenance: SessionProvenance,
     /// permission 档（run 恒 bypassPermissions）
     pub permission: AgentPermissionMode,
+    /// 模型等级
+    pub model_level: ModelLevel,
     /// 同会话续注（static-check 定向反馈边注入同一 executor 会话）
     pub continue_session: Option<String>,
     /// agent 实例 id（None 走默认解析）
@@ -153,10 +155,7 @@ impl TestExecutionConclusion {
     }
 }
 
-/// test-execution 门禁产出最小载荷：conclusion + 四计数 + 诊断摘要 + 报告
-/// 目录。全量 findings 留报告文件（修复会话经 `report_dir` 自读），本载荷
-/// 只随 `RunUpdate::Step` detail 摘要与反馈边 prompt 流出——IPC 面零全量
-/// 透传。
+/// test-execution 门禁产出载荷
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TestExecutionOutcome {
     /// 聚合结论
@@ -171,6 +170,8 @@ pub struct TestExecutionOutcome {
     pub skipped: u64,
     /// 诊断摘要（单条截断 + 至多 10 条，walker `diagnose_brief` 口径）
     pub findings_brief: String,
+    /// 修复边明细文本（fail / error 非空、pass 恒空串）
+    pub findings_detail: String,
     /// 报告目录（change 报告树，全量 findings 所在）
     pub report_dir: String,
 }

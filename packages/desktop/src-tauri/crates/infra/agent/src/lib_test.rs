@@ -58,11 +58,17 @@ fn crate根导出面锚定_组合根与查询面与既有门面re_export可达()
     let config = EngineConfig {
         api_key: "k".to_owned(),
         base_url: "http://127.0.0.1:9/v1".to_owned(),
-        model: "m".to_owned(),
+        model_high: "mh".to_owned(),
+        model_low: "ml".to_owned(),
     };
     assert!(!config.api_key.is_empty());
     let empty = EngineConfig::empty();
-    assert!(empty.api_key.is_empty() && empty.base_url.is_empty() && empty.model.is_empty());
+    assert!(
+        empty.api_key.is_empty()
+            && empty.base_url.is_empty()
+            && empty.model_high.is_empty()
+            && empty.model_low.is_empty()
+    );
 
     // with_context_window 经门面可达（builder 缝锚定；不新增顶层 re-export 面
     // ——方法挂在 EngineFacade 上，无 crate 根 re-export）
@@ -136,6 +142,7 @@ async fn cli分发路径持有装载缝不消费_调用计数恒零() {
             ctx: agent::SessionCtx {
                 workspace_root: dir.path().to_path_buf(),
                 permission_mode: agent::AgentPermissionMode::BypassPermissions,
+                model_level: agent::ModelLevel::High,
             },
             session: agent::SessionRef::Continue {
                 id: "ses-cli-1".to_owned(),
@@ -184,6 +191,7 @@ async fn cli臂隔离path下ask段以cli_missing合成收敛() {
             ctx: agent::SessionCtx {
                 workspace_root: dir.path().to_path_buf(),
                 permission_mode: agent::AgentPermissionMode::BypassPermissions,
+                model_level: agent::ModelLevel::High,
             },
             session: agent::SessionRef::New,
             prior_handle: None,
@@ -225,6 +233,7 @@ fn sdk臂空配置open以config_missing显式失败() {
             ctx: agent::SessionCtx {
                 workspace_root: Path::new("C:\\ws").to_path_buf(),
                 permission_mode: agent::AgentPermissionMode::BypassPermissions,
+                model_level: agent::ModelLevel::High,
             },
             session: agent::SessionRef::New,
             prior_handle: None,
@@ -248,6 +257,7 @@ fn open_continue(session_id: &str) -> agent::SessionOpen {
         ctx: agent::SessionCtx {
             workspace_root: Path::new("C:\\ws").to_path_buf(),
             permission_mode: agent::AgentPermissionMode::BypassPermissions,
+            model_level: agent::ModelLevel::High,
         },
         session: agent::SessionRef::Continue {
             id: session_id.to_owned(),
@@ -323,6 +333,7 @@ fn complete_cfg() -> EngineConfig {
     EngineConfig {
         api_key: "sk-test".to_owned(),
         base_url: "http://127.0.0.1:9/v1".to_owned(),
-        model: "rig-test-model".to_owned(),
+        model_high: "rig-test-model".to_owned(),
+        model_low: "rig-test-model".to_owned(),
     }
 }

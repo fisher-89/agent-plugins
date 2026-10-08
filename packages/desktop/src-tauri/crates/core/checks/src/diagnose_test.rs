@@ -1,13 +1,3 @@
-//! `diagnose.rs`（完整性校验与诊断树）的单元测试（test-design「diagnose.rs ->
-//! diagnose_test.rs」节）：check_integrity 三项 checklist（聚合计数对账 /
-//! plan 报告齐全性 / conclusion 一致性，违例即 findings）、diagnose_findings
-//! 确定性分支（阈值比对 null 维度感知、execution_error 归因、失败聚类措辞、
-//! 全绿零误报）。
-//!
-//! Mock策略：无 mock——纯函数内存直驱，SummaryReport / SubReport 内存
-//! fixture 构造；一致 summary 由 build_summary_report 真实组装（聚合 →
-//! 完整性的自洽基准）。
-
 use time::OffsetDateTime;
 
 use config::{MutationConfig, TestFramework};

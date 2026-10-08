@@ -34,8 +34,8 @@ pub struct ComposedTurn {
     query: Arc<StoreQuery>,
     /// store 本地引擎二值（快照定型与归属比对面）
     store_kind: AgentEngineKind,
-    /// 快照模型标识（cli 引擎无模型装配概念 → None）
-    model: Option<String>,
+    /// 快照模型双档（provider high / low 档）
+    models: Option<(String, String)>,
 }
 
 /// 运行发起解析 + 装配（解析单点）：`registry` 为壳层托管的停止注册表（内核
@@ -59,11 +59,17 @@ pub fn compose_turn(
         let query = Arc::clone(&query);
         Arc::new(move |session_id: &str| query.transcript(session_id).map(Some))
     };
-    // 快照定型双面：引擎二值映射 + 模型标识（sdk 取 provider high 档、cli 无
-    // 模型装配概念）
-    let (store_kind, model) = match resolved.kind {
+    // 快照定型双面：引擎二值映射 + 模型双档（sdk 取 provider 双档、cli 无模型
+    // 装配概念；档位定型归 begin 按轮级 model_level 取档）
+    let (store_kind, models) = match resolved.kind {
         EngineKind::Cli => (AgentEngineKind::Cli, None),
-        EngineKind::Sdk => (AgentEngineKind::Sdk, Some(resolved.config.model.clone())),
+        EngineKind::Sdk => (
+            AgentEngineKind::Sdk,
+            Some((
+                resolved.config.model_high.clone(),
+                resolved.config.model_low.clone(),
+            )),
+        ),
     };
     let runner: Arc<dyn AgentRunner> = Arc::from(
         EngineFacade::with_resume_transcript(resume)
@@ -75,7 +81,7 @@ pub fn compose_turn(
         runner,
         query,
         store_kind,
-        model,
+        models,
     })
 }
 
@@ -110,10 +116,17 @@ impl ComposedTurn {
                 )
             }
         };
-        // 快照由组合根组装（core 不解释）：引擎 / 模型 / 权限档三面
+        // 快照由组合根组装（core 不解释）
+        let model = self
+            .models
+            .as_ref()
+            .map(|(high, low)| match ctx.model_level {
+                agent::ModelLevel::High => high.clone(),
+                agent::ModelLevel::Low => low.clone(),
+            });
         let config_snapshot = serde_json::to_value(store::SessionConfigSnapshot {
             engine: self.store_kind,
-            model: self.model.clone(),
+            model,
             permission_mode: ctx.permission_mode,
         })
         .map_err(|e| format!("配置快照组装失败: {e}"))?;
@@ -181,7 +194,8 @@ fn resolve_agent_engine(
                 config: EngineConfig {
                     api_key: provider.api_key,
                     base_url: provider.base_url,
-                    model: provider.models.high,
+                    model_high: provider.models.high,
+                    model_low: provider.models.low,
                 },
                 // 窗长旁路：provider 可空列原样携带（None = 缺省启发式在
                 // runner 侧解析，不落缺省字面）

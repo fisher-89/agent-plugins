@@ -11,8 +11,8 @@ use crate::event::{AgentDelta, AgentEvent, AgentEventKind, AgentMessageRole};
 use crate::kernel::{KernelOutput, SessionKernel, StopRegistry, TurnRequest};
 use crate::port::{SessionSink, TurnOutcome};
 use crate::runner::{
-    AgentPermissionMode, AgentRunStatus, AgentRunner, AgentSession, AgentStartError, RunHandle,
-    SessionCtx, SessionInjections, SessionOpen, SessionRef, TurnQuestion,
+    AgentPermissionMode, AgentRunStatus, AgentRunner, AgentSession, AgentStartError, ModelLevel,
+    RunHandle, SessionCtx, SessionInjections, SessionOpen, SessionRef, TurnQuestion,
 };
 use crate::session::{NewSessionRow, SessionProvenance};
 
@@ -232,6 +232,7 @@ fn request(session: SessionRef) -> TurnRequest {
         ctx: SessionCtx {
             workspace_root: std::path::PathBuf::from("D:\\工作区"),
             permission_mode: AgentPermissionMode::BypassPermissions,
+            model_level: ModelLevel::High,
         },
         provenance: SessionProvenance {
             source: "debug".to_owned(),

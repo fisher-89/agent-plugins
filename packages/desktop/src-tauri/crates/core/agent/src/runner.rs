@@ -49,7 +49,18 @@ pub struct SessionInjections {
     pub tools: Option<Vec<String>>,
 }
 
-/// 轮级上下文：workspace root + permission-mode（首版字段面）。serde 不加
+/// 模型等级（轮级选型档位）：引擎侧按档取 provider 双档模型（High = 高能力
+/// 档，Low = 轻量档）；档位语义归编排 / 相位表解释，本 crate 只承载词汇。
+/// 缺省 High——additive 演进旧 JSON 反序列化与既有单模型行为对齐。
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ModelLevel {
+    #[default]
+    High,
+    Low,
+}
+
+/// 轮级上下文：workspace root + permission-mode + 模型等级。serde 不加
 /// `deny_unknown_fields`（未知字段忽略）——additive 演进不破线格式。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -58,6 +69,9 @@ pub struct SessionCtx {
     pub workspace_root: PathBuf,
     /// permission-mode 档位
     pub permission_mode: AgentPermissionMode,
+    /// 模型等级（缺省 High，旧形态 JSON 反序列化承接）
+    #[serde(default)]
+    pub model_level: ModelLevel,
 }
 
 /// 会话引用（协议寻址单位）：`New` 建立新会话；`Continue { id }` 以既有会话

@@ -5,6 +5,7 @@
 
 use std::sync::OnceLock;
 
+use agent::ModelLevel;
 use foundation::layout::domain_dir_name;
 
 /// 相位角色的 agent 引用与 prompt 模板（`__CALL_AGENT:<role>__` 约定原样
@@ -13,6 +14,7 @@ use foundation::layout::domain_dir_name;
 pub struct PhaseAgentSpec {
     pub agent_type: String,
     pub prompt: String,
+    pub model_level: ModelLevel,
 }
 
 /// 单相位定义（requirement 表静态项）。code-review / acceptance 为评估-only
@@ -56,9 +58,10 @@ fn proposal_explore_handoff() -> String {
 /// 目录名，故经 `OnceLock` 首见初始化后驻留 `'static`）。
 fn requirement_table() -> Vec<PhaseDefinition> {
     let explore_handoff = proposal_explore_handoff();
-    let spec = |agent_type: &str, prompt: String| PhaseAgentSpec {
+    let spec = |agent_type: &str, prompt: String, model_level: ModelLevel| PhaseAgentSpec {
         agent_type: agent_type.to_owned(),
         prompt,
+        model_level,
     };
     vec![
         PhaseDefinition {
@@ -67,11 +70,13 @@ fn requirement_table() -> Vec<PhaseDefinition> {
             executor: Some(spec(
                 "__CALL_AGENT:proposal-planner__",
                 format!("Write or update proposal.md and specs/ for change \"<change>\". {explore_handoff}"),
+                ModelLevel::High,
             )),
             evaluator: Some(spec(
                 "__CALL_AGENT:proposal-evaluator__",
                 "Evaluate <phase> phase for change \"<change>\". Call phase_log with phase=\"<phase>\"."
                     .to_owned(),
+                ModelLevel::High,
             )),
         },
         PhaseDefinition {
@@ -80,12 +85,14 @@ fn requirement_table() -> Vec<PhaseDefinition> {
             executor: Some(spec(
                 "__CALL_AGENT:dev-design-planner__",
                 "Write design.md and tasks.md for change \"<change>\".".to_owned(),
+                ModelLevel::High,
             )),
             evaluator: Some(spec(
                 "__CALL_AGENT:dev-design-evaluator__",
                 "Evaluate <phase> phase: design.md and tasks.md for change \"<change>\" against \
                  proposal.md. Call phase_log with phase=\"<phase>\"."
                     .to_owned(),
+                ModelLevel::High,
             )),
         },
         PhaseDefinition {
@@ -94,12 +101,14 @@ fn requirement_table() -> Vec<PhaseDefinition> {
             executor: Some(spec(
                 "__CALL_AGENT:test-design-planner__",
                 "Write test design for change \"<change>\".".to_owned(),
+                ModelLevel::High,
             )),
             evaluator: Some(spec(
                 "__CALL_AGENT:test-design-evaluator__",
                 "Evaluate <phase> phase: test design for change \"<change>\" against design.md. \
                  Call phase_log with phase=\"<phase>\"."
                     .to_owned(),
+                ModelLevel::High,
             )),
         },
         PhaseDefinition {
@@ -108,12 +117,14 @@ fn requirement_table() -> Vec<PhaseDefinition> {
             executor: Some(spec(
                 "__CALL_AGENT:implementation-generator__",
                 "Implement the code for change \"<change>\".".to_owned(),
+                ModelLevel::Low,
             )),
             evaluator: Some(spec(
                 "__CALL_AGENT:implementation-evaluator__",
                 "Evaluate <phase> phase: implementation for change \"<change>\" against design. \
                  Call phase_log with phase=\"<phase>\"."
                     .to_owned(),
+                ModelLevel::High,
             )),
         },
         PhaseDefinition {
@@ -122,12 +133,14 @@ fn requirement_table() -> Vec<PhaseDefinition> {
             executor: Some(spec(
                 "__CALL_AGENT:test-gen-generator__",
                 "Generate test code for change \"<change>\".".to_owned(),
+                ModelLevel::Low,
             )),
             evaluator: Some(spec(
                 "__CALL_AGENT:test-gen-evaluator__",
                 "Evaluate <phase> phase: generated tests for change \"<change>\". Call phase_log \
                  with phase=\"<phase>\"."
                     .to_owned(),
+                ModelLevel::High,
             )),
         },
         PhaseDefinition {
@@ -136,12 +149,14 @@ fn requirement_table() -> Vec<PhaseDefinition> {
             executor: Some(spec(
                 "__CALL_AGENT:test-execution-executor__",
                 "Run and fix all tests for change \"<change>\".".to_owned(),
+                ModelLevel::Low,
             )),
             evaluator: Some(spec(
                 "__CALL_AGENT:test-execution-evaluator__",
                 "Evaluate <phase> phase: test execution results for change \"<change>\". Call \
                  phase_log with phase=\"<phase>\"."
                     .to_owned(),
+                ModelLevel::Low,
             )),
         },
         PhaseDefinition {
@@ -153,6 +168,7 @@ fn requirement_table() -> Vec<PhaseDefinition> {
                 "Evaluate <phase> phase: code review for change \"<change>\". Call phase_log with \
                  phase=\"<phase>\"."
                     .to_owned(),
+                ModelLevel::High,
             )),
         },
         PhaseDefinition {
@@ -164,6 +180,7 @@ fn requirement_table() -> Vec<PhaseDefinition> {
                 "Evaluate <phase> phase: acceptance for change \"<change>\". Call phase_log with \
                  phase=\"<phase>\"."
                     .to_owned(),
+                ModelLevel::High,
             )),
         },
     ]

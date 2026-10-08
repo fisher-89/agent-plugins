@@ -4,7 +4,8 @@ use std::sync::Arc;
 use native_db::{Builder, Models};
 
 use agent::{
-    AgentMessageRole, AgentPermissionMode, SessionCtx, SessionProvenance, SessionRef, StopRegistry,
+    AgentMessageRole, AgentPermissionMode, ModelLevel, SessionCtx, SessionProvenance, SessionRef,
+    StopRegistry,
 };
 
 use crate::{compose_turn, ComposedTurn};
@@ -204,6 +205,7 @@ fn ctx(root: &str) -> SessionCtx {
     SessionCtx {
         workspace_root: PathBuf::from(root),
         permission_mode: AgentPermissionMode::BypassPermissions,
+        model_level: ModelLevel::High,
     }
 }
 
@@ -253,6 +255,56 @@ async fn 缺省解析默认sdk实例_快照承接provider组装与high档模型(
         session.config_snapshot.model,
         Some("m-high".to_owned()),
         "sdk 由引用 provider 组装取 high 档"
+    );
+}
+
+#[tokio::test]
+async fn 快照模型按轮级档位定型_low轮取低档high轮取高档() {
+    let env = DualEnv::new("model-level");
+    let stores = env.stores();
+    let provider_id = seed_provider(stores, "双档供应");
+    seed_sdk_instance(stores, "双档实例", Some(provider_id));
+    let composed =
+        compose_turn(stores, Arc::new(StopRegistry::new()), env.store(), None).expect("解析应成功");
+    let store = stores.for_root(&env.root()).expect("for_root 应成功");
+
+    let running = composed
+        .begin(
+            SessionRef::New,
+            "低档快照一轮".to_owned(),
+            SessionCtx {
+                model_level: ModelLevel::Low,
+                ..ctx(&env.root())
+            },
+            debug_provenance(),
+        )
+        .expect("begin 应成功");
+    let session = store
+        .find_session(&running.session_id)
+        .expect("find_session 应成功")
+        .expect("New 建会话行");
+    assert_eq!(
+        session.config_snapshot.model,
+        Some("m-low".to_owned()),
+        "Low 档轮快照取 provider low 档（该轮实际选型定型）"
+    );
+
+    let running = composed
+        .begin(
+            SessionRef::New,
+            "高档快照一轮".to_owned(),
+            ctx(&env.root()),
+            debug_provenance(),
+        )
+        .expect("begin 应成功");
+    let session = store
+        .find_session(&running.session_id)
+        .expect("find_session 应成功")
+        .expect("New 建会话行");
+    assert_eq!(
+        session.config_snapshot.model,
+        Some("m-high".to_owned()),
+        "High 档轮（缺省档位）快照取 provider high 档"
     );
 }
 
@@ -681,7 +733,8 @@ fn resolve_sdk臂透传provider的context_length() {
         matches!(resolved.kind, crate::EngineKind::Sdk),
         "kind 装配面不变"
     );
-    assert_eq!(resolved.config.model, "m-high", "high 档模型装配不变");
+    assert_eq!(resolved.config.model_high, "m-high", "high 档模型装配不变");
+    assert_eq!(resolved.config.model_low, "m-low", "low 档模型装配不变");
     assert_eq!(resolved.config.base_url, "http://127.0.0.1:9/v1");
     assert_eq!(resolved.config.api_key, "sk-compose");
 }

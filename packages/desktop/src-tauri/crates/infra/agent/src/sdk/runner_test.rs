@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use agent::{
     AgentBlock, AgentEventKind, AgentMessageRole, AgentPermissionMode, AgentRunner,
-    AgentStartError, SessionCtx, SessionInjections, SessionOpen, SessionRef,
+    AgentStartError, ModelLevel, SessionCtx, SessionInjections, SessionOpen, SessionRef,
 };
 
 use crate::sdk::config::EngineConfig;
@@ -19,7 +19,8 @@ fn complete_config() -> EngineConfig {
     EngineConfig {
         api_key: "sk-test".to_owned(),
         base_url: "http://127.0.0.1:9/v1".to_owned(),
-        model: "rig-test-model".to_owned(),
+        model_high: "rig-test-model-high".to_owned(),
+        model_low: "rig-test-model-low".to_owned(),
     }
 }
 
@@ -29,9 +30,21 @@ fn open_new() -> SessionOpen {
         ctx: SessionCtx {
             workspace_root: PathBuf::from("D:\\工作区"),
             permission_mode: AgentPermissionMode::BypassPermissions,
+            model_level: ModelLevel::High,
         },
         session: SessionRef::New,
         prior_handle: None,
+    }
+}
+
+/// 指定模型档位的 open 入参（Low 档选型断言缝；其余面同 [`open_new`]）。
+fn open_new_at_level(level: ModelLevel) -> SessionOpen {
+    SessionOpen {
+        ctx: SessionCtx {
+            model_level: level,
+            ..open_new().ctx
+        },
+        ..open_new()
     }
 }
 
@@ -161,42 +174,60 @@ fn 空缺省配置open返回config_missing且三成因逐字可辨() {
 }
 
 #[test]
-fn 单字段缺失open消息区分api_key_base_url_model成因() {
+fn 单字段缺失open消息区分api_key_base_url双档model成因() {
     let cases = [
         (
             "api_key",
             EngineConfig {
                 api_key: String::new(),
                 base_url: "http://127.0.0.1:9/v1".to_owned(),
-                model: "m".to_owned(),
+                model_high: "m-h".to_owned(),
+                model_low: "m-l".to_owned(),
             },
+            ModelLevel::High,
         ),
         (
             "base_url",
             EngineConfig {
                 api_key: "k".to_owned(),
                 base_url: String::new(),
-                model: "m".to_owned(),
+                model_high: "m-h".to_owned(),
+                model_low: "m-l".to_owned(),
             },
+            ModelLevel::High,
         ),
         (
-            "model",
+            "model_high",
             EngineConfig {
                 api_key: "k".to_owned(),
                 base_url: "http://127.0.0.1:9/v1".to_owned(),
-                model: String::new(),
+                model_high: String::new(),
+                model_low: "m-l".to_owned(),
             },
+            ModelLevel::High,
+        ),
+        (
+            "model_low",
+            EngineConfig {
+                api_key: "k".to_owned(),
+                base_url: "http://127.0.0.1:9/v1".to_owned(),
+                model_high: "m-h".to_owned(),
+                model_low: String::new(),
+            },
+            ModelLevel::Low,
         ),
     ];
-    for (field, config) in cases {
+    for (field, config, level) in cases {
         let runner = SdkRunner::new(config, None, None);
-        let error = runner.open_session(open_new()).expect_err("缺项必须 Err");
+        let error = runner
+            .open_session(open_new_at_level(level))
+            .expect_err("缺项必须 Err");
         let AgentStartError::ConfigMissing(message) = &error else {
             panic!("应为 ConfigMissing，实际: {error:?}");
         };
         assert!(message.contains(field), "{field} 成因可辨，实际: {message}");
-        // 其余两项成因不在消息中（只列缺失项）
-        for other in ["api_key", "base_url", "model"] {
+        // 其余成因不在消息中（只列缺失项——双档互不误列）
+        for other in ["api_key", "base_url", "model_high", "model_low"] {
             if other != field {
                 assert!(
                     !message.contains(other),
@@ -205,6 +236,29 @@ fn 单字段缺失open消息区分api_key_base_url_model成因() {
             }
         }
     }
+}
+
+/// 低档缺配的半配 provider：仅 Low 档轮显式失败，High 档轮 open 照常
+///（逐档解耦——选型后缺档才计缺失）。
+#[tokio::test]
+async fn 低档缺配仅低档轮失败_高档轮open照常() {
+    let half = || EngineConfig {
+        model_low: String::new(),
+        ..complete_config()
+    };
+    let error = SdkRunner::new(half(), None, None)
+        .open_session(open_new_at_level(ModelLevel::Low))
+        .expect_err("低档轮缺 model_low 必须 Err");
+    let AgentStartError::ConfigMissing(message) = &error else {
+        panic!("应为 ConfigMissing，实际: {error:?}");
+    };
+    assert!(
+        message.contains("model_low") && !message.contains("model_high"),
+        "缺档文案点名低档不误列高档，实际: {message}"
+    );
+    let _session = SdkRunner::new(half(), None, None)
+        .open_session(open_new_at_level(ModelLevel::High))
+        .expect("High 档轮照常 open（半配 provider 高档可用）");
 }
 
 // ---------------------------------------------------------------------------

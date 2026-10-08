@@ -64,12 +64,17 @@ Test-execution SHALL 支持 jest / vitest / vite-plus（istanbul 族，`coverage
 
 ### Requirement: 结论反馈边与独立预算
 
-结论 fail / error 时 walker SHALL 走定向反馈边（对齐 static-check Upgraded 语义）：将 findings 诊断摘要注入 executor 会话（Continue）修复，修复重入后复用门自动失效重跑。反馈边 SHALL 独立计数、上限 5 次（与 static-check 反馈计数器分立，各自计满各自升格），MUST NOT 计入相位 retry 预算；超限 walker SHALL 以代写 fail checklist 经写面 `phase_log` 升格相位 fail（不跑 evaluator，进入重试 / 决策路径）。
+结论 fail / error 时 walker SHALL 走定向反馈边（对齐 static-check Upgraded 语义）：将 findings 诊断**明细**注入 executor 会话（Continue）修复——明细为有界装配文本（诊断面 findings 全量、缺省回落 problems 消息面 + suite 执行概览（框架 / root / 退出码 / 计数 / 覆盖三维度对照、null 维度跳过）+ 失败用例明细（名称 / 文件行号 / 错误类型 / 消息 / 堆栈）），修复会话输入面自足、MUST NOT 依赖修复会话自读报告文件；报告目录随 prompt 兜底携带（全量权威所在）。修复重入后复用门自动失效重跑。反馈边 SHALL 独立计数、上限 5 次（与 static-check 反馈计数器分立，各自计满各自升格），MUST NOT 计入相位 retry 预算；超限 walker SHALL 以代写 fail checklist 经写面 `phase_log` 升格相位 fail（不跑 evaluator，进入重试 / 决策路径）。
 
 #### Scenario: 反馈修复重入
 
 - **WHEN** conclusion=fail 且反馈边未超限
-- **THEN** findings 摘要注入 executor 会话（Continue），反馈边计数 +1；修复重入后复用门失效并重跑
+- **THEN** findings 明细文本（诊断 + suite 概览 + 失败用例名 / 文件行号 / 错误消息）注入 executor 会话（Continue），反馈边计数 +1；修复重入后复用门失效并重跑
+
+#### Scenario: 明细有界装配
+
+- **WHEN** 失败面超大（长消息 / 长堆栈 / 大量失败用例）
+- **THEN** 明细按界截断（单条消息 500 / 堆栈 800 字符、每 suite 20 条、总预算 12000 字符），截断面以省略号与余量记数示意，报告目录兜底行恒在场
 
 #### Scenario: 超限升格相位 fail
 
@@ -78,17 +83,17 @@ Test-execution SHALL 支持 jest / vitest / vite-plus（istanbul 族，`coverage
 
 ### Requirement: 步骤可观测与最小载荷
 
-`ChangeStepKind::TestExecution` SHALL 入步词汇封闭集，门禁步状态经 `RunUpdate::Step` 上图（前端流程视图现有步骤渲染直接吃，零渲染改动）；IPC 类型随 bindings 再生成出线。`ToolStepOutput::TestExecution` SHALL 为最小载荷（conclusion + 计数 + 诊断摘要 + 报告路径），全量 findings 留报告文件，MUST NOT 经 IPC 面全量透传。
+`ChangeStepKind::TestExecution` SHALL 入步词汇封闭集，门禁步状态经 `RunUpdate::Step` 上图（前端流程视图现有步骤渲染直接吃，零渲染改动）；IPC 类型随 bindings 再生成出线。`ToolStepOutput::TestExecution` 载荷面 SHALL 为 conclusion + 计数 + 诊断摘要 + 修复边明细文本 + 报告路径：摘要面服务步状态 detail（`diagnose_brief` 口径截断），明细面服务反馈边修复 prompt 直嵌（有界装配、pass 态恒空串）。载荷 SHALL 零 Serialize 不进 IPC——明细文本 MUST NOT 经 bindings / `RunUpdate` 出线，只在进程内 walker 反馈边消费；全量 findings 留报告文件，MUST NOT 经 IPC 面全量透传。
 
 #### Scenario: 步骤上图零渲染改动
 
 - **WHEN** 门禁步状态变化且 bindings 再生成
 - **THEN** `RunUpdate::Step` 携 testExecution 步词汇流出，前端流程视图以既有步骤渲染直接消费
 
-#### Scenario: 载荷最小
+#### Scenario: 载荷双面各司其职
 
 - **WHEN** 审查 `ToolStepOutput::TestExecution` 载荷
-- **THEN** 无 findings 全量数组字段；明细承载于报告文件，载荷仅 conclusion + 计数 + 诊断摘要 + 报告路径
+- **THEN** 无结构化 findings 全量数组字段：摘要面（`findings_brief`）走步 detail，明细面（`findings_detail`，有界文本）走反馈边修复 prompt；两者均不进 bindings / IPC，全量以报告文件为权威（`report_dir` 定位）
 
 ### Requirement: 双实现对拍黄金语料
 
@@ -118,7 +123,7 @@ Test-execution SHALL 支持 jest / vitest / vite-plus（istanbul 族，`coverage
 
 | 模块 | 职责 | 关键契约 |
 |------|------|----------|
-| `crates/core/orchestration/src/port.rs` | port 契约三件套 | `ToolCommand::TestExecution { change, … }` / `ToolStepOutput::TestExecution(最小载荷)` / `TestExecutionRunner` port（W4：spawn 不进 core）；最小载荷类型定义于 port 本地 |
+| `crates/core/orchestration/src/port.rs` | port 契约三件套 | `ToolCommand::TestExecution { change, … }` / `ToolStepOutput::TestExecution(载荷双面：摘要 + 修复边明细)` / `TestExecutionRunner` port（W4：spawn 不进 core）；载荷类型定义于 port 本地 |
 | `crates/core/orchestration/src/state.rs` | 步词汇扩展 | `ChangeStepKind::TestExecution` 入封闭集；`ChangeStepState` / `RunUpdate::Step` 形态不变（白名单式扩展） |
 | `crates/core/orchestration/src/walker.rs` | 门禁步接入 | test-execution 相位收敛点执行 runner；反馈边独立计数器（与 `STATIC_CHECK_FEEDBACK_LIMIT` 分立、上限 5）；超限代写 fail checklist 升格相位 fail |
 | `crates/core/checks`（aggregate / diagnose / reuse） | 纯层判定 | 聚合 conclusion、完整性校验 + 诊断树确定性分支、复用门 mtime 判定；fixtures + corpus 黄金可测 |
