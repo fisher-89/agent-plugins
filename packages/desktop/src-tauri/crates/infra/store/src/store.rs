@@ -15,9 +15,9 @@ use specta::Type;
 use crate::canonical;
 use crate::envelope::{self, ModelInfo, RecordEnvelope};
 use crate::model::{
-    now_millis, AgentEngineKind, AgentInstanceRecord, AgentProviderRecord, AgentRunRecord,
-    ChangeActivePhase, ChangeRecord, ChecklistItemRecord, ExploreRecord, PhaseRecord,
-    SessionEventRecord, SessionRecord, StepRecord, WorkspaceRecord,
+    now_millis, pack_session_event_key, AgentEngineKind, AgentInstanceRecord, AgentProviderRecord,
+    AgentRunRecord, ChangeActivePhase, ChangeRecord, ChecklistItemRecord, ExploreRecord,
+    PhaseRecord, SessionEventRecord, SessionRecord, StepRecord, WorkspaceRecord,
 };
 use workflow::model::{ChecklistItem, Verdict};
 use workflow::state::{
@@ -457,6 +457,29 @@ impl Store {
         }
         rw.commit().map_err(db_err("提交转录追加事务"))?;
         Ok(())
+    }
+
+    /// 会话转录续排基点：主键打包键 range 定位该会话最大 event_key（高
+    /// 64 位 = `hash64(session_id)`，双向迭代取表尾），返回其 seq + 1；
+    /// 无行回 0。同会话多轮共享单调 seq 空间的读半边——轮级归零会与既有
+    /// 行撞（会话, seq）主键（续注同会话的反馈修复边曾因此必死）。
+    pub fn next_session_seq(&self, session_id: &str) -> Result<u64, StoreError> {
+        let r = self.db.r_transaction().map_err(db_err("开启读事务"))?;
+        let scan = r.scan();
+        let primary = scan
+            .primary::<SessionEventRecord>()
+            .map_err(db_err("扫描会话转录"))?;
+        let mut records = primary
+            .range(
+                pack_session_event_key(session_id, 0)
+                    ..=pack_session_event_key(session_id, u64::MAX),
+            )
+            .map_err(db_err("扫描会话转录"))?;
+        match records.next_back() {
+            Some(Ok(record)) => Ok(record.seq().saturating_add(1)),
+            Some(Err(e)) => Err(StoreError::Db(format!("读取会话最大 seq: {e}"))),
+            None => Ok(0),
+        }
     }
 
     /// 轮行终态收口：按 turn id 取行，status / finished_at / 统计 / error

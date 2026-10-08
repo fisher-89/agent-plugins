@@ -110,6 +110,8 @@ pub struct RunningTurn {
     registry: Arc<StopRegistry>,
     /// 轮提问
     question: String,
+    /// 本轮盖戳续排基点（会话级单调空间的开轮询定值，轮内自基点递增）
+    seq_base: u64,
 }
 
 /// 会话内核：治理面 + 运行面驱动（组合根装配；内核自身零引擎 / 零持久化
@@ -126,8 +128,8 @@ impl SessionKernel {
     }
 
     /// 会话建立与轮注册的同步段（提前 resolve 契约）：open（失败不落库）→
-    /// New 建会话行 → 开轮行 → 停止登记 → 返回 [`RunningTurn`]。
-    /// 持久面失败同样属于启动失败（不产生半成品记录）。
+    /// New 建会话行 → 续排基点询定 → 开轮行 → 停止登记 → 返回
+    /// [`RunningTurn`]。持久面失败同样属于启动失败（不产生半成品记录）。
     pub fn begin_turn(
         &self,
         runner: Arc<dyn AgentRunner>,
@@ -158,6 +160,12 @@ impl SessionKernel {
                     AgentStartError::SpawnFailed(format!("会话记录落库失败: {error}"))
                 })?;
         }
+        // 续排基点：同会话多轮共享单调 seq 空间（转录主键按（会话, seq）
+        // 唯一，轮级归零会与既有行撞主键）——开轮一次询定，轮内自基点递增
+        let seq_base = self
+            .sink
+            .next_seq(&session_id)
+            .map_err(|error| AgentStartError::SpawnFailed(format!("会话序号读取失败: {error}")))?;
         // 开轮行：写事务内分配轮 id，running 初值
         let turn_id = self
             .sink
@@ -174,6 +182,7 @@ impl SessionKernel {
             sink: Arc::clone(&self.sink),
             registry: Arc::clone(&self.registry),
             question: request.question,
+            seq_base,
         })
     }
 }
@@ -190,6 +199,7 @@ impl RunningTurn {
             sink,
             registry,
             question,
+            seq_base,
             ..
         } = self;
         // ask：轮提问送达（接收端已关即引擎侧异常终止，failed 收敛记因）
@@ -213,7 +223,7 @@ impl RunningTurn {
         }
 
         let mut machine = RunStateMachine::new();
-        let mut seq: u64 = 0;
+        let mut seq: u64 = seq_base;
         let mut stats = TurnStats::default();
         while let Some(kind) = session.observations.recv().await {
             let event = AgentEvent::stamp(seq, kind);

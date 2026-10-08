@@ -40,6 +40,12 @@ impl SessionSink for StoreSink {
             .map_err(|e| e.to_string())
     }
 
+    fn next_seq(&self, session_id: &str) -> Result<u64, String> {
+        self.store
+            .next_session_seq(session_id)
+            .map_err(|e| e.to_string())
+    }
+
     fn append_sealed(&self, session_id: &str, event: &AgentEvent) -> Result<(), String> {
         self.store
             .append_session_events(session_id, std::slice::from_ref(event))

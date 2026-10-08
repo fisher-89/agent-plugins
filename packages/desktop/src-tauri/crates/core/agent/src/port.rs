@@ -41,6 +41,11 @@ pub trait SessionSink: Send + Sync {
     /// 开轮：写事务内分配轮 id 并落 running 初值行，返回轮 id。
     fn begin_turn(&self, session_id: &str, started_at: i64) -> Result<i64, String>;
 
+    /// 会话续排基点：该会话转录当前最大 seq + 1（无行回 0）。开轮时询定
+    /// 一次，轮内事件自基点单调递增——同会话多轮共享单调 seq 空间，转录
+    /// 主键（hash(session_id) << 64 | seq）不因轮界归零复用而撞键。
+    fn next_seq(&self, session_id: &str) -> Result<u64, String>;
+
     /// 密封事件追加（转录单表，write-through 单点）。增量防御性忽略不产生
     /// 记录。
     fn append_sealed(&self, session_id: &str, event: &AgentEvent) -> Result<(), String>;

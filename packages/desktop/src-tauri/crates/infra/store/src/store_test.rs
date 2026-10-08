@@ -1239,6 +1239,62 @@ fn append_session_events空批次ok无副作用() {
 }
 
 #[test]
+fn next_session_seq续排基点为最大seq加1_无行回0_跨会话隔离() {
+    let env = Env::new("next-seq");
+    let store = open_workspace_ok(&env.db_path("ws"));
+    seed_session(&store, "ses-a");
+    seed_session(&store, "ses-b");
+
+    // 无行回 0（新会话首轮基点）
+    assert_eq!(
+        store.next_session_seq("ses-a").expect("空会话基点应成功"),
+        0
+    );
+
+    // 首轮落 0/2（seq 1 为 delta 占位空洞，store 永不见）；基点 = 最大密封 seq + 1
+    store
+        .append_session_events(
+            "ses-a",
+            &[
+                stamped(0, message_kind(AgentMessageRole::Assistant)),
+                stamped(2, turn_done_kind(false)),
+            ],
+        )
+        .unwrap_or_else(|e| panic!("首轮追加应成功: {e}"));
+    assert_eq!(
+        store.next_session_seq("ses-a").expect("基点应成功"),
+        3,
+        "基点 = 库内最大密封 seq + 1（delta 空洞不抬基点——store 只见密封）"
+    );
+
+    // 次轮自基点续排：同会话第二批落库不撞（会话, seq）主键
+    //（轮级归零复用 0 起_seq 曾报 Duplicate key 致反馈修复边必死）
+    store
+        .append_session_events(
+            "ses-a",
+            &[
+                stamped(3, message_kind(AgentMessageRole::Assistant)),
+                stamped(4, turn_done_kind(false)),
+            ],
+        )
+        .unwrap_or_else(|e| panic!("次轮续排追加应成功: {e}"));
+
+    let seqs: Vec<u64> = store
+        .list_session_events("ses-a")
+        .unwrap()
+        .iter()
+        .map(|event| event.seq)
+        .collect();
+    assert_eq!(seqs, vec![0, 2, 3, 4], "两轮转录 seq 升序零重号");
+
+    // 跨会话隔离：B 无行仍 0
+    assert_eq!(
+        store.next_session_seq("ses-b").expect("跨会话基点应成功"),
+        0
+    );
+}
+
+#[test]
 fn finish_agent_turn终态整行替换且id与started_at不变() {
     let env = Env::new("turn-finish");
     let store = open_workspace_ok(&env.db_path("ws"));

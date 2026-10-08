@@ -245,11 +245,7 @@ export type AgentEngineKind =
  *  `kind` 扁平进线格式（线格式 = 落库形态（密封） = 前端 DTO 基准）。
  */
 export type AgentEvent = {
-	/**
-	 *  单调序号，每轮从 0 递增；空白行跳过不占 seq。共享单调 seq 空间：
-	 *  增量同样占号（盖戳治理单点、传输/落库两路 seq 可比对），库内重放为
-	 *  密封事件 seq 升序、容忍空洞（排序键语义合法）
-	 */
+	/**  单调序号，会话级续排 */
 	seq: number,
 	/**  事件盖戳时刻（UTC unix 毫秒） */
 	timestampMs: number,

@@ -314,6 +314,36 @@ fn append与begin不校验会话存在而bind与finish的err面传播() {
 // ---------------------------------------------------------------------------
 
 #[test]
+fn next_seq经sink透传两轮续排真库不撞主键() {
+    let env = Env::new("next-seq");
+    env.sink
+        .create_session(&new_row("ses-n", "debug", None))
+        .expect("create_session 应成功");
+
+    // 首轮基点 0；落两枚密封（0/1）后次轮基点 2——次轮自基点续排零撞键
+    //（轮级归零复用 0 起 seq 曾报 Duplicate key 致反馈修复边必死）
+    assert_eq!(env.sink.next_seq("ses-n").expect("空会话基点应成功"), 0);
+    env.sink
+        .append_sealed("ses-n", &sealed(0, message_kind()))
+        .expect("首轮 append 应成功");
+    env.sink
+        .append_sealed("ses-n", &turn_done(1, 10, 100))
+        .expect("首轮 TurnDone append 应成功");
+    assert_eq!(env.sink.next_seq("ses-n").expect("次轮基点应成功"), 2);
+
+    env.sink
+        .append_sealed("ses-n", &sealed(2, message_kind()))
+        .expect("次轮续排 append 应成功");
+    env.sink
+        .append_sealed("ses-n", &turn_done(3, 20, 200))
+        .expect("次轮 TurnDone append 应成功");
+
+    let transcript = env.query.transcript("ses-n").expect("transcript 应成功");
+    let seqs: Vec<u64> = transcript.iter().map(|event| event.seq).collect();
+    assert_eq!(seqs, vec![0, 1, 2, 3], "同会话两轮真库续排零重号");
+}
+
+#[test]
 fn transcript跨多轮重放seq升序且空洞容忍不破坏有序() {
     let env = Env::new("transcript-holes");
     env.sink

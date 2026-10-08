@@ -128,9 +128,7 @@ impl AgentEventKind {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct AgentEvent {
-    /// 单调序号，每轮从 0 递增；空白行跳过不占 seq。共享单调 seq 空间：
-    /// 增量同样占号（盖戳治理单点、传输/落库两路 seq 可比对），库内重放为
-    /// 密封事件 seq 升序、容忍空洞（排序键语义合法）
+    /// 单调序号，会话级续排
     pub seq: u64,
     /// 事件盖戳时刻（UTC unix 毫秒）
     pub timestamp_ms: i64,
@@ -140,8 +138,7 @@ pub struct AgentEvent {
 }
 
 impl AgentEvent {
-    /// 盖当前时钟毫秒的统一生产入口：seq 由调用方（事件生产者）传入，
-    /// 每 run 从 0 单调递增；时间戳取本函数调用时刻。
+    /// 盖当前时钟毫秒的统一生产入口：seq 由调用方（事件生产者）传入
     pub fn stamp(seq: u64, kind: AgentEventKind) -> Self {
         Self {
             seq,

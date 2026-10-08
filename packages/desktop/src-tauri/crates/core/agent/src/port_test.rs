@@ -1,8 +1,3 @@
-//! `port` 的单元测试（AC-6）：SessionSink / SessionQuery trait 面的假实现
-//! 注入（trait 本身即注入面，object safety 与方法签名编译期锚定）、
-//! TurnOutcome 共享收口类型的 serde camelCase 往返、Err(String) 语义传播与
-//! Send+Sync 边界。真实组合在 infra 侧 store_port_test 承载。
-
 use std::sync::{Arc, Mutex};
 
 use crate::event::{AgentEvent, AgentEventKind, AgentMessageRole};
@@ -83,6 +78,10 @@ impl SessionSink for FakeSink {
             });
         self.fail_result()?;
         Ok(1)
+    }
+
+    fn next_seq(&self, _session_id: &str) -> Result<u64, String> {
+        Ok(0)
     }
 
     fn append_sealed(&self, session_id: &str, event: &AgentEvent) -> Result<(), String> {

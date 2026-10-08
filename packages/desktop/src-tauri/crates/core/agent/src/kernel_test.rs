@@ -1,10 +1,4 @@
-//! `kernel` 的单元测试（AC-2 / AC-5 / AC-6 / AC-7 / AC-9）：SessionKernel
-//! begin_turn 同步段（open 失败不落库 → New 建会话行 → 开轮行 → 停止登记 →
-//! 提前 resolve）、RunningTurn drive 泵驱动（盖戳 → delta 只上输出 → 密封
-//! write-through → 双 id 落库 → TurnDone 统计收口 → 终态除名）与 StopRegistry
-//! 治理面。注入依赖为假 runner / 假 sink（内存记录），RunHandle 真实参与，
-//! 无文件/网络边界。
-
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 use crate::event::{AgentDelta, AgentEvent, AgentEventKind, AgentMessageRole};
@@ -44,9 +38,11 @@ enum SinkCall {
 
 /// 假 sink：共享调用记录，begin_turn 返回自增轮 id（sink 分配序），可编程
 /// 失败点（`append_sealed` 第 n 次调用起失败等，按方法名 + 序号指定）。
+/// `next_seq` 按会话追踪已落库最大 seq（镜像 store 续排基点语义）。
 struct FakeSink {
     calls: Arc<Mutex<Vec<SinkCall>>>,
     next_turn_id: Mutex<i64>,
+    seq_high_water: Mutex<HashMap<String, u64>>,
     append_failures_from: Mutex<Option<usize>>,
     create_session_fails: bool,
     begin_turn_fails: bool,
@@ -59,6 +55,7 @@ impl FakeSink {
             Self {
                 calls: Arc::clone(&calls),
                 next_turn_id: Mutex::new(1),
+                seq_high_water: Mutex::new(HashMap::new()),
                 append_failures_from: Mutex::new(None),
                 create_session_fails: false,
                 begin_turn_fails: false,
@@ -96,11 +93,26 @@ impl SessionSink for FakeSink {
         Ok(id)
     }
 
+    fn next_seq(&self, session_id: &str) -> Result<u64, String> {
+        let high_water = self.seq_high_water.lock().expect("高水位锁不可中毒");
+        Ok(match high_water.get(session_id) {
+            Some(max) => max.saturating_add(1),
+            None => 0,
+        })
+    }
+
     fn append_sealed(&self, session_id: &str, event: &AgentEvent) -> Result<(), String> {
         self.record(SinkCall::AppendSealed {
             session_id: session_id.to_owned(),
             seq: event.seq,
         })?;
+        {
+            let mut high_water = self.seq_high_water.lock().expect("高水位锁不可中毒");
+            let entry = high_water.entry(session_id.to_owned()).or_insert(0);
+            if event.seq > *entry {
+                *entry = event.seq;
+            }
+        }
         let failures = self.append_failures_from.lock().expect("失败锁不可中毒");
         if let Some(from) = *failures {
             let count = self
@@ -518,6 +530,59 @@ async fn begin_turn_continue不重复建会话行且多轮轮id递增承接sink�
         (first.turn_id, second.turn_id),
         (1, 2),
         "同 session 串联多轮：轮 id 递增承接 sink 分配序"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// drive：同会话多轮续排（反馈修复边形态——转录主键（会话, seq）唯一）
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn 同会话次轮盖戳自库内最大seq续排_转录主键永不复用() {
+    let (sink, calls) = FakeSink::new();
+    let kernel = SessionKernel::new(Arc::new(sink), Arc::new(StopRegistry::new()));
+    let runner = Arc::new(FakeRunner::with_capacity(16));
+
+    // 首轮（New）：密封占 0/1，TurnDone 收敛
+    let first = kernel
+        .begin_turn(runner.clone(), request(SessionRef::New))
+        .expect("首轮 begin 应成功");
+    let session_id = first.session_id.clone();
+    runner
+        .feed(vec![message_kind(), turn_done_kind(false)])
+        .await;
+    runner.close_stream();
+    let (_, _, first_outcome) = drive_all(first).await;
+    assert_eq!(first_outcome.status, AgentRunStatus::Completed);
+
+    // 次轮（Continue 同会话——反馈修复边续注形态）：基点 = 库内最大 seq + 1，
+    // 轮级归零会与首轮行撞（会话, seq）主键（曾致修复边必死）
+    let second = kernel
+        .begin_turn(
+            runner.clone(),
+            request(SessionRef::Continue {
+                id: session_id.clone(),
+            }),
+        )
+        .expect("次轮 begin 应成功");
+    runner
+        .feed(vec![message_kind(), turn_done_kind(false)])
+        .await;
+    runner.close_stream();
+    let (_, _, second_outcome) = drive_all(second).await;
+    assert_eq!(second_outcome.status, AgentRunStatus::Completed);
+
+    let appends: Vec<u64> = calls_of(&calls)
+        .iter()
+        .filter_map(|call| match call {
+            SinkCall::AppendSealed { seq, .. } => Some(*seq),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        appends,
+        vec![0, 1, 2, 3],
+        "同会话两轮 seq 全程单调续排，次轮基点 = 前轮末位 + 1（撞主键回归锚）"
     );
 }
 

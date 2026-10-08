@@ -115,6 +115,10 @@ impl SessionSink for NoopSink {
         Ok(1)
     }
 
+    fn next_seq(&self, _session_id: &str) -> Result<u64, String> {
+        Ok(0)
+    }
+
     fn append_sealed(&self, _session_id: &str, _event: &AgentEvent) -> Result<(), String> {
         Ok(())
     }
