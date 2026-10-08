@@ -226,7 +226,13 @@ export function ChangeDetailView({ root }: { root: string | null }) {
   const backToList = useCallback(() => navigate('/changes'), [navigate]); // 显式返回，不用 navigate(-1)
 
   const [selection, setSelection] = useState<DrawerSelection | null>(null);
-  const runNodes = useMemo(() => (run.state === null ? [] : runStepNodes(run.state)), [run.state]);
+  // runNodes 仅随 steps 重建（非 steps 引用收窄）：sessionEvent 高频流入只动
+  // liveEvents，steps 引用不变 → runNodes/graph 零重建，流程图节点不闪回未测量态
+  const runSteps = run.state?.steps;
+  const runNodes = useMemo(
+    () => (runSteps === undefined ? [] : runStepNodes(runSteps)),
+    [runSteps],
+  );
   const graph = useMemo<FlowGraph>(
     () => (detail === null ? EMPTY_GRAPH : buildFlowGraph(detail, runNodes)),
     [detail, runNodes],

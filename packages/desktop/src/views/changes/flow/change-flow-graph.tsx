@@ -61,13 +61,21 @@ function toChartNodes(
   materials: FlowMaterials,
   onSelect: ChangeFlowGraphProps['onSelect'],
 ): ChartNode[] {
-  const columns: ChartNode[] = graph.columns.map((column) => ({
-    id: column.id,
-    type: 'column',
-    position: nodePosition(column),
-    style: { width: COL_W, height: columnHeight(graph, column.id) },
-    data: { phase: column.phase, docs: materials.columnDocs[column.id] ?? [], onSelect },
-  }));
+  const columns: ChartNode[] = graph.columns.map((column) => {
+    const height = columnHeight(graph, column.id);
+    return {
+      id: column.id,
+      type: 'column',
+      position: nodePosition(column),
+      // 声明尺寸走节点属性面（非仅 style）：xyflow 的可见性判据
+      // nodeHasDimensions 优先读声明尺寸，泳道不依赖 ResizeObserver 测量——
+      // 节点对象重建（run 步并入 / 图重算）不再把泳道打回未测量 hidden 态
+      width: COL_W,
+      height,
+      style: { width: COL_W, height },
+      data: { phase: column.phase, docs: materials.columnDocs[column.id] ?? [], onSelect },
+    };
+  });
   const events: ChartNode[] = graph.nodes.flatMap((node): ChartNode[] => {
     const common = {
       id: node.id,

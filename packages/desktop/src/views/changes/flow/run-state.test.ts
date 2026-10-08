@@ -195,6 +195,22 @@ describe('applyRunUpdate：Step 归并（纯函数无副作用）', () => {
     expect(next?.steps).toHaveLength(2);
   });
 
+  it('非 step 更新保持 steps 引用不变：sessionEvent / ask / confirmWait / finished 只换状态面不换步表（视图 runNodes memo 以 steps 为依赖，引用漂移即整图重建闪没）', () => {
+    let state = applyRunUpdate(baseState(), stepUpdate(stepRow()));
+    state = applyRunUpdate(state, sessionUpdate('ses-exec-1', textMessage(0)));
+    expect(state?.steps).toHaveLength(1);
+    const stepsRef = state?.steps;
+
+    state = applyRunUpdate(state, sessionUpdate('ses-exec-1', textMessage(1)));
+    expect(state?.steps).toBe(stepsRef);
+    state = applyRunUpdate(state, { ipc: 'ask', question: '继续？', options: ['是'] });
+    expect(state?.steps).toBe(stepsRef);
+    state = applyRunUpdate(state, { ipc: 'confirmWait', phase: 'implement' });
+    expect(state?.steps).toBe(stepsRef);
+    state = applyRunUpdate(state, { ipc: 'finished', status: 'completed', reason: null });
+    expect(state?.steps).toBe(stepsRef);
+  });
+
   it('state 为 null（未发起运行）时任意 update 恒为 null', () => {
     expect(applyRunUpdate(null, stepUpdate(stepRow()))).toBeNull();
     expect(applyRunUpdate(null, { ipc: 'finished', status: 'completed', reason: null })).toBeNull();
@@ -332,7 +348,7 @@ describe('applyRunUpdate / runStepNodes：乱序与重复 update 容忍（Channe
     );
     expect(state?.steps).toHaveLength(2);
 
-    const nodes = runStepNodes(state!);
+    const nodes = runStepNodes(state!.steps);
     expect(nodes).toHaveLength(1);
     expect(nodes[0]).toMatchObject({
       id: 'run:implement:1:executor',
@@ -347,7 +363,7 @@ describe('applyRunUpdate / runStepNodes：乱序与重复 update 容忍（Channe
       applyRunUpdate(baseState(), stepUpdate(stepRow({ status: 'passed' }))),
       stepUpdate(stepRow({ status: 'running' })),
     );
-    const nodes = runStepNodes(state!);
+    const nodes = runStepNodes(state!.steps);
     expect(nodes.map((node) => node.id)).toEqual([
       'run:implement:1:executor',
       'run:implement:1:executor:1',
@@ -360,7 +376,7 @@ describe('applyRunUpdate / runStepNodes：乱序与重复 update 容忍（Channe
     state = applyRunUpdate(state, stepUpdate(stepRow({ status: 'passed' })));
     state = applyRunUpdate(state, stepUpdate(stepRow({ status: 'passed' })));
 
-    const nodes = runStepNodes(state!);
+    const nodes = runStepNodes(state!.steps);
     expect(nodes.map((node) => node.id)).toEqual([
       'run:implement:1:executor',
       'run:implement:1:executor:1',
@@ -382,7 +398,7 @@ describe('runStepNodes：id 定式与载荷承接（overlay 输入面）', () =>
       stepUpdate(stepRow({ step: 'staticCheck', sessionId: null, status: 'running' })),
     );
 
-    const nodes = runStepNodes(state!);
+    const nodes = runStepNodes(state!.steps);
     expect(nodes.map((node) => node.id)).toEqual([
       'run:implement:1:executor',
       'run:implement:1:staticCheck',
@@ -404,7 +420,7 @@ describe('runStepNodes：id 定式与载荷承接（overlay 输入面）', () =>
       ),
     );
 
-    const nodes = runStepNodes(state!);
+    const nodes = runStepNodes(state!.steps);
     expect(nodes[0]).toEqual({
       id: 'run:implement:1:executor',
       kind: 'runtime',
@@ -457,7 +473,7 @@ describe('runStepNodes：id 定式与载荷承接（overlay 输入面）', () =>
       state = applyRunUpdate(state, stepUpdate(stepRow({ step: kind, attempt: index })));
     });
 
-    const nodes = runStepNodes(state);
+    const nodes = runStepNodes(state.steps);
     expect(nodes).toHaveLength(10);
     for (const node of nodes) {
       const expected = GROUP_OF[node.runStepKind];
@@ -469,7 +485,7 @@ describe('runStepNodes：id 定式与载荷承接（overlay 输入面）', () =>
   it('缺号相位跳过：phase 不在 9 站内的步不入图（布局恒定）', () => {
     let state = applyRunUpdate(baseState(), stepUpdate(stepRow({ phase: 'bootstrap' })));
     state = applyRunUpdate(state, stepUpdate(stepRow()));
-    expect(runStepNodes(state!).map((node) => node.id)).toEqual(['run:implement:1:executor']);
+    expect(runStepNodes(state!.steps).map((node) => node.id)).toEqual(['run:implement:1:executor']);
   });
 
   it('列内归并序：同列多节点按归并序 0 起编号（order 面）', () => {
@@ -477,7 +493,7 @@ describe('runStepNodes：id 定式与载荷承接（overlay 输入面）', () =>
     state = applyRunUpdate(state, stepUpdate(stepRow({ step: 'phaseStart', sessionId: null })));
     state = applyRunUpdate(state, stepUpdate(stepRow({ step: 'verdictGate', sessionId: null })));
 
-    const nodes = runStepNodes(state!);
+    const nodes = runStepNodes(state!.steps);
     expect(nodes.every((node) => node.colIndex === 3 && node.parentId === 'col:implement')).toBe(
       true,
     );
@@ -485,7 +501,7 @@ describe('runStepNodes：id 定式与载荷承接（overlay 输入面）', () =>
   });
 
   it('空步表 → 空数组（overlay 缺省输出与现状一致的输入半边）', () => {
-    expect(runStepNodes(baseState())).toEqual([]);
+    expect(runStepNodes(baseState().steps)).toEqual([]);
   });
 });
 
@@ -497,7 +513,7 @@ describe('run-state：空缓存与缺省字段（归并/推导不崩）', () => 
     );
     expect(state?.liveEvents).toEqual({});
 
-    const nodes = runStepNodes(state!);
+    const nodes = runStepNodes(state!.steps);
     expect(nodes[0]).toMatchObject({
       id: 'run:implement:1:whitelistGate',
       group: 'gate',

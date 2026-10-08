@@ -229,6 +229,18 @@ describe('ChangeFlowGraph：ReactFlow 薄层挂载与交互上抛', () => {
     expect(screen.queryByTestId('flow-node')).toBeNull();
   });
 
+  it('列容器凭声明尺寸未测量即可见：泳道可见性不依赖 ResizeObserver 测量（重建不闪回 hidden）', () => {
+    const base = detail({ proposal: [attempt({ startAt: '2026-09-01T00:00:00Z' })] });
+    const graph = buildFlowGraph(base);
+    renderGraph(graph, materialsFor(graph, base));
+
+    // 不 flush 测量（未测量窗口内）：事件节点尚在 hidden（对照证明环境确处未测量态），
+    // 列容器凭节点属性面声明的 width/height 立即 visible——泳道不再依赖测量定可见
+    const column = screen.getByTestId('rf__node-col:proposal');
+    expect(column.style.visibility).toBe('visible');
+    expect(screen.getByTestId('rf__node-eval:proposal:1').style.visibility).toBe('hidden');
+  });
+
   it('布局常量经列尺寸 / 节点宽度机械换算落到 DOM：列宽高、列绝对坐标、节点宽逐项可核', async () => {
     // proposal 列 2 枚 eval + implement 列 1 枚 active：列高按列内节点数非对称换算
     const base = detail(

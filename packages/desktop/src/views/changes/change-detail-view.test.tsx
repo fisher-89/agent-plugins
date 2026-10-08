@@ -87,14 +87,77 @@ function detailIpc(command: string, args: Record<string, unknown> = {}): Promise
 }
 
 class ResizeObserverStub {
-  observe = vi.fn();
-  unobserve = vi.fn();
-  disconnect = vi.fn();
+  static instances: ResizeObserverStub[] = [];
+  callback: ResizeObserverCallback;
+  elements: Element[] = [];
+
+  constructor(callback: ResizeObserverCallback) {
+    this.callback = callback;
+    ResizeObserverStub.instances.push(this);
+  }
+
+  observe = (target: Element): void => {
+    this.elements.push(target);
+  };
+
+  unobserve = (target: Element): void => {
+    this.elements = this.elements.filter((element) => element !== target);
+  };
+
+  disconnect = (): void => {
+    this.elements = [];
+  };
+
+  /** 重放全部观测目标，触发 xyflow 的节点度量（measured / handleBounds 更新）。 */
+  static flush(): void {
+    for (const observer of ResizeObserverStub.instances) {
+      if (observer.elements.length === 0) continue;
+      const entries = observer.elements.map(
+        (target) =>
+          ({
+            target,
+            contentRect: {
+              width: target.clientWidth,
+              height: target.clientHeight,
+              x: 0,
+              y: 0,
+              top: 0,
+              left: 0,
+              bottom: 0,
+              right: 0,
+            },
+          }) as unknown as ResizeObserverEntry,
+      );
+      observer.callback(entries, observer);
+    }
+  }
 }
 
+// jsdom 无布局引擎（offsetWidth / offsetHeight 恒 0）：xyflow 度量守卫需要非零
+// 尺寸才会落 handleBounds → 垫片固定返回 100（环境垫片而非业务 mock）
+const nativeOffsetWidth = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'offsetWidth');
+const nativeOffsetHeight = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'offsetHeight');
+
 beforeEach(() => {
-  // 流程图区（建档详情）挂载 ReactFlow：jsdom 缺口垫片（环境 stub 而非业务 mock）
+  // 流程图区（建档详情）挂载 ReactFlow：jsdom 缺口垫片（环境 stub 而非业务 mock，
+  // flush 可重放节点度量——已测量可见性断言需要）
   vi.stubGlobal('ResizeObserver', ResizeObserverStub);
+  Object.defineProperty(HTMLElement.prototype, 'offsetWidth', {
+    configurable: true,
+    get: () => 100,
+  });
+  Object.defineProperty(HTMLElement.prototype, 'offsetHeight', {
+    configurable: true,
+    get: () => 100,
+  });
+  // xyflow 节点度量读取 viewport transform 的缩放系数（仅用 m22），jsdom 的
+  // DOMMatrixReadOnly 不可构造 → 恒等矩阵垫片（环境垫片而非业务 mock）
+  vi.stubGlobal(
+    'DOMMatrixReadOnly',
+    class {
+      m22 = 1;
+    },
+  );
   // xyflow 边标签度量依赖 SVGGraphicsElement.getBBox，jsdom 未实现 → 零包围盒垫片
   const svgPrototype = globalThis.SVGElement?.prototype as unknown as
     | Record<string, unknown>
@@ -113,6 +176,13 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
+  ResizeObserverStub.instances = [];
+  if (nativeOffsetWidth !== undefined) {
+    Object.defineProperty(HTMLElement.prototype, 'offsetWidth', nativeOffsetWidth);
+  }
+  if (nativeOffsetHeight !== undefined) {
+    Object.defineProperty(HTMLElement.prototype, 'offsetHeight', nativeOffsetHeight);
+  }
 });
 
 /** 9 站流水线的固定站名（与 Rust PIPELINE_PHASES 一致）。 */
@@ -772,6 +842,35 @@ describe('ChangeDetailView：run 控制面板与运行 overlay 组装', () => {
     expect(within(check).getByTestId('run-step-detail').textContent).toBe('2 处诊断');
     // overlay 为加法：既有事件节点集合不变
     expect(screen.getAllByTestId('flow-node')).toHaveLength(2);
+  });
+
+  it('sessionEvent-only 信封流入：steps 引用未变 → 流程图节点零重建（已测量节点不闪回 hidden）', async () => {
+    stateSnapshot = flowSnapshot({ status: 'running', phase: 'implement', attempt: 1 });
+    renderDetail({ detail: detail() });
+    await screen.findByTestId('run-stop');
+    await waitFor(() => expect(ChannelMock.instances).toHaveLength(1));
+    await act(async () => {
+      lastChannel().push(stepUpdate('executor', 'running', { sessionId: 'ses-exec' }));
+    });
+    await waitFor(() => expect(screen.getAllByTestId('run-step-node')).toHaveLength(1));
+
+    // 重放节点度量：事件 / 运行步节点 measured 就位 → 可见基线
+    await act(async () => {
+      ResizeObserverStub.flush();
+      await Promise.resolve();
+    });
+    const eventNode = screen.getByTestId('rf__node-eval:proposal:1');
+    const runNode = screen.getByTestId('rf__node-run:implement:1:executor');
+    expect(eventNode.style.visibility).toBe('visible');
+    expect(runNode.style.visibility).toBe('visible');
+
+    // sessionEvent 高频信封：liveEvents 变化而 steps 引用不变 → runNodes 以 steps
+    // 为依赖零重建，图节点对象不换（换即 measured 清零、未测量窗口内闪回 hidden）
+    await act(async () => {
+      lastChannel().push(sessionUpdate(1, 'ses-exec', '实时增量正文'));
+    });
+    expect(eventNode.style.visibility).toBe('visible');
+    expect(runNode.style.visibility).toBe('visible');
   });
 
   it('run 终态（非终局 → 终局迁移）恰触发一次显式 refresh；终态后追加信封不再触发、主操作回到发起', async () => {
