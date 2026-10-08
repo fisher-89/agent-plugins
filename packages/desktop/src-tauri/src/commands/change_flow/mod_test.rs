@@ -69,6 +69,8 @@ fn app_with(env: &Env) -> App<tauri::test::MockRuntime> {
     let stores = WorkspaceStores::open(env.data_dir.path()).expect("打开测试全局库失败");
     app.manage(stores);
     app.manage(Arc::new(ChangeFlowControl::new()));
+    // 归档链控制注册表（change_flow_start 反向互斥前置读取——main.rs 同构托管）
+    app.manage(Arc::new(orchestration::archive_flow::ArchiveControl::new()));
     app.manage(Arc::new(StopRegistry::new()));
     app
 }
@@ -1160,4 +1162,95 @@ fn sink事件桥接_session_event记会话锚且publish透传() {
         }
         other => panic!("订阅端应收到 SessionEvent，实际: {other:?}"),
     }
+}
+
+// ---------------------------------------------------------------------------
+// 归档反向互斥（desktop-archive-change D3——前置校验序列 +1：run 命令面唯一
+// 触点；walker / 装配形态与其余五命令零改动）
+// ---------------------------------------------------------------------------
+
+/// 归档进行中 run 发起被拒：`ArchiveControl::begin` 预登记 (root, change) 后
+/// `change_flow_start_with` → Err 含归档进行中原因；零 run 落账
+///（`ChangeFlowControl::snapshot` None、库内零 StepRecord）；异 change 同 root /
+/// 异 root 同名 change 不误拒（复合键寻址——发起照常进入既有前置校验面）。
+#[tokio::test]
+async fn start归档进行中被拒_复合键寻址异键不误拒() {
+    let env = Env::new("archive-mutex");
+    env.change_dir(CHANGE);
+    let app = app_with(&env);
+    let root = env.root();
+    seed_change(&app, &root, CHANGE, "requirement");
+
+    let archive_control = app.state::<Arc<orchestration::archive_flow::ArchiveControl>>();
+    let guard = archive_control
+        .begin(&root, CHANGE)
+        .expect("归档链预登记应成功");
+
+    // 同键：run 发起被拒（归档进行中原因）
+    let error = change_flow_start_with(
+        app.handle().clone(),
+        discarding_channel(),
+        root.clone(),
+        CHANGE.to_owned(),
+        false,
+    )
+    .await
+    .expect_err("归档进行中应 Err");
+    assert!(
+        error.contains("归档链进行中"),
+        "归档进行中拒绝记因: {error}"
+    );
+
+    // 零 run 落账：快照 None（未进入运行态）
+    let control = app.state::<Arc<ChangeFlowControl>>();
+    assert!(
+        control.snapshot(&root, CHANGE).is_none(),
+        "拒绝分支零 run 登记"
+    );
+    let store = app
+        .state::<WorkspaceStores>()
+        .for_root(&root)
+        .expect("for_root 应成功");
+    assert!(
+        store
+            .list_change_steps(CHANGE, None)
+            .expect("步骤枚举应成功")
+            .is_empty(),
+        "库内零 StepRecord"
+    );
+
+    // 异 change 同 root：不误拒（进入既有前置校验面——未建档 Err 而非归档记因）
+    let error = change_flow_start_with(
+        app.handle().clone(),
+        discarding_channel(),
+        root.clone(),
+        "other-change".to_owned(),
+        false,
+    )
+    .await
+    .expect_err("异 change 未建档应 Err");
+    assert!(
+        error.contains("未建档"),
+        "异 change 走既有校验面（不误拒归档互斥）: {error}"
+    );
+
+    // 异 root 同名 change：不误拒（复合键寻址）
+    let other_env = Env::new("archive-mutex-other-root");
+    other_env.change_dir(CHANGE);
+    seed_change(&app, &other_env.root(), CHANGE, "requirement");
+    let error = change_flow_start_with(
+        app.handle().clone(),
+        discarding_channel(),
+        other_env.root(),
+        CHANGE.to_owned(),
+        false,
+    )
+    .await
+    .expect_err("异 root 应走既有校验面");
+    assert!(
+        !error.contains("归档链进行中"),
+        "异 root 不误拒归档互斥: {error}"
+    );
+
+    drop(guard);
 }

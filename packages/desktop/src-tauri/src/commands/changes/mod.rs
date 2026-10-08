@@ -1,7 +1,8 @@
 //! change 域命令组（读 + 记录面）：五条命令——三读（change 列表 / 详情
-//! 聚合 / 产物信封读取）+ 二记录面（新建建域 / 归档双写）；change 域二分职
+//! 聚合 / 产物信封读取）+ 二记录面（新建建域 / 归档双写）；change 域三分职
 //! 责——本组（读 + 记录面，沿 explores 组同组先例）/ `change_flow`（run 编
-//! 排控制）。
+//! 排控制）/ `archive_flow`（归档编排流——带 agent 会话的第三面；本组裸
+//! 双写 `archive_change` 保留零改动，链式归档入口归该组）。
 //!
 //! 读命令为薄包装——参数 → resolve → `for_root` 取 workspace 库实例 → core
 //! 函数 → DTO：无直接文件系统访问、不缓存 workspace 状态（记录面带 State，

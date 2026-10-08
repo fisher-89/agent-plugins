@@ -119,7 +119,7 @@ Desktop 后端的外部依赖 SHALL 按边界分类组织，任何新特性落�
 - **api 边界**：未来后端服务（用途未定，先占位留痕）；
 - **agent 边界**：外部执行 agent 的接入与运行（本机 CLI / 进程内 SDK / 远程 API 三租户）——契约落位 `core/agent`，实现落位 `infra/`（现有成员 `agent-runtime`）；允许进程 spawn，禁 Tauri；
 - **checks 边界**：外部进程 + pass/fail 结论门禁的检查域（现有成员：static-check、test-execution）——纯层落位 `crates/core/checks`，进程执行落位 `crates/infra/checks`（crate 裸名 `checks-runtime`）；允许进程 spawn，禁 Tauri；runner port 留 `core/orchestration`（port 属于消费者，spawn 不进 core）；
-- **vcs 边界**：外部进程 + 版本控制工作面（git worktree 建域 / 脏仓探测 / 依赖 bootstrap 安装的进程执行）——port 定义落位 `crates/core/workflow`（port 属于消费者，spawn 不进 core），实现落位 `crates/infra/vcs`（crate 裸名 `vcs-runtime`）；允许进程 spawn，禁 Tauri。
+- **vcs 边界**：外部进程 + 版本控制工作面（git worktree 建域 / 脏仓探测 / 依赖 bootstrap 安装 / 归档提交与主仓合入的进程执行——desktop-archive-change 扩族）——port 定义落位 `crates/core/workflow`（port 属于消费者，spawn 不进 core；归档链消费的 port 缝归属由该变更 design 定稿，允许落 `core/orchestration`），实现落位 `crates/infra/vcs`（crate 裸名 `vcs-runtime`）；允许进程 spawn，禁 Tauri。
 
 领域核心（change 域读模型、agent 域契约、检查域纯层）与应用编排（现为 command）位于各边界之内：core 各 crate 纯依赖；`store` 不依赖 core 行为（仅依赖 `agent` 纯类型作嵌装载荷与 `foundation` 身份段派生纯函数，规则修订见「crate 三层分组与依赖规则」），`agent-runtime` 仅依赖其契约 `core/agent`；infra 各 crate 均不依赖 Tauri，依赖方向由 crate 图机械保证（既有 requirement 不变）。`infra/` 目录表达 db / api / agent / checks / vcs 等边界的计划落位，但目录 MUST NOT 在首个成员出现前创建。
 
@@ -135,8 +135,8 @@ Desktop 后端的外部依赖 SHALL 按边界分类组织，任何新特性落�
 
 #### Scenario: git 工作面归类 vcs 边界
 
-- **WHEN** 评审 git worktree 建域 / 脏仓探测 / bootstrap 安装执行的落位
-- **THEN** 归 vcs 边界：core/workflow 的 WorktreePort 零 spawn 零 Tauri，infra/vcs 执行层允许 spawn；vcs 成员不出现在 infra/agent 或 desktop-app 内联 spawn
+- **WHEN** 评审 git worktree 建域 / 脏仓探测 / bootstrap 安装 / 归档提交与主仓合入执行的落位
+- **THEN** 归 vcs 边界：core 侧 port（WorktreePort 或归档链 port 缝）零 spawn 零 Tauri，infra/vcs 执行层允许 spawn；vcs 成员不出现在 infra/agent 或 desktop-app 内联 spawn
 
 #### Scenario: shell 依赖不越界
 
@@ -154,7 +154,7 @@ Desktop 后端的外部依赖 SHALL 按边界分类组织，任何新特性落�
 | 图数据库 | db | `infra/graph`（暂不建） | 暂不考虑；关系查询真实痛点出现再启，届时按 db 边界新成员落位 |
 | 后端 api | api | `infra/api`（不建） | 先占位留痕：用途未定，MUST NOT 建目录、MUST NOT 动代码 |
 | agent 执行 | agent | `core/agent`（契约）+ `infra/agent`（实现，裸名 `agent-runtime`） | 已由 desktop-agent-execution 落地：三租户抽象 MVP 落地 CLI 与 SDK（rig 进程内）双引擎，远程 API 未预建；进程 spawn 属 agent 边界实现细节，非 shell 边界 |
-| git 工作面（worktree 建域 / 脏仓探测 / 依赖 bootstrap） | vcs | `core/workflow`（WorktreePort）+ `infra/vcs`（实现，裸名 `vcs-runtime`） | 已由 desktop-change-worktree 落地：port 属消费者、spawn 不进 core |
+| git 工作面（worktree 建域 / 脏仓探测 / 依赖 bootstrap / 归档提交与主仓合入） | vcs | `core/workflow`（WorktreePort）+ `infra/vcs`（实现，裸名 `vcs-runtime`） | 已由 desktop-change-worktree 落地：port 属消费者、spawn 不进 core；归档提交 / 合入由 desktop-archive-change 扩族（port 缝归属由其 design 定稿，实现不越 `infra/vcs`） |
 
 `infra/fs` SHALL 在文件边界长出独立适配（区别于 workflow 内纯读逻辑的、可复用的 fs 基础设施）时再立，不预建。
 

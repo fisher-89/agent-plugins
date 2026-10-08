@@ -35,7 +35,7 @@ export function PhaseColumnNode({ data }: NodeProps<ColumnFlowNode>): React.JSX.
       >
         <span className="shrink-0 text-[13px] font-semibold">{data.phase}</span>
         {data.docs.length > 0 && (
-          <Badge variant="kind" className="shrink-0" data-testid="column-docs">
+          <Badge variant="outline" className="shrink-0" data-testid="column-docs">
             {data.docs.length} 份文档
           </Badge>
         )}

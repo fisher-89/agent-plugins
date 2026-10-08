@@ -1,38 +1,50 @@
+import { mergeProps } from '@base-ui/react/merge-props';
+import { useRender } from '@base-ui/react/use-render';
 import { cva, type VariantProps } from 'class-variance-authority';
+import { cn } from 'cn';
 
-import { cn } from '@/lib/utils';
-
-/* shadcn Badge vendored 内部化：变体集收敛为本 app 实际用量——
-   代际 inv0/inv1/inv2 与 kind 直接取 Tailwind 调色板（固定深色下调参：`*-500/15` 底 + `*-300` 字，
-   保留原灰/黄/蓝/紫色相身份），pass/fail/active 走 CSS 入口 token（design D10/D11）。 */
 const badgeVariants = cva(
-  'inline-block rounded px-[7px] py-px text-xs font-semibold leading-[18px]',
+  'group/badge inline-flex h-5 w-fit shrink-0 items-center justify-center gap-1 overflow-hidden rounded-4xl border border-transparent px-2 py-0.5 text-xs font-medium whitespace-nowrap transition-all focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 has-data-[icon=inline-end]:pr-1.5 has-data-[icon=inline-start]:pl-1.5 aria-invalid:border-destructive aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 [&>svg]:pointer-events-none [&>svg]:size-3!',
   {
     variants: {
       variant: {
-        inv0: 'bg-gray-500/15 text-gray-300',
-        inv1: 'bg-yellow-500/15 text-yellow-300',
-        inv2: 'bg-blue-500/15 text-blue-300',
-        pass: 'bg-pass-bg text-pass',
-        fail: 'bg-fail-bg text-fail',
-        kind: 'bg-violet-500/15 text-violet-300',
-        active: 'bg-primary text-primary-foreground',
+        default: 'bg-primary text-primary-foreground [a]:hover:bg-primary/80',
+        secondary: 'bg-secondary text-secondary-foreground [a]:hover:bg-secondary/80',
+        pass: 'bg-green-50 text-green-700 dark:bg-green-950 dark:text-green-300',
+        fail: 'bg-destructive/10 text-destructive focus-visible:ring-destructive/20 dark:bg-destructive/20 dark:focus-visible:ring-destructive/40 [a]:hover:bg-destructive/20',
+        destructive:
+          'bg-destructive/10 text-destructive focus-visible:ring-destructive/20 dark:bg-destructive/20 dark:focus-visible:ring-destructive/40 [a]:hover:bg-destructive/20',
+        outline: 'border-border text-foreground [a]:hover:bg-muted [a]:hover:text-muted-foreground',
+        ghost: 'hover:bg-muted hover:text-muted-foreground dark:hover:bg-muted/50',
+        link: 'text-primary underline-offset-4 hover:underline',
       },
     },
     defaultVariants: {
-      variant: 'inv0',
+      variant: 'default',
     },
   },
 );
 
 function Badge({
   className,
-  variant,
+  variant = 'default',
+  render,
   ...props
-}: React.ComponentProps<'span'> & VariantProps<typeof badgeVariants>): React.JSX.Element {
-  return (
-    <span data-slot="badge" className={cn(badgeVariants({ variant }), className)} {...props} />
-  );
+}: useRender.ComponentProps<'span'> & VariantProps<typeof badgeVariants>) {
+  return useRender({
+    defaultTagName: 'span',
+    props: mergeProps<'span'>(
+      {
+        className: cn(badgeVariants({ variant }), className),
+      },
+      props,
+    ),
+    render,
+    state: {
+      slot: 'badge',
+      variant,
+    },
+  });
 }
 
-export { Badge };
+export { Badge, badgeVariants };

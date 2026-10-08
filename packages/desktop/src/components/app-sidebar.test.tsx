@@ -100,8 +100,8 @@ describe('AppSidebar：清单渲染', () => {
   it('currentRoot 匹配项呈激活态（isActive 标记），非匹配项不激活', () => {
     mountSidebar([FIRST, SECOND], FIRST.root);
 
-    expect(itemByRoot(FIRST.root).getAttribute('data-active')).toBe('true');
-    expect(itemByRoot(SECOND.root).getAttribute('data-active')).toBe('false');
+    expect(itemByRoot(FIRST.root).hasAttribute('data-active')).toBe(true);
+    expect(itemByRoot(SECOND.root).hasAttribute('data-active')).toBe(false);
   });
 
   it('空清单（[]）：组与组标签仍渲染、无列表项、不崩', () => {
@@ -127,7 +127,7 @@ describe('AppSidebar：清单渲染', () => {
     expect(screen.getByText('beta') !== null).toBe(true);
     expect(screen.getByText('alpha') !== null).toBe(true);
     for (const item of screen.getAllByTestId('workspace-item')) {
-      expect(item.getAttribute('data-active')).toBe('false');
+      expect(item.hasAttribute('data-active')).toBe(false);
     }
   });
 });
@@ -207,13 +207,15 @@ describe('AppSidebar：Tooltip 与副文本', () => {
     restore();
   });
 
-  it('hover 清单项（delayDuration=0 即显，D4-②）→ tooltip 内容为完整 root', async () => {
+  it('hover 清单项（即显）→ tooltip 内容为完整 root', async () => {
     mountSidebar([FIRST, SECOND], FIRST.root);
 
-    // radix Tooltip 以 focus 等价 hover 打开（delayDuration=0 由 provider 设定）
+    // base-ui Tooltip 以 focus 等价 hover 打开（jsdom 下 focus 为即时打开面）；
+    // Popup 无 role="tooltip"（定位器为 role="presentation"），以 data-slot 收敛
     fireEvent.focus(itemByRoot(SECOND.root));
-    const tooltip = await screen.findByRole('tooltip');
+    const tooltip = await screen.findByText(SECOND.root);
 
+    expect(tooltip.closest('[data-slot="tooltip-content"]') !== null).toBe(true);
     expect(tooltip.textContent).toBe(SECOND.root);
   });
 
@@ -343,28 +345,28 @@ describe('AppSidebar：页面导航组与系统工具组（NavLink 路由导航�
   it('pathname 无匹配前缀（/bogus）：nav 均 data-active=false，锚点与 workspace 组照常渲染不崩（active 派生安全降级，组件级不等同 App 层重定向兜底）', () => {
     mountNav('/bogus');
 
-    expect(screen.getByTestId('nav-changes').getAttribute('data-active')).toBe('false');
-    expect(screen.getByTestId('nav-agent').getAttribute('data-active')).toBe('false');
-    expect(screen.getByTestId('nav-db').getAttribute('data-active')).toBe('false');
+    expect(screen.getByTestId('nav-changes').hasAttribute('data-active')).toBe(false);
+    expect(screen.getByTestId('nav-agent').hasAttribute('data-active')).toBe(false);
+    expect(screen.getByTestId('nav-db').hasAttribute('data-active')).toBe(false);
     expect(screen.getAllByTestId('workspace-item')).toHaveLength(2);
     expect(screen.getByRole('button', { name: '添加 workspace' }) !== null).toBe(true);
   });
 
   it('active 态由 URL 派生：/changes 与 /changes/:name 激活变更项，/agent 激活 Agent 项', () => {
     const first = mountNav('/changes', [FIRST]);
-    expect(screen.getByTestId('nav-changes').getAttribute('data-active')).toBe('true');
-    expect(screen.getByTestId('nav-agent').getAttribute('data-active')).toBe('false');
+    expect(screen.getByTestId('nav-changes').hasAttribute('data-active')).toBe(true);
+    expect(screen.getByTestId('nav-agent').hasAttribute('data-active')).toBe(false);
     first.unmount();
 
     // 详情路由同样激活变更项（与路由化前 page='changes' 含详情态一致）
     const detail = mountNav('/changes/add-feature', [FIRST]);
-    expect(screen.getByTestId('nav-changes').getAttribute('data-active')).toBe('true');
-    expect(screen.getByTestId('nav-agent').getAttribute('data-active')).toBe('false');
+    expect(screen.getByTestId('nav-changes').hasAttribute('data-active')).toBe(true);
+    expect(screen.getByTestId('nav-agent').hasAttribute('data-active')).toBe(false);
     detail.unmount();
 
     mountNav('/agent', [FIRST]);
-    expect(screen.getByTestId('nav-agent').getAttribute('data-active')).toBe('true');
-    expect(screen.getByTestId('nav-changes').getAttribute('data-active')).toBe('false');
+    expect(screen.getByTestId('nav-agent').hasAttribute('data-active')).toBe(true);
+    expect(screen.getByTestId('nav-changes').hasAttribute('data-active')).toBe(false);
   });
 
   it('点击「Agent 调试」→ URL 变为 /agent；点击「变更」→ URL 变回 /changes', () => {
@@ -382,8 +384,8 @@ describe('AppSidebar：页面导航组与系统工具组（NavLink 路由导航�
     const { onAdd, onOpen, onRemove } = mountNav('/agent');
 
     expect(screen.getAllByTestId('workspace-item')).toHaveLength(2);
-    expect(itemByRoot(FIRST.root).getAttribute('data-active')).toBe('true');
-    expect(screen.getByTestId('nav-agent').getAttribute('data-active')).toBe('true');
+    expect(itemByRoot(FIRST.root).hasAttribute('data-active')).toBe(true);
+    expect(screen.getByTestId('nav-agent').hasAttribute('data-active')).toBe(true);
     fireEvent.click(itemByRoot(SECOND.root));
     expect(onOpen).toHaveBeenCalledWith(SECOND.root);
     expect(onAdd).not.toHaveBeenCalled();
@@ -393,9 +395,9 @@ describe('AppSidebar：页面导航组与系统工具组（NavLink 路由导航�
   it('URL 为根路径 /：三导航项均不激活（激活态由 URL 派生；/ → /changes 重定向为 App 层职责，route_pages 覆盖）', () => {
     mountSidebar([FIRST, SECOND], FIRST.root);
 
-    expect(screen.getByTestId('nav-changes').getAttribute('data-active')).toBe('false');
-    expect(screen.getByTestId('nav-agent').getAttribute('data-active')).toBe('false');
-    expect(screen.getByTestId('nav-db').getAttribute('data-active')).toBe('false');
+    expect(screen.getByTestId('nav-changes').hasAttribute('data-active')).toBe(false);
+    expect(screen.getByTestId('nav-agent').hasAttribute('data-active')).toBe(false);
+    expect(screen.getByTestId('nav-db').hasAttribute('data-active')).toBe(false);
   });
 
   it('两入口各带 lucide 图标（以 DOM 结构断言，非观感）', () => {
@@ -444,15 +446,15 @@ describe('AppSidebar：页面导航组 nav-info（AC-1）', () => {
 
   it('pathname=/info → nav-info data-active=true 且其余 nav 为 false；/changes 下 nav-info 为 false（active 由 URL 派生）', () => {
     const onInfo = mountNav('/info', [FIRST]);
-    expect(screen.getByTestId('nav-info').getAttribute('data-active')).toBe('true');
+    expect(screen.getByTestId('nav-info').hasAttribute('data-active')).toBe(true);
     for (const id of ['nav-explores', 'nav-changes', 'nav-agent', 'nav-db']) {
-      expect(screen.getByTestId(id).getAttribute('data-active')).toBe('false');
+      expect(screen.getByTestId(id).hasAttribute('data-active')).toBe(false);
     }
     onInfo.unmount();
 
     mountNav('/changes', [FIRST]);
-    expect(screen.getByTestId('nav-info').getAttribute('data-active')).toBe('false');
-    expect(screen.getByTestId('nav-changes').getAttribute('data-active')).toBe('true');
+    expect(screen.getByTestId('nav-info').hasAttribute('data-active')).toBe(false);
+    expect(screen.getByTestId('nav-changes').hasAttribute('data-active')).toBe(true);
   });
 
   it('点击 nav-info → location-probe 呈 /info', () => {
@@ -466,7 +468,7 @@ describe('AppSidebar：页面导航组 nav-info（AC-1）', () => {
   it('pathname 无匹配前缀（/bogus）→ nav-info data-active=false、渲染不崩（对齐既有降级用例）', () => {
     mountNav('/bogus');
 
-    expect(screen.getByTestId('nav-info').getAttribute('data-active')).toBe('false');
+    expect(screen.getByTestId('nav-info').hasAttribute('data-active')).toBe(false);
     expect(screen.getAllByTestId('workspace-item')).toHaveLength(2);
     expect(screen.getByRole('button', { name: '添加 workspace' }) !== null).toBe(true);
   });
@@ -528,15 +530,15 @@ describe('AppSidebar：页面导航组 nav-config 扩员（AC-4）', () => {
 
   it('pathname=/config → nav-config data-active=true 且其余 nav 全 false；/changes 下 nav-config 为 false（active 由 URL 派生）', () => {
     const onConfig = mountNav('/config', [FIRST]);
-    expect(screen.getByTestId('nav-config').getAttribute('data-active')).toBe('true');
+    expect(screen.getByTestId('nav-config').hasAttribute('data-active')).toBe(true);
     for (const id of ['nav-info', 'nav-changes', 'nav-explores', 'nav-agent', 'nav-db']) {
-      expect(screen.getByTestId(id).getAttribute('data-active')).toBe('false');
+      expect(screen.getByTestId(id).hasAttribute('data-active')).toBe(false);
     }
     onConfig.unmount();
 
     mountNav('/changes', [FIRST]);
-    expect(screen.getByTestId('nav-config').getAttribute('data-active')).toBe('false');
-    expect(screen.getByTestId('nav-changes').getAttribute('data-active')).toBe('true');
+    expect(screen.getByTestId('nav-config').hasAttribute('data-active')).toBe(false);
+    expect(screen.getByTestId('nav-changes').hasAttribute('data-active')).toBe(true);
   });
 
   it('点击 nav-config → location-probe 呈 /config', () => {
@@ -550,7 +552,7 @@ describe('AppSidebar：页面导航组 nav-config 扩员（AC-4）', () => {
   it('pathname 无匹配前缀（/bogus）→ nav-config data-active=false、渲染不崩（对齐既有降级用例）', () => {
     mountNav('/bogus');
 
-    expect(screen.getByTestId('nav-config').getAttribute('data-active')).toBe('false');
+    expect(screen.getByTestId('nav-config').hasAttribute('data-active')).toBe(false);
     expect(screen.getAllByTestId('workspace-item')).toHaveLength(2);
     expect(screen.getByRole('button', { name: '添加 workspace' }) !== null).toBe(true);
   });
@@ -567,7 +569,7 @@ describe('AppSidebar：页面导航组 nav-config 扩员（AC-4）', () => {
     expect(within(pageGroup).getByTestId('nav-explores').textContent).toContain('探索');
     for (const id of ['nav-agent', 'nav-db']) {
       expect(within(pageGroup).queryByTestId(id)).toBeNull();
-      expect(screen.getByTestId(id).getAttribute('data-active')).toBe('false');
+      expect(screen.getByTestId(id).hasAttribute('data-active')).toBe(false);
     }
 
     const toolsGroup = groupOf('nav-agent');
@@ -624,7 +626,7 @@ describe('AppSidebar：系统工具组 nav-agents 入口（AC-1）', () => {
 
   it('/agents 路径下 nav-agents active 态成立、他路径下不成立（active 由 URL 派生）', () => {
     const onAgents = mountNav('/agents', [FIRST]);
-    expect(screen.getByTestId('nav-agents').getAttribute('data-active')).toBe('true');
+    expect(screen.getByTestId('nav-agents').hasAttribute('data-active')).toBe(true);
     for (const id of [
       'nav-info',
       'nav-changes',
@@ -633,18 +635,18 @@ describe('AppSidebar：系统工具组 nav-agents 入口（AC-1）', () => {
       'nav-agent',
       'nav-db',
     ]) {
-      expect(screen.getByTestId(id).getAttribute('data-active')).toBe('false');
+      expect(screen.getByTestId(id).hasAttribute('data-active')).toBe(false);
     }
     onAgents.unmount();
 
     const onChanges = mountNav('/changes', [FIRST]);
-    expect(screen.getByTestId('nav-agents').getAttribute('data-active')).toBe('false');
-    expect(screen.getByTestId('nav-changes').getAttribute('data-active')).toBe('true');
+    expect(screen.getByTestId('nav-agents').hasAttribute('data-active')).toBe(false);
+    expect(screen.getByTestId('nav-changes').hasAttribute('data-active')).toBe(true);
     onChanges.unmount();
 
     // 无匹配前缀（/bogus）降级口径一致
     const onBogus = mountNav('/bogus', [FIRST]);
-    expect(screen.getByTestId('nav-agents').getAttribute('data-active')).toBe('false');
+    expect(screen.getByTestId('nav-agents').hasAttribute('data-active')).toBe(false);
     onBogus.unmount();
   });
 

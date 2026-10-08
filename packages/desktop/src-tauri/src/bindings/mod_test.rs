@@ -941,3 +941,136 @@ fn create_change命令签面_root_name_goal三参不变() {
         "invoke 目标 create_change 与三参对象不变"
     );
 }
+
+// ---------------------------------------------------------------------------
+// 归档链命令组与 ArchiveUpdate 家族（desktop-archive-change D1/D5——五命令
+// 出线 + tag ipc 线词锚；既有命令清单零删除零改名的随动守卫由上方全量清单
+// contains 语义承载）
+// ---------------------------------------------------------------------------
+
+/// 归档五命令注册面：生成 bindings 的 commands 对象含五命令（camelCase 名齐
+/// 全；start / watch 携 typed Channel 参型；既有命令零删除零改名——全量清单
+/// 用例继续逐名命中）。
+#[test]
+fn 归档五命令注册面_camel_case名齐全且channel参型() {
+    let _lock = lock();
+    let content = String::from_utf8(authoritative_snapshot()).expect("产物为 UTF-8 文本");
+
+    for wrapper in [
+        "archiveFlowPreflight",
+        "archiveFlowStart",
+        "archiveFlowStop",
+        "archiveFlowState",
+        "archiveFlowWatch",
+    ] {
+        assert!(
+            content.contains(&format!("{wrapper}:")),
+            "产物缺归档命令包装名 {wrapper}"
+        );
+    }
+    for name in [
+        "archive_flow_preflight",
+        "archive_flow_start",
+        "archive_flow_stop",
+        "archive_flow_state",
+        "archive_flow_watch",
+    ] {
+        assert!(
+            content.contains(&format!("\"{name}\"")),
+            "产物缺归档 invoke 命令名 {name}"
+        );
+    }
+    // start / watch 首参为 typed Channel<ArchiveUpdate>
+    assert!(
+        content.contains("archiveFlowStart: (onEvent: Channel<ArchiveUpdate>, root: string, change: string, syncSpecs: boolean)"),
+        "archiveFlowStart 绑定首参为 typed Channel<ArchiveUpdate> 且四参齐"
+    );
+    assert!(
+        content.contains(
+            "archiveFlowWatch: (onEvent: Channel<ArchiveUpdate>, root: string, change: string)"
+        ),
+        "archiveFlowWatch 绑定首参为 typed Channel<ArchiveUpdate>"
+    );
+}
+
+/// ArchiveUpdate 家族线词：ArchiveStage 六值 / ArchiveStageStatus 四值 /
+/// ArchiveSpecsStatus 三值 / ArchivePreflight 与 ArchiveSnapshot 字段面——D5
+/// 线格式锚。
+#[test]
+fn archive_update家族线词_阶段与状态与字段面() {
+    let _lock = lock();
+    let content = String::from_utf8(authoritative_snapshot()).expect("产物为 UTF-8 文本");
+
+    // ArchiveStage 线词恰六值
+    let stage = type_section(&content, "ArchiveStage");
+    for wire in [
+        "preflight",
+        "specSync",
+        "commit",
+        "merge",
+        "seal",
+        "finalize",
+    ] {
+        assert!(
+            stage.contains(&format!("\"{wire}\"")),
+            "ArchiveStage 线词 {wire}，实际: {stage}"
+        );
+    }
+    // ArchiveStageStatus 四值
+    let status = type_section(&content, "ArchiveStageStatus");
+    for wire in ["running", "passed", "skipped", "failed"] {
+        assert!(
+            status.contains(&format!("\"{wire}\"")),
+            "ArchiveStageStatus 线词 {wire}"
+        );
+    }
+    // ArchiveSpecsStatus 三值
+    let specs = type_section(&content, "ArchiveSpecsStatus");
+    for wire in ["synced", "skipped", "none"] {
+        assert!(
+            specs.contains(&format!("\"{wire}\"")),
+            "ArchiveSpecsStatus 线词 {wire}"
+        );
+    }
+    // ArchiveUpdate tag ipc 三变体
+    let update = type_section(&content, "ArchiveUpdate");
+    for tag in ["stage", "sessionEvent", "finished"] {
+        assert!(
+            update.contains(&format!("{{ ipc: \"{tag}\"")),
+            "ArchiveUpdate tag ipc 变体 {tag}"
+        );
+    }
+    // ArchivePreflight 字段面（确认对话数据面）
+    let preflight = type_section(&content, "ArchivePreflight");
+    for field in [
+        "name",
+        "completed",
+        "incompletePhases",
+        "missingArtifacts",
+        "deltaSpecs",
+        "worktree",
+        "branch",
+        "mergeTarget",
+        "runActive",
+    ] {
+        assert!(
+            preflight.contains(&format!("{field}:")),
+            "ArchivePreflight 字段 {field}"
+        );
+    }
+    // ArchiveSnapshot 字段面（重挂快照）
+    let snapshot = type_section(&content, "ArchiveSnapshot");
+    assert!(snapshot.contains("stages:"), "ArchiveSnapshot 字段 stages");
+    assert!(
+        snapshot.contains("sessionId:"),
+        "ArchiveSnapshot 字段 sessionId（camelCase）"
+    );
+    // ArchiveSummary 字段面（结果摘要——archivedDir camelCase）
+    let summary = type_section(&content, "ArchiveSummary");
+    for field in ["name", "archivedDir", "specs", "warnings"] {
+        assert!(
+            summary.contains(&format!("{field}:")),
+            "ArchiveSummary 字段 {field}"
+        );
+    }
+}

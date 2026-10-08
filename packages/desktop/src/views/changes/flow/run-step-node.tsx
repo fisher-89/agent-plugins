@@ -57,7 +57,7 @@ function RunStepHeader({ node }: { node: RuntimeFlowNode }): React.JSX.Element {
   return (
     <div className="flex flex-wrap items-center gap-1.5">
       <Badge
-        variant={node.group === 'workerAgent' ? 'active' : 'inv2'}
+        variant={node.group === 'workerAgent' ? 'default' : 'secondary'}
         data-testid="run-step-group"
       >
         {GROUP_LABEL[node.group]}

@@ -4,7 +4,7 @@ import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
 import { defineConfig } from 'vite-plus';
 
-const NO_STATIC_CHECK = ['src-tauri/**', 'src/types/generated/**'];
+const NO_STATIC_CHECK = ['src-tauri/**', 'src/types/generated/**', 'src/components/ui/**'];
 
 // dev server 端口与 src-tauri/tauri.conf.json 的 build.devUrl 对齐。
 // defineConfig 取自 vite-plus（config.json 登记的套件框架）：`vp dev` /

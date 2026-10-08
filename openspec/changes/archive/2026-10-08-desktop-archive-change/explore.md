@@ -1,0 +1,1 @@
+desktop UI变更详情中增加归档按钮，有worktree时将代码提交、合入主干，之后参考plugins/dev-team skills openspec-archive-change的prompt，调动agent完成归档

@@ -23,7 +23,7 @@ function ChangeRow({
     >
       <span className="font-semibold">{summary.name}</span>
       {summary.activePhase !== null && (
-        <Badge variant="active">
+        <Badge variant="secondary">
           运行中 · {summary.activePhase.phase} · attempt {summary.activePhase.attempt}
         </Badge>
       )}

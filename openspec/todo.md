@@ -55,3 +55,4 @@
 - [ ] 【Desktop】change会话失败或中断后重新启动流程，页面应显示最新进行中的会话
 - [x] 【Desktop】修复问题：进行中的流程，进入详情页后一瞬间，流程图消失，观察dom，所有泳道都被设置成hidden
 - [ ] 【Desktop】useChangeDetail、useChangeFlowRun 背后的两套流程数据应该统一口径，运行中返回的状态一并落库，保证页面实时更新和完成后查询内容一致
+- [ ] 【Desktop】worktree先合入主仓再归档

@@ -104,8 +104,19 @@ pub(crate) async fn change_flow_start_with<R: tauri::Runtime>(
         None => root.clone(),
     };
     // 前置校验 4：无并行 run（begin_run 复合键冲突检测——同 workspace 同
-    // change 二次发起 Err，异 workspace 同名不误拒）
+    // change 二次发起 Err，异 workspace 同名不误拒）。先经反向互斥面：归档链
+    // 进行中（ArchiveControl 在案）显式拒绝 run 发起（design
+    // desktop-archive-change D3——互斥登记载体 = ArchiveControl 自持注册表，
+    // 不进入运行态零落账）
     let control = Arc::clone(app.state::<Arc<ChangeFlowControl>>().inner());
+    if app
+        .state::<Arc<orchestration::archive_flow::ArchiveControl>>()
+        .is_active(&root, &change)
+    {
+        return Err(format!(
+            "change \"{change}\" 的归档链进行中，不可发起 run（请等待归档收口或先停止归档链）"
+        ));
+    }
     let run_id = new_run_id();
     let guard = control.begin_run(&root, &change, run_id.clone())?;
 

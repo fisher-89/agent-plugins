@@ -43,7 +43,7 @@ function SessionMeta({
       >
         {summary.row.id}
       </span>
-      <Badge variant={running ? 'active' : 'inv2'} data-testid="session-meta-status">
+      <Badge variant={running ? 'default' : 'secondary'} data-testid="session-meta-status">
         {running ? '运行中' : '已收口'}
       </Badge>
       <span data-testid="session-meta-turns">轮数 {summary.stats.turnCount}</span>

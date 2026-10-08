@@ -1,7 +1,7 @@
 {
   "$schema": "https://unpkg.com/knip@6/schema.json",
   "project": ["src/**/*.{ts,tsx,css}", "!src/**/*.{test.ts,test.tsx}"],
-  "ignore": ["src/types/generated/**"],
+  "ignore": ["src/types/generated/**", "src/components/ui/**"],
   "ignoreDependencies": ["@vitest/coverage-v8", "@types/json-schema", "oxlint-tsgolint"],
   "typescript": {
     "config": ["tsconfig.json"]

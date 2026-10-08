@@ -468,14 +468,14 @@ describe('App：sidebar 列表项交互 → workspace 动作链（AC-3/AC-4/AC-5
   it('切换后激活态迁移：原当前项退出 isActive、新当前项进入，清单保持默认序不重排', async () => {
     await restored();
 
-    expect(itemByRoot(FIRST.root).getAttribute('data-active')).toBe('true');
-    expect(itemByRoot(SECOND.root).getAttribute('data-active')).toBe('false');
+    expect(itemByRoot(FIRST.root).hasAttribute('data-active')).toBe(true);
+    expect(itemByRoot(SECOND.root).hasAttribute('data-active')).toBe(false);
 
     fireEvent.click(itemByRoot(SECOND.root));
 
     await waitFor(() => {
-      expect(itemByRoot(SECOND.root).getAttribute('data-active')).toBe('true');
-      expect(itemByRoot(FIRST.root).getAttribute('data-active')).toBe('false');
+      expect(itemByRoot(SECOND.root).hasAttribute('data-active')).toBe(true);
+      expect(itemByRoot(FIRST.root).hasAttribute('data-active')).toBe(false);
     });
     // 本地切换不重排清单：默认序保持
     const roots = screen
@@ -525,7 +525,7 @@ describe('App：sidebar 列表项交互 → workspace 动作链（AC-3/AC-4/AC-5
       expect(invokeMock).toHaveBeenCalledWith('list_changes', { root: 'C:\\canonical\\picked' }),
     );
     await waitFor(() => expect(screen.getByText('picked') !== null).toBe(true));
-    expect(itemByRoot('C:\\canonical\\picked').getAttribute('data-active')).toBe('true');
+    expect(itemByRoot('C:\\canonical\\picked').hasAttribute('data-active')).toBe(true);
   });
 
   it('对话框取消（null）：不调用 add_workspace、停留当前态——两处入口（欢迎屏 / GroupAction）行为一致', async () => {
@@ -932,10 +932,10 @@ describe('App：壳层布局与折叠形态（AC-1/AC-2/AC-7）', () => {
     expect(sidebar.getAttribute('data-state')).toBe('collapsed');
     expect(sidebar.getAttribute('data-collapsible')).toBe('icon');
 
-    // 折叠态 Tooltip 仍可显：完整 root 即显（delayDuration=0）
+    // 折叠态 Tooltip 仍可显：完整 root 即显（Popup 无 role="tooltip"，以 data-slot 收敛）
     fireEvent.focus(itemByRoot(FIRST.root));
-    const tooltip = await screen.findByRole('tooltip');
-    expect(tooltip.textContent).toBe(FIRST.root);
+    const tooltip = await screen.findByText(FIRST.root);
+    expect(tooltip.closest('[data-slot="tooltip-content"]') !== null).toBe(true);
   });
 
   it('Ctrl/Cmd+B：对 window 派发 keyDown（ctrlKey 与 metaKey 两形态）在 collapsed/expanded 间切换（D1 会话内 state）', async () => {
@@ -947,10 +947,9 @@ describe('App：壳层布局与折叠形态（AC-1/AC-2/AC-7）', () => {
     fireEvent.keyDown(window, { key: 'b', metaKey: true });
     expect(sidebar.getAttribute('data-state')).toBe('expanded');
     expect(window.localStorage.length).toBe(0);
-    expect(document.cookie).toBe('');
   });
 
-  it('折叠态不持久化（D1）：卸载重挂回到展开态，无 localStorage / cookie 读写', async () => {
+  it('折叠态不持久化（D1）：卸载重挂回到展开态（新 sidebar provider 会写 sidebar_state cookie 但从不回读，折叠态不被恢复）', async () => {
     await restored();
     const sidebar = document.querySelector('[data-slot="sidebar"]')!;
     fireEvent.keyDown(window, { key: 'b', ctrlKey: true });
@@ -961,7 +960,6 @@ describe('App：壳层布局与折叠形态（AC-1/AC-2/AC-7）', () => {
     const sidebarAgain = document.querySelector('[data-slot="sidebar"]')!;
     expect(sidebarAgain.getAttribute('data-state')).toBe('expanded');
     expect(window.localStorage.length).toBe(0);
-    expect(document.cookie).toBe('');
   });
 });
 
@@ -998,8 +996,8 @@ describe('App：路由化顶层页面切换（changes | agent | db）', () => {
     expect(window.location.hash).toBe('#/changes');
     expect(screen.getByText('add-feature') !== null).toBe(true);
     expect(screen.queryByTestId('agent-run-form')).toBeNull();
-    expect(screen.getByTestId('nav-changes').getAttribute('data-active')).toBe('true');
-    expect(screen.getByTestId('nav-agent').getAttribute('data-active')).toBe('false');
+    expect(screen.getByTestId('nav-changes').hasAttribute('data-active')).toBe(true);
+    expect(screen.getByTestId('nav-agent').hasAttribute('data-active')).toBe(false);
   });
 
   it('侧栏点击「Agent 调试」→ hash 落 #/agent、AgentDebugView 呈现、变更页内容卸载；点击「变更」→ hash 回 #/changes 切回清单', async () => {
@@ -1009,7 +1007,7 @@ describe('App：路由化顶层页面切换（changes | agent | db）', () => {
     await waitFor(() => expect(screen.getByTestId('agent-run-form') !== null).toBe(true));
     expect(window.location.hash).toBe('#/agent');
     expect(screen.queryByText('add-feature')).toBeNull();
-    expect(screen.getByTestId('nav-agent').getAttribute('data-active')).toBe('true');
+    expect(screen.getByTestId('nav-agent').hasAttribute('data-active')).toBe(true);
 
     fireEvent.click(screen.getByTestId('nav-changes'));
     await waitFor(() => expect(screen.getByText('add-feature') !== null).toBe(true));
@@ -1030,9 +1028,9 @@ describe('App：路由化顶层页面切换（changes | agent | db）', () => {
     );
     expect(screen.queryByText('add-feature')).toBeNull();
     expect(screen.queryByTestId('agent-run-form')).toBeNull();
-    expect(screen.getByTestId('nav-db').getAttribute('data-active')).toBe('true');
-    expect(screen.getByTestId('nav-changes').getAttribute('data-active')).toBe('false');
-    expect(screen.getByTestId('nav-agent').getAttribute('data-active')).toBe('false');
+    expect(screen.getByTestId('nav-db').hasAttribute('data-active')).toBe(true);
+    expect(screen.getByTestId('nav-changes').hasAttribute('data-active')).toBe(false);
+    expect(screen.getByTestId('nav-agent').hasAttribute('data-active')).toBe(false);
   });
 
   it('切至 db 页再切回 changes：清单页重挂重发 list_changes 恰一次、list_workspaces 不增长（清单取数入清单页）', async () => {
@@ -1064,9 +1062,9 @@ describe('App：路由化顶层页面切换（changes | agent | db）', () => {
     );
     expect(screen.queryByText('add-feature')).toBeNull();
     expect(screen.queryByTestId('agent-run-form')).toBeNull();
-    expect(screen.getByTestId('nav-db').getAttribute('data-active')).toBe('true');
-    expect(screen.getByTestId('nav-changes').getAttribute('data-active')).toBe('false');
-    expect(screen.getByTestId('nav-agent').getAttribute('data-active')).toBe('false');
+    expect(screen.getByTestId('nav-db').hasAttribute('data-active')).toBe(true);
+    expect(screen.getByTestId('nav-changes').hasAttribute('data-active')).toBe(false);
+    expect(screen.getByTestId('nav-agent').hasAttribute('data-active')).toBe(false);
   });
 
   it('侧栏点击「Agent 调试」→ agent_sessions 挂载取数携当前 workspace root（返回 [] 数组形态不变）', async () => {
@@ -1227,7 +1225,7 @@ describe('App：壳层滚动框架', () => {
       expect(shellContentWrapper().className).toContain(className);
     }
     // 非滚动场景页为内容自适应 flex item：切页往返后清单照常呈现
-    expect(screen.getByTestId('nav-changes').getAttribute('data-active')).toBe('true');
+    expect(screen.getByTestId('nav-changes').hasAttribute('data-active')).toBe(true);
   });
 });
 
@@ -1296,8 +1294,8 @@ describe('App：HashRouter 自含挂载与路由初态（D2/D6/D7）', () => {
     await waitFor(() => expect(screen.getByTestId('agent-run-form') !== null).toBe(true));
 
     expect(window.location.hash).toBe('#/agent');
-    expect(screen.getByTestId('nav-agent').getAttribute('data-active')).toBe('true');
-    expect(screen.getByTestId('nav-changes').getAttribute('data-active')).toBe('false');
+    expect(screen.getByTestId('nav-agent').hasAttribute('data-active')).toBe(true);
+    expect(screen.getByTestId('nav-changes').hasAttribute('data-active')).toBe(false);
     // Agent 页不挂变更页：无 detail 取数
     expect(countOf('get_change_detail')).toBe(0);
   });
@@ -1350,8 +1348,8 @@ describe('App：/info 基础信息路由可达与欢迎态隔离（AC-1）', () 
     await waitFor(() => expect(window.location.hash).toBe('#/info'));
     await waitFor(() => expect(screen.getByTestId('info-summary') !== null).toBe(true));
     expect(screen.queryByText('add-feature')).toBeNull();
-    expect(screen.getByTestId('nav-info').getAttribute('data-active')).toBe('true');
-    expect(screen.getByTestId('nav-changes').getAttribute('data-active')).toBe('false');
+    expect(screen.getByTestId('nav-info').hasAttribute('data-active')).toBe(true);
+    expect(screen.getByTestId('nav-changes').hasAttribute('data-active')).toBe(false);
     // InfoView 挂载即以 (root, depth=5) 发起解析
     expect(invokeMock).toHaveBeenCalledWith('code_stats', { root: FIRST.root, depth: 5 });
   });
@@ -1363,8 +1361,8 @@ describe('App：/info 基础信息路由可达与欢迎态隔离（AC-1）', () 
     await waitFor(() => expect(screen.getByTestId('info-summary') !== null).toBe(true));
 
     expect(window.location.hash).toBe('#/info');
-    expect(screen.getByTestId('nav-info').getAttribute('data-active')).toBe('true');
-    expect(screen.getByTestId('nav-changes').getAttribute('data-active')).toBe('false');
+    expect(screen.getByTestId('nav-info').hasAttribute('data-active')).toBe(true);
+    expect(screen.getByTestId('nav-changes').hasAttribute('data-active')).toBe(false);
     expect(countOf('code_stats')).toBe(1);
     // 变更页未挂载：无 change 内容、无详情取数
     expect(screen.queryByText('add-feature')).toBeNull();
@@ -1444,8 +1442,8 @@ describe('App：/config 配置路由可达与欢迎态隔离（AC-4/AC-6/AC-7）
     // config-view 根节点 loading 期即在场：以数据到达后的分区在场为准
     await waitFor(() => expect(screen.getByTestId('config-basic') !== null).toBe(true));
     expect(screen.queryByText('add-feature')).toBeNull();
-    expect(screen.getByTestId('nav-config').getAttribute('data-active')).toBe('true');
-    expect(screen.getByTestId('nav-changes').getAttribute('data-active')).toBe('false');
+    expect(screen.getByTestId('nav-config').hasAttribute('data-active')).toBe(true);
+    expect(screen.getByTestId('nav-changes').hasAttribute('data-active')).toBe(false);
     expect(invokeMock).toHaveBeenCalledWith('workspace_config', { root: FIRST.root });
   });
 
@@ -1456,7 +1454,7 @@ describe('App：/config 配置路由可达与欢迎态隔离（AC-4/AC-6/AC-7）
     await waitFor(() => expect(screen.getByTestId('config-basic') !== null).toBe(true));
 
     expect(window.location.hash).toBe('#/config');
-    expect(screen.getByTestId('nav-config').getAttribute('data-active')).toBe('true');
+    expect(screen.getByTestId('nav-config').hasAttribute('data-active')).toBe(true);
     expect(countOf('workspace_config')).toBe(1);
     // 变更页未挂载：无 change 内容、无详情取数
     expect(screen.queryByText('add-feature')).toBeNull();

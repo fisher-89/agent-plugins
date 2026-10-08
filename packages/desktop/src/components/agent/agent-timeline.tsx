@@ -88,7 +88,7 @@ function TimelineToolPart({
           <span className="ml-1.5 text-xs text-fail">出错</span>
         )}
       </summary>
-      <pre className="mt-1 overflow-x-auto rounded bg-muted px-2 py-1.5 text-xs">
+      <pre className="mt-1 overflow-x-auto rounded bg-muted px-2 py-1.5 text-xs break-words">
         {JSON.stringify(part.input, null, 2)}
       </pre>
       {output !== null && (

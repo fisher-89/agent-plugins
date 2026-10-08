@@ -105,7 +105,7 @@ describe('RunStepNode：三分类徽章可辨（AC-5 可辨半边）', () => {
     }
   });
 
-  it('WorkerAgent 徽章走 active 变体（bg-primary），ToolStep / Gate 徽章走 inv2 变体（blue 调）', () => {
+  it('WorkerAgent 徽章走 default 变体（bg-primary），ToolStep / Gate 徽章走 secondary 变体', () => {
     const worker = renderNode(runtimeNode());
     expect(
       within(screen.getByTestId('run-step-node')).getByTestId('run-step-group').className,
@@ -122,7 +122,7 @@ describe('RunStepNode：三分类徽章可辨（AC-5 可辨半边）', () => {
     );
     expect(
       within(screen.getByTestId('run-step-node')).getByTestId('run-step-group').className,
-    ).toContain('bg-blue-500/15');
+    ).toContain('bg-secondary');
     tool.unmount();
 
     const gate = renderNode(
@@ -135,7 +135,7 @@ describe('RunStepNode：三分类徽章可辨（AC-5 可辨半边）', () => {
     );
     expect(
       within(screen.getByTestId('run-step-node')).getByTestId('run-step-group').className,
-    ).toContain('bg-blue-500/15');
+    ).toContain('bg-secondary');
     gate.unmount();
   });
 

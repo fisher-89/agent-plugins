@@ -1,5 +1,13 @@
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import {
+  Drawer,
+  DrawerClose,
+  DrawerContent,
+  DrawerFooter,
+  DrawerHeader,
+  DrawerTitle,
+} from '@/components/ui/drawer';
 
 import type { AgentEvent, ArtifactEnvelope, ChecklistItem } from '../../../types/dto';
 import { ArtifactTabs } from '../renderers/artifact-tabs';
@@ -197,22 +205,28 @@ export function DetailDrawer({
       ? []
       : liveEvents.filter((entry) => entry.sessionId === sessionId).map((entry) => entry.event);
   return (
-    <div className="fixed inset-0 z-50" data-testid="detail-drawer">
-      <div aria-hidden className="absolute inset-0 bg-black/50" onClick={onClose} />
-      <aside className="absolute inset-y-0 right-0 flex w-[960px] max-w-[85vw] flex-col border-l border-border bg-card px-4 py-4">
-        <header className="mb-3 flex items-center justify-between gap-2">
-          <h2 className="m-0 truncate text-[15px]">{selectionTitle(selection, node)}</h2>
-          <Button className="shrink-0" onClick={onClose}>
-            关闭
-          </Button>
-        </header>
+    <Drawer
+      open={true}
+      swipeDirection="right"
+      onOpenChange={(next) => {
+        // 遮罩点击 / Esc 经 base-ui 关闭意图出线：转交 onClose（父级清 selection 卸载）
+        if (!next) onClose();
+      }}
+    >
+      <DrawerContent className="w-[960px] max-w-[85vw]" data-testid="detail-drawer">
+        <DrawerHeader>
+          <DrawerTitle>{selectionTitle(selection, node)}</DrawerTitle>
+        </DrawerHeader>
         <div className="flex min-h-0 flex-1">
           <div className="flex w-[60%] min-w-0 flex-col">
             <SessionTranscriptPanel root={root} roleRefs={roleRefs} liveEvents={live} />
           </div>
           <RightSections node={node} materials={materials} columnId={columnId} />
         </div>
-      </aside>
-    </div>
+        <DrawerFooter>
+          <DrawerClose render={<Button variant="outline" />}>关闭</DrawerClose>
+        </DrawerFooter>
+      </DrawerContent>
+    </Drawer>
   );
 }

@@ -89,9 +89,9 @@ describe('RunControlPanel：主操作与生命周期对齐', () => {
     }
   });
 
-  it('failed 态徽章走 fail 变体（bg-fail-bg），运行期徽章走 active 变体（bg-primary）', () => {
+  it('failed 态徽章走 fail 变体（bg-destructive/10），运行期徽章走 default 变体（bg-primary）', () => {
     const failed = renderPanel(runStub({ state: runState({ status: 'failed' }) }));
-    expect(screen.getByTestId('run-status').className).toContain('bg-fail-bg');
+    expect(screen.getByTestId('run-status').className).toContain('bg-destructive/10');
     failed.unmount();
 
     renderPanel(runStub({ state: runState({ status: 'running' }) }));

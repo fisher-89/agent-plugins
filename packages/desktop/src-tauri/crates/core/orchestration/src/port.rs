@@ -1,4 +1,5 @@
 use std::future::Future;
+use std::path::Path;
 use std::pin::Pin;
 
 use agent::{AgentEvent, AgentPermissionMode, AgentRunStatus, ModelLevel, SessionProvenance};
@@ -200,6 +201,31 @@ pub trait TestExecutionRunner: Send + Sync {
 /// infra）。产出为拼接好的上下文文本（porcelain 清单 + diff HEAD 补丁）。
 pub trait DiffContextPort: Send + Sync {
     fn diff_context(&self, root: &str) -> BoxDiffFuture;
+}
+
+/// 归档链 → vcs 执行的进程内缝（消费者 = 归档链
+/// [`crate::archive_flow`]——crate-layout delta 授权落位；spawn 不进 core，
+/// 进程执行驻 infra/vcs）。六方法 sync 签名零 tokio（`WorktreePort` 同纪律）；
+/// `Err` 面为带引导文案的 String，调用方直接呈现。
+pub trait ArchiveVcsPort: Send + Sync {
+    /// 脏探测：`status --porcelain [-- pathspec…]` 非空即真（空 paths = 全域；
+    /// gitignore 面不计——探测失败同 false，不阻断幂等跳过）。
+    fn dirty(&self, root: &Path, paths: &[&str]) -> bool;
+    /// worktree 全域提交（`add -A` + `commit -m`；worktree 即 change 私有执行
+    /// 锚，全域 = 本 change 编辑集 + spec 同步产物）。
+    fn commit_all(&self, worktree: &Path, message: &str) -> Result<(), String>;
+    /// 祖先判定：`merge-base --is-ancestor <branch> HEAD`（退出 0/1 映射 bool，
+    /// >1 Err——已合入跳过合入的幂等依据）。
+    fn branch_merged(&self, main_root: &Path, branch: &str) -> Result<bool, String>;
+    /// 主仓合入：`merge --no-edit <branch>`；失败尽力 `merge --abort` 后 Err
+    /// 带 git 语境与手动处置引导（MUST NOT 强推 / 改写历史 / 自动解冲突）。
+    fn merge_branch(&self, main_root: &Path, branch: &str) -> Result<(), String>;
+    /// 主仓当前分支名（合入目标 = HEAD 所在分支；空输出 = detached HEAD Err）。
+    fn current_branch(&self, main_root: &Path) -> Result<String, String>;
+    /// pathspec 圈定提交：`add -A -- <paths…>` + `commit -m <msg> -- <paths 各自
+    /// "/**" 形态>`（glob 覆盖已删除路径——裸目录 pathspec 对已删除目录报
+    /// "did not match"；无关 staged / untracked 原样保留——pathspec 纪律）。
+    fn commit_paths(&self, main_root: &Path, paths: &[&str], message: &str) -> Result<(), String>;
 }
 
 /// 只读快照契约：`ChangeDetail` 只读装配（决策输入与前置校验的输入面；读、

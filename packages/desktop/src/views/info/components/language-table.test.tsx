@@ -13,11 +13,11 @@ function row(name: string, overrides: Partial<LanguageStats> = {}): LanguageStat
   return { name, files: 6, code: 220, comments: 30, blanks: 10, share: 64.7, ...overrides };
 }
 
-/** 行内占比单元格的 Progress 指示条 transform（ui/progress 以 translateX 承载）。 */
-function indicatorTransform(row: HTMLElement): string {
+/** 行内占比单元格的 Progress 指示条宽度（base-ui progress 以内联 width 百分比承载）。 */
+function indicatorWidth(row: HTMLElement): string {
   const indicator = row.querySelector('[data-slot="progress-indicator"]');
   if (!indicator) throw new Error('行内缺 progress-indicator');
-  return (indicator as HTMLElement).style.transform;
+  return (indicator as HTMLElement).style.width;
 }
 
 describe('LanguageTable：语言占比表呈现（AC-3）', () => {
@@ -75,10 +75,10 @@ describe('LanguageTable：语言占比表呈现（AC-3）', () => {
     );
 
     const rows = screen.getAllByTestId('info-language-row');
-    // value 0 → 指示条 translateX(-100%)（零宽度可见）；100 → translateX(-0%)
-    expect(indicatorTransform(rows[0])).toBe('translateX(-100%)');
-    expect(indicatorTransform(rows[1])).toBe('translateX(-0%)');
-    expect(indicatorTransform(rows[2])).toBe('translateX(-100%)');
+    // value 0 → 指示条 width 0%（零填充）；100 → 100%（满填充）
+    expect(indicatorWidth(rows[0])).toBe('0%');
+    expect(indicatorWidth(rows[1])).toBe('100%');
+    expect(indicatorWidth(rows[2])).toBe('0%');
     expect(within(rows[0]).getByText('0.0%') !== null).toBe(true);
     expect(within(rows[1]).getByText('100.0%') !== null).toBe(true);
     expect(within(rows[2]).getByText('0.0%') !== null).toBe(true);
@@ -91,20 +91,22 @@ describe('LanguageTable：语言占比表呈现（AC-3）', () => {
     expect(screen.getAllByTestId('info-language-row')).toHaveLength(50);
   });
 
-  it('无内联 style width：任一 info-language-row 子树无 style 含 width 的内联节点（占比以 progress transform 承载）', () => {
+  it('指示条宽度与 share 一致：行子树内携带 width 的内联节点仅 progress-indicator 且值逐行对应', () => {
     const { container } = render(
       <LanguageTable languages={[row('Rust'), row('TypeScript', { share: 35.3 })]} />,
     );
 
-    // 前置：占比指示条以内联 transform 出线（style 承载在场，但不含 width）
-    const styled = container.querySelectorAll('[style]');
-    expect(styled.length).toBeGreaterThan(0);
-    for (const element of styled) {
-      expect((element as HTMLElement).style.width).toBe('');
-    }
-    // 行子树内不得出现任何 width 内联节点
-    for (const element of container.querySelectorAll('[data-testid="info-language-row"] [style]')) {
-      expect((element as HTMLElement).style.width).toBe('');
+    const rows = screen.getAllByTestId('info-language-row');
+    expect(indicatorWidth(rows[0])).toBe('64.7%');
+    expect(indicatorWidth(rows[1])).toBe('35.3%');
+    // 行子树内携带百分比 width 的内联节点只有 progress-indicator（base-ui
+    // progress 另有 1px 内部测量节点，非占比承载面，不计入）
+    const percentBearers = Array.from(
+      container.querySelectorAll('[data-testid="info-language-row"] [style]'),
+    ).filter((element) => (element as HTMLElement).style.width.endsWith('%'));
+    expect(percentBearers).toHaveLength(2);
+    for (const element of percentBearers) {
+      expect(element.getAttribute('data-slot')).toBe('progress-indicator');
     }
   });
 });

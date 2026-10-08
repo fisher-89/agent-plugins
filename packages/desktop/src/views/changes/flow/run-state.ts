@@ -148,11 +148,7 @@ function roleOf(step: ChangeStepKind): FlowRoleLabel | null {
   return null;
 }
 
-/** 步状态表 → 图 overlay 运行步节点：同键（phase×attempt×step）的
- * running → 终态对归并同节点；同键多次迭代（如 static-check 反馈边）按
- * seq 后缀歧义。缺号相位（不在 9 站内）跳过。入参收窄为 steps 表本身：
- * 输出仅依赖步数据（applyRunUpdate 的非 step 更新保持 steps 引用不变，
- * 视图 memo 以 steps 为依赖即可做到 liveEvents 流入零图重建）。 */
+/** 步状态表 → 图 overlay 运行步节点 */
 export function runStepNodes(steps: ChangeStepState[]): RuntimeFlowNode[] {
   const slots = new Map<string, { node: RuntimeFlowNode; open: boolean }[]>();
   const order: string[] = [];

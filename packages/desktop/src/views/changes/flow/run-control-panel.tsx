@@ -58,7 +58,7 @@ function RunActions({ run }: { run: UseChangeFlowRunResult }): React.JSX.Element
         )}
         {run.state !== null && (
           <Badge
-            variant={run.state.status === 'failed' ? 'fail' : 'active'}
+            variant={run.state.status === 'failed' ? 'fail' : 'default'}
             data-testid="run-status"
           >
             {STATUS_LABEL[run.state.status]}

@@ -1,3 +1,4 @@
+pub mod archive_flow;
 pub mod control;
 pub mod decision;
 pub mod port;
@@ -9,12 +10,18 @@ pub mod transcript;
 pub mod verdict;
 pub mod walker;
 
+pub use archive_flow::{
+    preflight, run_archive_flow, ArchiveControl, ArchiveGuard, ArchivePreflight, ArchiveRequest,
+    ArchiveSnapshot, ArchiveSpecsStatus, ArchiveStage, ArchiveStageState, ArchiveStageStatus,
+    ArchiveSummary, ArchiveUpdate,
+};
 pub use control::{ChangeFlowControl, RunGuard};
 pub use decision::{CandidateReport, DecisionAction, DecisionInput};
 pub use port::{
-    BoxDiffFuture, BoxToolFuture, BoxTurnFuture, DiffContextPort, RunEventSink, StaticCheckOutcome,
-    StaticCheckRunner, ToolCommand, ToolStepOutput, ToolStepPort, ToolStepRequest, WorkerAgentPort,
-    WorkerRole, WorkerTurnOutcome, WorkerTurnRequest, WorkflowSnapshotPort,
+    ArchiveVcsPort, BoxDiffFuture, BoxToolFuture, BoxTurnFuture, DiffContextPort, RunEventSink,
+    StaticCheckOutcome, StaticCheckRunner, ToolCommand, ToolStepOutput, ToolStepPort,
+    ToolStepRequest, WorkerAgentPort, WorkerRole, WorkerTurnOutcome, WorkerTurnRequest,
+    WorkflowSnapshotPort,
 };
 pub use snapshot::StoreSnapshot;
 pub use state::{
@@ -27,6 +34,8 @@ pub use walker::{
     new_run_id, walk_run, RunRequest, STATIC_CHECK_FEEDBACK_LIMIT, STATIC_CHECK_PHASES,
 };
 
+#[cfg(test)]
+mod archive_flow_test;
 #[cfg(test)]
 mod control_test;
 #[cfg(test)]

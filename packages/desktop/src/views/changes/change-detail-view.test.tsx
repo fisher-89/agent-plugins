@@ -477,8 +477,8 @@ describe('ChangeDetailView：页面组装（图区 / 产物区 / 抽屉）', () 
     expect(container.textContent).toContain('提案正文');
     expect(container.textContent).not.toContain('未知保底');
 
-    // TabsTrigger 激活绑在 mousedown（Radix 1.1 行为），点击事件用 mouseDown 模拟
-    fireEvent.mouseDown(tabs[2]);
+    // base-ui Tabs 激活绑在 click，以 click 模拟切换
+    fireEvent.click(tabs[2]);
     expect(within(container).getAllByTestId('artifact-card')).toHaveLength(1);
     expect(container.textContent).toContain('未知保底');
     expect(container.textContent).not.toContain('提案正文');
@@ -980,5 +980,106 @@ describe('ChangeDetailView：退役元素零渲染与建档两态分流', () => 
     expect(within(doc.container).getByTestId('flow-empty') !== null).toBe(true);
     expect(doc.container.textContent).toContain('提案正文');
     expect(doc.container.textContent).not.toContain('无法解析');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 归档入口（desktop-archive-change D14——DetailHeader 归档按钮两态 + ArchivePanel
+// 挂载位 + 链终态一次 refresh 回落已归档形态。归档面板状态经真实 useArchiveFlow
+// 走 mock IPC：archive_flow_state 出快照 → Channel 投递信封驱动终态）
+// ---------------------------------------------------------------------------
+
+describe('ChangeDetailView：归档入口（按钮两态 / panel 挂载位 / 终态 refresh）', () => {
+  it('detail status=active → archive-trigger 呈现；archived / 文档形态 → 不渲染（负断言）', async () => {
+    // active 建档：按钮在场
+    renderDetail({ detail: detail(), artifacts: PROPOSAL_ENVELOPES });
+    await screen.findByTestId('archive-trigger');
+    cleanup();
+
+    // 已归档：按钮不渲染
+    renderDetail({
+      detail: detail({ status: 'archived', source: 'archive' }),
+      artifacts: PROPOSAL_ENVELOPES,
+    });
+    await screen.findByTestId('detail-header');
+    expect(screen.queryByTestId('archive-trigger')).toBeNull();
+    cleanup();
+
+    // 文档形态（status null）：无入口
+    renderDetail({ detail: detail({ status: null }), artifacts: PROPOSAL_ENVELOPES });
+    await screen.findByTestId('detail-header');
+    expect(screen.queryByTestId('archive-trigger')).toBeNull();
+  });
+
+  it('归档面板挂载位：active 形态点击触发 → panel 于 detail-header 之后、run 控制面板之前；status 非 active → panel 不渲染', async () => {
+    const view = renderDetail({ detail: detail(), artifacts: PROPOSAL_ENVELOPES });
+    fireEvent.click(await screen.findByTestId('archive-trigger'));
+
+    // panel 呈现（确认对话形态）且 DOM 序位于 detail-header 之后
+    const panel = await screen.findByTestId('archive-confirm-dialog');
+    const header = screen.getByTestId('detail-header');
+    expect(header.compareDocumentPosition(panel) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+
+    // 与 run 面并置但组件隔离：run 控制面板在场且位于 panel 之后（DOM 序锚）
+    const runPanelButton = document.querySelector('[data-testid="run-auto-next-phase"]');
+    expect(runPanelButton).not.toBeNull();
+    expect(
+      panel.compareDocumentPosition(runPanelButton as Node) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+
+    // status 非 active（已归档形态）：panel 挂载条件不成立（按钮本就不渲染——
+    // 两态分流由上一用例负断言；本行防渲染器回归的重挂双保险）
+    view.unmount();
+    renderDetail({
+      detail: detail({ status: 'archived', source: 'archive' }),
+      artifacts: PROPOSAL_ENVELOPES,
+    });
+    await screen.findByTestId('detail-header');
+    expect(screen.queryByTestId('archive-confirm-dialog')).toBeNull();
+  });
+
+  it('链终态 refresh：Finished 信封 → detail 重查恰一次、回落已归档形态（archive-trigger 消失）', async () => {
+    // archive_flow_state 出运行中快照（hook 补订实时流），detail 初态 active
+    const original = invokeMock.getMockImplementation();
+    invokeMock.mockImplementation((command: string, args?: Record<string, unknown>) => {
+      if (command === 'archive_flow_state') {
+        return Promise.resolve({
+          stages: [{ stage: 'seal', status: 'running', detail: null }],
+          sessionId: 'sess-arch',
+        });
+      }
+      return original!(command, args);
+    });
+    loadFixture({ detail: detail(), artifacts: PROPOSAL_ENVELOPES });
+    render(
+      <MemoryRouter initialEntries={['/changes/add-feature']}>{detailTree(ROOT)}</MemoryRouter>,
+    );
+    await screen.findByTestId('archive-trigger');
+
+    // fixture 换已归档形态（refresh 的应答面——链收口后 db 事实已翻转），再投
+    // Finished 终态信封（hook 归并 → finished → onFinish=refresh）
+    loadFixture({
+      detail: detail({ status: 'archived', source: 'archive' }),
+      artifacts: PROPOSAL_ENVELOPES,
+    });
+    const channel = ChannelMock.instances.at(-1);
+    expect(channel).toBeDefined();
+    act(() => {
+      channel?.push({
+        ipc: 'finished',
+        summary: {
+          name: 'add-feature',
+          archivedDir: '2026-10-08-add-feature',
+          specs: 'none',
+          warnings: [],
+        },
+        error: null,
+      });
+    });
+
+    // refresh：detail 重查恰一次（初始 + 终态各一次）；回落已归档形态
+    await waitFor(() => expect(detailCalls()).toHaveLength(2));
+    await waitFor(() => expect(screen.queryByTestId('archive-trigger')).toBeNull());
+    expect(screen.getByTestId('detail-header').textContent).toContain('已归档');
   });
 });

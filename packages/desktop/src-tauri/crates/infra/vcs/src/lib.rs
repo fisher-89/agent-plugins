@@ -1,15 +1,6 @@
-//! vcs 边界（分类学第七类首成员）：外部进程 + 版本控制工作面——git worktree
-//! 建域 / 脏仓探测 / 依赖引导安装的进程执行（port 流量词汇驻 `core/workflow`
-//! 的 [`workflow::write::WorktreePort`]，本 crate 只做进程执行；checks 先例
-//! 同构）。零 Tauri 零 tokio：`std::process` 同步 spawn，安装命令超时以轮询
-//! `try_wait` 到点 kill 收口。
-//!
-//! 另承载 worktree 落位派生单点 [`worktree_dir`]（消费 foundation 身份段——
-//! db 文件名与 worktree 子目录同源；`worktrees/` 目录名的裸名消费方唯一来源
-//! 即本 crate，desktop-app 不自拼）。
-
 use std::path::{Path, PathBuf};
 
+use orchestration::ArchiveVcsPort;
 use workflow::write::WorktreePort;
 
 mod bootstrap;
@@ -95,5 +86,47 @@ impl WorktreePort for ProcessWorktree {
         command: &str,
     ) -> Result<workflow::write::InstallRun, String> {
         bootstrap::run_install(worktree, command)
+    }
+}
+
+/// git 归档工作面进程执行器（无状态，组合根按需构造——归档链命令组装配）。
+pub struct ProcessArchiveVcs;
+
+impl ProcessArchiveVcs {
+    /// 构造（组合根装配）。
+    pub fn new() -> Self {
+        Self
+    }
+}
+
+impl Default for ProcessArchiveVcs {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl ArchiveVcsPort for ProcessArchiveVcs {
+    fn dirty(&self, root: &Path, paths: &[&str]) -> bool {
+        git::dirty(root, paths)
+    }
+
+    fn commit_all(&self, worktree: &Path, message: &str) -> Result<(), String> {
+        git::commit_all(worktree, message)
+    }
+
+    fn branch_merged(&self, main_root: &Path, branch: &str) -> Result<bool, String> {
+        git::branch_merged(main_root, branch)
+    }
+
+    fn merge_branch(&self, main_root: &Path, branch: &str) -> Result<(), String> {
+        git::merge_branch(main_root, branch)
+    }
+
+    fn current_branch(&self, main_root: &Path) -> Result<String, String> {
+        git::current_branch(main_root)
+    }
+
+    fn commit_paths(&self, main_root: &Path, paths: &[&str], message: &str) -> Result<(), String> {
+        git::commit_paths(main_root, paths, message)
     }
 }

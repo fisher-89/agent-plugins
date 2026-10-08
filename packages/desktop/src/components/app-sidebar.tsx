@@ -53,31 +53,33 @@ function WorkspaceItem({
   const parent = parentDir(record.root);
   return (
     <ContextMenu>
-      <ContextMenuTrigger asChild>
-        <SidebarMenuItem>
-          <SidebarMenuButton
-            data-root={record.root}
-            data-testid="workspace-item"
-            isActive={record.root === currentRoot}
-            size="lg"
-            tooltip={record.root}
-            onClick={() => onOpen(record.root)}
-          >
-            {/* leading-tight 收紧行高，主文本 + 父目录两行在 lg（h-12）内完整呈现 */}
-            <span className="flex min-w-0 flex-col leading-tight">
-              <span className="truncate">{record.name}</span>
-              {parent !== '' && (
-                <span
-                  className="block truncate text-xs font-normal text-muted-foreground"
-                  data-testid="workspace-sub"
-                >
-                  {parent}
-                </span>
-              )}
-            </span>
-          </SidebarMenuButton>
-        </SidebarMenuItem>
-      </ContextMenuTrigger>
+      <ContextMenuTrigger
+        render={
+          <SidebarMenuItem>
+            <SidebarMenuButton
+              data-root={record.root}
+              data-testid="workspace-item"
+              isActive={record.root === currentRoot}
+              size="lg"
+              tooltip={record.root}
+              onClick={() => onOpen(record.root)}
+            >
+              {/* leading-tight 收紧行高，主文本 + 父目录两行在 lg（h-12）内完整呈现 */}
+              <span className="flex min-w-0 flex-col leading-tight">
+                <span className="truncate">{record.name}</span>
+                {parent !== '' && (
+                  <span
+                    className="block truncate text-xs font-normal text-muted-foreground"
+                    data-testid="workspace-sub"
+                  >
+                    {parent}
+                  </span>
+                )}
+              </span>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
+        }
+      />
       <ContextMenuContent>
         <ContextMenuItem onClick={() => onRemove(record.root)}>移除</ContextMenuItem>
       </ContextMenuContent>
@@ -101,12 +103,16 @@ function PageNavItem({
 }): React.JSX.Element {
   return (
     <SidebarMenuItem>
-      <SidebarMenuButton asChild isActive={active} tooltip={label}>
-        <NavLink data-testid={testId} to={to}>
-          {icon}
-          <span>{label}</span>
-        </NavLink>
-      </SidebarMenuButton>
+      <SidebarMenuButton
+        isActive={active}
+        tooltip={label}
+        render={
+          <NavLink data-testid={testId} to={to}>
+            {icon}
+            <span>{label}</span>
+          </NavLink>
+        }
+      />
     </SidebarMenuItem>
   );
 }
@@ -166,28 +172,40 @@ function SystemToolsGroup(): React.JSX.Element {
       <SidebarGroupContent>
         <SidebarMenu>
           <SidebarMenuItem>
-            <SidebarMenuButton asChild isActive={pathname === '/agents'} tooltip="Agent 管理">
-              <NavLink data-testid="nav-agents" to="/agents">
-                <Boxes />
-                <span>Agent 管理</span>
-              </NavLink>
-            </SidebarMenuButton>
+            <SidebarMenuButton
+              isActive={pathname === '/agents'}
+              tooltip="Agent 管理"
+              render={
+                <NavLink data-testid="nav-agents" to="/agents">
+                  <Boxes />
+                  <span>Agent 管理</span>
+                </NavLink>
+              }
+            />
           </SidebarMenuItem>
           <SidebarMenuItem>
-            <SidebarMenuButton asChild isActive={pathname === '/agent'} tooltip="Agent 调试">
-              <NavLink data-testid="nav-agent" to="/agent">
-                <Bot />
-                <span>Agent 调试</span>
-              </NavLink>
-            </SidebarMenuButton>
+            <SidebarMenuButton
+              isActive={pathname === '/agent'}
+              tooltip="Agent 调试"
+              render={
+                <NavLink data-testid="nav-agent" to="/agent">
+                  <Bot />
+                  <span>Agent 调试</span>
+                </NavLink>
+              }
+            />
           </SidebarMenuItem>
           <SidebarMenuItem>
-            <SidebarMenuButton asChild isActive={pathname === '/db'} tooltip="数据库">
-              <NavLink data-testid="nav-db" to="/db">
-                <Database />
-                <span>数据库</span>
-              </NavLink>
-            </SidebarMenuButton>
+            <SidebarMenuButton
+              isActive={pathname === '/db'}
+              tooltip="数据库"
+              render={
+                <NavLink data-testid="nav-db" to="/db">
+                  <Database />
+                  <span>数据库</span>
+                </NavLink>
+              }
+            />
           </SidebarMenuItem>
         </SidebarMenu>
       </SidebarGroupContent>

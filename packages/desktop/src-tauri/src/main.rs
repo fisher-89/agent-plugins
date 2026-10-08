@@ -65,6 +65,10 @@ fn main() {
             // 复合）：change_flow_* 命令面读写 / walker 持 RunGuard 写，此处只
             // 挂空表（Arc 承载跨 sink 桥共享，与 StopRegistry 同型托管）
             app.manage(Arc::new(ChangeFlowControl::new()));
+            // 归档链控制注册表（进程内，键 = (workspace root, change) 复合）：
+            // archive_flow_* 命令面读写 / 归档链持 ArchiveGuard 写，此处只挂空表
+            //（与 ChangeFlowControl 同型托管——run 面与归档面两注册表互不混入）
+            app.manage(Arc::new(orchestration::archive_flow::ArchiveControl::new()));
             Ok(())
         })
         .invoke_handler(all_commands!(generate_handler))

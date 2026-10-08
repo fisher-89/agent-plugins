@@ -1,4 +1,5 @@
 pub mod agents;
+pub mod archive_flow;
 pub mod change_flow;
 pub mod changes;
 pub mod config;
@@ -46,6 +47,11 @@ macro_rules! all_commands {
             $crate::commands::change_flow::change_flow_confirm,
             $crate::commands::change_flow::change_flow_state,
             $crate::commands::change_flow::change_flow_watch,
+            $crate::commands::archive_flow::archive_flow_preflight,
+            $crate::commands::archive_flow::archive_flow_start,
+            $crate::commands::archive_flow::archive_flow_stop,
+            $crate::commands::archive_flow::archive_flow_state,
+            $crate::commands::archive_flow::archive_flow_watch,
             $crate::commands::changes::create_change,
             $crate::commands::explores::read_explore,
             $crate::commands::explores::scan_explores,

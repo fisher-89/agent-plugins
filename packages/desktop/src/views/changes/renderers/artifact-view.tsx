@@ -12,7 +12,7 @@ export function ArtifactView({ envelope }: { envelope: ArtifactEnvelope }) {
       data-testid="artifact-card"
     >
       <header className="mb-2 flex items-center gap-2">
-        <Badge variant="kind" data-testid="artifact-kind">
+        <Badge variant="outline" data-testid="artifact-kind">
           {envelope.kind}
         </Badge>
         <h3 className="m-0 text-sm">{envelope.title}</h3>

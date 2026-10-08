@@ -181,8 +181,8 @@ describe('DetailDrawer：二分节内容组装', () => {
     expect(docsSection.textContent).toContain('设计正文');
     expect(docsSection.textContent).not.toContain('25%');
 
-    // TabsTrigger 激活绑在 mousedown（Radix 1.1 行为），点击事件用 mouseDown 模拟
-    fireEvent.mouseDown(tabs[1]);
+    // base-ui Tabs 激活绑在 click，以 click 模拟切换
+    fireEvent.click(tabs[1]);
     expect(within(docsSection).getAllByTestId('artifact-card')).toHaveLength(1);
     expect(docsSection.textContent).toContain('25%');
     expect(docsSection.textContent).not.toContain('设计正文');
@@ -192,8 +192,9 @@ describe('DetailDrawer：二分节内容组装', () => {
   it('遮罩点击或关闭按钮 → onClose 回调触发', () => {
     const onClose = vi.fn();
     const state = world();
-    const { container } = renderDrawer(state, { scope: 'column', phase: 'dev-design' }, onClose);
-    fireEvent.click(container.querySelector('div[aria-hidden="true"]')!);
+    renderDrawer(state, { scope: 'column', phase: 'dev-design' }, onClose);
+    // 遮罩 = base-ui Backdrop（drawer-overlay，经 portal 挂 body，container 外）
+    fireEvent.click(document.querySelector('[data-slot="drawer-overlay"]')!);
     expect(onClose).toHaveBeenCalledTimes(1);
     fireEvent.click(screen.getByRole('button', { name: '关闭' }));
     expect(onClose).toHaveBeenCalledTimes(2);
@@ -679,20 +680,21 @@ describe('DetailDrawer：会话转录联动（双键寻址：直查优先 / 反�
 });
 
 // ---------------------------------------------------------------------------
-// 双列壳（desktop-drawer-session-column，AC-1 / D1）：aside w-[960px] +
+// 双列壳（desktop-drawer-session-column，AC-1 / D1）：抽屉壳 w-[960px] +
 // max-w-[85vw]、去整列单滚、内容行 flex min-h-0 flex-1、左列 w-[60%] min-w-0
 // 会话区恒渲染 / 右列 min-w-0 flex-1 overflow-y-auto 二分节——jsdom 无布局
-// 引擎，以类契约断言列结构
+// 引擎，以类契约断言列结构（base-ui drawer 经 portal 挂 body，壳 testid 落在
+// popup 元素上，不走 container 查询）
 // ---------------------------------------------------------------------------
 
 describe('DetailDrawer：双列壳布局（AC-1 / D1）', () => {
   it('打开抽屉（eval 节点选中）→ 左列会话区与右列二分节同时渲染；壳类含 w-[960px] 与 max-w-[85vw]、右列容器列内滚动', () => {
-    const { container } = renderDrawer(world(), { scope: 'node', nodeId: 'eval:dev-design:2' });
+    renderDrawer(world(), { scope: 'node', nodeId: 'eval:dev-design:2' });
 
     // 抽屉壳：定宽 + 视口钳制
-    const aside = container.querySelector('aside');
-    expect(aside?.className).toContain('w-[960px]');
-    expect(aside?.className).toContain('max-w-[85vw]');
+    const shell = screen.getByTestId('detail-drawer');
+    expect(shell.className).toContain('w-[960px]');
+    expect(shell.className).toContain('max-w-[85vw]');
     // 左列：会话面板宿主列 w-[60%] min-w-0（元信息 + 转录拉满滚动）
     const leftColumn = screen.getByTestId('session-transcript-panel').parentElement;
     expect(leftColumn?.className).toContain('w-[60%]');

@@ -5,6 +5,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 
 import type { AgentEvent, ArtifactEnvelope, ChangeDetail } from '../../types/dto';
+import { ArchivePanel } from './flow/archive-panel';
 import { mountMaterials } from './flow/attachments';
 import { ChangeFlowGraph } from './flow/change-flow-graph';
 import { DetailDrawer } from './flow/detail-drawer';
@@ -12,16 +13,10 @@ import { buildFlowGraph } from './flow/graph';
 import { RunControlPanel } from './flow/run-control-panel';
 import { runStepNodes } from './flow/run-state';
 import type { DrawerSelection, FlowGraph, FlowMaterials } from './flow/types';
+import { useArchiveFlow, type UseArchiveFlowResult } from './hooks/use-archive-flow';
 import { useChangeDetail } from './hooks/use-change-detail';
 import { useChangeFlowRun } from './hooks/use-change-flow-run';
 import { ArtifactTabs } from './renderers/artifact-tabs';
-
-// detail 为 null（降级页分支）时 hooks 仍需无条件产出图数据的空底座
-const EMPTY_GRAPH: FlowGraph = { columns: [], nodes: [], edges: [] };
-const EMPTY_MATERIALS: FlowMaterials = {
-  columnDocs: {},
-  nodeChecklists: {},
-};
 
 function formatTime(value: string | null): string {
   if (value === null) return '—';
@@ -33,11 +28,13 @@ function DetailHeader({
   loading,
   onBack,
   refresh,
+  onArchive,
 }: {
   detail: ChangeDetail;
   loading: boolean;
   onBack: () => void;
   refresh: () => void;
+  onArchive: () => void;
 }) {
   return (
     <div className="mb-3" data-testid="detail-header">
@@ -46,13 +43,19 @@ function DetailHeader({
         <Button onClick={refresh} disabled={loading}>
           刷新详情
         </Button>
+        {/* 归档入口（db status=active 才呈现；已归档 / 文档形态不渲染） */}
+        {detail.status === 'active' && (
+          <Button onClick={onArchive} data-testid="archive-trigger">
+            归档…
+          </Button>
+        )}
         <h2 className="m-0 break-all text-[17px]">{detail.name}</h2>
         <span className="text-muted-foreground">
           {detail.source === 'archive' ? '已归档' : '进行中'}
         </span>
         {detail.created !== null && <span className="text-muted-foreground">{detail.created}</span>}
         {detail.activePhase !== null && (
-          <Badge variant="active">
+          <Badge variant="secondary">
             运行中 · {detail.activePhase.phase} · attempt {detail.activePhase.attempt}
             {detail.activePhase.startAt !== null && ` · ${formatTime(detail.activePhase.startAt)}`}
           </Badge>
@@ -206,16 +209,104 @@ function isTerminalStatus(status: string): boolean {
   return status === 'completed' || status === 'stopped' || status === 'failed';
 }
 
+/** 流程图 + 产物区 + 抽屉（selection 联动态自持：图节点点击开抽屉，开关不出
+ * 本组件——卸载即复位，与降级页分流语义一致）。 */
+function DetailContent({
+  detail,
+  root,
+  graph,
+  materials,
+  artifacts,
+  liveEvents,
+}: {
+  detail: ChangeDetail;
+  root: string | null;
+  graph: FlowGraph;
+  materials: FlowMaterials;
+  artifacts: ArtifactEnvelope[];
+  liveEvents: Array<{ sessionId: string; event: AgentEvent }>;
+}): React.JSX.Element {
+  const [selection, setSelection] = useState<DrawerSelection | null>(null);
+  return (
+    <>
+      <FlowSection detail={detail} graph={graph} materials={materials} onSelect={setSelection} />
+      <DetailSectionArtifacts artifacts={artifacts} />
+      <DetailDrawer
+        selection={selection}
+        graph={graph}
+        materials={materials}
+        root={root}
+        change={detail.name}
+        liveEvents={liveEvents}
+        onClose={() => setSelection(null)}
+      />
+    </>
+  );
+}
+
+interface DetailLoadedProps {
+  detail: ChangeDetail;
+  root: string | null;
+  selected: string | null;
+  artifacts: ArtifactEnvelope[];
+  run: ReturnType<typeof useChangeFlowRun>;
+  archive: UseArchiveFlowResult;
+  liveEvents: Array<{ sessionId: string; event: AgentEvent }>;
+  header: React.JSX.Element;
+  archiveOpen: boolean;
+  onArchiveClose: () => void;
+}
+
+/** 详情已载入形态 */
+function DetailLoaded({
+  detail,
+  root,
+  selected,
+  artifacts,
+  run,
+  archive,
+  liveEvents,
+  header,
+  archiveOpen,
+  onArchiveClose,
+}: DetailLoadedProps): React.JSX.Element {
+  const runSteps = run.state?.steps;
+  const runNodes = useMemo(
+    () => (runSteps === undefined ? [] : runStepNodes(runSteps)),
+    [runSteps],
+  );
+  const graph = useMemo<FlowGraph>(() => buildFlowGraph(detail, runNodes), [detail, runNodes]);
+  const materials = useMemo<FlowMaterials>(
+    () => mountMaterials(graph, detail, artifacts),
+    [detail, graph, artifacts],
+  );
+  return (
+    <div>
+      {header}
+      {selected !== null && detail.status === 'active' && (
+        <ArchivePanel
+          root={root}
+          change={selected}
+          archive={archive}
+          open={archiveOpen}
+          onClose={onArchiveClose}
+        />
+      )}
+      {selected !== null && <RunControlPanel change={selected} run={run} />}
+      <DetailContent
+        detail={detail}
+        root={root}
+        graph={graph}
+        materials={materials}
+        artifacts={artifacts}
+        liveEvents={liveEvents}
+      />
+    </div>
+  );
+}
+
 /**
- * change 详情视图：详情页自取数（useChangeDetail 按 (root, URL name) 调
- * get_change_detail，与清单页互不依赖；根切换抑制见 useRootSwitchSuppress）
- * + Header + 运行控制面板 + attempt 级流程图（运行步 overlay 并入）+
- * 产物区 + 抽屉（WorkerAgent 运行节点与 eval 节点的会话转录联动）。
- * 建档两态分流（design）：建档（status 在场）完整状态面；文档形态（status
- * 缺席，存量 CLI change）空图占位 + 产物区。
- *
- * run 生命周期：useChangeFlowRun 承载 invoke 与订阅；run 终态时触发一次
- * 显式 refresh（图回落派生规则——运行外显式刷新仍是唯一全量更新途径）。
+ * change 详情视图
  */
 export function ChangeDetailView({ root }: { root: string | null }) {
   const { name } = useParams<'name'>();
@@ -225,22 +316,9 @@ export function ChangeDetailView({ root }: { root: string | null }) {
   const navigate = useNavigate();
   const backToList = useCallback(() => navigate('/changes'), [navigate]); // 显式返回，不用 navigate(-1)
 
-  const [selection, setSelection] = useState<DrawerSelection | null>(null);
-  // runNodes 仅随 steps 重建（非 steps 引用收窄）：sessionEvent 高频流入只动
-  // liveEvents，steps 引用不变 → runNodes/graph 零重建，流程图节点不闪回未测量态
-  const runSteps = run.state?.steps;
-  const runNodes = useMemo(
-    () => (runSteps === undefined ? [] : runStepNodes(runSteps)),
-    [runSteps],
-  );
-  const graph = useMemo<FlowGraph>(
-    () => (detail === null ? EMPTY_GRAPH : buildFlowGraph(detail, runNodes)),
-    [detail, runNodes],
-  );
-  const materials = useMemo<FlowMaterials>(
-    () => (detail === null ? EMPTY_MATERIALS : mountMaterials(graph, detail, artifacts)),
-    [detail, graph, artifacts],
-  );
+  // 归档面：链终态 onFinish 一次显式 refresh（详情页回落已归档形态、按钮消失）
+  const archive = useArchiveFlow({ root, change: selected, onFinish: refresh });
+  const [archiveOpen, setArchiveOpen] = useState(false);
   const liveEvents = useRunViewEffects(run, refresh);
 
   if (error !== null) {
@@ -253,20 +331,25 @@ export function ChangeDetailView({ root }: { root: string | null }) {
     return <DetailFallback message="未找到该 change。" onBack={backToList} />;
   }
   return (
-    <div>
-      <DetailHeader detail={detail} loading={loading} onBack={backToList} refresh={refresh} />
-      {selected !== null && <RunControlPanel change={selected} run={run} />}
-      <FlowSection detail={detail} graph={graph} materials={materials} onSelect={setSelection} />
-      <DetailSectionArtifacts artifacts={artifacts} />
-      <DetailDrawer
-        selection={selection}
-        graph={graph}
-        materials={materials}
-        root={root}
-        change={detail.name}
-        liveEvents={liveEvents}
-        onClose={() => setSelection(null)}
-      />
-    </div>
+    <DetailLoaded
+      detail={detail}
+      root={root}
+      selected={selected}
+      artifacts={artifacts}
+      run={run}
+      archive={archive}
+      liveEvents={liveEvents}
+      header={
+        <DetailHeader
+          detail={detail}
+          loading={loading}
+          onBack={backToList}
+          refresh={refresh}
+          onArchive={() => setArchiveOpen(true)}
+        />
+      }
+      archiveOpen={archiveOpen}
+      onArchiveClose={() => setArchiveOpen(false)}
+    />
   );
 }
