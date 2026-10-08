@@ -119,7 +119,7 @@ Desktop 后端的外部依赖 SHALL 按边界分类组织，任何新特性落�
 - **api 边界**：未来后端服务（用途未定，先占位留痕）；
 - **agent 边界**：外部执行 agent 的接入与运行（本机 CLI / 进程内 SDK / 远程 API 三租户）——契约落位 `core/agent`，实现落位 `infra/`（现有成员 `agent-runtime`）；允许进程 spawn，禁 Tauri；
 - **checks 边界**：外部进程 + pass/fail 结论门禁的检查域（现有成员：static-check、test-execution）——纯层落位 `crates/core/checks`，进程执行落位 `crates/infra/checks`（crate 裸名 `checks-runtime`）；允许进程 spawn，禁 Tauri；runner port 留 `core/orchestration`（port 属于消费者，spawn 不进 core）；
-- **vcs 边界**：外部进程 + 版本控制工作面（git worktree 建域 / 脏仓探测 / 依赖 bootstrap 安装的进程执行）——port 定义落位 `crates/core/workflow`（port 属于消费者，spawn 不进 core），实现落位 `crates/infra/vcs`（crate 裸名 `vcs-runtime`）；允许进程 spawn，禁 Tauri；既有 `infra/agent` 内 git_diff 迁入 vcs 留后续变更。
+- **vcs 边界**：外部进程 + 版本控制工作面（git worktree 建域 / 脏仓探测 / 依赖 bootstrap 安装的进程执行）——port 定义落位 `crates/core/workflow`（port 属于消费者，spawn 不进 core），实现落位 `crates/infra/vcs`（crate 裸名 `vcs-runtime`）；允许进程 spawn，禁 Tauri。
 
 领域核心（change 域读模型、agent 域契约、检查域纯层）与应用编排（现为 command）位于各边界之内：core 各 crate 纯依赖；`store` 不依赖 core 行为（仅依赖 `agent` 纯类型作嵌装载荷与 `foundation` 身份段派生纯函数，规则修订见「crate 三层分组与依赖规则」），`agent-runtime` 仅依赖其契约 `core/agent`；infra 各 crate 均不依赖 Tauri，依赖方向由 crate 图机械保证（既有 requirement 不变）。`infra/` 目录表达 db / api / agent / checks / vcs 等边界的计划落位，但目录 MUST NOT 在首个成员出现前创建。
 
@@ -154,7 +154,7 @@ Desktop 后端的外部依赖 SHALL 按边界分类组织，任何新特性落�
 | 图数据库 | db | `infra/graph`（暂不建） | 暂不考虑；关系查询真实痛点出现再启，届时按 db 边界新成员落位 |
 | 后端 api | api | `infra/api`（不建） | 先占位留痕：用途未定，MUST NOT 建目录、MUST NOT 动代码 |
 | agent 执行 | agent | `core/agent`（契约）+ `infra/agent`（实现，裸名 `agent-runtime`） | 已由 desktop-agent-execution 落地：三租户抽象 MVP 落地 CLI 与 SDK（rig 进程内）双引擎，远程 API 未预建；进程 spawn 属 agent 边界实现细节，非 shell 边界 |
-| git 工作面（worktree 建域 / 脏仓探测 / 依赖 bootstrap） | vcs | `core/workflow`（WorktreePort）+ `infra/vcs`（实现，裸名 `vcs-runtime`） | 已由 desktop-change-worktree 落地：port 属消费者、spawn 不进 core；既有 `infra/agent` 内 git_diff 迁入 vcs 留后续变更 |
+| git 工作面（worktree 建域 / 脏仓探测 / 依赖 bootstrap） | vcs | `core/workflow`（WorktreePort）+ `infra/vcs`（实现，裸名 `vcs-runtime`） | 已由 desktop-change-worktree 落地：port 属消费者、spawn 不进 core |
 
 `infra/fs` SHALL 在文件边界长出独立适配（区别于 workflow 内纯读逻辑的、可复用的 fs 基础设施）时再立，不预建。
 
@@ -184,12 +184,12 @@ Desktop 后端的外部依赖 SHALL 按边界分类组织，任何新特性落�
 | `crates/core/agent`（裸名 `agent`） | agent 域中立契约 | 零 Tauri、零 spawn、零 workspace 内依赖、derive-free；不认识 claude；被 `agent-runtime` 与 `store` 双向消费（契约 / 嵌装载荷） |
 | `crates/infra/store` | native_db 本地库（db 边界第一成员，底层 redb） | 行为自含、依赖 `agent` 纯类型作嵌装载荷；零 Tauri 依赖；db 路径由 desktop-app 注入 |
 | `store → agent` 依赖（新） | 依赖规则修订落痕 | 「禁依赖 core 行为，可依赖 core 纯类型作嵌装载荷」；修订理由与先例（agent-runtime → agent）落痕于「crate 三层分组与依赖规则」 |
-| `crates/infra/agent`（裸名 `agent-runtime`，收窄） | agent 边界实现 | 仅承载会话租户身份（cli / sdk / worker / compose / store_port / git_diff）；static_check 移出 checks 边界；允许进程 spawn；禁 Tauri |
+| `crates/infra/agent`（裸名 `agent-runtime`，收窄） | agent 边界实现 | 仅承载会话租户身份（cli / sdk / worker / compose / store_port）；static_check 移出 checks 边界；允许进程 spawn；禁 Tauri |
 | `crates/desktop-app` | Tauri 壳 | 依赖 workflow + foundation + store + agent + agent-runtime；command 薄包装 |
 | 七类边界分类学 | 落位先声明边界 | shell（仅 desktop-app，runner 进程管理除外）/ db（infra 成员）/ 文件（workspace 读写）/ api（占位留痕）/ agent（core 契约 + infra 实现）/ checks（core/checks 纯层 + infra/checks 执行）/ vcs（core/workflow port + infra/vcs 执行）；core 与 infra 禁 Tauri |
 | `crates/core/checks` + `crates/infra/checks`（新，checks 边界首批成员） | 检查域双层落位 | 依赖：`checks` → config + foundation；`checks-runtime` → orchestration + checks + config + foundation；纯层零 spawn、执行层允许 spawn；两 crate 均零 Tauri（详见 desktop-checks-domain） |
 | 未来租户归位表 | 特性 → 归位映射 | 写文件 → exec 轨道；读写 db → store workspace 维度；图数据库 → 暂不考虑；api → 不建目录；agent 执行 → core/agent + infra/agent（已落地） |
-| `crates/infra/vcs`（新，裸名 `vcs-runtime`，vcs 边界首成员） | git 工作面进程执行 | 依赖：`vcs-runtime` → workflow（WorktreePort 类型）+ foundation；允许 spawn；禁 Tauri；由 desktop-app 装配注入（`desktop-app → vcs-runtime`）；git_diff 迁入留后续（详见 desktop-change-worktree） |
+| `crates/infra/vcs`（新，裸名 `vcs-runtime`，vcs 边界首成员） | git 工作面进程执行 | 依赖：`vcs-runtime` → workflow（WorktreePort 类型）+ foundation；允许 spawn；禁 Tauri；由 desktop-app 装配注入（`desktop-app → vcs-runtime`） |
 | `store → foundation` 依赖（新） | 依赖规则第二例修订落痕 | 仅身份段派生纯函数（db 文件名与 worktree 子目录同源单点，store 内零第二份派生实现）；store 行为自含、零 Tauri 不变 |
 | `crates/infra/` | 目录表达计划 | store / agent（裸名 agent-runtime）/ checks / watch / vcs 五个已落地成员；graph / api / fs 均不预建，成员出现才立 |
 | `crates/core/config`（新，裸名 `config`） | 工作区配置唯一合法出口（读 + 校验 + 默认值） | 仅依赖 `foundation` + serde 系 + specta；禁 Tauri；未来模块取配置仅准经此，MUST NOT 自行读 config.json；首个真实消费者出现才立 `→ config` 边 |

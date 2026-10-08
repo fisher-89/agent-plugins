@@ -8,7 +8,7 @@ Desktop 后端检查域（checks 边界，边界分类学第六类）：外部�
 
 ### Requirement: checks 边界定义与分流法则
 
-Desktop 后端 SHALL 以 checks 边界（边界分类学第六类）承接检查域。walker 直接调用的执行步按执行性质分流：外部进程 + pass/fail 结论门禁（static-check、test-execution）SHALL 落 checks 边界——契约与纯层落位 `crates/core/checks`，进程执行落位 `crates/infra/checks`（crate 裸名 `checks-runtime`）；外部进程 + agent 会话（executor / evaluator / decision）SHALL 留 agent 边界；外部进程 + 纯上下文文本（git diff）SHALL 按消费者归属——`git_diff.rs` 暂留 infra/agent（executor / 决策供料链路），待纯上下文工具成族再立域，MUST NOT 为单文件预建边界。
+Desktop 后端 SHALL 以 checks 边界（边界分类学第六类）承接检查域。walker 直接调用的执行步按执行性质分流：外部进程 + pass/fail 结论门禁（static-check、test-execution）SHALL 落 checks 边界——契约与纯层落位 `crates/core/checks`，进程执行落位 `crates/infra/checks`（crate 裸名 `checks-runtime`）；外部进程 + agent 会话（executor / evaluator / decision）SHALL 留 agent 边界；外部进程 + 纯上下文文本（git diff）。
 
 #### Scenario: 检查步归 checks 边界
 
@@ -19,11 +19,6 @@ Desktop 后端 SHALL 以 checks 边界（边界分类学第六类）承接检查
 
 - **WHEN** 评审 executor / evaluator / decision 会话步的落位
 - **THEN** 留 agent 边界（compose_turn 会话租户），checks 边界不承载任何 agent 会话
-
-#### Scenario: 纯上下文工具挂账不收编
-
-- **WHEN** 评审 `git_diff.rs` 的落位
-- **THEN** 暂留 infra/agent（消费者为会话供料链路），checks 边界不预收编，裁决可考无需重辩
 
 ### Requirement: core/checks 纯层零进程边界
 
@@ -74,4 +69,4 @@ Desktop 后端 SHALL 以 checks 边界（边界分类学第六类）承接检查
 | `crates/core/checks`（新，裸名 `checks`） | 检查域纯层 | model / parser / aggregate / diagnose / reuse 纯函数；零 spawn 零 tokio process 零 Tauri；依赖 config + foundation；fixtures 直驱 + corpus 黄金可测 |
 | `crates/infra/checks`（新，裸名 `checks-runtime`） | 检查域进程执行 | static_check.rs 平移（零逻辑改动）+ testexec/（detect / runner / report）；依赖 orchestration + checks + config + foundation + tokio process；零 Tauri |
 | `orchestration::port`（原地不动） | runner port 归属 | `TestExecutionRunner` 与 `StaticCheckRunner` 并列；`ToolCommand::TestExecution` / `ToolStepOutput::TestExecution`（最小载荷）入封闭集；core/orchestration 零依赖 checks |
-| `crates/infra/agent`（裸名 `agent-runtime`，收窄） | 会话租户身份回归 | cli / sdk / worker / compose / store_port / git_diff；static_check 移出；git_diff 暂留挂账（纯上下文工具成族再立域） |
+| `crates/infra/agent`（裸名 `agent-runtime`，收窄） | 会话租户身份回归 | cli / sdk / worker / compose / store_port；static_check 移出 |

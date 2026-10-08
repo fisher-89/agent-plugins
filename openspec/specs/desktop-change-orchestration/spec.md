@@ -123,11 +123,6 @@ Walker 发起的 executor / evaluator / decision 会话 SHALL 携带 provenance�
 
 Desktop run 的 executor / evaluator prompt 组装 SHALL 以 git diff（工作区变更面）提供变更文件上下文（承接原 file_log「让 agent 识别变更文件」的既有用途）。file_log 概念 SHALL 随双向墙整体退役：desktop 全链 MUST NOT 读写任何 `file_log`（不提取转录写路径、不调 `change-files`、不展示 file_log 条目）；存量 skill 路径 workflow.json 内的 file_log 数据随其文件留档不动，desktop 不再解析与展示。
 
-#### Scenario: prompt 含变更文件上下文
-
-- **WHEN** executor 会话发起前工作区存在未提交变更
-- **THEN** 组装 prompt 含 git diff 变更文件上下文，executor 无需 file_log 即可识别在改文件
-
 #### Scenario: desktop 全链零 file_log 触点
 
 - **WHEN** 扫描 desktop 源码（core / infra / commands / views）对 file_log 的读与写触点
@@ -287,7 +282,7 @@ change run SHALL 以双 root 组合执行（能力语义见 desktop-change-workt
 | `crates/core/orchestration/src/steps.rs`（LocalToolSteps） | 相位机步进程内直调写面 | 直调面签名不变（载体在写面内换血）；每步结果落 StepRecord 审计行（经写面） |
 | `crates/core/orchestration/src/snapshot.rs` | ChangeDetail 只读装配 | 读源改 workspace 库 change 状态（经 queries）；磁盘扫描保留产物发现 |
 | `crates/core/orchestration/src/verdict.rs` + `decision.rs`（不改） | 结构化输出解析 | 封闭 schema（checklist 信封 + 决策四动作封闭集）；解析失败显式失败停给用户 |
-| `crates/core/orchestration/src/prompt.rs`（不改） | prompt 组装与运行时插值 | 模板取自 core/workflow 相位表单源；git diff 变更文件上下文 |
+| `crates/core/orchestration/src/prompt.rs`（不改） | prompt 组装与运行时插值 | 模板取自 core/workflow 相位表单源 |
 | `crates/core/orchestration/src/transcript.rs`（砍半） | 会话转录消费 | 仅保留 `final_assistant_text`（verdict 提取）；`extract_write_paths` 出局 |
 | `crates/infra/agent/src/worker.rs` | WorkerAgentPort 实现 + static-check spawn 缝 | compose_turn 新会话 + StopRegistry 终止 + 密封转录；provenance `source="change"`；spawn 不进 core |
 | `src/commands/` change_flow 命令组 | 运行控制 IPC 面 | 发起前置校验改 db 建档校验（workflow.json 可解析校验退役）；发起 / 停止 / 应答 / 确认契约不变 |

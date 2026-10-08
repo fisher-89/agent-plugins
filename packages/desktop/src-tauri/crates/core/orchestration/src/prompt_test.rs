@@ -1,27 +1,15 @@
-//! `prompt.rs`（executor / evaluator / 决策 prompt 组装）的单元测试
-//!（test-design「prompt.rs -> prompt_test.rs」节）：executor 三段组装、空
-//! diff_context 缺席形态、evaluator 协议附录 + diff 段、decision 有界组装与
-//! 空集边界、prompt 确定性。
-//! 无进程边界依赖：phase_prompt / diff_context / DecisionInput 纯字符串与
-//! 结构体入参内存构造；角色要点表为内置静态数据不 mock——Mock策略：无 mock。
-
 use crate::decision::{CandidateReport, DecisionInput};
 use crate::prompt::{decision_prompt, evaluator_prompt, executor_prompt};
 use workflow::model::{ChecklistItem, Verdict};
 
 #[test]
-fn executor_prompt三段组装角色要点与prompt主体与diff段() {
+fn executor_prompt三段组装角色要点与prompt主体() {
     let phase_prompt =
         "Implement the code for change \"桌面变更\".\n第二行中文\n**markdown 标记** <特殊> & 字符";
-    let diff = "### 未提交文件清单\n\nM crates/core/workflow/src/write/mod.rs";
 
-    let prompt = executor_prompt(
-        "__CALL_AGENT:implementation-generator__",
-        phase_prompt,
-        diff,
-    );
+    let prompt = executor_prompt("__CALL_AGENT:implementation-generator__", phase_prompt);
 
-    // 三段齐备：角色要点前导（剥离 __CALL_AGENT:…__ 取角色名）+ prompt 主体 + diff 段
+    // 三段齐备：角色要点前导（剥离 __CALL_AGENT:…__ 取角色名）+ prompt 主体
     assert!(
         prompt.contains("implementation-generator"),
         "角色要点前导在场（角色名自令牌剥离）: {prompt}"
@@ -34,42 +22,22 @@ fn executor_prompt三段组装角色要点与prompt主体与diff段() {
         prompt.contains(phase_prompt),
         "已插值 phase prompt 主体保真（换行 / 中文 / markdown / 特殊字符不损）"
     );
-    assert!(
-        prompt.contains("## 变更文件上下文") && prompt.contains("M crates/core/workflow"),
-        "git diff 上下文段在场（AC-3 组装半边）"
-    );
 
     // 未收录角色落通用要点兜底
-    let fallback = executor_prompt("__CALL_AGENT:未知角色__", "p", "d");
+    let fallback = executor_prompt("__CALL_AGENT:未知角色__", "p");
     assert!(
         fallback.contains("未知角色") && fallback.contains("角色要点"),
         "未收录角色落通用要点兜底不崩"
     );
     // 裸 agent_type 原样作角色名
-    let bare = executor_prompt("test-design-planner", "p", "d");
+    let bare = executor_prompt("test-design-planner", "p");
     assert!(bare.contains("test-design-planner"), "裸 agent_type 原样");
 }
 
 #[test]
-fn executor_prompt空diff_context降级缺席形态稳定() {
-    // diff 上下文缺席形态（git 缺失降级）组装不崩、段缺席形态稳定
-    let prompt = executor_prompt("__CALL_AGENT:test-gen-generator__", "Generate tests.", "");
-    assert!(
-        prompt.contains("（当前工作区无未提交变更）"),
-        "空上下文留段声明而非省略: {}",
-        prompt
-    );
-    assert!(prompt.contains("Generate tests."), "prompt 主体在场");
-
-    // 纯空白上下文同降级形态
-    let blank = executor_prompt("__CALL_AGENT:test-gen-generator__", "p", "  \n\t ");
-    assert!(blank.contains("（当前工作区无未提交变更）"));
-}
-
-#[test]
-fn evaluator_prompt协议附录与checklist_json形状与diff段() {
+fn evaluator_prompt协议附录与checklist_json形状() {
     let phase_prompt = "Evaluate implement phase for change \"c\".";
-    let prompt = evaluator_prompt(phase_prompt, "M src/lib.rs");
+    let prompt = evaluator_prompt(phase_prompt);
 
     // 协议附录：禁调 MCP 写通道四件 + 最终消息 checklist JSON 形状约定
     assert!(prompt.contains("## 输出协议"), "附录段在场");
@@ -86,10 +54,6 @@ fn evaluator_prompt协议附录与checklist_json形状与diff段() {
     assert!(
         prompt.contains(phase_prompt),
         "已插值 phase prompt 主体保真（AC-2 evaluator 输出协议 + AC-3 prompt 半边）"
-    );
-    assert!(
-        prompt.contains("## 变更文件上下文") && prompt.contains("M src/lib.rs"),
-        "diff_context 段在场"
     );
 }
 
@@ -177,7 +141,6 @@ fn decision_prompt空集三态组装不崩段落缺席稳定() {
 #[test]
 fn prompt确定性_同输入重复组装逐字节一致() {
     let phase_prompt = "固定模板 <占位不处理>";
-    let diff = "M a.rs\nA b.rs";
     let input = DecisionInput {
         phase: "implement".to_owned(),
         attempt: 2,
@@ -191,21 +154,13 @@ fn prompt确定性_同输入重复组装逐字节一致() {
     };
 
     assert_eq!(
-        executor_prompt(
-            "__CALL_AGENT:implementation-generator__",
-            phase_prompt,
-            diff
-        ),
-        executor_prompt(
-            "__CALL_AGENT:implementation-generator__",
-            phase_prompt,
-            diff
-        ),
+        executor_prompt("__CALL_AGENT:implementation-generator__", phase_prompt),
+        executor_prompt("__CALL_AGENT:implementation-generator__", phase_prompt),
         "executor prompt 无时钟 / 随机参与"
     );
     assert_eq!(
-        evaluator_prompt(phase_prompt, diff),
-        evaluator_prompt(phase_prompt, diff),
+        evaluator_prompt(phase_prompt),
+        evaluator_prompt(phase_prompt),
         "evaluator prompt 确定性"
     );
     assert_eq!(

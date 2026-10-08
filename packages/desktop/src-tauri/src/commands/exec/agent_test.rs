@@ -52,7 +52,7 @@ fn outcome() -> TurnOutcome {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn 信封event变体序列化tag为ipc判别event且载荷camelCase() {
+fn 信封event变体序列化tag为ipc判别event且载荷camel_case() {
     let envelope = AgentRunMessage::Event {
         event: sealed_event(7),
     };
@@ -71,7 +71,7 @@ fn 信封event变体序列化tag为ipc判别event且载荷camelCase() {
 }
 
 #[test]
-fn 信封record变体序列化tag为ipc判别record且轮行camelCase() {
+fn 信封record变体序列化tag为ipc判别record且轮行camel_case() {
     // running 形态轮行（提前 resolve 信封面）：RunningTurn 构造收内核（字段
     // 私有），此处以 running 形状的同构 TurnSummary 承载信封断言，running
     // 装配本体由 mod_test 提前 resolve 链路断言

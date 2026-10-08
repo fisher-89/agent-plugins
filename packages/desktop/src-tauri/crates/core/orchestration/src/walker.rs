@@ -13,9 +13,9 @@ use crate::decision::{
     ensure_backtrack_allowed, parse_decision, CandidateReport, DecisionAction, DecisionInput,
 };
 use crate::port::{
-    DiffContextPort, StaticCheckOutcome, TestExecutionConclusion, TestExecutionOutcome,
-    ToolCommand, ToolStepOutput, ToolStepPort, WorkerAgentPort, WorkerRole, WorkerTurnOutcome,
-    WorkerTurnRequest, WorkflowSnapshotPort,
+    StaticCheckOutcome, TestExecutionConclusion, TestExecutionOutcome, ToolCommand, ToolStepOutput,
+    ToolStepPort, WorkerAgentPort, WorkerRole, WorkerTurnOutcome, WorkerTurnRequest,
+    WorkflowSnapshotPort,
 };
 use crate::prompt::{decision_prompt, evaluator_prompt, executor_prompt};
 use crate::state::{ChangeRunStatus, ChangeStepKind, ChangeStepState, ChangeStepStatus, RunUpdate};
@@ -94,20 +94,16 @@ impl Terminal {
     }
 }
 
-/// 相位循环主入口：走完返回终态（completed / stopped / failed）；停等点经
-/// guard 挂起（phase 间确认 / ask 应答）；终态收口（[`RunGuard::finish`]）
-/// 在本函数单点。`control` 随行持有（注册表生命周期由命令层 Arc 托管，此参
-/// 面保设计签名对称；walker 全部控制面经 guard）。
+/// 相位循环主入口
 pub async fn walk_run(
     worker: Arc<dyn WorkerAgentPort>,
     tools: Arc<dyn ToolStepPort>,
-    diff: Arc<dyn DiffContextPort>,
     snapshot: Arc<dyn WorkflowSnapshotPort>,
     control: Arc<ChangeFlowControl>,
     guard: RunGuard,
     request: RunRequest,
 ) -> ChangeRunStatus {
-    let (status, reason) = drive(&worker, &tools, &diff, &snapshot, &guard, &request).await;
+    let (status, reason) = drive(&worker, &tools, &snapshot, &guard, &request).await;
     drop(control);
     guard.finish(status, reason);
     status
@@ -117,7 +113,6 @@ pub async fn walk_run(
 async fn drive(
     worker: &Arc<dyn WorkerAgentPort>,
     tools: &Arc<dyn ToolStepPort>,
-    diff: &Arc<dyn DiffContextPort>,
     snapshot: &Arc<dyn WorkflowSnapshotPort>,
     guard: &RunGuard,
     request: &RunRequest,
@@ -195,13 +190,10 @@ async fn drive(
                 Err(terminal) => return terminal.into_pair(),
             }
         } else {
-            // ③ executor 会话（prompt 组装前取 git diff 变更文件上下文）；会话 id
-            // 携出块作用域（evaluator 落账随行 executor 槽位 + static-check 反馈
-            // 边续注同会话保持稳定）
+            // ③ executor 会话
             let mut executor_session: Option<String> = None;
             if let Some(executor) = &next.executor {
-                let context = diff_context(diff, &request.root).await;
-                let prompt = executor_prompt(&executor.agent_type, &executor.prompt, &context);
+                let prompt = executor_prompt(&executor.agent_type, &executor.prompt);
                 let outcome = match run_worker(
                     worker,
                     guard,
@@ -240,9 +232,8 @@ async fn drive(
                 executor_session = Some(outcome.session_id);
             }
 
-            // ⑤ evaluator 会话（prompt 组装前再取 diff——executor 落盘后递进可见）
-            let context = diff_context(diff, &request.root).await;
-            let eval_prompt = evaluator_prompt(&evaluator.prompt, &context);
+            // ⑤ evaluator 会话
+            let eval_prompt = evaluator_prompt(&evaluator.prompt);
             let outcome = match run_worker(
                 worker,
                 guard,
@@ -859,15 +850,6 @@ fn build_decision_input(
 // ---------------------------------------------------------------------------
 // 共用执行面
 // ---------------------------------------------------------------------------
-
-/// git diff 变更文件上下文获取（降级面：git 不可用 / 失败 → 错误提示文本，
-/// 不阻断 run 启动；prompt 段显式可读）。
-async fn diff_context(diff: &Arc<dyn DiffContextPort>, root: &str) -> String {
-    match diff.diff_context(root).await {
-        Ok(text) => text,
-        Err(error) => format!("（git diff 上下文不可用: {error}）"),
-    }
-}
 
 /// WorkerAgent 会话执行（三类角色统一通道）：bypassPermissions 恒档、
 /// provenance `<change>/<phase>/<role>/<attempt>`、取消与会话失败收敛终态。

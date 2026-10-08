@@ -1,6 +1,5 @@
 mod cli;
 mod compose;
-mod git_diff;
 mod sdk;
 mod store_port;
 mod worker;
@@ -9,7 +8,6 @@ use agent::AgentRunner;
 
 pub use cli::runner::ClaudeCliRunner;
 pub use compose::{compose_turn, ComposedTurn};
-pub use git_diff::GitDiffSource;
 pub use sdk::config::EngineConfig;
 pub use sdk::log::{append_engine_log, init_engine_log, install_engine_panic_hook};
 pub use store_port::session_query;
@@ -93,14 +91,7 @@ impl Default for EngineFacade {
 }
 
 #[cfg(test)]
-mod git_diff_test;
-#[cfg(test)]
 mod lib_test;
 
-/// PATH 进程全局窗口的 crate 级串行化锁（测试装置共享）：worker（CLI shim /
-/// PATH 隔离）、cli discover / runner、compose 与 git_diff（git 缺失隔离）各
-/// 测试文件的 PATH 替换窗口互斥——窗口期间 PATH 不含系统 git，其它 spawn 缝
-/// fixture 须等窗口关闭（std 锁；持锁跨 await 的臂仅出现在 current_thread
-/// 测试运行时，不依赖 Send）。
 #[cfg(test)]
 pub(crate) static TEST_PATH_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());

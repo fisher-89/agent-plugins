@@ -21,8 +21,7 @@ use crate::compose_turn;
 const SOURCE_CHANGE: &str = "change";
 
 /// PATH 环境变量修改串行化（CLI 臂用例共享；同进程测试并行跑时 set_var 为
-/// 进程全局操作）。async-aware 锁：隔离窗口跨 await 持有。与 git_diff_test
-/// 的 git 缺失窗口共用 crate 级锁（worker_test 原 PATH_LOCK 静态并轨）。
+/// 进程全局操作）。async-aware 锁：隔离窗口跨 await 持有。
 use crate::TEST_PATH_LOCK as PATH_LOCK;
 
 // ---------------------------------------------------------------------------

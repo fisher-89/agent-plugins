@@ -247,7 +247,7 @@ fn 嵌装往返大seq打包键经编解码不回绕且十六进制串serde() {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn session_record全字段serde往返_camelCase线格式逐字段() {
+fn session_record全字段serde往返_camel_case线格式逐字段() {
     let record = SessionRecord {
         id: "ses-1-1727000000000".to_owned(),
         engine_session_id: Some("sdk-7-1727000000001".to_owned()),

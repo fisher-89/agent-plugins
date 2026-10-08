@@ -43,26 +43,12 @@ fn role_brief(role: &str) -> &'static str {
     }
 }
 
-/// git diff 变更文件上下文段（executor / evaluator 双入口共用；空上下文 =
-/// 工作区无未提交变更，留段声明而非省略——上下文面缺失显式可读）。
-fn diff_section(diff_context: &str) -> String {
-    let body = if diff_context.trim().is_empty() {
-        "（当前工作区无未提交变更）".to_owned()
-    } else {
-        diff_context.trim().to_owned()
-    };
-    format!("\n\n---\n\n## 变更文件上下文（git diff，工作区当前状态快照）\n\n{body}")
-}
-
-/// executor prompt：内置角色要点前导 + 写面已插值 phase prompt + git diff
-/// 变更文件上下文段。角色名自 `__CALL_AGENT:<role>__` 剥离；未收录角色落
-/// 通用要点兜底。
-pub fn executor_prompt(agent_type: &str, phase_prompt: &str, diff_context: &str) -> String {
+/// executor prompt
+pub fn executor_prompt(agent_type: &str, phase_prompt: &str) -> String {
     let role = strip_call_agent(agent_type);
     format!(
-        "你以角色「{role}」执行本次相位工作。角色要点：{}\n\n---\n\n{phase_prompt}{}",
-        role_brief(role),
-        diff_section(diff_context)
+        "你以角色「{role}」执行本次相位工作。角色要点：{}\n\n---\n\n{phase_prompt}",
+        role_brief(role)
     )
 }
 
@@ -79,14 +65,9 @@ fn evaluator_protocol() -> String {
     )
 }
 
-/// evaluator prompt：写面已插值 phase prompt + 输出协议附录 + git diff 变更
-/// 文件上下文段。
-pub fn evaluator_prompt(phase_prompt: &str, diff_context: &str) -> String {
-    format!(
-        "{phase_prompt}{}{}",
-        evaluator_protocol(),
-        diff_section(diff_context)
-    )
+/// evaluator prompt
+pub fn evaluator_prompt(phase_prompt: &str) -> String {
+    format!("{phase_prompt}{}", evaluator_protocol())
 }
 
 /// 决策 prompt：有界输入组装（fail checklist + 白名单 + 候选 eval report）

@@ -8,12 +8,10 @@ use tauri::ipc::Channel;
 use tauri::{AppHandle, Manager};
 
 use ::agent::StopRegistry;
-use agent_runtime::{compose_turn, ComposedTurn, GitDiffSource, KernelWorkerPort};
+use agent_runtime::{compose_turn, ComposedTurn, KernelWorkerPort};
 use checks_runtime::{ProcessStaticCheck, ProcessTestExecution};
 use orchestration::control::ChangeFlowControl;
-use orchestration::port::{
-    DiffContextPort, RunEventSink, ToolStepPort, WorkerAgentPort, WorkflowSnapshotPort,
-};
+use orchestration::port::{RunEventSink, ToolStepPort, WorkerAgentPort, WorkflowSnapshotPort};
 use orchestration::snapshot::StoreSnapshot;
 use orchestration::state::{ChangeRunSnapshot, ChangeRunStatus, ChangeRunSummary, RunUpdate};
 use orchestration::steps::LocalToolSteps;
@@ -137,7 +135,6 @@ pub(crate) async fn change_flow_start_with<R: tauri::Runtime>(
         Arc::clone(&store_port),
         run_id.clone(),
     ));
-    let diff: Arc<dyn DiffContextPort> = Arc::new(GitDiffSource::new());
     let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StoreSnapshot::new(
         exec_root.clone(),
         Arc::clone(&store_port),
@@ -155,7 +152,7 @@ pub(crate) async fn change_flow_start_with<R: tauri::Runtime>(
         .ok_or_else(|| "run 订阅失败（注册表条目缺失）".to_owned())?;
     spawn_channel_forward(on_event, updates);
     tauri::async_runtime::spawn(async move {
-        let _ = walk_run(worker, tools, diff, snapshot, control, guard, request).await;
+        let _ = walk_run(worker, tools, snapshot, control, guard, request).await;
     });
     Ok(ChangeRunSummary {
         run_id,
