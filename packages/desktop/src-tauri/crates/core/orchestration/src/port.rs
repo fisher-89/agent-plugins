@@ -219,9 +219,7 @@ pub trait ArchiveVcsPort: Send + Sync {
     /// 主仓快进：`merge --ff-only <branch>`（重放完成后的后半段——零 merge
     /// commit、不改写主仓历史；重放与快进间主仓前进的竞态 → Err 带重试引导）。
     fn ff_merge(&self, main_root: &Path, branch: &str) -> Result<(), String>;
-    /// worktree 工作区快照（合入冲突后验的 A/B 对比基面，锚 = worktree）：HEAD /
-    /// REBASE_HEAD 在场性 / porcelain 状态 / ls-files 索引四合一（`-z` 归一
-    /// 解析——零引号 / 非 ASCII 形态免疫）。
+    /// worktree 工作区快照
     fn worktree_snapshot(&self, root: &Path) -> Result<WorktreeSnapshot, String>;
     /// rebase 续走收口：`rebase --continue`（沿用重放提交既定信息；解冲突
     /// 后验通过后由归档链代收口——agent 无收口权）。多提交分支逐个重放：下一
@@ -279,7 +277,7 @@ pub struct IndexEntry {
 pub struct WorktreeSnapshot {
     /// HEAD（A 时点 = 重放停止时的 HEAD——rebase 半程不前移分支引用）。
     pub head: String,
-    /// REBASE_HEAD 在场性（rebase 半程判别；缺席 = rebase 已被收口 / 中止）。
+    /// rebase 目标分支或commit
     pub rebase_head: Option<String>,
     /// porcelain 状态条目（`-z` 归一）。
     pub status: Vec<StatusEntry>,

@@ -722,26 +722,19 @@ async fn drive(
                     Ok(RebaseOutcome::Conflicted(conflicts)) => {
                         let mut resolved_total = conflicts.len();
                         let mut pending = conflicts;
-                        loop {
-                            match resolve_conflicts(
-                                worker,
-                                vcs,
-                                guard,
-                                request,
-                                worktree_path,
-                                &branch,
-                                &pending,
-                            )
-                            .await?
-                            {
-                                // 重放续走又停在下一个提交（多提交分支形态）——
-                                // 新清单续解
-                                ResolutionOutcome::Conflicted(next) => {
-                                    resolved_total += next.len();
-                                    pending = next;
-                                }
-                                ResolutionOutcome::Rebased => break,
-                            }
+                        while let ResolutionOutcome::Conflicted(next) = resolve_conflicts(
+                            worker,
+                            vcs,
+                            guard,
+                            request,
+                            worktree_path,
+                            &branch,
+                            &pending,
+                        )
+                        .await?
+                        {
+                            resolved_total += next.len();
+                            pending = next;
                         }
                         ff_advance(vcs, guard, &main_root, &branch)?;
                         stage_passed(

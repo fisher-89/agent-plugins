@@ -236,11 +236,11 @@ pub(crate) fn worktree_snapshot(root: &Path) -> Result<WorktreeSnapshot, String>
     })
 }
 
-/// REBASE_HEAD 在场性探测（worktree gitdir 正确解析——链 worktree 的 `.git`
-/// 为文件指针，`rev-parse` 经其寻址主仓 `.git/worktrees/<n>/` 下的状态）：
-/// `rev-parse -q --verify REBASE_HEAD`——退出 0 = sha 在场、1 = 缺席（quiet
-/// 抑制报错噪声；非 rebase 态的常态面）、其余 Err。
 fn rebase_head_sha(root: &Path) -> Result<Option<String>, String> {
+    let state_dir = git(root, &["rev-parse", "--git-path", "rebase-merge"])?;
+    if !Path::new(state_dir.trim()).exists() {
+        return Ok(None);
+    }
     let output = Command::new("git")
         .arg("-C")
         .arg(root)
@@ -254,7 +254,7 @@ fn rebase_head_sha(root: &Path) -> Result<Option<String>, String> {
         Some(0) => Ok(Some(
             String::from_utf8_lossy(&output.stdout).trim().to_owned(),
         )),
-        Some(1) => Ok(None),
+        Some(1) => Ok(Some("<rebase-merge>".to_owned())),
         _ => Err(format!(
             "git rev-parse -q --verify REBASE_HEAD 失败（退出码 {}）: {}",
             output.status.code().unwrap_or(-1),

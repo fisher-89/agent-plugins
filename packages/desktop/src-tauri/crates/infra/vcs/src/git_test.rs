@@ -568,9 +568,7 @@ fn rebase重放主仓ff_无关staged与untracked原样保留且零merge_commit()
     git(&root, &["add", "other.txt"]);
     fs_write(&root, "untracked.txt", "无关 untracked\n");
     let status_before = git(&root, &["status", "--porcelain"]);
-    let onto = git(&root, &["branch", "--show-current"])
-        .trim()
-        .to_owned();
+    let onto = git(&root, &["branch", "--show-current"]).trim().to_owned();
 
     let outcome = vcs
         .rebase_branch(&wt, &onto)
@@ -615,9 +613,7 @@ fn rebase主仓前进_重放后ff线性合入零merge_commit() {
     git(&root, &["add", "-A"]);
     commit_all_fixture(&root, "main");
     let main_tip = head_sha(&root);
-    let onto = git(&root, &["branch", "--show-current"])
-        .trim()
-        .to_owned();
+    let onto = git(&root, &["branch", "--show-current"]).trim().to_owned();
 
     let outcome = vcs.rebase_branch(&wt, &onto).expect("异文件重放应成功");
     assert_eq!(outcome, RebaseOutcome::Rebased, "重放完成");
@@ -634,10 +630,7 @@ fn rebase主仓前进_重放后ff线性合入零merge_commit() {
     let fields: Vec<&str> = parents.split_whitespace().collect();
     assert_eq!(fields.len(), 2, "单亲线性（零 merge commit）");
     assert_eq!(fields[1], main_tip, "分支重放提交立于主仓前进 tip 之上");
-    assert!(
-        !root.join(".git/MERGE_HEAD").exists(),
-        "主仓零 merge 残态"
-    );
+    assert!(!root.join(".git/MERGE_HEAD").exists(), "主仓零 merge 残态");
 }
 
 #[test]
@@ -650,9 +643,7 @@ fn rebase非冲突失败_显式err引导且worktree零破坏() {
     fs_write(&root, "main-line.txt", "主仓前进\n");
     git(&root, &["add", "-A"]);
     commit_all_fixture(&root, "main");
-    let onto = git(&root, &["branch", "--show-current"])
-        .trim()
-        .to_owned();
+    let onto = git(&root, &["branch", "--show-current"]).trim().to_owned();
     fs_write(&wt, "a.txt", "未提交改动\n"); // 已跟踪文件未 staged 修改
 
     let error = vcs
@@ -685,9 +676,7 @@ fn rebase空提交丢弃_内容已在主仓幂等吸收() {
     fs_write(&root, "feat.txt", "同一内容\n");
     git(&root, &["add", "-A"]);
     commit_all_fixture(&root, "same feat");
-    let onto = git(&root, &["branch", "--show-current"])
-        .trim()
-        .to_owned();
+    let onto = git(&root, &["branch", "--show-current"]).trim().to_owned();
 
     let outcome = vcs.rebase_branch(&wt, &onto).expect("空重放应成功（丢弃）");
     assert_eq!(outcome, RebaseOutcome::Rebased, "空提交丢弃 → Rebased");
@@ -700,7 +689,8 @@ fn rebase空提交丢弃_内容已在主仓幂等吸收() {
         vcs.branch_merged(&root, "change/empty").expect("判定应 Ok"),
         "已合入判定幂等吸收"
     );
-    vcs.ff_merge(&root, "change/empty").expect("Already up to date 亦 Ok");
+    vcs.ff_merge(&root, "change/empty")
+        .expect("Already up to date 亦 Ok");
 }
 
 #[test]
@@ -724,9 +714,7 @@ fn rebase冲突_冲突态保留在worktree且清单返回() {
     fs_write(&root, "中文说明.md", "主仓版本\n");
     git(&root, &["add", "-A"]);
     commit_all_fixture(&root, "main edit");
-    let onto = git(&root, &["branch", "--show-current"])
-        .trim()
-        .to_owned();
+    let onto = git(&root, &["branch", "--show-current"]).trim().to_owned();
 
     let outcome = vcs
         .rebase_branch(&wt, &onto)
@@ -784,9 +772,7 @@ fn worktree_snapshot冲突态_rebase半程四字段齐备() {
     git(&root, &["add", "-A"]);
     commit_all_fixture(&root, "main edit");
     let main_tip = head_sha(&root);
-    let onto = git(&root, &["branch", "--show-current"])
-        .trim()
-        .to_owned();
+    let onto = git(&root, &["branch", "--show-current"]).trim().to_owned();
     let outcome = vcs.rebase_branch(&wt, &onto).expect("冲突 Ok");
     assert!(
         matches!(outcome, RebaseOutcome::Conflicted(_)),
@@ -928,9 +914,7 @@ fn rebase_continue续走收口_信息沿用且无关改动零吞并() {
     fs_write(&root, "a.txt", "主仓版本\n");
     git(&root, &["add", "-A"]);
     commit_all_fixture(&root, "main edit");
-    let onto = git(&root, &["branch", "--show-current"])
-        .trim()
-        .to_owned();
+    let onto = git(&root, &["branch", "--show-current"]).trim().to_owned();
 
     let outcome = vcs.rebase_branch(&wt, &onto).expect("冲突 Ok");
     assert!(
@@ -973,7 +957,8 @@ fn rebase_continue续走收口_信息沿用且无关改动零吞并() {
         "已跟踪基线\n",
         "无关 tracked 文件内容零触碰"
     );
-    vcs.ff_merge(&root, "change/resolve").expect("收尾快进应成功");
+    vcs.ff_merge(&root, "change/resolve")
+        .expect("收尾快进应成功");
     assert_eq!(
         head_sha(&root),
         git(&wt, &["rev-parse", "HEAD"]).trim(),
@@ -986,6 +971,10 @@ fn rebase_continue拒绝面_无关未staged编辑err() {
     let _guard = lock_path();
     let vcs = archive_vcs();
     let (_dir, root) = init_repo("arch-continue-refused");
+    // b.txt 种入基线（tracked 面——untracked 文件不阻塞 continue）
+    fs_write(&root, "b.txt", "已跟踪基线\n");
+    git(&root, &["add", "b.txt"]);
+    commit_all_fixture(&root, "seed b");
     let (_wt_dir, wt) = worktree_slot("arch-continue-refused");
     git::add_worktree(&root, &wt, "change/refuse").expect("建域应成功");
 
@@ -995,9 +984,7 @@ fn rebase_continue拒绝面_无关未staged编辑err() {
     fs_write(&root, "a.txt", "主仓版本\n");
     git(&root, &["add", "-A"]);
     commit_all_fixture(&root, "main edit");
-    let onto = git(&root, &["branch", "--show-current"])
-        .trim()
-        .to_owned();
+    let onto = git(&root, &["branch", "--show-current"]).trim().to_owned();
     let outcome = vcs.rebase_branch(&wt, &onto).expect("冲突 Ok");
     assert!(matches!(outcome, RebaseOutcome::Conflicted(_)));
 
@@ -1033,9 +1020,7 @@ fn rebase_continue多停_第二笔冲突新清单直至rebased() {
     fs_write(&root, "a.txt", "主仓版本\n");
     git(&root, &["add", "-A"]);
     commit_all_fixture(&root, "main edit");
-    let onto = git(&root, &["branch", "--show-current"])
-        .trim()
-        .to_owned();
+    let onto = git(&root, &["branch", "--show-current"]).trim().to_owned();
 
     let outcome = vcs.rebase_branch(&wt, &onto).expect("首停应为冲突");
     assert_eq!(
@@ -1079,9 +1064,7 @@ fn rebase_abort_冲突态收口回重放前_非rebase态err() {
     fs_write(&root, "a.txt", "主仓版本\n");
     git(&root, &["add", "-A"]);
     commit_all_fixture(&root, "main edit");
-    let onto = git(&root, &["branch", "--show-current"])
-        .trim()
-        .to_owned();
+    let onto = git(&root, &["branch", "--show-current"]).trim().to_owned();
 
     let outcome = vcs.rebase_branch(&wt, &onto).expect("冲突 Ok");
     assert!(

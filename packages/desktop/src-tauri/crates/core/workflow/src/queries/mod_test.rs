@@ -261,7 +261,11 @@ fn 优先级链_worktree优先主仓链兜底_none不短路() {
     ws.mkdir("openspec/changes/archive/foo");
     wt.mkdir("openspec/changes/foo2"); // worktree 只命中 foo2，foo 走主仓链
     let location = wt.locate(&ws, "foo").expect("应命中");
-    assert_eq!(location.source, ChangeSource::Archive, "worktree miss 落主仓 archive 精确名");
+    assert_eq!(
+        location.source,
+        ChangeSource::Archive,
+        "worktree miss 落主仓 archive 精确名"
+    );
 
     // 态三：worktree miss + 主仓 archive 日期前缀在场 → 命中前缀目录
     let ws = TempWs::new("prio-prefix");
