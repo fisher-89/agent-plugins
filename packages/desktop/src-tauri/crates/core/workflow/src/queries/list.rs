@@ -1,15 +1,3 @@
-//! change 列表查询：db 记录 ∪ 磁盘目录去重并集 + 按月分组。
-//!
-//! 发现语义（proposal 拍板）：目录存在即 change——workspace 库 ChangeRecord
-//! 全量 + changes / archive 两棵目录树内的目录，同名条目以 db 为准合并一条。
-//! **归组以 db status 权威**（design D11——对 desktop-workflow-db-state D7
-//! 「读时以磁盘事实归组」的显式修订）：active → 进行中组、archived → 归档
-//! 组，worktree 条目不因主仓目录缺席被丢弃 / 误归未知组；磁盘目录仅决定
-//! **目录名取位**（archived → archive 树精确 / 日期前缀名；未命中 → 建档名）
-//! 与产物解析定位，查询路径不回写 db（纯读纪律）。db 缺记录条目（存量 CLI
-//! change）以文档形态入列（无状态面）。归档按月分组：db 取 `archived_at`、
-//! 磁盘回退目录名日期前缀、无前缀入「未知时间」组置尾。
-
 use std::collections::{BTreeMap, HashSet};
 use std::fs;
 use std::path::Path;
@@ -101,15 +89,18 @@ pub fn list_changes(layout: &Layout, store: &dyn ChangeStateStore) -> ChangeList
         if db_names.contains(&base) {
             continue; // 同名共存以 db 为准
         }
+        // 组键截月（与 db 侧 archive_month 同粒度）：天级键与月键两种形态并存
+        // 时，字符串降序会把月键沉到同月天级键之下——新归档条目在清单「消失」
+        let month = prefix.as_deref().map(month_of);
         archive.push((
             ChangeSummary {
                 name: dir_name,
                 source: ChangeSource::Archive,
                 status: None,
                 active_phase: None,
-                created: prefix.clone(),
+                created: prefix,
             },
-            prefix,
+            month,
         ));
     }
 
@@ -164,6 +155,11 @@ fn locate_prefixed_archive_name(layout: &Layout, name: &str) -> Option<String> {
     None
 }
 
+/// 日期串截月（`YYYY-MM-DD` → `YYYY-MM`）：db / 磁盘两侧归组粒度单点。
+fn month_of(date: &str) -> String {
+    date[..7].to_owned()
+}
+
 /// db 归档条目的分组月份：`archived_at` 优先，磁盘目录名日期前缀回退，
 /// 皆缺为 `None`（未知时间组）。
 fn archive_month(record: &ChangeStateRecord, entry_name: &str) -> Option<String> {
@@ -171,7 +167,7 @@ fn archive_month(record: &ChangeStateRecord, entry_name: &str) -> Option<String>
         .archived_at
         .map(utc_date)
         .or_else(|| archive_prefix_date(entry_name))
-        .map(|date| date[..7].to_owned())
+        .map(|date| month_of(&date))
 }
 
 /// active 树目录名枚举（跳过点前缀项与指定目录名；目录缺失返回空）。

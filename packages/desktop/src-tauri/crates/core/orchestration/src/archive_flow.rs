@@ -13,7 +13,7 @@ use workflow::state::{ChangeStateRecord, ChangeStateStore, ChangeStatus, PhaseSt
 use workflow::write::phase_table;
 
 use crate::port::{
-    ArchiveVcsPort, MergeOutcome, WorkerAgentPort, WorkerRole, WorkerTurnRequest, WorktreeSnapshot,
+    ArchiveVcsPort, RebaseOutcome, WorkerAgentPort, WorkerRole, WorkerTurnRequest, WorktreeSnapshot,
 };
 
 /// 归档链 broadcast 通道容量（阶段状态 + 会话事件窗口；溢出即滞后，由订阅
@@ -57,16 +57,17 @@ const LEAN_AGENT_STOPPED: &str = "agent 会话被停止";
 const LEAN_RESIDUAL: &str = "残留冲突未解";
 const LEAN_OUTSIDE_CHANGES: &str = "清单外新改动";
 const LEAN_PROBE_FAILED: &str = "后验探测失败";
-const LEAN_MERGE_CLOSED: &str = "agent 违约自行收口 merge";
+const LEAN_REBASE_CLOSED: &str = "agent 违约自行收口 rebase";
 /// lean 串 abort 附注（收敛序中 abort 自身失败的显式面——不掩盖原记因）。
-const TXT_LEAN_ABORT_FAILED: &str = "abort 未成功，请手动核验主仓 git 状态";
+const TXT_LEAN_ABORT_FAILED: &str = "abort 未成功，请手动核验 worktree git 状态";
 /// 被停止注记（冲突 agent 被 stop 的 lean 串尾注——D7 特例，不用 TXT_STOPPED
 /// 收敛词，冲突摘要与手动裁决引导照常呈现）。
 const TXT_LEAN_STOPPED_NOTE: &str = "（归档链已停止）";
-/// `commit_merge` 失败的收口引导（冲突解已验通过、merge 态完整——人工收口
-/// 或回退二选一，重试前半截态须人工清，链不自动 abort 已验的解算成果）。
-const TXT_MERGE_COMMIT_GUIDE: &str = "主仓处于 merge 态：可手动 git commit --no-edit 收口，\
-     或 git merge --abort 回退后重试归档（重试前半截态须人工清）";
+/// `rebase_continue` 失败的收口引导（冲突解已验通过、rebase 态完整——人工
+/// 续走或回退二选一，重试前半截态须人工清，链不自动 abort 已验的解算成果）。
+const TXT_REBASE_CONTINUE_GUIDE: &str = "worktree 处于 rebase 态：可手动 git rebase --continue\
+     续走收口（完成后主仓手动 git merge --ff-only 快进），或 git rebase --abort 回退后重试归档\
+     （重试前半截态须人工清）";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
@@ -75,7 +76,8 @@ pub enum ArchiveStage {
     Preflight,
     /// worktree 全域提交（worktree 记录在场才执行；干净探测唯一跳过依据）
     Commit,
-    /// 主仓合入（branch `change/<name>` → 主仓当前分支；冲突解 agent 分支内嵌）
+    /// 主仓合入（worktree 内 rebase 重放 branch `change/<name>` 至主仓当前分
+    /// 支 → 主仓 ff-only 快进；冲突解 agent 分支内嵌，冲突态囚于 worktree）
     Merge,
     /// delta specs 同步 agent 会话（缺席 / 用户跳过则 skipped）
     SpecSync,
@@ -398,15 +400,15 @@ fn missing_artifacts(layout: &Layout, worktree: Option<&str>, change: &str) -> V
         .collect()
 }
 
-/// delta specs 探测（preflight 与链内同源，design D7）：`locate_change`
-///（主仓优先、worktree 回退，与产物读取同位）的 `specs/` 子树——含
-/// `spec.md` 的 capability 清单（字母序）。
+/// delta specs 探测：**主仓优先、worktree回退**
 pub(crate) fn detect_delta_specs(
     layout: &Layout,
     worktree: Option<&str>,
     change: &str,
 ) -> Vec<String> {
-    let Some(location) = locate_change(layout, worktree, change) else {
+    let location =
+        locate_change(layout, None, change).or_else(|| locate_change(layout, worktree, change));
+    let Some(location) = location else {
         return Vec::new();
     };
     let Ok(entries) = std::fs::read_dir(location.dir.join("specs")) else {
@@ -493,12 +495,10 @@ pub(crate) fn spec_sync_prompt(change: &str) -> String {
     )
 }
 
-/// 解冲突 agent prompt（D6 新增）：冲突清单插值 + 只编辑清单内文件 + 逐文件
-/// 精确 add + 禁收口 / 改史命令（agent git 面机械收缩——merge 收口归编排链）。
 pub(crate) fn merge_conflict_prompt(change: &str, conflicts: &[String]) -> String {
     let list = conflicts.join("\n");
     format!(
-        "你执行 change「{change}」归档链的合入冲突解算段。主仓当前分支合入分支 change/{change} 时以下文件冲突（冲突态已保留，merge 进行中）：
+        "你执行 change「{change}」归档链的合入冲突解算段。worktree 内重放分支 change/{change} 至主仓当前分支时以下文件冲突（冲突态已保留，rebase 进行中）：
 
 {list}
 
@@ -509,7 +509,7 @@ pub(crate) fn merge_conflict_prompt(change: &str, conflicts: &[String]) -> Strin
 
 约束（必须遵守）：
 - 只编辑上面清单内的文件；清单外任何文件一律不动（含未提交 / staged 的无关内容——它们属于用户）。
-- 禁止 `git add -A` / `git add .`；禁止 `git commit` / `git merge` / `git rebase` / `git reset` / `git stash` 等收口或改写历史的命令——merge 收口由桌面编排执行。
+- 禁止 `git add -A` / `git add .`；禁止 `git commit` / `git merge` / `git rebase`（含 `git rebase --continue` / `git rebase --abort`）/ `git reset` / `git stash` 等收口或改写历史的命令——rebase 续走由桌面编排执行。
 - 禁止调用 MCP 工具、禁止 __TOOL_ASK_USER__。
 - 全部冲突文件解算并 add 后，最终消息简述各文件的裁决要点。"
     )
@@ -688,13 +688,10 @@ async fn drive(
     }
     check_stop(guard)?;
 
-    // ── Merge：merged 幂等跳过维持（提交段已保证分支携带内容，此时可达性
-    // 判定安全）；冲突分支内嵌（D3–D7：快照 → 解冲突 agent → 后验 → 链代
-    // 收口；无法裁决走 lean 收敛）──
     stage_running(guard, ArchiveStage::Merge);
     match worktree {
         None => stage_skipped(guard, ArchiveStage::Merge, Some(TXT_SKIP_LEGACY.to_owned())),
-        Some(_) => {
+        Some(worktree_path) => {
             let merged = vcs.branch_merged(&main_root, &branch).map_err(|error| {
                 fail_stage(
                     guard,
@@ -705,16 +702,53 @@ async fn drive(
             if merged {
                 stage_skipped(guard, ArchiveStage::Merge, Some(TXT_SKIP_MERGED.to_owned()));
             } else {
-                match vcs.merge_branch(&main_root, &branch) {
-                    Ok(MergeOutcome::Merged) => stage_passed(guard, ArchiveStage::Merge, None),
-                    // 非冲突失败（主仓状态不允许等）：串即 port Err——AC-8 面
-                    // 零加工（git 语境 + 手动处置引导已在 port 侧铸好）
+                // 重放目标 = 主仓当前分支（与快进目标同锚——detached 探测由
+                // current_branch Err 面承载）
+                let onto = vcs.current_branch(&main_root).map_err(|error| {
+                    fail_stage(
+                        guard,
+                        ArchiveStage::Merge,
+                        format!("合入目标分支探测失败: {error}"),
+                    )
+                })?;
+                match vcs.rebase_branch(Path::new(worktree_path), &onto) {
+                    Ok(RebaseOutcome::Rebased) => {
+                        ff_advance(vcs, guard, &main_root, &branch)?;
+                        stage_passed(guard, ArchiveStage::Merge, None);
+                    }
+                    // 非冲突失败（worktree 状态不允许等）：串即 port Err——零
+                    // 加工（git 语境 + 手动处置引导已在 port 侧铸好）
                     Err(error) => return Err(fail_stage(guard, ArchiveStage::Merge, error)),
-                    Ok(MergeOutcome::Conflicted(conflicts)) => {
-                        resolve_conflicts(
-                            worker, vcs, guard, request, &main_root, &branch, &conflicts,
-                        )
-                        .await?;
+                    Ok(RebaseOutcome::Conflicted(conflicts)) => {
+                        let mut resolved_total = conflicts.len();
+                        let mut pending = conflicts;
+                        loop {
+                            match resolve_conflicts(
+                                worker,
+                                vcs,
+                                guard,
+                                request,
+                                worktree_path,
+                                &branch,
+                                &pending,
+                            )
+                            .await?
+                            {
+                                // 重放续走又停在下一个提交（多提交分支形态）——
+                                // 新清单续解
+                                ResolutionOutcome::Conflicted(next) => {
+                                    resolved_total += next.len();
+                                    pending = next;
+                                }
+                                ResolutionOutcome::Rebased => break,
+                            }
+                        }
+                        ff_advance(vcs, guard, &main_root, &branch)?;
+                        stage_passed(
+                            guard,
+                            ArchiveStage::Merge,
+                            Some(format!("{TXT_MERGE_RESOLVED_PREFIX}{resolved_total} 文件")),
+                        );
                     }
                 }
             }
@@ -847,26 +881,41 @@ async fn drive(
 // 一律 lean 收敛（abort 尽力 + 停链咨询串）。
 // ---------------------------------------------------------------------------
 
-/// 合入冲突分支主体：任一失败面 → lean 收敛（`Err(Terminal)`，链停 Merge 段）；
-/// 全通过 → 链代收口 + Merge passed，续走后续段。
+/// 合入冲突分支主体
+enum ResolutionOutcome {
+    Rebased,
+    Conflicted(Vec<String>),
+}
+
+/// 主仓快进 + Merge 段通过信封（重放完成后的后半段单点——直入与冲突解算
+/// 两路径共收）。
+fn ff_advance(
+    vcs: &Arc<dyn ArchiveVcsPort>,
+    guard: &ArchiveGuard,
+    main_root: &Path,
+    branch: &str,
+) -> Result<(), Terminal> {
+    vcs.ff_merge(main_root, branch)
+        .map_err(|error| fail_stage(guard, ArchiveStage::Merge, error))
+}
+
 async fn resolve_conflicts(
     worker: &Arc<dyn WorkerAgentPort>,
     vcs: &Arc<dyn ArchiveVcsPort>,
     guard: &ArchiveGuard,
     request: &ArchiveRequest,
-    main_root: &Path,
+    worktree_path: &str,
     branch: &str,
     conflicts: &[String],
-) -> Result<(), Terminal> {
-    // ① A 基面（agent 前快照；探测失败无从后验 → lean「后验探测失败」——D10
-    // 单一收敛序）
-    let baseline = match vcs.worktree_snapshot(main_root) {
+) -> Result<ResolutionOutcome, Terminal> {
+    let worktree = Path::new(worktree_path);
+    let baseline = match vcs.worktree_snapshot(worktree) {
         Ok(snapshot) => snapshot,
         Err(_) => {
             return Err(lean_converge(
                 guard,
                 vcs,
-                main_root,
+                worktree,
                 branch,
                 conflicts,
                 LEAN_PROBE_FAILED,
@@ -874,8 +923,7 @@ async fn resolve_conflicts(
             ))
         }
     };
-    // ② running detail 追加（同段后写覆盖既有机制——转录面板随之呈现当前
-    // 解算会话，D7）
+
     guard.emit(ArchiveUpdate::Stage {
         stage: ArchiveStageState {
             stage: ArchiveStage::Merge,
@@ -883,11 +931,9 @@ async fn resolve_conflicts(
             detail: Some(TXT_MERGE_RESOLVING.to_owned()),
         },
     });
-    // ③ 解冲突 agent 会话（D5 定式：cwd = 主 workspace root、bypassPermissions、
-    // ModelLevel::High、role=Executor、新会话；provenance 与 spec-sync 同族
-    // 归档语义段 `<change>/archive/merge-conflict`）
+
     let turn = WorkerTurnRequest {
-        root: request.root.clone(),
+        root: worktree_path.to_owned(),
         prompt: merge_conflict_prompt(&request.change, conflicts),
         provenance: SessionProvenance {
             source: SOURCE_CHANGE.to_owned(),
@@ -905,7 +951,7 @@ async fn resolve_conflicts(
             return Err(lean_converge(
                 guard,
                 vcs,
-                main_root,
+                worktree,
                 branch,
                 conflicts,
                 LEAN_AGENT_FAILED,
@@ -915,13 +961,13 @@ async fn resolve_conflicts(
     };
     match outcome.status {
         AgentRunStatus::Completed => {}
-        // 被停止特例（D7）：不用 TXT_STOPPED 收敛词——lean 串附「（归档链已
-        // 停止）」注记，冲突摘要与手动裁决引导照常呈现
+        // 被停止特例：不用 TXT_STOPPED 收敛词——lean 串附「（归档链已停止）」
+        // 注记，冲突摘要与手动裁决引导照常呈现
         AgentRunStatus::Stopped => {
             return Err(lean_converge(
                 guard,
                 vcs,
-                main_root,
+                worktree,
                 branch,
                 conflicts,
                 LEAN_AGENT_STOPPED,
@@ -932,7 +978,7 @@ async fn resolve_conflicts(
             return Err(lean_converge(
                 guard,
                 vcs,
-                main_root,
+                worktree,
                 branch,
                 conflicts,
                 LEAN_AGENT_FAILED,
@@ -940,25 +986,25 @@ async fn resolve_conflicts(
             ))
         }
     }
-    // ④ 后验序（D4）：残留标记 fs 扫描（locale 免疫）→ B 快照 → 状态面对比
-    if !residual_markers(main_root, conflicts).is_empty() {
+    // ④ 后验序：残留标记 fs 扫描（locale 免疫）→ B 快照 → 状态面对比
+    if !residual_markers(worktree, conflicts).is_empty() {
         return Err(lean_converge(
             guard,
             vcs,
-            main_root,
+            worktree,
             branch,
             conflicts,
             LEAN_RESIDUAL,
             false,
         ));
     }
-    let after = match vcs.worktree_snapshot(main_root) {
+    let after = match vcs.worktree_snapshot(worktree) {
         Ok(snapshot) => snapshot,
         Err(_) => {
             return Err(lean_converge(
                 guard,
                 vcs,
-                main_root,
+                worktree,
                 branch,
                 conflicts,
                 LEAN_PROBE_FAILED,
@@ -968,50 +1014,43 @@ async fn resolve_conflicts(
     };
     if let Err(reason) = verify_resolution(&baseline, &after, conflicts) {
         return Err(lean_converge(
-            guard, vcs, main_root, branch, conflicts, &reason, false,
+            guard, vcs, worktree, branch, conflicts, &reason, false,
         ));
     }
-    // ⑤ 链代收口（D6）：`commit --no-edit` 只提交索引内既定 merge 结果。失败
-    // 不走 lean abort——冲突解已验通过、merge 态完整，自动回退会丢弃解算成果
-    //（串附人工收口 / 回退二选一引导，半截态重试前须人工清）
-    if let Err(error) = vcs.commit_merge(main_root) {
-        return Err(fail_stage(
+    // ⑤ 链代续走（`rebase --continue` 沿用既定提交信息）。失败不走 lean
+    // abort——冲突解已验通过、rebase 态完整，自动回退会丢弃解算成果（串附
+    // 人工续走 / 回退二选一引导，半截态重试前须人工清）
+    match vcs.rebase_continue(worktree) {
+        Ok(RebaseOutcome::Rebased) => Ok(ResolutionOutcome::Rebased),
+        Ok(RebaseOutcome::Conflicted(next)) => Ok(ResolutionOutcome::Conflicted(next)),
+        Err(error) => Err(fail_stage(
             guard,
             ArchiveStage::Merge,
-            format!("{error}；冲突解算已验通过但收口提交失败：{TXT_MERGE_COMMIT_GUIDE}"),
-        ));
-    }
-    stage_passed(
-        guard,
-        ArchiveStage::Merge,
-        Some(format!(
-            "{TXT_MERGE_RESOLVED_PREFIX}{} 文件",
-            conflicts.len()
+            format!("{error}；冲突解算已验通过但 rebase 续走失败：{TXT_REBASE_CONTINUE_GUIDE}"),
         )),
-    );
-    Ok(())
+    }
 }
 
-/// lean 档无法裁决收敛（D7/D10 单点）：`abort_merge` 尽力执行（自身 Err 附注
-/// 呈现，不掩盖原记因）+ Merge 段 failed（lean 串 = 原因词 + 冲突逐行清单 +
-/// abort 告知 + 手动 merge 引导 + 重试幂等说明）。
+/// lean 档无法裁决收敛（单点）：`rebase_abort` 尽力执行（worktree 恢复重放
+/// 前干净态；自身 Err 附注呈现，不掩盖原记因）+ Merge 段 failed（lean 串 =
+/// 原因词 + 冲突逐行清单 + abort 告知 + 手动裁决引导 + 重试幂等说明）。
 fn lean_converge(
     guard: &ArchiveGuard,
     vcs: &Arc<dyn ArchiveVcsPort>,
-    main_root: &Path,
+    worktree: &Path,
     branch: &str,
     conflicts: &[String],
     reason: &str,
     stopped_note: bool,
 ) -> Terminal {
-    let abort_note = match vcs.abort_merge(main_root) {
+    let abort_note = match vcs.rebase_abort(worktree) {
         Ok(()) => String::new(),
         Err(_) => format!("（{TXT_LEAN_ABORT_FAILED}）"),
     };
     let mut message = format!(
-        "合入冲突无法自动裁决（{reason}）。冲突文件 {} 个：{}\n已执行 git merge --abort \
-         恢复主仓干净态{abort_note}。请手动将分支 {branch} 合入主仓并解冲突后重试归档\
-         ——重试将识别已合入并续走收口。",
+        "合入冲突无法自动裁决（{reason}）。冲突文件 {} 个：{}\n已执行 git rebase --abort \
+         恢复 worktree 干净态{abort_note}。请手动将分支 {branch} 合入主仓（在 worktree 内自行\
+         rebase 解冲突，或主仓手动 merge）后重试归档——重试将识别已合入并续走收口。",
         conflicts.len(),
         conflicts.join("\n"),
     );
@@ -1021,23 +1060,18 @@ fn lean_converge(
     fail_stage(guard, ArchiveStage::Merge, message)
 }
 
-/// 后验状态面对比（D4 纯函数）：A = 冲突即时快照、B = 解冲突收口后快照。
-/// ① `B.merge_head` 缺席 → Err（agent 违约自行收口 / 中止 merge——附 A.head
-/// 的 `git reset --hard` 引导，链不自动改写历史）；② 冲突路径索引无 stage>0
-/// 残留；③ 冲突路径 worktree 干净（y=' '）且索引单条 stage-0 或删除缺席；
-/// ④ 非 C 路径 porcelain 状态与索引条目（mode/hash/stage）A/B 逐字一致、B 无
-/// A 缺席的新路径、消失路径 ⊆ 冲突清单——否则「清单外新改动」（捕获：agent
-/// 新建 / 新 add 文件、staged 用户文件、动用户未跟踪文件）。
+/// 后验状态面对比（纯函数）
 pub(crate) fn verify_resolution(
     baseline: &WorktreeSnapshot,
     after: &WorktreeSnapshot,
     conflicts: &[String],
 ) -> Result<(), String> {
-    // ① MERGE_HEAD 在场性（merge 态判别——agent 违约收口 / 中止的捕获面）
-    if after.merge_head.is_none() {
+    // ① REBASE_HEAD 在场性（rebase 半程判别——agent 违约收口 / 中止的捕获面）
+    if after.rebase_head.is_none() {
+        let baseline_head = &baseline.head;
         return Err(format!(
-            "{LEAN_MERGE_CLOSED}——MERGE_HEAD 缺席，可 git reset --hard {} 回退半截态后重试",
-            baseline.head
+            "{LEAN_REBASE_CLOSED}——REBASE_HEAD 缺席（rebase 已被收口或中止），\
+             请手动核验 worktree git 状态（基线 HEAD {baseline_head}）后重试"
         ));
     }
     let conflict_set: std::collections::HashSet<&str> =

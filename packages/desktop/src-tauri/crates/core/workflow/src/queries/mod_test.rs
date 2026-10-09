@@ -237,12 +237,13 @@ fn worktree回退命中_source为active且dir在worktree内() {
     );
 }
 
-/// 优先级链：主仓 active 精确 / archive 精确 / archive 日期前缀三态各自在
-/// 场时 worktree 回退不参与（仅第四级）；三级全 miss 才落 worktree（四态一
-/// 行覆盖优先序）。
+/// 优先级链：worktree 记录在场且目录命中 → 优先返回（双树共存时在途编辑
+/// 胜）；miss 后落主仓 active 精确 / archive 精确 / archive 日期前缀链；主仓
+/// 链亦 miss 时 worktree 目录仍可独立命中（merge 前形态）；`worktree=None`
+/// 不短路（legacy / 文档形态主仓链照常可达——五态一行覆盖优先序）。
 #[test]
-fn 优先级链_主仓三级在场时worktree回退不参与_全miss才落() {
-    // 态一：主仓 active 精确在场 → 命中主仓（非 worktree）
+fn 优先级链_worktree优先主仓链兜底_none不短路() {
+    // 态一：worktree 目录在场 → 命中 worktree（双树共存时在途编辑胜过主仓副本）
     let ws = TempWs::new("prio-active");
     let wt = TempWorktree::new("prio-active-wt");
     ws.mkdir("openspec/changes/foo");
@@ -250,41 +251,51 @@ fn 优先级链_主仓三级在场时worktree回退不参与_全miss才落() {
     let location = wt.locate(&ws, "foo").expect("应命中");
     assert_eq!(
         location.dir,
-        resolve(&ws.0).changes_root.join("foo"),
-        "active 精确优先"
+        resolve(&wt.0).changes_root.join("foo"),
+        "worktree 在场命中优先（主仓 active 精确名退居其次）"
     );
 
-    // 态二：archive 精确在场 → 命中 archive（非 worktree）
+    // 态二：worktree 目录 miss → 落主仓 active 精确名
     let ws = TempWs::new("prio-archive");
     let wt = TempWorktree::new("prio-archive-wt");
     ws.mkdir("openspec/changes/archive/foo");
-    wt.mkdir("openspec/changes/foo");
+    wt.mkdir("openspec/changes/foo2"); // worktree 只命中 foo2，foo 走主仓链
     let location = wt.locate(&ws, "foo").expect("应命中");
-    assert_eq!(location.source, ChangeSource::Archive, "archive 精确次之");
+    assert_eq!(location.source, ChangeSource::Archive, "worktree miss 落主仓 archive 精确名");
 
-    // 态三：archive 日期前缀在场 → 命中前缀目录（非 worktree）
+    // 态三：worktree miss + 主仓 archive 日期前缀在场 → 命中前缀目录
     let ws = TempWs::new("prio-prefix");
     let wt = TempWorktree::new("prio-prefix-wt");
     ws.mkdir("openspec/changes/archive/2026-10-06-foo");
-    wt.mkdir("openspec/changes/foo");
+    wt.mkdir("openspec/changes/foo2");
     let location = wt.locate(&ws, "foo").expect("应命中");
-    assert_eq!(location.source, ChangeSource::Archive, "日期前缀第三级");
+    assert_eq!(location.source, ChangeSource::Archive, "日期前缀为第四级");
     assert_eq!(
         location.dir,
         resolve(&ws.0).archive_root.join("2026-10-06-foo")
     );
 
-    // 态四：主仓三级全 miss → 落 worktree 回退（第四级）
+    // 态四：主仓链全空、worktree 目录独立在场 → worktree 命中（merge 前形态）
     let ws = TempWs::new("prio-fallback");
     let wt = TempWorktree::new("prio-fallback-wt");
     wt.mkdir("openspec/changes/foo2");
-    let location = wt.locate(&ws, "foo2").expect("全 miss 落 worktree");
+    let location = wt.locate(&ws, "foo2").expect("worktree 独立命中");
     assert_eq!(
         location.source,
         ChangeSource::Active,
-        "worktree 回退为第四级"
+        "主仓空时 worktree 命中"
     );
     assert_eq!(location.dir, resolve(&wt.0).changes_root.join("foo2"));
+
+    // 态五：worktree=None → 不短路，直接走主仓链（legacy / 文档形态面）
+    let ws = TempWs::new("prio-none");
+    ws.mkdir("openspec/changes/foo");
+    let location = ws.locate("foo").expect("None 不短路，主仓 active 命中");
+    assert_eq!(
+        location.dir,
+        resolve(&ws.0).changes_root.join("foo"),
+        "worktree 缺席时主仓链照常可达"
+    );
 }
 
 /// worktree 缺席：`worktree=Some` 但该目录被删（回退 miss）→ `None`（手动

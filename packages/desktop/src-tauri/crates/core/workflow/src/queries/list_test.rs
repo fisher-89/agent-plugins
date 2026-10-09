@@ -309,9 +309,8 @@ fn 文档形态_存量cli目录照常入列无状态面() {
 // 正向：按月分组（db 取 archived_at / 磁盘回退目录前缀）
 // ---------------------------------------------------------------------------
 
-/// db 归档条目按 archived_at 月份分组；磁盘 archive 条目按目录日期前缀分组
-///（实现现状：前缀全日期为组键，与 db 侧 [..7] 月粒度不一致——discrepancy
-/// 见变更报告）；组间新组在前。
+/// db 归档条目按 archived_at 月份分组；磁盘 archive 条目按目录日期前缀截月
+/// 分组（两侧同 `YYYY-MM` 粒度）；组间新组在前。
 #[test]
 fn 按月分组_db取archived_at_磁盘回退目录前缀() {
     let env = Env::new("month-groups");
@@ -341,8 +340,8 @@ fn 按月分组_db取archived_at_磁盘回退目录前缀() {
         .collect();
     assert_eq!(
         months,
-        vec![Some("2026-09-15"), Some("2026-05"), Some("2026-01")],
-        "组间新组在前（磁盘组键 = 前缀全日期，db 组键 = archived_at 月）"
+        vec![Some("2026-09"), Some("2026-05"), Some("2026-01")],
+        "组间新组在前（两侧组键同为截月粒度）"
     );
 
     // db 归档条目：按 archived_at 分组、无目录 → 条目名 = 建档名
@@ -352,7 +351,7 @@ fn 按月分组_db取archived_at_磁盘回退目录前缀() {
     assert_eq!(may.changes[0].status, Some(ChangeStatus::Archived));
     assert_eq!(may.changes[0].source, super::ChangeSource::Archive);
 
-    // 磁盘 archive 条目：按目录前缀分组、name 语义 = 磁盘目录名
+    // 磁盘 archive 条目：按目录前缀截月分组、name 语义 = 磁盘目录名
     let september = &list.archive_groups[0];
     assert_eq!(september.changes[0].name, "2026-09-15-disk-archived");
     assert_eq!(september.changes[0].status, None);
@@ -363,10 +362,9 @@ fn 按月分组_db取archived_at_磁盘回退目录前缀() {
     );
 }
 
-/// 磁盘归档组内新名在前（同月多条磁盘目录倒序——既有断言持衡迁移至前缀
-/// 组粒度的实现现状）。
+/// 磁盘归档组内新名在前（同月多条磁盘目录倒序——跨日 / 同日两形态）。
 #[test]
-fn 磁盘归档组_同前缀月内新名在前() {
+fn 磁盘归档组_同月内新名在前() {
     let env = Env::new("within-group");
     env.change("openspec/changes/archive/2026-01-02-a", &[]);
     env.change("openspec/changes/archive/2026-01-15-b", &[]);
@@ -381,10 +379,22 @@ fn 磁盘归档组_同前缀月内新名在前() {
         .collect();
     assert_eq!(
         months,
-        vec![Some("2026-03-05"), Some("2026-01-15"), Some("2026-01-02")],
-        "实现现状：磁盘条目按前缀全日期成组"
+        vec![Some("2026-03"), Some("2026-01")],
+        "磁盘条目按前缀截月成组（同月目录并入同组）"
     );
-    // 同前缀（同组）内多条时组内新名在前：补同日两条验证
+    // 同月（同组）内多条时组内新名在前（目录名倒序——跨日形态）
+    let january = &list.archive_groups[1];
+    let names: Vec<&str> = january
+        .changes
+        .iter()
+        .map(|entry| entry.name.as_str())
+        .collect();
+    assert_eq!(
+        names,
+        vec!["2026-01-15-b", "2026-01-02-a"],
+        "组内按目录名倒序（跨日）"
+    );
+    // 同日两条并列仍倒序
     let env2 = Env::new("within-group-same-day");
     env2.change("openspec/changes/archive/2026-01-02-a", &[]);
     env2.change("openspec/changes/archive/2026-01-02-z", &[]);
@@ -398,7 +408,7 @@ fn 磁盘归档组_同前缀月内新名在前() {
     assert_eq!(
         names,
         vec!["2026-01-02-z", "2026-01-02-a"],
-        "组内按目录名倒序"
+        "组内按目录名倒序（同日）"
     );
 }
 
@@ -482,8 +492,8 @@ fn 无日期前缀入未知时间组置尾_空输入零组() {
     assert_eq!(list.archive_groups.len(), 2);
     assert_eq!(
         list.archive_groups[0].month.as_deref(),
-        Some("2026-04-01"),
-        "磁盘条目组键 = 目录前缀全日期（实现现状）"
+        Some("2026-04"),
+        "磁盘条目组键 = 目录前缀截月"
     );
     let unknown = &list.archive_groups[1];
     assert_eq!(unknown.month, None, "无前缀 → 未知时间组");

@@ -476,7 +476,10 @@ export type ArchiveStage =
 "preflight" | 
 /**  worktree 全域提交（worktree 记录在场才执行；干净探测唯一跳过依据） */
 "commit" | 
-/**  主仓合入（branch `change/<name>` → 主仓当前分支；冲突解 agent 分支内嵌） */
+/**
+ *  主仓合入（worktree 内 rebase 重放 branch `change/<name>` 至主仓当前分
+ *  支 → 主仓 ff-only 快进；冲突解 agent 分支内嵌，冲突态囚于 worktree）
+ */
 "merge" | 
 /**  delta specs 同步 agent 会话（缺席 / 用户跳过则 skipped） */
 "specSync" | 

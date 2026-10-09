@@ -344,7 +344,7 @@ describe('ArchivePanel：Merge 段单行呈现与 lean 咨询面', () => {
   it('lean 咨询面：Finished error = lean 串（原因词 + 冲突摘要 + abort 告知 + 手动裁决引导 + 重试说明）→ archive-error 完整呈现', () => {
     const leanError = [
       '合入冲突无法自动裁决（agent 会话失败）。冲突文件 1 个：src/a.txt',
-      '已执行 git merge --abort 恢复主仓干净态。请手动将分支 change/archive-demo 合入主仓并解冲突后重试归档——重试将识别已合入并续走收口。',
+      '已执行 git rebase --abort 恢复 worktree 干净态。请手动将分支 change/archive-demo 合入主仓（在 worktree 内自行 rebase 解冲突，或主仓手动 merge）后重试归档——重试将识别已合入并续走收口。',
     ].join('\n');
     const { archive } = archiveHarness(flowState({ finished: true, error: leanError }));
     renderPanel(archive);
@@ -449,7 +449,7 @@ describe('ArchivePanel：结果摘要三态', () => {
 describe('ArchivePanel：错误面', () => {
   it('Finished error → archive-error 呈现错误串（merge 冲突 git 语境 / agent 失败语境两 fixture）', () => {
     for (const error of [
-      'git merge 失败（退出码 1）: CONFLICT…；归档合入失败：请手动处置冲突后重试归档',
+      'git rebase 失败（退出码 1）: CONFLICT…；归档合入失败（分支重放至 main 冲突或 worktree 状态不允许），已尽力执行 git rebase --abort 收口：请手动处置冲突（在 worktree 内自行 rebase 解冲突或调整 worktree 状态）后重试归档',
       'spec 同步会话失败收敛（delta specs 未同步，链停同步段）',
     ]) {
       const { archive } = archiveHarness(flowState({ finished: true, error }));

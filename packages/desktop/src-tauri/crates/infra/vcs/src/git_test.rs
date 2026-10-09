@@ -25,8 +25,9 @@ fn git(root: &Path, args: &[&str]) -> String {
     String::from_utf8_lossy(&output.stdout).into_owned()
 }
 
-/// 建一个真实 git 仓（单提交 `a.txt` 在案；commit 身份经 -c 注入，不依赖全
-/// 局 gitconfig）。返回仓根（tempfile RAII 随 `repo_dir` 存活）。
+/// 建一个真实 git 仓（单提交 `a.txt` 在案；commit 身份经仓本地 config 注入
+/// ——rebase 重放会铸新提交，仅靠 -c 逐条注入不够；不依赖全局 gitconfig）。
+/// 返回仓根（tempfile RAII 随 `repo_dir` 存活）。
 fn init_repo(tag: &str) -> (tempfile::TempDir, PathBuf) {
     let dir = tempfile::Builder::new()
         .prefix(&format!("vcs-git-test-{tag}-"))
@@ -34,6 +35,8 @@ fn init_repo(tag: &str) -> (tempfile::TempDir, PathBuf) {
         .expect("创建仓临时目录失败");
     let root = dir.path().to_path_buf();
     git(&root, &["init", "-q"]);
+    git(&root, &["config", "user.name", "fixture"]);
+    git(&root, &["config", "user.email", "fixture@example.com"]);
     fs_write(&root, "a.txt", "initial\n");
     git(&root, &["add", "a.txt"]);
     git(
@@ -362,7 +365,7 @@ fn 补偿序组合_add后remove加delete全链主仓回初态() {
 // ---------------------------------------------------------------------------
 
 use crate::ProcessArchiveVcs;
-use orchestration::port::MergeOutcome;
+use orchestration::port::RebaseOutcome;
 use orchestration::ArchiveVcsPort;
 
 /// 被测执行器（无状态；构造锚 + 各归档族用例共用入口）。
@@ -548,37 +551,39 @@ fn branch_merged三态_未合入false合入true缺分支err() {
     );
 }
 
-/// merge ff 成功不吞 staged：主仓居基线、分支领先（ff 形态）+ 预置无关 staged
-/// 条目与无关 untracked → merge Ok 且 HEAD = 分支 tip；staged 条目合入后原样
-/// staged、untracked 原样（AC-4 / D9① 机械断言：porcelain 前后对照）。
 #[test]
-fn merge_ff成功_无关staged与untracked原样保留() {
+fn rebase重放主仓ff_无关staged与untracked原样保留且零merge_commit() {
     let _guard = lock_path();
     let vcs = archive_vcs();
-    let (_dir, root) = init_repo("arch-merge-ff");
-    let (_wt_dir, wt) = worktree_slot("arch-merge-ff");
+    let (_dir, root) = init_repo("arch-rebase-ff");
+    let (_wt_dir, wt) = worktree_slot("arch-rebase-ff");
     git::add_worktree(&root, &wt, "change/ff").expect("建域应成功");
     fs_write(&wt, "feat.txt", "分支新增\n");
     git(&wt, &["add", "-A"]);
     commit_all_fixture(&wt, "feat");
+    let branch_tip = git(&wt, &["rev-parse", "HEAD"]).trim().to_owned();
 
     // 无关 staged + 无关 untracked（主仓侧预置）
     fs_write(&root, "other.txt", "无关 staged\n");
     git(&root, &["add", "other.txt"]);
     fs_write(&root, "untracked.txt", "无关 untracked\n");
     let status_before = git(&root, &["status", "--porcelain"]);
+    let onto = git(&root, &["branch", "--show-current"])
+        .trim()
+        .to_owned();
 
-    let outcome = vcs.merge_branch(&root, "change/ff").expect("ff 合入应成功");
-    assert_eq!(
-        outcome,
-        MergeOutcome::Merged,
-        "ff 形态 → Ok(Merged)（返回型改设——断言面持衡）"
-    );
+    let outcome = vcs
+        .rebase_branch(&wt, &onto)
+        .expect("主仓未前进形态重放应成功");
+    assert_eq!(outcome, RebaseOutcome::Rebased, "重放完成 → Rebased");
+    vcs.ff_merge(&root, "change/ff").expect("主仓快进应成功");
 
+    assert_eq!(head_sha(&root), branch_tip, "快进后主仓 HEAD = 分支 tip");
+    let parents = git(&root, &["rev-list", "--parents", "-n", "1", "HEAD"]);
     assert_eq!(
-        head_sha(&root),
-        git(&wt, &["rev-parse", "HEAD"]).trim(),
-        "ff 合入后主仓 HEAD = 分支 tip"
+        parents.split_whitespace().count() - 1,
+        1,
+        "HEAD 单亲（零 merge commit——线性合入锚）"
     );
     let status_after = git(&root, &["status", "--porcelain"]);
     assert_eq!(
@@ -592,105 +597,122 @@ fn merge_ff成功_无关staged与untracked原样保留() {
     assert!(status_after.contains("?? untracked.txt"), "untracked 原样");
 }
 
-/// merge non-ff 拒绝：主仓已前进 + 分支前进（merge commit 形态）+ 无关 staged
-/// → Err 含 git 语境（"local changes … would be overwritten" 类）；仓未落半截
-/// merge 态；staged 原样保留（D9①——「主仓 git 状态不允许时显式 Err」实例面）。
 #[test]
-fn merge_nonff拒绝_主仓状态不允许显式err且零半截态() {
+fn rebase主仓前进_重放后ff线性合入零merge_commit() {
     let _guard = lock_path();
     let vcs = archive_vcs();
-    let (_dir, root) = init_repo("arch-merge-nonff");
-    let (_wt_dir, wt) = worktree_slot("arch-merge-nonff");
+    let (_dir, root) = init_repo("arch-rebase-diverged");
+    let (_wt_dir, wt) = worktree_slot("arch-rebase-diverged");
     git::add_worktree(&root, &wt, "change/diverged").expect("建域应成功");
 
     // 分支前进（worktree 侧提交）
     fs_write(&wt, "feat.txt", "分支提交\n");
     git(&wt, &["add", "-A"]);
     commit_all_fixture(&wt, "feat");
-    // 主仓前进（merge commit 形态的前提）
+    let branch_before = git(&wt, &["rev-parse", "HEAD"]).trim().to_owned();
+    // 主仓前进（旧 non-ff 前提；index 保持干净）
     fs_write(&root, "main-line.txt", "主仓前进\n");
     git(&root, &["add", "-A"]);
     commit_all_fixture(&root, "main");
-    // 无关 staged
-    fs_write(&root, "other.txt", "无关 staged\n");
-    git(&root, &["add", "other.txt"]);
-    let status_before = git(&root, &["status", "--porcelain"]);
+    let main_tip = head_sha(&root);
+    let onto = git(&root, &["branch", "--show-current"])
+        .trim()
+        .to_owned();
+
+    let outcome = vcs.rebase_branch(&wt, &onto).expect("异文件重放应成功");
+    assert_eq!(outcome, RebaseOutcome::Rebased, "重放完成");
+    let branch_after = git(&wt, &["rev-parse", "HEAD"]).trim().to_owned();
+    assert_ne!(
+        branch_after, branch_before,
+        "分支提交被重放改写（新 sha——change 私有分支面）"
+    );
+    vcs.ff_merge(&root, "change/diverged").expect("快进应成功");
+
+    // 线性形态：HEAD 单亲、HEAD = 分支重放 tip、其单亲 = 主仓前进 tip
+    assert_eq!(head_sha(&root), branch_after, "主仓 HEAD = 分支重放 tip");
+    let parents = git(&root, &["rev-list", "--parents", "-n", "1", "HEAD"]);
+    let fields: Vec<&str> = parents.split_whitespace().collect();
+    assert_eq!(fields.len(), 2, "单亲线性（零 merge commit）");
+    assert_eq!(fields[1], main_tip, "分支重放提交立于主仓前进 tip 之上");
+    assert!(
+        !root.join(".git/MERGE_HEAD").exists(),
+        "主仓零 merge 残态"
+    );
+}
+
+#[test]
+fn rebase非冲突失败_显式err引导且worktree零破坏() {
+    let _guard = lock_path();
+    let vcs = archive_vcs();
+    let (_dir, root) = init_repo("arch-rebase-refused");
+    let (_wt_dir, wt) = worktree_slot("arch-rebase-refused");
+    git::add_worktree(&root, &wt, "change/dirty").expect("建域应成功");
+    fs_write(&root, "main-line.txt", "主仓前进\n");
+    git(&root, &["add", "-A"]);
+    commit_all_fixture(&root, "main");
+    let onto = git(&root, &["branch", "--show-current"])
+        .trim()
+        .to_owned();
+    fs_write(&wt, "a.txt", "未提交改动\n"); // 已跟踪文件未 staged 修改
 
     let error = vcs
-        .merge_branch(&root, "change/diverged")
-        .expect_err("non-ff + staged 应显式 Err");
+        .rebase_branch(&wt, &onto)
+        .expect_err("worktree 脏应显式 Err");
 
     assert!(
-        error.contains("归档合入失败") && error.contains("git merge"),
-        "Err 带归档合入引导与 git 语境: {error}"
-    );
-    assert!(
-        !root.join(".git/MERGE_HEAD").exists(),
-        "仓未落半截 merge 态（尽力 abort 已收口）"
+        error.contains("归档合入失败") && error.contains("git rebase --abort"),
+        "Err 带 rebase 语境与 abort 收口引导: {error}"
     );
     assert_eq!(
-        git(&root, &["status", "--porcelain"]),
-        status_before,
-        "staged 原样保留（零吞并）"
+        std::fs::read_to_string(wt.join("a.txt")).expect("读文件失败"),
+        "未提交改动\n",
+        "worktree 未提交改动零破坏"
     );
 }
 
-/// merge non-ff 成功（merge commit 形态）：主仓前进 + 分支前进（异文件互不
-/// 冲突、index 干净——staged 在场时 merge 被拒，见上行）→ `Ok(Merged)` 且
-/// HEAD 为双亲 merge commit、MERGE_HEAD 零残态（返回型改设的 non-ff 半边）。
 #[test]
-fn merge_nonff成功_merge_commit形态ok_merged且零残态() {
+fn rebase空提交丢弃_内容已在主仓幂等吸收() {
     let _guard = lock_path();
     let vcs = archive_vcs();
-    let (_dir, root) = init_repo("arch-merge-nonff-ok");
-    let (_wt_dir, wt) = worktree_slot("arch-merge-nonff-ok");
-    git::add_worktree(&root, &wt, "change/diverged-ok").expect("建域应成功");
+    let (_dir, root) = init_repo("arch-rebase-empty");
+    let (_wt_dir, wt) = worktree_slot("arch-rebase-empty");
+    git::add_worktree(&root, &wt, "change/empty").expect("建域应成功");
 
-    // 分支前进（worktree 侧提交）
-    fs_write(&wt, "feat.txt", "分支提交\n");
+    // 分支提交与主仓提交内容一致（重放变空）
+    fs_write(&wt, "feat.txt", "同一内容\n");
     git(&wt, &["add", "-A"]);
     commit_all_fixture(&wt, "feat");
-    // 主仓前进（merge commit 形态的前提；index 保持干净）
-    fs_write(&root, "main-line.txt", "主仓前进\n");
+    fs_write(&root, "feat.txt", "同一内容\n");
     git(&root, &["add", "-A"]);
-    commit_all_fixture(&root, "main");
+    commit_all_fixture(&root, "same feat");
+    let onto = git(&root, &["branch", "--show-current"])
+        .trim()
+        .to_owned();
 
-    let outcome = vcs
-        .merge_branch(&root, "change/diverged-ok")
-        .expect("non-ff 干净 index 应成功");
-
+    let outcome = vcs.rebase_branch(&wt, &onto).expect("空重放应成功（丢弃）");
+    assert_eq!(outcome, RebaseOutcome::Rebased, "空提交丢弃 → Rebased");
     assert_eq!(
-        outcome,
-        MergeOutcome::Merged,
-        "merge commit 形态 → Ok(Merged)"
-    );
-    let parents = git(&root, &["rev-list", "--parents", "-n", "1", "HEAD"]);
-    assert_eq!(
-        parents.split_whitespace().count() - 1,
-        2,
-        "HEAD 为双亲 merge commit（non-ff 形态锚）"
+        git(&wt, &["rev-parse", "HEAD"]).trim(),
+        head_sha(&root),
+        "空提交丢弃 → 分支 tip = 主仓 tip"
     );
     assert!(
-        !root.join(".git/MERGE_HEAD").exists(),
-        "非冲突合入零 merge 残态"
+        vcs.branch_merged(&root, "change/empty").expect("判定应 Ok"),
+        "已合入判定幂等吸收"
     );
+    vcs.ff_merge(&root, "change/empty").expect("Already up to date 亦 Ok");
 }
 
-/// merge 冲突态保留与清单读取（archive-merge-first D3）：主仓与分支改同一批
-/// 文件（含非 ASCII 路径）→ `MergeOutcome::Conflicted`（`-z` 归一清单精确、
-/// CJK 裸路径零引号零转义——R6 读取面锚；零 abort——冲突态保留，裁决归解冲
-/// 突 agent / lean 收口）；UU 态与 MERGE_HEAD 在场、冲突标记未裁决（机械断
-/// 言：`--diff-filter=U` 清单与 porcelain 双面对拍）。
 #[test]
-fn merge冲突_冲突态保留且清单返回() {
+fn rebase冲突_冲突态保留在worktree且清单返回() {
     let _guard = lock_path();
     let vcs = archive_vcs();
-    let (_dir, root) = init_repo("arch-merge-conflict");
+    let (_dir, root) = init_repo("arch-rebase-conflict");
     // CJK 文件种入基线提交（双侧同为修改 → UU 形态；`-z` 清单照常裸出）
     fs_write(&root, "中文说明.md", "基线\n");
     git(&root, &["add", "中文说明.md"]);
     commit_all_fixture(&root, "seed cjk");
-    let (_wt_dir, wt) = worktree_slot("arch-merge-conflict");
+    let (_wt_dir, wt) = worktree_slot("arch-rebase-conflict");
     git::add_worktree(&root, &wt, "change/conflict").expect("建域应成功");
 
     // 双方改同一批文件：a.txt（ASCII）+ 中文说明.md（CJK 文件名——R6 形态）
@@ -702,13 +724,16 @@ fn merge冲突_冲突态保留且清单返回() {
     fs_write(&root, "中文说明.md", "主仓版本\n");
     git(&root, &["add", "-A"]);
     commit_all_fixture(&root, "main edit");
+    let onto = git(&root, &["branch", "--show-current"])
+        .trim()
+        .to_owned();
 
     let outcome = vcs
-        .merge_branch(&root, "change/conflict")
+        .rebase_branch(&wt, &onto)
         .expect("冲突应为 Ok(Conflicted)——冲突态保留不 abort");
 
     let files = match outcome {
-        MergeOutcome::Conflicted(files) => files,
+        RebaseOutcome::Conflicted(files) => files,
         other => panic!("冲突应 Conflicted，实际: {other:?}"),
     };
     assert_eq!(
@@ -723,30 +748,28 @@ fn merge冲突_冲突态保留且清单返回() {
     // 展示面用 quotepath 关闭口径（产品读取面为 `status --porcelain -z`——
     // 裸形态已由上方 Conflicted 清单断言锚定；此处只锚 UU 双路径在场）
     let status = git(
-        &root,
+        &wt,
         &["-c", "core.quotepath=false", "status", "--porcelain"],
     );
     assert!(
         status.contains("UU a.txt") && status.contains("UU 中文说明.md"),
-        "冲突态保留（UU 双路径在场）: {status}"
+        "冲突态保留在 worktree（UU 双路径在场）: {status}"
     );
     assert!(
-        root.join(".git/MERGE_HEAD").exists(),
-        "MERGE_HEAD 在场（零自动 abort——D3 收口归调用方）"
-    );
-    let content = std::fs::read_to_string(root.join("a.txt")).expect("读文件失败");
-    assert!(
-        content.contains("<<<<<<<") && content.contains(">>>>>>>"),
+        std::fs::read_to_string(wt.join("a.txt"))
+            .expect("读文件失败")
+            .contains("<<<<<<<"),
         "冲突标记在场（未自动裁决）"
+    );
+    assert_eq!(
+        std::fs::read_to_string(root.join("a.txt")).expect("读文件失败"),
+        "主仓版本\n",
+        "主仓工作区零冲突态（冲突囚于 worktree——主仓红线结构性收窄）"
     );
 }
 
-/// worktree_snapshot 冲突态四字段（D4 快照四连）：冲突进行中 → head = merge
-/// 前 HEAD（merge 态不前移 HEAD——D4 注记）、merge_head = Some(分支 tip)、
-/// status 含 UU 条目、index 含冲突路径 stage 1/2/3 三方条目（逐字段与
-/// `ls-files -s` 原始输出对拍）。
 #[test]
-fn worktree_snapshot冲突态_四字段齐备且head不前移() {
+fn worktree_snapshot冲突态_rebase半程四字段齐备() {
     let _guard = lock_path();
     let vcs = archive_vcs();
     let (_dir, root) = init_repo("arch-snap-conflict");
@@ -756,27 +779,29 @@ fn worktree_snapshot冲突态_四字段齐备且head不前移() {
     fs_write(&wt, "a.txt", "分支版本\n");
     git(&wt, &["add", "-A"]);
     commit_all_fixture(&wt, "branch edit");
+    let branch_tip = git(&wt, &["rev-parse", "HEAD"]).trim().to_owned();
     fs_write(&root, "a.txt", "主仓版本\n");
     git(&root, &["add", "-A"]);
     commit_all_fixture(&root, "main edit");
-
-    let head_before = head_sha(&root);
-    let branch_tip = git(&root, &["rev-parse", "change/snap"]).trim().to_owned();
-    let outcome = vcs.merge_branch(&root, "change/snap").expect("冲突 Ok");
+    let main_tip = head_sha(&root);
+    let onto = git(&root, &["branch", "--show-current"])
+        .trim()
+        .to_owned();
+    let outcome = vcs.rebase_branch(&wt, &onto).expect("冲突 Ok");
     assert!(
-        matches!(outcome, MergeOutcome::Conflicted(_)),
+        matches!(outcome, RebaseOutcome::Conflicted(_)),
         "冲突态在场前提"
     );
 
-    let snapshot = vcs.worktree_snapshot(&root).expect("冲突态快照应 Ok");
+    let snapshot = vcs.worktree_snapshot(&wt).expect("冲突态快照应 Ok");
     assert_eq!(
-        snapshot.head, head_before,
-        "head = merge 前 HEAD（merge 态不前移——D4）"
+        snapshot.head, main_tip,
+        "head = onto tip（rebase 半程 HEAD——分支引用不前移）"
     );
     assert_eq!(
-        snapshot.merge_head.as_deref(),
+        snapshot.rebase_head.as_deref(),
         Some(branch_tip.as_str()),
-        "merge_head = Some(分支 tip sha)"
+        "rebase_head = Some(重放中提交 = 分支 tip sha)"
     );
     let entry = snapshot
         .status
@@ -792,7 +817,7 @@ fn worktree_snapshot冲突态_四字段齐备且head不前移() {
         .collect();
     assert_eq!(stages, vec![1, 2, 3], "索引三方条目 stage 1/2/3");
     // 逐字段对拍 `ls-files -s` 原始输出（mode / hash / stage）
-    let raw = git(&root, &["ls-files", "-s", "a.txt"]);
+    let raw = git(&wt, &["ls-files", "-s", "a.txt"]);
     assert!(!raw.trim().is_empty(), "原始索引输出在场");
     for line in raw.lines() {
         let mut fields = line.split_whitespace();
@@ -811,7 +836,7 @@ fn worktree_snapshot冲突态_四字段齐备且head不前移() {
     }
 }
 
-/// worktree_snapshot 解析形态族（`-z` 归一）：干净仓（merge_head=None / status
+/// worktree_snapshot 解析形态族（`-z` 归一）：干净仓（rebase_head=None / status
 /// 空 / index 全 stage-0）；混合态——untracked（XY "?","?"）、modified 未
 /// staged（XY " M"）、staged rename（R 码 + NUL 双段——新路径记录、原路径段
 /// 跳过）、CJK 路径裸形态（零引号——R6 对偶锚）逐条目断言解析像。
@@ -823,7 +848,7 @@ fn worktree_snapshot解析形态族_干净与混合态() {
 
     // 干净仓基线
     let clean = vcs.worktree_snapshot(&root).expect("干净仓快照应 Ok");
-    assert_eq!(clean.merge_head, None, "非 merge 态 → merge_head=None");
+    assert_eq!(clean.rebase_head, None, "非 rebase 态 → rebase_head=None");
     assert!(clean.status.is_empty(), "干净仓 status 空");
     assert!(
         !clean.index.is_empty() && clean.index.iter().all(|entry| entry.stage == 0),
@@ -885,16 +910,16 @@ fn worktree_snapshot解析形态族_干净与混合态() {
     );
 }
 
-/// commit_merge 默认信息收口（D6）：冲突解算（编辑移除标记 + `git add`）后
-/// `commit_merge` → Ok；MERGE_HEAD 消失、冲突态离场；`log -1 --format=%s` =
-/// git 默认 merge 信息（不分化）；无关 untracked / 未 staged 编辑前后保持
-///（吞并红线真件锚——`commit --no-edit` 只提交索引内既定内容）。
 #[test]
-fn commit_merge_默认信息收口_无关改动零吞并() {
+fn rebase_continue续走收口_信息沿用且无关改动零吞并() {
     let _guard = lock_path();
     let vcs = archive_vcs();
-    let (_dir, root) = init_repo("arch-commit-merge");
-    let (_wt_dir, wt) = worktree_slot("arch-commit-merge");
+    let (_dir, root) = init_repo("arch-continue");
+    // b.txt 种入基线（worktree 侧可用的已跟踪无关面）
+    fs_write(&root, "b.txt", "已跟踪基线\n");
+    git(&root, &["add", "b.txt"]);
+    commit_all_fixture(&root, "seed b");
+    let (_wt_dir, wt) = worktree_slot("arch-continue");
     git::add_worktree(&root, &wt, "change/resolve").expect("建域应成功");
 
     fs_write(&wt, "a.txt", "分支版本\n");
@@ -903,56 +928,144 @@ fn commit_merge_默认信息收口_无关改动零吞并() {
     fs_write(&root, "a.txt", "主仓版本\n");
     git(&root, &["add", "-A"]);
     commit_all_fixture(&root, "main edit");
-    fs_write(&root, "b.txt", "已跟踪基线\n");
-    git(&root, &["add", "b.txt"]);
-    commit_all_fixture(&root, "seed b");
+    let onto = git(&root, &["branch", "--show-current"])
+        .trim()
+        .to_owned();
 
-    let outcome = vcs.merge_branch(&root, "change/resolve").expect("冲突 Ok");
+    let outcome = vcs.rebase_branch(&wt, &onto).expect("冲突 Ok");
     assert!(
-        matches!(outcome, MergeOutcome::Conflicted(_)),
+        matches!(outcome, RebaseOutcome::Conflicted(_)),
         "冲突态在场前提"
     );
 
-    // 无关 untracked + 无关未 staged 编辑（收口提交不得吞并的面）
-    fs_write(&root, "untracked.txt", "无关 untracked\n");
-    fs_write(&root, "b.txt", "无关未 staged 编辑\n");
-    let unrelated_before = git(
-        &root,
-        &["status", "--porcelain", "--", "untracked.txt", "b.txt"],
-    );
+    // 无关 untracked（收口不得吞并的面）。无关 tracked 未 staged 编辑不在场——
+    // git 要求 continue 时 tracked 面干净（拒绝面另测），生产面由后验 ④「清
+    // 单外新改动」先行拦截，不可达。
+    fs_write(&wt, "untracked.txt", "无关 untracked\n");
+    let unrelated_before = git(&wt, &["status", "--porcelain", "--", "untracked.txt"]);
 
     // 冲突解算：编辑移除标记 + git add（解冲突 agent 裁决的机械对译）
-    fs_write(&root, "a.txt", "裁决结果\n");
-    git(&root, &["add", "a.txt"]);
+    fs_write(&wt, "a.txt", "裁决结果\n");
+    git(&wt, &["add", "a.txt"]);
 
-    vcs.commit_merge(&root).expect("收口提交应成功");
+    let outcome = vcs.rebase_continue(&wt).expect("续走应成功");
+    assert_eq!(outcome, RebaseOutcome::Rebased, "单提交分支一停即完成");
 
+    let snapshot = vcs.worktree_snapshot(&wt).expect("快照应 Ok");
     assert!(
-        !root.join(".git/MERGE_HEAD").exists(),
-        "MERGE_HEAD 消失（merge 态收口）"
+        snapshot.rebase_head.is_none(),
+        "REBASE_HEAD 消失（rebase 态收口）"
     );
-    let status = git(&root, &["status", "--porcelain"]);
+    let status = git(&wt, &["status", "--porcelain"]);
     assert!(!status.contains("UU"), "冲突态离场: {status}");
     assert_eq!(
-        git(&root, &["log", "-1", "--format=%s"]).trim(),
-        "Merge branch 'change/resolve'",
-        "git 默认 merge 信息（MERGE_MSG——D6 不分化）"
+        git(&wt, &["log", "-1", "--format=%s"]).trim(),
+        "branch edit",
+        "信息沿用原重放提交主题（不分化为 merge 信息）"
     );
     assert_eq!(
-        git(
-            &root,
-            &["status", "--porcelain", "--", "untracked.txt", "b.txt"]
-        ),
+        git(&wt, &["status", "--porcelain", "--", "untracked.txt"]),
         unrelated_before,
-        "无关 untracked / 未 staged 编辑前后保持（零吞并——R2 兜底锚）"
+        "无关 untracked 前后保持（零吞并）"
+    );
+    assert_eq!(
+        std::fs::read_to_string(wt.join("b.txt")).expect("读文件失败"),
+        "已跟踪基线\n",
+        "无关 tracked 文件内容零触碰"
+    );
+    vcs.ff_merge(&root, "change/resolve").expect("收尾快进应成功");
+    assert_eq!(
+        head_sha(&root),
+        git(&wt, &["rev-parse", "HEAD"]).trim(),
+        "主仓 HEAD = 分支重放 tip"
     );
 }
 
-/// abort_merge 收口与 Err 面（D10）：冲突态 abort → Ok（无 UU、无 MERGE_HEAD、
-/// 工作区内容回冲突前——零破坏）；非 merge 态再 abort → Err（git 语境——链
-/// 侧「尽力 + 附注」面的 Err 来源锚，D10⑧ 真件前提）。
 #[test]
-fn abort_merge_冲突态收口回冲突前_非merge态err() {
+fn rebase_continue拒绝面_无关未staged编辑err() {
+    let _guard = lock_path();
+    let vcs = archive_vcs();
+    let (_dir, root) = init_repo("arch-continue-refused");
+    let (_wt_dir, wt) = worktree_slot("arch-continue-refused");
+    git::add_worktree(&root, &wt, "change/refuse").expect("建域应成功");
+
+    fs_write(&wt, "a.txt", "分支版本\n");
+    git(&wt, &["add", "-A"]);
+    commit_all_fixture(&wt, "branch edit");
+    fs_write(&root, "a.txt", "主仓版本\n");
+    git(&root, &["add", "-A"]);
+    commit_all_fixture(&root, "main edit");
+    let onto = git(&root, &["branch", "--show-current"])
+        .trim()
+        .to_owned();
+    let outcome = vcs.rebase_branch(&wt, &onto).expect("冲突 Ok");
+    assert!(matches!(outcome, RebaseOutcome::Conflicted(_)));
+
+    fs_write(&wt, "a.txt", "裁决结果\n");
+    git(&wt, &["add", "a.txt"]);
+    fs_write(&wt, "b.txt", "无关未 staged 编辑\n"); // tracked 面不干净
+
+    let error = vcs.rebase_continue(&wt).expect_err("tracked 面脏应 Err");
+    assert!(
+        !error.is_empty() && !error.contains("git 不可用"),
+        "Err 为 git 语境（退出码面）: {error}"
+    );
+}
+
+/// rebase_continue 多停循环（多提交分支形态）：worktree 两笔提交各改同一文
+/// 件、主仓同改 → 首停 Conflicted → 解算后续走又停在第二笔 → 再解算续走 →
+/// Rebased（编排链循环解算的 port 半边锚）；收尾快进后主仓内容 = 末次裁决。
+#[test]
+fn rebase_continue多停_第二笔冲突新清单直至rebased() {
+    let _guard = lock_path();
+    let vcs = archive_vcs();
+    let (_dir, root) = init_repo("arch-continue-multi");
+    let (_wt_dir, wt) = worktree_slot("arch-continue-multi");
+    git::add_worktree(&root, &wt, "change/multi").expect("建域应成功");
+
+    // 分支两笔提交（先后改同一文件）
+    fs_write(&wt, "a.txt", "分支一\n");
+    git(&wt, &["add", "-A"]);
+    commit_all_fixture(&wt, "branch one");
+    fs_write(&wt, "a.txt", "分支二\n");
+    git(&wt, &["add", "-A"]);
+    commit_all_fixture(&wt, "branch two");
+    fs_write(&root, "a.txt", "主仓版本\n");
+    git(&root, &["add", "-A"]);
+    commit_all_fixture(&root, "main edit");
+    let onto = git(&root, &["branch", "--show-current"])
+        .trim()
+        .to_owned();
+
+    let outcome = vcs.rebase_branch(&wt, &onto).expect("首停应为冲突");
+    assert_eq!(
+        outcome,
+        RebaseOutcome::Conflicted(vec!["a.txt".to_owned()]),
+        "首停清单（第一笔）"
+    );
+    fs_write(&wt, "a.txt", "裁决一\n");
+    git(&wt, &["add", "a.txt"]);
+    let outcome = vcs.rebase_continue(&wt).expect("续走应 Ok（第二停或完成）");
+    assert_eq!(
+        outcome,
+        RebaseOutcome::Conflicted(vec!["a.txt".to_owned()]),
+        "续走又停在第二笔（新清单回炉）"
+    );
+    fs_write(&wt, "a.txt", "裁决二\n");
+    git(&wt, &["add", "a.txt"]);
+    let outcome = vcs.rebase_continue(&wt).expect("末次续走应成功");
+    assert_eq!(outcome, RebaseOutcome::Rebased, "两笔解完 → Rebased");
+
+    vcs.ff_merge(&root, "change/multi").expect("快进应成功");
+    assert_eq!(
+        std::fs::read_to_string(root.join("a.txt")).expect("读文件失败"),
+        "裁决二\n",
+        "主仓内容 = 末次裁决"
+    );
+}
+
+#[test]
+fn rebase_abort_冲突态收口回重放前_非rebase态err() {
     let _guard = lock_path();
     let vcs = archive_vcs();
     let (_dir, root) = init_repo("arch-abort");
@@ -962,28 +1075,39 @@ fn abort_merge_冲突态收口回冲突前_非merge态err() {
     fs_write(&wt, "a.txt", "分支版本\n");
     git(&wt, &["add", "-A"]);
     commit_all_fixture(&wt, "branch edit");
+    let tip_before = git(&wt, &["rev-parse", "HEAD"]).trim().to_owned();
     fs_write(&root, "a.txt", "主仓版本\n");
     git(&root, &["add", "-A"]);
     commit_all_fixture(&root, "main edit");
+    let onto = git(&root, &["branch", "--show-current"])
+        .trim()
+        .to_owned();
 
-    let outcome = vcs.merge_branch(&root, "change/abort").expect("冲突 Ok");
+    let outcome = vcs.rebase_branch(&wt, &onto).expect("冲突 Ok");
     assert!(
-        matches!(outcome, MergeOutcome::Conflicted(_)),
+        matches!(outcome, RebaseOutcome::Conflicted(_)),
         "冲突态在场前提"
     );
 
-    vcs.abort_merge(&root).expect("冲突态 abort 应成功");
+    vcs.rebase_abort(&wt).expect("冲突态 abort 应成功");
 
-    assert!(!root.join(".git/MERGE_HEAD").exists(), "MERGE_HEAD 清除");
-    let status = git(&root, &["status", "--porcelain"]);
+    let status = git(&wt, &["status", "--porcelain"]);
     assert!(!status.contains("UU"), "无 UU 残留: {status}");
-    let content = std::fs::read_to_string(root.join("a.txt")).expect("读文件失败");
-    assert_eq!(content, "主仓版本\n", "工作区内容回冲突前（零破坏）");
+    assert_eq!(
+        std::fs::read_to_string(wt.join("a.txt")).expect("读文件失败"),
+        "分支版本\n",
+        "worktree 内容回重放前（零破坏）"
+    );
+    assert_eq!(
+        git(&wt, &["rev-parse", "HEAD"]).trim(),
+        tip_before,
+        "分支引用回原 tip"
+    );
 
-    // 非 merge 态再 abort → Err（git 语境，非环境缺失——D10⑧ 附注面来源）
-    let error = vcs.abort_merge(&root).expect_err("非 merge 态应 Err");
+    // 非 rebase 态再 abort → Err（git 语境，非环境缺失——附注面来源）
+    let error = vcs.rebase_abort(&wt).expect_err("非 rebase 态应 Err");
     assert!(
-        error.contains("merge --abort") && !error.contains("git 不可用"),
+        error.contains("rebase --abort") && !error.contains("git 不可用"),
         "Err 为 git 语境失败: {error}"
     );
 }
@@ -1187,10 +1311,11 @@ fn commit_paths_三pathspec含specs子树_无关specs不吞并() {
     );
 }
 
-/// PATH 隔离 Err 面：git 不可发现（PATH 隔离窗口）→ 六方法（`merge_branch` /
-/// `commit_paths` / `branch_merged` + `worktree_snapshot` / `commit_merge` /
-/// `abort_merge`）各 Err 含「git 不可用」引导（`git()` 执行器既有面随族扩展
-/// ——archive-merge-first 三新方法同口径）；窗口经共享锁串行化、测毕恢复。
+/// PATH 隔离 Err 面：git 不可发现（PATH 隔离窗口）→ 六方法（`rebase_branch` /
+/// `ff_merge` / `commit_paths` / `branch_merged` + `worktree_snapshot` /
+/// `rebase_continue` / `rebase_abort`）各 Err 含「git 不可用」引导（`git()`
+/// 执行器既有面随族扩展——archive-rebase-merge 新方法同口径）；窗口经共享
+/// 锁串行化、测毕恢复。
 #[test]
 fn path隔离_err面_git不可用引导() {
     let _guard = lock_path();
@@ -1199,24 +1324,26 @@ fn path隔离_err面_git不可用引导() {
 
     let original = std::env::var_os("PATH");
     std::env::set_var("PATH", "");
-    let merge_error = vcs.merge_branch(&root, "change/x").map(|_| ());
+    let rebase_error = vcs.rebase_branch(&root, "main").map(|_| ());
+    let ff_error = vcs.ff_merge(&root, "change/x");
     let commit_error = vcs.commit_paths(&root, &["a"], "msg");
     let merged_error = vcs.branch_merged(&root, "change/x").map(|_| ());
     let snapshot_error = vcs.worktree_snapshot(&root).map(|_| ());
-    let commit_merge_error = vcs.commit_merge(&root);
-    let abort_error = vcs.abort_merge(&root);
+    let continue_error = vcs.rebase_continue(&root).map(|_| ());
+    let abort_error = vcs.rebase_abort(&root);
     match original {
         Some(value) => std::env::set_var("PATH", value),
         None => std::env::remove_var("PATH"),
     }
 
     for (label, error) in [
-        ("merge_branch", merge_error),
+        ("rebase_branch", rebase_error),
+        ("ff_merge", ff_error),
         ("commit_paths", commit_error),
         ("branch_merged", merged_error),
         ("worktree_snapshot", snapshot_error),
-        ("commit_merge", commit_merge_error),
-        ("abort_merge", abort_error),
+        ("rebase_continue", continue_error),
+        ("rebase_abort", abort_error),
     ] {
         let error = match error {
             Ok(_) => panic!("{label} 在 git 缺失下应 Err"),

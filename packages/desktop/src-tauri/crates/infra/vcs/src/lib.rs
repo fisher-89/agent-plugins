@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 
-use orchestration::port::{MergeOutcome, WorktreeSnapshot};
+use orchestration::port::{RebaseOutcome, WorktreeSnapshot};
 use orchestration::ArchiveVcsPort;
 use workflow::write::WorktreePort;
 
@@ -91,9 +91,10 @@ impl WorktreePort for ProcessWorktree {
 }
 
 /// git 归档工作面进程执行器（无状态，组合根按需构造——归档链命令组装配）。
-/// 方法族随 archive-merge-first 演进：`merge_branch` 冲突态保留（返回
-/// `MergeOutcome`，不自动 abort）、`worktree_snapshot` 后验快照、
-/// `commit_merge` 链代收口、`abort_merge` lean 收口——全部委托 git 子命令族。
+/// 方法族随 archive-rebase-merge 演进：`rebase_branch` worktree 内重放（冲突
+/// 态保留，返回 `RebaseOutcome`，不自动 abort）、`ff_merge` 主仓纯快进、
+/// `worktree_snapshot` 后验快照、`rebase_continue` 链代续走、`rebase_abort`
+/// lean 收口——全部委托 git 子命令族。
 pub struct ProcessArchiveVcs;
 
 impl ProcessArchiveVcs {
@@ -122,20 +123,24 @@ impl ArchiveVcsPort for ProcessArchiveVcs {
         git::branch_merged(main_root, branch)
     }
 
-    fn merge_branch(&self, main_root: &Path, branch: &str) -> Result<MergeOutcome, String> {
-        git::merge_branch(main_root, branch)
+    fn rebase_branch(&self, worktree: &Path, onto: &str) -> Result<RebaseOutcome, String> {
+        git::rebase_branch(worktree, onto)
     }
 
-    fn worktree_snapshot(&self, main_root: &Path) -> Result<WorktreeSnapshot, String> {
-        git::worktree_snapshot(main_root)
+    fn ff_merge(&self, main_root: &Path, branch: &str) -> Result<(), String> {
+        git::ff_merge(main_root, branch)
     }
 
-    fn commit_merge(&self, main_root: &Path) -> Result<(), String> {
-        git::commit_merge(main_root)
+    fn worktree_snapshot(&self, root: &Path) -> Result<WorktreeSnapshot, String> {
+        git::worktree_snapshot(root)
     }
 
-    fn abort_merge(&self, main_root: &Path) -> Result<(), String> {
-        git::abort_merge(main_root)
+    fn rebase_continue(&self, worktree: &Path) -> Result<RebaseOutcome, String> {
+        git::rebase_continue(worktree)
+    }
+
+    fn rebase_abort(&self, worktree: &Path) -> Result<(), String> {
+        git::rebase_abort(worktree)
     }
 
     fn current_branch(&self, main_root: &Path) -> Result<String, String> {

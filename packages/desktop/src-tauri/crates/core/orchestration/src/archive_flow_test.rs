@@ -28,7 +28,7 @@ use crate::archive_flow::{
     ArchiveStageState, ArchiveStageStatus, ArchiveSummary, ArchiveUpdate,
 };
 use crate::port::{
-    ArchiveVcsPort, BoxTurnFuture, IndexEntry, MergeOutcome, StatusEntry, WorkerAgentPort,
+    ArchiveVcsPort, BoxTurnFuture, IndexEntry, RebaseOutcome, StatusEntry, WorkerAgentPort,
     WorkerRole, WorkerTurnOutcome, WorkerTurnRequest, WorktreeSnapshot,
 };
 use workflow::model::{ChecklistItem, Verdict};
@@ -301,13 +301,7 @@ impl VcsCapture {
     }
 }
 
-/// [`ArchiveVcsPort`] 进程内假件：九方法可编程产出 + 全调用捕获（阶段机编排 /
-/// 幂等跳过 / 冲突分支 / lean 收敛 / pathspec 参 / preflight 聚合的断言锚）。
-/// `merge_arrives_from` 模拟 git merge 把 worktree change 目录带进主仓（seal
-/// 改名前的真实 fs 前提——假件不产生真实文件编辑，链内 fs 进度由此面承载）；
-/// `with_merge_conflicts` 冲突编程面（`Conflicted` 冲突态保留语义——D3）；
-/// `with_snapshots` 快照结果队列（A/B 两拍按调用序消费——后验对比基面）；收
-/// 口 / abort Err 注入（D6 收口失败 / D10⑧ abort 二次失败面）。
+/// [`ArchiveVcsPort`] 进程内假件
 struct FakeVcs {
     /// dirty 探测产出队列（按调用序消费；耗尽回落 `dirty_default`）
     dirty_results: Mutex<VecDeque<bool>>,
@@ -315,21 +309,23 @@ struct FakeVcs {
     /// 已合入旗（Commit / Merge 段与 Preflight worktree 缺失分支读取；重试用
     /// 例换新假件置位——模拟用户手动解冲突后合入）
     merged: AtomicBool,
-    /// merge 注入 Err（Some = 合入失败——冲突 / 状态不允许的 git 语境）
-    merge_error: Mutex<Option<String>>,
-    /// merge 冲突编程（Some = 该次合入返回 `Conflicted(list)`——冲突态保留，
-    /// 裁决归解冲突 agent / lean 收口）
-    merge_conflicts: Mutex<Option<Vec<String>>>,
-    /// merge 成功后主仓 change 目录到场源（模拟 merge 带入的 worktree 树）
-    merge_arrives_from: Mutex<Option<PathBuf>>,
+    /// rebase 注入 Err（Some = 重放失败——冲突 / 状态不允许的 git 语境）
+    rebase_error: Mutex<Option<String>>,
+    /// rebase 首停冲突编程（Some = 该次重放返回 `Conflicted(list)`——冲突态
+    /// 保留，裁决归解冲突 agent / lean 收口）
+    rebase_conflicts: Mutex<Option<Vec<String>>>,
+    /// rebase 续走再停冲突编程（多提交分支形态——第二拍 `Conflicted(next)`）
+    continue_conflicts: Mutex<Option<Vec<String>>>,
+    /// ff 快进后主仓 change 目录到场源（模拟快进带入的 worktree 树）
+    ff_arrives_from: Mutex<Option<PathBuf>>,
     /// worktree_snapshot 结果队列（`Ok(快照)` / `Err(语境)` 按调用序消费——
     /// A/B 两拍编程；耗尽回落占位快照）
     snapshot_results: Mutex<VecDeque<Result<WorktreeSnapshot, String>>>,
-    /// commit_merge 注入 Err（收口提交失败——链侧附人工收口引导）
-    commit_merge_error: Mutex<Option<String>>,
-    /// abort_merge 注入 Err（lean 收敛序的二次失败面——D10 不静默吞）
-    abort_merge_error: Mutex<Option<String>>,
-    /// current_branch 固定产出（preflight mergeTarget 面）
+    /// rebase_continue 注入 Err（续走失败——链侧附人工收口引导）
+    rebase_continue_error: Mutex<Option<String>>,
+    /// rebase_abort 注入 Err（lean 收敛序的二次失败面——不静默吞）
+    rebase_abort_error: Mutex<Option<String>>,
+    /// current_branch 固定产出（重放目标 / preflight mergeTarget 面）
     branch: Mutex<Result<String, String>>,
     calls: VcsCallLog,
     commit_all_calls: CommitAllLog,
@@ -343,12 +339,13 @@ impl FakeVcs {
             dirty_results: Mutex::new(VecDeque::new()),
             dirty_default: true,
             merged: AtomicBool::new(false),
-            merge_error: Mutex::new(None),
-            merge_conflicts: Mutex::new(None),
-            merge_arrives_from: Mutex::new(None),
+            rebase_error: Mutex::new(None),
+            rebase_conflicts: Mutex::new(None),
+            continue_conflicts: Mutex::new(None),
+            ff_arrives_from: Mutex::new(None),
             snapshot_results: Mutex::new(VecDeque::new()),
-            commit_merge_error: Mutex::new(None),
-            abort_merge_error: Mutex::new(None),
+            rebase_continue_error: Mutex::new(None),
+            rebase_abort_error: Mutex::new(None),
             branch: Mutex::new(Ok("main".to_owned())),
             calls: Arc::new(Mutex::new(Vec::new())),
             commit_all_calls: Arc::new(Mutex::new(Vec::new())),
@@ -370,14 +367,21 @@ impl FakeVcs {
         self
     }
 
-    fn with_merge_error(self, error: &str) -> Self {
-        *self.merge_error.lock().expect("merge 错误锁不可中毒") = Some(error.to_owned());
+    fn with_rebase_error(self, error: &str) -> Self {
+        *self.rebase_error.lock().expect("rebase 错误锁不可中毒") = Some(error.to_owned());
         self
     }
 
-    /// merge 冲突编程（该次合入返回 `Conflicted(list)`——D3 冲突态保留语义）。
-    fn with_merge_conflicts(self, conflicts: Vec<&str>) -> Self {
-        *self.merge_conflicts.lock().expect("merge 冲突锁不可中毒") =
+    /// rebase 首停冲突编程（该次重放返回 `Conflicted(list)`——冲突态保留语义）。
+    fn with_rebase_conflicts(self, conflicts: Vec<&str>) -> Self {
+        *self.rebase_conflicts.lock().expect("rebase 冲突锁不可中毒") =
+            Some(conflicts.into_iter().map(str::to_owned).collect());
+        self
+    }
+
+    /// rebase 续走再停冲突编程（多提交分支形态——第二拍新清单回炉）。
+    fn with_continue_conflicts(self, conflicts: Vec<&str>) -> Self {
+        *self.continue_conflicts.lock().expect("续走冲突锁不可中毒") =
             Some(conflicts.into_iter().map(str::to_owned).collect());
         self
     }
@@ -391,23 +395,26 @@ impl FakeVcs {
         self
     }
 
-    /// commit_merge Err 注入（收口提交失败面——D6 人工收口引导的触发前提）。
-    fn with_commit_merge_error(self, error: &str) -> Self {
-        *self.commit_merge_error.lock().expect("收口错误锁不可中毒") = Some(error.to_owned());
-        self
-    }
-
-    /// abort_merge Err 注入（lean 收敛序的二次失败——D10⑧ 附注面）。
-    fn with_abort_merge_error(self, error: &str) -> Self {
-        *self.abort_merge_error.lock().expect("abort 错误锁不可中毒") = Some(error.to_owned());
-        self
-    }
-
-    fn with_merge_arrives_from(self, dir: PathBuf) -> Self {
+    /// rebase_continue Err 注入（续走失败面——人工收口引导的触发前提）。
+    fn with_rebase_continue_error(self, error: &str) -> Self {
         *self
-            .merge_arrives_from
+            .rebase_continue_error
             .lock()
-            .expect("merge 到场锁不可中毒") = Some(dir);
+            .expect("续走错误锁不可中毒") = Some(error.to_owned());
+        self
+    }
+
+    /// rebase_abort Err 注入（lean 收敛序的二次失败——附注面）。
+    fn with_rebase_abort_error(self, error: &str) -> Self {
+        *self
+            .rebase_abort_error
+            .lock()
+            .expect("abort 错误锁不可中毒") = Some(error.to_owned());
+        self
+    }
+
+    fn with_ff_arrives_from(self, dir: PathBuf) -> Self {
+        *self.ff_arrives_from.lock().expect("ff 到场锁不可中毒") = Some(dir);
         self
     }
 
@@ -482,32 +489,42 @@ impl ArchiveVcsPort for FakeVcs {
         Ok(self.merged.load(Ordering::SeqCst))
     }
 
-    fn merge_branch(&self, main_root: &Path, branch: &str) -> Result<MergeOutcome, String> {
+    fn rebase_branch(&self, worktree: &Path, onto: &str) -> Result<RebaseOutcome, String> {
         self.calls
             .lock()
             .expect("调用序锁不可中毒")
-            .push("merge_branch".to_owned());
+            .push("rebase_branch".to_owned());
+        let _ = (worktree, onto);
         if let Some(error) = self
-            .merge_error
+            .rebase_error
             .lock()
-            .expect("merge 错误锁不可中毒")
+            .expect("rebase 错误锁不可中毒")
             .take()
         {
             return Err(error);
         }
         if let Some(conflicts) = self
-            .merge_conflicts
+            .rebase_conflicts
             .lock()
-            .expect("merge 冲突锁不可中毒")
+            .expect("rebase 冲突锁不可中毒")
             .take()
         {
             // 冲突态保留（不消费到场源——冲突时主仓树由真实 fs 夹具承载）
-            return Ok(MergeOutcome::Conflicted(conflicts));
+            return Ok(RebaseOutcome::Conflicted(conflicts));
         }
-        if let Some(source) = self
-            .merge_arrives_from
+        Ok(RebaseOutcome::Rebased)
+    }
+
+    fn ff_merge(&self, main_root: &Path, branch: &str) -> Result<(), String> {
+        self.calls
             .lock()
-            .expect("merge 到场锁不可中毒")
+            .expect("调用序锁不可中毒")
+            .push("ff_merge".to_owned());
+        let _ = branch;
+        if let Some(source) = self
+            .ff_arrives_from
+            .lock()
+            .expect("ff 到场锁不可中毒")
             .take()
         {
             let target = main_root
@@ -515,57 +532,65 @@ impl ArchiveVcsPort for FakeVcs {
                 .join(source.file_name().expect("到场源应含 change 目录名"));
             copy_dir(&source, &target);
         }
-        let _ = branch;
-        Ok(MergeOutcome::Merged)
+        Ok(())
     }
 
-    fn worktree_snapshot(&self, main_root: &Path) -> Result<WorktreeSnapshot, String> {
+    fn worktree_snapshot(&self, root: &Path) -> Result<WorktreeSnapshot, String> {
         self.calls
             .lock()
             .expect("调用序锁不可中毒")
             .push("worktree_snapshot".to_owned());
-        let _ = main_root;
+        let _ = root;
         self.snapshot_results
             .lock()
             .expect("快照队列锁不可中毒")
             .pop_front()
             .unwrap_or_else(|| {
-                // 占位快照（merge 态在案形态——未编程队列时的合成基面；冲突
+                // 占位快照（rebase 半程在案形态——未编程队列时的合成基面；冲突
                 // 编程面用例经 `with_snapshots` 注入 A/B 两拍）
                 Ok(WorktreeSnapshot {
                     head: "fake-head".to_owned(),
-                    merge_head: Some("fake-merge-head".to_owned()),
+                    rebase_head: Some("fake-rebase-head".to_owned()),
                     status: Vec::new(),
                     index: Vec::new(),
                 })
             })
     }
 
-    fn commit_merge(&self, main_root: &Path) -> Result<(), String> {
+    fn rebase_continue(&self, worktree: &Path) -> Result<RebaseOutcome, String> {
         self.calls
             .lock()
             .expect("调用序锁不可中毒")
-            .push("commit_merge".to_owned());
-        let _ = main_root;
-        match self
-            .commit_merge_error
+            .push("rebase_continue".to_owned());
+        let _ = worktree;
+        if let Some(error) = self
+            .rebase_continue_error
             .lock()
-            .expect("收口错误锁不可中毒")
+            .expect("续走错误锁不可中毒")
             .take()
         {
-            Some(error) => Err(error),
-            None => Ok(()),
+            return Err(error);
         }
+        if let Some(conflicts) = self
+            .continue_conflicts
+            .lock()
+            .expect("续走冲突锁不可中毒")
+            .take()
+        {
+            // 续走又停在下一个提交（多提交分支形态——新清单回炉）
+            return Ok(RebaseOutcome::Conflicted(conflicts));
+        }
+        Ok(RebaseOutcome::Rebased)
     }
 
-    fn abort_merge(&self, main_root: &Path) -> Result<(), String> {
+    fn rebase_abort(&self, worktree: &Path) -> Result<(), String> {
         self.calls
             .lock()
             .expect("调用序锁不可中毒")
-            .push("abort_merge".to_owned());
-        let _ = main_root;
+            .push("rebase_abort".to_owned());
+        let _ = worktree;
         match self
-            .abort_merge_error
+            .rebase_abort_error
             .lock()
             .expect("abort 错误锁不可中毒")
             .take()
@@ -943,7 +968,8 @@ fn terminal_of(stages: &[ArchiveStageState], stage: ArchiveStage) -> ArchiveStag
 /// 全链正向（worktree + delta specs）：六段终态依序全 passed（新执行序——
 /// commit、merge 前置于 specSync）；worker 恰一次（provenance / role /
 /// permission / cwd=主 workspace root——D8）；vcs 调用序恰 dirty(worktree) →
-/// commit_all → branch_merged → merge_branch → dirty(主仓 pathspec) →
+/// commit_all → branch_merged → current_branch → rebase_branch → ff_merge →
+/// dirty(主仓 pathspec) →
 /// commit_paths；seal 落盘 + store 翻转；Finished summary 四字段
 ///（specs=synced、warnings 空）。
 #[tokio::test]
@@ -953,7 +979,7 @@ async fn 全链正向_六段全passed且调用序与落盘面齐备() {
     env.seed_main_specs(&["spec-sync-a", "spec-sync-b"]); // 扩围子树到场（D9 fs 门）
     env.seed_all_pass();
     let (vcs, vcs_capture) = FakeVcs::new()
-        .with_merge_arrives_from(env.worktree_change_dir())
+        .with_ff_arrives_from(env.worktree_change_dir())
         .assemble();
     let (worker, requests) = FakeWorker::new().assemble();
 
@@ -1015,18 +1041,20 @@ async fn 全链正向_六段全passed且调用序与落盘面齐备() {
     assert_eq!(turn.prompt, spec_sync_prompt(CHANGE), "prompt 单点模板");
     drop(requests);
 
-    // vcs 调用序（编排断言锚：六调用恰序——提交段零 merged 查询，D2）
+    // vcs 调用序（编排断言锚：八调用恰序——提交段零 merged 查询，D2）
     assert_eq!(
         vcs_capture.calls(),
         vec![
             "dirty".to_owned(),
             "commit_all".to_owned(),
             "branch_merged".to_owned(),
-            "merge_branch".to_owned(),
+            "current_branch".to_owned(),
+            "rebase_branch".to_owned(),
+            "ff_merge".to_owned(),
             "dirty".to_owned(),
             "commit_paths".to_owned(),
         ],
-        "vcs 调用序：worktree 脏探 → 提交 → 合入判定 → 合入 → 落盘脏探 → pathspec 提交"
+        "vcs 调用序：worktree 脏探 → 提交 → 合入判定 → 目标探测 → 重放 → 快进 → 落盘脏探 → pathspec 提交"
     );
     // 调用参：worktree 提交信息（D10 固定前缀 + change 名）
     let commit_all = vcs_capture.commit_all_calls();
@@ -1122,7 +1150,7 @@ async fn 无delta_specs_同步段skipped且零agent会话() {
     let env = ChainEnv::worktree("no-delta");
     env.seed_all_pass();
     let (vcs, vcs_capture) = FakeVcs::new()
-        .with_merge_arrives_from(env.worktree_change_dir())
+        .with_ff_arrives_from(env.worktree_change_dir())
         .assemble();
     let (worker, requests) = FakeWorker::new().assemble();
 
@@ -1160,7 +1188,7 @@ async fn sync_specs_false_同步段skipped用户选择() {
     env.seed_specs(&["cap-a"]);
     env.seed_all_pass();
     let (vcs, _capture) = FakeVcs::new()
-        .with_merge_arrives_from(env.worktree_change_dir())
+        .with_ff_arrives_from(env.worktree_change_dir())
         .assemble();
     let (worker, requests) = FakeWorker::new().assemble();
 
@@ -1194,7 +1222,7 @@ async fn 干净worktree_提交段skipped且零commit_all() {
     env.seed_all_pass();
     let (vcs, vcs_capture) = FakeVcs::new()
         .with_dirty(vec![false]) // worktree 脏探 false（finalize 脏探回落 default true）
-        .with_merge_arrives_from(env.worktree_change_dir())
+        .with_ff_arrives_from(env.worktree_change_dir())
         .assemble();
     let (worker, _requests) = FakeWorker::new().assemble();
 
@@ -1224,7 +1252,7 @@ async fn 干净worktree_提交段skipped且零commit_all() {
 
 /// 已合入双跳过直达收口：worktree 干净 + branch_merged=true → Commit
 ///（detail「干净」——干净探测唯一跳过依据，D2）/ Merge（detail「已合入」）
-/// 双 skipped + `commit_all` / `merge_branch` 零调用 + 链径直 seal→finalize
+/// 双 skipped + `commit_all` / `rebase_branch` 零调用 + 链径直 seal→finalize
 /// 收口（手动 merge 等价路径——AC-2 scenario）。
 #[tokio::test]
 async fn 已合入_提交合入双skipped直达收口() {
@@ -1263,8 +1291,8 @@ async fn 已合入_提交合入双skipped直达收口() {
             && vcs_capture
                 .calls()
                 .iter()
-                .all(|call| call != "merge_branch"),
-        "commit_all / merge_branch 零调用"
+                .all(|call| call != "rebase_branch" && call != "ff_merge"),
+        "commit_all / rebase_branch 零调用"
     );
     assert_eq!(
         env.store.status(),
@@ -1369,9 +1397,9 @@ async fn 前置重校验拒绝两态_未建档与已归档() {
     assert_eq!(env.store.archived_calls(), 0, "零 store 写");
 }
 
-/// merge 非冲突失败停链与重试续走（AC-8 面维持）：`merge_branch` 注入 git
-/// 语境 Err（冲突清单空 = 非冲突失败）→ Merge failed + Finished error 含该
-/// 语境；seal 零执行；重试（用户手动解冲突后合入 → branch_merged=true +
+/// rebase 非冲突失败停链与重试续走（非冲突 Err 面维持）：`rebase_branch` 注
+/// 入 git 语境 Err（冲突清单空 = 非冲突失败）→ Merge failed + Finished error
+/// 含该语境；seal 零执行；重试（用户手动处置后合入 → branch_merged=true +
 /// 主仓目录到场 + worktree 已随首轮提交转净）→ Commit 干净跳过 / Merge 已
 /// 合入跳过、seal→finalize 收口，`commit_all` 零重复（干净跳过——D2）。
 #[tokio::test]
@@ -1380,9 +1408,9 @@ async fn merge冲突_合入段失败停链且重试续走() {
     env.seed_specs(&["cap-a"]);
     env.seed_all_pass();
 
-    // 第一轮：merge 注入冲突语境 → 停在 Merge 段
+    // 第一轮：rebase 注入冲突语境 → 停在 Merge 段
     let (vcs, vcs_capture) = FakeVcs::new()
-        .with_merge_error("git merge 失败（退出码 1）: CONFLICT (content): Merge conflict in a.txt")
+        .with_rebase_error("git rebase 失败（退出码 1）: cannot rebase: You have unstaged changes")
         .assemble();
     let (worker, requests) = FakeWorker::new().assemble();
     let updates = run_chain(&env, worker, vcs, env.request(true)).await;
@@ -1390,9 +1418,9 @@ async fn merge冲突_合入段失败停链且重试续走() {
     let stages = stage_states(&updates);
     let merge = terminal_of(&stages, ArchiveStage::Merge);
     assert_eq!(merge.status, ArchiveStageStatus::Failed, "停在合入段");
-    // Err 零加工：Merge failed detail = port Err 串逐字（AC-8——git 语境与手动
+    // Err 零加工：Merge failed detail = port Err 串逐字（git 语境与手动
     // 处置引导已在 port 侧铸好，链侧不二次包装）
-    let port_error = "git merge 失败（退出码 1）: CONFLICT (content): Merge conflict in a.txt";
+    let port_error = "git rebase 失败（退出码 1）: cannot rebase: You have unstaged changes";
     assert_eq!(
         merge.detail.as_deref(),
         Some(port_error),
@@ -1418,7 +1446,10 @@ async fn merge冲突_合入段失败停链且重试续走() {
         "worktree_snapshot 零调用"
     );
     assert!(
-        vcs_capture.calls().iter().all(|call| call != "abort_merge"),
+        vcs_capture
+            .calls()
+            .iter()
+            .all(|call| call != "rebase_abort"),
         "链侧不二次 abort（port 内尽力已执行）"
     );
     assert!(
@@ -1473,7 +1504,7 @@ async fn merge冲突_合入段失败停链且重试续走() {
 
 /// agent 失败停链可重试（D8 段位后移形态）：假 worker outcome status ≠
 /// Completed → SpecSync failed；已成功的提交与合入不回滚（commit_all /
-/// merge_branch 各一——新链形下两段前置于同步），归档变更零（commit_paths /
+/// rebase_branch 各一——新链形下两段前置于同步），归档变更零（commit_paths /
 /// store / fs 改名零）；重试 worker Completed + merge 假件到场 → 全链收口
 ///（specs=synced）。
 #[tokio::test]
@@ -1533,7 +1564,7 @@ async fn agent失败_同步段停链零归档变更_重试续走() {
 
     // 重试：worker Completed + merge 假件到场 → 全链收口（specs=synced）
     let (vcs, _capture) = FakeVcs::new()
-        .with_merge_arrives_from(env.worktree_change_dir())
+        .with_ff_arrives_from(env.worktree_change_dir())
         .assemble();
     let (worker, _requests) = FakeWorker::new().assemble();
     let updates = run_chain(&env, worker, vcs, env.request(true)).await;
@@ -1594,9 +1625,11 @@ async fn 停止旗置位_链以已停止词汇收敛() {
             "dirty".to_owned(),
             "commit_all".to_owned(),
             "branch_merged".to_owned(),
-            "merge_branch".to_owned(),
+            "current_branch".to_owned(),
+            "rebase_branch".to_owned(),
+            "ff_merge".to_owned(),
         ],
-        "vcs 调用恰序（停止位前：脏探 → 提交 → 合入判定 → 合入）"
+        "vcs 调用恰序（停止位前：脏探 → 提交 → 合入判定 → 目标探测 → 重放 → 快进）"
     );
     assert_eq!(env.store.status(), ChangeStatus::Active, "store 零写");
 }
@@ -1630,9 +1663,10 @@ async fn legacy_提交合入双skipped且cwd落主root() {
     }
     let calls = vcs_capture.calls();
     assert!(
-        calls
-            .iter()
-            .all(|call| call != "commit_all" && call != "merge_branch" && call != "branch_merged"),
+        calls.iter().all(|call| call != "commit_all"
+            && call != "rebase_branch"
+            && call != "ff_merge"
+            && call != "branch_merged"),
         "git 段零调用，实际: {calls:?}"
     );
     assert_eq!(
@@ -1727,7 +1761,7 @@ async fn finalize已落盘_skipped且零commit_paths() {
     env.seed_all_pass();
     let (vcs, vcs_capture) = FakeVcs::new()
         .with_dirty(vec![true, false]) // worktree 脏 → 提交；主仓 pathspec 探 false → 跳过
-        .with_merge_arrives_from(env.worktree_change_dir())
+        .with_ff_arrives_from(env.worktree_change_dir())
         .assemble();
     let (worker, _requests) = FakeWorker::new().assemble();
 
@@ -2079,7 +2113,7 @@ async fn prompt语义锚_增量语义与禁令逐字在场() {
     let env = ChainEnv::worktree("prompt-anchor");
     env.seed_specs(&["cap-a"]);
     let (vcs, _capture) = FakeVcs::new()
-        .with_merge_arrives_from(env.worktree_change_dir())
+        .with_ff_arrives_from(env.worktree_change_dir())
         .assemble();
     let (worker, requests) = FakeWorker::new().assemble();
     run_chain(&env, worker, vcs, env.request(true)).await;
@@ -2399,10 +2433,9 @@ async fn 快照与信封形态_阶段成对与serde线面() {
 // SpecSync 段位与探测源（D8）、Finalize 扩围（D9）
 // ---------------------------------------------------------------------------
 
-/// 合成快照的 HEAD / MERGE_HEAD 定值（⑤ 违约收口串的 `git reset --hard` 引导
-/// 对拍锚）。
+/// 合成快照的 HEAD / REBASE_HEAD 定值（⑤ 违约收口串的基线 HEAD 引导对拍锚）。
 const SNAP_HEAD: &str = "snap-head-aaa";
-const SNAP_MERGE_HEAD: &str = "snap-merge-head-bbb";
+const SNAP_REBASE_HEAD: &str = "snap-rebase-head-bbb";
 
 /// 无关路径（非冲突面的 staged 条目——④ 规则 A/B 逐字一致性的对拍锚）。
 const UNRELATED_PATH: &str = "docs/note.txt";
@@ -2432,7 +2465,7 @@ fn index_entry(path: &str, hash: &str, stage: u8) -> IndexEntry {
 fn conflict_baseline() -> WorktreeSnapshot {
     WorktreeSnapshot {
         head: SNAP_HEAD.to_owned(),
-        merge_head: Some(SNAP_MERGE_HEAD.to_owned()),
+        rebase_head: Some(SNAP_REBASE_HEAD.to_owned()),
         status: vec![
             status_entry('U', 'U', "src/a.txt"),
             status_entry('A', ' ', UNRELATED_PATH),
@@ -2447,7 +2480,8 @@ fn conflict_baseline() -> WorktreeSnapshot {
 }
 
 /// B 通过形态派生：冲突路径单条 stage-0（resolved hash）且 y=' '、无关面逐字
-/// 保持、MERGE_HEAD 在场（后验取 B 在 commit_merge 之前——merge 态仍在案）。
+/// 保持、REBASE_HEAD 在场（后验取 B 在 rebase_continue 之前——rebase 半程
+/// 仍在案）。
 fn resolved_after(baseline: &WorktreeSnapshot) -> WorktreeSnapshot {
     let mut snapshot = baseline.clone();
     let conflicts: Vec<String> = snapshot
@@ -2505,25 +2539,26 @@ async fn run_lean(
     outcomes: Vec<AgentRunStatus>,
     conflict_file_content: Option<&str>,
     abort_error: Option<&str>,
-    commit_merge_error: Option<&str>,
+    continue_error: Option<&str>,
 ) -> LeanFixture {
     let env = ChainEnv::worktree(tag);
     env.seed_main_change_dir();
     env.seed_all_pass();
     if let Some(content) = conflict_file_content {
-        let dir = env.root_dir.path().join("src");
+        // 冲突文件布置在 worktree（residual 扫描锚随冲突面迁入 worktree）
+        let dir = env.worktree_path().join("src");
         std::fs::create_dir_all(&dir).expect("布置冲突目录失败");
         std::fs::write(dir.join("a.txt"), content).expect("布置冲突文件失败");
     }
-    let mut vcs = FakeVcs::new().with_merge_conflicts(vec!["src/a.txt"]);
+    let mut vcs = FakeVcs::new().with_rebase_conflicts(vec!["src/a.txt"]);
     if !snapshots.is_empty() {
         vcs = vcs.with_snapshots(snapshots);
     }
     if let Some(error) = abort_error {
-        vcs = vcs.with_abort_merge_error(error);
+        vcs = vcs.with_rebase_abort_error(error);
     }
-    if let Some(error) = commit_merge_error {
-        vcs = vcs.with_commit_merge_error(error);
+    if let Some(error) = continue_error {
+        vcs = vcs.with_rebase_continue_error(error);
     }
     let (vcs, capture) = vcs.assemble();
     let (worker, _requests) = FakeWorker::new().with_outcomes(outcomes).assemble();
@@ -2554,7 +2589,7 @@ fn assert_lean_stopped(fixture: &LeanFixture, reason: &str) -> String {
         "冲突文件逐行清单在场: {detail}"
     );
     assert!(
-        detail.contains("已执行 git merge --abort 恢复主仓干净态"),
+        detail.contains("已执行 git rebase --abort 恢复 worktree 干净态"),
         "abort 告知在场: {detail}"
     );
     assert!(
@@ -2591,10 +2626,10 @@ fn assert_lean_stopped(fixture: &LeanFixture, reason: &str) -> String {
             .capture
             .calls()
             .iter()
-            .filter(|call| *call == "abort_merge")
+            .filter(|call| *call == "rebase_abort")
             .count(),
         1,
-        "abort_merge 恰一次尽力执行"
+        "rebase_abort 恰一次尽力执行"
     );
     detail
 }
@@ -2687,26 +2722,21 @@ async fn worktree目录缺失且已合入_提交段已合入归置续走收口()
     assert!(summary.is_some());
 }
 
-/// merge 冲突 agent 解冲突续链（AC-6 编排半边）：Conflicted(["src/a.txt",
-/// "src/b.txt"]) + 快照队列 [A, B] + 主仓冲突文件预置无标记 + worker Completed
-/// → Merge 信封流 running（无 detail）→ running（解算中）→ passed（已解冲突
-/// 2 文件）；worker 恰一次且 prompt / provenance / cwd / 档位全定式（D5）；
-/// vcs 调用序：A 快照先于 agent、B 快照后于 agent（请求捕获序对拍）、
-/// `commit_merge` 恰一次、`abort_merge` 零调用；链续走收口。
 #[tokio::test]
 async fn merge冲突_agent解冲突续链_收口与快照序齐备() {
     let env = ChainEnv::worktree("conflict-resolve");
     env.seed_main_change_dir();
     env.seed_all_pass();
-    // 主仓冲突文件预置（无标记——residual_markers 扫描的真实 tempdir 面）
-    let src = env.root_dir.path().join("src");
+    // worktree 冲突文件预置（无标记——residual_markers 扫描的真实 tempdir 面，
+    // 锚随冲突面迁入 worktree）
+    let src = env.worktree_path().join("src");
     std::fs::create_dir_all(&src).expect("布置 src 目录失败");
     std::fs::write(src.join("a.txt"), "裁决结果 a\n").expect("布置冲突文件失败");
     std::fs::write(src.join("b.txt"), "裁决结果 b\n").expect("布置冲突文件失败");
     let conflicts = vec!["src/a.txt".to_owned(), "src/b.txt".to_owned()];
     let baseline = conflict_baseline();
     let (vcs, vcs_capture) = FakeVcs::new()
-        .with_merge_conflicts(vec!["src/a.txt", "src/b.txt"])
+        .with_rebase_conflicts(vec!["src/a.txt", "src/b.txt"])
         .with_snapshots(vec![Ok(baseline.clone()), Ok(resolved_after(&baseline))])
         .assemble();
     let (worker, requests) = FakeWorker::new()
@@ -2738,7 +2768,7 @@ async fn merge冲突_agent解冲突续链_收口与快照序齐备() {
         "链代收口后的通过摘要"
     );
 
-    // worker 恰一次：prompt 逐字单点模板 + 会话定式（D5：cwd = 主 root、
+    // worker 恰一次：prompt 逐字单点模板 + 会话定式（cwd = worktree、
     // bypassPermissions、High、Executor、新会话）
     let requests = requests.lock().expect("请求捕获锁不可中毒");
     assert_eq!(requests.len(), 1, "恰一次解冲突会话");
@@ -2756,7 +2786,11 @@ async fn merge冲突_agent解冲突续链_收口与快照序齐备() {
         },
         "provenance 定式（归档语义段 merge-conflict）"
     );
-    assert_eq!(turn.root, env.root(), "cwd = 主 workspace root（D5）");
+    assert_eq!(
+        turn.root,
+        env.worktree_path().to_string_lossy(),
+        "cwd = worktree（冲突面囚于 change 私有沙箱）"
+    );
     assert_eq!(turn.permission, AgentPermissionMode::BypassPermissions);
     assert_eq!(turn.model_level, ModelLevel::High);
     assert_eq!(turn.role, WorkerRole::Executor);
@@ -2764,22 +2798,24 @@ async fn merge冲突_agent解冲突续链_收口与快照序齐备() {
     assert_eq!(turn.continue_session, None, "新会话");
     drop(requests);
 
-    // vcs 调用序（请求捕获序对拍：A 快照 → agent → B 快照 → 代收口）
+    // vcs 调用序（请求捕获序对拍：A 快照 → agent → B 快照 → 代续走 → 快进）
     assert_eq!(
         vcs_capture.calls(),
         vec![
             "dirty".to_owned(),
             "commit_all".to_owned(),
             "branch_merged".to_owned(),
-            "merge_branch".to_owned(),
+            "current_branch".to_owned(),
+            "rebase_branch".to_owned(),
             "worktree_snapshot".to_owned(),
             "worker_run".to_owned(),
             "worktree_snapshot".to_owned(),
-            "commit_merge".to_owned(),
+            "rebase_continue".to_owned(),
+            "ff_merge".to_owned(),
             "dirty".to_owned(),
             "commit_paths".to_owned(),
         ],
-        "A 快照先于 agent、B 快照后于 agent、commit_merge 恰一次、abort_merge 零调用"
+        "A 快照先于 agent、B 快照后于 agent、rebase_continue 恰一次、rebase_abort 零调用、ff_merge 快进"
     );
 
     // 链续走 SpecSync（无 delta specs → skipped）→ Seal → Finalize 收口
@@ -2803,10 +2839,97 @@ async fn merge冲突_agent解冲突续链_收口与快照序齐备() {
     assert!(summary.is_some());
 }
 
-/// lean 收敛族（D7/D10 参数化九形态）：各失败面 → Merge failed detail = lean
-/// 串且 Finished error 同串、`abort_merge` 恰一次尽力执行、store 零翻转 /
-/// seal 零执行 / fs 零改名。九形态覆盖六原因词 + 被停止注记特例 + abort 二次
-/// 失败附注 + 收口提交失败的人工收口引导（D6——不走 lean abort）。
+#[tokio::test]
+async fn 多提交分支冲突_两轮解算会话直至快进() {
+    let env = ChainEnv::worktree("conflict-multi");
+    env.seed_main_change_dir();
+    env.seed_all_pass();
+    // 两轮冲突文件预置（无标记——residual_markers 扫描锚）
+    let src = env.worktree_path().join("src");
+    std::fs::create_dir_all(&src).expect("布置 src 目录失败");
+    std::fs::write(src.join("a.txt"), "裁决一\n").expect("布置冲突文件失败");
+    std::fs::write(src.join("b.txt"), "裁决二\n").expect("布置冲突文件失败");
+    // 第二轮基线 / 派生（b 冲突形态——首轮 fixture 以 a 为冲突面）
+    let second_baseline = WorktreeSnapshot {
+        head: SNAP_HEAD.to_owned(),
+        rebase_head: Some(SNAP_REBASE_HEAD.to_owned()),
+        status: vec![status_entry('U', 'U', "src/b.txt")],
+        index: vec![
+            index_entry("src/b.txt", "base-b", 1),
+            index_entry("src/b.txt", "ours-b", 2),
+            index_entry("src/b.txt", "theirs-b", 3),
+        ],
+    };
+    let first_baseline = conflict_baseline();
+    let (vcs, vcs_capture) = FakeVcs::new()
+        .with_rebase_conflicts(vec!["src/a.txt"])
+        .with_continue_conflicts(vec!["src/b.txt"])
+        .with_snapshots(vec![
+            Ok(first_baseline.clone()),
+            Ok(resolved_after(&first_baseline)),
+            Ok(second_baseline.clone()),
+            Ok(resolved_after(&second_baseline)),
+        ])
+        .assemble();
+    let (worker, requests) = FakeWorker::new()
+        .with_call_log(&vcs_capture.calls_handle())
+        .assemble();
+
+    let updates = run_chain(&env, worker, vcs, env.request(true)).await;
+
+    let stages = stage_states(&updates);
+    let merge = terminal_of(&stages, ArchiveStage::Merge);
+    assert_eq!(merge.status, ArchiveStageStatus::Passed, "两轮解完合入通过");
+    assert_eq!(
+        merge.detail.as_deref(),
+        Some("已解冲突 2 文件"),
+        "解算计数跨停累计（a + b）"
+    );
+    let requests = requests.lock().expect("请求捕获锁不可中毒");
+    assert_eq!(requests.len(), 2, "恰两轮解冲突会话");
+    for turn in requests.iter() {
+        assert_eq!(
+            turn.root,
+            env.worktree_path().to_string_lossy(),
+            "每轮 cwd = worktree"
+        );
+    }
+    assert!(
+        requests[0].prompt.contains("src/a.txt") && !requests[0].prompt.contains("src/b.txt"),
+        "首轮清单只含 a"
+    );
+    assert!(
+        requests[1].prompt.contains("src/b.txt") && !requests[1].prompt.contains("src/a.txt"),
+        "次轮清单只含 b（新清单插值）"
+    );
+    drop(requests);
+    assert_eq!(
+        vcs_capture.calls(),
+        vec![
+            "dirty".to_owned(),
+            "commit_all".to_owned(),
+            "branch_merged".to_owned(),
+            "current_branch".to_owned(),
+            "rebase_branch".to_owned(),
+            "worktree_snapshot".to_owned(),
+            "worker_run".to_owned(),
+            "worktree_snapshot".to_owned(),
+            "rebase_continue".to_owned(),
+            "worktree_snapshot".to_owned(),
+            "worker_run".to_owned(),
+            "worktree_snapshot".to_owned(),
+            "rebase_continue".to_owned(),
+            "ff_merge".to_owned(),
+            "dirty".to_owned(),
+            "commit_paths".to_owned(),
+        ],
+        "两轮「快照 → 会话 → 后验 → 续走」循环后快进收口"
+    );
+    let (summary, error) = finished_of(&updates);
+    assert!(error.is_none(), "多停链照常收口");
+    assert!(summary.is_some());
+}
+
 #[tokio::test]
 async fn lean收敛族_九形态参数化停链() {
     // ① worker outcome Failed → 原因词「agent 会话失败」
@@ -2874,10 +2997,10 @@ async fn lean收敛族_九形态参数化停链() {
     .await;
     assert_lean_stopped(&fixture, "清单外新改动");
 
-    // ⑤ B.merge_head=None → 「agent 违约自行收口 merge」+ A.head 与
-    // `git reset --hard` 引导（链不自动改写历史）
+    // ⑤ B.rebase_head=None → 「agent 违约自行收口 rebase」+ REBASE_HEAD 缺席
+    // 语境与基线 HEAD 人工核验引导（链不自动改写历史）
     let mut closed = resolved_after(&conflict_baseline());
-    closed.merge_head = None;
+    closed.rebase_head = None;
     let fixture = run_lean(
         "lean-5-closed",
         vec![Ok(conflict_baseline()), Ok(closed)],
@@ -2887,10 +3010,10 @@ async fn lean收敛族_九形态参数化停链() {
         None,
     )
     .await;
-    let detail = assert_lean_stopped(&fixture, "agent 违约自行收口 merge");
+    let detail = assert_lean_stopped(&fixture, "agent 违约自行收口 rebase");
     assert!(
-        detail.contains(SNAP_HEAD) && detail.contains("git reset --hard"),
-        "串附 A.head 与 reset --hard 引导: {detail}"
+        detail.contains(SNAP_HEAD) && detail.contains("REBASE_HEAD 缺席"),
+        "串附 REBASE_HEAD 缺失语境与基线 HEAD: {detail}"
     );
 
     // ⑥ B 快照 Err → 「后验探测失败」
@@ -2917,7 +3040,7 @@ async fn lean收敛族_九形态参数化停链() {
     .await;
     assert_lean_stopped(&fixture, "后验探测失败");
 
-    // ⑧ abort_merge 注入 Err → lean 串附「abort 未成功…」且原原因词不被掩盖
+    // ⑧ rebase_abort 注入 Err → lean 串附「abort 未成功…」且原原因词不被掩盖
     //（D10 不静默吞二次失败）
     let fixture = run_lean(
         "lean-8-abort-err",
@@ -2930,15 +3053,15 @@ async fn lean收敛族_九形态参数化停链() {
     .await;
     let detail = assert_lean_stopped(&fixture, "agent 会话失败");
     assert!(
-        detail.contains("abort 未成功，请手动核验主仓 git 状态"),
+        detail.contains("abort 未成功，请手动核验 worktree git 状态"),
         "abort 二次失败附注在场: {detail}"
     );
 
-    // ⑨ commit_merge 注入 Err → 收口提交失败停链（D6：冲突解已验通过不走
-    // lean abort——不丢弃解算成果），串附主仓 merge 态人工收口引导（
-    // `git commit --no-edit` / `git merge --abort`）与重试前半截态须人工清
+    // ⑨ rebase_continue 注入 Err → 续走失败停链（冲突解已验通过不走 lean
+    // abort——不丢弃解算成果），串附 worktree rebase 态人工续走引导（
+    // `git rebase --continue` / `git rebase --abort`）与重试前半截态须人工清
     let fixture = run_lean(
-        "lean-9-commit-err",
+        "lean-9-continue-err",
         vec![
             Ok(conflict_baseline()),
             Ok(resolved_after(&conflict_baseline())),
@@ -2946,7 +3069,7 @@ async fn lean收敛族_九形态参数化停链() {
         vec![],
         Some("裁决结果\n"),
         None,
-        Some("git commit 失败（退出码 1）: 注入收口失败"),
+        Some("git rebase --continue 失败（退出码 1）: 注入续走失败"),
     )
     .await;
     let stages = stage_states(&fixture.updates);
@@ -2954,15 +3077,15 @@ async fn lean收敛族_九形态参数化停链() {
     assert_eq!(merge.status, ArchiveStageStatus::Failed, "停在 Merge 段");
     let detail = merge.detail.expect("失败记因在场");
     assert!(
-        detail.contains("git commit --no-edit") && detail.contains("git merge --abort"),
-        "人工收口 / 回退二选一引导在场: {detail}"
+        detail.contains("git rebase --continue") && detail.contains("git rebase --abort"),
+        "人工续走 / 回退二选一引导在场: {detail}"
     );
     assert!(
         detail.contains("重试前半截态须人工清"),
         "半截态人工清理说明在场: {detail}"
     );
     assert!(
-        detail.contains("注入收口失败"),
+        detail.contains("注入续走失败"),
         "port Err 语境零加工随串: {detail}"
     );
     let (_, error) = finished_of(&fixture.updates);
@@ -2976,8 +3099,8 @@ async fn lean收敛族_九形态参数化停链() {
             .capture
             .calls()
             .iter()
-            .all(|call| call != "abort_merge"),
-        "收口失败不走 lean abort（D6 不丢弃已验解算成果）"
+            .all(|call| call != "rebase_abort"),
+        "续走失败不走 lean abort（不丢弃已验解算成果）"
     );
     assert_eq!(
         fixture.env.store.status(),
@@ -3171,15 +3294,16 @@ fn verify_resolution纯函数_分支穷尽与违约收口串() {
         "通过形态 → Ok"
     );
 
-    // ① after.merge_head 缺席 → Err 违约收口（串附 A.head 与 reset --hard 引导）
+    // ① after.rebase_head 缺席 → Err 违约收口（串附 REBASE_HEAD 缺席语境与基
+    // 线 HEAD）
     let mut closed = resolved.clone();
-    closed.merge_head = None;
+    closed.rebase_head = None;
     let error =
-        verify_resolution(&baseline, &closed, &conflicts).expect_err("MERGE_HEAD 缺席应 Err");
+        verify_resolution(&baseline, &closed, &conflicts).expect_err("REBASE_HEAD 缺席应 Err");
     assert!(
-        error.contains("agent 违约自行收口 merge")
+        error.contains("agent 违约自行收口 rebase")
             && error.contains(SNAP_HEAD)
-            && error.contains("git reset --hard"),
+            && error.contains("REBASE_HEAD 缺席"),
         "违约收口语境串: {error}"
     );
 

@@ -22,12 +22,7 @@ pub struct ChangeLocation {
     pub source: ChangeSource,
 }
 
-/// 按名称定位 change 目录：解析链四级（design D12）——主仓 active 树精确名
-/// → archive 树精确名 → archive 树日期前缀后缀匹配（db 名 `foo` ↔
-/// `YYYY-MM-DD-foo`，归档改名后 db 名不变可达）→ **worktree 回退**
-///（`resolve(worktree).changes_root/<name>` is_dir → `ChangeSource::Active`
-/// ——merge 前主仓两树必然未命中，worktree change 经记录回退可达）；名称
-/// 必须是单个普通目录名（拒绝路径穿越），未知名称返回 `None`。
+/// 按名称定位 change 目录
 pub fn locate_change(
     layout: &Layout,
     worktree: Option<&str>,
@@ -36,13 +31,14 @@ pub fn locate_change(
     if !is_single_component_name(name) {
         return None;
     }
-    let worktree_root = worktree?;
-    let worktree_dir = resolve(Path::new(worktree_root)).changes_root.join(name);
-    if worktree_dir.is_dir() {
-        return Some(ChangeLocation {
-            dir: worktree_dir,
-            source: ChangeSource::Active,
-        });
+    if let Some(worktree_root) = worktree {
+        let worktree_dir = resolve(Path::new(worktree_root)).changes_root.join(name);
+        if worktree_dir.is_dir() {
+            return Some(ChangeLocation {
+                dir: worktree_dir,
+                source: ChangeSource::Active,
+            });
+        }
     }
     let active = layout.changes_root.join(name);
     if active.is_dir() {

@@ -1,17 +1,16 @@
 use std::path::Path;
 use std::process::{Command, Stdio};
 
-use orchestration::port::{IndexEntry, MergeOutcome, StatusEntry, WorktreeSnapshot};
+use orchestration::port::{IndexEntry, RebaseOutcome, StatusEntry, WorktreeSnapshot};
 use workflow::write::RepoProbe;
 
-/// 一次 git 子命令执行（stdout 捕获；stdin 关闭）：非零退出以 stderr 上抛。
-/// 拉起失败（PATH 未发现 git）映射统一引导文案（spawn error 与「命令存在但
-/// 退出非零」可辨——前者是环境缺失，后者携带 git 语境 stderr）。
+/// 一次 git 子命令执行（stdout 捕获；stdin 关闭）
 pub(crate) fn git(main_root: &Path, args: &[&str]) -> Result<String, String> {
     let output = Command::new("git")
         .arg("-C")
         .arg(main_root)
         .args(args)
+        .env("GIT_EDITOR", "true")
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -127,11 +126,12 @@ pub(crate) fn delete_branch(main_root: &Path, branch: &str) -> Result<(), String
 }
 
 // ---------------------------------------------------------------------------
-// 归档子命令族（design desktop-archive-change D8/D9 + archive-merge-first D3/
-// D4/D6/D10）：归档链的提交 / 合入（冲突态保留）/ 快照 / 代收口 / abort /
-// pathspec 提交 / 探测面——全部 `git -C <root>` 同步 spawn、argv 直传零 shell
-// 包装（提交信息引号形态不适用——R7 留痕）；清单 / 快照读取全线 `-z`（NUL
-// 分隔零引号形态——路径引号与非 ASCII 形态免疫，R6）
+// 归档子命令族（design desktop-archive-change D8/D9 + archive-rebase-merge）：
+// 归档链的提交 / 合入（worktree 内 rebase 重放 + 主仓 ff-only 快进——线性历
+// 史零 merge commit，冲突态保留在 worktree）/ 快照 / 代续走 / abort / pathspec
+// 提交 / 探测面——全部 `git -C <root>` 同步 spawn、argv 直传零 shell 包装（提
+// 交信息引号形态不适用——R7 留痕）；清单 / 快照读取全线 `-z`（NUL 分隔零引号
+// 形态——路径引号与非 ASCII 形态免疫，R6）
 // ---------------------------------------------------------------------------
 
 /// 脏探测：`status --porcelain [-- pathspec…]` 非空即真（空 paths = 全域；
@@ -181,28 +181,35 @@ pub(crate) fn branch_merged(main_root: &Path, branch: &str) -> Result<bool, Stri
     }
 }
 
-/// 主仓合入（冲突态保留语义，design D3）：`git merge --no-edit <branch>`（可
-/// ff 则 ff、主仓前进则 merge commit，信息用 git 默认）。非零退出先读 unmerged
-/// 清单（`diff --name-only --diff-filter=U -z` 归一）：非空 = 冲突 → 冲突态
-/// 保留返回 [`MergeOutcome::Conflicted`]（MUST NOT 自动 abort——裁决或 lean
-/// 收口归编排链）；空 = 非冲突失败（主仓状态不允许等）→ 尽力 `merge --abort`
-/// 后 `Err` 带 git 语境与手动处置引导（幂等——非 merge 态调用无害）。
-pub(crate) fn merge_branch(main_root: &Path, branch: &str) -> Result<MergeOutcome, String> {
-    match git(main_root, &["merge", "--no-edit", branch]) {
-        Ok(_) => Ok(MergeOutcome::Merged),
-        Err(error) => match unmerged_files(main_root) {
-            Ok(files) if !files.is_empty() => Ok(MergeOutcome::Conflicted(files)),
+/// worktree 内分支重放（冲突态保留语义）
+pub(crate) fn rebase_branch(worktree: &Path, onto: &str) -> Result<RebaseOutcome, String> {
+    match git(worktree, &["rebase", "--empty=drop", onto]) {
+        Ok(_) => Ok(RebaseOutcome::Rebased),
+        Err(error) => match unmerged_files(worktree) {
+            Ok(files) if !files.is_empty() => Ok(RebaseOutcome::Conflicted(files)),
             _ => {
-                // 尽力收口（冲突态恢复干净；失败如「无 merge 可 abort」静默忽略）
-                let _ = git(main_root, &["merge", "--abort"]);
+                // 尽力收口（冲突态恢复干净；失败如「无 rebase 可 abort」静默忽略）
+                let _ = git(worktree, &["rebase", "--abort"]);
                 Err(format!(
-                    "{error}；归档合入失败（分支 {branch} 与主仓当前分支冲突或主仓状态不允许），\
-                     已尽力执行 git merge --abort 收口：请手动处置冲突（自行 merge 解冲突或调整主仓\
-                     状态）后重试归档"
+                    "{error}；归档合入失败（分支重放至 {onto} 冲突或 worktree 状态不允许），\
+                     已尽力执行 git rebase --abort 收口：请手动处置冲突（在 worktree 内自行\
+                     rebase 解冲突或调整 worktree 状态）后重试归档"
                 ))
             }
         },
     }
+}
+
+/// 主仓快进（重放的后半段）
+pub(crate) fn ff_merge(main_root: &Path, branch: &str) -> Result<(), String> {
+    git(main_root, &["merge", "--ff-only", branch])
+        .map(|_| ())
+        .map_err(|error| {
+            format!(
+                "{error}；主仓快进失败（分支重放已完成，快进前主仓前进或主仓状态不允许）：\
+                 请重试归档（重试将重放至主仓新 tip）或手动 git merge --ff-only {branch} 收口"
+            )
+        })
 }
 
 /// unmerged 清单（冲突判据读取面）：`diff --name-only --diff-filter=U -z`——
@@ -216,30 +223,28 @@ fn unmerged_files(main_root: &Path) -> Result<Vec<String>, String> {
         .collect())
 }
 
-/// 主仓工作区快照（后验 A/B 对比基面，design D4）四连：`rev-parse HEAD` →
-/// `rev-parse -q --verify MERGE_HEAD`（退出 0/1 映射 Some/None）→
-/// `status --porcelain -z` → `ls-files -s -z`（解析见 [`parse_status_z`] /
-/// [`parse_ls_files_z`]）。
-pub(crate) fn worktree_snapshot(main_root: &Path) -> Result<WorktreeSnapshot, String> {
-    let head = git(main_root, &["rev-parse", "HEAD"])?.trim().to_owned();
-    let merge_head = merge_head_sha(main_root)?;
-    let status = parse_status_z(&git(main_root, &["status", "--porcelain", "-z"])?);
-    let index = parse_ls_files_z(&git(main_root, &["ls-files", "-s", "-z"])?);
+pub(crate) fn worktree_snapshot(root: &Path) -> Result<WorktreeSnapshot, String> {
+    let head = git(root, &["rev-parse", "HEAD"])?.trim().to_owned();
+    let rebase_head = rebase_head_sha(root)?;
+    let status = parse_status_z(&git(root, &["status", "--porcelain", "-z"])?);
+    let index = parse_ls_files_z(&git(root, &["ls-files", "-s", "-z"])?);
     Ok(WorktreeSnapshot {
         head,
-        merge_head,
+        rebase_head,
         status,
         index,
     })
 }
 
-/// MERGE_HEAD 在场性探测：`rev-parse -q --verify MERGE_HEAD`——退出 0 = sha
-/// 在场、1 = 缺席（quiet 抑制报错噪声；非 merge 态的常态面）、其余 Err。
-fn merge_head_sha(main_root: &Path) -> Result<Option<String>, String> {
+/// REBASE_HEAD 在场性探测（worktree gitdir 正确解析——链 worktree 的 `.git`
+/// 为文件指针，`rev-parse` 经其寻址主仓 `.git/worktrees/<n>/` 下的状态）：
+/// `rev-parse -q --verify REBASE_HEAD`——退出 0 = sha 在场、1 = 缺席（quiet
+/// 抑制报错噪声；非 rebase 态的常态面）、其余 Err。
+fn rebase_head_sha(root: &Path) -> Result<Option<String>, String> {
     let output = Command::new("git")
         .arg("-C")
-        .arg(main_root)
-        .args(["rev-parse", "-q", "--verify", "MERGE_HEAD"])
+        .arg(root)
+        .args(["rev-parse", "-q", "--verify", "REBASE_HEAD"])
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -251,7 +256,7 @@ fn merge_head_sha(main_root: &Path) -> Result<Option<String>, String> {
         )),
         Some(1) => Ok(None),
         _ => Err(format!(
-            "git rev-parse -q --verify MERGE_HEAD 失败（退出码 {}）: {}",
+            "git rev-parse -q --verify REBASE_HEAD 失败（退出码 {}）: {}",
             output.status.code().unwrap_or(-1),
             String::from_utf8_lossy(&output.stderr).trim()
         )),
@@ -304,21 +309,29 @@ fn parse_ls_files_z(raw: &str) -> Vec<IndexEntry> {
         .collect()
 }
 
-/// merge 收口提交（design D6）：`commit --no-edit`——采用 MERGE_MSG 默认
-/// merge 信息；merge 态禁 pathspec、无 `-a`，只提交索引内既定内容 = merge
-/// 结果（物理上吞并不了未 staged 的用户内容）。
-pub(crate) fn commit_merge(main_root: &Path) -> Result<(), String> {
-    git(main_root, &["commit", "--no-edit"]).map(|_| ())
+/// rebase 续走收口：`git rebase --continue`——沿用重放提交既定信息（GIT_EDITOR
+/// 已在 `git()` 钉死——零交互面）；多提交分支逐个重放，下一个提交冲突 → 非
+/// 零退出且 unmerged 非空 → [`RebaseOutcome::Conflicted`]（调用方循环解算）；
+/// 清单空 = 非冲突失败 → `Err` 带 git 语境（链侧附人工收口引导——解算成果
+/// 已验，不自动 abort）。
+pub(crate) fn rebase_continue(worktree: &Path) -> Result<RebaseOutcome, String> {
+    match git(worktree, &["rebase", "--continue"]) {
+        Ok(_) => Ok(RebaseOutcome::Rebased),
+        Err(error) => match unmerged_files(worktree) {
+            Ok(files) if !files.is_empty() => Ok(RebaseOutcome::Conflicted(files)),
+            _ => Err(error),
+        },
+    }
 }
 
-/// lean 收口面（design D10）：`merge --abort`——Err 上抛由链侧附注呈现（不
-/// 静默吞二次失败）。
-pub(crate) fn abort_merge(main_root: &Path) -> Result<(), String> {
-    git(main_root, &["merge", "--abort"]).map(|_| ())
+/// lean 收口面：`git rebase --abort`——worktree 恢复重放前干净态；Err 上抛由
+/// 链侧附注呈现（不静默吞二次失败）。
+pub(crate) fn rebase_abort(worktree: &Path) -> Result<(), String> {
+    git(worktree, &["rebase", "--abort"]).map(|_| ())
 }
 
 /// 主仓当前分支名：`branch --show-current`（空输出 = detached HEAD → 显式
-/// Err 引导——合入目标 = HEAD 所在分支，detached 无从合入）。
+/// Err 引导——重放与快进目标 = HEAD 所在分支，detached 无从合入）。
 pub(crate) fn current_branch(main_root: &Path) -> Result<String, String> {
     let branch = git(main_root, &["branch", "--show-current"])?
         .trim()
