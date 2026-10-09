@@ -1,5 +1,6 @@
 use std::path::{Path, PathBuf};
 
+use orchestration::port::{MergeOutcome, WorktreeSnapshot};
 use orchestration::ArchiveVcsPort;
 use workflow::write::WorktreePort;
 
@@ -90,6 +91,9 @@ impl WorktreePort for ProcessWorktree {
 }
 
 /// git 归档工作面进程执行器（无状态，组合根按需构造——归档链命令组装配）。
+/// 方法族随 archive-merge-first 演进：`merge_branch` 冲突态保留（返回
+/// `MergeOutcome`，不自动 abort）、`worktree_snapshot` 后验快照、
+/// `commit_merge` 链代收口、`abort_merge` lean 收口——全部委托 git 子命令族。
 pub struct ProcessArchiveVcs;
 
 impl ProcessArchiveVcs {
@@ -118,8 +122,20 @@ impl ArchiveVcsPort for ProcessArchiveVcs {
         git::branch_merged(main_root, branch)
     }
 
-    fn merge_branch(&self, main_root: &Path, branch: &str) -> Result<(), String> {
+    fn merge_branch(&self, main_root: &Path, branch: &str) -> Result<MergeOutcome, String> {
         git::merge_branch(main_root, branch)
+    }
+
+    fn worktree_snapshot(&self, main_root: &Path) -> Result<WorktreeSnapshot, String> {
+        git::worktree_snapshot(main_root)
+    }
+
+    fn commit_merge(&self, main_root: &Path) -> Result<(), String> {
+        git::commit_merge(main_root)
+    }
+
+    fn abort_merge(&self, main_root: &Path) -> Result<(), String> {
+        git::abort_merge(main_root)
     }
 
     fn current_branch(&self, main_root: &Path) -> Result<String, String> {

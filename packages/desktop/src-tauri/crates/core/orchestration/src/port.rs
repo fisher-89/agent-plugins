@@ -205,8 +205,12 @@ pub trait DiffContextPort: Send + Sync {
 
 /// 归档链 → vcs 执行的进程内缝（消费者 = 归档链
 /// [`crate::archive_flow`]——crate-layout delta 授权落位；spawn 不进 core，
-/// 进程执行驻 infra/vcs）。六方法 sync 签名零 tokio（`WorktreePort` 同纪律）；
+/// 进程执行驻 infra/vcs）。方法族 sync 签名零 tokio（`WorktreePort` 同纪律）；
 /// `Err` 面为带引导文案的 String，调用方直接呈现。
+///
+/// 本节载荷类型（[`MergeOutcome`] / [`StatusEntry`] / [`IndexEntry`] /
+/// [`WorktreeSnapshot`]）为 port 载荷（消费者 crate 内消费），非 IPC 面——
+/// 零 serde / specta 派生；快照类型专供归档链合入冲突后验的 A/B 对比基面。
 pub trait ArchiveVcsPort: Send + Sync {
     /// 脏探测：`status --porcelain [-- pathspec…]` 非空即真（空 paths = 全域；
     /// gitignore 面不计——探测失败同 false，不阻断幂等跳过）。
@@ -215,17 +219,78 @@ pub trait ArchiveVcsPort: Send + Sync {
     /// 锚，全域 = 本 change 编辑集 + spec 同步产物）。
     fn commit_all(&self, worktree: &Path, message: &str) -> Result<(), String>;
     /// 祖先判定：`merge-base --is-ancestor <branch> HEAD`（退出 0/1 映射 bool，
-    /// >1 Err——已合入跳过合入的幂等依据）。
+    /// >1 Err——合入段幂等跳过的判定依据；提交段跳过依据只认干净探测）。
     fn branch_merged(&self, main_root: &Path, branch: &str) -> Result<bool, String>;
-    /// 主仓合入：`merge --no-edit <branch>`；失败尽力 `merge --abort` 后 Err
-    /// 带 git 语境与手动处置引导（MUST NOT 强推 / 改写历史 / 自动解冲突）。
-    fn merge_branch(&self, main_root: &Path, branch: &str) -> Result<(), String>;
+    /// 主仓合入：`merge --no-edit <branch>`，冲突态保留语义（design D3）——
+    /// 成功 → [`MergeOutcome::Merged`]；非零退出且 unmerged 清单非空 →
+    /// [`MergeOutcome::Conflicted`]（MUST NOT 自动 `merge --abort`，冲突态
+    /// 留给解冲突 agent 裁决或 lean 收口——收口归调用方）；清单空（主仓状态
+    /// 不允许等非冲突失败）→ 尽力 abort 后 `Err` 带 git 语境与手动处置引导。
+    fn merge_branch(&self, main_root: &Path, branch: &str) -> Result<MergeOutcome, String>;
+    /// 主仓工作区快照（合入冲突后验的 A/B 对比基面，design D4）：HEAD /
+    /// MERGE_HEAD 在场性 / porcelain 状态 / ls-files 索引四合一（`-z` 归一
+    /// 解析——零引号 / 非 ASCII 形态免疫）。
+    fn worktree_snapshot(&self, main_root: &Path) -> Result<WorktreeSnapshot, String>;
+    /// merge 收口提交：`commit --no-edit`（采用 MERGE_MSG 默认 merge 信息；
+    /// 解冲突后验通过后由归档链代收口——agent 无收口权，design D6）。
+    fn commit_merge(&self, main_root: &Path) -> Result<(), String>;
+    /// lean 收口面：`merge --abort`（无法裁决时归档链尽力执行——自身 Err 上抛
+    /// 由调用方附注呈现，不静默吞）。
+    fn abort_merge(&self, main_root: &Path) -> Result<(), String>;
     /// 主仓当前分支名（合入目标 = HEAD 所在分支；空输出 = detached HEAD Err）。
     fn current_branch(&self, main_root: &Path) -> Result<String, String>;
     /// pathspec 圈定提交：`add -A -- <paths…>` + `commit -m <msg> -- <paths 各自
     /// "/**" 形态>`（glob 覆盖已删除路径——裸目录 pathspec 对已删除目录报
     /// "did not match"；无关 staged / untracked 原样保留——pathspec 纪律）。
     fn commit_paths(&self, main_root: &Path, paths: &[&str], message: &str) -> Result<(), String>;
+}
+
+/// merge 结果（design D3）：冲突语义 = 冲突态保留、不 abort——收口归调用方。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum MergeOutcome {
+    /// 合入成功（ff 或 merge commit 已落）。
+    Merged,
+    /// 冲突（unmerged 清单非空；`-z` 归一路径；冲突态保留在主仓）。
+    Conflicted(Vec<String>),
+}
+
+/// `status --porcelain -z` 解析像（XY = index / worktree 状态码；untracked 为
+/// "?","?"；rename 条目记新路径）。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StatusEntry {
+    /// index 侧状态码
+    pub x: char,
+    /// worktree 侧状态码（' ' = 工作区对 index 干净）
+    pub y: char,
+    /// 路径（rename / copy 条目记新路径）
+    pub path: String,
+}
+
+/// `ls-files -s` 解析像（stage 0 = 正常条目；1/2/3 = unmerged 三方）。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct IndexEntry {
+    /// 文件模式（如 `100644`）
+    pub mode: String,
+    /// blob sha
+    pub hash: String,
+    /// stage 号（unmerged 三方为 1/2/3）
+    pub stage: u8,
+    /// 路径
+    pub path: String,
+}
+
+/// 主仓工作区快照（合入冲突后验的 A/B 对比基面，design D4）：A = 冲突即时、
+/// B = 解冲突收口后各取一次，由归档链纯函数逐字对比。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WorktreeSnapshot {
+    /// HEAD（A 时点 = merge 前 HEAD——merge 态不前移 HEAD）。
+    pub head: String,
+    /// MERGE_HEAD 在场性（merge 态判别；缺席 = merge 已被收口 / 中止）。
+    pub merge_head: Option<String>,
+    /// porcelain 状态条目（`-z` 归一）。
+    pub status: Vec<StatusEntry>,
+    /// 索引条目（`ls-files -s -z` 归一）。
+    pub index: Vec<IndexEntry>,
 }
 
 /// 只读快照契约：`ChangeDetail` 只读装配（决策输入与前置校验的输入面；读、

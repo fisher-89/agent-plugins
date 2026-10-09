@@ -12,7 +12,9 @@ use workflow::queries::locate_change;
 use workflow::state::{ChangeStateRecord, ChangeStateStore, ChangeStatus, PhaseStateRecord};
 use workflow::write::phase_table;
 
-use crate::port::{ArchiveVcsPort, WorkerAgentPort, WorkerRole, WorkerTurnRequest};
+use crate::port::{
+    ArchiveVcsPort, MergeOutcome, WorkerAgentPort, WorkerRole, WorkerTurnRequest, WorktreeSnapshot,
+};
 
 /// 归档链 broadcast 通道容量（阶段状态 + 会话事件窗口；溢出即滞后，由订阅
 /// 侧重挂快照兜底）。
@@ -29,11 +31,13 @@ const ARTIFACT_FILES: [&str; 3] = ["proposal.md", "design.md", "tasks.md"];
 const TXT_WARN_INCOMPLETE: &str = "工作流未全部通过";
 /// 产物缺失警告前缀（后接「：<三件子集>」）。
 const TXT_WARN_MISSING_ARTIFACTS: &str = "缺少产物文档";
-/// 停止收敛词汇（取消旗 / 会话被终止的统一收敛面）。
+/// 停止收敛词汇（取消旗 / 会话被终止的统一收敛面；冲突解算被停止的特例见
+/// `lean_converge`——lean 串承载冲突摘要，不用本词收敛）。
 const TXT_STOPPED: &str = "归档链已停止";
 /// 提交段跳过因：worktree 干净（无未提交改动）。
 const TXT_SKIP_CLEAN: &str = "干净";
-/// 提交 / 合入段跳过因：分支已合入主仓。
+/// 合入段跳过因：分支已合入主仓（提交段目录缺失形态同词——内容已在主仓，
+/// 提交无从发生也无需发生）。
 const TXT_SKIP_MERGED: &str = "已合入";
 /// 同步段跳过因：无 delta specs。
 const TXT_SKIP_NO_DELTA: &str = "无 delta specs";
@@ -43,21 +47,42 @@ const TXT_SKIP_BY_USER: &str = "用户选择";
 const TXT_SKIP_LEGACY: &str = "legacy 无 worktree";
 /// 落盘段跳过因：归档改名已落盘（脏探测为假）。
 const TXT_SKIP_FINALIZED: &str = "已落盘";
+/// Merge 段 running detail 提示（冲突解算中——同段后写覆盖呈现当前会话转录）。
+const TXT_MERGE_RESOLVING: &str = "合入冲突，解冲突 agent 裁决中";
+/// 冲突解通过 detail（链代收口后的合入段通过摘要）。
+const TXT_MERGE_RESOLVED_PREFIX: &str = "已解冲突 ";
+/// lean 串原因词族（D7 六面——解冲突无法裁决的收敛原因，词汇单点驻本文件）。
+const LEAN_AGENT_FAILED: &str = "agent 会话失败";
+const LEAN_AGENT_STOPPED: &str = "agent 会话被停止";
+const LEAN_RESIDUAL: &str = "残留冲突未解";
+const LEAN_OUTSIDE_CHANGES: &str = "清单外新改动";
+const LEAN_PROBE_FAILED: &str = "后验探测失败";
+const LEAN_MERGE_CLOSED: &str = "agent 违约自行收口 merge";
+/// lean 串 abort 附注（收敛序中 abort 自身失败的显式面——不掩盖原记因）。
+const TXT_LEAN_ABORT_FAILED: &str = "abort 未成功，请手动核验主仓 git 状态";
+/// 被停止注记（冲突 agent 被 stop 的 lean 串尾注——D7 特例，不用 TXT_STOPPED
+/// 收敛词，冲突摘要与手动裁决引导照常呈现）。
+const TXT_LEAN_STOPPED_NOTE: &str = "（归档链已停止）";
+/// `commit_merge` 失败的收口引导（冲突解已验通过、merge 态完整——人工收口
+/// 或回退二选一，重试前半截态须人工清，链不自动 abort 已验的解算成果）。
+const TXT_MERGE_COMMIT_GUIDE: &str = "主仓处于 merge 态：可手动 git commit --no-edit 收口，\
+     或 git merge --abort 回退后重试归档（重试前半截态须人工清）";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub enum ArchiveStage {
     /// 前置重校验（建档在案 + status=active + worktree 在场性）
     Preflight,
+    /// worktree 全域提交（worktree 记录在场才执行；干净探测唯一跳过依据）
+    Commit,
+    /// 主仓合入（branch `change/<name>` → 主仓当前分支；冲突解 agent 分支内嵌）
+    Merge,
     /// delta specs 同步 agent 会话（缺席 / 用户跳过则 skipped）
     SpecSync,
-    /// worktree 全域提交（worktree 记录在场才执行）
-    Commit,
-    /// 主仓合入（branch `change/<name>` → 主仓当前分支）
-    Merge,
     /// 写面 `archive` 双写收口（改名 + db 翻转）
     Seal,
-    /// 归档落盘 pathspec 提交（脏探测跳过幂等面）
+    /// 归档落盘 pathspec 提交（脏探测跳过幂等面；扩围含 delta capability 主
+    /// specs 子树）
     Finalize,
 }
 
@@ -438,32 +463,55 @@ pub fn preflight(
 }
 
 // ---------------------------------------------------------------------------
-// spec 同步 prompt 单点（design 数据模型逐字——语义源 = SKILL.md 步骤 2 的
-// 桌面化重写；零 MCP / __TOOL_ASK_USER__ / workflow.json / git 依赖）
+// 归档 agent prompt 单点（design 数据模型逐字——spec 同步与解冲突一族两模板，
+// 增量合并语义与解算纪律单源 = desktop-change-archive spec requirement 自述，
+// 零 CLI skill 溯源；零 MCP / __TOOL_ASK_USER__ / workflow.json 依赖；git 面
+// 收缩由模板明令——归档编排代执行收口）
 // ---------------------------------------------------------------------------
 
+/// spec 同步 prompt（D8 溯源摘除版）：增量合并语义自持（ADDED / MODIFIED /
+/// REMOVED / RENAMED、保留未提及内容、幂等、capability 缺席创建）。
 pub(crate) fn spec_sync_prompt(change: &str) -> String {
     format!(
-        "你执行 change「{change}」归档链的 delta specs 同步段（openspec-archive-change skill
-步骤 2 的桌面化执行；完成度核对与归档确认已由桌面完成，无需重复）。
+        "你执行 change「{change}」归档链的 delta specs 同步段（完成度核对与归档确认已由桌面完成，无需重复）。
 
-对每个 {change} 目录 `openspec/changes/{change}/specs/` 下的 `<capability>/spec.md`：
+对每个 `openspec/changes/{change}/specs/` 下的 `<capability>/spec.md`：
 1. 读 delta 与主基线 `openspec/specs/<capability>/spec.md`（主基线可能不存在）。
 2. 按增量语义合并——delta 表达意图而非整体替换，保留 delta 未提及的主 spec 内容：
    - `## ADDED Requirements`：requirement 缺席则追加；已存在则更新为与 delta 一致。
-   - `## MODIFIED Requirements`：只应用增量——新增 scenario、修改列出的 scenario、
-     修订描述；不复制既有 scenario。
+   - `## MODIFIED Requirements`：只应用增量——新增 scenario、修改列中的 scenario、修订描述；不复制既有 scenario。
    - `## REMOVED Requirements`：整块移除该 requirement。
    - `## RENAMED Requirements`：把 FROM: requirement 改名为 TO:。
 3. capability 主 spec 缺席时创建：简短 `## Purpose`（TBD 可）+ ADDED requirements。
 4. 合并幂等：对已同步的主基线重跑本段应零变化。
 
 约束（必须遵守）：
-- 只编辑 `openspec/specs/**`；不修改 `openspec/changes/{change}/`（delta 原件由归档
-  收口整体迁移）。
+- 只编辑 `openspec/specs/**`；不修改 `openspec/changes/{change}/`（delta 原件由归档收口整体迁移）。
 - 禁止调用 MCP 工具（change_list 等）、禁止 __TOOL_ASK_USER__、不读写 workflow.json。
 - 不执行任何 git 命令——提交与合入由桌面编排代执行。
 - 完成后最终消息简述各 capability 的合并动作（added / modified / removed / renamed）。"
+    )
+}
+
+/// 解冲突 agent prompt（D6 新增）：冲突清单插值 + 只编辑清单内文件 + 逐文件
+/// 精确 add + 禁收口 / 改史命令（agent git 面机械收缩——merge 收口归编排链）。
+pub(crate) fn merge_conflict_prompt(change: &str, conflicts: &[String]) -> String {
+    let list = conflicts.join("\n");
+    format!(
+        "你执行 change「{change}」归档链的合入冲突解算段。主仓当前分支合入分支 change/{change} 时以下文件冲突（冲突态已保留，merge 进行中）：
+
+{list}
+
+对每个冲突文件：
+1. 读文件内的冲突标记区块（<<<<<<< / ======= / >>>>>>>），结合两侧语义裁决出正确的合并结果。
+2. 以裁决结果编辑该文件，移除全部冲突标记。
+3. 完成后对该文件执行 `git add <该文件路径>`（逐文件精确 add）。
+
+约束（必须遵守）：
+- 只编辑上面清单内的文件；清单外任何文件一律不动（含未提交 / staged 的无关内容——它们属于用户）。
+- 禁止 `git add -A` / `git add .`；禁止 `git commit` / `git merge` / `git rebase` / `git reset` / `git stash` 等收口或改写历史的命令——merge 收口由桌面编排执行。
+- 禁止调用 MCP 工具、禁止 __TOOL_ASK_USER__。
+- 全部冲突文件解算并 add 后，最终消息简述各文件的裁决要点。"
     )
 }
 
@@ -510,8 +558,9 @@ pub async fn run_archive_flow(
     guard.finish(summary, error);
 }
 
-/// 阶段机主体：线性六段，任一失败停在该阶段（failed 信封 + Terminal），
-/// 阶段间取消旗检查点。
+/// 阶段机主体：线性六段（校验 → worktree 提交 → 主仓合入（含冲突 agent 分支）
+/// → spec 同步 → 双写收口 → 落盘提交），任一失败停在该阶段（failed 信封 +
+/// Terminal），阶段间取消旗检查点。
 async fn drive(
     worker: &Arc<dyn WorkerAgentPort>,
     vcs: &Arc<dyn ArchiveVcsPort>,
@@ -599,7 +648,84 @@ async fn drive(
     stage_passed(guard, ArchiveStage::Preflight, None);
     check_stop(guard)?;
 
-    // ── SpecSync：delta specs 在场且 sync_specs 才发起 agent 会话 ──
+    // ── Commit：干净探测唯一跳过依据（merged 短路砍除——D2：零提交分支
+    // tip = 创建基线，主仓前进即令基线可达 HEAD，可达性跳过正是死法根源；
+    // 桌面执行相位从不提交 → 脏即提交）──
+    stage_running(guard, ArchiveStage::Commit);
+    match worktree {
+        None => stage_skipped(
+            guard,
+            ArchiveStage::Commit,
+            Some(TXT_SKIP_LEGACY.to_owned()),
+        ),
+        Some(worktree_path) => {
+            if !Path::new(worktree_path).is_dir() {
+                // 目录缺失 = 内容已在主仓（Preflight 已拦「缺失且未合入」形态，
+                // 此处不设第二次 merged 查询；Preflight 与本段间微秒级 TOCTOU
+                //（用户恰在此窗口删目录）退化为干净跳过，非破坏性，留痕）
+                stage_skipped(
+                    guard,
+                    ArchiveStage::Commit,
+                    Some(TXT_SKIP_MERGED.to_owned()),
+                );
+            } else if vcs.dirty(Path::new(worktree_path), &[]) {
+                vcs.commit_all(
+                    Path::new(worktree_path),
+                    &format!("archive: {}", request.change),
+                )
+                .map_err(|error| {
+                    fail_stage(
+                        guard,
+                        ArchiveStage::Commit,
+                        format!("worktree 提交失败: {error}"),
+                    )
+                })?;
+                stage_passed(guard, ArchiveStage::Commit, None);
+            } else {
+                stage_skipped(guard, ArchiveStage::Commit, Some(TXT_SKIP_CLEAN.to_owned()));
+            }
+        }
+    }
+    check_stop(guard)?;
+
+    // ── Merge：merged 幂等跳过维持（提交段已保证分支携带内容，此时可达性
+    // 判定安全）；冲突分支内嵌（D3–D7：快照 → 解冲突 agent → 后验 → 链代
+    // 收口；无法裁决走 lean 收敛）──
+    stage_running(guard, ArchiveStage::Merge);
+    match worktree {
+        None => stage_skipped(guard, ArchiveStage::Merge, Some(TXT_SKIP_LEGACY.to_owned())),
+        Some(_) => {
+            let merged = vcs.branch_merged(&main_root, &branch).map_err(|error| {
+                fail_stage(
+                    guard,
+                    ArchiveStage::Merge,
+                    format!("分支合入判定失败: {error}"),
+                )
+            })?;
+            if merged {
+                stage_skipped(guard, ArchiveStage::Merge, Some(TXT_SKIP_MERGED.to_owned()));
+            } else {
+                match vcs.merge_branch(&main_root, &branch) {
+                    Ok(MergeOutcome::Merged) => stage_passed(guard, ArchiveStage::Merge, None),
+                    // 非冲突失败（主仓状态不允许等）：串即 port Err——AC-8 面
+                    // 零加工（git 语境 + 手动处置引导已在 port 侧铸好）
+                    Err(error) => return Err(fail_stage(guard, ArchiveStage::Merge, error)),
+                    Ok(MergeOutcome::Conflicted(conflicts)) => {
+                        resolve_conflicts(
+                            worker, vcs, guard, request, &main_root, &branch, &conflicts,
+                        )
+                        .await?;
+                    }
+                }
+            }
+        }
+    }
+    check_stop(guard)?;
+
+    // ── SpecSync：段位后移至合入后（D8——worktree change 的 delta specs 已
+    // 随合入进入主仓 active 树、legacy 本就在主仓，`locate_change` 主仓优先
+    // 解析链此刻必主仓命中）：cwd 恒主 root，同步合并基线恒 = 主仓当前 specs；
+    // 死法 B（sync 产物搁浅 worktree）结构性消灭──
     let delta_specs = detect_delta_specs(&layout, worktree, &request.change);
     let specs = if delta_specs.is_empty() {
         stage_running(guard, ArchiveStage::SpecSync);
@@ -619,14 +745,9 @@ async fn drive(
         ArchiveSpecsStatus::Skipped
     } else {
         stage_running(guard, ArchiveStage::SpecSync);
-        // 同步会话 cwd（D7）：record.worktree 在场且 is_dir → worktree 绝对路径
-        //（同步产物随本 change 分支再合入，主仓 aftermath 最小）；否则主 root
-        let cwd = worktree
-            .filter(|path| Path::new(path).is_dir())
-            .map(str::to_owned)
-            .unwrap_or_else(|| request.root.clone());
+        // 会话 cwd 恒 = 主 workspace root（worktree-cwd 分支砍除——D8）
         let turn = WorkerTurnRequest {
-            root: cwd,
+            root: request.root.clone(),
             prompt: spec_sync_prompt(&request.change),
             provenance: SessionProvenance {
                 source: SOURCE_CHANGE.to_owned(),
@@ -666,80 +787,6 @@ async fn drive(
     };
     check_stop(guard)?;
 
-    // ── Commit（worktree 记录在场才执行；legacy 整段 skipped）──
-    stage_running(guard, ArchiveStage::Commit);
-    match worktree {
-        None => stage_skipped(
-            guard,
-            ArchiveStage::Commit,
-            Some(TXT_SKIP_LEGACY.to_owned()),
-        ),
-        Some(worktree_path) => {
-            let merged = vcs.branch_merged(&main_root, &branch).map_err(|error| {
-                fail_stage(
-                    guard,
-                    ArchiveStage::Commit,
-                    format!("分支合入判定失败: {error}"),
-                )
-            })?;
-            if merged {
-                stage_skipped(
-                    guard,
-                    ArchiveStage::Commit,
-                    Some(TXT_SKIP_MERGED.to_owned()),
-                );
-            } else if !Path::new(worktree_path).is_dir() {
-                return Err(fail_stage(
-                    guard,
-                    ArchiveStage::Commit,
-                    format!(
-                        "worktree 目录不存在（未合入形态）: {worktree_path}；\
-                         请恢复目录，或手动将分支 {branch} 合入主仓后重试归档"
-                    ),
-                ));
-            } else if vcs.dirty(Path::new(worktree_path), &[]) {
-                vcs.commit_all(
-                    Path::new(worktree_path),
-                    &format!("archive: {}", request.change),
-                )
-                .map_err(|error| {
-                    fail_stage(
-                        guard,
-                        ArchiveStage::Commit,
-                        format!("worktree 提交失败: {error}"),
-                    )
-                })?;
-                stage_passed(guard, ArchiveStage::Commit, None);
-            } else {
-                stage_skipped(guard, ArchiveStage::Commit, Some(TXT_SKIP_CLEAN.to_owned()));
-            }
-        }
-    }
-    check_stop(guard)?;
-
-    // ── Merge（worktree 记录在场才执行；冲突 / 状态不允许 Err 停等）──
-    stage_running(guard, ArchiveStage::Merge);
-    match worktree {
-        None => stage_skipped(guard, ArchiveStage::Merge, Some(TXT_SKIP_LEGACY.to_owned())),
-        Some(_) => {
-            let merged = vcs.branch_merged(&main_root, &branch).map_err(|error| {
-                fail_stage(
-                    guard,
-                    ArchiveStage::Merge,
-                    format!("分支合入判定失败: {error}"),
-                )
-            })?;
-            if merged {
-                stage_skipped(guard, ArchiveStage::Merge, Some(TXT_SKIP_MERGED.to_owned()));
-            } else {
-                vcs.merge_branch(&main_root, &branch)
-                    .map_err(|error| fail_stage(guard, ArchiveStage::Merge, error))?;
-                stage_passed(guard, ArchiveStage::Merge, None);
-            }
-        }
-    }
-    check_stop(guard)?;
-
     // ── Seal：写面 archive 双写单点直调（半完成重试走既有续半边）──
     stage_running(guard, ArchiveStage::Seal);
     let sealed = workflow::write::archive(&layout, store.as_ref(), &request.change)
@@ -750,25 +797,34 @@ async fn drive(
         Some(sealed.archived_date.clone()),
     );
 
-    // ── Finalize：归档落盘 pathspec 提交（脏探测跳过幂等面，D11）──
+    // ── Finalize：归档落盘 pathspec 提交（脏探测跳过幂等面；扩围 D9）──
     stage_running(guard, ArchiveStage::Finalize);
     let domain = domain_dir_name();
     let active_pathspec = format!("{domain}/changes/{}", request.change);
     let archived_dir = format!("{}-{}", sealed.archived_date, request.change);
     let archived_pathspec = format!("{domain}/changes/archive/{archived_dir}");
-    let pathspecs = [active_pathspec.as_str(), archived_pathspec.as_str()];
-    if vcs.dirty(&main_root, &pathspecs) {
+    // pathspec 集 = 归档改名两路径 + delta capability 主 specs 子树各一段
+    //（D9——与同步段探测同源零二次探测；用户跳过同步时同样扩围；全树
+    // `{domain}/specs/**` 通配为禁区——无关 specs 的用户未提交编辑 MUST NOT
+    // 被吞并）。子树缺席（新 capability 且跳过同步等形态）经 fs 门剔除：缺席
+    // 段本就无事可做，且 git add / commit 对 unmatched pathspec fatal——缺席
+    // 段留在集合内会误停落盘段。
+    let mut pathspecs = vec![active_pathspec, archived_pathspec.clone()];
+    for capability in &delta_specs {
+        let spec_path = format!("{domain}/specs/{capability}");
+        if main_root.join(&spec_path).is_dir() {
+            pathspecs.push(spec_path);
+        }
+    }
+    let pathspec_refs: Vec<&str> = pathspecs.iter().map(String::as_str).collect();
+    if vcs.dirty(&main_root, &pathspec_refs) {
         vcs.commit_paths(
             &main_root,
-            &pathspecs,
+            &pathspec_refs,
             &format!("archive: move {} to archive", request.change),
         )
         .map_err(|error| fail_stage(guard, ArchiveStage::Finalize, error))?;
-        stage_passed(
-            guard,
-            ArchiveStage::Finalize,
-            Some(archived_pathspec.clone()),
-        );
+        stage_passed(guard, ArchiveStage::Finalize, Some(archived_pathspec));
     } else {
         stage_skipped(
             guard,
@@ -783,6 +839,322 @@ async fn drive(
         specs,
         warnings,
     })
+}
+
+// ---------------------------------------------------------------------------
+// 合入冲突分支（design D3–D7 + D10 lean 收敛）：冲突态保留 → A 快照 → 解冲突
+// agent 会话 → 后验（标记扫描 + B 快照 + 状态面对比）→ 链代收口；无法裁决
+// 一律 lean 收敛（abort 尽力 + 停链咨询串）。
+// ---------------------------------------------------------------------------
+
+/// 合入冲突分支主体：任一失败面 → lean 收敛（`Err(Terminal)`，链停 Merge 段）；
+/// 全通过 → 链代收口 + Merge passed，续走后续段。
+async fn resolve_conflicts(
+    worker: &Arc<dyn WorkerAgentPort>,
+    vcs: &Arc<dyn ArchiveVcsPort>,
+    guard: &ArchiveGuard,
+    request: &ArchiveRequest,
+    main_root: &Path,
+    branch: &str,
+    conflicts: &[String],
+) -> Result<(), Terminal> {
+    // ① A 基面（agent 前快照；探测失败无从后验 → lean「后验探测失败」——D10
+    // 单一收敛序）
+    let baseline = match vcs.worktree_snapshot(main_root) {
+        Ok(snapshot) => snapshot,
+        Err(_) => {
+            return Err(lean_converge(
+                guard,
+                vcs,
+                main_root,
+                branch,
+                conflicts,
+                LEAN_PROBE_FAILED,
+                false,
+            ))
+        }
+    };
+    // ② running detail 追加（同段后写覆盖既有机制——转录面板随之呈现当前
+    // 解算会话，D7）
+    guard.emit(ArchiveUpdate::Stage {
+        stage: ArchiveStageState {
+            stage: ArchiveStage::Merge,
+            status: ArchiveStageStatus::Running,
+            detail: Some(TXT_MERGE_RESOLVING.to_owned()),
+        },
+    });
+    // ③ 解冲突 agent 会话（D5 定式：cwd = 主 workspace root、bypassPermissions、
+    // ModelLevel::High、role=Executor、新会话；provenance 与 spec-sync 同族
+    // 归档语义段 `<change>/archive/merge-conflict`）
+    let turn = WorkerTurnRequest {
+        root: request.root.clone(),
+        prompt: merge_conflict_prompt(&request.change, conflicts),
+        provenance: SessionProvenance {
+            source: SOURCE_CHANGE.to_owned(),
+            source_ref: Some(format!("{}/archive/merge-conflict", request.change)),
+        },
+        permission: AgentPermissionMode::BypassPermissions,
+        model_level: ModelLevel::High,
+        continue_session: None,
+        agent: None,
+        role: WorkerRole::Executor,
+    };
+    let outcome = match worker.run(turn).await {
+        Ok(outcome) => outcome,
+        Err(_) => {
+            return Err(lean_converge(
+                guard,
+                vcs,
+                main_root,
+                branch,
+                conflicts,
+                LEAN_AGENT_FAILED,
+                false,
+            ))
+        }
+    };
+    match outcome.status {
+        AgentRunStatus::Completed => {}
+        // 被停止特例（D7）：不用 TXT_STOPPED 收敛词——lean 串附「（归档链已
+        // 停止）」注记，冲突摘要与手动裁决引导照常呈现
+        AgentRunStatus::Stopped => {
+            return Err(lean_converge(
+                guard,
+                vcs,
+                main_root,
+                branch,
+                conflicts,
+                LEAN_AGENT_STOPPED,
+                true,
+            ))
+        }
+        AgentRunStatus::Failed | AgentRunStatus::Running => {
+            return Err(lean_converge(
+                guard,
+                vcs,
+                main_root,
+                branch,
+                conflicts,
+                LEAN_AGENT_FAILED,
+                false,
+            ))
+        }
+    }
+    // ④ 后验序（D4）：残留标记 fs 扫描（locale 免疫）→ B 快照 → 状态面对比
+    if !residual_markers(main_root, conflicts).is_empty() {
+        return Err(lean_converge(
+            guard,
+            vcs,
+            main_root,
+            branch,
+            conflicts,
+            LEAN_RESIDUAL,
+            false,
+        ));
+    }
+    let after = match vcs.worktree_snapshot(main_root) {
+        Ok(snapshot) => snapshot,
+        Err(_) => {
+            return Err(lean_converge(
+                guard,
+                vcs,
+                main_root,
+                branch,
+                conflicts,
+                LEAN_PROBE_FAILED,
+                false,
+            ))
+        }
+    };
+    if let Err(reason) = verify_resolution(&baseline, &after, conflicts) {
+        return Err(lean_converge(
+            guard, vcs, main_root, branch, conflicts, &reason, false,
+        ));
+    }
+    // ⑤ 链代收口（D6）：`commit --no-edit` 只提交索引内既定 merge 结果。失败
+    // 不走 lean abort——冲突解已验通过、merge 态完整，自动回退会丢弃解算成果
+    //（串附人工收口 / 回退二选一引导，半截态重试前须人工清）
+    if let Err(error) = vcs.commit_merge(main_root) {
+        return Err(fail_stage(
+            guard,
+            ArchiveStage::Merge,
+            format!("{error}；冲突解算已验通过但收口提交失败：{TXT_MERGE_COMMIT_GUIDE}"),
+        ));
+    }
+    stage_passed(
+        guard,
+        ArchiveStage::Merge,
+        Some(format!(
+            "{TXT_MERGE_RESOLVED_PREFIX}{} 文件",
+            conflicts.len()
+        )),
+    );
+    Ok(())
+}
+
+/// lean 档无法裁决收敛（D7/D10 单点）：`abort_merge` 尽力执行（自身 Err 附注
+/// 呈现，不掩盖原记因）+ Merge 段 failed（lean 串 = 原因词 + 冲突逐行清单 +
+/// abort 告知 + 手动 merge 引导 + 重试幂等说明）。
+fn lean_converge(
+    guard: &ArchiveGuard,
+    vcs: &Arc<dyn ArchiveVcsPort>,
+    main_root: &Path,
+    branch: &str,
+    conflicts: &[String],
+    reason: &str,
+    stopped_note: bool,
+) -> Terminal {
+    let abort_note = match vcs.abort_merge(main_root) {
+        Ok(()) => String::new(),
+        Err(_) => format!("（{TXT_LEAN_ABORT_FAILED}）"),
+    };
+    let mut message = format!(
+        "合入冲突无法自动裁决（{reason}）。冲突文件 {} 个：{}\n已执行 git merge --abort \
+         恢复主仓干净态{abort_note}。请手动将分支 {branch} 合入主仓并解冲突后重试归档\
+         ——重试将识别已合入并续走收口。",
+        conflicts.len(),
+        conflicts.join("\n"),
+    );
+    if stopped_note {
+        message.push_str(TXT_LEAN_STOPPED_NOTE);
+    }
+    fail_stage(guard, ArchiveStage::Merge, message)
+}
+
+/// 后验状态面对比（D4 纯函数）：A = 冲突即时快照、B = 解冲突收口后快照。
+/// ① `B.merge_head` 缺席 → Err（agent 违约自行收口 / 中止 merge——附 A.head
+/// 的 `git reset --hard` 引导，链不自动改写历史）；② 冲突路径索引无 stage>0
+/// 残留；③ 冲突路径 worktree 干净（y=' '）且索引单条 stage-0 或删除缺席；
+/// ④ 非 C 路径 porcelain 状态与索引条目（mode/hash/stage）A/B 逐字一致、B 无
+/// A 缺席的新路径、消失路径 ⊆ 冲突清单——否则「清单外新改动」（捕获：agent
+/// 新建 / 新 add 文件、staged 用户文件、动用户未跟踪文件）。
+pub(crate) fn verify_resolution(
+    baseline: &WorktreeSnapshot,
+    after: &WorktreeSnapshot,
+    conflicts: &[String],
+) -> Result<(), String> {
+    // ① MERGE_HEAD 在场性（merge 态判别——agent 违约收口 / 中止的捕获面）
+    if after.merge_head.is_none() {
+        return Err(format!(
+            "{LEAN_MERGE_CLOSED}——MERGE_HEAD 缺席，可 git reset --hard {} 回退半截态后重试",
+            baseline.head
+        ));
+    }
+    let conflict_set: std::collections::HashSet<&str> =
+        conflicts.iter().map(String::as_str).collect();
+    // ②③ 冲突路径：无 stage>0 残留条目；worktree 干净（y=' '）且索引单条
+    // stage-0（或已删除缺席）——全量 staged 才可收口
+    for path in conflicts {
+        let unmerged = after
+            .index
+            .iter()
+            .any(|entry| entry.path == *path && entry.stage > 0);
+        let worktree_dirty = after
+            .status
+            .iter()
+            .any(|entry| entry.path == *path && entry.y != ' ');
+        let stage_zero = after
+            .index
+            .iter()
+            .filter(|entry| entry.path == *path && entry.stage == 0)
+            .count();
+        if unmerged || worktree_dirty || stage_zero > 1 {
+            return Err(LEAN_RESIDUAL.to_owned());
+        }
+    }
+    // ④ 非 C 路径逐字一致（porcelain XY 与索引 mode/hash/stage 双面对拍）
+    let mut status_a: Vec<(&str, char, char)> = baseline
+        .status
+        .iter()
+        .filter(|entry| !conflict_set.contains(entry.path.as_str()))
+        .map(|entry| (entry.path.as_str(), entry.x, entry.y))
+        .collect();
+    status_a.sort_unstable();
+    let mut status_b: Vec<(&str, char, char)> = after
+        .status
+        .iter()
+        .filter(|entry| !conflict_set.contains(entry.path.as_str()))
+        .map(|entry| (entry.path.as_str(), entry.x, entry.y))
+        .collect();
+    status_b.sort_unstable();
+    let mut index_a: Vec<(&str, &str, &str, u8)> = baseline
+        .index
+        .iter()
+        .filter(|entry| !conflict_set.contains(entry.path.as_str()))
+        .map(|entry| {
+            (
+                entry.path.as_str(),
+                entry.mode.as_str(),
+                entry.hash.as_str(),
+                entry.stage,
+            )
+        })
+        .collect();
+    index_a.sort_unstable();
+    let mut index_b: Vec<(&str, &str, &str, u8)> = after
+        .index
+        .iter()
+        .filter(|entry| !conflict_set.contains(entry.path.as_str()))
+        .map(|entry| {
+            (
+                entry.path.as_str(),
+                entry.mode.as_str(),
+                entry.hash.as_str(),
+                entry.stage,
+            )
+        })
+        .collect();
+    index_b.sort_unstable();
+    if status_a != status_b || index_a != index_b {
+        return Err(LEAN_OUTSIDE_CHANGES.to_owned());
+    }
+    // ④ 续：B 无 A 缺席的新路径（agent 新建 / 新 add 即违约）；消失路径 ⊆
+    // 冲突清单（冲突路径解算后收敛至与 HEAD 一致而离开 status 是合法消失）
+    let paths_a: std::collections::HashSet<&str> = baseline
+        .status
+        .iter()
+        .map(|entry| entry.path.as_str())
+        .collect();
+    if let Some(new_path) = after
+        .status
+        .iter()
+        .map(|entry| entry.path.as_str())
+        .find(|path| !paths_a.contains(path))
+    {
+        return Err(format!("{LEAN_OUTSIDE_CHANGES}: {new_path}"));
+    }
+    let paths_b: std::collections::HashSet<&str> = after
+        .status
+        .iter()
+        .map(|entry| entry.path.as_str())
+        .collect();
+    if let Some(gone_path) = baseline
+        .status
+        .iter()
+        .map(|entry| entry.path.as_str())
+        .find(|path| !paths_b.contains(path) && !conflict_set.contains(path))
+    {
+        return Err(format!("{LEAN_OUTSIDE_CHANGES}: {gone_path}"));
+    }
+    Ok(())
+}
+
+/// 冲突标记 fs 扫描（D4，locale 免疫）：逐清单文件逐行扫描行首 `<<<<<<< ` /
+/// `>>>>>>> ` 形态，返回 `文件:行` 命中清单；读取失败 / 文件缺席按无标记处理
+///（fs 缺席形态由后验状态面对比承载）。
+pub(crate) fn residual_markers(root: &Path, conflicts: &[String]) -> Vec<String> {
+    let mut hits = Vec::new();
+    for path in conflicts {
+        let Ok(content) = std::fs::read_to_string(root.join(path)) else {
+            continue;
+        };
+        for (offset, line) in content.lines().enumerate() {
+            if line.starts_with("<<<<<<< ") || line.starts_with(">>>>>>> ") {
+                hits.push(format!("{path}:{}", offset + 1));
+            }
+        }
+    }
+    hits
 }
 
 /// 阶段 running 信封发布。

@@ -36,6 +36,14 @@ pub fn locate_change(
     if !is_single_component_name(name) {
         return None;
     }
+    let worktree_root = worktree?;
+    let worktree_dir = resolve(Path::new(worktree_root)).changes_root.join(name);
+    if worktree_dir.is_dir() {
+        return Some(ChangeLocation {
+            dir: worktree_dir,
+            source: ChangeSource::Active,
+        });
+    }
     let active = layout.changes_root.join(name);
     if active.is_dir() {
         return Some(ChangeLocation {
@@ -54,15 +62,6 @@ pub fn locate_change(
         return Some(ChangeLocation {
             dir: prefixed,
             source: ChangeSource::Archive,
-        });
-    }
-    // worktree 回退：带 worktree 记录的 change（merge 前）目录在 worktree 内
-    let worktree_root = worktree?;
-    let worktree_dir = resolve(Path::new(worktree_root)).changes_root.join(name);
-    if worktree_dir.is_dir() {
-        return Some(ChangeLocation {
-            dir: worktree_dir,
-            source: ChangeSource::Active,
         });
     }
     None

@@ -515,13 +515,13 @@ async fn start受理与事件流回环_legacy无delta链路收口() {
         distinct,
         vec![
             "preflight",
-            "specSync",
             "commit",
             "merge",
+            "specSync",
             "seal",
             "finalize"
         ],
-        "六段阶段线词依序全到（camelCase 线词；信封流: {stage_words:?}）"
+        "六段阶段线词依序全到（D1 执行序；信封流: {stage_words:?}）"
     );
     // 终态为成功收口（summary 在场）
     let finished = envelopes

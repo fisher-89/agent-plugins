@@ -1,11 +1,13 @@
 /**
- * 归档面板（design D13/D14）：确认对话（完成度警告清单不阻断 + delta specs
- * 清单 + worktree 合入告知与目标分支名 + 跳过同步 checkbox + runActive 拒绝
- * 卡）→ 进行面（六段阶段清单 + 停止 + agent 转录入口——复用
- * `useSessionTranscript` + `AgentTimeline` 直组，零第二套时间线）→ 终态面
- *（结果摘要 / 错误 + 幂等重试）。面板纯呈现面：状态与动作经
- * `use-archive-flow` 注入；失败重试直发 start（全阶段幂等——重试快速空走到
- * 未完成阶段续走）。
+ * 归档面板（design D13/D14 + archive-merge-first D11）：确认对话（完成度警告
+ * 清单不阻断 + delta specs 清单 + worktree 合入告知与目标分支名 + 跳过同步
+ * checkbox + runActive 拒绝卡）→ 进行面（六段阶段清单——呈现序 = 执行序：
+ * 校验 → 提交 → 合入 → 同步 → 双写 → 落盘；合入段子阶段 = 单行内状态与
+ * detail 演进——冲突解算中 / 已解冲突 / lean 咨询串均经既有 detail 透传，
+ * 零子阶段行；停止 + agent 转录入口——复用 `useSessionTranscript` +
+ * `AgentTimeline` 直组，转录随当前会话切换零切换器）→ 终态面（结果摘要 /
+ * 错误 + 幂等重试）。面板纯呈现面：状态与动作经 `use-archive-flow` 注入；
+ * 失败重试直发 start（全阶段幂等——重试快速空走到未完成阶段续走）。
  */
 import { useEffect, useState } from 'react';
 
@@ -326,7 +328,8 @@ function ConfirmDialogFace({
 // 进行面
 // ---------------------------------------------------------------------------
 
-/** 六段阶段清单（固定行序；`data-status` 供测试读态）。 */
+/** 六段阶段清单（固定行序 = 执行序——archive-merge-first D1；合入段子阶段
+ * 经同段后写覆盖的 detail 演进呈现，零子阶段行；`data-status` 供测试读态）。 */
 function StageList({
   stages,
 }: {
@@ -405,8 +408,10 @@ function ProgressFace({
   );
 }
 
-/** 同步 agent 会话转录入口（`useSessionTranscript` + `AgentTimeline` 直组——
- * 库内重放 + live 事件按 seq 归并，与既有装配同源语义）。 */
+/** 归档 agent 会话转录入口（`useSessionTranscript` + `AgentTimeline` 直组——
+ * 库内重放 + live 事件按 seq 归并，与既有装配同源语义；归档链两会话（解冲突
+ * → spec 同步）严格串行，本面只呈现当前会话——D5 单槽复用，已收口会话经
+ * 密封转录按 source_ref 反查回放，前端不设会话切换器）。 */
 function ArchiveTranscript({
   root,
   sessionId,

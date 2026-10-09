@@ -474,15 +474,18 @@ export type ArchiveSpecsStatus =
 export type ArchiveStage = 
 /**  前置重校验（建档在案 + status=active + worktree 在场性） */
 "preflight" | 
+/**  worktree 全域提交（worktree 记录在场才执行；干净探测唯一跳过依据） */
+"commit" | 
+/**  主仓合入（branch `change/<name>` → 主仓当前分支；冲突解 agent 分支内嵌） */
+"merge" | 
 /**  delta specs 同步 agent 会话（缺席 / 用户跳过则 skipped） */
 "specSync" | 
-/**  worktree 全域提交（worktree 记录在场才执行） */
-"commit" | 
-/**  主仓合入（branch `change/<name>` → 主仓当前分支） */
-"merge" | 
 /**  写面 `archive` 双写收口（改名 + db 翻转） */
 "seal" | 
-/**  归档落盘 pathspec 提交（脏探测跳过幂等面） */
+/**
+ *  归档落盘 pathspec 提交（脏探测跳过幂等面；扩围含 delta capability 主
+ *  specs 子树）
+ */
 "finalize";
 
 export type ArchiveStageState = {
