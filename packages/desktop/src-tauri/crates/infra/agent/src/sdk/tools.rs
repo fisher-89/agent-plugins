@@ -1,19 +1,3 @@
-//! sdk 引擎七工具面：read / grep / glob / ls / write / edit / bash 的定义
-//! （名称 / 描述 / JSON schema 入参）与异步执行体（bash 执行体见
-//! [`crate::sdk::bash`]）。
-//!
-//! 边界：执行体不内嵌 policy / sandbox 检查（由 loop 统一插值——拒绝时
-//! 不进执行体）。错误统一 `Err(String)`（is_error ToolResult 的内容来源）；
-//! 成功 `Ok(String)` 为扁平文本结果。分发出口统一 L1 单结果字节上限收口
-//! （Ok / Err 双路截断留痕，bash 输出同归此层）。
-//!
-//! 路径约定：入参 `input` 的 `path` 字段已被 loop 经 sandbox 校验后改写为
-//! workspace 内规范路径（[`crate::sdk::sandbox`]），执行体直接信任之；
-//! glob 工具无 `path` 字段，以 root 相对 pattern 驱动（pattern 合法性同经
-//! sandbox 的 [`crate::sdk::sandbox::check_pattern`] 预检）；bash 无路径面
-//! （cwd = root，命令执行不在路径沙箱射程内——知情边界见
-//! [`crate::sdk::policy`]）。
-
 use std::path::Path;
 
 use regex::Regex;
@@ -375,14 +359,21 @@ fn render_file_hits(path: &str, lines: &[&str], hits: &[usize], context: usize) 
     output
 }
 
-/// glob：root 相对模式扫描（分隔符统一 `/`），路径字典序，结果截断留痕。
+fn normalize_trailing_recursive(pattern: &str) -> String {
+    if pattern == "**" || pattern.ends_with("/**") {
+        format!("{pattern}/*")
+    } else {
+        pattern.to_owned()
+    }
+}
+
 async fn glob(root: &Path, input: &Value) -> Result<String, String> {
     let pattern = string_field(input, "pattern")?;
     let base = root.to_string_lossy().replace('\\', "/");
     let full = format!(
         "{}/{}",
         base.trim_end_matches('/'),
-        pattern.replace('\\', "/")
+        normalize_trailing_recursive(&pattern.replace('\\', "/"))
     );
     let entries = glob::glob(&full).map_err(|e| format!("非法 glob 模式: {e}"))?;
     let mut paths: Vec<String> = Vec::new();

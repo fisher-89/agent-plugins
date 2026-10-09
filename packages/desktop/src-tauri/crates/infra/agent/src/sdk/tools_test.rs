@@ -1,11 +1,3 @@
-//! sdk 七工具面（read / grep / glob / ls / write / edit / bash）的定义与执行
-//! 体测试（AC-3 / AC-5 / AC-10 的工具半边）：定义清单封闭性、逐工具执行体
-//! 正反例与边界、L1 单结果字节上限收口（Ok / Err 双路）。tempfile tempdir
-//! 真实目录驱动，glob 库以真实实现参与（workspace 直连依赖，不 mock）；
-//! bash 臂经 `sdk::bash::execute` 真实组合（短命 echo 类命令）；执行体信任
-//! loop 沙箱改写后的路径（不内嵌检查），沙箱链拒绝半边经 input_path → check
-//! 组合断言与 runner_test 假流缝全链承载。
-
 use std::path::{Path, PathBuf};
 
 use serde_json::{json, Value};
@@ -602,6 +594,39 @@ async fn glob命中单层与跨目录模式且路径字典序() {
     let a_index = all.find("a.rs").expect("a.rs 在场");
     let b_index = all.find("b.rs").expect("b.rs 在场");
     assert!(a_index < b_index, "路径字典序输出");
+}
+
+#[tokio::test]
+async fn glob尾段裸双星归一化_直属与深层文件命中() {
+    let dir = tempdir("glob-recursive");
+    let root = root_of(&dir);
+    write_rel(&root, "changes/x/explore.md", "goal");
+    write_rel(&root, "changes/x/specs/a.md", "a");
+
+    // 回归锚（archive-merge-first proposal 探测假阴性现场）：glob crate 尾段
+    // 裸 `**` 原生只命中后代目录，直属文件被遍历层丢弃；归一化后两者入场
+    let direct = execute(&root, "glob", &json!({ "pattern": "changes/x/**" }))
+        .await
+        .expect("尾段裸 ** glob 成功");
+    assert!(
+        direct.contains("explore.md") && direct.contains("specs/a.md"),
+        "直属与深层文件均命中: {direct}"
+    );
+
+    // 裸 **（root 全域）同口径
+    let bare = execute(&root, "glob", &json!({ "pattern": "**" }))
+        .await
+        .expect("裸 ** glob 成功");
+    assert!(bare.contains("explore.md"), "裸 ** 含直属文件: {bare}");
+
+    // 无匹配回显原始 pattern（非归一化形）
+    let none = execute(&root, "glob", &json!({ "pattern": "no-such/**" }))
+        .await
+        .expect("无匹配非错误");
+    assert!(
+        none.contains("无匹配: no-such/**"),
+        "回显原 pattern: {none}"
+    );
 }
 
 #[tokio::test]

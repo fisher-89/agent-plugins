@@ -1,3 +1,4 @@
+import { PlusIcon, RefreshCwIcon } from 'lucide-react';
 import { useCallback } from 'react';
 import { useNavigate } from 'react-router';
 
@@ -109,12 +110,24 @@ export function ChangeListView({ root }: { root: string | null }) {
   return (
     <div>
       {/* 头部行（始终渲染）：刷新控件语义自 App header 迁入 */}
-      <div className="mb-3 flex items-center justify-end">
-        <Button disabled={state.loading} onClick={state.refresh}>
-          刷新列表
+      <div className="mb-3 flex gap-2 items-center justify-end">
+        <Button
+          variant="outline"
+          size="icon"
+          aria-label="刷新"
+          disabled={state.loading}
+          onClick={state.refresh}
+        >
+          <RefreshCwIcon />
         </Button>
+        {root !== null && (
+          <ChangeCreateDialog root={root} onCreated={onCreated}>
+            <Button variant="outline" size="icon" aria-label="新建变更" disabled={state.loading}>
+              <PlusIcon />
+            </Button>
+          </ChangeCreateDialog>
+        )}
       </div>
-      {root !== null && <ChangeCreateDialog root={root} onCreated={onCreated} />}
       {error !== null && (
         <div
           className="mb-3 break-all rounded-md bg-fail-bg px-3 py-2 text-fail"

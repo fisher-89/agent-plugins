@@ -3,11 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 
 import { ChangeCreateDialog } from './change-create-dialog';
 
-// 仅进程边界 mock（@tauri-apps/api/core invoke）：名称 / goal 输入、本地
-// kebab-case 校验与提交流转逻辑真实参与；create_change 应答可切换 resolve
-//（CreateOutcome fixture，含 worktree 执行锚与警告清单——D14 成功面）/ reject
-//（错误串），入参记录用于载荷与调用次数断言；onCreated 以 vi.fn spy 经
-// props 注入（入参例外；成功面「进入详情」按钮触发）。
+// 仅进程边界 mock
 const { invokeMock } = vi.hoisted(() => ({ invokeMock: vi.fn() }));
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: invokeMock }));
@@ -15,7 +11,7 @@ vi.mock('@tauri-apps/api/core', () => ({ invoke: invokeMock }));
 const ROOT = '/repo';
 
 /** CreateOutcome fixture（与 Rust 写面 DTO 同形：name / created / worktree /
- * warnings 四字段——worktree 为刻意出线的执行锚）。 */
+ * warnings 四字段）。 */
 const OUTCOME = {
   name: 'fix-bug',
   created: '2026-10-02',
@@ -23,12 +19,21 @@ const OUTCOME = {
   warnings: [] as string[],
 };
 
-/** 展开对话框（折叠态仅 toggle 常驻）。 */
-function openForm(): void {
-  fireEvent.click(screen.getByTestId('change-create-toggle'));
+/** 挂载对话框（触发器 = children 文本按钮）。 */
+function renderDialog(onCreated: (name: string) => void = vi.fn()): void {
+  render(
+    <ChangeCreateDialog root={ROOT} onCreated={onCreated}>
+      <button type="button">打开新建</button>
+    </ChangeCreateDialog>,
+  );
 }
 
-/** 填名称与 goal 并提交。 */
+/** 点击触发器打开弹窗。 */
+function openForm(): void {
+  fireEvent.click(screen.getByRole('button', { name: '打开新建' }));
+}
+
+/** 填名称与 goal 并点页脚「提交」。 */
 function submit(name: string, goal: string): void {
   fireEvent.change(screen.getByTestId('change-create-name'), {
     target: { value: name },
@@ -36,7 +41,7 @@ function submit(name: string, goal: string): void {
   fireEvent.change(screen.getByTestId('change-create-goal'), {
     target: { value: goal },
   });
-  fireEvent.click(screen.getByTestId('change-create-submit'));
+  fireEvent.click(screen.getByRole('button', { name: '提交' }));
 }
 
 /** create_change 调用载荷清单（进程边界观察面）。 */
@@ -46,99 +51,62 @@ function createCalls(): Array<Record<string, unknown>> {
     .map(([, args]) => args as Record<string, unknown>);
 }
 
-describe('ChangeCreateDialog：toggle 展开与成功提交流转', () => {
+describe('ChangeCreateDialog：弹窗开合与成功提交流转', () => {
   beforeEach(() => {
     invokeMock.mockReset();
     invokeMock.mockResolvedValue(OUTCOME);
   });
 
-  it('点击 toggle 展开名称 / goal 输入与提交按钮，再点收起且输入区不残留', () => {
-    render(<ChangeCreateDialog root={ROOT} onCreated={vi.fn()} />);
+  it('关闭态仅触发器在场；点开呈现标题 / 名称 / goal 输入与页脚按钮，取消关闭后输入区不残留', async () => {
+    renderDialog();
 
     expect(screen.queryByTestId('change-create-name')).toBeNull();
     expect(screen.queryByTestId('change-create-goal')).toBeNull();
 
     openForm();
+    expect(screen.getByText('新建变更') !== null).toBe(true);
     expect(screen.getByTestId('change-create-name') !== null).toBe(true);
     expect(screen.getByTestId('change-create-goal') !== null).toBe(true);
-    expect(screen.getByTestId('change-create-submit') !== null).toBe(true);
+    expect(screen.getByRole('button', { name: '提交' }) !== null).toBe(true);
+    expect(screen.getByRole('button', { name: '取消' }) !== null).toBe(true);
 
-    fireEvent.click(screen.getByTestId('change-create-toggle'));
-    expect(screen.queryByTestId('change-create-name')).toBeNull();
-    expect(screen.queryByTestId('change-create-goal')).toBeNull();
-    expect(screen.queryByTestId('change-create-submit')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: '取消' }));
+    await waitFor(() => {
+      expect(screen.queryByTestId('change-create-name')).toBeNull();
+      expect(screen.queryByTestId('change-create-goal')).toBeNull();
+    });
   });
 
-  it('合法输入提交：invoke("create_change") 恰一次且载荷为 {root, name, goal}；成功面呈现 worktree 路径，「进入详情」触发 onCreated(name) 恰一次', async () => {
+  it('合法输入提交：invoke("create_change") 恰一次且载荷为 {root, name, goal}；成功即关窗并触发 onCreated(name) 恰一次（成功面退役，直连导航）', async () => {
     const onCreated = vi.fn();
-    render(<ChangeCreateDialog root={ROOT} onCreated={onCreated} />);
+    renderDialog(onCreated);
     openForm();
 
     submit('fix-bug', '修复登录重试的竞态问题');
 
-    // 成功面替换表单（D14）：worktree 绝对路径行内呈现 + 进入详情按钮
-    const success = await screen.findByTestId('change-create-success');
-    expect(success.textContent).toContain('fix-bug');
-    const worktree = await screen.findByTestId('change-create-worktree');
-    expect(worktree.textContent).toContain(OUTCOME.worktree);
-    expect(worktree.className).toContain('break-all');
-    expect(screen.queryByTestId('change-create-name')).toBeNull();
+    await waitFor(() => expect(onCreated).toHaveBeenCalledTimes(1));
+    expect(onCreated).toHaveBeenCalledWith('fix-bug');
     expect(createCalls()).toEqual([
       { root: ROOT, name: 'fix-bug', goal: '修复登录重试的竞态问题' },
     ]);
-    expect(onCreated).not.toHaveBeenCalled();
-
-    fireEvent.click(screen.getByTestId('change-create-open-detail'));
-    expect(onCreated).toHaveBeenCalledTimes(1);
-    expect(onCreated).toHaveBeenCalledWith('fix-bug');
+    // 成功关窗：输入区退场
+    await waitFor(() => expect(screen.queryByTestId('change-create-name')).toBeNull());
   });
 
-  it('成功面警告清单行内逐条呈现（脏仓 / bootstrap 注记持久入 DTO）', async () => {
-    invokeMock.mockResolvedValue({
-      ...OUTCOME,
-      warnings: [
-        '主仓有未提交改动（worktree 基线仍取 HEAD）：建议先提交再开新 change',
-        '未识别依赖管理器，跳过依赖引导',
-      ],
-    });
-    render(<ChangeCreateDialog root={ROOT} onCreated={vi.fn()} />);
-    openForm();
-
-    submit('warned-change', '带警告的目标');
-
-    const warnings = await screen.findByTestId('change-create-warnings');
-    const items = warnings.querySelectorAll('li');
-    expect(items).toHaveLength(2);
-    expect(items[0].textContent).toContain('建议先提交再开新 change');
-    expect(items[1].textContent).toContain('未识别依赖管理器');
-  });
-
-  it('空警告清单：无警告区块渲染（空清单零占位）；worktree 路径仍呈现', async () => {
-    invokeMock.mockResolvedValue({ ...OUTCOME, warnings: [] });
-    render(<ChangeCreateDialog root={ROOT} onCreated={vi.fn()} />);
-    openForm();
-
-    submit('clean-change', '干净仓目标');
-
-    const worktree = await screen.findByTestId('change-create-worktree');
-    expect(worktree.textContent).toContain(OUTCOME.worktree);
-    expect(screen.queryByTestId('change-create-warnings')).toBeNull();
-  });
-
-  it('toggle 收起重开即重置（成功面随 CreateForm 卸载重建回落表单）', async () => {
-    render(<ChangeCreateDialog root={ROOT} onCreated={vi.fn()} />);
+  it('成功后再开即新表单（成功路径重置名称与 goal，无残留）', async () => {
+    const onCreated = vi.fn();
+    renderDialog(onCreated);
     openForm();
     submit('reset-after', '重置验证目标');
+    await waitFor(() => expect(onCreated).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(screen.queryByTestId('change-create-name')).toBeNull());
 
-    await screen.findByTestId('change-create-success');
-
-    fireEvent.click(screen.getByTestId('change-create-toggle'));
-    expect(screen.queryByTestId('change-create-success')).toBeNull();
-    fireEvent.click(screen.getByTestId('change-create-toggle'));
-    expect(screen.queryByTestId('change-create-success')).toBeNull();
+    openForm();
     const name_input = screen.getByTestId<HTMLInputElement>('change-create-name');
-    expect(name_input !== null).toBe(true);
+    const goal_input = screen.getByTestId<HTMLTextAreaElement>('change-create-goal');
     expect(name_input.value).toBe('');
+    expect(goal_input.value).toBe('');
+    expect(screen.queryByTestId('change-create-error')).toBeNull();
   });
 });
 
@@ -148,47 +116,54 @@ describe('ChangeCreateDialog：提交前 trim 与 free-form goal 透传', () => 
     invokeMock.mockResolvedValue(OUTCOME);
   });
 
-  it('名称与 goal 带首尾空白：invoke 载荷为 trim 后值（D6 校验对象与提交值同为 trim 后串）', async () => {
+  it('名称与 goal 带首尾空白：invoke 载荷为 trim 后值（校验对象与提交值同为 trim 后串）', async () => {
     const onCreated = vi.fn();
-    render(<ChangeCreateDialog root={ROOT} onCreated={onCreated} />);
+    renderDialog(onCreated);
     openForm();
 
     submit('  fix-bug  ', '  带空白的目标文本  ');
 
-    await screen.findByTestId('change-create-success');
+    await waitFor(() => expect(createCalls()).toHaveLength(1));
     expect(createCalls()).toEqual([{ root: ROOT, name: 'fix-bug', goal: '带空白的目标文本' }]);
   });
 
-  it('goal 多行 + emoji + 超 1000 字符原样透传不损（free-form UTF-8 前端半边 D7）', async () => {
-    render(<ChangeCreateDialog root={ROOT} onCreated={vi.fn()} />);
+  it('goal 多行 + emoji + 超 1000 字符原样透传不损（free-form UTF-8 前端半边）', async () => {
+    renderDialog();
     openForm();
     const goal = `第一行\n第二行 🚀 emoji\t制表符\n${'长'.repeat(1200)}`;
 
     submit('rich-goal', goal);
 
-    await screen.findByTestId('change-create-success');
+    await waitFor(() => expect(createCalls()).toHaveLength(1));
     expect(createCalls()).toEqual([{ root: ROOT, name: 'rich-goal', goal }]);
   });
 });
 
-describe('ChangeCreateDialog：必填与本地 kebab-case 校验（禁提交零 invoke）', () => {
+describe('ChangeCreateDialog：必填与本地 kebab-case 校验（失败留窗零 invoke）', () => {
   beforeEach(() => {
     invokeMock.mockReset();
     invokeMock.mockResolvedValue(OUTCOME);
   });
 
-  it('名称空或 goal 空白（"" / "   "）：提交按钮 disabled、点击零 invoke（必填拦截）', () => {
+  it('名称空或 goal 空白（"" / "   "）：点「提交」零 invoke、onCreated 零调用、弹窗不关且行内呈现校验错误', () => {
     const onCreated = vi.fn();
-    render(<ChangeCreateDialog root={ROOT} onCreated={onCreated} />);
+    renderDialog(onCreated);
     openForm();
 
     // 名称空 + goal 空（初始态）
-    expect(screen.getByTestId('change-create-submit').hasAttribute('disabled')).toBe(true);
+    fireEvent.click(screen.getByRole('button', { name: '提交' }));
+    expect(createCalls()).toHaveLength(0);
+    expect(onCreated).not.toHaveBeenCalled();
+    expect(screen.getByTestId('change-create-error').textContent).toContain('校验不通过');
+    expect(screen.getByTestId('change-create-name') !== null).toBe(true);
+
     // 名称空 + goal 有值
     fireEvent.change(screen.getByTestId('change-create-goal'), {
       target: { value: '只有 goal' },
     });
-    expect(screen.getByTestId('change-create-submit').hasAttribute('disabled')).toBe(true);
+    fireEvent.click(screen.getByRole('button', { name: '提交' }));
+    expect(createCalls()).toHaveLength(0);
+
     // 名称合法 + goal 空白（trim 后空）
     fireEvent.change(screen.getByTestId('change-create-name'), {
       target: { value: 'fix-bug' },
@@ -196,14 +171,13 @@ describe('ChangeCreateDialog：必填与本地 kebab-case 校验（禁提交零 
     fireEvent.change(screen.getByTestId('change-create-goal'), {
       target: { value: '   ' },
     });
-    expect(screen.getByTestId('change-create-submit').hasAttribute('disabled')).toBe(true);
-
-    fireEvent.click(screen.getByTestId('change-create-submit'));
+    fireEvent.click(screen.getByRole('button', { name: '提交' }));
     expect(createCalls()).toHaveLength(0);
     expect(onCreated).not.toHaveBeenCalled();
+    expect(screen.getByTestId('change-create-error') !== null).toBe(true);
   });
 
-  it('非法 kebab-case 全族禁提交且零 invoke（本地与写面同口径校验，D3「本地放行 ⇒ 后端必过」）', () => {
+  it('非法 kebab-case 全族零 invoke（本地与写面同口径校验，「本地放行 ⇒ 后端必过」）', () => {
     const invalidNames = [
       'Fix-Bug', // 大写
       'fix_bug', // 下划线
@@ -216,12 +190,15 @@ describe('ChangeCreateDialog：必填与本地 kebab-case 校验（禁提交零 
     ];
 
     for (const name of invalidNames) {
-      const view = render(<ChangeCreateDialog root={ROOT} onCreated={vi.fn()} />);
+      const view = render(
+        <ChangeCreateDialog root={ROOT} onCreated={vi.fn()}>
+          <button type="button">打开新建</button>
+        </ChangeCreateDialog>,
+      );
       openForm();
       submit(name, '合法 goal');
 
-      expect(screen.getByTestId('change-create-submit').hasAttribute('disabled')).toBe(true);
-      fireEvent.click(screen.getByTestId('change-create-submit'));
+      expect(screen.getByTestId('change-create-error').textContent).toContain('校验不通过');
       view.unmount();
     }
 
@@ -230,7 +207,7 @@ describe('ChangeCreateDialog：必填与本地 kebab-case 校验（禁提交零 
 
   it('恰 128 字符名称可提交且 invoke 发起（≤128 含端点，与写面上界同口径）', async () => {
     const onCreated = vi.fn();
-    render(<ChangeCreateDialog root={ROOT} onCreated={onCreated} />);
+    renderDialog(onCreated);
     openForm();
     const name = `a${'b'.repeat(127)}`;
     expect(name.length).toBe(128);
@@ -240,20 +217,19 @@ describe('ChangeCreateDialog：必填与本地 kebab-case 校验（禁提交零 
 
     await waitFor(() => expect(createCalls()).toHaveLength(1));
     expect(createCalls()[0]).toEqual({ root: ROOT, name, goal: '上界内 goal' });
-    fireEvent.click(await screen.findByTestId('change-create-open-detail'));
     await waitFor(() => expect(onCreated).toHaveBeenCalledWith(name));
   });
 });
 
-describe('ChangeCreateDialog：后端错误行内呈现', () => {
+describe('ChangeCreateDialog：后端错误行内呈现（失败留窗）', () => {
   beforeEach(() => {
     invokeMock.mockReset();
     invokeMock.mockRejectedValue('change "fix-bug" 已存在');
   });
 
-  it('invoke reject：change-create-error 行内块呈现错误文本、onCreated 零调用', async () => {
+  it('invoke reject：change-create-error 行内块呈现错误文本、弹窗不关、onCreated 零调用', async () => {
     const onCreated = vi.fn();
-    render(<ChangeCreateDialog root={ROOT} onCreated={onCreated} />);
+    renderDialog(onCreated);
     openForm();
 
     submit('fix-bug', '修复登录重试的竞态问题');
@@ -261,6 +237,8 @@ describe('ChangeCreateDialog：后端错误行内呈现', () => {
     const error = await screen.findByTestId('change-create-error');
     expect(error.textContent).toContain('已存在');
     expect(error.className).toContain('break-all');
+    // 失败留窗：输入区仍在场（修正后可直接重提）
+    expect(screen.getByTestId('change-create-name') !== null).toBe(true);
     expect(onCreated).not.toHaveBeenCalled();
   });
 });

@@ -327,18 +327,18 @@ describe('ChangeListView：created / 错误条 / 空态提示的分支形态', (
   });
 });
 
-describe('ChangeListView：头部刷新行（刷新入口自 App header 迁入）', () => {
-  it('头部行先于新建入口与 error-note 渲染，loading / error / 空数据 / 有数据四形态下「刷新列表」按钮均存在', async () => {
-    // error 态：头部行是页面根的第一个子元素，随后为新建入口卡片、error-note
+describe('ChangeListView：头部行（刷新与新建触发器，入口自 App header 迁入）', () => {
+  it('头部行为页面根首子元素（刷新 + 新建触发器同居其内），error-note 紧随其后；loading / error / 空数据 / 有数据四形态下「刷新」按钮均存在', async () => {
+    // error 态：头部行（刷新图标钮 + 新建变更触发器）是页面根的第一个子元素，随后为 error-note
     listAnswer = Promise.reject('IPC 断开');
     const withError = render(listTree(ROOT));
     await screen.findByTestId('error-note');
     const page = withError.container.firstElementChild;
-    const headerRow = screen.getByRole('button', { name: '刷新列表' }).parentElement;
+    const headerRow = screen.getByRole('button', { name: '刷新' }).parentElement;
     expect(headerRow).not.toBeNull();
     expect(headerRow).toBe(page?.firstElementChild);
-    expect(page?.children[1]?.getAttribute('data-testid')).toBe('change-create-dialog');
-    expect(page?.children[2]?.getAttribute('data-testid')).toBe('error-note');
+    expect(headerRow?.contains(screen.getByRole('button', { name: '新建变更' }))).toBe(true);
+    expect(page?.children[1]?.getAttribute('data-testid')).toBe('error-note');
     withError.unmount();
 
     // 始终在场：四形态下刷新按钮均存在（空态可操作的前提）
@@ -351,16 +351,16 @@ describe('ChangeListView：头部刷新行（刷新入口自 App header 迁入�
     for (const [root, answer] of shapes) {
       listAnswer = answer;
       const view = render(listTree(root));
-      expect(within(view.container).getByRole('button', { name: '刷新列表' }) !== null).toBe(true);
+      expect(within(view.container).getByRole('button', { name: '刷新' }) !== null).toBe(true);
       view.unmount();
     }
   });
 
-  it('点击「刷新列表」→ 清单重新取数（list_changes 调用数递增）', async () => {
+  it('点击「刷新」→ 清单重新取数（list_changes 调用数递增）', async () => {
     await renderLoaded();
     const before = listCalls().length;
 
-    fireEvent.click(screen.getByRole('button', { name: '刷新列表' }));
+    fireEvent.click(screen.getByRole('button', { name: '刷新' }));
 
     await waitFor(() => expect(listCalls().length).toBe(before + 1));
     expect(listCalls().at(-1)).toEqual({ root: ROOT });
@@ -371,7 +371,7 @@ describe('ChangeListView：头部刷新行（刷新入口自 App header 迁入�
     render(listTree(ROOT));
     await waitFor(() => expect(listCalls().length).toBe(1));
 
-    const button = screen.getByRole('button', { name: '刷新列表' });
+    const button = screen.getByRole('button', { name: '刷新' });
     expect(button.hasAttribute('disabled')).toBe(true);
     fireEvent.click(button);
     expect(listCalls().length).toBe(1);
@@ -381,7 +381,7 @@ describe('ChangeListView：头部刷新行（刷新入口自 App header 迁入�
     render(listTree(null));
 
     expect(screen.getByText('暂无数据，点击刷新获取。') !== null).toBe(true);
-    const button = screen.getByRole('button', { name: '刷新列表' });
+    const button = screen.getByRole('button', { name: '刷新' });
     expect(button.hasAttribute('disabled')).toBe(false);
     fireEvent.click(button);
     expect(invokeMock.mock.calls).toHaveLength(0);
@@ -389,32 +389,32 @@ describe('ChangeListView：头部刷新行（刷新入口自 App header 迁入�
 });
 
 // ---------------------------------------------------------------------------
-// 新建入口挂载与创建流转（desktop-change-create 增量）：root 非空时头部行下
-// 挂载 ChangeCreateDialog；onCreated = state.refresh() + navigate（创建后不
-// 自动发起 run）。内部模块真实组合：对话框输入 → create_change IPC →
-// refresh + navigate 全链路经进程边界观察。
+// 新建入口挂载与创建流转（desktop-change-create 增量）：root 非空时头部行内
+// 挂载新建触发器（PlusIcon 弹窗）；onCreated = state.refresh() + navigate
+// （创建后不自动发起 run）。内部模块真实组合：对话框输入 → create_change
+// IPC → refresh + navigate 全链路经进程边界观察。
 // ---------------------------------------------------------------------------
 
 describe('ChangeListView：新建入口挂载与创建流转（创建 → refresh + navigate）', () => {
-  it('root 非空挂载新建入口：toggle 在场且挂载于头部行之下', async () => {
+  it('root 非空挂载新建入口：新建变更触发器在场且位于头部行内', async () => {
     const { container } = await renderLoaded();
 
-    expect(screen.getByTestId('change-create-toggle') !== null).toBe(true);
+    const trigger = screen.getByRole('button', { name: '新建变更' });
+    expect(trigger !== null).toBe(true);
     const page = container.firstElementChild;
-    const headerRow = screen.getByRole('button', { name: '刷新列表' }).parentElement;
+    const headerRow = screen.getByRole('button', { name: '刷新' }).parentElement;
     expect(page?.firstElementChild).toBe(headerRow);
-    expect(page?.children[1]?.getAttribute('data-testid')).toBe('change-create-dialog');
+    expect(headerRow?.contains(trigger)).toBe(true);
   });
 
   it('root 为 null 不挂载新建入口且零 invoke（无 workspace 无建档语义）', () => {
     render(listTree(null));
 
-    expect(screen.queryByTestId('change-create-toggle')).toBeNull();
-    expect(screen.queryByTestId('change-create-dialog')).toBeNull();
+    expect(screen.queryByRole('button', { name: '新建变更' })).toBeNull();
     expect(invokeMock.mock.calls).toHaveLength(0);
   });
 
-  it('清单挂载 → 对话框提交 → refresh + navigate：create_change 恰一次、清单刷新、pathname 落 /changes/:name、change_flow_start 零调用', async () => {
+  it('清单挂载 → 弹窗提交 → refresh + navigate：create_change 恰一次、清单刷新、pathname 落 /changes/:name、change_flow_start 零调用', async () => {
     listAnswer = Promise.resolve(fixtureList);
     createAnswer = {
       name: 'fix-bug',
@@ -426,17 +426,16 @@ describe('ChangeListView：新建入口挂载与创建流转（创建 → refres
     await screen.findByText('add-feature');
     expect(listCalls().length).toBe(1);
 
-    fireEvent.click(screen.getByTestId('change-create-toggle'));
+    fireEvent.click(screen.getByRole('button', { name: '新建变更' }));
     fireEvent.change(screen.getByTestId('change-create-name'), {
       target: { value: 'fix-bug' },
     });
     fireEvent.change(screen.getByTestId('change-create-goal'), {
       target: { value: '修复登录重试的竞态问题' },
     });
-    fireEvent.click(screen.getByTestId('change-create-submit'));
+    fireEvent.click(screen.getByRole('button', { name: '提交' }));
 
-    // 成功面（D14）：进入详情按钮触发 onCreated → refresh + navigate
-    fireEvent.click(await screen.findByTestId('change-create-open-detail'));
+    // 成功即直连 onCreated → refresh + navigate（成功面退役）
     await waitFor(() => expect(probePathname()).toBe('/changes/fix-bug'));
     expect(createCalls()).toEqual([
       { root: ROOT, name: 'fix-bug', goal: '修复登录重试的竞态问题' },
@@ -447,21 +446,21 @@ describe('ChangeListView：新建入口挂载与创建流转（创建 → refres
     expect(commandCount('change_flow_start')).toBe(0);
   });
 
-  it('创建失败不停流转：行内错误呈现、pathname 不变、清单不刷新', async () => {
+  it('创建失败不停流转：行内错误呈现、弹窗留窗、pathname 不变、清单不刷新', async () => {
     listAnswer = Promise.resolve(fixtureList);
     createAnswer = 'change "fix-bug" 已存在: /repo/openspec/changes/fix-bug';
     render(flowTree(ROOT));
     await screen.findByText('add-feature');
     const before = listCalls().length;
 
-    fireEvent.click(screen.getByTestId('change-create-toggle'));
+    fireEvent.click(screen.getByRole('button', { name: '新建变更' }));
     fireEvent.change(screen.getByTestId('change-create-name'), {
       target: { value: 'fix-bug' },
     });
     fireEvent.change(screen.getByTestId('change-create-goal'), {
       target: { value: '修复登录重试的竞态问题' },
     });
-    fireEvent.click(screen.getByTestId('change-create-submit'));
+    fireEvent.click(screen.getByRole('button', { name: '提交' }));
 
     const error = await screen.findByTestId('change-create-error');
     expect(error.textContent).toContain('已存在');

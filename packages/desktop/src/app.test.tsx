@@ -316,7 +316,7 @@ describe('App：启动恢复、欢迎屏清单与视图状态（AC-9）', () => 
     expect(screen.getByText(/选择一个项目根目录/) !== null).toBe(true);
     // 欢迎屏清单标题与计数（D7：空清单计数为 0）
     expect(screen.getByText(/最近的 workspace/).textContent).toContain('(0)');
-    expect(screen.queryByText('刷新列表')).toBeNull();
+    expect(screen.queryByRole('button', { name: '刷新' })).toBeNull();
     // 除挂载自动 load 外无任何取数
     expect(invokeMock.mock.calls.every(([name]) => name === 'list_workspaces')).toBe(true);
   });
@@ -353,7 +353,7 @@ describe('App：启动恢复、欢迎屏清单与视图状态（AC-9）', () => 
     ]);
   });
 
-  it('恢复进入列表后：列表项点击进入详情视图，返回列表后「刷新列表」重发 list_changes', async () => {
+  it('恢复进入列表后：列表项点击进入详情视图，返回列表后「刷新」重发 list_changes', async () => {
     await restored();
 
     fireEvent.click(screen.getByText('add-feature'));
@@ -365,13 +365,13 @@ describe('App：启动恢复、欢迎屏清单与视图状态（AC-9）', () => 
     );
     expect(screen.getByRole('heading', { name: 'add-feature' }) !== null).toBe(true);
 
-    // 刷新按钮随 header 瘦身迁入清单页头部：详情视图内不在场，返回列表后可操作
-    expect(screen.queryByText('刷新列表')).toBeNull();
+    // 刷新按钮随 header 瘦身迁入清单页头部（图标钮 aria-label=刷新）：详情视图内不在场，返回列表后可操作
+    expect(screen.queryByRole('button', { name: '刷新' })).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: '← 返回列表' }));
-    await waitFor(() => expect(screen.getByText('刷新列表') !== null).toBe(true));
+    await waitFor(() => expect(screen.getByRole('button', { name: '刷新' }) !== null).toBe(true));
 
     const before = invokeMock.mock.calls.filter(([name]) => name === 'list_changes').length;
-    fireEvent.click(screen.getByText('刷新列表'));
+    fireEvent.click(screen.getByRole('button', { name: '刷新' }));
     await waitFor(() => {
       const after = invokeMock.mock.calls.filter(([name]) => name === 'list_changes').length;
       expect(after).toBe(before + 1);
@@ -884,7 +884,7 @@ describe('App：壳层布局与折叠形态（AC-1/AC-2/AC-7）', () => {
     expect(screen.queryAllByRole('option')).toHaveLength(0);
   });
 
-  it('header 终态：折叠钮（SidebarTrigger）+ 标题「Desktop Terminal」+ 版本/更新指示在场；无「刷新列表」「移除」按钮', async () => {
+  it('header 终态：折叠钮（SidebarTrigger）+ 标题「Desktop Terminal」+ 版本/更新指示在场；无「刷新」「移除」按钮', async () => {
     await restored();
 
     const header = document.querySelector('header');
@@ -894,7 +894,7 @@ describe('App：壳层布局与折叠形态（AC-1/AC-2/AC-7）', () => {
     expect(scope.getByText('Dev Team') !== null).toBe(true);
     expect(scope.getByText('v0.1.0') !== null).toBe(true);
     // 刷新入口迁清单页头部、移除入口迁右键菜单：header 内不再有这两枚按钮
-    expect(scope.queryByText('刷新列表')).toBeNull();
+    expect(scope.queryByRole('button', { name: '刷新' })).toBeNull();
     expect(scope.queryByText('移除')).toBeNull();
   });
 
