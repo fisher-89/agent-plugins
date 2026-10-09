@@ -3,7 +3,8 @@
 //! `archive_flow_stop`、`archive_flow_state`（重挂快照）、`archive_flow_watch`
 //!（broadcast 补订）。命令组三分：changes（读 + 记录面）、change_flow（run
 //! 编排控制）、archive_flow（归档编排流——带 agent 会话的第三面，与 run 面
-//! 并置但组件隔离）。
+//! 并置但组件隔离；链内段序 = 校验 → 提交 → 合入（含冲突 agent）→ 同步 →
+//! 双写 → 落盘，archive-merge-first D1）。
 //!
 //! 互斥（design D3）：正向——run 注册表在案（`ChangeFlowControl::snapshot`）
 //! 显式拒绝归档发起；反向见 `change_flow_start` 前置序列（归档链进行中拒

@@ -13,12 +13,15 @@ import type {
   ArchiveUpdate,
 } from '../../../types/dto';
 
-/** 阶段清单呈现序（六段固定行；`data-testid="archive-stage-<stage>"` 挂钩）。 */
+/**
+ * 阶段清单呈现序（六段固定行，与后端执行序对齐——archive-merge-first D1：
+ * commit、merge 前置于 specSync；`data-testid="archive-stage-<stage>"` 挂钩）。
+ */
 export const ARCHIVE_STAGES: ArchiveStage[] = [
   'preflight',
-  'specSync',
   'commit',
   'merge',
+  'specSync',
   'seal',
   'finalize',
 ];

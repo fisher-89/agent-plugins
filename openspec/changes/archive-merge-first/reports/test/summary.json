@@ -1,0 +1,18 @@
+{
+  "phase": "test-execution",
+  "command": "desktop change run: test-execution gate",
+  "timestamp": "2026-10-08T18:20:53.7632936Z",
+  "duration_seconds": 1.0,
+  "total": 0,
+  "passed": 0,
+  "failed": 0,
+  "skipped": 0,
+  "conclusion": "pass",
+  "problems": [],
+  "coverage": null,
+  "mutation": null,
+  "plans": [],
+  "findings": [
+    "全部框架未产出覆盖数据（未配置采集或命令未及覆盖阶段即结束）"
+  ]
+}

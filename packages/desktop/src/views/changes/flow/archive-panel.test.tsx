@@ -243,14 +243,15 @@ describe('ArchivePanel：确认对话数据面', () => {
 // ---------------------------------------------------------------------------
 
 describe('ArchivePanel：阶段清单与停止', () => {
-  it('归档进行态 → archive-stage-list 六行在场；specSync / commit 状态与 detail 随 state 呈现', () => {
+  it('归档进行态 → archive-stage-list 六行 DOM 序 = preflight / commit / merge / specSync / seal / finalize（commit / merge 前置于 specSync——D11）；commit / merge / specSync 状态与 detail 随 state 呈现', () => {
+    // fixture 按执行序演进（merge 前置于 specSync——archive-merge-first D1）
     const { archive } = archiveHarness(
       flowState({
         stages: {
           preflight: stageRow('preflight', 'passed'),
-          specSync: stageRow('specSync', 'passed'),
-          commit: stageRow('commit', 'running'),
-          merge: stageRow('merge', 'skipped', '已合入'),
+          commit: stageRow('commit', 'passed'),
+          merge: stageRow('merge', 'running', '合入冲突，解冲突 agent 裁决中'),
+          specSync: stageRow('specSync', 'skipped', '无 delta specs'),
         },
       }),
     );
@@ -259,12 +260,23 @@ describe('ArchivePanel：阶段清单与停止', () => {
     const rows = screen
       .getAllByTestId(/^archive-stage-/)
       .filter((row) => row.dataset.testid !== 'archive-stage-list');
-    // 六段固定行
-    expect(rows).toHaveLength(6);
+    // 六段固定行且 DOM 序 = 执行序（呈现序 = ARCHIVE_STAGES 单点——D11）
+    expect(rows.map((row) => row.dataset.testid)).toEqual([
+      'archive-stage-preflight',
+      'archive-stage-commit',
+      'archive-stage-merge',
+      'archive-stage-specSync',
+      'archive-stage-seal',
+      'archive-stage-finalize',
+    ]);
     const stageLine = (stage: string): HTMLElement => screen.getByTestId(`archive-stage-${stage}`);
-    expect(stageLine('specSync').dataset.status).toBe('passed');
-    expect(stageLine('commit').dataset.status).toBe('running');
-    expect(stageLine('merge').textContent).toContain('已合入');
+    expect(stageLine('preflight').dataset.status).toBe('passed');
+    expect(stageLine('commit').dataset.status).toBe('passed');
+    expect(stageLine('merge').dataset.status).toBe('running');
+    expect(stageLine('merge').textContent).toContain('合入冲突，解冲突 agent 裁决中');
+    expect(stageLine('specSync').dataset.status).toBe('skipped');
+    expect(stageLine('specSync').textContent).toContain('无 delta specs');
+    expect(stageLine('seal').dataset.status).toBe('pending');
     expect(stageLine('finalize').dataset.status).toBe('pending');
   });
 
@@ -301,6 +313,96 @@ describe('ArchivePanel：阶段清单与停止', () => {
     );
     renderPanel(idle.archive);
     expect(screen.queryByTestId('archive-transcript')).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 合入冲突呈现面（archive-merge-first D5/D7/D11 + AC-7 咨询面）
+// ---------------------------------------------------------------------------
+
+describe('ArchivePanel：Merge 段单行呈现与 lean 咨询面', () => {
+  it('Merge 段三 fixture 各驱 archive-stage-merge[data-status]：单行内状态与 detail 演进，零子阶段行', () => {
+    const cases: Array<[ArchiveStageStatus, string]> = [
+      ['running', '合入冲突，解冲突 agent 裁决中'],
+      ['passed', '已解冲突 2 文件'],
+      ['failed', '合入冲突无法自动裁决（agent 会话失败）。冲突文件 1 个：src/a.txt'],
+    ];
+    for (const [status, detail] of cases) {
+      const { archive } = archiveHarness(
+        flowState({ stages: { merge: stageRow('merge', status, detail) } }),
+      );
+      const { unmount } = renderPanel(archive);
+      // 单行（零子阶段行——R7 呈现面：状态与 detail 经同段后写覆盖演进）
+      const rows = screen.getAllByTestId(/^archive-stage-merge/);
+      expect(rows).toHaveLength(1);
+      expect(rows[0].dataset.status).toBe(status);
+      expect(rows[0].textContent).toContain(detail);
+      unmount();
+    }
+  });
+
+  it('lean 咨询面：Finished error = lean 串（原因词 + 冲突摘要 + abort 告知 + 手动裁决引导 + 重试说明）→ archive-error 完整呈现', () => {
+    const leanError = [
+      '合入冲突无法自动裁决（agent 会话失败）。冲突文件 1 个：src/a.txt',
+      '已执行 git merge --abort 恢复主仓干净态。请手动将分支 change/archive-demo 合入主仓并解冲突后重试归档——重试将识别已合入并续走收口。',
+    ].join('\n');
+    const { archive } = archiveHarness(flowState({ finished: true, error: leanError }));
+    renderPanel(archive);
+
+    // 冲突摘要与引导完整可见（AC-7「停合入段呈现冲突摘要与手动裁决引导」的
+    // UI 半边——既有失败面即咨询面，零新挂钩）
+    expect(screen.getByTestId('archive-error').textContent).toBe(leanError);
+    expect(screen.getByTestId('archive-retry')).toBeDefined();
+  });
+
+  it('转录区随当前会话：冲突会话 → 转录呈现该会话事件；sessionId 切至 spec-sync 会话 → 随最新会话（D5 单槽呈现边界）', async () => {
+    // 前半：解冲突会话（两会话串行的前半）
+    transcriptMock.mockReturnValue({
+      messages: eventsToUIMessages([transcriptTextEvent(0, '解冲突裁决要点')]),
+      running: false,
+      error: null,
+      summary: null,
+    });
+    const conflict = archiveHarness(
+      flowState({
+        stages: { merge: stageRow('merge', 'running', '合入冲突，解冲突 agent 裁决中') },
+        sessionId: 'sess-conflict',
+        liveEvents: { 'sess-conflict': [transcriptTextEvent(0, '解冲突裁决要点')] },
+      }),
+    );
+    renderPanel(conflict.archive);
+    expect(screen.getByTestId('archive-transcript')).toBeDefined();
+    await screen.findByText('解冲突裁决要点');
+    expect(transcriptMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sessionId: 'sess-conflict',
+        liveEvents: [transcriptTextEvent(0, '解冲突裁决要点')],
+      }),
+    );
+    cleanup();
+
+    // 后半：sessionId 切至 spec-sync 会话 → 转录区随最新会话（单槽——零切换器）
+    transcriptMock.mockReturnValue({
+      messages: eventsToUIMessages([transcriptTextEvent(1, 'specs 已同步')]),
+      running: false,
+      error: null,
+      summary: null,
+    });
+    const sync = archiveHarness(
+      flowState({
+        stages: {
+          merge: stageRow('merge', 'passed', '已解冲突 1 文件'),
+          specSync: stageRow('specSync', 'running'),
+        },
+        sessionId: 'sess-specsync',
+        liveEvents: { 'sess-specsync': [transcriptTextEvent(1, 'specs 已同步')] },
+      }),
+    );
+    renderPanel(sync.archive);
+    await screen.findByText('specs 已同步');
+    expect(transcriptMock).toHaveBeenCalledWith(
+      expect.objectContaining({ sessionId: 'sess-specsync' }),
+    );
   });
 });
 

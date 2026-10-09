@@ -80,13 +80,13 @@ function applyAll(
   return updates.reduce((current, update) => applyArchiveUpdate(current, update), state);
 }
 
-describe('ARCHIVE_STAGES：阶段清单呈现序（六段固定行）', () => {
-  it('六段固定行序：preflight / specSync / commit / merge / seal / finalize', () => {
+describe('ARCHIVE_STAGES：阶段清单呈现序（六段固定行 = 执行序）', () => {
+  it('六段固定行序：preflight / commit / merge / specSync / seal / finalize', () => {
     expect(ARCHIVE_STAGES).toEqual([
       'preflight',
-      'specSync',
       'commit',
       'merge',
+      'specSync',
       'seal',
       'finalize',
     ]);
@@ -133,6 +133,24 @@ describe('applyArchiveUpdate：Stage 归并（同段后写覆盖）', () => {
     for (const stage of ARCHIVE_STAGES) {
       expect(state?.stages[stage]?.status).toBe<ArchiveStageStatus>('passed');
     }
+  });
+
+  it('Merge 段 detail 演进归并：running（无 detail）→ running（解算中）→ passed（已解冲突）→ 单槽终值 passed 携 detail', () => {
+    // 三连信封（archive-merge-first D7 同段后写覆盖机制的前端半边——解冲突
+    // agent 会话启动 / 收口摘要经同段 detail 演进呈现）
+    const state = applyAll(baseState(), [
+      stageUpdate(stageRow({ stage: 'merge', status: 'running' })),
+      stageUpdate(
+        stageRow({ stage: 'merge', status: 'running', detail: '合入冲突，解冲突 agent 裁决中' }),
+      ),
+      stageUpdate(stageRow({ stage: 'merge', status: 'passed', detail: '已解冲突 2 文件' })),
+    ]);
+    expect(Object.keys(state?.stages ?? {})).toEqual(['merge']);
+    expect(state?.stages.merge).toEqual({
+      stage: 'merge',
+      status: 'passed',
+      detail: '已解冲突 2 文件',
+    });
   });
 });
 

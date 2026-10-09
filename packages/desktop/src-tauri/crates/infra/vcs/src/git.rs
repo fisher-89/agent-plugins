@@ -1,6 +1,7 @@
 use std::path::Path;
 use std::process::{Command, Stdio};
 
+use orchestration::port::{IndexEntry, MergeOutcome, StatusEntry, WorktreeSnapshot};
 use workflow::write::RepoProbe;
 
 /// 一次 git 子命令执行（stdout 捕获；stdin 关闭）：非零退出以 stderr 上抛。
@@ -126,9 +127,11 @@ pub(crate) fn delete_branch(main_root: &Path, branch: &str) -> Result<(), String
 }
 
 // ---------------------------------------------------------------------------
-// 归档子命令族（design desktop-archive-change D8/D9）：归档链的提交 / 合入 /
+// 归档子命令族（design desktop-archive-change D8/D9 + archive-merge-first D3/
+// D4/D6/D10）：归档链的提交 / 合入（冲突态保留）/ 快照 / 代收口 / abort /
 // pathspec 提交 / 探测面——全部 `git -C <root>` 同步 spawn、argv 直传零 shell
-// 包装（提交信息引号形态不适用——R7 留痕）
+// 包装（提交信息引号形态不适用——R7 留痕）；清单 / 快照读取全线 `-z`（NUL
+// 分隔零引号形态——路径引号与非 ASCII 形态免疫，R6）
 // ---------------------------------------------------------------------------
 
 /// 脏探测：`status --porcelain [-- pathspec…]` 非空即真（空 paths = 全域；
@@ -178,22 +181,140 @@ pub(crate) fn branch_merged(main_root: &Path, branch: &str) -> Result<bool, Stri
     }
 }
 
-/// 主仓合入：`git merge --no-edit <branch>`（可 ff 则 ff、主仓前进则 merge
-/// commit，信息用 git 默认）。非零退出先尽力 `merge --abort`（幂等——非
-/// merge 态调用无害）收口半截冲突态，再 Err 带 git 语境与手动处置引导。
-pub(crate) fn merge_branch(main_root: &Path, branch: &str) -> Result<(), String> {
+/// 主仓合入（冲突态保留语义，design D3）：`git merge --no-edit <branch>`（可
+/// ff 则 ff、主仓前进则 merge commit，信息用 git 默认）。非零退出先读 unmerged
+/// 清单（`diff --name-only --diff-filter=U -z` 归一）：非空 = 冲突 → 冲突态
+/// 保留返回 [`MergeOutcome::Conflicted`]（MUST NOT 自动 abort——裁决或 lean
+/// 收口归编排链）；空 = 非冲突失败（主仓状态不允许等）→ 尽力 `merge --abort`
+/// 后 `Err` 带 git 语境与手动处置引导（幂等——非 merge 态调用无害）。
+pub(crate) fn merge_branch(main_root: &Path, branch: &str) -> Result<MergeOutcome, String> {
     match git(main_root, &["merge", "--no-edit", branch]) {
-        Ok(_) => Ok(()),
-        Err(error) => {
-            // 尽力收口（冲突态恢复干净；失败如「无 merge 可 abort」静默忽略）
-            let _ = git(main_root, &["merge", "--abort"]);
-            Err(format!(
-                "{error}；归档合入失败（分支 {branch} 与主仓当前分支冲突或主仓状态不允许），\
-                 已尽力执行 git merge --abort 收口：请手动处置冲突（自行 merge 解冲突或调整主仓\
-                 状态）后重试归档"
-            ))
-        }
+        Ok(_) => Ok(MergeOutcome::Merged),
+        Err(error) => match unmerged_files(main_root) {
+            Ok(files) if !files.is_empty() => Ok(MergeOutcome::Conflicted(files)),
+            _ => {
+                // 尽力收口（冲突态恢复干净；失败如「无 merge 可 abort」静默忽略）
+                let _ = git(main_root, &["merge", "--abort"]);
+                Err(format!(
+                    "{error}；归档合入失败（分支 {branch} 与主仓当前分支冲突或主仓状态不允许），\
+                     已尽力执行 git merge --abort 收口：请手动处置冲突（自行 merge 解冲突或调整主仓\
+                     状态）后重试归档"
+                ))
+            }
+        },
     }
+}
+
+/// unmerged 清单（冲突判据读取面）：`diff --name-only --diff-filter=U -z`——
+/// NUL 分隔零引号形态（Windows 路径引号 / 非 ASCII 形态免疫，R6）。
+fn unmerged_files(main_root: &Path) -> Result<Vec<String>, String> {
+    let raw = git(main_root, &["diff", "--name-only", "--diff-filter=U", "-z"])?;
+    Ok(raw
+        .split('\0')
+        .filter(|entry| !entry.is_empty())
+        .map(str::to_owned)
+        .collect())
+}
+
+/// 主仓工作区快照（后验 A/B 对比基面，design D4）四连：`rev-parse HEAD` →
+/// `rev-parse -q --verify MERGE_HEAD`（退出 0/1 映射 Some/None）→
+/// `status --porcelain -z` → `ls-files -s -z`（解析见 [`parse_status_z`] /
+/// [`parse_ls_files_z`]）。
+pub(crate) fn worktree_snapshot(main_root: &Path) -> Result<WorktreeSnapshot, String> {
+    let head = git(main_root, &["rev-parse", "HEAD"])?.trim().to_owned();
+    let merge_head = merge_head_sha(main_root)?;
+    let status = parse_status_z(&git(main_root, &["status", "--porcelain", "-z"])?);
+    let index = parse_ls_files_z(&git(main_root, &["ls-files", "-s", "-z"])?);
+    Ok(WorktreeSnapshot {
+        head,
+        merge_head,
+        status,
+        index,
+    })
+}
+
+/// MERGE_HEAD 在场性探测：`rev-parse -q --verify MERGE_HEAD`——退出 0 = sha
+/// 在场、1 = 缺席（quiet 抑制报错噪声；非 merge 态的常态面）、其余 Err。
+fn merge_head_sha(main_root: &Path) -> Result<Option<String>, String> {
+    let output = Command::new("git")
+        .arg("-C")
+        .arg(main_root)
+        .args(["rev-parse", "-q", "--verify", "MERGE_HEAD"])
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()
+        .map_err(|error| format!("git 不可用（PATH 未发现 git）: {error}"))?;
+    match output.status.code() {
+        Some(0) => Ok(Some(
+            String::from_utf8_lossy(&output.stdout).trim().to_owned(),
+        )),
+        Some(1) => Ok(None),
+        _ => Err(format!(
+            "git rev-parse -q --verify MERGE_HEAD 失败（退出码 {}）: {}",
+            output.status.code().unwrap_or(-1),
+            String::from_utf8_lossy(&output.stderr).trim()
+        )),
+    }
+}
+
+/// `status --porcelain -z` 解析：条目 = XY + 空格 + 路径，NUL 分隔；rename /
+/// copy（X ∈ {R, C}）条目后随第二个 NUL 段（原路径）——跳过并记新路径（
+/// `-z` 下路径裸出，零引号形态）。
+fn parse_status_z(raw: &str) -> Vec<StatusEntry> {
+    let segments: Vec<&str> = raw
+        .split('\0')
+        .filter(|segment| !segment.is_empty())
+        .collect();
+    let mut entries = Vec::new();
+    let mut iter = segments.into_iter().peekable();
+    while let Some(segment) = iter.next() {
+        let bytes = segment.as_bytes();
+        if bytes.len() < 3 {
+            continue; // 畸形段（XY + 空格 + 至少一路径字符）——跳过
+        }
+        let x = bytes[0] as char;
+        let y = bytes[1] as char;
+        if x == 'R' || x == 'C' {
+            iter.next(); // rename 双段：第二段为原路径，跳过（记新路径）
+        }
+        entries.push(StatusEntry {
+            x,
+            y,
+            path: segment[3..].to_owned(),
+        });
+    }
+    entries
+}
+
+/// `ls-files -s -z` 解析：条目 = `<mode> <hash> <stage>\t<path>`，NUL 分隔。
+fn parse_ls_files_z(raw: &str) -> Vec<IndexEntry> {
+    raw.split('\0')
+        .filter(|segment| !segment.is_empty())
+        .filter_map(|segment| {
+            let (meta, path) = segment.split_once('\t')?;
+            let mut fields = meta.split_whitespace();
+            Some(IndexEntry {
+                mode: fields.next()?.to_owned(),
+                hash: fields.next()?.to_owned(),
+                stage: fields.next()?.parse::<u8>().ok()?,
+                path: path.to_owned(),
+            })
+        })
+        .collect()
+}
+
+/// merge 收口提交（design D6）：`commit --no-edit`——采用 MERGE_MSG 默认
+/// merge 信息；merge 态禁 pathspec、无 `-a`，只提交索引内既定内容 = merge
+/// 结果（物理上吞并不了未 staged 的用户内容）。
+pub(crate) fn commit_merge(main_root: &Path) -> Result<(), String> {
+    git(main_root, &["commit", "--no-edit"]).map(|_| ())
+}
+
+/// lean 收口面（design D10）：`merge --abort`——Err 上抛由链侧附注呈现（不
+/// 静默吞二次失败）。
+pub(crate) fn abort_merge(main_root: &Path) -> Result<(), String> {
+    git(main_root, &["merge", "--abort"]).map(|_| ())
 }
 
 /// 主仓当前分支名：`branch --show-current`（空输出 = detached HEAD → 显式
