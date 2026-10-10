@@ -79,17 +79,17 @@ Walker SHALL 将每相位循环表达为三类节点：
 - **ToolStep 节点**（phase-start / phase-log / backtrack 相位机步进程内直调写面 + static-check / test-execution 检查域 spawn 步落 checks 边界）：无智能；
 - **Gate 节点**（verdict 解析 / retry 计数 / 白名单校验）：纯 Rust 分支。
 
-ToolStep MUST NOT 以命令式内联实现：其执行结果 SHALL 作为图上节点状态可观测（失败 = 可见失败态，与 WorkerAgent 失败同等呈现）。节点状态 SHALL 为派生视图 = db 状态（`ChangeRecord.active_phase` / PhaseRecord eval 序列）× 按 provenance 反查的 session 集；MUST NOT 为节点状态建立 run 私有持久表（不建 flow_runs 表；StepRecord 为步骤审计行，MUST NOT 承担节点状态源——任一节点状态 SHALL 仍可由 db 状态 + 会话记录重算得出）。
+ToolStep MUST NOT 以命令式内联实现：其执行结果 SHALL 作为图上节点状态可观测（失败 = 可见失败态，与 WorkerAgent 失败同等呈现）。节点状态 SHALL 为派生视图 = **库读史（`RunRecord` / `RunStepRecord`，desktop-change-state-store「run 运行史落库」）∪ 进程内注册表在飞 run（`RunEntry` 步累积器）** × 按 provenance 反查的 session 集；run 状态落库为既定基线——原「MUST NOT 建立 run 私有持久表（不建 flow_runs 表）」红线随 unify-run-state-persistence 决策翻案显式立项（`control.rs` 头注释决策原文同步改写；StepRecord 仍为步骤审计行、MUST NOT 承担节点状态源）。步词汇过滤 SHALL 单点定义（落库子集 = 回显子集，五留五忽略封闭词汇，desktop-change-state-store），walker 与 control MUST NOT 持有过滤逻辑。已收口 run 的任一节点状态 SHALL 可由库读史单独重算得出（重启 / 重挂后不依赖进程内存或 run 私有状态文件）。
 
 #### Scenario: ToolStep 失败同等可见
 
 - **WHEN** static-check 或 test-execution spawn 步以非零退出 / 显式 Err 收场（或写面相位机步返回错误）
 - **THEN** 图上该节点呈失败态（与 executor 会话失败同等的可观测性），run 不静默越过该节点
 
-#### Scenario: 节点状态纯派生
+#### Scenario: 节点状态两源派生可重算
 
-- **WHEN** 审查编排运行时的持久化面
-- **THEN** 无 flow_runs 表、无 run 私有状态文件；任一节点状态均可由 workspace 库 change 状态 + 会话记录（按 provenance）重算得出
+- **WHEN** 审查编排运行时的持久化面与读路
+- **THEN** runs / run_steps 两表在案（desktop-change-state-store）、在飞 run 状态驻进程内注册表（RunEntry）；已收口 run 的任一节点状态均可由库读史重算得出，不依赖进程内存
 
 ### Requirement: 零 CLI 子进程写通道与 crate 依赖方向
 
@@ -215,17 +215,29 @@ change run SHALL 以双 root 组合执行（能力语义见 desktop-change-workt
 
 命令面 SHALL 提供 change run 的控制入口，命令体收拢为编排运行时公共 API 的薄包装（沿三件事纪律）：
 
-- **发起**：按 change 名发起 run，`auto_next_phase` 参数（bool；false=默认停等节奏，true=自动确认模式）随发起定格该 run 的停等节奏并透传 walker；发起 SHALL 先解析 exec root（db 记录 worktree 字段 → worktree 路径，None → 主 root，见「run 双 root 组合与 exec root 解析」）；沿 agent 执行先例提前 resolve（run 记录进入运行态后即返回），执行经运行状态 Channel 以同构状态部件流出；
+- **发起**：按 change 名发起 run，`auto_next_phase` 参数（bool；false=默认停等节奏，true=自动确认模式）随发起定格该 run 的停等节奏并透传 walker；发起 SHALL 先解析 exec root（db 记录 worktree 字段 → worktree 路径，None → 主 root，见「run 双 root 组合与 exec root 解析」）；沿 agent 执行先例提前 resolve（run 记录进入运行态后即返回），RunRecord 起始行（status=running）SHALL 随发起建立（desktop-change-state-store「run 运行史落库」；写落位——命令层装配 vs walker 起点直调——由 design 定稿）；
 - **停止**：终止当前 WorkerAgent 会话并收敛 run 为受控终态；对非运行态目标幂等忽略，MUST NOT 报错或误改既有终态；
 - **应答**：ask 中断态下回传用户应答（选项或自由文本），驱动 run 继续；
 - **确认**：phase 间停等点的用户确认（继续 / 终止）。
 
+**读路统一（推拉反转）**：`get_change_detail`（或其扩展）SHALL 一次返回「库读史 ∪ 内存在飞 run」统一视图——库面 runs / steps 读史（desktop-change-queries）并入在飞 run 的状态 / 停等与 ask 载荷 / RunEntry 步表，合并发生在读时（零每步写放大前提不变）；客户端 MUST NOT 双命令拼接（useChangeDetail + useChangeFlowRun 双真相源拼缝退场）。`RunUpdate` SHALL 降位为变更通知（无步 / 会话事件载荷或最小载荷，信封形状 design 定稿）：客户端收通知后自行重查统一视图，通知仅失效信号、查询结果为权威；高频通知（每步 / 每会话事件）SHALL 经客户端合并去抖或通知侧 coalesce 抑制重查风暴（策略 design 定稿）。stop / confirm / answer 控制面 SHALL 维持请求-应答形态不变（非推送）。
+
 运行状态 Channel SHALL 与 agent 执行流同构（执行流通道例外，不属轮询取数）。发起前置校验 SHALL 覆盖：目标 change 已建档（db `ChangeRecord` 在案且 `workflow_type=requirement` 相位表在位）、无同 workspace 同 change 并行 run——并行冲突键 SHALL 为 `(workspace root, change)` 复合（修正既有仅按 change 名做键的两 workspace 同名假冲突先例 bug；worktree 隔离解锁同 workspace 多 change 真并行）——无建档的 change（存量 CLI change）SHALL 显式拒绝发起（文档形态 change 不可运行）。
 
-#### Scenario: 发起提前 resolve 与状态流
+#### Scenario: 发起提前 resolve 与通知流
 
 - **WHEN** 前端发起某 change 的 run
-- **THEN** invoke 在 run 进入运行态后即 resolve，节点 / 相位状态变化随后经 Channel 持续流出，终态以同构部件收尾
+- **THEN** invoke 在 run 进入运行态后即 resolve（run 起始行已落），后续节点 / 相位状态变化经 Channel 以变更通知流出，客户端收通知重查统一视图；终态以通知收尾、客户端重取定局
+
+#### Scenario: 通知触发重查统一视图
+
+- **WHEN** run 运行期间某步状态变化通知到达
+- **THEN** 客户端经单命令统一视图重查（库读史 ∪ 在飞 run 含步表），无第二命令拼接、无前端载荷累积
+
+#### Scenario: 控制面请求-应答不变
+
+- **WHEN** 用户对 waitingAsk 态应答、对 phase 间停等确认、对运行中 run 停止
+- **THEN** 三控制命令沿既有请求-应答契约执行（提前 resolve / 幂等 / 回流驱动语义不变），不经通知通道
 
 #### Scenario: 停止幂等
 
@@ -266,12 +278,31 @@ change run SHALL 以双 root 组合执行（能力语义见 desktop-change-workt
 
 ### Requirement: 版本交付
 
-本变更 SHALL 将 `packages/desktop/package.json` 的 `version` 由 `0.3.15` 升级为 `0.4.0`（`src-tauri/tauri.conf.json` 经 `../package.json` 自动跟随，`src-tauri/Cargo.toml` 版本不随动）。本变更 SHALL NOT 变更 `plugins/dev-team`：插件版本保持 `2.10.44`（工作树内 2.10.45 bump 与 walker-* 子命令面全部回退），三类交付产物（`claude-plugins/` / `cursor-plugins/` / `cursor-home-image/`）回退后 rebuild 刷新至与 2.10.44 源码一致。
+本变更 SHALL 将 `packages/desktop/package.json` 的 `version` 由 `0.4.27` 升级为 `0.4.28`（`src-tauri/tauri.conf.json` 经 `../package.json` 自动跟随，`src-tauri/Cargo.toml` 版本不随动）。本变更 SHALL NOT 变更 `plugins/dev-team`（版本保持 `2.10.44` 与三类交付产物）。
 
-#### Scenario: 版本号升级与插件回退
+#### Scenario: 版本号升级与插件零改动
 
 - **WHEN** 本变更实现完成
-- **THEN** desktop version 为 0.4.0 且无 `src-tauri/Cargo.toml` 版本随动；dev-team 插件版本为 2.10.44，dist 产物中无 walker-* 痕迹
+- **THEN** `packages/desktop/package.json` 的 version 为 0.4.28；`plugins/dev-team` 版本与交付产物零改动
+
+### Requirement: run 落库写缝与累积器驻服务端
+
+run 落库写缝 SHALL 收在 walker 侧单点：`walk_run` 终态出口（`guard.finish` 处）一次完成终态更新 + 步整包 + active_phase 处置（同事务，desktop-change-state-store「run 运行史落库」「启动标定与 active_phase 悬挂处置」）；`ChangeFlowControl` SHALL 保持进程内零 IO 不变量（不持 store 句柄，store 写经 walker 侧 port / 命令层装配注入）。步累积器 SHALL 移驻服务端：`RunEntry`（注册表条目）自持步列表（emit 序追加、通知触发重读），walker 经 `RunGuard::emit` 间达零变化；重挂快照 SHALL 含 steps（重挂恢复步表不再恒空）。启动装配 SHALL 执行启动标定（残留 running → interrupted，操作面见 desktop-change-state-store）。停止 / 会话失败 / verdict 解析失败等一切 run 死亡路径 SHALL 汇聚同一 finish 落包出口（终态出口唯一既有不变量）。
+
+#### Scenario: 写缝单点与 control 零 IO
+
+- **WHEN** 审查 walker 终态路径与 control 源码
+- **THEN** 落包仅出现在 walk_run 终态出口一处；control 无 store 句柄、无 IO 调用（进程内纯状态不变量保持）
+
+#### Scenario: 全死亡路径同一出口
+
+- **WHEN** run 分别以 completed / stopped（用户停止）/ failed（会话失败、verdict 解析失败）收口
+- **THEN** 三路径均经同一 finish 落包出口：终态 + reason + 步整包 + active_phase 处置单事务落库，库读史与内存面终态一致
+
+#### Scenario: 重挂恢复步表完整
+
+- **WHEN** run 运行中（已 emit 多步）视图重挂后读取快照
+- **THEN** 快照 steps 与已 emit 步逐条一致（emit 序），后续通知继续触发重读；不依赖前端累积
 
 ## Module Contract
 
