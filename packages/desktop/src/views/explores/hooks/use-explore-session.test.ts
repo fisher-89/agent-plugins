@@ -39,6 +39,8 @@ function exploreRecord(): ExploreRecord {
     id: RECORD_ID,
     root: ROOT,
     name: 'api-retry',
+    title: 'api-retry',
+    promotedTo: null,
     createdAt: 1727000000000,
     updatedAt: 1727000000000,
   };
@@ -260,7 +262,7 @@ describe('useExploreSession：send 拼接 stance 与当前会话续话（AC-9，
 
     const args = startCallArgs();
     const prompt = String(args.prompt);
-    expect(prompt.startsWith(buildExplorePrompt('').slice(0, 40))).toBe(true);
+    expect(prompt.startsWith(buildExplorePrompt('', 'api-retry').slice(0, 40))).toBe(true);
     expect(prompt.endsWith(SEND_INPUT.prompt)).toBe(true);
     expect(args.sessionId).toBe(SESSION_ID);
     expect(args.source).toBe('explore');
@@ -573,5 +575,68 @@ describe('useExploreSession：返回形状语义等价（AC-11 契约面）', ()
     expect(result.current.messages.length).toBeGreaterThan(0);
     expect(result.current.send).toBeInstanceOf(Function);
     expect(result.current.stop).toBeInstanceOf(Function);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// send 注入 record.name（explore-name-file-binding AC-4 send 组装半边）：
+// prompt == buildExplorePrompt(input.prompt, record.name)（真实实现参与拼接），
+// 换记录 name 注入随动；record 为 null 不发送（零 IPC）。
+// ---------------------------------------------------------------------------
+
+describe('useExploreSession：send 注入 record.name（AC-4 组装半边）', () => {
+  it('正向：send 的 prompt 逐字等于 buildExplorePrompt(input.prompt, record.name)', async () => {
+    const { result } = await mounted();
+
+    act(() => {
+      result.current.send(SEND_INPUT);
+    });
+    await act(async () => {});
+
+    const args = startCallArgs();
+    expect(args.prompt).toBe(buildExplorePrompt(SEND_INPUT.prompt, 'api-retry'));
+    expect(String(args.prompt)).toContain('api-retry');
+    expect(String(args.prompt)).toContain('文件名 MUST 等于 api-retry');
+  });
+
+  it('正向：记录切换（name 变化）→ stance 注入随新 name 变化', async () => {
+    const { result, rerender } = renderHook(
+      (props: { record: ExploreRecord | null }) => useExploreSession(ROOT, props.record),
+      { initialProps: { record: exploreRecord() } },
+    );
+    await act(async () => {});
+
+    // 首条：api-retry
+    act(() => {
+      result.current.send(SEND_INPUT);
+    });
+    await act(async () => {});
+    expect(String(startCallArgs().prompt)).toBe(buildExplorePrompt(SEND_INPUT.prompt, 'api-retry'));
+
+    // 轮终态回流闭流，解除 running 门闩
+    deliverRecord(turn(13, 'completed', 'ses-13-1727000001000'));
+    await waitFor(() => expect(result.current.running).toBe(false));
+
+    // 换记录 name（同 id —— 会话归属不变）：stance 注入随新 name 随动
+    rerender({ record: { ...exploreRecord(), name: 'other-topic' } });
+    await act(async () => {});
+    act(() => {
+      result.current.send(SEND_INPUT);
+    });
+    await act(async () => {});
+    expect(String(startCallArgs().prompt)).toBe(
+      buildExplorePrompt(SEND_INPUT.prompt, 'other-topic'),
+    );
+  });
+
+  it('边界：record 为 null → send 为 no-op（零 agent_start IPC）', async () => {
+    const { result } = await mounted(null);
+
+    act(() => {
+      result.current.send(SEND_INPUT);
+    });
+    await act(async () => {});
+
+    expect(invokeMock.mock.calls.filter(([name]) => name === 'agent_start')).toHaveLength(0);
   });
 });

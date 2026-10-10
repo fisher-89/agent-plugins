@@ -53,6 +53,7 @@ impl StartStore {
             record: Mutex::new(Some(ChangeStateRecord {
                 id: CHANGE_ID.to_owned(),
                 name: CHANGE_NAME.to_owned(),
+                title: CHANGE_NAME.to_owned(),
                 workflow_type: workflow_type.to_owned(),
                 created_at: T0,
                 status: ChangeStatus::Active,

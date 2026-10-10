@@ -49,6 +49,7 @@ const fakeList: ChangeList = {
     {
       id: CHANGE_ID,
       name: 'add-feature',
+      title: 'add-feature',
       source: 'active',
       status: 'active',
       activePhase: null,
@@ -61,6 +62,7 @@ const fakeList: ChangeList = {
 const fakeDetail: ChangeDetail = {
   id: CHANGE_ID,
   name: 'add-feature',
+  title: 'add-feature',
   source: 'active',
   status: 'active',
   created: null,

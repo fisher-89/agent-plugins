@@ -154,6 +154,7 @@ impl Corpus {
             &self.vcs,
             name,
             goal,
+            name,
         )
     }
 
@@ -164,6 +165,25 @@ impl Corpus {
             .create_change_record(ChangeStateRecord {
                 id: id.to_owned(),
                 name: name.to_owned(),
+                title: name.to_owned(),
+                workflow_type: "requirement".to_owned(),
+                created_at: T0,
+                status: ChangeStatus::Active,
+                archived_at: None,
+                active_phase: None,
+                worktree: None,
+                base_commit: None,
+            })
+            .expect("建档失败");
+    }
+
+    /// 建档（显式 title 形态——title ≠ name 的 golden 样本面）。
+    fn seed_record_titled(&self, id: &str, name: &str, title: &str) {
+        self.store
+            .create_change_record(ChangeStateRecord {
+                id: id.to_owned(),
+                name: name.to_owned(),
+                title: title.to_owned(),
                 workflow_type: "requirement".to_owned(),
                 created_at: T0,
                 status: ChangeStatus::Active,
@@ -395,7 +415,8 @@ fn item(name: &str, pass: bool, evidence: &str) -> ChecklistItem {
 /// attempt 残留（active_phase 在场）；checklist 多条验打包键序。
 fn build_multi_attempt() -> Corpus {
     let corpus = Corpus::new("multi-attempt");
-    corpus.seed_record("id-multi-attempt", "multi-attempt");
+    // title 两态样本之一：显式标题（title ≠ name —— detail.title 出线面）
+    corpus.seed_record_titled("id-multi-attempt", "multi-attempt", "多 attempt 语料标题");
     corpus.run_phase(
         "id-multi-attempt",
         "proposal",
@@ -629,6 +650,7 @@ fn build_list_mixed() -> Corpus {
         .create_change_record(ChangeStateRecord {
             id: "id-unknown-time-archived".to_owned(),
             name: "unknown-time-archived".to_owned(),
+            title: "unknown-time-archived".to_owned(),
             workflow_type: "requirement".to_owned(),
             created_at: T0,
             status: ChangeStatus::Archived,
@@ -655,6 +677,8 @@ fn build_list_mixed() -> Corpus {
     let wt_entry = ChangeStateRecord {
         id: "id-list-worktree".to_owned(),
         name: "list-worktree".to_owned(),
+        // title 两态样本之一：显式标题（title ≠ name —— list golden 出线面）
+        title: "工作树条目标题".to_owned(),
         workflow_type: "requirement".to_owned(),
         created_at: T0,
         status: ChangeStatus::Active,
@@ -701,6 +725,7 @@ merge 前主仓两树未命中的产物形态。",
         .create_change_record(ChangeStateRecord {
             id: "id-corpus-worktree".to_owned(),
             name: "corpus-worktree".to_owned(),
+            title: "corpus-worktree".to_owned(),
             workflow_type: "requirement".to_owned(),
             created_at: T0,
             status: ChangeStatus::Active,
@@ -847,6 +872,7 @@ fn build_archive_prefix() -> Corpus {
         .create_change_record(ChangeStateRecord {
             id: "id-seeded-archived".to_owned(),
             name: "seeded-archived".to_owned(),
+            title: "seeded-archived".to_owned(),
             workflow_type: "requirement".to_owned(),
             created_at: T0,
             status: ChangeStatus::Archived,
@@ -990,10 +1016,15 @@ fn snapshot_dir_bytes(root: &Path) -> Vec<(String, Vec<u8>)> {
 #[test]
 fn corpus多attempt语料_golden对拍() {
     let corpus = build_multi_attempt();
-    check_or_rewrite(
-        "corpus-multi-attempt",
-        &project_detail(&corpus, "id-multi-attempt"),
+    let detail = project_detail(&corpus, "id-multi-attempt");
+    // title 两态样本之一（显式标题）：detail.title 出线且 ≠ name
+    assert_eq!(
+        detail["title"].as_str(),
+        Some("多 attempt 语料标题"),
+        "显式标题样本 detail.title 出线（title ≠ name 两态之一）"
     );
+    assert_ne!(detail["title"], detail["name"], "title 与 name 双字段可辨");
+    check_or_rewrite("corpus-multi-attempt", &detail);
 }
 
 /// backtrack stale 语料：回跳 + dependents 闭包翻转种子 → stale 位与
@@ -1012,10 +1043,13 @@ fn corpusbacktrack_stale语料_golden对拍() {
 #[test]
 fn corpus槽位全缺语料_golden对拍() {
     let corpus = build_slots_null();
-    check_or_rewrite(
-        "corpus-slots-null",
-        &project_detail(&corpus, "id-slots-null"),
+    let detail = project_detail(&corpus, "id-slots-null");
+    // title 两态样本之二（缺省 = name）：恒非空且与 name 同值
+    assert_eq!(
+        detail["title"], detail["name"],
+        "缺省样本 title = name（两态之二）"
     );
+    check_or_rewrite("corpus-slots-null", &detail);
 }
 
 /// 文档形态零发现反例（D13 退役改造）：磁盘产物树 + workflow.json 惰性字节
@@ -1102,7 +1136,36 @@ fn corpus列表混合语料_golden对拍() {
             entry["id"].as_str().is_some_and(|id| !id.is_empty()),
             "active 条目 id 恒在案：{entry}"
         );
+        // title 线形契约：键恒在场且恒非空（title = name 缺省样本与显式标题样本同式）
+        assert!(
+            entry["title"]
+                .as_str()
+                .is_some_and(|title| !title.is_empty()),
+            "active 条目 title 键恒在场且非空：{entry}"
+        );
     }
+    // title 两态样本：list-worktree 显式标题（title ≠ name）
+    let worktree_entry = list["active"]
+        .as_array()
+        .expect("active 为数组")
+        .iter()
+        .find(|entry| entry["name"] == "list-worktree")
+        .expect("worktree 条目在场");
+    assert_eq!(
+        worktree_entry["title"].as_str(),
+        Some("工作树条目标题"),
+        "显式标题样本出线 title（title ≠ name 两态之一）"
+    );
+    let default_entry = list["active"]
+        .as_array()
+        .expect("active 为数组")
+        .iter()
+        .find(|entry| entry["name"] == "list-active")
+        .expect("缺省样本在场");
+    assert_eq!(
+        default_entry["title"], default_entry["name"],
+        "缺省样本 title = name（两态之二）"
+    );
     // 归档组：archived_at 月分组（新月份在前 + 未知时间组置尾）；条目裸名 +
     // id；磁盘前缀不参与（list-archived 磁盘目录带 2026-05-20- 前缀，出线恒
     // 裸名）；磁盘-only archive 目录（前缀 / 无前缀）零呈现
@@ -1123,6 +1186,12 @@ fn corpus列表混合语料_golden对拍() {
             assert!(
                 entry["id"].as_str().is_some_and(|id| !id.is_empty()),
                 "归档条目 id 恒在案：{entry}"
+            );
+            assert!(
+                entry["title"]
+                    .as_str()
+                    .is_some_and(|title| !title.is_empty()),
+                "归档条目 title 键恒在场且非空：{entry}"
             );
             assert!(
                 !name.ends_with("disk-archived") && name != "unknown-date-archived",
@@ -1376,6 +1445,13 @@ fn corpusgolden重写后_diff范围键集断言() {
         assert!(
             value.get("worktree").is_some(),
             "{name} worktree 键恒在场（legacy 建档样本 null 留位——防静默漂移）"
+        );
+        assert!(
+            value
+                .get("title")
+                .and_then(|title| title.as_str())
+                .is_some_and(|title| !title.is_empty()),
+            "{name} title 键恒在场且恒非空（AC-9 detail title 出线）"
         );
         assert!(
             value.get("runs").is_some(),
@@ -1727,6 +1803,7 @@ fn 真件create_fs失败补偿_重开db零残留() {
             &FakeVcs::new(),
             "fix-bug",
             "补偿路径 goal",
+            "fix-bug",
         )
         .expect_err("fs 半边失败应 Err");
         assert!(
@@ -2181,6 +2258,7 @@ fn 真件detail时间出线_epoch零口径() {
         .create_change_record(ChangeStateRecord {
             id: "id-zero-ts".to_owned(),
             name: "zero-ts".to_owned(),
+            title: "zero-ts".to_owned(),
             workflow_type: "requirement".to_owned(),
             created_at: 0,
             status: ChangeStatus::Active,

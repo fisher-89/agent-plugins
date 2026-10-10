@@ -10,7 +10,8 @@
       "id": "id-list-active",
       "name": "list-active",
       "source": "active",
-      "status": "active"
+      "status": "active",
+      "title": "list-active"
     },
     {
       "activePhase": null,
@@ -18,7 +19,8 @@
       "id": "id-list-worktree",
       "name": "list-worktree",
       "source": "active",
-      "status": "active"
+      "status": "active",
+      "title": "工作树条目标题"
     }
   ],
   "archiveGroups": [
@@ -30,7 +32,8 @@
           "id": "id-list-archived",
           "name": "list-archived",
           "source": "archive",
-          "status": "archived"
+          "status": "archived",
+          "title": "list-archived"
         }
       ],
       "month": "2026-05"
@@ -43,7 +46,8 @@
           "id": "id-seeded-archived",
           "name": "seeded-archived",
           "source": "archive",
-          "status": "archived"
+          "status": "archived",
+          "title": "seeded-archived"
         }
       ],
       "month": "2026-02"
@@ -56,7 +60,8 @@
           "id": "id-unknown-time-archived",
           "name": "unknown-time-archived",
           "source": "archive",
-          "status": "archived"
+          "status": "archived",
+          "title": "unknown-time-archived"
         }
       ],
       "month": null

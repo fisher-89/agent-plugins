@@ -89,6 +89,7 @@ fn requirement_record(id: &str, name: &str) -> ChangeStateRecord {
     ChangeStateRecord {
         id: id.to_owned(),
         name: name.to_owned(),
+        title: name.to_owned(),
         workflow_type: "requirement".to_owned(),
         created_at: T0,
         status: ChangeStatus::Active,

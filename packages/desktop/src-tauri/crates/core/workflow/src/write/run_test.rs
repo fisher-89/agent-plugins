@@ -51,6 +51,7 @@ impl RecordingStore {
             recorded: Mutex::new(Some(ChangeStateRecord {
                 id: CHANGE_ID.to_owned(),
                 name: CHANGE_NAME.to_owned(),
+                title: CHANGE_NAME.to_owned(),
                 workflow_type: "requirement".to_owned(),
                 created_at: STARTED_AT,
                 status: ChangeStatus::Active,

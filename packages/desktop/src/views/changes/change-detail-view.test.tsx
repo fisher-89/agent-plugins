@@ -233,6 +233,7 @@ function detail(overrides: Partial<ChangeDetail> = {}): ChangeDetail {
   return {
     id: CHANGE_ID,
     name: 'add-feature',
+    title: 'add-feature',
     source: 'active',
     status: 'active',
     created: '2026-09-01',
@@ -1306,5 +1307,46 @@ describe('ChangeDetailView：归档入口（按钮两态 / panel 挂载位 / 终
     await waitFor(() => expect(detailCalls()).toHaveLength(2));
     await waitFor(() => expect(screen.queryByTestId('archive-trigger')).toBeNull());
     expect(screen.getByTestId('detail-header').textContent).toContain('已归档');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 详情头渲染 detail.title（explore-name-file-binding AC-8 change 详情半边）：
+// 标题面取 title（恒非空），name 保留供归档 / run 控制面板
+// ---------------------------------------------------------------------------
+
+describe('ChangeDetailView：详情头渲染 detail.title（AC-8）', () => {
+  it('正向：title ≠ name 时标题取 detail.title（name 零作标题展示）', async () => {
+    const urlId = '0199a2f0-2009-7e45-8a9b-000000002009';
+    renderDetail(
+      {
+        detail: detail({ id: urlId, name: 'add-feature', title: '新增特性（人类可读）' }),
+        artifacts: PROPOSAL_ENVELOPES,
+      },
+      ROOT,
+      `/changes/${urlId}`,
+    );
+    await screen.findByTestId('flow-graph');
+
+    expect(screen.getByRole('heading', { name: '新增特性（人类可读）' }) !== null).toBe(true);
+    expect(screen.queryByRole('heading', { name: 'add-feature' })).toBeNull();
+  });
+
+  it('边界：name 保留供面板（归档 / run 控制面板 aria-label 仍取 detail.name）', async () => {
+    const urlId = '0199a2f0-200a-7e45-8a9b-00000000200a';
+    renderDetail(
+      {
+        detail: detail({ id: urlId, name: 'add-feature', title: '新增特性（人类可读）' }),
+        artifacts: PROPOSAL_ENVELOPES,
+      },
+      ROOT,
+      `/changes/${urlId}`,
+    );
+    await screen.findByTestId('flow-graph');
+
+    // 展示面取 title、命令面 / 面板面取 name（双字段可辨）
+    expect(screen.getByLabelText('change add-feature 运行控制') !== null).toBe(true);
+    fireEvent.click(screen.getByTestId('archive-trigger'));
+    await screen.findByLabelText('change add-feature 归档确认');
   });
 });

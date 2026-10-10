@@ -59,6 +59,7 @@ function detail(overrides: Partial<ChangeDetail> = {}): ChangeDetail {
   return {
     id: CHANGE_ID,
     name: 'add-feature',
+    title: 'add-feature',
     source: 'active',
     status: 'active',
     created: null,

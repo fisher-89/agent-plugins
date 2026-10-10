@@ -88,5 +88,6 @@
   "runs": [],
   "source": "active",
   "status": "active",
+  "title": "corpus-worktree",
   "worktree": "<WORKTREE_ROOT>\\corpus-worktree"
 }

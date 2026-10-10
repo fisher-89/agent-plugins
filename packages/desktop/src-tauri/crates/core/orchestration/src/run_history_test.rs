@@ -296,6 +296,7 @@ impl TestDb {
             .create_change_record(ChangeStateRecord {
                 id: CHANGE_ID.to_owned(),
                 name: NAME.to_owned(),
+                title: NAME.to_owned(),
                 workflow_type: "requirement".to_owned(),
                 created_at: STARTED_AT,
                 status: ChangeStatus::Active,

@@ -142,5 +142,6 @@
   "runs": [],
   "source": "active",
   "status": "active",
+  "title": "backtrack-stale",
   "worktree": null
 }

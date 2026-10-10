@@ -9,7 +9,7 @@ use workflow::queries as queries_lib;
 
 use super::{
     create_explore_record, delete_explore_record, explore_doc_path, list_explore_records,
-    read_explore, rename_explore_record, scan_explores,
+    promote_explore_with, read_explore, rename_explore_record, scan_explores, update_explore_title,
 };
 
 // ---------------------------------------------------------------------------
@@ -56,6 +56,33 @@ impl Env {
         fs::write(&path, content).expect("写笔记失败");
         path
     }
+
+    /// 主仓初始化为含一个提交的 git 仓（promote 复用 create 的真实 git
+    /// worktree 依赖；与产品硬依赖同口径）。
+    fn as_git_repo(&self) {
+        fs::write(self.ws_root.path().join("README.md"), "# 主仓夹具\n")
+            .expect("写主仓初始文件失败");
+        for args in [
+            vec!["init"],
+            vec!["config", "user.email", "test@example.com"],
+            vec!["config", "user.name", "desktop-test"],
+            vec!["add", "README.md"],
+            vec!["commit", "-m", "init"],
+        ] {
+            let output = std::process::Command::new("git")
+                .arg("-C")
+                .arg(self.ws_root.path())
+                .args(&args)
+                .output()
+                .expect("git 拉起失败");
+            assert!(
+                output.status.success(),
+                "git {} 失败: {}",
+                args.join(" "),
+                String::from_utf8_lossy(&output.stderr)
+            );
+        }
+    }
 }
 
 /// 以 MockRuntime 建测用 app，并在其中 manage 真实 WorkspaceStores（打开 env
@@ -63,6 +90,16 @@ impl Env {
 fn app_with_stores(env: &Env) -> App<tauri::test::MockRuntime> {
     let app = tauri::test::mock_app();
     let stores = WorkspaceStores::open(env.data_dir.path()).expect("打开测试全局库失败");
+    app.manage(stores);
+    app
+}
+
+/// 建测用 app（promote 面）：除 WorkspaceStores 外另 manage 数据根（worktree
+/// 落位派生注入面，与 main.rs setup 同构）。
+fn app_with_data(env: &Env) -> App<tauri::test::MockRuntime> {
+    let app = tauri::test::mock_app();
+    let stores = WorkspaceStores::open(env.data_dir.path()).expect("打开测试全局库失败");
+    app.manage(env.data_dir.path().to_path_buf());
     app.manage(stores);
     app
 }
@@ -335,9 +372,9 @@ fn 大小写差异文件按记录name精确求差不引入文件系统折叠() {
     let env = Env::new("r1-case");
     let app = app_with_stores(&env);
     let state = app.state::<WorkspaceStores>();
-    // 磁盘实际大小写 CaseDoc.md，记录名小写 casedoc（Windows 盘上不区分大小写
+    // 磁盘实际大小写 case-doc.md，记录名 casedoc（Windows 盘上不区分大小写
     // 但 fs 返回实际大小写）：精确求差不得引入大小写折叠
-    env.note("CaseDoc", "# case");
+    env.note("case-doc", "# case");
     state
         .for_root(&env.root())
         .expect("for_root 应成功")
@@ -349,8 +386,41 @@ fn 大小写差异文件按记录name精确求差不引入文件系统折叠() {
     let names: Vec<String> = scanned.into_iter().map(|entry| entry.name).collect();
     assert_eq!(
         names,
-        vec!["CaseDoc"],
-        "记录 casedoc ≠ stem CaseDoc：精确比对不滤除（不折叠）"
+        vec!["case-doc"],
+        "记录 casedoc ≠ stem case-doc：精确比对不滤除（不折叠）"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// scan_explores 非 kebab 过滤（explore-name-file-binding）：命令层在未绑定过滤
+// 之外再滤非 kebab stem（对齐 store 建档口径，避免「点击后报错」）
+// ---------------------------------------------------------------------------
+
+/// scan_explores 过滤非 kebab（边界）：笔记目录含非 kebab stem（大写 /
+/// 下划线 / 前导数字）→ 不列入可绑定清单；已绑定过滤照常并存。
+#[test]
+fn scan_explores过滤非kebab_stem与已绑定过滤并存() {
+    let env = Env::new("scan-kebab");
+    let app = app_with_stores(&env);
+    let state = app.state::<WorkspaceStores>();
+    env.note("valid-topic", "# 合法");
+    env.note("BadCase", "# 大写");
+    env.note("bad_case", "# 下划线");
+    env.note("1bad", "# 前导数字");
+    env.note("also-valid", "# 合法二");
+    state
+        .for_root(&env.root())
+        .expect("for_root 应成功")
+        .create_explore_record(&env.root(), "also-valid")
+        .expect("建档应成功");
+
+    let scanned = scan_explores(env.root(), state).expect("scan 应成功");
+
+    let names: Vec<String> = scanned.into_iter().map(|entry| entry.name).collect();
+    assert_eq!(
+        names,
+        vec!["valid-topic"],
+        "非 kebab stem 不列入 + 已绑定 also-valid 滤除"
     );
 }
 
@@ -388,7 +458,7 @@ fn rename保主键且delete级联名下runs与events在同一workspace库内收�
     let state = app.state::<WorkspaceStores>();
 
     let original =
-        create_explore_record(state.clone(), env.root(), "话题".to_owned()).expect("建档应成功");
+        create_explore_record(state.clone(), env.root(), "topic".to_owned()).expect("建档应成功");
     // 名下归属会话（source=explore，source_ref=记录 id 十进制串）落同一 workspace 库
     {
         let ws = state.for_root(&env.root()).expect("for_root 应成功");
@@ -402,15 +472,15 @@ fn rename保主键且delete级联名下runs与events在同一workspace库内收�
     let renamed = rename_explore_record(
         state.clone(),
         env.root(),
-        "话题".to_owned(),
-        "改名话题".to_owned(),
+        "topic".to_owned(),
+        "renamed-topic".to_owned(),
     )
     .expect("改名应成功");
     assert_eq!(renamed.id, original.id, "in-place 改名保主键");
 
     // delete：级联名下 runs+events 在同一 workspace 库内收敛
     assert!(
-        delete_explore_record(state.clone(), env.root(), "改名话题".to_owned())
+        delete_explore_record(state.clone(), env.root(), "renamed-topic".to_owned())
             .expect("删除应成功"),
         "命中删除返回 true"
     );
@@ -439,7 +509,7 @@ fn 两workspace同名建档各自独立_甲库建档后乙库清单为空() {
     let root_a = env.root();
     let root_b = env.other_root();
 
-    let a = create_explore_record(state.clone(), root_a.clone(), "同名话题".to_owned())
+    let a = create_explore_record(state.clone(), root_a.clone(), "same-topic".to_owned())
         .expect("A 库建档应成功");
     assert_eq!(
         list_explore_records(state.clone(), root_b.clone()).expect("B 库清单应成功"),
@@ -447,7 +517,7 @@ fn 两workspace同名建档各自独立_甲库建档后乙库清单为空() {
         "A 库建档后 B 库清单为空（分库天然隔离）"
     );
 
-    let b = create_explore_record(state.clone(), root_b.clone(), "同名话题".to_owned())
+    let b = create_explore_record(state.clone(), root_b.clone(), "same-topic".to_owned())
         .expect("B 库同名建档不冲突");
     assert_eq!(a.id, b.id, "两库同 id 并行（库域内自增）");
     let list_a = list_explore_records(state.clone(), root_a).expect("A 库清单应成功");
@@ -678,4 +748,279 @@ fn root不可寻址_五命令err透传不panic() {
             "Err 记因 canonicalize 失败与 root 线索，实际: {err}"
         );
     }
+}
+
+// ---------------------------------------------------------------------------
+// update_explore_title（explore-name-file-binding AC-5 命令半边）：title 回填
+// 唯一写口，blank root / 空白 title 显式 Err
+// ---------------------------------------------------------------------------
+
+/// update_explore_title 正向（AC-5）：经 store.set_explore_title 回填 title，
+/// 返回更新后记录（主键 / name 不变）。
+#[test]
+fn update_explore_title正向回填并返回更新记录() {
+    let env = Env::new("update-title-ok");
+    let app = app_with_stores(&env);
+    let state = app.state::<WorkspaceStores>();
+    let original =
+        create_explore_record(state.clone(), env.root(), "topic-a".to_owned()).expect("建档应成功");
+
+    let updated = update_explore_title(
+        state.clone(),
+        env.root(),
+        "topic-a".to_owned(),
+        "人类可读标题".to_owned(),
+    )
+    .expect("回填应成功");
+
+    assert_eq!(updated.title, "人类可读标题", "返回更新后 title");
+    assert_eq!(updated.id, original.id, "主键不变（保会话链）");
+    assert_eq!(updated.name, original.name, "name 不变");
+    assert_eq!(
+        state
+            .for_root(&env.root())
+            .expect("for_root 应成功")
+            .find_explore_record(&env.root(), "topic-a")
+            .expect("find 应成功")
+            .map(|record| record.title),
+        Some("人类可读标题".to_owned()),
+        "落库可寻址读出"
+    );
+}
+
+/// update_explore_title 空白拒绝（异常）：blank root / 空白 title → 显式
+/// `Err`（title 恒非空），记录零改动。
+#[test]
+fn update_explore_title空白root与空白title显式err() {
+    let env = Env::new("update-title-blank");
+    let app = app_with_stores(&env);
+    let state = app.state::<WorkspaceStores>();
+    let original =
+        create_explore_record(state.clone(), env.root(), "topic-a".to_owned()).expect("建档应成功");
+
+    for root in [String::new(), "   ".to_owned()] {
+        let err =
+            update_explore_title(state.clone(), root, "topic-a".to_owned(), "标题".to_owned())
+                .expect_err("blank root 应 Err");
+        assert_eq!(err, "非法 root: 不得为空白");
+    }
+    for title in ["", "   ", "\n\t"] {
+        let err = update_explore_title(
+            state.clone(),
+            env.root(),
+            "topic-a".to_owned(),
+            title.to_owned(),
+        )
+        .expect_err("空白 title 应 Err");
+        assert_eq!(err, "非法 title: 不得为空白", "title 恒非空（命令层拦截）");
+    }
+    assert_eq!(
+        state
+            .for_root(&env.root())
+            .expect("for_root 应成功")
+            .find_explore_record(&env.root(), "topic-a")
+            .expect("find 应成功"),
+        Some(original),
+        "拒绝面零改动"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// promote_explore（explore-name-file-binding AC-6 / AC-7 命令半边）：读笔记 →
+// 读记录 → 写面 move → 打标四步；前置拒绝面显式 Err 且零副作用
+//
+// 覆盖边界（设计表「promote_explore 打标失败——写面成功后 mark_explore_promoted
+// 注入 Err」一行）：④ 打标在进程内无确定性注入缝——`promote_explore_with` 的
+// store 取自 `app.state::<WorkspaceStores>()`（具体类型，非 trait 缝），且 ② 与
+// ④ 同源、同实例、同实参（root / name 逐字相同，`find_explore_record` 按
+// (root, name) 幂等寻址），故 ② 通过后 ④ 的两条记录面拒绝（已 promoted / 记录
+// miss）不可达；DB 层故障的可构造形态（文件 / 格式损坏）在链路起点 `for_root`
+// 即短路，而④ 独有的写事务故障在单进程内无确定性诱发法。④ 的输入前置（写面成功
+// 后记录仍在且未打标）与「笔记全文已在 change explore.md 留底」不变量由上方四步
+// 成功用例断言，记录面两条拒绝由 store_test（mark_explore_promoted 已 promoted /
+// miss）覆盖——不造假竞态用例。
+// ---------------------------------------------------------------------------
+
+/// promote_explore 四步成功（AC-6 命令层半边）：预置笔记与记录 → 读笔记命中
+/// → 读记录未 promoted → 写面 move → `mark_explore_promoted(change_id)`；
+/// 主仓笔记已删、worktree 内 explore.md = 笔记全文、记录保留且
+/// `promoted_to == change.id`。
+#[tokio::test]
+async fn promote_explore四步成功_笔记移走记录保留打标() {
+    let _path_guard = crate::commands::TEST_PATH_LOCK
+        .lock()
+        .expect("PATH 锁不可中毒");
+    let env = Env::new("promote-ok");
+    env.as_git_repo();
+    let app = app_with_data(&env);
+    let state = app.state::<WorkspaceStores>();
+    let root = env.root();
+    let note = "# 重试策略\n\n- 线索一\n- 线索二";
+    let note_path = env.note("api-retry", note);
+    create_explore_record(state.clone(), root.clone(), "api-retry".to_owned()).expect("建档应成功");
+
+    let outcome = promote_explore_with(app.handle().clone(), root.clone(), "api-retry".to_owned())
+        .await
+        .expect("promote 应成功");
+
+    // ① 主仓笔记已删（move 半边）
+    assert!(!note_path.exists(), "主仓 explores/api-retry.md 已删");
+    // ② worktree 内 change explore.md = 笔记全文
+    let worktree = vcs_runtime::worktree_dir(env.data_dir.path(), &root, "api-retry");
+    let landed = foundation::layout::resolve(&worktree)
+        .changes_root
+        .join("api-retry")
+        .join("explore.md");
+    assert_eq!(
+        fs::read_to_string(&landed).expect("读 worktree 内 explore.md 失败"),
+        note,
+        "worktree 内 explore.md 为笔记全文"
+    );
+    // ③ 记录保留且打标（MUST NOT 删记录——会话链保留）
+    let record = state
+        .for_root(&root)
+        .expect("for_root 应成功")
+        .find_explore_record(&root, "api-retry")
+        .expect("find 应成功")
+        .expect("记录保留（promote 是 move 而非登记）");
+    assert_eq!(
+        record.promoted_to.as_deref(),
+        Some(outcome.change_id.as_str()),
+        "promoted_to == change.id"
+    );
+    assert_eq!(record.title, "api-retry", "title 随记录保留（默认 = name）");
+    assert_eq!(
+        outcome.change_name, "api-retry",
+        "change_name = explore.name"
+    );
+    // ④ change 建档在案（title 继承 explore.title）
+    let change = state
+        .for_root(&root)
+        .expect("for_root 应成功")
+        .find_change_record(&outcome.change_id)
+        .expect("查档应成功")
+        .expect("建档在案");
+    assert_eq!(change.name, "api-retry");
+    assert_eq!(change.title, record.title, "title 继承 explore.title");
+}
+
+/// promote_explore blank root / 非 kebab 拒绝（异常）：显式 `Err` 且零读写
+/// （笔记仍在、无 change 建档）。
+#[tokio::test]
+async fn promote_explore_blank_root与非kebab显式err零读写() {
+    let env = Env::new("promote-reject");
+    let app = app_with_data(&env);
+    let state = app.state::<WorkspaceStores>();
+    let root = env.root();
+    let note_path = env.note("valid-topic", "# 标题\n正文");
+    create_explore_record(state.clone(), root.clone(), "valid-topic".to_owned())
+        .expect("建档应成功");
+
+    for root_arg in [String::new(), "   ".to_owned()] {
+        let err = promote_explore_with(app.handle().clone(), root_arg, "valid-topic".to_owned())
+            .await
+            .expect_err("blank root 应 Err");
+        assert_eq!(err, "非法 root: 不得为空白");
+    }
+    for name in ["BadCase", "bad_case", "1bad", "bad-name-"] {
+        let err = promote_explore_with(app.handle().clone(), root.clone(), name.to_owned())
+            .await
+            .expect_err("非 kebab name 应 Err");
+        assert!(
+            err.contains("kebab-case"),
+            "Err 归因 kebab 口径，实际: {err}"
+        );
+    }
+    assert!(note_path.is_file(), "拒绝面零副作用（笔记仍在）");
+    assert!(
+        state
+            .for_root(&root)
+            .expect("for_root 应成功")
+            .list_change_records()
+            .expect("清单应成功")
+            .is_empty(),
+        "零 change 建档"
+    );
+}
+
+/// promote_explore 笔记未落盘 / 空白拒绝（异常）：`read_explore` 返回 None 或
+/// 空白 → 显式 `Err`，记录零改动。
+#[tokio::test]
+async fn promote_explore笔记未落盘或空白拒绝() {
+    let env = Env::new("promote-no-note");
+    let app = app_with_data(&env);
+    let state = app.state::<WorkspaceStores>();
+    let root = env.root();
+    create_explore_record(state.clone(), root.clone(), "no-note".to_owned()).expect("建档应成功");
+
+    // 未落盘
+    let err = promote_explore_with(app.handle().clone(), root.clone(), "no-note".to_owned())
+        .await
+        .expect_err("未落盘应 Err");
+    assert!(
+        err.contains("尚未落盘") && err.contains("no-note"),
+        "Err 携引导文案，实际: {err}"
+    );
+
+    // 落盘但内容空白
+    env.note("no-note", "   \n\t");
+    let err = promote_explore_with(app.handle().clone(), root.clone(), "no-note".to_owned())
+        .await
+        .expect_err("空白内容应 Err");
+    assert!(err.contains("尚未落盘或内容为空白"), "实际: {err}");
+
+    let record = state
+        .for_root(&root)
+        .expect("for_root 应成功")
+        .find_explore_record(&root, "no-note")
+        .expect("find 应成功")
+        .expect("记录保留");
+    assert_eq!(record.promoted_to, None, "记录零改动（未打标）");
+    assert!(
+        state
+            .for_root(&root)
+            .expect("for_root 应成功")
+            .list_change_records()
+            .expect("清单应成功")
+            .is_empty(),
+        "零 change 建档"
+    );
+}
+
+/// promote_explore 已 promoted 拒绝（异常）：记录 promoted_to 非空 → 显式
+/// `Err`（零重复搬移）。
+#[tokio::test]
+async fn promote_explore已promoted拒绝() {
+    let env = Env::new("promote-again");
+    let app = app_with_data(&env);
+    let state = app.state::<WorkspaceStores>();
+    let root = env.root();
+    let note_path = env.note("done-topic", "# 标题\n正文");
+    create_explore_record(state.clone(), root.clone(), "done-topic".to_owned())
+        .expect("建档应成功");
+    state
+        .for_root(&root)
+        .expect("for_root 应成功")
+        .mark_explore_promoted(&root, "done-topic", "chg-already")
+        .expect("预置打标应成功");
+
+    let err = promote_explore_with(app.handle().clone(), root.clone(), "done-topic".to_owned())
+        .await
+        .expect_err("已 promoted 应 Err");
+
+    assert!(
+        err.contains("已转变更") && err.contains("chg-already"),
+        "Err 携既有 change id，实际: {err}"
+    );
+    assert!(note_path.is_file(), "笔记零改动");
+    assert_eq!(
+        state
+            .for_root(&root)
+            .expect("for_root 应成功")
+            .find_explore_record(&root, "done-topic")
+            .expect("find 应成功")
+            .and_then(|record| record.promoted_to),
+        Some("chg-already".to_owned()),
+        "原打标值零改动"
+    );
 }

@@ -81,6 +81,9 @@ pub struct ChangeStateRecord {
     pub id: String,
     /// change 名（恒裸名；可变属性，无唯一约束，MUST NOT 作身份键）
     pub name: String,
+    /// 人类可读标题，恒非空（创建与升级默认 = `name`，promote 路径继承
+    /// `explore.title`）
+    pub title: String,
     pub workflow_type: String,
     /// 建档时间（UTC unix 毫秒）
     pub created_at: i64,

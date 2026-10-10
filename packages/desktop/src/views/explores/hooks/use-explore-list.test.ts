@@ -17,7 +17,15 @@ vi.mock('@tauri-apps/api/core', () => ({
 const ROOT = 'C:\\demo\\alpha';
 
 function record(id: number, name: string, root = ROOT): ExploreRecord {
-  return { id, root, name, createdAt: 1727000000000 + id, updatedAt: 1727000000000 + id };
+  return {
+    id,
+    root,
+    name,
+    title: name,
+    promotedTo: null,
+    createdAt: 1727000000000 + id,
+    updatedAt: 1727000000000 + id,
+  };
 }
 
 beforeEach(() => {
@@ -387,5 +395,117 @@ describe('useExploreList：生成绑定调用面', () => {
     await waitFor(() => expect(result.current.error).toContain('删除失败'));
 
     expect(result.current.records).toEqual([record(1, 'keep')]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 详情页动作薄封装（explore-name-file-binding AC-5 / AC-8）：updateTitle(name,
+// title) / promote(name) —— invoke 后 refresh；失败落 error 且向外 rethrow
+// 供详情页行内错误捕获；无 root 守卫为 no-op（零 IPC）。
+// ---------------------------------------------------------------------------
+
+/** 显式 title / promotedTo 形态 fixture（title ≠ name 双字段可辨）。 */
+function titledRecord(
+  id: number,
+  name: string,
+  title: string,
+  promotedTo: string | null = null,
+): ExploreRecord {
+  return { ...record(id, name), title, promotedTo };
+}
+
+describe('useExploreList：详情页动作（updateTitle / promote，AC-5 / AC-8）', () => {
+  it('updateTitle：invoke("update_explore_title", { root, name, title }) → 成功后以当前 root 重新取数', async () => {
+    const titled = titledRecord(1, 'api-retry', '接口重试策略');
+    invokeMock.mockImplementation((command: string) => {
+      if (command === 'list_explore_records') {
+        const updated = invokeMock.mock.calls.some(([n]) => n === 'update_explore_title');
+        return Promise.resolve(updated ? [titled] : [record(1, 'api-retry')]);
+      }
+      if (command === 'update_explore_title') return Promise.resolve(titled);
+      return Promise.resolve(null);
+    });
+
+    const { result } = renderHook(() => useExploreList(ROOT));
+    await waitFor(() => expect(result.current.records).toEqual([record(1, 'api-retry')]));
+
+    await act(async () => {
+      await result.current.updateTitle('api-retry', '接口重试策略');
+    });
+
+    expect(invokeMock).toHaveBeenCalledWith('update_explore_title', {
+      root: ROOT,
+      name: 'api-retry',
+      title: '接口重试策略',
+    });
+    await waitFor(() => expect(result.current.records).toEqual([titled]));
+    expect(invokeMock).toHaveBeenLastCalledWith('list_explore_records', { root: ROOT });
+  });
+
+  it('promote：invoke("promote_explore", { root, name }) → 成功后 refresh（promoted 态随清单取数回流）', async () => {
+    const promoted = titledRecord(1, 'api-retry', '接口重试策略', 'chg-018f3a-0001');
+    invokeMock.mockImplementation((command: string) => {
+      if (command === 'list_explore_records') {
+        const promotedCalled = invokeMock.mock.calls.some(([n]) => n === 'promote_explore');
+        return Promise.resolve(
+          promotedCalled ? [promoted] : [titledRecord(1, 'api-retry', '接口重试策略')],
+        );
+      }
+      if (command === 'promote_explore') {
+        return Promise.resolve({ changeId: 'chg-018f3a-0001', changeName: 'api-retry' });
+      }
+      return Promise.resolve(null);
+    });
+
+    const { result } = renderHook(() => useExploreList(ROOT));
+    await waitFor(() =>
+      expect(result.current.records).toEqual([titledRecord(1, 'api-retry', '接口重试策略')]),
+    );
+
+    await act(async () => {
+      await result.current.promote('api-retry');
+    });
+
+    expect(invokeMock).toHaveBeenCalledWith('promote_explore', {
+      root: ROOT,
+      name: 'api-retry',
+    });
+    await waitFor(() => expect(result.current.records).toEqual([promoted]));
+    expect(result.current.records[0].promotedTo).toBe('chg-018f3a-0001');
+  });
+
+  it('updateTitle / promote reject：error 置位（清单保持原值）且 Promise 拒绝供详情页行内捕获', async () => {
+    invokeMock.mockImplementation((command: string) => {
+      if (command === 'list_explore_records') return Promise.resolve([record(1, 'api-retry')]);
+      if (command === 'update_explore_title') return Promise.reject(new Error('回填失败'));
+      if (command === 'promote_explore') return Promise.reject(new Error('启动变更失败'));
+      return Promise.resolve(null);
+    });
+
+    const { result } = renderHook(() => useExploreList(ROOT));
+    await waitFor(() => expect(result.current.records).toHaveLength(1));
+
+    await act(async () => {
+      await expect(result.current.updateTitle('api-retry', '标题')).rejects.toThrow('回填失败');
+    });
+    await waitFor(() => expect(result.current.error).toContain('回填失败'));
+    expect(result.current.records).toEqual([record(1, 'api-retry')]);
+
+    await act(async () => {
+      await expect(result.current.promote('api-retry')).rejects.toThrow('启动变更失败');
+    });
+    await waitFor(() => expect(result.current.error).toContain('启动变更失败'));
+    expect(result.current.records).toEqual([record(1, 'api-retry')]);
+  });
+
+  it('无 root 守卫：root 为 null → updateTitle / promote 均 no-op（零 IPC）', async () => {
+    const { result } = renderHook(() => useExploreList(null));
+
+    await act(async () => {
+      await result.current.updateTitle('topic', '标题');
+      await result.current.promote('topic');
+    });
+
+    expect(invokeMock).not.toHaveBeenCalled();
   });
 });

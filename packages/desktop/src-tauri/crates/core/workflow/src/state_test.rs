@@ -372,6 +372,7 @@ fn change_state_record身份面_id为锚name为属性() {
     let base = ChangeStateRecord {
         id: CHANGE_ID.to_owned(),
         name: "demo-change".to_owned(),
+        title: "demo-change".to_owned(),
         workflow_type: "requirement".to_owned(),
         created_at: 1_727_000_000_000,
         status: ChangeStatus::Active,
@@ -406,6 +407,86 @@ fn change_state_record身份面_id为锚name为属性() {
     let text = serde_json::to_string(&base).expect("出线应成功");
     assert!(text.contains(&format!("\"id\":\"{CHANGE_ID}\"")), "{text}");
     assert!(text.contains("\"name\":\"demo-change\""), "{text}");
+}
+
+/// ChangeStateRecord title 字段面（新增）：title 独立字段构造 → PartialEq
+/// 逐字段可辨（title 与 name 双字段可辨），线面含 title 键。
+#[test]
+fn change_state_record_title字段面独立可辨() {
+    let base = ChangeStateRecord {
+        id: CHANGE_ID.to_owned(),
+        name: "add-feature".to_owned(),
+        title: "新增特性".to_owned(),
+        workflow_type: "requirement".to_owned(),
+        created_at: 1_727_000_000_000,
+        status: ChangeStatus::Active,
+        archived_at: None,
+        active_phase: None,
+        worktree: None,
+        base_commit: None,
+    };
+    assert_eq!(base.clone(), base, "PartialEq 自反");
+    assert_eq!(base.title, "新增特性", "title 独立字段直读");
+    assert_ne!(base.title, base.name, "title 与 name 双字段可辨");
+
+    // 同 name 不同 title：两记录不等价（title 参与等值面）
+    let other_title = ChangeStateRecord {
+        title: "另一种标题".to_owned(),
+        ..base.clone()
+    };
+    assert_eq!(other_title.name, base.name, "前置：同名两记录");
+    assert_eq!(other_title.id, base.id, "前置：同 id");
+    assert_ne!(
+        other_title, base,
+        "同 name 不同 title 两记录不等价（title 独立字段参与等值）"
+    );
+
+    // 线面：title 键出线（camelCase 不变量）
+    let value = serde_json::to_value(&base).expect("出线应成功");
+    assert_eq!(value["title"], json!("新增特性"), "线面含 title 键");
+    assert_eq!(value["name"], json!("add-feature"));
+    assert_eq!(value["id"], json!(CHANGE_ID));
+}
+
+/// title 与 name 可辨（边界）：title 恒非空（默认 = name 由构造侧单点保证，
+/// 中性类型不校验）；同 name 不同 title 不等价；既有字段面逐字不变。
+#[test]
+fn title与name可辨_中性类型不校验非空且既有字段面持衡() {
+    let base = ChangeStateRecord {
+        id: CHANGE_ID.to_owned(),
+        name: "demo-change".to_owned(),
+        title: "demo-change".to_owned(),
+        workflow_type: "requirement".to_owned(),
+        created_at: 1_727_000_000_000,
+        status: ChangeStatus::Active,
+        archived_at: None,
+        active_phase: None,
+        worktree: None,
+        base_commit: None,
+    };
+
+    // 默认 = name 形态（创建 / 升级路径兜底）；title 恒非空
+    assert_eq!(base.title, base.name, "默认 title = name");
+    assert!(!base.title.is_empty(), "title 恒非空");
+
+    // 中性类型不校验：空 title 可构造（拦截归写面 / store 单点）
+    let blank_title = ChangeStateRecord {
+        title: String::new(),
+        ..base.clone()
+    };
+    assert_eq!(blank_title.title, "", "中性类型零校验（非空约束归写面）");
+    assert_ne!(blank_title, base, "空 title 与兜底 title 可辨");
+
+    // 既有字段面逐字不变（id / workflow_type / status / archived_at /
+    // active_phase / worktree / base_commit）
+    assert_eq!(base.id, CHANGE_ID);
+    assert_eq!(base.workflow_type, "requirement");
+    assert_eq!(base.status, ChangeStatus::Active);
+    assert_eq!(base.archived_at, None);
+    assert_eq!(base.active_phase, None);
+    assert_eq!(base.worktree, None);
+    assert_eq!(base.base_commit, None);
+    assert_eq!(base.created_at, 1_727_000_000_000);
 }
 
 /// RunFinishCommand.status 携 Running / Interrupted 可构造（类型层不拦——
@@ -555,6 +636,7 @@ fn change_state_store全方法id形参编译面() {
         .create_change_record(ChangeStateRecord {
             id: CHANGE_ID.to_owned(),
             name: "demo-change".to_owned(),
+            title: "demo-change".to_owned(),
             workflow_type: "requirement".to_owned(),
             created_at: 1_727_000_000_000,
             status: ChangeStatus::Active,

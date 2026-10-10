@@ -101,6 +101,7 @@ fn seed_change(store: &Store, id: &str, name: &str) {
         .create_change_record(ChangeStateRecord {
             id: id.to_owned(),
             name: name.to_owned(),
+            title: name.to_owned(),
             workflow_type: "requirement".to_owned(),
             created_at: TS_BASE,
             status: ChangeStatus::Active,

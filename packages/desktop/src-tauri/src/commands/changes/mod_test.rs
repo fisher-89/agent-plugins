@@ -35,7 +35,8 @@ use workflow::queries as core_queries;
 use workflow::state::{ChangeStateRecord, ChangeStatus, PhaseLogCommand};
 
 use super::{
-    archive_change_with, create_change_with, get_change_detail, list_changes, read_artifact,
+    archive_change_with, create_change, create_change_with, get_change_detail, list_changes,
+    read_artifact,
 };
 
 /// 确定性时间戳（UTC unix 毫秒；2024-09-22 / 2026-02-02）。
@@ -146,6 +147,7 @@ fn seed_active(store: &Store, name: &str) {
         .create_change_record(ChangeStateRecord {
             id: name.to_owned(),
             name: name.to_owned(),
+            title: name.to_owned(),
             workflow_type: "requirement".to_owned(),
             created_at: CREATED_AT,
             status: ChangeStatus::Active,
@@ -163,6 +165,7 @@ fn seed_archived(store: &Store, name: &str) {
         .create_change_record(ChangeStateRecord {
             id: name.to_owned(),
             name: name.to_owned(),
+            title: name.to_owned(),
             workflow_type: "requirement".to_owned(),
             created_at: CREATED_AT,
             status: ChangeStatus::Archived,
@@ -548,6 +551,7 @@ async fn create接线_建域落位_返回dto增id且按id立即可见可发起()
         root.clone(),
         "fix-bug".to_owned(),
         goal.to_owned(),
+        "fix-bug".to_owned(),
     )
     .await
     .expect("合法输入经命令层应 Ok");
@@ -650,6 +654,92 @@ async fn create接线_建域落位_返回dto增id且按id立即可见可发起()
         get_change_detail(state, control, root, "fix-bug".to_owned()).is_none(),
         "name 非寻址键（未建档 id → None）"
     );
+}
+
+// ---------------------------------------------------------------------------
+// create title 透传（explore-name-file-binding AC-2 / AC-8 手动新建默认）：
+// create_change IPC 保持三参、内部 title = name；create_change_with 增 title
+// 参数并透传 write::create；库内建档记录 title 与清单出线逐字一致。
+// ---------------------------------------------------------------------------
+
+/// create title 透传：`create_change_with` 显式 title → 库内建档记录 title
+/// 逐字一致（name 裸名零污染）；`create_change` IPC 三参内部口径（title =
+/// name）形态亦逐字落库；清单条目 title 随 ChangeSummary 投影出线。
+#[tokio::test]
+async fn create_title透传_显式值落库且默认name形态() {
+    let _path_guard = crate::commands::TEST_PATH_LOCK
+        .lock()
+        .expect("PATH 锁不可中毒");
+    let env = Env::new("create-title");
+    env.as_git_repo();
+    let app = app_with(&env);
+    let root = env.root();
+
+    // 显式 title：透传 write::create 并落库
+    let explicit = create_change_with(
+        app.handle().clone(),
+        root.clone(),
+        "fix-title".to_owned(),
+        "goal".to_owned(),
+        "人类可读标题".to_owned(),
+    )
+    .await
+    .expect("显式 title 应 Ok");
+    let record = store_of(&app, &root)
+        .find_change_record(&explicit.id)
+        .expect("查档应成功")
+        .expect("建档在案");
+    assert_eq!(record.title, "人类可读标题", "建档记录 title 逐字透传");
+    assert_ne!(record.title, record.name, "title 与 name 双字段可辨");
+    assert_eq!(record.name, "fix-title", "name 恒裸名零污染");
+
+    // 默认形态（create_change IPC 内部 title = name 的口径）
+    let defaulted = create_change_with(
+        app.handle().clone(),
+        root.clone(),
+        "fix-default".to_owned(),
+        "goal".to_owned(),
+        "fix-default".to_owned(),
+    )
+    .await
+    .expect("默认 title 应 Ok");
+    let defaulted_record = store_of(&app, &root)
+        .find_change_record(&defaulted.id)
+        .expect("查档应成功")
+        .expect("建档在案");
+    assert_eq!(
+        defaulted_record.title, defaulted_record.name,
+        "create_change 内部 title = name（手动新建默认）"
+    );
+
+    // 清单 title 出线（ChangeSummary 投影）
+    let list = list_changes(app.state::<WorkspaceStores>(), root.clone());
+    let entry = list
+        .active
+        .iter()
+        .find(|entry| entry.id == explicit.id)
+        .expect("清单即刻可见");
+    assert_eq!(entry.title, "人类可读标题", "清单条目 title 出线");
+    assert_eq!(entry.name, "fix-title", "条目 name 恒裸名");
+}
+
+/// create_change IPC 三参签面不变（边界）：title 不扩 IPC 入参面——
+/// `create_change` 恰 (app, root, name, goal) 四形参、`create_change_with` 五形参
+/// （title 为泛型测试缝追加）。编译面锚（不实际调用，不起运行时）。
+#[test]
+fn create_change_三参签面不变_title不扩ipc入参() {
+    fn assert_four<F, Fut>(_f: F)
+    where
+        F: Fn(tauri::AppHandle, String, String, String) -> Fut,
+    {
+    }
+    fn assert_five<F, Fut>(_f: F)
+    where
+        F: Fn(tauri::AppHandle<tauri::test::MockRuntime>, String, String, String, String) -> Fut,
+    {
+    }
+    assert_four(create_change);
+    assert_five(create_change_with::<tauri::test::MockRuntime>);
 }
 
 // ---------------------------------------------------------------------------
@@ -827,6 +917,7 @@ async fn create错误映射_同名active冲突err且零目录零建档() {
         root.clone(),
         "fix-bug".to_owned(),
         "goal".to_owned(),
+        "fix-bug".to_owned(),
     )
     .await
     .expect_err("同名 active 冲突应 Err");
@@ -888,6 +979,7 @@ async fn blank_root双口径_读命令早退空结果_create显式err() {
             root.clone(),
             "fix-bug".to_owned(),
             "goal".to_owned(),
+            "fix-bug".to_owned(),
         )
         .await
         .expect_err("blank root create 应 Err");
@@ -930,6 +1022,7 @@ fn seed_worktree_change(
         .create_change_record(ChangeStateRecord {
             id: id.to_owned(),
             name: name.to_owned(),
+            title: name.to_owned(),
             workflow_type: "requirement".to_owned(),
             created_at: CREATED_AT,
             status: ChangeStatus::Active,
@@ -958,6 +1051,7 @@ async fn create拒绝映射_非git仓err透传且零产生() {
         env.root(),
         "fix-bug".to_owned(),
         "goal".to_owned(),
+        "fix-bug".to_owned(),
     )
     .await
     .expect_err("非 git 仓应 Err");

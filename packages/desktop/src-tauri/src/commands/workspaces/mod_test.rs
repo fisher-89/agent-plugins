@@ -423,7 +423,7 @@ fn remove仅删注册记录_重加同root后explore与会话链历史完整可�
     {
         let ws = state.for_root(&record.root).expect("预开实例应可解析");
         let explore = ws
-            .create_explore_record(&record.root, "历史话题")
+            .create_explore_record(&record.root, "history-topic")
             .expect("建档应成功");
         let session_id = seed_chat_session(
             &ws,
@@ -453,7 +453,7 @@ fn remove仅删注册记录_重加同root后explore与会话链历史完整可�
     let ws = state.for_root(&readded.root).expect("for_root 应成功");
     let explores = ws.list_explore_records(&readded.root).unwrap();
     assert_eq!(explores.len(), 1, "explore 清单历史完整");
-    assert_eq!(explores[0].name, "历史话题");
+    assert_eq!(explores[0].name, "history-topic");
     let summaries = ws
         .list_sessions(Some("explore"), Some(&explores[0].id.to_string()))
         .unwrap();

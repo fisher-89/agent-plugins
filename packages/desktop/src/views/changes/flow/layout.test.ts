@@ -36,6 +36,7 @@ function detailWithTwoEvals(): ChangeDetail {
   return {
     id: 'add-feature',
     name: 'add-feature',
+    title: 'add-feature',
     source: 'active',
     status: 'active',
     created: null,

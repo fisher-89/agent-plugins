@@ -79,6 +79,7 @@ impl Env {
         self.seed_record(ChangeStateRecord {
             id: id.to_owned(),
             name: name.to_owned(),
+            title: name.to_owned(),
             workflow_type: "requirement".to_owned(),
             created_at,
             status: ChangeStatus::Active,
@@ -94,6 +95,7 @@ impl Env {
         self.seed_record(ChangeStateRecord {
             id: id.to_owned(),
             name: name.to_owned(),
+            title: name.to_owned(),
             workflow_type: "requirement".to_owned(),
             created_at,
             status: ChangeStatus::Archived,
@@ -542,6 +544,55 @@ fn detail身份面_id首字段出线与裸名且归档前缀不入名() {
     );
 }
 
+/// change_detail title 直读（新增——AC-2）：假 store 注入建档记录（title ≠
+/// name）→ 详情 `ChangeDetail.title == record.title`、`name` 恒裸名零污染；
+/// serde 线面含 title 键（camelCase 不变量）。
+#[test]
+fn detail_title直读建档记录且name零污染() {
+    let env = Env::new("detail-title");
+    env.seed_record(ChangeStateRecord {
+        id: ID_MULTI.to_owned(),
+        name: "title-change".to_owned(),
+        title: "人类可读标题".to_owned(),
+        workflow_type: "requirement".to_owned(),
+        created_at: T0,
+        status: ChangeStatus::Active,
+        archived_at: None,
+        active_phase: None,
+        worktree: None,
+        base_commit: None,
+    });
+    env.file("title-change", "proposal.md", "# 提案");
+
+    let detail = env.detail(ID_MULTI);
+
+    assert_eq!(detail.title, "人类可读标题", "title 自记录直读");
+    assert_ne!(detail.title, detail.name, "title 与 name 双字段可辨");
+    assert_eq!(detail.name, "title-change", "name 恒裸名（title 零污染）");
+    assert_eq!(detail.id, ID_MULTI, "id 恒身份锚");
+    let value = serde_json::to_value(&detail).expect("详情出线应成功");
+    assert_eq!(
+        value["title"],
+        serde_json::json!("人类可读标题"),
+        "线面含 title 键"
+    );
+    assert_eq!(value["name"], serde_json::json!("title-change"));
+}
+
+/// 未知 id None 降级（持衡）：db 无该 id → 详情恒 `None`（零磁盘回退零文档
+/// 形态——既有语义零改动，title 字段面不影响寻址语义）。
+#[test]
+fn detail未知id恒none_零磁盘回退() {
+    let env = Env::new("detail-unknown-title");
+    env.seed(ID_BARE, "present-change", T0, None);
+    env.file("present-change", "proposal.md", "# 提案");
+
+    assert!(
+        env.detail_opt(ID_UNKNOWN).is_none(),
+        "未建档 id 恒 None（零目录回退）"
+    );
+}
+
 /// created 恒自 `created_at`（单源）：归档记录 + 磁盘 `YYYY-MM-DD-` 前缀目录，
 /// 前缀日与 created_at 日各异 → created = created_at 日（目录前缀日零回退）。
 #[test]
@@ -926,6 +977,7 @@ impl Env {
         self.seed_record(ChangeStateRecord {
             id: id.to_owned(),
             name: name.to_owned(),
+            title: name.to_owned(),
             workflow_type: "requirement".to_owned(),
             created_at: T0,
             status: ChangeStatus::Active,

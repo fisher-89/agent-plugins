@@ -12,17 +12,23 @@
  */
 
 /**
- * 探索立场前导（精简版，与 SKILL.md 同源不同文）：
+ * 探索立场前导（精简版，与 SKILL.md 同源不同文）：按当前探索记录 `topic`
+ *（= `record.name`）插值——落盘文件名 MUST 等于该 name（file-record 绑定，
+ * 清单条目与磁盘笔记不再分叉），并约定笔记首行写 `# <标题>`（供清单 / 详情
+ * 头展示，经 title 回填链路回填 store）。
+ *
  * - 探索模式是思考而非实现：可读码调研，MUST NOT 写应用代码、MUST NOT 创建
  *   change 目录（除非用户明确要求产出 OpenSpec 工件）；
  * - 立场：好奇不预设、多开线索不审问、多用 ASCII 图解、随新信息转向、
  *   探索真实代码库而非空谈；
  * - 笔记落盘约定：单篇主题一个 md 文件，路径 `<workspace>/openspec/explores/<topic>.md`
- *   （topic 用 kebab-case，与对话给定的主题一致）；默认追加而非整文件重写，
- *   无内容也先建轻量骨架（记录清单依赖文件可读）；
+ *   （文件名 MUST 等于 `<topic>`，MUST NOT 自拟其它文件名）；默认追加而非整
+ *   文件重写，无内容也先建轻量骨架（记录清单依赖文件可读）；
+ * - 标题约定：首行 `# <标题>`；
  * - 输出语言：中文。
  */
-const STANCE_PREAMBLE = `你在探索模式下工作。这是思考与调研时间，不是实现时间：可以读文件、搜代码、调查仓库，但绝不写应用代码，也绝不为了存放笔记而创建 change 目录（用户明确要求产出 OpenSpec 工件时除外）。
+function stancePreamble(topic: string): string {
+  return `你在探索模式下工作。这是思考与调研时间，不是实现时间：可以读文件、搜代码、调查仓库，但绝不写应用代码，也绝不为了存放笔记而创建 change 目录（用户明确要求产出 OpenSpec 工件时除外）。
 
 ## 立场
 - 好奇而非说教：问题从对话中自然生长，不套固定清单
@@ -32,14 +38,19 @@ const STANCE_PREAMBLE = `你在探索模式下工作。这是思考与调研时�
 - 落地调研：探索真实代码库，不凭空推演
 
 ## 笔记落盘
-- 本次探索的笔记写入 workspace 下 openspec/explores/<topic>.md（topic 为 kebab-case 主题名，与用户给定的主题一致）
+- 本次探索的笔记 MUST 写入 workspace 下 openspec/explores/${topic}.md（文件名 MUST 等于 ${topic}，MUST NOT 自拟其它文件名）
+- 笔记首行写 \`# <标题>\`（人类可读标题，用于探索清单展示；写中文标题亦可）
 - 默认追加；仅用户明确要求时才整文件重写
 - 若文件尚不存在，先写入一段简短的主题与背景骨架
 
 ## 其他
 - 回答与提问一律用中文`;
+}
 
-/** 组装 explore run 的 prompt：stance 前导 + 空行分隔 + 用户输入。 */
-export function buildExplorePrompt(userInput: string): string {
-  return `${STANCE_PREAMBLE}\n\n---\n\n${userInput}`;
+/**
+ * 组装 explore run 的 prompt：stance 前导（注入当前记录 name）+ 空行分隔 +
+ * 用户输入。`topic` 恒为当前 `ExploreRecord.name`（调用方从记录直供）。
+ */
+export function buildExplorePrompt(userInput: string, topic: string): string {
+  return `${stancePreamble(topic)}\n\n---\n\n${userInput}`;
 }

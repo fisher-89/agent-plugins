@@ -199,16 +199,63 @@ impl From<AgentRunRecord> for AgentRunRecordV3 {
 /// 分：记录 / 内容 / 对话）。独立主键与文件名解耦：文件改名经 in-place 改
 /// `name` 保主键，会话链绑定不破。
 ///
+/// 字段演进：version 2 新增 `title`（人类可读标题，展示面与寻址键分离——
+/// `name` 退化为纯 stem 寻址键）与 `promoted_to`（指向已 promote 的 change
+/// id）——存量 v1 行经版本机制 decode-only 升级（`title = name`、
+/// `promoted_to = None`，零手工迁移；`AgentProviderRecord` / `ChangeRecord`
+/// 加字段先例同模式）。
+///
 /// 时间戳均为 UTC unix 毫秒 `i64`，与 [`WorkspaceRecord`] 同口径。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
-#[native_model(id = 4, version = 1)]
+#[native_model(id = 4, version = 2, from = ExploreRecordV1)]
 #[native_db]
 pub struct ExploreRecord {
     /// 记录 id（主键，写事务内 max+1 分配；身份与文件名解耦）
     #[primary_key]
     pub id: i64,
     /// workspace 归属（canonical root，与 `WorkspaceRecord.root` 同口径）
+    pub root: String,
+    /// 笔记文件 stem 寻址键（kebab-case 口径）
+    pub name: String,
+    /// 人类可读标题，恒非空（创建与升级默认 = `name`，agent 产出笔记首行
+    /// `# <标题>` 后经 `set_explore_title` 回填覆盖）
+    pub title: String,
+    /// 指向已 promote 的 **change id** 身份锚；`None` = 草稿态
+    pub promoted_to: Option<String>,
+    /// 建档时间（UTC unix 毫秒）
+    pub created_at: i64,
+    /// 最近更新时间（UTC unix 毫秒）
+    pub updated_at: i64,
+}
+
+impl ExploreRecord {
+    /// 由归属与名称构造新记录：`id` 置 0（写事务内 max+1 分配覆盖），
+    /// `title` 默认 = `name`（恒非空不变量），`promoted_to = None`（草稿态），
+    /// `created_at = updated_at = now`（新建语义）。
+    pub fn new(root: &str, name: &str, now: i64) -> Self {
+        Self {
+            id: 0,
+            root: root.to_owned(),
+            name: name.to_owned(),
+            title: name.to_owned(),
+            promoted_to: None,
+            created_at: now,
+            updated_at: now,
+        }
+    }
+}
+
+/// `ExploreRecord` 的 version 1 历史形态（仅作 native_model 升级链的解码
+/// 目标，不注册进库模型组、不出公共查询面）：无 `title` / `promoted_to` 列。
+/// 存量 v1 行经版本机制自动升级（零迁移代码路径）。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[native_model(id = 4, version = 1)]
+pub(crate) struct ExploreRecordV1 {
+    /// 记录 id（主键）
+    pub id: i64,
+    /// workspace 归属（canonical root）
     pub root: String,
     /// 展示名（= 笔记文件 stem，磁盘寻址键）
     pub name: String,
@@ -218,16 +265,32 @@ pub struct ExploreRecord {
     pub updated_at: i64,
 }
 
-impl ExploreRecord {
-    /// 由归属与名称构造新记录：`id` 置 0（写事务内 max+1 分配覆盖），
-    /// `created_at = updated_at = now`（新建语义）。
-    pub fn new(root: &str, name: &str, now: i64) -> Self {
+impl From<ExploreRecordV1> for ExploreRecord {
+    fn from(previous: ExploreRecordV1) -> Self {
+        let name = previous.name;
         Self {
-            id: 0,
-            root: root.to_owned(),
-            name: name.to_owned(),
-            created_at: now,
-            updated_at: now,
+            id: previous.id,
+            root: previous.root,
+            // 缺列读兼容：旧记录无标题列，展示语义与现状一致（title = name）
+            title: name.clone(),
+            promoted_to: None,
+            name,
+            created_at: previous.created_at,
+            updated_at: previous.updated_at,
+        }
+    }
+}
+
+/// 降级半边（native_model `from` 属性要求双向 `From`；运行时无降级读取路径，
+/// 新字段丢弃——只保升级语义真实性，降级形态不作数据承诺）。
+impl From<ExploreRecord> for ExploreRecordV1 {
+    fn from(record: ExploreRecord) -> Self {
+        Self {
+            id: record.id,
+            root: record.root,
+            name: record.name,
+            created_at: record.created_at,
+            updated_at: record.updated_at,
         }
     }
 }
@@ -349,10 +412,14 @@ impl SessionEventRecord {
 /// 迁移链——`ChangeRecordV1` 及其双向 `From` 随身份换锚整体退役；旧形态库由
 /// [`WORKSPACE_STORE_FORMAT_VERSION`] 机制整体作废重建。
 ///
+/// 字段演进：version 4 新增 `title`（人类可读标题，恒非空）——存量 v3 行经
+/// 版本机制 decode-only 升级（`title = name`，零手工迁移；`ExploreRecord` /
+/// `AgentProviderRecord` 加字段先例同模式）。
+///
 /// 时间戳为 UTC unix 毫秒 `i64`，与 `WorkspaceRecord` 同口径。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
-#[native_model(id = 9, version = 3)]
+#[native_model(id = 9, version = 4, from = ChangeRecordV3)]
 #[native_db]
 pub struct ChangeRecord {
     /// 建档铸出的稳定唯一身份锚（主键，UUID 形态；一切寻址键——库查询 /
@@ -361,6 +428,9 @@ pub struct ChangeRecord {
     pub id: String,
     /// change 名（恒裸名；可变属性，无唯一约束，MUST NOT 作身份键）
     pub name: String,
+    /// 人类可读标题，恒非空（创建与升级默认 = `name`，promote 路径继承
+    /// `explore.title`）
+    pub title: String,
     /// 工作流类型（V1 恒 `requirement`，相位表键）
     pub workflow_type: String,
     /// 建档时间（UTC unix 毫秒）
@@ -386,8 +456,8 @@ pub struct ChangeRecord {
 
 impl ChangeRecord {
     /// 由建档档案构造新记录（`status` 恒 active 起步、无 active_phase；id 为
-    /// 写面铸出的身份锚随记录入列；`worktree` / `base_commit` 建域组合随建档
-    /// 入列，legacy 形态传 `None`）。
+    /// 写面铸出的身份锚随记录入列；title 默认 = name（恒非空不变量）；
+    /// `worktree` / `base_commit` 建域组合随建档入列，legacy 形态传 `None`）。
     pub fn new(
         id: &str,
         name: &str,
@@ -399,6 +469,7 @@ impl ChangeRecord {
         Self {
             id: id.to_owned(),
             name: name.to_owned(),
+            title: name.to_owned(),
             workflow_type: workflow_type.to_owned(),
             created_at,
             status: ChangeStatus::Active,
@@ -406,6 +477,74 @@ impl ChangeRecord {
             active_phase: None,
             worktree,
             base_commit,
+        }
+    }
+}
+
+/// `ChangeRecord` 的 version 3 历史形态（仅作 native_model 升级链的解码
+/// 目标，不注册进库模型组、不出公共查询面）：id 主键 + name 属性形态，无
+/// `title` 列。存量 v3 行经版本机制自动升级（零迁移代码路径）。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[native_model(id = 9, version = 3)]
+pub(crate) struct ChangeRecordV3 {
+    /// 建档铸出的稳定唯一身份锚（主键）
+    pub id: String,
+    /// change 名（恒裸名）
+    pub name: String,
+    /// 工作流类型
+    pub workflow_type: String,
+    /// 建档时间（UTC unix 毫秒）
+    pub created_at: i64,
+    /// change 状态
+    pub status: ChangeStatus,
+    /// 归档时间（UTC unix 毫秒）
+    #[serde(default)]
+    pub archived_at: Option<i64>,
+    /// 运行中 phase
+    #[serde(default)]
+    pub active_phase: Option<ChangeActivePhase>,
+    /// worktree 绝对路径
+    #[serde(default)]
+    pub worktree: Option<String>,
+    /// 创建基线 fork 点
+    #[serde(default)]
+    pub base_commit: Option<String>,
+}
+
+impl From<ChangeRecordV3> for ChangeRecord {
+    fn from(previous: ChangeRecordV3) -> Self {
+        let name = previous.name;
+        Self {
+            id: previous.id,
+            // 缺列读兼容：旧记录无标题列，展示语义与现状一致（title = name）
+            title: name.clone(),
+            name,
+            workflow_type: previous.workflow_type,
+            created_at: previous.created_at,
+            status: previous.status,
+            archived_at: previous.archived_at,
+            active_phase: previous.active_phase,
+            worktree: previous.worktree,
+            base_commit: previous.base_commit,
+        }
+    }
+}
+
+/// 降级半边（native_model `from` 属性要求双向 `From`；运行时无降级读取路径，
+/// `title` 列丢弃——只保升级语义真实性，降级形态不作数据承诺）。
+impl From<ChangeRecord> for ChangeRecordV3 {
+    fn from(record: ChangeRecord) -> Self {
+        Self {
+            id: record.id,
+            name: record.name,
+            workflow_type: record.workflow_type,
+            created_at: record.created_at,
+            status: record.status,
+            archived_at: record.archived_at,
+            active_phase: record.active_phase,
+            worktree: record.worktree,
+            base_commit: record.base_commit,
         }
     }
 }

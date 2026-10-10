@@ -18,6 +18,7 @@ function fakeList(activeName: string): ChangeList {
       {
         id: `id-${activeName}`,
         name: activeName,
+        title: activeName,
         source: 'active',
         status: 'active',
         activePhase: null,

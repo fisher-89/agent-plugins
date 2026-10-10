@@ -6,7 +6,7 @@ import { ExploreCreateDialog } from './components/explore-create-dialog';
 import { ExploreDetailView } from './explore-detail-view';
 import { useExploreList, type ExploreListState } from './hooks/use-explore-list';
 
-/** 清单条目：名称 + 建档时间 + 删除入口（删记录不动磁盘文件） */
+/** 清单条目：标题（title，恒非空）+ 建档时间 + 删除入口（删记录不动磁盘文件） */
 function ExploreListItem({
   record,
   onOpen,
@@ -25,7 +25,9 @@ function ExploreListItem({
         data-name={record.name}
         onClick={() => onOpen(record.name)}
       >
-        <span className="block truncate text-sm">{record.name}</span>
+        <span className="block truncate text-sm" data-testid="explore-item-title">
+          {record.title}
+        </span>
         <span className="block text-xs text-muted-foreground">
           {new Date(record.createdAt).toLocaleString()}
         </span>
@@ -137,6 +139,6 @@ export function ExploreView({ root }: { root: string }): React.JSX.Element {
   return selected === null || resetPending ? (
     <ExploreListView list={list} onCreated={onCreated} onOpen={openExplore} root={root} />
   ) : (
-    <ExploreDetailView record={record} root={root} />
+    <ExploreDetailView list={list} record={record} root={root} />
   );
 }

@@ -83,6 +83,7 @@ impl Env {
         self.store.push(ChangeStateRecord {
             id: id.to_owned(),
             name: name.to_owned(),
+            title: name.to_owned(),
             workflow_type: "requirement".to_owned(),
             created_at,
             status: ChangeStatus::Active,
@@ -98,6 +99,46 @@ impl Env {
         self.store.push(ChangeStateRecord {
             id: id.to_owned(),
             name: name.to_owned(),
+            title: name.to_owned(),
+            workflow_type: "requirement".to_owned(),
+            created_at,
+            status: ChangeStatus::Archived,
+            archived_at,
+            active_phase: None,
+            worktree: None,
+            base_commit: None,
+        });
+    }
+
+    /// 预置显式 title 的 active 记录（title ≠ name——title 独立投影断言面）。
+    fn seed_active_titled(&self, id: &str, name: &str, title: &str, created_at: i64) {
+        self.store.push(ChangeStateRecord {
+            id: id.to_owned(),
+            name: name.to_owned(),
+            title: title.to_owned(),
+            workflow_type: "requirement".to_owned(),
+            created_at,
+            status: ChangeStatus::Active,
+            archived_at: None,
+            active_phase: None,
+            worktree: None,
+            base_commit: None,
+        });
+    }
+
+    /// 预置显式 title 的归档记录（title ≠ name）。
+    fn seed_archived_titled(
+        &self,
+        id: &str,
+        name: &str,
+        title: &str,
+        created_at: i64,
+        archived_at: Option<i64>,
+    ) {
+        self.store.push(ChangeStateRecord {
+            id: id.to_owned(),
+            name: name.to_owned(),
+            title: title.to_owned(),
             workflow_type: "requirement".to_owned(),
             created_at,
             status: ChangeStatus::Archived,
@@ -606,6 +647,7 @@ fn worktree条目入进行中组_状态面完整且不误归未知时间组() {
     env.store.push(ChangeStateRecord {
         id: ID_WORKTREE.to_owned(),
         name: "wt-change".to_owned(),
+        title: "wt-change".to_owned(),
         workflow_type: "requirement".to_owned(),
         created_at: T0,
         status: ChangeStatus::Active,
@@ -640,4 +682,96 @@ fn worktree条目入进行中组_状态面完整且不误归未知时间组() {
         list.archive_groups.is_empty(),
         "worktree 条目不误归任何归档组（含未知时间组）"
     );
+}
+
+// ---------------------------------------------------------------------------
+// title 投影（explore-name-file-binding）：ChangeSummary.title 纯投影 + 线形
+// 契约（AC-2 / AC-9 半边）
+// ---------------------------------------------------------------------------
+
+/// db_entry title 投影（新增）：假 store 注入 `ChangeStateRecord{ title }` →
+/// `list_changes` 输出 `ChangeSummary.title == record.title`（active / archive
+/// 两归组同式）。
+#[test]
+fn db_entry_title投影_active与archive两归组同式() {
+    let env = Env::new("title-projection");
+    env.seed_active_titled(ID_ACTIVE_ALPHA, "active-alpha", "进行中标题甲", T0);
+    env.seed_archived_titled(
+        ID_ARCH_MAY,
+        "archived-may",
+        "归档标题乙",
+        T0,
+        Some(utc_millis(2026, time::Month::May, 20)),
+    );
+
+    let list = env.list();
+
+    assert_eq!(
+        active_by_id(&list, ID_ACTIVE_ALPHA).title,
+        "进行中标题甲",
+        "active 组 title 投影自记录"
+    );
+    assert_eq!(
+        archive_by_id(&list.archive_groups, ID_ARCH_MAY).title,
+        "归档标题乙",
+        "archive 组 title 投影自记录（同式）"
+    );
+}
+
+/// title 与 name 可辨（边界）：title 显式 ≠ name → 清单条目出线 title 独立
+/// 字段（name 恒裸名零污染）；排序仍以 name 为键（title 零参与派生）。
+#[test]
+fn title与name可辨_条目出线独立字段且排序恒name() {
+    let env = Env::new("title-distinct");
+    env.seed_active_titled(ID_ACTIVE_BETA, "zebra", "甲标题", T0);
+    env.seed_active_titled(ID_ACTIVE_ALPHA, "alpha", "乙标题", T0);
+
+    let list = env.list();
+
+    assert_eq!(list.active.len(), 2);
+    // active 按 name 排序（alpha < zebra）：title 零参与排序键
+    assert_eq!(
+        list.active
+            .iter()
+            .map(|entry| entry.name.as_str())
+            .collect::<Vec<_>>(),
+        vec!["alpha", "zebra"],
+        "active 排序仍以 name 为键（title 零参与派生改写）"
+    );
+    let zebra = active_by_id(&list, ID_ACTIVE_BETA);
+    assert_eq!(zebra.title, "甲标题", "title 独立字段出线");
+    assert_eq!(zebra.name, "zebra", "name 恒裸名零污染");
+    assert_ne!(zebra.title, zebra.name, "title 与 name 双字段可辨");
+}
+
+/// title 线形契约（边界）：`ChangeSummary` JSON 出线含 `title` 字段
+/// （serde camelCase 不变量），键集含 title 且与 name / id 并存。
+#[test]
+fn title线形契约_change_summary_json含title键() {
+    let env = Env::new("title-wire");
+    env.seed_active_titled(ID_ACTIVE_ALPHA, "wire-change", "线面标题", T0);
+
+    let list = env.list();
+    let value =
+        serde_json::to_value(active_by_id(&list, ID_ACTIVE_ALPHA)).expect("清单条目出线应成功");
+
+    assert_eq!(
+        value["title"],
+        serde_json::json!("线面标题"),
+        "title 键出线"
+    );
+    assert_eq!(
+        value["name"],
+        serde_json::json!("wire-change"),
+        "name 键恒在"
+    );
+    assert_eq!(value["id"], serde_json::json!(ID_ACTIVE_ALPHA), "id 键恒在");
+    // 键集含 title（线形契约：新增字段不经 patch 省略）
+    let keys: Vec<&str> = value
+        .as_object()
+        .expect("条目应为 JSON 对象")
+        .keys()
+        .map(String::as_str)
+        .collect();
+    assert!(keys.contains(&"title"), "线形键集含 title，实际: {keys:?}");
 }

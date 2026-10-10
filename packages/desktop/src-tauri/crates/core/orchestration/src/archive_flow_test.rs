@@ -49,6 +49,7 @@ fn active_record(id: &str, name: &str, worktree: Option<String>) -> ChangeStateR
     ChangeStateRecord {
         id: id.to_owned(),
         name: name.to_owned(),
+        title: name.to_owned(),
         workflow_type: "requirement".to_owned(),
         created_at: 1_790_841_600_000,
         status: ChangeStatus::Active,

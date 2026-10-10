@@ -165,7 +165,8 @@ pub fn read_artifact(
 /// 新建 change（建域四段：建档 + worktree add + worktree 内目录树与
 /// explore.md + bootstrap）；blank root 显式 `Err`。async + `spawn_blocking`
 /// 调 sync 写面（bootstrap 是分钟级 spawn——同步命令会冻结 UI，IPC 入参与
-/// 返回类型面不变）。
+/// 返回类型面不变）。手动新建路径 `title = name`（不加输入框，D1）；promote
+/// 路径经 [`create_change_with`] 泛型缝显式传 `explore.title`。
 #[tauri::command]
 #[specta::specta]
 pub async fn create_change(
@@ -174,17 +175,20 @@ pub async fn create_change(
     name: String,
     goal: String,
 ) -> Result<CreateOutcome, String> {
-    create_change_with(app, root, name, goal).await
+    let title = name.clone();
+    create_change_with(app, root, name, goal, title).await
 }
 
 /// [`create_change`] 的泛型测试缝（生产注入 Wry 句柄、测试注入 MockRuntime
 /// 句柄，沿 `archive_change_with` 先例）：装配 vcs 落位派生（data_root 状态）
-/// + `ProcessWorktree`，经 `spawn_blocking` 调写面。
+/// + `ProcessWorktree`，经 `spawn_blocking` 调写面。`title` 显式传入（空白
+/// 回退 `name` 单点在写面）——promote 路径据此继承 `explore.title`。
 pub(crate) async fn create_change_with<R: tauri::Runtime>(
     app: AppHandle<R>,
     root: String,
     name: String,
     goal: String,
+    title: String,
 ) -> Result<CreateOutcome, String> {
     if root.trim().is_empty() {
         return Err("非法 root: 不得为空白".to_owned());
@@ -212,6 +216,7 @@ pub(crate) async fn create_change_with<R: tauri::Runtime>(
             &vcs,
             &name,
             &goal,
+            &title,
         )
     })
     .await

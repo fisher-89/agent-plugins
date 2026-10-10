@@ -25,8 +25,8 @@ pub enum ChangeSource {
 }
 
 /// 列表条目摘要。`id` 为身份锚（行键 / 前端路由 / 一切后续寻址），`name` 恒
-/// 裸名；条目集合 db 单源，状态面恒在场（`Option` 形态保留——非档案缺位
-/// 语义）。
+/// 裸名、`title` 为人类可读标题（恒非空，渲染标题面）；条目集合 db 单源，
+/// 状态面恒在场（`Option` 形态保留——非档案缺位语义）。
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct ChangeSummary {
@@ -34,6 +34,8 @@ pub struct ChangeSummary {
     pub id: String,
     /// change 名（恒裸名——归档日期前缀仅存在于磁盘目录名，MUST NOT 出线）
     pub name: String,
+    /// 人类可读标题，恒非空（自记录直读，见 desktop-change-state-store）
+    pub title: String,
     pub source: ChangeSource,
     pub status: Option<ChangeStatus>,
     pub active_phase: Option<ActivePhase>,
@@ -91,6 +93,7 @@ fn db_entry(record: &ChangeStateRecord) -> ChangeSummary {
     ChangeSummary {
         id: record.id.clone(),
         name: record.name.clone(),
+        title: record.title.clone(),
         source,
         status: Some(record.status),
         active_phase: record.active_phase.as_ref().map(|active| ActivePhase {

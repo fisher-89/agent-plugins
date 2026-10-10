@@ -80,6 +80,7 @@ fn change_state(record: &ChangeRecord) -> ChangeStateRecord {
     ChangeStateRecord {
         id: record.id.clone(),
         name: record.name.clone(),
+        title: record.title.clone(),
         workflow_type: record.workflow_type.clone(),
         created_at: record.created_at,
         status: record.status,
@@ -177,16 +178,51 @@ fn sum_usage_tokens(events: &[AgentEvent], key: &str) -> Option<u64> {
     any.then_some(total)
 }
 
-/// 记录名单分量校验（非空、非 `.` / `..`、不含 `/` `\` `:`）：与 workflow 查询
-/// 层的 `is_single_component_name` 同口径（store 不依赖 workflow，校验各自
-/// 持有、口径一致）。
-fn is_single_component_name(name: &str) -> bool {
-    !name.is_empty()
-        && name != "."
-        && name != ".."
-        && !name.contains('/')
-        && !name.contains('\\')
-        && !name.contains(':')
+/// explore 名称长度上限（与写面 `create` 同宽）。
+const MAX_EXPLORE_NAME_LENGTH: usize = 128;
+
+/// explore 名称 kebab-case 判定：等价正则 `^[a-z][a-z0-9]*(-[a-z0-9]+)*$`
+/// 语义（不引 regex 依赖；与写面 `write::create` 同口径，store 自持校验
+/// MUST NOT 依赖 workflow）。首段以小写字母开头、仅小写字母 / 数字；后续段
+/// 以 `-` 起头且各至少一个字符（可数字开头）——即禁前导数字、连号连字符、
+/// 尾连字符与空段。
+fn is_kebab_case(name: &str) -> bool {
+    let segment_ok = |first: bool, segment: &str| {
+        let mut chars = segment.chars();
+        match chars.next() {
+            // 首段必须字母开头；后续段可数字开头
+            Some(c) if c.is_ascii_lowercase() || (!first && c.is_ascii_digit()) => {}
+            _ => return false,
+        }
+        chars.all(|c| c.is_ascii_lowercase() || c.is_ascii_digit())
+    };
+    let mut segments = name.split('-');
+    match segments.next() {
+        Some(first) => {
+            if !segment_ok(true, first) {
+                return false;
+            }
+        }
+        // split 至少返回一段，防御式拒绝
+        None => return false,
+    }
+    segments.all(|segment| segment_ok(false, segment))
+}
+
+/// explore 名称校验（kebab-case + 长度 ≤128）：口径与写面 `create` 对齐
+///（promote 免转换冲突的隐藏前提），非法时给出可据此改名的显式文案。
+fn check_explore_name(name: &str) -> Result<(), StoreError> {
+    if !is_kebab_case(name) {
+        return Err(StoreError::Db(format!(
+            "非法记录名: {name:?}（须为 kebab-case（小写字母/数字，可用 `-` 连接））"
+        )));
+    }
+    if name.len() > MAX_EXPLORE_NAME_LENGTH {
+        return Err(StoreError::Db(format!(
+            "非法记录名: {name:?}（长度超过 {MAX_EXPLORE_NAME_LENGTH} 字符限制）"
+        )));
+    }
+    Ok(())
 }
 
 /// explore 来源受控字符串：与前端 `EXPLORE_SOURCE` 口径一致（两处同字面量，
@@ -731,17 +767,15 @@ impl Store {
 
     /// 新建 explore 记录：写事务内 `max(id)+1` 分配（与插入原子，与
     /// [`Store::begin_agent_run`] 同语义）；同 `(root, name)` 已存在 → `Err`。
-    /// 只写 DB——磁盘笔记文件由 agent 会话流程懒创建，本方法不触磁盘。
+    /// `name` 校验为 kebab-case + 长度 ≤128（与写面 `create` 同口径——promote
+    /// 免转换冲突的前提）。只写 DB——磁盘笔记文件由 agent 会话流程懒创建，本
+    /// 方法不触磁盘。
     pub fn create_explore_record(
         &self,
         root: &str,
         name: &str,
     ) -> Result<ExploreRecord, StoreError> {
-        if !is_single_component_name(name) {
-            return Err(StoreError::Db(format!(
-                "非法记录名: {name:?}（须为单分量名）"
-            )));
-        }
+        check_explore_name(name)?;
         if self.find_explore_record(root, name)?.is_some() {
             return Err(StoreError::Db(format!(
                 "记录已存在: root={root:?} name={name:?}"
@@ -769,18 +803,15 @@ impl Store {
     }
 
     /// in-place 改名（保主键 → 保 `source_ref` 会话链绑定），刷新 `updated_at`；
-    /// 目标名已存在 → `Err`。删 + 重建会分配新主键导致链断，改名必须 in-place。
+    /// 目标名已存在 → `Err`。目标名校验为 kebab-case + 长度 ≤128（与建档同
+    /// 口径）。删 + 重建会分配新主键导致链断，改名必须 in-place。
     pub fn rename_explore_record(
         &self,
         root: &str,
         name: &str,
         new_name: &str,
     ) -> Result<ExploreRecord, StoreError> {
-        if !is_single_component_name(new_name) {
-            return Err(StoreError::Db(format!(
-                "非法记录名: {new_name:?}（须为单分量名）"
-            )));
-        }
+        check_explore_name(new_name)?;
         if new_name != name && self.find_explore_record(root, new_name)?.is_some() {
             return Err(StoreError::Db(format!(
                 "目标名已存在: root={root:?} name={new_name:?}"
@@ -861,6 +892,60 @@ impl Store {
         rw.commit()
             .map_err(db_err("提交 delete_explore_record 事务"))?;
         Ok(true)
+    }
+
+    /// 回填标题（title 回填唯一写口，读路径 `read_explore` MUST NOT 写入）：
+    /// 按 `(root, name)` 找到记录后 in-place 写 `title` + 刷新 `updated_at`
+    /// （保主键 → 保会话链绑定；幂等覆写）。`title` 空白 → `Err`（title 恒
+    /// 非空不变量）；记录 miss → `Err`。
+    pub fn set_explore_title(
+        &self,
+        root: &str,
+        name: &str,
+        title: &str,
+    ) -> Result<ExploreRecord, StoreError> {
+        if title.trim().is_empty() {
+            return Err(StoreError::Db(
+                "title 不得为空白（title 恒非空）".to_owned(),
+            ));
+        }
+        let mut updated = self
+            .find_explore_record(root, name)?
+            .ok_or_else(|| StoreError::Db(format!("记录不存在: root={root:?} name={name:?}")))?;
+        updated.title = title.to_owned();
+        updated.updated_at = now_millis();
+        let rw = self.db.rw_transaction().map_err(db_err("开启写事务"))?;
+        rw.upsert(updated.clone()).map_err(db_err("写入探索记录"))?;
+        rw.commit().map_err(db_err("提交 set_explore_title 事务"))?;
+        Ok(updated)
+    }
+
+    /// promote 打标：in-place 写 `promoted_to = Some(change_id)` + 刷新
+    /// `updated_at`（保主键 → 保会话链；记录 MUST NOT 删——promote 是 move
+    /// 而非登记，名下会话链随记录存续）。已 promoted 再次打标 → `Err`；记录
+    /// miss → `Err`。
+    pub fn mark_explore_promoted(
+        &self,
+        root: &str,
+        name: &str,
+        change_id: &str,
+    ) -> Result<ExploreRecord, StoreError> {
+        let mut updated = self
+            .find_explore_record(root, name)?
+            .ok_or_else(|| StoreError::Db(format!("记录不存在: root={root:?} name={name:?}")))?;
+        if updated.promoted_to.is_some() {
+            return Err(StoreError::Db(format!(
+                "探索记录已转变更: root={root:?} name={name:?} promoted_to={:?}",
+                updated.promoted_to
+            )));
+        }
+        updated.promoted_to = Some(change_id.to_owned());
+        updated.updated_at = now_millis();
+        let rw = self.db.rw_transaction().map_err(db_err("开启写事务"))?;
+        rw.upsert(updated.clone()).map_err(db_err("写入探索记录"))?;
+        rw.commit()
+            .map_err(db_err("提交 mark_explore_promoted 事务"))?;
+        Ok(updated)
     }
 
     /// provider 清单：主键 id 升序自然序（稳定可复现）。
@@ -1109,6 +1194,7 @@ impl Store {
         let stored = ChangeRecord {
             id: record.id.clone(),
             name: record.name.clone(),
+            title: record.title.clone(),
             workflow_type: record.workflow_type,
             created_at: record.created_at,
             status: record.status,

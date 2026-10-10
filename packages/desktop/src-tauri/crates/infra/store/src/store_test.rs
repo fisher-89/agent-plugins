@@ -628,8 +628,8 @@ fn 两workspace各自for_root同会话id并行写入互不串库() {
     // 两库各自独立：同 id 会话并行（库域内隔离，跨 workspace 不假定全局唯一）
     seed_session(&store_a, "ses-parallel");
     seed_session(&store_b, "ses-parallel");
-    let explore_a = create_ok(&store_a, &rec_a.root, "同名话题");
-    let explore_b = create_ok(&store_b, &rec_b.root, "同名话题");
+    let explore_a = create_ok(&store_a, &rec_a.root, "same-topic");
+    let explore_b = create_ok(&store_b, &rec_b.root, "same-topic");
 
     // A 库清单与 scan 不含 B 的任何记录
     let ids_a: Vec<String> = store_a
@@ -2178,6 +2178,368 @@ fn delete_miss幂等返回false() {
 }
 
 // ---------------------------------------------------------------------------
+// explore-name-file-binding：kebab 名称口径 + title / promoted_to 操作面
+//（AC-1 / AC-3 / AC-5 / AC-6；title 默认 = name、promoted_to 默认 None）
+// ---------------------------------------------------------------------------
+
+/// 裸 redb 向 explore 物表 `4_2_id` 直写一行（预置存量非 kebab 记录——建档 /
+/// 改名两写口已拒非 kebab，存量行只能经裸字节预置；list / find 读面零 name
+/// 合法性校验）。调用方必须先 drop Store 释放文件锁（redb 单写者语义）。
+fn inject_explore_row(path: &Path, record: &ExploreRecord) {
+    assert_eq!(
+        EXPLORE_RECORD_TABLE,
+        native_db_table_name(
+            <ExploreRecord as native_model::Model>::native_model_id(),
+            <ExploreRecord as native_model::Model>::native_model_version(),
+            "id"
+        ),
+        "explore 裸表名与 native_db 内部命名公式一致（模型版本演进时随动改写）"
+    );
+    let payload = native_model::encode(record).expect("编码 explore 记录失败");
+    let db = redb::Database::open(path).expect("裸开 db 注入 explore 行应成功");
+    let rw = db.begin_write().expect("开启注入写事务失败");
+    {
+        let table: redb::TableDefinition<RawNativeDbKey, &[u8]> =
+            redb::TableDefinition::new(EXPLORE_RECORD_TABLE);
+        let mut rows = rw.open_table(table).expect("打开 explore 物表应成功");
+        rows.insert(
+            RawNativeDbKey(record.id.to_be_bytes().to_vec()),
+            payload.as_slice(),
+        )
+        .expect("注入 explore 行应成功");
+    }
+    rw.commit().expect("提交注入事务失败");
+}
+
+/// 合法 kebab 建档（重写）：`api-retry` / `a-b2-c` 两类合法形态建档成功 →
+/// title == name、promoted_to == None、id 为 max+1 递增。
+#[test]
+fn create_explore_record合法kebab建档_title默认name且id递增() {
+    let env = Env::new("explore-kebab-ok");
+    let store = open_workspace_ok(&env.db_path("ws"));
+
+    let first = create_ok(&store, "C:\\ws\\alpha", "api-retry");
+    let second = create_ok(&store, "C:\\ws\\alpha", "a-b2-c");
+
+    assert_eq!((first.id, second.id), (1, 2), "写事务内 max+1 分配");
+    assert_eq!(first.title, "api-retry", "title 默认 = name（恒非空）");
+    assert_eq!(second.title, "a-b2-c", "后续段可数字开头亦合法 kebab");
+    assert_eq!(first.promoted_to, None, "草稿态默认 promoted_to = None");
+    assert_eq!(second.promoted_to, None);
+    assert_eq!(
+        first.created_at, first.updated_at,
+        "新建语义 created_at = updated_at"
+    );
+}
+
+/// 非法 kebab 建档拒绝（异常）：大写 / 下划线 / 空格 / 前导数字 / 连号连字符 /
+/// 尾连字符 / 空段 / 超 128 字符 → `Err` 且零写入（拒绝面零残留——AC-3）。
+#[test]
+fn create_explore_record非法kebab拒绝且零写入() {
+    let env = Env::new("explore-kebab-bad");
+    let store = open_workspace_ok(&env.db_path("ws"));
+    let too_long = format!("a-{}", "b".repeat(128));
+
+    for name in [
+        "Api-Retry",  // 大写
+        "api_retry",  // 下划线
+        "api retry",  // 空格
+        "1api",       // 前导数字
+        "api--retry", // 连号连字符
+        "api-",       // 尾连字符
+        "-api",       // 前导连字符 / 空首段
+        "api-中",     // 非 ASCII 段
+        too_long.as_str(),
+    ] {
+        let result = store.create_explore_record("C:\\ws\\alpha", name);
+        assert!(
+            matches!(&result, Err(StoreError::Db(_))),
+            "非法名 {name:?} 应 Err（kebab + 长度校验），实际: {result:?}"
+        );
+    }
+    assert!(
+        store
+            .list_explore_records("C:\\ws\\alpha")
+            .unwrap()
+            .is_empty(),
+        "全部拒绝：零写入零残留"
+    );
+}
+
+/// rename 非法 kebab 拒绝（异常）：目标名非 kebab → `Err` 且原记录 name 零改动
+/// （in-place 拒绝不破链）。
+#[test]
+fn rename_explore_record非法kebab拒绝且原记录零改动() {
+    let env = Env::new("explore-rename-bad");
+    let store = open_workspace_ok(&env.db_path("ws"));
+    let original = create_ok(&store, "C:\\ws\\alpha", "old-name");
+
+    for target in ["NewName", "new_name", "new name", "1new"] {
+        let result = store.rename_explore_record("C:\\ws\\alpha", "old-name", target);
+        assert!(
+            matches!(&result, Err(StoreError::Db(_))),
+            "目标名 {target:?} 非 kebab 应 Err，实际: {result:?}"
+        );
+    }
+    assert_eq!(
+        store
+            .find_explore_record("C:\\ws\\alpha", "old-name")
+            .unwrap(),
+        Some(original),
+        "原记录零改动（name / updated_at 均未变）"
+    );
+}
+
+/// rename 合法 kebab 正向（重写）：改名 → 主键 id 不变（保会话链）、
+/// updated_at 刷新、title 随记录保留。
+#[test]
+fn rename_explore_record合法kebab保主键保title() {
+    let env = Env::new("explore-rename-ok");
+    let store = open_workspace_ok(&env.db_path("ws"));
+    let original = create_ok(&store, "C:\\ws\\alpha", "old-name");
+    let titled = store
+        .set_explore_title("C:\\ws\\alpha", "old-name", "旧名标题")
+        .expect("回填 title 应成功");
+
+    let renamed = store
+        .rename_explore_record("C:\\ws\\alpha", "old-name", "new-name")
+        .expect("合法 kebab 改名应成功");
+
+    assert_eq!(renamed.id, original.id, "in-place 改名保主键（保会话链）");
+    assert_eq!(renamed.name, "new-name");
+    assert_eq!(
+        renamed.title, titled.title,
+        "title 随记录保留（改名不动 title）"
+    );
+    assert!(
+        renamed.updated_at >= titled.updated_at,
+        "updated_at 刷新（不早于原值）"
+    );
+    assert_eq!(
+        store
+            .find_explore_record("C:\\ws\\alpha", "old-name")
+            .unwrap(),
+        None,
+        "旧名不再命中"
+    );
+    assert_eq!(
+        store
+            .find_explore_record("C:\\ws\\alpha", "new-name")
+            .unwrap(),
+        Some(renamed),
+        "新名命中"
+    );
+}
+
+/// 存量非 kebab 记录仍可读（边界）：裸字节预置非 kebab 记录 → list / find
+/// 照常读出（读面零 name 合法性校验——存量兼容，promote 前置拒绝归命令层）。
+#[test]
+fn 存量非kebab记录仍可读_list与find零校验() {
+    let env = Env::new("explore-legacy-name");
+    let ws_path = env.db_path("ws");
+    create_ok(&open_workspace_ok(&ws_path), "C:\\ws\\alpha", "bound-topic");
+    // 裸 redb 预置一条非 kebab 存量行（写口已拒，仅存量形态可达）
+    let legacy = ExploreRecord {
+        id: 99,
+        root: "C:\\ws\\alpha".to_owned(),
+        name: "Legacy_Topic".to_owned(),
+        title: "Legacy_Topic".to_owned(),
+        promoted_to: None,
+        created_at: 1_700_000_000_000,
+        updated_at: 1_700_000_000_000,
+    };
+    inject_explore_row(&ws_path, &legacy);
+
+    let store = open_workspace_ok(&ws_path);
+    let list = store.list_explore_records("C:\\ws\\alpha").unwrap();
+    assert_eq!(list.len(), 2, "存量非 kebab 记录照常入列");
+    assert!(
+        list.iter().any(|record| record.name == "Legacy_Topic"),
+        "非 kebab 记录可读，实际: {:?}",
+        list.iter().map(|r| &r.name).collect::<Vec<_>>()
+    );
+    assert_eq!(
+        store
+            .find_explore_record("C:\\ws\\alpha", "Legacy_Topic")
+            .unwrap(),
+        Some(legacy),
+        "find 零 name 合法性校验（存量寻址照常命中）"
+    );
+}
+
+/// set_explore_title 正向（AC-5）：写 title + 刷新 updated_at，返回记录 title
+/// 更新、id / name / promoted_to 不变。
+#[test]
+fn set_explore_title正向写title与刷新updated_at() {
+    let env = Env::new("explore-set-title");
+    let store = open_workspace_ok(&env.db_path("ws"));
+    let original = create_ok(&store, "C:\\ws\\alpha", "api-retry");
+
+    let updated = store
+        .set_explore_title("C:\\ws\\alpha", "api-retry", "接口重试策略")
+        .expect("回填 title 应成功");
+
+    assert_eq!(updated.title, "接口重试策略", "title 更新为入参原文");
+    assert_eq!(updated.id, original.id, "主键不变（保会话链）");
+    assert_eq!(updated.name, original.name, "name 不变（title 独立字段）");
+    assert_eq!(
+        updated.promoted_to, original.promoted_to,
+        "promoted_to 不变（title 回填不触 promote 打标）"
+    );
+    assert!(
+        updated.updated_at >= original.updated_at,
+        "updated_at 刷新（不早于原值）"
+    );
+    assert_eq!(
+        store
+            .find_explore_record("C:\\ws\\alpha", "api-retry")
+            .unwrap(),
+        Some(updated),
+        "落库后可寻址读出"
+    );
+}
+
+/// set_explore_title 空白拒绝（异常）：`title` 空白 → `Err`（title 恒非空单点，
+/// store 不回退），记录零改动。
+#[test]
+fn set_explore_title空白拒绝且记录零改动() {
+    let env = Env::new("explore-set-title-blank");
+    let store = open_workspace_ok(&env.db_path("ws"));
+    let original = create_ok(&store, "C:\\ws\\alpha", "api-retry");
+
+    for title in ["", "   ", "\n\t"] {
+        let result = store.set_explore_title("C:\\ws\\alpha", "api-retry", title);
+        assert!(
+            matches!(&result, Err(StoreError::Db(_))),
+            "空白 title {title:?} 应 Err（title 恒非空），实际: {result:?}"
+        );
+    }
+    assert_eq!(
+        store
+            .find_explore_record("C:\\ws\\alpha", "api-retry")
+            .unwrap(),
+        Some(original),
+        "拒绝面零改动（title / updated_at 均未变）"
+    );
+}
+
+/// set_explore_title miss（异常）：记录不存在 → `Err`（NotFound 语义）。
+#[test]
+fn set_explore_title_miss返回err() {
+    let env = Env::new("explore-set-title-miss");
+    let store = open_workspace_ok(&env.db_path("ws"));
+
+    let result = store.set_explore_title("C:\\ws\\alpha", "ghost", "任意标题");
+    assert!(
+        matches!(&result, Err(StoreError::Db(_))),
+        "记录不存在应 Err，实际: {result:?}"
+    );
+}
+
+/// mark_explore_promoted 正向（AC-6）：`promoted_to = Some(change_id)` + 刷新
+/// updated_at，返回记录 promoted_to 就位；主键 / name / title 不变（记录保留）。
+#[test]
+fn mark_explore_promoted正向打标且保主键保链() {
+    let env = Env::new("explore-mark-promoted");
+    let store = open_workspace_ok(&env.db_path("ws"));
+    let original = create_ok(&store, "C:\\ws\\alpha", "api-retry");
+
+    let marked = store
+        .mark_explore_promoted("C:\\ws\\alpha", "api-retry", "chg-018f3a-0001")
+        .expect("打标应成功");
+
+    assert_eq!(
+        marked.promoted_to.as_deref(),
+        Some("chg-018f3a-0001"),
+        "promoted_to 指向 change id 身份锚"
+    );
+    assert_eq!(marked.id, original.id, "主键不变（记录 MUST NOT 删）");
+    assert_eq!(marked.name, original.name);
+    assert_eq!(marked.title, original.title);
+    assert!(
+        marked.updated_at >= original.updated_at,
+        "updated_at 刷新（不早于原值）"
+    );
+    assert_eq!(
+        store
+            .find_explore_record("C:\\ws\\alpha", "api-retry")
+            .unwrap()
+            .map(|record| record.promoted_to),
+        Some(Some("chg-018f3a-0001".to_owned())),
+        "落库后可寻址读出（记录保留）"
+    );
+}
+
+/// mark_explore_promoted 已 promoted 拒绝（异常）：二次打标 → `Err`（不静默
+/// 覆写），原打标值零改动。
+#[test]
+fn mark_explore_promoted已promoted二次打标拒绝() {
+    let env = Env::new("explore-mark-twice");
+    let store = open_workspace_ok(&env.db_path("ws"));
+    create_ok(&store, "C:\\ws\\alpha", "api-retry");
+    let first = store
+        .mark_explore_promoted("C:\\ws\\alpha", "api-retry", "chg-1")
+        .expect("首次打标应成功");
+
+    let result = store.mark_explore_promoted("C:\\ws\\alpha", "api-retry", "chg-2");
+    assert!(
+        matches!(&result, Err(StoreError::Db(_))),
+        "已 promoted 二次打标应 Err（不静默覆写），实际: {result:?}"
+    );
+    assert_eq!(
+        store
+            .find_explore_record("C:\\ws\\alpha", "api-retry")
+            .unwrap(),
+        Some(first),
+        "原打标值零改动"
+    );
+}
+
+/// mark_explore_promoted miss（异常）：记录不存在 → `Err`。
+#[test]
+fn mark_explore_promoted_miss返回err() {
+    let env = Env::new("explore-mark-miss");
+    let store = open_workspace_ok(&env.db_path("ws"));
+
+    let result = store.mark_explore_promoted("C:\\ws\\alpha", "ghost", "chg-1");
+    assert!(
+        matches!(&result, Err(StoreError::Db(_))),
+        "记录不存在应 Err，实际: {result:?}"
+    );
+}
+
+/// list / find 信封零改动（持衡）：清单 / 寻址 API 签名与返回面零改动，
+/// title / promotedTo 随 DTO 出线不新增信封维度。
+#[test]
+fn list与find信封零改动_title与promoted_to随dto出线() {
+    let env = Env::new("explore-envelope");
+    let store = open_workspace_ok(&env.db_path("ws"));
+    create_ok(&store, "C:\\ws\\alpha", "api-retry");
+    store
+        .set_explore_title("C:\\ws\\alpha", "api-retry", "接口重试策略")
+        .expect("回填应成功");
+    store
+        .mark_explore_promoted("C:\\ws\\alpha", "api-retry", "chg-9")
+        .expect("打标应成功");
+
+    let list = store.list_explore_records("C:\\ws\\alpha").unwrap();
+    assert_eq!(list.len(), 1, "清单返回面不变（单条）");
+    assert_eq!(list[0].title, "接口重试策略", "title 随 DTO 出线");
+    assert_eq!(list[0].promoted_to.as_deref(), Some("chg-9"));
+    let found = store
+        .find_explore_record("C:\\ws\\alpha", "api-retry")
+        .unwrap()
+        .expect("寻址命中");
+    assert_eq!(found, list[0], "find 与 list 逐字段同源");
+
+    // serde camelCase 线面：ExploreRecord 出线含 title / promotedTo 两键
+    let value = serde_json::to_value(&list[0]).expect("serde 出线应成功");
+    assert_eq!(value["title"], serde_json::json!("接口重试策略"));
+    assert_eq!(value["promotedTo"], serde_json::json!("chg-9"));
+    assert_eq!(value["name"], serde_json::json!("api-retry"), "name 恒裸名");
+}
+
+// ---------------------------------------------------------------------------
 // delete_explore_record：级联圈定自 runs 平移至会话（AC-11 级联半边）
 // ---------------------------------------------------------------------------
 
@@ -3064,6 +3426,7 @@ fn change_archive(id: &str, name: &str, created_at: i64) -> ChangeStateRecord {
     ChangeStateRecord {
         id: id.to_owned(),
         name: name.to_owned(),
+        title: name.to_owned(),
         workflow_type: "requirement".to_owned(),
         created_at,
         status: ChangeStatus::Active,
@@ -3204,6 +3567,103 @@ fn create_change_record建档find逐字段一致_重开db再读仍逐字段一�
         None,
         "未建档 id Ok(None)（未建档语义——不含文档形态）"
     );
+}
+
+/// 建档 fixture（显式 title 形态；id / name / title 三值可辨）。
+fn change_with_title(id: &str, name: &str, title: &str, created_at: i64) -> ChangeStateRecord {
+    ChangeStateRecord {
+        id: id.to_owned(),
+        name: name.to_owned(),
+        title: title.to_owned(),
+        workflow_type: "requirement".to_owned(),
+        created_at,
+        status: ChangeStatus::Active,
+        archived_at: None,
+        active_phase: None,
+        worktree: None,
+        base_commit: None,
+    }
+}
+
+/// create_change_record title 回环（重写——AC-2）：`ChangeStateRecord { title }`
+/// 落库 → `change_state` / find / list 读出 title 逐字一致；title ≠ name 时两
+/// 字段独立不混（纯投影零派生改写）。
+#[test]
+fn create_change_record_title回环建档与读面逐字一致() {
+    let env = Env::new("change-create-title");
+    let store = open_workspace_ok(&env.db_path("ws"));
+
+    let created = store
+        .create_change_record(change_with_title(
+            "chg-title-1",
+            "alpha-change",
+            "显式标题（人类可读）",
+            1_727_000_000_000,
+        ))
+        .expect("建档应成功");
+
+    assert_eq!(
+        created.title, "显式标题（人类可读）",
+        "建档返回 title 逐字一致"
+    );
+    assert_ne!(created.title, created.name, "title 与 name 独立可辨");
+    assert_eq!(
+        store
+            .find_change_record("chg-title-1")
+            .unwrap()
+            .map(|record| record.title),
+        Some("显式标题（人类可读）".to_owned()),
+        "find 读出 title 逐字一致"
+    );
+    let listed = store.list_change_records().unwrap();
+    assert_eq!(listed.len(), 1, "清单恰一行");
+    assert_eq!(
+        listed[0].title, "显式标题（人类可读）",
+        "list 读出 title 逐字一致"
+    );
+    assert_eq!(listed[0].name, "alpha-change", "name 恒裸名零污染");
+}
+
+/// change_state title 映射（新增）：建档记录 title 投影进中性快照；其余字段面
+/// 逐字不变（记录 ↔ 中性类型映射单点新增一处 title 投影）。
+#[test]
+fn change_state_title映射进中性快照且其余字段面持衡() {
+    let env = Env::new("change-state-title");
+    let store = open_workspace_ok(&env.db_path("ws"));
+    let payload = ChangeStateRecord {
+        id: "chg-map-1".to_owned(),
+        name: "map-change".to_owned(),
+        title: "映射标题".to_owned(),
+        workflow_type: "requirement".to_owned(),
+        created_at: 1_727_000_000_000,
+        status: ChangeStatus::Archived,
+        archived_at: Some(1_727_000_900_000),
+        active_phase: Some(ActivePhaseState {
+            phase: "implement".to_owned(),
+            attempt: 2,
+            start_at: 1_727_000_100_000,
+        }),
+        worktree: Some(r"C:\wt\map-change".to_owned()),
+        base_commit: Some("0000000000000000000000000000000000000009".to_owned()),
+    };
+    store
+        .create_change_record(payload.clone())
+        .expect("建档应成功");
+
+    let snapshot = store
+        .find_change_record("chg-map-1")
+        .expect("查档应成功")
+        .expect("建档在案");
+    assert_eq!(
+        snapshot, payload,
+        "中性快照与建档载荷逐字段相等（含 title）"
+    );
+    assert_eq!(snapshot.title, "映射标题", "title 投影进中性快照");
+    assert_eq!(snapshot.name, "map-change", "name 字段面逐字不变");
+    assert_eq!(snapshot.status, ChangeStatus::Archived);
+    assert_eq!(snapshot.archived_at, Some(1_727_000_900_000));
+    assert_eq!(snapshot.worktree.as_deref(), Some(r"C:\wt\map-change"));
+    assert_eq!(snapshot.active_phase.as_ref().map(|a| a.attempt), Some(2));
 }
 
 #[test]
@@ -3393,7 +3853,7 @@ fn open_workspace旧形态库作废重建_零报错旧数据零可达标记就�
     );
     assert!(
         physical.iter().any(|name| name == CHANGE_RECORD_TABLE),
-        "新物表 9_3_id 就位，实际表名: {physical:?}"
+        "新物表 9_4_id 就位，实际表名: {physical:?}"
     );
 }
 
@@ -3890,6 +4350,7 @@ fn preset_phase_rows_with_attempt_gap(
     rw.insert(ChangeRecord {
         id: change_id.to_owned(),
         name: change_name.to_owned(),
+        title: change_name.to_owned(),
         workflow_type: "requirement".to_owned(),
         created_at: 1000,
         status: ChangeStatus::Active,
@@ -4717,13 +5178,20 @@ impl redb::Key for RawNativeDbKey {
 
 /// change 建档表裸表名（native_db 内部表命名公式：
 /// `{native_model_id}_{native_model_version}_{主键字段名小写}`；ChangeRecord
-/// id=9 / version=3（身份锚换 `id` 主键——旧 9_2_name 表对新读面结构性不可见）
-/// / 主键 `id`）。
-const CHANGE_RECORD_TABLE: &str = "9_3_id";
+/// id=9 / version=4（新增 title 列——旧 9_3_id / 9_2_name 表对新读面结构性
+/// 不可见）/ 主键 `id`）。
+const CHANGE_RECORD_TABLE: &str = "9_4_id";
 
-/// 旧形态物表名（身份换锚前：9:v2 主键 `name`）——表名机制第二道防线断言锚：
-/// 新读面结构性不可见。
+/// explore 记录表裸表名（ExploreRecord id=4 / version=2（新增 title /
+/// promoted_to 列——旧 4_1_id 表对新读面结构性不可见）/ 主键 `id`；explore-name-file-binding）。
+const EXPLORE_RECORD_TABLE: &str = "4_2_id";
+
+/// 旧形态物表名（身份换锚前：9:v2 主键 `name`；加 title 列前：9:v3 主键 `id`；
+/// explore 加新列前：4:v1 主键 `id`）——表名机制第二道防线断言锚：新读面结构性
+/// 不可见。
 const OLD_CHANGE_RECORD_TABLE: &str = "9_2_name";
+const RETIRED_CHANGE_RECORD_V3_TABLE: &str = "9_3_id";
+const RETIRED_EXPLORE_RECORD_V1_TABLE: &str = "4_1_id";
 
 /// 相位 / 步骤 / run 记录物表名与归属列二级索引表名（版本段换锚：10:v2 / 12:v2
 /// / 13:v2，归属列 `change_id`；run 主键 `run_id`）。
@@ -4855,7 +5323,7 @@ fn preset_old_shape_workspace_db(path: &Path, legacy_names: &[&str]) {
 
 // ---------------------------------------------------------------------------
 // 表名版本段映射（AC-8 表名机制）：物表名与 native_db 命名公式同源断言 +
-// 真实库物表名清单对照（`9_3_id` 反转 v2 的 `9_2_name`）
+// 真实库物表名清单对照（`9_4_id` / `4_2_id` 反转 9_3_id / 4_1_id）
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -4872,8 +5340,21 @@ fn 表名版本段映射_物表名与命名公式同源_旧表名零在场() {
         "change 建档物表名与 native_db 内部命名公式一致"
     );
     assert_eq!(
-        CHANGE_RECORD_TABLE, "9_3_id",
-        "change 建档物表 9_3_id（v2 的 9_2_name 反转：主键 name → id）"
+        CHANGE_RECORD_TABLE, "9_4_id",
+        "change 建档物表 9_4_id（v4 新增 title 列：9_3_id → 9_4_id）"
+    );
+    assert_eq!(
+        EXPLORE_RECORD_TABLE,
+        native_db_table_name(
+            <ExploreRecord as native_model::Model>::native_model_id(),
+            <ExploreRecord as native_model::Model>::native_model_version(),
+            "id"
+        ),
+        "explore 记录物表名与 native_db 内部命名公式一致"
+    );
+    assert_eq!(
+        EXPLORE_RECORD_TABLE, "4_2_id",
+        "explore 物表 4_2_id（v2 新增 title / promoted_to 列：4_1_id → 4_2_id）"
     );
     assert_eq!(PHASE_RECORD_TABLE, "10_2_id", "相位物表 10:v2 主键 id");
     assert_eq!(
@@ -4901,6 +5382,7 @@ fn 表名版本段映射_物表名与命名公式同源_旧表名零在场() {
     let names = physical_table_names(&ws_path);
     for expected in [
         CHANGE_RECORD_TABLE,
+        EXPLORE_RECORD_TABLE,
         PHASE_RECORD_TABLE,
         PHASE_RECORD_CHANGE_ID_INDEX,
         STEP_RECORD_TABLE,
@@ -4914,10 +5396,17 @@ fn 表名版本段映射_物表名与命名公式同源_旧表名零在场() {
             "物表 {expected} 应在库内，实际清单: {names:?}"
         );
     }
-    for retired in ["9_2_name", "10_1_change", "12_1_change", "13_1_change"] {
+    for retired in [
+        "9_2_name",
+        RETIRED_CHANGE_RECORD_V3_TABLE,
+        RETIRED_EXPLORE_RECORD_V1_TABLE,
+        "10_1_change",
+        "12_1_change",
+        "13_1_change",
+    ] {
         assert!(
             !names.iter().any(|name| name == retired),
-            "旧物表 {retired} 零在场（身份换锚后结构性不可见），实际清单: {names:?}"
+            "旧物表 {retired} 零在场（加字段 / 身份换锚后结构性不可见），实际清单: {names:?}"
         );
     }
 }

@@ -11,6 +11,15 @@ export interface ExploreCreateDialogProps {
 
 type TabKey = 'import' | 'topic';
 
+/**
+ * 新话题名 kebab-case 判定（等价 `^[a-z][a-z0-9]*(-[a-z0-9]+)*$`）：与后端
+ * (`store::create_explore_record` / 写面 `create`) 同口径，非法时本地禁用提交
+ * （避免「点击后报错」）。
+ */
+function isKebabCase(name: string): boolean {
+  return /^[a-z][a-z0-9]*(-[a-z0-9]+)*$/.test(name);
+}
+
 /** 单条导入项：stem + 修改时间，点击即建档绑定 */
 function ImportItem({
   entry,
@@ -74,7 +83,7 @@ function ImportList({
   if (entries.length === 0) {
     return (
       <div className="text-muted-foreground" data-testid="explore-import-empty">
-        没有可导入的未绑定文档。
+        没有可导入的未绑定文档（仅 kebab-case 文件名的笔记可导入）。
       </div>
     );
   }
@@ -100,7 +109,7 @@ function ImportEntry({ root, onCreated }: ExploreCreateDialogProps): React.JSX.E
   return (
     <div data-testid="explore-import-entry">
       <div className="mb-1.5 text-xs text-muted-foreground">
-        选择笔记目录中尚未绑定的文档，建档后可在页面内继续探索：
+        选择笔记目录中尚未绑定、且文件名为 kebab-case 的文档，建档后可在页面内继续探索：
       </div>
       {error !== null && (
         <div
@@ -115,16 +124,36 @@ function ImportEntry({ root, onCreated }: ExploreCreateDialogProps): React.JSX.E
   );
 }
 
+/** 行内错误块（校验 / 后端错误呈现；break-all 保长错误可读） */
+function EntryError({
+  testid,
+  children,
+}: {
+  testid: string;
+  children: React.ReactNode;
+}): React.JSX.Element {
+  return (
+    <div
+      className="mb-2 break-all rounded-md bg-fail-bg px-2 py-1.5 text-xs text-fail"
+      data-testid={testid}
+    >
+      {children}
+    </div>
+  );
+}
+
 /** 「新话题」入口：仅建档不落盘文件（内容唯一真源在磁盘，agent 会话流程懒创建） */
 function TopicEntry({ root, onCreated }: ExploreCreateDialogProps): React.JSX.Element {
   const [topic, setTopic] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const name = topic.trim();
+  const valid = isKebabCase(name);
 
   const create = () => {
     setError(null);
     commands
-      .createExploreRecord(root, topic.trim())
-      .then(() => onCreated(topic.trim()))
+      .createExploreRecord(root, name)
+      .then(() => onCreated(name))
       .catch((err: unknown) => setError(String(err)));
   };
 
@@ -141,19 +170,17 @@ function TopicEntry({ root, onCreated }: ExploreCreateDialogProps): React.JSX.El
         onChange={(e) => setTopic(e.target.value)}
         placeholder="例如 api-retry-strategy"
       />
-      {error !== null && (
-        <div
-          className="mb-2 break-all rounded-md bg-fail-bg px-2 py-1.5 text-xs text-fail"
-          data-testid="explore-create-error"
-        >
-          {error}
-        </div>
+      {name.length > 0 && !valid && (
+        <EntryError testid="explore-topic-invalid">
+          主题名须为 kebab-case（小写字母/数字，可用 `-` 连接）
+        </EntryError>
       )}
+      {error !== null && <EntryError testid="explore-create-error">{error}</EntryError>}
       <button
         type="button"
         className="cursor-pointer rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground outline-none transition-colors hover:bg-primary/90 disabled:pointer-events-none disabled:opacity-50"
         data-testid="explore-topic-create"
-        disabled={topic.trim().length === 0}
+        disabled={!valid}
         onClick={create}
       >
         建档

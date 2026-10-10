@@ -162,6 +162,8 @@ pub struct ChangeDetail {
     pub id: String,
     /// change 名（自记录直读，恒裸名）
     pub name: String,
+    /// 人类可读标题，恒非空（自记录直读，见 desktop-change-state-store）
+    pub title: String,
     pub source: ChangeSource,
     pub status: Option<ChangeStatus>,
     pub created: Option<String>,
@@ -269,6 +271,7 @@ pub fn change_detail(
     Some(ChangeDetail {
         id: record.id.clone(),
         name: record.name.clone(),
+        title: record.title.clone(),
         source,
         status: Some(record.status),
         created,

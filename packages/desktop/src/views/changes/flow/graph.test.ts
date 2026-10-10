@@ -34,6 +34,7 @@ function detail(overrides: Partial<ChangeDetail> = {}): ChangeDetail {
   return {
     id: 'add-feature',
     name: 'add-feature',
+    title: 'add-feature',
     source: 'active',
     status: 'active',
     created: '2026-09-01',

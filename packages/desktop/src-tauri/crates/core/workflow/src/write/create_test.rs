@@ -78,6 +78,25 @@ impl Env {
             &self.vcs,
             name,
             goal,
+            name,
+        )
+    }
+
+    /// 显式 title 入参形态（title 载荷断言面；blank title 回退用例传空串 / 空白）。
+    fn create_with_title(
+        &self,
+        name: &str,
+        goal: &str,
+        title: &str,
+    ) -> Result<CreateOutcome, String> {
+        create(
+            &self.root,
+            &self.worktree_root,
+            &self.store,
+            &self.vcs,
+            name,
+            goal,
+            title,
         )
     }
 
@@ -387,6 +406,7 @@ impl CreateStore {
             .push(ChangeStateRecord {
                 id: id.to_owned(),
                 name: name.to_owned(),
+                title: name.to_owned(),
                 workflow_type: "requirement".to_owned(),
                 created_at: 1_727_000_000_000,
                 status,
@@ -668,6 +688,74 @@ fn 空白树深层建树_全链不存在时建全树() {
         .expect("空白树应建树成功");
 
     assert!(env.change_dir("deep-root").join("explore.md").is_file());
+}
+
+/// 显式 title 入参（新增）：title ≠ name 传入 → 假 store 捕获建档载荷
+/// `title == 显式值`（name 裸名零污染）；worktree 内 explore.md = goal 原文不变
+/// （title 为纯投影零行为）。
+#[test]
+fn create显式title_建档载荷携显式值且explore原文不变() {
+    let env = Env::new("explicit-title");
+
+    let outcome = env
+        .create_with_title("fix-bug", "修复登录重试的竞态问题", "修复登录竞态")
+        .expect("合法输入应 Ok");
+
+    let record = env.store.created_record();
+    assert_eq!(record.title, "修复登录竞态", "建档载荷 title == 显式值");
+    assert_eq!(record.name, "fix-bug", "name 恒裸名（title 独立字段）");
+    assert_ne!(record.title, record.name, "title 与 name 双字段可辨");
+    assert_eq!(record.id, outcome.id, "建档载荷即本次铸出 id");
+    assert_eq!(
+        env.explore_bytes("fix-bug"),
+        "修复登录重试的竞态问题".as_bytes(),
+        "title 为纯投影：explore.md 仍为 goal 原文"
+    );
+}
+
+/// 空 / 空白 title 回退 name（边界）：title 空串 / 纯空白 → 建档载荷
+/// `title == name`（回退单点在写面，恒非空）。
+#[test]
+fn create空title回退name_建档载荷兜底() {
+    for (idx, title) in ["", "   ", "\n\t"].iter().enumerate() {
+        let env = Env::new(&format!("blank-title-{idx}"));
+        let name = format!("topic-{idx}");
+
+        env.create_with_title(&name, "回退 goal", title)
+            .expect("合法输入应 Ok");
+
+        let record = env.store.created_record();
+        assert_eq!(
+            record.title, name,
+            "空白 title {title:?} 回退 name（title 恒非空单点）"
+        );
+        assert!(!record.title.is_empty(), "回退后 title 恒非空");
+    }
+}
+
+/// 建档载荷含 title 字段（正向）：假 store 捕获的 ChangeStateRecord 逐字段
+/// 断言（title / name / goal 载体 / 执行锚）。
+#[test]
+fn create建档载荷含title字段逐字段断言() {
+    let env = Env::new("payload-title");
+
+    let outcome = env
+        .create_with_title("payload-change", "需求原文 goal", "载荷标题")
+        .expect("合法输入应 Ok");
+
+    let record = env.store.created_record();
+    assert_eq!(record.title, "载荷标题", "载荷 title 逐字");
+    assert_eq!(record.name, "payload-change", "载荷 name 逐字");
+    assert_eq!(record.workflow_type, "requirement", "V1 恒 requirement");
+    assert_eq!(record.status, ChangeStatus::Active, "active 起步");
+    assert_eq!(record.archived_at, None);
+    assert_eq!(record.active_phase, None);
+    assert_eq!(
+        record.worktree.as_deref(),
+        Some(outcome.worktree.as_str()),
+        "建档载荷携 worktree 执行锚"
+    );
+    assert_eq!(record.base_commit.as_deref(), Some(FAKE_HEAD));
 }
 
 /// goal 多行 + emoji + 超长字符 + 首尾空白：explore.md 字节保真（UTF-8

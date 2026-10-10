@@ -22,7 +22,7 @@ function ChangeRow({
       onClick={() => onSelect(summary.id)}
       data-testid="change-row"
     >
-      <span className="font-semibold">{summary.name}</span>
+      <span className="font-semibold">{summary.title}</span>
       {summary.activePhase !== null && (
         <Badge variant="secondary">
           运行中 · {summary.activePhase.phase} · attempt {summary.activePhase.attempt}

@@ -121,6 +121,8 @@ pub(crate) fn utc_date(millis: i64) -> String {
 /// explore.md（goal 原文直写，UTF-8 零结构包装）→ 脏仓警告 → bootstrap。
 /// 双根注入：`main_root` 主仓根（目录冲突检查 + git 命令 `-C` 锚）、
 /// `worktree_root` 落位父锚（worktree 目录 = `worktree_root/<name>`）。
+/// `title` 为人类可读标题（手动路径传 `name`，promote 路径显式继承
+/// `explore.title`）；空白标题回退 `name`（title 恒非空单点）。
 pub fn create(
     main_root: &Path,
     worktree_root: &Path,
@@ -128,6 +130,7 @@ pub fn create(
     vcs: &dyn WorktreePort,
     name: &str,
     goal: &str,
+    title: &str,
 ) -> Result<CreateOutcome, String> {
     // 前置①②：名称与 goal（纯内存校验）
     if !is_kebab_case(name) {
@@ -144,6 +147,9 @@ pub fn create(
     if goal.trim().is_empty() {
         return Err("goal 不得为空白（须为非空的需求描述）".to_owned());
     }
+    // 前置②补：标题回退单点（title 恒非空不变量——空白标题回退 name，前端
+    // 零空态回退分支）
+    let title = if title.trim().is_empty() { name } else { title };
     // 前置③：主仓 active 目录已存在（既有三道校验风格——冲突检查先于 git
     // 探测，vcs 零调用）
     let main_layout = resolve(main_root);
@@ -194,6 +200,7 @@ pub fn create(
         .create_change_record(ChangeStateRecord {
             id: id.clone(),
             name: name.to_owned(),
+            title: title.to_owned(),
             // V1 唯一支持的工作流类型（与发起前置校验同口径）
             workflow_type: "requirement".to_owned(),
             created_at,

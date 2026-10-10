@@ -320,6 +320,7 @@ fn change_archive(id: &str, name: &str) -> ChangeStateRecord {
     ChangeStateRecord {
         id: id.to_owned(),
         name: name.to_owned(),
+        title: name.to_owned(),
         workflow_type: "requirement".to_owned(),
         created_at: 1727000000000,
         status: ChangeStatus::Active,

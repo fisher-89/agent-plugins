@@ -94,6 +94,7 @@ fn seed_change_full(
         .create_change_record(ChangeStateRecord {
             id: id.to_owned(),
             name: name.to_owned(),
+            title: name.to_owned(),
             workflow_type: workflow_type.to_owned(),
             created_at: 1727000000000,
             status: ChangeStatus::Active,
@@ -856,6 +857,7 @@ fn seed_change_with_worktree(
         .create_change_record(ChangeStateRecord {
             id: name.to_owned(),
             name: name.to_owned(),
+            title: name.to_owned(),
             workflow_type: "requirement".to_owned(),
             created_at: 1727000000000,
             status: ChangeStatus::Active,

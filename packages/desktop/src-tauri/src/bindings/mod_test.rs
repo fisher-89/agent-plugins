@@ -40,7 +40,7 @@ impl Drop for RestoreOnDrop {
     }
 }
 
-/// 32 条命令的生成包装名（camelCase，与 `generate_handler!` 时代命令清单一一
+/// 34 条命令的生成包装名（camelCase，与 `generate_handler!` 时代命令清单一一
 /// 对应；历史缺录为既有滞后债，contains 语义不致红、按现行口径只补录本变更
 /// 自身新命令）。
 const COMMAND_WRAPPERS: &[&str] = &[
@@ -70,6 +70,8 @@ const COMMAND_WRAPPERS: &[&str] = &[
     "createExploreRecord",
     "renameExploreRecord",
     "deleteExploreRecord",
+    "updateExploreTitle",
+    "promoteExplore",
     "watchSubscribe",
     "watchUnsubscribe",
     "dbModels",
@@ -78,7 +80,7 @@ const COMMAND_WRAPPERS: &[&str] = &[
     "workspaceConfig",
 ];
 
-/// 32 条命令的 IPC 命令名（snake_case，invoke 目标；补录口径同上）。
+/// 34 条命令的 IPC 命令名（snake_case，invoke 目标；补录口径同上）。
 const COMMAND_NAMES: &[&str] = &[
     "list_changes",
     "get_change_detail",
@@ -106,6 +108,8 @@ const COMMAND_NAMES: &[&str] = &[
     "create_explore_record",
     "rename_explore_record",
     "delete_explore_record",
+    "update_explore_title",
+    "promote_explore",
     "watch_subscribe",
     "watch_unsubscribe",
     "db_models",
@@ -159,6 +163,7 @@ const DTO_TYPES: &[&str] = &[
     "ModelInfo",
     "MutationConfig",
     "PhaseEntry",
+    "PromoteOutcome",
     "RecordEnvelope",
     "RulesConfig",
     "TestFramework",
@@ -809,13 +814,19 @@ fn dto_types清单不残留退役幽灵条目() {
 #[test]
 fn command清单补录_archive_change后32条且既有锚点与在册命令保持() {
     // 本变更自身新命令补录（历史缺录为既有滞后债，contains 语义不致红、不在
-    // 本变更范围）：条目数 31 → 32，首尾锚点不变
-    assert_eq!(COMMAND_NAMES.len(), 32, "命令清单恰补录一条");
-    assert_eq!(COMMAND_WRAPPERS.len(), 32, "包装清单恰补录一条");
+    // 本变更范围）：条目数 32 → 34（promote_explore / update_explore_title），
+    // 首尾锚点不变
+    assert_eq!(COMMAND_NAMES.len(), 34, "命令清单恰补录本变更两条");
+    assert_eq!(COMMAND_WRAPPERS.len(), 34, "包装清单恰补录本变更两条");
     assert_eq!(COMMAND_NAMES.first(), Some(&"list_changes"));
     assert_eq!(COMMAND_NAMES.last(), Some(&"workspace_config"));
     assert!(COMMAND_NAMES.contains(&"archive_change"), "invoke 名补录");
     assert!(COMMAND_WRAPPERS.contains(&"archiveChange"), "包装名补录");
+    assert!(COMMAND_NAMES.contains(&"promote_explore"), "invoke 名补录");
+    assert!(
+        COMMAND_NAMES.contains(&"update_explore_title"),
+        "invoke 名补录"
+    );
     // 无 interrupted 相关命令混入（历史口径持衡）
     assert!(
         COMMAND_NAMES
@@ -825,15 +836,14 @@ fn command清单补录_archive_change后32条且既有锚点与在册命令保�
     );
 }
 
-/// DTO 类型清单零补录（AC-9 守卫半边持衡）：本变更零新增命令零新增 DTO 类型
-/// 名——`id` 为既有类型的字段增量（CreateOutcome / ChangeDetail /
-/// ChangeSummary），清单条目数与首尾锚与上轮一致（新增类型即挂）。
+/// DTO 类型清单（AC-9 守卫半边）：本变更新增 `PromoteOutcome` 一个出线 DTO
+/// 类型名（promote 命令返回面）——清单条目数随动，首尾锚与在册条目保持。
 #[test]
 fn dto类型清单零补录_条目数与首尾锚持衡() {
     assert_eq!(
         DTO_TYPES.len(),
-        54,
-        "DTO 清单零补录（id 为字段增量非新类型名）"
+        55,
+        "DTO 清单补录本变更一条（PromoteOutcome）"
     );
     assert_eq!(DTO_TYPES.first(), Some(&"ActivePhase"), "首锚持衡");
     assert_eq!(DTO_TYPES.last(), Some(&"WriteProtectionFile"), "尾锚持衡");

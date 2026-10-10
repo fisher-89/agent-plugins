@@ -70,6 +70,7 @@ const fixtureList: ChangeList = {
     {
       id: '0199a2f0-0011-7e45-8a9b-000000000011',
       name: 'add-feature',
+      title: 'add-feature',
       source: 'active',
       status: 'active',
       activePhase: null,
@@ -78,6 +79,7 @@ const fixtureList: ChangeList = {
     {
       id: '0199a2f0-0012-7e45-8a9b-000000000012',
       name: 'docs-only',
+      title: 'docs-only',
       source: 'active',
       status: null,
       activePhase: null,
@@ -91,6 +93,7 @@ const fixtureList: ChangeList = {
         {
           id: ARCHIVE_ID_FIRST,
           name: 'first',
+          title: 'first',
           source: 'archive',
           status: 'archived',
           activePhase: null,
@@ -104,6 +107,7 @@ const fixtureList: ChangeList = {
         {
           id: ARCHIVE_ID_SECOND,
           name: 'second',
+          title: 'second',
           source: 'archive',
           status: null,
           activePhase: null,
@@ -117,6 +121,7 @@ const fixtureList: ChangeList = {
         {
           id: ARCHIVE_ID_NO_DATE,
           name: 'no-date-archived',
+          title: 'no-date-archived',
           source: 'archive',
           status: 'archived',
           activePhase: null,
@@ -216,6 +221,7 @@ describe('ChangeListView：分组列表、运行中徽标与进入详情', () =>
         {
           id: 'add-feature',
           name: 'add-feature',
+          title: 'add-feature',
           source: 'active',
           status: 'active',
           activePhase: { phase: 'implement', attempt: 2, startAt: null },
@@ -536,6 +542,7 @@ describe('ChangeListView：退役面负断言与状态面消费', () => {
         {
           id: 'corrupt-invalid-json',
           name: 'corrupt-invalid-json',
+          title: 'corrupt-invalid-json',
           source: 'active',
           status: null,
           activePhase: null,
@@ -557,6 +564,7 @@ describe('ChangeListView：退役面负断言与状态面消费', () => {
         {
           id: 'run-now',
           name: 'run-now',
+          title: 'run-now',
           source: 'active',
           status: 'active',
           activePhase: { phase: 'test-gen', attempt: 1, startAt: null },
@@ -565,6 +573,7 @@ describe('ChangeListView：退役面负断言与状态面消费', () => {
         {
           id: 'no-status',
           name: 'no-status',
+          title: 'no-status',
           source: 'active',
           status: null,
           activePhase: null,
@@ -578,6 +587,7 @@ describe('ChangeListView：退役面负断言与状态面消费', () => {
             {
               id: 'done-archived',
               name: 'done-archived',
+              title: 'done-archived',
               source: 'archive',
               status: 'archived',
               activePhase: null,
@@ -601,5 +611,75 @@ describe('ChangeListView：退役面负断言与状态面消费', () => {
     const noStatusRow = rows.find((row) => (row.textContent ?? '').includes('no-status'));
     expect(noStatusRow !== undefined).toBe(true);
     expect(within(noStatusRow!).queryByText(/运行中|已归档|未建档/)).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 条目渲染 summary.title（explore-name-file-binding AC-8 change 清单半边）：
+// title 为标题展示面（name 不再作标题展示），行键 / 导航恒 id 不变
+// ---------------------------------------------------------------------------
+
+describe('ChangeListView：条目渲染 summary.title（AC-8）', () => {
+  /** title ≠ name 清单 fixture（展示面与寻址面刻意分离）。 */
+  const titledList: ChangeList = {
+    active: [
+      {
+        id: '0199a2f0-0091-7e45-8a9b-000000000091',
+        name: 'add-feature',
+        title: '新增特性（人类可读）',
+        source: 'active',
+        status: 'active',
+        activePhase: null,
+        created: '2026-09-01',
+      },
+    ],
+    archiveGroups: [
+      {
+        month: '2026-05',
+        changes: [
+          {
+            id: '0199a2f0-0092-7e45-8a9b-000000000092',
+            name: 'old-change',
+            title: '归档标题',
+            source: 'archive',
+            status: 'archived',
+            activePhase: null,
+            created: '2026-05-01',
+          },
+        ],
+      },
+    ],
+  };
+
+  it('正向：title ≠ name 时标题位显示 title（active 条目）', async () => {
+    listAnswer = Promise.resolve(titledList);
+    render(listTree(ROOT));
+
+    await screen.findByText('新增特性（人类可读）');
+    expect(screen.queryByText('add-feature')).toBeNull();
+    const row = screen
+      .getAllByTestId('change-row')
+      .find((node) => (node.textContent ?? '').includes('新增特性（人类可读）'));
+    expect(row).toBeTruthy();
+  });
+
+  it('边界：name 不再作标题（archive 条目同式——title 独立展示面）', async () => {
+    listAnswer = Promise.resolve(titledList);
+    render(listTree(ROOT));
+
+    await screen.findByText('归档标题');
+    expect(screen.queryByText('old-change')).toBeNull();
+  });
+
+  it('边界：行键 / 导航恒 id（title 零参与寻址）——点击条目落 /changes/<summary.id>', async () => {
+    listAnswer = Promise.resolve(titledList);
+    render(listTree(ROOT));
+
+    fireEvent.click(await screen.findByText('新增特性（人类可读）'));
+    await waitFor(() =>
+      expect(probePathname()).toBe('/changes/0199a2f0-0091-7e45-8a9b-000000000091'),
+    );
+    expect(probePathname()).not.toContain('add-feature');
+    expect(probePathname()).not.toContain('新增特性');
   });
 });

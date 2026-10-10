@@ -47,6 +47,7 @@ fn change_archive(id: &str, name: &str, created_at: i64) -> ChangeStateRecord {
     ChangeStateRecord {
         id: id.to_owned(),
         name: name.to_owned(),
+        title: name.to_owned(),
         workflow_type: "requirement".to_owned(),
         created_at,
         status: workflow::state::ChangeStatus::Active,

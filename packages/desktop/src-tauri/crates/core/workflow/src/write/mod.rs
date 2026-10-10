@@ -6,6 +6,7 @@ mod phase_log;
 mod phase_next;
 mod phase_start;
 mod phase_table;
+mod promote;
 mod run;
 mod worktree;
 
@@ -22,6 +23,7 @@ pub use phase_start::{phase_start, PhaseStartOutcome};
 pub use phase_table::{
     allowed_backtrack_phases, phase_table, PhaseAgentSpec, PhaseDefinition, MAX_RETRY_TIMES,
 };
+pub use promote::{promote_explore, PromoteOutcome};
 pub use run::{run_finish, run_start};
 pub use worktree::{InstallRun, RepoProbe, WorktreePort};
 
@@ -49,5 +51,7 @@ mod phase_next_test;
 mod phase_start_test;
 #[cfg(test)]
 mod phase_table_test;
+#[cfg(test)]
+mod promote_test;
 #[cfg(test)]
 mod run_test;

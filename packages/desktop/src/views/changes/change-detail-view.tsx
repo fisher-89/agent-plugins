@@ -55,7 +55,7 @@ function DetailHeader({
             归档…
           </Button>
         )}
-        <h2 className="m-0 break-all text-[17px]">{detail.name}</h2>
+        <h2 className="m-0 break-all text-[17px]">{detail.title}</h2>
         <span className="text-muted-foreground">
           {detail.source === 'archive' ? '已归档' : '进行中'}
         </span>
