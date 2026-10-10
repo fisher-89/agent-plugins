@@ -8,12 +8,12 @@
 
 ### Requirement: 三代代表性 fixture 语料
 
-workflow crate SHALL 在 `tests/fixtures/` 维护语料夹具，载体 SHALL 为 **db 种子夹具**（经 store change 域操作面写入 `ChangeRecord` / `PhaseRecord` / `ChecklistItemRecord` / `StepRecord` / `RunRecord` / `RunStepRecord` 的种子构造器——种子携带铸出 id 归键，`ChangeRecord` 主键 id、name 为属性）+ 磁盘产物树（markdown 产物；含归档目录 `YYYY-MM-DD-<name>` 前缀样本与 worktree 目录样本）。语料 SHALL 覆盖：完整执行史（多 attempt、fail→retry、backtrack 与 stale 标记、skipped 条目）、会话槽位全/缺两态、坏行样本（解不出为合法记录的种子，用于显式错误路径）、**归档 change 样本**（db 记录 name 恒裸名 + 磁盘目录带日期前缀 + status=archived，钉死 id 寻址下全状态面出线——原错配修复锚点）、以及 worktree 维度两态——带 `worktree` / `base_commit` 的建档样本与 `worktree=None` legacy 样本各至少一个（覆盖 detail 线面 `worktree` 字段 null / 非 null 两投影，见 desktop-change-queries / desktop-change-worktree）。原「db 缺记录文档形态」样本 SHALL 随文档形态能力退役改造（见下）；原 workflow.json 语料（v1-b / v1-c / v2-a 等三代 fixtures 与损坏样本）随 parse 退役失去解析主体，处置形态（删除 vs 转标 legacy 子目录保留）由 design 定稿，MUST NOT 静默遗留在默认语料路径参与回归。
+workflow crate SHALL 在 `tests/fixtures/` 维护语料夹具，载体 SHALL 为 **db 种子夹具**（经 store change 域操作面写入 `ChangeRecord` / `PhaseRecord` / `ChecklistItemRecord` / `StepRecord` / `RunRecord` / `RunStepRecord` 的种子构造器——种子携带铸出 id 归键，`ChangeRecord` 主键 id、name 为属性、`title` 为人类可读标题）+ 磁盘产物树（markdown 产物；含归档目录 `YYYY-MM-DD-<name>` 前缀样本与 worktree 目录样本）。语料 SHALL 覆盖：完整执行史（多 attempt、fail→retry、backtrack 与 stale 标记、skipped 条目）、会话槽位全/缺两态、坏行样本（解不出为合法记录的种子，用于显式错误路径）、**归档 change 样本**（db 记录 name 恒裸名 + 磁盘目录带日期前缀 + status=archived，钉死 id 寻址下全状态面出线——原错配修复锚点）、worktree 维度两态（带 `worktree` / `base_commit` 的建档样本与 `worktree=None` legacy 样本各至少一个，覆盖 detail 线面 `worktree` 字段 null / 非 null 两投影）、以及 **title 维度两态**（`title = name` 缺省样本与 `title` 显式人类标题样本各至少一个，覆盖 list / detail 线面 title 投影）。原「db 缺记录文档形态」样本 SHALL 随文档形态能力退役改造（见下）；原 workflow.json 语料（v1-b / v1-c / v2-a 等三代 fixtures 与损坏样本）随 parse 退役失去解析主体，处置形态（删除 vs 转标 legacy 子目录保留）由 design 定稿，MUST NOT 静默遗留在默认语料路径参与回归。
 
 #### Scenario: 语料覆盖状态面形态
 
 - **WHEN** 检查 `tests/fixtures/` 语料清单与种子构造器
-- **THEN** 含完整执行史（含 backtrack / stale / skipped）、槽位全缺两态、归档前缀样本与坏行样本各至少一个，含 worktree 两态建档样本（带 `worktree` / `base_commit` 与 `worktree=None`）各至少一个，全部经 db 种子构造、id 归键
+- **THEN** 含完整执行史（含 backtrack / stale / skipped）、槽位全缺两态、归档前缀样本与坏行样本各至少一个，含 worktree 两态建档样本（带 `worktree` / `base_commit` 与 `worktree=None`）各至少一个，含 title 两态样本（title=name 与显式标题）各至少一个，全部经 db 种子构造、id 归键
 
 #### Scenario: 磁盘目录零发现断言（文档形态退役改造）
 
@@ -29,6 +29,11 @@ workflow crate SHALL 在 `tests/fixtures/` 维护语料夹具，载体 SHALL 为
 
 - **WHEN** 对含 worktree 两态样本的语料运行全量聚合快照回归
 - **THEN** detail 线面 `worktree` 出线值与库内记录逐字一致（非 null 样本出绝对路径、None 样本出 null），golden 差异经 `DESKTOP_GOLDEN_REWRITE=1` 显式重写并人工确认留痕，非静默接受
+
+#### Scenario: title 两态投影入 golden
+
+- **WHEN** 对含 title 两态样本的语料运行全量聚合快照回归
+- **THEN** list / detail 线面 `title` 出线与库内记录逐字一致（title=name 缺省样本出 name、显式样本出人类标题），golden 差异经 `DESKTOP_GOLDEN_REWRITE=1` 显式重写并人工确认留痕，非静默接受
 
 #### Scenario: 历史夹具处置显式
 
