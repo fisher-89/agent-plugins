@@ -362,7 +362,7 @@ describe('AgentMessages：历史分页', () => {
     vi.unstubAllGlobals();
   });
 
-  it('默认仅渲染最新一页（10 条），更早消息不进 DOM，顶部提示剩余条数', () => {
+  it('默认仅渲染最新一页（10 条），更早消息不进 DOM，顶部提示加载中…', () => {
     render(<AgentMessages messages={pagedConversation(25)} loading={false} running={false} />);
 
     expect(screen.getAllByTestId('chat-bubble')).toHaveLength(10);
@@ -373,7 +373,7 @@ describe('AgentMessages：历史分页', () => {
     expect(joined).toContain('user-msg-24'); // 最新一条在
     expect(joined).toContain('assistant-msg-15'); // 当前页最早（i=15）
     expect(joined).not.toContain('user-msg-14'); // 上一页及更早不渲染
-    expect(screen.getByTestId('history-load-hint').textContent).toContain('15');
+    expect(screen.getByTestId('history-load-hint').textContent).toContain('加载中…');
   });
 
   it('触顶连续装载：每触发一次增一页，装满后转终态并撤销观察器', () => {
@@ -381,12 +381,10 @@ describe('AgentMessages：历史分页', () => {
 
     triggerReachTop();
     expect(screen.getAllByTestId('chat-bubble')).toHaveLength(20);
-    expect(screen.getByTestId('history-load-hint').textContent).toContain('5');
 
     triggerReachTop();
     expect(screen.getAllByTestId('chat-bubble')).toHaveLength(25);
     expect(screen.queryByTestId('history-load-hint')).toBeNull();
-    expect(screen.getByTestId('history-load-complete').textContent).toContain('25');
     // 已到最早 → 不再保持任何触顶观察器
     expect(FakeIntersectionObserver.instances).toHaveLength(0);
   });
@@ -423,6 +421,6 @@ describe('AgentMessages：历史分页', () => {
       <AgentMessages messages={pagedConversation(25, 100)} loading={false} running={false} />,
     );
     expect(screen.getAllByTestId('chat-bubble')).toHaveLength(10);
-    expect(screen.getByTestId('history-load-hint').textContent).toContain('15');
+    expect(screen.getByTestId('history-load-hint').textContent).toContain('加载中…');
   });
 });

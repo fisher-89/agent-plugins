@@ -102,27 +102,11 @@ function useTopReachObserver(
 }
 
 /** 触顶状态行：还有更早 → 装载提示；已装满且超过一页 → 全量终态；短对话不呈现 */
-function HistoryLoadStatus({
-  remaining,
-  loadedCount,
-}: {
-  remaining: number;
-  loadedCount: number;
-}): React.JSX.Element | null {
+function HistoryLoadStatus({ remaining }: { remaining: number }): React.JSX.Element | null {
   if (remaining > 0) {
     return (
       <div className="self-center text-xs text-muted-foreground" data-testid="history-load-hint">
-        滚动到顶部加载更早消息（还有 {remaining} 条）
-      </div>
-    );
-  }
-  if (loadedCount > MESSAGE_PAGE_SIZE) {
-    return (
-      <div
-        className="self-center text-xs text-muted-foreground"
-        data-testid="history-load-complete"
-      >
-        已加载全部 {loadedCount} 条消息
+        加载中…
       </div>
     );
   }
@@ -151,8 +135,9 @@ function MessageContainer({
               尚无对话。在下方输入以开始探索。
             </div>
           )}
-          <HistoryLoadStatus remaining={remaining} loadedCount={messages.length} />
-          <div ref={topSentinelRef} className="h-2 w-full" />
+          <div ref={topSentinelRef} className="h-2 w-full">
+            <HistoryLoadStatus remaining={remaining} />
+          </div>
           {messages.map((message) => (
             <MessageScrollerItem
               key={message.id}

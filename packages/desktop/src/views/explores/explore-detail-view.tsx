@@ -43,7 +43,7 @@ export function ExploreDetailView({ root, record }: ExploreDetailViewProps): Rea
   }
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col" data-testid="explore-detail">
+    <div className="h-full flex flex-col" data-testid="explore-detail">
       <ResizablePanelGroup className="min-h-0 flex-1" orientation="horizontal">
         <ResizablePanel defaultSize="55" minSize="25">
           <div className="flex h-full min-h-0 flex-col gap-3 pr-1.5">
