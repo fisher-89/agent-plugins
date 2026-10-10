@@ -30,6 +30,7 @@ version = "0.1.0"
 dependencies = [
  "agent",
  "config",
+ "exec",
  "foundation",
  "futures",
  "glob",
@@ -1165,6 +1166,7 @@ version = "0.1.0"
 dependencies = [
  "checks",
  "config",
+ "exec",
  "foundation",
  "glob",
  "orchestration",
@@ -2913,6 +2915,14 @@ checksum = "8be9f3dfaaffdae2972880079a491a1a8bb7cbed0b8dd7a347f668b4150a3b93"
 dependencies = [
  "event-listener",
  "pin-project-lite",
+]
+
+[[package]]
+name = "exec"
+version = "0.1.0"
+dependencies = [
+ "tempfile",
+ "tokio",
 ]
 
 [[package]]
@@ -10259,6 +10269,7 @@ checksum = "accd4ea62f7bb7a82fe23066fb0957d48ef677f6eeb8215f372f52e48bb32426"
 name = "vcs-runtime"
 version = "0.1.0"
 dependencies = [
+ "exec",
  "foundation",
  "orchestration",
  "tempfile",

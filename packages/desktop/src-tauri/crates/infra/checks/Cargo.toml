@@ -6,6 +6,7 @@ edition = "2021"
 [dependencies]
 checks = { workspace = true }
 config = { workspace = true }
+exec = { workspace = true }
 foundation = { workspace = true }
 glob = { workspace = true }
 orchestration = { workspace = true }

@@ -166,14 +166,15 @@ fn spawn_turn(
     Ok(TurnProcess {
         stdout,
         exit: exit_rx,
-        kill: Box::new(move || kill_process_tree(pid)),
+        kill: Box::new(move || exec::kill_tree(pid)),
         handle: handle.clone(),
     })
 }
 
 /// 组装 spawn 命令：Windows `.cmd` / `.bat` shim 不可直接 spawn，经
 /// `cmd /C` 包装（args 逐参传递）；cwd 经 `current_dir` 传递（非 flag）；
-/// stdout 按管道打开，stderr 按管道打开供排水，stdin 关闭（无头无输入）。
+/// stdout 按管道打开，stderr 按管道打开供排水，stdin 关闭（无头无输入）；
+/// Windows 无窗抑制由 exec 统一施加。
 fn build_command(program: &Path, args: &[String], cwd: &PathBuf) -> Command {
     let needs_shim = cfg!(windows)
         && matches!(
@@ -181,42 +182,20 @@ fn build_command(program: &Path, args: &[String], cwd: &PathBuf) -> Command {
             Some("cmd") | Some("bat")
         );
     let mut command = if needs_shim {
-        let mut command = Command::new("cmd");
-        command.arg("/C").arg(program);
-        command
+        exec::SystemCommand::bare("cmd")
+            .arg("/C")
+            .arg(program)
+            .args(args)
+            .into_tokio()
     } else {
-        Command::new(program)
+        exec::SystemCommand::bare(program).args(args).into_tokio()
     };
     command
-        .args(args)
         .current_dir(cwd)
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped());
     command
-}
-
-/// 进程树击杀（尽力语义，静默不重试不阻塞收敛）
-fn kill_process_tree(pid: Option<u32>) {
-    let Some(pid) = pid else {
-        return;
-    };
-    #[cfg(windows)]
-    {
-        // GUI 进程 spawn 控制台命令须抑制窗口闪烁（CREATE_NO_WINDOW = 0x08000000）
-        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-        use std::os::windows::process::CommandExt;
-        let _ = std::process::Command::new("taskkill")
-            .args(["/PID", &pid.to_string(), "/T", "/F"])
-            .creation_flags(CREATE_NO_WINDOW)
-            .output();
-    }
-    #[cfg(not(windows))]
-    {
-        let _ = std::process::Command::new("kill")
-            .args(["-9", &pid.to_string()])
-            .output();
-    }
 }
 
 /// 逐行泵核心

@@ -95,7 +95,7 @@ pub(crate) async fn execute_plan(
 
     // spawn + 超时 + 输出捕获（stdout / stderr 并行读防管道填满互锁；
     // 超时杀子进程收敛 execution_error，不悬挂、不烧反馈边预算）
-    let mut shell = shell_command(&command);
+    let mut shell = exec::SystemCommand::script_raw(&command).into_tokio();
     shell
         .current_dir(&plan.cwd)
         .stdin(Stdio::null())
@@ -342,29 +342,6 @@ fn ensure_program_resolvable(cwd: &Path, command: &str) -> Result<(), String> {
     Err(format!(
         "测试命令拉起失败: 程序 \"{program}\" 未找到（PATH 上无对应可执行）"
     ))
-}
-
-/// shell 语义包装：Windows 经 cmd /C，其余经 sh -c（static_check spawn 同
-/// 口径）。
-///
-/// Windows 臂以 `raw_arg` 原样入线：命令串是 shell 行而非单 argv，`arg` 的
-/// MSVC 转引会把模板内引号写成 `\"`，cmd 将其解析为反斜杠附着路径——注册表
-/// 模板的引号形态（rust 档 `> "{results_file}"` 重定向、jest/vitest 档
-/// `--outputFile="{results_file}"` 参数）即被破坏，重定向目标不可达、报告目录
-/// 零工件（CLI `execSync(cmd, { shell })` 直传同语义）。
-fn shell_command(command: &str) -> tokio::process::Command {
-    #[cfg(target_os = "windows")]
-    {
-        let mut shell = tokio::process::Command::new("cmd");
-        shell.arg("/C").raw_arg(command);
-        shell
-    }
-    #[cfg(not(target_os = "windows"))]
-    {
-        let mut shell = tokio::process::Command::new("sh");
-        shell.arg("-c").arg(command);
-        shell
-    }
 }
 
 #[cfg(test)]

@@ -46,7 +46,7 @@ async fn execute(root: &str) -> Result<ToolStepOutput, String> {
     // 缺失吞成非零退出码——passed=false 反馈边空转烧预算，spawn 前先解析）
     ensure_program_resolvable(root, &command)?;
 
-    let mut command = shell_command(&command);
+    let mut command = exec::SystemCommand::script(&command).into_tokio();
     command
         .current_dir(root)
         .stdin(Stdio::null())
@@ -119,22 +119,4 @@ fn ensure_program_resolvable(root: &str, command: &str) -> Result<(), String> {
     Err(format!(
         "static-check 命令拉起失败: 程序 \"{program}\" 未找到（PATH 上无对应可执行）"
     ))
-}
-
-/// shell 语义包装（与插件 `execCommand` `shell: true` 同口径）：`static_analysis`
-/// 命令串保留原样执行（参数 / 管道 / 重定向均可用）；Windows 经 cmd /C，其余
-/// 经 sh -c。
-fn shell_command(command: &str) -> tokio::process::Command {
-    #[cfg(target_os = "windows")]
-    {
-        let mut shell = tokio::process::Command::new("cmd");
-        shell.arg("/C").arg(command);
-        shell
-    }
-    #[cfg(not(target_os = "windows"))]
-    {
-        let mut shell = tokio::process::Command::new("sh");
-        shell.arg("-c").arg(command);
-        shell
-    }
 }

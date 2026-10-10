@@ -1,12 +1,13 @@
 use std::path::Path;
-use std::process::{Command, Stdio};
+use std::process::Stdio;
 
 use orchestration::port::{IndexEntry, RebaseOutcome, StatusEntry, WorktreeSnapshot};
 use workflow::write::RepoProbe;
 
 /// 一次 git 子命令执行（stdout 捕获；stdin 关闭）
 pub(crate) fn git(main_root: &Path, args: &[&str]) -> Result<String, String> {
-    let output = Command::new("git")
+    let output = exec::SystemCommand::bare("git")
+        .into_std()
         .arg("-C")
         .arg(main_root)
         .args(args)
@@ -79,7 +80,8 @@ pub(crate) fn probe(main_root: &Path) -> Result<RepoProbe, String> {
 /// 在案 true；退出 1 = miss false；其余 Err）。
 pub(crate) fn branch_exists(main_root: &Path, branch: &str) -> Result<bool, String> {
     let reference = format!("refs/heads/{branch}");
-    let output = Command::new("git")
+    let output = exec::SystemCommand::bare("git")
+        .into_std()
         .arg("-C")
         .arg(main_root)
         .args(["show-ref", "--verify", "--quiet"])
@@ -159,7 +161,8 @@ pub(crate) fn commit_all(worktree: &Path, message: &str) -> Result<(), String> {
 /// 祖先判定：`merge-base --is-ancestor <branch> HEAD`——退出 0 = 分支已合入
 /// true、1 = 未合入 false、其余（分支缺失等）Err（与 miss 可辨）。
 pub(crate) fn branch_merged(main_root: &Path, branch: &str) -> Result<bool, String> {
-    let output = Command::new("git")
+    let output = exec::SystemCommand::bare("git")
+        .into_std()
         .arg("-C")
         .arg(main_root)
         .args(["merge-base", "--is-ancestor"])
@@ -241,7 +244,8 @@ fn rebase_head_sha(root: &Path) -> Result<Option<String>, String> {
     if !Path::new(state_dir.trim()).exists() {
         return Ok(None);
     }
-    let output = Command::new("git")
+    let output = exec::SystemCommand::bare("git")
+        .into_std()
         .arg("-C")
         .arg(root)
         .args(["rev-parse", "-q", "--verify", "REBASE_HEAD"])

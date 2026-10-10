@@ -5,7 +5,7 @@
 
 use std::io::Read;
 use std::path::Path;
-use std::process::{Command, Stdio};
+use std::process::Stdio;
 use std::time::{Duration, Instant};
 
 use workflow::write::InstallRun;
@@ -25,7 +25,8 @@ const POLL_INTERVAL_MS: u64 = 200;
 /// （防子进程输出撑满管道缓冲阻塞，try_wait 永不返回的假超时）。环境全
 /// 继承零注入（默认继承，显式零改动）。
 pub(crate) fn run_install(worktree: &Path, command: &str) -> Result<InstallRun, String> {
-    let mut child = shell_command(command)
+    let mut child = exec::SystemCommand::script(command)
+        .into_std()
         .current_dir(worktree)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
@@ -61,24 +62,6 @@ pub(crate) fn run_install(worktree: &Path, command: &str) -> Result<InstallRun, 
         success: status.success(),
         summary: tail_chars(&output, INSTALL_SUMMARY_MAX_CHARS),
     })
-}
-
-/// shell 语义包装（与插件 `execCommand` `shell: true` / static_check 同口径）：
-/// 命令串保留原样执行（参数 / 管道 / 重定向均可用）；Windows 经 `cmd /C`，
-/// 其余经 `sh -c`。
-fn shell_command(command: &str) -> Command {
-    #[cfg(target_os = "windows")]
-    {
-        let mut shell = Command::new("cmd");
-        shell.arg("/C").arg(command);
-        shell
-    }
-    #[cfg(not(target_os = "windows"))]
-    {
-        let mut shell = Command::new("sh");
-        shell.arg("-c").arg(command);
-        shell
-    }
 }
 
 /// 管道读段线程柄：join 收敛全部字节（UTF-8 有损转换——摘要面不因非法字节

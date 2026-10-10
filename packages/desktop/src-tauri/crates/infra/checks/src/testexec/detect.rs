@@ -365,7 +365,7 @@ fn to_forward_slash(path: &str) -> String {
 /// `major.minor.patch`；命令失败 / 无 semver / 超时 → 空串（「特性不支持」
 /// 走基础模板，不失败不报错）。
 fn detect_framework_version(cwd: &Path, version_command: &str) -> String {
-    let mut command = shell_command_std(version_command);
+    let mut command = exec::SystemCommand::script(version_command).into_std();
     command
         .current_dir(cwd)
         .stdin(Stdio::null())
@@ -412,22 +412,6 @@ fn detect_framework_version(cwd: &Path, version_command: &str) -> String {
         })
         .unwrap_or_default();
     extract_semver(&format!("{stdout}\n{stderr}")).unwrap_or_default()
-}
-
-/// shell 语义包装（同步探测面）：Windows 经 cmd /C，其余经 sh -c。
-fn shell_command_std(command: &str) -> std::process::Command {
-    #[cfg(target_os = "windows")]
-    {
-        let mut shell = std::process::Command::new("cmd");
-        shell.arg("/C").arg(command);
-        shell
-    }
-    #[cfg(not(target_os = "windows"))]
-    {
-        let mut shell = std::process::Command::new("sh");
-        shell.arg("-c").arg(command);
-        shell
-    }
 }
 
 /// 提取文本中首个 `major.minor.patch`（CLI `extractSemver` 同语义）。

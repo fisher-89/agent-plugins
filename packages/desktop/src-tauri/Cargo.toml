@@ -55,6 +55,7 @@ members = [
     "crates/core/workflow",
     "crates/infra/agent",
     "crates/infra/checks",
+    "crates/infra/exec",
     "crates/infra/store",
     "crates/infra/vcs",
     "crates/infra/watch",
@@ -68,6 +69,7 @@ agent-runtime = { path = "crates/infra/agent" }
 checks = { path = "crates/core/checks" }
 checks-runtime = { path = "crates/infra/checks" }
 config = { path = "crates/core/config" }
+exec = { path = "crates/infra/exec" }
 dunce = "1"
 foundation = { path = "crates/core/foundation" }
 glob = "0.3"

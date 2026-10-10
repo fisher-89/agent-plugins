@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+exec = { workspace = true }
 foundation = { workspace = true }
 orchestration = { workspace = true }
 workflow = { workspace = true }

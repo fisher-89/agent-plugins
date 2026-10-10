@@ -7,6 +7,7 @@ edition = "2021"
 agent = { workspace = true }
 orchestration = { workspace = true }
 config = { workspace = true }
+exec = { workspace = true }
 foundation = { workspace = true }
 store = { workspace = true }
 serde = { workspace = true }
