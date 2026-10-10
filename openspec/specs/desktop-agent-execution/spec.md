@@ -521,7 +521,7 @@ agent 会话持久化 SHALL 以 **workspace 维度**落盘于所属 workspace �
 前端 SHALL 提供 Agent 调试页（`AgentDebugView`），经侧栏「系统工具」组进入；视图切换 SHALL 沿用本地 state，MUST NOT 引入路由。页面 SHALL 包含：
 
 - **参数面（最小集）**：prompt（必填）、permission-mode 三档下拉（默认 bypassPermissions）、agent 选择器（管理页 agent 实例清单，默认选中默认 agent——与组合根缺省解析一致；**仅调试页暴露**，正式场景无 agent 选择入口）；cwd 不设参数（隐含当前 workspace root）、model 不设参数、env 不设参数
-- **事件时间线**：SHALL 经共享组件族 `AgentTimeline`（desktop-agent-chat-infra）以保真透镜呈现——**运行中 token 级流式**（delta → provisional 消息连续增长，思考/回复可辨，密封到达以密封为准替换，无碎行）、seq 序、tool_use / tool_result 成对、子代理归因、result 汇总卡（统计字段可复制、缺席如实缺省）；两引擎共用同一时间线组件
+- **事件时间线**：SHALL 经共享组件族 `AgentMessages`（desktop-agent-chat-infra）以对话透镜呈现——**运行中 token 级流式**（delta → provisional 消息连续增长，思考/回复可辨，密封到达以密封为准替换，无碎行）、气泡序（seq 序）、tool_use / tool_result 成对卡；run-started / result / record 等辅助载体不进对话呈现（保真原文经下方「原始转录切换」与部件元数据可考）；两引擎共用同一对话视图组件
 - **运行中停止**：运行中 SHALL 呈现停止入口，触发终止命令（见「agent_stop 终止与提前 resolve」）
 - **原始转录切换**：落库密封转录（含 Raw）原文可见（与 store 一致）；delta 仅实时流可见，不进入原始转录视图
 - **历史会话**：会话列表 → 点开自会话转录重放（invoke 查询）
@@ -536,17 +536,17 @@ agent 会话持久化 SHALL 以 **workspace 维度**落盘于所属 workspace �
 #### Scenario: agent 切换
 
 - **WHEN** agent 选择器选 sdk agent 发起一次含工具调用的运行
-- **THEN** 运行走 SDK 引擎（连接配置来自所选 agent 的引用 provider），时间线 / 落库 / 重放组件零改动复用
+- **THEN** 运行走 SDK 引擎（连接配置来自所选 agent 的引用 provider），对话视图 / 落库 / 重放组件零改动复用
 
 #### Scenario: 流式连续呈现
 
 - **WHEN** 一次含长文本回复与思考的 SDK 运行进行中
-- **THEN** 时间线呈单条连续增长的 provisional 消息（token 级、思考/回复可辨），轮末密封到达后以密封内容替换，不出现逐 delta 碎行
+- **THEN** 对话视图呈单条连续增长的 provisional 消息（token 级、思考/回复可辨），轮末密封到达后以密封内容替换，不出现逐 delta 碎行
 
 #### Scenario: loop 可见性
 
 - **WHEN** 一次含工具调用的运行完成
-- **THEN** 时间线可按序看到 assistant(tool_use) → tool_result → … → result 汇总卡，统计字段可读可复制（SDK 的 cost 如实缺省），子代理消息归因到父工具调用
+- **THEN** 对话视图可按序看到 assistant 思考/回复气泡与 tool_use → tool_result 成对卡；result / raw 原文经「原始 JSONL」切换可读（统计字段如实呈现，SDK 的 cost 如实缺省），子代理归因字段可考于部件元数据
 
 #### Scenario: 运行中停止
 
@@ -561,7 +561,7 @@ agent 会话持久化 SHALL 以 **workspace 维度**落盘于所属 workspace �
 #### Scenario: 历史重放
 
 - **WHEN** 从历史会话列表点开一条已完成会话
-- **THEN** 经 invoke 查询以会话全史转录渲染完整时间线，不要求原运行进程存活
+- **THEN** 经 invoke 查询以会话全史转录渲染完整对话视图，不要求原运行进程存活
 
 ### Requirement: 调试页历史来源筛选
 
@@ -682,7 +682,7 @@ headless 禁 ask：CLI 引擎命令行组装 SHALL 追加 `--disallowedTools Ask
 | 引擎门面 + 内核组合根 | 解析单点（自命令层下沉） | `runner_for` / `EngineConfig` 零 diff；默认 agent 解析语义不变（desktop-agent-management） |
 | `packages/desktop/src/lib/agent-adapter.ts` | 事件适配双层 | delta → provisional（correlator）、密封替换；`eventsToUIMessages` 仅消费密封转录；详见 desktop-agent-chat-infra |
 | `packages/desktop/src/lib/agent-transport.ts` + `src/hooks/use-agent-chat.ts` | 会话域传输与状态基建 | 会话域 invoke/流参数；重放装载走会话转录；详见 desktop-agent-chat-infra |
-| `packages/desktop/src/views/agent/agent-debug-view.tsx` | 调试页参数面 | agent 选择器（默认选中默认 agent，仅调试页暴露）；时间线 / 落库 / 重放组件零改动复用 |
+| `packages/desktop/src/views/agent/agent-debug-view.tsx` | 调试页参数面 | agent 选择器（默认选中默认 agent，仅调试页暴露）；对话视图 / 落库 / 重放组件零改动复用 |
 | `packages/desktop/src/views/agent/components/agent-run-form.tsx` | run 表单 | agent 选择 state（选中 id 随会话发起 invoke 传参；`engine` state 与下拉退役） |
 | `packages/desktop/src/components/app-sidebar.tsx` | 页面导航组 | [变更] [Agent 调试]；本地 state 切视图，无路由 |
 | agent 会话域前端 hooks | 流订阅 + 查询 | Tauri Channel 实时订阅（执行流通道例外）+ invoke 会话查询重放；查询仍显式触发 |

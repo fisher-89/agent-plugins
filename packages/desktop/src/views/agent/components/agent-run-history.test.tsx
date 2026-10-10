@@ -56,6 +56,18 @@ function event(seq: number): AgentEvent {
   };
 }
 
+/** 密封文本消息事件（对话透镜可见体；runStarted 为辅助载体不进对话呈现）。 */
+function chatEvent(seq: number, text: string): AgentEvent {
+  return {
+    seq,
+    timestampMs: TS,
+    kind: 'message',
+    role: 'assistant',
+    blocks: [{ kind: 'text', text }],
+    parentToolUseId: null,
+  };
+}
+
 function historyState(overrides: Partial<AgentRunHistoryState> = {}): AgentRunHistoryState {
   return {
     sessions: [],
@@ -70,7 +82,7 @@ function historyState(overrides: Partial<AgentRunHistoryState> = {}): AgentRunHi
 }
 
 function mount(state: AgentRunHistoryState) {
-  render(<AgentRunHistory state={state} source="debug" onSourceChange={() => {}} />);
+  return render(<AgentRunHistory state={state} source="debug" onSourceChange={() => {}} />);
 }
 
 describe('AgentRunHistory：会话列表与触发（AC-5 / D13）', () => {
@@ -179,42 +191,22 @@ describe('AgentRunHistory：会话列表与触发（AC-5 / D13）', () => {
     expect(refresh).toHaveBeenCalledTimes(1);
   });
 
-  it('selectedSessionId 匹配时呈现重放区并还原全史时间线（与实时流同组件）', () => {
+  it('selectedSessionId 匹配时呈现重放区并还原全史对话（与实时流同组件）', () => {
     const sessionId = 'ses-7-1727000000000';
     mount(
       historyState({
         sessions: [session(sessionId, 'completed', TS + 7)],
-        events: [event(0)],
+        events: [event(0), chatEvent(1, '重放转录正文')],
         selectedSessionId: sessionId,
       }),
     );
 
     const replay = screen.getByTestId('replay-area');
-    expect(replay.getAttribute('data-selected-run-id')).toBe(sessionId);
-    expect(within(replay).getByTestId('agent-timeline') !== null).toBe(true);
-    expect(within(replay).getByTestId('event-run-started') !== null).toBe(true);
-    // 密封重放无流式尾态：running 恒 false（无 timeline-running 标记）
-    expect(within(replay).queryByTestId('timeline-running')).toBeNull();
-  });
-
-  it('重放区限高滚动：max-h-96 overflow-y-auto 容器，内嵌 AgentTimeline 无 props 分叉', () => {
-    const sessionId = 'ses-7-1727000000000';
-    mount(
-      historyState({
-        sessions: [session(sessionId, 'completed', TS + 7)],
-        events: [event(0), event(1)],
-        selectedSessionId: sessionId,
-      }),
-    );
-
-    // 重放区不再撑高页面：限高容器自身滚动
-    const replay = screen.getByTestId('replay-area');
-    expect(replay.className).toContain('max-h-96');
-    expect(replay.className).toContain('overflow-y-auto');
-    // 内嵌 AgentTimeline 与流式形态同组件同结构（普通块容器内自然高、无 props 分叉）
-    const timeline = within(replay).getByTestId('agent-timeline');
-    expect(timeline.className).toContain('flex-1');
-    expect(within(timeline).getAllByTestId('event-run-started')).toHaveLength(2);
+    expect(within(replay).getByTestId('agent-messages') !== null).toBe(true);
+    // 密封转录经同一对话透镜还原（runStarted 等辅助载体不进对话呈现）
+    expect(within(replay).getByTestId('block-text').textContent).toContain('重放转录正文');
+    // 密封重放无流式尾态：running 恒 false（无 agent-messages-running 标记）
+    expect(within(replay).queryByTestId('agent-messages-running')).toBeNull();
   });
 });
 

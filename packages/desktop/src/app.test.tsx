@@ -857,7 +857,7 @@ describe('App：壳层布局与折叠形态（AC-1/AC-2/AC-7）', () => {
     vi.unstubAllEnvs();
   });
 
-  it('壳态渲染 SidebarProvider / AppSidebar / SidebarInset 的 DOM 标记，宽度撑满inset容器', async () => {
+  it('壳态渲染 SidebarProvider / AppSidebar / 主内容区 main 的 DOM 标记，宽度撑满主内容容器', async () => {
     await restored();
 
     expect(document.querySelector('[data-slot="sidebar-wrapper"]') !== null).toBe(true);
@@ -865,16 +865,16 @@ describe('App：壳层布局与折叠形态（AC-1/AC-2/AC-7）', () => {
     expect(sidebar?.getAttribute('data-side')).toBe('left');
     expect(sidebar?.getAttribute('data-state')).toBe('expanded');
     expect(document.querySelector('[data-sidebar="sidebar"]') !== null).toBe(true);
-    const inset = document.querySelector('main[data-slot="sidebar-inset"]');
-    expect(inset !== null).toBe(true);
+    // 主内容区为裸 main（ScrollArea 迁移后不再经 SidebarInset 包装）
+    const main = document.querySelector('[data-slot="sidebar-wrapper"] > main');
+    expect(main !== null).toBe(true);
 
-    // 宽度撑满inset容器
-    const container = Array.from(inset?.children ?? []).find((el) =>
-      el.className.includes('w-full'),
-    );
-    expect(container?.tagName).toBe('DIV');
+    // 宽度撑满主内容容器（路由内容包裹层为 ScrollArea 根）
+    const container = main?.querySelector('[data-slot="scroll-area"]') ?? null;
+    expect(container !== null).toBe(true);
+    expect(container?.className).toContain('w-full');
     expect(container?.contains(screen.getByText('add-feature'))).toBe(true);
-    expect(inset?.querySelectorAll('main')).toHaveLength(0);
+    expect(main?.querySelectorAll('main')).toHaveLength(0);
   });
 
   it('页面无 combobox：queryByRole("combobox") 为 null（AC-1 硬断言；取代原「下拉保持可操作」废弃用例）', async () => {
@@ -1180,11 +1180,10 @@ describe('App：壳层滚动框架', () => {
     vi.unstubAllEnvs();
   });
 
-  /** 壳态路由内容包裹层（SidebarInset 下的 w-full 容器）。 */
+  /** 壳态路由内容包裹层（主内容区 main 下的 ScrollArea 根容器）。 */
   function shellContentWrapper(): Element {
-    const inset = document.querySelector('main[data-slot="sidebar-inset"]');
-    const wrapper = Array.from(inset?.children ?? []).find(
-      (el) => el.tagName === 'DIV' && el.className.includes('w-full'),
+    const wrapper = document.querySelector(
+      '[data-slot="sidebar-wrapper"] > main > [data-slot="scroll-area"]',
     );
     if (!wrapper) throw new Error('壳态路由内容包裹层不存在');
     return wrapper;
@@ -1206,7 +1205,7 @@ describe('App：壳层滚动框架', () => {
     ]) {
       expect(wrapper.className).toContain(className);
     }
-    // 高度链起点在壳层语义内：包裹层即路由页 flex 容器（AppRoutes 直接子级）
+    // 高度链起点在壳层语义内：包裹层即 ScrollArea 根（路由内容在其视口内滚动）
     expect(wrapper.contains(screen.getByText('add-feature'))).toBe(true);
   });
 

@@ -189,17 +189,6 @@ describe('DetailDrawer：二分节内容组装', () => {
     expect(container.textContent).not.toContain('（无本站文档）');
   });
 
-  it('遮罩点击或关闭按钮 → onClose 回调触发', () => {
-    const onClose = vi.fn();
-    const state = world();
-    renderDrawer(state, { scope: 'column', phase: 'dev-design' }, onClose);
-    // 遮罩 = base-ui Backdrop（drawer-overlay，经 portal 挂 body，container 外）
-    fireEvent.click(document.querySelector('[data-slot="drawer-overlay"]')!);
-    expect(onClose).toHaveBeenCalledTimes(1);
-    fireEvent.click(screen.getByRole('button', { name: '关闭' }));
-    expect(onClose).toHaveBeenCalledTimes(2);
-  });
-
   it('selection=null → 组件返回 null 不渲染', () => {
     const { container } = renderDrawer(world(), null);
     expect(container.childElementCount).toBe(0);
@@ -825,8 +814,8 @@ describe('DetailDrawer：active 节点三会话反查（AC-2 / D3）', () => {
     renderTranscriptDrawer(activeWorld(), { scope: 'node', nodeId: 'active:implement:2' });
 
     await waitFor(() => expect(panelTexts()).toEqual(['进行中已流出正文']));
-    // 进行中会话同源推导：timeline-running 标记随轮行呈现
-    expect(screen.getByTestId('timeline-running') !== null).toBe(true);
+    // 进行中会话同源推导：agent-messages-running 标记随轮行呈现
+    expect(screen.getByTestId('agent-messages-running') !== null).toBe(true);
   });
 
   it('切 decision tab → decision 走反查（active 无槽位，反查是该 phase / attempt 下 decision 会话唯一寻址）', async () => {

@@ -1,8 +1,11 @@
-// @vitest-environment jsdom
-import { render, screen, within } from '@testing-library/react';
-import { describe, expect, it } from 'vite-plus/test';
+import { act, render, screen, within } from '@testing-library/react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 
-import { eventsToUIMessages, runRecordToUIMessage } from '../../lib/agent-adapter';
+import {
+  eventsToUIMessages,
+  runRecordToUIMessage,
+  type AgentUIMessage,
+} from '../../lib/agent-adapter';
 import type { AgentBlock, AgentEvent, TurnSummary } from '../../types/dto';
 import { AgentMessages } from './agent-messages';
 
@@ -248,7 +251,7 @@ describe('AgentMessages：空态与运行中态', () => {
   it('loading 且可见列表为空 → 会话还原中态', () => {
     render(<AgentMessages messages={[]} loading={true} running={false} />);
 
-    expect(screen.getByTestId('conversation-loading') !== null).toBe(true);
+    expect(screen.getByTestId('agent-messages-loading') !== null).toBe(true);
   });
 
   it('loading 但已有可见气泡 → 不呈现还原中态，气泡照常呈现', () => {
@@ -260,7 +263,7 @@ describe('AgentMessages：空态与运行中态', () => {
       />,
     );
 
-    expect(screen.queryByTestId('conversation-loading')).toBeNull();
+    expect(screen.queryByTestId('agent-messages-loading')).toBeNull();
     expect(screen.getAllByTestId('chat-bubble')).toHaveLength(3);
   });
 
@@ -273,7 +276,7 @@ describe('AgentMessages：空态与运行中态', () => {
       />,
     );
 
-    expect(screen.getByTestId('conversation-running') !== null).toBe(true);
+    expect(screen.getByTestId('agent-messages-running') !== null).toBe(true);
     expect(within(screen.getByTestId('agent-messages')).getByText('运行中…') !== null).toBe(true);
   });
 
@@ -286,6 +289,140 @@ describe('AgentMessages：空态与运行中态', () => {
       />,
     );
 
-    expect(screen.queryByTestId('conversation-running')).toBeNull();
+    expect(screen.queryByTestId('agent-messages-running')).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 历史分页：默认最新一页，触顶装载更早（prepend 后的滚动锚定由
+// message-scroller 原语的 preserveScrollOnPrepend 承担，此处只测自研分页层）
+// ---------------------------------------------------------------------------
+
+/** 交替 user/assistant 的 N 条对话；seqOffset 区分会话（id = evt-<seq>） */
+function pagedConversation(count: number, seqOffset = 0): AgentUIMessage[] {
+  const events: AgentEvent[] = [];
+  for (let i = 0; i < count; i++) {
+    const seq = seqOffset + i;
+    if (i % 2 === 0) {
+      events.push(userMessage(seq, `user-msg-${i}`));
+    } else {
+      events.push(message(seq, [{ kind: 'text', text: `assistant-msg-${i}` }]));
+    }
+  }
+  return eventsToUIMessages(events);
+}
+
+/** jsdom 无 IntersectionObserver：仅记录装配参数，触顶由 trigger 显式驱动 */
+class FakeIntersectionObserver {
+  static instances: FakeIntersectionObserver[] = [];
+
+  constructor(
+    private readonly callback: (entries: { isIntersecting: boolean }[]) => void,
+    public readonly init?: { root?: Element | null; rootMargin?: string },
+  ) {
+    FakeIntersectionObserver.instances.push(this);
+  }
+
+  observe(): void {}
+
+  unobserve(): void {}
+
+  takeRecords(): never[] {
+    return [];
+  }
+
+  disconnect(): void {
+    FakeIntersectionObserver.instances = FakeIntersectionObserver.instances.filter(
+      (io) => io !== this,
+    );
+  }
+
+  trigger(isIntersecting: boolean): void {
+    this.callback([{ isIntersecting }]);
+  }
+}
+
+function triggerReachTop(): void {
+  const active = FakeIntersectionObserver.instances.at(-1);
+  if (active === undefined) {
+    throw new Error('触顶触发时无活跃观察器');
+  }
+  act(() => {
+    active.trigger(true);
+  });
+}
+
+describe('AgentMessages：历史分页', () => {
+  beforeEach(() => {
+    FakeIntersectionObserver.instances = [];
+    vi.stubGlobal('IntersectionObserver', FakeIntersectionObserver);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('默认仅渲染最新一页（10 条），更早消息不进 DOM，顶部提示剩余条数', () => {
+    render(<AgentMessages messages={pagedConversation(25)} loading={false} running={false} />);
+
+    expect(screen.getAllByTestId('chat-bubble')).toHaveLength(10);
+    const joined = screen
+      .getAllByTestId('block-text')
+      .map((node) => node.textContent)
+      .join('\n');
+    expect(joined).toContain('user-msg-24'); // 最新一条在
+    expect(joined).toContain('assistant-msg-15'); // 当前页最早（i=15）
+    expect(joined).not.toContain('user-msg-14'); // 上一页及更早不渲染
+    expect(screen.getByTestId('history-load-hint').textContent).toContain('15');
+  });
+
+  it('触顶连续装载：每触发一次增一页，装满后转终态并撤销观察器', () => {
+    render(<AgentMessages messages={pagedConversation(25)} loading={false} running={false} />);
+
+    triggerReachTop();
+    expect(screen.getAllByTestId('chat-bubble')).toHaveLength(20);
+    expect(screen.getByTestId('history-load-hint').textContent).toContain('5');
+
+    triggerReachTop();
+    expect(screen.getAllByTestId('chat-bubble')).toHaveLength(25);
+    expect(screen.queryByTestId('history-load-hint')).toBeNull();
+    expect(screen.getByTestId('history-load-complete').textContent).toContain('25');
+    // 已到最早 → 不再保持任何触顶观察器
+    expect(FakeIntersectionObserver.instances).toHaveLength(0);
+  });
+
+  it('观察器 root 绑定消息滚动视口，rootMargin 形成临近顶部预载区', () => {
+    render(<AgentMessages messages={pagedConversation(25)} loading={false} running={false} />);
+
+    const io = FakeIntersectionObserver.instances.at(-1);
+    expect(io?.init?.root).toBe(document.querySelector('[data-slot="message-scroller-viewport"]'));
+    expect(io?.init?.rootMargin).toBe('300px 0px 0px 0px');
+  });
+
+  it('system 载体撑大入参不计入分页：可见消息足一页 → 无提示行、无观察器', () => {
+    const messages = [
+      ...pagedConversation(10),
+      ...eventsToUIMessages([runStarted(90), systemNotice(91), raw(92)]),
+    ];
+    render(<AgentMessages messages={messages} loading={false} running={false} />);
+
+    expect(screen.getAllByTestId('chat-bubble')).toHaveLength(10);
+    expect(screen.queryByTestId('history-load-hint')).toBeNull();
+    expect(screen.queryByTestId('history-load-complete')).toBeNull();
+    expect(FakeIntersectionObserver.instances).toHaveLength(0);
+  });
+
+  it('换会话（头部消息变化）→ 分页窗口复位回默认最新一页', () => {
+    const { rerender } = render(
+      <AgentMessages messages={pagedConversation(25)} loading={false} running={false} />,
+    );
+    triggerReachTop();
+    expect(screen.getAllByTestId('chat-bubble')).toHaveLength(20);
+
+    rerender(
+      <AgentMessages messages={pagedConversation(25, 100)} loading={false} running={false} />,
+    );
+    expect(screen.getAllByTestId('chat-bubble')).toHaveLength(10);
+    expect(screen.getByTestId('history-load-hint').textContent).toContain('15');
   });
 });

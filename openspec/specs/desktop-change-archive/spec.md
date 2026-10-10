@@ -180,5 +180,5 @@ delta specs 在场且用户未选择跳过时，归档链 SHALL 在主仓合入�
 | `crates/infra/agent/src/worker.rs`（复用） | WorkerAgentPort 实现 | compose_turn 新会话 + StopRegistry 终止 + 密封转录；provenance `source="change"` + 归档语义 source_ref（定式 design 定稿） |
 | `crates/core/workflow/src/write/archive.rs`（复用零改动） | 双写单点收口 | 改名 + 翻转 + 续半边恢复既有语义；归档链末段唯一收口触点 |
 | `src/commands/archive_flow/` | 薄命令包装 | 发起 / 状态 / 停止面；三件事纪律 `Result<T, String>`；互斥校验；冲突摘要呈现载体由 design 定稿；bindings 再生 |
-| `packages/desktop/src/views/changes/`（详情页） | 归档入口与链面呈现 | 归档按钮两态可见性；确认对话（警告清单 + worktree 合入告知）；阶段状态（新序 + 冲突子阶段与 lean 咨询面）与结果摘要；agent 会话转录入口（复用 AgentTimeline 基建）；data-testid 挂钩 |
+| `packages/desktop/src/views/changes/`（详情页） | 归档入口与链面呈现 | 归档按钮两态可见性；确认对话（警告清单 + worktree 合入告知）；阶段状态（新序 + 冲突子阶段与 lean 咨询面）与结果摘要；agent 会话转录入口（复用 AgentMessages 基建）；data-testid 挂钩 |
 | `src/types/generated/bindings.ts` | IPC 类型跟随 | 新命令与 DTO 再生；`bindings:check` 守卫拦截过期生成物 |

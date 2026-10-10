@@ -1,11 +1,11 @@
 import { useEffect, useState } from 'react';
 
+import { AgentMessages } from '@/components/agent';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import type { AgentEvent } from '@/types/dto';
+import type { SessionSummary } from '@/types/generated/bindings';
 
-import { AgentTimeline } from '../../../components/agent';
-import type { AgentEvent } from '../../../types/dto';
-import type { SessionSummary } from '../../../types/generated/bindings';
 import { useSessionTranscript } from '../hooks/use-session-transcript';
 import type { FlowRoleLabel, RoleSessionRef } from './types';
 
@@ -141,9 +141,7 @@ function RoleTranscript({
           （暂无该会话转录）
         </div>
       ) : (
-        <div className="min-h-0 flex-1 overflow-y-auto rounded-md border border-border bg-background px-3 py-2">
-          <AgentTimeline messages={messages} running={running} />
-        </div>
+        <AgentMessages messages={messages} running={running} />
       )}
     </div>
   );

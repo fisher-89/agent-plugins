@@ -168,12 +168,12 @@ async function startRun(prompt = '你好') {
 // 页面接线（真实组合）
 // ---------------------------------------------------------------------------
 
-describe('AgentDebugView → AgentTimeline 接线', () => {
-  it('渲染四区块：参数面、事件时间线（保真透镜）、原始 JSONL 切换入口、历史运行区', () => {
+describe('AgentDebugView → AgentMessages 接线', () => {
+  it('渲染四区块：参数面、对话视图（AgentMessages 透镜）、原始 JSONL 切换入口、历史运行区', () => {
     render(<AgentDebugView root={ROOT} />);
 
     expect(screen.getByTestId('agent-run-form') !== null).toBe(true);
-    expect(screen.getByTestId('agent-timeline') !== null).toBe(true);
+    expect(screen.getByTestId('agent-messages') !== null).toBe(true);
     expect(screen.getByTestId('stream-toggle') !== null).toBe(true);
     expect(screen.getByTestId('agent-run-history') !== null).toBe(true);
   });
@@ -186,19 +186,23 @@ describe('AgentDebugView → AgentTimeline 接线', () => {
     expect(screen.queryByTestId('agent-start')).toBeNull();
   });
 
-  it('运行后事件与终态 record 经 AgentTimeline 全量呈现（event-result / event-run-record 可见）', async () => {
+  it('运行后事件与终态 record 经 AgentMessages 呈现：对话气泡可读、running 收口复位（辅助载体不进对话）', async () => {
     render(<AgentDebugView root={ROOT} />);
     await startRun();
 
+    // runStarted 为辅助载体（不进对话呈现），密封消息进对话气泡
     deliverEvent(runStarted(0));
-    deliverEvent(turnDone(1));
-    deliverRecord(run(1, 'completed'));
-    await waitFor(() => expect(screen.getByTestId('event-run-record') !== null).toBe(true));
+    deliverEvent(sealedTextEvent(1, '调试运行正文'));
+    await waitFor(() =>
+      expect(screen.getByTestId('block-text').textContent).toContain('调试运行正文'),
+    );
+    // 运行中：对话区头部运行标记在场
+    expect(screen.getByTestId('agent-messages-running') !== null).toBe(true);
 
-    expect(screen.getByTestId('event-run-started') !== null).toBe(true);
-    expect(screen.getByTestId('event-result') !== null).toBe(true);
-    expect(screen.getByTestId('result-num-turns').textContent).toBe('3');
-    expect(screen.getByTestId('event-run-record').getAttribute('data-status')).toBe('completed');
+    // 终态收口：turnDone / record 均为辅助载体，以 running 复位观测回流
+    deliverEvent(turnDone(2));
+    deliverRecord(run(1, 'completed'));
+    await waitFor(() => expect(screen.queryByTestId('agent-messages-running')).toBeNull());
   });
 
   it('原始 JSONL 切换二选一：AgentRawStream 消费 chat 的 events 镜像逐事件 dump，切回时间线', async () => {
@@ -211,13 +215,13 @@ describe('AgentDebugView → AgentTimeline 接线', () => {
 
     fireEvent.click(screen.getByTestId('toggle-raw'));
     expect(screen.getByTestId('agent-raw-stream') !== null).toBe(true);
-    expect(screen.queryByTestId('agent-timeline')).toBeNull();
+    expect(screen.queryByTestId('agent-messages')).toBeNull();
     // events 镜像逐事件 dump（camelCase 线格式）
     expect(screen.getAllByTestId('raw-line')).toHaveLength(2);
     expect(screen.getAllByTestId('raw-line')[0]?.textContent).toContain('runStarted');
 
     fireEvent.click(screen.getByTestId('toggle-timeline'));
-    expect(screen.getByTestId('agent-timeline') !== null).toBe(true);
+    expect(screen.getByTestId('agent-messages') !== null).toBe(true);
     expect(screen.queryByTestId('agent-raw-stream')).toBeNull();
   });
 });
@@ -250,7 +254,7 @@ describe('AgentDebugView：停止入口与收敛呈现', () => {
     expect(stopCalls[0]).toEqual(['agent_stop', { root: ROOT, sessionId: SESSION_ID }]);
   });
 
-  it('停止后终态 record 回流：event-run-record 呈现、running 复位、表单恢复可用', async () => {
+  it('停止后终态 record 回流：running 复位、表单恢复可用（record 为辅助载体，以运行复位观测回流）', async () => {
     render(<AgentDebugView root={ROOT} />);
     // 提前 resolve running 记录 + 流保持打开：stop 寻址可用、running 态稳定
     await startRun();
@@ -262,7 +266,7 @@ describe('AgentDebugView：停止入口与收敛呈现', () => {
     deliverRecord(run(1, 'stopped'));
 
     await waitFor(() => expect(screen.queryByTestId('run-stop')).toBeNull());
-    expect(screen.getByTestId('event-run-record').getAttribute('data-status')).toBe('stopped');
+    expect(screen.queryByTestId('agent-messages-running')).toBeNull();
     expect(screen.getByTestId('agent-start').hasAttribute('disabled')).toBe(false);
   });
 
@@ -293,7 +297,7 @@ describe('AgentDebugView：区域滚动框架', () => {
       expect(rootDiv?.className).toContain(className);
     }
     // 流视图区（时间线态）flex-1 填充
-    expect(screen.getByTestId('agent-timeline').className).toContain('flex-1');
+    expect(screen.getByTestId('agent-messages').className).toContain('flex-1');
 
     // 原始 JSONL 态同样 flex-1 填充
     fireEvent.click(screen.getByTestId('toggle-raw'));
@@ -392,7 +396,7 @@ describe('AgentDebugView：调试页 agent 选择（缺省 / 显式）', () => {
     expect(startCallAgent()).toBe(3);
   });
 
-  it('sdk 运行的 ToolUse / ToolResult 成对事件经既有时间线组件呈现，终态 record 回流（呈现面零改动复用）', async () => {
+  it('sdk 运行的 ToolUse / ToolResult 成对事件经既有对话组件呈现，终态 record 回流（呈现面零改动复用）', async () => {
     render(<AgentDebugView root={ROOT} />);
     await startRun();
 
@@ -400,12 +404,14 @@ describe('AgentDebugView：调试页 agent 选择（缺省 / 显式）', () => {
     deliverEvent(toolResultEvent(1));
     deliverEvent(turnDone(2));
     deliverRecord(run(1, 'completed'));
-    await waitFor(() => expect(screen.getByTestId('event-run-record') !== null).toBe(true));
+    // 终态 record 回流（辅助载体不进对话）：以 running 复位为回流锚点
+    await waitFor(() =>
+      expect(screen.getByTestId('agent-start').hasAttribute('disabled')).toBe(false),
+    );
 
-    // 成对块经既有时间线保真透镜呈现（block 级 testid 复用）
+    // 成对块经同一对话透镜呈现（block 级 testid 复用；收口归一后 input 与同 id output 合卡）
     expect(screen.getByTestId('block-tool-use').getAttribute('data-tool-id')).toBe('tu_sdk_1');
     expect(screen.getByTestId('block-tool-result').textContent).toContain('文件内容 🎉');
-    expect(screen.getByTestId('event-run-record').getAttribute('data-status')).toBe('completed');
   });
 
   it('SDK 启动失败（ConfigMissing 错误串）→ run-error 横幅呈现错误串（Err 抵达前端）', async () => {
@@ -558,11 +564,12 @@ describe('AgentDebugView：流式呈现（AC-1 UI 半边）', () => {
     render(<AgentDebugView root={ROOT} />);
     await startRun();
 
-    // 两枚文本 delta：provisional 键单通道累积——时间线恰一条消息
+    // 两枚文本 delta：provisional 键单通道累积——对话恰一条气泡
+    //（sendMessage 不注入用户泡，对话列表只有 provisional 助手消息）
     deliverEvent(textDeltaEvent(0, '你好'));
     deliverEvent(textDeltaEvent(1, '工作区'));
     await waitFor(() => {
-      expect(screen.getAllByTestId('event-message')).toHaveLength(1);
+      expect(screen.getAllByTestId('chat-bubble')).toHaveLength(1);
     });
     expect(screen.getByTestId('block-text').textContent).toBe('你好工作区');
 
@@ -571,14 +578,14 @@ describe('AgentDebugView：流式呈现（AC-1 UI 半边）', () => {
     await act(async () => {});
 
     // 终态收尾：流结束触发收口归一（events 镜像密封-only 重建）——
-    // provisional 同键让位不残留：时间线恰两条消息（密封消息 + 轮行 record），
+    // provisional 同键让位不残留：对话仍恰一条气泡（record 载体不进对话），
     // 文本块恰一处且以密封为准（无 provisional 碎行残留）
     deliverRecord(run(1, 'completed'));
     await waitFor(() =>
       expect(screen.getByTestId('agent-start').hasAttribute('disabled')).toBe(false),
     );
     await waitFor(() => {
-      expect(screen.getAllByTestId('event-message')).toHaveLength(2);
+      expect(screen.getAllByTestId('chat-bubble')).toHaveLength(1);
     });
     const texts = screen.getAllByTestId('block-text').map((node) => node.textContent);
     expect(texts).toEqual(['你好工作区']);

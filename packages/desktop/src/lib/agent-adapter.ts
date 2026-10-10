@@ -37,7 +37,7 @@ interface AgentRunResultData {
   sessionId: string | null;
 }
 
-export interface AgentRawData {
+interface AgentRawData {
   seq: number;
   timestampMs: number;
   eventType: string;

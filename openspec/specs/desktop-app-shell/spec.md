@@ -50,7 +50,7 @@ dev-team SHALL 按 queries / exec / db 三轨组织 Tauri command（queries 轨�
 
 ### Requirement: Sidebar 壳层布局
 
-壳态（存在已打开 workspace）SHALL 以 shadcn Sidebar 块承载导航壳：`SidebarProvider` 包裹 `AppSidebar`（workspace 清单侧栏）与 `SidebarInset`（主内容区）；main 区 max-width 1100px 居中布局 SHALL 在 `SidebarInset` 内维持（从全宽 body 移入 inset，形态不变）。
+壳态（存在已打开 workspace）SHALL 以 shadcn Sidebar 块承载导航壳：`SidebarProvider` 包裹 `AppSidebar`（workspace 清单侧栏）与主内容区 `main`（2026-10-10 回溯修订：`SidebarInset` 包装撤编，main 直承 `flex min-h-0 flex-col` 高度链；路由内容包裹层为 shadcn `ScrollArea`——`mx-auto w-full flex-1` 居中撑满、内容在其视口内滚动）；main 区居中布局 SHALL 在主内容区内维持（从全宽 body 移入，形态不变）。
 
 header SHALL 瘦身为终态：折叠钮 + 标题（Desktop Terminal）+ 版本/更新指示（`UpdateIndicator` 含「重试更新」按钮语义不变）；workspace `select`、移除、刷新控件 MUST NOT 留在 header。
 
@@ -63,7 +63,7 @@ header SHALL 瘦身为终态：折叠钮 + 标题（Desktop Terminal）+ 版本/
 #### Scenario: 壳态挂载与 header 终态
 
 - **WHEN** workspace 清单非空、应用处于壳态
-- **THEN** `SidebarProvider` / `AppSidebar` / `SidebarInset` 渲染，main 区 max-width 1100px 居中位于 inset 内
+- **THEN** `SidebarProvider` / `AppSidebar` / 主内容区 `main`（`sidebar-wrapper` 直子级）渲染，路由内容经 `ScrollArea` 根容器（`data-slot="scroll-area"`）居中撑满承载
 - **AND** header 仅含折叠钮、标题、版本/更新指示，无 `combobox`、移除、刷新控件
 
 #### Scenario: 导航组切换
@@ -379,7 +379,7 @@ desktop 前端样式 SHALL 以 Tailwind v4 为唯一样式体系:
 | agent 域前端 hooks（新） | 流订阅 + 查询 | Tauri Channel 实时订阅（执行流通道例外）+ invoke 重放查询；查询仍显式触发 |
 | `packages/desktop/src/hooks/use-workspaces.ts` | 错误双轨收口 | 动作失败 toast（add/remove）；error 态收窄为清单加载失败（查询 inline 持久）；切换为本地 select（清单默认序不重排；root 在清单则保持、被移除顺延第一名）；add 成功直接以返回记录 root 为当前根 |
 | 前端视图 | 列表 / 流水线 / 产物区渲染 + 欢迎屏空态 / sidebar 侧栏 | 消费 DTO 与 ArtifactEnvelope；未注册 kind 由 Fallback 兜底 |
-| `packages/desktop/src/app.tsx` | 壳布局 + 路由表挂载 | `SidebarProvider` + `AppSidebar` + `SidebarInset`；header 终态（折叠钮/标题/版本更新）；Toaster App 根挂载一次；欢迎态不挂壳；路由表 `/changes` / `/changes/:name` / `/agent`（`page` state 移除，契约见 desktop-page-routing） |
+| `packages/desktop/src/app.tsx` | 壳布局 + 路由表挂载 | `SidebarProvider` + `AppSidebar` + 主内容区 `main`（`SidebarInset` 撤编，路由内容经 `ScrollArea` 承载）；header 终态（折叠钮/标题/版本更新）；Toaster App 根挂载一次；欢迎态不挂壳；路由表 `/changes` / `/changes/:name` / `/agent`（`page` state 移除，契约见 desktop-page-routing） |
 | `packages/desktop/src/components/app-sidebar.tsx` | NavLink 页面导航组 + workspace 清单侧栏 | NavLink 导航（active 由 URL 派生，`TopPage` / `onPageChange` 删除，testid `nav-changes` / `nav-agent` 保持）；`SidebarMenuButton` 列表项（点击本地切换 / 副文本 testid 区分同名 / Tooltip 完整 root）；`SidebarGroupAction` 添加流；`ContextMenu` 右键移除 |
 | `packages/desktop/src/views/changes/change-list-view.tsx` | 刷新入口 | 头部刷新按钮 `disabled={loading}`；列表加载失败 error-note inline 保留 |
 | `packages/desktop/src/views/welcome-view.tsx` | 欢迎态 | error-note 仅清单加载失败；「添加新文件夹」入口保留 |
@@ -388,7 +388,7 @@ desktop 前端样式 SHALL 以 Tailwind v4 为唯一样式体系:
 | `run_agent()` 编排函数 | app 层微形态（`*_inner` 先例进化） | 组装 runner → tee 双 sink（Tauri Channel + store）→ 状态收敛；将来抽 crate 时与 inner 函数一并平移复用，不重写 |
 | app crate 翻转信号 | 决策触发器 | 五条信号（phase lifecycle 命令 / exec 首命令 / 跨 store+fs 协调 / CLI 复用 / 行数机械判据）；#2 已触发、裁决「仍不抽」落痕；后续触发按清单重议 |
 | `packages/desktop/src/styles/global.css` | Tailwind 样式入口 | `@import "tailwindcss"`;`@theme` token(hex 直写、shadcn 结构命名);`@layer base` 元素级样式 |
-| `packages/desktop/src/lib/utils.ts` | 类名合并 | `cn()` = clsx + tailwind-merge |
+| `cn`（npm 依赖，shadcn 官方包） | 类名合并 | `cn()` 收口于依赖包（原 `src/lib/utils.ts` 自实现撤编） |
 | `packages/desktop/src/components/ui/**` | shadcn 内部化控件 | Button / Badge / Table / Progress 及 sidebar 系生成件(sidebar / separator / tooltip / context-menu / sonner 按需);过 fmt/lint/knip 全管线无豁免;无 Next 语境残留 |
 | `packages/desktop/components.json` | shadcn 生成配置 | alias `@/*`;内部化纪律适用 |
 | `packages/desktop/src-tauri/tauri.conf.json` | 窗口与打包配置 | 默认窗口 1200×800、最小 900×600（PC-only 兜底：极小分辨率不适配,由窗口最小尺寸约束保证）;窗口固定 dark 主题与 `backgroundColor`（同 `--background`,消启动白闪）;updater endpoint 与 pubkey |
@@ -396,5 +396,5 @@ desktop 前端样式 SHALL 以 Tailwind v4 为唯一样式体系:
 | `src/views/changes/renderers/markdown-doc-renderer.tsx` | markdown 渲染 | `prose` 接管后代样式;无自定义类后代选择器 |
 | `src/views/changes/renderers/tasks-progress-renderer.tsx` | 任务进度渲染 | Progress 组件 value 承载百分比;无内联 `style={{ width }}` |
 | `*.test.tsx` | 测试挂钩 | data-testid;无样式类名查询;与步骤② 同 commit;右键经 `fireEvent.contextMenu`;toast 断言经 sonner 文本;同名场景 testid 承载 |
-| `packages/desktop/package.json` | 依赖 | `@radix-ui/react-separator` / `react-dialog` / `react-tooltip` / `react-context-menu`、`lucide-react`、`sonner` |
+| `packages/desktop/package.json` | 依赖 | `@base-ui/react`（base-nova 控件底座，radix 系已替）、`cn`（类名合并）、`lucide-react`、`sonner` |
 | `stryker.config.json` | mutate 范围守线 | ui/** 处置 design 定夺有据;break 50 守线;StringLiteral 全局排除仅兜底 |

@@ -1,13 +1,5 @@
+import { StandardDrawer } from '@/components/standard/drawer';
 import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
-import {
-  Drawer,
-  DrawerClose,
-  DrawerContent,
-  DrawerFooter,
-  DrawerHeader,
-  DrawerTitle,
-} from '@/components/ui/drawer';
 
 import type { AgentEvent, ArtifactEnvelope, ChecklistItem } from '../../../types/dto';
 import { ArtifactTabs } from '../renderers/artifact-tabs';
@@ -205,28 +197,22 @@ export function DetailDrawer({
       ? []
       : liveEvents.filter((entry) => entry.sessionId === sessionId).map((entry) => entry.event);
   return (
-    <Drawer
+    <StandardDrawer
+      data-testid="detail-drawer"
       open={true}
-      swipeDirection="right"
       onOpenChange={(next) => {
-        // 遮罩点击 / Esc 经 base-ui 关闭意图出线：转交 onClose（父级清 selection 卸载）
         if (!next) onClose();
       }}
-    >
-      <DrawerContent className="w-[960px] max-w-[85vw]" data-testid="detail-drawer">
-        <DrawerHeader>
-          <DrawerTitle>{selectionTitle(selection, node)}</DrawerTitle>
-        </DrawerHeader>
+      title={selectionTitle(selection, node)}
+      containerClassName="w-[960px] max-w-[85vw]"
+      content={
         <div className="flex min-h-0 flex-1">
           <div className="flex w-[60%] min-w-0 flex-col">
             <SessionTranscriptPanel root={root} roleRefs={roleRefs} liveEvents={live} />
           </div>
           <RightSections node={node} materials={materials} columnId={columnId} />
         </div>
-        <DrawerFooter>
-          <DrawerClose render={<Button variant="outline" />}>关闭</DrawerClose>
-        </DrawerFooter>
-      </DrawerContent>
-    </Drawer>
+      }
+    />
   );
 }

@@ -221,13 +221,13 @@ describe('SessionTranscriptPanel：role 分页与反查联动（AC-5 联动半�
   });
 });
 
-describe('SessionTranscriptPanel：AgentTimeline 渲染与 liveEvents 透传', () => {
-  it('密封重放消息经 AgentTimeline 呈现（组件复用锚：同一条时间线，无第二套渲染）', async () => {
+describe('SessionTranscriptPanel：AgentMessages 渲染与 liveEvents 透传', () => {
+  it('密封重放消息经 AgentMessages 呈现（组件复用锚：同一对话透镜，无第二套渲染）', async () => {
     await mounted();
     const panel = screen.getByTestId('session-transcript-panel');
     await waitFor(() => expect(within(panel).getAllByTestId('block-text')).toHaveLength(2));
 
-    expect(within(panel).getByTestId('agent-timeline') !== null).toBe(true);
+    expect(within(panel).getByTestId('agent-messages') !== null).toBe(true);
     expect(
       within(panel)
         .getAllByTestId('block-text')
@@ -251,12 +251,12 @@ describe('SessionTranscriptPanel：AgentTimeline 渲染与 liveEvents 透传', (
     expect(panelTexts()).toEqual(['执行会话首轮', '执行会话续文', '实时片段']);
   });
 
-  it('会话运行中 → timeline-running 呈现；全部终态 → 无该标记（运行中实时与收口重放同组件）', async () => {
+  it('会话运行中 → agent-messages-running 呈现；全部终态 → 无该标记（运行中实时与收口重放同组件）', async () => {
     sessionsByRef[EXECUTOR_REF] = [
       summary(EXECUTOR_SESSION, EXECUTOR_REF, [turn(11, EXECUTOR_SESSION, 'running')]),
     ];
     const running = renderPanel(roleRefs());
-    await waitFor(() => expect(screen.getByTestId('timeline-running') !== null).toBe(true));
+    await waitFor(() => expect(screen.getByTestId('agent-messages-running') !== null).toBe(true));
     running.unmount();
 
     // 恢复终态轮行 fixture（同测试前半段已改为 running）
@@ -265,7 +265,7 @@ describe('SessionTranscriptPanel：AgentTimeline 渲染与 liveEvents 透传', (
     ];
     const done = renderPanel(roleRefs());
     await waitFor(() => expect(panelTexts()).toHaveLength(2));
-    expect(screen.queryByTestId('timeline-running')).toBeNull();
+    expect(screen.queryByTestId('agent-messages-running')).toBeNull();
     done.unmount();
   });
 });
@@ -277,7 +277,7 @@ describe('SessionTranscriptPanel：空态与错误（边界 / 异常）', () => 
     ]);
     await waitFor(() => expect(screen.getByTestId('transcript-empty') !== null).toBe(true));
 
-    expect(screen.queryByTestId('agent-timeline')).toBeNull();
+    expect(screen.queryByTestId('agent-messages')).toBeNull();
     expect(screen.queryByTestId('session-meta')).toBeNull();
     // 无错不出错误占位（error 与 empty 占位互斥呈现面）
     expect(screen.queryByTestId('transcript-error')).toBeNull();
@@ -309,8 +309,8 @@ describe('SessionTranscriptPanel：空态与错误（边界 / 异常）', () => 
 // 会话元信息区与恒渲染（desktop-drawer-session-column，AC-1 / AC-3 / D2 / D4 /
 // D5）：`SessionMeta` 元信息区（session id 等宽截断 + title 全量、运行徽章、
 // 轮数、token 合计 null → 「—」）；summary null 整体不渲染；高度语义改填充
-// 宿主列（时间线容器 min-h-0 flex-1，根节 h-full——jsdom 无布局引擎，以类
-// 契约断言）
+// 宿主列（对话区 min-h-0 flex-1、滚动收在其视口 overflow-y-auto，根节
+// h-full——jsdom 无布局引擎，以类契约断言）
 // ---------------------------------------------------------------------------
 
 describe('SessionTranscriptPanel：会话元信息区（SessionMeta）', () => {
@@ -332,16 +332,16 @@ describe('SessionTranscriptPanel：会话元信息区（SessionMeta）', () => {
     expect(metaText('session-meta-status')).toBe('运行中');
     expect(metaText('session-meta-turns')).toBe('轮数 1');
     expect(metaText('session-meta-tokens')).toBe('tokens 120 / 88');
-    // 同源推导：running 徽章与时间线运行标记同时呈现
-    expect(screen.getByTestId('timeline-running') !== null).toBe(true);
+    // 同源推导：running 徽章与对话区运行标记同时呈现
+    expect(screen.getByTestId('agent-messages-running') !== null).toBe(true);
   });
 
-  it('summary 在场（全部终态轮行）：徽章「已收口」（与 timeline-running 消失同源推导——状态单一事实源为轮行清单）', async () => {
+  it('summary 在场（全部终态轮行）：徽章「已收口」（与 agent-messages-running 消失同源推导——状态单一事实源为轮行清单）', async () => {
     await mounted([{ role: 'executor', sourceRef: EXECUTOR_REF, sessionId: null }]);
     await waitFor(() => expect(screen.getByTestId('session-meta') !== null).toBe(true));
 
     expect(metaText('session-meta-status')).toBe('已收口');
-    expect(screen.queryByTestId('timeline-running')).toBeNull();
+    expect(screen.queryByTestId('agent-messages-running')).toBeNull();
   });
 
   it('stats.inputTokens / outputTokens null → 「—」占位（不渲染字符串 "null"）；id 截断为 CSS 面、title 属性携全量', async () => {
@@ -378,19 +378,19 @@ describe('SessionTranscriptPanel：会话元信息区（SessionMeta）', () => {
     expect(screen.queryByTestId('session-meta-status')).toBeNull();
   });
 
-  it('高度语义改填充宿主列：时间线容器 min-h-0 flex-1 overflow-y-auto、不含 max-h-[480px]；根节含 h-full（AC-1「转录拉满左列」）', async () => {
+  it('高度语义改填充宿主列：对话区 min-h-0 flex-1、滚动收在视口 overflow-y-auto、不含 max-h-[480px]；根节含 h-full（AC-1「转录拉满左列」）', async () => {
     await mounted();
     const panel = screen.getByTestId('session-transcript-panel');
     await waitFor(() => expect(within(panel).getAllByTestId('block-text')).toHaveLength(2));
 
     expect(panel.className).toContain('h-full');
     expect(panel.className).toContain('min-h-0');
-    const timeline = within(panel).getByTestId('agent-timeline');
-    const scroller = timeline.parentElement;
-    expect(scroller?.className).toContain('min-h-0');
-    expect(scroller?.className).toContain('flex-1');
+    const conversation = within(panel).getByTestId('agent-messages');
+    expect(conversation.className).toContain('min-h-0');
+    expect(conversation.className).toContain('flex-1');
+    const scroller = conversation.querySelector('[data-slot="message-scroller-viewport"]');
     expect(scroller?.className).toContain('overflow-y-auto');
-    expect(scroller?.className).not.toContain('max-h-[480px]');
+    expect(`${panel.className} ${conversation.className}`).not.toContain('max-h-[480px]');
   });
 });
 

@@ -1,8 +1,11 @@
-import { Button } from '@/components/ui/button';
+import { useEffect, useState } from 'react';
 
-import { AgentTimeline } from '../../../components/agent';
-import { eventsToUIMessages } from '../../../lib/agent-adapter';
-import type { AgentEvent, AgentRunStatus, SessionSummary } from '../../../types/dto';
+import { AgentMessages } from '@/components/agent';
+import { StandardDrawer } from '@/components/standard/drawer';
+import { Button } from '@/components/ui/button';
+import { eventsToUIMessages } from '@/lib/agent-adapter';
+import type { AgentEvent, AgentRunStatus, SessionSummary } from '@/types/dto';
+
 import type { AgentHistorySource, AgentRunHistoryState } from '../hooks/use-agent-run-history';
 
 export interface AgentRunHistoryProps {
@@ -110,19 +113,28 @@ function SessionRow({
 function ReplayArea({
   sessionId,
   events,
+  onClose,
 }: {
-  sessionId: string;
+  sessionId: string | null;
   events: AgentEvent[];
+  onClose?: () => void;
 }): React.JSX.Element {
+  const [open, setOpen] = useState(sessionId !== null);
+  useEffect(() => {
+    setOpen(sessionId !== null);
+  }, [sessionId]);
   return (
-    <div
-      className="mt-3 max-h-96 overflow-y-auto"
+    <StandardDrawer
+      title="重放会话"
       data-testid="replay-area"
-      data-selected-run-id={sessionId}
-    >
-      <div className="mb-1 text-xs text-muted-foreground">重放会话（密封转录）</div>
-      <AgentTimeline messages={eventsToUIMessages(events)} running={false} />
-    </div>
+      content={<AgentMessages messages={eventsToUIMessages(events)} />}
+      open={open}
+      onOpenChange={(value) => {
+        if (!value) {
+          onClose?.();
+        }
+      }}
+    ></StandardDrawer>
   );
 }
 
@@ -171,9 +183,7 @@ export function AgentRunHistory({
       {state.sessions.map((session) => (
         <SessionRow key={session.row.id} session={session} onOpen={state.openSession} />
       ))}
-      {state.selectedSessionId !== null && (
-        <ReplayArea sessionId={state.selectedSessionId} events={state.events} />
-      )}
+      <ReplayArea sessionId={state.selectedSessionId} events={state.events} />
     </section>
   );
 }

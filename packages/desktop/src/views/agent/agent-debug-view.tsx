@@ -1,9 +1,9 @@
 import { useState } from 'react';
 
+import { AgentMessages } from '@/components/agent';
 import { Button } from '@/components/ui/button';
+import { useAgentChat } from '@/hooks/use-agent-chat';
 
-import { AgentTimeline } from '../../components/agent';
-import { useAgentChat } from '../../hooks/use-agent-chat';
 import { AgentRawStream } from './components/agent-raw-stream';
 import { AgentRunForm, type AgentStartInput } from './components/agent-run-form';
 import { AgentRunHistory } from './components/agent-run-history';
@@ -105,7 +105,7 @@ export function AgentDebugView({ root }: AgentDebugViewProps): React.JSX.Element
       {showRaw ? (
         <AgentRawStream events={session.events} />
       ) : (
-        <AgentTimeline messages={session.messages} running={session.running} />
+        <AgentMessages messages={session.messages} running={session.running} />
       )}
       <AgentRunHistory state={history} source={source} onSourceChange={setSource} />
     </div>

@@ -1,10 +1,3 @@
-/**
- * composer（agent 会话统一输入面）：prompt 输入 / permission-mode 三档下拉
- * （默认 bypassPermissions，沿调试页 ModeSelect 语义）/ 发送（运行中禁发）/
- * 停止入口（运行中呈现）。id 与 data-testid 经 `idPrefix` 前缀化，消费方
- * 保留各自的 testid 命名空间（如 explore-*）。
- */
-
 import { useState } from 'react';
 
 import type { AgentPermissionMode } from '../../types/dto';

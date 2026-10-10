@@ -2,16 +2,17 @@ import { open } from '@tauri-apps/plugin-dialog';
 import { useCallback } from 'react';
 import { HashRouter } from 'react-router';
 
+import { AppSidebar } from '@/components/app-sidebar';
 import { Button } from '@/components/ui/button';
+import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
-import { SidebarInset, SidebarProvider, SidebarTrigger } from '@/components/ui/sidebar';
+import { SidebarProvider, SidebarTrigger } from '@/components/ui/sidebar';
 import { Toaster } from '@/components/ui/sonner';
+import { useUpdater, type UpdateState } from '@/hooks/use-updater';
+import { useWorkspaces } from '@/hooks/use-workspaces';
+import { WelcomeView } from '@/views/welcome-view';
 
-import { AppSidebar } from './components/app-sidebar';
-import { useUpdater, type UpdateState } from './hooks/use-updater';
-import { useWorkspaces } from './hooks/use-workspaces';
 import { AppRoutes } from './routes';
-import { WelcomeView } from './views/welcome-view';
 
 /**
  * 顶栏更新指示：当前版本号 + 更新入口。有新版本 →「更新到 vX」→ 下载进度 →
@@ -84,12 +85,12 @@ export default function App() {
               onRemove={workspaceState.remove}
               workspaces={workspaceState.workspaces}
             />
-            <SidebarInset>
+            <main className="flex-1 min-w-0 max-h-screen flex flex-col">
               <ShellHeader update={update} />
-              <div className="mx-auto flex min-h-0 w-full flex-1 flex-col px-4 py-4">
+              <ScrollArea className="mx-auto flex min-h-0 w-full flex-1 flex-col px-4 py-4">
                 <AppRoutes root={workspaceState.root} />
-              </div>
-            </SidebarInset>
+              </ScrollArea>
+            </main>
           </SidebarProvider>
         </HashRouter>
       )}

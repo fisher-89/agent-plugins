@@ -1,6 +1,6 @@
 {
   "name": "desktop",
-  "version": "0.4.27",
+  "version": "0.4.28",
   "private": true,
   "scripts": {
     "dev": "tauri dev",
@@ -66,9 +66,7 @@
   "devEngines": {
     "packageManager": {
       "name": "pnpm",
-      "version": "12.9.1",
       "onFail": "warn"
     }
-  },
-  "packageManager": "pnpm@12.9.1"
+  }
 }

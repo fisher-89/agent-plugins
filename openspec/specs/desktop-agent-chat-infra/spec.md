@@ -2,7 +2,7 @@
 
 ## Purpose
 
-定义 agent 会话统一基建的前端契约:ai-sdk v7 状态层(`UIMessage` 一等模型 + `TauriAgentTransport`)、事件适配层(`eventsToUIMessages` / `eventToChunk` 纯函数,保真锁定)、headless 会话 hook(`use-agent-chat`:重放装载 + 发送组装 + 停止接线)、展示组件族(双透镜 + composer + 工具卡注册表),以及 ai-sdk 依赖收口纪律。目标:今后所有 agent 会话页面(explore 会话 / agent 调试 / 未来)统一消费本基建。
+定义 agent 会话统一基建的前端契约:ai-sdk v7 状态层(`UIMessage` 一等模型 + `TauriAgentTransport`)、事件适配层(`eventsToUIMessages` / `eventToChunk` 纯函数,保真锁定)、headless 会话 hook(`use-agent-chat`:重放装载 + 发送组装 + 停止接线)、展示组件族(对话透镜 + composer + 工具卡注册表),以及 ai-sdk 依赖收口纪律。目标:今后所有 agent 会话页面(explore 会话 / agent 调试 / 未来)统一消费本基建。
 
 ## Requirements
 
@@ -72,15 +72,16 @@
 - **WHEN** 事件流含未知类型事件(未来引擎新增)
 - **THEN** 产出 `data-raw` 部件且原文 JSON 完整保留,适配不报错、不丢事件
 
-### Requirement: 展示组件族(双透镜)
+### Requirement: 展示组件族(对话透镜)
+
+> 2026-10-10 回溯修订(无 change 流直修):保真透镜 `AgentTimeline` 撤编,组件族收敛为 `AgentMessages` 单对话透镜——辅助载体(system 角色消息:run-started / system-notice / raw / run-record)整条不进对话呈现;保真面由适配层状态部件(序列与归因字段见「事件适配层」requirement)与调试页页面级「原始 JSONL」切换承载,不再双透镜并行。
 
 `packages/desktop/src/components/agent/` SHALL 提供共享展示组件族,全部 agent 会话页面(explore 会话 / agent 调试 / 未来页面)统一消费:
 
-- `AgentMessages` 对话透镜: user / assistant 气泡、工具对卡、思考折叠、AskUserQuestion 静态卡(问题与选项原样可读);
-- `AgentTimeline` 保真透镜: seq 序呈现、子代理按 `parentToolUseId` 分组归因、raw 原文透传;
+- `AgentMessages` 对话透镜: user / assistant 气泡、工具对卡、思考折叠、AskUserQuestion 静态卡(问题与选项原样可读);辅助载体消息(system 角色承载的 data 部件)MUST NOT 进对话呈现,对话透镜 SHALL 基于过滤后列表判定空态;
 - `AgentInput` composer: prompt 输入、permission-mode 档位、发送(运行中禁发或忽略)、停止入口;
-- 工具卡注册表: 特化卡(AskUserQuestionCard 等)为可插拔位;
-- 双透镜 SHALL 共享底层块渲染件(文本 markdown / 思考折叠 / 工具卡一套实现);滚动 SHALL 沿用 shadcn `message-scroller` 组合,消息状态留在应用层。
+- 工具卡注册表: 特化卡(AskUserQuestionCard 等)为可插拔位,未注册工具名回退默认对卡;
+- 组件族 SHALL 共享底层块渲染件(文本 markdown / 思考折叠 / 工具卡一套实现);滚动 SHALL 沿用 shadcn `message-scroller` 组合,消息状态留在应用层。
 
 调试页的 run 表单 / 历史列表 / JSONL 开关 SHALL 为页面级 chrome,包在共享核心外圈,MUST NOT 强行塞进组件族。
 
@@ -89,10 +90,10 @@
 - **WHEN** 会话状态含文本、思考、工具调用与工具结果
 - **THEN** `AgentMessages` 按序呈现 markdown 气泡、可展开思考块、成对工具卡,AskUserQuestion 呈静态可读卡
 
-#### Scenario: 保真透镜归因
+#### Scenario: 辅助载体不进对话
 
-- **WHEN** 事件流含 `parentToolUseId` 非空的子代理消息
-- **THEN** `AgentTimeline` 将其分组归因到父工具调用下,seq 序与 raw 透传可读
+- **WHEN** 会话状态含 run-started / system-notice / raw / run-record 等 system 载体消息
+- **THEN** 对话透镜不呈现其任何 data 部件(空态判定基于过滤后列表),seq / `parentToolUseId` 保真仍可考于部件元数据
 
 #### Scenario: composer 运行中禁发与停止
 
@@ -120,6 +121,6 @@ ai-sdk(`ai` 包)SHALL 锚定 v7 并收口于基建层(适配层、transport、`u
 | `packages/desktop/src/lib/agent-adapter.ts` | 事件适配纯函数(双层) | `eventsToUIMessages`(仅密封转录)/ `eventToChunk`(+delta 路:`text-delta` / `reasoning-delta` → provisional,密封替换);保真锁定(seq、`parentToolUseId`、配对键、`data-*` 部件、未知透传);工具同 id 配对收口 |
 | `packages/desktop/src/lib/agent-transport.ts` | `ChatTransport` 适配 | 会话域 body 参数穿透发起 invoke;Channel 事件 → `UIMessageChunk` 流(含 delta);终态部件 + finish 收流;`reconnectToStream` 返回 null(重连由会话重放承担) |
 | `packages/desktop/src/hooks/use-agent-chat.ts` | headless 会话基建 | `useChat`(ai v7)+ transport;重放装载(会话查询 → 密封转录 → `setMessages`);发送组装(会话参数收口,文本组装留来源侧);`stop` → 终止命令;密封收口归一 |
-| `packages/desktop/src/components/agent/` | 展示组件族 | 语义不变(provisional/密封差异由状态层吸收);双透镜共享块渲染件;`message-scroller` 滚动承载 |
+| `packages/desktop/src/components/agent/` | 展示组件族 | 语义不变(provisional/密封差异由状态层吸收);对话透镜共享块渲染件;辅助载体 system 消息过滤;`message-scroller` 滚动承载 |
 | `packages/desktop/src/views/explores/hooks/use-explore-session.ts` | 探索链消费面 | 会话域参数(source/sourceRef/会话引用)语义等价切换,行为不回退 |
 | Rust 会话域命令面(详见 desktop-agent-execution) | stop 与提前 resolve | 终止命令按运行中的会话活动轮寻址;发起命令提前 resolve;`stopped` 收敛;终态经 Channel 同构部件流出 |
