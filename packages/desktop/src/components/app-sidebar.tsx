@@ -1,16 +1,19 @@
-import { Bot, Boxes, Compass, Database, GitBranch, Info, Plus, Settings } from 'lucide-react';
+import {
+  Bot,
+  Boxes,
+  ChevronsUpDown,
+  Compass,
+  Database,
+  GitBranch,
+  Info,
+  PlusIcon,
+  Settings,
+} from 'lucide-react';
 import { NavLink, useLocation } from 'react-router';
 
 import {
-  ContextMenu,
-  ContextMenuContent,
-  ContextMenuItem,
-  ContextMenuTrigger,
-} from '@/components/ui/context-menu';
-import {
   Sidebar,
   SidebarGroup,
-  SidebarGroupAction,
   SidebarGroupContent,
   SidebarGroupLabel,
   SidebarMenu,
@@ -19,6 +22,15 @@ import {
 } from '@/components/ui/sidebar';
 
 import type { WorkspaceRecord } from '../types/dto';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuGroup,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from './ui/dropdown-menu';
 
 export interface AppSidebarProps {
   /** workspace 清单 */
@@ -37,54 +49,6 @@ export interface AppSidebarProps {
 function parentDir(root: string): string {
   const index = Math.max(root.lastIndexOf('/'), root.lastIndexOf('\\'));
   return index === -1 ? '' : root.slice(0, index);
-}
-
-function WorkspaceItem({
-  record,
-  currentRoot,
-  onOpen,
-  onRemove,
-}: {
-  record: WorkspaceRecord;
-  currentRoot: string;
-  onOpen: (root: string) => void;
-  onRemove: (root: string) => void;
-}): React.JSX.Element {
-  const parent = parentDir(record.root);
-  return (
-    <ContextMenu>
-      <ContextMenuTrigger
-        render={
-          <SidebarMenuItem>
-            <SidebarMenuButton
-              data-root={record.root}
-              data-testid="workspace-item"
-              isActive={record.root === currentRoot}
-              size="lg"
-              tooltip={record.root}
-              onClick={() => onOpen(record.root)}
-            >
-              {/* leading-tight 收紧行高，主文本 + 父目录两行在 lg（h-12）内完整呈现 */}
-              <span className="flex min-w-0 flex-col leading-tight">
-                <span className="truncate">{record.name}</span>
-                {parent !== '' && (
-                  <span
-                    className="block truncate text-xs font-normal text-muted-foreground"
-                    data-testid="workspace-sub"
-                  >
-                    {parent}
-                  </span>
-                )}
-              </span>
-            </SidebarMenuButton>
-          </SidebarMenuItem>
-        }
-      />
-      <ContextMenuContent>
-        <ContextMenuItem onClick={() => onRemove(record.root)}>移除</ContextMenuItem>
-      </ContextMenuContent>
-    </ContextMenu>
-  );
 }
 
 /** 页面导航单项：SidebarMenuItem + NavLink 路由入口（active 由当前 URL 派生） */
@@ -121,45 +85,40 @@ function PageNavItem({
 function PageNavGroup(): React.JSX.Element {
   const { pathname } = useLocation();
   return (
-    <SidebarGroup>
-      <SidebarGroupLabel>页面</SidebarGroupLabel>
-      <SidebarGroupContent>
-        <SidebarMenu>
-          {/* 基础信息项：/info（workspace 域内容页首位） */}
-          <PageNavItem
-            active={pathname === '/info'}
-            icon={<Info />}
-            label="基础信息"
-            testId="nav-info"
-            to="/info"
-          />
-          {/* 变更项：/changes 与 /changes/:name（详情）均 active */}
-          <PageNavItem
-            active={pathname === '/changes' || pathname.startsWith('/changes/')}
-            icon={<GitBranch />}
-            label="变更"
-            testId="nav-changes"
-            to="/changes"
-          />
-          {/* 探索项：/explores 与 /explores/:name（详情）均 active */}
-          <PageNavItem
-            active={pathname === '/explores' || pathname.startsWith('/explores/')}
-            icon={<Compass />}
-            label="探索"
-            testId="nav-explores"
-            to="/explores"
-          />
-          {/* 配置项：/config（workspace 域内容页组内末位） */}
-          <PageNavItem
-            active={pathname === '/config'}
-            icon={<Settings />}
-            label="配置"
-            testId="nav-config"
-            to="/config"
-          />
-        </SidebarMenu>
-      </SidebarGroupContent>
-    </SidebarGroup>
+    <>
+      {/* 基础信息项：/info（workspace 域内容页首位） */}
+      <PageNavItem
+        active={pathname === '/info'}
+        icon={<Info />}
+        label="基础信息"
+        testId="nav-info"
+        to="/info"
+      />
+      {/* 变更项：/changes 与 /changes/:name（详情）均 active */}
+      <PageNavItem
+        active={pathname === '/changes' || pathname.startsWith('/changes/')}
+        icon={<GitBranch />}
+        label="变更"
+        testId="nav-changes"
+        to="/changes"
+      />
+      {/* 探索项：/explores 与 /explores/:name（详情）均 active */}
+      <PageNavItem
+        active={pathname === '/explores' || pathname.startsWith('/explores/')}
+        icon={<Compass />}
+        label="探索"
+        testId="nav-explores"
+        to="/explores"
+      />
+      {/* 配置项：/config（workspace 域内容页组内末位） */}
+      <PageNavItem
+        active={pathname === '/config'}
+        icon={<Settings />}
+        label="配置"
+        testId="nav-config"
+        to="/config"
+      />
+    </>
   );
 }
 
@@ -213,6 +172,104 @@ function SystemToolsGroup(): React.JSX.Element {
   );
 }
 
+/** 工作区触发按钮内容：当前记录名 + 父目录末段（空父目录不渲染副行）。 */
+function WorkspaceTriggerLabel({
+  record,
+  parent,
+}: {
+  record: WorkspaceRecord;
+  parent: string;
+}): React.JSX.Element {
+  return (
+    <>
+      <span className="flex min-w-0 flex-col leading-tight">
+        <span className="truncate">{record.name}</span>
+        {parent !== '' && (
+          <span
+            className="block truncate text-xs font-normal text-muted-foreground"
+            data-testid="workspace-sub"
+          >
+            {parent}
+          </span>
+        )}
+      </span>
+      <ChevronsUpDown className="ml-auto" />
+    </>
+  );
+}
+
+/** 工作区下拉清单：切换（逐条）与添加入口（分隔组）。 */
+function WorkspaceMenu({
+  workspaces,
+  onOpen,
+  onAdd,
+}: {
+  workspaces: WorkspaceRecord[];
+  onOpen: (root: string) => void;
+  onAdd: () => void;
+}): React.JSX.Element {
+  return (
+    <DropdownMenuContent side="right">
+      <DropdownMenuGroup>
+        <DropdownMenuLabel>工作区</DropdownMenuLabel>
+        {workspaces.map((record) => (
+          <DropdownMenuItem key={record.root} onClick={() => onOpen(record.root)}>
+            {record.name}
+          </DropdownMenuItem>
+        ))}
+      </DropdownMenuGroup>
+      <DropdownMenuSeparator />
+      <DropdownMenuGroup>
+        <DropdownMenuItem onClick={onAdd}>
+          <PlusIcon />
+          添加工作区
+        </DropdownMenuItem>
+      </DropdownMenuGroup>
+    </DropdownMenuContent>
+  );
+}
+
+function WorkspaceSelector({
+  workspaces,
+  currentRoot,
+  onOpen,
+  onAdd,
+}: {
+  workspaces: WorkspaceRecord[];
+  currentRoot: string;
+  onOpen: (root: string) => void;
+  onAdd: () => void;
+  onRemove: (root: string) => void;
+}) {
+  if (workspaces.length === 0) {
+    return (
+      <SidebarMenuItem>
+        <SidebarMenuButton size="lg" onClick={onAdd}>
+          <span className="flex min-w-0 flex-col leading-tight">
+            <span>未关联工作区</span>
+            <span>点击添加</span>
+          </span>
+        </SidebarMenuButton>
+      </SidebarMenuItem>
+    );
+  }
+  const currentRecord = workspaces.find((record) => record.root === currentRoot);
+  if (!currentRecord) {
+    return null;
+  }
+  const parent = parentDir(currentRecord.root);
+  return (
+    <SidebarMenuItem>
+      <DropdownMenu>
+        <DropdownMenuTrigger render={<SidebarMenuButton size="lg" />}>
+          <WorkspaceTriggerLabel record={currentRecord} parent={parent} />
+        </DropdownMenuTrigger>
+        <WorkspaceMenu workspaces={workspaces} onOpen={onOpen} onAdd={onAdd} />
+      </DropdownMenu>
+    </SidebarMenuItem>
+  );
+}
+
 export function AppSidebar({
   workspaces,
   currentRoot,
@@ -222,23 +279,17 @@ export function AppSidebar({
 }: AppSidebarProps): React.JSX.Element {
   return (
     <Sidebar collapsible="icon">
-      <PageNavGroup />
       <SidebarGroup>
-        <SidebarGroupLabel>工作区</SidebarGroupLabel>
-        <SidebarGroupAction aria-label="添加 workspace" onClick={onAdd}>
-          <Plus />
-        </SidebarGroupAction>
         <SidebarGroupContent>
           <SidebarMenu>
-            {workspaces.map((record) => (
-              <WorkspaceItem
-                currentRoot={currentRoot}
-                key={record.root}
-                onOpen={onOpen}
-                onRemove={onRemove}
-                record={record}
-              />
-            ))}
+            <WorkspaceSelector
+              workspaces={workspaces}
+              currentRoot={currentRoot}
+              onOpen={onOpen}
+              onAdd={onAdd}
+              onRemove={onRemove}
+            />
+            {currentRoot && <PageNavGroup />}
           </SidebarMenu>
         </SidebarGroupContent>
       </SidebarGroup>

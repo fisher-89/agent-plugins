@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 
+import { StandardSelect } from '@/components/standard/select';
 import { Button } from '@/components/ui/button';
 
 import type { AgentInstanceRecord, AgentPermissionMode } from '../../../types/generated/bindings';
@@ -26,13 +27,10 @@ const PERMISSION_OPTIONS: { value: AgentPermissionMode; label: string }[] = [
   { value: 'default', label: 'default' },
 ];
 
-/** agent 选择器缺省选项值（select 值域为 string：'' = 缺省（后端解析默认
- * agent），数字串 = 显式实例 id） */
-const DEFAULT_OPTION_VALUE = '';
-
-/** agent 选择器：选项 = agent 实例清单（名称 + engine 标注），首项为缺省
- * （清单为空时仅存缺省项——发起走后端缺省解析，无默认经错误横幅显式报错）。
- * 清单守卫：仅接受已渲染 option 值，清单外程序值不回填不触发 onChange */
+/** agent 选择器：选项 = agent 实例清单（名称 + engine 标注），不再渲染缺省
+ * 项——清单装载后父级 effect 自动落位默认实例（defaultId）；清单为空时值
+ * 保持 null，发起走后端缺省解析，无默认经错误横幅显式报错。清单守卫：
+ * Select 仅能选中已渲染 option 值，清单外程序值不回填不触发 onChange */
 function AgentSelect({
   agents,
   value,
@@ -47,26 +45,17 @@ function AgentSelect({
       <label className="text-xs text-muted-foreground" htmlFor="agent-select">
         agent
       </label>
-      <select
+      <StandardSelect
         id="agent-select"
         className="rounded-md border border-border bg-transparent px-1.5 py-0.5 text-sm"
         data-testid="agent-select"
-        value={value === null ? DEFAULT_OPTION_VALUE : String(value)}
-        onChange={(e) => {
-          const raw = e.target.value;
-          if (raw !== DEFAULT_OPTION_VALUE && !agents.some((record) => String(record.id) === raw)) {
-            return;
-          }
-          onChange(raw === DEFAULT_OPTION_VALUE ? null : Number(raw));
-        }}
-      >
-        <option value={DEFAULT_OPTION_VALUE}>（默认 agent）</option>
-        {agents.map((record) => (
-          <option key={record.id} value={String(record.id)}>
-            {`${record.name}（${record.engine}）`}
-          </option>
-        ))}
-      </select>
+        value={value}
+        onChange={onChange}
+        items={agents.map((record) => ({
+          value: record.id,
+          label: `${record.name}（${record.engine}）`,
+        }))}
+      />
     </span>
   );
 }

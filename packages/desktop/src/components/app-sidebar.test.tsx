@@ -8,14 +8,6 @@ import { SidebarProvider } from '@/components/ui/sidebar';
 import type { WorkspaceRecord } from '../types/dto';
 import { AppSidebar } from './app-sidebar';
 
-// ---------------------------------------------------------------------------
-// AppSidebar 单测：workspace 组纯回调驱动（onOpen / onAdd / onRemove 以 vi.fn()
-// 注入），无进程边界；页面导航组为 NavLink 路由入口，需 Router context，故以
-// MemoryRouter 包裹（design D6）。jsdom 环境缺口兜底：radix Tooltip /
-// ContextMenu 定位需 ResizeObserver 兜底；断言按 D4-④ 收敛最终态（data-root /
-// testid / tooltip role），不复刻 portal 细节。
-// ---------------------------------------------------------------------------
-
 class ResizeObserverStub {
   observe = vi.fn();
   unobserve = vi.fn();
@@ -64,16 +56,21 @@ function mountSidebar(workspaces: WorkspaceRecord[], currentRoot: string) {
   return { onAdd, onOpen, onRemove };
 }
 
-/** 以 data-root 定位清单项（同名项由 data-root 区分，不依赖可访问名）。 */
-function itemByRoot(root: string): HTMLElement {
-  const hit = screen
-    .getAllByTestId('workspace-item')
-    .find((item) => item.getAttribute('data-root') === root);
-  if (!hit) throw new Error(`data-root 为 ${root} 的 workspace-item 不存在`);
-  return hit;
+/** workspace 选择器 trigger（DropdownMenuTrigger 收敛到 data-slot）。 */
+function workspaceTrigger(): HTMLElement {
+  const trigger = document.querySelector<HTMLElement>('[data-slot="dropdown-menu-trigger"]');
+  if (!trigger) throw new Error('workspace 选择器 trigger 不存在');
+  return trigger;
 }
 
-describe('AppSidebar：清单渲染', () => {
+/** 打开 workspace 选择器：base-ui Menu 以 mousedown 打开、开启动作为 frame
+ * 异步执行，以菜单组标签「工作区」出现收敛最终态（D4-④）。 */
+async function openWorkspaceMenu(): Promise<void> {
+  fireEvent.mouseDown(workspaceTrigger());
+  await screen.findByText('工作区');
+}
+
+describe('AppSidebar：选择器渲染', () => {
   let restore: () => void;
 
   beforeEach(() => {
@@ -84,51 +81,56 @@ describe('AppSidebar：清单渲染', () => {
     restore();
   });
 
-  it('workspaces 全量渲染：每项带 workspace-item testid + data-root、主文本为 record.name、组标签「工作区」在场', () => {
+  it('选择器呈当前项：trigger 主文本为 record.name、副文本 workspace-sub 为父目录、data-size=lg（双行走 lg 承载）', () => {
     mountSidebar([FIRST, SECOND], FIRST.root);
 
-    expect(screen.getByText('工作区') !== null).toBe(true);
-    const items = screen.getAllByTestId('workspace-item');
-    expect(items).toHaveLength(2);
-    expect(items.map((item) => item.getAttribute('data-root'))).toEqual([FIRST.root, SECOND.root]);
-    // 双行（主文本 + 父目录）走 lg 尺寸承载，固定单行高度（default）会裁掉副文本
-    expect(items.map((item) => item.getAttribute('data-size'))).toEqual(['lg', 'lg']);
-    expect(within(items[0]).getByText('beta') !== null).toBe(true);
-    expect(within(items[1]).getByText('alpha') !== null).toBe(true);
+    const trigger = workspaceTrigger();
+    expect(trigger.getAttribute('data-size')).toBe('lg');
+    expect(within(trigger).getByText('beta') !== null).toBe(true);
+    expect(within(trigger).getByTestId('workspace-sub').textContent).toBe('C:\\demo');
   });
 
-  it('currentRoot 匹配项呈激活态（isActive 标记），非匹配项不激活', () => {
-    mountSidebar([FIRST, SECOND], FIRST.root);
+  it('currentRoot 决定呈现内容：currentRoot 指向 SECOND 时 trigger 主文本为 alpha、副文本不变', () => {
+    mountSidebar([FIRST, SECOND], SECOND.root);
 
-    expect(itemByRoot(FIRST.root).hasAttribute('data-active')).toBe(true);
-    expect(itemByRoot(SECOND.root).hasAttribute('data-active')).toBe(false);
+    const trigger = workspaceTrigger();
+    expect(within(trigger).getByText('alpha') !== null).toBe(true);
+    expect(within(trigger).queryByText('beta')).toBeNull();
+    expect(within(trigger).getByTestId('workspace-sub').textContent).toBe('C:\\demo');
   });
 
-  it('空清单（[]）：组与组标签仍渲染、无列表项、不崩', () => {
-    mountSidebar([], '');
+  it('空清单（[]）：无下拉 trigger、未关联工作区占位渲染、点击占位即 onAdd、不崩', () => {
+    const { onAdd } = mountSidebar([], '');
 
-    expect(screen.getByText('工作区') !== null).toBe(true);
-    expect(screen.queryAllByTestId('workspace-item')).toHaveLength(0);
-    // 添加入口仍在（空清单依然可发起添加）
-    expect(screen.getByRole('button', { name: '添加 workspace' }) !== null).toBe(true);
+    expect(document.querySelector('[data-slot="dropdown-menu-trigger"]')).toBeNull();
+    const placeholder = screen.getByRole('button', { name: '未关联工作区 点击添加' });
+    expect(placeholder.textContent).toContain('未关联工作区');
+
+    fireEvent.click(placeholder);
+    expect(onAdd).toHaveBeenCalledTimes(1);
   });
 
-  it('超大清单（50 项）：全量渲染无丢失（workspace-item 计数断言）', () => {
+  it('超大清单（50 项）：打开选择器后全量渲染无丢失（menuitem 计数断言）', async () => {
     const many = Array.from({ length: 50 }, (_, index) => record(`C:\\ws\\proj-${index}`));
 
     mountSidebar(many, many[0].root);
 
-    expect(screen.getAllByTestId('workspace-item')).toHaveLength(50);
+    await openWorkspaceMenu();
+
+    // 50 个 workspace 项 + 分隔后「添加工作区」1 项
+    expect(screen.getAllByRole('menuitem')).toHaveLength(51);
+    expect(screen.getByRole('menuitem', { name: 'proj-49' }) !== null).toBe(true);
   });
 
-  it('currentRoot 引用清单中不存在的 root（移除后刷新间隙的瞬时态）：无激活项、不崩、清单照常渲染', () => {
+  it('currentRoot 引用清单中不存在的 root（移除后刷新间隙的瞬时态）：选择器不渲染、导航组照常、不崩', () => {
     mountSidebar([FIRST, SECOND], 'C:\\gone\\ghost');
 
-    expect(screen.getByText('beta') !== null).toBe(true);
-    expect(screen.getByText('alpha') !== null).toBe(true);
-    for (const item of screen.getAllByTestId('workspace-item')) {
-      expect(item.hasAttribute('data-active')).toBe(false);
-    }
+    expect(document.querySelector('[data-slot="dropdown-menu-trigger"]')).toBeNull();
+    expect(screen.queryByText('beta')).toBeNull();
+    expect(screen.queryByText('alpha')).toBeNull();
+    // 选择器降级不影响导航组（currentRoot 非空 → 页面组照常渲染）
+    expect(screen.getByTestId('nav-changes') !== null).toBe(true);
+    expect(screen.getByText('系统工具') !== null).toBe(true);
   });
 });
 
@@ -143,25 +145,27 @@ describe('AppSidebar：切换回调与添加入口', () => {
     restore();
   });
 
-  it('点击列表项 → onOpen 以该项 root 调用恰一次', () => {
+  it('打开选择器点击清单项 → onOpen 以该项 root 调用恰一次', async () => {
     const { onOpen } = mountSidebar([FIRST, SECOND], FIRST.root);
 
-    fireEvent.click(itemByRoot(SECOND.root));
+    await openWorkspaceMenu();
+    fireEvent.click(screen.getByRole('menuitem', { name: 'alpha' }));
 
     expect(onOpen).toHaveBeenCalledTimes(1);
     expect(onOpen).toHaveBeenCalledWith(SECOND.root);
   });
 
-  it('SidebarGroupAction（aria-label="添加 workspace"）点击 → onAdd 调用', () => {
+  it('打开选择器点击「添加工作区」→ onAdd 调用恰一次', async () => {
     const { onAdd } = mountSidebar([FIRST, SECOND], FIRST.root);
 
-    fireEvent.click(screen.getByRole('button', { name: '添加 workspace' }));
+    await openWorkspaceMenu();
+    fireEvent.click(screen.getByRole('menuitem', { name: '添加工作区' }));
 
     expect(onAdd).toHaveBeenCalledTimes(1);
   });
 });
 
-describe('AppSidebar：右键移除', () => {
+describe('AppSidebar：选择器副文本', () => {
   let restore: () => void;
 
   beforeEach(() => {
@@ -172,88 +176,42 @@ describe('AppSidebar：右键移除', () => {
     restore();
   });
 
-  it('fireEvent.contextMenu 列表项 → 菜单出现 → 点击「移除」→ onRemove 以该项 root 调用（D4-①）', async () => {
-    const { onRemove } = mountSidebar([FIRST, SECOND], FIRST.root);
-
-    fireEvent.contextMenu(itemByRoot(SECOND.root));
-    const menuItem = await screen.findByRole('menuitem', { name: '移除' });
-    fireEvent.click(menuItem);
-
-    expect(onRemove).toHaveBeenCalledTimes(1);
-    expect(onRemove).toHaveBeenCalledWith(SECOND.root);
-  });
-
-  it('菜单按项作用域隔离：右键非当前项 B 移除的是 B 的 root 而非当前项（data-root 定位不串项）', async () => {
-    const { onRemove } = mountSidebar([FIRST, SECOND], FIRST.root);
-
-    // 右键非当前项 SECOND，而非激活的 FIRST
-    fireEvent.contextMenu(itemByRoot(SECOND.root));
-    fireEvent.click(await screen.findByRole('menuitem', { name: '移除' }));
-
-    expect(onRemove).toHaveBeenCalledTimes(1);
-    expect(onRemove).not.toHaveBeenCalledWith(FIRST.root);
-    expect(onRemove).toHaveBeenCalledWith(SECOND.root);
-  });
-});
-
-describe('AppSidebar：Tooltip 与副文本', () => {
-  let restore: () => void;
-
-  beforeEach(() => {
-    restore = stubEnvironment();
-  });
-
-  afterEach(() => {
-    restore();
-  });
-
-  it('hover 清单项（即显）→ tooltip 内容为完整 root', async () => {
-    mountSidebar([FIRST, SECOND], FIRST.root);
-
-    // base-ui Tooltip 以 focus 等价 hover 打开（jsdom 下 focus 为即时打开面）；
-    // Popup 无 role="tooltip"（定位器为 role="presentation"），以 data-slot 收敛
-    fireEvent.focus(itemByRoot(SECOND.root));
-    const tooltip = await screen.findByText(SECOND.root);
-
-    expect(tooltip.closest('[data-slot="tooltip-content"]') !== null).toBe(true);
-    expect(tooltip.textContent).toBe(SECOND.root);
-  });
-
-  it('同名不同父两项：data-root 定位后 within() 取 workspace-sub，副文本各为父目录（D3 区分能力）', () => {
+  it('同名不同父两项：菜单项同名不合并（两枚 plugin menuitem）、副文本为当前项父目录（D3 区分能力）', async () => {
     const a = record('C:\\a\\plugin');
     const b = record('C:\\b\\plugin');
 
     mountSidebar([a, b], a.root);
 
-    expect(within(itemByRoot('C:\\a\\plugin')).getByTestId('workspace-sub').textContent).toBe(
-      'C:\\a',
-    );
-    expect(within(itemByRoot('C:\\b\\plugin')).getByTestId('workspace-sub').textContent).toBe(
-      'C:\\b',
-    );
+    expect(within(workspaceTrigger()).getByTestId('workspace-sub').textContent).toBe('C:\\a');
+
+    await openWorkspaceMenu();
+    expect(screen.getAllByRole('menuitem', { name: 'plugin' })).toHaveLength(2);
   });
 
   it('root 无分隔符（如 plugin）：副文本为空串、workspace-sub 节点不渲染（D3）', () => {
     mountSidebar([record('plugin')], 'plugin');
 
-    const item = itemByRoot('plugin');
-    expect(within(item).queryByTestId('workspace-sub')).toBeNull();
-    expect(item.textContent).toContain('plugin');
+    const trigger = workspaceTrigger();
+    expect(within(trigger).queryByTestId('workspace-sub')).toBeNull();
+    expect(trigger.textContent).toContain('plugin');
   });
 
-  it('超长 root（>1000 字符）：渲染不崩、完整 root 在 DOM（truncate 承载，供 Tooltip 断言）', () => {
+  it('超长 root（>1000 字符）：渲染不崩、完整父目录在 workspace-sub（truncate 承载）', () => {
     const longRoot = `C:\\${'dir\\'.repeat(250)}leaf`;
 
     mountSidebar([record(longRoot)], longRoot);
 
-    const item = itemByRoot(longRoot);
-    expect(item.getAttribute('data-root')).toBe(longRoot);
+    const trigger = workspaceTrigger();
+    expect(within(trigger).getByText('leaf') !== null).toBe(true);
+    expect(within(trigger).getByTestId('workspace-sub').textContent).toBe(
+      longRoot.slice(0, longRoot.lastIndexOf('\\')),
+    );
   });
 });
 
 // ---------------------------------------------------------------------------
 // 页面导航组：[变更] [Agent 调试]，NavLink 路由入口（active 由当前 URL 派生，
-// 断言经 URL（location-probe），workspace 清单组语义不变（既有用例全部保留
+// 断言经 URL（location-probe），workspace 选择器语义不变（既有用例全部保留
 // 回归）。
 // ---------------------------------------------------------------------------
 
@@ -302,20 +260,19 @@ describe('AppSidebar：页面导航组与系统工具组（NavLink 路由导航�
     restore();
   });
 
-  it('壳态渲染「页面」「工作区」「系统工具」三组标签：页面最上、系统工具最下', () => {
+  it('壳态渲染「工作区」「系统工具」两组标签：工作区组最上、系统工具组最下', async () => {
     mountNav('/changes');
 
-    const pageLabel = screen.getByText('页面');
-    const toolsLabel = screen.getByText('系统工具');
-    const wsLabel = screen.getByText('工作区');
-    expect(
-      pageLabel.compareDocumentPosition(wsLabel) & Node.DOCUMENT_POSITION_FOLLOWING,
-    ).toBeTruthy();
-    expect(
-      wsLabel.compareDocumentPosition(toolsLabel) & Node.DOCUMENT_POSITION_FOLLOWING,
-    ).toBeTruthy();
-    expect(screen.getByTestId('nav-changes').textContent).toContain('变更');
-    expect(screen.getByTestId('nav-agent').textContent).toContain('Agent 调试');
+    // 「工作区」为选择器菜单组标签，随菜单打开而挂载（portal 于 body 级，
+    // 不参与侧栏组序）；组序以 DOM 结构断言
+    await openWorkspaceMenu();
+    expect(screen.getByText('工作区') !== null).toBe(true);
+
+    const groups = Array.from(
+      document.querySelectorAll<HTMLElement>('[data-slot="sidebar-group"]'),
+    );
+    expect(groups[0].contains(workspaceTrigger())).toBe(true);
+    expect(groups[groups.length - 1].contains(screen.getByText('系统工具'))).toBe(true);
   });
 
   it('「页面」组仅含 nav-changes；nav-agent 归属「系统工具」组（组归属以 DOM 结构断言）', () => {
@@ -348,8 +305,8 @@ describe('AppSidebar：页面导航组与系统工具组（NavLink 路由导航�
     expect(screen.getByTestId('nav-changes').hasAttribute('data-active')).toBe(false);
     expect(screen.getByTestId('nav-agent').hasAttribute('data-active')).toBe(false);
     expect(screen.getByTestId('nav-db').hasAttribute('data-active')).toBe(false);
-    expect(screen.getAllByTestId('workspace-item')).toHaveLength(2);
-    expect(screen.getByRole('button', { name: '添加 workspace' }) !== null).toBe(true);
+    // workspace 选择器照常渲染当前项
+    expect(within(workspaceTrigger()).getByText('beta') !== null).toBe(true);
   });
 
   it('active 态由 URL 派生：/changes 与 /changes/:name 激活变更项，/agent 激活 Agent 项', () => {
@@ -380,13 +337,12 @@ describe('AppSidebar：页面导航组与系统工具组（NavLink 路由导航�
     expect(screen.getByTestId('location-probe').textContent).toBe('/changes');
   });
 
-  it('URL 为 /agent 时 workspace 清单组照常渲染、语义不变（激活态/点击回调不串扰）', () => {
+  it('URL 为 /agent 时 workspace 选择器照常渲染、语义不变（激活态/点击回调不串扰）', async () => {
     const { onAdd, onOpen, onRemove } = mountNav('/agent');
 
-    expect(screen.getAllByTestId('workspace-item')).toHaveLength(2);
-    expect(itemByRoot(FIRST.root).hasAttribute('data-active')).toBe(true);
     expect(screen.getByTestId('nav-agent').hasAttribute('data-active')).toBe(true);
-    fireEvent.click(itemByRoot(SECOND.root));
+    await openWorkspaceMenu();
+    fireEvent.click(screen.getByRole('menuitem', { name: 'alpha' }));
     expect(onOpen).toHaveBeenCalledWith(SECOND.root);
     expect(onAdd).not.toHaveBeenCalled();
     expect(onRemove).not.toHaveBeenCalled();
@@ -469,8 +425,7 @@ describe('AppSidebar：页面导航组 nav-info（AC-1）', () => {
     mountNav('/bogus');
 
     expect(screen.getByTestId('nav-info').hasAttribute('data-active')).toBe(false);
-    expect(screen.getAllByTestId('workspace-item')).toHaveLength(2);
-    expect(screen.getByRole('button', { name: '添加 workspace' }) !== null).toBe(true);
+    expect(within(workspaceTrigger()).getByText('beta') !== null).toBe(true);
   });
 
   it('既有挂钩回归：页面组含 nav-info / nav-explores / nav-changes、系统工具组含 nav-agent / nav-db（页面组扩员不改变他项）', () => {
@@ -553,8 +508,7 @@ describe('AppSidebar：页面导航组 nav-config 扩员（AC-4）', () => {
     mountNav('/bogus');
 
     expect(screen.getByTestId('nav-config').hasAttribute('data-active')).toBe(false);
-    expect(screen.getAllByTestId('workspace-item')).toHaveLength(2);
-    expect(screen.getByRole('button', { name: '添加 workspace' }) !== null).toBe(true);
+    expect(within(workspaceTrigger()).getByText('beta') !== null).toBe(true);
   });
 
   it('既有挂钩回归：页面组四项与系统工具组（nav-agent / nav-db）的组归属与激活语义（扩员不改变他项）', () => {

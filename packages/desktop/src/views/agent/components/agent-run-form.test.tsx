@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vite-plus/test';
 
 import type { AgentInstanceRecord, AgentPermissionMode } from '../../../types/dto';
@@ -35,6 +35,35 @@ function startButton(): HTMLButtonElement {
 
 function selectOf(testId: string): HTMLSelectElement {
   return screen.getByTestId(testId);
+}
+
+/** agent-select 为 StandardSelect（base-ui Select）：testid 落在 SelectValue
+ * span（data-value 承载选中 id），trigger 为其外层 button（role=combobox）。 */
+function agentValue(): HTMLElement {
+  return screen.getByTestId('agent-select');
+}
+
+function agentTrigger(): HTMLElement {
+  const trigger = agentValue().closest('button');
+  if (!trigger) throw new Error('agent-select 不在 trigger button 内');
+  return trigger;
+}
+
+/** 打开 agent 选择器：base-ui Select 以 mousedown 打开、开启动作为 frame
+ * 异步执行，以 listbox 出现收敛最终态。 */
+async function openAgentSelect(): Promise<void> {
+  fireEvent.mouseDown(agentTrigger());
+  await screen.findByRole('listbox');
+}
+
+/** 打开选择器并点选指定 label 项：pointerDown 先行满足 base-ui 鼠标选择
+ * 守卫（allowMouseSelectionRef），click 提交选中。option 查询收敛在 listbox
+ * 内（native permission-mode select 的 option 同样呈 role=option）。 */
+async function pickAgent(label: string): Promise<void> {
+  await openAgentSelect();
+  const option = within(screen.getByRole('listbox')).getByRole('option', { name: label });
+  fireEvent.pointerDown(option);
+  fireEvent.click(option);
 }
 
 describe('AgentRunForm：参数面默认值与 prompt 必填（AC-5）', () => {
@@ -89,30 +118,35 @@ describe('AgentRunForm：onStart 回调与档位切换', () => {
 });
 
 describe('AgentRunForm：agent 选择器（调试页 agent 选择，默认选中默认 agent）', () => {
-  it('空清单：agent-select 仅存缺省项且值为缺省（发起走后端缺省解析）', () => {
+  it('空清单：trigger 呈缺省占位（请选择）、data-value 缺席、弹层无 option（发起走后端缺省解析）', async () => {
     mount();
 
-    expect(selectOf('agent-select').value).toBe('');
-    const values = Array.from(selectOf('agent-select').options).map((option) => option.value);
-    expect(values).toEqual(['']);
+    expect(agentValue().getAttribute('data-value')).toBeNull();
+    expect(agentValue().textContent).toBe('请选择');
+
+    await openAgentSelect();
+    expect(within(screen.getByRole('listbox')).queryAllByRole('option')).toHaveLength(0);
   });
 
-  it('清单含默认 agent：初始即选中默认 agent（isDefault 记录 id）', () => {
+  it('清单含默认 agent：初始即选中默认 agent（isDefault 记录 id，trigger 呈其 label）', async () => {
     mount(false, [agentInstance(3, 'cli-a', 'cli'), agentInstance(7, 'sdk-b', 'sdk', true)]);
 
-    expect(selectOf('agent-select').value).toBe('7');
-    const values = Array.from(selectOf('agent-select').options).map((option) => option.value);
-    expect(values).toEqual(['', '3', '7']);
+    expect(agentValue().getAttribute('data-value')).toBe('7');
+    expect(agentValue().textContent).toBe('sdk-b（sdk）');
+
+    await openAgentSelect();
+    const options = within(screen.getByRole('listbox')).getAllByRole('option');
+    expect(options.map((option) => option.textContent)).toEqual(['cli-a（cli）', 'sdk-b（sdk）']);
   });
 
-  it('切至显式 agent 后启动 → onStart 以 { prompt, permissionMode, agent: 3 } 恰调用一次', () => {
+  it('切至显式 agent 后启动 → onStart 以 { prompt, permissionMode, agent: 3 } 恰调用一次', async () => {
     const { onStart } = mount(false, [
       agentInstance(3, 'cli-a', 'cli'),
       agentInstance(7, 'sdk-b', 'sdk', true),
     ]);
 
-    fireEvent.change(selectOf('agent-select'), { target: { value: '3' } });
-    expect(selectOf('agent-select').value).toBe('3');
+    await pickAgent('cli-a（cli）');
+    expect(agentValue().getAttribute('data-value')).toBe('3');
     typePrompt('显式 agent 调试轮');
     fireEvent.click(startButton());
 
@@ -124,21 +158,16 @@ describe('AgentRunForm：agent 选择器（调试页 agent 选择，默认选中
     } satisfies AgentStartInput);
   });
 
-  it('程序性注入清单外 option 值（yolo）→ 不炸、发起不携带非法 agent（jsdom 归一缺省项）', () => {
+  it('不显式选择直接发起 → onStart 携带默认 agent（7）（自定义选择器无清单外注入面，默认落位即兜底）', () => {
     const { onStart } = mount(false, [agentInstance(7, 'sdk-b', 'sdk', true)]);
-
-    // 浏览器 select 不可能产生清单外选中值（守卫为 defense-in-depth）；jsdom
-    // 对无匹配 option 的 select.value 归一为 ''（缺省项），组件按缺省语义承接
-    fireEvent.change(selectOf('agent-select'), { target: { value: 'yolo' } });
 
     typePrompt('清单外 agent 轮');
     fireEvent.click(startButton());
     expect(onStart).toHaveBeenCalledWith({
       prompt: '清单外 agent 轮',
       permissionMode: 'bypassPermissions',
-      agent: null,
+      agent: 7,
     } satisfies AgentStartInput);
-    expect(onStart.mock.calls[0]?.[0]).not.toHaveProperty('agent', 'yolo');
   });
 });
 
