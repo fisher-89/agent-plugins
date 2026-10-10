@@ -15,11 +15,12 @@ pub(crate) use create::utc_date;
 pub use create::{create, CreateOutcome};
 pub use decision_log::{decision_log, DecisionLogOutcome};
 pub use phase_log::{phase_log, PhaseLogInput, PhaseLogOutcome};
-pub use phase_next::{phase_next, LastResult, PhaseNextError, PhaseNextOutcome, SessionAnchors};
+pub use phase_next::{
+    phase_next, LastResult, PhaseNextError, PhaseNextOutcome, ResolvedPhaseSpec, SessionAnchors,
+};
 pub use phase_start::{phase_start, PhaseStartOutcome};
 pub use phase_table::{
-    allowed_backtrack_phases, interpolate, phase_table, PhaseAgentSpec, PhaseDefinition,
-    MAX_RETRY_TIMES,
+    allowed_backtrack_phases, phase_table, PhaseAgentSpec, PhaseDefinition, MAX_RETRY_TIMES,
 };
 pub use run::{run_finish, run_start};
 pub use worktree::{InstallRun, RepoProbe, WorktreePort};

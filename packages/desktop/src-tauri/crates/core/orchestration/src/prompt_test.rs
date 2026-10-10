@@ -1,59 +1,36 @@
 use crate::decision::{CandidateReport, DecisionInput};
-use crate::prompt::{decision_prompt, evaluator_prompt, executor_prompt};
+use crate::prompt::{decision_prompt, evaluator_prompt};
 use workflow::model::{ChecklistItem, Verdict};
 
 #[test]
-fn executor_prompt三段组装角色要点与prompt主体() {
-    let phase_prompt =
-        "Implement the code for change \"桌面变更\".\n第二行中文\n**markdown 标记** <特殊> & 字符";
-
-    let prompt = executor_prompt("__CALL_AGENT:implementation-generator__", phase_prompt);
-
-    // 三段齐备：角色要点前导（剥离 __CALL_AGENT:…__ 取角色名）+ prompt 主体
-    assert!(
-        prompt.contains("implementation-generator"),
-        "角色要点前导在场（角色名自令牌剥离）: {prompt}"
-    );
-    assert!(
-        prompt.contains("__CALL_AGENT:") == false,
-        "令牌不透传 prompt（剥离约定）"
-    );
-    assert!(
-        prompt.contains(phase_prompt),
-        "已插值 phase prompt 主体保真（换行 / 中文 / markdown / 特殊字符不损）"
-    );
-
-    // 未收录角色落通用要点兜底
-    let fallback = executor_prompt("__CALL_AGENT:未知角色__", "p");
-    assert!(
-        fallback.contains("未知角色") && fallback.contains("角色要点"),
-        "未收录角色落通用要点兜底不崩"
-    );
-    // 裸 agent_type 原样作角色名
-    let bare = executor_prompt("test-design-planner", "p");
-    assert!(bare.contains("test-design-planner"), "裸 agent_type 原样");
-}
-
-#[test]
-fn evaluator_prompt协议附录与checklist_json形状() {
+fn evaluator_prompt协议附录瘦身形状与红线() {
     let phase_prompt = "Evaluate implement phase for change \"c\".";
     let prompt = evaluator_prompt(phase_prompt);
 
-    // 协议附录：禁调 MCP 写通道四件 + 最终消息 checklist JSON 形状约定
+    // 协议附录：禁调 MCP 写通道四件 + 最终消息 checklist JSON 瘦身形状
     assert!(prompt.contains("## 输出协议"), "附录段在场");
+    assert!(prompt.contains("禁止调用"), "禁调 MCP 红线前置语在场");
+    for tool in ["phase_log", "phase_next", "phase_start", "backtrack"] {
+        assert!(prompt.contains(tool), "写通道四件红线含 {tool}");
+    }
     assert!(
-        prompt.contains("phase_log") && prompt.contains("禁止调用"),
-        "禁调 MCP phase-log 指令在场（写通道唯一红线）"
-    );
-    assert!(prompt.contains("phase_next") && prompt.contains("backtrack"));
-    assert!(
-        prompt.contains("\"verdict\"") && prompt.contains("\"checklist\""),
-        "checklist JSON 形状约定在场"
+        prompt.contains("\"verdict\"")
+            && prompt.contains("\"report\"")
+            && prompt.contains("\"checklist\""),
+        "checklist JSON 瘦身形状（verdict / report / checklist）约定在场"
     );
     assert!(prompt.contains("2000"), "report 上限约定在场");
     assert!(
-        prompt.contains(phase_prompt),
-        "已插值 phase prompt 主体保真（AC-2 evaluator 输出协议 + AC-3 prompt 半边）"
+        !prompt.contains("\"phase\"")
+            && !prompt.contains("\"attempt\"")
+            && !prompt.contains("\"skipped\""),
+        "MUST NOT 要求 phase / attempt / skipped 回声（walker 按 provenance 盖戳）"
+    );
+    // 静态角色知识主体逐字节保真：仅 append 协议附录（零重写 / 零插值）
+    assert_eq!(
+        prompt,
+        format!("{phase_prompt}{}", evaluator_prompt("")),
+        "phase_prompt 逐字节保真（仅追加协议附录）"
     );
 }
 
@@ -78,7 +55,7 @@ fn decision_prompt有界组装五段在场() {
     let prompt = decision_prompt(&input);
 
     // 五段逐段在场：失败相位信封 + fail checklist 行 + 白名单行 + 候选 eval
-    // report + 四动作封闭集说明（AC-2 有界输入半边）
+    // report + 四动作封闭集说明（有界输入半边）
     assert!(
         prompt.contains("test-gen") && prompt.contains("3"),
         "失败相位信封"
@@ -140,7 +117,7 @@ fn decision_prompt空集三态组装不崩段落缺席稳定() {
 
 #[test]
 fn prompt确定性_同输入重复组装逐字节一致() {
-    let phase_prompt = "固定模板 <占位不处理>";
+    let phase_prompt = "固定静态主体（零占位）";
     let input = DecisionInput {
         phase: "implement".to_owned(),
         attempt: 2,
@@ -153,11 +130,6 @@ fn prompt确定性_同输入重复组装逐字节一致() {
         candidates: Vec::new(),
     };
 
-    assert_eq!(
-        executor_prompt("__CALL_AGENT:implementation-generator__", phase_prompt),
-        executor_prompt("__CALL_AGENT:implementation-generator__", phase_prompt),
-        "executor prompt 无时钟 / 随机参与"
-    );
     assert_eq!(
         evaluator_prompt(phase_prompt),
         evaluator_prompt(phase_prompt),

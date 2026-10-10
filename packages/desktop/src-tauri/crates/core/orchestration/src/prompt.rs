@@ -1,71 +1,20 @@
 use crate::decision::{DecisionInput, MAX_REASON_CHARS};
 use crate::verdict::MAX_REPORT_CHARS;
 
-/// 剥离 `__CALL_AGENT:<role>__` 令牌取角色名；裸 agent_type 原样返回。
-pub(crate) fn strip_call_agent(agent_type: &str) -> &str {
-    let token = agent_type.trim();
-    if let Some(rest) = token.strip_prefix("__CALL_AGENT:") {
-        if let Some(role) = rest.strip_suffix("__") {
-            return role;
-        }
-    }
-    token
-}
-
-/// 角色要点静态表（桌面内置；插件 agents/<role>.md 章旨的浓缩镜像）。
-fn role_brief(role: &str) -> &'static str {
-    match role {
-        "proposal-planner" => {
-            "读项目上下文，产出 proposal.md（问题 / 提案 / 验收标准 / 风险）与 specs 能力基线增量"
-        }
-        "proposal-evaluator" => "以静态二项清单评估 proposal 的完整性与可验收性，不臆测未落盘内容",
-        "dev-design-planner" => {
-            "基于定稿 proposal 产出 design.md（架构组件 / 变更清单 / 数据模型 / 决策留痕）"
-        }
-        "dev-design-evaluator" => "以静态清单评估 design 对 proposal 的对齐与决策质量",
-        "test-design-planner" => {
-            "从 design 推导单元测试范围与公共 API 签名，产出 test-design.md（不写测试命令）"
-        }
-        "test-design-evaluator" => "以静态清单评估 test-design 的覆盖度与可执行性",
-        "implementation-generator" => {
-            "按 design.md / tasks.md 直接写实现代码到盘，遵循既有代码风格"
-        }
-        "implementation-evaluator" => "以静态清单评估实现与 design 变更清单的一致性",
-        "test-gen-generator" => "按 test-design.md 写测试文件，只测自研层不测库语义",
-        "test-gen-evaluator" => "以静态清单评估测试代码对 test-design 的符合度",
-        "test-execution-executor" => "执行自动化测试并产出执行报告，修复阻断性执行错误",
-        "test-execution-evaluator" => "校验测试执行报告完整性，应用诊断决策树给出 verdict 与根因",
-        "code-review-evaluator" => "以安全 / 测试覆盖 / 错误处理静态清单评审代码",
-        "acceptance-evaluator" => "按 proposal 验收标准以静态二项清单评估代码库",
-        "code-analyze-planner" => "逆向现有代码架构，产出 test-only 工作流的 design.md",
-        "code-analyze-evaluator" => "以静态清单评估逆向 design 与架构事实的一致性",
-        _ => "完成相位 prompt 指定的工作；结论以事实为据，不臆测未验证内容",
-    }
-}
-
-/// executor prompt
-pub fn executor_prompt(agent_type: &str, phase_prompt: &str) -> String {
-    let role = strip_call_agent(agent_type);
-    format!(
-        "你以角色「{role}」执行本次相位工作。角色要点：{}\n\n---\n\n{phase_prompt}",
-        role_brief(role)
-    )
-}
-
 /// evaluator 输出协议附录：写通道唯一红线（禁调 MCP phase-log / phase-next /
 /// phase_start / backtrack，落账由桌面 walker 代写）+ 最终消息 checklist JSON
-/// 形状与 attempt 信封约定（phase / attempt 以 prompt 标注的相位工作为准）。
+/// 形状（phase / attempt / skipped 由 walker 按 provenance 盖戳，evaluator 不回声）。
 fn evaluator_protocol() -> String {
     format!(
         "\n\n---\n\n## 输出协议（必须遵守）\n\n\
 1. 禁止调用 MCP 工具 phase_log / phase_next / phase_start / backtrack：评估落账由桌面编排代写，你只产出评估结论。\n\
 2. 评估完成后，最终消息必须输出且仅输出一个 checklist JSON 对象（裸 JSON 或 ```json 围栏代码块均可），形状：\n\n\
-{{\n  \"phase\": \"<评估的相位 id>\",\n  \"attempt\": <本相位 attempt 号>,\n  \"verdict\": \"pass\" | \"fail\",\n  \"report\": \"评估报告（不超过 {MAX_REPORT_CHARS} 字符）\",\n  \"checklist\": [{{\"item\": \"检查项名称\", \"pass\": true, \"evidence\": \"检查依据\"}}],\n  \"skipped\": false\n}}\n\n\
-3. phase / attempt 以你实际评估的相位工作为准；checklist 至少一项，pass 为布尔值，evidence 必须给出事实依据。"
+{{\n  \"verdict\": \"pass\" | \"fail\",\n  \"report\": \"评估报告（不超过 {MAX_REPORT_CHARS} 字符）\",\n  \"checklist\": [{{\"item\": \"检查项名称\", \"pass\": true, \"evidence\": \"检查依据\"}}]\n}}\n\n\
+3. checklist 至少一项，pass 为布尔值，evidence 必须给出事实依据；不要输出 phase / attempt / skipped 字段（由桌面编排按 provenance 盖戳）。"
     )
 }
 
-/// evaluator prompt
+/// evaluator prompt：静态角色知识主体 + 输出协议附录（唯一动态 append）。
 pub fn evaluator_prompt(phase_prompt: &str) -> String {
     format!("{phase_prompt}{}", evaluator_protocol())
 }

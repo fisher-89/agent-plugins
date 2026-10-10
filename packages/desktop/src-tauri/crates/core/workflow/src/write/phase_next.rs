@@ -2,19 +2,22 @@
 //! 重试上限判定 / backtrack 目标路由 / mid-phase interruption（会话锚点比对
 //! ——进程内复活，中断相位由重入的窗口比对标定）。[`phase_next`] 不改状态库
 //! （只读路由，stale 标记归 [`backtrack`](super::backtrack) 单点）；executor /
-//! evaluator prompt 已插值随行下发，白名单随行（walker 缓存带
-//! 走，不自相位表推导——守住路由红线）。状态读取单源自 workspace 库（经
+//! evaluator prompt 以静态角色知识为主体、上下文头 `change:` + 记录 `name` 与
+//! 回溯原因行 append 后随行下发，白名单随行（walker 缓存带走，不自相位表推导
+//! ——守住路由红线）。状态读取单源自 workspace 库（经
 //! [`ChangeStateStore`](crate::state::ChangeStateStore) port 缝，D8：锚点基线
 //! 平移为 PhaseRecord 行数）。
 
 use std::collections::HashMap;
 use std::sync::Mutex;
 
+use agent::ModelLevel;
+
 use crate::model::Verdict;
 use crate::state::{ChangeStateStore, PhaseStateRecord};
 use crate::write::phase_table::{
-    allowed_backtrack_phases, interpolate, phase_table, PhaseAgentSpec, PhaseDefinition,
-    MAX_RETRY_TIMES, MAX_ROUNDS,
+    allowed_backtrack_phases, phase_table, PhaseAgentSpec, PhaseDefinition, MAX_RETRY_TIMES,
+    MAX_ROUNDS,
 };
 
 /// 进程内会话锚点：(change_id, run_id) → 首见时 PhaseRecord 行数基线。每 run
@@ -59,7 +62,16 @@ pub struct LastResult {
     pub timestamp: Option<i64>,
 }
 
-/// 路由产出（executor / evaluator prompt 已插值；白名单随行下发）。
+/// 路由产出的已组装角色会话规格：静态角色知识主体 + 上下文头
+/// `change:` + 记录 `name`（append）+ 回溯原因行（append）；跨 crate 消费方
+///（orchestration）只消费本类型。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ResolvedPhaseSpec {
+    pub prompt: String,
+    pub model_level: ModelLevel,
+}
+
+/// 路由产出（executor / evaluator prompt 已组装；白名单随行下发）。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PhaseNextOutcome {
     /// 全相位 pass 走完（run 收口，不触发归档）
@@ -67,16 +79,16 @@ pub struct PhaseNextOutcome {
     pub next_phase: Option<String>,
     /// 会话窗口轮次（窗口条目数 + 1）
     pub round: u32,
-    pub executor: Option<PhaseAgentSpec>,
-    pub evaluator: Option<PhaseAgentSpec>,
+    pub executor: Option<ResolvedPhaseSpec>,
+    pub evaluator: Option<ResolvedPhaseSpec>,
     pub allowed_backtrack_phases: Vec<String>,
     pub last_result: Option<LastResult>,
     pub error: Option<PhaseNextError>,
 }
 
 /// 只读路由状态机（按 change **id** 寻址）：不改状态库。路由权威唯一——
-/// walker 每步过渡都问本函数，白名单经其缓存下发；prompt 插值的 change 段
-/// 由记录 `name` 供给（id → 记录 → name 分辨率单点）。
+/// walker 每步过渡都问本函数，白名单经其缓存下发；上下文头的 change 段由记录
+/// `name` 供给（id → 记录 → name 分辨率单点）。
 pub fn phase_next(
     store: &dyn ChangeStateStore,
     change_id: &str,
@@ -218,8 +230,8 @@ fn latest_result(entries: &[PhaseStateRecord]) -> Option<LastResult> {
     })
 }
 
-/// 正常路由响应：prompt 插值（`<change>` 段取记录 name / `<phase>`）+ 回溯
-/// 原因后缀 + 白名单随行（与插件 `buildPhaseResponse` 同语义）。
+/// 正常路由响应：上下文头（`change:` + 记录 `name`）+ 静态角色知识主体 +
+/// 回溯原因后缀 + 白名单随行（append 组装，零模板替换）。
 fn build_phase_response(
     table: &'static [PhaseDefinition],
     def: &PhaseDefinition,
@@ -228,12 +240,12 @@ fn build_phase_response(
     backtrack_reason: Option<&str>,
     last_result: Option<LastResult>,
 ) -> PhaseNextOutcome {
+    let context_header = format!("change: {name}\n\n");
     let reason_suffix = backtrack_reason
         .map(|reason| format!("\n\n⚠️ 回溯原因: {reason}"))
         .unwrap_or_default();
-    let resolve = |spec: &PhaseAgentSpec| PhaseAgentSpec {
-        agent_type: spec.agent_type.clone(),
-        prompt: interpolate(&spec.prompt, name, Some(def.id)) + &reason_suffix,
+    let resolve = |spec: &PhaseAgentSpec| ResolvedPhaseSpec {
+        prompt: format!("{context_header}{}{reason_suffix}", spec.prompt),
         model_level: spec.model_level,
     };
     PhaseNextOutcome {

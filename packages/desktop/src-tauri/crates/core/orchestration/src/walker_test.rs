@@ -565,6 +565,9 @@ fn route_outcome(phase: &str, allowed: &[&str]) -> PhaseNextOutcome {
     route_with_round(phase, allowed, 1, None)
 }
 
+/// 预录路由产出装置：executor / evaluator prompt 为**已组装**的静态主体
+/// （`change: c` 上下文头在场——与 phase_next 组装面同形，消费面断言的事实源）；
+/// `ResolvedPhaseSpec` 去 `agent_type`（编译期结构锚），档位由装置给定。
 fn route_with_round(
     phase: &str,
     allowed: &[&str],
@@ -575,14 +578,12 @@ fn route_with_round(
         done: false,
         next_phase: Some(phase.to_owned()),
         round,
-        executor: Some(workflow::write::PhaseAgentSpec {
-            agent_type: "__CALL_AGENT:implementation-generator__".to_owned(),
-            prompt: format!("Implement the code for change \"c\" ({phase})."),
+        executor: Some(workflow::write::ResolvedPhaseSpec {
+            prompt: format!("change: c\n\nImplement the {phase} phase for change \"c\"."),
             model_level: ModelLevel::Low,
         }),
-        evaluator: Some(workflow::write::PhaseAgentSpec {
-            agent_type: "__CALL_AGENT:implementation-evaluator__".to_owned(),
-            prompt: format!("Evaluate {phase} phase for change \"c\"."),
+        evaluator: Some(workflow::write::ResolvedPhaseSpec {
+            prompt: format!("change: c\n\nEvaluate the {phase} phase for change \"c\"."),
             model_level: ModelLevel::High,
         }),
         allowed_backtrack_phases: allowed.iter().map(|id| id.to_string()).collect(),
@@ -1014,6 +1015,76 @@ async fn pass自动推进至done且载荷逐条对齐() {
             (CHANGE_ID.to_owned(), "dev-design".to_owned(), true),
         ],
         "PhaseLog 载荷（change / phase / 全 pass checklist）逐条对齐"
+    );
+}
+
+/// walk_run 上下文头消费面（新增）：executor 分支直出
+/// `ResolvedPhaseSpec.prompt` 静态主体（已携 `change: <name>` 上下文头，零
+/// `__CALL_AGENT` 令牌残留——不再经 `executor_prompt` 二次包裹）；evaluator
+/// 分支经 `evaluator_prompt` 在静态主体尾部 append 输出协议；两槽位
+/// `model_level` 取自 `ResolvedPhaseSpec` 档位（装置适配的档位保真面——AC-5）。
+#[tokio::test]
+async fn 上下文头消费面_executor直出主体evaluator尾随协议附录() {
+    let timeline = Arc::new(Mutex::new(Vec::new()));
+    let (worker, requests, _sessions) = FakeWorker::new(&timeline).assemble();
+    let (tools, _) = FakeTools::new(&timeline)
+        .with_phase_next(vec![route_outcome("proposal", &[]), done_outcome()])
+        .assemble();
+
+    let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
+    let control = Arc::new(ChangeFlowControl::new());
+
+    let (task, _rx, _history) = spawn_run(worker, tools, snapshot, &control, false, "/tmp/root");
+    let _confirmer = spawn_confirmer(&control, true);
+    let status = task.await.expect("run 任务正常结束");
+    assert_eq!(status, ChangeRunStatus::Completed);
+
+    let requests = requests.lock().expect("请求锁");
+    let executor = requests
+        .iter()
+        .find(|request| request.role == WorkerRole::Executor)
+        .expect("executor 会话在场");
+    assert!(
+        executor.prompt.contains("change: c"),
+        "executor prompt 直出静态主体携上下文头 change: <name>: {}",
+        executor.prompt
+    );
+    assert!(
+        !executor.prompt.contains("__CALL_AGENT"),
+        "executor prompt 零 __CALL_AGENT 令牌残留: {}",
+        executor.prompt
+    );
+    assert_eq!(
+        executor.model_level,
+        ModelLevel::Low,
+        "executor 档位取自 ResolvedPhaseSpec（装置档位保真）"
+    );
+
+    let evaluator = requests
+        .iter()
+        .find(|request| request.role == WorkerRole::Evaluator)
+        .expect("evaluator 会话在场");
+    assert!(
+        !evaluator.prompt.contains("__CALL_AGENT"),
+        "evaluator prompt 零 __CALL_AGENT 令牌残留"
+    );
+    assert_eq!(
+        evaluator.model_level,
+        ModelLevel::High,
+        "evaluator 档位取自 ResolvedPhaseSpec（装置档位保真）"
+    );
+    let protocol_at = evaluator
+        .prompt
+        .find("## 输出协议")
+        .expect("协议附录尾随在场");
+    assert!(
+        evaluator.prompt[..protocol_at].contains("change: c"),
+        "协议附录仅 append 于静态主体之后（主体携上下文头）: {}",
+        evaluator.prompt
+    );
+    assert!(
+        evaluator.prompt[protocol_at..].contains("\"checklist\""),
+        "协议附录携 checklist JSON 形状"
     );
 }
 

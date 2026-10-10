@@ -11,14 +11,13 @@ use workflow::model::{ChecklistItem, Verdict};
 pub const MAX_REPORT_CHARS: usize = 2000;
 
 /// verdict 封闭结构：evaluator 最终消息输出的 checklist JSON 形状。
+/// phase / attempt / skipped 由 walker 按 provenance 盖戳落账（evaluator 不回声，
+/// 故本类型不含三字段；serde 无 `deny_unknown_fields`，多余字段静默忽略）。
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 pub struct EvaluatorChecklist {
-    pub phase: String,
-    pub attempt: Option<u32>,
     pub verdict: Verdict,
     pub report: String,
     pub checklist: Vec<ChecklistItem>,
-    pub skipped: Option<bool>,
 }
 
 /// 从最终消息文本提取 JSON 载体：裸 JSON 直取；围栏代码块剥壳；兜底取首个

@@ -1,23 +1,21 @@
 //! `verdict.rs`（evaluator verdict 解析器）的单元测试（test-design「verdict.rs
 //! -> verdict_test.rs」节）：合法裸 JSON / 围栏代码块容忍 / verdict 值域封闭 /
-//! report 长度门 / checklist 行解析 / 结构漂移显式失败 / skipped 三形态。
+//! report 长度门 / checklist 行解析 / 结构漂移显式失败 / 多余字段静默忽略
+//!（evaluator 若回声 phase / attempt / skipped，walker 权威忽略）。
 //! 无进程边界依赖：最终消息以字符串 fixture 内存构造（合法 / 围栏 / 漂移 /
 //! 超长四族）——Mock策略：无 mock。
 
-use crate::verdict::{parse_verdict, MAX_REPORT_CHARS};
+use crate::verdict::{parse_verdict, EvaluatorChecklist, MAX_REPORT_CHARS};
 use workflow::model::Verdict;
 
-/// 合法 checklist JSON（attempt 显式形态）。
+/// 合法 checklist JSON（瘦身形状：仅 verdict / report / checklist 三键）。
 const VALID_JSON: &str = r#"{
-  "phase": "implement",
-  "attempt": 2,
   "verdict": "pass",
   "report": "实现与变更清单一致",
   "checklist": [
     { "item": "写面五写操作齐备", "pass": true, "evidence": "phase_table/phase_next/phase_start/phase_log/backtrack 全部在位" },
     { "item": "spawn 不进 core", "pass": true, "evidence": "orchestration 零进程 spawn" }
-  ],
-  "skipped": false
+  ]
 }"#;
 
 #[test]
@@ -25,12 +23,9 @@ fn 合法裸json解析逐字段相等且checklist落域类型() {
     let checklist = parse_verdict(VALID_JSON).expect("合法 JSON 应解析成功");
 
     // 逐字段相等（载荷换血承接——checklist 行落 workflow::model::ChecklistItem
-    // 域类型，差异表 #15 无视图镜像层）
-    assert_eq!(checklist.phase, "implement");
-    assert_eq!(checklist.attempt, Some(2));
+    // 域类型，无视图镜像层）
     assert_eq!(checklist.verdict, Verdict::Pass);
     assert_eq!(checklist.report, "实现与变更清单一致");
-    assert!(!checklist.skipped.expect("skipped 显式在场"));
     assert_eq!(checklist.checklist.len(), 2);
     let first = &checklist.checklist[0];
     assert_eq!(first.item, "写面五写操作齐备");
@@ -43,7 +38,6 @@ fn 围栏代码块包裹与混杂叙述容忍提取解析成功() {
     // ```json 围栏包裹
     let fenced = format!("```json\n{VALID_JSON}\n```");
     let parsed = parse_verdict(&fenced).expect("围栏包裹应解析成功");
-    assert_eq!(parsed.phase, "implement");
     assert_eq!(parsed.verdict, Verdict::Pass);
 
     // 围栏前后混杂叙述文本（evaluator 真实输出形态）
@@ -78,11 +72,10 @@ fn verdict值域封闭_越界字符串err() {
 
 #[test]
 fn report超长拒绝_解析层先拒() {
-    // report > 2000 字符 → Err 拒绝（解析层先拒、写面落账层再拒双闸——AC-9）
+    // report > 2000 字符 → Err 拒绝（解析层先拒、写面落账层再拒双闸）
     let long_report = "评".repeat(MAX_REPORT_CHARS + 1);
-    let overflowing = format!(
-        r#"{{ "phase": "implement", "attempt": 1, "verdict": "pass", "report": "{long_report}", "checklist": [] }}"#
-    );
+    let overflowing =
+        format!(r#"{{ "verdict": "pass", "report": "{long_report}", "checklist": [] }}"#);
     let err = parse_verdict(&overflowing).expect_err("超长 report 应 Err");
     assert!(
         err.contains("超长") && err.contains("2000"),
@@ -91,25 +84,20 @@ fn report超长拒绝_解析层先拒() {
 
     // 恰 2000 字符通过（边界含端点）
     let exact = "评".repeat(MAX_REPORT_CHARS);
-    let exact_json = format!(
-        r#"{{ "phase": "implement", "attempt": 1, "verdict": "pass", "report": "{exact}", "checklist": [] }}"#
-    );
+    let exact_json = format!(r#"{{ "verdict": "pass", "report": "{exact}", "checklist": [] }}"#);
     assert!(parse_verdict(&exact_json).is_ok(), "恰 2000 字符边界通过");
 }
 
 #[test]
-fn checklist行解析_空数组多行与attempt缺席() {
+fn checklist行解析_空数组与多行() {
     // 空数组
-    let empty = parse_verdict(
-        r#"{ "phase": "code-review", "attempt": 1, "verdict": "pass", "report": "OK", "checklist": [], "skipped": true }"#,
-    )
-    .expect("空 checklist 应解析");
+    let empty = parse_verdict(r#"{ "verdict": "pass", "report": "OK", "checklist": [] }"#)
+        .expect("空 checklist 应解析");
     assert!(empty.checklist.is_empty());
-    assert_eq!(empty.skipped, Some(true));
 
     // 多行 item / pass / evidence
     let multi = parse_verdict(
-        r#"{ "phase": "test-execution", "attempt": 3, "verdict": "fail", "report": "两条未过", "checklist": [
+        r#"{ "verdict": "fail", "report": "两条未过", "checklist": [
             { "item": "rust 套件全绿", "pass": true, "evidence": "cargo test 通过" },
             { "item": "前端套件全绿", "pass": false, "evidence": "2 用例失败" },
             { "item": "knip 无新增", "pass": true, "evidence": "报告零新增豁免" }
@@ -119,26 +107,37 @@ fn checklist行解析_空数组多行与attempt缺席() {
     assert_eq!(multi.checklist.len(), 3);
     assert_eq!(multi.checklist[1].pass, false);
     assert_eq!(multi.checklist[1].evidence, "2 用例失败");
-    assert_eq!(multi.attempt, Some(3));
+}
 
-    // attempt 缺席形态解析无损（Option 缺省）
-    let no_attempt = parse_verdict(
-        r#"{ "phase": "acceptance", "verdict": "pass", "report": "OK", "checklist": [] }"#,
+#[test]
+fn 多余字段静默忽略_walker权威盖戳() {
+    // evaluator 若仍回声 phase / attempt / skipped（旧协议形态），serde 无
+    // deny_unknown_fields → 静默忽略；phase / attempt / skipped 由 walker 盖戳
+    let legacy = parse_verdict(
+        r#"{ "phase": "implement", "attempt": 2, "verdict": "pass", "report": "OK", "checklist": [], "skipped": false }"#,
     )
-    .expect("attempt 缺席应解析");
-    assert_eq!(no_attempt.attempt, None);
-    assert_eq!(no_attempt.skipped, None, "skipped 缺席 → None");
+    .expect("多余字段应静默忽略");
+    // 结构收敛（编译期锚）：穷尽解构恰 verdict / report / checklist 三字段
+    //——phase / attempt / skipped 无字段可落，回声值静默丢弃
+    let EvaluatorChecklist {
+        verdict,
+        report,
+        checklist,
+    } = legacy;
+    assert_eq!(verdict, Verdict::Pass);
+    assert_eq!(report, "OK");
+    assert!(checklist.is_empty());
 }
 
 #[test]
 fn 结构漂移显式失败均err停给用户() {
     // 缺 verdict
-    let no_verdict = r#"{ "phase": "implement", "attempt": 1, "report": "OK", "checklist": [] }"#;
+    let no_verdict = r#"{ "report": "OK", "checklist": [] }"#;
     let err = parse_verdict(no_verdict).expect_err("缺 verdict 应 Err");
     assert!(err.contains("结构漂移"), "记因: {err}");
 
     // checklist 行缺 evidence
-    let no_evidence = r#"{ "phase": "implement", "attempt": 1, "verdict": "pass", "report": "OK",
+    let no_evidence = r#"{ "verdict": "pass", "report": "OK",
         "checklist": [ { "item": "项", "pass": true } ] }"#;
     let err = parse_verdict(no_evidence).expect_err("缺 evidence 应 Err");
     assert!(err.contains("结构漂移"), "记因: {err}");
@@ -154,30 +153,4 @@ fn 结构漂移显式失败均err停给用户() {
     // 空文本
     assert!(parse_verdict("").is_err(), "空消息显式缺席");
     assert!(parse_verdict("   \n\t").is_err(), "空白消息显式缺席");
-}
-
-#[test]
-fn skipped三形态解析() {
-    let wire = |skipped: &str| {
-        format!(
-            r#"{{ "phase": "implement", "attempt": 1, "verdict": "pass", "report": "OK", "checklist": [], "skipped": {skipped} }}"#
-        )
-    };
-    assert_eq!(
-        parse_verdict(&wire("true")).expect("true 形态").skipped,
-        Some(true),
-        "skipped true（桌面代写升格场景载荷面）"
-    );
-    assert_eq!(
-        parse_verdict(&wire("false")).expect("false 形态").skipped,
-        Some(false)
-    );
-    assert_eq!(
-        parse_verdict(
-            r#"{ "phase": "implement", "attempt": 1, "verdict": "pass", "report": "OK", "checklist": [] }"#,
-        )
-        .expect("缺席形态")
-        .skipped,
-        None
-    );
 }

@@ -1,12 +1,9 @@
 use agent::ModelLevel;
 
-use super::phase_table::{
-    allowed_backtrack_phases, interpolate, phase_table, PhaseAgentSpec, MAX_RETRY_TIMES,
-};
+use super::phase_table::{allowed_backtrack_phases, phase_table, PhaseAgentSpec, MAX_RETRY_TIMES};
 
-/// 插件 requirement 相位表表序（与 `lib/workflow.ts` PHASES 一比一——AC-9
-/// 逐项对照口径）。
-const PLUGIN_PHASE_ORDER: [&str; 8] = [
+/// requirement 相位表表序（相位机语义锚；prompt 静态化不触动相位序）。
+const REQUIREMENT_PHASE_ORDER: [&str; 8] = [
     "proposal",
     "dev-design",
     "test-design",
@@ -27,18 +24,19 @@ const DUAL_ROLE_PHASES: [&str; 6] = [
     "test-execution",
 ];
 
-/// 评估-only 相位（executor 为 None，与插件表一致）。
+/// 评估-only 相位（executor 为 None）。
 const EVAL_ONLY_PHASES: [&str; 2] = ["code-review", "acceptance"];
 
 #[test]
-fn phase_table_requirement返回全表且相位序与插件逐项对照一致() {
+fn phase_table_requirement返回全表且相位序稳定() {
     let table = phase_table("requirement").expect("requirement 应返回 Some");
 
-    // 相位序逐项对照（移植面——AC-9 对照口径）
+    // 相位序稳定（prompt 静态化不漂移相位序 / 路由语义）
     let ids: Vec<&str> = table.iter().map(|def| def.id).collect();
-    assert_eq!(ids, PLUGIN_PHASE_ORDER.to_vec(), "相位序与插件相位表一致");
+    assert_eq!(ids, REQUIREMENT_PHASE_ORDER.to_vec(), "相位序稳定");
 
-    // 前六相位 executor / evaluator 两角色 PhaseAgentSpec 齐备
+    // 前六相位 executor / evaluator 两角色 PhaseAgentSpec 齐备：
+    // 结构锁 = 恰好 prompt / model_level 两字段（无 agent_type），prompt 为静态非空文本
     for def in table
         .iter()
         .filter(|def| DUAL_ROLE_PHASES.contains(&def.id))
@@ -51,30 +49,45 @@ fn phase_table_requirement返回全表且相位序与插件逐项对照一致() 
             .evaluator
             .as_ref()
             .unwrap_or_else(|| panic!("相位 {} 应有 evaluator 定义", def.id));
+        let PhaseAgentSpec {
+            prompt,
+            model_level,
+        } = executor;
         assert!(
-            executor.agent_type.starts_with("__CALL_AGENT:") && executor.agent_type.ends_with("__"),
-            "executor agent_type 保留 __CALL_AGENT:<role>__ 约定: {}",
-            executor.agent_type
+            !prompt.is_empty(),
+            "executor prompt 静态文本在场: {}",
+            def.id
         );
         assert!(
-            evaluator.agent_type.starts_with("__CALL_AGENT:")
-                && evaluator.agent_type.ends_with("__"),
-            "evaluator agent_type 保留 __CALL_AGENT:<role>__ 约定: {}",
-            evaluator.agent_type
+            matches!(model_level, ModelLevel::High | ModelLevel::Low),
+            "executor 档位在闭集内: {}",
+            def.id
         );
-        assert!(!executor.prompt.is_empty(), "executor prompt 模板在场");
-        assert!(!evaluator.prompt.is_empty(), "evaluator prompt 模板在场");
+        let PhaseAgentSpec {
+            prompt,
+            model_level,
+        } = evaluator;
+        assert!(
+            !prompt.is_empty(),
+            "evaluator prompt 静态文本在场: {}",
+            def.id
+        );
+        assert!(
+            matches!(model_level, ModelLevel::High | ModelLevel::Low),
+            "evaluator 档位在闭集内: {}",
+            def.id
+        );
     }
 
     // 评估-only 相位（code-review / acceptance）：evaluator 在场、executor None
-    // （与插件表一比一，不虚设 executor）
+    //（不虚设 executor）
     for def in table
         .iter()
         .filter(|def| EVAL_ONLY_PHASES.contains(&def.id))
     {
         assert!(
             def.executor.is_none(),
-            "评估-only 相位 {} executor 应为 None（与插件表一致）",
+            "评估-only 相位 {} executor 应为 None",
             def.id
         );
         assert!(
@@ -140,60 +153,68 @@ fn phase_table各相位模型档位分派对照() {
         .executor
         .clone()
         .unwrap_or_else(|| panic!("首相位有 executor"));
-    let PhaseAgentSpec { model_level, .. } = &spec;
+    let PhaseAgentSpec {
+        prompt: _,
+        model_level,
+    } = &spec;
     assert_eq!(*model_level, ModelLevel::High, "Clone 后档位保真");
+}
+
+/// PhaseAgentSpec 结构收敛（编译期锚）：穷尽解构恰 `prompt` / `model_level`
+/// 两字段（无 `..` 兜底——`agent_type` 等字段回归即编译失败）；`prompt` 类型
+/// 收窄为 `&'static str` 且静态非空。全表 14 条目（6 executor + 8 evaluator）
+/// 逐条覆盖——prompt 为 `include_str!` 编译期装配的静态角色知识，不因相位缺席。
+#[test]
+fn phase_table_agent_spec结构收敛且全表prompt静态非空() {
+    let table = phase_table("requirement").expect("requirement 应返回 Some");
+
+    let mut executor_count = 0usize;
+    let mut evaluator_count = 0usize;
+    for def in table {
+        if let Some(spec) = &def.executor {
+            let PhaseAgentSpec {
+                prompt,
+                model_level,
+            } = spec;
+            let _: &&'static str = prompt;
+            assert!(!prompt.is_empty(), "executor prompt 静态非空: {}", def.id);
+            assert!(
+                matches!(model_level, ModelLevel::High | ModelLevel::Low),
+                "executor 档位在闭集内: {}",
+                def.id
+            );
+            executor_count += 1;
+        }
+        if let Some(spec) = &def.evaluator {
+            let PhaseAgentSpec {
+                prompt,
+                model_level,
+            } = spec;
+            let _: &&'static str = prompt;
+            assert!(!prompt.is_empty(), "evaluator prompt 静态非空: {}", def.id);
+            assert!(
+                matches!(model_level, ModelLevel::High | ModelLevel::Low),
+                "evaluator 档位在闭集内: {}",
+                def.id
+            );
+            evaluator_count += 1;
+        }
+    }
+    assert_eq!(executor_count, 6, "6 executor 角色 prompt 齐备");
+    assert_eq!(evaluator_count, 8, "8 evaluator 角色 prompt 齐备");
 }
 
 #[test]
 fn 重试上限常量锚定为5与插件一致() {
-    // 与插件 `MAX_RETRY_TIMES` 一致——AC-1 重试上限语义的常量锚
+    // 与插件 `MAX_RETRY_TIMES` 一致——重试上限语义的常量锚
     assert_eq!(MAX_RETRY_TIMES, 5);
-}
-
-#[test]
-fn interpolate双占位符全量替换且其余字节保真() {
-    // 双占位符各自替换、多次出现全替换
-    let out = interpolate(
-        "<change>/<phase> 与 <change> 再见 <phase>",
-        "my-change",
-        Some("implement"),
-    );
-    assert_eq!(out, "my-change/implement 与 my-change 再见 implement");
-
-    // 模板其余字节（换行 / 中文 / markdown 标记）保真
-    let template = "# 提案\n\n为 change \"<change>\" 撰写 **proposal.md**。\n\n- 相位：<phase>\n";
-    let out = interpolate(template, "桌面变更", Some("test-design"));
-    assert_eq!(
-        out, "# 提案\n\n为 change \"桌面变更\" 撰写 **proposal.md**。\n\n- 相位：test-design\n",
-        "换行 / 中文 / markdown 标记不损"
-    );
-}
-
-#[test]
-fn interpolate_phase缺席时占位符保留而change照常替换() {
-    // phase=None：<phase> 按 None 语义保留不崩、<change> 照常替换
-    //（与插件 interpolatePrompt None 语义一致）
-    let out = interpolate("change=<change> phase=<phase>", "c1", None);
-    assert_eq!(out, "change=c1 phase=<phase>");
-}
-
-#[test]
-fn interpolate无占位符原样返回且未知占位符不误替换() {
-    // 无占位符模板原样返回
-    assert_eq!(interpolate("纯文本模板", "c", Some("p")), "纯文本模板");
-
-    // 未知占位符（<other>）不误替换
-    assert_eq!(
-        interpolate("<other> 与 <change>", "c", Some("p")),
-        "<other> 与 c"
-    );
 }
 
 #[test]
 fn 白名单首相位为空集无前置可回溯() {
     let table = phase_table("requirement").expect("requirement 应返回 Some");
 
-    // 表首相位 → 空白名单（无前置可回溯——AC-2 空白名单出口的相位表面）
+    // 表首相位 → 空白名单（无前置可回溯——空白名单出口的相位表面）
     assert!(
         allowed_backtrack_phases(table, "proposal").is_empty(),
         "首相位白名单应为空"
@@ -204,7 +225,7 @@ fn 白名单首相位为空集无前置可回溯() {
 fn 白名单返回表序前置集含自身() {
     let table = phase_table("requirement").expect("requirement 应返回 Some");
 
-    // 表中段相位 → 全部前置相位按表序返回（含自身——AC-2 白名单下发的内容面）
+    // 表中段相位 → 全部前置相位按表序返回（含自身——白名单下发的内容面）
     assert_eq!(
         allowed_backtrack_phases(table, "test-gen"),
         vec![
@@ -219,7 +240,7 @@ fn 白名单返回表序前置集含自身() {
     // 末相位覆盖全表
     assert_eq!(
         allowed_backtrack_phases(table, "acceptance"),
-        PLUGIN_PHASE_ORDER
+        REQUIREMENT_PHASE_ORDER
             .iter()
             .map(|id| id.to_string())
             .collect::<Vec<_>>(),

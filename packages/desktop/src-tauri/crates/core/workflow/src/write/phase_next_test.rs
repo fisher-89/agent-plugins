@@ -1,8 +1,8 @@
 //! `write::phase_next` 的单元测试（test-design「phase_next.rs ->
 //! phase_next_test.rs」节）：只读路由状态机（形参 change **id**）的初始 / 推进
 //! / fail 重试 / 重试上限 / 终态 / backtrack 目标路由 / 白名单下发 /
-//! last_result（i64 millis 直透）/ prompt 插值（`<change>` 段取 `record.name`
-//! ——id 串不误入 prompt，D7 插值改点）/ 会话锚点（复合键 `(change_id,
+//! last_result（i64 millis 直透）/ prompt 上下文头（`change:` 段取
+//! `record.name`——id 串不误入 prompt）/ 会话锚点（复合键 `(change_id,
 //! run_id)`、基线自 PhaseRecord 行数平移——D8、同 run_id 异 id 不串台、重启
 //! 新实例直接推进）/ StoreFault 故障传播 / 只读性 / 未建档 id 显式 Err。
 //!
@@ -27,7 +27,7 @@ use crate::state::{
 
 /// 身份锚字面量（路由入参——一切寻址以 id 为准；prompt 插值取 name）。
 const CHANGE_ID: &str = "0198f7a0-0000-7000-8000-0000000000e6";
-/// change 名（prompt `<change>` 段供给值——裸名，非身份键）。
+/// change 名（上下文头 `change:` 段供给值——裸名，非身份键）。
 const CHANGE_NAME: &str = "demo-change";
 /// 第二 change（锚点键 id 隔离用例：同 run_id 异 id 两键）。
 const CHANGE_ID_B: &str = "0198f7a0-0000-7000-8000-0000000000e7";
@@ -261,11 +261,10 @@ fn route(
 // ---------------------------------------------------------------------------
 
 /// 初始路由：建档零相位行（id 与 name 双值可辨）→ 首相位 proposal、
-/// round=1、executor / evaluator prompt 的 `<change>` 段插值为 `record.name`
-/// （id 串不误入 prompt——D7 插值改点行为锚）、`<phase>` 段插值、白名单为空
-///（首相位无前置）。
+/// round=1、executor / evaluator prompt 首部上下文头 `change:` 取 `record.name`
+///（id 串不误入 prompt——分辨率单点行为锚）、白名单为空（首相位无前置）。
 #[test]
-fn 初始路由落首相位且prompt插值取record_name() {
+fn 初始路由落首相位且prompt携上下文头change名() {
     let fake = RouteStore::seeded(Vec::new());
 
     let outcome = route(&fake, RUN, &SessionAnchors::new());
@@ -281,27 +280,37 @@ fn 初始路由落首相位且prompt插值取record_name() {
 
     let executor = outcome.executor.expect("proposal 应有 executor");
     let evaluator = outcome.evaluator.expect("proposal 应有 evaluator");
+    let header = format!("change: {CHANGE_NAME}\n\n");
     assert!(
-        executor.prompt.contains(CHANGE_NAME) && !executor.prompt.contains("<change>"),
-        "executor prompt 的 <change> 段插值为 record.name: {}",
+        executor.prompt.starts_with(&header),
+        "executor prompt 首部上下文头取 record.name: {}",
         executor.prompt
     );
     assert!(
         !executor.prompt.contains(CHANGE_ID),
-        "id 串不误入 executor prompt（插值单点 = record.name——D7）: {}",
+        "id 串不误入 executor prompt（上下文头单点 = record.name）: {}",
         executor.prompt
     );
     assert!(
-        evaluator.prompt.contains(CHANGE_NAME) && !evaluator.prompt.contains("<change>"),
-        "evaluator prompt 的 <change> 段插值为 record.name"
+        evaluator.prompt.starts_with(&header),
+        "evaluator prompt 首部上下文头取 record.name"
     );
     assert!(
         !evaluator.prompt.contains(CHANGE_ID),
-        "id 串不误入 evaluator prompt（D7）"
+        "id 串不误入 evaluator prompt"
     );
+    for (role, prompt) in [
+        ("executor", &executor.prompt),
+        ("evaluator", &evaluator.prompt),
+    ] {
+        assert!(
+            !prompt.contains("<change>") && !prompt.contains("<phase>"),
+            "{role} prompt 零模板占位残留（上下文头取代 <change> / <phase> 插值）: {prompt}"
+        );
+    }
     assert!(
-        executor.prompt.contains("proposal"),
-        "executor prompt 已完成 <phase> 插值"
+        executor.prompt.contains("## 角色自述"),
+        "executor prompt 主体为静态角色知识文本"
     );
     assert!(
         outcome.allowed_backtrack_phases.is_empty(),
@@ -370,7 +379,7 @@ fn pass推进到下一相位且白名单随行() {
 }
 
 /// fail 预算内重试：窗口 fail 数 < MAX_RETRY_TIMES → 同相位重入、round 递增、
-/// prompt 同相位插值（上限判定不自建——写面 phase-next 权威返回）。
+/// prompt 上下文头同相位在场（上限判定不自建——写面 phase-next 权威返回）。
 #[test]
 fn fail预算内重试同相位且round递增() {
     let fake = RouteStore::seeded(vec![entry("proposal", 1, Verdict::Pass, t(1))]);
@@ -397,8 +406,13 @@ fn fail预算内重试同相位且round递增() {
         .prompt
         .clone();
     assert!(
-        second_prompt.contains(CHANGE_NAME) && !second_prompt.contains(CHANGE_ID),
-        "executor prompt 同相位插值取 record.name（id 串零入 prompt）: {second_prompt}"
+        second_prompt.starts_with(&format!("change: {CHANGE_NAME}\n\n"))
+            && !second_prompt.contains(CHANGE_ID),
+        "executor prompt 上下文头取 record.name（id 串零入 prompt）: {second_prompt}"
+    );
+    assert!(
+        !second_prompt.contains("<change>") && !second_prompt.contains("<phase>"),
+        "fail 重试 prompt 零模板占位残留（相位 id 不经模板注入）: {second_prompt}"
     );
     assert!(
         second
@@ -406,8 +420,8 @@ fn fail预算内重试同相位且round递增() {
             .as_ref()
             .expect("evaluator 在场")
             .prompt
-            .contains("dev-design"),
-        "evaluator prompt 同相位插值（<phase> → dev-design）"
+            .starts_with(&format!("change: {CHANGE_NAME}\n\n")),
+        "evaluator prompt 上下文头同相位在场"
     );
 
     fake.push(entry("dev-design", 2, Verdict::Fail, t(3)));
@@ -514,6 +528,13 @@ fn backtrack字段落库路由至目标相位() {
         "回溯原因后缀随 prompt 下发: {}",
         executor.prompt
     );
+    assert!(
+        executor
+            .prompt
+            .starts_with(&format!("change: {CHANGE_NAME}\n\n")),
+        "backtrack prompt 上下文头（change: <name>）与回溯原因后缀并存: {}",
+        executor.prompt
+    );
     assert_eq!(
         outcome.allowed_backtrack_phases,
         vec!["proposal".to_owned(), "dev-design".to_owned()],
@@ -549,6 +570,13 @@ fn backtrack标记与stale同行并存仍路由至目标相位() {
             .prompt
             .contains("⚠️ 回溯原因: 设计返工：缺产物区组件"),
         "回溯原因后缀随 prompt 下发: {}",
+        executor.prompt
+    );
+    assert!(
+        executor
+            .prompt
+            .starts_with(&format!("change: {CHANGE_NAME}\n\n")),
+        "backtrack prompt 上下文头（change: <name>）与回溯原因后缀并存: {}",
         executor.prompt
     );
     assert_eq!(

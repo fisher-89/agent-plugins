@@ -17,7 +17,7 @@ use crate::port::{
     ToolStepOutput, ToolStepPort, WorkerAgentPort, WorkerRole, WorkerTurnOutcome,
     WorkerTurnRequest, WorkflowSnapshotPort,
 };
-use crate::prompt::{decision_prompt, evaluator_prompt, executor_prompt};
+use crate::prompt::{decision_prompt, evaluator_prompt};
 use crate::run_history;
 use crate::state::{ChangeRunStatus, ChangeStepKind, ChangeStepState, ChangeStepStatus, RunUpdate};
 use crate::transcript::final_assistant_text;
@@ -41,8 +41,8 @@ pub const TEST_EXECUTION_FEEDBACK_LIMIT: u32 = 5;
 /// 相位语义；布局词汇非路由权威，相位推进仍问 phase-next）。
 pub const TEST_EXECUTION_PHASES: [&str; 1] = ["test-execution"];
 
-/// 会话 provenance 来源（sourceRef = `<id>/<phase>/<role>/<attempt>`——身份段
-/// 恒 change id）。
+/// 会话 provenance 来源（sourceRef = change id / 相位 / 角色 / attempt 四段——
+/// 身份段恒 change id）。
 const SOURCE_CHANGE: &str = "change";
 
 /// run 收口文案（全相位 pass；不触发归档，停等用户——与写面 done 路由的
@@ -226,7 +226,7 @@ async fn drive(
             // ③ executor 会话
             let mut executor_session: Option<String> = None;
             if let Some(executor) = &next.executor {
-                let prompt = executor_prompt(&executor.agent_type, &executor.prompt);
+                let prompt = executor.prompt.clone();
                 let outcome = match run_worker(
                     worker,
                     guard,
@@ -887,7 +887,7 @@ fn build_decision_input(
 // ---------------------------------------------------------------------------
 
 /// WorkerAgent 会话执行（三类角色统一通道）：bypassPermissions 恒档、
-/// provenance `<id>/<phase>/<role>/<attempt>`（身份段恒 change id）、取消与
+/// provenance（change id / 相位 / 角色 / attempt 四段；身份段恒 change id）、取消与
 /// 会话失败收敛终态。
 /// 步状态随行 emit（running → passed / failed / stopped）；会话 id 槽由命令
 /// 层 sink 桥随首个会话事件先行同步（停止寻址不依赖 turn 收口）。

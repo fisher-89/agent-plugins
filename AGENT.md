@@ -1,5 +1,10 @@
 # AGENT.md
 
+> **DEPRECATED**: This repository (the plugin source) is no longer actively developed.
+> Existing installed copies keep working as before — no plugin functionality is changed or
+> removed here. The plugin will be deleted entirely in the future; the desktop app
+> (`packages/desktop`) has taken over the role knowledge and phase orchestration.
+
 This file provides guidance to agent when working with code in this repository.
 
 ## Project Overview

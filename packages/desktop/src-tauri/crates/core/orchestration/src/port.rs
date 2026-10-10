@@ -44,7 +44,7 @@ pub struct WorkerTurnRequest {
     pub root: String,
     /// 组装好的轮 prompt
     pub prompt: String,
-    /// 来源归属（source 恒 "change"，source_ref = `<change>/<phase>/<role>/<attempt>`）
+    /// 来源归属（source 恒 "change"，source_ref = change id / 相位 / 角色 / attempt 四段）
     pub provenance: SessionProvenance,
     /// permission 档（run 恒 bypassPermissions）
     pub permission: AgentPermissionMode,
