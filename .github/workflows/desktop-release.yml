@@ -1,7 +1,12 @@
 # desktop 自动发版:master 推送触及 packages/desktop 时,读取 package.json 版本,
 # 与仓库最新 release 的版本比对,更高则自动在该 commit 上创建 tag 并构建发布
 # (流程见 packages/desktop/RELEASE.md)。补跑/重发同版本用 workflow_dispatch 的 force。
+# 三段结构:detect(版本比较 + tag 前移单点创建) → build matrix(Windows nsis / macOS app+dmg,
+# 各腿捕获自身的 latest.json 为工件) → finalize(合并双平台 latest.json 后上传权威版本)。
+# tag 必须前移到 build 之前:matrix 双腿并行,若各自带 tagName 创建 release 会竞态。
 # 依赖 secret:TAURI_SIGNING_PRIVATE_KEY(密码 secret 无需创建,缺失时解析为空串即空密码)。
+# macOS 腿不配任何代码签名 secret:mac 版无 OS 级签名,aarch64 二进制带链接器
+# ad-hoc 签名,可运行(首次打开需右键放行,见 RELEASE.md)。
 # 注意:检测与发布必须在同一 workflow——GITHUB_TOKEN 推的 tag 不触发其他 workflow。
 name: desktop-release
 
@@ -60,17 +65,14 @@ jobs:
           echo "package.json=$VERSION 最新release=$LATEST 更高=$NEWER force=$FORCE 发版=$SHOULD"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "should=$SHOULD" >> "$GITHUB_OUTPUT"
-
-  release:
-    needs: detect
-    if: needs.detect.outputs.should == 'true'
-    runs-on: windows-latest
-    steps:
-      - uses: actions/checkout@v7
+      # tag 前移:build matrix 双腿并行,若各自在 tauri-action 里带 tagName 创建 release
+      # 会互相竞态;单点建于 detect,双腿经 getReleaseByTag 复用既有 release 只上传资产。
+      # 与 build/finalize 同 gate(should=false 时不建 tag、不发版)。
       - name: 创建 tag(已存在则跳过)
+        if: steps.version.outputs.should == 'true'
         shell: bash
         env:
-          VERSION: ${{ needs.detect.outputs.version }}
+          VERSION: ${{ steps.version.outputs.version }}
         run: |
           if git ls-remote --exit-code origin "refs/tags/desktop-v$VERSION" >/dev/null; then
             echo "tag desktop-v$VERSION 已存在,跳过创建"
@@ -78,6 +80,28 @@ jobs:
             git tag "desktop-v$VERSION"
             git push origin "refs/tags/desktop-v$VERSION"
           fi
+
+  build:
+    needs: detect
+    if: needs.detect.outputs.should == 'true'
+    strategy:
+      # 缺腿容忍:mac 腿失败不得连带取消 Windows 腿——finalize 仍须产出含
+      # windows-x86_64 条目的权威 latest.json(Windows 更新链路是回归红线)。
+      fail-fast: false
+      matrix:
+        include:
+          - platform: windows-latest
+            args: --bundles nsis
+            artifact: latest-json-windows
+          # mac 腿必须带 app 目标:tauri 只在请求 app(MacOsBundle)时才产出 updater 工件
+          # (.app.tar.gz + .sig);只给 dmg 时 tauri-action 找不到 .sig,会跳过 latest.json,
+          # darwin-* 条目与 mac 更新路径即缺失。dmg 目标仍照常产出 .dmg 安装包。
+          - platform: macos-latest
+            args: --bundles app,dmg
+            artifact: latest-json-macos
+    runs-on: ${{ matrix.platform }}
+    steps:
+      - uses: actions/checkout@v7
       - uses: pnpm/action-setup@v6
         with:
           version: 11.22.0 # 仓库无 packageManager 字段,必须显式指定
@@ -98,8 +122,84 @@ jobs:
           releaseName: 'Dev Team v${{ needs.detect.outputs.version }}'
           releaseDraft: false # draft 会使 releases/latest/download/latest.json 端点 404
           prerelease: false
-          args: --bundles nsis
+          args: ${{ matrix.args }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ''
+      # 双腿各自上传同名 release 资产 latest.json,后结束的腿会覆盖先者;故先把本腿
+      # 产物经工件通道带出,交 finalize 合并后再回传权威版本(签名逐字不可重构)。
+      # tauri-action 把 latest.json 写在工作区根(其进程 cwd),不在 src-tauri/target。
+      - name: 捕获本腿 latest.json(缺失即失败)
+        shell: bash
+        working-directory: ${{ github.workspace }}
+        run: |
+          if [ ! -f latest.json ]; then
+            echo "未找到 latest.json:tauri-action 未产出 updater 清单(updater 工件缺失?)" >&2
+            exit 1
+          fi
+          echo "本腿 latest.json:"
+          cat latest.json
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: ${{ matrix.artifact }}
+          path: latest.json
+          if-no-files-found: error
+
+  finalize:
+    needs: [detect, build]
+    # (success() || failure()) 而非默认 success():mac 腿失败时仍须合并现存平台条目、
+    # 照常产出权威 latest.json(仅取消/跳过才不跑)。
+    if: needs.detect.outputs.should == 'true' && (success() || failure())
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      # Windows 工件是回归红线,缺即真失败;mac 工件允许缺(缺腿容忍)。
+      - uses: actions/download-artifact@v4
+        with:
+          name: latest-json-windows
+          path: _updater/windows
+      - uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: latest-json-macos
+          path: _updater/macos
+      - name: 合并双平台 latest.json 并上传权威版本
+        shell: bash
+        working-directory: ${{ github.workspace }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ needs.detect.outputs.version }}
+        run: |
+          # 以 Windows 腿为 base:version/notes/pub_date 取 Windows 权威,windows-* 条目
+          # 逐字保留(signature/url 不经重构);darwin-* 条目取自 mac 腿。缺 mac 腿时仅
+          # 保留 windows-* 条目(不报错)。platforms 是键控 map,同版本重发只覆盖键值,
+          # 天然幂等(无重复条目)。
+          # 各腿只取自身前缀的条目:force 重发时 release 上已有上一轮的 latest.json,
+          # tauri-action 会把它并入本腿产物,原样透传会把上一轮的旧签名当本轮条目发布
+          # (签名与资产不再匹配)。
+          node - <<'NODE'
+          const fs = require('fs');
+          const basePath = '_updater/windows/latest.json';
+          const macPath = '_updater/macos/latest.json';
+          if (!fs.existsSync(basePath)) {
+            console.error(`缺少 Windows 腿 latest.json(${basePath}),无法产出权威 latest.json`);
+            process.exit(1);
+          }
+          const base = JSON.parse(fs.readFileSync(basePath, 'utf8'));
+          const mac = fs.existsSync(macPath) ? JSON.parse(fs.readFileSync(macPath, 'utf8')) : null;
+          if (mac && mac.version !== base.version) {
+            console.error(`双腿版本不一致:windows=${base.version} macos=${mac.version}`);
+            process.exit(1);
+          }
+          const pick = (platforms, prefix) =>
+            Object.fromEntries(Object.entries(platforms ?? {}).filter(([key]) => key.startsWith(prefix)));
+          const merged = {
+            ...base,
+            platforms: { ...pick(base.platforms, 'windows-'), ...pick(mac?.platforms, 'darwin-') },
+          };
+          fs.writeFileSync('latest.json', JSON.stringify(merged, null, 2));
+          console.log(`权威 latest.json:version=${merged.version} platforms=${Object.keys(merged.platforms).join(', ')}`);
+          NODE
+          gh release upload "desktop-v$VERSION" latest.json --clobber
