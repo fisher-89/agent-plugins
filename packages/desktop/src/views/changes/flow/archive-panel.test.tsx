@@ -1,7 +1,6 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 
-import { eventsToUIMessages } from '../../../lib/agent-adapter';
 import type {
   AgentEvent,
   ArchivePreflight,
@@ -9,23 +8,25 @@ import type {
   ArchiveStageStatus,
   ArchiveSummary,
 } from '../../../types/dto';
+import type { SessionSummary } from '../../../types/generated/bindings';
 import type { UseArchiveFlowResult } from '../hooks/use-archive-flow';
 import { ArchivePanel } from './archive-panel';
 import type { ArchiveFlowState } from './archive-state';
 
 // ---------------------------------------------------------------------------
-// 进程边界 Mock：面板纯呈现面——状态与动作经 use-archive-flow 注入（props 直
-// 注 mock 对象）；转录入口经 use-session-transcript mock 注入（messages 可编
-// 程）；AgentTimeline 真实渲染（复用基建——零第二套时间线的渲染锚）。
+// 进程边界 Mock：archive 状态与动作经 use-archive-flow 注入（props 直注 mock
+// 对象——入参例外）；转录区 use-session-transcript 真实组合，session_detail
+// 单查与 agent_session_transcript 重放 fixture 经 mock IPC 流入（内部 hook 替
+// 身装置不沿用）；AgentTimeline 真实渲染（复用基建——零第二套时间线的渲染锚）。
 // ---------------------------------------------------------------------------
 
-const transcriptMock = vi.hoisted(() => vi.fn());
+const { invokeMock } = vi.hoisted(() => ({ invokeMock: vi.fn() }));
 
-vi.mock('../hooks/use-session-transcript', () => ({
-  useSessionTranscript: transcriptMock,
-}));
+vi.mock('@tauri-apps/api/core', () => ({ invoke: invokeMock }));
 
 const ROOT = 'C:\\demo\\archive';
+/** 固定 change id 字面量（命令面 prop——展示面断言须与 id 相异方可辨收敛）。 */
+const CHANGE_ID = '0198f7a0-0000-7000-8000-000000000000';
 const CHANGE = 'archive-demo';
 const TS = 1727000000000;
 
@@ -91,6 +92,43 @@ function transcriptTextEvent(seq: number, text: string): AgentEvent {
   };
 }
 
+/** 会话单查应答 fixture（session_detail；轮行全终态——非运行形态）。 */
+function sessionFixture(sessionId: string): SessionSummary {
+  return {
+    row: {
+      id: sessionId,
+      remoteSessionId: null,
+      configSnapshot: null,
+      provenance: { source: 'change', sourceRef: `${CHANGE_ID}/archive/spec-sync` },
+      createdAt: TS,
+      updatedAt: TS + 1,
+    },
+    stats: { turnCount: 1, totalDurationMs: 1234, inputTokens: null, outputTokens: null },
+    turns: [
+      {
+        turnId: 1,
+        sessionId,
+        status: 'completed',
+        startedAt: TS,
+        finishedAt: TS + 1,
+        numTurns: 1,
+        costUsd: 0.1,
+        durationMs: 1000,
+        error: null,
+      },
+    ],
+  };
+}
+
+/** 转录 fixture 注册表（session_detail 单查 / agent_session_transcript 重放按
+ * sessionId 双寻址——真实 use-session-transcript 经 mock IPC 取数）。 */
+let detailFixture: Record<string, SessionSummary | null> = {};
+let transcriptFixture: Record<string, AgentEvent[]> = {};
+
+function sessionDetailCalls(): unknown[][] {
+  return invokeMock.mock.calls.filter(([name]) => name === 'session_detail');
+}
+
 // ---------------------------------------------------------------------------
 // 装置：archive hook 注入对象（动作 vi.fn 供调用断言）
 // ---------------------------------------------------------------------------
@@ -120,12 +158,25 @@ function archiveHarness(
   return { archive, preflightMock, startMock, stopMock };
 }
 
+/** 面板元素装配（命令面 changeId / 展示面 name 分离注入——props 收敛面）。
+ * 重挂（rerender）复用以驱动归档链实时增量信封并入面。 */
+function panelElement(archive: UseArchiveFlowResult, open: boolean, onClose: () => void) {
+  return (
+    <ArchivePanel
+      root={ROOT}
+      changeId={CHANGE_ID}
+      name={CHANGE}
+      archive={archive}
+      open={open}
+      onClose={onClose}
+    />
+  );
+}
+
 function renderPanel(archive: UseArchiveFlowResult, open = true) {
   const onClose = vi.fn();
-  const mounted = render(
-    <ArchivePanel root={ROOT} change={CHANGE} archive={archive} open={open} onClose={onClose} />,
-  );
-  return { onClose, unmount: mounted.unmount };
+  const mounted = render(panelElement(archive, open, onClose));
+  return { onClose, unmount: mounted.unmount, rerender: mounted.rerender };
 }
 
 afterEach(() => {
@@ -133,12 +184,17 @@ afterEach(() => {
 });
 
 beforeEach(() => {
-  transcriptMock.mockReset();
-  transcriptMock.mockReturnValue({
-    messages: [],
-    running: false,
-    error: null,
-    summary: null,
+  detailFixture = {};
+  transcriptFixture = {};
+  invokeMock.mockReset();
+  invokeMock.mockImplementation((command: string, args: { sessionId?: string } = {}) => {
+    if (command === 'session_detail') {
+      return Promise.resolve(detailFixture[args.sessionId ?? ''] ?? null);
+    }
+    if (command === 'agent_session_transcript') {
+      return Promise.resolve(transcriptFixture[args.sessionId ?? ''] ?? []);
+    }
+    return Promise.resolve(null);
   });
 });
 
@@ -187,6 +243,30 @@ describe('ArchivePanel：确认对话数据面', () => {
     expect(card.textContent).toContain('运行中的 run');
     expect(screen.queryByTestId('archive-confirm-ok')).toBeNull();
     expect(startMock).not.toHaveBeenCalled();
+  });
+
+  it('props 收敛面：确认对话标题与 aria-label 取展示面 name（changeId 命令面零展示泄漏——id / name 不静默互换）', async () => {
+    const { archive } = archiveHarness(null);
+    renderPanel(archive);
+
+    const dialog = await screen.findByTestId('archive-confirm-dialog');
+    expect(dialog.getAttribute('aria-label')).toBe(`change ${CHANGE} 归档确认`);
+    expect(dialog.textContent).toContain(`归档 change「${CHANGE}」`);
+    expect(dialog.textContent).not.toContain(CHANGE_ID);
+  });
+
+  it('props 收敛面：进行面 aria-label 取展示面 name；start / stop 经注入动作透传（命令面归属动作钩子）', async () => {
+    const harness = archiveHarness(
+      flowState({ stages: { preflight: stageRow('preflight', 'passed') } }),
+    );
+    renderPanel(harness.archive);
+
+    const progress = screen.getByTestId('archive-progress');
+    expect(progress.getAttribute('aria-label')).toBe(`change ${CHANGE} 归档进行中`);
+    expect(progress.textContent).not.toContain(CHANGE_ID);
+
+    fireEvent.click(screen.getByTestId('archive-stop'));
+    await waitFor(() => expect(harness.stopMock).toHaveBeenCalledTimes(1));
   });
 
   it('跳过同步 checkbox：delta 缺席 → 隐藏；在场默认不勾 → 确认调 start(true)；勾选 → start(false)', async () => {
@@ -280,13 +360,9 @@ describe('ArchivePanel：阶段清单与停止', () => {
     expect(stageLine('finalize').dataset.status).toBe('pending');
   });
 
-  it('archive-stop 点击调 stop；sessionId 在场 → archive-transcript 呈现且 AgentTimeline 渲染转录事件；sessionId null → 入口不渲染', async () => {
-    transcriptMock.mockReturnValue({
-      messages: eventsToUIMessages([transcriptTextEvent(0, '已同步 cap-a')]),
-      running: false,
-      error: null,
-      summary: null,
-    });
+  it('archive-stop 点击调 stop（注入动作透传）；sessionId 在场 → archive-transcript 呈现且 AgentTimeline 经真实转录链路渲染库内重放；sessionId null → 入口不渲染', async () => {
+    detailFixture = { 'sess-live-1': sessionFixture('sess-live-1') };
+    transcriptFixture = { 'sess-live-1': [transcriptTextEvent(0, '已同步 cap-a')] };
     const harness = archiveHarness(
       flowState({
         stages: { preflight: stageRow('preflight', 'passed') },
@@ -299,12 +375,13 @@ describe('ArchivePanel：阶段清单与停止', () => {
     fireEvent.click(screen.getByTestId('archive-stop'));
     await waitFor(() => expect(harness.stopMock).toHaveBeenCalledTimes(1));
 
-    // 转录入口复用基建（AgentTimeline 直组）——文本经真实时间线渲染
+    // 转录入口复用真实链路（use-session-transcript 真实组合：session_detail
+    // 单查经 mock IPC 取数、重放经 AgentTimeline 渲染）
     expect(screen.getByTestId('archive-transcript')).toBeDefined();
     await screen.findByText('已同步 cap-a');
-    expect(transcriptMock).toHaveBeenCalledWith(
-      expect.objectContaining({ sessionId: 'sess-live-1' }),
-    );
+    expect(sessionDetailCalls()).toEqual([
+      ['session_detail', { root: ROOT, sessionId: 'sess-live-1' }],
+    ]);
 
     // sessionId null → 入口不渲染
     cleanup();
@@ -355,14 +432,10 @@ describe('ArchivePanel：Merge 段单行呈现与 lean 咨询面', () => {
     expect(screen.getByTestId('archive-retry')).toBeDefined();
   });
 
-  it('转录区随当前会话：冲突会话 → 转录呈现该会话事件；sessionId 切至 spec-sync 会话 → 随最新会话（D5 单槽呈现边界）', async () => {
-    // 前半：解冲突会话（两会话串行的前半）
-    transcriptMock.mockReturnValue({
-      messages: eventsToUIMessages([transcriptTextEvent(0, '解冲突裁决要点')]),
-      running: false,
-      error: null,
-      summary: null,
-    });
+  it('转录区随当前会话：冲突会话 → 库内重放为底、归档链实时增量按 seq 去重并入；sessionId 切至 spec-sync 会话 → 随最新会话（D5 单槽呈现边界）', async () => {
+    // 前半：解冲突会话（两会话串行的前半）——重放先落底
+    detailFixture = { 'sess-conflict': sessionFixture('sess-conflict') };
+    transcriptFixture = { 'sess-conflict': [transcriptTextEvent(0, '解冲突裁决要点')] };
     const conflict = archiveHarness(
       flowState({
         stages: { merge: stageRow('merge', 'running', '合入冲突，解冲突 agent 裁决中') },
@@ -370,24 +443,38 @@ describe('ArchivePanel：Merge 段单行呈现与 lean 咨询面', () => {
         liveEvents: { 'sess-conflict': [transcriptTextEvent(0, '解冲突裁决要点')] },
       }),
     );
-    renderPanel(conflict.archive);
+    const mounted = renderPanel(conflict.archive);
     expect(screen.getByTestId('archive-transcript')).toBeDefined();
     await screen.findByText('解冲突裁决要点');
-    expect(transcriptMock).toHaveBeenCalledWith(
-      expect.objectContaining({
+    expect(sessionDetailCalls()).toEqual([
+      ['session_detail', { root: ROOT, sessionId: 'sess-conflict' }],
+    ]);
+
+    // 归档链实时增量信封到达（seq 0 与重放重复 → 去重；seq 1 新片段 → 并入）
+    const withLive = archiveHarness(
+      flowState({
+        stages: { merge: stageRow('merge', 'running', '合入冲突，解冲突 agent 裁决中') },
         sessionId: 'sess-conflict',
-        liveEvents: [transcriptTextEvent(0, '解冲突裁决要点')],
+        liveEvents: {
+          'sess-conflict': [
+            transcriptTextEvent(0, '解冲突裁决要点'),
+            transcriptTextEvent(1, '实时增量正文'),
+          ],
+        },
       }),
     );
+    mounted.rerender(panelElement(withLive.archive, true, mounted.onClose));
+    await screen.findByText('实时增量正文');
+    // 重复 seq 不重复呈现（重放为底——去重合并面）
+    expect(screen.getAllByText('解冲突裁决要点')).toHaveLength(1);
     cleanup();
 
     // 后半：sessionId 切至 spec-sync 会话 → 转录区随最新会话（单槽——零切换器）
-    transcriptMock.mockReturnValue({
-      messages: eventsToUIMessages([transcriptTextEvent(1, 'specs 已同步')]),
-      running: false,
-      error: null,
-      summary: null,
-    });
+    detailFixture = { ...detailFixture, 'sess-specsync': sessionFixture('sess-specsync') };
+    transcriptFixture = {
+      ...transcriptFixture,
+      'sess-specsync': [transcriptTextEvent(1, 'specs 已同步')],
+    };
     const sync = archiveHarness(
       flowState({
         stages: {
@@ -400,9 +487,11 @@ describe('ArchivePanel：Merge 段单行呈现与 lean 咨询面', () => {
     );
     renderPanel(sync.archive);
     await screen.findByText('specs 已同步');
-    expect(transcriptMock).toHaveBeenCalledWith(
-      expect.objectContaining({ sessionId: 'sess-specsync' }),
-    );
+    expect(sessionDetailCalls()).toHaveLength(2);
+    expect(sessionDetailCalls()[1]).toEqual([
+      'session_detail',
+      { root: ROOT, sessionId: 'sess-specsync' },
+    ]);
   });
 });
 

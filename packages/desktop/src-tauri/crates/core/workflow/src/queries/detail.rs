@@ -1,4 +1,6 @@
-//! change 详情查询：固定 9 站流水线聚合 + 状态面 + run 运行史 + 产物清单。
+//! change 详情查询（按 change **id** 寻址）：固定 9 站流水线聚合 + 状态面 +
+//! run 运行史 + 产物清单。db 无该 id 记录 → 恒 `None`（文档形态分支整体退役
+//! ——零磁盘目录解析回退、零空流水线空面、零 workflow.json 读取）。
 //!
 //! 出线 DTO 约定（API 层转换，golden 契约）：db 中性状态类型（`state`）不出
 //! 线（`ChangeStatus` / `RunStatus` / `RunStepKind` / `RunStepStatus` 词汇枚
@@ -150,11 +152,15 @@ impl From<&RunStepStateRecord> for ChangeRunStepRecord {
     }
 }
 
-/// change 详情聚合。`status` 为建档判别面：`Some` = db 已建档（完整状态面），
-/// `None` = 文档形态（db 缺记录的存量 CLI change，空流水线 + 产物清单）。
+/// change 详情聚合。`id` 为身份锚（寻址入参同值）；`name` 自记录直读（恒裸名
+/// ——归档 change 的日期前缀仅存在于磁盘目录名，MUST NOT 进入出线值）；db 无
+/// 该 id 记录 → 详情整体不可达（`None`，未知 id 语义）。
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct ChangeDetail {
+    /// change 身份锚（uuid 形态）
+    pub id: String,
+    /// change 名（自记录直读，恒裸名）
     pub name: String,
     pub source: ChangeSource,
     pub status: Option<ChangeStatus>,
@@ -170,50 +176,32 @@ pub struct ChangeDetail {
     pub worktree: Option<String>,
 }
 
-/// 聚合单个 change 的详情；未知 change 名返回 `None`。纯读：db 缺记录的
-/// change 返回空流水线 + 产物清单（文档形态），零 workflow.json 读取。
-/// record 先读后定位（design D12）：worktree 自记录直传 `locate_change` 回退
-/// （merge 前主仓两树未命中仍可达）；**建档记录恒可达详情**——定位全 miss
-///（worktree 被手动删除、未 merge）→ dir 缺席、产物清单空、状态面在
-///（`source` 自 record.status 映射）；record 与定位双缺 → `None`（文档形态
-/// 未知名，既有语义）。
+/// 聚合单个 change 的详情（按 id 寻址）；db 无该 id 记录 → 恒 `None`
+///（未知 id 未找到——MUST NOT 回退磁盘目录解析、MUST NOT 返回文档形态空面、
+/// 零 workflow.json 读取）。纯读：record 先读后定位（design D12）——`name` /
+/// `worktree` 自记录直供 `locate_change` 回退（merge 前主仓两树未命中仍可
+/// 达）；**建档记录恒可达详情**——定位全 miss（worktree 被手动删除、未
+/// merge）→ dir 缺席、产物清单空、状态面在（`source` 自 record.status 映射）。
 pub fn change_detail(
     layout: &Layout,
     store: &dyn ChangeStateStore,
-    name: &str,
+    id: &str,
 ) -> Option<ChangeDetail> {
-    let record = store.get_change(name).ok().flatten();
-    let location = locate_change(
-        layout,
-        record
-            .as_ref()
-            .and_then(|record| record.worktree.as_deref()),
-        name,
-    );
-    // record 与定位双缺 → None（不虚构文档形态）
-    if record.is_none() && location.is_none() {
-        return None;
-    }
-    let entries = match &record {
-        // 建档 change：读相位评估史组装流水线
-        Some(_) => store.list_phase_records(name).unwrap_or_default(),
-        // 文档形态：零状态面（空流水线 + 产物清单）
-        None => Vec::new(),
-    };
+    // 未建档（未知 id）→ 恒 None（零磁盘回退零文档形态）
+    let record = store.get_change(id).ok().flatten()?;
+    // 磁盘面 name / worktree 恒自记录供给（id → 记录 → name 分辨率单点）
+    let location = locate_change(layout, record.worktree.as_deref(), record.name.as_str());
+    let entries = store.list_phase_records(id).unwrap_or_default();
 
-    // run 运行史全量读面（建档 change）：runs 按 started_at 升序（并列按
-    // run_id 稳定序）、steps 按 seq 升序（= emit 序）；读失败降级空 runs
-    //（与清单读面 unwrap_or_default 同哲学）。文档形态恒空。
-    let mut runs: Vec<ChangeRunEntry> = if record.is_some() {
-        store
-            .list_runs(name)
-            .unwrap_or_default()
-            .iter()
-            .map(ChangeRunEntry::from)
-            .collect()
-    } else {
-        Vec::new()
-    };
+    // run 运行史全量读面：runs 按 started_at 升序（并列按 run_id 稳定序）、
+    // steps 按 seq 升序（= emit 序）；读失败降级空 runs（与清单读面
+    // unwrap_or_default 同哲学）。
+    let mut runs: Vec<ChangeRunEntry> = store
+        .list_runs(id)
+        .unwrap_or_default()
+        .iter()
+        .map(ChangeRunEntry::from)
+        .collect();
     runs.sort_by(|a, b| {
         // started_at 升序已在 store 面保证，此处并列序兜底（run_id 稳定序）
         a.started_at
@@ -232,28 +220,18 @@ pub fn change_detail(
         run_entry.steps = steps;
     }
 
-    // created：优先 db created_at，archive 回退目录名日期前缀
-    let created = record
-        .as_ref()
-        .map(|record| utc_date(record.created_at))
-        .or_else(|| match location.as_ref().map(|location| location.source) {
-            Some(ChangeSource::Archive) => super::list::archive_prefix_date(name),
-            _ => None,
-        });
+    // created：db created_at 唯一来源（磁盘目录名日期前缀回退已退役——
+    // 记录恒在，name 恒裸名不带前缀）
+    let created = Some(utc_date(record.created_at));
 
-    // 固定 9 站全量输出（无 attempt 记录的站为空序列）；文档形态（db 缺记
-    // 录）空流水线
-    let mut pipeline: Vec<PhaseEntry> = if record.is_some() {
-        PIPELINE_PHASES
-            .iter()
-            .map(|phase| PhaseEntry {
-                phase: (*phase).to_string(),
-                attempts: Vec::new(),
-            })
-            .collect()
-    } else {
-        Vec::new()
-    };
+    // 固定 9 站全量输出（无 attempt 记录的站为空序列）
+    let mut pipeline: Vec<PhaseEntry> = PIPELINE_PHASES
+        .iter()
+        .map(|phase| PhaseEntry {
+            phase: (*phase).to_string(),
+            attempts: Vec::new(),
+        })
+        .collect();
     for entry in &entries {
         if let Some(station) = pipeline
             .iter_mut()
@@ -269,14 +247,11 @@ pub fn change_detail(
             .sort_by_key(|record| record.attempt.unwrap_or(0));
     }
 
-    let active_phase = record
-        .as_ref()
-        .and_then(|record| record.active_phase.as_ref())
-        .map(|active| ActivePhase {
-            phase: active.phase.clone(),
-            attempt: active.attempt,
-            start_at: Some(iso_from_millis(active.start_at)),
-        });
+    let active_phase = record.active_phase.as_ref().map(|active| ActivePhase {
+        phase: active.phase.clone(),
+        attempt: active.attempt,
+        start_at: Some(iso_from_millis(active.start_at)),
+    });
     // 产物发现经定位目录；定位 miss（建档记录恒可达路径）→ 产物清单空
     let artifacts = location
         .as_ref()
@@ -284,24 +259,23 @@ pub fn change_detail(
         .unwrap_or_default();
     // source：定位命中随定位；定位 miss 自 record.status 映射（状态面在的
     // 呈现形态——worktree 被删 / 未 merge 的建档记录）
-    let source = location.map(|location| location.source).unwrap_or(
-        match record.as_ref().map(|record| record.status) {
-            Some(ChangeStatus::Archived) => ChangeSource::Archive,
-            _ => ChangeSource::Active,
-        },
-    );
+    let source = location
+        .map(|location| location.source)
+        .unwrap_or(match record.status {
+            ChangeStatus::Archived => ChangeSource::Archive,
+            ChangeStatus::Active => ChangeSource::Active,
+        });
 
-    let status = record.as_ref().map(|record| record.status);
-    let worktree = record.as_ref().and_then(|record| record.worktree.clone());
     Some(ChangeDetail {
-        name: name.to_string(),
+        id: record.id.clone(),
+        name: record.name.clone(),
         source,
-        status,
+        status: Some(record.status),
         created,
         pipeline,
         active_phase,
         runs,
         artifacts,
-        worktree,
+        worktree: record.worktree.clone(),
     })
 }

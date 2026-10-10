@@ -2,8 +2,9 @@
 //!（名称 kebab-case + 长度 → goal 非空白 → 主仓 active 目录已存在 → db 同名
 //! active 建档 → git 探测三态（不可发现 / 非 git 仓 / 空仓，MUST NOT 静默回退
 //! 主 root 创建）→ branch `change/<name>` 冲突 → worktree 目录冲突——全部在
-//! 任何 IO 之前，拒绝面零目录零记录零 vcs 调用）→ db 建档先行（携 `worktree`
-//! / `base_commit`）→ `git worktree add`（HEAD 基线铸分支）→ worktree 内建
+//! 任何 IO 之前，拒绝面零目录零记录零 vcs 调用）→ 铸出 uuid v7 形态 id →
+//! db 建档先行（携 id / `worktree` / `base_commit`）→ `git worktree add`
+//!（HEAD 基线铸分支）→ worktree 内建
 //! `openspec/changes/<n>/` 目录树与 explore.md → 脏仓警告 → 确定性 bootstrap
 //!（lockfile 映射表首匹配；失败不回滚、警告立即呈现）。补偿链：add 失败 →
 //! 删本次建档 + 尽力删分支；树写出失败 → remove_worktree → 删分支 → 删建档
@@ -55,12 +56,15 @@ const WARN_NO_KNOWN_MANAGER: &str = "未识别依赖管理器，跳过依赖引�
 const WARN_CARGO_NO_LOCK: &str =
     "检测到 Cargo.toml 但无 Cargo.lock，跳过依赖引导（避免生成未跟踪 lockfile 混入变更上下文）";
 
-/// 创建产出（IPC DTO）：名称、创建日期、worktree 绝对路径（刻意出线的执行
-/// 锚——review / 手动 commit / merge 可达）与警告清单（脏仓 / bootstrap 注记，
-/// 持久入 DTO 抵达前端行内呈现）。
+/// 创建产出（IPC DTO）：本次铸出的 change id（身份锚——前端导航 / 一切后续
+/// 寻址入参）、名称、创建日期、worktree 绝对路径（刻意出线的执行锚——review /
+/// 手动 commit / merge 可达）与警告清单（脏仓 / bootstrap 注记，持久入 DTO
+/// 抵达前端行内呈现）。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct CreateOutcome {
+    /// 本次铸出的 change id（uuid v7 形态；库内记录同值逐字一致）
+    pub id: String,
     pub name: String,
     /// UTC 日历日期 `YYYY-MM-DD`（取 db 建档 `created_at`，写面铸出后随 DTO
     /// 直达命令返回，无需回读）
@@ -147,15 +151,17 @@ pub fn create(
     if main_dir.exists() {
         return Err(format!("change \"{name}\" 已存在: {}", main_dir.display()));
     }
-    // 前置④：db 同名 active 记录（同名 active 建档冲突；db 零建档）
-    if let Some(record) = store
-        .get_change(name)
+    // 前置④：db 同名 active 记录（name 无唯一约束，主键冲突面消失——写面单
+    // 点 name 扫描查重，仅拒同名 **active**；归档同名共存合法化，不拒（D11））
+    if store
+        .list_change_records()
         .map_err(|error| error.to_string())?
-        .filter(|record| record.status == ChangeStatus::Active)
+        .iter()
+        .any(|record| record.name == name && record.status == ChangeStatus::Active)
     {
         return Err(format!(
             "change \"{name}\" 已存在同名建档记录（status: {}）",
-            record.status.as_str()
+            ChangeStatus::Active.as_str()
         ));
     }
     // 前置⑤：git 探测三态（git 不可发现 / 非 git 仓 / 空仓无 HEAD 显式 Err
@@ -178,11 +184,15 @@ pub fn create(
     }
 
     // 执行段一：db 建档先行（fs / vcs 失败可补偿；反向则出现被禁破口
-    // 「worktree 在而记录缺」）——携 worktree / base_commit 执行锚
+    // 「worktree 在而记录缺」）——携 id / worktree / base_commit 执行锚。
+    // id 铸出点（D1）：前置七道全过后、建档之前直铸 uuid v7（与 created_at
+    // 同段；纯 id 生成无 IO 无 vcs 调用，拒绝面零铸出）
+    let id = uuid::Uuid::now_v7().to_string();
     let created_at = super::now_millis();
     let worktree_path = worktree.to_string_lossy().into_owned();
     store
         .create_change_record(ChangeStateRecord {
+            id: id.clone(),
             name: name.to_owned(),
             // V1 唯一支持的工作流类型（与发起前置校验同口径）
             workflow_type: "requirement".to_owned(),
@@ -199,7 +209,7 @@ pub fn create(
     // 删分支（git worktree add 可能已铸分支后才失败）
     if let Err(error) = vcs.add_worktree(main_root, &worktree, &branch) {
         return Err(compensate_add_failure(
-            store, vcs, main_root, name, &branch, &error,
+            store, vcs, main_root, &id, &branch, &error,
         ));
     }
 
@@ -209,7 +219,7 @@ pub fn create(
     let change_dir = worktree_layout.changes_root.join(name);
     if let Err(error) = write_fs_half(&change_dir, goal) {
         return Err(compensate_tree_failure(
-            store, vcs, main_root, name, &branch, &worktree, &error,
+            store, vcs, main_root, &id, &branch, &worktree, &error,
         ));
     }
 
@@ -221,6 +231,7 @@ pub fn create(
     bootstrap(&worktree, vcs, &mut warnings);
 
     Ok(CreateOutcome {
+        id,
         name: name.to_owned(),
         created: utc_date(created_at),
         worktree: worktree_path,
@@ -258,18 +269,18 @@ fn bootstrap(worktree: &Path, vcs: &dyn WorktreePort, warnings: &mut Vec<String>
     }
 }
 
-/// add_worktree 失败补偿（D3）：删本次建档 + 尽力 `delete_branch`（add 半途
-/// 可能已铸分支）。补偿再失败 → Err 呈现残留对象与手动清理指引（不静默
-/// 自愈）。
+/// add_worktree 失败补偿（D3）：删本次建档（按 id）+ 尽力 `delete_branch`
+///（add 半途可能已铸分支）。补偿再失败 → Err 呈现残留对象与手动清理指引
+/// （不静默自愈）。
 fn compensate_add_failure(
     store: &dyn ChangeStateStore,
     vcs: &dyn WorktreePort,
     main_root: &Path,
-    name: &str,
+    id: &str,
     branch: &str,
     add_error: &str,
 ) -> String {
-    let record = compensate_record_delete(store, name);
+    let record = compensate_record_delete(store, id);
     let branch_delete = match vcs.delete_branch(main_root, branch) {
         Ok(()) => None,
         Err(error) => Some(format!("branch \"{branch}\": {error}")),
@@ -290,13 +301,13 @@ fn compensate_add_failure(
 }
 
 /// 目录树 / explore.md 写出失败补偿（D3 尽力链）：`remove_worktree --force`
-/// → `delete_branch` → 删本次建档。任一失败 → Err 呈现残留对象（worktree /
-/// branch / 记录名）与 `git worktree list` 手动清理指引。
+/// → `delete_branch` → 删本次建档（按 id）。任一失败 → Err 呈现残留对象
+///（worktree / branch / 记录 id）与 `git worktree list` 手动清理指引。
 fn compensate_tree_failure(
     store: &dyn ChangeStateStore,
     vcs: &dyn WorktreePort,
     main_root: &Path,
-    name: &str,
+    id: &str,
     branch: &str,
     worktree: &Path,
     fs_error: &str,
@@ -309,7 +320,7 @@ fn compensate_tree_failure(
     if let Err(error) = vcs.delete_branch(main_root, branch) {
         residuals.push(format!("branch \"{branch}\": {error}"));
     }
-    if let Some(record_note) = compensate_record_delete(store, name) {
+    if let Some(record_note) = compensate_record_delete(store, id) {
         residuals.push(record_note);
     }
     if residuals.is_empty() {
@@ -326,13 +337,13 @@ fn compensate_tree_failure(
     )
 }
 
-/// 建档补偿删除：成功 → `None`；失败 → 残留记因（随下次同名建档的冲突检查
-/// 显式暴露）。
-fn compensate_record_delete(store: &dyn ChangeStateStore, name: &str) -> Option<String> {
+/// 建档补偿删除（按 id）：成功 → `None`；失败 → 残留记因（残留行经同 id
+/// 防御拒绝在下一次铸出撞号时显式暴露）。
+fn compensate_record_delete(store: &dyn ChangeStateStore, id: &str) -> Option<String> {
     store
-        .delete_change_record(name)
+        .delete_change_record(id)
         .err()
-        .map(|error| format!("建档记录 \"{name}\": {error}"))
+        .map(|error| format!("建档记录 \"{id}\": {error}"))
 }
 
 /// 残留清单拼形（`; ` 连接）。

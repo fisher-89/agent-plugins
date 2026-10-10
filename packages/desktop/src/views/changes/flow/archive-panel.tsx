@@ -51,7 +51,10 @@ const SPECS_LABEL: Record<ArchiveSpecsStatus, string> = {
 
 interface ArchivePanelProps {
   root: string | null;
-  change: string;
+  /** change id（命令面透传——命令链路已由父层 useArchiveFlow 按 id 绑定） */
+  changeId: string;
+  /** change 名（展示面：标题 / aria-label / 确认对话文案取 `detail.name`） */
+  name: string;
   archive: UseArchiveFlowResult;
   /** 归档面板开合（DetailHeader 归档按钮触发；取消 / 关闭回落） */
   open: boolean;
@@ -61,7 +64,9 @@ interface ArchivePanelProps {
 /** 归档面板三分面：确认对话（无链状态）→ 进行面 → 终态面。 */
 export function ArchivePanel({
   root,
-  change,
+  // 命令面身份入参保契约面（面板显名收敛纪律：id 与 name 不静默互换）
+  changeId: _changeId,
+  name,
   archive,
   open,
   onClose,
@@ -76,19 +81,14 @@ export function ArchivePanel({
   const state = archive.state;
   if (state === null) {
     return (
-      <ConfirmDialogFace
-        change={change}
-        archive={archive}
-        onConfirm={startWith}
-        onClose={onClose}
-      />
+      <ConfirmDialogFace name={name} archive={archive} onConfirm={startWith} onClose={onClose} />
     );
   }
   if (!state.finished) {
     return (
       <ProgressFace
         root={root}
-        change={change}
+        name={name}
         archive={archive}
         sessionId={state.sessionId}
         liveEvents={state.liveEvents[state.sessionId ?? ''] ?? []}
@@ -246,31 +246,31 @@ function ConfirmBody({
 
 /** 确认对话外壳（标题 + 数据面插槽）。 */
 function ConfirmShell({
-  change,
+  name,
   children,
 }: {
-  change: string;
+  name: string;
   children: React.ReactNode;
 }): React.JSX.Element {
   return (
     <section
       className="mb-4 rounded-lg border border-warn bg-card px-4 py-3.5"
       data-testid="archive-confirm-dialog"
-      aria-label={`change ${change} 归档确认`}
+      aria-label={`change ${name} 归档确认`}
     >
-      <h2 className="m-0 mb-2.5 text-[15px]">归档 change「{change}」</h2>
+      <h2 className="m-0 mb-2.5 text-[15px]">归档 change「{name}」</h2>
       {children}
     </section>
   );
 }
 
 function ConfirmDialogFace({
-  change,
+  name,
   archive,
   onConfirm,
   onClose,
 }: {
-  change: string;
+  name: string;
   archive: UseArchiveFlowResult;
   onConfirm: (syncSpecs: boolean) => void;
   onClose: () => void;
@@ -310,7 +310,7 @@ function ConfirmDialogFace({
       />
     );
   }
-  return <ConfirmShell change={change}>{body}</ConfirmShell>;
+  return <ConfirmShell name={name}>{body}</ConfirmShell>;
 }
 
 // ---------------------------------------------------------------------------
@@ -357,13 +357,13 @@ function StageList({
 
 function ProgressFace({
   root,
-  change,
+  name,
   archive,
   sessionId,
   liveEvents,
 }: {
   root: string | null;
-  change: string;
+  name: string;
   archive: UseArchiveFlowResult;
   sessionId: string | null;
   liveEvents: AgentEvent[];
@@ -373,7 +373,7 @@ function ProgressFace({
     <section
       className="mb-4 rounded-lg border border-border bg-card px-4 py-3.5"
       data-testid="archive-progress"
-      aria-label={`change ${change} 归档进行中`}
+      aria-label={`change ${name} 归档进行中`}
     >
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h2 className="m-0 text-[15px]">归档进行中</h2>

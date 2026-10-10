@@ -30,7 +30,7 @@ vi.mock('@tauri-apps/api/core', () => ({ invoke: invokeMock, Channel: ChannelMoc
 // ---------------------------------------------------------------------------
 
 const ROOT = 'C:\\demo\\flow';
-const CHANGE = 'add-feature';
+const CHANGE_ID = 'add-feature';
 
 type NoticeKind = RunNotice['ipc'];
 
@@ -60,7 +60,7 @@ beforeEach(() => {
 
 interface Params {
   root: string | null;
-  change: string | null;
+  id: string | null;
   activeRunPresent: boolean;
 }
 
@@ -100,7 +100,7 @@ function noopNotice(): (kind: NoticeKind) => void {
   return () => {};
 }
 
-async function mounted(params: Params = { root: ROOT, change: CHANGE, activeRunPresent: false }) {
+async function mounted(params: Params = { root: ROOT, id: CHANGE_ID, activeRunPresent: false }) {
   const rendered = renderHook((input: HookParams) => useChangeFlowRun(input), {
     initialProps: { ...params, onNotice: noopNotice() },
   });
@@ -120,13 +120,13 @@ describe('useChangeFlowRun：通知订阅生命周期（activeRun 在场才补�
     const onNotice = vi.fn();
     const { result } = renderHook(
       (input: Params & { onNotice: (kind: NoticeKind) => void }) => useChangeFlowRun(input),
-      { initialProps: { root: ROOT, change: CHANGE, activeRunPresent: true, onNotice } },
+      { initialProps: { root: ROOT, id: CHANGE_ID, activeRunPresent: true, onNotice } },
     );
     await waitFor(() => expect(calls('change_flow_watch')).toHaveLength(1));
 
     const watchArgs = calls('change_flow_watch')[0][1] as Record<string, unknown>;
     expect(watchArgs.root).toBe(ROOT);
-    expect(watchArgs.change).toBe(CHANGE);
+    expect(watchArgs.id).toBe(CHANGE_ID);
     expect(watchArgs.onEvent).toBeInstanceOf(ChannelMock);
     expect(typeof result.current.start).toBe('function');
 
@@ -142,12 +142,12 @@ describe('useChangeFlowRun：通知订阅生命周期（activeRun 在场才补�
     const onNotice = vi.fn();
     const rendered = renderHook(
       (input: Params & { onNotice: (kind: NoticeKind) => void }) => useChangeFlowRun(input),
-      { initialProps: { root: ROOT, change: CHANGE, activeRunPresent: true, onNotice } },
+      { initialProps: { root: ROOT, id: CHANGE_ID, activeRunPresent: true, onNotice } },
     );
     await waitFor(() => expect(calls('change_flow_watch')).toHaveLength(1));
     const channel = ChannelMock.instances[0];
 
-    rendered.rerender({ root: ROOT, change: CHANGE, activeRunPresent: false, onNotice });
+    rendered.rerender({ root: ROOT, id: CHANGE_ID, activeRunPresent: false, onNotice });
     await act(async () => {});
     expect(calls('change_flow_watch')).toHaveLength(1);
 
@@ -156,8 +156,8 @@ describe('useChangeFlowRun：通知订阅生命周期（activeRun 在场才补�
     expect(onNotice).not.toHaveBeenCalled();
   });
 
-  it('root / change 为 null：零 invoke、零 Channel（未选定 workspace 空闲态）', async () => {
-    const { result } = await mounted({ root: null, change: null, activeRunPresent: true });
+  it('root / id 为 null：零 invoke、零 Channel（未选定 workspace 空闲态）', async () => {
+    const { result } = await mounted({ root: null, id: null, activeRunPresent: true });
 
     expect(invokeMock).not.toHaveBeenCalled();
     expect(ChannelMock.instances).toHaveLength(0);
@@ -168,7 +168,7 @@ describe('useChangeFlowRun：通知订阅生命周期（activeRun 在场才补�
     const onNotice = vi.fn();
     const first = renderHook(
       (input: Params & { onNotice: (kind: NoticeKind) => void }) => useChangeFlowRun(input),
-      { initialProps: { root: ROOT, change: CHANGE, activeRunPresent: true, onNotice } },
+      { initialProps: { root: ROOT, id: CHANGE_ID, activeRunPresent: true, onNotice } },
     );
     await waitFor(() => expect(calls('change_flow_watch')).toHaveLength(1));
     const firstChannel = ChannelMock.instances[0];
@@ -177,7 +177,7 @@ describe('useChangeFlowRun：通知订阅生命周期（activeRun 在场才补�
     renderHook(
       (input: Params & { onNotice: (kind: NoticeKind) => void }) => useChangeFlowRun(input),
       {
-        initialProps: { root: ROOT, change: CHANGE, activeRunPresent: true, onNotice },
+        initialProps: { root: ROOT, id: CHANGE_ID, activeRunPresent: true, onNotice },
       },
     );
     await waitFor(() => expect(calls('change_flow_watch')).toHaveLength(2));
@@ -188,7 +188,7 @@ describe('useChangeFlowRun：通知订阅生命周期（activeRun 在场才补�
 });
 
 describe('useChangeFlowRun：start 发起与订阅（发起先行订阅再 invoke）', () => {
-  it('start(false) → invoke change_flow_start 携 root/change 与新 Channel 实例（提前 resolve 后通知即刻有落点）', async () => {
+  it('start(false) → invoke change_flow_start 携 root/id 与新 Channel 实例（提前 resolve 后通知即刻有落点）', async () => {
     const { result } = await mounted();
     expect(ChannelMock.instances).toHaveLength(0);
 
@@ -199,7 +199,7 @@ describe('useChangeFlowRun：start 发起与订阅（发起先行订阅再 invok
     expect(calls('change_flow_start')).toHaveLength(1);
     const args = startCallArgs();
     expect(args.root).toBe(ROOT);
-    expect(args.change).toBe(CHANGE);
+    expect(args.id).toBe(CHANGE_ID);
     expect(args.onEvent).toBeInstanceOf(ChannelMock);
   });
 
@@ -207,7 +207,7 @@ describe('useChangeFlowRun：start 发起与订阅（发起先行订阅再 invok
     const onNotice = vi.fn();
     const rendered = renderHook(
       (input: Params & { onNotice: (kind: NoticeKind) => void }) => useChangeFlowRun(input),
-      { initialProps: { root: ROOT, change: CHANGE, activeRunPresent: true, onNotice } },
+      { initialProps: { root: ROOT, id: CHANGE_ID, activeRunPresent: true, onNotice } },
     );
     await waitFor(() => expect(calls('change_flow_watch')).toHaveLength(1));
     expect(ChannelMock.instances).toHaveLength(1);
@@ -224,7 +224,7 @@ describe('useChangeFlowRun：start 发起与订阅（发起先行订阅再 invok
     const onNotice = vi.fn();
     const { result } = renderHook(
       (input: Params & { onNotice: (kind: NoticeKind) => void }) => useChangeFlowRun(input),
-      { initialProps: { root: ROOT, change: CHANGE, activeRunPresent: false, onNotice } },
+      { initialProps: { root: ROOT, id: CHANGE_ID, activeRunPresent: false, onNotice } },
     );
     await act(async () => {
       await result.current.start(false);
@@ -247,7 +247,7 @@ describe('useChangeFlowRun：start autoNextPhase 传参（停等节奏发起定�
     expect(calls('change_flow_start')).toHaveLength(1);
     expect(startCallArgs().autoNextPhase).toBe(true);
     expect(startCallArgs().root).toBe(ROOT);
-    expect(startCallArgs().change).toBe(CHANGE);
+    expect(startCallArgs().id).toBe(CHANGE_ID);
   });
 
   it('start(false) → autoNextPhase: false 显式出线（默认档亦为显式实参——签名必填无缺省，载荷键在场）', async () => {
@@ -262,8 +262,8 @@ describe('useChangeFlowRun：start autoNextPhase 传参（停等节奏发起定�
     expect(Object.keys(startCallArgs())).toContain('autoNextPhase');
   });
 
-  it('root / change 为 null 时 start(true / false) 均 no-op 零 invoke（守卫先行于传参）', async () => {
-    const { result } = await mounted({ root: null, change: null, activeRunPresent: false });
+  it('root / id 为 null 时 start(true / false) 均 no-op 零 invoke（守卫先行于传参）', async () => {
+    const { result } = await mounted({ root: null, id: null, activeRunPresent: false });
 
     await act(async () => {
       await result.current.start(true);
@@ -278,7 +278,7 @@ describe('useChangeFlowRun：start autoNextPhase 传参（停等节奏发起定�
 });
 
 describe('useChangeFlowRun：stop / confirm / answer 透传', () => {
-  it('stop() → invoke change_flow_stop 携 { root, change } 原样透传', async () => {
+  it('stop() → invoke change_flow_stop 携 { root, id } 原样透传', async () => {
     const { result } = await mounted();
     await act(async () => {
       await result.current.stop();
@@ -287,7 +287,7 @@ describe('useChangeFlowRun：stop / confirm / answer 透传', () => {
     expect(calls('change_flow_stop')).toHaveLength(1);
     expect(calls('change_flow_stop')[0]).toEqual([
       'change_flow_stop',
-      { root: ROOT, change: CHANGE },
+      { root: ROOT, id: CHANGE_ID },
     ]);
   });
 
@@ -304,11 +304,11 @@ describe('useChangeFlowRun：stop / confirm / answer 透传', () => {
     expect(confirmCalls).toHaveLength(2);
     expect(confirmCalls[0]).toEqual([
       'change_flow_confirm',
-      { root: ROOT, change: CHANGE, proceed: true },
+      { root: ROOT, id: CHANGE_ID, proceed: true },
     ]);
     expect(confirmCalls[1]).toEqual([
       'change_flow_confirm',
-      { root: ROOT, change: CHANGE, proceed: false },
+      { root: ROOT, id: CHANGE_ID, proceed: false },
     ]);
   });
 
@@ -321,15 +321,15 @@ describe('useChangeFlowRun：stop / confirm / answer 透传', () => {
     expect(calls('change_flow_answer')).toHaveLength(1);
     expect(calls('change_flow_answer')[0]).toEqual([
       'change_flow_answer',
-      { root: ROOT, change: CHANGE, answer: '继续推进 implement' },
+      { root: ROOT, id: CHANGE_ID, answer: '继续推进 implement' },
     ]);
   });
 
-  it('root / change 为 null（双 null 与混合 null 半边）时四操作均 no-op（零 invoke 零 Channel）', async () => {
+  it('root / id 为 null（双 null 与混合 null 半边）时四操作均 no-op（零 invoke 零 Channel）', async () => {
     for (const params of [
-      { root: null, change: null, activeRunPresent: false },
-      { root: ROOT, change: null, activeRunPresent: false },
-      { root: null, change: CHANGE, activeRunPresent: false },
+      { root: null, id: null, activeRunPresent: false },
+      { root: ROOT, id: null, activeRunPresent: false },
+      { root: null, id: CHANGE_ID, activeRunPresent: false },
     ] as Params[]) {
       invokeMock.mockClear();
       ChannelMock.instances.length = 0;
@@ -360,7 +360,7 @@ describe('useChangeFlowRun：参数变更 rerender（useCallback 依赖数组真
     const rendered = await mounted();
     rendered.rerender({
       root: ROOT2,
-      change: CHANGE,
+      id: CHANGE_ID,
       activeRunPresent: false,
       onNotice: noopNotice(),
     });
@@ -382,15 +382,15 @@ describe('useChangeFlowRun：参数变更 rerender（useCallback 依赖数组真
     expect(startCallArgs().root).toBe(ROOT2);
     expect(calls('change_flow_stop').at(-1)).toEqual([
       'change_flow_stop',
-      { root: ROOT2, change: CHANGE },
+      { root: ROOT2, id: CHANGE_ID },
     ]);
     expect(calls('change_flow_confirm').at(-1)).toEqual([
       'change_flow_confirm',
-      { root: ROOT2, change: CHANGE, proceed: true },
+      { root: ROOT2, id: CHANGE_ID, proceed: true },
     ]);
     expect(calls('change_flow_answer').at(-1)).toEqual([
       'change_flow_answer',
-      { root: ROOT2, change: CHANGE, answer: '换根后应答' },
+      { root: ROOT2, id: CHANGE_ID, answer: '换根后应答' },
     ]);
   });
 });
@@ -454,7 +454,7 @@ describe('useChangeFlowRun：onNotice 分流五 kind（RunNotice kind-only 全�
     const onNotice = vi.fn();
     renderHook(
       (input: Params & { onNotice: (kind: NoticeKind) => void }) => useChangeFlowRun(input),
-      { initialProps: { root: ROOT, change: CHANGE, activeRunPresent: true, onNotice } },
+      { initialProps: { root: ROOT, id: CHANGE_ID, activeRunPresent: true, onNotice } },
     );
     await waitFor(() => expect(calls('change_flow_watch')).toHaveLength(1));
 
@@ -476,7 +476,7 @@ describe('useChangeFlowRun：onNotice 分流五 kind（RunNotice kind-only 全�
     const onNotice = vi.fn();
     const rendered = renderHook(
       (input: Params & { onNotice: (kind: NoticeKind) => void }) => useChangeFlowRun(input),
-      { initialProps: { root: ROOT, change: CHANGE, activeRunPresent: true, onNotice } },
+      { initialProps: { root: ROOT, id: CHANGE_ID, activeRunPresent: true, onNotice } },
     );
     await waitFor(() => expect(calls('change_flow_watch')).toHaveLength(1));
 
@@ -485,7 +485,7 @@ describe('useChangeFlowRun：onNotice 分流五 kind（RunNotice kind-only 全�
 
     // 终态除名（activeRunPresent false）→ cleanup 弃投递：订阅引用释放、通道
     // 不可达（ref 弃持的释放面），迟滞通知零回调
-    rendered.rerender({ root: ROOT, change: CHANGE, activeRunPresent: false, onNotice });
+    rendered.rerender({ root: ROOT, id: CHANGE_ID, activeRunPresent: false, onNotice });
     const channel = ChannelMock.instances[0];
     channel.onmessage = null;
     deliver({ ipc: 'step' });

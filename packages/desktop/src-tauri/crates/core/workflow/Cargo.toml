@@ -12,6 +12,9 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 specta = { workspace = true }
 time = { workspace = true }
+# change id 铸造（写面 create 单点消费；普通依赖——纯 id 生成无 infra /
+# 进程面，不破 crate 依赖方向与「core 零 infra」纪律）
+uuid = { workspace = true }
 
 # 测试半边专用（零生产依赖面）：语料 db 种子构造器经真实 store change 域操作
 # 面（desktop-workflow-db-state design 依赖节明定；cargo 允许 dev-dependency

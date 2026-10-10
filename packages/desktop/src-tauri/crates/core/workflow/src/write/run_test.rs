@@ -1,13 +1,16 @@
 //! `write::run_start` / `write::run_finish` 的单元测试（test-design
 //! 「write/run.rs -> run_test.rs」节）：run 写面校验前置（run_id 非空 + change
-//! 建档在案 + 终态三值且非 interrupted）保留——任一失败零写命令下发；委派透传
-//! （命令逐字段等值，写面零改写——D2 词汇本体 = 命令类型本身）；真件 tempfile
-//! workspace 库回环（running 行回读 / 三终态回读——AC-1/AC-2 第一写与收口写）。
+//! 建档在案 + 终态三值且非 interrupted）保留——任一失败零写命令下发；校验读
+//! 记录面随动（载荷 `change_id` 为寻址键——按 id 读记录，未建档 id 显式 Err）；
+//! 委派透传（命令逐字段等值，写面零改写——D2 词汇本体 = 命令类型本身）；真件
+//! tempfile workspace 库回环（running 行回读 / 三终态回读——AC-1/AC-2 第一写
+//! 与收口写）。
 //!
 //! Mock策略（test-design 本节 Mock 表）：ChangeStateStore 进程内假件（Mutex
-//! 捕获 run_start / run_finish 命令、可编程 Err、越权读面 panic）作被测函数
-//! 显式入参注入（入参例外）；db 文件（进程边界）真实 workspace 库半边归
-//! corpus_golden_test.rs 真件节（集成测试单实例解析，类型面自洽）。
+//! 捕获 run_start / run_finish 命令与读记录 id、可编程 Err、越权读面 panic）
+//! 作被测函数显式入参注入（入参例外）；db 文件（进程边界）真实 workspace 库
+//! 半边归 corpus_golden_test.rs 真件节（集成测试单实例解析，类型面自洽）。
+//! id 与 name 字面量各异：寻址断言以 id 为键、name 仅展示属性。
 
 use std::sync::Mutex;
 
@@ -18,7 +21,12 @@ use crate::state::{
     RunStepKind, RunStepStateRecord, RunStepStatus, StepCommand, StoreFault,
 };
 
-const CHANGE: &str = "demo-change";
+/// 身份锚字面量（run 写面寻址键——载荷 `change_id`）。
+const CHANGE_ID: &str = "0198f7a0-0000-7000-8000-0000000000e5";
+/// change 名（零寻址职能，仅记录展示属性）。
+const CHANGE_NAME: &str = "demo-change";
+/// 库内不存在的 id（未建档拒绝面）。
+const UNKNOWN_ID: &str = "0198f7a0-0000-7000-8000-0000000000fb";
 const RUN_ID: &str = "run-1727000000000";
 const STARTED_AT: i64 = 1_727_000_000_000;
 const FINISHED_AT: i64 = 1_727_000_060_000;
@@ -31,6 +39,8 @@ struct RecordingStore {
     recorded: Mutex<Option<ChangeStateRecord>>,
     started: Mutex<Vec<RunStartCommand>>,
     finished: Mutex<Vec<RunFinishCommand>>,
+    /// 捕获的读记录 id（校验读记录面按 change_id 寻址断言面）。
+    read_ids: Mutex<Vec<String>>,
     /// 可编程 store 半边 Err（run_start / run_finish 命中即 Err）。
     fault: Mutex<Option<StoreFault>>,
 }
@@ -39,7 +49,8 @@ impl RecordingStore {
     fn with_change() -> Self {
         Self {
             recorded: Mutex::new(Some(ChangeStateRecord {
-                name: CHANGE.to_owned(),
+                id: CHANGE_ID.to_owned(),
+                name: CHANGE_NAME.to_owned(),
                 workflow_type: "requirement".to_owned(),
                 created_at: STARTED_AT,
                 status: ChangeStatus::Active,
@@ -50,6 +61,7 @@ impl RecordingStore {
             })),
             started: Mutex::new(Vec::new()),
             finished: Mutex::new(Vec::new()),
+            read_ids: Mutex::new(Vec::new()),
             fault: Mutex::new(None),
         }
     }
@@ -59,8 +71,14 @@ impl RecordingStore {
             recorded: Mutex::new(None),
             started: Mutex::new(Vec::new()),
             finished: Mutex::new(Vec::new()),
+            read_ids: Mutex::new(Vec::new()),
             fault: Mutex::new(None),
         }
+    }
+
+    /// 捕获的读记录 id 序列（按 id 寻址断言面）。
+    fn read_ids(&self) -> Vec<String> {
+        self.read_ids.lock().expect("读锁不可中毒").clone()
     }
 
     fn start_count(&self) -> usize {
@@ -91,8 +109,17 @@ impl RecordingStore {
 }
 
 impl ChangeStateStore for RecordingStore {
-    fn get_change(&self, _name: &str) -> Result<Option<ChangeStateRecord>, StoreFault> {
-        Ok(self.recorded.lock().expect("记录锁不可中毒").clone())
+    fn get_change(&self, id: &str) -> Result<Option<ChangeStateRecord>, StoreFault> {
+        self.read_ids
+            .lock()
+            .expect("读锁不可中毒")
+            .push(id.to_owned());
+        Ok(self
+            .recorded
+            .lock()
+            .expect("记录锁不可中毒")
+            .clone()
+            .filter(|record| record.id == id))
     }
 
     fn list_change_records(&self) -> Result<Vec<ChangeStateRecord>, StoreFault> {
@@ -101,14 +128,14 @@ impl ChangeStateStore for RecordingStore {
 
     fn list_phase_records(
         &self,
-        _change: &str,
+        _change_id: &str,
     ) -> Result<Vec<crate::state::PhaseStateRecord>, StoreFault> {
         unimplemented!("本用例不可达")
     }
 
     fn list_steps(
         &self,
-        _change: &str,
+        _change_id: &str,
         _run_id: Option<&str>,
     ) -> Result<Vec<crate::state::StepStateRecord>, StoreFault> {
         unimplemented!("本用例不可达")
@@ -118,13 +145,13 @@ impl ChangeStateStore for RecordingStore {
         unimplemented!("本用例不可达")
     }
 
-    fn delete_change_record(&self, _name: &str) -> Result<bool, StoreFault> {
+    fn delete_change_record(&self, _id: &str) -> Result<bool, StoreFault> {
         unimplemented!("本用例不可达")
     }
 
     fn start_phase(
         &self,
-        _change: &str,
+        _change_id: &str,
         _phase: &str,
         _now: i64,
     ) -> Result<PhaseStartState, StoreFault> {
@@ -141,14 +168,14 @@ impl ChangeStateStore for RecordingStore {
 
     fn amend_decision_session(
         &self,
-        _change: &str,
+        _change_id: &str,
         _phase: &str,
         _session_id: &str,
     ) -> Result<(), StoreFault> {
         unimplemented!("本用例不可达")
     }
 
-    fn set_archived(&self, _name: &str, _archived_at: i64) -> Result<(), StoreFault> {
+    fn set_archived(&self, _id: &str, _archived_at: i64) -> Result<(), StoreFault> {
         unimplemented!("本用例不可达")
     }
 
@@ -194,15 +221,23 @@ impl ChangeStateStore for RecordingStore {
 fn start_command() -> RunStartCommand {
     RunStartCommand {
         run_id: RUN_ID.to_owned(),
-        change: CHANGE.to_owned(),
+        change_id: CHANGE_ID.to_owned(),
         started_at: STARTED_AT,
+    }
+}
+
+/// 携指定 change_id 的发起命令（未建档 id 拒绝面）。
+fn start_command_for(change_id: &str) -> RunStartCommand {
+    RunStartCommand {
+        change_id: change_id.to_owned(),
+        ..start_command()
     }
 }
 
 fn finish_command(status: RunStatus, steps: Vec<RunStepEntry>) -> RunFinishCommand {
     RunFinishCommand {
         run_id: RUN_ID.to_owned(),
-        change: CHANGE.to_owned(),
+        change_id: CHANGE_ID.to_owned(),
         status,
         reason: Some("收口记因".to_owned()),
         finished_at: FINISHED_AT,
@@ -232,7 +267,7 @@ fn run_start空白run_id拒绝且零库写() {
     let fake = RecordingStore::with_change();
     let command = RunStartCommand {
         run_id: "   ".to_owned(),
-        change: CHANGE.to_owned(),
+        change_id: CHANGE_ID.to_owned(),
         started_at: STARTED_AT,
     };
 
@@ -242,26 +277,45 @@ fn run_start空白run_id拒绝且零库写() {
     assert_eq!(fake.start_count(), 0, "校验前置：store 零写入");
 }
 
-/// run_start / run_finish 对未建档 change → Err（NotFound 语义记因，AC-1）。
+/// run_start / run_finish 对未建档 id → Err（读记录面随动：按载荷 change_id
+/// 寻址，未登记 id 记因携 id 语境、不回落 name——AC-1）。
 #[test]
-fn run写面未建档change显式err() {
+fn 未建档id显式err() {
     let fake = RecordingStore::missing_change();
 
     let start_err = run_start(&fake, &start_command()).expect_err("未建档 run_start 应 Err");
     assert!(
-        start_err.contains(CHANGE) && start_err.contains("未建档"),
-        "run_start 记因携 change 名与建档语义，实际: {start_err}"
+        start_err.contains(CHANGE_ID) && start_err.contains("未建档"),
+        "run_start 记因携 change id 与建档语义，实际: {start_err}"
     );
 
     let finish_err = run_finish(&fake, &finish_command(RunStatus::Completed, Vec::new()))
         .expect_err("未建档 run_finish 应 Err");
     assert!(
-        finish_err.contains(CHANGE) && finish_err.contains("未建档"),
-        "run_finish 记因携 change 名与建档语义，实际: {finish_err}"
+        finish_err.contains(CHANGE_ID) && finish_err.contains("未建档"),
+        "run_finish 记因携 change id 与建档语义，实际: {finish_err}"
     );
 
     assert_eq!(fake.start_count(), 0, "两路校验前置：store 零写入");
     assert_eq!(fake.finish_count(), 0);
+
+    // 库内有建档但载荷 id 未登记：按 id 读记录 miss（name 不作寻址回退）
+    let fake = RecordingStore::with_change();
+    let err = run_start(&fake, &start_command_for(UNKNOWN_ID)).expect_err("未登记 id 应 Err");
+    assert!(
+        err.contains(UNKNOWN_ID) && err.contains("未建档"),
+        "Err 记因携未登记 id 语境，实际: {err}"
+    );
+    assert!(
+        !err.contains(CHANGE_NAME),
+        "拒绝面零 name 感知（未解析到记录），实际: {err}"
+    );
+    assert_eq!(fake.start_count(), 0, "零写入");
+    assert_eq!(
+        fake.read_ids(),
+        vec![UNKNOWN_ID.to_owned()],
+        "读记录面按载荷 change_id 寻址（id 化，非 name）"
+    );
 }
 
 /// run_finish status=Running → Err；status=Interrupted → Err 且记因含
@@ -305,7 +359,8 @@ fn run_finish空步整包委派成功() {
 }
 
 /// 假件捕获：run_start / run_finish 收到的命令与入参逐字段等值（写面零改写
-/// 透传——D2 词汇本体 = 命令类型本身）。
+/// 透传——D2 词汇本体 = 命令类型本身；`change_id` 载荷 id 化后断言面零改动）；
+/// 校验读记录面按载荷 change_id 寻址。
 #[test]
 fn 写面委派命令逐字段透传() {
     let fake = RecordingStore::with_change();
@@ -313,6 +368,11 @@ fn 写面委派命令逐字段透传() {
 
     run_start(&fake, &start).expect("run_start 应成功");
     assert_eq!(fake.last_start(), start, "start 命令零改写透传");
+    assert_eq!(
+        fake.last_start().change_id,
+        CHANGE_ID,
+        "载荷 change_id = 寻址键（id 化）"
+    );
 
     let finish = finish_command(
         RunStatus::Stopped,
@@ -323,5 +383,10 @@ fn 写面委派命令逐字段透传() {
         fake.last_finish(),
         finish,
         "finish 命令（含步整包）零改写透传"
+    );
+    assert_eq!(
+        fake.read_ids(),
+        vec![CHANGE_ID.to_owned(), CHANGE_ID.to_owned()],
+        "两路校验读记录均按载荷 change_id 寻址"
     );
 }

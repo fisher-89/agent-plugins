@@ -16,9 +16,14 @@
 //!
 //! `archive_change` 以 [`archive_change_with`] 泛型测试缝直测（MockRuntime
 //! 句柄，沿 `change_flow_start_with` 先例，无真实 Wry）。
+//!
+//! **寻址面 id 化**（desktop-change-db-identity）：三读一写的定位参数均为
+//! change id（未建档 → 读命令空结果语义 / 写命令显式 `Err`，零磁盘目录解析
+//! 回退）；name 仅作展示属性与磁盘面供给值（list 归档条目恒裸名、磁盘目录名
+//! 日期前缀不参与出线）。
 
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use foundation::layout::{resolve, Layout};
@@ -139,6 +144,7 @@ fn store_of(app: &App<tauri::test::MockRuntime>, root: &str) -> Arc<Store> {
 fn seed_active(store: &Store, name: &str) {
     store
         .create_change_record(ChangeStateRecord {
+            id: name.to_owned(),
             name: name.to_owned(),
             workflow_type: "requirement".to_owned(),
             created_at: CREATED_AT,
@@ -155,6 +161,7 @@ fn seed_active(store: &Store, name: &str) {
 fn seed_archived(store: &Store, name: &str) {
     store
         .create_change_record(ChangeStateRecord {
+            id: name.to_owned(),
             name: name.to_owned(),
             workflow_type: "requirement".to_owned(),
             created_at: CREATED_AT,
@@ -176,7 +183,7 @@ fn seed_with_phase(store: &Store, name: &str) {
         .expect("开相 fixture 应成功");
     store
         .log_change_phase(&PhaseLogCommand {
-            change: name.to_owned(),
+            change_id: name.to_owned(),
             phase: "proposal".to_owned(),
             verdict: Verdict::Pass,
             report: "OK".to_owned(),
@@ -196,18 +203,22 @@ fn seed_with_phase(store: &Store, name: &str) {
 }
 
 // ---------------------------------------------------------------------------
-// 读命令透传持衡（AC-4 接线半边）：薄包装不加工，夹具 = db 种子 + 真实目录树
+// 读命令 id 透传（AC-2 :262 段 / AC-5 接线半边）：薄包装不加工，夹具 = db 种子
+// + 真实目录树
 // ---------------------------------------------------------------------------
 
+/// 读命令定位参数 id 透传：list / detail / read_artifact 三命令与 core 直调
+/// serde 等值；归档条目 name 恒裸名（磁盘目录名日期前缀零出线）且 id 恒在案；
+/// 月分组 `2026-02` 自 `archived_at` 驱动。
 #[test]
-fn 读命令透传持衡_list与detail命令结果与core查询serde一致() {
+fn 读命令id透传_列表详情产物与core查询serde等值且归档条目恒裸名携id() {
     let env = Env::new("passthrough");
     let app = app_with(&env);
     let state = app.state::<WorkspaceStores>();
     let root = env.root();
 
-    // 种子三形态：db 建档 active（含相位落账）/ db archived（archive 树日期
-    // 前缀目录在场）/ 磁盘-only（存量 CLI change，db 缺记录）
+    // 种子两形态：db 建档 active（含相位落账）/ db archived（archive 树日期
+    // 前缀目录在场——磁盘目录名与记录裸名相异，出线归属对拍）
     {
         let store = store_of(&app, &root);
         seed_with_phase(&store, "seeded-active");
@@ -220,21 +231,20 @@ fn 读命令透传持衡_list与detail命令结果与core查询serde一致() {
     .expect("写 tasks.md 失败");
     fs::create_dir_all(env.archive_dir().join("2026-02-02-seeded-archived"))
         .expect("创建 archive 目录失败");
-    fs::create_dir_all(env.change_dir("docs-only")).expect("创建磁盘-only 目录失败");
 
     let layout = env.layout();
     let store = store_of(&app, &root);
 
     // list：命令面与 core 直调 serde 等值（同库同状态，零加工）
     let via_command = list_changes(state.clone(), root.clone());
-    let via_core = core_queries::list_changes(&layout, store.as_ref());
+    let via_core = core_queries::list_changes(store.as_ref());
     assert_eq!(
         serde_json::to_value(&via_command).expect("命令结果序列化失败"),
         serde_json::to_value(&via_core).expect("core 结果序列化失败"),
         "薄包装不加工"
     );
 
-    // 内容抽查：active 并集（db 条目 + 磁盘-only 文档形态），主键自然序
+    // 内容抽查：active = db 全量，主键自然序；条目携身份锚 id
     let value = serde_json::to_value(&via_command).expect("序列化失败");
     let active_names: Vec<&str> = value["active"]
         .as_array()
@@ -242,27 +252,61 @@ fn 读命令透传持衡_list与detail命令结果与core查询serde一致() {
         .iter()
         .map(|entry| entry["name"].as_str().expect("条目含 name"))
         .collect();
-    assert_eq!(active_names, vec!["docs-only", "seeded-active"]);
-    let seeded = &value["active"][1];
+    assert_eq!(active_names, vec!["seeded-active"], "db 单源全量出线");
+    let seeded = &value["active"][0];
+    assert_eq!(seeded["id"], json!("seeded-active"), "条目携身份锚 id");
     assert_eq!(seeded["status"], json!("active"), "db 条目携状态面");
     assert_eq!(seeded["activePhase"], json!(null), "落账清位 → null");
     assert_eq!(seeded["created"], json!("2024-09-22"), "建档日期出线");
-    assert_eq!(
-        value["active"][0]["status"],
-        json!(null),
-        "磁盘-only 文档形态零状态面"
-    );
 
-    // archive 月分组：db archived_at 驱动（2026-02 组可达）
+    // archive 月分组：db archived_at 驱动（2026-02 组可达）；条目 name 恒裸名
+    // （磁盘目录名 `2026-02-02-` 前缀零出线）且 id 恒在案
     let groups = value["archiveGroups"].as_array().expect("月分组数组");
     assert_eq!(groups.len(), 1, "恰一个月组");
-    assert_eq!(groups[0]["month"], json!("2026-02"));
+    assert_eq!(
+        groups[0]["month"],
+        json!("2026-02"),
+        "月分组自 archived_at（磁盘目录名日期前缀不参与）"
+    );
     assert_eq!(
         groups[0]["changes"][0]["name"],
-        json!("2026-02-02-seeded-archived"),
-        "归档条目 name 为磁盘目录名（含日期前缀）"
+        json!("seeded-archived"),
+        "归档条目 name 恒裸名（磁盘目录名日期前缀零出线）"
+    );
+    assert_eq!(
+        groups[0]["changes"][0]["id"],
+        json!("seeded-archived"),
+        "归档条目 id 恒在案"
     );
     assert_eq!(groups[0]["changes"][0]["status"], json!("archived"));
+
+    // read_artifact：命令面与 core 直调 serde 等值（id → 记录 → name 目录定位）
+    let record = store
+        .find_change_record("seeded-active")
+        .expect("查档应成功")
+        .expect("建档在案");
+    let location =
+        core_queries::locate_change(&layout, record.worktree.as_deref(), record.name.as_str())
+            .expect("记录供给定位应命中");
+    let phases = store
+        .list_phase_records("seeded-active")
+        .expect("相位史应成功");
+    let via_artifact = read_artifact(
+        state.clone(),
+        root.clone(),
+        "seeded-active".to_owned(),
+        "tasks-progress".to_owned(),
+        "tasks.md".to_owned(),
+    )
+    .expect("产物读取应 Some");
+    let via_core_artifact =
+        workflow::artifacts::read_artifact(&location.dir, &phases, "tasks-progress", "tasks.md")
+            .expect("core 产物读取应 Some");
+    assert_eq!(
+        serde_json::to_value(&via_artifact).expect("命令结果序列化失败"),
+        serde_json::to_value(&via_core_artifact).expect("core 结果序列化失败"),
+        "薄包装不加工（read_artifact 命令面）"
+    );
 
     // detail：命令面与 core 直调 serde 等值；建档 change 全状态面
     let control = app.state::<Arc<orchestration::control::ChangeFlowControl>>();
@@ -285,6 +329,8 @@ fn 读命令透传持衡_list与detail命令结果与core查询serde一致() {
         "零运行 run → activeRun null"
     );
     let via_detail = &via_detail.detail;
+    assert_eq!(via_detail.id, "seeded-active", "详情携身份锚 id");
+    assert_eq!(via_detail.name, "seeded-active", "详情 name 自记录直读");
     assert_eq!(via_detail.status, Some(ChangeStatus::Active));
     assert_eq!(via_detail.pipeline.len(), 9, "固定 9 站全量输出");
     let proposal = via_detail
@@ -303,11 +349,85 @@ fn 读命令透传持衡_list与detail命令结果与core查询serde一致() {
         "产物清单非空（tasks.md 特化 kind）"
     );
     assert!(via_detail.active_phase.is_none(), "落账清位 → null");
+}
 
-    // 未知 change → None（非错误）
+/// 目录树字节快照（相对路径 → 内容；空内容行记目录名）：命令链路零写证据。
+fn tree_snapshot(root: &Path) -> Vec<(String, Vec<u8>)> {
+    let mut files = Vec::new();
+    let mut stack = vec![root.to_path_buf()];
+    while let Some(dir) = stack.pop() {
+        for entry in fs::read_dir(&dir).expect("遍历目录失败").flatten() {
+            let path = entry.path();
+            let relative = path
+                .strip_prefix(root)
+                .expect("相对路径")
+                .to_string_lossy()
+                .into_owned();
+            if path.is_dir() {
+                files.push((relative, Vec::new()));
+                stack.push(path);
+            } else {
+                files.push((relative, fs::read(&path).expect("读文件失败")));
+            }
+        }
+    }
+    files.sort();
+    files
+}
+
+// ---------------------------------------------------------------------------
+// 磁盘-only 零呈现（AC-3 命令面半边）：db 单源——无记录的存量 CLI 目录零入列
+// ---------------------------------------------------------------------------
+
+/// 主仓磁盘-only 目录（存量 CLI change，db 零记录）在位：list 命令零呈现该
+/// 条目、detail / read_artifact 命令按该 id 均为 None（不可达）、目录字节零
+/// 变化、零 db 建档。
+#[test]
+fn 磁盘only零呈现_命令面零入列不可达且目录字节零变化() {
+    let env = Env::new("disk-only");
+    let app = app_with(&env);
+    let state = app.state::<WorkspaceStores>();
+    let root = env.root();
+
+    // 磁盘-only 形态：主仓 change 目录 + 产物文件在场，db 零记录
+    let docs_only = env.change_dir("docs-only");
+    fs::write(docs_only.join("proposal.md"), "# 存量 CLI change\n").expect("写产物失败");
+    let before = tree_snapshot(&env.changes_dir());
+
+    // list 命令零呈现：空清单（不入列、不报错）
+    let list = list_changes(state.clone(), root.clone());
+    assert!(list.active.is_empty(), "磁盘-only 零入列（db 单源命令面）");
+    assert!(list.archive_groups.is_empty(), "零月分组");
+    // detail / read_artifact 命令按该 id → None（未建档；零磁盘目录解析回退）
+    let control = app.state::<Arc<orchestration::control::ChangeFlowControl>>();
     assert!(
-        get_change_detail(state, control, root, "不存在".to_owned()).is_none(),
-        "未知 change 名返回 None"
+        get_change_detail(state.clone(), control, root.clone(), "docs-only".to_owned()).is_none(),
+        "磁盘-only 详情 None（未建档）"
+    );
+    assert!(
+        read_artifact(
+            state,
+            root,
+            "docs-only".to_owned(),
+            "markdown-doc".to_owned(),
+            "proposal.md".to_owned()
+        )
+        .is_none(),
+        "磁盘-only 产物读取 None（未建档）"
+    );
+
+    // 目录字节零变化 + 零 db 建档（读取链路零写零建档）
+    assert_eq!(
+        tree_snapshot(&env.changes_dir()),
+        before,
+        "磁盘目录字节零变化"
+    );
+    assert!(
+        store_of(&app, &env.root())
+            .list_change_records()
+            .expect("查清单应成功")
+            .is_empty(),
+        "零 db 建档"
     );
 }
 
@@ -406,11 +526,11 @@ fn read_artifact信封出线持衡_五字段往返与负路径越权source拒绝
 }
 
 // ---------------------------------------------------------------------------
-// create 接线（AC-6 命令半边）：写面三合一 + 返回 DTO + 立即可见可发起
+// create 接线（AC-1 命令半边）：写面三合一 + 返回 DTO 增 id + 立即可见可发起
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
-async fn create接线_建域落位_零workflow_json_返回dto且立即可见可发起() {
+async fn create接线_建域落位_返回dto增id且按id立即可见可发起() {
     // 真实 git 仓夹具 + ProcessWorktree spawn 均依赖 PATH 可达 git——与
     // PATH 隔离用例（change_flow / exec）经共享锁串行化（命令级先例）
     let _path_guard = crate::commands::TEST_PATH_LOCK
@@ -432,7 +552,8 @@ async fn create接线_建域落位_零workflow_json_返回dto且立即可见可�
     .await
     .expect("合法输入经命令层应 Ok");
 
-    // 返回 DTO 恰四键：name / created / worktree（刻意出线的执行锚）/ warnings
+    // 返回 DTO 恰五键：id（铸出的身份锚）/ name / created / worktree（刻意
+    // 出线的执行锚）/ warnings
     let value = serde_json::to_value(&outcome).expect("序列化失败");
     let mut keys: Vec<&str> = value
         .as_object()
@@ -443,8 +564,13 @@ async fn create接线_建域落位_零workflow_json_返回dto且立即可见可�
     keys.sort_unstable();
     assert_eq!(
         keys,
-        vec!["created", "name", "warnings", "worktree"],
-        "恰四键面（worktree 为刻意出线的执行锚）"
+        vec!["created", "id", "name", "warnings", "worktree"],
+        "恰五键面（id 为身份锚、worktree 为刻意出线的执行锚）"
+    );
+    assert!(!outcome.id.is_empty(), "铸出 id 非空（身份锚）");
+    assert_ne!(
+        outcome.id, outcome.name,
+        "铸出 id 与 name 相异（主键非 name）"
     );
     assert_eq!(outcome.name, "fix-bug");
     assert_eq!(
@@ -477,11 +603,13 @@ async fn create接线_建域落位_零workflow_json_返回dto且立即可见可�
         "零 workflow.json 产出（双向墙写半边）"
     );
 
-    // 三合一 db 半边：建档记录在案（requirement + active）
+    // 三合一 db 半边：建档记录在案（按铸出 id 寻址；id 与库内逐字一致）
     let record = store_of(&app, &root)
-        .find_change_record("fix-bug")
+        .find_change_record(&outcome.id)
         .expect("查档应成功")
         .expect("建档记录在案");
+    assert_eq!(record.id, outcome.id, "CreateOutcome.id 与库内逐字一致");
+    assert_eq!(record.name, "fix-bug", "name 为可展示属性");
     assert_eq!(record.status, ChangeStatus::Active);
     assert_eq!(record.workflow_type, "requirement");
     assert!(record.active_phase.is_none(), "建档起步零开相");
@@ -492,17 +620,24 @@ async fn create接线_建域落位_零workflow_json_返回dto且立即可见可�
     );
     assert!(record.base_commit.is_some(), "建档记录携 base_commit 基线");
 
-    // 成功立即可见可发起：list / detail 即刻呈现
+    // 成功立即可见可发起：list / detail 按 id 即刻呈现
     let list = list_changes(state.clone(), root.clone());
     let entry = list
         .active
         .iter()
-        .find(|entry| entry.name == "fix-bug")
-        .expect("清单即刻可见");
+        .find(|entry| entry.id == outcome.id)
+        .expect("清单即刻可见（按 id 寻址）");
+    assert_eq!(entry.name, "fix-bug", "条目 name 为展示属性");
     assert_eq!(entry.status, Some(ChangeStatus::Active));
     let control = app.state::<Arc<orchestration::control::ChangeFlowControl>>();
-    let unified =
-        get_change_detail(state, control, root, "fix-bug".to_owned()).expect("详情即刻可见");
+    let unified = get_change_detail(
+        state.clone(),
+        control.clone(),
+        root.clone(),
+        outcome.id.clone(),
+    )
+    .expect("详情即刻可见（按 id 寻址）");
+    assert_eq!(unified.detail.id, outcome.id, "详情身份锚与铸出同源");
     assert_eq!(unified.detail.status, Some(ChangeStatus::Active));
     assert_eq!(
         unified.detail.pipeline.len(),
@@ -510,6 +645,11 @@ async fn create接线_建域落位_零workflow_json_返回dto且立即可见可�
         "空流水线 9 站全量（发起面就绪）"
     );
     assert!(unified.active_run.is_none());
+    // name 非寻址键：按 name 查询不可达（一切寻址以 id 为准）
+    assert!(
+        get_change_detail(state, control, root, "fix-bug".to_owned()).is_none(),
+        "name 非寻址键（未建档 id → None）"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -548,14 +688,15 @@ fn archive接线_双写成功返回outcome且随后list按月分组可达() {
         "archived_date 为 UTC YYYY-MM-DD"
     );
 
-    // db 半边：status 翻转 + archived_at 落库，主键 name 不变
+    // db 半边：status 翻转 + archived_at 落库，id / name 均不随目录改名变
     let record = store_of(&app, &root)
         .find_change_record(name)
         .expect("查档应成功")
         .expect("建档记录在案");
     assert_eq!(record.status, ChangeStatus::Archived, "db status 翻转");
     assert!(record.archived_at.is_some(), "archived_at 落库");
-    assert_eq!(record.name, name, "主键 name 不随目录改名变");
+    assert_eq!(record.id, name, "主键 id 不随目录改名变");
+    assert_eq!(record.name, name, "name 不随目录改名变");
 
     // fs 半边：active 树目录改名入 archive 树（日期前缀）
     assert!(
@@ -567,7 +708,8 @@ fn archive接线_双写成功返回outcome且随后list按月分组可达() {
         .join(format!("{}-{name}", outcome.archived_date));
     assert!(archived_dir.is_dir(), "archive 树日期前缀目录落位");
 
-    // 随后 list 命令按月分组可达（归档月组 + 前缀目录名条目）
+    // 随后 list 命令按月分组可达：月组自 archived_at、条目 name 恒裸名
+    // （磁盘目录名日期前缀零出线）且 id 恒在案
     let list = list_changes(state.clone(), root);
     assert!(
         list.active.iter().all(|entry| entry.name != name),
@@ -580,11 +722,8 @@ fn archive接线_双写成功返回outcome且随后list按月分组可达() {
         Some(&outcome.archived_date[..7]),
         "db archived_at 驱动月分组"
     );
-    assert_eq!(
-        group.changes[0].name,
-        format!("{}-{name}", outcome.archived_date),
-        "归档条目 name 为磁盘目录名"
-    );
+    assert_eq!(group.changes[0].name, name, "归档条目 name 恒裸名");
+    assert_eq!(group.changes[0].id, name, "归档条目 id 恒在案");
     assert_eq!(group.changes[0].status, Some(ChangeStatus::Archived));
 }
 
@@ -658,13 +797,13 @@ fn archive错误映射_无建档与目标冲突与blank参数各自显式err() {
         "db 零变更（status 未翻转）"
     );
 
-    // blank 参数：命令层显式文案（写无空结果语义）
+    // blank 参数：命令层显式文案（写无空结果语义；id 语境）
     let err = archive_change_with(app.handle().clone(), String::new(), "任意".to_owned())
         .expect_err("blank root 应 Err");
     assert_eq!(err, "非法 root: 不得为空白");
     let err = archive_change_with(app.handle().clone(), root.clone(), "   ".to_owned())
-        .expect_err("blank change 应 Err");
-    assert_eq!(err, "非法 change: 不得为空白");
+        .expect_err("blank id 应 Err");
+    assert_eq!(err, "非法 id: 不得为空白");
 }
 
 // ---------------------------------------------------------------------------
@@ -770,8 +909,14 @@ async fn blank_root双口径_读命令早退空结果_create显式err() {
 // ---------------------------------------------------------------------------
 
 /// db 建档携 worktree 执行锚的 active 记录 + worktree 内产物树（merge 前主仓
-/// 两树未命中的读命令夹具）。
-fn seed_worktree_change(env: &Env, app: &App<tauri::test::MockRuntime>, name: &str) -> PathBuf {
+/// 两树未命中的读命令夹具）。`id` 与 `name` 刻意相异：磁盘目录名恒由记录
+/// `name` 供给（id → 记录 → name 分辨率单点的比对锚）。
+fn seed_worktree_change(
+    env: &Env,
+    app: &App<tauri::test::MockRuntime>,
+    id: &str,
+    name: &str,
+) -> PathBuf {
     let worktree = env
         .data_dir
         .path()
@@ -783,6 +928,7 @@ fn seed_worktree_change(env: &Env, app: &App<tauri::test::MockRuntime>, name: &s
     fs::write(change_dir.join("proposal.md"), "# worktree 内提案").expect("预置产物失败");
     store_of(app, &env.root())
         .create_change_record(ChangeStateRecord {
+            id: id.to_owned(),
             name: name.to_owned(),
             workflow_type: "requirement".to_owned(),
             created_at: CREATED_AT,
@@ -833,24 +979,29 @@ async fn create拒绝映射_非git仓err透传且零产生() {
 }
 
 /// detail worktree 感知：记录携 worktree + 主仓两树未命中 + worktree 内产物
-/// 树 → `get_change_detail` Some 且 `worktree` 出线、artifacts 命中 worktree
-/// 内文件（record 先读后定位的命令面证据）。
+/// 树 → `get_change_detail` 按 **id** Some 且 `worktree` 出线、artifacts 命中
+/// worktree 内文件（record 先读后定位的命令面证据；目录名由记录 name 供给）。
 #[tokio::test]
 async fn detail_worktree感知_出线且产物命中worktree内文件() {
     let env = Env::new("detail-worktree");
     let app = app_with(&env);
-    let worktree = seed_worktree_change(&env, &app, "wt-detail-change");
+    let worktree = seed_worktree_change(&env, &app, "id-wt-detail", "wt-detail-change");
 
     let control = app.state::<Arc<orchestration::control::ChangeFlowControl>>();
     let detail = get_change_detail(
         app.state::<WorkspaceStores>(),
         control,
         env.root(),
-        "wt-detail-change".to_owned(),
+        "id-wt-detail".to_owned(),
     )
     .expect("worktree 记录详情应 Some")
     .detail;
 
+    assert_eq!(detail.id, "id-wt-detail", "身份锚 id 出线");
+    assert_eq!(
+        detail.name, "wt-detail-change",
+        "name 自记录直读（id → 记录 → name 分辨率单点）"
+    );
     assert_eq!(
         detail.worktree.as_deref(),
         Some(worktree.to_string_lossy().as_ref()),
@@ -867,20 +1018,20 @@ async fn detail_worktree感知_出线且产物命中worktree内文件() {
     assert_eq!(detail.status, Some(ChangeStatus::Active), "状态面在");
 }
 
-/// read_artifact worktree 命中：同上夹具 → `read_artifact` 经 worktree 回退
-/// 读取产物信封成功（主仓 miss 不致落空）；legacy 记录 → 主仓两树既有解析
-/// 持衡（miss → None）。
+/// read_artifact worktree 命中：同上夹具 → `read_artifact` 经 id → 记录 →
+/// worktree / name 回退读取产物信封成功（主仓 miss 不致落空）；legacy 记录 →
+/// 主仓两树既有解析持衡（miss → None）。
 #[tokio::test]
 async fn read_artifact_worktree命中_主仓miss不落空且legacy持衡() {
     let env = Env::new("artifact-worktree");
     let app = app_with(&env);
-    seed_worktree_change(&env, &app, "wt-artifact-change");
+    seed_worktree_change(&env, &app, "id-wt-artifact", "wt-artifact-change");
 
-    // worktree 回退命中：markdown-doc 信封读取成功
+    // worktree 回退命中：markdown-doc 信封读取成功（按 id 寻址，目录名自记录）
     let envelope = read_artifact(
         app.state::<WorkspaceStores>(),
         env.root(),
-        "wt-artifact-change".to_owned(),
+        "id-wt-artifact".to_owned(),
         "markdown-doc".to_owned(),
         "proposal.md".to_owned(),
     )
@@ -908,13 +1059,14 @@ async fn read_artifact_worktree命中_主仓miss不落空且legacy持衡() {
 }
 
 /// list 归组随动：worktree 条目（active + 两树未命中）经 `list_changes` 命令
-/// 入 active 组且状态面完整（读命令透传持衡——与 core list 行对拍）。
+/// 入 active 组且状态面完整（读命令透传持衡——与 core list 行对拍；条目 id 与
+/// 磁盘目录名（name）相异）。
 #[tokio::test]
 async fn list归组随动_worktree条目入active组状态面完整() {
     let env = Env::new("list-worktree");
     let app = app_with(&env);
     let store = store_of(&app, &env.root());
-    seed_worktree_change(&env, &app, "wt-list-change");
+    seed_worktree_change(&env, &app, "id-wt-list", "wt-list-change");
     seed_active(&store, "regular-change"); // 对照组（同 active 组）
 
     let list = list_changes(app.state::<WorkspaceStores>(), env.root());
@@ -934,27 +1086,33 @@ async fn list归组随动_worktree条目入active组状态面完整() {
         .iter()
         .find(|entry| entry.name == "wt-list-change")
         .expect("worktree 条目应在场");
+    assert_eq!(entry.id, "id-wt-list", "条目携身份锚 id（非目录名）");
     assert_eq!(entry.status, Some(ChangeStatus::Active), "状态面 status 在");
     assert!(entry.created.is_some(), "状态面 created 在");
 }
 
 /// 归档引导命令面：记录携 worktree + 两树未命中 → `archive_change_with` Err
 /// 引导 merge 文案透传（AC-10 命令半边；与 core archive_test 文案同锚）。
+/// id 与 name 相异：引导文案恒 name 化（id → 记录 → name 分辨率单点）。
 #[tokio::test]
 async fn 归档引导命令面_unmerged_err透传merge文案() {
     let env = Env::new("archive-guide");
     let app = app_with(&env);
-    seed_worktree_change(&env, &app, "wt-unmerged");
+    seed_worktree_change(&env, &app, "id-9f3a2c", "wt-unmerged");
 
-    let err = archive_change_with(app.handle().clone(), env.root(), "wt-unmerged".to_owned())
+    let err = archive_change_with(app.handle().clone(), env.root(), "id-9f3a2c".to_owned())
         .expect_err("未 merge 归档应显式拒绝");
 
     assert!(
         err.contains("merge") && err.contains("change/wt-unmerged"),
-        "merge 引导文案透传（与 core archive_test 同锚），实际: {err}"
+        "merge 引导文案透传（name 自记录供给），实际: {err}"
+    );
+    assert!(
+        !err.contains("id-9f3a2c"),
+        "引导文案不含 id（磁盘 / git 面恒 name 化），实际: {err}"
     );
     let record = store_of(&app, &env.root())
-        .find_change_record("wt-unmerged")
+        .find_change_record("id-9f3a2c")
         .expect("查档应成功")
         .expect("建档在案");
     assert_eq!(record.status, ChangeStatus::Active, "db 零变更");
@@ -987,14 +1145,14 @@ fn 统一查询装配_runs全史与active_run活面与终态退场() {
         store
             .start_change_run(&RunStartCommand {
                 run_id: "run-1".to_owned(),
-                change: "unified-change".to_owned(),
+                change_id: "unified-change".to_owned(),
                 started_at: 1_727_000_000_000,
             })
             .expect("run-1 发起应成功");
         store
             .finish_change_run(&RunFinishCommand {
                 run_id: "run-1".to_owned(),
-                change: "unified-change".to_owned(),
+                change_id: "unified-change".to_owned(),
                 status: RunStatus::Completed,
                 reason: Some("收口记因".to_owned()),
                 finished_at: 1_727_000_060_000,
@@ -1012,7 +1170,7 @@ fn 统一查询装配_runs全史与active_run活面与终态退场() {
         store
             .start_change_run(&RunStartCommand {
                 run_id: "run-2".to_owned(),
-                change: "unified-change".to_owned(),
+                change_id: "unified-change".to_owned(),
                 started_at: 1_727_000_100_000,
             })
             .expect("run-2 发起应成功");
@@ -1051,7 +1209,7 @@ fn 统一查询装配_runs全史与active_run活面与终态退场() {
         store
             .start_change_run(&SeedStart {
                 run_id: "run-3".to_owned(),
-                change: "unified-change".to_owned(),
+                change_id: "unified-change".to_owned(),
                 started_at,
             })
             .expect("run-3 起始行应成功");
@@ -1180,7 +1338,7 @@ fn 统一查询装配_waitingconfirm停等形态() {
         store
             .start_change_run(&RunStartCommand {
                 run_id: "run-4".to_owned(),
-                change: "confirm-change".to_owned(),
+                change_id: "confirm-change".to_owned(),
                 started_at,
             })
             .expect("run-4 起始行应成功");
@@ -1241,11 +1399,11 @@ fn 统一查询装配_waitingconfirm停等形态() {
     assert!(same_run.steps.is_empty(), "在飞 run 起始行 steps 恒空");
 }
 
-/// 统一视图早退与文档形态（既有语义回归 + 不虚构活面）：blank root / 开库失
-/// 败 → None；文档形态 change（db 缺记录磁盘在场）→ detail 文档形态 +
-/// active_run=null；未知 change 名（record 与定位双缺）→ None。
+/// 统一视图早退与未知 id 未找到（既有早退口径保留）：blank root → None；
+/// 磁盘目录在场而 db 缺记录的 id → None（未找到降级——MUST NOT 回退磁盘目录
+/// 解析、MUST NOT 虚构活面）；未知 id（record 与定位双缺）→ None。
 #[test]
-fn 统一查询装配_早退与文档形态与未知change() {
+fn 统一查询装配_早退与未知id未找到() {
     let env = Env::new("unified-edge");
     let app = app_with(&env);
     let state = app.state::<WorkspaceStores>();
@@ -1264,23 +1422,23 @@ fn 统一查询装配_早退与文档形态与未知change() {
         "blank root → None"
     );
 
-    // 文档形态：磁盘目录在场 db 缺记录 → detail 文档形态 + active_run=null
-    //（不虚构活面——注册表即使有条目也按 change 键寻址落空）
+    // 未建档 id：磁盘目录在场（存量 CLI change 形态）→ None（未找到降级——
+    // 注册表即使有条目也按 id 寻址落空，不虚构活面）
     env.change_dir("legacy-docs");
-    let doc = get_change_detail(
-        state.clone(),
-        control.clone(),
-        root.clone(),
-        "legacy-docs".to_owned(),
-    )
-    .expect("文档形态 Some");
-    assert_eq!(doc.detail.status, None, "文档形态零状态面");
-    assert!(doc.detail.runs.is_empty(), "文档形态 runs 恒空");
-    assert!(doc.active_run.is_none());
+    assert!(
+        get_change_detail(
+            state.clone(),
+            control.clone(),
+            root.clone(),
+            "legacy-docs".to_owned(),
+        )
+        .is_none(),
+        "磁盘目录在场而 db 缺记录 → None（零磁盘目录解析回退）"
+    );
 
-    // 未知 change 名（record 与定位双缺）→ None（既有语义不变）
+    // 未知 id（record 与定位双缺）→ None（既有语义不变）
     assert!(
         get_change_detail(state, control, root, "不存在".to_owned()).is_none(),
-        "未知 change → None"
+        "未知 id → None"
     );
 }

@@ -45,7 +45,7 @@ impl Drop for TempChange {
 fn phase_entry(phase: &str, attempt: u32, checklist: Vec<ChecklistItem>) -> PhaseStateRecord {
     PhaseStateRecord {
         id: i64::from(attempt),
-        change: "demo-change".to_owned(),
+        change_id: "demo-change".to_owned(),
         phase: phase.to_owned(),
         attempt,
         verdict: Verdict::Pass,

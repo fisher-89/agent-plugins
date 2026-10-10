@@ -11,6 +11,8 @@
 //! 史后并入 `ChangeFlowControl` 注册表快照活面（steps / ask / 停等态）一面
 //! 出；blank root / 开库失败 None 语义不变。记录面三件事纪律：参数转换 →
 //! 调写面 → 错误映射；name / goal 校验权威在写面，命令层不过关。
+//! **寻址面 id 化**：change 域三读一写的定位参数均为 change id（一切寻址以
+//! id 为准）；磁盘面 name / worktree 由 core 经 id → 记录分辨率单点供给。
 //! worktree 维度：`create_change` 经 vcs 落位派生（data_root 状态注入）+
 //! `ProcessWorktree` 装配，经 `spawn_blocking` 调 sync 写面（bootstrap 是
 //! 分钟级 spawn，async 化使 UI 不冻结）；`get_change_detail` / `read_artifact`
@@ -23,8 +25,8 @@
 //!
 //! IPC 字符串入参的显式格式/包含性检查口径（读命令）：
 //! - `root`：空/空白视作空 workspace（返回空结果而非报错），见 [`is_blank_root`]；
-//! - `change`：单分量目录名（拒绝路径穿越），由 core `locate_change` /
-//!   写面 `archive` 强制；
+//! - `id`：change 身份锚（未建档 → 详情 `None` / 产物 `None`；写面显式
+//!   `Err`）——未知 id 零磁盘目录解析回退；
 //! - `source`：change 内相对 POSIX 路径或评估条目序号串（拒绝 `..`/绝对路径/
 //!   反斜杠/盘符），由 core `read_artifact` 强制，另含 canonical 包含性兜底；
 //! - `kind`：非空，且仅与静态注册表精确比对，由 core `read_artifact` 强制。
@@ -78,9 +80,9 @@ fn is_blank_root(root: &str) -> bool {
     root.trim().is_empty()
 }
 
-/// change 列表（db 记录 ∪ 磁盘目录去重并集；active + archive 按月分组）。
-/// IPC 签名不变（Result 面不引入）：blank root 与开库失败均给出空列表（与
-/// 缺目录空结果同语义，不 panic）。
+/// change 列表（db 单源全量；active + archive 按月分组）。IPC 签名不变
+/// （Result 面不引入）：blank root 与开库失败均给出空列表（读命令空结果
+/// 语义，不 panic）；零磁盘扫描触点（无 db 记录的存量 CLI change 零发现）。
 #[tauri::command]
 #[specta::specta]
 pub fn list_changes(stores: State<'_, WorkspaceStores>, root: String) -> ChangeList {
@@ -94,22 +96,22 @@ pub fn list_changes(stores: State<'_, WorkspaceStores>, root: String) -> ChangeL
     let Ok(store) = stores.for_root(&root) else {
         return empty(); // 开库失败：读命令空结果语义，不进入查询链路
     };
-    let layout = resolve(Path::new(&root));
-    queries::list_changes(&layout, store.as_ref())
+    queries::list_changes(store.as_ref())
 }
 
-/// 单 change 详情聚合（统一视图，unify-run-state-persistence D11）：一次
-/// 返回「库读史（detail.runs）∪ 在飞 run 活面（activeRun）」——前端零双命
-/// 令拼接。未知 change 名返回 `None`（db 缺记录 change 以文档形态返回：空
-/// 流水线 + 产物清单 + 空 runs）。IPC 签名不变：blank root 与开库失败均
-/// `None`。worktree 感知在 core `change_detail` 内（record 先读后定位）。
+/// 单 change 详情聚合（统一视图，unify-run-state-persistence D11；按 change
+/// **id** 寻址）：一次返回「库读史（detail.runs）∪ 在飞 run 活面
+/// （activeRun）」——前端零双命令拼接。未知 id 返回 `None`（未建档——零磁盘
+/// 目录解析回退、零文档形态空面）。IPC 签名不变：blank root 与开库失败均
+/// `None`。worktree / name 感知在 core `change_detail` 内（record 先读后定位，
+/// 磁盘面恒自记录供给）。
 #[tauri::command]
 #[specta::specta]
 pub fn get_change_detail(
     stores: State<'_, WorkspaceStores>,
     control: State<'_, Arc<ChangeFlowControl>>,
     root: String,
-    change: String,
+    id: String,
 ) -> Option<ChangeDetailUnified> {
     if is_blank_root(&root) {
         return None;
@@ -118,32 +120,32 @@ pub fn get_change_detail(
         return None;
     };
     let layout = resolve(Path::new(&root));
-    let detail = queries::change_detail(&layout, store.as_ref(), &change)?;
-    // 活面投影：注册表快照（终态即除名 → None 语义不变）；startedAt ISO 化
-    // 收命令层单点（快照毫秒 → 线面 ISO 串）
-    let active_run = control
-        .snapshot(&root, &change)
-        .map(|snapshot| ActiveRunView {
-            run_id: snapshot.run_id,
-            status: snapshot.status,
-            phase: snapshot.phase,
-            attempt: snapshot.attempt,
-            ask: snapshot.ask,
-            started_at: iso_from_millis(snapshot.started_at),
-            steps: snapshot.steps,
-        });
+    let detail = queries::change_detail(&layout, store.as_ref(), &id)?;
+    // 活面投影：注册表快照（终态即除名 → None 语义不变；键 id 化同式）；
+    // startedAt ISO 化收命令层单点（快照毫秒 → 线面 ISO 串）
+    let active_run = control.snapshot(&root, &id).map(|snapshot| ActiveRunView {
+        run_id: snapshot.run_id,
+        status: snapshot.status,
+        phase: snapshot.phase,
+        attempt: snapshot.attempt,
+        ask: snapshot.ask,
+        started_at: iso_from_millis(snapshot.started_at),
+        steps: snapshot.steps,
+    });
     Some(ChangeDetailUnified { detail, active_run })
 }
 
-/// 按信封读取单个产物；kind 未注册、source 非法或解析失败返回 `None`。
-/// IPC 签名不变：blank root 与开库失败均 `None`。worktree 感知：record 的
-/// `worktree` 字段直传 `locate_change` 回退参（merge 前产物在 worktree 内）。
+/// 按信封读取单个产物（按 change **id** 寻址）；kind 未注册、source 非法、
+/// 未建档或解析失败返回 `None`。IPC 签名不变：blank root 与开库失败均
+/// `None`。worktree / name 感知：`find_change_record(id)` 供给记录，`worktree`
+/// 直传 `locate_change` 回退参（merge 前产物在 worktree 内）、`name` 作目录
+/// 定位键（id → 记录 → name 分辨率单点）。
 #[tauri::command]
 #[specta::specta]
 pub fn read_artifact(
     stores: State<'_, WorkspaceStores>,
     root: String,
-    change: String,
+    id: String,
     kind: String,
     source: String,
 ) -> Option<ArtifactEnvelope> {
@@ -154,13 +156,9 @@ pub fn read_artifact(
         return None;
     };
     let layout = resolve(Path::new(&root));
-    let worktree = store
-        .find_change_record(&change)
-        .ok()
-        .flatten()
-        .and_then(|record| record.worktree);
-    let location = locate_change(&layout, worktree.as_deref(), &change)?;
-    let phases = store.list_phase_records(&change).unwrap_or_default();
+    let record = store.find_change_record(&id).ok().flatten()?;
+    let location = locate_change(&layout, record.worktree.as_deref(), record.name.as_str())?;
+    let phases = store.list_phase_records(&id).unwrap_or_default();
     core_read_artifact(&location.dir, &phases, &kind, &source)
 }
 
@@ -220,16 +218,13 @@ pub(crate) async fn create_change_with<R: tauri::Runtime>(
     .map_err(|e| format!("create 任务失败: {e}"))?
 }
 
-/// 归档 change（双写：目录改名 + db status 翻转，写面 `archive` 单点）；
-/// blank root / change 显式 `Err`。IPC 薄命令（design D11：本轮无前端入口）。
+/// 归档 change（双写：目录改名 + db status 翻转，写面 `archive` 单点；按
+/// change **id** 寻址）；blank root / id 显式 `Err`。IPC 薄命令（design D11：
+/// 本轮无前端入口）。
 #[tauri::command]
 #[specta::specta]
-pub fn archive_change(
-    app: AppHandle,
-    root: String,
-    change: String,
-) -> Result<ArchiveOutcome, String> {
-    archive_change_with(app, root, change)
+pub fn archive_change(app: AppHandle, root: String, id: String) -> Result<ArchiveOutcome, String> {
+    archive_change_with(app, root, id)
 }
 
 /// [`archive_change`] 的泛型测试缝（生产注入 Wry 句柄、测试注入 MockRuntime
@@ -237,18 +232,18 @@ pub fn archive_change(
 pub(crate) fn archive_change_with<R: tauri::Runtime>(
     app: AppHandle<R>,
     root: String,
-    change: String,
+    id: String,
 ) -> Result<ArchiveOutcome, String> {
     if root.trim().is_empty() {
         return Err("非法 root: 不得为空白".to_owned());
     }
-    if change.trim().is_empty() {
-        return Err("非法 change: 不得为空白".to_owned());
+    if id.trim().is_empty() {
+        return Err("非法 id: 不得为空白".to_owned());
     }
     let layout = resolve(Path::new(&root));
     let store = app
         .state::<WorkspaceStores>()
         .for_root(&root)
         .map_err(|e| e.to_string())?;
-    write::archive(&layout, store.as_ref(), &change)
+    write::archive(&layout, store.as_ref(), &id)
 }

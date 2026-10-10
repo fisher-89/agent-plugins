@@ -32,6 +32,10 @@ vi.mock('@tauri-apps/api/core', () => ({ invoke: invokeMock }));
 // 列头与节点点击共用同一入口；selection 为 null 时不渲染（AC-5）。
 // ---------------------------------------------------------------------------
 
+/** 固定 change id 字面量（身份寻址键——sourceRef 定式身份段；detail.name 为
+ * 展示属性、取值相异，误用 name 作身份段即断言失败）。 */
+const CHANGE_ID = '0198f7a0-0000-7000-8000-000000000000';
+
 function attempt(overrides: Partial<AttemptRecord> = {}): AttemptRecord {
   return {
     attempt: 1,
@@ -53,6 +57,7 @@ function attempt(overrides: Partial<AttemptRecord> = {}): AttemptRecord {
 
 function detail(overrides: Partial<ChangeDetail> = {}): ChangeDetail {
   return {
+    id: CHANGE_ID,
     name: 'add-feature',
     source: 'active',
     status: 'active',
@@ -101,7 +106,7 @@ function renderDrawer(worldState: World, selection: DrawerSelection | null, onCl
       graph={worldState.graph}
       materials={worldState.materials}
       root="root-a"
-      change="test-change"
+      changeId={CHANGE_ID}
       onClose={onClose}
     />,
   );
@@ -299,7 +304,7 @@ function runtimeWorld(node: RuntimeFlowNode): World {
   return { graph, materials: mountMaterials(graph, base, []) };
 }
 
-/** 直挂 DetailDrawer（自定义 liveEvents；change 名沿用 renderDrawer 的 test-change）。 */
+/** 直挂 DetailDrawer（自定义 liveEvents / transcriptRefreshKey；changeId = CHANGE_ID 定式）。 */
 function renderTranscriptDrawer(
   worldState: World,
   selection: DrawerSelection,
@@ -311,7 +316,7 @@ function renderTranscriptDrawer(
       graph={worldState.graph}
       materials={worldState.materials}
       root="root-a"
-      change="test-change"
+      changeId={CHANGE_ID}
       transcriptRefreshKey={transcriptRefreshKey}
       onClose={() => {}}
     />,
@@ -354,7 +359,7 @@ describe('DetailDrawer：会话转录联动（双键寻址：直查优先 / 反�
 
   it('选中运行 executor 节点（sessionId 在场）→ 槽位 id 直查 session_detail（运行步实时 id 寻址）', async () => {
     detailFixture = {
-      'ses-exec-2': transcriptSession('ses-exec-2', 'test-change/implement/executor/2'),
+      'ses-exec-2': transcriptSession('ses-exec-2', `${CHANGE_ID}/implement/executor/2`),
     };
     transcriptFixture = {
       'ses-exec-2': [textEvent(0, 'user', '实现该功能'), textEvent(1, 'assistant', '开始实现')],
@@ -383,8 +388,8 @@ describe('DetailDrawer：会话转录联动（双键寻址：直查优先 / 反�
 
   it('选中运行 executor 节点（sessionId null 旧条目）→ 回退 sourceRef 定式反查（行为与升级前一致）', async () => {
     sessionsFixture = {
-      'test-change/implement/executor/2': [
-        transcriptSession('ses-exec-2', 'test-change/implement/executor/2'),
+      [`${CHANGE_ID}/implement/executor/2`]: [
+        transcriptSession('ses-exec-2', `${CHANGE_ID}/implement/executor/2`),
       ],
     };
     transcriptFixture = {
@@ -401,7 +406,7 @@ describe('DetailDrawer：会话转录联动（双键寻址：直查优先 / 反�
       expect(invokeMock).toHaveBeenCalledWith('agent_sessions', {
         root: 'root-a',
         source: 'change',
-        sourceRef: 'test-change/implement/executor/2',
+        sourceRef: `${CHANGE_ID}/implement/executor/2`,
       }),
     );
     await waitFor(() => expect(panel.textContent).toContain('开始实现'));
@@ -409,11 +414,11 @@ describe('DetailDrawer：会话转录联动（双键寻址：直查优先 / 反�
 
   it('选中历史 eval 节点（槽位缺席）→ executor + evaluator 双会话反查联动：默认 executor、切换 evaluator 重放对应 attempt', async () => {
     sessionsFixture = {
-      'test-change/dev-design/executor/2': [
-        transcriptSession('ses-exec-2', 'test-change/dev-design/executor/2'),
+      [`${CHANGE_ID}/dev-design/executor/2`]: [
+        transcriptSession('ses-exec-2', `${CHANGE_ID}/dev-design/executor/2`),
       ],
-      'test-change/dev-design/evaluator/2': [
-        transcriptSession('ses-eval-2', 'test-change/dev-design/evaluator/2'),
+      [`${CHANGE_ID}/dev-design/evaluator/2`]: [
+        transcriptSession('ses-eval-2', `${CHANGE_ID}/dev-design/evaluator/2`),
       ],
     };
     transcriptFixture = {
@@ -442,7 +447,7 @@ describe('DetailDrawer：会话转录联动（双键寻址：直查优先 / 反�
     expect(invokeMock).toHaveBeenCalledWith('agent_sessions', {
       root: 'root-a',
       source: 'change',
-      sourceRef: 'test-change/dev-design/evaluator/2',
+      sourceRef: `${CHANGE_ID}/dev-design/evaluator/2`,
     });
   });
 
@@ -466,7 +471,7 @@ describe('DetailDrawer：会话转录联动（双键寻址：直查优先 / 反�
       },
     });
     detailFixture = {
-      'ses-exec-9': transcriptSession('ses-exec-9', 'test-change/dev-design/executor/2'),
+      'ses-exec-9': transcriptSession('ses-exec-9', `${CHANGE_ID}/dev-design/executor/2`),
       'ses-decision-9': transcriptSession('ses-decision-9', ''),
     };
     transcriptFixture = {
@@ -526,8 +531,8 @@ describe('DetailDrawer：会话转录联动（双键寻址：直查优先 / 反�
       },
     });
     detailFixture = {
-      'ses-exec-9': transcriptSession('ses-exec-9', 'test-change/dev-design/executor/2'),
-      'ses-eval-9': transcriptSession('ses-eval-9', 'test-change/dev-design/evaluator/2'),
+      'ses-exec-9': transcriptSession('ses-exec-9', `${CHANGE_ID}/dev-design/executor/2`),
+      'ses-eval-9': transcriptSession('ses-eval-9', `${CHANGE_ID}/dev-design/evaluator/2`),
     };
     transcriptFixture = {
       'ses-exec-9': [textEvent(0, 'user', '执行槽位正文')],
@@ -560,8 +565,8 @@ describe('DetailDrawer：会话转录联动（双键寻址：直查优先 / 反�
 
   it('旧条目（record 三槽位均 null）→ decision ref 双 null：决策 tab 空态且零查询（不误挂他 attempt 会话）', async () => {
     sessionsFixture = {
-      'test-change/dev-design/executor/2': [
-        transcriptSession('ses-exec-2', 'test-change/dev-design/executor/2'),
+      [`${CHANGE_ID}/dev-design/executor/2`]: [
+        transcriptSession('ses-exec-2', `${CHANGE_ID}/dev-design/executor/2`),
       ],
     };
     transcriptFixture = {
@@ -588,7 +593,7 @@ describe('DetailDrawer：会话转录联动（双键寻址：直查优先 / 反�
     const sessionRefs = (invokeMock.mock.calls as unknown[][])
       .filter((call) => call[0] === 'agent_sessions')
       .map((call) => (call[1] as { sourceRef?: string } | undefined)?.sourceRef);
-    expect(sessionRefs).toEqual(['test-change/dev-design/executor/2']);
+    expect(sessionRefs).toEqual([`${CHANGE_ID}/dev-design/executor/2`]);
   });
 
   it('eval 节点 attempt 为 null → ref 组为空、左列呈 drawer-session-empty 空态占位（零 invoke；attempt — 标题占位保留）', () => {
@@ -633,7 +638,7 @@ describe('DetailDrawer：会话转录联动（双键寻址：直查优先 / 反�
 
   it('refreshKey 自增触发转录库重查（实时面统一转录库——liveEvents 退役，重放单源）', async () => {
     detailFixture = {
-      'ses-exec-2': transcriptSession('ses-exec-2', 'test-change/implement/executor/2'),
+      'ses-exec-2': transcriptSession('ses-exec-2', `${CHANGE_ID}/implement/executor/2`),
     };
     transcriptFixture = { 'ses-exec-2': [textEvent(0, 'user', '重放正文')] };
     const state = runtimeWorld(runtimeNode());
@@ -655,7 +660,7 @@ describe('DetailDrawer：会话转录联动（双键寻址：直查优先 / 反�
         graph={state.graph}
         materials={state.materials}
         root="root-a"
-        change="test-change"
+        changeId={CHANGE_ID}
         transcriptRefreshKey={1}
         onClose={() => {}}
       />,
@@ -737,7 +742,7 @@ describe('DetailDrawer：双列壳布局（AC-1 / D1）', () => {
 // active 节点三会话反查（desktop-drawer-session-column，AC-2 / D3）：
 // selectionRoleRefs 补 `kind === 'active'` 分支——executor / evaluator /
 // decision 三 ref，sessionId 恒 null、sourceRef 定式
-// `<change>/<phase>/<role>/<attempt>`；全程不发起实时事件流订阅（liveEvents
+// `<id>/<phase>/<role>/<attempt>`；全程不发起实时事件流订阅（liveEvents
 // 按 sessionId 过滤恒空的结构保证）
 // ---------------------------------------------------------------------------
 
@@ -780,8 +785,8 @@ describe('DetailDrawer：active 节点三会话反查（AC-2 / D3）', () => {
 
   it('active 节点选中 → 三转录 tab（执行 / 评估 / 决策）；executor 反查 agent_sessions 携定式 sourceRef、session_detail 恒零调用', async () => {
     sessionsFixture = {
-      'test-change/implement/executor/2': [
-        transcriptSession('ses-exec-2', 'test-change/implement/executor/2'),
+      [`${CHANGE_ID}/implement/executor/2`]: [
+        transcriptSession('ses-exec-2', `${CHANGE_ID}/implement/executor/2`),
       ],
     };
     transcriptFixture = { 'ses-exec-2': [textEvent(0, 'user', '已流出正文')] };
@@ -791,12 +796,12 @@ describe('DetailDrawer：active 节点三会话反查（AC-2 / D3）', () => {
     expect(panel.getAttribute('data-role')).toBe('executor');
     const tabs = within(panel).getAllByTestId('transcript-role-tab');
     expect(tabs.map((tab) => tab.textContent)).toEqual(['执行会话', '评估会话', '决策会话']);
-    // 反查定式：source 恒 change + sourceRef `<change>/<phase>/<role>/<attempt>`
+    // 反查定式：source 恒 change + sourceRef `<id>/<phase>/<role>/<attempt>`
     await waitFor(() =>
       expect(invokeMock).toHaveBeenCalledWith('agent_sessions', {
         root: 'root-a',
         source: 'change',
-        sourceRef: 'test-change/implement/executor/2',
+        sourceRef: `${CHANGE_ID}/implement/executor/2`,
       }),
     );
     await waitFor(() => expect(panel.textContent).toContain('已流出正文'));
@@ -805,10 +810,10 @@ describe('DetailDrawer：active 节点三会话反查（AC-2 / D3）', () => {
   });
 
   it('已开跑角色（反查命中、轮行含 running 的进行中形态）→ 已流出转录重放呈现在左列（建档即落库的查询时快照面）', async () => {
-    const runningSession = transcriptSession('ses-exec-2', 'test-change/implement/executor/2');
+    const runningSession = transcriptSession('ses-exec-2', `${CHANGE_ID}/implement/executor/2`);
     runningSession.turns = [{ ...runningSession.turns[0], status: 'running', finishedAt: null }];
     sessionsFixture = {
-      'test-change/implement/executor/2': [runningSession],
+      [`${CHANGE_ID}/implement/executor/2`]: [runningSession],
     };
     transcriptFixture = { 'ses-exec-2': [textEvent(0, 'user', '进行中已流出正文')] };
     renderTranscriptDrawer(activeWorld(), { scope: 'node', nodeId: 'active:implement:2' });
@@ -820,8 +825,8 @@ describe('DetailDrawer：active 节点三会话反查（AC-2 / D3）', () => {
 
   it('切 decision tab → decision 走反查（active 无槽位，反查是该 phase / attempt 下 decision 会话唯一寻址）', async () => {
     sessionsFixture = {
-      'test-change/implement/decision/2': [
-        transcriptSession('ses-decision-2', 'test-change/implement/decision/2'),
+      [`${CHANGE_ID}/implement/decision/2`]: [
+        transcriptSession('ses-decision-2', `${CHANGE_ID}/implement/decision/2`),
       ],
     };
     transcriptFixture = { 'ses-decision-2': [textEvent(0, 'assistant', '决策已落库正文')] };
@@ -842,7 +847,7 @@ describe('DetailDrawer：active 节点三会话反查（AC-2 / D3）', () => {
       expect(invokeMock).toHaveBeenCalledWith('agent_sessions', {
         root: 'root-a',
         source: 'change',
-        sourceRef: 'test-change/implement/decision/2',
+        sourceRef: `${CHANGE_ID}/implement/decision/2`,
       }),
     );
     await waitFor(() => expect(panelTexts()).toEqual(['决策已落库正文']));
@@ -850,8 +855,8 @@ describe('DetailDrawer：active 节点三会话反查（AC-2 / D3）', () => {
 
   it('未开跑角色（反查空清单）→ 切该 tab 呈 transcript-empty「（暂无该会话转录）」、零进一步查询', async () => {
     sessionsFixture = {
-      'test-change/implement/executor/2': [
-        transcriptSession('ses-exec-2', 'test-change/implement/executor/2'),
+      [`${CHANGE_ID}/implement/executor/2`]: [
+        transcriptSession('ses-exec-2', `${CHANGE_ID}/implement/executor/2`),
       ],
     };
     transcriptFixture = { 'ses-exec-2': [textEvent(0, 'user', '执行正文')] };
@@ -870,8 +875,8 @@ describe('DetailDrawer：active 节点三会话反查（AC-2 / D3）', () => {
       .filter((call) => call[0] === 'agent_sessions')
       .map((call) => (call[1] as { sourceRef?: string } | undefined)?.sourceRef);
     expect(sessionRefs).toEqual([
-      'test-change/implement/executor/2',
-      'test-change/implement/evaluator/2',
+      `${CHANGE_ID}/implement/executor/2`,
+      `${CHANGE_ID}/implement/evaluator/2`,
     ]);
     expect(
       (invokeMock.mock.calls as unknown[][]).filter(
@@ -882,8 +887,8 @@ describe('DetailDrawer：active 节点三会话反查（AC-2 / D3）', () => {
 
   it('active 节点联动不依赖实时事件流（实时面统一转录库——refreshKey 缺省即重放单源）', async () => {
     sessionsFixture = {
-      'test-change/implement/executor/2': [
-        transcriptSession('ses-exec-2', 'test-change/implement/executor/2'),
+      [`${CHANGE_ID}/implement/executor/2`]: [
+        transcriptSession('ses-exec-2', `${CHANGE_ID}/implement/executor/2`),
       ],
     };
     transcriptFixture = { 'ses-exec-2': [textEvent(0, 'user', '仅重放正文')] };
@@ -895,10 +900,10 @@ describe('DetailDrawer：active 节点三会话反查（AC-2 / D3）', () => {
     );
   });
 
-  it('sourceRef 定式与 active 节点 id 同参：active:<phase>:<attempt> 与 <change>/<phase>/<role>/<attempt> 同 attempt 组装', async () => {
+  it('sourceRef 定式与 active 节点 id 同参：active:<phase>:<attempt> 与 <id>/<phase>/<role>/<attempt> 同 attempt 组装', async () => {
     sessionsFixture = {
-      'test-change/implement/executor/2': [
-        transcriptSession('ses-exec-2', 'test-change/implement/executor/2'),
+      [`${CHANGE_ID}/implement/executor/2`]: [
+        transcriptSession('ses-exec-2', `${CHANGE_ID}/implement/executor/2`),
       ],
     };
     transcriptFixture = { 'ses-exec-2': [textEvent(0, 'user', '同参正文')] };
@@ -911,7 +916,7 @@ describe('DetailDrawer：active 节点三会话反查（AC-2 / D3）', () => {
       (entry) => entry[0] === 'agent_sessions',
     );
     const params = call?.[1] as { sourceRef?: string } | undefined;
-    expect(params?.sourceRef).toBe('test-change/implement/executor/2');
+    expect(params?.sourceRef).toBe(`${CHANGE_ID}/implement/executor/2`);
     expect(panel.getAttribute('data-role')).toBe('executor');
   });
 });

@@ -33,7 +33,7 @@ fn entry(
 ) -> PhaseStateRecord {
     PhaseStateRecord {
         id: i64::from(attempt),
-        change: "demo-change".to_owned(),
+        change_id: "demo-change".to_owned(),
         phase: phase.to_owned(),
         attempt,
         verdict,

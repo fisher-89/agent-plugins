@@ -18,7 +18,12 @@ use crate::snapshot::StoreSnapshot;
 /// 种子基准时刻：2026-10-01T08:00:00Z 定值 UTC unix 毫秒（确定性断言面）。
 const TS_BASE: i64 = 1_790_841_600_000;
 
-const CHANGE: &str = "demo-change";
+/// 固定 change **id** 字面量（一切身份寻址入参——`detail(root, id)` 第二参）。
+const CHANGE_ID: &str = "7c3f9a20-5b41-4e8d-a6f2-0d1b2c3e4f50";
+
+/// 展示名（磁盘目录面供给值：`openspec/changes/<name>`——id ≠ name 形态下
+/// id 寻址 / name 出线逐点可辨）。
+const NAME: &str = "demo-change";
 
 /// 临时 workspace 根 RAII（沿 core/workflow detail_test 装置先例）：测试结束
 /// 自动清理。
@@ -40,9 +45,8 @@ impl TempRoot {
         self.0.to_string_lossy().into_owned()
     }
 
-    /// 预置一个 change 目录：openspec 骨架文档（产物发现面）。磁盘仅产物树
-    /// ——状态面单源 workspace 库，workflow.json 零产出（存量 CLI 惰性字节
-    /// 样本另有退役回归行显式写入）。
+    /// 预置一个 change 目录（磁盘面按 **name** 目录名——产物发现面；状态面单源
+    /// workspace 库，workflow.json 零产出）。
     fn change(&self, name: &str) {
         let dir = self.0.join("openspec/changes").join(name);
         fs::create_dir_all(dir.join("specs/demo-capability")).expect("创建 change 骨架目录失败");
@@ -53,11 +57,6 @@ impl TempRoot {
             "# 能力\n## 需求\n",
         )
         .expect("写 spec.md 失败");
-    }
-
-    /// 读取 change 目录内任意文件字节（只读性 / 惰性样本比对面）。
-    fn file_bytes(&self, name: &str, file: &str) -> Vec<u8> {
-        fs::read(self.0.join("openspec/changes").join(name).join(file)).expect("读文件失败")
     }
 }
 
@@ -95,10 +94,12 @@ impl TestDb {
     }
 }
 
-/// 建档种子：workflow_type requirement、active 起步。
-fn seed_change(store: &Store, name: &str) {
+/// 建档种子：workflow_type requirement、active 起步——id 归键、name 独立
+/// （展示属性；id / name 均不随寻址漂移）。
+fn seed_change(store: &Store, id: &str, name: &str) {
     store
         .create_change_record(ChangeStateRecord {
+            id: id.to_owned(),
             name: name.to_owned(),
             workflow_type: "requirement".to_owned(),
             created_at: TS_BASE,
@@ -111,10 +112,10 @@ fn seed_change(store: &Store, name: &str) {
         .expect("建档种子应成功");
 }
 
-/// 评估条目种子：开相 + 落账一条（store change 域操作面种子路径）。
+/// 评估条目种子：开相 + 落账一条（store change 域操作面种子路径，按 id 归键）。
 fn seed_entry(
     store: &Store,
-    change: &str,
+    change_id: &str,
     phase: &str,
     verdict: Verdict,
     report: &str,
@@ -122,11 +123,11 @@ fn seed_entry(
     ts: i64,
 ) {
     let started = store
-        .start_change_phase(change, phase, ts)
+        .start_change_phase(change_id, phase, ts)
         .expect("开相种子应成功");
     store
         .log_change_phase(&PhaseLogCommand {
-            change: change.to_owned(),
+            change_id: change_id.to_owned(),
             phase: phase.to_owned(),
             verdict,
             report: report.to_owned(),
@@ -144,10 +145,10 @@ fn seed_entry(
 /// 建档 + 两条相位条目种子（proposal pass 带 checklist 行 / implement fail）
 /// + dev-design 开相在途（active_phase 状态面在场）。
 fn seed_documented_change(db: &TestDb) {
-    seed_change(db.store.as_ref(), CHANGE);
+    seed_change(db.store.as_ref(), CHANGE_ID, NAME);
     seed_entry(
         db.store.as_ref(),
-        CHANGE,
+        CHANGE_ID,
         "proposal",
         Verdict::Pass,
         "提案通过",
@@ -160,7 +161,7 @@ fn seed_documented_change(db: &TestDb) {
     );
     seed_entry(
         db.store.as_ref(),
-        CHANGE,
+        CHANGE_ID,
         "implement",
         Verdict::Fail,
         "首轮未过",
@@ -168,21 +169,22 @@ fn seed_documented_change(db: &TestDb) {
         TS_BASE + 120_000,
     );
     db.store
-        .start_change_phase(CHANGE, "dev-design", TS_BASE + 180_000)
+        .start_change_phase(CHANGE_ID, "dev-design", TS_BASE + 180_000)
         .expect("开相种子应成功");
 }
 
 // ---------------------------------------------------------------------------
-// db 读源 detail：与 queries 直调 serde 等值（换血不加工）
+// db 读源 detail：按 id 寻址 + 与 queries 直调 serde 等值（换血不加工）
 // ---------------------------------------------------------------------------
 
 /// db 读源 detail：store 种子（建档 + 相位行 + active_phase）→ detail(root,
-/// change) 与 queries::change_detail 直调结果 serde 等值（port 实现零加工换血
-/// ——AC-5 快照读源半边）；字段面抽查建档判别 / 状态面 / 流水线重组。
+/// id) 与 queries::change_detail 直调结果 serde 等值（port 实现零加工换血）；
+/// 字段面抽查身份锚（id 寻址出线 / name 自记录直读）/ 状态面 / 流水线重组
+///（AC-5 快照读源半边）。
 #[test]
-fn db读源detail与queries直调serde等值() {
+fn db读源detail按id寻址_与queries直调serde等值() {
     let root = TempRoot::new("db-source");
-    root.change(CHANGE);
+    root.change(NAME);
     let db = TestDb::open("db-source");
     seed_documented_change(&db);
     let root_str = root.root_str();
@@ -191,20 +193,23 @@ fn db读源detail与queries直调serde等值() {
     assert_eq!(snapshot.root, root_str, "构造绑定根原样承接");
 
     let detail = snapshot
-        .detail(&root_str, CHANGE)
-        .expect("建档 change 应装配成功");
+        .detail(&root_str, CHANGE_ID)
+        .expect("建档 id 应装配成功");
+
+    // 身份锚：id 寻址命中 / name 自记录直读（id ≠ name 形态下零混同）
+    assert_eq!(detail.id, CHANGE_ID, "详情身份锚 = 寻址 id");
+    assert_eq!(detail.name, NAME, "name 自记录直读（展示属性）");
 
     // 与 queries::change_detail 直调逐字节 serde 等值（换血不加工）
     let direct =
-        change_detail(&resolve(&root.0), db.store.as_ref(), CHANGE).expect("直调应命中同记录");
+        change_detail(&resolve(&root.0), db.store.as_ref(), CHANGE_ID).expect("直调应命中同记录");
     assert_eq!(
         serde_json::to_value(&detail).expect("线面序列化应成功"),
         serde_json::to_value(&direct).expect("直调序列化应成功"),
         "detail 与 queries 直调 serde 等值"
     );
 
-    // 字段面抽查：身份 / 建档判别 / 状态面 / 9 站流水线重组
-    assert_eq!(detail.name, CHANGE);
+    // 字段面抽查：建档判别 / 状态面 / 9 站流水线重组
     assert_eq!(detail.source, ChangeSource::Active);
     assert_eq!(detail.status, Some(ChangeStatus::Active));
     assert_eq!(
@@ -236,58 +241,74 @@ fn db读源detail与queries直调serde等值() {
         "start_at ISO 串出线（millis 转换收 queries 单点）"
     );
 
-    // 产物清单：骨架文档树进入（磁盘扫描保留为产物发现）
+    // 产物清单：骨架文档树进入（磁盘扫描保留为产物发现——name 目录名）
     assert!(
         detail.artifacts.iter().any(|a| a.kind == "markdown-doc"),
         "openspec 骨架文档应进入产物清单"
     );
 }
 
-/// 文档形态（db 缺记录磁盘在场）：detail 走通不 Err——空流水线 + 产物清单，
-/// status / created / active_phase 状态面缺位（None = 文档形态契约）。
+// ---------------------------------------------------------------------------
+// 未知 id：显式 Err（原「文档形态 db 缺记录磁盘在场走通不 err」反转——未找到
+// 降级；MUST NOT 回退磁盘目录解析）
+// ---------------------------------------------------------------------------
+
+/// 未建档 id → 显式 `Err` 记因（原文档形态「磁盘在场走通不 Err」行反转）：
+/// 磁盘 change 目录在场而 db 无该 id 记录 → `Err` 携 id（零磁盘目录解析回退、
+/// 零空流水线文档形态、零 workflow.json 读取）；两树皆无 id → 同式 `Err`
+/// （未知 id 未找到降级单点）。
 #[test]
-fn 文档形态db缺记录磁盘在场走通不err() {
-    let root = TempRoot::new("doc-form");
+fn 未知id显式err_未建档不回退磁盘目录解析() {
+    let root = TempRoot::new("unknown-id");
+    // 磁盘在场（存量 CLI 建目录形态）但 db 无该 id 记录
     root.change("legacy-cli-change");
-    let db = TestDb::open("doc-form");
+    let db = TestDb::open("unknown-id");
+    seed_documented_change(&db);
     let root_str = root.root_str();
 
     let snapshot = StoreSnapshot::new(root_str.clone(), db.store_arc());
-    let detail = snapshot
-        .detail(&root_str, "legacy-cli-change")
-        .expect("文档形态走通不 Err");
 
-    assert_eq!(detail.name, "legacy-cli-change");
-    assert_eq!(detail.source, ChangeSource::Active);
-    assert_eq!(detail.status, None, "db 缺记录 → status None（建档判别面）");
-    assert!(detail.pipeline.is_empty(), "文档形态零状态面（空流水线）");
-    assert!(detail.active_phase.is_none());
-    assert_eq!(detail.created, None, "active 树文档形态 created 无回退源");
+    // 磁盘目录名 == 寻址串：db 缺记录 → Err（不回退磁盘目录解析成文档形态）
+    let err = snapshot
+        .detail(&root_str, "legacy-cli-change")
+        .expect_err("未建档 id 应显式 Err");
     assert!(
-        detail.artifacts.iter().any(|a| a.kind == "markdown-doc"),
-        "产物清单照常装配（磁盘仅产物发现）"
+        err.contains("legacy-cli-change") && err.contains("change 不存在"),
+        "miss 记因显式携带 id: {err}"
+    );
+
+    // 磁盘目录名 ≠ 寻址 id：登记 id 之外的未建档串同式 Err
+    let err = snapshot
+        .detail(&root_str, "unknown-id-2")
+        .expect_err("未建档 id 应显式 Err");
+    assert!(err.contains("unknown-id-2"), "miss 记因显式携带 id: {err}");
+
+    // 建档 id 不受误伤（对照面）
+    assert!(
+        snapshot.detail(&root_str, CHANGE_ID).is_ok(),
+        "在场建档 id 可达详情"
     );
 }
 
 // ---------------------------------------------------------------------------
-// port 契约持衡：trait object 装配 + 未知 change / root 失配显式 Err
+// port 契约持衡：trait object 装配 + 未知 id / root 失配显式 Err
 // ---------------------------------------------------------------------------
 
-/// WorkflowSnapshotPort trait object 装配（walker 消费面）可达；未知 change
-/// 与 root 失配（layout 无此 change 目录）→ `Err` 显式携 change 名——port
-/// 契约不随读源换血漂移。
 #[test]
 fn port契约_traitobject装配且未知change与root失配显式err() {
     let root = TempRoot::new("port-contract");
-    root.change(CHANGE);
+    root.change(NAME);
     let db = TestDb::open("port-contract");
-    seed_change(db.store.as_ref(), CHANGE);
+    seed_change(db.store.as_ref(), CHANGE_ID, NAME);
     let root_str = root.root_str();
 
     // walker 消费面同式：trait object 装配后经 `dyn` 调用可达
     let port: Arc<dyn WorkflowSnapshotPort> =
         Arc::new(StoreSnapshot::new(root_str.clone(), db.store_arc()));
-    assert!(port.detail(&root_str, CHANGE).is_ok(), "在场 change 可达");
+    assert!(
+        port.detail(&root_str, CHANGE_ID).is_ok(),
+        "在场 change 可达"
+    );
 
     // 未知 change（两树均无目录且 db 无记录）→ change_detail None → Err
     let err = port
@@ -295,67 +316,17 @@ fn port契约_traitobject装配且未知change与root失配显式err() {
         .expect_err("未知 change 应显式 Err");
     assert!(
         err.contains("不存在的-change") && err.contains("change 不存在"),
-        "miss 记因显式携带 change 名: {err}"
+        "miss 记因显式携带 change id: {err}"
     );
 
     // root 失配：layout 无此 change 目录，但 db 建档记录在场 → D12 建档记录
     // 恒可达详情（定位 miss → dir 缺席、产物清单空、状态面在）→ Ok 而非 Err
     let mismatched = port
-        .detail("/tmp/不存在的根", CHANGE)
+        .detail("/tmp/不存在的根", CHANGE_ID)
         .expect("建档记录恒可达（db 状态面权威，定位 miss 不虚构 None）");
     assert_eq!(mismatched.status, Some(ChangeStatus::Active), "状态面在");
     assert!(mismatched.artifacts.is_empty(), "定位 miss 产物清单空");
 
     // 在场 change 不受误伤（对照面）
-    assert!(port.detail(&root_str, CHANGE).is_ok());
-}
-
-// ---------------------------------------------------------------------------
-// unparsable 分支退役：损坏 workflow.json 字节零读取
-// ---------------------------------------------------------------------------
-
-/// 磁盘 workflow.json 损坏字节样本在场（db 已建档）→ 不再显式 `Err`、零读取
-/// 照常出建档 detail（退役回归行——AC-3 双向墙读半边随动）；调用前后磁盘字节
-/// 原样（读触点退役的进程内证据）。
-#[test]
-fn 损坏workflowjson字节样本零读取照常出detail() {
-    let root = TempRoot::new("corrupt-retired");
-    root.change(CHANGE);
-    // 惰性损坏字节样本（存量 CLI 残照——desktop 不解析）
-    let corrupt_path = root
-        .0
-        .join("openspec/changes")
-        .join(CHANGE)
-        .join("workflow.json");
-    fs::write(&corrupt_path, "{ not valid json !!!").expect("写损坏样本失败");
-    let db = TestDb::open("corrupt-retired");
-    seed_documented_change(&db);
-    let root_str = root.root_str();
-
-    let bytes_before = root.file_bytes(CHANGE, "workflow.json");
-
-    let snapshot = StoreSnapshot::new(root_str.clone(), db.store_arc());
-    let detail = snapshot
-        .detail(&root_str, CHANGE)
-        .expect("损坏字节样本在场应照常装配（unparsable 分支退役）");
-
-    // 建档 detail 照常（db 读源单源，磁盘字节零进投影）
-    assert_eq!(detail.status, Some(ChangeStatus::Active));
-    assert_eq!(detail.pipeline.len(), 9);
-    assert_eq!(detail.pipeline[3].attempts[0].verdict, Verdict::Fail);
-
-    // 与 queries 直调 serde 等值（读源换血不加工的退役形态复核）
-    let direct =
-        change_detail(&resolve(&root.0), db.store.as_ref(), CHANGE).expect("直调应命中同记录");
-    assert_eq!(
-        serde_json::to_value(&detail).expect("线面序列化应成功"),
-        serde_json::to_value(&direct).expect("直调序列化应成功")
-    );
-
-    // 字节原样：调用前后 workflow.json 不变（零读取）
-    assert_eq!(
-        root.file_bytes(CHANGE, "workflow.json"),
-        bytes_before,
-        "只读：调用前后 workflow.json 字节不变"
-    );
+    assert!(port.detail(&root_str, CHANGE_ID).is_ok());
 }

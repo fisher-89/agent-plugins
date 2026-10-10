@@ -1,0 +1,91 @@
+{
+  "phase": "test-execution",
+  "command": "dev-team test-execution",
+  "timestamp": "2026-10-10T09:40:00.285Z",
+  "duration_seconds": 1209,
+  "total": 1053,
+  "passed": 1053,
+  "failed": 0,
+  "skipped": 0,
+  "conclusion": "pass",
+  "problems": [],
+  "coverage": {
+    "pass": true,
+    "measured": {
+      "lines": null,
+      "branches": null,
+      "functions": null
+    },
+    "thresholds": {
+      "lines": 90,
+      "branches": 85,
+      "functions": 90
+    },
+    "overrides": [
+      {
+        "glob": "packages/desktop",
+        "thresholds": {
+          "lines": 90,
+          "branches": 85,
+          "functions": 90
+        },
+        "measured": {
+          "lines": null,
+          "branches": null,
+          "functions": null
+        },
+        "pass": true,
+        "file_count": 69,
+        "passed_count": 0
+      }
+    ]
+  },
+  "mutation": {
+    "pass": true,
+    "score": 84.22,
+    "threshold": 80,
+    "measured": {
+      "killed": 870,
+      "survived": 149,
+      "timeout": 0,
+      "noCoverage": 14,
+      "compileError": 0,
+      "runtimeError": 0,
+      "ignored": 42,
+      "total": 1075,
+      "detected": 870,
+      "undetected": 163
+    },
+    "overrides": [
+      {
+        "glob": "packages/desktop",
+        "score": 84.22071636011617,
+        "threshold": 80,
+        "pass": true,
+        "file_count": 69,
+        "passed_count": 69
+      }
+    ]
+  },
+  "plans": [
+    {
+      "id": "packages_desktop_vite-plus",
+      "framework": "vite-plus",
+      "root": "packages/desktop",
+      "path": "openspec/changes/desktop-change-db-identity/reports/test/packages_desktop_vite-plus"
+    },
+    {
+      "id": "packages_desktop_src-tauri_rust",
+      "framework": "rust",
+      "root": "packages/desktop/src-tauri",
+      "path": "openspec/changes/desktop-change-db-identity/reports/test/packages_desktop_src-tauri_rust"
+    }
+  ],
+  "findings": [
+    "Coverage gate is vacuous in this summary: coverage.measured is all-null and the packages/desktop override reports passed_count 0/69 with pass=true, while both atomic reports record coverage.pass=false (vite-plus functions 88.76 < 90; rust branches 0 < 85) - the rollup ingested no per-file coverage, so the configured 90/85/90 thresholds were not actually enforced and the pass conclusion overstates the coverage state.",
+    "Rust branch coverage reads 0 because cargo llvm-cov ran without branch instrumentation, so the rust atomic coverage gate fails on branches (0 < 85) for a tooling reason rather than a real gap; run llvm-cov with --branch or map rust branches to null (as go-cover does) so the dimension is not falsely evaluated.",
+    "Rust mutation was not measured: the summary mutation block covers only vite-plus (override file_count 69, passed_count 69) and the rust atomic report has mutation: null, although config.json declares a rust mutation score of 70 - the rust half of the change (store/workflow/orchestration/commands crates) has no mutation evidence.",
+    "Rust test count is under-reported: the report counts 81 tests, but results.txt from the same cargo test --workspace run records 30 test binaries totaling 1424 passing tests (the 81 matches only the first binary, core/workflow state_test), so summary total 1053 understates the real executed suite size (972 + 1424 = 2396).",
+    "All reported tests pass (vite-plus 972/972, rust 81/81 as counted; 0 failed, 0 skipped across both raw outputs) and vite-plus mutation passes at 84.22% vs the 80% threshold (870 killed / 1075 total; 149 survived + 14 noCoverage)."
+  ]
+}

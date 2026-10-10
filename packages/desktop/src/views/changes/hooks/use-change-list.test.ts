@@ -10,11 +10,19 @@ vi.mock('@tauri-apps/api/core', () => ({
   invoke: invokeMock,
 }));
 
-/** 构造一份最小 ChangeList DTO。 */
+/** 构造一份最小 ChangeList DTO（条目携 id——identity 模型下 id 为键、name 为
+ * 展示属性，fixture 两者取值相异以证 DTO 逐字段透传）。 */
 function fakeList(activeName: string): ChangeList {
   return {
     active: [
-      { name: activeName, source: 'active', status: 'active', activePhase: null, created: null },
+      {
+        id: `id-${activeName}`,
+        name: activeName,
+        source: 'active',
+        status: 'active',
+        activePhase: null,
+        created: null,
+      },
     ],
     archiveGroups: [],
   };
@@ -50,6 +58,7 @@ describe('useChangeList：显式刷新取数纪律（AC-12）', () => {
     await waitFor(() => expect(result.current.data).not.toBeNull());
 
     expect(invokeMock).toHaveBeenCalledWith('list_changes', { root: '/repo' });
+    expect(result.current.data?.active[0].id).toBe('id-add-feature');
     expect(result.current.data?.active[0].name).toBe('add-feature');
     expect(result.current.loading).toBe(false);
     expect(result.current.error).toBeNull();
@@ -150,6 +159,7 @@ describe('useChangeList：生成绑定调用面', () => {
     await waitFor(() => expect(result.current.data).not.toBeNull());
 
     expect(invokeMock).toHaveBeenCalledWith('list_changes', { root: '/repo' });
+    expect(result.current.data?.active[0].id).toBe('id-typed-binding');
     expect(result.current.data?.active[0].name).toBe('typed-binding');
     expect(result.current.error).toBeNull();
   });

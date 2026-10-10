@@ -1,11 +1,13 @@
 //! `write::create` 的单元测试（test-design「create.rs -> create_test.rs」节）：
-//! create 建域四段组合（D2/D3/D4/D5）——建档（携 worktree / base_commit）+
-//! worktree add（HEAD 基线铸 change/<name> 分支）+ worktree 内目录树与
-//! explore.md（goal 原文）+ bootstrap / 警告收集；前置七道全 IO 前置（拒绝面
-//! 零 worktree、零建档、零目录、vcs 零调用）；补偿链（add 失败：删建档 + 尽力
-//! 删分支；树写出失败：remove → 删分支 → 删建档；bootstrap 段失败不回收）；
-//! created 出线取 db created_at 日期；成功后清单立即可见；目录树零
-//! workflow.json 产出（双向墙写半边）。
+//! create 建域四段组合（D2/D3/D4/D5）——铸出 uuid v7 形态 id（D1）→ 建档（携
+//! id / worktree / base_commit）+ worktree add（HEAD 基线铸 change/<name>
+//! 分支）+ worktree 内目录树与 explore.md（goal 原文）+ bootstrap / 警告收集；
+//! 前置七道全 IO 前置（拒绝面零 worktree、零建档、零目录、vcs 零调用），④ 为
+//! 同名 **active** name 扫描查重（归档同名合法化——D11）；补偿链按 id 删本次
+//! 自插行（add 失败：删建档 + 尽力删分支；树写出失败：remove → 删分支 → 删
+//! 建档；bootstrap 段失败不回收）；created 出线取 db created_at 日期；铸出
+//! 路径断言 id 非空 / 同名单次重铸相异 / 与库内逐字一致（零固定值对拍）；成功
+//! 后清单立即可见；目录树零 workflow.json 产出（双向墙写半边）。
 //!
 //! Mock策略（test-design 本节 Mock 表）：db 半边以进程内假件实现
 //! [`ChangeStateStore`]（捕获建档 / 补偿删除调用 + 可编程补偿故障；真实
@@ -351,7 +353,7 @@ impl WorktreePort for FakeVcs {
 
 // ---------------------------------------------------------------------------
 // 假件 store：get_change / list_change_records / create_change_record /
-// delete_change_record 四个 min 操作镜像真件语义（主键 name 存取、补偿删除
+// delete_change_record 四个 min 操作镜像真件语义（主键 id 存取、补偿删除
 // 可编程故障），其余 unimplemented（越权触达即 panic）。
 // ---------------------------------------------------------------------------
 
@@ -376,16 +378,19 @@ impl CreateStore {
         }
     }
 
-    fn seed_active(&self, name: &str) {
+    /// 建档记录预置（id 与 name 双值可辨的种子面——同名 active 拒绝 / 同名
+    /// 归档共存各行共用）。
+    fn seed(&self, id: &str, name: &str, status: ChangeStatus) {
         self.records
             .lock()
             .expect("记录锁不可中毒")
             .push(ChangeStateRecord {
+                id: id.to_owned(),
                 name: name.to_owned(),
                 workflow_type: "requirement".to_owned(),
                 created_at: 1_727_000_000_000,
-                status: ChangeStatus::Active,
-                archived_at: None,
+                status,
+                archived_at: matches!(status, ChangeStatus::Archived).then_some(1_727_000_000_000),
                 active_phase: None,
                 worktree: None,
                 base_commit: None,
@@ -400,19 +405,45 @@ impl CreateStore {
         self.creates.lock().expect("建档锁不可中毒").len()
     }
 
-    fn find(&self, name: &str) -> Option<ChangeStateRecord> {
+    /// 主键 id 直查（一切寻址以 id 为准——name 非身份键）。
+    fn find_by_id(&self, id: &str) -> Option<ChangeStateRecord> {
         self.records
             .lock()
             .expect("记录锁不可中毒")
             .iter()
-            .find(|record| record.name == name)
+            .find(|record| record.id == id)
             .cloned()
+    }
+
+    /// 最近一次建档捕获（本次铸出 id / 建档行逐字一致的观察面）。
+    fn created_record(&self) -> ChangeStateRecord {
+        self.creates
+            .lock()
+            .expect("建档锁不可中毒")
+            .last()
+            .expect("建档记录应已捕获")
+            .clone()
+    }
+
+    /// 本次铸出 id（补偿链按 id 断言 / 未建档 miss 断言的观察面）。
+    fn created_id(&self) -> String {
+        self.created_record().id
+    }
+
+    /// 库内存活行数（补偿链零残留断言面）。
+    fn record_count(&self) -> usize {
+        self.records.lock().expect("记录锁不可中毒").len()
+    }
+
+    /// 库内存活行快照（同名共存行断言面）。
+    fn records(&self) -> Vec<ChangeStateRecord> {
+        self.records.lock().expect("记录锁不可中毒").clone()
     }
 }
 
 impl ChangeStateStore for CreateStore {
-    fn get_change(&self, name: &str) -> Result<Option<ChangeStateRecord>, StoreFault> {
-        Ok(self.find(name))
+    fn get_change(&self, id: &str) -> Result<Option<ChangeStateRecord>, StoreFault> {
+        Ok(self.find_by_id(id))
     }
 
     fn list_change_records(&self) -> Result<Vec<ChangeStateRecord>, StoreFault> {
@@ -425,7 +456,7 @@ impl ChangeStateStore for CreateStore {
 
     fn list_steps(
         &self,
-        _change: &str,
+        _change_id: &str,
         _run_id: Option<&str>,
     ) -> Result<Vec<StepStateRecord>, StoreFault> {
         unimplemented!("本用例不可达")
@@ -440,23 +471,23 @@ impl ChangeStateStore for CreateStore {
         Ok(())
     }
 
-    fn delete_change_record(&self, name: &str) -> Result<bool, StoreFault> {
+    fn delete_change_record(&self, id: &str) -> Result<bool, StoreFault> {
         self.deletes
             .lock()
             .expect("删除锁不可中毒")
-            .push(name.to_owned());
+            .push(id.to_owned());
         if let Some(fault) = self.delete_fault.lock().expect("故障锁不可中毒").clone() {
             return Err(fault);
         }
         let mut records = self.records.lock().expect("记录锁不可中毒");
         let before = records.len();
-        records.retain(|record| record.name != name);
+        records.retain(|record| record.id != id);
         Ok(records.len() < before)
     }
 
     fn start_phase(
         &self,
-        _change: &str,
+        _change_id: &str,
         _phase: &str,
         _now: i64,
     ) -> Result<crate::state::PhaseStartState, StoreFault> {
@@ -473,14 +504,14 @@ impl ChangeStateStore for CreateStore {
 
     fn amend_decision_session(
         &self,
-        _change: &str,
+        _change_id: &str,
         _phase: &str,
         _session_id: &str,
     ) -> Result<(), StoreFault> {
         unimplemented!("本用例不可达")
     }
 
-    fn set_archived(&self, _name: &str, _archived_at: i64) -> Result<(), StoreFault> {
+    fn set_archived(&self, _id: &str, _archived_at: i64) -> Result<(), StoreFault> {
         unimplemented!("本用例不可达")
     }
 
@@ -529,9 +560,10 @@ fn assert_today(created: &str, before: &str, after: &str) {
 // ---------------------------------------------------------------------------
 
 /// 成功 → worktree 目录建域 + worktree 内 change 目录 + explore.md 含 goal
-/// 原文 + ChangeRecord 建档（worktree / base_commit 随行）；add_worktree 收
-/// 到 (main_root, worktree, change/<name>)；主仓 active 树不含该目录；目录
-/// 树内零 workflow.json 产出（双向墙写半边）。
+/// 原文 + ChangeRecord 建档（携本次铸出 id / worktree / base_commit）；
+/// `outcome.id` 非空且与库内记录逐字一致（id 主键直查命中）；`record.name`
+/// 为裸名属性；add_worktree 收到 (main_root, worktree, change/<name>)；主仓
+/// active 树不含该目录；目录树内零 workflow.json 产出（双向墙写半边）。
 #[test]
 fn 建域四件套成功_worktree内目录与explore与db建档且主仓零目录() {
     let env = Env::new("happy");
@@ -543,6 +575,10 @@ fn 建域四件套成功_worktree内目录与explore与db建档且主仓零目�
 
     let after = utc_date_today();
     assert_eq!(outcome.name, "fix-bug");
+    assert!(
+        !outcome.id.is_empty(),
+        "本次铸出 id 非空（uuid 形态身份锚）"
+    );
     assert_today(&outcome.created, &before, &after);
     assert_eq!(
         outcome.worktree,
@@ -576,9 +612,18 @@ fn 建域四件套成功_worktree内目录与explore与db建档且主仓零目�
         "修复登录重试的竞态问题".as_bytes()
     );
 
-    // db 半边：ChangeRecord 建档（worktree / base_commit 随行）
-    let record = env.store.find("fix-bug").expect("建档记录应在场");
-    assert_eq!(record.name, "fix-bug");
+    // db 半边：id 主键直查命中且与出线逐字一致（id 身份锚；name 裸名属性）
+    let record = env
+        .store
+        .find_by_id(&outcome.id)
+        .expect("find_change_record(outcome.id) 应命中");
+    assert_eq!(record.id, outcome.id, "库内 id 与出线逐字一致");
+    assert_eq!(
+        record.id,
+        env.store.created_id(),
+        "建档载荷即本次铸出 id（铸出路径行为锚）"
+    );
+    assert_eq!(record.name, "fix-bug", "record.name 为裸名属性");
     assert_eq!(record.workflow_type, "requirement");
     assert_eq!(record.status, ChangeStatus::Active);
     assert_eq!(record.archived_at, None);
@@ -712,10 +757,10 @@ fn 超128字符拒绝且零产生() {
     assert!(env.vcs.calls().is_empty(), "vcs 零调用");
 }
 
-/// 前置③④：主仓 active 目录已存在 / db 同名 active → `Err` 且 vcs 零调用
-///（含 probe——冲突检查先于 git 探测的顺序锚）、既有目录零触碰。
+/// 前置③（持衡）：主仓 active 目录已存在 → `Err` 零副作用（vcs 零调用含
+/// probe——冲突检查先于 git 探测的顺序锚）、既有目录零触碰、零建档。
 #[test]
-fn 目录与建档冲突拒绝且vcs零调用() {
+fn 目录冲突拒绝_零目录零建档零vcs调用() {
     let env = Env::new("dir-taken");
     let taken_dir = resolve(&env.root).changes_root.join("taken");
     fs::create_dir_all(&taken_dir).expect("预置目录失败");
@@ -736,22 +781,83 @@ fn 目录与建档冲突拒绝且vcs零调用() {
         "vcs 零调用（冲突检查先于 git 探测），实际: {:?}",
         env.vcs.calls()
     );
+}
 
-    // db 同名 active：同序锚（vcs 零调用）
+/// 前置④（重写）：db 已有同名 **active** 建档记录（id 各异）→ `Err` 且零目录
+/// 零建档零 vcs 调用——查重改 name 扫描（同 id 防御性主键冲突面消失，「同名
+/// active 冲突」归写面单点；name 无唯一约束、不作身份键）。
+#[test]
+fn 同名active拒绝前置_name扫描零目录零建档() {
     let env = Env::new("db-taken");
-    env.store.seed_active("taken");
+    let old_id = "0198f7a0-0000-7000-8000-0000000000b1";
+    env.store.seed(old_id, "taken", ChangeStatus::Active);
+
     let error = env
         .create("taken", "新建 goal")
         .expect_err("同名 active 应 Err");
+
     assert!(
         error.contains("已存在") && error.contains("taken"),
-        "错误归因同名建档冲突，实际: {error}"
+        "错误归因同名建档冲突（携 name 语境），实际: {error}"
+    );
+    assert!(
+        error.contains(ChangeStatus::Active.as_str()),
+        "拒绝面呈现 status=active 口径（归档同名不拒——见同名单次重铸行），实际: {error}"
     );
     assert!(env.active_dir_names().is_empty(), "零目录创建");
+    assert_eq!(env.store.create_call_count(), 0, "db 零建档");
+    assert_eq!(env.store.record_count(), 1, "库内记录零变动（仅种子行）");
+    assert_eq!(
+        env.store.find_by_id(old_id).expect("种子行仍在场").name,
+        "taken",
+        "种子行零触碰"
+    );
     assert!(
         env.vcs.calls().is_empty(),
-        "vcs 零调用，实际: {:?}",
+        "vcs 零调用（含 probe），实际: {:?}",
         env.vcs.calls()
+    );
+}
+
+/// 同名重铸（新增）：同名 **archived** 记录在场（id = 旧铸出值）→ 再建档
+/// 合法化成功 → 新 id ≠ 旧 id、两行并存（D11：name 无唯一约束，归档同名共存
+/// 合法；身份恒以 id 为锚）。
+#[test]
+fn 同名归档再建档_新id相异且两行并存() {
+    let env = Env::new("re-cast");
+    let old_id = "0198f7a0-0000-7000-8000-0000000000c1";
+    env.store.seed(old_id, "same-name", ChangeStatus::Archived);
+
+    let outcome = env
+        .create("same-name", "同名重铸 goal")
+        .expect("归档同名不拒（D11 合法化）");
+
+    assert_ne!(outcome.id, old_id, "同名单次重铸 id 相异");
+    assert_ne!(outcome.id.as_str(), "same-name", "id 非 name 复用");
+    let records = env.store.records();
+    assert_eq!(records.len(), 2, "两行并存（同名 active + archived）");
+    assert!(
+        records.iter().all(|record| record.name == "same-name"),
+        "两行同 name（裸名属性），实际: {:?}",
+        records
+            .iter()
+            .map(|record| &record.name)
+            .collect::<Vec<_>>()
+    );
+    let statuses: Vec<ChangeStatus> = records.iter().map(|record| record.status).collect();
+    assert!(
+        statuses.contains(&ChangeStatus::Active) && statuses.contains(&ChangeStatus::Archived),
+        "active 新行与 archived 旧行并存，实际: {statuses:?}"
+    );
+    let new_record = env.store.find_by_id(&outcome.id).expect("新 id 直查应命中");
+    assert_eq!(new_record.name, "same-name");
+    assert_ne!(
+        new_record.created_at, 1_727_000_000_000,
+        "新 id 寻址到本次建档行（非种子旧行）"
+    );
+    assert!(
+        env.store.find_by_id(old_id).is_some(),
+        "旧 id 行仍在场（id 各异两行并存）"
     );
 }
 
@@ -854,7 +960,8 @@ fn 脏仓警告引导先提交且基线仍head() {
         "脏仓引导文案锚（D5），实际: {:?}",
         outcome.warnings[0]
     );
-    let record = env.store.find("fix-bug").expect("建档记录应在场");
+    let record = env.store.created_record();
+    assert_eq!(record.name, "fix-bug", "裸名属性");
     assert_eq!(
         record.base_commit.as_deref(),
         Some(FAKE_HEAD),
@@ -965,7 +1072,10 @@ fn 安装非零退出不回滚且警告呈现() {
         .create("fix-bug", "安装失败 goal")
         .expect("bootstrap 失败不回滚不阻断");
 
-    assert!(env.store.find("fix-bug").is_some(), "建档保留（不回滚）");
+    assert!(
+        env.store.find_by_id(&env.store.created_id()).is_some(),
+        "建档保留（不回滚）"
+    );
     assert!(
         env.worktree_root.join("fix-bug").is_dir(),
         "worktree 保留（不回滚）"
@@ -991,7 +1101,10 @@ fn 安装拉起失败不回收且警告呈现() {
         .create("fix-bug", "拉起失败 goal")
         .expect("bootstrap 失败不回滚不阻断");
 
-    assert!(env.store.find("fix-bug").is_some(), "建档保留");
+    assert!(
+        env.store.find_by_id(&env.store.created_id()).is_some(),
+        "建档保留"
+    );
     assert!(
         outcome
             .warnings
@@ -1007,8 +1120,8 @@ fn 安装拉起失败不回收且警告呈现() {
 // 异常：补偿链（D3）
 // ---------------------------------------------------------------------------
 
-/// add 失败补偿：`delete_change_record` 删本次建档（恰一次）+ 尽力
-/// `delete_branch`（捕获调用）；Err 呈现失败与补偿事实。
+/// add 失败补偿（按 id）：`delete_change_record` 删本次自插行（id = 本次铸出
+/// 值，恰一次）+ 尽力 `delete_branch`（捕获调用）；Err 呈现失败与补偿事实。
 #[test]
 fn add失败补偿删建档且尽力删分支() {
     let env = Env::new("add-fail");
@@ -1019,12 +1132,14 @@ fn add失败补偿删建档且尽力删分支() {
         .expect_err("add 失败应 Err");
 
     assert!(error.contains("补偿"), "Err 呈现补偿事实，实际: {error}");
+    let id = env.store.created_id();
     assert_eq!(
         env.store.deletes.lock().expect("删除锁不可中毒").as_slice(),
-        ["fix-bug"],
-        "补偿删除恰针对本次自插行调用一次"
+        [id.as_str()],
+        "补偿删除按本次铸出 id 恰调用一次"
     );
-    assert!(env.store.find("fix-bug").is_none(), "db 零残留");
+    assert!(env.store.find_by_id(&id).is_none(), "本次自插行零残留");
+    assert_eq!(env.store.record_count(), 0, "list 空（db 零残留）");
     assert!(
         env.vcs
             .calls()
@@ -1070,15 +1185,17 @@ fn 树写出失败补偿链全下发且残留指引() {
         remove_at < branch_at,
         "补偿链调用序：remove → delete_branch"
     );
+    let id = env.store.created_id();
     assert_eq!(
         env.store.deletes.lock().expect("删除锁不可中毒").as_slice(),
-        ["fix-bug"],
-        "删建档恰一次"
+        [id.as_str()],
+        "删建档按本次铸出 id 恰一次"
     );
     assert!(
-        env.store.find("fix-bug").is_none(),
-        "补偿删除本次自插行（db 零残留）"
+        env.store.find_by_id(&id).is_none(),
+        "补偿删除本次自插行（按 id 零残留）"
     );
+    assert_eq!(env.store.record_count(), 0, "list 空（db 零残留）");
     assert!(
         error.contains("git worktree list"),
         "Err 呈现手动清理指引（git worktree list 文案锚），实际: {error}"
@@ -1111,6 +1228,11 @@ fn 补偿链再失败呈现残留对象与指引() {
         "Err 呈现手动清理指引，实际: {error}"
     );
     assert_eq!(env.store.create_call_count(), 1, "建档先行恰好一次");
+    let id = env.store.created_id();
+    assert!(
+        env.store.find_by_id(&id).is_none(),
+        "记录半边回收（双故障角落仅 worktree 残留）"
+    );
 
     // add 失败补偿链的双故障角落：add 注入 Err + delete_branch 再注入 Err →
     // Err 呈现残留对象（branch 名）与手动清理指引（不静默自愈）
@@ -1135,14 +1257,15 @@ fn 补偿链再失败呈现残留对象与指引() {
         "Err 呈现手动清理指引（不静默自愈），实际: {error}"
     );
     // 建档补偿删除照常下发（记录半边回收不受 branch 残留影响）
+    let id = env.store.created_id();
     assert_eq!(
         env.store.deletes.lock().expect("删除锁不可中毒").as_slice(),
-        ["add-orphan"],
-        "建档补偿删除恰一次（记录半边回收）"
+        [id.as_str()],
+        "建档补偿删除按 id 恰一次（记录半边回收）"
     );
 
-    // 三故障角落：建档补偿删除再失败 → 残留记因随 Err 呈现（随下次同名建档
-    // 的冲突检查显式暴露）
+    // 三故障角落：建档补偿删除再失败 → 残留记因随 Err 呈现（残留行按 id
+    // 在场——随下次同 id 铸出撞号的防御拒绝显式暴露）
     let env = Env::new("add-fail-record-residual");
     env.vcs.set_add_fault("worktree add 模拟失败");
     env.store
@@ -1152,10 +1275,16 @@ fn 补偿链再失败呈现残留对象与指引() {
         .create("record-orphan", "三故障 goal")
         .expect_err("建档补偿删除失败应 Err");
 
+    let id = env.store.created_id();
     assert!(
-        error.contains("建档记录 \"record-orphan\"") && error.contains("建档删除模拟失败"),
-        "Err 呈现建档残留记因，实际: {error}"
+        error.contains(&format!("建档记录 \"{id}\"")) && error.contains("建档删除模拟失败"),
+        "Err 呈现建档残留对象（按 id 指认）与记因，实际: {error}"
     );
+    assert!(
+        env.store.find_by_id(&id).is_some(),
+        "补偿再失败：残留行仍在场（不静默自愈）"
+    );
+    assert_eq!(env.store.record_count(), 1, "恰一条残留行");
     assert!(
         error.contains("git worktree list"),
         "手动清理指引在场，实际: {error}"
@@ -1181,9 +1310,13 @@ fn created出线且成功立即可见() {
     assert_today(&outcome.created, &before, &after);
 
     // 清单立即可见（db status 权威归组——主仓目录缺席仍在 active 组）
-    let list = list_changes(&resolve(&env.root), &env.store);
+    let list = list_changes(&env.store);
     assert_eq!(list.active.len(), 1, "active 恰一条");
-    assert_eq!(list.active[0].name, "combo-visible");
+    assert_eq!(
+        list.active[0].id, outcome.id,
+        "列表条目 id = 本次铸出身份锚（db 单源直供）"
+    );
+    assert_eq!(list.active[0].name, "combo-visible", "列表条目裸名");
     assert_eq!(list.active[0].status, Some(ChangeStatus::Active));
     assert!(
         list.active[0].created.as_deref() == Some(before.as_str())
@@ -1193,11 +1326,15 @@ fn created出线且成功立即可见() {
     );
 }
 
-/// CreateOutcome serde 线形状：序列化恰 `name` / `created` / `worktree` /
-/// `warnings` 四键（camelCase）；`warnings` 空清单出线 `[]` 非 null。
+/// CreateOutcome serde 线形状：序列化恰 `id` / `name` / `created` /
+/// `worktree` / `warnings` 五键（camelCase；`id` 为本次铸出的身份锚、声明序
+/// 首字段）；`warnings` 空清单出线 `[]` 非 null。
+/// 注：serde_json 对象为键自然序（BTreeMap）——声明序锚以 Debug 字段序断言
+/// （DTO 声明序即 specta / TS 绑定字段序，签面逐字段断言归 bindings 守卫节）。
 #[test]
-fn create_outcome_serde线形状恰四键() {
+fn create_outcome_serde线形状恰五键且id首字段() {
     let outcome = CreateOutcome {
+        id: "0198f7a0-0000-7000-8000-000000000000".to_owned(),
         name: "fix-bug".to_owned(),
         created: "2026-10-02".to_owned(),
         worktree: "C:\\home\\.dev-team\\worktrees\\seg\\fix-bug".to_owned(),
@@ -1210,14 +1347,23 @@ fn create_outcome_serde线形状恰四键() {
     keys.sort_unstable();
     assert_eq!(
         keys,
-        vec!["created", "name", "warnings", "worktree"],
-        "恰四键面（worktree 为刻意出线的执行锚）"
+        vec!["created", "id", "name", "warnings", "worktree"],
+        "恰五键面（id 为身份锚、worktree 为刻意出线的执行锚）"
     );
+    assert_eq!(object["id"], "0198f7a0-0000-7000-8000-000000000000");
     assert_eq!(object["name"], "fix-bug");
     assert_eq!(object["created"], "2026-10-02");
     assert_eq!(
         object["warnings"],
         serde_json::json!([]),
         "warnings 空清单出线 [] 非 null"
+    );
+
+    // id 首字段（声明序）：字段序即 TS 绑定字段序（id / name / created /
+    // worktree / warnings 五字段面）
+    let debug = format!("{outcome:?}");
+    assert!(
+        debug.starts_with("CreateOutcome { id: "),
+        "id 为声明序首字段，实际: {debug}"
     );
 }

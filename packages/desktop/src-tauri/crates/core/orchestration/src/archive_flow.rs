@@ -20,7 +20,8 @@ use crate::port::{
 /// 侧重挂快照兜底）。
 const UPDATE_CAPACITY: usize = 512;
 
-/// 会话 provenance 来源（sourceRef = `<change>/archive/spec-sync`）。
+/// 会话 provenance 来源（sourceRef = `<id>/archive/spec-sync`——身份段恒
+/// change id）。
 const SOURCE_CHANGE: &str = "change";
 
 /// 产物三件核对清单（requirement 工作流定式；markdown_doc 注册表现役名单
@@ -200,14 +201,14 @@ impl ArchiveControl {
         Self::default()
     }
 
-    /// 发起登记：同 `(root, change)` 已有归档链 → `Err`（重入防护——重复点击
-    /// 的幂等拒绝）；否则登记 cancel watch 与 broadcast，返回链控制柄。
-    pub fn begin(self: &Arc<Self>, root: &str, change: &str) -> Result<ArchiveGuard, String> {
-        let key = (root.to_owned(), change.to_owned());
+    /// 发起登记：同 `(root, change_id)` 已有归档链 → `Err`（重入防护——重复
+    /// 点击的幂等拒绝）；否则登记 cancel watch 与 broadcast，返回链控制柄。
+    pub fn begin(self: &Arc<Self>, root: &str, change_id: &str) -> Result<ArchiveGuard, String> {
+        let key = (root.to_owned(), change_id.to_owned());
         let mut flows = self.flows.lock().expect("归档注册表锁不可中毒");
         if flows.contains_key(&key) {
             return Err(format!(
-                "change \"{change}\" 的归档链进行中，不可重复发起（请等待收口或先停止）"
+                "change \"{change_id}\" 的归档链进行中，不可重复发起（请等待收口或先停止）"
             ));
         }
         let (updates, _) = broadcast::channel(UPDATE_CAPACITY);
@@ -229,11 +230,11 @@ impl ArchiveControl {
     }
 
     /// 归档链进行中判别（反向互斥面：`change_flow_start` 前置校验消费）。
-    pub fn is_active(&self, root: &str, change: &str) -> bool {
+    pub fn is_active(&self, root: &str, change_id: &str) -> bool {
         self.flows
             .lock()
             .expect("归档注册表锁不可中毒")
-            .contains_key(&(root.to_owned(), change.to_owned()))
+            .contains_key(&(root.to_owned(), change_id.to_owned()))
     }
 
     /// 订阅归档链状态流（`archive_flow_start` / `archive_flow_watch` 共用入口）；
@@ -241,20 +242,20 @@ impl ArchiveControl {
     pub fn subscribe(
         &self,
         root: &str,
-        change: &str,
+        change_id: &str,
     ) -> Option<broadcast::Receiver<ArchiveUpdate>> {
         self.flows
             .lock()
             .expect("归档注册表锁不可中毒")
-            .get(&(root.to_owned(), change.to_owned()))
+            .get(&(root.to_owned(), change_id.to_owned()))
             .map(|entry| entry.updates.subscribe())
     }
 
     /// 置 cancel 标志（停止不必等待 agent 收口）；miss（无在案链）幂等返回
     /// false（`send_replace` 直写 watch 槽位——迟滞订阅不丢停止信号）。
-    pub fn request_stop(&self, root: &str, change: &str) -> bool {
+    pub fn request_stop(&self, root: &str, change_id: &str) -> bool {
         let flows = self.flows.lock().expect("归档注册表锁不可中毒");
-        match flows.get(&(root.to_owned(), change.to_owned())) {
+        match flows.get(&(root.to_owned(), change_id.to_owned())) {
             Some(entry) => {
                 entry.cancel.send_replace(true);
                 true
@@ -265,19 +266,19 @@ impl ArchiveControl {
 
     /// 当前归档 agent 会话 id 槽读取（命令层停止寻址：经既有 StopRegistry
     /// 请求终止）；无槽位 → `None`。
-    pub fn current_session(&self, root: &str, change: &str) -> Option<String> {
+    pub fn current_session(&self, root: &str, change_id: &str) -> Option<String> {
         self.flows
             .lock()
             .expect("归档注册表锁不可中毒")
-            .get(&(root.to_owned(), change.to_owned()))
+            .get(&(root.to_owned(), change_id.to_owned()))
             .and_then(|entry| entry.session.lock().expect("会话槽锁不可中毒").clone())
     }
 
     /// 当前归档 agent 会话 id 槽写入（命令层 sink 桥在首个会话事件到达时
     /// 同步——停止寻址由此先行可见）。
-    pub fn set_session(&self, root: &str, change: &str, session_id: Option<String>) {
+    pub fn set_session(&self, root: &str, change_id: &str, session_id: Option<String>) {
         let flows = self.flows.lock().expect("归档注册表锁不可中毒");
-        if let Some(entry) = flows.get(&(root.to_owned(), change.to_owned())) {
+        if let Some(entry) = flows.get(&(root.to_owned(), change_id.to_owned())) {
             *entry.session.lock().expect("会话槽锁不可中毒") = session_id;
         }
     }
@@ -285,9 +286,9 @@ impl ArchiveControl {
     /// 发布一条归档链状态更新（快照面同步 + broadcast）：`Stage` 同段后写
     /// 覆盖（running → 终态成对，单槽终值）；`SessionEvent` / `Finished` 只
     /// 广播不动阶段面。
-    pub fn publish(&self, root: &str, change: &str, update: ArchiveUpdate) {
+    pub fn publish(&self, root: &str, change_id: &str, update: ArchiveUpdate) {
         let mut flows = self.flows.lock().expect("归档注册表锁不可中毒");
-        if let Some(entry) = flows.get_mut(&(root.to_owned(), change.to_owned())) {
+        if let Some(entry) = flows.get_mut(&(root.to_owned(), change_id.to_owned())) {
             if let ArchiveUpdate::Stage { stage } = &update {
                 match entry.stages.iter_mut().find(|row| row.stage == stage.stage) {
                     Some(slot) => *slot = stage.clone(),
@@ -299,10 +300,10 @@ impl ArchiveControl {
     }
 
     /// 重挂快照查询（进程内；链终态后除名 → `None`）。
-    pub fn snapshot(&self, root: &str, change: &str) -> Option<ArchiveSnapshot> {
+    pub fn snapshot(&self, root: &str, change_id: &str) -> Option<ArchiveSnapshot> {
         let flows = self.flows.lock().expect("归档注册表锁不可中毒");
         flows
-            .get(&(root.to_owned(), change.to_owned()))
+            .get(&(root.to_owned(), change_id.to_owned()))
             .map(|entry| ArchiveSnapshot {
                 stages: entry.stages.clone(),
                 session_id: entry.session.lock().expect("会话槽锁不可中毒").clone(),
@@ -313,7 +314,7 @@ impl ArchiveControl {
 /// 归档链持有的单链控制柄：emit / 会话槽 / 取消观测。终态收口在链主入口
 /// 单点 [`ArchiveGuard::finish`]（消费 self——终态出口唯一）。
 pub struct ArchiveGuard {
-    /// 复合键（workspace root, change）
+    /// 复合键（workspace root, change id）
     key: (String, String),
     control: Arc<ArchiveControl>,
 }
@@ -376,7 +377,7 @@ fn completion_of(
     store: &dyn ChangeStateStore,
 ) -> Option<(bool, Vec<String>)> {
     let table = phase_table(&record.workflow_type)?;
-    let entries = store.list_phase_records(&record.name).unwrap_or_default();
+    let entries = store.list_phase_records(&record.id).unwrap_or_default();
     let incomplete: Vec<String> = table
         .iter()
         .filter(|definition| !phase_passed(&entries, definition.id))
@@ -387,8 +388,8 @@ fn completion_of(
 
 /// 产物三件核对：定位目录内 `proposal.md` / `design.md` / `tasks.md` 在场
 /// 情况（缺席清单；定位失败 = 全缺）。
-fn missing_artifacts(layout: &Layout, worktree: Option<&str>, change: &str) -> Vec<String> {
-    let location = locate_change(layout, worktree, change);
+fn missing_artifacts(layout: &Layout, worktree: Option<&str>, name: &str) -> Vec<String> {
+    let location = locate_change(layout, worktree, name);
     ARTIFACT_FILES
         .iter()
         .filter(|file| {
@@ -404,10 +405,10 @@ fn missing_artifacts(layout: &Layout, worktree: Option<&str>, change: &str) -> V
 pub(crate) fn detect_delta_specs(
     layout: &Layout,
     worktree: Option<&str>,
-    change: &str,
+    name: &str,
 ) -> Vec<String> {
     let location =
-        locate_change(layout, None, change).or_else(|| locate_change(layout, worktree, change));
+        locate_change(layout, None, name).or_else(|| locate_change(layout, worktree, name));
     let Some(location) = location else {
         return Vec::new();
     };
@@ -424,20 +425,21 @@ pub(crate) fn detect_delta_specs(
     capabilities
 }
 
-/// 归档前置读面聚合（确认对话数据面，design D6）：建档在案 + status=active
-/// 门（`None` = 不可归档——未建档 / 已归档 / db 读失败的读面兜底）、完成度
-/// 核算、产物三件 fs 核对、delta specs capability 清单、合入目标分支
-///（worktree 记录在场才探测）。`main_root` 即 layout 解析锚（`resolve` 无
-/// IO，进程内单点派生）。
+/// 归档前置读面聚合（确认对话数据面，design D6，按 change **id** 寻址）：
+/// 建档在案 + status=active 门（`None` = 不可归档——未建档 / 已归档 /
+/// db 读失败的读面兜底）、完成度核算、产物三件 fs 核对、delta specs
+/// capability 清单、合入目标分支（worktree 记录在场才探测）。磁盘面
+/// `name` / `worktree` 自记录直供（id → 记录 → name 分辨率单点；`name` 出线
+/// 取 `record.name`）。`main_root` 即 layout 解析锚（`resolve` 无 IO，进程内
+/// 单点派生）。
 pub fn preflight(
     main_root: &Path,
     store: &dyn ChangeStateStore,
-    worktree: Option<&str>,
-    change: &str,
+    id: &str,
     vcs: &dyn ArchiveVcsPort,
     run_active: bool,
 ) -> Option<ArchivePreflight> {
-    let record = store.get_change(change).ok().flatten()?;
+    let record = store.get_change(id).ok().flatten()?;
     if record.status != ChangeStatus::Active {
         return None;
     }
@@ -446,17 +448,19 @@ pub fn preflight(
     // 链收口 summary 承载，读面只出布尔结论）
     let (completed, incomplete_phases) =
         completion_of(&record, store).unwrap_or((false, Vec::new()));
-    let branch = worktree.map(|_| format!("change/{change}"));
+    let worktree = record.worktree.as_deref();
+    let name = record.name.as_str();
+    let branch = worktree.map(|_| change_branch(name));
     let merge_target = match worktree {
         Some(_) => vcs.current_branch(main_root).ok(),
         None => None,
     };
     Some(ArchivePreflight {
-        name: change.to_owned(),
+        name: name.to_owned(),
         completed,
         incomplete_phases,
-        missing_artifacts: missing_artifacts(&layout, worktree, change),
-        delta_specs: detect_delta_specs(&layout, worktree, change),
+        missing_artifacts: missing_artifacts(&layout, worktree, name),
+        delta_specs: detect_delta_specs(&layout, worktree, name),
         worktree: worktree.map(str::to_owned),
         branch,
         merge_target,
@@ -471,8 +475,9 @@ pub fn preflight(
 // 收缩由模板明令——归档编排代执行收口）
 // ---------------------------------------------------------------------------
 
-/// spec 同步 prompt（D8 溯源摘除版）：增量合并语义自持（ADDED / MODIFIED /
-/// REMOVED / RENAMED、保留未提及内容、幂等、capability 缺席创建）。
+/// spec 同步 prompt（D8 溯源摘除版；入参为记录供给的 change **name**——prompt
+/// 内文面向用户 / 磁盘目录，恒 name 化）：增量合并语义自持（ADDED / MODIFIED
+/// / REMOVED / RENAMED、保留未提及内容、幂等、capability 缺席创建）。
 pub(crate) fn spec_sync_prompt(change: &str) -> String {
     format!(
         "你执行 change「{change}」归档链的 delta specs 同步段（完成度核对与归档确认已由桌面完成，无需重复）。
@@ -495,6 +500,8 @@ pub(crate) fn spec_sync_prompt(change: &str) -> String {
     )
 }
 
+/// 解冲突 prompt（入参为记录供给的 change **name**——prompt 内文面向用户 /
+/// 磁盘目录，恒 name 化）。
 pub(crate) fn merge_conflict_prompt(change: &str, conflicts: &[String]) -> String {
     let list = conflicts.join("\n");
     format!(
@@ -525,7 +532,8 @@ pub(crate) fn merge_conflict_prompt(change: &str, conflicts: &[String]) -> Strin
 pub struct ArchiveRequest {
     /// 主 workspace root（layout 解析 / 主仓 git 命令锚）
     pub root: String,
-    pub change: String,
+    /// change 身份锚（uuid 形态；磁盘 / git 面 name 由记录供给）
+    pub change_id: String,
     /// 是否执行 delta specs 同步段（确认面「跳过同步，直接归档」对译）
     pub sync_specs: bool,
 }
@@ -558,6 +566,11 @@ pub async fn run_archive_flow(
     guard.finish(summary, error);
 }
 
+/// 归档链分支名单点（branch = `change/<name>`——name 恒自记录供给）。
+fn change_branch(name: &str) -> String {
+    format!("change/{name}")
+}
+
 /// 阶段机主体：线性六段（校验 → worktree 提交 → 主仓合入（含冲突 agent 分支）
 /// → spec 同步 → 双写收口 → 落盘提交），任一失败停在该阶段（failed 信封 +
 /// Terminal），阶段间取消旗检查点。
@@ -570,12 +583,11 @@ async fn drive(
 ) -> Result<ArchiveSummary, Terminal> {
     let main_root = PathBuf::from(&request.root);
     let layout = resolve(&main_root);
-    let branch = format!("change/{}", request.change);
 
     // ── Preflight（重校验）：建档在案 + status=active + worktree 在场性 ──
     stage_running(guard, ArchiveStage::Preflight);
     let record = store
-        .get_change(&request.change)
+        .get_change(&request.change_id)
         .map_err(|error| {
             fail_stage(
                 guard,
@@ -589,7 +601,7 @@ async fn drive(
                 ArchiveStage::Preflight,
                 format!(
                     "change \"{}\" 未建档（无 ChangeRecord），不可归档",
-                    request.change
+                    request.change_id
                 ),
             )
         })?;
@@ -599,10 +611,15 @@ async fn drive(
             ArchiveStage::Preflight,
             format!(
                 "change \"{}\" 已归档（status=archived），不可重复归档",
-                request.change
+                record.name
             ),
         ));
     }
+    // 磁盘 / git 面 name 单点解析（id → 记录 → name）：branch `change/<name>`、
+    // prompt 内文、pathspec 圈定、归档目录名与提交信息全程消费本值；provenance
+    // 身份段仍恒 id
+    let name = record.name.clone();
+    let branch = change_branch(&name);
     let worktree = record.worktree.as_deref();
     // worktree 记录在场且目录缺失且分支未合入 → Err 引导（恢复目录或手动处置）
     if let Some(worktree_path) = worktree {
@@ -638,7 +655,7 @@ async fn drive(
             record.workflow_type
         )),
     }
-    let missing = missing_artifacts(&layout, worktree, &request.change);
+    let missing = missing_artifacts(&layout, worktree, &name);
     if !missing.is_empty() {
         warnings.push(format!(
             "{TXT_WARN_MISSING_ARTIFACTS}：{}",
@@ -669,17 +686,14 @@ async fn drive(
                     Some(TXT_SKIP_MERGED.to_owned()),
                 );
             } else if vcs.dirty(Path::new(worktree_path), &[]) {
-                vcs.commit_all(
-                    Path::new(worktree_path),
-                    &format!("archive: {}", request.change),
-                )
-                .map_err(|error| {
-                    fail_stage(
-                        guard,
-                        ArchiveStage::Commit,
-                        format!("worktree 提交失败: {error}"),
-                    )
-                })?;
+                vcs.commit_all(Path::new(worktree_path), &format!("archive: {name}"))
+                    .map_err(|error| {
+                        fail_stage(
+                            guard,
+                            ArchiveStage::Commit,
+                            format!("worktree 提交失败: {error}"),
+                        )
+                    })?;
                 stage_passed(guard, ArchiveStage::Commit, None);
             } else {
                 stage_skipped(guard, ArchiveStage::Commit, Some(TXT_SKIP_CLEAN.to_owned()));
@@ -727,8 +741,8 @@ async fn drive(
                             vcs,
                             guard,
                             request,
+                            &name,
                             worktree_path,
-                            &branch,
                             &pending,
                         )
                         .await?
@@ -753,7 +767,7 @@ async fn drive(
     // 随合入进入主仓 active 树、legacy 本就在主仓，`locate_change` 主仓优先
     // 解析链此刻必主仓命中）：cwd 恒主 root，同步合并基线恒 = 主仓当前 specs；
     // 死法 B（sync 产物搁浅 worktree）结构性消灭──
-    let delta_specs = detect_delta_specs(&layout, worktree, &request.change);
+    let delta_specs = detect_delta_specs(&layout, worktree, &name);
     let specs = if delta_specs.is_empty() {
         stage_running(guard, ArchiveStage::SpecSync);
         stage_skipped(
@@ -775,10 +789,10 @@ async fn drive(
         // 会话 cwd 恒 = 主 workspace root（worktree-cwd 分支砍除——D8）
         let turn = WorkerTurnRequest {
             root: request.root.clone(),
-            prompt: spec_sync_prompt(&request.change),
+            prompt: spec_sync_prompt(&name),
             provenance: SessionProvenance {
                 source: SOURCE_CHANGE.to_owned(),
-                source_ref: Some(format!("{}/archive/spec-sync", request.change)),
+                source_ref: Some(format!("{}/archive/spec-sync", request.change_id)),
             },
             permission: AgentPermissionMode::BypassPermissions,
             model_level: ModelLevel::High,
@@ -814,9 +828,10 @@ async fn drive(
     };
     check_stop(guard)?;
 
-    // ── Seal：写面 archive 双写单点直调（半完成重试走既有续半边）──
+    // ── Seal：写面 archive 双写单点直调（按 id 寻址；半完成重试走既有续
+    // 半边——写面经 id → 记录 → name 供给目录改名语义）──
     stage_running(guard, ArchiveStage::Seal);
-    let sealed = workflow::write::archive(&layout, store.as_ref(), &request.change)
+    let sealed = workflow::write::archive(&layout, store.as_ref(), &request.change_id)
         .map_err(|error| fail_stage(guard, ArchiveStage::Seal, error))?;
     stage_passed(
         guard,
@@ -827,8 +842,8 @@ async fn drive(
     // ── Finalize：归档落盘 pathspec 提交（脏探测跳过幂等面；扩围 D9）──
     stage_running(guard, ArchiveStage::Finalize);
     let domain = domain_dir_name();
-    let active_pathspec = format!("{domain}/changes/{}", request.change);
-    let archived_dir = format!("{}-{}", sealed.archived_date, request.change);
+    let active_pathspec = format!("{domain}/changes/{name}");
+    let archived_dir = format!("{}-{}", sealed.archived_date, name);
     let archived_pathspec = format!("{domain}/changes/archive/{archived_dir}");
     // pathspec 集 = 归档改名两路径 + delta capability 主 specs 子树各一段
     //（D9——与同步段探测同源零二次探测；用户跳过同步时同样扩围；全树
@@ -848,7 +863,7 @@ async fn drive(
         vcs.commit_paths(
             &main_root,
             &pathspec_refs,
-            &format!("archive: move {} to archive", request.change),
+            &format!("archive: move {name} to archive"),
         )
         .map_err(|error| fail_stage(guard, ArchiveStage::Finalize, error))?;
         stage_passed(guard, ArchiveStage::Finalize, Some(archived_pathspec));
@@ -861,7 +876,7 @@ async fn drive(
     }
 
     Ok(ArchiveSummary {
-        name: request.change.clone(),
+        name,
         archived_dir,
         specs,
         warnings,
@@ -897,11 +912,12 @@ async fn resolve_conflicts(
     vcs: &Arc<dyn ArchiveVcsPort>,
     guard: &ArchiveGuard,
     request: &ArchiveRequest,
+    name: &str,
     worktree_path: &str,
-    branch: &str,
     conflicts: &[String],
 ) -> Result<ResolutionOutcome, Terminal> {
     let worktree = Path::new(worktree_path);
+    let branch = change_branch(name);
     let baseline = match vcs.worktree_snapshot(worktree) {
         Ok(snapshot) => snapshot,
         Err(_) => {
@@ -909,7 +925,7 @@ async fn resolve_conflicts(
                 guard,
                 vcs,
                 worktree,
-                branch,
+                &branch,
                 conflicts,
                 LEAN_PROBE_FAILED,
                 false,
@@ -927,10 +943,10 @@ async fn resolve_conflicts(
 
     let turn = WorkerTurnRequest {
         root: worktree_path.to_owned(),
-        prompt: merge_conflict_prompt(&request.change, conflicts),
+        prompt: merge_conflict_prompt(name, conflicts),
         provenance: SessionProvenance {
             source: SOURCE_CHANGE.to_owned(),
-            source_ref: Some(format!("{}/archive/merge-conflict", request.change)),
+            source_ref: Some(format!("{}/archive/merge-conflict", request.change_id)),
         },
         permission: AgentPermissionMode::BypassPermissions,
         model_level: ModelLevel::High,
@@ -945,7 +961,7 @@ async fn resolve_conflicts(
                 guard,
                 vcs,
                 worktree,
-                branch,
+                &branch,
                 conflicts,
                 LEAN_AGENT_FAILED,
                 false,
@@ -961,7 +977,7 @@ async fn resolve_conflicts(
                 guard,
                 vcs,
                 worktree,
-                branch,
+                &branch,
                 conflicts,
                 LEAN_AGENT_STOPPED,
                 true,
@@ -972,7 +988,7 @@ async fn resolve_conflicts(
                 guard,
                 vcs,
                 worktree,
-                branch,
+                &branch,
                 conflicts,
                 LEAN_AGENT_FAILED,
                 false,
@@ -985,7 +1001,7 @@ async fn resolve_conflicts(
             guard,
             vcs,
             worktree,
-            branch,
+            &branch,
             conflicts,
             LEAN_RESIDUAL,
             false,
@@ -998,7 +1014,7 @@ async fn resolve_conflicts(
                 guard,
                 vcs,
                 worktree,
-                branch,
+                &branch,
                 conflicts,
                 LEAN_PROBE_FAILED,
                 false,
@@ -1007,7 +1023,7 @@ async fn resolve_conflicts(
     };
     if let Err(reason) = verify_resolution(&baseline, &after, conflicts) {
         return Err(lean_converge(
-            guard, vcs, worktree, branch, conflicts, &reason, false,
+            guard, vcs, worktree, &branch, conflicts, &reason, false,
         ));
     }
     // ⑤ 链代续走（`rebase --continue` 沿用既定提交信息）。失败不走 lean

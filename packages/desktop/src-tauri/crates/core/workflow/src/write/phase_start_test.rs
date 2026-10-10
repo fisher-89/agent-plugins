@@ -1,12 +1,14 @@
 //! `write::phase_start` 的单元测试（test-design「phase_start.rs ->
-//! phase_start_test.rs」节）：开相写操作 port 落库——表位校验保留在 core（校验
-//! 前置零写命令）、持久化经 [`ChangeStateStore::start_phase`]（attempt 写事务
-//! 内推导）、`PhaseStartOutcome.start_at` 出 i64 millis、StoreFault 故障传播、
-//! 重开 attempt 自 db 推导递增。
+//! phase_start_test.rs」节）：开相写操作 port 落库（形参 change **id**）——表位
+//! 校验保留在 core（校验前置零写命令）、持久化经
+//! [`ChangeStateStore::start_phase`]（`(change_id, phase, now)` 形参抵达 +
+//! attempt 写事务内推导）、`PhaseStartOutcome.start_at` 出 i64 millis、
+//! StoreFault 故障传播、重开 attempt 自 db 推导递增；未建档 id 显式 Err。
 //!
 //! Mock策略（test-design 本节 Mock 表）：全部用例走进程内假件实现 trait
 //!（记录写命令与调用序、可编程 `StoreFault`）；假件 start_phase 以「该相位
 //! 既有条目数 + 1」推导 attempt 并落 active_phase（镜像真件事务内推导语义）。
+//! id 与 name 字面量各异：寻址断言以 id 为键、name 仅展示属性。
 
 use std::sync::Mutex;
 
@@ -17,7 +19,12 @@ use crate::state::{
     RunStepStateRecord, StepCommand, StepStateRecord, StoreFault,
 };
 
-const CHANGE: &str = "demo-change";
+/// 身份锚字面量（开相入参——一切寻址以 id 为准）。
+const CHANGE_ID: &str = "0198f7a0-0000-7000-8000-0000000000e1";
+/// change 名（零寻址职能，仅记录展示属性）。
+const CHANGE_NAME: &str = "demo-change";
+/// 库内不存在的 id（未建档拒绝面）。
+const UNKNOWN_ID: &str = "0198f7a0-0000-7000-8000-0000000000fe";
 
 /// 确定性时间戳基（UTC unix millis）。
 const T0: i64 = 1_727_000_000_000;
@@ -44,7 +51,8 @@ impl StartStore {
     fn with_workflow_type(workflow_type: &str) -> Self {
         Self {
             record: Mutex::new(Some(ChangeStateRecord {
-                name: CHANGE.to_owned(),
+                id: CHANGE_ID.to_owned(),
+                name: CHANGE_NAME.to_owned(),
                 workflow_type: workflow_type.to_owned(),
                 created_at: T0,
                 status: ChangeStatus::Active,
@@ -79,7 +87,7 @@ impl StartStore {
         let attempt = entries.iter().filter(|entry| entry.phase == phase).count() as u32 + 1;
         entries.push(PhaseStateRecord {
             id: i64::from(attempt),
-            change: CHANGE.to_owned(),
+            change_id: CHANGE_ID.to_owned(),
             phase: phase.to_owned(),
             attempt,
             verdict: crate::model::Verdict::Fail,
@@ -105,14 +113,33 @@ impl StartStore {
         self.start_calls.lock().expect("调用锁不可中毒").len()
     }
 
+    /// 捕获的 start_phase 调用序列（change_id / phase / now 逐字段断言面）。
+    fn start_calls(&self) -> Vec<(String, String, i64)> {
+        self.start_calls.lock().expect("调用锁不可中毒").clone()
+    }
+
     fn start(&self, phase: &str) -> Result<super::phase_start::PhaseStartOutcome, String> {
-        phase_start(self, CHANGE, phase)
+        self.start_with_id(CHANGE_ID, phase)
+    }
+
+    /// 指定 id 开相（未建档 id 拒绝面：id 形参非 seed 值即 miss）。
+    fn start_with_id(
+        &self,
+        id: &str,
+        phase: &str,
+    ) -> Result<super::phase_start::PhaseStartOutcome, String> {
+        phase_start(self, id, phase)
     }
 }
 
 impl ChangeStateStore for StartStore {
-    fn get_change(&self, _name: &str) -> Result<Option<ChangeStateRecord>, StoreFault> {
-        Ok(self.record.lock().expect("记录锁不可中毒").clone())
+    fn get_change(&self, id: &str) -> Result<Option<ChangeStateRecord>, StoreFault> {
+        Ok(self
+            .record
+            .lock()
+            .expect("记录锁不可中毒")
+            .clone()
+            .filter(|record| record.id == id))
     }
 
     fn list_change_records(&self) -> Result<Vec<ChangeStateRecord>, StoreFault> {
@@ -125,7 +152,7 @@ impl ChangeStateStore for StartStore {
 
     fn list_steps(
         &self,
-        _change: &str,
+        _change_id: &str,
         _run_id: Option<&str>,
     ) -> Result<Vec<StepStateRecord>, StoreFault> {
         unimplemented!("本用例不可达")
@@ -135,13 +162,13 @@ impl ChangeStateStore for StartStore {
         unimplemented!("本用例不可达")
     }
 
-    fn delete_change_record(&self, _name: &str) -> Result<bool, StoreFault> {
+    fn delete_change_record(&self, _id: &str) -> Result<bool, StoreFault> {
         unimplemented!("本用例不可达")
     }
 
     fn start_phase(
         &self,
-        change: &str,
+        change_id: &str,
         phase: &str,
         now: i64,
     ) -> Result<PhaseStartState, StoreFault> {
@@ -166,7 +193,7 @@ impl ChangeStateStore for StartStore {
             });
         }
         self.start_calls.lock().expect("调用锁不可中毒").push((
-            change.to_owned(),
+            change_id.to_owned(),
             phase.to_owned(),
             now,
         ));
@@ -186,14 +213,14 @@ impl ChangeStateStore for StartStore {
 
     fn amend_decision_session(
         &self,
-        _change: &str,
+        _change_id: &str,
         _phase: &str,
         _session_id: &str,
     ) -> Result<(), StoreFault> {
         unimplemented!("本用例不可达")
     }
 
-    fn set_archived(&self, _name: &str, _archived_at: i64) -> Result<(), StoreFault> {
+    fn set_archived(&self, _id: &str, _archived_at: i64) -> Result<(), StoreFault> {
         unimplemented!("本用例不可达")
     }
 
@@ -230,10 +257,11 @@ fn now_upper() -> i64 {
 // 正向：开相落库（outcome 与 active_phase 一致）
 // ---------------------------------------------------------------------------
 
-/// 合法表位开相 → `store.start_phase` 落 active_phase；outcome.phase /
-/// attempt / start_at（i64）与假件落库的 active_phase 逐字段一致。
+/// 合法表位开相 → `store.start_phase(change_id, phase, now)` 落 active_phase；
+/// outcome.phase / attempt / start_at（i64）与假件落库的 active_phase 逐字段
+/// 一致（change_id 形参逐字抵达——id 寻址非 name）。
 #[test]
-fn 开相落库_outcome与active_phase逐字段一致() {
+fn 开相落库按id_outcome与active_phase逐字段一致() {
     let fake = StartStore::requirement();
     let before = now_upper();
 
@@ -248,12 +276,20 @@ fn 开相落库_outcome与active_phase逐字段一致() {
         outcome.start_at
     );
 
-    // 假件落库侧：active_phase 与 outcome 一致、调用恰一次
+    // 假件落库侧：change_id / phase 形参逐字、active_phase 与 outcome 一致、
+    // 调用恰一次
     assert_eq!(fake.start_call_count(), 1, "start_phase 恰一次落库调用");
+    assert_eq!(
+        fake.start_calls()[0].0,
+        CHANGE_ID,
+        "start_phase 收到本次 change id（形参 id 化，非 name）"
+    );
+    assert_eq!(fake.start_calls()[0].1, "proposal");
     let record = fake
-        .get_change(CHANGE)
+        .get_change(CHANGE_ID)
         .expect("假件读半边应可用")
         .expect("建档记录应在场");
+    assert_eq!(record.name, CHANGE_NAME, "记录 name 仅展示属性");
     let active = record.active_phase.expect("active_phase 应已写入");
     assert_eq!(active.phase, "proposal");
     assert_eq!(active.attempt, 1);
@@ -277,7 +313,7 @@ fn 非法相位拒绝且store零写入() {
     );
     assert_eq!(fake.start_call_count(), 0, "校验前置：零 start_phase 调用");
     let record = fake
-        .get_change(CHANGE)
+        .get_change(CHANGE_ID)
         .expect("假件读半边应可用")
         .expect("建档记录应在场");
     assert!(record.active_phase.is_none(), "active_phase 未被写入");
@@ -294,14 +330,28 @@ fn workflow_type非requirement拒绝零写入() {
     assert_eq!(fake.start_call_count(), 0, "零写入");
 }
 
-/// change 未建档 → Err 显式（假件 get_change 返回 None）。
+/// 未建档 id → Err 显式零写入：库空（假件 get_change 恒 None）与库内有建档
+/// 但 id 未登记两态皆拒（id 形参 miss 面——name 不作寻址回退）。
 #[test]
-fn change未建档显式err() {
+fn 未建档id显式err零写入() {
     let fake = StartStore::missing();
-
-    let err = fake.start("proposal").expect_err("未建档应 Err");
-
+    let err = fake.start("proposal").expect_err("库空应 Err");
     assert!(err.contains("未建档"), "Err 显式记因，实际: {err}");
+    assert!(err.contains(CHANGE_ID), "拒绝面携 id 语境，实际: {err}");
+    assert_eq!(fake.start_call_count(), 0, "零写入");
+
+    let fake = StartStore::requirement();
+    let err = fake
+        .start_with_id(UNKNOWN_ID, "proposal")
+        .expect_err("未登记 id 应 Err");
+    assert!(
+        err.contains("未建档") && err.contains(UNKNOWN_ID),
+        "Err 记因携未登记 id 语境（不回退 name 寻址），实际: {err}"
+    );
+    assert!(
+        !err.contains(CHANGE_NAME),
+        "拒绝面零 name 感知（未解析到记录），实际: {err}"
+    );
     assert_eq!(fake.start_call_count(), 0, "零写入");
 }
 
@@ -351,7 +401,7 @@ fn 重开attempt自既有条目数推导递增() {
     );
     // 落库侧 active_phase 同步为 attempt 2
     let active = fake
-        .get_change(CHANGE)
+        .get_change(CHANGE_ID)
         .expect("假件读半边应可用")
         .expect("建档记录应在场")
         .active_phase

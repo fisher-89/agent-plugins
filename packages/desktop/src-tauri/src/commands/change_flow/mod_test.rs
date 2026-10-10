@@ -75,13 +75,24 @@ fn app_with(env: &Env) -> App<tauri::test::MockRuntime> {
 }
 
 /// db 建档种子（前置校验 1/2 的正向与反相 fixture）：经 store change 域操作
-/// 面落 `ChangeRecord`（workflow_type 决定相位表校验走向），返回 workspace 库
-/// 实例供落库证据断言复用。
+/// 面落 `ChangeRecord`（workflow_type 决定相位表校验走向），id 与 name 同值。
 fn seed_change(app: &App<tauri::test::MockRuntime>, root: &str, name: &str, workflow_type: &str) {
+    seed_change_full(app, root, name, name, workflow_type);
+}
+
+/// id 与 name 相异的建档种子（id → 记录 → name 分辨率单点的比对锚）。
+fn seed_change_full(
+    app: &App<tauri::test::MockRuntime>,
+    root: &str,
+    id: &str,
+    name: &str,
+    workflow_type: &str,
+) {
     app.state::<WorkspaceStores>()
         .for_root(root)
         .expect("for_root 应成功")
         .create_change_record(ChangeStateRecord {
+            id: id.to_owned(),
             name: name.to_owned(),
             workflow_type: workflow_type.to_owned(),
             created_at: 1727000000000,
@@ -188,11 +199,12 @@ async fn start前置校验无建档与相位表缺失各自err且成因互不重
         r#"{ "workflow_type": "requirement", "eval": [] }"#,
     )
     .expect("写 workflow.json 失败");
-    // 相位表 fixture：db 有档但 workflow_type 无相位表（bug-fix）
+    // 相位表 fixture：db 有档但 workflow_type 无相位表（bug-fix）；id 与 name
+    // 相异——错误面 id → 记录 → name 呈现记录名
     let app = app_with(&env);
-    seed_change(&app, &root, "bugfix-change", "bug-fix");
+    seed_change_full(&app, &root, "id-bugfix-anchor", "bugfix-change", "bug-fix");
 
-    // 前置校验 1：db 无建档记录（存量 CLI change）→ 显式 Err 携 change 名
+    // 前置校验 1：db 无建档记录（存量 CLI change）→ 显式 Err 携 change id
     let err = change_flow_start_with(
         app.handle().clone(),
         discarding_channel(),
@@ -207,28 +219,33 @@ async fn start前置校验无建档与相位表缺失各自err且成因互不重
         "成因一（db 缺 ChangeRecord）: {err}"
     );
 
-    // 前置校验 2：workflow_type 无相位表（phase_table None → 显式拒绝）
+    // 前置校验 2：workflow_type 无相位表（phase_table None → 显式拒绝；错误面
+    // 呈现记录 name 而非 id）
     let err = change_flow_start_with(
         app.handle().clone(),
         discarding_channel(),
         root,
-        "bugfix-change".to_owned(),
+        "id-bugfix-anchor".to_owned(),
         false,
     )
     .await
     .expect_err("非 requirement 应 Err");
     assert!(
         err.contains("bugfix-change") && err.contains("bug-fix") && err.contains("requirement"),
-        "成因二（相位表缺失）: {err}"
+        "成因二（相位表缺失，记录 name 呈现）: {err}"
+    );
+    assert!(
+        !err.contains("id-bugfix-anchor"),
+        "相位表拒绝面恒 name 化（id → 记录 → name 分辨率单点）: {err}"
     );
 
     // 两成因互不重合且登记面零副作用（并行冲突分支另见「start同change并行」
     // 用例——本用例失败分支零 begin_run 登记）
     let control = app.state::<Arc<ChangeFlowControl>>();
-    for name in ["legacy-cli-change", "bugfix-change"] {
+    for id in ["legacy-cli-change", "id-bugfix-anchor"] {
         assert!(
-            control.snapshot(&env.root(), name).is_none(),
-            "失败分支零登记: {name}"
+            control.snapshot(&env.root(), id).is_none(),
+            "失败分支零登记: {id}"
         );
     }
 }
@@ -762,18 +779,19 @@ async fn 参数转换守卫blank_root各命令模板保留() {
         .expect("blank root stop 幂等 Ok");
 }
 
-/// blank change 守卫六缝各就位：start / answer / confirm → Err（无 change
-/// 无从寻址），stop / watch → Ok 幂等无副作用，state → Ok(None)——六命令
-/// 的 change 参数守卫全量覆盖（root 合法、仅 change 空白，隔离 change 分支）。
+/// blank id 守卫五缝各就位：start / answer / confirm → Err（各命令模板保留
+/// ——start 携「无 change 无从发起」语境，answer / confirm 为通用模板），
+/// stop / watch → Ok 幂等无副作用——五命令的 id 参数守卫全量覆盖（root 合法、
+/// 仅 id 空白，隔离 id 分支）。
 #[tokio::test]
-async fn 参数转换守卫blank_change六缝各就位() {
-    let env = Env::new("blank-change");
+async fn 参数转换守卫blank_id五缝各就位() {
+    let env = Env::new("blank-id");
     env.change_dir(CHANGE);
     let app = app_with(&env);
     let root = env.root();
     let blank = "   ".to_owned();
 
-    // start：Err（无 change 无从发起）
+    // start：Err（模板携「无 change 无从发起」语境）
     let err = change_flow_start_with(
         app.handle().clone(),
         discarding_channel(),
@@ -782,39 +800,37 @@ async fn 参数转换守卫blank_change六缝各就位() {
         false,
     )
     .await
-    .expect_err("blank change start 应 Err");
-    assert!(
-        err.contains("change") && !err.contains("root"),
-        "守卫 Err 记因 change 分支: {err}"
+    .expect_err("blank id start 应 Err");
+    assert_eq!(
+        err, "非法 id: 不得为空白（无 change 无从发起）",
+        "start blank id 模板保留（root 合法仅 id 空白）"
     );
 
-    // answer / confirm：Err
+    // answer / confirm：Err（各命令模板保留）
     let err = change_flow_answer_with(
         app.handle().clone(),
         root.clone(),
         blank.clone(),
         "应答".to_owned(),
     )
-    .expect_err("blank change answer 应 Err");
-    assert!(err.contains("change"), "守卫 Err 文案: {err}");
+    .expect_err("blank id answer 应 Err");
+    assert_eq!(err, "非法 id: 不得为空白", "answer blank id 模板保留");
     let err = change_flow_confirm_with(app.handle().clone(), root.clone(), blank.clone(), true)
-        .expect_err("blank change confirm 应 Err");
-    assert!(err.contains("change"), "守卫 Err 文案: {err}");
+        .expect_err("blank id confirm 应 Err");
+    assert_eq!(err, "非法 id: 不得为空白", "confirm blank id 模板保留");
 
     // stop / watch：Ok 幂等无副作用（blank 不进入注册表链路）
     change_flow_stop_with(app.handle().clone(), root.clone(), blank.clone())
-        .expect("blank change stop 幂等 Ok");
+        .expect("blank id stop 幂等 Ok");
     change_flow_watch_with(
         app.handle().clone(),
         discarding_channel(),
         root.clone(),
         blank.clone(),
     )
-    .expect("blank change watch Ok 非错误");
+    .expect("blank id watch Ok 非错误");
 
-    // watch：Ok 非错误（state 快照命令已退役——五命令缝随动）
-
-    // 守卫先行于前置校验：合法 root 在位而 change 空白 → 零登记零 spawn 副作用
+    // 守卫先行于前置校验：合法 root 在位而 id 空白 → 零登记零 spawn 副作用
     let control = app.state::<Arc<ChangeFlowControl>>();
     assert!(
         control.snapshot(&env.root(), CHANGE).is_none(),
@@ -838,6 +854,7 @@ fn seed_change_with_worktree(
         .for_root(root)
         .expect("for_root 应成功")
         .create_change_record(ChangeStateRecord {
+            id: name.to_owned(),
             name: name.to_owned(),
             workflow_type: "requirement".to_owned(),
             created_at: 1727000000000,
@@ -1001,11 +1018,12 @@ async fn exec_root解析成功_相位落workspace库且无第二库文件() {
     );
 }
 
-/// 复合键命令面（AC-7）：同 app 双 root——rootA 同名 change run 运行中 →
-/// rootB 同名 change 发起成功（互不误拒）；同 root 同 change 二次发起 Err
-///（并行冲突）；stop(rootA) 不影响 rootB 的 state 快照。
+/// 并行冲突键 id（AC-6 命令面半边）：同 root 同 id 二次 start → Err（冲突
+/// ——`start同change并行run冲突err` 同锚）；同名不同 id 各自受理互不误拒
+/// （name 非键——原「异 root 同名并行互不误拒」扩写）；异 root 同 id 并行
+/// 并存；stop 按 (root, id) 定址不波及他键。
 #[tokio::test]
-async fn 复合键命令面_异root同名并行互不误拒且stop隔离() {
+async fn 并行冲突键id_同名异id各自受理且异root同id互不误拒() {
     let env = Env::new("composite-key");
     env.change_dir(CHANGE);
     let app = app_with(&env);
@@ -1017,21 +1035,47 @@ async fn 复合键命令面_异root同名并行互不误拒且stop隔离() {
     let root_b = root_b_dir.path().to_string_lossy().into_owned();
     fs::create_dir_all(root_b_dir.path().join("openspec/changes").join(CHANGE))
         .expect("预置 rootB change 目录失败");
-    seed_change(&app, &root_a, CHANGE, "requirement");
+    // rootA 两 id 同名（name 非键的比对锚）+ rootB 同 CHANGE id（root 段随行）
+    seed_change_full(&app, &root_a, "id-a1", CHANGE, "requirement");
+    seed_change_full(&app, &root_a, "id-a2", CHANGE, "requirement");
     seed_change(&app, &root_b, CHANGE, "requirement");
     seed_cli_default_instance(&app);
 
     let (_path_guard, original) = isolate_path();
 
-    // rootA 预登记运行中 run（guard 在手不收敛——确定性并存锚；注记：
+    // rootA 预登记运行中 run（guard 在手不收敛——确定性冲突锚；注记：
     // `run-<millis>` 同毫秒可同号，run_id 不作唯一性断言面）
     let control = app.state::<Arc<ChangeFlowControl>>();
-    let guard_a = control
-        .begin_run(&root_a, CHANGE, "run-a-pre".to_owned(), STARTED_AT)
+    let guard_a1 = control
+        .begin_run(&root_a, "id-a1", "run-a-pre".to_owned(), STARTED_AT)
         .expect("rootA 预登记应成功");
 
-    // rootB 同名 change 发起成功（复合键 root 段——异 workspace 不误拒；命令
-    // 面真实驱动，run 登记在案）
+    // 同名异 id（同 root）：各自受理（name 非键——互不误拒；命令面真实驱动，
+    // run 登记在案）
+    let summary_a2 = change_flow_start_with(
+        app.handle().clone(),
+        discarding_channel(),
+        root_a.clone(),
+        "id-a2".to_owned(),
+        false,
+    )
+    .await
+    .expect("rootA 同名异 id 发起应成功（name 非键）");
+    assert_eq!(
+        summary_a2.status,
+        super::ChangeRunStatus::Running,
+        "提前 resolve summary running"
+    );
+    assert!(
+        control.snapshot(&root_a, "id-a2").is_some(),
+        "id-a2 run 登记在案（与同 root 同名 id-a1 并行并存——name 非键）"
+    );
+    assert!(
+        control.snapshot(&root_a, "id-a1").is_some(),
+        "同胞 id-a1 预登记条目不受扰动"
+    );
+
+    // 异 root 同 id：不误拒（复合键 root 段），命令面真实驱动登记在案
     let summary_b = change_flow_start_with(
         app.handle().clone(),
         discarding_channel(),
@@ -1040,7 +1084,7 @@ async fn 复合键命令面_异root同名并行互不误拒且stop隔离() {
         false,
     )
     .await
-    .expect("rootB 同名 change 发起应成功（复合键并行解锁）");
+    .expect("rootB 同 id 发起应成功（复合键并行解锁）");
     assert_eq!(
         summary_b.status,
         super::ChangeRunStatus::Running,
@@ -1051,25 +1095,25 @@ async fn 复合键命令面_异root同名并行互不误拒且stop隔离() {
         "rootB run 登记在案（与 rootA 预登记 run 并行并存——复合键生效）"
     );
 
-    // 同 root 同 change 二次发起 Err（并行冲突——既有行随复合键适配）
+    // 同 root 同 id 二次发起 Err（并行冲突——键 id 同值）
     let err = change_flow_start_with(
         app.handle().clone(),
         discarding_channel(),
         root_a.clone(),
-        CHANGE.to_owned(),
+        "id-a1".to_owned(),
         false,
     )
     .await
-    .expect_err("同 root 同 change 二次发起应 Err");
+    .expect_err("同 root 同 id 二次发起应 Err");
     assert!(
-        err.contains(CHANGE) && err.contains("已有运行中的 run"),
+        err.contains("id-a1") && err.contains("已有运行中的 run"),
         "并行冲突记因: {err}"
     );
 
-    // stop(rootA, x)：置位 rootA 预登记 run（不波及 rootB——寻址按复合键）
-    change_flow_stop_with(app.handle().clone(), root_a.clone(), CHANGE.to_owned())
+    // stop(rootA, id-a1)：仅置位目标键（不波及 id-a2 / rootB——寻址按 (root, id)）
+    change_flow_stop_with(app.handle().clone(), root_a.clone(), "id-a1".to_owned())
         .expect("stop 应 Ok");
-    assert!(guard_a.cancelled(), "rootA run 取消信号置位");
+    assert!(guard_a1.cancelled(), "rootA 预登记 run 取消信号置位");
     // rootB 的 watch 补订照常 Ok（复合键寻址可达——stop(rootA) 零影响）
     change_flow_watch_with(
         app.handle().clone(),
@@ -1079,23 +1123,33 @@ async fn 复合键命令面_异root同名并行互不误拒且stop隔离() {
     )
     .expect("rootB watch 经复合键寻址可达（stop(rootA) 零影响）");
 
-    // 等 rootB 自然收敛（非 stop(rootA) 所停——独立驱动到自身终态）
-    wait_for("rootB run 终态除名", || {
-        control.snapshot(&root_b, CHANGE).is_none()
+    // 等两条命令发起 run 自然收敛（非 stop 所停——独立驱动到自身终态）
+    wait_for("rootA id-a2 与 rootB run 终态除名", || {
+        control.snapshot(&root_a, "id-a2").is_none() && control.snapshot(&root_b, CHANGE).is_none()
     });
     restore_path(_path_guard, original);
-    drop(guard_a); // rootA 预登记 run 随 guard 终结除名
+    drop(guard_a1); // rootA 预登记 run 随 guard 终结除名
 
-    // rootB 的 run 独立驱动证据：其 workspace 库 StepRecord 以 rootB run_id 串
-    // 链在案（phase-start / 步审计经注入的 for_root(rootB) 实例落库）
-    let steps = app
+    // 各键独立驱动证据：各自 workspace 库 StepRecord 以自身 run_id 串链在案
+    //（phase-start / 步审计经注入的 for_root 实例落库）
+    let steps_a2 = app
+        .state::<WorkspaceStores>()
+        .for_root(&root_a)
+        .expect("for_root rootA 应成功")
+        .list_change_steps("id-a2", Some(&summary_a2.run_id))
+        .expect("rootA 步行清单应成功");
+    assert!(
+        !steps_a2.is_empty(),
+        "id-a2 run 以自身 run_id 独立驱动落步（同 root 同名冲突零波及）"
+    );
+    let steps_b = app
         .state::<WorkspaceStores>()
         .for_root(&root_b)
         .expect("for_root rootB 应成功")
         .list_change_steps(CHANGE, Some(&summary_b.run_id))
         .expect("rootB 步行清单应成功");
     assert!(
-        !steps.is_empty(),
+        !steps_b.is_empty(),
         "rootB run 以自身 run_id 独立驱动落步（不被 rootA stop 波及）"
     );
 }
@@ -1117,7 +1171,7 @@ fn sink事件桥接_session_event记会话锚且publish透传() {
 
     let sink = ChangeFlowSink {
         root: root.clone(),
-        change: change.to_owned(),
+        change_id: change.to_owned(),
         control: Arc::clone(&control),
     };
     sink.emit(RunUpdate::SessionEvent {
@@ -1149,10 +1203,11 @@ fn sink事件桥接_session_event记会话锚且publish透传() {
 // 触点；walker / 装配形态与其余五命令零改动）
 // ---------------------------------------------------------------------------
 
-/// 归档进行中 run 发起被拒：`ArchiveControl::begin` 预登记 (root, change) 后
+/// 归档进行中 run 发起被拒：`ArchiveControl::begin` 预登记 (root, id) 后
 /// `change_flow_start_with` → Err 含归档进行中原因；零 run 落账
-///（`ChangeFlowControl::snapshot` None、库内零 StepRecord）；异 change 同 root /
-/// 异 root 同名 change 不误拒（复合键寻址——发起照常进入既有前置校验面）。
+///（`ChangeFlowControl::snapshot` None、库内零 StepRecord）；同名异 id 同 root /
+/// 异 root 同 id 不误拒（互斥键为 (root, id)——name 非键，发起照常进入既有
+/// 前置校验面）。
 #[tokio::test]
 async fn start归档进行中被拒_复合键寻址异键不误拒() {
     let env = Env::new("archive-mutex");
@@ -1199,19 +1254,21 @@ async fn start归档进行中被拒_复合键寻址异键不误拒() {
         "库内零 StepRecord"
     );
 
-    // 异 change 同 root：不误拒（进入既有前置校验面——未建档 Err 而非归档记因）
+    // 同名异 id 同 root：不误拒（互斥键为 (root, id)——name 非键；进入既有
+    // 校验面——compose 缺省解析无实例 Err 而非归档记因）
+    seed_change_full(&app, &root, "id-same-name", CHANGE, "requirement");
     let error = change_flow_start_with(
         app.handle().clone(),
         discarding_channel(),
         root.clone(),
-        "other-change".to_owned(),
+        "id-same-name".to_owned(),
         false,
     )
     .await
-    .expect_err("异 change 未建档应 Err");
+    .expect_err("同名异 id 应走既有校验面");
     assert!(
-        error.contains("未建档"),
-        "异 change 走既有校验面（不误拒归档互斥）: {error}"
+        !error.contains("归档链进行中"),
+        "同名异 id 不误拒归档互斥（互斥键为 (root, id)）: {error}"
     );
 
     // 异 root 同名 change：不误拒（复合键寻址）

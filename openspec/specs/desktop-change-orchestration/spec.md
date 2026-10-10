@@ -107,12 +107,12 @@ Walker MUST NOT 经任何 CLI 子进程变更 change 流程状态（dev-team CLI
 
 ### Requirement: 会话挂靠 provenance 与节点状态派生
 
-Walker 发起的 executor / evaluator / decision 会话 SHALL 携带 provenance：`source="change"`、`source_ref=<change>/<phase>/<role>/<attempt>`。节点运行态 SHALL 由按 provenance 反查的会话集派生（`agentSessions` 按 source / sourceRef 过滤既有面）；会话转录 SHALL 可观测：运行中实时流、结束后重放一致。会话停止 SHALL 复用 StopRegistry 既有终止面，对已终态目标幂等忽略。
+Walker 发起的 executor / evaluator / decision 会话 SHALL 携带 provenance：`source="change"`、`source_ref=<id>/<phase>/<role>/<attempt>`（身份段为 change id——单一身份锚贯穿，name 可变不入寻址键；归档链两会话面见 desktop-change-archive「spec 同步 agent 与归档链语义自持」）。节点运行态 SHALL 由按 provenance 反查的会话集派生（`agentSessions` 按 source / sourceRef 过滤既有面）；会话转录 SHALL 可观测：运行中实时流、结束后重放一致。会话停止 SHALL 复用 StopRegistry 既有终止面，对已终态目标幂等忽略。
 
 #### Scenario: 按归属反查会话集
 
 - **WHEN** 某 change 的 implement#2 相位已发起 executor 与 evaluator 会话
-- **THEN** 按 `source="change"` + `source_ref="<change>/implement/executor/2"` 等过滤查询可枚举对应会话及其运行态，派生出节点状态，无需任何额外注册表
+- **THEN** 按 `source="change"` + `source_ref="<id>/implement/executor/2"` 等过滤查询可枚举对应会话及其运行态，派生出节点状态，无需任何额外注册表
 
 #### Scenario: 转录可观测与停止
 
@@ -215,14 +215,14 @@ change run SHALL 以双 root 组合执行（能力语义见 desktop-change-workt
 
 命令面 SHALL 提供 change run 的控制入口，命令体收拢为编排运行时公共 API 的薄包装（沿三件事纪律）：
 
-- **发起**：按 change 名发起 run，`auto_next_phase` 参数（bool；false=默认停等节奏，true=自动确认模式）随发起定格该 run 的停等节奏并透传 walker；发起 SHALL 先解析 exec root（db 记录 worktree 字段 → worktree 路径，None → 主 root，见「run 双 root 组合与 exec root 解析」）；沿 agent 执行先例提前 resolve（run 记录进入运行态后即返回），RunRecord 起始行（status=running）SHALL 随发起建立（desktop-change-state-store「run 运行史落库」；写落位——命令层装配 vs walker 起点直调——由 design 定稿）；
+- **发起**：按 change id 发起 run（id → 记录解析 worktree / name；磁盘与 git 面经 name 供给），`auto_next_phase` 参数（bool；false=默认停等节奏，true=自动确认模式）随发起定格该 run 的停等节奏并透传 walker；发起 SHALL 先解析 exec root（按 id 读取的 db 记录 worktree 字段 → worktree 路径，None → 主 root，见「run 双 root 组合与 exec root 解析」）；沿 agent 执行先例提前 resolve（run 记录进入运行态后即返回），RunRecord 起始行（status=running）SHALL 随发起建立（desktop-change-state-store「run 运行史落库」；写落位——命令层装配 vs walker 起点直调——由 design 定稿）；
 - **停止**：终止当前 WorkerAgent 会话并收敛 run 为受控终态；对非运行态目标幂等忽略，MUST NOT 报错或误改既有终态；
 - **应答**：ask 中断态下回传用户应答（选项或自由文本），驱动 run 继续；
 - **确认**：phase 间停等点的用户确认（继续 / 终止）。
 
 **读路统一（推拉反转）**：`get_change_detail`（或其扩展）SHALL 一次返回「库读史 ∪ 内存在飞 run」统一视图——库面 runs / steps 读史（desktop-change-queries）并入在飞 run 的状态 / 停等与 ask 载荷 / RunEntry 步表，合并发生在读时（零每步写放大前提不变）；客户端 MUST NOT 双命令拼接（useChangeDetail + useChangeFlowRun 双真相源拼缝退场）。`RunUpdate` SHALL 降位为变更通知（无步 / 会话事件载荷或最小载荷，信封形状 design 定稿）：客户端收通知后自行重查统一视图，通知仅失效信号、查询结果为权威；高频通知（每步 / 每会话事件）SHALL 经客户端合并去抖或通知侧 coalesce 抑制重查风暴（策略 design 定稿）。stop / confirm / answer 控制面 SHALL 维持请求-应答形态不变（非推送）。
 
-运行状态 Channel SHALL 与 agent 执行流同构（执行流通道例外，不属轮询取数）。发起前置校验 SHALL 覆盖：目标 change 已建档（db `ChangeRecord` 在案且 `workflow_type=requirement` 相位表在位）、无同 workspace 同 change 并行 run——并行冲突键 SHALL 为 `(workspace root, change)` 复合（修正既有仅按 change 名做键的两 workspace 同名假冲突先例 bug；worktree 隔离解锁同 workspace 多 change 真并行）——无建档的 change（存量 CLI change）SHALL 显式拒绝发起（文档形态 change 不可运行）。
+运行状态 Channel SHALL 与 agent 执行流同构（执行流通道例外，不属轮询取数）。发起前置校验 SHALL 覆盖：目标 change 已建档（db `ChangeRecord` 在案且 `workflow_type=requirement` 相位表在位）、无同 workspace 同 change 并行 run——并行冲突键 SHALL 为 `(workspace root, change id)` 复合（三维隔离叠加：workspace × change 身份；worktree 隔离解锁同 workspace 多 change 真并行，同名 change 各持 id 互不构成冲突）——无建档的 change（id 不可达，含存量 CLI change）SHALL 显式拒绝发起（不可运行）。
 
 #### Scenario: 发起提前 resolve 与通知流
 
@@ -246,8 +246,8 @@ change run SHALL 以双 root 组合执行（能力语义见 desktop-change-workt
 
 #### Scenario: 发起前置校验与复合键并行
 
-- **WHEN** 对无 db 建档的 change（存量 CLI change）发起 run、或同 workspace 同 change 已有运行中的 run 再次发起、或另一 workspace 存在同名 change 的运行中 run
-- **THEN** 前两者发起命令显式 `Err`（呈现未建档或并行冲突原因），不进入运行态、不落任何账；第三者不受影响正常发起（复合键下异 workspace 同名不构成冲突）
+- **WHEN** 对无 db 建档的 change（id 不可达，含存量 CLI change）发起 run、或同 workspace 同一 change（同 id）已有运行中的 run 再次发起、或同一 workspace 的另一 change / 另一 workspace 的 change 运行中
+- **THEN** 前两者发起命令显式 `Err`（呈现未建档或并行冲突原因），不进入运行态、不落任何账；第三者不受影响正常发起（复合键按 id 隔离，同名 change 各持 id 互不构成冲突）
 
 #### Scenario: auto_next_phase 随发起透传
 
@@ -329,5 +329,8 @@ run 落库写缝 SHALL 收在 walker 侧单点：`walk_run` 终态出口（`guar
 | `crates/core/orchestration/src/walker.rs` | 检查域门禁步接入 | static-check 反馈边沿用（`STATIC_CHECK_FEEDBACK_LIMIT` 不变）；test-execution 相位 runner 门禁步 + 独立反馈预算（计数器分立、上限 5、超限升格相位 fail） |
 | `crates/infra/agent/src/worker.rs` | WorkerAgentPort 实现（收窄） | compose_turn 新会话 + StopRegistry 终止 + 密封转录 + provenance `source="change"`；static-check spawn 缝移出（落 `crates/infra/checks`，见 desktop-checks-domain） |
 | `crates/core/orchestration/src/walker.rs` + `RunRequest` | 双 root run 载体 | `RunRequest.root` 恒 exec root（worktree / legacy 主 root）；fs 半边（Layout / diff / 检查 cwd / 快照产物发现）随 root 落位；store 经 port 注入不变 |
-| `crates/core/orchestration/src/control.rs` | run 控制注册表 | `begin_run` / `subscribe` 键改 `(workspace root, change)` 复合；`RunUpdate` / `ChangeRunSnapshot` / `ChangeRunStatus` DTO 零改动 |
-| `src/commands/change_flow/mod.rs` | 发起装配 | 前置校验后解析 exec root（db worktree 字段 → 路径，None → 主 root）；store 实例以 workspace root 解析后注入 compose（拆参形态见 desktop-agent-execution / design）；其余三件事纪律不变 |
+| `crates/core/orchestration/src/control.rs` | run 控制注册表键换锚 | `runs: HashMap<(String, String), RunEntry>` 键 `(workspace root, change)` → `(workspace root, change id)`（12 处构造点随动）；`RunUpdate` / `RunNotice` / `ChangeRunSnapshot` / `ChangeRunStatus` DTO 零改动（通知零载荷） |
+| `crates/core/orchestration/src/walker.rs` | run 载体与 provenance | `RunRequest` / `RunStartCommand` / `RunFinishCommand` / `ToolCommand` 载荷 change → change id；provenance 定式 `<id>/<phase>/<role>/<attempt>`；`SessionAnchors` 键 `(change id, run_id)` |
+| `crates/core/orchestration/src/port.rs` + `steps.rs` + `run_history.rs` + `snapshot.rs` | 载荷 id 化 | 相位机步直调写面携 change id；`TestExecutionRunner` / `WorkflowSnapshotPort` 签名随动（`detail(root, id)` → 经 queries id 寻址） |
+| `crates/core/workflow/src/write/phase_next.rs`（SessionAnchors） | 进程内锚点键 | `(change, run_id)` → `(change id, run_id)`；锚点语义（续走不重头）不变 |
+| `src/commands/change_flow/mod.rs` | 五命令 id 化 | start / stop / answer / confirm / watch 定位参数 == change id；`ChangeFlowSink` 键 `(root, id)`；前置校验（建档 / 互斥 / exec root 解析）按 id 读取记录；store 实例以 workspace root 解析后注入 compose（拆参形态见 desktop-agent-execution / design）；其余三件事纪律不变 |

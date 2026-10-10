@@ -17,8 +17,8 @@ use crate::write::phase_table::{
     MAX_RETRY_TIMES, MAX_ROUNDS,
 };
 
-/// 进程内会话锚点：(change, run_id) → 首见时 PhaseRecord 行数基线。每 run 一个
-/// 实例（组合根创建后注入工具步缝；run_id 键隔离，跨 run / 跨实例不共享，
+/// 进程内会话锚点：(change_id, run_id) → 首见时 PhaseRecord 行数基线。每 run
+/// 一个实例（组合根创建后注入工具步缝；run_id 键隔离，跨 run / 跨实例不共享，
 /// 无进程级全局可变状态）。
 #[derive(Default)]
 pub struct SessionAnchors {
@@ -31,11 +31,12 @@ impl SessionAnchors {
         Self::default()
     }
 
-    /// 首见登记基线、复见返回既有锚点（与插件 `getOrCreateAnchor` 同语义）。
-    fn get_or_create(&self, change: &str, run_id: &str, entries_len: usize) -> usize {
+    /// 首见登记基线、复见返回既有锚点（与插件 `getOrCreateAnchor` 同语义；
+    /// 复合键身份段 = change id）。
+    fn get_or_create(&self, change_id: &str, run_id: &str, entries_len: usize) -> usize {
         let mut anchors = self.anchors.lock().expect("会话锚点锁不可中毒");
         *anchors
-            .entry((change.to_owned(), run_id.to_owned()))
+            .entry((change_id.to_owned(), run_id.to_owned()))
             .or_insert(entries_len)
     }
 }
@@ -73,11 +74,12 @@ pub struct PhaseNextOutcome {
     pub error: Option<PhaseNextError>,
 }
 
-/// 只读路由状态机：不改状态库。路由权威唯一——walker 每步过渡都问
-/// 本函数，白名单经其缓存下发。
+/// 只读路由状态机（按 change **id** 寻址）：不改状态库。路由权威唯一——
+/// walker 每步过渡都问本函数，白名单经其缓存下发；prompt 插值的 change 段
+/// 由记录 `name` 供给（id → 记录 → name 分辨率单点）。
 pub fn phase_next(
     store: &dyn ChangeStateStore,
-    change: &str,
+    change_id: &str,
     run_id: &str,
     anchors: &SessionAnchors,
 ) -> Result<PhaseNextOutcome, String> {
@@ -85,9 +87,9 @@ pub fn phase_next(
         return Err("missing_run_id: 缺少必需参数 run_id".to_owned());
     }
     let record = store
-        .get_change(change)
+        .get_change(change_id)
         .map_err(|error| error.to_string())?
-        .ok_or_else(|| format!("change \"{change}\" 未建档（无 ChangeRecord），无从路由"))?;
+        .ok_or_else(|| format!("change \"{change_id}\" 未建档（无 ChangeRecord），无从路由"))?;
     let table = phase_table(&record.workflow_type).ok_or_else(|| {
         format!(
             "workflow_type \"{}\" 不受支持（V1 仅 requirement 工作流）",
@@ -95,10 +97,10 @@ pub fn phase_next(
         )
     })?;
     let entries = store
-        .list_phase_records(change)
+        .list_phase_records(change_id)
         .map_err(|error| error.to_string())?;
     let anchor = anchors
-        .get_or_create(change, run_id, entries.len())
+        .get_or_create(change_id, run_id, entries.len())
         .min(entries.len());
     let round = (entries.len() - anchor) as u32 + 1;
     let last_result = latest_result(&entries);
@@ -128,7 +130,7 @@ pub fn phase_next(
                 table,
                 &table[idx],
                 round,
-                change,
+                &record.name,
                 entry.backtrack_reason.as_deref(),
                 last_result,
             ));
@@ -176,7 +178,7 @@ pub fn phase_next(
         table,
         next,
         round,
-        change,
+        &record.name,
         None,
         last_result,
     ))
@@ -216,13 +218,13 @@ fn latest_result(entries: &[PhaseStateRecord]) -> Option<LastResult> {
     })
 }
 
-/// 正常路由响应：prompt 插值（`<change>` / `<phase>`）+ 回溯原因后缀 +
-/// 白名单随行（与插件 `buildPhaseResponse` 同语义）。
+/// 正常路由响应：prompt 插值（`<change>` 段取记录 name / `<phase>`）+ 回溯
+/// 原因后缀 + 白名单随行（与插件 `buildPhaseResponse` 同语义）。
 fn build_phase_response(
     table: &'static [PhaseDefinition],
     def: &PhaseDefinition,
     round: u32,
-    change: &str,
+    name: &str,
     backtrack_reason: Option<&str>,
     last_result: Option<LastResult>,
 ) -> PhaseNextOutcome {
@@ -231,7 +233,7 @@ fn build_phase_response(
         .unwrap_or_default();
     let resolve = |spec: &PhaseAgentSpec| PhaseAgentSpec {
         agent_type: spec.agent_type.clone(),
-        prompt: interpolate(&spec.prompt, change, Some(def.id)) + &reason_suffix,
+        prompt: interpolate(&spec.prompt, name, Some(def.id)) + &reason_suffix,
         model_level: spec.model_level,
     };
     PhaseNextOutcome {

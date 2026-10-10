@@ -1,0 +1,111 @@
+{
+  "activePhase": null,
+  "artifacts": [
+    {
+      "kind": "tasks-progress",
+      "source": "tasks.md",
+      "title": "任务进度"
+    },
+    {
+      "kind": "eval-checklist",
+      "source": "0",
+      "title": "评估清单 · proposal · 第 1 次"
+    },
+    {
+      "kind": "markdown-doc",
+      "source": "proposal.md",
+      "title": "提案"
+    },
+    {
+      "kind": "markdown-doc",
+      "source": "tasks.md",
+      "title": "任务"
+    }
+  ],
+  "created": "2024-09-22",
+  "id": "id-seeded-archived",
+  "name": "seeded-archived",
+  "pipeline": [
+    {
+      "attempts": [
+        {
+          "attempt": 1,
+          "backtrackReason": null,
+          "backtrackTo": null,
+          "checklist": [
+            {
+              "evidence": "L1-10",
+              "item": "问题清晰",
+              "pass": true
+            }
+          ],
+          "decisionSessionId": null,
+          "evaluatorSessionId": "ses-arch-eval",
+          "executorSessionId": "ses-arch-exec",
+          "report": "提案通过",
+          "skipped": false,
+          "stale": false,
+          "startAt": "2024-09-22T10:13:21Z",
+          "timestamp": "2024-09-22T10:13:21Z",
+          "verdict": "pass"
+        }
+      ],
+      "phase": "proposal"
+    },
+    {
+      "attempts": [],
+      "phase": "dev-design"
+    },
+    {
+      "attempts": [],
+      "phase": "test-design"
+    },
+    {
+      "attempts": [],
+      "phase": "implement"
+    },
+    {
+      "attempts": [],
+      "phase": "test-gen"
+    },
+    {
+      "attempts": [],
+      "phase": "test-execution"
+    },
+    {
+      "attempts": [],
+      "phase": "code-review"
+    },
+    {
+      "attempts": [],
+      "phase": "acceptance"
+    },
+    {
+      "attempts": [],
+      "phase": "code-analyze"
+    }
+  ],
+  "runs": [
+    {
+      "finishedAt": "2024-09-22T10:13:39Z",
+      "reason": "All phases have passed evaluation. Ready for archiving.",
+      "runId": "run-1727000040000",
+      "startedAt": "2024-09-22T10:13:30Z",
+      "status": "completed",
+      "steps": [
+        {
+          "attempt": 1,
+          "detail": null,
+          "phase": "proposal",
+          "seq": 0,
+          "sessionId": "ses-arch-exec",
+          "status": "passed",
+          "step": "executor"
+        }
+      ]
+    }
+  ],
+  "source": "archive",
+  "status": "archived",
+  "worktree": null
+}

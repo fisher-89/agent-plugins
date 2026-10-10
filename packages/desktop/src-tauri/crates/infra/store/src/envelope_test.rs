@@ -7,6 +7,7 @@ use crate::{
     AgentEngineKind, AgentInstanceRecord, AgentModelTiers, AgentProviderRecord,
     SessionConfigSnapshot, SessionRecord, Store, StoreError,
 };
+use workflow::state::{ChangeStateRecord, ChangeStatus};
 
 /// db 文件 + workspace 根目录临时环境：tempfile RAII，测试结束自动清理。
 struct Env {
@@ -306,6 +307,97 @@ fn workspace库实例scan新模型名err维度过滤_两新模型仅注册全局
         assert!(
             err.to_string().contains("未知模型"),
             "错误串含「未知模型」语境，实际: {err}"
+        );
+    }
+}
+
+// ---------------------------------------------------------------------------
+// change 信封 key 投影（AC-1 信封半边）：主键 name → id 换锚
+// ---------------------------------------------------------------------------
+
+/// 建档命令 fixture（id 主键与 name 属性双值可辨）。
+fn change_archive(id: &str, name: &str) -> ChangeStateRecord {
+    ChangeStateRecord {
+        id: id.to_owned(),
+        name: name.to_owned(),
+        workflow_type: "requirement".to_owned(),
+        created_at: 1727000000000,
+        status: ChangeStatus::Active,
+        archived_at: None,
+        active_phase: None,
+        worktree: None,
+        base_commit: None,
+    }
+}
+
+#[test]
+fn scan_change信封key投影为记录id_value内name仍为属性在场() {
+    let env = Env::new("envelope-change-key");
+    let ws = open_ws_ok(&env.db_path("ws"));
+    ws.create_change_record(change_archive("chg-envelope-1", "换锚档"))
+        .unwrap_or_else(|e| panic!("create_change_record 应成功: {e}"));
+
+    let page = ws.scan("change", 0, 10).unwrap();
+    assert_eq!(page.len(), 1);
+    assert_eq!(
+        page[0].key,
+        serde_json::json!("chg-envelope-1"),
+        "change 信封 key = 记录 id（自 name 面翻转；身份锚随主键换锚）"
+    );
+    assert_eq!(
+        page[0].value["name"],
+        serde_json::json!("换锚档"),
+        "value 内 name 仍为普通属性在场（非主键）"
+    );
+    assert_eq!(
+        page[0].value["id"],
+        serde_json::json!("chg-envelope-1"),
+        "value 内 id 与信封 key 同源"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// 注册表零新增行（StoreMetaRecord 不入信封注册表——无查看面需求）
+// ---------------------------------------------------------------------------
+
+#[test]
+fn 注册表零新增行_workspace维度恰八行_format模型不可见且scan_err() {
+    let env = Env::new("envelope-registry-zero-new");
+    let ws = open_ws_ok(&env.db_path("ws"));
+    // 库级格式版本标记已随打开就位（15_1_key 单键 format 行），但零呈现
+    let models = ws.list_models().unwrap();
+    assert_eq!(
+        models
+            .iter()
+            .map(|model| model.name.as_str())
+            .collect::<Vec<_>>(),
+        vec![
+            "agent_run",
+            "session",
+            "session_event",
+            "explore",
+            "change",
+            "phase",
+            "checklist_item",
+            "step"
+        ],
+        "workspace 维度 list_models 行集合与计数（8 行）零变化"
+    );
+    assert!(
+        models.iter().all(|model| model.count == 0),
+        "空库计数全 0（标记行不计数——不入注册表）"
+    );
+    assert!(
+        !models.iter().any(|model| model.name == "format"),
+        "`format` 模型名不可见（内部治理记录负断言）"
+    );
+
+    // 标记模型名经信封 scan 走未知模型错误面（不入注册表即无查看面）
+    for model in ["format", "store_meta", "meta"] {
+        let err = scan_err(&ws, model);
+        assert!(
+            err.contains("未知模型"),
+            "模型 {model:?} 应未知模型 Err，实际: {err}"
         );
     }
 }

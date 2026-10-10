@@ -24,10 +24,10 @@ impl StoreSnapshot {
 }
 
 impl WorkflowSnapshotPort for StoreSnapshot {
-    fn detail(&self, root: &str, change: &str) -> Result<ChangeDetail, String> {
+    fn detail(&self, root: &str, id: &str) -> Result<ChangeDetail, String> {
         let layout_ = layout::resolve(Path::new(root));
-        change_detail(&layout_, self.store.as_ref(), change)
-            .ok_or_else(|| format!("change 不存在: {change}"))
+        change_detail(&layout_, self.store.as_ref(), id)
+            .ok_or_else(|| format!("change 不存在: {id}"))
     }
 }
 

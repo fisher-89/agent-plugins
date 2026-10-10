@@ -47,10 +47,10 @@ fn is_blank(value: &str) -> bool {
 /// 归档链事件出口的注册表桥：WorkerAgent 会话事件（早于 turn 收口）据此先行
 /// 同步归档会话槽（停止寻址）与广播总线（Channel 由订阅转发任务回流）；
 /// 其余 run 信封变体不外泄（归档面零 RunUpdate 语义）。复合键
-///（workspace root, change）随行。
+///（workspace root, change id）随行。
 struct ArchiveSink {
     root: String,
-    change: String,
+    change_id: String,
     control: Arc<ArchiveControl>,
 }
 
@@ -58,28 +58,28 @@ impl RunEventSink for ArchiveSink {
     fn emit(&self, update: RunUpdate) {
         if let RunUpdate::SessionEvent { session_id, event } = update {
             self.control
-                .set_session(&self.root, &self.change, Some(session_id.clone()));
+                .set_session(&self.root, &self.change_id, Some(session_id.clone()));
             self.control.publish(
                 &self.root,
-                &self.change,
+                &self.change_id,
                 ArchiveUpdate::SessionEvent { session_id, event },
             );
         }
     }
 }
 
-/// 归档前置读面（确认对话数据面）：blank root / change 早退 `None`（读语义）；
-/// `None` = 不可归档（未建档 / 已归档 / 未知名——前端据此不呈现入口路径的
-/// 兜底）。run_active 自 run 注册表快照；merge_target 自 worktree 记录在场
-/// 才探测的真实 git。
+/// 归档前置读面（确认对话数据面，按 change **id** 寻址）：blank root / id
+/// 早退 `None`（读语义）；`None` = 不可归档（未建档 / 已归档 / 未知 id——
+/// 前端据此不呈现入口路径的兜底）。run_active 自 run 注册表快照（键 id）；
+/// worktree 由 core `preflight` 经 id → 记录读取（调用方零记录读取）。
 #[tauri::command]
 #[specta::specta]
 pub fn archive_flow_preflight(
     app: AppHandle,
     root: String,
-    change: String,
+    id: String,
 ) -> Option<ArchivePreflight> {
-    archive_flow_preflight_with(app, root, change)
+    archive_flow_preflight_with(app, root, id)
 }
 
 /// [`archive_flow_preflight`] 的泛型测试缝（生产注入 Wry 句柄、测试注入
@@ -87,49 +87,37 @@ pub fn archive_flow_preflight(
 pub(crate) fn archive_flow_preflight_with<R: tauri::Runtime>(
     app: AppHandle<R>,
     root: String,
-    change: String,
+    id: String,
 ) -> Option<ArchivePreflight> {
-    if is_blank(&root) || is_blank(&change) {
+    if is_blank(&root) || is_blank(&id) {
         return None;
     }
     let stores = app.state::<WorkspaceStores>();
     let Ok(store) = stores.for_root(&root) else {
         return None;
     };
-    let worktree = store
-        .find_change_record(&change)
-        .ok()
-        .flatten()
-        .and_then(|record| record.worktree);
     let run_active = app
         .state::<Arc<ChangeFlowControl>>()
-        .snapshot(&root, &change)
+        .snapshot(&root, &id)
         .is_some();
     let vcs = ProcessArchiveVcs::new();
-    preflight(
-        Path::new(&root),
-        store.as_ref(),
-        worktree.as_deref(),
-        &change,
-        &vcs,
-        run_active,
-    )
+    preflight(Path::new(&root), store.as_ref(), &id, &vcs, run_active)
 }
 
 /// 发起归档链（提前 resolve：接受即 `Ok(true)`，阶段 / 会话事件 / 终态经
 /// Channel 流出——agent 同步分钟级，一次性 await 无进度面必致重复点击，
-/// design D2）。blank root / change 显式 `Err`；未建档 / 已归档 / run 运行
-/// 中 / 链进行中（重入）各显式拒绝——零装配零 spawn。
+/// design D2；按 change **id** 寻址）。blank root / id 显式 `Err`；未建档 /
+/// 已归档 / run 运行中 / 链进行中（重入）各显式拒绝——零装配零 spawn。
 #[tauri::command]
 #[specta::specta]
 pub async fn archive_flow_start(
     app: AppHandle,
     on_event: Channel<ArchiveUpdate>,
     root: String,
-    change: String,
+    id: String,
     sync_specs: bool,
 ) -> Result<bool, String> {
-    archive_flow_start_with(app, on_event, root, change, sync_specs).await
+    archive_flow_start_with(app, on_event, root, id, sync_specs).await
 }
 
 /// [`archive_flow_start`] 的泛型测试缝（沿 `change_flow_start_with` 先例）。
@@ -137,38 +125,40 @@ pub(crate) async fn archive_flow_start_with<R: tauri::Runtime>(
     app: AppHandle<R>,
     on_event: Channel<ArchiveUpdate>,
     root: String,
-    change: String,
+    id: String,
     sync_specs: bool,
 ) -> Result<bool, String> {
     if is_blank(&root) {
         return Err("非法 root: 不得为空白（无 cwd 无从发起）".to_owned());
     }
-    if is_blank(&change) {
-        return Err("非法 change: 不得为空白（无 change 无从发起）".to_owned());
+    if is_blank(&id) {
+        return Err("非法 id: 不得为空白（无 change 无从发起）".to_owned());
     }
-    // 前置校验 1：目标 change 已建档且 status=active（文档形态 / 已归档不可
-    // 归档——写面既有拒绝面的命令面前置镜像）
+    // 前置校验 1：目标 change 已建档且 status=active（按 id 读记录；未建档 /
+    // 已归档不可归档——写面既有拒绝面的命令面前置镜像）
     let stores = app.state::<WorkspaceStores>();
     let store = stores.for_root(&root).map_err(|e| e.to_string())?;
     let record = store
-        .find_change_record(&change)
+        .find_change_record(&id)
         .map_err(|e| e.to_string())?
-        .ok_or_else(|| format!("change \"{change}\" 未建档（无 ChangeRecord），无从归档"))?;
+        .ok_or_else(|| format!("change \"{id}\" 未建档（无 ChangeRecord），无从归档"))?;
     if record.status != workflow::state::ChangeStatus::Active {
         return Err(format!(
-            "change \"{change}\" 已归档（status=archived），不可重复归档"
+            "change \"{}\" 已归档（status=archived），不可重复归档",
+            record.name
         ));
     }
     // 前置校验 2：无运行中 run（正向互斥——归档链与 run 双向不可并行）
     let run_control = Arc::clone(app.state::<Arc<ChangeFlowControl>>().inner());
-    if run_control.snapshot(&root, &change).is_some() {
+    if run_control.snapshot(&root, &id).is_some() {
         return Err(format!(
-            "change \"{change}\" 存在运行中的 run，请先停止 run（或等待收口）再发起归档"
+            "change \"{}\" 存在运行中的 run，请先停止 run（或等待收口）再发起归档",
+            record.name
         ));
     }
     // 前置校验 3：归档链重入防护（ArchiveControl 在案即拒——重复点击幂等）
     let control = Arc::clone(app.state::<Arc<ArchiveControl>>().inner());
-    let guard: ArchiveGuard = control.begin(&root, &change)?;
+    let guard: ArchiveGuard = control.begin(&root, &id)?;
 
     // 组合根装配（链作用域一次）：组合 turn + worker port（ArchiveSink 桥）+
     // vcs 执行器 + store port
@@ -181,7 +171,7 @@ pub(crate) async fn archive_flow_start_with<R: tauri::Runtime>(
     )?;
     let sink: Arc<dyn RunEventSink> = Arc::new(ArchiveSink {
         root: root.clone(),
-        change: change.clone(),
+        change_id: id.clone(),
         control: Arc::clone(&control),
     });
     let worker: Arc<dyn WorkerAgentPort> = Arc::new(KernelWorkerPort::new(composed, sink));
@@ -189,13 +179,13 @@ pub(crate) async fn archive_flow_start_with<R: tauri::Runtime>(
     let store_port: Arc<dyn ChangeStateStore> = store;
     let request = ArchiveRequest {
         root: root.clone(),
-        change: change.clone(),
+        change_id: id.clone(),
         sync_specs,
     };
 
     // 提前 resolve：接受即返回，运行态经 Channel 流出（订阅先行于链启动）
     let updates = control
-        .subscribe(&root, &change)
+        .subscribe(&root, &id)
         .ok_or_else(|| "归档链订阅失败（注册表条目缺失）".to_owned())?;
     spawn_channel_forward(on_event, updates);
     tauri::async_runtime::spawn(async move {
@@ -205,26 +195,26 @@ pub(crate) async fn archive_flow_start_with<R: tauri::Runtime>(
 }
 
 /// 停止归档链：取消旗（阶段间检查点收敛）+ 当前 agent 会话经既有 StopRegistry
-/// 请求终止（miss 幂等）；blank root / change 零副作用直接成功。
+/// 请求终止（miss 幂等）；blank root / id 零副作用直接成功。
 #[tauri::command]
 #[specta::specta]
-pub fn archive_flow_stop(app: AppHandle, root: String, change: String) -> Result<(), String> {
-    archive_flow_stop_with(app, root, change)
+pub fn archive_flow_stop(app: AppHandle, root: String, id: String) -> Result<(), String> {
+    archive_flow_stop_with(app, root, id)
 }
 
 /// [`archive_flow_stop`] 的泛型测试缝。
 pub(crate) fn archive_flow_stop_with<R: tauri::Runtime>(
     app: AppHandle<R>,
     root: String,
-    change: String,
+    id: String,
 ) -> Result<(), String> {
-    if is_blank(&root) || is_blank(&change) {
+    if is_blank(&root) || is_blank(&id) {
         return Ok(());
     }
     let control = app.state::<Arc<ArchiveControl>>();
-    if control.request_stop(&root, &change) {
+    if control.request_stop(&root, &id) {
         // 当前归档 agent 会话经既有 StopRegistry 请求终止（miss 幂等）
-        if let Some(session_id) = control.current_session(&root, &change) {
+        if let Some(session_id) = control.current_session(&root, &id) {
             let registry = app.state::<Arc<StopRegistry>>();
             registry.request_stop(&session_id);
         }
@@ -236,20 +226,20 @@ pub(crate) fn archive_flow_stop_with<R: tauri::Runtime>(
 /// 承载，详情页 refresh 回归已归档形态）。
 #[tauri::command]
 #[specta::specta]
-pub fn archive_flow_state(app: AppHandle, root: String, change: String) -> Option<ArchiveSnapshot> {
-    archive_flow_state_with(app, root, change)
+pub fn archive_flow_state(app: AppHandle, root: String, id: String) -> Option<ArchiveSnapshot> {
+    archive_flow_state_with(app, root, id)
 }
 
 /// [`archive_flow_state`] 的泛型测试缝。
 pub(crate) fn archive_flow_state_with<R: tauri::Runtime>(
     app: AppHandle<R>,
     root: String,
-    change: String,
+    id: String,
 ) -> Option<ArchiveSnapshot> {
-    if is_blank(&root) || is_blank(&change) {
+    if is_blank(&root) || is_blank(&id) {
         return None;
     }
-    app.state::<Arc<ArchiveControl>>().snapshot(&root, &change)
+    app.state::<Arc<ArchiveControl>>().snapshot(&root, &id)
 }
 
 /// 归档链 broadcast 补订（运行中视图重挂）；无在案链 `Ok` 非错误（重挂时
@@ -260,9 +250,9 @@ pub fn archive_flow_watch(
     app: AppHandle,
     on_event: Channel<ArchiveUpdate>,
     root: String,
-    change: String,
+    id: String,
 ) -> Result<(), String> {
-    archive_flow_watch_with(app, on_event, root, change)
+    archive_flow_watch_with(app, on_event, root, id)
 }
 
 /// [`archive_flow_watch`] 的泛型测试缝。
@@ -270,13 +260,13 @@ pub(crate) fn archive_flow_watch_with<R: tauri::Runtime>(
     app: AppHandle<R>,
     on_event: Channel<ArchiveUpdate>,
     root: String,
-    change: String,
+    id: String,
 ) -> Result<(), String> {
-    if is_blank(&root) || is_blank(&change) {
+    if is_blank(&root) || is_blank(&id) {
         return Ok(());
     }
     let control = app.state::<Arc<ArchiveControl>>();
-    match control.subscribe(&root, &change) {
+    match control.subscribe(&root, &id) {
         Some(updates) => {
             spawn_channel_forward(on_event, updates);
             Ok(())

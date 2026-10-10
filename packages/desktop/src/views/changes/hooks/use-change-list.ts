@@ -11,7 +11,9 @@ export interface ChangeListState {
 
 /**
  * 列表取数 hook：仅显式 refresh（或选定 workspace）触发 invoke("list_changes")。
- * 无轮询、无文件 watch；未来换推送只改本文件内部实现。
+ * 无轮询、无文件 watch；未来换推送只改本文件内部实现。列表为 db 单源全量
+ * （`ChangeSummary.id` 随 bindings 再生自动跟随——行键 / 导航恒 id），零磁盘
+ * 扫描触点，无 db 记录的存量 CLI change 零发现（签名零变化）。
  */
 export function useChangeList(root: string | null): ChangeListState {
   const [data, setData] = useState<ChangeList | null>(null);

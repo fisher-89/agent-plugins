@@ -1,14 +1,16 @@
 //! `write::backtrack` 的单元测试（test-design「backtrack.rs ->
-//! backtrack_test.rs」节）：回跳写操作 port 落库——白名单二次校验（越权 Err
-//! 零写）、双端表位（目标不超前）、reason ≤500、发起相位条目在位校验，全部
-//! 前置保留；stale 闭包计算自 persist 迁入本文件——[`BacktrackCommand
-//! .stale_dependents`] = `dependents` BFS 全量闭包（不含目标自身），逐支核对
-//! 与末端空闭包边界；`StoreFault` 故障传播。
+//! backtrack_test.rs」节）：回跳写操作 port 落库（形参 change **id**、
+//! BacktrackCommand 载荷 `change_id` 随行）——白名单二次校验（越权 Err 零写）、
+//! 双端表位（目标不超前）、reason ≤500、发起相位条目在位校验，全部前置保留；
+//! stale 闭包计算自 persist 迁入本文件——[`BacktrackCommand.stale_dependents`]
+//! = `dependents` BFS 全量闭包（不含目标自身），逐支核对与末端空闭包边界；
+//! `StoreFault` 故障传播；未建档 id 显式 Err。
 //!
 //! Mock策略（test-design 本节 Mock 表）：进程内假件实现 trait（捕获
 //! BacktrackCommand 与 stale_dependents 闭包逐项比对 + 可编程故障）；
 //! `phase_table` 真实组合（不变组件零 mock——闭包期望值按 requirement 前置
-//! 表手工推导）。零写断言 = 假件写命令捕获表为空。
+//! 表手工推导）。零写断言 = 假件写命令捕获表为空。id 与 name 字面量各异：
+//! 寻址断言以 id 为键、name 仅展示属性。
 
 use std::sync::Mutex;
 
@@ -20,7 +22,12 @@ use crate::state::{
     StepCommand, StepStateRecord, StoreFault,
 };
 
-const CHANGE: &str = "demo-change";
+/// 身份锚字面量（回溯入参——一切寻址以 id 为准）。
+const CHANGE_ID: &str = "0198f7a0-0000-7000-8000-0000000000e3";
+/// change 名（零寻址职能，仅记录展示属性）。
+const CHANGE_NAME: &str = "demo-change";
+/// 库内不存在的 id（未建档拒绝面）。
+const UNKNOWN_ID: &str = "0198f7a0-0000-7000-8000-0000000000fc";
 
 /// 确定性时间戳基（UTC unix millis）。
 const T0: i64 = 1_727_000_000_000;
@@ -45,7 +52,8 @@ impl BacktrackStore {
     fn with_entries(entries: Vec<PhaseStateRecord>) -> Self {
         Self {
             record: Mutex::new(Some(ChangeStateRecord {
-                name: CHANGE.to_owned(),
+                id: CHANGE_ID.to_owned(),
+                name: CHANGE_NAME.to_owned(),
                 workflow_type: "requirement".to_owned(),
                 created_at: T0,
                 status: ChangeStatus::Active,
@@ -78,13 +86,27 @@ impl BacktrackStore {
     }
 
     fn run(&self, input: &BacktrackInput) -> Result<super::backtrack::BacktrackOutcome, String> {
-        backtrack(self, CHANGE, input)
+        self.run_for(CHANGE_ID, input)
+    }
+
+    /// 指定 id 回溯（未建档 id 拒绝面：id 形参非 seed 值即 miss）。
+    fn run_for(
+        &self,
+        id: &str,
+        input: &BacktrackInput,
+    ) -> Result<super::backtrack::BacktrackOutcome, String> {
+        backtrack(self, id, input)
     }
 }
 
 impl ChangeStateStore for BacktrackStore {
-    fn get_change(&self, _name: &str) -> Result<Option<ChangeStateRecord>, StoreFault> {
-        Ok(self.record.lock().expect("记录锁不可中毒").clone())
+    fn get_change(&self, id: &str) -> Result<Option<ChangeStateRecord>, StoreFault> {
+        Ok(self
+            .record
+            .lock()
+            .expect("记录锁不可中毒")
+            .clone()
+            .filter(|record| record.id == id))
     }
 
     fn list_change_records(&self) -> Result<Vec<ChangeStateRecord>, StoreFault> {
@@ -97,7 +119,7 @@ impl ChangeStateStore for BacktrackStore {
 
     fn list_steps(
         &self,
-        _change: &str,
+        _change_id: &str,
         _run_id: Option<&str>,
     ) -> Result<Vec<StepStateRecord>, StoreFault> {
         unimplemented!("本用例不可达")
@@ -107,13 +129,13 @@ impl ChangeStateStore for BacktrackStore {
         unimplemented!("本用例不可达")
     }
 
-    fn delete_change_record(&self, _name: &str) -> Result<bool, StoreFault> {
+    fn delete_change_record(&self, _id: &str) -> Result<bool, StoreFault> {
         unimplemented!("本用例不可达")
     }
 
     fn start_phase(
         &self,
-        _change: &str,
+        _change_id: &str,
         _phase: &str,
         _now: i64,
     ) -> Result<crate::state::PhaseStartState, StoreFault> {
@@ -137,14 +159,14 @@ impl ChangeStateStore for BacktrackStore {
 
     fn amend_decision_session(
         &self,
-        _change: &str,
+        _change_id: &str,
         _phase: &str,
         _session_id: &str,
     ) -> Result<(), StoreFault> {
         unimplemented!("本用例不可达")
     }
 
-    fn set_archived(&self, _name: &str, _archived_at: i64) -> Result<(), StoreFault> {
+    fn set_archived(&self, _id: &str, _archived_at: i64) -> Result<(), StoreFault> {
         unimplemented!("本用例不可达")
     }
 
@@ -176,7 +198,7 @@ impl ChangeStateStore for BacktrackStore {
 fn pass_entry(phase: &str, attempt: u32, ts: i64) -> PhaseStateRecord {
     PhaseStateRecord {
         id: i64::from(attempt),
-        change: CHANGE.to_owned(),
+        change_id: CHANGE_ID.to_owned(),
         phase: phase.to_owned(),
         attempt,
         verdict: Verdict::Pass,
@@ -274,7 +296,10 @@ fn 白名单内回跳_command逐字段落库且outcome一致() {
     );
     assert_eq!(fake.command_count(), 1, "恰一条回跳写命令");
     let command = &fake.commands.lock().expect("命令锁不可中毒")[0];
-    assert_eq!(command.change, CHANGE);
+    assert_eq!(
+        command.change_id, CHANGE_ID,
+        "载荷 change_id = 本次回溯入参（形参 id 化，非 name）"
+    );
     assert_eq!(command.phase, "test-gen", "回跳发起相位");
     assert_eq!(command.to, "proposal");
     assert_eq!(command.reason, "需求基线返工");
@@ -501,11 +526,11 @@ fn 发起相位无条目拒绝零写() {
     assert_eq!(fake.command_count(), 0, "零写命令");
 }
 
-/// change 未建档 → `Err` 显式（零写）。
+/// 未建档 id → `Err` 显式零写：库空（假件 get_change 恒 None）与库内有建档
+/// 但 id 未登记两态皆拒（get_change miss 面——name 不作寻址回退）。
 #[test]
-fn change未建档显式err零写() {
+fn 未建档id显式err零写() {
     let fake = BacktrackStore::missing();
-
     let err = fake
         .run(&input_at(
             "dev-design",
@@ -513,10 +538,32 @@ fn change未建档显式err零写() {
             "任意",
             &["proposal", "dev-design"],
         ))
-        .expect_err("未建档应 Err");
-
+        .expect_err("库空应 Err");
     assert!(err.contains("未建档"), "记因: {err}");
+    assert!(err.contains(CHANGE_ID), "拒绝面携 id 语境，实际: {err}");
     assert_eq!(fake.command_count(), 0, "零写命令");
+
+    let fake = BacktrackStore::with_entries(full_pass_history());
+    let err = fake
+        .run_for(
+            UNKNOWN_ID,
+            &input_at(
+                "dev-design",
+                "proposal",
+                "任意",
+                &["proposal", "dev-design"],
+            ),
+        )
+        .expect_err("未登记 id 应 Err");
+    assert!(
+        err.contains("未建档") && err.contains(UNKNOWN_ID),
+        "Err 记因携未登记 id 语境（不回退 name 寻址），实际: {err}"
+    );
+    assert!(
+        !err.contains(CHANGE_NAME),
+        "拒绝面零 name 感知（未解析到记录），实际: {err}"
+    );
+    assert_eq!(fake.command_count(), 0, "零写命令（条目史在场亦零触碰）");
 }
 
 // ---------------------------------------------------------------------------

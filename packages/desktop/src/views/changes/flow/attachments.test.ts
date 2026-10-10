@@ -45,6 +45,7 @@ function descriptor(kind: string, source: string, title: string): ArtifactDescri
 /** 建档详情底座：dev-design 站 1 条 eval（多挂载定位用例共用），其余站空。 */
 function detail(overrides: Partial<ChangeDetail> = {}): ChangeDetail {
   return {
+    id: 'add-feature',
     name: 'add-feature',
     source: 'active',
     status: 'active',

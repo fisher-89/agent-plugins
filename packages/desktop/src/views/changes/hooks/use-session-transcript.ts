@@ -46,8 +46,9 @@ async function loadBySessionId(root: string, sessionId: string): Promise<Transcr
   };
 }
 
-/** 反查兜底：sourceRef 定式 exact-match（旧数据，行为与升级前一致；同
- * sourceRef 多会话取最近一条）。 */
+/** 反查兜底：sourceRef 定式 exact-match（定式身份段恒 change id——
+ * `<id>/<phase>/<role>/<attempt>` 与 `<id>/archive/*`；同 sourceRef 多会话
+ * 取最近一条）。 */
 async function loadBySourceRef(root: string, sourceRef: string): Promise<TranscriptLoad | null> {
   const summaries = await commands.agentSessions(root, 'change', sourceRef);
   if (summaries.length === 0) return null;

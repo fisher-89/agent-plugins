@@ -27,9 +27,10 @@ function LocationProbe() {
 // IPC fixture 装置：list_changes / create_change 按命令名分发的应答面
 // ---------------------------------------------------------------------------
 
-/** create_change 应答：DTO = resolve、字符串 = reject。 */
+/** create_change 应答：DTO = resolve（携铸出 id）、字符串 = reject。 */
 type CreateAnswer =
   | {
+      id: string;
       name: string;
       created: string;
       worktree: string;
@@ -57,24 +58,39 @@ function ipc(command: string): Promise<unknown> {
 /** 空清单 fixture（空态形态）。 */
 const emptyList: ChangeList = { active: [], archiveGroups: [] };
 
-/** 清单 fixture：active 两条（建档 + 文档形态）+ archive 三分组（未知时间置尾）。 */
+/** 归档行名簇（裸名——归档日期前缀仅存在于磁盘目录名，MUST NOT 出线）。 */
+const ARCHIVE_ID_FIRST = '0199a2f0-0001-7e45-8a9b-000000000001';
+const ARCHIVE_ID_SECOND = '0199a2f0-0002-7e45-8a9b-000000000002';
+const ARCHIVE_ID_NO_DATE = '0199a2f0-0003-7e45-8a9b-000000000003';
+
+/** 清单 fixture：active 两条（建档恒定 status 在场）+ archive 三分组（未知时间置尾）；
+ * id 恒为 uuid 形态身份锚、name 恒裸名（行键 / 导航 / 展示三面可辨——id ≠ name）。 */
 const fixtureList: ChangeList = {
   active: [
     {
+      id: '0199a2f0-0011-7e45-8a9b-000000000011',
       name: 'add-feature',
       source: 'active',
       status: 'active',
       activePhase: null,
       created: '2026-09-01',
     },
-    { name: 'docs-only', source: 'active', status: null, activePhase: null, created: null },
+    {
+      id: '0199a2f0-0012-7e45-8a9b-000000000012',
+      name: 'docs-only',
+      source: 'active',
+      status: null,
+      activePhase: null,
+      created: null,
+    },
   ],
   archiveGroups: [
     {
       month: '2026-09',
       changes: [
         {
-          name: '2026-09-01-first',
+          id: ARCHIVE_ID_FIRST,
+          name: 'first',
           source: 'archive',
           status: 'archived',
           activePhase: null,
@@ -86,7 +102,8 @@ const fixtureList: ChangeList = {
       month: '2026-05',
       changes: [
         {
-          name: '2026-05-15-second',
+          id: ARCHIVE_ID_SECOND,
+          name: 'second',
           source: 'archive',
           status: null,
           activePhase: null,
@@ -98,6 +115,7 @@ const fixtureList: ChangeList = {
       month: null,
       changes: [
         {
+          id: ARCHIVE_ID_NO_DATE,
           name: 'no-date-archived',
           source: 'archive',
           status: 'archived',
@@ -143,14 +161,14 @@ function probePathname(): string {
   return screen.getByTestId('location-probe').textContent ?? '';
 }
 
-/** Routes 装置：/changes 直挂清单页；/changes/:name 以导航桩占位（行点击
+/** Routes 装置：/changes 直挂清单页；/changes/:id 以导航桩占位（行点击
  * 导航落点经真实路由匹配观察）。 */
 function listTree(root: string | null) {
   return (
     <MemoryRouter initialEntries={['/changes']}>
       <Routes>
         <Route path="/changes" element={<ChangeListView root={root} />} />
-        <Route path="/changes/:name" element={<span data-testid="detail-stub" />} />
+        <Route path="/changes/:id" element={<span data-testid="detail-stub" />} />
       </Routes>
       <LocationProbe />
     </MemoryRouter>
@@ -196,6 +214,7 @@ describe('ChangeListView：分组列表、运行中徽标与进入详情', () =>
     const running: ChangeList = {
       active: [
         {
+          id: 'add-feature',
           name: 'add-feature',
           source: 'active',
           status: 'active',
@@ -227,11 +246,31 @@ describe('ChangeListView：分组列表、运行中徽标与进入详情', () =>
     expect(screen.getByText('no-date-archived') !== null).toBe(true);
   });
 
-  it('点击 change 条目 → 显式 navigate 落 /changes/:name（携带 change 名）', async () => {
+  it('点击 change 条目 → 显式 navigate 落 /changes/:id（携带 summary.id，name 非寻址面）', async () => {
     await renderLoaded();
 
     fireEvent.click(screen.getByText('add-feature'));
-    expect(probePathname()).toBe('/changes/add-feature');
+
+    const activeId = fixtureList.active[0].id;
+    expect(probePathname()).toBe(`/changes/${activeId}`);
+    // id ≠ name 的 fixture 下：寻址恒 id，name 仅供展示
+    expect(probePathname()).not.toBe(`/changes/${fixtureList.active[0].name}`);
+    expect(screen.getByTestId('detail-stub') !== null).toBe(true);
+  });
+
+  it('归档条目（DTO 裸名 + id）→ 行展示裸名、行键 id 导航落 /changes/:id（零日期前缀形态）', async () => {
+    await renderLoaded();
+
+    // 裸名呈现：可见文本恒为 DTO name（created 为 2026-09-01 也不前缀成目录名形态）
+    const archivedName = screen.getByText('first');
+    expect(archivedName !== null).toBe(true);
+    const archivedRow = screen.getByRole('button', { name: /first/ });
+    expect(archivedRow.textContent).not.toMatch(/^\d{4}-\d{2}-\d{2}/);
+    expect(archivedRow.textContent).not.toContain('2026-09-01-first');
+
+    // 行键 / 导航恒 id：点击归档条目落 /changes/<归档 id>（非裸名、非日期前缀目录名）
+    fireEvent.click(archivedName);
+    expect(probePathname()).toBe(`/changes/${ARCHIVE_ID_FIRST}`);
     expect(screen.getByTestId('detail-stub') !== null).toBe(true);
   });
 
@@ -242,23 +281,18 @@ describe('ChangeListView：分组列表、运行中徽标与进入详情', () =>
     await screen.findByText(/列表加载失败：IPC 断开/);
   });
 
-  it('loading 态与空数据渲染空态提示', async () => {
+  it('loading 态与空数据渲染空态提示（db 单源文案：零「未发现任何 change 目录」旧句）', async () => {
     // loading：list_changes 挂起不落定
     listAnswer = pending();
     const loadingView = render(listTree(ROOT));
     await waitFor(() => expect(loadingView.container.textContent).toContain('加载中'));
     loadingView.unmount();
 
-    // 空数据：无 active、无分组 → 引导文案
+    // 空数据：无 active、无分组 → db 单源引导文案（零磁盘扫描语义——历史上
+    // 「未发现任何 change 目录」的磁盘发现口径随 list 单源化退役）
     const emptyView = await renderLoaded(emptyList);
-    expect(emptyView.container.textContent).toContain('未发现任何 change 目录');
-  });
-
-  it('文档形态条目（status 缺席）照常入列且无状态标注', async () => {
-    await renderLoaded();
-
-    expect(screen.getByText('docs-only') !== null).toBe(true);
-    expect(screen.queryByText(/无法解析/)).toBeNull();
+    expect(emptyView.container.textContent).toContain('该 workspace 下未发现已建档 change。');
+    expect(emptyView.container.textContent).not.toContain('未发现任何 change 目录');
   });
 });
 
@@ -312,8 +346,9 @@ describe('ChangeListView：created / 错误条 / 空态提示的分支形态', (
     const { container } = await renderLoaded({ active: [], archiveGroups: [firstGroup] });
 
     expect(container.textContent).toContain('无进行中的 change。');
+    expect(container.textContent).not.toContain('未发现已建档 change');
     expect(container.textContent).not.toContain('未发现任何 change 目录');
-    expect(container.textContent).toContain('2026-09-01-first');
+    expect(container.textContent).toContain('first');
   });
 
   it('active 与 archive 均有内容时不提示 workspace 为空', async () => {
@@ -322,6 +357,7 @@ describe('ChangeListView：created / 错误条 / 空态提示的分支形态', (
       archiveGroups: [],
     });
 
+    expect(container.textContent).not.toContain('未发现已建档 change');
     expect(container.textContent).not.toContain('未发现任何 change 目录');
     expect(container.textContent).toContain('add-feature');
   });
@@ -414,9 +450,11 @@ describe('ChangeListView：新建入口挂载与创建流转（创建 → refres
     expect(invokeMock.mock.calls).toHaveLength(0);
   });
 
-  it('清单挂载 → 弹窗提交 → refresh + navigate：create_change 恰一次、清单刷新、pathname 落 /changes/:name、change_flow_start 零调用', async () => {
+  it('清单挂载 → 弹窗提交 → refresh + navigate：create_change 恰一次、清单刷新、pathname 落 /changes/<铸出 id>、change_flow_start 零调用', async () => {
+    const createdId = '0199a2f0-00f1-7e45-8a9b-0000000000f1';
     listAnswer = Promise.resolve(fixtureList);
     createAnswer = {
+      id: createdId,
       name: 'fix-bug',
       created: '2026-10-02',
       worktree: 'C:home.dev-teamworktrees\repo-ab12\fix-bug',
@@ -435,8 +473,10 @@ describe('ChangeListView：新建入口挂载与创建流转（创建 → refres
     });
     fireEvent.click(screen.getByRole('button', { name: '提交' }));
 
-    // 成功即直连 onCreated → refresh + navigate（成功面退役）
-    await waitFor(() => expect(probePathname()).toBe('/changes/fix-bug'));
+    // 成功即直连 onCreated(outcome.id) → refresh + navigate（成功面退役）；
+    // 落点取铸出 id 而非 change 名（name 恒展示面）
+    await waitFor(() => expect(probePathname()).toBe(`/changes/${createdId}`));
+    expect(probePathname()).not.toBe('/changes/fix-bug');
     expect(createCalls()).toEqual([
       { root: ROOT, name: 'fix-bug', goal: '修复登录重试的竞态问题' },
     ]);
@@ -473,7 +513,7 @@ describe('ChangeListView：新建入口挂载与创建流转（创建 → refres
 // 退役面负断言与状态面消费（desktop-workflow-db-state）：清单 DTO 已无
 // inventory / unparsable 字段（TS 类型面随 bindings 同步删除，夹具带该字段
 // 即编译失败），视图退役 InventoryBadge 与「无法解析」标注；条目状态面改
-// status / activePhase 两态消费，文档形态条目照常入列。
+// status / activePhase 两态消费（status 缺席条目照常入列）。
 // ---------------------------------------------------------------------------
 
 describe('ChangeListView：退役面负断言与状态面消费', () => {
@@ -485,7 +525,7 @@ describe('ChangeListView：退役面负断言与状态面消费', () => {
     // 月分组与归档条目渲染持衡（同夹具双半边——退役不挤掉既有呈现）
     const headings = screen.getAllByRole('heading').map((h) => h.textContent ?? '');
     expect(headings.some((text) => text.startsWith('2026-09'))).toBe(true);
-    expect(screen.getByText('2026-09-01-first') !== null).toBe(true);
+    expect(screen.getByText('first') !== null).toBe(true);
     expect(screen.getByText('no-date-archived') !== null).toBe(true);
   });
 
@@ -494,6 +534,7 @@ describe('ChangeListView：退役面负断言与状态面消费', () => {
     const corruptLike: ChangeList = {
       active: [
         {
+          id: 'corrupt-invalid-json',
           name: 'corrupt-invalid-json',
           source: 'active',
           status: null,
@@ -510,24 +551,33 @@ describe('ChangeListView：退役面负断言与状态面消费', () => {
     expect(container.textContent).not.toContain('workflow.json');
   });
 
-  it('状态面消费：active+activePhase → 运行中相位呈现；archived → 归档条目月分组呈现无运行中徽标；双 null → 无状态位照常入列', async () => {
+  it('状态面消费：active+activePhase → 运行中相位呈现；archived → 归档条目月分组呈现无运行中徽标；status 缺席 → 无状态位照常入列', async () => {
     const mixed: ChangeList = {
       active: [
         {
+          id: 'run-now',
           name: 'run-now',
           source: 'active',
           status: 'active',
           activePhase: { phase: 'test-gen', attempt: 1, startAt: null },
           created: null,
         },
-        { name: 'doc-only', source: 'active', status: null, activePhase: null, created: null },
+        {
+          id: 'no-status',
+          name: 'no-status',
+          source: 'active',
+          status: null,
+          activePhase: null,
+          created: null,
+        },
       ],
       archiveGroups: [
         {
           month: '2026-08',
           changes: [
             {
-              name: '2026-08-01-done',
+              id: 'done-archived',
+              name: 'done-archived',
               source: 'archive',
               status: 'archived',
               activePhase: null,
@@ -544,12 +594,12 @@ describe('ChangeListView：退役面负断言与状态面消费', () => {
     const runRow = rows.find((row) => (row.textContent ?? '').includes('run-now'));
     expect(within(runRow!).getByText(/运行中 · test-gen · attempt 1/) !== null).toBe(true);
     // archived → 归档条目照常呈现（月分组内），无运行中徽标、无独立状态 chip
-    const doneRow = rows.find((row) => (row.textContent ?? '').includes('2026-08-01-done'));
+    const doneRow = rows.find((row) => (row.textContent ?? '').includes('done-archived'));
     expect(doneRow !== undefined).toBe(true);
     expect(within(doneRow!).queryByText(/运行中|已归档|未建档/)).toBeNull();
-    // 双 null（文档形态）→ 无任何状态位，条目照常入列
-    const docRow = rows.find((row) => (row.textContent ?? '').includes('doc-only'));
-    expect(docRow !== undefined).toBe(true);
-    expect(within(docRow!).queryByText(/运行中|已归档|未建档/)).toBeNull();
+    // status 缺席（Option 形态保留）→ 无任何状态位，条目照常入列
+    const noStatusRow = rows.find((row) => (row.textContent ?? '').includes('no-status'));
+    expect(noStatusRow !== undefined).toBe(true);
+    expect(within(noStatusRow!).queryByText(/运行中|已归档|未建档/)).toBeNull();
   });
 });

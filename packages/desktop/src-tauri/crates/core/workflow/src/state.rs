@@ -76,7 +76,10 @@ pub struct ActivePhaseState {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct ChangeStateRecord {
-    /// change 名（身份主键，不随归档改名变）
+    /// 建档铸出的稳定唯一身份锚（UUID 形态；主键，一切寻址键——终身恒定、
+    /// MUST NOT 复用）
+    pub id: String,
+    /// change 名（恒裸名；可变属性，无唯一约束，MUST NOT 作身份键）
     pub name: String,
     pub workflow_type: String,
     /// 建档时间（UTC unix 毫秒）
@@ -101,7 +104,8 @@ pub struct ChangeStateRecord {
 pub struct PhaseStateRecord {
     /// 条目 id（写事务内 max+1 分配）
     pub id: i64,
-    pub change: String,
+    /// 所属 change id（归属键——一切寻址以 id 为准）
+    pub change_id: String,
     pub phase: String,
     pub attempt: u32,
     pub verdict: Verdict,
@@ -132,7 +136,8 @@ pub struct StepStateRecord {
     pub id: i64,
     /// 所属 run（`run-<millis>` 铸造标识，同 run 步骤串链键）
     pub run_id: String,
-    pub change: String,
+    /// 所属 change id（归属键——一切寻址以 id 为准）
+    pub change_id: String,
     pub step_kind: StepKind,
     /// 步终态（线格式词：ok | error）
     pub status: String,
@@ -157,7 +162,8 @@ pub struct PhaseStartState {
 /// active_phase 匹配校验全在写面前置，本命令只携通过校验的落库载荷。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PhaseLogCommand {
-    pub change: String,
+    /// 所属 change id（归属键——一切寻址以 id 为准）
+    pub change_id: String,
     pub phase: String,
     pub verdict: Verdict,
     pub report: String,
@@ -178,7 +184,8 @@ pub struct PhaseLogCommand {
 /// stale，不自持依赖表）。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BacktrackCommand {
-    pub change: String,
+    /// 所属 change id（归属键——一切寻址以 id 为准）
+    pub change_id: String,
     /// 回跳发起相位（最新条目落 backtrack_to / backtrack_reason 标记）
     pub phase: String,
     /// 回跳目标相位（其最新 pass 条目置 stale）
@@ -192,7 +199,8 @@ pub struct BacktrackCommand {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StepCommand {
     pub run_id: String,
-    pub change: String,
+    /// 所属 change id（归属键——一切寻址以 id 为准）
+    pub change_id: String,
     pub step_kind: StepKind,
     /// 步终态（线格式词：ok | error）
     pub status: String,
@@ -296,7 +304,8 @@ pub enum RunStepStatus {
 pub struct RunStateRecord {
     /// run id（walker `run-<millis>` 铸造标识，主键）
     pub run_id: String,
-    pub change: String,
+    /// 所属 change id（归属键——一切寻址以 id 为准）
+    pub change_id: String,
     pub status: RunStatus,
     /// 终态记因 / 标定记因（running 恒 None）
     pub reason: Option<String>,
@@ -330,7 +339,8 @@ pub struct RunStepStateRecord {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RunStartCommand {
     pub run_id: String,
-    pub change: String,
+    /// 所属 change id（归属键——一切寻址以 id 为准）
+    pub change_id: String,
     /// 发起时刻（UTC unix 毫秒，命令层发起时铸造，corpus 确定性）
     pub started_at: i64,
 }
@@ -355,7 +365,8 @@ pub struct RunStepEntry {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RunFinishCommand {
     pub run_id: String,
-    pub change: String,
+    /// 所属 change id（归属键——一切寻址以 id 为准）
+    pub change_id: String,
     pub status: RunStatus,
     pub reason: Option<String>,
     /// 收口时刻（UTC unix 毫秒，命令携带；corpus 确定性）
@@ -369,7 +380,7 @@ pub struct RunFinishCommand {
 pub enum StoreFault {
     /// db 打开 / 事务 / 读写失败
     Db(String),
-    /// 唯一性冲突（同名建档 / 重复落账）
+    /// 主键冲突
     Conflict(String),
     /// 目标记录不存在（miss 非幂等写面）
     NotFound(String),
@@ -393,61 +404,63 @@ impl std::error::Error for StoreFault {}
 pub trait ChangeStateStore: Send + Sync {
     // --- 读半边 -----------------------------------------------------------
 
-    /// 建档单查（None = 文档形态：db 缺记录的存量 CLI change）。
-    fn get_change(&self, name: &str) -> Result<Option<ChangeStateRecord>, StoreFault>;
+    /// 建档单查（主键 id 直查；`None` = 未建档——不再有文档形态语义）。
+    fn get_change(&self, id: &str) -> Result<Option<ChangeStateRecord>, StoreFault>;
 
-    /// 建档全量（列表并集 db 半边；主键 name 自然序）。
+    /// 建档全量（列表单源全量；主键 id 自然序）。
     fn list_change_records(&self) -> Result<Vec<ChangeStateRecord>, StoreFault>;
 
-    /// 相位评估史（按落行序 = id 升序；checklist 已按打包键序内联）。
-    fn list_phase_records(&self, change: &str) -> Result<Vec<PhaseStateRecord>, StoreFault>;
+    /// 相位评估史（按 change id 归属过滤，落行序 = id 升序；checklist 已按
+    /// 打包键序内联）。
+    fn list_phase_records(&self, change_id: &str) -> Result<Vec<PhaseStateRecord>, StoreFault>;
 
-    /// 步骤审计枚举（时间序 = id 升序；run 可选圈定）。
+    /// 步骤审计枚举（按 change id 归属过滤，时间序 = id 升序；run 可选圈定）。
     fn list_steps(
         &self,
-        change: &str,
+        change_id: &str,
         run_id: Option<&str>,
     ) -> Result<Vec<StepStateRecord>, StoreFault>;
 
     // --- 写半边 -----------------------------------------------------------
 
-    /// 建档（同名记录已存在 → [`StoreFault::Conflict`]；写面 create 的建档
-    /// 半边，status=active 起步）。
+    /// 建档（同 id 记录已存在 → [`StoreFault::Conflict`]——同 id 防御拒绝，
+    /// 零同名检查：同名 active 拒绝归写面 create 前置扫描；写面 create 的建
+    /// 档半边，status=active 起步）。
     fn create_change_record(&self, record: ChangeStateRecord) -> Result<(), StoreFault>;
 
     /// 补偿删除（create 双写 fs 半边失败的回滚面，design D5：只删本次自插
     /// 行；miss 幂等 `Ok(false)`）。
-    fn delete_change_record(&self, name: &str) -> Result<bool, StoreFault>;
+    fn delete_change_record(&self, id: &str) -> Result<bool, StoreFault>;
 
-    /// 写 active_phase（attempt 写事务内推导 = 该相位既有条目数 + 1）；miss
-    /// → [`StoreFault::NotFound`]。
+    /// 写 active_phase（按 change id 定位记录；attempt 写事务内推导 = 该相位
+    /// 既有条目数 + 1）；miss → [`StoreFault::NotFound`]。
     fn start_phase(
         &self,
-        change: &str,
+        change_id: &str,
         phase: &str,
         now: i64,
     ) -> Result<PhaseStartState, StoreFault>;
 
     /// 落账单事务原子（PhaseRecord 行 + checklist 子行 + active_phase 清位 +
-    /// `(change, phase, attempt)` 查重），返回事务内推导的 attempt。
+    /// `(change_id, phase, attempt)` 查重），返回事务内推导的 attempt。
     fn log_phase(&self, command: &PhaseLogCommand) -> Result<u32, StoreFault>;
 
     /// 回跳单事务（最新条目回跳标记 + 目标最新 pass 置 stale + 闭包全条目置
     /// stale）；发起相位无条目 → [`StoreFault::NotFound`]。
     fn apply_backtrack(&self, command: &BacktrackCommand) -> Result<(), StoreFault>;
 
-    /// decision 槽位幂等挂账（该相位最新条目定点改写；无条目 →
-    /// [`StoreFault::NotFound`]）。
+    /// decision 槽位幂等挂账（按 change id 定位该相位最新条目定点改写；无条目
+    /// → [`StoreFault::NotFound`]）。
     fn amend_decision_session(
         &self,
-        change: &str,
+        change_id: &str,
         phase: &str,
         session_id: &str,
     ) -> Result<(), StoreFault>;
 
-    /// status 翻转（归档 db 半边；主键 name 不变；miss →
+    /// status 翻转（归档 db 半边；主键 id 与 name 均不变；miss →
     /// [`StoreFault::NotFound`]）。
-    fn set_archived(&self, name: &str, archived_at: i64) -> Result<(), StoreFault>;
+    fn set_archived(&self, id: &str, archived_at: i64) -> Result<(), StoreFault>;
 
     /// 步骤审计行追加（行 id 写事务内 max+1）。
     fn append_step(&self, command: &StepCommand) -> Result<(), StoreFault>;
@@ -455,8 +468,9 @@ pub trait ChangeStateStore: Send + Sync {
     // --- run 运行史（unify-run-state-persistence 决策翻案：run 运行史落库
     // RunRecord / RunStepRecord 两表；每 run 两写零每步写放大）--------------
 
-    /// run 运行史清单（`started_at` 升序；run_id 并列稳定序由实现保证）。
-    fn list_runs(&self, change: &str) -> Result<Vec<RunStateRecord>, StoreFault>;
+    /// run 运行史清单（按 change id 归属过滤，`started_at` 升序；run_id 并列
+    /// 稳定序由实现保证）。
+    fn list_runs(&self, change_id: &str) -> Result<Vec<RunStateRecord>, StoreFault>;
 
     /// run 步节点史行（`seq` 升序 = emit 序；流程面步骤与三门不在
     /// [`RunStepKind`] 封闭集内，词汇过滤单点在落库侧——读面零过滤）。
@@ -467,7 +481,8 @@ pub trait ChangeStateStore: Send + Sync {
     fn run_start(&self, command: &RunStartCommand) -> Result<(), StoreFault>;
 
     /// run 收口单事务（run 行在案且 running → 终态 + reason + finished_at +
-    /// 步整包 + 该 change `active_phase` 清位；miss → [`StoreFault::NotFound`]，
-    /// 非 running 或 status 含 `interrupted` → [`StoreFault::Conflict`]）。
+    /// 步整包 + 该 change `active_phase` 按 change id 清位；miss →
+    /// [`StoreFault::NotFound`]，非 running 或 status 含 `interrupted` →
+    /// [`StoreFault::Conflict`]）。
     fn run_finish(&self, command: &RunFinishCommand) -> Result<(), StoreFault>;
 }

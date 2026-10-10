@@ -19,19 +19,19 @@ pub struct BacktrackOutcome {
     pub target: String,
 }
 
-/// 回溯：校验（白名单 / 双端表位 / reason 长度）→ 最新条目在位校验 →
-/// stale 闭包计算（目标最新 pass + `dependents` BFS 全条目，自 persist 迁入
-/// 本文件）→ 经 [`ChangeStateStore`] port 缝单事务落库（回跳标记 + stale
-/// 翻转传播原子完成）。
+/// 回溯（按 change **id** 寻址）：校验（白名单 / 双端表位 / reason 长度）→
+/// 最新条目在位校验 → stale 闭包计算（目标最新 pass + `dependents` BFS 全条目，
+/// 自 persist 迁入本文件）→ 经 [`ChangeStateStore`] port 缝单事务落库（回跳
+/// 标记 + stale 翻转传播原子完成）。
 pub fn backtrack(
     store: &dyn ChangeStateStore,
-    change: &str,
+    change_id: &str,
     input: &BacktrackInput,
 ) -> Result<BacktrackOutcome, String> {
     let record = store
-        .get_change(change)
+        .get_change(change_id)
         .map_err(|error| error.to_string())?
-        .ok_or_else(|| format!("change \"{change}\" 未建档（无 ChangeRecord），无从回溯"))?;
+        .ok_or_else(|| format!("change \"{change_id}\" 未建档（无 ChangeRecord），无从回溯"))?;
     let table = phase_table(&record.workflow_type).ok_or_else(|| {
         format!(
             "workflow_type \"{}\" 不受支持（V1 仅 requirement 工作流）",
@@ -81,7 +81,7 @@ pub fn backtrack(
 
     // 最新条目在位校验（发起相位无评估条目不可回溯——语义与既往一致）
     let entries = store
-        .list_phase_records(change)
+        .list_phase_records(change_id)
         .map_err(|error| error.to_string())?;
     if !entries.iter().any(|entry| entry.phase == input.phase) {
         return Err(format!(
@@ -92,7 +92,7 @@ pub fn backtrack(
 
     store
         .apply_backtrack(&BacktrackCommand {
-            change: change.to_owned(),
+            change_id: change_id.to_owned(),
             phase: input.phase.clone(),
             to: input.to.clone(),
             reason: input.reason.clone(),

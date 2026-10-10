@@ -5,28 +5,31 @@ import { invoke as __TAURI_INVOKE, Channel } from "@tauri-apps/api/core";
 /** Commands */
 export const commands = {
 	/**
-	 *  change 列表（db 记录 ∪ 磁盘目录去重并集；active + archive 按月分组）。
-	 *  IPC 签名不变（Result 面不引入）：blank root 与开库失败均给出空列表（与
-	 *  缺目录空结果同语义，不 panic）。
+	 *  change 列表（db 单源全量；active + archive 按月分组）。IPC 签名不变
+	 *  （Result 面不引入）：blank root 与开库失败均给出空列表（读命令空结果
+	 *  语义，不 panic）；零磁盘扫描触点（无 db 记录的存量 CLI change 零发现）。
 	 */
 	listChanges: (root: string) => __TAURI_INVOKE<ChangeList>("list_changes", { root }),
 	/**
-	 *  单 change 详情聚合（统一视图，unify-run-state-persistence D11）：一次
-	 *  返回「库读史（detail.runs）∪ 在飞 run 活面（activeRun）」——前端零双命
-	 *  令拼接。未知 change 名返回 `None`（db 缺记录 change 以文档形态返回：空
-	 *  流水线 + 产物清单 + 空 runs）。IPC 签名不变：blank root 与开库失败均
-	 *  `None`。worktree 感知在 core `change_detail` 内（record 先读后定位）。
+	 *  单 change 详情聚合（统一视图，unify-run-state-persistence D11；按 change
+	 *  **id** 寻址）：一次返回「库读史（detail.runs）∪ 在飞 run 活面
+	 *  （activeRun）」——前端零双命令拼接。未知 id 返回 `None`（未建档——零磁盘
+	 *  目录解析回退、零文档形态空面）。IPC 签名不变：blank root 与开库失败均
+	 *  `None`。worktree / name 感知在 core `change_detail` 内（record 先读后定位，
+	 *  磁盘面恒自记录供给）。
 	 */
-	getChangeDetail: (root: string, change: string) => __TAURI_INVOKE<{
+	getChangeDetail: (root: string, id: string) => __TAURI_INVOKE<{
 	detail: ChangeDetail,
 	activeRun: ActiveRunView | null,
-} | null>("get_change_detail", { root, change }),
+} | null>("get_change_detail", { root, id }),
 	/**
-	 *  按信封读取单个产物；kind 未注册、source 非法或解析失败返回 `None`。
-	 *  IPC 签名不变：blank root 与开库失败均 `None`。worktree 感知：record 的
-	 *  `worktree` 字段直传 `locate_change` 回退参（merge 前产物在 worktree 内）。
+	 *  按信封读取单个产物（按 change **id** 寻址）；kind 未注册、source 非法、
+	 *  未建档或解析失败返回 `None`。IPC 签名不变：blank root 与开库失败均
+	 *  `None`。worktree / name 感知：`find_change_record(id)` 供给记录，`worktree`
+	 *  直传 `locate_change` 回退参（merge 前产物在 worktree 内）、`name` 作目录
+	 *  定位键（id → 记录 → name 分辨率单点）。
 	 */
-	readArtifact: (root: string, change: string, kind: string, source: string) => __TAURI_INVOKE<{
+	readArtifact: (root: string, id: string, kind: string, source: string) => __TAURI_INVOKE<{
 	/**  契约 ID（如 "eval-checklist"），前端据此路由 renderer */
 	kind: string,
 	/**  产物格式版本 */
@@ -36,12 +39,13 @@ export const commands = {
 	payload: unknown,
 	/**  渲染器缺席时的保底文本 */
 	fallbackText: string | null,
-} | null>("read_artifact", { root, change, kind, source }).then((v) => (v==null?v:v as typeof v)),
+} | null>("read_artifact", { root, id, kind, source }).then((v) => (v==null?v:v as typeof v)),
 	/**
-	 *  归档 change（双写：目录改名 + db status 翻转，写面 `archive` 单点）；
-	 *  blank root / change 显式 `Err`。IPC 薄命令（design D11：本轮无前端入口）。
+	 *  归档 change（双写：目录改名 + db status 翻转，写面 `archive` 单点；按
+	 *  change **id** 寻址）；blank root / id 显式 `Err`。IPC 薄命令（design D11：
+	 *  本轮无前端入口）。
 	 */
-	archiveChange: (root: string, change: string) => __TAURI_INVOKE<ArchiveOutcome>("archive_change", { root, change }),
+	archiveChange: (root: string, id: string) => __TAURI_INVOKE<ArchiveOutcome>("archive_change", { root, id }),
 	/**  清单（表主键 canonical root 自然序，顺序与使用时间无关）。 */
 	listWorkspaces: () => __TAURI_INVOKE<WorkspaceRecord[]>("list_workspaces"),
 	/**
@@ -100,18 +104,18 @@ export const commands = {
 	/**  轮统计行（发起顺序） */
 	turns: TurnSummary[],
 } | null>("session_detail", { root, sessionId }),
-	changeFlowStart: (onEvent: Channel<RunNotice>, root: string, change: string, autoNextPhase: boolean) => __TAURI_INVOKE<ChangeRunSummary>("change_flow_start", { onEvent, root, change, autoNextPhase }),
-	changeFlowStop: (root: string, change: string) => __TAURI_INVOKE<null>("change_flow_stop", { root, change }),
-	changeFlowAnswer: (root: string, change: string, answer: string) => __TAURI_INVOKE<null>("change_flow_answer", { root, change, answer }),
-	changeFlowConfirm: (root: string, change: string, proceed: boolean) => __TAURI_INVOKE<null>("change_flow_confirm", { root, change, proceed }),
-	changeFlowWatch: (onEvent: Channel<RunNotice>, root: string, change: string) => __TAURI_INVOKE<null>("change_flow_watch", { onEvent, root, change }),
+	changeFlowStart: (onEvent: Channel<RunNotice>, root: string, id: string, autoNextPhase: boolean) => __TAURI_INVOKE<ChangeRunSummary>("change_flow_start", { onEvent, root, id, autoNextPhase }),
+	changeFlowStop: (root: string, id: string) => __TAURI_INVOKE<null>("change_flow_stop", { root, id }),
+	changeFlowAnswer: (root: string, id: string, answer: string) => __TAURI_INVOKE<null>("change_flow_answer", { root, id, answer }),
+	changeFlowConfirm: (root: string, id: string, proceed: boolean) => __TAURI_INVOKE<null>("change_flow_confirm", { root, id, proceed }),
+	changeFlowWatch: (onEvent: Channel<RunNotice>, root: string, id: string) => __TAURI_INVOKE<null>("change_flow_watch", { onEvent, root, id }),
 	/**
-	 *  归档前置读面（确认对话数据面）：blank root / change 早退 `None`（读语义）；
-	 *  `None` = 不可归档（未建档 / 已归档 / 未知名——前端据此不呈现入口路径的
-	 *  兜底）。run_active 自 run 注册表快照；merge_target 自 worktree 记录在场
-	 *  才探测的真实 git。
+	 *  归档前置读面（确认对话数据面，按 change **id** 寻址）：blank root / id
+	 *  早退 `None`（读语义）；`None` = 不可归档（未建档 / 已归档 / 未知 id——
+	 *  前端据此不呈现入口路径的兜底）。run_active 自 run 注册表快照（键 id）；
+	 *  worktree 由 core `preflight` 经 id → 记录读取（调用方零记录读取）。
 	 */
-	archiveFlowPreflight: (root: string, change: string) => __TAURI_INVOKE<{
+	archiveFlowPreflight: (root: string, id: string) => __TAURI_INVOKE<{
 	name: string,
 	/**
 	 *  完成度结论（workflow 相位表全相位 non-stale pass/skipped；无相位表
@@ -132,32 +136,32 @@ export const commands = {
 	mergeTarget: string | null,
 	/**  该 change 存在运行中 run（对话呈现拒绝因） */
 	runActive: boolean,
-} | null>("archive_flow_preflight", { root, change }),
+} | null>("archive_flow_preflight", { root, id }),
 	/**
 	 *  发起归档链（提前 resolve：接受即 `Ok(true)`，阶段 / 会话事件 / 终态经
 	 *  Channel 流出——agent 同步分钟级，一次性 await 无进度面必致重复点击，
-	 *  design D2）。blank root / change 显式 `Err`；未建档 / 已归档 / run 运行
-	 *  中 / 链进行中（重入）各显式拒绝——零装配零 spawn。
+	 *  design D2；按 change **id** 寻址）。blank root / id 显式 `Err`；未建档 /
+	 *  已归档 / run 运行中 / 链进行中（重入）各显式拒绝——零装配零 spawn。
 	 */
-	archiveFlowStart: (onEvent: Channel<ArchiveUpdate>, root: string, change: string, syncSpecs: boolean) => __TAURI_INVOKE<boolean>("archive_flow_start", { onEvent, root, change, syncSpecs }),
+	archiveFlowStart: (onEvent: Channel<ArchiveUpdate>, root: string, id: string, syncSpecs: boolean) => __TAURI_INVOKE<boolean>("archive_flow_start", { onEvent, root, id, syncSpecs }),
 	/**
 	 *  停止归档链：取消旗（阶段间检查点收敛）+ 当前 agent 会话经既有 StopRegistry
-	 *  请求终止（miss 幂等）；blank root / change 零副作用直接成功。
+	 *  请求终止（miss 幂等）；blank root / id 零副作用直接成功。
 	 */
-	archiveFlowStop: (root: string, change: string) => __TAURI_INVOKE<null>("archive_flow_stop", { root, change }),
+	archiveFlowStop: (root: string, id: string) => __TAURI_INVOKE<null>("archive_flow_stop", { root, id }),
 	/**
 	 *  归档链重挂快照（进程内；链终态后除名 → `None`——终态由 db / 磁盘事实
 	 *  承载，详情页 refresh 回归已归档形态）。
 	 */
-	archiveFlowState: (root: string, change: string) => __TAURI_INVOKE<{
+	archiveFlowState: (root: string, id: string) => __TAURI_INVOKE<{
 	stages: ArchiveStageState[],
 	sessionId: string | null,
-} | null>("archive_flow_state", { root, change }),
+} | null>("archive_flow_state", { root, id }),
 	/**
 	 *  归档链 broadcast 补订（运行中视图重挂）；无在案链 `Ok` 非错误（重挂时
 	 *  链可能已收口）。
 	 */
-	archiveFlowWatch: (onEvent: Channel<ArchiveUpdate>, root: string, change: string) => __TAURI_INVOKE<null>("archive_flow_watch", { onEvent, root, change }),
+	archiveFlowWatch: (onEvent: Channel<ArchiveUpdate>, root: string, id: string) => __TAURI_INVOKE<null>("archive_flow_watch", { onEvent, root, id }),
 	/**
 	 *  新建 change（建域四段：建档 + worktree add + worktree 内目录树与
 	 *  explore.md + bootstrap）；blank root 显式 `Err`。async + `spawn_blocking`
@@ -572,10 +576,14 @@ export type AttemptRecord = {
 };
 
 /**
- *  change 详情聚合。`status` 为建档判别面：`Some` = db 已建档（完整状态面），
- *  `None` = 文档形态（db 缺记录的存量 CLI change，空流水线 + 产物清单）。
+ *  change 详情聚合。`id` 为身份锚（寻址入参同值）；`name` 自记录直读（恒裸名
+ *  ——归档 change 的日期前缀仅存在于磁盘目录名，MUST NOT 进入出线值）；db 无
+ *  该 id 记录 → 详情整体不可达（`None`，未知 id 语义）。
  */
 export type ChangeDetail = {
+	/**  change 身份锚（uuid 形态） */
+	id: string,
+	/**  change 名（自记录直读，恒裸名） */
 	name: string,
 	source: ChangeSource,
 	status: ChangeStatus | null,
@@ -664,7 +672,7 @@ export type ChangeRunSummary = {
 	status: ChangeRunStatus,
 };
 
-/**  change 来源：进行中 / 已归档。 */
+/**  change 来源：进行中 / 已归档（自 db status 派生）。 */
 export type ChangeSource = "active" | "archive";
 
 /**  change 状态二值（线格式小写词；queries DTO 直接复用本类型）。 */
@@ -728,11 +736,14 @@ export type ChangeStepStatus =
 "stopped";
 
 /**
- *  列表条目摘要。`name` 为磁盘目录名（归档条目含日期前缀；db 条目按磁盘事
- *  实取位，目录缺失回退建档名）。db 建档条目携状态面（`status` /
- *  `active_phase`），文档形态条目两值为 `null`。
+ *  列表条目摘要。`id` 为身份锚（行键 / 前端路由 / 一切后续寻址），`name` 恒
+ *  裸名；条目集合 db 单源，状态面恒在场（`Option` 形态保留——非档案缺位
+ *  语义）。
  */
 export type ChangeSummary = {
+	/**  change 身份锚（uuid 形态） */
+	id: string,
+	/**  change 名（恒裸名——归档日期前缀仅存在于磁盘目录名，MUST NOT 出线） */
 	name: string,
 	source: ChangeSource,
 	status: ChangeStatus | null,
@@ -809,11 +820,14 @@ export type CoverageThresholds = {
 };
 
 /**
- *  创建产出（IPC DTO）：名称、创建日期、worktree 绝对路径（刻意出线的执行
- *  锚——review / 手动 commit / merge 可达）与警告清单（脏仓 / bootstrap 注记，
- *  持久入 DTO 抵达前端行内呈现）。
+ *  创建产出（IPC DTO）：本次铸出的 change id（身份锚——前端导航 / 一切后续
+ *  寻址入参）、名称、创建日期、worktree 绝对路径（刻意出线的执行锚——review /
+ *  手动 commit / merge 可达）与警告清单（脏仓 / bootstrap 注记，持久入 DTO
+ *  抵达前端行内呈现）。
  */
 export type CreateOutcome = {
+	/**  本次铸出的 change id（uuid v7 形态；库内记录同值逐字一致） */
+	id: string,
 	name: string,
 	/**
 	 *  UTC 日历日期 `YYYY-MM-DD`（取 db 建档 `created_at`，写面铸出后随 DTO

@@ -77,7 +77,7 @@ pub fn finish_command(
     }
     RunFinishCommand {
         run_id: request.run_id.clone(),
-        change: request.change.clone(),
+        change_id: request.change_id.clone(),
         status: run_status(status),
         reason,
         finished_at,

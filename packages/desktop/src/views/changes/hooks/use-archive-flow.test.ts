@@ -34,7 +34,7 @@ vi.mock('@tauri-apps/api/core', () => ({ invoke: invokeMock, Channel: ChannelMoc
 // ---------------------------------------------------------------------------
 
 const ROOT = 'C:\\demo\\archive';
-const CHANGE = 'archive-demo';
+const CHANGE_ID = 'archive-demo';
 
 function stageRow(
   stage: ArchiveStageState['stage'],
@@ -53,7 +53,7 @@ function snapshot(overrides: Partial<ArchiveSnapshot> = {}): ArchiveSnapshot {
 
 function preflightData(overrides: Partial<ArchivePreflight> = {}): ArchivePreflight {
   return {
-    name: CHANGE,
+    name: CHANGE_ID,
     completed: true,
     incompletePhases: [],
     missingArtifacts: [],
@@ -77,8 +77,8 @@ function finishedUpdate(): ArchiveUpdate {
   return {
     ipc: 'finished',
     summary: {
-      name: CHANGE,
-      archivedDir: `2026-10-08-${CHANGE}`,
+      name: CHANGE_ID,
+      archivedDir: `2026-10-08-${CHANGE_ID}`,
       specs: 'synced',
       warnings: [],
     },
@@ -148,13 +148,12 @@ function calls(command: string): unknown[][] {
   return invokeMock.mock.calls.filter(([name]) => name === command);
 }
 
-async function mounted(params?: { root: string | null; change: string | null }) {
+async function mounted(params?: { root: string | null; id: string | null }) {
   const onFinish = vi.fn();
   const rendered = renderHook(
-    (input: { root: string | null; change: string | null }) =>
-      useArchiveFlow({ ...input, onFinish }),
+    (input: { root: string | null; id: string | null }) => useArchiveFlow({ ...input, onFinish }),
     {
-      initialProps: params ?? { root: ROOT, change: CHANGE },
+      initialProps: params ?? { root: ROOT, id: CHANGE_ID },
     },
   );
   await act(async () => {});
@@ -162,7 +161,7 @@ async function mounted(params?: { root: string | null; change: string | null }) 
 }
 
 describe('useArchiveFlow：preflight 动作（确认对话取数面）', () => {
-  it('调 preflight → invoke archiveFlowPreflight 以 (root, change) 透传，resolve 数据返回', async () => {
+  it('调 preflight → invoke archiveFlowPreflight 以 (root, id) 透传，resolve 数据返回', async () => {
     preflightResult = preflightData({ mergeTarget: 'main' });
     const { result } = await mounted();
 
@@ -173,7 +172,7 @@ describe('useArchiveFlow：preflight 动作（确认对话取数面）', () => {
 
     expect(invokeMock).toHaveBeenCalledWith('archive_flow_preflight', {
       root: ROOT,
-      change: CHANGE,
+      id: CHANGE_ID,
     });
     expect(resolved).toEqual(preflightData({ mergeTarget: 'main' }));
   });
@@ -190,7 +189,7 @@ describe('useArchiveFlow：preflight 动作（确认对话取数面）', () => {
 });
 
 describe('useArchiveFlow：start 与事件归并', () => {
-  it('start(true) → invoke archiveFlowStart 参数序（channel, root, change, true）；信封到达 → state 经 reducer 归并', async () => {
+  it('start(true) → invoke archiveFlowStart 参数序（channel, root, id, true）；信封到达 → state 经 reducer 归并', async () => {
     const { result } = await mounted();
 
     await act(async () => {
@@ -200,7 +199,7 @@ describe('useArchiveFlow：start 与事件归并', () => {
     expect(calls('archive_flow_start')).toHaveLength(1);
     const args = calls('archive_flow_start')[0][1] as Record<string, unknown>;
     expect(args.root).toBe(ROOT);
-    expect(args.change).toBe(CHANGE);
+    expect(args.id).toBe(CHANGE_ID);
     expect(args.syncSpecs).toBe(true);
     expect(args.onEvent).toBeDefined();
     // 发起后空阶段表起步；Channel 信封到达 → 阶段推进
@@ -231,7 +230,7 @@ describe('useArchiveFlow：终态 onFinish 恰一次', () => {
     deliver(finishedUpdate());
     await waitFor(() => expect(onFinish).toHaveBeenCalledTimes(1));
     expect(result.current.state?.finished).toBe(true);
-    expect(result.current.state?.summary?.archivedDir).toBe(`2026-10-08-${CHANGE}`);
+    expect(result.current.state?.summary?.archivedDir).toBe(`2026-10-08-${CHANGE_ID}`);
 
     // 迟滞信封（reducer 冻结 + ref 防抖）不重复触发
     deliver(stageUpdate('finalize', 'failed'));
@@ -246,7 +245,7 @@ describe('useArchiveFlow：挂载快照恢复与补订', () => {
     const { result } = await mounted();
     await waitFor(() => expect(calls('archive_flow_watch')).toHaveLength(1));
 
-    expect(invokeMock).toHaveBeenCalledWith('archive_flow_state', { root: ROOT, change: CHANGE });
+    expect(invokeMock).toHaveBeenCalledWith('archive_flow_state', { root: ROOT, id: CHANGE_ID });
     expect(result.current.state?.stages.preflight).toMatchObject({ status: 'passed' });
     expect(result.current.state?.sessionId).toBe('sess-restore');
 
@@ -309,7 +308,7 @@ describe('useArchiveFlow：stop 与 error 面', () => {
 
 describe('useArchiveFlow：参数未就绪 no-op', () => {
   it('root / change null → 各动作零 invoke', async () => {
-    const { result, onFinish } = await mounted({ root: null, change: null });
+    const { result, onFinish } = await mounted({ root: null, id: null });
 
     const preflighted = await act(async () => result.current.preflight());
     await act(async () => {

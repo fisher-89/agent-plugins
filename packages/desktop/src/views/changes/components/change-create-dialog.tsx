@@ -11,8 +11,8 @@ export interface ChangeCreateDialogProps {
   children: React.JSX.Element;
   /** 当前 workspace root（建档入参） */
   root: string;
-  /** 成功创建后回调（父层 refresh 清单并导航进详情） */
-  onCreated: (name: string) => void;
+  /** 成功创建后回调（父层 refresh 清单并按铸出 id 导航进详情——`CreateOutcome.id`） */
+  onCreated: (id: string) => void;
 }
 
 /** 本地同口径 kebab-case 校验（与写面同一正则字面量，spec 权威） */
@@ -138,7 +138,7 @@ export function ChangeCreateDialog({
       commands
         .createChange(root, trimmedName, trimmedGoal)
         .then((result) => {
-          onCreated(result.name);
+          onCreated(result.id);
           setFormData({ name: '', goal: '' });
           close();
         })

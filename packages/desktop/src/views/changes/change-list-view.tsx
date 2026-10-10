@@ -14,12 +14,12 @@ function ChangeRow({
   onSelect,
 }: {
   summary: ChangeSummary;
-  onSelect: (name: string) => void;
+  onSelect: (id: string) => void;
 }) {
   return (
     <Button
       className="h-auto w-full justify-start gap-2.5 whitespace-normal rounded-none border-0 border-b bg-transparent px-1 py-2 text-left font-normal text-inherit hover:bg-transparent hover:text-primary last:border-b-0"
-      onClick={() => onSelect(summary.name)}
+      onClick={() => onSelect(summary.id)}
       data-testid="change-row"
     >
       <span className="font-semibold">{summary.name}</span>
@@ -43,7 +43,7 @@ function ArchiveGroups({
   onSelect,
 }: {
   groups: ChangeList['archiveGroups'];
-  onSelect: (name: string) => void;
+  onSelect: (id: string) => void;
 }) {
   return (
     <>
@@ -57,7 +57,7 @@ function ArchiveGroups({
             <span className="text-muted-foreground">({group.changes.length})</span>
           </h2>
           {group.changes.map((summary) => (
-            <ChangeRow key={summary.name} summary={summary} onSelect={onSelect} />
+            <ChangeRow key={summary.id} summary={summary} onSelect={onSelect} />
           ))}
         </section>
       ))}
@@ -65,8 +65,8 @@ function ArchiveGroups({
   );
 }
 
-/** 数据区：active 列表 + archive 分组 + 空目录提示 */
-function ListSections({ data, onSelect }: { data: ChangeList; onSelect: (name: string) => void }) {
+/** 数据区：active 列表 + archive 分组 + 空态提示 */
+function ListSections({ data, onSelect }: { data: ChangeList; onSelect: (id: string) => void }) {
   return (
     <>
       <section className="mb-4 rounded-lg border border-border bg-card px-4 py-3.5">
@@ -77,13 +77,13 @@ function ListSections({ data, onSelect }: { data: ChangeList; onSelect: (name: s
           <div className="text-muted-foreground">无进行中的 change。</div>
         ) : (
           data.active.map((summary) => (
-            <ChangeRow key={summary.name} summary={summary} onSelect={onSelect} />
+            <ChangeRow key={summary.id} summary={summary} onSelect={onSelect} />
           ))
         )}
       </section>
       <ArchiveGroups groups={data.archiveGroups} onSelect={onSelect} />
       {data.active.length === 0 && data.archiveGroups.length === 0 && (
-        <div className="text-muted-foreground">该 workspace 下未发现任何 change 目录。</div>
+        <div className="text-muted-foreground">该 workspace 下未发现已建档 change。</div>
       )}
     </>
   );
@@ -92,18 +92,18 @@ function ListSections({ data, onSelect }: { data: ChangeList; onSelect: (name: s
 /** change 列表视图：清单页自取数（useChangeList 挂载 / root 变更 / 显式刷新触发，
  * 页面重挂即重取）+ 头部刷新行（始终渲染）+ 新建入口（root 非空时挂载）+
  * 加载/error-note 空态 + 列表数据区；active 列表 + archive 按月分组（"未知时间"
- * 组置尾）、运行中 active_phase 徽标、点击进详情；创建成功刷新清单并导航进
- * 详情（不自动发起 run） */
+ * 组置尾）、运行中 active_phase 徽标、点击进详情（行键 / 导航恒 id）；创建成功
+ * 刷新清单并按 id 导航进详情（不自动发起 run） */
 export function ChangeListView({ root }: { root: string | null }) {
   const state = useChangeList(root);
   const { data, loading, error } = state;
 
   const navigate = useNavigate();
-  const openChange = useCallback((n: string) => navigate(`/changes/${n}`), [navigate]);
+  const openChange = useCallback((id: string) => navigate(`/changes/${id}`), [navigate]);
   const onCreated = useCallback(
-    (name: string) => {
+    (id: string) => {
       state.refresh();
-      void navigate(`/changes/${name}`);
+      void navigate(`/changes/${id}`);
     },
     [state.refresh, navigate],
   );

@@ -348,9 +348,10 @@ fn explore_key(value: &Value) -> Value {
     value["id"].clone()
 }
 
-/// change 主键 = change 名。
+/// change 主键 = change id（身份锚随换锚改呈 id；`StoreMetaRecord` 为内部治理
+/// 记录，不入注册表——无查看面需求）。
 fn change_key(value: &Value) -> Value {
-    value["name"].clone()
+    value["id"].clone()
 }
 
 /// phase 主键 = id。

@@ -41,9 +41,11 @@ fn open_workspace_ok(path: &std::path::Path) -> Store {
     Store::open_workspace(path).unwrap_or_else(|e| panic!("open_workspace 应成功: {e}"))
 }
 
-/// 建档命令 fixture（active 起步）。
-fn change_archive(name: &str, created_at: i64) -> ChangeStateRecord {
+/// 建档命令 fixture（active 起步；id 主键与 name 属性双入参——身份面用例双值
+/// 可辨，既有用例可传同串便捷坐实）。
+fn change_archive(id: &str, name: &str, created_at: i64) -> ChangeStateRecord {
     ChangeStateRecord {
+        id: id.to_owned(),
         name: name.to_owned(),
         workflow_type: "requirement".to_owned(),
         created_at,
@@ -74,7 +76,7 @@ fn log_command(
     timestamp: i64,
 ) -> PhaseLogCommand {
     PhaseLogCommand {
-        change: change.to_owned(),
+        change_id: change.to_owned(),
         phase: phase.to_owned(),
         verdict,
         report: format!("{phase} 评估报告"),
@@ -99,7 +101,7 @@ fn step_command(
 ) -> StepCommand {
     StepCommand {
         run_id: run_id.to_owned(),
-        change: change.to_owned(),
+        change_id: change.to_owned(),
         step_kind,
         status: status.to_owned(),
         summary: summary.to_owned(),
@@ -118,16 +120,17 @@ fn trait_object全链映射_建档开相落账读史与直调store逐字段一�
     let env = PortEnv::new("full-chain");
     let store = open_workspace_ok(&env.db_path("ws"));
     let port: &dyn ChangeStateStore = &store;
+    const CHANGE_ID: &str = "chg-port-0001";
 
-    // 写半边全链经 trait 入口
-    port.create_change_record(change_archive("flow", 1000))
+    // 写半边全链经 trait 入口（形参一律身份锚 id）
+    port.create_change_record(change_archive(CHANGE_ID, "flow", 1000))
         .expect("建档应成功");
     let started = port
-        .start_phase("flow", "proposal", 2000)
+        .start_phase(CHANGE_ID, "proposal", 2000)
         .expect("开相应成功");
     let attempt = port
         .log_phase(&log_command(
-            "flow",
+            CHANGE_ID,
             "proposal",
             Verdict::Pass,
             vec![check_item("检查项一", true), check_item("检查项二", false)],
@@ -139,8 +142,8 @@ fn trait_object全链映射_建档开相落账读史与直调store逐字段一�
 
     // 读半边经 trait：中性类型快照与直调 Store 方法逐字段一致（映射单点无加工）
     assert_eq!(
-        port.get_change("flow").unwrap(),
-        store.find_change_record("flow").unwrap(),
+        port.get_change(CHANGE_ID).unwrap(),
+        store.find_change_record(CHANGE_ID).unwrap(),
         "建档快照映射无加工"
     );
     assert_eq!(
@@ -148,10 +151,11 @@ fn trait_object全链映射_建档开相落账读史与直调store逐字段一�
         store.list_change_records().unwrap(),
         "建档清单映射无加工"
     );
-    let via_port = port.list_phase_records("flow").unwrap();
-    let via_store = store.list_phase_records("flow").unwrap();
+    let via_port = port.list_phase_records(CHANGE_ID).unwrap();
+    let via_store = store.list_phase_records(CHANGE_ID).unwrap();
     assert_eq!(via_port, via_store, "相位史快照映射无加工");
     assert_eq!(via_port.len(), 1);
+    assert_eq!(via_port[0].change_id, CHANGE_ID, "归属列 = 身份锚 id");
     assert_eq!(via_port[0].attempt, attempt);
     assert_eq!(via_port[0].start_at, Some(2000), "start_at 随行透出");
     assert_eq!(
@@ -161,14 +165,23 @@ fn trait_object全链映射_建档开相落账读史与直调store逐字段一�
     );
     // 落账清位经 trait 快照可见（active_phase 匹配 / 步骤审计读半边同验）
     assert_eq!(
-        port.get_change("flow").unwrap().unwrap().active_phase,
+        port.get_change(CHANGE_ID).unwrap().unwrap().active_phase,
         None,
         "落账即清位经 trait 可见"
     );
     assert_eq!(
-        port.list_steps("flow", None).unwrap(),
-        store.list_change_steps("flow", None).unwrap(),
+        port.list_steps(CHANGE_ID, None).unwrap(),
+        store.list_change_steps(CHANGE_ID, None).unwrap(),
         "步骤审计读半边映射无加工"
+    );
+    // 身份面：id 为寻址键、name 仅展示属性
+    let snapshot = port.get_change(CHANGE_ID).unwrap().expect("建档在案");
+    assert_eq!(snapshot.id, CHANGE_ID, "trait 面 id 身份锚");
+    assert_eq!(snapshot.name, "flow", "trait 面 name 普通属性");
+    assert_eq!(
+        port.get_change("flow").unwrap(),
+        None,
+        "name 串按 id 查询 miss（name 非寻址键，port 面零例外）"
     );
 }
 
@@ -177,15 +190,20 @@ fn trait_object全链映射_建档开相落账读史与直调store逐字段一�
 // 落库，与 Store 原生方法直调落库行逐字段等值（两库镜像序列对拍）
 // ---------------------------------------------------------------------------
 
+/// 镜像写序列用的 change 身份锚（id）与展示名（name）双值可辨：五写命令载荷
+/// 一律携 id，name 仅为记录属性。
+const MIRROR_CHANGE_ID: &str = "chg-mirror";
+const MIRROR_CHANGE_NAME: &str = "flow";
+
 /// 镜像写序列（change 域全写操作各一次；两侧分别经 trait 入口与原生直调执行
-/// 同一命令面）。
+/// 同一命令面——命令载荷 change_id 恒为身份锚 id）。
 fn mirror_sequence_port(port: &dyn ChangeStateStore) {
-    port.create_change_record(change_archive("flow", 1000))
+    port.create_change_record(change_archive(MIRROR_CHANGE_ID, MIRROR_CHANGE_NAME, 1000))
         .expect("建档应成功");
-    port.start_phase("flow", "proposal", 2000)
+    port.start_phase(MIRROR_CHANGE_ID, "proposal", 2000)
         .expect("开相应成功");
     port.log_phase(&log_command(
-        "flow",
+        MIRROR_CHANGE_ID,
         "proposal",
         Verdict::Pass,
         vec![check_item("检查项一", true), check_item("检查项二", false)],
@@ -193,10 +211,10 @@ fn mirror_sequence_port(port: &dyn ChangeStateStore) {
         2500,
     ))
     .expect("落账应成功");
-    port.start_phase("flow", "proposal", 3000)
+    port.start_phase(MIRROR_CHANGE_ID, "proposal", 3000)
         .expect("重开相应成功");
     port.log_phase(&log_command(
-        "flow",
+        MIRROR_CHANGE_ID,
         "proposal",
         Verdict::Fail,
         vec![check_item("检查项三", false)],
@@ -204,10 +222,10 @@ fn mirror_sequence_port(port: &dyn ChangeStateStore) {
         4000,
     ))
     .expect("落账应成功");
-    port.start_phase("flow", "design", 5000)
+    port.start_phase(MIRROR_CHANGE_ID, "design", 5000)
         .expect("开相应成功");
     port.log_phase(&log_command(
-        "flow",
+        MIRROR_CHANGE_ID,
         "design",
         Verdict::Pass,
         vec![],
@@ -215,10 +233,10 @@ fn mirror_sequence_port(port: &dyn ChangeStateStore) {
         6000,
     ))
     .expect("落账应成功");
-    port.amend_decision_session("flow", "proposal", "ses-decision")
+    port.amend_decision_session(MIRROR_CHANGE_ID, "proposal", "ses-decision")
         .expect("挂账应成功");
     port.apply_backtrack(&BacktrackCommand {
-        change: "flow".to_owned(),
+        change_id: MIRROR_CHANGE_ID.to_owned(),
         phase: "design".to_owned(),
         to: "proposal".to_owned(),
         reason: "镜像回跳".to_owned(),
@@ -227,7 +245,7 @@ fn mirror_sequence_port(port: &dyn ChangeStateStore) {
     .expect("回跳应成功");
     port.append_step(&step_command(
         "run-1",
-        "flow",
+        MIRROR_CHANGE_ID,
         StepKind::PhaseNext,
         "ok",
         "轮次推进",
@@ -236,7 +254,7 @@ fn mirror_sequence_port(port: &dyn ChangeStateStore) {
     .expect("步骤追加应成功");
     port.append_step(&step_command(
         "run-2",
-        "flow",
+        MIRROR_CHANGE_ID,
         StepKind::StaticCheck,
         "error",
         "静态检查失败",
@@ -248,14 +266,14 @@ fn mirror_sequence_port(port: &dyn ChangeStateStore) {
 /// 镜像写序列的 Store 原生直调半边（与 `mirror_sequence_port` 同一命令面）。
 fn mirror_sequence_native(store: &Store) {
     store
-        .create_change_record(change_archive("flow", 1000))
+        .create_change_record(change_archive(MIRROR_CHANGE_ID, MIRROR_CHANGE_NAME, 1000))
         .expect("建档应成功");
     store
-        .start_change_phase("flow", "proposal", 2000)
+        .start_change_phase(MIRROR_CHANGE_ID, "proposal", 2000)
         .expect("开相应成功");
     store
         .log_change_phase(&log_command(
-            "flow",
+            MIRROR_CHANGE_ID,
             "proposal",
             Verdict::Pass,
             vec![check_item("检查项一", true), check_item("检查项二", false)],
@@ -264,11 +282,11 @@ fn mirror_sequence_native(store: &Store) {
         ))
         .expect("落账应成功");
     store
-        .start_change_phase("flow", "proposal", 3000)
+        .start_change_phase(MIRROR_CHANGE_ID, "proposal", 3000)
         .expect("重开相应成功");
     store
         .log_change_phase(&log_command(
-            "flow",
+            MIRROR_CHANGE_ID,
             "proposal",
             Verdict::Fail,
             vec![check_item("检查项三", false)],
@@ -277,11 +295,11 @@ fn mirror_sequence_native(store: &Store) {
         ))
         .expect("落账应成功");
     store
-        .start_change_phase("flow", "design", 5000)
+        .start_change_phase(MIRROR_CHANGE_ID, "design", 5000)
         .expect("开相应成功");
     store
         .log_change_phase(&log_command(
-            "flow",
+            MIRROR_CHANGE_ID,
             "design",
             Verdict::Pass,
             vec![],
@@ -290,11 +308,11 @@ fn mirror_sequence_native(store: &Store) {
         ))
         .expect("落账应成功");
     store
-        .amend_change_decision_session("flow", "proposal", "ses-decision")
+        .amend_change_decision_session(MIRROR_CHANGE_ID, "proposal", "ses-decision")
         .expect("挂账应成功");
     store
         .apply_change_backtrack(&BacktrackCommand {
-            change: "flow".to_owned(),
+            change_id: MIRROR_CHANGE_ID.to_owned(),
             phase: "design".to_owned(),
             to: "proposal".to_owned(),
             reason: "镜像回跳".to_owned(),
@@ -304,7 +322,7 @@ fn mirror_sequence_native(store: &Store) {
     store
         .append_change_step(&step_command(
             "run-1",
-            "flow",
+            MIRROR_CHANGE_ID,
             StepKind::PhaseNext,
             "ok",
             "轮次推进",
@@ -314,7 +332,7 @@ fn mirror_sequence_native(store: &Store) {
     store
         .append_change_step(&step_command(
             "run-2",
-            "flow",
+            MIRROR_CHANGE_ID,
             StepKind::StaticCheck,
             "error",
             "静态检查失败",
@@ -335,8 +353,8 @@ fn 写命令翻译_trait入口与store原生直调落库行逐字段等值() {
 
     // 两库终态逐字段等值（行序 = id 升序，两侧 max+1 分配同序）
     assert_eq!(
-        store_via_port.get_change("flow").unwrap(),
-        store_native.find_change_record("flow").unwrap(),
+        store_via_port.get_change(MIRROR_CHANGE_ID).unwrap(),
+        store_native.find_change_record(MIRROR_CHANGE_ID).unwrap(),
         "PhaseLogCommand 翻译落库行等值（active_phase 终态含回跳面）"
     );
     assert_eq!(
@@ -344,25 +362,29 @@ fn 写命令翻译_trait入口与store原生直调落库行逐字段等值() {
         store_native.list_change_records().unwrap(),
     );
     assert_eq!(
-        store_via_port.list_phase_records("flow").unwrap(),
-        store_native.list_phase_records("flow").unwrap(),
+        store_via_port.list_phase_records(MIRROR_CHANGE_ID).unwrap(),
+        store_native.list_phase_records(MIRROR_CHANGE_ID).unwrap(),
         "落账 / 挂账 / 回跳翻译落库行逐字段等值（含 checklist 内联与 stale 位）"
     );
     assert_eq!(
-        store_via_port.list_steps("flow", None).unwrap(),
-        store_native.list_change_steps("flow", None).unwrap(),
-        "StepCommand 翻译落库行等值"
+        store_via_port.list_steps(MIRROR_CHANGE_ID, None).unwrap(),
+        store_native
+            .list_change_steps(MIRROR_CHANGE_ID, None)
+            .unwrap(),
+        "StepCommand 翻译落库行等值（归属列 = 身份锚 id）"
     );
     assert_eq!(
-        store_via_port.list_steps("flow", Some("run-1")).unwrap(),
+        store_via_port
+            .list_steps(MIRROR_CHANGE_ID, Some("run-1"))
+            .unwrap(),
         store_native
-            .list_change_steps("flow", Some("run-1"))
+            .list_change_steps(MIRROR_CHANGE_ID, Some("run-1"))
             .unwrap(),
     );
 
     // 翻译语义抽验：amend 定点最新条目、backtrack 标记落发起相位且目标最新
     // pass 置 stale
-    let phases = store_via_port.list_phase_records("flow").unwrap();
+    let phases = store_via_port.list_phase_records(MIRROR_CHANGE_ID).unwrap();
     let proposal_v2 = phases
         .iter()
         .rev()
@@ -388,22 +410,22 @@ fn 写命令翻译_trait入口与store原生直调落库行逐字段等值() {
 }
 
 // ---------------------------------------------------------------------------
-// StoreFault 映射：同名 active 冲突 → Conflict；amend 无条目 / set_archived
-// miss → NotFound；三分支 Display 前缀与 StoreError 一一对应不串型
+// StoreFault 映射：同 id 冲突 → Conflict；amend 无条目 / set_archived miss →
+// NotFound；三分支 Display 前缀与 StoreError 一一对应不串型
 // ---------------------------------------------------------------------------
 
 #[test]
-fn store_fault映射_冲突与未找到分支对应store_error且display前缀不串型() {
+fn store_fault映射_同id冲突与未找到分支对应store_error且display前缀不串型() {
     let env = PortEnv::new("fault-map");
     let store = open_workspace_ok(&env.db_path("ws"));
     let port: &dyn ChangeStateStore = &store;
 
-    // 同名 active 冲突 → StoreFault::Conflict
-    port.create_change_record(change_archive("flow", 1000))
+    // 同 id 冲突 → StoreFault::Conflict（name 换串仍按身份锚 id 判重）
+    port.create_change_record(change_archive("chg-dup", "甲档", 1000))
         .expect("建档应成功");
     let err = port
-        .create_change_record(change_archive("flow", 2000))
-        .expect_err("同名建档应 Conflict");
+        .create_change_record(change_archive("chg-dup", "乙档", 2000))
+        .expect_err("同 id 建档应 Conflict");
     assert!(
         matches!(err, StoreFault::Conflict(_)),
         "变体为 Conflict，实际: {err:?}"
@@ -414,10 +436,10 @@ fn store_fault映射_冲突与未找到分支对应store_error且display前缀�
     );
 
     // amend 无条目 → StoreFault::NotFound
-    port.create_change_record(change_archive("young", 3000))
+    port.create_change_record(change_archive("chg-young", "young", 3000))
         .expect("建档应成功");
     let err = port
-        .amend_decision_session("young", "proposal", "ses-1")
+        .amend_decision_session("chg-young", "proposal", "ses-1")
         .expect_err("无条目挂账应 NotFound");
     assert!(matches!(err, StoreFault::NotFound(_)));
     assert!(
@@ -427,7 +449,7 @@ fn store_fault映射_冲突与未找到分支对应store_error且display前缀�
 
     // set_archived miss → StoreFault::NotFound
     let err = port
-        .set_archived("ghost", 1)
+        .set_archived("chg-ghost", 1)
         .expect_err("miss 归档翻转应 NotFound");
     assert!(matches!(err, StoreFault::NotFound(_)));
 
@@ -449,7 +471,7 @@ fn store_fault映射_冲突与未找到分支对应store_error且display前缀�
 
 // ---------------------------------------------------------------------------
 // trait 边界：Send + Sync 编译锚定（Arc 装入组合根 / LocalToolSteps 可达）；
-// get_change 对未建档名返回 Ok(None)（None = 文档形态契约）
+// get_change 对未建档 id 返回 Ok(None)（None = 未建档语义——不含文档形态）
 // ---------------------------------------------------------------------------
 
 /// port 契约边界编译锚定：`Arc<dyn ChangeStateStore>` 须 Send + Sync。
@@ -468,16 +490,21 @@ fn trait边界_send_sync锚定_arc装入与未建档get_change返回ok_none() {
     consume_across_threads(port.clone());
 
     // Arc 擦除后写读可用
-    port.create_change_record(change_archive("flow", 1000))
+    port.create_change_record(change_archive("chg-bound", "boundary", 1000))
         .expect("建档应成功");
     assert_eq!(
-        port.get_change("未建档").unwrap(),
+        port.get_change("chg-unknown").unwrap(),
         None,
-        "get_change 对未建档名返回 Ok(None)（文档形态契约）"
+        "get_change 对未建档 id 返回 Ok(None)（未建档语义——不含文档形态）"
+    );
+    assert_eq!(
+        port.get_change("boundary").unwrap(),
+        None,
+        "name 串非身份键：按 id get_change 同样 Ok(None)"
     );
     assert!(
-        port.get_change("flow").unwrap().is_some(),
-        "已建档名命中 Some"
+        port.get_change("chg-bound").unwrap().is_some(),
+        "已建档 id 命中 Some"
     );
 }
 
@@ -492,7 +519,7 @@ fn delete_change_record补偿删除_命中true_miss幂等false() {
     let store = open_workspace_ok(&env.db_path("ws"));
     let port: &dyn ChangeStateStore = &store;
 
-    port.create_change_record(change_archive("flow", 1000))
+    port.create_change_record(change_archive("flow", "flow", 1000))
         .expect("建档应成功");
     assert_eq!(
         port.delete_change_record("flow").unwrap(),
@@ -529,7 +556,7 @@ fn 双字段trait往返_类型擦除建档get与list逐字段一致() {
     let store = open_workspace_ok(&env.db_path("ws"));
     let port: &dyn ChangeStateStore = &store;
 
-    let mut record = change_archive("wt-port-change", 1000);
+    let mut record = change_archive("wt-port-change", "wt-port-change", 1000);
     record.worktree = Some(r"C:\app-data\worktrees\seg\wt-port-change".to_owned());
     record.base_commit = Some("0000000000000000000000000000000000000001".to_owned());
     port.create_change_record(record)
@@ -580,7 +607,7 @@ use workflow::state::{
 fn run_start_cmd(run_id: &str, change: &str, started_at: i64) -> RunStartCommand {
     RunStartCommand {
         run_id: run_id.to_owned(),
-        change: change.to_owned(),
+        change_id: change.to_owned(),
         started_at,
     }
 }
@@ -607,7 +634,7 @@ fn run_finish_cmd(
 ) -> RunFinishCommand {
     RunFinishCommand {
         run_id: run_id.to_owned(),
-        change: change.to_owned(),
+        change_id: change.to_owned(),
         status: RunStatus::Completed,
         reason: Some("收口记因".to_owned()),
         finished_at,
@@ -622,7 +649,7 @@ fn run域port委托_读回与直调操作面等值() {
     let env = PortEnv::new("run-port");
     let store = open_workspace_ok(&env.db_path("ws"));
     store
-        .create_change_record(change_archive("port-run", 1000))
+        .create_change_record(change_archive("port-run", "port-run", 1000))
         .expect("建档应成功");
 
     let port: Arc<dyn ChangeStateStore> = Arc::new(store);
@@ -667,7 +694,7 @@ fn run域port委托_fault映射_conflict与notfound() {
     let env = PortEnv::new("run-port-fault");
     let store = open_workspace_ok(&env.db_path("ws"));
     store
-        .create_change_record(change_archive("port-run", 1000))
+        .create_change_record(change_archive("port-run", "port-run", 1000))
         .expect("建档应成功");
     let port: Arc<dyn ChangeStateStore> = Arc::new(store);
 

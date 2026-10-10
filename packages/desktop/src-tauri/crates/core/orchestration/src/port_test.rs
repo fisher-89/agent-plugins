@@ -17,6 +17,10 @@ use workflow::write::{
 // 装置：写面原生载荷 fixture 与五假 port
 // ---------------------------------------------------------------------------
 
+/// 固定 change **id** 字面量（ToolCommand 各变体定位载荷——一切寻址以 id 为
+/// 准；空串占位退役，D12）。
+const CHANGE_ID: &str = "6b1d9e34-8f27-4c05-9a73-2e5b0c8d1f46";
+
 fn sample_phase_next_outcome() -> PhaseNextOutcome {
     PhaseNextOutcome {
         done: false,
@@ -135,8 +139,9 @@ impl RunEventSink for RecordingSink {
 // ToolCommand 六变体封闭集
 // ---------------------------------------------------------------------------
 
-/// ToolCommand 七变体封闭集：七变体构造 + match 穷尽分发编译期锚定；载荷直载
-/// 写面输入类型（PhaseLogInput / BacktrackInput 原样承接——AC-6 进程内缝命令面）。
+/// ToolCommand 七变体封闭集：七变体构造 + match 穷尽分发编译期锚定；各变体定
+/// 位载荷 `change_id` 原样承接（id 归键——字段改名置换）；载荷直载写面输入类
+/// 型（PhaseLogInput / BacktrackInput 原样承接——AC-6 进程内缝命令面）。
 #[tokio::test]
 async fn tool_command六变体封闭集且match穷尽分发() {
     // match 穷尽：缺任一变体即编译失败（封闭集收缩形态的编译期锚）
@@ -147,29 +152,43 @@ async fn tool_command六变体封闭集且match穷尽分发() {
             ToolCommand::PhaseLog { .. } => "phase-log",
             ToolCommand::Backtrack { .. } => "backtrack",
             ToolCommand::DecisionLog { .. } => "decision-log",
-            ToolCommand::StaticCheck => "static-check",
+            ToolCommand::StaticCheck { .. } => "static-check",
             ToolCommand::TestExecution { .. } => "test-execution",
+        }
+    }
+
+    // 定位载荷提取（match 穷尽第二锚）：七变体齐载 change_id（含 StaticCheck
+    // 新字段——D12 归键，空串占位退役）
+    fn change_id_of(command: &ToolCommand) -> &str {
+        match command {
+            ToolCommand::PhaseNext { change_id, .. }
+            | ToolCommand::PhaseStart { change_id, .. }
+            | ToolCommand::PhaseLog { change_id, .. }
+            | ToolCommand::Backtrack { change_id, .. }
+            | ToolCommand::DecisionLog { change_id, .. }
+            | ToolCommand::StaticCheck { change_id }
+            | ToolCommand::TestExecution { change_id } => change_id,
         }
     }
 
     let commands = vec![
         (
             ToolCommand::PhaseNext {
-                change: "c".to_owned(),
+                change_id: CHANGE_ID.to_owned(),
                 run_id: "run-1".to_owned(),
             },
             "phase-next",
         ),
         (
             ToolCommand::PhaseStart {
-                change: "c".to_owned(),
+                change_id: CHANGE_ID.to_owned(),
                 phase: "implement".to_owned(),
             },
             "phase-start",
         ),
         (
             ToolCommand::PhaseLog {
-                change: "c".to_owned(),
+                change_id: CHANGE_ID.to_owned(),
                 phase: "implement".to_owned(),
                 input: sample_phase_log_input(),
             },
@@ -177,7 +196,7 @@ async fn tool_command六变体封闭集且match穷尽分发() {
         ),
         (
             ToolCommand::Backtrack {
-                change: "c".to_owned(),
+                change_id: CHANGE_ID.to_owned(),
                 phase: "implement".to_owned(),
                 input: sample_backtrack_input(),
             },
@@ -185,24 +204,34 @@ async fn tool_command六变体封闭集且match穷尽分发() {
         ),
         (
             ToolCommand::DecisionLog {
-                change: "c".to_owned(),
+                change_id: CHANGE_ID.to_owned(),
                 phase: "implement".to_owned(),
                 session_id: "sess-1".to_owned(),
             },
             "decision-log",
         ),
-        (ToolCommand::StaticCheck, "static-check"),
+        (
+            ToolCommand::StaticCheck {
+                change_id: CHANGE_ID.to_owned(),
+            },
+            "static-check",
+        ),
     ];
     assert_eq!(commands.len(), 6, "封闭集六变体");
 
     for (command, label) in &commands {
         assert_eq!(describe(command), *label, "变体 {label} 可辨");
+        assert_eq!(
+            change_id_of(command),
+            CHANGE_ID,
+            "变体 {label} 定位载荷 change_id 原样承接"
+        );
     }
 
     // 载荷直载写面输入类型：PhaseLogInput / BacktrackInput 原样承接（PartialEq
     // 逐字段相等——AC-6 进程内缝命令面）
     let logged = ToolCommand::PhaseLog {
-        change: "c".to_owned(),
+        change_id: CHANGE_ID.to_owned(),
         phase: "implement".to_owned(),
         input: sample_phase_log_input(),
     };
@@ -214,7 +243,7 @@ async fn tool_command六变体封闭集且match穷尽分发() {
         _ => panic!("变体漂移"),
     }
     let back = ToolCommand::Backtrack {
-        change: "c".to_owned(),
+        change_id: CHANGE_ID.to_owned(),
         phase: "implement".to_owned(),
         input: sample_backtrack_input(),
     };
@@ -236,6 +265,36 @@ async fn tool_command六变体封闭集且match穷尽分发() {
         .expect("步产出应可用");
     assert!(matches!(output, ToolStepOutput::StaticCheck(outcome) if outcome.passed));
     assert_eq!(seen.lock().expect("锁").len(), 1, "命令原样到达注入 port");
+}
+
+/// StaticCheck 命令 change_id 归键（D12 载荷锚）：携真实 change id 构造 → 定
+/// 位载荷逐字承接且非空（空串占位退役——static_check 审计行按 change 可枚举的
+/// 前提；行为断言归 steps_test 审计行）。
+#[test]
+fn static_check命令change_id归键构造面() {
+    let check = ToolCommand::StaticCheck {
+        change_id: CHANGE_ID.to_owned(),
+    };
+    match &check {
+        ToolCommand::StaticCheck { change_id } => {
+            assert_eq!(change_id, CHANGE_ID, "定位载荷逐字承接");
+            assert!(!change_id.is_empty(), "非空串占位（D12 归键前提）");
+        }
+        other => panic!("变体漂移: {other:?}"),
+    }
+    // 载荷参与等值：id 不同即命令不同（审计行归桶可辨）；Clone/PartialEq 派生可用
+    assert_ne!(
+        check,
+        ToolCommand::StaticCheck {
+            change_id: "other-id".to_owned()
+        }
+    );
+    assert_eq!(
+        check,
+        ToolCommand::StaticCheck {
+            change_id: CHANGE_ID.to_owned()
+        }
+    );
 }
 
 /// ToolStepOutput 载荷换血：各变体载荷（写面原生 PhaseNextOutcome /
@@ -506,8 +565,8 @@ fn 既有三契约与中性类型保持() {
 
 use crate::port::{TestExecutionConclusion, TestExecutionOutcome, TestExecutionRunner};
 
-/// 可编程产出 / Err 的假 TestExecutionRunner（root / change 双参透传断言面；
-/// calls 经 Arc 共享——测试侧持句柄读记录）。
+/// 可编程产出 / Err 的假 TestExecutionRunner（root / name 双参透传断言面
+/// ——磁盘面 port 收 name；calls 经 Arc 共享——测试侧持句柄读记录）。
 struct ProgrammableTestExecutionRunner {
     calls: Arc<Mutex<Vec<(String, String)>>>,
     result: Result<TestExecutionOutcome, String>,
@@ -529,11 +588,11 @@ impl ProgrammableTestExecutionRunner {
 }
 
 impl TestExecutionRunner for ProgrammableTestExecutionRunner {
-    fn run(&self, root: &str, change: &str) -> crate::port::BoxToolFuture {
+    fn run(&self, root: &str, name: &str) -> crate::port::BoxToolFuture {
         self.calls
             .lock()
             .expect("calls 锁不可中毒")
-            .push((root.to_owned(), change.to_owned()));
+            .push((root.to_owned(), name.to_owned()));
         let result = self.result.clone();
         Box::pin(async move { result.map(ToolStepOutput::TestExecution) })
     }
@@ -557,7 +616,8 @@ fn sample_execution_outcome(conclusion: TestExecutionConclusion) -> TestExecutio
 }
 
 /// 正向：ToolCommand 第七变体封闭集——TestExecution 构造 + match 穷尽编译锚
-/// + change 载荷透传 + 七变体互异（既有六变体测试扩行，零改动持衡）。
+/// + change_id 载荷与 name 入参透传 + 七变体互异（既有六变体测试扩行，零改动
+/// 持衡）。
 #[tokio::test]
 async fn test_execution命令第七变体封闭集且change载荷透传() {
     // match 穷尽：缺 TestExecution 臂即编译失败（封闭集扩臂的编译期锚）
@@ -568,18 +628,35 @@ async fn test_execution命令第七变体封闭集且change载荷透传() {
             ToolCommand::PhaseLog { .. } => "phase-log",
             ToolCommand::Backtrack { .. } => "backtrack",
             ToolCommand::DecisionLog { .. } => "decision-log",
-            ToolCommand::StaticCheck => "static-check",
+            ToolCommand::StaticCheck { .. } => "static-check",
             ToolCommand::TestExecution { .. } => "test-execution",
         }
     }
     assert_eq!(
         describe(&ToolCommand::TestExecution {
-            change: "c".to_owned()
+            change_id: CHANGE_ID.to_owned()
         }),
         "test-execution"
     );
 
-    // change 载荷透传：命令经 ToolStepRequest 原样到达注入 port
+    // change_id 载荷透传：命令定位键原样承接（磁盘面 name 由消费点解析）
+    let execution = ToolCommand::TestExecution {
+        change_id: CHANGE_ID.to_owned(),
+    };
+    match &execution {
+        ToolCommand::TestExecution { change_id } => {
+            assert_eq!(change_id, CHANGE_ID, "change_id 定位载荷逐字承接");
+        }
+        other => panic!("变体漂移: {other:?}"),
+    }
+    assert_ne!(
+        execution,
+        ToolCommand::TestExecution {
+            change_id: "other-id".to_owned()
+        },
+        "定位载荷参与变体等值（归桶可辨）"
+    );
+    // name 入参透传：命令经 ToolStepRequest 原样到达注入 port
     let (inner, calls) = ProgrammableTestExecutionRunner::with_result(Ok(
         sample_execution_outcome(TestExecutionConclusion::Pass),
     ));
@@ -595,16 +672,18 @@ async fn test_execution命令第七变体封闭集且change载荷透传() {
     assert_eq!(
         calls.lock().expect("锁").as_slice(),
         [("/tmp/workspace-root".to_owned(), "demo-change".to_owned())],
-        "change 载荷透传（root / change 原样到达注入 port）"
+        "root / name 原样到达注入 port（磁盘面报告树定位语义）"
     );
 
     // 七变体互异（封闭集封闭性——第八臂不存在）
     let seventh = ToolCommand::TestExecution {
-        change: "c".to_owned(),
+        change_id: CHANGE_ID.to_owned(),
     };
     assert_ne!(
         describe(&seventh),
-        describe(&ToolCommand::StaticCheck),
+        describe(&ToolCommand::StaticCheck {
+            change_id: CHANGE_ID.to_owned()
+        }),
         "门禁双命令可辨（检查域家族两成员不混淆）"
     );
 }
@@ -628,8 +707,9 @@ fn tool_step_output_test_execution载荷构造与提取逐字段相等() {
 }
 
 /// 正向：TestExecutionRunner trait 面——假实现经 Arc<dyn …> 注入、root /
-/// change 双参透传、BoxToolFuture resolve 出 ToolStepOutput::TestExecution
-///（object safety + Send + Sync 编译锚——StaticCheckRunner 同型）。
+/// name 双参透传、BoxToolFuture resolve 出 ToolStepOutput::TestExecution
+///（object safety + Send + Sync 编译锚——StaticCheckRunner 同型；磁盘面 port
+/// 恒收 name，解析在 steps 消费点）。
 #[tokio::test]
 async fn test_execution_runner假实现经arc注入且root_change透传() {
     fn assert_send_sync<T: Send + Sync>() {}
@@ -651,7 +731,7 @@ async fn test_execution_runner假实现经arc注入且root_change透传() {
     assert_eq!(
         calls.lock().expect("锁").as_slice(),
         [("/tmp/workspace-root".to_owned(), "walker-change".to_owned())],
-        "root / change 双参透传（spawn cwd 与报告树定位语义）"
+        "root / name 双参透传（spawn cwd 与报告树定位语义）"
     );
 }
 

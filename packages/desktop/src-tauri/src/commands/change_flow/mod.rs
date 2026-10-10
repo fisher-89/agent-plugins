@@ -40,10 +40,10 @@ fn is_blank(value: &str) -> bool {
 
 /// run 事件出口的注册表桥：WorkerAgent 会话事件（早于 turn 收口）据此先行
 /// 同步 run 会话槽（停止寻址）与广播总线（Channel 由订阅转发任务回流）。
-/// 复合键（workspace root, change）随行（D10）。
+/// 复合键（workspace root, change id）随行（D10）。
 struct ChangeFlowSink {
     root: String,
-    change: String,
+    change_id: String,
     control: Arc<ChangeFlowControl>,
 }
 
@@ -51,9 +51,9 @@ impl RunEventSink for ChangeFlowSink {
     fn emit(&self, update: RunUpdate) {
         if let RunUpdate::SessionEvent { session_id, .. } = &update {
             self.control
-                .set_session(&self.root, &self.change, Some(session_id.clone()));
+                .set_session(&self.root, &self.change_id, Some(session_id.clone()));
         }
-        self.control.publish(&self.root, &self.change, update);
+        self.control.publish(&self.root, &self.change_id, update);
     }
 }
 
@@ -63,10 +63,10 @@ pub async fn change_flow_start(
     app: AppHandle,
     on_event: Channel<RunNotice>,
     root: String,
-    change: String,
+    id: String,
     auto_next_phase: bool,
 ) -> Result<ChangeRunSummary, String> {
-    change_flow_start_with(app, on_event, root, change, auto_next_phase).await
+    change_flow_start_with(app, on_event, root, id, auto_next_phase).await
 }
 
 /// [`change_flow_start`] 的泛型测试缝（生产注入 Wry 句柄、测试注入
@@ -75,29 +75,29 @@ pub(crate) async fn change_flow_start_with<R: tauri::Runtime>(
     app: AppHandle<R>,
     on_event: Channel<RunNotice>,
     root: String,
-    change: String,
+    id: String,
     auto_next_phase: bool,
 ) -> Result<ChangeRunSummary, String> {
     if is_blank(&root) {
         return Err("非法 root: 不得为空白（无 cwd 无从发起）".to_owned());
     }
-    if is_blank(&change) {
-        return Err("非法 change: 不得为空白（无 change 无从发起）".to_owned());
+    if is_blank(&id) {
+        return Err("非法 id: 不得为空白（无 change 无从发起）".to_owned());
     }
-    // 前置校验 1：目标 change 已建档（db `ChangeRecord` 在案；存量 CLI change
-    // 无建档不可发起——文档形态 change 不可运行，显式拒绝）
+    // 前置校验 1：目标 change 已建档（db `ChangeRecord` 在案，按 id 读记录；
+    // 未建档不可发起，显式拒绝）
     let stores = app.state::<WorkspaceStores>();
     let store = stores.for_root(&root).map_err(|e| e.to_string())?;
     let record = store
-        .find_change_record(&change)
+        .find_change_record(&id)
         .map_err(|e| e.to_string())?
-        .ok_or_else(|| format!("change \"{change}\" 未建档（无 ChangeRecord），无从编排"))?;
+        .ok_or_else(|| format!("change \"{id}\" 未建档（无 ChangeRecord），无从编排"))?;
     // 前置校验 2：workflow_type=requirement（写面相位表 None → 显式拒绝；
     // V1 范围显式拒绝 bug-fix / test-only，优于相位机半途报错）
     if phase_table(&record.workflow_type).is_none() {
         return Err(format!(
-            "仅支持 requirement 工作流（change \"{change}\" 的 workflow_type 为 \"{}\"）",
-            record.workflow_type
+            "仅支持 requirement 工作流（change \"{}\" 的 workflow_type 为 \"{}\"）",
+            record.name, record.workflow_type
         ));
     }
     // 前置校验 3：exec root 解析（design D9 双 root 拆分）——record.worktree
@@ -123,17 +123,18 @@ pub(crate) async fn change_flow_start_with<R: tauri::Runtime>(
     let control = Arc::clone(app.state::<Arc<ChangeFlowControl>>().inner());
     if app
         .state::<Arc<orchestration::archive_flow::ArchiveControl>>()
-        .is_active(&root, &change)
+        .is_active(&root, &id)
     {
         return Err(format!(
-            "change \"{change}\" 的归档链进行中，不可发起 run（请等待归档收口或先停止归档链）"
+            "change \"{}\" 的归档链进行中，不可发起 run（请等待归档收口或先停止归档链）",
+            record.name
         ));
     }
     let run_id = new_run_id();
     // 发起时刻铸造（run 运行史 started_at / 注册表条目同值——corpus 确定性
     // 由命令携带时间戳保证，design D5）
     let started_at = now_millis();
-    let guard = control.begin_run(&root, &change, run_id.clone(), started_at)?;
+    let guard = control.begin_run(&root, &id, run_id.clone(), started_at)?;
 
     // 组合根装配（run 作用域一次）：组合 turn + 三 port + 快照源 + 事件桥
     // + run 级会话锚点（每 run 一个实例，W7）+ store 缝（写面落库 / 快照
@@ -149,7 +150,7 @@ pub(crate) async fn change_flow_start_with<R: tauri::Runtime>(
     )?;
     let sink: Arc<dyn RunEventSink> = Arc::new(ChangeFlowSink {
         root: root.clone(),
-        change: change.clone(),
+        change_id: id.clone(),
         control: Arc::clone(&control),
     });
     let worker: Arc<dyn WorkerAgentPort> = Arc::new(KernelWorkerPort::new(composed, sink));
@@ -169,7 +170,7 @@ pub(crate) async fn change_flow_start_with<R: tauri::Runtime>(
     ));
     let request = RunRequest {
         root: exec_root,
-        change: change.clone(),
+        change_id: id.clone(),
         run_id: run_id.clone(),
         auto_next_phase,
         started_at,
@@ -178,7 +179,7 @@ pub(crate) async fn change_flow_start_with<R: tauri::Runtime>(
     // 提前 resolve：run_id 立即可知，变更通知经 Channel 流出（订阅先行于
     // walker 启动；kind-only Notice——通知仅失效信号，查询结果权威）
     let updates = control
-        .subscribe(&root, &change)
+        .subscribe(&root, &id)
         .ok_or_else(|| "run 订阅失败（注册表条目缺失）".to_owned())?;
     spawn_channel_forward(on_event, updates);
     tauri::async_runtime::spawn(async move {
@@ -192,24 +193,24 @@ pub(crate) async fn change_flow_start_with<R: tauri::Runtime>(
 
 #[tauri::command]
 #[specta::specta]
-pub fn change_flow_stop(app: AppHandle, root: String, change: String) -> Result<(), String> {
-    change_flow_stop_with(app, root, change)
+pub fn change_flow_stop(app: AppHandle, root: String, id: String) -> Result<(), String> {
+    change_flow_stop_with(app, root, id)
 }
 
 /// [`change_flow_stop`] 的泛型测试缝。
 pub(crate) fn change_flow_stop_with<R: tauri::Runtime>(
     app: AppHandle<R>,
     root: String,
-    change: String,
+    id: String,
 ) -> Result<(), String> {
-    if is_blank(&root) || is_blank(&change) {
-        // miss 幂等：与 agent_stop 同口径，blank root / change 无副作用直接成功
+    if is_blank(&root) || is_blank(&id) {
+        // miss 幂等：与 agent_stop 同口径，blank root / id 无副作用直接成功
         return Ok(());
     }
     let control = app.state::<Arc<ChangeFlowControl>>();
-    if control.request_stop(&root, &change) {
+    if control.request_stop(&root, &id) {
         // 当前 WorkerAgent 会话经既有 StopRegistry 请求终止（miss 幂等）
-        if let Some(session_id) = control.current_session(&root, &change) {
+        if let Some(session_id) = control.current_session(&root, &id) {
             let registry = app.state::<Arc<StopRegistry>>();
             registry.request_stop(&session_id);
         }
@@ -222,27 +223,27 @@ pub(crate) fn change_flow_stop_with<R: tauri::Runtime>(
 pub fn change_flow_answer(
     app: AppHandle,
     root: String,
-    change: String,
+    id: String,
     answer: String,
 ) -> Result<(), String> {
-    change_flow_answer_with(app, root, change, answer)
+    change_flow_answer_with(app, root, id, answer)
 }
 
 /// [`change_flow_answer`] 的泛型测试缝。
 pub(crate) fn change_flow_answer_with<R: tauri::Runtime>(
     app: AppHandle<R>,
     root: String,
-    change: String,
+    id: String,
     answer: String,
 ) -> Result<(), String> {
     if is_blank(&root) {
         return Err("非法 root: 不得为空白".to_owned());
     }
-    if is_blank(&change) {
-        return Err("非法 change: 不得为空白".to_owned());
+    if is_blank(&id) {
+        return Err("非法 id: 不得为空白".to_owned());
     }
     app.state::<Arc<ChangeFlowControl>>()
-        .answer(&root, &change, answer)
+        .answer(&root, &id, answer)
 }
 
 #[tauri::command]
@@ -250,27 +251,27 @@ pub(crate) fn change_flow_answer_with<R: tauri::Runtime>(
 pub fn change_flow_confirm(
     app: AppHandle,
     root: String,
-    change: String,
+    id: String,
     proceed: bool,
 ) -> Result<(), String> {
-    change_flow_confirm_with(app, root, change, proceed)
+    change_flow_confirm_with(app, root, id, proceed)
 }
 
 /// [`change_flow_confirm`] 的泛型测试缝。
 pub(crate) fn change_flow_confirm_with<R: tauri::Runtime>(
     app: AppHandle<R>,
     root: String,
-    change: String,
+    id: String,
     proceed: bool,
 ) -> Result<(), String> {
     if is_blank(&root) {
         return Err("非法 root: 不得为空白".to_owned());
     }
-    if is_blank(&change) {
-        return Err("非法 change: 不得为空白".to_owned());
+    if is_blank(&id) {
+        return Err("非法 id: 不得为空白".to_owned());
     }
     app.state::<Arc<ChangeFlowControl>>()
-        .confirm(&root, &change, proceed)
+        .confirm(&root, &id, proceed)
 }
 
 #[tauri::command]
@@ -279,9 +280,9 @@ pub fn change_flow_watch(
     app: AppHandle,
     on_event: Channel<RunNotice>,
     root: String,
-    change: String,
+    id: String,
 ) -> Result<(), String> {
-    change_flow_watch_with(app, on_event, root, change)
+    change_flow_watch_with(app, on_event, root, id)
 }
 
 /// [`change_flow_watch`] 的泛型测试缝：运行中视图重挂后的 broadcast 补订
@@ -291,13 +292,13 @@ pub(crate) fn change_flow_watch_with<R: tauri::Runtime>(
     app: AppHandle<R>,
     on_event: Channel<RunNotice>,
     root: String,
-    change: String,
+    id: String,
 ) -> Result<(), String> {
-    if is_blank(&root) || is_blank(&change) {
+    if is_blank(&root) || is_blank(&id) {
         return Ok(());
     }
     let control = app.state::<Arc<ChangeFlowControl>>();
-    match control.subscribe(&root, &change) {
+    match control.subscribe(&root, &id) {
         Some(updates) => {
             spawn_channel_forward(on_event, updates);
             Ok(())

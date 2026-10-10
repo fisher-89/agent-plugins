@@ -1,0 +1,1247 @@
+{
+  "workflow_type": "requirement",
+  "created": "2026-10-10",
+  "file_log": [
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "openspec/changes/desktop-change-db-identity/proposal.md",
+      "at": "2026-10-10T06:54:03.064Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "openspec/changes/desktop-change-db-identity/specs/desktop-change-state-store/spec.md",
+      "at": "2026-10-10T06:54:03.064Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "openspec/changes/desktop-change-db-identity/specs/desktop-change-queries/spec.md",
+      "at": "2026-10-10T06:54:03.064Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "openspec/changes/desktop-change-db-identity/specs/desktop-change-flow-view/spec.md",
+      "at": "2026-10-10T06:54:03.064Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "openspec/changes/desktop-change-db-identity/specs/desktop-change-archive/spec.md",
+      "at": "2026-10-10T06:54:03.064Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "openspec/changes/desktop-change-db-identity/specs/desktop-change-orchestration/spec.md",
+      "at": "2026-10-10T06:54:03.064Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "openspec/changes/desktop-change-db-identity/specs/desktop-change-create/spec.md",
+      "at": "2026-10-10T06:54:03.064Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "openspec/changes/desktop-change-db-identity/specs/desktop-app-shell/spec.md",
+      "at": "2026-10-10T06:54:03.064Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "openspec/changes/desktop-change-db-identity/specs/desktop-page-routing/spec.md",
+      "at": "2026-10-10T06:54:03.064Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "openspec/changes/desktop-change-db-identity/specs/desktop-corpus-regression/spec.md",
+      "at": "2026-10-10T06:54:03.064Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "openspec/changes/desktop-change-db-identity/specs/desktop-workspace-store/spec.md",
+      "at": "2026-10-10T06:54:03.064Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "openspec/changes/desktop-change-db-identity/design.md",
+      "at": "2026-10-10T07:13:34.691Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "openspec/changes/desktop-change-db-identity/tasks.md",
+      "at": "2026-10-10T07:13:34.691Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "openspec/changes/desktop-change-db-identity/test-design.md",
+      "at": "2026-10-10T07:28:37.505Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/crates/infra/store/src/model.rs",
+      "at": "2026-10-10T07:35:05.053Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/crates/infra/store/src/store.rs",
+      "at": "2026-10-10T08:02:26.726Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/crates/infra/store/src/change_port.rs",
+      "at": "2026-10-10T07:37:00.771Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/crates/infra/store/src/envelope.rs",
+      "at": "2026-10-10T07:37:04.306Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/Cargo.toml",
+      "at": "2026-10-10T07:37:08.666Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/crates/core/workflow/Cargo.toml",
+      "at": "2026-10-10T07:37:10.183Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/crates/core/workflow/src/state.rs",
+      "at": "2026-10-10T07:37:44.486Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/crates/core/workflow/src/write/create.rs",
+      "at": "2026-10-10T07:38:13.725Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/crates/core/workflow/src/write/archive.rs",
+      "at": "2026-10-10T07:38:26.709Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/crates/core/workflow/src/write/phase_start.rs",
+      "at": "2026-10-10T07:38:32.220Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/crates/core/workflow/src/write/phase_log.rs",
+      "at": "2026-10-10T07:38:41.348Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/crates/core/workflow/src/write/backtrack.rs",
+      "at": "2026-10-10T07:38:46.891Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/crates/core/workflow/src/write/decision_log.rs",
+      "at": "2026-10-10T07:38:50.540Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/crates/core/workflow/src/write/phase_next.rs",
+      "at": "2026-10-10T07:39:09.238Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/crates/core/workflow/src/write/run.rs",
+      "at": "2026-10-10T07:39:14.876Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/crates/core/workflow/src/queries/list.rs",
+      "at": "2026-10-10T07:39:33.483Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/crates/core/workflow/src/queries/mod.rs",
+      "at": "2026-10-10T07:39:38.195Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/crates/core/workflow/src/queries/detail.rs",
+      "at": "2026-10-10T07:39:56.826Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/crates/core/orchestration/src/control.rs",
+      "at": "2026-10-10T07:41:28.770Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/crates/core/orchestration/src/port.rs",
+      "at": "2026-10-10T07:41:39.604Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/crates/core/orchestration/src/walker.rs",
+      "at": "2026-10-10T07:42:38.307Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/crates/core/orchestration/src/steps.rs",
+      "at": "2026-10-10T07:42:51.826Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/crates/core/orchestration/src/run_history.rs",
+      "at": "2026-10-10T07:42:53.202Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/crates/core/orchestration/src/snapshot.rs",
+      "at": "2026-10-10T07:42:57.347Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/crates/core/orchestration/src/archive_flow.rs",
+      "at": "2026-10-10T08:03:30.180Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/src/commands/changes/mod.rs",
+      "at": "2026-10-10T07:45:07.242Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/src/commands/change_flow/mod.rs",
+      "at": "2026-10-10T07:45:24.186Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src/routes.tsx",
+      "at": "2026-10-10T07:48:25.141Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src/views/changes/change-list-view.tsx",
+      "at": "2026-10-10T07:48:48.825Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src/views/changes/components/change-create-dialog.tsx",
+      "at": "2026-10-10T07:48:54.539Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src/views/changes/hooks/use-change-detail.ts",
+      "at": "2026-10-10T07:49:09.881Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src/views/changes/hooks/use-session-transcript.ts",
+      "at": "2026-10-10T07:49:57.679Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src/views/changes/hooks/use-change-list.ts",
+      "at": "2026-10-10T07:49:59.958Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src/views/changes/flow/detail-drawer.tsx",
+      "at": "2026-10-10T07:50:12.816Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src/views/changes/flow/types.ts",
+      "at": "2026-10-10T07:50:14.339Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src-tauri/crates/infra/store/src/model_test.rs",
+      "at": "2026-10-10T08:46:07.642Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src/views/changes/flow/run-control-panel.tsx",
+      "at": "2026-10-10T07:51:22.978Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src-tauri/src/commands/changes/mod_test.rs",
+      "at": "2026-10-10T08:39:50.954Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src-tauri/src/commands/change_flow/mod_test.rs",
+      "at": "2026-10-10T08:31:51.822Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src-tauri/crates/infra/store/src/store_test.rs",
+      "at": "2026-10-10T08:54:08.263Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src-tauri/src/commands/archive_flow/mod_test.rs",
+      "at": "2026-10-10T08:32:38.670Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src-tauri/crates/core/workflow/src/state_test.rs",
+      "at": "2026-10-10T08:30:24.030Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src-tauri/crates/core/workflow/src/artifacts/registry_test.rs",
+      "at": "2026-10-10T07:51:23.460Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src-tauri/crates/core/workflow/src/artifacts/markdown_doc_test.rs",
+      "at": "2026-10-10T07:51:25.433Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src-tauri/crates/core/workflow/src/artifacts/eval_checklist_test.rs",
+      "at": "2026-10-10T07:51:26.959Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src-tauri/crates/core/workflow/src/queries/list_test.rs",
+      "at": "2026-10-10T08:44:22.514Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src-tauri/crates/infra/store/src/change_port_test.rs",
+      "at": "2026-10-10T08:49:54.436Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src-tauri/crates/core/workflow/src/queries/detail_test.rs",
+      "at": "2026-10-10T08:39:56.529Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src/views/changes/change-detail-view.tsx",
+      "at": "2026-10-10T08:07:10.719Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src-tauri/crates/core/workflow/src/write/phase_start_test.rs",
+      "at": "2026-10-10T08:36:58.364Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src-tauri/crates/core/workflow/src/write/phase_log_test.rs",
+      "at": "2026-10-10T08:37:48.855Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src-tauri/crates/core/workflow/src/write/backtrack_test.rs",
+      "at": "2026-10-10T08:38:23.452Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src-tauri/crates/core/workflow/src/write/decision_log_test.rs",
+      "at": "2026-10-10T08:39:34.868Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src-tauri/crates/core/orchestration/src/snapshot_test.rs",
+      "at": "2026-10-10T08:34:00.358Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src-tauri/crates/core/orchestration/src/run_history_test.rs",
+      "at": "2026-10-10T08:35:34.957Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src-tauri/crates/core/workflow/src/write/phase_next_test.rs",
+      "at": "2026-10-10T08:41:21.287Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src-tauri/crates/core/workflow/src/write/run_test.rs",
+      "at": "2026-10-10T08:40:12.593Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src-tauri/crates/core/workflow/src/write/archive_test.rs",
+      "at": "2026-10-10T08:35:15.870Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src-tauri/crates/core/workflow/src/write/create_test.rs",
+      "at": "2026-10-10T08:32:48.260Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/package.json",
+      "at": "2026-10-10T07:55:23.264Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/crates/infra/store/src/store_test.rs",
+      "at": "2026-10-10T07:55:52.948Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/crates/core/workflow/src/write/create_test.rs",
+      "at": "2026-10-10T07:58:41.132Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src/app.test.tsx",
+      "at": "2026-10-10T08:57:20.507Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src/views/changes/change-list-view.test.tsx",
+      "at": "2026-10-10T08:57:16.518Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/src/commands/changes/mod_test.rs",
+      "at": "2026-10-10T07:59:14.379Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src/views/changes/change-detail-view.test.tsx",
+      "at": "2026-10-10T08:48:23.651Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src-tauri/crates/core/orchestration/src/steps_test.rs",
+      "at": "2026-10-10T08:42:31.263Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src/views/changes/hooks/use-change-flow-run.test.ts",
+      "at": "2026-10-10T08:34:13.360Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src/views/changes/hooks/use-change-flow-run.ts",
+      "at": "2026-10-10T08:01:16.114Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src/views/changes/hooks/use-archive-flow.ts",
+      "at": "2026-10-10T08:01:16.114Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src/views/changes/flow/archive-panel.tsx",
+      "at": "2026-10-10T08:01:16.114Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src/types/generated/bindings.ts",
+      "at": "2026-10-10T08:01:16.114Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src-tauri/src/commands/archive_flow/mod.rs",
+      "at": "2026-10-10T08:01:20.303Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src/views/changes/hooks/use-archive-flow.test.ts",
+      "at": "2026-10-10T08:01:39.709Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src/views/changes/hooks/use-change-list.test.ts",
+      "at": "2026-10-10T08:35:26.815Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src/views/changes/hooks/use-change-detail.test.ts",
+      "at": "2026-10-10T08:31:53.472Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src/views/changes/flow/attachments.test.ts",
+      "at": "2026-10-10T08:02:07.679Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src/views/changes/flow/change-flow-graph.test.tsx",
+      "at": "2026-10-10T08:02:08.898Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src/views/changes/flow/graph.test.ts",
+      "at": "2026-10-10T08:02:19.045Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src/views/changes/flow/layout.test.ts",
+      "at": "2026-10-10T08:02:20.572Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src/views/changes/flow/detail-drawer.test.tsx",
+      "at": "2026-10-10T08:37:06.015Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src/views/changes/flow/run-control-panel.test.tsx",
+      "at": "2026-10-10T08:40:11.240Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src/views/changes/flow/archive-panel.test.tsx",
+      "at": "2026-10-10T08:53:06.614Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src-tauri/crates/core/orchestration/src/port_test.rs",
+      "at": "2026-10-10T08:57:37.164Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src-tauri/crates/core/orchestration/src/walker_test.rs",
+      "at": "2026-10-10T08:56:53.467Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src-tauri/crates/core/orchestration/src/archive_flow_test.rs",
+      "at": "2026-10-10T08:56:07.298Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src/components/app-sidebar.tsx",
+      "at": "2026-10-10T08:11:36.209Z"
+    },
+    {
+      "op": "revert",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/crates/infra/exec/src/lib.rs",
+      "at": "2026-10-10T08:14:01.196Z"
+    },
+    {
+      "op": "revert",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/crates/infra/exec/src/lib_test.rs",
+      "at": "2026-10-10T08:14:01.196Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src/components/app-sidebar.tsx",
+      "at": "2026-10-10T08:15:05.399Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/crates/core/workflow/tests/corpus_golden_test.rs",
+      "at": "2026-10-10T08:31:42.135Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src-tauri/src/bindings/mod_test.rs",
+      "at": "2026-10-10T08:33:42.492Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/crates/core/workflow/tests/fixtures/README.md",
+      "at": "2026-10-10T08:32:46.502Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src-tauri/crates/core/workflow/tests/corpus_golden_test.rs",
+      "at": "2026-10-10T08:35:21.596Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src-tauri/crates/core/workflow/tests/fixtures/README.md",
+      "at": "2026-10-10T08:35:21.596Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src-tauri/crates/core/workflow/tests/golden/corpus-archive-prefix.json",
+      "at": "2026-10-10T08:35:21.596Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src-tauri/crates/core/workflow/tests/golden/corpus-backtrack-stale.json",
+      "at": "2026-10-10T08:35:21.596Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src-tauri/crates/core/workflow/tests/golden/corpus-list-mixed.json",
+      "at": "2026-10-10T08:35:21.596Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src-tauri/crates/core/workflow/tests/golden/corpus-multi-attempt.json",
+      "at": "2026-10-10T08:35:21.596Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src-tauri/crates/core/workflow/tests/golden/corpus-run-history.json",
+      "at": "2026-10-10T08:35:21.596Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src-tauri/crates/core/workflow/tests/golden/corpus-run-interrupted.json",
+      "at": "2026-10-10T08:35:21.596Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src-tauri/crates/core/workflow/tests/golden/corpus-slots-null.json",
+      "at": "2026-10-10T08:35:21.596Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src-tauri/crates/core/workflow/tests/golden/corpus-worktree.json",
+      "at": "2026-10-10T08:35:21.596Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src-tauri/crates/core/orchestration/src/control_test.rs",
+      "at": "2026-10-10T08:39:10.666Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src-tauri/crates/core/workflow/src/queries/mod_test.rs",
+      "at": "2026-10-10T08:40:14.841Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src/views/changes/components/change-create-dialog.test.tsx",
+      "at": "2026-10-10T08:43:35.877Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/crates/core/workflow/src/write/archive.rs",
+      "at": "2026-10-10T08:46:44.072Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src-tauri/crates/core/workflow/src/write/archive.rs",
+      "at": "2026-10-10T08:46:46.789Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src-tauri/crates/infra/store/src/envelope_test.rs",
+      "at": "2026-10-10T08:51:01.236Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "packages/desktop/src/views/agent/agent-debug-view.test.tsx",
+      "at": "2026-10-10T09:04:55.578Z"
+    },
+    {
+      "op": "delete",
+      "scope": "workflow",
+      "path": "corpus-document-form.json",
+      "at": "2026-10-10T09:06:49.393Z"
+    },
+    {
+      "op": "delete",
+      "scope": "workflow",
+      "path": "_rename.py",
+      "at": "2026-10-10T09:06:49.393Z"
+    },
+    {
+      "op": "delete",
+      "scope": "workflow",
+      "path": "packages/desktop/src-tauri/src/commands/archive_flow/_rename.py",
+      "at": "2026-10-10T09:06:49.393Z"
+    },
+    {
+      "op": "delete",
+      "scope": "workflow",
+      "path": "packages/desktop/src/views/changes/hooks/_rename.py",
+      "at": "2026-10-10T09:06:49.393Z"
+    },
+    {
+      "op": "delete",
+      "scope": "workflow",
+      "path": "packages/desktop/src-tauri/crates/core/workflow/tests/golden/corpus-document-form.json",
+      "at": "2026-10-10T09:06:49.393Z"
+    },
+    {
+      "op": "delete",
+      "scope": "workflow",
+      "path": "=",
+      "at": "2026-10-10T09:06:49.393Z"
+    },
+    {
+      "op": "delete",
+      "scope": "workflow",
+      "path": "CHANGE_ID.len",
+      "at": "2026-10-10T09:06:49.393Z"
+    },
+    {
+      "op": "delete",
+      "scope": "workflow",
+      "path": "NAME.len",
+      "at": "2026-10-10T09:06:49.393Z"
+    },
+    {
+      "op": "delete",
+      "scope": "workflow",
+      "path": "store_test.rs",
+      "at": "2026-10-10T09:06:49.393Z"
+    }
+  ],
+  "active_phase": null,
+  "eval": [
+    {
+      "phase": "proposal",
+      "attempt": 1,
+      "verdict": "pass",
+      "report": "评审 desktop-change-db-identity 的 proposal.md 与 10 个 spec delta。问题描述含 file:line 全链路（list.rs:117-137 → detail.rs:185 → change-detail-view.tsx:87）与根因「name 一职三任」；变更范围三节齐备（实现 18 条/测试 8 条/不要修改 7 条）；8 条风险均有具体缓解；AC-1~11 含对象+条件，AC-2/3/4/8 与 spec 场景逐条对应；8 项决策各含被拒备选；grep 无 TODO/TBD/placeholder/{{；能力章节 10 项修改能力与 specs/ 10 文件一一对应，引用沿用（零 delta）5 项为非缺口标注；13 命令、12 处注册表键、DTO 口径（RunNotice 零改动、存档面不增 id）、provenance <id>/archive/* 双侧一致；版本 0.4.30→0.4.31 与现库相符。11/11 通过。",
+      "checklist": [
+        {
+          "item": "问题描述清晰，包含背景和动机",
+          "pass": true,
+          "evidence": "proposal.md L11-27：含具体链路表（queries/list.rs:117-137 → detail.rs:185 → change-detail-view.tsx:87）与根因「name 一职三任」+两处结构性矛盾，非泛泛描述"
+        },
+        {
+          "item": "变更范围明确划分为实现文件、测试文件和不要修改",
+          "pass": true,
+          "evidence": "L68「### 实现文件」18 条、L94「### 测试文件」8 条、L108「### 不要修改」7 条；两清单均非空（另有 L104「### 删除文件」声明无整文件删除）"
+        },
+        {
+          "item": "风险包含具体的缓解措施",
+          "pass": true,
+          "evidence": "L136-145 八条风险均含具体缓解：R6「DESKTOP_GOLDEN_REWRITE=1+预期范围留痕+复核」、R2「AC 逐面机械断言+grep 清单收口+bindings/tsc」等"
+        },
+        {
+          "item": "验收标准可测试",
+          "pass": true,
+          "evidence": "L120-132 AC-1~11 均含对象+条件：AC-2「归档 change 详情 status=archived、9 站 pipeline 与 runs 全量出线」、AC-8「旧库打开成功、旧数据零可达、零迁移」；AC-10/11 为过程性验收"
+        },
+        {
+          "item": "关键决策包含理由和被拒绝的备选方案",
+          "pass": true,
+          "evidence": "L151-160 八项决策各列被拒备选及原因：旧库处置拒「decode-only 迁移链（迁移层与解析分支双负担）/手工迁移脚本」、路由拒「保留 :name（前缀错配 bug 原地复发）」"
+        },
+        {
+          "item": "提案与项目 CLAUDE.md 约定一致",
+          "pass": true,
+          "evidence": "L110 plugins/dev-team 零改动故不触插件 bump 规则；L92 desktop 0.4.30→0.4.31 与现库 packages/desktop/package.json（0.4.30）相符，属用户可见变更；golden 显式重写（L37）沿既有 wire contract 冻结约定"
+        },
+        {
+          "item": "无占位符或 TODO 内容",
+          "pass": true,
+          "evidence": "全 change 目录 grep TODO/TBD/placeholder/{{ — 零命中；「由 design 定稿」（如 L164）为相位归属非占位符（既有先例）"
+        },
+        {
+          "item": "所有非能力的模板章节已填写实质性内容",
+          "pass": true,
+          "evidence": "问题/提案/变更范围/验收标准/风险五节均实质填写（L9-145），另有过程决策表（L147-169）"
+        },
+        {
+          "item": "能力章节存在且至少有一个新增或修改条目",
+          "pass": true,
+          "evidence": "L39「## 能力」；L41「### 新增能力」显式「无」；L45「### 修改的能力」10 条非空（L47-56）"
+        },
+        {
+          "item": "specs/ 文件与能力章节一一对应",
+          "pass": true,
+          "evidence": "修改能力 10 项（desktop-change-state-store/queries/flow-view/archive/orchestration/create/app-shell/page-routing/corpus-regression/workspace-store）与 specs/ 下 10 个 spec.md 全等对应，无孤儿 spec；「引用沿用（零 delta）」5 项为零改动标注非缺口"
+        },
+        {
+          "item": "proposal.md 与 specs/ 之间无逻辑冲突",
+          "pass": true,
+          "evidence": "能力类型与 delta 一致（app-shell/workspace-store ADDED routing 落既有能力系先例）；AC-2「归档错配修复锚点」= queries「归档 change 全状态面」场景、AC-8=workspace-store 作废场景；13 命令、12 处注册表键、RunNotice 零改动、存档面不增 id、source_ref <id>/archive/* 双侧逐字一致"
+        }
+      ],
+      "start_at": "2026-10-10T06:42:23.365Z",
+      "timestamp": "2026-10-10T06:55:27.403Z"
+    },
+    {
+      "phase": "dev-design",
+      "attempt": 1,
+      "verdict": "pass",
+      "report": "dev-design 静态检查 10/10 通过。设计以 id 主键换锚贯通 store/workflow/orchestration/命令面/前端五层，D1–D14 定稿覆盖 proposal 六项待决；AC-1..11 逐项有落点，测试与 golden 范围显式移交测试相位（D13）；tasks 六阶段顺序自洽、任务粒度具体到文件与操作。备注：阶段一（infra）与阶段二（core）为跨 crate 类型换锚互锁单元，须同批编译（阶段二门限已限 cargo check -p workflow）；测试文件机械保编译随动按模板豁免不入变更清单。",
+      "checklist": [
+        {
+          "item": "架构组件已列出职责、依赖、技术栈和文件路径",
+          "pass": true,
+          "evidence": "架构组件表 24 行全含职责/文件位置/依赖/技术四列以上；技术栈均为具体形态（native_model 版本段、redb、serde/specta、uuid v7、react-router），无 TBD；文件路径均指具体文件（如 crates/infra/store/src/model.rs、src/commands/changes/mod.rs）"
+        },
+        {
+          "item": "数据模型已列出字段、关系和持久化",
+          "pass": true,
+          "evidence": "数据模型节含 ChangeRecord v3（id 主键/name 属性等字段表）、StoreMetaRecord（key/format_version）字段表；per-change 归属链表给出关系（change_id→ChangeRecord.id）；物理表名映射表（9_2_name→9_3_id 等）承载持久化形态"
+        },
+        {
+          "item": "设计覆盖 proposal.md 中每个验收标准",
+          "pass": true,
+          "evidence": "验收标准对齐表 AC-1..AC-11 逐项映射到 D 编号/组件行/公共 API 行（如 AC-8→D3/D4/D5+打开流程伪码；AC-6→control.rs/archive_flow.rs 键+provenance 定式）；AC-9/AC-10 以范围声明+测试相位承接，链路可核"
+        },
+        {
+          "item": "tasks.md 存在且所有任务遵循依赖顺序",
+          "pass": true,
+          "evidence": "tasks.md 存在且按六阶段分组（全部 - [ ] 复选框）；顺序为 store→workflow→orchestration→命令面→前端→守线收口，编排依赖 core 类型、命令面依赖编排、前端依赖 bindings，均前置在先；阶段一/二为跨 crate 类型换锚互锁单元，编辑按序列可完成（阶段二门限限定 -p workflow）"
+        },
+        {
+          "item": "任务具体且可执行",
+          "pass": true,
+          "evidence": "各任务均给出具体文件与具体操作，如 model.rs 升 v3 指定 #[native_model(id=9, version=3)]/删除 ChangeRecordV1 及双向 From、create.rs 铸 uuid::Uuid::now_v7()、list.rs 删除三段磁盘扫描、阶段六给出具体 grep 红线自查，无“实现功能”式空表述"
+        },
+        {
+          "item": "依赖项（运行时和构建/测试）已列出",
+          "pass": true,
+          "evidence": "依赖节列 uuid（v7 feature）用途=change id 铸造（写面 create 单点），落点 workspace [workspace.dependencies] + workflow Cargo.toml；构建/测试依赖声明零新增并注明既有面（redb dev-dep/tempfile/native_db）"
+        },
+        {
+          "item": "设计与项目架构一致（CLAUDE.md）",
+          "pass": true,
+          "evidence": "与 CLAUDE.md 及既有纪律一致：core 零 infra 依赖（uuid 属普通依赖）、port 缝/中性类型与持久化记录分离、bindings 一致性守卫拦截漂移、plugins/dev-team 零改动、磁盘/git name 化面零扰动、主基线 specs 零改"
+        },
+        {
+          "item": "所有模板章节已填写实质性内容",
+          "pass": true,
+          "evidence": "架构组件/变更清单/数据模型/依赖/待决问题均实质填写；路由与 IPC API 设计经公共函数/API 子表与类型定义子表呈现（13 条命令签名逐条给出）；变更清单含修改文件表并有新增文件/删除文件省略说明；待决问题节明确无遗留并留边界痕"
+        },
+        {
+          "item": "不包含测试步骤",
+          "pass": true,
+          "evidence": "design.md 无测试策略/测试架构章节（测试锚与 golden 显式移交 test-design/test-gen/test-execution，见 D13）；tasks.md 无测试编写或执行任务，仅既有测试文件机械保编译随动（明示“不写新断言”）与静态守线（fmt/clippy/knip/bindings:check）"
+        },
+        {
+          "item": "变更清单完整且与 tasks 一致",
+          "pass": true,
+          "evidence": "变更清单覆盖 proposal 实现文件全部条目，另标注 4 项增补（两个 Cargo.toml、change-create-dialog.tsx、flow/types.ts）；清单内实现文件在 tasks 均有对应任务（双向逐项核对无缺）；子表间无矛盾——无新增文件，StoreMetaRecord 属既有文件新类型；测试文件按清单注释豁免（机械保编译随动不入清单）"
+        }
+      ],
+      "start_at": "2026-10-10T06:55:57.325Z",
+      "timestamp": "2026-10-10T07:16:32.855Z"
+    },
+    {
+      "phase": "test-design",
+      "attempt": 1,
+      "verdict": "pass",
+      "report": "40 个 source->test 章节（28 Rust + 12 前端）双向核对：proposal AC-1..AC-11 全映射至验收范围（L32-47），无缺项。结构合规：每节 待测功能/用例/Mock策略 三子节且顺序正确（40×3），用例表与 Mock 表列名逐字符合模板，验收范围 3 列。31 条异常行 + 系统性边界（空 id/未知 id/空库/缺失字段/截断/上限）；Mock 全部落进程边界或注入依赖假件，视图内部 hooks 真实组合；幂等面含标记幂等、幂等覆写不追加、archive 续半边、create 零重复行。AC-10/11 及静态删除面落 11 条不可测试项并注明行为去向。全部通过，无 fail 项。",
+      "checklist": [
+        {
+          "item": "proposal 每条 AC 在验收范围有映射",
+          "pass": true,
+          "evidence": "proposal.md AC-1..AC-11 逐条在 test-design.md L32-47 验收范围表有行；AC-1/AC-2 以「同上—半边」行展开到各测试文件；AC-10/AC-11 落不可测试项 3/4 并注明承接面"
+        },
+        {
+          "item": "验收范围与单元测试双向对应",
+          "pass": true,
+          "evidence": "验收范围所列测试文件（model/store/change_port/envelope/state/write x8/queries x3/orchestration x7/commands x4/hooks x5/views x4）与 40 个 `### <源> -> <测试>` 标题（L61-1098）双向无缺失；routes.tsx 经不可测试项 6 声明映射至 app.test.tsx"
+        },
+        {
+          "item": "异常与边界用例充分覆盖",
+          "pass": true,
+          "evidence": "31 条 `| 异常 |` 行覆盖未建档/同 id 冲突/StoreFault 传播/校验拒绝/坏行注入/删除失败；边界含空 id、未知 id、空库空表、archived_at 缺失、2000-2001 与 500 截断；纯类型/持衡节无可测异常面且已注明"
+        },
+        {
+          "item": "外部依赖 Mock 策略完备",
+          "pass": true,
+          "evidence": "每节 Mock策略表就位；进程边界覆盖 IPC（vi.mock('@tauri-apps/api/core')，L855-1096）、DB（真实 tempfile redb）、子进程假件（假引擎/vcs/worker）、注入依赖假件；『无 mock』节均注明真实组合理由"
+        },
+        {
+          "item": "模板章节实质性内容",
+          "pass": true,
+          "evidence": "40 节均含 #### 待测功能/#### 用例/#### Mock策略（各 40 次，L68-1117）且无占位；验收范围、单元测试、不可测试项（11 条）全部充实"
+        },
+        {
+          "item": "测试设计与 proposal 范围一致",
+          "pass": true,
+          "evidence": "proposal 实现文件清单与 10 项 capability 逐项有章节或不可测试项落点（Cargo.toml/bindings.ts/types.ts→不可测试项 7，package.json→4）；不要修改面（plugins/dev-team、磁盘 name 面）无越界测试"
+        },
+        {
+          "item": "写操作幂等性验证",
+          "pass": true,
+          "evidence": "store_test 标记幂等（L124）、create 同 id 零重复行（L118）、decision_log 幂等覆写不追加（L367）、archive 续半边重试仅补翻转（L273）、control stop miss 幂等（L518）、use-archive-flow onFinish 恰一次（L976）"
+        },
+        {
+          "item": "产物结构与模板格式一致",
+          "pass": true,
+          "evidence": "T8-U1 40 个 ### 标题均含 ` -> `；U2 三子节顺序全对；U3 待测功能为无序列表非表格；U4 用例表列名 `测试对象|路径类型|测试条件|迭代类型`（40 个）；U5 Mock 表列名逐字（40 个）；G1 验收范围 3 列（L32）"
+        },
+        {
+          "item": "Mock策略遵守最小 mock 原则",
+          "pass": true,
+          "evidence": "Mock主体均为进程边界（@tauri-apps IPC、bindings 产物文件、真实 tempdir/db 组合）或被测 API 显式入参/注入依赖（store/vcs/worker/runner 假件，且多处限缩为故障注入行）；视图节均注明内部 hooks 真实组合，无仓库内模块路径 vi.mock"
+        }
+      ],
+      "start_at": "2026-10-10T07:16:43.954Z",
+      "timestamp": "2026-10-10T07:32:35.560Z"
+    },
+    {
+      "phase": "implement",
+      "attempt": 1,
+      "verdict": "pass",
+      "report": "实现与 design.md 对齐：ChangeRecord 9:v3（id 主键）、Phase/Step/Run 10/12/13:v2（change_id）、StoreMetaRecord 15:v1 与版本常量 2，open_workspace 内嵌探测删库重建；envelope 投影 value[\"id\"]；workflow 全缝 id 化（create 铸 uuid v7、同名 active 查重，archive 经 record.name 供目录名）；list db 单源、月分组 archived_at 权威；detail 未知 id 恒 None；orchestration 键 (root,change_id)、provenance <id>/…、StaticCheck 归键；13 命令 id 参数、bindings、路由 /changes/:id、前端 changeId+name 收敛全落地。43 项清单三态对账均在场，无整删与残留。app-sidebar.tsx 入 files 但属外域并行工作，非本变更产物。",
+      "checklist": [
+        {
+          "item": "design 中每个架构组件都有实现代码",
+          "pass": true,
+          "evidence": "43 项改造逐面在场：model.rs v3/v2 + StoreMetaRecord、store.rs 打开探测与操作面、envelope.rs、state.rs、write 六面 + create/archive、queries 三文件、orchestration 六文件、commands 三组、前端 routes/清单/详情/hooks/面板/抽屉/对话框/types、bindings.ts、package.json 0.4.31"
+        },
+        {
+          "item": "变更清单所有条目均有对应实现",
+          "pass": true,
+          "evidence": "design 43 个修改文件均见于 workflow files.written 且磁盘在场；design 声明无新增文件、无整文件删除，段级删除（ChangeRecordV1 链、scan_dir_names/scan_archive_dirs/locate_prefixed_archive_name 磁盘扫描、detail 文档形态分支、flow-empty 分支）核实均已不存在；公共 API 表逐条签名核对一致"
+        },
+        {
+          "item": "代码遵循项目现有规范",
+          "pass": true,
+          "evidence": "参数命名 id/change_id、中文文档注释、测试同址共置与模块组织、serde/specta 既有模式均与全库一致；无新增未用导出"
+        },
+        {
+          "item": "design 中所有路由/API 均已实现",
+          "pass": true,
+          "evidence": "routes.tsx:19 为 /changes/:id；13 条 change 寻址命令（changes 组 3 + change_flow 5 + archive_flow 5）均 id 参数且与 bindings.ts 逐条一致；ChangeSummary/ChangeDetail/CreateOutcome 增 id 首字段"
+        },
+        {
+          "item": "tasks.md 中所有任务均标记已完成",
+          "pass": true,
+          "evidence": "tasks.md 六阶段全部条目复选框均为 [x]，无遗留未勾选项"
+        },
+        {
+          "item": "没有与当前变更任务无关的代码",
+          "pass": true,
+          "evidence": "清单外唯一 files 项 app-sidebar.tsx 内容为工作区下拉重构，与未入 log 却同期 staged 的 select.tsx/dropdown-menu.tsx/agent-run-form.tsx/app-sidebar.test.tsx 构成同一外域并行工作（dropdown-menu 14:52 早于实现窗口），判为钩子归因而非 Generator 产物；无关源码零删除、_rename.py 无残留；Cargo.lock 为 uuid 依赖机械随动"
+        },
+        {
+          "item": "设计决策在实现中得到遵守",
+          "pass": true,
+          "evidence": "D1 create.rs:190 直铸 Uuid::now_v7；D3/D4 store.rs:336-361 删库重建内嵌 open_workspace 并标定；D5 open_global 零触碰；D6 版本段演进零 from 链；D7 磁盘/git 面 name 恒自 get_change 记录直供（archive.rs:45、detail.rs:193、archive_flow.rs:442、steps.rs:183）；D8 仅增 id；D10 useParams<'id'> + changeId/name 收敛 + sourceRef 定式；D11 写面同名 active 扫描 + store 同 id Conflict；D12 StaticCheck 归键；D14 0.4.31 且 plugins/dev-team 零 diff"
+        }
+      ],
+      "start_at": "2026-10-10T07:32:46.268Z",
+      "timestamp": "2026-10-10T08:20:17.863Z"
+    },
+    {
+      "phase": "test-gen",
+      "attempt": 1,
+      "verdict": "pass",
+      "report": "40 个声明测试文件全部在盘（三态对账：声明×清单×磁盘一致；workflow.json deleted 桶含 '='/'NAME.len' 等 shell 残渣与裸名 store_test.rs 误记，文件实存 212KB，属日志噪声）。用例表逐行落位：21 新增行、61 边界行、重写/适配行均有对应 fn/it（如 表名版本段_native_model_id与version断言:model_test:1312、corpus归档前缀样本_golden对拍:1167、归档条目裸名+id 断言:change-list-view.test:261）。G8：14 个废弃用例名全清，ChangeRecordV1/双向 From 与 corpus-document-form.json 已除，flow-empty 仅存退役负断言。mock 合规：前端仅 mock @tauri-apps/* 进程边界，零内部模块 vi.mock；Rust 假件皆经 trait 入参。清理齐备（vi.unstubAllEnvs/restore_path+PATH_LOCK/tempfile RAII）。",
+      "checklist": [
+        {
+          "item": "源码中每个公开方法均被测试覆盖",
+          "pass": true,
+          "evidence": "store.rs 变更域 18 个 pub fn 在 store_test/change_port_test 各 4-29 处调用并断言（create_change_record 29、find_change_record 29、list_phase_records 21）；create/archive/phase_start/phase_log/backtrack/decision_log/phase_next/run、queries list/detail/locate_change、orchestration 七模块、commands 三模块+bindings 守卫、前端 5 hooks+4 视图均有专属用例；无仅 new 构造即算覆盖的空壳条目。"
+        },
+        {
+          "item": "测试文件命名遵循语言规范且与源码共存于同一目录",
+          "pass": true,
+          "evidence": "Rust 全为共置 *_test.rs（store/workflow/orchestration/src 同目录；bindings/mod_test.rs 与 src/bindings/mod.rs 同目录；corpus_golden_test.rs 为 crate tests/ 集成位，test-design 显式声明）；前端 12 个 *.test.ts(x) 全部与源文件共置。零新增测试文件，与声明一致。"
+        },
+        {
+          "item": "用例表每行已生成对应测试骨架",
+          "pass": true,
+          "evidence": "21 新增行逐行命中：name非寻址键(store:3286)、旧形态库作废重建(3349)、标记幂等(3456)、标记低于当前版本(3495)、删除失败显式db_err(3566)、旧表行零可达(3521)、全局库不受波及(5730)、change_record身份面(model:1250)、表名版本段(1312)、store_meta_record往返(1381)、注册表零新增行(envelope:364)、change_state_record身份面(state:371)、同名归档再建档新id相异(create:826)、detail身份面(524)、static_check归键(port:274)、test_execution解析name(steps:880)、归档前缀golden(1167)、ChangeDetail/Summary含id(bindings:941)、归档行裸名(list-view:261)、面板传参收敛(detail-view:1163)；重写/适配行同样逐节落位，路径类型分类与 fn/it 语义一致。"
+        },
+        {
+          "item": "Mock策略表格中的 mock 已在测试代码中实现且 mock 声明合法",
+          "pass": true,
+          "evidence": "前端 vi.mock 仅 @tauri-apps/api/core|app、plugin-dialog、plugin-updater 四项外部进程边界包，零仓库内模块 vi.mock（内部 hooks 真实组合，符合各节 Mock策略）；stubGlobal 限 ResizeObserver 运行环境。Rust 无模块 mock 机制，假件仅经入参注入（create 补偿双故障行、archive 翻转失败行、phase_start/phase_log/backtrack/decision_log 假件、steps 故障行），其余节全用真 tempfile Store+tempdir，与 Mock策略表逐行一致。"
+        },
+        {
+          "item": "测试文件使用正确的框架和导入",
+          "pass": true,
+          "evidence": "前端统一 import { describe, expect, it, vi, beforeEach, afterEach } from 'vite-plus/test'（项目套件）+ @testing-library/react，与 test-design 声明一致；Rust 用 #[test]/#[tokio::test]（control_test 26 个 tokio、steps_test 19 个、changes/mod_test 8 tokio+8 plain），无其他框架混入。"
+        },
+        {
+          "item": "test-design.md 中的边界情况已覆盖",
+          "pass": true,
+          "evidence": "61 边界行系统落位：同名异id并存、name非寻址键、主键序、标记幂等/低于版本、空文件+父目录缺失、表名版本段映射、旧表行零可达、additive退役、全局库不受波及、空id早退、去抖竞态、零发现字节零变化、月分组缺失置尾、锚点键id隔离；数值边界成对（reason 500/501、report 2000/2001、名 128/129、date 前缀多形态、None/null 两态）。"
+        },
+        {
+          "item": "测试代码包含清理/还原逻辑",
+          "pass": true,
+          "evidence": "前端各节 afterEach 有 vi.unstubAllEnvs()/vi.useRealTimers()、beforeEach mockReset、RTL cleanup 导入（app.test:316 等 8 处）；Rust 侧 tempfile RAII 自动清理、commands 测试 restore_path 还原 PATH 并释放 TEST_PATH_LOCK、golden 重写环境开关作用域化、Store 文件锁 drop 后方裸读。"
+        },
+        {
+          "item": "迭代类型 = 废弃 的条目未生成新测试",
+          "pass": true,
+          "evidence": "14 个废弃用例名 grep 全数 GONE（v1 解码链 2、v1 additive 2、磁盘扫描 5、文档形态 3、snapshot 2、文档形态条目 1）；源码侧 ChangeRecordV1 与双向 From 已从 model.rs 删除、corpus-document-form.json 已出 golden 目录；flow-empty 仅以 queryByTestId→null 退役负断言出场（AC-4 明确要求），非复活旧用例。"
+        }
+      ],
+      "timestamp": "2026-10-10T09:19:19.740Z"
+    },
+    {
+      "phase": "test-execution",
+      "attempt": 1,
+      "verdict": "pass",
+      "report": "所有 1053 个测试通过（vite-plus 972 + rust 81；failed=0、skipped=0；conclusion=pass）。覆盖率达标: lines=N/A, branches=N/A, functions=N/A（汇总 measured 三维全 null，以预计算 coverage.pass=true 判定，null 维度不计失败）。Mutation 84.22% ≥ 80% 通过。备注: 汇总未上卷原子报告 per-file 覆盖数据且 rust mutation 未测量（原子 vite-plus functions 88.76<90、rust branches 0 未插桩），已记录于 summary findings。",
+      "checklist": [
+        {
+          "item": "执行报告结构完整",
+          "pass": true,
+          "evidence": "必需字段齐备且类型正确：phase/command/timestamp、total=1053/passed/failed=0/skipped=0、coverage（pass/measured/thresholds/overrides 齐）、duration_seconds=1209；measured 三维 null 属允许值"
+        },
+        {
+          "item": "所有测试通过",
+          "pass": true,
+          "evidence": "failed=0 且 total=1053>0；conclusion=pass、problems 为空（vite-plus 972/972、rust 81/81）"
+        },
+        {
+          "item": "覆盖率达标",
+          "pass": true,
+          "evidence": "coverage.pass=true（预计算值，不重算）；measured 三维 null：覆盖率达标: lines=N/A, branches=N/A, functions=N/A；null 维度不计失败。注: 汇总未上卷原子 per-file 覆盖数据（原子 coverage.pass=false），已由 executor findings 记录"
+        },
+        {
+          "item": "失败诊断根因明确",
+          "pass": true,
+          "evidence": "failed=0，无失败需诊断，自动通过"
+        }
+      ],
+      "start_at": "2026-10-10T09:19:30.689Z",
+      "timestamp": "2026-10-10T09:44:43.697Z"
+    },
+    {
+      "phase": "code-review",
+      "attempt": 1,
+      "verdict": "pass",
+      "report": "变更面静态复核与 design D1–D14 逐条对齐：ChangeRecord 9:v3、归属列 change_id、StoreMetaRecord+open_workspace 作废重建（store.rs:336）、列表 db 单源（list.rs:63）、详情未知 id 恒 None（detail.rs:191）、13 命令/路由/sourceRef/provenance 全 id 化，磁盘面 name 单点解析成立；磁盘扫描段、v1 解码链、flow-empty 分支删除干净。安全/边界/类型复用各面通过。仅注释级小瑕不阻断：app-sidebar.tsx:97 仍写 /changes/:name；state.rs:383 仍写「同名建档」；面板 changeId 为 D10 契约占位（_changeId 未消费）。",
+      "checklist": [
+        {
+          "item": "变更代码中无安全漏洞",
+          "pass": true,
+          "evidence": "变更面 grep password/secret/token/api_key/eval(/exec(/system( 零命中（api_key 命中仅既有 agent provider 域文件，不在本变更清单）；无 SQL/不安全反序列化面；路径遍历双侧设防：磁盘消费前 is_single_component_name（write/archive.rs:46、queries/mod.rs:35），read_artifact canonical 包含性兜底（artifacts/registry.rs:186）；git branch/pathspec 参数取自已校验 record.name，无新增注入面"
+        },
+        {
+          "item": "所有外部输入都有格式检查",
+          "pass": true,
+          "evidence": "IPC 面：root 空检查 changes/mod.rs:79，id 空检查 change_flow/mod.rs:84、archive_flow/mod.rs:134、changes/mod.rs:240；未知 id 读面 None（detail.rs:191）/写面显式 Err（archive.rs:41）；kind/source 由 core read_artifact 注册表+相对路径校验（registry.rs:111-126）；前端 create 与写面同 kebab 正则字面量（change-create-dialog.tsx:19 对 create.rs:82）"
+        },
+        {
+          "item": "实现与 design.md 意图一致",
+          "pass": true,
+          "evidence": "逐条核对：model.rs:355 ChangeRecord 9:v3、458/550/606 Phase/Step/Run v2、425 StoreMetaRecord 15:v1、437 版本常量=2；store.rs:336 探测作废重建含「≥当前不作废」强化；create.rs:190 铸 uuid v7 于前置七道后；list.rs:63 db 单源；detail.rs:191 未知 id 恒 None；control.rs/archive_flow.rs 全方法 (root, change_id) 键；walker.rs:925 source_ref=<id>/phase/role/attempt 与前端 detail-drawer.tsx:47 逐字一致；routes.tsx:19 /changes/:id；bindings.ts 13 命令 id 参数+三 DTO 增 id；golden 含 id 与裸名（corpus-list-mixed.json）"
+        },
+        {
+          "item": "无空值/边界处理遗漏",
+          "pass": true,
+          "evidence": "get_change(id).ok().flatten()? 空值链（detail.rs:191）；is_blank_db_file 空文件视同缺失（store.rs:71）；作废删除失败显式 Db Err（store.rs:350）；prefix_date 长度+逐字节校验防切片 panic（list.rs:122）；archived_at 缺失归「未知时间」组（list.rs:112）；锚点 min 防下溢（phase_next.rs:104）；store_test 覆盖旧库作废/标记幂等/删除失败/全局库不受波及（store_test.rs:3349/3456/3566/5730）"
+        },
+        {
+          "item": "无冗余或死代码",
+          "pass": true,
+          "evidence": "磁盘扫描段（scan_dir_names/scan_archive_dirs/locate_prefixed_archive_name）、ChangeRecordV1 及双向 From、前端 flow-empty 分支整体删除，全仓 grep 仅剩注释措辞，零残留引用；唯一存疑点 run-control-panel.tsx:201 与 archive-panel.tsx:68 的 changeId prop 以 _changeId 占位未消费——属设计 D10 明定的契约面（id/name 显名收敛），非未清理残留"
+        },
+        {
+          "item": "代码可读性良好且遵循项目规范",
+          "pass": true,
+          "evidence": "命名（change_id/name 二分）、文档注释、模块结构与既有一致；仅两处轻微注释漂移：app-sidebar.tsx:97 仍写 /changes/:name（其 active 判定逻辑行 99 startsWith('/changes/') 仍正确）、state.rs:383 StoreFault 注释仍写「同名建档」（store.rs:42 同项已改「同 id 建档」）；knip/tsc 无新增豁免"
+        },
+        {
+          "item": "外部数据尽量使用同来源的数据类型",
+          "pass": true,
+          "evidence": "id 经 uuid crate 直铸（create.rs:190），DTO/枚举直用 core state 词汇（ChangeStatus/RunStatus/RunStepKind 跨层复用 state.rs），线面经 specta 再生成（bindings.ts）无手写中间类型；语料种子经真实 store 域操作面（无裸表插桩）；ChangeStateRecord 为设计既定 port 中性缝，非新增映射层"
+        }
+      ],
+      "start_at": "2026-10-10T09:45:08.473Z",
+      "timestamp": "2026-10-10T09:50:23.953Z"
+    },
+    {
+      "phase": "acceptance",
+      "attempt": 1,
+      "verdict": "pass",
+      "report": "11 条 AC 逐条有实现证据：ChangeRecord 9:v3 id 主键（model.rs:355）、create 铸 uuid v7（create.rs:190）、open_workspace 作废重建（store.rs:336）；list db 单源（list.rs:63）、未知 id 恒 None（detail.rs:191）；13 命令 id 寻址+注册表 (root,change_id)（control.rs:76）+provenance <id>/…双侧一致（walker.rs:925/detail-drawer.tsx:47）；路由 /changes/:id（routes.tsx:19）；语料 id 归键、文档形态 golden 出局（corpus_golden_test.rs:1067）；0.4.31、dev-team 2.10.44 零触碰；1053 测试全绿。范围零蔓延，name 化面与 RunNotice/存档 DTO 红线保持。app-sidebar.tsx:97 注释残留 /changes/:name（非功能漂移）。",
+      "checklist": [
+        {
+          "item": "proposal.md 中每个验收标准都有实现证据",
+          "pass": true,
+          "evidence": "AC-1 model.rs:355-411/461/553/609+state.rs:81+create.rs:190+store_test.rs:3167；AC-2 detail.rs:185-281+list.rs:92+golden corpus-archive-prefix；AC-3 list.rs:63（零 fs 导入）；AC-4 detail.rs:191；AC-5 13 命令 id 参数（bindings.ts:21-171）；AC-6 control.rs:76/archive_flow.rs:795,949/walker.rs:925；AC-7 routes.tsx:19/change-detail-view.tsx:389；AC-8 store.rs:336-361；AC-9 tests/golden/*.json 含 id+corpus_golden_test.rs:63；AC-10 test-execution 1053/1053 绿；AC-11 package.json:3=0.4.31"
+        },
+        {
+          "item": "无范围蔓延 — 实现不超过 proposal.md 定义的范围",
+          "pass": true,
+          "evidence": "实现面与 design 变更清单逐项一致，无 in_scope 外新功能/API/组件；inventory 唯一清单外文件 app-sidebar.tsx 内容为工作区下拉重构（外域并行工作，implement/code-review 已判非本变更产物），无越界能力新增"
+        },
+        {
+          "item": "proposal 中所有 in_scope 项均已实现",
+          "pass": true,
+          "evidence": "proposal 实现文件 18 项逐一在场：store 四件（model/store/change_port/envelope.rs:354 value[\"id\"]）、workflow（state.rs:408 get_change(id)、write 八文件、queries 三文件、list.rs:63 去 Layout 签名）、orchestration 六件（port.rs:83-108 六变体 change_id+StaticCheck 归键）、commands 三组、前端 routes/list/detail/hooks/drawer/panels/dialog、bindings.ts、package.json 0.4.31；tasks.md 全部 [x]"
+        },
+        {
+          "item": "proposal 中 out_of_scope 项未被实现",
+          "pass": true,
+          "evidence": "plugins/dev-team 版本仍 2.10.44 且 file_log 零条目；磁盘/git name 化面保留（vcs worktree_dir:38、change_branch archive_flow.rs:570、locate_prefixed_archive_dir queries/mod.rs:61 后缀扫描）；workflow.json 仅测试夹具（changes/mod_test.rs:602）；RunNotice 零载荷 kind-only（orchestration/state.rs:179）；ArchiveSummary/ArchivePreflight 无 id（archive_flow.rs:128-174）；主基线 specs 零文件改动"
+        },
+        {
+          "item": "proposal.md 中所有风险都有对应的代码缓解措施",
+          "pass": true,
+          "evidence": "R1 作废重建（store.rs:348-359）+db 单源（list.rs:63）；R2 逐面 AC 断言+grep 收口（全仓 change: String 仅剩磁盘面与测试）；R3 changeId/name 显名收敛（change-detail-view.tsx:256-266，测试:1163）；R4 旧库作废无并存（store_test.rs:3349）；R5 uuid v7 铸点+语料固定 id 种子（corpus_golden_test.rs:508）；R6 DESKTOP_GOLDEN_REWRITE（:63）+文档形态 golden 出局（:1067）；R7 月分组+status 徽章（list.rs:112）；R8 错误文案携记录名（archive.rs:98、archive_flow.rs:640）"
+        }
+      ],
+      "start_at": "2026-10-10T09:50:34.492Z",
+      "timestamp": "2026-10-10T09:52:26.238Z"
+    }
+  ],
+  "interrupted": [
+    {
+      "phase": "test-gen",
+      "attempt": 1,
+      "start_at": "2026-10-10T08:20:32.305Z",
+      "end_at": "2026-10-10T09:14:31.191Z"
+    }
+  ]
+}

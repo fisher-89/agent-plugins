@@ -17,6 +17,7 @@ vi.mock('@tauri-apps/api/core', () => ({
 
 function fakeDetail(artifacts: ArtifactDescriptor[]): ChangeDetail {
   return {
+    id: 'add-feature',
     name: 'add-feature',
     source: 'active',
     status: 'active',
@@ -87,7 +88,7 @@ describe('useChangeDetail：详情取数与产物信封同周期组装（AC-6 / 
     await waitFor(() => expect(result.current.detail).not.toBeNull());
     expect(invokeMock).toHaveBeenCalledWith('get_change_detail', {
       root: '/repo',
-      change: 'add-feature',
+      id: 'add-feature',
     });
     expect(result.current.loading).toBe(false);
   });
@@ -111,13 +112,13 @@ describe('useChangeDetail：详情取数与产物信封同周期组装（AC-6 / 
     expect(readCalls).toHaveLength(2);
     expect(readCalls[0][1]).toEqual({
       root: '/repo',
-      change: 'add-feature',
+      id: 'add-feature',
       kind: 'tasks-progress',
       source: 'tasks.md',
     });
     expect(readCalls[1][1]).toEqual({
       root: '/repo',
-      change: 'add-feature',
+      id: 'add-feature',
       kind: 'markdown-doc',
       source: 'proposal.md',
     });
@@ -163,7 +164,7 @@ describe('useChangeDetail：详情取数与产物信封同周期组装（AC-6 / 
     expect(invokeMock.mock.calls.every(([name]) => name === 'get_change_detail')).toBe(true);
   });
 
-  it('change 为 null 时不发起任何 invoke', () => {
+  it('id 为 null 时不发起任何 invoke（空身份早退）', () => {
     renderHook(() => useChangeDetail('/repo', null));
     expect(invokeMock).not.toHaveBeenCalled();
   });
@@ -243,7 +244,7 @@ describe('useChangeDetail：加载态、降级信封、错误路径与刷新竞�
     expect(result.current.artifacts).toEqual([]);
   });
 
-  it('change 切回 null 时重置 detail / artifacts / loading / error', async () => {
+  it('id 切回 null 时重置 detail / artifacts / loading / error', async () => {
     const descriptor: ArtifactDescriptor = {
       kind: 'tasks-progress',
       source: 'tasks.md',
@@ -255,13 +256,13 @@ describe('useChangeDetail：加载态、降级信封、错误路径与刷新竞�
       }
       return Promise.resolve(envelopeFor(descriptor));
     });
-    const { result, rerender } = renderHook<ChangeDetailState, { change: string | null }>(
-      (props) => useChangeDetail('/repo', props.change),
-      { initialProps: { change: 'add-feature' } },
+    const { result, rerender } = renderHook<ChangeDetailState, { id: string | null }>(
+      (props) => useChangeDetail('/repo', props.id),
+      { initialProps: { id: 'add-feature' } },
     );
     await waitFor(() => expect(result.current.artifacts).toHaveLength(1));
 
-    rerender({ change: null });
+    rerender({ id: null });
     await waitFor(() => expect(result.current.artifacts).toEqual([]));
     expect(result.current.detail).toBeNull();
     expect(result.current.loading).toBe(false);
@@ -419,11 +420,11 @@ describe('useChangeDetail：生成绑定调用面', () => {
     await waitFor(() => expect(result.current.artifacts).toHaveLength(2));
     expect(invokeMock).toHaveBeenCalledWith('get_change_detail', {
       root: '/repo',
-      change: 'add-feature',
+      id: 'add-feature',
     });
     expect(invokeMock).toHaveBeenCalledWith('read_artifact', {
       root: '/repo',
-      change: 'add-feature',
+      id: 'add-feature',
       kind: 'tasks-progress',
       source: 'tasks.md',
     });

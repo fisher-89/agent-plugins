@@ -145,7 +145,7 @@ fn 非md文件不命中matches() {
         change_dir: &change_with_phases.0,
         phases: &[crate::state::PhaseStateRecord {
             id: 1,
-            change: "demo-change".to_owned(),
+            change_id: "demo-change".to_owned(),
             phase: "proposal".to_owned(),
             attempt: 1,
             verdict: crate::model::Verdict::Pass,

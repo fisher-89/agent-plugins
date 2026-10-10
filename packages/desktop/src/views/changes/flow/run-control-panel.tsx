@@ -43,7 +43,10 @@ const LAST_RUN_STATUS_LABEL: Record<RunStatus, string> = {
 type RunActions = Pick<UseChangeFlowRunResult, 'start' | 'stop' | 'confirm' | 'answer' | 'error'>;
 
 interface RunControlPanelProps {
-  change: string;
+  /** change id（命令面透传——动作经 useChangeFlowRun 的 id 链路） */
+  changeId: string;
+  /** change 名（展示面：aria-label / 文案取 `detail.name`） */
+  name: string;
   /** 在飞 run 活面（统一视图 activeRun；终态即除名 → null） */
   activeRun: ActiveRunView | null;
   /** runs 尾行（库读史最近一次 run——收口后终态徽章与收口记因） */
@@ -193,7 +196,10 @@ function RunStatusBadge({
 }
 
 export function RunControlPanel({
-  change,
+  // 命令面身份入参保契约面（动作链路已由父层 useChangeFlowRun 按 id 绑定；
+  // 面板显名收敛纪律：id 与 name 不静默互换）
+  changeId: _changeId,
+  name,
   activeRun,
   lastRun,
   actions,
@@ -203,7 +209,7 @@ export function RunControlPanel({
     <section
       className="mb-4 rounded-lg border border-border bg-card px-4 py-3.5"
       data-testid="run-control-panel"
-      aria-label={`change ${change} 运行控制`}
+      aria-label={`change ${name} 运行控制`}
     >
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h2 className="m-0 text-[15px]">运行控制</h2>

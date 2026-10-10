@@ -10,9 +10,10 @@ vi.mock('@tauri-apps/api/core', () => ({ invoke: invokeMock }));
 
 const ROOT = '/repo';
 
-/** CreateOutcome fixture（与 Rust 写面 DTO 同形：name / created / worktree /
- * warnings 四字段）。 */
+/** CreateOutcome fixture（与 Rust 写面 DTO 同形：id / name / created / worktree /
+ * warnings 五字段；id 为 uuid v7 形态身份锚——成功回调携该值而非 name）。 */
 const OUTCOME = {
+  id: '0199a2f0-1c3d-7e45-8a9b-0d1e2f3a4b5c',
   name: 'fix-bug',
   created: '2026-10-02',
   worktree: 'C:\\home\\.dev-team\\worktrees\\repo-ab12\\fix-bug',
@@ -20,7 +21,7 @@ const OUTCOME = {
 };
 
 /** 挂载对话框（触发器 = children 文本按钮）。 */
-function renderDialog(onCreated: (name: string) => void = vi.fn()): void {
+function renderDialog(onCreated: (id: string) => void = vi.fn()): void {
   render(
     <ChangeCreateDialog root={ROOT} onCreated={onCreated}>
       <button type="button">打开新建</button>
@@ -77,7 +78,7 @@ describe('ChangeCreateDialog：弹窗开合与成功提交流转', () => {
     });
   });
 
-  it('合法输入提交：invoke("create_change") 恰一次且载荷为 {root, name, goal}；成功即关窗并触发 onCreated(name) 恰一次（成功面退役，直连导航）', async () => {
+  it('合法输入提交：invoke("create_change") 恰一次且载荷为 {root, name, goal}；成功即关窗并触发 onCreated(outcome.id) 恰一次（id 身份锚直连导航）', async () => {
     const onCreated = vi.fn();
     renderDialog(onCreated);
     openForm();
@@ -85,7 +86,9 @@ describe('ChangeCreateDialog：弹窗开合与成功提交流转', () => {
     submit('fix-bug', '修复登录重试的竞态问题');
 
     await waitFor(() => expect(onCreated).toHaveBeenCalledTimes(1));
-    expect(onCreated).toHaveBeenCalledWith('fix-bug');
+    // 计费面 / 导航面身份锚 = 铸出 id（name 恒展示面，不作寻址）
+    expect(onCreated).toHaveBeenCalledWith(OUTCOME.id);
+    expect(onCreated).not.toHaveBeenCalledWith(OUTCOME.name);
     expect(createCalls()).toEqual([
       { root: ROOT, name: 'fix-bug', goal: '修复登录重试的竞态问题' },
     ]);
@@ -217,7 +220,7 @@ describe('ChangeCreateDialog：必填与本地 kebab-case 校验（失败留窗�
 
     await waitFor(() => expect(createCalls()).toHaveLength(1));
     expect(createCalls()[0]).toEqual({ root: ROOT, name, goal: '上界内 goal' });
-    await waitFor(() => expect(onCreated).toHaveBeenCalledWith(name));
+    await waitFor(() => expect(onCreated).toHaveBeenCalledWith(OUTCOME.id));
   });
 });
 

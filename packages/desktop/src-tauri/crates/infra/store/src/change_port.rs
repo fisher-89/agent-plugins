@@ -23,24 +23,24 @@ fn fault(error: StoreError) -> StoreFault {
 }
 
 impl ChangeStateStore for Store {
-    fn get_change(&self, name: &str) -> Result<Option<ChangeStateRecord>, StoreFault> {
-        self.find_change_record(name).map_err(fault)
+    fn get_change(&self, id: &str) -> Result<Option<ChangeStateRecord>, StoreFault> {
+        self.find_change_record(id).map_err(fault)
     }
 
     fn list_change_records(&self) -> Result<Vec<ChangeStateRecord>, StoreFault> {
         self.list_change_records().map_err(fault)
     }
 
-    fn list_phase_records(&self, change: &str) -> Result<Vec<PhaseStateRecord>, StoreFault> {
-        Store::list_phase_records(self, change).map_err(fault)
+    fn list_phase_records(&self, change_id: &str) -> Result<Vec<PhaseStateRecord>, StoreFault> {
+        Store::list_phase_records(self, change_id).map_err(fault)
     }
 
     fn list_steps(
         &self,
-        change: &str,
+        change_id: &str,
         run_id: Option<&str>,
     ) -> Result<Vec<StepStateRecord>, StoreFault> {
-        self.list_change_steps(change, run_id).map_err(fault)
+        self.list_change_steps(change_id, run_id).map_err(fault)
     }
 
     fn create_change_record(&self, record: ChangeStateRecord) -> Result<(), StoreFault> {
@@ -49,17 +49,18 @@ impl ChangeStateStore for Store {
             .map_err(fault)
     }
 
-    fn delete_change_record(&self, name: &str) -> Result<bool, StoreFault> {
-        Store::delete_change_record(self, name).map_err(fault)
+    fn delete_change_record(&self, id: &str) -> Result<bool, StoreFault> {
+        Store::delete_change_record(self, id).map_err(fault)
     }
 
     fn start_phase(
         &self,
-        change: &str,
+        change_id: &str,
         phase: &str,
         now: i64,
     ) -> Result<PhaseStartState, StoreFault> {
-        self.start_change_phase(change, phase, now).map_err(fault)
+        self.start_change_phase(change_id, phase, now)
+            .map_err(fault)
     }
 
     fn log_phase(&self, command: &PhaseLogCommand) -> Result<u32, StoreFault> {
@@ -72,24 +73,24 @@ impl ChangeStateStore for Store {
 
     fn amend_decision_session(
         &self,
-        change: &str,
+        change_id: &str,
         phase: &str,
         session_id: &str,
     ) -> Result<(), StoreFault> {
-        self.amend_change_decision_session(change, phase, session_id)
+        self.amend_change_decision_session(change_id, phase, session_id)
             .map_err(fault)
     }
 
-    fn set_archived(&self, name: &str, archived_at: i64) -> Result<(), StoreFault> {
-        self.set_change_archived(name, archived_at).map_err(fault)
+    fn set_archived(&self, id: &str, archived_at: i64) -> Result<(), StoreFault> {
+        self.set_change_archived(id, archived_at).map_err(fault)
     }
 
     fn append_step(&self, command: &StepCommand) -> Result<(), StoreFault> {
         self.append_change_step(command).map_err(fault)
     }
 
-    fn list_runs(&self, change: &str) -> Result<Vec<RunStateRecord>, StoreFault> {
-        self.list_change_runs(change).map_err(fault)
+    fn list_runs(&self, change_id: &str) -> Result<Vec<RunStateRecord>, StoreFault> {
+        self.list_change_runs(change_id).map_err(fault)
     }
 
     fn list_run_steps(&self, run_id: &str) -> Result<Vec<RunStepStateRecord>, StoreFault> {

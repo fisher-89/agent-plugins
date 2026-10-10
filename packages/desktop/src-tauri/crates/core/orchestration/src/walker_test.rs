@@ -109,10 +109,12 @@ impl TestDb {
     }
 }
 
-/// 建档种子：workflow_type requirement、active 起步（created_at 取定值毫秒）。
-fn seed_change(store: &Store, name: &str) {
+/// 建档种子：workflow_type requirement、active 起步（created_at 取定值毫秒；
+/// id 归键 / name 独立展示——磁盘目录名恒 name）。
+fn seed_change(store: &Store, id: &str, name: &str) {
     store
         .create_change_record(ChangeStateRecord {
+            id: id.to_owned(),
             name: name.to_owned(),
             workflow_type: "requirement".to_owned(),
             created_at: TS_BASE,
@@ -141,7 +143,7 @@ fn seed_entry(
         .expect("开相种子应成功");
     store
         .log_change_phase(&PhaseLogCommand {
-            change: change.to_owned(),
+            change_id: change.to_owned(),
             phase: phase.to_owned(),
             verdict,
             report: report.to_owned(),
@@ -159,10 +161,10 @@ fn seed_entry(
 /// 决策分叉族种子（store 半边）：proposal pass / dev-design pass / implement
 /// fail 带 fail checklist——决策输入内容与既往 workflow.json fixture 同源。
 fn seed_decision_fixture(store: &Store) {
-    seed_change(store, CHANGE);
+    seed_change(store, CHANGE_ID, NAME);
     seed_entry(
         store,
-        CHANGE,
+        CHANGE_ID,
         "proposal",
         Verdict::Pass,
         "提案通过",
@@ -171,7 +173,7 @@ fn seed_decision_fixture(store: &Store) {
     );
     seed_entry(
         store,
-        CHANGE,
+        CHANGE_ID,
         "dev-design",
         Verdict::Pass,
         "设计齐备",
@@ -180,7 +182,7 @@ fn seed_decision_fixture(store: &Store) {
     );
     seed_entry(
         store,
-        CHANGE,
+        CHANGE_ID,
         "implement",
         Verdict::Fail,
         "首轮未过",
@@ -197,7 +199,7 @@ fn seed_decision_fixture(store: &Store) {
 ///（决策输入取自 ChangeDetail 只读装配——db 读源真实组合）。
 fn decision_fixture(tag: &str) -> (TempRoot, TestDb) {
     let root = TempRoot::new(tag);
-    root.change(CHANGE);
+    root.change(NAME);
     let db = TestDb::open(tag);
     seed_decision_fixture(db.store.as_ref());
     (root, db)
@@ -445,7 +447,7 @@ fn command_label(command: &ToolCommand) -> &'static str {
         ToolCommand::PhaseLog { .. } => "phase-log",
         ToolCommand::Backtrack { .. } => "backtrack",
         ToolCommand::DecisionLog { .. } => "decision-log",
-        ToolCommand::StaticCheck => "static-check",
+        ToolCommand::StaticCheck { .. } => "static-check",
         ToolCommand::TestExecution { .. } => "test-execution",
     }
 }
@@ -519,7 +521,7 @@ impl ToolStepPort for FakeTools {
                 let outcome = DecisionLogOutcome { phase };
                 Box::pin(async move { Ok(ToolStepOutput::DecisionLog(outcome)) })
             }
-            ToolCommand::StaticCheck => {
+            ToolCommand::StaticCheck { .. } => {
                 let outcome = self
                     .static_check
                     .lock()
@@ -637,7 +639,13 @@ fn failing_check(diagnostics: &str) -> StaticCheckOutcome {
     }
 }
 
-const CHANGE: &str = "walker-change";
+/// 固定 change **id** 字面量（注册表键 / `RunRequest.change_id` / provenance
+/// 身份段 / db 归键——一切寻址以 id 为准）。
+const CHANGE_ID: &str = "5c7a2e91-4b38-4d6f-a052-9e1c8b3d7f24";
+
+/// 展示名（记录 `name` 属性：磁盘面供给值——`openspec/changes/<name>` 目录与
+/// 会话 cwd 路径；id ≠ name 形态下身份段与磁盘面逐点可辨）。
+const NAME: &str = "walker-change";
 
 /// 复合键 workspace root 段（测试固定值）
 const ROOT: &str = "/ws/root-a";
@@ -743,12 +751,12 @@ fn spawn_run(
     Arc<RecordingHistory>,
 ) {
     let guard = control
-        .begin_run(ROOT, CHANGE, "run-1".to_owned(), STARTED_AT)
+        .begin_run(ROOT, CHANGE_ID, "run-1".to_owned(), STARTED_AT)
         .expect("登记 run 应成功");
-    let rx = control.subscribe(ROOT, CHANGE).expect("run 订阅应成功");
+    let rx = control.subscribe(ROOT, CHANGE_ID).expect("run 订阅应成功");
     let request = RunRequest {
         root: root.to_owned(),
-        change: CHANGE.to_owned(),
+        change_id: CHANGE_ID.to_owned(),
         run_id: "run-1".to_owned(),
         auto_next_phase,
         started_at: STARTED_AT,
@@ -786,12 +794,12 @@ fn spawn_real_run(
     use crate::run_history::StoreRunHistory;
 
     let guard = control
-        .begin_run(ROOT, CHANGE, run_id.to_owned(), STARTED_AT)
+        .begin_run(ROOT, CHANGE_ID, run_id.to_owned(), STARTED_AT)
         .expect("登记 run 应成功");
-    let rx = control.subscribe(ROOT, CHANGE).expect("run 订阅应成功");
+    let rx = control.subscribe(ROOT, CHANGE_ID).expect("run 订阅应成功");
     let request = RunRequest {
         root: root.to_owned(),
-        change: CHANGE.to_owned(),
+        change_id: CHANGE_ID.to_owned(),
         run_id: run_id.to_owned(),
         auto_next_phase: false,
         started_at: STARTED_AT,
@@ -828,11 +836,11 @@ async fn wait_for(what: &str, mut probe: impl FnMut() -> bool) {
 /// walker 首个 ConfirmWait 广播）。
 fn spawn_confirmer(control: &Arc<ChangeFlowControl>, proceed: bool) -> tokio::task::JoinHandle<()> {
     let control = Arc::clone(control);
-    let mut rx = control.subscribe(ROOT, CHANGE).expect("run 订阅应成功");
+    let mut rx = control.subscribe(ROOT, CHANGE_ID).expect("run 订阅应成功");
     tokio::spawn(async move {
         while let Ok(notice) = rx.recv().await {
             if matches!(notice, RunNotice::ConfirmWait) {
-                let _ = control.confirm(ROOT, CHANGE, proceed);
+                let _ = control.confirm(ROOT, CHANGE_ID, proceed);
             }
         }
     })
@@ -888,10 +896,10 @@ fn decision_log_payloads(commands: &[ToolCommand]) -> Vec<(String, String, Strin
         .iter()
         .filter_map(|command| match command {
             ToolCommand::DecisionLog {
-                change,
+                change_id,
                 phase,
                 session_id,
-            } => Some((change.clone(), phase.clone(), session_id.clone())),
+            } => Some((change_id.clone(), phase.clone(), session_id.clone())),
             _ => None,
         })
         .collect()
@@ -962,21 +970,23 @@ async fn pass自动推进至done且载荷逐条对齐() {
     let status = task.await.expect("run 任务正常结束");
     assert_eq!(status, ChangeRunStatus::Completed, "全 pass 收敛 completed");
 
-    // PhaseStart 载荷逐条对齐（change 名 + 相位序）
+    // PhaseStart 载荷逐条对齐（change id + 相位序）
     let starts: Vec<(String, String)> = commands
         .lock()
         .expect("命令锁")
         .iter()
         .filter_map(|command| match command {
-            ToolCommand::PhaseStart { change, phase } => Some((change.clone(), phase.clone())),
+            ToolCommand::PhaseStart { change_id, phase } => {
+                Some((change_id.clone(), phase.clone()))
+            }
             _ => None,
         })
         .collect();
     assert_eq!(
         starts,
         vec![
-            (CHANGE.to_owned(), "proposal".to_owned()),
-            (CHANGE.to_owned(), "dev-design".to_owned()),
+            (CHANGE_ID.to_owned(), "proposal".to_owned()),
+            (CHANGE_ID.to_owned(), "dev-design".to_owned()),
         ],
         "PhaseStart 载荷与相位推进序逐条对齐"
     );
@@ -987,8 +997,10 @@ async fn pass自动推进至done且载荷逐条对齐() {
         .expect("命令锁")
         .iter()
         .filter_map(|command| match command {
-            ToolCommand::PhaseLog { change, input, .. } => Some((
-                change.clone(),
+            ToolCommand::PhaseLog {
+                change_id, input, ..
+            } => Some((
+                change_id.clone(),
                 input.phase.clone(),
                 input.checklist.iter().all(|item| item.pass),
             )),
@@ -998,8 +1010,8 @@ async fn pass自动推进至done且载荷逐条对齐() {
     assert_eq!(
         logs,
         vec![
-            (CHANGE.to_owned(), "proposal".to_owned(), true),
-            (CHANGE.to_owned(), "dev-design".to_owned(), true),
+            (CHANGE_ID.to_owned(), "proposal".to_owned(), true),
+            (CHANGE_ID.to_owned(), "dev-design".to_owned(), true),
         ],
         "PhaseLog 载荷（change / phase / 全 pass checklist）逐条对齐"
     );
@@ -1012,9 +1024,9 @@ async fn pass自动推进至done且载荷逐条对齐() {
 #[tokio::test]
 async fn 真实写面组合全程演进对照一致() {
     let root = TempRoot::new("real-compose");
-    root.change(CHANGE);
+    root.change(NAME);
     let db = TestDb::open("real-compose");
-    seed_change(db.store.as_ref(), CHANGE);
+    seed_change(db.store.as_ref(), CHANGE_ID, NAME);
 
     let timeline = Arc::new(Mutex::new(Vec::new()));
     let (worker, _requests, _sessions) = FakeWorker::new(&timeline).assemble();
@@ -1045,7 +1057,7 @@ async fn 真实写面组合全程演进对照一致() {
     // 落库演进与插件直跑形态对照一致：8 相位各 1 条 pass（attempt 1、表序）
     let entries = db
         .store
-        .list_phase_records(CHANGE)
+        .list_phase_records(CHANGE_ID)
         .expect("读相位条目应成功");
     assert_eq!(entries.len(), 8, "八相位各落账一条");
     let phases: Vec<&str> = entries.iter().map(|entry| entry.phase.as_str()).collect();
@@ -1079,7 +1091,7 @@ async fn 真实写面组合全程演进对照一致() {
     // active_phase 演进：逐相位开跑、落账清除 → 终态清位
     let record = db
         .store
-        .find_change_record(CHANGE)
+        .find_change_record(CHANGE_ID)
         .expect("读建档记录应成功")
         .expect("建档记录在场");
     assert!(
@@ -1098,10 +1110,10 @@ async fn 重入自active_phase续走不重跑已pass相位() {
     let db = TestDb::open("resume");
     // 中段种子：proposal 已 pass、test-design 及其后已 pass、dev-design
     // 中断残留（1 条 fail），再开相 dev-design（attempt 事务内推导 = 2）
-    seed_change(db.store.as_ref(), CHANGE);
+    seed_change(db.store.as_ref(), CHANGE_ID, NAME);
     seed_entry(
         db.store.as_ref(),
-        CHANGE,
+        CHANGE_ID,
         "proposal",
         Verdict::Pass,
         "提案通过",
@@ -1110,7 +1122,7 @@ async fn 重入自active_phase续走不重跑已pass相位() {
     );
     seed_entry(
         db.store.as_ref(),
-        CHANGE,
+        CHANGE_ID,
         "dev-design",
         Verdict::Fail,
         "中断前未过",
@@ -1119,7 +1131,7 @@ async fn 重入自active_phase续走不重跑已pass相位() {
     );
     seed_entry(
         db.store.as_ref(),
-        CHANGE,
+        CHANGE_ID,
         "test-design",
         Verdict::Pass,
         "测试设计通过",
@@ -1128,7 +1140,7 @@ async fn 重入自active_phase续走不重跑已pass相位() {
     );
     seed_entry(
         db.store.as_ref(),
-        CHANGE,
+        CHANGE_ID,
         "implement",
         Verdict::Pass,
         "实现通过",
@@ -1137,7 +1149,7 @@ async fn 重入自active_phase续走不重跑已pass相位() {
     );
     seed_entry(
         db.store.as_ref(),
-        CHANGE,
+        CHANGE_ID,
         "test-gen",
         Verdict::Pass,
         "测试通过",
@@ -1146,7 +1158,7 @@ async fn 重入自active_phase续走不重跑已pass相位() {
     );
     seed_entry(
         db.store.as_ref(),
-        CHANGE,
+        CHANGE_ID,
         "test-execution",
         Verdict::Pass,
         "执行通过",
@@ -1155,7 +1167,7 @@ async fn 重入自active_phase续走不重跑已pass相位() {
     );
     seed_entry(
         db.store.as_ref(),
-        CHANGE,
+        CHANGE_ID,
         "code-review",
         Verdict::Pass,
         "审查通过",
@@ -1164,7 +1176,7 @@ async fn 重入自active_phase续走不重跑已pass相位() {
     );
     seed_entry(
         db.store.as_ref(),
-        CHANGE,
+        CHANGE_ID,
         "acceptance",
         Verdict::Pass,
         "验收通过",
@@ -1172,7 +1184,7 @@ async fn 重入自active_phase续走不重跑已pass相位() {
         TS_BASE + 420_000,
     );
     db.store
-        .start_change_phase(CHANGE, "dev-design", TS_BASE + 450_000)
+        .start_change_phase(CHANGE_ID, "dev-design", TS_BASE + 450_000)
         .expect("中断相位开相种子应成功");
 
     let timeline = Arc::new(Mutex::new(Vec::new()));
@@ -1211,19 +1223,19 @@ async fn 重入自active_phase续走不重跑已pass相位() {
     assert_eq!(requests[1].role, WorkerRole::Evaluator);
     assert_eq!(
         requests[0].provenance.source_ref.as_deref(),
-        Some("walker-change/dev-design/executor/2"),
+        Some(format!("{CHANGE_ID}/dev-design/executor/2").as_str()),
         "中断相位承接重试（attempt 2 = 既有条目 1 + 1），非新开回合"
     );
     assert_eq!(
         requests[1].provenance.source_ref.as_deref(),
-        Some("walker-change/dev-design/evaluator/2")
+        Some(format!("{CHANGE_ID}/dev-design/evaluator/2").as_str())
     );
     drop(requests);
 
     // 落库演进：dev-design 追加 pass 条目（attempt 2）、active_phase 清位
     let entries = db
         .store
-        .list_phase_records(CHANGE)
+        .list_phase_records(CHANGE_ID)
         .expect("读相位条目应成功");
     assert_eq!(entries.len(), 9, "dev-design 重评条目纯追加（既有 8 + 1）");
     assert_eq!(entries[8].phase, "dev-design");
@@ -1231,7 +1243,7 @@ async fn 重入自active_phase续走不重跑已pass相位() {
     assert_eq!(entries[8].verdict, Verdict::Pass);
     let record = db
         .store
-        .find_change_record(CHANGE)
+        .find_change_record(CHANGE_ID)
         .expect("读建档记录应成功")
         .expect("建档记录在场");
     assert!(
@@ -1284,11 +1296,11 @@ async fn fail预算内重试attempt递增重跑() {
     assert_eq!(requests.len(), 4, "executor / evaluator 各重跑一轮");
     assert_eq!(
         requests[0].provenance.source_ref.as_deref(),
-        Some("walker-change/implement/executor/1")
+        Some(format!("{CHANGE_ID}/implement/executor/1").as_str())
     );
     assert_eq!(
         requests[2].provenance.source_ref.as_deref(),
-        Some("walker-change/implement/executor/2"),
+        Some(format!("{CHANGE_ID}/implement/executor/2").as_str()),
         "attempt 递增（provenance 定式随行）"
     );
 }
@@ -1316,7 +1328,9 @@ async fn 决策分叉唤起恰一次且输入有界() {
         ])
         .assemble();
 
-    // 真实快照源：决策输入取自 ChangeDetail 只读装配（db 读源——AC-2 有界输入来源）
+    // 真实快照源：决策输入取自 ChangeDetail 只读装配（db 读源——AC-2 有界输入
+    // 来源）；查得即 detail(root, **id**) 形参随动证明（磁盘目录名恒 name，
+    // id ≠ name 形态下 name 入参必 miss）
     let snapshot: Arc<dyn WorkflowSnapshotPort> =
         Arc::new(StoreSnapshot::new(root.root_str(), db.store_arc()));
     let control = Arc::new(ChangeFlowControl::new());
@@ -1416,8 +1430,10 @@ async fn backtrack决议携白名单执行并重路由() {
         .collect();
     assert_eq!(backtracks.len(), 1, "backtrack 步恰发起一次");
     match backtracks[0] {
-        ToolCommand::Backtrack { change, input, .. } => {
-            assert_eq!(change, CHANGE);
+        ToolCommand::Backtrack {
+            change_id, input, ..
+        } => {
+            assert_eq!(change_id, CHANGE_ID);
             assert_eq!(input.to, "dev-design", "决议目标透传");
             assert_eq!(input.reason, "设计返工");
             assert_eq!(
@@ -1607,7 +1623,7 @@ async fn ask中断与应答回流continue决策会话() {
 
     // 应答回流：walker 以应答文本 Continue 决策会话重出封闭集
     control
-        .answer(ROOT, CHANGE, "采用方案 A".to_owned())
+        .answer(ROOT, CHANGE_ID, "采用方案 A".to_owned())
         .expect("应答回传应成功");
     let status = task.await.expect("run 任务正常结束");
     assert_eq!(status, ChangeRunStatus::Completed);
@@ -1759,12 +1775,9 @@ async fn confirm否决收敛stopped且不再发起新相位() {
         "否决记因携停等相位: {:?}",
         finish.reason
     );
-    assert!(control.snapshot(ROOT, CHANGE).is_none(), "终态除名");
+    assert!(control.snapshot(ROOT, CHANGE_ID).is_none(), "终态除名");
 }
 
-/// walk_run 停止收敛（异常）：request_stop 置位 → 当前会话收口后终态
-/// stopped、不再发起新相位 / 新会话（停止寻址键 = change 名，经
-/// RunGuard.cancelled 观测——AC-7 停止半边）。
 #[tokio::test]
 async fn 停止置位收敛stopped且不再发起新相位() {
     let timeline = Arc::new(Mutex::new(Vec::new()));
@@ -1786,7 +1799,7 @@ async fn 停止置位收敛stopped且不再发起新相位() {
     let (task, mut rx, history) = spawn_run(worker, tools, snapshot, &control, false, "/tmp/root");
     let _confirmer = spawn_confirmer(&control, true);
 
-    // evaluator 会话挂起（gate armed）即运行中窗口：停止寻址键 = change 名
+    // evaluator 会话挂起（gate armed）即运行中窗口：停止寻址键 = change id
     wait_for("evaluator 会话发起", || {
         requests
             .lock()
@@ -1795,7 +1808,7 @@ async fn 停止置位收敛stopped且不再发起新相位() {
             .any(|request| request.role == WorkerRole::Evaluator)
     })
     .await;
-    assert!(control.request_stop(ROOT, CHANGE), "运行中置位返回 true");
+    assert!(control.request_stop(ROOT, CHANGE_ID), "运行中置位返回 true");
 
     // 放行当前会话收口：proposal 落账后循环顶观测取消 → stopped
     *gate.armed.lock().expect("门锁不可中毒") = false;
@@ -1834,7 +1847,7 @@ async fn 停止置位收敛stopped且不再发起新相位() {
         .any(|notice| *notice == RunNotice::Finished));
     let finish = history.finish().expect("finish 落包捕获");
     assert_eq!(finish.status, RunStatus::Stopped);
-    assert!(control.snapshot(ROOT, CHANGE).is_none(), "终态除名");
+    assert!(control.snapshot(ROOT, CHANGE_ID).is_none(), "终态除名");
 }
 
 // ---------------------------------------------------------------------------
@@ -2036,7 +2049,7 @@ async fn auto确认ask照常停等应答回流后收敛全程零confirmwait() {
 
     // 应答回流：Continue 决策会话重出封闭集 → retry → done 收敛
     control
-        .answer(ROOT, CHANGE, "采用方案 A".to_owned())
+        .answer(ROOT, CHANGE_ID, "采用方案 A".to_owned())
         .expect("应答回传应成功");
     let status = task.await.expect("run 任务正常结束");
     assert_eq!(
@@ -2122,7 +2135,7 @@ async fn static_check步门控implement站必经非门控相位零调用() {
         .lock()
         .expect("命令锁")
         .iter()
-        .filter(|command| matches!(command, ToolCommand::StaticCheck))
+        .filter(|command| matches!(command, ToolCommand::StaticCheck { .. }))
         .count();
     assert_eq!(static_checks, 1, "static-check 恰在 implement 站必经一次");
 
@@ -2243,7 +2256,7 @@ async fn 反馈边恰五次且超限升格相位fail不跑evaluator() {
     let commands = commands.lock().expect("命令锁");
     let static_checks = commands
         .iter()
-        .filter(|command| matches!(command, ToolCommand::StaticCheck))
+        .filter(|command| matches!(command, ToolCommand::StaticCheck { .. }))
         .count();
     assert_eq!(
         static_checks,
@@ -2472,9 +2485,9 @@ fn 步门控常量锚定() {
 #[tokio::test]
 async fn 真实写面组合_会话槽位落账与决策挂账全链对应() {
     let root = TempRoot::new("slots-real-compose");
-    root.change(CHANGE);
+    root.change(NAME);
     let db = TestDb::open("slots-real-compose");
-    seed_change(db.store.as_ref(), CHANGE);
+    seed_change(db.store.as_ref(), CHANGE_ID, NAME);
 
     let timeline = Arc::new(Mutex::new(Vec::new()));
     let (worker, _requests, sessions) = FakeWorker::new(&timeline)
@@ -2521,7 +2534,7 @@ async fn 真实写面组合_会话槽位落账与决策挂账全链对应() {
     // WorkerTurnOutcome.session_id——AC-5）
     let entries = db
         .store
-        .list_phase_records(CHANGE)
+        .list_phase_records(CHANGE_ID)
         .expect("读相位条目应成功");
     assert_eq!(entries.len(), 5, "五条 fail 条目纯追加");
     for (idx, entry) in entries.iter().enumerate() {
@@ -2558,9 +2571,9 @@ async fn 真实写面组合_会话槽位落账与决策挂账全链对应() {
 #[tokio::test]
 async fn 真实写面组合_决策挂账先于解析_parse失败同样留痕() {
     let root = TempRoot::new("relog-before-parse");
-    root.change(CHANGE);
+    root.change(NAME);
     let db = TestDb::open("relog-before-parse");
-    seed_change(db.store.as_ref(), CHANGE);
+    seed_change(db.store.as_ref(), CHANGE_ID, NAME);
 
     let timeline = Arc::new(Mutex::new(Vec::new()));
     let (worker, _requests, sessions) = FakeWorker::new(&timeline)
@@ -2614,7 +2627,7 @@ async fn 真实写面组合_决策挂账先于解析_parse失败同样留痕() {
     drop(sessions);
     let entries = db
         .store
-        .list_phase_records(CHANGE)
+        .list_phase_records(CHANGE_ID)
         .expect("读相位条目应成功");
     assert_eq!(entries.len(), 5);
     assert_eq!(
@@ -2631,12 +2644,12 @@ async fn 真实写面组合_决策挂账先于解析_parse失败同样留痕() {
 #[tokio::test]
 async fn 真实写面组合_升格fail条目仅携executor槽位且修复轮续注同会话() {
     let root = TempRoot::new("upgrade-slots");
-    root.change(CHANGE);
+    root.change(NAME);
     let db = TestDb::open("upgrade-slots");
-    seed_change(db.store.as_ref(), CHANGE);
+    seed_change(db.store.as_ref(), CHANGE_ID, NAME);
     seed_entry(
         db.store.as_ref(),
-        CHANGE,
+        CHANGE_ID,
         "proposal",
         Verdict::Pass,
         "提案通过",
@@ -2645,7 +2658,7 @@ async fn 真实写面组合_升格fail条目仅携executor槽位且修复轮续�
     );
     seed_entry(
         db.store.as_ref(),
-        CHANGE,
+        CHANGE_ID,
         "dev-design",
         Verdict::Pass,
         "设计通过",
@@ -2654,7 +2667,7 @@ async fn 真实写面组合_升格fail条目仅携executor槽位且修复轮续�
     );
     seed_entry(
         db.store.as_ref(),
-        CHANGE,
+        CHANGE_ID,
         "test-design",
         Verdict::Pass,
         "测试设计通过",
@@ -2738,7 +2751,7 @@ async fn 真实写面组合_升格fail条目仅携executor槽位且修复轮续�
     // fail 条目仅携 executor 单槽位（evaluator 未跑）；最新条目携决策挂账键
     let entries = db
         .store
-        .list_phase_records(CHANGE)
+        .list_phase_records(CHANGE_ID)
         .expect("读相位条目应成功");
     assert_eq!(entries.len(), 8, "预置三条 pass + 五轮升格 fail 纯追加");
     let upgrades = &entries[3..];
@@ -2805,7 +2818,7 @@ async fn 决策会话收口即挂账_decisionlog载荷逐字段捕获() {
         sessions_of(&sessions, WorkerRole::Decision)
     };
     assert_eq!(decision_sessions.len(), 1);
-    assert_eq!(payloads[0].0, CHANGE, "change 载荷逐字段");
+    assert_eq!(payloads[0].0, CHANGE_ID, "change 载荷逐字段");
     assert_eq!(payloads[0].1, "implement", "失败相位承载");
     assert_eq!(
         payloads[0].2, decision_sessions[0],
@@ -2925,7 +2938,7 @@ async fn ask续轮同会话重挂同值幂等() {
         std::thread::sleep(Duration::from_millis(5));
     }
     control
-        .answer(ROOT, CHANGE, "终止".to_owned())
+        .answer(ROOT, CHANGE_ID, "终止".to_owned())
         .expect("应答回传应成功");
     let status = task.await.expect("run 任务正常结束");
     assert_eq!(status, ChangeRunStatus::Stopped, "决策 stop 收敛");
@@ -2955,7 +2968,7 @@ async fn ask续轮同会话重挂同值幂等() {
     let payloads = decision_log_payloads(&commands.lock().expect("命令锁"));
     assert_eq!(payloads.len(), 2, "每轮收口即挂账");
     assert_eq!(payloads[0], payloads[1], "同会话同值重挂（幂等覆写）");
-    assert_eq!(payloads[0].0, CHANGE);
+    assert_eq!(payloads[0].0, CHANGE_ID);
     assert_eq!(payloads[0].1, "implement");
     assert_eq!(payloads[0].2, first_session, "两轮挂账同会话 id");
 }
@@ -3020,11 +3033,7 @@ async fn 步状态词汇零新增_决策挂账全程无新步信封() {
 struct StubSnapshot;
 
 impl WorkflowSnapshotPort for StubSnapshot {
-    fn detail(
-        &self,
-        _root: &str,
-        _change: &str,
-    ) -> Result<workflow::queries::ChangeDetail, String> {
+    fn detail(&self, _root: &str, _id: &str) -> Result<workflow::queries::ChangeDetail, String> {
         Err("假双缝用例不应触达快照面".to_owned())
     }
 }
@@ -3058,7 +3067,7 @@ impl StaticCheckRunner for FailingRunner {
 struct NullTestExecutionRunner;
 
 impl TestExecutionRunner for NullTestExecutionRunner {
-    fn run(&self, _root: &str, _change: &str) -> BoxToolFuture {
+    fn run(&self, _root: &str, _name: &str) -> BoxToolFuture {
         Box::pin(async move {
             Ok(ToolStepOutput::TestExecution(TestExecutionOutcome {
                 conclusion: TestExecutionConclusion::Pass,
@@ -3106,7 +3115,7 @@ fn execution_outcome(conclusion: TestExecutionConclusion, total: u64) -> TestExe
                   ## 失败用例明细\n\n[node-test]\n1. 汇总导出_空清单回落（src/export.test.mjs:23）\n   消息: expected '[]' to equal '[a]'"
                 .to_owned(),
         },
-        report_dir: "C:/ws/openspec/changes/walker-change/reports/test".to_owned(),
+        report_dir: format!("C:/ws/openspec/changes/{NAME}/reports/test"),
     }
 }
 
@@ -3236,7 +3245,7 @@ async fn 绿跑零agent_机械checklist代写落账() {
 
 /// 正向：fail 结论反馈边——findings 摘要 + 报告路径 prompt 注入修复会话：
 /// 首个 fail 新会话（continue_session=None）、provenance 沿
-/// `<change>/test-execution/executor/<attempt>` 定式、修复后复跑 pass 机械
+/// `<id>/test-execution/executor/<attempt>` 定式、修复后复跑 pass 机械
 /// 落账收敛。
 #[tokio::test]
 async fn 反馈边fail_新会话与provenance定式() {
@@ -3271,8 +3280,8 @@ async fn 反馈边fail_新会话与provenance定式() {
     );
     assert_eq!(
         fix.provenance.source_ref.as_deref(),
-        Some("walker-change/test-execution/executor/1"),
-        "provenance 沿 <change>/test-execution/executor/<attempt> 定式"
+        Some(format!("{CHANGE_ID}/test-execution/executor/1").as_str()),
+        "provenance 沿 <id>/test-execution/executor/<attempt> 定式"
     );
     let prompt = &fix.prompt;
     assert!(
@@ -3440,7 +3449,7 @@ async fn 反馈边恰五次且超限升格相位fail() {
         );
         assert_eq!(
             request.provenance.source_ref.as_deref(),
-            Some("walker-change/test-execution/executor/1"),
+            Some(format!("{CHANGE_ID}/test-execution/executor/1").as_str()),
             "反馈边不消耗相位 retry 预算（attempt 恒 1）"
         );
     }
@@ -3478,7 +3487,7 @@ async fn 双门禁独立计数互不挤占() {
     let commands = commands.lock().expect("命令锁");
     let static_calls = commands
         .iter()
-        .filter(|command| matches!(command, ToolCommand::StaticCheck))
+        .filter(|command| matches!(command, ToolCommand::StaticCheck { .. }))
         .count();
     let gate_calls = commands
         .iter()
@@ -3633,6 +3642,7 @@ impl WorkflowSnapshotPort for RootCaptureSnapshot {
             .expect("快照 root 锁不可中毒")
             .push(root.to_owned());
         Ok(workflow::queries::ChangeDetail {
+            id: "exec-root-anchor".to_owned(),
             name: "exec-root-anchor".to_owned(),
             source: workflow::queries::ChangeSource::Active,
             status: None,
@@ -3648,6 +3658,7 @@ impl WorkflowSnapshotPort for RootCaptureSnapshot {
 
 #[tokio::test]
 async fn exec_root透传锚_四缝root恒等于request_root() {
+    // worktree 执行锚路径按 change **name** 目录名（磁盘面命名——id 不入路径）
     const EXEC_ROOT: &str = r"C:\app-data\worktrees\demo-segment\walker-change";
 
     let timeline = Arc::new(Mutex::new(Vec::new()));
@@ -3707,9 +3718,6 @@ async fn exec_root透传锚_四缝root恒等于request_root() {
 // 每 run 两写时序（unify-run-state-persistence D5/D6）：假件计数 + 真件回验
 // ---------------------------------------------------------------------------
 
-/// 每 run 恰两写（AC-2）：假引擎一相位绿跑（route → proposal 落账 → done）→
-/// 计数假件断言 run 域写恰两次（run_started 1 次 + run_finished 1 次），run
-/// 中零额外 run 域写（每步零写放大——落库粒度收口面）。
 #[tokio::test]
 async fn 每run恰两次落库调用_一相位绿跑零额外run域写() {
     let timeline = Arc::new(Mutex::new(Vec::new()));
@@ -3730,22 +3738,20 @@ async fn 每run恰两次落库调用_一相位绿跑零额外run域写() {
     assert_eq!(history.finish_count(), 1, "终态第二写恰一次");
     let start = history.start().expect("起始行捕获");
     assert_eq!(start.run_id, "run-1");
-    assert_eq!(start.change, CHANGE);
+    assert_eq!(start.change_id, CHANGE_ID, "第一写载荷 change_id 透传");
     assert_eq!(start.started_at, STARTED_AT, "started_at 命令携带原值");
     let finish = history.finish().expect("收口落包捕获");
     assert_eq!(finish.status, RunStatus::Completed);
     assert_eq!(finish.run_id, "run-1");
+    assert_eq!(finish.change_id, CHANGE_ID, "第二写载荷 change_id 透传");
 }
 
-/// 真件组合（StoreRunHistory + TestDb）：多相位 run 走完 → 库读史回验
-/// RunRecord 终态 / reason / 起止 + RunStepRecord 步整包 seq 与 emit 序逐条
-/// 一致、时间戳整包同刻（AC-1 / AC-10 重挂步表与 emit 序一致）。
 #[tokio::test]
 async fn 真件组合_多相位run落库回验_emit序与终态逐字段一致() {
     let root = TempRoot::new("run-persist");
-    root.change(CHANGE);
+    root.change(NAME);
     let db = TestDb::open("run-persist");
-    seed_change(db.store.as_ref(), CHANGE);
+    seed_change(db.store.as_ref(), CHANGE_ID, NAME);
 
     let timeline = Arc::new(Mutex::new(Vec::new()));
     let (worker, _requests, _sessions) = FakeWorker::new(&timeline).assemble();
@@ -3774,7 +3780,7 @@ async fn 真件组合_多相位run落库回验_emit序与终态逐字段一致()
     assert_eq!(status, ChangeRunStatus::Completed);
 
     // RunRecord 回验：终态 / reason / 起止（started_at 与 RunRequest 同值）
-    let runs = store.list_change_runs(CHANGE).expect("库读史应成功");
+    let runs = store.list_change_runs(CHANGE_ID).expect("库读史应成功");
     assert_eq!(runs.len(), 1, "恰一条 run 行");
     assert_eq!(runs[0].run_id, "run-1");
     assert_eq!(runs[0].status, RunStatus::Completed);
@@ -3826,8 +3832,6 @@ async fn 真件组合_多相位run落库回验_emit序与终态逐字段一致()
     );
 }
 
-/// 全词汇 run（emit 覆盖十类步词汇：相位机步 + 三门穿插）→ 落库 run_steps
-/// 恰五词汇、流程面与三门零行（AC-3 缺席断言）。
 #[tokio::test]
 async fn 全词汇run恰五落_流程面与三门零行() {
     // 决策分叉输入取自 ChangeDetail 只读装配——真件库种子（快照读源真实组合）
@@ -3914,9 +3918,6 @@ async fn 全词汇run恰五落_流程面与三门零行() {
     );
 }
 
-/// 三死亡路径同一出口（AC-2 全死亡路径汇聚）：completed（全相位 pass）/
-/// stopped（停等拒绝）/ failed（写面失败）三形态各自完成第二写且终态与
-/// reason 各異（第二写恰一次、终态出口唯一）。
 #[tokio::test]
 async fn 三死亡路径同一出口_第二写恰一次且终态记因各异() {
     // completed：全相位 pass
@@ -3996,18 +3997,15 @@ async fn 三死亡路径同一出口_第二写恰一次且终态记因各异() {
     }
 }
 
-/// 中途停止收口（AC-5 悬挂杀除链路面）：预置 active_phase 在位的真件库 →
-/// run 收口（finish 单事务）后 active_phase 读回 None（phase_log 未达亦清位
-/// ——悬挂杀除库面）。
 #[tokio::test]
 async fn 中途停止收口_active_phase清位() {
     let root = TempRoot::new("hang-clear");
-    root.change(CHANGE);
+    root.change(NAME);
     let db = TestDb::open("hang-clear");
-    seed_change(db.store.as_ref(), CHANGE);
+    seed_change(db.store.as_ref(), CHANGE_ID, NAME);
     // 悬挂形态：开相未落账（active_phase 在位——中途死亡近似构造）
     db.store
-        .start_change_phase(CHANGE, "implement", STARTED_AT)
+        .start_change_phase(CHANGE_ID, "implement", STARTED_AT)
         .expect("开相种子应成功");
 
     let timeline = Arc::new(Mutex::new(Vec::new()));
@@ -4033,27 +4031,24 @@ async fn 中途停止收口_active_phase清位() {
     assert_eq!(status, ChangeRunStatus::Stopped);
 
     let record = store
-        .find_change_record(CHANGE)
+        .find_change_record(CHANGE_ID)
         .expect("读建档记录应成功")
         .expect("建档记录在场");
     assert!(
         record.active_phase.is_none(),
         "收口事务清位 active_phase（悬挂杀除——stopped 亦然）"
     );
-    let runs = store.list_change_runs(CHANGE).expect("库读史应成功");
+    let runs = store.list_change_runs(CHANGE_ID).expect("库读史应成功");
     assert_eq!(runs.len(), 1);
     assert_eq!(runs[0].status, RunStatus::Stopped);
 }
 
-/// 续走不重头（AC-5 续走锚点）：同 change 第二轮 run——中断相位承接续走
-///（attempt 跨 run max+1 递增不撞号）、已过站不重头重执行；两轮 run 全史在
-/// 库（AC-9/AC-11 样本语义）。
 #[tokio::test]
 async fn 续走不重头_第二轮run已pass相位零重执行attempt延续() {
     let root = TempRoot::new("resume-run");
-    root.change(CHANGE);
+    root.change(NAME);
     let db = TestDb::open("resume-run");
-    seed_change(db.store.as_ref(), CHANGE);
+    seed_change(db.store.as_ref(), CHANGE_ID, NAME);
 
     // 第一轮：proposal attempt 1 fail（fail verdict 落账）→ 停等拒绝收口
     // stopped（中断形态——active_phase 已随落账清位，续走锚点 = 库内 fail 史）
@@ -4085,7 +4080,7 @@ async fn 续走不重头_第二轮run已pass相位零重执行attempt延续() {
         let status = task.await.expect("run 任务正常结束");
         assert_eq!(status, ChangeRunStatus::Stopped, "首轮 fail 后停等拒绝收口");
         let attempts: Vec<u32> = store
-            .list_phase_records(CHANGE)
+            .list_phase_records(CHANGE_ID)
             .expect("读相位条目应成功")
             .iter()
             .map(|entry| entry.attempt)
@@ -4121,7 +4116,9 @@ async fn 续走不重头_第二轮run已pass相位零重执行attempt延续() {
         let status = task.await.expect("run 任务正常结束");
         assert_eq!(status, ChangeRunStatus::Completed, "第二轮续走至全 pass");
 
-        let entries = store.list_phase_records(CHANGE).expect("读相位条目应成功");
+        let entries = store
+            .list_phase_records(CHANGE_ID)
+            .expect("读相位条目应成功");
         // attempt 序跨 run 延续递增：proposal [1(fail, run-1), 2(pass, run-2)]，
         // 后续相位各 1 attempt（零重头重执行——attempt 不重开）
         let proposal: Vec<u32> = entries
@@ -4151,7 +4148,7 @@ async fn 续走不重头_第二轮run已pass相位零重执行attempt延续() {
             "落账序列严格前向（续走锚点推进——已 pass 相位零重执行）"
         );
         // 两轮 run 全史：库面恰两行、run-1 stopped / run-2 completed
-        let runs = store.list_change_runs(CHANGE).expect("库读史应成功");
+        let runs = store.list_change_runs(CHANGE_ID).expect("库读史应成功");
         assert_eq!(
             runs.iter()
                 .map(|row| row.run_id.as_str())
@@ -4164,8 +4161,6 @@ async fn 续走不重头_第二轮run已pass相位零重执行attempt延续() {
     }
 }
 
-/// run_started Err → fail-fast（D5）：工具步 / 会话零调用（零相位执行）、run
-/// 以 failed 收口且注册表除名（guard.finish 仍达）。
 #[tokio::test]
 async fn run_started_err_fail_fast_零相位执行() {
     let timeline = Arc::new(Mutex::new(Vec::new()));
@@ -4180,12 +4175,12 @@ async fn run_started_err_fail_fast_零相位执行() {
     guard_history.arm_start_failure("store 已坏注入");
 
     let guard = control
-        .begin_run(ROOT, CHANGE, "run-1".to_owned(), STARTED_AT)
+        .begin_run(ROOT, CHANGE_ID, "run-1".to_owned(), STARTED_AT)
         .unwrap();
-    let rx = control.subscribe(ROOT, CHANGE).unwrap();
+    let rx = control.subscribe(ROOT, CHANGE_ID).unwrap();
     let request = RunRequest {
         root: "/tmp/root".to_owned(),
-        change: CHANGE.to_owned(),
+        change_id: CHANGE_ID.to_owned(),
         run_id: "run-1".to_owned(),
         auto_next_phase: false,
         started_at: STARTED_AT,
@@ -4209,15 +4204,13 @@ async fn run_started_err_fail_fast_零相位执行() {
     );
     assert_eq!(requests.lock().expect("请求锁").len(), 0, "会话零调用");
     assert!(
-        control.snapshot(ROOT, CHANGE).is_none(),
+        control.snapshot(ROOT, CHANGE_ID).is_none(),
         "注册表除名（guard.finish 仍达）"
     );
     drop(rx);
     let _ = guard_history.start_count(); // 起始行注入失败不入捕获（0 为合法）
 }
 
-/// run_finished Err → best-effort 静默（D6）：run 照常返回终态、订阅释放与
-/// 除名不受阻、不重试不报错（第二写单次尝试）。
 #[tokio::test]
 async fn run_finished_err_best_effort_静默收口() {
     let timeline = Arc::new(Mutex::new(Vec::new()));
@@ -4232,12 +4225,12 @@ async fn run_finished_err_best_effort_静默收口() {
     history.arm_finish_failure("收口落包注入失败");
 
     let guard = control
-        .begin_run(ROOT, CHANGE, "run-1".to_owned(), STARTED_AT)
+        .begin_run(ROOT, CHANGE_ID, "run-1".to_owned(), STARTED_AT)
         .unwrap();
-    let mut rx = control.subscribe(ROOT, CHANGE).unwrap();
+    let mut rx = control.subscribe(ROOT, CHANGE_ID).unwrap();
     let request = RunRequest {
         root: "/tmp/root".to_owned(),
-        change: CHANGE.to_owned(),
+        change_id: CHANGE_ID.to_owned(),
         run_id: "run-1".to_owned(),
         auto_next_phase: false,
         started_at: STARTED_AT,
@@ -4265,7 +4258,7 @@ async fn run_finished_err_best_effort_静默收口() {
         "Err 注入下零成功捕获（单次尝试不重试）"
     );
     assert!(
-        control.snapshot(ROOT, CHANGE).is_none(),
+        control.snapshot(ROOT, CHANGE_ID).is_none(),
         "除名不受阻（注册表无条目）"
     );
     // 订阅释放：Finished 通知照常流出（guard.finish 广播面不受落包失败影响）

@@ -59,12 +59,13 @@ async fn execute(
     step: ToolStepRequest,
 ) -> Result<ToolStepOutput, String> {
     match step.command {
-        ToolCommand::PhaseNext { change, run_id } => {
-            let outcome = workflow::write::phase_next(store.as_ref(), &change, &run_id, &anchors);
+        ToolCommand::PhaseNext { change_id, run_id } => {
+            let outcome =
+                workflow::write::phase_next(store.as_ref(), &change_id, &run_id, &anchors);
             audit_outcome(
                 store.as_ref(),
                 &run_id,
-                &change,
+                &change_id,
                 StepKind::PhaseNext,
                 outcome.as_ref().map(|value| {
                     (
@@ -79,12 +80,12 @@ async fn execute(
             );
             Ok(ToolStepOutput::PhaseNext(Box::new(outcome?)))
         }
-        ToolCommand::PhaseStart { change, phase } => {
-            let outcome = workflow::write::phase_start(store.as_ref(), &change, &phase);
+        ToolCommand::PhaseStart { change_id, phase } => {
+            let outcome = workflow::write::phase_start(store.as_ref(), &change_id, &phase);
             audit_outcome(
                 store.as_ref(),
                 &run_id,
-                &change,
+                &change_id,
                 StepKind::PhaseStart,
                 outcome.as_ref().map(|value| {
                     (
@@ -95,8 +96,10 @@ async fn execute(
             );
             Ok(ToolStepOutput::PhaseStart(outcome?))
         }
-        ToolCommand::PhaseLog { change, input, .. } => {
-            let outcome = workflow::write::phase_log(store.as_ref(), &change, &input);
+        ToolCommand::PhaseLog {
+            change_id, input, ..
+        } => {
+            let outcome = workflow::write::phase_log(store.as_ref(), &change_id, &input);
             let reference = input
                 .evaluator_session_id
                 .clone()
@@ -104,7 +107,7 @@ async fn execute(
             audit_outcome(
                 store.as_ref(),
                 &run_id,
-                &change,
+                &change_id,
                 StepKind::PhaseLog,
                 outcome.as_ref().map(|value| {
                     (
@@ -115,12 +118,14 @@ async fn execute(
             );
             Ok(ToolStepOutput::PhaseLog(outcome?))
         }
-        ToolCommand::Backtrack { change, input, .. } => {
-            let outcome = workflow::write::backtrack(store.as_ref(), &change, &input);
+        ToolCommand::Backtrack {
+            change_id, input, ..
+        } => {
+            let outcome = workflow::write::backtrack(store.as_ref(), &change_id, &input);
             audit_outcome(
                 store.as_ref(),
                 &run_id,
-                &change,
+                &change_id,
                 StepKind::Backtrack,
                 outcome.as_ref().map(|value| {
                     (
@@ -135,16 +140,16 @@ async fn execute(
             Ok(ToolStepOutput::Backtrack(outcome?))
         }
         ToolCommand::DecisionLog {
-            change,
+            change_id,
             phase,
             session_id,
         } => {
             let outcome =
-                workflow::write::decision_log(store.as_ref(), &change, &phase, &session_id);
+                workflow::write::decision_log(store.as_ref(), &change_id, &phase, &session_id);
             audit_outcome(
                 store.as_ref(),
                 &run_id,
-                &change,
+                &change_id,
                 StepKind::DecisionLog,
                 outcome
                     .as_ref()
@@ -152,14 +157,14 @@ async fn execute(
             );
             Ok(ToolStepOutput::DecisionLog(outcome?))
         }
-        ToolCommand::StaticCheck => {
-            // 命令载荷无 change 位（port 契约不动）：审计行 change 以空串占
-            // 位，run_id 仍串链本 run 步骤序列
+        ToolCommand::StaticCheck { change_id } => {
+            // 审计行 change_id 归键（命令载荷携 id——空串占位退役，逐条
+            // change id 可枚举），run_id 仍串链本 run 步骤序列
             let output = static_check.run(&step.root).await;
             audit_outcome(
                 store.as_ref(),
                 &run_id,
-                "",
+                &change_id,
                 StepKind::StaticCheck,
                 match &output {
                     Ok(ToolStepOutput::StaticCheck(outcome)) => {
@@ -171,12 +176,21 @@ async fn execute(
             );
             output
         }
-        ToolCommand::TestExecution { change } => {
-            let output = test_execution.run(&step.root, &change).await;
+        ToolCommand::TestExecution { change_id } => {
+            // 磁盘面 port 收 name（报告目录派生为 name 化）：消费点经
+            // id → 记录 → name 解析（未建档显式 Err）
+            let name = store
+                .get_change(&change_id)
+                .map_err(|error| error.to_string())?
+                .map(|record| record.name)
+                .ok_or_else(|| {
+                    format!("change \"{change_id}\" 未建档（无 ChangeRecord），无从执行测试门禁")
+                })?;
+            let output = test_execution.run(&step.root, &name).await;
             audit_outcome(
                 store.as_ref(),
                 &run_id,
-                &change,
+                &change_id,
                 StepKind::TestExecution,
                 match &output {
                     Ok(ToolStepOutput::TestExecution(outcome)) => Ok((
@@ -204,7 +218,7 @@ async fn execute(
 fn audit_outcome<E: std::fmt::Display>(
     store: &dyn ChangeStateStore,
     run_id: &str,
-    change: &str,
+    change_id: &str,
     step_kind: StepKind,
     outcome: Result<(String, Option<String>), E>,
 ) {
@@ -214,7 +228,7 @@ fn audit_outcome<E: std::fmt::Display>(
     };
     let _ = store.append_step(&StepCommand {
         run_id: run_id.to_owned(),
-        change: change.to_owned(),
+        change_id: change_id.to_owned(),
         step_kind,
         status: status.to_owned(),
         summary: clip_summary(summary),

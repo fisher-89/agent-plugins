@@ -6,10 +6,12 @@
 //! 先例）；FakeRunner / FakeTestExecutionRunner 假件装置沿用（记录调用 +
 //! 可编程产出）。
 //!
-//! 覆盖面：七臂命令包络 StepRecord 审计落库（成功 / 失败皆落、run_id 串链、
-//! summary ≤500 截断留痕、reference 携 checks 报告目录 / 会话 id）、全链落库
-//! 组合（命令 → 写面 → db 双记录可查）、store 故障传播（业务 Err 上抛不静
-//! 默，审计失败不阻断臂）、ToolStepPort 直调面持衡。
+//! 覆盖面：七臂命令包络 StepRecord 审计落库（成功 / 失败皆落、`change_id` 归
+//! 键——含 StaticCheck 臂，空串占位退役；run_id 串链、summary ≤500 截断留痕、
+//! reference 携 checks 报告目录 / 会话 id）、TestExecution 臂 id → 记录 → name
+//! 解析单点（未建档零发起）、全链落库组合（命令 → 写面 → db 双记录可查）、
+//! store 故障传播（业务 Err 上抛不静默，审计失败不阻断臂）、ToolStepPort 直调
+//! 面持衡。
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -30,7 +32,13 @@ use crate::port::{
 };
 use crate::steps::LocalToolSteps;
 
-const CHANGE: &str = "demo-change";
+/// 固定 change **id** 字面量（命令载荷定位键 / 审计行归键 / store 寻址入参
+/// ——一切身份寻址以此为准）。
+const CHANGE_ID: &str = "3f1a9c47-28e5-4b06-9d73-5c8a1e2f4b60";
+
+/// 展示名（记录 `name` 属性：磁盘面供给值——TestExecution 臂解析后交 runner
+/// 的入参，id ≠ name 形态下解析单点可辨）。
+const NAME: &str = "demo-change";
 
 /// 种子基准时刻：2026-10-01T08:00:00Z 定值 UTC unix 毫秒（确定性断言面）。
 const TS_BASE: i64 = 1_790_841_600_000;
@@ -71,10 +79,12 @@ impl TestDb {
     }
 }
 
-/// 建档种子：workflow_type requirement、active 起步（created_at 取定值毫秒）。
-fn seed_change(store: &Store, name: &str, workflow_type: &str) {
+/// 建档种子：workflow_type requirement、active 起步（created_at 取定值毫秒；
+/// id 归键 / name 为展示属性——id ≠ name 形态下寻址与解析逐点可辨）。
+fn seed_change(store: &Store, id: &str, name: &str, workflow_type: &str) {
     store
         .create_change_record(ChangeStateRecord {
+            id: id.to_owned(),
             name: name.to_owned(),
             workflow_type: workflow_type.to_owned(),
             created_at: TS_BASE,
@@ -94,7 +104,7 @@ fn seed_entry(store: &Store, change: &str, phase: &str, verdict: Verdict, ts: i6
         .expect("开相种子应成功");
     store
         .log_change_phase(&PhaseLogCommand {
-            change: change.to_owned(),
+            change_id: change.to_owned(),
             phase: phase.to_owned(),
             verdict,
             report: format!("{phase} 种子条目"),
@@ -161,6 +171,23 @@ impl FakeStore {
         self.db.lock().expect("锁不可中毒").steps.clone()
     }
 
+    /// 建档种子（TestExecution 臂 id → 记录 → name 解析前提；id 归键、name
+    /// 独立展示）。
+    fn seed_change(&self, id: &str, name: &str) {
+        self.create_change_record(ChangeStateRecord {
+            id: id.to_owned(),
+            name: name.to_owned(),
+            workflow_type: "requirement".to_owned(),
+            created_at: TS_BASE,
+            status: ChangeStatus::Active,
+            archived_at: None,
+            active_phase: None,
+            worktree: None,
+            base_commit: None,
+        })
+        .expect("建档种子应成功");
+    }
+
     fn fault_of(fault: &Mutex<Option<StoreFault>>) -> Option<StoreFault> {
         fault.lock().expect("锁不可中毒").clone()
     }
@@ -169,24 +196,18 @@ impl FakeStore {
     fn next_attempt(db: &FakeState, change: &str, phase: &str) -> u32 {
         db.phases
             .iter()
-            .filter(|entry| entry.change == change && entry.phase == phase)
+            .filter(|entry| entry.change_id == change && entry.phase == phase)
             .count() as u32
             + 1
     }
 }
 
 impl ChangeStateStore for FakeStore {
-    fn get_change(&self, name: &str) -> Result<Option<ChangeStateRecord>, StoreFault> {
+    fn get_change(&self, id: &str) -> Result<Option<ChangeStateRecord>, StoreFault> {
         if let Some(fault) = Self::fault_of(&self.fail_read) {
             return Err(fault);
         }
-        Ok(self
-            .db
-            .lock()
-            .expect("锁不可中毒")
-            .changes
-            .get(name)
-            .cloned())
+        Ok(self.db.lock().expect("锁不可中毒").changes.get(id).cloned())
     }
 
     fn list_change_records(&self) -> Result<Vec<ChangeStateRecord>, StoreFault> {
@@ -204,7 +225,7 @@ impl ChangeStateStore for FakeStore {
         Ok(db
             .phases
             .iter()
-            .filter(|entry| entry.change == change)
+            .filter(|entry| entry.change_id == change)
             .cloned()
             .collect())
     }
@@ -218,30 +239,30 @@ impl ChangeStateStore for FakeStore {
         Ok(db
             .steps
             .iter()
-            .filter(|row| row.change == change && run_id.is_none_or(|run| row.run_id == run))
+            .filter(|row| row.change_id == change && run_id.is_none_or(|run| row.run_id == run))
             .cloned()
             .collect())
     }
 
     fn create_change_record(&self, record: ChangeStateRecord) -> Result<(), StoreFault> {
         let mut db = self.db.lock().expect("锁不可中毒");
-        if db.changes.contains_key(&record.name) {
+        if db.changes.contains_key(&record.id) {
             return Err(StoreFault::Conflict(format!(
-                "change 已存在同名建档记录: {}",
-                record.name
+                "change 已存在同 id 建档记录（身份锚不可覆写）: {}",
+                record.id
             )));
         }
-        db.changes.insert(record.name.clone(), record);
+        db.changes.insert(record.id.clone(), record);
         Ok(())
     }
 
-    fn delete_change_record(&self, name: &str) -> Result<bool, StoreFault> {
+    fn delete_change_record(&self, id: &str) -> Result<bool, StoreFault> {
         Ok(self
             .db
             .lock()
             .expect("锁不可中毒")
             .changes
-            .remove(name)
+            .remove(id)
             .is_some())
     }
 
@@ -273,17 +294,17 @@ impl ChangeStateStore for FakeStore {
             return Err(fault);
         }
         let mut db = self.db.lock().expect("锁不可中毒");
-        if !db.changes.contains_key(&command.change) {
+        if !db.changes.contains_key(&command.change_id) {
             return Err(StoreFault::NotFound(format!(
                 "change 不存在: {}",
-                command.change
+                command.change_id
             )));
         }
-        let attempt = Self::next_attempt(&db, &command.change, &command.phase);
+        let attempt = Self::next_attempt(&db, &command.change_id, &command.phase);
         let id = db.phases.len() as i64 + 1;
         db.phases.push(PhaseStateRecord {
             id,
-            change: command.change.clone(),
+            change_id: command.change_id.clone(),
             phase: command.phase.clone(),
             attempt,
             verdict: command.verdict,
@@ -301,7 +322,7 @@ impl ChangeStateStore for FakeStore {
         });
         let record = db
             .changes
-            .get_mut(&command.change)
+            .get_mut(&command.change_id)
             .expect("建档记录在场（上文已核）");
         record.active_phase = None;
         Ok(attempt)
@@ -312,7 +333,7 @@ impl ChangeStateStore for FakeStore {
         let latest = db
             .phases
             .iter_mut()
-            .filter(|entry| entry.change == command.change && entry.phase == command.phase)
+            .filter(|entry| entry.change_id == command.change_id && entry.phase == command.phase)
             .max_by_key(|entry| entry.id)
             .ok_or_else(|| {
                 StoreFault::NotFound(format!("Phase \"{}\" 没有评估条目", command.phase))
@@ -320,7 +341,7 @@ impl ChangeStateStore for FakeStore {
         latest.backtrack_to = Some(command.to.clone());
         latest.backtrack_reason = Some(command.reason.clone());
         for entry in db.phases.iter_mut().filter(|entry| {
-            entry.change == command.change
+            entry.change_id == command.change_id
                 && entry.phase == command.to
                 && entry.verdict == Verdict::Pass
         }) {
@@ -339,19 +360,19 @@ impl ChangeStateStore for FakeStore {
         let latest = db
             .phases
             .iter_mut()
-            .filter(|entry| entry.change == change && entry.phase == phase)
+            .filter(|entry| entry.change_id == change && entry.phase == phase)
             .max_by_key(|entry| entry.id)
             .ok_or_else(|| StoreFault::NotFound(format!("Phase \"{phase}\" 没有评估条目")))?;
         latest.decision_session_id = Some(session_id.to_owned());
         Ok(())
     }
 
-    fn set_archived(&self, name: &str, archived_at: i64) -> Result<(), StoreFault> {
+    fn set_archived(&self, id: &str, archived_at: i64) -> Result<(), StoreFault> {
         let mut db = self.db.lock().expect("锁不可中毒");
         let record = db
             .changes
-            .get_mut(name)
-            .ok_or_else(|| StoreFault::NotFound(format!("change 不存在: {name}")))?;
+            .get_mut(id)
+            .ok_or_else(|| StoreFault::NotFound(format!("change 不存在: {id}")))?;
         record.status = ChangeStatus::Archived;
         record.archived_at = Some(archived_at);
         Ok(())
@@ -366,7 +387,7 @@ impl ChangeStateStore for FakeStore {
         db.steps.push(StepStateRecord {
             id,
             run_id: command.run_id.clone(),
-            change: command.change.clone(),
+            change_id: command.change_id.clone(),
             step_kind: command.step_kind,
             status: command.status.clone(),
             timestamp: command.timestamp,
@@ -444,7 +465,8 @@ impl StaticCheckRunner for FakeRunner {
     }
 }
 
-/// 可编程 TestExecutionRunner：记录 root / change 调用、可编程产出 / Err。
+/// 可编程 TestExecutionRunner：记录 root / name 调用、可编程产出 / Err
+///（磁盘面 port 收 name——解析在 steps 消费点）。
 struct FakeTestExecutionRunner {
     calls: Arc<Mutex<Vec<(String, String)>>>,
     result: Result<TestExecutionOutcome, String>,
@@ -475,18 +497,18 @@ impl FakeTestExecutionRunner {
         Self::with_result(Err(message.to_owned()))
     }
 
-    /// 调用记录快照（root / change 透传断言面）。
+    /// 调用记录快照（root / name 透传断言面）。
     fn calls(&self) -> Vec<(String, String)> {
         self.calls.lock().expect("calls 锁不可中毒").clone()
     }
 }
 
 impl TestExecutionRunner for FakeTestExecutionRunner {
-    fn run(&self, root: &str, change: &str) -> BoxToolFuture {
+    fn run(&self, root: &str, name: &str) -> BoxToolFuture {
         self.calls
             .lock()
             .expect("calls 锁不可中毒")
-            .push((root.to_owned(), change.to_owned()));
+            .push((root.to_owned(), name.to_owned()));
         let result = self.result.clone();
         Box::pin(async move { result.map(ToolStepOutput::TestExecution) })
     }
@@ -551,7 +573,7 @@ async fn drive_seven_arms(db: &TestDb, run_id: &str) -> Vec<StepStateRecord> {
     let next = run_step(
         &assembled.steps,
         ToolCommand::PhaseNext {
-            change: CHANGE.to_owned(),
+            change_id: CHANGE_ID.to_owned(),
             run_id: run_id.to_owned(),
         },
     )
@@ -561,7 +583,7 @@ async fn drive_seven_arms(db: &TestDb, run_id: &str) -> Vec<StepStateRecord> {
     run_step(
         &assembled.steps,
         ToolCommand::PhaseStart {
-            change: CHANGE.to_owned(),
+            change_id: CHANGE_ID.to_owned(),
             phase: "proposal".to_owned(),
         },
     )
@@ -569,7 +591,7 @@ async fn drive_seven_arms(db: &TestDb, run_id: &str) -> Vec<StepStateRecord> {
     run_step(
         &assembled.steps,
         ToolCommand::PhaseLog {
-            change: CHANGE.to_owned(),
+            change_id: CHANGE_ID.to_owned(),
             phase: "proposal".to_owned(),
             input: PhaseLogInput {
                 phase: "proposal".to_owned(),
@@ -591,7 +613,7 @@ async fn drive_seven_arms(db: &TestDb, run_id: &str) -> Vec<StepStateRecord> {
     run_step(
         &assembled.steps,
         ToolCommand::PhaseStart {
-            change: CHANGE.to_owned(),
+            change_id: CHANGE_ID.to_owned(),
             phase: "dev-design".to_owned(),
         },
     )
@@ -599,7 +621,7 @@ async fn drive_seven_arms(db: &TestDb, run_id: &str) -> Vec<StepStateRecord> {
     run_step(
         &assembled.steps,
         ToolCommand::PhaseLog {
-            change: CHANGE.to_owned(),
+            change_id: CHANGE_ID.to_owned(),
             phase: "dev-design".to_owned(),
             input: PhaseLogInput {
                 phase: "dev-design".to_owned(),
@@ -621,7 +643,7 @@ async fn drive_seven_arms(db: &TestDb, run_id: &str) -> Vec<StepStateRecord> {
     run_step(
         &assembled.steps,
         ToolCommand::Backtrack {
-            change: CHANGE.to_owned(),
+            change_id: CHANGE_ID.to_owned(),
             phase: "dev-design".to_owned(),
             input: BacktrackInput {
                 phase: "dev-design".to_owned(),
@@ -636,35 +658,33 @@ async fn drive_seven_arms(db: &TestDb, run_id: &str) -> Vec<StepStateRecord> {
     run_step(
         &assembled.steps,
         ToolCommand::DecisionLog {
-            change: CHANGE.to_owned(),
+            change_id: CHANGE_ID.to_owned(),
             phase: "dev-design".to_owned(),
             session_id: "sess-decision".to_owned(),
         },
     )
     .await;
     // ⑧ static_check / ⑨ test_execution（spawn 缝委托）
-    run_step(&assembled.steps, ToolCommand::StaticCheck).await;
+    run_step(
+        &assembled.steps,
+        ToolCommand::StaticCheck {
+            change_id: CHANGE_ID.to_owned(),
+        },
+    )
+    .await;
     run_step(
         &assembled.steps,
         ToolCommand::TestExecution {
-            change: CHANGE.to_owned(),
+            change_id: CHANGE_ID.to_owned(),
         },
     )
     .await;
 
-    // StaticCheck 臂命令载荷无 change 位：审计行 change 以空串占位（run_id 仍
-    // 串链），合并两桶回读后按行 id 还原时间序
-    let mut rows = db
-        .store
-        .list_change_steps(CHANGE, Some(run_id))
-        .expect("读审计行应成功");
-    rows.extend(
-        db.store
-            .list_change_steps("", Some(run_id))
-            .expect("读审计行应成功"),
-    );
-    rows.sort_by_key(|row| row.id);
-    rows
+    // 七臂审计行单桶归键（含 StaticCheck 臂——命令载荷恒携 change id，空串
+    // 占位退役）：按 change id 过滤回读，落行序即臂序
+    db.store
+        .list_change_steps(CHANGE_ID, Some(run_id))
+        .expect("读审计行应成功")
 }
 
 // ---------------------------------------------------------------------------
@@ -672,12 +692,13 @@ async fn drive_seven_arms(db: &TestDb, run_id: &str) -> Vec<StepStateRecord> {
 // ---------------------------------------------------------------------------
 
 /// 七臂审计落库：假 runner + 真实 store 驱动七臂各一命令 → 每臂一条
-/// StepRecord（step_kind 封闭集七值齐、run_id 串链、timestamp / status /
-/// summary 齐），成功臂全 `ok`（AC-5 审计半边）。
+/// StepRecord（`change_id` 恒为真实寻址 id——含 StaticCheck 臂，空串占位退役；
+/// step_kind 封闭集七值齐、run_id 串链、timestamp / status / summary 齐），
+/// 成功臂全 `ok`（AC-5 审计半边 / D12 归键锚）。
 #[tokio::test]
 async fn 七臂审计落库_每臂一条steprecord且run_id串链() {
     let db = TestDb::open("seven-arms");
-    seed_change(db.store.as_ref(), CHANGE, "requirement");
+    seed_change(db.store.as_ref(), CHANGE_ID, NAME, "requirement");
 
     let rows = drive_seven_arms(&db, "run-audit").await;
 
@@ -721,6 +742,12 @@ async fn 七臂审计落库_每臂一条steprecord且run_id串链() {
     );
     for row in &rows {
         assert_eq!(
+            row.change_id,
+            CHANGE_ID,
+            "审计行 change_id 归键（含 static_check 臂）: {}",
+            row.step_kind.as_str()
+        );
+        assert_eq!(
             row.run_id,
             "run-audit",
             "run_id 串链: {}",
@@ -743,6 +770,26 @@ async fn 七臂审计落库_每臂一条steprecord且run_id串链() {
             row.step_kind.as_str()
         );
     }
+    // 归键回读面（store 缝 `list_steps(change_id, …)`）：单桶枚举全九行，
+    // static_check 行可枚举；空串占位桶零行（D12 修正锚）
+    let trait_rows = db
+        .store
+        .list_steps(CHANGE_ID, Some("run-audit"))
+        .expect("缝回读审计行应成功");
+    assert_eq!(trait_rows.len(), 9, "按 change id 单桶枚举全九行");
+    assert!(
+        trait_rows
+            .iter()
+            .any(|row| row.step_kind == StepKind::StaticCheck),
+        "static_check 行经 list_steps(change_id, …) 可枚举"
+    );
+    assert!(
+        db.store
+            .list_change_steps("", Some("run-audit"))
+            .expect("读空串桶应成功")
+            .is_empty(),
+        "空串占位桶零行（空串占位退役）"
+    );
     // 摘要词汇抽查（臂产出摘要格式面）
     assert!(
         rows[0].summary.starts_with("phase_next → "),
@@ -761,7 +808,7 @@ async fn 七臂审计落库_每臂一条steprecord且run_id串链() {
 #[tokio::test]
 async fn 成功臂与失败臂皆落行_error行携记因() {
     let db = TestDb::open("fail-rows");
-    seed_change(db.store.as_ref(), CHANGE, "requirement");
+    seed_change(db.store.as_ref(), CHANGE_ID, NAME, "requirement");
     let assembled = assemble(
         db.store_arc(),
         "run-fail",
@@ -774,7 +821,9 @@ async fn 成功臂与失败臂皆落行_error行携记因() {
         .steps
         .run(ToolStepRequest {
             root: ROOT.to_owned(),
-            command: ToolCommand::StaticCheck,
+            command: ToolCommand::StaticCheck {
+                change_id: CHANGE_ID.to_owned(),
+            },
         })
         .await
         .expect_err("runner Err 应透传");
@@ -786,7 +835,7 @@ async fn 成功臂与失败臂皆落行_error行携记因() {
         .run(ToolStepRequest {
             root: ROOT.to_owned(),
             command: ToolCommand::PhaseStart {
-                change: "不存在的-change".to_owned(),
+                change_id: "不存在的-change".to_owned(),
                 phase: "proposal".to_owned(),
             },
         })
@@ -794,10 +843,10 @@ async fn 成功臂与失败臂皆落行_error行携记因() {
         .expect_err("未建档 change 应 Err");
     assert!(err.contains("未建档"), "写面记因透传: {err}");
 
-    // 错误行按 change 归位（StaticCheck 臂命令无 change 位以空串占位）
+    // 错误行按 change 归位（StaticCheck 臂命令载荷携 change_id——归 CHANGE_ID 桶）
     let check_rows = db
         .store
-        .list_change_steps("", Some("run-fail"))
+        .list_change_steps(CHANGE_ID, Some("run-fail"))
         .expect("读审计行应成功");
     assert_eq!(check_rows.len(), 1);
     assert_eq!(check_rows[0].step_kind, StepKind::StaticCheck);
@@ -820,6 +869,65 @@ async fn 成功臂与失败臂皆落行_error行携记因() {
 }
 
 // ---------------------------------------------------------------------------
+// test-execution name 解析：记录解析后交磁盘面 runner（未建档零发起）
+// ---------------------------------------------------------------------------
+
+/// TestExecution 臂 name 解析单点（D7）：调用前经 `store.get_change(change_id)`
+/// 解析 `record.name` → 磁盘面 runner 捕获入参为 name（非寻址 id——报告树
+/// `change_test_reports(root, name)` 定位语义）；未建档 id → 步显式 `Err` 且
+/// runner 零调用（解析单点在消费点，未建档不发起）。
+#[tokio::test]
+async fn test_execution臂经记录解析name_未建档零发起() {
+    let db = TestDb::open("exec-name");
+    seed_change(db.store.as_ref(), CHANGE_ID, NAME, "requirement");
+    let assembled = assemble(
+        db.store_arc(),
+        "run-name",
+        FakeRunner::passing(),
+        FakeTestExecutionRunner::passing(),
+    );
+
+    // 建档 id：解析出 record.name 交 runner（id ≠ name 形态下逐点可辨）
+    let output = run_step(
+        &assembled.steps,
+        ToolCommand::TestExecution {
+            change_id: CHANGE_ID.to_owned(),
+        },
+    )
+    .await;
+    assert!(
+        matches!(output, ToolStepOutput::TestExecution(_)),
+        "建档 id 产出 TestExecution 变体"
+    );
+    assert_eq!(
+        assembled.execution.calls(),
+        [(ROOT.to_owned(), NAME.to_owned())],
+        "runner 入参为解析后的 record.name（非寻址 id）"
+    );
+
+    // 未建档 id：显式 Err 且 runner 零调用（调用数不增）
+    let err = assembled
+        .steps
+        .run(ToolStepRequest {
+            root: ROOT.to_owned(),
+            command: ToolCommand::TestExecution {
+                change_id: "unregistered-id".to_owned(),
+            },
+        })
+        .await
+        .expect_err("未建档 id 应 Err");
+    assert!(
+        err.contains("unregistered-id") && err.contains("未建档"),
+        "解析 miss 记因显式: {err}"
+    );
+    assert_eq!(
+        assembled.execution.calls().len(),
+        1,
+        "未建档 id 不发 runner（解析 miss 零发起）"
+    );
+}
+
+// ---------------------------------------------------------------------------
 // 全链落库组合：命令 → 写面 → db（PhaseRecord 与 StepRecord 同库可查）
 // ---------------------------------------------------------------------------
 
@@ -829,7 +937,7 @@ async fn 成功臂与失败臂皆落行_error行携记因() {
 #[tokio::test]
 async fn 全链落库组合_phaserecord与steprecord同库可查() {
     let db = TestDb::open("full-chain");
-    seed_change(db.store.as_ref(), CHANGE, "requirement");
+    seed_change(db.store.as_ref(), CHANGE_ID, NAME, "requirement");
     let assembled = assemble(
         db.store_arc(),
         "run-chain",
@@ -842,7 +950,7 @@ async fn 全链落库组合_phaserecord与steprecord同库可查() {
     run_step(
         &assembled.steps,
         ToolCommand::PhaseNext {
-            change: CHANGE.to_owned(),
+            change_id: CHANGE_ID.to_owned(),
             run_id: "run-chain".to_owned(),
         },
     )
@@ -850,7 +958,7 @@ async fn 全链落库组合_phaserecord与steprecord同库可查() {
     run_step(
         &assembled.steps,
         ToolCommand::PhaseStart {
-            change: CHANGE.to_owned(),
+            change_id: CHANGE_ID.to_owned(),
             phase: "proposal".to_owned(),
         },
     )
@@ -858,7 +966,7 @@ async fn 全链落库组合_phaserecord与steprecord同库可查() {
     run_step(
         &assembled.steps,
         ToolCommand::PhaseLog {
-            change: CHANGE.to_owned(),
+            change_id: CHANGE_ID.to_owned(),
             phase: "proposal".to_owned(),
             input: PhaseLogInput {
                 phase: "proposal".to_owned(),
@@ -875,7 +983,7 @@ async fn 全链落库组合_phaserecord与steprecord同库可查() {
     run_step(
         &assembled.steps,
         ToolCommand::PhaseStart {
-            change: CHANGE.to_owned(),
+            change_id: CHANGE_ID.to_owned(),
             phase: "dev-design".to_owned(),
         },
     )
@@ -883,7 +991,7 @@ async fn 全链落库组合_phaserecord与steprecord同库可查() {
     run_step(
         &assembled.steps,
         ToolCommand::PhaseLog {
-            change: CHANGE.to_owned(),
+            change_id: CHANGE_ID.to_owned(),
             phase: "dev-design".to_owned(),
             input: PhaseLogInput {
                 phase: "dev-design".to_owned(),
@@ -900,7 +1008,7 @@ async fn 全链落库组合_phaserecord与steprecord同库可查() {
     run_step(
         &assembled.steps,
         ToolCommand::Backtrack {
-            change: CHANGE.to_owned(),
+            change_id: CHANGE_ID.to_owned(),
             phase: "dev-design".to_owned(),
             input: BacktrackInput {
                 phase: "dev-design".to_owned(),
@@ -918,7 +1026,7 @@ async fn 全链落库组合_phaserecord与steprecord同库可查() {
     // test-gen 报告「实现差异」节）
     let entries = db
         .store
-        .list_phase_records(CHANGE)
+        .list_phase_records(CHANGE_ID)
         .expect("读相位条目应成功");
     assert_eq!(entries.len(), 2, "两相位各一条");
     assert_eq!(entries[0].phase, "proposal");
@@ -928,7 +1036,7 @@ async fn 全链落库组合_phaserecord与steprecord同库可查() {
     assert!(entries[1].stale, "闭包内发起相位条目随回跳翻转");
     let record = db
         .store
-        .find_change_record(CHANGE)
+        .find_change_record(CHANGE_ID)
         .expect("读建档记录应成功")
         .expect("建档记录在场");
     assert!(record.active_phase.is_none(), "落账清位随命令链在场");
@@ -936,7 +1044,7 @@ async fn 全链落库组合_phaserecord与steprecord同库可查() {
     // StepRecord 同库可查：六命令六行，臂序与命令序一致
     let rows = db
         .store
-        .list_change_steps(CHANGE, None)
+        .list_change_steps(CHANGE_ID, None)
         .expect("读审计行应成功");
     let kinds: Vec<StepKind> = rows.iter().map(|row| row.step_kind).collect();
     assert_eq!(
@@ -963,7 +1071,7 @@ async fn 全链落库组合_phaserecord与steprecord同库可查() {
 #[tokio::test]
 async fn reference随行_报告目录与会话id随臂携带() {
     let db = TestDb::open("reference");
-    seed_change(db.store.as_ref(), CHANGE, "requirement");
+    seed_change(db.store.as_ref(), CHANGE_ID, NAME, "requirement");
 
     let rows = drive_seven_arms(&db, "run-ref").await;
 
@@ -1021,6 +1129,7 @@ async fn reference随行_报告目录与会话id随臂携带() {
 #[tokio::test]
 async fn 摘要截断_超五百字符截断留痕且恰五百不截断() {
     let fake = Arc::new(FakeStore::new());
+    fake.seed_change(CHANGE_ID, NAME);
     let long_message = "错".repeat(600);
     let boundary_message = "x".repeat(500);
     let assembled = assemble(
@@ -1035,7 +1144,7 @@ async fn 摘要截断_超五百字符截断留痕且恰五百不截断() {
         .run(ToolStepRequest {
             root: ROOT.to_owned(),
             command: ToolCommand::TestExecution {
-                change: CHANGE.to_owned(),
+                change_id: CHANGE_ID.to_owned(),
             },
         })
         .await
@@ -1045,7 +1154,9 @@ async fn 摘要截断_超五百字符截断留痕且恰五百不截断() {
         .steps
         .run(ToolStepRequest {
             root: ROOT.to_owned(),
-            command: ToolCommand::StaticCheck,
+            command: ToolCommand::StaticCheck {
+                change_id: CHANGE_ID.to_owned(),
+            },
         })
         .await
         .expect_err("runner Err 应透传");
@@ -1089,7 +1200,8 @@ async fn store故障_落账臂err记因上抛不静默() {
         "评估条目已存在: demo-change/proposal/1".to_owned(),
     ));
     fake.create_change_record(ChangeStateRecord {
-        name: CHANGE.to_owned(),
+        id: CHANGE_ID.to_owned(),
+        name: NAME.to_owned(),
         workflow_type: "requirement".to_owned(),
         created_at: TS_BASE,
         status: ChangeStatus::Active,
@@ -1109,7 +1221,7 @@ async fn store故障_落账臂err记因上抛不静默() {
     run_step(
         &assembled.steps,
         ToolCommand::PhaseStart {
-            change: CHANGE.to_owned(),
+            change_id: CHANGE_ID.to_owned(),
             phase: "proposal".to_owned(),
         },
     )
@@ -1119,7 +1231,7 @@ async fn store故障_落账臂err记因上抛不静默() {
         .run(ToolStepRequest {
             root: ROOT.to_owned(),
             command: ToolCommand::PhaseLog {
-                change: CHANGE.to_owned(),
+                change_id: CHANGE_ID.to_owned(),
                 phase: "proposal".to_owned(),
                 input: PhaseLogInput {
                     phase: "proposal".to_owned(),
@@ -1156,7 +1268,8 @@ async fn store故障_审计落行失败不阻断臂业务结果() {
     let fake = Arc::new(FakeStore::new());
     fake.fail_append_step(StoreFault::Db("写步骤审计行失败".to_owned()));
     fake.create_change_record(ChangeStateRecord {
-        name: CHANGE.to_owned(),
+        id: CHANGE_ID.to_owned(),
+        name: NAME.to_owned(),
         workflow_type: "requirement".to_owned(),
         created_at: TS_BASE,
         status: ChangeStatus::Active,
@@ -1176,7 +1289,7 @@ async fn store故障_审计落行失败不阻断臂业务结果() {
     let next = run_step(
         &assembled.steps,
         ToolCommand::PhaseNext {
-            change: CHANGE.to_owned(),
+            change_id: CHANGE_ID.to_owned(),
             run_id: "run-audit-fault".to_owned(),
         },
     )
@@ -1187,7 +1300,13 @@ async fn store故障_审计落行失败不阻断臂业务结果() {
         }
         other => panic!("产出应为 PhaseNext 变体，实际: {other:?}"),
     }
-    let check = run_step(&assembled.steps, ToolCommand::StaticCheck).await;
+    let check = run_step(
+        &assembled.steps,
+        ToolCommand::StaticCheck {
+            change_id: CHANGE_ID.to_owned(),
+        },
+    )
+    .await;
     assert!(
         matches!(check, ToolStepOutput::StaticCheck(ref outcome) if outcome.passed),
         "runner 臂业务结果不受审计失败影响"
@@ -1214,7 +1333,7 @@ async fn store故障_读路径fault经臂err上抛() {
         .run(ToolStepRequest {
             root: ROOT.to_owned(),
             command: ToolCommand::PhaseNext {
-                change: CHANGE.to_owned(),
+                change_id: CHANGE_ID.to_owned(),
                 run_id: "run-read-fault".to_owned(),
             },
         })
@@ -1232,7 +1351,7 @@ async fn store故障_读路径fault经臂err上抛() {
 #[tokio::test]
 async fn phase_next步链路直调写面产出与直调一致() {
     let db = TestDb::open("direct-next");
-    seed_change(db.store.as_ref(), CHANGE, "requirement");
+    seed_change(db.store.as_ref(), CHANGE_ID, NAME, "requirement");
     let assembled = assemble(
         db.store_arc(),
         "run-1",
@@ -1243,7 +1362,7 @@ async fn phase_next步链路直调写面产出与直调一致() {
     let output = run_step(
         &assembled.steps,
         ToolCommand::PhaseNext {
-            change: CHANGE.to_owned(),
+            change_id: CHANGE_ID.to_owned(),
             run_id: "run-1".to_owned(),
         },
     )
@@ -1258,7 +1377,7 @@ async fn phase_next步链路直调写面产出与直调一致() {
     // 与直调写面逐字段一致（同 store、独立锚点实例——进程内直调证据）
     let direct = workflow::write::phase_next(
         db.store.as_ref(),
-        CHANGE,
+        CHANGE_ID,
         "run-direct",
         &SessionAnchors::new(),
     )
@@ -1271,7 +1390,7 @@ async fn phase_next步链路直调写面产出与直调一致() {
 #[tokio::test]
 async fn phase_start步链路开相落库active_phase() {
     let db = TestDb::open("direct-start");
-    seed_change(db.store.as_ref(), CHANGE, "requirement");
+    seed_change(db.store.as_ref(), CHANGE_ID, NAME, "requirement");
     let assembled = assemble(
         db.store_arc(),
         "run-1",
@@ -1282,7 +1401,7 @@ async fn phase_start步链路开相落库active_phase() {
     let output = run_step(
         &assembled.steps,
         ToolCommand::PhaseStart {
-            change: CHANGE.to_owned(),
+            change_id: CHANGE_ID.to_owned(),
             phase: "implement".to_owned(),
         },
     )
@@ -1297,7 +1416,7 @@ async fn phase_start步链路开相落库active_phase() {
 
     let record = db
         .store
-        .find_change_record(CHANGE)
+        .find_change_record(CHANGE_ID)
         .expect("读建档记录应成功")
         .expect("建档记录在场");
     let active = record.active_phase.expect("active_phase 落库");
@@ -1314,10 +1433,10 @@ async fn phase_start步链路开相落库active_phase() {
 #[tokio::test]
 async fn phase_log步链路追加评估条目() {
     let db = TestDb::open("direct-log");
-    seed_change(db.store.as_ref(), CHANGE, "requirement");
+    seed_change(db.store.as_ref(), CHANGE_ID, NAME, "requirement");
     seed_entry(
         db.store.as_ref(),
-        CHANGE,
+        CHANGE_ID,
         "proposal",
         Verdict::Pass,
         TS_BASE,
@@ -1332,7 +1451,7 @@ async fn phase_log步链路追加评估条目() {
     run_step(
         &assembled.steps,
         ToolCommand::PhaseStart {
-            change: CHANGE.to_owned(),
+            change_id: CHANGE_ID.to_owned(),
             phase: "proposal".to_owned(),
         },
     )
@@ -1340,7 +1459,7 @@ async fn phase_log步链路追加评估条目() {
     let output = run_step(
         &assembled.steps,
         ToolCommand::PhaseLog {
-            change: CHANGE.to_owned(),
+            change_id: CHANGE_ID.to_owned(),
             phase: "proposal".to_owned(),
             input: PhaseLogInput {
                 phase: "proposal".to_owned(),
@@ -1363,7 +1482,7 @@ async fn phase_log步链路追加评估条目() {
 
     let entries = db
         .store
-        .list_phase_records(CHANGE)
+        .list_phase_records(CHANGE_ID)
         .expect("读相位条目应成功");
     assert_eq!(entries.len(), 2, "纯追加：不覆盖历史条目");
     assert_eq!(entries[1].report, "重评通过");
@@ -1371,7 +1490,7 @@ async fn phase_log步链路追加评估条目() {
     assert_eq!(entries[1].attempt, 2);
     let record = db
         .store
-        .find_change_record(CHANGE)
+        .find_change_record(CHANGE_ID)
         .expect("读建档记录应成功")
         .expect("建档记录在场");
     assert!(record.active_phase.is_none(), "落账后 active_phase 清位");
@@ -1385,31 +1504,31 @@ async fn phase_log步链路追加评估条目() {
 #[tokio::test]
 async fn backtrack步链路落库stale标记() {
     let db = TestDb::open("direct-backtrack");
-    seed_change(db.store.as_ref(), CHANGE, "requirement");
+    seed_change(db.store.as_ref(), CHANGE_ID, NAME, "requirement");
     seed_entry(
         db.store.as_ref(),
-        CHANGE,
+        CHANGE_ID,
         "proposal",
         Verdict::Pass,
         TS_BASE,
     );
     seed_entry(
         db.store.as_ref(),
-        CHANGE,
+        CHANGE_ID,
         "dev-design",
         Verdict::Pass,
         TS_BASE + 60_000,
     );
     seed_entry(
         db.store.as_ref(),
-        CHANGE,
+        CHANGE_ID,
         "test-design",
         Verdict::Pass,
         TS_BASE + 120_000,
     );
     seed_entry(
         db.store.as_ref(),
-        CHANGE,
+        CHANGE_ID,
         "acceptance",
         Verdict::Fail,
         TS_BASE + 180_000,
@@ -1424,7 +1543,7 @@ async fn backtrack步链路落库stale标记() {
     let output = run_step(
         &assembled.steps,
         ToolCommand::Backtrack {
-            change: CHANGE.to_owned(),
+            change_id: CHANGE_ID.to_owned(),
             phase: "acceptance".to_owned(),
             input: BacktrackInput {
                 phase: "acceptance".to_owned(),
@@ -1453,7 +1572,7 @@ async fn backtrack步链路落库stale标记() {
 
     let entries = db
         .store
-        .list_phase_records(CHANGE)
+        .list_phase_records(CHANGE_ID)
         .expect("读相位条目应成功");
     let acceptance = entries
         .iter()
@@ -1489,7 +1608,13 @@ async fn static_check步委托注入runner且root透传() {
         FakeTestExecutionRunner::passing(),
     );
 
-    let output = run_step(&assembled.steps, ToolCommand::StaticCheck).await;
+    let output = run_step(
+        &assembled.steps,
+        ToolCommand::StaticCheck {
+            change_id: CHANGE_ID.to_owned(),
+        },
+    )
+    .await;
     match output {
         ToolStepOutput::StaticCheck(outcome) => {
             assert!(!outcome.passed);
@@ -1512,7 +1637,7 @@ async fn static_check步委托注入runner且root透传() {
 #[tokio::test]
 async fn 写面err统一以err_string上抛() {
     let db = TestDb::open("direct-err");
-    seed_change(db.store.as_ref(), CHANGE, "requirement");
+    seed_change(db.store.as_ref(), CHANGE_ID, NAME, "requirement");
     let assembled = assemble(
         db.store_arc(),
         "run-1",
@@ -1526,7 +1651,7 @@ async fn 写面err统一以err_string上抛() {
         .run(ToolStepRequest {
             root: ROOT.to_owned(),
             command: ToolCommand::PhaseNext {
-                change: "不存在的-change".to_owned(),
+                change_id: "不存在的-change".to_owned(),
                 run_id: "run-1".to_owned(),
             },
         })
@@ -1540,7 +1665,7 @@ async fn 写面err统一以err_string上抛() {
         .run(ToolStepRequest {
             root: ROOT.to_owned(),
             command: ToolCommand::PhaseStart {
-                change: CHANGE.to_owned(),
+                change_id: CHANGE_ID.to_owned(),
                 phase: "幽灵相位".to_owned(),
             },
         })
@@ -1549,13 +1674,18 @@ async fn 写面err统一以err_string上抛() {
     assert!(err.contains("幽灵相位"), "错误透传写面记因：{err}");
 
     // workflow_type 非 requirement 同以 Err(String) 透传
-    seed_change(db.store.as_ref(), "bad-type-change", "bug-fix");
+    seed_change(
+        db.store.as_ref(),
+        "bad-type-change",
+        "bad-type-change",
+        "bug-fix",
+    );
     let err = assembled
         .steps
         .run(ToolStepRequest {
             root: ROOT.to_owned(),
             command: ToolCommand::PhaseLog {
-                change: "bad-type-change".to_owned(),
+                change_id: "bad-type-change".to_owned(),
                 phase: "proposal".to_owned(),
                 input: PhaseLogInput {
                     phase: "proposal".to_owned(),
@@ -1589,7 +1719,9 @@ async fn runner_err原样透传() {
         .steps
         .run(ToolStepRequest {
             root: ROOT.to_owned(),
-            command: ToolCommand::StaticCheck,
+            command: ToolCommand::StaticCheck {
+                change_id: CHANGE_ID.to_owned(),
+            },
         })
         .await
         .expect_err("runner Err 应透传");
@@ -1604,10 +1736,10 @@ async fn runner_err原样透传() {
 #[tokio::test]
 async fn 锚点实例随steps复用且run_id隔离() {
     let db = TestDb::open("direct-anchor");
-    seed_change(db.store.as_ref(), CHANGE, "requirement");
+    seed_change(db.store.as_ref(), CHANGE_ID, NAME, "requirement");
     seed_entry(
         db.store.as_ref(),
-        CHANGE,
+        CHANGE_ID,
         "proposal",
         Verdict::Pass,
         TS_BASE,
@@ -1623,7 +1755,7 @@ async fn 锚点实例随steps复用且run_id隔离() {
     let first = match run_step(
         &assembled.steps,
         ToolCommand::PhaseNext {
-            change: CHANGE.to_owned(),
+            change_id: CHANGE_ID.to_owned(),
             run_id: "run-a".to_owned(),
         },
     )
@@ -1637,7 +1769,7 @@ async fn 锚点实例随steps复用且run_id隔离() {
     // run 期间落账 1 条 fail → 同 run 复用基线：round = 2
     seed_entry(
         db.store.as_ref(),
-        CHANGE,
+        CHANGE_ID,
         "dev-design",
         Verdict::Fail,
         TS_BASE + 60_000,
@@ -1645,7 +1777,7 @@ async fn 锚点实例随steps复用且run_id隔离() {
     let second = match run_step(
         &assembled.steps,
         ToolCommand::PhaseNext {
-            change: CHANGE.to_owned(),
+            change_id: CHANGE_ID.to_owned(),
             run_id: "run-a".to_owned(),
         },
     )
@@ -1660,7 +1792,7 @@ async fn 锚点实例随steps复用且run_id隔离() {
     let fresh = match run_step(
         &assembled.steps,
         ToolCommand::PhaseNext {
-            change: CHANGE.to_owned(),
+            change_id: CHANGE_ID.to_owned(),
             run_id: "run-b".to_owned(),
         },
     )
@@ -1673,10 +1805,12 @@ async fn 锚点实例随steps复用且run_id隔离() {
 }
 
 /// 五参构造双 runner 注入：锚点 + static_check + test_execution + store + run_id
-///（组合根同式装配的进程内证据半边；分发臂委托 root / change 透传）。
+///（组合根同式装配的进程内证据半边；分发臂委托 root / name 透传——name 为
+/// id → 记录解析值）。
 #[tokio::test]
 async fn 五参构造双runner注入_分发臂委托() {
     let fake = Arc::new(FakeStore::new());
+    fake.seed_change(CHANGE_ID, NAME);
     let execution = FakeTestExecutionRunner::with_result(Ok(TestExecutionOutcome {
         conclusion: TestExecutionConclusion::Pass,
         total: 5,
@@ -1697,7 +1831,7 @@ async fn 五参构造双runner注入_分发臂委托() {
     let output = run_step(
         &assembled.steps,
         ToolCommand::TestExecution {
-            change: CHANGE.to_owned(),
+            change_id: CHANGE_ID.to_owned(),
         },
     )
     .await;
@@ -1720,8 +1854,8 @@ async fn 五参构造双runner注入_分发臂委托() {
     }
     assert_eq!(
         assembled.execution.calls(),
-        [(ROOT.to_owned(), CHANGE.to_owned())],
-        "root / change 透传注入 runner（与 StaticCheck 臂同型）"
+        [(ROOT.to_owned(), NAME.to_owned())],
+        "root / name 透传注入 runner（解析后的 record.name，与 StaticCheck 臂同型）"
     );
 }
 
@@ -1730,6 +1864,7 @@ async fn 五参构造双runner注入_分发臂委托() {
 #[tokio::test]
 async fn test_execution_runner_err原样上抛() {
     let fake = Arc::new(FakeStore::new());
+    fake.seed_change(CHANGE_ID, NAME);
     let assembled = assemble(
         Arc::clone(&fake) as Arc<dyn ChangeStateStore>,
         "run-1",
@@ -1742,7 +1877,7 @@ async fn test_execution_runner_err原样上抛() {
         .run(ToolStepRequest {
             root: ROOT.to_owned(),
             command: ToolCommand::TestExecution {
-                change: CHANGE.to_owned(),
+                change_id: CHANGE_ID.to_owned(),
             },
         })
         .await

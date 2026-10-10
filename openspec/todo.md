@@ -57,3 +57,4 @@
 - [x] 【Desktop】useChangeDetail、useChangeFlowRun 背后的两套流程数据应该统一口径，运行中返回的状态一并落库，保证页面实时更新和完成后查询内容一致
 - [x] 【Desktop】worktree先合入主仓再归档
 - [ ] 【Desktop】当agent步骤执行成功后，因检查门禁等步骤外原因需要再次运行时，记录为新的步骤，且开启新会话
+- [ ] 【Desktop】修复问题：近几条变更测试summary.json结果都为空

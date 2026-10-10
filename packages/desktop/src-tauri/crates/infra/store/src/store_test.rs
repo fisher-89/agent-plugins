@@ -7,8 +7,10 @@ use agent::{
 };
 use native_db::{Builder, Models};
 
-use crate::model::pack_checklist_item_key;
-use crate::model::ChangeRecordV1;
+use crate::model::{
+    pack_checklist_item_key, StoreMetaRecord, WORKSPACE_STORE_FORMAT_KEY,
+    WORKSPACE_STORE_FORMAT_VERSION,
+};
 use crate::store::{workspace_db_file_name, GLOBAL_DB_FILE_NAME};
 use crate::{
     AgentEngineKind, AgentInstanceRecord, AgentModelTiers, AgentProviderRecord, AgentRunRecord,
@@ -227,9 +229,10 @@ fn 跨维度模型名不可达_workspace库scan_workspace与全局库scan_agent_
 }
 
 #[test]
-fn open_global与open_workspace对不存在路径创建db文件与父目录且空库可list() {
+fn open_workspace空文件与父目录缺失建新库写标记_空库可list() {
     let env = Env::new("open-create");
 
+    // open_global：父目录补齐 + 文件创建（全局库零格式探测——D5 全局库持衡）
     let global_path = env.db_dir.path().join("nested/global/test.redb");
     assert!(!global_path.exists());
     let global = open_global_ok(&global_path);
@@ -238,14 +241,43 @@ fn open_global与open_workspace对不存在路径创建db文件与父目录且�
     assert!(global.list_workspaces().unwrap().is_empty(), "空库可 list");
     drop(global);
 
+    // open_workspace：父目录缺失 → 建新库 + 写格式标记（探测规则①分支）
     let ws_path = env.db_dir.path().join("nested/ws/test.redb");
-    let ws = open_workspace_ok(&ws_path);
-    assert!(ws_path.exists(), "open_workspace 创建 db 文件");
-    assert!(
-        ws.list_sessions(None, None).unwrap().is_empty(),
-        "空库可 list"
+    {
+        let ws = open_workspace_ok(&ws_path);
+        assert!(ws_path.exists(), "open_workspace 创建 db 文件");
+        assert!(
+            ws.list_sessions(None, None).unwrap().is_empty(),
+            "空库可 list"
+        );
+        assert!(ws.list_explore_records("").unwrap().is_empty());
+    } // 文件锁归还后方可裸读标记
+    assert_eq!(
+        read_workspace_format_marker(&ws_path),
+        Some(2),
+        "建新库即写标记 format_version == 2 就位"
     );
-    assert!(ws.list_explore_records("").unwrap().is_empty());
+
+    // 空文件视同缺失（探测规则①另一形态）→ 建新库 + 写标记
+    let blank_path = env.db_dir.path().join("blank.redb");
+    fs::write(&blank_path, b"").expect("写空文件失败");
+    assert_eq!(
+        fs::metadata(&blank_path).expect("读空文件元数据失败").len(),
+        0,
+        "预置形态确为空文件"
+    );
+    {
+        let blank = open_workspace_ok(&blank_path);
+        assert!(
+            blank.list_change_records().unwrap().is_empty(),
+            "空文件按新库打开，空库可读"
+        );
+    }
+    assert_eq!(
+        read_workspace_format_marker(&blank_path),
+        Some(2),
+        "空文件视同缺失 → 建新库 + 写标记"
+    );
 }
 
 #[test]
@@ -3025,9 +3057,12 @@ fn 组合链provider新建_sdkagent新建引用_set_default_解析命中_重开�
 // 与钟面无关；db 缺行即 id 域从 1 起（写事务内 max+1 口径）。
 // ---------------------------------------------------------------------------
 
-/// 建档命令 fixture（active 起步、无 active_phase，workflow_type 恒 requirement）。
-fn change_archive(name: &str, created_at: i64) -> ChangeStateRecord {
+/// 建档命令 fixture（active 起步、无 active_phase，workflow_type 恒
+/// requirement）：id 主键（身份锚）与 name 普通属性双入参——身份面用例双值可
+/// 辨，既有用例可传同串便捷坐实。
+fn change_archive(id: &str, name: &str, created_at: i64) -> ChangeStateRecord {
     ChangeStateRecord {
+        id: id.to_owned(),
         name: name.to_owned(),
         workflow_type: "requirement".to_owned(),
         created_at,
@@ -3039,10 +3074,11 @@ fn change_archive(name: &str, created_at: i64) -> ChangeStateRecord {
     }
 }
 
-fn create_change_ok(store: &Store, name: &str, created_at: i64) -> ChangeStateRecord {
+/// 建档便捷装置：id 与 name 同串（id 为寻址键，name 仅同值展示）。
+fn create_change_ok(store: &Store, id: &str, created_at: i64) -> ChangeStateRecord {
     store
-        .create_change_record(change_archive(name, created_at))
-        .unwrap_or_else(|e| panic!("create_change_record({name}) 应成功: {e}"))
+        .create_change_record(change_archive(id, id, created_at))
+        .unwrap_or_else(|e| panic!("create_change_record({id}) 应成功: {e}"))
 }
 
 fn start_phase_ok(store: &Store, change: &str, phase: &str, now: i64) -> PhaseStartState {
@@ -3071,7 +3107,7 @@ fn log_command(
     timestamp: i64,
 ) -> PhaseLogCommand {
     PhaseLogCommand {
-        change: change.to_owned(),
+        change_id: change.to_owned(),
         phase: phase.to_owned(),
         verdict,
         report: format!("{phase} 评估报告"),
@@ -3096,7 +3132,7 @@ fn step_command(
 ) -> StepCommand {
     StepCommand {
         run_id: run_id.to_owned(),
-        change: change.to_owned(),
+        change_id: change.to_owned(),
         step_kind,
         status: status.to_owned(),
         summary: summary.to_owned(),
@@ -3134,17 +3170,24 @@ fn create_change_record建档find逐字段一致_重开db再读仍逐字段一�
 
     let seeded = {
         let store = open_workspace_ok(&ws_path);
-        let created = create_change_ok(&store, "alpha-change", 1727000000000);
-        assert_eq!(created.name, "alpha-change", "name 主键");
+        let created = store
+            .create_change_record(change_archive(
+                "chg-018f3a-0001",
+                "alpha-change",
+                1727000000000,
+            ))
+            .expect("建档应成功");
+        assert_eq!(created.id, "chg-018f3a-0001", "id 主键 = 写面铸出身份锚");
+        assert_eq!(created.name, "alpha-change", "name 普通属性（双值可辨）");
         assert_eq!(created.workflow_type, "requirement");
         assert_eq!(created.created_at, 1727000000000);
         assert_eq!(created.status, ChangeStatus::Active, "建档恒 active 起步");
         assert_eq!(created.archived_at, None);
         assert_eq!(created.active_phase, None);
         assert_eq!(
-            store.find_change_record("alpha-change").unwrap(),
+            store.find_change_record("chg-018f3a-0001").unwrap(),
             Some(created.clone()),
-            "主键直查逐字段一致"
+            "主键 id 直查逐字段一致"
         );
         created
     };
@@ -3152,27 +3195,29 @@ fn create_change_record建档find逐字段一致_重开db再读仍逐字段一�
     // drop 重开同一 db 文件：建档记录逐字段一致（AC-1 回环建档半边）
     let reopened = open_workspace_ok(&ws_path);
     assert_eq!(
-        reopened.find_change_record("alpha-change").unwrap(),
+        reopened.find_change_record("chg-018f3a-0001").unwrap(),
         Some(seeded),
-        "重开 db 后建档记录逐字段一致"
+        "重开 db 后建档记录逐字段一致（标记在场零作废）"
     );
     assert_eq!(
-        reopened.find_change_record("ghost").unwrap(),
+        reopened.find_change_record("ghost-id").unwrap(),
         None,
-        "未建档名 Ok(None)（文档形态契约）"
+        "未建档 id Ok(None)（未建档语义——不含文档形态）"
     );
 }
 
 #[test]
-fn create_change_record同名active冲突_归档同名亦拒绝_零重复行() {
-    let env = Env::new("change-create-conflict");
+fn create_change_record同id防御拒绝_conflict且零重复行() {
+    let env = Env::new("change-create-id-conflict");
     let store = open_workspace_ok(&env.db_path("ws"));
-    let first = create_change_ok(&store, "dup-change", 1000);
+    let first = store
+        .create_change_record(change_archive("chg-dup", "甲档", 1000))
+        .expect("建档应成功");
 
-    // 同名 active 再建档 → Conflict，记录表零重复行
+    // 同 id 再建档（name 换另一串 → 同串 name 也非查重面）→ Conflict 防御拒绝
     let err = store
-        .create_change_record(change_archive("dup-change", 2000))
-        .expect_err("同名 active 再建档应 Conflict");
+        .create_change_record(change_archive("chg-dup", "乙档", 2000))
+        .expect_err("同 id 再建档应 Conflict");
     assert!(
         matches!(err, StoreError::Conflict(_)),
         "变体为 Conflict，实际: {err:?}"
@@ -3181,33 +3226,84 @@ fn create_change_record同名active冲突_归档同名亦拒绝_零重复行() {
         err.to_string().starts_with("conflict:"),
         "错误串以 conflict: 前缀，实际: {err}"
     );
+    assert!(
+        err.to_string().contains("chg-dup"),
+        "记因含身份锚 id，实际: {err}"
+    );
     assert_eq!(
         store.list_change_records().unwrap(),
-        vec![first.clone()],
+        vec![first],
         "冲突拒绝零重复行"
     );
-
-    // 归档后同名再建档：主键 name 不复用，同样 Conflict（实现口径——查重不限
-    // status=active；test-design「同名 archived 再建档成功」行为与实现不一致，
-    // 以实现为准断言 Conflict）
-    store.set_change_archived("dup-change", 3000).unwrap();
-    let err = store
-        .create_change_record(change_archive("dup-change", 4000))
-        .expect_err("同名 archived 在场再建档应 Conflict（主键 name 不复用）");
-    assert!(matches!(err, StoreError::Conflict(_)));
-    assert!(
-        err.to_string().contains("主键 name 不复用"),
-        "错误串含名字不复用记因，实际: {err}"
-    );
     assert_eq!(
-        store.list_change_records().unwrap().len(),
-        1,
-        "仍恰一行（归档记录原样）"
+        store.find_change_record("chg-dup").unwrap().unwrap().name,
+        "甲档",
+        "原记录零覆写（不静默覆写——新入参 name 不改写存量行）"
     );
 }
 
 #[test]
-fn list_change_records空库空vec_多建档按主键name自然序与建档顺序无关() {
+fn 同名不同id并存_active与archived各一行() {
+    // D11：name 无唯一约束——同名异 id 两条记录各建档成功各一行（同名 active
+    // 拒绝归写面前置扫描，store 侧唯一检查仅同 id 防御）。
+    let env = Env::new("change-same-name-coexist");
+    let store = open_workspace_ok(&env.db_path("ws"));
+    let active = store
+        .create_change_record(change_archive("chg-active-1", "同名档", 1000))
+        .expect("同名 active 建档应成功");
+    let archived = store
+        .create_change_record(change_archive("chg-archived-1", "同名档", 2000))
+        .expect("同名异 id 建档应成功（零同名检查）");
+    assert_eq!(archived.name, "同名档");
+    store
+        .set_change_archived("chg-archived-1", 3000)
+        .expect("归档翻转应成功");
+
+    let rows = store.list_change_records().unwrap();
+    assert_eq!(rows.len(), 2, "同名异 id 两行并存");
+    assert_eq!(
+        rows.iter()
+            .map(|record| record.id.as_str())
+            .collect::<Vec<_>>(),
+        vec!["chg-active-1", "chg-archived-1"],
+        "两行主键 id 自然序"
+    );
+    assert!(
+        rows.iter().all(|record| record.name == "同名档"),
+        "两行 name 相同（无唯一约束）"
+    );
+    assert_eq!(rows[0], active);
+    assert_eq!(rows[0].status, ChangeStatus::Active);
+    assert_eq!(
+        rows[1].status,
+        ChangeStatus::Archived,
+        "同名归档条目合法在案"
+    );
+    assert_eq!(rows[1].archived_at, Some(3000));
+}
+
+#[test]
+fn name非寻址键_find按name串返回none() {
+    // 旧 name 主键寻址面退役的结构性锚：库查询一律以 id 为键。
+    let env = Env::new("change-name-not-key");
+    let store = open_workspace_ok(&env.db_path("ws"));
+    store
+        .create_change_record(change_archive("chg-anchor-1", "lookup-name", 1000))
+        .expect("建档应成功");
+
+    assert_eq!(
+        store.find_change_record("lookup-name").unwrap(),
+        None,
+        "name 串按 id 直查 miss（name 非寻址键）"
+    );
+    assert!(
+        store.find_change_record("chg-anchor-1").unwrap().is_some(),
+        "id 命中 Some"
+    );
+}
+
+#[test]
+fn list_change_records空库空vec_多建档按主键id自然序与建档顺序无关() {
     let env = Env::new("change-list");
     let store = open_workspace_ok(&env.db_path("ws"));
     assert!(
@@ -3215,21 +3311,320 @@ fn list_change_records空库空vec_多建档按主键name自然序与建档顺�
         "空 db 空 vec"
     );
 
-    // 刻意乱序建档
-    create_change_ok(&store, "zebra", 1000);
-    create_change_ok(&store, "alpha", 2000);
-    create_change_ok(&store, "mid", 3000);
+    // 固定 id 字面量刻意乱序建档（name 与 id 双值可辨）
+    store
+        .create_change_record(change_archive("chg-c", "zebra", 1000))
+        .expect("建档应成功");
+    store
+        .create_change_record(change_archive("chg-a", "alpha", 2000))
+        .expect("建档应成功");
+    store
+        .create_change_record(change_archive("chg-b", "mid", 3000))
+        .expect("建档应成功");
 
-    let names: Vec<String> = store
+    let listed: Vec<(String, String)> = store
         .list_change_records()
         .unwrap()
         .into_iter()
-        .map(|record| record.name)
+        .map(|record| (record.id, record.name))
         .collect();
     assert_eq!(
-        names,
-        vec!["alpha", "mid", "zebra"],
-        "主键 name 自然序（native_db 主键迭代序，与建档顺序无关）"
+        listed,
+        vec![
+            ("chg-a".to_owned(), "alpha".to_owned()),
+            ("chg-b".to_owned(), "mid".to_owned()),
+            ("chg-c".to_owned(), "zebra".to_owned()),
+        ],
+        "主键 id 自然序（native_db 主键迭代序，与建档顺序无关）"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// workspace 库格式版本段（D3 / D5，AC-8）：旧形态库整体作废重建 / 标记就位幂等 /
+// 标记低于当前 / 旧表行对新建档读面零可达——旧形态库与旧表行经裸 redb 直写字节
+// 预置（inject_* 先例同式），真实 tempfile 库真实事务，零 mock
+// ---------------------------------------------------------------------------
+
+#[test]
+fn open_workspace旧形态库作废重建_零报错旧数据零可达标记就位() {
+    let env = Env::new("ws-old-shape-rebuild");
+    let ws_path = env.db_path("ws");
+    {
+        // 存量库内的可达行（新形态建档）：作废重建应整体丢弃
+        let store = open_workspace_ok(&ws_path);
+        create_change_ok(&store, "chg-old-shape", 500);
+    }
+    // 预置缺标记旧形态库：旧物表 `9_2_name` 持 name 主键行、`15_1_key` 标记行
+    // 缺失（name 主键形态时代的存量库形态）
+    preset_old_shape_workspace_db(&ws_path, &["旧档甲", "旧档乙"]);
+
+    // 作废重建：打开成功零报错（旧形态库的探测 / 作废路径本身零报错）
+    let store = open_workspace_ok(&ws_path);
+    assert!(
+        store.list_change_records().unwrap().is_empty(),
+        "整体作废重建为空库——存量可达行旧数据整体丢弃"
+    );
+    assert_eq!(
+        store.find_change_record("chg-old-shape").unwrap(),
+        None,
+        "存量行 id 零命中（作废重建整体丢弃，无第三条 decode / migrate 路径）"
+    );
+    assert_eq!(
+        store.find_change_record("旧档甲").unwrap(),
+        None,
+        "旧 name 主键寻址零命中（旧表行结构性不可见）"
+    );
+    assert_eq!(
+        store.find_change_record("chg-old-1").unwrap(),
+        None,
+        "旧 id 串零命中"
+    );
+    drop(store); // 文件锁归还后方可裸读
+
+    assert_eq!(
+        read_workspace_format_marker(&ws_path),
+        Some(2),
+        "重开后标记 format_version == 2 就位（AC-8 主锚）"
+    );
+    let physical = physical_table_names(&ws_path);
+    assert!(
+        !physical.iter().any(|name| name == OLD_CHANGE_RECORD_TABLE),
+        "旧物表 9_2_name 随作废重建整体消失，实际表名: {physical:?}"
+    );
+    assert!(
+        physical.iter().any(|name| name == CHANGE_RECORD_TABLE),
+        "新物表 9_3_id 就位，实际表名: {physical:?}"
+    );
+}
+
+#[test]
+fn 作废重建后照常读写_建档开相落账全链落库可读() {
+    let env = Env::new("ws-old-shape-rebuild-rw");
+    let ws_path = env.db_path("ws");
+    preset_old_shape_workspace_db(&ws_path, &["旧档甲"]);
+
+    // 重建点：空库重建零半残态——建档 / 开相 / 落账全链照常
+    let store = open_workspace_ok(&ws_path);
+    let created = store
+        .create_change_record(change_archive("chg-after-rebuild", "重建后", 1000))
+        .expect("重建后建档应成功");
+    assert_eq!(
+        store.find_change_record("chg-after-rebuild").unwrap(),
+        Some(created)
+    );
+    start_phase_ok(&store, "chg-after-rebuild", "proposal", 2000);
+    store
+        .log_change_phase(&log_command(
+            "chg-after-rebuild",
+            "proposal",
+            Verdict::Pass,
+            vec![check_item("检查项", true)],
+            Some(2000),
+            3000,
+        ))
+        .expect("重建后落账应成功");
+    let phases = store.list_phase_records("chg-after-rebuild").unwrap();
+    assert_eq!(phases.len(), 1, "重建点之后相位史整链可读");
+    assert_eq!(
+        phases[0].change_id, "chg-after-rebuild",
+        "归属列 = 身份锚 id"
+    );
+    assert_eq!(phases[0].checklist, vec![check_item("检查项", true)]);
+    drop(store);
+
+    // 重开零作废：重建后写入的数据保留（标记在场幂等路径）
+    let reopened = open_workspace_ok(&ws_path);
+    assert_eq!(
+        reopened
+            .find_change_record("chg-after-rebuild")
+            .unwrap()
+            .expect("建档在场")
+            .name,
+        "重建后"
+    );
+    assert_eq!(
+        reopened
+            .list_phase_records("chg-after-rebuild")
+            .unwrap()
+            .len(),
+        1,
+        "重建后数据跨重开保留"
+    );
+}
+
+#[test]
+fn 标记幂等_全新库标记就位_重开数据保留零作废() {
+    let env = Env::new("ws-marker-idempotent");
+    let ws_path = env.db_path("ws");
+
+    let seeded = {
+        let store = open_workspace_ok(&ws_path);
+        let created = store
+            .create_change_record(change_archive("chg-keep", "保留档", 1000))
+            .expect("建档应成功");
+        drop(store);
+        created
+    };
+    assert_eq!(
+        read_workspace_format_marker(&ws_path),
+        Some(2),
+        "全新库 open 即写标记 2"
+    );
+
+    // 标记在场重开：数据保留零作废（幂等路径，AC-8 scenario）
+    let reopened = open_workspace_ok(&ws_path);
+    assert_eq!(
+        reopened.find_change_record("chg-keep").unwrap(),
+        Some(seeded),
+        "标记在场重开数据保留"
+    );
+    assert_eq!(
+        reopened.list_change_records().unwrap().len(),
+        1,
+        "零作废（无重建抹除）"
+    );
+    drop(reopened);
+    assert_eq!(
+        read_workspace_format_marker(&ws_path),
+        Some(2),
+        "重开不改写标记版本"
+    );
+}
+
+#[test]
+fn 标记低于当前版本_作废重建() {
+    let env = Env::new("ws-marker-below");
+    let ws_path = env.db_path("ws");
+    {
+        let store = open_workspace_ok(&ws_path);
+        create_change_ok(&store, "chg-old-marker", 1000);
+    }
+    // 预置形态：标记在场但 format_version = 1（< 当前，语义编号 1 = name 主键
+    // 形态时代）——探测规则「缺失或低于当前 → 作废」的 < 分支
+    overwrite_workspace_format_marker(&ws_path, 1);
+    assert_eq!(read_workspace_format_marker(&ws_path), Some(1));
+
+    let store = open_workspace_ok(&ws_path);
+    assert!(
+        store.list_change_records().unwrap().is_empty(),
+        "标记低于当前 → 作废重建为空库"
+    );
+    drop(store);
+    assert_eq!(
+        read_workspace_format_marker(&ws_path),
+        Some(2),
+        "重建后标记升为当前版本"
+    );
+}
+
+#[test]
+fn 旧表行对新建档读面零可达_标记在场零作废() {
+    let env = Env::new("ws-old-table-rows");
+    let ws_path = env.db_path("ws");
+    {
+        let store = open_workspace_ok(&ws_path); // 标记 2 就位
+        create_change_ok(&store, "chg-live", 1000);
+    }
+    // 标记在场 + 旧物表持行（表命名机制第二道防线：标记不触发重建，旧行靠
+    // 物表名隔离对新建档读面零呈现）
+    inject_old_shape_change_row(&ws_path, "旧档甲");
+
+    let store = open_workspace_ok(&ws_path);
+    assert_eq!(
+        store
+            .list_change_records()
+            .unwrap()
+            .iter()
+            .map(|record| record.id.as_str())
+            .collect::<Vec<_>>(),
+        vec!["chg-live"],
+        "标记在场零作废：既有新形态行原样"
+    );
+    assert_eq!(
+        store.find_change_record("旧档甲").unwrap(),
+        None,
+        "旧表 name 主键行对新读面零可达"
+    );
+    drop(store);
+
+    // 零作废的物理证据：旧表与旧行仍在库内（未被重建抹除），标记仍 2
+    assert_eq!(read_workspace_format_marker(&ws_path), Some(2));
+    let db = redb::Database::open(&ws_path).expect("裸开 db 应成功");
+    let r = db.begin_read().expect("开启读事务失败");
+    let old_table: redb::TableDefinition<RawNativeDbKey, &[u8]> =
+        redb::TableDefinition::new(OLD_CHANGE_RECORD_TABLE);
+    let rows = r.open_table(old_table).expect("旧物表应在库内");
+    assert!(
+        rows.get(RawNativeDbKey("旧档甲".as_bytes().to_vec()))
+            .expect("读取旧行失败")
+            .is_some(),
+        "旧行字节仍在（零作废——第二道防线而非重建）"
+    );
+}
+
+#[test]
+fn 作废重建删除段失败_恢复性故障显式db_err() {
+    let env = Env::new("ws-rebuild-remove-fail");
+    let ws_path = env.db_path("ws");
+    {
+        let store = open_workspace_ok(&ws_path);
+        create_change_ok(&store, "chg-locked", 1000);
+    }
+    // 作废触发条件就位（标记缺失）
+    remove_workspace_format_marker(&ws_path);
+
+    // 环境性文件锁：Windows 以「不共享删除」句柄占住 db 文件（读 / 写句柄仍可
+    // 打开），删除段必失败 → StoreError::Db 显式 Err（恢复性故障语境——旧形态
+    // 库探测 / 作废路径本身零报错）
+    #[cfg(windows)]
+    let lock = {
+        use std::os::windows::fs::OpenOptionsExt;
+        std::fs::OpenOptions::new()
+            .read(true)
+            .share_mode(0x1 | 0x2)
+            .open(&ws_path)
+            .expect("占位句柄应打开成功")
+    };
+    #[cfg(not(windows))]
+    let lock = {
+        // Unix 兜底：父目录去写权限使删除段失败（redb 打不开则 open 段即 Err，
+        // 下方断言同样成立）
+        let dir = ws_path.parent().expect("父目录在场");
+        let mut perms = fs::metadata(dir).expect("读父目录元数据失败").permissions();
+        perms.set_readonly(true);
+        fs::set_permissions(dir, perms).expect("置父目录只读失败");
+        ()
+    };
+
+    let err = match Store::open_workspace(&ws_path) {
+        Err(err) => err,
+        Ok(_) => panic!("作废重建删除段失败必须显式 Err，不得静默就绪"),
+    };
+    assert!(matches!(err, StoreError::Db(_)), "变体为 Db，实际: {err:?}");
+    assert!(
+        err.to_string().starts_with("db:"),
+        "错误串以 db: 前缀，实际: {err}"
+    );
+    if cfg!(windows) {
+        assert!(
+            err.to_string().contains("作废旧 workspace 库"),
+            "错误串含删除段失败语境记因，实际: {err}"
+        );
+    }
+
+    // 恢复性故障：文件本身零损坏——锁撤除后重开照常且作废重建完成
+    #[cfg(not(windows))]
+    {
+        let dir = ws_path.parent().expect("父目录在场");
+        let mut perms = fs::metadata(dir).expect("读父目录元数据失败").permissions();
+        perms.set_readonly(false);
+        fs::set_permissions(dir, perms).expect("恢复父目录权限失败");
+    }
+    drop(lock);
+    let store = open_workspace_ok(&ws_path);
+    assert!(
+        store.list_change_records().unwrap().is_empty(),
+        "锁撤除后作废重建完成（空库）"
     );
 }
 
@@ -3357,7 +3752,7 @@ fn log_change_phase单事务原子_相位行与checklist子行同落清位_重�
     assert_eq!(phases.len(), 1, "恰一条相位行");
     let row = &phases[0];
     assert_eq!(row.id, 1, "写事务内 max+1 分配，空库首行 id=1");
-    assert_eq!(row.change, "flow");
+    assert_eq!(row.change_id, "flow");
     assert_eq!(row.phase, "proposal");
     assert_eq!(row.attempt, attempt);
     assert_eq!(row.verdict, Verdict::Pass);
@@ -3472,8 +3867,14 @@ fn log_change_phase同相位同轮二次落账返回err且零重复行() {
 /// 预置带缺口 attempt 序的建档行 + 相位行（attempt 1 与 3，native_db 裸构造
 /// 不经 Store，沿 `preset_old_layout_db` 先例）：公共 API 的 attempt 恒「既有
 /// 条目数 + 1」连续分配，缺口形态公共 API 不可达，恰使 `(change, phase,
-/// attempt)` 事务内查重分支可达。
-fn preset_phase_rows_with_attempt_gap(path: &Path, change: &str, phase: &str) {
+/// attempt)` 事务内查重分支可达。预置库须同写当前格式标记（`15_1_key` 单键
+/// `format` 行）——否则重开即按「标记缺失」整体作废重建，预置行零可达。
+fn preset_phase_rows_with_attempt_gap(
+    path: &Path,
+    change_id: &str,
+    change_name: &str,
+    phase: &str,
+) {
     let mut models = Models::new();
     models
         .define::<ChangeRecord>()
@@ -3481,10 +3882,14 @@ fn preset_phase_rows_with_attempt_gap(path: &Path, change: &str, phase: &str) {
     models
         .define::<PhaseRecord>()
         .expect("定义 PhaseRecord 失败");
+    models
+        .define::<StoreMetaRecord>()
+        .expect("定义 StoreMetaRecord 失败");
     let db = Builder::new().create(&models, path).expect("预置库失败");
     let rw = db.rw_transaction().expect("开启写事务失败");
     rw.insert(ChangeRecord {
-        name: change.to_owned(),
+        id: change_id.to_owned(),
+        name: change_name.to_owned(),
         workflow_type: "requirement".to_owned(),
         created_at: 1000,
         status: ChangeStatus::Active,
@@ -3497,7 +3902,7 @@ fn preset_phase_rows_with_attempt_gap(path: &Path, change: &str, phase: &str) {
     for (id, attempt) in [(1i64, 1u32), (3, 3u32)] {
         rw.insert(PhaseRecord {
             id,
-            change: change.to_owned(),
+            change_id: change_id.to_owned(),
             phase: phase.to_owned(),
             attempt,
             verdict: Verdict::Pass,
@@ -3514,6 +3919,11 @@ fn preset_phase_rows_with_attempt_gap(path: &Path, change: &str, phase: &str) {
         })
         .expect("写入相位行失败");
     }
+    rw.insert(StoreMetaRecord {
+        key: WORKSPACE_STORE_FORMAT_KEY.to_owned(),
+        format_version: WORKSPACE_STORE_FORMAT_VERSION,
+    })
+    .expect("写入格式标记失败");
     rw.commit().expect("提交预置事务失败");
 }
 
@@ -3525,7 +3935,7 @@ fn log_change_phase重复attempt查重返回conflict且事务零残留() {
     // 零残留 + 成功路径单事务全落」（上例）双断言承载，不伪造失败。
     let env = Env::new("change-log-attempt-conflict");
     let ws_path = env.db_path("ws");
-    preset_phase_rows_with_attempt_gap(&ws_path, "gap-change", "proposal");
+    preset_phase_rows_with_attempt_gap(&ws_path, "gap-change", "缺口档", "proposal");
 
     let store = open_workspace_ok(&ws_path);
     let started = start_phase_ok(&store, "gap-change", "proposal", 5000);
@@ -3608,7 +4018,7 @@ fn apply_change_backtrack回跳标记与stale闭包翻转_仅目标最新pass置
 
     store
         .apply_change_backtrack(&BacktrackCommand {
-            change: "flow".to_owned(),
+            change_id: "flow".to_owned(),
             phase: "design".to_owned(),
             to: "proposal".to_owned(),
             reason: "需求理解偏差".to_owned(),
@@ -3666,7 +4076,7 @@ fn apply_change_backtrack_stale闭包空vec仅回跳标记与目标stale无误�
 
     store
         .apply_change_backtrack(&BacktrackCommand {
-            change: "flow".to_owned(),
+            change_id: "flow".to_owned(),
             phase: "design".to_owned(),
             to: "proposal".to_owned(),
             reason: "回跳".to_owned(),
@@ -3720,7 +4130,7 @@ fn apply_change_backtrack目标无pass条目不传播stale_发起相位无条目
 
     store
         .apply_change_backtrack(&BacktrackCommand {
-            change: "flow".to_owned(),
+            change_id: "flow".to_owned(),
             phase: "design".to_owned(),
             to: "proposal".to_owned(),
             reason: "目标无 pass".to_owned(),
@@ -3746,7 +4156,7 @@ fn apply_change_backtrack目标无pass条目不传播stale_发起相位无条目
     // 发起相位无条目 → NotFound
     let err = store
         .apply_change_backtrack(&BacktrackCommand {
-            change: "flow".to_owned(),
+            change_id: "flow".to_owned(),
             phase: "ghost-phase".to_owned(),
             to: "proposal".to_owned(),
             reason: "发起相位无条目".to_owned(),
@@ -3782,7 +4192,7 @@ fn apply_change_backtrack发起相位在自身stale闭包内_标记与stale同�
 
         store
             .apply_change_backtrack(&BacktrackCommand {
-                change: "flow".to_owned(),
+                change_id: "flow".to_owned(),
                 phase: "test-gen".to_owned(),
                 to: "dev-design".to_owned(),
                 reason: "设计返工：缺产物区组件".to_owned(),
@@ -3901,29 +4311,37 @@ fn amend_change_decision_session最新条目定点改写_重复幂等覆写_无�
 }
 
 #[test]
-fn set_change_archived翻转status与archived_at_主键name不变_miss_not_found() {
+fn set_change_archived按id翻转_status与archived_at落库_id与name不变_miss_not_found() {
     let env = Env::new("change-archived");
     let store = open_workspace_ok(&env.db_path("ws"));
-    create_change_ok(&store, "flow", 1000);
+    store
+        .create_change_record(change_archive("chg-arch-1", "归档档", 1000))
+        .expect("建档应成功");
 
     store
-        .set_change_archived("flow", 9000)
+        .set_change_archived("chg-arch-1", 9000)
         .expect("归档翻转应成功");
     let record = store
-        .find_change_record("flow")
+        .find_change_record("chg-arch-1")
         .unwrap()
-        .expect("归档后仍可按主键寻址");
+        .expect("归档后仍可按 id 寻址");
     assert_eq!(record.status, ChangeStatus::Archived, "status 翻转");
     assert_eq!(record.archived_at, Some(9000), "archived_at 落库");
-    assert_eq!(record.name, "flow", "主键 name 不变");
+    assert_eq!(record.id, "chg-arch-1", "主键 id 不变");
+    assert_eq!(record.name, "归档档", "name 属性不变");
 
     let err = store
-        .set_change_archived("ghost", 1)
-        .expect_err("name miss 应 Err");
+        .set_change_archived("ghost-id", 1)
+        .expect_err("id miss 应 Err");
     assert!(
         matches!(err, StoreError::NotFound(_)),
         "变体为 NotFound，实际: {err:?}"
     );
+    // name 串非寻址键：按 name 翻转同样 miss（旧 name 主键操作面退役）
+    let err = store
+        .set_change_archived("归档档", 2)
+        .expect_err("name 串按 id 翻转应 miss");
+    assert!(matches!(err, StoreError::NotFound(_)));
 }
 
 #[test]
@@ -3980,7 +4398,7 @@ fn append_change_step连续追加id严格max加1_逐字段回读_超长summary�
 
     // 逐字段回读一致
     assert_eq!(steps[0].run_id, "run-1");
-    assert_eq!(steps[0].change, "flow");
+    assert_eq!(steps[0].change_id, "flow");
     assert_eq!(steps[0].step_kind, StepKind::PhaseNext);
     assert_eq!(steps[0].status, "ok");
     assert_eq!(steps[0].timestamp, 100);
@@ -4049,7 +4467,7 @@ fn list_change_steps多run全量按id序_run圈定单run_无步骤空vec() {
         vec![1, 2, 3],
         "按 change 全量枚举，落行序（id 升序）"
     );
-    assert!(all.iter().all(|row| row.change == "flow"), "无他档混入");
+    assert!(all.iter().all(|row| row.change_id == "flow"), "无他档混入");
 
     let run1 = store.list_change_steps("flow", Some("run-1")).unwrap();
     assert_eq!(
@@ -4164,11 +4582,13 @@ fn 信封零改动覆盖四新模型_list_models计数与scan信封可读() {
     let store = open_workspace_ok(&env.db_path("ws"));
 
     // 种子：建档 1 + 相位行 1（含两条检查项子行）+ 步骤审计行 1
-    create_change_ok(&store, "flow", 1000);
-    start_phase_ok(&store, "flow", "proposal", 2000);
+    store
+        .create_change_record(change_archive("chg-envelope", "展示档", 1000))
+        .expect("建档应成功");
+    start_phase_ok(&store, "chg-envelope", "proposal", 2000);
     store
         .log_change_phase(&log_command(
-            "flow",
+            "chg-envelope",
             "proposal",
             Verdict::Pass,
             vec![check_item("检查项一", true), check_item("检查项二", false)],
@@ -4179,7 +4599,7 @@ fn 信封零改动覆盖四新模型_list_models计数与scan信封可读() {
     store
         .append_change_step(&step_command(
             "run-1",
-            "flow",
+            "chg-envelope",
             StepKind::PhaseLog,
             "ok",
             "落账",
@@ -4207,15 +4627,19 @@ fn 信封零改动覆盖四新模型_list_models计数与scan信封可读() {
         "change 流程状态四模型经既有 list_models 零改动覆盖"
     );
 
-    // scan 零改动可读四新模型记录信封
+    // scan 零改动可读四新模型记录信封（change 信封 key = 记录 id 主键投影）
     let changes = store.scan("change", 0, 10).unwrap();
     assert_eq!(changes.len(), 1);
     assert_eq!(
         changes[0].key,
-        serde_json::json!("flow"),
-        "change 主键 = name"
+        serde_json::json!("chg-envelope"),
+        "change 主键 = 身份锚 id（自 name 面翻转）"
     );
-    assert_eq!(changes[0].value["name"], serde_json::json!("flow"));
+    assert_eq!(
+        changes[0].value["name"],
+        serde_json::json!("展示档"),
+        "value 内 name 仍为普通属性在场"
+    );
     assert_eq!(
         changes[0].value["activePhase"],
         serde_json::Value::Null,
@@ -4293,25 +4717,228 @@ impl redb::Key for RawNativeDbKey {
 
 /// change 建档表裸表名（native_db 内部表命名公式：
 /// `{native_model_id}_{native_model_version}_{主键字段名小写}`；ChangeRecord
-/// id=9 / version=2（worktree 字段面升级）/ 主键 `name`）。
-const CHANGE_RECORD_TABLE: &str = "9_2_name";
+/// id=9 / version=3（身份锚换 `id` 主键——旧 9_2_name 表对新读面结构性不可见）
+/// / 主键 `id`）。
+const CHANGE_RECORD_TABLE: &str = "9_3_id";
 
-/// db 文件直写字节注入：向 change 建档表插入一行 native_model 解码失败行
-/// （合法建档行的库内字节截去尾部 payload——头部 8 字节保全使 native_model
-/// 信封解析仍可走通，bincode 解码必然失败）。调用方必须先 drop Store 释放
-/// 文件锁（redb 单写者文件锁语义）。
-fn inject_corrupt_change_row(path: &Path, name: &str, created_at: i64) {
+/// 旧形态物表名（身份换锚前：9:v2 主键 `name`）——表名机制第二道防线断言锚：
+/// 新读面结构性不可见。
+const OLD_CHANGE_RECORD_TABLE: &str = "9_2_name";
+
+/// 相位 / 步骤 / run 记录物表名与归属列二级索引表名（版本段换锚：10:v2 / 12:v2
+/// / 13:v2，归属列 `change_id`；run 主键 `run_id`）。
+const PHASE_RECORD_TABLE: &str = "10_2_id";
+const PHASE_RECORD_CHANGE_ID_INDEX: &str = "10_2_change_id";
+const STEP_RECORD_TABLE: &str = "12_2_id";
+const STEP_RECORD_CHANGE_ID_INDEX: &str = "12_2_change_id";
+const RUN_RECORD_TABLE: &str = "13_2_run_id";
+const RUN_RECORD_CHANGE_ID_INDEX: &str = "13_2_change_id";
+
+/// 库级格式版本标记物表名（StoreMetaRecord 15:v1 主键字段 `key`；表内固定单键
+/// 行 `format`，值 = `format_version`）。
+const STORE_META_TABLE: &str = "15_1_key";
+
+/// 物表名公式单点（native_db 内部命名：`{id}_{version}_{主键字段名小写}`）。
+fn native_db_table_name(id: u32, version: u32, key_field: &str) -> String {
+    format!("{id}_{version}_{key_field}")
+}
+
+/// 裸 redb 读库级格式版本标记（`15_1_key` 表固定单键 `format` 行）：`None` =
+/// 标记缺失（作废判定源）。调用方须先 drop Store 归还文件锁。
+fn read_workspace_format_marker(path: &Path) -> Option<u32> {
+    let db = redb::Database::open(path).expect("裸开 db 读标记应成功");
+    let r = db.begin_read().expect("开启读事务失败");
+    let table: redb::TableDefinition<RawNativeDbKey, &[u8]> =
+        redb::TableDefinition::new(STORE_META_TABLE);
+    let rows = r
+        .open_table(table)
+        .expect("格式标记表应已随建库就位，实际拒开");
+    let raw = rows
+        .get(RawNativeDbKey(
+            WORKSPACE_STORE_FORMAT_KEY.as_bytes().to_vec(),
+        ))
+        .expect("读取格式标记行失败")?;
+    let (record, version) = native_model::decode::<StoreMetaRecord>(raw.value().to_vec())
+        .expect("格式标记行按 StoreMetaRecord 解码应成功");
+    assert_eq!(version, 1, "标记模型版本段 15:v1");
+    assert_eq!(record.key, WORKSPACE_STORE_FORMAT_KEY);
+    Some(record.format_version)
+}
+
+/// 裸 redb 抹除库级格式版本标记行（预置「缺标记旧形态库」——作废重建触发条件）。
+fn remove_workspace_format_marker(path: &Path) {
+    let db = redb::Database::open(path).expect("裸开 db 抹标记应成功");
+    let rw = db.begin_write().expect("开启写事务失败");
+    {
+        let table: redb::TableDefinition<RawNativeDbKey, &[u8]> =
+            redb::TableDefinition::new(STORE_META_TABLE);
+        let mut rows = rw.open_table(table).expect("打开格式标记表应成功");
+        let removed = rows
+            .remove(RawNativeDbKey(
+                WORKSPACE_STORE_FORMAT_KEY.as_bytes().to_vec(),
+            ))
+            .expect("抹除格式标记行失败");
+        assert!(removed.is_some(), "标记行在被抹除");
+    }
+    rw.commit().expect("提交抹标记事务失败");
+}
+
+/// 裸 redb 覆写库级格式版本标记行为指定版本号（预置「标记低于当前」形态）。
+fn overwrite_workspace_format_marker(path: &Path, version: u32) {
+    let payload = native_model::encode(&StoreMetaRecord {
+        key: WORKSPACE_STORE_FORMAT_KEY.to_owned(),
+        format_version: version,
+    })
+    .expect("编码标记行失败");
+    let db = redb::Database::open(path).expect("裸开 db 覆写标记应成功");
+    let rw = db.begin_write().expect("开启写事务失败");
+    {
+        let table: redb::TableDefinition<RawNativeDbKey, &[u8]> =
+            redb::TableDefinition::new(STORE_META_TABLE);
+        let mut rows = rw.open_table(table).expect("打开格式标记表应成功");
+        rows.insert(
+            RawNativeDbKey(WORKSPACE_STORE_FORMAT_KEY.as_bytes().to_vec()),
+            payload.as_slice(),
+        )
+        .expect("覆写标记行应成功");
+    }
+    rw.commit().expect("提交覆写标记事务失败");
+}
+
+/// 裸 redb 向旧形态物表 `9_2_name` 直写 name 主键行（旧形态库预置——表名机制
+/// 第二道防线的数据面：新读面零可达）。旧形态行载荷已无解码方，任意字节即可
+/// ——本行断言面是「结构性不可达」，不是载荷可读性。
+fn inject_old_shape_change_row(path: &Path, name_key: &str) {
+    let db = redb::Database::open(path).expect("裸开 db 注入旧形态行应成功");
+    let rw = db.begin_write().expect("开启注入写事务失败");
+    {
+        let table: redb::TableDefinition<RawNativeDbKey, &[u8]> =
+            redb::TableDefinition::new(OLD_CHANGE_RECORD_TABLE);
+        let mut rows = rw.open_table(table).expect("打开旧形态物表应成功");
+        rows.insert(
+            RawNativeDbKey(name_key.as_bytes().to_vec()),
+            b"legacy-name-keyed-row".as_slice(),
+        )
+        .expect("注入旧形态行应成功");
+    }
+    rw.commit().expect("提交注入事务失败");
+}
+
+/// 裸 redb 库内物表名清单（主键表 + 二级索引 multimap 表合并，排序稳定）。
+fn physical_table_names(path: &Path) -> Vec<String> {
+    let db = redb::Database::open(path).expect("裸开 db 列表名应成功");
+    let r = db.begin_read().expect("开启读事务失败");
+    let mut names: Vec<String> = r
+        .list_tables()
+        .expect("列表名失败")
+        .map(|table| redb::TableHandle::name(&table).to_owned())
+        .chain(
+            r.list_multimap_tables()
+                .expect("列 multimap 表名失败")
+                .map(|table| redb::MultimapTableHandle::name(&table).to_owned()),
+        )
+        .collect();
+    names.sort();
+    names
+}
+
+/// 预置缺标记旧形态 workspace 库（作废重建触发形态）：真实 open_workspace 建出
+/// 合法库 → drop 归还文件锁 → 裸 redb 抹格式标记 + 向旧物表 `9_2_name` 直写
+/// name 主键行（模拟身份换锚前的存量库：缺标记、旧表持行、零迁移路径）。
+fn preset_old_shape_workspace_db(path: &Path, legacy_names: &[&str]) {
+    open_workspace_ok(path);
+    remove_workspace_format_marker(path);
+    for name in legacy_names {
+        inject_old_shape_change_row(path, name);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// 表名版本段映射（AC-8 表名机制）：物表名与 native_db 命名公式同源断言 +
+// 真实库物表名清单对照（`9_3_id` 反转 v2 的 `9_2_name`）
+// ---------------------------------------------------------------------------
+
+#[test]
+fn 表名版本段映射_物表名与命名公式同源_旧表名零在场() {
+    // 公式锚：`{native_model_id}_{version}_{主键字段名小写}`——与 model_test
+    // 版本段断言同源；模型 id / 版本 / 主键字段名任一演进即两处同改
     assert_eq!(
         CHANGE_RECORD_TABLE,
-        format!(
-            "{}_{}_{}",
+        native_db_table_name(
             <ChangeRecord as native_model::Model>::native_model_id(),
             <ChangeRecord as native_model::Model>::native_model_version(),
-            "name"
+            "id"
+        ),
+        "change 建档物表名与 native_db 内部命名公式一致"
+    );
+    assert_eq!(
+        CHANGE_RECORD_TABLE, "9_3_id",
+        "change 建档物表 9_3_id（v2 的 9_2_name 反转：主键 name → id）"
+    );
+    assert_eq!(PHASE_RECORD_TABLE, "10_2_id", "相位物表 10:v2 主键 id");
+    assert_eq!(
+        PHASE_RECORD_CHANGE_ID_INDEX, "10_2_change_id",
+        "相位归属列二级索引表（10:v2 换锚 change → change_id）"
+    );
+    assert_eq!(STEP_RECORD_TABLE, "12_2_id", "步骤物表 12:v2 主键 id");
+    assert_eq!(STEP_RECORD_CHANGE_ID_INDEX, "12_2_change_id");
+    assert_eq!(
+        RUN_RECORD_TABLE, "13_2_run_id",
+        "run 物表 13:v2 主键 run_id"
+    );
+    assert_eq!(RUN_RECORD_CHANGE_ID_INDEX, "13_2_change_id");
+    assert_eq!(
+        STORE_META_TABLE, "15_1_key",
+        "格式标记物表 15:v1 主键字段 key（固定单键行 `format`；test-design 记 `15_1_format` 指该单键值，物表名按公式取字段名）"
+    );
+
+    // 真实库物表名清单对照：native_db 建表点唯一，清单即注册面
+    let env = Env::new("table-names");
+    let ws_path = env.db_path("ws");
+    {
+        let _store = open_workspace_ok(&ws_path);
+    } // 文件锁归还后方可裸列
+    let names = physical_table_names(&ws_path);
+    for expected in [
+        CHANGE_RECORD_TABLE,
+        PHASE_RECORD_TABLE,
+        PHASE_RECORD_CHANGE_ID_INDEX,
+        STEP_RECORD_TABLE,
+        STEP_RECORD_CHANGE_ID_INDEX,
+        RUN_RECORD_TABLE,
+        RUN_RECORD_CHANGE_ID_INDEX,
+        STORE_META_TABLE,
+    ] {
+        assert!(
+            names.iter().any(|name| name == expected),
+            "物表 {expected} 应在库内，实际清单: {names:?}"
+        );
+    }
+    for retired in ["9_2_name", "10_1_change", "12_1_change", "13_1_change"] {
+        assert!(
+            !names.iter().any(|name| name == retired),
+            "旧物表 {retired} 零在场（身份换锚后结构性不可见），实际清单: {names:?}"
+        );
+    }
+}
+
+/// db 文件直写字节注入：向 change 建档表插入一行 native_model 解码失败行
+/// （合法建档行——`new` 携 id 身份锚 + name 属性——的库内字节截去尾部 payload
+/// ——头部 8 字节保全使 native_model 信封解析仍可走通，bincode 解码必然失败）。
+/// 行键 = 记录 id 字节（native_db 主键即 `to_key()` 原始字节）。调用方必须先
+/// drop Store 释放文件锁（redb 单写者文件锁语义）。
+fn inject_corrupt_change_row(path: &Path, id: &str, name: &str, created_at: i64) {
+    assert_eq!(
+        CHANGE_RECORD_TABLE,
+        native_db_table_name(
+            <ChangeRecord as native_model::Model>::native_model_id(),
+            <ChangeRecord as native_model::Model>::native_model_version(),
+            "id"
         ),
         "裸表名与 native_db 内部命名公式一致（模型 id / 版本演进时随动改写）"
     );
     let valid = <ChangeRecord as native_model::Model>::native_model_encode(&ChangeRecord::new(
+        id,
         name,
         "requirement",
         created_at,
@@ -4330,7 +4957,7 @@ fn inject_corrupt_change_row(path: &Path, name: &str, created_at: i64) {
     let rw = db.begin_write().expect("开启注入写事务失败");
     {
         let mut rows = rw.open_table(table).expect("打开 change 建档表应成功");
-        rows.insert(RawNativeDbKey(name.as_bytes().to_vec()), corrupt.as_slice())
+        rows.insert(RawNativeDbKey(id.as_bytes().to_vec()), corrupt.as_slice())
             .expect("注入坏行应成功");
     }
     rw.commit().expect("提交注入事务失败");
@@ -4344,10 +4971,12 @@ fn 建档表坏行直写注入_读侧store_error显式记因不静默() {
     // 种子：合法建档行经公共 API 落库（坏行与良行同表共存）
     {
         let store = open_workspace_ok(&ws_path);
-        create_change_ok(&store, "good-change", 1000);
+        store
+            .create_change_record(change_archive("chg-good", "良档", 1000))
+            .expect("建档应成功");
     } // 文件锁归还
 
-    inject_corrupt_change_row(&ws_path, "corrupt-change", 2000);
+    inject_corrupt_change_row(&ws_path, "chg-corrupt", "坏档", 2000);
 
     // 单行坏字节 ≠ 整库损坏：重开成功（与整库损坏 open Err 用例相区分）
     let store = open_workspace_ok(&ws_path);
@@ -4363,22 +4992,26 @@ fn 建档表坏行直写注入_读侧store_error显式记因不静默() {
         "错误串带 db: 前缀与读语境记因，实际: {err}"
     );
 
-    // 主键直查坏行：解码失败显式 Err，不静默降级 Ok(None)（文档形态误判防线）
+    // 主键 id 直查坏行：解码失败显式 Err，不静默降级 Ok(None)（未建档误判防线）
     let err = store
-        .find_change_record("corrupt-change")
-        .expect_err("坏行主键直查必须显式 Err，不得误判为文档形态 None");
+        .find_change_record("chg-corrupt")
+        .expect_err("坏行主键直查必须显式 Err，不得误判为未建档 None");
     assert!(matches!(err, StoreError::Db(_)), "变体为 Db，实际: {err:?}");
     assert!(
         err.to_string().contains("读取建档记录"),
         "错误串含直查语境记因，实际: {err}"
     );
+    // 坏行以 id 为键：name 串直查不触坏行（name 非寻址键）
+    assert_eq!(store.find_change_record("坏档").unwrap(), None);
 
     // 持久性：坏行是库内持久状态，再读仍 Err（非瞬时故障）
     assert!(store.list_change_records().is_err());
 }
 
 // ---------------------------------------------------------------------------
-// ChangeRecord 双字段映射往返 + 存量 v1 行库 additive 打开（design D7 / AC-1）
+// ChangeRecord 双字段映射往返（AC-1：worktree / base_commit 随建档入列）；
+// 存量库跨形态 additive 概念退役——旧形态一律作废重建（见「workspace 库格式
+// 版本段」段）
 // ---------------------------------------------------------------------------
 
 /// 双字段映射往返：`create_change_record`（ChangeStateRecord 携 Some 两字段）→
@@ -4391,7 +5024,7 @@ fn change记录双字段映射往返_重开库仍一致() {
 
     let seeded = {
         let store = open_workspace_ok(&ws_path);
-        let mut with_fields = change_archive("wt-change", 1000);
+        let mut with_fields = change_archive("wt-change", "wt-change", 1000);
         with_fields.worktree = Some(r"C:\app-data\worktrees\seg\wt-change".to_owned());
         with_fields.base_commit = Some("0000000000000000000000000000000000000001".to_owned());
         store
@@ -4450,79 +5083,6 @@ fn change记录双字段映射往返_重开库仍一致() {
     );
 }
 
-/// db 文件直写注入：向 change 建档表（v2 当前表名）插入一行 **v1 envelope 载
-/// 荷**字节——存量升级的 decode-only 作用面（native_model 版本头在载荷信封
-/// 内，decode 经 `from` 链升级；native_db 0.8.2 表名含版本段、无 open 期迁
-/// 移，见下方用例注记）。调用方必须先 drop Store 释放文件锁。
-fn inject_v1_change_row(path: &Path, name: &str, created_at: i64) {
-    let legacy = ChangeRecordV1 {
-        name: name.to_owned(),
-        workflow_type: "requirement".to_owned(),
-        created_at,
-        status: workflow::state::ChangeStatus::Active,
-        archived_at: None,
-        active_phase: None,
-    };
-    let bytes = <ChangeRecordV1 as native_model::Model>::native_model_encode(&legacy)
-        .expect("编码 v1 建档行失败");
-    let db = redb::Database::open(path).expect("裸开 db 注入 v1 行应成功");
-    let table: redb::TableDefinition<RawNativeDbKey, &[u8]> =
-        redb::TableDefinition::new(CHANGE_RECORD_TABLE);
-    let rw = db.begin_write().expect("开启注入写事务失败");
-    {
-        let mut rows = rw.open_table(table).expect("打开建档表应成功");
-        rows.insert(RawNativeDbKey(name.as_bytes().to_vec()), bytes.as_slice())
-            .expect("注入 v1 行应成功");
-    }
-    rw.commit().expect("提交注入事务失败");
-}
-
-/// 存量 v1 载荷行 additive 打开：裸 redb 直写 v1 envelope 字节（v2 当前表
-/// 内）→ `open_workspace`（v2 模型组）additive 打开 → find / list 读出既有
-/// 六字段一致且 worktree / base_commit = None（无手工迁移层——AC-1 存量库
-/// 半边；native_model 版本机制经 decode `from` 链升级）。
-/// 注记：test-design 本行原判「注入旧版本表 `9_1_name` 后可读」与 native_db
-/// 0.8.2 实际机制不符（表名含版本段、读面仅寻当前表、无 open 期迁移——旧版
-/// 本表行对 v2 读面不可见），decode-only 升级的真实作用面是**当前表内的 v1
-/// envelope 载荷**（本用例形态）；本用例按实现行为钉住（discrepancy 见变更
-/// 报告）。
-#[test]
-fn 存量v1行库additive打开_读出升级两字段none() {
-    let env = Env::new("change-v1-legacy-db");
-    let ws_path = env.db_path("ws");
-
-    // 先经公共打开铸 db 文件（表结构在场），归还文件锁后裸 redb 注入 v1 行
-    //（存量库形态：旧版本写入的 v1 表行与 v2 模型组 additive 共存）
-    {
-        let _store = open_workspace_ok(&ws_path);
-    }
-    inject_v1_change_row(&ws_path, "v1-legacy-change", 1_727_000_000_000);
-
-    // v2 模型组 additive 打开（模型组升级不拒既有库文件）
-    let store = open_workspace_ok(&ws_path);
-
-    // 主键直查：六字段一致 + 两新字段 None（版本机制自动升级，零迁移代码）
-    let hit = store
-        .find_change_record("v1-legacy-change")
-        .expect("直查应成功")
-        .expect("v1 行应在案");
-    assert_eq!(hit.name, "v1-legacy-change");
-    assert_eq!(hit.workflow_type, "requirement");
-    assert_eq!(hit.created_at, 1_727_000_000_000);
-    assert_eq!(hit.status, workflow::state::ChangeStatus::Active);
-    assert_eq!(hit.archived_at, None);
-    assert_eq!(hit.active_phase, None);
-    assert_eq!(hit.worktree, None, "存量 v1 行读出 worktree = None");
-    assert_eq!(hit.base_commit, None, "存量 v1 行读出 base_commit = None");
-
-    // 全表读同面（清单路径的存量升级半边）
-    let records = store.list_change_records().expect("清单应成功");
-    assert_eq!(records.len(), 1, "恰一行存量记录");
-    assert_eq!(records[0].worktree, None);
-    assert_eq!(records[0].base_commit, None);
-    assert_eq!(records[0].name, "v1-legacy-change");
-}
-
 // ---------------------------------------------------------------------------
 // run 域操作面 + 启动标定（unify-run-state-persistence）：每 run 两写 / 整包
 // 原子回滚 / 悬挂杀除 / 幂等标定 / open_workspace 挂点——tempfile 真件库真实
@@ -4538,7 +5098,7 @@ use workflow::state::{
 fn run_start_cmd(run_id: &str, change: &str, started_at: i64) -> RunStartCommand {
     RunStartCommand {
         run_id: run_id.to_owned(),
-        change: change.to_owned(),
+        change_id: change.to_owned(),
         started_at,
     }
 }
@@ -4567,7 +5127,7 @@ fn run_finish_cmd(
 ) -> RunFinishCommand {
     RunFinishCommand {
         run_id: run_id.to_owned(),
-        change: change.to_owned(),
+        change_id: change.to_owned(),
         status,
         reason: reason.map(str::to_owned),
         finished_at,
@@ -4590,7 +5150,7 @@ fn start_change_run建running行回读一致() {
     let runs = store.list_change_runs("flow-run").expect("list 应成功");
     assert_eq!(runs.len(), 1);
     assert_eq!(runs[0].run_id, "run-100");
-    assert_eq!(runs[0].change, "flow-run");
+    assert_eq!(runs[0].change_id, "flow-run");
     assert_eq!(runs[0].status, RunStatus::Running, "running 行起步");
     assert_eq!(runs[0].started_at, 2000, "started_at 原值（命令携带）");
     assert_eq!(runs[0].finished_at, None);
@@ -5110,14 +5670,15 @@ fn open_workspace内嵌标定_重开即标定残留() {
     assert!(record.active_phase.is_none(), "重开清位 active_phase");
 }
 
-/// 存量库 additive 打开（AC-1 十模型 additive 零迁移）：既有数据形态库文件
-///（零 run 写入）重开成功、新模型表首轮读写正常。
+/// 标记在场库重开读写正常（AC-8 幂等路径；workspace 库跨形态 additive 概念已
+/// 退役——旧形态一律作废重建，无 additive 打开语义）：标记就位的库重开数据
+/// 保留零作废、run 表首轮读写正常。
 #[test]
-fn 存量库additive打开_重开新模型表读写正常() {
-    let env = Env::new("run-additive");
+fn 标记在场库重开读写正常_数据保留零作废() {
+    let env = Env::new("ws-marker-reopen-rw");
     let db_path = env.db_path("ws");
     {
-        // 首轮：建档 + 相位史（零 run 写入的既有形态）
+        // 首轮：建档 + 相位史（零 run 写入）
         let store = open_workspace_ok(&db_path);
         create_change_ok(&store, "legacy-change", 1000);
         start_phase_ok(&store, "legacy-change", "proposal", 1500);
@@ -5132,27 +5693,84 @@ fn 存量库additive打开_重开新模型表读写正常() {
             ))
             .expect("落账种子应成功");
     }
+    assert_eq!(
+        read_workspace_format_marker(&db_path),
+        Some(2),
+        "首开即写标记（重开零作废的前提）"
+    );
     {
-        // 重开：既有记录可达 + run 新模型表首轮读写正常
+        // 重开（标记在场幂等）：既有记录可达 + run 表首轮读写正常
         let store = open_workspace_ok(&db_path);
         let record = store
             .find_change_record("legacy-change")
             .expect("读档应成功")
             .expect("建档在场");
-        assert_eq!(record.name, "legacy-change", "存量记录 additive 打开可达");
+        assert_eq!(
+            record.name, "legacy-change",
+            "标记在场重开：既有记录保留可达"
+        );
         assert!(store
             .list_change_runs("legacy-change")
             .expect("list 应成功")
             .is_empty());
         store
             .start_change_run(&run_start_cmd("run-100", "legacy-change", 2000))
-            .expect("新模型表首写应成功");
+            .expect("run 表首写应成功");
         let runs = store
             .list_change_runs("legacy-change")
             .expect("list 应成功");
-        assert_eq!(runs.len(), 1, "新模型表读回正常");
+        assert_eq!(runs.len(), 1, "run 表读回正常");
         assert_eq!(runs[0].status, RunStatus::Running);
     }
+}
+
+/// 全局库不受波及（D5 全局库持衡）：全局库注册某 workspace 后，该 workspace
+/// 库作废重建发生 → 全局库文件与注册记录零变化（open_global 零探测零触碰）。
+#[test]
+fn 全局库不受波及_workspace库作废重建全局注册表零变化() {
+    let env = StoresEnv::new("global-untouched");
+    let root = env.root_of("untouched");
+    let registered = {
+        let stores = env.open();
+        let record = add_ok(stores.global(), &env.ws("untouched"));
+        let store = stores.for_root(&root).expect("for_root 应成功");
+        store
+            .create_change_record(change_archive("chg-vanish", "待作废档", 1000))
+            .expect("建档应成功");
+        record
+    }; // 两级库句柄（含缓存实例）释放，文件锁归还
+
+    let global_path = env.data_root.path().join(GLOBAL_DB_FILE_NAME);
+    let global_bytes = fs::read(&global_path).expect("读取全局库字节失败");
+    // workspace 库预置缺标记旧形态（作废重建触发条件就位）
+    let ws_db = env
+        .workspaces_dir()
+        .join(workspace_db_file_name(&registered.root));
+    remove_workspace_format_marker(&ws_db);
+    inject_old_shape_change_row(&ws_db, "旧档甲");
+
+    // 只开 workspace 库（作废重建发生点）——全局库文件全程零句柄零触点，
+    // 重建发生后可与快照逐字节对拍
+    {
+        let store = open_workspace_ok(&ws_db);
+        assert!(
+            store.list_change_records().unwrap().is_empty(),
+            "workspace 库作废重建发生（旧档与首轮建档整体丢弃）"
+        );
+    }
+    assert_eq!(
+        fs::read(&global_path).expect("读取全局库字节失败"),
+        global_bytes,
+        "全局库文件字节零变化（作废重建路径零触碰全局库）"
+    );
+
+    // 注册记录仍在：全局库重开可读且与作废重建前逐字段一致
+    let stores = env.open();
+    assert_eq!(
+        stores.global().list_workspaces().unwrap(),
+        vec![registered],
+        "全局库注册表记录零变化（open_global 零触碰）"
+    );
 }
 
 /// run 史读面排序（AC-6/AC-10 前置）：list_change_runs 按 started_at 升序

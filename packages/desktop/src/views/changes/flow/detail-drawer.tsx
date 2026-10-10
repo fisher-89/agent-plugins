@@ -20,20 +20,22 @@ interface DetailDrawerProps {
   materials: FlowMaterials;
   /** workspace root（会话转录反查） */
   root: string | null;
-  /** change 名（sourceRef 定式组装 `<change>/<phase>/<role>/<attempt>`） */
-  change: string;
+  /** change id（sourceRef 定式组装 `<id>/<phase>/<role>/<attempt>`——页内
+   * 单一身份源 = URL id） */
+  changeId: string;
   /** 变更通知触发的转录重查键（实时面统一转录库重查——liveEvents 退役） */
   transcriptRefreshKey?: number;
   onClose: () => void;
 }
 
 /**
- * 选中对象 → 会话转录联动寻址键组
+ * 选中对象 → 会话转录联动寻址键组（身份段恒 change id，与服务端写侧
+ * `<id>/<phase>/<role>/<attempt>` 定式逐字一致）
  */
 function selectionRoleRefs(
   selection: DrawerSelection,
   node: FlowNode | null,
-  change: string,
+  changeId: string,
 ): RoleSessionRef[] {
   if (selection.scope !== 'node' || node === null) return [];
   if (node.kind === 'runtime') {
@@ -42,7 +44,7 @@ function selectionRoleRefs(
       {
         role: node.role,
         sessionId: node.sessionId,
-        sourceRef: `${change}/${node.phase}/${node.role}/${node.attempt}`,
+        sourceRef: `${changeId}/${node.phase}/${node.role}/${node.attempt}`,
       },
     ];
   }
@@ -53,12 +55,12 @@ function selectionRoleRefs(
       {
         role: 'executor',
         sessionId: node.record.executorSessionId ?? null,
-        sourceRef: `${change}/${node.phase}/executor/${attempt}`,
+        sourceRef: `${changeId}/${node.phase}/executor/${attempt}`,
       },
       {
         role: 'evaluator',
         sessionId: node.record.evaluatorSessionId ?? null,
-        sourceRef: `${change}/${node.phase}/evaluator/${attempt}`,
+        sourceRef: `${changeId}/${node.phase}/evaluator/${attempt}`,
       },
       {
         role: 'decision',
@@ -72,7 +74,7 @@ function selectionRoleRefs(
     const ref = (role: FlowRoleLabel): RoleSessionRef => ({
       role,
       sessionId: null,
-      sourceRef: `${change}/${node.phase}/${role}/${node.attempt}`,
+      sourceRef: `${changeId}/${node.phase}/${role}/${node.attempt}`,
     });
     return [ref('executor'), ref('evaluator'), ref('decision')];
   }
@@ -178,7 +180,7 @@ export function DetailDrawer({
   graph,
   materials,
   root,
-  change,
+  changeId,
   transcriptRefreshKey,
   onClose,
 }: DetailDrawerProps): React.JSX.Element | null {
@@ -189,7 +191,7 @@ export function DetailDrawer({
       : null;
   const phase = selection.scope === 'column' ? selection.phase : (node?.phase ?? '');
   const columnId = `col:${phase}`;
-  const roleRefs = selectionRoleRefs(selection, node, change);
+  const roleRefs = selectionRoleRefs(selection, node, changeId);
   return (
     <StandardDrawer
       data-testid="detail-drawer"

@@ -43,8 +43,8 @@ export type RunStepGroup = 'workerAgent' | 'toolStep' | 'gate';
 
 /**
  * role 标签（WorkerRole 线格式，与后端 sourceRef 定式第三段一致）：
- * sourceRef = `<change>/<phase>/<role>/<attempt>`（D3），会话转录联动按此
- * exact-match 反查 agentSessions（source='change'）。
+ * sourceRef = `<id>/<phase>/<role>/<attempt>`（身份段恒 change id，D3），
+ * 会话转录联动按此 exact-match 反查 agentSessions（source='change'）。
  */
 export type FlowRoleLabel = 'executor' | 'evaluator' | 'decision';
 

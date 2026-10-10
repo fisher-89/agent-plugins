@@ -32,6 +32,7 @@ function station(phase: string, attempts: AttemptRecord[]): PhaseEntry {
 /** 建档详情底座：9 站全空 attempts，逐用例按需注入事件。 */
 function detail(overrides: Partial<ChangeDetail> = {}): ChangeDetail {
   return {
+    id: 'add-feature',
     name: 'add-feature',
     source: 'active',
     status: 'active',

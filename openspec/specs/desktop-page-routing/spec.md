@@ -12,7 +12,7 @@ desktop 前端壳态页面导航 SHALL 以 react-router（v7 declarative 模式�
 
 - `/` → 重定向 `/changes`（replace 语义由 design 定夺）
 - `/changes` → 变更清单页
-- `/changes/:name` → 变更详情页（`name` 为路由参数）
+- `/changes/:id` → 变更详情页（`id` 为 change id 路由参数——身份锚，见 desktop-change-state-store「change 身份锚与 name 属性分离」）
 - `/info` → 工作区基础信息页（当前根的代码统计，desktop-workspace-code-stats）
 - `/config` → 工作区配置页（当前根的 config.json 只读解析，desktop-workspace-config）
 - `/agent` → Agent 调试页
@@ -36,8 +36,8 @@ Router 类型 SHALL 为 HashRouter：Tauri 生产构建经自定义协议以静�
 
 #### Scenario: 详情按路由参数渲染
 
-- **WHEN** URL 为 `/changes/<name>` 且该 change 存在
-- **THEN** 渲染 ChangeDetailView，`get_change_detail` 以 URL 中的 `name` 参数发起 invoke
+- **WHEN** URL 为 `/changes/<id>` 且该 id 在 db 有记录
+- **THEN** 渲染 ChangeDetailView，`get_change_detail` 以 URL 中的 `id` 参数发起 invoke（归档 change 照常全状态面，见 desktop-change-queries）
 
 #### Scenario: 探索详情按路由参数渲染
 
@@ -63,25 +63,30 @@ Router 类型 SHALL 为 HashRouter：Tauri 生产构建经自定义协议以静�
 
 壳态下 change 选中状态 SHALL 由路由参数承载，MUST NOT 保留独立的 `selectedChange` 本地 state 与路由双轨并存：
 
-- 清单行点击 SHALL 导航至 `/changes/<name>`
-- 详情页数据参数 SHALL 来自路由参数（`useParams` 或等价 API），`useChangeDetail` hook 本体契约不变
+- 清单行点击 SHALL 导航至 `/changes/<id>`（行数据携 id——归档条目同样；name 仅作展示）
+- 详情页数据参数 SHALL 来自路由参数（`useParams` 或等价 API），`useChangeDetail(root, id)` hook 本体契约不变
 - 详情返回 SHALL 显式导航至 `/changes`，MUST NOT 使用 `navigate(-1)` 类历史栈回退（落点不确定）
-- workspace 切换或移除当前根 SHALL 导航至 `/changes`（URL 无 `:name` 段），与现行「切换清空 change 选中」语义一致
+- workspace 切换或移除当前根 SHALL 导航至 `/changes`（URL 无 `:id` 段），与现行「切换清空 change 选中」语义一致
 
 #### Scenario: 清单行点击进入详情路由
 
-- **WHEN** 用户点击清单中名为 `add-feature` 的 change 行
-- **THEN** URL 变为 `/changes/add-feature`，详情视图渲染且 `get_change_detail` 恰以 `{ change: 'add-feature' }` 参数发起一次
+- **WHEN** 用户点击清单中某 change 行（active 或归档组，行携该 change 的 id）
+- **THEN** URL 变为 `/changes/<id>`，详情视图渲染且 `get_change_detail` 恰以 `{ root, id }` 参数发起一次
+
+#### Scenario: 归档行经 id 进详情全状态面
+
+- **WHEN** 用户点击归档组中某 change 行（列表 name 为该 change 裸名，磁盘目录带日期前缀）
+- **THEN** URL 为 `/changes/<该 change 的 id>`，详情呈现完整状态面（status=archived、pipeline 与 runs 在案），MUST NOT 出现「文档形态」空面
 
 #### Scenario: 返回落清单
 
 - **WHEN** 用户在详情页触发返回操作
-- **THEN** URL 变为 `/changes`，清单视图呈现，无 `:name` 段残留
+- **THEN** URL 变为 `/changes`，清单视图呈现，无 `:id` 段残留
 
 #### Scenario: workspace 切换清选中
 
-- **WHEN** 用户在 `/changes/<name>` 详情页点击 sidebar 另一 workspace 清单项
-- **THEN** URL 落在 `/changes`（无 `:name` 段），清单以新根重取，旧 change 详情不呈现
+- **WHEN** 用户在 `/changes/<id>` 详情页点击 sidebar 另一 workspace 清单项
+- **THEN** URL 落在 `/changes`（无 `:id` 段），清单以新根重取，旧 change 详情不呈现
 
 ### Requirement: Sidebar 页面导航 NavLink 化
 
@@ -172,11 +177,11 @@ Router SHALL 仅在壳态（`root` 非 null）挂载：欢迎态（`root === nul
 | 模块 | 职责 | 关键契约 |
 |------|------|----------|
 | `react-router`（新依赖，`packages/desktop/package.json`） | 路由运行时 | v7 declarative 模式（`react-router` 单包）；HashRouter；无第二路由库 |
-| `packages/desktop/src/routes.tsx` | 路由表 | `/`→`/changes` 重定向、`/changes`、`/changes/:name`、`/info`、`/config`、`/agent`、`/db`、`/agents`、`/explores`、`/explores/:name`、`*` 兜底；表声明独立组件不破函数行数约束 |
+| `packages/desktop/src/routes.tsx` | 路由表 id 化 | `/`→`/changes` 重定向、`/changes`、`/changes/:id`（原 `:name`）、`/info`、`/config`、`/agent`、`/db`、`/agents`、`/explores`、`/explores/:name`、`*` 兜底；表声明独立组件不破函数行数约束 |
 | `packages/desktop/src/app.tsx` | 路由挂载 + 壳布局 | 挂载 `routes.tsx` 路由表；欢迎态 gate 在 Router 外；壳态 DOM 契约不变 |
 | `packages/desktop/src/components/app-sidebar.tsx` | NavLink 页面导航组 | 「页面」组 [基础信息] [变更] [探索] [配置] 四项 + 「系统工具」组 [Agent 调试] [Agent 管理] [数据库]；active 由 URL 派生；`TopPage` / `onPageChange` 删除；testid `nav-changes` / `nav-agent` 保持，`nav-explores` / `nav-info` / `nav-config` 在「页面」组内可达，`nav-agents` 在「系统工具」组内可达 |
 | `packages/desktop/src/views/agents/`（新） | 管理页视图 | 路由 `/agents` 挂载；两栏 CRUD + 遮蔽展示（内容契约见 desktop-agent-management「Agent 管理页」） |
-| `packages/desktop/src/views/changes/change-list-view.tsx` | 变更清单页（自取数） | `useChangeList(root)` 挂本页，重挂即重取；行点击 `navigate('/changes/<name>')` |
-| `packages/desktop/src/views/changes/change-detail-view.tsx` | 变更详情页（自取数 + 选中接线） | `useParams` 承载选中；`useChangeDetail(root, name)` 按路由参数取数；返回显式 `navigate('/changes')`；workspace 切换（根变更且带旧选中）过渡轮抑制取数并 replace 落 `/changes` |
+| `packages/desktop/src/views/changes/change-list-view.tsx` | 变更清单页（自取数，行键 / 导航 id 化） | `useChangeList(root)` 挂本页，重挂即重取；行 `key` 与 `navigate('/changes/<id>')` 均取 `summary.id`；行展示文案取裸名 name；归档组 / 月分组结构不变 |
+| `packages/desktop/src/views/changes/change-detail-view.tsx` | 变更详情页（自取数 + 选中态 id 化） | `useParams<'id'>` 承载选中；`useChangeDetail(root, id)` 按路由参数取数；返回显式 `navigate('/changes')`；workspace 切换（根变更且带旧选中）过渡轮抑制取数并 replace 落 `/changes` |
 | `packages/desktop/src/views/changes/hooks/`（use-change-list / use-change-detail） | 取数契约 | hook 本体不变（目录随页面就近）；显式刷新模型不变 |
-| 路由级测试（新，如 `src/__tests__/route_pages.test.tsx`） | 路由表 / 选中态 / 语义保留断言 | data-testid 挂钩；MemoryRouter vs HashRouter 挂载 design 定夺有据 |
+| `packages/desktop/src/app.test.tsx` + 路由级测试 | 深链与选中断言 id 化 | 深链 `#/changes/<id>` → `get_change_detail` 携 `{ root, id }`；切页 / 切根重置语义不变；data-testid 挂钩；MemoryRouter vs HashRouter 挂载 design 定夺有据 |

@@ -2,8 +2,9 @@
 //! run_history_test.rs」节）：`persisted_step` 10→5 步词汇过滤单点（五落 / 五
 //! 弃 / 全集逐一钉死——词汇漂移即败，AC-3）、`finish_command` 组装（全词汇
 //! emit 序盖戳产生库内空洞、终态三值映射、session_id / detail 两态透传、空步
-//! 序空包）、`StoreRunHistory` 适配器真件委派（run_started 落 running 行 /
-//! run_finished 整包落库回读逐字段一致 + Err(String) 串语义透传记因保留）。
+//! 序空包、载荷 `change_id` 透传）、`StoreRunHistory` 适配器真件委派
+//! （run_started 落 running 行 / run_finished 整包落库回读逐字段一致 +
+//! Err(String) 串语义透传记因保留）。
 //!
 //! Mock策略（test-design 本节 Mock 表）：无（真实组合）——纯函数直测 +
 //! tempfile 真件库（沿 walker_test TestDb 装置）承载 StoreRunHistory 委派。
@@ -20,14 +21,20 @@ use workflow::state::{
     ChangeStateRecord, ChangeStatus, RunFinishCommand, RunStartCommand, RunStatus,
 };
 
-const CHANGE: &str = "history-change";
+/// 固定 change **id** 字面量（`RunRequest.change_id` 与全部载荷身份段的转发
+/// 源——id 归键 / 寻址入参）。
+const CHANGE_ID: &str = "b7e2d410-9c58-4a3f-8e16-2f4a6c8b0d31";
+
+/// 展示名（建档记录属性；id ≠ name 形态下与寻址键不混同）。
+const NAME: &str = "history-change";
+
 const RUN_ID: &str = "run-1727000000000";
 const STARTED_AT: i64 = 1_727_000_000_000;
 
 fn request() -> RunRequest {
     RunRequest {
         root: "/ws/root".to_owned(),
-        change: CHANGE.to_owned(),
+        change_id: CHANGE_ID.to_owned(),
         run_id: RUN_ID.to_owned(),
         auto_next_phase: true,
         started_at: STARTED_AT,
@@ -211,8 +218,8 @@ fn finish_command全词汇十步恰五落_emit序空洞() {
     assert_eq!(command.finished_at, 1_727_000_060_000, "收口时刻命令携带");
 }
 
-/// run_id / change / status / reason 自 RunRequest 与收口参数透传等值；终态
-/// 三值同名词汇映射（停等两态不可达——防御性收敛 Failed 的形态注记）。
+/// run_id / change_id / status / reason 自 RunRequest 与收口参数透传等值；
+/// 终态三值同名词汇映射（停等两态不可达——防御性收敛 Failed 的形态注记）。
 #[test]
 fn finish_command身份与终态透传等值() {
     for (status, expect) in [
@@ -228,7 +235,7 @@ fn finish_command身份与终态透传等值() {
             &[],
         );
         assert_eq!(command.run_id, RUN_ID);
-        assert_eq!(command.change, CHANGE);
+        assert_eq!(command.change_id, CHANGE_ID, "载荷 change_id 透传等值");
         assert_eq!(command.status, expect, "终态三值同名词汇映射");
         assert_eq!(command.reason.as_deref(), Some("收口记因"));
         assert_eq!(command.finished_at, STARTED_AT + 1_000);
@@ -287,7 +294,8 @@ impl TestDb {
             Store::open_workspace(&dir.path().join("ws.redb")).expect("打开 workspace 库应成功");
         store
             .create_change_record(ChangeStateRecord {
-                name: CHANGE.to_owned(),
+                id: CHANGE_ID.to_owned(),
+                name: NAME.to_owned(),
                 workflow_type: "requirement".to_owned(),
                 created_at: STARTED_AT,
                 status: ChangeStatus::Active,
@@ -315,7 +323,7 @@ fn store_run_history委派真件回环_逐字段一致() {
     history
         .run_started(&RunStartCommand {
             run_id: RUN_ID.to_owned(),
-            change: CHANGE.to_owned(),
+            change_id: CHANGE_ID.to_owned(),
             started_at: STARTED_AT,
         })
         .expect("run_started 应成功");
@@ -343,7 +351,7 @@ fn store_run_history委派真件回环_逐字段一致() {
     // 回读与命令逐字段一致（经写面校验 → store 单事务落库全链）
     let runs = db
         .store
-        .list_change_runs(CHANGE)
+        .list_change_runs(CHANGE_ID)
         .expect("list_change_runs 应成功");
     assert_eq!(runs.len(), 1);
     assert_eq!(runs[0].run_id, command.run_id);
@@ -382,7 +390,7 @@ fn store_run_history委派err串语义记因保留() {
     let err = history
         .run_started(&RunStartCommand {
             run_id: "run-no-change".to_owned(),
-            change: "ghost-change".to_owned(),
+            change_id: "ghost-change".to_owned(),
             started_at: STARTED_AT,
         })
         .expect_err("未建档 change 应 Err");
@@ -395,14 +403,14 @@ fn store_run_history委派err串语义记因保留() {
     history
         .run_started(&RunStartCommand {
             run_id: RUN_ID.to_owned(),
-            change: CHANGE.to_owned(),
+            change_id: CHANGE_ID.to_owned(),
             started_at: STARTED_AT,
         })
         .expect("首次 run_started 应成功");
     let err = history
         .run_started(&RunStartCommand {
             run_id: RUN_ID.to_owned(),
-            change: CHANGE.to_owned(),
+            change_id: CHANGE_ID.to_owned(),
             started_at: STARTED_AT,
         })
         .expect_err("同 run_id 二次发起应 Err");
@@ -415,7 +423,7 @@ fn store_run_history委派err串语义记因保留() {
     let err = history
         .run_finished(&RunFinishCommand {
             run_id: "run-ghost".to_owned(),
-            change: "ghost-change".to_owned(),
+            change_id: "ghost-change".to_owned(),
             status: RunStatus::Completed,
             reason: None,
             finished_at: STARTED_AT,

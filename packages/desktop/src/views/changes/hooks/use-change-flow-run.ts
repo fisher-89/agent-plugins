@@ -19,19 +19,20 @@ export interface UseChangeFlowRunResult {
 }
 
 /**
- * run 控制入口：`activeRunPresent`（统一查询 activeRun 在场，即非终态运行
- * 期）为真才 `changeFlowWatch` 补订实时通知（Channel<RunNotice> kind-only，
- * onmessage 分流回调——sessionEvent → 转录重查，其余 → 统一视图重查）；发起
- * 动作先行订阅（Channel 此刻构造）再 `changeFlowStart`；卸载弃投递。终态后
- * 通道自然断开（注册表除名，broadcast 发送端随条目移除失效）。
+ * run 控制入口（参数 **id 化**——四命令 + 订阅全链按 change id 寻址）：
+ * `activeRunPresent`（统一查询 activeRun 在场，即非终态运行期）为真才
+ * `changeFlowWatch` 补订实时通知（Channel<RunNotice> kind-only，onmessage
+ * 分流回调——sessionEvent → 转录重查，其余 → 统一视图重查）；发起动作先行
+ * 订阅（Channel 此刻构造）再 `changeFlowStart`；卸载弃投递。终态后通道自然
+ * 断开（注册表除名，broadcast 发送端随条目移除失效）。
  */
 export function useChangeFlowRun(params: {
   root: string | null;
-  change: string | null;
+  id: string | null;
   activeRunPresent: boolean;
   onNotice: (kind: RunNotice['ipc']) => void;
 }): UseChangeFlowRunResult {
-  const { root, change, activeRunPresent, onNotice } = params;
+  const { root, id, activeRunPresent, onNotice } = params;
   const channelRef = useRef<Channel<RunNotice> | null>(null);
   const noticeRef = useRef(onNotice);
   noticeRef.current = onNotice;
@@ -50,19 +51,19 @@ export function useChangeFlowRun(params: {
   // 订阅生命周期：activeRun 在场才补订（重挂恢复 = 统一查询先行、本订阅只
   // 管通知面）；卸载 / 参数变化弃投递。
   useEffect(() => {
-    if (root === null || change === null || !activeRunPresent) {
+    if (root === null || id === null || !activeRunPresent) {
       return;
     }
     const channel = ensureChannel();
-    void commands.changeFlowWatch(channel, root, change).catch(() => {
+    void commands.changeFlowWatch(channel, root, id).catch(() => {
       // 补订失败不阻断页面（下一通知或显式刷新兜底——R7 语义既定）
     });
     return () => {
       channelRef.current = null;
     };
-  }, [root, change, activeRunPresent, ensureChannel]);
+  }, [root, id, activeRunPresent, ensureChannel]);
 
-  const { start, stop, confirm, answer, error } = useRunActions(root, change, ensureChannel);
+  const { start, stop, confirm, answer, error } = useRunActions(root, id, ensureChannel);
   return { start, stop, confirm, answer, error };
 }
 
@@ -75,7 +76,7 @@ function readError(cause: unknown): string {
  * 阅再 invoke——提前 resolve 后通知即刻有落点）。 */
 function useRunActions(
   root: string | null,
-  change: string | null,
+  id: string | null,
   ensureChannel: () => Channel<RunNotice>,
 ): UseChangeFlowRunResult {
   const [error, setError] = useState<string | null>(null);
@@ -88,30 +89,30 @@ function useRunActions(
   }, []);
   const start = useCallback(
     (autoNextPhase: boolean) => {
-      if (root === null || change === null) return Promise.resolve();
+      if (root === null || id === null) return Promise.resolve();
       setError(null);
       const channel = ensureChannel();
-      return run(() => commands.changeFlowStart(channel, root, change, autoNextPhase));
+      return run(() => commands.changeFlowStart(channel, root, id, autoNextPhase));
     },
-    [root, change, ensureChannel, run],
+    [root, id, ensureChannel, run],
   );
   const stop = useCallback(() => {
-    if (root === null || change === null) return Promise.resolve();
-    return run(() => commands.changeFlowStop(root, change));
-  }, [root, change, run]);
+    if (root === null || id === null) return Promise.resolve();
+    return run(() => commands.changeFlowStop(root, id));
+  }, [root, id, run]);
   const confirm = useCallback(
     (proceed: boolean) => {
-      if (root === null || change === null) return Promise.resolve();
-      return run(() => commands.changeFlowConfirm(root, change, proceed));
+      if (root === null || id === null) return Promise.resolve();
+      return run(() => commands.changeFlowConfirm(root, id, proceed));
     },
-    [root, change, run],
+    [root, id, run],
   );
   const answer = useCallback(
     (text: string) => {
-      if (root === null || change === null) return Promise.resolve();
-      return run(() => commands.changeFlowAnswer(root, change, text));
+      if (root === null || id === null) return Promise.resolve();
+      return run(() => commands.changeFlowAnswer(root, id, text));
     },
-    [root, change, run],
+    [root, id, run],
   );
   return { start, stop, confirm, answer, error };
 }

@@ -43,9 +43,11 @@ use workflow::write::{phase_next, phase_table, SessionAnchors};
 // 装置：假 store（record + 相位行内存账 + set_archived 故障注入）
 // ---------------------------------------------------------------------------
 
-/// 建档记录 fixture（active 起步；worktree 形态携 worktree 路径）。
-fn active_record(name: &str, worktree: Option<String>) -> ChangeStateRecord {
+/// 建档记录 fixture（active 起步；worktree 形态携 worktree 路径；id 归键 /
+/// name 独立展示——解析单点断言面）。
+fn active_record(id: &str, name: &str, worktree: Option<String>) -> ChangeStateRecord {
     ChangeStateRecord {
+        id: id.to_owned(),
         name: name.to_owned(),
         workflow_type: "requirement".to_owned(),
         created_at: 1_790_841_600_000,
@@ -68,7 +70,7 @@ fn phase_row(
 ) -> PhaseStateRecord {
     PhaseStateRecord {
         id: 0,
-        change: change.to_owned(),
+        change_id: change.to_owned(),
         phase: phase.to_owned(),
         attempt: 1,
         verdict,
@@ -136,13 +138,13 @@ impl FakeStore {
 }
 
 impl ChangeStateStore for FakeStore {
-    fn get_change(&self, name: &str) -> Result<Option<ChangeStateRecord>, StoreFault> {
+    fn get_change(&self, id: &str) -> Result<Option<ChangeStateRecord>, StoreFault> {
         Ok(self
             .record
             .lock()
             .expect("record 锁不可中毒")
             .clone()
-            .filter(|record| record.name == name))
+            .filter(|record| record.id == id))
     }
 
     fn list_change_records(&self) -> Result<Vec<ChangeStateRecord>, StoreFault> {
@@ -161,7 +163,7 @@ impl ChangeStateStore for FakeStore {
             .lock()
             .expect("phases 锁不可中毒")
             .iter()
-            .filter(|row| row.change == change)
+            .filter(|row| row.change_id == change)
             .cloned()
             .collect())
     }
@@ -186,9 +188,9 @@ impl ChangeStateStore for FakeStore {
         Ok(())
     }
 
-    fn delete_change_record(&self, name: &str) -> Result<bool, StoreFault> {
+    fn delete_change_record(&self, id: &str) -> Result<bool, StoreFault> {
         let mut guard = self.record.lock().expect("record 锁不可中毒");
-        let existed = guard.as_ref().is_some_and(|record| record.name == name);
+        let existed = guard.as_ref().is_some_and(|record| record.id == id);
         if existed {
             *guard = None;
         }
@@ -212,7 +214,7 @@ impl ChangeStateStore for FakeStore {
             .lock()
             .expect("phases 锁不可中毒")
             .push(phase_row(
-                &command.change,
+                &command.change_id,
                 &command.phase,
                 command.verdict,
                 command.skipped,
@@ -234,7 +236,7 @@ impl ChangeStateStore for FakeStore {
         Ok(())
     }
 
-    fn set_archived(&self, name: &str, archived_at: i64) -> Result<(), StoreFault> {
+    fn set_archived(&self, id: &str, archived_at: i64) -> Result<(), StoreFault> {
         self.archived_calls.fetch_add(1, Ordering::SeqCst);
         if self.seal_faults.load(Ordering::SeqCst) > 0 {
             self.seal_faults.fetch_sub(1, Ordering::SeqCst);
@@ -242,12 +244,12 @@ impl ChangeStateStore for FakeStore {
         }
         let mut guard = self.record.lock().expect("record 锁不可中毒");
         match guard.as_mut() {
-            Some(record) if record.name == name => {
+            Some(record) if record.id == id => {
                 record.status = ChangeStatus::Archived;
                 record.archived_at = Some(archived_at);
                 Ok(())
             }
-            _ => Err(StoreFault::NotFound(format!("change 不在案: {name}"))),
+            _ => Err(StoreFault::NotFound(format!("change 不在案: {id}"))),
         }
     }
 
@@ -281,12 +283,14 @@ type VcsCallLog = Arc<Mutex<Vec<String>>>;
 type CommitAllLog = Arc<Mutex<Vec<(String, String)>>>;
 type CommitPathsLog = Arc<Mutex<Vec<(Vec<String>, String)>>>;
 type DirtyLog = Arc<Mutex<Vec<(String, Vec<String>)>>>;
+type BranchLog = Arc<Mutex<Vec<String>>>;
 
 struct VcsCapture {
     calls: VcsCallLog,
     commit_all_calls: CommitAllLog,
     commit_paths_calls: CommitPathsLog,
     dirty_calls: DirtyLog,
+    branch_args: BranchLog,
 }
 
 impl VcsCapture {
@@ -297,6 +301,15 @@ impl VcsCapture {
 
     fn calls(&self) -> Vec<String> {
         self.calls.lock().expect("调用序锁不可中毒").clone()
+    }
+
+    /// change 分支名入参捕获（`branch_merged` / `ff_merge` 的 branch 段——
+    /// `change/<name>` 磁盘 / git 面命名分辨率单点断言面）。
+    fn branch_args(&self) -> Vec<String> {
+        self.branch_args
+            .lock()
+            .expect("branch 入参锁不可中毒")
+            .clone()
     }
 
     fn commit_all_calls(&self) -> Vec<(String, String)> {
@@ -348,6 +361,7 @@ struct FakeVcs {
     commit_all_calls: CommitAllLog,
     commit_paths_calls: CommitPathsLog,
     dirty_calls: DirtyLog,
+    branch_args: BranchLog,
 }
 
 impl FakeVcs {
@@ -368,6 +382,7 @@ impl FakeVcs {
             commit_all_calls: Arc::new(Mutex::new(Vec::new())),
             commit_paths_calls: Arc::new(Mutex::new(Vec::new())),
             dirty_calls: Arc::new(Mutex::new(Vec::new())),
+            branch_args: Arc::new(Mutex::new(Vec::new())),
         }
     }
 
@@ -447,6 +462,7 @@ impl FakeVcs {
             commit_all_calls: Arc::clone(&self.commit_all_calls),
             commit_paths_calls: Arc::clone(&self.commit_paths_calls),
             dirty_calls: Arc::clone(&self.dirty_calls),
+            branch_args: Arc::clone(&self.branch_args),
         };
         (Arc::new(self), capture)
     }
@@ -498,11 +514,15 @@ impl ArchiveVcsPort for FakeVcs {
         Ok(())
     }
 
-    fn branch_merged(&self, _main_root: &Path, _branch: &str) -> Result<bool, String> {
+    fn branch_merged(&self, _main_root: &Path, branch: &str) -> Result<bool, String> {
         self.calls
             .lock()
             .expect("调用序锁不可中毒")
             .push("branch_merged".to_owned());
+        self.branch_args
+            .lock()
+            .expect("branch 入参锁不可中毒")
+            .push(branch.to_owned());
         Ok(self.merged.load(Ordering::SeqCst))
     }
 
@@ -537,7 +557,10 @@ impl ArchiveVcsPort for FakeVcs {
             .lock()
             .expect("调用序锁不可中毒")
             .push("ff_merge".to_owned());
-        let _ = branch;
+        self.branch_args
+            .lock()
+            .expect("branch 入参锁不可中毒")
+            .push(branch.to_owned());
         if let Some(source) = self
             .ff_arrives_from
             .lock()
@@ -737,7 +760,13 @@ impl WorkerAgentPort for FakeWorker {
 // 装置：链驱动环境（tempdir 主仓树 + worktree 树 + 假 store + 空注册表）
 // ---------------------------------------------------------------------------
 
-const CHANGE: &str = "archive-flow";
+/// 固定 change **id** 字面量（登记键 / 请求载荷 / preflight 寻址 / provenance
+/// 身份段——一切寻址以 id 为准）。
+const CHANGE_ID: &str = "8d4e1f20-6a39-4c75-b281-7f0e5d3c9a46";
+
+/// 展示名（记录 `name` 属性：磁盘 / git 面供给值——branch / prompt 内文 /
+/// pathspec / 归档目录名 / 摘要 name；id ≠ name 形态下分辨率单点逐点可辨）。
+const NAME: &str = "archive-flow";
 
 /// 产物三件写盘（目标 change 目录内；`present` 圈定在场子集）。
 fn seed_artifacts(change_dir: &Path, present: &[&str]) {
@@ -779,7 +808,8 @@ impl ChainEnv {
             .expect("创建主仓临时目录失败");
         let absent = root_dir.path().join("absent-worktree");
         let store = Arc::new(FakeStore::new(active_record(
-            CHANGE,
+            CHANGE_ID,
+            NAME,
             Some(absent.to_string_lossy().into_owned()),
         )));
         Self {
@@ -813,14 +843,11 @@ impl ChainEnv {
             .as_ref()
             .map(|dir| dir.path().join("openspec/changes"))
             .unwrap_or_else(|| root_dir.path().join("openspec/changes"));
-        seed_artifacts(
-            &base.join(CHANGE),
-            &["proposal.md", "design.md", "tasks.md"],
-        );
+        seed_artifacts(&base.join(NAME), &["proposal.md", "design.md", "tasks.md"]);
         // archive 树预置（真实 rename 的父目录前提——write::archive_test 同式）
         std::fs::create_dir_all(root_dir.path().join("openspec/changes/archive"))
             .expect("预置 archive 树失败");
-        let store = Arc::new(FakeStore::new(active_record(CHANGE, worktree)));
+        let store = Arc::new(FakeStore::new(active_record(CHANGE_ID, NAME, worktree)));
         Self {
             root_dir,
             worktree_dir,
@@ -843,11 +870,11 @@ impl ChainEnv {
 
     /// worktree 树内的 change 目录（假 merge 到场源）。
     fn worktree_change_dir(&self) -> PathBuf {
-        self.worktree_path().join("openspec/changes").join(CHANGE)
+        self.worktree_path().join("openspec/changes").join(NAME)
     }
 
     fn main_change_dir(&self) -> PathBuf {
-        self.root_dir.path().join("openspec/changes").join(CHANGE)
+        self.root_dir.path().join("openspec/changes").join(NAME)
     }
 
     fn archive_root(&self) -> PathBuf {
@@ -876,7 +903,7 @@ impl ChainEnv {
         for capability in capabilities {
             let dir = base
                 .join("openspec/changes")
-                .join(CHANGE)
+                .join(NAME)
                 .join("specs")
                 .join(capability);
             std::fs::create_dir_all(&dir).expect("布置 delta specs 失败");
@@ -909,14 +936,14 @@ impl ChainEnv {
         let table = phase_table("requirement").expect("requirement 相位表应在案");
         *self.store.phases.lock().expect("phases 锁不可中毒") = table
             .iter()
-            .map(|definition| phase_row(CHANGE, definition.id, Verdict::Pass, false, false))
+            .map(|definition| phase_row(CHANGE_ID, definition.id, Verdict::Pass, false, false))
             .collect();
     }
 
     fn request(&self, sync_specs: bool) -> ArchiveRequest {
         ArchiveRequest {
             root: self.root(),
-            change: CHANGE.to_owned(),
+            change_id: CHANGE_ID.to_owned(),
             sync_specs,
         }
     }
@@ -932,11 +959,11 @@ async fn run_chain(
 ) -> Vec<ArchiveUpdate> {
     let guard = env
         .control
-        .begin(&request.root, &request.change)
+        .begin(&request.root, &request.change_id)
         .expect("链登记应成功");
     let mut rx = env
         .control
-        .subscribe(&request.root, &request.change)
+        .subscribe(&request.root, &request.change_id)
         .expect("链订阅应成功");
     let store: Arc<dyn ChangeStateStore> = Arc::clone(&env.store) as Arc<dyn ChangeStateStore>;
     run_archive_flow(worker, vcs, store, Arc::clone(&env.control), guard, request).await;
@@ -983,12 +1010,13 @@ fn terminal_of(stages: &[ArchiveStageState], stage: ArchiveStage) -> ArchiveStag
 // ---------------------------------------------------------------------------
 
 /// 全链正向（worktree + delta specs）：六段终态依序全 passed（新执行序——
-/// commit、merge 前置于 specSync）；worker 恰一次（provenance / role /
-/// permission / cwd=主 workspace root——D8）；vcs 调用序恰 dirty(worktree) →
-/// commit_all → branch_merged → current_branch → rebase_branch → ff_merge →
-/// dirty(主仓 pathspec) →
-/// commit_paths；seal 落盘 + store 翻转；Finished summary 四字段
-///（specs=synced、warnings 空）。
+/// commit、merge 前置于 specSync）；worker 恰一次（provenance 身份段 = change
+/// **id** / role / permission / cwd=主 workspace root——D8）；vcs 调用序恰
+/// dirty(worktree) → commit_all → branch_merged → current_branch →
+/// rebase_branch → ff_merge → dirty(主仓 pathspec) → commit_paths；seal 落盘 +
+/// store 翻转；Finished summary 四字段（specs=synced、warnings 空）；磁盘 / git
+/// 面分辨率单点（id ≠ name 形态下**全用 record.name**）：branch `change/<name>`
+/// / prompt 内文 / pathspec 圈定 / archived_dir 组装 / `ArchiveSummary.name`。
 #[tokio::test]
 async fn 全链正向_六段全passed且调用序与落盘面齐备() {
     let env = ChainEnv::worktree("full-chain");
@@ -1044,10 +1072,11 @@ async fn 全链正向_六段全passed且调用序与落盘面齐备() {
         turn.provenance,
         SessionProvenance {
             source: "change".to_owned(),
-            source_ref: Some(format!("{CHANGE}/archive/spec-sync")),
+            source_ref: Some(format!("{CHANGE_ID}/archive/spec-sync")),
         },
-        "provenance 定式（D4）"
+        "provenance 定式（身份段恒 change id——name 不出身份段，AC-6 字面）"
     );
+    assert_ne!(CHANGE_ID, NAME, "id ≠ name 形态（分辨率单点可辨）");
     assert_eq!(turn.permission, AgentPermissionMode::BypassPermissions);
     assert_eq!(turn.role, WorkerRole::Executor);
     assert_eq!(turn.agent, None, "agent=None（默认解析）");
@@ -1055,7 +1084,15 @@ async fn 全链正向_六段全passed且调用序与落盘面齐备() {
         turn.continue_session, None,
         "新会话（SessionRef::New 形态）"
     );
-    assert_eq!(turn.prompt, spec_sync_prompt(CHANGE), "prompt 单点模板");
+    assert_eq!(
+        turn.prompt,
+        spec_sync_prompt(NAME),
+        "prompt 内文按 record.name 插值（id ≠ name 形态下 name 化）"
+    );
+    assert!(
+        !turn.prompt.contains(CHANGE_ID),
+        "prompt 内文零 id 渗出（磁盘面恒 name 化）"
+    );
     drop(requests);
 
     // vcs 调用序（编排断言锚：八调用恰序——提交段零 merged 查询，D2）
@@ -1073,10 +1110,21 @@ async fn 全链正向_六段全passed且调用序与落盘面齐备() {
         ],
         "vcs 调用序：worktree 脏探 → 提交 → 合入判定 → 目标探测 → 重放 → 快进 → 落盘脏探 → pathspec 提交"
     );
-    // 调用参：worktree 提交信息（D10 固定前缀 + change 名）
+    // 调用参：branch 恒 `change/<name>`（磁盘 / git 面 name 分辨率单点——id
+    // 不入 branch 段）
+    assert_eq!(
+        vcs_capture.branch_args(),
+        vec![format!("change/{NAME}"), format!("change/{NAME}")],
+        "合入判定与快进的 branch 段恒 change/<record.name>"
+    );
+    // 调用参：worktree 提交信息（D10 固定前缀 + record.name）
     let commit_all = vcs_capture.commit_all_calls();
     assert_eq!(commit_all.len(), 1, "worktree 提交恰一次");
-    assert_eq!(commit_all[0].1, format!("archive: {CHANGE}"));
+    assert_eq!(
+        commit_all[0].1,
+        format!("archive: {NAME}"),
+        "提交信息按 record.name 组装（id ≠ name 形态下 name 化）"
+    );
     assert_eq!(
         commit_all[0].0,
         env.worktree_path().to_string_lossy(),
@@ -1099,7 +1147,7 @@ async fn 全链正向_六段全passed且调用序与落盘面齐备() {
     let finalize_dirty = &dirty_calls[1];
     assert_eq!(
         finalize_dirty.1[0],
-        format!("{domain}/changes/{CHANGE}"),
+        format!("{domain}/changes/{NAME}"),
         "pathspec 一 = <domain>/changes/<name>（domain_dir_name 单点拼）"
     );
 
@@ -1112,8 +1160,12 @@ async fn 全链正向_六段全passed且调用序与落盘面齐备() {
     assert_eq!(archived_dirs.len(), 1, "恰一个归档目录");
     let archived_dir = archived_dirs[0].clone();
     assert!(
-        archived_dir.ends_with(&format!("-{CHANGE}")) && archived_dir.len() > CHANGE.len() + 6,
-        "归档目录名 = YYYY-MM-DD-<name> 日期前缀形态: {archived_dir}"
+        archived_dir.ends_with(&format!("-{NAME}")) && archived_dir.len() > NAME.len() + 6,
+        "归档目录名 = YYYY-MM-DD-<record.name> 日期前缀形态: {archived_dir}"
+    );
+    assert!(
+        !archived_dir.contains(CHANGE_ID),
+        "归档目录名零 id 渗出（磁盘面恒 name 化）: {archived_dir}"
     );
     assert_eq!(env.store.status(), ChangeStatus::Archived, "db 翻转落账");
     assert_eq!(env.store.archived_calls(), 1, "翻转恰一次");
@@ -1122,7 +1174,7 @@ async fn 全链正向_六段全passed且调用序与落盘面齐备() {
     assert_eq!(
         finalize_dirty.1,
         vec![
-            format!("{domain}/changes/{CHANGE}"),
+            format!("{domain}/changes/{NAME}"),
             expected_second.clone(),
             format!("{domain}/specs/spec-sync-a"),
             format!("{domain}/specs/spec-sync-b"),
@@ -1137,7 +1189,7 @@ async fn 全链正向_六段全passed且调用序与落盘面齐备() {
     assert_eq!(
         commit_paths[0].0,
         vec![
-            format!("{domain}/changes/{CHANGE}"),
+            format!("{domain}/changes/{NAME}"),
             expected_second.clone(),
             format!("{domain}/specs/spec-sync-a"),
             format!("{domain}/specs/spec-sync-b"),
@@ -1146,15 +1198,15 @@ async fn 全链正向_六段全passed且调用序与落盘面齐备() {
     );
     assert_eq!(
         commit_paths[0].1,
-        format!("archive: move {CHANGE} to archive"),
-        "落盘提交信息（D10）"
+        format!("archive: move {NAME} to archive"),
+        "落盘提交信息（D10——record.name 供给）"
     );
 
     // Finished summary 四字段（specs=synced；全绿种子 → warnings 空）
     let (summary, error) = finished_of(&updates);
     assert!(error.is_none(), "成功收口零 error");
     let summary = summary.expect("成功收口携 summary");
-    assert_eq!(summary.name, CHANGE);
+    assert_eq!(summary.name, NAME, "摘要 name 按 record.name 出线（非 id）");
     assert_eq!(summary.archived_dir, archived_dir, "摘要归档目录与落盘一致");
     assert_eq!(summary.specs, ArchiveSpecsStatus::Synced);
     assert!(summary.warnings.is_empty(), "全 pass 齐备 → warnings 空");
@@ -1606,7 +1658,7 @@ async fn 停止旗置位_链以已停止词汇收敛() {
     env.seed_all_pass();
     let (vcs, vcs_capture) = FakeVcs::new().assemble();
     let (worker, _requests) = FakeWorker::new()
-        .with_stop_handle(&env.control, &env.root(), CHANGE)
+        .with_stop_handle(&env.control, &env.root(), CHANGE_ID)
         .assemble();
 
     let updates = run_chain(&env, worker, vcs, env.request(true)).await;
@@ -1820,13 +1872,12 @@ fn preflight读面聚合全字段() {
     let read_active_false = preflight(
         env.root_dir.path(),
         env.store.as_ref(),
-        Some(&worktree),
-        CHANGE,
+        CHANGE_ID,
         vcs.as_ref(),
         false,
     )
     .expect("可归档 → Some");
-    assert_eq!(read_active_false.name, CHANGE);
+    assert_eq!(read_active_false.name, NAME);
     assert!(read_active_false.completed, "全 pass → completed=true");
     assert!(read_active_false.incomplete_phases.is_empty());
     assert!(read_active_false.missing_artifacts.is_empty(), "三件齐备");
@@ -1841,7 +1892,7 @@ fn preflight读面聚合全字段() {
     );
     assert_eq!(
         read_active_false.branch.as_deref(),
-        Some("change/archive-flow"),
+        Some(format!("change/{NAME}").as_str()),
         "branch 定式 change/<name>"
     );
     assert_eq!(
@@ -1854,13 +1905,25 @@ fn preflight读面聚合全字段() {
     let read_active_true = preflight(
         env.root_dir.path(),
         env.store.as_ref(),
-        Some(&worktree),
-        CHANGE,
+        CHANGE_ID,
         vcs.as_ref(),
         true,
     )
     .expect("可归档 → Some");
     assert!(read_active_true.run_active, "runActive 透传（true 态）");
+
+    // id 寻址（name 不入寻址键）：展示名作寻址入参 → 查无记录 → None
+    assert!(
+        preflight(
+            env.root_dir.path(),
+            env.store.as_ref(),
+            NAME,
+            vcs.as_ref(),
+            false,
+        )
+        .is_none(),
+        "name 非寻址键（id ≠ name 形态下 name 入参 miss）"
+    );
 }
 
 /// preflight None 三态：未建档 / status=archived / 未知名 → None（AC-1「不可
@@ -1875,7 +1938,6 @@ fn preflight_none三态_不可归档兜底() {
         preflight(
             env.root_dir.path(),
             env.store.as_ref(),
-            None,
             "no-such-change",
             vcs.as_ref(),
             false
@@ -1891,8 +1953,7 @@ fn preflight_none三态_不可归档兜底() {
         preflight(
             env.root_dir.path(),
             env.store.as_ref(),
-            None,
-            CHANGE,
+            CHANGE_ID,
             vcs.as_ref(),
             false
         )
@@ -1907,8 +1968,7 @@ fn preflight_none三态_不可归档兜底() {
         preflight(
             env.root_dir.path(),
             env.store.as_ref(),
-            None,
-            CHANGE,
+            CHANGE_ID,
             vcs.as_ref(),
             false
         )
@@ -1932,15 +1992,14 @@ fn 完成度核算与phase_next_done等价对拍() {
         preflight(
             env.root_dir.path(),
             env.store.as_ref(),
-            None,
-            CHANGE,
+            CHANGE_ID,
             vcs.as_ref(),
             false,
         )
         .expect("active 建档 → Some")
     };
     let phase_next_done = |env: &ChainEnv| {
-        phase_next(env.store.as_ref(), CHANGE, "run-parity", &anchors)
+        phase_next(env.store.as_ref(), CHANGE_ID, "run-parity", &anchors)
             .expect("phase_next 应 Ok")
             .done
     };
@@ -1957,7 +2016,7 @@ fn 完成度核算与phase_next_done等价对拍() {
         .iter()
         .map(|definition| {
             phase_row(
-                CHANGE,
+                CHANGE_ID,
                 definition.id,
                 Verdict::Pass,
                 false,
@@ -1981,9 +2040,9 @@ fn 完成度核算与phase_next_done等价对拍() {
         .iter()
         .map(|definition| {
             if definition.id == "implement" {
-                phase_row(CHANGE, definition.id, Verdict::Fail, false, false)
+                phase_row(CHANGE_ID, definition.id, Verdict::Fail, false, false)
             } else {
-                phase_row(CHANGE, definition.id, Verdict::Pass, false, false)
+                phase_row(CHANGE_ID, definition.id, Verdict::Pass, false, false)
             }
         })
         .collect();
@@ -1996,7 +2055,7 @@ fn 完成度核算与phase_next_done等价对拍() {
     env.seed_all_pass();
     *env.store.phases.lock().expect("phases 锁不可中毒") = table
         .iter()
-        .map(|definition| phase_row(CHANGE, definition.id, Verdict::Fail, true, false))
+        .map(|definition| phase_row(CHANGE_ID, definition.id, Verdict::Fail, true, false))
         .collect();
     assert!(
         preflight_completed(&env).completed && phase_next_done(&env),
@@ -2004,8 +2063,13 @@ fn 完成度核算与phase_next_done等价对拍() {
     );
 
     // 形态五：缺相位（仅 proposal pass）→ 双 false + incomplete 列出 dev-design
-    *env.store.phases.lock().expect("phases 锁不可中毒") =
-        vec![phase_row(CHANGE, "proposal", Verdict::Pass, false, false)];
+    *env.store.phases.lock().expect("phases 锁不可中毒") = vec![phase_row(
+        CHANGE_ID,
+        "proposal",
+        Verdict::Pass,
+        false,
+        false,
+    )];
     let read = preflight_completed(&env);
     assert!(
         !read.completed && !phase_next_done(&env),
@@ -2038,8 +2102,7 @@ async fn workflow_type不支持_完成度不可核算词汇() {
     let read = preflight(
         env.root_dir.path(),
         env.store.as_ref(),
-        None,
-        CHANGE,
+        CHANGE_ID,
         vcs.as_ref(),
         false,
     )
@@ -2075,7 +2138,7 @@ async fn 摘要警告词汇_未通过与缺产物两行() {
     let table = phase_table("requirement").expect("requirement 相位表应在案");
     *env.store.phases.lock().expect("phases 锁不可中毒") = table
         .iter()
-        .map(|definition| phase_row(CHANGE, definition.id, Verdict::Fail, false, false))
+        .map(|definition| phase_row(CHANGE_ID, definition.id, Verdict::Fail, false, false))
         .collect();
     std::fs::remove_file(env.main_change_dir().join("design.md")).expect("构造缺产物失败");
     let (vcs, _capture) = FakeVcs::new().with_dirty(vec![false]).assemble();
@@ -2120,7 +2183,7 @@ async fn 摘要警告词汇_未通过与缺产物两行() {
     );
 }
 
-/// prompt 语义锚：假 worker 捕获 `turn.prompt`——含 change 名插值、
+/// prompt 语义锚：假 worker 捕获 `turn.prompt`——含 record.name 插值、
 /// `## ADDED/MODIFIED/REMOVED/RENAMED Requirements` 增量语义四行、「保留 delta
 /// 未提及的主 spec 内容」与「合并幂等」指令逐字在场；禁止段——禁 MCP 工具
 ///（change_list 等）、禁 `__TOOL_ASK_USER__`、禁读写 workflow.json、禁 git
@@ -2139,8 +2202,9 @@ async fn prompt语义锚_增量语义与禁令逐字在场() {
     assert_eq!(requests.len(), 1);
     let prompt = &requests[0].prompt;
 
-    // change 名插值
-    assert!(prompt.contains(CHANGE), "change 名插值在场");
+    // record.name 插值（磁盘面恒 name 化——id 不入 prompt 内文）
+    assert!(prompt.contains(NAME), "record.name 插值在场");
+    assert!(!prompt.contains(CHANGE_ID), "prompt 内文零 id 渗出");
     // 增量语义四行（design 数据模型逐字）
     for section in [
         "## ADDED Requirements",
@@ -2180,52 +2244,57 @@ async fn prompt语义锚_增量语义与禁令逐字在场() {
 // ArchiveControl 控制面与信封形态
 // ---------------------------------------------------------------------------
 
-/// ArchiveControl 登记与重入：`begin` 在案同键二次 `begin` → Err（含 change
-/// 名——发起幂等防护）；`ArchiveGuard::finish` 后 is_active=false / snapshot=
-/// None（终态除名）；异键互不误拒。
+/// ArchiveControl 键 id 登记与重入：`begin(root, id)` 在案同键二次 `begin` →
+/// Err（含 change id——发起幂等防护）；`ArchiveGuard::finish` 后 is_active=false
+/// / snapshot=None（终态除名）；异键（异 root 同 id / 同 root 异 id）互不误拒。
 #[test]
-fn archive_control登记与重入防护() {
+fn archive_control键id登记与重入防护() {
     let control = Arc::new(ArchiveControl::new());
-    let guard = control.begin("root-a", CHANGE).expect("首次登记应成功");
-    assert!(control.is_active("root-a", CHANGE), "登记后在案");
+    let guard = control.begin("root-a", CHANGE_ID).expect("首次登记应成功");
+    assert!(control.is_active("root-a", CHANGE_ID), "登记后在案");
 
-    let error = match control.begin("root-a", CHANGE) {
+    let error = match control.begin("root-a", CHANGE_ID) {
         Err(error) => error,
         Ok(_) => panic!("同键重入应 Err（发起幂等防护）"),
     };
-    assert!(error.contains(CHANGE), "重入 Err 含 change 名: {error}");
+    assert!(error.contains(CHANGE_ID), "重入 Err 含 change id: {error}");
 
-    // 异键互不误拒：异 root 同名 / 同 root 异名均放行
-    let _other_root = control.begin("root-b", CHANGE).expect("异 root 同名放行");
+    // 异键互不误拒：异 root 同 id / 同 root 异 id 均放行
+    let _other_root = control
+        .begin("root-b", CHANGE_ID)
+        .expect("异 root 同 id 放行");
     let _other_change = control
-        .begin("root-a", "other-change")
-        .expect("同 root 异名放行");
+        .begin("root-a", "other-id")
+        .expect("同 root 异 id 放行");
 
     guard.finish(None, Some("终态".to_owned()));
-    assert!(!control.is_active("root-a", CHANGE), "终态除名");
+    assert!(!control.is_active("root-a", CHANGE_ID), "终态除名");
     assert!(
-        control.snapshot("root-a", CHANGE).is_none(),
+        control.snapshot("root-a", CHANGE_ID).is_none(),
         "终态后快照 None"
     );
-    let _re = control.begin("root-a", CHANGE).expect("除名后可再登记");
+    let _re = control.begin("root-a", CHANGE_ID).expect("除名后可再登记");
 }
 
 /// 控制面订阅与会话槽：publish → 订阅者收 ArchiveUpdate 信封；set_session /
 /// current_session 往返；request_stop miss（无在案）幂等 false；双复合键
-/// (root, change) 互不串台。
+/// (root, id) 互不串台（键构造点逐处置换为 id）。
 #[test]
-fn 控制面订阅与会话槽_复合键隔离() {
+fn 控制面订阅与会话槽_复合键按id隔离() {
+    const ID_A: &str = "0a1b2c3d-0001-4e5f-8a9b-0c1d2e3f4a5b";
+    const ID_B: &str = "0a1b2c3d-0002-4e5f-8a9b-0c1d2e3f4a5b";
+
     let control = Arc::new(ArchiveControl::new());
-    let guard_a = control.begin("root-a", "change-a").expect("登记 a");
-    let guard_b = control.begin("root-a", "change-b").expect("登记 b");
-    let mut rx_a = control.subscribe("root-a", "change-a").expect("订阅 a");
-    let mut rx_b = control.subscribe("root-a", "change-b").expect("订阅 b");
+    let guard_a = control.begin("root-a", ID_A).expect("登记 a");
+    let guard_b = control.begin("root-a", ID_B).expect("登记 b");
+    let mut rx_a = control.subscribe("root-a", ID_A).expect("订阅 a");
+    let mut rx_b = control.subscribe("root-a", ID_B).expect("订阅 b");
     let stage = ArchiveStageState {
         stage: ArchiveStage::Preflight,
         status: ArchiveStageStatus::Running,
         detail: None,
     };
-    control.publish("root-a", "change-a", ArchiveUpdate::Stage { stage });
+    control.publish("root-a", ID_A, ArchiveUpdate::Stage { stage });
 
     // a 收到、b 不串台
     assert!(
@@ -2238,23 +2307,19 @@ fn 控制面订阅与会话槽_复合键隔离() {
     );
 
     // 会话槽往返（同槽互不串台）
-    control.set_session("root-a", "change-a", Some("sess-a".to_owned()));
+    control.set_session("root-a", ID_A, Some("sess-a".to_owned()));
     assert_eq!(
-        control.current_session("root-a", "change-a").as_deref(),
+        control.current_session("root-a", ID_A).as_deref(),
         Some("sess-a")
     );
-    assert_eq!(
-        control.current_session("root-a", "change-b"),
-        None,
-        "b 槽位独立"
-    );
+    assert_eq!(control.current_session("root-a", ID_B), None, "b 槽位独立");
 
     // request_stop：在案 true + 取消旗可观测；miss 幂等 false
     assert!(!guard_b.cancelled(), "b 未停止");
-    assert!(control.request_stop("root-a", "change-a"), "在案停止置位");
+    assert!(control.request_stop("root-a", ID_A), "在案停止置位");
     assert!(guard_a.cancelled(), "a 取消旗可观测");
     assert!(
-        !control.request_stop("root-miss", "change-miss"),
+        !control.request_stop("root-miss", "id-miss"),
         "miss 幂等 false"
     );
 
@@ -2274,15 +2339,15 @@ async fn 快照与信封形态_阶段成对与serde线面() {
 
     let guard = env
         .control
-        .begin(&env.root(), CHANGE)
+        .begin(&env.root(), CHANGE_ID)
         .expect("链登记应成功");
     let mut rx = env
         .control
-        .subscribe(&env.root(), CHANGE)
+        .subscribe(&env.root(), CHANGE_ID)
         .expect("订阅应成功");
     // 快照累积与会话槽随行（阶段推进中——发布即落快照）
     env.control
-        .set_session(&env.root(), CHANGE, Some("sess-shape".to_owned()));
+        .set_session(&env.root(), CHANGE_ID, Some("sess-shape".to_owned()));
     let store: Arc<dyn ChangeStateStore> = Arc::clone(&env.store) as Arc<dyn ChangeStateStore>;
     run_archive_flow(
         worker,
@@ -2376,18 +2441,18 @@ async fn 快照与信封形态_阶段成对与serde线面() {
     assert_eq!(wire_finished["error"], "x");
 
     // Finished 后 snapshot None（终态除名——快照只覆盖运行期）
-    assert!(env.control.snapshot(&env.root(), CHANGE).is_none());
+    assert!(env.control.snapshot(&env.root(), CHANGE_ID).is_none());
 
     // 快照形态：登记 + 发布两段 + 会话槽 → stages 累积 + sessionId 透传
     let guard = env
         .control
-        .begin(&env.root(), CHANGE)
+        .begin(&env.root(), CHANGE_ID)
         .expect("再登记应成功");
     env.control
-        .set_session(&env.root(), CHANGE, Some("sess-shape".to_owned()));
+        .set_session(&env.root(), CHANGE_ID, Some("sess-shape".to_owned()));
     env.control.publish(
         &env.root(),
-        CHANGE,
+        CHANGE_ID,
         ArchiveUpdate::Stage {
             stage: ArchiveStageState {
                 stage: ArchiveStage::Preflight,
@@ -2398,7 +2463,7 @@ async fn 快照与信封形态_阶段成对与serde线面() {
     );
     env.control.publish(
         &env.root(),
-        CHANGE,
+        CHANGE_ID,
         ArchiveUpdate::Stage {
             stage: ArchiveStageState {
                 stage: ArchiveStage::SpecSync,
@@ -2409,7 +2474,7 @@ async fn 快照与信封形态_阶段成对与serde线面() {
     );
     let snapshot = env
         .control
-        .snapshot(&env.root(), CHANGE)
+        .snapshot(&env.root(), CHANGE_ID)
         .expect("运行期快照在场");
     assert_eq!(snapshot.stages.len(), 2, "stages 累积");
     assert_eq!(snapshot.stages[0].stage, ArchiveStage::Preflight);
@@ -2421,7 +2486,7 @@ async fn 快照与信封形态_阶段成对与serde线面() {
     // 同段后写覆盖（单槽终值）
     env.control.publish(
         &env.root(),
-        CHANGE,
+        CHANGE_ID,
         ArchiveUpdate::Stage {
             stage: ArchiveStageState {
                 stage: ArchiveStage::SpecSync,
@@ -2432,7 +2497,7 @@ async fn 快照与信封形态_阶段成对与serde线面() {
     );
     let snapshot = env
         .control
-        .snapshot(&env.root(), CHANGE)
+        .snapshot(&env.root(), CHANGE_ID)
         .expect("快照仍在案");
     assert_eq!(snapshot.stages.len(), 2, "后写覆盖不追加");
     assert_eq!(
@@ -2610,7 +2675,7 @@ fn assert_lean_stopped(fixture: &LeanFixture, reason: &str) -> String {
         "abort 告知在场: {detail}"
     );
     assert!(
-        detail.contains(&format!("请手动将分支 change/{CHANGE} 合入主仓")),
+        detail.contains(&format!("请手动将分支 change/{NAME} 合入主仓")),
         "手动裁决引导在场: {detail}"
     );
     assert!(
@@ -2792,16 +2857,20 @@ async fn merge冲突_agent解冲突续链_收口与快照序齐备() {
     let turn = &requests[0];
     assert_eq!(
         turn.prompt,
-        merge_conflict_prompt(CHANGE, &conflicts),
-        "prompt = merge_conflict_prompt 单点模板逐字"
+        merge_conflict_prompt(NAME, &conflicts),
+        "prompt = merge_conflict_prompt 单点模板逐字（内文按 record.name 插值）"
+    );
+    assert!(
+        !turn.prompt.contains(CHANGE_ID),
+        "prompt 内文零 id 渗出（磁盘面恒 name 化）"
     );
     assert_eq!(
         turn.provenance,
         SessionProvenance {
             source: "change".to_owned(),
-            source_ref: Some(format!("{CHANGE}/archive/merge-conflict")),
+            source_ref: Some(format!("{CHANGE_ID}/archive/merge-conflict")),
         },
-        "provenance 定式（归档语义段 merge-conflict）"
+        "provenance 定式（身份段恒 change id——AC-6 字面）"
     );
     assert_eq!(
         turn.root,
@@ -3256,7 +3325,7 @@ async fn finalize扩围_用户跳过同扩围且delta缺席两pathspec() {
     assert_eq!(
         commit_paths[0].0,
         vec![
-            format!("{domain}/changes/{CHANGE}"),
+            format!("{domain}/changes/{NAME}"),
             format!("{domain}/changes/archive/{archived_dir}"),
             format!("{domain}/specs/cap-skip"),
         ],
@@ -3264,7 +3333,7 @@ async fn finalize扩围_用户跳过同扩围且delta缺席两pathspec() {
     );
     assert_eq!(
         commit_paths[0].1,
-        format!("archive: move {CHANGE} to archive"),
+        format!("archive: move {NAME} to archive"),
         "落盘提交信息维持"
     );
 
@@ -3283,14 +3352,14 @@ async fn finalize扩围_用户跳过同扩围且delta缺席两pathspec() {
     assert_eq!(
         commit_paths[0].0,
         vec![
-            format!("{domain}/changes/{CHANGE}"),
+            format!("{domain}/changes/{NAME}"),
             format!("{domain}/changes/archive/{archived_dir}"),
         ],
         "delta 缺席 → 两 pathspec 既有形态"
     );
     assert_eq!(
         commit_paths[0].1,
-        format!("archive: move {CHANGE} to archive"),
+        format!("archive: move {NAME} to archive"),
         "落盘提交信息维持"
     );
 }

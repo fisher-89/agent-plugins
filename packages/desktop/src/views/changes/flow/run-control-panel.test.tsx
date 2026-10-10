@@ -5,6 +5,10 @@ import type { ActiveRunView, ChangeRunEntry, ChangeRunStatus } from '../../../ty
 import type { UseChangeFlowRunResult } from '../hooks/use-change-flow-run';
 import { RunControlPanel } from './run-control-panel';
 
+/** 固定 change id 字面量（命令面 prop——面板自身不寻址，展示面断言须与 id
+ * 相异方可辨「id / name 不静默互换」）。 */
+const CHANGE_ID = '0198f7a0-0000-7000-8000-000000000000';
+
 /** 宽松默认值构造统一视图活面（ActiveRunView 同形）。 */
 function activeRun(overrides: Partial<ActiveRunView> = {}): ActiveRunView {
   return {
@@ -44,17 +48,20 @@ function runStub(overrides: Partial<UseChangeFlowRunResult> = {}): UseChangeFlow
   };
 }
 
+/** 面板 props 装配：命令面 changeId 与展示面 name 分离注入（缺省 id 取固定
+ * 字面量、name 取可辨展示值——显名收敛纪律的断言面）。 */
 function renderPanel(
   actions: UseChangeFlowRunResult,
   face: { activeRun: ActiveRunView | null; lastRun: ChangeRunEntry | null } = {
     activeRun: null,
     lastRun: null,
   },
-  change = 'add-feature',
+  identity: { changeId?: string; name?: string } = {},
 ) {
   return render(
     <RunControlPanel
-      change={change}
+      changeId={identity.changeId ?? CHANGE_ID}
+      name={identity.name ?? 'add-feature'}
       activeRun={face.activeRun}
       lastRun={face.lastRun}
       actions={actions}
@@ -118,11 +125,17 @@ describe('RunControlPanel：主操作与生命周期对齐', () => {
     expect(screen.getByTestId('run-status').className).toContain('bg-primary');
   });
 
-  it('aria-label 携 change 名（面板寻址可辨）', () => {
-    renderPanel(runStub(), { activeRun: null, lastRun: null }, 'my-change');
-    expect(screen.getByTestId('run-control-panel').getAttribute('aria-label')).toBe(
-      'change my-change 运行控制',
+  it('props 收敛面：aria-label 取展示面 name（changeId 命令面不入展示——id / name 不静默互换）', () => {
+    renderPanel(
+      runStub(),
+      { activeRun: null, lastRun: null },
+      { changeId: CHANGE_ID, name: 'my-change' },
     );
+
+    const panel = screen.getByTestId('run-control-panel');
+    expect(panel.getAttribute('aria-label')).toBe('change my-change 运行控制');
+    // 展示面零 id 残留（显名收敛：面板文案不泄漏身份键）
+    expect(panel.textContent).not.toContain(CHANGE_ID);
   });
 });
 
@@ -181,7 +194,8 @@ describe('RunControlPanel：发起区自动确认开关（AC-4）', () => {
 
     first.rerender(
       <RunControlPanel
-        change="add-feature"
+        changeId={CHANGE_ID}
+        name="add-feature"
         activeRun={null}
         lastRun={lastRun({ status: 'failed', reason: 'CLI 漂移' })}
         actions={runStub({ start })}

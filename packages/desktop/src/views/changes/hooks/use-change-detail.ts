@@ -45,14 +45,15 @@ function fallbackEnvelope(
   };
 }
 
-/** 单产物读取：read_artifact 返回空或失败时降级为 Fallback 信封，不阻断其余产物。 */
+/** 单产物读取：read_artifact（按 change id 寻址）返回空或失败时降级为
+ * Fallback 信封，不阻断其余产物。 */
 async function readArtifactSafe(
   root: string,
-  change: string,
+  id: string,
   descriptor: ArtifactDescriptor,
 ): Promise<ArtifactEnvelope> {
   try {
-    const envelope = await commands.readArtifact(root, change, descriptor.kind, descriptor.source);
+    const envelope = await commands.readArtifact(root, id, descriptor.kind, descriptor.source);
     if (envelope) return envelope;
     return fallbackEnvelope(descriptor.kind, descriptor.source, descriptor.title, '产物读取失败');
   } catch {
@@ -99,13 +100,13 @@ type UnifiedViewPatch = {
 
 async function loadUnifiedView(
   root: string,
-  change: string,
+  id: string,
   isCancelled: () => boolean,
   apply: (next: UnifiedViewPatch) => void,
 ): Promise<void> {
   apply({ loading: true, error: null });
   try {
-    const unified = await commands.getChangeDetail(root, change);
+    const unified = await commands.getChangeDetail(root, id);
     if (isCancelled()) return;
     if (!unified || !unified.detail) {
       apply({ detail: null, activeRun: null, artifacts: [], loading: false });
@@ -113,7 +114,7 @@ async function loadUnifiedView(
     }
     apply({ detail: unified.detail, activeRun: unified.activeRun });
     const envelopes = await Promise.all(
-      unified.detail.artifacts.map((descriptor) => readArtifactSafe(root, change, descriptor)),
+      unified.detail.artifacts.map((descriptor) => readArtifactSafe(root, id, descriptor)),
     );
     if (isCancelled()) return;
     apply({ artifacts: envelopes, loading: false });
@@ -124,14 +125,15 @@ async function loadUnifiedView(
 }
 
 /**
- * 详情取数 hook（统一视图承接，unify-run-state-persistence 两钩并一）：
+ * 详情取数 hook（统一视图承接，unify-run-state-persistence 两钩并一；参数
+ * **id 化**——取数 / 产物逐读全链按 change id 寻址）：
  * `getChangeDetail` 一次返回「库读史 ∪ 在飞 run」统一视图；显式 refresh（或
  * 选定 change）即时触发，变更通知经 `notifyRefresh`（300ms 尾随去抖）触发
  * 重查、会话事件通知经 `notifyTranscript`（150ms）触发转录库重查。并在同一
  * 刷新周期内按产物清单逐个 invoke("read_artifact") 组装信封数组；单个产物
  * 读取失败以 Fallback 形态保留、不阻断其余。无轮询、无文件 watch。
  */
-export function useChangeDetail(root: string | null, change: string | null): ChangeDetailState {
+export function useChangeDetail(root: string | null, id: string | null): ChangeDetailState {
   const [detail, setDetail] = useState<ChangeDetail | null>(null);
   const [activeRun, setActiveRun] = useState<ActiveRunView | null>(null);
   const [artifacts, setArtifacts] = useState<ArtifactEnvelope[]>([]);
@@ -145,7 +147,7 @@ export function useChangeDetail(root: string | null, change: string | null): Cha
   const refresh = useCallback(() => bumpTick(), [bumpTick]);
 
   useEffect(() => {
-    if (!root || !change) {
+    if (!root || !id) {
       setDetail(null);
       setActiveRun(null);
       setArtifacts([]);
@@ -156,7 +158,7 @@ export function useChangeDetail(root: string | null, change: string | null): Cha
     let cancelled = false;
     void loadUnifiedView(
       root,
-      change,
+      id,
       () => cancelled,
       (next) => {
         if ('detail' in next) setDetail(next.detail ?? null);
@@ -169,7 +171,7 @@ export function useChangeDetail(root: string | null, change: string | null): Cha
     return () => {
       cancelled = true;
     };
-  }, [root, change, tick]);
+  }, [root, id, tick]);
 
   return {
     detail,

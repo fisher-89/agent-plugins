@@ -41,20 +41,22 @@ pub const TEST_EXECUTION_FEEDBACK_LIMIT: u32 = 5;
 /// 相位语义；布局词汇非路由权威，相位推进仍问 phase-next）。
 pub const TEST_EXECUTION_PHASES: [&str; 1] = ["test-execution"];
 
-/// 会话 provenance 来源（sourceRef = `<change>/<phase>/<role>/<attempt>`）。
+/// 会话 provenance 来源（sourceRef = `<id>/<phase>/<role>/<attempt>`——身份段
+/// 恒 change id）。
 const SOURCE_CHANGE: &str = "change";
 
 /// run 收口文案（全相位 pass；不触发归档，停等用户——与写面 done 路由的
 /// 插件同源语义）。
 const ALL_PHASES_PASSED: &str = "All phases have passed evaluation. Ready for archiving.";
 
-/// run 发起入参：workspace 根 + change 名 + 会话窗口标识（`new_run_id` 铸造，
+/// run 发起入参：workspace 根 + change id + 会话窗口标识（`new_run_id` 铸造，
 /// 每 run 一个）+ 发起时刻（命令层铸造，与 `begin_run` 同值入 RunEntry——
 /// 运行史 started_at 与统一视图 startedAt 的同源锚）。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RunRequest {
     pub root: String,
-    pub change: String,
+    /// change 身份锚（uuid 形态；一切寻址入参）
+    pub change_id: String,
     pub run_id: String,
     pub auto_next_phase: bool,
     /// 发起时刻（UTC unix 毫秒；run 运行史 started_at 落库与快照投影同源）
@@ -116,7 +118,7 @@ pub async fn walk_run(
     // 坏，后续相位写必败——fail-fast 收口（D5），零相位执行
     if let Err(error) = history.run_started(&workflow::state::RunStartCommand {
         run_id: request.run_id.clone(),
-        change: request.change.clone(),
+        change_id: request.change_id.clone(),
         started_at: request.started_at,
     }) {
         let reason = format!("run 运行史落库失败（run 起始行）: {error}");
@@ -329,7 +331,7 @@ async fn step_phase_next(
         tools,
         &request.root,
         ToolCommand::PhaseNext {
-            change: request.change.clone(),
+            change_id: request.change_id.clone(),
             run_id: request.run_id.clone(),
         },
         "phase-next",
@@ -357,7 +359,7 @@ async fn step_phase_start(
         tools,
         &request.root,
         ToolCommand::PhaseStart {
-            change: request.change.clone(),
+            change_id: request.change_id.clone(),
             phase: phase.to_owned(),
         },
         "phase-start",
@@ -416,7 +418,9 @@ async fn static_check_loop(loop_in: FeedbackLoop<'_>) -> Result<StaticCheckFlow,
         let outcome: StaticCheckOutcome = run_tool(
             tools,
             &request.root,
-            ToolCommand::StaticCheck,
+            ToolCommand::StaticCheck {
+                change_id: request.change_id.clone(),
+            },
             "static-check",
         )
         .await?;
@@ -539,7 +543,7 @@ async fn step_verdict_phase_log(
         tools,
         &request.root,
         ToolCommand::PhaseLog {
-            change: request.change.clone(),
+            change_id: request.change_id.clone(),
             phase: phase.to_owned(),
             input: PhaseLogInput {
                 phase: phase.to_owned(),
@@ -591,7 +595,7 @@ async fn step_fail_phase_log(
         tools,
         &request.root,
         ToolCommand::PhaseLog {
-            change: request.change.clone(),
+            change_id: request.change_id.clone(),
             phase: phase.to_owned(),
             input: PhaseLogInput {
                 phase: phase.to_owned(),
@@ -653,7 +657,7 @@ async fn resolve_deadlock(
             "phase-next 报 max_retries_exceeded 但缺 last_result 快照，无法组装决策输入".to_owned(),
         ));
     }
-    let detail = match snapshot.detail(&request.root, &request.change) {
+    let detail = match snapshot.detail(&request.root, &request.change_id) {
         Ok(detail) => detail,
         Err(message) => {
             return Deadlock::Terminal(Terminal::failed(format!("快照读取失败: {message}")))
@@ -712,7 +716,7 @@ async fn resolve_deadlock(
                 tools,
                 &request.root,
                 ToolCommand::Backtrack {
-                    change: request.change.clone(),
+                    change_id: request.change_id.clone(),
                     phase: fail_phase.clone(),
                     input: BacktrackInput {
                         phase: fail_phase.clone(),
@@ -788,7 +792,7 @@ async fn decision_session(
             tools,
             &request.root,
             ToolCommand::DecisionLog {
-                change: request.change.clone(),
+                change_id: request.change_id.clone(),
                 phase: input.phase.clone(),
                 session_id: outcome.session_id.clone(),
             },
@@ -883,7 +887,8 @@ fn build_decision_input(
 // ---------------------------------------------------------------------------
 
 /// WorkerAgent 会话执行（三类角色统一通道）：bypassPermissions 恒档、
-/// provenance `<change>/<phase>/<role>/<attempt>`、取消与会话失败收敛终态。
+/// provenance `<id>/<phase>/<role>/<attempt>`（身份段恒 change id）、取消与
+/// 会话失败收敛终态。
 /// 步状态随行 emit（running → passed / failed / stopped）；会话 id 槽由命令
 /// 层 sink 桥随首个会话事件先行同步（停止寻址不依赖 turn 收口）。
 #[allow(clippy::too_many_arguments)]
@@ -919,7 +924,7 @@ async fn run_worker(
             source: SOURCE_CHANGE.to_owned(),
             source_ref: Some(format!(
                 "{}/{}/{}/{}",
-                request.change,
+                request.change_id,
                 phase,
                 role.as_str(),
                 attempt
@@ -1093,7 +1098,7 @@ async fn test_execution_loop(
             tools,
             &request.root,
             ToolCommand::TestExecution {
-                change: request.change.clone(),
+                change_id: request.change_id.clone(),
             },
             "test-execution",
         )
@@ -1185,7 +1190,7 @@ async fn step_test_execution_phase_log(
         tools,
         &request.root,
         ToolCommand::PhaseLog {
-            change: request.change.clone(),
+            change_id: request.change_id.clone(),
             phase: phase.to_owned(),
             input: PhaseLogInput {
                 phase: phase.to_owned(),
@@ -1265,7 +1270,7 @@ async fn step_test_execution_upgraded_phase_log(
         tools,
         &request.root,
         ToolCommand::PhaseLog {
-            change: request.change.clone(),
+            change_id: request.change_id.clone(),
             phase: phase.to_owned(),
             input: PhaseLogInput {
                 phase: phase.to_owned(),

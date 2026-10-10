@@ -121,11 +121,22 @@ fn app_with(env: &Env) -> App<tauri::test::MockRuntime> {
     app
 }
 
-/// db 建档种子（active 起步；worktree 记录随建档面落）；返回 workspace 库实例
-/// 供相位种子与翻转断言复用。
+/// db 建档种子（active 起步；worktree 记录随建档面落），id 与 name 同值；
+/// 返回 workspace 库实例供相位种子与翻转断言复用。
 fn seed_change(
     app: &App<tauri::test::MockRuntime>,
     root: &str,
+    name: &str,
+    worktree: Option<String>,
+) -> Arc<store::Store> {
+    seed_change_full(app, root, name, name, worktree)
+}
+
+/// id 与 name 相异的建档种子（id → 记录 → name 分辨率单点的比对锚）。
+fn seed_change_full(
+    app: &App<tauri::test::MockRuntime>,
+    root: &str,
+    id: &str,
     name: &str,
     worktree: Option<String>,
 ) -> Arc<store::Store> {
@@ -135,6 +146,7 @@ fn seed_change(
         .expect("for_root 应成功");
     store
         .create_change_record(ChangeStateRecord {
+            id: id.to_owned(),
             name: name.to_owned(),
             workflow_type: "requirement".to_owned(),
             created_at: 1727000000000,
@@ -155,7 +167,7 @@ fn seed_phase(store: &store::Store, change: &str, phase: &str, verdict: Verdict)
         .expect("开相种子应成功");
     store
         .log_change_phase(&PhaseLogCommand {
-            change: change.to_owned(),
+            change_id: change.to_owned(),
             phase: phase.to_owned(),
             verdict,
             report: "种子".to_owned(),
@@ -240,9 +252,11 @@ const CHANGE: &str = "archive-cmd-change";
 
 /// preflight 命令读面：MockRuntime app + 真实建档（active + 全 pass 相位种子 +
 /// 产物树）→ Some 且字段面完整；worktree 记录 + 真实 git tempdir 主仓 →
-/// `mergeTarget` = 当前分支名（ProcessArchiveVcs 真件半边）。
+/// `mergeTarget` = 当前分支名（ProcessArchiveVcs 真件半边）。id 与 name 相异：
+/// 分支名 `change/<name>` 与 worktree 恒自记录供给（id → 记录 → name 分辨率
+/// 单点）。
 #[test]
-fn preflight命令读面_字段面完整且merge_target出真实分支名() {
+fn preflight命令读面_字段面完整且merge_target仍name化分支() {
     // git 真件调用（init_git_repo + 分支名探测）与 PATH 隔离窗口互斥（进程全
     // 局变量边界——commands 级 PATH 锁全用例持有）
     let _path_guard = PATH_LOCK.lock().expect("PATH 锁不可中毒");
@@ -266,15 +280,18 @@ fn preflight命令读面_字段面完整且merge_target出真实分支名() {
     assert_eq!(read.merge_target, None, "legacy 不探测合入目标");
     assert!(!read.run_active);
 
-    // worktree 形态（记录随建档面落）：mergeTarget = 真实 git 当前分支名
+    // worktree 形态（记录随建档面落）：mergeTarget = 真实 git 当前分支名，
+    // 分支名 / name 恒自记录供给（id 不入磁盘 / git 面）
     let worktree = env.ws_root.path().join("worktree-slot");
     fs::create_dir_all(&worktree).expect("建 worktree 槽位失败");
-    let wt_change = "wt-change";
-    env.change_dir(wt_change);
-    seed_change(
+    let wt_id = "id-wt-preflight";
+    let wt_name = "wt-change";
+    env.change_dir(wt_name);
+    seed_change_full(
         &app,
         &root,
-        wt_change,
+        wt_id,
+        wt_name,
         Some(worktree.to_string_lossy().into_owned()),
     );
     let branch = {
@@ -286,23 +303,31 @@ fn preflight命令读面_字段面完整且merge_target出真实分支名() {
             .expect("git 拉起失败");
         String::from_utf8_lossy(&output.stdout).trim().to_owned()
     };
-    let read =
-        archive_flow_preflight_with(app.handle().clone(), root.clone(), wt_change.to_owned())
-            .expect("worktree 记录在场 → Some");
+    let read = archive_flow_preflight_with(app.handle().clone(), root.clone(), wt_id.to_owned())
+        .expect("worktree 记录在场 → Some");
+    assert_eq!(
+        read.name, wt_name,
+        "name 自记录直读（id → 记录 → name 分辨率单点）"
+    );
     assert_eq!(
         read.worktree.as_deref(),
-        Some(worktree.to_string_lossy().as_ref())
+        Some(worktree.to_string_lossy().as_ref()),
+        "worktree 自记录供给"
     );
     assert_eq!(
         read.merge_target.as_deref(),
         Some(branch.as_str()),
         "mergeTarget = 主仓当前分支名（真件半边）"
     );
-    assert_eq!(read.branch.as_deref(), Some("change/wt-change"));
+    assert_eq!(
+        read.branch.as_deref(),
+        Some("change/wt-change"),
+        "merge_target 分支名恒 name 化（id 参数 → 记录 → name）"
+    );
 }
 
-/// preflight blank 与 None 口径：blank root / change → None；未建档 / 已归档 →
-/// None（D6 读语义，不进库解析链路）。
+/// preflight blank 与 None 口径：blank root / id → None；未建档 / 已归档 →
+/// None（D6 读语义，不进库解析链路——id 语言）。
 #[test]
 fn preflight_blank与none口径_不可归档兜底() {
     let env = Env::new("preflight-none");
@@ -319,12 +344,12 @@ fn preflight_blank与none口径_不可归档兜底() {
     assert_eq!(
         archive_flow_preflight_with(app.handle().clone(), root.clone(), " ".to_owned()),
         None,
-        "blank change 早退 None"
+        "blank id 早退 None"
     );
     assert_eq!(
         archive_flow_preflight_with(app.handle().clone(), root.clone(), "no-such".to_owned()),
         None,
-        "未建档 → None"
+        "未建档（未知 id）→ None"
     );
     store
         .set_archived(CHANGE, 1727000000001)
@@ -340,9 +365,9 @@ fn preflight_blank与none口径_不可归档兜底() {
 // start 拒绝面与重入防护（AC-1 命令面）
 // ---------------------------------------------------------------------------
 
-/// start 拒绝面：blank root / change 显式 Err；未建档 Err；已归档 Err；run 在案
-/// → Err 呈现运行中原因且 `ArchiveControl::is_active` 保持 false（零登记——
-/// AC-1 正向互斥）。
+/// start 拒绝面：blank root / id 显式 Err（id 语境模板保留）；未建档 Err；
+/// 已归档 Err；run 在案 → Err 呈现运行中原因且 `ArchiveControl::is_active`
+/// 保持 false（零登记——AC-1 正向互斥）；读面 run 在案 → `runActive=true`。
 #[tokio::test]
 async fn start拒绝面_blank未建档已归档与run在案各显式err() {
     let env = Env::new("start-reject");
@@ -371,8 +396,11 @@ async fn start拒绝面_blank未建档已归档与run在案各显式err() {
         true,
     )
     .await
-    .expect_err("blank change 应 Err");
-    assert!(error.contains("change"), "blank change 记因: {error}");
+    .expect_err("blank id 应 Err");
+    assert_eq!(
+        error, "非法 id: 不得为空白（无 change 无从发起）",
+        "blank id 模板保留（id 语境）"
+    );
 
     let error = archive_flow_start_with(
         app.handle().clone(),
@@ -425,6 +453,10 @@ async fn start拒绝面_blank未建档已归档与run在案各显式err() {
             .is_active(&root, occupied),
         "拒绝分支归档注册表零登记（AC-1 正向互斥）"
     );
+    // 读面 run 在案：preflight 携 runActive=true（run 互斥键 id 的读半边）
+    let read = archive_flow_preflight_with(app.handle().clone(), root.clone(), occupied.to_owned())
+        .expect("active 建档 + run 在案 → Some");
+    assert!(read.run_active, "run 在案 → runActive=true（键 id）");
     drop(guard);
 }
 
@@ -714,6 +746,15 @@ fn watch补订_无在案ok且在案后续信封到达() {
     .expect("无在案 watch 应 Ok");
     assert!(captured.lock().expect("捕获锁不可中毒").is_empty());
 
+    // blank id：Ok 零副作用（miss 幂等口径——id 语境）
+    archive_flow_watch_with(
+        app.handle().clone(),
+        capturing_channel().0,
+        root.clone(),
+        " ".to_owned(),
+    )
+    .expect("blank id watch 应 Ok 零副作用");
+
     // 预登记 + 补订先行 + publish → 信封经 Channel 到达
     let control = app.state::<Arc<ArchiveControl>>();
     let guard = control.begin(&root, CHANGE).expect("预登记应成功");
@@ -811,7 +852,7 @@ fn archive_sink转译_session_event直译且其余变体零外泄() {
 
     let sink = ArchiveSink {
         root: root.clone(),
-        change: CHANGE.to_owned(),
+        change_id: CHANGE.to_owned(),
         control: Arc::clone(&control),
     };
 

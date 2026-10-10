@@ -1,8 +1,10 @@
 //! `write::decision_log` 的单元测试（test-design「decision_log.rs ->
-//! decision_log_test.rs」节）：决策会话槽位挂账写操作（amend 语义）——经
-//! [`ChangeStateStore::amend_decision_session`] 对该相位最新条目定点改写
-//! `decision_session_id`；幂等覆写（D9）；无条目 `StoreFault::NotFound` 显式
-//! `Err`；`StoreFault` 故障传播；不做表位校验、不新增条目语义保持。
+//! decision_log_test.rs」节）：决策会话槽位挂账写操作（amend 语义，形参
+//! change **id**）——经 [`ChangeStateStore::amend_decision_session`] 对该相位
+//! 最新条目定点改写 `decision_session_id`；幂等覆写（D9）；无条目
+//! `StoreFault::NotFound` 显式 `Err`；`StoreFault` 故障传播；不做表位校验、
+//! 不新增条目语义保持。id 与 name 字面量各异：寻址断言以 id 为键、name 仅
+//! 展示属性。
 //!
 //! Mock策略（test-design 本节 Mock 表）：进程内假件实现 trait（可编程条目
 //! 序列与故障）；定点语义证据归 store_test 真件节。
@@ -17,7 +19,9 @@ use crate::state::{
     StepStateRecord, StoreFault,
 };
 
-const CHANGE: &str = "demo-change";
+/// 身份锚字面量（挂账入参——一切寻址以 id 为准；name 零寻址职能，本写面
+/// 不读记录）。
+const CHANGE_ID: &str = "0198f7a0-0000-7000-8000-0000000000e4";
 
 /// 确定性时间戳基（UTC unix millis）。
 const T0: i64 = 1_727_000_000_000;
@@ -55,12 +59,17 @@ impl AmendStore {
     }
 
     fn log(&self, phase: &str, session_id: &str) -> Result<DecisionLogOutcome, String> {
-        decision_log(self, CHANGE, phase, session_id)
+        decision_log(self, CHANGE_ID, phase, session_id)
+    }
+
+    /// 捕获的挂账调用序列（change_id / phase / session_id 逐字段断言面）。
+    fn calls(&self) -> Vec<(String, String, String)> {
+        self.calls.lock().expect("调用锁不可中毒").clone()
     }
 }
 
 impl ChangeStateStore for AmendStore {
-    fn get_change(&self, _name: &str) -> Result<Option<ChangeStateRecord>, StoreFault> {
+    fn get_change(&self, _id: &str) -> Result<Option<ChangeStateRecord>, StoreFault> {
         unimplemented!("本用例不可达")
     }
 
@@ -74,7 +83,7 @@ impl ChangeStateStore for AmendStore {
 
     fn list_steps(
         &self,
-        _change: &str,
+        _change_id: &str,
         _run_id: Option<&str>,
     ) -> Result<Vec<StepStateRecord>, StoreFault> {
         unimplemented!("本用例不可达")
@@ -84,13 +93,13 @@ impl ChangeStateStore for AmendStore {
         unimplemented!("本用例不可达")
     }
 
-    fn delete_change_record(&self, _name: &str) -> Result<bool, StoreFault> {
+    fn delete_change_record(&self, _id: &str) -> Result<bool, StoreFault> {
         unimplemented!("本用例不可达")
     }
 
     fn start_phase(
         &self,
-        _change: &str,
+        _change_id: &str,
         _phase: &str,
         _now: i64,
     ) -> Result<crate::state::PhaseStartState, StoreFault> {
@@ -107,12 +116,12 @@ impl ChangeStateStore for AmendStore {
 
     fn amend_decision_session(
         &self,
-        change: &str,
+        change_id: &str,
         phase: &str,
         session_id: &str,
     ) -> Result<(), StoreFault> {
         self.calls.lock().expect("调用锁不可中毒").push((
-            change.to_owned(),
+            change_id.to_owned(),
             phase.to_owned(),
             session_id.to_owned(),
         ));
@@ -131,7 +140,7 @@ impl ChangeStateStore for AmendStore {
         Ok(())
     }
 
-    fn set_archived(&self, _name: &str, _archived_at: i64) -> Result<(), StoreFault> {
+    fn set_archived(&self, _id: &str, _archived_at: i64) -> Result<(), StoreFault> {
         unimplemented!("本用例不可达")
     }
 
@@ -159,7 +168,7 @@ impl ChangeStateStore for AmendStore {
 fn entry(phase: &str, attempt: u32, verdict: Verdict, ts: i64) -> PhaseStateRecord {
     PhaseStateRecord {
         id: i64::from(attempt),
-        change: CHANGE.to_owned(),
+        change_id: CHANGE_ID.to_owned(),
         phase: phase.to_owned(),
         attempt,
         verdict,
@@ -203,8 +212,15 @@ fn amend定点改写_多attempt仅最新条目被改() {
         "outcome {{ phase }} 逐字段（沿 PhaseLogOutcome / BacktrackOutcome 惯例）"
     );
     assert_eq!(fake.call_count(), 1, "恰一次 amend 调用");
+    assert_eq!(
+        fake.calls()[0].0,
+        CHANGE_ID,
+        "amend_decision_session 收到本次 change id（形参 id 化，非 name）"
+    );
 
-    let entries = fake.list_phase_records(CHANGE).expect("假件读半边应可用");
+    let entries = fake
+        .list_phase_records(CHANGE_ID)
+        .expect("假件读半边应可用");
     assert_eq!(
         entries[1].decision_session_id.as_deref(),
         Some("ses-decision-1"),
@@ -231,7 +247,9 @@ fn 幂等同值二连挂账值不追加() {
     fake.log("implement", "ses-decision-9")
         .expect("同值重挂应成功");
 
-    let entries = fake.list_phase_records(CHANGE).expect("假件读半边应可用");
+    let entries = fake
+        .list_phase_records(CHANGE_ID)
+        .expect("假件读半边应可用");
     assert_eq!(entries.len(), 1, "不新增条目");
     assert_eq!(
         entries[0].decision_session_id.as_deref(),
@@ -251,7 +269,9 @@ fn 挂账不新增条目且其余字段零触碰() {
     fake.log("code-review", "ses-decision-2")
         .expect("挂账应成功");
 
-    let entries = fake.list_phase_records(CHANGE).expect("假件读半边应可用");
+    let entries = fake
+        .list_phase_records(CHANGE_ID)
+        .expect("假件读半边应可用");
     let after = &entries[0];
     assert_eq!(after.decision_session_id.as_deref(), Some("ses-decision-2"));
     assert!(after.stale, "stale 标记原样保留（只改槽位列）");
@@ -297,7 +317,9 @@ fn store故障传播err记因() {
         "Err 记因携带 fault 语境，实际: {err}"
     );
     assert_eq!(fake.call_count(), 1, "调用已捕获（不静默吞）");
-    let entries = fake.list_phase_records(CHANGE).expect("假件读半边应可用");
+    let entries = fake
+        .list_phase_records(CHANGE_ID)
+        .expect("假件读半边应可用");
     assert_eq!(
         entries[0].decision_session_id, None,
         "故障路径不新增条目不改写槽位"
@@ -314,7 +336,9 @@ fn 不做表位校验_表外相位名照常透传() {
         .expect("表外相位应照常挂账");
 
     assert_eq!(outcome.phase, "幽灵相位");
-    let entries = fake.list_phase_records(CHANGE).expect("假件读半边应可用");
+    let entries = fake
+        .list_phase_records(CHANGE_ID)
+        .expect("假件读半边应可用");
     assert_eq!(
         entries[0].decision_session_id.as_deref(),
         Some("ses-decision-4"),

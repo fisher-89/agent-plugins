@@ -94,6 +94,9 @@ specta-typescript = "=0.0.12"
 tauri-specta = { version = "=2.0.0-rc.25", features = ["typescript"] }
 store = { path = "crates/infra/store" }
 tempfile = "3"
+# change 身份锚铸造（写面 create 单点消费，uuid v7 主键自然序 ≈ 建档序；普通
+# 依赖——纯 id 生成无 infra / 进程面，不破 crate 依赖方向）
+uuid = { version = "1", features = ["v7"] }
 time = { version = "0.3", features = ["parsing", "formatting", "serde"] }
 tokei = { version = "=13.0.0", default-features = false }
 tokio = { version = "1", default-features = false, features = ["sync"] }

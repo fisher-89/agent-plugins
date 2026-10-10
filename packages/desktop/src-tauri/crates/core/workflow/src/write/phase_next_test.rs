@@ -1,8 +1,10 @@
 //! `write::phase_next` 的单元测试（test-design「phase_next.rs ->
-//! phase_next_test.rs」节）：只读路由状态机的初始 / 推进 / fail 重试 / 重试
-//! 上限 / 终态 / backtrack 目标路由 / 白名单下发 / last_result（i64 millis
-//! 直透）/ 会话锚点（基线自 PhaseRecord 行数平移——D8、run_id 隔离、重启新
-//! 实例直接推进）/ StoreFault 故障传播 / 只读性 / 显式 Err。
+//! phase_next_test.rs」节）：只读路由状态机（形参 change **id**）的初始 / 推进
+//! / fail 重试 / 重试上限 / 终态 / backtrack 目标路由 / 白名单下发 /
+//! last_result（i64 millis 直透）/ prompt 插值（`<change>` 段取 `record.name`
+//! ——id 串不误入 prompt，D7 插值改点）/ 会话锚点（复合键 `(change_id,
+//! run_id)`、基线自 PhaseRecord 行数平移——D8、同 run_id 异 id 不串台、重启
+//! 新实例直接推进）/ StoreFault 故障传播 / 只读性 / 未建档 id 显式 Err。
 //!
 //! Mock策略（test-design 本节 Mock 表）：路由语义 / 故障传播 / 锚点各 describe
 //! 全部走进程内假件实现 [`ChangeStateStore`]（design D1 fake port 先例——本假
@@ -23,7 +25,15 @@ use crate::state::{
     RunStartCommand, RunStateRecord, RunStepStateRecord, StepCommand, StepStateRecord, StoreFault,
 };
 
-const CHANGE: &str = "demo-change";
+/// 身份锚字面量（路由入参——一切寻址以 id 为准；prompt 插值取 name）。
+const CHANGE_ID: &str = "0198f7a0-0000-7000-8000-0000000000e6";
+/// change 名（prompt `<change>` 段供给值——裸名，非身份键）。
+const CHANGE_NAME: &str = "demo-change";
+/// 第二 change（锚点键 id 隔离用例：同 run_id 异 id 两键）。
+const CHANGE_ID_B: &str = "0198f7a0-0000-7000-8000-0000000000e7";
+const CHANGE_NAME_B: &str = "other-change";
+/// 库内不存在的 id（未建档拒绝面）。
+const UNKNOWN_ID: &str = "0198f7a0-0000-7000-8000-0000000000fa";
 const RUN: &str = "run-1";
 
 /// 确定性时间戳基（UTC unix millis）；`t(n)` = 基线 + n 秒。
@@ -34,9 +44,20 @@ fn t(n: u32) -> i64 {
 
 /// 内存构造一条相位评估条目（假件 / 断言共用的中性快照工厂）。
 fn entry(phase: &str, attempt: u32, verdict: Verdict, ts: i64) -> PhaseStateRecord {
+    entry_of(CHANGE_ID, phase, attempt, verdict, ts)
+}
+
+/// 指定 change id 归属的评估条目（锚点键隔离用例的第二 change 条目面）。
+fn entry_of(
+    change_id: &str,
+    phase: &str,
+    attempt: u32,
+    verdict: Verdict,
+    ts: i64,
+) -> PhaseStateRecord {
     PhaseStateRecord {
         id: 0,
-        change: CHANGE.to_owned(),
+        change_id: change_id.to_owned(),
         phase: phase.to_owned(),
         attempt,
         verdict,
@@ -62,9 +83,11 @@ fn backtrack_entry(phase: &str, attempt: u32, ts: i64, to: &str, reason: &str) -
     record
 }
 
-/// requirement 建档中性快照（active、无 active_phase 残留）。
-fn requirement_record(name: &str) -> ChangeStateRecord {
+/// requirement 建档中性快照（active、无 active_phase 残留；id 为身份锚、
+/// name 为展示 / prompt 插值供给值——两字面量互异以可辨寻址面）。
+fn requirement_record(id: &str, name: &str) -> ChangeStateRecord {
     ChangeStateRecord {
+        id: id.to_owned(),
         name: name.to_owned(),
         workflow_type: "requirement".to_owned(),
         created_at: T0,
@@ -89,7 +112,15 @@ struct RouteStore {
 
 impl RouteStore {
     fn seeded(entries: Vec<PhaseStateRecord>) -> Self {
-        Self::with_record(Some(requirement_record(CHANGE)), entries)
+        Self::with_record(Some(requirement_record(CHANGE_ID, CHANGE_NAME)), entries)
+    }
+
+    /// 第二 change 建档（锚点键 id 隔离用例：同 run_id 异 id 两份条目序列）。
+    fn seeded_b(entries: Vec<PhaseStateRecord>) -> Self {
+        Self::with_record(
+            Some(requirement_record(CHANGE_ID_B, CHANGE_NAME_B)),
+            entries,
+        )
     }
 
     fn missing() -> Self {
@@ -97,7 +128,7 @@ impl RouteStore {
     }
 
     fn with_workflow_type(workflow_type: &str) -> Self {
-        let mut record = requirement_record(CHANGE);
+        let mut record = requirement_record(CHANGE_ID, CHANGE_NAME);
         record.workflow_type = workflow_type.to_owned();
         Self::with_record(Some(record), Vec::new())
     }
@@ -125,18 +156,23 @@ impl RouteStore {
 }
 
 impl ChangeStateStore for RouteStore {
-    fn get_change(&self, _name: &str) -> Result<Option<ChangeStateRecord>, StoreFault> {
+    fn get_change(&self, id: &str) -> Result<Option<ChangeStateRecord>, StoreFault> {
         if let Some(fault) = self.fault.lock().expect("故障锁不可中毒").clone() {
             return Err(fault);
         }
-        Ok(self.record.lock().expect("记录锁不可中毒").clone())
+        Ok(self
+            .record
+            .lock()
+            .expect("记录锁不可中毒")
+            .clone()
+            .filter(|record| record.id == id))
     }
 
     fn list_change_records(&self) -> Result<Vec<ChangeStateRecord>, StoreFault> {
         unimplemented!("本用例不可达")
     }
 
-    fn list_phase_records(&self, _change: &str) -> Result<Vec<PhaseStateRecord>, StoreFault> {
+    fn list_phase_records(&self, _change_id: &str) -> Result<Vec<PhaseStateRecord>, StoreFault> {
         if let Some(fault) = self.fault.lock().expect("故障锁不可中毒").clone() {
             return Err(fault);
         }
@@ -145,7 +181,7 @@ impl ChangeStateStore for RouteStore {
 
     fn list_steps(
         &self,
-        _change: &str,
+        _change_id: &str,
         _run_id: Option<&str>,
     ) -> Result<Vec<StepStateRecord>, StoreFault> {
         unimplemented!("本用例不可达")
@@ -155,13 +191,13 @@ impl ChangeStateStore for RouteStore {
         unimplemented!("本用例不可达")
     }
 
-    fn delete_change_record(&self, _name: &str) -> Result<bool, StoreFault> {
+    fn delete_change_record(&self, _id: &str) -> Result<bool, StoreFault> {
         unimplemented!("本用例不可达")
     }
 
     fn start_phase(
         &self,
-        _change: &str,
+        _change_id: &str,
         _phase: &str,
         _now: i64,
     ) -> Result<crate::state::PhaseStartState, StoreFault> {
@@ -178,14 +214,14 @@ impl ChangeStateStore for RouteStore {
 
     fn amend_decision_session(
         &self,
-        _change: &str,
+        _change_id: &str,
         _phase: &str,
         _session_id: &str,
     ) -> Result<(), StoreFault> {
         unimplemented!("本用例不可达")
     }
 
-    fn set_archived(&self, _name: &str, _archived_at: i64) -> Result<(), StoreFault> {
+    fn set_archived(&self, _id: &str, _archived_at: i64) -> Result<(), StoreFault> {
         unimplemented!("本用例不可达")
     }
 
@@ -210,13 +246,13 @@ impl ChangeStateStore for RouteStore {
     }
 }
 
-/// 一次路由调用（假件 + 独立锚点实例）。
+/// 一次路由调用（假件 + 独立锚点实例；id 形参 = 主 change）。
 fn route(
     fake: &RouteStore,
     run_id: &str,
     anchors: &SessionAnchors,
 ) -> super::phase_next::PhaseNextOutcome {
-    phase_next(fake, CHANGE, run_id, anchors).expect("phase_next 应成功")
+    phase_next(fake, CHANGE_ID, run_id, anchors).expect("phase_next 应成功")
 }
 
 // ---------------------------------------------------------------------------
@@ -224,10 +260,12 @@ fn route(
 // backtrack 路由
 // ---------------------------------------------------------------------------
 
-/// 初始路由：建档零相位行 → 首相位 proposal、round=1、executor / evaluator
-/// prompt 已插值 `<change>` / `<phase>`、白名单为空（首相位无前置）。
+/// 初始路由：建档零相位行（id 与 name 双值可辨）→ 首相位 proposal、
+/// round=1、executor / evaluator prompt 的 `<change>` 段插值为 `record.name`
+/// （id 串不误入 prompt——D7 插值改点行为锚）、`<phase>` 段插值、白名单为空
+///（首相位无前置）。
 #[test]
-fn 初始路由落首相位且prompt已插值白名单为空() {
+fn 初始路由落首相位且prompt插值取record_name() {
     let fake = RouteStore::seeded(Vec::new());
 
     let outcome = route(&fake, RUN, &SessionAnchors::new());
@@ -244,13 +282,22 @@ fn 初始路由落首相位且prompt已插值白名单为空() {
     let executor = outcome.executor.expect("proposal 应有 executor");
     let evaluator = outcome.evaluator.expect("proposal 应有 evaluator");
     assert!(
-        executor.prompt.contains(CHANGE) && !executor.prompt.contains("<change>"),
-        "executor prompt 已完成 <change> 插值: {}",
+        executor.prompt.contains(CHANGE_NAME) && !executor.prompt.contains("<change>"),
+        "executor prompt 的 <change> 段插值为 record.name: {}",
         executor.prompt
     );
     assert!(
-        evaluator.prompt.contains(CHANGE) && !evaluator.prompt.contains("<change>"),
-        "evaluator prompt 已完成 <change> 插值"
+        !executor.prompt.contains(CHANGE_ID),
+        "id 串不误入 executor prompt（插值单点 = record.name——D7）: {}",
+        executor.prompt
+    );
+    assert!(
+        evaluator.prompt.contains(CHANGE_NAME) && !evaluator.prompt.contains("<change>"),
+        "evaluator prompt 的 <change> 段插值为 record.name"
+    );
+    assert!(
+        !evaluator.prompt.contains(CHANGE_ID),
+        "id 串不误入 evaluator prompt（D7）"
     );
     assert!(
         executor.prompt.contains("proposal"),
@@ -263,14 +310,26 @@ fn 初始路由落首相位且prompt已插值白名单为空() {
     assert!(outcome.last_result.is_none(), "零相位行无 last_result");
 }
 
-/// 无建档（db 缺 ChangeRecord）→ 显式 `Err`（不静默空产出）。
+/// 无建档 id → 显式 `Err`（不静默空产出）：库空与库内有建档但 id 未登记
+/// 两态皆拒（get_change miss 面——name 不作寻址回退）。
 #[test]
-fn 无建档显式err不静默空产出() {
+fn 未建档id显式err不静默空产出() {
     let fake = RouteStore::missing();
-
-    let err = phase_next(&fake, CHANGE, RUN, &SessionAnchors::new()).expect_err("未建档应 Err");
-
+    let err = phase_next(&fake, CHANGE_ID, RUN, &SessionAnchors::new()).expect_err("库空应 Err");
     assert!(err.contains("未建档"), "Err 显式记因建档缺失，实际: {err}");
+    assert!(err.contains(CHANGE_ID), "拒绝面携 id 语境，实际: {err}");
+
+    let fake = RouteStore::seeded(Vec::new());
+    let err =
+        phase_next(&fake, UNKNOWN_ID, RUN, &SessionAnchors::new()).expect_err("未登记 id 应 Err");
+    assert!(
+        err.contains("未建档") && err.contains(UNKNOWN_ID),
+        "Err 记因携未登记 id 语境（不回退 name 寻址），实际: {err}"
+    );
+    assert!(
+        !err.contains(CHANGE_NAME),
+        "拒绝面零 name 感知（未解析到记录），实际: {err}"
+    );
 }
 
 /// workflow_type 非 requirement → Err 显式分层出口（W8 写面侧）。
@@ -278,8 +337,8 @@ fn 无建档显式err不静默空产出() {
 fn workflow_type非requirement时err显式分层出口() {
     let fake = RouteStore::with_workflow_type("bug-fix");
 
-    let err =
-        phase_next(&fake, CHANGE, RUN, &SessionAnchors::new()).expect_err("非 requirement 应 Err");
+    let err = phase_next(&fake, CHANGE_ID, RUN, &SessionAnchors::new())
+        .expect_err("非 requirement 应 Err");
 
     assert!(
         err.contains("bug-fix") && err.contains("requirement"),
@@ -331,14 +390,15 @@ fn fail预算内重试同相位且round递增() {
     );
     assert_eq!(second.round, 2, "窗口条目数 + 1");
     assert!(second.error.is_none(), "预算内不触发上限");
+    let second_prompt = second
+        .executor
+        .as_ref()
+        .expect("executor 在场")
+        .prompt
+        .clone();
     assert!(
-        second
-            .executor
-            .as_ref()
-            .expect("executor 在场")
-            .prompt
-            .contains(CHANGE),
-        "executor prompt 同相位插值"
+        second_prompt.contains(CHANGE_NAME) && !second_prompt.contains(CHANGE_ID),
+        "executor prompt 同相位插值取 record.name（id 串零入 prompt）: {second_prompt}"
     );
     assert!(
         second
@@ -535,6 +595,52 @@ fn 锚点首见登记行数基线且窗口外历史不重复记账() {
     assert_eq!(third.round, 1, "run_id 键隔离：新键重新登记基线");
 }
 
+/// 锚点键 id 隔离（重写）：SessionAnchors 键为 `(change_id, run_id)`——同
+/// run_id 异 change id 锚点不串台（各 id 自持行数基线，round 互不影响）。
+#[test]
+fn 锚点键id隔离_同run_id异id不串台() {
+    let fake_a = RouteStore::seeded(vec![entry("proposal", 1, Verdict::Pass, t(1))]);
+    let fake_b = RouteStore::seeded_b(vec![
+        entry_of(CHANGE_ID_B, "proposal", 1, Verdict::Pass, t(1)),
+        entry_of(CHANGE_ID_B, "dev-design", 1, Verdict::Fail, t(2)),
+    ]);
+    let anchors = SessionAnchors::new();
+
+    // id A 首见：基线 1 → round 1
+    assert_eq!(route(&fake_a, RUN, &anchors).round, 1, "A 首见登记基线");
+
+    // run 期间 A 落 1 条 → 复用 A 基线 1：round = 1（窗口）+ 1 = 2
+    fake_a.push(entry("dev-design", 1, Verdict::Fail, t(2)));
+    assert_eq!(route(&fake_a, RUN, &anchors).round, 2, "A 复用自身基线");
+
+    // 同 run_id 异 id B：新键重新登记基线（B 行数 2）→ round 归位 1（不串 A 键）
+    let outcome_b = phase_next(&fake_b, CHANGE_ID_B, RUN, &anchors).expect("B 路由应成功");
+    assert_eq!(
+        outcome_b.round, 1,
+        "同 run_id 异 id 锚点不串台（B 自持基线，round 归位 1）"
+    );
+    assert_eq!(
+        outcome_b.next_phase.as_deref(),
+        Some("dev-design"),
+        "B 路由自 B 条目序列推导（proposal 已 pass）"
+    );
+
+    // B 复见复用 B 键：窗口内 0 条新增 → round 仍 1
+    assert_eq!(
+        phase_next(&fake_b, CHANGE_ID_B, RUN, &anchors)
+            .expect("B 复见路由应成功")
+            .round,
+        1,
+        "B 键复见返回既有锚点"
+    );
+    // A 键零受影响（基线 / 条目序列各归各）
+    assert_eq!(
+        route(&fake_a, RUN, &anchors).round,
+        2,
+        "A 键不受 B 调用影响"
+    );
+}
+
 /// 锚点按 run_id 隔离：同 change 不同 run_id 基线互不影响；同 (change,
 /// run_id) 复用同一基线。
 #[test]
@@ -568,8 +674,13 @@ fn 锚点基线平移_重启新锚点直接推进不重头() {
     ]);
 
     // 桌面重启后全新锚点实例 + 新 run_id
-    let outcome = phase_next(&fake, CHANGE, "run-after-restart", &SessionAnchors::new())
-        .expect("重启后续走路由应成功");
+    let outcome = phase_next(
+        &fake,
+        CHANGE_ID,
+        "run-after-restart",
+        &SessionAnchors::new(),
+    )
+    .expect("重启后续走路由应成功");
 
     assert_eq!(
         outcome.next_phase.as_deref(),
@@ -590,7 +701,7 @@ fn run_id空白显式err() {
     let fake = RouteStore::seeded(Vec::new());
 
     for run_id in ["", "   "] {
-        let err = phase_next(&fake, CHANGE, run_id, &SessionAnchors::new())
+        let err = phase_next(&fake, CHANGE_ID, run_id, &SessionAnchors::new())
             .expect_err("空白 run_id 应 Err");
         assert!(
             err.contains("missing_run_id"),
@@ -605,7 +716,7 @@ fn store故障传播err显式不静默() {
     let fake = RouteStore::seeded(Vec::new());
     fake.set_fault(StoreFault::Db("注入的读故障".to_owned()));
 
-    let err = phase_next(&fake, CHANGE, RUN, &SessionAnchors::new())
+    let err = phase_next(&fake, CHANGE_ID, RUN, &SessionAnchors::new())
         .expect_err("StoreFault 应传播为 Err");
 
     assert!(
@@ -648,7 +759,9 @@ fn 只读路由_零写面触达() {
 
     assert_eq!(fake.entry_count(), before, "只读路由：条目序列零变更");
     // 复核条目内容未被改写（stale / backtrack 位不被动）
-    let entries = fake.list_phase_records(CHANGE).expect("假件读半边应可用");
+    let entries = fake
+        .list_phase_records(CHANGE_ID)
+        .expect("假件读半边应可用");
     assert_eq!(entries.len(), 1);
     assert!(!entries[0].stale);
     assert!(entries[0].backtrack_to.is_none());

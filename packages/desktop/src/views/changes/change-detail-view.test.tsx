@@ -231,6 +231,7 @@ function attempt(overrides: Partial<AttemptRecord> = {}): AttemptRecord {
 
 function detail(overrides: Partial<ChangeDetail> = {}): ChangeDetail {
   return {
+    id: CHANGE_ID,
     name: 'add-feature',
     source: 'active',
     status: 'active',
@@ -293,13 +294,18 @@ const PROPOSAL_ENVELOPES: Record<string, ArtifactEnvelope> = {
 };
 
 // ---------------------------------------------------------------------------
-// 路由装置（自 change-view.test 迁入的测试形态）：/changes/:name 直挂详情页；
-// /changes 以导航桩占位（真实清单页语义归 change-list-view.test），提供落点
-// 断言与再入详情的点击入口。
+// 路由装置（自 change-view.test 迁入的测试形态）：/changes/:id 直挂详情页
+// （URL 段 = change id——一切寻址以 id 为准，name 恒展示面）；/changes 以导航
+// 桩占位（真实清单页语义归 change-list-view.test），提供落点断言与再入详情的
+// 点击入口。
 // ---------------------------------------------------------------------------
 
 const ROOT = 'C:\\demo\\alpha';
 const SECOND = 'C:\\demo\\beta';
+/** 详情 fixture 的 change id（uuid 形态身份锚；name 独立为展示面 'add-feature'）。 */
+const CHANGE_ID = '0199a2f0-2001-7e45-8a9b-000000002001';
+/** 再入详情（导航桩落点）的第二 change id。 */
+const SECOND_CHANGE_ID = '0199a2f0-2002-7e45-8a9b-000000002002';
 
 /** URL 探针：把 MemoryRouter 当前 pathname 投影到 DOM 供断言。 */
 function LocationProbe() {
@@ -307,12 +313,12 @@ function LocationProbe() {
   return <span data-testid="location-probe">{pathname}</span>;
 }
 
-/** /changes 路由占位桩：模拟清单页再入详情的导航入口。 */
+/** /changes 路由占位桩：模拟清单页再入详情的导航入口（按 id 导航）。 */
 function NavStub() {
   const navigate = useNavigate();
   return (
-    <button data-testid="nav-stub" onClick={() => navigate('/changes/beta-fix')}>
-      goto-beta-fix
+    <button data-testid="nav-stub" onClick={() => navigate(`/changes/${SECOND_CHANGE_ID}`)}>
+      goto-second-change
     </button>
   );
 }
@@ -322,18 +328,18 @@ function detailTree(root: string) {
     <>
       <Routes>
         <Route path="/changes" element={<NavStub />} />
-        <Route path="/changes/:name" element={<ChangeDetailView root={root} />} />
+        <Route path="/changes/:id" element={<ChangeDetailView root={root} />} />
       </Routes>
       <LocationProbe />
     </>
   );
 }
 
-/** 装置：灌入详情 fixture 后渲染详情页（默认落 /changes/add-feature）。 */
+/** 装置：灌入详情 fixture 后渲染详情页（默认落 /changes/<CHANGE_ID>）。 */
 function renderDetail(f: DetailFixture, root: string = ROOT, initialEntry?: string) {
   loadFixture(f);
   return render(
-    <MemoryRouter initialEntries={[initialEntry ?? '/changes/add-feature']}>
+    <MemoryRouter initialEntries={[initialEntry ?? `/changes/${CHANGE_ID}`]}>
       {detailTree(root)}
     </MemoryRouter>,
   );
@@ -343,7 +349,7 @@ function renderDetail(f: DetailFixture, root: string = ROOT, initialEntry?: stri
 function rerenderDetail(view: ReturnType<typeof renderDetail>, f: DetailFixture, root: string) {
   loadFixture(f);
   view.rerender(
-    <MemoryRouter initialEntries={['/changes/add-feature']}>{detailTree(root)}</MemoryRouter>,
+    <MemoryRouter initialEntries={[`/changes/${CHANGE_ID}`]}>{detailTree(root)}</MemoryRouter>,
   );
 }
 
@@ -436,21 +442,23 @@ describe('ChangeDetailView：页面组装（图区 / 产物区 / 抽屉）', () 
     expect(screen.getByTestId('drawer-eval-section').textContent).toContain('提案评估未过');
   });
 
-  it('建档判别两态：文档形态（status 缺席）→ flow-empty 占位、无「无法解析」警示；建档 → 图区照常', async () => {
-    const doc = renderDetail({
-      detail: detail({ status: null, pipeline: [] }),
-    });
-    await waitFor(() =>
-      expect(within(doc.container).getByTestId('flow-empty').textContent).toContain(
-        '文档形态：未建档',
-      ),
-    );
+  it('flow-empty 退役：任意 detail 形态（含 status 缺席 + pipeline 空）恒走图区，flow-empty 与「文档形态」文案零出现', async () => {
+    // 退役负断言（AC-4 / D10）：历史上 status 缺席走文档形态空图占位，
+    // 现详情可达者恒为建档 change——图区常驻，占位分支与文案整体退役
+    const retiredCopy = '文档形态：未建档，仅产物清单';
+    const doc = renderDetail({ detail: detail({ status: null, pipeline: [] }) });
+    await screen.findByTestId('flow-graph');
+    expect(within(doc.container).queryByTestId('flow-empty')).toBeNull();
+    expect(doc.container.textContent).not.toContain(retiredCopy);
+    expect(doc.container.textContent).not.toContain('文档形态');
+    expect(doc.container.textContent).not.toContain('未建档');
     expect(doc.container.textContent).not.toContain('无法解析');
     doc.unmount();
 
     const clean = renderDetail({ detail: detail() });
     await screen.findByTestId('flow-graph');
     expect(within(clean.container).queryByTestId('flow-empty')).toBeNull();
+    expect(clean.container.textContent).not.toContain('文档形态');
     expect(within(clean.container).queryByTestId('warn-note')).toBeNull();
   });
 
@@ -548,7 +556,7 @@ describe('ChangeDetailView：页面组装（图区 / 产物区 / 抽屉）', () 
     expect(screen.getByTestId('nav-stub') !== null).toBe(true);
   });
 
-  it('文档形态（status 缺席 + pipeline 空）→ 不挂 flow-graph，渲染 flow-empty 占位，产物区照常', async () => {
+  it('status 缺席 + pipeline 空（零列图）→ flow-graph 照常挂载、产物区照常，零 flow-empty 占位', async () => {
     const { container } = renderDetail({
       detail: detail({
         status: null,
@@ -558,12 +566,13 @@ describe('ChangeDetailView：页面组装（图区 / 产物区 / 抽屉）', () 
       artifacts: PROPOSAL_ENVELOPES,
     });
     await waitFor(() => expect(within(container).getAllByTestId('artifact-card')).toHaveLength(1));
-    expect(screen.queryByTestId('flow-graph')).toBeNull();
-    expect(within(container).getByTestId('flow-empty').textContent).toContain(
-      '文档形态：未建档，仅产物清单',
-    );
-    // 产物区不受图区缺位影响照常
+    // 图区常驻（零列图仍挂 flow-graph）——文档形态空图占位分支整体退役
+    expect(within(container).getByTestId('flow-graph') !== null).toBe(true);
+    expect(within(container).queryAllByTestId('flow-column')).toHaveLength(0);
+    expect(within(container).queryByTestId('flow-empty')).toBeNull();
+    // 产物区不受 pipeline 空影响照常渲染
     expect(within(container).getAllByTestId('artifact-card')).toHaveLength(1);
+    expect(container.textContent).toContain('提案正文');
   });
 
   it('建档 change 零 attempt（pipeline 9 空站）→ flow-graph 正常渲染 9 列', async () => {
@@ -616,43 +625,50 @@ describe('ChangeDetailView：页面组装（图区 / 产物区 / 抽屉）', () 
 });
 
 describe('ChangeDetailView：路由参数取数、深链与根切换抑制（页面自取数，invoke 边界观察）', () => {
-  it('详情路由 /changes/:name：get_change_detail 以 (root, name) 调用恰一次', async () => {
+  it('详情路由 /changes/:id：get_change_detail 以 (root, id) 调用恰一次（URL 段 id 即取数键）', async () => {
     renderDetail({ detail: detail() });
     await screen.findByTestId('flow-graph');
 
     expect(detailCalls()).toHaveLength(1);
-    expect(detailCalls()[0]).toEqual({ root: ROOT, change: 'add-feature' });
+    expect(detailCalls()[0]).toEqual({ root: ROOT, id: CHANGE_ID });
+    // 页内身份源 = URL id：name 非取数键（负断言防回归 name 寻址）
+    expect(detailCalls()[0]).not.toHaveProperty('change');
   });
 
-  it('未知 change 深链透传（/changes/ghost）：以 (root, ghost) 取数（null 应答），呈现「未找到该 change。」降级页且不崩', async () => {
+  it('未知 id 深链透传（/changes/ghost）：以 (root, ghost) 取数（null 应答），呈现「未找到该 change。」降级页且不崩', async () => {
     renderDetail({ detail: null }, ROOT, '/changes/ghost');
 
     await waitFor(() => expect(screen.getByText('未找到该 change。') !== null).toBe(true));
-    expect(detailCalls()).toEqual([{ root: ROOT, change: 'ghost' }]);
+    expect(detailCalls()).toEqual([{ root: ROOT, id: 'ghost' }]);
     // detail=null → 既有「未找到该 change。」降级兜底，返回入口在场
     expect(screen.getByRole('button', { name: '← 返回列表' }) !== null).toBe(true);
+    // 未找到降级页零图区（不静默回落空图面）
+    expect(screen.queryByTestId('flow-graph')).toBeNull();
   });
 
-  it('详情态以新 root 重渲染：过渡轮抑制取数（零「新根 + 旧名」误发），replace 导航落 /changes；再入详情恢复 (新root, 新名) 取数', async () => {
+  it('详情态以新 root 重渲染：过渡轮抑制取数（零「新根 + 旧 id」误发），replace 导航落 /changes；再入详情恢复 (新root, 新 id) 取数', async () => {
     const view = renderDetail({ detail: detail() });
     await screen.findByTestId('flow-graph');
-    expect(detailCalls()).toEqual([{ root: ROOT, change: 'add-feature' }]);
+    expect(detailCalls()).toEqual([{ root: ROOT, id: CHANGE_ID }]);
 
     rerenderDetail(view, { detail: detail() }, SECOND);
 
-    // 导航落点：/changes（URL 无 :name 段）
+    // 导航落点：/changes（URL 无 :id 段）
     await waitFor(() => expect(probePathname()).toBe('/changes'));
     expect(screen.getByTestId('nav-stub') !== null).toBe(true);
 
     // 抑制不变量（invoke 观察面）：过渡轮 useChangeDetail(SECOND, null) 无从
-    // 取数 → 零「新根 + 旧名」误发、抑制轮零 invoke（抑制位随组件卸载终结；
-    // 端到端「无新根 + 旧名误发」由 app.test 的 invoke 记录承接）
+    // 取数 → 零「新根 + 旧 id」误发、抑制轮零 invoke（抑制位随组件卸载终结；
+    // 端到端「无新根 + 旧 id 误发」由 app.test 的 invoke 记录承接）
     expect(detailCalls()).toHaveLength(1);
 
-    // 组件卸载后抑制不残留：再入详情（新根 + 新名）恢复正常取数
+    // 组件卸载后抑制不残留：再入详情（新根 + 新 id）恢复正常取数
+    loadFixture({ detail: detail({ id: SECOND_CHANGE_ID }) });
     fireEvent.click(screen.getByTestId('nav-stub'));
-    expect(probePathname()).toBe('/changes/beta-fix');
-    await waitFor(() => expect(detailCalls().at(-1)).toEqual({ root: SECOND, change: 'beta-fix' }));
+    expect(probePathname()).toBe(`/changes/${SECOND_CHANGE_ID}`);
+    await waitFor(() =>
+      expect(detailCalls().at(-1)).toEqual({ root: SECOND, id: SECOND_CHANGE_ID }),
+    );
   });
 });
 
@@ -801,13 +817,13 @@ describe('ChangeDetailView：run 控制面板与运行 overlay 组装', () => {
     // 既有组装（新增为加法）：Header + 图区 + 产物区
     expect(within(container).getAllByTestId('artifact-card')).toHaveLength(1);
 
-    // 发起入口接通 useChangeFlowRun：change_flow_start 携 root/change 与 Channel
+    // 发起入口接通 useChangeFlowRun：change_flow_start 携 root / change id 与 Channel
     fireEvent.click(screen.getByTestId('run-start'));
     await waitFor(() =>
       expect(invokeMock).toHaveBeenCalledWith('change_flow_start', {
         onEvent: expect.anything(),
         root: ROOT,
-        change: 'add-feature',
+        id: CHANGE_ID,
         autoNextPhase: false,
       }),
     );
@@ -1052,7 +1068,7 @@ describe('ChangeDetailView：run 控制面板与运行 overlay 组装', () => {
       }),
     );
     detailFixture = {
-      'ses-exec': transcriptSession('ses-exec', 'add-feature/implement/executor/1'),
+      'ses-exec': transcriptSession('ses-exec', `${CHANGE_ID}/implement/executor/1`),
     };
     transcriptFixture = { 'ses-exec': [textEvent(0, 'user', '重放正文')] };
     renderDetail({ detail: detail() });
@@ -1090,13 +1106,14 @@ describe('ChangeDetailView：run 控制面板与运行 overlay 组装', () => {
 });
 
 // ---------------------------------------------------------------------------
-// 退役面负断言与建档两态分流（desktop-workflow-db-state）：detail DTO 已删
-// inventory / unparsable / fileLog 三字段（TS 类型面随 bindings 同步删除），
-// 视图退役代际徽章、「workflow.json 无法解析」警示条与 workflow 独立面板
-// （含文件表）；建档判别改 status 在场与否的两态分流。
+// 退役面负断言与详情图区恒态（desktop-workflow-db-state / desktop-change-db-identity）：
+// detail DTO 已删 inventory / unparsable / fileLog 三字段（TS 类型面随 bindings
+// 同步删除），视图退役代际徽章、「workflow.json 无法解析」警示条与 workflow 独立
+// 面板（含文件表）；文档形态空图占位（flow-empty）随 db 单源语义整体退役——
+// 详情可达者恒为建档 change，流程图区常驻。
 // ---------------------------------------------------------------------------
 
-describe('ChangeDetailView：退役元素零渲染与建档两态分流', () => {
+describe('ChangeDetailView：退役元素零渲染与详情图区恒态', () => {
   it('detail DTO 删三字段 → 代际徽章、「workflow.json 无法解析」警示条、workflow 独立面板（含文件表）零渲染', async () => {
     const { container } = renderDetail({ detail: detail(), artifacts: PROPOSAL_ENVELOPES });
     await screen.findByTestId('flow-graph');
@@ -1114,7 +1131,7 @@ describe('ChangeDetailView：退役元素零渲染与建档两态分流', () => 
     expect(within(container).queryByTestId('filelog-table')).toBeNull();
   });
 
-  it('建档两态分流：status 在场 → 9 站流水线图 + 抽屉入口完整状态面；status 缺席 → 降级产物清单面不崩溃不空白', async () => {
+  it('详情恒走图区：status 在场 → 9 站流水线图 + 抽屉入口；status 缺席 + pipeline 空 → 同走图区（零列图）不崩溃不空白，产物区照常', async () => {
     // 建档：9 列流水线 + 列头点击开抽屉（单一交互入口可达）
     const filed = renderDetail({ detail: detail(), artifacts: PROPOSAL_ENVELOPES });
     await waitFor(() => expect(screen.getAllByTestId('flow-column')).toHaveLength(9));
@@ -1123,7 +1140,8 @@ describe('ChangeDetailView：退役元素零渲染与建档两态分流', () => 
     fireEvent.click(screen.getByRole('button', { name: '关闭' }));
     filed.unmount();
 
-    // 文档形态：空图占位 + 产物卡片照常渲染（有实质内容，非空白非崩溃）
+    // status 缺席 + pipeline 空：图区照常（零列图）+ 产物卡片照常渲染
+    //（有实质内容，非空白非崩溃；flow-empty 占位与其「文档形态」文案零出现）
     const doc = renderDetail({
       detail: detail({
         status: null,
@@ -1135,9 +1153,58 @@ describe('ChangeDetailView：退役元素零渲染与建档两态分流', () => 
     await waitFor(() =>
       expect(within(doc.container).getAllByTestId('artifact-card')).toHaveLength(1),
     );
-    expect(within(doc.container).getByTestId('flow-empty') !== null).toBe(true);
+    expect(within(doc.container).getByTestId('flow-graph') !== null).toBe(true);
+    expect(within(doc.container).queryByTestId('flow-empty')).toBeNull();
+    expect(doc.container.textContent).not.toContain('文档形态');
     expect(doc.container.textContent).toContain('提案正文');
     expect(doc.container.textContent).not.toContain('无法解析');
+  });
+
+  it('面板传参收敛：命令面 prop changeId == URL id、展示面 name == detail.name（页内单一身份源 AC-7）', async () => {
+    // URL 段 id 与 detail.name 刻意不同：命令面（取数 / 运行 / 归档 / 转录
+    // 反查）恒取 URL id；展示面（标题 / aria-label）恒取 detail.name
+    const urlId = '0199a2f0-2003-7e45-8a9b-000000002003';
+    renderDetail(
+      { detail: detail({ id: urlId, name: 'add-feature' }), artifacts: PROPOSAL_ENVELOPES },
+      ROOT,
+      `/changes/${urlId}`,
+    );
+    await screen.findByTestId('flow-graph');
+
+    // 取数面：URL id 即取数键
+    expect(detailCalls()).toEqual([{ root: ROOT, id: urlId }]);
+    // 展示面：头部标题与两面板 aria-label 取 detail.name
+    expect(screen.getByRole('heading', { name: 'add-feature' }) !== null).toBe(true);
+    expect(screen.getByLabelText('change add-feature 运行控制') !== null).toBe(true);
+
+    // 命令面（运行控制面板）：change_flow_start 携 URL id 而非 name
+    fireEvent.click(screen.getByTestId('run-start'));
+    await waitFor(() =>
+      expect(invokeMock).toHaveBeenCalledWith('change_flow_start', {
+        onEvent: expect.anything(),
+        root: ROOT,
+        id: urlId,
+        autoNextPhase: false,
+      }),
+    );
+
+    // 命令面（归档面板）：确认对话 aria-label 取 detail.name；preflight 指令带 URL id
+    fireEvent.click(screen.getByTestId('archive-trigger'));
+    await screen.findByLabelText('change add-feature 归档确认');
+    await waitFor(() =>
+      expect(invokeMock).toHaveBeenCalledWith('archive_flow_preflight', { root: ROOT, id: urlId }),
+    );
+
+    // 命令面（抽屉）：eval 节点选中 → 转录反查 sourceRef 身份段 = URL id
+    fireEvent.click(screen.getByTestId(`rf__node-eval:proposal:1`));
+    await screen.findByTestId('detail-drawer');
+    await waitFor(() =>
+      expect(invokeMock).toHaveBeenCalledWith('agent_sessions', {
+        root: ROOT,
+        source: 'change',
+        sourceRef: `${urlId}/proposal/executor/1`,
+      }),
+    );
   });
 });
 
@@ -1148,7 +1215,7 @@ describe('ChangeDetailView：退役元素零渲染与建档两态分流', () => 
 // ---------------------------------------------------------------------------
 
 describe('ChangeDetailView：归档入口（按钮两态 / panel 挂载位 / 终态 refresh）', () => {
-  it('detail status=active → archive-trigger 呈现；archived / 文档形态 → 不渲染（负断言）', async () => {
+  it('detail status=active → archive-trigger 呈现；archived / status 缺席 → 不渲染（负断言）', async () => {
     // active 建档：按钮在场
     renderDetail({ detail: detail(), artifacts: PROPOSAL_ENVELOPES });
     await screen.findByTestId('archive-trigger');
@@ -1163,7 +1230,7 @@ describe('ChangeDetailView：归档入口（按钮两态 / panel 挂载位 / 终
     expect(screen.queryByTestId('archive-trigger')).toBeNull();
     cleanup();
 
-    // 文档形态（status null）：无入口
+    // status 缺席（status null）：无入口
     renderDetail({ detail: detail({ status: null }), artifacts: PROPOSAL_ENVELOPES });
     await screen.findByTestId('detail-header');
     expect(screen.queryByTestId('archive-trigger')).toBeNull();
@@ -1210,7 +1277,7 @@ describe('ChangeDetailView：归档入口（按钮两态 / panel 挂载位 / 终
     });
     loadFixture({ detail: detail(), artifacts: PROPOSAL_ENVELOPES });
     render(
-      <MemoryRouter initialEntries={['/changes/add-feature']}>{detailTree(ROOT)}</MemoryRouter>,
+      <MemoryRouter initialEntries={[`/changes/${CHANGE_ID}`]}>{detailTree(ROOT)}</MemoryRouter>,
     );
     await screen.findByTestId('archive-trigger');
 

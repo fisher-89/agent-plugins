@@ -337,75 +337,29 @@ impl SessionEventRecord {
 
 // --- change 流程状态记录（workspace 维度，落所属 workspace 库）--------------
 
-/// change 建档记录的 version 1 历史形态（仅作 native_model 升级链的解码
-/// 目标，不注册进库模型组）：无 `worktree` / `base_commit` 列（worktree 之前
-/// 的主 root 编辑形态）。存量 v1 行经版本机制自动升级为 v2（两字段 `None` =
-/// legacy 主 root 语义，零迁移代码路径；provider `context_length` 先例同模式）。
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-#[native_model(id = 9, version = 1)]
-pub(crate) struct ChangeRecordV1 {
-    /// change 名（主键，建档即定；归档改名只动磁盘目录，主键不变）
-    pub name: String,
-    /// 工作流类型（V1 恒 `requirement`，相位表键）
-    pub workflow_type: String,
-    /// 建档时间（UTC unix 毫秒）
-    pub created_at: i64,
-    /// change 状态（active | archived）
-    pub status: ChangeStatus,
-    /// 归档时间（UTC unix 毫秒；active 恒 None）
-    pub archived_at: Option<i64>,
-    /// 运行中 phase（开相在位、落账清位）
-    pub active_phase: Option<ChangeActivePhase>,
-}
-
-/// 升级半边：缺列读兼容（旧记录无 worktree / 基线列，`None` = legacy 主
-/// root change 语义）。
-impl From<ChangeRecordV1> for ChangeRecord {
-    fn from(previous: ChangeRecordV1) -> Self {
-        Self {
-            name: previous.name,
-            workflow_type: previous.workflow_type,
-            created_at: previous.created_at,
-            status: previous.status,
-            archived_at: previous.archived_at,
-            active_phase: previous.active_phase,
-            // 缺列读兼容：worktree 之前的存量记录读出 None = 主 root 执行
-            worktree: None,
-            base_commit: None,
-        }
-    }
-}
-
-/// 降级半边（native_model `from` 属性要求双向 `From`；运行时无降级读取路径，
-/// 两新列丢弃占位——只保升级语义真实性，降级形态不作数据承诺）。
-impl From<ChangeRecord> for ChangeRecordV1 {
-    fn from(record: ChangeRecord) -> Self {
-        Self {
-            name: record.name,
-            workflow_type: record.workflow_type,
-            created_at: record.created_at,
-            status: record.status,
-            archived_at: record.archived_at,
-            active_phase: record.active_phase,
-        }
-    }
-}
-
 /// change 建档记录（desktop-change-state-store 四模型之一）：change 流程状态
-/// 的身份主行——`name` 即 change 名（身份主键，不随归档目录改名变），状态 /
-/// 时间戳与运行中 phase 随行。markdown 产物（proposal / design / tasks /
-/// specs / reports / explore）留磁盘 change 目录，双载体边界与 `ExploreRecord`
-/// 先例同构（记录在 db、产物在磁盘）。
+/// 的身份主行——`id` 即 change 身份锚（建档铸出的稳定唯一标识，UUID 形态，
+/// 终身恒定不复用），`name` 降为普通属性（恒裸名、可变、无唯一约束、MUST NOT
+/// 作身份键），状态 / 时间戳与运行中 phase 随行。markdown 产物（proposal /
+/// design / tasks / specs / reports / explore）留磁盘 change 目录，双载体边界
+/// 与 `ExploreRecord` 先例同构（记录在 db、产物在磁盘）。
+///
+/// 身份换锚经 native_model 版本段演进（9:v2 → 9:v3：主键 `name` → `id`，物理
+/// 表 `9_2_name` → `9_3_id`）：旧形态行对新读面结构性不可见，零 `from` 解码 /
+/// 迁移链——`ChangeRecordV1` 及其双向 `From` 随身份换锚整体退役；旧形态库由
+/// [`WORKSPACE_STORE_FORMAT_VERSION`] 机制整体作废重建。
 ///
 /// 时间戳为 UTC unix 毫秒 `i64`，与 `WorkspaceRecord` 同口径。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
-#[native_model(id = 9, version = 2, from = ChangeRecordV1)]
+#[native_model(id = 9, version = 3)]
 #[native_db]
 pub struct ChangeRecord {
-    /// change 名（主键，建档即定；归档改名只动磁盘目录，主键不变）
+    /// 建档铸出的稳定唯一身份锚（主键，UUID 形态；一切寻址键——库查询 /
+    /// 命令面 / 注册表 / provenance；终身恒定，MUST NOT 复用）
     #[primary_key]
+    pub id: String,
+    /// change 名（恒裸名；可变属性，无唯一约束，MUST NOT 作身份键）
     pub name: String,
     /// 工作流类型（V1 恒 `requirement`，相位表键）
     pub workflow_type: String,
@@ -421,8 +375,8 @@ pub struct ChangeRecord {
     #[serde(default)]
     pub active_phase: Option<ChangeActivePhase>,
     /// 该 change 分配的 worktree 绝对路径（执行锚）；`None` = legacy 主 root
-    /// change（存量记录升级读出，照旧主 root 执行）。执行锚引用，MUST NOT
-    /// 反向参与库身份派生（`for_root` 恒以 workspace root 为锚）。
+    /// change。执行锚引用，MUST NOT 反向参与库身份派生（`for_root` 恒以
+    /// workspace root 为锚）。
     #[serde(default)]
     pub worktree: Option<String>,
     /// 创建基线 fork 点（主仓 HEAD，git worktree 建域时铸出）；调试 / UI 价值。
@@ -431,9 +385,11 @@ pub struct ChangeRecord {
 }
 
 impl ChangeRecord {
-    /// 由建档档案构造新记录（`status` 恒 active 起步、无 active_phase；
-    /// `worktree` / `base_commit` 建域组合随建档入列，legacy 形态传 `None`）。
+    /// 由建档档案构造新记录（`status` 恒 active 起步、无 active_phase；id 为
+    /// 写面铸出的身份锚随记录入列；`worktree` / `base_commit` 建域组合随建档
+    /// 入列，legacy 形态传 `None`）。
     pub fn new(
+        id: &str,
         name: &str,
         workflow_type: &str,
         created_at: i64,
@@ -441,6 +397,7 @@ impl ChangeRecord {
         base_commit: Option<String>,
     ) -> Self {
         Self {
+            id: id.to_owned(),
             name: name.to_owned(),
             workflow_type: workflow_type.to_owned(),
             created_at,
@@ -452,6 +409,35 @@ impl ChangeRecord {
         }
     }
 }
+
+/// workspace 库格式版本标记记录（库级单键；`pub(crate)`——内部治理记录，
+/// 不入信封注册表）：change 身份锚形态版本载体（D3 / D5）。`format_version`
+/// 语义编号：1 = name 主键形态时代（实机从未写标记，探测以「缺失」判定），
+/// 2 = change 身份锚 id 形态（本变更）；未来 bump 递增，探测规则
+/// 「缺失或低于当前 → 作废」不变。
+///
+/// 旧形态数据只有两种去向——不可达（全局库旧文件的惰性废弃）或整体丢弃
+/// （workspace 库的探测作废重建）；MUST NOT 存在第三条 decode / migrate 路径。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[native_model(id = 15, version = 1)]
+#[native_db]
+pub(crate) struct StoreMetaRecord {
+    /// 固定单键（恒 `"format"`）
+    #[primary_key]
+    pub key: String,
+    /// 库级格式版本（当前写 [`WORKSPACE_STORE_FORMAT_VERSION`]）
+    pub format_version: u32,
+}
+
+/// workspace 库格式版本常量（[`StoreMetaRecord`] 固定单键 `"format"` 的写入
+/// 值）：1 = name 主键形态时代（实机从未写标记，探测以「缺失」判定）；2 =
+/// change 身份锚 id 形态（本变更）。库打开探测规则：标记缺失 / 低于当前 →
+/// 旧库整体作废重建（见 `Store::open_workspace`）。
+pub(crate) const WORKSPACE_STORE_FORMAT_VERSION: u32 = 2;
+
+/// workspace 库格式版本标记的固定单键。
+pub(crate) const WORKSPACE_STORE_FORMAT_KEY: &str = "format";
 
 /// 运行中 phase 快照（`ChangeRecord` 嵌套结构）。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
@@ -469,15 +455,16 @@ pub struct ChangeActivePhase {
 /// 储不拆原子性）；evidence 长文本走独立版本链。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
-#[native_model(id = 10, version = 1)]
+#[native_model(id = 10, version = 2)]
 #[native_db]
 pub struct PhaseRecord {
     /// 条目 id（主键，写事务内 max+1 分配）
     #[primary_key]
     pub id: i64,
-    /// 所属 change 名（非唯一二级索引；名称引用非外键约束）
+    /// 所属 change id（非唯一二级索引，指向 `ChangeRecord.id`；归属键换锚
+    /// 经版本段演进：10:v1 → 10:v2，物理表 `10_1_change` → `10_2_change_id`）
     #[secondary_key]
-    pub change: String,
+    pub change_id: String,
     pub phase: String,
     pub attempt: u32,
     /// 评估 verdict（pass | fail，core 域枚举直用）
@@ -560,15 +547,16 @@ pub(crate) fn pack_checklist_item_key(phase_id: i64, item_index: u32) -> u128 {
 /// eval 历史重算）。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
-#[native_model(id = 12, version = 1)]
+#[native_model(id = 12, version = 2)]
 #[native_db]
 pub struct StepRecord {
     /// 行 id（主键，写事务内 max+1 分配）
     #[primary_key]
     pub id: i64,
-    /// 所属 change 名（非唯一二级索引）
+    /// 所属 change id（非唯一二级索引，指向 `ChangeRecord.id`；归属键换锚经
+    /// 版本段演进：12:v1 → 12:v2，物理表 `12_1_change` → `12_2_change_id`）
     #[secondary_key]
-    pub change: String,
+    pub change_id: String,
     /// 所属 run（`run-<millis>` 铸造标识，同 run 步骤串链键）
     pub run_id: String,
     /// 步骤种类（封闭集七值，core 域枚举直用）
@@ -589,7 +577,7 @@ impl StepRecord {
     pub fn new(command: &StepCommand) -> Self {
         Self {
             id: 0,
-            change: command.change.clone(),
+            change_id: command.change_id.clone(),
             run_id: command.run_id.clone(),
             step_kind: command.step_kind,
             status: command.status.clone(),
@@ -615,15 +603,16 @@ impl StepRecord {
 /// 同口径。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
-#[native_model(id = 13, version = 1)]
+#[native_model(id = 13, version = 2)]
 #[native_db]
 pub struct RunRecord {
     /// run id（主键，walker `run-<millis>` 铸造标识）
     #[primary_key]
     pub run_id: String,
-    /// 所属 change 名（非唯一二级索引；名称引用非外键约束）
+    /// 所属 change id（非唯一二级索引，指向 `ChangeRecord.id`；归属键换锚经
+    /// 版本段演进：13:v1 → 13:v2，物理表 `13_1_change` → `13_2_change_id`）
     #[secondary_key]
-    pub change: String,
+    pub change_id: String,
     /// run 状态（running | completed | stopped | failed | interrupted）
     pub status: RunStatus,
     /// 终态记因 / 标定记因（running 恒 None）
@@ -641,7 +630,7 @@ impl RunRecord {
     pub fn new(command: &RunStartCommand) -> Self {
         Self {
             run_id: command.run_id.clone(),
-            change: command.change.clone(),
+            change_id: command.change_id.clone(),
             status: RunStatus::Running,
             reason: None,
             started_at: command.started_at,

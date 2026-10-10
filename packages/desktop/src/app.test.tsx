@@ -41,14 +41,25 @@ const SECOND: WorkspaceRecord = {
   addedAt: 1,
 };
 
+/** change 身份锚（uuid 形态）——URL 段 / 取数键恒该值，'add-feature' 恒展示面。 */
+const CHANGE_ID = '0199a2f0-3001-7e45-8a9b-000000003001';
+
 const fakeList: ChangeList = {
   active: [
-    { name: 'add-feature', source: 'active', status: 'active', activePhase: null, created: null },
+    {
+      id: CHANGE_ID,
+      name: 'add-feature',
+      source: 'active',
+      status: 'active',
+      activePhase: null,
+      created: null,
+    },
   ],
   archiveGroups: [],
 };
 
 const fakeDetail: ChangeDetail = {
+  id: CHANGE_ID,
   name: 'add-feature',
   source: 'active',
   status: 'active',
@@ -148,8 +159,6 @@ function configReportFor(root: string): WorkspaceConfigReport {
 let remaining: WorkspaceRecord[];
 let addBehavior: 'ok' | 'reject' = 'ok';
 let addRecord: WorkspaceRecord | null = null;
-let removeReject: string | null = null;
-let removeMiss = false;
 let listReject: string | null = null;
 let configReject: string | null = null;
 let configPending = false;
@@ -158,23 +167,18 @@ function mockIpc() {
   remaining = [FIRST, SECOND];
   addBehavior = 'ok';
   addRecord = null;
-  removeReject = null;
-  removeMiss = false;
   listReject = null;
   configReject = null;
   configPending = false;
   invokeMock.mockImplementation(
-    (
-      command: string,
-      params?: { root?: string; change?: string; offset?: number; limit?: number },
-    ) => {
+    (command: string, params?: { root?: string; id?: string; offset?: number; limit?: number }) => {
       if (command === 'list_workspaces') {
         if (listReject !== null) return Promise.reject(new Error(listReject));
         return Promise.resolve([...remaining]);
       }
+      // 移除面（选择器 UI 已不含移除入口——保留命令桩：导航 / 欢迎态用例的
+      // 「零 remove 命令」负断言仍在场）
       if (command === 'remove_workspace') {
-        if (removeReject !== null) return Promise.reject(new Error(removeReject));
-        if (removeMiss) return Promise.resolve(false); // store miss 幂等（D8 排除项）
         remaining = remaining.filter((r) => r.root !== params?.root);
         return Promise.resolve(true);
       }
@@ -242,13 +246,18 @@ function countOf(command: string): number {
   return invokeMock.mock.calls.filter(([name]) => name === command).length;
 }
 
-/** 以 data-root 定位 sidebar 清单项（同名项由 data-root 区分）。 */
-function itemByRoot(root: string): HTMLElement {
-  const hit = screen
-    .getAllByTestId('workspace-item')
-    .find((item) => item.getAttribute('data-root') === root);
-  if (!hit) throw new Error(`data-root 为 ${root} 的 workspace-item 不存在`);
-  return hit;
+/** workspace 选择器 trigger（DropdownMenuTrigger 收敛到 data-slot）。 */
+function workspaceTrigger(): HTMLElement {
+  const trigger = document.querySelector<HTMLElement>('[data-slot="dropdown-menu-trigger"]');
+  if (!trigger) throw new Error('workspace 选择器 trigger 不存在');
+  return trigger;
+}
+
+/** 打开 workspace 选择器：base-ui Menu 以 mousedown 打开、开启动作为 frame
+ * 异步执行，以菜单组标签「工作区」出现收敛最终态。 */
+async function openWorkspaceMenu(): Promise<void> {
+  fireEvent.mouseDown(workspaceTrigger());
+  await screen.findByText('工作区');
 }
 
 /** 有记录启动：等待自动恢复第一名进入列表视图（列表已渲染）。 */
@@ -355,16 +364,19 @@ describe('App：启动恢复、欢迎屏清单与视图状态（AC-9）', () => 
     ]);
   });
 
-  it('恢复进入列表后：列表项点击进入详情视图，返回列表后「刷新」重发 list_changes', async () => {
+  it('恢复进入列表后：列表项点击进入详情视图（hash 落 #/changes/<fixture id>），返回列表后「刷新」重发 list_changes', async () => {
     await restored();
 
     fireEvent.click(screen.getByText('add-feature'));
     await waitFor(() =>
       expect(invokeMock).toHaveBeenCalledWith('get_change_detail', {
         root: FIRST.root,
-        change: 'add-feature',
+        id: CHANGE_ID,
       }),
     );
+    // 路由段 id 化：URL 段为 change id（非展示名）；详情标题取 detail.name
+    expect(window.location.hash).toBe(`#/changes/${CHANGE_ID}`);
+    expect(window.location.hash).not.toBe('#/changes/add-feature');
     expect(screen.getByRole('heading', { name: 'add-feature' }) !== null).toBe(true);
 
     // 刷新按钮随 header 瘦身迁入清单页头部（图标钮 aria-label=刷新）：详情视图内不在场，返回列表后可操作
@@ -417,11 +429,12 @@ describe('App：启动恢复、欢迎屏清单与视图状态（AC-9）', () => 
 });
 
 // ---------------------------------------------------------------------------
-// 关系一：sidebar 列表项交互 → workspace 动作链（切换 / 添加 / 移除）
-// 改写自下拉时代用例；IPC 时序/次数/参数断言与现状逐字一致（AC-3 硬约束）。
+// 关系一：sidebar 工作区选择器交互 → workspace 动作链（切换 / 添加）
+// （工作区组由「清单直排 + 逐项右键移除」改为单一当前项 trigger + DropdownMenu
+//  ——菜单项承载切换与添加；IPC 时序/次数/参数断言与现状逐字一致（AC-3 硬约束））
 // ---------------------------------------------------------------------------
 
-describe('App：sidebar 列表项交互 → workspace 动作链（AC-3/AC-4/AC-5）', () => {
+describe('App：sidebar 工作区选择器交互 → workspace 动作链（AC-3/AC-4/AC-5）', () => {
   beforeEach(() => {
     // 路由化后 App 自含 HashRouter（design D6）：jsdom location 跨用例存活，
     // 上一用例残留的 hash 会改变下一用例启动路由初态，先重置
@@ -440,7 +453,7 @@ describe('App：sidebar 列表项交互 → workspace 动作链（AC-3/AC-4/AC-5
     vi.unstubAllEnvs();
   });
 
-  it('点击非当前清单项：本地切换当前根（无 workspace 动作命令）→ list_changes 以新根发起 → change 选中清空', async () => {
+  it('选择器切换非当前项：本地切换当前根（无 workspace 动作命令）→ list_changes 以新根发起 → change 选中清空', async () => {
     await restored();
     // 先进入详情视图，验证切换后选中被清空
     fireEvent.click(screen.getByText('add-feature'));
@@ -448,7 +461,8 @@ describe('App：sidebar 列表项交互 → workspace 动作链（AC-3/AC-4/AC-5
       expect(screen.getByRole('heading', { name: 'add-feature' }) !== null).toBe(true),
     );
 
-    fireEvent.click(itemByRoot(SECOND.root));
+    await openWorkspaceMenu();
+    fireEvent.click(screen.getByRole('menuitem', { name: SECOND.name }));
 
     await waitFor(() => {
       const lastListChanges = invokeMock.mock.calls
@@ -456,9 +470,8 @@ describe('App：sidebar 列表项交互 → workspace 动作链（AC-3/AC-4/AC-5
         .at(-1);
       expect(lastListChanges).toEqual(['list_changes', { root: SECOND.root }]);
     });
-    // 本地切换：无 add/remove 等任何 workspace 动作命令
+    // 本地切换：无 add 等任何 workspace 动作命令
     expect(countOf('add_workspace')).toBe(0);
-    expect(countOf('remove_workspace')).toBe(0);
     // change 选中清空：详情视图退出回到列表视图，且不以新根重发 get_change_detail
     expect(screen.queryByRole('heading', { name: 'add-feature' })).toBeNull();
     await waitFor(() => expect(screen.getByText('add-feature') !== null).toBe(true));
@@ -467,26 +480,28 @@ describe('App：sidebar 列表项交互 → workspace 动作链（AC-3/AC-4/AC-5
     expect(detailCalls.every(([, params]) => params?.root === FIRST.root)).toBe(true);
   });
 
-  it('切换后激活态迁移：原当前项退出 isActive、新当前项进入，清单保持默认序不重排', async () => {
+  it('切换后选择器 trigger 迁移：主文本由原当前项迁至新当前项，菜单清单保持默认序不重排', async () => {
     await restored();
 
-    expect(itemByRoot(FIRST.root).hasAttribute('data-active')).toBe(true);
-    expect(itemByRoot(SECOND.root).hasAttribute('data-active')).toBe(false);
+    // 初始 trigger 主文本 = 当前项名 + 父目录副文本
+    expect(workspaceTrigger().textContent).toContain(FIRST.name);
+    expect(within(workspaceTrigger()).getByTestId('workspace-sub').textContent).toContain(
+      'C:\\demo',
+    );
 
-    fireEvent.click(itemByRoot(SECOND.root));
+    await openWorkspaceMenu();
+    // 菜单清单默认序（alpha → beta），不随当前项重排
+    const menuNames = screen.getAllByRole('menuitem').map((item) => item.textContent ?? '');
+    expect(menuNames.slice(0, 2)).toEqual([FIRST.name, SECOND.name]);
+    fireEvent.click(screen.getByRole('menuitem', { name: SECOND.name }));
 
     await waitFor(() => {
-      expect(itemByRoot(SECOND.root).hasAttribute('data-active')).toBe(true);
-      expect(itemByRoot(FIRST.root).hasAttribute('data-active')).toBe(false);
+      expect(workspaceTrigger().textContent).toContain(SECOND.name);
     });
-    // 本地切换不重排清单：默认序保持
-    const roots = screen
-      .getAllByTestId('workspace-item')
-      .map((item) => item.getAttribute('data-root'));
-    expect(roots).toEqual([FIRST.root, SECOND.root]);
+    expect(workspaceTrigger().textContent).not.toContain(FIRST.name);
   });
 
-  it('对唯一清单项（当前项自身）点击：无命令发起、视图状态无抖动', async () => {
+  it('选择器点击当前项自身：无命令发起、视图状态无抖动', async () => {
     remaining = [FIRST];
     render(<App />);
     await waitFor(() =>
@@ -494,7 +509,8 @@ describe('App：sidebar 列表项交互 → workspace 动作链（AC-3/AC-4/AC-5
     );
 
     const callsBefore = invokeMock.mock.calls.length;
-    fireEvent.click(itemByRoot(FIRST.root));
+    await openWorkspaceMenu();
+    fireEvent.click(screen.getByRole('menuitem', { name: FIRST.name }));
 
     // 本地切换当前项自身：无任何新命令，root 无抖动
     await act(async () => {
@@ -508,13 +524,14 @@ describe('App：sidebar 列表项交互 → workspace 动作链（AC-3/AC-4/AC-5
     expect(screen.getByText('add-feature') !== null).toBe(true);
   });
 
-  it('点击 GroupAction 内联图标：open({directory:true, multiple:false}) → add_workspace → 以返回记录打开 → list_changes 以返回记录的 canonical root 发起（改写：欢迎屏入口 → GroupAction 图标）', async () => {
+  it('选择器菜单「添加工作区」：open({directory:true, multiple:false}) → add_workspace → 以返回记录打开 → list_changes 以返回记录的 canonical root 发起（改写：欢迎屏入口 → 选择器菜单项）', async () => {
     await restored();
     // 返回记录的 canonical root 与对话框原串书写不等价（模拟 canonicalize）
     addRecord = { root: 'C:\\canonical\\picked', name: 'picked', addedAt: 1 };
     openMock.mockResolvedValue('/raw/PICKED DIR');
 
-    fireEvent.click(screen.getByRole('button', { name: '添加 workspace' }));
+    await openWorkspaceMenu();
+    fireEvent.click(screen.getByRole('menuitem', { name: '添加工作区' }));
 
     // 对话框参数契约断言逐字保留：目录模式 + 单选
     await waitFor(() =>
@@ -526,22 +543,23 @@ describe('App：sidebar 列表项交互 → workspace 动作链（AC-3/AC-4/AC-5
     await waitFor(() =>
       expect(invokeMock).toHaveBeenCalledWith('list_changes', { root: 'C:\\canonical\\picked' }),
     );
-    await waitFor(() => expect(screen.getByText('picked') !== null).toBe(true));
-    expect(itemByRoot('C:\\canonical\\picked').hasAttribute('data-active')).toBe(true);
+    // 以返回记录为当前项：trigger 主文本迁移至新记录名（canonical root 承载）
+    await waitFor(() => expect(workspaceTrigger().textContent).toContain('picked'));
   });
 
-  it('对话框取消（null）：不调用 add_workspace、停留当前态——两处入口（欢迎屏 / GroupAction）行为一致', async () => {
+  it('对话框取消（null）：不调用 add_workspace、停留当前态——两处入口（欢迎屏 / 选择器菜单）行为一致', async () => {
     await restored();
     openMock.mockResolvedValue(null);
 
-    // 入口一：壳态 GroupAction
-    fireEvent.click(screen.getByRole('button', { name: '添加 workspace' }));
+    // 入口一：壳态选择器菜单
+    await openWorkspaceMenu();
+    fireEvent.click(screen.getByRole('menuitem', { name: '添加工作区' }));
     await waitFor(() => expect(openMock).toHaveBeenCalled());
     await act(async () => {
       await new Promise((resolve) => setTimeout(resolve, 10));
     });
     expect(countOf('add_workspace')).toBe(0);
-    expect(screen.getAllByTestId('workspace-item')).toHaveLength(2);
+    expect(workspaceTrigger().textContent).toContain(FIRST.name);
 
     // 入口二：欢迎屏「添加新文件夹」（空清单）
     remaining = [];
@@ -555,70 +573,6 @@ describe('App：sidebar 列表项交互 → workspace 动作链（AC-3/AC-4/AC-5
     });
     expect(countOf('add_workspace')).toBe(0);
     expect(screen.getByText('添加新文件夹') !== null).toBe(true);
-  });
-
-  it('右键当前项 → 点击「移除」：remove_workspace {root} → 切剩余第一名 → list_changes 以新根发起；无确认弹窗（改写：header「移除」按钮 → 右键菜单项）', async () => {
-    await restored();
-
-    fireEvent.contextMenu(itemByRoot(FIRST.root));
-    fireEvent.click(await screen.findByRole('menuitem', { name: '移除' }));
-
-    await waitFor(() =>
-      expect(invokeMock).toHaveBeenCalledWith('remove_workspace', { root: FIRST.root }),
-    );
-    await waitFor(() => {
-      const lastListChanges = invokeMock.mock.calls
-        .filter(([name]) => name === 'list_changes')
-        .at(-1);
-      expect(lastListChanges).toEqual(['list_changes', { root: SECOND.root }]);
-    });
-    // 无确认弹窗：菜单点击后直接下发，无 dialog 节点插入
-    expect(screen.queryByRole('dialog')).toBeNull();
-    // 清单收缩：仅剩剩余第一名
-    const roots = screen
-      .getAllByTestId('workspace-item')
-      .map((item) => item.getAttribute('data-root'));
-    expect(roots).toEqual([SECOND.root]);
-  });
-
-  it('右键移除非当前项：当前根不变（list_changes 不以他根重发）、该项从清单消失', async () => {
-    await restored();
-
-    fireEvent.contextMenu(itemByRoot(SECOND.root));
-    fireEvent.click(await screen.findByRole('menuitem', { name: '移除' }));
-
-    await waitFor(() =>
-      expect(invokeMock).toHaveBeenCalledWith('remove_workspace', { root: SECOND.root }),
-    );
-    await waitFor(() => {
-      const roots = screen
-        .getAllByTestId('workspace-item')
-        .map((item) => item.getAttribute('data-root'));
-      expect(roots).toEqual([FIRST.root]);
-    });
-    // 剩余第一名即原当前项：list_changes 不以 SECOND 重发
-    const listChangeRoots = invokeMock.mock.calls
-      .filter(([name]) => name === 'list_changes')
-      .map(([, params]) => params?.root);
-    expect(listChangeRoots.every((root) => root === FIRST.root)).toBe(true);
-  });
-
-  it('移除至空清单：回欢迎屏（WelcomeView 全屏）且 Toaster 仍挂载', async () => {
-    remaining = [FIRST];
-    render(<App />);
-    await waitFor(() =>
-      expect(invokeMock).toHaveBeenCalledWith('list_changes', { root: FIRST.root }),
-    );
-
-    fireEvent.contextMenu(itemByRoot(FIRST.root));
-    fireEvent.click(await screen.findByRole('menuitem', { name: '移除' }));
-
-    await waitFor(() =>
-      expect(invokeMock).toHaveBeenCalledWith('remove_workspace', { root: FIRST.root }),
-    );
-    await waitFor(() => expect(screen.getByText('添加新文件夹') !== null).toBe(true));
-    expect(document.querySelector('[data-slot="sidebar-wrapper"]')).toBeNull();
-    expect(document.querySelector('section[aria-label^="Notifications"]') !== null).toBe(true);
   });
 });
 
@@ -645,30 +599,6 @@ describe('App：错误双轨呈现——动作 reject → toast / 查询 reject 
 
   afterEach(() => {
     vi.unstubAllEnvs();
-  });
-
-  it('remove reject：toast 呈现「移除 workspace 失败：」+ 错误串（waitFor 文案断言），且 error-note 为 0、停留列表视图（改写：原 Header error-note 呈现断言 → toast 文案断言）', async () => {
-    render(<App />);
-    await waitFor(() =>
-      expect(invokeMock).toHaveBeenCalledWith('list_changes', { root: FIRST.root }),
-    );
-    await waitFor(() => expect(screen.getByText('add-feature') !== null).toBe(true));
-
-    // 无错误基线：inline 通道一个都不渲染
-    expect(screen.queryAllByTestId('error-note')).toHaveLength(0);
-
-    removeReject = 'db: 移除失败';
-    fireEvent.contextMenu(itemByRoot(FIRST.root));
-    fireEvent.click(await screen.findByRole('menuitem', { name: '移除' }));
-
-    await waitFor(() =>
-      expect(screen.getByText(/移除 workspace 失败：.*db: 移除失败/) !== null).toBe(true),
-    );
-    // 动作失败不置 error 态：inline 通道归零（AC-8 前半）
-    expect(screen.queryAllByTestId('error-note')).toHaveLength(0);
-    // 错误呈现不切换视图：仍停留列表视图
-    expect(screen.getByText('add-feature') !== null).toBe(true);
-    expect(screen.queryByText('添加新文件夹')).toBeNull();
   });
 
   it('欢迎屏 add reject：toast 呈现「添加 workspace 失败：」、无 error-note、可重试（改写：原「error-note 呈现」断言 → toast 断言；对话框调用 reject 分支静默保持现状语义）', async () => {
@@ -705,25 +635,6 @@ describe('App：错误双轨呈现——动作 reject → toast / 查询 reject 
       expect(invokeMock).toHaveBeenCalledWith('list_changes', { root: 'C:\\picked' }),
     );
     expect(screen.queryByText('添加新文件夹')).toBeNull();
-  });
-
-  it('remove resolve(false)（store miss 幂等）：无 toast、无 error-note（D8 排除项在壳层的核对）', async () => {
-    removeMiss = true;
-    render(<App />);
-    await waitFor(() =>
-      expect(invokeMock).toHaveBeenCalledWith('list_changes', { root: FIRST.root }),
-    );
-
-    fireEvent.contextMenu(itemByRoot(FIRST.root));
-    fireEvent.click(await screen.findByRole('menuitem', { name: '移除' }));
-
-    await waitFor(() =>
-      expect(invokeMock).toHaveBeenCalledWith('remove_workspace', { root: FIRST.root }),
-    );
-    // 内部刷新照常发生（挂载取数 + 移除刷新 = 2 次）
-    await waitFor(() => expect(countOf('list_workspaces')).toBe(2));
-    expect(document.querySelector('[data-sonner-toast]')).toBeNull();
-    expect(screen.queryAllByTestId('error-note')).toHaveLength(0);
   });
 
   it('全部动作与查询成功：无 toast、无 error-note（零呈现基线）', async () => {
@@ -925,7 +836,7 @@ describe('App：壳层布局与折叠形态（AC-1/AC-2/AC-7）', () => {
     expect(document.querySelector('section[aria-label^="Notifications"]') !== null).toBe(true);
   });
 
-  it('collapsible="icon"：触发折叠后 sidebar 容器呈 icon 折叠标记（data-collapsible / data-state），清单项 Tooltip 在折叠态可显（D4-②）', async () => {
+  it('collapsible="icon"：触发折叠后 sidebar 容器呈 icon 折叠标记（data-collapsible / data-state），导航项 Tooltip 在折叠态可显（D4-②）', async () => {
     await restored();
 
     const sidebar = document.querySelector('[data-slot="sidebar"]')!;
@@ -934,10 +845,13 @@ describe('App：壳层布局与折叠形态（AC-1/AC-2/AC-7）', () => {
     expect(sidebar.getAttribute('data-state')).toBe('collapsed');
     expect(sidebar.getAttribute('data-collapsible')).toBe('icon');
 
-    // 折叠态 Tooltip 仍可显：完整 root 即显（Popup 无 role="tooltip"，以 data-slot 收敛）
-    fireEvent.focus(itemByRoot(FIRST.root));
-    const tooltip = await screen.findByText(FIRST.root);
-    expect(tooltip.closest('[data-slot="tooltip-content"]') !== null).toBe(true);
+    // 折叠态 Tooltip 仍可显：导航项以 label 为 tooltip 内容即显（Popup 无
+    // role="tooltip"，以 data-slot 收敛——折叠态 hidden=false 才出线）
+    fireEvent.focus(screen.getByTestId('nav-changes'));
+    const labeled = await screen.findAllByText('变更');
+    expect(labeled.some((node) => node.closest('[data-slot="tooltip-content"]') !== null)).toBe(
+      true,
+    );
   });
 
   it('Ctrl/Cmd+B：对 window 派发 keyDown（ctrlKey 与 metaKey 两形态）在 collapsed/expanded 间切换（D1 会话内 state）', async () => {
@@ -967,7 +881,7 @@ describe('App：壳层布局与折叠形态（AC-1/AC-2/AC-7）', () => {
 
 // ---------------------------------------------------------------------------
 // 关系四：侧栏 NavLink 页面导航组 → HashRouter 路由表 → 顶层页面切换
-// （选中重置语义沿 D10 路由化保留：切回后 /changes 无 :name 段 → 清单呈现、
+// （选中重置语义沿 D10 路由化保留：切回后 /changes 无 :id 段 → 清单呈现、
 // get_change_detail 不以旧选中重发）。AgentDebugView 经真实 hooks 挂载
 // （挂载不取数），既有清单命令 mock 承载；hash 落点在此核对，完整路由级
 // 矩阵归 route_pages.test.tsx。
@@ -1082,23 +996,24 @@ describe('App：路由化顶层页面切换（changes | agent | db）', () => {
     });
   });
 
-  it('进入 change 详情后切 Agent 页再切回：hash 落 /changes（无 :name 段）、选中重置回清单、get_change_detail 不以旧选中重发（D10 路由化保留）', async () => {
+  it('进入 change 详情后切 Agent 页再切回：hash 落 /changes（无 :id 段）、选中重置回清单、get_change_detail 不以旧选中重发（D10 路由化保留）', async () => {
     await restored();
 
     fireEvent.click(screen.getByText('add-feature'));
     await waitFor(() =>
       expect(invokeMock).toHaveBeenCalledWith('get_change_detail', {
         root: FIRST.root,
-        change: 'add-feature',
+        id: CHANGE_ID,
       }),
     );
+    expect(window.location.hash).toBe(`#/changes/${CHANGE_ID}`);
 
     fireEvent.click(screen.getByTestId('nav-agent'));
     await waitFor(() => expect(screen.getByTestId('agent-run-form') !== null).toBe(true));
     fireEvent.click(screen.getByTestId('nav-changes'));
     await waitFor(() => expect(screen.getByText('add-feature') !== null).toBe(true));
 
-    // 选中重置：URL 无 :name 段 + 清单视图（详情标题不在场），get_change_detail 不重发
+    // 选中重置：URL 无 :id 段 + 清单视图（详情标题不在场），get_change_detail 不重发
     expect(window.location.hash).toBe('#/changes');
     expect(screen.queryByRole('heading', { name: 'add-feature' })).toBeNull();
     expect(countOf('get_change_detail')).toBe(1);
@@ -1268,14 +1183,14 @@ describe('App：HashRouter 自含挂载与路由初态（D2/D6/D7）', () => {
     expect(document.querySelector('header') !== null).toBe(true);
   });
 
-  it('启动前 hash 已为 #/changes/add-feature：直出详情视图并以 URL 参数取数（深链直达 D7，无导航点击）', async () => {
-    window.location.hash = '#/changes/add-feature';
+  it('启动前 hash 已为 #/changes/<id>：直出详情视图并以 URL 段 id 取数（深链直达 D7，无导航点击）', async () => {
+    window.location.hash = `#/changes/${CHANGE_ID}`;
     render(<App />);
 
     await waitFor(() =>
       expect(invokeMock).toHaveBeenCalledWith('get_change_detail', {
         root: FIRST.root,
-        change: 'add-feature',
+        id: CHANGE_ID,
       }),
     );
 
@@ -1519,7 +1434,7 @@ describe('App：/config 配置路由可达与欢迎态隔离（AC-4/AC-6/AC-7）
     await waitFor(() => expect(screen.getByText('add-feature') !== null).toBe(true));
   });
 
-  it('切换 workspace（sidebar 清单项）后停留 /config：以新根重发 workspace_config、旧根配置不呈现（AC-6 切换重取的壳层核对）', async () => {
+  it('切换 workspace（sidebar 选择器）后停留 /config：以新根重发 workspace_config、旧根配置不呈现（AC-6 切换重取的壳层核对）', async () => {
     await restored();
 
     fireEvent.click(screen.getByTestId('nav-config'));
@@ -1527,7 +1442,8 @@ describe('App：/config 配置路由可达与欢迎态隔离（AC-4/AC-6/AC-7）
       expect(screen.getByTestId('config-view').textContent).toContain(FIRST.root),
     );
 
-    fireEvent.click(itemByRoot(SECOND.root));
+    await openWorkspaceMenu();
+    fireEvent.click(screen.getByRole('menuitem', { name: SECOND.name }));
 
     await waitFor(() =>
       expect(invokeMock).toHaveBeenCalledWith('workspace_config', { root: SECOND.root }),

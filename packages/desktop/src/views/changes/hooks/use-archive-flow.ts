@@ -48,20 +48,21 @@ function ensureChannel(
 }
 
 /**
- * 归档链控制入口：`root` / `change` 就绪时先查快照（重挂恢复进行中链的阶段
- * 镜像 + 补订实时流）；发起后订阅至终态收口（收口后 onFinish 一次显式
- * refresh 承接——详情页回落已归档形态）。
+ * 归档链控制入口（参数 **id 化**——五命令 / 快照 / 补订全链按 change id
+ * 寻址）：`root` / `id` 就绪时先查快照（重挂恢复进行中链的阶段镜像 + 补订
+ * 实时流）；发起后订阅至终态收口（收口后 onFinish 一次显式 refresh 承接
+ * ——详情页回落已归档形态）。
  */
 export function useArchiveFlow(params: {
   root: string | null;
-  change: string | null;
+  id: string | null;
   onFinish: () => void;
 }): UseArchiveFlowResult {
-  const { root, change, onFinish } = params;
+  const { root, id, onFinish } = params;
   const [state, setState] = useState<ArchiveFlowState | null>(null);
   const channelRef = useRef<Channel<ArchiveUpdate> | null>(null);
-  const { preflight, start, stop, error } = useArchiveActions(root, change, channelRef, setState);
-  useArchiveRecovery(root, change, channelRef, setState);
+  const { preflight, start, stop, error } = useArchiveActions(root, id, channelRef, setState);
+  useArchiveRecovery(root, id, channelRef, setState);
   useArchiveFinish(state, onFinish);
   return { state, preflight, start, stop, error };
 }
@@ -77,7 +78,7 @@ interface ArchiveActionsFace {
 /** 动作面：参数就绪检查 + 错误统一落 error 态（发起先行清错）。 */
 function useArchiveActions(
   root: string | null,
-  change: string | null,
+  id: string | null,
   channelRef: React.RefObject<Channel<ArchiveUpdate> | null>,
   setState: React.Dispatch<React.SetStateAction<ArchiveFlowState | null>>,
 ): ArchiveActionsFace {
@@ -90,46 +91,46 @@ function useArchiveActions(
     }
   }, []);
   const preflight = useCallback((): Promise<ArchivePreflight | null> => {
-    if (root === null || change === null) return Promise.resolve(null);
+    if (root === null || id === null) return Promise.resolve(null);
     // Promise.resolve 包一道：invoke 桩返回非 promise（缺省 mock）时同样降级
-    return Promise.resolve(commands.archiveFlowPreflight(root, change)).catch(() => null);
-  }, [root, change]);
+    return Promise.resolve(commands.archiveFlowPreflight(root, id)).catch(() => null);
+  }, [root, id]);
   const start = useCallback(
     (syncSpecs: boolean) => {
-      if (root === null || change === null) return Promise.resolve();
+      if (root === null || id === null) return Promise.resolve();
       setError(null);
       const channel = ensureChannel(channelRef, (update) => {
         setState((current) => applyArchiveUpdate(current, update));
       });
       return run(async () => {
-        await commands.archiveFlowStart(channel, root, change, syncSpecs);
+        await commands.archiveFlowStart(channel, root, id, syncSpecs);
         setState(initialArchiveState());
       });
     },
-    [root, change, channelRef, run, setState],
+    [root, id, channelRef, run, setState],
   );
   const stop = useCallback(() => {
-    if (root === null || change === null) return Promise.resolve();
-    return run(() => commands.archiveFlowStop(root, change));
-  }, [root, change, run]);
+    if (root === null || id === null) return Promise.resolve();
+    return run(() => commands.archiveFlowStop(root, id));
+  }, [root, id, run]);
   return { preflight, start, stop, error };
 }
 
 /** 重挂恢复：快照初值 + 进行中链的 broadcast 补订（组件卸载弃投递）。 */
 function useArchiveRecovery(
   root: string | null,
-  change: string | null,
+  id: string | null,
   channelRef: React.RefObject<Channel<ArchiveUpdate> | null>,
   setState: React.Dispatch<React.SetStateAction<ArchiveFlowState | null>>,
 ): void {
   useEffect(() => {
-    if (root === null || change === null) {
+    if (root === null || id === null) {
       setState(null);
       return;
     }
     let disposed = false;
     // Promise.resolve 包一道：invoke 桩返回非 promise（缺省 mock）时同样走降级
-    void Promise.resolve(commands.archiveFlowState(root, change))
+    void Promise.resolve(commands.archiveFlowState(root, id))
       .then((raw) => {
         if (disposed) return;
         const snapshot = raw === null || raw === undefined ? null : raw;
@@ -140,7 +141,7 @@ function useArchiveRecovery(
           const channel = ensureChannel(channelRef, (update) => {
             setState((current) => applyArchiveUpdate(current, update));
           });
-          return commands.archiveFlowWatch(channel, root, change);
+          return commands.archiveFlowWatch(channel, root, id);
         }
         return undefined;
       })
@@ -152,7 +153,7 @@ function useArchiveRecovery(
       disposed = true;
       channelRef.current = null;
     };
-  }, [root, change, channelRef, setState]);
+  }, [root, id, channelRef, setState]);
 }
 
 /** 终态一次 onFinish（重挂 / 迟滞信封不重复触发）。 */

@@ -94,7 +94,7 @@ function PageNavGroup(): React.JSX.Element {
         testId="nav-info"
         to="/info"
       />
-      {/* 变更项：/changes 与 /changes/:name（详情）均 active */}
+      {/* 变更项：/changes 与 /changes/:id（详情）均 active */}
       <PageNavItem
         active={pathname === '/changes' || pathname.startsWith('/changes/')}
         icon={<GitBranch />}

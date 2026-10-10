@@ -8,6 +8,7 @@ use crate::model::{
     pack_checklist_item_key, pack_session_event_key, AgentEngineKind, AgentInstanceRecord,
     AgentModelTiers, AgentProviderRecord, AgentProviderRecordV1, AgentRunRecord, AgentRunRecordV3,
     ChecklistItemRecord, PhaseRecord, SessionConfigSnapshot, SessionEventRecord, SessionRecord,
+    WorkspaceRecord,
 };
 use crate::store::Store;
 
@@ -1004,19 +1005,90 @@ fn checklist_item_record_item_key十六进制串serde出线与反向解码往返
 }
 
 #[test]
-fn 四模型注册workspace组八模型全注册id无冲突_list_models零改动覆盖() {
+fn 十一模型注册workspace组全覆盖_新id与既有id无冲突_list_models覆盖持衡() {
     let db_dir = tempfile::Builder::new()
         .prefix("store-test-model-registry-")
         .tempdir()
         .expect("创建临时目录失败");
 
-    // 真实 workspace db：id 9 / 10 / 11 / 12 与既有 id（1/2/4/5/6/7/8）无一
-    // 冲突即打开点注册成功；id=3 历史退役空缺不复用（D3）
+    // 真实 workspace db：id 9 / 10 / 11 / 12 / 13 / 14 / 15 与既有 id
+    // （1/2/4/5/6/7/8）无一冲突即打开点注册成功（Models::define 对同
+    // id+版本 panic，打开成功即注册面无撞号）；id=3 历史退役空缺不复用（D3）
     let store = Store::open_workspace(&db_dir.path().join("ws.redb"))
-        .unwrap_or_else(|e| panic!("open_workspace 应成功（四新模型注册无 id 冲突）: {e}"));
+        .unwrap_or_else(|e| panic!("open_workspace 应成功（十一模型注册无 id 冲突）: {e}"));
 
-    // list_models 零改动覆盖四新模型：既有信封注册面不写一行即可浏览八模型
-    // （空库计数 0 也列出）
+    // 注册面 = 十一模型（workspace 组）：逐类型 id / 版本与本组既有模型、全局组
+    // 模型（1 / 5 / 6）全表无重复
+    let workspace_group = [
+        (
+            <crate::model::AgentRunRecord as native_model::Model>::native_model_id(),
+            <crate::model::AgentRunRecord as native_model::Model>::native_model_version(),
+        ),
+        (
+            <SessionRecord as native_model::Model>::native_model_id(),
+            <SessionRecord as native_model::Model>::native_model_version(),
+        ),
+        (
+            <SessionEventRecord as native_model::Model>::native_model_id(),
+            <SessionEventRecord as native_model::Model>::native_model_version(),
+        ),
+        (
+            <crate::model::ExploreRecord as native_model::Model>::native_model_id(),
+            <crate::model::ExploreRecord as native_model::Model>::native_model_version(),
+        ),
+        (
+            <ChangeRecord as native_model::Model>::native_model_id(),
+            <ChangeRecord as native_model::Model>::native_model_version(),
+        ),
+        (
+            <PhaseRecord as native_model::Model>::native_model_id(),
+            <PhaseRecord as native_model::Model>::native_model_version(),
+        ),
+        (
+            <ChecklistItemRecord as native_model::Model>::native_model_id(),
+            <ChecklistItemRecord as native_model::Model>::native_model_version(),
+        ),
+        (
+            <crate::model::StepRecord as native_model::Model>::native_model_id(),
+            <crate::model::StepRecord as native_model::Model>::native_model_version(),
+        ),
+        (
+            <crate::model::RunRecord as native_model::Model>::native_model_id(),
+            <crate::model::RunRecord as native_model::Model>::native_model_version(),
+        ),
+        (
+            <crate::model::RunStepRecord as native_model::Model>::native_model_id(),
+            <crate::model::RunStepRecord as native_model::Model>::native_model_version(),
+        ),
+        (
+            <crate::model::StoreMetaRecord as native_model::Model>::native_model_id(),
+            <crate::model::StoreMetaRecord as native_model::Model>::native_model_version(),
+        ),
+    ];
+    assert_eq!(
+        workspace_group.map(|(id, _)| id),
+        [2, 7, 8, 4, 9, 10, 11, 12, 13, 14, 15],
+        "workspace 组注册 10 → 11：run 史两模型 + 库级格式版本标记一模型入册"
+    );
+    let mut ids: Vec<u32> = workspace_group
+        .iter()
+        .map(|(id, _)| *id)
+        .chain([
+            <WorkspaceRecord as native_model::Model>::native_model_id(),
+            <AgentProviderRecord as native_model::Model>::native_model_id(),
+            <AgentInstanceRecord as native_model::Model>::native_model_id(),
+        ])
+        .collect();
+    ids.sort_unstable();
+    let mut deduped = ids.clone();
+    deduped.dedup();
+    assert_eq!(
+        ids, deduped,
+        "全册 id 无冲突（既有 1/2/4/5/6/7/8 与新 9..15）"
+    );
+
+    // list_models 零改动覆盖持衡：信封注册面不写一行即可浏览既有八模型
+    // （空库计数 0 也列出；run 史 / 标记模型无查看面需求，不入注册表）
     let models = store.list_models().unwrap();
     assert_eq!(
         models
@@ -1033,7 +1105,7 @@ fn 四模型注册workspace组八模型全注册id无冲突_list_models零改动
             "checklist_item",
             "step"
         ],
-        "workspace 组注册 4→8：change 流程状态四模型随既有四模型在册"
+        "workspace 组信封注册面恰八行（零改动覆盖）"
     );
     assert!(
         models.iter().all(|model| model.count == 0),
@@ -1042,12 +1114,13 @@ fn 四模型注册workspace组八模型全注册id无冲突_list_models零改动
 }
 
 #[test]
-fn phase_record缺省构造三槽位与start_at与backtrack全none可落且native_model往返保真() {
+fn phase_record_v2缺省构造三槽位与start_at与backtrack全none可落且往返保真() {
     // 缺省构造合法：三会话槽位 / start_at / backtrack 字段全 None（native_model
-    // 平直字段无 flatten、默认 bincode——D3 附加约束的编译锚定）
+    // 平直字段无 flatten、默认 bincode——D3 附加约束的编译锚定）；归属列
+    // change_id（10:v2 换锚）往返保真
     let record = PhaseRecord {
         id: 11,
-        change: "demo-change".to_owned(),
+        change_id: "chg-demo".to_owned(),
         phase: "proposal".to_owned(),
         attempt: 1,
         verdict: Verdict::Pass,
@@ -1067,95 +1140,76 @@ fn phase_record缺省构造三槽位与start_at与backtrack全none可落且nativ
     let (decoded, version) =
         native_model::decode::<PhaseRecord>(bytes).expect("native_model decode 应成功");
 
-    assert_eq!(version, 1, "native_model 版本封装为 version 1");
+    assert_eq!(
+        version, 2,
+        "native_model 10:v2 版本封装（归属列换锚 change_id）"
+    );
     assert_eq!(
         decoded, record,
         "缺省构造记录往返逐字段相等（None 槽位不漂移）"
     );
+    assert_eq!(decoded.change_id, "chg-demo", "归属列 change_id 往返保真");
+}
+
+/// StepRecord v2 往返（12:v2 归属列换锚）：id 主键 + change_id / run_id 归属列
+/// 与七值步种逐字段保真。
+#[test]
+fn step_record_v2_change_id归属列往返逐字段保真() {
+    let command = workflow::state::StepCommand {
+        run_id: "run-1727000000000".to_owned(),
+        change_id: "chg-step".to_owned(),
+        step_kind: workflow::state::StepKind::PhaseNext,
+        status: "ok".to_owned(),
+        summary: "轮次推进".to_owned(),
+        reference: Some("checks/reports".to_owned()),
+        timestamp: 1_727_000_000_000,
+    };
+    let record = crate::model::StepRecord::new(&command);
+
+    let bytes = native_model::encode(&record).expect("native_model encode 应成功");
+    let (decoded, version) = native_model::decode::<crate::model::StepRecord>(bytes)
+        .expect("native_model decode 应成功");
+
+    assert_eq!(
+        version, 2,
+        "native_model 12:v2 版本封装（归属列 change_id）"
+    );
+    assert_eq!(decoded, record, "StepRecord 往返逐字段相等");
+    assert_eq!(decoded.change_id, "chg-step", "归属列 change_id 往返保真");
+    assert_eq!(decoded.run_id, "run-1727000000000");
+    assert_eq!(decoded.reference.as_deref(), Some("checks/reports"));
 }
 
 #[test]
 fn checklist_item_record_native_model往返版本1逐字段保真() {
-    // 独立版本链：checklist 子行与 PhaseRecord 解耦（evidence 长文本演进面）
+    // 独立版本链：checklist 子行与 PhaseRecord 解耦（evidence 长文本演进面）；
+    // 本变更零触点——11:v1 持衡
     let record = ChecklistItemRecord::new(7, 2, checklist_item("往返检查项", false));
 
     let bytes = native_model::encode(&record).expect("native_model encode 应成功");
     let (decoded, version) =
         native_model::decode::<ChecklistItemRecord>(bytes).expect("native_model decode 应成功");
 
-    assert_eq!(version, 1, "native_model 版本封装为 version 1");
+    assert_eq!(version, 1, "native_model 11:v1 版本封装（零改动）");
     assert_eq!(decoded, record, "打包键与三面载荷往返逐字段相等");
     assert_eq!(decoded.phase_id, 7, "二级索引列往返保真");
     assert_eq!(decoded.pass, false);
 }
 
 // ---------------------------------------------------------------------------
-// ChangeRecord v1→v2（design D7 / AC-1）：decode-only 存量升级 / 回环 / 双向
-// From / new 增参——provider context_length v1→v2 先例同模式
+// ChangeRecord v3（身份锚换 id / test-design AC-1 · AC-8 模型面；9:v2 → 9:v3）：
+// id 主键 + name 普通属性回环 / 身份面（同 name 异 id 合法不相等）/ new 携 id
+// 构造 / 表名版本段公式锚。v1 解码链（`ChangeRecordV1` 与双向 `From`）随身份
+// 换锚整体退役——旧形态数据零 decode 路径（D5：不可达或整体丢弃）。
 // ---------------------------------------------------------------------------
 
-use crate::model::{ChangeActivePhase, ChangeRecord, ChangeRecordV1};
+use crate::model::ChangeRecord;
 use workflow::state::ChangeStatus;
 
-fn change_v1_record(name: &str) -> ChangeRecordV1 {
-    ChangeRecordV1 {
-        name: name.to_owned(),
-        workflow_type: "requirement".to_owned(),
-        created_at: 1_727_000_000_000,
-        status: ChangeStatus::Active,
-        archived_at: None,
-        active_phase: None,
-    }
-}
-
-/// v1→v2 decode-only：`ChangeRecordV1` 构造 → native_model 编码字节 →
-/// `decode::<ChangeRecord>` → 既有六字段逐字一致且 `worktree` / `base_commit`
-/// 均为 None（存量记录自动升级读出——AC-1 字面）；v1 载荷按 v1 模型自解码
-/// 逐字段相等、版本头 = 1。
+/// v3 回环：id 主键（身份锚）+ name 普通属性 + worktree / base_commit 双态
+/// 构造 → encode / decode 往返逐字段相等（版本头 = 3）。
 #[test]
-fn change_record存量v1行经版本机制升级读出且两字段置none() {
-    let legacy = ChangeRecordV1 {
-        active_phase: Some(ChangeActivePhase {
-            phase: "implement".to_owned(),
-            attempt: 2,
-            start_at: 1_727_000_005_000,
-        }),
-        archived_at: None,
-        ..change_v1_record("存量升级")
-    };
-    let legacy_bytes = native_model::encode(&legacy).expect("encode v1 应成功");
-
-    // v1 载荷自解码（存量形态封装 version 1）
-    let (legacy_decoded, legacy_version) =
-        native_model::decode::<ChangeRecordV1>(legacy_bytes.clone())
-            .expect("v1 载荷可按 v1 模型解码");
-    assert_eq!(legacy_version, 1, "存量形态封装为 version 1");
-    assert_eq!(legacy_decoded, legacy, "v1 载荷按 v1 解码逐字段相等");
-
-    // 同一载荷经版本机制自动升级为 v2：两新字段 None（worktree 之前的主 root
-    // 编辑语义），既有字段原值保留
-    let (upgraded, _version) =
-        native_model::decode::<ChangeRecord>(legacy_bytes).expect("v1 载荷应升级为 v2");
-    assert_eq!(upgraded.name, "存量升级");
-    assert_eq!(upgraded.workflow_type, "requirement");
-    assert_eq!(upgraded.created_at, 1_727_000_000_000);
-    assert_eq!(upgraded.status, ChangeStatus::Active);
-    assert_eq!(upgraded.archived_at, None);
-    assert!(
-        upgraded.active_phase.is_some(),
-        "嵌套 active_phase 升级保留"
-    );
-    assert_eq!(
-        upgraded.worktree, None,
-        "升级读出 worktree = None（legacy 主 root 语义）"
-    );
-    assert_eq!(upgraded.base_commit, None, "升级读出 base_commit = None");
-}
-
-/// v2 回环：带 Some(worktree) / Some(base_commit) 构造 → encode / decode 往
-/// 返逐字段相等（含 None / Some 两态）。
-#[test]
-fn change_record_v2回环含worktree双态逐字段相等() {
+fn change_record_v3回环含worktree双态逐字段相等() {
     for (worktree, base_commit) in [
         (
             Some(r"C:\app-data\worktrees\seg\fix-bug".to_owned()),
@@ -1164,83 +1218,193 @@ fn change_record_v2回环含worktree双态逐字段相等() {
         (None, None),
     ] {
         let record = ChangeRecord::new(
+            "chg-018f3a-0001",
             "回回归",
             "requirement",
             1_727_000_000_000,
             worktree.clone(),
             base_commit.clone(),
         );
-        let bytes = native_model::encode(&record).expect("encode v2 应成功");
+        let bytes = native_model::encode(&record).expect("encode v3 应成功");
         let (decoded, version) =
-            native_model::decode::<ChangeRecord>(bytes).expect("decode v2 应成功");
-        assert_eq!(version, 2, "v2 编码载荷按 v2 解出（版本头 = 2）");
+            native_model::decode::<ChangeRecord>(bytes).expect("decode v3 应成功");
+        assert_eq!(
+            version, 3,
+            "v3 编码载荷按 v3 解出（版本头 = 3；换锚 9:v2 → 9:v3 主键 name → id）"
+        );
         assert_eq!(
             decoded, record,
-            "v2 往返逐字段相等（worktree {worktree:?} / base_commit {base_commit:?}）"
+            "v3 往返逐字段相等（worktree {worktree:?} / base_commit {base_commit:?}）"
+        );
+        assert_eq!(decoded.id, "chg-018f3a-0001", "id 主键往返保真（身份锚）");
+        assert_eq!(
+            decoded.name, "回回归",
+            "name 普通属性往返保真（非主键，无唯一约束）"
         );
     }
 }
 
-/// 双向 From：`From<ChangeRecordV1>` 升级两字段 None；`From<ChangeRecord> for
-/// ChangeRecordV1>` 降级两字段丢弃（降级形态不作数据承诺——字段缺席即空）。
+/// 身份面（D11 模型面锚）：id 与 name 双字段独立可辨——同 name 不同 id 两条
+/// 记录构造合法且不相等（name 非身份键）。
 #[test]
-fn change_record_v1_from双向upgrade补none与downgrade丢新字段() {
-    // upgrade：V1 → v2，补两字段 None
-    let legacy = change_v1_record("双向升级");
-    let upgraded = ChangeRecord::from(legacy.clone());
-    assert_eq!(
-        upgraded.worktree, None,
-        "升级补 worktree = None（缺列读兼容）"
-    );
-    assert_eq!(upgraded.base_commit, None, "升级补 base_commit = None");
-    assert_eq!(upgraded.name, legacy.name);
-    assert_eq!(upgraded.workflow_type, legacy.workflow_type);
-    assert_eq!(upgraded.created_at, legacy.created_at);
-    assert_eq!(upgraded.status, legacy.status);
-    assert_eq!(upgraded.archived_at, legacy.archived_at);
+fn change_record身份面同name不同id两记录合法且不相等() {
+    let first = ChangeRecord::new("chg-甲", "同名档", "requirement", 1000, None, None);
+    let second = ChangeRecord::new("chg-乙", "同名档", "requirement", 1000, None, None);
 
-    // downgrade：v2 → V1，两新字段丢弃（六字段原形还原）
-    let record = ChangeRecord::new(
-        "双向降级",
-        "requirement",
-        1_727_000_000_000,
-        Some(r"D:\wt\seg\双向降级".to_owned()),
-        Some("0000000000000000000000000000000000000002".to_owned()),
+    assert_eq!(first.name, second.name, "同 name 合法（name 无唯一约束）");
+    assert_ne!(first.id, second.id, "id 互异（身份锚独立可辨）");
+    assert_ne!(
+        first, second,
+        "同 name 不同 id 两条记录不相等（name 非身份键）"
     );
-    let downgraded = ChangeRecordV1::from(record);
-    assert_eq!(
-        downgraded,
-        change_v1_record("双向降级"),
-        "降级还原六字段原形（新字段丢弃）"
-    );
+    assert_eq!(first.clone(), first, "PartialEq / Clone 自反");
 }
 
-/// new 增参：两 Option 显式传入构造字段一致；默认建档传 None = legacy 形态
-///（status 恒 active 起步、archived_at / active_phase 空起步既有语义持衡）。
+/// new 携 id 构造：`new(id, name, workflow_type, created_at, worktree,
+/// base_commit)` 逐字段对位；status 恒 active 起步 / archived_at / active_phase
+/// 空起步持衡。
 #[test]
-fn change_record_new增参两option显式传入与none_legacy形态() {
+fn change_record_new携id构造逐字段对位_active与空态起步() {
     let worktree = r"C:\app-data\worktrees\seg\fix-bug".to_owned();
     let base = "0000000000000000000000000000000000000001".to_owned();
     let record = ChangeRecord::new(
+        "chg-0001",
         "显式传入",
         "requirement",
         1_727_000_000_000,
         Some(worktree.clone()),
         Some(base.clone()),
     );
+    assert_eq!(
+        record.id, "chg-0001",
+        "id 入参逐字段对位（身份锚随构造入列）"
+    );
+    assert_eq!(record.name, "显式传入", "name 入参逐字段对位（普通属性）");
+    assert_eq!(record.workflow_type, "requirement");
+    assert_eq!(record.created_at, 1_727_000_000_000);
+    assert_eq!(record.status, ChangeStatus::Active, "status 恒 active 起步");
+    assert_eq!(record.archived_at, None, "archived_at 空起步持衡");
+    assert_eq!(record.active_phase, None, "active_phase 空起步持衡");
     assert_eq!(record.worktree.as_deref(), Some(worktree.as_str()));
     assert_eq!(record.base_commit.as_deref(), Some(base.as_str()));
-    assert_eq!(record.status, ChangeStatus::Active, "status 恒 active 起步");
 
-    let legacy_shape =
-        ChangeRecord::new("legacy形态", "requirement", 1_727_000_000_000, None, None);
+    let legacy_shape = ChangeRecord::new(
+        "chg-legacy",
+        "legacy形态",
+        "requirement",
+        1_727_000_000_000,
+        None,
+        None,
+    );
+    assert_eq!(legacy_shape.id, "chg-legacy");
+    assert_eq!(legacy_shape.name, "legacy形态");
     assert_eq!(
         legacy_shape.worktree, None,
         "None 传入 = legacy 主 root 形态"
     );
     assert_eq!(legacy_shape.base_commit, None);
-    assert_eq!(legacy_shape.archived_at, None, "archived_at 空起步持衡");
-    assert_eq!(legacy_shape.active_phase, None, "active_phase 空起步持衡");
+}
+
+/// 表名版本段公式锚（`{native_model_id}_{version}_{主键字段名小写}`——与
+/// store_test 物表名常量同源）：ChangeRecord 9:v3 / PhaseRecord 10:v2 /
+/// StepRecord 12:v2 / RunRecord 13:v2 / StoreMetaRecord 15:v1。
+#[test]
+fn 表名版本段_native_model_id与version断言_公式锚() {
+    let table = |id: u32, version: u32, key_field: &str| format!("{id}_{version}_{key_field}");
+
+    assert_eq!(
+        (
+            <ChangeRecord as native_model::Model>::native_model_id(),
+            <ChangeRecord as native_model::Model>::native_model_version()
+        ),
+        (9, 3),
+        "ChangeRecord 9:v3（身份锚换 id —— 物表 9_2_name → 9_3_id）"
+    );
+    assert_eq!(table(9, 3, "id"), "9_3_id", "change 建档物表名公式锚");
+
+    assert_eq!(
+        (
+            <crate::model::PhaseRecord as native_model::Model>::native_model_id(),
+            <crate::model::PhaseRecord as native_model::Model>::native_model_version()
+        ),
+        (10, 2),
+        "PhaseRecord 10:v2（归属列换锚 change → change_id）"
+    );
+    assert_eq!(table(10, 2, "id"), "10_2_id");
+    assert_eq!(
+        table(10, 2, "change_id"),
+        "10_2_change_id",
+        "归属列二级索引表名"
+    );
+
+    assert_eq!(
+        (
+            <crate::model::StepRecord as native_model::Model>::native_model_id(),
+            <crate::model::StepRecord as native_model::Model>::native_model_version()
+        ),
+        (12, 2),
+        "StepRecord 12:v2"
+    );
+    assert_eq!(table(12, 2, "id"), "12_2_id");
+    assert_eq!(table(12, 2, "change_id"), "12_2_change_id");
+
+    assert_eq!(
+        (
+            <crate::model::RunRecord as native_model::Model>::native_model_id(),
+            <crate::model::RunRecord as native_model::Model>::native_model_version()
+        ),
+        (13, 2),
+        "RunRecord 13:v2（主键 run_id）"
+    );
+    assert_eq!(table(13, 2, "run_id"), "13_2_run_id");
+    assert_eq!(table(13, 2, "change_id"), "13_2_change_id");
+
+    assert_eq!(
+        (
+            <crate::model::StoreMetaRecord as native_model::Model>::native_model_id(),
+            <crate::model::StoreMetaRecord as native_model::Model>::native_model_version()
+        ),
+        (15, 1),
+        "StoreMetaRecord 15:v1（库级格式版本标记，主键字段 key）"
+    );
+    assert_eq!(
+        table(15, 1, "key"),
+        "15_1_key",
+        "标记物表名公式锚（表内固定单键行 `format`——单键值非表名成分）"
+    );
+}
+
+/// StoreMetaRecord 单键固定形态往返：key="format" +
+/// format_version=WORKSPACE_STORE_FORMAT_VERSION 编解码往返相等；常量口径
+/// （探测判定源——D3）断言。
+#[test]
+fn store_meta_record往返_format单键与格式版本常量() {
+    use crate::model::{
+        StoreMetaRecord, WORKSPACE_STORE_FORMAT_KEY, WORKSPACE_STORE_FORMAT_VERSION,
+    };
+
+    assert_eq!(WORKSPACE_STORE_FORMAT_KEY, "format", "标记固定单键");
+    assert_eq!(
+        WORKSPACE_STORE_FORMAT_VERSION, 2,
+        "当前格式版本 = 2（change 身份锚 id 形态；1 = name 主键形态时代）"
+    );
+
+    let record = StoreMetaRecord {
+        key: WORKSPACE_STORE_FORMAT_KEY.to_owned(),
+        format_version: WORKSPACE_STORE_FORMAT_VERSION,
+    };
+    let bytes = native_model::encode(&record).expect("encode 标记应成功");
+    let (decoded, version) =
+        native_model::decode::<StoreMetaRecord>(bytes).expect("decode 标记应成功");
+    assert_eq!(version, 1, "StoreMetaRecord 15:v1 版本封装");
+    assert_eq!(decoded, record, "单键固定形态往返逐字段相等");
+    assert_eq!(decoded.key, "format");
+    assert_eq!(decoded.format_version, 2);
+
+    // serde camelCase 线格式（内部治理记录——不入信封注册表，无查看面）
+    let value = serde_json::to_value(&record).expect("serde 序列化应成功");
+    assert_eq!(value["key"], serde_json::json!("format"));
+    assert_eq!(value["formatVersion"], serde_json::json!(2));
 }
 
 // ---------------------------------------------------------------------------
@@ -1250,11 +1414,11 @@ fn change_record_new增参两option显式传入与none_legacy形态() {
 use crate::model::{pack_run_step_key, RunRecord, RunStepRecord};
 use workflow::state::{RunStartCommand, RunStatus, RunStepEntry, RunStepKind, RunStepStatus};
 
-/// run 发起命令 fixture（RunRecord::new 组装面）。
+/// run 发起命令 fixture（RunRecord::new 组装面；change_id = 身份锚 id）。
 fn run_start_command() -> RunStartCommand {
     RunStartCommand {
         run_id: "run-1727000000000".to_owned(),
-        change: "demo-change".to_owned(),
+        change_id: "chg-demo".to_owned(),
         started_at: 1_727_000_000_000,
     }
 }
@@ -1273,7 +1437,8 @@ fn run_step_entry(seq: u64, step: RunStepKind, status: RunStepStatus) -> RunStep
 }
 
 /// RunRecord 写读回环逐字段一致：status 五值各一轮（native_model encode/decode
-/// 往返）、reason / finished_at None 与 Some 两态（AC-1）。
+/// 往返）、reason / finished_at None 与 Some 两态（AC-1）；归属列 change_id
+/// （13:v2 换锚）往返保真。
 #[test]
 fn run_record写读回环_status五值与两态字段() {
     // running 起步形态（RunRecord::new 命令组装：无 reason、无收口时刻）
@@ -1285,6 +1450,7 @@ fn run_record写读回环_status五值与两态字段() {
         running.started_at, 1_727_000_000_000,
         "started_at 命令携带原值"
     );
+    assert_eq!(running.change_id, "chg-demo", "归属列 = 命令载荷 change_id");
 
     for status in [
         RunStatus::Running,
@@ -1295,7 +1461,7 @@ fn run_record写读回环_status五值与两态字段() {
     ] {
         let record = RunRecord {
             run_id: format!("run-{status:?}"),
-            change: "demo-change".to_owned(),
+            change_id: "chg-demo".to_owned(),
             status,
             reason: Some("终态记因".to_owned()),
             started_at: 1_727_000_000_000,
@@ -1304,8 +1470,12 @@ fn run_record写读回环_status五值与两态字段() {
         let bytes = native_model::encode(&record).expect("native_model encode 应成功");
         let (decoded, version) =
             native_model::decode::<RunRecord>(bytes).expect("native_model decode 应成功");
-        assert_eq!(version, 1, "native_model id=13 版本封装 version 1");
+        assert_eq!(
+            version, 2,
+            "native_model id=13 版本封装 version 2（归属列换锚）"
+        );
         assert_eq!(decoded, record, "{status:?} 回环逐字段相等（AC-1）");
+        assert_eq!(decoded.change_id, "chg-demo", "归属列 change_id 往返保真");
     }
 
     // reason / finished_at None 形态（running 行读回）
@@ -1337,7 +1507,10 @@ fn run_step_record写读回环_词汇与状态与两态() {
         let bytes = native_model::encode(&record).expect("encode 应成功");
         let (decoded, version) =
             native_model::decode::<RunStepRecord>(bytes).expect("decode 应成功");
-        assert_eq!(version, 1, "native_model id=14 版本封装 version 1");
+        assert_eq!(
+            version, 1,
+            "native_model id=14 版本封装 version 1（本变更零触点）"
+        );
         assert_eq!(decoded, record, "{kind:?}/{status:?} 回环逐字段相等");
         assert_eq!(decoded.step, kind);
         assert_eq!(decoded.status, status);

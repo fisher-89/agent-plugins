@@ -351,8 +351,32 @@ function agentInstance(
   return { id, name, engine, providerId: null, isDefault };
 }
 
-function selectOf(testId: string): HTMLSelectElement {
-  return screen.getByTestId(testId);
+/** agent-select 为 StandardSelect（base-ui Select）：testid 落在 SelectValue
+ * span（data-value 承载选中 id），trigger 为其外层 button（role=combobox）。 */
+function agentValue(): HTMLElement {
+  return screen.getByTestId('agent-select');
+}
+
+function agentTrigger(): HTMLElement {
+  const trigger = agentValue().closest('button');
+  if (!trigger) throw new Error('agent-select 不在 trigger button 内');
+  return trigger;
+}
+
+/** 打开 agent 选择器：base-ui Select 以 mousedown 打开、开启动作为 frame
+ * 异步执行，以 listbox 出现收敛最终态。 */
+async function openAgentSelect(): Promise<void> {
+  fireEvent.mouseDown(agentTrigger());
+  await screen.findByRole('listbox');
+}
+
+/** 打开选择器并点选指定 label 项：pointerDown 先行满足 base-ui 鼠标选择
+ * 守卫（allowMouseSelectionRef），click 提交选中。 */
+async function pickAgent(label: string): Promise<void> {
+  await openAgentSelect();
+  const option = within(screen.getByRole('listbox')).getByRole('option', { name: label });
+  fireEvent.pointerDown(option);
+  fireEvent.click(option);
 }
 
 function startCallAgent(): unknown {
@@ -362,12 +386,13 @@ function startCallAgent(): unknown {
 }
 
 describe('AgentDebugView：调试页 agent 选择（缺省 / 显式）', () => {
-  it('空清单：agent-select 仅存缺省项；不动发起 → invoke 入参 agent 为 null（后端解析默认 agent）', async () => {
+  it('空清单：agent-select 呈缺省占位、data-value 缺席、弹层零 option；不动发起 → invoke 入参 agent 为 null（后端解析默认 agent）', async () => {
     render(<AgentDebugView root={ROOT} />);
 
-    expect(selectOf('agent-select').value).toBe('');
-    const values = Array.from(selectOf('agent-select').options).map((option) => option.value);
-    expect(values).toEqual(['']);
+    expect(agentValue().getAttribute('data-value')).toBeNull();
+    expect(agentValue().textContent).toBe('请选择');
+    await openAgentSelect();
+    expect(within(screen.getByRole('listbox')).queryAllByRole('option')).toHaveLength(0);
 
     await startRun();
     expect(startCallAgent()).toBeNull();
@@ -377,9 +402,11 @@ describe('AgentDebugView：调试页 agent 选择（缺省 / 显式）', () => {
     instancesFixture = [agentInstance(3, 'cli-a', 'cli'), agentInstance(7, 'sdk-b', 'sdk', true)];
     render(<AgentDebugView root={ROOT} />);
 
-    await waitFor(() => expect(selectOf('agent-select').value).toBe('7'));
-    const values = Array.from(selectOf('agent-select').options).map((option) => option.value);
-    expect(values).toEqual(['', '3', '7']);
+    await waitFor(() => expect(agentValue().getAttribute('data-value')).toBe('7'));
+    expect(agentValue().textContent).toBe('sdk-b（sdk）');
+    await openAgentSelect();
+    const options = within(screen.getByRole('listbox')).getAllByRole('option');
+    expect(options.map((option) => option.textContent)).toEqual(['cli-a（cli）', 'sdk-b（sdk）']);
 
     await startRun();
     expect(startCallAgent()).toBe(7);
@@ -388,9 +415,10 @@ describe('AgentDebugView：调试页 agent 选择（缺省 / 显式）', () => {
   it('切至显式 agent 后发起 → start 透传 input.agent 至 sendMessage，invoke 入参 agent 为显式 id', async () => {
     instancesFixture = [agentInstance(3, 'cli-a', 'cli'), agentInstance(7, 'sdk-b', 'sdk', true)];
     render(<AgentDebugView root={ROOT} />);
-    await waitFor(() => expect(selectOf('agent-select').value).toBe('7'));
+    await waitFor(() => expect(agentValue().getAttribute('data-value')).toBe('7'));
 
-    fireEvent.change(selectOf('agent-select'), { target: { value: '3' } });
+    await pickAgent('cli-a（cli）');
+    expect(agentValue().getAttribute('data-value')).toBe('3');
     await startRun('显式 agent 调试轮');
 
     expect(startCallAgent()).toBe(3);

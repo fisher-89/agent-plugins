@@ -35,14 +35,14 @@ fn derive_verdict(checklist: &[ChecklistItem]) -> Verdict {
     }
 }
 
-/// 评估落账：校验（verdict-skipped 约束 / report 长度 / 表位 / 开相前置）→
-/// 经 [`ChangeStateStore`] port 缝单事务原子落库（PhaseRecord 行 + checklist
-/// 子行 + active_phase 清位）。落账不做 gate-check（gate 逻辑全归
-/// [`phase_next`](super::phase_next)），不触 backtrack 状态（归
-/// [`backtrack`](super::backtrack) 单点）。
+/// 评估落账（按 change **id** 寻址）：校验（verdict-skipped 约束 / report 长度
+/// / 表位 / 开相前置）→ 经 [`ChangeStateStore`] port 缝单事务原子落库
+///（PhaseRecord 行 + checklist 子行 + active_phase 清位）。落账不做
+/// gate-check（gate 逻辑全归 [`phase_next`](super::phase_next)），不触
+/// backtrack 状态（归 [`backtrack`](super::backtrack) 单点）。
 pub fn phase_log(
     store: &dyn ChangeStateStore,
-    change: &str,
+    change_id: &str,
     input: &PhaseLogInput,
 ) -> Result<PhaseLogOutcome, String> {
     let verdict = derive_verdict(&input.checklist);
@@ -60,9 +60,9 @@ pub fn phase_log(
     }
 
     let record = store
-        .get_change(change)
+        .get_change(change_id)
         .map_err(|error| error.to_string())?
-        .ok_or_else(|| format!("change \"{change}\" 未建档（无 ChangeRecord），无从落账"))?;
+        .ok_or_else(|| format!("change \"{change_id}\" 未建档（无 ChangeRecord），无从落账"))?;
     let table = phase_table(&record.workflow_type).ok_or_else(|| {
         format!(
             "workflow_type \"{}\" 不受支持（V1 仅 requirement 工作流）",
@@ -96,7 +96,7 @@ pub fn phase_log(
 
     let attempt = store
         .log_phase(&PhaseLogCommand {
-            change: change.to_owned(),
+            change_id: change_id.to_owned(),
             phase: input.phase.clone(),
             verdict,
             report: input.report.clone(),

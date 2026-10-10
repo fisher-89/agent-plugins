@@ -1,15 +1,18 @@
 //! `write::archive` 的单元测试（test-design「archive.rs ->
-//! archive_test.rs」节，新建）：归档双写（D6）——db 建档校验先于一切变更 →
-//! 目录改名（active → archive 树 `YYYY-MM-DD-<name>`，目标已存在先查拒绝）→
-//! db 翻转（status=archived + archived_at，主键 name 不变）；续半边重试仅补
-//! db 翻转不重复改名（含已翻转幂等）；无建档目录显式拒绝；翻转失败呈现半
-//! 完成态（目录已改名事实由读侧呈现，重试路径可达）；双树同名 active 优先。
+//! archive_test.rs」节）：归档双写（D6）按 change **id** 寻址——db 建档校验
+//! 先于一切变更 → 目录改名（active → archive 树 `YYYY-MM-DD-<name>`，目标已
+//! 存在先查拒绝）→ db 翻转（status=archived + archived_at）；磁盘面目录名 /
+//! 定位判定恒由 `record.name` 供给（id → 记录 → name 分辨率单点），记录
+//! `id` / `name` 双不变；续半边重试仅补 db 翻转不重复改名（含已翻转幂等）；
+//! 未建档 id 显式拒绝（零 fs 零 db 变更）；翻转失败呈现半完成态（目录已改名
+//! 事实由读侧呈现，重试路径可达）；双树同名 active 精确名优先。
 //!
 //! Mock策略（test-design 本节 Mock 表）：db 半边以进程内假件实现
-//! [`ChangeStateStore`]（可编程 `set_archived` Err / 调用计数；真实 tempfile
-//! Store 组合行收 tests/corpus_golden_test.rs 集成面——workflow 自环 dev-dep
-//! 在 lib-test 与普通 lib 双工件下类型不统一，见变更报告）；文件系统真实
-//! tempdir Layout（active / archive 树真实改名，不经 mock）。
+//! [`ChangeStateStore`]（可编程 `set_archived` Err / 调用计数与 id 捕获；真实
+//! tempfile Store 组合行收 tests/corpus_golden_test.rs 集成面——workflow 自环
+//! dev-dep 在 lib-test 与普通 lib 双工件下类型不统一，见变更报告）；文件系统
+//! 真实 tempdir Layout（active / archive 树真实改名，不经 mock）。id 与 name
+//! 字面量各异：一切寻址断言以 id 为键，磁盘 / branch 面断言以 name 为值。
 
 use std::fs;
 use std::path::Path;
@@ -24,7 +27,12 @@ use crate::state::{
     StepCommand, StepStateRecord, StoreFault,
 };
 
-const CHANGE: &str = "seed-change";
+/// 身份锚字面量（归档入参——一切寻址以 id 为准）。
+const CHANGE_ID: &str = "0198f7a0-0000-7000-8000-0000000000d1";
+/// change 名（磁盘目录名 / branch 名供给值——裸名，非身份键）。
+const CHANGE_NAME: &str = "seed-change";
+/// 库内不存在的 id（未建档拒绝面）。
+const UNKNOWN_ID: &str = "0198f7a0-0000-7000-8000-0000000000ff";
 
 /// 确定性时间戳基（UTC unix millis）。
 const T0: i64 = 1_727_000_000_000;
@@ -69,8 +77,8 @@ impl Env {
         fs::write(dir.join("proposal.md"), "# 归档").expect("预置产物失败");
     }
 
-    fn archive(&self, name: &str) -> Result<ArchiveOutcome, String> {
-        archive(&self.layout, &self.store, name)
+    fn archive(&self, id: &str) -> Result<ArchiveOutcome, String> {
+        archive(&self.layout, &self.store, id)
     }
 
     /// archive 树中后缀恰为 `<name>` 的目录名集合（目标改名断言的观察面）。
@@ -143,7 +151,8 @@ impl ArchiveStore {
 
     fn active_record() -> ChangeStateRecord {
         ChangeStateRecord {
-            name: CHANGE.to_owned(),
+            id: CHANGE_ID.to_owned(),
+            name: CHANGE_NAME.to_owned(),
             workflow_type: "requirement".to_owned(),
             created_at: T0,
             status: ChangeStatus::Active,
@@ -185,6 +194,16 @@ impl ArchiveStore {
         self.set_calls.lock().expect("调用锁不可中毒").len()
     }
 
+    /// 翻转调用捕获的 id 序列（翻转按 id 下发断言面）。
+    fn set_ids(&self) -> Vec<String> {
+        self.set_calls
+            .lock()
+            .expect("调用锁不可中毒")
+            .iter()
+            .map(|(id, _)| id.clone())
+            .collect()
+    }
+
     fn record(&self) -> ChangeStateRecord {
         self.record
             .lock()
@@ -195,8 +214,13 @@ impl ArchiveStore {
 }
 
 impl ChangeStateStore for ArchiveStore {
-    fn get_change(&self, _name: &str) -> Result<Option<ChangeStateRecord>, StoreFault> {
-        Ok(self.record.lock().expect("记录锁不可中毒").clone())
+    fn get_change(&self, id: &str) -> Result<Option<ChangeStateRecord>, StoreFault> {
+        Ok(self
+            .record
+            .lock()
+            .expect("记录锁不可中毒")
+            .clone()
+            .filter(|record| record.id == id))
     }
 
     fn list_change_records(&self) -> Result<Vec<ChangeStateRecord>, StoreFault> {
@@ -209,7 +233,7 @@ impl ChangeStateStore for ArchiveStore {
 
     fn list_steps(
         &self,
-        _change: &str,
+        _change_id: &str,
         _run_id: Option<&str>,
     ) -> Result<Vec<StepStateRecord>, StoreFault> {
         unimplemented!("本用例不可达")
@@ -219,13 +243,13 @@ impl ChangeStateStore for ArchiveStore {
         unimplemented!("本用例不可达")
     }
 
-    fn delete_change_record(&self, _name: &str) -> Result<bool, StoreFault> {
+    fn delete_change_record(&self, _id: &str) -> Result<bool, StoreFault> {
         unimplemented!("本用例不可达")
     }
 
     fn start_phase(
         &self,
-        _change: &str,
+        _change_id: &str,
         _phase: &str,
         _now: i64,
     ) -> Result<crate::state::PhaseStartState, StoreFault> {
@@ -242,18 +266,18 @@ impl ChangeStateStore for ArchiveStore {
 
     fn amend_decision_session(
         &self,
-        _change: &str,
+        _change_id: &str,
         _phase: &str,
         _session_id: &str,
     ) -> Result<(), StoreFault> {
         unimplemented!("本用例不可达")
     }
 
-    fn set_archived(&self, name: &str, archived_at: i64) -> Result<(), StoreFault> {
+    fn set_archived(&self, id: &str, archived_at: i64) -> Result<(), StoreFault> {
         self.set_calls
             .lock()
             .expect("调用锁不可中毒")
-            .push((name.to_owned(), archived_at));
+            .push((id.to_owned(), archived_at));
         if let Some(fault) = self.set_fault.lock().expect("故障锁不可中毒").clone() {
             return Err(fault);
         }
@@ -289,19 +313,20 @@ impl ChangeStateStore for ArchiveStore {
 // 正向：双写成功 / 续半边重试（D6）
 // ---------------------------------------------------------------------------
 
-/// 建档 + 磁盘目录在场 → 目录改名入 archive 树（日期前缀）+ db
-/// status=archived / archived_at 落库；主键 name 不变；
-/// ArchiveOutcome.archived_date 为 UTC 当日（AC-7）。
+/// 建档（携 id）+ 磁盘目录在场 → `archive(layout, store, id)`：目录改名入
+/// archive 树（日期前缀）+ db status=archived / archived_at 落库；记录 id /
+/// name 双不变（磁盘面名字自记录供给）；ArchiveOutcome.archived_date 为 UTC
+/// 当日。
 #[test]
-fn 双写成功_目录改名入archive树且db翻转() {
+fn 双写成功按id_目录改名入archive树且db翻转() {
     let env = Env::new("dual-write");
-    env.make_active_dir(CHANGE);
+    env.make_active_dir(CHANGE_NAME);
     let before = utc_date_today();
 
-    let outcome = env.archive(CHANGE).expect("归档应成功");
+    let outcome = env.archive(CHANGE_ID).expect("归档应成功");
 
     let after = utc_date_today();
-    assert_eq!(outcome.name, CHANGE, "主键 name 不随目录改名变");
+    assert_eq!(outcome.name, CHANGE_NAME, "出线 name 自记录供给（裸名）");
     assert!(
         outcome.archived_date == before || outcome.archived_date == after,
         "archived_date 为 UTC 当日，实际: {}",
@@ -310,37 +335,44 @@ fn 双写成功_目录改名入archive树且db翻转() {
 
     // fs 半边：active 目录消失、archive 树出现 `YYYY-MM-DD-<name>` 目录
     assert!(
-        !env.layout.changes_root.join(CHANGE).exists(),
+        !env.layout.changes_root.join(CHANGE_NAME).exists(),
         "active 树源目录已被改名挪走"
     );
-    let archived_dirs = env.archive_dirs_suffixed(CHANGE);
+    let archived_dirs = env.archive_dirs_suffixed(CHANGE_NAME);
     assert_eq!(archived_dirs.len(), 1, "archive 树恰一个后缀命中目录");
     assert!(
-        archived_dirs[0] == format!("{before}-{CHANGE}")
-            || archived_dirs[0] == format!("{after}-{CHANGE}"),
-        "目标目录名带当日日期前缀，实际: {}",
+        archived_dirs[0] == format!("{before}-{CHANGE_NAME}")
+            || archived_dirs[0] == format!("{after}-{CHANGE_NAME}"),
+        "目标目录名带当日日期前缀（name 供给），实际: {}",
         archived_dirs[0]
     );
 
-    // db 半边：status 翻转 + archived_at 在场 + 主键 name 不变
+    // db 半边：status 翻转 + archived_at 在场 + id / name 双不变
     let record = env.store.record();
     assert_eq!(record.status, ChangeStatus::Archived);
     assert!(record.archived_at.is_some(), "archived_at 落库");
-    assert_eq!(record.name, CHANGE);
+    assert_eq!(record.id, CHANGE_ID, "记录 id 不随目录改名变");
+    assert_eq!(record.name, CHANGE_NAME, "记录 name 不随目录改名变");
+    assert_eq!(
+        env.store.set_ids(),
+        vec![CHANGE_ID.to_owned()],
+        "翻转按 id 下发（寻址恒以 id 为键）"
+    );
     assert_eq!(env.store.set_call_count(), 1, "翻转恰一次");
 }
 
 /// 续半边重试（D6）：预置半完成态（目录已在 archive 树 + db 仍 active）→
-/// 重试仅补 db 翻转，不重复改名（archive 树源目录不被二次挪动）。
+/// 重试仅补 db 翻转，不重复改名（archive 树源目录不被二次挪动）；判定点
+/// （前缀后缀匹配）施于记录供给的 name。
 #[test]
 fn 续半边重试_仅补db翻转不重复改名() {
     let env = Env::new("resume-half");
     let archived_name = "2026-10-06-seed-change";
     env.make_archive_dir(archived_name);
 
-    let outcome = env.archive(CHANGE).expect("续半边归档应成功");
+    let outcome = env.archive(CHANGE_ID).expect("续半边归档应成功");
 
-    assert_eq!(outcome.name, CHANGE);
+    assert_eq!(outcome.name, CHANGE_NAME);
     assert_eq!(
         outcome.archived_date, "2026-10-06",
         "续半边命中带前缀目录时取前缀日期"
@@ -350,11 +382,13 @@ fn 续半边重试_仅补db翻转不重复改名() {
         env.layout.archive_root.join(archived_name).is_dir(),
         "archive 树源目录不被二次挪动"
     );
-    assert_eq!(env.archive_dirs_suffixed(CHANGE).len(), 1);
-    // db 半边补齐翻转
+    assert_eq!(env.archive_dirs_suffixed(CHANGE_NAME).len(), 1);
+    // db 半边补齐翻转（按 id 下发）
     let record = env.store.record();
     assert_eq!(record.status, ChangeStatus::Archived);
     assert!(record.archived_at.is_some());
+    assert_eq!(record.id, CHANGE_ID, "记录 id 不变");
+    assert_eq!(env.store.set_ids(), vec![CHANGE_ID.to_owned()]);
 }
 
 /// 续半边幂等：db 已 archived + archive 树命中 → Ok 且不再 set_archived
@@ -366,35 +400,71 @@ fn 已归档续半边幂等_不再翻转() {
     // 假件换为已翻转记录
     let store = ArchiveStore::archived();
 
-    let outcome = archive(&env.layout, &store, CHANGE).expect("幂等续半边应 Ok");
+    let outcome = archive(&env.layout, &store, CHANGE_ID).expect("幂等续半边应 Ok");
 
-    assert_eq!(outcome.name, CHANGE);
+    assert_eq!(outcome.name, CHANGE_NAME);
     assert_eq!(outcome.archived_date, "2026-10-06");
     assert_eq!(store.set_call_count(), 0, "已翻转不再二次 set_archived");
 }
 
 // ---------------------------------------------------------------------------
-// 异常：无建档拒绝 / 目标冲突 / 翻转失败半完成态
+// 异常：未建档 id 拒绝 / 目标冲突 / 翻转失败半完成态
 // ---------------------------------------------------------------------------
 
-/// active 树目录存在但 db 无记录 → 显式 `Err` 且零 fs 零 db 变更（拒绝先于
-/// 一切变更——存量 CLI 目录不可经桌面归档的显式面）。
+/// 未知 id（库内无该 id 记录）→ 显式 `Err` 且零 fs 零 db 变更（拒绝先于一切
+/// 变更——id 寻址 miss 面，不做任何磁盘目录解析回退）；错误文案呈现 id 语境。
+#[test]
+fn 未建档id拒绝_零fs零db变更且文案携id() {
+    let env = Env::new("unknown-id");
+    env.make_active_dir(CHANGE_NAME);
+
+    let error = env.archive(UNKNOWN_ID).expect_err("未建档 id 应显式 Err");
+
+    assert!(
+        error.contains("未建档") && error.contains(UNKNOWN_ID),
+        "Err 显式记因建档缺失（携 id 语境），实际: {error}"
+    );
+    assert!(
+        !error.contains(CHANGE_NAME),
+        "未建档拒绝面不落磁盘名感知（name 未解析），实际: {error}"
+    );
+    assert!(
+        env.layout.changes_root.join(CHANGE_NAME).is_dir(),
+        "零 fs 变更"
+    );
+    assert!(
+        env.archive_dirs_suffixed(CHANGE_NAME).is_empty(),
+        "archive 树零新增"
+    );
+    assert_eq!(env.store.set_call_count(), 0, "db 零变更（零翻转调用）");
+    assert_eq!(
+        env.store.record().status,
+        ChangeStatus::Active,
+        "记录零翻转"
+    );
+}
+
+/// active / archive 两树目录均在场但 db 无记录（假件 missing）→ 显式 `Err`
+/// 且零 fs 零 db 变更（存量 CLI 目录不可经桌面归档的显式面）。
 #[test]
 fn 无建档拒绝_零fs零db变更() {
     let env = Env::new("no-record");
-    env.make_active_dir(CHANGE);
+    env.make_active_dir(CHANGE_NAME);
     // 假件换为无建档
     let store = ArchiveStore::missing();
 
-    let error = archive(&env.layout, &store, CHANGE).expect_err("无建档应 Err");
+    let error = archive(&env.layout, &store, CHANGE_ID).expect_err("无建档应 Err");
 
     assert!(
-        error.contains("未建档") && error.contains(CHANGE),
-        "Err 显式记因建档缺失，实际: {error}"
+        error.contains("未建档") && error.contains(CHANGE_ID),
+        "Err 显式记因建档缺失并携 id，实际: {error}"
     );
-    assert!(env.layout.changes_root.join(CHANGE).is_dir(), "零 fs 变更");
     assert!(
-        env.archive_dirs_suffixed(CHANGE).is_empty(),
+        env.layout.changes_root.join(CHANGE_NAME).is_dir(),
+        "零 fs 变更"
+    );
+    assert!(
+        env.archive_dirs_suffixed(CHANGE_NAME).is_empty(),
         "archive 树零新增"
     );
     assert_eq!(store.set_call_count(), 0, "db 零变更（零翻转调用）");
@@ -404,47 +474,57 @@ fn 无建档拒绝_零fs零db变更() {
 #[test]
 fn 目标冲突先查拒绝_db零变更() {
     let env = Env::new("target-conflict");
-    env.make_active_dir(CHANGE);
+    env.make_active_dir(CHANGE_NAME);
     let today = utc_date_today();
-    env.make_archive_dir(&format!("{today}-{CHANGE}"));
+    env.make_archive_dir(&format!("{today}-{CHANGE_NAME}"));
 
-    let error = env.archive(CHANGE).expect_err("归档目标已存在应 Err");
+    let error = env.archive(CHANGE_ID).expect_err("归档目标已存在应 Err");
 
     assert!(error.contains("已存在"), "先查拒绝记因，实际: {error}");
     assert_eq!(env.store.record().status, ChangeStatus::Active, "db 零变更");
     assert_eq!(env.store.set_call_count(), 0, "翻转调用零下发");
     assert!(
-        env.layout.changes_root.join(CHANGE).is_dir(),
+        env.layout.changes_root.join(CHANGE_NAME).is_dir(),
         "active 树源目录零触碰"
     );
 }
 
 /// 翻转失败半完成态：假件 store `set_archived` 注入 `Err` → `Err` 呈现半
-/// 完成态；目录已改名事实由读侧呈现（重试路径可达）。
+/// 完成态（携记录 name 语境与重试引导）；目录已改名事实由读侧呈现（重试路径
+/// 可达）。
 #[test]
 fn 翻转失败呈现半完成态且目录已改名() {
     let env = Env::new("flip-fail");
-    env.make_active_dir(CHANGE);
+    env.make_active_dir(CHANGE_NAME);
     env.store
         .inject_set_fault(StoreFault::Db("注入的翻转故障".to_owned()));
 
-    let error = env.archive(CHANGE).expect_err("翻转失败应 Err");
+    let error = env.archive(CHANGE_ID).expect_err("翻转失败应 Err");
 
     assert!(
         error.contains("翻转失败") && error.contains("注入的翻转故障"),
         "Err 呈现半完成态与故障记因，实际: {error}"
     );
+    assert!(
+        error.contains(CHANGE_NAME),
+        "半完成态文案呈记录 name 语境，实际: {error}"
+    );
     assert_eq!(env.store.set_call_count(), 1, "翻转恰调用一次");
+    assert_eq!(
+        env.store.set_ids(),
+        vec![CHANGE_ID.to_owned()],
+        "翻转按 id 下发"
+    );
     // 目录已改名事实（fs 半边先行）：active 消失、archive 树带当日前缀目录在场
     assert!(
-        !env.layout.changes_root.join(CHANGE).exists(),
+        !env.layout.changes_root.join(CHANGE_NAME).exists(),
         "active 树源目录已被改名挪走（重试路径可达的续半边前提）"
     );
     let today = utc_date_today();
     assert!(
         env.layout
             .archive_root
-            .join(format!("{today}-{CHANGE}"))
+            .join(format!("{today}-{CHANGE_NAME}"))
             .is_dir(),
         "archive 树目标目录在场"
     );
@@ -459,11 +539,11 @@ fn 翻转失败呈现半完成态且目录已改名() {
 #[test]
 fn 双树同名_active精确名优先() {
     let env = Env::new("dual-tree");
-    env.make_active_dir(CHANGE);
+    env.make_active_dir(CHANGE_NAME);
     env.make_archive_dir("2026-01-01-seed-change");
     let before = utc_date_today();
 
-    let outcome = env.archive(CHANGE).expect("归档应成功");
+    let outcome = env.archive(CHANGE_ID).expect("归档应成功");
 
     let after = utc_date_today();
     assert!(
@@ -472,7 +552,7 @@ fn 双树同名_active精确名优先() {
         outcome.archived_date
     );
     assert!(
-        !env.layout.changes_root.join(CHANGE).exists(),
+        !env.layout.changes_root.join(CHANGE_NAME).exists(),
         "active 树源目录被改名（active 精确名优先）"
     );
     assert!(
@@ -482,31 +562,35 @@ fn 双树同名_active精确名优先() {
             .is_dir(),
         "archive 树既有目录不被触碰"
     );
-    assert_eq!(env.archive_dirs_suffixed(CHANGE).len(), 2, "仅新增当日目录");
+    assert_eq!(
+        env.archive_dirs_suffixed(CHANGE_NAME).len(),
+        2,
+        "仅新增当日目录"
+    );
 }
 
 /// archive 树无日期前缀的同名目录（外部手工挪入）：定位命中（精确名）→
 /// 续半边分支仅补 db 翻转。
-/// 注记：test-design 本行原判「不识别为续半边对象 → 常规 Err」与实现不符
+/// 注记：test-design 本行（判定点语义零改动 + name 自记录供给）与实现一致
 ///（`locate_archived_dir` 精确名命中在先、无前缀亦命中，`prefix_date=None`
-/// 时 Outcome.archived_date 取当日）——本用例按实现行为钉住（discrepancy
-/// 见变更报告）。
+/// 时 Outcome.archived_date 取当日）；源文件模块注释「无前缀的同名目录不识别
+/// 为续半边对象，走未命中 Err」为过期注释（discrepancy 见变更报告）。
 #[test]
 fn archive树无前缀同名目录_续半边命中补翻转() {
     let env = Env::new("no-prefix-archive");
-    env.make_archive_dir(CHANGE);
+    env.make_archive_dir(CHANGE_NAME);
     let today = utc_date_today();
 
-    let outcome = env.archive(CHANGE).expect("无前缀同名目录应命中续半边");
+    let outcome = env.archive(CHANGE_ID).expect("无前缀同名目录应命中续半边");
 
-    assert_eq!(outcome.name, CHANGE);
+    assert_eq!(outcome.name, CHANGE_NAME);
     assert!(
         outcome.archived_date == today,
         "无前缀命中取当日，实际: {}",
         outcome.archived_date
     );
     assert!(
-        env.layout.archive_root.join(CHANGE).is_dir(),
+        env.layout.archive_root.join(CHANGE_NAME).is_dir(),
         "无前缀目录原位不动（不重复改名）"
     );
     assert_eq!(
@@ -514,6 +598,7 @@ fn archive树无前缀同名目录_续半边命中补翻转() {
         ChangeStatus::Archived,
         "db 补翻转"
     );
+    assert_eq!(env.store.set_ids(), vec![CHANGE_ID.to_owned()]);
 }
 
 /// 两树均未命中（db 有档、目录不存在）→ `Err`（不虚构归档）。
@@ -521,11 +606,11 @@ fn archive树无前缀同名目录_续半边命中补翻转() {
 fn 两树均未命中_err() {
     let env = Env::new("no-dirs");
 
-    let error = env.archive(CHANGE).expect_err("目录缺失应 Err");
+    let error = env.archive(CHANGE_ID).expect_err("目录缺失应 Err");
 
     assert!(
-        error.contains("未找到") && error.contains(CHANGE),
-        "Err 记因两树未命中，实际: {error}"
+        error.contains("未找到") && error.contains(CHANGE_NAME),
+        "Err 记因两树未命中（呈现记录 name 语境），实际: {error}"
     );
     assert_eq!(env.store.record().status, ChangeStatus::Active, "db 零变更");
     assert_eq!(env.store.set_call_count(), 0, "翻转调用零下发");
@@ -538,8 +623,8 @@ fn 两树均未命中_err() {
 
 /// 未 merge 引导拒绝：记录携 `worktree=Some` 且主仓 active / archive 两树均
 /// 未命中 → `Err` 引导「先 merge worktree 分支 change/{name} 回主仓再归档」
-///（含 change 名与 branch 名文案锚；**非**泛化「目录未找到」——负断言不含
-/// 该旧文案）；db 与磁盘零变化。
+///（含 change 名与 branch 名文案锚——name 自记录供给；**非**泛化「目录未找到」
+/// ——负断言不含该旧文案）；db 与磁盘零变化。
 #[test]
 fn 未merge引导拒绝_显式引导merge且非泛化未找到() {
     let env = Env::new("worktree-unmerged");
@@ -549,15 +634,15 @@ fn 未merge引导拒绝_显式引导merge且非泛化未找到() {
     ));
     let store = ArchiveStore::active_with_worktree(&worktree);
 
-    let error = archive(&env.layout, &store, CHANGE).expect_err("未 merge 应显式拒绝");
+    let error = archive(&env.layout, &store, CHANGE_ID).expect_err("未 merge 应显式拒绝");
 
     assert!(
-        error.contains("merge") && error.contains(&format!("change/{CHANGE}")),
-        "Err 引导先 merge worktree 分支 change/{CHANGE}（含 branch 名锚），实际: {error}"
+        error.contains("merge") && error.contains(&format!("change/{CHANGE_NAME}")),
+        "Err 引导先 merge worktree 分支 change/{CHANGE_NAME}（含 branch 名锚），实际: {error}"
     );
     assert!(
-        error.contains(CHANGE),
-        "引导文案含 change 名，实际: {error}"
+        error.contains(CHANGE_NAME),
+        "引导文案含记录 name（磁盘 / branch 面供给值），实际: {error}"
     );
     assert!(
         !error.contains("未找到"),
@@ -567,7 +652,7 @@ fn 未merge引导拒绝_显式引导merge且非泛化未找到() {
     assert_eq!(store.record().status, ChangeStatus::Active, "db 零变更");
     assert_eq!(store.set_call_count(), 0, "翻转调用零下发");
     assert!(
-        env.archive_dirs_suffixed(CHANGE).is_empty(),
+        env.archive_dirs_suffixed(CHANGE_NAME).is_empty(),
         "archive 树零新增"
     );
 }
@@ -578,29 +663,30 @@ fn 未merge引导拒绝_显式引导merge且非泛化未找到() {
 #[test]
 fn merge后零特判_既有双写成功输出等形() {
     let env = Env::new("worktree-merged");
-    env.make_active_dir(CHANGE);
+    env.make_active_dir(CHANGE_NAME);
     let worktree =
         std::env::temp_dir().join(format!("workflow-archive-wt-{}-merged", std::process::id()));
     let store = ArchiveStore::active_with_worktree(&worktree);
     let before = utc_date_today();
 
-    let outcome = archive(&env.layout, &store, CHANGE).expect("merge 后归档应成功");
+    let outcome = archive(&env.layout, &store, CHANGE_ID).expect("merge 后归档应成功");
 
     let after = utc_date_today();
     // 与无 worktree 记录的成功行输出等形（双写成功行断言同构复用）
-    assert_eq!(outcome.name, CHANGE, "主键 name 不变");
+    assert_eq!(outcome.name, CHANGE_NAME, "出线 name 自记录供给");
     assert!(
         outcome.archived_date == before || outcome.archived_date == after,
         "archived_date 为 UTC 当日，实际: {}",
         outcome.archived_date
     );
     assert!(
-        !env.layout.changes_root.join(CHANGE).exists(),
+        !env.layout.changes_root.join(CHANGE_NAME).exists(),
         "active 树源目录改名挪走（常规双写路径）"
     );
-    let archived_dirs = env.archive_dirs_suffixed(CHANGE);
+    let archived_dirs = env.archive_dirs_suffixed(CHANGE_NAME);
     assert_eq!(archived_dirs.len(), 1, "archive 树恰一个日期前缀目录");
     assert_eq!(store.record().status, ChangeStatus::Archived, "db 翻转");
+    assert_eq!(store.record().id, CHANGE_ID, "记录 id 不变");
     assert_eq!(store.set_call_count(), 1, "翻转恰一次");
 }
 
@@ -616,7 +702,7 @@ fn worktree记录archive树命中续半边_仅补翻转() {
         std::env::temp_dir().join(format!("workflow-archive-wt-{}-resume", std::process::id()));
     let store = ArchiveStore::active_with_worktree(&worktree);
 
-    let outcome = archive(&env.layout, &store, CHANGE).expect("续半边应成功");
+    let outcome = archive(&env.layout, &store, CHANGE_ID).expect("续半边应成功");
 
     assert_eq!(outcome.archived_date, "2026-10-06", "前缀日期沿用");
     assert!(
@@ -624,6 +710,7 @@ fn worktree记录archive树命中续半边_仅补翻转() {
         "archive 树源目录不被二次挪动（仅补翻转）"
     );
     assert_eq!(store.record().status, ChangeStatus::Archived, "db 补翻转");
+    assert_eq!(store.set_ids(), vec![CHANGE_ID.to_owned()]);
 }
 
 /// legacy 未命中持衡：`worktree=None` + 两树未命中 → 既有泛化「目录未找到」
@@ -636,7 +723,7 @@ fn legacy未命中持衡_泛化目录未找到原样() {
         std::env::temp_dir().join(format!("workflow-archive-wt-{}-legacy", std::process::id()));
 
     // legacy 半边（既有行为）：泛化未找到文案
-    let legacy_error = env.archive(CHANGE).expect_err("两树未命中应 Err");
+    let legacy_error = env.archive(CHANGE_ID).expect_err("两树未命中应 Err");
     assert!(
         legacy_error.contains("未找到") && !legacy_error.contains("merge"),
         "legacy 记录 → 既有泛化「目录未找到」Err 原样（零 worktree 语境），实际: {legacy_error}"
@@ -644,7 +731,7 @@ fn legacy未命中持衡_泛化目录未找到原样() {
 
     // worktree 半边（新行为）：merge-first 引导文案——两文案互斥
     let store = ArchiveStore::active_with_worktree(&worktree);
-    let worktree_error = archive(&env.layout, &store, CHANGE).expect_err("应 Err");
+    let worktree_error = archive(&env.layout, &store, CHANGE_ID).expect_err("应 Err");
     assert!(
         worktree_error.contains("merge") && !worktree_error.contains("未找到"),
         "worktree 记录 → merge-first 引导（与 legacy 文案互斥），实际: {worktree_error}"
@@ -657,7 +744,7 @@ fn legacy未命中持衡_泛化目录未找到原样() {
 #[test]
 fn 归档成功行_worktree目录原样未动() {
     let env = Env::new("worktree-untouched");
-    env.make_active_dir(CHANGE);
+    env.make_active_dir(CHANGE_NAME);
     // worktree 目录实体在场（真实 tempdir + 探针文件——归档前后逐字节对照）
     let worktree = tempfile::Builder::new()
         .prefix(&format!(
@@ -666,12 +753,12 @@ fn 归档成功行_worktree目录原样未动() {
         ))
         .tempdir()
         .expect("创建 worktree 临时目录失败");
-    let probe = worktree.path().join("openspec/changes").join(CHANGE);
+    let probe = worktree.path().join("openspec/changes").join(CHANGE_NAME);
     fs::create_dir_all(&probe).expect("预置 worktree 树失败");
     fs::write(probe.join("explore.md"), "# worktree 侧产物").expect("预置探针失败");
 
     let store = ArchiveStore::active_with_worktree(worktree.path());
-    archive(&env.layout, &store, CHANGE).expect("归档应成功");
+    archive(&env.layout, &store, CHANGE_ID).expect("归档应成功");
 
     // worktree 目录原样未动（归档不触碰 worktree / branch——清理为手动边界）
     assert!(probe.join("explore.md").is_file(), "worktree 目录原样未动");

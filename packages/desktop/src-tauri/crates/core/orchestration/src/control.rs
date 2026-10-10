@@ -1,6 +1,6 @@
-//! run 控制注册表（进程内，键 = `(workspace root, change)` 复合——design D10
-//! 修掉两 workspace 同名 change 假冲突先例 bug，worktree 隔离解锁同 workspace
-//! 多 change 真并行）：并行冲突检测、cancel watch、当前会话 id 槽、ask /
+//! run 控制注册表（进程内，键 = `(workspace root, change id)` 复合——design
+//! D10 修掉两 workspace 改名 / 同名前缀假冲突先例 bug，worktree 隔离解锁同
+//! workspace 多 change 真并行）：并行冲突检测、cancel watch、当前会话 id 槽、ask /
 //! 确认单次应答通道、`RunNotice` broadcast、重挂快照。run 生命周期由本注册
 //! 表承载**在飞 run 与停等面**，步累积器驻本表条目（emit 序追加，全词汇
 //! 10 类）；run 运行史落库 RunRecord / RunStepRecord 两表（unify-run-state-
@@ -61,23 +61,23 @@ impl ChangeFlowControl {
         Self::default()
     }
 
-    /// 发起登记：同 `(root, change)` 已有 run → `Err`（并行冲突；异 workspace
-    /// 同名 change 不误拒）；否则登记 cancel watch 与 broadcast，返回 walker
+    /// 发起登记：同 `(root, change_id)` 已有 run → `Err`（并行冲突；异
+    /// workspace / 异 id 不误拒）；否则登记 cancel watch 与 broadcast，返回 walker
     /// 控制柄（guard 内持注册表 Arc——命令层以 `Arc<ChangeFlowControl>` 托
     /// 管，与 StopRegistry 同型）。`started_at` 为发起时刻（命令层铸造，与
     /// `RunRequest.started_at` 同值——corpus 确定性由命令携带时间戳保证）。
     pub fn begin_run(
         self: &Arc<Self>,
         root: &str,
-        change: &str,
+        change_id: &str,
         run_id: String,
         started_at: i64,
     ) -> Result<RunGuard, String> {
-        let key = (root.to_owned(), change.to_owned());
+        let key = (root.to_owned(), change_id.to_owned());
         let mut runs = self.runs.lock().expect("run 注册表锁不可中毒");
         if runs.contains_key(&key) {
             return Err(format!(
-                "change \"{change}\" 已有运行中的 run，不可并行发起"
+                "change \"{change_id}\" 已有运行中的 run，不可并行发起"
             ));
         }
         let (updates, _) = broadcast::channel(UPDATE_CAPACITY);
@@ -108,20 +108,20 @@ impl ChangeFlowControl {
 
     /// 订阅 run 状态流（`change_flow_start` / `change_flow_watch` 共用入口）；
     /// 无运行 run → `None`。
-    pub fn subscribe(&self, root: &str, change: &str) -> Option<broadcast::Receiver<RunNotice>> {
+    pub fn subscribe(&self, root: &str, change_id: &str) -> Option<broadcast::Receiver<RunNotice>> {
         self.runs
             .lock()
             .expect("run 注册表锁不可中毒")
-            .get(&(root.to_owned(), change.to_owned()))
+            .get(&(root.to_owned(), change_id.to_owned()))
             .map(|entry| entry.updates.subscribe())
     }
 
     /// 置 cancel 标志（停止不必先应答停等）；miss（无运行 run）幂等返回
     /// false。`send_replace` 直写 watch 槽位——无订阅者时置位不丢（`send`
     /// 在无 receiver 时是 no-op，迟滞订阅会读不到停止信号）。
-    pub fn request_stop(&self, root: &str, change: &str) -> bool {
+    pub fn request_stop(&self, root: &str, change_id: &str) -> bool {
         let runs = self.runs.lock().expect("run 注册表锁不可中毒");
-        match runs.get(&(root.to_owned(), change.to_owned())) {
+        match runs.get(&(root.to_owned(), change_id.to_owned())) {
             Some(entry) => {
                 entry.cancel.send_replace(true);
                 true
@@ -132,11 +132,11 @@ impl ChangeFlowControl {
 
     /// 当前 WorkerAgent 会话 id 槽读取（命令层停止寻址：经既有 StopRegistry
     /// 请求终止）；无槽位 → `None`。
-    pub fn current_session(&self, root: &str, change: &str) -> Option<String> {
+    pub fn current_session(&self, root: &str, change_id: &str) -> Option<String> {
         self.runs
             .lock()
             .expect("run 注册表锁不可中毒")
-            .get(&(root.to_owned(), change.to_owned()))
+            .get(&(root.to_owned(), change_id.to_owned()))
             .and_then(|entry| entry.session.lock().expect("会话槽锁不可中毒").clone())
     }
 
@@ -145,11 +145,11 @@ impl ChangeFlowControl {
     /// 进。快照面突变照旧（`RunUpdate` 进程内 seam 载荷消费：步累积器追加
     /// 与 phase/attempt 同步、停等态迁移、终态落值）；广播侧只发 kind-only
     /// 的 [`RunNotice`]（`From<&RunUpdate>` 投影，载荷剥离单点，D3）。
-    pub fn publish(&self, root: &str, change: &str, update: RunUpdate) {
+    pub fn publish(&self, root: &str, change_id: &str, update: RunUpdate) {
         let notice = RunNotice::from(&update);
         {
             let mut runs = self.runs.lock().expect("run 注册表锁不可中毒");
-            if let Some(entry) = runs.get_mut(&(root.to_owned(), change.to_owned())) {
+            if let Some(entry) = runs.get_mut(&(root.to_owned(), change_id.to_owned())) {
                 match &update {
                     RunUpdate::Step { step } => {
                         entry.phase = Some(step.phase.clone());
@@ -173,26 +173,26 @@ impl ChangeFlowControl {
             }
         }
         let runs = self.runs.lock().expect("run 注册表锁不可中毒");
-        if let Some(entry) = runs.get(&(root.to_owned(), change.to_owned())) {
+        if let Some(entry) = runs.get(&(root.to_owned(), change_id.to_owned())) {
             let _ = entry.updates.send(notice);
         }
     }
 
     /// 当前 WorkerAgent 会话 id 槽写入（命令层 sink 桥在首个会话事件到达时
     /// 同步——adapter 事件早于 turn 收口，停止寻址由此先行可见）。
-    pub fn set_session(&self, root: &str, change: &str, session_id: Option<String>) {
+    pub fn set_session(&self, root: &str, change_id: &str, session_id: Option<String>) {
         let runs = self.runs.lock().expect("run 注册表锁不可中毒");
-        if let Some(entry) = runs.get(&(root.to_owned(), change.to_owned())) {
+        if let Some(entry) = runs.get(&(root.to_owned(), change_id.to_owned())) {
             *entry.session.lock().expect("会话槽锁不可中毒") = session_id;
         }
     }
 
     /// ask 应答回流：walker 以应答文本 Continue 决策会话重出封闭集；
     /// 无运行 run / 无等待方 → `Err`。
-    pub fn answer(&self, root: &str, change: &str, text: String) -> Result<(), String> {
+    pub fn answer(&self, root: &str, change_id: &str, text: String) -> Result<(), String> {
         let sender = self
-            .take_pending(root, change, |entry| &entry.answer_tx)
-            .ok_or_else(|| format!("change \"{change}\" 无运行中的 run"))?;
+            .take_pending(root, change_id, |entry| &entry.answer_tx)
+            .ok_or_else(|| format!("change \"{change_id}\" 无运行中的 run"))?;
         sender
             .ok_or_else(|| "当前无等待中的 ask".to_owned())?
             .send(text)
@@ -201,10 +201,10 @@ impl ChangeFlowControl {
 
     /// phase 间停等确认：proceed=false → walker 受控终态 stopped；
     /// 无运行 run / 无等待方 → `Err`。
-    pub fn confirm(&self, root: &str, change: &str, proceed: bool) -> Result<(), String> {
+    pub fn confirm(&self, root: &str, change_id: &str, proceed: bool) -> Result<(), String> {
         let sender = self
-            .take_pending(root, change, |entry| &entry.confirm_tx)
-            .ok_or_else(|| format!("change \"{change}\" 无运行中的 run"))?;
+            .take_pending(root, change_id, |entry| &entry.confirm_tx)
+            .ok_or_else(|| format!("change \"{change_id}\" 无运行中的 run"))?;
         sender
             .ok_or_else(|| "当前无等待中的 phase 确认".to_owned())?
             .send(proceed)
@@ -213,9 +213,9 @@ impl ChangeFlowControl {
 
     /// 重挂快照查询（进程内；run 终态后除名 → `None`）。快照含发起时刻与
     /// 步累积器克隆（全词汇 emit 序——重挂恢复步表不再恒空）。
-    pub fn snapshot(&self, root: &str, change: &str) -> Option<ChangeRunSnapshot> {
+    pub fn snapshot(&self, root: &str, change_id: &str) -> Option<ChangeRunSnapshot> {
         let runs = self.runs.lock().expect("run 注册表锁不可中毒");
-        runs.get(&(root.to_owned(), change.to_owned()))
+        runs.get(&(root.to_owned(), change_id.to_owned()))
             .map(|entry| ChangeRunSnapshot {
                 run_id: entry.run_id.clone(),
                 status: entry.status,
@@ -232,11 +232,11 @@ impl ChangeFlowControl {
     fn take_pending<T>(
         &self,
         root: &str,
-        change: &str,
+        change_id: &str,
         slot: impl Fn(&RunEntry) -> &Mutex<Option<oneshot::Sender<T>>>,
     ) -> Option<Option<oneshot::Sender<T>>> {
         let runs = self.runs.lock().expect("run 注册表锁不可中毒");
-        runs.get(&(root.to_owned(), change.to_owned()))
+        runs.get(&(root.to_owned(), change_id.to_owned()))
             .map(|entry| slot(entry).lock().expect("应答通道锁不可中毒").take())
     }
 }
@@ -244,7 +244,7 @@ impl ChangeFlowControl {
 /// walker 持有的单 run 控制柄：emit / 当前会话槽 / 停等 / 取消观测。终态
 /// 收口在 walker 主入口单点 [`RunGuard::finish`]（消费 self——终态出口唯一）。
 pub struct RunGuard {
-    /// 复合键（workspace root, change）
+    /// 复合键（workspace root, change id）
     key: (String, String),
     control: Arc<ChangeFlowControl>,
 }

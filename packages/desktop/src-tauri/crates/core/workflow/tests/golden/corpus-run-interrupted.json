@@ -2,6 +2,7 @@
   "activePhase": null,
   "artifacts": [],
   "created": "2024-09-22",
+  "id": "id-run-interrupted",
   "name": "run-interrupted",
   "pipeline": [
     {

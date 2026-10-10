@@ -24,7 +24,9 @@ pub struct ChangeLocation {
     pub source: ChangeSource,
 }
 
-/// 按名称定位 change 目录
+/// 按名称定位 change 目录（消费语义：`worktree` / `name` 恒自 `get_change(id)`
+/// 记录直供——id → 记录 → name 分辨率单点，磁盘面零 name 查询；名义签名不
+/// 变）。archive 后缀扫描与单分量名校验保留（校验施于解析出的 name）。
 pub fn locate_change(
     layout: &Layout,
     worktree: Option<&str>,
@@ -66,7 +68,8 @@ pub fn locate_change(
 }
 
 /// archive 树日期前缀后缀匹配：目录名 = `YYYY-MM-DD-<name>` 且前缀为合法
-/// 日期形态。目录缺省（无归档树）返回 `None`。
+/// 日期形态。目录缺省（无归档树）返回 `None`。后缀匹配对象为记录供给的
+/// `name`（恒裸名；id 不参与目录名语义）。
 fn locate_prefixed_archive_dir(layout: &Layout, name: &str) -> Option<PathBuf> {
     let entries = std::fs::read_dir(&layout.archive_root).ok()?;
     for entry in entries.flatten() {

@@ -1,9 +1,13 @@
 //! `queries::locate_change` 的单元测试（test-design「queries/mod.rs ->
-//! queries/mod_test.rs」节，新建）：change 目录定位——active 树精确名命中 →
-//! archive 树精确名 → archive 树日期前缀后缀匹配（db 名 `foo` ↔
-//! `YYYY-MM-DD-foo`，归档条目按月分组可达的路径推导根基——AC-7）；单分量名
-//! 校验保留（多分量 / 路径穿越 / 空白名 → None）；双树同名 active 优先；
-//! 两树均未命中 → None。
+//! queries/mod_test.rs」节）：change 目录定位——active 树精确名命中 → archive
+//! 树精确名 → archive 树日期前缀后缀匹配（记录名 `foo` ↔ `YYYY-MM-DD-foo`）；
+//! 单分量名校验保留（多分量 / 路径穿越 / 空白名 → None）；双树同名 active
+//! 优先；两树均未命中 → None；worktree 回退与优先级链。
+//!
+//! 消费语义（D7，名义签名不变）：`worktree` / `name` 恒自 `get_change(id)`
+//! 记录直供（id → 记录 → name 分辨率单点，磁盘面零 name 查询）——调用侧传入
+//! 的是记录属性值（不透明串，无目录名语义），archive 后缀扫描与单分量名校验
+//! 仍施于解析出的 name（本文件各判定族用例即该消费面输入）。
 //!
 //! Mock策略（test-design 本节 Mock 表）：无 mock——真实 tempdir Layout 目录
 //! 树（纯路径推导，零进程边界依赖）。
@@ -91,6 +95,32 @@ fn archive日期前缀后缀匹配命中() {
         location.dir,
         resolve(&ws.0).archive_root.join("2026-10-06-foo"),
         "dir = 带前缀的实际目录"
+    );
+}
+
+/// 记录供给名面（D7 消费语义）：`name` 恒自 `get_change(id)` 记录直供——值为
+/// 不透明串（含 id 形态 uuid 串）时除单分量名校验外不做任何目录名语义解析；
+/// archive 日期前缀后缀扫描仍施于解析出的 name（`2026-10-06-<名>` 目录 ↔ 该
+/// 记录名命中——记录供给值可含连字符、无目录名先验）。
+#[test]
+fn 记录供给名_不透明串经归档后缀扫描命中() {
+    let ws = TempWs::new("record-name");
+    let record_name = "0192a1b2-c3d4-7e5f-8a9b-0c1d2e3f4d01";
+    ws.mkdir(&format!(
+        "openspec/changes/archive/2026-10-06-{record_name}"
+    ));
+
+    let location = ws
+        .locate(record_name)
+        .expect("记录供给名应经归档日期前缀后缀扫描命中");
+
+    assert_eq!(location.source, ChangeSource::Archive);
+    assert_eq!(
+        location.dir,
+        resolve(&ws.0)
+            .archive_root
+            .join(format!("2026-10-06-{record_name}")),
+        "dir = 带前缀的实际目录（目录名 = 日期前缀 + 记录供给名）"
     );
 }
 
@@ -220,7 +250,8 @@ impl Drop for TempWorktree {
 }
 
 /// worktree 回退命中：主仓两树未命中 + worktree 目录树在场 → `Some` 且
-/// `source == Active`、dir = worktree 内该目录。
+/// `source == Active`、dir = worktree 内该目录（worktree / name 值恒自记录
+/// 供给面传入——消费语义 D7）。
 #[test]
 fn worktree回退命中_source为active且dir在worktree内() {
     let ws = TempWs::new("wt-hit-main");

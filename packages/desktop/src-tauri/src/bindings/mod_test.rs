@@ -172,6 +172,33 @@ const DTO_TYPES: &[&str] = &[
     "WriteProtectionFile",
 ];
 
+/// 类型段内逐字段名（顶层字段声明行：缩进后为标识符 + `:` 起头；doc 注释 /
+/// 结构标记 / 空行不计）。顺序即出线序（specta 字段序 = 声明序）。
+fn field_names(section: &str) -> Vec<String> {
+    section
+        .lines()
+        .filter_map(|line| {
+            let trimmed = line.trim_start();
+            if trimmed.is_empty()
+                || trimmed.starts_with('*')
+                || trimmed.starts_with('/')
+                || trimmed.starts_with('}')
+            {
+                return None;
+            }
+            let name = trimmed.split(':').next()?.trim();
+            let mut chars = name.chars();
+            match chars.next() {
+                Some(c) if c.is_ascii_alphabetic() || c == '_' => name
+                    .chars()
+                    .all(|c| c.is_ascii_alphanumeric() || c == '_')
+                    .then(|| name.to_owned()),
+                _ => None,
+            }
+        })
+        .collect()
+}
+
 /// 产物中某 `export type` 声明的完整文本段（自声明起至下一个顶层 `export` 前），
 /// 供逐字段出线形态对位（避免全文 contains 误命中同名字段）。
 fn type_section(content: &str, type_name: &str) -> String {
@@ -798,24 +825,38 @@ fn command清单补录_archive_change后32条且既有锚点与在册命令保�
     );
 }
 
+/// DTO 类型清单零补录（AC-9 守卫半边持衡）：本变更零新增命令零新增 DTO 类型
+/// 名——`id` 为既有类型的字段增量（CreateOutcome / ChangeDetail /
+/// ChangeSummary），清单条目数与首尾锚与上轮一致（新增类型即挂）。
+#[test]
+fn dto类型清单零补录_条目数与首尾锚持衡() {
+    assert_eq!(
+        DTO_TYPES.len(),
+        54,
+        "DTO 清单零补录（id 为字段增量非新类型名）"
+    );
+    assert_eq!(DTO_TYPES.first(), Some(&"ActivePhase"), "首锚持衡");
+    assert_eq!(DTO_TYPES.last(), Some(&"WriteProtectionFile"), "尾锚持衡");
+}
+
 // ---------------------------------------------------------------------------
 // archive_change 与新 DTO 出线形态（desktop-workflow-db-state，AC-8 bindings
 // 出线半边）：新命令包装 + ArchiveOutcome / ChangeStatus 两类型
 // ---------------------------------------------------------------------------
 
 #[test]
-fn archive_change绑定为root_change入参的outcome直返() {
+fn archive_change绑定为root_id入参的outcome直返() {
     let _lock = lock();
     let content = String::from_utf8(authoritative_snapshot()).expect("产物为 UTF-8 文本");
 
-    // 包装形态逐字：camelCase 包装名 + (root: string, change: string) 入参 +
+    // 包装形态逐字：camelCase 包装名 + (root: string, id: string) 入参 +
     // `__TAURI_INVOKE<ArchiveOutcome>` 直返（Throw 模式 Promise，错误面 reject
-    // 透传——D11 无 UI 入口的 IPC 薄命令出线）
+    // 透传——D11 无 UI 入口的 IPC 薄命令出线；定位参数 id 化——AC-5 签面随动）
     assert!(
         content.contains(
-            "archiveChange: (root: string, change: string) => __TAURI_INVOKE<ArchiveOutcome>(\"archive_change\", { root, change })",
+            "archiveChange: (root: string, id: string) => __TAURI_INVOKE<ArchiveOutcome>(\"archive_change\", { root, id })",
         ),
-        "archiveChange 包装形态不符（入参 / 返回类型 / invoke 命令名）"
+        "archiveChange 包装形态不符（id 入参 / 返回类型 / invoke 命令名）"
     );
 }
 
@@ -861,53 +902,58 @@ fn 在册类型不重录_既有五型各恰一条() {
 }
 
 // ---------------------------------------------------------------------------
-// worktree 维度 DTO 出线（design D2 / D14 / AC-9）：CreateOutcome 四字段 +
-// ChangeDetail.worktree
+// 身份锚出线（desktop-change-db-identity D8 / AC-5）：CreateOutcome 恰五字段
+// （id 首字段）+ ChangeDetail / ChangeSummary 含 id；worktree 维度字段面随行
 // ---------------------------------------------------------------------------
 
-/// `CreateOutcome` 类型段恰 `name` / `created` / `worktree` / `warnings` 四
-/// 字段（`worktree: string`、`warnings: string[]`）——无主仓 openspec 目录
-/// 树路径字段（D2 恰四字段面）。
+/// `CreateOutcome` 类型段恰 `id` / `name` / `created` / `worktree` /
+/// `warnings` 五字段且 `id` 为首字段（`id: string`、`worktree: string`、
+/// `warnings: string[]`）——原恰四字段断言语义演进（增铸出 id 身份锚），无主仓
+/// openspec 目录树路径字段。
 #[test]
-fn create_outcome出线恰四字段_worktree与warnings类型对位() {
+fn create_outcome出线恰五字段_id为首字段() {
     let _lock = lock();
     let content = String::from_utf8(authoritative_snapshot()).expect("产物为 UTF-8 文本");
     let outcome = type_section(&content, "CreateOutcome");
 
-    for field in ["name", "created", "worktree", "warnings"] {
-        assert!(
-            outcome.contains(&format!(" {field}: ")) || outcome.contains(&format!("\t{field}: ")),
-            "CreateOutcome 出线字段 {field} 缺席，实际:\n{outcome}"
-        );
-    }
+    assert_eq!(
+        field_names(&outcome),
+        vec!["id", "name", "created", "worktree", "warnings"],
+        "恰五字段面且 id 为首字段（声明序即出线序），实际:\n{outcome}"
+    );
     assert!(
-        outcome.contains("worktree: string"),
+        outcome.contains("id: string,"),
+        "id 出线为 string（铸出身份锚恒在场），实际:\n{outcome}"
+    );
+    assert!(
+        outcome.contains("worktree: string,"),
         "worktree 出线为非空 string（执行锚恒在场），实际:\n{outcome}"
     );
     assert!(
-        outcome.contains("warnings: string[]"),
+        outcome.contains("warnings: string[],"),
         "warnings 出线为 string[]（清单恒在场空不省键），实际:\n{outcome}"
     );
-    // 恰四字段：类型段内字段声明恰 4 行
-    let field_count = outcome
-        .lines()
-        .filter(|line| {
-            line.contains(":")
-                && !line.trim_start().starts_with('*')
-                && !line.trim_start().starts_with('/')
-        })
-        .filter(|line| {
-            line.trim_start()
-                .chars()
-                .next()
-                .is_some_and(|c| c.is_alphanumeric() || c == '_')
-        })
-        .filter(|line| line.contains("string") || line.contains("[]"))
-        .count();
-    assert_eq!(
-        field_count, 4,
-        "恰四字段面（无主仓 openspec 目录树路径字段），实际:\n{outcome}"
-    );
+}
+
+/// `ChangeDetail` / `ChangeSummary` 两类型段含 `id: string` 为首字段（出线
+/// 增量最小化——D8：id 为既有 DTO 的字段增量，零新增类型名）。
+#[test]
+fn change_detail与change_summary出线含id字段为首() {
+    let _lock = lock();
+    let content = String::from_utf8(authoritative_snapshot()).expect("产物为 UTF-8 文本");
+
+    for type_name in ["ChangeDetail", "ChangeSummary"] {
+        let section = type_section(&content, type_name);
+        assert!(
+            section.contains("id: string,"),
+            "{type_name} 段应含 id: string 字段，实际:\n{section}"
+        );
+        assert_eq!(
+            field_names(&section).first().map(String::as_str),
+            Some("id"),
+            "{type_name} 的 id 应为首字段（身份锚出线序），实际:\n{section}"
+        );
+    }
 }
 
 /// `ChangeDetail` 类型段含 `worktree: string | null`（None → null 出线——
@@ -980,16 +1026,17 @@ fn 归档五命令注册面_camel_case名齐全且channel参型() {
             "产物缺归档 invoke 命令名 {name}"
         );
     }
-    // start / watch 首参为 typed Channel<ArchiveUpdate>
+    // start / watch 首参为 typed Channel<ArchiveUpdate>，定位参名 id（原
+    // `change` 参名置换——AC-5 签面随动）
     assert!(
-        content.contains("archiveFlowStart: (onEvent: Channel<ArchiveUpdate>, root: string, change: string, syncSpecs: boolean)"),
-        "archiveFlowStart 绑定首参为 typed Channel<ArchiveUpdate> 且四参齐"
+        content.contains("archiveFlowStart: (onEvent: Channel<ArchiveUpdate>, root: string, id: string, syncSpecs: boolean) => __TAURI_INVOKE<boolean>(\"archive_flow_start\", { onEvent, root, id, syncSpecs })"),
+        "archiveFlowStart 绑定首参为 typed Channel<ArchiveUpdate> 且四参齐（定位参 id）"
     );
     assert!(
         content.contains(
-            "archiveFlowWatch: (onEvent: Channel<ArchiveUpdate>, root: string, change: string)"
+            "archiveFlowWatch: (onEvent: Channel<ArchiveUpdate>, root: string, id: string) => __TAURI_INVOKE<null>(\"archive_flow_watch\", { onEvent, root, id })"
         ),
-        "archiveFlowWatch 绑定首参为 typed Channel<ArchiveUpdate>"
+        "archiveFlowWatch 绑定首参为 typed Channel<ArchiveUpdate>（定位参 id）"
     );
 }
 

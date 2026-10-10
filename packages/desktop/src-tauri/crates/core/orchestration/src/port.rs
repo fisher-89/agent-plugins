@@ -75,35 +75,37 @@ pub trait WorkerAgentPort: Send + Sync {
 }
 
 /// 工具步命令封闭集（相位机四步 + static-check 门禁；写通道唯一——相位机
-/// 载荷直载写面输入类型，进程内直调 `workflow::write`）。
+/// 载荷直载写面输入类型，进程内直调 `workflow::write`）。各变体定位载荷为
+/// change **id**（一切寻址以 id 为准；磁盘面 name 由消费点经记录解析）。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ToolCommand {
     /// 相位路由（read-only；run_id 为会话窗口标识）
-    PhaseNext { change: String, run_id: String },
+    PhaseNext { change_id: String, run_id: String },
     /// 开启阶段（attempt 计时）
-    PhaseStart { change: String, phase: String },
+    PhaseStart { change_id: String, phase: String },
     /// 评估落账（桌面代写）
     PhaseLog {
-        change: String,
+        change_id: String,
         phase: String,
         input: PhaseLogInput,
     },
     /// 回溯落账（白名单由 walker 缓存随行，写面二次校验兜底）
     Backtrack {
-        change: String,
+        change_id: String,
         phase: String,
         input: BacktrackInput,
     },
     /// 决策会话槽位挂账（该相位最新 eval 条目定点改写，幂等覆写）
     DecisionLog {
-        change: String,
+        change_id: String,
         phase: String,
         session_id: String,
     },
-    /// static-check 门禁
-    StaticCheck,
-    /// test-execution 门禁（确定性测试执行链；change 定位报告目录与写面）
-    TestExecution { change: String },
+    /// static-check 门禁（`change_id` 归键：审计行按 change 可枚举）
+    StaticCheck { change_id: String },
+    /// test-execution 门禁（确定性测试执行链；id 定位写面与记录，报告目录
+    /// 派生经记录 name 解析）
+    TestExecution { change_id: String },
 }
 
 /// 工具步请求：workspace 根 + 步命令。
@@ -193,9 +195,12 @@ pub trait StaticCheckRunner: Send + Sync {
 
 /// test-execution spawn 缝（checks 边界 infra 实现；W4 红线与
 /// [`StaticCheckRunner`] 同型——检查域家族第二成员，spawn 不进 core）。产出
-/// 契约同 `ToolStepOutput` 封闭集（`ToolStepOutput::TestExecution`）。
+/// 契约同 `ToolStepOutput` 封闭集（`ToolStepOutput::TestExecution`）。**磁盘面
+/// port 收 name**（报告目录派生 `change_test_reports(root, name)` 为 name 化
+/// 磁盘面，infra 侧零 store 依赖）；id → 记录 → name 的解析在 `steps.rs` 消费
+/// 点（D7）。
 pub trait TestExecutionRunner: Send + Sync {
-    fn run(&self, root: &str, change: &str) -> BoxToolFuture;
+    fn run(&self, root: &str, name: &str) -> BoxToolFuture;
 }
 
 /// git diff 变更文件上下文缝（infra 实现；W5——git diff 是进程 spawn，落
@@ -287,9 +292,10 @@ pub struct WorktreeSnapshot {
 }
 
 /// 只读快照契约：`ChangeDetail` 只读装配（决策输入与前置校验的输入面；读、
-/// 写是两个关注点——写触点唯一经 `workflow::write` 写面）。
+/// 写是两个关注点——写触点唯一经 `workflow::write` 写面）。第二参为 change
+/// **id**（经 queries id 寻址）。
 pub trait WorkflowSnapshotPort: Send + Sync {
-    fn detail(&self, root: &str, change: &str) -> Result<workflow::queries::ChangeDetail, String>;
+    fn detail(&self, root: &str, id: &str) -> Result<workflow::queries::ChangeDetail, String>;
 }
 
 /// run 状态流出口：命令层桥接到 Channel 与 broadcast（walker 只认本缝）。
