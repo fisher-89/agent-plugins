@@ -1,8 +1,3 @@
-//! `event` 的单元测试（AC-1 / AC-5）：双层词汇（增量 `MessageDelta` / 密封
-//! 五变体）判别与 serde camelCase 线格式、`TurnDone` 更名线值回归（runResult
-//! 退役不别名）、块模型与 `AgentDelta` 内部 tag、盖戳原语零回归。纯内存构造 +
-//! serde_json，无 Mock。
-
 use serde_json::{json, Value};
 
 use crate::event::{AgentBlock, AgentDelta, AgentEvent, AgentEventKind, AgentMessageRole};
@@ -148,7 +143,7 @@ fn 六变体判别矩阵_仅message_delta为增量_其余五变体为密封() {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn message_delta序列化判别值逐字为messageDelta且驼峰键在场() {
+fn message_delta序列化判别值为驼峰() {
     let event = AgentEvent::stamp(
         7,
         AgentEventKind::MessageDelta {
@@ -248,7 +243,7 @@ fn 六变体各自反序列化往返逐字段相等() {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn turn_done序列化判别值逐字为turnDone且驼峰统计键回归() {
+fn turn_done序列化判别值为驼峰() {
     let event = AgentEvent::stamp(
         9,
         AgentEventKind::TurnDone {

@@ -1,9 +1,3 @@
-//! requirement 工作流相位表单源：相位定义（executor / evaluator 的角色知识
-//! prompt 与模型档位）、backtrack 白名单计算、依赖推导与重试上限。角色知识
-//! prompt 单源自 `crates/core/workflow/src/prompts/` 下 14 个全静态 md，经
-//! `include_str!` 显式字面路径编译期装配（无逐角色动态读取、无运行时文件 IO、
-//! 零占位符）；动态面（上下文头 / 回溯原因）由编排层 append，本表零模板替换。
-
 use agent::ModelLevel;
 
 /// 相位角色的角色知识 prompt 与模型档位：prompt 为编译期静态文本
@@ -88,7 +82,7 @@ static REQUIREMENT_TABLE: &[PhaseDefinition] = &[
         }),
         evaluator: Some(PhaseAgentSpec {
             prompt: include_str!("../prompts/implementation-evaluator.md"),
-            model_level: ModelLevel::High,
+            model_level: ModelLevel::Low,
         }),
     },
     PhaseDefinition {
@@ -100,7 +94,7 @@ static REQUIREMENT_TABLE: &[PhaseDefinition] = &[
         }),
         evaluator: Some(PhaseAgentSpec {
             prompt: include_str!("../prompts/test-gen-evaluator.md"),
-            model_level: ModelLevel::High,
+            model_level: ModelLevel::Low,
         }),
     },
     PhaseDefinition {

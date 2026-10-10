@@ -243,9 +243,7 @@ pub(crate) fn detect_plans(
     Ok(plans)
 }
 
-/// glob 文件探测：includes（缺省 default_glob）花括号交替展开后挂 abs_root
-/// 遍历 → 项目相对 POSIX 排除过滤 + 剪枝（dot 目录与依赖 / 工具产物目录）
-/// → cwd 相对 POSIX 清单（去重、字典序稳定）。
+/// glob 文件探测
 fn detect_files(
     project_root: &Path,
     abs_root: &Path,
@@ -269,15 +267,16 @@ fn detect_files(
                 format!("suite root \"{}\" includes glob 非法: {error}", suite.root)
             })?;
             for path in paths.flatten() {
-                if !path.is_file() || is_pruned_path(&path) {
+                if !path.is_file() {
                     continue;
                 }
-                // 项目相对形式过排除过滤（glob 相对 suite root 解释）
                 let Ok(project_rel) = path.strip_prefix(project_root) else {
                     continue;
                 };
                 let project_rel = to_posix(project_rel);
-                if is_excluded_by_suite(&project_rel, suite) {
+                if is_pruned_path(Path::new(&project_rel))
+                    || is_excluded_by_suite(&project_rel, suite)
+                {
                     continue;
                 }
                 // cwd 相对形式入清单（`{files}` 展开原料）
@@ -303,8 +302,7 @@ const PRUNED_DIR_NAMES: [&str; 6] = [
     ".nyc_output",
 ];
 
-/// 探测剪枝：路径任一分量以 `.` 起手（`.git`、工具缓存等）或命中依赖 /
-/// 工具产物目录名。
+/// 探测剪枝（项目相对路径面）
 fn is_pruned_path(path: &Path) -> bool {
     path.components().any(|component| {
         let name = component.as_os_str().to_string_lossy();

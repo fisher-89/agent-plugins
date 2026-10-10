@@ -14,8 +14,6 @@ const JEST_RANDOMIZE_MINIMUM: &str = "29.5.0";
 // 装置：tempdir fixture 树
 // ---------------------------------------------------------------------------
 
-/// 临时 workspace 根 RAII。根目录名不以 `.` 起手（detect 的 dot 目录剪枝按
-/// 任意路径分量执法，dot 前缀临时目录会让全部样本被剪）。
 struct TempWs(PathBuf);
 
 impl TempWs {
@@ -435,6 +433,38 @@ async fn 花括号includes与excludes_依赖目录剪枝() {
         vec!["src/a.ts", "src/b.tsx"],
         "includes 花括号命中；excludes 花括号剪除 legacy / old；node_modules / dist 剪枝"
     );
+}
+
+#[tokio::test]
+async fn dot前缀祖先目录_glob结果不被误剪() {
+    let _window = PathWindow::enter();
+    let base = std::env::temp_dir().join(format!(
+        ".hidden-ancestor-{}-checks-runtime-detect",
+        std::process::id()
+    ));
+    let _ = fs::remove_dir_all(&base);
+    let root = base.join("ws");
+    fs::create_dir_all(root.join("app").join("src")).expect("创建 workspace");
+    fs::write(root.join("app").join("src").join("a.test.ts"), "test").expect("写测试样本");
+    fs::create_dir_all(root.join("app").join(".cache")).expect("创建树内 dot 目录");
+    fs::write(root.join("app").join(".cache").join("b.test.ts"), "test").expect("写剪枝样本");
+
+    let suites = vec![suite(
+        "app",
+        TestFramework::VitePlus,
+        Some(vec![TS_TESTS_GLOB.to_owned()]),
+        None,
+        None,
+    )];
+    let plans = detect_plans(&root, &suites).expect("dot 祖先目录下探测应成功");
+
+    assert_eq!(plans.len(), 1, "祖先 dot 分量不得剪枝（修复前零 plan）");
+    assert_eq!(
+        plans[0].files,
+        vec!["src/a.test.ts"],
+        "树内 .cache 剪枝保持执法；清单仅含 src 样本"
+    );
+    let _ = fs::remove_dir_all(&base);
 }
 
 /// 异常：bun / go / pytest suite 配置 → 显式 Err 记因（无静默跳过分支——

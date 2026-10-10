@@ -1,20 +1,3 @@
-//! 探索笔记搬运（promote 的 move 半边，design D3/D8）：复用 change 写面
-//! [`create`](crate::write::create) 建 change（`name = explore.name`、
-//! `goal = 笔记全文`、`title = explore.title`——worktree 内
-//! `changes/<name>/explore.md` 即笔记全文，含首行 `# <标题>`），成功后删主仓
-//! `explores/<name>.md`（移走半边；explore 笔记在主仓、change 的 explore.md 在
-//! worktree 内，跨 worktree 边界是内容搬运，MUST NOT `fs::rename`）。
-//!
-//! 失败面：create 失败 → 既有 create 补偿链语义零改动（半成品回收归 create）；
-//! 删笔记失败 → `Err` 携 change id 与「笔记全文已在 change explore.md 留底，
-//! 可手动删除或回写」指引（残留对象显式呈现，不静默自愈）。
-//!
-//! sync 零 Tauri 零 tokio；磁盘路径全部经 [`foundation::layout::Layout`] 取得
-//! （MUST NOT 自拼 `openspec` 目录名字面量）；落库经
-//! [`ChangeStateStore`](crate::state::ChangeStateStore) port 缝、进程执行经
-//! [`WorktreePort`] port 缝。
-//! 能力 spec：`specs/desktop-explore-queries/spec.md`（路径相对域根）。
-
 use std::fs;
 use std::io::ErrorKind;
 use std::path::Path;
