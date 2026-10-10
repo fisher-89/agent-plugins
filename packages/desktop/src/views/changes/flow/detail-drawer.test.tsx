@@ -62,6 +62,7 @@ function detail(overrides: Partial<ChangeDetail> = {}): ChangeDetail {
       attempts: phase === 'dev-design' ? [attempt({ attempt: 2 })] : [],
     })),
     activePhase: null,
+    runs: [],
     worktree: null,
     artifacts: [],
     ...overrides,
@@ -101,7 +102,6 @@ function renderDrawer(worldState: World, selection: DrawerSelection | null, onCl
       materials={worldState.materials}
       root="root-a"
       change="test-change"
-      liveEvents={[]}
       onClose={onClose}
     />,
   );
@@ -303,7 +303,7 @@ function runtimeWorld(node: RuntimeFlowNode): World {
 function renderTranscriptDrawer(
   worldState: World,
   selection: DrawerSelection,
-  liveEvents: Array<{ sessionId: string; event: AgentEvent }> = [],
+  transcriptRefreshKey = 0,
 ) {
   return render(
     <DetailDrawer
@@ -312,7 +312,7 @@ function renderTranscriptDrawer(
       materials={worldState.materials}
       root="root-a"
       change="test-change"
-      liveEvents={liveEvents}
+      transcriptRefreshKey={transcriptRefreshKey}
       onClose={() => {}}
     />,
   );
@@ -631,7 +631,7 @@ describe('DetailDrawer：会话转录联动（双键寻址：直查优先 / 反�
     expect(screen.getByTestId('drawer-eval-section').textContent).toContain('（无评估记录）');
   });
 
-  it('liveEvents 按选中节点的 sessionId 过滤下传：重放为底、实时事件按 seq 并入增长，异会话事件不混入', async () => {
+  it('refreshKey 自增触发转录库重查（实时面统一转录库——liveEvents 退役，重放单源）', async () => {
     detailFixture = {
       'ses-exec-2': transcriptSession('ses-exec-2', 'test-change/implement/executor/2'),
     };
@@ -644,7 +644,11 @@ describe('DetailDrawer：会话转录联动（双键寻址：直查优先 / 反�
     await waitFor(() =>
       expect(screen.getByTestId('session-transcript-panel').textContent).toContain('重放正文'),
     );
-    // 运行中实时事件随后到站：面板收到选中节点的会话事件（seq 去重并入），异会话事件被过滤
+    // 会话事件通知到达：转录库已追加密封事件，refreshKey 自增触发重查
+    transcriptFixture['ses-exec-2'] = [
+      textEvent(0, 'user', '重放正文'),
+      textEvent(1, 'assistant', '实时增量正文'),
+    ];
     rerender(
       <DetailDrawer
         selection={selection}
@@ -652,10 +656,7 @@ describe('DetailDrawer：会话转录联动（双键寻址：直查优先 / 反�
         materials={state.materials}
         root="root-a"
         change="test-change"
-        liveEvents={[
-          { sessionId: 'ses-exec-2', event: textEvent(1, 'assistant', '实时增量正文') },
-          { sessionId: 'ses-other', event: textEvent(9, 'assistant', '别的会话不混入') },
-        ]}
+        transcriptRefreshKey={1}
         onClose={() => {}}
       />,
     );
@@ -664,7 +665,6 @@ describe('DetailDrawer：会话转录联动（双键寻址：直查优先 / 反�
     );
     const panel = screen.getByTestId('session-transcript-panel');
     expect(panel.textContent).toContain('重放正文');
-    expect(panel.textContent).not.toContain('别的会话不混入');
   });
 });
 
@@ -880,16 +880,14 @@ describe('DetailDrawer：active 节点三会话反查（AC-2 / D3）', () => {
     ).toHaveLength(1);
   });
 
-  it('liveEvents 非空传入 → 面板转录不含任何实时事件（active 无 sessionId → 过滤恒空，结构上不订阅实时流）', async () => {
+  it('active 节点联动不依赖实时事件流（实时面统一转录库——refreshKey 缺省即重放单源）', async () => {
     sessionsFixture = {
       'test-change/implement/executor/2': [
         transcriptSession('ses-exec-2', 'test-change/implement/executor/2'),
       ],
     };
     transcriptFixture = { 'ses-exec-2': [textEvent(0, 'user', '仅重放正文')] };
-    renderTranscriptDrawer(activeWorld(), { scope: 'node', nodeId: 'active:implement:2' }, [
-      { sessionId: 'ses-exec-2', event: textEvent(1, 'assistant', '实时增量不出现') },
-    ]);
+    renderTranscriptDrawer(activeWorld(), { scope: 'node', nodeId: 'active:implement:2' });
 
     await waitFor(() => expect(panelTexts()).toEqual(['仅重放正文']));
     expect(screen.getByTestId('session-transcript-panel').textContent).not.toContain(

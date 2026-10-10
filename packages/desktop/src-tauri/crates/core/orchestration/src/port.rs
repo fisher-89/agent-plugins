@@ -3,6 +3,7 @@ use std::path::Path;
 use std::pin::Pin;
 
 use agent::{AgentEvent, AgentPermissionMode, AgentRunStatus, ModelLevel, SessionProvenance};
+use workflow::state::{RunFinishCommand, RunStartCommand};
 use workflow::write::{BacktrackInput, PhaseLogInput, PhaseNextOutcome, PhaseStartOutcome};
 
 use crate::state::RunUpdate;
@@ -294,4 +295,16 @@ pub trait WorkflowSnapshotPort: Send + Sync {
 /// run 状态流出口：命令层桥接到 Channel 与 broadcast（walker 只认本缝）。
 pub trait RunEventSink: Send + Sync {
     fn emit(&self, update: RunUpdate);
+}
+
+/// run 运行史落库缝（unify-run-state-persistence）：walker 侧两写（起点第
+/// 一写 running 行 / 终态出口第二写终态 + 步整包）的唯一通道。sync 签名零
+/// tokio（walker 调用点均在 async 语境但写面同步——store 同步调用惯例）；
+/// `Err` 串语义与既有 port 同型（`Display` 记因）。实现驻
+/// `crate::run_history::StoreRunHistory`（组合根装配，core 零 infra 依赖）。
+pub trait RunHistoryPort: Send + Sync {
+    /// run 发起落行（running 行；失败 fail-fast 语义由调用方承载）。
+    fn run_started(&self, command: &RunStartCommand) -> Result<(), String>;
+    /// run 收口落包（终态 + 步整包 + active_phase 清位单事务）。
+    fn run_finished(&self, command: &RunFinishCommand) -> Result<(), String>;
 }

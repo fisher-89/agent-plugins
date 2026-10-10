@@ -30,7 +30,8 @@ use super::{InstallRun, RepoProbe, WorktreePort};
 use crate::queries::list_changes;
 use crate::state::{
     BacktrackCommand, ChangeStateRecord, ChangeStateStore, ChangeStatus, PhaseLogCommand,
-    PhaseStateRecord, StepCommand, StepStateRecord, StoreFault,
+    PhaseStateRecord, RunFinishCommand, RunStartCommand, RunStateRecord, RunStepStateRecord,
+    StepCommand, StepStateRecord, StoreFault,
 };
 
 // ---------------------------------------------------------------------------
@@ -484,6 +485,22 @@ impl ChangeStateStore for CreateStore {
     }
 
     fn append_step(&self, _command: &StepCommand) -> Result<(), StoreFault> {
+        unimplemented!("本用例不可达")
+    }
+
+    fn list_runs(&self, _change: &str) -> Result<Vec<RunStateRecord>, StoreFault> {
+        unimplemented!("本用例不可达")
+    }
+
+    fn list_run_steps(&self, _run_id: &str) -> Result<Vec<RunStepStateRecord>, StoreFault> {
+        unimplemented!("本用例不可达")
+    }
+
+    fn run_start(&self, _command: &RunStartCommand) -> Result<(), StoreFault> {
+        unimplemented!("本用例不可达")
+    }
+
+    fn run_finish(&self, _command: &RunFinishCommand) -> Result<(), StoreFault> {
         unimplemented!("本用例不可达")
     }
 }

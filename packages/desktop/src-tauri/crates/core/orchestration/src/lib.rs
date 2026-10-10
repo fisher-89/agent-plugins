@@ -3,6 +3,7 @@ pub mod control;
 pub mod decision;
 pub mod port;
 pub mod prompt;
+pub mod run_history;
 pub mod snapshot;
 pub mod state;
 pub mod steps;
@@ -19,14 +20,15 @@ pub use control::{ChangeFlowControl, RunGuard};
 pub use decision::{CandidateReport, DecisionAction, DecisionInput};
 pub use port::{
     ArchiveVcsPort, BoxDiffFuture, BoxToolFuture, BoxTurnFuture, DiffContextPort, RunEventSink,
-    StaticCheckOutcome, StaticCheckRunner, ToolCommand, ToolStepOutput, ToolStepPort,
-    ToolStepRequest, WorkerAgentPort, WorkerRole, WorkerTurnOutcome, WorkerTurnRequest,
-    WorkflowSnapshotPort,
+    RunHistoryPort, StaticCheckOutcome, StaticCheckRunner, ToolCommand, ToolStepOutput,
+    ToolStepPort, ToolStepRequest, WorkerAgentPort, WorkerRole, WorkerTurnOutcome,
+    WorkerTurnRequest, WorkflowSnapshotPort,
 };
+pub use run_history::{finish_command, persisted_step, StoreRunHistory};
 pub use snapshot::StoreSnapshot;
 pub use state::{
     AskPayload, ChangeRunSnapshot, ChangeRunStatus, ChangeRunSummary, ChangeStepKind,
-    ChangeStepState, ChangeStepStatus, RunUpdate,
+    ChangeStepState, ChangeStepStatus, RunNotice, RunUpdate,
 };
 pub use steps::LocalToolSteps;
 pub use verdict::EvaluatorChecklist;
@@ -44,6 +46,8 @@ mod decision_test;
 mod port_test;
 #[cfg(test)]
 mod prompt_test;
+#[cfg(test)]
+mod run_history_test;
 #[cfg(test)]
 mod snapshot_test;
 #[cfg(test)]

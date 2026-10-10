@@ -1,7 +1,12 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 
-import type { ArtifactDescriptor, ArtifactEnvelope, ChangeDetail } from '../../../types/dto';
+import type {
+  ActiveRunView,
+  ArtifactDescriptor,
+  ArtifactEnvelope,
+  ChangeDetail,
+} from '../../../types/dto';
 import { useChangeDetail, type ChangeDetailState } from './use-change-detail';
 
 const { invokeMock } = vi.hoisted(() => ({ invokeMock: vi.fn() }));
@@ -39,6 +44,7 @@ function fakeDetail(artifacts: ArtifactDescriptor[]): ChangeDetail {
       },
     ],
     activePhase: null,
+    runs: [],
     worktree: null,
     artifacts,
   };
@@ -48,6 +54,12 @@ const twoArtifacts: ArtifactDescriptor[] = [
   { kind: 'tasks-progress', source: 'tasks.md', title: '任务进度' },
   { kind: 'markdown-doc', source: 'proposal.md', title: '提案' },
 ];
+
+/** 统一视图应答包装（get_change_detail 线面 = { detail, activeRun }——机械
+ * 随动：既有裸 detail 应答经本 helper 出线）。 */
+function unified(d: ChangeDetail | null, activeRun: ActiveRunView | null = null) {
+  return { detail: d, activeRun };
+}
 
 function envelopeFor(descriptor: ArtifactDescriptor) {
   return {
@@ -69,7 +81,7 @@ describe('useChangeDetail：详情取数与产物信封同周期组装（AC-6 / 
   });
 
   it('refresh 触发 invoke("get_change_detail")，detail 更新', async () => {
-    invokeMock.mockResolvedValue(fakeDetail([]));
+    invokeMock.mockResolvedValue(unified(fakeDetail([])));
     const { result } = renderHook(() => useChangeDetail('/repo', 'add-feature'));
 
     await waitFor(() => expect(result.current.detail).not.toBeNull());
@@ -84,7 +96,7 @@ describe('useChangeDetail：详情取数与产物信封同周期组装（AC-6 / 
     // 按命令名 + 参数精确分发
     invokeMock.mockImplementation((command: string, params: { kind?: string; source?: string }) => {
       if (command === 'get_change_detail') {
-        return Promise.resolve(fakeDetail(twoArtifacts));
+        return Promise.resolve(unified(fakeDetail(twoArtifacts)));
       }
       const descriptor = twoArtifacts.find(
         (d) => d.kind === params.kind && d.source === params.source,
@@ -116,7 +128,7 @@ describe('useChangeDetail：详情取数与产物信封同周期组装（AC-6 / 
   it('单个 read_artifact reject 时该产物以 Fallback 形态呈现，其余正常组装', async () => {
     invokeMock.mockImplementation((command: string, params: { kind?: string; source?: string }) => {
       if (command === 'get_change_detail') {
-        return Promise.resolve(fakeDetail(twoArtifacts));
+        return Promise.resolve(unified(fakeDetail(twoArtifacts)));
       }
       if (params.kind === 'tasks-progress') {
         return Promise.reject(new Error('读取失败'));
@@ -157,7 +169,7 @@ describe('useChangeDetail：详情取数与产物信封同周期组装（AC-6 / 
   });
 
   it('产物清单为空数组时 artifacts 为空数组且无额外 invoke', async () => {
-    invokeMock.mockResolvedValue(fakeDetail([]));
+    invokeMock.mockResolvedValue(unified(fakeDetail([])));
     const { result } = renderHook(() => useChangeDetail('/repo', 'empty'));
 
     await waitFor(() => expect(result.current.detail).not.toBeNull());
@@ -167,7 +179,7 @@ describe('useChangeDetail：详情取数与产物信封同周期组装（AC-6 / 
 
   it('除显式刷新外无轮询：推进虚拟计时后 invoke 次数不增长', async () => {
     vi.useFakeTimers();
-    invokeMock.mockResolvedValue(fakeDetail([]));
+    invokeMock.mockResolvedValue(unified(fakeDetail([])));
     renderHook(() => useChangeDetail('/repo', 'calm'));
     await act(async () => {});
     const calls = invokeMock.mock.calls.length;
@@ -187,7 +199,7 @@ describe('useChangeDetail：加载态、降级信封、错误路径与刷新竞�
   });
 
   it('挂载后请求未返回前 loading 置位且 artifacts 初始为空数组', () => {
-    invokeMock.mockImplementation(() => new Promise<ChangeDetail>(() => {}));
+    invokeMock.mockImplementation(() => new Promise<unknown>(() => {}));
     const { result } = renderHook(() => useChangeDetail('/repo', 'add-feature'));
     expect(result.current.loading).toBe(true);
     expect(result.current.artifacts).toEqual([]);
@@ -203,7 +215,7 @@ describe('useChangeDetail：加载态、降级信封、错误路径与刷新竞�
     };
     invokeMock.mockImplementation((command: string) => {
       if (command === 'get_change_detail') {
-        return Promise.resolve(fakeDetail([descriptor]));
+        return Promise.resolve(unified(fakeDetail([descriptor])));
       }
       return Promise.resolve(null);
     });
@@ -239,7 +251,7 @@ describe('useChangeDetail：加载态、降级信封、错误路径与刷新竞�
     };
     invokeMock.mockImplementation((command: string) => {
       if (command === 'get_change_detail') {
-        return Promise.resolve(fakeDetail([descriptor]));
+        return Promise.resolve(unified(fakeDetail([descriptor])));
       }
       return Promise.resolve(envelopeFor(descriptor));
     });
@@ -257,7 +269,7 @@ describe('useChangeDetail：加载态、降级信封、错误路径与刷新竞�
   });
 
   it('显式 refresh 触发重新拉取详情', async () => {
-    invokeMock.mockResolvedValue(fakeDetail([]));
+    invokeMock.mockResolvedValue(unified(fakeDetail([])));
     const { result } = renderHook(() => useChangeDetail('/repo', 'add-feature'));
     await waitFor(() => expect(result.current.detail).not.toBeNull());
     const callsAfterFirst = invokeMock.mock.calls.length;
@@ -277,17 +289,17 @@ describe('useChangeDetail：加载态、降级信封、错误路径与刷新竞�
   });
 
   it('刷新后旧响应被丢弃：仅最后一次刷新的结果生效', async () => {
-    let resolveFirst: ((value: ChangeDetail) => void) | null = null;
+    let resolveFirst: ((value: unknown) => void) | null = null;
     let callCount = 0;
     invokeMock.mockImplementation(() => {
       callCount += 1;
       if (callCount === 1) {
-        return new Promise<ChangeDetail>((resolve) => {
+        return new Promise<unknown>((resolve) => {
           resolveFirst = resolve;
         });
       }
       // 第二次刷新后的请求永不返回，用于观察旧响应是否被正确丢弃
-      return new Promise<ChangeDetail>(() => {});
+      return new Promise<unknown>(() => {});
     });
 
     const { result } = renderHook(() => useChangeDetail('/repo', 'add-feature'));
@@ -302,7 +314,7 @@ describe('useChangeDetail：加载态、降级信封、错误路径与刷新竞�
 
     // 解析已被丢弃的第一次响应
     await act(async () => {
-      resolveFirst?.(fakeDetail([]));
+      resolveFirst?.(unified(fakeDetail([])));
     });
     expect(result.current.detail).toBeNull();
     expect(result.current.loading).toBe(true);
@@ -321,9 +333,9 @@ describe('useChangeDetail：加载态、降级信封、错误路径与刷新竞�
       if (command === 'get_change_detail') {
         detailCallCount += 1;
         if (detailCallCount === 1) {
-          return Promise.resolve(fakeDetail([descriptor]));
+          return Promise.resolve(unified(fakeDetail([descriptor])));
         }
-        return new Promise<ChangeDetail>(() => {});
+        return new Promise<unknown>(() => {});
       }
       // 旧周期的产物读取一直挂起，稍后手动 resolve
       return new Promise<ArtifactEnvelope>((resolve) => {
@@ -359,7 +371,7 @@ describe('useChangeDetail：加载态、降级信封、错误路径与刷新竞�
           rejectFirst = reject;
         });
       }
-      return new Promise<ChangeDetail>(() => {});
+      return new Promise<unknown>(() => {});
     });
 
     const { result } = renderHook(() => useChangeDetail('/repo', 'add-feature'));
@@ -395,7 +407,7 @@ describe('useChangeDetail：生成绑定调用面', () => {
   it('经生成绑定入口后 invoke 收到 "get_change_detail" 与 "read_artifact"，详情 + 产物信封同周期组装透传不变', async () => {
     invokeMock.mockImplementation((command: string, params: { kind?: string; source?: string }) => {
       if (command === 'get_change_detail') {
-        return Promise.resolve(fakeDetail(twoArtifacts));
+        return Promise.resolve(unified(fakeDetail(twoArtifacts)));
       }
       const descriptor = twoArtifacts.find(
         (d) => d.kind === params.kind && d.source === params.source,
@@ -420,7 +432,7 @@ describe('useChangeDetail：生成绑定调用面', () => {
   });
 
   it('detail 为 null / 产物清单空数组 → 零后续调用保持；read_artifact 返回 null 降级 Fallback 信封不变', async () => {
-    invokeMock.mockResolvedValue(fakeDetail([]));
+    invokeMock.mockResolvedValue(unified(fakeDetail([])));
     const { result } = renderHook(() => useChangeDetail('/repo', 'empty'));
     await waitFor(() => expect(result.current.detail).not.toBeNull());
 
@@ -435,7 +447,7 @@ describe('useChangeDetail：生成绑定调用面', () => {
     invokeMock.mockReset();
     invokeMock.mockImplementation((command: string) => {
       if (command === 'get_change_detail') {
-        return Promise.resolve(fakeDetail([descriptor]));
+        return Promise.resolve(unified(fakeDetail([descriptor])));
       }
       return Promise.resolve(null);
     });
@@ -448,7 +460,7 @@ describe('useChangeDetail：生成绑定调用面', () => {
   it('单个 read_artifact reject → 该产物 Fallback 其余正常；get_change_detail reject → 错误态清空数据不变', async () => {
     invokeMock.mockImplementation((command: string, params: { kind?: string }) => {
       if (command === 'get_change_detail') {
-        return Promise.resolve(fakeDetail(twoArtifacts));
+        return Promise.resolve(unified(fakeDetail(twoArtifacts)));
       }
       if (params.kind === 'tasks-progress') {
         return Promise.reject(new Error('读取失败'));
@@ -471,5 +483,177 @@ describe('useChangeDetail：生成绑定调用面', () => {
     expect(failed.result.current.error).toContain('IPC 断开');
     expect(failed.result.current.detail).toBeNull();
     expect(failed.result.current.artifacts).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 统一视图取数与通知去抖（unify-run-state-persistence D8 / R7）：
+// activeRun 双态就位 + notifyRefresh 300ms / notifyTranscript 150ms 尾随去抖
+// ---------------------------------------------------------------------------
+
+/** 在飞 run 活面 fixture（ActiveRunView 线面；steps 全词汇 emit 序）。 */
+function activeRun(): ActiveRunView {
+  return {
+    runId: 'run-1727',
+    status: 'running',
+    phase: 'implement',
+    attempt: 1,
+    ask: null,
+    startedAt: '2026-10-09T08:00:00Z',
+    steps: [
+      {
+        phase: 'implement',
+        attempt: 1,
+        step: 'executor',
+        status: 'passed',
+        sessionId: 'ses-1',
+        detail: null,
+      },
+      {
+        phase: 'implement',
+        attempt: 1,
+        step: 'staticCheck',
+        status: 'running',
+        sessionId: null,
+        detail: null,
+      },
+    ],
+  };
+}
+
+describe('useChangeDetail：统一视图取数与通知去抖（D8）', () => {
+  beforeEach(() => {
+    invokeMock.mockReset();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('getChangeDetail 返回 ChangeDetailUnified → detail 与 activeRun 双态就位（AC-7 前端半边）', async () => {
+    invokeMock.mockImplementation((command: string) => {
+      if (command === 'get_change_detail') {
+        return Promise.resolve(unified(fakeDetail([]), activeRun()));
+      }
+      return Promise.resolve(null);
+    });
+    const { result } = renderHook(() => useChangeDetail('/repo', 'add-feature'));
+
+    await waitFor(() => expect(result.current.activeRun).not.toBeNull());
+    expect(result.current.detail).not.toBeNull();
+    expect(result.current.activeRun?.runId).toBe('run-1727');
+    expect(result.current.activeRun?.status).toBe('running');
+    expect(result.current.activeRun?.steps).toHaveLength(2);
+    expect(result.current.activeRun?.steps[1].step).toBe('staticCheck');
+  });
+
+  it('notifyRefresh 去抖：窗内连续多次 → 恰一次重查（fake timers 前进 300ms 后一拍）', async () => {
+    vi.useFakeTimers();
+    invokeMock.mockResolvedValue(unified(fakeDetail([])));
+    const { result } = renderHook(() => useChangeDetail('/repo', 'add-feature'));
+    await act(async () => {});
+    const base = invokeMock.mock.calls.length;
+
+    act(() => {
+      result.current.notifyRefresh();
+      result.current.notifyRefresh();
+      result.current.notifyRefresh();
+    });
+    act(() => {
+      vi.advanceTimersByTime(299);
+    });
+    await act(async () => {});
+    expect(invokeMock.mock.calls.length, '去抖窗内零重查').toBe(base);
+
+    act(() => {
+      vi.advanceTimersByTime(1);
+    });
+    await act(async () => {});
+    expect(invokeMock.mock.calls.length, '300ms 到点恰一次重查').toBe(base + 1);
+  });
+
+  it('notifyRefresh 尾随语义：窗内新到达重置计时（最后一拍必达——重查在最后一次通知后 300ms）', async () => {
+    vi.useFakeTimers();
+    invokeMock.mockResolvedValue(unified(fakeDetail([])));
+    const { result } = renderHook(() => useChangeDetail('/repo', 'add-feature'));
+    await act(async () => {});
+    const base = invokeMock.mock.calls.length;
+
+    act(() => {
+      result.current.notifyRefresh();
+    });
+    act(() => {
+      vi.advanceTimersByTime(200);
+    });
+    await act(async () => {});
+    act(() => {
+      result.current.notifyRefresh();
+    });
+    act(() => {
+      vi.advanceTimersByTime(200);
+    });
+    await act(async () => {});
+    expect(invokeMock.mock.calls.length, '首拍计时被重置（299ms 处静默）').toBe(base);
+
+    act(() => {
+      vi.advanceTimersByTime(100);
+    });
+    await act(async () => {});
+    expect(
+      invokeMock.mock.calls.length,
+      '重查发生在最后一次通知后 300ms（trailing 最后一拍必达）',
+    ).toBe(base + 1);
+  });
+
+  it('notifyTranscript 独立 150ms 节流：不触发统一视图重查；notifyRefresh 不动 transcriptTick（kind 分流互不串台）', async () => {
+    vi.useFakeTimers();
+    invokeMock.mockResolvedValue(unified(fakeDetail([])));
+    const { result } = renderHook(() => useChangeDetail('/repo', 'add-feature'));
+    await act(async () => {});
+    const base = invokeMock.mock.calls.length;
+
+    act(() => {
+      result.current.notifyTranscript();
+    });
+    act(() => {
+      vi.advanceTimersByTime(149);
+    });
+    await act(async () => {});
+    expect(result.current.transcriptTick, '150ms 窗内零转录信号').toBe(0);
+
+    act(() => {
+      vi.advanceTimersByTime(1);
+    });
+    await act(async () => {});
+    expect(result.current.transcriptTick, '150ms 到点转录信号一拍').toBe(1);
+    expect(invokeMock.mock.calls.length, '转录信号不触发统一视图重查').toBe(base);
+
+    act(() => {
+      result.current.notifyRefresh();
+    });
+    act(() => {
+      vi.advanceTimersByTime(300);
+    });
+    await act(async () => {});
+    expect(invokeMock.mock.calls.length, '统一视图重查一拍').toBe(base + 1);
+    expect(result.current.transcriptTick, '统一视图信号不动转录 tick').toBe(1);
+  });
+
+  it('卸载弃挂起计时器：notifyRefresh 后卸载 → 去抖窗过点零泄漏重查', async () => {
+    vi.useFakeTimers();
+    invokeMock.mockResolvedValue(unified(fakeDetail([])));
+    const { result, unmount } = renderHook(() => useChangeDetail('/repo', 'add-feature'));
+    await act(async () => {});
+    const base = invokeMock.mock.calls.length;
+
+    act(() => {
+      result.current.notifyRefresh();
+    });
+    unmount();
+    act(() => {
+      vi.advanceTimersByTime(1000);
+    });
+    await act(async () => {});
+    expect(invokeMock.mock.calls.length, '卸载弃挂起计时器（零泄漏重查）').toBe(base);
   });
 });

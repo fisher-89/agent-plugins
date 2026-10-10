@@ -34,7 +34,8 @@ use crate::port::{
 use workflow::model::{ChecklistItem, Verdict};
 use workflow::state::{
     BacktrackCommand, ChangeStateRecord, ChangeStateStore, ChangeStatus, PhaseLogCommand,
-    PhaseStartState, PhaseStateRecord, StepCommand, StepStateRecord, StoreFault,
+    PhaseStartState, PhaseStateRecord, RunFinishCommand, RunStartCommand, RunStateRecord,
+    RunStepStateRecord, StepCommand, StepStateRecord, StoreFault,
 };
 use workflow::write::{phase_next, phase_table, SessionAnchors};
 
@@ -251,6 +252,22 @@ impl ChangeStateStore for FakeStore {
     }
 
     fn append_step(&self, _command: &StepCommand) -> Result<(), StoreFault> {
+        Ok(())
+    }
+
+    fn list_runs(&self, _change: &str) -> Result<Vec<RunStateRecord>, StoreFault> {
+        Ok(Vec::new())
+    }
+
+    fn list_run_steps(&self, _run_id: &str) -> Result<Vec<RunStepStateRecord>, StoreFault> {
+        Ok(Vec::new())
+    }
+
+    fn run_start(&self, _command: &RunStartCommand) -> Result<(), StoreFault> {
+        Ok(())
+    }
+
+    fn run_finish(&self, _command: &RunFinishCommand) -> Result<(), StoreFault> {
         Ok(())
     }
 }

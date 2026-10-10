@@ -1,7 +1,7 @@
 import { StandardDrawer } from '@/components/standard/drawer';
 import { Badge } from '@/components/ui/badge';
 
-import type { AgentEvent, ArtifactEnvelope, ChecklistItem } from '../../../types/dto';
+import type { ArtifactEnvelope, ChecklistItem } from '../../../types/dto';
 import { ArtifactTabs } from '../renderers/artifact-tabs';
 import { ArtifactView } from '../renderers/artifact-view';
 import { SessionTranscriptPanel } from './session-transcript-panel';
@@ -22,8 +22,8 @@ interface DetailDrawerProps {
   root: string | null;
   /** change 名（sourceRef 定式组装 `<change>/<phase>/<role>/<attempt>`） */
   change: string;
-  /** run 实时事件缓存（sessionId 载荷；抽屉按选中节点过滤） */
-  liveEvents: Array<{ sessionId: string; event: AgentEvent }>;
+  /** 变更通知触发的转录重查键（实时面统一转录库重查——liveEvents 退役） */
+  transcriptRefreshKey?: number;
   onClose: () => void;
 }
 
@@ -179,7 +179,7 @@ export function DetailDrawer({
   materials,
   root,
   change,
-  liveEvents,
+  transcriptRefreshKey,
   onClose,
 }: DetailDrawerProps): React.JSX.Element | null {
   if (selection === null) return null;
@@ -190,12 +190,6 @@ export function DetailDrawer({
   const phase = selection.scope === 'column' ? selection.phase : (node?.phase ?? '');
   const columnId = `col:${phase}`;
   const roleRefs = selectionRoleRefs(selection, node, change);
-  // 实时事件按选中节点的会话过滤（运行步节点携带 sessionId；历史节点无实时流）
-  const sessionId = node?.kind === 'runtime' ? node.sessionId : null;
-  const live =
-    sessionId === null
-      ? []
-      : liveEvents.filter((entry) => entry.sessionId === sessionId).map((entry) => entry.event);
   return (
     <StandardDrawer
       data-testid="detail-drawer"
@@ -208,7 +202,11 @@ export function DetailDrawer({
       content={
         <div className="flex min-h-0 flex-1">
           <div className="flex w-[60%] min-w-0 flex-col">
-            <SessionTranscriptPanel root={root} roleRefs={roleRefs} liveEvents={live} />
+            <SessionTranscriptPanel
+              root={root}
+              roleRefs={roleRefs}
+              refreshKey={transcriptRefreshKey}
+            />
           </div>
           <RightSections node={node} materials={materials} columnId={columnId} />
         </div>

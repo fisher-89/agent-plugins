@@ -204,6 +204,165 @@ pub struct StepCommand {
     pub timestamp: i64,
 }
 
+// --- run 运行史（unify-run-state-persistence：决策翻案「不建 flow_runs 表」
+// 立项，run 运行史落库 RunRecord / RunStepRecord 两表；词汇本体单点驻本节
+// ——写命令与查询投影同类型消费）-------------------------------------------
+
+/// run 状态五值（线格式小写词；queries DTO 直接复用本类型）。`interrupted`
+/// 仅启动标定产生（重启后 run 客观已死），运行期写路径不产生该值；停等两态
+/// （waitingAsk / waitingConfirm）不落库——应答通道活在进程内。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "lowercase")]
+pub enum RunStatus {
+    /// 运行中（发起建档起步）
+    Running,
+    /// 全相位 pass 走完
+    Completed,
+    /// 受控终止（用户停止 / confirm=false / 决策 stop 动作）
+    Stopped,
+    /// 失败终止
+    Failed,
+    /// 中断（仅启动标定产生）
+    Interrupted,
+}
+
+impl RunStatus {
+    /// 线格式小写词。
+    pub fn as_str(self) -> &'static str {
+        match self {
+            RunStatus::Running => "running",
+            RunStatus::Completed => "completed",
+            RunStatus::Stopped => "stopped",
+            RunStatus::Failed => "failed",
+            RunStatus::Interrupted => "interrupted",
+        }
+    }
+
+    /// 终态判别（收口三值 + interrupted 标定值；running 非终态）。
+    pub fn is_terminal(self) -> bool {
+        !matches!(self, RunStatus::Running)
+    }
+}
+
+/// run 步词汇封闭集（五值，线格式 snake_case 词）：agent 阶段（executor /
+/// evaluator / decision）+ 脚本阶段（static_check / test_execution）。词汇
+/// 本体单点——落库命令（`RunStepEntry.step`）与查询投影（`detail.rs`）同本
+/// 类型消费，store 结构上收不到忽略集（流程面步骤与三门不可表达）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Type)]
+#[serde(rename_all = "snake_case")]
+pub enum RunStepKind {
+    /// executor 会话
+    Executor,
+    /// evaluator 会话
+    Evaluator,
+    /// 决策会话
+    Decision,
+    /// static-check 工具步
+    StaticCheck,
+    /// test-execution 门禁工具步
+    TestExecution,
+}
+
+impl RunStepKind {
+    /// 线格式 snake_case 词。
+    pub fn as_str(self) -> &'static str {
+        match self {
+            RunStepKind::Executor => "executor",
+            RunStepKind::Evaluator => "evaluator",
+            RunStepKind::Decision => "decision",
+            RunStepKind::StaticCheck => "static_check",
+            RunStepKind::TestExecution => "test_execution",
+        }
+    }
+}
+
+/// run 步状态四值（线格式 camelCase 词）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum RunStepStatus {
+    /// 步进行中（收口在途步可留 running）
+    Running,
+    /// 步通过
+    Passed,
+    /// 步失败
+    Failed,
+    /// 步因停止 / 终止收敛
+    Stopped,
+}
+
+/// run 运行史主行中性快照（`RunRecord` 的 port 流量像）。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct RunStateRecord {
+    /// run id（walker `run-<millis>` 铸造标识，主键）
+    pub run_id: String,
+    pub change: String,
+    pub status: RunStatus,
+    /// 终态记因 / 标定记因（running 恒 None）
+    pub reason: Option<String>,
+    /// 发起时刻（UTC unix 毫秒）
+    pub started_at: i64,
+    /// 收口 / 标定时刻（UTC unix 毫秒；running 恒 None）
+    pub finished_at: Option<i64>,
+}
+
+/// run 步节点史行中性快照（`RunStepRecord` 的 port 流量像；图史面，与
+/// `StepRecord` 审计职责分立）。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct RunStepStateRecord {
+    /// emit 序号（同 run 内 emit 序，库面空洞合法）
+    pub seq: u64,
+    pub run_id: String,
+    pub phase: String,
+    pub attempt: u32,
+    pub step: RunStepKind,
+    pub status: RunStepStatus,
+    /// WorkerAgent 步所属会话 id（工具步为 None）
+    pub session_id: Option<String>,
+    /// 人读记因 / 摘要（有界，写面截断同 diagnose_brief 口径）
+    pub detail: Option<String>,
+    /// 落包时刻（UTC unix 毫秒，= finish 的 finished_at）
+    pub timestamp: i64,
+}
+
+/// run 发起写命令（walker 起点第一写载荷）。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RunStartCommand {
+    pub run_id: String,
+    pub change: String,
+    /// 发起时刻（UTC unix 毫秒，命令层发起时铸造，corpus 确定性）
+    pub started_at: i64,
+}
+
+/// run 步整包条目（finish 载荷内联；词汇 = [`RunStepKind`] 封闭集，流程面
+/// 步骤与三门结构上不可表达）。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RunStepEntry {
+    /// emit 序号（全词汇 emit 序，被过滤步不占号——词汇在类型面已封闭）
+    pub seq: u64,
+    pub phase: String,
+    pub attempt: u32,
+    pub step: RunStepKind,
+    pub status: RunStepStatus,
+    pub session_id: Option<String>,
+    pub detail: Option<String>,
+}
+
+/// run 收口写命令（终态更新 + 步整包 + active_phase 清位单事务载荷）。
+/// `status` 为终态三值（completed / stopped / failed），`interrupted` 写面
+/// 拒绝——运行期写路径不产生，仅启动标定写入。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RunFinishCommand {
+    pub run_id: String,
+    pub change: String,
+    pub status: RunStatus,
+    pub reason: Option<String>,
+    /// 收口时刻（UTC unix 毫秒，命令携带；corpus 确定性）
+    pub finished_at: i64,
+    pub steps: Vec<RunStepEntry>,
+}
+
 /// port 错误面（`StoreFault`）：读 / 写半边统一错误收敛；命令层以
 /// `.to_string()` 呈现，`Display` 恒带语境前缀。
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -292,4 +451,23 @@ pub trait ChangeStateStore: Send + Sync {
 
     /// 步骤审计行追加（行 id 写事务内 max+1）。
     fn append_step(&self, command: &StepCommand) -> Result<(), StoreFault>;
+
+    // --- run 运行史（unify-run-state-persistence 决策翻案：run 运行史落库
+    // RunRecord / RunStepRecord 两表；每 run 两写零每步写放大）--------------
+
+    /// run 运行史清单（`started_at` 升序；run_id 并列稳定序由实现保证）。
+    fn list_runs(&self, change: &str) -> Result<Vec<RunStateRecord>, StoreFault>;
+
+    /// run 步节点史行（`seq` 升序 = emit 序；流程面步骤与三门不在
+    /// [`RunStepKind`] 封闭集内，词汇过滤单点在落库侧——读面零过滤）。
+    fn list_run_steps(&self, run_id: &str) -> Result<Vec<RunStepStateRecord>, StoreFault>;
+
+    /// run 发起落行（status=running；同 run_id 冲突 → [`StoreFault::Conflict`]，
+    /// change 未建档 → [`StoreFault::NotFound`]）。
+    fn run_start(&self, command: &RunStartCommand) -> Result<(), StoreFault>;
+
+    /// run 收口单事务（run 行在案且 running → 终态 + reason + finished_at +
+    /// 步整包 + 该 change `active_phase` 清位；miss → [`StoreFault::NotFound`]，
+    /// 非 running 或 status 含 `interrupted` → [`StoreFault::Conflict`]）。
+    fn run_finish(&self, command: &RunFinishCommand) -> Result<(), StoreFault>;
 }

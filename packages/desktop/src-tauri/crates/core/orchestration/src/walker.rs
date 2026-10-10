@@ -13,11 +13,12 @@ use crate::decision::{
     ensure_backtrack_allowed, parse_decision, CandidateReport, DecisionAction, DecisionInput,
 };
 use crate::port::{
-    StaticCheckOutcome, TestExecutionConclusion, TestExecutionOutcome, ToolCommand, ToolStepOutput,
-    ToolStepPort, WorkerAgentPort, WorkerRole, WorkerTurnOutcome, WorkerTurnRequest,
-    WorkflowSnapshotPort,
+    RunHistoryPort, StaticCheckOutcome, TestExecutionConclusion, TestExecutionOutcome, ToolCommand,
+    ToolStepOutput, ToolStepPort, WorkerAgentPort, WorkerRole, WorkerTurnOutcome,
+    WorkerTurnRequest, WorkflowSnapshotPort,
 };
 use crate::prompt::{decision_prompt, evaluator_prompt, executor_prompt};
+use crate::run_history;
 use crate::state::{ChangeRunStatus, ChangeStepKind, ChangeStepState, ChangeStepStatus, RunUpdate};
 use crate::transcript::final_assistant_text;
 use crate::verdict::parse_verdict;
@@ -48,13 +49,16 @@ const SOURCE_CHANGE: &str = "change";
 const ALL_PHASES_PASSED: &str = "All phases have passed evaluation. Ready for archiving.";
 
 /// run 发起入参：workspace 根 + change 名 + 会话窗口标识（`new_run_id` 铸造，
-/// 每 run 一个）。
+/// 每 run 一个）+ 发起时刻（命令层铸造，与 `begin_run` 同值入 RunEntry——
+/// 运行史 started_at 与统一视图 startedAt 的同源锚）。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RunRequest {
     pub root: String,
     pub change: String,
     pub run_id: String,
     pub auto_next_phase: bool,
+    /// 发起时刻（UTC unix 毫秒；run 运行史 started_at 落库与快照投影同源）
+    pub started_at: i64,
 }
 
 /// 铸造 `run-<millis>` 会话窗口标识（每 run 发起一个；时钟早于 epoch 取 0，
@@ -94,16 +98,43 @@ impl Terminal {
     }
 }
 
-/// 相位循环主入口
+/// 相位循环主入口（每 run 两写时序，unify-run-state-persistence D5/D6）：
+/// 起点第一写（running 行，失败 fail-fast 收口）→ drive（既有循环零改动，
+/// emit_step 经 control 累积 + Notice 广播）→ 终态出口单点第二写（累积器快
+/// 照 → run_history 组装 → best-effort 落包）→ `guard.finish`（既有唯一终
+/// 态出口，零改动）。
 pub async fn walk_run(
     worker: Arc<dyn WorkerAgentPort>,
     tools: Arc<dyn ToolStepPort>,
     snapshot: Arc<dyn WorkflowSnapshotPort>,
+    history: Arc<dyn RunHistoryPort>,
     control: Arc<ChangeFlowControl>,
     guard: RunGuard,
     request: RunRequest,
 ) -> ChangeRunStatus {
+    // 起点第一写：run 运行史建 running 行（支撑启动标定）。失败 = store 已
+    // 坏，后续相位写必败——fail-fast 收口（D5），零相位执行
+    if let Err(error) = history.run_started(&workflow::state::RunStartCommand {
+        run_id: request.run_id.clone(),
+        change: request.change.clone(),
+        started_at: request.started_at,
+    }) {
+        let reason = format!("run 运行史落库失败（run 起始行）: {error}");
+        drop(control);
+        guard.finish(ChangeRunStatus::Failed, Some(reason));
+        return ChangeRunStatus::Failed;
+    }
     let (status, reason) = drive(&worker, &tools, &snapshot, &guard, &request).await;
+    // 终态出口单点第二写：终态 + 步整包 + active_phase 清位单事务落库。
+    // best-effort（D6）：Err 静默不阻断收口——guard.finish 照常，run 终态与
+    // 订阅释放不受损；start 行残留 running 经启动标定 interrupted 自愈留痕。
+    let steps = guard.steps();
+    let command =
+        run_history::finish_command(&request, status, reason.clone(), now_millis(), &steps);
+    if let Err(error) = history.run_finished(&command) {
+        // D6：finish 落包失败收敛 = best-effort 单次尝试，无重试无错误面
+        let _ = error;
+    }
     drop(control);
     guard.finish(status, reason);
     status
@@ -1007,6 +1038,16 @@ fn diagnose_brief(text: &str) -> String {
             collapsed.chars().take(BRIEF_LIMIT).collect::<String>()
         )
     }
+}
+
+/// 当前 UTC unix 毫秒（时钟早于 epoch 取 0，不 panic）——run 收口时刻铸造
+/// 点（finish 整包同刻，corpus 确定性由测试注入 started_at / 假 history 承
+/// 载，本时钟只在生产路径消费）。
+fn now_millis() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_millis() as i64)
+        .unwrap_or(0)
 }
 
 /// static-check 反馈边闭环后的携出物。

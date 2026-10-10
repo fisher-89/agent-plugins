@@ -1,18 +1,27 @@
 /**
  * 运行控制面板：发起 / 停止 / phase 间确认（继续 / 终止）/ ask 中断卡片
- *（问题 + 选项 + 自由文本应答）。生命周期状态与可用操作对齐——运行中主
- * 操作是停止，终局后主操作回到发起（收口后停止不再呈现）。
+ *（问题 + 选项 + 自由文本应答）。状态面 = activeRun 活面（六值状态机 /
+ * 停等卡片自统一查询 activeRun）∪ lastRun runs 尾行（收口后终态徽章与收口
+ * 记因——unify-run-state-persistence D9：头部「上次运行」信息面经 runs 尾
+ * 行可达，activeRun 退场后呈现）；生命周期状态与可用操作对齐——运行中主操
+ * 作是停止，终局后主操作回到发起。
  */
 import { useState } from 'react';
 
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 
-import type { ChangeRunStatus } from '../../../types/dto';
+import type {
+  ActiveRunView,
+  AskPayload,
+  ChangeRunEntry,
+  ChangeRunStatus,
+  RunStatus,
+} from '../../../types/dto';
 import type { UseChangeFlowRunResult } from '../hooks/use-change-flow-run';
 
-/** 状态徽章文案（六档状态机镜像）。 */
-const STATUS_LABEL: Record<ChangeRunStatus, string> = {
+/** 活面状态徽章文案（六档状态机镜像）。 */
+const ACTIVE_STATUS_LABEL: Record<ChangeRunStatus, string> = {
   running: '运行中',
   waitingConfirm: '等待确认',
   waitingAsk: '等待应答',
@@ -21,18 +30,35 @@ const STATUS_LABEL: Record<ChangeRunStatus, string> = {
   failed: '失败',
 };
 
-function isTerminal(status: ChangeRunStatus): boolean {
-  return status === 'completed' || status === 'stopped' || status === 'failed';
-}
+/** 库读史终态徽章文案（RunStatus 五值；interrupted 仅启动标定产生）。 */
+const LAST_RUN_STATUS_LABEL: Record<RunStatus, string> = {
+  running: '运行中',
+  completed: '已完成',
+  stopped: '已停止',
+  failed: '失败',
+  interrupted: '已中断',
+};
+
+/** 动作面（useChangeFlowRun 缩位返回型直用）。 */
+type RunActions = Pick<UseChangeFlowRunResult, 'start' | 'stop' | 'confirm' | 'answer' | 'error'>;
 
 interface RunControlPanelProps {
   change: string;
-  run: UseChangeFlowRunResult;
+  /** 在飞 run 活面（统一视图 activeRun；终态即除名 → null） */
+  activeRun: ActiveRunView | null;
+  /** runs 尾行（库读史最近一次 run——收口后终态徽章与收口记因） */
+  lastRun: ChangeRunEntry | null;
+  actions: RunActions;
 }
 
 /** 发起 / 停止主操作行 */
-function RunActions({ run }: { run: UseChangeFlowRunResult }): React.JSX.Element {
-  const active = run.state !== null && !isTerminal(run.state.status);
+function RunActions({
+  actions,
+  active,
+}: {
+  actions: RunActions;
+  active: boolean;
+}): React.JSX.Element {
   const [autoNextPhase, setAutoNextPhase] = useState(false);
   return (
     <div className="flex flex-col items-end gap-1">
@@ -48,21 +74,13 @@ function RunActions({ run }: { run: UseChangeFlowRunResult }): React.JSX.Element
           自动确认步骤
         </label>
         {active ? (
-          <Button onClick={() => void run.stop()} data-testid="run-stop">
+          <Button onClick={() => void actions.stop()} data-testid="run-stop">
             停止
           </Button>
         ) : (
-          <Button onClick={() => void run.start(autoNextPhase)} data-testid="run-start">
+          <Button onClick={() => void actions.start(autoNextPhase)} data-testid="run-start">
             发起运行
           </Button>
-        )}
-        {run.state !== null && (
-          <Badge
-            variant={run.state.status === 'failed' ? 'fail' : 'default'}
-            data-testid="run-status"
-          >
-            {STATUS_LABEL[run.state.status]}
-          </Badge>
         )}
       </div>
       <span className="text-xs text-muted-foreground">
@@ -74,10 +92,10 @@ function RunActions({ run }: { run: UseChangeFlowRunResult }): React.JSX.Element
 
 /** phase 间停等确认卡片（proceed=false → 受控终态 stopped）。 */
 function ConfirmCard({
-  run,
+  actions,
   phase,
 }: {
-  run: UseChangeFlowRunResult;
+  actions: RunActions;
   phase: string;
 }): React.JSX.Element {
   return (
@@ -89,10 +107,10 @@ function ConfirmCard({
         相位 <span className="text-muted-foreground">{phase}</span> 已收口，是否继续推进下一相位？
       </div>
       <div className="mt-2 flex gap-2">
-        <Button onClick={() => void run.confirm(true)} data-testid="run-confirm-proceed">
+        <Button onClick={() => void actions.confirm(true)} data-testid="run-confirm-proceed">
           继续
         </Button>
-        <Button onClick={() => void run.confirm(false)} data-testid="run-confirm-stop">
+        <Button onClick={() => void actions.confirm(false)} data-testid="run-confirm-stop">
           终止运行
         </Button>
       </div>
@@ -101,19 +119,13 @@ function ConfirmCard({
 }
 
 /** ask 中断卡片：问题 + 选项按钮 + 自由文本应答（应答后 Continue 决策会话）。 */
-function AskCard({
-  run,
-  ask,
-}: {
-  run: UseChangeFlowRunResult;
-  ask: { question: string; options: string[] };
-}): React.JSX.Element {
+function AskCard({ actions, ask }: { actions: RunActions; ask: AskPayload }): React.JSX.Element {
   const [text, setText] = useState('');
   const submit = (): void => {
     const trimmed = text.trim();
     if (trimmed === '') return;
     setText('');
-    void run.answer(trimmed);
+    void actions.answer(trimmed);
   };
   return (
     <div
@@ -128,7 +140,7 @@ function AskCard({
           {ask.options.map((option) => (
             <Button
               key={option}
-              onClick={() => void run.answer(option)}
+              onClick={() => void actions.answer(option)}
               data-testid="run-ask-option"
             >
               {option}
@@ -152,9 +164,41 @@ function AskCard({
   );
 }
 
-/** 运行控制面板：状态行 + 停等卡片 + 终态记因。 */
-export function RunControlPanel({ change, run }: RunControlPanelProps): React.JSX.Element {
-  const state = run.state;
+/** 运行控制面板：状态行 + 停等卡片 + 终态记因。状态徽章自活面（运行中六
+ * 值状态机）；activeRun 退场后经 runs 尾行呈现收口终态。 */
+/** 状态徽章行：活面六值状态机优先；activeRun 退场后经 runs 尾行呈现收口
+ * 终态（unify-run-state-persistence D9）。 */
+function RunStatusBadge({
+  activeRun,
+  lastRun,
+}: {
+  activeRun: ActiveRunView | null;
+  lastRun: ChangeRunEntry | null;
+}): React.JSX.Element | null {
+  if (activeRun !== null) {
+    return (
+      <Badge variant={activeRun.status === 'failed' ? 'fail' : 'default'} data-testid="run-status">
+        {ACTIVE_STATUS_LABEL[activeRun.status]}
+      </Badge>
+    );
+  }
+  if (lastRun !== null) {
+    return (
+      <Badge variant={lastRun.status === 'failed' ? 'fail' : 'default'} data-testid="run-status">
+        {LAST_RUN_STATUS_LABEL[lastRun.status]}
+      </Badge>
+    );
+  }
+  return null;
+}
+
+export function RunControlPanel({
+  change,
+  activeRun,
+  lastRun,
+  actions,
+}: RunControlPanelProps): React.JSX.Element {
+  const active = activeRun !== null;
   return (
     <section
       className="mb-4 rounded-lg border border-border bg-card px-4 py-3.5"
@@ -163,26 +207,31 @@ export function RunControlPanel({ change, run }: RunControlPanelProps): React.JS
     >
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h2 className="m-0 text-[15px]">运行控制</h2>
-        <RunActions run={run} />
+        <RunActions actions={actions} active={active} />
       </div>
-      {run.error !== null && (
+      <div className="flex items-center gap-2">
+        <RunStatusBadge activeRun={activeRun} lastRun={lastRun} />
+      </div>
+      {actions.error !== null && (
         <div
           className="mt-2 break-all rounded-md bg-fail-bg px-2.5 py-1.5 text-[13px] text-fail"
           data-testid="run-error"
         >
-          {run.error}
+          {actions.error}
         </div>
       )}
-      {state !== null && state.confirmPhase !== null && (
-        <ConfirmCard run={run} phase={state.confirmPhase} />
+      {activeRun !== null && activeRun.status === 'waitingConfirm' && activeRun.phase !== null && (
+        <ConfirmCard actions={actions} phase={activeRun.phase} />
       )}
-      {state !== null && state.ask !== null && <AskCard run={run} ask={state.ask} />}
-      {state !== null && state.finishedReason !== null && (
+      {activeRun !== null && activeRun.ask !== null && (
+        <AskCard actions={actions} ask={activeRun.ask} />
+      )}
+      {activeRun === null && lastRun !== null && lastRun.reason !== null && (
         <div
           className="mt-2 break-words text-[13px] text-muted-foreground"
           data-testid="run-finished-reason"
         >
-          收口：{state.finishedReason}
+          收口：{lastRun.reason}
         </div>
       )}
     </section>

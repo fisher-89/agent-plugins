@@ -10,7 +10,10 @@ import { useSessionTranscript } from './use-session-transcript';
 // change-session-visibility 扩展 session_detail 直查臂）；agent-adapter 不
 // mock：真实实现参与折叠与去重（内部模块不 mock）。覆盖：直查优先（D8）/
 // 反查兜底 / sourceRef 定式 / 空闲与空态 / 实时 seq 去重并入 / running 标志 /
-// reject（AC-5 转录联动半边 + AC-8 直查半边）。
+// reject（AC-5 转录联动半边 + AC-8 直查半边）；refreshKey 重查键（change run
+// 面实时统一转录库——通知触发重查面）。注：实时 seq 去重并入为归档链专用面
+// （`liveEvents` 参数保留供 archive-panel 复用，见 hook 头注释），change run
+// 面恒缺省 → 重放单源。
 // ---------------------------------------------------------------------------
 
 const { invokeMock } = vi.hoisted(() => ({ invokeMock: vi.fn() }));
@@ -129,10 +132,18 @@ interface Params {
   sourceRef: string | null;
   sessionId: string | null;
   liveEvents: AgentEvent[];
+  /** 变更通知触发的重查键（unify-run-state-persistence：自增即重查转录库） */
+  refreshKey?: number;
 }
 
 function propsWith(overrides: Partial<Params>): Params {
-  return { root: ROOT, sourceRef: SOURCE_REF, sessionId: null, liveEvents: [], ...overrides };
+  return {
+    root: ROOT,
+    sourceRef: SOURCE_REF,
+    sessionId: null,
+    liveEvents: [],
+    ...overrides,
+  };
 }
 
 async function mounted(overrides: Partial<Params> = {}) {
@@ -740,5 +751,49 @@ describe('useSessionTranscript：summary 三件套（AC-3 / D4）', () => {
     const direct = await mounted({ sessionId: 'ses-gone', sourceRef: null });
     await waitFor(() => expect(direct.result.current.error).toBe('会话不存在: id=ses-gone'));
     expect(direct.result.current.summary).toBeNull();
+  });
+});
+
+describe('useSessionTranscript：refreshKey 重查键（unify-run-state-persistence 转录统一）', () => {
+  function transcriptCalls(): unknown[][] {
+    return invokeMock.mock.calls.filter(([name]) => name === 'agent_session_transcript');
+  }
+
+  it('refreshKey bump → 重新发起同一寻址查询（sessionId 直查优先，通知触发重查面 AC-10）', async () => {
+    const { result, rerender } = await mounted({
+      sessionId: SESSION_ID,
+      sourceRef: null,
+    });
+    expect(result.current.messages.length).toBe(REPLAY.length);
+    const base = transcriptCalls().length;
+    expect(base).toBeGreaterThan(0);
+
+    await act(async () => {
+      rerender(propsWith({ sessionId: SESSION_ID, sourceRef: null, refreshKey: 1 }));
+    });
+    await act(async () => {});
+    expect(transcriptCalls().length, 'refreshKey 自增即重查转录库').toBe(base + 1);
+    // 同一寻址参数（sessionId 直查不变）
+    const latest = transcriptCalls().at(-1)?.[1] as Record<string, unknown>;
+    expect(latest.sessionId).toBe(SESSION_ID);
+
+    await act(async () => {
+      rerender(propsWith({ sessionId: SESSION_ID, sourceRef: null, refreshKey: 2 }));
+    });
+    await act(async () => {});
+    expect(transcriptCalls().length, '再次 bump 再次重查').toBe(base + 2);
+  });
+
+  it('refreshKey 不变时寻址键变化仍即时重查（节点切换联动既有语义不因刷新键引入而弱化）', async () => {
+    const { rerender } = await mounted({ sourceRef: SOURCE_REF });
+    const base = sessionsCalls().length;
+
+    await act(async () => {
+      rerender(propsWith({ sourceRef: 'change/other-phase/executor/1', refreshKey: 0 }));
+    });
+    await act(async () => {});
+    expect(sessionsCalls().length, '寻址键变化即时重查（refreshKey 恒定）').toBe(base + 1);
+    const latest = sessionsCalls().at(-1)?.[1] as Record<string, unknown>;
+    expect(latest.sourceRef).toBe('change/other-phase/executor/1');
   });
 });

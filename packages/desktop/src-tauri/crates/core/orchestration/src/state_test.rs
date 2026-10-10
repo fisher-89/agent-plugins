@@ -294,6 +294,8 @@ fn 快照与摘要全字段serde往返() {
             question: "是否回溯?".to_owned(),
             options: vec!["dev-design".to_owned(), "retry".to_owned()],
         }),
+        started_at: 1_726_000_000_000,
+        steps: Vec::new(),
     };
     let text = serde_json::to_string(&snapshot).expect("出线应成功");
     assert!(
@@ -311,6 +313,8 @@ fn 快照与摘要全字段serde往返() {
         phase: None,
         attempt: None,
         ask: None,
+        started_at: 1_726_000_000_000,
+        steps: Vec::new(),
     };
     let text = serde_json::to_string(&running).expect("出线应成功");
     assert!(
@@ -453,4 +457,184 @@ fn 步状态行携testexecution步经run_update出线() {
     let text = serde_json::to_string(&passed).expect("出线应成功");
     let back: ChangeStepState = serde_json::from_str(&text).expect("往返应成功");
     assert_eq!(back, passed, "步状态行（TestExecution 步）往返无损");
+}
+
+// ---------------------------------------------------------------------------
+// RunNotice 线面（unify-run-state-persistence D3 通知降位）：kind-only 零载荷
+// ---------------------------------------------------------------------------
+
+/// 五变体序列化出线恰为 `{"ipc":"…"}` 单键零载荷（通知仅失效信号——载荷剥离
+/// 后的 IPC 信封形态，AC-8）：step / sessionEvent / ask / confirmWait /
+/// finished 五 kind 逐字 camelCase。
+#[test]
+fn run_notice五变体kind_only零载荷单键出线() {
+    let wire =
+        |notice: &crate::state::RunNotice| serde_json::to_value(notice).expect("通知出线应成功");
+    assert_eq!(
+        wire(&crate::state::RunNotice::Step),
+        json!({"ipc": "step"}),
+        "step kind-only 单键"
+    );
+    assert_eq!(
+        wire(&crate::state::RunNotice::SessionEvent),
+        json!({"ipc": "sessionEvent"}),
+        "sessionEvent camelCase 判别值逐字"
+    );
+    assert_eq!(wire(&crate::state::RunNotice::Ask), json!({"ipc": "ask"}));
+    assert_eq!(
+        wire(&crate::state::RunNotice::ConfirmWait),
+        json!({"ipc": "confirmWait"})
+    );
+    assert_eq!(
+        wire(&crate::state::RunNotice::Finished),
+        json!({"ipc": "finished"})
+    );
+}
+
+/// `From<&RunUpdate>` kind 投影封闭集：五变体一一同型对应（载荷剥离单点——
+/// `ChangeFlowControl::publish` 广播侧消费的映射面）。注记：`RunNotice` 为
+/// Serialize-only IPC 出线信封（零 Deserialize），封闭集防线以线格式逐字
+/// 钉死与投影映射穷尽承载，无入站反序列化面。
+#[test]
+fn run_notice自run_update投影五变体一一同型() {
+    let projection = |update: &RunUpdate| crate::state::RunNotice::from(update);
+    assert!(matches!(
+        projection(&RunUpdate::Step {
+            step: sample_step()
+        }),
+        crate::state::RunNotice::Step
+    ));
+    assert!(matches!(
+        projection(&RunUpdate::SessionEvent {
+            session_id: "s".to_owned(),
+            event: sealed_event(0)
+        }),
+        crate::state::RunNotice::SessionEvent
+    ));
+    assert!(matches!(
+        projection(&RunUpdate::Ask {
+            question: "q".to_owned(),
+            options: Vec::new()
+        }),
+        crate::state::RunNotice::Ask
+    ));
+    assert!(matches!(
+        projection(&RunUpdate::ConfirmWait {
+            phase: "test-gen".to_owned()
+        }),
+        crate::state::RunNotice::ConfirmWait
+    ));
+    assert!(matches!(
+        projection(&RunUpdate::Finished {
+            status: ChangeRunStatus::Completed,
+            reason: None
+        }),
+        crate::state::RunNotice::Finished
+    ));
+
+    // 投影与 kind() 判别词一一同型（两词汇源同封闭集）
+    for update in [
+        RunUpdate::Step {
+            step: sample_step(),
+        },
+        RunUpdate::SessionEvent {
+            session_id: "s".to_owned(),
+            event: sealed_event(1),
+        },
+        RunUpdate::Ask {
+            question: "q".to_owned(),
+            options: Vec::new(),
+        },
+        RunUpdate::ConfirmWait {
+            phase: "p".to_owned(),
+        },
+        RunUpdate::Finished {
+            status: ChangeRunStatus::Stopped,
+            reason: None,
+        },
+    ] {
+        let notice = crate::state::RunNotice::from(&update);
+        assert_eq!(
+            serde_json::to_value(&notice).expect("出线应成功")["ipc"],
+            json!(update.kind()),
+            "Notice 判别词与 RunUpdate::kind() 逐字同源"
+        );
+    }
+}
+
+/// 快照扩面出线：steps 累积器逐条 ChangeStepState camelCase 全词汇形态 +
+/// startedAt 毫秒（AC-10 重挂步表面——统一视图活面投影源的线面）。
+#[test]
+fn 快照扩面_startedat与steps全词汇camelcase出线() {
+    let steps = vec![
+        ChangeStepState {
+            phase: "implement".to_owned(),
+            attempt: 1,
+            step: ChangeStepKind::Executor,
+            status: ChangeStepStatus::Passed,
+            session_id: Some("ses-1".to_owned()),
+            detail: Some("实现完成".to_owned()),
+        },
+        ChangeStepState {
+            phase: "implement".to_owned(),
+            attempt: 1,
+            step: ChangeStepKind::StaticCheck,
+            status: ChangeStepStatus::Failed,
+            session_id: None,
+            detail: None,
+        },
+        ChangeStepState {
+            phase: "test-execution".to_owned(),
+            attempt: 1,
+            step: ChangeStepKind::TestExecution,
+            status: ChangeStepStatus::Running,
+            session_id: None,
+            detail: None,
+        },
+        ChangeStepState {
+            phase: "dev-design".to_owned(),
+            attempt: 2,
+            step: ChangeStepKind::PhaseStart,
+            status: ChangeStepStatus::Passed,
+            session_id: None,
+            detail: None,
+        },
+        ChangeStepState {
+            phase: "dev-design".to_owned(),
+            attempt: 2,
+            step: ChangeStepKind::VerdictGate,
+            status: ChangeStepStatus::Stopped,
+            session_id: None,
+            detail: None,
+        },
+    ];
+    let snapshot = ChangeRunSnapshot {
+        run_id: "run-9".to_owned(),
+        status: ChangeRunStatus::Running,
+        phase: Some("test-execution".to_owned()),
+        attempt: Some(1),
+        ask: None,
+        started_at: 1_726_000_000_000,
+        steps,
+    };
+    let value = serde_json::to_value(&snapshot).expect("出线应成功");
+    assert_eq!(
+        value["startedAt"],
+        json!(1_726_000_000_000_i64),
+        "startedAt 毫秒"
+    );
+    assert_eq!(value["steps"].as_array().map(Vec::len), Some(5));
+    // 步词汇 camelCase 线面逐条（快照透传 ChangeStepState 原生线格式）
+    assert_eq!(value["steps"][0]["step"], json!("executor"));
+    assert_eq!(value["steps"][1]["step"], json!("staticCheck"));
+    assert_eq!(value["steps"][2]["step"], json!("testExecution"));
+    assert_eq!(value["steps"][3]["step"], json!("phaseStart"));
+    assert_eq!(value["steps"][4]["step"], json!("verdictGate"));
+    assert_eq!(value["steps"][1]["status"], json!("failed"));
+    assert_eq!(value["steps"][4]["status"], json!("stopped"));
+
+    // serde 往返无损（扩面字段随行）
+    let text = serde_json::to_string(&snapshot).expect("出线应成功");
+    let back: ChangeRunSnapshot = serde_json::from_str(&text).expect("往返应成功");
+    assert_eq!(back, snapshot, "快照（含 steps 累积器）往返无损");
 }

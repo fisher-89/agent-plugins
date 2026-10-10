@@ -45,7 +45,6 @@ macro_rules! all_commands {
             $crate::commands::change_flow::change_flow_stop,
             $crate::commands::change_flow::change_flow_answer,
             $crate::commands::change_flow::change_flow_confirm,
-            $crate::commands::change_flow::change_flow_state,
             $crate::commands::change_flow::change_flow_watch,
             $crate::commands::archive_flow::archive_flow_preflight,
             $crate::commands::archive_flow::archive_flow_start,

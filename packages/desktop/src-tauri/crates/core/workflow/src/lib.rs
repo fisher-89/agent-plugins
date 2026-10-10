@@ -11,3 +11,6 @@ pub mod model;
 pub mod queries;
 pub mod state;
 pub mod write;
+
+#[cfg(test)]
+mod state_test;

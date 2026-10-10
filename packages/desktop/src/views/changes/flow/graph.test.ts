@@ -38,6 +38,7 @@ function detail(overrides: Partial<ChangeDetail> = {}): ChangeDetail {
     created: '2026-09-01',
     pipeline: PIPELINE_PHASES.map((phase) => station(phase, [])),
     activePhase: null,
+    runs: [],
     worktree: null,
     artifacts: [],
     ...overrides,

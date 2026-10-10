@@ -566,3 +566,158 @@ fn 双字段trait往返_类型擦除建档get与list逐字段一致() {
         "base_commit trait 往返一致（list）"
     );
 }
+
+// ---------------------------------------------------------------------------
+// run 域 port 委托（unify-run-state-persistence）：list_runs / list_run_steps /
+// run_start / run_finish 四方法经 trait 面 = 直调操作面
+// ---------------------------------------------------------------------------
+
+use workflow::state::{
+    RunFinishCommand, RunStartCommand, RunStatus, RunStepEntry, RunStepKind, RunStepStatus,
+};
+
+/// run 发起命令 fixture。
+fn run_start_cmd(run_id: &str, change: &str, started_at: i64) -> RunStartCommand {
+    RunStartCommand {
+        run_id: run_id.to_owned(),
+        change: change.to_owned(),
+        started_at,
+    }
+}
+
+/// run 收口整包条目 fixture。
+fn run_step_entry(seq: u64, step: RunStepKind) -> RunStepEntry {
+    RunStepEntry {
+        seq,
+        phase: "implement".to_owned(),
+        attempt: 1,
+        step,
+        status: RunStepStatus::Passed,
+        session_id: Some("ses-1".to_owned()),
+        detail: None,
+    }
+}
+
+/// run 收口命令 fixture。
+fn run_finish_cmd(
+    run_id: &str,
+    change: &str,
+    finished_at: i64,
+    steps: Vec<RunStepEntry>,
+) -> RunFinishCommand {
+    RunFinishCommand {
+        run_id: run_id.to_owned(),
+        change: change.to_owned(),
+        status: RunStatus::Completed,
+        reason: Some("收口记因".to_owned()),
+        finished_at,
+        steps,
+    }
+}
+
+/// 种子（start + finish）后经 port 面读回与直调操作面等值（AC-1 port 面）：
+/// list_runs / list_run_steps 逐字段一致。
+#[test]
+fn run域port委托_读回与直调操作面等值() {
+    let env = PortEnv::new("run-port");
+    let store = open_workspace_ok(&env.db_path("ws"));
+    store
+        .create_change_record(change_archive("port-run", 1000))
+        .expect("建档应成功");
+
+    let port: Arc<dyn ChangeStateStore> = Arc::new(store);
+    port.run_start(&run_start_cmd("run-100", "port-run", 2000))
+        .expect("port run_start 应成功");
+    port.run_finish(&run_finish_cmd(
+        "run-100",
+        "port-run",
+        3000,
+        vec![
+            run_step_entry(0, RunStepKind::Executor),
+            run_step_entry(2, RunStepKind::StaticCheck),
+        ],
+    ))
+    .expect("port run_finish 应成功");
+
+    // port 读面逐字段回读
+    let runs = port.list_runs("port-run").expect("port list_runs 应成功");
+    assert_eq!(runs.len(), 1);
+    assert_eq!(runs[0].run_id, "run-100");
+    assert_eq!(runs[0].status, RunStatus::Completed);
+    assert_eq!(runs[0].reason.as_deref(), Some("收口记因"));
+    assert_eq!(runs[0].started_at, 2000);
+    assert_eq!(runs[0].finished_at, Some(3000));
+
+    let steps = port
+        .list_run_steps("run-100")
+        .expect("port list_run_steps 应成功");
+    assert_eq!(steps.len(), 2);
+    assert_eq!(steps[0].seq, 0);
+    assert_eq!(steps[0].step, RunStepKind::Executor);
+    assert_eq!(steps[1].seq, 2);
+    assert_eq!(steps[1].step, RunStepKind::StaticCheck);
+
+    // port 面 = 直调操作面（同一 store 实例双入口等值——trait 委托零加工）
+}
+
+/// Conflict（同 run_id 重复 start）与 NotFound（未建档 finish）经 port 面映
+/// 射为 StoreFault::Conflict / NotFound，Display 记因语境保留。
+#[test]
+fn run域port委托_fault映射_conflict与notfound() {
+    let env = PortEnv::new("run-port-fault");
+    let store = open_workspace_ok(&env.db_path("ws"));
+    store
+        .create_change_record(change_archive("port-run", 1000))
+        .expect("建档应成功");
+    let port: Arc<dyn ChangeStateStore> = Arc::new(store);
+
+    port.run_start(&run_start_cmd("run-100", "port-run", 2000))
+        .expect("首次发起应成功");
+    let fault = port
+        .run_start(&run_start_cmd("run-100", "port-run", 3000))
+        .expect_err("同 run_id 重复发起应 Err");
+    match &fault {
+        StoreFault::Conflict(message) => {
+            assert!(
+                message.contains("run-100"),
+                "Conflict 记因语境保留: {message}"
+            );
+        }
+        other => panic!("应为 Conflict 变体: {other:?}"),
+    }
+    assert!(fault.to_string().contains("conflict"), "Display 前缀不串型");
+
+    let fault = port
+        .run_finish(&run_finish_cmd("run-ghost", "port-run", 3000, Vec::new()))
+        .expect_err("未建档收口应 Err");
+    assert!(
+        matches!(fault, StoreFault::NotFound(_)),
+        "NotFound 变体: {fault:?}"
+    );
+    assert!(
+        fault.to_string().contains("not_found"),
+        "Display 前缀不串型"
+    );
+}
+
+/// 空库形态（边界）：list_runs 空数组、list_run_steps 空数组（miss 非错误经
+/// port 面不变）。
+#[test]
+fn run域port委托_空库miss空数组() {
+    let env = PortEnv::new("run-port-miss");
+    let store = open_workspace_ok(&env.db_path("ws"));
+    let port: Arc<dyn ChangeStateStore> = Arc::new(store);
+
+    assert!(
+        port.list_runs("ghost-change")
+            .expect("port list_runs 应成功")
+            .is_empty(),
+        "空库 list_runs → 空数组"
+    );
+    assert!(
+        port.list_run_steps("run-ghost")
+            .expect("port list_run_steps 应成功")
+            .is_empty(),
+        "空库 list_run_steps → 空数组"
+    );
+}

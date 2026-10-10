@@ -15,7 +15,10 @@ time = { workspace = true }
 
 # 测试半边专用（零生产依赖面）：语料 db 种子构造器经真实 store change 域操作
 # 面（desktop-workflow-db-state design 依赖节明定；cargo 允许 dev-dependency
-# 与对方普通依赖成环——store 普通 dep → workflow、workflow dev-dep → store）
+# 与对方普通依赖成环——store 普通 dep → workflow、workflow dev-dep → store）；
+# run 维度种子经 orchestration finish_command 组装（10 词汇全序列喂入、5 落库
+# 过滤单点同真实写路径——unify-run-state-persistence，成环先例同构）
 [dev-dependencies]
 store = { workspace = true }
+orchestration = { workspace = true }
 tempfile = { workspace = true }

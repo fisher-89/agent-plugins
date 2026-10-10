@@ -1,14 +1,16 @@
-//! change 域命令组（读 + 记录面）：五条命令——三读（change 列表 / 详情
-//! 聚合 / 产物信封读取）+ 二记录面（新建建域 / 归档双写）；change 域三分职
-//! 责——本组（读 + 记录面，沿 explores 组同组先例）/ `change_flow`（run 编
-//! 排控制）/ `archive_flow`（归档编排流——带 agent 会话的第三面；本组裸
+//! change 域命令组（读 + 记录面）：五条命令——三读（change 列表 / 详情聚合
+//! 统一视图 / 产物信封读取）+ 二记录面（新建建域 / 归档双写）；change 域三
+//! 分职责——本组（读 + 记录面，沿 explores 组同组先例）/ `change_flow`（run
+//! 编排控制）/ `archive_flow`（归档编排流——带 agent 会话的第三面；本组裸
 //! 双写 `archive_change` 保留零改动，链式归档入口归该组）。
 //!
 //! 读命令为薄包装——参数 → resolve → `for_root` 取 workspace 库实例 → core
 //! 函数 → DTO：无直接文件系统访问、不缓存 workspace 状态（记录面带 State，
-//! 沿 explores 组先例）；blank root 早退空结果语义（空列表 / `None`），开库
-//! 失败同口径（IPC 签名不变，Result 面不引入）。记录面三件事纪律：参数转
-//! 换 → 调写面 → 错误映射；name / goal 校验权威在写面，命令层不过关。
+//! 沿 explores 组先例）。`get_change_detail` 为**统一视图合并装配**（读时合
+//! 并零写路径，unify-run-state-persistence D11）：core `change_detail` 库读
+//! 史后并入 `ChangeFlowControl` 注册表快照活面（steps / ask / 停等态）一面
+//! 出；blank root / 开库失败 None 语义不变。记录面三件事纪律：参数转换 →
+//! 调写面 → 错误映射；name / goal 校验权威在写面，命令层不过关。
 //! worktree 维度：`create_change` 经 vcs 落位派生（data_root 状态注入）+
 //! `ProcessWorktree` 装配，经 `spawn_blocking` 调 sync 写面（bootstrap 是
 //! 分钟级 spawn，async 化使 UI 不冻结）；`get_change_detail` / `read_artifact`
@@ -32,15 +34,41 @@
 //! `specs/desktop-change-state-store/spec.md`（路径相对域根）。
 
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
+use orchestration::control::ChangeFlowControl;
 use tauri::{AppHandle, Manager, State};
 
 use foundation::layout::resolve;
 use store::WorkspaceStores;
 use vcs_runtime::{worktree_dir, ProcessWorktree};
 use workflow::artifacts::{read_artifact as core_read_artifact, ArtifactEnvelope};
-use workflow::queries::{self, locate_change, ChangeDetail, ChangeList};
+use workflow::queries::{self, iso_from_millis, locate_change, ChangeDetail, ChangeList};
 use workflow::write::{self, ArchiveOutcome, CreateOutcome};
+
+/// 统一视图活面投影（unify-run-state-persistence D11）：注册表快照的线面像
+/// ——`startedAt` ISO 化收本命令层单点（快照毫秒 → ISO 串），steps 全词汇
+/// emit 序透传。
+#[derive(Debug, Clone, serde::Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct ActiveRunView {
+    pub run_id: String,
+    pub status: orchestration::ChangeRunStatus,
+    pub phase: Option<String>,
+    pub attempt: Option<u32>,
+    pub ask: Option<orchestration::AskPayload>,
+    pub started_at: String,
+    pub steps: Vec<orchestration::ChangeStepState>,
+}
+
+/// 统一视图信封：库读史 ∪ 在飞 run 活面一次返回（前端零双命令拼接；
+/// `active_run` 终态即除名 → null 语义不变）。
+#[derive(Debug, Clone, serde::Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct ChangeDetailUnified {
+    pub detail: ChangeDetail,
+    pub active_run: Option<ActiveRunView>,
+}
 
 #[cfg(test)]
 mod mod_test;
@@ -70,16 +98,19 @@ pub fn list_changes(stores: State<'_, WorkspaceStores>, root: String) -> ChangeL
     queries::list_changes(&layout, store.as_ref())
 }
 
-/// 单 change 详情聚合；未知 change 名返回 `None`（db 缺记录 change 以文档
-/// 形态返回：空流水线 + 产物清单）。IPC 签名不变：blank root 与开库失败均
+/// 单 change 详情聚合（统一视图，unify-run-state-persistence D11）：一次
+/// 返回「库读史（detail.runs）∪ 在飞 run 活面（activeRun）」——前端零双命
+/// 令拼接。未知 change 名返回 `None`（db 缺记录 change 以文档形态返回：空
+/// 流水线 + 产物清单 + 空 runs）。IPC 签名不变：blank root 与开库失败均
 /// `None`。worktree 感知在 core `change_detail` 内（record 先读后定位）。
 #[tauri::command]
 #[specta::specta]
 pub fn get_change_detail(
     stores: State<'_, WorkspaceStores>,
+    control: State<'_, Arc<ChangeFlowControl>>,
     root: String,
     change: String,
-) -> Option<ChangeDetail> {
+) -> Option<ChangeDetailUnified> {
     if is_blank_root(&root) {
         return None;
     }
@@ -87,7 +118,21 @@ pub fn get_change_detail(
         return None;
     };
     let layout = resolve(Path::new(&root));
-    queries::change_detail(&layout, store.as_ref(), &change)
+    let detail = queries::change_detail(&layout, store.as_ref(), &change)?;
+    // 活面投影：注册表快照（终态即除名 → None 语义不变）；startedAt ISO 化
+    // 收命令层单点（快照毫秒 → 线面 ISO 串）
+    let active_run = control
+        .snapshot(&root, &change)
+        .map(|snapshot| ActiveRunView {
+            run_id: snapshot.run_id,
+            status: snapshot.status,
+            phase: snapshot.phase,
+            attempt: snapshot.attempt,
+            ask: snapshot.ask,
+            started_at: iso_from_millis(snapshot.started_at),
+            steps: snapshot.steps,
+        });
+    Some(ChangeDetailUnified { detail, active_run })
 }
 
 /// 按信封读取单个产物；kind 未注册、source 非法或解析失败返回 `None`。

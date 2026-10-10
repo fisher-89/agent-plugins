@@ -18,8 +18,8 @@ use store::Store;
 use workflow::model::{ChecklistItem, Verdict};
 use workflow::state::{
     ActivePhaseState, BacktrackCommand, ChangeStateRecord, ChangeStateStore, ChangeStatus,
-    PhaseLogCommand, PhaseStartState, PhaseStateRecord, StepCommand, StepKind, StepStateRecord,
-    StoreFault,
+    PhaseLogCommand, PhaseStartState, PhaseStateRecord, RunFinishCommand, RunStartCommand,
+    RunStateRecord, RunStepStateRecord, StepCommand, StepKind, StepStateRecord, StoreFault,
 };
 use workflow::write::{BacktrackInput, PhaseLogInput, SessionAnchors};
 
@@ -373,6 +373,22 @@ impl ChangeStateStore for FakeStore {
             summary: command.summary.clone(),
             reference: command.reference.clone(),
         });
+        Ok(())
+    }
+
+    fn list_runs(&self, _change: &str) -> Result<Vec<RunStateRecord>, StoreFault> {
+        Ok(Vec::new())
+    }
+
+    fn list_run_steps(&self, _run_id: &str) -> Result<Vec<RunStepStateRecord>, StoreFault> {
+        Ok(Vec::new())
+    }
+
+    fn run_start(&self, _command: &RunStartCommand) -> Result<(), StoreFault> {
+        Ok(())
+    }
+
+    fn run_finish(&self, _command: &RunFinishCommand) -> Result<(), StoreFault> {
         Ok(())
     }
 }

@@ -121,7 +121,9 @@ function deriveEdges(sequence: FlowNode[]): FlowEdge[] {
 }
 
 /** 详情聚合 → 流程图模型；`pipeline` 为空（v0 早期代际）返回空图（无列无节点）。
- * `runNodes` 为运行步 overlay（run-state.ts 推导；缺省 / 空参即无运行态）：
+ * `runNodes` 为运行步 overlay（统一视图派生——`runStepNodes(unifiedRunSteps(
+ * detail.runs, activeRun?.steps))` 单源拼装，unify-run-state-persistence：库
+ * 读史 ∪ 在飞活步同一转换函数，图常驻渲染零回落；缺省 / 空参即无运行态）：
  * 节点按给定序恒追加归并链尾，参与同一条链的边推导。 */
 export function buildFlowGraph(detail: ChangeDetail, runNodes?: RuntimeFlowNode[]): FlowGraph {
   if (detail.pipeline.length === 0) {

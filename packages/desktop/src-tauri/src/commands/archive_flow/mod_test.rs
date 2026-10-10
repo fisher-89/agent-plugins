@@ -408,7 +408,7 @@ async fn start拒绝面_blank未建档已归档与run在案各显式err() {
     seed_change(&app, &root, occupied, None);
     let run_control = app.state::<Arc<ChangeFlowControl>>();
     let guard = run_control
-        .begin_run(&root, occupied, "run-1".to_owned())
+        .begin_run(&root, occupied, "run-1".to_owned(), 1_726_000_000_000)
         .expect("run 预登记应成功");
     let error = archive_flow_start_with(
         app.handle().clone(),

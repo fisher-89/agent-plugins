@@ -123,6 +123,8 @@ fn app_with(env: &Env) -> App<tauri::test::MockRuntime> {
     // 数据根注入（worktrees 落位派生的注入面，与 main.rs setup 同构）
     app.manage(env.data_dir.path().to_path_buf());
     app.manage(stores);
+    // run 控制注册表（get_change_detail 统一视图活面投影读取——main.rs 同构托管）
+    app.manage(Arc::new(orchestration::control::ChangeFlowControl::new()));
     app
 }
 
@@ -263,15 +265,26 @@ fn 读命令透传持衡_list与detail命令结果与core查询serde一致() {
     assert_eq!(groups[0]["changes"][0]["status"], json!("archived"));
 
     // detail：命令面与 core 直调 serde 等值；建档 change 全状态面
-    let via_detail = get_change_detail(state.clone(), root.clone(), "seeded-active".to_owned())
-        .expect("应 Some");
+    let control = app.state::<Arc<orchestration::control::ChangeFlowControl>>();
+    let via_detail = get_change_detail(
+        state.clone(),
+        control.clone(),
+        root.clone(),
+        "seeded-active".to_owned(),
+    )
+    .expect("应 Some");
     let via_core_detail =
         core_queries::change_detail(&layout, store.as_ref(), "seeded-active").expect("应 Some");
     assert_eq!(
-        serde_json::to_value(&via_detail).expect("命令结果序列化失败"),
+        serde_json::to_value(&via_detail.detail).expect("命令结果序列化失败"),
         serde_json::to_value(&via_core_detail).expect("core 结果序列化失败"),
         "薄包装不加工"
     );
+    assert!(
+        via_detail.active_run.is_none(),
+        "零运行 run → activeRun null"
+    );
+    let via_detail = &via_detail.detail;
     assert_eq!(via_detail.status, Some(ChangeStatus::Active));
     assert_eq!(via_detail.pipeline.len(), 9, "固定 9 站全量输出");
     let proposal = via_detail
@@ -293,7 +306,7 @@ fn 读命令透传持衡_list与detail命令结果与core查询serde一致() {
 
     // 未知 change → None（非错误）
     assert!(
-        get_change_detail(state.clone(), root, "不存在".to_owned()).is_none(),
+        get_change_detail(state, control, root, "不存在".to_owned()).is_none(),
         "未知 change 名返回 None"
     );
 }
@@ -487,10 +500,16 @@ async fn create接线_建域落位_零workflow_json_返回dto且立即可见可�
         .find(|entry| entry.name == "fix-bug")
         .expect("清单即刻可见");
     assert_eq!(entry.status, Some(ChangeStatus::Active));
-    let detail =
-        get_change_detail(state.clone(), root, "fix-bug".to_owned()).expect("详情即刻可见");
-    assert_eq!(detail.status, Some(ChangeStatus::Active));
-    assert_eq!(detail.pipeline.len(), 9, "空流水线 9 站全量（发起面就绪）");
+    let control = app.state::<Arc<orchestration::control::ChangeFlowControl>>();
+    let unified =
+        get_change_detail(state, control, root, "fix-bug".to_owned()).expect("详情即刻可见");
+    assert_eq!(unified.detail.status, Some(ChangeStatus::Active));
+    assert_eq!(
+        unified.detail.pipeline.len(),
+        9,
+        "空流水线 9 站全量（发起面就绪）"
+    );
+    assert!(unified.active_run.is_none());
 }
 
 // ---------------------------------------------------------------------------
@@ -695,6 +714,7 @@ async fn blank_root双口径_读命令早退空结果_create显式err() {
     let env = Env::new("blank-root");
     let app = app_with(&env);
     let state = app.state::<WorkspaceStores>();
+    let control = app.state::<Arc<orchestration::control::ChangeFlowControl>>();
 
     for root in [String::new(), "   ".to_owned()] {
         // 读命令：空结果语义（不报错、不进入查询链路）
@@ -702,7 +722,13 @@ async fn blank_root双口径_读命令早退空结果_create显式err() {
         assert!(list.active.is_empty(), "空 root 清单为空");
         assert!(list.archive_groups.is_empty(), "空 root 月分组为空");
         assert!(
-            get_change_detail(state.clone(), root.clone(), "任意".to_owned()).is_none(),
+            get_change_detail(
+                state.clone(),
+                control.clone(),
+                root.clone(),
+                "任意".to_owned()
+            )
+            .is_none(),
             "空 root 详情为 None"
         );
         assert!(
@@ -815,12 +841,15 @@ async fn detail_worktree感知_出线且产物命中worktree内文件() {
     let app = app_with(&env);
     let worktree = seed_worktree_change(&env, &app, "wt-detail-change");
 
+    let control = app.state::<Arc<orchestration::control::ChangeFlowControl>>();
     let detail = get_change_detail(
         app.state::<WorkspaceStores>(),
+        control,
         env.root(),
         "wt-detail-change".to_owned(),
     )
-    .expect("worktree 记录详情应 Some");
+    .expect("worktree 记录详情应 Some")
+    .detail;
 
     assert_eq!(
         detail.worktree.as_deref(),
@@ -929,4 +958,329 @@ async fn 归档引导命令面_unmerged_err透传merge文案() {
         .expect("查档应成功")
         .expect("建档在案");
     assert_eq!(record.status, ChangeStatus::Active, "db 零变更");
+}
+
+// ---------------------------------------------------------------------------
+// 统一查询装配（unify-run-state-persistence D11）：单命令一次返回「库读史 ∪
+// 在飞 run 活面」——前端零双命令拼接（AC-7）
+// ---------------------------------------------------------------------------
+
+/// 统一视图全形态对拍：无运行 run → detail.runs 全史 + activeRun=null（单命
+/// 令一次返回）；运行中 run → activeRun 六值状态 + steps 全词汇 emit 序 + ask
+/// 载荷 + phase / attempt；终态收口后 → activeRun 退 null、runs 尾行可达
+///（D9 收口后状态面）；startedAt 毫秒 → ISO 串（转换单点在本命令层）。
+#[test]
+fn 统一查询装配_runs全史与active_run活面与终态退场() {
+    let env = Env::new("unified-view");
+    let app = app_with(&env);
+    let state = app.state::<WorkspaceStores>();
+    let root = env.root();
+    let control = app.state::<Arc<orchestration::control::ChangeFlowControl>>();
+
+    {
+        let store = store_of(&app, &root);
+        seed_active(&store, "unified-change");
+        // 库读史：run-1 全史（completed + 记因 + 起止）+ run-2 起始行（running）
+        use workflow::state::{
+            RunFinishCommand, RunStartCommand, RunStatus, RunStepEntry, RunStepKind, RunStepStatus,
+        };
+        store
+            .start_change_run(&RunStartCommand {
+                run_id: "run-1".to_owned(),
+                change: "unified-change".to_owned(),
+                started_at: 1_727_000_000_000,
+            })
+            .expect("run-1 发起应成功");
+        store
+            .finish_change_run(&RunFinishCommand {
+                run_id: "run-1".to_owned(),
+                change: "unified-change".to_owned(),
+                status: RunStatus::Completed,
+                reason: Some("收口记因".to_owned()),
+                finished_at: 1_727_000_060_000,
+                steps: vec![RunStepEntry {
+                    seq: 0,
+                    phase: "proposal".to_owned(),
+                    attempt: 1,
+                    step: RunStepKind::Executor,
+                    status: RunStepStatus::Passed,
+                    session_id: Some("ses-1".to_owned()),
+                    detail: None,
+                }],
+            })
+            .expect("run-1 收口应成功");
+        store
+            .start_change_run(&RunStartCommand {
+                run_id: "run-2".to_owned(),
+                change: "unified-change".to_owned(),
+                started_at: 1_727_000_100_000,
+            })
+            .expect("run-2 发起应成功");
+    }
+
+    // 无运行 run（注册表空）→ activeRun=null，detail.runs 两条全史
+    let idle = get_change_detail(
+        state.clone(),
+        control.clone(),
+        root.clone(),
+        "unified-change".to_owned(),
+    )
+    .expect("应 Some");
+    assert!(idle.active_run.is_none(), "零注册表条目 → activeRun null");
+    assert_eq!(
+        idle.detail.runs.len(),
+        2,
+        "库读史全史（run-1 + run-2 起始行）"
+    );
+    assert_eq!(idle.detail.runs[0].run_id, "run-1");
+    assert_eq!(
+        idle.detail.runs[0].status,
+        workflow::state::RunStatus::Completed
+    );
+    assert_eq!(
+        idle.detail.runs[1].status,
+        workflow::state::RunStatus::Running
+    );
+
+    // 运行中 run：起点第一写（walker 落库缝——store running 行）+ begin_run
+    // 注册表登记 + publish 多步（全词汇 emit 序）+ ask 载荷
+    let started_at = 1_727_000_200_000_i64;
+    {
+        let store = store_of(&app, &root);
+        use workflow::state::RunStartCommand as SeedStart;
+        store
+            .start_change_run(&SeedStart {
+                run_id: "run-3".to_owned(),
+                change: "unified-change".to_owned(),
+                started_at,
+            })
+            .expect("run-3 起始行应成功");
+    }
+    let guard = control
+        .begin_run(&root, "unified-change", "run-3".to_owned(), started_at)
+        .expect("登记 run 应成功");
+    use orchestration::state::{ChangeStepKind, ChangeStepState, ChangeStepStatus, RunUpdate};
+    for (phase, attempt, kind, status) in [
+        (
+            "implement",
+            1u32,
+            ChangeStepKind::Executor,
+            ChangeStepStatus::Running,
+        ),
+        (
+            "implement",
+            1,
+            ChangeStepKind::Executor,
+            ChangeStepStatus::Passed,
+        ),
+        (
+            "implement",
+            1,
+            ChangeStepKind::StaticCheck,
+            ChangeStepStatus::Failed,
+        ),
+        (
+            "implement",
+            1,
+            ChangeStepKind::VerdictGate,
+            ChangeStepStatus::Passed,
+        ),
+    ] {
+        guard.emit(RunUpdate::Step {
+            step: ChangeStepState {
+                phase: phase.to_owned(),
+                attempt,
+                step: kind,
+                status,
+                session_id: None,
+                detail: None,
+            },
+        });
+    }
+    guard.emit(RunUpdate::Ask {
+        question: "是否回溯?".to_owned(),
+        options: vec!["dev-design".to_owned()],
+    });
+
+    let live = get_change_detail(
+        state.clone(),
+        control.clone(),
+        root.clone(),
+        "unified-change".to_owned(),
+    )
+    .expect("应 Some");
+    let active = live.active_run.as_ref().expect("运行中 activeRun 在场");
+    assert_eq!(active.run_id, "run-3");
+    assert_eq!(
+        active.status,
+        orchestration::ChangeRunStatus::WaitingAsk,
+        "六值状态机（waitingAsk 停等面）"
+    );
+    assert_eq!(active.phase.as_deref(), Some("implement"));
+    assert_eq!(active.attempt, Some(1));
+    let ask = active.ask.as_ref().expect("ask 载荷透传");
+    assert_eq!(ask.question, "是否回溯?");
+    assert_eq!(
+        active.steps.len(),
+        4,
+        "steps 全词汇 emit 序透传（含三门步——过滤归落库侧）"
+    );
+    assert_eq!(active.steps[2].step, ChangeStepKind::StaticCheck);
+    // startedAt 毫秒 → ISO 串（与 detail.runs 时间口径同式）
+    let started_iso = active.started_at.clone();
+    assert!(
+        started_iso.ends_with('Z') && started_iso.contains('T'),
+        "startedAt ISO 串（命令层转换单点）: {started_iso}"
+    );
+    assert!(
+        live.detail
+            .runs
+            .iter()
+            .all(|run| run.started_at.as_deref().map(|s| s.ends_with('Z')) == Some(true)),
+        "库读史时间口径同式"
+    );
+
+    // 终态收口后：注册表除名 → activeRun 退 null、runs 尾行（run-3 起始行）可达
+    guard.finish(orchestration::ChangeRunStatus::Completed, None);
+    let closed = get_change_detail(
+        state.clone(),
+        control.clone(),
+        root.clone(),
+        "unified-change".to_owned(),
+    )
+    .expect("应 Some");
+    assert!(closed.active_run.is_none(), "终态除名 → activeRun 退 null");
+    assert_eq!(
+        closed.detail.runs.len(),
+        3,
+        "run-3 起始行已在库（runs 尾行）"
+    );
+    let tail = closed.detail.runs.last().expect("尾行在场");
+    assert_eq!(tail.run_id, "run-3");
+    assert_eq!(tail.status, workflow::state::RunStatus::Running);
+}
+
+/// 统一查询装配_waitingconfirm停等形态（AC-7 活面六值状态机第二停等档）：步累
+/// 积后 emit `ConfirmWait` 一拍 → activeRun.status=waitingConfirm、phase 为停
+/// 等相位、attempt 承上一拍步行、ask=null（两停等形态互斥）、steps 累积器随
+/// 行；同一 run 的库读史起始行同时在案（库面 ∪ 活面一面出）。
+#[test]
+fn 统一查询装配_waitingconfirm停等形态() {
+    let env = Env::new("unified-confirm");
+    let app = app_with(&env);
+    let state = app.state::<WorkspaceStores>();
+    let root = env.root();
+    let control = app.state::<Arc<orchestration::control::ChangeFlowControl>>();
+
+    let started_at = 1_727_000_300_000_i64;
+    {
+        let store = store_of(&app, &root);
+        seed_active(&store, "confirm-change");
+        use workflow::state::RunStartCommand;
+        store
+            .start_change_run(&RunStartCommand {
+                run_id: "run-4".to_owned(),
+                change: "confirm-change".to_owned(),
+                started_at,
+            })
+            .expect("run-4 起始行应成功");
+    }
+
+    let guard = control
+        .begin_run(&root, "confirm-change", "run-4".to_owned(), started_at)
+        .expect("登记 run 应成功");
+    use orchestration::state::{ChangeStepKind, ChangeStepState, ChangeStepStatus, RunUpdate};
+    guard.emit(RunUpdate::Step {
+        step: ChangeStepState {
+            phase: "dev-design".to_owned(),
+            attempt: 2,
+            step: ChangeStepKind::Evaluator,
+            status: ChangeStepStatus::Passed,
+            session_id: Some("ses-eval".to_owned()),
+            detail: None,
+        },
+    });
+    guard.emit(RunUpdate::ConfirmWait {
+        phase: "test-design".to_owned(),
+    });
+
+    let unified = get_change_detail(
+        state.clone(),
+        control.clone(),
+        root.clone(),
+        "confirm-change".to_owned(),
+    )
+    .expect("应 Some");
+    let active = unified.active_run.as_ref().expect("停等中 activeRun 在场");
+    assert_eq!(
+        active.status,
+        orchestration::ChangeRunStatus::WaitingConfirm,
+        "六值状态机（waitingConfirm 停等面）"
+    );
+    assert_eq!(
+        active.phase.as_deref(),
+        Some("test-design"),
+        "停等相位面在场（ConfirmWait 载荷投影）"
+    );
+    assert_eq!(active.attempt, Some(2), "attempt 承上一拍步行");
+    assert!(active.ask.is_none(), "停等形态无 ask 载荷（两停等互斥）");
+    assert_eq!(active.steps.len(), 1, "步累积器随行（停等不丢步表）");
+    assert!(
+        active.started_at.ends_with('Z') && active.started_at.contains('T'),
+        "startedAt ISO 串口径同式: {}",
+        active.started_at
+    );
+    // 库读史与活面一面出：同一 run 的起始行在案（running 起始行，steps 恒空）
+    let same_run = unified
+        .detail
+        .runs
+        .iter()
+        .find(|run| run.run_id == "run-4")
+        .expect("同一 run 库读史起始行在案");
+    assert_eq!(same_run.status, workflow::state::RunStatus::Running);
+    assert!(same_run.steps.is_empty(), "在飞 run 起始行 steps 恒空");
+}
+
+/// 统一视图早退与文档形态（既有语义回归 + 不虚构活面）：blank root / 开库失
+/// 败 → None；文档形态 change（db 缺记录磁盘在场）→ detail 文档形态 +
+/// active_run=null；未知 change 名（record 与定位双缺）→ None。
+#[test]
+fn 统一查询装配_早退与文档形态与未知change() {
+    let env = Env::new("unified-edge");
+    let app = app_with(&env);
+    let state = app.state::<WorkspaceStores>();
+    let root = env.root();
+    let control = app.state::<Arc<orchestration::control::ChangeFlowControl>>();
+
+    // blank root → None（既有早退语义，零改写）
+    assert!(
+        get_change_detail(
+            state.clone(),
+            control.clone(),
+            "   ".to_owned(),
+            "any".to_owned()
+        )
+        .is_none(),
+        "blank root → None"
+    );
+
+    // 文档形态：磁盘目录在场 db 缺记录 → detail 文档形态 + active_run=null
+    //（不虚构活面——注册表即使有条目也按 change 键寻址落空）
+    env.change_dir("legacy-docs");
+    let doc = get_change_detail(
+        state.clone(),
+        control.clone(),
+        root.clone(),
+        "legacy-docs".to_owned(),
+    )
+    .expect("文档形态 Some");
+    assert_eq!(doc.detail.status, None, "文档形态零状态面");
+    assert!(doc.detail.runs.is_empty(), "文档形态 runs 恒空");
+    assert!(doc.active_run.is_none());
+
+    // 未知 change 名（record 与定位双缺）→ None（既有语义不变）
+    assert!(
+        get_change_detail(state, control, root, "不存在".to_owned()).is_none(),
+        "未知 change → None"
+    );
 }

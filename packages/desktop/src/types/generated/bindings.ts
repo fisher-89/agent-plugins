@@ -11,23 +11,15 @@ export const commands = {
 	 */
 	listChanges: (root: string) => __TAURI_INVOKE<ChangeList>("list_changes", { root }),
 	/**
-	 *  单 change 详情聚合；未知 change 名返回 `None`（db 缺记录 change 以文档
-	 *  形态返回：空流水线 + 产物清单）。IPC 签名不变：blank root 与开库失败均
+	 *  单 change 详情聚合（统一视图，unify-run-state-persistence D11）：一次
+	 *  返回「库读史（detail.runs）∪ 在飞 run 活面（activeRun）」——前端零双命
+	 *  令拼接。未知 change 名返回 `None`（db 缺记录 change 以文档形态返回：空
+	 *  流水线 + 产物清单 + 空 runs）。IPC 签名不变：blank root 与开库失败均
 	 *  `None`。worktree 感知在 core `change_detail` 内（record 先读后定位）。
 	 */
 	getChangeDetail: (root: string, change: string) => __TAURI_INVOKE<{
-	name: string,
-	source: ChangeSource,
-	status: ChangeStatus | null,
-	created: string | null,
-	pipeline: PhaseEntry[],
-	activePhase: ActivePhase | null,
-	artifacts: ArtifactDescriptor[],
-	/**
-	 *  本 change 的 worktree 绝对路径（自建档记录直读透出，None → null；
-	 *  legacy 记录不渲染——路径为刻意出线的执行锚，review / merge 可达）
-	 */
-	worktree: string | null,
+	detail: ChangeDetail,
+	activeRun: ActiveRunView | null,
 } | null>("get_change_detail", { root, change }),
 	/**
 	 *  按信封读取单个产物；kind 未注册、source 非法或解析失败返回 `None`。
@@ -108,21 +100,11 @@ export const commands = {
 	/**  轮统计行（发起顺序） */
 	turns: TurnSummary[],
 } | null>("session_detail", { root, sessionId }),
-	changeFlowStart: (onEvent: Channel<RunUpdate>, root: string, change: string, autoNextPhase: boolean) => __TAURI_INVOKE<ChangeRunSummary>("change_flow_start", { onEvent, root, change, autoNextPhase }),
+	changeFlowStart: (onEvent: Channel<RunNotice>, root: string, change: string, autoNextPhase: boolean) => __TAURI_INVOKE<ChangeRunSummary>("change_flow_start", { onEvent, root, change, autoNextPhase }),
 	changeFlowStop: (root: string, change: string) => __TAURI_INVOKE<null>("change_flow_stop", { root, change }),
 	changeFlowAnswer: (root: string, change: string, answer: string) => __TAURI_INVOKE<null>("change_flow_answer", { root, change, answer }),
 	changeFlowConfirm: (root: string, change: string, proceed: boolean) => __TAURI_INVOKE<null>("change_flow_confirm", { root, change, proceed }),
-	changeFlowState: (root: string, change: string) => __TAURI_INVOKE<{
-	runId: string,
-	status: ChangeRunStatus,
-	/**  当前相位（停等定位用） */
-	phase: string | null,
-	/**  当前 attempt */
-	attempt: number | null,
-	/**  waitingAsk 时的中断载荷 */
-	ask: AskPayload | null,
-} | null>("change_flow_state", { root, change }),
-	changeFlowWatch: (onEvent: Channel<RunUpdate>, root: string, change: string) => __TAURI_INVOKE<null>("change_flow_watch", { onEvent, root, change }),
+	changeFlowWatch: (onEvent: Channel<RunNotice>, root: string, change: string) => __TAURI_INVOKE<null>("change_flow_watch", { onEvent, root, change }),
 	/**
 	 *  归档前置读面（确认对话数据面）：blank root / change 早退 `None`（读语义）；
 	 *  `None` = 不可归档（未建档 / 已归档 / 未知名——前端据此不呈现入口路径的
@@ -261,6 +243,21 @@ export type ActivePhase = {
 	phase: string,
 	attempt: number,
 	startAt: string | null,
+};
+
+/**
+ *  统一视图活面投影（unify-run-state-persistence D11）：注册表快照的线面像
+ *  ——`startedAt` ISO 化收本命令层单点（快照毫秒 → ISO 串），steps 全词汇
+ *  emit 序透传。
+ */
+export type ActiveRunView = {
+	runId: string,
+	status: ChangeRunStatus,
+	phase: string | null,
+	attempt: number | null,
+	ask: AskPayload | null,
+	startedAt: string,
+	steps: ChangeStepState[],
 };
 
 /**  消息内块：Text / Thinking / ToolUse / ToolResult 四变体（tag `kind`，camelCase）。 */
@@ -585,12 +582,26 @@ export type ChangeDetail = {
 	created: string | null,
 	pipeline: PhaseEntry[],
 	activePhase: ActivePhase | null,
+	/**
+	 *  run 运行史全量读面（unify-run-state-persistence：全史不截，runs 按
+	 *  `started_at` 升序、steps 按 seq 升序；文档形态恒空数组）
+	 */
+	runs: ChangeRunEntry[],
 	artifacts: ArtifactDescriptor[],
 	/**
 	 *  本 change 的 worktree 绝对路径（自建档记录直读透出，None → null；
 	 *  legacy 记录不渲染——路径为刻意出线的执行锚，review / merge 可达）
 	 */
 	worktree: string | null,
+};
+
+/**
+ *  统一视图信封：库读史 ∪ 在飞 run 活面一次返回（前端零双命令拼接；
+ *  `active_run` 终态即除名 → null 语义不变）。
+ */
+export type ChangeDetailUnified = {
+	detail: ChangeDetail,
+	activeRun: ActiveRunView | null,
 };
 
 /**  change 列表：active 全量 + archive 按月分组。 */
@@ -600,18 +611,16 @@ export type ChangeList = {
 };
 
 /**
- *  重挂快照：进程内 run 控制注册表在 view 重建时的状态恢复面（run 终态后
- *  为 None——快照只覆盖运行期，终态由图派生规则承载）。
+ *  单次 run 运行史条目（全史不截；在飞 run 的 start 行已在库——status=
+ *  running、steps 恒空，run 清单面运行中可见）。
  */
-export type ChangeRunSnapshot = {
+export type ChangeRunEntry = {
 	runId: string,
-	status: ChangeRunStatus,
-	/**  当前相位（停等定位用） */
-	phase: string | null,
-	/**  当前 attempt */
-	attempt: number | null,
-	/**  waitingAsk 时的中断载荷 */
-	ask: AskPayload | null,
+	status: RunStatus,
+	reason: string | null,
+	startedAt: string | null,
+	finishedAt: string | null,
+	steps: ChangeRunStepRecord[],
 };
 
 /**
@@ -631,6 +640,20 @@ export type ChangeRunStatus =
 "stopped" | 
 /**  失败终止（写面 / 会话失败 / 解析失败显式停给用户） */
 "failed";
+
+/**
+ *  run 步节点史行线面（五词汇封闭集直出，词汇 = `state::RunStepKind` 单点；
+ *  seq = emit 序稳定升序）。
+ */
+export type ChangeRunStepRecord = {
+	seq: number,
+	phase: string,
+	attempt: number,
+	step: RunStepKind,
+	status: RunStepStatus,
+	sessionId: string | null,
+	detail: string | null,
+};
 
 /**
  *  发起提前 resolve 返回值：run_id 立即可知，运行态经 Channel 流出（与
@@ -815,7 +838,7 @@ export type DbDimension =
 "user" | 
 /**
  *  workspace 维度（per-workspace 库，轮统计行 / 会话 / 转录 / explore /
- *  change 流程状态八模型）
+ *  change 流程状态 + run 运行史十模型）
  */
 "workspace";
 
@@ -979,20 +1002,67 @@ export type RulesConfig = {
 };
 
 /**
- *  run 状态流信封（tag `ipc` 判别，TS 镜像经 bindings 再生成直出）：
- *  步状态上图、会话事件透传转录面板、ask / 确认停等驱动控制面板、终态收口。
+ *  变更通知（唯一 IPC 信封；unify-run-state-persistence D3 通知降位）：五
+ *  kind-only 变体与 [`RunUpdate`] 一一同型、零载荷——通知仅失效信号，查询
+ *  结果权威，客户端收通知自行重查统一视图（`get_change_detail`）与转录库。
  */
-export type RunUpdate = 
-/**  步状态变更（运行步节点上图输入） */
-{ ipc: "step"; step: ChangeStepState } | 
-/**  WorkerAgent 会话事件透传（转录面板实时流） */
-{ ipc: "sessionEvent"; sessionId: string; event: AgentEvent } | 
-/**  ask 中断（决策会话无法裁决 → UI 中断提问） */
-{ ipc: "ask"; question: string; options: string[] } | 
-/**  phase 间停等确认 */
-{ ipc: "confirmWait"; phase: string } | 
-/**  终态收口（walker 收敛唯一出口） */
-{ ipc: "finished"; status: ChangeRunStatus; reason: string | null };
+export type RunNotice = 
+/**  步状态变更（→ 统一视图重查） */
+{ ipc: "step" } | 
+/**  WorkerAgent 会话事件透传（→ 转录库重查） */
+{ ipc: "sessionEvent" } | 
+/**  ask 中断（→ 统一视图重查） */
+{ ipc: "ask" } | 
+/**  phase 间停等确认（→ 统一视图重查） */
+{ ipc: "confirmWait" } | 
+/**  终态收口（→ 统一视图重查定局） */
+{ ipc: "finished" };
+
+/**
+ *  run 状态五值（线格式小写词；queries DTO 直接复用本类型）。`interrupted`
+ *  仅启动标定产生（重启后 run 客观已死），运行期写路径不产生该值；停等两态
+ *  （waitingAsk / waitingConfirm）不落库——应答通道活在进程内。
+ */
+export type RunStatus = 
+/**  运行中（发起建档起步） */
+"running" | 
+/**  全相位 pass 走完 */
+"completed" | 
+/**  受控终止（用户停止 / confirm=false / 决策 stop 动作） */
+"stopped" | 
+/**  失败终止 */
+"failed" | 
+/**  中断（仅启动标定产生） */
+"interrupted";
+
+/**
+ *  run 步词汇封闭集（五值，线格式 snake_case 词）：agent 阶段（executor /
+ *  evaluator / decision）+ 脚本阶段（static_check / test_execution）。词汇
+ *  本体单点——落库命令（`RunStepEntry.step`）与查询投影（`detail.rs`）同本
+ *  类型消费，store 结构上收不到忽略集（流程面步骤与三门不可表达）。
+ */
+export type RunStepKind = 
+/**  executor 会话 */
+"executor" | 
+/**  evaluator 会话 */
+"evaluator" | 
+/**  决策会话 */
+"decision" | 
+/**  static-check 工具步 */
+"static_check" | 
+/**  test-execution 门禁工具步 */
+"test_execution";
+
+/**  run 步状态四值（线格式 camelCase 词）。 */
+export type RunStepStatus = 
+/**  步进行中（收口在途步可留 running） */
+"running" | 
+/**  步通过 */
+"passed" | 
+/**  步失败 */
+"failed" | 
+/**  步因停止 / 终止收敛 */
+"stopped";
 
 /**
  *  来源归属：来源受控字符串（debug | explore | …，缺省 debug）+ 来源内定位

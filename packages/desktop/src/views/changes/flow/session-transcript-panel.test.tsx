@@ -138,20 +138,12 @@ beforeEach(() => {
   mockIpc();
 });
 
-function renderPanel(
-  refs: RoleSessionRef[],
-  liveEvents: AgentEvent[] = [],
-  root: string | null = ROOT,
-) {
-  return render(<SessionTranscriptPanel root={root} roleRefs={refs} liveEvents={liveEvents} />);
+function renderPanel(refs: RoleSessionRef[], root: string | null = ROOT) {
+  return render(<SessionTranscriptPanel root={root} roleRefs={refs} />);
 }
 
-async function mounted(
-  refs: RoleSessionRef[] = roleRefs(),
-  liveEvents: AgentEvent[] = [],
-  root: string | null = ROOT,
-) {
-  const rendered = renderPanel(refs, liveEvents, root);
+async function mounted(refs: RoleSessionRef[] = roleRefs(), root: string | null = ROOT) {
+  const rendered = renderPanel(refs, root);
   await act(async () => {});
   return rendered;
 }
@@ -221,8 +213,8 @@ describe('SessionTranscriptPanel：role 分页与反查联动（AC-5 联动半�
   });
 });
 
-describe('SessionTranscriptPanel：AgentMessages 渲染与 liveEvents 透传', () => {
-  it('密封重放消息经 AgentMessages 呈现（组件复用锚：同一对话透镜，无第二套渲染）', async () => {
+describe('SessionTranscriptPanel：AgentMessages 渲染与重放单源', () => {
+  it('密封重放消息经 AgentMessages 呈现（组件复用锚：同一条时间线，无第二套渲染）', async () => {
     await mounted();
     const panel = screen.getByTestId('session-transcript-panel');
     await waitFor(() => expect(within(panel).getAllByTestId('block-text')).toHaveLength(2));
@@ -235,17 +227,23 @@ describe('SessionTranscriptPanel：AgentMessages 渲染与 liveEvents 透传', (
     ).toEqual(['执行会话首轮', '执行会话续文']);
   });
 
-  it('liveEvents 透传：运行中实时事件并入时间线（与重放按 seq 去重、增长不重复）', async () => {
+  it('refreshKey 自增触发转录库重查（实时面统一转录库——liveEvents 退役，重放单源）', async () => {
     const { rerender } = renderPanel(roleRefs());
     await waitFor(() => expect(panelTexts()).toHaveLength(2));
 
-    rerender(
-      <SessionTranscriptPanel
-        root={ROOT}
-        roleRefs={roleRefs()}
-        liveEvents={[textMessage(1, '重复 seq'), textMessage(2, '实时片段')]}
-      />,
-    );
+    // 通知到达：转录库追加一条新密封事件（落库先于通知），refreshKey 自增
+    sessionsByRef[EXECUTOR_REF] = [
+      summary(EXECUTOR_SESSION, EXECUTOR_REF, [
+        turn(11, EXECUTOR_SESSION, 'completed'),
+        turn(12, EXECUTOR_SESSION, 'completed'),
+      ]),
+    ];
+    transcriptBySession[EXECUTOR_SESSION] = [
+      textMessage(0, '执行会话首轮'),
+      textMessage(1, '执行会话续文'),
+      textMessage(2, '实时片段'),
+    ];
+    rerender(<SessionTranscriptPanel root={ROOT} roleRefs={roleRefs()} refreshKey={1} />);
     await waitFor(() => expect(panelTexts()).toHaveLength(3));
 
     expect(panelTexts()).toEqual(['执行会话首轮', '执行会话续文', '实时片段']);
@@ -284,7 +282,7 @@ describe('SessionTranscriptPanel：空态与错误（边界 / 异常）', () => 
   });
 
   it('root null：零 invoke、transcript-empty 空态', async () => {
-    await mounted(roleRefs(), [], null);
+    await mounted(roleRefs(), null);
 
     expect(invokeMock).not.toHaveBeenCalled();
     expect(screen.getByTestId('transcript-empty') !== null).toBe(true);
@@ -516,7 +514,6 @@ describe('SessionTranscriptPanel：三会话 tab（AC-7）', () => {
           { role: 'executor', sourceRef: 'add-feature/code-review/executor/1', sessionId: null },
           { role: 'decision', sourceRef: null, sessionId: null },
         ]}
-        liveEvents={[]}
       />,
     );
     await waitFor(() =>
@@ -558,7 +555,6 @@ describe('SessionTranscriptPanel：三会话 tab（AC-7）', () => {
             { role: 'executor', sourceRef: EXECUTOR_REF, sessionId: EXECUTOR_SESSION },
             { role: 'evaluator', sourceRef: EVALUATOR_REF, sessionId: EVALUATOR_SESSION },
           ]}
-          liveEvents={[]}
         />,
       ),
     ).not.toThrow();

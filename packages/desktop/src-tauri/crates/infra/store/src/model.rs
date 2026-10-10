@@ -7,7 +7,10 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use specta::Type;
 use workflow::model::{ChecklistItem, Verdict};
-use workflow::state::{ChangeStatus, StepCommand, StepKind};
+use workflow::state::{
+    ChangeStatus, RunStartCommand, RunStatus, RunStepEntry, RunStepKind, RunStepStatus,
+    StepCommand, StepKind,
+};
 
 /// v3 历史形态的环境档位枚举（仅升级链解码用；线值与退役的 core 枚举一致，
 /// `default` | `bare`）。
@@ -597,6 +600,123 @@ impl StepRecord {
     }
 }
 
+// --- run 运行史记录（unify-run-state-persistence：决策翻案「不建 flow_runs
+// 表」，run 运行史落库两表；与 StepRecord 审计职责分立）---------------------
+
+/// run 运行史主行（workspace 维度，落所属 workspace 库；unify-run-state-
+/// persistence 翻案「不建 flow_runs 表」决策立项）：每 run 一行，发起建
+/// running 行（支撑启动标定）、收口终态更新（单事务与步整包同落）。全史保留
+/// 不截 last_run（运行史审计面）；attempt 经 `phase_start` max+1 分配跨 run
+/// 不撞号，全史叠加在同一列面分层。
+///
+/// 状态词汇五值：`running` + 终态三值（completed / stopped / failed）+
+/// `interrupted`（仅启动标定产生，运行期写路径不产生）；停等两态不落库（应
+/// 答通道活在进程内）。时间戳为 UTC unix 毫秒 `i64`，与 `WorkspaceRecord`
+/// 同口径。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+#[native_model(id = 13, version = 1)]
+#[native_db]
+pub struct RunRecord {
+    /// run id（主键，walker `run-<millis>` 铸造标识）
+    #[primary_key]
+    pub run_id: String,
+    /// 所属 change 名（非唯一二级索引；名称引用非外键约束）
+    #[secondary_key]
+    pub change: String,
+    /// run 状态（running | completed | stopped | failed | interrupted）
+    pub status: RunStatus,
+    /// 终态记因 / 标定记因（running 恒 None）
+    #[serde(default)]
+    pub reason: Option<String>,
+    /// 发起时刻（UTC unix 毫秒，run_start 命令携带）
+    pub started_at: i64,
+    /// 收口 / 标定时刻（UTC unix 毫秒；running 恒 None）
+    #[serde(default)]
+    pub finished_at: Option<i64>,
+}
+
+impl RunRecord {
+    /// 由发起命令构造新记录（running 起步、无 reason、无收口时刻）。
+    pub fn new(command: &RunStartCommand) -> Self {
+        Self {
+            run_id: command.run_id.clone(),
+            change: command.change.clone(),
+            status: RunStatus::Running,
+            reason: None,
+            started_at: command.started_at,
+            finished_at: None,
+        }
+    }
+}
+
+/// run 步节点史行（workspace 维度，落所属 workspace 库）：run 收口步整包的
+/// 落行形态，图史面——与 `StepRecord` 审计职责分立（审计 vs 图节点史，词汇
+/// 近互补不双写同一语义行；StepRecord 职责与词汇不变）。
+///
+/// 步词汇为封闭集五值（`RunStepKind`：executor / evaluator / decision /
+/// static_check / test_execution）——词汇本体在 workflow::state，store 结构
+/// 上收不到忽略集（流程面步骤与三门不可表达，过滤单点在编排侧落库写面）。
+///
+/// 主键为合成 u128 打包键（native_db 复合主键不受支持，`SessionEventRecord`
+/// 先例同构）：高 64 位 `hash64(run_id)`、低 64 位 seq（emit 序），大端字节
+/// 序保证同 run 内自然序即 emit 序（被过滤步占号产生的库内空洞为排序键语义
+/// 合法形态，先例同源）。`run_id` 另立非唯一二级索引保查询形态。`timestamp`
+/// = finish 的 finished_at（整包同刻，corpus 确定性）。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+#[native_model(id = 14, version = 1)]
+#[native_db]
+pub struct RunStepRecord {
+    /// 复合键打包：`(hash64(run_id) as u128) << 64 | seq`
+    ///
+    /// serde 定制为十六进制字符串（`event_key_serde` 先例复用——serde_json 无
+    /// u128 数字面）。
+    #[primary_key]
+    #[serde(with = "event_key_serde")]
+    pub step_key: u128,
+    /// 所属 run id（非唯一二级索引，run 史重组查询入口）
+    #[secondary_key]
+    pub run_id: String,
+    pub phase: String,
+    pub attempt: u32,
+    /// 步词汇（封闭集五值，core 域枚举直用）
+    pub step: RunStepKind,
+    /// 步状态（running | passed | failed | stopped；收口在途步可留 running）
+    pub status: RunStepStatus,
+    /// WorkerAgent 步所属会话 id（工具步为 None）
+    #[serde(default)]
+    pub session_id: Option<String>,
+    /// 人读记因 / 摘要（有界，写面截断同 diagnose_brief 口径）
+    #[serde(default)]
+    pub detail: Option<String>,
+    /// 落包时刻（UTC unix 毫秒，= finished_at 整包同刻）
+    pub timestamp: i64,
+}
+
+impl RunStepRecord {
+    /// 由收口整包条目构造记录：`step_key` 打包自 `hash64(run_id)` + `seq`
+    ///（emit 序），`timestamp` 随整包统一（= finished_at）。
+    pub fn new(run_id: &str, entry: &RunStepEntry, timestamp: i64) -> Self {
+        Self {
+            step_key: pack_run_step_key(run_id, entry.seq),
+            run_id: run_id.to_owned(),
+            phase: entry.phase.clone(),
+            attempt: entry.attempt,
+            step: entry.step,
+            status: entry.status,
+            session_id: entry.session_id.clone(),
+            detail: entry.detail.clone(),
+            timestamp,
+        }
+    }
+
+    /// emit 序号（打包键低 64 位，与 `RunStepEntry.seq` 同源）。
+    pub fn seq(&self) -> u64 {
+        self.step_key as u64
+    }
+}
+
 // --- agent 管理记录（user 维度，全局库 desktop-global.redb）----------------
 
 /// provider 三档模型档位（agent 管理域，纯嵌套 struct 不落独立模型——嵌装
@@ -787,6 +907,12 @@ impl AgentInstanceRecord {
 /// 组装点。
 pub(crate) fn pack_session_event_key(session_id: &str, seq: u64) -> u128 {
     ((session_key_hash(session_id) as u128) << 64) | (seq as u128)
+}
+
+/// 复合键打包：高 64 位 `hash64(run_id)`、低 64 位 seq（emit 序）。store 内
+/// 唯一组装点（`pack_session_event_key` 同族，`RunStepRecord` 打包主键）。
+pub(crate) fn pack_run_step_key(run_id: &str, seq: u64) -> u128 {
+    ((session_key_hash(run_id) as u128) << 64) | (seq as u128)
 }
 
 /// 会话键 64 位哈希：SHA-256(session_id UTF-8 字节) 前 8 字节大端 u64

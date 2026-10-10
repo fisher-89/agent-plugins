@@ -11,14 +11,26 @@ use ::agent::StopRegistry;
 use agent_runtime::{compose_turn, ComposedTurn, KernelWorkerPort};
 use checks_runtime::{ProcessStaticCheck, ProcessTestExecution};
 use orchestration::control::ChangeFlowControl;
-use orchestration::port::{RunEventSink, ToolStepPort, WorkerAgentPort, WorkflowSnapshotPort};
+use orchestration::port::{
+    RunEventSink, RunHistoryPort, ToolStepPort, WorkerAgentPort, WorkflowSnapshotPort,
+};
+use orchestration::run_history::StoreRunHistory;
 use orchestration::snapshot::StoreSnapshot;
-use orchestration::state::{ChangeRunSnapshot, ChangeRunStatus, ChangeRunSummary, RunUpdate};
+use orchestration::state::{ChangeRunStatus, ChangeRunSummary, RunNotice, RunUpdate};
 use orchestration::steps::LocalToolSteps;
 use orchestration::walker::{new_run_id, walk_run, RunRequest};
 use store::WorkspaceStores;
 use workflow::state::ChangeStateStore;
 use workflow::write::{phase_table, SessionAnchors};
+
+/// 当前 UTC unix 毫秒（run 发起时刻铸造点；时钟早于 epoch 取 0，不 panic——
+/// `begin_run` / `RunRequest.started_at` 同值，corpus 确定性由测试注入承载）。
+fn now_millis() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_millis() as i64)
+        .unwrap_or(0)
+}
 
 /// 参数显式格式检查：空/空白串不进入库解析 / 注册表链路（与 exec 轨道同
 /// 口径，本模块内聚一份避免跨命令组暴露私有件）。
@@ -49,7 +61,7 @@ impl RunEventSink for ChangeFlowSink {
 #[specta::specta]
 pub async fn change_flow_start(
     app: AppHandle,
-    on_event: Channel<RunUpdate>,
+    on_event: Channel<RunNotice>,
     root: String,
     change: String,
     auto_next_phase: bool,
@@ -61,7 +73,7 @@ pub async fn change_flow_start(
 /// MockRuntime 句柄，沿 `agent_start_with` 先例）。
 pub(crate) async fn change_flow_start_with<R: tauri::Runtime>(
     app: AppHandle<R>,
-    on_event: Channel<RunUpdate>,
+    on_event: Channel<RunNotice>,
     root: String,
     change: String,
     auto_next_phase: bool,
@@ -118,12 +130,16 @@ pub(crate) async fn change_flow_start_with<R: tauri::Runtime>(
         ));
     }
     let run_id = new_run_id();
-    let guard = control.begin_run(&root, &change, run_id.clone())?;
+    // 发起时刻铸造（run 运行史 started_at / 注册表条目同值——corpus 确定性
+    // 由命令携带时间戳保证，design D5）
+    let started_at = now_millis();
+    let guard = control.begin_run(&root, &change, run_id.clone(), started_at)?;
 
     // 组合根装配（run 作用域一次）：组合 turn + 三 port + 快照源 + 事件桥
     // + run 级会话锚点（每 run 一个实例，W7）+ store 缝（写面落库 / 快照
     // db 读源共用 `for_root` 实例；compose 注入 workspace root 实例——cwd
-    // 半边经 turn 通道携带 exec root）
+    // 半边经 turn 通道携带 exec root）+ run 落库缝（每 run 两写：
+    // walk_run 起点第一写 running 行 / 终态出口第二写整包，D5）
     let registry = Arc::clone(app.state::<Arc<StopRegistry>>().inner());
     let composed: ComposedTurn = compose_turn(
         stores.inner(),
@@ -139,6 +155,7 @@ pub(crate) async fn change_flow_start_with<R: tauri::Runtime>(
     let worker: Arc<dyn WorkerAgentPort> = Arc::new(KernelWorkerPort::new(composed, sink));
     let anchors = Arc::new(SessionAnchors::new());
     let store_port: Arc<dyn ChangeStateStore> = store; // Arc<Store> → port 缝对象
+    let history: Arc<dyn RunHistoryPort> = Arc::new(StoreRunHistory::new(Arc::clone(&store_port)));
     let tools: Arc<dyn ToolStepPort> = Arc::new(LocalToolSteps::new(
         Arc::clone(&anchors),
         Arc::new(ProcessStaticCheck::new()),
@@ -155,15 +172,17 @@ pub(crate) async fn change_flow_start_with<R: tauri::Runtime>(
         change: change.clone(),
         run_id: run_id.clone(),
         auto_next_phase,
+        started_at,
     };
 
-    // 提前 resolve：run_id 立即可知，运行态经 Channel 流出（订阅先行于 walker 启动）
+    // 提前 resolve：run_id 立即可知，变更通知经 Channel 流出（订阅先行于
+    // walker 启动；kind-only Notice——通知仅失效信号，查询结果权威）
     let updates = control
         .subscribe(&root, &change)
         .ok_or_else(|| "run 订阅失败（注册表条目缺失）".to_owned())?;
     spawn_channel_forward(on_event, updates);
     tauri::async_runtime::spawn(async move {
-        let _ = walk_run(worker, tools, snapshot, control, guard, request).await;
+        let _ = walk_run(worker, tools, snapshot, history, control, guard, request).await;
     });
     Ok(ChangeRunSummary {
         run_id,
@@ -256,43 +275,21 @@ pub(crate) fn change_flow_confirm_with<R: tauri::Runtime>(
 
 #[tauri::command]
 #[specta::specta]
-pub fn change_flow_state(
-    app: AppHandle,
-    root: String,
-    change: String,
-) -> Result<Option<ChangeRunSnapshot>, String> {
-    change_flow_state_with(app, root, change)
-}
-
-/// [`change_flow_state`] 的泛型测试缝。
-pub(crate) fn change_flow_state_with<R: tauri::Runtime>(
-    app: AppHandle<R>,
-    root: String,
-    change: String,
-) -> Result<Option<ChangeRunSnapshot>, String> {
-    if is_blank(&root) || is_blank(&change) {
-        return Ok(None);
-    }
-    Ok(app
-        .state::<Arc<ChangeFlowControl>>()
-        .snapshot(&root, &change))
-}
-
-#[tauri::command]
-#[specta::specta]
 pub fn change_flow_watch(
     app: AppHandle,
-    on_event: Channel<RunUpdate>,
+    on_event: Channel<RunNotice>,
     root: String,
     change: String,
 ) -> Result<(), String> {
     change_flow_watch_with(app, on_event, root, change)
 }
 
-/// [`change_flow_watch`] 的泛型测试缝：运行中视图重挂后的 broadcast 补订。
+/// [`change_flow_watch`] 的泛型测试缝：运行中视图重挂后的 broadcast 补订
+///（重挂恢复 = 统一查询 `get_change_detail` activeRun 面先行，本命令补订
+/// 实时通知——D4，快照命令已退役）。
 pub(crate) fn change_flow_watch_with<R: tauri::Runtime>(
     app: AppHandle<R>,
-    on_event: Channel<RunUpdate>,
+    on_event: Channel<RunNotice>,
     root: String,
     change: String,
 ) -> Result<(), String> {
@@ -305,19 +302,20 @@ pub(crate) fn change_flow_watch_with<R: tauri::Runtime>(
             spawn_channel_forward(on_event, updates);
             Ok(())
         }
-        // 无运行 run：非错误（重挂时 run 可能已收口，图回落派生规则）
+        // 无运行 run：非错误（重挂时 run 可能已收口，图读史常驻派生）
         None => Ok(()),
     }
 }
 
-/// broadcast → Channel 转发任务（滞后丢事件即断流：前端重挂快照兜底）。
+/// broadcast → Channel 转发任务（滞后丢通知即断流：前端重查统一视图兜底；
+/// kind-only Notice 零载荷——通知仅失效信号）。
 fn spawn_channel_forward(
-    on_event: Channel<RunUpdate>,
-    mut updates: tokio::sync::broadcast::Receiver<RunUpdate>,
+    on_event: Channel<RunNotice>,
+    mut updates: tokio::sync::broadcast::Receiver<RunNotice>,
 ) {
     tauri::async_runtime::spawn(async move {
-        while let Ok(update) = updates.recv().await {
-            if on_event.send(update).is_err() {
+        while let Ok(notice) = updates.recv().await {
+            if on_event.send(notice).is_err() {
                 break;
             }
         }

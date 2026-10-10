@@ -1,0 +1,159 @@
+{
+  "activePhase": null,
+  "artifacts": [],
+  "created": "2024-09-22",
+  "name": "run-history",
+  "pipeline": [
+    {
+      "attempts": [
+        {
+          "attempt": 1,
+          "backtrackReason": null,
+          "backtrackTo": null,
+          "checklist": [],
+          "decisionSessionId": null,
+          "evaluatorSessionId": null,
+          "executorSessionId": null,
+          "report": "提案通过",
+          "skipped": false,
+          "stale": false,
+          "startAt": "2024-09-22T10:13:21Z",
+          "timestamp": "2024-09-22T10:13:21Z",
+          "verdict": "pass"
+        }
+      ],
+      "phase": "proposal"
+    },
+    {
+      "attempts": [
+        {
+          "attempt": 1,
+          "backtrackReason": null,
+          "backtrackTo": null,
+          "checklist": [
+            {
+              "evidence": "五组件齐全",
+              "item": "组件表完整",
+              "pass": true
+            }
+          ],
+          "decisionSessionId": null,
+          "evaluatorSessionId": "ses-dd-eval-a2",
+          "executorSessionId": "ses-dd-exec-a2",
+          "report": "第二轮通过",
+          "skipped": false,
+          "stale": false,
+          "startAt": "2024-09-22T10:13:41Z",
+          "timestamp": "2024-09-22T10:13:41Z",
+          "verdict": "pass"
+        }
+      ],
+      "phase": "dev-design"
+    },
+    {
+      "attempts": [],
+      "phase": "test-design"
+    },
+    {
+      "attempts": [],
+      "phase": "implement"
+    },
+    {
+      "attempts": [],
+      "phase": "test-gen"
+    },
+    {
+      "attempts": [],
+      "phase": "test-execution"
+    },
+    {
+      "attempts": [],
+      "phase": "code-review"
+    },
+    {
+      "attempts": [],
+      "phase": "acceptance"
+    },
+    {
+      "attempts": [],
+      "phase": "code-analyze"
+    }
+  ],
+  "runs": [
+    {
+      "finishedAt": "2024-09-22T10:13:39Z",
+      "reason": "首轮 dev-design 未过（预算内 fail）",
+      "runId": "run-1727000010000",
+      "startedAt": "2024-09-22T10:13:30Z",
+      "status": "completed",
+      "steps": [
+        {
+          "attempt": 1,
+          "detail": "实现完成",
+          "phase": "implement",
+          "seq": 0,
+          "sessionId": "ses-impl-1",
+          "status": "passed",
+          "step": "executor"
+        },
+        {
+          "attempt": 1,
+          "detail": null,
+          "phase": "implement",
+          "seq": 1,
+          "sessionId": null,
+          "status": "passed",
+          "step": "static_check"
+        },
+        {
+          "attempt": 1,
+          "detail": "首轮评估 fail",
+          "phase": "implement",
+          "seq": 2,
+          "sessionId": "ses-eval-1",
+          "status": "failed",
+          "step": "evaluator"
+        },
+        {
+          "attempt": 1,
+          "detail": null,
+          "phase": "implement",
+          "seq": 3,
+          "sessionId": "ses-decision-1",
+          "status": "passed",
+          "step": "decision"
+        },
+        {
+          "attempt": 1,
+          "detail": "conclusion=pass total=3",
+          "phase": "dev-design",
+          "seq": 4,
+          "sessionId": null,
+          "status": "passed",
+          "step": "test_execution"
+        }
+      ]
+    },
+    {
+      "finishedAt": "2024-09-22T10:13:49Z",
+      "reason": "All phases have passed evaluation. Ready for archiving.",
+      "runId": "run-1727000020000",
+      "startedAt": "2024-09-22T10:13:40Z",
+      "status": "completed",
+      "steps": [
+        {
+          "attempt": 2,
+          "detail": null,
+          "phase": "dev-design",
+          "seq": 0,
+          "sessionId": "ses-dd-exec-a2",
+          "status": "passed",
+          "step": "executor"
+        }
+      ]
+    }
+  ],
+  "source": "active",
+  "status": "active",
+  "worktree": null
+}

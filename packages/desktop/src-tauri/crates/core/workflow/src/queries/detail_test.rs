@@ -20,7 +20,9 @@ use super::detail::PIPELINE_PHASES;
 use crate::model::{ChecklistItem, Verdict};
 use crate::state::{
     ActivePhaseState, BacktrackCommand, ChangeStateRecord, ChangeStateStore, ChangeStatus,
-    PhaseLogCommand, PhaseStateRecord, StepCommand, StepStateRecord, StoreFault,
+    PhaseLogCommand, PhaseStateRecord, RunFinishCommand, RunStartCommand, RunStateRecord,
+    RunStatus, RunStepKind, RunStepStateRecord, RunStepStatus, StepCommand, StepStateRecord,
+    StoreFault,
 };
 use foundation::layout::{resolve, Layout};
 
@@ -105,6 +107,14 @@ impl Drop for Env {
 struct DetailStore {
     record: Mutex<Option<ChangeStateRecord>>,
     entries: Mutex<Vec<PhaseStateRecord>>,
+    /// run 运行史读半边（可编程序列——unify-run-state-persistence 详情聚合
+    /// runs 投影的输入面）。
+    runs: Mutex<Vec<RunStateRecord>>,
+    run_steps: Mutex<Vec<RunStepStateRecord>>,
+    /// 可编程 Err 注入：命中即 list_runs / list_run_steps 返回 Err（降级空
+    /// 数组断言的输入面）。
+    runs_fault: Mutex<bool>,
+    steps_fault: Mutex<bool>,
 }
 
 impl DetailStore {
@@ -112,6 +122,10 @@ impl DetailStore {
         Self {
             record: Mutex::new(None),
             entries: Mutex::new(Vec::new()),
+            runs: Mutex::new(Vec::new()),
+            run_steps: Mutex::new(Vec::new()),
+            runs_fault: Mutex::new(false),
+            steps_fault: Mutex::new(false),
         }
     }
 
@@ -121,6 +135,28 @@ impl DetailStore {
 
     fn push_entry(&self, entry: PhaseStateRecord) {
         self.entries.lock().expect("条目锁不可中毒").push(entry);
+    }
+
+    /// run 运行史种子（乱序可注入——聚合排序断言面）。
+    fn push_run(&self, record: RunStateRecord) {
+        self.runs.lock().expect("run 锁不可中毒").push(record);
+    }
+
+    /// run 步史种子（run_id 圈定键）。
+    fn push_run_step(&self, record: RunStepStateRecord) {
+        self.run_steps
+            .lock()
+            .expect("run step 锁不可中毒")
+            .push(record);
+    }
+
+    /// 读面 Err 注入（list_runs / list_run_steps 各自独立）。
+    fn arm_runs_fault(&self) {
+        *self.runs_fault.lock().expect("fault 锁不可中毒") = true;
+    }
+
+    fn arm_steps_fault(&self) {
+        *self.steps_fault.lock().expect("fault 锁不可中毒") = true;
     }
 }
 
@@ -184,6 +220,42 @@ impl ChangeStateStore for DetailStore {
     }
 
     fn append_step(&self, _command: &StepCommand) -> Result<(), StoreFault> {
+        unimplemented!("本用例不可达")
+    }
+
+    fn list_runs(&self, change: &str) -> Result<Vec<RunStateRecord>, StoreFault> {
+        if *self.runs_fault.lock().expect("fault 锁不可中毒") {
+            return Err(StoreFault::Db("list_runs 注入失败".to_owned()));
+        }
+        Ok(self
+            .runs
+            .lock()
+            .expect("run 锁不可中毒")
+            .iter()
+            .filter(|record| record.change == change)
+            .cloned()
+            .collect())
+    }
+
+    fn list_run_steps(&self, run_id: &str) -> Result<Vec<RunStepStateRecord>, StoreFault> {
+        if *self.steps_fault.lock().expect("fault 锁不可中毒") {
+            return Err(StoreFault::Db("list_run_steps 注入失败".to_owned()));
+        }
+        Ok(self
+            .run_steps
+            .lock()
+            .expect("run step 锁不可中毒")
+            .iter()
+            .filter(|record| record.run_id == run_id)
+            .cloned()
+            .collect())
+    }
+
+    fn run_start(&self, _command: &RunStartCommand) -> Result<(), StoreFault> {
+        unimplemented!("本用例不可达")
+    }
+
+    fn run_finish(&self, _command: &RunFinishCommand) -> Result<(), StoreFault> {
         unimplemented!("本用例不可达")
     }
 }
@@ -847,5 +919,239 @@ fn legacy记录worktree出线null且serde键恒在场() {
         value.get("worktree"),
         Some(&serde_json::Value::Null),
         "文档形态 worktree 键 null 留位（恒在场）"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// 详情 run 史出线（unify-run-state-persistence）：runs / steps 投影
+// ---------------------------------------------------------------------------
+
+/// run 运行史主行 fixture（started_at / finished_at / reason / status 显式注入）。
+fn run_row(run_id: &str, started_at: i64, status: RunStatus) -> RunStateRecord {
+    RunStateRecord {
+        run_id: run_id.to_owned(),
+        change: "runned".to_owned(),
+        status,
+        reason: None,
+        started_at,
+        finished_at: None,
+    }
+}
+
+/// run 步史行 fixture。
+fn run_step_row(
+    run_id: &str,
+    seq: u64,
+    step: RunStepKind,
+    status: RunStepStatus,
+    session_id: Option<&str>,
+    detail: Option<&str>,
+) -> RunStepStateRecord {
+    RunStepStateRecord {
+        seq,
+        run_id: run_id.to_owned(),
+        phase: "implement".to_owned(),
+        attempt: 1,
+        step,
+        status,
+        session_id: session_id.map(str::to_owned),
+        detail: detail.map(str::to_owned),
+        timestamp: 1_727_000_060_000,
+    }
+}
+
+/// 两 run 全史出线（AC-6）：runs 两条全史、runId / status / reason /
+/// startedAt / finishedAt 逐项投影、时间戳 ISO 串口径与既有字段一致（同
+/// iso_from_millis 单点）；steps 按 seq 升序、session_id / detail 两态
+///（Some 透传、None → null）（AC-6/AC-11）。
+#[test]
+fn 详情run史出线_两run全史投影与时间iso口径() {
+    let env = Env::new("run-history-detail");
+    env.seed_record("runned", T0, None);
+    // run-1（completed、有记因）+ run-2（running 在飞、finished_at=None）
+    env.store.push_run(RunStateRecord {
+        reason: Some("All phases have passed.".to_owned()),
+        finished_at: Some(t(19)),
+        status: RunStatus::Completed,
+        ..run_row("run-1", t(10), RunStatus::Completed)
+    });
+    env.store
+        .push_run(run_row("run-2", t(20), RunStatus::Running));
+    // run-1 步史：乱序种子（聚合面 seq 升序）+ 两态字段
+    env.store.push_run_step(run_step_row(
+        "run-1",
+        3,
+        RunStepKind::Evaluator,
+        RunStepStatus::Failed,
+        Some("ses-eval-1"),
+        Some("首轮评估 fail"),
+    ));
+    env.store.push_run_step(run_step_row(
+        "run-1",
+        1,
+        RunStepKind::Executor,
+        RunStepStatus::Passed,
+        Some("ses-exec-1"),
+        None,
+    ));
+    env.store.push_run_step(run_step_row(
+        "run-1",
+        2,
+        RunStepKind::StaticCheck,
+        RunStepStatus::Passed,
+        None,
+        None,
+    ));
+    env.file("runned", "proposal.md", "# 提案");
+
+    let detail = env.detail("runned");
+
+    assert_eq!(detail.runs.len(), 2, "两 run 全史不截");
+    // runs 按 started_at 升序（AC-9 前端分层序的前置语义）
+    assert_eq!(detail.runs[0].run_id, "run-1");
+    assert_eq!(detail.runs[1].run_id, "run-2");
+
+    // run-1 投影：逐项 + ISO 串口径（与 pipeline timestamp 同式）
+    let run1 = &detail.runs[0];
+    assert_eq!(run1.status, RunStatus::Completed);
+    assert_eq!(run1.reason.as_deref(), Some("All phases have passed."));
+    let started_iso = run1.started_at.as_deref().expect("startedAt 出线");
+    assert!(
+        started_iso.ends_with('Z') && started_iso.contains("T"),
+        "ISO 串口径（RFC3339），实际: {started_iso}"
+    );
+    let finished_iso = run1.finished_at.as_deref().expect("finishedAt 出线");
+    assert!(
+        finished_iso.ends_with("Z") && finished_iso != started_iso,
+        "finishedAt 同一转换单点（RFC3339 iso 串，且异于 startedAt）"
+    );
+    assert_eq!(
+        run1.started_at.as_deref(),
+        Some("2024-09-22T10:13:30Z"),
+        "iso_from_millis 单点数值口径（t(10) = T0+10s）"
+    );
+
+    // run-1 steps：seq 升序 + 两态透传
+    let steps = &run1.steps;
+    let seqs: Vec<u64> = steps.iter().map(|row| row.seq).collect();
+    assert_eq!(seqs, vec![1, 2, 3], "steps 按 seq 升序出线（= emit 序）");
+    assert_eq!(steps[0].step, RunStepKind::Executor);
+    assert_eq!(steps[0].session_id.as_deref(), Some("ses-exec-1"));
+    assert_eq!(steps[0].detail, None, "None → null 透传");
+    assert_eq!(steps[1].step, RunStepKind::StaticCheck);
+    assert_eq!(steps[1].session_id, None);
+    assert_eq!(steps[2].step, RunStepKind::Evaluator);
+    assert_eq!(steps[2].detail.as_deref(), Some("首轮评估 fail"));
+
+    // run-2（在飞起始行，D11）：status=running、finishedAt=null、steps 恒空
+    let run2 = &detail.runs[1];
+    assert_eq!(run2.status, RunStatus::Running);
+    assert_eq!(run2.finished_at, None, "running 行 finished_at → null");
+    assert!(
+        run2.steps.is_empty(),
+        "在飞 run 起始行 steps 恒空（run 清单面运行中可见）"
+    );
+
+    // wire 面：camelCase 键 + null 不省键（纯 derive 零字段属性口径）
+    let value = serde_json::to_value(&detail).expect("序列化应成功");
+    let wire_runs = value["runs"].as_array().expect("runs 为数组");
+    assert_eq!(wire_runs[1]["runId"], "run-2");
+    assert_eq!(
+        wire_runs[1]["finishedAt"],
+        serde_json::Value::Null,
+        "null 不省键"
+    );
+    assert!(wire_runs[1]["steps"].as_array().is_some_and(Vec::is_empty));
+}
+
+/// 文档形态（db 缺记录磁盘目录在场）→ runs 恒空数组、聚合不报错（AC-6）；
+/// 终态 run reason=None → null 出线（口径不变面）。
+#[test]
+fn 详情run史出线_文档形态恒空与reason_none() {
+    let env = Env::new("run-history-doc");
+    env.file("legacy-docs", "proposal.md", "# v0 提案");
+
+    let detail = env.detail("legacy-docs");
+    assert!(
+        detail.runs.is_empty(),
+        "文档形态 runs 恒空数组（聚合不报错）"
+    );
+    let value = serde_json::to_value(&detail).expect("序列化应成功");
+    assert!(
+        value["runs"].as_array().is_some_and(Vec::is_empty),
+        "runs 键恒在场（空数组不省键）"
+    );
+
+    // 终态 run reason=None（无记因收口）→ null 出线
+    let env2 = Env::new("run-history-no-reason");
+    env2.seed_record("runned", T0, None);
+    env2.store.push_run(RunStateRecord {
+        reason: None,
+        finished_at: Some(t(19)),
+        status: RunStatus::Completed,
+        ..run_row("run-1", t(10), RunStatus::Completed)
+    });
+    let detail = env2.detail("runned");
+    assert_eq!(
+        detail.runs[0].reason, None,
+        "reason=None → null（口径不变）"
+    );
+    let value = serde_json::to_value(&detail).expect("序列化应成功");
+    assert_eq!(
+        value["runs"][0]["reason"],
+        serde_json::Value::Null,
+        "reason null 留位不省键"
+    );
+}
+
+/// 同 started_at 并列两 run → run_id 稳定并列序（排序全确定性，AC-9 叠加层
+/// 稳定序的前置）；list 面读 Err → runs 降级空数组、详情其余面不受阻断。
+#[test]
+fn 详情run史出线_并列稳定序与读err降级() {
+    let env = Env::new("run-history-tie");
+    env.seed_record("runned", T0, None);
+    // 同 started_at 并列 + 乱序插入（聚合排序兜底 run_id 稳定序）
+    env.store
+        .push_run(run_row("run-b", t(10), RunStatus::Completed));
+    env.store
+        .push_run(run_row("run-a", t(10), RunStatus::Completed));
+    env.file("runned", "proposal.md", "# 提案");
+
+    let detail = env.detail("runned");
+    let ids: Vec<&str> = detail.runs.iter().map(|run| run.run_id.as_str()).collect();
+    assert_eq!(
+        ids,
+        vec!["run-a", "run-b"],
+        "并列 started_at → run_id 稳定并列序"
+    );
+
+    // store.list_runs Err → runs 降级空数组、流水线/产物面不受阻断
+    let env_err = Env::new("run-history-err");
+    env_err.seed_record("runned", T0, None);
+    env_err
+        .store
+        .push_run(run_row("run-1", t(10), RunStatus::Completed));
+    env_err.store.arm_runs_fault();
+    env_err.file("runned", "proposal.md", "# 提案");
+    let detail = env_err.detail("runned");
+    assert!(detail.runs.is_empty(), "list_runs Err → runs 降级空数组");
+    assert_eq!(detail.pipeline.len(), 9, "详情其余面不受阻断");
+    assert!(
+        !detail.artifacts.is_empty(),
+        "产物清单不受 runs 读面失败影响"
+    );
+
+    // list_run_steps Err → 该 run steps 空数组（同样降级）
+    let env_steps_err = Env::new("run-history-steps-err");
+    env_steps_err.seed_record("runned", T0, None);
+    env_steps_err
+        .store
+        .push_run(run_row("run-1", t(10), RunStatus::Completed));
+    env_steps_err.store.arm_steps_fault();
+    let detail = env_steps_err.detail("runned");
+    assert_eq!(detail.runs.len(), 1, "runs 行仍在");
+    assert!(
+        detail.runs[0].steps.is_empty(),
+        "list_run_steps Err → steps 降级空数组"
     );
 }

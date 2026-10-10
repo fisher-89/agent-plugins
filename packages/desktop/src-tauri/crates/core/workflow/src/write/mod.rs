@@ -6,6 +6,7 @@ mod phase_log;
 mod phase_next;
 mod phase_start;
 mod phase_table;
+mod run;
 mod worktree;
 
 pub use archive::{archive, ArchiveOutcome};
@@ -20,6 +21,7 @@ pub use phase_table::{
     allowed_backtrack_phases, interpolate, phase_table, PhaseAgentSpec, PhaseDefinition,
     MAX_RETRY_TIMES,
 };
+pub use run::{run_finish, run_start};
 pub use worktree::{InstallRun, RepoProbe, WorktreePort};
 
 /// 当前 UTC unix 毫秒（写面时钟单点；时钟早于 epoch 取 0，不 panic）。
@@ -46,3 +48,5 @@ mod phase_next_test;
 mod phase_start_test;
 #[cfg(test)]
 mod phase_table_test;
+#[cfg(test)]
+mod run_test;

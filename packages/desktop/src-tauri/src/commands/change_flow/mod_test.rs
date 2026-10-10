@@ -8,17 +8,16 @@ use tauri::{App, Manager};
 
 use ::agent::StopRegistry;
 use orchestration::control::ChangeFlowControl;
-use orchestration::state::{ChangeStepKind, ChangeStepState, ChangeStepStatus};
 use store::{AgentEngineKind, AgentInstanceRecord, WorkspaceStores};
 use workflow::state::{ChangeStateRecord, ChangeStatus};
 
 use ::agent::{AgentEvent, AgentEventKind};
-use orchestration::state::RunUpdate;
+use orchestration::state::{RunNotice, RunUpdate};
 use orchestration::RunEventSink;
 
 use super::{
     change_flow_answer_with, change_flow_confirm_with, change_flow_start_with,
-    change_flow_state_with, change_flow_stop_with, change_flow_watch_with, ChangeFlowSink,
+    change_flow_stop_with, change_flow_watch_with, ChangeFlowSink,
 };
 
 /// PATH 环境变量修改串行化（进程全局变量边界；与 exec/mod_test 的 PATH 隔离
@@ -136,14 +135,14 @@ fn restore_path(guard: std::sync::MutexGuard<'static, ()>, original: Option<std:
     drop(guard);
 }
 
-/// 丢弃型 Channel（发送信封即弃）。
-fn discarding_channel() -> Channel<super::RunUpdate> {
+/// 丢弃型 Channel（发送通知即弃；kind-only Notice 通道）。
+fn discarding_channel() -> Channel<super::RunNotice> {
     Channel::new(|_: InvokeResponseBody| Ok(()))
 }
 
-/// 捕获型 Channel：逐信封收下出线 JSON（IPC 边界捕获——首事件 / 终态观测）。
+/// 捕获型 Channel：逐通知收下出线 JSON（IPC 边界捕获——kind-only 通知观测）。
 fn capturing_channel() -> (
-    Channel<super::RunUpdate>,
+    Channel<super::RunNotice>,
     Arc<Mutex<Vec<serde_json::Value>>>,
 ) {
     let captured = Arc::new(Mutex::new(Vec::new()));
@@ -169,6 +168,9 @@ fn wait_for(what: &str, mut probe: impl FnMut() -> bool) {
 }
 
 const CHANGE: &str = "flow-change";
+
+/// 发起时刻（UTC unix 毫秒，`begin_run` 加参后的机械随动固定值）。
+const STARTED_AT: i64 = 1_726_000_000_000;
 
 // ---------------------------------------------------------------------------
 // start 前置校验（db 建档校验）：无建档拒绝 / 相位表校验（W8 语义平移）
@@ -309,15 +311,11 @@ async fn start提前resolve返回running摘要且channel首事件到达后台驱
     let updates = captured.lock().expect("捕获锁不可中毒");
     assert!(
         updates.iter().any(|value| value["ipc"] == "step"),
-        "步状态信封经 Channel 流出（AC-5 状态流信封）"
+        "步通知经 Channel 流出（kind-only Notice——通知仅失效信号）"
     );
-    let finished = updates
-        .iter()
-        .find(|value| value["ipc"] == "finished")
-        .expect("终态信封在场");
-    assert_eq!(
-        finished["status"], "failed",
-        "PATH 隔离下 executor CliMissing → 合成收敛 failed（后台 walker 真实驱动）"
+    assert!(
+        updates.iter().any(|value| value["ipc"] == "finished"),
+        "终态通知照常流出"
     );
     drop(updates);
 
@@ -326,20 +324,41 @@ async fn start提前resolve返回running摘要且channel首事件到达后台驱
         control.snapshot(&env.root(), CHANGE).is_none()
     });
 
-    // 组合根装配动态证据：phase-start 经进程内缝直调写面落库（db active_phase
-    // 在位——写面经 ChangeStateStore port，executor 失败前已开相未落账）
-    let record = app
+    // run 运行史落库证据（unify-run-state-persistence 每 run 两写）：PATH 隔离
+    // 下 executor CliMissing → 合成收敛 failed；finish 单事务落终态 + 步整包 +
+    // active_phase 清位（D1 悬挂杀除——executor 失败前 phase-start 已开相）
+    let store = app
         .state::<WorkspaceStores>()
         .for_root(&root)
-        .expect("for_root 应成功")
+        .expect("for_root 应成功");
+    let runs = store.list_change_runs(CHANGE).expect("run 史清单应成功");
+    assert_eq!(runs.len(), 1, "恰一次 run 全史在案");
+    // run_id 联结：落库起始行与返回 summary 同 run 会话（命令面装配 AC-2/D5）
+    assert_eq!(
+        runs[0].run_id, summary.run_id,
+        "起始行 run_id 与提前 resolve 摘要同源"
+    );
+    assert_eq!(
+        runs[0].status,
+        workflow::state::RunStatus::Failed,
+        "PATH 隔离下合成收敛 failed（后台 walker 真实驱动 + 落库）"
+    );
+    assert!(runs[0].finished_at.is_some(), "收口时刻在案");
+    let record = store
         .find_change_record(CHANGE)
         .expect("查档应成功")
         .expect("建档在案");
-    let active = record
-        .active_phase
-        .expect("phase-start 落库证据（active_phase 在位——组合根 LocalToolSteps 直调写面经 port）");
-    assert_eq!(active.phase, "proposal", "建档零相位行 → 首相位开相");
-    assert_eq!(active.attempt, 1, "attempt 事务内推导（零条目 + 1）");
+    assert!(
+        record.active_phase.is_none(),
+        "finish 单事务 active_phase 清位（悬挂杀除——D1）"
+    );
+    let steps = store
+        .list_run_steps(&runs[0].run_id)
+        .expect("run 步清单应成功");
+    assert!(
+        steps.iter().any(|step| step.phase == "proposal"),
+        "phase-start 已开相位的步整包在案（落库写缝证据）"
+    );
 }
 
 #[tokio::test]
@@ -353,7 +372,7 @@ async fn start同change并行run冲突err() {
     // 预登记同 change 的 run（前置校验第三分支：begin_run 冲突检测）
     let control = app.state::<Arc<ChangeFlowControl>>();
     let _guard = control
-        .begin_run(&root, CHANGE, "run-existing".to_owned())
+        .begin_run(&root, CHANGE, "run-existing".to_owned(), STARTED_AT)
         .expect("预登记应成功");
 
     let err = change_flow_start_with(
@@ -451,30 +470,30 @@ async fn auto_next_phase_true透传受理零confirmwait照常后台收敛() {
             .map(|value| value["ipc"].clone())
             .collect::<Vec<_>>()
     );
-    let finished = updates
-        .iter()
-        .find(|value| value["ipc"] == "finished")
-        .expect("终态信封在场");
-    assert_eq!(
-        finished["status"], "failed",
-        "PATH 隔离下 executor CliMissing → 合成收敛 failed"
+    assert!(
+        updates.iter().any(|value| value["ipc"] == "finished"),
+        "终态通知在场"
     );
     drop(updates);
 
-    // 终态收口除名 + phase-start 落库证据（组合根装配照常，写面经 port 落 db）
+    // 终态收口除名 + run 运行史落库证据（组合根装配照常，写缝落库）
     wait_for("终态除名", || {
         control.snapshot(&env.root(), CHANGE).is_none()
     });
-    let record = app
+    let store = app
         .state::<WorkspaceStores>()
         .for_root(&root)
-        .expect("for_root 应成功")
+        .expect("for_root 应成功");
+    let runs = store.list_change_runs(CHANGE).expect("run 史清单应成功");
+    assert_eq!(runs.len(), 1);
+    assert_eq!(runs[0].status, workflow::state::RunStatus::Failed);
+    let record = store
         .find_change_record(CHANGE)
         .expect("查档应成功")
         .expect("建档在案");
     assert!(
-        record.active_phase.is_some(),
-        "phase-start 落库证据在场（组合根 LocalToolSteps 直调写面经 port）"
+        record.active_phase.is_none(),
+        "finish 单事务 active_phase 清位（悬挂杀除——D1）"
     );
 }
 
@@ -526,21 +545,26 @@ async fn auto_next_phase_false默认档受理面回归() {
 
     restore_path(path_guard, original);
 
-    // 终态面语义不变：合成收敛 failed（步状态 + 终态信封照常流出）
+    // 终态面语义不变：合成收敛 failed（步通知 + 终态通知照常流出；终态值
+    // 随 run 运行史落库可查——kind-only 通知零载荷）
     let updates = captured.lock().expect("捕获锁不可中毒");
     assert!(
         updates.iter().any(|value| value["ipc"] == "step"),
-        "步状态信封照常流出"
+        "步通知照常流出"
     );
-    let finished = updates
-        .iter()
-        .find(|value| value["ipc"] == "finished")
-        .expect("终态信封在场");
-    assert_eq!(
-        finished["status"], "failed",
-        "PATH 隔离下合成收敛 failed（终态面语义不变）"
+    assert!(
+        updates.iter().any(|value| value["ipc"] == "finished"),
+        "终态通知在场"
     );
     drop(updates);
+    let runs = app
+        .state::<WorkspaceStores>()
+        .for_root(&env.root())
+        .expect("for_root 应成功")
+        .list_change_runs(CHANGE)
+        .expect("run 史清单应成功");
+    assert_eq!(runs.len(), 1);
+    assert_eq!(runs[0].status, workflow::state::RunStatus::Failed);
 
     wait_for("终态除名", || {
         control.snapshot(&env.root(), CHANGE).is_none()
@@ -610,7 +634,7 @@ fn stop运行中置位且幂等忽略不报错() {
 
     // 运行中置位：Ok 且注册表 cancelled 置位（经 guard.cancelled 观测）
     let guard = control
-        .begin_run(&env.root(), CHANGE, "run-1".to_owned())
+        .begin_run(&env.root(), CHANGE, "run-1".to_owned(), STARTED_AT)
         .expect("登记应成功");
     change_flow_stop_with(app.handle().clone(), env.root(), CHANGE.to_owned())
         .expect("运行中 stop 应 Ok");
@@ -643,7 +667,7 @@ fn answer与confirm无等待方时err透传() {
     // 有 run 无挂起：Err「当前无等待」
     let control = app.state::<Arc<ChangeFlowControl>>();
     let _guard = control
-        .begin_run(&env.root(), CHANGE, "run-1".to_owned())
+        .begin_run(&env.root(), CHANGE, "run-1".to_owned(), STARTED_AT)
         .expect("登记应成功");
     let err = change_flow_answer_with(
         app.handle().clone(),
@@ -659,54 +683,13 @@ fn answer与confirm无等待方时err透传() {
 }
 
 #[test]
-fn state快照查询运行中some_无run与终态后none() {
-    let env = Env::new("state");
-    env.change_dir(CHANGE);
-    let app = app_with(&env);
-    let root = env.root();
-
-    // 无 run → None（重挂恢复输入面）
-    let state = change_flow_state_with(app.handle().clone(), root.clone(), CHANGE.to_owned())
-        .expect("查询应成功");
-    assert_eq!(state, None);
-
-    // 运行中 → Some(ChangeRunSnapshot)（状态机镜像）
-    let control = app.state::<Arc<ChangeFlowControl>>();
-    let guard = control
-        .begin_run(&env.root(), CHANGE, "run-1".to_owned())
-        .expect("登记应成功");
-    guard.emit(super::RunUpdate::Step {
-        step: ChangeStepState {
-            phase: "proposal".to_owned(),
-            attempt: 1,
-            step: ChangeStepKind::Executor,
-            status: ChangeStepStatus::Running,
-            session_id: None,
-            detail: None,
-        },
-    });
-    let state = change_flow_state_with(app.handle().clone(), root.clone(), CHANGE.to_owned())
-        .expect("查询应成功")
-        .expect("运行中应有快照");
-    assert_eq!(state.run_id, "run-1");
-    assert_eq!(state.status, super::ChangeRunStatus::Running);
-    assert_eq!(state.phase.as_deref(), Some("proposal"));
-
-    // 终态收口 → None（除名，图回落派生规则）
-    guard.finish(super::ChangeRunStatus::Stopped, None);
-    let state =
-        change_flow_state_with(app.handle().clone(), root, CHANGE.to_owned()).expect("查询应成功");
-    assert_eq!(state, None, "终态除名 → None");
-}
-
-#[test]
 fn watch补订运行中接收后续信封_无run时ok非错误() {
     let env = Env::new("watch");
     env.change_dir(CHANGE);
     let app = app_with(&env);
     let root = env.root();
 
-    // 无 run：Ok（非错误——重挂时 run 可能已收口，图回落派生规则）
+    // 无 run：Ok（非错误——重挂时 run 可能已收口，图读史常驻派生）
     change_flow_watch_with(
         app.handle().clone(),
         discarding_channel(),
@@ -718,7 +701,7 @@ fn watch补订运行中接收后续信封_无run时ok非错误() {
     // 运行中补订：后续信封经 Channel 到达（重挂补订）
     let control = app.state::<Arc<ChangeFlowControl>>();
     let guard = control
-        .begin_run(&env.root(), CHANGE, "run-1".to_owned())
+        .begin_run(&env.root(), CHANGE, "run-1".to_owned(), STARTED_AT)
         .expect("登记应成功");
     let (channel, captured) = capturing_channel();
     change_flow_watch_with(app.handle().clone(), channel, root, CHANGE.to_owned())
@@ -774,10 +757,7 @@ async fn 参数转换守卫blank_root各命令模板保留() {
             .expect_err("blank root confirm 应 Err");
     assert!(err.contains("root"), "守卫 Err 文案: {err}");
 
-    // state：Ok(None)；stop：Ok（miss 幂等）
-    let state = change_flow_state_with(app.handle().clone(), blank.clone(), CHANGE.to_owned())
-        .expect("blank root state 应 Ok(None)");
-    assert_eq!(state, None);
+    // stop：Ok（miss 幂等；state 快照命令已退役——重挂恢复归统一查询）
     change_flow_stop_with(app.handle().clone(), blank, CHANGE.to_owned())
         .expect("blank root stop 幂等 Ok");
 }
@@ -832,10 +812,7 @@ async fn 参数转换守卫blank_change六缝各就位() {
     )
     .expect("blank change watch Ok 非错误");
 
-    // state：Ok(None)
-    let state = change_flow_state_with(app.handle().clone(), root, blank)
-        .expect("blank change state 应 Ok(None)");
-    assert_eq!(state, None);
+    // watch：Ok 非错误（state 快照命令已退役——五命令缝随动）
 
     // 守卫先行于前置校验：合法 root 在位而 change 空白 → 零登记零 spawn 副作用
     let control = app.state::<Arc<ChangeFlowControl>>();
@@ -990,18 +967,18 @@ async fn exec_root解析成功_相位落workspace库且无第二库文件() {
     });
     restore_path(_path_guard, original);
 
-    // 相位半边落 workspace root 库（active_phase 在位——写入经注入的
-    // for_root(root) 实例）
-    let record = app
+    // run 运行史落 workspace root 库（写入经注入的 for_root(root) 实例——
+    // run 落库写缝与相位写面同实例）
+    let runs = app
         .state::<WorkspaceStores>()
         .for_root(&root)
         .expect("for_root 应成功")
-        .find_change_record(CHANGE)
-        .expect("查档应成功")
-        .expect("建档在案");
-    assert!(
-        record.active_phase.is_some(),
-        "phase-start 落 workspace root 库（active_phase 在位）"
+        .list_change_runs(CHANGE)
+        .expect("run 史清单应成功");
+    assert_eq!(
+        runs.len(),
+        1,
+        "run 史在 workspace root 库（非 worktree 库）"
     );
 
     // 数据根 workspaces/ 子树恰一个库文件且 = workspace root 身份派生（无以
@@ -1050,7 +1027,7 @@ async fn 复合键命令面_异root同名并行互不误拒且stop隔离() {
     // `run-<millis>` 同毫秒可同号，run_id 不作唯一性断言面）
     let control = app.state::<Arc<ChangeFlowControl>>();
     let guard_a = control
-        .begin_run(&root_a, CHANGE, "run-a-pre".to_owned())
+        .begin_run(&root_a, CHANGE, "run-a-pre".to_owned(), STARTED_AT)
         .expect("rootA 预登记应成功");
 
     // rootB 同名 change 发起成功（复合键 root 段——异 workspace 不误拒；命令
@@ -1093,11 +1070,14 @@ async fn 复合键命令面_异root同名并行互不误拒且stop隔离() {
     change_flow_stop_with(app.handle().clone(), root_a.clone(), CHANGE.to_owned())
         .expect("stop 应 Ok");
     assert!(guard_a.cancelled(), "rootA run 取消信号置位");
-    // rootB 的 state 查询照常 Ok（复合键寻址可达——stop(rootA) 零影响）
-    assert!(
-        change_flow_state_with(app.handle().clone(), root_b.clone(), CHANGE.to_owned()).is_ok(),
-        "rootB state 经复合键寻址可达（stop(rootA) 零影响）"
-    );
+    // rootB 的 watch 补订照常 Ok（复合键寻址可达——stop(rootA) 零影响）
+    change_flow_watch_with(
+        app.handle().clone(),
+        discarding_channel(),
+        root_b.clone(),
+        CHANGE.to_owned(),
+    )
+    .expect("rootB watch 经复合键寻址可达（stop(rootA) 零影响）");
 
     // 等 rootB 自然收敛（非 stop(rootA) 所停——独立驱动到自身终态）
     wait_for("rootB run 终态除名", || {
@@ -1131,7 +1111,7 @@ fn sink事件桥接_session_event记会话锚且publish透传() {
     let change = "sink-change";
     let control = Arc::clone(app.state::<Arc<ChangeFlowControl>>().inner());
     let _guard = control
-        .begin_run(&root, change, "run-sink-1".to_owned())
+        .begin_run(&root, change, "run-sink-1".to_owned(), STARTED_AT)
         .expect("发起应成功");
     let mut updates = control.subscribe(&root, change).expect("订阅应成功");
 
@@ -1157,10 +1137,10 @@ fn sink事件桥接_session_event记会话锚且publish透传() {
         "SessionEvent 记 run 级会话锚"
     );
     match updates.try_recv() {
-        Ok(RunUpdate::SessionEvent { session_id, .. }) => {
-            assert_eq!(session_id, "ses-sink", "publish 原样透传（载荷不改写）")
+        Ok(RunNotice::SessionEvent) => {
+            // kind-only 通知（载荷剥离单点）：会话锚由 current_session 断言承载
         }
-        other => panic!("订阅端应收到 SessionEvent，实际: {other:?}"),
+        other => panic!("订阅端应收到 SessionEvent 通知，实际: {other:?}"),
     }
 }
 
@@ -1253,4 +1233,74 @@ async fn start归档进行中被拒_复合键寻址异键不误拒() {
     );
 
     drop(guard);
+}
+
+/// Channel 面五 kind 通知各自一拍出线且零载荷键（AC-8 kind 位 + 信封降位线
+/// 面）：运行中 run 经 watch 补订，guard 逐一 publish 五类 RunUpdate——每帧
+/// 捕获恰单键 `ipc`（kind-only，载荷剥离单点在 publish 广播侧）。
+#[test]
+fn channel面五kind通知各自一拍且零载荷键() {
+    let env = Env::new("notice-wire");
+    env.change_dir(CHANGE);
+    let app = app_with(&env);
+    let root = env.root();
+
+    let control = app.state::<Arc<ChangeFlowControl>>();
+    let guard = control
+        .begin_run(&env.root(), CHANGE, "run-1".to_owned(), STARTED_AT)
+        .expect("登记应成功");
+    let (channel, captured) = capturing_channel();
+    change_flow_watch_with(app.handle().clone(), channel, root, CHANGE.to_owned())
+        .expect("补订应成功");
+
+    guard.emit(super::RunUpdate::Step {
+        step: orchestration::ChangeStepState {
+            phase: "implement".to_owned(),
+            attempt: 1,
+            step: orchestration::ChangeStepKind::Executor,
+            status: orchestration::ChangeStepStatus::Running,
+            session_id: None,
+            detail: None,
+        },
+    });
+    guard.emit(super::RunUpdate::SessionEvent {
+        session_id: "sess-1".to_owned(),
+        event: agent::AgentEvent {
+            seq: 0,
+            timestamp_ms: 1_726_000_000_000,
+            kind: agent::AgentEventKind::Raw {
+                event_type: "system".to_owned(),
+                raw_json: "{}".to_owned(),
+            },
+        },
+    });
+    guard.emit(super::RunUpdate::Ask {
+        question: "回溯到哪?".to_owned(),
+        options: vec!["proposal".to_owned()],
+    });
+    guard.emit(super::RunUpdate::ConfirmWait {
+        phase: "test-gen".to_owned(),
+    });
+    guard.finish(super::ChangeRunStatus::Completed, None);
+
+    wait_for("五 kind 通知到齐", || {
+        captured.lock().expect("捕获锁不可中毒").len() >= 5
+    });
+    let frames = captured.lock().expect("捕获锁不可中毒");
+    let ipcs: Vec<&str> = frames
+        .iter()
+        .map(|frame| frame["ipc"].as_str().expect("ipc 判别词"))
+        .collect();
+    assert_eq!(
+        ipcs,
+        vec!["step", "sessionEvent", "ask", "confirmWait", "finished"],
+        "五 kind 各自一拍（publish 序即广播序）"
+    );
+    for frame in frames.iter() {
+        assert_eq!(
+            frame.as_object().expect("通知为对象").len(),
+            1,
+            "零载荷键（恰单键 ipc——kind-only 信封）: {frame}"
+        );
+    }
 }

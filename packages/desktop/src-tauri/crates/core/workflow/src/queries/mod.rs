@@ -4,7 +4,9 @@ pub mod detail;
 pub mod explore;
 pub mod list;
 
-pub use detail::{change_detail, AttemptRecord, ChangeDetail, PhaseEntry};
+pub use detail::{
+    change_detail, AttemptRecord, ChangeDetail, ChangeRunEntry, ChangeRunStepRecord, PhaseEntry,
+};
 pub use explore::{read_explore, scan_explores, ExploreDoc, ExploreScanEntry};
 pub use list::{list_changes, ArchiveGroup, ChangeList, ChangeSource, ChangeSummary};
 
@@ -95,8 +97,10 @@ pub(crate) fn is_single_component_name(name: &str) -> bool {
 }
 
 /// 时间戳出线转换单点：UTC unix 毫秒 → ISO 8601 串（Rfc3339；格式失败降级
-/// 空串，与既往 `lenient_timestamp::serialize` 同式）。
-pub(crate) fn iso_from_millis(millis: i64) -> String {
+/// 空串，与既往 `lenient_timestamp::serialize` 同式）。`pub` 供命令层统一视
+/// 图投影复用（`ActiveRunView.startedAt`——转换调用点在命令层，格式单点仍收
+/// 本函数）。
+pub fn iso_from_millis(millis: i64) -> String {
     let secs = if millis < 0 { 0 } else { millis / 1000 };
     let millis_part = if millis < 0 { 0 } else { millis % 1000 };
     let timestamp = OffsetDateTime::from_unix_timestamp(secs).unwrap_or(OffsetDateTime::UNIX_EPOCH);

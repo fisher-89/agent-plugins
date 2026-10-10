@@ -1,19 +1,25 @@
 //! run 控制注册表（进程内，键 = `(workspace root, change)` 复合——design D10
 //! 修掉两 workspace 同名 change 假冲突先例 bug，worktree 隔离解锁同 workspace
 //! 多 change 真并行）：并行冲突检测、cancel watch、当前会话 id 槽、ask /
-//! 确认单次应答通道、`RunUpdate` broadcast、重挂快照。run 生命周期由本注册
-//! 表承载（不建 flow_runs 表）；run 终态即除名，桌面重启后 run 消失（重新
-//! 发起自 active_phase 续走）。root 段口径同身份段（命令入参 canonical root
-//! 契约，进程内无 IO）。发布单点：[`Self::publish`] 同步快照面并广播——
-//! walker 经 [`RunGuard::emit`] 间达，WorkerAgent 会话事件经命令层 sink 桥
-//! 直发。
+//! 确认单次应答通道、`RunNotice` broadcast、重挂快照。run 生命周期由本注册
+//! 表承载**在飞 run 与停等面**，步累积器驻本表条目（emit 序追加，全词汇
+//! 10 类）；run 运行史落库 RunRecord / RunStepRecord 两表（unify-run-state-
+//! persistence 决策翻案：原「不建 flow_runs 表；run 终态即除名，桌面重启后
+//! run 消失」决策随翻案显式立项修订——本注册表保持进程内零 IO 不变量，落库
+//! 写缝收 walker 侧 `RunHistoryPort`，终态即除名、重启后库史可达、残留
+//! running 经启动标定 interrupted）。发布单点：[`Self::publish`] 同步快照
+//! 面并广播——walker 经 [`RunGuard::emit`] 间达，WorkerAgent 会话事件经命令
+//! 层 sink 桥直发；广播侧仅发 kind-only [`RunNotice`]（载荷剥离单点，
+//! `From<&RunUpdate>`），`RunUpdate` 为进程内 seam 类型。
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 use tokio::sync::{broadcast, oneshot, watch};
 
-use crate::state::{AskPayload, ChangeRunSnapshot, ChangeRunStatus, RunUpdate};
+use crate::state::{
+    AskPayload, ChangeRunSnapshot, ChangeRunStatus, ChangeStepState, RunNotice, RunUpdate,
+};
 
 /// broadcast 通道容量（步状态 + 会话事件窗口；溢出即滞后，由订阅侧重挂
 /// 快照兜底）。
@@ -29,12 +35,18 @@ struct RunEntry {
     attempt: Option<u32>,
     /// waitingAsk 载荷
     ask: Option<AskPayload>,
+    /// 发起时刻（UTC unix 毫秒；`begin_run` 入参，与 RunRequest.started_at
+    /// 同值——统一视图活面 startedAt 投影源）
+    started_at: i64,
+    /// 步累积器（emit 序追加，全词汇 10 类；运行中三门 / 相位机步节点照
+    /// flow-view 条款上图可辨，落库 5 类子集归 run_history 单点过滤）
+    steps: Vec<ChangeStepState>,
     cancel: watch::Sender<bool>,
     /// 当前 WorkerAgent 会话 id 槽（停止寻址经既有 StopRegistry）
     session: Mutex<Option<String>>,
     confirm_tx: Mutex<Option<oneshot::Sender<bool>>>,
     answer_tx: Mutex<Option<oneshot::Sender<String>>>,
-    updates: broadcast::Sender<RunUpdate>,
+    updates: broadcast::Sender<RunNotice>,
 }
 
 /// run 控制注册表：命令层读写、walker 持 [`RunGuard`] 写。
@@ -52,12 +64,14 @@ impl ChangeFlowControl {
     /// 发起登记：同 `(root, change)` 已有 run → `Err`（并行冲突；异 workspace
     /// 同名 change 不误拒）；否则登记 cancel watch 与 broadcast，返回 walker
     /// 控制柄（guard 内持注册表 Arc——命令层以 `Arc<ChangeFlowControl>` 托
-    /// 管，与 StopRegistry 同型）。
+    /// 管，与 StopRegistry 同型）。`started_at` 为发起时刻（命令层铸造，与
+    /// `RunRequest.started_at` 同值——corpus 确定性由命令携带时间戳保证）。
     pub fn begin_run(
         self: &Arc<Self>,
         root: &str,
         change: &str,
         run_id: String,
+        started_at: i64,
     ) -> Result<RunGuard, String> {
         let key = (root.to_owned(), change.to_owned());
         let mut runs = self.runs.lock().expect("run 注册表锁不可中毒");
@@ -76,6 +90,8 @@ impl ChangeFlowControl {
                 phase: None,
                 attempt: None,
                 ask: None,
+                started_at,
+                steps: Vec::new(),
                 cancel,
                 session: Mutex::new(None),
                 confirm_tx: Mutex::new(None),
@@ -92,7 +108,7 @@ impl ChangeFlowControl {
 
     /// 订阅 run 状态流（`change_flow_start` / `change_flow_watch` 共用入口）；
     /// 无运行 run → `None`。
-    pub fn subscribe(&self, root: &str, change: &str) -> Option<broadcast::Receiver<RunUpdate>> {
+    pub fn subscribe(&self, root: &str, change: &str) -> Option<broadcast::Receiver<RunNotice>> {
         self.runs
             .lock()
             .expect("run 注册表锁不可中毒")
@@ -124,9 +140,13 @@ impl ChangeFlowControl {
             .and_then(|entry| entry.session.lock().expect("会话槽锁不可中毒").clone())
     }
 
-    /// 发布一条 run 状态更新（快照面同步 + broadcast）。发布单点：步推进
-    /// / 停等态迁移 / 终态收口与 WorkerAgent 会话事件透传同由此进。
+    /// 发布一条 run 状态更新（快照面同步 + kind-only Notice 广播）。发布单
+    /// 点：步推进 / 停等态迁移 / 终态收口与 WorkerAgent 会话事件透传同由此
+    /// 进。快照面突变照旧（`RunUpdate` 进程内 seam 载荷消费：步累积器追加
+    /// 与 phase/attempt 同步、停等态迁移、终态落值）；广播侧只发 kind-only
+    /// 的 [`RunNotice`]（`From<&RunUpdate>` 投影，载荷剥离单点，D3）。
     pub fn publish(&self, root: &str, change: &str, update: RunUpdate) {
+        let notice = RunNotice::from(&update);
         {
             let mut runs = self.runs.lock().expect("run 注册表锁不可中毒");
             if let Some(entry) = runs.get_mut(&(root.to_owned(), change.to_owned())) {
@@ -134,6 +154,7 @@ impl ChangeFlowControl {
                     RunUpdate::Step { step } => {
                         entry.phase = Some(step.phase.clone());
                         entry.attempt = Some(step.attempt);
+                        entry.steps.push(step.clone());
                     }
                     RunUpdate::Ask { question, options } => {
                         entry.status = ChangeRunStatus::WaitingAsk;
@@ -153,7 +174,7 @@ impl ChangeFlowControl {
         }
         let runs = self.runs.lock().expect("run 注册表锁不可中毒");
         if let Some(entry) = runs.get(&(root.to_owned(), change.to_owned())) {
-            let _ = entry.updates.send(update);
+            let _ = entry.updates.send(notice);
         }
     }
 
@@ -190,7 +211,8 @@ impl ChangeFlowControl {
             .map_err(|_| "确认通道已关闭".to_owned())
     }
 
-    /// 重挂快照查询（进程内；run 终态后除名 → `None`）。
+    /// 重挂快照查询（进程内；run 终态后除名 → `None`）。快照含发起时刻与
+    /// 步累积器克隆（全词汇 emit 序——重挂恢复步表不再恒空）。
     pub fn snapshot(&self, root: &str, change: &str) -> Option<ChangeRunSnapshot> {
         let runs = self.runs.lock().expect("run 注册表锁不可中毒");
         runs.get(&(root.to_owned(), change.to_owned()))
@@ -200,6 +222,8 @@ impl ChangeFlowControl {
                 phase: entry.phase.clone(),
                 attempt: entry.attempt,
                 ask: entry.ask.clone(),
+                started_at: entry.started_at,
+                steps: entry.steps.clone(),
             })
     }
 
@@ -230,6 +254,18 @@ impl RunGuard {
     /// 随 [`ChangeFlowControl::publish`] 同步。
     pub fn emit(&self, update: RunUpdate) {
         self.control.publish(&self.key.0, &self.key.1, update);
+    }
+
+    /// 步累积器快照读取（全词汇 emit 序克隆；walker 终态出口组装 run 整包
+    /// 消费——落库 5 类子集过滤归 run_history 单点，本面零过滤）。
+    pub fn steps(&self) -> Vec<ChangeStepState> {
+        self.control
+            .runs
+            .lock()
+            .expect("run 注册表锁不可中毒")
+            .get(&self.key)
+            .map(|entry| entry.steps.clone())
+            .unwrap_or_default()
     }
 
     /// 当前 WorkerAgent 会话 id 槽写入。

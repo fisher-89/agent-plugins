@@ -25,7 +25,9 @@ pub enum ChangeRunStatus {
 }
 
 impl ChangeRunStatus {
-    /// 终局判别：终态 run 自注册表除名、订阅释放（图回落派生规则）。
+    /// 终局判别：终态 run 自注册表除名、订阅释放（run 运行史已落库
+    /// unify-run-state-persistence——图派生源 = 库读史 ∪ 注册表在飞 run，
+    /// 重启后库史可达，本判别仅承载订阅释放与除名时点）。
     pub fn is_terminal(self) -> bool {
         matches!(self, Self::Completed | Self::Stopped | Self::Failed)
     }
@@ -99,7 +101,8 @@ pub struct AskPayload {
 }
 
 /// 重挂快照：进程内 run 控制注册表在 view 重建时的状态恢复面（run 终态后
-/// 为 None——快照只覆盖运行期，终态由图派生规则承载）。
+/// 为 None——快照只覆盖运行期，收口后常驻渲染由库读史承载）。合并查询活面
+/// 消费（`ActiveRunView` 投影源，unify-run-state-persistence D11）。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct ChangeRunSnapshot {
@@ -111,6 +114,10 @@ pub struct ChangeRunSnapshot {
     pub attempt: Option<u32>,
     /// waitingAsk 时的中断载荷
     pub ask: Option<AskPayload>,
+    /// 发起时刻（UTC unix 毫秒；与 RunRequest.started_at 同值入表）
+    pub started_at: i64,
+    /// 步累积器快照（全词汇 emit 序；重挂恢复步表不再恒空）
+    pub steps: Vec<ChangeStepState>,
 }
 
 /// 发起提前 resolve 返回值：run_id 立即可知，运行态经 Channel 流出（与
@@ -124,6 +131,8 @@ pub struct ChangeRunSummary {
 
 /// run 状态流信封（tag `ipc` 判别，TS 镜像经 bindings 再生成直出）：
 /// 步状态上图、会话事件透传转录面板、ask / 确认停等驱动控制面板、终态收口。
+/// 进程内 seam 类型（worker sink / ArchiveSink 载荷消费零改动——归档链零触
+/// 点红线）；IPC 面经 [`RunNotice`] kind-only 降位（D3），载荷不出进程。
 #[derive(Debug, Clone, Serialize, Type)]
 #[serde(tag = "ipc", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum RunUpdate {
@@ -146,4 +155,49 @@ pub enum RunUpdate {
         status: ChangeRunStatus,
         reason: Option<String>,
     },
+}
+
+impl RunUpdate {
+    /// kind 判别词（通知投影单点：`RunNotice` 五变体与 `RunUpdate` 五变体
+    /// 一一同型对应）。
+    pub fn kind(&self) -> &'static str {
+        match self {
+            RunUpdate::Step { .. } => "step",
+            RunUpdate::SessionEvent { .. } => "sessionEvent",
+            RunUpdate::Ask { .. } => "ask",
+            RunUpdate::ConfirmWait { .. } => "confirmWait",
+            RunUpdate::Finished { .. } => "finished",
+        }
+    }
+}
+
+/// 变更通知（唯一 IPC 信封；unify-run-state-persistence D3 通知降位）：五
+/// kind-only 变体与 [`RunUpdate`] 一一同型、零载荷——通知仅失效信号，查询
+/// 结果权威，客户端收通知自行重查统一视图（`get_change_detail`）与转录库。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Type)]
+#[serde(tag = "ipc", rename_all = "camelCase")]
+pub enum RunNotice {
+    /// 步状态变更（→ 统一视图重查）
+    Step,
+    /// WorkerAgent 会话事件透传（→ 转录库重查）
+    SessionEvent,
+    /// ask 中断（→ 统一视图重查）
+    Ask,
+    /// phase 间停等确认（→ 统一视图重查）
+    ConfirmWait,
+    /// 终态收口（→ 统一视图重查定局）
+    Finished,
+}
+
+impl From<&RunUpdate> for RunNotice {
+    /// kind 投影（载荷剥离单点：`ChangeFlowControl::publish` 广播侧消费）。
+    fn from(update: &RunUpdate) -> Self {
+        match update {
+            RunUpdate::Step { .. } => RunNotice::Step,
+            RunUpdate::SessionEvent { .. } => RunNotice::SessionEvent,
+            RunUpdate::Ask { .. } => RunNotice::Ask,
+            RunUpdate::ConfirmWait { .. } => RunNotice::ConfirmWait,
+            RunUpdate::Finished { .. } => RunNotice::Finished,
+        }
+    }
 }

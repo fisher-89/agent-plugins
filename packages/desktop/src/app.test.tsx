@@ -55,6 +55,7 @@ const fakeDetail: ChangeDetail = {
   created: null,
   pipeline: [],
   activePhase: null,
+  runs: [],
   artifacts: [],
   worktree: null,
 };
@@ -196,7 +197,8 @@ function mockIpc() {
         return Promise.resolve(fakeList);
       }
       if (command === 'get_change_detail') {
-        return Promise.resolve(fakeDetail);
+        // 统一视图信封（detail ∪ activeRun——unify-run-state-persistence 线面）
+        return Promise.resolve({ detail: fakeDetail, activeRun: null });
       }
       if (command === 'db_models') {
         return Promise.resolve(DB_MODELS.map((model) => ({ ...model })));

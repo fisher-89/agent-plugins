@@ -3,7 +3,6 @@ import { useEffect, useState } from 'react';
 import { AgentMessages } from '@/components/agent';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import type { AgentEvent } from '@/types/dto';
 import type { SessionSummary } from '@/types/generated/bindings';
 
 import { useSessionTranscript } from '../hooks/use-session-transcript';
@@ -19,8 +18,9 @@ const ROLE_LABEL: Record<FlowRoleLabel, string> = {
 interface SessionTranscriptPanelProps {
   root: string | null;
   roleRefs: RoleSessionRef[];
-  /** 选中会话的实时事件流（运行中并入；收口重放时为空） */
-  liveEvents: AgentEvent[];
+  /** 变更通知触发的转录重查键（会话事件通知 150ms 去抖自增；实时面统一
+   * 转录库重查——liveEvents 退役） */
+  refreshKey?: number;
 }
 
 /** 会话元信息区 */
@@ -58,7 +58,7 @@ function SessionMeta({
 export function SessionTranscriptPanel({
   root,
   roleRefs,
-  liveEvents,
+  refreshKey,
 }: SessionTranscriptPanelProps): React.JSX.Element {
   const [activeIndex, setActiveIndex] = useState(0);
   // refs 变化（换节点）时回到首页
@@ -99,7 +99,7 @@ export function SessionTranscriptPanel({
         sessionId={active.sessionId}
         sourceRef={active.sourceRef}
         role={active.role}
-        liveEvents={liveEvents}
+        refreshKey={refreshKey}
       />
     </section>
   );
@@ -111,19 +111,19 @@ function RoleTranscript({
   sessionId,
   sourceRef,
   role,
-  liveEvents,
+  refreshKey,
 }: {
   root: string | null;
   sessionId: string | null;
   sourceRef: string | null;
   role: FlowRoleLabel;
-  liveEvents: AgentEvent[];
+  refreshKey?: number;
 }): React.JSX.Element {
   const { messages, running, error, summary } = useSessionTranscript({
     root,
     sessionId,
     sourceRef,
-    liveEvents,
+    refreshKey,
   });
   return (
     <div className="flex min-h-0 flex-1 flex-col" data-transcript-role={role}>

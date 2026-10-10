@@ -17,12 +17,14 @@ use crate::envelope::{self, ModelInfo, RecordEnvelope};
 use crate::model::{
     now_millis, pack_session_event_key, AgentEngineKind, AgentInstanceRecord, AgentProviderRecord,
     AgentRunRecord, ChangeActivePhase, ChangeRecord, ChecklistItemRecord, ExploreRecord,
-    PhaseRecord, SessionEventRecord, SessionRecord, StepRecord, WorkspaceRecord,
+    PhaseRecord, RunRecord, RunStepRecord, SessionEventRecord, SessionRecord, StepRecord,
+    WorkspaceRecord,
 };
 use workflow::model::{ChecklistItem, Verdict};
 use workflow::state::{
     BacktrackCommand, ChangeStateRecord, ChangeStatus, PhaseLogCommand, PhaseStartState,
-    PhaseStateRecord, StepCommand, StepStateRecord,
+    PhaseStateRecord, RunFinishCommand, RunStartCommand, RunStateRecord, RunStatus,
+    RunStepStateRecord, StepCommand, StepStateRecord,
 };
 
 /// store 内部错误面：四变体对应四类故障模式；`Display` 恒带 `db:` /
@@ -189,7 +191,7 @@ pub enum DbDimension {
     /// 已落地代表，desktop-data-dimensions 留痕）
     User,
     /// workspace 维度（per-workspace 库，轮统计行 / 会话 / 转录 / explore /
-    /// change 流程状态八模型）
+    /// change 流程状态 + run 运行史十模型）
     Workspace,
 }
 
@@ -211,8 +213,8 @@ pub(crate) fn global_models() -> &'static Models {
     })
 }
 
-/// workspace 库模型组（八模型：轮统计行 / 会话 / 转录 / explore 四既有模型
-/// + change 流程状态四模型，additive 注册零迁移）
+/// workspace 库模型组（十模型：轮统计行 / 会话 / 转录 / explore 四既有模型
+/// + change 流程状态四模型 + run 运行史两模型，additive 注册零迁移）
 pub(crate) fn workspace_models() -> &'static Models {
     static MODELS: OnceLock<Models> = OnceLock::new();
     MODELS.get_or_init(|| {
@@ -239,6 +241,10 @@ pub(crate) fn workspace_models() -> &'static Models {
             .define::<ChecklistItemRecord>()
             .expect("定义 ChecklistItemRecord 失败");
         models.define::<StepRecord>().expect("定义 StepRecord 失败");
+        models.define::<RunRecord>().expect("定义 RunRecord 失败");
+        models
+            .define::<RunStepRecord>()
+            .expect("定义 RunStepRecord 失败");
         models
     })
 }
@@ -271,7 +277,7 @@ pub(crate) fn workspace_db_path(workspaces_dir: &Path, canonical_root: &str) -> 
 /// 锁定），私有持有 [`Database`] 与实例维度，可安全挂 Tauri State，同步调用
 /// 无需 async。全局库经 [`Store::open_global`]（workspace 注册表 + agent
 /// 管理两模型）、workspace 库经 [`Store::open_workspace`]（轮统计行 / 会话 /
-/// 转录 / explore / change 流程状态八模型）。
+/// 转录 / explore / change 流程状态 / run 运行史十模型）。
 ///
 /// 单进程约束：双开（如 dev 与正式版指向同一 db 文件）不保证安全，见 crate 文档。
 pub struct Store {
@@ -287,9 +293,17 @@ impl Store {
     }
 
     /// 打开 workspace 库（workspace 维度模型组，轮统计行 / 会话 / 转录 /
-    /// explore / change 流程状态八模型）。
+    /// explore / change 流程状态 / run 运行史十模型）。打开尾部内嵌启动标定
+    ///（[`Store::calibrate_interrupted_runs`]，D12）：进程起点无在飞 run 是
+    /// 结构性事实（redb 文件锁单进程写，跨进程并行 run 不可达），每
+    /// workspace 库首开即标定——残留 running 行翻 interrupted + 悬挂
+    /// active_phase 清位；零残留零写事务（幂等）。标定为 best-effort 自愈
+    ///（失败不阻断打开——与「坏行不阻断打开、读命令面显式记因」既有契约
+    /// 同口径，坏行语料见 store_test 直写注入用例）。
     pub fn open_workspace(path: &Path) -> Result<Self, StoreError> {
-        Self::open_with(path, workspace_models(), DbDimension::Workspace)
+        let store = Self::open_with(path, workspace_models(), DbDimension::Workspace)?;
+        let _ = store.calibrate_interrupted_runs(now_millis());
+        Ok(store)
     }
 
     /// 打开（不存在则创建）db 收口：`create_dir_all` 父目录 → 不存在（或空
@@ -1390,6 +1404,184 @@ impl Store {
                 reference: record.reference,
             })
             .collect())
+    }
+
+    // --- run 运行史域（unify-run-state-persistence：每 run 两写 / 步整包单
+    // 事务 / 启动标定；记录 ↔ `workflow::state` 中性类型映射收本文件单点）--
+
+    /// run 发起落行：同 run_id 冲突 → [`StoreError::Conflict`]；插 running
+    /// 行（status=running 起步、无 reason、无收口时刻）。
+    pub fn start_change_run(&self, command: &RunStartCommand) -> Result<(), StoreError> {
+        let rw = self.db.rw_transaction().map_err(db_err("开启写事务"))?;
+        let existing: Option<RunRecord> = rw
+            .get()
+            .primary(command.run_id.as_str())
+            .map_err(db_err("读取 run 记录"))?;
+        if existing.is_some() {
+            return Err(StoreError::Conflict(format!(
+                "run 已存在同 id 记录: {}",
+                command.run_id
+            )));
+        }
+        rw.insert(RunRecord::new(command))
+            .map_err(db_err("写入 run 记录"))?;
+        rw.commit().map_err(db_err("提交 start_change_run 事务"))?;
+        Ok(())
+    }
+
+    /// run 收口单事务（design D1 / D7）：run 行在案且 running（miss →
+    /// [`StoreError::NotFound`]、非 running → [`StoreError::Conflict`]）→
+    /// 终态 + reason + finished_at 更新 + `RunStepRecord` 整包插入（seq 保序
+    /// = 命令给序）+ 该 change `active_phase` 清位（悬挂杀除）；命令 status
+    /// 非 终态三值（running / interrupted——后者仅标定产生）→
+    /// [`StoreError::Conflict`]。任一环节失败整体回滚零残留。
+    pub fn finish_change_run(&self, command: &RunFinishCommand) -> Result<(), StoreError> {
+        if !matches!(
+            command.status,
+            RunStatus::Completed | RunStatus::Stopped | RunStatus::Failed
+        ) {
+            return Err(StoreError::Conflict(format!(
+                "run 终态非法: \"{}\"（运行期写路径仅产生 completed / stopped / failed）",
+                command.status.as_str()
+            )));
+        }
+        let rw = self.db.rw_transaction().map_err(db_err("开启写事务"))?;
+        let mut run_row: RunRecord = rw
+            .get()
+            .primary(command.run_id.as_str())
+            .map_err(db_err("读取 run 记录"))?
+            .ok_or_else(|| StoreError::NotFound(format!("run 不存在: {}", command.run_id)))?;
+        if run_row.status != RunStatus::Running {
+            return Err(StoreError::Conflict(format!(
+                "run 非运行态不可收口: {}（status={})",
+                command.run_id,
+                run_row.status.as_str()
+            )));
+        }
+        run_row.status = command.status;
+        run_row.reason = command.reason.clone();
+        run_row.finished_at = Some(command.finished_at);
+        rw.upsert(run_row).map_err(db_err("写入 run 终态"))?;
+        for entry in &command.steps {
+            rw.insert(RunStepRecord::new(
+                &command.run_id,
+                entry,
+                command.finished_at,
+            ))
+            .map_err(db_err("写入 run 步整包"))?;
+        }
+        // active_phase 清位同事务（悬挂杀除；run 死亡后库 MUST NOT 呈运行中）
+        let mut change_row: ChangeRecord = rw
+            .get()
+            .primary(command.change.as_str())
+            .map_err(db_err("读取建档记录"))?
+            .ok_or_else(|| StoreError::NotFound(format!("change 不存在: {}", command.change)))?;
+        change_row.active_phase = None;
+        rw.upsert(change_row).map_err(db_err("清位 active_phase"))?;
+        rw.commit().map_err(db_err("提交 finish_change_run 事务"))?;
+        Ok(())
+    }
+
+    /// 启动标定（幂等）：读扫——存在 running 残留行或任一
+    /// `active_phase=Some` 才开写事务（零残留零写事务）；标定 = 全部 running
+    /// 行 → interrupted（`finished_at` = now、记因按「重启标定」定式，附该
+    /// change 残留 active_phase 中断语境）+ 全量 `active_phase` 清位。返回
+    /// 被标定 run_id 清单（corpus / 测试构造中断样本直调，`pub`）。
+    pub fn calibrate_interrupted_runs(&self, now: i64) -> Result<Vec<String>, StoreError> {
+        // 先读扫（r 事务），后写（rw 事务）——零残留零写事务
+        let running: Vec<RunRecord> = self
+            .read_all::<RunRecord>("遍历 run 运行史")?
+            .into_iter()
+            .filter(|record| record.status == RunStatus::Running)
+            .collect();
+        let hanging: Vec<ChangeRecord> = self
+            .read_all::<ChangeRecord>("遍历建档清单")?
+            .into_iter()
+            .filter(|record| record.active_phase.is_some())
+            .collect();
+        if running.is_empty() && hanging.is_empty() {
+            return Ok(Vec::new());
+        }
+        // 残留 active_phase 语境（标定记因附「中断于 phase X attempt N」）
+        let hanging_phase: HashMap<&str, &ChangeActivePhase> = hanging
+            .iter()
+            .filter_map(|record| {
+                record
+                    .active_phase
+                    .as_ref()
+                    .map(|active| (record.name.as_str(), active))
+            })
+            .collect();
+        let rw = self.db.rw_transaction().map_err(db_err("开启写事务"))?;
+        let mut calibrated = Vec::with_capacity(running.len());
+        for mut run_row in running {
+            run_row.status = RunStatus::Interrupted;
+            run_row.finished_at = Some(now);
+            run_row.reason = Some(match hanging_phase.get(run_row.change.as_str()) {
+                Some(active) => format!(
+                    "重启标定：桌面进程中断，run 客观已终止（中断于 phase {} attempt {}）",
+                    active.phase, active.attempt
+                ),
+                None => "重启标定：桌面进程中断，run 客观已终止".to_owned(),
+            });
+            calibrated.push(run_row.run_id.clone());
+            rw.upsert(run_row).map_err(db_err("标定 run 中断"))?;
+        }
+        for mut change_row in hanging {
+            change_row.active_phase = None;
+            rw.upsert(change_row)
+                .map_err(db_err("标定清位 active_phase"))?;
+        }
+        rw.commit()
+            .map_err(db_err("提交 calibrate_interrupted_runs 事务"))?;
+        Ok(calibrated)
+    }
+
+    /// run 运行史清单：按 change 过滤，`started_at` 升序（并列 run_id 稳定
+    /// 序，确定可复现）。
+    pub fn list_change_runs(&self, change: &str) -> Result<Vec<RunStateRecord>, StoreError> {
+        let mut runs: Vec<RunStateRecord> = self
+            .read_all::<RunRecord>("遍历 run 运行史")?
+            .into_iter()
+            .filter(|record| record.change == change)
+            .map(|record| RunStateRecord {
+                run_id: record.run_id,
+                change: record.change,
+                status: record.status,
+                reason: record.reason,
+                started_at: record.started_at,
+                finished_at: record.finished_at,
+            })
+            .collect();
+        runs.sort_by(|a, b| {
+            a.started_at
+                .cmp(&b.started_at)
+                .then(a.run_id.cmp(&b.run_id))
+        });
+        Ok(runs)
+    }
+
+    /// run 步节点史行：按 run 过滤，seq 升序（= emit 序；同 run 打包键高
+    /// 64 位恒一致，自然序即 seq 序——显式排序防御性兜底）。
+    pub fn list_run_steps(&self, run_id: &str) -> Result<Vec<RunStepStateRecord>, StoreError> {
+        let mut steps: Vec<RunStepStateRecord> = self
+            .read_all::<RunStepRecord>("遍历 run 步整包")?
+            .into_iter()
+            .filter(|record| record.run_id == run_id)
+            .map(|record| RunStepStateRecord {
+                seq: record.seq(),
+                run_id: record.run_id,
+                phase: record.phase,
+                attempt: record.attempt,
+                step: record.step,
+                status: record.status,
+                session_id: record.session_id,
+                detail: record.detail,
+                timestamp: record.timestamp,
+            })
+            .collect();
+        steps.sort_by_key(|record| record.seq);
+        Ok(steps)
     }
 
     /// 本库已注册模型清单与记录计数

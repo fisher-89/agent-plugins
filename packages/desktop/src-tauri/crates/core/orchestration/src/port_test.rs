@@ -491,6 +491,16 @@ fn 既有三契约与中性类型保持() {
 }
 
 // ---------------------------------------------------------------------------
+// RunHistoryPort 缝（unify-run-state-persistence）：trait 声明面（`run_started`
+// / `run_finished`，sync 零 tokio、Err 串语义与既有 port 同型）经消费侧承载
+// ——进程内假件（计数 / 可编程 Err）断言挂 `walker_test.rs`（每 run 恰两写 /
+// start fail-fast / finish best-effort），真件 `StoreRunHistory` 委派断言挂
+// `run_history_test.rs`（tempfile 真库回环 + Err 串语义透传）。本文件不重复
+// 行为用例（test-design 本节 Mock 表：既有 sink 直调装置，新 trait 行为断言
+// 挂消费侧）。
+// ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
 // test-execution 扩展节（desktop-checks-domain）
 // ---------------------------------------------------------------------------
 

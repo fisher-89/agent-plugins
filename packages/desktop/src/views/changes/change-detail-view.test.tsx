@@ -3,16 +3,14 @@ import { MemoryRouter, Route, Routes, useLocation, useNavigate } from 'react-rou
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 
 import type {
+  ActiveRunView,
   AgentEvent,
   ArtifactDescriptor,
   ArtifactEnvelope,
   AttemptRecord,
   ChangeDetail,
-  ChangeRunSnapshot,
-  ChangeStepKind,
+  ChangeRunEntry,
   ChangeStepState,
-  ChangeStepStatus,
-  RunUpdate,
   SessionSummary,
 } from '../../types/dto';
 import { ChangeDetailView } from './change-detail-view';
@@ -44,6 +42,7 @@ vi.mock('@tauri-apps/api/core', () => ({ invoke: invokeMock, Channel: ChannelMoc
 // ---------------------------------------------------------------------------
 
 let detailResult: ChangeDetail | string | null = null;
+let activeRunResult: ActiveRunView | null = null;
 let artifactResults: Record<string, ArtifactEnvelope | null> = {};
 let holdDetail = false;
 let releaseDetail: (() => void) | null = null;
@@ -64,6 +63,11 @@ function loadFixture(f: DetailFixture): void {
   releaseDetail = null;
 }
 
+/** 统一视图活面装载（activeRun 在场 = 非终态运行期；null = 空闲 / 已收口）。 */
+function loadActiveRun(activeRun: ActiveRunView | null): void {
+  activeRunResult = activeRun;
+}
+
 /** 详情取数命令分发（run describe 复用同一定向，落 run 缺席命令时为空态应答）。 */
 function detailIpc(command: string, args: Record<string, unknown> = {}): Promise<unknown> {
   if (command === 'get_change_detail') {
@@ -72,11 +76,15 @@ function detailIpc(command: string, args: Record<string, unknown> = {}): Promise
       return new Promise((resolve, reject) => {
         releaseDetail = () => {
           if (typeof detailResult === 'string') reject(detailResult);
-          else resolve(detailResult);
+          else if (detailResult === null) resolve(null);
+          else resolve({ detail: detailResult, activeRun: activeRunResult });
         };
       });
     }
-    return Promise.resolve(detailResult);
+    // detail=null fixture = 未知 change（命令层 None 整体 null——非「信封在而
+    // detail 空」形态）
+    if (detailResult === null) return Promise.resolve(null);
+    return Promise.resolve({ detail: detailResult, activeRun: activeRunResult });
   }
   if (command === 'read_artifact') {
     const key = `${String(args.kind)}:${String(args.source)}`;
@@ -167,6 +175,9 @@ beforeEach(() => {
   }
   ChannelMock.instances.length = 0;
   invokeMock.mockReset();
+  // 活面模块态全局复位（sequence.shuffle 下 run describe 注入的 activeRun
+  // 不得泄漏进其他用例——统一查询活面以用例自装载为准）
+  loadActiveRun(null);
   loadFixture({ detail: null });
   invokeMock.mockImplementation((command: string, args?: Record<string, unknown>) =>
     detailIpc(command, args),
@@ -248,6 +259,7 @@ function detail(overrides: Partial<ChangeDetail> = {}): ChangeDetail {
             : [],
     })),
     activePhase: null,
+    runs: [],
     worktree: null,
     artifacts: [{ kind: 'markdown-doc', source: 'proposal.md', title: '提案' }],
     ...overrides,
@@ -645,11 +657,13 @@ describe('ChangeDetailView：路由参数取数、深链与根切换抑制（页
 });
 
 // ---------------------------------------------------------------------------
-// run 组装（desktop-change-flow 增量）：页面调 useChangeFlowRun、头部区挂
-// RunControlPanel、runStep overlay 并入 buildFlowGraph、抽屉转录 props 下传、
-// run 终态触发一次显式 refresh。运行态经重挂快照恢复（change_flow_state 运行中
-// 快照 → watch 补订）驱动，信封流入真实 applyRunUpdate / runStepNodes 纯函数
-// 归并后并入图 overlay；ResizeObserver / getBBox 垫片沿既有装置。
+// run 组装（unify-run-state-persistence 两钩并一后形态）：页面调
+// useChangeFlowRun（控制动作 + 通知订阅）、RunControlPanel 挂 activeRun 活面
+// 与 runs 尾行、runStep overlay 自统一视图派生（runs[].steps ∪
+// activeRun.steps 同一转换函数）、抽屉转录经 refreshKey 重查。运行态经统一
+// 查询 activeRun 面驱动（change_flow_state 快照命令退役），通知 kind-only
+// 经 Channel 直投（step → 统一视图重查 300ms 去抖、sessionEvent → 转录重查
+// 150ms 去抖）；ResizeObserver / getBBox 垫片沿既有装置。
 // ---------------------------------------------------------------------------
 
 interface ChannelLike {
@@ -663,49 +677,30 @@ function lastChannel(): ChannelLike {
   return instance;
 }
 
-/** 重挂快照 fixture（change_flow_state 应答；缺省运行中 implement attempt 1）。 */
-function flowSnapshot(overrides: Partial<ChangeRunSnapshot> = {}): ChangeRunSnapshot {
+/** 统一视图活面 fixture（ActiveRunView 同形；缺省运行中 implement attempt 1）。 */
+function activeRunView(overrides: Partial<ActiveRunView> = {}): ActiveRunView {
   return {
     runId: 'run-1727',
     status: 'running',
     phase: 'implement',
     attempt: 1,
     ask: null,
+    startedAt: '2026-10-01T08:00:00.000Z',
+    steps: [],
     ...overrides,
   };
 }
 
-function stepUpdate(
-  step: ChangeStepKind,
-  status: ChangeStepStatus,
-  overrides: Partial<ChangeStepState> = {},
-): RunUpdate {
+/** 库读史 run 尾行 fixture（ChangeRunEntry 同形——收口后终态徽章与记因）。 */
+function finishedRun(overrides: Partial<ChangeRunEntry> = {}): ChangeRunEntry {
   return {
-    ipc: 'step',
-    step: {
-      phase: 'implement',
-      attempt: 1,
-      step,
-      status,
-      sessionId: null,
-      detail: null,
-      ...overrides,
-    },
-  };
-}
-
-function sessionUpdate(seq: number, sessionId: string, text: string): RunUpdate {
-  return {
-    ipc: 'sessionEvent',
-    sessionId,
-    event: {
-      seq,
-      timestampMs: 1727000000000 + seq,
-      kind: 'message',
-      role: 'assistant',
-      blocks: [{ kind: 'text', text }],
-      parentToolUseId: null,
-    },
+    runId: 'run-1727',
+    status: 'completed',
+    reason: '全相位通过',
+    startedAt: '2026-10-01T08:00:00.000Z',
+    finishedAt: '2026-10-01T08:04:00.000Z',
+    steps: [],
+    ...overrides,
   };
 }
 
@@ -750,13 +745,12 @@ function transcriptSession(sessionId: string, sourceRef: string): SessionSummary
 }
 
 describe('ChangeDetailView：run 控制面板与运行 overlay 组装', () => {
-  let stateSnapshot: ChangeRunSnapshot | null;
   let sessionsFixture: Record<string, SessionSummary[]>;
   let transcriptFixture: Record<string, AgentEvent[]>;
   let detailFixture: Record<string, SessionSummary | null>;
 
   beforeEach(() => {
-    stateSnapshot = null;
+    activeRunResult = null;
     sessionsFixture = {};
     transcriptFixture = {};
     detailFixture = {};
@@ -766,7 +760,6 @@ describe('ChangeDetailView：run 控制面板与运行 overlay 组装', () => {
         if (command === 'get_change_detail' || command === 'read_artifact') {
           return detailIpc(command, args);
         }
-        if (command === 'change_flow_state') return Promise.resolve(stateSnapshot);
         if (command === 'change_flow_start') {
           return Promise.resolve({ runId: 'run-1727', status: 'running' });
         }
@@ -808,7 +801,7 @@ describe('ChangeDetailView：run 控制面板与运行 overlay 组装', () => {
     // 既有组装（新增为加法）：Header + 图区 + 产物区
     expect(within(container).getAllByTestId('artifact-card')).toHaveLength(1);
 
-    // 发起入口接通 useChangeFlowRun：change_flow_start 携 root/change 与
+    // 发起入口接通 useChangeFlowRun：change_flow_start 携 root/change 与 Channel
     fireEvent.click(screen.getByTestId('run-start'));
     await waitFor(() =>
       expect(invokeMock).toHaveBeenCalledWith('change_flow_start', {
@@ -820,83 +813,244 @@ describe('ChangeDetailView：run 控制面板与运行 overlay 组装', () => {
     );
   });
 
-  it('运行中（重挂快照恢复）→ 停止入口在场；步状态流入后 runStep 节点出现在图，既有事件节点不受影响', async () => {
-    stateSnapshot = flowSnapshot({ status: 'running', phase: 'implement', attempt: 1 });
+  it('运行中（统一查询 activeRun 在场）→ 停止入口在场；活面步表经通知触发重查流入图，既有事件节点不受影响', async () => {
+    loadActiveRun(activeRunView());
     renderDetail({ detail: detail() });
 
-    // 快照恢复 → 状态徽章与停止入口呈现、watch 补订建立
+    // activeRun 在场 → 状态徽章与停止入口呈现、watch 补订建立
     await screen.findByTestId('run-stop');
     await waitFor(() => expect(ChannelMock.instances).toHaveLength(1));
     await screen.findByTestId('flow-graph');
     expect(screen.getByTestId('run-status').textContent).toBe('运行中');
 
+    // 通知到达（kind-only step）→ 300ms 尾随去抖 → 统一视图重查：fixture 活面
+    // 已携步表 → runStep 节点出现在图（同一转换函数派生）
+    loadActiveRun(
+      activeRunView({
+        steps: [
+          {
+            phase: 'implement',
+            attempt: 1,
+            step: 'executor',
+            status: 'running',
+            sessionId: 'ses-exec',
+            detail: null,
+          },
+          {
+            phase: 'implement',
+            attempt: 1,
+            step: 'staticCheck',
+            status: 'failed',
+            sessionId: null,
+            detail: '2 处诊断',
+          },
+        ],
+      }),
+    );
     await act(async () => {
-      lastChannel().push(stepUpdate('executor', 'running', { sessionId: 'ses-exec' }));
-      lastChannel().push(stepUpdate('staticCheck', 'failed', { detail: '2 处诊断' }));
+      lastChannel().push({ ipc: 'step' });
     });
-    await waitFor(() => expect(screen.getAllByTestId('run-step-node')).toHaveLength(2));
+    await waitFor(() => expect(screen.getAllByTestId('run-step-node')).toHaveLength(2), {
+      timeout: 5000,
+    });
     const executor = screen.getByTestId('rf__node-run:implement:1:executor');
     expect(within(executor).getByTestId('run-step-group').textContent).toBe('WorkerAgent');
     const check = screen.getByTestId('rf__node-run:implement:1:staticCheck');
     expect(within(check).getByTestId('run-step-group').textContent).toBe('ToolStep');
     expect(within(check).getByTestId('run-step-detail').textContent).toBe('2 处诊断');
-    // overlay 为加法：既有事件节点集合不变
+    // overlay 为加法：既有事件节点集合不变（flow-node 挂钩 = eval/active 事件
+    // 节点面；运行步节点经 run-step-node 挂钩另行可辨）
     expect(screen.getAllByTestId('flow-node')).toHaveLength(2);
   });
 
-  it('sessionEvent-only 信封流入：steps 引用未变 → 流程图节点零重建（已测量节点不闪回 hidden）', async () => {
-    stateSnapshot = flowSnapshot({ status: 'running', phase: 'implement', attempt: 1 });
-    renderDetail({ detail: detail() });
+  it('重挂恢复（AC-10）：run 运行中 remount → activeRun 经统一查询恢复、步表非空且与 emit 序一致、运行中才补订 watch', async () => {
+    // 运行中形态：activeRun 携全词汇 emit 序步表（非空——重挂步表不再恒空）
+    const liveSteps: ChangeStepState[] = [
+      {
+        phase: 'implement',
+        attempt: 1,
+        step: 'executor',
+        status: 'passed',
+        sessionId: 'ses-exec',
+        detail: null,
+      },
+      {
+        phase: 'implement',
+        attempt: 1,
+        step: 'staticCheck',
+        status: 'running',
+        sessionId: null,
+        detail: null,
+      },
+    ];
+    loadActiveRun(activeRunView({ steps: liveSteps }));
+    const first = renderDetail({ detail: detail() });
     await screen.findByTestId('run-stop');
     await waitFor(() => expect(ChannelMock.instances).toHaveLength(1));
-    await act(async () => {
-      lastChannel().push(stepUpdate('executor', 'running', { sessionId: 'ses-exec' }));
-    });
-    await waitFor(() => expect(screen.getAllByTestId('run-step-node')).toHaveLength(1));
+    await waitFor(() => expect(screen.getAllByTestId('run-step-node')).toHaveLength(2));
+    first.unmount();
 
-    // 重放节点度量：事件 / 运行步节点 measured 就位 → 可见基线
-    await act(async () => {
-      ResizeObserverStub.flush();
-      await Promise.resolve();
-    });
-    const eventNode = screen.getByTestId('rf__node-eval:proposal:1');
-    const runNode = screen.getByTestId('rf__node-run:implement:1:executor');
-    expect(eventNode.style.visibility).toBe('visible');
-    expect(runNode.style.visibility).toBe('visible');
-
-    // sessionEvent 高频信封：liveEvents 变化而 steps 引用不变 → runNodes 以 steps
-    // 为依赖零重建，图节点对象不换（换即 measured 清零、未测量窗口内闪回 hidden）
-    await act(async () => {
-      lastChannel().push(sessionUpdate(1, 'ses-exec', '实时增量正文'));
-    });
-    expect(eventNode.style.visibility).toBe('visible');
-    expect(runNode.style.visibility).toBe('visible');
+    // remount：统一查询先行（activeRun 面）→ 步表与 emit 序一致恢复上图 +
+    // 运行中才补订 watch（第二个 Channel 实例）
+    loadActiveRun(activeRunView({ steps: liveSteps }));
+    renderDetail({ detail: detail() });
+    await screen.findByTestId('run-stop');
+    expect(screen.getByTestId('run-status').textContent).toBe('运行中');
+    await waitFor(() => expect(ChannelMock.instances).toHaveLength(2), { timeout: 5000 });
+    await waitFor(() => expect(screen.getAllByTestId('run-step-node')).toHaveLength(2));
+    // 步表与 emit 序一致：executor（passed）在前、staticCheck（running）随后
+    const nodes = screen.getAllByTestId('run-step-node');
+    expect(nodes[0].getAttribute('data-run-status')).toBe('passed');
+    expect(nodes[1].getAttribute('data-run-status')).toBe('running');
+    expect(screen.getByTestId('rf__node-run:implement:1:staticCheck') !== null).toBe(true);
   });
 
-  it('run 终态（非终局 → 终局迁移）恰触发一次显式 refresh；终态后追加信封不再触发、主操作回到发起', async () => {
-    stateSnapshot = flowSnapshot({ status: 'running', phase: 'implement', attempt: 1 });
+  it('库读史常驻（图常驻渲染）：runs[].steps 零通知即上图（收口后不回落），activeRun 活步叠加其上', async () => {
+    loadActiveRun(
+      activeRunView({
+        steps: [
+          {
+            phase: 'implement',
+            attempt: 1,
+            step: 'evaluator',
+            status: 'running',
+            sessionId: 'ses-eval',
+            detail: null,
+          },
+        ],
+      }),
+    );
+    renderDetail({
+      detail: detail({
+        runs: [
+          finishedRun({
+            steps: [
+              {
+                seq: 0,
+                phase: 'implement',
+                attempt: 1,
+                step: 'executor',
+                status: 'passed',
+                sessionId: 'ses-exec',
+                detail: null,
+              },
+            ],
+          }),
+        ],
+      }),
+    });
+    await screen.findByTestId('flow-graph');
+
+    // 库读史步节点常驻（passed 终态样式）+ 活步叠加（running）
+    await waitFor(() => expect(screen.getAllByTestId('run-step-node')).toHaveLength(2));
+    expect(screen.getByTestId('rf__node-run:implement:1:executor') !== null).toBe(true);
+    expect(screen.getByTestId('rf__node-run:implement:1:evaluator') !== null).toBe(true);
+  });
+
+  it('两 run 全史叠加 + 第三 run 活步叠加（AC-9）：同列同相位 attempt 递增各自成节点可辨，键 phase:attempt:step 无冲突', async () => {
+    // 第三 run 在飞活步（attempt 3，库面无史——首拍未收口）
+    loadActiveRun(
+      activeRunView({
+        runId: 'run-3',
+        attempt: 3,
+        steps: [
+          {
+            phase: 'implement',
+            attempt: 3,
+            step: 'executor',
+            status: 'running',
+            sessionId: 'ses-live-3',
+            detail: null,
+          },
+        ],
+      }),
+    );
+    renderDetail({
+      detail: detail({
+        runs: [
+          finishedRun({
+            runId: 'run-1',
+            steps: [
+              {
+                seq: 0,
+                phase: 'implement',
+                attempt: 1,
+                step: 'executor',
+                status: 'passed',
+                sessionId: 'ses-1',
+                detail: null,
+              },
+            ],
+          }),
+          finishedRun({
+            runId: 'run-2',
+            startedAt: '2026-10-01T09:00:00.000Z',
+            steps: [
+              {
+                seq: 0,
+                phase: 'implement',
+                attempt: 2,
+                step: 'executor',
+                status: 'passed',
+                sessionId: 'ses-2',
+                detail: null,
+              },
+            ],
+          }),
+        ],
+      }),
+    });
+    await screen.findByTestId('flow-graph');
+
+    // 两 run 库读史 + 一 run 活步 = 三节点全量上图（全史不回落 + 在飞叠加）
+    await waitFor(() => expect(screen.getAllByTestId('run-step-node')).toHaveLength(3));
+    // 同列 attempt 递增不撞键：三节点各自成节点、库读史两枚终态、活步一枚运行中
+    const status = (nodeId: string) =>
+      within(screen.getByTestId(nodeId))
+        .getByTestId('run-step-node')
+        .getAttribute('data-run-status');
+    expect(status('rf__node-run:implement:1:executor')).toBe('passed');
+    expect(status('rf__node-run:implement:2:executor')).toBe('passed');
+    expect(status('rf__node-run:implement:3:executor')).toBe('running');
+  });
+
+  it('run 终态通知触发统一视图重查：收口后主操作回到发起、收口记因自 runs 尾行呈现', async () => {
+    loadActiveRun(activeRunView());
     renderDetail({ detail: detail() });
     await screen.findByTestId('run-stop');
     await waitFor(() => expect(ChannelMock.instances).toHaveLength(1));
     const baseline = detailCalls().length;
 
+    // fixture 换收口形态（refresh 的应答面——终态已除名、runs 尾行在案），再投
+    // finished 通知（300ms 去抖后重查）
+    loadActiveRun(null);
+    loadFixture({ detail: detail({ runs: [finishedRun()] }) });
     await act(async () => {
-      lastChannel().push({ ipc: 'finished', status: 'completed', reason: '全相位通过' });
+      lastChannel().push({ ipc: 'finished' });
     });
-    await waitFor(() => expect(detailCalls().length).toBe(baseline + 1));
+    await waitFor(() => expect(detailCalls().length).toBeGreaterThan(baseline), {
+      timeout: 5000,
+    });
     expect(screen.getByTestId('run-finished-reason').textContent).toContain('全相位通过');
     // 收口对齐：终局后主操作回到发起
     expect(screen.getByTestId('run-start') !== null).toBe(true);
-
-    // 终态后到站信封不再触发（状态不再迁移 = 「非终局 → 终局」判定不重现）
-    await act(async () => {
-      lastChannel().push(stepUpdate('phaseStart', 'stopped', { phase: 'test-gen' }));
-    });
-    expect(detailCalls().length).toBe(baseline + 1);
   });
 
-  it('抽屉选中运行步节点 → 转录 props 下传链路接通：运行步实时 sessionId 直查 session_detail、实时事件经展平并入面板', async () => {
-    stateSnapshot = flowSnapshot({ status: 'running', phase: 'implement', attempt: 1 });
+  it('抽屉选中运行步节点 → 转录 props 下传链路接通：运行步实时 sessionId 直查 session_detail、会话事件通知经 refreshKey 触发转录库重查', async () => {
+    loadActiveRun(
+      activeRunView({
+        steps: [
+          {
+            phase: 'implement',
+            attempt: 1,
+            step: 'executor',
+            status: 'running',
+            sessionId: 'ses-exec',
+            detail: null,
+          },
+        ],
+      }),
+    );
     detailFixture = {
       'ses-exec': transcriptSession('ses-exec', 'add-feature/implement/executor/1'),
     };
@@ -905,10 +1059,6 @@ describe('ChangeDetailView：run 控制面板与运行 overlay 组装', () => {
     await screen.findByTestId('run-stop');
     await waitFor(() => expect(ChannelMock.instances).toHaveLength(1));
 
-    await act(async () => {
-      lastChannel().push(stepUpdate('executor', 'running', { sessionId: 'ses-exec' }));
-      lastChannel().push(sessionUpdate(1, 'ses-exec', '实时增量正文'));
-    });
     fireEvent.click(await screen.findByTestId('rf__node-run:implement:1:executor'));
 
     const panel = await screen.findByTestId('session-transcript-panel');
@@ -920,12 +1070,20 @@ describe('ChangeDetailView：run 控制面板与运行 overlay 组装', () => {
       sessionId: 'ses-exec',
     });
 
-    // 实时事件随后到站：liveEvents 展平身份变化 → 抽屉按 sessionId 过滤下传 → 面板按 seq 并入
+    // 会话事件通知到站：转录库已追加密封事件，150ms 去抖后 refreshKey 重查
+    transcriptFixture['ses-exec'] = [
+      textEvent(0, 'user', '重放正文'),
+      textEvent(1, 'assistant', '实时增量正文'),
+    ];
     await act(async () => {
-      lastChannel().push(sessionUpdate(2, 'ses-exec', '二次实时正文'));
+      lastChannel().push({ ipc: 'sessionEvent' });
     });
-    await waitFor(() =>
-      expect(screen.getByTestId('session-transcript-panel').textContent).toContain('实时增量正文'),
+    await waitFor(
+      () =>
+        expect(screen.getByTestId('session-transcript-panel').textContent).toContain(
+          '实时增量正文',
+        ),
+      { timeout: 5000 },
     );
     expect(screen.getByTestId('session-transcript-panel').textContent).toContain('重放正文');
   });

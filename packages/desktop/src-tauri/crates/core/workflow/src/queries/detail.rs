@@ -1,12 +1,15 @@
-//! change 详情查询：固定 9 站流水线聚合 + 状态面 + 产物清单。
+//! change 详情查询：固定 9 站流水线聚合 + 状态面 + run 运行史 + 产物清单。
 //!
 //! 出线 DTO 约定（API 层转换，golden 契约）：db 中性状态类型（`state`）不出
-//! 线；本层 DTO 为自然结构体纯 derive（零字段属性、零手动序列化——
+//! 线（`ChangeStatus` / `RunStatus` / `RunStepKind` / `RunStepStatus` 词汇枚
+//! 举先例直用）；本层 DTO 为自然结构体纯 derive（零字段属性、零手动序列化——
 //! `alias`/`skip_serializing_if`/自定义编解码任一都会被 specta phases 模式
 //! 判为相位差，分裂出 `*_Serialize/_Deserialize` 联合别名）。线面：缺省字段
 //! `null`、时间戳 ISO 串（由 `tests/golden` 逐字节钉死）；时间戳在 `From`
 //! 转换时定格为字符串（i64 毫秒 → RFC3339 收 queries 层单点）。状态面单源
-//! workspace 库（经 port 缝）；磁盘扫描保留为产物发现。
+//! workspace 库（经 port 缝）；磁盘扫描保留为产物发现。runs / steps 字段演
+//! 进走 golden 显式重写流程（`DESKTOP_GOLDEN_REWRITE=1` + diff 人工确认留
+//! 痕，unify-run-state-persistence 增键先例）。
 
 use serde::{Deserialize, Serialize};
 use specta::Type;
@@ -15,7 +18,10 @@ use super::list::ChangeSource;
 use super::{iso_from_millis, locate_change};
 use crate::artifacts::{discover_artifacts, ArtifactDescriptor};
 use crate::model::{ChecklistItem, Verdict};
-use crate::state::{ChangeStateStore, ChangeStatus, PhaseStateRecord};
+use crate::state::{
+    ChangeStateStore, ChangeStatus, PhaseStateRecord, RunStateRecord, RunStatus, RunStepKind,
+    RunStepStateRecord, RunStepStatus,
+};
 use crate::write::utc_date;
 use foundation::layout::Layout;
 
@@ -90,6 +96,60 @@ pub struct PhaseEntry {
     pub attempts: Vec<AttemptRecord>,
 }
 
+/// run 步节点史行线面（五词汇封闭集直出，词汇 = `state::RunStepKind` 单点；
+/// seq = emit 序稳定升序）。
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct ChangeRunStepRecord {
+    pub seq: u64,
+    pub phase: String,
+    pub attempt: u32,
+    pub step: RunStepKind,
+    pub status: RunStepStatus,
+    pub session_id: Option<String>,
+    pub detail: Option<String>,
+}
+
+/// 单次 run 运行史条目（全史不截；在飞 run 的 start 行已在库——status=
+/// running、steps 恒空，run 清单面运行中可见）。
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct ChangeRunEntry {
+    pub run_id: String,
+    pub status: RunStatus,
+    pub reason: Option<String>,
+    pub started_at: Option<String>,
+    pub finished_at: Option<String>,
+    pub steps: Vec<ChangeRunStepRecord>,
+}
+
+impl From<&RunStateRecord> for ChangeRunEntry {
+    fn from(record: &RunStateRecord) -> Self {
+        ChangeRunEntry {
+            run_id: record.run_id.clone(),
+            status: record.status,
+            reason: record.reason.clone(),
+            started_at: Some(iso_from_millis(record.started_at)),
+            finished_at: record.finished_at.map(iso_from_millis),
+            steps: Vec::new(),
+        }
+    }
+}
+
+impl From<&RunStepStateRecord> for ChangeRunStepRecord {
+    fn from(record: &RunStepStateRecord) -> Self {
+        ChangeRunStepRecord {
+            seq: record.seq,
+            phase: record.phase.clone(),
+            attempt: record.attempt,
+            step: record.step,
+            status: record.status,
+            session_id: record.session_id.clone(),
+            detail: record.detail.clone(),
+        }
+    }
+}
+
 /// change 详情聚合。`status` 为建档判别面：`Some` = db 已建档（完整状态面），
 /// `None` = 文档形态（db 缺记录的存量 CLI change，空流水线 + 产物清单）。
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
@@ -101,6 +161,9 @@ pub struct ChangeDetail {
     pub created: Option<String>,
     pub pipeline: Vec<PhaseEntry>,
     pub active_phase: Option<ActivePhase>,
+    /// run 运行史全量读面（unify-run-state-persistence：全史不截，runs 按
+    /// `started_at` 升序、steps 按 seq 升序；文档形态恒空数组）
+    pub runs: Vec<ChangeRunEntry>,
     pub artifacts: Vec<ArtifactDescriptor>,
     /// 本 change 的 worktree 绝对路径（自建档记录直读透出，None → null；
     /// legacy 记录不渲染——路径为刻意出线的执行锚，review / merge 可达）
@@ -137,6 +200,37 @@ pub fn change_detail(
         // 文档形态：零状态面（空流水线 + 产物清单）
         None => Vec::new(),
     };
+
+    // run 运行史全量读面（建档 change）：runs 按 started_at 升序（并列按
+    // run_id 稳定序）、steps 按 seq 升序（= emit 序）；读失败降级空 runs
+    //（与清单读面 unwrap_or_default 同哲学）。文档形态恒空。
+    let mut runs: Vec<ChangeRunEntry> = if record.is_some() {
+        store
+            .list_runs(name)
+            .unwrap_or_default()
+            .iter()
+            .map(ChangeRunEntry::from)
+            .collect()
+    } else {
+        Vec::new()
+    };
+    runs.sort_by(|a, b| {
+        // started_at 升序已在 store 面保证，此处并列序兜底（run_id 稳定序）
+        a.started_at
+            .cmp(&b.started_at)
+            .then_with(|| a.run_id.cmp(&b.run_id))
+    });
+    for run_entry in &mut runs {
+        let mut steps: Vec<ChangeRunStepRecord> = store
+            .list_run_steps(&run_entry.run_id)
+            .unwrap_or_default()
+            .iter()
+            .map(ChangeRunStepRecord::from)
+            .collect();
+        // seq 升序（= emit 序；库面空洞合法，稳定序即重放序）
+        steps.sort_by_key(|step| step.seq);
+        run_entry.steps = steps;
+    }
 
     // created：优先 db created_at，archive 回退目录名日期前缀
     let created = record
@@ -206,6 +300,7 @@ pub fn change_detail(
         created,
         pipeline,
         active_phase,
+        runs,
         artifacts,
         worktree,
     })

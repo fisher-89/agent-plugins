@@ -1,17 +1,18 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router';
 
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 
-import type { AgentEvent, ArtifactEnvelope, ChangeDetail } from '../../types/dto';
+import type { ActiveRunView, ArtifactEnvelope, ChangeDetail } from '../../types/dto';
+import type { RunNotice } from '../../types/generated/bindings';
 import { ArchivePanel } from './flow/archive-panel';
 import { mountMaterials } from './flow/attachments';
 import { ChangeFlowGraph } from './flow/change-flow-graph';
 import { DetailDrawer } from './flow/detail-drawer';
 import { buildFlowGraph } from './flow/graph';
 import { RunControlPanel } from './flow/run-control-panel';
-import { runStepNodes } from './flow/run-state';
+import { runStepNodes, unifiedRunSteps } from './flow/run-state';
 import type { DrawerSelection, FlowGraph, FlowMaterials } from './flow/types';
 import { useArchiveFlow, type UseArchiveFlowResult } from './hooks/use-archive-flow';
 import { useChangeDetail } from './hooks/use-change-detail';
@@ -181,34 +182,6 @@ function useRootSwitchSuppress(root: string | null, selected: string | null): st
   return resetPending ? null : selected;
 }
 
-/** run 视图副作用：终态触发一次显式 refresh（图回落 ChangeDetail 派生规则；
- * 状态迁移沿「非终局 → 终局」判定，重挂不重复触发）+ 实时事件展平（抽屉
- * 过滤输入面）。 */
-function useRunViewEffects(
-  run: ReturnType<typeof useChangeFlowRun>,
-  refresh: () => void,
-): Array<{ sessionId: string; event: AgentEvent }> {
-  const prevStatus = useRef<string | null>(null);
-  const status = run.state?.status ?? null;
-  useEffect(() => {
-    const wasTerminal = prevStatus.current !== null && isTerminalStatus(prevStatus.current);
-    prevStatus.current = status;
-    if (!wasTerminal && status !== null && isTerminalStatus(status)) {
-      refresh();
-    }
-  }, [status, refresh]);
-  return useMemo(() => {
-    if (run.state === null) return [];
-    return Object.entries(run.state.liveEvents).flatMap(([sessionId, events]) =>
-      events.map((event) => ({ sessionId, event })),
-    );
-  }, [run.state]);
-}
-
-function isTerminalStatus(status: string): boolean {
-  return status === 'completed' || status === 'stopped' || status === 'failed';
-}
-
 /** 流程图 + 产物区 + 抽屉（selection 联动态自持：图节点点击开抽屉，开关不出
  * 本组件——卸载即复位，与降级页分流语义一致）。 */
 function DetailContent({
@@ -217,14 +190,14 @@ function DetailContent({
   graph,
   materials,
   artifacts,
-  liveEvents,
+  transcriptRefreshKey,
 }: {
   detail: ChangeDetail;
   root: string | null;
   graph: FlowGraph;
   materials: FlowMaterials;
   artifacts: ArtifactEnvelope[];
-  liveEvents: Array<{ sessionId: string; event: AgentEvent }>;
+  transcriptRefreshKey: number;
 }): React.JSX.Element {
   const [selection, setSelection] = useState<DrawerSelection | null>(null);
   return (
@@ -237,7 +210,7 @@ function DetailContent({
         materials={materials}
         root={root}
         change={detail.name}
-        liveEvents={liveEvents}
+        transcriptRefreshKey={transcriptRefreshKey}
         onClose={() => setSelection(null)}
       />
     </>
@@ -246,40 +219,44 @@ function DetailContent({
 
 interface DetailLoadedProps {
   detail: ChangeDetail;
+  /** 在飞 run 活面（统一视图 activeRun） */
+  activeRun: ActiveRunView | null;
   root: string | null;
   selected: string | null;
   artifacts: ArtifactEnvelope[];
   run: ReturnType<typeof useChangeFlowRun>;
   archive: UseArchiveFlowResult;
-  liveEvents: Array<{ sessionId: string; event: AgentEvent }>;
   header: React.JSX.Element;
+  transcriptRefreshKey: number;
   archiveOpen: boolean;
   onArchiveClose: () => void;
 }
 
-/** 详情已载入形态 */
+/** 详情已载入形态（拼缝单源化：步节点 = runs[].steps ∪ activeRun.steps 同一
+ * 转换函数——图常驻渲染，回落分支退场）。 */
 function DetailLoaded({
   detail,
+  activeRun,
   root,
   selected,
   artifacts,
   run,
   archive,
-  liveEvents,
   header,
+  transcriptRefreshKey,
   archiveOpen,
   onArchiveClose,
 }: DetailLoadedProps): React.JSX.Element {
-  const runSteps = run.state?.steps;
   const runNodes = useMemo(
-    () => (runSteps === undefined ? [] : runStepNodes(runSteps)),
-    [runSteps],
+    () => runStepNodes(unifiedRunSteps(detail.runs, activeRun?.steps ?? [])),
+    [detail.runs, activeRun],
   );
   const graph = useMemo<FlowGraph>(() => buildFlowGraph(detail, runNodes), [detail, runNodes]);
   const materials = useMemo<FlowMaterials>(
     () => mountMaterials(graph, detail, artifacts),
     [detail, graph, artifacts],
   );
+  const lastRun = detail.runs.length > 0 ? detail.runs[detail.runs.length - 1] : null;
   return (
     <div>
       {header}
@@ -292,14 +269,16 @@ function DetailLoaded({
           onClose={onArchiveClose}
         />
       )}
-      {selected !== null && <RunControlPanel change={selected} run={run} />}
+      {selected !== null && (
+        <RunControlPanel change={selected} activeRun={activeRun} lastRun={lastRun} actions={run} />
+      )}
       <DetailContent
         detail={detail}
         root={root}
         graph={graph}
         materials={materials}
         artifacts={artifacts}
-        liveEvents={liveEvents}
+        transcriptRefreshKey={transcriptRefreshKey}
       />
     </div>
   );
@@ -308,18 +287,79 @@ function DetailLoaded({
 /**
  * change 详情视图
  */
-export function ChangeDetailView({ root }: { root: string | null }) {
-  const { name } = useParams<'name'>();
-  const selected = useRootSwitchSuppress(root, name ?? null);
-  const { detail, artifacts, loading, error, refresh } = useChangeDetail(root, selected);
-  const run = useChangeFlowRun({ root, change: selected });
+/** 显式返回清单（不用历史回退——既有语义）。 */
+function useBackToList(): () => void {
   const navigate = useNavigate();
-  const backToList = useCallback(() => navigate('/changes'), [navigate]); // 显式返回，不用 navigate(-1)
+  return useCallback(() => navigate('/changes'), [navigate]);
+}
 
+/** 详情页数据面（取数 + 通知分流 + run 控制 + 归档面）——视图组件薄装配
+ * （max-lines 纪律；通知分流单点：D8 kind 位）。 */
+function useDetailViewData(root: string | null, selected: string | null) {
+  const {
+    detail,
+    activeRun,
+    artifacts,
+    loading,
+    error,
+    refresh,
+    notifyRefresh,
+    notifyTranscript,
+    transcriptTick,
+  } = useChangeDetail(root, selected);
+  // 通知分流单点（D8 kind 位）：会话事件 → 转录重查（150ms 去抖），其余 →
+  // 统一视图重查（300ms 去抖）；通知仅失效信号、查询结果权威
+  const onNotice = useCallback(
+    (kind: RunNotice['ipc']) => {
+      if (kind === 'sessionEvent') {
+        notifyTranscript();
+      } else {
+        notifyRefresh();
+      }
+    },
+    [notifyTranscript, notifyRefresh],
+  );
+  const run = useChangeFlowRun({
+    root,
+    change: selected,
+    activeRunPresent: activeRun !== null,
+    onNotice,
+  });
   // 归档面：链终态 onFinish 一次显式 refresh（详情页回落已归档形态、按钮消失）
   const archive = useArchiveFlow({ root, change: selected, onFinish: refresh });
   const [archiveOpen, setArchiveOpen] = useState(false);
-  const liveEvents = useRunViewEffects(run, refresh);
+  return {
+    detail,
+    activeRun,
+    artifacts,
+    loading,
+    error,
+    refresh,
+    run,
+    archive,
+    transcriptTick,
+    archiveOpen,
+    setArchiveOpen,
+  };
+}
+
+export function ChangeDetailView({ root }: { root: string | null }) {
+  const { name } = useParams<'name'>();
+  const selected = useRootSwitchSuppress(root, name ?? null);
+  const {
+    detail,
+    activeRun,
+    artifacts,
+    loading,
+    error,
+    refresh,
+    run,
+    archive,
+    transcriptTick,
+    archiveOpen,
+    setArchiveOpen,
+  } = useDetailViewData(root, selected);
+  const backToList = useBackToList();
 
   if (error !== null) {
     return <DetailFallback message={`详情加载失败：${error}`} error onBack={backToList} />;
@@ -333,12 +373,12 @@ export function ChangeDetailView({ root }: { root: string | null }) {
   return (
     <DetailLoaded
       detail={detail}
+      activeRun={activeRun}
       root={root}
       selected={selected}
       artifacts={artifacts}
       run={run}
       archive={archive}
-      liveEvents={liveEvents}
       header={
         <DetailHeader
           detail={detail}
@@ -348,6 +388,7 @@ export function ChangeDetailView({ root }: { root: string | null }) {
           onArchive={() => setArchiveOpen(true)}
         />
       }
+      transcriptRefreshKey={transcriptTick}
       archiveOpen={archiveOpen}
       onArchiveClose={() => setArchiveOpen(false)}
     />

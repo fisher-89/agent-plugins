@@ -13,7 +13,8 @@ use super::decision_log::{decision_log, DecisionLogOutcome};
 use crate::model::Verdict;
 use crate::state::{
     BacktrackCommand, ChangeStateRecord, ChangeStateStore, PhaseLogCommand, PhaseStateRecord,
-    StepCommand, StepStateRecord, StoreFault,
+    RunFinishCommand, RunStartCommand, RunStateRecord, RunStepStateRecord, StepCommand,
+    StepStateRecord, StoreFault,
 };
 
 const CHANGE: &str = "demo-change";
@@ -135,6 +136,22 @@ impl ChangeStateStore for AmendStore {
     }
 
     fn append_step(&self, _command: &StepCommand) -> Result<(), StoreFault> {
+        unimplemented!("本用例不可达")
+    }
+
+    fn list_runs(&self, _change: &str) -> Result<Vec<RunStateRecord>, StoreFault> {
+        unimplemented!("本用例不可达")
+    }
+
+    fn list_run_steps(&self, _run_id: &str) -> Result<Vec<RunStepStateRecord>, StoreFault> {
+        unimplemented!("本用例不可达")
+    }
+
+    fn run_start(&self, _command: &RunStartCommand) -> Result<(), StoreFault> {
+        unimplemented!("本用例不可达")
+    }
+
+    fn run_finish(&self, _command: &RunFinishCommand) -> Result<(), StoreFault> {
         unimplemented!("本用例不可达")
     }
 }

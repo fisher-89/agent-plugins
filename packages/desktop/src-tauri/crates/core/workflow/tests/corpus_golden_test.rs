@@ -30,10 +30,15 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use foundation::layout::resolve;
+use orchestration::{
+    finish_command, ChangeRunStatus, ChangeStepKind, ChangeStepState, ChangeStepStatus, RunRequest,
+};
 use store::Store;
 use workflow::model::{ChecklistItem, Verdict};
 use workflow::queries::{change_detail, list_changes, ChangeDetail};
-use workflow::state::{BacktrackCommand, ChangeStateRecord, ChangeStatus, PhaseLogCommand};
+use workflow::state::{
+    BacktrackCommand, ChangeStateRecord, ChangeStatus, PhaseLogCommand, RunStartCommand, RunStatus,
+};
 use workflow::write::{
     archive, create, phase_next, ArchiveOutcome, CreateOutcome, InstallRun, RepoProbe,
     SessionAnchors, WorktreePort,
@@ -51,6 +56,8 @@ const CORPORA: &[&str] = &[
     "corpus-document-form",
     "corpus-list-mixed",
     "corpus-worktree",
+    "corpus-run-history",
+    "corpus-run-interrupted",
 ];
 
 fn manifest_dir() -> PathBuf {
@@ -187,6 +194,64 @@ impl Corpus {
         self.store
             .start_change_phase(name, phase, ts)
             .expect("开相失败");
+    }
+
+    /// run 发起落行（经 store run 域操作面——禁裸表插桩；started_at 固定，
+    /// golden 确定性）。
+    fn run_start(&self, name: &str, run_id: &str, started_at: i64) {
+        self.store
+            .start_change_run(&RunStartCommand {
+                run_id: run_id.to_owned(),
+                change: name.to_owned(),
+                started_at,
+            })
+            .expect("run 发起落行失败");
+    }
+
+    /// run 收口整包落库（经 store run 域操作面）：步序列经 orchestration
+    /// `finish_command` 组装——10 词汇全序列喂入、5 落库过滤单点同真实写
+    /// 路径（unify-run-state-persistence 语料纪律），seq = emit 序。
+    fn run_finish(
+        &self,
+        name: &str,
+        run_id: &str,
+        status: RunStatus,
+        reason: &str,
+        finished_at: i64,
+        steps: &[ChangeStepState],
+    ) {
+        let request = RunRequest {
+            root: self.root.to_string_lossy().into_owned(),
+            change: name.to_owned(),
+            run_id: run_id.to_owned(),
+            auto_next_phase: true,
+            started_at: finished_at,
+        };
+        let orchestration_status = match status {
+            RunStatus::Completed => ChangeRunStatus::Completed,
+            RunStatus::Stopped => ChangeRunStatus::Stopped,
+            RunStatus::Failed => ChangeRunStatus::Failed,
+            RunStatus::Running | RunStatus::Interrupted => {
+                panic!("语料收口仅产生终态三值（interrupted 仅标定产生）")
+            }
+        };
+        let command = finish_command(
+            &request,
+            orchestration_status,
+            Some(reason.to_owned()),
+            finished_at,
+            steps,
+        );
+        self.store
+            .finish_change_run(&command)
+            .expect("run 收口落包失败");
+    }
+
+    /// 启动标定（corpus / 测试构造中断样本直调——D12 `pub` 操作面）。
+    fn calibrate(&self, now: i64) {
+        self.store
+            .calibrate_interrupted_runs(now)
+            .expect("启动标定失败");
     }
 
     /// 回跳落库（stale 闭包随命令下发，与写面 backtrack 同构造）。
@@ -600,6 +665,139 @@ merge 前主仓两树未命中的产物形态。",
     corpus
 }
 
+/// run 运行史全史语料（unify-run-state-persistence）：两次 run 全史留存——
+/// run-1 五词汇步整包（sessionId / detail 有无两态；attempt 1）+ run-2 续走
+/// 推进（attempt 跨 run 递增 = 2、executor 单步无会话缺省落账）。流程面步骤
+/// 与三门经全词汇序列喂 `finish_command`（语料纪律：缺席断言留测试相位）。
+fn build_run_history() -> Corpus {
+    let corpus = Corpus::new("run-history");
+    corpus.seed_record("run-history");
+    // 前置：proposal 已 pass（run-2 续走锚点推进的事实源）
+    corpus.run_phase(
+        "run-history",
+        "proposal",
+        Verdict::Pass,
+        "提案通过",
+        Vec::new(),
+        None,
+        None,
+        t(1),
+    );
+    // run-1：dev-design attempt 1 五词汇全整包（三门 / 相位机步同序列喂入）
+    corpus.run_start("run-history", "run-1727000010000", t(10));
+    corpus.run_finish(
+        "run-history",
+        "run-1727000010000",
+        RunStatus::Completed,
+        "首轮 dev-design 未过（预算内 fail）",
+        t(19),
+        &[
+            step(
+                "implement",
+                1,
+                ChangeStepKind::Executor,
+                ChangeStepStatus::Passed,
+                Some("ses-impl-1"),
+                Some("实现完成"),
+            ),
+            step(
+                "implement",
+                1,
+                ChangeStepKind::StaticCheck,
+                ChangeStepStatus::Passed,
+                None,
+                None,
+            ),
+            step(
+                "implement",
+                1,
+                ChangeStepKind::Evaluator,
+                ChangeStepStatus::Failed,
+                Some("ses-eval-1"),
+                Some("首轮评估 fail"),
+            ),
+            step(
+                "implement",
+                1,
+                ChangeStepKind::Decision,
+                ChangeStepStatus::Passed,
+                Some("ses-decision-1"),
+                None,
+            ),
+            step(
+                "dev-design",
+                1,
+                ChangeStepKind::TestExecution,
+                ChangeStepStatus::Passed,
+                None,
+                Some("conclusion=pass total=3"),
+            ),
+        ],
+    );
+    // run-2：dev-design attempt 2（phase_start max+1 跨 run 递增）续走推进
+    corpus.run_phase(
+        "run-history",
+        "dev-design",
+        Verdict::Pass,
+        "第二轮通过",
+        vec![item("组件表完整", true, "五组件齐全")],
+        Some("ses-dd-exec-a2"),
+        Some("ses-dd-eval-a2"),
+        t(21),
+    );
+    corpus.run_start("run-history", "run-1727000020000", t(20));
+    corpus.run_finish(
+        "run-history",
+        "run-1727000020000",
+        RunStatus::Completed,
+        "All phases have passed evaluation. Ready for archiving.",
+        t(29),
+        &[step(
+            "dev-design",
+            2,
+            ChangeStepKind::Executor,
+            ChangeStepStatus::Passed,
+            Some("ses-dd-exec-a2"),
+            None,
+        )],
+    );
+    corpus
+}
+
+/// interrupted 标定语料（unify-run-state-persistence）：run 发起后中途死亡
+///（残留 running 行 + active_phase 悬挂）→ 启动标定翻 interrupted（记因附
+/// 中断语境）+ active_phase 清位（悬挂杀除）。
+fn build_run_interrupted() -> Corpus {
+    let corpus = Corpus::new("run-interrupted");
+    corpus.seed_record("run-interrupted");
+    corpus.run_start("run-interrupted", "run-1727000005000", t(5));
+    // 中途死亡形态：开相未落账（active_phase 悬挂在位）
+    corpus.open_only("run-interrupted", "implement", t(6));
+    // 重启装配：启动标定（open_workspace 内嵌同路径——直调操作面构造样本）
+    corpus.calibrate(t(9));
+    corpus
+}
+
+/// 全词汇步状态行 fixture（run 维度种子构造器的 ChangeStepState 组装面）。
+#[allow(clippy::too_many_arguments)]
+fn step(
+    phase: &str,
+    attempt: u32,
+    kind: ChangeStepKind,
+    status: ChangeStepStatus,
+    session_id: Option<&str>,
+    detail: Option<&str>,
+) -> ChangeStepState {
+    ChangeStepState {
+        phase: phase.to_owned(),
+        attempt,
+        step: kind,
+        status,
+        session_id: session_id.map(str::to_owned),
+        detail: detail.map(str::to_owned),
+    }
+}
+
 // ---------------------------------------------------------------------------
 // golden harness（沿既有 DESKTOP_GOLDEN_REWRITE 显式重写流程）
 // ---------------------------------------------------------------------------
@@ -735,6 +933,54 @@ fn corpusworktree建档语料_golden对拍() {
     check_or_rewrite("corpus-worktree", &projection);
 }
 
+/// run 运行史全史语料：两次 run 全史 → detail `runs` / `steps` 投影 golden
+///（全史不截、emit seq 稳定序、五词汇封闭集、时间戳 ISO 出线——AC-11 矩阵）；
+/// steps 投影恰五词汇封闭集缺席断言（RunStepKind 类型封闭使流程面词汇结构
+/// 不可表达——词汇集钉死随快照常驻，AC-3/AC-11 缺席断言）。
+#[test]
+fn corpusrun全史语料_golden对拍() {
+    let corpus = build_run_history();
+    let projection = project_detail(&corpus, "run-history");
+
+    // 缺席断言：runs[].steps[].step 全量限于五值封闭集（流程面步骤与三门零行
+    // ——run-1 种子含三门与相位机步喂入，落库面结构上收不到）
+    const CLOSED_SET: [&str; 5] = [
+        "executor",
+        "evaluator",
+        "decision",
+        "static_check",
+        "test_execution",
+    ];
+    let runs = projection["runs"].as_array().expect("runs 为数组");
+    assert_eq!(runs.len(), 2, "两 run 全史样本");
+    let mut steps_seen = 0usize;
+    for run in runs {
+        for step_row in run["steps"].as_array().expect("steps 为数组") {
+            let word = step_row["step"].as_str().expect("step 出线词");
+            assert!(
+                CLOSED_SET.contains(&word),
+                "落库步词汇 {word} 越封闭集（流程面 / 三门缺席断言被破坏）"
+            );
+            steps_seen += 1;
+        }
+    }
+    assert!(steps_seen >= 6, "五词汇样本步整包非空，实际: {steps_seen}");
+
+    check_or_rewrite("corpus-run-history", &projection);
+}
+
+/// interrupted 标定语料：残留 running + 悬挂 active_phase → 标定后 runs 投影
+/// golden（status=interrupted、记因附中断语境、finished_at 标定时刻、
+/// activePhase 清位 null——AC-4 / AC-5 矩阵半边）。
+#[test]
+fn corpusrun中断标定语料_golden对拍() {
+    let corpus = build_run_interrupted();
+    check_or_rewrite(
+        "corpus-run-interrupted",
+        &project_detail(&corpus, "run-interrupted"),
+    );
+}
+
 /// worktree 语料投影：detail 全读链 + 路径归一（tempdir 绝对路径前缀 →
 /// `<WORKTREE_ROOT>` 固定占位——golden 确定性；归一只作用 worktree 执行锚
 /// 字符串值，其余投影零改写）。
@@ -794,6 +1040,8 @@ fn corpusgolden重写后_diff范围键集断言() {
         "corpus-multi-attempt",
         "corpus-backtrack-stale",
         "corpus-slots-null",
+        "corpus-run-history",
+        "corpus-run-interrupted",
     ] {
         let text = fs::read_to_string(golden_dir().join(format!("{name}.json")))
             .unwrap_or_else(|err| panic!("golden {name}.json 应存在: {err}"));
@@ -819,13 +1067,23 @@ fn corpusgolden重写后_diff范围键集断言() {
             Some(&serde_json::Value::Null),
             "{name} legacy 建档样本 worktree 出线 null（D16 ①）"
         );
-        // 尝试序列键恒在场（AttemptRecord 形状不变）
+        assert!(
+            value.get("runs").is_some(),
+            "{name} runs 键恒在场（run 运行史读面——null 不省键）"
+        );
+        // 尝试序列键恒在场（AttemptRecord 形状不变；语料无落账条目时跳过——
+        // run-interrupted 仅建档 + run 残留，零 PhaseRecord）
         let first_attempt = &value["pipeline"][0]["attempts"][0];
-        for key in ["startAt", "timestamp", "executorSessionId"] {
-            assert!(
-                first_attempt.get(key).is_some(),
-                "{name} attempt 键 {key} 恒在场"
-            );
+        if !value["pipeline"][0]["attempts"]
+            .as_array()
+            .is_some_and(Vec::is_empty)
+        {
+            for key in ["startAt", "timestamp", "executorSessionId"] {
+                assert!(
+                    first_attempt.get(key).is_some(),
+                    "{name} attempt 键 {key} 恒在场"
+                );
+            }
         }
     }
 
@@ -1568,4 +1826,91 @@ fn 真件detail未找到与建档恒可达() {
     );
     assert!(detail.artifacts.is_empty(), "定位 miss 产物清单空");
     assert!(!detail.pipeline.is_empty(), "建档流水线 9 站全量输出");
+}
+
+/// run 写面真件回环（unify-run-state-persistence，test-design「write/run.rs ->
+/// run_test.rs」节真件半边交叉承载）：`workflow::write::run_start` /
+/// `run_finish` 经真实 workspace 库落库——running 行回读（status=running、
+/// finished_at=None、started_at 原值，AC-2 第一写）与三终态收口回读（终态 +
+/// reason + finished_at + 步整包，AC-1/AC-2 第二写）。
+#[test]
+fn 真件run写面回环_running行与三终态整包() {
+    let corpus = Corpus::new("run-write");
+    corpus.seed_record("run-write");
+    let store = &corpus.store;
+    let start = RunStartCommand {
+        run_id: "run-1727000030000".to_owned(),
+        change: "run-write".to_owned(),
+        started_at: t(30),
+    };
+    workflow::write::run_start(store, &start).expect("run_start 应成功");
+
+    let runs = store.list_change_runs("run-write").expect("list 应成功");
+    assert_eq!(runs.len(), 1, "恰一条 running 行");
+    assert_eq!(runs[0].run_id, "run-1727000030000");
+    assert_eq!(runs[0].status, RunStatus::Running, "running 行起步");
+    assert_eq!(runs[0].started_at, t(30), "started_at 原值（AC-2 第一写）");
+    assert_eq!(runs[0].finished_at, None);
+    assert_eq!(runs[0].reason, None);
+
+    // 三终态各自收口回读（终态 + reason + finished_at + 步整包同事务落库）
+    for (idx, status) in [
+        (0, RunStatus::Completed),
+        (1, RunStatus::Stopped),
+        (2, RunStatus::Failed),
+    ] {
+        let run_id = format!("run-1727000031{idx}00");
+        workflow::write::run_start(
+            store,
+            &RunStartCommand {
+                run_id: run_id.clone(),
+                change: "run-write".to_owned(),
+                started_at: t(31),
+            },
+        )
+        .expect("run_start 应成功");
+        let request = RunRequest {
+            root: corpus.root.to_string_lossy().into_owned(),
+            change: "run-write".to_owned(),
+            run_id: run_id.clone(),
+            auto_next_phase: true,
+            started_at: t(31),
+        };
+        let orchestration_status = match status {
+            RunStatus::Completed => ChangeRunStatus::Completed,
+            RunStatus::Stopped => ChangeRunStatus::Stopped,
+            _ => ChangeRunStatus::Failed,
+        };
+        let command = finish_command(
+            &request,
+            orchestration_status,
+            Some("真件收口记因".to_owned()),
+            t(39),
+            &[ChangeStepState {
+                phase: "proposal".to_owned(),
+                attempt: 1,
+                step: ChangeStepKind::Executor,
+                status: ChangeStepStatus::Passed,
+                session_id: Some("ses-run-write".to_owned()),
+                detail: None,
+            }],
+        );
+        workflow::write::run_finish(store, &command)
+            .unwrap_or_else(|e| panic!("{status:?} 收口应成功: {e}"));
+
+        let runs = store.list_change_runs("run-write").expect("list 应成功");
+        let row = runs
+            .iter()
+            .find(|row| row.run_id == run_id)
+            .unwrap_or_else(|| panic!("run {run_id} 行应在场"));
+        assert_eq!(row.status, status, "终态逐值落库");
+        assert_eq!(row.reason.as_deref(), Some("真件收口记因"));
+        assert_eq!(row.finished_at, Some(t(39)));
+        let steps = store.list_run_steps(&run_id).expect("步读应成功");
+        assert_eq!(steps.len(), 1, "步整包随收口落库");
+        assert_eq!(steps[0].step, workflow::state::RunStepKind::Executor);
+        assert_eq!(steps[0].status, workflow::state::RunStepStatus::Passed);
+        assert_eq!(steps[0].session_id.as_deref(), Some("ses-run-write"));
+        assert_eq!(steps[0].timestamp, t(39), "整包同刻 = finished_at");
+    }
 }

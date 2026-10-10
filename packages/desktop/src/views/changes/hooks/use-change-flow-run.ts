@@ -1,22 +1,16 @@
 /**
- * run 控制 hook：invoke 六命令 + Channel 订阅生命周期（发起 / 重挂订阅、
- * 收口释放）+ `change_flow_state` 快照恢复。状态归并经 run-state.ts 纯
- * reducer（本 hook 零归并逻辑，只管 invoke 与订阅生命周期）。Channel 惰性
- * 构造（确有订阅需求才建——无运行 run 的常态路径零 Channel）。
+ * run 控制 hook（unify-run-state-persistence 两钩并一后的缩位形态）：职责 =
+ * 控制动作（start / stop / confirm / answer，invoke 面零改动）+ 通知订阅生
+ * 命周期。组件态退化为查询缓存 + 失效重取——`applyRunUpdate` 状态机镜像 /
+ * `seedRunState` / `initialRunState` / `changeFlowState` 快照恢复随通知降位
+ * 解散（重挂恢复归统一查询 activeRun 面，D4）。
  */
 import { Channel } from '@tauri-apps/api/core';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
-import { commands, type RunUpdate } from '../../../types/generated/bindings';
-import {
-  applyRunUpdate,
-  initialRunState,
-  seedRunState,
-  type ChangeFlowRunState,
-} from '../flow/run-state';
+import { commands, type RunNotice } from '../../../types/generated/bindings';
 
 export interface UseChangeFlowRunResult {
-  state: ChangeFlowRunState | null;
   start: (autoNextPhase: boolean) => Promise<void>;
   stop: () => Promise<void>;
   confirm: (proceed: boolean) => Promise<void>;
@@ -25,20 +19,51 @@ export interface UseChangeFlowRunResult {
 }
 
 /**
- * run 控制入口：`root` / `change` 就绪时先查快照（重挂恢复运行中 run 的
- * 状态机镜像 + 补订实时流）；发起后订阅至终态收口（图回落由页面在终态时
- * 触发显式 refresh 承接）。
+ * run 控制入口：`activeRunPresent`（统一查询 activeRun 在场，即非终态运行
+ * 期）为真才 `changeFlowWatch` 补订实时通知（Channel<RunNotice> kind-only，
+ * onmessage 分流回调——sessionEvent → 转录重查，其余 → 统一视图重查）；发起
+ * 动作先行订阅（Channel 此刻构造）再 `changeFlowStart`；卸载弃投递。终态后
+ * 通道自然断开（注册表除名，broadcast 发送端随条目移除失效）。
  */
 export function useChangeFlowRun(params: {
   root: string | null;
   change: string | null;
+  activeRunPresent: boolean;
+  onNotice: (kind: RunNotice['ipc']) => void;
 }): UseChangeFlowRunResult {
-  const { root, change } = params;
-  const [state, setState] = useState<ChangeFlowRunState | null>(null);
-  const channelRef = useRef<Channel<RunUpdate> | null>(null);
-  const { start, stop, confirm, answer, error } = useRunActions(root, change, channelRef, setState);
-  useRunRecovery(root, change, channelRef, setState);
-  return { state, start, stop, confirm, answer, error };
+  const { root, change, activeRunPresent, onNotice } = params;
+  const channelRef = useRef<Channel<RunNotice> | null>(null);
+  const noticeRef = useRef(onNotice);
+  noticeRef.current = onNotice;
+
+  const ensureChannel = useCallback((): Channel<RunNotice> => {
+    const existing = channelRef.current;
+    if (existing !== null) return existing;
+    const channel = new Channel<RunNotice>();
+    // 分流回调单点：发起直连与重挂补订共用（sessionEvent → 转录重查，其余
+    // → 统一视图重查；分流面归调用方 onNotice）
+    channel.onmessage = (notice) => noticeRef.current(notice.ipc);
+    channelRef.current = channel;
+    return channel;
+  }, []);
+
+  // 订阅生命周期：activeRun 在场才补订（重挂恢复 = 统一查询先行、本订阅只
+  // 管通知面）；卸载 / 参数变化弃投递。
+  useEffect(() => {
+    if (root === null || change === null || !activeRunPresent) {
+      return;
+    }
+    const channel = ensureChannel();
+    void commands.changeFlowWatch(channel, root, change).catch(() => {
+      // 补订失败不阻断页面（下一通知或显式刷新兜底——R7 语义既定）
+    });
+    return () => {
+      channelRef.current = null;
+    };
+  }, [root, change, activeRunPresent, ensureChannel]);
+
+  const { start, stop, confirm, answer, error } = useRunActions(root, change, ensureChannel);
+  return { start, stop, confirm, answer, error };
 }
 
 /** 错误字符串归一（invoke reject 面为 string）。 */
@@ -46,35 +71,13 @@ function readError(cause: unknown): string {
   return typeof cause === 'string' ? cause : String(cause);
 }
 
-/** 订阅 Channel 惰性构造（挂 onmessage 转发；复用既有 channel 不重挂）。 */
-function ensureChannel(
-  channelRef: React.RefObject<Channel<RunUpdate> | null>,
-  onUpdate: (update: RunUpdate) => void,
-): Channel<RunUpdate> {
-  const existing = channelRef.current;
-  if (existing !== null) return existing;
-  const channel = new Channel<RunUpdate>();
-  channel.onmessage = onUpdate;
-  channelRef.current = channel;
-  return channel;
-}
-
-/** 六命令动作面返回型（`useRunActions` 专用，随 `UseChangeFlowRunResult` 对齐）。 */
-interface RunActionsFace {
-  start: (autoNextPhase: boolean) => Promise<void>;
-  stop: () => Promise<void>;
-  confirm: (proceed: boolean) => Promise<void>;
-  answer: (text: string) => Promise<void>;
-  error: string | null;
-}
-
-/** 六命令动作面：参数就绪检查 + 错误统一落 error 态（发起先行清错）。 */
+/** 四命令动作面：参数就绪检查 + 错误统一落 error 态（发起先行清错、先行订
+ * 阅再 invoke——提前 resolve 后通知即刻有落点）。 */
 function useRunActions(
   root: string | null,
   change: string | null,
-  channelRef: React.RefObject<Channel<RunUpdate> | null>,
-  setState: React.Dispatch<React.SetStateAction<ChangeFlowRunState | null>>,
-): RunActionsFace {
+  ensureChannel: () => Channel<RunNotice>,
+): UseChangeFlowRunResult {
   const [error, setError] = useState<string | null>(null);
   const run = useCallback(async (invoke: () => Promise<unknown>): Promise<void> => {
     try {
@@ -87,15 +90,10 @@ function useRunActions(
     (autoNextPhase: boolean) => {
       if (root === null || change === null) return Promise.resolve();
       setError(null);
-      const channel = ensureChannel(channelRef, (update) => {
-        setState((current) => applyRunUpdate(current, update));
-      });
-      return run(async () => {
-        const summary = await commands.changeFlowStart(channel, root, change, autoNextPhase);
-        setState(seedRunState(summary));
-      });
+      const channel = ensureChannel();
+      return run(() => commands.changeFlowStart(channel, root, change, autoNextPhase));
     },
-    [root, change, channelRef, run, setState],
+    [root, change, ensureChannel, run],
   );
   const stop = useCallback(() => {
     if (root === null || change === null) return Promise.resolve();
@@ -116,47 +114,4 @@ function useRunActions(
     [root, change, run],
   );
   return { start, stop, confirm, answer, error };
-}
-
-/** 重挂恢复：快照初值 + 运行中 run 的 broadcast 补订（组件卸载弃投递）。 */
-function useRunRecovery(
-  root: string | null,
-  change: string | null,
-  channelRef: React.RefObject<Channel<RunUpdate> | null>,
-  setState: React.Dispatch<React.SetStateAction<ChangeFlowRunState | null>>,
-): void {
-  useEffect(() => {
-    if (root === null || change === null) {
-      setState(null);
-      return;
-    }
-    let disposed = false;
-    // Promise.resolve 包一道：invoke 桩返回非 promise（缺省 mock）时同样走降级
-    void Promise.resolve(commands.changeFlowState(root, change))
-      .then((raw) => {
-        if (disposed) return;
-        const snapshot = raw === null || raw === undefined ? null : raw;
-        setState(initialRunState(snapshot));
-        // 仅运行中 run 需要实时流：Channel 此刻才构造（终局 / 无 run 零订阅）
-        if (snapshot !== null && !isTerminalStatus(snapshot.status)) {
-          const channel = ensureChannel(channelRef, (update) => {
-            setState((current) => applyRunUpdate(current, update));
-          });
-          return commands.changeFlowWatch(channel, root, change);
-        }
-        return undefined;
-      })
-      .catch(() => {
-        // 快照查询失败不阻断页面（空态降级）；前置错误在发起时由命令面重报
-        if (!disposed) setState(null);
-      });
-    return () => {
-      disposed = true;
-      channelRef.current = null;
-    };
-  }, [root, change, channelRef, setState]);
-}
-
-function isTerminalStatus(status: ChangeFlowRunState['status']): boolean {
-  return status === 'completed' || status === 'stopped' || status === 'failed';
 }

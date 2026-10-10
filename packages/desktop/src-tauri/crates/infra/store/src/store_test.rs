@@ -4522,3 +4522,745 @@ fn 存量v1行库additive打开_读出升级两字段none() {
     assert_eq!(records[0].base_commit, None);
     assert_eq!(records[0].name, "v1-legacy-change");
 }
+
+// ---------------------------------------------------------------------------
+// run 域操作面 + 启动标定（unify-run-state-persistence）：每 run 两写 / 整包
+// 原子回滚 / 悬挂杀除 / 幂等标定 / open_workspace 挂点——tempfile 真件库真实
+// 事务，「中途死亡」以构造残留（start 后不 finish）承载，零 mock
+// ---------------------------------------------------------------------------
+
+use workflow::state::{
+    RunFinishCommand, RunStartCommand, RunStatus, RunStepEntry, RunStepKind, RunStepStateRecord,
+    RunStepStatus,
+};
+
+/// run 发起命令 fixture（确定性时间戳显式注入）。
+fn run_start_cmd(run_id: &str, change: &str, started_at: i64) -> RunStartCommand {
+    RunStartCommand {
+        run_id: run_id.to_owned(),
+        change: change.to_owned(),
+        started_at,
+    }
+}
+
+/// run 收口整包条目 fixture。
+fn run_step_entry(seq: u64, phase: &str, step: RunStepKind, status: RunStepStatus) -> RunStepEntry {
+    RunStepEntry {
+        seq,
+        phase: phase.to_owned(),
+        attempt: 1,
+        step,
+        status,
+        session_id: None,
+        detail: None,
+    }
+}
+
+/// run 收口命令 fixture（步整包显式注入）。
+fn run_finish_cmd(
+    run_id: &str,
+    change: &str,
+    status: RunStatus,
+    reason: Option<&str>,
+    finished_at: i64,
+    steps: Vec<RunStepEntry>,
+) -> RunFinishCommand {
+    RunFinishCommand {
+        run_id: run_id.to_owned(),
+        change: change.to_owned(),
+        status,
+        reason: reason.map(str::to_owned),
+        finished_at,
+        steps,
+    }
+}
+
+/// start_change_run 建 running 行回读一致（AC-1/AC-2 第一写）：status=running、
+/// finished_at=None、started_at 命令携带原值（零钟面——corpus 确定性口径）。
+#[test]
+fn start_change_run建running行回读一致() {
+    let env = Env::new("run-start");
+    let store = open_workspace_ok(&env.db_path("ws"));
+    create_change_ok(&store, "flow-run", 1000);
+
+    store
+        .start_change_run(&run_start_cmd("run-100", "flow-run", 2000))
+        .expect("start_change_run 应成功");
+
+    let runs = store.list_change_runs("flow-run").expect("list 应成功");
+    assert_eq!(runs.len(), 1);
+    assert_eq!(runs[0].run_id, "run-100");
+    assert_eq!(runs[0].change, "flow-run");
+    assert_eq!(runs[0].status, RunStatus::Running, "running 行起步");
+    assert_eq!(runs[0].started_at, 2000, "started_at 原值（命令携带）");
+    assert_eq!(runs[0].finished_at, None);
+    assert_eq!(runs[0].reason, None);
+}
+
+/// 同 run_id 二次 start_change_run → Conflict（AC-1 主键唯一防线）。
+#[test]
+fn start_change_run同run_id冲突() {
+    let env = Env::new("run-start-conflict");
+    let store = open_workspace_ok(&env.db_path("ws"));
+    create_change_ok(&store, "flow-run", 1000);
+    store
+        .start_change_run(&run_start_cmd("run-100", "flow-run", 2000))
+        .expect("首次发起应成功");
+
+    let err = store
+        .start_change_run(&run_start_cmd("run-100", "flow-run", 3000))
+        .expect_err("同 run_id 二次发起应 Err");
+    assert!(
+        matches!(err, StoreError::Conflict(_)),
+        "Conflict 变体: {err:?}"
+    );
+    let runs = store.list_change_runs("flow-run").expect("list 应成功");
+    assert_eq!(runs.len(), 1, "冲突零新增行");
+    assert_eq!(runs[0].started_at, 2000, "原行不被改写");
+}
+
+/// finish_change_run 单事务整包（AC-1/AC-2/AC-10）：多步（五词汇混合、
+/// session_id / detail 两态）一次落、seq 保序、步 timestamp 全包等于
+/// finished_at 同刻。
+#[test]
+fn finish_change_run单事务整包_seq保序且整包同刻() {
+    let env = Env::new("run-finish");
+    let store = open_workspace_ok(&env.db_path("ws"));
+    create_change_ok(&store, "flow-run", 1000);
+    store
+        .start_change_run(&run_start_cmd("run-100", "flow-run", 2000))
+        .expect("发起应成功");
+
+    let steps = vec![
+        run_step_entry(0, "implement", RunStepKind::Executor, RunStepStatus::Passed),
+        run_step_entry(
+            2,
+            "implement",
+            RunStepKind::StaticCheck,
+            RunStepStatus::Passed,
+        ),
+        run_step_entry(
+            3,
+            "implement",
+            RunStepKind::Evaluator,
+            RunStepStatus::Failed,
+        ),
+        run_step_entry(6, "implement", RunStepKind::Decision, RunStepStatus::Passed),
+        run_step_entry(
+            9,
+            "test-execution",
+            RunStepKind::TestExecution,
+            RunStepStatus::Passed,
+        ),
+    ];
+    let mut with_sessions = steps;
+    with_sessions[0].session_id = Some("ses-exec-1".to_owned());
+    with_sessions[0].detail = Some("实现完成".to_owned());
+    with_sessions[4].session_id = None;
+    with_sessions[4].detail = None;
+    store
+        .finish_change_run(&run_finish_cmd(
+            "run-100",
+            "flow-run",
+            RunStatus::Completed,
+            Some("All phases have passed."),
+            9000,
+            with_sessions,
+        ))
+        .expect("收口应成功");
+
+    let runs = store.list_change_runs("flow-run").expect("list 应成功");
+    assert_eq!(runs[0].status, RunStatus::Completed);
+    assert_eq!(runs[0].reason.as_deref(), Some("All phases have passed."));
+    assert_eq!(runs[0].finished_at, Some(9000));
+
+    let rows: Vec<RunStepStateRecord> = store.list_run_steps("run-100").expect("步读应成功");
+    assert_eq!(rows.len(), 5, "步整包恰五行（五词汇混合）");
+    let seqs: Vec<u64> = rows.iter().map(|row| row.seq).collect();
+    assert_eq!(seqs, vec![0, 2, 3, 6, 9], "seq 保序（空洞合法）");
+    for row in &rows {
+        assert_eq!(
+            row.timestamp, 9000,
+            "整包同刻 = finished_at（corpus 确定性）"
+        );
+    }
+    assert_eq!(rows[0].session_id.as_deref(), Some("ses-exec-1"));
+    assert_eq!(rows[0].detail.as_deref(), Some("实现完成"));
+    assert_eq!(rows[4].session_id, None, "两态透传（工具步 None）");
+    // run_id 二级索引圈定
+    assert!(rows.iter().all(|row| row.run_id == "run-100"));
+}
+
+/// finish 同事务 active_phase 清位（D1 悬挂杀除库面，AC-5）：预置
+/// active_phase=Some 的 change 收口后读回 None。
+#[test]
+fn finish_change_run同事务active_phase清位() {
+    let env = Env::new("run-finish-phase");
+    let store = open_workspace_ok(&env.db_path("ws"));
+    create_change_ok(&store, "flow-run", 1000);
+    start_phase_ok(&store, "flow-run", "implement", 1500); // active_phase=Some
+    store
+        .start_change_run(&run_start_cmd("run-100", "flow-run", 2000))
+        .expect("发起应成功");
+
+    store
+        .finish_change_run(&run_finish_cmd(
+            "run-100",
+            "flow-run",
+            RunStatus::Stopped,
+            Some("用户停止"),
+            3000,
+            Vec::new(),
+        ))
+        .expect("收口应成功");
+
+    let record = store
+        .find_change_record("flow-run")
+        .expect("读档应成功")
+        .expect("建档在场");
+    assert!(
+        record.active_phase.is_none(),
+        "收口事务清位 active_phase（悬挂杀除）"
+    );
+}
+
+/// 多 run 全史（AC-9/AC-11 样本语义）：同 change 两 run 先后 start/finish →
+/// list_change_runs 两行全史不截；同相位 attempt 跨 run max+1 递增不撞号。
+#[test]
+fn 多run全史_两行不截且attempt跨run递增() {
+    let env = Env::new("run-history-multi");
+    let store = open_workspace_ok(&env.db_path("ws"));
+    create_change_ok(&store, "flow-run", 1000);
+
+    // run-1：相位 attempt 1 种子（pass 条目——attempt max+1 推导基）+ 发起 + 收口
+    seed_phase_pass(&store, "flow-run", "dev-design", 1500, 1600, &[]);
+    store
+        .start_change_run(&run_start_cmd("run-1", "flow-run", 2000))
+        .expect("发起应成功");
+    store
+        .finish_change_run(&run_finish_cmd(
+            "run-1",
+            "flow-run",
+            RunStatus::Failed,
+            Some("首轮未过"),
+            3000,
+            vec![run_step_entry(
+                0,
+                "dev-design",
+                RunStepKind::Executor,
+                RunStepStatus::Passed,
+            )],
+        ))
+        .expect("收口应成功");
+    // 相位 attempt 跨 run 递增：run-2 步携带 attempt 2（phase_start max+1）
+    let started = start_phase_ok(&store, "flow-run", "dev-design", 3500);
+    assert_eq!(started.attempt, 2, "attempt 跨 run max+1 递增不撞号");
+    store
+        .start_change_run(&run_start_cmd("run-2", "flow-run", 4000))
+        .expect("发起应成功");
+    let mut step2 = run_step_entry(
+        0,
+        "dev-design",
+        RunStepKind::Evaluator,
+        RunStepStatus::Passed,
+    );
+    step2.attempt = started.attempt;
+    store
+        .finish_change_run(&run_finish_cmd(
+            "run-2",
+            "flow-run",
+            RunStatus::Completed,
+            None,
+            5000,
+            vec![step2],
+        ))
+        .expect("收口应成功");
+
+    let runs = store.list_change_runs("flow-run").expect("list 应成功");
+    assert_eq!(runs.len(), 2, "全史不截");
+    assert_eq!(
+        runs.iter()
+            .map(|row| row.run_id.as_str())
+            .collect::<Vec<_>>(),
+        vec!["run-1", "run-2"],
+        "started_at 升序"
+    );
+    assert_eq!(runs[0].status, RunStatus::Failed);
+    assert_eq!(runs[1].status, RunStatus::Completed);
+    let steps = store.list_run_steps("run-2").expect("步读应成功");
+    assert_eq!(steps[0].attempt, 2, "run-2 步携带跨 run 递增 attempt");
+}
+
+/// finish 目标 run 不在案 → NotFound；run 已终态再 finish → Conflict（非
+/// running 不可再收口）。
+#[test]
+fn finish_change_run不在案notfound与已终态conflict() {
+    let env = Env::new("run-finish-err");
+    let store = open_workspace_ok(&env.db_path("ws"));
+    create_change_ok(&store, "flow-run", 1000);
+
+    // 不在案 → NotFound
+    let err = store
+        .finish_change_run(&run_finish_cmd(
+            "run-ghost",
+            "flow-run",
+            RunStatus::Completed,
+            None,
+            3000,
+            Vec::new(),
+        ))
+        .expect_err("不在案收口应 Err");
+    assert!(
+        matches!(err, StoreError::NotFound(_)),
+        "NotFound 变体: {err:?}"
+    );
+
+    // 已终态再 finish → Conflict
+    store
+        .start_change_run(&run_start_cmd("run-100", "flow-run", 2000))
+        .expect("发起应成功");
+    store
+        .finish_change_run(&run_finish_cmd(
+            "run-100",
+            "flow-run",
+            RunStatus::Completed,
+            None,
+            3000,
+            Vec::new(),
+        ))
+        .expect("首次收口应成功");
+    let err = store
+        .finish_change_run(&run_finish_cmd(
+            "run-100",
+            "flow-run",
+            RunStatus::Stopped,
+            None,
+            4000,
+            Vec::new(),
+        ))
+        .expect_err("已终态再收口应 Err");
+    assert!(
+        matches!(err, StoreError::Conflict(_)),
+        "Conflict 变体: {err:?}"
+    );
+    // 非终态三值（running / interrupted）→ Conflict
+    for (idx, status) in [RunStatus::Running, RunStatus::Interrupted]
+        .iter()
+        .enumerate()
+    {
+        let run_id = format!("run-2{idx}");
+        store
+            .start_change_run(&run_start_cmd(&run_id, "flow-run", 2000))
+            .expect("发起应成功");
+        let err = store
+            .finish_change_run(&run_finish_cmd(
+                &run_id,
+                "flow-run",
+                *status,
+                None,
+                3000,
+                Vec::new(),
+            ))
+            .expect_err("非终态三值收口应 Err");
+        assert!(
+            matches!(err, StoreError::Conflict(_)),
+            "{status:?} 拒绝: {err:?}"
+        );
+        store
+            .finish_change_run(&run_finish_cmd(
+                &run_id,
+                "flow-run",
+                RunStatus::Failed,
+                None,
+                3000,
+                Vec::new(),
+            ))
+            .expect("清场收口应成功");
+    }
+}
+
+/// 步整包撞键注入（AC-2 整包原子回滚）：finish 命令 steps 内两条同 seq（打
+/// 包主键冲突）→ 整事务回滚——run 行仍 running、RunStepRecord 零行、
+/// active_phase 原值保留。
+#[test]
+fn finish_change_run撞键整包事务回滚_零残留() {
+    let env = Env::new("run-finish-rollback");
+    let store = open_workspace_ok(&env.db_path("ws"));
+    create_change_ok(&store, "flow-run", 1000);
+    start_phase_ok(&store, "flow-run", "implement", 1500); // active_phase=Some
+    store
+        .start_change_run(&run_start_cmd("run-100", "flow-run", 2000))
+        .expect("发起应成功");
+
+    // 两条同 seq（打包主键冲突）注入
+    let steps = vec![
+        run_step_entry(0, "implement", RunStepKind::Executor, RunStepStatus::Passed),
+        run_step_entry(
+            0,
+            "implement",
+            RunStepKind::Evaluator,
+            RunStepStatus::Passed,
+        ),
+    ];
+    let err = store
+        .finish_change_run(&run_finish_cmd(
+            "run-100",
+            "flow-run",
+            RunStatus::Completed,
+            None,
+            3000,
+            steps,
+        ))
+        .expect_err("撞键整包应 Err");
+    assert!(
+        matches!(err, StoreError::Db(_)),
+        "native_db Duplicate key 归 Db 变体: {err:?}"
+    );
+
+    // 整事务回滚三面
+    let runs = store.list_change_runs("flow-run").expect("list 应成功");
+    assert_eq!(runs[0].status, RunStatus::Running, "run 行仍 running");
+    assert_eq!(runs[0].finished_at, None);
+    assert_eq!(runs[0].reason, None);
+    assert!(
+        store
+            .list_run_steps("run-100")
+            .expect("步读应成功")
+            .is_empty(),
+        "RunStepRecord 零行（整包回滚）"
+    );
+    let record = store
+        .find_change_record("flow-run")
+        .expect("读档应成功")
+        .expect("建档在场");
+    assert!(
+        record.active_phase.is_some(),
+        "active_phase 原值保留（回滚不误清位）"
+    );
+
+    // 回滚后可正常收口（状态面未损）
+    store
+        .finish_change_run(&run_finish_cmd(
+            "run-100",
+            "flow-run",
+            RunStatus::Completed,
+            None,
+            4000,
+            vec![run_step_entry(
+                0,
+                "implement",
+                RunStepKind::Executor,
+                RunStepStatus::Passed,
+            )],
+        ))
+        .expect("回滚后收口应成功");
+}
+
+/// 启动标定（AC-4/AC-5）：残留 running 行 + 该 change active_phase=Some →
+/// calibrate 后行翻 interrupted（finished_at=标定时刻、reason 含「重启标定」
+/// 与「中断于 phase X attempt N」语境）+ active_phase 清位。
+#[test]
+fn calibrate_interrupted_runs残留翻interrupted_附相位语境() {
+    let env = Env::new("run-calibrate");
+    let store = open_workspace_ok(&env.db_path("ws"));
+    create_change_ok(&store, "flow-run", 1000);
+    start_phase_ok(&store, "flow-run", "implement", 1500); // attempt 1
+    store
+        .start_change_run(&run_start_cmd("run-100", "flow-run", 2000))
+        .expect("发起应成功");
+
+    let calibrated = store.calibrate_interrupted_runs(9000).expect("标定应成功");
+    assert_eq!(
+        calibrated,
+        vec!["run-100".to_owned()],
+        "返回被标定 run_id 清单"
+    );
+
+    let runs = store.list_change_runs("flow-run").expect("list 应成功");
+    assert_eq!(runs[0].status, RunStatus::Interrupted, "残留翻 interrupted");
+    assert_eq!(runs[0].finished_at, Some(9000), "finished_at = 标定时刻");
+    let reason = runs[0].reason.as_deref().expect("标定记因在位");
+    assert!(reason.contains("重启标定"), "标定记因定式: {reason}");
+    assert!(
+        reason.contains("中断于 phase implement attempt 1"),
+        "附残留 active_phase 中断语境: {reason}"
+    );
+    let record = store
+        .find_change_record("flow-run")
+        .expect("读档应成功")
+        .expect("建档在场");
+    assert!(record.active_phase.is_none(), "标定清位 active_phase");
+}
+
+/// 启动标定两态记因：残留 running 但 active_phase=None → reason 不附相位语
+/// 境（标定记因定式两态）。
+#[test]
+fn calibrate_interrupted_runs无悬挂phase_记因不带相位语境() {
+    let env = Env::new("run-calibrate-bare");
+    let store = open_workspace_ok(&env.db_path("ws"));
+    create_change_ok(&store, "flow-run", 1000);
+    store
+        .start_change_run(&run_start_cmd("run-100", "flow-run", 2000))
+        .expect("发起应成功");
+
+    store.calibrate_interrupted_runs(9000).expect("标定应成功");
+
+    let runs = store.list_change_runs("flow-run").expect("list 应成功");
+    let reason = runs[0].reason.as_deref().expect("标定记因在位");
+    assert!(reason.contains("重启标定"));
+    assert!(
+        !reason.contains("中断于 phase"),
+        "无悬挂 phase 记因不带相位语境: {reason}"
+    );
+}
+
+/// 启动标定幂等（AC-4）：连续两次 calibrate 第二次零变化（无 running 残留
+/// 可标、active_phase 已清）。
+#[test]
+fn calibrate_interrupted_runs幂等_第二次零变化() {
+    let env = Env::new("run-calibrate-idempotent");
+    let store = open_workspace_ok(&env.db_path("ws"));
+    create_change_ok(&store, "flow-run", 1000);
+    start_phase_ok(&store, "flow-run", "implement", 1500);
+    store
+        .start_change_run(&run_start_cmd("run-100", "flow-run", 2000))
+        .expect("发起应成功");
+
+    let first = store
+        .calibrate_interrupted_runs(9000)
+        .expect("首次标定应成功");
+    assert_eq!(first, vec!["run-100".to_owned()]);
+    let second = store
+        .calibrate_interrupted_runs(9500)
+        .expect("二次标定应成功");
+    assert!(second.is_empty(), "二次标定零变化");
+
+    let runs = store.list_change_runs("flow-run").expect("list 应成功");
+    assert_eq!(runs[0].finished_at, Some(9000), "首次标定时刻不被改写");
+    assert_eq!(runs[0].status, RunStatus::Interrupted);
+}
+
+/// 启动标定零残留（零写事务的可观测面）：零残留库 calibrate → 零副作用
+///（既有记录全部字段含时间戳原值不变）。
+#[test]
+fn calibrate_interrupted_runs零残留零副作用() {
+    let env = Env::new("run-calibrate-clean");
+    let store = open_workspace_ok(&env.db_path("ws"));
+    create_change_ok(&store, "flow-run", 1000);
+    start_phase_ok(&store, "flow-run", "implement", 1500);
+    store
+        .log_change_phase(&log_command(
+            "flow-run",
+            "implement",
+            Verdict::Pass,
+            Vec::new(),
+            Some(1500),
+            1600,
+        ))
+        .expect("落账种子应成功");
+    store
+        .start_change_run(&run_start_cmd("run-100", "flow-run", 2000))
+        .expect("发起应成功");
+    store
+        .finish_change_run(&run_finish_cmd(
+            "run-100",
+            "flow-run",
+            RunStatus::Completed,
+            None,
+            3000,
+            Vec::new(),
+        ))
+        .expect("收口种子应成功");
+
+    let calibrated = store.calibrate_interrupted_runs(9000).expect("标定应成功");
+    assert!(calibrated.is_empty(), "零残留零标定");
+
+    // 既有记录全字段原值不变（含时间戳）
+    let runs = store.list_change_runs("flow-run").expect("list 应成功");
+    assert_eq!(runs[0].started_at, 2000);
+    assert_eq!(runs[0].finished_at, Some(3000), "终态行零改写");
+    assert_eq!(runs[0].status, RunStatus::Completed);
+    let phases = store.list_phase_records("flow-run").expect("读应成功");
+    assert_eq!(phases[0].timestamp, 1600, "相位条目零改写");
+}
+
+/// open_workspace 内嵌标定挂点（AC-4 D12）：首轮打开后种残留（start running
+/// + 置 active_phase）→ drop 句柄重开同一 db 文件 → 残留已标定。
+#[test]
+fn open_workspace内嵌标定_重开即标定残留() {
+    let env = Env::new("run-calibrate-hook");
+    let db_path = env.db_path("ws");
+    {
+        let store = open_workspace_ok(&db_path);
+        create_change_ok(&store, "flow-run", 1000);
+        start_phase_ok(&store, "flow-run", "implement", 1500);
+        store
+            .start_change_run(&run_start_cmd("run-100", "flow-run", 2000))
+            .expect("发起应成功");
+        // 句柄 drop（内嵌标定在 open 时点——残留跨过本打开存活）
+    }
+    let reopened = open_workspace_ok(&db_path);
+    let runs = reopened.list_change_runs("flow-run").expect("list 应成功");
+    assert_eq!(runs[0].status, RunStatus::Interrupted, "重开即标定残留");
+    assert_eq!(runs[0].finished_at.is_some(), true, "标定时刻在位");
+    let record = reopened
+        .find_change_record("flow-run")
+        .expect("读档应成功")
+        .expect("建档在场");
+    assert!(record.active_phase.is_none(), "重开清位 active_phase");
+}
+
+/// 存量库 additive 打开（AC-1 十模型 additive 零迁移）：既有数据形态库文件
+///（零 run 写入）重开成功、新模型表首轮读写正常。
+#[test]
+fn 存量库additive打开_重开新模型表读写正常() {
+    let env = Env::new("run-additive");
+    let db_path = env.db_path("ws");
+    {
+        // 首轮：建档 + 相位史（零 run 写入的既有形态）
+        let store = open_workspace_ok(&db_path);
+        create_change_ok(&store, "legacy-change", 1000);
+        start_phase_ok(&store, "legacy-change", "proposal", 1500);
+        store
+            .log_change_phase(&log_command(
+                "legacy-change",
+                "proposal",
+                Verdict::Pass,
+                Vec::new(),
+                Some(1500),
+                1600,
+            ))
+            .expect("落账种子应成功");
+    }
+    {
+        // 重开：既有记录可达 + run 新模型表首轮读写正常
+        let store = open_workspace_ok(&db_path);
+        let record = store
+            .find_change_record("legacy-change")
+            .expect("读档应成功")
+            .expect("建档在场");
+        assert_eq!(record.name, "legacy-change", "存量记录 additive 打开可达");
+        assert!(store
+            .list_change_runs("legacy-change")
+            .expect("list 应成功")
+            .is_empty());
+        store
+            .start_change_run(&run_start_cmd("run-100", "legacy-change", 2000))
+            .expect("新模型表首写应成功");
+        let runs = store
+            .list_change_runs("legacy-change")
+            .expect("list 应成功");
+        assert_eq!(runs.len(), 1, "新模型表读回正常");
+        assert_eq!(runs[0].status, RunStatus::Running);
+    }
+}
+
+/// run 史读面排序（AC-6/AC-10 前置）：list_change_runs 按 started_at 升序
+///（含并列 run_id 稳定并列序）；list_run_steps 按 seq 升序（seq 空洞序合法）。
+#[test]
+fn run史读面排序_started_at升序与seq空洞序() {
+    let env = Env::new("run-read-order");
+    let store = open_workspace_ok(&env.db_path("ws"));
+    create_change_ok(&store, "flow-run", 1000);
+    create_change_ok(&store, "other-run", 1000);
+
+    // 乱序发起：run-3（3000）→ run-1（1000）→ run-2（2000）→ 并列（2000）
+    for (run_id, started_at) in [
+        ("run-3", 3000),
+        ("run-1", 1000),
+        ("run-2", 2000),
+        ("run-2b", 2000),
+    ] {
+        store
+            .start_change_run(&run_start_cmd(run_id, "flow-run", started_at))
+            .expect("发起应成功");
+        store
+            .finish_change_run(&run_finish_cmd(
+                run_id,
+                "flow-run",
+                RunStatus::Completed,
+                None,
+                started_at + 100,
+                Vec::new(),
+            ))
+            .expect("收口应成功");
+    }
+    store
+        .start_change_run(&run_start_cmd("run-x", "other-run", 1000))
+        .expect("他 change 发起应成功");
+
+    let runs = store.list_change_runs("flow-run").expect("list 应成功");
+    let ordered: Vec<(i64, &str)> = runs
+        .iter()
+        .map(|row| (row.started_at, row.run_id.as_str()))
+        .collect();
+    assert_eq!(
+        ordered,
+        vec![
+            (1000, "run-1"),
+            (2000, "run-2"),
+            (2000, "run-2b"),
+            (3000, "run-3")
+        ],
+        "started_at 升序 + 并列 run_id 稳定并列序；他 change 不串台"
+    );
+
+    // 步读面：seq 空洞序合法（0,2,5 写入后枚举升序无缺行）
+    store
+        .start_change_run(&run_start_cmd("run-steps", "flow-run", 5000))
+        .expect("发起应成功");
+    let steps = vec![
+        run_step_entry(0, "implement", RunStepKind::Executor, RunStepStatus::Passed),
+        run_step_entry(
+            2,
+            "implement",
+            RunStepKind::Evaluator,
+            RunStepStatus::Passed,
+        ),
+        run_step_entry(5, "implement", RunStepKind::Decision, RunStepStatus::Passed),
+    ];
+    store
+        .finish_change_run(&run_finish_cmd(
+            "run-steps",
+            "flow-run",
+            RunStatus::Completed,
+            None,
+            6000,
+            steps,
+        ))
+        .expect("收口应成功");
+    let rows = store.list_run_steps("run-steps").expect("步读应成功");
+    let seqs: Vec<u64> = rows.iter().map(|row| row.seq).collect();
+    assert_eq!(seqs, vec![0, 2, 5], "seq 升序、空洞无缺行");
+}
+
+/// run 史读面 miss 非错误（边界）：无 run 的 change → 空数组；未知 run_id →
+/// list_run_steps 空数组。
+#[test]
+fn run史读面miss非错误_空数组() {
+    let env = Env::new("run-read-miss");
+    let store = open_workspace_ok(&env.db_path("ws"));
+    create_change_ok(&store, "flow-run", 1000);
+
+    assert!(
+        store
+            .list_change_runs("flow-run")
+            .expect("list 应成功")
+            .is_empty(),
+        "无 run 的 change → 空数组"
+    );
+    assert!(
+        store
+            .list_change_runs("未建档change")
+            .expect("list 应成功")
+            .is_empty(),
+        "未建档 change → 空数组（miss 非错误）"
+    );
+    assert!(
+        store
+            .list_run_steps("run-ghost")
+            .expect("步读应成功")
+            .is_empty(),
+        "未知 run_id → 空数组"
+    );
+}
