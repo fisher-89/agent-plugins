@@ -1,25 +1,8 @@
-//! `write::phase_next` 的单元测试（test-design「phase_next.rs ->
-//! phase_next_test.rs」节）：只读路由状态机（形参 change **id**）的初始 / 推进
-//! / fail 重试 / 重试上限 / 终态 / backtrack 目标路由 / 白名单下发 /
-//! last_result（i64 millis 直透）/ prompt 上下文头（`change:` 段取
-//! `record.name`——id 串不误入 prompt）/ 会话锚点（复合键 `(change_id,
-//! run_id)`、基线自 PhaseRecord 行数平移——D8、同 run_id 异 id 不串台、重启
-//! 新实例直接推进）/ StoreFault 故障传播 / 只读性 / 未建档 id 显式 Err。
-//!
-//! Mock策略（test-design 本节 Mock 表）：路由语义 / 故障传播 / 锚点各 describe
-//! 全部走进程内假件实现 [`ChangeStateStore`]（design D1 fake port 先例——本假
-//! 件只实现读半边，写半边 `unimplemented!`，phase_next 若越权触写即 panic，
-//! 兼作只读性执法）。「读源 db」真实 tempfile Store 行收 tests/
-//! corpus_golden_test.rs 集成面（workflow 自环 dev-dep 在 lib-test 与普通
-//! lib 双工件下类型不统一，`&Store` 无法满足 lib-test 视角的 trait——真实 db
-//! 组合只在集成目标可编译，见变更报告）。确定性时间戳全部 i64 unix millis
-//! 常量，零 wall-clock 等值比较。
-
 use std::sync::Mutex;
 
 use super::phase_next::{phase_next, PhaseNextError, SessionAnchors};
 use super::phase_table::MAX_RETRY_TIMES;
-use crate::model::Verdict;
+use crate::model::{ChecklistItem, Verdict};
 use crate::state::{
     ChangeStateRecord, ChangeStateStore, ChangeStatus, PhaseStateRecord, RunFinishCommand,
     RunStartCommand, RunStateRecord, RunStepStateRecord, StepCommand, StepStateRecord, StoreFault,
@@ -416,6 +399,11 @@ fn fail预算内重试同相位且round递增() {
         "fail 重试 prompt 零模板占位残留（相位 id 不经模板注入）: {second_prompt}"
     );
     assert!(
+        second_prompt.contains("⚠️ 上次评估未通过（attempt 1）")
+            && second_prompt.contains("dev-design 报告"),
+        "fail 重试 prompt 携失败反馈段（清单空退回 report 全文）: {second_prompt}"
+    );
+    assert!(
         second
             .evaluator
             .as_ref()
@@ -424,6 +412,15 @@ fn fail预算内重试同相位且round递增() {
             .starts_with(&format!("change: {CHANGE_NAME}\n\n")),
         "evaluator prompt 上下文头同相位在场"
     );
+    assert!(
+        second
+            .evaluator
+            .as_ref()
+            .expect("evaluator 在场")
+            .prompt
+            .contains("上次评估未通过"),
+        "evaluator prompt 同携失败反馈段（下轮会话双槽位随行）"
+    );
 
     fake.push(entry("dev-design", 2, Verdict::Fail, t(3)));
     let third = route(&fake, RUN, &anchors);
@@ -431,6 +428,74 @@ fn fail预算内重试同相位且round递增() {
     let last = third.last_result.expect("last_result 在场");
     assert_eq!(last.phase, "dev-design");
     assert_eq!(last.verdict, Verdict::Fail, "last_result 携最新 fail 条目");
+}
+
+/// 失败反馈段内容面：fail 重试随 prompt 下发失败项（item + evidence），pass
+/// 项不随行；首轮（无失败条目）零注入。
+#[test]
+fn 失败项随fail重试prompt注入且首轮零注入() {
+    let fake = RouteStore::seeded(vec![entry("proposal", 1, Verdict::Pass, t(1))]);
+    let anchors = SessionAnchors::new();
+
+    let first = route(&fake, RUN, &anchors);
+    assert!(
+        !first
+            .executor
+            .as_ref()
+            .expect("executor 在场")
+            .prompt
+            .contains("上次评估未通过"),
+        "首轮无失败条目零注入"
+    );
+
+    let mut failed = entry("dev-design", 1, Verdict::Fail, t(2));
+    failed.checklist = vec![
+        ChecklistItem {
+            item: "设计完整性".to_owned(),
+            pass: false,
+            evidence: "缺产物区组件（design.md:12）".to_owned(),
+        },
+        ChecklistItem {
+            item: "任务分解".to_owned(),
+            pass: true,
+            evidence: "tasks 齐备".to_owned(),
+        },
+    ];
+    fake.push(failed);
+
+    let second = route(&fake, RUN, &anchors);
+    let executor = second.executor.expect("executor 在场");
+    assert!(
+        executor.prompt.contains("⚠️ 上次评估未通过（attempt 1）")
+            && executor
+                .prompt
+                .contains("- 设计完整性：缺产物区组件（design.md:12）"),
+        "失败项（item + evidence）随 prompt 注入: {}",
+        executor.prompt
+    );
+    assert!(
+        !executor.prompt.contains("- 任务分解"),
+        "pass 项不随行（只携失败项）: {}",
+        executor.prompt
+    );
+
+    // backtrack 路由目标相位携历史 fail 条目：反馈段仍零注入（回溯原因行独立，
+    // 判别 None 直传——若误走正常路由过滤，该目标相位最新条目为 Fail 必注入）
+    fake.push(backtrack_entry(
+        "test-design",
+        1,
+        t(3),
+        "dev-design",
+        "设计返工：缺产物区组件",
+    ));
+    let third = route(&fake, RUN, &anchors);
+    assert_eq!(third.next_phase.as_deref(), Some("dev-design"));
+    let third_prompt = third.executor.expect("executor 在场").prompt;
+    assert!(
+        third_prompt.contains("⚠️ 回溯原因: 设计返工：缺产物区组件")
+            && !third_prompt.contains("上次评估未通过"),
+        "backtrack 路由零失败反馈注入（回溯原因行独立）: {third_prompt}"
+    );
 }
 
 /// 重试上限恰达：窗口 fail 数 == MAX_RETRY_TIMES →
@@ -534,6 +599,11 @@ fn backtrack字段落库路由至目标相位() {
             .prompt
             .starts_with(&format!("change: {CHANGE_NAME}\n\n")),
         "backtrack prompt 上下文头（change: <name>）与回溯原因后缀并存: {}",
+        executor.prompt
+    );
+    assert!(
+        !executor.prompt.contains("上次评估未通过"),
+        "backtrack 路由零失败反馈注入（回溯原因行独立）: {}",
         executor.prompt
     );
     assert_eq!(

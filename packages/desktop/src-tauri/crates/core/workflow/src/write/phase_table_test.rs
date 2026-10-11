@@ -120,8 +120,8 @@ fn phase_table各相位模型档位分派对照() {
             Some(ModelLevel::High),
             Some(ModelLevel::High),
         ),
-        ("implement", Some(ModelLevel::Low), Some(ModelLevel::High)),
-        ("test-gen", Some(ModelLevel::Low), Some(ModelLevel::High)),
+        ("implement", Some(ModelLevel::Low), Some(ModelLevel::Low)),
+        ("test-gen", Some(ModelLevel::Low), Some(ModelLevel::Low)),
         (
             "test-execution",
             Some(ModelLevel::Low),

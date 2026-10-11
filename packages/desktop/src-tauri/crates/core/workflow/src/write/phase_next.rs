@@ -1,19 +1,9 @@
-//! 相位路由状态机（只读）：初始 / 推进 / fail 重试（≤[`MAX_RETRY_TIMES`]）/
-//! 重试上限判定 / backtrack 目标路由 / mid-phase interruption（会话锚点比对
-//! ——进程内复活，中断相位由重入的窗口比对标定）。[`phase_next`] 不改状态库
-//! （只读路由，stale 标记归 [`backtrack`](super::backtrack) 单点）；executor /
-//! evaluator prompt 以静态角色知识为主体、上下文头 `change:` + 记录 `name` 与
-//! 回溯原因行 append 后随行下发，白名单随行（walker 缓存带走，不自相位表推导
-//! ——守住路由红线）。状态读取单源自 workspace 库（经
-//! [`ChangeStateStore`](crate::state::ChangeStateStore) port 缝，D8：锚点基线
-//! 平移为 PhaseRecord 行数）。
-
 use std::collections::HashMap;
 use std::sync::Mutex;
 
 use agent::ModelLevel;
 
-use crate::model::Verdict;
+use crate::model::{ChecklistItem, Verdict};
 use crate::state::{ChangeStateStore, PhaseStateRecord};
 use crate::write::phase_table::{
     allowed_backtrack_phases, phase_table, PhaseAgentSpec, PhaseDefinition, MAX_RETRY_TIMES,
@@ -63,8 +53,8 @@ pub struct LastResult {
 }
 
 /// 路由产出的已组装角色会话规格：静态角色知识主体 + 上下文头
-/// `change:` + 记录 `name`（append）+ 回溯原因行（append）；跨 crate 消费方
-///（orchestration）只消费本类型。
+/// `change:` + 记录 `name`（append）+ 失败反馈段 / 回溯原因行（append）；跨
+/// crate 消费方（orchestration）只消费本类型。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ResolvedPhaseSpec {
     pub prompt: String,
@@ -145,6 +135,7 @@ pub fn phase_next(
                 &record.name,
                 entry.backtrack_reason.as_deref(),
                 last_result,
+                None,
             ));
         }
     }
@@ -186,6 +177,8 @@ pub fn phase_next(
             }),
         });
     }
+    let retry_feedback =
+        latest_phase_entry(&entries, next.id).filter(|entry| entry.verdict == Verdict::Fail);
     Ok(build_phase_response(
         table,
         next,
@@ -193,6 +186,7 @@ pub fn phase_next(
         &record.name,
         None,
         last_result,
+        retry_feedback,
     ))
 }
 
@@ -220,6 +214,25 @@ fn latest_entry(entries: &[PhaseStateRecord]) -> Option<&PhaseStateRecord> {
     best
 }
 
+/// 指定相位的最新条目（timestamp 降序取首，与 [`latest_entry`] 同判序；相位
+/// 过滤前置——失败反馈只认所路由相位自身的落账，不借全局最新条目）。
+fn latest_phase_entry<'a>(
+    entries: &'a [PhaseStateRecord],
+    phase: &str,
+) -> Option<&'a PhaseStateRecord> {
+    let mut best: Option<&PhaseStateRecord> = None;
+    for entry in entries.iter().filter(|entry| entry.phase == phase) {
+        let replace = match best {
+            None => true,
+            Some(current) => entry.timestamp > current.timestamp,
+        };
+        if replace {
+            best = Some(entry);
+        }
+    }
+    best
+}
+
 /// 最新条目快照（决策输入面）。
 fn latest_result(entries: &[PhaseStateRecord]) -> Option<LastResult> {
     latest_entry(entries).map(|entry| LastResult {
@@ -230,8 +243,38 @@ fn latest_result(entries: &[PhaseStateRecord]) -> Option<LastResult> {
     })
 }
 
+/// 失败反馈段：fail 重试时随 prompt 下发的检查结果——失败项优先（item +
+/// evidence）；全 pass 清单配 fail verdict 的漂移形态全量随行不虚减（与决策
+/// 输入 `build_decision_input` 同判）；清单空退回 report 全文。
+fn fail_feedback_suffix(record: &PhaseStateRecord) -> String {
+    let failing: Vec<&ChecklistItem> = record
+        .checklist
+        .iter()
+        .filter(|item| !item.pass)
+        .collect();
+    let source: Vec<&ChecklistItem> = if failing.is_empty() {
+        record.checklist.iter().collect()
+    } else {
+        failing
+    };
+    let items: Vec<String> = source
+        .iter()
+        .map(|item| format!("- {}：{}", item.item, item.evidence))
+        .collect();
+    let body = if items.is_empty() {
+        record.report.clone()
+    } else {
+        items.join("\n")
+    };
+    format!(
+        "\n\n⚠️ 上次评估未通过（attempt {}），请针对以下失败项修复：\n\n{body}",
+        record.attempt
+    )
+}
+
 /// 正常路由响应：上下文头（`change:` + 记录 `name`）+ 静态角色知识主体 +
-/// 回溯原因后缀 + 白名单随行（append 组装，零模板替换）。
+/// 失败反馈段（fail 重试时在场）+ 回溯原因后缀（backtrack 路由时在场，与
+/// 反馈段互斥）+ 白名单随行（append 组装，零模板替换）。
 fn build_phase_response(
     table: &'static [PhaseDefinition],
     def: &PhaseDefinition,
@@ -239,13 +282,20 @@ fn build_phase_response(
     name: &str,
     backtrack_reason: Option<&str>,
     last_result: Option<LastResult>,
+    retry_feedback: Option<&PhaseStateRecord>,
 ) -> PhaseNextOutcome {
     let context_header = format!("change: {name}\n\n");
     let reason_suffix = backtrack_reason
         .map(|reason| format!("\n\n⚠️ 回溯原因: {reason}"))
         .unwrap_or_default();
+    let feedback_suffix = retry_feedback
+        .map(fail_feedback_suffix)
+        .unwrap_or_default();
     let resolve = |spec: &PhaseAgentSpec| ResolvedPhaseSpec {
-        prompt: format!("{context_header}{}{reason_suffix}", spec.prompt),
+        prompt: format!(
+            "{context_header}{}{reason_suffix}{feedback_suffix}",
+            spec.prompt
+        ),
         model_level: spec.model_level,
     };
     PhaseNextOutcome {
