@@ -63,4 +63,4 @@
 | Enum | 每个枚举值, 非法枚举值 | N+1 |
 | float | 0.0, -0.0, NaN, Inf, None | 5 edge + 1 normal |
 
-> For nested generic types (e.g., `List[Dict[str, int]]`), combine outer container boundary values (empty, single-element, large, None) with inner type boundary values. Each combination exercises a different nesting depth.
+> 对嵌套泛型（如 `List[Dict[str, int]]`），将外层容器边界值（空、单元素、超大、None）与内层类型边界值组合，每个组合覆盖一个不同的嵌套深度。

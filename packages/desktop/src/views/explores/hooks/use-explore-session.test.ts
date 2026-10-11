@@ -251,7 +251,7 @@ describe('useExploreSession：会话还原与全史转录重放（AC-9/AC-5）',
 });
 
 describe('useExploreSession：send 拼接 stance 与当前会话续话（AC-9，D4/D7）', () => {
-  it('有会话时 send：prompt 以 stance 前导开头、sessionId 为当前会话、三元组齐全', async () => {
+  it('有会话时 send（续话）：prompt 裸发送（不重复携带 stance 前导）、sessionId 为当前会话、三元组齐全', async () => {
     const { result } = await mounted();
     expect(result.current.chain).toHaveLength(2);
 
@@ -261,9 +261,7 @@ describe('useExploreSession：send 拼接 stance 与当前会话续话（AC-9，
     await act(async () => {});
 
     const args = startCallArgs();
-    const prompt = String(args.prompt);
-    expect(prompt.startsWith(buildExplorePrompt('', 'api-retry').slice(0, 40))).toBe(true);
-    expect(prompt.endsWith(SEND_INPUT.prompt)).toBe(true);
+    expect(args.prompt).toBe(SEND_INPUT.prompt);
     expect(args.sessionId).toBe(SESSION_ID);
     expect(args.source).toBe('explore');
     expect(args.sourceRef).toBe(String(RECORD_ID));
@@ -272,7 +270,7 @@ describe('useExploreSession：send 拼接 stance 与当前会话续话（AC-9，
     expect(args.onEvent).toBeInstanceOf(ChannelMock);
   });
 
-  it('无会话时 send（首条起会话）：sessionId 不传（null 即 New）、来源三元组仍携带', async () => {
+  it('无会话时 send（首条起会话）：prompt 拼 stance 前导、sessionId 不传（null 即 New）、来源三元组仍携带', async () => {
     sessionsResult = [];
     transcript = [];
     const { result } = await mounted();
@@ -283,12 +281,13 @@ describe('useExploreSession：send 拼接 stance 与当前会话续话（AC-9，
     await act(async () => {});
 
     const args = startCallArgs();
+    expect(args.prompt).toBe(buildExplorePrompt(SEND_INPUT.prompt, 'api-retry'));
     expect(args.sessionId).toBeNull();
     expect(args.source).toBe('explore');
     expect(args.sourceRef).toBe(String(RECORD_ID));
   });
 
-  it('轮终态后：轮序列增长、终态轮行回流复位，二次 send 的 sessionId 更新为新轮行会话', async () => {
+  it('轮终态后：轮序列增长、终态轮行回流复位，二次 send 的 sessionId 更新为新轮行会话、prompt 裸发送', async () => {
     const { result } = await mounted();
     expect(result.current.chain).toHaveLength(2);
 
@@ -312,6 +311,7 @@ describe('useExploreSession：send 拼接 stance 与当前会话续话（AC-9，
 
     expect(invokeMock.mock.calls.filter(([name]) => name === 'agent_start')).toHaveLength(2);
     expect(startCallArgs().sessionId).toBe('ses-13-1727000001000');
+    expect(startCallArgs().prompt).toBe('再来一轮');
   });
 
   it('尚无会话时 stop()：无寻址目标不发起 invoke（幂等忽略半边）', async () => {
@@ -580,12 +580,15 @@ describe('useExploreSession：返回形状语义等价（AC-11 契约面）', ()
 
 // ---------------------------------------------------------------------------
 // send 注入 record.name（explore-name-file-binding AC-4 send 组装半边）：
-// prompt == buildExplorePrompt(input.prompt, record.name)（真实实现参与拼接），
-// 换记录 name 注入随动；record 为 null 不发送（零 IPC）。
+// 仅新会话首条 prompt == buildExplorePrompt(input.prompt, record.name)（真实
+// 实现参与拼接）；既有会话续话裸发送（不携带 stance / name）；换记录新会话
+// 注入随新 name；record 为 null 不发送（零 IPC）。
 // ---------------------------------------------------------------------------
 
 describe('useExploreSession：send 注入 record.name（AC-4 组装半边）', () => {
-  it('正向：send 的 prompt 逐字等于 buildExplorePrompt(input.prompt, record.name)', async () => {
+  it('正向：新会话首条 send 的 prompt 逐字等于 buildExplorePrompt(input.prompt, record.name)', async () => {
+    sessionsResult = [];
+    transcript = [];
     const { result } = await mounted();
 
     act(() => {
@@ -599,27 +602,39 @@ describe('useExploreSession：send 注入 record.name（AC-4 组装半边）', (
     expect(String(args.prompt)).toContain('文件名 MUST 等于 api-retry');
   });
 
-  it('正向：记录切换（name 变化）→ stance 注入随新 name 变化', async () => {
+  it('正向：既有会话续话裸发送（不携带 stance / name）；换记录（无会话）新会话首条随新 name 注入', async () => {
+    invokeMock.mockImplementation((command: string, params?: Record<string, unknown>) => {
+      if (command === 'agent_sessions') {
+        return Promise.resolve(params?.sourceRef === '8' ? [] : [sessionFixture]);
+      }
+      if (command === 'agent_session_transcript') return Promise.resolve([]);
+      if (command === 'agent_start') return Promise.resolve(startResult);
+      return Promise.resolve(null);
+    });
+
     const { result, rerender } = renderHook(
       (props: { record: ExploreRecord | null }) => useExploreSession(ROOT, props.record),
       { initialProps: { record: exploreRecord() } },
     );
     await act(async () => {});
+    expect(result.current.chain).toHaveLength(2);
 
-    // 首条：api-retry
+    // 既有会话（api-retry 全史）续话：裸发送
     act(() => {
       result.current.send(SEND_INPUT);
     });
     await act(async () => {});
-    expect(String(startCallArgs().prompt)).toBe(buildExplorePrompt(SEND_INPUT.prompt, 'api-retry'));
+    expect(String(startCallArgs().prompt)).toBe(SEND_INPUT.prompt);
 
     // 轮终态回流闭流，解除 running 门闩
     deliverRecord(turn(13, 'completed', 'ses-13-1727000001000'));
     await waitFor(() => expect(result.current.running).toBe(false));
 
-    // 换记录 name（同 id —— 会话归属不变）：stance 注入随新 name 随动
-    rerender({ record: { ...exploreRecord(), name: 'other-topic' } });
+    // 换记录（id 8，无既有会话）：镜像重放清空 → 新会话首条 stance 随新 name 注入
+    rerender({ record: { ...exploreRecord(), id: 8, name: 'other-topic' } });
     await act(async () => {});
+    expect(result.current.chain).toEqual([]);
+
     act(() => {
       result.current.send(SEND_INPUT);
     });

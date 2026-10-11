@@ -1,32 +1,3 @@
-/**
- * explore stance 前导模板（desktop 包自有，归属本包）。
- *
- * 双源互链：`plugins/dev-team/skills/openspec-explore/SKILL.md`（CLI skill
- * 注入通道）。desktop 无 skill 上下文注入通道，故内置精简前导拼进每条
- * explore run 的 prompt 头部；两源刻意保持独立、接受漂移——本模板为 desktop
- * 页面体验裁剪（落盘路径约定与单文件投影语义），不追踪 SKILL.md 的演进。
- *
- * 目录位置说明：模板正文中的笔记目录路径是发给 agent 的指令内容（agent 会话
- * 按其落盘），非前端的路径推导逻辑——前端零目录名常量，文档路径一律经
- * `explore_doc_path` 命令布局派生（design D6）。
- */
-
-/**
- * 探索立场前导（精简版，与 SKILL.md 同源不同文）：按当前探索记录 `topic`
- *（= `record.name`）插值——落盘文件名 MUST 等于该 name（file-record 绑定，
- * 清单条目与磁盘笔记不再分叉），并约定笔记首行写 `# <标题>`（供清单 / 详情
- * 头展示，经 title 回填链路回填 store）。
- *
- * - 探索模式是思考而非实现：可读码调研，MUST NOT 写应用代码、MUST NOT 创建
- *   change 目录（除非用户明确要求产出 OpenSpec 工件）；
- * - 立场：好奇不预设、多开线索不审问、多用 ASCII 图解、随新信息转向、
- *   探索真实代码库而非空谈；
- * - 笔记落盘约定：单篇主题一个 md 文件，路径 `<workspace>/openspec/explores/<topic>.md`
- *   （文件名 MUST 等于 `<topic>`，MUST NOT 自拟其它文件名）；默认追加而非整
- *   文件重写，无内容也先建轻量骨架（记录清单依赖文件可读）；
- * - 标题约定：首行 `# <标题>`；
- * - 输出语言：中文。
- */
 function stancePreamble(topic: string): string {
   return `你在探索模式下工作。这是思考与调研时间，不是实现时间：可以读文件、搜代码、调查仓库，但绝不写应用代码，也绝不为了存放笔记而创建 change 目录（用户明确要求产出 OpenSpec 工件时除外）。
 

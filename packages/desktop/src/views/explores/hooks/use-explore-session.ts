@@ -20,13 +20,13 @@ export function useExploreSession(root: string | null, record: ExploreRecord | n
     root,
   });
 
-  /** 发送一条消息：拼 stance（注入当前记录 name，落盘文件名 MUST 等于 name）、
-   * 委托基建（会话参数组装在基建内收口）；record 为 null（未选定记录）不发送 */
   const send = useCallback(
     (input: ExploreSendInput) => {
       if (record === null) return;
+      const prompt =
+        session.session === null ? buildExplorePrompt(input.prompt, record.name) : input.prompt;
       session.sendMessage({
-        prompt: buildExplorePrompt(input.prompt, record.name),
+        prompt,
         permissionMode: input.permissionMode,
       });
     },
