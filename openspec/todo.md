@@ -58,4 +58,6 @@
 - [x] 【Desktop】worktree先合入主仓再归档
 - [ ] 【Desktop】当agent步骤执行成功后，因检查门禁等步骤外原因需要再次运行时，记录为新的步骤，且开启新会话
 - [x] 【Desktop】修复问题：近几条变更测试summary.json结果都为空
-- [ ] 【Desktop】将流程设计进一步抽象，每个phase下有多个step，step分为exec/agent/gate，全流程按step顺序执行，中断/继续/回退也按step粒度
+- [x] 【Desktop】将流程设计进一步抽象，每个phase下有多个step，step分为exec/agent/gate，全流程按step顺序执行，中断/继续/回退也按step粒度
+- [ ] 【Desktop】会话中途继续提问时，无需携带角色prompt，当前explore会反复发送角色信息
+- [ ] 【Desktop】优化各阶段prompt，补全模板概念
