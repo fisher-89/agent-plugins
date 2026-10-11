@@ -1,5 +1,6 @@
 import { useState } from 'react';
 
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 
 import type {
@@ -226,32 +227,15 @@ function providerName(providers: AgentProviderRecord[], providerId: number | nul
 
 /** 默认标记单元：已默认呈徽标，未默认呈「设为默认」切换入口（标记即切换，
  * 旧默认自动清除） */
-function DefaultMark({
-  record,
-  onSetDefault,
-}: {
-  record: AgentInstanceRecord;
-  onSetDefault: (id: number) => void;
-}): React.JSX.Element {
+function DefaultMark({ record }: { record: AgentInstanceRecord }): React.JSX.Element | null {
   if (record.isDefault) {
     return (
-      <span
-        className="rounded bg-primary px-1.5 py-0.5 text-xs text-primary-foreground"
-        data-testid="agent-default-badge"
-      >
+      <Badge variant="default" data-testid="agent-default-badge">
         默认
-      </span>
+      </Badge>
     );
   }
-  return (
-    <Button
-      className="px-2 py-0.5 text-xs"
-      data-testid="agent-set-default"
-      onClick={() => onSetDefault(record.id)}
-    >
-      设为默认
-    </Button>
-  );
+  return null;
 }
 
 /** 清单行（name / engine / 引用 provider 名 / 默认标记 + 行内编辑 / 删除） */
@@ -279,17 +263,23 @@ function AgentListItem({
       <span className="text-xs text-muted-foreground">
         provider: {providerName(providers, record.providerId)}
       </span>
-      <DefaultMark onSetDefault={onSetDefault} record={record} />
+      <DefaultMark record={record} />
       <span className="flex-1" />
       <Button
-        className="px-2 py-0.5 text-xs"
-        data-testid="agent-edit"
-        onClick={() => onEdit(record)}
+        size="sm"
+        variant="secondary"
+        data-testid="agent-set-default"
+        disabled={record.isDefault}
+        onClick={() => onSetDefault(record.id)}
       >
+        设为默认
+      </Button>
+      <Button size="sm" variant="secondary" data-testid="agent-edit" onClick={() => onEdit(record)}>
         编辑
       </Button>
       <Button
-        className="px-2 py-0.5 text-xs"
+        size="sm"
+        variant="secondary"
         data-testid="agent-delete"
         onClick={() => onRemove(record.id)}
       >
