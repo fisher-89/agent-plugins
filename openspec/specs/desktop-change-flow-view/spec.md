@@ -30,14 +30,19 @@ change 详情页 SHALL 以 react-flow 流程图承载执行史，节点粒度 SH
 - **WHEN** 某站的最新 pass eval 被 backtrack 标记 `stale: true`
 - **THEN** 该节点呈半透明淡化，表示废弃支线，但仍保留在图上
 
-### Requirement: 9 列手工坐标布局
+### Requirement: 10 列手工坐标布局
 
-布局 SHALL 采用手工坐标，MUST NOT 引入 dagre / elk 等自动布局引擎：`x = PIPELINE_PHASES.indexOf(phase) × COL_W`（9 列恒定，未走过的站呈现空列），`y = 列内执行序 × ROW_H`。同 phase 的全部事件 SHALL 纵向对齐成一列。phase 列 SHALL 以 react-flow v12 subflow 承载（`parentId` + `extent: 'parent'`），列头展示 phase 名与该站过程文档徽章。COL_W / ROW_H 常量取值由 design 定夺。视口 SHALL 默认 100% 缩放（MUST NOT 初始 fitView 适配），滚轮 SHALL 平移画布（滚轮缩放 MUST NOT 触发），显式刷新重绘时 SHALL 保留当前视口。
+布局 SHALL 采用手工坐标，MUST NOT 引入 dagre / elk 等自动布局引擎：`x = PIPELINE_PHASES.indexOf(phase) × COL_W`（10 列恒定，未走过的站呈现空列），`y = 列内执行序 × ROW_H`。同 phase 的全部事件 SHALL 纵向对齐成一列。phase 列 SHALL 以 react-flow v12 subflow 承载（`parentId` + `extent: 'parent'`），列头展示 phase 名与该站过程文档徽章。`PIPELINE_PHASES` SHALL 为 10 列（proposal → dev-design → test-design → implement → test-gen → test-execution → code-review → acceptance → code-analyze → archive，后端 `detail.rs` 与前端 `layout.ts` 双侧同步）。COL_W / ROW_H 常量取值由 design 定夺。视口 SHALL 默认 100% 缩放（MUST NOT 初始 fitView 适配），滚轮 SHALL 平移画布，显式刷新重绘时 SHALL 保留当前视口。
 
 #### Scenario: 列对齐与空列恒定
 
 - **WHEN** 某 change 只走到 dev-design 站（proposal 有 eval 记录）
-- **THEN** proposal 与 dev-design 事件各自纵向对齐成列，后续 7 站仍以空列呈现，列总数恒为 9
+- **THEN** proposal 与 dev-design 事件各自纵向对齐成列，后续 8 站仍以空列呈现（含 code-analyze 占位列与 archive 列），列总数恒为 10
+
+#### Scenario: archive 列常驻
+
+- **WHEN** 打开已归档 change（含 archive 相位空 checklist PhaseRecord 与 10 步节点）
+- **THEN** archive 列为第 10 列常驻呈现（1 个 pass eval 节点 + 10 步节点），与 test-execution 列同构，不因 refresh 蒸发
 
 #### Scenario: backtrack 重做自动向左
 
@@ -178,33 +183,48 @@ phase 列头与 attempt 节点 SHALL 提供同一交互入口：点击打开右�
 
 ### Requirement: 运行态节点与实时执行视图
 
-change 详情流程图 SHALL 升级为实时执行视图：运行期间，当前执行位置的节点 SHALL 呈现运行态（pulse 视觉，与既有 active 节点同款），ToolStep 节点（phase-start / static-check / phase-log / backtrack 相位机步）与 Gate 节点 SHALL 与 WorkerAgent 节点同等上图并可辨（类型可区分）。运行态呈现 SHALL 与既有节点模型并存：eval（实心 pass 绿 / fail 红）、stale 淡化规则不变；`PIPELINE_PHASES` 列布局、边表读取规则与空列恒定 MUST NOT 因运行态呈现改变。
+change 详情流程图 SHALL 升级为实时执行视图：运行期间，当前执行位置的节点 SHALL 呈现运行态（pulse 视觉，与既有 active 节点同款），ToolStep 节点、Git 节点与 Gate 节点 SHALL 与 WorkerAgent 节点同等上图并可辨（四类可区分）。运行态呈现 SHALL 与既有节点模型并存：eval（实心 pass 绿 / fail 红）、stale 淡化规则不变；`PIPELINE_PHASES` 10 列布局、边表读取规则与空列恒定 MUST NOT 因运行态呈现改变。
 
-运行收口后，图 SHALL 保持**步节点常驻渲染**（「图回落 ChangeDetail 派生规则」语义退场）：已落库执行图节点（`runs[].nodes` 全词汇，desktop-change-state-store）自统一视图派生常驻上图，与运行中实时面走**同一条派生路径**（同一转换函数消费合并查询结果，而非结果碰巧一样）；运行态视觉（pulse）褪去、终态样式呈现。常驻渲染 SHALL 取**全史叠加**（多次 run 的节点全部保留，非仅最近 run）：attempt 经跨 run max+1 分配不撞号，全史叠加在同一列面、run 归属分层经 run 史可查；在飞 run 的活节点叠加其上。节点身份键 SHALL 为 `(phase, attempt, step, instanceNo)`（自后端直读，见 desktop-change-queries），前端 `runStepNodes` 的「槽位配对 + `:seq` 后缀堆叠」机制 SHALL 退役——节点直接按后端稳定身份键渲染，同一 `(phase, attempt, step)` 的多次执行以 `instanceNo` 区分。
+运行收口后，图 SHALL 保持**步节点常驻渲染**：已落库执行图节点（`runs[].nodes` 十八值全词汇）自统一视图派生常驻上图，与运行中实时面走**同一条派生路径**；运行态视觉（pulse）褪去、终态样式呈现。常驻渲染 SHALL 取**全史叠加**（多次 run 的节点全部保留），archive 相位节点随当前 run 常驻。节点身份键 SHALL 为 `(phase, attempt, step, instanceNo)`（自后端直读），前端 `runStepNodes` 的「槽位配对 + `:seq` 后缀堆叠」机制 SHALL 退役。归档步词 SHALL 落到 `RunStepGroup` 的 git / exec / agent 分类（`GROUP_LABEL` 同步），`archive-panel` / `StageList` 六段清单 SHALL 退役（归档六段作为 archive 列 step 节点呈现，不设独立面板）。
 
-#### Scenario: 运行态与两分类并存
+#### Scenario: 运行态与四类并存
 
-- **WHEN** implement#2 相位运行中（executor 会话活跃）且历史上有 fail→retry 与 active_phase 残留
-- **THEN** 图上同时呈现：历史 eval 节点（实心三色）、active_phase 的 active 节点（pulse）与当前 executor 节点（pulse 运行态）及同相位的 ToolStep / Gate 节点（类型可辨、状态如实）
+- **WHEN** implement#2 相位运行中且历史上有 fail→retry 与 active_phase 残留，archive 相位随后进入
+- **THEN** 图上同时呈现：历史 eval 节点（实心三色）、active_phase 的 active 节点（pulse）与当前节点（pulse 运行态）及同相位的 ToolStep / Git / Gate 节点（类型可辨、状态如实）
+
+#### Scenario: archive 步节点上图
+
+- **WHEN** archive 相位运行中（或已收口）
+- **THEN** archive 列呈现 10 步节点：Preflight / Seal 为 exec、Commit / Rebase / Merge / Finalize 为 git、SpecSync / ResolveConflicts 为 agent、PhaseStart / PhaseLog 为 exec；git 步分类徽章可辨，无独立 ArchivePanel / StageList
 
 #### Scenario: 收口后常驻不回落
 
-- **WHEN** run 以全部相位 pass 收口（或 fail / stopped 收口）后刷新 / 重开详情
-- **THEN** 已落库执行图节点常驻上图（终态样式、无 pulse），派生自统一视图库读史、与运行中同一转换函数；无「回落后步节点消失」的形态跳变
+- **WHEN** run 以 archive 相位完成收口（或 fail / stopped 收口）后刷新 / 重开详情
+- **THEN** 已落库执行图节点常驻上图（含 archive 列，终态样式、无 pulse），派生自统一视图库读史、与运行中同一转换函数；无「回落后步节点消失」的形态跳变
 
 #### Scenario: 稳定身份键渲染与 feedback 多实例
 
 - **WHEN** 某 attempt 内 static-check 失败触发 executor 修复（feedback 重跑）后刷新详情
-- **THEN** executor 首次与修复各为 `instanceNo` 递增的独立节点（同一 `(phase, attempt, step)` 不覆盖），feedback 边自边表呈现；无「槽位配对 + `:seq` 堆叠」逻辑残留，同键多实例不串扰
+- **THEN** executor 首次与修复各为 `instanceNo` 递增的独立节点，feedback 边自边表呈现；无「槽位配对 + `:seq` 堆叠」逻辑残留，同键多实例不串扰
 
 #### Scenario: 全史叠加与在飞叠加
 
-- **WHEN** 某 change 历经两次 run 后第三次 run 运行中
-- **THEN** 图上前两 run 的节点全史常驻，第三 run 活节点（pulse）叠加其上；同 phase 节点 attempt 递增不撞键，任一步节点可溯其 run 归属
+- **WHEN** 某 change 历经两次 run 后第三次 run 运行中（含 archive 相位）
+- **THEN** 图上前两 run 的节点全史常驻，第三 run 活节点（pulse）叠加其上；archive 列节点随 run 归属分层可溯
 
 ### Requirement: 节点会话转录联动
 
-WorkerAgent 节点（executor / evaluator / decision）SHALL 提供到对应会话转录的联动：点击运行中的 WorkerAgent 节点 SHALL 打开该会话的实时时间线（delta 流、可停止）——实时面数据源 SHALL 为**转录库重查**（变更通知触发、`use-session-transcript` 既有查询面消费；会话事件流式落库），前端 liveEvents 内存缓存随通知降位退役，实时与重放口径统一到转录库；点击已收口的 WorkerAgent 节点 SHALL 打开该会话的转录重放（不要求运行进程存活）。会话寻址 SHALL 记录 id 直查优先：attempt 记录暴露的会话槽位 id（desktop-change-queries，自 PhaseRecord 三槽位列直读）在场时，转录面板 SHALL 按 session id 直查（`session_detail` + `agent_session_transcript`）；槽位缺席（缺省落账，槽位列 None）时 SHALL 回退既有 sourceRef 定式反查（`<id>/<phase>/<role>/<attempt>`——身份段为 change id，见 desktop-change-orchestration「会话挂靠 provenance 与节点状态派生」；同 ref 多会话取最近一条）。eval 节点与 active 节点的抽屉联动 SHALL 均覆盖三会话：executor / evaluator / decision 三转录 tab（形态由 design 定稿）；decision 槽位缺席时该 tab SHALL 呈空态，MUST NOT 虚构会话或误挂他 attempt 的会话。active 节点 SHALL 经 sourceRef 反查联动（`active_phase` 无会话槽位，sessionId 恒 null；`ActivePhase.attempt` 非空保证定式可组装，身份段自详情 id 取）：会话建档即落库、sealed 事件流式 append，进行中会话的已流出转录经反查重放可见；未开跑角色的 tab SHALL 呈「（暂无该会话转录）」空态；active 节点联动 MUST NOT 依赖实时事件流（实时面统一为转录库重查，实时流由 runtime WorkerAgent overlay 节点承担，本 app run 场景图上并存）。转录呈现 SHALL 复用既有会话基建（`AgentTimeline` / 会话重放，desktop-agent-chat-infra），MUST NOT 为 change 场景另建第二套时间线组件。节点 MUST NOT 提供显式「查看会话」按钮（两列布局后点击节点即见左列转录，active 节点不新增）。ToolStep / Gate 节点 SHALL 沿用右侧抽屉单交互入口呈现步骤结果（左列空态占位、右列展示步骤输出摘要；审计全量见 desktop-change-state-store 步骤审计查询，步节点史见 run_steps 读史）。
+WorkerAgent 节点（executor / evaluator / decision / spec_sync / resolve_conflicts）SHALL 提供到对应会话转录的联动：点击运行中的 WorkerAgent 节点 SHALL 打开该会话的实时时间线，点击已收口的 WorkerAgent 节点 SHALL 打开转录重放。会话寻址 SHALL 记录 id 直查优先：attempt 记录暴露的会话槽位 id 在场时按 session id 直查；槽位缺席时回退既有 sourceRef 定式反查（身份段为 change id；归档步两会话的 sourceRef 定式由 design 定稿，MUST 在同 phase 同 attempt 内唯一）。eval 节点与 active 节点的抽屉联动 SHALL 均覆盖三会话（executor / evaluator / decision）；归档步节点（spec_sync / resolve_conflicts）SHALL 经其节点 `session_id` 直查转录（无 attempt 三槽位概念）。ToolStep / Git / Gate 节点 SHALL 沿用右侧抽屉单交互入口呈现步骤结果（左列空态占位、右列展示步骤输出摘要）。
+
+#### Scenario: 归档步节点转录直查
+
+- **WHEN** 点击 archive 相位的 SpecSync 或 ResolveConflicts 节点（`session_id` 在案）
+- **THEN** 抽屉左列经节点 `session_id` 直查该会话转录（实时流 / 重放一致），ToolStep / Git 步节点左列空态、右列呈现步骤输出摘要
+
+#### Scenario: 槽位缺席回退反查
+
+- **WHEN** 打开槽位列 None 的 attempt 记录（缺省落账）
+- **THEN** 转录面板回退 sourceRef 定式反查（身份段 = change id）并照常重放，行为与直查路径一致可靠
 
 #### Scenario: 运行中节点实时转录经转录库
 
@@ -220,11 +240,6 @@ WorkerAgent 节点（executor / evaluator / decision）SHALL 提供到对应会�
 
 - **WHEN** 某 attempt 记录携带会话槽位 id，且同 sourceRef 定式下存在多条会话
 - **THEN** 转录面板按槽位 id 精确直查该会话，MUST NOT 落入「同 ref 多会话取最近一条」的反查歧义
-
-#### Scenario: 槽位缺席回退反查
-
-- **WHEN** 打开槽位列 None 的 attempt 记录（缺省落账）
-- **THEN** 转录面板回退 sourceRef 定式反查（身份段 = change id）并照常重放，行为与直查路径一致可靠
 
 #### Scenario: decision 第三 tab 与空态
 
@@ -262,22 +277,22 @@ change 详情页 SHALL 提供运行控制入口：发起 run（按 change id—�
 
 ### Requirement: 自动确认发起开关
 
-change 详情页运行控制面板 SHALL 在发起操作区提供「自动确认」开关（默认关）：开启后发起 run 以 `autoNextPhase=true` 调运行控制命令面（`useChangeFlowRun.start(autoNextPhase)` 传参），关闭则 `false`。开关 SHALL 为发起参数（发起时定格）：运行期间 MUST NOT 可切换（禁用或隐藏的呈现形态由 design 定夺）；节奏变更 = 停止后重发（自 `active_phase` 续走）。auto 模式 run MUST NOT 呈现 phase 间确认卡片（无 `ConfirmWait` 事件到达，`run-state.ts` 零改动）；ask 中断卡片 SHALL 照常呈现与应答（ask 不自动应答）。开关旁 SHALL 提供一行说明文案轻提示（auto 模式将跳过 phase 间确认连续推进，文案措辞由 design 定夺），MUST NOT 引入阻断式确认弹窗。开关 SHALL 以 data-testid 提供测试挂钩，测试 MUST NOT 以样式类名查询。
+change 详情页运行控制面板 SHALL 在发起操作区提供「自动确认」开关（默认关）：开启后发起 run 以 `autoNextPhase=true` 调运行控制命令面，关闭则 `false`。开关 SHALL 为发起参数（发起时定格）：运行期间 MUST NOT 可切换；节奏变更 = 停止后重发。auto 模式 run MUST NOT 呈现 phase 间确认卡片（无 `ConfirmWait` 事件到达）；ask 中断卡片 SHALL 照常呈现与应答（ask 不自动应答）。开关旁 SHALL 提供一行说明文案轻提示。归档前停等（stop-before-archive）SHALL 独立于「自动确认」开关：无论 auto / 手动模式，run 走到 archive 前 SHALL 呈现归档确认卡片（含完成度警告 + delta specs + merge 目标），用户确认后才进入 archive 相位（归档不自动推进）。开关 SHALL 以 data-testid 提供测试挂钩。
 
 #### Scenario: 开关默认关与发起传参
 
 - **WHEN** 打开运行控制面板（无运行 run / 终局后），开关保持默认关并点击发起
-- **THEN** `changeFlowStart` 携 `autoNextPhase=false`，run 照常在相位落账后停等确认（确认卡片呈现）；开启开关后再发起则携 `autoNextPhase=true`
+- **THEN** `changeFlowStart` 携 `autoNextPhase=false`，run 照常在相位落账后停等确认；开启开关后再发起则携 `autoNextPhase=true`
 
-#### Scenario: auto run 不出确认卡片
+#### Scenario: auto run 不出 phase 间确认卡片但归档前停等
 
-- **WHEN** auto 模式 run 相位落账 pass 推进下一相位
-- **THEN** 页面无确认卡片、状态徽章不经 `waitingConfirm`，图与步流照常增量刷新；run 直至终态收口
+- **WHEN** auto 模式 run 相位落账 pass 推进下一相位，直至走完 8 个路由相位
+- **THEN** 页面无 phase 间确认卡片；到达 archive 前 SHALL 呈现归档确认卡片（stop-before-archive），未确认不进 archive 相位；确认后 archive 相位执行至收口
 
 #### Scenario: auto run 的 ask 卡片照常
 
 - **WHEN** auto 模式 run 中决策 ask 到来
-- **THEN** ask 中断卡片照常呈现（问题 + 选项 + 自由文本），用户应答后 run 继续；确认卡片不因 auto 模式对 ask 生效
+- **THEN** ask 中断卡片照常呈现，用户应答后 run 继续；确认卡片不因 auto 模式对 ask 生效
 
 #### Scenario: 运行期定格与收口回归
 

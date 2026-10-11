@@ -8,166 +8,167 @@
 
 ### Requirement: 归档入口与前置确认面
 
-change 详情页 SHALL 提供归档入口（按钮）：db `ChangeRecord.status=active` 的 change 可见可用（按 change id 寻址）；已归档（`source=archive` / status=archived）SHALL NOT 呈现入口；无 db 建档的 change（id 不可达——存量 CLI change 条目已不入清单，见 desktop-change-queries）SHALL NOT 提供归档（写面既有拒绝面沿袭）。点击 SHALL 先呈现确认对话再发起，对话 SHALL 呈现：完成度核对结论（以该 change id 的 db PhaseRecord eval 序列确定性核算——workflow 相位表全部相位存在 non-stale 的 pass / skipped 条目即完成，MUST NOT 读取 workflow.json 或调 MCP `change_list`）、delta specs 在场情况、worktree 记录在场时「将执行提交 + 合入主仓当前分支」的告知。警告 SHALL NOT 阻断（inform + confirm 护栏为本能力自持语义），用户显式确认后照常发起；无警告时确认为轻量确认。该 change 存在运行中 run（运行注册表复合键 `(workspace root, change id)` 在案）时发起归档 SHALL 显式拒绝。
+change 详情页 SHALL 以 run 流程的 archive 相位为归档入口：db `ChangeRecord.status=active` 的 change 在 run 走完 8 个路由相位后 SHALL 停在 archive 相位之前（stop-before-archive 停等面），该停等面 SHALL 呈现归档前置确认数据——完成度核对结论（以该 change id 的 db PhaseRecord eval 序列确定性核算——workflow 相位表全部路由相位存在 non-stale 的 pass / skipped 条目即完成，MUST NOT 读取 workflow.json 或调 MCP `change_list`）、delta specs 在场情况、worktree 记录在场时「将执行提交 + 合入主仓当前分支」的告知。警告 SHALL NOT 阻断（inform + confirm 护栏为本能力自持语义），用户显式确认后 walker 才进入 archive 相位；未确认时 run 停在 archive 前（不自动归档）。已归档（`source=archive` / status=archived）SHALL NOT 再进入 archive 相位（`phase_next` 已路由 done）；无 db 建档的 change（id 不可达）SHALL NOT 提供归档（写面既有拒绝面沿袭）。运行中 run 已在该 run 内，归档相位为该 run 的尾部（零独立归档链互斥面）。
 
-#### Scenario: 未完成警告确认后照常归档
+#### Scenario: 未完成警告确认后照常进入归档相位
 
-- **WHEN** 打开一个存在 fail 相位（无全相位 non-stale pass）的 active change，点击归档并在确认对话中选择确认
-- **THEN** 对话呈现「工作流未全部通过」警告，确认后归档链照常发起并走通收口；警告不构成阻断
+- **WHEN** 一个存在 fail 相位（无全相位 non-stale pass）的 active change 的 run 到达 archive 前停等面，用户在停等面选择确认
+- **THEN** 停等面呈现「工作流未全部通过」警告，确认后 walker 进入 archive 相位并走通收口；警告不构成阻断
+
+#### Scenario: 未确认不自动归档
+
+- **WHEN** run 走完 8 个路由相位到达 archive 前停等面而用户未确认
+- **THEN** walker 停在 archive 前（stop-before-archive），不进入 archive 相位、零归档变更；run 处于停等态，用户可确认续走或终止
 
 #### Scenario: 已归档与无建档 id 无入口
 
-- **WHEN** 打开已归档 change（archive 树条目）详情，并审查无 db 记录的 id（或存量 CLI change 目录）情形
-- **THEN** 已归档详情无归档按钮；无建档 id 即使经命令面直调也被写面既有拒绝面拒绝（零落账、零目录改动）
-
-#### Scenario: 运行中 run 拒绝归档
-
-- **WHEN** 某 change（复合键 `(root, id)` 在案）的 run 运行中时点击归档发起
-- **THEN** 显式拒绝（呈现运行中原因），归档链零阶段执行、db 与磁盘零变化
+- **WHEN** 打开已归档 change（archive 树条目）详情，并审查无 db 记录的 id 情形
+- **THEN** 已归档 change 的 `phase_next` 路由 done、不再进入 archive 相位；无建档 id 即使经命令面直调也被写面既有拒绝面拒绝（零落账、零目录改动）
 
 ### Requirement: 归档编排链与阶段幂等
 
-归档 SHALL 为确定性编排链（独立于相位 run 状态机），阶段序为：前置校验（建档在案 + status=active + 无运行中 run）→（记录带 worktree）worktree 提交 → 主仓合入（worktree 内 rebase 重放分支至主仓当前分支 + 主仓 ff-only 快进——线性历史零 merge commit）→（delta specs 在场且未被用户跳过）spec 同步 agent → 写面 `archive` 双写收口 → 归档落盘提交。每阶段 SHALL 幂等可重入：**worktree 干净（`status --porcelain` 非空为假）是提交段唯一跳过依据——分支可达性 MUST NOT 构成提交段的跳过分支**（桌面执行相位从不提交，零提交分支 tip = 创建基线，主仓前进即令基线可达 HEAD；以此跳过提交是既有的死法根源）；分支已合入（branch `change/<name>` 已可达主仓 HEAD——用户手动 merge 或前次链半完成的等价吸收）则跳过合入；双写半完成重试走既有续半边（仅补 db 翻转）。delta specs 缺席或用户选择跳过时 SHALL 零同步会话。任一阶段失败 SHALL 显式停在该阶段（错误呈现，MUST NOT 静默跳过或降级），重试自最近未完成阶段续走；已成功阶段不重复执行（合入段失败停链时已落主仓的快进结果不回滚，重试经已合入跳过吸收）。
+归档 SHALL 为 walker 的第 10 个路由相位（`archive`，确定性相位：`PhaseDefinition.executor=None` / `evaluator=None`），10 步有序 step 序列 SHALL 为：`PhaseStart`（开相，attempt max+1 分配）→ `Preflight`（store 读 + vcs 探测的只读校验，detail 携完成度警告 / delta specs 清单 / merge 目标）→ `Commit`（vcs.commit_all，step 内「干净」跳过）→ `Rebase`（vcs.rebase_branch 重放至主仓当前分支，产出冲突清单入 `PhaseCursor.rebase_conflicts`）→ `ResolveConflicts`（条件执行：无冲突 `passed` + `detail` 记「无冲突」；有冲突经解冲突 agent 会话解算）→ `Merge`（vcs.ff_merge 主仓 ff-only 快进）→ `SpecSync`（delta specs 在场且未跳过时 agent 会话，否则 `passed` + `detail` 记跳过）→ `Seal`（经写面 `archive` 双写收口：目录改名 + db status 翻转）→ `Finalize`（vcs.commit_paths 落盘提交，step 内「已落盘」跳过）→ `PhaseLog`（空 report + 空 checklist 落 `verdict=pass` 的 PhaseRecord）。每步 SHALL 幂等可重入：**worktree 干净（`status --porcelain` 非空为假）是 Commit 步唯一跳过依据——分支可达性 MUST NOT 构成 Commit 步的跳过分支**；分支已合入则 Rebase / Merge 步幂等跳过（重放已在目标中的提交显式丢弃、ff-only 快进零 merge commit）；双写半完成重试走写面既有续半边（仅补 db 翻转）。delta specs 缺席或用户选择跳过时 SpecSync SHALL 零会话（`passed` + 跳过因）。任一步失败 SHALL 以 `Terminal` 收口（`on_fail=None` 的步失败即 run 失败），MUST NOT 静默跳过或降级；重试靠 step 内判断短路（干净 / 已合入 / 已落盘 / 双写续半边），已成功步不重复执行。
 
-#### Scenario: 干净 worktree 跳过提交
+#### Scenario: 10 步按序执行
 
-- **WHEN** 对 worktree 内无未提交改动的 change 发起归档链（如用户已手动提交）
-- **THEN** 提交段零动作（不产生空提交），链直达合入段
+- **WHEN** 假引擎 + 假 vcs port + 假写面驱动 archive 相位
+- **THEN** 10 步按序执行：PhaseStart 开相、Preflight 校验、Commit 提交（或干净跳过）、Rebase 重放、ResolveConflicts 条件解算、Merge 快进、SpecSync 同步（或跳过）、Seal 双写、Finalize 落盘（或跳过）、PhaseLog 空 checklist 落账
 
 #### Scenario: 零提交分支脏工作区照常提交合入
 
-- **WHEN** 桌面执行相位全程未提交（分支零提交、tip = 创建基线）且主仓 HEAD 已前进，worktree 内编辑 / staged / change 目录在场，发起归档链
-- **THEN** 提交段照常产生提交（不因基线可达 HEAD 而跳过）、合入段执行快进合入（主仓 HEAD 快进、零 merge commit），链续走同步与双写收口；写面 merge-first 守卫零触发
+- **WHEN** 桌面执行相位全程未提交（分支零提交、tip = 创建基线）且主仓 HEAD 已前进，worktree 内编辑 / staged / change 目录在场
+- **THEN** Commit 步照常产生提交（不因基线可达 HEAD 而跳过）、Rebase 重放 + Merge 快进走通（主仓 HEAD 前移、零 merge commit），写面 merge-first 守卫零触发
 
 #### Scenario: 已合入跳过合入直达收口
 
-- **WHEN** 分支已 merge 回主仓（主仓 active 树已含 `changes/<n>/`）且 worktree 干净后发起归档链
-- **THEN** 提交段零动作（干净跳过）、合入段零动作（已合入跳过），链径直到同步与双写收口
+- **WHEN** 分支已 merge 回主仓（主仓 active 树已含 `changes/<n>/`）且 worktree 干净
+- **THEN** Commit 步零动作（干净跳过）、Rebase / Merge 步幂等跳过（已合入），链径直到 SpecSync / Seal / Finalize 收口
 
-#### Scenario: 阶段失败停等可重试
+#### Scenario: 步失败即 Terminal 收口
 
-- **WHEN** 合入段冲突经解冲突 agent 无法裁决停链（或用户手动处置）后，再次发起归档链
-- **THEN** 已成功的提交段不重复执行（干净跳过），合入段按已合入判定续走（手动 merge 形态幂等吸收），链自最近未完成阶段续走至收口
+- **WHEN** archive 相位某步失败（commit 失败 / rebase 冲突无法裁决 / seal 半完成 / spec_sync 失败）
+- **THEN** 该步以 `Terminal` 收口、run 直接 `Failed`，不唤决策 agent、不触发 phase retry；db 与磁盘保持该步失败前状态；重试经 step 内判断短路续走
 
 ### Requirement: worktree 提交与主仓合入
 
-带 worktree 记录的 change，归档链 SHALL 先在 worktree 内提交本 change 编辑集（git add 范围 = worktree 全域——worktree 为 change 私有执行锚，全域即本 change 编辑集；提交信息派生规则由 design 定稿）：worktree 脏即提交，干净则跳过；worktree 目录缺失且分支已合入（前置校验已拦未合入形态）则跳过。SHALL 随后将 branch `change/<name>` 合入主仓当前分支（HEAD 所在分支），分支已合入则幂等跳过；合入 SHALL 为两段式线性合入：先在 worktree 内以 `rebase --empty=drop` 将分支提交重放至主仓当前分支之上（重放目标 = 主仓当前分支；已在目标中的重放提交显式丢弃），重放完成后在主仓以 `merge --ff-only` 纯快进收口——线性历史零 merge commit。重放冲突时 SHALL 保留冲突态于 worktree（MUST NOT 自动 `rebase --abort`）：冲突判据为 rebase 非零退出且冲突清单非空（`--diff-filter=U` 清单），命中时 SHALL 唤起一个解冲突 agent 会话（cwd = worktree、bypassPermissions、经既有 WorkerAgent 通道）——agent SHALL 仅编辑冲突清单内文件并以 pathspec 纪律收口（只 add 冲突清单，禁止 `add -A`），rebase 收口动词（`rebase --continue` / `rebase --abort`）由归档链代行、agent 无收口权。链 SHALL 对 agent 结果后验（冲突即时 A 快照与收口前 B 快照的 worktree 快照对比）：残留冲突标记、REBASE_HEAD 缺席（agent 违约自行收口或中止 rebase）、或冲突清单之外冒出新的工作区 / staged 改动，即判无法裁决。后验通过后 SHALL 由链代 `rebase --continue` 续走收口（沿用重放提交既定信息）：多提交分支逐提交重放，续走停在下一冲突即以新清单循环解算（冲突文件计数跨停累计），重放完成再快进。无法裁决（agent 失败 / 被停止 / 后验不通过）SHALL 以 lean 档收口：`rebase --abort` 恢复 worktree 干净态 + 链停合入段显式咨询（冲突摘要 + 手动裁决引导——在 worktree 内自行 rebase 解冲突后主仓快进，或主仓手动 merge；用户手动处置后重发归档，已合入判定幂等续走）；rich 档（待裁决态 + 交互咨询面）留后续变更。非冲突失败（rebase 非零退出且冲突清单为空——worktree 状态不允许等）SHALL 尽力 `rebase --abort` 后显式 `Err`（携带 git 语境与手动处置引导）；重放完成而快进失败（重放与快进间主仓前进的竞态）SHALL 显式 `Err` 带重试引导。全程 MUST NOT 强制推送、MUST NOT 改写主仓历史（分支 `change/<name>` 为 change 私有分支，重放对其提交的 SHA 改写不属主仓历史）；主仓无关未提交改动与无关 staged 条目 MUST NOT 被归档链任何自动提交或解冲突 agent 吞并（主仓全程零冲突态——冲突面囚于 worktree）。legacy 记录（`worktree=None`）SHALL 跳过提交与合入两段（主仓工作区编辑的提交仍为用户手动面，语义见 desktop-change-worktree「V1 范围与边界留痕」）。
+带 worktree 记录的 change，archive 相位 SHALL 经四步完成 worktree 提交与主仓合入：`Commit` 步在 worktree 内提交本 change 编辑集（git add 范围 = worktree 全域——worktree 为 change 私有执行锚，全域即本 change 编辑集；提交信息派生规则由 design 定稿），worktree 脏即提交、干净则跳过，worktree 目录缺失且分支已合入则跳过；`Rebase` 步将 branch `change/<name>` 以 `rebase --empty=drop` 重放至主仓当前分支之上（重放目标 = 主仓当前分支；已在目标中的重放提交显式丢弃），重放冲突时 SHALL 保留冲突态于 worktree（MUST NOT 自动 `rebase --abort`），冲突判据为 rebase 非零退出且冲突清单非空（`--diff-filter=U` 清单），命中时产出冲突清单入 `PhaseCursor.rebase_conflicts`；`ResolveConflicts` 步 SHALL 条件执行——无冲突 `passed` + `detail` 记「无冲突」；有冲突时唤起一个解冲突 agent 会话（cwd = worktree、bypassPermissions、经既有 WorkerAgent 通道），agent SHALL 仅编辑冲突清单内文件并以 pathspec 纪律收口（只 add 冲突清单，禁止 `add -A`），rebase 收口动词（`rebase --continue` / `rebase --abort`）由 walker 代行、agent 无收口权；`Merge` 步 SHALL 在主仓以 `merge --ff-only` 纯快进收口——线性历史零 merge commit。walker SHALL 对解冲突 agent 结果后验（REBASE_HEAD 在场 + 冲突标记复查 + 冲突清单外无新改动）：后验通过则 `rebase --continue` 续走、重放完成后快进；后验不通过（agent 失败 / 被停止 / 残留冲突 / REBASE_HEAD 缺席 / 清单外新改动）SHALL 以 lean 档收口（`rebase --abort` 恢复 worktree 干净态 + 步失败 `Terminal` + 冲突摘要与手动裁决引导）；rich 档留后续变更。非冲突失败（rebase 非零退出且冲突清单为空）SHALL 尽力 `rebase --abort` 后 `Terminal`（携带 git 语境与手动处置引导）。全程 MUST NOT 强制推送、MUST NOT 改写主仓历史；主仓无关未提交改动与无关 staged 条目 MUST NOT 被任何自动提交或解冲突 agent 吞并（主仓全程零冲突态——冲突面囚于 worktree）。legacy 记录（`worktree=None`）SHALL 跳过 Commit / Rebase / ResolveConflicts / Merge 四步（主仓工作区编辑的提交仍为用户手动面，语义见 desktop-change-worktree「V1 范围与边界留痕」）。
 
 #### Scenario: 提交合入成功
 
-- **WHEN** 对 dirty worktree 的 change 走归档链至合入段成功
-- **THEN** worktree 产生一个包含本 change 编辑集的提交（零 spec 同步产物——同步段在合入之后），分支重放完成后主仓 ff-only 快进，`openspec/changes/<n>/` 目录在场且主仓 HEAD 前移（零 merge commit）
+- **WHEN** 对 dirty worktree 的 change 走 archive 相位至 Merge 步成功
+- **THEN** Commit 步产生一个包含本 change 编辑集的提交（零 spec 同步产物——SpecSync 在 Merge 之后），Rebase 重放完成后主仓 ff-only 快进，`openspec/changes/<n>/` 目录在场且主仓 HEAD 前移（零 merge commit）
 
 #### Scenario: 冲突 agent 解冲突续链
 
-- **WHEN** 分支重放与主仓当前分支对同一文件有不兼容修改时合入段执行
-- **THEN** 冲突态保留于 worktree（零 abort），解冲突 agent 会话发起（cwd = worktree、provenance 在案）；agent 仅编辑冲突清单内文件并以清单 pathspec 收口，后验通过（REBASE_HEAD 在场、零残留标记、清单外零新改动）后链代 `rebase --continue` 收口并快进，链续走同步与收口；主仓无关改动保持归档前状态
+- **WHEN** 分支重放与主仓当前分支对同一文件有不兼容修改时 Rebase / ResolveConflicts 步执行
+- **THEN** 冲突态保留于 worktree（零 abort），解冲突 agent 会话发起（cwd = worktree、provenance 在案）；agent 仅编辑冲突清单内文件并以清单 pathspec 收口，后验通过（REBASE_HEAD 在场、零残留标记、清单外零新改动）后 walker 代 `rebase --continue` 收口并快进；主仓无关改动保持归档前状态
 
-#### Scenario: 无法裁决 lean 停链咨询
+#### Scenario: 无法裁决 lean 停链
 
 - **WHEN** 解冲突 agent 失败 / 被停止 / 后验发现残留冲突、REBASE_HEAD 缺席或冲突清单外新改动
-- **THEN** 链执行 `rebase --abort` 收口（worktree 恢复重放前干净态、主仓无任何合入态），停合入段呈现冲突摘要与手动裁决引导；db 零变化；用户手动处置（worktree 内自行 rebase 或主仓手动 merge）后重发归档，合入段已合入跳过、链续走至收口
+- **THEN** walker 执行 `rebase --abort` 收口（worktree 恢复重放前干净态、主仓无任何合入态），该步 `Terminal` 呈现冲突摘要与手动裁决引导；db 零变化；用户手动处置后重发 run，已合入跳过、续走至收口
 
 #### Scenario: 非冲突失败显式引导
 
 - **WHEN** rebase 非零退出且冲突清单为空（worktree git 状态不允许等）
-- **THEN** 链尽力 `rebase --abort` 后显式 `Err` 呈现 git 语境与手动处置引导（worktree 语境），零解冲突 agent 会话，db 零变化，链可重试
+- **THEN** walker 尽力 `rebase --abort` 后 `Terminal` 呈现 git 语境与手动处置引导，零解冲突 agent 会话，db 零变化
 
 #### Scenario: 主仓无关改动不吞并
 
-- **WHEN** 主仓预先存在无关未提交文件与无关 staged 条目，归档链全程收口（含解冲突 agent 路径）
+- **WHEN** 主仓预先存在无关未提交文件与无关 staged 条目，archive 相位全程收口（含解冲突 agent 路径）
 - **THEN** 两者保持归档前的 git 状态（未被吞并进任何自动提交或 agent 编辑；主仓全程零冲突态，冲突面囚于 worktree），可机械验证
 
-#### Scenario: legacy 跳过 git 段
+#### Scenario: legacy 跳过 git 步
 
-- **WHEN** 对 `worktree=None` 的存量建档 change 发起归档链
-- **THEN** 零提交零合入动作，链径直经（可选 agent 同步后）双写收口
+- **WHEN** 对 `worktree=None` 的存量建档 change 进入 archive 相位
+- **THEN** Commit / Rebase / ResolveConflicts / Merge 四步零动作，链径直经（可选 SpecSync 后）Seal / Finalize 收口
 
 ### Requirement: spec 同步 agent 与归档链语义自持
 
-delta specs 在场且用户未选择跳过时，归档链 SHALL 在主仓合入段之后发起一个 spec 同步 agent 会话：会话 cwd = 主 workspace root（worktree change 与 legacy 同锚——worktree change 的 delta specs 已随合入进入主仓 active 树，legacy 本就在主仓），同步编辑直接落在主仓主基线。prompt SHALL 逐 capability 将 delta spec 增量合并进 `openspec/specs/<capability>/spec.md` 主基线：`ADDED` 追加（requirement 已存在则更新为与 delta 一致）/ `MODIFIED` 增量应用（新增 scenario、修改列中 scenario、修订描述，不复制既有 scenario）/ `REMOVED` 整块移除 / `RENAMED` 改名，保留 delta 未提及的主 spec 内容，合并幂等（对已同步基线重跑零变化）；capability 主 spec 缺席时创建（简 Purpose + ADDED requirements）。以上增量合并语义 SHALL 以本 requirement 为单源定义（归档链为唯一定义源），spec 与 prompt MUST NOT 引用 CLI skill 文档作为语义或护栏溯源；prompt MUST NOT 依赖 MCP 工具、`__TOOL_ASK_USER__` 或 workflow.json，change 名与路径上下文 SHALL 由桌面插值。会话 SHALL 走既有 WorkerAgent 通道（compose_turn 新会话、CLI 引擎、bypassPermissions、provenance `source="change"` 且 source_ref 携 change id 与归档语义段——`<id>/archive/spec-sync` 形，定式由 design 定稿）、转录可观测（实时 + 重放一致）且可停止（StopRegistry 既有终止面）；路径沙箱前缀校验以主仓 root 为锚，同步编辑囚于主仓内。agent 失败或被停止时链 SHALL 停在同步段：零归档变更（db 零变化、归档树零改名；已完成的提交与合入不回滚），可重试（同步幂等，重试自同步段续走）。
+delta specs 在场且用户未选择跳过时，SpecSync 步 SHALL 在 Merge 步之后发起一个 spec 同步 agent 会话：会话 cwd = 主 workspace root（worktree change 与 legacy 同锚——worktree change 的 delta specs 已随合入进入主仓 active 树，legacy 本就在主仓），同步编辑直接落在主仓主基线。prompt SHALL 逐 capability 将 delta spec 增量合并进 `openspec/specs/<capability>/spec.md` 主基线：`ADDED` 追加（requirement 已存在则更新为与 delta 一致）/ `MODIFIED` 增量应用（新增 scenario、修改列中 scenario、修订描述，不复制既有 scenario）/ `REMOVED` 整块移除 / `RENAMED` 改名，保留 delta 未提及的主 spec 内容，合并幂等（对已同步基线重跑零变化）；capability 主 spec 缺席时创建（简 Purpose + ADDED requirements）。以上增量合并语义 SHALL 以本 requirement 为单源定义（归档相位为唯一定义源），spec 与 prompt MUST NOT 引用 CLI skill 文档作为语义或护栏溯源；prompt MUST NOT 依赖 MCP 工具、`__TOOL_ASK_USER__` 或 workflow.json，change 名与路径上下文 SHALL 由桌面插值。会话 SHALL 走既有 WorkerAgent 通道（compose_turn 新会话、CLI 引擎、bypassPermissions、provenance `source="change"` 且 source_ref 携 change id 与归档步语义段——定式由 design 定稿）、转录可观测（实时 + 重放一致）且可停止（StopRegistry 既有终止面）；路径沙箱前缀校验以主仓 root 为锚，同步编辑囚于主仓内。agent 失败或被停止时该步 SHALL `Terminal`（零归档变更：db 零变化、归档树零改名；已完成的提交与合入不回滚），可重试（同步幂等，重试自 SpecSync 步续走）。无 delta specs 或用户选择跳过时 SpecSync SHALL 零会话、`passed` + `detail` 记跳过因。
 
 #### Scenario: 同步基线为主仓当前 specs
 
 - **WHEN** 主仓 `openspec/specs/<capability>/spec.md` 已被先行的其他 change 归档更新（内容超出本 change worktree 创建基线）
 - **THEN** 同步以主仓当前内容为合并基线（零冻结基线合并产物、零 git 层 spec 反向冲突）
 
-#### Scenario: 同步产物由落盘段提交
+#### Scenario: 同步产物由落盘步提交
 
-- **WHEN** 带 delta specs 的 worktree change 走归档链至收口
-- **THEN** 合入只引入 change 内容（零同步产物——分支重放提交与快进均不含同步产物）；同步产物落主仓工作区，经落盘段扩围 pathspec 提交（见「双写收口与结果摘要」）
+- **WHEN** 带 delta specs 的 worktree change 走 archive 相位至收口
+- **THEN** Rebase / Merge 只引入 change 内容（零同步产物——分支重放提交与快进均不含同步产物）；同步产物落主仓工作区，经 Finalize 步扩围 pathspec 提交（见「Seal 与 Finalize 收口」）
 
 #### Scenario: 无 delta specs 零 agent 会话
 
-- **WHEN** 对无 `specs/` 子树的 change 发起归档链
-- **THEN** 全程零归档 agent 会话记录（provenance 反查为空），链直落 git 段与双写收口；结果摘要 specs 行呈现「无 delta specs」语义
+- **WHEN** 对无 `specs/` 子树的 change 进入 archive 相位
+- **THEN** 全程零归档 agent 会话记录（provenance 反查为空），SpecSync 步 `passed` + 跳过因，链直落 Seal / Finalize 收口
 
 #### Scenario: 增量合并保真与幂等
 
-- **WHEN** agent 对含 `## MODIFIED Requirements` 的 delta spec 执行同步，随后同一链重试再同步一次
+- **WHEN** agent 对含 `## MODIFIED Requirements` 的 delta spec 执行同步，随后同一相位重试再同步一次
 - **THEN** 主 spec 仅按增量语义变化（delta 未提及的 requirement 与 scenario 原样保留），两次同步结果一致（幂等）
 
 #### Scenario: agent 失败停链可重试
 
 - **WHEN** 同步 agent 会话以失败收场（或运行中被用户停止）
-- **THEN** 链停在同步段：db 与归档树零变化（已落主仓的提交与合入保留不回滚）；错误呈现后重试自同步段续走（合入段已合入跳过、同步幂等）成功至收口
+- **THEN** SpecSync 步 `Terminal`：db 与归档树零变化（已落主仓的提交与合入保留不回滚）；错误呈现后重试自 SpecSync 步续走（已合入跳过、同步幂等）成功至收口
 
 ### Requirement: 双写收口与结果摘要
 
-归档链 SHALL 经写面 `archive` 单点收口（desktop-change-state-store「归档双写」零改动复用：主仓 active→archive 目录改名带 `YYYY-MM-DD-<name>` 前缀 + db status 翻转与 archived_at；改名成功翻转失败的重试走续半边）。收口后 UI SHALL 呈现结果摘要：change 名、归档位置（archive 树目录名）、specs 同步与否（已同步 / 无 delta specs / 跳过）、过程警告清单。收口后归档链 SHALL 以 pathspec 圈定自动提交主仓落盘产物：归档改名两路径（active 残迹 + archive 新目录，glob 形态覆盖已删除路径）**与 spec 同步产物路径（本 change delta specs 涉及的 `openspec/specs/<capability>` 子树——全树通配为禁区，无关 specs 的用户未提交编辑 MUST NOT 被吞并）**；脏探测为零则跳过（幂等面）。归档完成后详情页 SHALL 回到已归档形态（入口不再呈现）。
+archive 相位 SHALL 经 Seal 步复用写面 `archive` 单点收口（desktop-change-state-store「归档双写」零改动复用：主仓 active→archive 目录改名带 `YYYY-MM-DD-<name>` 前缀 + db status 翻转与 archived_at；改名成功翻转失败的重试走续半边），随后 Finalize 步 SHALL 以 pathspec 圈定自动提交主仓落盘产物：归档改名两路径（active 残迹 + archive 新目录，glob 形态覆盖已删除路径）**与 spec 同步产物路径（本 change delta specs 涉及的 `openspec/specs/<capability>` 子树——全树通配为禁区，无关 specs 的用户未提交编辑 MUST NOT 被吞并）**；脏探测为零则跳过（幂等面）。归档完成后详情页 SHALL 回到已归档形态（`phase_next` 路由 done，归档列全史常驻上图）。
 
-#### Scenario: 收口摘要呈现
+#### Scenario: 收口走通
 
-- **WHEN** 归档链双写收口成功
-- **THEN** 详情页呈现结果摘要（名 / 归档目录 / specs 同步状态 / 警告），db status=archived、主仓目录已带日期前缀改名，归档按钮不再呈现
+- **WHEN** archive 相位 Seal / Finalize 步成功
+- **THEN** db status=archived、主仓目录已带日期前缀改名、落盘提交覆盖归档两路径与 delta capability 主 specs 路径；详情页回到已归档形态
 
 #### Scenario: 落盘提交扩围含同步产物
 
-- **WHEN** 带 delta specs 的 change 归档链收口后落盘段执行（主仓 specs 路径脏探测为真）
+- **WHEN** 带 delta specs 的 change archive 相位 Finalize 步执行（主仓 specs 路径脏探测为真）
 - **THEN** 归档改名与主 spec 更新同在落盘提交内（pathspec = 归档两路径 + delta capability 主 specs 路径）；用户对无关 specs 文件的未提交编辑与主仓无关改动原样保留（未被吞并）
 
 #### Scenario: 半完成重试仅补翻转
 
-- **WHEN** 收口段目录改名成功而 db 翻转失败后重试归档链
-- **THEN** 前置与 git 段按幂等跳过，收口经续半边仅补 db 翻转（不重复改名），摘要照常呈现
+- **WHEN** Seal 步目录改名成功而 db 翻转失败后重试 archive 相位
+- **THEN** 前置与 git 步按幂等跳过，Seal 经续半边仅补 db 翻转（不重复改名），Finalize 已落盘跳过
 
-### Requirement: run 面隔离与互斥
+### Requirement: 归档作为 run 相位与手动门
 
-归档链 SHALL 独立于相位 run 状态机：全程零 `RunUpdate` / `ConfirmWait` / ask 事件，walker、相位机与运行控制命令面零改动；run 收口「Ready for archiving」停等语义不变，MUST NOT 自动触发归档（用户点击是归档唯一发起源）。归档链进行中 SHALL 拒绝该 change 的 run 发起（互斥登记载体由 design 定稿）；反向（运行中 run 拒绝归档发起）见「归档入口与前置确认面」。
+archive 相位 SHALL 是 run 状态机的一部分（第 10 个路由相位），零独立归档链事件面：归档节点 / 边走当前 run 的 `RunNodeRecord` / `RunEdgeRecord` 整包落库，归档实时流经既有 `RunUpdate` / `RunNotice` 变更通知（`archive_flow` 独立 `ArchiveUpdate` / `ArchiveSink` 退役）。「独立手动执行」SHALL 由 stop-before-archive 停等面承载：run 走完 8 个路由相位后 SHALL 停在 archive 前，MUST NOT 自动推进进入 archive 相位；用户显式确认后才进入 archive 相位；archive 相位完成后 run 才 `completed`（"Ready for archiving" 停等语义改写为「等待确认进入归档」）。归档相位的停止 SHALL 复用 run 的停止命令（停止 run 自然停归档相位）。
 
-#### Scenario: 归档链零 run 事件
+#### Scenario: 归档节点进 run 执行图
 
-- **WHEN** 归档链全程执行（含 agent 同步段）
-- **THEN** run 状态通道零新事件，流程图与运行控制面板不因归档链变化；run 收口文案与停等语义逐字不变
+- **WHEN** archive 相位一次 run 收口后查询执行图
+- **THEN** 归档 10 步节点与串行 forward 边落当前 run 的 `RunNodeRecord` / `RunEdgeRecord`（零新表、零独立归档链事件），详情页 refresh 后归档列全史常驻
 
-#### Scenario: 归档中 run 发起被拒
+#### Scenario: 停等面承载手动门
 
-- **WHEN** 归档链进行中对该 change 调运行控制命令面发起 run
-- **THEN** 显式拒绝（呈现归档进行中原因），不进入运行态、零落账
+- **WHEN** run 走完 8 个路由相位到达 archive 前
+- **THEN** 停等面呈现，用户确认后进入 archive 相位；run 未确认前不 completed、不归档；停止 run 自然停在 archive 前（零独立归档链停止命令）
 
 ### Requirement: V1 范围与边界留痕
 
 以下边界 SHALL 作为 V1 显式限制留痕（后续变更偿还，不由实现隐式吸收）：
 
-1. **worktree / branch 清理仍手动**：归档链成功后不执行 `git worktree remove` / `git branch -d`（清理为用户手动边界，desktop-change-worktree 既有裁定维持）；桌面 cleanup 按钮留后续变更。
-2. **legacy 提交面手动**：`worktree=None` change 的主仓编辑提交仍由用户手动完成，归档链不代劳。
-3. **主 spec 同步仅归档时**：specs 基线同步只发生在归档链内；run 相位期间不做主基线同步（proposal 相位只写 change 目录内 delta）。
-4. **归档链不处理主仓无关改动**：主仓无关未提交 / staged 内容原样保留，处置归用户。
-5. **无 delta specs 不触碰主 spec**：缺席 delta specs 时主基线零变更（摘要注明）。
+1. **worktree / branch 清理仍手动**：archive 相位成功后不执行 `git worktree remove` / `git branch -d`（清理为用户手动边界，desktop-change-worktree 既有裁定维持）；桌面 cleanup 按钮留后续变更。
+2. **legacy 提交面手动**：`worktree=None` change 的主仓编辑提交仍由用户手动完成，archive 相位不代劳。
+3. **主 spec 同步仅归档时**：specs 基线同步只发生在 archive 相位的 SpecSync 步；run 的其余相位不做主基线同步（proposal 相位只写 change 目录内 delta）。
+4. **archive 相位不处理主仓无关改动**：主仓无关未提交 / staged 内容原样保留，处置归用户。
+5. **无 delta specs 不触碰主 spec**：缺席 delta specs 时主基线零变更（SpecSync 步跳过因注记）。
+6. **归档无 evaluator 无 checklist**：archive 相位不落评估 checklist（空 checklist 落账仅为「相位已 pass」的 PhaseRecord 标记，非评估证据面）。
 
 #### Scenario: 边界留痕可考
 
 - **WHEN** 查阅本 spec
-- **THEN** 五条边界均可考，后续变更无需重新论证是否知情
+- **THEN** 六条边界均可考，后续变更无需重新论证是否知情
 
 ### Requirement: 版本交付
 
-本变更 SHALL 将 `packages/desktop/package.json` 的 `version` 由 `0.4.25` 升级为 `0.4.26`（`src-tauri/tauri.conf.json` 经 `../package.json` 自动跟随，`src-tauri/Cargo.toml` 版本不随动）。本变更 SHALL NOT 变更 `plugins/dev-team`（版本保持 `2.10.44`；CLI skill 的下线处置另行变更承载，本变更仅在 spec / prompt 面摘除对其的语义依赖）。留痕：2026-10-09 归档合入段 rebase 化（archive-rebase-merge 探索定案）经用户指示免 change 流程直接修订本 capability（主仓合入改为 worktree 内重放 + 主仓 ff-only 快进，见「worktree 提交与主仓合入」），desktop 版本随之 `0.4.26` → `0.4.27`。
+本变更 SHALL 将 `packages/desktop/package.json` 的 `version` 由 `0.4.36` 升级为 `0.4.37`（`src-tauri/tauri.conf.json` 经 `../package.json` 自动跟随，`src-tauri/Cargo.toml` 版本不随动）。本变更 SHALL NOT 变更 `plugins/dev-team`（版本保持 `2.10.44`；CLI skill 的下线处置另行变更承载，本变更仅在 spec / prompt 面摘除对其的语义依赖）。
 
 #### Scenario: 版本号升级与插件零改动
 
 - **WHEN** 本变更实现完成
-- **THEN** `packages/desktop` version 为 0.4.26 且 `src-tauri/Cargo.toml` 版本不随动；`plugins/dev-team` version 仍为 2.10.44，SKILL.md 原文未动
+- **THEN** `packages/desktop` version 为 0.4.37 且 `src-tauri/Cargo.toml` 版本不随动；`plugins/dev-team` version 仍为 2.10.44，SKILL.md 原文未动
 
 ## Module Contract
 

@@ -10,28 +10,28 @@
 
 desktop 的 change 流程状态 SHALL 以 workspace 库（app-data `workspaces/` 子树 per-root db 文件）为唯一载体，状态 SHALL NOT 再驻 `openspec/changes/<name>/workflow.json`。store SHALL 维护七个 workspace 维度模型（落所属 workspace 库，native_model 版本治理，时间戳 i64 UTC unix millis 口径）：
 
-- `ChangeRecord`：`id`（String 主键，建档铸出的稳定唯一标识——UUID 形态，身份锚，终身恒定不复用）、`name`（String，change 名，恒裸名——可变属性，MUST NOT 作身份键）、`title`（String，人类可读标题，恒非空——创建 / 升级默认 = name，promote 路径继承 explore.title）、`workflow_type`、`created_at`、`status`（`active` | `archived`）、`archived_at`（Option）、`active_phase`（Option：phase / attempt / start_at）、`worktree`（Option：该 change 分配的 worktree 绝对路径；None = legacy 主 root change，存量语义，见 desktop-change-worktree）、`base_commit`（Option：创建基线 fork 点，调试 / UI 价值）；
+- `ChangeRecord`：`id`（String 主键，建档铸出的稳定唯一标识——UUID 形态，身份锚，终身恒定不复用）、`name`（String，change 名，恒裸名——可变属性，MUST NOT 作身份键）、`title`（String，人类可读标题，恒非空——创建 / 升级默认 = name，promote 路径继承 explore.title）、`workflow_type`、`created_at`、`status`（`active` | `archived`）、`archived_at`（Option）、`active_phase`（Option：phase / attempt / start_at）、`worktree`（Option：该 change 分配的 worktree 绝对路径；None = legacy 主 root change）、`base_commit`（Option：创建基线 fork 点）；
 - `PhaseRecord`：`id`（i64 主键，写事务内 max+1 分配）、`change_id`（二级索引，指向 `ChangeRecord.id`）、`phase`、`attempt`、`verdict`、`report`（内联 ≤2000 字）、`skipped`、`stale`、`backtrack_to` / `backtrack_reason`、executor / evaluator / decision 三会话槽位（Option）、`start_at`、`timestamp`；
-- `ChecklistItemRecord`：打包主键 `(phase_id as u128) << 64 | item_index`（同相位内 item 序即自然序）、`phase_id` 二级索引、`item` / `pass` / `evidence`；
+- `ChecklistItemRecord`：打包主键 `(phase_id as u128) << 64 | item_index`、`phase_id` 二级索引、`item` / `pass` / `evidence`；
 - `StepRecord`：`run_id`、`change_id`、`step_kind`（封闭集：`phase_next` | `phase_start` | `phase_log` | `backtrack` | `decision_log` | `static_check` | `test_execution`）、`status`、时间戳、有界输出摘要；
-- `RunRecord`：`run_id`（String 主键，即 walker 既有 run id 词汇）、`change_id`（二级索引）、`status`（`running` | `completed` | `stopped` | `failed` | `interrupted`）、`reason`（Option）、`started_at` / `finished_at`（Option）——run 运行史主行，形态细则见「run 执行图落库」；
-- `RunNodeRecord`：`run_id`（二级索引）、`change_id`、稳定身份键 `(phase, attempt, step, instance_no)`、`step_kind`（**全词汇封闭集**：`executor` | `evaluator` | `decision` | `static_check` | `test_execution` | `phase_start` | `phase_log` | `verdict_gate` | `retry_gate` | `whitelist_gate`）、`status`、`session_id`（Option，WorkerAgent 步）、`detail`（Option，有界）、`output_ref`（Option，`ExecOutput::Recorded { exec_id }` 引用）、时间戳——run 执行图节点行，形态细则见「run 执行图落库」；
-- `RunEdgeRecord`：`run_id`（二级索引）、`from_node_key`（二级索引，指向源节点身份键）、`to_node_key`、`edge_kind`（封闭集：`forward` | `feedback` | `retry` | `backtrack`）、时间戳——run 执行图边行，形态细则见「run 执行图落库」。
+- `RunRecord`：`run_id`（String 主键）、`change_id`（二级索引）、`status`（`running` | `completed` | `stopped` | `failed` | `interrupted`）、`reason`（Option）、`started_at` / `finished_at`（Option）；
+- `RunNodeRecord`：`run_id`（二级索引）、`change_id`、稳定身份键 `(phase, attempt, step, instance_no)`、`step_kind`（**全词汇封闭集十八值**：`executor` | `evaluator` | `decision` | `static_check` | `test_execution` | `phase_start` | `phase_log` | `verdict_gate` | `retry_gate` | `whitelist_gate` | `preflight` | `commit` | `rebase` | `resolve_conflicts` | `merge` | `spec_sync` | `seal` | `finalize`）、`status`、`session_id`（Option，WorkerAgent 步）、`detail`（Option，有界）、`output_ref`（Option，`ExecOutput::Recorded { exec_id }` 引用）、时间戳；
+- `RunEdgeRecord`：`run_id`（二级索引）、`from_node_key`（二级索引）、`to_node_key`、`edge_kind`（封闭集：`forward` | `feedback` | `retry` | `backtrack`）、时间戳。
 
-`ChangeRecord` 的身份换锚（name 主键 → id 主键 + name 属性）SHALL 经 native_model 版本段演进（表名含模型版本与主键段，旧形态表对新读面不可见），旧形态库由 store 格式版本机制整体作废重建（见 desktop-workspace-store「workspace 库格式版本与旧库作废重建」）；MUST NOT 保留 name → id 的迁移链、解码链或手工迁移步骤（旧形态行整体作废，无迁移语义承载对象），`ChangeRecordV1` 缺列读解码链随身份换锚退役。`title` 字段 SHALL 经 native_model 版本升级（v3→v4 decode-only：`from = ChangeRecordV3`，旧记录自动升级读出 `title = name`，AgentProviderRecord / ExploreRecord 加字段先例同模式）原地演进，MUST NOT 手工迁移或 legacy 迁移层；存量库 SHALL additive 打开。`worktree` 字段为执行锚引用（读面与 run 组合消费，见 desktop-change-worktree / desktop-change-orchestration），MUST NOT 反向影响库身份锚定：workspace 库路径派生仍恒以 workspace root 为锚。
+`ChangeRecord` 的身份换锚（name 主键 → id 主键 + name 属性）SHALL 经 native_model 版本段演进（表名含模型版本与主键段，旧形态表对新读面不可见），旧形态库由 store 格式版本机制整体作废重建；MUST NOT 保留 name → id 的迁移链、解码链或手工迁移步骤。`title` 字段 SHALL 经 native_model 版本升级（v3→v4 decode-only）原地演进。`worktree` 字段为执行锚引用，MUST NOT 反向影响库身份锚定。
 
-**执行图 model 重设计（不计历史兼容）**：`RunStepRecord`（`seq` + 五词汇 + 10→5 过滤）整体退役，`RunNodeRecord` / `RunEdgeRecord` 取代之；旧形态行经 store 格式版本 bump 整体作废重建，MUST NOT 保留 `RunStepRecord` → `RunNodeRecord` 迁移链 / 解码链 / 手工迁移步骤。
+**执行图 model 重设计（不计历史兼容）**：`RunStepRecord`（`seq` + 五词汇 + 10→5 过滤）整体退役，`RunNodeRecord` / `RunEdgeRecord` 取代之；本变更在此基础上把 `step_kind` 全词汇由十值扩为十八值（新增 8 个归档步词），归档节点复用 `RunNodeRecord`（零新表），MUST NOT 保留归档独立落库表。
 
-**双向墙**：desktop 全链（写面 / 查询 / 编排 / 命令 / 前端）MUST NOT 读或写任何 `workflow.json`——db-backed change 对 CLI 工作流不可见，反向亦然；磁盘 change 目录只承载 markdown 产物（proposal / design / tasks / specs / reports / explore；对 worktree change 该目录位于其 worktree 内，merge 前不在主仓）。存量 CLI change（有 workflow.json 无 db 记录）SHALL 零迁移零触碰——目录与文件字节原样；desktop MUST NOT 发现、入列或展示其任何形态（清单与详情均为 db 单源，见 desktop-change-queries），MUST NOT 为其建档。
+**双向墙**：desktop 全链（写面 / 查询 / 编排 / 命令 / 前端）MUST NOT 读或写任何 `workflow.json`；磁盘 change 目录只承载 markdown 产物。存量 CLI change（有 workflow.json 无 db 记录）SHALL 零迁移零触碰。
 
 #### Scenario: 状态回环读写
 
-- **WHEN** 对某 workspace 建档 change（携铸出 id、裸名与 title）并推进若干相位（phase_log 落 eval 与 checklist、backtrack 落 stale 标记）后关闭并重开同一 db 文件查询
-- **THEN** ChangeRecord / PhaseRecord / ChecklistItemRecord / StepRecord / RunRecord / RunNodeRecord / RunEdgeRecord 逐字段与写入一致（含 title、三会话槽位、worktree 与 base_commit、时间戳原值），状态查询不依赖任何磁盘 workflow.json
+- **WHEN** 对某 workspace 建档 change 并推进若干相位（含 archive 相位空 checklist 落账）后关闭并重开同一 db 文件查询
+- **THEN** ChangeRecord / PhaseRecord / ChecklistItemRecord / StepRecord / RunRecord / RunNodeRecord / RunEdgeRecord 逐字段与写入一致（含 title、三会话槽位、worktree 与 base_commit、归档 8 个步词、时间戳原值），状态查询不依赖任何磁盘 workflow.json
 
 #### Scenario: 双向墙机械可验
 
-- **WHEN** 扫描 desktop 全部源码（core / infra / commands / views）对 `workflow.json` 的读与写触点
+- **WHEN** 扫描 desktop 全部源码对 `workflow.json` 的读与写触点
 - **THEN** 零触点（测试夹具内的字面量除外）；parse 模块已删除，desktop 不再解析该文件
 
 #### Scenario: 历史 CLI change 零发现零触碰
@@ -42,17 +42,17 @@ desktop 的 change 流程状态 SHALL 以 workspace 库（app-data `workspaces/`
 #### Scenario: 旧形态数据零可达与解码链退役
 
 - **WHEN** 打开含旧形态 `ChangeRecord` 行（name 主键）或旧 `RunStepRecord` 行的存量 workspace 库并查询
-- **THEN** 打开成功且零报错；作废重建后新库为空（旧 change / run / 会话 / 步数据零残留，语义见 desktop-workspace-store）；模型源码零 name → id 迁移链 / `RunStepRecord` → `RunNodeRecord` 迁移链 / 解码链 / 手工迁移步骤
+- **THEN** 打开成功且零报错；作废重建后新库为空（旧 change / run / 会话 / 步数据零残留）；模型源码零 name → id 迁移链 / `RunStepRecord` → `RunNodeRecord` 迁移链 / 解码链 / 手工迁移步骤
+
+#### Scenario: worktree 字段不反噬库身份
+
+- **WHEN** 某 workspace 存在带 worktree 记录的 change，重开其 workspace 库
+- **THEN** db 文件路径仍由 workspace root 身份派生，worktree 路径仅作为记录字段被读取，从不参与库路径派生
 
 #### Scenario: 存量 v3 记录 title decode-only 升级
 
 - **WHEN** 打开含 v3 形态 `ChangeRecord`（无 `title` 字段）的存量 workspace 库并查询
 - **THEN** 记录经 native_model 版本机制自动升级可读，`title` 读出 = `name`，无手工迁移步骤、无 legacy 迁移层；新建档记录 `title` 按写入回读一致
-
-#### Scenario: worktree 字段不反噬库身份
-
-- **WHEN** 某 workspace 存在带 worktree 记录的 change，重开其 workspace 库
-- **THEN** db 文件路径仍由 workspace root 身份派生（`workspaces/` 子树），worktree 路径仅作为记录字段被读取，从不参与库路径派生
 
 ### Requirement: 相位机写面单事务落库
 
@@ -75,11 +75,11 @@ desktop 的 change 流程状态 SHALL 以 workspace 库（app-data `workspaces/`
 
 ### Requirement: 归档双写
 
-写面 SHALL 提供 `archive` 操作：db `ChangeRecord.status` 翻转为 `archived`（附 `archived_at`）与主仓 active→archive 目录改名（`YYYY-MM-DD-<name>` 日期前缀）SHALL 以同一提交语义完成（双写顺序与失败补偿由 design 定稿）；`ChangeRecord.id` 与 `name` MUST NOT 随目录改名变化（db 身份与磁盘目录名解耦——目录名带日期前缀、name 恒裸名、寻址恒经 id）。对带 worktree 记录的 change，归档 SHALL 以主仓目录在场为前置：主仓 active / archive 两树均未命中该目录时 SHALL 显式拒绝并引导「先 merge worktree 分支回主仓再归档」（merge-first 语义见 desktop-change-worktree；归档编排链对前置的自动满足路径见 desktop-change-archive）；merge 后主仓目录在场，既有双写语义零特判。**双写操作本体** MUST NOT 触碰 worktree / branch（清理为用户手动边界）；归档编排链（desktop-change-archive）前置段的 worktree 提交与主仓合入不属双写本体，且双写收口 SHALL 保持归档链末段唯一收口触点身份（单点复用、语义零改动）。对无 db 记录的 change（id 不可达）MUST NOT 提供归档（显式拒绝）。IPC 面 SHALL 提供对应薄命令（三件事纪律，`Result<T, String>`）。
+写面 SHALL 提供 `archive` 操作：db `ChangeRecord.status` 翻转为 `archived`（附 `archived_at`）与主仓 active→archive 目录改名（`YYYY-MM-DD-<name>` 日期前缀）SHALL 以同一提交语义完成（双写顺序与失败补偿由 design 定稿）；`ChangeRecord.id` 与 `name` MUST NOT 随目录改名变化（db 身份与磁盘目录名解耦）。对带 worktree 记录的 change，归档 SHALL 以主仓目录在场为前置：主仓 active / archive 两树均未命中该目录时 SHALL 显式拒绝并引导「先 merge worktree 分支回主仓再归档」（merge-first 语义见 desktop-change-worktree；archive 相位对前置的自动满足路径见 desktop-change-archive）；merge 后主仓目录在场，既有双写语义零特判。**双写操作本体** MUST NOT 触碰 worktree / branch（清理为用户手动边界）；archive 相位（desktop-change-archive）的 Commit / Rebase / ResolveConflicts / Merge 步不属双写本体，且双写收口 SHALL 由 archive 相位的 Seal 步复用（单点复用、语义零改动）。对无 db 记录的 change（id 不可达）MUST NOT 提供归档（显式拒绝）。归档经 run 的 archive 相位收口，独立 IPC 薄命令（`archive_change`）的保留形态由 design 定稿（写面操作本体不变，命令面收编进 `change_flow`）。
 
 #### Scenario: 双写一致
 
-- **WHEN** 对已建档 change 按 id 调用归档命令成功
+- **WHEN** archive 相位 Seal 步按 id 调用写面归档成功
 - **THEN** db status 为 `archived` 且 `archived_at` 在案，主仓磁盘目录已迁移至 archive 树并带日期前缀，两者任一不存在即视为失败
 
 #### Scenario: 主键与 name 不随改名变
@@ -89,12 +89,12 @@ desktop 的 change 流程状态 SHALL 以 workspace 库（app-data `workspaces/`
 
 #### Scenario: 未 merge 的 worktree change 归档被引导拒绝
 
-- **WHEN** 对带 worktree 记录且主仓 active / archive 两树均未命中目录的 change 发起归档
+- **WHEN** 对带 worktree 记录且主仓 active / archive 两树均未命中目录的 change 直接调用归档写面
 - **THEN** 显式拒绝且错误文案引导先 merge worktree 分支（非泛化「目录未找到」），db 与磁盘零变化
 
 #### Scenario: 双写本体零 worktree / branch 触碰
 
-- **WHEN** 归档链末段双写收口执行（其前置段已由 desktop-change-archive 完成提交与合入）
+- **WHEN** archive 相位 Seal 步双写收口执行（其前置 git 步已由 walker 完成）
 - **THEN** 双写操作自身仅做目录改名与 db 翻转：零 `git worktree` / `git branch` 调用、零 worktree / branch 状态变更（清理仍为用户手动边界）
 
 #### Scenario: 无建档 id 拒绝归档
@@ -123,13 +123,13 @@ desktop 的 change 流程状态 SHALL 以 workspace 库（app-data `workspaces/`
 
 ### Requirement: run 执行图落库
 
-run 状态 SHALL 落 workspace 库（`RunRecord` / `RunNodeRecord` / `RunEdgeRecord` 三表，`change_id` 归键，全史保留不截 last_run——多次 run 全量留存为运行史审计面；attempt 经 `phase_start` max+1 分配跨 run 不撞号）。写时序 SHALL 为**每 run 两写**：run 行 SHALL 在 run 发起时以 `status=running` 建立（支撑启动标定），run 收口时 SHALL 以终态更新（status / reason / finished_at）+ 该 run 全部节点 + 边整包**单事务**落库；MUST NOT 每步写放大（无每步写事务）。run 收口同事务处置 `ChangeRecord.active_phase` SHALL 以 `change_id` 定位记录（归键换锚不改处置语义）。
+run 状态 SHALL 落 workspace 库（`RunRecord` / `RunNodeRecord` / `RunEdgeRecord` 三表，`change_id` 归键，全史保留不截 last_run；attempt 经 `phase_start` max+1 分配跨 run 不撞号）。写时序 SHALL 为**每 run 两写**：run 行 SHALL 在 run 发起时以 `status=running` 建立，run 收口时 SHALL 以终态更新 + 该 run 全部节点 + 边整包**单事务**落库；MUST NOT 每步写放大。run 收口同事务处置 `ChangeRecord.active_phase` SHALL 以 `change_id` 定位记录。
 
-执行图节点 SHALL 为**全词汇封闭集单点定义**：`RunNodeRecord` 落全部十类步词汇（agent 阶段 `executor` / `evaluator` / `decision`、脚本阶段 `static_check` / `test_execution`、流程面步骤 `phase_start` / `phase_log`、三门 gate `verdict_gate` / `retry_gate` / `whitelist_gate`），MUST NOT 过滤（`persisted_step` 10→5 过滤与 `RunStepRecord.seq` 退役）。节点身份键 SHALL 为 `(run_id, phase, attempt, step, instance_no)`（`instance_no` 每次执行递增，feedback 重跑为独立新节点）。`RunNodeRecord` 的 `session_id`（WorkerAgent 步）/ `detail`（人读记因 / 摘要，有界截断）/ `output_ref`（`ExecOutput::Recorded { exec_id }` 引用，见 desktop-checks-domain）SHALL 随行落库。
+执行图节点 SHALL 为**全词汇封闭集单点定义**：`RunNodeRecord` 落全部十八类步词汇（agent 阶段 `executor` / `evaluator` / `decision`、脚本阶段 `static_check` / `test_execution`、流程面步骤 `phase_start` / `phase_log`、三门 gate `verdict_gate` / `retry_gate` / `whitelist_gate`、归档步 `preflight` / `commit` / `rebase` / `resolve_conflicts` / `merge` / `spec_sync` / `seal` / `finalize`），MUST NOT 过滤。节点身份键 SHALL 为 `(run_id, phase, attempt, step, instance_no)`（`instance_no` 每次执行递增，feedback 重跑为独立新节点）。`RunNodeRecord` 的 `session_id` / `detail` / `output_ref` SHALL 随行落库。
 
-执行图边 SHALL 单独落 `RunEdgeRecord`：`edge_kind ∈ { forward, feedback, retry, backtrack }`，`from_node_key` / `to_node_key` 指向节点身份键；`run_id` 二级索引（按 run 全量读边）与 `from_node_key` 二级索引（按 from_node 读后继）SHALL 均在案。前端 `deriveEdges` 列差 Δ 派生 SHALL 退役（读边表）。
+执行图边 SHALL 单独落 `RunEdgeRecord`：`edge_kind ∈ { forward, feedback, retry, backtrack }`，`from_node_key` / `to_node_key` 指向节点身份键；`run_id` 二级索引与 `from_node_key` 二级索引 SHALL 均在案。前端 `deriveEdges` 列差 Δ 派生 SHALL 退役（读边表）。
 
-`RunNodeRecord` / `RunEdgeRecord` SHALL 与既有 `StepRecord` 审计面**职责分立**：StepRecord 为相位机步骤审计行（职责与词汇不变，见「步骤审计落库可查」），RunNodeRecord / RunEdgeRecord 为执行图节点史 + 边史；两表 MUST NOT 互为替代，词汇重叠项（`static_check` / `test_execution` / decision 面）SHALL 各自单点、MUST NOT 双写同一语义行。run 中途崩溃（无 finish 落包）SHALL 丢该 run 节点 / 边史——start 行经启动标定可见（见「启动标定与 active_phase 悬挂处置」），为既定权衡留痕，MUST NOT 以每步写透补偿。
+`RunNodeRecord` / `RunEdgeRecord` SHALL 与既有 `StepRecord` 审计面**职责分立**：StepRecord 为相位机步骤审计行，RunNodeRecord / RunEdgeRecord 为执行图节点史 + 边史；两表 MUST NOT 互为替代。run 中途崩溃（无 finish 落包）SHALL 丢该 run 节点 / 边史——start 行经启动标定可见，为既定权衡留痕。
 
 #### Scenario: 两写时序与零写放大
 
@@ -143,8 +143,13 @@ run 状态 SHALL 落 workspace 库（`RunRecord` / `RunNodeRecord` / `RunEdgeRec
 
 #### Scenario: 全词汇与稳定身份键
 
-- **WHEN** 一次 run 覆盖全部十类步词汇（含 phase_start / phase_log / 三门 gate 与 feedback 重跑）后查询 run_nodes / run_edges
-- **THEN** 十类词汇全落 RunNodeRecord（零过滤）；身份键 `(run_id, phase, attempt, step, instance_no)` 稳定唯一，feedback 重跑为 `instance_no` 递增新节点；边表 feedback / retry / backtrack / forward 四 kind 齐备
+- **WHEN** 一次 run 覆盖全部十八类步词汇（含 phase_start / phase_log / 三门 gate、8 个归档步与 feedback 重跑）后查询 run_nodes / run_edges
+- **THEN** 十八类词汇全落 RunNodeRecord（零过滤）；身份键 `(run_id, phase, attempt, step, instance_no)` 稳定唯一，feedback 重跑为 `instance_no` 递增新节点；边表 feedback / retry / backtrack / forward 四 kind 齐备
+
+#### Scenario: 归档步复用 RunNodeRecord
+
+- **WHEN** archive 相位一次 run 收口后查询
+- **THEN** 归档 8 个新步词节点与 PhaseStart / PhaseLog 全落 RunNodeRecord（零新表、零 archive 独立落库），串行 forward 边落 RunEdgeRecord
 
 #### Scenario: 边表两向查询
 
@@ -154,12 +159,12 @@ run 状态 SHALL 落 workspace 库（`RunRecord` / `RunNodeRecord` / `RunEdgeRec
 #### Scenario: 全史保留与跨 run 不撞号
 
 - **WHEN** 同一 change（同一 id）先后发起两次 run（第二次自续走锚点推进）
-- **THEN** 两 run 的 RunRecord 与各自 RunNodeRecord / RunEdgeRecord 全量在库，同 phase 的 attempt 经 max+1 分配递增不撞号，按 `(run_id, phase, attempt, step, instance_no)` 可稳定分层枚举
+- **THEN** 两 run 的 RunRecord 与各自 RunNodeRecord / RunEdgeRecord 全量在库，同 phase 的 attempt 经 max+1 分配递增不撞号
 
 #### Scenario: 崩溃丢节点边史为既定权衡
 
 - **WHEN** run 运行中途进程被 kill（finish 落包未达）后重启查询
-- **THEN** 该 run 的 RunRecord 经启动标定为 interrupted、其 RunNodeRecord / RunEdgeRecord 零行（过程史不可回放），attempt 级评估史仍可达自 PhaseRecord；库中无每步写透补偿痕迹
+- **THEN** 该 run 的 RunRecord 经启动标定为 interrupted、其 RunNodeRecord / RunEdgeRecord 零行；attempt 级评估史仍可达自 PhaseRecord；库中无每步写透补偿痕迹
 
 ### Requirement: 启动标定与 active_phase 悬挂处置
 
