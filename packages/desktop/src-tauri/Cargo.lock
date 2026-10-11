@@ -2921,6 +2921,7 @@ dependencies = [
 name = "exec"
 version = "0.1.0"
 dependencies = [
+ "foundation",
  "tempfile",
  "tokio",
 ]

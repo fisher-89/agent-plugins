@@ -1057,8 +1057,12 @@ fn 十一模型注册workspace组全覆盖_新id与既有id无冲突_list_models
             <crate::model::RunRecord as native_model::Model>::native_model_version(),
         ),
         (
-            <crate::model::RunStepRecord as native_model::Model>::native_model_id(),
-            <crate::model::RunStepRecord as native_model::Model>::native_model_version(),
+            <crate::model::RunNodeRecord as native_model::Model>::native_model_id(),
+            <crate::model::RunNodeRecord as native_model::Model>::native_model_version(),
+        ),
+        (
+            <crate::model::RunEdgeRecord as native_model::Model>::native_model_id(),
+            <crate::model::RunEdgeRecord as native_model::Model>::native_model_version(),
         ),
         (
             <crate::model::StoreMetaRecord as native_model::Model>::native_model_id(),
@@ -1067,8 +1071,12 @@ fn 十一模型注册workspace组全覆盖_新id与既有id无冲突_list_models
     ];
     assert_eq!(
         workspace_group.map(|(id, _)| id),
-        [2, 7, 8, 4, 9, 10, 11, 12, 13, 14, 15],
-        "workspace 组注册 10 → 11：run 史两模型 + 库级格式版本标记一模型入册"
+        [2, 7, 8, 4, 9, 10, 11, 12, 13, 16, 17, 15],
+        "workspace 组注册：run 执行图节点 / 边两模型入册（id 14 RunStepRecord 退役，\n         id 16/17 增补）"
+    );
+    assert!(
+        !workspace_group.iter().any(|(id, _)| *id == 14),
+        "RunStepRecord 注册摘除（id 14 退役）"
     );
     let mut ids: Vec<u32> = workspace_group
         .iter()
@@ -1722,8 +1730,8 @@ fn store_meta_record往返_format单键与格式版本常量() {
 
     assert_eq!(WORKSPACE_STORE_FORMAT_KEY, "format", "标记固定单键");
     assert_eq!(
-        WORKSPACE_STORE_FORMAT_VERSION, 2,
-        "当前格式版本 = 2（change 身份锚 id 形态；1 = name 主键形态时代）"
+        WORKSPACE_STORE_FORMAT_VERSION, 3,
+        "当前格式版本 = 3（run 执行图节点 / 边两模型入册；2 = change 身份锚 id 形态）"
     );
 
     let record = StoreMetaRecord {
@@ -1736,20 +1744,22 @@ fn store_meta_record往返_format单键与格式版本常量() {
     assert_eq!(version, 1, "StoreMetaRecord 15:v1 版本封装");
     assert_eq!(decoded, record, "单键固定形态往返逐字段相等");
     assert_eq!(decoded.key, "format");
-    assert_eq!(decoded.format_version, 2);
+    assert_eq!(decoded.format_version, 3);
 
     // serde camelCase 线格式（内部治理记录——不入信封注册表，无查看面）
     let value = serde_json::to_value(&record).expect("serde 序列化应成功");
     assert_eq!(value["key"], serde_json::json!("format"));
-    assert_eq!(value["formatVersion"], serde_json::json!(2));
+    assert_eq!(value["formatVersion"], serde_json::json!(3));
 }
 
 // ---------------------------------------------------------------------------
 // run 运行史两模型（unify-run-state-persistence）：native_model 回环 + 打包键
 // ---------------------------------------------------------------------------
 
-use crate::model::{pack_run_step_key, RunRecord, RunStepRecord};
-use workflow::state::{RunStartCommand, RunStatus, RunStepEntry, RunStepKind, RunStepStatus};
+use crate::model::{pack_run_seq_key, RunEdgeRecord, RunNodeRecord, RunRecord};
+use workflow::state::{
+    RunEdgeEntry, RunEdgeKind, RunNodeEntry, RunStartCommand, RunStatus, RunStepKind, RunStepStatus,
+};
 
 /// run 发起命令 fixture（RunRecord::new 组装面；change_id = 身份锚 id）。
 fn run_start_command() -> RunStartCommand {
@@ -1760,16 +1770,26 @@ fn run_start_command() -> RunStartCommand {
     }
 }
 
-/// run 收口整包条目 fixture。
-fn run_step_entry(seq: u64, step: RunStepKind, status: RunStepStatus) -> RunStepEntry {
-    RunStepEntry {
-        seq,
+/// run 收口节点整包条目 fixture（稳定身份键：实例号显式注入）。
+fn run_node_entry(step: RunStepKind, status: RunStepStatus, instance_no: u32) -> RunNodeEntry {
+    RunNodeEntry {
         phase: "implement".to_owned(),
         attempt: 1,
         step,
+        instance_no,
         status,
         session_id: None,
         detail: None,
+        output_ref: None,
+    }
+}
+
+/// run 收口边整包条目 fixture（端点 = 节点身份串）。
+fn run_edge_entry(kind: RunEdgeKind) -> RunEdgeEntry {
+    RunEdgeEntry {
+        from_node_key: "implement:1:executor:0".to_owned(),
+        to_node_key: "implement:1:static_check:0".to_owned(),
+        edge_kind: kind,
     }
 }
 
@@ -1822,71 +1842,152 @@ fn run_record写读回环_status五值与两态字段() {
     assert_eq!(decoded, bare, "None 两态回环不漂移");
 }
 
-/// RunStepRecord 写读回环逐字段一致：step 五词汇、status 四值、session_id /
-/// detail 两态；seq() 读面 = 打包键低 64 位（AC-1）。
+/// RunNodeRecord 写读回环逐字段一致（**十值全词汇零过滤**）：step 十词汇、
+/// status 四值、session_id / detail / output_ref 三态；`node_seq()` 读面 = 打包
+/// 键低 64 位；`node_id()` 身份串 = 边表端点口径（AC-3）。
 #[test]
-fn run_step_record写读回环_词汇与状态与两态() {
-    for (kind, status) in [
+fn run_node_record写读回环_十词汇与三态字段() {
+    let all_kinds = [
         (RunStepKind::Executor, RunStepStatus::Passed),
         (RunStepKind::Evaluator, RunStepStatus::Failed),
         (RunStepKind::Decision, RunStepStatus::Passed),
         (RunStepKind::StaticCheck, RunStepStatus::Running),
         (RunStepKind::TestExecution, RunStepStatus::Stopped),
-    ] {
-        let record = RunStepRecord::new(
+        (RunStepKind::PhaseStart, RunStepStatus::Passed),
+        (RunStepKind::PhaseLog, RunStepStatus::Passed),
+        (RunStepKind::VerdictGate, RunStepStatus::Failed),
+        (RunStepKind::RetryGate, RunStepStatus::Passed),
+        (RunStepKind::WhitelistGate, RunStepStatus::Passed),
+    ];
+    for (sequence, (kind, status)) in all_kinds.iter().enumerate() {
+        let record = RunNodeRecord::new(
             "run-1727000000000",
-            &run_step_entry(3, kind, status),
+            "chg-demo",
+            sequence as u64,
+            &run_node_entry(*kind, *status, 0),
             1_727_000_060_000,
         );
         assert_eq!(record.timestamp, 1_727_000_060_000, "整包同刻随构造注入");
-        assert_eq!(record.seq(), 3, "seq() = 打包键低 64 位");
+        assert_eq!(
+            record.node_seq(),
+            sequence as u64,
+            "node_seq() = 打包键低 64 位"
+        );
+        assert_eq!(record.change_id, "chg-demo", "归属列 change_id 随命令");
 
         let bytes = native_model::encode(&record).expect("encode 应成功");
         let (decoded, version) =
-            native_model::decode::<RunStepRecord>(bytes).expect("decode 应成功");
-        assert_eq!(
-            version, 1,
-            "native_model id=14 版本封装 version 1（本变更零触点）"
-        );
+            native_model::decode::<RunNodeRecord>(bytes).expect("decode 应成功");
+        assert_eq!(version, 1, "native_model id=16 版本封装 version 1");
         assert_eq!(decoded, record, "{kind:?}/{status:?} 回环逐字段相等");
-        assert_eq!(decoded.step, kind);
-        assert_eq!(decoded.status, status);
+        assert_eq!(
+            decoded.step, *kind,
+            "十值全词汇零过滤（流程面 / 三门亦落行）"
+        );
+        assert_eq!(decoded.status, *status);
     }
 
-    // session_id / detail 两态（None = 工具步形态）
-    let bare = RunStepRecord::new(
+    // session_id / detail / output_ref 三态（None = 工具步 / Transient 形态）
+    let bare = RunNodeRecord::new(
         "run-1",
-        &run_step_entry(0, RunStepKind::StaticCheck, RunStepStatus::Passed),
+        "chg-demo",
+        0,
+        &run_node_entry(RunStepKind::StaticCheck, RunStepStatus::Passed, 0),
         1_727_000_060_000,
     );
     assert_eq!(bare.session_id, None);
     assert_eq!(bare.detail, None);
+    assert_eq!(bare.output_ref, None, "Transient 恒 None");
     let bytes = native_model::encode(&bare).expect("encode 应成功");
-    let (decoded, _) = native_model::decode::<RunStepRecord>(bytes).expect("decode 应成功");
-    assert_eq!(decoded, bare, "None 两态回环不漂移");
+    let (decoded, _) = native_model::decode::<RunNodeRecord>(bytes).expect("decode 应成功");
+    assert_eq!(decoded, bare, "None 三态回环不漂移");
+
+    // Some 三态 + 稳定实例键（feedback 重跑递增实例）
+    let mut entry = run_node_entry(RunStepKind::Executor, RunStepStatus::Passed, 1);
+    entry.session_id = Some("ses-1".to_owned());
+    entry.detail = Some("修复重跑".to_owned());
+    entry.output_ref = Some("exec-1727000060000".to_owned());
+    let record = RunNodeRecord::new("run-1", "chg-demo", 7, &entry, 1_727_000_060_000);
+    assert_eq!(record.instance_no, 1, "实例号随整包落行");
+    assert_eq!(
+        record.node_id(),
+        "implement:1:executor:1",
+        "节点身份串 = phase:attempt:step:instance_no"
+    );
+    let bytes = native_model::encode(&record).expect("encode 应成功");
+    let (decoded, _) = native_model::decode::<RunNodeRecord>(bytes).expect("decode 应成功");
+    assert_eq!(decoded, record, "Some 三态 + 实例号回环不漂移");
 }
 
-/// 打包键数值序即分层序（AC-9 全史叠加库面前置）：同 run_id 下 seq 递增键严
-/// 格递增；异 run_id 键域不相交（哈希高 64 位分域）。
+/// RunEdgeRecord 写读回环逐字段一致（**四 kind 零过滤**）：`edge_kind` 四值、
+/// 端点身份串（`node_id()` 口径）；`edge_seq()` 读面 = 打包键低 64 位；非法
+/// kind 词反序列化拒绝（封闭集防线，AC-3）。
 #[test]
-fn pack_run_step_key数值序即分层序_异run键域不相交() {
-    // 同 run_id：seq 递增键严格递增（含空洞 seq 0,2,5）
-    let mut keys: Vec<u128> = [0u64, 2, 5]
+fn run_edge_record写读回环_四kind与端点串() {
+    for (sequence, kind) in [
+        RunEdgeKind::Forward,
+        RunEdgeKind::Feedback,
+        RunEdgeKind::Retry,
+        RunEdgeKind::Backtrack,
+    ]
+    .iter()
+    .enumerate()
+    {
+        let record = RunEdgeRecord::new(
+            "run-1727000000000",
+            "chg-demo",
+            sequence as u64,
+            &run_edge_entry(*kind),
+            1_727_000_060_000,
+        );
+        assert_eq!(record.edge_seq(), sequence as u64);
+        assert_eq!(record.from_node_key, "implement:1:executor:0");
+        assert_eq!(record.to_node_key, "implement:1:static_check:0");
+
+        let bytes = native_model::encode(&record).expect("encode 应成功");
+        let (decoded, version) =
+            native_model::decode::<RunEdgeRecord>(bytes).expect("decode 应成功");
+        assert_eq!(version, 1, "native_model id=17 版本封装 version 1");
+        assert_eq!(decoded, record, "{kind:?} 回环逐字段相等");
+        assert_eq!(decoded.edge_kind, *kind, "四 kind 零过滤回环保真");
+    }
+
+    // 非法 edge_kind 词反序列化拒绝（封闭集防线）
+    let mut value = serde_json::to_value(RunEdgeRecord::new(
+        "run-1",
+        "chg-demo",
+        0,
+        &run_edge_entry(RunEdgeKind::Feedback),
+        1_727_000_060_000,
+    ))
+    .expect("出线应成功");
+    value["edgeKind"] = serde_json::json!("feed_back");
+    let back: Result<RunEdgeRecord, _> = serde_json::from_value(value);
+    assert!(back.is_err(), "边行非法 kind 词应拒绝");
+}
+
+/// 打包键数值序即分层序（AC-3 / AC-9 全史叠加库面前置）：同 run_id 下 seq 递增
+/// 键严格递增；异 run_id 键域不相交（哈希高 64 位分域）；节点行 / 边行同族打包
+/// （运行期零碰撞）。
+#[test]
+fn pack_run_seq_key数值序即分层序_异run键域不相交() {
+    // 同 run_id：seq 递增键严格递增
+    let mut keys: Vec<u128> = [0u64, 1, 2]
         .iter()
-        .map(|seq| pack_run_step_key("run-a", *seq))
+        .map(|seq| pack_run_seq_key("run-a", *seq))
         .collect();
     keys.sort();
     assert!(
         keys.windows(2).all(|w| w[0] < w[1]),
-        "seq 空洞序合法且严格递增"
+        "同 run 内 seq 递增键严格递增"
     );
 
     // 异 run_id：全键域不相交（高 64 位 = hash64(run_id) 分域）
     let run_a: Vec<u128> = (0..8u64)
-        .map(|seq| pack_run_step_key("run-a", seq))
+        .map(|seq| pack_run_seq_key("run-a", seq))
         .collect();
     let run_b: Vec<u128> = (0..8u64)
-        .map(|seq| pack_run_step_key("run-b", seq))
+        .map(|seq| pack_run_seq_key("run-b", seq))
         .collect();
     for key_a in &run_a {
         assert!(
@@ -1900,24 +2001,50 @@ fn pack_run_step_key数值序即分层序_异run键域不相交() {
         run_a.iter().all(|key| key >> 64 == high_a),
         "同 run 键高 64 位恒一致"
     );
+    // 节点行 / 边行同族打包：同 run 同 seq 键相同（两表分治，零碰撞面）
+    assert_eq!(
+        pack_run_seq_key("run-a", 3),
+        pack_run_seq_key("run-a", 3),
+        "打包函数确定性（运行期零随机成分）"
+    );
 }
 
-/// step_key u128 经 event_key_serde 十六进制线面编码回环无损（serde_json 无
-/// u128 数字面——hex 串线面，SessionEventRecord 先例同式，AC-1）。
+/// `node_key` / `edge_key` u128 经 event_key_serde 十六进制线面编码回环无损
+///（serde_json 无 u128 数字面——hex 串线面，SessionEventRecord 先例同式，AC-3）。
 #[test]
-fn run_step_record_step_key_hex线面编码回环无损() {
-    let record = RunStepRecord::new(
+fn run_node_edge_key_hex线面编码回环无损() {
+    let node = RunNodeRecord::new(
         "run-1727000000000",
-        &run_step_entry(u64::MAX, RunStepKind::Executor, RunStepStatus::Passed),
+        "chg-demo",
+        u64::MAX,
+        &run_node_entry(RunStepKind::Executor, RunStepStatus::Passed, u32::MAX),
         1_727_000_060_000,
     );
-
-    let value = serde_json::to_value(&record).expect("serde_json 出线应成功");
-    let hex = value["stepKey"].as_str().expect("stepKey 出 hex 串");
+    let value = serde_json::to_value(&node).expect("serde_json 出线应成功");
+    let hex = value["nodeKey"].as_str().expect("nodeKey 出 hex 串");
     assert!(hex.starts_with("0x"), "十六进制串线面（0x 前缀）: {hex}");
     assert_eq!(hex.len(), 34, "u128 满 32 位 hex + 0x 前缀");
+    let back: RunNodeRecord = serde_json::from_value(value).expect("反序列化应成功");
+    assert_eq!(back, node, "hex 线面回环无损（node_seq 低 64 位全 1 边界）");
+    assert_eq!(
+        back.node_seq(),
+        u64::MAX,
+        "node_seq() 读面 = 低 64 位不截断"
+    );
+    assert_eq!(back.instance_no, u32::MAX, "实例号边界不截断");
 
-    let back: RunStepRecord = serde_json::from_value(value).expect("反序列化应成功");
-    assert_eq!(back, record, "hex 线面回环无损（seq 低 64 位全 1 边界）");
-    assert_eq!(back.seq(), u64::MAX, "seq() 读面 = 低 64 位（边界不截断）");
+    let edge = RunEdgeRecord::new(
+        "run-1727000000000",
+        "chg-demo",
+        u64::MAX,
+        &run_edge_entry(RunEdgeKind::Backtrack),
+        1_727_000_060_000,
+    );
+    let value = serde_json::to_value(&edge).expect("serde_json 出线应成功");
+    let hex = value["edgeKey"].as_str().expect("edgeKey 出 hex 串");
+    assert!(hex.starts_with("0x"));
+    assert_eq!(hex.len(), 34);
+    let back: RunEdgeRecord = serde_json::from_value(value).expect("反序列化应成功");
+    assert_eq!(back, edge, "hex 线面回环无损（edge_seq 边界）");
+    assert_eq!(back.edge_seq(), u64::MAX);
 }

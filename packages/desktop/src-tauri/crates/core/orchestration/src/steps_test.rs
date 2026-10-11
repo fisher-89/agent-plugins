@@ -20,8 +20,9 @@ use store::Store;
 use workflow::model::{ChecklistItem, Verdict};
 use workflow::state::{
     ActivePhaseState, BacktrackCommand, ChangeStateRecord, ChangeStateStore, ChangeStatus,
-    PhaseLogCommand, PhaseStartState, PhaseStateRecord, RunFinishCommand, RunStartCommand,
-    RunStateRecord, RunStepStateRecord, StepCommand, StepKind, StepStateRecord, StoreFault,
+    PhaseLogCommand, PhaseStartState, PhaseStateRecord, RunEdgeStateRecord, RunFinishCommand,
+    RunNodeStateRecord, RunStartCommand, RunStateRecord, StepCommand, StepKind, StepStateRecord,
+    StoreFault,
 };
 use workflow::write::{BacktrackInput, PhaseLogInput, SessionAnchors};
 
@@ -403,7 +404,11 @@ impl ChangeStateStore for FakeStore {
         Ok(Vec::new())
     }
 
-    fn list_run_steps(&self, _run_id: &str) -> Result<Vec<RunStepStateRecord>, StoreFault> {
+    fn list_run_nodes(&self, _run_id: &str) -> Result<Vec<RunNodeStateRecord>, StoreFault> {
+        Ok(Vec::new())
+    }
+
+    fn list_run_edges(&self, _run_id: &str) -> Result<Vec<RunEdgeStateRecord>, StoreFault> {
         Ok(Vec::new())
     }
 
@@ -433,6 +438,7 @@ impl FakeRunner {
             result: Ok(StaticCheckOutcome {
                 passed: true,
                 diagnostics: String::new(),
+                output_ref: None,
             }),
         }
     }
@@ -443,6 +449,7 @@ impl FakeRunner {
             result: Ok(StaticCheckOutcome {
                 passed: false,
                 diagnostics: diagnostics.to_owned(),
+                output_ref: None,
             }),
         }
     }
@@ -485,6 +492,7 @@ impl FakeTestExecutionRunner {
             findings_brief: "全部测试通过且覆盖率达阈值".to_owned(),
             findings_detail: String::new(),
             report_dir: "reports/test/app_node-test".to_owned(),
+            exec_id: String::new(),
         }))
     }
 
@@ -1824,6 +1832,7 @@ async fn 五参构造双runner注入_分发臂委托() {
         findings_brief: "全部测试通过且覆盖率达阈值".to_owned(),
         findings_detail: String::new(),
         report_dir: "reports/test/app_node-test".to_owned(),
+        exec_id: String::new(),
     }));
     let assembled = assemble(
         Arc::clone(&fake) as Arc<dyn ChangeStateStore>,

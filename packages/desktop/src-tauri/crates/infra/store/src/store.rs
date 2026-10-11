@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fmt;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock};
@@ -17,14 +17,15 @@ use crate::envelope::{self, ModelInfo, RecordEnvelope};
 use crate::model::{
     now_millis, pack_session_event_key, AgentEngineKind, AgentInstanceRecord, AgentProviderRecord,
     AgentRunRecord, ChangeActivePhase, ChangeRecord, ChecklistItemRecord, ExploreRecord,
-    PhaseRecord, RunRecord, RunStepRecord, SessionEventRecord, SessionRecord, StepRecord,
-    StoreMetaRecord, WorkspaceRecord, WORKSPACE_STORE_FORMAT_KEY, WORKSPACE_STORE_FORMAT_VERSION,
+    PhaseRecord, RunEdgeRecord, RunNodeRecord, RunRecord, SessionEventRecord, SessionRecord,
+    StepRecord, StoreMetaRecord, WorkspaceRecord, WORKSPACE_STORE_FORMAT_KEY,
+    WORKSPACE_STORE_FORMAT_VERSION,
 };
 use workflow::model::{ChecklistItem, Verdict};
 use workflow::state::{
     BacktrackCommand, ChangeStateRecord, ChangeStatus, PhaseLogCommand, PhaseStartState,
-    PhaseStateRecord, RunFinishCommand, RunStartCommand, RunStateRecord, RunStatus,
-    RunStepStateRecord, StepCommand, StepStateRecord,
+    PhaseStateRecord, RunEdgeStateRecord, RunFinishCommand, RunNodeStateRecord, RunStartCommand,
+    RunStateRecord, RunStatus, StepCommand, StepStateRecord,
 };
 
 /// store 内部错误面：四变体对应四类故障模式；`Display` 恒带 `db:` /
@@ -73,6 +74,19 @@ fn is_blank_db_file(path: &Path) -> bool {
         || std::fs::metadata(path)
             .map(|metadata| metadata.len() == 0)
             .unwrap_or(false)
+}
+
+/// 记录 ↔ 中性类型映射单点：run 边行 → port 流量像（`list_run_edges` /
+/// `list_run_edges_from` 两读路共用）。
+fn edge_state_record(record: RunEdgeRecord) -> RunEdgeStateRecord {
+    RunEdgeStateRecord {
+        run_id: record.run_id,
+        change_id: record.change_id,
+        from_node_key: record.from_node_key,
+        to_node_key: record.to_node_key,
+        edge_kind: record.edge_kind,
+        timestamp: record.timestamp,
+    }
 }
 
 /// 建档记录 → 中性快照（记录 ↔ 中性类型映射单点，design D2）。
@@ -260,9 +274,9 @@ pub(crate) fn global_models() -> &'static Models {
     })
 }
 
-/// workspace 库模型组（十一模型：轮统计行 / 会话 / 转录 / explore 四既有模型，
-/// change 流程状态四模型，run 运行史两模型，库级格式版本标记一模型——
-/// additive 注册零迁移）
+/// workspace 库模型组（十二模型：轮统计行 / 会话 / 转录 / explore 四既有模型，
+/// change 流程状态四模型，run 执行图三模型（run 主行 + 节点 + 边），库级格式版本
+/// 标记一模型——注册面 additive；run 执行图模型重设计经格式版本 bump 整体重建）
 pub(crate) fn workspace_models() -> &'static Models {
     static MODELS: OnceLock<Models> = OnceLock::new();
     MODELS.get_or_init(|| {
@@ -291,8 +305,11 @@ pub(crate) fn workspace_models() -> &'static Models {
         models.define::<StepRecord>().expect("定义 StepRecord 失败");
         models.define::<RunRecord>().expect("定义 RunRecord 失败");
         models
-            .define::<RunStepRecord>()
-            .expect("定义 RunStepRecord 失败");
+            .define::<RunNodeRecord>()
+            .expect("定义 RunNodeRecord 失败");
+        models
+            .define::<RunEdgeRecord>()
+            .expect("定义 RunEdgeRecord 失败");
         models
             .define::<StoreMetaRecord>()
             .expect("定义 StoreMetaRecord 失败");
@@ -1588,10 +1605,11 @@ impl Store {
 
     /// run 收口单事务（design D1 / D7）：run 行在案且 running（miss →
     /// [`StoreError::NotFound`]、非 running → [`StoreError::Conflict`]）→
-    /// 终态 + reason + finished_at 更新 + `RunStepRecord` 整包插入（seq 保序
-    /// = 命令给序）+ 该 change `active_phase` 清位（悬挂杀除）；命令 status
-    /// 非 终态三值（running / interrupted——后者仅标定产生）→
-    /// [`StoreError::Conflict`]。任一环节失败整体回滚零残留。
+    /// 终态 + reason + finished_at 更新 + `RunNodeRecord` / `RunEdgeRecord` 整包
+    /// 插入（整包下标即 emit 序，保序）+ 该 change `active_phase` 清位（悬挂杀
+    /// 除）；命令 status 非终态三值（running / interrupted——后者仅标定产生）→
+    /// [`StoreError::Conflict`]。任一环节失败整体回滚零残留（无半包节点 / 半包
+    /// 边，`active_phase` 原值保留）。
     pub fn finish_change_run(&self, command: &RunFinishCommand) -> Result<(), StoreError> {
         if !matches!(
             command.status,
@@ -1619,13 +1637,57 @@ impl Store {
         run_row.reason = command.reason.clone();
         run_row.finished_at = Some(command.finished_at);
         rw.upsert(run_row).map_err(db_err("写入 run 终态"))?;
-        for entry in &command.steps {
-            rw.insert(RunStepRecord::new(
+        let node_records: Vec<RunNodeRecord> = command
+            .nodes
+            .iter()
+            .enumerate()
+            .map(|(node_seq, entry)| {
+                RunNodeRecord::new(
+                    &command.run_id,
+                    &command.change_id,
+                    node_seq as u64,
+                    entry,
+                    command.finished_at,
+                )
+            })
+            .collect();
+        // 整包不变量（AC-3 / AC-5）：节点身份键在本 run 内稳定唯一、边端点必须落
+        // 在本包节点集内——破例即整体拒绝（无半包节点 / 半包边落库）
+        let mut node_ids: HashSet<String> = HashSet::with_capacity(node_records.len());
+        for record in &node_records {
+            if !node_ids.insert(record.node_id()) {
+                return Err(StoreError::Conflict(format!(
+                    "run 节点身份键重复: {}（phase / attempt / step / instance_no 须唯一）",
+                    record.node_id()
+                )));
+            }
+        }
+        for entry in &command.edges {
+            if !node_ids.contains(&entry.from_node_key) {
+                return Err(StoreError::Conflict(format!(
+                    "run 边端点悬空: 源节点 \"{}\" 不在本 run 节点集内",
+                    entry.from_node_key
+                )));
+            }
+            if !node_ids.contains(&entry.to_node_key) {
+                return Err(StoreError::Conflict(format!(
+                    "run 边端点悬空: 目标节点 \"{}\" 不在本 run 节点集内",
+                    entry.to_node_key
+                )));
+            }
+        }
+        for record in node_records {
+            rw.insert(record).map_err(db_err("写入 run 节点整包"))?;
+        }
+        for (edge_seq, entry) in command.edges.iter().enumerate() {
+            rw.insert(RunEdgeRecord::new(
                 &command.run_id,
+                &command.change_id,
+                edge_seq as u64,
                 entry,
                 command.finished_at,
             ))
-            .map_err(db_err("写入 run 步整包"))?;
+            .map_err(db_err("写入 run 边整包"))?;
         }
         // active_phase 清位同事务（悬挂杀除；run 死亡后库 MUST NOT 呈运行中）
         let mut change_row: ChangeRecord = rw
@@ -1720,27 +1782,60 @@ impl Store {
         Ok(runs)
     }
 
-    /// run 步节点史行：按 run 过滤，seq 升序（= emit 序；同 run 打包键高
-    /// 64 位恒一致，自然序即 seq 序——显式排序防御性兜底）。
-    pub fn list_run_steps(&self, run_id: &str) -> Result<Vec<RunStepStateRecord>, StoreError> {
-        let mut steps: Vec<RunStepStateRecord> = self
-            .read_all::<RunStepRecord>("遍历 run 步整包")?
+    /// run 执行图节点行：按 run 圈定（`run_id` 二级索引语义），`node_seq` 升序
+    /// （= emit 序——同 run 打包键高 64 位恒一致，主键自然序即 node_seq 序）。
+    /// 十值全词汇零过滤（读面与写面同一份封闭集）。
+    pub fn list_run_nodes(&self, run_id: &str) -> Result<Vec<RunNodeStateRecord>, StoreError> {
+        let mut records: Vec<RunNodeRecord> = self
+            .read_all::<RunNodeRecord>("遍历 run 节点整包")?
             .into_iter()
             .filter(|record| record.run_id == run_id)
-            .map(|record| RunStepStateRecord {
-                seq: record.seq(),
+            .collect();
+        records.sort_by_key(|record| record.node_seq());
+        Ok(records
+            .into_iter()
+            .map(|record| RunNodeStateRecord {
                 run_id: record.run_id,
+                change_id: record.change_id,
                 phase: record.phase,
                 attempt: record.attempt,
                 step: record.step,
+                instance_no: record.instance_no,
                 status: record.status,
                 session_id: record.session_id,
                 detail: record.detail,
+                output_ref: record.output_ref,
                 timestamp: record.timestamp,
             })
+            .collect())
+    }
+
+    /// run 执行图边行：按 run 全量读（`run_id` 二级索引语义），`edge_seq` 升序
+    ///（= emit 序）。
+    pub fn list_run_edges(&self, run_id: &str) -> Result<Vec<RunEdgeStateRecord>, StoreError> {
+        let mut records: Vec<RunEdgeRecord> = self
+            .read_all::<RunEdgeRecord>("遍历 run 边整包")?
+            .into_iter()
+            .filter(|record| record.run_id == run_id)
             .collect();
-        steps.sort_by_key(|record| record.seq);
-        Ok(steps)
+        records.sort_by_key(|record| record.edge_seq());
+        Ok(records.into_iter().map(edge_state_record).collect())
+    }
+
+    /// run 执行图边行后继查询：按源节点身份串读该节点全部出边（`from_node_key`
+    /// 二级索引语义，与 [`Store::list_run_edges`] 同口径结果一致）；`edge_seq` 升
+    /// 序稳定。
+    pub fn list_run_edges_from(
+        &self,
+        from_node_key: &str,
+    ) -> Result<Vec<RunEdgeStateRecord>, StoreError> {
+        let mut records: Vec<RunEdgeRecord> = self
+            .read_all::<RunEdgeRecord>("遍历 run 边整包")?
+            .into_iter()
+            .filter(|record| record.from_node_key == from_node_key)
+            .collect();
+        records.sort_by_key(|record| record.edge_seq());
+        Ok(records.into_iter().map(edge_state_record).collect())
     }
 
     /// 本库已注册模型清单与记录计数

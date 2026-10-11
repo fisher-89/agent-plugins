@@ -254,8 +254,8 @@ fn open_workspace空文件与父目录缺失建新库写标记_空库可list() {
     } // 文件锁归还后方可裸读标记
     assert_eq!(
         read_workspace_format_marker(&ws_path),
-        Some(2),
-        "建新库即写标记 format_version == 2 就位"
+        Some(3),
+        "建新库即写标记 format_version == 3 就位"
     );
 
     // 空文件视同缺失（探测规则①另一形态）→ 建新库 + 写标记
@@ -275,7 +275,7 @@ fn open_workspace空文件与父目录缺失建新库写标记_空库可list() {
     }
     assert_eq!(
         read_workspace_format_marker(&blank_path),
-        Some(2),
+        Some(3),
         "空文件视同缺失 → 建新库 + 写标记"
     );
 }
@@ -3843,8 +3843,8 @@ fn open_workspace旧形态库作废重建_零报错旧数据零可达标记就�
 
     assert_eq!(
         read_workspace_format_marker(&ws_path),
-        Some(2),
-        "重开后标记 format_version == 2 就位（AC-8 主锚）"
+        Some(3),
+        "重开后标记 format_version == 3 就位（AC-8 主锚）"
     );
     let physical = physical_table_names(&ws_path);
     assert!(
@@ -3927,8 +3927,8 @@ fn 标记幂等_全新库标记就位_重开数据保留零作废() {
     };
     assert_eq!(
         read_workspace_format_marker(&ws_path),
-        Some(2),
-        "全新库 open 即写标记 2"
+        Some(3),
+        "全新库 open 即写标记 3"
     );
 
     // 标记在场重开：数据保留零作废（幂等路径，AC-8 scenario）
@@ -3946,7 +3946,7 @@ fn 标记幂等_全新库标记就位_重开数据保留零作废() {
     drop(reopened);
     assert_eq!(
         read_workspace_format_marker(&ws_path),
-        Some(2),
+        Some(3),
         "重开不改写标记版本"
     );
 }
@@ -3972,7 +3972,7 @@ fn 标记低于当前版本_作废重建() {
     drop(store);
     assert_eq!(
         read_workspace_format_marker(&ws_path),
-        Some(2),
+        Some(3),
         "重建后标记升为当前版本"
     );
 }
@@ -4008,7 +4008,7 @@ fn 旧表行对新建档读面零可达_标记在场零作废() {
     drop(store);
 
     // 零作废的物理证据：旧表与旧行仍在库内（未被重建抹除），标记仍 2
-    assert_eq!(read_workspace_format_marker(&ws_path), Some(2));
+    assert_eq!(read_workspace_format_marker(&ws_path), Some(3));
     let db = redb::Database::open(&ws_path).expect("裸开 db 应成功");
     let r = db.begin_read().expect("开启读事务失败");
     let old_table: redb::TableDefinition<RawNativeDbKey, &[u8]> =
@@ -5579,8 +5579,8 @@ fn change记录双字段映射往返_重开库仍一致() {
 // ---------------------------------------------------------------------------
 
 use workflow::state::{
-    RunFinishCommand, RunStartCommand, RunStatus, RunStepEntry, RunStepKind, RunStepStateRecord,
-    RunStepStatus,
+    RunEdgeEntry, RunEdgeKind, RunFinishCommand, RunNodeEntry, RunNodeStateRecord, RunStartCommand,
+    RunStatus, RunStepKind, RunStepStatus,
 };
 
 /// run 发起命令 fixture（确定性时间戳显式注入）。
@@ -5592,27 +5592,44 @@ fn run_start_cmd(run_id: &str, change: &str, started_at: i64) -> RunStartCommand
     }
 }
 
-/// run 收口整包条目 fixture。
-fn run_step_entry(seq: u64, phase: &str, step: RunStepKind, status: RunStepStatus) -> RunStepEntry {
-    RunStepEntry {
-        seq,
+/// run 收口节点整包条目 fixture（稳定身份键：实例号显式注入）。
+fn run_node_entry(
+    phase: &str,
+    attempt: u32,
+    step: RunStepKind,
+    status: RunStepStatus,
+    instance_no: u32,
+) -> RunNodeEntry {
+    RunNodeEntry {
         phase: phase.to_owned(),
-        attempt: 1,
+        attempt,
         step,
+        instance_no,
         status,
         session_id: None,
         detail: None,
+        output_ref: None,
     }
 }
 
-/// run 收口命令 fixture（步整包显式注入）。
+/// run 收口边整包条目 fixture（端点显式注入）。
+fn run_edge_entry(from: &str, to: &str, kind: RunEdgeKind) -> RunEdgeEntry {
+    RunEdgeEntry {
+        from_node_key: from.to_owned(),
+        to_node_key: to.to_owned(),
+        edge_kind: kind,
+    }
+}
+
+/// run 收口命令 fixture（节点 + 边整包显式注入）。
 fn run_finish_cmd(
     run_id: &str,
     change: &str,
     status: RunStatus,
     reason: Option<&str>,
     finished_at: i64,
-    steps: Vec<RunStepEntry>,
+    nodes: Vec<RunNodeEntry>,
+    edges: Vec<RunEdgeEntry>,
 ) -> RunFinishCommand {
     RunFinishCommand {
         run_id: run_id.to_owned(),
@@ -5620,7 +5637,8 @@ fn run_finish_cmd(
         status,
         reason: reason.map(str::to_owned),
         finished_at,
-        steps,
+        nodes,
+        edges,
     }
 }
 
@@ -5668,11 +5686,11 @@ fn start_change_run同run_id冲突() {
     assert_eq!(runs[0].started_at, 2000, "原行不被改写");
 }
 
-/// finish_change_run 单事务整包（AC-1/AC-2/AC-10）：多步（五词汇混合、
-/// session_id / detail 两态）一次落、seq 保序、步 timestamp 全包等于
-/// finished_at 同刻。
+/// finish_change_run 单事务整包（AC-3/AC-5）：节点十词汇全量 + 四 kind 边一次
+/// 落、node_seq / edge_seq 保序、整包 timestamp 全等于 finished_at 同刻、
+/// instance_no / output_ref 逐字段透传。
 #[test]
-fn finish_change_run单事务整包_seq保序且整包同刻() {
+fn finish_change_run单事务整包_全词汇与四kind边同刻() {
     let env = Env::new("run-finish");
     let store = open_workspace_ok(&env.db_path("ws"));
     create_change_ok(&store, "flow-run", 1000);
@@ -5680,33 +5698,112 @@ fn finish_change_run单事务整包_seq保序且整包同刻() {
         .start_change_run(&run_start_cmd("run-100", "flow-run", 2000))
         .expect("发起应成功");
 
-    let steps = vec![
-        run_step_entry(0, "implement", RunStepKind::Executor, RunStepStatus::Passed),
-        run_step_entry(
-            2,
+    let nodes = vec![
+        run_node_entry(
             "implement",
-            RunStepKind::StaticCheck,
+            1,
+            RunStepKind::PhaseStart,
             RunStepStatus::Passed,
+            0,
         ),
-        run_step_entry(
-            3,
+        run_node_entry(
             "implement",
-            RunStepKind::Evaluator,
-            RunStepStatus::Failed,
+            1,
+            RunStepKind::Executor,
+            RunStepStatus::Passed,
+            0,
         ),
-        run_step_entry(6, "implement", RunStepKind::Decision, RunStepStatus::Passed),
-        run_step_entry(
-            9,
+        run_node_entry(
+            "implement",
+            1,
+            RunStepKind::StaticCheck,
+            RunStepStatus::Failed,
+            0,
+        ),
+        run_node_entry(
+            "implement",
+            1,
+            RunStepKind::Executor,
+            RunStepStatus::Passed,
+            1,
+        ),
+        run_node_entry(
+            "implement",
+            1,
+            RunStepKind::Evaluator,
+            RunStepStatus::Passed,
+            0,
+        ),
+        run_node_entry(
+            "implement",
+            1,
+            RunStepKind::VerdictGate,
+            RunStepStatus::Passed,
+            0,
+        ),
+        run_node_entry(
+            "implement",
+            1,
+            RunStepKind::PhaseLog,
+            RunStepStatus::Passed,
+            0,
+        ),
+        run_node_entry(
             "test-execution",
+            1,
             RunStepKind::TestExecution,
             RunStepStatus::Passed,
+            0,
+        ),
+        run_node_entry(
+            "code-review",
+            1,
+            RunStepKind::Decision,
+            RunStepStatus::Passed,
+            0,
+        ),
+        run_node_entry(
+            "code-review",
+            1,
+            RunStepKind::RetryGate,
+            RunStepStatus::Passed,
+            0,
+        ),
+        run_node_entry(
+            "code-review",
+            1,
+            RunStepKind::WhitelistGate,
+            RunStepStatus::Passed,
+            0,
         ),
     ];
-    let mut with_sessions = steps;
-    with_sessions[0].session_id = Some("ses-exec-1".to_owned());
-    with_sessions[0].detail = Some("实现完成".to_owned());
-    with_sessions[4].session_id = None;
-    with_sessions[4].detail = None;
+    let mut with_fields = nodes;
+    with_fields[1].session_id = Some("ses-exec-1".to_owned());
+    with_fields[1].detail = Some("实现完成".to_owned());
+    with_fields[2].output_ref = Some("exec-1727000009000".to_owned());
+    with_fields[7].session_id = None;
+    let edges = vec![
+        run_edge_entry(
+            "implement:1:phase_start:0",
+            "implement:1:executor:0",
+            RunEdgeKind::Forward,
+        ),
+        run_edge_entry(
+            "implement:1:static_check:0",
+            "implement:1:executor:1",
+            RunEdgeKind::Feedback,
+        ),
+        run_edge_entry(
+            "implement:1:executor:1",
+            "implement:1:evaluator:0",
+            RunEdgeKind::Retry,
+        ),
+        run_edge_entry(
+            "code-review:1:whitelist_gate:0",
+            "test-execution:1:test_execution:0",
+            RunEdgeKind::Backtrack,
+        ),
+    ];
     store
         .finish_change_run(&run_finish_cmd(
             "run-100",
@@ -5714,7 +5811,8 @@ fn finish_change_run单事务整包_seq保序且整包同刻() {
             RunStatus::Completed,
             Some("All phases have passed."),
             9000,
-            with_sessions,
+            with_fields,
+            edges.clone(),
         ))
         .expect("收口应成功");
 
@@ -5723,21 +5821,92 @@ fn finish_change_run单事务整包_seq保序且整包同刻() {
     assert_eq!(runs[0].reason.as_deref(), Some("All phases have passed."));
     assert_eq!(runs[0].finished_at, Some(9000));
 
-    let rows: Vec<RunStepStateRecord> = store.list_run_steps("run-100").expect("步读应成功");
-    assert_eq!(rows.len(), 5, "步整包恰五行（五词汇混合）");
-    let seqs: Vec<u64> = rows.iter().map(|row| row.seq).collect();
-    assert_eq!(seqs, vec![0, 2, 3, 6, 9], "seq 保序（空洞合法）");
+    let rows: Vec<RunNodeStateRecord> = store.list_run_nodes("run-100").expect("节点读应成功");
+    assert_eq!(rows.len(), 11, "节点整包十词汇全量（零过滤）");
+    assert_eq!(
+        rows.iter().map(|row| row.step).collect::<Vec<_>>(),
+        vec![
+            RunStepKind::PhaseStart,
+            RunStepKind::Executor,
+            RunStepKind::StaticCheck,
+            RunStepKind::Executor,
+            RunStepKind::Evaluator,
+            RunStepKind::VerdictGate,
+            RunStepKind::PhaseLog,
+            RunStepKind::TestExecution,
+            RunStepKind::Decision,
+            RunStepKind::RetryGate,
+            RunStepKind::WhitelistGate,
+        ],
+        "节点按 node_seq 升序 = emit 序（十值全词汇）"
+    );
+    // 库读序 = node_seq 升序（映射层不另行暴露包装键；身份键四元组序面按序断言）
+    assert_eq!(
+        rows.iter().map(|row| row.instance_no).collect::<Vec<_>>(),
+        vec![0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0],
+        "实例号按库读序（feedback 重跑第二位）"
+    );
     for row in &rows {
         assert_eq!(
             row.timestamp, 9000,
             "整包同刻 = finished_at（corpus 确定性）"
         );
+        assert_eq!(row.run_id, "run-100", "run_id 二级索引圈定");
+        assert_eq!(row.change_id, "flow-run", "归属列随收口");
     }
-    assert_eq!(rows[0].session_id.as_deref(), Some("ses-exec-1"));
-    assert_eq!(rows[0].detail.as_deref(), Some("实现完成"));
-    assert_eq!(rows[4].session_id, None, "两态透传（工具步 None）");
-    // run_id 二级索引圈定
-    assert!(rows.iter().all(|row| row.run_id == "run-100"));
+    assert_eq!(rows[1].session_id.as_deref(), Some("ses-exec-1"));
+    assert_eq!(rows[1].detail.as_deref(), Some("实现完成"));
+    assert_eq!(
+        rows[2].output_ref.as_deref(),
+        Some("exec-1727000009000"),
+        "output_ref 透传（引用可回查）"
+    );
+    assert_eq!(rows[3].instance_no, 1, "feedback 重跑实例号落行");
+    assert_eq!(rows[7].session_id, None, "两态透传（工具步 None）");
+
+    // 边整包：edge_seq 升序 = emit 序、四 kind 零过滤、端点身份串
+    let edge_rows = store.list_run_edges("run-100").expect("边读应成功");
+    assert_eq!(edge_rows.len(), 4, "边整包四行");
+    assert_eq!(
+        edge_rows
+            .iter()
+            .map(|row| row.edge_kind)
+            .collect::<Vec<_>>(),
+        vec![
+            RunEdgeKind::Forward,
+            RunEdgeKind::Feedback,
+            RunEdgeKind::Retry,
+            RunEdgeKind::Backtrack,
+        ]
+    );
+    assert_eq!(
+        edge_rows
+            .iter()
+            .map(|row| row.from_node_key.as_str())
+            .collect::<Vec<_>>(),
+        vec![
+            "implement:1:phase_start:0",
+            "implement:1:static_check:0",
+            "implement:1:executor:1",
+            "code-review:1:whitelist_gate:0",
+        ],
+        "边按库读序 = edge_seq 升序（emit 序）"
+    );
+    assert_eq!(edge_rows[1].from_node_key, "implement:1:static_check:0");
+    assert_eq!(edge_rows[1].to_node_key, "implement:1:executor:1");
+    for row in &edge_rows {
+        assert_eq!(row.timestamp, 9000, "边整包同刻");
+        assert_eq!(row.run_id, "run-100");
+    }
+    // 节点身份串与边端点同口径（phase:attempt:step:instance_no 组装式）
+    let node_identity = format!(
+        "{}:{}:{}:{}",
+        rows[3].phase,
+        rows[3].attempt,
+        rows[3].step.as_str(),
+        rows[3].instance_no
+    );
+    assert_eq!(node_identity, edge_rows[1].to_node_key);
 }
 
 /// finish 同事务 active_phase 清位（D1 悬挂杀除库面，AC-5）：预置
@@ -5759,6 +5928,7 @@ fn finish_change_run同事务active_phase清位() {
             RunStatus::Stopped,
             Some("用户停止"),
             3000,
+            Vec::new(),
             Vec::new(),
         ))
         .expect("收口应成功");
@@ -5793,12 +5963,14 @@ fn 多run全史_两行不截且attempt跨run递增() {
             RunStatus::Failed,
             Some("首轮未过"),
             3000,
-            vec![run_step_entry(
-                0,
+            vec![run_node_entry(
                 "dev-design",
+                1,
                 RunStepKind::Executor,
                 RunStepStatus::Passed,
+                0,
             )],
+            Vec::new(),
         ))
         .expect("收口应成功");
     // 相位 attempt 跨 run 递增：run-2 步携带 attempt 2（phase_start max+1）
@@ -5807,13 +5979,13 @@ fn 多run全史_两行不截且attempt跨run递增() {
     store
         .start_change_run(&run_start_cmd("run-2", "flow-run", 4000))
         .expect("发起应成功");
-    let mut step2 = run_step_entry(
-        0,
+    let step2 = run_node_entry(
         "dev-design",
+        started.attempt,
         RunStepKind::Evaluator,
         RunStepStatus::Passed,
+        0,
     );
-    step2.attempt = started.attempt;
     store
         .finish_change_run(&run_finish_cmd(
             "run-2",
@@ -5822,6 +5994,7 @@ fn 多run全史_两行不截且attempt跨run递增() {
             None,
             5000,
             vec![step2],
+            Vec::new(),
         ))
         .expect("收口应成功");
 
@@ -5836,8 +6009,15 @@ fn 多run全史_两行不截且attempt跨run递增() {
     );
     assert_eq!(runs[0].status, RunStatus::Failed);
     assert_eq!(runs[1].status, RunStatus::Completed);
-    let steps = store.list_run_steps("run-2").expect("步读应成功");
-    assert_eq!(steps[0].attempt, 2, "run-2 步携带跨 run 递增 attempt");
+    let nodes = store.list_run_nodes("run-2").expect("节点读应成功");
+    assert_eq!(nodes[0].attempt, 2, "run-2 节点携带跨 run 递增 attempt");
+    assert!(
+        store
+            .list_run_edges("run-2")
+            .expect("边读应成功")
+            .is_empty(),
+        "零边 run 边整包空集"
+    );
 }
 
 /// finish 目标 run 不在案 → NotFound；run 已终态再 finish → Conflict（非
@@ -5856,6 +6036,7 @@ fn finish_change_run不在案notfound与已终态conflict() {
             RunStatus::Completed,
             None,
             3000,
+            Vec::new(),
             Vec::new(),
         ))
         .expect_err("不在案收口应 Err");
@@ -5876,6 +6057,7 @@ fn finish_change_run不在案notfound与已终态conflict() {
             None,
             3000,
             Vec::new(),
+            Vec::new(),
         ))
         .expect("首次收口应成功");
     let err = store
@@ -5885,6 +6067,7 @@ fn finish_change_run不在案notfound与已终态conflict() {
             RunStatus::Stopped,
             None,
             4000,
+            Vec::new(),
             Vec::new(),
         ))
         .expect_err("已终态再收口应 Err");
@@ -5909,6 +6092,7 @@ fn finish_change_run不在案notfound与已终态conflict() {
                 None,
                 3000,
                 Vec::new(),
+                Vec::new(),
             ))
             .expect_err("非终态三值收口应 Err");
         assert!(
@@ -5923,14 +6107,15 @@ fn finish_change_run不在案notfound与已终态conflict() {
                 None,
                 3000,
                 Vec::new(),
+                Vec::new(),
             ))
             .expect("清场收口应成功");
     }
 }
 
-/// 步整包撞键注入（AC-2 整包原子回滚）：finish 命令 steps 内两条同 seq（打
-/// 包主键冲突）→ 整事务回滚——run 行仍 running、RunStepRecord 零行、
-/// active_phase 原值保留。
+/// 节点整包撞键注入（AC-5 整包原子回滚）：finish 命令 nodes 内两条同
+/// `(phase, attempt, step, instance_no)`（打包主键冲突）→ 整事务回滚——run 行仍
+/// running、RunNodeRecord 零行、active_phase 原值保留。
 #[test]
 fn finish_change_run撞键整包事务回滚_零残留() {
     let env = Env::new("run-finish-rollback");
@@ -5941,14 +6126,21 @@ fn finish_change_run撞键整包事务回滚_零残留() {
         .start_change_run(&run_start_cmd("run-100", "flow-run", 2000))
         .expect("发起应成功");
 
-    // 两条同 seq（打包主键冲突）注入
+    // 两条同 (phase, attempt, step, instance_no) 身份键（打包主键冲突）注入
     let steps = vec![
-        run_step_entry(0, "implement", RunStepKind::Executor, RunStepStatus::Passed),
-        run_step_entry(
-            0,
+        run_node_entry(
             "implement",
-            RunStepKind::Evaluator,
+            1,
+            RunStepKind::Executor,
             RunStepStatus::Passed,
+            0,
+        ),
+        run_node_entry(
+            "implement",
+            1,
+            RunStepKind::Executor,
+            RunStepStatus::Passed,
+            0,
         ),
     ];
     let err = store
@@ -5959,12 +6151,16 @@ fn finish_change_run撞键整包事务回滚_零残留() {
             None,
             3000,
             steps,
+            Vec::new(),
         ))
         .expect_err("撞键整包应 Err");
-    assert!(
-        matches!(err, StoreError::Db(_)),
-        "native_db Duplicate key 归 Db 变体: {err:?}"
-    );
+    match &err {
+        StoreError::Conflict(message) => assert!(
+            message.contains("implement:1:executor:0"),
+            "身份键重复记因携键语境: {message}"
+        ),
+        other => panic!("同身份键两行应 Conflict（写面前置拒绝）: {other:?}"),
+    }
 
     // 整事务回滚三面
     let runs = store.list_change_runs("flow-run").expect("list 应成功");
@@ -5973,10 +6169,10 @@ fn finish_change_run撞键整包事务回滚_零残留() {
     assert_eq!(runs[0].reason, None);
     assert!(
         store
-            .list_run_steps("run-100")
-            .expect("步读应成功")
+            .list_run_nodes("run-100")
+            .expect("节点读应成功")
             .is_empty(),
-        "RunStepRecord 零行（整包回滚）"
+        "RunNodeRecord 零行（整包回滚）"
     );
     let record = store
         .find_change_record("flow-run")
@@ -5995,12 +6191,14 @@ fn finish_change_run撞键整包事务回滚_零残留() {
             RunStatus::Completed,
             None,
             4000,
-            vec![run_step_entry(
-                0,
+            vec![run_node_entry(
                 "implement",
+                1,
                 RunStepKind::Executor,
                 RunStepStatus::Passed,
+                0,
             )],
+            Vec::new(),
         ))
         .expect("回滚后收口应成功");
 }
@@ -6118,6 +6316,7 @@ fn calibrate_interrupted_runs零残留零副作用() {
             None,
             3000,
             Vec::new(),
+            Vec::new(),
         ))
         .expect("收口种子应成功");
 
@@ -6184,7 +6383,7 @@ fn 标记在场库重开读写正常_数据保留零作废() {
     }
     assert_eq!(
         read_workspace_format_marker(&db_path),
-        Some(2),
+        Some(3),
         "首开即写标记（重开零作废的前提）"
     );
     {
@@ -6263,7 +6462,7 @@ fn 全局库不受波及_workspace库作废重建全局注册表零变化() {
 }
 
 /// run 史读面排序（AC-6/AC-10 前置）：list_change_runs 按 started_at 升序
-///（含并列 run_id 稳定并列序）；list_run_steps 按 seq 升序（seq 空洞序合法）。
+///（含并列 run_id 稳定并列序）；list_run_nodes 按 node_seq 升序（emit 序）。
 #[test]
 fn run史读面排序_started_at升序与seq空洞序() {
     let env = Env::new("run-read-order");
@@ -6289,6 +6488,7 @@ fn run史读面排序_started_at升序与seq空洞序() {
                 None,
                 started_at + 100,
                 Vec::new(),
+                Vec::new(),
             ))
             .expect("收口应成功");
     }
@@ -6312,19 +6512,32 @@ fn run史读面排序_started_at升序与seq空洞序() {
         "started_at 升序 + 并列 run_id 稳定并列序；他 change 不串台"
     );
 
-    // 步读面：seq 空洞序合法（0,2,5 写入后枚举升序无缺行）
+    // 节点读面：库读序 = node_seq 升序（emit 序，实例号逐位可取）
     store
         .start_change_run(&run_start_cmd("run-steps", "flow-run", 5000))
         .expect("发起应成功");
     let steps = vec![
-        run_step_entry(0, "implement", RunStepKind::Executor, RunStepStatus::Passed),
-        run_step_entry(
-            2,
+        run_node_entry(
             "implement",
+            1,
+            RunStepKind::Executor,
+            RunStepStatus::Passed,
+            0,
+        ),
+        run_node_entry(
+            "implement",
+            1,
             RunStepKind::Evaluator,
             RunStepStatus::Passed,
+            0,
         ),
-        run_step_entry(5, "implement", RunStepKind::Decision, RunStepStatus::Passed),
+        run_node_entry(
+            "implement",
+            1,
+            RunStepKind::Decision,
+            RunStepStatus::Passed,
+            0,
+        ),
     ];
     store
         .finish_change_run(&run_finish_cmd(
@@ -6334,15 +6547,30 @@ fn run史读面排序_started_at升序与seq空洞序() {
             None,
             6000,
             steps,
+            Vec::new(),
         ))
         .expect("收口应成功");
-    let rows = store.list_run_steps("run-steps").expect("步读应成功");
-    let seqs: Vec<u64> = rows.iter().map(|row| row.seq).collect();
-    assert_eq!(seqs, vec![0, 2, 5], "seq 升序、空洞无缺行");
+    let rows = store.list_run_nodes("run-steps").expect("节点读应成功");
+    assert_eq!(
+        rows.iter().map(|row| row.step).collect::<Vec<_>>(),
+        vec![
+            RunStepKind::Executor,
+            RunStepKind::Evaluator,
+            RunStepKind::Decision
+        ],
+        "节点按库读序（emit 序）枚举无缺行"
+    );
+    assert!(
+        store
+            .list_run_edges("run-steps")
+            .expect("边读应成功")
+            .is_empty(),
+        "零边 run 空数组"
+    );
 }
 
-/// run 史读面 miss 非错误（边界）：无 run 的 change → 空数组；未知 run_id →
-/// list_run_steps 空数组。
+/// run 史读面 miss 非错误（边界）：无 run 的 change → 空数组；未知 / 空串
+/// run_id → list_run_nodes / list_run_edges 空数组（读面幂等无副作用）。
 #[test]
 fn run史读面miss非错误_空数组() {
     let env = Env::new("run-read-miss");
@@ -6363,11 +6591,141 @@ fn run史读面miss非错误_空数组() {
             .is_empty(),
         "未建档 change → 空数组（miss 非错误）"
     );
-    assert!(
-        store
-            .list_run_steps("run-ghost")
-            .expect("步读应成功")
-            .is_empty(),
-        "未知 run_id → 空数组"
+    for run_id in ["run-ghost", ""] {
+        assert!(
+            store
+                .list_run_nodes(run_id)
+                .expect("节点读应成功")
+                .is_empty(),
+            "未知 / 空串 run_id → 节点空数组（{run_id:?}）"
+        );
+        assert!(
+            store.list_run_edges(run_id).expect("边读应成功").is_empty(),
+            "未知 / 空串 run_id → 边空数组（{run_id:?}）"
+        );
+    }
+    // 读面幂等无副作用（重复读同结果）
+    assert!(store
+        .list_run_nodes("run-ghost")
+        .expect("节点读应成功")
+        .is_empty());
+}
+
+// ---------------------------------------------------------------------------
+// run 域读面细面（list_run_nodes 身份键序 / list_run_edges 与 from_node_key
+// 后继查询）——run-workflow-by-step 决策③
+// ---------------------------------------------------------------------------
+
+/// 读面细面：节点按身份键序稳定（同 `(phase, attempt, step)` 下 `instance_no`
+/// 递增）；边按 run 全量读与 `from_node_key` 后继查询同口径（二级索引语义，
+/// 同 seq 升序）。
+#[test]
+fn run域读面_节点身份键序与边后继查询同口径() {
+    let env = Env::new("run-read-index");
+    let store = open_workspace_ok(&env.db_path("ws"));
+    create_change_ok(&store, "flow-run", 1000);
+    store
+        .start_change_run(&run_start_cmd("run-idx", "flow-run", 2000))
+        .expect("发起应成功");
+
+    // 乱序注入（emit 序由整包下标定）：executor 两实例 + 门禁 + 相位机步
+    store
+        .finish_change_run(&run_finish_cmd(
+            "run-idx",
+            "flow-run",
+            RunStatus::Completed,
+            None,
+            3000,
+            vec![
+                run_node_entry(
+                    "implement",
+                    1,
+                    RunStepKind::Executor,
+                    RunStepStatus::Failed,
+                    0,
+                ),
+                run_node_entry(
+                    "implement",
+                    1,
+                    RunStepKind::Executor,
+                    RunStepStatus::Passed,
+                    1,
+                ),
+                run_node_entry(
+                    "implement",
+                    1,
+                    RunStepKind::StaticCheck,
+                    RunStepStatus::Passed,
+                    0,
+                ),
+                run_node_entry(
+                    "implement",
+                    1,
+                    RunStepKind::PhaseLog,
+                    RunStepStatus::Passed,
+                    0,
+                ),
+            ],
+            vec![
+                run_edge_entry(
+                    "implement:1:static_check:0",
+                    "implement:1:executor:1",
+                    RunEdgeKind::Feedback,
+                ),
+                run_edge_entry(
+                    "implement:1:executor:1",
+                    "implement:1:phase_log:0",
+                    RunEdgeKind::Forward,
+                ),
+                run_edge_entry(
+                    "implement:1:executor:0",
+                    "implement:1:static_check:0",
+                    RunEdgeKind::Forward,
+                ),
+            ],
+        ))
+        .expect("收口应成功");
+
+    let nodes = store.list_run_nodes("run-idx").expect("节点读应成功");
+    assert_eq!(
+        nodes
+            .iter()
+            .map(|row| (row.step, row.instance_no))
+            .collect::<Vec<_>>(),
+        vec![
+            (RunStepKind::Executor, 0),
+            (RunStepKind::Executor, 1),
+            (RunStepKind::StaticCheck, 0),
+            (RunStepKind::PhaseLog, 0),
+        ],
+        "节点按 node_seq 升序（同 step 下 instance_no 递增）"
     );
+
+    let edges = store.list_run_edges("run-idx").expect("边读应成功");
+    assert_eq!(edges.len(), 3);
+    let successors = store
+        .list_run_edges_from("implement:1:static_check:0")
+        .expect("后继查询应成功");
+    assert_eq!(successors.len(), 1, "按源节点圈定后继恰一条");
+    assert_eq!(successors[0].to_node_key, "implement:1:executor:1");
+    assert_eq!(successors[0].edge_kind, RunEdgeKind::Feedback);
+    // 与 run 全量读同口径（子集逐字段一致）
+    assert_eq!(
+        successors[0],
+        *edges
+            .iter()
+            .find(|edge| edge.from_node_key == "implement:1:static_check:0")
+            .expect("全量读含同一条边")
+    );
+
+    // 同源多出边（分支面）：executor:0 → static_check:0 / phase_log 双后继
+    let fan_out = store
+        .list_run_edges_from("implement:1:executor:0")
+        .expect("后继查询应成功");
+    assert_eq!(fan_out.len(), 1);
+    // 未知源节点 → 空数组（miss 非错误）
+    assert!(store
+        .list_run_edges_from("ghost:1:executor:0")
+        .expect("后继查询应成功")
+        .is_empty());
 }

@@ -370,12 +370,20 @@ async fn start提前resolve返回running摘要且channel首事件到达后台驱
         record.active_phase.is_none(),
         "finish 单事务 active_phase 清位（悬挂杀除——D1）"
     );
-    let steps = store
-        .list_run_steps(&runs[0].run_id)
-        .expect("run 步清单应成功");
+    let nodes = store
+        .list_run_nodes(&runs[0].run_id)
+        .expect("run 节点清单应成功");
     assert!(
-        steps.iter().any(|step| step.phase == "proposal"),
-        "phase-start 已开相位的步整包在案（落库写缝证据）"
+        nodes.iter().any(|node| node.phase == "proposal"),
+        "phase-start 已开相位的节点整包在案（落库写缝证据）"
+    );
+    assert_eq!(
+        nodes
+            .iter()
+            .filter(|node| node.step == workflow::state::RunStepKind::PhaseStart)
+            .count(),
+        1,
+        "phase_start 词汇零过滤落库（流程面步骤在案）"
     );
 }
 
@@ -1317,9 +1325,28 @@ fn channel面五kind通知各自一拍且零载荷键() {
             phase: "implement".to_owned(),
             attempt: 1,
             step: orchestration::ChangeStepKind::Executor,
+            instance_no: 0,
             status: orchestration::ChangeStepStatus::Running,
             session_id: None,
             detail: None,
+            output_ref: None,
+        },
+    });
+    guard.emit(super::RunUpdate::Edge {
+        edge: orchestration::ChangeStepEdge {
+            from: (
+                "implement".to_owned(),
+                1,
+                orchestration::ChangeStepKind::Executor,
+                0,
+            ),
+            to: (
+                "implement".to_owned(),
+                1,
+                orchestration::ChangeStepKind::StaticCheck,
+                0,
+            ),
+            kind: orchestration::state::EdgeKind::Forward,
         },
     });
     guard.emit(super::RunUpdate::SessionEvent {
@@ -1342,8 +1369,8 @@ fn channel面五kind通知各自一拍且零载荷键() {
     });
     guard.finish(super::ChangeRunStatus::Completed, None);
 
-    wait_for("五 kind 通知到齐", || {
-        captured.lock().expect("捕获锁不可中毒").len() >= 5
+    wait_for("六 kind 通知到齐（含 edge 变体）", || {
+        captured.lock().expect("捕获锁不可中毒").len() >= 6
     });
     let frames = captured.lock().expect("捕获锁不可中毒");
     let ipcs: Vec<&str> = frames
@@ -1352,8 +1379,15 @@ fn channel面五kind通知各自一拍且零载荷键() {
         .collect();
     assert_eq!(
         ipcs,
-        vec!["step", "sessionEvent", "ask", "confirmWait", "finished"],
-        "五 kind 各自一拍（publish 序即广播序）"
+        vec![
+            "step",
+            "edge",
+            "sessionEvent",
+            "ask",
+            "confirmWait",
+            "finished"
+        ],
+        "六 kind 各自一拍（publish 序即广播序；edge kind-only 信封随 shape 演进）"
     );
     for frame in frames.iter() {
         assert_eq!(

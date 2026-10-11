@@ -9,7 +9,9 @@ use checks::model::{
     ProblemType, SubReport, SummaryReport, TestCaseResult, TestCaseStatus,
 };
 use foundation::layout::change_test_reports;
-use orchestration::port::{TestExecutionConclusion, TestExecutionRunner, ToolStepOutput};
+use orchestration::port::{
+    TestExecutionConclusion, TestExecutionOutcome, TestExecutionRunner, ToolStepOutput,
+};
 
 use super::detect::to_posix;
 use super::{
@@ -356,7 +358,28 @@ async fn 复用门装配_输入未变零spawn复用() {
         Some(first_ts),
         "复用上次 summary（未重写）"
     );
-    assert_eq!(first, second, "复用产出与首跑逐字段一致");
+    // 复用产出与首跑逐字段一致（exec_id 为每次装配的落盘引用，恒新铸——
+    // 记录单点面独立于复用门，余下字段零漂移）
+    let (ToolStepOutput::TestExecution(first_out), ToolStepOutput::TestExecution(second_out)) =
+        (&first, &second)
+    else {
+        panic!("两跑产出均应为 TestExecution 变体");
+    };
+    assert_ne!(
+        first_out.exec_id, second_out.exec_id,
+        "落盘引用每次装配新铸"
+    );
+    assert_eq!(
+        TestExecutionOutcome {
+            exec_id: String::new(),
+            ..first_out.clone()
+        },
+        TestExecutionOutcome {
+            exec_id: String::new(),
+            ..second_out.clone()
+        },
+        "除落盘引用外复用产出与首跑逐字段一致"
+    );
 }
 
 /// 正向：复用门装配（失效分支）——touch 输入文件推进 mtime 后 run → 失效
@@ -744,7 +767,10 @@ fn conclusion三值映射逐字() {
         (Conclusion::Fail, "fail"),
         (Conclusion::Error, "error"),
     ] {
+        let dir = TempDir::new().expect("临时目录");
         let output = outcome(
+            dir.path(),
+            "demo-change",
             &hand_summary(checks_conclusion, Vec::new()),
             &[],
             reports_dir,
@@ -881,4 +907,78 @@ fn 空扫描根返回none() {
     );
     // 空扫描根集
     assert_eq!(newest_input_mtime_ms(&[], &[]), None);
+}
+
+/// 正向：一次门禁装配 → `exec_id` 与既有 `report_dir` 同口径（输出记录单点经
+/// infra/exec 落盘）；`read_exec_output` 回查内容与 summary 全量 JSON 一致。
+#[test]
+fn 门禁exec_id与report_dir同口径且可回查() {
+    let dir = TempDir::new().expect("临时目录");
+    let reports_dir = dir.path().join("openspec/changes/demo-change/reports/test");
+    let summary = hand_summary(Conclusion::Pass, vec!["找不到问题".to_owned()]);
+
+    let output = outcome(dir.path(), "demo-change", &summary, &[], &reports_dir);
+    let ToolStepOutput::TestExecution(mapped) = output else {
+        panic!("产出应为 TestExecution 变体");
+    };
+
+    assert!(!mapped.exec_id.is_empty(), "exec_id 铸造非空（记录成功）");
+    assert!(
+        mapped.exec_id.starts_with("exec-"),
+        "exec_id 定式: {}",
+        mapped.exec_id
+    );
+    // 与 report_dir 同锚：输出记录目录驻 report_dir 下的 exec-outputs/
+    let expected_dir =
+        foundation::layout::change_test_reports(dir.path(), "demo-change").join("exec-outputs");
+    assert!(
+        expected_dir
+            .join(format!("{}.log", mapped.exec_id))
+            .exists(),
+        "落盘位于 report_dir 同锚的 exec-outputs/<exec_id>.log"
+    );
+    let read_back =
+        exec::read_exec_output(dir.path(), "demo-change", &mapped.exec_id).expect("回查应命中");
+    let parsed: serde_json::Value = serde_json::from_slice(&read_back).expect("全量 JSON 可解析");
+    assert_eq!(parsed["conclusion"], serde_json::json!("pass"));
+    assert_eq!(parsed["phase"], serde_json::json!("test-execution"));
+
+    // 多次装配 exec_id 互异（引用唯一面）
+    let second = outcome(dir.path(), "demo-change", &summary, &[], &reports_dir);
+    let ToolStepOutput::TestExecution(second) = second else {
+        panic!("产出应为 TestExecution 变体");
+    };
+    assert_ne!(mapped.exec_id, second.exec_id, "多次运行 exec_id 互异");
+}
+
+/// 边界 / 异常：报告目录不可写（父路径被文件占位）→ 记录降级空串（未记录），
+/// 门禁结论面不受阻断（report_dir 报告仍为全量权威）。
+#[test]
+fn 记录失败降级空串不阻断门禁结论() {
+    let dir = TempDir::new().expect("临时目录");
+    let reports_dir = dir.path().join("openspec/changes/demo-change/reports/test");
+    std::fs::create_dir_all(reports_dir.parent().expect("父目录")).expect("创建父目录失败");
+    std::fs::write(&reports_dir, "占位文件").expect("占位写失败");
+
+    let output = outcome(
+        dir.path(),
+        "demo-change",
+        &hand_summary(Conclusion::Fail, vec!["用例失败".to_owned()]),
+        &[],
+        &reports_dir,
+    );
+    let ToolStepOutput::TestExecution(mapped) = output else {
+        panic!("产出应为 TestExecution 变体");
+    };
+    assert_eq!(
+        mapped.conclusion,
+        TestExecutionConclusion::Fail,
+        "记录失败不阻断门禁结论"
+    );
+    assert!(mapped.exec_id.is_empty(), "落盘失败降级空串（未记录口径）");
+    assert_eq!(
+        mapped.report_dir,
+        to_posix(&reports_dir),
+        "report_dir 面不受记录失败影响"
+    );
 }

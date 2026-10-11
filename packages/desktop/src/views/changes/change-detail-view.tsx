@@ -17,7 +17,7 @@ import { ChangeFlowGraph } from './flow/change-flow-graph';
 import { DetailDrawer } from './flow/detail-drawer';
 import { buildFlowGraph } from './flow/graph';
 import { RunControlPanel } from './flow/run-control-panel';
-import { runStepNodes, unifiedRunSteps } from './flow/run-state';
+import { runStepNodes, unifiedRunEdges, unifiedRunNodes } from './flow/run-state';
 import type { DrawerSelection, FlowGraph, FlowMaterials } from './flow/types';
 import { useArchiveFlow, type UseArchiveFlowResult } from './hooks/use-archive-flow';
 import { useChangeDetail } from './hooks/use-change-detail';
@@ -273,8 +273,34 @@ function DetailActionPanels({
   );
 }
 
-/** 详情已载入形态（拼缝单源化：步节点 = runs[].steps ∪ activeRun.steps 同一
- * 转换函数——图常驻渲染，回落分支退场）。 */
+/** 执行图数据源（拼缝单源化：步节点 = runs[].nodes ∪ activeRun.nodes、边 =
+ * runs[].edges ∪ activeRun.edges 同一转换函数——图常驻渲染，回落分支退场）。 */
+function useFlowGraphData(
+  detail: ChangeDetail,
+  activeRun: ActiveRunView | null,
+  artifacts: ArtifactEnvelope[],
+): { graph: FlowGraph; materials: FlowMaterials; lastRun: ChangeRunEntry | null } {
+  const runNodes = useMemo(
+    () => runStepNodes(unifiedRunNodes(detail.runs, activeRun?.nodes ?? [])),
+    [detail.runs, activeRun],
+  );
+  const runEdges = useMemo(
+    () => unifiedRunEdges(detail.runs, activeRun?.edges ?? []),
+    [detail.runs, activeRun],
+  );
+  const graph = useMemo<FlowGraph>(
+    () => buildFlowGraph(detail, runNodes, runEdges),
+    [detail, runNodes, runEdges],
+  );
+  const materials = useMemo<FlowMaterials>(
+    () => mountMaterials(graph, detail, artifacts),
+    [detail, graph, artifacts],
+  );
+  const lastRun = detail.runs.length > 0 ? detail.runs[detail.runs.length - 1] : null;
+  return { graph, materials, lastRun };
+}
+
+/** 详情已载入形态（图数据源经 [`useFlowGraphData`] 单点派生）。 */
 function DetailLoaded({
   detail,
   activeRun,
@@ -288,16 +314,7 @@ function DetailLoaded({
   archiveOpen,
   onArchiveClose,
 }: DetailLoadedProps): React.JSX.Element {
-  const runNodes = useMemo(
-    () => runStepNodes(unifiedRunSteps(detail.runs, activeRun?.steps ?? [])),
-    [detail.runs, activeRun],
-  );
-  const graph = useMemo<FlowGraph>(() => buildFlowGraph(detail, runNodes), [detail, runNodes]);
-  const materials = useMemo<FlowMaterials>(
-    () => mountMaterials(graph, detail, artifacts),
-    [detail, graph, artifacts],
-  );
-  const lastRun = detail.runs.length > 0 ? detail.runs[detail.runs.length - 1] : null;
+  const { graph, materials, lastRun } = useFlowGraphData(detail, activeRun, artifacts);
   return (
     <div>
       {header}

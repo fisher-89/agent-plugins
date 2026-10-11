@@ -4,6 +4,8 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+# 报告目录树派生单点（artifact 相对路径 / exec 输出记录同锚）
+foundation = { workspace = true }
 tokio = { workspace = true, features = ["process"] }
 
 [dev-dependencies]

@@ -5,8 +5,8 @@
 
 use workflow::state::{
     BacktrackCommand, ChangeStateRecord, ChangeStateStore, PhaseLogCommand, PhaseStartState,
-    PhaseStateRecord, RunFinishCommand, RunStartCommand, RunStateRecord, RunStepStateRecord,
-    StepCommand, StepStateRecord, StoreFault,
+    PhaseStateRecord, RunEdgeStateRecord, RunFinishCommand, RunNodeStateRecord, RunStartCommand,
+    RunStateRecord, StepCommand, StepStateRecord, StoreFault,
 };
 
 use crate::store::{Store, StoreError};
@@ -93,8 +93,12 @@ impl ChangeStateStore for Store {
         self.list_change_runs(change_id).map_err(fault)
     }
 
-    fn list_run_steps(&self, run_id: &str) -> Result<Vec<RunStepStateRecord>, StoreFault> {
-        self.list_run_steps(run_id).map_err(fault)
+    fn list_run_nodes(&self, run_id: &str) -> Result<Vec<RunNodeStateRecord>, StoreFault> {
+        Store::list_run_nodes(self, run_id).map_err(fault)
+    }
+
+    fn list_run_edges(&self, run_id: &str) -> Result<Vec<RunEdgeStateRecord>, StoreFault> {
+        Store::list_run_edges(self, run_id).map_err(fault)
     }
 
     fn run_start(&self, command: &RunStartCommand) -> Result<(), StoreFault> {

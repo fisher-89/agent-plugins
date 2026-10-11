@@ -4,7 +4,7 @@ use std::sync::Mutex;
 use agent::ModelLevel;
 
 use crate::model::{ChecklistItem, Verdict};
-use crate::state::{ChangeStateStore, PhaseStateRecord};
+use crate::state::{ArtifactSpec, ChangeStateStore, PhaseStateRecord, StepDefinition};
 use crate::write::phase_table::{
     allowed_backtrack_phases, phase_table, PhaseAgentSpec, PhaseDefinition, MAX_RETRY_TIMES,
     MAX_ROUNDS,
@@ -61,7 +61,9 @@ pub struct ResolvedPhaseSpec {
     pub model_level: ModelLevel,
 }
 
-/// 路由产出（executor / evaluator prompt 已组装；白名单随行下发）。
+/// 路由产出（executor / evaluator prompt 已组装；白名单与 next 相位计划步序列
+/// / 产物清单随行下发）。**路由权威不变**：本响应只为消费方供给「本相位该走哪
+/// 些 step」与「本相位声明哪些产物」，walker 不自持步序（过渡仍问本函数）。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PhaseNextOutcome {
     /// 全相位 pass 走完（run 收口，不触发归档）
@@ -69,6 +71,10 @@ pub struct PhaseNextOutcome {
     pub next_phase: Option<String>,
     /// 会话窗口轮次（窗口条目数 + 1）
     pub round: u32,
+    /// next 相位的计划步序列（有序克隆；`done` / `error` 响应为空）
+    pub steps: Vec<StepDefinition>,
+    /// next 相位的产物清单（`done` / `error` 响应为空）
+    pub artifact_manifest: Vec<ArtifactSpec>,
     pub executor: Option<ResolvedPhaseSpec>,
     pub evaluator: Option<ResolvedPhaseSpec>,
     pub allowed_backtrack_phases: Vec<String>,
@@ -147,6 +153,8 @@ pub fn phase_next(
             done: true,
             next_phase: None,
             round,
+            steps: Vec::new(),
+            artifact_manifest: Vec::new(),
             executor: None,
             evaluator: None,
             allowed_backtrack_phases: Vec::new(),
@@ -167,6 +175,8 @@ pub fn phase_next(
             done: false,
             next_phase: None,
             round,
+            steps: Vec::new(),
+            artifact_manifest: Vec::new(),
             executor: None,
             evaluator: None,
             allowed_backtrack_phases: Vec::new(),
@@ -247,11 +257,7 @@ fn latest_result(entries: &[PhaseStateRecord]) -> Option<LastResult> {
 /// evidence）；全 pass 清单配 fail verdict 的漂移形态全量随行不虚减（与决策
 /// 输入 `build_decision_input` 同判）；清单空退回 report 全文。
 fn fail_feedback_suffix(record: &PhaseStateRecord) -> String {
-    let failing: Vec<&ChecklistItem> = record
-        .checklist
-        .iter()
-        .filter(|item| !item.pass)
-        .collect();
+    let failing: Vec<&ChecklistItem> = record.checklist.iter().filter(|item| !item.pass).collect();
     let source: Vec<&ChecklistItem> = if failing.is_empty() {
         record.checklist.iter().collect()
     } else {
@@ -288,9 +294,7 @@ fn build_phase_response(
     let reason_suffix = backtrack_reason
         .map(|reason| format!("\n\n⚠️ 回溯原因: {reason}"))
         .unwrap_or_default();
-    let feedback_suffix = retry_feedback
-        .map(fail_feedback_suffix)
-        .unwrap_or_default();
+    let feedback_suffix = retry_feedback.map(fail_feedback_suffix).unwrap_or_default();
     let resolve = |spec: &PhaseAgentSpec| ResolvedPhaseSpec {
         prompt: format!(
             "{context_header}{}{reason_suffix}{feedback_suffix}",
@@ -302,6 +306,10 @@ fn build_phase_response(
         done: false,
         next_phase: Some(def.id.to_owned()),
         round,
+        // next 相位计划步序列 + 产物清单随行下发（路由权威不变：walker 不自持
+        // 步序 / 归属表，仅消费本响应）
+        steps: def.steps.to_vec(),
+        artifact_manifest: def.artifact_manifest.to_vec(),
         executor: def.executor.as_ref().map(resolve),
         evaluator: def.evaluator.as_ref().map(resolve),
         allowed_backtrack_phases: allowed_backtrack_phases(table, def.id),

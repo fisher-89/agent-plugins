@@ -215,9 +215,152 @@ pub struct StepCommand {
     pub timestamp: i64,
 }
 
-// --- run 运行史（unify-run-state-persistence：决策翻案「不建 flow_runs 表」
-// 立项，run 运行史落库 RunRecord / RunStepRecord 两表；词汇本体单点驻本节
-// ——写命令与查询投影同类型消费）-------------------------------------------
+// --- 计划图（源码单源：由 `write::phase_table` 的 const 表声明，不落库、不经
+// port 缝、无运行时文件 IO / 目录遍历；prompt 仍全静态零占位）--------------
+
+/// 计划步分组三分类（`StepNode::group()` 派生；walker 按本值分派 exec / agent /
+/// gate 步执行，MUST NOT 以 step 类型特判实现）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Type)]
+#[serde(rename_all = "lowercase")]
+pub enum StepGroup {
+    /// 脚本步（相位机步 phase-start / phase-log + 检查域 spawn 步）
+    Exec,
+    /// agent 会话步（executor / evaluator / decision）
+    Agent,
+    /// 纯 Rust 分支门（verdict / retry / whitelist 三门）
+    Gate,
+}
+
+/// agent 步角色（`StepNode::role()` 派生；线格式小写词与 `WorkerRole` 同源）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Type)]
+#[serde(rename_all = "lowercase")]
+pub enum AgentRole {
+    /// 实现 / 修复会话
+    Executor,
+    /// 评估会话
+    Evaluator,
+    /// 决策会话（重试上限分叉）
+    Decision,
+}
+
+/// 计划步节点全词汇（10 值封闭集，线格式 snake_case 词）：agent 阶段三角色 +
+/// 脚本阶段两检查步 + 流程面两步 + 三门 gate。词汇本体单点——计划图声明
+///（[`StepDefinition::node`]）与执行图落库（[`RunStepKind`]）同词面 1:1 全映射。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Type)]
+#[serde(rename_all = "snake_case")]
+pub enum StepNode {
+    /// executor 会话
+    Executor,
+    /// evaluator 会话
+    Evaluator,
+    /// 决策会话
+    Decision,
+    /// phase-start 相位机步
+    PhaseStart,
+    /// static-check 门禁工具步（定向反馈边）
+    StaticCheck,
+    /// test-execution 门禁工具步（确定性测试执行链）
+    TestExecution,
+    /// phase-log 相位机步
+    PhaseLog,
+    /// verdict 解析门
+    VerdictGate,
+    /// retry 预算门
+    RetryGate,
+    /// backtrack 白名单门
+    WhitelistGate,
+}
+
+impl StepNode {
+    /// 线格式 snake_case 词（与 [`RunStepKind::as_str`] 逐字同源）。
+    pub fn as_str(self) -> &'static str {
+        match self {
+            StepNode::Executor => "executor",
+            StepNode::Evaluator => "evaluator",
+            StepNode::Decision => "decision",
+            StepNode::PhaseStart => "phase_start",
+            StepNode::StaticCheck => "static_check",
+            StepNode::TestExecution => "test_execution",
+            StepNode::PhaseLog => "phase_log",
+            StepNode::VerdictGate => "verdict_gate",
+            StepNode::RetryGate => "retry_gate",
+            StepNode::WhitelistGate => "whitelist_gate",
+        }
+    }
+
+    /// 三类节点分组（派生访问器；MUST NOT 落独立冗余字段）。
+    pub fn group(self) -> StepGroup {
+        match self {
+            StepNode::Executor | StepNode::Evaluator | StepNode::Decision => StepGroup::Agent,
+            StepNode::PhaseStart
+            | StepNode::StaticCheck
+            | StepNode::TestExecution
+            | StepNode::PhaseLog => StepGroup::Exec,
+            StepNode::VerdictGate | StepNode::RetryGate | StepNode::WhitelistGate => {
+                StepGroup::Gate
+            }
+        }
+    }
+
+    /// agent 步角色（非 agent 步 `None`）。
+    pub fn role(self) -> Option<AgentRole> {
+        match self {
+            StepNode::Executor => Some(AgentRole::Executor),
+            StepNode::Evaluator => Some(AgentRole::Evaluator),
+            StepNode::Decision => Some(AgentRole::Decision),
+            StepNode::PhaseStart
+            | StepNode::StaticCheck
+            | StepNode::TestExecution
+            | StepNode::PhaseLog
+            | StepNode::VerdictGate
+            | StepNode::RetryGate
+            | StepNode::WhitelistGate => None,
+        }
+    }
+}
+
+/// 步失败语义（`StepDefinition.on_fail`）：两变体恰好覆盖 walker 三处特殊控制
+/// 流里的两处（相位间 confirm 停等为 run 级 `auto_next_phase` 开关，非 step 属
+/// 性）；缺省 `None` = 直接按步失败收场（显式失败停给用户，不静默吞）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum OnFail {
+    /// 定向反馈边：失败步诊断注入本相位 executor 会话（Continue）修复重跑，
+    /// 独立计数 ≤ `limit`，超限升格相位 fail（不计相位 retry 预算）
+    FeedbackLoop {
+        /// 反馈边独立计数上限
+        limit: u32,
+    },
+    /// 终态失败停给用户（verdict 解析失败等——不臆测、不静默跳过）
+    Terminal,
+}
+
+/// 计划步定义（相位内有序序列项；全静态 const 表内联）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct StepDefinition {
+    /// 步节点词汇（kind / role 经 [`StepNode::group`] / [`StepNode::role`] 派生）
+    pub node: StepNode,
+    /// agent 步静态 prompt 引用（`include_str!` 编译期静态文本；非 agent 步 `None`）
+    pub prompt_ref: Option<&'static str>,
+    /// 步失败语义（缺省 `None` = 按步失败收场）
+    pub on_fail: Option<OnFail>,
+}
+
+/// 产物清单项（相对路径 → phase 归属的权威来源；产物发现按本清单枚举）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ArtifactSpec {
+    /// 契约 ID（`markdown-doc` / `tasks-progress` 等）
+    pub kind: &'static str,
+    /// 相对路径模式（精确路径，或 `<前缀>/**` 前缀 glob）
+    pub path: &'static str,
+    /// 清单声明的人读标题（插件无名单标题时的兜底）
+    pub title: &'static str,
+}
+
+// --- run 执行图（unify-run-state-persistence：决策翻案「不建 flow_runs 表」
+// 立项；run-workflow-by-step 决策③重设计为 RunRecord / RunNodeRecord /
+// RunEdgeRecord 三表——节点承载全词汇 + 稳定身份键，边单独落表；词汇本体单点
+// 驻本节，写命令与查询投影同类型消费）--------------------------------------
 
 /// run 状态五值（线格式小写词；queries DTO 直接复用本类型）。`interrupted`
 /// 仅启动标定产生（重启后 run 客观已死），运行期写路径不产生该值；停等两态
@@ -255,10 +398,11 @@ impl RunStatus {
     }
 }
 
-/// run 步词汇封闭集（五值，线格式 snake_case 词）：agent 阶段（executor /
-/// evaluator / decision）+ 脚本阶段（static_check / test_execution）。词汇
-/// 本体单点——落库命令（`RunStepEntry.step`）与查询投影（`detail.rs`）同本
-/// 类型消费，store 结构上收不到忽略集（流程面步骤与三门不可表达）。
+/// run 步词汇封闭集（**十值全词汇**，线格式 snake_case 词）：agent 阶段
+///（executor / evaluator / decision）、脚本阶段（static_check / test_execution）、
+/// 流程面步骤（phase_start / phase_log）与三门 gate（verdict_gate、retry_gate、
+/// whitelist_gate）。词汇本体单点——落库命令（`RunNodeEntry.step`）与查询投影
+///（`detail.rs`）同本类型消费，落库零过滤（旧 5 值词表的过滤谓词已退役）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Type)]
 #[serde(rename_all = "snake_case")]
 pub enum RunStepKind {
@@ -272,6 +416,16 @@ pub enum RunStepKind {
     StaticCheck,
     /// test-execution 门禁工具步
     TestExecution,
+    /// phase-start 相位机步
+    PhaseStart,
+    /// phase-log 相位机步
+    PhaseLog,
+    /// verdict 解析门
+    VerdictGate,
+    /// retry 预算门
+    RetryGate,
+    /// backtrack 白名单门
+    WhitelistGate,
 }
 
 impl RunStepKind {
@@ -283,6 +437,40 @@ impl RunStepKind {
             RunStepKind::Decision => "decision",
             RunStepKind::StaticCheck => "static_check",
             RunStepKind::TestExecution => "test_execution",
+            RunStepKind::PhaseStart => "phase_start",
+            RunStepKind::PhaseLog => "phase_log",
+            RunStepKind::VerdictGate => "verdict_gate",
+            RunStepKind::RetryGate => "retry_gate",
+            RunStepKind::WhitelistGate => "whitelist_gate",
+        }
+    }
+}
+
+/// run 执行图边词汇封闭集（四值，线格式小写词）：`forward` 计划序推进 /
+/// `feedback` gate 失败回同 phase agent 步（phase 内回边）/ `retry` phase fail
+/// 后同相位重跑 / `backtrack` 跨相位回跳。词汇本体单点——编排侧 `ChangeStepEdge`
+/// 与落库命令（`RunEdgeEntry.edge_kind`）同本类型消费（零映射）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Type)]
+#[serde(rename_all = "snake_case")]
+pub enum RunEdgeKind {
+    /// 计划序推进（相位内按 steps 序推进、相位间推进）
+    Forward,
+    /// gate 失败回到同 phase agent 步（phase 内回边）
+    Feedback,
+    /// phase fail 后同相位重跑
+    Retry,
+    /// 跨相位回跳
+    Backtrack,
+}
+
+impl RunEdgeKind {
+    /// 线格式小写词。
+    pub fn as_str(self) -> &'static str {
+        match self {
+            RunEdgeKind::Forward => "forward",
+            RunEdgeKind::Feedback => "feedback",
+            RunEdgeKind::Retry => "retry",
+            RunEdgeKind::Backtrack => "backtrack",
         }
     }
 }
@@ -318,22 +506,48 @@ pub struct RunStateRecord {
     pub finished_at: Option<i64>,
 }
 
-/// run 步节点史行中性快照（`RunStepRecord` 的 port 流量像；图史面，与
+/// run 执行图节点史行中性快照（`RunNodeRecord` 的 port 流量像；图史面，与
 /// `StepRecord` 审计职责分立）。
+///
+/// 稳定身份键 = `(run_id, phase, attempt, step, instance_no)`（`instance_no` 每
+/// 次执行递增，feedback 重跑为独立新节点）；身份串
+/// `"{phase}:{attempt}:{step}:{instance_no}"` 为边表端点口径（store 侧
+/// `RunNodeRecord::node_id()` 同式组装）。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
-pub struct RunStepStateRecord {
-    /// emit 序号（同 run 内 emit 序，库面空洞合法）
-    pub seq: u64,
+pub struct RunNodeStateRecord {
     pub run_id: String,
+    /// 所属 change id（归属键——一切寻址以 id 为准）
+    pub change_id: String,
     pub phase: String,
     pub attempt: u32,
     pub step: RunStepKind,
+    /// 同 `(phase, attempt, step)` 内的执行实例号（每次执行递增）
+    pub instance_no: u32,
     pub status: RunStepStatus,
     /// WorkerAgent 步所属会话 id（工具步为 None）
     pub session_id: Option<String>,
     /// 人读记因 / 摘要（有界，写面截断同 diagnose_brief 口径）
     pub detail: Option<String>,
+    /// 全量输出引用（`ExecOutput::Recorded { exec_id }`；无记录模式为 None）
+    pub output_ref: Option<String>,
+    /// 落包时刻（UTC unix 毫秒，= finish 的 finished_at）
+    pub timestamp: i64,
+}
+
+/// run 执行图边史行中性快照（`RunEdgeRecord` 的 port 流量像）：`edge_kind` 四值
+/// 封闭集，`from_node_key` / `to_node_key` 指向节点身份串。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct RunEdgeStateRecord {
+    pub run_id: String,
+    /// 所属 change id（归属键——一切寻址以 id 为准）
+    pub change_id: String,
+    /// 源节点身份串
+    pub from_node_key: String,
+    /// 目标节点身份串
+    pub to_node_key: String,
+    pub edge_kind: RunEdgeKind,
     /// 落包时刻（UTC unix 毫秒，= finish 的 finished_at）
     pub timestamp: i64,
 }
@@ -348,22 +562,32 @@ pub struct RunStartCommand {
     pub started_at: i64,
 }
 
-/// run 步整包条目（finish 载荷内联；词汇 = [`RunStepKind`] 封闭集，流程面
-/// 步骤与三门结构上不可表达）。
+/// run 节点整包条目（finish 载荷内联；词汇 = [`RunStepKind`] 十值全词汇，零
+/// 过滤）。`node_seq` 由整包下标盖戳（store 侧组装打包主键）。
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct RunStepEntry {
-    /// emit 序号（全词汇 emit 序，被过滤步不占号——词汇在类型面已封闭）
-    pub seq: u64,
+pub struct RunNodeEntry {
     pub phase: String,
     pub attempt: u32,
     pub step: RunStepKind,
+    /// 同 `(phase, attempt, step)` 内的执行实例号
+    pub instance_no: u32,
     pub status: RunStepStatus,
     pub session_id: Option<String>,
     pub detail: Option<String>,
+    /// 全量输出引用（`exec_id`）
+    pub output_ref: Option<String>,
 }
 
-/// run 收口写命令（终态更新 + 步整包 + active_phase 清位单事务载荷）。
-/// `status` 为终态三值（completed / stopped / failed），`interrupted` 写面
+/// run 边整包条目（finish 载荷内联）：端点恒为节点身份串。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RunEdgeEntry {
+    pub from_node_key: String,
+    pub to_node_key: String,
+    pub edge_kind: RunEdgeKind,
+}
+
+/// run 收口写命令（终态更新 + 节点整包 + 边整包 + active_phase 清位单事务载
+/// 荷）。`status` 为终态三值（completed / stopped / failed），`interrupted` 写面
 /// 拒绝——运行期写路径不产生，仅启动标定写入。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RunFinishCommand {
@@ -374,7 +598,10 @@ pub struct RunFinishCommand {
     pub reason: Option<String>,
     /// 收口时刻（UTC unix 毫秒，命令携带；corpus 确定性）
     pub finished_at: i64,
-    pub steps: Vec<RunStepEntry>,
+    /// 节点整包（全词汇零过滤，序 = emit 序）
+    pub nodes: Vec<RunNodeEntry>,
+    /// 边整包（四 kind，序 = emit 序）
+    pub edges: Vec<RunEdgeEntry>,
 }
 
 /// port 错误面（`StoreFault`）：读 / 写半边统一错误收敛；命令层以
@@ -468,23 +695,27 @@ pub trait ChangeStateStore: Send + Sync {
     /// 步骤审计行追加（行 id 写事务内 max+1）。
     fn append_step(&self, command: &StepCommand) -> Result<(), StoreFault>;
 
-    // --- run 运行史（unify-run-state-persistence 决策翻案：run 运行史落库
-    // RunRecord / RunStepRecord 两表；每 run 两写零每步写放大）--------------
+    // --- run 执行图（unify-run-state-persistence 决策翻案 + run-workflow-by-step
+    // 决策③：run 记录落 RunRecord / RunNodeRecord / RunEdgeRecord 三表；每 run
+    // 两写零每步写放大）---------------------------------------------------
 
     /// run 运行史清单（按 change id 归属过滤，`started_at` 升序；run_id 并列
     /// 稳定序由实现保证）。
     fn list_runs(&self, change_id: &str) -> Result<Vec<RunStateRecord>, StoreFault>;
 
-    /// run 步节点史行（`seq` 升序 = emit 序；流程面步骤与三门不在
-    /// [`RunStepKind`] 封闭集内，词汇过滤单点在落库侧——读面零过滤）。
-    fn list_run_steps(&self, run_id: &str) -> Result<Vec<RunStepStateRecord>, StoreFault>;
+    /// run 执行图节点行（`run_id` 圈定，node_seq 升序 = emit 序；十值全词汇
+    /// 零过滤——读面与写面同一份封闭集）。
+    fn list_run_nodes(&self, run_id: &str) -> Result<Vec<RunNodeStateRecord>, StoreFault>;
+
+    /// run 执行图边行（`run_id` 圈定，edge_seq 升序 = emit 序；四 kind 零过滤）。
+    fn list_run_edges(&self, run_id: &str) -> Result<Vec<RunEdgeStateRecord>, StoreFault>;
 
     /// run 发起落行（status=running；同 run_id 冲突 → [`StoreFault::Conflict`]，
     /// change 未建档 → [`StoreFault::NotFound`]）。
     fn run_start(&self, command: &RunStartCommand) -> Result<(), StoreFault>;
 
     /// run 收口单事务（run 行在案且 running → 终态 + reason + finished_at +
-    /// 步整包 + 该 change `active_phase` 按 change id 清位；miss →
+    /// 节点整包 + 边整包 + 该 change `active_phase` 按 change id 清位；miss →
     /// [`StoreFault::NotFound`]，非 running 或 status 含 `interrupted` →
     /// [`StoreFault::Conflict`]）。
     fn run_finish(&self, command: &RunFinishCommand) -> Result<(), StoreFault>;

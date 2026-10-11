@@ -37,9 +37,11 @@ fn sample_step() -> ChangeStepState {
         phase: "implement".to_owned(),
         attempt: 2,
         step: ChangeStepKind::Executor,
+        instance_no: 0,
         status: ChangeStepStatus::Running,
         session_id: Some("sess-1".to_owned()),
         detail: None,
+        output_ref: None,
     }
 }
 
@@ -93,7 +95,8 @@ async fn 复合键登记与并行冲突_同root同id二次begin拒绝() {
         .expect("首个 run 条目在场");
     assert_eq!(snap.run_id, "run-1", "首个 run 条目未被扰动");
     assert_eq!(snap.started_at, STARTED_AT);
-    assert_eq!(snap.steps.len(), 1, "首个 run 步累积器原值保持");
+    assert_eq!(snap.nodes.len(), 1, "首个 run 节点累积器原值保持");
+    assert!(snap.edges.is_empty(), "零边 run 边累积器空");
 
     // 终态除名后重入可达（键随 RunGuard 除名释放）
     guard.finish(ChangeRunStatus::Stopped, Some("用户停止".to_owned()));
@@ -717,9 +720,11 @@ async fn publish_step快照面按到达序追加_广播run_notice_step() {
         phase: "implement".to_owned(),
         attempt: 1,
         step: ChangeStepKind::Executor,
+        instance_no: 0,
         status: ChangeStepStatus::Running,
         session_id: None,
         detail: None,
+        output_ref: None,
     };
     guard.emit(RunUpdate::Step {
         step: first.clone(),
@@ -728,9 +733,11 @@ async fn publish_step快照面按到达序追加_广播run_notice_step() {
         phase: "implement".to_owned(),
         attempt: 1,
         step: ChangeStepKind::StaticCheck,
+        instance_no: 0,
         status: ChangeStepStatus::Passed,
         session_id: None,
         detail: Some("静态检查通过".to_owned()),
+        output_ref: None,
     };
     guard.emit(RunUpdate::Step {
         step: second.clone(),
@@ -739,7 +746,7 @@ async fn publish_step快照面按到达序追加_广播run_notice_step() {
     // 快照面：按到达序追加、phase/attempt 随行推进
     let snap = control.snapshot(ROOT, CHANGE_ID).unwrap();
     assert_eq!(
-        snap.steps,
+        snap.nodes,
         vec![first, second],
         "步累积器按 emit 到达序追加（全词汇照收——过滤归 run_history 单点）"
     );
@@ -904,33 +911,35 @@ async fn snapshot_steps克隆语义_取后emit互不扰动() {
         phase: "implement".to_owned(),
         attempt: 2,
         step: ChangeStepKind::Evaluator,
+        instance_no: 0,
         status: ChangeStepStatus::Passed,
         session_id: Some("sess-2".to_owned()),
         detail: None,
+        output_ref: None,
     };
     guard.emit(RunUpdate::Step { step: late.clone() });
 
     assert_eq!(
-        taken.steps.len(),
+        taken.nodes.len(),
         1,
         "已取快照不被后续 emit 扰动（克隆语义）"
     );
     let fresh = control.snapshot(ROOT, CHANGE_ID).unwrap();
-    assert_eq!(fresh.steps.len(), 2, "新快照含新步");
-    assert_eq!(fresh.steps[1], late);
+    assert_eq!(fresh.nodes.len(), 2, "新快照含新节点");
+    assert_eq!(fresh.nodes[1], late);
 }
 
-/// RunGuard.steps() 与 control.snapshot().steps 等值（walker 第二写取累积器
-/// 的读面，AC-2 组装输入一致性）。
+/// RunGuard.nodes() / edges() 与 control.snapshot().nodes / edges 等值
+///（walker 第二写取累积器的读面，AC-2/AC-5 组装输入一致性）。
 #[tokio::test]
-async fn run_guard_steps读面与快照等值() {
+async fn run_guard读面与快照等值() {
     let control = Arc::new(ChangeFlowControl::new());
     let guard = control
         .begin_run(ROOT, CHANGE_ID, "run-1".to_owned(), STARTED_AT)
         .unwrap();
     assert!(
-        guard.steps().is_empty(),
-        "零 emit 步累积器空（空整包合法形态）"
+        guard.nodes().is_empty() && guard.edges().is_empty(),
+        "零 emit 节点 / 边累积器空（空整包合法形态）"
     );
 
     guard.emit(RunUpdate::Step {
@@ -940,15 +949,125 @@ async fn run_guard_steps读面与快照等值() {
         phase: "implement".to_owned(),
         attempt: 2,
         step: ChangeStepKind::StaticCheck,
+        instance_no: 0,
         status: ChangeStepStatus::Failed,
         session_id: None,
         detail: Some("诊断".to_owned()),
+        output_ref: None,
     };
     guard.emit(RunUpdate::Step { step: late });
 
     assert_eq!(
-        guard.steps(),
-        control.snapshot(ROOT, CHANGE_ID).unwrap().steps,
-        "guard 读面与快照面等值（第二写组装输入一致性）"
+        guard.nodes(),
+        control.snapshot(ROOT, CHANGE_ID).unwrap().nodes,
+        "guard 节点读面与快照面等值（第二写组装输入一致性）"
+    );
+    assert_eq!(
+        guard.edges(),
+        control.snapshot(ROOT, CHANGE_ID).unwrap().edges,
+        "guard 边读面与快照面等值"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// 执行图边累积（RunUpdate::Edge，四 kind 显式落边）
+// ---------------------------------------------------------------------------
+
+/// `publish(RunUpdate::Edge)` 边累积：四 kind 边按 emit 序追加、快照 `edges`
+/// 随行；节点侧 `instance_no` 递增（同 `(phase, attempt, step)` 多实例）且与边
+/// 累积互不串扰（AC-3 / AC-4）。
+#[tokio::test]
+async fn publish边累积四kind且节点实例号递增() {
+    let control = Arc::new(ChangeFlowControl::new());
+    let guard = control
+        .begin_run(ROOT, CHANGE_ID, "run-1".to_owned(), STARTED_AT)
+        .unwrap();
+
+    let key = |instance_no: u32| {
+        (
+            "implement".to_owned(),
+            1,
+            ChangeStepKind::Executor,
+            instance_no,
+        )
+    };
+    let edges = [
+        crate::state::EdgeKind::Forward,
+        crate::state::EdgeKind::Feedback,
+        crate::state::EdgeKind::Retry,
+        crate::state::EdgeKind::Backtrack,
+    ];
+    for (index, kind) in edges.iter().enumerate() {
+        guard.emit(RunUpdate::Edge {
+            edge: crate::state::ChangeStepEdge {
+                from: key(index as u32),
+                to: ("implement".to_owned(), 1, ChangeStepKind::StaticCheck, 0),
+                kind: *kind,
+            },
+        });
+    }
+    // 节点侧：同键两实例（feedback 重跑）
+    for instance_no in [0_u32, 1] {
+        let mut step = sample_step();
+        step.step = ChangeStepKind::Executor;
+        step.instance_no = instance_no;
+        step.status = ChangeStepStatus::Passed;
+        guard.emit(RunUpdate::Step { step });
+    }
+
+    let snapshot = control.snapshot(ROOT, CHANGE_ID).expect("run 条目在场");
+    assert_eq!(snapshot.edges.len(), 4, "四 kind 边齐备");
+    let kinds: Vec<crate::state::EdgeKind> = snapshot.edges.iter().map(|edge| edge.kind).collect();
+    assert_eq!(kinds, edges.to_vec(), "边按 emit 序稳定累积");
+    assert_eq!(
+        snapshot.edges[1].from_node_key(),
+        "implement:1:executor:1",
+        "feedback 回边端点 = 新实例身份串"
+    );
+    assert_eq!(snapshot.nodes.len(), 2, "同键两实例为两节点行");
+    let instances: Vec<u32> = snapshot.nodes.iter().map(|node| node.instance_no).collect();
+    assert_eq!(instances, vec![0, 1], "实例号递增不串扰");
+
+    // guard 读面与快照面逐字段等值（第二写组装输入一致性）
+    assert_eq!(guard.edges(), snapshot.edges);
+    assert_eq!(guard.nodes(), snapshot.nodes);
+}
+
+/// 零边 run（单节点）→ 快照 `edges` 空数组；未 begin_run 就 publish → 注册表
+/// 零残留（不 panic 不落半包状态）。
+#[tokio::test]
+async fn 零边快照空数组与未登记publish零残留() {
+    let control = Arc::new(ChangeFlowControl::new());
+    let guard = control
+        .begin_run(ROOT, CHANGE_ID, "run-1".to_owned(), STARTED_AT)
+        .unwrap();
+    guard.emit(RunUpdate::Step {
+        step: sample_step(),
+    });
+    let snapshot = control.snapshot(ROOT, CHANGE_ID).expect("run 条目在场");
+    assert_eq!(snapshot.nodes.len(), 1);
+    assert!(snapshot.edges.is_empty(), "零边 run → 空数组");
+
+    // 未登记键（异 change id）：publish 静默零残留、不 panic
+    control.publish(
+        ROOT,
+        CHANGE_ID_B,
+        RunUpdate::Edge {
+            edge: crate::state::ChangeStepEdge {
+                from: ("x".to_owned(), 1, ChangeStepKind::Executor, 0),
+                to: ("x".to_owned(), 1, ChangeStepKind::PhaseLog, 0),
+                kind: crate::state::EdgeKind::Forward,
+            },
+        },
+    );
+    assert!(
+        control.snapshot(ROOT, CHANGE_ID_B).is_none(),
+        "未登记 change 无快照（不残留半包状态）"
+    );
+
+    guard.finish(ChangeRunStatus::Stopped, Some("收口".to_owned()));
+    assert!(
+        control.snapshot(ROOT, CHANGE_ID).is_none(),
+        "终态除名（收口唯一出口）"
     );
 }

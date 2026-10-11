@@ -2,12 +2,13 @@
 //! D10 修掉两 workspace 改名 / 同名前缀假冲突先例 bug，worktree 隔离解锁同
 //! workspace 多 change 真并行）：并行冲突检测、cancel watch、当前会话 id 槽、ask /
 //! 确认单次应答通道、`RunNotice` broadcast、重挂快照。run 生命周期由本注册
-//! 表承载**在飞 run 与停等面**，步累积器驻本表条目（emit 序追加，全词汇
-//! 10 类）；run 运行史落库 RunRecord / RunStepRecord 两表（unify-run-state-
-//! persistence 决策翻案：原「不建 flow_runs 表；run 终态即除名，桌面重启后
-//! run 消失」决策随翻案显式立项修订——本注册表保持进程内零 IO 不变量，落库
-//! 写缝收 walker 侧 `RunHistoryPort`，终态即除名、重启后库史可达、残留
-//! running 经启动标定 interrupted）。发布单点：[`Self::publish`] 同步快照
+//! 表承载**在飞 run 与停等面**，节点 + 边**双累积器**驻本表条目（emit 序追
+//! 加，全词汇 10 类；边四 kind 显式落边）；run 执行图落库 RunRecord /
+//! RunNodeRecord / RunEdgeRecord 三表（unify-run-state-persistence 决策翻案 +
+//! run-workflow-by-step 决策③：原「不建 flow_runs 表；run 终态即除名，桌面重
+//! 启后 run 消失」决策随翻案显式立项修订——本注册表保持进程内零 IO 不变
+//! 量，落库写缝收 walker 侧 `RunHistoryPort`，终态即除名、重启后库史可达、残
+//! 留 running 经启动标定 interrupted）。发布单点：[`Self::publish`] 同步快照
 //! 面并广播——walker 经 [`RunGuard::emit`] 间达，WorkerAgent 会话事件经命令
 //! 层 sink 桥直发；广播侧仅发 kind-only [`RunNotice`]（载荷剥离单点，
 //! `From<&RunUpdate>`），`RunUpdate` 为进程内 seam 类型。
@@ -18,7 +19,8 @@ use std::sync::{Arc, Mutex};
 use tokio::sync::{broadcast, oneshot, watch};
 
 use crate::state::{
-    AskPayload, ChangeRunSnapshot, ChangeRunStatus, ChangeStepState, RunNotice, RunUpdate,
+    AskPayload, ChangeRunSnapshot, ChangeRunStatus, ChangeStepEdge, ChangeStepKind,
+    ChangeStepState, RunNotice, RunUpdate,
 };
 
 /// broadcast 通道容量（步状态 + 会话事件窗口；溢出即滞后，由订阅侧重挂
@@ -38,9 +40,14 @@ struct RunEntry {
     /// 发起时刻（UTC unix 毫秒；`begin_run` 入参，与 RunRequest.started_at
     /// 同值——统一视图活面 startedAt 投影源）
     started_at: i64,
-    /// 步累积器（emit 序追加，全词汇 10 类；运行中三门 / 相位机步节点照
-    /// flow-view 条款上图可辨，落库 5 类子集归 run_history 单点过滤）
-    steps: Vec<ChangeStepState>,
+    /// 节点累积器（首次出现按 emit 序追加，同稳定身份键的后续 emit 就地合并
+    /// ——终态 / 会话 / 输出引用覆盖 running 行；全词汇 10 类零过滤）
+    nodes: Vec<ChangeStepState>,
+    /// 边累积器（emit 序追加；四 kind 显式落边）
+    edges: Vec<ChangeStepEdge>,
+    /// 步实例号分配表（`(phase, attempt, step)` → 已分配上界；feedback 重跑为
+    /// 递增新实例——节点稳定身份键的分配单点）
+    instances: HashMap<(String, u32, ChangeStepKind), u32>,
     cancel: watch::Sender<bool>,
     /// 当前 WorkerAgent 会话 id 槽（停止寻址经既有 StopRegistry）
     session: Mutex<Option<String>>,
@@ -91,7 +98,9 @@ impl ChangeFlowControl {
                 attempt: None,
                 ask: None,
                 started_at,
-                steps: Vec::new(),
+                nodes: Vec::new(),
+                edges: Vec::new(),
+                instances: HashMap::new(),
                 cancel,
                 session: Mutex::new(None),
                 confirm_tx: Mutex::new(None),
@@ -141,10 +150,11 @@ impl ChangeFlowControl {
     }
 
     /// 发布一条 run 状态更新（快照面同步 + kind-only Notice 广播）。发布单
-    /// 点：步推进 / 停等态迁移 / 终态收口与 WorkerAgent 会话事件透传同由此
-    /// 进。快照面突变照旧（`RunUpdate` 进程内 seam 载荷消费：步累积器追加
-    /// 与 phase/attempt 同步、停等态迁移、终态落值）；广播侧只发 kind-only
-    /// 的 [`RunNotice`]（`From<&RunUpdate>` 投影，载荷剥离单点，D3）。
+    /// 点：步推进 / 边落表 / 停等态迁移 / 终态收口与 WorkerAgent 会话事件透传
+    /// 同由此进。快照面突变照旧（`RunUpdate` 进程内 seam 载荷消费：节点累积
+    ///（同稳定身份键就地合并）与 phase/attempt 同步、边累积、停等态迁移、终态
+    /// 落值）；广播侧只发 kind-only 的 [`RunNotice`]（`From<&RunUpdate>` 投影，
+    /// 载荷剥离单点，D3）。
     pub fn publish(&self, root: &str, change_id: &str, update: RunUpdate) {
         let notice = RunNotice::from(&update);
         {
@@ -154,8 +164,9 @@ impl ChangeFlowControl {
                     RunUpdate::Step { step } => {
                         entry.phase = Some(step.phase.clone());
                         entry.attempt = Some(step.attempt);
-                        entry.steps.push(step.clone());
+                        accumulate_node(entry, step.clone());
                     }
+                    RunUpdate::Edge { edge } => entry.edges.push(edge.clone()),
                     RunUpdate::Ask { question, options } => {
                         entry.status = ChangeRunStatus::WaitingAsk;
                         entry.ask = Some(AskPayload {
@@ -211,8 +222,8 @@ impl ChangeFlowControl {
             .map_err(|_| "确认通道已关闭".to_owned())
     }
 
-    /// 重挂快照查询（进程内；run 终态后除名 → `None`）。快照含发起时刻与
-    /// 步累积器克隆（全词汇 emit 序——重挂恢复步表不再恒空）。
+    /// 重挂快照查询（进程内；run 终态后除名 → `None`）。快照含发起时刻与节点 /
+    /// 边累积器克隆（全词汇 emit 序 + 四 kind——重挂恢复节点与边不再恒空）。
     pub fn snapshot(&self, root: &str, change_id: &str) -> Option<ChangeRunSnapshot> {
         let runs = self.runs.lock().expect("run 注册表锁不可中毒");
         runs.get(&(root.to_owned(), change_id.to_owned()))
@@ -223,7 +234,8 @@ impl ChangeFlowControl {
                 attempt: entry.attempt,
                 ask: entry.ask.clone(),
                 started_at: entry.started_at,
-                steps: entry.steps.clone(),
+                nodes: entry.nodes.clone(),
+                edges: entry.edges.clone(),
             })
     }
 
@@ -256,15 +268,43 @@ impl RunGuard {
         self.control.publish(&self.key.0, &self.key.1, update);
     }
 
-    /// 步累积器快照读取（全词汇 emit 序克隆；walker 终态出口组装 run 整包
-    /// 消费——落库 5 类子集过滤归 run_history 单点，本面零过滤）。
-    pub fn steps(&self) -> Vec<ChangeStepState> {
+    /// 步实例号分配（节点稳定身份键单点）：同 `(phase, attempt, step)` 每次执行
+    /// 递增——feedback 重跑 = `instance_no` 递增的独立新节点。返回本实例号。
+    pub fn begin_instance(&self, phase: &str, attempt: u32, step: ChangeStepKind) -> u32 {
+        let mut runs = self.control.runs.lock().expect("run 注册表锁不可中毒");
+        let Some(entry) = runs.get_mut(&self.key) else {
+            return 0; // 已收口（除名）：无累积面，实例号退回 0（写面不再有落点）
+        };
+        let counter = entry
+            .instances
+            .entry((phase.to_owned(), attempt, step))
+            .or_insert(0);
+        let instance_no = *counter;
+        *counter += 1;
+        instance_no
+    }
+
+    /// 节点累积器快照读取（全词汇 emit 序克隆，稳定身份键；walker 终态出口组
+    /// 装 run 整包消费——本面零过滤）。
+    pub fn nodes(&self) -> Vec<ChangeStepState> {
         self.control
             .runs
             .lock()
             .expect("run 注册表锁不可中毒")
             .get(&self.key)
-            .map(|entry| entry.steps.clone())
+            .map(|entry| entry.nodes.clone())
+            .unwrap_or_default()
+    }
+
+    /// 边累积器快照读取（四 kind emit 序克隆；walker 终态出口组装 run 整包消
+    /// 费）。
+    pub fn edges(&self) -> Vec<ChangeStepEdge> {
+        self.control
+            .runs
+            .lock()
+            .expect("run 注册表锁不可中毒")
+            .get(&self.key)
+            .map(|entry| entry.edges.clone())
             .unwrap_or_default()
     }
 
@@ -355,5 +395,32 @@ impl RunGuard {
         };
         *slot(entry).lock().expect("应答通道锁不可中毒") = Some(tx);
         true
+    }
+}
+
+/// 节点累积单点：同稳定身份键 `(phase, attempt, step, instance_no)` 的后续 emit
+/// 就地合并（running → 终态 / 会话 id / 详情 / 输出引用覆写，位置保持首次 emit
+/// 序），否则按 emit 序追加——同键多实例不串扰，槽位配对语义随身份键上收后端。
+fn accumulate_node(entry: &mut RunEntry, step: ChangeStepState) {
+    let hit = entry.nodes.iter_mut().find(|node| {
+        node.phase == step.phase
+            && node.attempt == step.attempt
+            && node.step == step.step
+            && node.instance_no == step.instance_no
+    });
+    match hit {
+        Some(node) => {
+            node.status = step.status;
+            if step.session_id.is_some() {
+                node.session_id = step.session_id;
+            }
+            if step.detail.is_some() {
+                node.detail = step.detail;
+            }
+            if step.output_ref.is_some() {
+                node.output_ref = step.output_ref;
+            }
+        }
+        None => entry.nodes.push(step),
     }
 }

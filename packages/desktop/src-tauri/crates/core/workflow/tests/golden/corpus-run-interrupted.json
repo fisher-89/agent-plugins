@@ -44,12 +44,13 @@
   ],
   "runs": [
     {
+      "edges": [],
       "finishedAt": "2024-09-22T10:13:29Z",
+      "nodes": [],
       "reason": "重启标定：桌面进程中断，run 客观已终止（中断于 phase implement attempt 1）",
       "runId": "run-1727000005000",
       "startedAt": "2024-09-22T10:13:25Z",
-      "status": "interrupted",
-      "steps": []
+      "status": "interrupted"
     }
   ],
   "source": "active",

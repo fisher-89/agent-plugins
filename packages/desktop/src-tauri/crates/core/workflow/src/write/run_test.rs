@@ -17,8 +17,9 @@ use std::sync::Mutex;
 use super::run::{run_finish, run_start};
 use crate::state::{
     BacktrackCommand, ChangeStateRecord, ChangeStateStore, ChangeStatus, PhaseLogCommand,
-    PhaseStartState, RunFinishCommand, RunStartCommand, RunStateRecord, RunStatus, RunStepEntry,
-    RunStepKind, RunStepStateRecord, RunStepStatus, StepCommand, StoreFault,
+    PhaseStartState, RunEdgeEntry, RunEdgeKind, RunEdgeStateRecord, RunFinishCommand, RunNodeEntry,
+    RunNodeStateRecord, RunStartCommand, RunStateRecord, RunStatus, RunStepKind, RunStepStatus,
+    StepCommand, StoreFault,
 };
 
 /// 身份锚字面量（run 写面寻址键——载荷 `change_id`）。
@@ -188,7 +189,11 @@ impl ChangeStateStore for RecordingStore {
         unimplemented!("本用例不可达")
     }
 
-    fn list_run_steps(&self, _run_id: &str) -> Result<Vec<RunStepStateRecord>, StoreFault> {
+    fn list_run_nodes(&self, _run_id: &str) -> Result<Vec<RunNodeStateRecord>, StoreFault> {
+        unimplemented!("本用例不可达")
+    }
+
+    fn list_run_edges(&self, _run_id: &str) -> Result<Vec<RunEdgeStateRecord>, StoreFault> {
         unimplemented!("本用例不可达")
     }
 
@@ -235,26 +240,42 @@ fn start_command_for(change_id: &str) -> RunStartCommand {
     }
 }
 
-fn finish_command(status: RunStatus, steps: Vec<RunStepEntry>) -> RunFinishCommand {
+fn finish_command(
+    status: RunStatus,
+    nodes: Vec<RunNodeEntry>,
+    edges: Vec<RunEdgeEntry>,
+) -> RunFinishCommand {
     RunFinishCommand {
         run_id: RUN_ID.to_owned(),
         change_id: CHANGE_ID.to_owned(),
         status,
         reason: Some("收口记因".to_owned()),
         finished_at: FINISHED_AT,
-        steps,
+        nodes,
+        edges,
     }
 }
 
-fn executor_entry(seq: u64) -> RunStepEntry {
-    RunStepEntry {
-        seq,
+/// 节点整包单项（稳定身份键 + output_ref 两态由调用方覆盖）。
+fn node_entry(instance_no: u32) -> RunNodeEntry {
+    RunNodeEntry {
         phase: "implement".to_owned(),
         attempt: 1,
         step: RunStepKind::Executor,
+        instance_no,
         status: RunStepStatus::Passed,
         session_id: Some("ses-1".to_owned()),
         detail: None,
+        output_ref: None,
+    }
+}
+
+/// 四 kind 边整包（端点 = 节点身份串）。
+fn edge_entry(kind: RunEdgeKind) -> RunEdgeEntry {
+    RunEdgeEntry {
+        from_node_key: "implement:1:executor:0".to_owned(),
+        to_node_key: "implement:1:static_check:0".to_owned(),
+        edge_kind: kind,
     }
 }
 
@@ -290,8 +311,11 @@ fn 未建档id显式err() {
         "run_start 记因携 change id 与建档语义，实际: {start_err}"
     );
 
-    let finish_err = run_finish(&fake, &finish_command(RunStatus::Completed, Vec::new()))
-        .expect_err("未建档 run_finish 应 Err");
+    let finish_err = run_finish(
+        &fake,
+        &finish_command(RunStatus::Completed, Vec::new(), Vec::new()),
+    )
+    .expect_err("未建档 run_finish 应 Err");
     assert!(
         finish_err.contains(CHANGE_ID) && finish_err.contains("未建档"),
         "run_finish 记因携 change id 与建档语义，实际: {finish_err}"
@@ -325,15 +349,21 @@ fn 未建档id显式err() {
 fn run_finish非终态三值拒绝_interrupted记因定式() {
     let fake = RecordingStore::with_change();
 
-    let running_err = run_finish(&fake, &finish_command(RunStatus::Running, Vec::new()))
-        .expect_err("status=Running 应 Err");
+    let running_err = run_finish(
+        &fake,
+        &finish_command(RunStatus::Running, Vec::new(), Vec::new()),
+    )
+    .expect_err("status=Running 应 Err");
     assert!(
         running_err.contains("running") && running_err.contains("终态非法"),
         "Running 拒绝记因，实际: {running_err}"
     );
 
-    let interrupted_err = run_finish(&fake, &finish_command(RunStatus::Interrupted, Vec::new()))
-        .expect_err("status=Interrupted 应 Err");
+    let interrupted_err = run_finish(
+        &fake,
+        &finish_command(RunStatus::Interrupted, Vec::new(), Vec::new()),
+    )
+    .expect_err("status=Interrupted 应 Err");
     assert!(
         interrupted_err.contains("运行期写路径") && interrupted_err.contains("interrupted"),
         "interrupted 拒绝记因定式（仅启动标定产生），实际: {interrupted_err}"
@@ -343,20 +373,56 @@ fn run_finish非终态三值拒绝_interrupted记因定式() {
 }
 
 // ---------------------------------------------------------------------------
-// 边界：空步整包合法 / 委派透传逐字段
+// 边界：空整包合法 / 委派透传逐字段
 // ---------------------------------------------------------------------------
 
-/// run_finish steps 空包（零步 run 收口形态）→ Ok 委派（AC-2 边界：整包含
-/// 空集合法）。
+/// run_finish 节点 / 边空包（零步 run 收口形态）→ Ok 委派（AC-5 边界：整包
+/// 含空集合法）。
 #[test]
-fn run_finish空步整包委派成功() {
+fn run_finish空节点空边整包委派成功() {
     let fake = RecordingStore::with_change();
 
-    run_finish(&fake, &finish_command(RunStatus::Completed, Vec::new()))
-        .expect("零步 run 收口应成功");
+    run_finish(
+        &fake,
+        &finish_command(RunStatus::Completed, Vec::new(), Vec::new()),
+    )
+    .expect("零步 run 收口应成功");
 
     let command = fake.last_finish();
-    assert!(command.steps.is_empty(), "空包透传（零步整包合法形态）");
+    assert!(command.nodes.is_empty(), "空节点整包透传");
+    assert!(command.edges.is_empty(), "空边整包透传");
+}
+
+/// run_finish 节点整包 + 边整包零改写透传（AC-5 收口载荷换形）：全词汇节点与
+/// 四 kind 边一次落包，`instance_no` / `output_ref` 逐字段保真。
+#[test]
+fn run_finish节点与边整包零改写透传() {
+    let fake = RecordingStore::with_change();
+
+    let mut node = node_entry(0);
+    node.output_ref = Some("exec-42".to_owned());
+    node.detail = Some("static-check 通过".to_owned());
+    let mut repaired = node_entry(1);
+    repaired.session_id = None;
+    let edges = vec![
+        edge_entry(RunEdgeKind::Forward),
+        edge_entry(RunEdgeKind::Feedback),
+        edge_entry(RunEdgeKind::Retry),
+        edge_entry(RunEdgeKind::Backtrack),
+    ];
+    let finish = finish_command(
+        RunStatus::Completed,
+        vec![node.clone(), repaired],
+        edges.clone(),
+    );
+
+    run_finish(&fake, &finish.clone()).expect("整包收口应成功");
+
+    let captured = fake.last_finish();
+    assert_eq!(captured, finish, "节点 + 边整包零改写透传");
+    assert_eq!(captured.nodes[0].output_ref.as_deref(), Some("exec-42"));
+    assert_eq!(captured.nodes[1].instance_no, 1, "实例号逐字段保真");
+    assert_eq!(captured.edges.len(), 4, "四 kind 边齐备");
 }
 
 /// 假件捕获：run_start / run_finish 收到的命令与入参逐字段等值（写面零改写
@@ -377,13 +443,14 @@ fn 写面委派命令逐字段透传() {
 
     let finish = finish_command(
         RunStatus::Stopped,
-        vec![executor_entry(0), executor_entry(2)],
+        vec![node_entry(0), node_entry(2)],
+        vec![edge_entry(RunEdgeKind::Forward)],
     );
     run_finish(&fake, &finish.clone()).expect("run_finish 应成功");
     assert_eq!(
         fake.last_finish(),
         finish,
-        "finish 命令（含步整包）零改写透传"
+        "finish 命令（含节点 + 边整包）零改写透传"
     );
     assert_eq!(
         fake.read_ids(),

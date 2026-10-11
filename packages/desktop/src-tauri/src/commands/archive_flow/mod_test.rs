@@ -886,9 +886,11 @@ fn archive_sink转译_session_event直译且其余变体零外泄() {
             phase: "implement".to_owned(),
             attempt: 1,
             step: ChangeStepKind::Executor,
+            instance_no: 0,
             status: ChangeStepStatus::Running,
             session_id: Some("sess-x".to_owned()),
             detail: None,
+            output_ref: None,
         },
     });
     sink.emit(RunUpdate::Ask {

@@ -18,7 +18,8 @@ function activeRun(overrides: Partial<ActiveRunView> = {}): ActiveRunView {
     attempt: 2,
     ask: null,
     startedAt: '2026-10-01T08:00:00.000Z',
-    steps: [],
+    nodes: [],
+    edges: [],
     ...overrides,
   };
 }
@@ -31,7 +32,8 @@ function lastRun(overrides: Partial<ChangeRunEntry> = {}): ChangeRunEntry {
     reason: null,
     startedAt: '2026-10-01T07:00:00.000Z',
     finishedAt: '2026-10-01T07:30:00.000Z',
-    steps: [],
+    nodes: [],
+    edges: [],
     ...overrides,
   };
 }

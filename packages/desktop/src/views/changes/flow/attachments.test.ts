@@ -11,8 +11,10 @@ import { buildFlowGraph } from './graph';
 import { PIPELINE_PHASES } from './layout';
 
 // ---------------------------------------------------------------------------
-// mountMaterials 单测：挂载层为纯函数（无 Mock）；文档 → 列映射表 docColumn 为
-// 模块私有，其归属规则全部经 mountMaterials 公共输出覆盖测试（AC-4 / AC-8）。
+// mountMaterials 单测：挂载层为纯函数（无 Mock）。文档归属 = 后端清单出线
+//（`detail.artifacts[].phase`）——前端字符串 → 列静态映射表（docColumn）已退役，
+// 归属规则全部经 mountMaterials 公共输出覆盖测试（AC-7）；eval-checklist 走
+// PhaseRecord 投影分支（payload { phase, attempt } → 节点挂载）。
 // ---------------------------------------------------------------------------
 
 function attempt(overrides: Partial<AttemptRecord> = {}): AttemptRecord {
@@ -38,8 +40,17 @@ function envelope(kind: string, title: string, payload: unknown): ArtifactEnvelo
   return { kind, version: 1, title, payload, fallbackText: null };
 }
 
+/** 清单归属相位（后端 phase 定义清单口径，与 phase_table artifactManifest 一致）；
+ * 清单外路径零候选 → 空归属（不臆测列）。 */
+function phaseOf(source: string): string {
+  if (source === 'proposal.md' || source.startsWith('specs/')) return 'proposal';
+  if (source === 'design.md' || source === 'tasks.md') return 'dev-design';
+  if (source.startsWith('test-reports/')) return 'test-execution';
+  return '';
+}
+
 function descriptor(kind: string, source: string, title: string): ArtifactDescriptor {
-  return { kind, source, title };
+  return { kind, source, title, phase: phaseOf(source) };
 }
 
 /** 建档详情底座：dev-design 站 1 条 eval（多挂载定位用例共用），其余站空。 */
@@ -73,8 +84,8 @@ function envelopesFor(artifacts: ArtifactDescriptor[]): ArtifactEnvelope[] {
   return artifacts.map((item) => envelope(item.kind, item.title, payloads[item.kind] ?? null));
 }
 
-describe('mountMaterials：文档挂列（静态映射 docColumn）', () => {
-  it('静态映射全命中：proposal.md 与 specs/ 深路径 → proposal 列；design.md / tasks.md → dev-design 列；test-reports/ 前缀 → test-execution 列', () => {
+describe('mountMaterials：文档挂列（清单归属 detail.artifacts[].phase）', () => {
+  it('清单归属驱动：proposal.md 与 specs/ 深路径 → proposal 列；design.md / tasks.md → dev-design 列；test-reports/ 前缀 → test-execution 列', () => {
     const artifacts = [
       descriptor('markdown-doc', 'proposal.md', '提案'),
       descriptor('markdown-doc', 'specs/x/spec.md', '规格'),
@@ -92,15 +103,30 @@ describe('mountMaterials：文档挂列（静态映射 docColumn）', () => {
     expect(devDesignKinds).toEqual(['markdown-doc', 'tasks-progress']);
   });
 
-  it('映射表外文档（explore.md、旧代际 phases/**、未知路径）不入任何 columnDocs', () => {
+  it('空归属 / 未知 phase / pipeline 外相位 → 跳过该 artifact（稳健面，不误挂错站）', () => {
     const artifacts = [
       descriptor('markdown-doc', 'explore.md', '探索'),
       descriptor('markdown-doc', 'phases/proposal/attempt-1.md', '旧代际'),
       descriptor('markdown-doc', 'random/unknown.txt', '未知'),
+      { ...descriptor('markdown-doc', 'design.md', '设计'), phase: 'ghost-phase' },
+      { ...descriptor('markdown-doc', 'design.md', '设计'), phase: '' },
     ];
     const base = detail({ artifacts });
     const materials = mountMaterials(buildFlowGraph(base), base, envelopesFor(artifacts));
     expect(materials.columnDocs).toEqual({});
+  });
+
+  it('缺 phase 字段（undefined）→ 不 panic、跳过该 artifact', () => {
+    const broken = {
+      kind: 'markdown-doc',
+      source: 'design.md',
+      title: '设计',
+    } as unknown as ArtifactDescriptor;
+    const artifacts = [broken, descriptor('markdown-doc', 'proposal.md', '提案')];
+    const base = detail({ artifacts });
+    const materials = mountMaterials(buildFlowGraph(base), base, envelopesFor(artifacts));
+    expect(materials.columnDocs['col:dev-design']).toBeUndefined();
+    expect(materials.columnDocs['col:proposal']).toHaveLength(1);
   });
 
   it('每站一份不随 attempt 重复：同源文档单信封 → 该列 columnDocs 恰 1 条', () => {

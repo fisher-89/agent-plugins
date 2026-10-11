@@ -3,11 +3,13 @@
   "artifacts": [
     {
       "kind": "eval-checklist",
+      "phase": "implement",
       "source": "1",
       "title": "评估清单 · implement · 第 1 次"
     },
     {
       "kind": "markdown-doc",
+      "phase": "dev-design",
       "source": "design.md",
       "title": "设计"
     }

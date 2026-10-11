@@ -8,8 +8,8 @@ use sha2::{Digest, Sha256};
 use specta::Type;
 use workflow::model::{ChecklistItem, Verdict};
 use workflow::state::{
-    ChangeStatus, RunStartCommand, RunStatus, RunStepEntry, RunStepKind, RunStepStatus,
-    StepCommand, StepKind,
+    ChangeStatus, RunEdgeEntry, RunEdgeKind, RunNodeEntry, RunStartCommand, RunStatus, RunStepKind,
+    RunStepStatus, StepCommand, StepKind,
 };
 
 /// v3 历史形态的环境档位枚举（仅升级链解码用；线值与退役的 core 枚举一致，
@@ -552,8 +552,9 @@ impl From<ChangeRecord> for ChangeRecordV3 {
 /// workspace 库格式版本标记记录（库级单键；`pub(crate)`——内部治理记录，
 /// 不入信封注册表）：change 身份锚形态版本载体（D3 / D5）。`format_version`
 /// 语义编号：1 = name 主键形态时代（实机从未写标记，探测以「缺失」判定），
-/// 2 = change 身份锚 id 形态（本变更）；未来 bump 递增，探测规则
-/// 「缺失或低于当前 → 作废」不变。
+/// 2 = change 身份锚 id 形态，3 = run 执行图节点 / 边模型（`RunNodeRecord` /
+/// `RunEdgeRecord` 取代旧步史模型，run-workflow-by-step 决策③）；未来
+/// bump 递增，探测规则「缺失或低于当前 → 作废」不变。
 ///
 /// 旧形态数据只有两种去向——不可达（全局库旧文件的惰性废弃）或整体丢弃
 /// （workspace 库的探测作废重建）；MUST NOT 存在第三条 decode / migrate 路径。
@@ -571,9 +572,10 @@ pub(crate) struct StoreMetaRecord {
 
 /// workspace 库格式版本常量（[`StoreMetaRecord`] 固定单键 `"format"` 的写入
 /// 值）：1 = name 主键形态时代（实机从未写标记，探测以「缺失」判定）；2 =
-/// change 身份锚 id 形态（本变更）。库打开探测规则：标记缺失 / 低于当前 →
-/// 旧库整体作废重建（见 `Store::open_workspace`）。
-pub(crate) const WORKSPACE_STORE_FORMAT_VERSION: u32 = 2;
+/// change 身份锚 id 形态；3 = run 执行图节点 / 边模型（旧步史模型退役，
+/// 节点 / 边两模型取代——旧形态行经版本 bump 整体作废重建，零迁移链）。库打开
+/// 探测规则：标记缺失 / 低于当前 → 旧库整体作废重建（见 `Store::open_workspace`）。
+pub(crate) const WORKSPACE_STORE_FORMAT_VERSION: u32 = 3;
 
 /// workspace 库格式版本标记的固定单键。
 pub(crate) const WORKSPACE_STORE_FORMAT_KEY: &str = "format";
@@ -778,38 +780,45 @@ impl RunRecord {
     }
 }
 
-/// run 步节点史行（workspace 维度，落所属 workspace 库）：run 收口步整包的
-/// 落行形态，图史面——与 `StepRecord` 审计职责分立（审计 vs 图节点史，词汇
-/// 近互补不双写同一语义行；StepRecord 职责与词汇不变）。
+/// run 执行图节点行（workspace 维度，落所属 workspace 库）：run 收口节点整包
+/// 的落行形态，图史面——与 `StepRecord` 审计职责分立（审计 vs 图节点史，两表
+/// MUST NOT 互为替代，也不双写同一语义行）。
 ///
-/// 步词汇为封闭集五值（`RunStepKind`：executor / evaluator / decision /
-/// static_check / test_execution）——词汇本体在 workflow::state，store 结构
-/// 上收不到忽略集（流程面步骤与三门不可表达，过滤单点在编排侧落库写面）。
+/// 步词汇为**十值全词汇封闭集**（`RunStepKind`：agent 阶段三角色 + 脚本阶段两
+/// 检查步 + 流程面两步 + 三门 gate）——落库零过滤（旧 5 值步史模型与其 10→5 过
+/// 滤谓词整体退役）。
+///
+/// 稳定身份键 = `(run_id, phase, attempt, step, instance_no)`；`node_id()` 组装的
+/// 身份串 `"{phase}:{attempt}:{step}:{instance_no}"` 为边表端点口径（`attempt` 跨
+/// run max+1 分配不撞号 → 身份串全库唯一）。
 ///
 /// 主键为合成 u128 打包键（native_db 复合主键不受支持，`SessionEventRecord`
-/// 先例同构）：高 64 位 `hash64(run_id)`、低 64 位 seq（emit 序），大端字节
-/// 序保证同 run 内自然序即 emit 序（被过滤步占号产生的库内空洞为排序键语义
-/// 合法形态，先例同源）。`run_id` 另立非唯一二级索引保查询形态。`timestamp`
-/// = finish 的 finished_at（整包同刻，corpus 确定性）。
+/// 先例同构）：高 64 位 `hash64(run_id)`、低 64 位 node_seq（run 内 emit 序），
+/// 大端字节序保证同 run 内自然序即 emit 序。`run_id` 另立非唯一二级索引保查询
+/// 形态。`timestamp` = finish 的 finished_at（整包同刻，corpus 确定性）。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
-#[native_model(id = 14, version = 1)]
+#[native_model(id = 16, version = 1)]
 #[native_db]
-pub struct RunStepRecord {
-    /// 复合键打包：`(hash64(run_id) as u128) << 64 | seq`
+pub struct RunNodeRecord {
+    /// 复合键打包：`(hash64(run_id) as u128) << 64 | node_seq`
     ///
     /// serde 定制为十六进制字符串（`event_key_serde` 先例复用——serde_json 无
     /// u128 数字面）。
     #[primary_key]
     #[serde(with = "event_key_serde")]
-    pub step_key: u128,
-    /// 所属 run id（非唯一二级索引，run 史重组查询入口）
+    pub node_key: u128,
+    /// 所属 run id（非唯一二级索引，run 图史重组查询入口）
     #[secondary_key]
     pub run_id: String,
+    /// 所属 change id（归属键——一切寻址以 id 为准）
+    pub change_id: String,
     pub phase: String,
     pub attempt: u32,
-    /// 步词汇（封闭集五值，core 域枚举直用）
+    /// 步词汇（十值全词汇封闭集，core 域枚举直用）
     pub step: RunStepKind,
+    /// 同 `(phase, attempt, step)` 内的执行实例号（feedback 重跑为递增新节点）
+    pub instance_no: u32,
     /// 步状态（running | passed | failed | stopped；收口在途步可留 running）
     pub status: RunStepStatus,
     /// WorkerAgent 步所属会话 id（工具步为 None）
@@ -818,30 +827,112 @@ pub struct RunStepRecord {
     /// 人读记因 / 摘要（有界，写面截断同 diagnose_brief 口径）
     #[serde(default)]
     pub detail: Option<String>,
+    /// 全量输出引用（`ExecOutput::Recorded { exec_id }`；MUST NOT 全文进本行）
+    #[serde(default)]
+    pub output_ref: Option<String>,
     /// 落包时刻（UTC unix 毫秒，= finished_at 整包同刻）
     pub timestamp: i64,
 }
 
-impl RunStepRecord {
-    /// 由收口整包条目构造记录：`step_key` 打包自 `hash64(run_id)` + `seq`
-    ///（emit 序），`timestamp` 随整包统一（= finished_at）。
-    pub fn new(run_id: &str, entry: &RunStepEntry, timestamp: i64) -> Self {
+impl RunNodeRecord {
+    /// 由收口整包条目构造记录：`node_key` 打包自 `hash64(run_id)` + `node_seq`
+    ///（整包下标 = run 内 emit 序），`timestamp` 随整包统一（= finished_at）。
+    pub fn new(
+        run_id: &str,
+        change_id: &str,
+        node_seq: u64,
+        entry: &RunNodeEntry,
+        timestamp: i64,
+    ) -> Self {
         Self {
-            step_key: pack_run_step_key(run_id, entry.seq),
+            node_key: pack_run_seq_key(run_id, node_seq),
             run_id: run_id.to_owned(),
+            change_id: change_id.to_owned(),
             phase: entry.phase.clone(),
             attempt: entry.attempt,
             step: entry.step,
+            instance_no: entry.instance_no,
             status: entry.status,
             session_id: entry.session_id.clone(),
             detail: entry.detail.clone(),
+            output_ref: entry.output_ref.clone(),
             timestamp,
         }
     }
 
-    /// emit 序号（打包键低 64 位，与 `RunStepEntry.seq` 同源）。
-    pub fn seq(&self) -> u64 {
-        self.step_key as u64
+    /// emit 序号（打包键低 64 位 = 整包下标，与 `node_key` 低半同源）。
+    pub fn node_seq(&self) -> u64 {
+        self.node_key as u64
+    }
+
+    /// 节点身份串（边表端点口径）：`"{phase}:{attempt}:{step}:{instance_no}"`。
+    pub fn node_id(&self) -> String {
+        format!(
+            "{}:{}:{}:{}",
+            self.phase,
+            self.attempt,
+            self.step.as_str(),
+            self.instance_no
+        )
+    }
+}
+
+/// run 执行图边行（workspace 维度，落所属 workspace 库）：run 收口边整包的落行
+/// 形态；`edge_kind` 四值封闭集（`RunEdgeKind`：forward / feedback / retry /
+/// backtrack），端点恒为节点身份串（`RunNodeRecord::node_id()` 组装口径）。
+///
+/// 主键为合成 u128 打包键（同节点行先例）：高 64 位 `hash64(run_id)`、低 64 位
+/// edge_seq（run 内 emit 序）。两二级索引：`run_id`（按 run 全量读边）与
+/// `from_node_key`（按源节点读后继）；`timestamp` 同整包刻。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+#[native_model(id = 17, version = 1)]
+#[native_db]
+pub struct RunEdgeRecord {
+    /// 复合键打包：`(hash64(run_id) as u128) << 64 | edge_seq`
+    #[primary_key]
+    #[serde(with = "event_key_serde")]
+    pub edge_key: u128,
+    /// 所属 run id（非唯一二级索引，run 全量读边入口）
+    #[secondary_key]
+    pub run_id: String,
+    /// 所属 change id（归属键——一切寻址以 id 为准）
+    pub change_id: String,
+    /// 源节点身份串（非唯一二级索引，按源节点读后继入口）
+    #[secondary_key]
+    pub from_node_key: String,
+    /// 目标节点身份串
+    pub to_node_key: String,
+    /// 边 kind（四值封闭集，core 域枚举直用）
+    pub edge_kind: RunEdgeKind,
+    /// 落包时刻（UTC unix 毫秒，= finished_at 整包同刻）
+    pub timestamp: i64,
+}
+
+impl RunEdgeRecord {
+    /// 由收口整包条目构造记录：`edge_key` 打包自 `hash64(run_id)` + `edge_seq`
+    ///（整包下标 = run 内 emit 序）。
+    pub fn new(
+        run_id: &str,
+        change_id: &str,
+        edge_seq: u64,
+        entry: &RunEdgeEntry,
+        timestamp: i64,
+    ) -> Self {
+        Self {
+            edge_key: pack_run_seq_key(run_id, edge_seq),
+            run_id: run_id.to_owned(),
+            change_id: change_id.to_owned(),
+            from_node_key: entry.from_node_key.clone(),
+            to_node_key: entry.to_node_key.clone(),
+            edge_kind: entry.edge_kind,
+            timestamp,
+        }
+    }
+
+    /// emit 序号（打包键低 64 位 = 整包下标）。
+    pub fn edge_seq(&self) -> u64 {
+        self.edge_key as u64
     }
 }
 
@@ -1037,9 +1128,10 @@ pub(crate) fn pack_session_event_key(session_id: &str, seq: u64) -> u128 {
     ((session_key_hash(session_id) as u128) << 64) | (seq as u128)
 }
 
-/// 复合键打包：高 64 位 `hash64(run_id)`、低 64 位 seq（emit 序）。store 内
-/// 唯一组装点（`pack_session_event_key` 同族，`RunStepRecord` 打包主键）。
-pub(crate) fn pack_run_step_key(run_id: &str, seq: u64) -> u128 {
+/// 复合键打包：高 64 位 `hash64(run_id)`、低 64 位 run 内 emit 序。store 内唯一
+/// 组装点（`pack_session_event_key` 同族；节点行 `node_key` 与边行 `edge_key` 同
+/// 式——两键分属不同模型，序域各自独立不冲突）。
+pub(crate) fn pack_run_seq_key(run_id: &str, seq: u64) -> u128 {
     ((session_key_hash(run_id) as u128) << 64) | (seq as u128)
 }
 

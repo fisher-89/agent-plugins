@@ -1234,7 +1234,8 @@ fn 统一查询装配_runs全史与active_run活面与终态退场() {
         seed_active(&store, "unified-change");
         // 库读史：run-1 全史（completed + 记因 + 起止）+ run-2 起始行（running）
         use workflow::state::{
-            RunFinishCommand, RunStartCommand, RunStatus, RunStepEntry, RunStepKind, RunStepStatus,
+            RunEdgeEntry, RunEdgeKind, RunFinishCommand, RunNodeEntry, RunStartCommand, RunStatus,
+            RunStepKind, RunStepStatus,
         };
         store
             .start_change_run(&RunStartCommand {
@@ -1250,14 +1251,32 @@ fn 统一查询装配_runs全史与active_run活面与终态退场() {
                 status: RunStatus::Completed,
                 reason: Some("收口记因".to_owned()),
                 finished_at: 1_727_000_060_000,
-                steps: vec![RunStepEntry {
-                    seq: 0,
-                    phase: "proposal".to_owned(),
-                    attempt: 1,
-                    step: RunStepKind::Executor,
-                    status: RunStepStatus::Passed,
-                    session_id: Some("ses-1".to_owned()),
-                    detail: None,
+                nodes: vec![
+                    RunNodeEntry {
+                        phase: "proposal".to_owned(),
+                        attempt: 1,
+                        step: RunStepKind::PhaseStart,
+                        instance_no: 0,
+                        status: RunStepStatus::Passed,
+                        session_id: None,
+                        detail: None,
+                        output_ref: None,
+                    },
+                    RunNodeEntry {
+                        phase: "proposal".to_owned(),
+                        attempt: 1,
+                        step: RunStepKind::Executor,
+                        instance_no: 0,
+                        status: RunStepStatus::Passed,
+                        session_id: Some("ses-1".to_owned()),
+                        detail: None,
+                        output_ref: None,
+                    },
+                ],
+                edges: vec![RunEdgeEntry {
+                    from_node_key: "proposal:1:phase_start:0".to_owned(),
+                    to_node_key: "proposal:1:executor:0".to_owned(),
+                    edge_kind: RunEdgeKind::Forward,
                 }],
             })
             .expect("run-1 收口应成功");
@@ -1343,9 +1362,11 @@ fn 统一查询装配_runs全史与active_run活面与终态退场() {
                 phase: phase.to_owned(),
                 attempt,
                 step: kind,
+                instance_no: 0,
                 status,
                 session_id: None,
                 detail: None,
+                output_ref: None,
             },
         });
     }
@@ -1372,12 +1393,24 @@ fn 统一查询装配_runs全史与active_run活面与终态退场() {
     assert_eq!(active.attempt, Some(1));
     let ask = active.ask.as_ref().expect("ask 载荷透传");
     assert_eq!(ask.question, "是否回溯?");
+    // 同稳定身份键 emit 就地合并（executor running → passed 并为一行终态）
     assert_eq!(
-        active.steps.len(),
-        4,
-        "steps 全词汇 emit 序透传（含三门步——过滤归落库侧）"
+        active.nodes.len(),
+        3,
+        "nodes 按稳定身份键合并（executor / static_check / verdict_gate）"
     );
-    assert_eq!(active.steps[2].step, ChangeStepKind::StaticCheck);
+    assert_eq!(active.nodes[0].step, ChangeStepKind::Executor);
+    assert_eq!(
+        active.nodes[0].status,
+        ChangeStepStatus::Passed,
+        "起手 running 被收口 passed 就地合并"
+    );
+    assert_eq!(active.nodes[1].step, ChangeStepKind::StaticCheck);
+    assert_eq!(active.nodes[2].step, ChangeStepKind::VerdictGate);
+    assert!(
+        active.edges.is_empty(),
+        "零边 run 活面 edges 空数组（无空边通知风暴）"
+    );
     // startedAt 毫秒 → ISO 串（与 detail.runs 时间口径同式）
     let started_iso = active.started_at.clone();
     assert!(
@@ -1410,6 +1443,283 @@ fn 统一查询装配_runs全史与active_run活面与终态退场() {
     let tail = closed.detail.runs.last().expect("尾行在场");
     assert_eq!(tail.run_id, "run-3");
     assert_eq!(tail.status, workflow::state::RunStatus::Running);
+}
+
+/// 统一查询装配_运行中run多边活面（AC-6 / AC-9 通知桥消费面）：运行中 run 已
+/// emit 多节点 + 四 kind 多边 → `activeRun.nodes` 全词汇 emit 序出线、
+/// `activeRun.edges` 活面四 kind 逐条在场（端点身份串与节点身份键同式、包闭），
+/// 与库读史起始行一次返回（查询结果权威，通知仅为触发信号）；终态收口后活面
+/// 随注册表除名退场。
+#[test]
+fn 统一查询装配_运行中run多边活面() {
+    let env = Env::new("unified-edges");
+    let app = app_with(&env);
+    let state = app.state::<WorkspaceStores>();
+    let root = env.root();
+    let control = app.state::<Arc<orchestration::control::ChangeFlowControl>>();
+
+    let started_at = 1_727_000_400_000_i64;
+    {
+        let store = store_of(&app, &root);
+        seed_active(&store, "edge-change");
+        use workflow::state::RunStartCommand;
+        store
+            .start_change_run(&RunStartCommand {
+                run_id: "run-5".to_owned(),
+                change_id: "edge-change".to_owned(),
+                started_at,
+            })
+            .expect("run-5 起始行应成功");
+    }
+
+    let guard = control
+        .begin_run(&root, "edge-change", "run-5".to_owned(), started_at)
+        .expect("登记 run 应成功");
+    use orchestration::state::{
+        ChangeStepEdge, ChangeStepKind, ChangeStepState, ChangeStepStatus, EdgeKind, RunUpdate,
+    };
+    // 节点累积：计划序 + 反馈重跑新实例 + 三门 + agent 步（emit 序断言面）
+    for (phase, attempt, instance_no, kind, status) in [
+        (
+            "implement",
+            1u32,
+            0u32,
+            ChangeStepKind::PhaseStart,
+            ChangeStepStatus::Passed,
+        ),
+        (
+            "implement",
+            1,
+            0,
+            ChangeStepKind::Executor,
+            ChangeStepStatus::Passed,
+        ),
+        (
+            "implement",
+            1,
+            0,
+            ChangeStepKind::StaticCheck,
+            ChangeStepStatus::Failed,
+        ),
+        (
+            "implement",
+            1,
+            1,
+            ChangeStepKind::Executor,
+            ChangeStepStatus::Passed,
+        ),
+        (
+            "implement",
+            1,
+            0,
+            ChangeStepKind::Evaluator,
+            ChangeStepStatus::Failed,
+        ),
+        (
+            "implement",
+            1,
+            0,
+            ChangeStepKind::VerdictGate,
+            ChangeStepStatus::Passed,
+        ),
+        (
+            "implement",
+            1,
+            0,
+            ChangeStepKind::Decision,
+            ChangeStepStatus::Passed,
+        ),
+        (
+            "implement",
+            1,
+            0,
+            ChangeStepKind::WhitelistGate,
+            ChangeStepStatus::Passed,
+        ),
+        (
+            "implement",
+            1,
+            0,
+            ChangeStepKind::RetryGate,
+            ChangeStepStatus::Passed,
+        ),
+        (
+            "implement",
+            1,
+            0,
+            ChangeStepKind::PhaseLog,
+            ChangeStepStatus::Failed,
+        ),
+        (
+            "implement",
+            2,
+            0,
+            ChangeStepKind::PhaseStart,
+            ChangeStepStatus::Passed,
+        ),
+        (
+            "dev-design",
+            2,
+            0,
+            ChangeStepKind::PhaseStart,
+            ChangeStepStatus::Passed,
+        ),
+    ] {
+        guard.emit(RunUpdate::Step {
+            step: ChangeStepState {
+                phase: phase.to_owned(),
+                attempt,
+                step: kind,
+                instance_no,
+                status,
+                session_id: None,
+                detail: None,
+                output_ref: None,
+            },
+        });
+    }
+    // 边累积：四 kind emit 序（forward / feedback / retry / backtrack）
+    let key = |phase: &str, attempt: u32, kind: ChangeStepKind, instance_no: u32| {
+        (phase.to_owned(), attempt, kind, instance_no)
+    };
+    for (from, to, kind) in [
+        (
+            key("implement", 1, ChangeStepKind::PhaseStart, 0),
+            key("implement", 1, ChangeStepKind::Executor, 0),
+            EdgeKind::Forward,
+        ),
+        (
+            key("implement", 1, ChangeStepKind::StaticCheck, 0),
+            key("implement", 1, ChangeStepKind::Executor, 1),
+            EdgeKind::Feedback,
+        ),
+        (
+            key("implement", 1, ChangeStepKind::PhaseLog, 0),
+            key("implement", 2, ChangeStepKind::PhaseStart, 0),
+            EdgeKind::Retry,
+        ),
+        (
+            key("implement", 1, ChangeStepKind::RetryGate, 0),
+            key("dev-design", 2, ChangeStepKind::PhaseStart, 0),
+            EdgeKind::Backtrack,
+        ),
+    ] {
+        guard.emit(RunUpdate::Edge {
+            edge: ChangeStepEdge { from, to, kind },
+        });
+    }
+
+    let unified = get_change_detail(
+        state.clone(),
+        control.clone(),
+        root.clone(),
+        "edge-change".to_owned(),
+    )
+    .expect("应 Some");
+    let active = unified.active_run.as_ref().expect("运行中 activeRun 在场");
+    assert_eq!(active.run_id, "run-5");
+
+    // 节点面：全词汇 emit 序出线（feedback 重跑新实例独立成行，零串扰）
+    let words: Vec<&str> = active.nodes.iter().map(|node| node.step.as_str()).collect();
+    assert_eq!(
+        words,
+        vec![
+            "phase_start",
+            "executor",
+            "static_check",
+            "executor",
+            "evaluator",
+            "verdict_gate",
+            "decision",
+            "whitelist_gate",
+            "retry_gate",
+            "phase_log",
+            "phase_start",
+            "phase_start",
+        ],
+        "全词汇 emit 序出线（活面节点表非空且序稳定）"
+    );
+    let executors: Vec<u32> = active
+        .nodes
+        .iter()
+        .filter(|node| node.step == ChangeStepKind::Executor)
+        .map(|node| node.instance_no)
+        .collect();
+    assert_eq!(
+        executors,
+        vec![0, 1],
+        "同 (phase, attempt, step) 多实例 instanceNo 递增可辨"
+    );
+
+    // 边面：四 kind emit 序逐条在场（活面边表非空——通知桥消费面）
+    assert_eq!(active.edges.len(), 4, "活面边表 emit 序全量");
+    let kinds: Vec<&str> = active
+        .edges
+        .iter()
+        .map(|edge| edge.edge_kind.as_str())
+        .collect();
+    assert_eq!(
+        kinds,
+        vec!["forward", "feedback", "retry", "backtrack"],
+        "四 kind 边活面出线（emit 序）"
+    );
+    assert_eq!(active.edges[1].from_node_key, "implement:1:static_check:0");
+    assert_eq!(active.edges[1].to_node_key, "implement:1:executor:1");
+    assert_eq!(active.edges[3].from_node_key, "implement:1:retry_gate:0");
+    assert_eq!(active.edges[3].to_node_key, "dev-design:2:phase_start:0");
+    // 端点身份串恒落本 run 节点身份键集内（活面边表包闭）
+    let node_keys: Vec<String> = active
+        .nodes
+        .iter()
+        .map(|node| {
+            format!(
+                "{}:{}:{}:{}",
+                node.phase,
+                node.attempt,
+                node.step.as_str(),
+                node.instance_no
+            )
+        })
+        .collect();
+    for edge in &active.edges {
+        assert!(
+            node_keys.contains(&edge.from_node_key) && node_keys.contains(&edge.to_node_key),
+            "活面边端点恒指本 run 节点身份键: {edge:?}"
+        );
+    }
+    // 线面 camelCase 逐字（前端直读挂钩 fromNodeKey / toNodeKey / edgeKind）
+    let wire = serde_json::to_value(&active.edges).expect("活面边表序列化失败");
+    assert_eq!(
+        wire[0]["fromNodeKey"],
+        json!("implement:1:phase_start:0"),
+        "活面边端点线面直出"
+    );
+    assert_eq!(
+        wire[0]["edgeKind"],
+        json!("forward"),
+        "活面边 kind 线词直出"
+    );
+
+    // 库读史面：run-5 起始行同时在案（库面 ∪ 活面一次返回）
+    assert!(
+        unified
+            .detail
+            .runs
+            .iter()
+            .any(|run| run.run_id == "run-5" && run.status == workflow::state::RunStatus::Running),
+        "库读史起始行在案（单命令一次返回）"
+    );
+
+    // 终态收口：注册表除名 → activeRun 退 null（活面边表随快照退场）
+    guard.finish(orchestration::ChangeRunStatus::Completed, None);
+    let closed = get_change_detail(
+        state.clone(),
+        control.clone(),
+        root.clone(),
+        "edge-change".to_owned(),
+    )
+    .expect("应 Some");
+    assert!(closed.active_run.is_none(), "终态除名 → activeRun 退 null");
 }
 
 /// 统一查询装配_waitingconfirm停等形态（AC-7 活面六值状态机第二停等档）：步累
@@ -1447,9 +1757,11 @@ fn 统一查询装配_waitingconfirm停等形态() {
             phase: "dev-design".to_owned(),
             attempt: 2,
             step: ChangeStepKind::Evaluator,
+            instance_no: 0,
             status: ChangeStepStatus::Passed,
             session_id: Some("ses-eval".to_owned()),
             detail: None,
+            output_ref: None,
         },
     });
     guard.emit(RunUpdate::ConfirmWait {
@@ -1476,13 +1788,14 @@ fn 统一查询装配_waitingconfirm停等形态() {
     );
     assert_eq!(active.attempt, Some(2), "attempt 承上一拍步行");
     assert!(active.ask.is_none(), "停等形态无 ask 载荷（两停等互斥）");
-    assert_eq!(active.steps.len(), 1, "步累积器随行（停等不丢步表）");
+    assert_eq!(active.nodes.len(), 1, "节点累积器随行（停等不丢节点表）");
     assert!(
         active.started_at.ends_with('Z') && active.started_at.contains('T'),
         "startedAt ISO 串口径同式: {}",
         active.started_at
     );
-    // 库读史与活面一面出：同一 run 的起始行在案（running 起始行，steps 恒空）
+    // 库读史与活面一面出：同一 run 的起始行在案（running 起始行，nodes / edges
+    // 恒空数组）
     let same_run = unified
         .detail
         .runs
@@ -1490,7 +1803,8 @@ fn 统一查询装配_waitingconfirm停等形态() {
         .find(|run| run.run_id == "run-4")
         .expect("同一 run 库读史起始行在案");
     assert_eq!(same_run.status, workflow::state::RunStatus::Running);
-    assert!(same_run.steps.is_empty(), "在飞 run 起始行 steps 恒空");
+    assert!(same_run.nodes.is_empty(), "在飞 run 起始行 nodes 恒空");
+    assert!(same_run.edges.is_empty(), "在飞 run 起始行 edges 恒空");
 }
 
 /// 统一视图早退与未知 id 未找到（既有早退口径保留）：blank root → None；

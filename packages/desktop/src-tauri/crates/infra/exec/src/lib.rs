@@ -9,11 +9,13 @@
 
 mod shell;
 
-pub use shell::{resolve_shell, ShellBase};
 #[cfg(windows)]
 pub use shell::probe_windows_shell;
+pub use shell::{resolve_shell, ShellBase};
 
 use std::ffi::{OsStr, OsString};
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 
 /// spawn 命令规格：程序 + 逐参 argv。`raw` 为 Windows 命令串原样入线标记
 /// （作用于末参，`raw_arg` 保真——仅 tokio 侧可表达；std 调用点不使用
@@ -136,6 +138,83 @@ impl SystemCommand {
         }
         command
     }
+}
+
+/// spawn 产物的两种输出记录模式（输出记录职责单点驻本 crate；调用方零私有
+/// 捕获 / 落盘分支）：
+/// - [`ExecOutput::Transient`]：spawn 即得、即时消费（反馈边注入）、即弃——无
+///   id，全量不进库、不落盘引用；
+/// - [`ExecOutput::Recorded`]：stdout / stderr 全量落盘 change 报告目录树
+///   （`<report_dir>/exec-outputs/<exec_id>.log` / `.err`），`exec_id` 为回查引
+///   用（`RunNodeRecord.output_ref` 载体；MUST NOT 全文进节点行）。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ExecOutput {
+    /// 即弃（无 id；反馈边消费即够）
+    Transient,
+    /// 落盘可回查（有 id 可查）
+    Recorded {
+        /// 输出记录引用（[`record_exec_output`] 铸造）
+        exec_id: String,
+    },
+}
+
+/// exec 输出记录目录名（change 报告目录树内）。
+const EXEC_OUTPUT_DIR: &str = "exec-outputs";
+
+/// `ExecOutput::Recorded` 落盘半边（输出记录单点）：铸造 `exec_id` 并把 stdout /
+/// stderr 全量落盘到 change 报告目录树（`<report_dir>/exec-outputs/`），返回
+/// `exec_id` 引用。stdout / stderr 分文件保真（stdout = `<exec_id>.log`、stderr =
+/// `<exec_id>.err`），零截断零改写。
+pub fn record_exec_output(
+    root: &Path,
+    change: &str,
+    stdout: &[u8],
+    stderr: &[u8],
+) -> Result<String, String> {
+    let dir = exec_output_dir(root, change);
+    std::fs::create_dir_all(&dir).map_err(|e| format!("创建 exec 输出目录失败: {e}"))?;
+    let exec_id = mint_exec_id();
+    std::fs::write(dir.join(format!("{exec_id}.log")), stdout)
+        .map_err(|e| format!("落盘 exec stdout 失败: {e}"))?;
+    std::fs::write(dir.join(format!("{exec_id}.err")), stderr)
+        .map_err(|e| format!("落盘 exec stderr 失败: {e}"))?;
+    Ok(exec_id)
+}
+
+/// `ExecOutput::Recorded` 回查半边：读回 stdout 全量字节；未知 / 非法 `exec_id`
+/// → `None`（miss 非错误）。
+pub fn read_exec_output(root: &Path, change: &str, exec_id: &str) -> Option<Vec<u8>> {
+    if !is_valid_exec_id(exec_id) {
+        return None;
+    }
+    std::fs::read(exec_output_dir(root, change).join(format!("{exec_id}.log"))).ok()
+}
+
+/// 输出记录目录派生（与 test-execution 报告树同锚：`change_test_reports/<name>/`
+/// ——`report_dir` 与 `exec_id` 同口径，见 desktop-checks-domain）。
+fn exec_output_dir(root: &Path, change: &str) -> PathBuf {
+    foundation::layout::change_test_reports(root, change).join(EXEC_OUTPUT_DIR)
+}
+
+/// `exec_id` 形态校验（路径分量安全：非空且仅 ASCII 字母数字与 `-`——防
+/// `..` / 分隔符类路径逃逸）。
+fn is_valid_exec_id(exec_id: &str) -> bool {
+    !exec_id.is_empty()
+        && exec_id
+            .chars()
+            .all(|ch| ch.is_ascii_alphanumeric() || ch == '-')
+}
+
+/// 铸造 `exec_id`：`exec-<millis>-<进程内序号>`（同刻多次铸造仍互异；时钟早于
+/// epoch 取 0，不 panic）。
+fn mint_exec_id() -> String {
+    static SEQ: AtomicU64 = AtomicU64::new(0);
+    let seq = SEQ.fetch_add(1, Ordering::Relaxed);
+    let millis = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_millis() as u64)
+        .unwrap_or(0);
+    format!("exec-{millis}-{seq}")
 }
 
 /// 进程树击杀（尽力语义，静默不重试不阻塞收敛）：Windows `taskkill /PID

@@ -77,7 +77,12 @@ describe('AgentPanel：清单呈现', () => {
     // sdk 行经 providers 按 id 解析引用 provider 名（悬空 id 兜底 #id 形态）
     expect(items[1].textContent).toContain('端点乙');
     expect(items[1].textContent).toContain('sdk');
-    expect(screen.getAllByTestId('agent-set-default')).toHaveLength(1);
+    // 切换入口逐行齐备（统一动作按钮形态），当前默认行的入口禁用（自设默认
+    // 无意义——标记即切换，入口保留以免行间错位）
+    const setDefaultEntries = screen.getAllByTestId<HTMLButtonElement>('agent-set-default');
+    expect(setDefaultEntries).toHaveLength(2);
+    expect(setDefaultEntries[0].disabled).toBe(true);
+    expect(setDefaultEntries[1].disabled).toBe(false);
   });
 
   it('悬空引用 provider id（providers 清单缺失）→ 兜底 #id 形态呈现，不崩', () => {
@@ -192,7 +197,8 @@ describe('AgentPanel：默认标记切换（AC-4 前端半）', () => {
       }),
     );
 
-    fireEvent.click(screen.getByTestId('agent-set-default'));
+    // 点乙行的切换入口（甲行沿用默认标记、其入口禁用）
+    fireEvent.click(screen.getAllByTestId('agent-set-default')[1]);
     await waitFor(() => expect(state.setDefault).toHaveBeenCalledTimes(1));
     expect(state.setDefault).toHaveBeenCalledWith(2);
   });
@@ -211,7 +217,8 @@ describe('AgentPanel：默认标记切换（AC-4 前端半）', () => {
     const view = render(<AgentPanel providers={PROVIDERS} state={state} />);
     expect(screen.getAllByTestId('agent-item')[0].textContent).toContain('默认');
 
-    fireEvent.click(screen.getByTestId('agent-set-default'));
+    // 点乙行的切换入口（甲行为当前默认——其入口禁用不可点）
+    fireEvent.click(screen.getAllByTestId('agent-set-default')[1]);
     await waitFor(() => expect(state.setDefault).toHaveBeenCalledTimes(1));
 
     // 父级以刷新后的清单重渲染（真实链路为 hook setState → props 更新）
@@ -221,7 +228,7 @@ describe('AgentPanel：默认标记切换（AC-4 前端半）', () => {
       );
     });
     const items = screen.getAllByTestId('agent-item');
-    // 唯一默认标记移至乙（行内「设为默认」按钮文案含「默认」二字，以徽标
+    // 唯一默认标记移至乙（行内切换入口文案「设为默认」含「默认」二字，以徽标
     // testid 为准）
     expect(within(items[0]).queryByTestId('agent-default-badge')).toBeNull();
     expect(within(items[1]).getByTestId('agent-default-badge') !== null).toBe(true);

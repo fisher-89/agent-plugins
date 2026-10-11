@@ -12,6 +12,17 @@ use super::registry::{discover_artifacts, ArtifactInput, ArtifactPlugin};
 use super::ArtifactCandidate;
 use crate::model::{ChecklistItem, Verdict};
 use crate::state::PhaseStateRecord;
+use crate::write::PhaseDefinition;
+
+/// 空清单 fixture（eval-checklist 候选不经相对路径清单——投影分支独立于文件面）。
+static EMPTY_MANIFEST: &[PhaseDefinition] = &[PhaseDefinition {
+    id: "proposal",
+    description: "空清单 fixture",
+    steps: &[],
+    artifact_manifest: &[],
+    executor: None,
+    evaluator: None,
+}];
 
 /// 以第 `index` 条切片候选直接调用插件。
 fn parse_entry(phases: &[PhaseStateRecord], index: usize) -> Option<super::ArtifactEnvelope> {
@@ -20,6 +31,7 @@ fn parse_entry(phases: &[PhaseStateRecord], index: usize) -> Option<super::Artif
         change_dir: Path::new("/unused"),
         phases,
         candidate: &candidate,
+        spec: None,
     };
     EvalChecklistPlugin.parse(&input)
 }
@@ -125,6 +137,7 @@ fn 空切片与越界下标均不产出信封() {
         change_dir: Path::new("/unused"),
         phases: &[],
         candidate: &candidate_file,
+        spec: None,
     };
     assert!(!EvalChecklistPlugin.matches(&input_file));
 
@@ -133,6 +146,7 @@ fn 空切片与越界下标均不产出信封() {
         change_dir: Path::new("/unused"),
         phases: &[],
         candidate: &candidate_eval,
+        spec: None,
     };
     assert!(!EvalChecklistPlugin.matches(&input_eval));
     assert!(EvalChecklistPlugin.parse(&input_eval).is_none());
@@ -149,6 +163,7 @@ fn 空切片与越界下标均不产出信封() {
         change_dir: Path::new("/unused"),
         phases: &phases,
         candidate: &candidate_oob,
+        spec: None,
     };
     assert!(!EvalChecklistPlugin.matches(&input_oob), "越界下标不命中");
     assert!(EvalChecklistPlugin.parse(&input_oob).is_none());
@@ -169,7 +184,7 @@ fn 大量条目逐条产出_序号与切片下标一一对应() {
 
     // 经 discover 枚举（change 目录可为不存在路径——eval 候选不读文件）
     let ghost = Path::new("/unused-desktop-eval-checklist");
-    let descriptors = discover_artifacts(ghost, &phases);
+    let descriptors = discover_artifacts(ghost, &phases, EMPTY_MANIFEST);
 
     let checklist_descriptors: Vec<_> = descriptors.iter().filter(|d| d.kind == KIND).collect();
     assert_eq!(checklist_descriptors.len(), 12, "12 条全含清单 → 12 个信封");
@@ -212,4 +227,49 @@ fn evidence长文本与特殊字符item名原样保留() {
         .as_deref()
         .unwrap_or_default()
         .contains(&long_evidence));
+}
+
+/// `(phase, attempt)` 投影分支的归属面：eval 候选 descriptor 的 `phase` 恒为
+/// PhaseRecord 投影相位（与文件类候选在出口汇合同一 `Vec<ArtifactDescriptor>`，
+/// AC-7 D3）。
+#[test]
+fn eval候选descriptor的phase归属自投影分支() {
+    use std::fs;
+
+    let dir = std::env::temp_dir().join(format!(
+        "workflow-eval-checklist-test-{}-merge",
+        std::process::id()
+    ));
+    let _ = fs::remove_dir_all(&dir);
+    fs::create_dir_all(&dir).expect("创建临时目录失败");
+    fs::write(dir.join("proposal.md"), "# 提案").expect("写文件失败");
+
+    let phases = vec![
+        entry(
+            "dev-design",
+            1,
+            Verdict::Pass,
+            vec![item("组件表完整", true, "五组件齐全")],
+        ),
+        entry("implement", 2, Verdict::Fail, Vec::new()), // 空清单 → 不产出候选
+    ];
+    let descriptors = discover_artifacts(&dir, &phases, EMPTY_MANIFEST);
+
+    let eval_phase: Vec<(&str, &str)> = descriptors
+        .iter()
+        .filter(|d| d.kind == KIND)
+        .map(|d| (d.source.as_str(), d.phase.as_str()))
+        .collect();
+    assert_eq!(
+        eval_phase,
+        vec![("0", "dev-design")],
+        "phase 归属 = PhaseRecord 投影相位（空清单条目不产出候选）"
+    );
+    // 空清单下文件类零候选——出口面只有投影分支（两者共用一个出口汇合）
+    assert!(
+        descriptors.iter().all(|d| d.kind == KIND),
+        "空清单下无文件类候选：{descriptors:?}"
+    );
+
+    let _ = fs::remove_dir_all(&dir);
 }

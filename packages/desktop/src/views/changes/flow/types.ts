@@ -8,8 +8,12 @@ import type {
 /** 事件节点两分类 */
 export type FlowNodeKind = 'eval' | 'active';
 
-/** 边类型：由两端列索引差 Δ 的符号派生（>0 前进 / =0 重试 / <0 回跳） */
-export type FlowEdgeKind = 'forward' | 'retry' | 'backtrack';
+/**
+ * 边类型：直接读后端边表四 kind（`runs[].edges` / `activeRun.edges`）——forward
+ * 计划序推进 / feedback gate 失败回同 phase agent 步（phase 内回边）/ retry phase
+ * fail 后同相位重跑 / backtrack 跨相位回跳。列差 Δ 派生整体退役。
+ */
+export type FlowEdgeKind = 'forward' | 'feedback' | 'retry' | 'backtrack';
 
 interface FlowNodeBase {
   id: string;
@@ -57,18 +61,25 @@ export interface RoleSessionRef {
   sessionId: string | null;
 }
 
-/** run 步事件：来自 RunUpdate::Step 流的图 overlay（run-state.ts 推导）。
- * 节点载荷（runStepKind / group / role / status / sessionId / detail 六面）
- * 即 react-flow 侧 `RunStepNodeData` 的字段源（run-step-node.tsx 按本投影
- * 定义 `{ node: RuntimeFlowNode }` 载荷）。 */
+/** run 步事件：来自库读史 `runs[].nodes` ∪ 在飞 run 活面的图 overlay
+ *（run-state.ts 推导）。节点载荷（runStepKind / group / role / instanceNo /
+ * status / sessionId / detail / outputRef 八面）即 react-flow 侧
+ * `RunStepNodeData` 的字段源（run-step-node.tsx 按本投影定义
+ * `{ node: RuntimeFlowNode }` 载荷）。节点按后端稳定身份键
+ * `(phase, attempt, step, instanceNo)` 直渲染——同键多实例（feedback 重跑）
+ * 以 instanceNo 区分不串扰。 */
 export interface RuntimeFlowNode extends FlowNodeBase {
   kind: 'runtime';
   runStepKind: ChangeStepKind;
   group: RunStepGroup;
   role: FlowRoleLabel | null;
+  /** 同 (phase, attempt, step) 内的执行实例号（后端稳定身份键第四段） */
+  instanceNo: number;
   status: ChangeStepStatus;
   sessionId: string | null;
   detail: string | null;
+  /** 全量输出引用（ExecOutput::Recorded 的 exec_id；无记录恒 null） */
+  outputRef: string | null;
 }
 
 export type FlowNode = EvalFlowNode | ActiveFlowNode | RuntimeFlowNode;
@@ -85,7 +96,7 @@ export interface FlowEdge {
   source: string;
   target: string;
   kind: FlowEdgeKind;
-  /** 回跳边取目标 eval 节点 record.backtrackReason；其余边为 null */
+  /** 回跳边取发起相位最近一次条目的 backtrackReason；其余边为 null */
   label: string | null;
 }
 

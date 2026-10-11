@@ -8,7 +8,7 @@
 //! 函数 → DTO：无直接文件系统访问、不缓存 workspace 状态（记录面带 State，
 //! 沿 explores 组先例）。`get_change_detail` 为**统一视图合并装配**（读时合
 //! 并零写路径，unify-run-state-persistence D11）：core `change_detail` 库读
-//! 史后并入 `ChangeFlowControl` 注册表快照活面（steps / ask / 停等态）一面
+//! 史后并入 `ChangeFlowControl` 注册表快照活面（nodes / edges / ask / 停等态）一面
 //! 出；blank root / 开库失败 None 语义不变。记录面三件事纪律：参数转换 →
 //! 调写面 → 错误映射；name / goal 校验权威在写面，命令层不过关。
 //! **寻址面 id 化**：change 域三读一写的定位参数均为 change id（一切寻址以
@@ -45,12 +45,15 @@ use foundation::layout::resolve;
 use store::WorkspaceStores;
 use vcs_runtime::{worktree_dir, ProcessWorktree};
 use workflow::artifacts::{read_artifact as core_read_artifact, ArtifactEnvelope};
-use workflow::queries::{self, iso_from_millis, locate_change, ChangeDetail, ChangeList};
+use workflow::queries::{
+    self, iso_from_millis, locate_change, ChangeDetail, ChangeList, ChangeRunEdgeRecord,
+};
 use workflow::write::{self, ArchiveOutcome, CreateOutcome};
 
 /// 统一视图活面投影（unify-run-state-persistence D11）：注册表快照的线面像
-/// ——`startedAt` ISO 化收本命令层单点（快照毫秒 → ISO 串），steps 全词汇
-/// emit 序透传。
+/// ——`startedAt` ISO 化收本命令层单点（快照毫秒 → ISO 串），nodes 全词汇
+/// emit 序透传；edges 随行出线（线面形状与库读史 `runs[].edges` 同型——
+/// 前端两类来源同一转换函数消费，零双形状）。
 #[derive(Debug, Clone, serde::Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct ActiveRunView {
@@ -60,7 +63,8 @@ pub struct ActiveRunView {
     pub attempt: Option<u32>,
     pub ask: Option<orchestration::AskPayload>,
     pub started_at: String,
-    pub steps: Vec<orchestration::ChangeStepState>,
+    pub nodes: Vec<orchestration::ChangeStepState>,
+    pub edges: Vec<ChangeRunEdgeRecord>,
 }
 
 /// 统一视图信封：库读史 ∪ 在飞 run 活面一次返回（前端零双命令拼接；
@@ -100,8 +104,8 @@ pub fn list_changes(stores: State<'_, WorkspaceStores>, root: String) -> ChangeL
 }
 
 /// 单 change 详情聚合（统一视图，unify-run-state-persistence D11；按 change
-/// **id** 寻址）：一次返回「库读史（detail.runs）∪ 在飞 run 活面
-/// （activeRun）」——前端零双命令拼接。未知 id 返回 `None`（未建档——零磁盘
+/// **id** 寻址）：一次返回「库读史（`detail.runs[].nodes` / `runs[].edges`）∪
+/// 在飞 run 活面（activeRun.nodes / activeRun.edges）」——前端零双命令拼接。未知 id 返回 `None`（未建档——零磁盘
 /// 目录解析回退、零文档形态空面）。IPC 签名不变：blank root 与开库失败均
 /// `None`。worktree / name 感知在 core `change_detail` 内（record 先读后定位，
 /// 磁盘面恒自记录供给）。
@@ -130,7 +134,18 @@ pub fn get_change_detail(
         attempt: snapshot.attempt,
         ask: snapshot.ask,
         started_at: iso_from_millis(snapshot.started_at),
-        steps: snapshot.steps,
+        nodes: snapshot.nodes,
+        // 活面边投影：端点身份串与 kind 自快照边表直取（身份串组装单点驻
+        // orchestration::state::node_id，与库读史边表同式）
+        edges: snapshot
+            .edges
+            .iter()
+            .map(|edge| ChangeRunEdgeRecord {
+                from_node_key: edge.from_node_key(),
+                to_node_key: edge.to_node_key(),
+                edge_kind: edge.kind,
+            })
+            .collect(),
     });
     Some(ChangeDetailUnified { detail, active_run })
 }

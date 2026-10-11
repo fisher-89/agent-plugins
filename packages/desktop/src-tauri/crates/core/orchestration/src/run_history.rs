@@ -1,40 +1,40 @@
-//! run 落库 port 缝适配（unify-run-state-persistence）：步词汇 10→5 过滤
-//! 单点 + finish 组装 helper + store 适配器。
+//! run 执行图落库 port 缝适配（run-workflow-by-step 决策③）：节点 + 边整包
+//! 投影单点 + finish 组装 helper + store 适配器。
 //!
-//! **过滤单点纪律（D2 / AC-3）**：词汇本体 = `workflow::state::RunStepKind`
-//! 五值封闭集，落库命令 `RunStepEntry.step` 即该类型——store 结构上收不到
-//! 忽略集，10→5 映射的唯一消费点 = 本模块 [`persisted_step`]；`walker.rs` /
-//! `control.rs` / `steps.rs` 源码零过滤逻辑（grep 可验）。
+//! **零过滤纪律（AC-3）**：词汇本体 = `workflow::state::RunStepKind` 十值全词
+//! 汇，落库命令 `RunNodeEntry.step` 即该类型——10→5 过滤谓词整体退役（流程面步
+//! 骤 phase_start / phase_log 与三门不再被弃落，本模块零过滤逻辑）；边本体 =
+//! `workflow::state::RunEdgeKind` 四值（与编排侧 [`EdgeKind`] 同一类型，零映
+//! 射零漂移）。
 
 use std::sync::Arc;
 
 use workflow::state::{
-    ChangeStateStore, RunFinishCommand, RunStartCommand, RunStatus, RunStepEntry, RunStepKind,
-    RunStepStatus,
+    ChangeStateStore, RunEdgeEntry, RunEdgeKind, RunFinishCommand, RunNodeEntry, RunStartCommand,
+    RunStatus, RunStepKind, RunStepStatus,
 };
 use workflow::write::{run_finish as write_run_finish, run_start as write_run_start};
 
 use crate::port::RunHistoryPort;
-use crate::state::{ChangeRunStatus, ChangeStepKind, ChangeStepState, ChangeStepStatus};
+use crate::state::{
+    ChangeRunStatus, ChangeStepEdge, ChangeStepKind, ChangeStepState, ChangeStepStatus, EdgeKind,
+};
 use crate::walker::RunRequest;
 
-/// 步词汇 10→5 过滤（**唯一映射消费点**）：executor / evaluator / decision /
-/// static_check / test_execution 落库，phase_start / phase_log /
-/// verdict_gate / retry_gate / whitelist_gate 弃——流程面步骤与三门纯 Rust
-/// 分支无会话无独立产物，图史价值为零（attempt 级评估史已由 PhaseRecord 承
-/// 载）。词汇本体在 `workflow::state::RunStepKind`，本函数是唯一映射消费点。
-pub fn persisted_step(kind: ChangeStepKind) -> Option<RunStepKind> {
+/// 步词汇直映射（**十值 1:1 全映射，零过滤**）：编排侧 `ChangeStepKind` 与落库
+/// 侧 `RunStepKind` 同词面封闭集逐一对应——`step` 语义无弃落项。
+fn mapped_step(kind: ChangeStepKind) -> RunStepKind {
     match kind {
-        ChangeStepKind::Executor => Some(RunStepKind::Executor),
-        ChangeStepKind::Evaluator => Some(RunStepKind::Evaluator),
-        ChangeStepKind::Decision => Some(RunStepKind::Decision),
-        ChangeStepKind::StaticCheck => Some(RunStepKind::StaticCheck),
-        ChangeStepKind::TestExecution => Some(RunStepKind::TestExecution),
-        ChangeStepKind::PhaseStart
-        | ChangeStepKind::PhaseLog
-        | ChangeStepKind::VerdictGate
-        | ChangeStepKind::RetryGate
-        | ChangeStepKind::WhitelistGate => None,
+        ChangeStepKind::Executor => RunStepKind::Executor,
+        ChangeStepKind::Evaluator => RunStepKind::Evaluator,
+        ChangeStepKind::Decision => RunStepKind::Decision,
+        ChangeStepKind::StaticCheck => RunStepKind::StaticCheck,
+        ChangeStepKind::TestExecution => RunStepKind::TestExecution,
+        ChangeStepKind::PhaseStart => RunStepKind::PhaseStart,
+        ChangeStepKind::PhaseLog => RunStepKind::PhaseLog,
+        ChangeStepKind::VerdictGate => RunStepKind::VerdictGate,
+        ChangeStepKind::RetryGate => RunStepKind::RetryGate,
+        ChangeStepKind::WhitelistGate => RunStepKind::WhitelistGate,
     }
 }
 
@@ -48,40 +48,54 @@ fn persisted_status(status: ChangeStepStatus) -> RunStepStatus {
     }
 }
 
-/// run 收口写命令组装（walker 终态出口单点消费）：累积器快照（全词汇 emit
-/// 序）经 [`persisted_step`] 过滤落 5 类子集，`seq` = 全词汇 emit 序盖戳（累
-/// 积器下标即 emit 序——被过滤步占号产生的库内空洞为排序键语义合法形态），
-/// session_id / detail 透传；`finished_at` 命令携带（整包同刻，corpus 确定
-/// 性）。
+/// 边 kind 直映射（同类型恒等：编排侧 [`EdgeKind`] = `RunEdgeKind`，词汇单点驻
+/// `workflow::state`——本函数只为落库面显名，零转换）。
+fn persisted_edge_kind(kind: EdgeKind) -> RunEdgeKind {
+    kind
+}
+
+/// run 收口写命令组装（walker 终态出口单点消费）：累积器节点快照（全词汇 emit
+/// 序，稳定身份键）直映射 `RunNodeEntry` 整包（**零过滤**），边快照直映射
+/// `RunEdgeEntry` 整包（端点身份串 = `"{phase}:{attempt}:{step}:{instance_no}"`）；
+/// session_id / detail / output_ref 透传；`finished_at` 命令携带（整包同刻，
+/// corpus 确定性）。
 pub fn finish_command(
     request: &RunRequest,
     status: ChangeRunStatus,
     reason: Option<String>,
     finished_at: i64,
-    steps: &[ChangeStepState],
+    nodes: &[ChangeStepState],
+    edges: &[ChangeStepEdge],
 ) -> RunFinishCommand {
-    let mut entries: Vec<RunStepEntry> = Vec::with_capacity(steps.len());
-    for (seq, step) in steps.iter().enumerate() {
-        let Some(kind) = persisted_step(step.step) else {
-            continue; // 流程面步骤与三门：不落库（占号产生库内空洞，合法）
-        };
-        entries.push(RunStepEntry {
-            seq: seq as u64,
-            phase: step.phase.clone(),
-            attempt: step.attempt,
-            step: kind,
-            status: persisted_status(step.status),
-            session_id: step.session_id.clone(),
-            detail: step.detail.clone(),
-        });
-    }
+    let node_entries: Vec<RunNodeEntry> = nodes
+        .iter()
+        .map(|node| RunNodeEntry {
+            phase: node.phase.clone(),
+            attempt: node.attempt,
+            step: mapped_step(node.step),
+            instance_no: node.instance_no,
+            status: persisted_status(node.status),
+            session_id: node.session_id.clone(),
+            detail: node.detail.clone(),
+            output_ref: node.output_ref.clone(),
+        })
+        .collect();
+    let edge_entries: Vec<RunEdgeEntry> = edges
+        .iter()
+        .map(|edge| RunEdgeEntry {
+            from_node_key: edge.from_node_key(),
+            to_node_key: edge.to_node_key(),
+            edge_kind: persisted_edge_kind(edge.kind),
+        })
+        .collect();
     RunFinishCommand {
         run_id: request.run_id.clone(),
         change_id: request.change_id.clone(),
         status: run_status(status),
         reason,
         finished_at,
-        steps: entries,
+        nodes: node_entries,
+        edges: edge_entries,
     }
 }
 

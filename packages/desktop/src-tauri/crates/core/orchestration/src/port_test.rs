@@ -26,6 +26,8 @@ fn sample_phase_next_outcome() -> PhaseNextOutcome {
         done: false,
         next_phase: Some("implement".to_owned()),
         round: 2,
+        steps: Vec::new(),
+        artifact_manifest: Vec::new(),
         executor: None,
         evaluator: None,
         allowed_backtrack_phases: vec!["proposal".to_owned(), "dev-design".to_owned()],
@@ -84,6 +86,7 @@ impl ToolStepPort for RecordingSteps {
             Ok(ToolStepOutput::StaticCheck(StaticCheckOutcome {
                 passed: true,
                 diagnostics: String::new(),
+                output_ref: None,
             }))
         })
     }
@@ -323,6 +326,7 @@ fn tool_step_output各变体载荷写面原生类型逐字段相等() {
     let check = StaticCheckOutcome {
         passed: false,
         diagnostics: "error[E0308]: mismatched".to_owned(),
+        output_ref: None,
     };
 
     let outputs = vec![
@@ -380,13 +384,15 @@ fn tool_step_output各变体载荷写面原生类型逐字段相等() {
     );
 }
 
-/// StaticCheckOutcome 字段面：passed true/false × diagnostics 空串 / 多行诊断
-/// 构造与读取（passed=false 走定向反馈边的载荷面——AC-4）。
+/// StaticCheckOutcome 字段面：passed true/false × diagnostics 空串 / 多行诊断 ×
+/// `output_ref` None（Transient 即弃）/ Some（Recorded 可回查）两态构造与读取
+///（passed=false 走定向反馈边的载荷面——AC-4 / AC-8）。
 #[test]
 fn static_check_outcome字段面双值双诊断形态() {
     let passed_clean = StaticCheckOutcome {
         passed: true,
         diagnostics: String::new(),
+        output_ref: None,
     };
     assert!(passed_clean.passed);
     assert!(passed_clean.diagnostics.is_empty());
@@ -395,6 +401,7 @@ fn static_check_outcome字段面双值双诊断形态() {
         passed: false,
         diagnostics: "error[E0308]: mismatched types\n  --> src/lib.rs:1:1\nwarning: unused"
             .to_owned(),
+        output_ref: None,
     };
     assert!(!failed_loud.passed, "passed=false 走定向反馈边");
     assert!(
@@ -402,6 +409,27 @@ fn static_check_outcome字段面双值双诊断形态() {
         "多行诊断原样承载（反馈边注入原料）"
     );
     assert_eq!(failed_loud.clone(), failed_loud, "Clone/PartialEq 派生可用");
+
+    // 记录模式：`ExecOutput::Recorded { exec_id }` 引用随产出透传（None 态 =
+    // Transient 即弃，Some 态 = 全量输出可经 infra/exec 回查——两态可辨）
+    let recorded = StaticCheckOutcome {
+        passed: false,
+        diagnostics: "lint 失败".to_owned(),
+        output_ref: Some("exec-1727000000000".to_owned()),
+    };
+    assert_eq!(
+        recorded.output_ref.as_deref(),
+        Some("exec-1727000000000"),
+        "Recorded 模式引用随产出透传（可回查）"
+    );
+    assert_ne!(
+        recorded.output_ref, failed_loud.output_ref,
+        "None（Transient 即弃）/ Some（Recorded 可回查）两态可辨"
+    );
+    assert_ne!(
+        recorded, failed_loud,
+        "output_ref 参与载荷等值（反馈边载荷可辨）"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -420,6 +448,7 @@ async fn static_check_runner假实现经arc注入且root透传() {
         outcome: StaticCheckOutcome {
             passed: false,
             diagnostics: "lint 失败".to_owned(),
+            output_ref: None,
         },
     });
 
@@ -483,6 +512,7 @@ async fn box_diff_future别名跨await持有可用() {
             Ok(ToolStepOutput::StaticCheck(StaticCheckOutcome {
                 passed: true,
                 diagnostics: String::new(),
+                output_ref: None,
             }))
         })
     }
@@ -612,6 +642,7 @@ fn sample_execution_outcome(conclusion: TestExecutionConclusion) -> TestExecutio
                 .to_owned(),
         },
         report_dir: "C:/ws/openspec/changes/c/reports/test".to_owned(),
+        exec_id: String::new(),
     }
 }
 
@@ -785,6 +816,34 @@ fn test_execution_outcome载荷字段面() {
         outcome.report_dir.ends_with("reports/test"),
         "报告目录定位全量 findings"
     );
+
+    // 输出引用两态与 report_dir 同锚同口径（AC-8）：`exec_id` 非空 = Recorded
+    // 记录模式（全量输出经 infra/exec 单点回查）、空串 = 未记录（report_dir
+    // 报告仍为全量权威），两态随 step 产出透传
+    assert_eq!(
+        outcome.exec_id, "",
+        "未记录形态空串（落盘失败 / Transient 降级——报告仍为全量权威）"
+    );
+    let recorded = TestExecutionOutcome {
+        exec_id: "exec-1727000000000".to_owned(),
+        ..outcome.clone()
+    };
+    assert_eq!(
+        recorded.exec_id, "exec-1727000000000",
+        "Recorded 模式引用随产出透传（可回查）"
+    );
+    assert_ne!(recorded, outcome, "exec_id 两态参与载荷等值（可辨）");
+    assert_eq!(
+        recorded.report_dir, outcome.report_dir,
+        "exec_id 与 report_dir 同锚（同一 change 报告树的引用与目录）"
+    );
+    match ToolStepOutput::TestExecution(recorded.clone()) {
+        ToolStepOutput::TestExecution(extracted) => assert_eq!(
+            extracted.exec_id, "exec-1727000000000",
+            "引用随 ToolStepOutput::TestExecution 变体透传至 walker"
+        ),
+        other => panic!("变体漂移: {other:?}"),
+    }
 
     let clone = outcome.clone();
     assert_eq!(clone, outcome, "Clone / PartialEq 派生可用");

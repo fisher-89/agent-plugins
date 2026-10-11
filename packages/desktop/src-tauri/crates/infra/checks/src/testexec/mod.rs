@@ -96,7 +96,13 @@ async fn execute(root: &str, change: &str) -> Result<ToolStepOutput, String> {
             && check_integrity(&existing, &disk_reports).is_empty()
             && is_reusable(&existing, newest)
         {
-            return Ok(outcome(&existing, &disk_reports, &reports_dir));
+            return Ok(outcome(
+                root_path,
+                change,
+                &existing,
+                &disk_reports,
+                &reports_dir,
+            ));
         }
     }
 
@@ -117,12 +123,24 @@ async fn execute(root: &str, change: &str) -> Result<ToolStepOutput, String> {
     }
     report::write_reports(&reports_dir, &sub_reports, &summary)?;
 
-    Ok(outcome(&summary, &sub_reports, &reports_dir))
+    Ok(outcome(
+        root_path,
+        change,
+        &summary,
+        &sub_reports,
+        &reports_dir,
+    ))
 }
 
 /// checks 结论 → port 载荷映射（checks-runtime 装配点唯一映射面：摘要面
-/// 服务步状态 detail，明细面服务反馈边修复 prompt——双面同源装配）。
+/// 服务步状态 detail，明细面服务反馈边修复 prompt——双面同源装配）。产出装配
+/// 同时完成**输出记录单点**：summary 全量经 `exec::record_exec_output` 落 change
+/// 报告目录树（`<report_dir>/exec-outputs/`）并携 `exec_id` 回查引用——与
+/// `report_dir` 同锚同口径（无私有捕获 / 落盘分支；落盘失败降级空串，
+/// `report_dir` 报告仍为全量权威）。
 fn outcome(
+    root: &Path,
+    change: &str,
     summary: &SummaryReport,
     sub_reports: &[SubReport],
     reports_dir: &Path,
@@ -141,7 +159,18 @@ fn outcome(
         findings_brief: findings_brief(summary),
         findings_detail: findings_detail(summary, sub_reports),
         report_dir: detect::to_posix(reports_dir),
+        exec_id: record_summary(root, change, summary),
     })
+}
+
+/// summary 全量输出记录（`ExecOutput::Recorded` 半边）：编码为 JSON 字节经
+/// infra/exec 单点落盘；编码 / 落盘失败降级空串（未记录——报告目录仍为全量权威，
+/// 不因记录失败阻断门禁结论）。
+fn record_summary(root: &Path, change: &str, summary: &SummaryReport) -> String {
+    let Ok(bytes) = serde_json::to_vec(summary) else {
+        return String::new();
+    };
+    exec::record_exec_output(root, change, &bytes, &[]).unwrap_or_default()
 }
 
 /// 诊断摘要装配：单条 200 字符截断、至多 10 条（walker `diagnose_brief`

@@ -3,6 +3,13 @@
 //! 每类产物一个自包含插件模块（matcher 判定命中、parser 产出信封），
 //! 新增产物 = 新增一个模块 + 在 `PLUGINS` 追加一行；
 //! 扫描循环 / DTO / 前端路由对产物类型零硬编码分支。
+//!
+//! **候选来源 = phase 定义清单（白名单驱动）**：`discover_artifacts` 按各相位
+//! `artifact_manifest` 声明的相对路径模式枚举 change 目录命中候选（精确路径 /
+//! `<前缀>/**` 前缀 glob），matcher 仅在清单命中的候选项内判定 kind；全树扫描候
+//! 选整体退役（清单未命中的文件零候选零信封）。eval-checklist 为 PhaseRecord 投
+//! 影分支（`(phase, attempt)` 关联，不走相对路径清单）——两来源在出口汇合同一
+//! `Vec<ArtifactDescriptor>`（`phase` 字段承归属）。
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -11,7 +18,8 @@ use super::envelope::{ArtifactCandidate, ArtifactDescriptor, ArtifactEnvelope};
 use super::eval_checklist::EvalChecklistPlugin;
 use super::markdown_doc::MarkdownDocPlugin;
 use super::tasks_progress::TasksProgressPlugin;
-use crate::state::PhaseStateRecord;
+use crate::state::{ArtifactSpec, PhaseStateRecord};
+use crate::write::PhaseDefinition;
 
 /// matcher / parser 的入参。
 #[derive(Debug, Clone, Copy)]
@@ -20,6 +28,9 @@ pub struct ArtifactInput<'a> {
     /// 相位评估史（db 读源；eval-checklist 候选锚定面）
     pub phases: &'a [PhaseStateRecord],
     pub candidate: &'a ArtifactCandidate,
+    /// 清单命中上下文（文件候选在位：声明 kind / 标题；IPC 直查面为 `None`——
+    /// matcher 据此判 kind，不靠扩展名猜测）
+    pub spec: Option<&'static ArtifactSpec>,
 }
 
 /// 一类产物的自包含插件：matcher 判定命中，parser 产出信封。
@@ -41,23 +52,80 @@ static MARKDOWN_DOC: MarkdownDocPlugin = MarkdownDocPlugin;
 
 static PLUGINS: &[&dyn ArtifactPlugin] = &[&TASKS_PROGRESS, &EVAL_CHECKLIST, &MARKDOWN_DOC];
 
-/// 枚举候选：文件树遍历（跳过点前缀项）+ 相位评估条目。
-/// 文件按相对 POSIX 路径排序保证确定性。
-fn enumerate_candidates(change_dir: &Path, phases: &[PhaseStateRecord]) -> Vec<ArtifactCandidate> {
-    let mut files: Vec<PathBuf> = Vec::new();
-    collect_files(change_dir, PathBuf::new(), &mut files);
-    files.sort_by_key(|a| encode_file_source(a));
+/// 清单命中候选 + 归属上下文（文件候选来自清单；eval 候选来自 PhaseRecord 投
+/// 影）。
+struct Candidate {
+    candidate: ArtifactCandidate,
+    /// 清单命中项（文件候选在位）
+    spec: Option<&'static ArtifactSpec>,
+    /// 归属相位（文件候选 = 清单声明相位；eval 候选 = 记录相位）
+    phase: String,
+}
 
-    let mut candidates: Vec<ArtifactCandidate> = files
+/// 清单驱动候选枚举：按 manifest 声明顺序读各相位产物清单 → 相对路径枚举匹配
+/// （精确路径 / `<前缀>/**` 前缀 glob）→ 命中项去重（同路径双重命中只留一条）
+/// → 相对 POSIX 路径升序（确定性）+ eval 候选（评估史下标序）追加。
+fn manifest_candidates(
+    change_dir: &Path,
+    phases: &[PhaseStateRecord],
+    manifest: &[PhaseDefinition],
+) -> Vec<Candidate> {
+    let mut hits: Vec<(String, PathBuf, &'static ArtifactSpec, String)> = Vec::new();
+    let mut seen: Vec<String> = Vec::new();
+    for definition in manifest {
+        for spec in definition.artifact_manifest {
+            for relative_path in spec_paths(change_dir, spec) {
+                let source = encode_file_source(&relative_path);
+                if seen.contains(&source) {
+                    continue;
+                }
+                seen.push(source.clone());
+                hits.push((source, relative_path, spec, definition.id.to_owned()));
+            }
+        }
+    }
+    // 相对路径升序（插件内 order / rank 之外的稳定底序）
+    hits.sort_by(|a, b| a.0.cmp(&b.0));
+
+    let mut candidates: Vec<Candidate> = hits
         .into_iter()
-        .map(|relative_path| ArtifactCandidate::File { relative_path })
+        .map(|(_, relative_path, spec, phase)| Candidate {
+            candidate: ArtifactCandidate::File { relative_path },
+            spec: Some(spec),
+            phase,
+        })
         .collect();
-    candidates.extend((0..phases.len()).map(|index| ArtifactCandidate::EvalEntry { index }));
+    candidates.extend(phases.iter().enumerate().map(|(index, entry)| Candidate {
+        candidate: ArtifactCandidate::EvalEntry { index },
+        spec: None,
+        phase: entry.phase.clone(),
+    }));
     candidates
 }
 
-fn collect_files(root: &Path, prefix: PathBuf, out: &mut Vec<PathBuf>) {
-    let Ok(entries) = fs::read_dir(root.join(&prefix)) else {
+/// 单条清单项的命中文件：精确路径直接探测；`<前缀>/**` 递归枚举该前缀目录树
+/// （点前缀项跳过——与产物可见性口径一致）。
+fn spec_paths(change_dir: &Path, spec: &'static ArtifactSpec) -> Vec<PathBuf> {
+    match spec.path.strip_suffix("/**") {
+        Some(prefix) if !prefix.is_empty() => {
+            let mut files: Vec<PathBuf> = Vec::new();
+            walk_prefix(change_dir, Path::new(prefix), &mut files);
+            files
+        }
+        _ => {
+            let relative_path = PathBuf::from(spec.path);
+            if change_dir.join(&relative_path).is_file() {
+                vec![relative_path]
+            } else {
+                Vec::new()
+            }
+        }
+    }
+}
+
+/// 清单声明前缀内的递归枚举（**只在清单命中的前缀内走**——非全树扫描）。
+fn walk_prefix(root: &Path, prefix: &Path, out: &mut Vec<PathBuf>) {
+    let Ok(entries) = fs::read_dir(root.join(prefix)) else {
         return;
     };
     for entry in entries.flatten() {
@@ -72,7 +140,7 @@ fn collect_files(root: &Path, prefix: PathBuf, out: &mut Vec<PathBuf>) {
             continue;
         };
         if file_type.is_dir() {
-            collect_files(root, relative, out);
+            walk_prefix(root, &relative, out);
         } else if file_type.is_file() {
             out.push(relative);
         }
@@ -126,20 +194,23 @@ fn is_valid_source(source: &str) -> bool {
         .all(|segment| !segment.is_empty() && segment != "." && segment != "..")
 }
 
-/// 枚举候选喂给注册表，收集全部命中为 Descriptor 清单。
-/// 输出按（插件顺序，插件内排序键）稳定排序：kind 分组且组内顺序确定。
+/// 清单驱动发现：候选喂给注册表，收集全部命中为 Descriptor 清单（归属相位随
+/// 候选上下文）。输出按（插件顺序，插件内排序键）稳定排序：kind 分组且组内顺序
+/// 确定。
 pub fn discover_artifacts(
     change_dir: &Path,
     phases: &[PhaseStateRecord],
+    manifest: &[PhaseDefinition],
 ) -> Vec<ArtifactDescriptor> {
-    let candidates = enumerate_candidates(change_dir, phases);
+    let candidates = manifest_candidates(change_dir, phases, manifest);
     let mut hits: Vec<(usize, u32, ArtifactDescriptor)> = Vec::new();
     for (plugin_index, plugin) in PLUGINS.iter().enumerate() {
         for candidate in &candidates {
             let input = ArtifactInput {
                 change_dir,
                 phases,
-                candidate,
+                candidate: &candidate.candidate,
+                spec: candidate.spec,
             };
             if !plugin.matches(&input) {
                 continue;
@@ -152,8 +223,9 @@ pub fn discover_artifacts(
                 plugin.order(&input),
                 ArtifactDescriptor {
                     kind: envelope.kind,
-                    source: encode_source(candidate),
+                    source: encode_source(&candidate.candidate),
                     title: envelope.title,
+                    phase: candidate.phase.clone(),
                 },
             ));
         }
@@ -170,6 +242,8 @@ pub fn discover_artifacts(
 /// `kind` / `source` 均先过显式格式与包含性校验（IPC 面入参，不信任）：
 /// source 的相对路径分量被限制在 change 目录内，文件候选再以 canonical
 /// 路径兜底确认包含关系（防 symlink 类逃逸）；任一校验不过返回 `None`。
+/// 候选无清单上下文（`spec = None`）：插件 parse 只读文件本体，标题名的清单兜底
+/// 退回文件名主干。
 pub fn read_artifact(
     change_dir: &Path,
     phases: &[PhaseStateRecord],
@@ -191,6 +265,7 @@ pub fn read_artifact(
         change_dir,
         phases,
         candidate: &candidate,
+        spec: None,
     };
     let plugin = PLUGINS.iter().find(|plugin| plugin.kind() == kind)?;
     plugin.parse(&input)

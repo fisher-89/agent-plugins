@@ -24,17 +24,15 @@ pub use port::{
     ToolStepPort, ToolStepRequest, WorkerAgentPort, WorkerRole, WorkerTurnOutcome,
     WorkerTurnRequest, WorkflowSnapshotPort,
 };
-pub use run_history::{finish_command, persisted_step, StoreRunHistory};
+pub use run_history::{finish_command, StoreRunHistory};
 pub use snapshot::StoreSnapshot;
 pub use state::{
-    AskPayload, ChangeRunSnapshot, ChangeRunStatus, ChangeRunSummary, ChangeStepKind,
-    ChangeStepState, ChangeStepStatus, RunNotice, RunUpdate,
+    AskPayload, ChangeRunSnapshot, ChangeRunStatus, ChangeRunSummary, ChangeStepEdge,
+    ChangeStepKind, ChangeStepState, ChangeStepStatus, EdgeKind, NodeKey, RunNotice, RunUpdate,
 };
 pub use steps::LocalToolSteps;
 pub use verdict::EvaluatorChecklist;
-pub use walker::{
-    new_run_id, walk_run, RunRequest, STATIC_CHECK_FEEDBACK_LIMIT, STATIC_CHECK_PHASES,
-};
+pub use walker::{new_run_id, walk_run, RunRequest};
 
 #[cfg(test)]
 mod archive_flow_test;

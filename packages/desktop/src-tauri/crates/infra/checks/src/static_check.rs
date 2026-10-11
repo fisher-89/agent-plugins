@@ -3,13 +3,28 @@ use std::process::Stdio;
 
 use orchestration::port::{BoxToolFuture, StaticCheckOutcome, StaticCheckRunner, ToolStepOutput};
 
-/// static-check 进程执行器（无状态，组合根按需构造）。
-pub struct ProcessStaticCheck;
+/// static-check 进程执行器（组合根按需构造）：输出记录模式默认
+/// [`exec::ExecOutput::Transient`]（反馈边只消费诊断文本，全量即弃）；`recorded` 装配
+/// 升 [`exec::ExecOutput::Recorded`]（全量落盘 change 报告目录树并经 `output_ref` 回填
+/// 引用，审计 / 回查面）。**输出记录单点驻 infra/exec**——本层零私有落盘分支。
+pub struct ProcessStaticCheck {
+    /// 输出记录锚（change 名，报告目录树定位用）；`None` = Transient 默认
+    record_anchor: Option<String>,
+}
 
 impl ProcessStaticCheck {
-    /// 构造（组合根装配）。
+    /// 构造（组合根装配）：默认 `exec::ExecOutput::Transient`。
     pub fn new() -> Self {
-        Self
+        Self {
+            record_anchor: None,
+        }
+    }
+
+    /// `Recorded` 模式装配：stdout / stderr 全量落盘并回填 `output_ref`。
+    pub fn recorded(change: impl Into<String>) -> Self {
+        Self {
+            record_anchor: Some(change.into()),
+        }
     }
 }
 
@@ -22,12 +37,13 @@ impl Default for ProcessStaticCheck {
 impl StaticCheckRunner for ProcessStaticCheck {
     fn run(&self, root: &str) -> BoxToolFuture {
         let root = root.to_owned();
-        Box::pin(async move { execute(&root).await })
+        let record_anchor = self.record_anchor.clone();
+        Box::pin(async move { execute(&root, record_anchor.as_deref()).await })
     }
 }
 
 /// 一次 static-check 执行全流程：配置读取 → spawn → 诊断拼接 → 退出码映射。
-async fn execute(root: &str) -> Result<ToolStepOutput, String> {
+async fn execute(root: &str, record_anchor: Option<&str>) -> Result<ToolStepOutput, String> {
     let report = config::load(Path::new(root));
     let Some(command) = report
         .config
@@ -39,6 +55,7 @@ async fn execute(root: &str) -> Result<ToolStepOutput, String> {
         return Ok(ToolStepOutput::StaticCheck(StaticCheckOutcome {
             passed: true,
             diagnostics: String::new(),
+            output_ref: None,
         }));
     };
 
@@ -62,9 +79,15 @@ async fn execute(root: &str) -> Result<ToolStepOutput, String> {
     let mut diagnostics = String::from_utf8_lossy(&output.stdout).into_owned();
     diagnostics.push_str(&String::from_utf8_lossy(&output.stderr));
     let passed = output.status.success();
+    // 输出记录：默认 Transient（无 id 即弃）；Recorded 模式经 infra/exec 单点
+    // 落盘并回填引用（落盘失败降级 Transient——不因记录失败阻断检查主流程）
+    let output_ref = record_anchor.and_then(|change| {
+        exec::record_exec_output(Path::new(root), change, &output.stdout, &output.stderr).ok()
+    });
     Ok(ToolStepOutput::StaticCheck(StaticCheckOutcome {
         passed,
         diagnostics: diagnostics.trim_end().to_owned(),
+        output_ref,
     }))
 }
 

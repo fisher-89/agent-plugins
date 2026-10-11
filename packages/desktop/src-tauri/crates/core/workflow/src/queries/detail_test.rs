@@ -29,9 +29,9 @@ use super::detail::PIPELINE_PHASES;
 use crate::model::{ChecklistItem, Verdict};
 use crate::state::{
     ActivePhaseState, BacktrackCommand, ChangeStateRecord, ChangeStateStore, ChangeStatus,
-    PhaseLogCommand, PhaseStateRecord, RunFinishCommand, RunStartCommand, RunStateRecord,
-    RunStatus, RunStepKind, RunStepStateRecord, RunStepStatus, StepCommand, StepStateRecord,
-    StoreFault,
+    PhaseLogCommand, PhaseStateRecord, RunEdgeKind, RunEdgeStateRecord, RunFinishCommand,
+    RunNodeStateRecord, RunStartCommand, RunStateRecord, RunStatus, RunStepKind, RunStepStatus,
+    StepCommand, StepStateRecord, StoreFault,
 };
 use foundation::layout::{resolve, Layout};
 
@@ -162,11 +162,14 @@ struct DetailStore {
     entries: Mutex<Vec<PhaseStateRecord>>,
     /// run 运行史读半边（可编程序列——详情聚合 runs 投影的输入面）。
     runs: Mutex<Vec<RunStateRecord>>,
-    run_steps: Mutex<Vec<RunStepStateRecord>>,
-    /// 可编程 Err 注入：命中即 list_runs / list_run_steps 返回 Err（降级空
-    /// 数组断言的输入面）。
+    /// 执行图节点读半边（可编程序列）。
+    run_nodes: Mutex<Vec<RunNodeStateRecord>>,
+    /// 执行图边读半边（可编程序列）。
+    run_edges: Mutex<Vec<RunEdgeStateRecord>>,
+    /// 可编程 Err 注入：命中即对应读面返回 Err（降级空数组断言的输入面）。
     runs_fault: Mutex<bool>,
-    steps_fault: Mutex<bool>,
+    nodes_fault: Mutex<bool>,
+    edges_fault: Mutex<bool>,
 }
 
 impl DetailStore {
@@ -175,9 +178,11 @@ impl DetailStore {
             records: Mutex::new(Vec::new()),
             entries: Mutex::new(Vec::new()),
             runs: Mutex::new(Vec::new()),
-            run_steps: Mutex::new(Vec::new()),
+            run_nodes: Mutex::new(Vec::new()),
+            run_edges: Mutex::new(Vec::new()),
             runs_fault: Mutex::new(false),
-            steps_fault: Mutex::new(false),
+            nodes_fault: Mutex::new(false),
+            edges_fault: Mutex::new(false),
         }
     }
 
@@ -194,21 +199,33 @@ impl DetailStore {
         self.runs.lock().expect("run 锁不可中毒").push(record);
     }
 
-    /// run 步史种子（run_id 圈定键）。
-    fn push_run_step(&self, record: RunStepStateRecord) {
-        self.run_steps
+    /// 执行图节点种子（run_id 圈定键）。
+    fn push_run_node(&self, record: RunNodeStateRecord) {
+        self.run_nodes
             .lock()
-            .expect("run step 锁不可中毒")
+            .expect("run node 锁不可中毒")
             .push(record);
     }
 
-    /// 读面 Err 注入（list_runs / list_run_steps 各自独立）。
+    /// 执行图边种子（run_id 圈定键）。
+    fn push_run_edge(&self, record: RunEdgeStateRecord) {
+        self.run_edges
+            .lock()
+            .expect("run edge 锁不可中毒")
+            .push(record);
+    }
+
+    /// 读面 Err 注入（list_runs / list_run_nodes / list_run_edges 各自独立）。
     fn arm_runs_fault(&self) {
         *self.runs_fault.lock().expect("fault 锁不可中毒") = true;
     }
 
-    fn arm_steps_fault(&self) {
-        *self.steps_fault.lock().expect("fault 锁不可中毒") = true;
+    fn arm_nodes_fault(&self) {
+        *self.nodes_fault.lock().expect("fault 锁不可中毒") = true;
+    }
+
+    fn arm_edges_fault(&self) {
+        *self.edges_fault.lock().expect("fault 锁不可中毒") = true;
     }
 }
 
@@ -302,14 +319,28 @@ impl ChangeStateStore for DetailStore {
             .collect())
     }
 
-    fn list_run_steps(&self, run_id: &str) -> Result<Vec<RunStepStateRecord>, StoreFault> {
-        if *self.steps_fault.lock().expect("fault 锁不可中毒") {
-            return Err(StoreFault::Db("list_run_steps 注入失败".to_owned()));
+    fn list_run_nodes(&self, run_id: &str) -> Result<Vec<RunNodeStateRecord>, StoreFault> {
+        if *self.nodes_fault.lock().expect("fault 锁不可中毒") {
+            return Err(StoreFault::Db("list_run_nodes 注入失败".to_owned()));
         }
         Ok(self
-            .run_steps
+            .run_nodes
             .lock()
-            .expect("run step 锁不可中毒")
+            .expect("run node 锁不可中毒")
+            .iter()
+            .filter(|record| record.run_id == run_id)
+            .cloned()
+            .collect())
+    }
+
+    fn list_run_edges(&self, run_id: &str) -> Result<Vec<RunEdgeStateRecord>, StoreFault> {
+        if *self.edges_fault.lock().expect("fault 锁不可中毒") {
+            return Err(StoreFault::Db("list_run_edges 注入失败".to_owned()));
+        }
+        Ok(self
+            .run_edges
+            .lock()
+            .expect("run edge 锁不可中毒")
             .iter()
             .filter(|record| record.run_id == run_id)
             .cloned()
@@ -425,15 +456,25 @@ fn 归档change全状态面_九站流水线与runs全量出线() {
         started_at: t(10),
         finished_at: Some(t(19)),
     });
-    env.store.push_run_step(RunStepStateRecord {
-        seq: 1,
+    env.store.push_run_node(RunNodeStateRecord {
         run_id: "run-arch-1".to_owned(),
+        change_id: ID_ARCHIVED.to_owned(),
         phase: "implement".to_owned(),
         attempt: 1,
         step: RunStepKind::Executor,
+        instance_no: 0,
         status: RunStepStatus::Passed,
         session_id: Some("ses-exec-1".to_owned()),
         detail: None,
+        output_ref: None,
+        timestamp: t(19),
+    });
+    env.store.push_run_edge(RunEdgeStateRecord {
+        run_id: "run-arch-1".to_owned(),
+        change_id: ID_ARCHIVED.to_owned(),
+        from_node_key: "implement:1:executor:0".to_owned(),
+        to_node_key: "implement:1:phase_log:0".to_owned(),
+        edge_kind: RunEdgeKind::Forward,
         timestamp: t(19),
     });
     // 磁盘归档目录带日期前缀（目录名 = 前缀 + 记录裸名——磁盘面供给值）
@@ -461,7 +502,8 @@ fn 归档change全状态面_九站流水线与runs全量出线() {
     assert_eq!(detail.pipeline[3].attempts[0].report, "实现完成");
     assert_eq!(detail.runs.len(), 1, "runs 全量出线（非空面）");
     assert_eq!(detail.runs[0].run_id, "run-arch-1");
-    assert_eq!(detail.runs[0].steps.len(), 1, "run 步史随行投影");
+    assert_eq!(detail.runs[0].nodes.len(), 1, "run 节点随行投影");
+    assert_eq!(detail.runs[0].edges.len(), 1, "run 边随行投影");
     assert!(
         detail
             .artifacts
@@ -1140,7 +1182,7 @@ fn legacy记录worktree出线null且serde键恒在场() {
 }
 
 // ---------------------------------------------------------------------------
-// 详情 run 史出线：runs / steps 投影
+// 详情 run 史出线：runs / nodes / edges 投影（AC-3 / AC-6 / AC-9）
 // ---------------------------------------------------------------------------
 
 /// run 运行史主行 fixture（started_at / finished_at / reason / status 显式注入）。
@@ -1155,32 +1197,67 @@ fn run_row(change_id: &str, run_id: &str, started_at: i64, status: RunStatus) ->
     }
 }
 
-/// run 步史行 fixture。
-fn run_step_row(
-    run_id: &str,
-    seq: u64,
-    step: RunStepKind,
-    status: RunStepStatus,
-    session_id: Option<&str>,
-    detail: Option<&str>,
-) -> RunStepStateRecord {
-    RunStepStateRecord {
-        seq,
+/// 执行图节点行 fixture（默认 implement 相位首次执行；字段经结构体更新覆盖）。
+fn run_node_row(run_id: &str, change_id: &str, step: RunStepKind) -> RunNodeStateRecord {
+    RunNodeStateRecord {
         run_id: run_id.to_owned(),
+        change_id: change_id.to_owned(),
         phase: "implement".to_owned(),
         attempt: 1,
         step,
-        status,
-        session_id: session_id.map(str::to_owned),
-        detail: detail.map(str::to_owned),
+        instance_no: 0,
+        status: RunStepStatus::Passed,
+        session_id: None,
+        detail: None,
+        output_ref: None,
         timestamp: 1_727_000_060_000,
     }
 }
 
+/// 执行图边行 fixture（端点 = 节点身份串）。
+fn run_edge_row(
+    run_id: &str,
+    change_id: &str,
+    from: &str,
+    to: &str,
+    kind: RunEdgeKind,
+) -> RunEdgeStateRecord {
+    RunEdgeStateRecord {
+        run_id: run_id.to_owned(),
+        change_id: change_id.to_owned(),
+        from_node_key: from.to_owned(),
+        to_node_key: to.to_owned(),
+        edge_kind: kind,
+        timestamp: 1_727_000_060_000,
+    }
+}
+
+/// 十值全词汇（节点出线零过滤断言面）。
+const ALL_STEP_KINDS: [RunStepKind; 10] = [
+    RunStepKind::Executor,
+    RunStepKind::Evaluator,
+    RunStepKind::Decision,
+    RunStepKind::StaticCheck,
+    RunStepKind::TestExecution,
+    RunStepKind::PhaseStart,
+    RunStepKind::PhaseLog,
+    RunStepKind::VerdictGate,
+    RunStepKind::RetryGate,
+    RunStepKind::WhitelistGate,
+];
+
+/// 四 kind 全词汇（边出线零过滤断言面）。
+const ALL_EDGE_KINDS: [RunEdgeKind; 4] = [
+    RunEdgeKind::Forward,
+    RunEdgeKind::Feedback,
+    RunEdgeKind::Retry,
+    RunEdgeKind::Backtrack,
+];
+
 /// 两 run 全史出线：runs 两条全史、runId / status / reason / startedAt /
 /// finishedAt 逐项投影、时间戳 ISO 串口径与既有字段一致（同 iso_from_millis
-/// 单点）；steps 按 seq 升序、session_id / detail 两态（Some 透传、None →
-/// null）——归属键 = change id（记录供给语义）。
+/// 单点）；节点按库读序（emit 序）、session_id / detail / output_ref 两态
+///（Some 透传、None → null）——归属键 = change id（记录供给语义）。
 #[test]
 fn 详情run史出线_两run全史投影与时间iso口径() {
     let env = Env::new("run-history-detail");
@@ -1194,30 +1271,24 @@ fn 详情run史出线_两run全史投影与时间iso口径() {
     });
     env.store
         .push_run(run_row(ID_RUNNED, "run-2", t(20), RunStatus::Running));
-    // run-1 步史：乱序种子（聚合面 seq 升序）+ 两态字段
-    env.store.push_run_step(run_step_row(
+    // run-1 节点：按注入序即库读序（emit 序）
+    let mut evaluator = run_node_row("run-1", ID_RUNNED, RunStepKind::Evaluator);
+    evaluator.status = RunStepStatus::Failed;
+    evaluator.session_id = Some("ses-eval-1".to_owned());
+    evaluator.detail = Some("首轮评估 fail".to_owned());
+    env.store.push_run_node(evaluator);
+    let mut executor = run_node_row("run-1", ID_RUNNED, RunStepKind::Executor);
+    executor.session_id = Some("ses-exec-1".to_owned());
+    env.store.push_run_node(executor);
+    let mut static_check = run_node_row("run-1", ID_RUNNED, RunStepKind::StaticCheck);
+    static_check.output_ref = Some("exec-7".to_owned());
+    env.store.push_run_node(static_check);
+    env.store.push_run_edge(run_edge_row(
         "run-1",
-        3,
-        RunStepKind::Evaluator,
-        RunStepStatus::Failed,
-        Some("ses-eval-1"),
-        Some("首轮评估 fail"),
-    ));
-    env.store.push_run_step(run_step_row(
-        "run-1",
-        1,
-        RunStepKind::Executor,
-        RunStepStatus::Passed,
-        Some("ses-exec-1"),
-        None,
-    ));
-    env.store.push_run_step(run_step_row(
-        "run-1",
-        2,
-        RunStepKind::StaticCheck,
-        RunStepStatus::Passed,
-        None,
-        None,
+        ID_RUNNED,
+        "implement:1:executor:0",
+        "implement:1:static_check:0",
+        RunEdgeKind::Forward,
     ));
     env.file("runned", "proposal.md", "# 提案");
 
@@ -1248,26 +1319,39 @@ fn 详情run史出线_两run全史投影与时间iso口径() {
         "iso_from_millis 单点数值口径（t(10) = T0+10s）"
     );
 
-    // run-1 steps：seq 升序 + 两态透传
-    let steps = &run1.steps;
-    let seqs: Vec<u64> = steps.iter().map(|row| row.seq).collect();
-    assert_eq!(seqs, vec![1, 2, 3], "steps 按 seq 升序出线（= emit 序）");
-    assert_eq!(steps[0].step, RunStepKind::Executor);
-    assert_eq!(steps[0].session_id.as_deref(), Some("ses-exec-1"));
-    assert_eq!(steps[0].detail, None, "None → null 透传");
-    assert_eq!(steps[1].step, RunStepKind::StaticCheck);
-    assert_eq!(steps[1].session_id, None);
-    assert_eq!(steps[2].step, RunStepKind::Evaluator);
-    assert_eq!(steps[2].detail.as_deref(), Some("首轮评估 fail"));
+    // run-1 节点：库读序 = emit 序 + 两态透传
+    let nodes = &run1.nodes;
+    assert_eq!(nodes.len(), 3);
+    assert_eq!(nodes[0].step, RunStepKind::Evaluator);
+    assert_eq!(nodes[0].phase, "implement");
+    assert_eq!(nodes[0].attempt, 1);
+    assert_eq!(nodes[0].instance_no, 0);
+    assert_eq!(nodes[0].status, RunStepStatus::Failed);
+    assert_eq!(nodes[0].session_id.as_deref(), Some("ses-eval-1"));
+    assert_eq!(nodes[0].detail.as_deref(), Some("首轮评估 fail"));
+    assert_eq!(nodes[1].step, RunStepKind::Executor);
+    assert_eq!(nodes[1].detail, None, "None → null 透传");
+    assert_eq!(
+        nodes[2].output_ref.as_deref(),
+        Some("exec-7"),
+        "outputRef 出线（ExecOutput::Recorded 引用）"
+    );
 
-    // run-2（在飞起始行）：status=running、finishedAt=null、steps 恒空
+    // run-1 边：四 kind 边表直出、端点身份串
+    assert_eq!(run1.edges.len(), 1);
+    assert_eq!(run1.edges[0].edge_kind, RunEdgeKind::Forward);
+    assert_eq!(run1.edges[0].from_node_key, "implement:1:executor:0");
+    assert_eq!(run1.edges[0].to_node_key, "implement:1:static_check:0");
+
+    // run-2（在飞起始行）：status=running、finishedAt=null、nodes / edges 恒空
     let run2 = &detail.runs[1];
     assert_eq!(run2.status, RunStatus::Running);
     assert_eq!(run2.finished_at, None, "running 行 finished_at → null");
     assert!(
-        run2.steps.is_empty(),
-        "在飞 run 起始行 steps 恒空（run 清单面运行中可见）"
+        run2.nodes.is_empty(),
+        "在飞 run 起始行 nodes 恒空（run 清单面运行中可见）"
     );
+    assert!(run2.edges.is_empty());
 
     // wire 面：camelCase 键 + null 不省键（纯 derive 零字段属性口径）
     let value = serde_json::to_value(&detail).expect("序列化应成功");
@@ -1278,13 +1362,149 @@ fn 详情run史出线_两run全史投影与时间iso口径() {
         serde_json::Value::Null,
         "null 不省键"
     );
-    assert!(wire_runs[1]["steps"].as_array().is_some_and(Vec::is_empty));
+    assert!(wire_runs[1]["nodes"].as_array().is_some_and(Vec::is_empty));
+    assert!(wire_runs[1]["edges"].as_array().is_some_and(Vec::is_empty));
+    assert_eq!(wire_runs[0]["nodes"][0]["instanceNo"], 0);
+    assert_eq!(wire_runs[0]["nodes"][2]["outputRef"], "exec-7");
+    assert_eq!(
+        wire_runs[0]["nodes"][1]["outputRef"],
+        serde_json::Value::Null,
+        "outputRef null 留位不省键"
+    );
+    assert!(
+        !value["runs"][0].as_object().unwrap().contains_key("steps"),
+        "steps 键退役（nodes / edges 取代）"
+    );
 }
 
-/// 在档记录无 run 行 → runs 空数组且 wire 键恒在场（记录在档、9 站流水线照常
-/// ——非文档形态）；终态 run reason=None → null 出线（口径不变面）。
+/// 节点全词汇出线：一次覆盖十值词汇的 run → 十值全词汇在案（含 phaseStart /
+/// phaseLog / 三门），零过滤（AC-3 / AC-6）。
 #[test]
-fn 详情run史出线_无run记录空数组与reason_none() {
+fn 详情节点出线_十值全词汇零过滤() {
+    let env = Env::new("run-nodes-vocab");
+    env.seed(ID_RUNNED, "runned", T0, None);
+    env.store.push_run(RunStateRecord {
+        status: RunStatus::Completed,
+        finished_at: Some(t(19)),
+        ..run_row(ID_RUNNED, "run-vocab", t(10), RunStatus::Completed)
+    });
+    for kind in ALL_STEP_KINDS {
+        env.store
+            .push_run_node(run_node_row("run-vocab", ID_RUNNED, kind));
+    }
+
+    let detail = env.detail(ID_RUNNED);
+    let nodes = &detail.runs[0].nodes;
+    assert_eq!(nodes.len(), 10, "十值全词汇零过滤");
+    let projected: Vec<RunStepKind> = nodes.iter().map(|node| node.step).collect();
+    assert_eq!(projected, ALL_STEP_KINDS.to_vec());
+
+    // wire 面 snake_case 词逐字（与落库词汇同源单点）
+    let value = serde_json::to_value(&detail).expect("序列化应成功");
+    let wire_steps: Vec<&str> = value["runs"][0]["nodes"]
+        .as_array()
+        .expect("nodes 数组")
+        .iter()
+        .map(|node| node["step"].as_str().expect("step 为串"))
+        .collect();
+    assert_eq!(
+        wire_steps,
+        vec![
+            "executor",
+            "evaluator",
+            "decision",
+            "static_check",
+            "test_execution",
+            "phase_start",
+            "phase_log",
+            "verdict_gate",
+            "retry_gate",
+            "whitelist_gate",
+        ]
+    );
+}
+
+/// 稳定实例键出线：feedback 重跑两节点同 `(phase, attempt, step)` 而
+/// `instanceNo` 递增可辨（AC-4 / AC-6）。
+#[test]
+fn 详情节点出线_feedback重跑实例号递增() {
+    let env = Env::new("run-nodes-instance");
+    env.seed(ID_RUNNED, "runned", T0, None);
+    env.store.push_run(RunStateRecord {
+        status: RunStatus::Completed,
+        finished_at: Some(t(19)),
+        ..run_row(ID_RUNNED, "run-fb", t(10), RunStatus::Completed)
+    });
+    // executor 首次（失败）→ static-check 反馈 → executor 修复（新实例）
+    let mut first = run_node_row("run-fb", ID_RUNNED, RunStepKind::Executor);
+    first.status = RunStepStatus::Failed;
+    first.detail = Some("static-check 未过".to_owned());
+    env.store.push_run_node(first);
+    let mut repaired = run_node_row("run-fb", ID_RUNNED, RunStepKind::Executor);
+    repaired.instance_no = 1;
+    repaired.detail = Some("修复重跑".to_owned());
+    env.store.push_run_node(repaired);
+
+    let detail = env.detail(ID_RUNNED);
+    let nodes = &detail.runs[0].nodes;
+    assert_eq!(nodes.len(), 2, "同相位同步两实例为独立节点");
+    assert_eq!(nodes[0].phase, nodes[1].phase);
+    assert_eq!(nodes[0].attempt, nodes[1].attempt);
+    assert_eq!(nodes[0].step, nodes[1].step);
+    assert_eq!(nodes[0].instance_no, 0);
+    assert_eq!(nodes[1].instance_no, 1, "instanceNo 递增可辨");
+    let value = serde_json::to_value(&detail).expect("序列化应成功");
+    assert_eq!(value["runs"][0]["nodes"][1]["instanceNo"], 1);
+}
+
+/// 边整包出线：四 kind（forward / feedback / retry / backtrack）齐备，
+/// `fromNodeKey` / `toNodeKey` 指向节点身份串（AC-3 / AC-6）。
+#[test]
+fn 详情边出线_四kind齐备与端点身份串() {
+    let env = Env::new("run-edges");
+    env.seed(ID_RUNNED, "runned", T0, None);
+    env.store.push_run(RunStateRecord {
+        status: RunStatus::Completed,
+        finished_at: Some(t(19)),
+        ..run_row(ID_RUNNED, "run-edges", t(10), RunStatus::Completed)
+    });
+    for (index, kind) in ALL_EDGE_KINDS.iter().enumerate() {
+        env.store.push_run_edge(run_edge_row(
+            "run-edges",
+            ID_RUNNED,
+            "proposal:1:executor:0",
+            &format!("proposal:1:static_check:{index}"),
+            *kind,
+        ));
+    }
+
+    let detail = env.detail(ID_RUNNED);
+    let edges = &detail.runs[0].edges;
+    assert_eq!(edges.len(), 4, "四 kind 齐备");
+    let kinds: Vec<RunEdgeKind> = edges.iter().map(|edge| edge.edge_kind).collect();
+    assert_eq!(kinds, ALL_EDGE_KINDS.to_vec());
+    assert_eq!(
+        edges[0].from_node_key, "proposal:1:executor:0",
+        "端点 = 节点身份串（phase:attempt:step:instance_no）"
+    );
+
+    let value = serde_json::to_value(&detail).expect("序列化应成功");
+    let wire_kinds: Vec<&str> = value["runs"][0]["edges"]
+        .as_array()
+        .expect("edges 数组")
+        .iter()
+        .map(|edge| edge["edgeKind"].as_str().expect("edgeKind 为串"))
+        .collect();
+    assert_eq!(
+        wire_kinds,
+        vec!["forward", "feedback", "retry", "backtrack"]
+    );
+}
+
+/// 在档记录无 run 行 → runs 空数组且 wire 键恒在场；单节点零边 run → edges 空
+/// 数组（miss 非错误）；终态 run reason=None → null 出线。
+#[test]
+fn 详情run史出线_零run空数组与单节点零边() {
     let env = Env::new("run-history-empty");
     env.seed(ID_RUNNED, "runned", T0, None);
     env.file("runned", "proposal.md", "# 提案");
@@ -1302,7 +1522,7 @@ fn 详情run史出线_无run记录空数组与reason_none() {
         "runs 键恒在场（空数组不省键）"
     );
 
-    // 终态 run reason=None（无记因收口）→ null 出线
+    // 单节点零边 run + reason=None（无记因收口）→ null 出线
     let env2 = Env::new("run-history-no-reason");
     env2.seed(ID_RUNNED, "runned", T0, None);
     env2.store.push_run(RunStateRecord {
@@ -1311,11 +1531,15 @@ fn 详情run史出线_无run记录空数组与reason_none() {
         status: RunStatus::Completed,
         ..run_row(ID_RUNNED, "run-1", t(10), RunStatus::Completed)
     });
+    env2.store
+        .push_run_node(run_node_row("run-1", ID_RUNNED, RunStepKind::PhaseStart));
     let detail = env2.detail(ID_RUNNED);
     assert_eq!(
         detail.runs[0].reason, None,
         "reason=None → null（口径不变）"
     );
+    assert_eq!(detail.runs[0].nodes.len(), 1);
+    assert!(detail.runs[0].edges.is_empty(), "零边 run → edges 空数组");
     let value = serde_json::to_value(&detail).expect("序列化应成功");
     assert_eq!(
         value["runs"][0]["reason"],
@@ -1325,7 +1549,8 @@ fn 详情run史出线_无run记录空数组与reason_none() {
 }
 
 /// 同 started_at 并列两 run → run_id 稳定并列序（排序全确定性，AC-9 叠加层
-/// 稳定序的前置）；list 面读 Err → runs 降级空数组、详情其余面不受阻断。
+/// 稳定序的前置）；list 读面 Err（runs / nodes / edges 三面各自）→ 对应面降
+/// 级空数组、详情其余面不受阻断。
 #[test]
 fn 详情run史出线_并列稳定序与读err降级() {
     let env = Env::new("run-history-tie");
@@ -1361,17 +1586,41 @@ fn 详情run史出线_并列稳定序与读err降级() {
         "产物清单不受 runs 读面失败影响"
     );
 
-    // list_run_steps Err → 该 run steps 空数组（同样降级）
-    let env_steps_err = Env::new("run-history-steps-err");
-    env_steps_err.seed(ID_RUNNED, "runned", T0, None);
-    env_steps_err
+    // list_run_nodes Err → 该 run nodes 空数组（edges 降级面独立）
+    let env_nodes_err = Env::new("run-history-nodes-err");
+    env_nodes_err.seed(ID_RUNNED, "runned", T0, None);
+    env_nodes_err
         .store
         .push_run(run_row(ID_RUNNED, "run-1", t(10), RunStatus::Completed));
-    env_steps_err.store.arm_steps_fault();
-    let detail = env_steps_err.detail(ID_RUNNED);
+    env_nodes_err
+        .store
+        .push_run_node(run_node_row("run-1", ID_RUNNED, RunStepKind::Executor));
+    env_nodes_err.store.arm_nodes_fault();
+    let detail = env_nodes_err.detail(ID_RUNNED);
     assert_eq!(detail.runs.len(), 1, "runs 行仍在");
     assert!(
-        detail.runs[0].steps.is_empty(),
-        "list_run_steps Err → steps 降级空数组"
+        detail.runs[0].nodes.is_empty(),
+        "list_run_nodes Err → nodes 降级空数组"
+    );
+
+    // list_run_edges Err → 该 run edges 空数组
+    let env_edges_err = Env::new("run-history-edges-err");
+    env_edges_err.seed(ID_RUNNED, "runned", T0, None);
+    env_edges_err
+        .store
+        .push_run(run_row(ID_RUNNED, "run-1", t(10), RunStatus::Completed));
+    env_edges_err.store.push_run_edge(run_edge_row(
+        "run-1",
+        ID_RUNNED,
+        "implement:1:executor:0",
+        "implement:1:phase_log:0",
+        RunEdgeKind::Forward,
+    ));
+    env_edges_err.store.arm_edges_fault();
+    let detail = env_edges_err.detail(ID_RUNNED);
+    assert_eq!(detail.runs.len(), 1, "runs 行仍在");
+    assert!(
+        detail.runs[0].edges.is_empty(),
+        "list_run_edges Err → edges 降级空数组"
     );
 }

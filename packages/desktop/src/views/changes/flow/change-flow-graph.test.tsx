@@ -6,10 +6,12 @@ import type {
   ArtifactEnvelope,
   AttemptRecord,
   ChangeDetail,
+  ChangeRunEdgeRecord,
 } from '../../../types/dto';
 import { mountMaterials } from './attachments';
 import { ChangeFlowGraph } from './change-flow-graph';
 import { buildFlowGraph } from './graph';
+import { PIPELINE_PHASES } from './layout';
 import type { DrawerSelection, FlowGraph, FlowMaterials, RuntimeFlowNode } from './types';
 
 class ResizeObserverStub {
@@ -134,6 +136,7 @@ const DOC_DESCRIPTOR: ArtifactDescriptor = {
   kind: 'markdown-doc',
   source: 'proposal.md',
   title: '提案',
+  phase: 'proposal',
 };
 
 function docEnvelope(): ArtifactEnvelope {
@@ -300,7 +303,8 @@ describe('ChangeFlowGraph：ReactFlow 薄层挂载与交互上抛', () => {
   });
 
   it('label 为 null 的常规边与带 label 的回跳边混存 → 均正常渲染不抛错', async () => {
-    // active 站列（code-review）startAt 插入 dev-design eval 之前 → 归并后成回跳边
+    // 边恒读后端边表：dev-design 站执行图两节点 + forward（无 label）/ backtrack
+    //（label 取发起相位记因「设计未对齐提案」）
     const base = detail(
       {
         proposal: [attempt({ startAt: '2026-09-01T00:00:00Z' })],
@@ -316,7 +320,7 @@ describe('ChangeFlowGraph：ReactFlow 薄层挂载与交互上抛', () => {
         activePhase: { phase: 'code-review', attempt: 1, startAt: '2026-09-02T00:00:00Z' },
       },
     );
-    const graph = buildFlowGraph(base);
+    const graph = buildFlowGraph(base, backtrackNodes(), backtrackEdges());
     expect(graph.edges.map((edge) => edge.kind)).toEqual(['forward', 'backtrack']);
     renderGraph(graph, materialsFor(graph, base));
 
@@ -363,7 +367,7 @@ describe('ChangeFlowGraph：ReactFlow 薄层挂载与交互上抛', () => {
         activePhase: { phase: 'code-review', attempt: 1, startAt: '2026-09-02T00:00:00Z' },
       },
     );
-    const firstGraph = buildFlowGraph(withBacktrack);
+    const firstGraph = buildFlowGraph(withBacktrack, backtrackNodes(), backtrackEdges());
     const { rerender } = renderGraph(firstGraph, materialsFor(firstGraph, withBacktrack));
     await measureNodes();
     await waitFor(() =>
@@ -373,7 +377,7 @@ describe('ChangeFlowGraph：ReactFlow 薄层挂载与交互上抛', () => {
 
     // 新图无边集 → DOM 边随新图归零（陈旧 memo 不残留旧边）
     const plain = detail({ proposal: [attempt({ startAt: '2026-09-01T00:00:00Z' })] });
-    const secondGraph = buildFlowGraph(plain);
+    const secondGraph = buildFlowGraph(plain, [], []);
     expect(secondGraph.edges).toHaveLength(0);
     rerender(
       <ChangeFlowGraph
@@ -405,9 +409,11 @@ function runNode(overrides: Partial<RuntimeFlowNode> = {}): RuntimeFlowNode {
     runStepKind: 'executor',
     group: 'workerAgent',
     role: 'executor',
+    instanceNo: 0,
     status: 'running',
     sessionId: 'ses-exec-1',
     detail: null,
+    outputRef: null,
     ...overrides,
   };
 }
@@ -523,3 +529,66 @@ describe('ChangeFlowGraph：onOpenSession 注入删除收敛（AC-4）', () => {
     expect(domEdgeIds.sort()).toEqual(graph.edges.map((edge) => edge.id).sort());
   });
 });
+
+// ---------------------------------------------------------------------------
+// 执行图（节点 + 边整包）夹具：dev-design 站两节点 + forward / backtrack 两边
+//（边恒读后端边表；backtrack label 取发起相位记因）。run-state.ts runStepNodes
+// 同形直构。
+// ---------------------------------------------------------------------------
+
+/** dev-design 站两运行步节点（executor → phaseLog）。 */
+function backtrackNodes(): RuntimeFlowNode[] {
+  const colIndex = PIPELINE_PHASES.indexOf('dev-design');
+  return [
+    {
+      id: 'run:dev-design:1:executor:0',
+      kind: 'runtime',
+      phase: 'dev-design',
+      attempt: 1,
+      colIndex,
+      order: 0,
+      parentId: 'col:dev-design',
+      runStepKind: 'executor',
+      group: 'workerAgent',
+      role: 'executor',
+      instanceNo: 0,
+      status: 'passed',
+      sessionId: 'ses-dd-exec',
+      detail: null,
+      outputRef: null,
+    },
+    {
+      id: 'run:dev-design:1:phaseLog:0',
+      kind: 'runtime',
+      phase: 'dev-design',
+      attempt: 1,
+      colIndex,
+      order: 1,
+      parentId: 'col:dev-design',
+      runStepKind: 'phaseLog',
+      group: 'toolStep',
+      role: null,
+      instanceNo: 0,
+      status: 'passed',
+      sessionId: null,
+      detail: null,
+      outputRef: null,
+    },
+  ];
+}
+
+/** 两节点之间的 forward / backtrack 边（端点身份串口径）。 */
+function backtrackEdges(): ChangeRunEdgeRecord[] {
+  return [
+    {
+      fromNodeKey: 'dev-design:1:executor:0',
+      toNodeKey: 'dev-design:1:phase_log:0',
+      edgeKind: 'forward',
+    },
+    {
+      fromNodeKey: 'dev-design:1:executor:0',
+      toNodeKey: 'dev-design:1:phase_log:0',
+      edgeKind: 'backtrack',
+    },
+  ];
+}

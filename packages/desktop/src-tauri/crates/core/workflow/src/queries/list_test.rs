@@ -25,8 +25,8 @@ use std::sync::Mutex;
 use super::{list_changes, ArchiveGroup, ChangeList, ChangeSource, ChangeSummary};
 use crate::state::{
     ActivePhaseState, BacktrackCommand, ChangeStateRecord, ChangeStateStore, ChangeStatus,
-    PhaseLogCommand, PhaseStateRecord, RunFinishCommand, RunStartCommand, RunStateRecord,
-    RunStepStateRecord, StepCommand, StepStateRecord, StoreFault,
+    PhaseLogCommand, PhaseStateRecord, RunEdgeStateRecord, RunFinishCommand, RunNodeStateRecord,
+    RunStartCommand, RunStateRecord, StepCommand, StepStateRecord, StoreFault,
 };
 
 /// 固定 id 字面量（uuid v7 形态不透明串——身份寻址断言恒以 id 为键，name 仅
@@ -303,7 +303,11 @@ impl ChangeStateStore for ListStore {
         unimplemented!("本用例不可达")
     }
 
-    fn list_run_steps(&self, _run_id: &str) -> Result<Vec<RunStepStateRecord>, StoreFault> {
+    fn list_run_nodes(&self, _run_id: &str) -> Result<Vec<RunNodeStateRecord>, StoreFault> {
+        unimplemented!("本用例不可达")
+    }
+
+    fn list_run_edges(&self, _run_id: &str) -> Result<Vec<RunEdgeStateRecord>, StoreFault> {
         unimplemented!("本用例不可达")
     }
 

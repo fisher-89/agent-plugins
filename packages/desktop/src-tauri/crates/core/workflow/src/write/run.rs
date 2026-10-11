@@ -23,8 +23,8 @@ pub fn run_start(store: &dyn ChangeStateStore, command: &RunStartCommand) -> Res
 
 /// run 收口落库（walker 终态出口第二写，按 change **id** 寻址）：校验（change
 /// 建档在案 + 命令 status 为终态三值且非 interrupted）后经
-/// [`ChangeStateStore::run_finish`] 单事务落（终态 + 步整包 + active_phase
-/// 清位）。`interrupted` 显式拒绝——该值仅启动标定产生，运行期写路径不产生
+/// [`ChangeStateStore::run_finish`] 单事务落（终态 + 节点整包 + 边整包 +
+/// active_phase 清位）。`interrupted` 显式拒绝——该值仅启动标定产生，运行期写路径不产生
 /// （design D12 / 标定记因定式）。
 pub fn run_finish(store: &dyn ChangeStateStore, command: &RunFinishCommand) -> Result<(), String> {
     let recorded = store

@@ -1,10 +1,10 @@
 //! `run_history.rs` 的单元测试（test-design「run_history.rs ->
-//! run_history_test.rs」节）：`persisted_step` 10→5 步词汇过滤单点（五落 / 五
-//! 弃 / 全集逐一钉死——词汇漂移即败，AC-3）、`finish_command` 组装（全词汇
-//! emit 序盖戳产生库内空洞、终态三值映射、session_id / detail 两态透传、空步
-//! 序空包、载荷 `change_id` 透传）、`StoreRunHistory` 适配器真件委派
-//! （run_started 落 running 行 / run_finished 整包落库回读逐字段一致 +
-//! Err(String) 串语义透传记因保留）。
+//! run_history_test.rs」节）：词汇直映射十值零过滤（`persisted_step` 过滤谓词整
+//! 体退役——编译面锚 + 全词汇在案行为锚，AC-3）、`finish_command` 组装（节点整包
+//! 全词汇 + 边整包四 kind 端点身份串 + 实例号递增直透 + 终态三值映射 +
+//! session_id / detail / output_ref 两态透传 + 空整包含空集 + 悬空边不静默丢弃）、
+//! `StoreRunHistory` 适配器真件委派（run_started 落 running 行 / run_finished
+//! nodes + edges 整包落库回读逐字段一致 + Err(String) 串语义透传记因保留）。
 //!
 //! Mock策略（test-design 本节 Mock 表）：无（真实组合）——纯函数直测 +
 //! tempfile 真件库（沿 walker_test TestDb 装置）承载 StoreRunHistory 委派。
@@ -14,8 +14,10 @@ use std::sync::Arc;
 use store::Store;
 
 use crate::port::RunHistoryPort;
-use crate::run_history::{finish_command, persisted_step, StoreRunHistory};
-use crate::state::{ChangeRunStatus, ChangeStepKind, ChangeStepState, ChangeStepStatus};
+use crate::run_history::{finish_command, StoreRunHistory};
+use crate::state::{
+    ChangeRunStatus, ChangeStepEdge, ChangeStepKind, ChangeStepState, ChangeStepStatus, EdgeKind,
+};
 use crate::walker::RunRequest;
 use workflow::state::{
     ChangeStateRecord, ChangeStatus, RunFinishCommand, RunStartCommand, RunStatus,
@@ -50,172 +52,202 @@ fn step(
         phase: "implement".to_owned(),
         attempt: 1,
         step: kind,
+        instance_no: 0,
         status,
         session_id: session_id.map(str::to_owned),
         detail: None,
+        output_ref: None,
     }
 }
 
 // ---------------------------------------------------------------------------
-// persisted_step 单点：10→5 过滤（词汇漂移即败）
+// 词汇直映射：十值零过滤（`persisted_step` 过滤谓词整体退役）
 // ---------------------------------------------------------------------------
 
-/// 五落词汇逐一映射到对应 RunStepKind（Some 等值，AC-3 落库半边）。
+/// 十值全词汇直映射：`ChangeStepKind` 与 `RunStepKind` 1:1 同词面全映射——流程
+/// 面三步（phase_start / phase_log / 三门）不再被弃落（编译面锚：`persisted_step`
+/// 符号缺席，引用即不编译，AC-3 退役面）。
 #[test]
-fn persisted_step五落词汇逐一some等值() {
-    assert_eq!(
-        persisted_step(ChangeStepKind::Executor),
-        Some(workflow::state::RunStepKind::Executor)
-    );
-    assert_eq!(
-        persisted_step(ChangeStepKind::Evaluator),
-        Some(workflow::state::RunStepKind::Evaluator)
-    );
-    assert_eq!(
-        persisted_step(ChangeStepKind::Decision),
-        Some(workflow::state::RunStepKind::Decision)
-    );
-    assert_eq!(
-        persisted_step(ChangeStepKind::StaticCheck),
-        Some(workflow::state::RunStepKind::StaticCheck)
-    );
-    assert_eq!(
-        persisted_step(ChangeStepKind::TestExecution),
-        Some(workflow::state::RunStepKind::TestExecution)
-    );
-}
-
-/// 五弃词汇（PhaseStart / PhaseLog / VerdictGate / RetryGate / WhitelistGate）
-/// 逐一 None（AC-3 忽略集——流程面步骤与三门不落库）。
-#[test]
-fn persisted_step五弃词汇逐一none() {
-    assert_eq!(persisted_step(ChangeStepKind::PhaseStart), None);
-    assert_eq!(persisted_step(ChangeStepKind::PhaseLog), None);
-    assert_eq!(persisted_step(ChangeStepKind::VerdictGate), None);
-    assert_eq!(persisted_step(ChangeStepKind::RetryGate), None);
-    assert_eq!(persisted_step(ChangeStepKind::WhitelistGate), None);
-}
-
-/// 十词汇全集逐一断言恰五 Some 五 None（映射表全量钉死——新增 / 删除词汇即
-/// 败，AC-3 单点纪律的结构性防线）。
-#[test]
-fn persisted_step十词汇全集恰五some五none() {
+fn 全词汇直映射十值零过滤() {
     let all = [
-        ChangeStepKind::Executor,
-        ChangeStepKind::Evaluator,
-        ChangeStepKind::Decision,
-        ChangeStepKind::PhaseStart,
-        ChangeStepKind::StaticCheck,
-        ChangeStepKind::TestExecution,
-        ChangeStepKind::PhaseLog,
-        ChangeStepKind::VerdictGate,
-        ChangeStepKind::RetryGate,
-        ChangeStepKind::WhitelistGate,
+        (
+            ChangeStepKind::Executor,
+            workflow::state::RunStepKind::Executor,
+        ),
+        (
+            ChangeStepKind::Evaluator,
+            workflow::state::RunStepKind::Evaluator,
+        ),
+        (
+            ChangeStepKind::Decision,
+            workflow::state::RunStepKind::Decision,
+        ),
+        (
+            ChangeStepKind::StaticCheck,
+            workflow::state::RunStepKind::StaticCheck,
+        ),
+        (
+            ChangeStepKind::TestExecution,
+            workflow::state::RunStepKind::TestExecution,
+        ),
+        (
+            ChangeStepKind::PhaseStart,
+            workflow::state::RunStepKind::PhaseStart,
+        ),
+        (
+            ChangeStepKind::PhaseLog,
+            workflow::state::RunStepKind::PhaseLog,
+        ),
+        (
+            ChangeStepKind::VerdictGate,
+            workflow::state::RunStepKind::VerdictGate,
+        ),
+        (
+            ChangeStepKind::RetryGate,
+            workflow::state::RunStepKind::RetryGate,
+        ),
+        (
+            ChangeStepKind::WhitelistGate,
+            workflow::state::RunStepKind::WhitelistGate,
+        ),
     ];
-    let mapped: Vec<_> = all.iter().map(|kind| persisted_step(*kind)).collect();
-    assert_eq!(
-        mapped.iter().filter(|entry| entry.is_some()).count(),
-        5,
-        "恰五落（agent 三角色 + 脚本两步）"
+
+    let nodes: Vec<ChangeStepState> = all
+        .iter()
+        .map(|(kind, _)| step(*kind, ChangeStepStatus::Passed, None))
+        .collect();
+    let command = finish_command(
+        &request(),
+        ChangeRunStatus::Completed,
+        None,
+        STARTED_AT,
+        &nodes,
+        &[],
     );
-    assert_eq!(
-        mapped.iter().filter(|entry| entry.is_none()).count(),
-        5,
-        "恰五弃（相位机两步 + 三门）"
+
+    assert_eq!(command.nodes.len(), 10, "十值全词汇零过滤");
+    for (index, (_, expect)) in all.iter().enumerate() {
+        assert_eq!(command.nodes[index].step, *expect, "第 {index} 词汇直映射");
+    }
+    assert!(
+        command
+            .nodes
+            .iter()
+            .any(|node| node.step == workflow::state::RunStepKind::PhaseStart),
+        "phase_start 不再被弃落"
+    );
+    assert!(
+        command
+            .nodes
+            .iter()
+            .any(|node| node.step == workflow::state::RunStepKind::WhitelistGate),
+        "三门之 whitelist_gate 不再被弃落"
     );
 }
 
-// ---------------------------------------------------------------------------
-// finish_command 组装：emit 序盖戳空洞 / 透传 / 空包
-// ---------------------------------------------------------------------------
-
-/// 全词汇 10 步 emit 序列（含被过滤步穿插）输入 → RunFinishCommand.steps 恰
-/// 5 条且 seq 保留全词汇 emit 序产生空洞（0,1,3,6,9 形态）、session_id /
-/// detail 透传（AC-2/AC-3/AC-10 seq = emit 序）；timestamp = finished_at 同刻
-/// 语义由落库侧承载（RunStepRecord::new 随整包统一，真件回环节断言）。
+/// 边整包组装：四 kind 显式落边，`fromNodeKey` / `toNodeKey` 端点指向节点身份串
+/// `"{phase}:{attempt}:{step}:{instance_no}"`（AC-3 / AC-4）。
 #[test]
-fn finish_command全词汇十步恰五落_emit序空洞() {
-    // 10 步全词汇 emit 序：executor(0) phaseStart(1) staticCheck(2) 穿插三门
-    let steps = vec![
-        step(
-            ChangeStepKind::Executor,
-            ChangeStepStatus::Passed,
-            Some("ses-exec"),
-        ),
-        step(ChangeStepKind::PhaseStart, ChangeStepStatus::Passed, None),
-        step(ChangeStepKind::StaticCheck, ChangeStepStatus::Passed, None),
-        step(
-            ChangeStepKind::Evaluator,
-            ChangeStepStatus::Failed,
-            Some("ses-eval"),
-        ),
-        step(ChangeStepKind::VerdictGate, ChangeStepStatus::Passed, None),
-        step(ChangeStepKind::PhaseLog, ChangeStepStatus::Passed, None),
-        step(
-            ChangeStepKind::Decision,
-            ChangeStepStatus::Passed,
-            Some("ses-decision"),
-        ),
-        step(ChangeStepKind::RetryGate, ChangeStepStatus::Passed, None),
-        step(
-            ChangeStepKind::WhitelistGate,
-            ChangeStepStatus::Failed,
-            None,
-        ),
-        step(
-            ChangeStepKind::TestExecution,
-            ChangeStepStatus::Passed,
-            None,
-        ),
+fn finish_command边整包四kind端点身份串() {
+    let from = ("implement".to_owned(), 1, ChangeStepKind::StaticCheck, 0);
+    let to = ("implement".to_owned(), 1, ChangeStepKind::Executor, 1);
+    let edges = vec![
+        ChangeStepEdge {
+            from: ("implement".to_owned(), 1, ChangeStepKind::PhaseStart, 0),
+            to: ("implement".to_owned(), 1, ChangeStepKind::Executor, 0),
+            kind: EdgeKind::Forward,
+        },
+        ChangeStepEdge {
+            from: from.clone(),
+            to: to.clone(),
+            kind: EdgeKind::Feedback,
+        },
+        ChangeStepEdge {
+            from: ("implement".to_owned(), 1, ChangeStepKind::Executor, 1),
+            to: ("implement".to_owned(), 1, ChangeStepKind::RetryGate, 0),
+            kind: EdgeKind::Retry,
+        },
+        ChangeStepEdge {
+            from: ("implement".to_owned(), 1, ChangeStepKind::WhitelistGate, 0),
+            to: ("dev-design".to_owned(), 1, ChangeStepKind::Executor, 0),
+            kind: EdgeKind::Backtrack,
+        },
     ];
 
     let command = finish_command(
         &request(),
         ChangeRunStatus::Completed,
-        Some("All phases have passed.".to_owned()),
-        1_727_000_060_000,
-        &steps,
+        None,
+        STARTED_AT,
+        &[],
+        &edges,
     );
 
-    assert_eq!(command.steps.len(), 5, "恰五落（10 词汇序列过滤后）");
-    let seqs: Vec<u64> = command.steps.iter().map(|entry| entry.seq).collect();
+    assert_eq!(command.edges.len(), 4, "四 kind 齐备");
     assert_eq!(
-        seqs,
-        vec![0, 2, 3, 6, 9],
-        "seq = 全词汇 emit 序盖戳（被过滤步占号产生库内空洞，合法形态）"
-    );
-    // 词汇与状态逐条对应（两透传面）
-    assert_eq!(
-        command.steps[0].step,
-        workflow::state::RunStepKind::Executor
+        command.edges[0].edge_kind,
+        workflow::state::RunEdgeKind::Forward
     );
     assert_eq!(
-        command.steps[0].session_id.as_deref(),
-        Some("ses-exec"),
-        "session_id 透传"
+        command.edges[1].edge_kind,
+        workflow::state::RunEdgeKind::Feedback
     );
     assert_eq!(
-        command.steps[1].step,
-        workflow::state::RunStepKind::StaticCheck
+        command.edges[2].edge_kind,
+        workflow::state::RunEdgeKind::Retry
     );
     assert_eq!(
-        command.steps[2].step,
-        workflow::state::RunStepKind::Evaluator
+        command.edges[3].edge_kind,
+        workflow::state::RunEdgeKind::Backtrack
     );
     assert_eq!(
-        command.steps[2].status,
-        workflow::state::RunStepStatus::Failed,
-        "状态四值同形映射"
+        command.edges[1].from_node_key, "implement:1:static_check:0",
+        "端点 = 节点身份串（feedback 回边区分 retry）"
     );
+    assert_eq!(command.edges[1].to_node_key, "implement:1:executor:1");
     assert_eq!(
-        command.steps[3].step,
-        workflow::state::RunStepKind::Decision
+        command.edges[3].to_node_key, "dev-design:1:executor:0",
+        "跨相位回跳端点"
     );
+    assert_ne!(
+        command.edges[1].from_node_key, command.edges[2].from_node_key,
+        "feedback 与 retry 端点各异不混淆"
+    );
+}
+
+/// 实例号分配：同 `(phase, attempt, step)` 的 feedback 重跑 → `instance_no`
+/// 递增稳定直透（AC-4 身份键）。
+#[test]
+fn finish_command实例号递增直透() {
+    let first = step(ChangeStepKind::Executor, ChangeStepStatus::Failed, None);
+    let mut repaired = step(ChangeStepKind::Executor, ChangeStepStatus::Passed, None);
+    repaired.instance_no = 1;
+    repaired.detail = Some("按反馈修复重跑".to_owned());
+    let other_phase = ChangeStepState {
+        phase: "dev-design".to_owned(),
+        ..step(ChangeStepKind::Executor, ChangeStepStatus::Passed, None)
+    };
+
+    let command = finish_command(
+        &request(),
+        ChangeRunStatus::Completed,
+        None,
+        STARTED_AT,
+        &[first, repaired, other_phase],
+        &[],
+    );
+
+    let instances: Vec<u32> = command
+        .nodes
+        .iter()
+        .filter(|node| node.phase == "implement")
+        .map(|node| node.instance_no)
+        .collect();
+    assert_eq!(instances, vec![0, 1], "同相位同步实例号递增");
     assert_eq!(
-        command.steps[4].step,
-        workflow::state::RunStepKind::TestExecution
+        command.nodes[2].instance_no, 0,
+        "跨相位实例号互不串台（各自从 0 起）"
     );
-    assert_eq!(command.finished_at, 1_727_000_060_000, "收口时刻命令携带");
 }
 
 /// run_id / change_id / status / reason 自 RunRequest 与收口参数透传等值；
@@ -233,6 +265,7 @@ fn finish_command身份与终态透传等值() {
             Some("收口记因".to_owned()),
             STARTED_AT + 1_000,
             &[],
+            &[],
         );
         assert_eq!(command.run_id, RUN_ID);
         assert_eq!(command.change_id, CHANGE_ID, "载荷 change_id 透传等值");
@@ -242,35 +275,88 @@ fn finish_command身份与终态透传等值() {
     }
 }
 
-/// 空步序列 → steps 空包；session_id / detail None 与 Some 两态透传（AC-11
-/// 两态样本语义前置）。
+/// 空节点 / 空边 → 空包（零步 run 收口合法，AC-5 整包含空集）；session_id /
+/// detail / output_ref None 与 Some 两态透传（AC-8 输出引用口径）。
 #[test]
-fn finish_command空步序与两态透传() {
-    let empty = finish_command(&request(), ChangeRunStatus::Stopped, None, STARTED_AT, &[]);
-    assert!(
-        empty.steps.is_empty(),
-        "空步序列 → 空包（零步 run 收口合法）"
+fn finish_command空包与两态透传() {
+    let empty = finish_command(
+        &request(),
+        ChangeRunStatus::Stopped,
+        None,
+        STARTED_AT,
+        &[],
+        &[],
     );
+    assert!(empty.nodes.is_empty(), "空节点 → 空包（零步 run 收口合法）");
+    assert!(empty.edges.is_empty(), "空边 → 空包");
     assert_eq!(empty.reason, None, "reason None 透传");
 
     let none_step = step(ChangeStepKind::StaticCheck, ChangeStepStatus::Passed, None);
-    let some_step = ChangeStepState {
+    let mut some_step = ChangeStepState {
         session_id: Some("ses-9".to_owned()),
         detail: Some("静态检查通过".to_owned()),
+        output_ref: Some("exec-1727000000000".to_owned()),
         ..none_step.clone()
     };
+    some_step.instance_no = 1;
     let command = finish_command(
         &request(),
         ChangeRunStatus::Completed,
         None,
         STARTED_AT,
         &[none_step, some_step],
+        &[],
     );
-    assert_eq!(command.steps.len(), 2);
-    assert_eq!(command.steps[0].session_id, None, "None 两态透传");
-    assert_eq!(command.steps[0].detail, None);
-    assert_eq!(command.steps[1].session_id.as_deref(), Some("ses-9"));
-    assert_eq!(command.steps[1].detail.as_deref(), Some("静态检查通过"));
+    assert_eq!(command.nodes.len(), 2);
+    assert_eq!(command.nodes[0].session_id, None, "None 两态透传");
+    assert_eq!(command.nodes[0].detail, None);
+    assert_eq!(command.nodes[0].output_ref, None, "Transient 恒 None");
+    assert_eq!(command.nodes[1].session_id.as_deref(), Some("ses-9"));
+    assert_eq!(command.nodes[1].detail.as_deref(), Some("静态检查通过"));
+    assert_eq!(
+        command.nodes[1].output_ref.as_deref(),
+        Some("exec-1727000000000"),
+        "Recorded 输出引用透传（AC-8）"
+    );
+}
+
+/// 边端点引用不存在的节点身份串 → 组装仍透传（不静默丢弃悬空边；整包语义
+/// 校验归上层 store 单事务面，AC-3 / AC-5）。
+#[test]
+fn finish_command悬空边端点原样透传不静默丢弃() {
+    let dangling = ChangeStepEdge {
+        from: ("implement".to_owned(), 1, ChangeStepKind::Executor, 0),
+        to: (
+            "ghost-phase".to_owned(),
+            9,
+            ChangeStepKind::WhitelistGate,
+            7,
+        ),
+        kind: EdgeKind::Backtrack,
+    };
+    let command = finish_command(
+        &request(),
+        ChangeRunStatus::Completed,
+        None,
+        STARTED_AT,
+        &[step(
+            ChangeStepKind::Executor,
+            ChangeStepStatus::Passed,
+            None,
+        )],
+        std::slice::from_ref(&dangling),
+    );
+
+    assert_eq!(command.edges.len(), 1, "悬空边不静默丢弃");
+    assert_eq!(
+        command.edges[0].to_node_key,
+        "ghost-phase:9:whitelist_gate:7"
+    );
+    assert_eq!(
+        command.edges[0].from_node_key,
+        dangling.from_node_key(),
+        "端点组装单点同式"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -329,6 +415,9 @@ fn store_run_history委派真件回环_逐字段一致() {
         })
         .expect("run_started 应成功");
 
+    let mut repaired = step(ChangeStepKind::Executor, ChangeStepStatus::Passed, None);
+    repaired.instance_no = 1;
+    repaired.output_ref = Some("exec-1727000005000".to_owned());
     let command = finish_command(
         &request(),
         ChangeRunStatus::Failed,
@@ -345,7 +434,13 @@ fn store_run_history委派真件回环_逐字段一致() {
                 ChangeStepStatus::Failed,
                 Some("ses-2"),
             ),
+            repaired,
         ],
+        &[ChangeStepEdge {
+            from: ("implement".to_owned(), 1, ChangeStepKind::Executor, 0),
+            to: ("implement".to_owned(), 1, ChangeStepKind::Evaluator, 0),
+            kind: EdgeKind::Forward,
+        }],
     );
     history.run_finished(&command).expect("run_finished 应成功");
 
@@ -361,22 +456,41 @@ fn store_run_history委派真件回环_逐字段一致() {
     assert_eq!(runs[0].started_at, STARTED_AT);
     assert_eq!(runs[0].finished_at, Some(STARTED_AT + 5_000));
 
-    let steps = db
+    let nodes = db
         .store
-        .list_run_steps(RUN_ID)
-        .expect("list_run_steps 应成功");
-    assert_eq!(steps.len(), 2, "步整包两行");
-    assert_eq!(steps[0].seq, 0);
-    assert_eq!(steps[0].session_id.as_deref(), Some("ses-1"));
-    assert_eq!(steps[1].seq, 1);
+        .list_run_nodes(RUN_ID)
+        .expect("list_run_nodes 应成功");
+    assert_eq!(nodes.len(), 3, "节点整包三行");
+    assert_eq!(nodes[0].session_id.as_deref(), Some("ses-1"));
+    assert_eq!(nodes[0].instance_no, 0);
     assert_eq!(
-        steps[1].status,
+        nodes[1].status,
         workflow::state::RunStepStatus::Failed,
         "状态透传"
     );
-    for row in &steps {
+    assert_eq!(nodes[2].instance_no, 1, "feedback 重跑实例号随节点整包落库");
+    assert_eq!(
+        nodes[2].output_ref.as_deref(),
+        Some("exec-1727000005000"),
+        "output_ref 随节点整包落库（AC-8 引用可回查）"
+    );
+    for row in &nodes {
         assert_eq!(row.timestamp, STARTED_AT + 5_000, "整包同刻 = finished_at");
     }
+
+    let edges = db
+        .store
+        .list_run_edges(RUN_ID)
+        .expect("list_run_edges 应成功");
+    assert_eq!(edges.len(), 1, "边整包随收口落库");
+    assert_eq!(
+        edges[0].edge_kind,
+        workflow::state::RunEdgeKind::Forward,
+        "边 kind 四值词汇直落"
+    );
+    assert_eq!(edges[0].from_node_key, "implement:1:executor:0");
+    assert_eq!(edges[0].to_node_key, "implement:1:evaluator:0");
+    assert_eq!(edges[0].timestamp, STARTED_AT + 5_000, "整包同刻");
 }
 
 /// 委派 Err（未建档 change / 重复 run_id 冲突）→ `Err(String)` 串语义透传且
@@ -428,7 +542,8 @@ fn store_run_history委派err串语义记因保留() {
             status: RunStatus::Completed,
             reason: None,
             finished_at: STARTED_AT,
-            steps: Vec::new(),
+            nodes: Vec::new(),
+            edges: Vec::new(),
         })
         .expect_err("未建档收口应 Err");
     assert!(

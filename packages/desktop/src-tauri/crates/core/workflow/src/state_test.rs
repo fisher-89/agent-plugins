@@ -1,27 +1,27 @@
 //! `state.rs` 中性状态类型的单元测试（test-design「state.rs ->
-//! state_test.rs」节）：ChangeStateRecord 身份面（`id` 首字段为身份锚、`name`
-//! 为无唯一约束属性——同名不同 id 不等价）+ 五写命令载荷 `change` →
-//! `change_id` 改名后等值面重证（PartialEq 逐字段可辨）+ run 域词汇线面封闭集
-//!（RunStatus 五值 lowercase / RunStepKind 五值 snake_case / RunStepStatus 四值
-//! camelCase）逐字断言 + 非法词反序列化拒绝（封闭集防线——零触点持衡）+
-//! run 命令与记录结构两态构造与等值面（reason / session_id / detail /
-//! finished_at None 与 Some）+ RunFinishCommand 终态三值约束为写面职责（类型
-//! 层可构造——拦截断言挂 write/run_test.rs 与 store_test.rs）+
-//! ChangeStateStore trait 全方法 id 形参编译面（`get_change(id)` /
-//! `start_phase(change_id, …)` / `list_runs(change_id)` 等——最小假件实现后可
-//! 调；行为断言归 write 各节假件与 infra/store 真件节）。
-//!
-//! Mock策略（test-design 本节 Mock 表）：无（真实组合）——纯类型 serde 直测与
-//! 纯内存等值面，零依赖零 mock。
+//! state_test.rs」节）：计划图侧类型封闭集（StepNode 十值全词汇 +
+//! `group()` / `role()` 派生访问器 + OnFail 两变体 + StepDefinition /
+//! ArtifactSpec 声明面）+ 执行图侧词汇（RunStepKind 十值零过滤 /
+//! RunEdgeKind 四值 snake_case）+ 节点与边中性类型序列化往返（身份键
+//! `(run_id, phase, attempt, step, instance_no)`、session_id / detail /
+//! output_ref 两态）+ ChangeStateRecord 身份面（`id` 首字段为身份锚、`name`
+//! 为无唯一约束属性——同名不同 id 不等价）+ 五写命令载荷 `change` ->
+//! `change_id` 改名后等值面重证（PartialEq 逐字段可辨）+ run 命令与记录结构两
+//! 态构造与等值面（RunFinishCommand 携 nodes + edges，steps 字段退役）+
+//! RunFinishCommand 终态三值约束为写面职责（类型层可构造——拦截断言挂
+//! write/run_test.rs 与 store_test.rs）+ ChangeStateStore trait 全方法 id 形参编
+//! 译面（`list_run_nodes(run_id)` / `list_run_edges(run_id)` 在位、
+//! `list_run_steps` 退役）。
 
 use serde_json::json;
 
 use crate::model::{ChecklistItem, Verdict};
 use crate::state::{
-    BacktrackCommand, ChangeStateRecord, ChangeStateStore, ChangeStatus, PhaseLogCommand,
-    PhaseStartState, PhaseStateRecord, RunFinishCommand, RunStartCommand,
-    RunStartCommand as RunStartCmd, RunStateRecord, RunStatus, RunStepEntry, RunStepKind,
-    RunStepStateRecord, RunStepStatus, StepCommand, StepKind, StepStateRecord, StoreFault,
+    AgentRole, ArtifactSpec, BacktrackCommand, ChangeStateRecord, ChangeStateStore, ChangeStatus,
+    OnFail, PhaseLogCommand, PhaseStartState, PhaseStateRecord, RunEdgeEntry, RunEdgeKind,
+    RunEdgeStateRecord, RunFinishCommand, RunNodeEntry, RunNodeStateRecord, RunStartCommand,
+    RunStartCommand as RunStartCmd, RunStateRecord, RunStatus, RunStepKind, RunStepStatus,
+    StepCommand, StepDefinition, StepGroup, StepKind, StepNode, StepStateRecord, StoreFault,
 };
 
 /// 身份锚字面量（uuid 形态；一切寻址以 id 为准——name 仅展示属性）。
@@ -55,10 +55,10 @@ fn run_status五值线面lowercase逐字() {
     assert_eq!(RunStatus::Interrupted.as_str(), "interrupted");
 }
 
-/// RunStepKind 五值出线恰为 snake_case 词（AC-3 词汇单点前置——落库命令与
-/// 查询投影同类型消费）。
+/// RunStepKind **十值全词汇**出线恰为 snake_case 词（AC-3 词汇单点前置——落库命
+/// 令与查询投影同类型消费；流程面 phase_start / phase_log 与三门不再被过滤弃落）。
 #[test]
-fn run_step_kind五值线面snake_case逐字() {
+fn run_step_kind十值全词汇snake_case逐字() {
     let wire = |kind: RunStepKind| serde_json::to_value(kind).expect("词汇出线应成功");
     assert_eq!(wire(RunStepKind::Executor), json!("executor"));
     assert_eq!(wire(RunStepKind::Evaluator), json!("evaluator"));
@@ -69,12 +69,22 @@ fn run_step_kind五值线面snake_case逐字() {
         "库读史 snake 词（前端归一单点消费）"
     );
     assert_eq!(wire(RunStepKind::TestExecution), json!("test_execution"));
+    assert_eq!(wire(RunStepKind::PhaseStart), json!("phase_start"));
+    assert_eq!(wire(RunStepKind::PhaseLog), json!("phase_log"));
+    assert_eq!(wire(RunStepKind::VerdictGate), json!("verdict_gate"));
+    assert_eq!(wire(RunStepKind::RetryGate), json!("retry_gate"));
+    assert_eq!(wire(RunStepKind::WhitelistGate), json!("whitelist_gate"));
 
     assert_eq!(RunStepKind::Executor.as_str(), "executor");
     assert_eq!(RunStepKind::Evaluator.as_str(), "evaluator");
     assert_eq!(RunStepKind::Decision.as_str(), "decision");
     assert_eq!(RunStepKind::StaticCheck.as_str(), "static_check");
     assert_eq!(RunStepKind::TestExecution.as_str(), "test_execution");
+    assert_eq!(RunStepKind::PhaseStart.as_str(), "phase_start");
+    assert_eq!(RunStepKind::PhaseLog.as_str(), "phase_log");
+    assert_eq!(RunStepKind::VerdictGate.as_str(), "verdict_gate");
+    assert_eq!(RunStepKind::RetryGate.as_str(), "retry_gate");
+    assert_eq!(RunStepKind::WhitelistGate.as_str(), "whitelist_gate");
 }
 
 /// RunStepStatus 四值出线恰为 camelCase 词（步状态线格式）。
@@ -96,13 +106,16 @@ fn 非法词反序列化拒绝_封闭集防线() {
         let back: Result<RunStatus, _> = serde_json::from_value(json!(illegal));
         assert!(back.is_err(), "RunStatus 越集词 {illegal:?} 应拒绝");
     }
-    // RunStepKind：流程面词 / camel 词 / 三门词结构上不可表达
+    // RunStepKind：camel 词 / 近似词 / 空串越集（十值词汇之外的词形一律拒绝）
     for illegal in [
-        "phase_start",
         "verdictGate",
         "staticCheck",
         "testExecution",
+        "retryGate",
+        "whitelistGate",
+        "event",
         "gate",
+        "",
     ] {
         let back: Result<RunStepKind, _> = serde_json::from_value(json!(illegal));
         assert!(back.is_err(), "RunStepKind 越集词 {illegal:?} 应拒绝");
@@ -156,31 +169,57 @@ fn run记录两态构造与等值面() {
     let back: RunStateRecord = serde_json::from_str(&text).expect("往返应成功");
     assert_eq!(back, finished, "run 记录往返无损");
 
-    // 步史读记录：session_id / detail 两态
-    let step_none = RunStepStateRecord {
-        seq: 0,
+    // 节点史读记录：session_id / detail / output_ref 两态
+    let node_none = RunNodeStateRecord {
         run_id: "run-1727000000000".to_owned(),
+        change_id: "demo-change".to_owned(),
         phase: "implement".to_owned(),
         attempt: 1,
         step: RunStepKind::StaticCheck,
+        instance_no: 0,
         status: RunStepStatus::Passed,
         session_id: None,
         detail: None,
+        output_ref: None,
         timestamp: 1_727_000_060_000,
     };
-    assert_eq!(step_none.session_id, None);
-    assert_eq!(step_none.detail, None);
-    let step_some = RunStepStateRecord {
+    assert_eq!(node_none.session_id, None);
+    assert_eq!(node_none.detail, None);
+    assert_eq!(node_none.output_ref, None, "Transient 模式恒 None");
+    let node_some = RunNodeStateRecord {
         step: RunStepKind::Executor,
         status: RunStepStatus::Failed,
+        instance_no: 1,
         session_id: Some("ses-1".to_owned()),
         detail: Some("会话失败收敛".to_owned()),
-        ..step_none.clone()
+        output_ref: Some("exec-7".to_owned()),
+        ..node_none.clone()
     };
-    assert_ne!(step_some, step_none, "两态逐字段可辨");
-    let text = serde_json::to_string(&step_none).expect("出线应成功");
-    let back: RunStepStateRecord = serde_json::from_str(&text).expect("往返应成功");
-    assert_eq!(back, step_none, "步史记录往返无损");
+    assert_ne!(node_some, node_none, "两态逐字段可辨");
+    let text = serde_json::to_string(&node_none).expect("出线应成功");
+    let back: RunNodeStateRecord = serde_json::from_str(&text).expect("往返应成功");
+    assert_eq!(back, node_none, "节点史记录往返无损");
+
+    // 边史读记录：端点身份串 + 四 kind
+    let edge = RunEdgeStateRecord {
+        run_id: "run-1727000000000".to_owned(),
+        change_id: "demo-change".to_owned(),
+        from_node_key: "implement:1:executor:1".to_owned(),
+        to_node_key: "implement:1:static_check:0".to_owned(),
+        edge_kind: RunEdgeKind::Feedback,
+        timestamp: 1_727_000_060_000,
+    };
+    assert_ne!(
+        RunEdgeStateRecord {
+            edge_kind: RunEdgeKind::Retry,
+            ..edge.clone()
+        },
+        edge,
+        "边 kind 两值可辨（feedback ≠ retry）"
+    );
+    let text = serde_json::to_string(&edge).expect("出线应成功");
+    let back: RunEdgeStateRecord = serde_json::from_str(&text).expect("往返应成功");
+    assert_eq!(back, edge, "边史记录往返无损");
 }
 
 /// RunStartCommand / RunFinishCommand（含 RunStepEntry）两态构造与等值面：
@@ -215,14 +254,20 @@ fn run命令两态构造与等值面() {
         "字段名 change_id 直读（载荷 id 化）"
     );
 
-    let entry = RunStepEntry {
-        seq: 3,
+    let entry = RunNodeEntry {
         phase: "implement".to_owned(),
         attempt: 2,
         step: RunStepKind::Executor,
+        instance_no: 1,
         status: RunStepStatus::Passed,
         session_id: Some("ses-1".to_owned()),
         detail: None,
+        output_ref: None,
+    };
+    let edge = RunEdgeEntry {
+        from_node_key: "implement:2:executor:1".to_owned(),
+        to_node_key: "implement:2:phase_log:0".to_owned(),
+        edge_kind: RunEdgeKind::Forward,
     };
     let finish = RunFinishCommand {
         run_id: "run-1727000000000".to_owned(),
@@ -230,7 +275,8 @@ fn run命令两态构造与等值面() {
         status: RunStatus::Completed,
         reason: Some("All phases have passed.".to_owned()),
         finished_at: 1_727_000_060_000,
-        steps: vec![entry.clone()],
+        nodes: vec![entry.clone()],
+        edges: vec![edge.clone()],
     };
     assert_eq!(finish.clone(), finish);
     // change_id / reason / steps 翻转不等值
@@ -252,16 +298,26 @@ fn run命令两态构造与等值面() {
     );
     assert_ne!(
         RunFinishCommand {
-            steps: Vec::new(),
+            nodes: Vec::new(),
             ..finish.clone()
         },
         finish,
-        "steps 空包/整包可辨（零步 run 收口边界形态合法）"
+        "nodes 空包/整包可辨（零步 run 收口边界形态合法）"
+    );
+    assert_ne!(
+        RunFinishCommand {
+            edges: Vec::new(),
+            ..finish.clone()
+        },
+        finish,
+        "edges 空包/整包可辨（零边 run 收口边界形态合法）"
     );
     // 条目字段逐项透传面
-    assert_eq!(entry.seq, 3);
+    assert_eq!(entry.instance_no, 1, "稳定身份键实例号");
     assert_eq!(entry.step, RunStepKind::Executor);
     assert_eq!(entry.session_id.as_deref(), Some("ses-1"));
+    assert_eq!(edge.edge_kind, RunEdgeKind::Forward);
+    assert_eq!(edge.from_node_key, "implement:2:executor:1");
 }
 
 /// 其余三写命令载荷（PhaseLogCommand / BacktrackCommand / StepCommand）同式：
@@ -507,7 +563,8 @@ fn run_finish命令status五值可构造_拦截归写面() {
             status,
             reason: None,
             finished_at: 1_727_000_060_000,
-            steps: Vec::new(),
+            nodes: Vec::new(),
+            edges: Vec::new(),
         };
         assert_eq!(command.status, status, "五值均可构造（类型层零拦截）");
     }
@@ -602,8 +659,12 @@ fn change_state_store全方法id形参编译面() {
             assert_eq!(change_id, CHANGE_ID, "run 清单按 id 归属");
             Ok(Vec::new())
         }
-        fn list_run_steps(&self, run_id: &str) -> Result<Vec<RunStepStateRecord>, StoreFault> {
-            assert_eq!(run_id, "run-1");
+        fn list_run_nodes(&self, run_id: &str) -> Result<Vec<RunNodeStateRecord>, StoreFault> {
+            assert_eq!(run_id, "run-1", "节点读面按 run_id 圈定");
+            Ok(Vec::new())
+        }
+        fn list_run_edges(&self, run_id: &str) -> Result<Vec<RunEdgeStateRecord>, StoreFault> {
+            assert_eq!(run_id, "run-1", "边读面按 run_id 圈定");
             Ok(Vec::new())
         }
         fn run_start(&self, command: &RunStartCommand) -> Result<(), StoreFault> {
@@ -700,7 +761,12 @@ fn change_state_store全方法id形参编译面() {
         .expect("写面应可用");
     assert_eq!(probe.list_runs(CHANGE_ID).expect("读面应可用"), Vec::new());
     assert_eq!(
-        probe.list_run_steps("run-1").expect("读面应可用"),
+        probe.list_run_nodes("run-1").expect("读面应可用"),
+        Vec::new(),
+        "miss 非错误（空数组）"
+    );
+    assert_eq!(
+        probe.list_run_edges("run-1").expect("读面应可用"),
         Vec::new(),
         "miss 非错误（空数组）"
     );
@@ -718,7 +784,8 @@ fn change_state_store全方法id形参编译面() {
             status: RunStatus::Completed,
             reason: None,
             finished_at: 1_727_000_060_000,
-            steps: Vec::new(),
+            nodes: Vec::new(),
+            edges: Vec::new(),
         })
         .expect("写面应可用");
 
@@ -726,4 +793,338 @@ fn change_state_store全方法id形参编译面() {
     fn assert_send_sync<T: Send + Sync>() {}
     assert_send_sync::<SignatureProbe>();
     assert_send_sync::<ChangeStatus>();
+}
+
+// ---------------------------------------------------------------------------
+// 计划图侧类型（StepNode 十值全词汇 + 派生访问器 + OnFail / StepDefinition /
+// ArtifactSpec）
+// ---------------------------------------------------------------------------
+
+/// `StepNode` 十值全词汇 snake_case 逐字出线（executor / evaluator / decision /
+/// phase_start / static_check / test_execution / phase_log / verdict_gate /
+/// retry_gate / whitelist_gate）——词汇本体单点（计划图声明与执行图落库同词面
+/// 1:1 全映射，AC-1 / AC-3 全词汇前置）。
+#[test]
+fn step_node十值全词汇snake_case逐字() {
+    let wire = |node: StepNode| serde_json::to_value(node).expect("词汇出线应成功");
+    assert_eq!(wire(StepNode::Executor), json!("executor"));
+    assert_eq!(wire(StepNode::Evaluator), json!("evaluator"));
+    assert_eq!(wire(StepNode::Decision), json!("decision"));
+    assert_eq!(wire(StepNode::PhaseStart), json!("phase_start"));
+    assert_eq!(wire(StepNode::StaticCheck), json!("static_check"));
+    assert_eq!(wire(StepNode::TestExecution), json!("test_execution"));
+    assert_eq!(wire(StepNode::PhaseLog), json!("phase_log"));
+    assert_eq!(wire(StepNode::VerdictGate), json!("verdict_gate"));
+    assert_eq!(wire(StepNode::RetryGate), json!("retry_gate"));
+    assert_eq!(wire(StepNode::WhitelistGate), json!("whitelist_gate"));
+
+    // as_str 单点同源（线格式词与序列化词汇一字不差）
+    assert_eq!(StepNode::Executor.as_str(), "executor");
+    assert_eq!(StepNode::Evaluator.as_str(), "evaluator");
+    assert_eq!(StepNode::Decision.as_str(), "decision");
+    assert_eq!(StepNode::PhaseStart.as_str(), "phase_start");
+    assert_eq!(StepNode::StaticCheck.as_str(), "static_check");
+    assert_eq!(StepNode::TestExecution.as_str(), "test_execution");
+    assert_eq!(StepNode::PhaseLog.as_str(), "phase_log");
+    assert_eq!(StepNode::VerdictGate.as_str(), "verdict_gate");
+    assert_eq!(StepNode::RetryGate.as_str(), "retry_gate");
+    assert_eq!(StepNode::WhitelistGate.as_str(), "whitelist_gate");
+}
+
+/// `StepNode::group()` 三分类（Exec / Agent / Gate）与 `role()`（Executor /
+/// Evaluator / Decision）派生访问器逐值一致——同类内与跨类皆可辨（AC-1 派生
+/// 访问器零冗余字段）。
+#[test]
+fn step_node分组与角色派生访问器一致() {
+    // Exec 组：相位机步 + 检查步
+    for node in [
+        StepNode::PhaseStart,
+        StepNode::StaticCheck,
+        StepNode::TestExecution,
+        StepNode::PhaseLog,
+    ] {
+        assert_eq!(node.group(), StepGroup::Exec, "{node:?} 属 Exec");
+        assert_eq!(node.role(), None, "非 agent 步无角色");
+    }
+    // Agent 组：三角色与 role() 一一对应
+    for (node, role) in [
+        (StepNode::Executor, AgentRole::Executor),
+        (StepNode::Evaluator, AgentRole::Evaluator),
+        (StepNode::Decision, AgentRole::Decision),
+    ] {
+        assert_eq!(node.group(), StepGroup::Agent, "{node:?} 属 Agent");
+        assert_eq!(node.role(), Some(role));
+    }
+    // Gate 组：三门
+    for node in [
+        StepNode::VerdictGate,
+        StepNode::RetryGate,
+        StepNode::WhitelistGate,
+    ] {
+        assert_eq!(node.group(), StepGroup::Gate, "{node:?} 属 Gate");
+        assert_eq!(node.role(), None, "门步无角色");
+    }
+    // 三分类互斥：Exec / Agent / Gate 覆盖全词汇（10 值无遗漏无重叠）
+    let groups: Vec<StepGroup> = [
+        StepNode::Executor,
+        StepNode::Evaluator,
+        StepNode::Decision,
+        StepNode::PhaseStart,
+        StepNode::StaticCheck,
+        StepNode::TestExecution,
+        StepNode::PhaseLog,
+        StepNode::VerdictGate,
+        StepNode::RetryGate,
+        StepNode::WhitelistGate,
+    ]
+    .iter()
+    .map(|node| node.group())
+    .collect();
+    assert_eq!(groups.iter().filter(|g| **g == StepGroup::Exec).count(), 4);
+    assert_eq!(groups.iter().filter(|g| **g == StepGroup::Agent).count(), 3);
+    assert_eq!(groups.iter().filter(|g| **g == StepGroup::Gate).count(), 3);
+}
+
+/// 非法词反序列化拒绝：越集词反序列化为 `StepNode` / `StepGroup` /
+/// `AgentRole` 均 Err（封闭集防线）；`OnFail` 两变体往返可辨、缺字段拒绝。
+#[test]
+fn step_node与on_fail封闭集防线() {
+    for illegal in ["exec", "gate", "agent", "verdict", "phaseStart", ""] {
+        let back: Result<StepNode, _> = serde_json::from_value(json!(illegal));
+        assert!(back.is_err(), "StepNode 越集词 {illegal:?} 应拒绝");
+    }
+    for illegal in ["execs", "Gate", "WORKER_AGENT", ""] {
+        let back: Result<StepGroup, _> = serde_json::from_value(json!(illegal));
+        assert!(back.is_err(), "StepGroup 越集词 {illegal:?} 应拒绝");
+    }
+    for illegal in ["exec", "Role", "decisioner", ""] {
+        let back: Result<AgentRole, _> = serde_json::from_value(json!(illegal));
+        assert!(back.is_err(), "AgentRole 越集词 {illegal:?} 应拒绝");
+    }
+
+    // OnFail 两变体往返可辨：FeedbackLoop { limit }（camelCase 载荷）与 Terminal
+    let feedback = OnFail::FeedbackLoop { limit: 5 };
+    let wire = serde_json::to_value(feedback).expect("出线应成功");
+    assert_eq!(wire, json!({ "feedbackLoop": { "limit": 5 } }));
+    let back: OnFail = serde_json::from_value(wire).expect("往返应成功");
+    assert_eq!(back, feedback);
+
+    let terminal = OnFail::Terminal;
+    let wire = serde_json::to_value(terminal).expect("出线应成功");
+    assert_eq!(wire, json!("terminal"));
+    let back: OnFail = serde_json::from_value(wire).expect("往返应成功");
+    assert_eq!(back, terminal);
+    assert_ne!(feedback, terminal, "两变体可辨");
+
+    for illegal in ["feedbackloop", "FeedbackLoop", "terminal_fail", ""] {
+        let back: Result<OnFail, _> = serde_json::from_value(json!(illegal));
+        assert!(back.is_err(), "OnFail 越集词 {illegal:?} 应拒绝");
+    }
+}
+
+/// `FeedbackLoop` 计数上限为 u32 边界：limit=0 / 1 / u32::MAX 可构造不 panic
+///（语义面由 walker 消费，AC-2 / AC-4）。
+#[test]
+fn on_fail计数上限u32边界可构造() {
+    for limit in [0_u32, 1, 5, u32::MAX] {
+        let feedback = OnFail::FeedbackLoop { limit };
+        assert_eq!(
+            feedback,
+            OnFail::FeedbackLoop { limit },
+            "limit={limit} 可构造且自反"
+        );
+        assert_ne!(
+            feedback,
+            OnFail::FeedbackLoop {
+                limit: limit.wrapping_add(1)
+            },
+            "limit 逐字段可辨"
+        );
+    }
+}
+
+/// `StepDefinition` 三字段两态构造（prompt_ref None / Some、on_fail None /
+/// Some）+ `ArtifactSpec` 三字段声明面（AC-1）。
+#[test]
+fn step_definition与artifact_spec声明面() {
+    static PROMPT: &str = "静态角色知识（include_str! 编译期装配）";
+    let agent_step = StepDefinition {
+        node: StepNode::Executor,
+        prompt_ref: Some(PROMPT),
+        on_fail: None,
+    };
+    let gate_step = StepDefinition {
+        node: StepNode::StaticCheck,
+        prompt_ref: None,
+        on_fail: Some(OnFail::FeedbackLoop { limit: 5 }),
+    };
+    assert_eq!(agent_step.node, StepNode::Executor);
+    assert_eq!(agent_step.prompt_ref, Some(PROMPT));
+    assert_eq!(agent_step.on_fail, None);
+    assert_eq!(gate_step.node, StepNode::StaticCheck);
+    assert_eq!(gate_step.prompt_ref, None, "非 agent 步恒 None");
+    assert_eq!(gate_step.on_fail, Some(OnFail::FeedbackLoop { limit: 5 }));
+    assert_ne!(agent_step, gate_step, "两态构造逐字段可辨");
+    assert_eq!(agent_step.clone(), agent_step, "PartialEq 自反");
+    // Copy 语义（const 表内联前提）
+    let copied = agent_step;
+    assert_eq!(copied, agent_step);
+
+    let spec = ArtifactSpec {
+        kind: "markdown-doc",
+        path: "specs/**",
+        title: "规格",
+    };
+    assert_eq!(spec.kind, "markdown-doc");
+    assert_eq!(spec.path, "specs/**");
+    assert_eq!(spec.title, "规格");
+    assert!(!spec.path.starts_with('/'), "清单路径恒相对");
+}
+
+// ---------------------------------------------------------------------------
+// 执行图边词汇（RunEdgeKind 四值 + 端点身份串口径）
+// ---------------------------------------------------------------------------
+
+/// `RunEdgeKind` 四值 snake_case 逐字出线（forward / feedback / retry /
+/// backtrack）；非法词反序列化拒绝（封闭集防线，AC-3）。
+#[test]
+fn run_edge_kind四值线面snake_case逐字() {
+    let wire = |kind: RunEdgeKind| serde_json::to_value(kind).expect("词汇出线应成功");
+    assert_eq!(wire(RunEdgeKind::Forward), json!("forward"));
+    assert_eq!(wire(RunEdgeKind::Feedback), json!("feedback"));
+    assert_eq!(wire(RunEdgeKind::Retry), json!("retry"));
+    assert_eq!(wire(RunEdgeKind::Backtrack), json!("backtrack"));
+    assert_eq!(RunEdgeKind::Forward.as_str(), "forward");
+    assert_eq!(RunEdgeKind::Feedback.as_str(), "feedback");
+    assert_eq!(RunEdgeKind::Retry.as_str(), "retry");
+    assert_eq!(RunEdgeKind::Backtrack.as_str(), "backtrack");
+
+    for illegal in ["feed_back", "Feedback", "back_track", "unknown", ""] {
+        let back: Result<RunEdgeKind, _> = serde_json::from_value(json!(illegal));
+        assert!(back.is_err(), "RunEdgeKind 越集词 {illegal:?} 应拒绝");
+    }
+}
+
+// ---------------------------------------------------------------------------
+// 执行图节点 / 边中性类型（序列化往返与两态边界）
+// ---------------------------------------------------------------------------
+
+/// `RunNodeStateRecord` 全字段序列化往返：身份键 phase / attempt / step /
+/// instance_no 与 status / session_id / detail / output_ref / timestamp 逐字段
+/// 可辨（AC-3 / AC-6 线面前置）。
+#[test]
+fn run_node_state_record全字段往返可辨() {
+    let base = RunNodeStateRecord {
+        run_id: "run-1727000000000".to_owned(),
+        change_id: CHANGE_ID.to_owned(),
+        phase: "implement".to_owned(),
+        attempt: 1,
+        step: RunStepKind::StaticCheck,
+        instance_no: 0,
+        status: RunStepStatus::Failed,
+        session_id: None,
+        detail: None,
+        output_ref: None,
+        timestamp: 1_727_000_060_000,
+    };
+    assert_eq!(base.clone(), base, "PartialEq 自反");
+    let text = serde_json::to_string(&base).expect("出线应成功");
+    assert!(text.contains("\"runId\":\"run-1727000000000\""), "{text}");
+    assert!(text.contains("\"instanceNo\":0"), "camelCase 键：{text}");
+    let back: RunNodeStateRecord = serde_json::from_str(&text).expect("往返应成功");
+    assert_eq!(back, base, "节点中性行往返无损");
+
+    // outputRef / sessionId / detail 三态两态（None 与 Some 逐字段可辨）
+    let some = RunNodeStateRecord {
+        session_id: Some("ses-1".to_owned()),
+        detail: Some("static-check 未过".to_owned()),
+        output_ref: Some("exec-7".to_owned()),
+        ..base.clone()
+    };
+    assert_ne!(some, base, "两态逐字段可辨");
+    let value = serde_json::to_value(&some).expect("出线应成功");
+    assert_eq!(value["outputRef"], json!("exec-7"));
+    assert_eq!(value["sessionId"], json!("ses-1"));
+    let value = serde_json::to_value(&base).expect("出线应成功");
+    assert_eq!(value["outputRef"], json!(null), "None → null 不省键");
+
+    // instance_no 0 / 1 / u32::MAX 三态可构造（身份键边界）
+    for instance_no in [0_u32, 1, u32::MAX] {
+        let record = RunNodeStateRecord {
+            instance_no,
+            ..base.clone()
+        };
+        assert_eq!(record.instance_no, instance_no, "边界值可构造");
+        if instance_no == 0 {
+            assert_eq!(record, base, "同实例号等值");
+        } else {
+            assert_ne!(record, base, "instance_no={instance_no} 与首次执行可辨");
+        }
+    }
+
+    // 十值全词汇 step 出线（节点行 zero filter 前置）
+    for (kind, word) in [
+        (RunStepKind::Executor, "executor"),
+        (RunStepKind::Evaluator, "evaluator"),
+        (RunStepKind::Decision, "decision"),
+        (RunStepKind::StaticCheck, "static_check"),
+        (RunStepKind::TestExecution, "test_execution"),
+        (RunStepKind::PhaseStart, "phase_start"),
+        (RunStepKind::PhaseLog, "phase_log"),
+        (RunStepKind::VerdictGate, "verdict_gate"),
+        (RunStepKind::RetryGate, "retry_gate"),
+        (RunStepKind::WhitelistGate, "whitelist_gate"),
+    ] {
+        let value = serde_json::to_value(RunNodeStateRecord {
+            step: kind,
+            ..base.clone()
+        })
+        .expect("出线应成功");
+        assert_eq!(value["step"], json!(word));
+    }
+}
+
+/// `RunEdgeStateRecord` 全字段序列化往返：from_node_key / to_node_key /
+/// edge_kind 逐字段可辨（端点身份串口径 `phase:attempt:step:instance_no`）。
+#[test]
+fn run_edge_state_record全字段往返可辨() {
+    let base = RunEdgeStateRecord {
+        run_id: "run-1727000000000".to_owned(),
+        change_id: CHANGE_ID.to_owned(),
+        from_node_key: "implement:1:executor:0".to_owned(),
+        to_node_key: "implement:1:static_check:0".to_owned(),
+        edge_kind: RunEdgeKind::Feedback,
+        timestamp: 1_727_000_060_000,
+    };
+    assert_eq!(base.clone(), base);
+    let text = serde_json::to_string(&base).expect("出线应成功");
+    assert!(
+        text.contains("\"fromNodeKey\":\"implement:1:executor:0\""),
+        "{text}"
+    );
+    assert!(text.contains("\"edgeKind\":\"feedback\""), "{text}");
+    let back: RunEdgeStateRecord = serde_json::from_str(&text).expect("往返应成功");
+    assert_eq!(back, base, "边中性行往返无损");
+
+    assert_ne!(
+        RunEdgeStateRecord {
+            to_node_key: "implement:1:static_check:1".to_owned(),
+            ..base.clone()
+        },
+        base,
+        "to_node_key 逐字段可辨（实例号段）"
+    );
+    assert_ne!(
+        RunEdgeStateRecord {
+            edge_kind: RunEdgeKind::Retry,
+            ..base.clone()
+        },
+        base,
+        "edge_kind 逐字段可辨（feedback 与 retry 不混淆）"
+    );
+    // 非法 edge_kind 词反序列化拒绝（封闭集防线）
+    let mut value = serde_json::to_value(&base).expect("出线应成功");
+    value["edgeKind"] = json!("feed_back");
+    let back: Result<RunEdgeStateRecord, _> = serde_json::from_value(value);
+    assert!(back.is_err(), "边行非法 kind 词应拒绝");
 }

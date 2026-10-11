@@ -9,9 +9,9 @@
 //! 判为相位差，分裂出 `*_Serialize/_Deserialize` 联合别名）。线面：缺省字段
 //! `null`、时间戳 ISO 串（由 `tests/golden` 逐字节钉死）；时间戳在 `From`
 //! 转换时定格为字符串（i64 毫秒 → RFC3339 收 queries 层单点）。状态面单源
-//! workspace 库（经 port 缝）；磁盘扫描保留为产物发现。runs / steps 字段演
-//! 进走 golden 显式重写流程（`DESKTOP_GOLDEN_REWRITE=1` + diff 人工确认留
-//! 痕，unify-run-state-persistence 增键先例）。
+//! workspace 库（经 port 缝）；产物发现改 phase 定义清单驱动（相对路径枚举）。
+//! runs / nodes / edges 字段演进走 golden 显式重写流程（`DESKTOP_GOLDEN_REWRITE=1`
+//! + diff 人工确认留痕，unify-run-state-persistence 增键先例）。
 
 use serde::{Deserialize, Serialize};
 use specta::Type;
@@ -21,10 +21,10 @@ use super::{iso_from_millis, locate_change};
 use crate::artifacts::{discover_artifacts, ArtifactDescriptor};
 use crate::model::{ChecklistItem, Verdict};
 use crate::state::{
-    ChangeStateStore, ChangeStatus, PhaseStateRecord, RunStateRecord, RunStatus, RunStepKind,
-    RunStepStateRecord, RunStepStatus,
+    ChangeStateStore, ChangeStatus, PhaseStateRecord, RunEdgeKind, RunEdgeStateRecord,
+    RunNodeStateRecord, RunStateRecord, RunStatus, RunStepKind, RunStepStatus,
 };
-use crate::write::utc_date;
+use crate::write::{phase_table, utc_date};
 use foundation::layout::Layout;
 
 /// 固定 9 站流水线（顺序固定，不依赖落行排列）。
@@ -98,22 +98,35 @@ pub struct PhaseEntry {
     pub attempts: Vec<AttemptRecord>,
 }
 
-/// run 步节点史行线面（五词汇封闭集直出，词汇 = `state::RunStepKind` 单点；
-/// seq = emit 序稳定升序）。
+/// run 执行图节点行线面（十值全词汇封闭集直出，词汇 = `state::RunStepKind`
+/// 单点；稳定身份键 `(phase, attempt, step, instanceNo)`，库读序 = node_seq 升序
+/// = emit 序）。
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
-pub struct ChangeRunStepRecord {
-    pub seq: u64,
+pub struct ChangeRunNodeRecord {
     pub phase: String,
     pub attempt: u32,
     pub step: RunStepKind,
+    /// 同 `(phase, attempt, step)` 内的执行实例号（feedback 重跑递增）
+    pub instance_no: u32,
     pub status: RunStepStatus,
     pub session_id: Option<String>,
     pub detail: Option<String>,
+    /// 全量输出引用（`ExecOutput::Recorded { exec_id }`；无记录恒 null）
+    pub output_ref: Option<String>,
 }
 
-/// 单次 run 运行史条目（全史不截；在飞 run 的 start 行已在库——status=
-/// running、steps 恒空，run 清单面运行中可见）。
+/// run 执行图边行线面（四 kind 封闭集直出；端点 = 节点身份串）。
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct ChangeRunEdgeRecord {
+    pub from_node_key: String,
+    pub to_node_key: String,
+    pub edge_kind: RunEdgeKind,
+}
+
+/// 单次 run 执行图条目（全史不截；在飞 run 的 start 行已在库——status=
+/// running、nodes / edges 恒空，run 清单面运行中可见）。
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct ChangeRunEntry {
@@ -122,7 +135,10 @@ pub struct ChangeRunEntry {
     pub reason: Option<String>,
     pub started_at: Option<String>,
     pub finished_at: Option<String>,
-    pub steps: Vec<ChangeRunStepRecord>,
+    /// 执行图节点（全词汇零过滤，node_seq 升序 = emit 序）
+    pub nodes: Vec<ChangeRunNodeRecord>,
+    /// 执行图边（四 kind，edge_seq 升序 = emit 序）
+    pub edges: Vec<ChangeRunEdgeRecord>,
 }
 
 impl From<&RunStateRecord> for ChangeRunEntry {
@@ -133,21 +149,33 @@ impl From<&RunStateRecord> for ChangeRunEntry {
             reason: record.reason.clone(),
             started_at: Some(iso_from_millis(record.started_at)),
             finished_at: record.finished_at.map(iso_from_millis),
-            steps: Vec::new(),
+            nodes: Vec::new(),
+            edges: Vec::new(),
         }
     }
 }
 
-impl From<&RunStepStateRecord> for ChangeRunStepRecord {
-    fn from(record: &RunStepStateRecord) -> Self {
-        ChangeRunStepRecord {
-            seq: record.seq,
+impl From<&RunNodeStateRecord> for ChangeRunNodeRecord {
+    fn from(record: &RunNodeStateRecord) -> Self {
+        ChangeRunNodeRecord {
             phase: record.phase.clone(),
             attempt: record.attempt,
             step: record.step,
+            instance_no: record.instance_no,
             status: record.status,
             session_id: record.session_id.clone(),
             detail: record.detail.clone(),
+            output_ref: record.output_ref.clone(),
+        }
+    }
+}
+
+impl From<&RunEdgeStateRecord> for ChangeRunEdgeRecord {
+    fn from(record: &RunEdgeStateRecord) -> Self {
+        ChangeRunEdgeRecord {
+            from_node_key: record.from_node_key.clone(),
+            to_node_key: record.to_node_key.clone(),
+            edge_kind: record.edge_kind,
         }
     }
 }
@@ -169,8 +197,9 @@ pub struct ChangeDetail {
     pub created: Option<String>,
     pub pipeline: Vec<PhaseEntry>,
     pub active_phase: Option<ActivePhase>,
-    /// run 运行史全量读面（unify-run-state-persistence：全史不截，runs 按
-    /// `started_at` 升序、steps 按 seq 升序；文档形态恒空数组）
+    /// run 执行图全量读面（unify-run-state-persistence + run-workflow-by-step：
+    /// 全史不截，runs 按 `started_at` 升序、nodes 按 emit 序、edges 按 emit 序；
+    /// 未建档 / 未跑形态恒空数组）
     pub runs: Vec<ChangeRunEntry>,
     pub artifacts: Vec<ArtifactDescriptor>,
     /// 本 change 的 worktree 绝对路径（自建档记录直读透出，None → null；
@@ -195,9 +224,9 @@ pub fn change_detail(
     let location = locate_change(layout, record.worktree.as_deref(), record.name.as_str());
     let entries = store.list_phase_records(id).unwrap_or_default();
 
-    // run 运行史全量读面：runs 按 started_at 升序（并列按 run_id 稳定序）、
-    // steps 按 seq 升序（= emit 序）；读失败降级空 runs（与清单读面
-    // unwrap_or_default 同哲学）。
+    // run 执行图全量读面：runs 按 started_at 升序（并列按 run_id 稳定序）、
+    // nodes / edges 按库读序（node_seq / edge_seq 升序 = emit 序）；读失败降级空
+    // runs（与清单读面 unwrap_or_default 同哲学）。
     let mut runs: Vec<ChangeRunEntry> = store
         .list_runs(id)
         .unwrap_or_default()
@@ -211,15 +240,18 @@ pub fn change_detail(
             .then_with(|| a.run_id.cmp(&b.run_id))
     });
     for run_entry in &mut runs {
-        let mut steps: Vec<ChangeRunStepRecord> = store
-            .list_run_steps(&run_entry.run_id)
+        run_entry.nodes = store
+            .list_run_nodes(&run_entry.run_id)
             .unwrap_or_default()
             .iter()
-            .map(ChangeRunStepRecord::from)
+            .map(ChangeRunNodeRecord::from)
             .collect();
-        // seq 升序（= emit 序；库面空洞合法，稳定序即重放序）
-        steps.sort_by_key(|step| step.seq);
-        run_entry.steps = steps;
+        run_entry.edges = store
+            .list_run_edges(&run_entry.run_id)
+            .unwrap_or_default()
+            .iter()
+            .map(ChangeRunEdgeRecord::from)
+            .collect();
     }
 
     // created：db created_at 唯一来源（磁盘目录名日期前缀回退已退役——
@@ -254,10 +286,13 @@ pub fn change_detail(
         attempt: active.attempt,
         start_at: Some(iso_from_millis(active.start_at)),
     });
-    // 产物发现经定位目录；定位 miss（建档记录恒可达路径）→ 产物清单空
+    // 产物发现经定位目录 + 相位定义清单（清单为唯一候选来源；归属随清单出线）；
+    // 定位 miss（建档记录恒可达路径）→ 产物清单空。不受支持的 workflow_type
+    //（表外）→ 空清单（无候选来源，零全树扫描兜底）。
+    let manifest = phase_table(&record.workflow_type).unwrap_or_default();
     let artifacts = location
         .as_ref()
-        .map(|location| discover_artifacts(&location.dir, &entries))
+        .map(|location| discover_artifacts(&location.dir, &entries, manifest))
         .unwrap_or_default();
     // source：定位命中随定位；定位 miss 自 record.status 映射（状态面在的
     // 呈现形态——worktree 被删 / 未 merge 的建档记录）

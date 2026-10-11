@@ -1,16 +1,22 @@
 //! `artifacts::registry` 的单元测试（test-design「artifacts/registry.rs ->
-//! registry_test.rs」节）：候选枚举（文件树遍历 + 相位条目序列）、静态注册表
-//! 分发与信封读取（AC-7 / AC-8）；入参面演进——`discover_artifacts` /
-//! `read_artifact` 改 `&[PhaseStateRecord]` 切片入参，eval-checklist 候选锚定
-//! 自切片下标（序列序 = 行序，非 attempt 号——锚定平移断言）；空切片 = 文档
-//! 形态仅文件候选；越界序号与敌意 source 守卫持衡。
+//! registry_test.rs」节）：**清单驱动发现**——`discover_artifacts` 按相位清单相对
+//! 路径枚举命中（精确路径 / `<前缀>/**` 前缀 glob），候选喂给静态注册表，命中项
+//! 去重、`phase` 归属随清单；eval-checklist 走 `(phase, attempt)` PhaseRecord 投影
+//! 分支，与文件类候选在出口汇合同一 `Vec<ArtifactDescriptor>`；全树扫描
+//!（`enumerate_candidates` / `collect_files`）退役——清单未命中的全树文件零入列
+//!（AC-7）。
+//!
+//! Mock策略（test-design 本节 Mock 表）：磁盘目录树（进程边界）= tempdir 真实目录
+//!（产物文件 + eval-checklist PhaseRecord 种子），真实枚举 + 真实插件 parse；
+//! 无（真实组合）= `manifest` 以 `phase_table` 真件只读供给，插件 matcher 真实组合。
 
 use std::fs;
 use std::path::{Path, PathBuf};
 
 use super::registry::{discover_artifacts, read_artifact};
 use crate::model::{ChecklistItem, Verdict};
-use crate::state::PhaseStateRecord;
+use crate::state::{ArtifactSpec, PhaseStateRecord};
+use crate::write::{phase_table, PhaseDefinition};
 
 /// 临时 change 目录 RAII：测试结束自动清理。
 struct TempChange(PathBuf);
@@ -33,6 +39,14 @@ impl TempChange {
         }
         fs::write(path, content).expect("写文件失败");
     }
+
+    fn write_bytes(&self, rel_path: &str, content: &[u8]) {
+        let path = self.0.join(rel_path);
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent).expect("创建子目录失败");
+        }
+        fs::write(path, content).expect("写字节失败");
+    }
 }
 
 impl Drop for TempChange {
@@ -41,7 +55,50 @@ impl Drop for TempChange {
     }
 }
 
-/// 内存构造一条相位评估条目（切片入参装置）。
+/// requirement 真件清单（phase_table 只读供给；清单为唯一候选来源）。
+fn requirement_manifest() -> &'static [PhaseDefinition] {
+    phase_table("requirement").expect("requirement 表恒可达")
+}
+
+/// 空清单 fixture（零相位声明 → 零文件候选）。
+static EMPTY_MANIFEST: &[PhaseDefinition] = &[PhaseDefinition {
+    id: "proposal",
+    description: "空清单 fixture",
+    steps: &[],
+    artifact_manifest: &[],
+    executor: None,
+    evaluator: None,
+}];
+
+/// 精确路径 / 前缀 glob 双重命中同一文件的清单（去重断言用）。
+static DUAL_HIT_MANIFEST: &[PhaseDefinition] = &[
+    PhaseDefinition {
+        id: "proposal",
+        description: "精确路径声明",
+        steps: &[],
+        artifact_manifest: &[ArtifactSpec {
+            kind: "markdown-doc",
+            path: "specs/alpha/spec.md",
+            title: "精确规格",
+        }],
+        executor: None,
+        evaluator: None,
+    },
+    PhaseDefinition {
+        id: "dev-design",
+        description: "前缀 glob 声明",
+        steps: &[],
+        artifact_manifest: &[ArtifactSpec {
+            kind: "markdown-doc",
+            path: "specs/**",
+            title: "规格目录",
+        }],
+        executor: None,
+        evaluator: None,
+    },
+];
+
+/// 内存构造一条相位评估条目（eval 投影分支入参装置）。
 fn phase_entry(phase: &str, attempt: u32, checklist: Vec<ChecklistItem>) -> PhaseStateRecord {
     PhaseStateRecord {
         id: i64::from(attempt),
@@ -71,179 +128,331 @@ fn item(name: &str, pass: bool, evidence: &str) -> ChecklistItem {
     }
 }
 
+/// 某 source 的 descriptor 条数（去重断言用）。
+fn count_source(descriptors: &[super::ArtifactDescriptor], source: &str) -> usize {
+    descriptors.iter().filter(|d| d.source == source).count()
+}
+
 // ---------------------------------------------------------------------------
-// 正向：相位序列候选锚定（切片下标 = source 序号）+ 文件候选持衡
+// 正向：清单命中枚举 + phase 归属随清单
 // ---------------------------------------------------------------------------
 
-/// 多相位多 attempt PhaseStateRecord 切片 → eval-checklist 候选 source 序号
-/// 串与序列下标一一对应（序列序 = 行序，非 attempt 号——锚定平移断言）；
-/// read_artifact 按序号读出对应 checklist 信封。
+/// requirement 真件清单命中：proposal.md / specs/** / design.md / test-reports/**
+/// 各自枚举为候选，`ArtifactDescriptor.phase` 归属随清单声明（proposal /
+/// dev-design / test-execution，AC-7）。
 #[test]
-fn 相位序列候选_序号串与切片下标一一对应且可回放() {
-    let change = TempChange::new("phase-sequence");
+fn requirement清单命中_phase归属随清单声明() {
+    let change = TempChange::new("requirement-hit");
     change.write("proposal.md", "# 提案");
+    change.write("specs/alpha/spec.md", "# 规格");
+    change.write("design.md", "# 设计");
+    change.write("tasks.md", "- [x] 一\n- [ ] 二\n");
+    change.write("test-reports/run-1.md", "# 报告");
 
-    // 切片行序 ≠ attempt 号序：attempt 乱序排布，候选锚定仍按切片下标
-    let phases = vec![
-        phase_entry(
-            "dev-design",
-            2,
-            vec![item("组件表完整", true, "五组件齐全")],
-        ),
-        phase_entry("proposal", 1, Vec::new()), // 空 checklist → 不产出候选
-        phase_entry(
-            "dev-design",
-            1,
-            vec![item("组件表完整", false, "缺 renderers 职责")],
-        ),
-    ];
-
-    let descriptors = discover_artifacts(&change.0, &phases);
-
-    let eval_sources: Vec<&str> = descriptors
+    let descriptors = discover_artifacts(&change.0, &[], requirement_manifest());
+    let owned: Vec<(&str, &str)> = descriptors
         .iter()
-        .filter(|d| d.kind == "eval-checklist")
+        .map(|d| (d.source.as_str(), d.phase.as_str()))
+        .collect();
+
+    for expected in [
+        ("proposal.md", "proposal"),
+        ("specs/alpha/spec.md", "proposal"),
+        ("design.md", "dev-design"),
+        ("tasks.md", "dev-design"),
+        ("test-reports/run-1.md", "test-execution"),
+    ] {
+        assert!(
+            owned.contains(&expected),
+            "清单命中项 {expected:?} 应在候选内：{owned:?}"
+        );
+    }
+    // 五条清单项全部命中且无额外候选（tasks.md 的清单 kind 为 tasks-progress）
+    assert_eq!(descriptors.len(), 5, "实际：{descriptors:?}");
+}
+
+/// 文件类候选经插件 parse 判 kind（markdown-doc / tasks-progress）；eval-checklist
+/// 走 PhaseRecord 投影分支，两来源在出口汇合同一清单（AC-7 D3）。
+#[test]
+fn 文件类与投影分支在出口汇合同一清单() {
+    let change = TempChange::new("merged");
+    change.write("proposal.md", "# 提案");
+    change.write("tasks.md", "- [x] 完成\n- [ ] 待办\n");
+    let phases = vec![phase_entry(
+        "proposal",
+        1,
+        vec![item("问题清晰", true, "L1-10")],
+    )];
+
+    let descriptors = discover_artifacts(&change.0, &phases, requirement_manifest());
+    let kinds: Vec<&str> = descriptors.iter().map(|d| d.kind.as_str()).collect();
+    assert!(
+        kinds.contains(&"tasks-progress"),
+        "文件类特化 kind：{kinds:?}"
+    );
+    assert!(kinds.contains(&"markdown-doc"), "文件类 markdown kind");
+    assert!(kinds.contains(&"eval-checklist"), "投影分支 kind");
+
+    // 插件顺序：特化 kind（tasks-progress / eval-checklist）先于 markdown-doc
+    let doc_pos = kinds.iter().position(|k| *k == "markdown-doc").unwrap();
+    let tasks_pos = kinds.iter().position(|k| *k == "tasks-progress").unwrap();
+    let eval_pos = kinds.iter().position(|k| *k == "eval-checklist").unwrap();
+    assert!(
+        tasks_pos < doc_pos && eval_pos < doc_pos,
+        "实际序：{kinds:?}"
+    );
+
+    // 投影分支归属 = PhaseRecord 投影相位；文件类归属 = 清单声明相位
+    let eval = descriptors
+        .iter()
+        .find(|d| d.kind == "eval-checklist")
+        .expect("投影分支应在案");
+    assert_eq!(
+        (eval.source.as_str(), eval.phase.as_str()),
+        ("0", "proposal")
+    );
+    let tasks = descriptors
+        .iter()
+        .find(|d| d.kind == "tasks-progress")
+        .expect("tasks 候选应在案");
+    assert_eq!(tasks.phase, "dev-design");
+}
+
+/// `specs/**` 前缀 glob 深路径命中（specs/x/y/spec.md）——相对路径枚举面。
+#[test]
+fn specs前缀glob深路径命中() {
+    let change = TempChange::new("glob-deep");
+    change.write("specs/x/y/spec.md", "# 深层规格");
+    change.write("specs/a/b/c/d/spec.md", "# 更深规格");
+
+    let descriptors = discover_artifacts(&change.0, &[], requirement_manifest());
+    let sources: Vec<&str> = descriptors
+        .iter()
+        .filter(|d| d.kind == "markdown-doc")
+        .map(|d| d.source.as_str())
+        .collect();
+    assert!(sources.contains(&"specs/x/y/spec.md"), "实际：{sources:?}");
+    assert!(sources.contains(&"specs/a/b/c/d/spec.md"));
+}
+
+/// discover 给出的 (kind, source) 可被 read_artifact 原样回放（文件与 eval 序号两
+/// 种寻址形态一致性）。
+#[test]
+fn discover寻址与read回放一致() {
+    let change = TempChange::new("roundtrip");
+    change.write("tasks.md", "- [x] 完成\n");
+    let phases = vec![phase_entry(
+        "proposal",
+        1,
+        vec![item("问题清晰", true, "L1-10")],
+    )];
+
+    let descriptors = discover_artifacts(&change.0, &phases, requirement_manifest());
+    assert!(descriptors.len() >= 2, "实际: {descriptors:?}");
+
+    for descriptor in &descriptors {
+        let envelope = read_artifact(&change.0, &phases, &descriptor.kind, &descriptor.source)
+            .unwrap_or_else(|| {
+                panic!(
+                    "descriptor ({}, {}) 应可回放",
+                    descriptor.kind, descriptor.source
+                )
+            });
+        assert_eq!(envelope.kind, descriptor.kind);
+        assert_eq!(envelope.title, descriptor.title);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// 边界：空清单 / 空 phases / 空目录 / 去重
+// ---------------------------------------------------------------------------
+
+/// manifest 空 → 零文件候选；phases 空 → 零 eval-checklist 候选（两空态零伪候选）。
+#[test]
+fn 空清单与空phases零伪候选() {
+    let change = TempChange::new("empty-both");
+    change.write("proposal.md", "# 提案");
+    change.write("tasks.md", "- [x] 一\n");
+
+    // 空清单 + 空 phases：全树文件在场但零候选（清单为唯一来源）
+    assert!(
+        discover_artifacts(&change.0, &[], EMPTY_MANIFEST).is_empty(),
+        "清单空 → 零文件候选"
+    );
+
+    // 真件清单 + 空 phases：文件候选照常、零 eval 候选
+    let descriptors = discover_artifacts(&change.0, &[], requirement_manifest());
+    assert!(!descriptors.is_empty(), "文件候选照常");
+    assert!(
+        !descriptors.iter().any(|d| d.kind == "eval-checklist"),
+        "phases 空 → 零投影候选"
+    );
+
+    // 真件清单 + 有 phases 但 checklist 全空：同样零投影候选
+    let phases = vec![phase_entry("proposal", 1, Vec::new())];
+    let descriptors = discover_artifacts(&change.0, &phases, requirement_manifest());
+    assert!(!descriptors.iter().any(|d| d.kind == "eval-checklist"));
+}
+
+/// 目录不存在 / 空目录（ghost 路径）→ 空清单不报错（miss 非错误）。
+#[test]
+fn 目录缺失或空目录返回空清单() {
+    let empty = TempChange::new("empty-dir");
+    assert!(discover_artifacts(&empty.0, &[], requirement_manifest()).is_empty());
+
+    let ghost = std::env::temp_dir().join("workflow-registry-test-不存在的change目录");
+    assert!(discover_artifacts(&ghost, &[], requirement_manifest()).is_empty());
+}
+
+/// 精确路径与 `<前缀>/**` glob 双重命中同一文件 → 去重（候选唯一，无重复挂载）。
+#[test]
+fn 精确路径与glob双重命中同一文件去重() {
+    let change = TempChange::new("dual-hit");
+    change.write("specs/alpha/spec.md", "# 规格");
+
+    let descriptors = discover_artifacts(&change.0, &[], DUAL_HIT_MANIFEST);
+    assert_eq!(
+        count_source(&descriptors, "specs/alpha/spec.md"),
+        1,
+        "同路径双重命中只留一条：{descriptors:?}"
+    );
+    // 先到先得：精确路径声明（proposal 相位）先于该相位之后的 glob 声明
+    let descriptor = descriptors
+        .iter()
+        .find(|d| d.source == "specs/alpha/spec.md")
+        .expect("候选在案");
+    assert_eq!(descriptor.phase, "proposal", "清单声明序首个命中定归属");
+}
+
+/// 清单命中数量面：多规格深路径逐条枚举（无遗漏无重复）。
+#[test]
+fn 多规格深路径逐条枚举() {
+    let change = TempChange::new("multi-spec");
+    for index in 0..8 {
+        change.write(&format!("specs/cap-{index}/spec.md"), "# 规格");
+        change.write(&format!("specs/cap-{index}/notes.md"), "# 附注");
+    }
+
+    let descriptors = discover_artifacts(&change.0, &[], requirement_manifest());
+    let spec_sources: Vec<&str> = descriptors
+        .iter()
+        .filter(|d| d.source.contains("cap-") && d.source.ends_with("spec.md"))
         .map(|d| d.source.as_str())
         .collect();
     assert_eq!(
-        eval_sources,
-        vec!["0", "2"],
-        "候选序号 = 切片下标（行序），空 checklist 条目不产出候选但不占位漂移"
-    );
-
-    // read_artifact 按序号读出对应条目信封（下标 2 = dev-design attempt 1）
-    let envelope =
-        read_artifact(&change.0, &phases, "eval-checklist", "2").expect("序号候选应可回放成信封");
-    assert_eq!(envelope.kind, "eval-checklist");
-    assert_eq!(envelope.payload["phase"], "dev-design");
-    assert_eq!(
-        envelope.payload["attempt"], 1,
-        "锚定按切片下标而非 attempt 排序"
-    );
-    assert_eq!(envelope.payload["verdict"], "pass");
-    assert_eq!(envelope.payload["items"].as_array().map(Vec::len), Some(1));
-    assert_eq!(
-        envelope.payload["items"][0]["pass"],
-        serde_json::json!(false),
-        "checklist 项逐字段透传"
-    );
-
-    // 空清单下标（1）经 read_artifact → None（matches 过滤后的另一面）
-    assert!(
-        read_artifact(&change.0, &phases, "eval-checklist", "1").is_none(),
-        "空 checklist 条目不产出信封"
-    );
-}
-
-/// 磁盘 markdown / tasks 文件遍历候选、跳过点前缀、子目录递归、特化 kind
-/// 先于 markdown-doc 的输出序——既有断言零改动持衡。
-#[test]
-fn 文件候选持衡_遍历与跳过点前缀与kind顺序() {
-    let change = TempChange::new("file-candidates");
-    change.write("proposal.md", "# 提案");
-    change.write("tasks.md", "- [x] 一\n- [ ] 二\n");
-    change.write(".hidden.md", "# 不应被收录");
-    change.write("reports/inner.md", "# 子目录内层");
-
-    let descriptors = discover_artifacts(&change.0, &[]);
-
-    let sources: Vec<&str> = descriptors.iter().map(|d| d.source.as_str()).collect();
-    assert!(sources.contains(&"proposal.md"), "实际: {sources:?}");
-    assert!(sources.contains(&"tasks.md"));
-    assert!(sources.contains(&"reports/inner.md"), "子目录 .md 一并收录");
-    assert!(
-        !sources.iter().any(|source| source.contains(".hidden")),
-        "点前缀项跳过"
-    );
-
-    // 三个字段齐全（title 非空）
-    assert!(descriptors.iter().all(|d| !d.title.is_empty()));
-
-    // 插件顺序：特化 kind 先于 markdown-doc
-    let kinds: Vec<&str> = descriptors.iter().map(|d| d.kind.as_str()).collect();
-    let tasks_pos = kinds.iter().position(|k| *k == "tasks-progress").unwrap();
-    let doc_pos = kinds.iter().position(|k| *k == "markdown-doc").unwrap();
-    assert!(
-        tasks_pos < doc_pos,
-        "tasks-progress 应排在 markdown-doc 之前"
-    );
-}
-
-/// 同一候选多 kind 命中并存（无排他）：tasks.md 同时命中 tasks-progress 与
-/// markdown-doc。
-#[test]
-fn 同一候选多kind命中并存() {
-    let change = TempChange::new("multi-kind");
-    change.write("tasks.md", "- [x] 完成\n- [ ] 待办\n");
-
-    let descriptors = discover_artifacts(&change.0, &[]);
-
-    let hits: Vec<&str> = descriptors.iter().map(|d| d.kind.as_str()).collect();
-    assert!(hits.contains(&"tasks-progress"), "tasks-progress 命中");
-    assert!(
-        hits.contains(&"markdown-doc"),
-        "同一 tasks.md 仍以 markdown-doc 并存命中"
+        spec_sources.len(),
+        8,
+        "8 条 spec.md 全命中：{spec_sources:?}"
     );
     assert_eq!(
         descriptors
             .iter()
-            .filter(|d| d.kind == "tasks-progress")
+            .filter(|d| d.source.contains("cap-"))
             .count(),
-        1
+        16,
+        "8 spec.md + 8 notes.md 全量命中（前缀 glob 递归全量）"
     );
 }
 
 // ---------------------------------------------------------------------------
-// 边界：空切片（文档形态）→ 仅文件候选
+// 异常：清单未命中的全树文件零入列 / parse 失败跳过 best-effort
 // ---------------------------------------------------------------------------
 
-/// phases 空（文档形态 db 零条目）→ 仅文件候选，不 panic 不 Err（AC-3 文档
-/// 形态产物清单半边）；目录缺失同样空清单不报错。
+/// 清单未命中的全树文件（explore.md / 旧代际 phases/** / 任意路径）零入列
+///（白名单取代全树扫描，AC-7 退役面）。
 #[test]
-fn 空切片仅文件候选_文档形态不panic() {
-    let change = TempChange::new("empty-phases");
+fn 清单未命中的全树文件零入列() {
+    let change = TempChange::new("whitelist-only");
+    change.write("explore.md", "# 探索");
+    change.write("phases/old/snapshot.md", "# 旧代际快照");
+    change.write("notes/any.md", "# 任意路径");
+    change.write("data.json", "{}");
+
+    let descriptors = discover_artifacts(&change.0, &[], requirement_manifest());
+    assert!(
+        descriptors.is_empty(),
+        "清单外文件零候选（全树扫描退役）：{descriptors:?}"
+    );
+
+    // 对照：清单内文件同时在场 → 只有它入列
     change.write("proposal.md", "# 提案");
-
-    let descriptors = discover_artifacts(&change.0, &[]);
-    assert!(
-        descriptors
-            .iter()
-            .all(|d| d.kind == "markdown-doc" || d.kind == "tasks-progress"),
-        "零 eval 候选，仅文件候选"
-    );
-    assert!(
-        descriptors.iter().any(|d| d.source == "proposal.md"),
-        "文件候选照常"
-    );
-
-    // 空目录
-    let empty = TempChange::new("empty-dir");
-    assert!(discover_artifacts(&empty.0, &[]).is_empty());
-
-    // 目录不存在（ghost 路径）
-    let ghost = std::env::temp_dir().join("workflow-registry-test-不存在的change目录");
-    assert!(discover_artifacts(&ghost, &[]).is_empty());
+    let descriptors = discover_artifacts(&change.0, &[], requirement_manifest());
+    let sources: Vec<&str> = descriptors.iter().map(|d| d.source.as_str()).collect();
+    assert_eq!(sources, vec!["proposal.md"]);
 }
 
-/// 无插件命中时返回空清单（json / ts 不被任何插件命中）。
+/// 插件 parse 失败（markdown-doc 内容非 UTF-8 不可解析）→ 该候选跳过、其余候选
+/// 不受阻断（best-effort）。
 #[test]
-fn 无插件命中时返回空清单() {
-    let change = TempChange::new("no-hit");
-    change.write("data.json", "{ \"not\": \"markdown\" }");
-    change.write("code.ts", "const x = 1;");
+fn parse失败候选跳过_其余候选不受阻断() {
+    let change = TempChange::new("parse-fail");
+    change.write("proposal.md", "# 正常提案");
+    // 非 UTF-8 字节 → read_to_string 失败 → parse 返回 None
+    change.write_bytes("design.md", &[0xff, 0xfe, 0x00, 0x80]);
 
-    let descriptors = discover_artifacts(&change.0, &[]);
-    assert!(descriptors.is_empty(), "json/ts 不被任何插件命中");
+    let descriptors = discover_artifacts(&change.0, &[], requirement_manifest());
+    let sources: Vec<&str> = descriptors.iter().map(|d| d.source.as_str()).collect();
+    assert!(sources.contains(&"proposal.md"), "其余候选不受阻断");
+    assert!(
+        !sources.contains(&"design.md"),
+        "不可解析候选被跳过：{sources:?}"
+    );
+    // 该候选单查同样 None（回放面一致）
+    assert!(read_artifact(&change.0, &[], "markdown-doc", "design.md").is_none());
+}
+
+/// 清单命中但文件缺失 → 零候选（不产出半包 descriptor）。
+#[test]
+fn 清单命中但文件缺失时零候选() {
+    let change = TempChange::new("missing-hit");
+    change.write("tasks.md", "- [x] 一\n");
+
+    let descriptors = discover_artifacts(&change.0, &[], requirement_manifest());
+    let sources: Vec<&str> = descriptors.iter().map(|d| d.source.as_str()).collect();
+    assert!(sources.contains(&"tasks.md"));
+    assert!(
+        !sources.contains(&"proposal.md"),
+        "缺失的清单项零候选：{sources:?}"
+    );
 }
 
 // ---------------------------------------------------------------------------
-// 异常：越界序号 / 非法 source / 未注册 kind
+// read_artifact 回归：kind + source 命中 / 未注册 kind / 越界序号 / 敌意 source
 // ---------------------------------------------------------------------------
 
-/// 序号串越界（≥ phases.len()）→ None；不存在文件 source → None；未注册
-/// kind 与空 kind → None。
+/// 按 kind + source 命中 → 解析单信封 Some（五字段齐全）；未知 source → None
+///（source 校验口径不变，AC-7）。
 #[test]
-fn 越界序号与非法source与未注册kind返回none() {
+fn read_artifact按kind与source命中或none() {
+    let change = TempChange::new("read-ok");
+    change.write("tasks.md", "- [x] 完成\n");
+    change.write("proposal.md", "# 提案正文");
+
+    let envelope = read_artifact(&change.0, &[], "tasks-progress", "tasks.md")
+        .expect("tasks-progress 信封应可读取");
+    assert_eq!(envelope.kind, "tasks-progress");
+    assert_eq!(envelope.version, 1);
+    assert_eq!(envelope.title, "任务进度");
+    assert!(envelope.payload.is_object());
+    assert!(
+        envelope.fallback_text.is_some(),
+        "五字段之 fallback_text 齐全"
+    );
+
+    let envelope = read_artifact(&change.0, &[], "markdown-doc", "proposal.md")
+        .expect("markdown-doc 信封应可读取");
+    assert_eq!(envelope.kind, "markdown-doc");
+    assert_eq!(envelope.payload["markdown"], "# 提案正文");
+
+    // 未知 source / 未注册 kind / 空 kind
+    assert!(read_artifact(&change.0, &[], "markdown-doc", "不存在的.md").is_none());
+    assert!(read_artifact(&change.0, &[], "file-log", "proposal.md").is_none());
+    assert!(read_artifact(&change.0, &[], "", "proposal.md").is_none());
+}
+
+/// 越界序号（≥ phases.len()）→ None；空 phases 下任意序号均越界。
+#[test]
+fn 越界序号与空切片返回none() {
     let change = TempChange::new("bad-source");
     change.write("proposal.md", "# 提案正文");
     let phases = vec![phase_entry(
@@ -252,20 +461,9 @@ fn 越界序号与非法source与未注册kind返回none() {
         vec![item("问题清晰", true, "L1-10")],
     )];
 
-    // 越界 eval 序号（切片长度 1）
     assert!(read_artifact(&change.0, &phases, "eval-checklist", "99").is_none());
-    // 空切片下任意序号均越界
     assert!(read_artifact(&change.0, &[], "eval-checklist", "0").is_none());
-
-    // 不存在的文件 source
-    assert!(
-        read_artifact(&change.0, &phases, "markdown-doc", "不存在的.md").is_none(),
-        "文件 source 指向缺失文件 → None"
-    );
-
-    // 未注册 kind（file-log 是第二刀规划的 kind）/ 空 kind
-    assert!(read_artifact(&change.0, &phases, "file-log", "proposal.md").is_none());
-    assert!(read_artifact(&change.0, &phases, "", "proposal.md").is_none());
+    assert!(read_artifact(&change.0, &phases, "eval-checklist", "0").is_some());
 }
 
 /// 敌意 source 在注册表层被拒绝，不逃逸 change 目录（既有守卫持衡）。
@@ -274,8 +472,7 @@ fn 敌意source在注册表层被拒绝_不逃逸change目录() {
     let change = TempChange::new("hostile-source");
     change.write("proposal.md", "# 提案正文");
 
-    // 越权目标：change 目录树外的秘密文件（workspace 侧真实存在，
-    // 排除"恰好读不到"的假阳性）
+    // 越权目标：change 目录树外的秘密文件（真实存在，排除「恰好读不到」假阳性）
     let outside = change.0.parent().unwrap_or_else(|| Path::new("/"));
     let secret = outside.join("registry-test-secret.md");
     fs::write(&secret, "# 不应被越权读取").expect("写外部 secret 失败");
@@ -299,7 +496,6 @@ fn 敌意source在注册表层被拒绝_不逃逸change目录() {
         );
     }
 
-    // 越权目标确实存在（排除环境假阳性），但无法经 read_artifact 触达
     assert!(fs::read_to_string(&secret).is_ok());
     let _ = fs::remove_file(&secret);
 
@@ -308,76 +504,4 @@ fn 敌意source在注册表层被拒绝_不逃逸change目录() {
         read_artifact(&change.0, &[], "markdown-doc", "proposal.md").is_some(),
         "合法 source 不应被包含性校验误伤"
     );
-}
-
-// ---------------------------------------------------------------------------
-// 正向：信封五字段与 discover→read 寻址一致性
-// ---------------------------------------------------------------------------
-
-/// 已注册 kind 与有效 source 返回五字段齐全的信封。
-#[test]
-fn 已注册kind与有效source返回五字段齐全的信封() {
-    let change = TempChange::new("read-ok");
-    change.write("tasks.md", "- [x] 完成\n");
-    change.write("proposal.md", "# 提案正文");
-
-    let envelope = read_artifact(&change.0, &[], "tasks-progress", "tasks.md")
-        .expect("tasks-progress 信封应可读取");
-    assert_eq!(envelope.kind, "tasks-progress");
-    assert_eq!(envelope.version, 1, "version 从 1 起");
-    assert_eq!(envelope.title, "任务进度");
-    assert!(envelope.payload.is_object());
-    assert!(
-        envelope.fallback_text.is_some(),
-        "五字段之 fallback_text 齐全"
-    );
-
-    let envelope = read_artifact(&change.0, &[], "markdown-doc", "proposal.md")
-        .expect("markdown-doc 信封应可读取");
-    assert_eq!(envelope.kind, "markdown-doc");
-    assert_eq!(envelope.version, 1);
-    assert_eq!(envelope.payload["markdown"], "# 提案正文");
-}
-
-/// discover 给出的 (kind, source) 可被 read_artifact 原样回放（文件与 eval
-/// 序号两种寻址形态一致性）。
-#[test]
-fn discover寻址与read回放一致() {
-    let change = TempChange::new("roundtrip");
-    change.write("tasks.md", "- [x] 完成\n");
-    let phases = vec![phase_entry(
-        "proposal",
-        1,
-        vec![item("问题清晰", true, "L1-10")],
-    )];
-
-    let descriptors = discover_artifacts(&change.0, &phases);
-    assert!(
-        descriptors.len() >= 3,
-        "tasks.md 两 kind + eval 条目，实际: {descriptors:?}"
-    );
-
-    for descriptor in &descriptors {
-        let envelope = read_artifact(&change.0, &phases, &descriptor.kind, &descriptor.source)
-            .unwrap_or_else(|| {
-                panic!(
-                    "descriptor ({}, {}) 应可回放",
-                    descriptor.kind, descriptor.source
-                )
-            });
-        assert_eq!(envelope.kind, descriptor.kind);
-        assert_eq!(envelope.title, descriptor.title);
-    }
-
-    // eval 信封内容逐字段
-    let eval = descriptors
-        .iter()
-        .find(|d| d.kind == "eval-checklist")
-        .expect("应产出 eval-checklist descriptor");
-    let envelope =
-        read_artifact(&change.0, &phases, &eval.kind, &eval.source).expect("eval 信封应可读取");
-    assert_eq!(envelope.payload["phase"], "proposal");
-    assert_eq!(envelope.payload["attempt"], 1);
-    assert_eq!(envelope.payload["verdict"], "pass");
-    assert_eq!(envelope.payload["items"].as_array().map(Vec::len), Some(1));
 }

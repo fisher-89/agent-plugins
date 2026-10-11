@@ -1,11 +1,11 @@
-import type { ChangeDetail, PhaseEntry } from '../../../types/dto';
+import type { ChangeDetail, ChangeRunEdgeRecord, PhaseEntry } from '../../../types/dto';
 import { PIPELINE_PHASES } from './layout';
+import { nodeIdentityKey } from './run-state';
 import type {
   ActiveFlowNode,
   EvalFlowNode,
   FlowColumn,
   FlowEdge,
-  FlowEdgeKind,
   FlowGraph,
   FlowNode,
   RuntimeFlowNode,
@@ -102,30 +102,56 @@ function assignOrders(sequence: FlowNode[]): void {
   }
 }
 
-function deriveEdges(sequence: FlowNode[]): FlowEdge[] {
-  const edges: FlowEdge[] = [];
-  for (let index = 1; index < sequence.length; index += 1) {
-    const source = sequence[index - 1];
-    const target = sequence[index];
-    const delta = target.colIndex - source.colIndex;
-    const kind: FlowEdgeKind = delta > 0 ? 'forward' : delta === 0 ? 'retry' : 'backtrack';
-    edges.push({
-      id: `edge:${source.id}->${target.id}`,
+/** 回跳边标签：发起相位最近一次条目的 `backtrackReason`（回跳落账记因随发起相位
+ * 条目在库；无边标签来源则 null）。 */
+function backtrackReason(pipeline: PhaseEntry[], phase: string): string | null {
+  const station = pipeline.find((candidate) => candidate.phase === phase);
+  if (station === undefined) return null;
+  for (let index = station.attempts.length - 1; index >= 0; index -= 1) {
+    const reason = station.attempts[index].backtrackReason;
+    if (reason !== null && reason !== '') return reason;
+  }
+  return null;
+}
+
+/** 后端边表 → 图边（端点按节点稳定身份键寻址；悬空端点降级跳过不渲染——数据
+ * 缺口不炸图）。列差 Δ 派生已退役。 */
+function tableEdges(
+  edges: readonly ChangeRunEdgeRecord[],
+  nodes: FlowNode[],
+  pipeline: PhaseEntry[],
+): FlowEdge[] {
+  const byKey = new Map<string, RuntimeFlowNode>();
+  for (const node of nodes) {
+    if (node.kind === 'runtime') byKey.set(nodeIdentityKey(node), node);
+  }
+  const flowEdges: FlowEdge[] = [];
+  for (let index = 0; index < edges.length; index += 1) {
+    const edge = edges[index];
+    const source = byKey.get(edge.fromNodeKey);
+    const target = byKey.get(edge.toNodeKey);
+    if (source === undefined || target === undefined) continue;
+    flowEdges.push({
+      id: `edge:${index}:${source.id}->${target.id}`,
       source: source.id,
       target: target.id,
-      kind,
-      label: kind === 'backtrack' && target.kind === 'eval' ? target.record.backtrackReason : null,
+      kind: edge.edgeKind,
+      label: edge.edgeKind === 'backtrack' ? backtrackReason(pipeline, source.phase) : null,
     });
   }
-  return edges;
+  return flowEdges;
 }
 
 /** 详情聚合 → 流程图模型；`pipeline` 为空（v0 早期代际）返回空图（无列无节点）。
- * `runNodes` 为运行步 overlay（统一视图派生——`runStepNodes(unifiedRunSteps(
- * detail.runs, activeRun?.steps))` 单源拼装，unify-run-state-persistence：库
- * 读史 ∪ 在飞活步同一转换函数，图常驻渲染零回落；缺省 / 空参即无运行态）：
- * 节点按给定序恒追加归并链尾，参与同一条链的边推导。 */
-export function buildFlowGraph(detail: ChangeDetail, runNodes?: RuntimeFlowNode[]): FlowGraph {
+ * `runNodes` / `runEdges` 为运行执行图 overlay（统一视图派生——`runStepNodes(
+ * unifiedRunNodes(detail.runs, activeRun?.nodes))` + `unifiedRunEdges(detail.runs,
+ * activeRun?.edges)` 单源拼装：库读史 ∪ 在飞活面同一转换函数，图常驻渲染零回落；
+ * 缺省 / 空参即无运行态）。节点按给定序恒追加归并链尾；边恒读后端边表。 */
+export function buildFlowGraph(
+  detail: ChangeDetail,
+  runNodes?: RuntimeFlowNode[],
+  runEdges?: readonly ChangeRunEdgeRecord[],
+): FlowGraph {
   if (detail.pipeline.length === 0) {
     return { columns: [], nodes: [], edges: [] };
   }
@@ -140,5 +166,9 @@ export function buildFlowGraph(detail: ChangeDetail, runNodes?: RuntimeFlowNode[
     sequence.push(runNode);
   }
   assignOrders(sequence);
-  return { columns, nodes: sequence, edges: deriveEdges(sequence) };
+  return {
+    columns,
+    nodes: sequence,
+    edges: tableEdges(runEdges ?? [], sequence, detail.pipeline),
+  };
 }

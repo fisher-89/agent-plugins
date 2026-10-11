@@ -27,6 +27,17 @@ pub use promote::{promote_explore, PromoteOutcome};
 pub use run::{run_finish, run_start};
 pub use worktree::{InstallRun, RepoProbe, WorktreePort};
 
+/// 计划图侧类型再导出（phase 定义声明面）：`StepDefinition` / `StepNode` /
+/// `StepGroup` / `AgentRole` / `OnFail` / `ArtifactSpec` 本体驻 `crate::state`
+///（词汇单点），本出口面供编排 / 查询 / 命令层消费。
+pub use crate::state::{AgentRole, ArtifactSpec, OnFail, StepDefinition, StepGroup, StepNode};
+
+/// 执行图整包载荷再导出（run 收口写面）：`RunNodeEntry` / `RunEdgeEntry` 与
+/// 其状态快照对应项同驻 `crate::state`。
+pub use crate::state::{
+    RunEdgeEntry, RunEdgeStateRecord, RunFinishCommand, RunNodeEntry, RunNodeStateRecord,
+};
+
 /// 当前 UTC unix 毫秒（写面时钟单点；时钟早于 epoch 取 0，不 panic）。
 pub(crate) fn now_millis() -> i64 {
     std::time::SystemTime::now()

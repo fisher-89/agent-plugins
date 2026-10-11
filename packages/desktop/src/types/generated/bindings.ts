@@ -12,8 +12,8 @@ export const commands = {
 	listChanges: (root: string) => __TAURI_INVOKE<ChangeList>("list_changes", { root }),
 	/**
 	 *  单 change 详情聚合（统一视图，unify-run-state-persistence D11；按 change
-	 *  **id** 寻址）：一次返回「库读史（detail.runs）∪ 在飞 run 活面
-	 *  （activeRun）」——前端零双命令拼接。未知 id 返回 `None`（未建档——零磁盘
+	 *  **id** 寻址）：一次返回「库读史（`detail.runs[].nodes` / `runs[].edges`）∪
+	 *  在飞 run 活面（activeRun.nodes / activeRun.edges）」——前端零双命令拼接。未知 id 返回 `None`（未建档——零磁盘
 	 *  目录解析回退、零文档形态空面）。IPC 签名不变：blank root 与开库失败均
 	 *  `None`。worktree / name 感知在 core `change_detail` 内（record 先读后定位，
 	 *  磁盘面恒自记录供给）。
@@ -265,8 +265,9 @@ export type ActivePhase = {
 
 /**
  *  统一视图活面投影（unify-run-state-persistence D11）：注册表快照的线面像
- *  ——`startedAt` ISO 化收本命令层单点（快照毫秒 → ISO 串），steps 全词汇
- *  emit 序透传。
+ *  ——`startedAt` ISO 化收本命令层单点（快照毫秒 → ISO 串），nodes 全词汇
+ *  emit 序透传；edges 随行出线（线面形状与库读史 `runs[].edges` 同型——
+ *  前端两类来源同一转换函数消费，零双形状）。
  */
 export type ActiveRunView = {
 	runId: string,
@@ -275,7 +276,8 @@ export type ActiveRunView = {
 	attempt: number | null,
 	ask: AskPayload | null,
 	startedAt: string,
-	steps: ChangeStepState[],
+	nodes: ChangeStepState[],
+	edges: ChangeRunEdgeRecord[],
 };
 
 /**  消息内块：Text / Thinking / ToolUse / ToolResult 四变体（tag `kind`，camelCase）。 */
@@ -542,11 +544,17 @@ export type ArchiveUpdate =
 /**  终态收口（summary 与 error 互斥——成功 / 失败停止两态） */
 { ipc: "finished"; summary: ArchiveSummary | null; error: string | null };
 
-/**  产物寻址清单项：`source` 为 change 内相对 POSIX 路径或 eval 条目序号串。 */
+/**
+ *  产物寻址清单项：`source` 为 change 内相对 POSIX 路径或 eval 条目序号串；
+ *  `phase` 为**清单归属**（文件候选 = 清单声明相位；eval 候选 = PhaseRecord 投影
+ *  的相位）——前端按本归属挂列，MUST NOT 重建第二份静态映射表。
+ */
 export type ArtifactDescriptor = {
 	kind: string,
 	source: string,
 	title: string,
+	/**  phase 归属（清单声明 / PhaseRecord 投影供给） */
+	phase: string,
 };
 
 /**  中间产物信封：所有产物以统一形状经 IPC 传递。 */
@@ -607,8 +615,9 @@ export type ChangeDetail = {
 	pipeline: PhaseEntry[],
 	activePhase: ActivePhase | null,
 	/**
-	 *  run 运行史全量读面（unify-run-state-persistence：全史不截，runs 按
-	 *  `started_at` 升序、steps 按 seq 升序；文档形态恒空数组）
+	 *  run 执行图全量读面（unify-run-state-persistence + run-workflow-by-step：
+	 *  全史不截，runs 按 `started_at` 升序、nodes 按 emit 序、edges 按 emit 序；
+	 *  未建档 / 未跑形态恒空数组）
 	 */
 	runs: ChangeRunEntry[],
 	artifacts: ArtifactDescriptor[],
@@ -634,9 +643,16 @@ export type ChangeList = {
 	archiveGroups: ArchiveGroup[],
 };
 
+/**  run 执行图边行线面（四 kind 封闭集直出；端点 = 节点身份串）。 */
+export type ChangeRunEdgeRecord = {
+	fromNodeKey: string,
+	toNodeKey: string,
+	edgeKind: RunEdgeKind,
+};
+
 /**
- *  单次 run 运行史条目（全史不截；在飞 run 的 start 行已在库——status=
- *  running、steps 恒空，run 清单面运行中可见）。
+ *  单次 run 执行图条目（全史不截；在飞 run 的 start 行已在库——status=
+ *  running、nodes / edges 恒空，run 清单面运行中可见）。
  */
 export type ChangeRunEntry = {
 	runId: string,
@@ -644,7 +660,28 @@ export type ChangeRunEntry = {
 	reason: string | null,
 	startedAt: string | null,
 	finishedAt: string | null,
-	steps: ChangeRunStepRecord[],
+	/**  执行图节点（全词汇零过滤，node_seq 升序 = emit 序） */
+	nodes: ChangeRunNodeRecord[],
+	/**  执行图边（四 kind，edge_seq 升序 = emit 序） */
+	edges: ChangeRunEdgeRecord[],
+};
+
+/**
+ *  run 执行图节点行线面（十值全词汇封闭集直出，词汇 = `state::RunStepKind`
+ *  单点；稳定身份键 `(phase, attempt, step, instanceNo)`，库读序 = node_seq 升序
+ *  = emit 序）。
+ */
+export type ChangeRunNodeRecord = {
+	phase: string,
+	attempt: number,
+	step: RunStepKind,
+	/**  同 `(phase, attempt, step)` 内的执行实例号（feedback 重跑递增） */
+	instanceNo: number,
+	status: RunStepStatus,
+	sessionId: string | null,
+	detail: string | null,
+	/**  全量输出引用（`ExecOutput::Recorded { exec_id }`；无记录恒 null） */
+	outputRef: string | null,
 };
 
 /**
@@ -664,20 +701,6 @@ export type ChangeRunStatus =
 "stopped" | 
 /**  失败终止（写面 / 会话失败 / 解析失败显式停给用户） */
 "failed";
-
-/**
- *  run 步节点史行线面（五词汇封闭集直出，词汇 = `state::RunStepKind` 单点；
- *  seq = emit 序稳定升序）。
- */
-export type ChangeRunStepRecord = {
-	seq: number,
-	phase: string,
-	attempt: number,
-	step: RunStepKind,
-	status: RunStepStatus,
-	sessionId: string | null,
-	detail: string | null,
-};
 
 /**
  *  发起提前 resolve 返回值：run_id 立即可知，运行态经 Channel 流出（与
@@ -724,7 +747,11 @@ export type ChangeStepKind =
 /**  backtrack 白名单门（决策越权预校验） */
 "whitelistGate";
 
-/**  步状态行：一次 `RunUpdate::Step` 的载荷，运行步节点推导的唯一输入面。 */
+/**
+ *  步状态行：一次 `RunUpdate::Step` 的载荷，运行步节点推导的唯一输入面。稳定
+ *  身份键 = `(phase, attempt, step, instance_no)`——同 `(phase, attempt, step)` 的
+ *  多次执行（feedback 重跑）以 `instance_no` 递增区分，前端直读直渲染。
+ */
 export type ChangeStepState = {
 	/**  相位 id */
 	phase: string,
@@ -732,12 +759,16 @@ export type ChangeStepState = {
 	attempt: number,
 	/**  步词汇 */
 	step: ChangeStepKind,
+	/**  同 `(phase, attempt, step)` 内的执行实例号（每次执行递增） */
+	instanceNo: number,
 	/**  步状态 */
 	status: ChangeStepStatus,
 	/**  WorkerAgent 步所属会话 id（工具步 / Gate 步为 None） */
 	sessionId: string | null,
 	/**  人读详情（失败记因 / 通过摘要） */
 	detail: string | null,
+	/**  全量输出引用（`ExecOutput::Recorded { exec_id }`；Transient 恒 None） */
+	outputRef: string | null,
 };
 
 /**  步状态四档。 */
@@ -1058,13 +1089,31 @@ export type RulesConfig = {
 };
 
 /**
- *  变更通知（唯一 IPC 信封；unify-run-state-persistence D3 通知降位）：五
+ *  run 执行图边词汇封闭集（四值，线格式小写词）：`forward` 计划序推进 /
+ *  `feedback` gate 失败回同 phase agent 步（phase 内回边）/ `retry` phase fail
+ *  后同相位重跑 / `backtrack` 跨相位回跳。词汇本体单点——编排侧 `ChangeStepEdge`
+ *  与落库命令（`RunEdgeEntry.edge_kind`）同本类型消费（零映射）。
+ */
+export type RunEdgeKind = 
+/**  计划序推进（相位内按 steps 序推进、相位间推进） */
+"forward" | 
+/**  gate 失败回到同 phase agent 步（phase 内回边） */
+"feedback" | 
+/**  phase fail 后同相位重跑 */
+"retry" | 
+/**  跨相位回跳 */
+"backtrack";
+
+/**
+ *  变更通知（唯一 IPC 信封；unify-run-state-persistence D3 通知降位）：六
  *  kind-only 变体与 [`RunUpdate`] 一一同型、零载荷——通知仅失效信号，查询
  *  结果权威，客户端收通知自行重查统一视图（`get_change_detail`）与转录库。
  */
 export type RunNotice = 
 /**  步状态变更（→ 统一视图重查） */
 { ipc: "step" } | 
+/**  执行图边变更（→ 统一视图重查） */
+{ ipc: "edge" } | 
 /**  WorkerAgent 会话事件透传（→ 转录库重查） */
 { ipc: "sessionEvent" } | 
 /**  ask 中断（→ 统一视图重查） */
@@ -1092,10 +1141,11 @@ export type RunStatus =
 "interrupted";
 
 /**
- *  run 步词汇封闭集（五值，线格式 snake_case 词）：agent 阶段（executor /
- *  evaluator / decision）+ 脚本阶段（static_check / test_execution）。词汇
- *  本体单点——落库命令（`RunStepEntry.step`）与查询投影（`detail.rs`）同本
- *  类型消费，store 结构上收不到忽略集（流程面步骤与三门不可表达）。
+ *  run 步词汇封闭集（**十值全词汇**，线格式 snake_case 词）：agent 阶段
+ * （executor / evaluator / decision）、脚本阶段（static_check / test_execution）、
+ *  流程面步骤（phase_start / phase_log）与三门 gate（verdict_gate、retry_gate、
+ *  whitelist_gate）。词汇本体单点——落库命令（`RunNodeEntry.step`）与查询投影
+ * （`detail.rs`）同本类型消费，落库零过滤（旧 5 值词表的过滤谓词已退役）。
  */
 export type RunStepKind = 
 /**  executor 会话 */
@@ -1107,7 +1157,17 @@ export type RunStepKind =
 /**  static-check 工具步 */
 "static_check" | 
 /**  test-execution 门禁工具步 */
-"test_execution";
+"test_execution" | 
+/**  phase-start 相位机步 */
+"phase_start" | 
+/**  phase-log 相位机步 */
+"phase_log" | 
+/**  verdict 解析门 */
+"verdict_gate" | 
+/**  retry 预算门 */
+"retry_gate" | 
+/**  backtrack 白名单门 */
+"whitelist_gate";
 
 /**  run 步状态四值（线格式 camelCase 词）。 */
 export type RunStepStatus = 

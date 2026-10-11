@@ -1,5 +1,5 @@
 import { ReactFlow, ReactFlowProvider, type Edge } from '@xyflow/react';
-import { useMemo } from 'react';
+import { useMemo, type CSSProperties } from 'react';
 
 import '@xyflow/react/dist/style.css';
 
@@ -12,15 +12,24 @@ import type { DrawerSelection, FlowEdge, FlowEdgeKind, FlowGraph, FlowMaterials 
 type ChartNode = ColumnFlowNode | EventFlowNode | RunStepFlowNode;
 
 /**
- * 边 kind → 锚定把手 id（对应 FlowEventNode 四侧隐形 Handle）：布局为
- * 9 列横向排布，跨列边水平锚定（前进右出左入、回跳左出右入），同列
- * 重试保持垂直锚定（下出上入）。
+ * 边 kind → 锚定把手 id（对应 FlowEventNode / RunStepNode 四侧隐形 Handle）：布局
+ * 为 9 列横向排布，跨列边水平锚定（前进右出左入、回跳左出右入），同列边垂直锚
+ * 定（下出上入——retry 同相重跑与 feedback phase 内回边均落同列）。
  */
 const EDGE_HANDLES: Record<FlowEdgeKind, { source: string; target: string }> = {
   forward: { source: 'right', target: 'left' },
   backtrack: { source: 'left', target: 'right' },
   retry: { source: 'bottom', target: 'top' },
+  feedback: { source: 'bottom', target: 'top' },
 };
+
+/** 边 kind 视觉：backtrack 虚线（回跳）+ feedback 虚线（phase 内回边，可辨）、
+ * 其余实线。 */
+function edgeStyle(kind: FlowEdgeKind): CSSProperties {
+  if (kind === 'backtrack') return { stroke: 'var(--warn)', strokeDasharray: '6 4' };
+  if (kind === 'feedback') return { stroke: 'var(--primary)', strokeDasharray: '4 3' };
+  return { stroke: 'var(--border)' };
+}
 
 interface ChangeFlowGraphProps {
   graph: FlowGraph;
@@ -106,10 +115,7 @@ function toChartEdges(edges: FlowEdge[]): Edge[] {
     sourceHandle: EDGE_HANDLES[edge.kind].source,
     targetHandle: EDGE_HANDLES[edge.kind].target,
     label: edge.label ?? undefined,
-    style:
-      edge.kind === 'backtrack'
-        ? { stroke: 'var(--warn)', strokeDasharray: '6 4' }
-        : { stroke: 'var(--border)' },
+    style: edgeStyle(edge.kind),
     labelStyle: { fill: 'var(--warn)', fontSize: 10 },
     labelBgStyle: { fill: 'var(--warn-bg)' },
   }));

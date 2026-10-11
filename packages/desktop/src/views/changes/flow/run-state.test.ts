@@ -2,18 +2,18 @@ import { describe, expect, it } from 'vite-plus/test';
 
 import type {
   ChangeRunEntry,
-  ChangeRunStepRecord,
+  ChangeRunNodeRecord,
   ChangeStepKind,
   ChangeStepState,
   RunStepKind,
 } from '../../../types/dto';
-import { runStepNodes, unifiedRunSteps } from './run-state';
+import { runStepNodes, unifiedRunNodes } from './run-state';
 
 // ---------------------------------------------------------------------------
 // run-state 纯函数直测（零 react / 零进程边界依赖）：统一视图 fixture 以绑定
-// 类型内存构造，纯函数直测。覆盖：unifiedRunSteps 双源合成（库读史展开 + 活
-// 步并入 + 步词汇归一单点）/ runStepNodes 槽位配对与三分类载荷（图常驻渲染
-// 的派生面——状态机镜像 / liveEvents / seq 去重随通知降位解散）。
+// 类型内存构造。覆盖：unifiedRunNodes 双源合成（`runs[].nodes` 展开 + 活节点
+// 并入 + 步词汇十值归一单点）/ runStepNodes 按后端稳定身份键
+// `(phase, attempt, step, instanceNo)` 直渲染（槽位配对与 `:seq` 堆叠整体退役）。
 // ---------------------------------------------------------------------------
 
 /** 宽松默认值构造单条活面步状态行。 */
@@ -25,20 +25,23 @@ function stepRow(overrides: Partial<ChangeStepState> = {}): ChangeStepState {
     status: 'running',
     sessionId: 'ses-exec-1',
     detail: null,
+    instanceNo: 0,
+    outputRef: null,
     ...overrides,
   };
 }
 
-/** 宽松默认值构造库读史步行（ChangeRunStepRecord，五词汇 snake 词）。 */
-function runStepRow(overrides: Partial<ChangeRunStepRecord> = {}): ChangeRunStepRecord {
+/** 宽松默认值构造库读史节点行（ChangeRunNodeRecord，snake 词全词汇）。 */
+function runStepRow(overrides: Partial<ChangeRunNodeRecord> = {}): ChangeRunNodeRecord {
   return {
-    seq: 0,
+    instanceNo: 0,
     phase: 'implement',
     attempt: 1,
     step: 'executor',
     status: 'running',
     sessionId: 'ses-exec-1',
     detail: null,
+    outputRef: null,
     ...overrides,
   };
 }
@@ -51,68 +54,104 @@ function runEntry(overrides: Partial<ChangeRunEntry> = {}): ChangeRunEntry {
     reason: null,
     startedAt: '2026-10-01T08:00:00.000Z',
     finishedAt: '2026-10-01T08:04:00.000Z',
-    steps: [],
+    nodes: [],
+    edges: [],
     ...overrides,
   };
 }
 
-describe('unifiedRunSteps：双源合成（库读史 ∪ 活面）', () => {
-  it('runs[].steps 展开：5 类库读史步全量出线（seq 升序保持 emit 序），run 归属分层经 runs 序稳定', () => {
+describe('unifiedRunNodes：双源合成（库读史 ∪ 活面）', () => {
+  it('runs[].nodes 展开：库读史节点全量出线（库读序保持 emit 序），run 归属分层经 runs 序稳定', () => {
     const runs = [
       runEntry({
         runId: 'run-1',
-        steps: [
-          runStepRow({ seq: 0, step: 'executor' }),
-          runStepRow({ seq: 1, step: 'static_check', sessionId: null }),
-          runStepRow({ seq: 2, step: 'evaluator', sessionId: 'ses-eval-1' }),
+        nodes: [
+          runStepRow({ instanceNo: 0, step: 'executor' }),
+          runStepRow({ instanceNo: 0, step: 'static_check', sessionId: null }),
+          runStepRow({ instanceNo: 0, step: 'evaluator', sessionId: 'ses-eval-1' }),
         ],
       }),
     ];
-    expect(unifiedRunSteps(runs, [])).toEqual([
+    expect(unifiedRunNodes(runs, [])).toEqual([
       stepRow({ step: 'executor' }),
       stepRow({ step: 'staticCheck', sessionId: null }),
       stepRow({ step: 'evaluator', sessionId: 'ses-eval-1' }),
     ]);
   });
 
-  it('步词汇归一单点：static_check→staticCheck / test_execution→testExecution（snake 词不入活面词汇）', () => {
+  it('步词汇归一单点：十值 snake 词 → camel 词（snake 词不入活面词汇）', () => {
     const runs = [
       runEntry({
-        steps: [
-          runStepRow({ seq: 0, step: 'static_check', sessionId: null }),
-          runStepRow({ seq: 1, step: 'test_execution', sessionId: null }),
+        nodes: [
+          runStepRow({ instanceNo: 0, step: 'static_check', sessionId: null }),
+          runStepRow({ instanceNo: 0, step: 'test_execution', sessionId: null }),
+          runStepRow({ instanceNo: 0, step: 'phase_start', sessionId: null }),
+          runStepRow({ instanceNo: 0, step: 'phase_log', sessionId: null }),
+          runStepRow({ instanceNo: 0, step: 'verdict_gate', sessionId: null }),
+          runStepRow({ instanceNo: 0, step: 'retry_gate', sessionId: null }),
+          runStepRow({ instanceNo: 0, step: 'whitelist_gate', sessionId: null }),
         ],
       }),
     ];
-    expect(unifiedRunSteps(runs, []).map((row) => row.step)).toEqual([
+    expect(unifiedRunNodes(runs, []).map((row) => row.step)).toEqual([
       'staticCheck',
       'testExecution',
+      'phaseStart',
+      'phaseLog',
+      'verdictGate',
+      'retryGate',
+      'whitelistGate',
     ]);
   });
 
-  it('全史叠加：多 run 步节点全保留（runs 序 = startedAt 序即稳定分层序），活步并列入飞活面', () => {
+  it('全史叠加：多 run 节点全保留（runs 序 = startedAt 序即稳定分层序），活节点并列入飞活面', () => {
     const runs = [
       runEntry({
         runId: 'run-1',
         startedAt: '2026-10-01T08:00:00.000Z',
-        steps: [runStepRow({ seq: 0, attempt: 1 })],
+        nodes: [runStepRow({ instanceNo: 0, attempt: 1 })],
       }),
       runEntry({
         runId: 'run-2',
         startedAt: '2026-10-01T09:00:00.000Z',
-        steps: [runStepRow({ seq: 0, attempt: 2, status: 'passed' })],
+        nodes: [runStepRow({ instanceNo: 0, attempt: 2, status: 'passed' })],
       }),
     ];
-    const steps = unifiedRunSteps(runs, [stepRow({ attempt: 3, status: 'passed' })]);
+    const steps = unifiedRunNodes(runs, [stepRow({ attempt: 3, status: 'passed' })]);
     expect(steps.map((row) => row.attempt)).toEqual([1, 2, 3]);
     expect(steps[2]).toMatchObject({ attempt: 3, status: 'passed' });
   });
 
-  it('空 runs / 空 liveSteps → 空数组（零 run 收口后无史形态）；仅 live（首 run 运行中零库史）→ 活步全量出', () => {
-    expect(unifiedRunSteps([], [])).toEqual([]);
-    // 首 run 运行中（库面无史）→ 活面步表全量出、零库读史分量
+  it('稳定身份键随行：instanceNo 与 outputRef 自库读史直透（feedback 重跑实例不串扰）', () => {
+    const runs = [
+      runEntry({
+        nodes: [
+          runStepRow({ instanceNo: 0, status: 'failed', detail: '门禁未过' }),
+          runStepRow({
+            instanceNo: 1,
+            status: 'passed',
+            detail: '按反馈修复重跑',
+            sessionId: 'ses-fix',
+            outputRef: 'exec-1',
+          }),
+        ],
+      }),
+    ];
+    const steps = unifiedRunNodes(runs, []);
+    expect(steps.map((row) => row.instanceNo)).toEqual([0, 1]);
+    expect(steps[1]).toMatchObject({
+      instanceNo: 1,
+      status: 'passed',
+      sessionId: 'ses-fix',
+      outputRef: 'exec-1',
+    });
+  });
+
+  it('空 runs / 空 liveNodes → 空数组（零 run 收口后无史形态）；仅 live（首 run 运行中零库史）→ 活节点全量出', () => {
+    expect(unifiedRunNodes([], [])).toEqual([]);
+    // 首 run 运行中（库面无史）→ 活面节点表全量出、零库读史分量
     expect(
-      unifiedRunSteps(
+      unifiedRunNodes(
         [],
         [stepRow({ step: 'executor' }), stepRow({ step: 'staticCheck', attempt: 2 })],
       ),
@@ -120,59 +159,51 @@ describe('unifiedRunSteps：双源合成（库读史 ∪ 活面）', () => {
   });
 });
 
-describe('runStepNodes：槽位配对与 id 定式（overlay 输入面）', () => {
-  it('同键 running→passed 成对到达：两行归并单节点（重复状态行不产生重复节点）', () => {
-    const steps = [stepRow(), stepRow({ status: 'passed', detail: '执行收口' })];
-    expect(steps).toHaveLength(2);
+describe('runStepNodes：稳定身份键渲染（overlay 输入面）', () => {
+  it('节点按 (phase, attempt, step, instanceNo) 直渲染：同键多实例为独立节点不串扰', () => {
+    const steps = [
+      stepRow({ instanceNo: 0, status: 'failed', detail: '门禁未过' }),
+      stepRow({
+        instanceNo: 1,
+        status: 'passed',
+        detail: '按反馈修复重跑',
+      }),
+    ];
 
     const nodes = runStepNodes(steps);
-    expect(nodes).toHaveLength(1);
-    expect(nodes[0]).toMatchObject({
-      id: 'run:implement:1:executor',
-      status: 'passed',
-      sessionId: 'ses-exec-1',
-      detail: '执行收口',
-    });
-  });
-
-  it('终态先行（乱序到站）：passed 先于 running 不崩、节点 id 仍唯一可辨', () => {
-    const steps = [stepRow({ status: 'passed' }), stepRow({ status: 'running' })];
-    const nodes = runStepNodes(steps);
+    expect(nodes).toHaveLength(2);
     expect(nodes.map((node) => node.id)).toEqual([
-      'run:implement:1:executor',
+      'run:implement:1:executor:0',
       'run:implement:1:executor:1',
     ]);
+    expect(nodes[1]).toMatchObject({
+      instanceNo: 1,
+      status: 'passed',
+      detail: '按反馈修复重跑',
+      sessionId: 'ses-exec-1',
+    });
     expect(new Set(nodes.map((node) => node.id)).size).toBe(nodes.length);
   });
 
-  it('同键终态行重复到站：追加为独立闭节点（seq 后缀防 id 撞车——attempt 复用撞键例外由槽位机制吸收）、不崩', () => {
-    const steps = [stepRow(), stepRow({ status: 'passed' }), stepRow({ status: 'passed' })];
-
-    const nodes = runStepNodes(steps);
-    expect(nodes.map((node) => node.id)).toEqual([
-      'run:implement:1:executor',
-      'run:implement:1:executor:1',
-    ]);
-    expect(nodes.map((node) => node.status)).toEqual(['passed', 'passed']);
-  });
-
-  it('id 定式逐字：run:<phase>:<attempt>:<step>；同键第二次迭代（static-check 反馈边）追加 :<seq> 后缀', () => {
+  it('id 定式逐字：run:<phase>:<attempt>:<step>:<instanceNo>（`:seq` 堆叠全退役）', () => {
     const steps = [
       stepRow(),
       stepRow({ step: 'staticCheck', sessionId: null }),
       stepRow({ step: 'staticCheck', sessionId: null, status: 'passed' }),
-      stepRow({ step: 'staticCheck', sessionId: null, status: 'running' }),
+      stepRow({ step: 'staticCheck', sessionId: null, instanceNo: 1 }),
     ];
 
     const nodes = runStepNodes(steps);
     expect(nodes.map((node) => node.id)).toEqual([
-      'run:implement:1:executor',
-      'run:implement:1:staticCheck',
+      'run:implement:1:executor:0',
+      'run:implement:1:staticCheck:0',
+      'run:implement:1:staticCheck:0',
       'run:implement:1:staticCheck:1',
     ]);
+    expect(nodes.some((node) => node.id.includes(':seq'))).toBe(false);
   });
 
-  it('载荷承接：runStepKind/group/role/status/sessionId/detail 六面 + kind/colIndex/parentId 布局面逐字段对应', () => {
+  it('载荷承接：runStepKind/group/role/status/sessionId/detail/outputRef/instanceNo 面 + kind/colIndex/parentId 布局面逐字段对应', () => {
     const steps = [
       stepRow(),
       stepRow({
@@ -180,12 +211,13 @@ describe('runStepNodes：槽位配对与 id 定式（overlay 输入面）', () =
         sessionId: null,
         status: 'passed',
         detail: 'attempt 1 已落账',
+        outputRef: 'exec-9',
       }),
     ];
 
     const nodes = runStepNodes(steps);
     expect(nodes[0]).toEqual({
-      id: 'run:implement:1:executor',
+      id: 'run:implement:1:executor:0',
       kind: 'runtime',
       phase: 'implement',
       attempt: 1,
@@ -195,12 +227,14 @@ describe('runStepNodes：槽位配对与 id 定式（overlay 输入面）', () =
       runStepKind: 'executor',
       group: 'workerAgent',
       role: 'executor',
+      instanceNo: 0,
       status: 'running',
       sessionId: 'ses-exec-1',
       detail: null,
+      outputRef: null,
     });
     expect(nodes[1]).toMatchObject({
-      id: 'run:implement:1:phaseLog',
+      id: 'run:implement:1:phaseLog:0',
       kind: 'runtime',
       runStepKind: 'phaseLog',
       group: 'toolStep',
@@ -208,6 +242,7 @@ describe('runStepNodes：槽位配对与 id 定式（overlay 输入面）', () =
       status: 'passed',
       sessionId: null,
       detail: 'attempt 1 已落账',
+      outputRef: 'exec-9',
     });
   });
 
@@ -246,7 +281,7 @@ describe('runStepNodes：槽位配对与 id 定式（overlay 输入面）', () =
 
   it('缺号相位跳过：phase 不在 9 站内的步不入图（布局恒定）', () => {
     const steps = [stepRow({ phase: 'bootstrap' }), stepRow()];
-    expect(runStepNodes(steps).map((node) => node.id)).toEqual(['run:implement:1:executor']);
+    expect(runStepNodes(steps).map((node) => node.id)).toEqual(['run:implement:1:executor:0']);
   });
 
   it('列内归并序：同列多节点按归并序 0 起编号（order 面）', () => {
@@ -263,45 +298,68 @@ describe('runStepNodes：槽位配对与 id 定式（overlay 输入面）', () =
     expect(nodes.map((node) => node.order)).toEqual([0, 1, 2]);
   });
 
-  it('空步表 → 空数组（overlay 缺省输出）', () => {
+  it('空节点表 → 空数组（零节点 run 非错误）；单节点零边无反馈边渲染（overlay 缺省输出）', () => {
     expect(runStepNodes([])).toEqual([]);
+    const single = runStepNodes([stepRow({ status: 'passed' })]);
+    expect(single).toHaveLength(1);
+    expect(single[0].instanceNo).toBe(0);
   });
 });
 
 describe('run-state：缺省字段（推导不崩）', () => {
-  it('detail 缺省（null）+ role null 形态：节点推导不崩、载荷为 null', () => {
-    const steps = [stepRow({ step: 'whitelistGate', sessionId: null, detail: null })];
+  it('detail / outputRef 缺省（null）+ role null 形态：节点推导不崩、载荷为 null', () => {
+    const steps = [
+      stepRow({ step: 'whitelistGate', sessionId: null, detail: null, outputRef: null }),
+    ];
     const nodes = runStepNodes(steps);
     expect(nodes[0]).toMatchObject({
-      id: 'run:implement:1:whitelistGate',
+      id: 'run:implement:1:whitelistGate:0',
       group: 'gate',
       role: null,
       sessionId: null,
       detail: null,
+      outputRef: null,
     });
+  });
+
+  it('instanceNo 缺号（undefined）→ 身份串退化不崩，不抛错', () => {
+    const broken = { ...stepRow(), instanceNo: undefined } as unknown as ChangeStepState;
+    const nodes = runStepNodes([broken]);
+    expect(nodes).toHaveLength(1);
+    expect(nodes[0].id).toBe('run:implement:1:executor:undefined');
   });
 });
 
-// RunStepKind 词汇 import 面锚（五词汇封闭集直测归一单点的输入域）
+// RunStepKind 词汇 import 面锚（十值全词汇直测归一单点的输入域）
 const PERSISTED_WORDS: RunStepKind[] = [
   'executor',
   'evaluator',
   'decision',
   'static_check',
   'test_execution',
+  'phase_start',
+  'phase_log',
+  'verdict_gate',
+  'retry_gate',
+  'whitelist_gate',
 ];
-describe('unifiedRunSteps：词汇封闭集', () => {
-  it('五词汇 snake 词全量归一可达（词汇漂移即断）', () => {
+describe('unifiedRunNodes：词汇全词汇归一', () => {
+  it('十值 snake 词全量归一可达（词汇漂移即断）', () => {
     const steps = PERSISTED_WORDS.map((step, index) =>
-      runStepRow({ seq: index, step, sessionId: null }),
+      runStepRow({ instanceNo: index, step, sessionId: null }),
     );
-    const unified = unifiedRunSteps([runEntry({ steps })], []);
+    const unified = unifiedRunNodes([runEntry({ nodes: steps })], []);
     expect(unified.map((row) => row.step)).toEqual([
       'executor',
       'evaluator',
       'decision',
       'staticCheck',
       'testExecution',
+      'phaseStart',
+      'phaseLog',
+      'verdictGate',
+      'retryGate',
+      'whitelistGate',
     ]);
   });
 });

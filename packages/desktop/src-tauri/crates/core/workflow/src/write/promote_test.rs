@@ -25,8 +25,8 @@ use super::promote_explore;
 use super::{InstallRun, RepoProbe, WorktreePort};
 use crate::state::{
     BacktrackCommand, ChangeStateRecord, ChangeStateStore, ChangeStatus, PhaseLogCommand,
-    PhaseStartState, PhaseStateRecord, RunFinishCommand, RunStartCommand, RunStateRecord,
-    RunStepStateRecord, StepCommand, StepStateRecord, StoreFault,
+    PhaseStartState, PhaseStateRecord, RunEdgeStateRecord, RunFinishCommand, RunNodeStateRecord,
+    RunStartCommand, RunStateRecord, StepCommand, StepStateRecord, StoreFault,
 };
 
 // ---------------------------------------------------------------------------
@@ -344,7 +344,11 @@ impl ChangeStateStore for PromoteStore {
         unimplemented!("本用例不可达")
     }
 
-    fn list_run_steps(&self, _run_id: &str) -> Result<Vec<RunStepStateRecord>, StoreFault> {
+    fn list_run_nodes(&self, _run_id: &str) -> Result<Vec<RunNodeStateRecord>, StoreFault> {
+        unimplemented!("本用例不可达")
+    }
+
+    fn list_run_edges(&self, _run_id: &str) -> Result<Vec<RunEdgeStateRecord>, StoreFault> {
         unimplemented!("本用例不可达")
     }
 

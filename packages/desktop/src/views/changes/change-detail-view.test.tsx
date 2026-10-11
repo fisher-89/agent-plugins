@@ -263,7 +263,7 @@ function detail(overrides: Partial<ChangeDetail> = {}): ChangeDetail {
     activePhase: null,
     runs: [],
     worktree: null,
-    artifacts: [{ kind: 'markdown-doc', source: 'proposal.md', title: '提案' }],
+    artifacts: [{ kind: 'markdown-doc', source: 'proposal.md', title: '提案', phase: 'proposal' }],
     ...overrides,
   };
 }
@@ -475,9 +475,9 @@ describe('ChangeDetailView：页面组装（图区 / 产物区 / 抽屉）', () 
       }),
     ];
     const descriptors: ArtifactDescriptor[] = [
-      { kind: 'markdown-doc', source: 'proposal.md', title: '提案' },
-      { kind: 'tasks-progress', source: 'tasks.md', title: '任务进度' },
-      { kind: 'unknown-kind', source: 'notes.md', title: '未知产物' },
+      { kind: 'markdown-doc', source: 'proposal.md', title: '提案', phase: 'proposal' },
+      { kind: 'tasks-progress', source: 'tasks.md', title: '任务进度', phase: 'dev-design' },
+      { kind: 'unknown-kind', source: 'notes.md', title: '未知产物', phase: 'proposal' },
     ];
     const view = renderDetail({
       detail: detail({ artifacts: descriptors }),
@@ -562,7 +562,9 @@ describe('ChangeDetailView：页面组装（图区 / 产物区 / 抽屉）', () 
       detail: detail({
         status: null,
         pipeline: [],
-        artifacts: [{ kind: 'markdown-doc', source: 'proposal.md', title: '提案' }],
+        artifacts: [
+          { kind: 'markdown-doc', source: 'proposal.md', title: '提案', phase: 'proposal' },
+        ],
       }),
       artifacts: PROPOSAL_ENVELOPES,
     });
@@ -676,8 +678,8 @@ describe('ChangeDetailView：路由参数取数、深链与根切换抑制（页
 // ---------------------------------------------------------------------------
 // run 组装（unify-run-state-persistence 两钩并一后形态）：页面调
 // useChangeFlowRun（控制动作 + 通知订阅）、RunControlPanel 挂 activeRun 活面
-// 与 runs 尾行、runStep overlay 自统一视图派生（runs[].steps ∪
-// activeRun.steps 同一转换函数）、抽屉转录经 refreshKey 重查。运行态经统一
+// 与 runs 尾行、runStep overlay 自统一视图派生（runs[].nodes ∪
+// activeRun.nodes 同一转换函数）、抽屉转录经 refreshKey 重查。运行态经统一
 // 查询 activeRun 面驱动（change_flow_state 快照命令退役），通知 kind-only
 // 经 Channel 直投（step → 统一视图重查 300ms 去抖、sessionEvent → 转录重查
 // 150ms 去抖）；ResizeObserver / getBBox 垫片沿既有装置。
@@ -703,7 +705,8 @@ function activeRunView(overrides: Partial<ActiveRunView> = {}): ActiveRunView {
     attempt: 1,
     ask: null,
     startedAt: '2026-10-01T08:00:00.000Z',
-    steps: [],
+    nodes: [],
+    edges: [],
     ...overrides,
   };
 }
@@ -716,7 +719,8 @@ function finishedRun(overrides: Partial<ChangeRunEntry> = {}): ChangeRunEntry {
     reason: '全相位通过',
     startedAt: '2026-10-01T08:00:00.000Z',
     finishedAt: '2026-10-01T08:04:00.000Z',
-    steps: [],
+    nodes: [],
+    edges: [],
     ...overrides,
   };
 }
@@ -844,7 +848,7 @@ describe('ChangeDetailView：run 控制面板与运行 overlay 组装', () => {
     // 已携步表 → runStep 节点出现在图（同一转换函数派生）
     loadActiveRun(
       activeRunView({
-        steps: [
+        nodes: [
           {
             phase: 'implement',
             attempt: 1,
@@ -852,6 +856,8 @@ describe('ChangeDetailView：run 控制面板与运行 overlay 组装', () => {
             status: 'running',
             sessionId: 'ses-exec',
             detail: null,
+            instanceNo: 0,
+            outputRef: null,
           },
           {
             phase: 'implement',
@@ -860,6 +866,8 @@ describe('ChangeDetailView：run 控制面板与运行 overlay 组装', () => {
             status: 'failed',
             sessionId: null,
             detail: '2 处诊断',
+            instanceNo: 0,
+            outputRef: null,
           },
         ],
       }),
@@ -870,9 +878,9 @@ describe('ChangeDetailView：run 控制面板与运行 overlay 组装', () => {
     await waitFor(() => expect(screen.getAllByTestId('run-step-node')).toHaveLength(2), {
       timeout: 5000,
     });
-    const executor = screen.getByTestId('rf__node-run:implement:1:executor');
+    const executor = screen.getByTestId('rf__node-run:implement:1:executor:0');
     expect(within(executor).getByTestId('run-step-group').textContent).toBe('WorkerAgent');
-    const check = screen.getByTestId('rf__node-run:implement:1:staticCheck');
+    const check = screen.getByTestId('rf__node-run:implement:1:staticCheck:0');
     expect(within(check).getByTestId('run-step-group').textContent).toBe('ToolStep');
     expect(within(check).getByTestId('run-step-detail').textContent).toBe('2 处诊断');
     // overlay 为加法：既有事件节点集合不变（flow-node 挂钩 = eval/active 事件
@@ -890,6 +898,8 @@ describe('ChangeDetailView：run 控制面板与运行 overlay 组装', () => {
         status: 'passed',
         sessionId: 'ses-exec',
         detail: null,
+        instanceNo: 0,
+        outputRef: null,
       },
       {
         phase: 'implement',
@@ -898,9 +908,11 @@ describe('ChangeDetailView：run 控制面板与运行 overlay 组装', () => {
         status: 'running',
         sessionId: null,
         detail: null,
+        instanceNo: 0,
+        outputRef: null,
       },
     ];
-    loadActiveRun(activeRunView({ steps: liveSteps }));
+    loadActiveRun(activeRunView({ nodes: liveSteps }));
     const first = renderDetail({ detail: detail() });
     await screen.findByTestId('run-stop');
     await waitFor(() => expect(ChannelMock.instances).toHaveLength(1));
@@ -909,7 +921,7 @@ describe('ChangeDetailView：run 控制面板与运行 overlay 组装', () => {
 
     // remount：统一查询先行（activeRun 面）→ 步表与 emit 序一致恢复上图 +
     // 运行中才补订 watch（第二个 Channel 实例）
-    loadActiveRun(activeRunView({ steps: liveSteps }));
+    loadActiveRun(activeRunView({ nodes: liveSteps }));
     renderDetail({ detail: detail() });
     await screen.findByTestId('run-stop');
     expect(screen.getByTestId('run-status').textContent).toBe('运行中');
@@ -919,13 +931,13 @@ describe('ChangeDetailView：run 控制面板与运行 overlay 组装', () => {
     const nodes = screen.getAllByTestId('run-step-node');
     expect(nodes[0].getAttribute('data-run-status')).toBe('passed');
     expect(nodes[1].getAttribute('data-run-status')).toBe('running');
-    expect(screen.getByTestId('rf__node-run:implement:1:staticCheck') !== null).toBe(true);
+    expect(screen.getByTestId('rf__node-run:implement:1:staticCheck:0') !== null).toBe(true);
   });
 
-  it('库读史常驻（图常驻渲染）：runs[].steps 零通知即上图（收口后不回落），activeRun 活步叠加其上', async () => {
+  it('库读史常驻（图常驻渲染）：runs[].nodes 零通知即上图（收口后不回落），activeRun 活节点叠加其上', async () => {
     loadActiveRun(
       activeRunView({
-        steps: [
+        nodes: [
           {
             phase: 'implement',
             attempt: 1,
@@ -933,6 +945,8 @@ describe('ChangeDetailView：run 控制面板与运行 overlay 组装', () => {
             status: 'running',
             sessionId: 'ses-eval',
             detail: null,
+            instanceNo: 0,
+            outputRef: null,
           },
         ],
       }),
@@ -941,15 +955,16 @@ describe('ChangeDetailView：run 控制面板与运行 overlay 组装', () => {
       detail: detail({
         runs: [
           finishedRun({
-            steps: [
+            nodes: [
               {
-                seq: 0,
+                instanceNo: 0,
                 phase: 'implement',
                 attempt: 1,
                 step: 'executor',
                 status: 'passed',
                 sessionId: 'ses-exec',
                 detail: null,
+                outputRef: null,
               },
             ],
           }),
@@ -960,17 +975,17 @@ describe('ChangeDetailView：run 控制面板与运行 overlay 组装', () => {
 
     // 库读史步节点常驻（passed 终态样式）+ 活步叠加（running）
     await waitFor(() => expect(screen.getAllByTestId('run-step-node')).toHaveLength(2));
-    expect(screen.getByTestId('rf__node-run:implement:1:executor') !== null).toBe(true);
-    expect(screen.getByTestId('rf__node-run:implement:1:evaluator') !== null).toBe(true);
+    expect(screen.getByTestId('rf__node-run:implement:1:executor:0') !== null).toBe(true);
+    expect(screen.getByTestId('rf__node-run:implement:1:evaluator:0') !== null).toBe(true);
   });
 
-  it('两 run 全史叠加 + 第三 run 活步叠加（AC-9）：同列同相位 attempt 递增各自成节点可辨，键 phase:attempt:step 无冲突', async () => {
+  it('两 run 全史叠加 + 第三 run 活节点叠加（AC-9）：同列同相位 attempt 递增各自成节点可辨，稳定身份键 (phase,attempt,step,instanceNo) 无冲突', async () => {
     // 第三 run 在飞活步（attempt 3，库面无史——首拍未收口）
     loadActiveRun(
       activeRunView({
         runId: 'run-3',
         attempt: 3,
-        steps: [
+        nodes: [
           {
             phase: 'implement',
             attempt: 3,
@@ -978,6 +993,8 @@ describe('ChangeDetailView：run 控制面板与运行 overlay 组装', () => {
             status: 'running',
             sessionId: 'ses-live-3',
             detail: null,
+            instanceNo: 0,
+            outputRef: null,
           },
         ],
       }),
@@ -987,30 +1004,32 @@ describe('ChangeDetailView：run 控制面板与运行 overlay 组装', () => {
         runs: [
           finishedRun({
             runId: 'run-1',
-            steps: [
+            nodes: [
               {
-                seq: 0,
+                instanceNo: 0,
                 phase: 'implement',
                 attempt: 1,
                 step: 'executor',
                 status: 'passed',
                 sessionId: 'ses-1',
                 detail: null,
+                outputRef: null,
               },
             ],
           }),
           finishedRun({
             runId: 'run-2',
             startedAt: '2026-10-01T09:00:00.000Z',
-            steps: [
+            nodes: [
               {
-                seq: 0,
+                instanceNo: 0,
                 phase: 'implement',
                 attempt: 2,
                 step: 'executor',
                 status: 'passed',
                 sessionId: 'ses-2',
                 detail: null,
+                outputRef: null,
               },
             ],
           }),
@@ -1026,9 +1045,9 @@ describe('ChangeDetailView：run 控制面板与运行 overlay 组装', () => {
       within(screen.getByTestId(nodeId))
         .getByTestId('run-step-node')
         .getAttribute('data-run-status');
-    expect(status('rf__node-run:implement:1:executor')).toBe('passed');
-    expect(status('rf__node-run:implement:2:executor')).toBe('passed');
-    expect(status('rf__node-run:implement:3:executor')).toBe('running');
+    expect(status('rf__node-run:implement:1:executor:0')).toBe('passed');
+    expect(status('rf__node-run:implement:2:executor:0')).toBe('passed');
+    expect(status('rf__node-run:implement:3:executor:0')).toBe('running');
   });
 
   it('run 终态通知触发统一视图重查：收口后主操作回到发起、收口记因自 runs 尾行呈现', async () => {
@@ -1056,7 +1075,7 @@ describe('ChangeDetailView：run 控制面板与运行 overlay 组装', () => {
   it('抽屉选中运行步节点 → 转录 props 下传链路接通：运行步实时 sessionId 直查 session_detail、会话事件通知经 refreshKey 触发转录库重查', async () => {
     loadActiveRun(
       activeRunView({
-        steps: [
+        nodes: [
           {
             phase: 'implement',
             attempt: 1,
@@ -1064,6 +1083,8 @@ describe('ChangeDetailView：run 控制面板与运行 overlay 组装', () => {
             status: 'running',
             sessionId: 'ses-exec',
             detail: null,
+            instanceNo: 0,
+            outputRef: null,
           },
         ],
       }),
@@ -1076,7 +1097,7 @@ describe('ChangeDetailView：run 控制面板与运行 overlay 组装', () => {
     await screen.findByTestId('run-stop');
     await waitFor(() => expect(ChannelMock.instances).toHaveLength(1));
 
-    fireEvent.click(await screen.findByTestId('rf__node-run:implement:1:executor'));
+    fireEvent.click(await screen.findByTestId('rf__node-run:implement:1:executor:0'));
 
     const panel = await screen.findByTestId('session-transcript-panel');
     await waitFor(() => expect(panel.textContent).toContain('重放正文'));
@@ -1147,7 +1168,9 @@ describe('ChangeDetailView：退役元素零渲染与详情图区恒态', () => 
       detail: detail({
         status: null,
         pipeline: [],
-        artifacts: [{ kind: 'markdown-doc', source: 'proposal.md', title: '提案' }],
+        artifacts: [
+          { kind: 'markdown-doc', source: 'proposal.md', title: '提案', phase: 'proposal' },
+        ],
       }),
       artifacts: PROPOSAL_ENVELOPES,
     });

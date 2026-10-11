@@ -38,9 +38,11 @@ fn sample_step() -> ChangeStepState {
         phase: "implement".to_owned(),
         attempt: 2,
         step: ChangeStepKind::StaticCheck,
+        instance_no: 0,
         status: ChangeStepStatus::Running,
         session_id: None,
         detail: None,
+        output_ref: None,
     }
 }
 
@@ -257,11 +259,13 @@ fn change_step_state四档状态与缺省字段往返无损() {
             "phase": "implement",
             "attempt": 2,
             "step": "staticCheck",
+            "instanceNo": 0,
             "status": "running",
             "sessionId": null,
-            "detail": null
+            "detail": null,
+            "outputRef": null
         }),
-        "步状态行六字段 camelCase 线面"
+        "步状态行八字段 camelCase 线面（instanceNo / outputRef 增补）"
     );
 
     // 有值形态 serde 往返无损
@@ -269,9 +273,11 @@ fn change_step_state四档状态与缺省字段往返无损() {
         phase: "dev-design".to_owned(),
         attempt: 3,
         step: ChangeStepKind::Executor,
+        instance_no: 0,
         status: ChangeStepStatus::Failed,
         session_id: Some("sess-9".to_owned()),
         detail: Some("会话失败收敛".to_owned()),
+        output_ref: None,
     };
     let text = serde_json::to_string(&full).expect("出线应成功");
     let back: ChangeStepState = serde_json::from_str(&text).expect("往返应成功");
@@ -295,7 +301,8 @@ fn 快照与摘要全字段serde往返() {
             options: vec!["dev-design".to_owned(), "retry".to_owned()],
         }),
         started_at: 1_726_000_000_000,
-        steps: Vec::new(),
+        nodes: Vec::new(),
+        edges: Vec::new(),
     };
     let text = serde_json::to_string(&snapshot).expect("出线应成功");
     assert!(
@@ -314,7 +321,8 @@ fn 快照与摘要全字段serde往返() {
         attempt: None,
         ask: None,
         started_at: 1_726_000_000_000,
-        steps: Vec::new(),
+        nodes: Vec::new(),
+        edges: Vec::new(),
     };
     let text = serde_json::to_string(&running).expect("出线应成功");
     assert!(
@@ -414,9 +422,11 @@ fn 步状态行携testexecution步经run_update出线() {
         phase: "test-execution".to_owned(),
         attempt: 1,
         step: ChangeStepKind::TestExecution,
+        instance_no: 0,
         status: ChangeStepStatus::Running,
         session_id: None,
         detail: None,
+        output_ref: None,
     };
     let value = serde_json::to_value(&RunUpdate::Step {
         step: running.clone(),
@@ -440,6 +450,7 @@ fn 步状态行携testexecution步经run_update出线() {
     let passed = ChangeStepState {
         status: ChangeStepStatus::Passed,
         detail: Some("conclusion=pass total=5 passed=4 failed=0 skipped=1".to_owned()),
+        output_ref: None,
         ..running
     };
     let value = serde_json::to_value(&RunUpdate::Step {
@@ -555,7 +566,7 @@ fn run_notice自run_update投影五变体一一同型() {
     ] {
         let notice = crate::state::RunNotice::from(&update);
         assert_eq!(
-            serde_json::to_value(&notice).expect("出线应成功")["ipc"],
+            serde_json::to_value(notice).expect("出线应成功")["ipc"],
             json!(update.kind()),
             "Notice 判别词与 RunUpdate::kind() 逐字同源"
         );
@@ -565,47 +576,57 @@ fn run_notice自run_update投影五变体一一同型() {
 /// 快照扩面出线：steps 累积器逐条 ChangeStepState camelCase 全词汇形态 +
 /// startedAt 毫秒（AC-10 重挂步表面——统一视图活面投影源的线面）。
 #[test]
-fn 快照扩面_startedat与steps全词汇camelcase出线() {
+fn 快照扩面_startedat与nodes全词汇camelcase出线() {
     let steps = vec![
         ChangeStepState {
             phase: "implement".to_owned(),
             attempt: 1,
             step: ChangeStepKind::Executor,
+            instance_no: 0,
             status: ChangeStepStatus::Passed,
             session_id: Some("ses-1".to_owned()),
             detail: Some("实现完成".to_owned()),
+            output_ref: None,
         },
         ChangeStepState {
             phase: "implement".to_owned(),
             attempt: 1,
             step: ChangeStepKind::StaticCheck,
+            instance_no: 0,
             status: ChangeStepStatus::Failed,
             session_id: None,
             detail: None,
+            output_ref: None,
         },
         ChangeStepState {
             phase: "test-execution".to_owned(),
             attempt: 1,
             step: ChangeStepKind::TestExecution,
+            instance_no: 0,
             status: ChangeStepStatus::Running,
             session_id: None,
             detail: None,
+            output_ref: None,
         },
         ChangeStepState {
             phase: "dev-design".to_owned(),
             attempt: 2,
             step: ChangeStepKind::PhaseStart,
+            instance_no: 0,
             status: ChangeStepStatus::Passed,
             session_id: None,
             detail: None,
+            output_ref: None,
         },
         ChangeStepState {
             phase: "dev-design".to_owned(),
             attempt: 2,
             step: ChangeStepKind::VerdictGate,
+            instance_no: 0,
             status: ChangeStepStatus::Stopped,
             session_id: None,
             detail: None,
+            output_ref: None,
         },
     ];
     let snapshot = ChangeRunSnapshot {
@@ -615,7 +636,8 @@ fn 快照扩面_startedat与steps全词汇camelcase出线() {
         attempt: Some(1),
         ask: None,
         started_at: 1_726_000_000_000,
-        steps,
+        nodes: steps,
+        edges: Vec::new(),
     };
     let value = serde_json::to_value(&snapshot).expect("出线应成功");
     assert_eq!(
@@ -623,18 +645,257 @@ fn 快照扩面_startedat与steps全词汇camelcase出线() {
         json!(1_726_000_000_000_i64),
         "startedAt 毫秒"
     );
-    assert_eq!(value["steps"].as_array().map(Vec::len), Some(5));
-    // 步词汇 camelCase 线面逐条（快照透传 ChangeStepState 原生线格式）
-    assert_eq!(value["steps"][0]["step"], json!("executor"));
-    assert_eq!(value["steps"][1]["step"], json!("staticCheck"));
-    assert_eq!(value["steps"][2]["step"], json!("testExecution"));
-    assert_eq!(value["steps"][3]["step"], json!("phaseStart"));
-    assert_eq!(value["steps"][4]["step"], json!("verdictGate"));
-    assert_eq!(value["steps"][1]["status"], json!("failed"));
-    assert_eq!(value["steps"][4]["status"], json!("stopped"));
+    assert_eq!(value["nodes"].as_array().map(Vec::len), Some(5));
+    assert!(
+        value["edges"].as_array().is_some_and(Vec::is_empty),
+        "快照 edges 键恒在场（零边 run 空数组）"
+    );
+    // 节点词汇 camelCase 线面逐条（快照透传 ChangeStepState 原生线格式）
+    assert_eq!(value["nodes"][0]["step"], json!("executor"));
+    assert_eq!(value["nodes"][1]["step"], json!("staticCheck"));
+    assert_eq!(value["nodes"][2]["step"], json!("testExecution"));
+    assert_eq!(value["nodes"][3]["step"], json!("phaseStart"));
+    assert_eq!(value["nodes"][4]["step"], json!("verdictGate"));
+    assert_eq!(value["nodes"][1]["status"], json!("failed"));
+    assert_eq!(value["nodes"][4]["status"], json!("stopped"));
+    // 稳定身份键随节点出线（instanceNo + outputRef）
+    assert_eq!(value["nodes"][0]["instanceNo"], json!(0));
+    assert_eq!(
+        value["nodes"][0]["outputRef"],
+        json!(null),
+        "null 留位不省键"
+    );
 
     // serde 往返无损（扩面字段随行）
     let text = serde_json::to_string(&snapshot).expect("出线应成功");
     let back: ChangeRunSnapshot = serde_json::from_str(&text).expect("往返应成功");
-    assert_eq!(back, snapshot, "快照（含 steps 累积器）往返无损");
+    assert_eq!(back, snapshot, "快照（含 nodes / edges 累积器）往返无损");
+}
+
+// ---------------------------------------------------------------------------
+// 执行图边（EdgeKind 四值 / ChangeStepEdge 端点身份串 / Edge 信封）
+// ---------------------------------------------------------------------------
+
+/// `EdgeKind` 四值 camelCase 线面逐字出线（forward / feedback / retry /
+/// backtrack）；非法词反序列化拒绝（封闭集防线，AC-3 / AC-6 / AC-9）。
+#[test]
+fn edge_kind四值线面camelcase逐字与封闭集拒绝() {
+    let wire = |kind: crate::state::EdgeKind| serde_json::to_value(kind).expect("出线应成功");
+    assert_eq!(wire(crate::state::EdgeKind::Forward), json!("forward"));
+    assert_eq!(wire(crate::state::EdgeKind::Feedback), json!("feedback"));
+    assert_eq!(wire(crate::state::EdgeKind::Retry), json!("retry"));
+    assert_eq!(wire(crate::state::EdgeKind::Backtrack), json!("backtrack"));
+
+    for illegal in ["feedBack", "Forward", "back_track", "unknown", ""] {
+        let back: Result<crate::state::EdgeKind, _> = serde_json::from_value(json!(illegal));
+        assert!(back.is_err(), "EdgeKind 越集词 {illegal:?} 应拒绝");
+    }
+}
+
+/// `ChangeStepEdge` 三字段（from / to / kind）往返可辨；端点身份串恒为
+/// `"{phase}:{attempt}:{step}:{instance_no}"`（`from_node_key` / `to_node_key`
+/// 与落库侧 `RunNodeRecord::node_id()` 同式，AC-3 / AC-6）。
+#[test]
+fn change_step_edge往返与端点身份串() {
+    let edge = crate::state::ChangeStepEdge {
+        from: ("implement".to_owned(), 1, ChangeStepKind::StaticCheck, 0),
+        to: ("implement".to_owned(), 1, ChangeStepKind::Executor, 1),
+        kind: crate::state::EdgeKind::Feedback,
+    };
+    assert_eq!(
+        edge.from_node_key(),
+        "implement:1:static_check:0",
+        "源端点身份串（snake_case 步词汇）"
+    );
+    assert_eq!(edge.to_node_key(), "implement:1:executor:1");
+    assert_eq!(
+        crate::state::node_id(&edge.from),
+        edge.from_node_key(),
+        "node_id 组装单点与访问器同式"
+    );
+
+    let text = serde_json::to_string(&edge).expect("出线应成功");
+    assert!(text.contains("\"kind\":\"feedback\""), "kind 线词: {text}");
+    assert!(
+        text.contains("[\"implement\",1,\"staticCheck\",0]"),
+        "进程内 seam 载荷：端点四元组直出（身份键语义），实际: {text}"
+    );
+    let back: crate::state::ChangeStepEdge = serde_json::from_str(&text).expect("往返应成功");
+    assert_eq!(back, edge, "边往返无损");
+
+    // 三字段逐项可辨：改 kind / 改实例号即不等价（四 kind 与实例号不串扰）
+    assert_ne!(
+        crate::state::ChangeStepEdge {
+            kind: crate::state::EdgeKind::Retry,
+            ..edge.clone()
+        },
+        edge,
+        "feedback 与 retry 可辨"
+    );
+    assert_ne!(
+        crate::state::ChangeStepEdge {
+            to: ("implement".to_owned(), 1, ChangeStepKind::Executor, 2),
+            ..edge.clone()
+        },
+        edge,
+        "目标实例号可辨"
+    );
+}
+
+/// `RunUpdate::Edge` 变体：kind() 访问器 == "edge"、线面载荷形态固定（边信封
+/// 与 step 信封同型判别，AC-6 / AC-9 通知桥前置）。
+#[test]
+fn run_update_edge变体出线与kind一致() {
+    let edge = crate::state::ChangeStepEdge {
+        from: ("proposal".to_owned(), 1, ChangeStepKind::Executor, 0),
+        to: ("proposal".to_owned(), 1, ChangeStepKind::StaticCheck, 0),
+        kind: crate::state::EdgeKind::Forward,
+    };
+    let update = RunUpdate::Edge { edge: edge.clone() };
+    assert_eq!(update.kind(), "edge", "kind 判别词逐字");
+
+    let value = serde_json::to_value(&update).expect("出线应成功");
+    assert_eq!(value["ipc"], json!("edge"), "tag=ipc 判别值逐字 edge");
+    assert_eq!(
+        value["edge"]["from"],
+        json!(["proposal", 1, "executor", 0]),
+        "源端点四元组随信封出线（进程内 seam 载荷）"
+    );
+    assert_eq!(value["edge"]["kind"], json!("forward"));
+    assert_eq!(
+        value["edge"]["to"],
+        json!(["proposal", 1, "staticCheck", 0])
+    );
+}
+
+/// `RunNotice::Edge`：kind-only 信封（零载荷、单键出线），`From<&RunUpdate>`
+/// 投影一一同型（通知不带查询载荷，AC-6 / AC-9）。
+#[test]
+fn run_notice_edge变体kind_only与投影同型() {
+    let notice = crate::state::RunNotice::Edge;
+    assert_eq!(
+        serde_json::to_value(notice).expect("通知出线应成功"),
+        json!({"ipc": "edge"}),
+        "edge kind-only 单键"
+    );
+
+    let update = RunUpdate::Edge {
+        edge: crate::state::ChangeStepEdge {
+            from: ("implement".to_owned(), 1, ChangeStepKind::Executor, 0),
+            to: ("implement".to_owned(), 1, ChangeStepKind::Executor, 1),
+            kind: crate::state::EdgeKind::Feedback,
+        },
+    };
+    assert!(
+        matches!(
+            crate::state::RunNotice::from(&update),
+            crate::state::RunNotice::Edge
+        ),
+        "投影一一同型（载荷剥离）"
+    );
+    // 投影结果零载荷：线面单键（信封形状防线——越权携查询载荷）
+    let projected = crate::state::RunNotice::from(&update);
+    let value = serde_json::to_value(projected).expect("出线应成功");
+    assert_eq!(value.as_object().map(serde_json::Map::len), Some(1));
+    assert!(value.get("edge").is_none(), "零载荷：不携边载荷");
+}
+
+/// 快照 `edges` 面：零边 run 空数组；多边快照按 emit 序稳定（克隆语义）；
+/// 悬空端点形态（数据缺口）序列化不 panic（稳健面，AC-5 / AC-9）。
+#[test]
+fn 快照edges面零边空数组与多边序稳定() {
+    let empty = ChangeRunSnapshot {
+        run_id: "run-1".to_owned(),
+        status: ChangeRunStatus::Running,
+        phase: None,
+        attempt: None,
+        ask: None,
+        started_at: 1_726_000_000_000,
+        nodes: Vec::new(),
+        edges: Vec::new(),
+    };
+    let value = serde_json::to_value(&empty).expect("出线应成功");
+    assert!(value["edges"].as_array().is_some_and(Vec::is_empty));
+
+    let edges: Vec<crate::state::ChangeStepEdge> = [
+        crate::state::EdgeKind::Forward,
+        crate::state::EdgeKind::Feedback,
+        crate::state::EdgeKind::Retry,
+        crate::state::EdgeKind::Backtrack,
+    ]
+    .iter()
+    .enumerate()
+    .map(|(index, kind)| crate::state::ChangeStepEdge {
+        from: (
+            "implement".to_owned(),
+            1,
+            ChangeStepKind::Executor,
+            index as u32,
+        ),
+        to: ("implement".to_owned(), 1, ChangeStepKind::PhaseLog, 0),
+        kind: *kind,
+    })
+    .collect();
+    let snapshot = ChangeRunSnapshot {
+        edges: edges.clone(),
+        ..empty
+    };
+    assert_eq!(snapshot.edges, edges, "多边按 emit 序稳定");
+    let back: ChangeRunSnapshot =
+        serde_json::from_str(&serde_json::to_string(&snapshot).unwrap()).expect("往返应成功");
+    assert_eq!(back, snapshot, "多边快照往返无损");
+    let value = serde_json::to_value(&snapshot).expect("出线应成功");
+    let kinds: Vec<&str> = value["edges"]
+        .as_array()
+        .expect("edges 数组")
+        .iter()
+        .map(|edge| edge["kind"].as_str().expect("kind 为串"))
+        .collect();
+    assert_eq!(kinds, vec!["forward", "feedback", "retry", "backtrack"]);
+}
+
+/// `ChangeStepState` 稳定身份键：同 `(phase, attempt, step)` 多实例经
+/// `instance_no` 递增可辨；同键同实例号两行身份串相同（碰撞防线，AC-3 / AC-4）。
+#[test]
+fn change_step_state实例号递增可辨() {
+    let first = sample_step();
+    let repaired = ChangeStepState {
+        instance_no: 1,
+        detail: Some("feedback 修复重跑".to_owned()),
+        output_ref: Some("exec-1".to_owned()),
+        ..first.clone()
+    };
+    assert_ne!(first, repaired, "实例号递增两节点可辨");
+    assert_eq!(first.phase, repaired.phase);
+    assert_eq!(first.attempt, repaired.attempt);
+    assert_eq!(first.step, repaired.step);
+
+    let key = |state: &ChangeStepState| {
+        (
+            state.phase.clone(),
+            state.attempt,
+            state.step,
+            state.instance_no,
+        )
+    };
+    assert_ne!(key(&first), key(&repaired), "身份键四元组互异");
+
+    // 同 (phase, attempt, step, instance_no) 两节点身份串相同 → 碰撞可察
+    let collision = ChangeStepState {
+        status: ChangeStepStatus::Failed,
+        ..first.clone()
+    };
+    assert_eq!(key(&collision), key(&first), "同键同实例号身份串碰撞可察");
+
+    // output_ref 两态：None（Transient 即弃）与 Some(exec_id) 可辨
+    assert_eq!(first.output_ref, None);
+    assert_eq!(repaired.output_ref.as_deref(), Some("exec-1"));
+    assert_ne!(
+        ChangeStepState {
+            output_ref: Some(String::new()),
+            ..first.clone()
+        },
+        first,
+        "空串（落盘失败空串口径）与合法 exec_id 可辨"
+    );
 }

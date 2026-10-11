@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vite-plus/test';
 
-import type { AttemptRecord, ChangeDetail, PhaseEntry } from '../../../types/dto';
+import type {
+  AttemptRecord,
+  ChangeDetail,
+  ChangeRunEdgeRecord,
+  PhaseEntry,
+} from '../../../types/dto';
 import { buildFlowGraph } from './graph';
 import { PIPELINE_PHASES } from './layout';
 import type { RuntimeFlowNode } from './types';
@@ -65,11 +70,6 @@ function twoStationDetail(overrides: Partial<ChangeDetail> = {}): ChangeDetail {
 
 function nodeIds(nodes: { id: string }[]): string[] {
   return nodes.map((node) => node.id);
-}
-
-/** 统计指向某节点的入边数（链式边推导：每个非首事件恰一条）。 */
-function inDegree(edges: { target: string }[], nodeId: string): number {
-  return edges.filter((edge) => edge.target === nodeId).length;
 }
 
 describe('buildFlowGraph：列与坐标骨架', () => {
@@ -169,7 +169,7 @@ describe('buildFlowGraph：节点两分类', () => {
 });
 
 describe('buildFlowGraph：时间序归并与边推导', () => {
-  it('多站 eval 主链：非首事件恰一条入边，kind 按端点列差派生（forward / retry）', () => {
+  it('多站 eval 主链：节点序按时间归并，边表缺席（Δ 派生退役）→ 零边', () => {
     const graph = buildFlowGraph(
       detail({
         pipeline: PIPELINE_PHASES.map((phase) => {
@@ -189,20 +189,12 @@ describe('buildFlowGraph：时间序归并与边推导', () => {
       'eval:dev-design:2',
       'eval:test-design:1',
     ]);
-    expect(graph.edges.map((edge) => edge.id)).toEqual([
-      'edge:eval:proposal:1->eval:dev-design:1',
-      'edge:eval:dev-design:1->eval:dev-design:2',
-      'edge:eval:dev-design:2->eval:test-design:1',
-    ]);
-    // Δ>0 前进、Δ=0 重试
-    expect(graph.edges.map((edge) => edge.kind)).toEqual(['forward', 'retry', 'forward']);
-    expect(graph.edges.map((edge) => edge.label)).toEqual([null, null, null]);
-    for (const id of sequence.slice(1)) {
-      expect(inDegree(graph.edges, id)).toBe(1);
-    }
+    // 列差 Δ 派生整体退役：边恒读后端边表，未供边表即零边（不臆造）
+    expect(graph.edges).toEqual([]);
+    expect(sequence).toHaveLength(4);
   });
 
-  it('backtrack 边 label = 目标节点 record.backtrackReason；reason 为 null 的回跳边 label 为 null', () => {
+  it('边表直读：四 kind 逐值出线、端点按稳定身份键寻址、backtrack label 取发起相位记因', () => {
     // active 站列靠后（test-execution），其 startAt 插入点在 implement eval 之前，
     // 归并后形成「靠后列 active → 靠前列 eval」的回跳边
     const withReason = buildFlowGraph(
@@ -239,13 +231,101 @@ describe('buildFlowGraph：时间序归并与边推导', () => {
       'active:test-execution:1',
       'eval:implement:1',
     ]);
-    const backtrack = withReason.edges.find((edge) => edge.kind === 'backtrack');
-    expect(backtrack?.source).toBe('active:test-execution:1');
-    expect(backtrack?.target).toBe('eval:implement:1');
-    expect(backtrack?.label).toBe('实现缺陷回改');
 
-    // 同构夹具：目标 eval 无 backtrackReason → label 为 null（不渲染字符串 "null"）
-    const withoutReason = buildFlowGraph(withReasonNodesWithoutReasonFixture());
+    // 后端边表：四 kind 各一条（端点按图内节点 id 寻址——身份串 → 节点）
+    const overlay = buildFlowGraph(
+      backtrackReasonDetail(),
+      [
+        runNode({ id: 'run:implement:1:executor:0' }),
+        runNode({ id: 'run:implement:1:executor:1', instanceNo: 1 }),
+        runNode({
+          id: 'run:implement:1:phaseStart:0',
+          runStepKind: 'phaseStart',
+          group: 'toolStep',
+          role: null,
+          sessionId: null,
+        }),
+        runNode({
+          id: 'run:implement:1:staticCheck:0',
+          runStepKind: 'staticCheck',
+          group: 'toolStep',
+          role: null,
+          sessionId: null,
+        }),
+        runNode({
+          id: 'run:implement:1:evaluator:0',
+          runStepKind: 'evaluator',
+          role: 'evaluator',
+        }),
+        runNode({
+          id: 'run:implement:1:decision:0',
+          runStepKind: 'decision',
+          role: 'decision',
+        }),
+        runNode({
+          id: 'run:implement:1:whitelistGate:0',
+          runStepKind: 'whitelistGate',
+          group: 'gate',
+          role: null,
+          sessionId: null,
+        }),
+      ],
+      [
+        edgeRow({
+          fromNodeKey: 'implement:1:phase_start:0',
+          toNodeKey: 'implement:1:executor:0',
+          edgeKind: 'forward',
+        }),
+        edgeRow({
+          fromNodeKey: 'implement:1:static_check:0',
+          toNodeKey: 'implement:1:executor:1',
+          edgeKind: 'feedback',
+        }),
+        edgeRow({
+          fromNodeKey: 'implement:1:evaluator:0',
+          toNodeKey: 'implement:1:decision:0',
+          edgeKind: 'retry',
+        }),
+        edgeRow({
+          fromNodeKey: 'implement:1:whitelist_gate:0',
+          toNodeKey: 'implement:1:executor:0',
+          edgeKind: 'backtrack',
+        }),
+      ],
+    );
+    expect(overlay.edges.map((edge) => edge.kind)).toEqual([
+      'forward',
+      'feedback',
+      'retry',
+      'backtrack',
+    ]);
+    expect(overlay.edges[0].source).toBe('run:implement:1:phaseStart:0');
+    expect(overlay.edges[0].target).toBe('run:implement:1:executor:0');
+    // feedback 与 retry 同相位内回边但 kind 可辨（虚线呈现依据）
+    expect(overlay.edges[1].kind).not.toBe(overlay.edges[2].kind);
+    expect(overlay.edges[3].label).toBe('实现缺陷回改');
+
+    // 发起相位无记因 → label null（不渲染字符串 "null"）
+    const withoutReason = buildFlowGraph(
+      withReasonNodesWithoutReasonFixture(),
+      [
+        runNode({ id: 'run:implement:1:executor:0' }),
+        runNode({
+          id: 'run:implement:1:whitelistGate:0',
+          runStepKind: 'whitelistGate',
+          group: 'gate',
+          role: null,
+          sessionId: null,
+        }),
+      ],
+      [
+        edgeRow({
+          fromNodeKey: 'implement:1:whitelist_gate:0',
+          toNodeKey: 'implement:1:executor:0',
+          edgeKind: 'backtrack',
+        }),
+      ],
+    );
     const nullBacktrack = withoutReason.edges.find((edge) => edge.kind === 'backtrack');
     expect(nullBacktrack?.kind).toBe('backtrack');
     expect(nullBacktrack?.label).toBeNull();
@@ -277,10 +357,9 @@ describe('buildFlowGraph：时间序归并与边推导', () => {
     ]);
   });
 
-  it('归并后序列头（首个事件）无入边', () => {
+  it('无后端边表 → 零边（序列头「无入边」由零边口径承载）', () => {
     const graph = buildFlowGraph(twoStationDetail());
-    expect(graph.edges).toHaveLength(1);
-    expect(inDegree(graph.edges, 'eval:proposal:1')).toBe(0);
+    expect(graph.edges).toEqual([]);
   });
 
   it('startAt 为 null 的 active → 追加链尾', () => {
@@ -305,8 +384,7 @@ describe('buildFlowGraph：时间序归并与边推导', () => {
       }),
     );
     expect(nodeIds(graph.nodes)).toEqual(['eval:proposal:1', 'active:implement:1']);
-    expect(graph.edges).toHaveLength(1);
-    expect(graph.edges[0].target).toBe('active:implement:1');
+    expect(graph.edges).toEqual([]);
   });
 
   it('骨干 eval 锚点为 null → 不作插入参考，插入点跳过 null 锚点落位', () => {
@@ -352,7 +430,7 @@ describe('buildFlowGraph：时间序归并与边推导', () => {
       'eval:dev-design:2',
       'eval:proposal:1',
     ]);
-    expect(graph.edges.map((edge) => edge.kind)).toEqual(['retry', 'backtrack']);
+    expect(graph.edges).toEqual([]);
   });
 
   it('startAt 早于全部 eval 锚点 → 插入为序列头（该节点无入边）', () => {
@@ -364,9 +442,8 @@ describe('buildFlowGraph：时间序归并与边推导', () => {
     );
     expect(graph.nodes[0].id).toBe('active:implement:1');
     expect(graph.nodes[0].kind).toBe('active');
-    expect(inDegree(graph.edges, 'active:implement:1')).toBe(0);
-    // 3 事件链式相连：恰 2 条边，首事件无入边
-    expect(graph.edges).toHaveLength(2);
+    expect(graph.nodes).toHaveLength(3);
+    expect(graph.edges).toEqual([]);
   });
 });
 
@@ -383,6 +460,34 @@ function twoStationOverrides(): Partial<ChangeDetail> {
       return station(phase, []);
     }),
   };
+}
+
+/** 携 implement 回跳记因的详情夹具（backtrack 边 label 面）。 */
+function backtrackReasonDetail(): ChangeDetail {
+  return detail({
+    pipeline: PIPELINE_PHASES.map((phase) => {
+      if (phase === 'proposal') {
+        return station(phase, [attempt({ startAt: '2026-09-02T00:00:00Z' })]);
+      }
+      if (phase === 'dev-design') {
+        return station(phase, [attempt({ startAt: '2026-09-03T00:00:00Z' })]);
+      }
+      if (phase === 'test-design') {
+        return station(phase, [attempt({ startAt: '2026-09-04T00:00:00Z' })]);
+      }
+      if (phase === 'implement') {
+        return station(phase, [
+          attempt({
+            startAt: '2026-09-05T00:00:00Z',
+            backtrackTo: 'test-design',
+            backtrackReason: '实现缺陷回改',
+          }),
+        ]);
+      }
+      return station(phase, []);
+    }),
+    activePhase: { phase: 'test-execution', attempt: 1, startAt: '2026-09-04T12:00:00Z' },
+  });
 }
 
 /** 回跳边 label null 分支夹具：目标 eval 无 backtrackReason。 */
@@ -414,6 +519,17 @@ function withReasonNodesWithoutReasonFixture(): ChangeDetail {
 // 直构（run-state.ts runStepNodes 的同形投影）。
 // ---------------------------------------------------------------------------
 
+/// 边行 fixture（后端边表条目；端点恒为节点身份串
+/// `"{phase}:{attempt}:{step}:{instanceNo}"`——`step` 为 snake 线词）。
+function edgeRow(overrides: Partial<ChangeRunEdgeRecord> = {}): ChangeRunEdgeRecord {
+  return {
+    fromNodeKey: 'implement:1:phase_start:0',
+    toNodeKey: 'implement:1:executor:0',
+    edgeKind: 'forward',
+    ...overrides,
+  };
+}
+
 /** 运行步 overlay 节点 fixture（runStepNodes 同形投影的直构形态）。 */
 function runNode(overrides: Partial<RuntimeFlowNode> = {}): RuntimeFlowNode {
   return {
@@ -427,9 +543,11 @@ function runNode(overrides: Partial<RuntimeFlowNode> = {}): RuntimeFlowNode {
     runStepKind: 'executor',
     group: 'workerAgent',
     role: 'executor',
+    instanceNo: 0,
     status: 'running',
     sessionId: 'ses-exec-1',
     detail: null,
+    outputRef: null,
     ...overrides,
   };
 }
@@ -456,24 +574,70 @@ describe('buildFlowGraph：运行步 overlay（可选第二参 runNodes）', () 
     ]);
   });
 
-  it('传入 runNodes → 运行步节点按给定序追加归并链尾，每个非首节点恰一条入边延伸至运行步节点', () => {
+  it('传入 runNodes → 运行步节点按给定序追加归并链尾（零边：边只读后端边表）', () => {
     const graph = buildFlowGraph(twoStationDetail(), [runNode()]);
     expect(nodeIds(graph.nodes)).toEqual([
       'eval:proposal:1',
       'eval:dev-design:1',
       'run:implement:1:executor',
     ]);
-    // 边推导规则不变：链尾运行步恰一条入边，kind 由两端列差派生（col1 → col3 forward）
-    expect(graph.edges).toHaveLength(2);
-    expect(graph.edges[1]).toEqual({
-      id: 'edge:eval:dev-design:1->run:implement:1:executor',
-      source: 'eval:dev-design:1',
-      target: 'run:implement:1:executor',
-      kind: 'forward',
-      label: null,
-    });
-    expect(inDegree(graph.edges, 'run:implement:1:executor')).toBe(1);
-    expect(inDegree(graph.edges, 'eval:proposal:1')).toBe(0);
+    expect(graph.edges).toEqual([]);
+  });
+
+  it('边表端点按稳定身份键寻址：悬空端点降级跳过不炸图；零边 run → edges 空数组', () => {
+    const graph = buildFlowGraph(
+      twoStationDetail(),
+      [
+        runNode(),
+        runNode({
+          id: 'run:implement:1:phaseStart:0',
+          runStepKind: 'phaseStart',
+          group: 'toolStep',
+          role: null,
+          sessionId: null,
+        }),
+      ],
+      [
+        edgeRow({
+          fromNodeKey: 'implement:1:phase_start:0',
+          toNodeKey: 'implement:1:executor:0',
+          edgeKind: 'forward',
+        }),
+        edgeRow({
+          fromNodeKey: 'ghost:9:executor:7',
+          toNodeKey: 'implement:1:executor:0',
+          edgeKind: 'feedback',
+        }),
+        edgeRow({
+          fromNodeKey: 'implement:1:executor:0',
+          toNodeKey: 'ghost:9:phase_log:0',
+          edgeKind: 'retry',
+        }),
+      ],
+    );
+    expect(graph.edges).toHaveLength(1);
+    expect(graph.edges[0].kind).toBe('forward');
+    expect(graph.edges[0].source).toBe('run:implement:1:phaseStart:0');
+    expect(buildFlowGraph(twoStationDetail(), [runNode()], [])).toMatchObject({ edges: [] });
+  });
+
+  it('多实例 feedback 边端点各异不串扰（instanceNo 区分同键两实例）', () => {
+    const graph = buildFlowGraph(
+      twoStationDetail(),
+      [
+        runNode({ id: 'run:implement:1:executor:0' }),
+        runNode({ id: 'run:implement:1:executor:1', instanceNo: 1 }),
+      ],
+      [
+        edgeRow({
+          fromNodeKey: 'implement:1:executor:0',
+          toNodeKey: 'implement:1:executor:1',
+          edgeKind: 'feedback',
+        }),
+      ],
+    );
+    expect(graph.edges).toHaveLength(1);
+    expect(graph.edges[0].source).not.toBe(graph.edges[0].target);
   });
 
   it('WorkerAgent / ToolStep / Gate 三类运行步节点经 overlay 上图，kind / runStepKind 载荷可辨', () => {
@@ -508,13 +672,8 @@ describe('buildFlowGraph：运行步 overlay（可选第二参 runNodes）', () 
     expect(tool.detail).toBe('2 处诊断');
     expect(gate.group).toBe('gate');
     expect(gate.runStepKind).toBe('verdictGate');
-    // 空骨干上三类节点链式相连：同列 Δ=0 → 两条 retry 边，链头无入边
-    expect(graph.edges.map((edge) => edge.id)).toEqual([
-      'edge:run:implement:1:executor->run:implement:1:staticCheck',
-      'edge:run:implement:1:staticCheck->run:implement:1:verdictGate',
-    ]);
-    expect(graph.edges.map((edge) => edge.kind)).toEqual(['retry', 'retry']);
-    expect(inDegree(graph.edges, 'run:implement:1:executor')).toBe(0);
+    // 边恒读后端边表：未供即零边（三类节点载荷面可辨已由上文承接）
+    expect(graph.edges).toEqual([]);
   });
 
   it('attempt 交错归并：overlay 恒链尾、列内 order 接续既有事件计数、attempt 缺号兜底不变', () => {
@@ -551,8 +710,8 @@ describe('buildFlowGraph：运行步 overlay（可选第二参 runNodes）', () 
     expect(implementRun.order).toBe(0);
     // 交错体现在列内计数：proposal 列的运行步接续既有 eval 事件编号，骨干不重排
     expect(proposalRun.order).toBe(1);
-    // 边推导规则不变：col0 → col3 forward、col3 → col0 backtrack
-    expect(graph.edges.map((edge) => edge.kind)).toEqual(['forward', 'backtrack']);
+    // 边恒读后端边表（未供即零边）
+    expect(graph.edges).toEqual([]);
     // attempt 缺号兜底不变（eval null → 0），overlay 节点 attempt 原样承接
     expect(evalNode.attempt).toBe(0);
     expect(proposalRun.attempt).toBe(2);
@@ -586,10 +745,7 @@ describe('buildFlowGraph：运行步 overlay（可选第二参 runNodes）', () 
       'stopped',
       'passed',
     ]);
-    expect(graph.edges).toHaveLength(4);
-    for (const node of graph.nodes.slice(1)) {
-      expect(inDegree(graph.edges, node.id)).toBe(1);
-    }
+    expect(graph.edges).toEqual([]);
   });
 });
 
@@ -631,10 +787,8 @@ describe('buildFlowGraph：FlowNodeKind 两分类收敛（AC-5）', () => {
         activePhase: { phase: 'implement', attempt: 2, startAt: '2026-09-04T00:00:00Z' },
       }),
     );
-    // active 单节点归并：同号 eval 缺席时独立成节点、非首事件恰一条入边
+    // active 单节点归并：同号 eval 缺席时独立成节点（边面零边——无后端边表）
     expect(nodeIds(graph.nodes)).toEqual(['eval:proposal:1', 'active:implement:2']);
-    expect(inDegree(graph.edges, 'active:implement:2')).toBe(1);
-    expect(graph.edges).toHaveLength(1);
-    expect(graph.edges[0].kind).toBe('forward');
+    expect(graph.edges).toEqual([]);
   });
 });

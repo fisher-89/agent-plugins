@@ -207,3 +207,124 @@ async fn 拉起本体失败err显式() {
         "Err 记因（AC-4 记因面），实际: {err}"
     );
 }
+
+// ---------------------------------------------------------------------------
+// 输出记录模式（test-design「infra/checks/src/static_check.rs ->
+// static_check_test.rs」节：默认 Transient / 可选 Recorded；checks 层零私有
+// stdout 捕获 / 落盘分支，AC-8）
+// ---------------------------------------------------------------------------
+
+/// 一次 `Recorded` 模式执行（输出记录锚 = change 名）。
+async fn check_recorded(
+    root: &str,
+    change: &str,
+) -> Result<orchestration::port::StaticCheckOutcome, String> {
+    let output = ProcessStaticCheck::recorded(change).run(root).await?;
+    match output {
+        ToolStepOutput::StaticCheck(outcome) => Ok(outcome),
+        other => panic!("产出应为 StaticCheck 变体，实际: {other:?}"),
+    }
+}
+
+/// 正向：默认 `Transient` 模式 → `output_ref` 恒 None（全量即弃，反馈边只消费
+/// 诊断文本）；`Recorded` 模式 → 经 infra/exec 单点落盘并回填 `output_ref`，
+/// 且 `read_exec_output` 可按引用回查全量字节。
+#[tokio::test]
+async fn 输出记录模式_transient默认none与recorded回填引用() {
+    let _env = env_window();
+    let ws = TempWs::new("record-mode");
+    #[cfg(windows)]
+    let command = r#"cmd /C echo static-check-diagnostics"#;
+    #[cfg(not(windows))]
+    let command = "echo static-check-diagnostics";
+    ws.write_config(Some(command));
+
+    let transient = check(&ws.root_str()).await.expect("Transient 执行应 Ok");
+    assert_eq!(
+        transient.output_ref, None,
+        "默认 Transient：无 id 即弃（output_ref 恒 None）"
+    );
+
+    let recorded = check_recorded(&ws.root_str(), "demo-change")
+        .await
+        .expect("Recorded 执行应 Ok");
+    let exec_id = recorded
+        .output_ref
+        .clone()
+        .expect("Recorded 模式应回填 output_ref");
+    assert!(exec_id.starts_with("exec-"), "exec_id 定式: {exec_id}");
+    let read_back = exec::read_exec_output(
+        std::path::Path::new(&ws.root_str()),
+        "demo-change",
+        &exec_id,
+    )
+    .expect("引用可回查全量输出");
+    assert!(!read_back.is_empty(), "全量输出落盘非空（引用式不截断）");
+    assert_eq!(
+        recorded.passed, transient.passed,
+        "记录模式不改判定语义（passed 一致）"
+    );
+}
+
+/// 边界：`Recorded` 模式输出为空（无输出命令）→ 落盘空内容仍可回查
+///（`Some(vec![])`）；两次执行 `exec_id` 互异（引用唯一面）。
+#[tokio::test]
+async fn 输出记录模式_空输出可回查且引用互异() {
+    let _env = env_window();
+    let ws = TempWs::new("record-empty");
+    #[cfg(windows)]
+    let command = r#"cmd /C exit /b 0"#;
+    #[cfg(not(windows))]
+    let command = "true";
+    ws.write_config(Some(command));
+
+    let first = check_recorded(&ws.root_str(), "demo-change")
+        .await
+        .expect("Recorded 执行应 Ok");
+    let first_id = first.output_ref.clone().expect("回填引用");
+    let read_back = exec::read_exec_output(
+        std::path::Path::new(&ws.root_str()),
+        "demo-change",
+        &first_id,
+    )
+    .expect("空输出仍可回查");
+    assert!(read_back.is_empty(), "空输出 → 空内容");
+
+    let second = check_recorded(&ws.root_str(), "demo-change")
+        .await
+        .expect("Recorded 执行应 Ok");
+    assert_ne!(
+        second.output_ref, first.output_ref,
+        "两次执行 exec_id 互异（引用唯一）"
+    );
+}
+
+/// 异常：落盘失败（报告树路径被文件占位）→ `output_ref` 降级 None（Transient
+/// 口径），检查主流程照常返回判定（不因记录失败阻断 static-check）。
+#[tokio::test]
+async fn 输出记录模式_落盘失败降级none不阻断主流程() {
+    let _env = env_window();
+    let ws = TempWs::new("record-degrade");
+    #[cfg(windows)]
+    let command = r#"cmd /C exit /b 0"#;
+    #[cfg(not(windows))]
+    let command = "true";
+    ws.write_config(Some(command));
+    // 报告树路径被文件占位 → exec-outputs 目录不可建
+    let reports = foundation::layout::change_test_reports(
+        std::path::Path::new(&ws.root_str()),
+        "demo-change",
+    );
+    fs::create_dir_all(reports.parent().expect("父目录")).expect("创建父目录失败");
+    fs::write(&reports, "占位文件").expect("占位写失败");
+
+    let outcome = check_recorded(&ws.root_str(), "demo-change")
+        .await
+        .expect("记录失败不阻断检查主流程");
+
+    assert!(outcome.passed, "判定照常返回");
+    assert_eq!(
+        outcome.output_ref, None,
+        "落盘失败降级 Transient 口径（output_ref None）"
+    );
+}

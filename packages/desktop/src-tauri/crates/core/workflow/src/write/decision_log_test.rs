@@ -15,8 +15,8 @@ use super::decision_log::{decision_log, DecisionLogOutcome};
 use crate::model::Verdict;
 use crate::state::{
     BacktrackCommand, ChangeStateRecord, ChangeStateStore, PhaseLogCommand, PhaseStateRecord,
-    RunFinishCommand, RunStartCommand, RunStateRecord, RunStepStateRecord, StepCommand,
-    StepStateRecord, StoreFault,
+    RunEdgeStateRecord, RunFinishCommand, RunNodeStateRecord, RunStartCommand, RunStateRecord,
+    StepCommand, StepStateRecord, StoreFault,
 };
 
 /// 身份锚字面量（挂账入参——一切寻址以 id 为准；name 零寻址职能，本写面
@@ -152,7 +152,11 @@ impl ChangeStateStore for AmendStore {
         unimplemented!("本用例不可达")
     }
 
-    fn list_run_steps(&self, _run_id: &str) -> Result<Vec<RunStepStateRecord>, StoreFault> {
+    fn list_run_nodes(&self, _run_id: &str) -> Result<Vec<RunNodeStateRecord>, StoreFault> {
+        unimplemented!("本用例不可达")
+    }
+
+    fn list_run_edges(&self, _run_id: &str) -> Result<Vec<RunEdgeStateRecord>, StoreFault> {
         unimplemented!("本用例不可达")
     }
 

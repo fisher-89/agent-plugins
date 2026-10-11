@@ -596,12 +596,13 @@ fn 双字段trait往返_类型擦除建档get与list逐字段一致() {
 }
 
 // ---------------------------------------------------------------------------
-// run 域 port 委托（unify-run-state-persistence）：list_runs / list_run_steps /
-// run_start / run_finish 四方法经 trait 面 = 直调操作面
+// run 域 port 委托（run-workflow-by-step 决策③）：list_runs / list_run_nodes /
+// list_run_edges / run_start / run_finish 五方法经 trait 面 = 直调操作面
 // ---------------------------------------------------------------------------
 
 use workflow::state::{
-    RunFinishCommand, RunStartCommand, RunStatus, RunStepEntry, RunStepKind, RunStepStatus,
+    RunEdgeEntry, RunEdgeKind, RunFinishCommand, RunNodeEntry, RunStartCommand, RunStatus,
+    RunStepKind, RunStepStatus,
 };
 
 /// run 发起命令 fixture。
@@ -613,25 +614,36 @@ fn run_start_cmd(run_id: &str, change: &str, started_at: i64) -> RunStartCommand
     }
 }
 
-/// run 收口整包条目 fixture。
-fn run_step_entry(seq: u64, step: RunStepKind) -> RunStepEntry {
-    RunStepEntry {
-        seq,
+/// run 收口节点整包条目 fixture（稳定身份键：实例号显式注入）。
+fn run_node_entry(step: RunStepKind, instance_no: u32) -> RunNodeEntry {
+    RunNodeEntry {
         phase: "implement".to_owned(),
         attempt: 1,
         step,
+        instance_no,
         status: RunStepStatus::Passed,
         session_id: Some("ses-1".to_owned()),
         detail: None,
+        output_ref: Some("exec-1".to_owned()),
     }
 }
 
-/// run 收口命令 fixture。
+/// run 收口边整包条目 fixture。
+fn run_edge_entry(kind: RunEdgeKind) -> RunEdgeEntry {
+    RunEdgeEntry {
+        from_node_key: "implement:1:executor:0".to_owned(),
+        to_node_key: "implement:1:static_check:0".to_owned(),
+        edge_kind: kind,
+    }
+}
+
+/// run 收口命令 fixture（节点 + 边整包）。
 fn run_finish_cmd(
     run_id: &str,
     change: &str,
     finished_at: i64,
-    steps: Vec<RunStepEntry>,
+    nodes: Vec<RunNodeEntry>,
+    edges: Vec<RunEdgeEntry>,
 ) -> RunFinishCommand {
     RunFinishCommand {
         run_id: run_id.to_owned(),
@@ -639,12 +651,13 @@ fn run_finish_cmd(
         status: RunStatus::Completed,
         reason: Some("收口记因".to_owned()),
         finished_at,
-        steps,
+        nodes,
+        edges,
     }
 }
 
-/// 种子（start + finish）后经 port 面读回与直调操作面等值（AC-1 port 面）：
-/// list_runs / list_run_steps 逐字段一致。
+/// 种子（start + finish）后经 port 面读回与直调操作面等值（AC-3 / AC-5 port
+/// 面）：list_runs / list_run_nodes / list_run_edges 逐字段一致。
 #[test]
 fn run域port委托_读回与直调操作面等值() {
     let env = PortEnv::new("run-port");
@@ -661,8 +674,13 @@ fn run域port委托_读回与直调操作面等值() {
         "port-run",
         3000,
         vec![
-            run_step_entry(0, RunStepKind::Executor),
-            run_step_entry(2, RunStepKind::StaticCheck),
+            run_node_entry(RunStepKind::Executor, 0),
+            run_node_entry(RunStepKind::Executor, 1),
+            run_node_entry(RunStepKind::StaticCheck, 0),
+        ],
+        vec![
+            run_edge_entry(RunEdgeKind::Forward),
+            run_edge_entry(RunEdgeKind::Feedback),
         ],
     ))
     .expect("port run_finish 应成功");
@@ -676,14 +694,23 @@ fn run域port委托_读回与直调操作面等值() {
     assert_eq!(runs[0].started_at, 2000);
     assert_eq!(runs[0].finished_at, Some(3000));
 
-    let steps = port
-        .list_run_steps("run-100")
-        .expect("port list_run_steps 应成功");
-    assert_eq!(steps.len(), 2);
-    assert_eq!(steps[0].seq, 0);
-    assert_eq!(steps[0].step, RunStepKind::Executor);
-    assert_eq!(steps[1].seq, 2);
-    assert_eq!(steps[1].step, RunStepKind::StaticCheck);
+    let nodes = port
+        .list_run_nodes("run-100")
+        .expect("port list_run_nodes 应成功");
+    assert_eq!(nodes.len(), 3, "节点整包三行");
+    assert_eq!(nodes[0].step, RunStepKind::Executor);
+    assert_eq!(nodes[0].instance_no, 0);
+    assert_eq!(nodes[1].instance_no, 1, "feedback 重跑实例号透传");
+    assert_eq!(nodes[1].output_ref.as_deref(), Some("exec-1"));
+    assert_eq!(nodes[2].step, RunStepKind::StaticCheck);
+
+    let edges = port
+        .list_run_edges("run-100")
+        .expect("port list_run_edges 应成功");
+    assert_eq!(edges.len(), 2, "边整包两行");
+    assert_eq!(edges[0].edge_kind, RunEdgeKind::Forward);
+    assert_eq!(edges[1].edge_kind, RunEdgeKind::Feedback);
+    assert_eq!(edges[1].from_node_key, "implement:1:executor:0");
 
     // port 面 = 直调操作面（同一 store 实例双入口等值——trait 委托零加工）
 }
@@ -716,7 +743,13 @@ fn run域port委托_fault映射_conflict与notfound() {
     assert!(fault.to_string().contains("conflict"), "Display 前缀不串型");
 
     let fault = port
-        .run_finish(&run_finish_cmd("run-ghost", "port-run", 3000, Vec::new()))
+        .run_finish(&run_finish_cmd(
+            "run-ghost",
+            "port-run",
+            3000,
+            Vec::new(),
+            Vec::new(),
+        ))
         .expect_err("未建档收口应 Err");
     assert!(
         matches!(fault, StoreFault::NotFound(_)),
@@ -728,8 +761,8 @@ fn run域port委托_fault映射_conflict与notfound() {
     );
 }
 
-/// 空库形态（边界）：list_runs 空数组、list_run_steps 空数组（miss 非错误经
-/// port 面不变）。
+/// 空库形态（边界）：list_runs / list_run_nodes / list_run_edges 空数组
+///（miss 非错误经 port 面不变）。
 #[test]
 fn run域port委托_空库miss空数组() {
     let env = PortEnv::new("run-port-miss");
@@ -743,9 +776,15 @@ fn run域port委托_空库miss空数组() {
         "空库 list_runs → 空数组"
     );
     assert!(
-        port.list_run_steps("run-ghost")
-            .expect("port list_run_steps 应成功")
+        port.list_run_nodes("run-ghost")
+            .expect("port list_run_nodes 应成功")
             .is_empty(),
-        "空库 list_run_steps → 空数组"
+        "空库 list_run_nodes → 空数组"
+    );
+    assert!(
+        port.list_run_edges("run-ghost")
+            .expect("port list_run_edges 应成功")
+            .is_empty(),
+        "空库 list_run_edges → 空数组"
     );
 }

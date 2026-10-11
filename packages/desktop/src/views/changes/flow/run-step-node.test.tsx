@@ -20,9 +20,11 @@ function runtimeNode(overrides: Partial<RuntimeFlowNode> = {}): RuntimeFlowNode 
     runStepKind: 'executor',
     group: 'workerAgent',
     role: 'executor',
+    instanceNo: 0,
     status: 'running',
     sessionId: 'ses-exec-1',
     detail: null,
+    outputRef: null,
     ...overrides,
   };
 }

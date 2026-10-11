@@ -53,8 +53,8 @@ function fakeDetail(artifacts: ArtifactDescriptor[]): ChangeDetail {
 }
 
 const twoArtifacts: ArtifactDescriptor[] = [
-  { kind: 'tasks-progress', source: 'tasks.md', title: '任务进度' },
-  { kind: 'markdown-doc', source: 'proposal.md', title: '提案' },
+  { kind: 'tasks-progress', source: 'tasks.md', title: '任务进度', phase: 'dev-design' },
+  { kind: 'markdown-doc', source: 'proposal.md', title: '提案', phase: 'proposal' },
 ];
 
 /** 统一视图应答包装（get_change_detail 线面 = { detail, activeRun }——机械
@@ -214,6 +214,7 @@ describe('useChangeDetail：加载态、降级信封、错误路径与刷新竞�
       kind: 'markdown-doc',
       source: 'proposal.md',
       title: '提案',
+      phase: 'proposal',
     };
     invokeMock.mockImplementation((command: string) => {
       if (command === 'get_change_detail') {
@@ -250,6 +251,7 @@ describe('useChangeDetail：加载态、降级信封、错误路径与刷新竞�
       kind: 'tasks-progress',
       source: 'tasks.md',
       title: '任务进度',
+      phase: 'dev-design',
     };
     invokeMock.mockImplementation((command: string) => {
       if (command === 'get_change_detail') {
@@ -330,6 +332,7 @@ describe('useChangeDetail：加载态、降级信封、错误路径与刷新竞�
       kind: 'tasks-progress',
       source: 'tasks.md',
       title: '任务进度',
+      phase: 'dev-design',
     };
     invokeMock.mockImplementation((command: string) => {
       if (command === 'get_change_detail') {
@@ -445,6 +448,7 @@ describe('useChangeDetail：生成绑定调用面', () => {
       kind: 'markdown-doc',
       source: 'proposal.md',
       title: '提案',
+      phase: 'proposal',
     };
     invokeMock.mockReset();
     invokeMock.mockImplementation((command: string) => {
@@ -502,7 +506,7 @@ function activeRun(): ActiveRunView {
     attempt: 1,
     ask: null,
     startedAt: '2026-10-09T08:00:00Z',
-    steps: [
+    nodes: [
       {
         phase: 'implement',
         attempt: 1,
@@ -510,6 +514,8 @@ function activeRun(): ActiveRunView {
         status: 'passed',
         sessionId: 'ses-1',
         detail: null,
+        instanceNo: 0,
+        outputRef: null,
       },
       {
         phase: 'implement',
@@ -518,8 +524,11 @@ function activeRun(): ActiveRunView {
         status: 'running',
         sessionId: null,
         detail: null,
+        instanceNo: 0,
+        outputRef: null,
       },
     ],
+    edges: [],
   };
 }
 
@@ -545,8 +554,8 @@ describe('useChangeDetail：统一视图取数与通知去抖（D8）', () => {
     expect(result.current.detail).not.toBeNull();
     expect(result.current.activeRun?.runId).toBe('run-1727');
     expect(result.current.activeRun?.status).toBe('running');
-    expect(result.current.activeRun?.steps).toHaveLength(2);
-    expect(result.current.activeRun?.steps[1].step).toBe('staticCheck');
+    expect(result.current.activeRun?.nodes).toHaveLength(2);
+    expect(result.current.activeRun?.nodes[1].step).toBe('staticCheck');
   });
 
   it('notifyRefresh 去抖：窗内连续多次 → 恰一次重查（fake timers 前进 300ms 后一拍）', async () => {

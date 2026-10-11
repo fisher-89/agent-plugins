@@ -4,8 +4,9 @@ use super::phase_next::{phase_next, PhaseNextError, SessionAnchors};
 use super::phase_table::MAX_RETRY_TIMES;
 use crate::model::{ChecklistItem, Verdict};
 use crate::state::{
-    ChangeStateRecord, ChangeStateStore, ChangeStatus, PhaseStateRecord, RunFinishCommand,
-    RunStartCommand, RunStateRecord, RunStepStateRecord, StepCommand, StepStateRecord, StoreFault,
+    ChangeStateRecord, ChangeStateStore, ChangeStatus, PhaseStateRecord, RunEdgeStateRecord,
+    RunFinishCommand, RunNodeStateRecord, RunStartCommand, RunStateRecord, StepCommand,
+    StepStateRecord, StoreFault,
 };
 
 /// 身份锚字面量（路由入参——一切寻址以 id 为准；prompt 插值取 name）。
@@ -217,7 +218,11 @@ impl ChangeStateStore for RouteStore {
         unimplemented!("本用例不可达")
     }
 
-    fn list_run_steps(&self, _run_id: &str) -> Result<Vec<RunStepStateRecord>, StoreFault> {
+    fn list_run_nodes(&self, _run_id: &str) -> Result<Vec<RunNodeStateRecord>, StoreFault> {
+        unimplemented!("本用例不可达")
+    }
+
+    fn list_run_edges(&self, _run_id: &str) -> Result<Vec<RunEdgeStateRecord>, StoreFault> {
         unimplemented!("本用例不可达")
     }
 
@@ -864,4 +869,150 @@ fn 只读路由_零写面触达() {
     assert_eq!(entries.len(), 1);
     assert!(!entries[0].stale);
     assert!(entries[0].backtrack_to.is_none());
+}
+
+// ---------------------------------------------------------------------------
+// 计划步序列与产物清单下发（AC-1 下发半边：路由权威不变，响应结构扩字段）
+// ---------------------------------------------------------------------------
+
+/// 相位定义查表（真件只读；steps / manifest 逐项等值断言的对照源）。
+fn phase_def(phase: &str) -> &'static super::phase_table::PhaseDefinition {
+    super::phase_table::phase_table("requirement")
+        .expect("requirement 表恒可达")
+        .iter()
+        .find(|def| def.id == phase)
+        .unwrap_or_else(|| panic!("相位 {phase} 应在表内"))
+}
+
+/// 初始路由（零相位史）→ `steps` / `artifact_manifest` 为 next 相位（首相位
+/// proposal）的声明克隆；pass 推进后随 next 相位换形（dev-design 清单在场）。
+#[test]
+fn 计划步序列与清单随next相位下发() {
+    let fake = RouteStore::seeded(Vec::new());
+    let outcome = route(&fake, RUN, &SessionAnchors::new());
+
+    assert_eq!(outcome.next_phase.as_deref(), Some("proposal"));
+    let proposal = phase_def("proposal");
+    assert_eq!(
+        outcome.steps,
+        proposal.steps.to_vec(),
+        "初始路由下发首相位计划步序列（与 phase_table 声明逐项等值）"
+    );
+    assert_eq!(
+        outcome.artifact_manifest,
+        proposal.artifact_manifest.to_vec(),
+        "产物清单随行（proposal 清单两项）"
+    );
+    assert_eq!(
+        outcome.steps.len(),
+        5,
+        "proposal 五步（含三门之 verdict 门）"
+    );
+
+    // pass 推进：next 相位换形 → steps / manifest 随新相位下发
+    let fake = RouteStore::seeded(vec![entry("proposal", 1, Verdict::Pass, t(1))]);
+    let outcome = route(&fake, RUN, &SessionAnchors::new());
+    assert_eq!(outcome.next_phase.as_deref(), Some("dev-design"));
+    let dev_design = phase_def("dev-design");
+    assert_eq!(outcome.steps, dev_design.steps.to_vec());
+    assert_eq!(
+        outcome.artifact_manifest,
+        dev_design.artifact_manifest.to_vec()
+    );
+    assert!(
+        outcome
+            .artifact_manifest
+            .iter()
+            .any(|spec| spec.kind == "tasks-progress" && spec.path == "tasks.md"),
+        "dev-design 清单含 tasks-progress 项"
+    );
+}
+
+/// 相位无产物清单（implement 等）→ `artifact_manifest` 空 Vec 下发（零占位不
+/// 虚设）；同时 steps 携门禁步声明（StaticCheck 携 FeedbackLoop{5}）——walker
+/// 消费步声明的下发行。
+#[test]
+fn 无清单相位下发空manifest与门禁步声明() {
+    let fake = RouteStore::seeded(vec![
+        entry("proposal", 1, Verdict::Pass, t(1)),
+        entry("dev-design", 1, Verdict::Pass, t(2)),
+        entry("test-design", 1, Verdict::Pass, t(3)),
+    ]);
+
+    let outcome = route(&fake, RUN, &SessionAnchors::new());
+
+    assert_eq!(outcome.next_phase.as_deref(), Some("implement"));
+    assert!(
+        outcome.artifact_manifest.is_empty(),
+        "implement 无产物清单 → 空 Vec 下发"
+    );
+    let implement = phase_def("implement");
+    assert_eq!(outcome.steps, implement.steps.to_vec());
+    assert!(
+        outcome.steps.iter().any(|step| matches!(
+            step.on_fail,
+            Some(crate::state::OnFail::FeedbackLoop { limit: 5 })
+        )),
+        "门禁步声明随 steps 下发（FeedbackLoop 上限 5）"
+    );
+}
+
+/// 末相位 all pass → `done=true` / `next_phase=None` 时 steps 与 manifest 均空
+///（无 next 相位即无计划步 / 无清单；既有收敛语义零改写）。
+#[test]
+fn 全pass终态不下发计划步与清单() {
+    let entries: Vec<PhaseStateRecord> = [
+        "proposal",
+        "dev-design",
+        "test-design",
+        "implement",
+        "test-gen",
+        "test-execution",
+        "code-review",
+        "acceptance",
+    ]
+    .iter()
+    .enumerate()
+    .map(|(index, phase)| entry(phase, 1, Verdict::Pass, t(index as u32 + 1)))
+    .collect();
+    let fake = RouteStore::seeded(entries);
+
+    let outcome = route(&fake, RUN, &SessionAnchors::new());
+
+    assert!(outcome.done, "全相位 pass → done");
+    assert_eq!(outcome.next_phase, None);
+    assert!(outcome.steps.is_empty(), "无 next 相位 → steps 空");
+    assert!(
+        outcome.artifact_manifest.is_empty(),
+        "无 next 相位 → 清单空"
+    );
+}
+
+/// 重试上限分叉（error）响应同样不下发计划步 / 清单（错误响应结构面：
+/// `steps` / `manifest` 空、next_phase=None、error 在场）。
+#[test]
+fn 错误响应不下发计划步与清单() {
+    let fake = RouteStore::seeded(vec![entry("proposal", 1, Verdict::Pass, t(1))]);
+    let anchors = SessionAnchors::new();
+    let _ = route(&fake, RUN, &anchors); // 首见登记基线
+
+    let mut outcome = None;
+    for attempt in 1..=MAX_RETRY_TIMES {
+        fake.push(entry(
+            "dev-design",
+            attempt,
+            Verdict::Fail,
+            t(u32::from(attempt) + 1),
+        ));
+        outcome = Some(route(&fake, RUN, &anchors));
+    }
+    let outcome = outcome.expect("到达重试上限应有响应");
+
+    assert!(outcome.error.is_some(), "重试上限 → 决策分叉错误");
+    assert_eq!(outcome.next_phase, None);
+    assert!(outcome.steps.is_empty(), "错误响应不下发计划步");
+    assert!(
+        outcome.artifact_manifest.is_empty(),
+        "错误响应不下发产物清单"
+    );
 }

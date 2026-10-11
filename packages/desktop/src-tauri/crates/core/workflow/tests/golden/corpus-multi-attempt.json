@@ -7,33 +7,33 @@
   "artifacts": [
     {
       "kind": "tasks-progress",
+      "phase": "dev-design",
       "source": "tasks.md",
       "title": "任务进度"
     },
     {
       "kind": "eval-checklist",
+      "phase": "proposal",
       "source": "0",
       "title": "评估清单 · proposal · 第 1 次"
     },
     {
       "kind": "eval-checklist",
+      "phase": "dev-design",
       "source": "1",
       "title": "评估清单 · dev-design · 第 1 次"
     },
     {
       "kind": "eval-checklist",
+      "phase": "dev-design",
       "source": "2",
       "title": "评估清单 · dev-design · 第 2 次"
     },
     {
       "kind": "markdown-doc",
+      "phase": "proposal",
       "source": "proposal.md",
       "title": "提案"
-    },
-    {
-      "kind": "markdown-doc",
-      "source": "tasks.md",
-      "title": "任务"
     }
   ],
   "created": "2024-09-22",

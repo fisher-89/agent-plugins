@@ -23,8 +23,8 @@ use foundation::layout::{resolve, Layout};
 use super::archive::{archive, ArchiveOutcome};
 use crate::state::{
     BacktrackCommand, ChangeStateRecord, ChangeStateStore, ChangeStatus, PhaseLogCommand,
-    PhaseStateRecord, RunFinishCommand, RunStartCommand, RunStateRecord, RunStepStateRecord,
-    StepCommand, StepStateRecord, StoreFault,
+    PhaseStateRecord, RunEdgeStateRecord, RunFinishCommand, RunNodeStateRecord, RunStartCommand,
+    RunStateRecord, StepCommand, StepStateRecord, StoreFault,
 };
 
 /// 身份锚字面量（归档入参——一切寻址以 id 为准）。
@@ -297,7 +297,11 @@ impl ChangeStateStore for ArchiveStore {
         unimplemented!("本用例不可达")
     }
 
-    fn list_run_steps(&self, _run_id: &str) -> Result<Vec<RunStepStateRecord>, StoreFault> {
+    fn list_run_nodes(&self, _run_id: &str) -> Result<Vec<RunNodeStateRecord>, StoreFault> {
+        unimplemented!("本用例不可达")
+    }
+
+    fn list_run_edges(&self, _run_id: &str) -> Result<Vec<RunEdgeStateRecord>, StoreFault> {
         unimplemented!("本用例不可达")
     }
 

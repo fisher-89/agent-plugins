@@ -246,9 +246,11 @@ function runtimeNode(overrides: Partial<RuntimeFlowNode> = {}): RuntimeFlowNode 
     runStepKind: 'executor',
     group: 'workerAgent',
     role: 'executor',
+    instanceNo: 0,
     status: 'running',
     sessionId: 'ses-exec-2',
     detail: null,
+    outputRef: null,
     ...overrides,
   };
 }
@@ -938,8 +940,8 @@ function fileLogShapedWorld(): World {
         attempts: phase === 'dev-design' ? [attempt({ attempt: 1 }), attempt({ attempt: 2 })] : [],
       })),
       artifacts: [
-        { kind: 'markdown-doc', source: 'design.md', title: '设计' },
-        { kind: 'tasks-progress', source: 'tasks.md', title: '任务进度' },
+        { kind: 'markdown-doc', source: 'design.md', title: '设计', phase: 'dev-design' },
+        { kind: 'tasks-progress', source: 'tasks.md', title: '任务进度', phase: 'dev-design' },
       ],
     },
     materials: {

@@ -46,7 +46,8 @@ use std::path::{Path, PathBuf};
 
 use foundation::layout::resolve;
 use orchestration::{
-    finish_command, ChangeRunStatus, ChangeStepKind, ChangeStepState, ChangeStepStatus, RunRequest,
+    finish_command, ChangeRunStatus, ChangeStepEdge, ChangeStepKind, ChangeStepState,
+    ChangeStepStatus, EdgeKind, NodeKey, RunRequest,
 };
 use store::Store;
 use workflow::model::{ChecklistItem, Verdict};
@@ -247,8 +248,8 @@ impl Corpus {
     }
 
     /// run 收口整包落库（经 store run 域操作面）：步序列经 orchestration
-    /// `finish_command` 组装——10 词汇全序列喂入、5 落库过滤单点同真实写
-    /// 路径（unify-run-state-persistence 语料纪律），seq = emit 序；id 归属键。
+    /// `finish_command` 组装——十词汇全序列 + 四 kind 边整包喂入（零过滤单点
+    /// 同真实写路径），emit 序 = 语料注入序；id 归属键。
     fn run_finish(
         &self,
         change_id: &str,
@@ -256,7 +257,8 @@ impl Corpus {
         status: RunStatus,
         reason: &str,
         finished_at: i64,
-        steps: &[ChangeStepState],
+        nodes: &[ChangeStepState],
+        edges: &[ChangeStepEdge],
     ) {
         let request = RunRequest {
             root: self.root.to_string_lossy().into_owned(),
@@ -278,7 +280,8 @@ impl Corpus {
             orchestration_status,
             Some(reason.to_owned()),
             finished_at,
-            steps,
+            nodes,
+            edges,
         );
         self.store
             .finish_change_run(&command)
@@ -766,7 +769,8 @@ fn build_run_history() -> Corpus {
         None,
         t(1),
     );
-    // run-1：dev-design attempt 1 五词汇全整包（三门 / 相位机步同序列喂入）
+    // run-1：十词汇全整包（三门 / 相位机步同序列喂入，零过滤）+ 四 kind 边
+    //（含 feedback 回边与 executor 反馈重跑新实例）
     corpus.run_start("id-run-history", "run-1727000010000", t(10));
     corpus.run_finish(
         "id-run-history",
@@ -778,17 +782,38 @@ fn build_run_history() -> Corpus {
             step(
                 "implement",
                 1,
+                ChangeStepKind::PhaseStart,
+                ChangeStepStatus::Passed,
+                None,
+                None,
+            ),
+            step(
+                "implement",
+                1,
                 ChangeStepKind::Executor,
                 ChangeStepStatus::Passed,
                 Some("ses-impl-1"),
                 Some("实现完成"),
             ),
-            step(
+            step_at(
                 "implement",
                 1,
+                0,
                 ChangeStepKind::StaticCheck,
-                ChangeStepStatus::Passed,
+                ChangeStepStatus::Failed,
                 None,
+                None,
+                Some("exec-1727000019000"),
+            ),
+            // feedback 重跑：同 (phase, attempt, step) 新实例（instance_no 递增）
+            step_at(
+                "implement",
+                1,
+                1,
+                ChangeStepKind::Executor,
+                ChangeStepStatus::Passed,
+                Some("ses-impl-1b"),
+                Some("按 feedback 修复重跑"),
                 None,
             ),
             step(
@@ -802,10 +827,34 @@ fn build_run_history() -> Corpus {
             step(
                 "implement",
                 1,
+                ChangeStepKind::VerdictGate,
+                ChangeStepStatus::Failed,
+                None,
+                Some("verdict=fail"),
+            ),
+            step(
+                "implement",
+                1,
+                ChangeStepKind::RetryGate,
+                ChangeStepStatus::Passed,
+                None,
+                Some("预算内同相位重跑"),
+            ),
+            step(
+                "implement",
+                1,
                 ChangeStepKind::Decision,
                 ChangeStepStatus::Passed,
                 Some("ses-decision-1"),
                 None,
+            ),
+            step(
+                "implement",
+                1,
+                ChangeStepKind::WhitelistGate,
+                ChangeStepStatus::Passed,
+                None,
+                Some("回溯白名单内"),
             ),
             step(
                 "dev-design",
@@ -814,6 +863,46 @@ fn build_run_history() -> Corpus {
                 ChangeStepStatus::Passed,
                 None,
                 Some("conclusion=pass total=3"),
+            ),
+            step(
+                "dev-design",
+                1,
+                ChangeStepKind::PhaseLog,
+                ChangeStepStatus::Passed,
+                None,
+                None,
+            ),
+        ],
+        &[
+            edge(
+                key("implement", 1, ChangeStepKind::PhaseStart, 0),
+                key("implement", 1, ChangeStepKind::Executor, 0),
+                EdgeKind::Forward,
+            ),
+            edge(
+                key("implement", 1, ChangeStepKind::Executor, 0),
+                key("implement", 1, ChangeStepKind::StaticCheck, 0),
+                EdgeKind::Forward,
+            ),
+            edge(
+                key("implement", 1, ChangeStepKind::StaticCheck, 0),
+                key("implement", 1, ChangeStepKind::Executor, 1),
+                EdgeKind::Feedback,
+            ),
+            edge(
+                key("implement", 1, ChangeStepKind::Executor, 1),
+                key("implement", 1, ChangeStepKind::Evaluator, 0),
+                EdgeKind::Forward,
+            ),
+            edge(
+                key("implement", 1, ChangeStepKind::Evaluator, 0),
+                key("implement", 1, ChangeStepKind::Decision, 0),
+                EdgeKind::Retry,
+            ),
+            edge(
+                key("implement", 1, ChangeStepKind::WhitelistGate, 0),
+                key("dev-design", 1, ChangeStepKind::TestExecution, 0),
+                EdgeKind::Backtrack,
             ),
         ],
     );
@@ -843,6 +932,7 @@ fn build_run_history() -> Corpus {
             Some("ses-dd-exec-a2"),
             None,
         )],
+        &[],
     );
     corpus
 }
@@ -907,6 +997,7 @@ fn build_archive_prefix() -> Corpus {
             Some("ses-arch-exec"),
             None,
         )],
+        &[],
     );
     // 磁盘前缀目录（archive 树；目录名 = `YYYY-MM-DD-` + 裸名——后缀扫描
     // 命中；detail 产物清单自该目录发现，name 恒自记录供给）
@@ -923,7 +1014,8 @@ fn build_archive_prefix() -> Corpus {
     corpus
 }
 
-/// 全词汇步状态行 fixture（run 维度种子构造器的 ChangeStepState 组装面）。
+/// 全词汇步状态行 fixture（run 维度种子构造器的 ChangeStepState 组装面；首次
+/// 执行实例 = 0、无输出记录）。
 #[allow(clippy::too_many_arguments)]
 fn step(
     phase: &str,
@@ -933,14 +1025,42 @@ fn step(
     session_id: Option<&str>,
     detail: Option<&str>,
 ) -> ChangeStepState {
+    step_at(phase, attempt, 0, kind, status, session_id, detail, None)
+}
+
+/// 携稳定身份键 + 输出引用的步状态行 fixture（feedback 重跑实例号递增 /
+/// `ExecOutput::Recorded` 引用面）。
+#[allow(clippy::too_many_arguments)]
+fn step_at(
+    phase: &str,
+    attempt: u32,
+    instance_no: u32,
+    kind: ChangeStepKind,
+    status: ChangeStepStatus,
+    session_id: Option<&str>,
+    detail: Option<&str>,
+    output_ref: Option<&str>,
+) -> ChangeStepState {
     ChangeStepState {
         phase: phase.to_owned(),
         attempt,
         step: kind,
+        instance_no,
         status,
         session_id: session_id.map(str::to_owned),
         detail: detail.map(str::to_owned),
+        output_ref: output_ref.map(str::to_owned),
     }
+}
+
+/// 节点身份键 fixture（边端点口径 `(phase, attempt, step, instance_no)`）。
+fn key(phase: &str, attempt: u32, kind: ChangeStepKind, instance_no: u32) -> NodeKey {
+    (phase.to_owned(), attempt, kind, instance_no)
+}
+
+/// 执行图边 fixture（端点恒为节点身份键元组）。
+fn edge(from: NodeKey, to: NodeKey, kind: EdgeKind) -> ChangeStepEdge {
+    ChangeStepEdge { from, to, kind }
 }
 
 // ---------------------------------------------------------------------------
@@ -1316,38 +1436,89 @@ fn corpusworktree建档语料_golden对拍() {
     check_or_rewrite("corpus-worktree", &projection);
 }
 
-/// run 运行史全史语料：两次 run 全史 → detail `runs` / `steps` 投影 golden
-///（全史不截、emit seq 稳定序、五词汇封闭集、时间戳 ISO 出线——AC-11 矩阵）；
-/// steps 投影恰五词汇封闭集缺席断言（RunStepKind 类型封闭使流程面词汇结构
-/// 不可表达——词汇集钉死随快照常驻，AC-3/AC-11 缺席断言）。
+/// run 运行史全史语料：两次 run 全史 → detail `runs` / `nodes` / `edges` 投影
+/// golden（全史不截、emit 序稳定、十词汇零过滤、四 kind 边齐备、稳定实例键、
+/// 时间戳 ISO 出线——AC-3 / AC-4 / AC-6 / AC-10 矩阵）；全词汇在案断言（流程面
+/// 步骤与三门不再被过滤弃落）+ feedback 边与实例号递增在场断言。
 #[test]
 fn corpusrun全史语料_golden对拍() {
     let corpus = build_run_history();
     let projection = project_detail(&corpus, "id-run-history");
 
-    // 缺席断言：runs[].steps[].step 全量限于五值封闭集（流程面步骤与三门零行
-    // ——run-1 种子含三门与相位机步喂入，落库面结构上收不到）
-    const CLOSED_SET: [&str; 5] = [
+    // 全词汇断言：runs[].nodes[].step 十值全词汇在案（零过滤——flow 面步骤与三
+    // 门同整包落库）
+    const FULL_WORDS: [&str; 10] = [
         "executor",
         "evaluator",
         "decision",
         "static_check",
         "test_execution",
+        "phase_start",
+        "phase_log",
+        "verdict_gate",
+        "retry_gate",
+        "whitelist_gate",
     ];
     let runs = projection["runs"].as_array().expect("runs 为数组");
     assert_eq!(runs.len(), 2, "两 run 全史样本");
-    let mut steps_seen = 0usize;
+    let mut nodes_seen = 0usize;
+    let mut seen_words: Vec<&str> = Vec::new();
     for run in runs {
-        for step_row in run["steps"].as_array().expect("steps 为数组") {
-            let word = step_row["step"].as_str().expect("step 出线词");
-            assert!(
-                CLOSED_SET.contains(&word),
-                "落库步词汇 {word} 越封闭集（流程面 / 三门缺席断言被破坏）"
-            );
-            steps_seen += 1;
+        let nodes = run["nodes"].as_array().expect("nodes 为数组");
+        for node in nodes {
+            let word = node["step"].as_str().expect("step 出线词");
+            assert!(FULL_WORDS.contains(&word), "落库步词汇 {word} 越十值封闭集");
+            if !seen_words.contains(&word) {
+                seen_words.push(word);
+            }
+            nodes_seen += 1;
         }
     }
-    assert!(steps_seen >= 6, "五词汇样本步整包非空，实际: {steps_seen}");
+    assert_eq!(
+        nodes_seen, 12,
+        "run-1 十一条 + run-2 一条，实际: {nodes_seen}"
+    );
+    for word in FULL_WORDS {
+        assert!(seen_words.contains(&word), "十词汇 {word} 应在案（零过滤）");
+    }
+    assert!(
+        !projection["runs"][0]
+            .as_object()
+            .expect("run 为对象")
+            .contains_key("steps"),
+        "steps 键退役（nodes / edges 取代）"
+    );
+
+    // 四 kind 边齐备 + feedback 边端点指回同相位 agent 步 + 实例号递增
+    let edges = projection["runs"][0]["edges"]
+        .as_array()
+        .expect("edges 为数组");
+    let kinds: Vec<&str> = edges
+        .iter()
+        .map(|row| row["edgeKind"].as_str().expect("edgeKind 出线词"))
+        .collect();
+    for kind in ["forward", "feedback", "retry", "backtrack"] {
+        assert!(kinds.contains(&kind), "四 kind 边 {kind} 应在案：{kinds:?}");
+    }
+    let feedback = edges
+        .iter()
+        .find(|row| row["edgeKind"] == "feedback")
+        .expect("feedback 边在案");
+    assert_eq!(feedback["fromNodeKey"], "implement:1:static_check:0");
+    assert_eq!(feedback["toNodeKey"], "implement:1:executor:1");
+    let nodes = projection["runs"][0]["nodes"]
+        .as_array()
+        .expect("nodes 为数组");
+    let instances: Vec<u64> = nodes
+        .iter()
+        .filter(|node| node["step"] == "executor")
+        .map(|node| node["instanceNo"].as_u64().expect("instanceNo 为数字"))
+        .collect();
+    assert_eq!(instances, vec![0, 1], "feedback 重跑实例号递增可辨");
+    assert_eq!(
+        projection["runs"][0]["nodes"][2]["outputRef"], "exec-1727000019000",
+        "outputRef 出线（ExecOutput::Recorded 引用）"
+    );
 
     check_or_rewrite("corpus-run-history", &projection);
 }
@@ -1395,8 +1566,11 @@ fn assert_no_retired_keys(value: &serde_json::Value, path: &str) {
         serde_json::Value::Object(map) => {
             for (key, child) in map {
                 assert!(
-                    !matches!(key.as_str(), "inventory" | "fileLog" | "unparsable"),
-                    "golden {path} 含退役键 {key}（线面三字段删除被破坏）"
+                    !matches!(
+                        key.as_str(),
+                        "inventory" | "fileLog" | "unparsable" | "steps"
+                    ),
+                    "golden {path} 含退役键 {key}（线面字段删除被破坏）"
                 );
                 assert_no_retired_keys(child, path);
             }
@@ -1408,6 +1582,162 @@ fn assert_no_retired_keys(value: &serde_json::Value, path: &str) {
         }
         _ => {}
     }
+}
+
+/// 半包形态语料（异常，AC-5 / AC-10）：种子含半包形态——边端点悬空（`ghost`
+/// 节点不在本包节点集）/ 节点身份键重复——收口单事务显式拒绝（零半包入库：
+/// run 行仍 running、节点 / 边零行），详情投影 nodes / edges 恒空数组，该语料
+/// **零 golden 产出**（半包不入仓，与语料完整性集合一致）。
+#[test]
+fn corpus半包形态种子_整包拒绝且零golden产出() {
+    let corpus = Corpus::new("half-pack");
+    corpus.seed_record("id-half-pack", "half-pack");
+    corpus.run_start("id-half-pack", "run-1727000030000", t(30));
+
+    let request = RunRequest {
+        root: corpus.root.to_string_lossy().into_owned(),
+        change_id: "id-half-pack".to_owned(),
+        run_id: "run-1727000030000".to_owned(),
+        auto_next_phase: true,
+        started_at: t(30),
+    };
+
+    // 半包形态一：边端点悬空（`ghost` 目标节点不在本包节点集内）
+    let dangling = finish_command(
+        &request,
+        ChangeRunStatus::Completed,
+        Some("半包形态：边端点悬空".to_owned()),
+        t(39),
+        &[
+            step(
+                "proposal",
+                1,
+                ChangeStepKind::PhaseStart,
+                ChangeStepStatus::Passed,
+                None,
+                None,
+            ),
+            step(
+                "proposal",
+                1,
+                ChangeStepKind::Executor,
+                ChangeStepStatus::Passed,
+                Some("ses-half-pack"),
+                None,
+            ),
+        ],
+        &[edge(
+            key("proposal", 1, ChangeStepKind::PhaseStart, 0),
+            key("ghost", 1, ChangeStepKind::Executor, 0),
+            EdgeKind::Backtrack,
+        )],
+    );
+    let error = corpus
+        .store
+        .finish_change_run(&dangling)
+        .expect_err("悬空边端点整包应收口拒绝");
+    assert!(
+        matches!(&error, store::StoreError::Conflict(_)),
+        "整包不变量破例 → 冲突面显式拒绝: {error}"
+    );
+    assert!(
+        error.to_string().contains("悬空"),
+        "记因点名悬空端点: {error}"
+    );
+
+    // 半包形态二：节点身份键重复（同 `(phase, attempt, step, instance_no)` 两行
+    // ——整包节点集非唯一；「节点 / 边数目不一致」在包闭约束下不可构造：边端点
+    // 恒须指向本包节点，破例形态即上述悬空 / 撞键两支）
+    let duplicated = finish_command(
+        &request,
+        ChangeRunStatus::Completed,
+        Some("半包形态：节点身份键重复".to_owned()),
+        t(39),
+        &[
+            step(
+                "proposal",
+                1,
+                ChangeStepKind::Executor,
+                ChangeStepStatus::Passed,
+                Some("ses-half-pack"),
+                None,
+            ),
+            step(
+                "proposal",
+                1,
+                ChangeStepKind::Executor,
+                ChangeStepStatus::Passed,
+                Some("ses-half-pack"),
+                None,
+            ),
+        ],
+        &[],
+    );
+    let error = corpus
+        .store
+        .finish_change_run(&duplicated)
+        .expect_err("节点身份键重复整包应收口拒绝");
+    assert!(
+        matches!(&error, store::StoreError::Conflict(_)),
+        "身份键非唯一 → 冲突面显式拒绝: {error}"
+    );
+    assert!(
+        error.to_string().contains("重复"),
+        "记因点名身份键重复: {error}"
+    );
+
+    // 零半包入库：run 行仍 running、节点 / 边零行（整包拒绝即单事务回滚）
+    let runs = corpus
+        .store
+        .list_change_runs("id-half-pack")
+        .expect("run 清单应成功");
+    assert_eq!(runs.len(), 1, "起始行在案");
+    assert_eq!(
+        runs[0].status,
+        RunStatus::Running,
+        "半包拒绝不写终态（run 行仍 running）"
+    );
+    assert!(
+        corpus
+            .store
+            .list_run_nodes("run-1727000030000")
+            .expect("节点读试应成功")
+            .is_empty(),
+        "半包节点零落库"
+    );
+    assert!(
+        corpus
+            .store
+            .list_run_edges("run-1727000030000")
+            .expect("边读试应成功")
+            .is_empty(),
+        "半包边零落库"
+    );
+
+    // 投影面：半包零具形（nodes / edges 空数组）、detail 仍可定位（running 起始行）
+    let projection = project_detail(&corpus, "id-half-pack");
+    assert_eq!(
+        projection["runs"][0]["status"], "running",
+        "起始行状态面出线: {projection}"
+    );
+    assert!(
+        projection["runs"][0]["nodes"]
+            .as_array()
+            .is_some_and(Vec::is_empty),
+        "半包零具形：nodes 空数组（半包零投射）: {projection}"
+    );
+    assert!(
+        projection["runs"][0]["edges"]
+            .as_array()
+            .is_some_and(Vec::is_empty),
+        "半包零具形：edges 空数组: {projection}"
+    );
+
+    // golden 不产出：半包语料不入仓（与「语料完整性」golden 集合一致）
+    assert!(
+        !golden_dir().join("corpus-half-pack.json").exists(),
+        "半包形态零 golden 产出（过不了整包不变量即无可对拍投影）"
+    );
 }
 
 /// 显式重写流程（边界行）：重写后重跑绿的 diff 范围进程内断言——detail 段
@@ -2395,10 +2725,13 @@ fn 真件run写面回环_running行与三终态整包() {
                 phase: "proposal".to_owned(),
                 attempt: 1,
                 step: ChangeStepKind::Executor,
+                instance_no: 0,
                 status: ChangeStepStatus::Passed,
                 session_id: Some("ses-run-write".to_owned()),
                 detail: None,
+                output_ref: None,
             }],
+            &[],
         );
         workflow::write::run_finish(store, &command)
             .unwrap_or_else(|e| panic!("{status:?} 收口应成功: {e}"));
@@ -2411,11 +2744,19 @@ fn 真件run写面回环_running行与三终态整包() {
         assert_eq!(row.status, status, "终态逐值落库");
         assert_eq!(row.reason.as_deref(), Some("真件收口记因"));
         assert_eq!(row.finished_at, Some(t(39)));
-        let steps = store.list_run_steps(&run_id).expect("步读应成功");
-        assert_eq!(steps.len(), 1, "步整包随收口落库");
-        assert_eq!(steps[0].step, workflow::state::RunStepKind::Executor);
-        assert_eq!(steps[0].status, workflow::state::RunStepStatus::Passed);
-        assert_eq!(steps[0].session_id.as_deref(), Some("ses-run-write"));
-        assert_eq!(steps[0].timestamp, t(39), "整包同刻 = finished_at");
+        let nodes = store.list_run_nodes(&run_id).expect("节点读应成功");
+        assert_eq!(nodes.len(), 1, "节点整包随收口落库");
+        assert_eq!(nodes[0].step, workflow::state::RunStepKind::Executor);
+        assert_eq!(nodes[0].instance_no, 0, "稳定身份键实例号在案");
+        assert_eq!(nodes[0].status, workflow::state::RunStepStatus::Passed);
+        assert_eq!(nodes[0].session_id.as_deref(), Some("ses-run-write"));
+        assert_eq!(nodes[0].timestamp, t(39), "整包同刻 = finished_at");
+        assert!(
+            store
+                .list_run_edges(&run_id)
+                .expect("边读应成功")
+                .is_empty(),
+            "零边 run 边整包空集合法"
+        );
     }
 }

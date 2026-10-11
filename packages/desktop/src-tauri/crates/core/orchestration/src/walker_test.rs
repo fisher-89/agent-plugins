@@ -16,18 +16,17 @@ use crate::port::{
 use crate::snapshot::StoreSnapshot;
 use crate::state::{ChangeRunStatus, RunNotice};
 use crate::steps::LocalToolSteps;
-use crate::walker::{
-    new_run_id, walk_run, RunRequest, STATIC_CHECK_FEEDBACK_LIMIT, STATIC_CHECK_PHASES,
-};
+use crate::walker::{new_run_id, walk_run, RunRequest};
 use store::Store;
 use workflow::model::{ChecklistItem, Verdict};
 use workflow::state::{
     ChangeStateRecord, ChangeStateStore, ChangeStatus, PhaseLogCommand, RunFinishCommand,
-    RunStartCommand, RunStatus, RunStepEntry, RunStepStatus,
+    RunNodeEntry, RunStartCommand, RunStatus, RunStepStatus,
 };
 use workflow::write::{
-    BacktrackOutcome, DecisionLogOutcome, LastResult, PhaseLogOutcome, PhaseNextError,
-    PhaseNextOutcome, PhaseStartOutcome, SessionAnchors,
+    phase_table, ArtifactSpec, BacktrackOutcome, DecisionLogOutcome, LastResult, OnFail,
+    PhaseLogOutcome, PhaseNextError, PhaseNextOutcome, PhaseStartOutcome, SessionAnchors,
+    StepDefinition, StepNode,
 };
 
 // ---------------------------------------------------------------------------
@@ -531,6 +530,7 @@ impl ToolStepPort for FakeTools {
                     .unwrap_or(StaticCheckOutcome {
                         passed: true,
                         diagnostics: String::new(),
+                        output_ref: None,
                     });
                 Box::pin(async move { Ok(ToolStepOutput::StaticCheck(outcome)) })
             }
@@ -551,6 +551,7 @@ impl ToolStepPort for FakeTools {
                         findings_brief: String::new(),
                         findings_detail: String::new(),
                         report_dir: String::new(),
+                        exec_id: String::new(),
                     });
                 Box::pin(async move { Ok(ToolStepOutput::TestExecution(outcome)) })
             }
@@ -579,6 +580,8 @@ fn route_with_round(
         done: false,
         next_phase: Some(phase.to_owned()),
         round,
+        steps: steps_of(phase),
+        artifact_manifest: manifest_of(phase),
         executor: Some(workflow::write::ResolvedPhaseSpec {
             prompt: format!("change: c\n\nImplement the {phase} phase for change \"c\"."),
             model_level: ModelLevel::Low,
@@ -598,6 +601,8 @@ fn done_outcome() -> PhaseNextOutcome {
         done: true,
         next_phase: None,
         round: 1,
+        steps: Vec::new(),
+        artifact_manifest: Vec::new(),
         executor: None,
         evaluator: None,
         allowed_backtrack_phases: Vec::new(),
@@ -611,6 +616,8 @@ fn max_retries_outcome(phase: &str, allowed: &[&str], last_report: &str) -> Phas
         done: false,
         next_phase: None,
         round: 6,
+        steps: Vec::new(),
+        artifact_manifest: Vec::new(),
         executor: None,
         evaluator: None,
         allowed_backtrack_phases: allowed.iter().map(|id| id.to_string()).collect(),
@@ -631,6 +638,7 @@ fn passing_check() -> StaticCheckOutcome {
     StaticCheckOutcome {
         passed: true,
         diagnostics: String::new(),
+        output_ref: None,
     }
 }
 
@@ -638,6 +646,7 @@ fn failing_check(diagnostics: &str) -> StaticCheckOutcome {
     StaticCheckOutcome {
         passed: false,
         diagnostics: diagnostics.to_owned(),
+        output_ref: None,
     }
 }
 
@@ -848,10 +857,82 @@ fn spawn_confirmer(control: &Arc<ChangeFlowControl>, proceed: bool) -> tokio::ta
     })
 }
 
+/// 相位定义（真件只读——计划步序列与产物清单的唯一来源）。
+fn phase_def(phase: &str) -> &'static workflow::write::PhaseDefinition {
+    phase_table("requirement")
+        .expect("requirement 表恒可达")
+        .iter()
+        .find(|def| def.id == phase)
+        .unwrap_or_else(|| panic!("相位 {phase} 应在表内"))
+}
+
+/// next 相位下发的计划步序列（真件克隆——walker 迭代本序列，MUST NOT 自持步序）。
+fn steps_of(phase: &str) -> Vec<StepDefinition> {
+    phase_def(phase).steps.to_vec()
+}
+
+/// next 相位下发的产物清单（真件克隆）。
+fn manifest_of(phase: &str) -> Vec<ArtifactSpec> {
+    phase_def(phase).artifact_manifest.to_vec()
+}
+
+/// 门禁反馈边上限（**步声明单源**：相位定义内该检查步 `on_fail` 声明的 limit
+/// ——walker 侧 `*_FEEDBACK_LIMIT` 常量随 step 声明退役，AC-2）。
+fn feedback_limit_of(phase: &str, node: StepNode) -> u32 {
+    phase_def(phase)
+        .steps
+        .iter()
+        .find(|step| step.node == node)
+        .and_then(|step| step.on_fail)
+        .and_then(|on_fail| match on_fail {
+            OnFail::FeedbackLoop { limit } => Some(limit),
+            OnFail::Terminal => None,
+        })
+        .unwrap_or_else(|| panic!("相位 {phase} 的 {node:?} 步应声明 FeedbackLoop"))
+}
+
+/// static-check 门禁反馈上限（implement / test-gen 声明同值）。
+fn static_check_feedback_limit() -> u32 {
+    feedback_limit_of("implement", StepNode::StaticCheck)
+}
+
+/// test-execution 门禁反馈上限（test-execution 相位声明）。
+fn test_execution_feedback_limit() -> u32 {
+    feedback_limit_of("test-execution", StepNode::TestExecution)
+}
+
+/// 声明 static-check 步的相位（布局身份常量退役——相位限定由 step 声明承载）。
+fn static_check_phases() -> Vec<&'static str> {
+    phase_table("requirement")
+        .expect("requirement 表恒可达")
+        .iter()
+        .filter(|def| {
+            def.steps
+                .iter()
+                .any(|step| step.node == StepNode::StaticCheck)
+        })
+        .map(|def| def.id)
+        .collect()
+}
+
+/// 声明 test-execution 步的相位。
+fn test_execution_phases() -> Vec<&'static str> {
+    phase_table("requirement")
+        .expect("requirement 表恒可达")
+        .iter()
+        .filter(|def| {
+            def.steps
+                .iter()
+                .any(|step| step.node == StepNode::TestExecution)
+        })
+        .map(|def| def.id)
+        .collect()
+}
+
 /// 摘取落包步整包的 (phase, attempt, step 线格式, status 线格式) 列表
 ///（broadcast 已 kind-only 降位——步序列断言经落库整包捕获面承载，seq =
 /// emit 序与既有 Step 更新序一致）。
-fn step_rows(steps: &[RunStepEntry]) -> Vec<(String, u32, String, String)> {
+fn step_rows(steps: &[RunNodeEntry]) -> Vec<(String, u32, String, String)> {
     fn status_word(status: &RunStepStatus) -> &'static str {
         match status {
             RunStepStatus::Running => "running",
@@ -1960,7 +2041,7 @@ async fn auto确认多相位直通零confirmwait信封终态口径不漂移() {
     // 逐相位推进（确经逐相位、非一次收敛）：落包整包涉两相位（kind-only
     // 降位后 phaseStart 词汇不落库——逐相位语义经整包相位集合承载）
     let phases: std::collections::BTreeSet<String> =
-        step_rows(&history.finish().expect("finish 落包捕获").steps)
+        step_rows(&history.finish().expect("finish 落包捕获").nodes)
             .into_iter()
             .map(|(phase, _, _, _)| phase)
             .collect();
@@ -2295,7 +2376,7 @@ async fn 反馈边诊断同会话注入修复() {
 }
 
 /// walk_run 反馈边独立计数与超限升格（边界）：反馈循环恰 ≤5 次（
-/// STATIC_CHECK_FEEDBACK_LIMIT）且不消耗相位 retry 预算；第 5 次仍失败 →
+/// static_check_feedback_limit()）且不消耗相位 retry 预算；第 5 次仍失败 →
 /// 升格相位 fail：桌面代写 fail phase-log（不跑 evaluator）后进 phase-next。
 #[tokio::test]
 async fn 反馈边恰五次且超限升格相位fail不跑evaluator() {
@@ -2308,7 +2389,7 @@ async fn 反馈边恰五次且超限升格相位fail不跑evaluator() {
         ])
         .with_static_check(vec![
             failing_check("clippy 未过");
-            (STATIC_CHECK_FEEDBACK_LIMIT + 1) as usize
+            (static_check_feedback_limit() + 1) as usize
         ])
         .assemble();
 
@@ -2332,7 +2413,7 @@ async fn 反馈边恰五次且超限升格相位fail不跑evaluator() {
         .count();
     assert_eq!(
         static_checks,
-        STATIC_CHECK_FEEDBACK_LIMIT as usize + 1,
+        static_check_feedback_limit() as usize + 1,
         "反馈边独立计数恰 ≤5（第 5 次仍失败即升格）"
     );
     let upgrade = commands
@@ -2372,7 +2453,7 @@ async fn 反馈边恰五次且超限升格相位fail不跑evaluator() {
     assert_eq!(fix_prompts.len(), 5, "修复会话恰 5 次（反馈边独立预算）");
     for (idx, prompt) in fix_prompts.iter().enumerate() {
         assert!(
-            prompt.contains(&format!("第 {}/{}", idx + 1, STATIC_CHECK_FEEDBACK_LIMIT)),
+            prompt.contains(&format!("第 {}/{}", idx + 1, static_check_feedback_limit())),
             "修复 prompt 反馈计数递进: {prompt}"
         );
     }
@@ -2401,7 +2482,7 @@ async fn 步状态流出三类节点逐档可辨() {
     let status = task.await.expect("run 任务正常结束");
     assert_eq!(status, ChangeRunStatus::Completed);
 
-    let rows = step_rows(&history.finish().expect("finish 落包捕获").steps);
+    let rows = step_rows(&history.finish().expect("finish 落包捕获").nodes);
 
     // 落库五词汇齐备且可辨（kind-only 降位后步序列经落包整包承载；流程面
     // 步骤与三门不落库——缺席断言留测试相位）
@@ -2424,15 +2505,25 @@ async fn 步状态流出三类节点逐档可辨() {
             "步状态四档可辨: {status}"
         );
     }
-    // 每一步均 running 起手、passed 收口（emit 序 = seq 序，累积器下标同源）
+    // 每一步终态可辨（emit 序起手 running 经稳定身份键就地合并为收口 passed
+    // ——整包恒一行一节点，节点身份键 `(phase, attempt, step, instance_no)`）
     let step_at = |kind: &str, status: &str| {
         rows.iter()
             .any(|(_, _, row_kind, row_status)| row_kind == kind && row_status == status)
     };
     for kind in ["executor", "static_check", "evaluator"] {
-        assert!(step_at(kind, "running"), "{kind} running 起手");
         assert!(step_at(kind, "passed"), "{kind} passed 收口");
+        assert!(!step_at(kind, "running"), "{kind} 起手行已合并为终态");
     }
+    // 同 (phase, attempt, step) 恰一行（稳定身份键唯一性）
+    let mut identities: Vec<(String, u32, String)> = rows
+        .iter()
+        .map(|(phase, attempt, kind, _)| (phase.clone(), *attempt, kind.clone()))
+        .collect();
+    let total = identities.len();
+    identities.sort();
+    identities.dedup();
+    assert_eq!(identities.len(), total, "节点身份键稳定唯一（无重复行）");
 }
 
 /// walk_run 工具步失败显式失败（异常）：假写面返回 Err(String) → run 收敛
@@ -2534,13 +2625,13 @@ async fn 空白名单backtrack决议被拒() {
     );
 }
 
-/// 步门控常量锚定（边界）：STATIC_CHECK_FEEDBACK_LIMIT == 5（沿 hook
-/// loop_limit 语义）；STATIC_CHECK_PHASES == ["implement", "test-gen"]（布局
-/// 身份常量——转移判定恒问写面 phase-next，不据其路由，红线锚）。
+/// 步门控声明锚定（边界）：static-check 反馈上限 5（沿 hook loop_limit 语义）
+/// 由相位定义 step 声明供给；声明 static-check 步的相位 == ["implement",
+/// "test-gen"]（布局身份常量退役——转移判定恒问写面 phase-next，不据其路由）。
 #[test]
-fn 步门控常量锚定() {
-    assert_eq!(STATIC_CHECK_FEEDBACK_LIMIT, 5);
-    assert_eq!(STATIC_CHECK_PHASES, ["implement", "test-gen"]);
+fn 步门控声明锚定() {
+    assert_eq!(static_check_feedback_limit(), 5);
+    assert_eq!(static_check_phases(), vec!["implement", "test-gen"]);
     // run_id 铸造定式（每 run 一个会话窗口标识）
     let run_id = new_run_id();
     assert!(run_id.starts_with("run-"), "run-<millis> 定式: {run_id}");
@@ -3074,18 +3165,22 @@ async fn 步状态词汇零新增_决策挂账全程无新步信封() {
     assert_eq!(status, ChangeRunStatus::Completed);
 
     let kinds: std::collections::BTreeSet<String> =
-        step_rows(&history.finish().expect("finish 落包捕获").steps)
+        step_rows(&history.finish().expect("finish 落包捕获").nodes)
             .into_iter()
             .map(|(_, _, kind, _)| kind)
             .collect();
-    // 落库封闭集五值（词汇漂移防线；流程面步骤与三门经 RunStepKind 结构上
-    // 不可表达——缺席断言留测试相位）
-    const VOCAB: [&str; 5] = [
+    // 落库十值全词汇零过滤（词汇漂移防线：封闭集之外的词出现即破坏）
+    const VOCAB: [&str; 10] = [
         "executor",
         "evaluator",
         "decision",
         "static_check",
         "test_execution",
+        "phase_start",
+        "phase_log",
+        "verdict_gate",
+        "retry_gate",
+        "whitelist_gate",
     ];
     for kind in &kinds {
         assert!(
@@ -3093,6 +3188,10 @@ async fn 步状态词汇零新增_决策挂账全程无新步信封() {
             "落库步词汇漂移（新增词 {kind}）——RunStepKind 封闭集出新词即破坏"
         );
     }
+    assert!(
+        kinds.contains("phase_start") && kinds.contains("phase_log"),
+        "流程面步骤不再被过滤弃落：{kinds:?}"
+    );
     // 决策挂账链路确经整包（决策角色步在落库子集）
     assert!(kinds.contains("decision"), "决策会话步在场");
 }
@@ -3128,6 +3227,7 @@ impl StaticCheckRunner for FailingRunner {
             Ok(ToolStepOutput::StaticCheck(StaticCheckOutcome {
                 passed: false,
                 diagnostics: "clippy 未过: E0308".to_owned(),
+                output_ref: None,
             }))
         })
     }
@@ -3150,6 +3250,7 @@ impl TestExecutionRunner for NullTestExecutionRunner {
                 findings_brief: String::new(),
                 findings_detail: String::new(),
                 report_dir: String::new(),
+                exec_id: String::new(),
             }))
         })
     }
@@ -3165,8 +3266,6 @@ fn futures_poll(rx: &mut tokio::sync::broadcast::Receiver<RunNotice>) -> Option<
 // ---------------------------------------------------------------------------
 // test-execution 扩展节（desktop-checks-domain）
 // ---------------------------------------------------------------------------
-
-use crate::walker::{TEST_EXECUTION_FEEDBACK_LIMIT, TEST_EXECUTION_PHASES};
 
 /// test-execution 门禁产出 fixture
 fn execution_outcome(conclusion: TestExecutionConclusion, total: u64) -> TestExecutionOutcome {
@@ -3188,6 +3287,7 @@ fn execution_outcome(conclusion: TestExecutionConclusion, total: u64) -> TestExe
                 .to_owned(),
         },
         report_dir: format!("C:/ws/openspec/changes/{NAME}/reports/test"),
+        exec_id: String::new(),
     }
 }
 
@@ -3238,13 +3338,16 @@ async fn test_execution步门控_站必经_非门控相位零调用() {
     drop(timeline);
 
     // 步整包流出：testExecution 词汇 running → passed（seq = emit 序）
-    let gate_rows: Vec<_> = step_rows(&history.finish().expect("finish 落包捕获").steps)
+    let gate_rows: Vec<_> = step_rows(&history.finish().expect("finish 落包捕获").nodes)
         .into_iter()
         .filter(|(_, _, kind, _)| kind == "test_execution")
         .collect();
-    assert_eq!(gate_rows.len(), 2, "门禁步 running + passed 两行流出");
-    assert_eq!(gate_rows[0].3, "running");
-    assert_eq!(gate_rows[1].3, "passed");
+    assert_eq!(
+        gate_rows.len(),
+        1,
+        "门禁步单节点（running → passed 经稳定身份键就地合并）"
+    );
+    assert_eq!(gate_rows[0].3, "passed", "合并后终态为 passed");
 }
 
 /// 正向：绿跑零 agent——pass 结论路径零 WorkerAgentPort 调用，机械 checklist
@@ -3428,7 +3531,7 @@ async fn error结论同fail通路走反馈边() {
     assert_eq!(gate_calls, 2, "error 不静默：修复后门禁复跑");
 }
 
-/// 异常：反馈边独立计数恰 ≤ TEST_EXECUTION_FEEDBACK_LIMIT 且不消耗相位
+/// 异常：反馈边独立计数恰 ≤ test_execution_feedback_limit() 且不消耗相位
 /// retry 预算；第 5 次仍失败 → 升格相位 fail（单条 pass=false item +
 /// findings 摘要 evidence、executor 槽位携反馈会话 id、evaluator /
 /// decision 恒 None、不跑 evaluator——static-check 超限用例同型）。
@@ -3440,7 +3543,7 @@ async fn 反馈边恰五次且超限升格相位fail() {
         .with_phase_next(vec![route_outcome("test-execution", &[]), done_outcome()])
         .with_test_execution(vec![
             execution_outcome(TestExecutionConclusion::Fail, 5);
-            (TEST_EXECUTION_FEEDBACK_LIMIT + 1) as usize
+            (test_execution_feedback_limit() + 1) as usize
         ])
         .assemble();
 
@@ -3464,7 +3567,7 @@ async fn 反馈边恰五次且超限升格相位fail() {
         .count();
     assert_eq!(
         gate_calls,
-        TEST_EXECUTION_FEEDBACK_LIMIT as usize + 1,
+        test_execution_feedback_limit() as usize + 1,
         "反馈边独立计数恰 ≤5（第 5 次仍失败即升格）"
     );
 
@@ -3513,9 +3616,11 @@ async fn 反馈边恰五次且超限升格相位fail() {
     assert_eq!(requests.len(), 5, "修复会话恰 5 次（反馈边独立预算）");
     for (idx, request) in requests.iter().enumerate() {
         assert!(
-            request
-                .prompt
-                .contains(&format!("第 {}/{}", idx + 1, TEST_EXECUTION_FEEDBACK_LIMIT)),
+            request.prompt.contains(&format!(
+                "第 {}/{}",
+                idx + 1,
+                test_execution_feedback_limit()
+            )),
             "修复 prompt 反馈计数递进: {}",
             request.prompt
         );
@@ -3541,11 +3646,11 @@ async fn 双门禁独立计数互不挤占() {
         ])
         .with_static_check(vec![
             failing_check("clippy 未过");
-            (STATIC_CHECK_FEEDBACK_LIMIT + 1) as usize
+            (static_check_feedback_limit() + 1) as usize
         ])
         .with_test_execution(vec![
             execution_outcome(TestExecutionConclusion::Fail, 5);
-            (TEST_EXECUTION_FEEDBACK_LIMIT + 1) as usize
+            (test_execution_feedback_limit() + 1) as usize
         ])
         .assemble();
 
@@ -3567,12 +3672,12 @@ async fn 双门禁独立计数互不挤占() {
         .count();
     assert_eq!(
         static_calls,
-        STATIC_CHECK_FEEDBACK_LIMIT as usize + 1,
+        static_check_feedback_limit() as usize + 1,
         "static-check 门禁独立计满（6 检）"
     );
     assert_eq!(
         gate_calls,
-        TEST_EXECUTION_FEEDBACK_LIMIT as usize + 1,
+        test_execution_feedback_limit() as usize + 1,
         "test-execution 门禁独立计满（6 检）——互不挤占"
     );
 
@@ -3680,12 +3785,13 @@ fn test_execution窄化tryfrom逐字段与非匹配面() {
 }
 
 #[test]
-fn test_execution门控常量锚定() {
-    assert_eq!(TEST_EXECUTION_FEEDBACK_LIMIT, 5);
-    assert_eq!(TEST_EXECUTION_PHASES, ["test-execution"]);
-    // 双门禁常量分立：反馈上限同值但彼此独立计数（各自计满各自升格）
+fn test_execution门控声明锚定() {
+    assert_eq!(test_execution_feedback_limit(), 5);
+    assert_eq!(test_execution_phases(), vec!["test-execution"]);
+    // 双门禁步声明分立：反馈上限同值但彼此独立计数（各自计满各自升格）
     assert_eq!(
-        TEST_EXECUTION_FEEDBACK_LIMIT, STATIC_CHECK_FEEDBACK_LIMIT,
+        static_check_feedback_limit(),
+        test_execution_feedback_limit(),
         "取值对齐（计数分立）"
     );
 }
@@ -3868,28 +3974,25 @@ async fn 真件组合_多相位run落库回验_emit序与终态逐字段一致()
         "completed 收口记因"
     );
 
-    // RunStepRecord 步整包：seq 升序 = emit 序、五词汇封闭集、整包同刻
-    let steps = store.list_run_steps("run-1").expect("步读史应成功");
-    assert!(!steps.is_empty(), "多相位 run 步整包非空");
-    let seqs: Vec<u64> = steps.iter().map(|row| row.seq).collect();
-    assert!(
-        seqs.windows(2).all(|w| w[0] < w[1]),
-        "seq 严格升序（emit 序）"
-    );
-    // 首相位的 phaseStart running/passed 占 emit 序 0/1（过滤步占号）→ 首落步
-    // seq = 2（空洞为排序键语义合法形态，D7）
-    assert_eq!(seqs[0], 2, "emit 序盖戳自全词汇序列（被过滤步占号留空洞）");
-    for row in &steps {
+    // 节点整包：node_seq 升序 = emit 序、十值全词汇零过滤、整包同刻
+    let nodes = store.list_run_nodes("run-1").expect("节点读史应成功");
+    assert!(!nodes.is_empty(), "多相位 run 节点整包非空");
+    const FULL_WORDS: [workflow::state::RunStepKind; 10] = [
+        workflow::state::RunStepKind::Executor,
+        workflow::state::RunStepKind::Evaluator,
+        workflow::state::RunStepKind::Decision,
+        workflow::state::RunStepKind::StaticCheck,
+        workflow::state::RunStepKind::TestExecution,
+        workflow::state::RunStepKind::PhaseStart,
+        workflow::state::RunStepKind::PhaseLog,
+        workflow::state::RunStepKind::VerdictGate,
+        workflow::state::RunStepKind::RetryGate,
+        workflow::state::RunStepKind::WhitelistGate,
+    ];
+    for row in &nodes {
         assert!(
-            matches!(
-                row.step,
-                workflow::state::RunStepKind::Executor
-                    | workflow::state::RunStepKind::Evaluator
-                    | workflow::state::RunStepKind::Decision
-                    | workflow::state::RunStepKind::StaticCheck
-                    | workflow::state::RunStepKind::TestExecution
-            ),
-            "落库步词汇限于五值封闭集，实际: {:?}",
+            FULL_WORDS.contains(&row.step),
+            "落库步词汇越十值全词汇封闭集，实际: {:?}",
             row.step
         );
         assert_eq!(
@@ -3898,15 +4001,74 @@ async fn 真件组合_多相位run落库回验_emit序与终态逐字段一致()
             "整包同刻 = finished_at"
         );
     }
+    // 流程面步骤与三门在案（零过滤的行为锚：phase_start / phase_log 不再被弃落）
+    assert!(
+        nodes
+            .iter()
+            .any(|row| row.step == workflow::state::RunStepKind::PhaseStart),
+        "phase_start 随整包落库（零过滤）"
+    );
+    assert!(
+        nodes
+            .iter()
+            .any(|row| row.step == workflow::state::RunStepKind::PhaseLog),
+        "phase_log 随整包落库（零过滤）"
+    );
+    // 稳定身份键：同 (phase, attempt, step) 多实例经 instance_no 递增可辨
+    for row in &nodes {
+        assert!(
+            row.instance_no < u32::MAX,
+            "实例号有限递增（emit 单点分配）"
+        );
+    }
     // 会话步（executor / evaluator）session_id 在场——emit 序与库读史一致性的锚
     assert!(
-        steps.iter().any(|row| row.session_id.is_some()),
+        nodes.iter().any(|row| row.session_id.is_some()),
         "WorkerAgent 步 session_id 透传落库"
     );
+
+    // 边整包：四 kind 词汇落库、端点身份串指向本 run 节点身份键
+    let edges = store.list_run_edges("run-1").expect("边读史应成功");
+    assert!(!edges.is_empty(), "多相位 run 边整包非空");
+    let node_keys: Vec<String> = nodes
+        .iter()
+        .map(|row| {
+            format!(
+                "{}:{}:{}:{}",
+                row.phase,
+                row.attempt,
+                row.step.as_str(),
+                row.instance_no
+            )
+        })
+        .collect();
+    for edge in &edges {
+        assert!(
+            matches!(
+                edge.edge_kind,
+                workflow::state::RunEdgeKind::Forward
+                    | workflow::state::RunEdgeKind::Feedback
+                    | workflow::state::RunEdgeKind::Retry
+                    | workflow::state::RunEdgeKind::Backtrack
+            ),
+            "边 kind 限于四值封闭集，实际: {:?}",
+            edge.edge_kind
+        );
+        assert!(
+            node_keys.contains(&edge.from_node_key) && node_keys.contains(&edge.to_node_key),
+            "边端点恒指向本 run 节点身份串（整包不变量）：{:?}",
+            edge
+        );
+        assert_eq!(
+            edge.timestamp,
+            runs[0].finished_at.expect("终态收口时刻在位"),
+            "边整包同刻"
+        );
+    }
 }
 
 #[tokio::test]
-async fn 全词汇run恰五落_流程面与三门零行() {
+async fn 全词汇run十值零过滤_流程面与三门在案() {
     // 决策分叉输入取自 ChangeDetail 只读装配——真件库种子（快照读源真实组合）
     let (root, _db) = decision_fixture("full-vocab");
     let timeline = Arc::new(Mutex::new(Vec::new()));
@@ -3939,56 +4101,74 @@ async fn 全词汇run恰五落_流程面与三门零行() {
 
     let finish = history.finish().expect("收口落包捕获");
     let kinds: Vec<String> = finish
-        .steps
+        .nodes
         .iter()
         .map(|entry| entry.step.as_str().to_owned())
         .collect();
-    // 五落词汇全数在库（executor / evaluator / decision / static_check /
-    // test_execution）
+    // 全词汇在案（本 fixture 决策动作为 retry → retry_gate 不经手，其在场断言
+    // 由决策 backtrack 分支用例承载；决策分叉 + 门禁 + test-execution 相位全覆盖）
     for word in [
         "executor",
         "evaluator",
         "decision",
         "static_check",
         "test_execution",
-    ] {
-        assert!(
-            kinds.iter().any(|kind| kind == word),
-            "落库五词汇 {word} 应在场，实际: {kinds:?}"
-        );
-    }
-    // 流程面与三门零行（缺席断言——词汇封闭集 + 过滤单点的行为面）
-    for word in [
         "phase_start",
         "phase_log",
-        "verdictGate",
         "verdict_gate",
-        "retryGate",
-        "retry_gate",
-        "whitelistGate",
         "whitelist_gate",
     ] {
         assert!(
-            !kinds.iter().any(|kind| kind == word),
-            "流程面 / 三门词汇 {word} 零行，实际: {kinds:?}"
+            kinds.iter().any(|kind| kind == word),
+            "落库十值词汇 {word} 应在场（零过滤），实际: {kinds:?}"
         );
     }
+    // camelCase 等非 snake 词零行（线面词汇单点）
+    for word in ["verdictGate", "retryGate", "whitelistGate", "phaseStart"] {
+        assert!(
+            !kinds.iter().any(|kind| kind == word),
+            "非 snake 线面词 {word} 零行，实际: {kinds:?}"
+        );
+    }
+    let mut distinct = kinds.clone();
+    distinct.sort();
+    distinct.dedup();
     assert_eq!(
-        {
-            let mut distinct = kinds.clone();
-            distinct.sort();
-            distinct.dedup();
-            distinct
-        },
+        distinct,
         vec![
             "decision".to_owned(),
             "evaluator".to_owned(),
             "executor".to_owned(),
+            "phase_log".to_owned(),
+            "phase_start".to_owned(),
             "static_check".to_owned(),
             "test_execution".to_owned(),
+            "verdict_gate".to_owned(),
+            "whitelist_gate".to_owned(),
         ],
-        "十类 emit 恰落五类（封闭集缺席断言）"
+        "emit 词汇零过滤（流程面步骤与三门在案；retry_gate 归 backtrack 分支）"
     );
+    // 边整包：本 fixture 经计划序推进 + 门禁反馈回边（forward / feedback 在案），
+    // 词汇限于四 kind 封闭集；retry / backtrack 仅经相位 fail 重跑与决策 backtrack
+    // 分支 emit（各自专用用例承载，四 kind 组装面由 run_history_test 断言）
+    let edge_kinds: Vec<String> = finish
+        .edges
+        .iter()
+        .map(|edge| edge.edge_kind.as_str().to_owned())
+        .collect();
+    const EDGE_VOCAB: [&str; 4] = ["forward", "feedback", "retry", "backtrack"];
+    for word in &edge_kinds {
+        assert!(
+            EDGE_VOCAB.contains(&word.as_str()),
+            "边 kind 漂移（越四值封闭集）: {edge_kinds:?}"
+        );
+    }
+    for word in ["forward", "feedback"] {
+        assert!(
+            edge_kinds.iter().any(|kind| kind == word),
+            "边 {word} 应在场，实际: {edge_kinds:?}"
+        );
+    }
 }
 
 #[tokio::test]
@@ -4342,4 +4522,536 @@ async fn run_finished_err_best_effort_静默收口() {
         }
     }
     assert!(saw_finished, "终态通知照常广播（收口语义不受损）");
+}
+
+// ---------------------------------------------------------------------------
+// feedback 重跑新节点（stable instance key）+ 会话窗口铸造边界
+// ---------------------------------------------------------------------------
+
+/// feedback 重跑新节点（正向）：static-check 失败 → executor 修复重跑 → 相位通过：
+/// 图上 executor 首次 / 修复各为独立节点（`instance_no` 递增），边 kind =
+/// feedback（phase 内回边，区别于 retry）；phase-log 步收口 attempt 判据
+///（AC-4 主锚）。
+#[tokio::test]
+async fn feedback重跑executor两独立节点且边为feedback() {
+    let timeline = Arc::new(Mutex::new(Vec::new()));
+    let (worker, _requests, _sessions) = FakeWorker::new(&timeline).assemble();
+    let (tools, _commands) = FakeTools::new(&timeline)
+        .with_phase_next(vec![
+            route_outcome("implement", &["implement"]),
+            done_outcome(),
+        ])
+        .with_static_check(vec![failing_check("类型错误"), passing_check()])
+        .assemble();
+
+    let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
+    let control = Arc::new(ChangeFlowControl::new());
+
+    let (task, _rx, history) = spawn_run(worker, tools, snapshot, &control, false, "/tmp/root");
+    let _confirmer = spawn_confirmer(&control, true);
+    let status = task.await.expect("run 任务正常结束");
+    assert_eq!(status, ChangeRunStatus::Completed);
+
+    let finish = history.finish().expect("finish 落包捕获");
+
+    // executor 两节点：同 (phase, attempt, step) 而 instance_no 递增
+    let executors: Vec<&workflow::state::RunNodeEntry> = finish
+        .nodes
+        .iter()
+        .filter(|node| node.step == workflow::state::RunStepKind::Executor)
+        .collect();
+    assert_eq!(executors.len(), 2, "首次 + 修复重跑各为独立节点");
+    assert_eq!(executors[0].instance_no, 0);
+    assert_eq!(executors[1].instance_no, 1, "instance_no 递增");
+    assert_eq!(executors[0].phase, executors[1].phase);
+    assert_eq!(executors[0].attempt, executors[1].attempt);
+    assert_eq!(
+        executors[1].status,
+        workflow::state::RunStepStatus::Passed,
+        "修复轮通过收口"
+    );
+    assert!(
+        finish.nodes.iter().any(|node| node
+            .detail
+            .as_deref()
+            .is_some_and(|detail| detail.contains("类型错误"))),
+        "static-check 失败记因随节点落包（反馈边诊断原料）"
+    );
+
+    // 边 kind：static_check:0 → executor:1 为 feedback（phase 内回边）
+    let feedback: Vec<&workflow::state::RunEdgeEntry> = finish
+        .edges
+        .iter()
+        .filter(|edge| edge.edge_kind == workflow::state::RunEdgeKind::Feedback)
+        .collect();
+    assert!(!feedback.is_empty(), "feedback 边在案（区别于 retry）");
+    assert!(
+        feedback.iter().any(|edge| {
+            edge.from_node_key == "implement:1:static_check:0"
+                && edge.to_node_key == "implement:1:executor:1"
+        }),
+        "feedback 端点指向门禁步与新实例，实际: {:?}",
+        feedback
+            .iter()
+            .map(|edge| (edge.from_node_key.clone(), edge.to_node_key.clone()))
+            .collect::<Vec<_>>()
+    );
+    // 零 retry 边（本 run 无相位 fail 重跑——feedback 与 retry 不混淆）
+    assert!(
+        !finish
+            .edges
+            .iter()
+            .any(|edge| edge.edge_kind == workflow::state::RunEdgeKind::Retry),
+        "相位内回边不误记为 retry"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// 四边 kind（AC-3 / AC-4）：forward / feedback / retry / backtrack 各自落边 +
+// 整包包闭性（悬空端点零落边、组合边界显式拒绝）
+// ---------------------------------------------------------------------------
+
+/// 节点身份串集合（`{phase}:{attempt}:{step}:{instance_no}`——与边端点身份串同
+/// 式，跨侧逐字可比）。
+fn node_key_set(nodes: &[RunNodeEntry]) -> Vec<String> {
+    nodes
+        .iter()
+        .map(|node| {
+            format!(
+                "{}:{}:{}:{}",
+                node.phase,
+                node.attempt,
+                node.step.as_str(),
+                node.instance_no
+            )
+        })
+        .collect()
+}
+
+/// 边整包包闭断言：每条边两端恒落在本 run 节点身份集内且无自环（悬空端点 =
+/// 整包不变量破例）；返回节点身份串集合供逐边断言复用。
+fn assert_edges_closed(
+    nodes: &[RunNodeEntry],
+    edges: &[workflow::state::RunEdgeEntry],
+) -> Vec<String> {
+    let keys = node_key_set(nodes);
+    for edge in edges {
+        assert!(
+            keys.contains(&edge.from_node_key) && keys.contains(&edge.to_node_key),
+            "边端点恒指本 run 节点身份串（整包包闭，无悬空）: {edge:?}"
+        );
+        assert_ne!(edge.from_node_key, edge.to_node_key, "自环边零落边");
+    }
+    keys
+}
+
+/// 四边 kind 正向（一次 run 覆盖四边 emit）：计划序推进落 `forward`、静态检查
+/// 失败回同名 agent 步落 `feedback`、相位 fail 同相重跑落 `retry`、决策 backtrack
+/// 跨相位回跳落 `backtrack`——同一 run 的四类边各自可辨（AC-3 / AC-4）。
+#[tokio::test]
+async fn 四边kind正向_一次run覆盖四边kind各自落边() {
+    let (root, db) = decision_fixture("edge-all-kinds");
+
+    let timeline = Arc::new(Mutex::new(Vec::new()));
+    let (worker, _requests, _sessions) = FakeWorker::new(&timeline)
+        .with_evaluator_reports(vec![Ok(fail_json("首轮未过")), Ok(fail_json("次轮仍未过"))])
+        .with_decision_reports(vec![
+            r#"{ "action": "backtrack", "to": "dev-design", "reason": "设计返工" }"#.to_owned(),
+        ])
+        .assemble();
+    let (tools, _commands) = FakeTools::new(&timeline)
+        .with_phase_next(vec![
+            // ① implement 首轮：静态检查失败 → feedback 回边；evaluator fail → 相位 fail
+            route_outcome("implement", &["proposal", "dev-design", "implement"]),
+            // ② implement 同相重跑（上一轮 fail 记因在案）→ retry 入边
+            route_with_round(
+                "implement",
+                &["proposal", "dev-design", "implement"],
+                2,
+                Some(LastResult {
+                    phase: "implement".to_owned(),
+                    verdict: Verdict::Fail,
+                    report: "首轮未过".to_owned(),
+                    timestamp: None,
+                }),
+            ),
+            // ③ 预算耗尽 → 决策分叉决议 backtrack（to ∈ 白名单）→ 跨相位回跳
+            max_retries_outcome(
+                "implement",
+                &["proposal", "dev-design", "implement"],
+                "次轮仍未过",
+            ),
+            // ④ 回跳目标相位自该处重跑 → 绿跑收口
+            route_outcome("dev-design", &["proposal", "dev-design"]),
+            done_outcome(),
+        ])
+        .with_static_check(vec![failing_check("类型错误"), passing_check()])
+        .assemble();
+
+    let snapshot: Arc<dyn WorkflowSnapshotPort> =
+        Arc::new(StoreSnapshot::new(root.root_str(), db.store_arc()));
+    let control = Arc::new(ChangeFlowControl::new());
+    let (task, _rx, history) =
+        spawn_run(worker, tools, snapshot, &control, false, &root.root_str());
+    let _confirmer = spawn_confirmer(&control, true);
+    let status = task.await.expect("run 任务正常结束");
+    assert_eq!(status, ChangeRunStatus::Completed, "回跳重跑后走完收口");
+
+    let finish = history.finish().expect("finish 落包捕获");
+    let keys = assert_edges_closed(&finish.nodes, &finish.edges);
+    let row = |from: &str, to: &str, kind: workflow::state::RunEdgeKind| {
+        finish.edges.iter().any(|edge| {
+            edge.from_node_key == from && edge.to_node_key == to && edge.edge_kind == kind
+        })
+    };
+    use workflow::state::RunEdgeKind;
+    // forward：计划序推进（相位内步序 + 相位间推进）
+    assert!(
+        row(
+            "implement:2:phase_start:0",
+            "implement:2:executor:0",
+            RunEdgeKind::Forward
+        ),
+        "forward 落边（计划序推进），实际边集: {:?}",
+        finish
+            .edges
+            .iter()
+            .map(|edge| (
+                edge.from_node_key.clone(),
+                edge.to_node_key.clone(),
+                edge.edge_kind
+            ))
+            .collect::<Vec<_>>()
+    );
+    // feedback：静态检查失败回本相位 executor（新 instance_no 修复重跑）
+    assert!(
+        row(
+            "implement:1:static_check:0",
+            "implement:1:executor:1",
+            RunEdgeKind::Feedback
+        ),
+        "feedback 落边（相位内回边）"
+    );
+    // retry：相位 fail 后同相位重跑（attempt 递增）
+    assert!(
+        row(
+            "implement:1:phase_log:0",
+            "implement:2:phase_start:0",
+            RunEdgeKind::Retry
+        ),
+        "retry 落边（同相重跑）"
+    );
+    // backtrack：决策回跳跨相位（源 = 失败相位末节点、目标 = 回跳相位首节点；
+    // 决策门节点 attempt 取决策输入（库内该相位最近 attempt））
+    assert!(
+        row(
+            "implement:1:retry_gate:0",
+            "dev-design:3:phase_start:0",
+            RunEdgeKind::Backtrack
+        ),
+        "backtrack 落边（跨相位回跳）"
+    );
+
+    // 四 kind 各自齐备且三条特殊边各恰一条（forward 计划序多条）
+    let kinds: Vec<&str> = finish
+        .edges
+        .iter()
+        .map(|edge| edge.edge_kind.as_str())
+        .collect();
+    for word in ["forward", "feedback", "retry", "backtrack"] {
+        assert!(kinds.contains(&word), "四 kind 边 {word} 应在场: {kinds:?}");
+    }
+    for word in ["feedback", "retry", "backtrack"] {
+        assert_eq!(
+            kinds.iter().filter(|kind| **kind == word).count(),
+            1,
+            "特殊边 {word} 恰一条: {kinds:?}"
+        );
+    }
+    assert!(
+        !kinds
+            .iter()
+            .any(|kind| !["forward", "feedback", "retry", "backtrack"].contains(kind)),
+        "边 kind 零越四值封闭集: {kinds:?}"
+    );
+    assert!(
+        keys.contains(&"dev-design:3:phase_start:0".to_owned()),
+        "回跳目标节点在案: {keys:?}"
+    );
+}
+
+/// 四边 kind 正向（retry）：相位 evaluator fail → 同相位重跑（attempt 递增）
+/// 落 `retry` 边（源 = 上一轮相位末节点、目标 = 重跑相位首节点）；计划序推进
+/// 落 `forward` 边，相位内回边（feedback）与跨相位回跳（backtrack）零误记
+///（AC-3 / AC-4）。
+#[tokio::test]
+async fn 四边kind正向_相位fail同相重跑落retry边() {
+    let timeline = Arc::new(Mutex::new(Vec::new()));
+    let (worker, _requests, _sessions) = FakeWorker::new(&timeline)
+        .with_evaluator_reports(vec![Ok(fail_json("首轮未过")), Ok(PASS_JSON.to_owned())])
+        .assemble();
+    let (tools, _commands) = FakeTools::new(&timeline)
+        .with_phase_next(vec![
+            route_with_round("implement", &["implement"], 1, None),
+            route_with_round(
+                "implement",
+                &["implement"],
+                2,
+                Some(LastResult {
+                    phase: "implement".to_owned(),
+                    verdict: Verdict::Fail,
+                    report: "首轮未过".to_owned(),
+                    timestamp: None,
+                }),
+            ),
+            done_outcome(),
+        ])
+        .assemble();
+
+    let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
+    let control = Arc::new(ChangeFlowControl::new());
+    let (task, _rx, history) = spawn_run(worker, tools, snapshot, &control, false, "/tmp/root");
+    let _confirmer = spawn_confirmer(&control, true);
+    let status = task.await.expect("run 任务正常结束");
+    assert_eq!(status, ChangeRunStatus::Completed, "重跑通过后走完收口");
+
+    let finish = history.finish().expect("finish 落包捕获");
+    let retry: Vec<&workflow::state::RunEdgeEntry> = finish
+        .edges
+        .iter()
+        .filter(|edge| edge.edge_kind == workflow::state::RunEdgeKind::Retry)
+        .collect();
+    assert_eq!(retry.len(), 1, "相位 fail 同相重跑恰落一条 retry 边");
+    assert_eq!(
+        retry[0].from_node_key, "implement:1:phase_log:0",
+        "retry 源 = 上一轮相位末节点（fail 收口处）"
+    );
+    assert_eq!(
+        retry[0].to_node_key, "implement:2:phase_start:0",
+        "retry 目标 = 重跑相位首节点（attempt 递增）"
+    );
+
+    let kinds: Vec<&str> = finish
+        .edges
+        .iter()
+        .map(|edge| edge.edge_kind.as_str())
+        .collect();
+    assert!(
+        kinds.contains(&"forward"),
+        "计划序推进落 forward 边: {kinds:?}"
+    );
+    assert!(
+        !kinds.contains(&"feedback"),
+        "相位 fail 重跑不误记 feedback（相位内回边另有其边）: {kinds:?}"
+    );
+    assert!(
+        !kinds.contains(&"backtrack"),
+        "同相重跑不误记 backtrack（跨相位回跳另有其边）: {kinds:?}"
+    );
+
+    let keys = assert_edges_closed(&finish.nodes, &finish.edges);
+    assert!(
+        keys.contains(&retry[0].from_node_key) && keys.contains(&retry[0].to_node_key),
+        "retry 两端节点在案（图面闭合）"
+    );
+}
+
+/// 四边 kind 正向（backtrack）：决策分叉决议 backtrack（to ∈ 白名单）→ 跨相位
+/// 回跳落 `backtrack` 边（源 = 失败相位末节点、目标 = 回跳目标相位首节点）；
+/// 同相 retry 零误记（AC-3 / AC-4）。
+#[tokio::test]
+async fn 四边kind正向_决策回跳跨相位落backtrack边() {
+    let (root, db) = decision_fixture("edge-backtrack");
+
+    let timeline = Arc::new(Mutex::new(Vec::new()));
+    let (worker, _requests, _sessions) = FakeWorker::new(&timeline)
+        .with_decision_reports(vec![
+            r#"{ "action": "backtrack", "to": "dev-design", "reason": "设计返工" }"#.to_owned(),
+        ])
+        .assemble();
+    let (tools, _commands) = FakeTools::new(&timeline)
+        .with_phase_next(vec![
+            route_outcome("implement", &["proposal", "dev-design", "implement"]),
+            max_retries_outcome(
+                "implement",
+                &["proposal", "dev-design", "implement"],
+                "首轮未过",
+            ),
+            route_outcome("dev-design", &["proposal", "dev-design"]),
+            done_outcome(),
+        ])
+        .assemble();
+
+    let snapshot: Arc<dyn WorkflowSnapshotPort> =
+        Arc::new(StoreSnapshot::new(root.root_str(), db.store_arc()));
+    let control = Arc::new(ChangeFlowControl::new());
+    let (task, _rx, history) =
+        spawn_run(worker, tools, snapshot, &control, false, &root.root_str());
+    let _confirmer = spawn_confirmer(&control, true);
+    let status = task.await.expect("run 任务正常结束");
+    assert_eq!(status, ChangeRunStatus::Completed, "backtrack 重路由后收敛");
+
+    let finish = history.finish().expect("finish 落包捕获");
+    let backtrack: Vec<&workflow::state::RunEdgeEntry> = finish
+        .edges
+        .iter()
+        .filter(|edge| edge.edge_kind == workflow::state::RunEdgeKind::Backtrack)
+        .collect();
+    assert_eq!(backtrack.len(), 1, "跨相位回跳恰落一条 backtrack 边");
+    assert_eq!(
+        backtrack[0].from_node_key, "implement:1:retry_gate:0",
+        "backtrack 源 = 失败相位末节点（决策门收口处）"
+    );
+    assert_eq!(
+        backtrack[0].to_node_key, "dev-design:2:phase_start:0",
+        "backtrack 目标 = 回跳目标相位首节点（跨相位身份串）"
+    );
+
+    let kinds: Vec<&str> = finish
+        .edges
+        .iter()
+        .map(|edge| edge.edge_kind.as_str())
+        .collect();
+    assert!(
+        kinds.contains(&"forward"),
+        "计划序与决策门内推进落 forward 边: {kinds:?}"
+    );
+    assert!(
+        !kinds.contains(&"retry"),
+        "跨相位回跳不误记 retry（同相重跑另有其边）: {kinds:?}"
+    );
+
+    let keys = assert_edges_closed(&finish.nodes, &finish.edges);
+    assert!(
+        keys.contains(&backtrack[0].to_node_key),
+        "回跳目标节点在案（图面闭合）"
+    );
+}
+
+/// 四边 kind 异常（整包不变量）：边端点悬空（from / to 不在本 run 节点集内）
+/// → walker 侧零悬空落边（端点恒自节点身份分配单点派生、同源双端），组合边界
+/// （真件 store 收口单事务）显式拒绝悬空包且零半包入库（AC-3 / AC-5）。
+#[tokio::test]
+async fn 四边kind异常_悬空端点零落边与整包拒绝零半包() {
+    // ① walker 侧：静态检查反馈边 run（forward + feedback 多边）→ 落包边整包
+    //    包闭、零自环（悬空端点不可构造）
+    let timeline = Arc::new(Mutex::new(Vec::new()));
+    let (worker, _requests, _sessions) = FakeWorker::new(&timeline).assemble();
+    let (tools, _commands) = FakeTools::new(&timeline)
+        .with_phase_next(vec![
+            route_outcome("implement", &["implement"]),
+            done_outcome(),
+        ])
+        .with_static_check(vec![failing_check("类型错误"), passing_check()])
+        .assemble();
+
+    let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
+    let control = Arc::new(ChangeFlowControl::new());
+    let (task, _rx, history) = spawn_run(worker, tools, snapshot, &control, false, "/tmp/root");
+    let _confirmer = spawn_confirmer(&control, true);
+    let status = task.await.expect("run 任务正常结束");
+    assert_eq!(status, ChangeRunStatus::Completed);
+
+    let finish = history.finish().expect("finish 落包捕获");
+    assert!(!finish.edges.is_empty(), "本案多边在前（包闭断言非空转）");
+    let keys = assert_edges_closed(&finish.nodes, &finish.edges);
+    assert!(
+        keys.contains(&"implement:1:executor:1".to_owned()),
+        "反馈重跑新实例节点在案: {keys:?}"
+    );
+
+    // ② 组合边界：真件 store 收口单事务——悬空端点整包显式拒绝、终态零写、
+    //    节点 / 边零落库（无半包），run 行仍 running
+    let db = TestDb::open("dangling-edge");
+    seed_change(db.store.as_ref(), CHANGE_ID, NAME);
+    db.store
+        .start_change_run(&RunStartCommand {
+            run_id: "run-dangling".to_owned(),
+            change_id: CHANGE_ID.to_owned(),
+            started_at: STARTED_AT,
+        })
+        .expect("起始行应成功");
+
+    let mut corrupted = finish.clone();
+    corrupted.run_id = "run-dangling".to_owned();
+    corrupted.edges.push(workflow::state::RunEdgeEntry {
+        from_node_key: "implement:1:retry_gate:0".to_owned(),
+        to_node_key: keys[0].clone(),
+        edge_kind: workflow::state::RunEdgeKind::Backtrack,
+    });
+    assert!(
+        !keys.contains(&"implement:1:retry_gate:0".to_owned()),
+        "注入端点为悬空形态（不在本包节点集内）"
+    );
+
+    let error = db
+        .store
+        .finish_change_run(&corrupted)
+        .expect_err("悬空端点整包应收口拒绝");
+    assert!(
+        matches!(&error, store::StoreError::Conflict(_)),
+        "整包不变量破例 → 冲突面显式拒绝: {error}"
+    );
+    assert!(
+        error.to_string().contains("悬空"),
+        "记因点名悬空端点: {error}"
+    );
+    assert!(
+        db.store
+            .list_run_nodes("run-dangling")
+            .expect("节点读试应成功")
+            .is_empty(),
+        "半包节点零落库（整事务回滚）"
+    );
+    assert!(
+        db.store
+            .list_run_edges("run-dangling")
+            .expect("边读试应成功")
+            .is_empty(),
+        "半包边零落库（整事务回滚）"
+    );
+    let runs = db
+        .store
+        .list_change_runs(CHANGE_ID)
+        .expect("run 清单应成功");
+    assert_eq!(runs.len(), 1, "起始行在案");
+    assert_eq!(
+        runs[0].status,
+        RunStatus::Running,
+        "半包拒绝不写终态（run 行仍 running）"
+    );
+}
+
+/// `new_run_id` 铸造面（边界 / 异常）：恒 `run-<millis>` 形态、两次铸造互异；
+/// 同毫秒连铸不 panic（不依赖全局单调计数）。并发铸造（多线程）逐值可辨。
+#[test]
+fn new_run_id铸造定式与互异不panic() {
+    let first = new_run_id();
+    let second = new_run_id();
+    assert!(first.starts_with("run-"), "run-<millis> 定式: {first}");
+    assert!(
+        first[4..].chars().all(|ch| ch.is_ascii_digit()),
+        "毫秒段为十进制数字: {first}"
+    );
+    assert!(first.len() > 4, "毫秒段非空");
+
+    // 同毫秒连铸：不 panic 且形态持衡（毫秒级唯一铸造面为 store 主键兜底）
+    let burst: Vec<String> = (0..64).map(|_| new_run_id()).collect();
+    for id in &burst {
+        assert!(id.starts_with("run-"));
+    }
+
+    // 并发铸造（时钟回拨 / 同毫秒形态不 panic）
+    let handles: Vec<std::thread::JoinHandle<String>> =
+        (0..4).map(|_| std::thread::spawn(new_run_id)).collect();
+    let mut concurrent: Vec<String> = handles
+        .into_iter()
+        .map(|handle| handle.join().expect("铸造线程不 panic"))
+        .collect();
+    concurrent.push(first);
+    concurrent.push(second);
+    assert!(
+        concurrent.iter().all(|id| id.starts_with("run-")),
+        "并发铸造形态持衡"
+    );
 }

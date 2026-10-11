@@ -134,6 +134,9 @@ pub enum ToolStepOutput {
 pub struct StaticCheckOutcome {
     pub passed: bool,
     pub diagnostics: String,
+    /// 全量输出引用（`ExecOutput::Recorded { exec_id }`；`Transient` 模式恒 None
+    /// ——反馈边只消费 diagnostics，全量落盘为按需升级面）
+    pub output_ref: Option<String>,
 }
 
 /// test-execution 门禁结论三值（checks 域聚合 `Conclusion` 的 port 映射像；
@@ -178,6 +181,10 @@ pub struct TestExecutionOutcome {
     pub findings_detail: String,
     /// 报告目录（change 报告树，全量 findings 所在）
     pub report_dir: String,
+    /// 输出记录引用（`ExecOutput::Recorded { exec_id }`，经
+    /// `exec::read_exec_output` 回查；与 `report_dir` 同锚同口径，落盘失败空串 =
+    /// 未记录——`report_dir` 报告仍为全量权威）
+    pub exec_id: String,
 }
 
 /// ToolStep 契约（进程内缝）：相位机四步由编排侧 [`crate::steps::LocalToolSteps`]

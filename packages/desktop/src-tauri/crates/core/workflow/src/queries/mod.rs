@@ -5,7 +5,8 @@ pub mod explore;
 pub mod list;
 
 pub use detail::{
-    change_detail, AttemptRecord, ChangeDetail, ChangeRunEntry, ChangeRunStepRecord, PhaseEntry,
+    change_detail, AttemptRecord, ChangeDetail, ChangeRunEdgeRecord, ChangeRunEntry,
+    ChangeRunNodeRecord, PhaseEntry,
 };
 pub use explore::{read_explore, scan_explores, ExploreDoc, ExploreScanEntry};
 pub use list::{list_changes, ArchiveGroup, ChangeList, ChangeSource, ChangeSummary};

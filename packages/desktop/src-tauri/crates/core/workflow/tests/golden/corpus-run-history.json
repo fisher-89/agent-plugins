@@ -82,17 +82,56 @@
   ],
   "runs": [
     {
+      "edges": [
+        {
+          "edgeKind": "forward",
+          "fromNodeKey": "implement:1:phase_start:0",
+          "toNodeKey": "implement:1:executor:0"
+        },
+        {
+          "edgeKind": "forward",
+          "fromNodeKey": "implement:1:executor:0",
+          "toNodeKey": "implement:1:static_check:0"
+        },
+        {
+          "edgeKind": "feedback",
+          "fromNodeKey": "implement:1:static_check:0",
+          "toNodeKey": "implement:1:executor:1"
+        },
+        {
+          "edgeKind": "forward",
+          "fromNodeKey": "implement:1:executor:1",
+          "toNodeKey": "implement:1:evaluator:0"
+        },
+        {
+          "edgeKind": "retry",
+          "fromNodeKey": "implement:1:evaluator:0",
+          "toNodeKey": "implement:1:decision:0"
+        },
+        {
+          "edgeKind": "backtrack",
+          "fromNodeKey": "implement:1:whitelist_gate:0",
+          "toNodeKey": "dev-design:1:test_execution:0"
+        }
+      ],
       "finishedAt": "2024-09-22T10:13:39Z",
-      "reason": "首轮 dev-design 未过（预算内 fail）",
-      "runId": "run-1727000010000",
-      "startedAt": "2024-09-22T10:13:30Z",
-      "status": "completed",
-      "steps": [
+      "nodes": [
+        {
+          "attempt": 1,
+          "detail": null,
+          "instanceNo": 0,
+          "outputRef": null,
+          "phase": "implement",
+          "sessionId": null,
+          "status": "passed",
+          "step": "phase_start"
+        },
         {
           "attempt": 1,
           "detail": "实现完成",
+          "instanceNo": 0,
+          "outputRef": null,
           "phase": "implement",
-          "seq": 0,
           "sessionId": "ses-impl-1",
           "status": "passed",
           "step": "executor"
@@ -100,58 +139,118 @@
         {
           "attempt": 1,
           "detail": null,
+          "instanceNo": 0,
+          "outputRef": "exec-1727000019000",
           "phase": "implement",
-          "seq": 1,
           "sessionId": null,
-          "status": "passed",
+          "status": "failed",
           "step": "static_check"
         },
         {
           "attempt": 1,
-          "detail": "首轮评估 fail",
+          "detail": "按 feedback 修复重跑",
+          "instanceNo": 1,
+          "outputRef": null,
           "phase": "implement",
-          "seq": 2,
+          "sessionId": "ses-impl-1b",
+          "status": "passed",
+          "step": "executor"
+        },
+        {
+          "attempt": 1,
+          "detail": "首轮评估 fail",
+          "instanceNo": 0,
+          "outputRef": null,
+          "phase": "implement",
           "sessionId": "ses-eval-1",
           "status": "failed",
           "step": "evaluator"
         },
         {
           "attempt": 1,
-          "detail": null,
+          "detail": "verdict=fail",
+          "instanceNo": 0,
+          "outputRef": null,
           "phase": "implement",
-          "seq": 3,
+          "sessionId": null,
+          "status": "failed",
+          "step": "verdict_gate"
+        },
+        {
+          "attempt": 1,
+          "detail": "预算内同相位重跑",
+          "instanceNo": 0,
+          "outputRef": null,
+          "phase": "implement",
+          "sessionId": null,
+          "status": "passed",
+          "step": "retry_gate"
+        },
+        {
+          "attempt": 1,
+          "detail": null,
+          "instanceNo": 0,
+          "outputRef": null,
+          "phase": "implement",
           "sessionId": "ses-decision-1",
           "status": "passed",
           "step": "decision"
         },
         {
           "attempt": 1,
+          "detail": "回溯白名单内",
+          "instanceNo": 0,
+          "outputRef": null,
+          "phase": "implement",
+          "sessionId": null,
+          "status": "passed",
+          "step": "whitelist_gate"
+        },
+        {
+          "attempt": 1,
           "detail": "conclusion=pass total=3",
+          "instanceNo": 0,
+          "outputRef": null,
           "phase": "dev-design",
-          "seq": 4,
           "sessionId": null,
           "status": "passed",
           "step": "test_execution"
+        },
+        {
+          "attempt": 1,
+          "detail": null,
+          "instanceNo": 0,
+          "outputRef": null,
+          "phase": "dev-design",
+          "sessionId": null,
+          "status": "passed",
+          "step": "phase_log"
         }
-      ]
+      ],
+      "reason": "首轮 dev-design 未过（预算内 fail）",
+      "runId": "run-1727000010000",
+      "startedAt": "2024-09-22T10:13:30Z",
+      "status": "completed"
     },
     {
+      "edges": [],
       "finishedAt": "2024-09-22T10:13:49Z",
-      "reason": "All phases have passed evaluation. Ready for archiving.",
-      "runId": "run-1727000020000",
-      "startedAt": "2024-09-22T10:13:40Z",
-      "status": "completed",
-      "steps": [
+      "nodes": [
         {
           "attempt": 2,
           "detail": null,
+          "instanceNo": 0,
+          "outputRef": null,
           "phase": "dev-design",
-          "seq": 0,
           "sessionId": "ses-dd-exec-a2",
           "status": "passed",
           "step": "executor"
         }
-      ]
+      ],
+      "reason": "All phases have passed evaluation. Ready for archiving.",
+      "runId": "run-1727000020000",
+      "startedAt": "2024-09-22T10:13:40Z",
+      "status": "completed"
     }
   ],
   "source": "active",

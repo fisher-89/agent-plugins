@@ -157,6 +157,10 @@ pub(crate) async fn change_flow_start_with<R: tauri::Runtime>(
     let anchors = Arc::new(SessionAnchors::new());
     let store_port: Arc<dyn ChangeStateStore> = store; // Arc<Store> → port 缝对象
     let history: Arc<dyn RunHistoryPort> = Arc::new(StoreRunHistory::new(Arc::clone(&store_port)));
+    // checks 执行器装配：static-check 默认 `ExecOutput::Transient`（全量即弃，
+    // 反馈边只消费诊断文本；升 `recorded(change)` 即经 infra/exec 单点落盘并回
+    // 填 output_ref）；test-execution 报告全量落 change 报告目录树并携 exec_id 回
+    // 查引用（同锚同口径）——输出记录单点驻 infra/exec，本组合根零记录逻辑
     let tools: Arc<dyn ToolStepPort> = Arc::new(LocalToolSteps::new(
         Arc::clone(&anchors),
         Arc::new(ProcessStaticCheck::new()),
