@@ -505,6 +505,7 @@ function activeRun(): ActiveRunView {
     phase: 'implement',
     attempt: 1,
     ask: null,
+    archive: null,
     startedAt: '2026-10-09T08:00:00Z',
     nodes: [
       {

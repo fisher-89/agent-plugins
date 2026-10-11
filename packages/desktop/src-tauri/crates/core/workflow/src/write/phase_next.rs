@@ -146,7 +146,10 @@ pub fn phase_next(
         }
     }
 
-    // 默认路由：全 pass → done；首个未过相位 → 重试上限判定 → 正常下发
+    // 默认路由：全 pass → done；首个未过相位 → 重试上限判定 → 正常下发。
+    // archive 为表内第 9 相位（archive 列空 checklist 落账即 pass），本函数零
+    // archive 特判——8 相位 pass 后下一相位即 archive（用户确认进入），archive
+    // pass 后全表 `all_passed` 即 done。
     let all_passed = table.iter().all(|def| has_phase_passed(&entries, def.id));
     if all_passed {
         return Ok(PhaseNextOutcome {

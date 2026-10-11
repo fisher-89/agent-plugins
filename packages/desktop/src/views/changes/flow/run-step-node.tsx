@@ -9,10 +9,11 @@ type RunStepNodeData = { node: RuntimeFlowNode };
 
 export type RunStepFlowNode = Node<RunStepNodeData, 'runStep'>;
 
-/** 分组徽章文案（三类节点可辨）。 */
+/** 分组徽章文案（四类节点可辨）。 */
 const GROUP_LABEL: Record<RunStepGroup, string> = {
   workerAgent: 'WorkerAgent',
   toolStep: 'ToolStep',
+  git: 'Git',
   gate: 'Gate',
 };
 
@@ -28,6 +29,14 @@ const STEP_LABEL: Record<ChangeStepKind, string> = {
   verdictGate: 'verdict 门',
   retryGate: '重试门',
   whitelistGate: '白名单门',
+  preflight: '归档前置',
+  commit: 'worktree 提交',
+  rebase: '分支重放',
+  resolveConflicts: '解冲突',
+  merge: '主仓合入',
+  specSync: 'spec 同步',
+  seal: '归档收口',
+  finalize: '归档落盘',
 };
 
 /** 步状态视觉：running pulse / failed 红态 / stopped 灰态 / passed 常态。 */

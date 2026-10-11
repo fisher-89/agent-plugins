@@ -1,5 +1,5 @@
 use crate::decision::{CandidateReport, DecisionInput};
-use crate::prompt::{decision_prompt, evaluator_prompt};
+use crate::prompt::{decision_prompt, evaluator_prompt, merge_conflict_prompt, spec_sync_prompt};
 use workflow::model::{ChecklistItem, Verdict};
 
 #[test]
@@ -139,5 +139,176 @@ fn prompt确定性_同输入重复组装逐字节一致() {
         decision_prompt(&input),
         decision_prompt(&input),
         "决策 prompt 确定性"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// 归档 agent prompt 单点（自 archive_flow.rs 搬移：组装 / 边界 / 静态红线；
+// AC-3。文本与搬移前逐字节一致的 diff 面归 code-review，行为面以组装与确定性锚定）
+// ---------------------------------------------------------------------------
+
+/// spec 同步 prompt 组装（正向）：change 名插值（name 化）+ 增量合并语义主体
+///（ADDED / MODIFIED / REMOVED / RENAMED）+ 约束段（只编辑主 specs / 零 git）。
+#[test]
+fn spec_sync_prompt组装含change名与增量合并语义() {
+    let prompt = spec_sync_prompt("demo-change");
+
+    assert!(prompt.contains("demo-change"), "change 名插值在场");
+    assert!(
+        prompt.contains("openspec/changes/demo-change/specs/"),
+        "delta specs 路径插值"
+    );
+    for semantic in [
+        "## ADDED Requirements",
+        "## MODIFIED Requirements",
+        "## REMOVED Requirements",
+        "## RENAMED Requirements",
+    ] {
+        assert!(prompt.contains(semantic), "增量合并语义段 {semantic} 在场");
+    }
+    assert!(prompt.contains("幂等"), "幂等约束在场");
+    assert!(prompt.contains("## Purpose"), "capability 缺席创建指引在场");
+    assert!(
+        prompt.contains("只编辑 `openspec/specs/**`"),
+        "主 specs 单点编辑约束在场（delta 原件零改写）"
+    );
+    assert!(
+        prompt.contains("不执行任何 git 命令"),
+        "git 面收缩（归档编排代执行收口）"
+    );
+}
+
+/// spec 同步 prompt 边界（边界）：空串 / 超长（>1000 chars）/ 特殊字符
+///（换行 / NUL / emoji）→ 不 panic，插值原样保留。
+#[test]
+fn spec_sync_prompt边界空串超长与特殊字符原样插值() {
+    // 空串：静态模板照常产出（插值位为空）
+    let empty = spec_sync_prompt("");
+    assert!(
+        empty.contains("openspec/changes//specs/"),
+        "空 change 名原样插值"
+    );
+    assert!(
+        empty.contains("## ADDED Requirements"),
+        "静态主体不因空串缺席"
+    );
+
+    // 超长（>1000 chars）：原样插值不截断不 panic
+    let long = "a".repeat(1200);
+    let long_prompt = spec_sync_prompt(&long);
+    assert!(
+        long_prompt.contains(&format!("openspec/changes/{long}/specs/")),
+        "超长 change 名原样插值"
+    );
+
+    // 特殊字符：换行 / NUL / emoji 原样保留
+    for special in ["a\nb", "a\0b", "change-🚀-emoji", "  "] {
+        let prompt = spec_sync_prompt(special);
+        assert!(
+            prompt.contains(&format!("openspec/changes/{special}/specs/")),
+            "特殊字符 {special:?} 原样插值"
+        );
+    }
+}
+
+/// spec 同步 prompt 静态红线（异常）：零 `<role>` / `{{…}}` 占位、零 CLI skill
+/// 溯源；MCP 与 workflow.json 面恒为禁用声明（零读写依赖）。
+#[test]
+fn spec_sync_prompt静态红线零占位零外部依赖() {
+    let prompt = spec_sync_prompt("demo-change");
+
+    assert!(
+        prompt.contains("禁止调用 MCP 工具"),
+        "MCP 禁用红线显式声明"
+    );
+    assert!(!prompt.contains("<role>"), "零 <role> 占位");
+    assert!(!prompt.contains("{{"), "零 {{…}} 占位");
+    assert!(!prompt.contains("skill"), "零 CLI skill 溯源");
+    assert!(!prompt.contains("include_str"), "零编译期占位标记残留");
+    assert!(
+        prompt.contains("不读写 workflow.json"),
+        "workflow.json 面为禁用声明"
+    );
+}
+
+/// 解冲突 prompt 组装（正向）：change 名与逐条冲突路径插值 + 解算纪律（标记
+/// 裁决 / 逐文件精确 add / 清单外零改动 / 收口命令禁用）。
+#[test]
+fn merge_conflict_prompt组装含change名与逐条冲突路径() {
+    let conflicts = vec![
+        "specs/a.md".to_owned(),
+        "openspec/changes/c/tasks.md".to_owned(),
+    ];
+    let prompt = merge_conflict_prompt("demo-change", &conflicts);
+
+    assert!(prompt.contains("demo-change"), "change 名插值在场");
+    assert!(
+        prompt.contains("change/demo-change"),
+        "归档分支名插值（change/<name>）"
+    );
+    for path in &conflicts {
+        assert!(prompt.contains(path), "冲突路径逐条插值: {path}");
+    }
+    assert!(prompt.contains("<<<<<<<"), "冲突标记形态说明在场");
+    assert!(prompt.contains("git add"), "逐文件精确 add 纪律在场");
+    assert!(
+        prompt.contains("禁止 `git add -A`") && prompt.contains("git commit"),
+        "收口命令禁用纪律在场"
+    );
+    assert!(
+        prompt.contains("清单外任何文件一律不动"),
+        "清单外零改动约束在场"
+    );
+}
+
+/// 解冲突 prompt 边界（边界）：conflicts 空列表 / 单元素 / 超大列表；单条路径
+/// 超长 / 含特殊字符 → 不 panic、逐条可辨。
+#[test]
+fn merge_conflict_prompt边界空列表单元素超大列表与特殊路径() {
+    // 空列表：清单段为空，静态纪律照常（零 panic）
+    let empty = merge_conflict_prompt("demo-change", &[]);
+    assert!(empty.contains("demo-change"));
+    assert!(
+        empty.contains("约束（必须遵守）"),
+        "静态纪律段不因空清单缺席"
+    );
+
+    // 单元素
+    let single = merge_conflict_prompt("demo-change", &["a.md".to_owned()]);
+    assert!(single.contains("a.md"));
+
+    // 超大列表（128 条）：逐条透出、不截断
+    let many: Vec<String> = (0..128)
+        .map(|index| format!("specs/file-{index:03}.md"))
+        .collect();
+    let prompt = merge_conflict_prompt("demo-change", &many);
+    for path in &many {
+        assert!(prompt.contains(path), "超大列表逐条透出: {path}");
+    }
+
+    // 超长单条路径（>1000 chars）与特殊字符：原样保留
+    let long_path = format!("{}/a.md", "d".repeat(1200));
+    let special = vec![
+        long_path.clone(),
+        "a\nb.md".to_owned(),
+        "🚀.md".to_owned(),
+    ];
+    let prompt = merge_conflict_prompt("demo-change", &special);
+    assert!(prompt.contains(&long_path), "超长冲突路径原样保留");
+    assert!(prompt.contains("a\nb.md"), "换行字符原样保留（逐条可辨）");
+    assert!(prompt.contains("🚀.md"), "emoji 路径原样保留");
+}
+
+/// 两 prompt 确定性（回归）：同输入重复组装逐字节一致（搬移保真的行为面锚）。
+#[test]
+fn 归档两prompt确定性_同输入重复组装逐字节一致() {
+    assert_eq!(
+        spec_sync_prompt("demo-change"),
+        spec_sync_prompt("demo-change")
+    );
+    let conflicts = vec!["specs/a.md".to_owned()];
+    assert_eq!(
+        merge_conflict_prompt("demo-change", &conflicts),
+        merge_conflict_prompt("demo-change", &conflicts)
     );
 }

@@ -1,28 +1,42 @@
+use std::path::Path;
 use std::sync::Arc;
 
-use workflow::state::{ChangeStateStore, StepCommand, StepKind};
-use workflow::write::SessionAnchors;
+use foundation::layout::{resolve, Layout};
+use workflow::model::Verdict;
+use workflow::queries::locate_change;
+use workflow::state::{
+    ChangeStateRecord, ChangeStateStore, ChangeStatus, PhaseStateRecord, StepCommand, StepKind,
+};
+use workflow::write::{phase_table, SessionAnchors};
 
 use crate::port::{
-    BoxToolFuture, StaticCheckRunner, TestExecutionRunner, ToolCommand, ToolStepOutput,
-    ToolStepPort, ToolStepRequest,
+    ArchiveVcsPort, BoxToolFuture, StaticCheckRunner, TestExecutionRunner, ToolCommand,
+    ToolStepOutput, ToolStepPort, ToolStepRequest,
 };
+use crate::state::ArchivePreflight;
+
+/// 产物三件核对清单（requirement 工作流定式；markdown_doc 注册表现役名单同源）。
+const ARTIFACT_FILES: [&str; 3] = ["proposal.md", "design.md", "tasks.md"];
 
 /// 进程内工具步骤
 pub struct LocalToolSteps {
     anchors: Arc<SessionAnchors>,
     static_check: Arc<dyn StaticCheckRunner>,
     test_execution: Arc<dyn TestExecutionRunner>,
+    /// 归档 git 步执行缝（Preflight 的 vcs 探测同走本缝；进程 spawn 驻
+    /// `crates/infra/vcs`）
+    vcs: Arc<dyn ArchiveVcsPort>,
     store: Arc<dyn ChangeStateStore>,
     run_id: String,
 }
 
 impl LocalToolSteps {
-    /// 组合根装配（run 作用域一次：锚点随 run 铸新、runner 随进程复用）。
+    /// 组合根装配（run 作用域一次：锚点随 run 铸新、runner / vcs 随进程复用）。
     pub fn new(
         anchors: Arc<SessionAnchors>,
         static_check: Arc<dyn StaticCheckRunner>,
         test_execution: Arc<dyn TestExecutionRunner>,
+        vcs: Arc<dyn ArchiveVcsPort>,
         store: Arc<dyn ChangeStateStore>,
         run_id: String,
     ) -> Self {
@@ -30,6 +44,7 @@ impl LocalToolSteps {
             anchors,
             static_check,
             test_execution,
+            vcs,
             store,
             run_id,
         }
@@ -41,10 +56,20 @@ impl ToolStepPort for LocalToolSteps {
         let anchors = Arc::clone(&self.anchors);
         let static_check = Arc::clone(&self.static_check);
         let test_execution = Arc::clone(&self.test_execution);
+        let vcs = Arc::clone(&self.vcs);
         let store = Arc::clone(&self.store);
         let run_id = self.run_id.clone();
         Box::pin(async move {
-            execute(anchors, static_check, test_execution, store, run_id, step).await
+            execute(
+                anchors,
+                static_check,
+                test_execution,
+                vcs,
+                store,
+                run_id,
+                step,
+            )
+            .await
         })
     }
 }
@@ -54,6 +79,7 @@ async fn execute(
     anchors: Arc<SessionAnchors>,
     static_check: Arc<dyn StaticCheckRunner>,
     test_execution: Arc<dyn TestExecutionRunner>,
+    vcs: Arc<dyn ArchiveVcsPort>,
     store: Arc<dyn ChangeStateStore>,
     run_id: String,
     step: ToolStepRequest,
@@ -210,6 +236,27 @@ async fn execute(
             );
             output
         }
+        // ── 归档内联两步（不写 StepRecord 审计行：归档步为执行图节点，非相位机
+        //    步骤——图节点由 walker 经 RunUpdate 单点落库）──
+        ToolCommand::ArchivePreflight { change_id } => {
+            let payload = run_archive_preflight(
+                Path::new(&step.root),
+                store.as_ref(),
+                &change_id,
+                vcs.as_ref(),
+            )
+            .ok_or_else(|| {
+                format!(
+                    "change \"{change_id}\" 不可归档（未建档 / 已归档），无从核对归档前置"
+                )
+            })?;
+            Ok(ToolStepOutput::ArchivePreflight(payload))
+        }
+        ToolCommand::ArchiveSeal { change_id } => {
+            let layout = resolve(Path::new(&step.root));
+            let outcome = workflow::write::archive(&layout, store.as_ref(), &change_id)?;
+            Ok(ToolStepOutput::ArchiveSeal(outcome))
+        }
     }
 }
 
@@ -257,4 +304,116 @@ fn now_millis() -> i64 {
         .duration_since(std::time::UNIX_EPOCH)
         .map(|duration| duration.as_millis() as i64)
         .unwrap_or(0)
+}
+
+// ---------------------------------------------------------------------------
+// 归档前置只读载荷（store 读 + vcs 探测聚合；归档前停等面与归档相位 Preflight
+// 步共用单点——自 archive_flow.rs 搬移，语义零改动）
+// ---------------------------------------------------------------------------
+
+/// 归档前置只读载荷单点：建档在案且 status=active 才 `Some`（`None` = 不可归档
+/// ——未建档 / 已归档 / db 读失败的读面兜底）。`main_root` 为 layout 解析锚（主
+/// 仓布局；worktree 记录在场才探测合入目标分支）。
+pub(crate) fn run_archive_preflight(
+    main_root: &Path,
+    store: &dyn ChangeStateStore,
+    id: &str,
+    vcs: &dyn ArchiveVcsPort,
+) -> Option<ArchivePreflight> {
+    let record = store.get_change(id).ok().flatten()?;
+    if record.status != ChangeStatus::Active {
+        return None;
+    }
+    let layout = resolve(main_root);
+    // workflow_type 不受支持 → completed=false + 空 incomplete（读面只出布尔结论）
+    let (completed, incomplete_phases) =
+        completion_of(&record, store).unwrap_or((false, Vec::new()));
+    let worktree = record.worktree.as_deref();
+    let name = record.name.as_str();
+    let branch = worktree.map(|_| change_branch(name));
+    let merge_target = match worktree {
+        Some(_) => vcs.current_branch(main_root).ok(),
+        None => None,
+    };
+    Some(ArchivePreflight {
+        name: name.to_owned(),
+        completed,
+        incomplete_phases,
+        missing_artifacts: missing_artifacts(&layout, worktree, name),
+        delta_specs: detect_delta_specs(&layout, worktree, name),
+        worktree: worktree.map(str::to_owned),
+        branch,
+        merge_target,
+    })
+}
+
+/// 归档分支名单点（`branch = change/<name>`——name 恒自记录供给）。
+pub(crate) fn change_branch(name: &str) -> String {
+    format!("change/{name}")
+}
+
+/// 相位是否已过（非 stale 的 pass / skipped 条目在位）——`phase_next::
+/// has_phase_passed` 同语义谓词的私有镜像（谓词不导出，相位机零改动红线）。
+fn phase_passed(entries: &[PhaseStateRecord], phase_id: &str) -> bool {
+    entries.iter().any(|entry| {
+        entry.phase == phase_id && (entry.verdict == Verdict::Pass || entry.skipped) && !entry.stale
+    })
+}
+
+/// 完成度核算（db PhaseRecord eval 序列即 `workflow_done` 的等价单源）：
+/// `Some((completed, incomplete_phases))`；workflow_type 不受支持（相位表
+/// None）→ `None`（不可核算——专项警告词汇承载，MUST NOT 读 workflow.json 或调
+/// MCP `change_list`）。
+fn completion_of(
+    record: &ChangeStateRecord,
+    store: &dyn ChangeStateStore,
+) -> Option<(bool, Vec<String>)> {
+    let table = phase_table(&record.workflow_type)?;
+    let entries = store.list_phase_records(&record.id).unwrap_or_default();
+    let incomplete: Vec<String> = table
+        .iter()
+        .filter(|definition| !phase_passed(&entries, definition.id))
+        .map(|definition| definition.id.to_owned())
+        .collect();
+    Some((incomplete.is_empty(), incomplete))
+}
+
+/// 产物三件核对：定位目录内 `proposal.md` / `design.md` / `tasks.md` 在场情况
+/// （缺席清单；定位失败 = 全缺）。
+fn missing_artifacts(layout: &Layout, worktree: Option<&str>, name: &str) -> Vec<String> {
+    let location = locate_change(layout, worktree, name);
+    ARTIFACT_FILES
+        .iter()
+        .filter(|file| {
+            !location
+                .as_ref()
+                .is_some_and(|loc| loc.dir.join(file).is_file())
+        })
+        .map(|file| (*file).to_owned())
+        .collect()
+}
+
+/// delta specs 探测（**主仓优先、worktree 回退**）：capability 目录清单（含
+/// `spec.md` 者，字典序）。
+pub(crate) fn detect_delta_specs(
+    layout: &Layout,
+    worktree: Option<&str>,
+    name: &str,
+) -> Vec<String> {
+    let location =
+        locate_change(layout, None, name).or_else(|| locate_change(layout, worktree, name));
+    let Some(location) = location else {
+        return Vec::new();
+    };
+    let Ok(entries) = std::fs::read_dir(location.dir.join("specs")) else {
+        return Vec::new();
+    };
+    let mut capabilities: Vec<String> = entries
+        .flatten()
+        .filter(|entry| entry.file_type().map(|kind| kind.is_dir()).unwrap_or(false))
+        .filter(|entry| entry.path().join("spec.md").is_file())
+        .map(|entry| entry.file_name().to_string_lossy().into_owned())
+        .collect();
+    capabilities.sort();
+    capabilities
 }

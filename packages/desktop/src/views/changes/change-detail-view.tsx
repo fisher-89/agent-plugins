@@ -11,7 +11,6 @@ import type {
   ChangeRunEntry,
 } from '../../types/dto';
 import type { RunNotice } from '../../types/generated/bindings';
-import { ArchivePanel } from './flow/archive-panel';
 import { mountMaterials } from './flow/attachments';
 import { ChangeFlowGraph } from './flow/change-flow-graph';
 import { DetailDrawer } from './flow/detail-drawer';
@@ -19,7 +18,6 @@ import { buildFlowGraph } from './flow/graph';
 import { RunControlPanel } from './flow/run-control-panel';
 import { runStepNodes, unifiedRunEdges, unifiedRunNodes } from './flow/run-state';
 import type { DrawerSelection, FlowGraph, FlowMaterials } from './flow/types';
-import { useArchiveFlow, type UseArchiveFlowResult } from './hooks/use-archive-flow';
 import { useChangeDetail } from './hooks/use-change-detail';
 import { useChangeFlowRun } from './hooks/use-change-flow-run';
 import { ArtifactTabs } from './renderers/artifact-tabs';
@@ -34,13 +32,11 @@ function DetailHeader({
   loading,
   onBack,
   refresh,
-  onArchive,
 }: {
   detail: ChangeDetail;
   loading: boolean;
   onBack: () => void;
   refresh: () => void;
-  onArchive: () => void;
 }) {
   return (
     <div className="mb-3" data-testid="detail-header">
@@ -49,12 +45,6 @@ function DetailHeader({
         <Button onClick={refresh} disabled={loading}>
           刷新详情
         </Button>
-        {/* 归档入口（db status=active 才呈现；已归档不渲染） */}
-        {detail.status === 'active' && (
-          <Button onClick={onArchive} data-testid="archive-trigger">
-            归档…
-          </Button>
-        )}
         <h2 className="m-0 break-all text-[17px]">{detail.title}</h2>
         <span className="text-muted-foreground">
           {detail.source === 'archive' ? '已归档' : '进行中'}
@@ -218,48 +208,28 @@ interface DetailLoadedProps {
   id: string | null;
   artifacts: ArtifactEnvelope[];
   run: ReturnType<typeof useChangeFlowRun>;
-  archive: UseArchiveFlowResult;
   header: React.JSX.Element;
   transcriptRefreshKey: number;
-  archiveOpen: boolean;
-  onArchiveClose: () => void;
 }
 
-/** 页内动作面板组（运行控制 + 归档确认；显名收敛：命令面取 URL id、展示面取
+/** 页内动作面板组（运行控制面承载发起 / 停止 / 停等确认 / ask 应答——归档确认
+ * 对话由 stop-before-archive 停等面承载；显名收敛：命令面取 URL id、展示面取
  * `detail.name`）。 */
 function DetailActionPanels({
   detail,
-  root,
   id,
   activeRun,
   lastRun,
   run,
-  archive,
-  archiveOpen,
-  onArchiveClose,
 }: {
   detail: ChangeDetail;
-  root: string | null;
   id: string | null;
   activeRun: ActiveRunView | null;
   lastRun: ChangeRunEntry | null;
   run: ReturnType<typeof useChangeFlowRun>;
-  archive: UseArchiveFlowResult;
-  archiveOpen: boolean;
-  onArchiveClose: () => void;
 }): React.JSX.Element {
   return (
     <>
-      {id !== null && detail.status === 'active' && (
-        <ArchivePanel
-          root={root}
-          changeId={id}
-          name={detail.name}
-          archive={archive}
-          open={archiveOpen}
-          onClose={onArchiveClose}
-        />
-      )}
       {id !== null && (
         <RunControlPanel
           changeId={id}
@@ -308,11 +278,8 @@ function DetailLoaded({
   id,
   artifacts,
   run,
-  archive,
   header,
   transcriptRefreshKey,
-  archiveOpen,
-  onArchiveClose,
 }: DetailLoadedProps): React.JSX.Element {
   const { graph, materials, lastRun } = useFlowGraphData(detail, activeRun, artifacts);
   return (
@@ -320,14 +287,10 @@ function DetailLoaded({
       {header}
       <DetailActionPanels
         detail={detail}
-        root={root}
         id={id}
         activeRun={activeRun}
         lastRun={lastRun}
         run={run}
-        archive={archive}
-        archiveOpen={archiveOpen}
-        onArchiveClose={onArchiveClose}
       />
       <DetailContent
         root={root}
@@ -352,8 +315,9 @@ function useBackToList(): () => void {
   return useCallback(() => navigate('/changes'), [navigate]);
 }
 
-/** 详情页数据面（取数 + 通知分流 + run 控制 + 归档面；参数 id 化）——视图
- * 组件薄装配（max-lines 纪律；通知分流单点：D8 kind 位）。 */
+/** 详情页数据面（取数 + 通知分流 + run 控制；参数 id 化）——视图组件薄装配
+ *（max-lines 纪律；通知分流单点：D8 kind 位）。归档面已并入 run 流程
+ *（archive 相位 + stop-before-archive 停等面），无独立归档链状态源）。 */
 function useDetailViewData(root: string | null, id: string | null) {
   const {
     detail,
@@ -384,9 +348,6 @@ function useDetailViewData(root: string | null, id: string | null) {
     activeRunPresent: activeRun !== null,
     onNotice,
   });
-  // 归档面：链终态 onFinish 一次显式 refresh（详情页回落已归档形态、按钮消失）
-  const archive = useArchiveFlow({ root, id, onFinish: refresh });
-  const [archiveOpen, setArchiveOpen] = useState(false);
   return {
     detail,
     activeRun,
@@ -395,29 +356,15 @@ function useDetailViewData(root: string | null, id: string | null) {
     error,
     refresh,
     run,
-    archive,
     transcriptTick,
-    archiveOpen,
-    setArchiveOpen,
   };
 }
 
 export function ChangeDetailView({ root }: { root: string | null }) {
   const params = useParams<'id'>();
   const id = useRootSwitchSuppress(root, params.id ?? null);
-  const {
-    detail,
-    activeRun,
-    artifacts,
-    loading,
-    error,
-    refresh,
-    run,
-    archive,
-    transcriptTick,
-    archiveOpen,
-    setArchiveOpen,
-  } = useDetailViewData(root, id);
+  const { detail, activeRun, artifacts, loading, error, refresh, run, transcriptTick } =
+    useDetailViewData(root, id);
   const backToList = useBackToList();
 
   if (error !== null) {
@@ -437,19 +384,10 @@ export function ChangeDetailView({ root }: { root: string | null }) {
       id={id}
       artifacts={artifacts}
       run={run}
-      archive={archive}
       header={
-        <DetailHeader
-          detail={detail}
-          loading={loading}
-          onBack={backToList}
-          refresh={refresh}
-          onArchive={() => setArchiveOpen(true)}
-        />
+        <DetailHeader detail={detail} loading={loading} onBack={backToList} refresh={refresh} />
       }
       transcriptRefreshKey={transcriptTick}
-      archiveOpen={archiveOpen}
-      onArchiveClose={() => setArchiveOpen(false)}
     />
   );
 }

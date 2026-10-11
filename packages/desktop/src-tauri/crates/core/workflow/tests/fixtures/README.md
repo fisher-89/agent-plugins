@@ -20,10 +20,11 @@ fixture 先例）。
 | backtrack stale | 回跳标记 + 目标最新 pass 置 stale + 下游全条目 stale | `apply_backtrack`（`stale_dependents` 闭包由写面计算） |
 | 槽位全缺 | 三会话槽位列恒 None 的 PhaseRecord（缺省落账） | 不携槽位的 `log_change_phase` |
 | 文档形态（零发现反例） | 仅磁盘目录 + 产物 markdown，零 db 记录（存量 CLI change）——list 零呈现、`change_detail`（裸名 / 前缀名寻址）恒 None、目录字节零变化；不产出 golden（出局删除） | 只建目录树（含惰性 workflow.json 字节样本），不走建档 |
-| 归档前缀 | db archived 裸名 + `archived_at` + 磁盘 `YYYY-MM-DD-` 前缀目录 → detail 全状态面（status=archived、9 站与 runs 全量）与列表归档组（裸名 + id + 月分组） | `create_change_record`（status=Archived 携 archived_at）+ 磁盘前缀目录树 |
+| 归档前缀 | db archived 裸名 + `archived_at` + 磁盘 `YYYY-MM-DD-` 前缀目录 → detail 全状态面（status=archived、10 站与 runs 全量）与列表归档组（裸名 + id + 月分组） | `create_change_record`（status=Archived 携 archived_at）+ 磁盘前缀目录树 |
 | 坏行 | 库内 native_model 解码失败行（坏字节） | db 文件直写字节注入（store_test 裸 redb 注入用例 `建档表坏行直写注入_读侧store_error显式记因不静默` 承载；store 读面 `StoreError` 路径） |
 | worktree 两态 | 建档携 `worktree` / `base_commit` 执行锚 + worktree 内磁盘产物树（merge 前主仓两树未命中，`corpus-worktree`）；legacy `worktree=None` 投影 null（既有建档语料全量重写后覆盖） | `create_change_record` 携 Some 两字段 + worktree 树（投影路径经 `<WORKTREE_ROOT>` 占位归一）；detail `worktree` 键恒在场（spec desktop-corpus-regression「各至少一个」） |
 | run 全史 | 同 change 两次 run 全史留存（≥2 run，attempt 跨 run 递增不撞号）、五落词汇步整包（sessionId / detail 有无两态）、emit seq 稳定序、时间戳 ISO 出线（`corpus-run-history`） | `run_start` / `finish_change_run`（经 store run 域操作面，禁裸表插桩；步序列经 orchestration `finish_command` 全词汇喂入——落库过滤单点同真实写路径，unify-run-state-persistence） |
+| 归档相位 run 史（merge-archive-steps-into-flow） | archive 列空 checklist 落账 pass（report 空串 + 空 checklist）；archive 相位十步节点整包（8 归档步词 + PhaseStart / PhaseLog，git 步分类可辨）+ 串行 forward 边 | `log_change_phase`（archive 空 checklist）+ `run_start` / `finish_change_run`（archive 十步 + 9 forward 边，`corpus-archive-prefix`） |
 | run 中断标定 | run 发起后中途死亡残留（running 行 + active_phase 悬挂）→ 标定翻 interrupted（记因附中断语境、finished_at 标定时刻）+ active_phase 清位（`corpus-run-interrupted`） | `run_start` + `start_change_phase`（开相不落账）→ `calibrate_interrupted_runs` 直调（open_workspace 内嵌同路径，D12） |
 
 golden 快照纪律与显式重写流程（`DESKTOP_GOLDEN_REWRITE=1` + diff 人工确认留

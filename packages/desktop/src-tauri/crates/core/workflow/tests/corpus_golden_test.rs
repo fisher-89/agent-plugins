@@ -19,7 +19,7 @@
 //! ## 归档前缀样本（D13）
 //!
 //! 归档 change（db archived 裸名 + `archived_at` + 磁盘 `YYYY-MM-DD-` 前缀
-//! 目录）入 golden：detail 全状态面（status=archived、9 站 pipeline 与 runs
+//! 目录）入 golden：detail 全状态面（status=archived、10 站 pipeline 与 runs
 //! 全量）与列表归档组（裸名 + id + `archived_at` 月分组）双面。
 //!
 //! ## golden 重写开关
@@ -262,6 +262,8 @@ impl Corpus {
     ) {
         let request = RunRequest {
             root: self.root.to_string_lossy().into_owned(),
+            main_root: self.root.to_string_lossy().into_owned(),
+            stop_before: Some("archive".to_owned()),
             change_id: change_id.to_owned(),
             run_id: run_id.to_owned(),
             auto_next_phase: true,
@@ -953,7 +955,7 @@ fn build_run_interrupted() -> Corpus {
 
 /// 归档前缀样本语料（D13）：db archived（固定 id + 裸名 `seeded-archived` +
 /// `archived_at` 2026-02-02）+ 磁盘 `YYYY-MM-DD-` 前缀目录（产物树）+ 相位行
-/// 与 run 史种子 → detail 全状态面 golden（status=archived、9 站 pipeline 与
+/// 与 run 史种子 → detail 全状态面 golden（status=archived、10 站 pipeline 与
 /// runs 全量出线；错配链结构性退役——AC-2）。
 fn build_archive_prefix() -> Corpus {
     let corpus = Corpus::new("archive-prefix");
@@ -982,6 +984,18 @@ fn build_archive_prefix() -> Corpus {
         Some("ses-arch-eval"),
         t(1),
     );
+    // archive 相位空 checklist 落账样本（AC-4 语料半边）：report 空串 + 空
+    // checklist → verdict 推导 pass，pipeline archive 站投影 attempt 全字段可辨
+    corpus.run_phase(
+        "id-seeded-archived",
+        "archive",
+        Verdict::Pass,
+        "",
+        Vec::new(),
+        None,
+        None,
+        t(3),
+    );
     corpus.run_start("id-seeded-archived", "run-1727000040000", t(10));
     corpus.run_finish(
         "id-seeded-archived",
@@ -998,6 +1012,147 @@ fn build_archive_prefix() -> Corpus {
             None,
         )],
         &[],
+    );
+    // 归档相位 run 史样本（AC-6 语料半边）：archive 十步节点（8 归档步词 +
+    // PhaseStart / PhaseLog）整包喂入 + 串行 forward 边（零反馈 / 重试 / 回溯），
+    // git 步（commit / rebase / merge / finalize）与 agent 步（resolve_conflicts /
+    // spec_sync）会话面可辨
+    corpus.run_start("id-seeded-archived", "run-1727000041000", t(20));
+    corpus.run_finish(
+        "id-seeded-archived",
+        "run-1727000041000",
+        RunStatus::Completed,
+        "archive phase landed an empty checklist verdict=pass",
+        t(29),
+        &[
+            step(
+                "archive",
+                1,
+                ChangeStepKind::PhaseStart,
+                ChangeStepStatus::Passed,
+                None,
+                None,
+            ),
+            step(
+                "archive",
+                1,
+                ChangeStepKind::Preflight,
+                ChangeStepStatus::Passed,
+                None,
+                Some("前置只读校验：8 相位已过 / 无缺产物"),
+            ),
+            step(
+                "archive",
+                1,
+                ChangeStepKind::Commit,
+                ChangeStepStatus::Passed,
+                None,
+                Some("worktree 干净，无待提交变更（跳过）"),
+            ),
+            step(
+                "archive",
+                1,
+                ChangeStepKind::Rebase,
+                ChangeStepStatus::Passed,
+                None,
+                Some("已重放至主仓当前分支，无冲突"),
+            ),
+            step(
+                "archive",
+                1,
+                ChangeStepKind::ResolveConflicts,
+                ChangeStepStatus::Passed,
+                Some("ses-arch-resolve"),
+                Some("无冲突，无需解算（跳过）"),
+            ),
+            step(
+                "archive",
+                1,
+                ChangeStepKind::Merge,
+                ChangeStepStatus::Passed,
+                None,
+                Some("主仓 ff-only 快进完成"),
+            ),
+            step(
+                "archive",
+                1,
+                ChangeStepKind::SpecSync,
+                ChangeStepStatus::Passed,
+                Some("ses-arch-spec-sync"),
+                Some("delta specs 已同步"),
+            ),
+            step(
+                "archive",
+                1,
+                ChangeStepKind::Seal,
+                ChangeStepStatus::Passed,
+                None,
+                Some("双写收口：目录改名 + status 翻转"),
+            ),
+            step(
+                "archive",
+                1,
+                ChangeStepKind::Finalize,
+                ChangeStepStatus::Passed,
+                None,
+                Some("归档产物已落盘，无待提交路径（跳过）"),
+            ),
+            step(
+                "archive",
+                1,
+                ChangeStepKind::PhaseLog,
+                ChangeStepStatus::Passed,
+                None,
+                Some("空 checklist 落账 verdict=pass"),
+            ),
+        ],
+        &[
+            edge(
+                key("archive", 1, ChangeStepKind::PhaseStart, 0),
+                key("archive", 1, ChangeStepKind::Preflight, 0),
+                EdgeKind::Forward,
+            ),
+            edge(
+                key("archive", 1, ChangeStepKind::Preflight, 0),
+                key("archive", 1, ChangeStepKind::Commit, 0),
+                EdgeKind::Forward,
+            ),
+            edge(
+                key("archive", 1, ChangeStepKind::Commit, 0),
+                key("archive", 1, ChangeStepKind::Rebase, 0),
+                EdgeKind::Forward,
+            ),
+            edge(
+                key("archive", 1, ChangeStepKind::Rebase, 0),
+                key("archive", 1, ChangeStepKind::ResolveConflicts, 0),
+                EdgeKind::Forward,
+            ),
+            edge(
+                key("archive", 1, ChangeStepKind::ResolveConflicts, 0),
+                key("archive", 1, ChangeStepKind::Merge, 0),
+                EdgeKind::Forward,
+            ),
+            edge(
+                key("archive", 1, ChangeStepKind::Merge, 0),
+                key("archive", 1, ChangeStepKind::SpecSync, 0),
+                EdgeKind::Forward,
+            ),
+            edge(
+                key("archive", 1, ChangeStepKind::SpecSync, 0),
+                key("archive", 1, ChangeStepKind::Seal, 0),
+                EdgeKind::Forward,
+            ),
+            edge(
+                key("archive", 1, ChangeStepKind::Seal, 0),
+                key("archive", 1, ChangeStepKind::Finalize, 0),
+                EdgeKind::Forward,
+            ),
+            edge(
+                key("archive", 1, ChangeStepKind::Finalize, 0),
+                key("archive", 1, ChangeStepKind::PhaseLog, 0),
+                EdgeKind::Forward,
+            ),
+        ],
     );
     // 磁盘前缀目录（archive 树；目录名 = `YYYY-MM-DD-` + 裸名——后缀扫描
     // 命中；detail 产物清单自该目录发现，name 恒自记录供给）
@@ -1350,7 +1505,7 @@ fn corpus列表混合语料_golden对拍() {
 }
 
 /// 归档前缀样本语料（D13）：db archived 裸名 + `archived_at` + 磁盘
-/// `YYYY-MM-DD-` 前缀目录 → detail 全状态面 golden（status=archived、9 站
+/// `YYYY-MM-DD-` 前缀目录 → detail 全状态面 golden（status=archived、10 站
 /// pipeline 与 runs 全量出线；id / 裸名出线——AC-2 golden 半边）。
 #[test]
 fn corpus归档前缀样本_golden对拍() {
@@ -1374,7 +1529,7 @@ fn corpus归档前缀样本_golden对拍() {
         "归档状态面在场（非文档形态空面）"
     );
     let pipeline = projection["pipeline"].as_array().expect("pipeline 为数组");
-    assert_eq!(pipeline.len(), 9, "9 站 pipeline 全量出线");
+    assert_eq!(pipeline.len(), 10, "10 站 pipeline 全量出线（含 archive 末列）");
     assert!(
         !pipeline[0]["attempts"]
             .as_array()
@@ -1383,7 +1538,59 @@ fn corpus归档前缀样本_golden对拍() {
         "proposal 站 attempt 出线（错配链结构性退役）"
     );
     let runs = projection["runs"].as_array().expect("runs 为数组");
-    assert_eq!(runs.len(), 1, "run 史全量出线");
+    assert_eq!(runs.len(), 2, "run 史全量出线（proposal 史 + archive 相位史）");
+    // archive 站 attempt 在案（空 checklist 落账 pass）
+    let archive_station = pipeline
+        .iter()
+        .find(|station| station["phase"].as_str() == Some("archive"))
+        .expect("archive 站在场");
+    let archive_attempts = archive_station["attempts"]
+        .as_array()
+        .expect("attempts 为数组");
+    assert_eq!(archive_attempts.len(), 1, "archive 空 checklist 落账一条尝试");
+    assert_eq!(archive_attempts[0]["verdict"].as_str(), Some("pass"));
+    assert_eq!(archive_attempts[0]["report"].as_str(), Some(""));
+    assert!(
+        archive_attempts[0]["checklist"]
+            .as_array()
+            .is_some_and(Vec::is_empty),
+        "空 checklist 落账样本"
+    );
+    // 归档相位 run 史：十步节点全词汇（8 归档步词 + PhaseStart / PhaseLog）
+    let archive_run = runs
+        .iter()
+        .find(|run| run["runId"].as_str() == Some("run-1727000041000"))
+        .expect("归档相位 run 在案");
+    let archive_steps: Vec<&str> = archive_run["nodes"]
+        .as_array()
+        .expect("nodes 为数组")
+        .iter()
+        .map(|node| node["step"].as_str().expect("step 为串"))
+        .collect();
+    assert_eq!(
+        archive_steps,
+        vec![
+            "phase_start",
+            "preflight",
+            "commit",
+            "rebase",
+            "resolve_conflicts",
+            "merge",
+            "spec_sync",
+            "seal",
+            "finalize",
+            "phase_log",
+        ],
+        "归档十步词逐字在案（含 git 步分类词面）"
+    );
+    assert!(
+        archive_run["edges"]
+            .as_array()
+            .expect("edges 为数组")
+            .iter()
+            .all(|edge| edge["edgeKind"].as_str() == Some("forward")),
+        "归档串行边全 forward"
+    );
     assert!(
         projection["artifacts"]
             .as_array()
@@ -1596,6 +1803,8 @@ fn corpus半包形态种子_整包拒绝且零golden产出() {
 
     let request = RunRequest {
         root: corpus.root.to_string_lossy().into_owned(),
+        main_root: corpus.root.to_string_lossy().into_owned(),
+        stop_before: Some("archive".to_owned()),
         change_id: "id-half-pack".to_owned(),
         run_id: "run-1727000030000".to_owned(),
         auto_next_phase: true,
@@ -1849,15 +2058,17 @@ fn corpusgolden重写后_diff范围键集断言() {
         Some("archived"),
         "归档前缀样本状态面 archived 在案"
     );
+    let pipeline = value["pipeline"].as_array().expect("pipeline 为数组");
+    assert_eq!(pipeline.len(), 10, "归档前缀样本 10 站 pipeline 全量出线");
     assert_eq!(
-        value["pipeline"].as_array().expect("pipeline 为数组").len(),
-        9,
-        "归档前缀样本 9 站 pipeline 全量出线"
+        pipeline.last().and_then(|station| station["phase"].as_str()),
+        Some("archive"),
+        "归档前缀样本末列为 archive"
     );
     assert_eq!(
         value["runs"].as_array().expect("runs 为数组").len(),
-        1,
-        "归档前缀样本 runs 全量出线"
+        2,
+        "归档前缀样本 runs 全量出线（proposal 史 + archive 相位史）"
     );
 
     // list golden：条目 id 恒在案、归档条目裸名、磁盘-only 零呈现
@@ -2659,7 +2870,7 @@ fn 真件detail未找到与建档恒可达() {
         "source 自 record.status 映射"
     );
     assert!(detail.artifacts.is_empty(), "定位 miss 产物清单空");
-    assert!(!detail.pipeline.is_empty(), "建档流水线 9 站全量输出");
+    assert!(!detail.pipeline.is_empty(), "建档流水线 10 站全量输出");
 }
 
 /// run 写面真件回环（unify-run-state-persistence，test-design「write/run.rs ->
@@ -2706,6 +2917,8 @@ fn 真件run写面回环_running行与三终态整包() {
         .expect("run_start 应成功");
         let request = RunRequest {
             root: corpus.root.to_string_lossy().into_owned(),
+            main_root: corpus.root.to_string_lossy().into_owned(),
+            stop_before: Some("archive".to_owned()),
             change_id: "id-run-write".to_owned(),
             run_id: run_id.clone(),
             auto_next_phase: true,

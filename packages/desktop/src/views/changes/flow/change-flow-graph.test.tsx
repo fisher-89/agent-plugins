@@ -202,7 +202,7 @@ describe('ChangeFlowGraph：ReactFlow 薄层挂载与交互上抛', () => {
     renderGraph(graph, materialsFor(graph, base));
 
     expect(screen.getByTestId('flow-graph') !== null).toBe(true);
-    await waitFor(() => expect(screen.getAllByTestId('flow-column')).toHaveLength(9));
+    await waitFor(() => expect(screen.getAllByTestId('flow-column')).toHaveLength(10));
     expect(screen.getAllByTestId('flow-node')).toHaveLength(graph.nodes.length);
     expect(graph.nodes).toHaveLength(2);
   });
@@ -299,7 +299,7 @@ describe('ChangeFlowGraph：ReactFlow 薄层挂载与交互上抛', () => {
     expect(screen.getByTestId('rf__node-eval:test-design:1') !== null).toBe(true);
     expect(screen.getByTestId('rf__node-active:implement:1') !== null).toBe(true);
     expect(screen.queryByTestId('rf__node-eval:proposal:1')).toBeNull();
-    expect(screen.getAllByTestId('flow-column')).toHaveLength(9);
+    expect(screen.getAllByTestId('flow-column')).toHaveLength(10);
   });
 
   it('label 为 null 的常规边与带 label 的回跳边混存 → 均正常渲染不抛错', async () => {
@@ -466,7 +466,7 @@ describe('ChangeFlowGraph：runStep 运行步节点上图（overlay 加法回归
     renderGraph(graph, materialsFor(graph, base), onSelect);
 
     await waitFor(() => expect(screen.getAllByTestId('flow-node')).toHaveLength(1));
-    expect(screen.getAllByTestId('flow-column')).toHaveLength(9);
+    expect(screen.getAllByTestId('flow-column')).toHaveLength(10);
 
     // 既有交互上抛：事件节点照旧
     fireEvent.click(screen.getByTestId('flow-node'));
@@ -499,7 +499,7 @@ describe('ChangeFlowGraph：onOpenSession 注入删除收敛（AC-4）', () => {
     expect(container.querySelector('[data-testid="view-session"]')).toBeNull();
   });
 
-  it('注入形态收敛后图结构零回归：9 列 + 节点集逐 id 一致、DOM 边集与图边集逐 id 一致', async () => {
+  it('注入形态收敛后图结构零回归：10 列 + 节点集逐 id 一致、DOM 边集与图边集逐 id 一致', async () => {
     const base = detail(
       { proposal: [attempt({ startAt: '2026-09-01T00:00:00Z' })] },
       { activePhase: { phase: 'dev-design', attempt: 1, startAt: '2026-09-02T00:00:00Z' } },
@@ -510,7 +510,7 @@ describe('ChangeFlowGraph：onOpenSession 注入删除收敛（AC-4）', () => {
     // 事件节点两枚（eval + active）+ 运行步节点一枚
     await waitFor(() => expect(screen.getAllByTestId('flow-node')).toHaveLength(2));
     await waitFor(() => expect(screen.getAllByTestId('run-step-node')).toHaveLength(1));
-    expect(screen.getAllByTestId('flow-column')).toHaveLength(9);
+    expect(screen.getAllByTestId('flow-column')).toHaveLength(10);
     // 节点集逐 id 一致（注入不增删节点；列容器 id `col:*` 不在 graph.nodes 计）
     const renderedNodeIds = screen
       .getAllByTestId(/^rf__node-/)

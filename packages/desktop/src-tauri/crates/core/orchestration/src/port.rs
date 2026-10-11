@@ -6,7 +6,7 @@ use agent::{AgentEvent, AgentPermissionMode, AgentRunStatus, ModelLevel, Session
 use workflow::state::{RunFinishCommand, RunStartCommand};
 use workflow::write::{BacktrackInput, PhaseLogInput, PhaseNextOutcome, PhaseStartOutcome};
 
-use crate::state::RunUpdate;
+use crate::state::{ArchivePreflight, RunUpdate};
 
 /// WorkerAgent 轮 future 别名（std-only）。
 pub type BoxTurnFuture = Pin<Box<dyn Future<Output = Result<WorkerTurnOutcome, String>> + Send>>;
@@ -17,12 +17,18 @@ pub type BoxToolFuture = Pin<Box<dyn Future<Output = Result<ToolStepOutput, Stri
 /// git diff 变更文件上下文 future 别名（std-only）。
 pub type BoxDiffFuture = Pin<Box<dyn Future<Output = Result<String, String>> + Send>>;
 
-/// WorkerAgent 角色（source_ref 定式的第三段；D3）。
+/// WorkerAgent 角色（source_ref 定式的第三段；D3）。归档相位的两 agent 步各
+/// 占一词（`spec_sync` / `resolve_conflicts`）——同 phase 同 attempt 内 source_ref
+/// 唯一，不撞号。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WorkerRole {
     Executor,
     Evaluator,
     Decision,
+    /// 归档 delta specs 同步会话（SpecSync 步）
+    SpecSync,
+    /// 归档合入冲突解算会话（ResolveConflicts 步）
+    ResolveConflicts,
 }
 
 impl WorkerRole {
@@ -32,6 +38,8 @@ impl WorkerRole {
             Self::Executor => "executor",
             Self::Evaluator => "evaluator",
             Self::Decision => "decision",
+            Self::SpecSync => "spec_sync",
+            Self::ResolveConflicts => "resolve_conflicts",
         }
     }
 }
@@ -74,9 +82,9 @@ pub trait WorkerAgentPort: Send + Sync {
     fn run(&self, turn: WorkerTurnRequest) -> BoxTurnFuture;
 }
 
-/// 工具步命令封闭集（相位机四步 + static-check 门禁；写通道唯一——相位机
-/// 载荷直载写面输入类型，进程内直调 `workflow::write`）。各变体定位载荷为
-/// change **id**（一切寻址以 id 为准；磁盘面 name 由消费点经记录解析）。
+/// 工具步命令封闭集（相位机四步 + 两检查门禁 + 归档内联两步；写通道唯一——
+/// 相位机载荷直载写面输入类型，进程内直调 `workflow::write`）。各变体定位载荷
+/// 为 change **id**（一切寻址以 id 为准；磁盘面 name 由消费点经记录解析）。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ToolCommand {
     /// 相位路由（read-only；run_id 为会话窗口标识）
@@ -106,6 +114,12 @@ pub enum ToolCommand {
     /// test-execution 门禁（确定性测试执行链；id 定位写面与记录，报告目录
     /// 派生经记录 name 解析）
     TestExecution { change_id: String },
+    /// 归档前置只读载荷（store 读 + vcs 探测；请求 root 恒主 workspace root
+    /// ——layout 解析与主仓分支探测锚）
+    ArchivePreflight { change_id: String },
+    /// 归档双写收口（写面 `archive` 单点复用：目录改名 + db 翻转；请求 root
+    /// 恒主 workspace root）
+    ArchiveSeal { change_id: String },
 }
 
 /// 工具步请求：workspace 根 + 步命令。
@@ -127,6 +141,8 @@ pub enum ToolStepOutput {
     DecisionLog(workflow::write::DecisionLogOutcome),
     StaticCheck(StaticCheckOutcome),
     TestExecution(TestExecutionOutcome),
+    ArchivePreflight(ArchivePreflight),
+    ArchiveSeal(workflow::write::ArchiveOutcome),
 }
 
 /// static-check 门禁产出（passed=false 走定向反馈边）。
@@ -216,7 +232,10 @@ pub trait DiffContextPort: Send + Sync {
     fn diff_context(&self, root: &str) -> BoxDiffFuture;
 }
 
-/// 归档链
+/// git 步执行缝（walker 第三执行缝）：归档相位的 git 步（commit / rebase /
+/// merge / finalize）与前置探测（current_branch / branch_merged）经本缝直调；
+/// port 定义落消费者（core/orchestration），实现驻 `crates/infra/vcs`
+/// （进程 spawn 不进 core）。
 pub trait ArchiveVcsPort: Send + Sync {
     /// 脏探测：`status --porcelain [-- pathspec…]` 非空即真（空 paths = 全域；
     /// gitignore 面不计——探测失败同 false，不阻断幂等跳过）。

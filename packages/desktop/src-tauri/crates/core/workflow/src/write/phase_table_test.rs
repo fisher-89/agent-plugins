@@ -7,7 +7,7 @@ use super::phase_table::{
 use crate::state::{OnFail, StepDefinition, StepNode};
 
 /// requirement 相位表表序（相位机语义锚；prompt 静态化不触动相位序）。
-const REQUIREMENT_PHASE_ORDER: [&str; 8] = [
+const REQUIREMENT_PHASE_ORDER: [&str; 9] = [
     "proposal",
     "dev-design",
     "test-design",
@@ -16,6 +16,21 @@ const REQUIREMENT_PHASE_ORDER: [&str; 8] = [
     "test-execution",
     "code-review",
     "acceptance",
+    "archive",
+];
+
+/// 归档相位步序（design 数据模型表；AC-2）。
+const ARCHIVE_STEP_ORDER: [StepNode; 10] = [
+    StepNode::PhaseStart,
+    StepNode::Preflight,
+    StepNode::Commit,
+    StepNode::Rebase,
+    StepNode::ResolveConflicts,
+    StepNode::Merge,
+    StepNode::SpecSync,
+    StepNode::Seal,
+    StepNode::Finalize,
+    StepNode::PhaseLog,
 ];
 
 /// executor / evaluator 两角色齐备的相位（评估-only 相位除外）。
@@ -133,6 +148,7 @@ fn phase_table各相位模型档位分派对照() {
         ),
         ("code-review", None, Some(ModelLevel::High)),
         ("acceptance", None, Some(ModelLevel::High)),
+        ("archive", None, None),
     ];
     for def in table {
         let (_, executor_level, evaluator_level) = expected
@@ -241,13 +257,27 @@ fn 白名单返回表序前置集含自身() {
         ],
         "中段相位白名单 = 表序前置集（含自身）"
     );
-    // 末相位覆盖全表
+    // 末相位（archive）覆盖全表；acceptance 覆盖其前 8 相位（archive 不为前置）
     assert_eq!(
-        allowed_backtrack_phases(table, "acceptance"),
+        allowed_backtrack_phases(table, "archive"),
         REQUIREMENT_PHASE_ORDER
             .iter()
             .map(|id| id.to_string())
             .collect::<Vec<_>>(),
+    );
+    assert_eq!(
+        allowed_backtrack_phases(table, "acceptance"),
+        REQUIREMENT_PHASE_ORDER[..8]
+            .iter()
+            .map(|id| id.to_string())
+            .collect::<Vec<_>>(),
+        "acceptance 前置集不含 archive（末相位不在任何相位前置集内）"
+    );
+    assert!(
+        !allowed_backtrack_phases(table, "acceptance")
+            .iter()
+            .any(|phase| phase == "archive"),
+        "archive 仅前向：不在 acceptance 回溯白名单"
     );
 }
 
@@ -293,6 +323,7 @@ fn expected_steps(phase: &str) -> Vec<StepNode> {
             StepNode::VerdictGate,
             StepNode::PhaseLog,
         ],
+        "archive" => ARCHIVE_STEP_ORDER.to_vec(),
         other => panic!("对照表缺相位 {other}"),
     }
 }
@@ -306,12 +337,13 @@ fn expected_on_fail(node: StepNode) -> Option<OnFail> {
     }
 }
 
-/// 计划图单源 steps 声明：`phase_table("requirement")` 返回 8 相位，逐相位
-/// `steps` 序列与设计数据模型表一致（门禁步由 step 声明、相位限定，AC-1 / AC-2）。
+/// 计划图单源 steps 声明：`phase_table("requirement")` 返回 9 相位（8 路由相位 +
+/// archive 确定性相位），逐相位 `steps` 序列与设计数据模型表一致（门禁步由 step
+/// 声明、相位限定，AC-1 / AC-2）。
 #[test]
 fn 计划图steps声明逐相位与设计表一致() {
     let table = phase_table("requirement").expect("requirement 应返回 Some");
-    assert_eq!(table.len(), 8, "V1 唯一 workflow_type 八相位");
+    assert_eq!(table.len(), 9, "V1 唯一 workflow_type 九相位（含 archive）");
 
     for def in table {
         let actual: Vec<StepNode> = def.steps.iter().map(|step| step.node).collect();
@@ -428,14 +460,15 @@ fn 计划图产物清单声明逐相位与设计表一致() {
         }
     }
 
-    // 无产物相位（implement / test-gen / code-review / acceptance 等）→ 空数组
-    //（清单零占位不虚设；清单为唯一候选来源）
+    // 无产物相位（implement / test-gen / code-review / acceptance / archive 等）
+    // → 空数组（清单零占位不虚设；清单为唯一候选来源）
     for id in [
         "test-design",
         "implement",
         "test-gen",
         "code-review",
         "acceptance",
+        "archive",
     ] {
         let def = table
             .iter()
@@ -492,8 +525,11 @@ fn 计划图产物清单路径面与kind绑定() {
     }
 }
 
-/// prompt 静态化：全部 agent 步的 `prompt_ref` 均为 `&'static str` 且非空；
-/// 全表扫描无 `<role>` 间接读取 / `{{…}}` 占位（零占位红线，AC-1）。
+/// prompt 静态化：全部有静态 prompt 的 agent 步（8 路由相位）`prompt_ref` 均为
+/// `&'static str` 且非空；archive 确定性相位的 spec_sync / resolve_conflicts 为
+/// agent 步但 `prompt_ref` 恒 `None`（prompt 由 orchestration 运行时组装——workflow
+/// 零 orchestration 依赖）；全表扫描无 `<role>` 间接读取 / `{{…}}` 占位（零占位
+/// 红线，AC-1 / AC-2）。
 #[test]
 fn 计划图prompt静态非空且零占位() {
     let table = phase_table("requirement").expect("requirement 应返回 Some");
@@ -502,6 +538,13 @@ fn 计划图prompt静态非空且零占位() {
     for def in table {
         for step in def.steps {
             match step.node.role() {
+                Some(_) if def.id == "archive" => {
+                    // 归档两会话步的运行时空组装面：workflow 侧恒 None（AC-2）
+                    assert_eq!(
+                        step.prompt_ref, None,
+                        "归档相位 agent 步 prompt_ref 恒 None（运行时组装）"
+                    );
+                }
                 Some(_) => {
                     let prompt = step
                         .prompt_ref
@@ -560,7 +603,8 @@ fn 计划图prompt静态非空且零占位() {
         }
     }
     // 5 相位 executor 步 + 5 相位 evaluator 步 + code-review / acceptance 两条
-    // 评估-only evaluator 步 = 12 条 agent 步（test-execution 相位无 agent 步）
+    // 评估-only evaluator 步 = 12 条 agent 步（test-execution / archive 相位无静态
+    // prompt agent 步）
     assert_eq!(agent_step_prompts, 12, "12 条 agent 步 prompt 齐备");
 }
 
@@ -802,6 +846,243 @@ fn 计划图类型收敛_序列化往返与const表逐项等值() {
 fn 白名单空表返回空vec() {
     assert!(allowed_backtrack_phases(&[], "proposal").is_empty());
     assert!(allowed_backtrack_phases(&[], "acceptance").is_empty());
+    assert!(allowed_backtrack_phases(&[], "archive").is_empty());
     assert!(allowed_backtrack_phases(&[], "").is_empty());
     assert!(allowed_backtrack_phases(&[], "不存在的相位").is_empty());
+}
+
+// ---------------------------------------------------------------------------
+// 归档相位声明（AC-1 / AC-2 / AC-8）
+// ---------------------------------------------------------------------------
+
+/// archive 相位声明（正向）：`phase_table("requirement")` 末位为 archive 确定性
+/// 相位——`executor=None` / `evaluator=None`（无 agent 角色 spec）、
+/// `artifact_manifest` 空数组、description 非空（AC-1）。
+#[test]
+fn archive相位声明_末位确定性相位无角色spec零清单() {
+    let table = phase_table("requirement").expect("requirement 应返回 Some");
+
+    let archive = table.last().expect("末位相位应在场");
+    assert_eq!(archive.id, "archive", "archive 为末位（第 9）路由相位");
+    assert_eq!(
+        table.iter().position(|def| def.id == "archive"),
+        Some(table.len() - 1),
+        "archive 相位序号 = 表尾"
+    );
+    assert_eq!(archive.id, "archive");
+    assert!(
+        !archive.description.is_empty(),
+        "archive description 非空（人读相位说明）"
+    );
+    assert!(
+        archive.executor.is_none(),
+        "archive executor 恒 None（确定性相位）"
+    );
+    assert!(
+        archive.evaluator.is_none(),
+        "archive evaluator 恒 None（空 checklist 落账替代评估证据）"
+    );
+    assert!(
+        archive.artifact_manifest.is_empty(),
+        "archive 零产物清单（空数组，不虚设占位项）"
+    );
+}
+
+/// archive 步序（正向）：archive `steps` 恰 10 步且与 design 数据模型表逐位一致
+///（PhaseStart → Preflight → Commit → Rebase → ResolveConflicts → Merge →
+/// SpecSync → Seal → Finalize → PhaseLog），首步 PhaseStart、末步 PhaseLog
+///（AC-2）。
+#[test]
+fn archive相位十步序列与设计表一致() {
+    let table = phase_table("requirement").expect("requirement 应返回 Some");
+    let archive = table
+        .iter()
+        .find(|def| def.id == "archive")
+        .expect("archive 相位应在表内");
+
+    let actual: Vec<StepNode> = archive.steps.iter().map(|step| step.node).collect();
+    assert_eq!(actual, ARCHIVE_STEP_ORDER.to_vec(), "archive 十步序列逐位一致");
+    assert_eq!(actual.len(), 10, "archive 步数恰 10");
+    assert_eq!(
+        archive.steps.first().map(|step| step.node),
+        Some(StepNode::PhaseStart),
+        "archive 首步恒 PhaseStart"
+    );
+    assert_eq!(
+        archive.steps.last().map(|step| step.node),
+        Some(StepNode::PhaseLog),
+        "archive 末步恒 PhaseLog"
+    );
+    // 十步逐位无重复（关键步各恰一次）
+    for node in [
+        StepNode::Preflight,
+        StepNode::Commit,
+        StepNode::Rebase,
+        StepNode::ResolveConflicts,
+        StepNode::Merge,
+        StepNode::SpecSync,
+        StepNode::Seal,
+        StepNode::Finalize,
+    ] {
+        assert_eq!(
+            actual.iter().filter(|candidate| **candidate == node).count(),
+            1,
+            "{node:?} 在 archive 步序中恰出现一次"
+        );
+    }
+}
+
+/// archive 步 `on_fail` 语义（正向）：十步 `on_fail` 恒 `None`——步失败即
+/// Terminal 收口，不唤决策 agent、不进相位重试（AC-8 失败停链）。
+#[test]
+fn archive步on_fail恒none_失败即终态() {
+    let table = phase_table("requirement").expect("requirement 应返回 Some");
+    let archive = table
+        .iter()
+        .find(|def| def.id == "archive")
+        .expect("archive 相位应在表内");
+
+    assert_eq!(archive.steps.len(), 10);
+    for step in archive.steps {
+        assert_eq!(
+            step.on_fail, None,
+            "archive 步 {:?} on_fail 恒 None（失败停链，无反馈边 / 无决策分支）",
+            step.node
+        );
+        assert!(
+            !matches!(step.on_fail, Some(OnFail::FeedbackLoop { .. })),
+            "archive 步 {:?} 不得携 FeedbackLoop（归档步不回流 agent）",
+            step.node
+        );
+        assert!(
+            !matches!(step.on_fail, Some(OnFail::Terminal)),
+            "archive 步 {:?} 不显式声明 Terminal（缺省即按步失败收场）",
+            step.node
+        );
+    }
+}
+
+/// archive 步 `prompt_ref` 语义（边界）：十步 `prompt_ref` 恒 `None`——spec_sync /
+/// resolve_conflicts 的 prompt 由 orchestration 运行时组装（workflow 零
+/// orchestration 依赖），其余步非 agent 面亦恒 None（AC-2 / 数据模型）。
+#[test]
+fn archive步prompt_ref恒none_运行时空组装() {
+    let table = phase_table("requirement").expect("requirement 应返回 Some");
+    let archive = table
+        .iter()
+        .find(|def| def.id == "archive")
+        .expect("archive 相位应在表内");
+
+    for step in archive.steps {
+        assert_eq!(
+            step.prompt_ref, None,
+            "archive 步 {:?} prompt_ref 恒 None（零静态 prompt 引用）",
+            step.node
+        );
+    }
+    // 归档两会话步虽属 Agent 分组，但静态 prompt 引用仍恒 None（运行时组装）
+    for node in [StepNode::SpecSync, StepNode::ResolveConflicts] {
+        let step = archive
+            .steps
+            .iter()
+            .find(|step| step.node == node)
+            .unwrap_or_else(|| panic!("{node:?} 应在 archive 步序内"));
+        assert_eq!(step.node.group(), crate::state::StepGroup::Agent);
+        assert!(step.node.role().is_some(), "归档会话步携 agent 角色");
+        assert_eq!(
+            step.prompt_ref, None,
+            "{node:?} prompt_ref 恒 None（prompt 归 orchestration 单点）"
+        );
+    }
+}
+
+/// archive 步分组可派生（正向）：archive 步经 `StepNode::group()` 分派
+///（commit / rebase / merge / finalize→Git、preflight / seal→Exec、
+/// spec_sync / resolve_conflicts→Agent、phase_start / phase_log→Exec），
+/// 与 orchestration 三分支执行缝分派前置一致（AC-2 / AC-3）。
+#[test]
+fn archive步分组可派生_三分支缝分派前置() {
+    use crate::state::StepGroup;
+
+    let expect_group = |node: StepNode| -> StepGroup {
+        match node {
+            StepNode::PhaseStart
+            | StepNode::Preflight
+            | StepNode::Seal
+            | StepNode::PhaseLog => StepGroup::Exec,
+            StepNode::Commit | StepNode::Rebase | StepNode::Merge | StepNode::Finalize => {
+                StepGroup::Git
+            }
+            StepNode::SpecSync | StepNode::ResolveConflicts => StepGroup::Agent,
+            other => panic!("archive 步序含越集节点 {other:?}"),
+        }
+    };
+
+    for node in ARCHIVE_STEP_ORDER {
+        assert_eq!(node.group(), expect_group(node), "{node:?} 分组派生一致");
+    }
+    // 四分类计数：Exec 4 / Git 4 / Agent 2（Gate 零——归档无门禁步）
+    let groups: Vec<StepGroup> = ARCHIVE_STEP_ORDER.iter().map(|node| node.group()).collect();
+    assert_eq!(groups.iter().filter(|g| **g == StepGroup::Exec).count(), 4);
+    assert_eq!(groups.iter().filter(|g| **g == StepGroup::Git).count(), 4);
+    assert_eq!(groups.iter().filter(|g| **g == StepGroup::Agent).count(), 2);
+    assert_eq!(
+        groups.iter().filter(|g| **g == StepGroup::Gate).count(),
+        0,
+        "归档零门禁步（无 verdict 预算分支）"
+    );
+}
+
+/// ARCHIVE_STEPS 类型收敛（异常）：archive 十步均为 `StepNode` 十八值封闭集
+/// 成员（线画 snake_case 词与执行图落库同源、不引用退役 `ArchiveStage` 词汇），
+/// 长度恰 10、无越集节点（AC-2）。
+#[test]
+fn archive_steps类型收敛_封闭集取值且长度十() {
+    let table = phase_table("requirement").expect("requirement 应返回 Some");
+    let archive = table
+        .iter()
+        .find(|def| def.id == "archive")
+        .expect("archive 相位应在表内");
+
+    assert_eq!(archive.steps.len(), 10, "ARCHIVE_STEPS 长度恰 10");
+
+    // 十步词面均在 StepNode 十八值封闭集内（逐词往返 = snake_case 线词）
+    let closed_set: Vec<&'static str> = ARCHIVE_STEP_ORDER
+        .iter()
+        .map(|node| node.as_str())
+        .collect();
+    for step in archive.steps {
+        let word = step.node.as_str();
+        assert!(
+            closed_set.contains(&word),
+            "归档步词 {word:?} 应在归档十步闭集内"
+        );
+        // 线面往返（封闭集编码→解码无失真，越集词即败）
+        let back: StepNode = serde_json::from_value(serde_json::json!(word))
+            .unwrap_or_else(|_| panic!("归档步词 {word:?} 应可反序列化"));
+        assert_eq!(back, step.node, "归档步词 {word:?} 往返逐词可辨");
+        // 退役 ArchiveStage 词汇不在新步序内
+        for retired in ["archive_stage", "stage", "prepare", "workflow", "archive"] {
+            assert_ne!(word, retired, "archive 步序不沿用退役词汇 {retired:?}");
+        }
+    }
+    // 归档步不得复用其它相位的执行图角色步（无 Executor / Evaluator / Decision /
+    // 三门——归档无会话角色 spec 与门禁分支）
+    for step in archive.steps {
+        assert!(
+            !matches!(
+                step.node,
+                StepNode::Executor
+                    | StepNode::Evaluator
+                    | StepNode::Decision
+                    | StepNode::VerdictGate
+                    | StepNode::RetryGate
+                    | StepNode::WhitelistGate
+                    | StepNode::StaticCheck
+                    | StepNode::TestExecution
+            ),
+            "归档步 {:?} 不得为路由相位的角色 / 门禁步",
+            step.node
+        );
+    }
 }

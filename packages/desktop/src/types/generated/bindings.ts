@@ -107,61 +107,8 @@ export const commands = {
 	changeFlowStart: (onEvent: Channel<RunNotice>, root: string, id: string, autoNextPhase: boolean) => __TAURI_INVOKE<ChangeRunSummary>("change_flow_start", { onEvent, root, id, autoNextPhase }),
 	changeFlowStop: (root: string, id: string) => __TAURI_INVOKE<null>("change_flow_stop", { root, id }),
 	changeFlowAnswer: (root: string, id: string, answer: string) => __TAURI_INVOKE<null>("change_flow_answer", { root, id, answer }),
-	changeFlowConfirm: (root: string, id: string, proceed: boolean) => __TAURI_INVOKE<null>("change_flow_confirm", { root, id, proceed }),
+	changeFlowConfirm: (root: string, id: string, proceed: boolean, syncSpecs: boolean) => __TAURI_INVOKE<null>("change_flow_confirm", { root, id, proceed, syncSpecs }),
 	changeFlowWatch: (onEvent: Channel<RunNotice>, root: string, id: string) => __TAURI_INVOKE<null>("change_flow_watch", { onEvent, root, id }),
-	/**
-	 *  归档前置读面（确认对话数据面，按 change **id** 寻址）：blank root / id
-	 *  早退 `None`（读语义）；`None` = 不可归档（未建档 / 已归档 / 未知 id——
-	 *  前端据此不呈现入口路径的兜底）。run_active 自 run 注册表快照（键 id）；
-	 *  worktree 由 core `preflight` 经 id → 记录读取（调用方零记录读取）。
-	 */
-	archiveFlowPreflight: (root: string, id: string) => __TAURI_INVOKE<{
-	name: string,
-	/**
-	 *  完成度结论（workflow 相位表全相位 non-stale pass/skipped；无相位表
-	 *  恒 false——警告词汇单点承载）
-	 */
-	completed: boolean,
-	/**  未过相位清单（workflow_type 不受支持时为空——不可核算） */
-	incompletePhases: string[],
-	/**  缺席产物文档（proposal.md / design.md / tasks.md 子集） */
-	missingArtifacts: string[],
-	/**  delta specs capability 清单（定位目录 specs/ 子树非空者） */
-	deltaSpecs: string[],
-	/**  worktree 记录（None = legacy 主 root change） */
-	worktree: string | null,
-	/**  change 分支名（worktree 记录在场才在案：`change/<name>`） */
-	branch: string | null,
-	/**  主仓当前分支名（合入目标；worktree 记录在场才探测） */
-	mergeTarget: string | null,
-	/**  该 change 存在运行中 run（对话呈现拒绝因） */
-	runActive: boolean,
-} | null>("archive_flow_preflight", { root, id }),
-	/**
-	 *  发起归档链（提前 resolve：接受即 `Ok(true)`，阶段 / 会话事件 / 终态经
-	 *  Channel 流出——agent 同步分钟级，一次性 await 无进度面必致重复点击，
-	 *  design D2；按 change **id** 寻址）。blank root / id 显式 `Err`；未建档 /
-	 *  已归档 / run 运行中 / 链进行中（重入）各显式拒绝——零装配零 spawn。
-	 */
-	archiveFlowStart: (onEvent: Channel<ArchiveUpdate>, root: string, id: string, syncSpecs: boolean) => __TAURI_INVOKE<boolean>("archive_flow_start", { onEvent, root, id, syncSpecs }),
-	/**
-	 *  停止归档链：取消旗（阶段间检查点收敛）+ 当前 agent 会话经既有 StopRegistry
-	 *  请求终止（miss 幂等）；blank root / id 零副作用直接成功。
-	 */
-	archiveFlowStop: (root: string, id: string) => __TAURI_INVOKE<null>("archive_flow_stop", { root, id }),
-	/**
-	 *  归档链重挂快照（进程内；链终态后除名 → `None`——终态由 db / 磁盘事实
-	 *  承载，详情页 refresh 回归已归档形态）。
-	 */
-	archiveFlowState: (root: string, id: string) => __TAURI_INVOKE<{
-	stages: ArchiveStageState[],
-	sessionId: string | null,
-} | null>("archive_flow_state", { root, id }),
-	/**
-	 *  归档链 broadcast 补订（运行中视图重挂）；无在案链 `Ok` 非错误（重挂时
-	 *  链可能已收口）。
-	 */
-	archiveFlowWatch: (onEvent: Channel<ArchiveUpdate>, root: string, id: string) => __TAURI_INVOKE<null>("archive_flow_watch", { onEvent, root, id }),
 	/**
 	 *  新建 change（建域四段：建档 + worktree add + worktree 内目录树与
 	 *  explore.md + bootstrap）；blank root 显式 `Err`。async + `spawn_blocking`
@@ -275,6 +222,8 @@ export type ActiveRunView = {
 	phase: string | null,
 	attempt: number | null,
 	ask: AskPayload | null,
+	/**  归档前停等点的前置只读载荷（非该停等点恒 null；停等面数据面） */
+	archive: ArchivePreflight | null,
 	startedAt: string,
 	nodes: ChangeStepState[],
 	edges: ChangeRunEdgeRecord[],
@@ -452,11 +401,16 @@ export type ArchiveOutcome = {
 	archivedDate: string,
 };
 
+/**
+ *  归档前置只读载荷（store 读 + vcs 探测的聚合像）：归档相位前的停等面数据面，
+ *  随 `RunUpdate::ConfirmWait` / `ChangeRunSnapshot` 出线（进程内，不落库）；
+ *  归档相位的 Preflight 步以同一函数重算并交 `PhaseCursor` 供后续步消费。
+ */
 export type ArchivePreflight = {
 	name: string,
 	/**
-	 *  完成度结论（workflow 相位表全相位 non-stale pass/skipped；无相位表
-	 *  恒 false——警告词汇单点承载）
+	 *  完成度结论（workflow 相位表全相位 non-stale pass / skipped；无相位表恒
+	 *  false——警告词汇单点承载）
 	 */
 	completed: boolean,
 	/**  未过相位清单（workflow_type 不受支持时为空——不可核算） */
@@ -471,78 +425,7 @@ export type ArchivePreflight = {
 	branch: string | null,
 	/**  主仓当前分支名（合入目标；worktree 记录在场才探测） */
 	mergeTarget: string | null,
-	/**  该 change 存在运行中 run（对话呈现拒绝因） */
-	runActive: boolean,
 };
-
-export type ArchiveSnapshot = {
-	stages: ArchiveStageState[],
-	sessionId: string | null,
-};
-
-export type ArchiveSpecsStatus = 
-/**  已同步 delta specs */
-"synced" | 
-/**  跳过 spec 同步（用户选择） */
-"skipped" | 
-/**  无 delta specs（摘要行照常呈现） */
-"none";
-
-export type ArchiveStage = 
-/**  前置重校验（建档在案 + status=active + worktree 在场性） */
-"preflight" | 
-/**  worktree 全域提交（worktree 记录在场才执行；干净探测唯一跳过依据） */
-"commit" | 
-/**
- *  主仓合入（worktree 内 rebase 重放 branch `change/<name>` 至主仓当前分
- *  支 → 主仓 ff-only 快进；冲突解 agent 分支内嵌，冲突态囚于 worktree）
- */
-"merge" | 
-/**  delta specs 同步 agent 会话（缺席 / 用户跳过则 skipped） */
-"specSync" | 
-/**  写面 `archive` 双写收口（改名 + db 翻转） */
-"seal" | 
-/**
- *  归档落盘 pathspec 提交（脏探测跳过幂等面；扩围含 delta capability 主
- *  specs 子树）
- */
-"finalize";
-
-export type ArchiveStageState = {
-	stage: ArchiveStage,
-	status: ArchiveStageStatus,
-	/**
-	 *  跳过因（干净 / 已合入 / 无 delta specs / 用户选择 / legacy 无 worktree /
-	 *  已落盘）或失败记因
-	 */
-	detail: string | null,
-};
-
-export type ArchiveStageStatus = 
-/**  阶段进行中 */
-"running" | 
-/**  阶段通过 */
-"passed" | 
-/**  阶段跳过（detail 携带跳过因） */
-"skipped" | 
-/**  阶段失败（停在该阶段） */
-"failed";
-
-export type ArchiveSummary = {
-	name: string,
-	/**  归档位置（archive 树目录名，`YYYY-MM-DD-<name>` 日期前缀形态） */
-	archivedDir: string,
-	specs: ArchiveSpecsStatus,
-	warnings: string[],
-};
-
-export type ArchiveUpdate = 
-/**  阶段状态变更（每段 running → 终态成对；同段后写覆盖） */
-{ ipc: "stage"; stage: ArchiveStageState } | 
-/**  归档 agent 会话事件透传（转录面板实时流；命令层 ArchiveSink 转译面） */
-{ ipc: "sessionEvent"; sessionId: string; event: AgentEvent } | 
-/**  终态收口（summary 与 error 互斥——成功 / 失败停止两态） */
-{ ipc: "finished"; summary: ArchiveSummary | null; error: string | null };
 
 /**
  *  产物寻址清单项：`source` 为 change 内相对 POSIX 路径或 eval 条目序号串；
@@ -667,7 +550,7 @@ export type ChangeRunEntry = {
 };
 
 /**
- *  run 执行图节点行线面（十值全词汇封闭集直出，词汇 = `state::RunStepKind`
+ *  run 执行图节点行线面（十八值全词汇封闭集直出，词汇 = `state::RunStepKind`
  *  单点；稳定身份键 `(phase, attempt, step, instanceNo)`，库读序 = node_seq 升序
  *  = emit 序）。
  */
@@ -695,7 +578,7 @@ export type ChangeRunStatus =
 "waitingConfirm" | 
 /**  ask 中断，等待自由文本应答 */
 "waitingAsk" | 
-/**  全相位 pass 走完（不触发归档，停等用户） */
+/**  全相位（含 archive 相位）pass 走完 */
 "completed" | 
 /**  受控终止（用户停止 / confirm=false / 决策 stop 动作） */
 "stopped" | 
@@ -722,8 +605,10 @@ export type ChangeStatus =
 "archived";
 
 /**
- *  步词汇（三类节点可辨）：WorkerAgent 三角色 + 相位机 / 工具步三步 + Gate
- *  三门。
+ *  步词汇（四类节点可辨）：WorkerAgent 步（executor / evaluator / decision /
+ *  spec-sync / resolve-conflicts）+ 相位机 / 工具步（phase-start / phase-log /
+ *  static-check / test-execution / preflight / seal）+ Git 步（commit / rebase /
+ *  merge / finalize）+ Gate 三门。
  */
 export type ChangeStepKind = 
 /**  executor 会话 */
@@ -745,7 +630,23 @@ export type ChangeStepKind =
 /**  retry 预算门（phase-next 重试 / 上限分叉） */
 "retryGate" | 
 /**  backtrack 白名单门（决策越权预校验） */
-"whitelistGate";
+"whitelistGate" | 
+/**  归档前置只读校验步（内联步） */
+"preflight" | 
+/**  归档 worktree 提交步（vcs） */
+"commit" | 
+/**  归档分支重放步（vcs） */
+"rebase" | 
+/**  归档合入冲突解算步（agent 会话；条件执行） */
+"resolveConflicts" | 
+/**  归档主仓快进步（vcs） */
+"merge" | 
+/**  归档 delta specs 同步步（agent 会话） */
+"specSync" | 
+/**  归档双写收口步（内联步） */
+"seal" | 
+/**  归档落盘提交步（vcs） */
+"finalize";
 
 /**
  *  步状态行：一次 `RunUpdate::Step` 的载荷，运行步节点推导的唯一输入面。稳定
@@ -1141,11 +1042,13 @@ export type RunStatus =
 "interrupted";
 
 /**
- *  run 步词汇封闭集（**十值全词汇**，线格式 snake_case 词）：agent 阶段
+ *  run 步词汇封闭集（**十八值全词汇**，线格式 snake_case 词）：agent 阶段
  * （executor / evaluator / decision）、脚本阶段（static_check / test_execution）、
- *  流程面步骤（phase_start / phase_log）与三门 gate（verdict_gate、retry_gate、
- *  whitelist_gate）。词汇本体单点——落库命令（`RunNodeEntry.step`）与查询投影
- * （`detail.rs`）同本类型消费，落库零过滤（旧 5 值词表的过滤谓词已退役）。
+ *  流程面步骤（phase_start / phase_log）、三门 gate（verdict_gate、retry_gate、
+ *  whitelist_gate）与归档 8 步（preflight / commit / rebase / resolve_conflicts /
+ *  merge / spec_sync / seal / finalize）。词汇本体单点——落库命令
+ * （`RunNodeEntry.step`）与查询投影（`detail.rs`）同本类型消费，落库零过滤
+ * （旧 5 值词表的过滤谓词已退役）。
  */
 export type RunStepKind = 
 /**  executor 会话 */
@@ -1167,7 +1070,23 @@ export type RunStepKind =
 /**  retry 预算门 */
 "retry_gate" | 
 /**  backtrack 白名单门 */
-"whitelist_gate";
+"whitelist_gate" | 
+/**  归档前置只读校验步（内联步） */
+"preflight" | 
+/**  归档 worktree 提交步（vcs） */
+"commit" | 
+/**  归档分支重放步（vcs） */
+"rebase" | 
+/**  归档合入冲突解算步（agent 会话；条件执行） */
+"resolve_conflicts" | 
+/**  归档主仓快进步（vcs） */
+"merge" | 
+/**  归档 delta specs 同步步（agent 会话） */
+"spec_sync" | 
+/**  归档双写收口步（内联步） */
+"seal" | 
+/**  归档落盘提交步（vcs） */
+"finalize";
 
 /**  run 步状态四值（线格式 camelCase 词）。 */
 export type RunStepStatus = 

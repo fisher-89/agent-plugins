@@ -8,13 +8,14 @@ use agent::{AgentRunStatus, ModelLevel};
 
 use crate::control::ChangeFlowControl;
 use crate::port::{
-    BoxToolFuture, BoxTurnFuture, RunHistoryPort, StaticCheckOutcome, StaticCheckRunner,
-    TestExecutionConclusion, TestExecutionOutcome, TestExecutionRunner, ToolCommand,
-    ToolStepOutput, ToolStepPort, ToolStepRequest, WorkerAgentPort, WorkerRole, WorkerTurnOutcome,
-    WorkerTurnRequest, WorkflowSnapshotPort,
+    ArchiveVcsPort, BoxToolFuture, BoxTurnFuture, RebaseOutcome, RunHistoryPort,
+    StaticCheckOutcome, StaticCheckRunner, TestExecutionConclusion, TestExecutionOutcome,
+    TestExecutionRunner, ToolCommand, ToolStepOutput, ToolStepPort, ToolStepRequest,
+    WorkerAgentPort, WorkerRole, WorkerTurnOutcome, WorkerTurnRequest, WorkflowSnapshotPort,
+    WorktreeSnapshot,
 };
 use crate::snapshot::StoreSnapshot;
-use crate::state::{ChangeRunStatus, RunNotice};
+use crate::state::{ArchivePreflight, ChangeRunStatus, RunNotice};
 use crate::steps::LocalToolSteps;
 use crate::walker::{new_run_id, walk_run, RunRequest};
 use store::Store;
@@ -53,10 +54,11 @@ impl TempRoot {
     }
 
     /// 预置一个 change 目录（active 树定位面；workflow.json 零产出——db 状态
-    /// 单源，磁盘仅产物发现）。
+    /// 单源，磁盘仅产物发现）+ 归档树父级（归档双写目录改名目标父级）。
     fn change(&self, name: &str) {
         let dir = self.0.join("openspec/changes").join(name);
         fs_create(&dir);
+        fs_create(&self.0.join("openspec/changes/archive"));
     }
 }
 
@@ -245,6 +247,9 @@ struct FakeWorker {
     sessions: Arc<Mutex<Vec<(WorkerRole, String)>>>,
     evaluator_reports: Mutex<VecDeque<Result<String, String>>>,
     decision_reports: Mutex<VecDeque<String>>,
+    /// 归档两会话角色产出队列（spec_sync / resolve_conflicts 共用；`Ok` 文本
+    /// 为收口消息，`Err` 为会话失败注入，耗尽回落 None 正常收口）
+    archive_reports: Mutex<VecDeque<Result<String, String>>>,
     counter: AtomicUsize,
     gate: Option<Arc<EvaluatorGate>>,
 }
@@ -257,9 +262,16 @@ impl FakeWorker {
             sessions: Arc::new(Mutex::new(Vec::new())),
             evaluator_reports: Mutex::new(VecDeque::new()),
             decision_reports: Mutex::new(VecDeque::new()),
+            archive_reports: Mutex::new(VecDeque::new()),
             counter: AtomicUsize::new(0),
             gate: None,
         }
+    }
+
+    /// 归档两会话角色产出预录（spec_sync / resolve_conflicts 共用队列）。
+    fn with_archive_reports(mut self, reports: Vec<Result<String, String>>) -> Self {
+        self.archive_reports = Mutex::new(reports.into());
+        self
     }
 
     fn with_evaluator_reports(mut self, reports: Vec<Result<String, String>>) -> Self {
@@ -313,7 +325,8 @@ impl WorkerAgentPort for FakeWorker {
             .push(role.as_str().to_owned());
 
         let mut timeline = Arc::clone(&self.timeline);
-        // 停等门仅挂 evaluator（停止时序窗口；executor / decision 不挂）
+        // 停等门仅挂 evaluator（停止时序窗口；executor / decision / 归档两会话
+        // 角色不挂）
         let gate = match role {
             WorkerRole::Evaluator => self.gate.as_ref().map(Arc::clone),
             _ => None,
@@ -332,6 +345,17 @@ impl WorkerAgentPort for FakeWorker {
                 self.decision_reports
                     .lock()
                     .expect("decision 队列锁不可中毒")
+                    .pop_front(),
+            ),
+            _ => None,
+        };
+        // 归档两会话角色可编程产出（spec_sync / resolve_conflicts：耗尽回落
+        // None = 会话正常收口，无 verdict 语义）
+        let archive_message = match role {
+            WorkerRole::SpecSync | WorkerRole::ResolveConflicts => Some(
+                self.archive_reports
+                    .lock()
+                    .expect("归档会话队列锁不可中毒")
                     .pop_front(),
             ),
             _ => None,
@@ -358,6 +382,13 @@ impl WorkerAgentPort for FakeWorker {
                         .flatten()
                         .unwrap_or_else(|| r#"{ "action": "retry" }"#.to_owned()),
                 ),
+                WorkerRole::SpecSync | WorkerRole::ResolveConflicts => {
+                    match archive_message.flatten() {
+                        Some(Err(message)) => return Err(message),
+                        Some(Ok(text)) => Some(text),
+                        None => None,
+                    }
+                }
             };
             Ok(WorkerTurnOutcome {
                 session_id,
@@ -386,8 +417,13 @@ struct FakeTools {
     /// test-execution 可编程产出序列（pass / fail / error 四态——耗尽回落
     /// pass 恒过）
     test_execution: Mutex<VecDeque<TestExecutionOutcome>>,
+    /// 归档前置载荷可编程产出序列（耗尽回落 archive_preflight_payload）
+    archive_preflight: Mutex<VecDeque<ArchivePreflight>>,
+    /// 归档双写产出可编程序列（耗尽回落 archive_seal_outcome）
+    archive_seal: Mutex<VecDeque<workflow::write::ArchiveOutcome>>,
     /// 命中即 Err 的步标签（phase-next / phase-start / phase-log / backtrack /
-    /// decision-log / static-check / test-execution）
+    /// decision-log / static-check / test-execution / archive-preflight /
+    /// archive-seal）
     fail_on: Mutex<Option<String>>,
     attempt_counter: AtomicUsize,
 }
@@ -401,9 +437,23 @@ impl FakeTools {
             phase_next: Mutex::new(VecDeque::new()),
             static_check: Mutex::new(VecDeque::new()),
             test_execution: Mutex::new(VecDeque::new()),
+            archive_preflight: Mutex::new(VecDeque::new()),
+            archive_seal: Mutex::new(VecDeque::new()),
             fail_on: Mutex::new(None),
             attempt_counter: AtomicUsize::new(0),
         }
+    }
+
+    /// 归档前置载荷预录（停等门 / Preflight 步消费面；耗尽回落 legacy 形态）。
+    fn with_archive_preflight(mut self, payloads: Vec<ArchivePreflight>) -> Self {
+        self.archive_preflight = Mutex::new(payloads.into());
+        self
+    }
+
+    /// 归档双写产出预录（Seal 步消费面；耗尽回落当日形态）。
+    fn with_archive_seal(mut self, outcomes: Vec<workflow::write::ArchiveOutcome>) -> Self {
+        self.archive_seal = Mutex::new(outcomes.into());
+        self
     }
 
     /// roots 捕获柄（assemble 消费 self 前取——exec root 透传锚用例的观察面）。
@@ -449,6 +499,8 @@ fn command_label(command: &ToolCommand) -> &'static str {
         ToolCommand::DecisionLog { .. } => "decision-log",
         ToolCommand::StaticCheck { .. } => "static-check",
         ToolCommand::TestExecution { .. } => "test-execution",
+        ToolCommand::ArchivePreflight { .. } => "archive-preflight",
+        ToolCommand::ArchiveSeal { .. } => "archive-seal",
     }
 }
 
@@ -555,6 +607,39 @@ impl ToolStepPort for FakeTools {
                     });
                 Box::pin(async move { Ok(ToolStepOutput::TestExecution(outcome)) })
             }
+            // 归档前置只读载荷臂：预录载荷逐次弹出（耗尽回落 legacy 主 root
+            // 形态——worktree / branch / merge_target 缺省 None）
+            ToolCommand::ArchivePreflight { .. } => {
+                let payload = self
+                    .archive_preflight
+                    .lock()
+                    .expect("archive-preflight 队列锁不可中毒")
+                    .pop_front()
+                    .unwrap_or_else(|| ArchivePreflight {
+                        name: NAME.to_owned(),
+                        completed: true,
+                        incomplete_phases: Vec::new(),
+                        missing_artifacts: Vec::new(),
+                        delta_specs: Vec::new(),
+                        worktree: None,
+                        branch: None,
+                        merge_target: None,
+                    });
+                Box::pin(async move { Ok(ToolStepOutput::ArchivePreflight(payload)) })
+            }
+            // 归档双写收口臂：预录产出逐次弹出（耗尽回落定值形态）
+            ToolCommand::ArchiveSeal { .. } => {
+                let outcome = self
+                    .archive_seal
+                    .lock()
+                    .expect("archive-seal 队列锁不可中毒")
+                    .pop_front()
+                    .unwrap_or_else(|| workflow::write::ArchiveOutcome {
+                        name: NAME.to_owned(),
+                        archived_date: "2026-10-01".to_owned(),
+                    });
+                Box::pin(async move { Ok(ToolStepOutput::ArchiveSeal(outcome)) })
+            }
         }
     }
 }
@@ -647,6 +732,205 @@ fn failing_check(diagnostics: &str) -> StaticCheckOutcome {
         passed: false,
         diagnostics: diagnostics.to_owned(),
         output_ref: None,
+    }
+}
+
+// ---------------------------------------------------------------------------
+// 装置：归档 vcs 缝假件（第三执行缝——git 步直调与探测的可编程返回值 + 调用
+// 捕获 + Err 注入；真实进程 spawn 行为归 vcs-runtime crate 真件测试面）
+// ---------------------------------------------------------------------------
+
+/// 可编程归档 vcs 假件：脏探测 / 提交 / 合入判定 / 重放 / 快进 / 快照各面可
+/// 编程，调用序与入参捕获供「git 步走 vcs 缝」与短路形态断言（core 零 spawn
+/// 的结构前提：归档 git 步恒经本缝直调）。
+struct FakeVcs {
+    /// 调用序（`{label}({arg})` 形态；步分派与短路断言的观察面）
+    calls: Mutex<Vec<String>>,
+    dirty: Mutex<bool>,
+    dirty_paths: Mutex<Vec<Vec<String>>>,
+    branch: Mutex<Result<String, String>>,
+    merged: Mutex<Result<bool, String>>,
+    rebase: Mutex<Result<RebaseOutcome, String>>,
+    rebase_continue: Mutex<Result<RebaseOutcome, String>>,
+    commit_result: Mutex<Result<(), String>>,
+    commit_paths_result: Mutex<Result<(), String>>,
+    ff_merge_result: Mutex<Result<(), String>>,
+    snapshot: Mutex<Result<WorktreeSnapshot, String>>,
+    snapshot_head: Mutex<Option<String>>,
+}
+
+impl FakeVcs {
+    /// 干净且可归档的默认形态（current_branch=main / 未合入 / 无冲突 / 提交可用）。
+    fn clean() -> Self {
+        Self {
+            calls: Mutex::new(Vec::new()),
+            dirty: Mutex::new(false),
+            dirty_paths: Mutex::new(Vec::new()),
+            branch: Mutex::new(Ok("main".to_owned())),
+            merged: Mutex::new(Ok(false)),
+            rebase: Mutex::new(Ok(RebaseOutcome::Rebased)),
+            rebase_continue: Mutex::new(Ok(RebaseOutcome::Rebased)),
+            commit_result: Mutex::new(Ok(())),
+            commit_paths_result: Mutex::new(Ok(())),
+            ff_merge_result: Mutex::new(Ok(())),
+            snapshot: Mutex::new(Ok(snapshot_of("head-a", None))),
+            snapshot_head: Mutex::new(None),
+        }
+    }
+
+    fn with_dirty(self, dirty: bool) -> Self {
+        *self.dirty.lock().expect("vcs 脏锁不可中毒") = dirty;
+        self
+    }
+
+    fn with_merged(self, merged: Result<bool, String>) -> Self {
+        *self.merged.lock().expect("vcs 合入锁不可中毒") = merged;
+        self
+    }
+
+    fn with_rebase(self, outcome: Result<RebaseOutcome, String>) -> Self {
+        *self.rebase.lock().expect("vcs 重放锁不可中毒") = outcome;
+        self
+    }
+
+    fn with_rebase_continue(self, outcome: Result<RebaseOutcome, String>) -> Self {
+        *self.rebase_continue.lock().expect("vcs 续走锁不可中毒") = outcome;
+        self
+    }
+
+    fn with_commit_result(self, result: Result<(), String>) -> Self {
+        *self.commit_result.lock().expect("vcs 提交锁不可中毒") = result;
+        self
+    }
+
+    fn with_commit_paths_result(self, result: Result<(), String>) -> Self {
+        *self.commit_paths_result.lock().expect("vcs 落盘锁不可中毒") = result;
+        self
+    }
+
+    fn with_ff_merge_result(self, result: Result<(), String>) -> Self {
+        *self.ff_merge_result.lock().expect("vcs 快进锁不可中毒") = result;
+        self
+    }
+
+    /// 解冲突后验用：B 快照 HEAD 与 rebase 半程标记可编程（后验四判据的注入面）。
+    fn with_snapshot_head(self, head: &str, rebase_head: Option<&str>) -> Self {
+        *self.snapshot_head.lock().expect("vcs 快照头锁不可中毒") = Some(head.to_owned());
+        *self.snapshot.lock().expect("vcs 快照锁不可中毒") =
+            Ok(snapshot_of(rebase_head.map_or("head-a", |_| head), rebase_head));
+        self
+    }
+
+    /// 调用序快照。
+    fn calls(&self) -> Vec<String> {
+        self.calls.lock().expect("vcs 调用锁不可中毒").clone()
+    }
+
+    /// 命中某调用标签次数。
+    fn call_count(&self, prefix: &str) -> usize {
+        self.calls()
+            .iter()
+            .filter(|call| call.starts_with(prefix))
+            .count()
+    }
+
+    /// 记录路径参数（Finalize / Commit 的 pathspec 面断言）。
+    fn dirty_path_sets(&self) -> Vec<Vec<String>> {
+        self.dirty_paths.lock().expect("vcs 路径锁不可中毒").clone()
+    }
+
+    fn record(&self, label: String) {
+        self.calls
+            .lock()
+            .expect("vcs 调用锁不可中毒")
+            .push(label);
+    }
+}
+
+/// 工作区快照 fixture（后验对比面：HEAD + rebase 半程标记 + 空状态面）。
+fn snapshot_of(head: &str, rebase_head: Option<&str>) -> WorktreeSnapshot {
+    WorktreeSnapshot {
+        head: head.to_owned(),
+        rebase_head: rebase_head.map(str::to_owned),
+        status: Vec::new(),
+        index: Vec::new(),
+    }
+}
+
+impl ArchiveVcsPort for FakeVcs {
+    fn dirty(&self, _root: &std::path::Path, paths: &[&str]) -> bool {
+        self.record(format!("dirty:{}", paths.len()));
+        self.dirty_paths
+            .lock()
+            .expect("vcs 路径锁不可中毒")
+            .push(paths.iter().map(|path| (*path).to_owned()).collect());
+        *self.dirty.lock().expect("vcs 脏锁不可中毒")
+    }
+
+    fn commit_all(&self, worktree: &std::path::Path, message: &str) -> Result<(), String> {
+        self.record(format!("commit_all:{}:{message}", worktree.display()));
+        self.commit_result
+            .lock()
+            .expect("vcs 提交锁不可中毒")
+            .clone()
+    }
+
+    fn branch_merged(&self, _main_root: &std::path::Path, branch: &str) -> Result<bool, String> {
+        self.record(format!("branch_merged:{branch}"));
+        self.merged.lock().expect("vcs 合入锁不可中毒").clone()
+    }
+
+    fn rebase_branch(
+        &self,
+        _worktree: &std::path::Path,
+        onto: &str,
+    ) -> Result<RebaseOutcome, String> {
+        self.record(format!("rebase_branch:{onto}"));
+        self.rebase.lock().expect("vcs 重放锁不可中毒").clone()
+    }
+
+    fn ff_merge(&self, _main_root: &std::path::Path, branch: &str) -> Result<(), String> {
+        self.record(format!("ff_merge:{branch}"));
+        self.ff_merge_result
+            .lock()
+            .expect("vcs 快进锁不可中毒")
+            .clone()
+    }
+
+    fn worktree_snapshot(&self, _root: &std::path::Path) -> Result<WorktreeSnapshot, String> {
+        self.record("worktree_snapshot".to_owned());
+        self.snapshot.lock().expect("vcs 快照锁不可中毒").clone()
+    }
+
+    fn rebase_continue(&self, _worktree: &std::path::Path) -> Result<RebaseOutcome, String> {
+        self.record("rebase_continue".to_owned());
+        self.rebase_continue
+            .lock()
+            .expect("vcs 续走锁不可中毒")
+            .clone()
+    }
+
+    fn rebase_abort(&self, _worktree: &std::path::Path) -> Result<(), String> {
+        self.record("rebase_abort".to_owned());
+        Ok(())
+    }
+
+    fn current_branch(&self, _main_root: &std::path::Path) -> Result<String, String> {
+        self.record("current_branch".to_owned());
+        self.branch.lock().expect("vcs 分支锁不可中毒").clone()
+    }
+
+    fn commit_paths(
+        &self,
+        _main_root: &std::path::Path,
+        paths: &[&str],
+        message: &str,
+    ) -> Result<(), String> {
+        self.record(format!("commit_paths:{}:{message}", paths.len()));
+        self.commit_paths_result
+            .lock()
+            .expect("vcs 落盘锁不可中毒")
+            .clone()
     }
 }
 
@@ -767,15 +1051,63 @@ fn spawn_run(
     let rx = control.subscribe(ROOT, CHANGE_ID).expect("run 订阅应成功");
     let request = RunRequest {
         root: root.to_owned(),
+        main_root: root.to_owned(),
         change_id: CHANGE_ID.to_owned(),
         run_id: "run-1".to_owned(),
         auto_next_phase,
+        stop_before: None,
         started_at: STARTED_AT,
     };
     let history = RecordingHistory::new();
     let task = tokio::spawn(walk_run(
         worker,
         tools,
+        Arc::new(FakeVcs::clean()) as Arc<dyn ArchiveVcsPort>,
+        snapshot,
+        history.clone() as Arc<dyn RunHistoryPort>,
+        Arc::clone(control),
+        guard,
+        request,
+    ));
+    (task, rx, history)
+}
+
+/// run 驱动（归档相位用例专用）：显式 vcs 缝 + `stop_before` 停止点 + 主 root
+/// 拆分——归档步的 git 直调与停等门前置载荷观察面。
+#[allow(clippy::too_many_arguments)]
+fn spawn_run_with_vcs(
+    worker: Arc<dyn WorkerAgentPort>,
+    tools: Arc<dyn ToolStepPort>,
+    vcs: Arc<FakeVcs>,
+    snapshot: Arc<dyn WorkflowSnapshotPort>,
+    control: &Arc<ChangeFlowControl>,
+    auto_next_phase: bool,
+    root: &str,
+    main_root: &str,
+    stop_before: Option<&str>,
+) -> (
+    tokio::task::JoinHandle<ChangeRunStatus>,
+    tokio::sync::broadcast::Receiver<RunNotice>,
+    Arc<RecordingHistory>,
+) {
+    let guard = control
+        .begin_run(ROOT, CHANGE_ID, "run-1".to_owned(), STARTED_AT)
+        .expect("登记 run 应成功");
+    let rx = control.subscribe(ROOT, CHANGE_ID).expect("run 订阅应成功");
+    let request = RunRequest {
+        root: root.to_owned(),
+        main_root: main_root.to_owned(),
+        change_id: CHANGE_ID.to_owned(),
+        run_id: "run-1".to_owned(),
+        auto_next_phase,
+        stop_before: stop_before.map(str::to_owned),
+        started_at: STARTED_AT,
+    };
+    let history = RecordingHistory::new();
+    let task = tokio::spawn(walk_run(
+        worker,
+        tools,
+        vcs as Arc<dyn ArchiveVcsPort>,
         snapshot,
         history.clone() as Arc<dyn RunHistoryPort>,
         Arc::clone(control),
@@ -810,9 +1142,11 @@ fn spawn_real_run(
     let rx = control.subscribe(ROOT, CHANGE_ID).expect("run 订阅应成功");
     let request = RunRequest {
         root: root.to_owned(),
+        main_root: root.to_owned(),
         change_id: CHANGE_ID.to_owned(),
         run_id: run_id.to_owned(),
         auto_next_phase: false,
+        stop_before: None,
         started_at: STARTED_AT,
     };
     let store_port = db.store_arc();
@@ -821,6 +1155,7 @@ fn spawn_real_run(
     let task = tokio::spawn(walk_run(
         worker,
         tools,
+        Arc::new(FakeVcs::clean()) as Arc<dyn ArchiveVcsPort>,
         snapshot,
         history,
         Arc::clone(control),
@@ -828,6 +1163,51 @@ fn spawn_real_run(
         request,
     ));
     (task, rx, store)
+}
+
+/// 真件组合轮驱动（归档相位停等 + vcs 缝注入）：真实 StoreRunHistory 落库，
+/// 归档收口后库读史即断言事实源。
+#[allow(clippy::too_many_arguments)]
+fn spawn_real_run_archive(
+    db: &TestDb,
+    worker: Arc<dyn WorkerAgentPort>,
+    tools: Arc<dyn ToolStepPort>,
+    vcs: Arc<FakeVcs>,
+    snapshot: Arc<dyn WorkflowSnapshotPort>,
+    control: &Arc<ChangeFlowControl>,
+    root: &str,
+    run_id: &str,
+) -> (
+    tokio::task::JoinHandle<ChangeRunStatus>,
+    tokio::sync::broadcast::Receiver<RunNotice>,
+) {
+    use crate::run_history::StoreRunHistory;
+
+    let guard = control
+        .begin_run(ROOT, CHANGE_ID, run_id.to_owned(), STARTED_AT)
+        .expect("登记 run 应成功");
+    let rx = control.subscribe(ROOT, CHANGE_ID).expect("run 订阅应成功");
+    let request = RunRequest {
+        root: root.to_owned(),
+        main_root: root.to_owned(),
+        change_id: CHANGE_ID.to_owned(),
+        run_id: run_id.to_owned(),
+        auto_next_phase: true,
+        stop_before: Some("archive".to_owned()),
+        started_at: STARTED_AT,
+    };
+    let history: Arc<dyn RunHistoryPort> = Arc::new(StoreRunHistory::new(db.store_arc()));
+    let task = tokio::spawn(walk_run(
+        worker,
+        tools,
+        vcs as Arc<dyn ArchiveVcsPort>,
+        snapshot,
+        history,
+        Arc::clone(control),
+        guard,
+        request,
+    ));
+    (task, rx)
 }
 
 /// 轮询至谓词成立（后台 run 的观测窗口；30s 上限防挂死）。
@@ -846,15 +1226,143 @@ async fn wait_for(what: &str, mut probe: impl FnMut() -> bool) {
 /// 否则 run 停等挂起；在 `spawn_run` 之后、首次 await 之前调用（订阅先行于
 /// walker 首个 ConfirmWait 广播）。
 fn spawn_confirmer(control: &Arc<ChangeFlowControl>, proceed: bool) -> tokio::task::JoinHandle<()> {
+    spawn_confirmer_with_specs(control, proceed, true)
+}
+
+/// 停等回路（`sync_specs` 可编程）：归档前停等点回流的「是否执行 delta specs
+/// 同步」选择面（归档停等 / 跳过同步用例的注入面）。
+fn spawn_confirmer_with_specs(
+    control: &Arc<ChangeFlowControl>,
+    proceed: bool,
+    sync_specs: bool,
+) -> tokio::task::JoinHandle<()> {
     let control = Arc::clone(control);
     let mut rx = control.subscribe(ROOT, CHANGE_ID).expect("run 订阅应成功");
     tokio::spawn(async move {
         while let Ok(notice) = rx.recv().await {
             if matches!(notice, RunNotice::ConfirmWait) {
-                let _ = control.confirm(ROOT, CHANGE_ID, proceed);
+                let _ = control.confirm(ROOT, CHANGE_ID, proceed, sync_specs);
             }
         }
     })
+}
+
+/// 停等载荷捕获回路：每见 `ConfirmWait` 先快照注册表条目（phase + 归档前置
+/// 载荷）后应答——`stop-before-archive` 停等面数据面断言的事实源。
+fn spawn_confirmer_capturing(
+    control: &Arc<ChangeFlowControl>,
+    proceed: bool,
+    sync_specs: bool,
+) -> (
+    tokio::task::JoinHandle<()>,
+    Arc<Mutex<Vec<(String, Option<ArchivePreflight>)>>>,
+) {
+    let seen = Arc::new(Mutex::new(Vec::new()));
+    let handle = {
+        let seen = Arc::clone(&seen);
+        let control = Arc::clone(control);
+        let mut rx = control.subscribe(ROOT, CHANGE_ID).expect("run 订阅应成功");
+        tokio::spawn(async move {
+            while let Ok(notice) = rx.recv().await {
+                if matches!(notice, RunNotice::ConfirmWait) {
+                    if let Some(snapshot) = control.snapshot(ROOT, CHANGE_ID) {
+                        seen.lock()
+                            .expect("停等捕获锁不可中毒")
+                            .push((snapshot.phase.unwrap_or_default(), snapshot.archive.clone()));
+                    }
+                    let _ = control.confirm(ROOT, CHANGE_ID, proceed, sync_specs);
+                }
+            }
+        })
+    };
+    (handle, seen)
+}
+
+/// 归档相位路由产出（真件计划步序列；`executor=None` / `evaluator=None` 形态
+/// ——`drive` 无 evaluator 硬检查的行为面锚）。
+fn archive_route_outcome() -> PhaseNextOutcome {
+    const TABLE: [&str; 9] = [
+        "proposal",
+        "dev-design",
+        "test-design",
+        "implement",
+        "test-gen",
+        "test-execution",
+        "code-review",
+        "acceptance",
+        "archive",
+    ];
+    PhaseNextOutcome {
+        done: false,
+        next_phase: Some("archive".to_owned()),
+        round: 1,
+        steps: steps_of("archive"),
+        artifact_manifest: manifest_of("archive"),
+        executor: None,
+        evaluator: None,
+        allowed_backtrack_phases: TABLE.iter().map(|phase| (*phase).to_owned()).collect(),
+        last_result: None,
+        error: None,
+    }
+}
+
+/// 归档前置载荷 fixture（worktree 形态：change 分支与合入目标在案）。
+fn archive_preflight_with_worktree(worktree: &str, delta_specs: Vec<String>) -> ArchivePreflight {
+    ArchivePreflight {
+        name: NAME.to_owned(),
+        completed: true,
+        incomplete_phases: Vec::new(),
+        missing_artifacts: Vec::new(),
+        delta_specs,
+        worktree: Some(worktree.to_owned()),
+        branch: Some(format!("change/{NAME}")),
+        merge_target: Some("main".to_owned()),
+    }
+}
+
+/// 归档前置载荷预录两副本（停等门与 Preflight 步各消费一次——同一只读载荷）。
+fn archive_preflight_twice(worktree: &str, delta_specs: Vec<String>) -> Vec<ArchivePreflight> {
+    let payload = archive_preflight_with_worktree(worktree, delta_specs);
+    vec![payload.clone(), payload]
+}
+
+/// 落包节点摘要（`(phase, step 线词, status 线词)`——执行图 emit 序）。
+fn node_rows(command: &RunFinishCommand) -> Vec<(String, String, String)> {
+    command
+        .nodes
+        .iter()
+        .map(|node| {
+            (
+                node.phase.clone(),
+                node.step.as_str().to_owned(),
+                match node.status {
+                    RunStepStatus::Running => "running",
+                    RunStepStatus::Passed => "passed",
+                    RunStepStatus::Failed => "failed",
+                    RunStepStatus::Stopped => "stopped",
+                }
+                .to_owned(),
+            )
+        })
+        .collect()
+}
+
+/// 落包节点中指定步的 detail（短路 / 跳过因断言入口）。
+fn node_detail(command: &RunFinishCommand, step: workflow::state::RunStepKind) -> Option<String> {
+    command
+        .nodes
+        .iter()
+        .find(|node| node.step == step)
+        .and_then(|node| node.detail.clone())
+}
+
+/// 归档用例的 worktree 目录字符串（`openspec/changes/<name>` 绝对路径）。
+fn worktree_dir(root: &TempRoot) -> String {
+    root.0
+        .join("openspec/changes")
+        .join(NAME)
+        .to_string_lossy()
+        .into_owned()
 }
 
 /// 相位定义（真件只读——计划步序列与产物清单的唯一来源）。
@@ -1189,6 +1697,7 @@ async fn 真实写面组合全程演进对照一致() {
         Arc::new(SessionAnchors::new()),
         Arc::new(NullRunner),
         Arc::new(NullTestExecutionRunner),
+        Arc::new(FakeVcs::clean()),
         db.store_arc(),
         "run-1".to_owned(),
     ));
@@ -1207,12 +1716,13 @@ async fn 真实写面组合全程演进对照一致() {
         "全相位 pass 收敛 completed"
     );
 
-    // 落库演进与插件直跑形态对照一致：8 相位各 1 条 pass（attempt 1、表序）
+    // 落库演进与插件直跑形态对照一致：9 相位各 1 条 pass（attempt 1、表序；
+    // 末位 archive 以空 report + 空 checklist 落 pass）
     let entries = db
         .store
         .list_phase_records(CHANGE_ID)
         .expect("读相位条目应成功");
-    assert_eq!(entries.len(), 8, "八相位各落账一条");
+    assert_eq!(entries.len(), 9, "九相位各落账一条（含 archive）");
     let phases: Vec<&str> = entries.iter().map(|entry| entry.phase.as_str()).collect();
     assert_eq!(
         phases,
@@ -1224,17 +1734,23 @@ async fn 真实写面组合全程演进对照一致() {
             "test-gen",
             "test-execution",
             "code-review",
-            "acceptance"
+            "acceptance",
+            "archive"
         ],
-        "落账表序与插件相位表一致"
+        "落账表序与相位表一致"
     );
     for entry in &entries {
         assert_eq!(entry.verdict, Verdict::Pass);
         assert_eq!(entry.attempt, 1);
-        assert!(
-            !entry.report.is_empty() && !entry.checklist.is_empty(),
-            "条目形状与插件 buildEntry 同形: {entry:?}"
-        );
+        if entry.phase == "archive" {
+            // 归档确定性相位：空 checklist 落账（`derive_verdict([]) = Pass`）
+            assert!(entry.report.is_empty() && entry.checklist.is_empty());
+        } else {
+            assert!(
+                !entry.report.is_empty() && !entry.checklist.is_empty(),
+                "条目形状与插件 buildEntry 同形: {entry:?}"
+            );
+        }
         assert!(
             !entry.skipped && !entry.stale,
             "干净 run 无 skipped / stale 标记"
@@ -1260,6 +1776,7 @@ async fn 真实写面组合全程演进对照一致() {
 #[tokio::test]
 async fn 重入自active_phase续走不重跑已pass相位() {
     let root = TempRoot::new("resume");
+    root.change(NAME);
     let db = TestDb::open("resume");
     // 中段种子：proposal 已 pass、test-design 及其后已 pass、dev-design
     // 中断残留（1 条 fail），再开相 dev-design（attempt 事务内推导 = 2）
@@ -1346,6 +1863,7 @@ async fn 重入自active_phase续走不重跑已pass相位() {
         Arc::new(SessionAnchors::new()),
         Arc::new(NullRunner),
         Arc::new(NullTestExecutionRunner),
+        Arc::new(FakeVcs::clean()),
         db.store_arc(),
         "run-1".to_owned(),
     ));
@@ -1390,10 +1908,15 @@ async fn 重入自active_phase续走不重跑已pass相位() {
         .store
         .list_phase_records(CHANGE_ID)
         .expect("读相位条目应成功");
-    assert_eq!(entries.len(), 9, "dev-design 重评条目纯追加（既有 8 + 1）");
+    assert_eq!(
+        entries.len(),
+        10,
+        "dev-design 重评条目纯追加（既有 8 + dev-design 重评 + archive 收口）"
+    );
     assert_eq!(entries[8].phase, "dev-design");
     assert_eq!(entries[8].attempt, 2);
     assert_eq!(entries[8].verdict, Verdict::Pass);
+    assert_eq!(entries[9].phase, "archive", "归档相位随后收口");
     let record = db
         .store
         .find_change_record(CHANGE_ID)
@@ -2059,8 +2582,8 @@ async fn auto确认多相位直通零confirmwait信封终态口径不漂移() {
     assert_eq!(finish.status, RunStatus::Completed);
     assert_eq!(
         finish.reason.as_deref(),
-        Some("All phases have passed evaluation. Ready for archiving."),
-        "终态收口文案不随 auto 分支漂移"
+        Some("All phases have passed, including archiving. Run completed."),
+        "终态收口文案不随 auto 分支漂移（含归档相位）"
     );
 }
 
@@ -2669,6 +3192,7 @@ async fn 真实写面组合_会话槽位落账与决策挂账全链对应() {
         Arc::new(SessionAnchors::new()),
         Arc::new(NullRunner),
         Arc::new(NullTestExecutionRunner),
+        Arc::new(FakeVcs::clean()),
         db.store_arc(),
         "run-1".to_owned(),
     ));
@@ -2753,6 +3277,7 @@ async fn 真实写面组合_决策挂账先于解析_parse失败同样留痕() {
         Arc::new(SessionAnchors::new()),
         Arc::new(NullRunner),
         Arc::new(NullTestExecutionRunner),
+        Arc::new(FakeVcs::clean()),
         db.store_arc(),
         "run-1".to_owned(),
     ));
@@ -2848,6 +3373,7 @@ async fn 真实写面组合_升格fail条目仅携executor槽位且修复轮续�
         Arc::new(SessionAnchors::new()),
         Arc::new(FailingRunner),
         Arc::new(NullTestExecutionRunner),
+        Arc::new(FakeVcs::clean()),
         db.store_arc(),
         "run-1".to_owned(),
     ));
@@ -3938,6 +4464,7 @@ async fn 真件组合_多相位run落库回验_emit序与终态逐字段一致()
         Arc::new(SessionAnchors::new()),
         Arc::new(NullRunner),
         Arc::new(NullTestExecutionRunner),
+        Arc::new(FakeVcs::clean()),
         db.store_arc(),
         "run-1".to_owned(),
     ));
@@ -3949,7 +4476,7 @@ async fn 真件组合_多相位run落库回验_emit序与终态逐字段一致()
         &db,
         worker,
         steps,
-        snapshot,
+        Arc::clone(&snapshot),
         &control,
         &root.root_str(),
         "run-1",
@@ -3970,14 +4497,14 @@ async fn 真件组合_多相位run落库回验_emit序与终态逐字段一致()
     assert!(runs[0].finished_at.is_some(), "收口时刻在位");
     assert_eq!(
         runs[0].reason.as_deref(),
-        Some("All phases have passed evaluation. Ready for archiving."),
+        Some("All phases have passed, including archiving. Run completed."),
         "completed 收口记因"
     );
 
-    // 节点整包：node_seq 升序 = emit 序、十值全词汇零过滤、整包同刻
+    // 节点整包：node_seq 升序 = emit 序、十八值全词汇零过滤、整包同刻
     let nodes = store.list_run_nodes("run-1").expect("节点读史应成功");
     assert!(!nodes.is_empty(), "多相位 run 节点整包非空");
-    const FULL_WORDS: [workflow::state::RunStepKind; 10] = [
+    const FULL_WORDS: [workflow::state::RunStepKind; 18] = [
         workflow::state::RunStepKind::Executor,
         workflow::state::RunStepKind::Evaluator,
         workflow::state::RunStepKind::Decision,
@@ -3988,11 +4515,19 @@ async fn 真件组合_多相位run落库回验_emit序与终态逐字段一致()
         workflow::state::RunStepKind::VerdictGate,
         workflow::state::RunStepKind::RetryGate,
         workflow::state::RunStepKind::WhitelistGate,
+        workflow::state::RunStepKind::Preflight,
+        workflow::state::RunStepKind::Commit,
+        workflow::state::RunStepKind::Rebase,
+        workflow::state::RunStepKind::ResolveConflicts,
+        workflow::state::RunStepKind::Merge,
+        workflow::state::RunStepKind::SpecSync,
+        workflow::state::RunStepKind::Seal,
+        workflow::state::RunStepKind::Finalize,
     ];
     for row in &nodes {
         assert!(
             FULL_WORDS.contains(&row.step),
-            "落库步词汇越十值全词汇封闭集，实际: {:?}",
+            "落库步词汇越十八值全词汇封闭集，实际: {:?}",
             row.step
         );
         assert_eq!(
@@ -4025,6 +4560,28 @@ async fn 真件组合_多相位run落库回验_emit序与终态逐字段一致()
     assert!(
         nodes.iter().any(|row| row.session_id.is_some()),
         "WorkerAgent 步 session_id 透传落库"
+    );
+    // 归档相位十步节点在案（全相位含 archive 走完的落库面）
+    let archive_words: Vec<&str> = nodes
+        .iter()
+        .filter(|row| row.phase == "archive")
+        .map(|row| row.step.as_str())
+        .collect();
+    assert_eq!(
+        archive_words,
+        [
+            "phase_start",
+            "preflight",
+            "commit",
+            "rebase",
+            "resolve_conflicts",
+            "merge",
+            "spec_sync",
+            "seal",
+            "finalize",
+            "phase_log"
+        ],
+        "归档十步节点随整包落库"
     );
 
     // 边整包：四 kind 词汇落库、端点身份串指向本 run 节点身份键
@@ -4274,7 +4831,7 @@ async fn 中途停止收口_active_phase清位() {
         &db,
         worker,
         tools,
-        snapshot,
+        Arc::clone(&snapshot),
         &control,
         &root.root_str(),
         "run-1",
@@ -4314,6 +4871,7 @@ async fn 续走不重头_第二轮run已pass相位零重执行attempt延续() {
             Arc::new(SessionAnchors::new()),
             Arc::new(NullRunner),
             Arc::new(NullTestExecutionRunner),
+            Arc::new(FakeVcs::clean()),
             db.store_arc(),
             "run-1".to_owned(),
         ));
@@ -4350,6 +4908,7 @@ async fn 续走不重头_第二轮run已pass相位零重执行attempt延续() {
             Arc::new(SessionAnchors::new()),
             Arc::new(NullRunner),
             Arc::new(NullTestExecutionRunner),
+            Arc::new(FakeVcs::clean()),
             db.store_arc(),
             "run-2".to_owned(),
         ));
@@ -4397,8 +4956,9 @@ async fn 续走不重头_第二轮run已pass相位零重执行attempt延续() {
                 "test-execution",
                 "code-review",
                 "acceptance",
+                "archive",
             ],
-            "落账序列严格前向（续走锚点推进——已 pass 相位零重执行）"
+            "落账序列严格前向（续走锚点推进——已 pass 相位零重执行，末位归档收口）"
         );
         // 两轮 run 全史：库面恰两行、run-1 stopped / run-2 completed
         let runs = store.list_change_runs(CHANGE_ID).expect("库读史应成功");
@@ -4433,14 +4993,17 @@ async fn run_started_err_fail_fast_零相位执行() {
     let rx = control.subscribe(ROOT, CHANGE_ID).unwrap();
     let request = RunRequest {
         root: "/tmp/root".to_owned(),
+        main_root: "/tmp/root".to_owned(),
         change_id: CHANGE_ID.to_owned(),
         run_id: "run-1".to_owned(),
         auto_next_phase: false,
+        stop_before: None,
         started_at: STARTED_AT,
     };
     let task = tokio::spawn(walk_run(
         worker,
         tools,
+        Arc::new(FakeVcs::clean()) as Arc<dyn ArchiveVcsPort>,
         snapshot,
         guard_history.clone() as Arc<dyn RunHistoryPort>,
         Arc::clone(&control),
@@ -4483,14 +5046,17 @@ async fn run_finished_err_best_effort_静默收口() {
     let mut rx = control.subscribe(ROOT, CHANGE_ID).unwrap();
     let request = RunRequest {
         root: "/tmp/root".to_owned(),
+        main_root: "/tmp/root".to_owned(),
         change_id: CHANGE_ID.to_owned(),
         run_id: "run-1".to_owned(),
         auto_next_phase: false,
+        stop_before: None,
         started_at: STARTED_AT,
     };
     let task = tokio::spawn(walk_run(
         worker,
         tools,
+        Arc::new(FakeVcs::clean()) as Arc<dyn ArchiveVcsPort>,
         snapshot,
         history.clone() as Arc<dyn RunHistoryPort>,
         Arc::clone(&control),
@@ -5053,5 +5619,1355 @@ fn new_run_id铸造定式与互异不panic() {
     assert!(
         concurrent.iter().all(|id| id.starts_with("run-")),
         "并发铸造形态持衡"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// 归档相位（AC-3 / AC-4 / AC-6 / AC-7 / AC-8）：十步执行序、git 步走 vcs 缝、
+// 条件步短路、停等门、失败停链与组合链路落库
+// ---------------------------------------------------------------------------
+
+/// 归档相位十步执行序（正向）：假写面 + 假 vcs 驱动 archive 相位 →
+/// PhaseStart → Preflight → Commit → Rebase → ResolveConflicts → Merge →
+/// SpecSync → Seal → Finalize → PhaseLog 按序落节点（emit 序即落包序），全步
+/// `passed`（AC-3）。
+#[tokio::test]
+async fn 归档相位十步执行序按计划步序落包() {
+    let timeline = Arc::new(Mutex::new(Vec::new()));
+    let (worker, _requests, _sessions) = FakeWorker::new(&timeline).assemble();
+    let (tools, commands) = FakeTools::new(&timeline)
+        .with_phase_next(vec![archive_route_outcome(), done_outcome()])
+        .assemble();
+    let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
+    let control = Arc::new(ChangeFlowControl::new());
+
+    let vcs = Arc::new(FakeVcs::clean());
+    let (task, _rx, history) = spawn_run_with_vcs(
+        worker,
+        tools,
+        Arc::clone(&vcs),
+        Arc::clone(&snapshot),
+        &control,
+        true,
+        "/tmp/root",
+        "/tmp/root",
+        Some("archive"),
+    );
+    let _confirmer = spawn_confirmer(&control, true);
+    let status = task.await.expect("run 任务正常结束");
+
+    assert_eq!(status, ChangeRunStatus::Completed, "归档完成 → run 收口");
+    let command = history.finish().expect("收口落包应在案");
+    let rows = node_rows(&command);
+    let steps: Vec<&str> = rows.iter().map(|row| row.1.as_str()).collect();
+    assert_eq!(
+        steps,
+        [
+            "phase_start",
+            "preflight",
+            "commit",
+            "rebase",
+            "resolve_conflicts",
+            "merge",
+            "spec_sync",
+            "seal",
+            "finalize",
+            "phase_log"
+        ],
+        "归档十步序与设计表逐位一致"
+    );
+    assert!(
+        rows.iter().all(|row| row.0 == "archive"),
+        "归档步节点恒 phase=archive: {rows:?}"
+    );
+    assert!(
+        rows.iter().all(|row| row.2 == "passed"),
+        "全步 passed（legacy 形态各步内短路）: {rows:?}"
+    );
+    let labels: Vec<&str> = commands
+        .lock()
+        .expect("命令锁")
+        .iter()
+        .map(command_label)
+        .collect();
+    assert_eq!(
+        labels,
+        [
+            "phase-next",
+            "archive-preflight",
+            "phase-start",
+            "archive-preflight",
+            "archive-seal",
+            "phase-log",
+            "phase-next"
+        ],
+        "归档相位工具命令序（停等门 + Preflight 步各一次；legacy 形态零 git 触点）"
+    );
+    let timeline_roles: Vec<String> = timeline
+        .lock()
+        .expect("时间线锁")
+        .iter()
+        .filter(|entry| {
+            matches!(
+                entry.as_str(),
+                "executor" | "evaluator" | "decision" | "spec_sync" | "resolve_conflicts"
+            )
+        })
+        .cloned()
+        .collect();
+    assert!(
+        timeline_roles.is_empty(),
+        "零 agent 会话（归档确定性相位）: {timeline_roles:?}"
+    );
+}
+
+/// git 步走 vcs 缝（正向）：worktree 形态 + 脏工作区 → Commit / Rebase /
+/// Merge / Finalize 四步经 `vcs` 缝直调（`commit_all` / `rebase_branch` /
+/// `ff_merge` / `commit_paths` 逐一捕获——core 零 spawn 的行为面锚，AC-3 / R2）。
+#[tokio::test]
+async fn 归档git四步经vcs缝直调() {
+    let root = TempRoot::new("archive-git-seam");
+    root.change(NAME);
+    let worktree = worktree_dir(&root);
+    let timeline = Arc::new(Mutex::new(Vec::new()));
+    let (worker, _requests, _sessions) = FakeWorker::new(&timeline).assemble();
+    let (tools, _commands) = FakeTools::new(&timeline)
+        .with_phase_next(vec![archive_route_outcome(), done_outcome()])
+        .with_archive_preflight(archive_preflight_twice(&worktree, Vec::new()))
+        .assemble();
+    let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
+    let control = Arc::new(ChangeFlowControl::new());
+
+    let vcs = Arc::new(FakeVcs::clean().with_dirty(true));
+    let (task, _rx, history) = spawn_run_with_vcs(
+        worker,
+        tools,
+        Arc::clone(&vcs),
+        Arc::clone(&snapshot),
+        &control,
+        true,
+        &root.root_str(),
+        &root.root_str(),
+        Some("archive"),
+    );
+    let _confirmer = spawn_confirmer(&control, true);
+    let status = task.await.expect("run 任务正常结束");
+
+    assert_eq!(status, ChangeRunStatus::Completed);
+    let calls = vcs.calls();
+    assert_eq!(
+        vcs.call_count("commit_all:"),
+        1,
+        "Commit 步经 vcs 直调: {calls:?}"
+    );
+    assert_eq!(
+        vcs.call_count("rebase_branch:"),
+        1,
+        "Rebase 步经 vcs 直调: {calls:?}"
+    );
+    assert_eq!(
+        vcs.call_count("ff_merge:"),
+        1,
+        "Merge 步经 vcs 直调: {calls:?}"
+    );
+    assert_eq!(
+        vcs.call_count("commit_paths:"),
+        1,
+        "Finalize 步经 vcs 直调: {calls:?}"
+    );
+    assert_eq!(
+        vcs.call_count("current_branch"),
+        1,
+        "合入目标分支探测同走 vcs 缝: {calls:?}"
+    );
+    let path_sets = vcs.dirty_path_sets();
+    assert!(
+        path_sets
+            .iter()
+            .flatten()
+            .any(|path| path.contains("changes/archive/")),
+        "Finalize 脏探测携归档目录 pathspec: {path_sets:?}"
+    );
+
+    let command = history.finish().expect("收口落包应在案");
+    let commit_detail = node_detail(&command, workflow::state::RunStepKind::Commit);
+    assert!(
+        commit_detail
+            .as_deref()
+            .is_some_and(|detail| detail.contains("worktree 已提交")),
+        "Commit 步 detail 携提交摘要: {commit_detail:?}"
+    );
+    let seal_detail = node_detail(&command, workflow::state::RunStepKind::Seal);
+    assert!(
+        seal_detail
+            .as_deref()
+            .is_some_and(|detail| detail.contains("已归档")),
+        "Seal 步 detail 携归档产出摘要: {seal_detail:?}"
+    );
+}
+
+/// Rebase → ResolveConflicts → Merge 三段（正向）：Rebase 产出冲突清单 →
+/// ResolveConflicts 有冲突即唤解冲突 agent（`resolve_conflicts` 角色）并经
+/// `rebase_continue` 收口 → Merge 独立 `ff_merge`（AC-3 / D4）。
+#[tokio::test]
+async fn 归档冲突三段agent解算与独立快进() {
+    let root = TempRoot::new("archive-conflict");
+    root.change(NAME);
+    let worktree = worktree_dir(&root);
+    let timeline = Arc::new(Mutex::new(Vec::new()));
+    let (worker, requests, sessions) = FakeWorker::new(&timeline).assemble();
+    let (tools, _commands) = FakeTools::new(&timeline)
+        .with_phase_next(vec![archive_route_outcome(), done_outcome()])
+        .with_archive_preflight(archive_preflight_twice(&worktree, Vec::new()))
+        .assemble();
+    let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
+    let control = Arc::new(ChangeFlowControl::new());
+
+    let vcs = Arc::new(
+        FakeVcs::clean()
+            .with_rebase(Ok(RebaseOutcome::Conflicted(vec![
+                "specs/a.md".to_owned()
+            ])))
+            .with_snapshot_head("head-b", Some("onto-commit")),
+    );
+    let (task, _rx, history) = spawn_run_with_vcs(
+        worker,
+        tools,
+        Arc::clone(&vcs),
+        Arc::clone(&snapshot),
+        &control,
+        true,
+        &root.root_str(),
+        &root.root_str(),
+        Some("archive"),
+    );
+    let _confirmer = spawn_confirmer(&control, true);
+    let status = task.await.expect("run 任务正常结束");
+
+    assert_eq!(status, ChangeRunStatus::Completed, "冲突解算 + 快进收口");
+    let roles: Vec<WorkerRole> = sessions
+        .lock()
+        .expect("会话锁")
+        .iter()
+        .map(|(role, _)| *role)
+        .collect();
+    assert_eq!(
+        roles,
+        vec![WorkerRole::ResolveConflicts],
+        "有冲突 → 唤解冲突 agent（无其它会话）"
+    );
+    assert!(
+        requests
+            .lock()
+            .expect("请求锁")
+            .first()
+            .is_some_and(|request| request.prompt.contains("specs/a.md")),
+        "解冲突 prompt 携逐条冲突路径"
+    );
+    assert_eq!(
+        vcs.call_count("rebase_continue"),
+        1,
+        "解算后由链代续走: {:?}",
+        vcs.calls()
+    );
+    assert_eq!(vcs.call_count("ff_merge:"), 1, "Merge 独立快进");
+    assert_eq!(vcs.call_count("worktree_snapshot"), 2, "A / B 双快照后验");
+
+    let command = history.finish().expect("收口落包应在案");
+    let rebase_detail = node_detail(&command, workflow::state::RunStepKind::Rebase);
+    assert!(
+        rebase_detail
+            .as_deref()
+            .is_some_and(|detail| detail.contains("冲突待解算")),
+        "Rebase 步 detail 携冲突交据: {rebase_detail:?}"
+    );
+}
+
+/// ResolveConflicts 条件执行（边界）：`rebase_conflicts` 为空（legacy 跳过 /
+/// 重放无冲突）→ ResolveConflicts `passed` + detail 携「无冲突」，零 agent 会话
+///（AC-3）。
+#[tokio::test]
+async fn 归档无冲突时解算步passed且零会话() {
+    let timeline = Arc::new(Mutex::new(Vec::new()));
+    let (worker, requests, sessions) = FakeWorker::new(&timeline).assemble();
+    let (tools, _commands) = FakeTools::new(&timeline)
+        .with_phase_next(vec![archive_route_outcome(), done_outcome()])
+        .assemble();
+    let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
+    let control = Arc::new(ChangeFlowControl::new());
+
+    let vcs = Arc::new(FakeVcs::clean());
+    let (task, _rx, history) = spawn_run_with_vcs(
+        worker,
+        tools,
+        Arc::clone(&vcs),
+        Arc::clone(&snapshot),
+        &control,
+        true,
+        "/tmp/root",
+        "/tmp/root",
+        Some("archive"),
+    );
+    let _confirmer = spawn_confirmer(&control, true);
+    assert_eq!(
+        task.await.expect("run 任务正常结束"),
+        ChangeRunStatus::Completed
+    );
+
+    assert!(
+        requests.lock().expect("请求锁").is_empty(),
+        "无冲突 → 零 agent 会话"
+    );
+    assert!(sessions.lock().expect("会话锁").is_empty());
+    assert_eq!(vcs.call_count("rebase_continue"), 0, "零冲突不解算");
+    let command = history.finish().expect("收口落包应在案");
+    let resolve_node = command
+        .nodes
+        .iter()
+        .find(|node| node.step == workflow::state::RunStepKind::ResolveConflicts)
+        .expect("ResolveConflicts 节点在场");
+    assert_eq!(resolve_node.status, RunStepStatus::Passed);
+    assert_eq!(
+        resolve_node.detail.as_deref(),
+        Some("无冲突"),
+        "跳过因单点词汇"
+    );
+    assert!(resolve_node.session_id.is_none(), "零会话步节点无 session_id");
+}
+
+/// SpecSync 条件执行（边界 / 正向）：delta specs 在场且用户未跳过 → agent 会话
+///（`WorkerRole::SpecSync`、provenance `<id>/archive/spec_sync/<attempt>`、cwd 恒
+/// 主 root）；无 delta / 用户勾选跳过 → `passed` + detail 携跳过因（AC-3 / D2 / D3）。
+#[tokio::test]
+async fn 归档spec同步条件执行与用户跳过选择() {
+    let root = TempRoot::new("archive-spec-sync");
+    root.change(NAME);
+    let worktree = worktree_dir(&root);
+    let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
+
+    // ① delta specs 在场 + 用户未跳过 → agent 会话
+    let timeline = Arc::new(Mutex::new(Vec::new()));
+    let (worker, requests, _sessions) = FakeWorker::new(&timeline).assemble();
+    let (tools, _commands) = FakeTools::new(&timeline)
+        .with_phase_next(vec![archive_route_outcome(), done_outcome()])
+        .with_archive_preflight(archive_preflight_twice(
+            &worktree,
+            vec!["desktop-flow".to_owned()],
+        ))
+        .assemble();
+    let control = Arc::new(ChangeFlowControl::new());
+    let (task, _rx, history) = spawn_run_with_vcs(
+        worker,
+        tools,
+        Arc::new(FakeVcs::clean()),
+        Arc::clone(&snapshot),
+        &control,
+        true,
+        &root.root_str(),
+        &root.root_str(),
+        Some("archive"),
+    );
+    let _confirmer = spawn_confirmer_with_specs(&control, true, true);
+    assert_eq!(
+        task.await.expect("run 任务正常结束"),
+        ChangeRunStatus::Completed
+    );
+
+    let spec_sync_requests: Vec<WorkerTurnRequest> = requests
+        .lock()
+        .expect("请求锁")
+        .iter()
+        .filter(|request| request.role == WorkerRole::SpecSync)
+        .cloned()
+        .collect();
+    assert_eq!(spec_sync_requests.len(), 1, "delta specs 在场 → spec 同步会话");
+    assert_eq!(
+        spec_sync_requests[0].root,
+        root.root_str(),
+        "cwd 恒主 workspace root"
+    );
+    assert_eq!(
+        spec_sync_requests[0].provenance.source_ref.as_deref(),
+        Some(format!("{CHANGE_ID}/archive/spec_sync/1").as_str()),
+        "provenance 角色段 = spec_sync（同 phase 同 attempt 唯一）"
+    );
+    let command = history.finish().expect("收口落包应在案");
+    let spec_node = command
+        .nodes
+        .iter()
+        .find(|node| node.step == workflow::state::RunStepKind::SpecSync)
+        .expect("SpecSync 节点在场");
+    assert!(spec_node.session_id.is_some(), "会话步节点携 session_id");
+
+    // ② delta specs 在场 + 用户勾选跳过 → passed + 跳过因（零会话）
+    let timeline_b = Arc::new(Mutex::new(Vec::new()));
+    let (worker_b, requests_b, _sessions_b) = FakeWorker::new(&timeline_b).assemble();
+    let (tools_b, _commands_b) = FakeTools::new(&timeline_b)
+        .with_phase_next(vec![archive_route_outcome(), done_outcome()])
+        .with_archive_preflight(archive_preflight_twice(
+            &worktree,
+            vec!["desktop-flow".to_owned()],
+        ))
+        .assemble();
+    let control_b = Arc::new(ChangeFlowControl::new());
+    let (task_b, _rx_b, history_b) = spawn_run_with_vcs(
+        worker_b,
+        tools_b,
+        Arc::new(FakeVcs::clean()),
+        Arc::clone(&snapshot),
+        &control_b,
+        true,
+        &root.root_str(),
+        &root.root_str(),
+        Some("archive"),
+    );
+    let _confirmer_b = spawn_confirmer_with_specs(&control_b, true, false);
+    assert_eq!(
+        task_b.await.expect("run 任务正常结束"),
+        ChangeRunStatus::Completed
+    );
+    assert!(
+        requests_b.lock().expect("请求锁").is_empty(),
+        "用户跳过 → 零 spec 同步会话"
+    );
+    let command_b = history_b.finish().expect("收口落包应在案");
+    assert_eq!(
+        node_detail(&command_b, workflow::state::RunStepKind::SpecSync).as_deref(),
+        Some("用户选择")
+    );
+
+    // ③ 无 delta specs → passed + 无 delta 跳过因
+    let timeline_c = Arc::new(Mutex::new(Vec::new()));
+    let (worker_c, _requests_c, _sessions_c) = FakeWorker::new(&timeline_c).assemble();
+    let (tools_c, _commands_c) = FakeTools::new(&timeline_c)
+        .with_phase_next(vec![archive_route_outcome(), done_outcome()])
+        .assemble();
+    let control_c = Arc::new(ChangeFlowControl::new());
+    let (task_c, _rx_c, history_c) = spawn_run_with_vcs(
+        worker_c,
+        tools_c,
+        Arc::new(FakeVcs::clean()),
+        Arc::clone(&snapshot),
+        &control_c,
+        true,
+        "/tmp/root",
+        "/tmp/root",
+        Some("archive"),
+    );
+    let _confirmer_c = spawn_confirmer(&control_c, true);
+    assert_eq!(
+        task_c.await.expect("run 任务正常结束"),
+        ChangeRunStatus::Completed
+    );
+    let command_c = history_c.finish().expect("收口落包应在案");
+    assert_eq!(
+        node_detail(&command_c, workflow::state::RunStepKind::SpecSync).as_deref(),
+        Some("无 delta specs")
+    );
+}
+
+/// 步内短路形态（边界 / 幂等重试）：干净 worktree → Commit `passed` + detail
+/// 携「干净」（不调 `commit_all`）；已落盘 → Finalize `passed` + 跳过因（不调
+/// `commit_paths`）；已合入 → Rebase / Merge `passed` + 跳过因（不调
+/// `rebase_branch` / `ff_merge`）；legacy 记录 → 三步跳过因（AC-8 幂等重试）。
+#[tokio::test]
+async fn 归档步内短路形态与幂等跳过() {
+    let root = TempRoot::new("archive-short-circuit");
+    root.change(NAME);
+    let worktree = worktree_dir(&root);
+    let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
+
+    // ① 干净 worktree（dirty=false）：Commit / Finalize 跳过
+    let timeline = Arc::new(Mutex::new(Vec::new()));
+    let (worker, _requests, _sessions) = FakeWorker::new(&timeline).assemble();
+    let (tools, _commands) = FakeTools::new(&timeline)
+        .with_phase_next(vec![archive_route_outcome(), done_outcome()])
+        .with_archive_preflight(archive_preflight_twice(&worktree, Vec::new()))
+        .assemble();
+    let control = Arc::new(ChangeFlowControl::new());
+    let vcs = Arc::new(FakeVcs::clean().with_dirty(false));
+    let (task, _rx, history) = spawn_run_with_vcs(
+        worker,
+        tools,
+        Arc::clone(&vcs),
+        Arc::clone(&snapshot),
+        &control,
+        true,
+        &root.root_str(),
+        &root.root_str(),
+        Some("archive"),
+    );
+    let _confirmer = spawn_confirmer(&control, true);
+    assert_eq!(
+        task.await.expect("run 任务正常结束"),
+        ChangeRunStatus::Completed
+    );
+    assert_eq!(vcs.call_count("commit_all:"), 0, "干净 → 不调 commit_all");
+    assert_eq!(
+        vcs.call_count("commit_paths:"),
+        0,
+        "已落盘 → 不调 commit_paths"
+    );
+    let command = history.finish().expect("收口落包应在案");
+    assert_eq!(
+        node_detail(&command, workflow::state::RunStepKind::Commit).as_deref(),
+        Some("干净")
+    );
+    assert_eq!(
+        node_detail(&command, workflow::state::RunStepKind::Finalize).as_deref(),
+        Some("已落盘")
+    );
+
+    // ② 已合入（branch_merged=true）：Rebase / Merge 跳过
+    let timeline_b = Arc::new(Mutex::new(Vec::new()));
+    let (worker_b, _requests_b, _sessions_b) = FakeWorker::new(&timeline_b).assemble();
+    let (tools_b, _commands_b) = FakeTools::new(&timeline_b)
+        .with_phase_next(vec![archive_route_outcome(), done_outcome()])
+        .with_archive_preflight(archive_preflight_twice(&worktree, Vec::new()))
+        .assemble();
+    let control_b = Arc::new(ChangeFlowControl::new());
+    let vcs_b = Arc::new(FakeVcs::clean().with_merged(Ok(true)));
+    let (task_b, _rx_b, history_b) = spawn_run_with_vcs(
+        worker_b,
+        tools_b,
+        Arc::clone(&vcs_b),
+        Arc::clone(&snapshot),
+        &control_b,
+        true,
+        &root.root_str(),
+        &root.root_str(),
+        Some("archive"),
+    );
+    let _confirmer_b = spawn_confirmer(&control_b, true);
+    assert_eq!(
+        task_b.await.expect("run 任务正常结束"),
+        ChangeRunStatus::Completed
+    );
+    assert_eq!(vcs_b.call_count("rebase_branch:"), 0, "已合入 → 不重放");
+    assert_eq!(vcs_b.call_count("ff_merge:"), 0, "已合入 → 不快进");
+    let command_b = history_b.finish().expect("收口落包应在案");
+    assert_eq!(
+        node_detail(&command_b, workflow::state::RunStepKind::Rebase).as_deref(),
+        Some("已合入")
+    );
+    assert_eq!(
+        node_detail(&command_b, workflow::state::RunStepKind::Merge).as_deref(),
+        Some("已合入")
+    );
+
+    // ③ legacy 记录（worktree=None）：Commit / Rebase / Merge 跳过因
+    let timeline_c = Arc::new(Mutex::new(Vec::new()));
+    let (worker_c, _requests_c, _sessions_c) = FakeWorker::new(&timeline_c).assemble();
+    let (tools_c, _commands_c) = FakeTools::new(&timeline_c)
+        .with_phase_next(vec![archive_route_outcome(), done_outcome()])
+        .assemble();
+    let control_c = Arc::new(ChangeFlowControl::new());
+    let vcs_c = Arc::new(FakeVcs::clean());
+    let (task_c, _rx_c, history_c) = spawn_run_with_vcs(
+        worker_c,
+        tools_c,
+        Arc::clone(&vcs_c),
+        snapshot,
+        &control_c,
+        true,
+        "/tmp/root",
+        "/tmp/root",
+        Some("archive"),
+    );
+    let _confirmer_c = spawn_confirmer(&control_c, true);
+    assert_eq!(
+        task_c.await.expect("run 任务正常结束"),
+        ChangeRunStatus::Completed
+    );
+    let legacy_calls = vcs_c.calls();
+    assert_eq!(
+        vcs_c.call_count("commit_all:"),
+        0,
+        "legacy → 不调 commit_all: {legacy_calls:?}"
+    );
+    assert_eq!(vcs_c.call_count("rebase_branch:"), 0, "legacy → 不重放");
+    assert_eq!(vcs_c.call_count("ff_merge:"), 0, "legacy → 不快进");
+    assert_eq!(vcs_c.call_count("commit_paths:"), 0, "已落盘 → 不落盘提交");
+    assert_eq!(
+        legacy_calls,
+        vec!["dirty:2".to_owned()],
+        "legacy 形态仅 Finalize pathspec 脏探测一次"
+    );
+    let command_c = history_c.finish().expect("收口落包应在案");
+    for step in [
+        workflow::state::RunStepKind::Commit,
+        workflow::state::RunStepKind::Rebase,
+        workflow::state::RunStepKind::Merge,
+    ] {
+        assert_eq!(
+            node_detail(&command_c, step).as_deref(),
+            Some("legacy 无 worktree"),
+            "{step:?} legacy 跳过因"
+        );
+    }
+}
+
+/// stop-before-archive 停等（正向）：`stop_before=Some("archive")` → 发
+/// `ConfirmWait { phase: "archive", archive: Some(preflight) }` 并停等；
+/// `proceed=false` → stopped（未进归档相位）、`proceed=true` → 进 archive
+///（AC-7 / D2）。
+#[tokio::test]
+async fn stop_before_archive停等载荷与双向选择() {
+    // ① proceed=false：停在归档前（零 archive 步执行）
+    let timeline = Arc::new(Mutex::new(Vec::new()));
+    let (worker, _requests, _sessions) = FakeWorker::new(&timeline).assemble();
+    let (tools, commands) = FakeTools::new(&timeline)
+        .with_phase_next(vec![archive_route_outcome()])
+        .with_archive_preflight(archive_preflight_twice(
+            "/tmp/wt/walker-change",
+            vec!["desktop-flow".to_owned()],
+        ))
+        .assemble();
+    let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
+    let control = Arc::new(ChangeFlowControl::new());
+    let (task, _rx, _history) = spawn_run_with_vcs(
+        worker,
+        tools,
+        Arc::new(FakeVcs::clean()),
+        Arc::clone(&snapshot),
+        &control,
+        false,
+        "/tmp/root",
+        "/tmp/root",
+        Some("archive"),
+    );
+    let (confirmer, seen) = spawn_confirmer_capturing(&control, false, true);
+    let status = task.await.expect("run 任务正常结束");
+    confirmer.abort();
+
+    assert_eq!(status, ChangeRunStatus::Stopped, "proceed=false → 受控终止");
+    let seen = seen.lock().expect("停等捕获锁不可中毒").clone();
+    assert_eq!(seen.len(), 1, "归档前恰一道停等确认");
+    assert_eq!(seen[0].0, "archive", "停等相位 = archive");
+    let payload = seen[0].1.clone().expect("归档前停等随行前置只读载荷");
+    assert_eq!(payload.name, NAME);
+    assert!(payload.completed, "完成度结论随行");
+    assert_eq!(payload.delta_specs, vec!["desktop-flow".to_owned()]);
+    assert_eq!(payload.merge_target.as_deref(), Some("main"));
+    let labels: Vec<&str> = commands
+        .lock()
+        .expect("命令锁")
+        .iter()
+        .map(command_label)
+        .collect();
+    assert_eq!(
+        labels,
+        ["phase-next", "archive-preflight"],
+        "停等未确认 → 归档相位零执行"
+    );
+
+    // ② proceed=true：进 archive 相位并收口 completed
+    let timeline_b = Arc::new(Mutex::new(Vec::new()));
+    let (worker_b, _requests_b, _sessions_b) = FakeWorker::new(&timeline_b).assemble();
+    let (tools_b, commands_b) = FakeTools::new(&timeline_b)
+        .with_phase_next(vec![archive_route_outcome(), done_outcome()])
+        .assemble();
+    let control_b = Arc::new(ChangeFlowControl::new());
+    let (task_b, _rx_b, history_b) = spawn_run_with_vcs(
+        worker_b,
+        tools_b,
+        Arc::new(FakeVcs::clean()),
+        Arc::clone(&snapshot),
+        &control_b,
+        false,
+        "/tmp/root",
+        "/tmp/root",
+        Some("archive"),
+    );
+    let _confirmer_b = spawn_confirmer(&control_b, true);
+    assert_eq!(
+        task_b.await.expect("run 任务正常结束"),
+        ChangeRunStatus::Completed
+    );
+    let labels_b: Vec<&str> = commands_b
+        .lock()
+        .expect("命令锁")
+        .iter()
+        .map(command_label)
+        .collect();
+    assert!(
+        labels_b.contains(&"phase-start") && labels_b.contains(&"archive-seal"),
+        "确认后归档相位执行: {labels_b:?}"
+    );
+    let command_b = history_b.finish().expect("收口落包应在案");
+    assert!(
+        command_b.nodes.iter().any(|node| {
+            node.phase == "archive" && node.step == workflow::state::RunStepKind::PhaseLog
+        }),
+        "归档相位 PhaseLog 落包（archive 完成才 Completed）"
+    );
+}
+
+/// auto 模式同样停等（边界）：`auto_next_phase` 两态下归档前仍停等一次（停止门
+/// 不因 auto 跳过）；归档收口后不再补确认（归档后零确认，AC-7 / D1）。
+#[tokio::test]
+async fn auto模式归档前仍停等且归档后零确认() {
+    for auto in [true, false] {
+        let timeline = Arc::new(Mutex::new(Vec::new()));
+        let (worker, _requests, _sessions) = FakeWorker::new(&timeline).assemble();
+        let (tools, _commands) = FakeTools::new(&timeline)
+            .with_phase_next(vec![archive_route_outcome(), done_outcome()])
+            .assemble();
+        let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
+        let control = Arc::new(ChangeFlowControl::new());
+        let (task, _rx, _history) = spawn_run_with_vcs(
+            worker,
+            tools,
+            Arc::new(FakeVcs::clean()),
+            snapshot,
+            &control,
+            auto,
+            "/tmp/root",
+            "/tmp/root",
+            Some("archive"),
+        );
+        let (confirmer, seen) = spawn_confirmer_capturing(&control, true, true);
+        let status = task.await.expect("run 任务正常结束");
+        confirmer.abort();
+
+        assert_eq!(
+            status,
+            ChangeRunStatus::Completed,
+            "auto={auto} 归档收口即 Completed"
+        );
+        let seen = seen.lock().expect("停等捕获锁不可中毒").clone();
+        assert_eq!(
+            seen.len(),
+            1,
+            "auto={auto} 归档前恰一道停等（归档后零确认）"
+        );
+        assert_eq!(seen[0].0, "archive", "停止门相位 = archive");
+    }
+}
+
+/// evaluator 检查移除（正向）：archive 相位产出 `executor=None` / `evaluator=None`
+/// 仍可进入执行（`drive` 无 `next.evaluator.is_none()` 硬检查）——十步照常落包
+/// 并收口（AC-5）。
+#[tokio::test]
+async fn 归档相位零角色spec仍可进入执行() {
+    let timeline = Arc::new(Mutex::new(Vec::new()));
+    let (worker, requests, _sessions) = FakeWorker::new(&timeline).assemble();
+    let (tools, commands) = FakeTools::new(&timeline)
+        .with_phase_next(vec![archive_route_outcome(), done_outcome()])
+        .assemble();
+    let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
+    let control = Arc::new(ChangeFlowControl::new());
+    let (task, _rx, history) = spawn_run_with_vcs(
+        worker,
+        tools,
+        Arc::new(FakeVcs::clean()),
+        Arc::clone(&snapshot),
+        &control,
+        true,
+        "/tmp/root",
+        "/tmp/root",
+        Some("archive"),
+    );
+    let _confirmer = spawn_confirmer(&control, true);
+    let status = task.await.expect("run 任务正常结束");
+
+    assert_eq!(
+        status,
+        ChangeRunStatus::Completed,
+        "executor / evaluator 双 None 不拦相位进入"
+    );
+    assert!(requests.lock().expect("请求锁").is_empty(), "零会话角色");
+    let command = history.finish().expect("收口落包应在案");
+    assert_eq!(
+        command.nodes.len(),
+        10,
+        "归档十步全落包（零 evaluator 检查无阻）: {:?}",
+        node_rows(&command)
+    );
+    let labels: Vec<&str> = commands
+        .lock()
+        .expect("命令锁")
+        .iter()
+        .map(command_label)
+        .collect();
+    assert!(labels.contains(&"phase-log"), "PhaseLog 照常落账");
+    assert!(!labels.contains(&"backtrack"), "零决策 / 回溯分支");
+}
+
+/// 失败停链（异常）：归档任一步失败 → `Terminal` → run 直接 `Failed` 收口，不唤
+/// 决策 agent、不触发 phase retry（AC-8）。
+#[tokio::test]
+async fn 归档步失败即failed收口不唤决策() {
+    for label in ["archive-seal", "archive-preflight", "phase-log"] {
+        let timeline = Arc::new(Mutex::new(Vec::new()));
+        let (worker, requests, sessions) = FakeWorker::new(&timeline).assemble();
+        let (tools, _commands) = FakeTools::new(&timeline)
+            .with_phase_next(vec![archive_route_outcome()])
+            .fail_on(label)
+            .assemble();
+        let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
+        let control = Arc::new(ChangeFlowControl::new());
+        let (task, _rx, history) = spawn_run_with_vcs(
+            worker,
+            tools,
+            Arc::new(FakeVcs::clean()),
+            snapshot,
+            &control,
+            true,
+            "/tmp/root",
+            "/tmp/root",
+            Some("archive"),
+        );
+        let _confirmer = spawn_confirmer(&control, true);
+        let status = task.await.expect("run 任务正常结束");
+
+        assert_eq!(
+            status,
+            ChangeRunStatus::Failed,
+            "归档步 {label} 失败 → run Failed"
+        );
+        let roles: Vec<WorkerRole> = sessions
+            .lock()
+            .expect("会话锁")
+            .iter()
+            .map(|(role, _)| *role)
+            .collect();
+        assert!(
+            !roles.contains(&WorkerRole::Decision),
+            "失败停链不唤决策 agent: {roles:?}"
+        );
+        assert!(
+            requests.lock().expect("请求锁").is_empty(),
+            "零会话（无相位重试）"
+        );
+        let command = history.finish().expect("收口落包应在案");
+        if label == "phase-log" {
+            // 落账臂失败：PhaseLog 节点已在途（running），终态收口不再改写节点面
+            assert!(
+                command
+                    .nodes
+                    .iter()
+                    .any(|node| node.step == workflow::state::RunStepKind::PhaseLog),
+                "落账臂失败时节点在案（在途 running）: {:?}",
+                node_rows(&command)
+            );
+        } else {
+            assert!(
+                command
+                    .nodes
+                    .iter()
+                    .any(|node| node.status == RunStepStatus::Failed),
+                "失败节点在案（步失败可见）"
+            );
+        }
+    }
+}
+
+/// 归档 git 步失败停链（异常）：脏 worktree 而 `commit_all` Err / 重放 Err /
+/// 合入判定 Err → 步失败携记因 + run Failed（AC-8）。
+#[tokio::test]
+async fn 归档git步vcs失败即停链() {
+    let cases: [(&str, FakeVcs); 3] = [
+        (
+            "提交失败：钩子拒绝",
+            FakeVcs::clean()
+                .with_dirty(true)
+                .with_commit_result(Err("提交失败：钩子拒绝".to_owned())),
+        ),
+        (
+            "重放失败：非冲突错误",
+            FakeVcs::clean().with_rebase(Err("重放失败：非冲突错误".to_owned())),
+        ),
+        (
+            "分支合入判定失败",
+            FakeVcs::clean().with_merged(Err("分支合入判定失败".to_owned())),
+        ),
+    ];
+    for (expect, vcs) in cases {
+        let root = TempRoot::new("archive-git-fail");
+        root.change(NAME);
+        let worktree = worktree_dir(&root);
+        let timeline = Arc::new(Mutex::new(Vec::new()));
+        let (worker, _requests, _sessions) = FakeWorker::new(&timeline).assemble();
+        let (tools, _commands) = FakeTools::new(&timeline)
+            .with_phase_next(vec![archive_route_outcome()])
+            .with_archive_preflight(archive_preflight_twice(&worktree, Vec::new()))
+            .assemble();
+        let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
+        let control = Arc::new(ChangeFlowControl::new());
+        let (task, _rx, history) = spawn_run_with_vcs(
+            worker,
+            tools,
+            Arc::new(vcs),
+            snapshot,
+            &control,
+            true,
+            &root.root_str(),
+            &root.root_str(),
+            Some("archive"),
+        );
+        let _confirmer = spawn_confirmer(&control, true);
+        assert_eq!(
+            task.await.expect("run 任务正常结束"),
+            ChangeRunStatus::Failed,
+            "{expect} → 步失败停链"
+        );
+        let command = history.finish().expect("收口落包应在案");
+        let failed = command
+            .nodes
+            .iter()
+            .find(|node| node.status == RunStepStatus::Failed)
+            .expect("失败节点在案");
+        assert!(
+            failed
+                .detail
+                .as_deref()
+                .is_some_and(|detail| detail.contains(expect)),
+            "失败节点记因携 vcs Err: {failed:?}"
+        );
+    }
+}
+
+/// 组合链路落库与空 checklist 落账（正向，AC-4 / AC-6）：真件 store + 真件
+/// `LocalToolSteps`（假 vcs 缝）驱动归档相位收口 → archive 相位以 `report=""` +
+/// 空 checklist 落 `verdict=pass` PhaseRecord；归档十步节点 + 串行 forward 边落
+/// 既有三表（零新表），身份键 `(phase, attempt, step, instance_no)` 稳定唯一。
+#[tokio::test]
+async fn 组合链路归档落库与空checklist落账() {
+    let root = TempRoot::new("archive-compose");
+    root.change(NAME);
+    let db = TestDb::open("archive-compose");
+    seed_change(db.store.as_ref(), CHANGE_ID, NAME);
+    for (index, phase) in [
+        "proposal",
+        "dev-design",
+        "test-design",
+        "implement",
+        "test-gen",
+        "test-execution",
+        "code-review",
+        "acceptance",
+    ]
+    .iter()
+    .enumerate()
+    {
+        seed_entry(
+            db.store.as_ref(),
+            CHANGE_ID,
+            phase,
+            Verdict::Pass,
+            "通过",
+            Vec::new(),
+            TS_BASE + (index as i64) * 60_000,
+        );
+    }
+
+    let timeline = Arc::new(Mutex::new(Vec::new()));
+    let (worker, _requests, _sessions) = FakeWorker::new(&timeline).assemble();
+    let steps: Arc<dyn ToolStepPort> = Arc::new(LocalToolSteps::new(
+        Arc::new(SessionAnchors::new()),
+        Arc::new(NullRunner),
+        Arc::new(NullTestExecutionRunner),
+        Arc::new(FakeVcs::clean()),
+        db.store_arc(),
+        "run-archive".to_owned(),
+    ));
+    let snapshot: Arc<dyn WorkflowSnapshotPort> =
+        Arc::new(StoreSnapshot::new(root.root_str(), db.store_arc()));
+    let control = Arc::new(ChangeFlowControl::new());
+
+    let (task, _rx) = spawn_real_run_archive(
+        &db,
+        worker,
+        steps,
+        Arc::new(FakeVcs::clean()),
+        Arc::clone(&snapshot),
+        &control,
+        &root.root_str(),
+        "run-archive",
+    );
+    let _confirmer = spawn_confirmer(&control, true);
+    let status = task.await.expect("run 任务正常结束");
+    assert_eq!(status, ChangeRunStatus::Completed, "归档完成 → run 收口");
+
+    // 空 checklist 落账（AC-4）
+    let entries = db
+        .store
+        .list_phase_records(CHANGE_ID)
+        .expect("读相位条目应成功");
+    let archive = entries
+        .iter()
+        .find(|entry| entry.phase == "archive")
+        .expect("archive 相位落账应在案");
+    assert_eq!(archive.verdict, Verdict::Pass, "空 checklist 推导 pass");
+    assert_eq!(archive.report, "", "归档落账 report 为空串");
+    assert!(archive.checklist.is_empty(), "归档落账 checklist 空表");
+    assert!(!archive.skipped, "归档落账非跳过语义");
+    assert!(
+        archive.executor_session_id.is_none()
+            && archive.evaluator_session_id.is_none()
+            && archive.decision_session_id.is_none(),
+        "归档三会话槽位恒 None"
+    );
+
+    // 执行图落库（AC-6）：十步节点 + 九条 forward 边（零新表）
+    let nodes = db
+        .store
+        .list_run_nodes("run-archive")
+        .expect("读节点史应成功");
+    let steps_wire: Vec<String> = nodes
+        .iter()
+        .map(|node| node.step.as_str().to_owned())
+        .collect();
+    assert_eq!(
+        steps_wire,
+        [
+            "phase_start",
+            "preflight",
+            "commit",
+            "rebase",
+            "resolve_conflicts",
+            "merge",
+            "spec_sync",
+            "seal",
+            "finalize",
+            "phase_log"
+        ],
+        "归档十步全落 RunNodeRecord（零过滤）"
+    );
+    assert!(
+        nodes
+            .iter()
+            .all(|node| node.phase == "archive" && node.attempt == 1 && node.instance_no == 0),
+        "身份键 (phase, attempt, step, instance_no) 稳定"
+    );
+    let mut keys: Vec<String> = nodes
+        .iter()
+        .map(|node| {
+            format!(
+                "{}:{}:{}:{}",
+                node.phase,
+                node.attempt,
+                node.step.as_str(),
+                node.instance_no
+            )
+        })
+        .collect();
+    let total = keys.len();
+    keys.sort();
+    keys.dedup();
+    assert_eq!(keys.len(), total, "节点身份键稳定唯一（零撞号）");
+
+    let edges = db
+        .store
+        .list_run_edges("run-archive")
+        .expect("读边史应成功");
+    assert_eq!(edges.len(), 9, "串行推进边 = 节点数 - 1");
+    assert!(
+        edges
+            .iter()
+            .all(|edge| edge.edge_kind == workflow::state::RunEdgeKind::Forward),
+        "归档串行边全 forward（零反馈 / 重试 / 回溯）"
+    );
+    assert_eq!(edges[0].from_node_key, "archive:1:phase_start:0");
+    assert_eq!(edges[8].to_node_key, "archive:1:phase_log:0");
+
+    let runs = db
+        .store
+        .list_change_runs(CHANGE_ID)
+        .expect("读 run 史应成功");
+    assert_eq!(runs.len(), 1);
+    assert_eq!(runs[0].status, RunStatus::Completed);
+    assert!(
+        runs[0]
+            .reason
+            .as_deref()
+            .is_some_and(|reason| reason.contains("archiving")),
+        "收口文案体现含归档相位: {:?}",
+        runs[0].reason
+    );
+}
+
+/// Seal 产出驱动 Finalize pathspec（正向）：Seal 步经写面双写产出
+/// `ArchiveOutcome`（`archived_date` + name）→ Finalize 派生归档目录路径做
+/// pathspec 圈定提交（产出跨步传递，AC-3）。
+#[tokio::test]
+async fn 归档seal产出驱动finalize落盘pathspec() {
+    let root = TempRoot::new("archive-seal-pathspec");
+    root.change(NAME);
+    let worktree_dir_str = worktree_dir(&root);
+    let timeline = Arc::new(Mutex::new(Vec::new()));
+    let (worker, _requests, _sessions) = FakeWorker::new(&timeline).assemble();
+    let (tools, commands) = FakeTools::new(&timeline)
+        .with_phase_next(vec![archive_route_outcome(), done_outcome()])
+        .with_archive_preflight(archive_preflight_twice(
+            &worktree_dir_str,
+            Vec::new(),
+        ))
+        .with_archive_seal(vec![workflow::write::ArchiveOutcome {
+            name: NAME.to_owned(),
+            archived_date: "2026-02-02".to_owned(),
+        }])
+        .assemble();
+    let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
+    let control = Arc::new(ChangeFlowControl::new());
+    let vcs = Arc::new(FakeVcs::clean().with_dirty(true));
+    let (task, _rx, history) = spawn_run_with_vcs(
+        worker,
+        tools,
+        Arc::clone(&vcs),
+        Arc::clone(&snapshot),
+        &control,
+        true,
+        &root.root_str(),
+        &root.root_str(),
+        Some("archive"),
+    );
+    let _confirmer = spawn_confirmer(&control, true);
+    assert_eq!(
+        task.await.expect("run 任务正常结束"),
+        ChangeRunStatus::Completed
+    );
+
+    let path_sets = vcs.dirty_path_sets();
+    let finalize_paths = path_sets.last().expect("Finalize 脏探测应在案");
+    assert!(
+        finalize_paths
+            .iter()
+            .any(|path| path.ends_with(&format!("changes/archive/2026-02-02-{NAME}"))),
+        "Finalize pathspec 携 Seal 产出的归档日期目录: {finalize_paths:?}"
+    );
+    assert_eq!(
+        vcs.call_count("commit_paths:"),
+        1,
+        "脏 → Finalize 落盘提交: {:?}",
+        vcs.calls()
+    );
+    // Seal 命令载荷携 change id（写面定位键）
+    let seal_payloads: Vec<String> = commands
+        .lock()
+        .expect("命令锁")
+        .iter()
+        .filter_map(|command| match command {
+            ToolCommand::ArchiveSeal { change_id } => Some(change_id.clone()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(seal_payloads, vec![CHANGE_ID.to_owned()]);
+    let command = history.finish().expect("收口落包应在案");
+    assert_eq!(
+        node_detail(&command, workflow::state::RunStepKind::Finalize).as_deref(),
+        Some(format!("openspec/changes/archive/2026-02-02-{NAME}")).as_deref(),
+        "Finalize 步 detail 携归档落盘路径（Seal 产出 + name）"
+    );
+}
+
+/// 归档会话失败即停链（异常）：spec 同步会话 Err → 步失败 + run Failed（零归档
+/// 变更，重试自本步续走；AC-8）。
+#[tokio::test]
+async fn 归档会话失败即停链() {
+    let root = TempRoot::new("archive-spec-sync-fail");
+    root.change(NAME);
+    let worktree = worktree_dir(&root);
+    let timeline = Arc::new(Mutex::new(Vec::new()));
+    let (worker, _requests, _sessions) = FakeWorker::new(&timeline)
+        .with_archive_reports(vec![Err("spec 同步会话失败".to_owned())])
+        .assemble();
+    let (tools, _commands) = FakeTools::new(&timeline)
+        .with_phase_next(vec![archive_route_outcome()])
+        .with_archive_preflight(archive_preflight_twice(
+            &worktree,
+            vec!["desktop-flow".to_owned()],
+        ))
+        .assemble();
+    let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
+    let control = Arc::new(ChangeFlowControl::new());
+    let (task, _rx, history) = spawn_run_with_vcs(
+        worker,
+        tools,
+        Arc::new(FakeVcs::clean()),
+        Arc::clone(&snapshot),
+        &control,
+        true,
+        &root.root_str(),
+        &root.root_str(),
+        Some("archive"),
+    );
+    let _confirmer = spawn_confirmer(&control, true);
+    assert_eq!(
+        task.await.expect("run 任务正常结束"),
+        ChangeRunStatus::Failed,
+        "归档会话失败 → 步失败停链"
+    );
+    let command = history.finish().expect("收口落包应在案");
+    let failed = command
+        .nodes
+        .iter()
+        .find(|node| node.status == RunStepStatus::Failed)
+        .expect("失败节点在案");
+    assert!(
+        failed
+            .detail
+            .as_deref()
+            .is_some_and(|detail| detail.contains("spec 同步会话失败")),
+        "失败节点携会话记因: {failed:?}"
+    );
+}
+
+/// 冲突解算续走失败（异常）：解算已验通过而 `rebase_continue` Err → 步失败携
+/// 人工续走引导（MUST NOT 自动 abort 已验成果，AC-8）。
+#[tokio::test]
+async fn 归档冲突解算续走失败携引导() {
+    let root = TempRoot::new("archive-continue-fail");
+    root.change(NAME);
+    let worktree = worktree_dir(&root);
+    let timeline = Arc::new(Mutex::new(Vec::new()));
+    let (worker, _requests, _sessions) = FakeWorker::new(&timeline).assemble();
+    let (tools, _commands) = FakeTools::new(&timeline)
+        .with_phase_next(vec![archive_route_outcome()])
+        .with_archive_preflight(archive_preflight_twice(&worktree, Vec::new()))
+        .assemble();
+    let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
+    let control = Arc::new(ChangeFlowControl::new());
+    let vcs = Arc::new(
+        FakeVcs::clean()
+            .with_rebase(Ok(RebaseOutcome::Conflicted(vec![
+                "specs/a.md".to_owned()
+            ])))
+            .with_rebase_continue(Err("rebase --continue 失败".to_owned()))
+            .with_snapshot_head("head-b", Some("onto-commit")),
+    );
+    let (task, _rx, history) = spawn_run_with_vcs(
+        worker,
+        tools,
+        Arc::clone(&vcs),
+        Arc::clone(&snapshot),
+        &control,
+        true,
+        &root.root_str(),
+        &root.root_str(),
+        Some("archive"),
+    );
+    let _confirmer = spawn_confirmer(&control, true);
+    assert_eq!(
+        task.await.expect("run 任务正常结束"),
+        ChangeRunStatus::Failed,
+        "续走失败 → 步失败停链"
+    );
+    assert_eq!(vcs.call_count("rebase_abort"), 0, "已验成果不自动回退");
+    let command = history.finish().expect("收口落包应在案");
+    let failed = command
+        .nodes
+        .iter()
+        .find(|node| node.status == RunStepStatus::Failed)
+        .expect("失败节点在案");
+    assert!(
+        failed
+            .detail
+            .as_deref()
+            .is_some_and(|detail| detail.contains("rebase --continue 失败")),
+        "失败节点携续走失败记因: {failed:?}"
+    );
+}
+
+/// 归档落盘 / 快进 vcs 失败（异常）：`ff_merge` Err / `commit_paths` Err → 步失败
+/// 停链（AC-8）。
+#[tokio::test]
+async fn 归档快进与落盘失败即停链() {
+    let cases: [(&str, FakeVcs); 2] = [
+        (
+            "主仓快进失败：非快进可合并",
+            FakeVcs::clean().with_ff_merge_result(Err("主仓快进失败：非快进可合并".to_owned())),
+        ),
+        (
+            "落盘提交失败",
+            FakeVcs::clean()
+                .with_dirty(true)
+                .with_commit_paths_result(Err("落盘提交失败".to_owned())),
+        ),
+    ];
+    for (expect, vcs) in cases {
+        let root = TempRoot::new("archive-vcs-fail");
+        root.change(NAME);
+        let worktree = worktree_dir(&root);
+        let timeline = Arc::new(Mutex::new(Vec::new()));
+        let (worker, _requests, _sessions) = FakeWorker::new(&timeline).assemble();
+        let (tools, _commands) = FakeTools::new(&timeline)
+            .with_phase_next(vec![archive_route_outcome()])
+            .with_archive_preflight(archive_preflight_twice(&worktree, Vec::new()))
+            .assemble();
+        let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
+        let control = Arc::new(ChangeFlowControl::new());
+        let (task, _rx, history) = spawn_run_with_vcs(
+            worker,
+            tools,
+            Arc::new(vcs),
+            Arc::clone(&snapshot),
+            &control,
+            true,
+            &root.root_str(),
+            &root.root_str(),
+            Some("archive"),
+        );
+        let _confirmer = spawn_confirmer(&control, true);
+        assert_eq!(
+            task.await.expect("run 任务正常结束"),
+            ChangeRunStatus::Failed,
+            "{expect} → 步失败停链"
+        );
+        let command = history.finish().expect("收口落包应在案");
+        let failed = command
+            .nodes
+            .iter()
+            .find(|node| node.status == RunStepStatus::Failed)
+            .expect("失败节点在案");
+        assert!(
+            failed
+                .detail
+                .as_deref()
+                .is_some_and(|detail| detail.contains(expect)),
+            "失败节点记因: {failed:?}"
+        );
+    }
+}
+
+/// 归档载体停等后停止（边界）：停止信号先于确认置位 → 归档相位零执行并以
+/// stopped 收敛（非 failed），零失败节点（AC-7 / AC-8 分界）。
+#[tokio::test]
+async fn 归档相位中途停止收敛stopped() {
+    let timeline = Arc::new(Mutex::new(Vec::new()));
+    let (worker, _requests, _sessions) = FakeWorker::new(&timeline).assemble();
+    let (tools, commands) = FakeTools::new(&timeline)
+        .with_phase_next(vec![archive_route_outcome()])
+        .assemble();
+    let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
+    let control = Arc::new(ChangeFlowControl::new());
+
+    let (task, _rx, history) = spawn_run_with_vcs(
+        worker,
+        tools,
+        Arc::new(FakeVcs::clean()),
+        Arc::clone(&snapshot),
+        &control,
+        true,
+        "/tmp/root",
+        "/tmp/root",
+        Some("archive"),
+    );
+    assert!(control.request_stop(ROOT, CHANGE_ID), "停止置位");
+    let status = task.await.expect("run 任务正常结束");
+    assert_eq!(status, ChangeRunStatus::Stopped, "停止 → 受控终止（非 failed）");
+    let command = history.finish().expect("收口落包应在案");
+    assert!(
+        command
+            .nodes
+            .iter()
+            .all(|node| node.status != RunStepStatus::Failed),
+        "停止不收尾为失败节点: {:?}",
+        node_rows(&command)
+    );
+    assert!(
+        commands.lock().expect("命令锁").is_empty(),
+        "停止先于确认置位 → 归档相位零工具命令"
     );
 }

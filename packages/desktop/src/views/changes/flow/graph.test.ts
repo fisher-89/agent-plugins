@@ -34,7 +34,7 @@ function station(phase: string, attempts: AttemptRecord[]): PhaseEntry {
   return { phase, attempts };
 }
 
-/** 建档详情底座：9 站全空 attempts，逐用例按需注入事件。 */
+/** 建档详情底座：10 站全空 attempts，逐用例按需注入事件。 */
 function detail(overrides: Partial<ChangeDetail> = {}): ChangeDetail {
   return {
     id: 'add-feature',
@@ -73,19 +73,19 @@ function nodeIds(nodes: { id: string }[]): string[] {
 }
 
 describe('buildFlowGraph：列与坐标骨架', () => {
-  it('v2 详情恒输出 9 列容器（id / phase / colIndex 与 PIPELINE_PHASES 同序），事件节点按归并序排列', () => {
+  it('v2 详情恒输出 10 列容器（id / phase / colIndex 与 PIPELINE_PHASES 同序），事件节点按归并序排列', () => {
     const graph = buildFlowGraph(twoStationDetail());
-    expect(graph.columns).toHaveLength(9);
+    expect(graph.columns).toHaveLength(10);
     expect(graph.columns.map((column) => column.id)).toEqual(
       PIPELINE_PHASES.map((phase) => `col:${phase}`),
     );
     expect(graph.columns.map((column) => column.phase)).toEqual([...PIPELINE_PHASES]);
-    expect(graph.columns.map((column) => column.colIndex)).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8]);
+    expect(graph.columns.map((column) => column.colIndex)).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8, 9]);
     // 列容器在前（columns 全量有序），事件节点（nodes）按站序归并在后
     expect(nodeIds(graph.nodes)).toEqual(['eval:proposal:1', 'eval:dev-design:1']);
   });
 
-  it('单站单 attempt：该站恰 1 个事件节点（order=0），其余 8 站为空列', () => {
+  it('单站单 attempt：该站恰 1 个事件节点（order=0），其余 9 站为空列', () => {
     const graph = buildFlowGraph(
       detail({
         pipeline: PIPELINE_PHASES.map((phase) =>
@@ -93,16 +93,16 @@ describe('buildFlowGraph：列与坐标骨架', () => {
         ),
       }),
     );
-    expect(graph.columns).toHaveLength(9);
+    expect(graph.columns).toHaveLength(10);
     expect(graph.nodes).toHaveLength(1);
     const only = graph.nodes[0];
     expect(only.phase).toBe('implement');
     expect(only.order).toBe(0);
     expect(only.parentId).toBe('col:implement');
-    // 其余 8 列容器存在且无事件节点归属
+    // 其余 9 列容器存在且无事件节点归属
     const occupied = new Set(graph.nodes.map((node) => node.parentId));
     expect(occupied.size).toBe(1);
-    expect(graph.columns.filter((column) => !occupied.has(column.id))).toHaveLength(8);
+    expect(graph.columns.filter((column) => !occupied.has(column.id))).toHaveLength(9);
   });
 
   it('pipeline 为空数组（v0 形态）→ 返回空图：columns / nodes / edges 全空', () => {
@@ -113,9 +113,9 @@ describe('buildFlowGraph：列与坐标骨架', () => {
     });
   });
 
-  it('建档详情（各站 attempts 全空）→ 恒 9 空列、零事件节点、零边，不抛错', () => {
+  it('建档详情（各站 attempts 全空）→ 恒 10 空列、零事件节点、零边，不抛错', () => {
     const graph = buildFlowGraph(detail());
-    expect(graph.columns).toHaveLength(9);
+    expect(graph.columns).toHaveLength(10);
     expect(graph.nodes).toHaveLength(0);
     expect(graph.edges).toHaveLength(0);
   });

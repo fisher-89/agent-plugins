@@ -291,24 +291,24 @@ describe('useChangeFlowRun：stop / confirm / answer 透传', () => {
     ]);
   });
 
-  it('confirm(true / false) → invoke change_flow_confirm 携 proceed 原样透传（两次调用各自成形）', async () => {
+  it('confirm(proceed, syncSpecs) → invoke change_flow_confirm 携两参原样透传（两次调用各自成形）', async () => {
     const { result } = await mounted();
     await act(async () => {
-      await result.current.confirm(true);
+      await result.current.confirm(true, true);
     });
     await act(async () => {
-      await result.current.confirm(false);
+      await result.current.confirm(false, false);
     });
 
     const confirmCalls = calls('change_flow_confirm');
     expect(confirmCalls).toHaveLength(2);
     expect(confirmCalls[0]).toEqual([
       'change_flow_confirm',
-      { root: ROOT, id: CHANGE_ID, proceed: true },
+      { root: ROOT, id: CHANGE_ID, proceed: true, syncSpecs: true },
     ]);
     expect(confirmCalls[1]).toEqual([
       'change_flow_confirm',
-      { root: ROOT, id: CHANGE_ID, proceed: false },
+      { root: ROOT, id: CHANGE_ID, proceed: false, syncSpecs: false },
     ]);
   });
 
@@ -341,7 +341,7 @@ describe('useChangeFlowRun：stop / confirm / answer 透传', () => {
         await result.current.stop();
       });
       await act(async () => {
-        await result.current.confirm(true);
+        await result.current.confirm(true, true);
       });
       await act(async () => {
         await result.current.answer('文本');
@@ -373,7 +373,7 @@ describe('useChangeFlowRun：参数变更 rerender（useCallback 依赖数组真
       await rendered.result.current.stop();
     });
     await act(async () => {
-      await rendered.result.current.confirm(true);
+      await rendered.result.current.confirm(true, true);
     });
     await act(async () => {
       await rendered.result.current.answer('换根后应答');
@@ -386,7 +386,7 @@ describe('useChangeFlowRun：参数变更 rerender（useCallback 依赖数组真
     ]);
     expect(calls('change_flow_confirm').at(-1)).toEqual([
       'change_flow_confirm',
-      { root: ROOT2, id: CHANGE_ID, proceed: true },
+      { root: ROOT2, id: CHANGE_ID, proceed: true, syncSpecs: true },
     ]);
     expect(calls('change_flow_answer').at(-1)).toEqual([
       'change_flow_answer',

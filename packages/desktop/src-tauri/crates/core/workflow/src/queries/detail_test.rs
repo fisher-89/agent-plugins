@@ -1,8 +1,8 @@
 //! `queries::change_detail` 的单元测试（test-design「queries/detail.rs ->
 //! detail_test.rs」节，重写主体）：id 寻址（db 无该 id 记录 → 恒 `None`——零
 //! 磁盘目录解析回退、零空流水线文档形态）、归档 change 全状态面（status=
-//! archived、9 站 pipeline、runs 全量出线）、`ChangeDetail.id` 首字段与裸名
-//!（归档日期前缀零入名）、created 恒自 `created_at` 单源、db 重组 9 站流水线
+//! archived、10 站 pipeline、runs 全量出线）、`ChangeDetail.id` 首字段与裸名
+//!（归档日期前缀零入名）、created 恒自 `created_at` 单源、db 重组 10 站流水线
 //!（attempt 升序、checklist 内联、槽位三列直读、stale / backtrack 字段透出）、
 //! 时间出线单点（i64 millis → RFC3339 ISO 串 + null；epoch 0 →
 //! `1970-01-01T00:00:00Z` 口径）、槽位全缺（三会话槽位 + start_at 全 null 面）、
@@ -404,7 +404,7 @@ fn entry(
     }
 }
 
-/// 固定 9 站相位名序列（流水线站序断言直读）。
+/// 固定 10 站相位名序列（流水线站序断言直读；archive 为末列）。
 fn pipeline_phases(detail: &super::ChangeDetail) -> Vec<&str> {
     detail
         .pipeline
@@ -414,14 +414,14 @@ fn pipeline_phases(detail: &super::ChangeDetail) -> Vec<&str> {
 }
 
 // ---------------------------------------------------------------------------
-// 正向：归档 change 全状态面（id 寻址 → status / 9 站 / runs 全量出线）
+// 正向：归档 change 全状态面（id 寻址 → status / 10 站 / runs 全量出线）
 // ---------------------------------------------------------------------------
 
 /// 建档 archived（记录 id 与裸名）+ 磁盘目录带 `YYYY-MM-DD-` 前缀 →
-/// change_detail(layout, store, id) → status=archived、9 站 pipeline、runs 全
+/// change_detail(layout, store, id) → status=archived、10 站 pipeline、runs 全
 /// 量出线（AC-2 主锚——记录恒可达、文档形态错配链结构性退役）。
 #[test]
-fn 归档change全状态面_九站流水线与runs全量出线() {
+fn 归档change全状态面_十站流水线与runs全量出线() {
     let env = Env::new("archive-full-state");
     env.seed_archived(ID_ARCHIVED, "archived-change", T0, t(30));
     env.push_entry(entry(
@@ -496,7 +496,7 @@ fn 归档change全状态面_九站流水线与runs全量出线() {
     assert_eq!(
         pipeline_phases(&detail),
         PIPELINE_PHASES.to_vec(),
-        "9 站 pipeline 全量出线（MUST NOT 落文档形态空面）"
+        "10 站 pipeline 全量出线（MUST NOT 落文档形态空面）"
     );
     assert_eq!(detail.pipeline[0].attempts.len(), 1, "proposal 站条目在案");
     assert_eq!(detail.pipeline[3].attempts[0].report, "实现完成");
@@ -659,15 +659,15 @@ fn created单源_恒取created_at() {
 }
 
 // ---------------------------------------------------------------------------
-// 正向：db 重组流水线（9 站 / attempt 升序 / checklist 内联 / 槽位与
+// 正向：db 重组流水线（10 站 / attempt 升序 / checklist 内联 / 槽位与
 // stale / backtrack 字段透出）
 // ---------------------------------------------------------------------------
 
-/// 记录序列（多相位多 attempt + checklist + 回跳 stale 标记）→ 9 站流水线
+/// 记录序列（多相位多 attempt + checklist + 回跳 stale 标记）→ 10 站流水线
 /// 重组：站序固定、attempt 升序、checklist 随行、槽位三列直读、stale /
 /// backtrack_to / backtrack_reason 字段透出（id 寻址——记录供给语义重证）。
 #[test]
-fn db重组流水线_九站与attempt升序与checklist内联() {
+fn db重组流水线_十站与attempt升序与checklist内联() {
     let env = Env::new("pipeline");
     env.seed(
         ID_MULTI,
@@ -739,7 +739,7 @@ fn db重组流水线_九站与attempt升序与checklist内联() {
 
     let detail = env.detail(ID_MULTI);
 
-    // 9 站全量输出，顺序固定
+    // 10 站全量输出，顺序固定
     assert_eq!(pipeline_phases(&detail), PIPELINE_PHASES.to_vec());
 
     // dev-design 单站折叠两条 attempt，按 attempt 升序、checklist 随行
@@ -810,7 +810,7 @@ fn db重组流水线_九站与attempt升序与checklist内联() {
     );
 }
 
-/// 未覆盖相位站点仍在且 attempts 为空（9 站全量输出，顺序不依赖落行排列）。
+/// 未覆盖相位站点仍在且 attempts 为空（10 站全量输出，顺序不依赖落行排列）。
 #[test]
 fn 未覆盖相位站点仍在且attempts为空() {
     let env = Env::new("partial");
@@ -1005,7 +1005,7 @@ fn 建档记录恒可达_定位miss状态面在() {
         "source 自记录映射"
     );
     assert!(detail.artifacts.is_empty(), "定位 miss 产物清单空");
-    assert_eq!(detail.pipeline.len(), 9, "建档 9 站流水线照常");
+    assert_eq!(detail.pipeline.len(), 10, "建档 10 站流水线照常");
 }
 
 // ---------------------------------------------------------------------------
@@ -1090,7 +1090,7 @@ fn worktree路径出线_与库内记录逐字一致且产物自worktree发现() 
 }
 
 /// worktree 手动删恒可达：记录在场（worktree=Some）+ 定位全 miss（worktree
-/// 目录被删、未 merge）→ 仍 `Some`：流水线 9 站、产物清单空、状态面在、
+/// 目录被删、未 merge）→ 仍 `Some`：流水线 10 站、产物清单空、状态面在、
 /// `source` 自 record.status 映射（active → Active）——「建档记录恒可达详情」
 /// 字面（worktree=Some 形态）。
 #[test]
@@ -1109,7 +1109,7 @@ fn worktree手动删_建档记录恒可达source自status映射() {
     assert_eq!(
         detail.pipeline.len(),
         PIPELINE_PHASES.len(),
-        "建档 9 站流水线照常"
+        "建档 10 站流水线照常"
     );
     assert!(detail.artifacts.is_empty(), "定位 miss 产物清单空");
     assert_eq!(
@@ -1232,8 +1232,8 @@ fn run_edge_row(
     }
 }
 
-/// 十值全词汇（节点出线零过滤断言面）。
-const ALL_STEP_KINDS: [RunStepKind; 10] = [
+/// 十八值全词汇（节点出线零过滤断言面；含归档 8 步词）。
+const ALL_STEP_KINDS: [RunStepKind; 18] = [
     RunStepKind::Executor,
     RunStepKind::Evaluator,
     RunStepKind::Decision,
@@ -1244,6 +1244,14 @@ const ALL_STEP_KINDS: [RunStepKind; 10] = [
     RunStepKind::VerdictGate,
     RunStepKind::RetryGate,
     RunStepKind::WhitelistGate,
+    RunStepKind::Preflight,
+    RunStepKind::Commit,
+    RunStepKind::Rebase,
+    RunStepKind::ResolveConflicts,
+    RunStepKind::Merge,
+    RunStepKind::SpecSync,
+    RunStepKind::Seal,
+    RunStepKind::Finalize,
 ];
 
 /// 四 kind 全词汇（边出线零过滤断言面）。
@@ -1380,7 +1388,7 @@ fn 详情run史出线_两run全史投影与时间iso口径() {
 /// 节点全词汇出线：一次覆盖十值词汇的 run → 十值全词汇在案（含 phaseStart /
 /// phaseLog / 三门），零过滤（AC-3 / AC-6）。
 #[test]
-fn 详情节点出线_十值全词汇零过滤() {
+fn 详情节点出线_十八值全词汇零过滤() {
     let env = Env::new("run-nodes-vocab");
     env.seed(ID_RUNNED, "runned", T0, None);
     env.store.push_run(RunStateRecord {
@@ -1395,7 +1403,7 @@ fn 详情节点出线_十值全词汇零过滤() {
 
     let detail = env.detail(ID_RUNNED);
     let nodes = &detail.runs[0].nodes;
-    assert_eq!(nodes.len(), 10, "十值全词汇零过滤");
+    assert_eq!(nodes.len(), 18, "十八值全词汇零过滤（含归档 8 步词）");
     let projected: Vec<RunStepKind> = nodes.iter().map(|node| node.step).collect();
     assert_eq!(projected, ALL_STEP_KINDS.to_vec());
 
@@ -1420,6 +1428,14 @@ fn 详情节点出线_十值全词汇零过滤() {
             "verdict_gate",
             "retry_gate",
             "whitelist_gate",
+            "preflight",
+            "commit",
+            "rebase",
+            "resolve_conflicts",
+            "merge",
+            "spec_sync",
+            "seal",
+            "finalize",
         ]
     );
 }
@@ -1514,7 +1530,7 @@ fn 详情run史出线_零run空数组与单节点零边() {
     assert_eq!(
         detail.pipeline.len(),
         PIPELINE_PHASES.len(),
-        "记录在档：9 站流水线照常（非文档形态空面）"
+        "记录在档：10 站流水线照常（非文档形态空面）"
     );
     let value = serde_json::to_value(&detail).expect("序列化应成功");
     assert!(
@@ -1580,7 +1596,7 @@ fn 详情run史出线_并列稳定序与读err降级() {
     env_err.file("runned", "proposal.md", "# 提案");
     let detail = env_err.detail(ID_RUNNED);
     assert!(detail.runs.is_empty(), "list_runs Err → runs 降级空数组");
-    assert_eq!(detail.pipeline.len(), 9, "详情其余面不受阻断");
+    assert_eq!(detail.pipeline.len(), 10, "详情其余面不受阻断");
     assert!(
         !detail.artifacts.is_empty(),
         "产物清单不受 runs 读面失败影响"
@@ -1622,5 +1638,278 @@ fn 详情run史出线_并列稳定序与读err降级() {
     assert!(
         detail.runs[0].edges.is_empty(),
         "list_run_edges Err → edges 降级空数组"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// 归档列与归档节点投影（AC-1 / AC-4 / AC-6）
+// ---------------------------------------------------------------------------
+
+/// 十列 pipeline（正向）：`PIPELINE_PHASES` 恰 10 列且末列为 `archive`（第 10 列、
+/// `code-analyze` 之后）；无 attempt 的 archive 站为空序列（miss 非错误）；与前
+/// 端 `flow/layout.ts` 同序双侧同步（AC-1 / D5）。
+#[test]
+fn pipeline十列含archive且空站序列() {
+    let env = Env::new("pipeline-ten-columns");
+    env.seed(ID_RUNNED, "runned", T0, None);
+    env.file("runned", "proposal.md", "# 提案");
+
+    let detail = env.detail(ID_RUNNED);
+    let phases = pipeline_phases(&detail);
+    assert_eq!(phases.len(), 10, "十列布局");
+    assert_eq!(
+        phases,
+        PIPELINE_PHASES.to_vec(),
+        "站序与 PIPELINE_PHASES 常量逐位一致"
+    );
+    assert_eq!(phases[8], "code-analyze");
+    assert_eq!(phases[9], "archive", "archive 恒为末列（第 10 列）");
+    assert_eq!(
+        phases.iter().filter(|phase| **phase == "archive").count(),
+        1,
+        "archive 列恰一次（零重复）"
+    );
+
+    let archive_station = detail
+        .pipeline
+        .iter()
+        .find(|station| station.phase == "archive")
+        .expect("archive 站在场");
+    assert!(
+        archive_station.attempts.is_empty(),
+        "archive 站零 attempt → 空序列（miss 非错误，空列不报错）"
+    );
+    let value = serde_json::to_value(&detail).expect("序列化应成功");
+    assert!(
+        value["pipeline"][9]["attempts"]
+            .as_array()
+            .is_some_and(Vec::is_empty),
+        "空站 attempts 恒为空数组（不省键）"
+    );
+    assert_eq!(value["pipeline"][9]["phase"], "archive");
+}
+
+/// archive 空 checklist 落账投影（正向）：archive 以 `report=""` + 空 checklist
+/// 落 `verdict=pass` 后 → pipeline archive 站含一条 AttemptRecord（report 空串、
+/// checklist 空表、三会话槽位 null）——空 checklist 落账被识别为 pass
+///（AC-4 / D6）。
+#[test]
+fn archive空checklist落账投影为pass尝试记录() {
+    let env = Env::new("pipeline-archive-attempt");
+    env.seed(ID_RUNNED, "runned", T0, None);
+    let archive_entry = entry(
+        ID_RUNNED,
+        "archive",
+        1,
+        Verdict::Pass,
+        "",
+        Vec::new(),
+        None,
+        None,
+        Some(T0),
+        t(1),
+    );
+    env.push_entry(archive_entry);
+
+    let detail = env.detail(ID_RUNNED);
+    let station = detail
+        .pipeline
+        .iter()
+        .find(|station| station.phase == "archive")
+        .expect("archive 站在场");
+    assert_eq!(station.attempts.len(), 1, "归档落账后 archive 站一条尝试");
+    let attempt = &station.attempts[0];
+    assert_eq!(
+        attempt.verdict,
+        Verdict::Pass,
+        "空 checklist 落账 verdict=pass"
+    );
+    assert_eq!(attempt.attempt, Some(1));
+    assert!(attempt.report.is_empty(), "归档落账 report 空串");
+    assert!(attempt.checklist.is_empty(), "归档落账 checklist 空表");
+    assert!(!attempt.skipped && !attempt.stale);
+    assert!(
+        attempt.executor_session_id.is_none()
+            && attempt.evaluator_session_id.is_none()
+            && attempt.decision_session_id.is_none(),
+        "归档三会话槽位恒 null"
+    );
+    assert!(attempt.backtrack_to.is_none() && attempt.backtrack_reason.is_none());
+
+    let value = serde_json::to_value(&detail).expect("序列化应成功");
+    let wire = &value["pipeline"][9]["attempts"][0];
+    assert_eq!(wire["verdict"], "pass");
+    assert_eq!(wire["report"], "");
+    assert!(
+        wire["checklist"].as_array().is_some_and(Vec::is_empty),
+        "checklist 空表出线"
+    );
+    assert_eq!(wire["executorSessionId"], serde_json::Value::Null);
+    assert_eq!(wire["evaluatorSessionId"], serde_json::Value::Null);
+    assert_eq!(wire["decisionSessionId"], serde_json::Value::Null);
+}
+
+/// 归档节点会话与跳过因投影（正向）：归档十步节点全落库时，`session_id` 仅
+/// SpecSync / ResolveConflicts 在案、其余 None；`detail` 携跳过因（干净 / 已落盘 /
+/// 无 delta / 用户选择 / 双写续半边）（AC-6 / 数据模型）。
+#[test]
+fn 归档节点会话面与跳过因投影() {
+    let env = Env::new("run-archive-nodes");
+    env.seed(ID_RUNNED, "runned", T0, None);
+    env.store.push_run(RunStateRecord {
+        status: RunStatus::Completed,
+        finished_at: Some(t(19)),
+        ..run_row(ID_RUNNED, "run-archive", t(10), RunStatus::Completed)
+    });
+
+    // 归档十步节点（phase = archive；仅两个 agent 会话步携 session_id）
+    let archive_nodes: &[(RunStepKind, Option<&str>, Option<&str>)] = &[
+        (RunStepKind::PhaseStart, None, None),
+        (RunStepKind::Preflight, None, None),
+        (
+            RunStepKind::Commit,
+            None,
+            Some("worktree 干净，无待提交变更（跳过）"),
+        ),
+        (RunStepKind::Rebase, None, None),
+        (
+            RunStepKind::ResolveConflicts,
+            Some("ses-resolve-conflicts"),
+            Some("无冲突，无需解算（跳过）"),
+        ),
+        (RunStepKind::Merge, None, None),
+        (
+            RunStepKind::SpecSync,
+            Some("ses-spec-sync"),
+            Some("用户选择跳过 spec 同步（跳过）"),
+        ),
+        (RunStepKind::Seal, None, Some("双写收口（落盘续半边）")),
+        (
+            RunStepKind::Finalize,
+            None,
+            Some("归档产物已落盘，无待提交路径（跳过）"),
+        ),
+        (RunStepKind::PhaseLog, None, Some("空 checklist 落账 pass")),
+    ];
+    for (step, session, detail_text) in archive_nodes {
+        let mut node = run_node_row("run-archive", ID_RUNNED, *step);
+        node.phase = "archive".to_owned();
+        node.session_id = session.map(str::to_owned);
+        node.detail = detail_text.map(str::to_owned);
+        env.store.push_run_node(node);
+    }
+
+    let detail = env.detail(ID_RUNNED);
+    let nodes = &detail.runs[0].nodes;
+    assert_eq!(nodes.len(), 10, "归档十步节点全量在案");
+    let steps: Vec<RunStepKind> = nodes.iter().map(|node| node.step).collect();
+    assert_eq!(
+        steps,
+        vec![
+            RunStepKind::PhaseStart,
+            RunStepKind::Preflight,
+            RunStepKind::Commit,
+            RunStepKind::Rebase,
+            RunStepKind::ResolveConflicts,
+            RunStepKind::Merge,
+            RunStepKind::SpecSync,
+            RunStepKind::Seal,
+            RunStepKind::Finalize,
+            RunStepKind::PhaseLog,
+        ],
+        "归档十步序逐位在案"
+    );
+    // 会话面：仅两个 agent 会话步携 session_id
+    let with_session: Vec<RunStepKind> = nodes
+        .iter()
+        .filter(|node| node.session_id.is_some())
+        .map(|node| node.step)
+        .collect();
+    assert_eq!(
+        with_session,
+        vec![RunStepKind::ResolveConflicts, RunStepKind::SpecSync],
+        "仅 SpecSync / ResolveConflicts 携 session_id"
+    );
+    // 跳过因逐节点透出（记录面）
+    let commit_node = nodes
+        .iter()
+        .find(|node| node.step == RunStepKind::Commit)
+        .expect("Commit 节点在场");
+    assert!(commit_node.session_id.is_none(), "git 步零会话");
+    assert!(
+        commit_node
+            .detail
+            .as_deref()
+            .is_some_and(|text| text.contains("干净")),
+        "Commit 短路跳过因在案"
+    );
+    let finalize_node = nodes
+        .iter()
+        .find(|node| node.step == RunStepKind::Finalize)
+        .expect("Finalize 节点在场");
+    assert!(
+        finalize_node
+            .detail
+            .as_deref()
+            .is_some_and(|text| text.contains("已落盘")),
+        "Finalize 已落盘跳过因在案"
+    );
+}
+
+/// 归档边投影（正向）：归档串行推进边全为 `Forward`（零 feedback / retry /
+/// backtrack），端点指向节点身份串 `phase:attempt:step:instance_no`（AC-6）。
+#[test]
+fn 归档串行边全forward且端点身份串() {
+    let env = Env::new("run-archive-edges");
+    env.seed(ID_RUNNED, "runned", T0, None);
+    env.store.push_run(RunStateRecord {
+        status: RunStatus::Completed,
+        finished_at: Some(t(19)),
+        ..run_row(ID_RUNNED, "run-archive-edges", t(10), RunStatus::Completed)
+    });
+    let keys = [
+        "archive:1:phase_start:0",
+        "archive:1:preflight:0",
+        "archive:1:commit:0",
+        "archive:1:rebase:0",
+        "archive:1:resolve_conflicts:0",
+        "archive:1:merge:0",
+        "archive:1:spec_sync:0",
+        "archive:1:seal:0",
+        "archive:1:finalize:0",
+        "archive:1:phase_log:0",
+    ];
+    for pair in keys.windows(2) {
+        env.store.push_run_edge(run_edge_row(
+            "run-archive-edges",
+            ID_RUNNED,
+            pair[0],
+            pair[1],
+            RunEdgeKind::Forward,
+        ));
+    }
+
+    let detail = env.detail(ID_RUNNED);
+    let edges = &detail.runs[0].edges;
+    assert_eq!(edges.len(), 9, "串行推进边 = 节点数 - 1");
+    assert!(
+        edges
+            .iter()
+            .all(|edge| edge.edge_kind == RunEdgeKind::Forward),
+        "归档串行推进边全 forward（零反馈 / 重试 / 回溯）"
+    );
+    assert_eq!(edges[0].from_node_key, "archive:1:phase_start:0");
+    assert_eq!(edges[8].to_node_key, "archive:1:phase_log:0");
+
+    let value = serde_json::to_value(&detail).expect("序列化应成功");
+    let wire_kinds: Vec<&str> = value["runs"][0]["edges"]
+        .as_array()
+        .expect("edges 数组")
+        .iter()
+        .map(|edge| edge["edgeKind"].as_str().expect("edgeKind 为串"))
+        .collect();
+    assert!(
+        wire_kinds.iter().all(|kind| *kind == "forward"),
+        "线面 edgeKind 全为 forward: {wire_kinds:?}"
     );
 }

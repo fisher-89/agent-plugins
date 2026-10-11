@@ -1,8 +1,9 @@
 //! change 域命令组（读 + 记录面）：五条命令——三读（change 列表 / 详情聚合
-//! 统一视图 / 产物信封读取）+ 二记录面（新建建域 / 归档双写）；change 域三
+//! 统一视图 / 产物信封读取）+ 二记录面（新建建域 / 归档双写）；change 域两
 //! 分职责——本组（读 + 记录面，沿 explores 组同组先例）/ `change_flow`（run
-//! 编排控制）/ `archive_flow`（归档编排流——带 agent 会话的第三面；本组裸
-//! 双写 `archive_change` 保留零改动，链式归档入口归该组）。
+//! 编排控制；归档已并入 run 的 archive 相位，无独立归档编排命令组）。本组裸
+//! 双写 `archive_change` 保留零改动（Seal 步之外的既有逃生口），归档编排入口
+//! 唯一经 run 的 archive 相位（stop-before-archive 停等面）。
 //!
 //! 读命令为薄包装——参数 → resolve → `for_root` 取 workspace 库实例 → core
 //! 函数 → DTO：无直接文件系统访问、不缓存 workspace 状态（记录面带 State，
@@ -62,6 +63,8 @@ pub struct ActiveRunView {
     pub phase: Option<String>,
     pub attempt: Option<u32>,
     pub ask: Option<orchestration::AskPayload>,
+    /// 归档前停等点的前置只读载荷（非该停等点恒 null；停等面数据面）
+    pub archive: Option<orchestration::ArchivePreflight>,
     pub started_at: String,
     pub nodes: Vec<orchestration::ChangeStepState>,
     pub edges: Vec<ChangeRunEdgeRecord>,
@@ -133,6 +136,7 @@ pub fn get_change_detail(
         phase: snapshot.phase,
         attempt: snapshot.attempt,
         ask: snapshot.ask,
+        archive: snapshot.archive,
         started_at: iso_from_millis(snapshot.started_at),
         nodes: snapshot.nodes,
         // 活面边投影：端点身份串与 kind 自快照边表直取（身份串组装单点驻

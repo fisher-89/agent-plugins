@@ -18,7 +18,7 @@ import { PIPELINE_PHASES } from './layout';
 import type { FlowRoleLabel, RunStepGroup, RuntimeFlowNode } from './types';
 
 /** 步词汇归一单点：库读史 snake 词（RunStepKind）→ 活面 camel 词
- *（ChangeStepKind）——十值全词汇逐词对应（落库零过滤后读面同词汇）。 */
+ *（ChangeStepKind）——十八值全词汇逐词对应（落库零过滤后读面同词汇）。 */
 function normalizeKind(step: RunStepKind): ChangeStepKind {
   switch (step) {
     case 'static_check':
@@ -35,6 +35,10 @@ function normalizeKind(step: RunStepKind): ChangeStepKind {
       return 'retryGate';
     case 'whitelist_gate':
       return 'whitelistGate';
+    case 'resolve_conflicts':
+      return 'resolveConflicts';
+    case 'spec_sync':
+      return 'specSync';
     default:
       return step;
   }
@@ -58,6 +62,10 @@ function stepWord(kind: ChangeStepKind): string {
       return 'retry_gate';
     case 'whitelistGate':
       return 'whitelist_gate';
+    case 'resolveConflicts':
+      return 'resolve_conflicts';
+    case 'specSync':
+      return 'spec_sync';
     default:
       return kind;
   }
@@ -103,15 +111,32 @@ export function unifiedRunEdges(
   return [...persisted, ...liveEdges];
 }
 
-/** 步词汇 → 节点分组（三类节点可辨）。 */
+/** 步词汇 → 节点分组（四类节点可辨）：归档步归组与后端 `StepNode::group()`
+ * 同判——commit / rebase / merge / finalize 归 git、preflight / seal 归
+ * toolStep、specSync / resolveConflicts 归 workerAgent。 */
 function groupOf(step: ChangeStepKind): RunStepGroup {
-  if (step === 'executor' || step === 'evaluator' || step === 'decision') return 'workerAgent';
+  if (
+    step === 'executor' ||
+    step === 'evaluator' ||
+    step === 'decision' ||
+    step === 'specSync' ||
+    step === 'resolveConflicts'
+  ) {
+    return 'workerAgent';
+  }
+  if (step === 'commit' || step === 'rebase' || step === 'merge' || step === 'finalize') {
+    return 'git';
+  }
   if (step === 'verdictGate' || step === 'retryGate' || step === 'whitelistGate') return 'gate';
   return 'toolStep';
 }
 
-/** 步词汇 → role 标签（WorkerAgent 三角色；ToolStep / Gate 为 null）。 */
+/** 步词汇 → role 标签（WorkerAgent 步角色；ToolStep / Git / Gate 为 null）。
+ * 归档两 agent 步的 role 词与后端 `WorkerRole::as_str()` 同词面（sourceRef
+ * 定式第三段逐字可比——节点 sessionId 缺席时的回退反查面）。 */
 function roleOf(step: ChangeStepKind): FlowRoleLabel | null {
+  if (step === 'specSync') return 'spec_sync';
+  if (step === 'resolveConflicts') return 'resolve_conflicts';
   if (step === 'executor' || step === 'evaluator' || step === 'decision') return step;
   return null;
 }

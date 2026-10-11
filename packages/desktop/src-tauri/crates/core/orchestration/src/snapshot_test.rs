@@ -210,7 +210,7 @@ fn db读源detail按id寻址_与queries直调serde等值() {
         "detail 与 queries 直调 serde 等值"
     );
 
-    // 字段面抽查：建档判别 / 状态面 / 9 站流水线重组
+    // 字段面抽查：建档判别 / 状态面 / 10 站流水线重组
     assert_eq!(detail.source, ChangeSource::Active);
     assert_eq!(detail.status, Some(ChangeStatus::Active));
     assert_eq!(
@@ -218,7 +218,11 @@ fn db读源detail按id寻址_与queries直调serde等值() {
         Some("2026-10-01"),
         "created 取 db created_at 日期（UTC 日界口径）"
     );
-    assert_eq!(detail.pipeline.len(), 9, "固定 9 站全量流水线");
+    assert_eq!(
+        detail.pipeline.len(),
+        10,
+        "固定 10 站全量流水线（末列 archive）"
+    );
     let proposal = &detail.pipeline[0];
     assert_eq!(proposal.attempts.len(), 1);
     assert_eq!(proposal.attempts[0].verdict, Verdict::Pass);

@@ -1,4 +1,4 @@
-//! change 详情查询（按 change **id** 寻址）：固定 9 站流水线聚合 + 状态面 +
+//! change 详情查询（按 change **id** 寻址）：固定 10 站流水线聚合 + 状态面 +
 //! run 运行史 + 产物清单。db 无该 id 记录 → 恒 `None`（文档形态分支整体退役
 //! ——零磁盘目录解析回退、零空流水线空面、零 workflow.json 读取）。
 //!
@@ -27,8 +27,9 @@ use crate::state::{
 use crate::write::{phase_table, utc_date};
 use foundation::layout::Layout;
 
-/// 固定 9 站流水线（顺序固定，不依赖落行排列）。
-pub const PIPELINE_PHASES: [&str; 9] = [
+/// 固定 10 站流水线（顺序固定，不依赖落行排列；archive 恒为第 10 列，与前端
+/// `flow/layout.ts` 的 `PIPELINE_PHASES` 同序双侧同步）。
+pub const PIPELINE_PHASES: [&str; 10] = [
     "proposal",
     "dev-design",
     "test-design",
@@ -38,6 +39,7 @@ pub const PIPELINE_PHASES: [&str; 9] = [
     "code-review",
     "acceptance",
     "code-analyze",
+    "archive",
 ];
 
 /// 运行中 phase 状态（线面）。
@@ -98,7 +100,7 @@ pub struct PhaseEntry {
     pub attempts: Vec<AttemptRecord>,
 }
 
-/// run 执行图节点行线面（十值全词汇封闭集直出，词汇 = `state::RunStepKind`
+/// run 执行图节点行线面（十八值全词汇封闭集直出，词汇 = `state::RunStepKind`
 /// 单点；稳定身份键 `(phase, attempt, step, instanceNo)`，库读序 = node_seq 升序
 /// = emit 序）。
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
@@ -258,7 +260,7 @@ pub fn change_detail(
     // 记录恒在，name 恒裸名不带前缀）
     let created = Some(utc_date(record.created_at));
 
-    // 固定 9 站全量输出（无 attempt 记录的站为空序列）
+    // 固定 10 站全量输出（无 attempt 记录的站为空序列；archive 列末位）
     let mut pipeline: Vec<PhaseEntry> = PIPELINE_PHASES
         .iter()
         .map(|phase| PhaseEntry {

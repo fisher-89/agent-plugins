@@ -1,11 +1,13 @@
+use std::path::Path;
 use std::sync::Arc;
 
 use agent::{AgentPermissionMode, AgentRunStatus, ModelLevel, SessionProvenance};
+use foundation::layout::domain_dir_name;
 use workflow::model::{ChecklistItem, Verdict};
 use workflow::queries::ChangeDetail;
 use workflow::write::{
-    BacktrackInput, BacktrackOutcome, DecisionLogOutcome, OnFail, PhaseLogInput, PhaseLogOutcome,
-    PhaseNextError, PhaseNextOutcome, PhaseStartOutcome, StepDefinition, StepNode,
+    ArchiveOutcome, BacktrackInput, BacktrackOutcome, DecisionLogOutcome, OnFail, PhaseLogInput,
+    PhaseLogOutcome, PhaseNextError, PhaseNextOutcome, PhaseStartOutcome, StepDefinition, StepNode,
 };
 
 use crate::control::{ChangeFlowControl, RunGuard};
@@ -13,16 +15,17 @@ use crate::decision::{
     ensure_backtrack_allowed, parse_decision, CandidateReport, DecisionAction, DecisionInput,
 };
 use crate::port::{
-    RunHistoryPort, StaticCheckOutcome, TestExecutionConclusion, TestExecutionOutcome, ToolCommand,
-    ToolStepOutput, ToolStepPort, WorkerAgentPort, WorkerRole, WorkerTurnOutcome,
-    WorkerTurnRequest, WorkflowSnapshotPort,
+    ArchiveVcsPort, RebaseOutcome, RunHistoryPort, StaticCheckOutcome, TestExecutionConclusion,
+    TestExecutionOutcome, ToolCommand, ToolStepOutput, ToolStepPort, WorkerAgentPort, WorkerRole,
+    WorkerTurnOutcome, WorkerTurnRequest, WorkflowSnapshotPort, WorktreeSnapshot,
 };
-use crate::prompt::{decision_prompt, evaluator_prompt};
+use crate::prompt::{decision_prompt, evaluator_prompt, merge_conflict_prompt, spec_sync_prompt};
 use crate::run_history;
 use crate::state::{
-    ChangeRunStatus, ChangeStepEdge, ChangeStepKind, ChangeStepState, ChangeStepStatus, EdgeKind,
-    NodeKey, RunUpdate,
+    ArchivePreflight, ChangeRunStatus, ChangeStepEdge, ChangeStepKind, ChangeStepState,
+    ChangeStepStatus, EdgeKind, NodeKey, RunUpdate,
 };
+use crate::steps::change_branch;
 use crate::transcript::final_assistant_text;
 use crate::verdict::{parse_verdict, EvaluatorChecklist};
 
@@ -30,20 +33,59 @@ use crate::verdict::{parse_verdict, EvaluatorChecklist};
 /// 身份段恒 change id）。
 const SOURCE_CHANGE: &str = "change";
 
-/// run 收口文案（全相位 pass；不触发归档，停等用户——与写面 done 路由的
-/// 插件同源语义）。
-const ALL_PHASES_PASSED: &str = "All phases have passed evaluation. Ready for archiving.";
+/// run 收口文案（全相位含 archive 相位 pass 走完——归档为相位序末段，其完成
+/// 即 run 收口）。
+const ALL_PHASES_PASSED: &str = "All phases have passed, including archiving. Run completed.";
 
-/// run 发起入参：workspace 根 + change id + 会话窗口标识（`new_run_id` 铸造，
-/// 每 run 一个）+ 发起时刻（命令层铸造，与 `begin_run` 同值入 RunEntry——
-/// 运行史 started_at 与统一视图 startedAt 的同源锚）。
+/// 归档 git / 内联步跳过因词汇单点（step 内判断的短路依据以 `detail` 落节点：
+/// 跳过不是独立状态，`status = passed` + 跳过因）。
+const TXT_SKIP_CLEAN: &str = "干净";
+const TXT_SKIP_MERGED: &str = "已合入";
+const TXT_SKIP_NO_DELTA: &str = "无 delta specs";
+const TXT_SKIP_BY_USER: &str = "用户选择";
+const TXT_SKIP_LEGACY: &str = "legacy 无 worktree";
+const TXT_SKIP_FINALIZED: &str = "已落盘";
+const TXT_NO_CONFLICT: &str = "无冲突";
+
+/// lean 档无法裁决收敛的原因词族（解冲突后验不通过的收敛原因，词汇单点驻本
+/// 文件）。
+const LEAN_AGENT_FAILED: &str = "agent 会话失败";
+const LEAN_AGENT_STOPPED: &str = "agent 会话被停止";
+const LEAN_RESIDUAL: &str = "残留冲突未解";
+const LEAN_OUTSIDE_CHANGES: &str = "清单外新改动";
+const LEAN_PROBE_FAILED: &str = "后验探测失败";
+const LEAN_REBASE_CLOSED: &str = "agent 违约自行收口 rebase";
+/// lean 串 abort 附注（收敛序中 abort 自身失败的显式面——不掩盖原记因）。
+const TXT_LEAN_ABORT_FAILED: &str = "abort 未成功，请手动核验 worktree git 状态";
+/// 被停止注记（冲突 agent 被 stop 的 lean 串尾注——冲突摘要与手动裁决引导照常
+/// 呈现）。
+const TXT_LEAN_STOPPED_NOTE: &str = "（归档已停止）";
+/// `rebase_continue` 失败的收口引导（冲突解已验通过、rebase 态完整——人工续走
+/// 或回退二选一，重试前半截态须人工清，MUST NOT 自动 abort 已验的解算成果）。
+const TXT_REBASE_CONTINUE_GUIDE: &str = "worktree 处于 rebase 态：可手动 git rebase --continue\
+     续走收口（完成后主仓手动 git merge --ff-only 快进），或 git rebase --abort 回退后重试归档\
+     （重试前半截态须人工清）";
+/// Rebase 段冲突交据（冲突清单非空时交 ResolveConflicts 步条件解算）。
+const TXT_REBASE_CONFLICTED: &str = "冲突待解算";
+
+/// run 发起入参：workspace 根（exec root —— 会话 cwd / 检查域执行目录）+ 主
+/// workspace root（归档相位的主仓锚：layout 解析 / 归档双写 / 落盘提交）+ change
+/// id + 会话窗口标识（`new_run_id` 铸造，每 run 一个）+ 发起时刻（命令层铸造，
+/// 与 `begin_run` 同值入 RunEntry——运行史 started_at 与统一视图 startedAt 的
+/// 同源锚）+ 「按指定 phase 停止」停止点（stop-before-phase）。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RunRequest {
     pub root: String,
+    /// 主 workspace root（双 root 拆分：`root` 为 worktree exec root 时本字段
+    /// 恒主仓；归档步的 git / layout 锚）
+    pub main_root: String,
     /// change 身份锚（uuid 形态；一切寻址入参）
     pub change_id: String,
     pub run_id: String,
     pub auto_next_phase: bool,
+    /// 停止点相位名（`Some(phase)` = 进入该相位前必停等确认一次，无论 auto 与
+    /// 否；命令层固定 `Some("archive")`——归档为独立手动执行门）
+    pub stop_before: Option<String>,
     /// 发起时刻（UTC unix 毫秒；run 运行史 started_at 落库与快照投影同源）
     pub started_at: i64,
 }
@@ -89,9 +131,13 @@ impl Terminal {
 /// 一写（running 行，失败 fail-fast 收口）→ drive（计划步循环，emit 节点 + 边经
 /// control 累积 + Notice 广播）→ 终态出口单点第二写（节点整包 + 边整包 →
 /// run_history 组装 → best-effort 落包）→ `guard.finish`（既有唯一终态出口）。
+// 三执行缝（agent / 工具步 / vcs）+ 快照 + 运行史 + 注册表 + 控制柄 + 入参：
+// 参数面为组合根装配契约（design「公共函数 / API」定稿签名），拆结构体只增间接。
+#[allow(clippy::too_many_arguments)]
 pub async fn walk_run(
     worker: Arc<dyn WorkerAgentPort>,
     tools: Arc<dyn ToolStepPort>,
+    vcs: Arc<dyn ArchiveVcsPort>,
     snapshot: Arc<dyn WorkflowSnapshotPort>,
     history: Arc<dyn RunHistoryPort>,
     control: Arc<ChangeFlowControl>,
@@ -110,7 +156,7 @@ pub async fn walk_run(
         guard.finish(ChangeRunStatus::Failed, Some(reason));
         return ChangeRunStatus::Failed;
     }
-    let (status, reason) = drive(&worker, &tools, &snapshot, &guard, &request).await;
+    let (status, reason) = drive(&worker, &tools, &vcs, &snapshot, &guard, &request).await;
     // 终态出口单点第二写：终态 + 节点整包 + 边整包 + active_phase 清位单事务落
     // 库。best-effort（D6）：Err 静默不阻断收口——guard.finish 照常，run 终态与
     // 订阅释放不受损；start 行残留 running 经启动标定 interrupted 自愈留痕。
@@ -138,10 +184,12 @@ pub async fn walk_run(
 /// **计划图驱动**：每轮问写面 `phase_next`（路由唯一权威，白名单随响应缓存），
 /// next 相位按响应下发的 `steps` 计划步序列迭代执行——walker 零自持步序（门禁
 /// 由 step 声明、反馈 / 终态由步 `on_fail` 语义承载）；相位间 confirm 停等仍为
-/// run 级 `auto_next_phase` 开关（非 step 属性）。
+/// run 级 `auto_next_phase` 开关（非 step 属性），并在 `stop_before` 相位前追加
+/// 一道无条件停止门（stop-before-phase——归档为固定停止点，手动执行语义）。
 async fn drive(
     worker: &Arc<dyn WorkerAgentPort>,
     tools: &Arc<dyn ToolStepPort>,
+    vcs: &Arc<dyn ArchiveVcsPort>,
     snapshot: &Arc<dyn WorkflowSnapshotPort>,
     guard: &RunGuard,
     request: &RunRequest,
@@ -182,10 +230,6 @@ async fn drive(
             )
             .into_pair();
         };
-        if next.evaluator.is_none() {
-            return Terminal::failed(format!("phase \"{phase}\" 无 evaluator 定义，无法评估落账"))
-                .into_pair();
-        }
         if next.steps.is_empty() {
             // 计划步序列缺位即计划图漂移（相位定义恒含 PhaseStart 起步）：显式失
             // 败停给用户，MUST NOT 空转（无步可走却回 phase-next 会成为活锁）
@@ -195,6 +239,37 @@ async fn drive(
             .into_pair();
         }
         allowed = next.allowed_backtrack_phases.clone();
+
+        // 停止门（stop-before-phase）：无论 auto 与否，进入 stop_before 相位前
+        // 必发一道确认停等——归档前置只读载荷随行（停等面数据面），确认回流携
+        // 「是否执行 delta specs 同步」。手动模式下相位收口后的逐相位确认块对
+        // stop_before 相位跳过（归档前恰好一道确认、归档后零确认）。
+        let mut sync_specs = true;
+        let stop_gate = request.stop_before.as_deref() == Some(phase.as_str());
+        if stop_gate {
+            let preflight = run_tool::<ArchivePreflight>(
+                tools,
+                &request.main_root,
+                ToolCommand::ArchivePreflight {
+                    change_id: request.change_id.clone(),
+                },
+                "archive-preflight",
+            )
+            .await
+            .ok();
+            guard.emit(RunUpdate::ConfirmWait {
+                phase: phase.clone(),
+                archive: preflight,
+            });
+            let (proceed, confirmed_sync_specs) = guard.wait_confirm().await;
+            if !proceed {
+                return Terminal::stopped(&format!(
+                    "phase \"{phase}\" 停等未获继续确认（归档为独立手动执行门）"
+                ))
+                .into_pair();
+            }
+            sync_specs = confirmed_sync_specs;
+        }
 
         // 相位入口 incoming 边：决策 backtrack 待决值 > 同相位上一轮 fail 重跑
         //（retry）> 计划序推进（forward）
@@ -206,15 +281,16 @@ async fn drive(
         let ctx = StepContext {
             worker,
             tools,
+            vcs,
             guard,
             request,
             next: &next,
             phase: &phase,
         };
-        let mut cursor = PhaseCursor::new(&next, entry_kind);
+        let mut cursor = PhaseCursor::new(&next, entry_kind, sync_specs);
         let mut upgraded = false;
-        // ②–⑥ 相位主体：按计划步序列迭代（exec / agent / gate 由 `StepNode` 声
-        //       明，walker 按 `group()` 语义分派执行体）
+        // ②–⑥ 相位主体：按计划步序列迭代（exec / agent / git / gate 由 `StepNode`
+        //       声明，walker 按 `group()` 语义分派执行体）
         for step in &next.steps {
             match run_step(&ctx, &mut cursor, &mut trace, step).await {
                 Ok(StepFlow::Proceed) => {}
@@ -231,12 +307,15 @@ async fn drive(
             continue;
         }
 
-        // phase 间停等确认 or 自动确认
-        if !request.auto_next_phase {
+        // phase 间停等确认 or 自动确认（stop_before 相位前已在停止门确认过，
+        // 收口后不再补一道——归档后零确认）
+        if !request.auto_next_phase && !stop_gate {
             guard.emit(RunUpdate::ConfirmWait {
                 phase: phase.clone(),
+                archive: None,
             });
-            if !guard.wait_confirm().await {
+            let (proceed, _) = guard.wait_confirm().await;
+            if !proceed {
                 return Terminal::stopped(&format!("phase \"{phase}\" 已通过，停等未获继续确认"))
                     .into_pair();
             }
@@ -393,6 +472,8 @@ enum StepFlow {
 struct StepContext<'a> {
     worker: &'a Arc<dyn WorkerAgentPort>,
     tools: &'a Arc<dyn ToolStepPort>,
+    /// vcs 执行缝（walker 第三缝）：归档 git 步与前探测直调
+    vcs: &'a Arc<dyn ArchiveVcsPort>,
     guard: &'a RunGuard,
     request: &'a RunRequest,
     /// next 相位路由产出（已组装 prompt / 白名单 / 计划步序列）
@@ -417,13 +498,23 @@ struct PhaseCursor {
     verdict: Option<EvaluatorChecklist>,
     /// test-execution 门禁通过产物（PhaseLog 步机械代写消费）
     test_outcome: Option<TestExecutionOutcome>,
+    /// 归档前置载荷（Preflight 步产出 → Commit / Rebase / ResolveConflicts /
+    /// Merge / SpecSync / Finalize 消费）
+    preflight: Option<ArchivePreflight>,
+    /// 归档重放冲突清单（Rebase 步产出 → ResolveConflicts 步消费；`None` = 未
+    /// 重放，`Some(空)` = 重放无冲突）
+    rebase_conflicts: Option<Vec<String>>,
+    /// 归档前停等回流的「是否执行 delta specs 同步」（SpecSync 步消费）
+    sync_specs: bool,
+    /// 归档双写产物（Seal 步产出 → Finalize / PhaseLog 步消费）
+    seal_outcome: Option<ArchiveOutcome>,
     /// 本相位是否以 fail 收场（相位重试边判定面；升格路径恒真）
     failed: bool,
 }
 
 impl PhaseCursor {
     /// 空携出状态（attempt 未开、无会话、无收口产物）。
-    fn new(next: &PhaseNextOutcome, entry_kind: EdgeKind) -> Self {
+    fn new(next: &PhaseNextOutcome, entry_kind: EdgeKind, sync_specs: bool) -> Self {
         Self {
             entry_kind,
             attempt: 0,
@@ -436,6 +527,10 @@ impl PhaseCursor {
             eval_outcome: None,
             verdict: None,
             test_outcome: None,
+            preflight: None,
+            rebase_conflicts: None,
+            sync_specs,
+            seal_outcome: None,
             failed: false,
         }
     }
@@ -471,6 +566,39 @@ async fn run_step(
         }
         StepNode::PhaseLog => {
             step_phase_log(ctx, trace, cursor).await?;
+            Ok(StepFlow::Proceed)
+        }
+        // ── 归档相位 8 步（步失败一律 Terminal：相位表 `on_fail = None`）──
+        StepNode::Preflight => {
+            step_preflight(ctx, trace, cursor).await?;
+            Ok(StepFlow::Proceed)
+        }
+        StepNode::Commit => {
+            step_commit(ctx, trace, cursor).await?;
+            Ok(StepFlow::Proceed)
+        }
+        StepNode::Rebase => {
+            step_rebase(ctx, trace, cursor).await?;
+            Ok(StepFlow::Proceed)
+        }
+        StepNode::ResolveConflicts => {
+            step_resolve_conflicts(ctx, trace, cursor).await?;
+            Ok(StepFlow::Proceed)
+        }
+        StepNode::Merge => {
+            step_merge(ctx, trace, cursor).await?;
+            Ok(StepFlow::Proceed)
+        }
+        StepNode::SpecSync => {
+            step_spec_sync(ctx, trace, cursor).await?;
+            Ok(StepFlow::Proceed)
+        }
+        StepNode::Seal => {
+            step_seal(ctx, trace, cursor).await?;
+            Ok(StepFlow::Proceed)
+        }
+        StepNode::Finalize => {
+            step_finalize(ctx, trace, cursor).await?;
             Ok(StepFlow::Proceed)
         }
         StepNode::Decision | StepNode::RetryGate | StepNode::WhitelistGate => Ok(StepFlow::Proceed),
@@ -573,6 +701,7 @@ async fn step_executor(
         ctx.worker,
         ctx.guard,
         ctx.request,
+        &ctx.request.root,
         ctx.phase,
         cursor.attempt,
         WorkerRole::Executor,
@@ -675,6 +804,7 @@ async fn step_static_check(
             ctx.worker,
             ctx.guard,
             ctx.request,
+            &ctx.request.root,
             ctx.phase,
             cursor.attempt,
             WorkerRole::Executor,
@@ -779,6 +909,7 @@ async fn step_test_execution(
             ctx.worker,
             ctx.guard,
             ctx.request,
+            &ctx.request.root,
             ctx.phase,
             cursor.attempt,
             WorkerRole::Executor,
@@ -811,6 +942,7 @@ async fn step_evaluator(
         ctx.worker,
         ctx.guard,
         ctx.request,
+        &ctx.request.root,
         ctx.phase,
         cursor.attempt,
         WorkerRole::Evaluator,
@@ -907,10 +1039,11 @@ async fn step_verdict_gate(
     }
 }
 
-/// ⑧ phase-log 步：桌面代写落账（写通道唯一——经写面进程内直调）。两形态按携
-/// 出产物分流：test-execution 相位走机械 checklist（绿跑零 agent 会话）；其余
-/// 相位走 verdict 解析产物（executor + evaluator 双槽位随行，decision 槽位归
-/// decision-log 单点挂账恒缺省）。
+/// ⑧ phase-log 步：桌面代写落账（写通道唯一——经写面进程内直调）。三分流按
+/// 「产物在否」分离：test-execution 相位走机械 checklist（绿跑零 agent 会话）→
+/// 无评估产物的确定性相位（archive）走空 checklist（`derive_verdict([]) = Pass`）
+/// → 其余相位走 verdict 解析产物（executor + evaluator 双槽位随行，decision
+/// 槽位归 decision-log 单点挂账恒缺省）。
 async fn step_phase_log(
     ctx: &StepContext<'_>,
     trace: &mut EdgeTrace,
@@ -951,18 +1084,34 @@ async fn step_phase_log(
         return Ok(());
     }
     let Some(checklist) = cursor.verdict.take() else {
+        // 无评估产物（archive 确定性相位：无 TestExecution / Evaluator /
+        // VerdictGate step）→ 空 checklist 落账：`derive_verdict([]) = Pass` 即
+        // 「相位已 pass」标记（非评估证据面）。三分流按「产物在否」天然分离
+        //（test_outcome 分支在前、verdict 分支在后），零 `phase == archive` 特判。
+        let logged = run_phase_log(
+            ctx.tools,
+            ctx.request,
+            PhaseLogInput {
+                phase: ctx.phase.to_owned(),
+                report: String::new(),
+                checklist: Vec::new(),
+                skipped: false,
+                executor_session_id: None,
+                evaluator_session_id: None,
+                decision_session_id: None,
+            },
+        )
+        .await?;
         emit_node(
             ctx.guard,
             ctx.phase,
             cursor.attempt,
             ChangeStepKind::PhaseLog,
             instance_no,
-            StepSettle::failed(Some("缺评估产物".to_owned())),
+            StepSettle::passed(Some(format!("attempt {} 已落账（空 checklist）", logged.attempt))),
         );
-        return Err(Terminal::failed(format!(
-            "phase \"{}\" 计划步漂移：PhaseLog 步缺 verdict / 门禁产物",
-            ctx.phase
-        )));
+        cursor.failed = false;
+        return Ok(());
     };
     let evaluator_session = cursor
         .eval_outcome
@@ -1189,6 +1338,894 @@ async fn step_test_execution_upgraded_phase_log(
 }
 
 // ---------------------------------------------------------------------------
+// 归档相位 8 步执行体（walker 独立 vcs 缝 + 归档两 agent 步；步失败一律
+// Terminal——相位表 `on_fail = None`，不唤决策、不进相位重试）
+// ---------------------------------------------------------------------------
+
+/// 归档步起点：分配实例号 + 落 incoming 边 + emit 运行中节点（git / 内联步与
+/// 条件短路分支共用；agent 步节点由 [`run_worker`] 单点 emit）。
+fn begin_archive_node(
+    ctx: &StepContext<'_>,
+    trace: &mut EdgeTrace,
+    cursor: &PhaseCursor,
+    kind: ChangeStepKind,
+) -> u32 {
+    let instance_no = begin_node(
+        ctx.guard,
+        trace,
+        ctx.phase,
+        cursor.attempt,
+        kind,
+        EdgeKind::Forward,
+    );
+    emit_node(
+        ctx.guard,
+        ctx.phase,
+        cursor.attempt,
+        kind,
+        instance_no,
+        StepSettle::running(),
+    );
+    instance_no
+}
+
+/// 归档步收口（passed 携通过 / 跳过摘要，failed 携失败记因；同实例身份键就地
+/// 合并）。
+fn settle_archive_node(
+    ctx: &StepContext<'_>,
+    cursor: &PhaseCursor,
+    kind: ChangeStepKind,
+    instance_no: u32,
+    settle: StepSettle,
+) {
+    emit_node(ctx.guard, ctx.phase, cursor.attempt, kind, instance_no, settle);
+}
+
+/// 归档步前置载荷读取（`(name, worktree)`）：缺位即计划图漂移（Preflight 步未
+/// 跑或未识入 `PhaseCursor.preflight`）——显式失败停给用户。
+fn archive_context(cursor: &PhaseCursor) -> Result<(String, Option<String>), Terminal> {
+    let Some(preflight) = cursor.preflight.as_ref() else {
+        return Err(Terminal::failed(
+            "archive 相位计划步漂移：缺 Preflight 步前置载荷（PhaseCursor.preflight）".to_owned(),
+        ));
+    };
+    Ok((preflight.name.clone(), preflight.worktree.clone()))
+}
+
+/// 归档 Preflight 步（只读校验 + vcs 探测）：载荷经 `ToolStepPort` 单点重算
+///（与归档前停等面同一函数），入 `PhaseCursor.preflight` 供后续步消费；worktree
+/// 记录在场且目录缺失时以分支合入判定分流（已合入 = 内容已在主仓，照常；未合入
+/// 显式引导恢复目录 / 手动合入）。detail 携完成度警告 / delta specs / 合入目标。
+async fn step_preflight(
+    ctx: &StepContext<'_>,
+    trace: &mut EdgeTrace,
+    cursor: &mut PhaseCursor,
+) -> Result<(), Terminal> {
+    let kind = ChangeStepKind::Preflight;
+    let instance_no = begin_archive_node(ctx, trace, cursor, kind);
+    let payload: ArchivePreflight = match run_tool(
+        ctx.tools,
+        &ctx.request.main_root,
+        ToolCommand::ArchivePreflight {
+            change_id: ctx.request.change_id.clone(),
+        },
+        "archive-preflight",
+    )
+    .await
+    {
+        Ok(payload) => payload,
+        Err(terminal) => {
+            settle_archive_node(
+                ctx,
+                cursor,
+                kind,
+                instance_no,
+                StepSettle::failed(Some("归档前置核对失败".to_owned())),
+            );
+            return Err(terminal);
+        }
+    };
+    if let Some(worktree) = payload.worktree.as_deref() {
+        if !Path::new(worktree).is_dir() {
+            let branch = payload
+                .branch
+                .clone()
+                .unwrap_or_else(|| change_branch(&payload.name));
+            let merged = match ctx
+                .vcs
+                .branch_merged(Path::new(&ctx.request.main_root), &branch)
+            {
+                Ok(merged) => merged,
+                Err(error) => {
+                    let reason = format!("分支合入判定失败: {error}");
+                    settle_archive_node(
+                        ctx,
+                        cursor,
+                        kind,
+                        instance_no,
+                        StepSettle::failed(Some(diagnose_brief(&reason))),
+                    );
+                    return Err(Terminal::failed(reason));
+                }
+            };
+            if !merged {
+                let reason = format!(
+                    "worktree 目录不存在（可能已被手动删除）: {worktree}；\
+                     请恢复目录，或手动将分支 {branch} 合入主仓后重试归档"
+                );
+                settle_archive_node(
+                    ctx,
+                    cursor,
+                    kind,
+                    instance_no,
+                    StepSettle::failed(Some(diagnose_brief(&reason))),
+                );
+                return Err(Terminal::failed(reason));
+            }
+        }
+    }
+    let brief = preflight_brief(&payload);
+    settle_archive_node(ctx, cursor, kind, instance_no, StepSettle::passed(Some(brief)));
+    cursor.preflight = Some(payload);
+    Ok(())
+}
+
+/// Preflight detail 摘要（完成度警告 / 产物缺失 / delta specs 清单 / 合入目标；
+/// 全无即「前置校验通过」）。
+fn preflight_brief(payload: &ArchivePreflight) -> String {
+    let mut notes: Vec<String> = Vec::new();
+    if !payload.completed {
+        notes.push(if payload.incomplete_phases.is_empty() {
+            "完成度不可核算（工作流类型无相位表）".to_owned()
+        } else {
+            format!("工作流未全部通过：{}", payload.incomplete_phases.join("、"))
+        });
+    }
+    if !payload.missing_artifacts.is_empty() {
+        notes.push(format!(
+            "缺少产物文档：{}",
+            payload.missing_artifacts.join("、")
+        ));
+    }
+    if !payload.delta_specs.is_empty() {
+        notes.push(format!("delta specs：{}", payload.delta_specs.join("、")));
+    }
+    if payload.worktree.is_some() {
+        notes.push(format!(
+            "合入目标：{}",
+            payload.merge_target.as_deref().unwrap_or("（当前分支探测失败）")
+        ));
+    }
+    if notes.is_empty() {
+        return "前置校验通过".to_owned();
+    }
+    notes.join("；")
+}
+
+/// 归档 Commit 步（vcs.commit_all）：**跳过依据仅 worktree 干净**（分支可达性
+/// MUST NOT 构成跳过分支——零提交分支 tip = 创建基线，主仓前进即令基线可达
+/// HEAD，可达性跳过正是死法根源）；legacy 记录与 worktree 目录缺失（内容已在
+/// 主仓）以 `passed` + 跳过因短路。
+async fn step_commit(
+    ctx: &StepContext<'_>,
+    trace: &mut EdgeTrace,
+    cursor: &mut PhaseCursor,
+) -> Result<(), Terminal> {
+    let kind = ChangeStepKind::Commit;
+    let instance_no = begin_archive_node(ctx, trace, cursor, kind);
+    let (name, worktree) = match archive_context(cursor) {
+        Ok(context) => context,
+        Err(terminal) => {
+            settle_archive_node(
+                ctx,
+                cursor,
+                kind,
+                instance_no,
+                StepSettle::failed(Some("缺归档前置载荷".to_owned())),
+            );
+            return Err(terminal);
+        }
+    };
+    let settle = match worktree {
+        None => StepSettle::passed(Some(TXT_SKIP_LEGACY.to_owned())),
+        Some(path) if !Path::new(&path).is_dir() => {
+            StepSettle::passed(Some(TXT_SKIP_MERGED.to_owned()))
+        }
+        Some(path) if !ctx.vcs.dirty(Path::new(&path), &[]) => {
+            StepSettle::passed(Some(TXT_SKIP_CLEAN.to_owned()))
+        }
+        Some(path) => {
+            let message = format!("archive: {name}");
+            match ctx.vcs.commit_all(Path::new(&path), &message) {
+                Ok(()) => StepSettle::passed(Some(format!("worktree 已提交（{message}）"))),
+                Err(error) => {
+                    let reason = format!("worktree 提交失败: {error}");
+                    settle_archive_node(
+                        ctx,
+                        cursor,
+                        kind,
+                        instance_no,
+                        StepSettle::failed(Some(diagnose_brief(&reason))),
+                    );
+                    return Err(Terminal::failed(reason));
+                }
+            }
+        }
+    };
+    settle_archive_node(ctx, cursor, kind, instance_no, settle);
+    Ok(())
+}
+
+/// 归档 Rebase 步（vcs.rebase_branch）：分支已合入即幂等跳过；重放至主仓当前
+/// 分支，产出冲突清单入 `PhaseCursor.rebase_conflicts`（解算归下一步，冲突态保留
+/// 于 worktree——MUST NOT 自动 abort）；非冲突失败由 port 面尽力 abort 后携引导
+/// 上抛（步失败即 Terminal）。
+async fn step_rebase(
+    ctx: &StepContext<'_>,
+    trace: &mut EdgeTrace,
+    cursor: &mut PhaseCursor,
+) -> Result<(), Terminal> {
+    let kind = ChangeStepKind::Rebase;
+    let instance_no = begin_archive_node(ctx, trace, cursor, kind);
+    let (name, worktree) = match archive_context(cursor) {
+        Ok(context) => context,
+        Err(terminal) => {
+            settle_archive_node(
+                ctx,
+                cursor,
+                kind,
+                instance_no,
+                StepSettle::failed(Some("缺归档前置载荷".to_owned())),
+            );
+            return Err(terminal);
+        }
+    };
+    let main_root = Path::new(&ctx.request.main_root);
+    let settle = match worktree {
+        None => {
+            cursor.rebase_conflicts = Some(Vec::new());
+            StepSettle::passed(Some(TXT_SKIP_LEGACY.to_owned()))
+        }
+        Some(path) => {
+            let branch = change_branch(&name);
+            match ctx.vcs.branch_merged(main_root, &branch) {
+                Ok(true) => {
+                    cursor.rebase_conflicts = Some(Vec::new());
+                    StepSettle::passed(Some(TXT_SKIP_MERGED.to_owned()))
+                }
+                Ok(false) => {
+                    let onto = match ctx.vcs.current_branch(main_root) {
+                        Ok(onto) => onto,
+                        Err(error) => {
+                            return Err(fail_archive_node(
+                                ctx,
+                                cursor,
+                                kind,
+                                instance_no,
+                                format!("合入目标分支探测失败: {error}"),
+                            ))
+                        }
+                    };
+                    match ctx.vcs.rebase_branch(Path::new(&path), &onto) {
+                        Ok(RebaseOutcome::Rebased) => {
+                            cursor.rebase_conflicts = Some(Vec::new());
+                            StepSettle::passed(Some(format!("已重放至 {onto}")))
+                        }
+                        Ok(RebaseOutcome::Conflicted(conflicts)) => {
+                            let count = conflicts.len();
+                            cursor.rebase_conflicts = Some(conflicts);
+                            StepSettle::passed(Some(format!(
+                                "{TXT_REBASE_CONFLICTED} {count} 文件"
+                            )))
+                        }
+                        Err(error) => {
+                            return Err(fail_archive_node(
+                                ctx,
+                                cursor,
+                                kind,
+                                instance_no,
+                                error,
+                            ))
+                        }
+                    }
+                }
+                Err(error) => {
+                    return Err(fail_archive_node(
+                        ctx,
+                        cursor,
+                        kind,
+                        instance_no,
+                        format!("分支合入判定失败: {error}"),
+                    ))
+                }
+            }
+        }
+    };
+    settle_archive_node(ctx, cursor, kind, instance_no, settle);
+    Ok(())
+}
+
+/// 归档 Merge 步（vcs.ff_merge）：主仓 `merge --ff-only` 纯快进收口（线性历史
+/// 零 merge commit）；已合入即幂等跳过；legacy 记录零动作。
+async fn step_merge(
+    ctx: &StepContext<'_>,
+    trace: &mut EdgeTrace,
+    cursor: &mut PhaseCursor,
+) -> Result<(), Terminal> {
+    let kind = ChangeStepKind::Merge;
+    let instance_no = begin_archive_node(ctx, trace, cursor, kind);
+    let (name, worktree) = match archive_context(cursor) {
+        Ok(context) => context,
+        Err(terminal) => {
+            settle_archive_node(
+                ctx,
+                cursor,
+                kind,
+                instance_no,
+                StepSettle::failed(Some("缺归档前置载荷".to_owned())),
+            );
+            return Err(terminal);
+        }
+    };
+    let main_root = Path::new(&ctx.request.main_root);
+    let settle = match worktree {
+        None => StepSettle::passed(Some(TXT_SKIP_LEGACY.to_owned())),
+        Some(_) => {
+            let branch = change_branch(&name);
+            match ctx.vcs.branch_merged(main_root, &branch) {
+                Ok(true) => StepSettle::passed(Some(TXT_SKIP_MERGED.to_owned())),
+                Ok(false) => match ctx.vcs.ff_merge(main_root, &branch) {
+                    Ok(()) => StepSettle::passed(Some(format!("主仓已快进 {branch}"))),
+                    Err(error) => {
+                        return Err(fail_archive_node(ctx, cursor, kind, instance_no, error))
+                    }
+                },
+                Err(error) => {
+                    return Err(fail_archive_node(
+                        ctx,
+                        cursor,
+                        kind,
+                        instance_no,
+                        format!("分支合入判定失败: {error}"),
+                    ))
+                }
+            }
+        }
+    };
+    settle_archive_node(ctx, cursor, kind, instance_no, settle);
+    Ok(())
+}
+
+/// 归档步失败收口单点：emit 失败节点（携记因）+ 返回 Terminal。
+fn fail_archive_node(
+    ctx: &StepContext<'_>,
+    cursor: &PhaseCursor,
+    kind: ChangeStepKind,
+    instance_no: u32,
+    reason: String,
+) -> Terminal {
+    settle_archive_node(
+        ctx,
+        cursor,
+        kind,
+        instance_no,
+        StepSettle::failed(Some(diagnose_brief(&reason))),
+    );
+    Terminal::failed(reason)
+}
+
+/// 归档步失败收口（无既有节点实例时自铸一个）：多轮会话步（ResolveConflicts）
+/// 的失败收敛面——agent 会话节点之外另落一条携收敛记因的失败节点，保证「步失败
+/// 可见」不因会话内部分收口而失落。
+fn fail_archive_step(
+    ctx: &StepContext<'_>,
+    trace: &mut EdgeTrace,
+    cursor: &PhaseCursor,
+    kind: ChangeStepKind,
+    reason: String,
+) -> Terminal {
+    let instance_no = begin_archive_node(ctx, trace, cursor, kind);
+    fail_archive_node(ctx, cursor, kind, instance_no, reason)
+}
+
+// ---------------------------------------------------------------------------
+// 合入冲突解算（Rebase 步产出冲突清单 → 条件执行步）：冲突态保留 → A 快照 →
+// 解冲突 agent 会话 → 后验（标记扫描 + B 快照 + 状态面对比）→ walker 代续走；
+// 无法裁决一律 lean 收敛（尽力 abort + 步失败 + 冲突摘要与手动裁决引导）。
+// ---------------------------------------------------------------------------
+
+/// 归档 ResolveConflicts 步（条件执行）：Rebase 步无冲突即 `passed` + detail 短
+/// 路（零会话）；有冲突则解冲突 agent 会话逐批解算，agent 仅编辑冲突清单内文件
+/// 并以 pathspec 收口——rebase 收口动词由 walker 代行（agent 无收口权）。
+async fn step_resolve_conflicts(
+    ctx: &StepContext<'_>,
+    trace: &mut EdgeTrace,
+    cursor: &mut PhaseCursor,
+) -> Result<(), Terminal> {
+    let kind = ChangeStepKind::ResolveConflicts;
+    let conflicts = cursor.rebase_conflicts.clone().unwrap_or_default();
+    if conflicts.is_empty() {
+        // 无冲突（含 legacy 跳过 / 已合入幂等跳过形态）：零 agent 会话
+        let instance_no = begin_archive_node(ctx, trace, cursor, kind);
+        settle_archive_node(
+            ctx,
+            cursor,
+            kind,
+            instance_no,
+            StepSettle::passed(Some(TXT_NO_CONFLICT.to_owned())),
+        );
+        return Ok(());
+    }
+    let (name, worktree) = match archive_context(cursor) {
+        Ok(context) => context,
+        Err(terminal) => return Err(terminal),
+    };
+    let Some(worktree) = worktree else {
+        // 冲突清单在场却无 worktree 记录 = 计划 / 执行图漂移
+        return Err(Terminal::failed(
+            "archive 相位漂移：冲突清单在场但 change 无 worktree 记录".to_owned(),
+        ));
+    };
+    let branch = change_branch(&name);
+    let mut pending = conflicts;
+    loop {
+        let worktree_path = Path::new(&worktree);
+        // A 快照（后验对比基面）：探测失败即 lean（解算无从验）
+        let baseline = match ctx.vcs.worktree_snapshot(worktree_path) {
+            Ok(snapshot) => snapshot,
+            Err(_) => {
+                return Err(fail_archive_step(
+                    ctx,
+                    trace,
+                    cursor,
+                    kind,
+                    lean_converge(ctx, worktree_path, &branch, &pending, LEAN_PROBE_FAILED, false),
+                ))
+            }
+        };
+        let prompt = merge_conflict_prompt(&name, &pending);
+        let turn = run_worker(
+            ctx.worker,
+            ctx.guard,
+            ctx.request,
+            &worktree,
+            ctx.phase,
+            cursor.attempt,
+            WorkerRole::ResolveConflicts,
+            prompt,
+            ModelLevel::High,
+            None,
+            trace,
+            EdgeKind::Forward,
+        )
+        .await;
+        if let Err(terminal) = turn {
+            // 会话失败 / 被停止：一律 lean 收敛（abort 恢复 + 引导），停止形态
+            // 附「（归档已停止）」注记
+            let (reason, stopped_note) = match terminal.status {
+                ChangeRunStatus::Stopped => (LEAN_AGENT_STOPPED, true),
+                _ => (LEAN_AGENT_FAILED, false),
+            };
+            return Err(fail_archive_step(
+                ctx,
+                trace,
+                cursor,
+                kind,
+                lean_converge(
+                    ctx,
+                    worktree_path,
+                    &branch,
+                    &pending,
+                    reason,
+                    stopped_note,
+                ),
+            ));
+        }
+        // 后验序：残留标记 fs 扫描（locale 免疫）→ B 快照 → 状态面对比
+        if !residual_markers(worktree_path, &pending).is_empty() {
+            return Err(fail_archive_step(
+                ctx,
+                trace,
+                cursor,
+                kind,
+                lean_converge(ctx, worktree_path, &branch, &pending, LEAN_RESIDUAL, false),
+            ));
+        }
+        let after = match ctx.vcs.worktree_snapshot(worktree_path) {
+            Ok(snapshot) => snapshot,
+            Err(_) => {
+                return Err(fail_archive_step(
+                    ctx,
+                    trace,
+                    cursor,
+                    kind,
+                    lean_converge(ctx, worktree_path, &branch, &pending, LEAN_PROBE_FAILED, false),
+                ))
+            }
+        };
+        if let Err(reason) = verify_resolution(&baseline, &after, &pending) {
+            return Err(fail_archive_step(
+                ctx,
+                trace,
+                cursor,
+                kind,
+                lean_converge(ctx, worktree_path, &branch, &pending, &reason, false),
+            ));
+        }
+        // 链代续走（`rebase --continue` 沿用既定提交信息）：失败不走 lean abort
+        //（冲突解已验通过、rebase 态完整，自动回退会丢弃解算成果）
+        match ctx.vcs.rebase_continue(worktree_path) {
+            Ok(RebaseOutcome::Rebased) => return Ok(()),
+            Ok(RebaseOutcome::Conflicted(next)) => pending = next,
+            Err(error) => {
+                return Err(fail_archive_step(
+                    ctx,
+                    trace,
+                    cursor,
+                    kind,
+                    format!("{error}；冲突解算已验通过但 rebase 续走失败：{TXT_REBASE_CONTINUE_GUIDE}"),
+                ))
+            }
+        }
+    }
+}
+
+/// lean 档无法裁决收敛（单点）：`rebase_abort` 尽力执行（worktree 恢复重放前
+/// 干净态；自身 Err 附注呈现，不掩盖原记因）+ 返回收敛串（lean 串 = 原因词 + 冲突
+/// 逐行清单 + abort 告知 + 手动裁决引导 + 重试幂等说明；调用方以
+/// [`fail_archive_step`] 落失败节点并终止）。
+fn lean_converge(
+    ctx: &StepContext<'_>,
+    worktree: &Path,
+    branch: &str,
+    conflicts: &[String],
+    reason: &str,
+    stopped_note: bool,
+) -> String {
+    let abort_note = match ctx.vcs.rebase_abort(worktree) {
+        Ok(()) => String::new(),
+        Err(_) => format!("（{TXT_LEAN_ABORT_FAILED}）"),
+    };
+    let mut message = format!(
+        "合入冲突无法自动裁决（{reason}）。冲突文件 {} 个：{}\n已执行 git rebase --abort \
+         恢复 worktree 干净态{abort_note}。请手动将分支 {branch} 合入主仓（在 worktree 内自行\
+         rebase 解冲突，或主仓手动 merge）后重试归档——重试将识别已合入并续走收口。",
+        conflicts.len(),
+        conflicts.join("\n"),
+    );
+    if stopped_note {
+        message.push_str(TXT_LEAN_STOPPED_NOTE);
+    }
+    message
+}
+
+/// 后验状态面对比（纯函数）：① REBASE_HEAD 在场性（rebase 半程判别——agent 违约
+/// 收口 / 中止的捕获面）②③ 冲突路径无 stage>0 残留、worktree 干净且索引单条
+/// stage-0（全量 staged 才可收口）④ 非冲突路径逐字一致 + B 无 A 缺席的新路径 +
+/// 消失路径 ⊆ 冲突清单。
+pub(crate) fn verify_resolution(
+    baseline: &WorktreeSnapshot,
+    after: &WorktreeSnapshot,
+    conflicts: &[String],
+) -> Result<(), String> {
+    // ① REBASE_HEAD 在场性（rebase 半程判别——agent 违约收口 / 中止的捕获面）
+    if after.rebase_head.is_none() {
+        let baseline_head = &baseline.head;
+        return Err(format!(
+            "{LEAN_REBASE_CLOSED}——REBASE_HEAD 缺席（rebase 已被收口或中止），\
+             请手动核验 worktree git 状态（基线 HEAD {baseline_head}）后重试"
+        ));
+    }
+    let conflict_set: std::collections::HashSet<&str> =
+        conflicts.iter().map(String::as_str).collect();
+    // ②③ 冲突路径：无 stage>0 残留条目；worktree 干净（y=' '）且索引单条
+    // stage-0（或已删除缺席）——全量 staged 才可收口
+    for path in conflicts {
+        let unmerged = after
+            .index
+            .iter()
+            .any(|entry| entry.path == *path && entry.stage > 0);
+        let worktree_dirty = after
+            .status
+            .iter()
+            .any(|entry| entry.path == *path && entry.y != ' ');
+        let stage_zero = after
+            .index
+            .iter()
+            .filter(|entry| entry.path == *path && entry.stage == 0)
+            .count();
+        if unmerged || worktree_dirty || stage_zero > 1 {
+            return Err(LEAN_RESIDUAL.to_owned());
+        }
+    }
+    // ④ 非冲突路径逐字一致（porcelain XY 与索引 mode/hash/stage 双面对拍）
+    let mut status_a: Vec<(&str, char, char)> = baseline
+        .status
+        .iter()
+        .filter(|entry| !conflict_set.contains(entry.path.as_str()))
+        .map(|entry| (entry.path.as_str(), entry.x, entry.y))
+        .collect();
+    status_a.sort_unstable();
+    let mut status_b: Vec<(&str, char, char)> = after
+        .status
+        .iter()
+        .filter(|entry| !conflict_set.contains(entry.path.as_str()))
+        .map(|entry| (entry.path.as_str(), entry.x, entry.y))
+        .collect();
+    status_b.sort_unstable();
+    let mut index_a: Vec<(&str, &str, &str, u8)> = baseline
+        .index
+        .iter()
+        .filter(|entry| !conflict_set.contains(entry.path.as_str()))
+        .map(|entry| {
+            (
+                entry.path.as_str(),
+                entry.mode.as_str(),
+                entry.hash.as_str(),
+                entry.stage,
+            )
+        })
+        .collect();
+    index_a.sort_unstable();
+    let mut index_b: Vec<(&str, &str, &str, u8)> = after
+        .index
+        .iter()
+        .filter(|entry| !conflict_set.contains(entry.path.as_str()))
+        .map(|entry| {
+            (
+                entry.path.as_str(),
+                entry.mode.as_str(),
+                entry.hash.as_str(),
+                entry.stage,
+            )
+        })
+        .collect();
+    index_b.sort_unstable();
+    if status_a != status_b || index_a != index_b {
+        return Err(LEAN_OUTSIDE_CHANGES.to_owned());
+    }
+    // ④ 续：B 无 A 缺席的新路径（agent 新建 / 新 add 即违约）；消失路径 ⊆
+    // 冲突清单（冲突路径解算后收敛至与 HEAD 一致而离开 status 是合法消失）
+    let paths_a: std::collections::HashSet<&str> = baseline
+        .status
+        .iter()
+        .map(|entry| entry.path.as_str())
+        .collect();
+    if let Some(new_path) = after
+        .status
+        .iter()
+        .map(|entry| entry.path.as_str())
+        .find(|path| !paths_a.contains(path))
+    {
+        return Err(format!("{LEAN_OUTSIDE_CHANGES}: {new_path}"));
+    }
+    let paths_b: std::collections::HashSet<&str> = after
+        .status
+        .iter()
+        .map(|entry| entry.path.as_str())
+        .collect();
+    if let Some(gone_path) = baseline
+        .status
+        .iter()
+        .map(|entry| entry.path.as_str())
+        .find(|path| !paths_b.contains(path) && !conflict_set.contains(path))
+    {
+        return Err(format!("{LEAN_OUTSIDE_CHANGES}: {gone_path}"));
+    }
+    Ok(())
+}
+
+/// 冲突标记 fs 扫描（locale 免疫）：逐清单文件逐行扫描行首 `<<<<<<< ` /
+/// `>>>>>>> ` 形态，返回 `文件:行` 命中清单；读取失败 / 文件缺席按无标记处理
+///（fs 缺席形态由后验状态面对比承载）。
+pub(crate) fn residual_markers(root: &Path, conflicts: &[String]) -> Vec<String> {
+    let mut hits = Vec::new();
+    for path in conflicts {
+        let Ok(content) = std::fs::read_to_string(root.join(path)) else {
+            continue;
+        };
+        for (offset, line) in content.lines().enumerate() {
+            if line.starts_with("<<<<<<< ") || line.starts_with(">>>>>>> ") {
+                hits.push(format!("{path}:{}", offset + 1));
+            }
+        }
+    }
+    hits
+}
+
+/// 归档 SpecSync 步：delta specs 在场且用户未跳过时发起 spec 同步 agent 会话
+///（cwd 恒主 workspace root——worktree change 的 delta specs 已随合入进入主仓
+/// active 树，同步基线恒主仓当前 specs）；缺席 / 跳过即 `passed` + 跳过因（零
+/// 会话）；会话失败 / 被停止即步失败 Terminal（零归档变更，重试自本步续走）。
+async fn step_spec_sync(
+    ctx: &StepContext<'_>,
+    trace: &mut EdgeTrace,
+    cursor: &mut PhaseCursor,
+) -> Result<(), Terminal> {
+    let kind = ChangeStepKind::SpecSync;
+    let (name, _) = match archive_context(cursor) {
+        Ok(context) => context,
+        Err(terminal) => return Err(terminal),
+    };
+    let delta_specs = cursor
+        .preflight
+        .as_ref()
+        .map(|preflight| preflight.delta_specs.len())
+        .unwrap_or(0);
+    if delta_specs == 0 {
+        let instance_no = begin_archive_node(ctx, trace, cursor, kind);
+        settle_archive_node(
+            ctx,
+            cursor,
+            kind,
+            instance_no,
+            StepSettle::passed(Some(TXT_SKIP_NO_DELTA.to_owned())),
+        );
+        return Ok(());
+    }
+    if !cursor.sync_specs {
+        let instance_no = begin_archive_node(ctx, trace, cursor, kind);
+        settle_archive_node(
+            ctx,
+            cursor,
+            kind,
+            instance_no,
+            StepSettle::passed(Some(TXT_SKIP_BY_USER.to_owned())),
+        );
+        return Ok(());
+    }
+    run_worker(
+        ctx.worker,
+        ctx.guard,
+        ctx.request,
+        &ctx.request.main_root,
+        ctx.phase,
+        cursor.attempt,
+        WorkerRole::SpecSync,
+        spec_sync_prompt(&name),
+        ModelLevel::High,
+        None,
+        trace,
+        EdgeKind::Forward,
+    )
+    .await?;
+    Ok(())
+}
+
+/// 归档 Seal 步：写面 `archive` 双写单点复用（目录改名 + db 翻转；半完成重试走
+/// 写面既有续半边）；产出交 `PhaseCursor.seal_outcome` 供 Finalize 派生归档目录
+/// 路径。
+async fn step_seal(
+    ctx: &StepContext<'_>,
+    trace: &mut EdgeTrace,
+    cursor: &mut PhaseCursor,
+) -> Result<(), Terminal> {
+    let kind = ChangeStepKind::Seal;
+    let instance_no = begin_archive_node(ctx, trace, cursor, kind);
+    let outcome: ArchiveOutcome = match run_tool(
+        ctx.tools,
+        &ctx.request.main_root,
+        ToolCommand::ArchiveSeal {
+            change_id: ctx.request.change_id.clone(),
+        },
+        "archive-seal",
+    )
+    .await
+    {
+        Ok(outcome) => outcome,
+        Err(terminal) => {
+            settle_archive_node(
+                ctx,
+                cursor,
+                kind,
+                instance_no,
+                StepSettle::failed(Some("归档双写收口失败".to_owned())),
+            );
+            return Err(terminal);
+        }
+    };
+    settle_archive_node(
+        ctx,
+        cursor,
+        kind,
+        instance_no,
+        StepSettle::passed(Some(format!("已归档（{}）", outcome.archived_date))),
+    );
+    cursor.seal_outcome = Some(outcome);
+    Ok(())
+}
+
+/// 归档 Finalize 步：归档落盘 pathspec 圈定提交（改名两路径 + delta capability
+/// 主 specs 子树；全树通配为禁区——无关 specs 的用户未提交编辑 MUST NOT 被吞并；
+/// 子树缺席经 fs 门剔除——git add / commit 对 unmatched pathspec fatal）；脏探测
+/// 为零即跳过（幂等面）。
+async fn step_finalize(
+    ctx: &StepContext<'_>,
+    trace: &mut EdgeTrace,
+    cursor: &mut PhaseCursor,
+) -> Result<(), Terminal> {
+    let kind = ChangeStepKind::Finalize;
+    let instance_no = begin_archive_node(ctx, trace, cursor, kind);
+    let name = match archive_context(cursor) {
+        Ok((name, _)) => name,
+        Err(terminal) => {
+            settle_archive_node(
+                ctx,
+                cursor,
+                kind,
+                instance_no,
+                StepSettle::failed(Some("缺归档前置载荷".to_owned())),
+            );
+            return Err(terminal);
+        }
+    };
+    let Some(sealed) = cursor.seal_outcome.clone() else {
+        let reason = "archive 相位计划步漂移：Finalize 步缺 Seal 步双写产物".to_owned();
+        settle_archive_node(
+            ctx,
+            cursor,
+            kind,
+            instance_no,
+            StepSettle::failed(Some(reason.clone())),
+        );
+        return Err(Terminal::failed(reason));
+    };
+    let main_root = Path::new(&ctx.request.main_root);
+    let domain = domain_dir_name();
+    let active_pathspec = format!("{domain}/changes/{name}");
+    let archived_dir = format!("{}-{}", sealed.archived_date, name);
+    let archived_pathspec = format!("{domain}/changes/archive/{archived_dir}");
+    let mut pathspecs = vec![active_pathspec, archived_pathspec.clone()];
+    for capability in cursor
+        .preflight
+        .as_ref()
+        .map(|preflight| preflight.delta_specs.clone())
+        .unwrap_or_default()
+    {
+        let spec_path = format!("{domain}/specs/{capability}");
+        if main_root.join(&spec_path).is_dir() {
+            pathspecs.push(spec_path);
+        }
+    }
+    let pathspec_refs: Vec<&str> = pathspecs.iter().map(String::as_str).collect();
+    let settle = if ctx.vcs.dirty(main_root, &pathspec_refs) {
+        let message = format!("archive: move {name} to archive");
+        match ctx.vcs.commit_paths(main_root, &pathspec_refs, &message) {
+            Ok(()) => StepSettle::passed(Some(archived_pathspec)),
+            Err(error) => {
+                return Err(fail_archive_node(ctx, cursor, kind, instance_no, error));
+            }
+        }
+    } else {
+        StepSettle::passed(Some(TXT_SKIP_FINALIZED.to_owned()))
+    };
+    settle_archive_node(ctx, cursor, kind, instance_no, settle);
+    Ok(())
+}
+
+/// `ToolStepOutput → ArchivePreflight` 窄化（归档前停等门 / Preflight 步消费）。
+impl TryFrom<ToolStepOutput> for ArchivePreflight {
+    type Error = ();
+    fn try_from(value: ToolStepOutput) -> Result<Self, Self::Error> {
+        match value {
+            ToolStepOutput::ArchivePreflight(payload) => Ok(payload),
+            _ => Err(()),
+        }
+    }
+}
+
+/// `ToolStepOutput → ArchiveOutcome` 窄化（Seal 步消费）。
+impl TryFrom<ToolStepOutput> for ArchiveOutcome {
+    type Error = ();
+    fn try_from(value: ToolStepOutput) -> Result<Self, Self::Error> {
+        match value {
+            ToolStepOutput::ArchiveSeal(outcome) => Ok(outcome),
+            _ => Err(()),
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // 决策分叉（D7：仅 phase-next 返回 max_retries_exceeded 时唤起决策 agent）
 // ---------------------------------------------------------------------------
 
@@ -1364,6 +2401,7 @@ async fn decision_session(
             worker,
             guard,
             request,
+            &request.root,
             &input.phase,
             input.attempt,
             WorkerRole::Decision,
@@ -1484,6 +2522,7 @@ async fn run_worker(
     worker: &Arc<dyn WorkerAgentPort>,
     guard: &RunGuard,
     request: &RunRequest,
+    root: &str,
     phase: &str,
     attempt: u32,
     role: WorkerRole,
@@ -1497,6 +2536,8 @@ async fn run_worker(
         WorkerRole::Executor => ChangeStepKind::Executor,
         WorkerRole::Evaluator => ChangeStepKind::Evaluator,
         WorkerRole::Decision => ChangeStepKind::Decision,
+        WorkerRole::SpecSync => ChangeStepKind::SpecSync,
+        WorkerRole::ResolveConflicts => ChangeStepKind::ResolveConflicts,
     };
     let instance_no = begin_node(guard, trace, phase, attempt, kind, incoming);
     emit_node(
@@ -1508,7 +2549,7 @@ async fn run_worker(
         StepSettle::running(),
     );
     let turn = WorkerTurnRequest {
-        root: request.root.clone(),
+        root: root.to_owned(),
         prompt,
         provenance: SessionProvenance {
             source: SOURCE_CHANGE.to_owned(),

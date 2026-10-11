@@ -29,7 +29,8 @@ function runtimeNode(overrides: Partial<RuntimeFlowNode> = {}): RuntimeFlowNode 
   };
 }
 
-/** 九步词汇 → 分组徽章 / 步文案 / role 三面期望表（与 run-state.ts 分组同源）。 */
+/** 十八步词汇 → 分组徽章 / 步文案 / role 三面期望表（与 run-state.ts 分组同源；
+   含归档 8 步词与 git 四步的 Git 徽章面）。 */
 const FAMILIES: Array<{
   runStepKind: ChangeStepKind;
   group: RuntimeFlowNode['group'];
@@ -72,10 +73,39 @@ const FAMILIES: Array<{
     label: '静态检查',
     role: null,
   },
+  {
+    runStepKind: 'testExecution',
+    group: 'toolStep',
+    badge: 'ToolStep',
+    label: '测试执行',
+    role: null,
+  },
   { runStepKind: 'phaseLog', group: 'toolStep', badge: 'ToolStep', label: '评估落账', role: null },
   { runStepKind: 'verdictGate', group: 'gate', badge: 'Gate', label: 'verdict 门', role: null },
   { runStepKind: 'retryGate', group: 'gate', badge: 'Gate', label: '重试门', role: null },
   { runStepKind: 'whitelistGate', group: 'gate', badge: 'Gate', label: '白名单门', role: null },
+  // 归档 8 步词（AC-2 / AC-9）：git 四步走 Git 徽章、内联两步 ToolStep、两会话步
+  // WorkerAgent（group 与 run-state 分组同源，非 git）
+  { runStepKind: 'preflight', group: 'toolStep', badge: 'ToolStep', label: '归档前置', role: null },
+  { runStepKind: 'commit', group: 'git', badge: 'Git', label: 'worktree 提交', role: null },
+  { runStepKind: 'rebase', group: 'git', badge: 'Git', label: '分支重放', role: null },
+  {
+    runStepKind: 'resolveConflicts',
+    group: 'workerAgent',
+    badge: 'WorkerAgent',
+    label: '解冲突',
+    role: 'resolve_conflicts',
+  },
+  { runStepKind: 'merge', group: 'git', badge: 'Git', label: '主仓合入', role: null },
+  {
+    runStepKind: 'specSync',
+    group: 'workerAgent',
+    badge: 'WorkerAgent',
+    label: 'spec 同步',
+    role: 'spec_sync',
+  },
+  { runStepKind: 'seal', group: 'toolStep', badge: 'ToolStep', label: '归档收口', role: null },
+  { runStepKind: 'finalize', group: 'git', badge: 'Git', label: '归档落盘', role: null },
 ];
 
 /** 最小 NodeProps 形态 */
@@ -89,7 +119,8 @@ function renderNode(node: RuntimeFlowNode) {
 }
 
 describe('RunStepNode：三分类徽章可辨（AC-5 可辨半边）', () => {
-  it('九步词汇逐词渲染：WorkerAgent / ToolStep / Gate 徽章文案、步文案、data-run-group 标记逐族对应', () => {
+  it('十八步词汇逐词渲染：WorkerAgent / ToolStep / Git / Gate 徽章文案、步文案、data-run-group 标记逐族对应', () => {
+    expect(FAMILIES).toHaveLength(18);
     for (const family of FAMILIES) {
       const rendered = renderNode(
         runtimeNode({
@@ -139,6 +170,76 @@ describe('RunStepNode：三分类徽章可辨（AC-5 可辨半边）', () => {
       within(screen.getByTestId('run-step-node')).getByTestId('run-step-group').className,
     ).toContain('bg-secondary');
     gate.unmount();
+  });
+
+  it('git 徽章变体：archive 相位 git 步（commit / rebase / merge / finalize）渲染 Git 徽章与 secondary 变体', () => {
+    for (const kind of ['commit', 'rebase', 'merge', 'finalize'] as ChangeStepKind[]) {
+      const rendered = renderNode(
+        runtimeNode({
+          id: `run:archive:1:${kind}`,
+          phase: 'archive',
+          runStepKind: kind,
+          group: 'git',
+          role: null,
+        }),
+      );
+      const node = screen.getByTestId('run-step-node');
+      expect(node.getAttribute('data-run-group')).toBe('git');
+      const badge = within(node).getByTestId('run-step-group');
+      expect(badge.textContent).toBe('Git');
+      expect(badge.className).toContain('bg-secondary');
+      rendered.unmount();
+    }
+  });
+
+  it('归档步词文案逐词在案：STEP_LABEL 十八值穷举可查（8 归档步词各携人读文案）', () => {
+    const expected: Array<[ChangeStepKind, string, RuntimeFlowNode['group']]> = [
+      ['preflight', '归档前置', 'toolStep'],
+      ['commit', 'worktree 提交', 'git'],
+      ['rebase', '分支重放', 'git'],
+      ['resolveConflicts', '解冲突', 'workerAgent'],
+      ['merge', '主仓合入', 'git'],
+      ['specSync', 'spec 同步', 'workerAgent'],
+      ['seal', '归档收口', 'toolStep'],
+      ['finalize', '归档落盘', 'git'],
+    ];
+
+    for (const [kind, label, group] of expected) {
+      const rendered = renderNode(
+        runtimeNode({
+          id: `run:archive:1:${kind}`,
+          phase: 'archive',
+          runStepKind: kind,
+          group,
+          role: group === 'workerAgent' ? (kind as RuntimeFlowNode['role']) : null,
+        }),
+      );
+      expect(
+        within(screen.getByTestId('run-step-node')).getByTestId('run-step-kind').textContent,
+      ).toBe(label);
+      rendered.unmount();
+    }
+  });
+
+  it('既有三分类徽章回归：workerAgent / toolStep / gate 徽章文案不变，agent 步非 Git 徽章', () => {
+    const cases: Array<
+      [ChangeStepKind, ChangeStepKind extends never ? never : RuntimeFlowNode['group'], string]
+    > = [
+      ['executor', 'workerAgent', 'WorkerAgent'],
+      ['staticCheck', 'toolStep', 'ToolStep'],
+      ['testExecution', 'toolStep', 'ToolStep'],
+      ['verdictGate', 'gate', 'Gate'],
+    ];
+
+    for (const [kind, group, badge] of cases) {
+      const rendered = renderNode(
+        runtimeNode({ id: `run:implement:1:${kind}`, runStepKind: kind, group, role: null }),
+      );
+      const node = screen.getByTestId('run-step-node');
+      expect(within(node).getByTestId('run-step-group').textContent).toBe(badge);
+      expect(node.getAttribute('data-run-group')).toBe(group);
+      rendered.unmount();
+    }
   });
 
   it('RunStepFlowNode 类型映射锚定：Node<RunStepNodeData, runStep> 形态（type=runStep + data.node 载荷）', () => {

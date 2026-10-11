@@ -20,6 +20,32 @@ const CHANGE_NAME_B: &str = "other-change";
 const UNKNOWN_ID: &str = "0198f7a0-0000-7000-8000-0000000000fa";
 const RUN: &str = "run-1";
 
+/// requirement 全表相位序（9 相位 = 8 路由相位 + archive 确定性相位；路由
+/// 全 pass 判定须表内全项在位）。
+const ALL_PHASES: [&str; 9] = [
+    "proposal",
+    "dev-design",
+    "test-design",
+    "implement",
+    "test-gen",
+    "test-execution",
+    "code-review",
+    "acceptance",
+    "archive",
+];
+
+/// 归档相位之前的 8 路由相位（archive 前停等路由用例的种子相位集）。
+const ROUTED_PHASES: [&str; 8] = [
+    "proposal",
+    "dev-design",
+    "test-design",
+    "implement",
+    "test-gen",
+    "test-execution",
+    "code-review",
+    "acceptance",
+];
+
 /// 确定性时间戳基（UTC unix millis）；`t(n)` = 基线 + n 秒。
 const T0: i64 = 1_727_000_000_000;
 fn t(n: u32) -> i64 {
@@ -538,21 +564,12 @@ fn 重试上限恰达返回max_retries_exceeded() {
     }
 }
 
-/// 全部 pass 终态：表内全相位 pass → done=true、next_phase=None、双 prompt
-/// 缺席、白名单空（walker 收敛 completed 的判定输入）。
+/// 全部 pass 终态：表内全相位（含 archive）pass → done=true、next_phase=None、
+/// 双 prompt 缺席、白名单空（walker 收敛 completed 的判定输入；archive 以空
+/// checklist 落 pass 后 all_passed 才成立，AC-4 / AC-7）。
 #[test]
 fn 全部pass终态done收敛() {
-    let phases = [
-        "proposal",
-        "dev-design",
-        "test-design",
-        "implement",
-        "test-gen",
-        "test-execution",
-        "code-review",
-        "acceptance",
-    ];
-    let entries = phases
+    let entries = ALL_PHASES
         .iter()
         .enumerate()
         .map(|(idx, phase)| entry(phase, 1, Verdict::Pass, t(idx as u32 + 1)))
@@ -961,20 +978,11 @@ fn 无清单相位下发空manifest与门禁步声明() {
 ///（无 next 相位即无计划步 / 无清单；既有收敛语义零改写）。
 #[test]
 fn 全pass终态不下发计划步与清单() {
-    let entries: Vec<PhaseStateRecord> = [
-        "proposal",
-        "dev-design",
-        "test-design",
-        "implement",
-        "test-gen",
-        "test-execution",
-        "code-review",
-        "acceptance",
-    ]
-    .iter()
-    .enumerate()
-    .map(|(index, phase)| entry(phase, 1, Verdict::Pass, t(index as u32 + 1)))
-    .collect();
+    let entries: Vec<PhaseStateRecord> = ALL_PHASES
+        .iter()
+        .enumerate()
+        .map(|(index, phase)| entry(phase, 1, Verdict::Pass, t(index as u32 + 1)))
+        .collect();
     let fake = RouteStore::seeded(entries);
 
     let outcome = route(&fake, RUN, &SessionAnchors::new());
@@ -1014,5 +1022,480 @@ fn 错误响应不下发计划步与清单() {
     assert!(
         outcome.artifact_manifest.is_empty(),
         "错误响应不下发产物清单"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// 归档相位路由（AC-1 / AC-4 / AC-7 / AC-8）：零 archive 特判——archive 为表内
+// 第 9 相位，`has_phase_passed` / `allowed_backtrack_phases` 与其余相位同式。
+// ---------------------------------------------------------------------------
+
+/// 归档前停等路由（正向）：前 8 路由相位（proposal…acceptance）全
+/// `verdict=pass` 落账后 → `phase_next` 返回 `next_phase=Some("archive")`（archive
+/// 未落账故 `all_passed` 为假），steps 随行十步序列、executor / evaluator 缺席
+///（archive `executor=None` / `evaluator=None`）、artifact_manifest 空
+///（AC-1 / AC-4 / AC-7 stop-before-archive 路由依据）。
+#[test]
+fn 八路由相位pass后路由至archive且零角色spec() {
+    let entries = ROUTED_PHASES
+        .iter()
+        .enumerate()
+        .map(|(idx, phase)| entry(phase, 1, Verdict::Pass, t(idx as u32 + 1)))
+        .collect();
+    let fake = RouteStore::seeded(entries);
+
+    let outcome = route(&fake, RUN, &SessionAnchors::new());
+
+    assert!(!outcome.done, "archive 未落账 → 非收口");
+    assert_eq!(
+        outcome.next_phase.as_deref(),
+        Some("archive"),
+        "8 路由相位 pass 后下一相位即 archive"
+    );
+    assert!(outcome.error.is_none(), "归档路由非错误面");
+    assert_eq!(outcome.steps.len(), 10, "archive 十步序列随行下发");
+    assert_eq!(
+        outcome.steps.first().map(|step| step.node),
+        Some(crate::state::StepNode::PhaseStart)
+    );
+    assert_eq!(
+        outcome.steps.last().map(|step| step.node),
+        Some(crate::state::StepNode::PhaseLog)
+    );
+    assert!(
+        outcome.artifact_manifest.is_empty(),
+        "archive 零产物清单（空数组下发）"
+    );
+    assert!(
+        outcome.executor.is_none() && outcome.evaluator.is_none(),
+        "archive 无会话角色 spec（确定性相位）"
+    );
+    assert_eq!(
+        outcome.allowed_backtrack_phases,
+        ALL_PHASES
+            .iter()
+            .map(|phase| (*phase).to_owned())
+            .collect::<Vec<_>>(),
+        "archive 白名单 = 表序 9 相位（含自身、不含未来相位）"
+    );
+}
+
+/// archive 空 checklist 落账后收口（正向）：archive 以 `report=""` + 空 checklist
+/// 落 `verdict=pass` 后 → `phase_next` 返回 `done`（`all_passed` 真；archive 完成
+/// 才 Completed，AC-4 / AC-7）。
+#[test]
+fn archive空checklist落账后路由done() {
+    let mut entries: Vec<PhaseStateRecord> = ROUTED_PHASES
+        .iter()
+        .enumerate()
+        .map(|(idx, phase)| entry(phase, 1, Verdict::Pass, t(idx as u32 + 1)))
+        .collect();
+    // archive 落账形态：report 空、checklist 空表、verdict = pass（空 checklist 推导）
+    let mut archive_entry = entry("archive", 1, Verdict::Pass, t(20));
+    archive_entry.report = String::new();
+    archive_entry.checklist = Vec::new();
+    assert!(archive_entry.report.is_empty() && archive_entry.checklist.is_empty());
+    entries.push(archive_entry);
+
+    let fake = RouteStore::seeded(entries);
+    let outcome = route(&fake, RUN, &SessionAnchors::new());
+
+    assert!(outcome.done, "archive 落账 pass → 全表 all_passed → done");
+    assert_eq!(outcome.next_phase, None);
+    assert!(outcome.steps.is_empty() && outcome.artifact_manifest.is_empty());
+}
+
+/// archive 未落账 / 落 `verdict=fail` 或 stale（边界）：`next_phase` 仍指 archive、
+/// 未 done——archive 完成才 Completed，失败落账不自作推进（AC-7 / AC-8）。
+#[test]
+fn archive未完成或落fail时仍指archive未done() {
+    let base: Vec<PhaseStateRecord> = ROUTED_PHASES
+        .iter()
+        .enumerate()
+        .map(|(idx, phase)| entry(phase, 1, Verdict::Pass, t(idx as u32 + 1)))
+        .collect();
+
+    // 未落账：仍指 archive
+    let fake = RouteStore::seeded(base.clone());
+    let outcome = route(&fake, RUN, &SessionAnchors::new());
+    assert_eq!(outcome.next_phase.as_deref(), Some("archive"));
+    assert!(!outcome.done);
+
+    // 落 fail：仍指 archive（未过）
+    let mut with_fail = base.clone();
+    with_fail.push(entry("archive", 1, Verdict::Fail, t(30)));
+    let fake = RouteStore::seeded(with_fail);
+    let outcome = route(&fake, RUN, &SessionAnchors::new());
+    assert_eq!(
+        outcome.next_phase.as_deref(),
+        Some("archive"),
+        "archive 失败落账未过 → 仍路由 archive"
+    );
+    assert!(!outcome.done, "archive 未完成 → 不 Completed");
+
+    // 落 pass 但 stale（回溯作废）：与其余相位同式——stale 条目不算过
+    let mut with_stale = base.clone();
+    let mut stale_archive = entry("archive", 1, Verdict::Pass, t(31));
+    stale_archive.stale = true;
+    with_stale.push(stale_archive);
+    let fake = RouteStore::seeded(with_stale);
+    let outcome = route(&fake, RUN, &SessionAnchors::new());
+    assert_eq!(
+        outcome.next_phase.as_deref(),
+        Some("archive"),
+        "stale 落账不算过（has_phase_passed 同式语义）"
+    );
+    assert!(!outcome.done);
+}
+
+/// archive 判定同式（零特判边界）：`archive` 以 `skipped=true` 落账视为已过
+///（与其余相位同式——`verdict==Pass || skipped`）；archive 落账条目在案后
+/// `round` 随窗口条目数递增，路由面无 `if phase == "archive"` 语义差异（AC-4）。
+#[test]
+fn archive判定与其余相位同式零特判() {
+    let mut entries: Vec<PhaseStateRecord> = ROUTED_PHASES
+        .iter()
+        .enumerate()
+        .map(|(idx, phase)| entry(phase, 1, Verdict::Pass, t(idx as u32 + 1)))
+        .collect();
+    // 归档未落账路由：anchor 在首轮登记，round = 1
+    let fake = RouteStore::seeded(entries.clone());
+    let anchors = SessionAnchors::new();
+    let outcome = route(&fake, RUN, &anchors);
+    assert_eq!(outcome.next_phase.as_deref(), Some("archive"));
+    assert_eq!(outcome.round, 1, "首轮路由 round=1");
+
+    // 归档 skipped 落账（skipped=true 且 verdict=pass）→ 视为已过（同式语义）
+    let mut skipped_archive = entry("archive", 1, Verdict::Pass, t(40));
+    skipped_archive.skipped = true;
+    entries.push(skipped_archive);
+    let fake = RouteStore::seeded(entries);
+    let outcome = route(&fake, RUN, &SessionAnchors::new());
+    assert!(
+        outcome.done,
+        "archive skipped 落账与其余相位同式（视为已过）"
+    );
+    assert_eq!(outcome.next_phase, None);
+}
+
+/// archive 不在任何相位回溯白名单闭包（边界 / 回归）：archive 为末相位、非任何
+/// 相位前置，故 acceptance 及其前的各相位 `allowed_backtrack_phases` 均不含
+/// archive（AC-8 / 零改动锚——archive 仅前向）；archive 自身白名单含己恰一次
+///（白名单含自身语义，与其余相位同式）。
+#[test]
+fn archive不在任何相位回溯白名单内() {
+    let entries: Vec<PhaseStateRecord> = ALL_PHASES
+        .iter()
+        .enumerate()
+        .map(|(idx, phase)| entry(phase, 1, Verdict::Pass, t(idx as u32 + 1)))
+        .collect();
+    // 全 pass → 无白名单下发（收口面）
+    let fake = RouteStore::seeded(entries);
+    let outcome = route(&fake, RUN, &SessionAnchors::new());
+    assert!(outcome.done && outcome.allowed_backtrack_phases.is_empty());
+
+    // acceptance 为下一相位（archive 未落账）：白名单 = 表序前 8 相位，不含 archive
+    let fake = RouteStore::seeded(
+        ROUTED_PHASES[..7]
+            .iter()
+            .enumerate()
+            .map(|(idx, phase)| entry(phase, 1, Verdict::Pass, t(idx as u32 + 1)))
+            .collect(),
+    );
+    let outcome = route(&fake, RUN, &SessionAnchors::new());
+    assert_eq!(outcome.next_phase.as_deref(), Some("acceptance"));
+    assert_eq!(
+        outcome.allowed_backtrack_phases.len(),
+        8,
+        "acceptance 白名单 = 表序前 8 相位"
+    );
+    assert!(
+        !outcome
+            .allowed_backtrack_phases
+            .iter()
+            .any(|phase| phase == "archive"),
+        "archive 不在 acceptance 回溯白名单内（末相位仅前向）"
+    );
+
+    // archive 自身白名单：含己恰一次（含自身语义与其余相位同式）
+    let fake = RouteStore::seeded(
+        ROUTED_PHASES
+            .iter()
+            .enumerate()
+            .map(|(idx, phase)| entry(phase, 1, Verdict::Pass, t(idx as u32 + 1)))
+            .collect(),
+    );
+    let outcome = route(&fake, RUN, &SessionAnchors::new());
+    assert_eq!(outcome.next_phase.as_deref(), Some("archive"));
+    assert_eq!(
+        outcome
+            .allowed_backtrack_phases
+            .iter()
+            .filter(|phase| *phase == "archive")
+            .count(),
+        1,
+        "archive 自身在自身白名单内恰一次（白名单含自身语义）"
+    );
+    assert_eq!(
+        outcome.allowed_backtrack_phases.last().map(String::as_str),
+        Some("archive"),
+        "archive 白名单末位为自身（不含未来相位）"
+    );
+}
+
+/// store 读半 Err 透传（异常 / 回归）：`list_phase_records` 返回 Err /
+/// 未建档 change → `Err(String)` 透传（归档路由不吞错、不降级空表——既有语义
+/// 不改写，AC-4）。
+#[test]
+fn 归档路由store_read_err显式透传() {
+    // 未建档：显式 Err（不静默空产出）
+    let missing = RouteStore::missing();
+    let error = phase_next(&missing, CHANGE_ID, RUN, &SessionAnchors::new())
+        .expect_err("未建档 change 应显式 Err");
+    assert!(error.contains("未建档"), "未建档错误语汇: {error}");
+
+    // 读半 Err 透传
+    let faulty = RouteStore::seeded(Vec::new());
+    faulty.set_fault(StoreFault::Db("读面故障".to_owned()));
+    let error = phase_next(&faulty, CHANGE_ID, RUN, &SessionAnchors::new())
+        .expect_err("store 读半 Err 应透传");
+    assert!(error.contains("读面故障"), "StoreFault 语汇透传: {error}");
+}
+
+// ---------------------------------------------------------------------------
+// 空 checklist 落账链路（AC-4）：`derive_verdict([]) = Pass` —— archive 相位经
+// 写面 `phase_log` 以 `report=""` + 空 checklist 落账，随后路由出 done。
+// ---------------------------------------------------------------------------
+
+/// 落账 + 路由双面假件（`phase_log` 的 log_phase 捕获并镜像真件落库语义：
+/// attempt = 既有条目数 + 1、条目追加、active_phase 清位；读半供 `phase_next`）。
+struct ArchiveLandingStore {
+    record: Mutex<Option<ChangeStateRecord>>,
+    entries: Mutex<Vec<PhaseStateRecord>>,
+    commands: Mutex<Vec<crate::state::PhaseLogCommand>>,
+}
+
+impl ArchiveLandingStore {
+    /// 归档相位开相形态（active_phase = archive，可落账）。
+    fn with_archive_open() -> Self {
+        let mut record = requirement_record(CHANGE_ID, CHANGE_NAME);
+        record.active_phase = Some(crate::state::ActivePhaseState {
+            phase: "archive".to_owned(),
+            attempt: 1,
+            start_at: t(0),
+        });
+        Self {
+            record: Mutex::new(Some(record)),
+            entries: Mutex::new(Vec::new()),
+            commands: Mutex::new(Vec::new()),
+        }
+    }
+
+    fn command_count(&self) -> usize {
+        self.commands.lock().expect("命令锁不可中毒").len()
+    }
+
+    fn last_command(&self) -> crate::state::PhaseLogCommand {
+        self.commands
+            .lock()
+            .expect("命令锁不可中毒")
+            .last()
+            .expect("落账命令应在场")
+            .clone()
+    }
+}
+
+impl ChangeStateStore for ArchiveLandingStore {
+    fn get_change(&self, id: &str) -> Result<Option<ChangeStateRecord>, StoreFault> {
+        Ok(self
+            .record
+            .lock()
+            .expect("记录锁不可中毒")
+            .clone()
+            .filter(|record| record.id == id))
+    }
+
+    fn list_change_records(&self) -> Result<Vec<ChangeStateRecord>, StoreFault> {
+        unimplemented!("本用例不可达")
+    }
+
+    fn list_phase_records(&self, _change_id: &str) -> Result<Vec<PhaseStateRecord>, StoreFault> {
+        Ok(self.entries.lock().expect("条目锁不可中毒").clone())
+    }
+
+    fn list_steps(
+        &self,
+        _change_id: &str,
+        _run_id: Option<&str>,
+    ) -> Result<Vec<StepStateRecord>, StoreFault> {
+        unimplemented!("本用例不可达")
+    }
+
+    fn create_change_record(&self, _record: ChangeStateRecord) -> Result<(), StoreFault> {
+        unimplemented!("本用例不可达")
+    }
+
+    fn delete_change_record(&self, _id: &str) -> Result<bool, StoreFault> {
+        unimplemented!("本用例不可达")
+    }
+
+    fn start_phase(
+        &self,
+        _change_id: &str,
+        _phase: &str,
+        _now: i64,
+    ) -> Result<crate::state::PhaseStartState, StoreFault> {
+        unimplemented!("本用例不可达")
+    }
+
+    fn log_phase(&self, command: &crate::state::PhaseLogCommand) -> Result<u32, StoreFault> {
+        let mut entries = self.entries.lock().expect("条目锁不可中毒");
+        let attempt = entries
+            .iter()
+            .filter(|entry| entry.phase == command.phase)
+            .count() as u32
+            + 1;
+        let id = entries.len() as i64;
+        entries.push(PhaseStateRecord {
+            id,
+            change_id: command.change_id.clone(),
+            phase: command.phase.clone(),
+            attempt,
+            verdict: command.verdict,
+            report: command.report.clone(),
+            checklist: command.checklist.clone(),
+            skipped: command.skipped,
+            stale: false,
+            backtrack_to: None,
+            backtrack_reason: None,
+            executor_session_id: command.executor_session_id.clone(),
+            evaluator_session_id: command.evaluator_session_id.clone(),
+            decision_session_id: command.decision_session_id.clone(),
+            start_at: command.start_at,
+            timestamp: command.timestamp,
+        });
+        drop(entries);
+        if let Some(record) = self.record.lock().expect("记录锁不可中毒").as_mut() {
+            record.active_phase = None;
+        }
+        self.commands
+            .lock()
+            .expect("命令锁不可中毒")
+            .push(command.clone());
+        Ok(attempt)
+    }
+
+    fn apply_backtrack(&self, _command: &crate::state::BacktrackCommand) -> Result<(), StoreFault> {
+        unimplemented!("本用例不可达")
+    }
+
+    fn amend_decision_session(
+        &self,
+        _change_id: &str,
+        _phase: &str,
+        _session_id: &str,
+    ) -> Result<(), StoreFault> {
+        unimplemented!("本用例不可达")
+    }
+
+    fn set_archived(&self, _id: &str, _archived_at: i64) -> Result<(), StoreFault> {
+        unimplemented!("本用例不可达")
+    }
+
+    fn append_step(&self, _command: &StepCommand) -> Result<(), StoreFault> {
+        unimplemented!("本用例不可达")
+    }
+
+    fn list_runs(&self, _change: &str) -> Result<Vec<RunStateRecord>, StoreFault> {
+        unimplemented!("本用例不可达")
+    }
+
+    fn list_run_nodes(&self, _run_id: &str) -> Result<Vec<RunNodeStateRecord>, StoreFault> {
+        unimplemented!("本用例不可达")
+    }
+
+    fn list_run_edges(&self, _run_id: &str) -> Result<Vec<RunEdgeStateRecord>, StoreFault> {
+        unimplemented!("本用例不可达")
+    }
+
+    fn run_start(&self, _command: &RunStartCommand) -> Result<(), StoreFault> {
+        unimplemented!("本用例不可达")
+    }
+
+    fn run_finish(&self, _command: &RunFinishCommand) -> Result<(), StoreFault> {
+        unimplemented!("本用例不可达")
+    }
+}
+
+/// 空 checklist 识别（正向）：archive 以 `report=""` + 空 checklist 经写面
+/// [`phase_log`](super::phase_log::phase_log) 落账 → `derive_verdict([]) = Pass`
+///（空表 every 语义），落库载荷 verdict 为 `pass`、report 空、checklist 空表、
+/// 三会话槽位 None；随后 `phase_next` 出 done（AC-4 端到端）。
+#[test]
+fn archive空checklist落账推导pass并随后done() {
+    let store = ArchiveLandingStore::with_archive_open();
+    // 前置：8 路由相位全 pass 在案
+    {
+        let mut entries = store.entries.lock().expect("条目锁不可中毒");
+        for (idx, phase) in ROUTED_PHASES.iter().enumerate() {
+            entries.push(entry(phase, 1, Verdict::Pass, t(idx as u32 + 1)));
+        }
+    }
+
+    let outcome = super::phase_log::phase_log(
+        &store,
+        CHANGE_ID,
+        &super::phase_log::PhaseLogInput {
+            phase: "archive".to_owned(),
+            report: String::new(),
+            checklist: Vec::new(),
+            skipped: false,
+            executor_session_id: None,
+            evaluator_session_id: None,
+            decision_session_id: None,
+        },
+    )
+    .expect("archive 空 checklist 落账应成功");
+
+    assert_eq!(outcome.phase, "archive");
+    assert_eq!(outcome.attempt, 1, "首次落账 attempt=1");
+    assert_eq!(store.command_count(), 1, "恰一条落账写命令");
+
+    let command = store.last_command();
+    assert_eq!(
+        command.verdict,
+        Verdict::Pass,
+        "derive_verdict([]) = Pass（空 checklist 识别为通过）"
+    );
+    assert_eq!(command.report, "", "归档落账 report 为空串");
+    assert!(command.checklist.is_empty(), "归档落账 checklist 空表");
+    assert!(!command.skipped, "归档落账 skipped=false（非跳过语义）");
+    assert!(
+        command.executor_session_id.is_none()
+            && command.evaluator_session_id.is_none()
+            && command.decision_session_id.is_none(),
+        "归档相位三会话槽位恒 None"
+    );
+    assert_eq!(command.change_id, CHANGE_ID, "归属键随行");
+    assert_eq!(command.phase, "archive");
+
+    // 落账后路由：全表 all_passed → done（archive 完成才 Completed）
+    let anchors = SessionAnchors::new();
+    let routed = phase_next(&store, CHANGE_ID, RUN, &anchors).expect("路由应成功");
+    assert!(routed.done, "archive 空 checklist 落账后路由 done");
+    assert_eq!(routed.next_phase, None);
+    assert!(routed.allowed_backtrack_phases.is_empty());
+
+    // 落账清位：active_phase 归 None（写事务内清位语义）
+    assert!(
+        store
+            .record
+            .lock()
+            .expect("记录锁不可中毒")
+            .as_ref()
+            .expect("建档记录应在场")
+            .active_phase
+            .is_none(),
+        "落账后 active_phase 清位"
     );
 }

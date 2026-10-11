@@ -12,7 +12,8 @@ use agent_runtime::{compose_turn, ComposedTurn, KernelWorkerPort};
 use checks_runtime::{ProcessStaticCheck, ProcessTestExecution};
 use orchestration::control::ChangeFlowControl;
 use orchestration::port::{
-    RunEventSink, RunHistoryPort, ToolStepPort, WorkerAgentPort, WorkflowSnapshotPort,
+    ArchiveVcsPort, RunEventSink, RunHistoryPort, ToolStepPort, WorkerAgentPort,
+    WorkflowSnapshotPort,
 };
 use orchestration::run_history::StoreRunHistory;
 use orchestration::snapshot::StoreSnapshot;
@@ -20,8 +21,13 @@ use orchestration::state::{ChangeRunStatus, ChangeRunSummary, RunNotice, RunUpda
 use orchestration::steps::LocalToolSteps;
 use orchestration::walker::{new_run_id, walk_run, RunRequest};
 use store::WorkspaceStores;
+use vcs_runtime::ProcessArchiveVcs;
 use workflow::state::ChangeStateStore;
 use workflow::write::{phase_table, SessionAnchors};
+
+/// 归档停止点相位名（归档为独立手动执行门：run 走完 8 个路由相位后必停等确认
+/// 一次才进入本相位——「按指定 phase 停止」的固定停止点）。
+const STOP_BEFORE_ARCHIVE: &str = "archive";
 
 /// 当前 UTC unix 毫秒（run 发起时刻铸造点；时钟早于 epoch 取 0，不 panic——
 /// `begin_run` / `RunRequest.started_at` 同值，corpus 确定性由测试注入承载）。
@@ -116,20 +122,9 @@ pub(crate) async fn change_flow_start_with<R: tauri::Runtime>(
         None => root.clone(),
     };
     // 前置校验 4：无并行 run（begin_run 复合键冲突检测——同 workspace 同
-    // change 二次发起 Err，异 workspace 同名不误拒）。先经反向互斥面：归档链
-    // 进行中（ArchiveControl 在案）显式拒绝 run 发起（design
-    // desktop-archive-change D3——互斥登记载体 = ArchiveControl 自持注册表，
-    // 不进入运行态零落账）
+    // change 二次发起 Err，异 workspace 同名不误拒）。归档已是本 run 的末相位
+    //（archive，stop-before-archive 手动门），无独立归档链互斥面
     let control = Arc::clone(app.state::<Arc<ChangeFlowControl>>().inner());
-    if app
-        .state::<Arc<orchestration::archive_flow::ArchiveControl>>()
-        .is_active(&root, &id)
-    {
-        return Err(format!(
-            "change \"{}\" 的归档链进行中，不可发起 run（请等待归档收口或先停止归档链）",
-            record.name
-        ));
-    }
     let run_id = new_run_id();
     // 发起时刻铸造（run 运行史 started_at / 注册表条目同值——corpus 确定性
     // 由命令携带时间戳保证，design D5）
@@ -157,6 +152,11 @@ pub(crate) async fn change_flow_start_with<R: tauri::Runtime>(
     let anchors = Arc::new(SessionAnchors::new());
     let store_port: Arc<dyn ChangeStateStore> = store; // Arc<Store> → port 缝对象
     let history: Arc<dyn RunHistoryPort> = Arc::new(StoreRunHistory::new(Arc::clone(&store_port)));
+    // vcs 执行缝装配（walker 第三缝）：归档 git 步（commit / rebase / merge /
+    // finalize）与前置探测（current_branch / branch_merged）经 `ArchiveVcsPort`
+    // 进程 spawn 执行，spawn 驻 infra/vcs（core 零 spawn 红线）；同一实例注入
+    // LocalToolSteps（Preflight 探测）与 walk_run（git 步直调）
+    let vcs: Arc<dyn ArchiveVcsPort> = Arc::new(ProcessArchiveVcs::new());
     // checks 执行器装配：static-check 默认 `ExecOutput::Transient`（全量即弃，
     // 反馈边只消费诊断文本；升 `recorded(change)` 即经 infra/exec 单点落盘并回
     // 填 output_ref）；test-execution 报告全量落 change 报告目录树并携 exec_id 回
@@ -165,6 +165,7 @@ pub(crate) async fn change_flow_start_with<R: tauri::Runtime>(
         Arc::clone(&anchors),
         Arc::new(ProcessStaticCheck::new()),
         Arc::new(ProcessTestExecution::new()),
+        Arc::clone(&vcs),
         Arc::clone(&store_port),
         run_id.clone(),
     ));
@@ -174,9 +175,13 @@ pub(crate) async fn change_flow_start_with<R: tauri::Runtime>(
     ));
     let request = RunRequest {
         root: exec_root,
+        // 主仓锚（双 root 拆分）：归档相位 git 步 / layout 解析恒主 workspace
+        // root（worktree 为 exec root 时亦然）
+        main_root: root.clone(),
         change_id: id.clone(),
         run_id: run_id.clone(),
         auto_next_phase,
+        stop_before: Some(STOP_BEFORE_ARCHIVE.to_owned()),
         started_at,
     };
 
@@ -187,7 +192,10 @@ pub(crate) async fn change_flow_start_with<R: tauri::Runtime>(
         .ok_or_else(|| "run 订阅失败（注册表条目缺失）".to_owned())?;
     spawn_channel_forward(on_event, updates);
     tauri::async_runtime::spawn(async move {
-        let _ = walk_run(worker, tools, snapshot, history, control, guard, request).await;
+        let _ = walk_run(
+            worker, tools, vcs, snapshot, history, control, guard, request,
+        )
+        .await;
     });
     Ok(ChangeRunSummary {
         run_id,
@@ -257,16 +265,19 @@ pub fn change_flow_confirm(
     root: String,
     id: String,
     proceed: bool,
+    sync_specs: bool,
 ) -> Result<(), String> {
-    change_flow_confirm_with(app, root, id, proceed)
+    change_flow_confirm_with(app, root, id, proceed, sync_specs)
 }
 
-/// [`change_flow_confirm`] 的泛型测试缝。
+/// [`change_flow_confirm`] 的泛型测试缝；`sync_specs` 为归档前停等点的「是否执行
+/// delta specs 同步」选择回流（相位间停等点该值不参与）。
 pub(crate) fn change_flow_confirm_with<R: tauri::Runtime>(
     app: AppHandle<R>,
     root: String,
     id: String,
     proceed: bool,
+    sync_specs: bool,
 ) -> Result<(), String> {
     if is_blank(&root) {
         return Err("非法 root: 不得为空白".to_owned());
@@ -275,7 +286,7 @@ pub(crate) fn change_flow_confirm_with<R: tauri::Runtime>(
         return Err("非法 id: 不得为空白".to_owned());
     }
     app.state::<Arc<ChangeFlowControl>>()
-        .confirm(&root, &id, proceed)
+        .confirm(&root, &id, proceed, sync_specs)
 }
 
 #[tauri::command]

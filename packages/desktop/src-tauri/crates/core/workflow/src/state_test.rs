@@ -1,7 +1,7 @@
 //! `state.rs` 中性状态类型的单元测试（test-design「state.rs ->
-//! state_test.rs」节）：计划图侧类型封闭集（StepNode 十值全词汇 +
-//! `group()` / `role()` 派生访问器 + OnFail 两变体 + StepDefinition /
-//! ArtifactSpec 声明面）+ 执行图侧词汇（RunStepKind 十值零过滤 /
+//! state_test.rs」节）：计划图侧类型封闭集（StepNode 十八值全词汇 +
+//! `group()` / `role()` 派生访问器（四分类含 Git）+ OnFail 两变体 + StepDefinition /
+//! ArtifactSpec 声明面）+ 执行图侧词汇（RunStepKind 十八值零过滤 /
 //! RunEdgeKind 四值 snake_case）+ 节点与边中性类型序列化往返（身份键
 //! `(run_id, phase, attempt, step, instance_no)`、session_id / detail /
 //! output_ref 两态）+ ChangeStateRecord 身份面（`id` 首字段为身份锚、`name`
@@ -55,10 +55,11 @@ fn run_status五值线面lowercase逐字() {
     assert_eq!(RunStatus::Interrupted.as_str(), "interrupted");
 }
 
-/// RunStepKind **十值全词汇**出线恰为 snake_case 词（AC-3 词汇单点前置——落库命
-/// 令与查询投影同类型消费；流程面 phase_start / phase_log 与三门不再被过滤弃落）。
+/// RunStepKind **十八值全词汇**出线恰为 snake_case 词（AC-2 词汇单点前置——落库命
+/// 令与查询投影同类型消费；流程面 phase_start / phase_log 与三门不再被过滤弃落，
+/// 归档 8 步词同面在案）。
 #[test]
-fn run_step_kind十值全词汇snake_case逐字() {
+fn run_step_kind十八值全词汇snake_case逐字() {
     let wire = |kind: RunStepKind| serde_json::to_value(kind).expect("词汇出线应成功");
     assert_eq!(wire(RunStepKind::Executor), json!("executor"));
     assert_eq!(wire(RunStepKind::Evaluator), json!("evaluator"));
@@ -74,6 +75,19 @@ fn run_step_kind十值全词汇snake_case逐字() {
     assert_eq!(wire(RunStepKind::VerdictGate), json!("verdict_gate"));
     assert_eq!(wire(RunStepKind::RetryGate), json!("retry_gate"));
     assert_eq!(wire(RunStepKind::WhitelistGate), json!("whitelist_gate"));
+    // 归档 8 步词（AC-2 新增面）
+    assert_eq!(wire(RunStepKind::Preflight), json!("preflight"));
+    assert_eq!(wire(RunStepKind::Commit), json!("commit"));
+    assert_eq!(wire(RunStepKind::Rebase), json!("rebase"));
+    assert_eq!(
+        wire(RunStepKind::ResolveConflicts),
+        json!("resolve_conflicts"),
+        "多词步 snake_case（非 resolveConflicts）"
+    );
+    assert_eq!(wire(RunStepKind::Merge), json!("merge"));
+    assert_eq!(wire(RunStepKind::SpecSync), json!("spec_sync"));
+    assert_eq!(wire(RunStepKind::Seal), json!("seal"));
+    assert_eq!(wire(RunStepKind::Finalize), json!("finalize"));
 
     assert_eq!(RunStepKind::Executor.as_str(), "executor");
     assert_eq!(RunStepKind::Evaluator.as_str(), "evaluator");
@@ -85,6 +99,14 @@ fn run_step_kind十值全词汇snake_case逐字() {
     assert_eq!(RunStepKind::VerdictGate.as_str(), "verdict_gate");
     assert_eq!(RunStepKind::RetryGate.as_str(), "retry_gate");
     assert_eq!(RunStepKind::WhitelistGate.as_str(), "whitelist_gate");
+    assert_eq!(RunStepKind::Preflight.as_str(), "preflight");
+    assert_eq!(RunStepKind::Commit.as_str(), "commit");
+    assert_eq!(RunStepKind::Rebase.as_str(), "rebase");
+    assert_eq!(RunStepKind::ResolveConflicts.as_str(), "resolve_conflicts");
+    assert_eq!(RunStepKind::Merge.as_str(), "merge");
+    assert_eq!(RunStepKind::SpecSync.as_str(), "spec_sync");
+    assert_eq!(RunStepKind::Seal.as_str(), "seal");
+    assert_eq!(RunStepKind::Finalize.as_str(), "finalize");
 }
 
 /// RunStepStatus 四值出线恰为 camelCase 词（步状态线格式）。
@@ -106,7 +128,7 @@ fn 非法词反序列化拒绝_封闭集防线() {
         let back: Result<RunStatus, _> = serde_json::from_value(json!(illegal));
         assert!(back.is_err(), "RunStatus 越集词 {illegal:?} 应拒绝");
     }
-    // RunStepKind：camel 词 / 近似词 / 空串越集（十值词汇之外的词形一律拒绝）
+    // RunStepKind：camel 词 / 近似词 / 空串越集（十八值词汇之外的词形一律拒绝）
     for illegal in [
         "verdictGate",
         "staticCheck",
@@ -115,6 +137,10 @@ fn 非法词反序列化拒绝_封闭集防线() {
         "whitelistGate",
         "event",
         "gate",
+        "resolveConflicts",
+        "specSync",
+        "spec-sync",
+        "phaseStart",
         "",
     ] {
         let back: Result<RunStepKind, _> = serde_json::from_value(json!(illegal));
@@ -796,16 +822,17 @@ fn change_state_store全方法id形参编译面() {
 }
 
 // ---------------------------------------------------------------------------
-// 计划图侧类型（StepNode 十值全词汇 + 派生访问器 + OnFail / StepDefinition /
+// 计划图侧类型（StepNode 十八值全词汇 + 派生访问器 + OnFail / StepDefinition /
 // ArtifactSpec）
 // ---------------------------------------------------------------------------
 
-/// `StepNode` 十值全词汇 snake_case 逐字出线（executor / evaluator / decision /
+/// `StepNode` 十八值全词汇 snake_case 逐字出线（executor / evaluator / decision /
 /// phase_start / static_check / test_execution / phase_log / verdict_gate /
-/// retry_gate / whitelist_gate）——词汇本体单点（计划图声明与执行图落库同词面
-/// 1:1 全映射，AC-1 / AC-3 全词汇前置）。
+/// retry_gate / whitelist_gate + 归档八步 preflight / commit / rebase /
+/// resolve_conflicts / merge / spec_sync / seal / finalize）——词汇本体单点（计划图
+/// 声明与执行图落库同词面 1:1 全映射，AC-2 全词汇前置）。
 #[test]
-fn step_node十值全词汇snake_case逐字() {
+fn step_node十八值全词汇snake_case逐字() {
     let wire = |node: StepNode| serde_json::to_value(node).expect("词汇出线应成功");
     assert_eq!(wire(StepNode::Executor), json!("executor"));
     assert_eq!(wire(StepNode::Evaluator), json!("evaluator"));
@@ -817,6 +844,14 @@ fn step_node十值全词汇snake_case逐字() {
     assert_eq!(wire(StepNode::VerdictGate), json!("verdict_gate"));
     assert_eq!(wire(StepNode::RetryGate), json!("retry_gate"));
     assert_eq!(wire(StepNode::WhitelistGate), json!("whitelist_gate"));
+    assert_eq!(wire(StepNode::Preflight), json!("preflight"));
+    assert_eq!(wire(StepNode::Commit), json!("commit"));
+    assert_eq!(wire(StepNode::Rebase), json!("rebase"));
+    assert_eq!(wire(StepNode::ResolveConflicts), json!("resolve_conflicts"));
+    assert_eq!(wire(StepNode::Merge), json!("merge"));
+    assert_eq!(wire(StepNode::SpecSync), json!("spec_sync"));
+    assert_eq!(wire(StepNode::Seal), json!("seal"));
+    assert_eq!(wire(StepNode::Finalize), json!("finalize"));
 
     // as_str 单点同源（线格式词与序列化词汇一字不差）
     assert_eq!(StepNode::Executor.as_str(), "executor");
@@ -829,31 +864,103 @@ fn step_node十值全词汇snake_case逐字() {
     assert_eq!(StepNode::VerdictGate.as_str(), "verdict_gate");
     assert_eq!(StepNode::RetryGate.as_str(), "retry_gate");
     assert_eq!(StepNode::WhitelistGate.as_str(), "whitelist_gate");
+    assert_eq!(StepNode::Preflight.as_str(), "preflight");
+    assert_eq!(StepNode::Commit.as_str(), "commit");
+    assert_eq!(StepNode::Rebase.as_str(), "rebase");
+    assert_eq!(StepNode::ResolveConflicts.as_str(), "resolve_conflicts");
+    assert_eq!(StepNode::Merge.as_str(), "merge");
+    assert_eq!(StepNode::SpecSync.as_str(), "spec_sync");
+    assert_eq!(StepNode::Seal.as_str(), "seal");
+    assert_eq!(StepNode::Finalize.as_str(), "finalize");
 }
 
-/// `StepNode::group()` 三分类（Exec / Agent / Gate）与 `role()`（Executor /
-/// Evaluator / Decision）派生访问器逐值一致——同类内与跨类皆可辨（AC-1 派生
-/// 访问器零冗余字段）。
+/// `StepNode` 与 `RunStepKind` 逐字同源（18 值 1:1 全映射；线格式词一字不差，
+/// AC-2 / AC-6 落库零过滤前置）。
+#[test]
+fn step_node与run_step_kind逐字同源十八值() {
+    for (node, kind, word) in [
+        (StepNode::Executor, RunStepKind::Executor, "executor"),
+        (StepNode::Evaluator, RunStepKind::Evaluator, "evaluator"),
+        (StepNode::Decision, RunStepKind::Decision, "decision"),
+        (StepNode::PhaseStart, RunStepKind::PhaseStart, "phase_start"),
+        (StepNode::StaticCheck, RunStepKind::StaticCheck, "static_check"),
+        (
+            StepNode::TestExecution,
+            RunStepKind::TestExecution,
+            "test_execution",
+        ),
+        (StepNode::PhaseLog, RunStepKind::PhaseLog, "phase_log"),
+        (
+            StepNode::VerdictGate,
+            RunStepKind::VerdictGate,
+            "verdict_gate",
+        ),
+        (StepNode::RetryGate, RunStepKind::RetryGate, "retry_gate"),
+        (
+            StepNode::WhitelistGate,
+            RunStepKind::WhitelistGate,
+            "whitelist_gate",
+        ),
+        (StepNode::Preflight, RunStepKind::Preflight, "preflight"),
+        (StepNode::Commit, RunStepKind::Commit, "commit"),
+        (StepNode::Rebase, RunStepKind::Rebase, "rebase"),
+        (
+            StepNode::ResolveConflicts,
+            RunStepKind::ResolveConflicts,
+            "resolve_conflicts",
+        ),
+        (StepNode::Merge, RunStepKind::Merge, "merge"),
+        (StepNode::SpecSync, RunStepKind::SpecSync, "spec_sync"),
+        (StepNode::Seal, RunStepKind::Seal, "seal"),
+        (StepNode::Finalize, RunStepKind::Finalize, "finalize"),
+    ] {
+        assert_eq!(node.as_str(), word, "{node:?} 计划图侧词面");
+        assert_eq!(kind.as_str(), word, "{kind:?} 执行图侧词面");
+        assert_eq!(
+            serde_json::to_value(node).expect("出线应成功"),
+            serde_json::to_value(kind).expect("出线应成功"),
+            "{word} 两侧线面逐字一致"
+        );
+    }
+}
+
+/// `StepNode::group()` 四分类（Exec / Agent / Git / Gate）与 `role()`（Executor /
+/// Evaluator / Decision / SpecSync / ResolveConflicts）派生访问器逐值一致——同类内
+/// 与跨类皆可辨（AC-2 派生访问器零冗余字段；D4 分派前置）。
 #[test]
 fn step_node分组与角色派生访问器一致() {
-    // Exec 组：相位机步 + 检查步
+    // Exec 组：相位机步 + 检查步 + 归档内联步（preflight / seal）
     for node in [
         StepNode::PhaseStart,
         StepNode::StaticCheck,
         StepNode::TestExecution,
         StepNode::PhaseLog,
+        StepNode::Preflight,
+        StepNode::Seal,
     ] {
         assert_eq!(node.group(), StepGroup::Exec, "{node:?} 属 Exec");
         assert_eq!(node.role(), None, "非 agent 步无角色");
     }
-    // Agent 组：三角色与 role() 一一对应
+    // Agent 组：五角色与 role() 一一对应（含归档两会话步）
     for (node, role) in [
         (StepNode::Executor, AgentRole::Executor),
         (StepNode::Evaluator, AgentRole::Evaluator),
         (StepNode::Decision, AgentRole::Decision),
+        (StepNode::SpecSync, AgentRole::SpecSync),
+        (StepNode::ResolveConflicts, AgentRole::ResolveConflicts),
     ] {
         assert_eq!(node.group(), StepGroup::Agent, "{node:?} 属 Agent");
         assert_eq!(node.role(), Some(role));
+    }
+    // Git 组：四 vcs 步（独立 vcs 缝直调；role 恒 None）
+    for node in [
+        StepNode::Commit,
+        StepNode::Rebase,
+        StepNode::Merge,
+        StepNode::Finalize,
+    ] {
+        assert_eq!(node.group(), StepGroup::Git, "{node:?} 属 Git");
+        assert_eq!(node.role(), None, "git 步无 agent 角色");
     }
     // Gate 组：三门
     for node in [
@@ -864,7 +971,7 @@ fn step_node分组与角色派生访问器一致() {
         assert_eq!(node.group(), StepGroup::Gate, "{node:?} 属 Gate");
         assert_eq!(node.role(), None, "门步无角色");
     }
-    // 三分类互斥：Exec / Agent / Gate 覆盖全词汇（10 值无遗漏无重叠）
+    // 四分类互斥：Exec / Agent / Git / Gate 覆盖全词汇（18 值无遗漏无重叠）
     let groups: Vec<StepGroup> = [
         StepNode::Executor,
         StepNode::Evaluator,
@@ -876,20 +983,78 @@ fn step_node分组与角色派生访问器一致() {
         StepNode::VerdictGate,
         StepNode::RetryGate,
         StepNode::WhitelistGate,
+        StepNode::Preflight,
+        StepNode::Commit,
+        StepNode::Rebase,
+        StepNode::ResolveConflicts,
+        StepNode::Merge,
+        StepNode::SpecSync,
+        StepNode::Seal,
+        StepNode::Finalize,
     ]
     .iter()
     .map(|node| node.group())
     .collect();
-    assert_eq!(groups.iter().filter(|g| **g == StepGroup::Exec).count(), 4);
-    assert_eq!(groups.iter().filter(|g| **g == StepGroup::Agent).count(), 3);
+    assert_eq!(groups.len(), 18, "十八值穷举无遗漏");
+    assert_eq!(groups.iter().filter(|g| **g == StepGroup::Exec).count(), 6);
+    assert_eq!(groups.iter().filter(|g| **g == StepGroup::Agent).count(), 5);
+    assert_eq!(groups.iter().filter(|g| **g == StepGroup::Git).count(), 4);
     assert_eq!(groups.iter().filter(|g| **g == StepGroup::Gate).count(), 3);
+}
+
+/// `StepGroup` 四分类线面 lowercase 逐字出线（exec / agent / git / gate）；
+/// 非法词反序列化拒绝（AC-2 新增 `git` 词面）。
+#[test]
+fn step_group四值线面lowercase逐字() {
+    let wire = |group: StepGroup| serde_json::to_value(group).expect("出线应成功");
+    assert_eq!(wire(StepGroup::Exec), json!("exec"));
+    assert_eq!(wire(StepGroup::Agent), json!("agent"));
+    assert_eq!(wire(StepGroup::Git), json!("git"));
+    assert_eq!(wire(StepGroup::Gate), json!("gate"));
+}
+
+/// `AgentRole` 五值线面 snake_case 逐字出线（executor / evaluator / decision /
+/// spec_sync / resolve_conflicts）——与 orchestration `WorkerRole::as_str()` 同源
+/// 词面（AC-2 / D3）。
+#[test]
+fn agent_role五值线面snake_case逐字() {
+    let wire = |role: AgentRole| serde_json::to_value(role).expect("出线应成功");
+    assert_eq!(wire(AgentRole::Executor), json!("executor"));
+    assert_eq!(wire(AgentRole::Evaluator), json!("evaluator"));
+    assert_eq!(wire(AgentRole::Decision), json!("decision"));
+    assert_eq!(wire(AgentRole::SpecSync), json!("spec_sync"));
+    assert_eq!(wire(AgentRole::ResolveConflicts), json!("resolve_conflicts"));
+
+    for (role, word) in [
+        (AgentRole::Executor, "executor"),
+        (AgentRole::Evaluator, "evaluator"),
+        (AgentRole::Decision, "decision"),
+        (AgentRole::SpecSync, "spec_sync"),
+        (AgentRole::ResolveConflicts, "resolve_conflicts"),
+    ] {
+        let back: AgentRole =
+            serde_json::from_value(json!(word)).expect("合法词往返应成功");
+        assert_eq!(back, role, "{word} 往返逐词可辨");
+    }
 }
 
 /// 非法词反序列化拒绝：越集词反序列化为 `StepNode` / `StepGroup` /
 /// `AgentRole` 均 Err（封闭集防线）；`OnFail` 两变体往返可辨、缺字段拒绝。
 #[test]
 fn step_node与on_fail封闭集防线() {
-    for illegal in ["exec", "gate", "agent", "verdict", "phaseStart", ""] {
+    for illegal in [
+        "exec",
+        "gate",
+        "agent",
+        "verdict",
+        "phaseStart",
+        "git",
+        "archive",
+        "spec-sync",
+        "resolveConflicts",
+        "phaseLog",
+        "",
+    ] {
         let back: Result<StepNode, _> = serde_json::from_value(json!(illegal));
         assert!(back.is_err(), "StepNode 越集词 {illegal:?} 应拒绝");
     }
@@ -1062,7 +1227,7 @@ fn run_node_state_record全字段往返可辨() {
         }
     }
 
-    // 十值全词汇 step 出线（节点行 zero filter 前置）
+    // 十八值全词汇 step 出线（节点行 zero filter 前置）
     for (kind, word) in [
         (RunStepKind::Executor, "executor"),
         (RunStepKind::Evaluator, "evaluator"),
@@ -1074,6 +1239,14 @@ fn run_node_state_record全字段往返可辨() {
         (RunStepKind::VerdictGate, "verdict_gate"),
         (RunStepKind::RetryGate, "retry_gate"),
         (RunStepKind::WhitelistGate, "whitelist_gate"),
+        (RunStepKind::Preflight, "preflight"),
+        (RunStepKind::Commit, "commit"),
+        (RunStepKind::Rebase, "rebase"),
+        (RunStepKind::ResolveConflicts, "resolve_conflicts"),
+        (RunStepKind::Merge, "merge"),
+        (RunStepKind::SpecSync, "spec_sync"),
+        (RunStepKind::Seal, "seal"),
+        (RunStepKind::Finalize, "finalize"),
     ] {
         let value = serde_json::to_value(RunNodeStateRecord {
             step: kind,

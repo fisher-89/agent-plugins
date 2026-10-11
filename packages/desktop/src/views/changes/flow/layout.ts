@@ -1,5 +1,5 @@
 /**
- * 流程图布局常量与坐标纯函数（9 列手工坐标，布局即语义；不引入 dagre / elk）。
+ * 流程图布局常量与坐标纯函数（10 列手工坐标，布局即语义；不引入 dagre / elk）。
  *
  * 坐标约定（design 数据模型）：
  * - 列容器为画布绝对坐标：x = colIndex × COL_W，y = 0；容器宽 COL_W，
@@ -12,7 +12,7 @@
  */
 import type { FlowColumn, FlowNode } from './types';
 
-/** 固定 9 站流水线前端镜像（与 Rust queries::detail 的 PIPELINE_PHASES 同序，改动需双侧同步） */
+/** 固定 10 站流水线前端镜像（与 Rust queries::detail 的 PIPELINE_PHASES 同序，改动需双侧同步；archive 恒为第 10 列） */
 export const PIPELINE_PHASES: readonly string[] = [
   'proposal',
   'dev-design',
@@ -23,6 +23,7 @@ export const PIPELINE_PHASES: readonly string[] = [
   'code-review',
   'acceptance',
   'code-analyze',
+  'archive',
 ];
 
 export const COL_W = 260;

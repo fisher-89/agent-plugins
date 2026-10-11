@@ -68,8 +68,6 @@ fn app_with(env: &Env) -> App<tauri::test::MockRuntime> {
     let stores = WorkspaceStores::open(env.data_dir.path()).expect("打开测试全局库失败");
     app.manage(stores);
     app.manage(Arc::new(ChangeFlowControl::new()));
-    // 归档链控制注册表（change_flow_start 反向互斥前置读取——main.rs 同构托管）
-    app.manage(Arc::new(orchestration::archive_flow::ArchiveControl::new()));
     app.manage(Arc::new(StopRegistry::new()));
     app
 }
@@ -686,8 +684,14 @@ fn answer与confirm无等待方时err透传() {
     )
     .expect_err("无 run 应 Err");
     assert!(err.contains("无运行中的 run"), "miss 记因: {err}");
-    let err = change_flow_confirm_with(app.handle().clone(), env.root(), CHANGE.to_owned(), true)
-        .expect_err("无 run 应 Err");
+    let err = change_flow_confirm_with(
+        app.handle().clone(),
+        env.root(),
+        CHANGE.to_owned(),
+        true,
+        false,
+    )
+    .expect_err("无 run 应 Err");
     assert!(err.contains("无运行中的 run"), "miss 记因: {err}");
 
     // 有 run 无挂起：Err「当前无等待」
@@ -703,8 +707,14 @@ fn answer与confirm无等待方时err透传() {
     )
     .expect_err("无挂起 ask 应 Err");
     assert_eq!(err, "当前无等待中的 ask");
-    let err = change_flow_confirm_with(app.handle().clone(), env.root(), CHANGE.to_owned(), true)
-        .expect_err("无挂起确认应 Err");
+    let err = change_flow_confirm_with(
+        app.handle().clone(),
+        env.root(),
+        CHANGE.to_owned(),
+        true,
+        true,
+    )
+    .expect_err("无挂起确认应 Err");
     assert_eq!(err, "当前无等待中的 phase 确认");
 }
 
@@ -734,6 +744,7 @@ fn watch补订运行中接收后续信封_无run时ok非错误() {
         .expect("补订应成功");
     guard.emit(super::RunUpdate::ConfirmWait {
         phase: "test-gen".to_owned(),
+        archive: None,
     });
     wait_for("补订信封", || {
         !captured.lock().expect("捕获锁不可中毒").is_empty()
@@ -778,9 +789,14 @@ async fn 参数转换守卫blank_root各命令模板保留() {
     )
     .expect_err("blank root answer 应 Err");
     assert!(err.contains("root"), "守卫 Err 文案: {err}");
-    let err =
-        change_flow_confirm_with(app.handle().clone(), blank.clone(), CHANGE.to_owned(), true)
-            .expect_err("blank root confirm 应 Err");
+    let err = change_flow_confirm_with(
+        app.handle().clone(),
+        blank.clone(),
+        CHANGE.to_owned(),
+        true,
+        true,
+    )
+    .expect_err("blank root confirm 应 Err");
     assert!(err.contains("root"), "守卫 Err 文案: {err}");
 
     // stop：Ok（miss 幂等；state 快照命令已退役——重挂恢复归统一查询）
@@ -824,8 +840,14 @@ async fn 参数转换守卫blank_id五缝各就位() {
     )
     .expect_err("blank id answer 应 Err");
     assert_eq!(err, "非法 id: 不得为空白", "answer blank id 模板保留");
-    let err = change_flow_confirm_with(app.handle().clone(), root.clone(), blank.clone(), true)
-        .expect_err("blank id confirm 应 Err");
+    let err = change_flow_confirm_with(
+        app.handle().clone(),
+        root.clone(),
+        blank.clone(),
+        true,
+        true,
+    )
+    .expect_err("blank id confirm 应 Err");
     assert_eq!(err, "非法 id: 不得为空白", "confirm blank id 模板保留");
 
     // stop / watch：Ok 幂等无副作用（blank 不进入注册表链路）
@@ -1209,97 +1231,239 @@ fn sink事件桥接_session_event记会话锚且publish透传() {
 }
 
 // ---------------------------------------------------------------------------
-// 归档反向互斥（desktop-archive-change D3——前置校验序列 +1：run 命令面唯一
-// 触点；walker / 装配形态与其余五命令零改动）
+// 归档链并入 run（AC-10）：反向互斥面摘除 + run 命令面装配
+//（stop_before=archive / vcs 缝 / confirm sync_specs 透传）
 // ---------------------------------------------------------------------------
 
-/// 归档进行中 run 发起被拒：`ArchiveControl::begin` 预登记 (root, id) 后
-/// `change_flow_start_with` → Err 含归档进行中原因；零 run 落账
-///（`ChangeFlowControl::snapshot` None、库内零 StepRecord）；同名异 id 同 root /
-/// 异 root 同 id 不误拒（互斥键为 (root, id)——name 非键，发起照常进入既有
-/// 前置校验面）。
+/// 归档互斥面摘除（正向）：`change_flow_start` 不再读取任何归档链控制注册表——
+/// 同一 (root, id) 直接受理进入运行态（无「归档链进行中」拒绝分支），注册表条目
+/// 与 run 运行史照常落（AC-10 命令面收编）。
 #[tokio::test]
-async fn start归档进行中被拒_复合键寻址异键不误拒() {
-    let env = Env::new("archive-mutex");
+async fn start归档互斥面摘除_无归档注册表照常受理() {
+    let env = Env::new("archive-mutex-removed");
     env.change_dir(CHANGE);
     let app = app_with(&env);
     let root = env.root();
     seed_change(&app, &root, CHANGE, "requirement");
+    seed_cli_default_instance(&app);
+    let (path_guard, original) = isolate_path();
 
-    let archive_control = app.state::<Arc<orchestration::archive_flow::ArchiveControl>>();
-    let guard = archive_control
-        .begin(&root, CHANGE)
-        .expect("归档链预登记应成功");
-
-    // 同键：run 发起被拒（归档进行中原因）
-    let error = change_flow_start_with(
+    let (channel, captured) = capturing_channel();
+    let summary = change_flow_start_with(
         app.handle().clone(),
-        discarding_channel(),
+        channel,
         root.clone(),
         CHANGE.to_owned(),
         false,
     )
     .await
-    .expect_err("归档进行中应 Err");
-    assert!(
-        error.contains("归档链进行中"),
-        "归档进行中拒绝记因: {error}"
+    .expect("无归档注册表亦照常受理（互斥面已摘除）");
+    assert!(summary.run_id.starts_with("run-"));
+
+    let control = app.state::<Arc<ChangeFlowControl>>();
+    assert_eq!(
+        control.snapshot(&root, CHANGE).map(|snap| snap.run_id),
+        Some(summary.run_id.clone()),
+        "受理即登记（零归档互斥前置）"
     );
 
-    // 零 run 落账：快照 None（未进入运行态）
-    let control = app.state::<Arc<ChangeFlowControl>>();
-    assert!(
-        control.snapshot(&root, CHANGE).is_none(),
-        "拒绝分支零 run 登记"
-    );
+    wait_for("Finished 信封", || {
+        captured
+            .lock()
+            .expect("捕获锁不可中毒")
+            .iter()
+            .any(|value| value["ipc"] == "finished")
+    });
+    restore_path(path_guard, original);
+    wait_for("终态除名", || control.snapshot(&root, CHANGE).is_none());
     let store = app
         .state::<WorkspaceStores>()
         .for_root(&root)
         .expect("for_root 应成功");
-    assert!(
-        store
-            .list_change_steps(CHANGE, None)
-            .expect("步骤枚举应成功")
-            .is_empty(),
-        "库内零 StepRecord"
-    );
+    let runs = store.list_change_runs(CHANGE).expect("run 史清单应成功");
+    assert_eq!(runs.len(), 1, "run 运行史落一行（命令面收编后唯一发起面）");
+}
 
-    // 同名异 id 同 root：不误拒（互斥键为 (root, id)——name 非键；进入既有
-    // 校验面——compose 缺省解析无实例 Err 而非归档记因）
-    seed_change_full(&app, &root, "id-same-name", CHANGE, "requirement");
-    let error = change_flow_start_with(
+/// 归档前停等与确认拒绝（正向）：8 路由相位全 pass 后 run 停在 archive 前——
+/// 停止门发 kind-only `ConfirmWait` 通知并挂起（快照 waitingConfirm / phase=
+/// archive）；`change_flow_confirm_with(proceed=false)` 收敛 stopped，归档相位零
+/// 落账（AC-7 / AC-10）。
+#[tokio::test]
+async fn start走完路由相位停在archive前且confirm拒绝收敛stopped() {
+    let env = Env::new("stop-before-archive");
+    env.change_dir(CHANGE);
+    let app = app_with(&env);
+    let root = env.root();
+    seed_change(&app, &root, CHANGE, "requirement");
+    seed_cli_default_instance(&app);
+    let store = app
+        .state::<WorkspaceStores>()
+        .for_root(&root)
+        .expect("for_root 应成功");
+    for (index, phase) in [
+        "proposal",
+        "dev-design",
+        "test-design",
+        "implement",
+        "test-gen",
+        "test-execution",
+        "code-review",
+        "acceptance",
+    ]
+    .iter()
+    .enumerate()
+    {
+        let started = store
+            .start_change_phase(CHANGE, phase, STARTED_AT + (index as i64) * 1000)
+            .expect("开相种子应成功");
+        store
+            .log_change_phase(&workflow::state::PhaseLogCommand {
+                change_id: CHANGE.to_owned(),
+                phase: (*phase).to_owned(),
+                verdict: workflow::model::Verdict::Pass,
+                report: "种子通过".to_owned(),
+                skipped: false,
+                checklist: Vec::new(),
+                executor_session_id: None,
+                evaluator_session_id: None,
+                decision_session_id: None,
+                start_at: Some(started.start_at),
+                timestamp: started.start_at + 500,
+            })
+            .expect("落账种子应成功");
+    }
+
+    let (channel, captured) = capturing_channel();
+    let summary = change_flow_start_with(
         app.handle().clone(),
-        discarding_channel(),
+        channel,
         root.clone(),
-        "id-same-name".to_owned(),
-        false,
+        CHANGE.to_owned(),
+        true,
     )
     .await
-    .expect_err("同名异 id 应走既有校验面");
-    assert!(
-        !error.contains("归档链进行中"),
-        "同名异 id 不误拒归档互斥（互斥键为 (root, id)）: {error}"
+    .expect("受理");
+    assert_eq!(summary.status, super::ChangeRunStatus::Running);
+
+    wait_for("ConfirmWait 通知", || {
+        captured
+            .lock()
+            .expect("捕获锁不可中毒")
+            .iter()
+            .any(|value| value["ipc"] == "confirmWait")
+    });
+    let frames = captured.lock().expect("捕获锁不可中毒").clone();
+    let wait_frames: Vec<&serde_json::Value> = frames
+        .iter()
+        .filter(|value| value["ipc"] == "confirmWait")
+        .collect();
+    assert_eq!(wait_frames.len(), 1, "归档前恰一道停等通知");
+    assert_eq!(
+        wait_frames[0].as_object().expect("通知为对象").len(),
+        1,
+        "kind-only 零载荷（归档前置载荷不出进程）"
     );
 
-    // 异 root 同名 change：不误拒（复合键寻址）
-    let other_env = Env::new("archive-mutex-other-root");
-    other_env.change_dir(CHANGE);
-    seed_change(&app, &other_env.root(), CHANGE, "requirement");
-    let error = change_flow_start_with(
+    let control = app.state::<Arc<ChangeFlowControl>>();
+    let snapshot = control.snapshot(&root, CHANGE).expect("run 在册");
+    assert_eq!(snapshot.status, super::ChangeRunStatus::WaitingConfirm);
+    assert_eq!(snapshot.phase.as_deref(), Some("archive"));
+
+    change_flow_confirm_with(
         app.handle().clone(),
-        discarding_channel(),
-        other_env.root(),
+        root.clone(),
         CHANGE.to_owned(),
         false,
+        true,
     )
-    .await
-    .expect_err("异 root 应走既有校验面");
-    assert!(
-        !error.contains("归档链进行中"),
-        "异 root 不误拒归档互斥: {error}"
+    .expect("confirm 透传应成功");
+    wait_for("终态收口", || control.snapshot(&root, CHANGE).is_none());
+    let runs = store.list_change_runs(CHANGE).expect("run 史清单应成功");
+    assert_eq!(runs.len(), 1);
+    assert_eq!(
+        runs[0].status,
+        workflow::state::RunStatus::Stopped,
+        "停等未确认 → stopped（归档相位零执行）"
     );
+    let archive_entries = store
+        .list_phase_records(CHANGE)
+        .expect("读相位条目应成功")
+        .into_iter()
+        .filter(|entry| entry.phase == "archive")
+        .count();
+    assert_eq!(archive_entries, 0, "归档相位零落账（未进相位）");
+}
 
-    drop(guard);
+/// `change_flow_confirm` 透传 `sync_specs`（正向）：五参经命令面抵达注册表
+/// 应答通道（停等面无等待方即 Err「当前无等待中的 phase 确认」——参数校验与
+/// 透传路径照常，AC-7 / D2）。
+#[test]
+fn confirm透传sync_specs四组合至注册表() {
+    let env = Env::new("confirm-sync-specs");
+    let app = app_with(&env);
+    let root = env.root();
+    let control = app.state::<Arc<ChangeFlowControl>>();
+
+    for (proceed, sync_specs) in [(true, true), (true, false), (false, true), (false, false)] {
+        let guard = control
+            .begin_run(&root, CHANGE, "run-1".to_owned(), STARTED_AT)
+            .expect("登记应成功");
+        guard.emit(super::RunUpdate::ConfirmWait {
+            phase: "archive".to_owned(),
+            archive: None,
+        });
+        // 无 walker 等待方：confirm 应答 Err（单次通道空置）——透传路径四组合
+        // 均不 panic、不误判合法参数
+        let err = change_flow_confirm_with(
+            app.handle().clone(),
+            root.clone(),
+            CHANGE.to_owned(),
+            proceed,
+            sync_specs,
+        )
+        .expect_err("无挂起等待方应 Err");
+        assert_eq!(err, "当前无等待中的 phase 确认");
+        guard.finish(super::ChangeRunStatus::Stopped, None);
+    }
+}
+
+/// `change_flow_confirm` 校验（异常 / 回归）：blank root / id 显式 Err；无运行
+/// run Err 透传（既有语义不变，AC-7 / AC-10）。
+#[test]
+fn confirm校验blank与无运行run双面err() {
+    let env = Env::new("confirm-guard");
+    let app = app_with(&env);
+    let root = env.root();
+
+    let err = change_flow_confirm_with(
+        app.handle().clone(),
+        "   ".to_owned(),
+        CHANGE.to_owned(),
+        true,
+        true,
+    )
+    .expect_err("blank root 应 Err");
+    assert!(err.contains("非法 root"), "blank root 记因: {err}");
+
+    let err = change_flow_confirm_with(
+        app.handle().clone(),
+        root.clone(),
+        "  ".to_owned(),
+        true,
+        false,
+    )
+    .expect_err("blank id 应 Err");
+    assert!(err.contains("非法 id"), "blank id 记因: {err}");
+
+    let err = change_flow_confirm_with(
+        app.handle().clone(),
+        root.clone(),
+        CHANGE.to_owned(),
+        true,
+        false,
+    )
+    .expect_err("无运行 run 应 Err");
+    assert!(err.contains("无运行中的 run"), "miss 记因: {err}");
 }
 
 /// Channel 面五 kind 通知各自一拍出线且零载荷键（AC-8 kind 位 + 信封降位线
@@ -1366,6 +1530,7 @@ fn channel面五kind通知各自一拍且零载荷键() {
     });
     guard.emit(super::RunUpdate::ConfirmWait {
         phase: "test-gen".to_owned(),
+        archive: None,
     });
     guard.finish(super::ChangeRunStatus::Completed, None);
 

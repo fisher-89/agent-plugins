@@ -578,11 +578,11 @@ describe('ChangeDetailView：页面组装（图区 / 产物区 / 抽屉）', () 
     expect(container.textContent).toContain('提案正文');
   });
 
-  it('建档 change 零 attempt（pipeline 9 空站）→ flow-graph 正常渲染 9 列', async () => {
+  it('建档 change 零 attempt（pipeline 10 空站含 archive）→ flow-graph 正常渲染 10 列', async () => {
     renderDetail({
       detail: detail({ pipeline: PIPELINE.map((phase) => ({ phase, attempts: [] })) }),
     });
-    await waitFor(() => expect(screen.getAllByTestId('flow-column')).toHaveLength(9));
+    await waitFor(() => expect(screen.getAllByTestId('flow-column')).toHaveLength(10));
     expect(screen.queryByTestId('flow-empty')).toBeNull();
   });
 
@@ -704,6 +704,7 @@ function activeRunView(overrides: Partial<ActiveRunView> = {}): ActiveRunView {
     phase: 'implement',
     attempt: 1,
     ask: null,
+    archive: null,
     startedAt: '2026-10-01T08:00:00.000Z',
     nodes: [],
     edges: [],
@@ -1153,10 +1154,10 @@ describe('ChangeDetailView：退役元素零渲染与详情图区恒态', () => 
     expect(within(container).queryByTestId('filelog-table')).toBeNull();
   });
 
-  it('详情恒走图区：status 在场 → 9 站流水线图 + 抽屉入口；status 缺席 + pipeline 空 → 同走图区（零列图）不崩溃不空白，产物区照常', async () => {
-    // 建档：9 列流水线 + 列头点击开抽屉（单一交互入口可达）
+  it('详情恒走图区：status 在场 → 10 站流水线图（末列 archive）+ 抽屉入口；status 缺席 + pipeline 空 → 同走图区（零列图）不崩溃不空白，产物区照常', async () => {
+    // 建档：10 列流水线（末列 archive）+ 列头点击开抽屉（单一交互入口可达）
     const filed = renderDetail({ detail: detail(), artifacts: PROPOSAL_ENVELOPES });
-    await waitFor(() => expect(screen.getAllByTestId('flow-column')).toHaveLength(9));
+    await waitFor(() => expect(screen.getAllByTestId('flow-column')).toHaveLength(10));
     fireEvent.click(screen.getAllByTestId('flow-column')[0]);
     expect(screen.getByTestId('detail-drawer') !== null).toBe(true);
     fireEvent.click(screen.getByRole('button', { name: '关闭' }));
@@ -1212,13 +1213,6 @@ describe('ChangeDetailView：退役元素零渲染与详情图区恒态', () => 
       }),
     );
 
-    // 命令面（归档面板）：确认对话 aria-label 取 detail.name；preflight 指令带 URL id
-    fireEvent.click(screen.getByTestId('archive-trigger'));
-    await screen.findByLabelText('change add-feature 归档确认');
-    await waitFor(() =>
-      expect(invokeMock).toHaveBeenCalledWith('archive_flow_preflight', { root: ROOT, id: urlId }),
-    );
-
     // 命令面（抽屉）：eval 节点选中 → 转录反查 sourceRef 身份段 = URL id
     fireEvent.click(screen.getByTestId(`rf__node-eval:proposal:1`));
     await screen.findByTestId('detail-drawer');
@@ -1233,103 +1227,137 @@ describe('ChangeDetailView：退役元素零渲染与详情图区恒态', () => 
 });
 
 // ---------------------------------------------------------------------------
-// 归档入口（desktop-archive-change D14——DetailHeader 归档按钮两态 + ArchivePanel
-// 挂载位 + 链终态一次 refresh 回落已归档形态。归档面板状态经真实 useArchiveFlow
-// 走 mock IPC：archive_flow_state 出快照 → Channel 投递信封驱动终态）
+// 归档链退役（merge-archive-steps-into-flow AC-9）：归档入口按钮 / 归档面板 /
+// 归档状态源整体摘除——归档入口由 run 流程的 stop-before-archive 停等面承载，
+// 归档列（第 10 列）经详情图区常驻渲染
 // ---------------------------------------------------------------------------
 
-describe('ChangeDetailView：归档入口（按钮两态 / panel 挂载位 / 终态 refresh）', () => {
-  it('detail status=active → archive-trigger 呈现；archived / status 缺席 → 不渲染（负断言）', async () => {
-    // active 建档：按钮在场
-    renderDetail({ detail: detail(), artifacts: PROPOSAL_ENVELOPES });
-    await screen.findByTestId('archive-trigger');
-    cleanup();
-
-    // 已归档：按钮不渲染
-    renderDetail({
-      detail: detail({ status: 'archived', source: 'archive' }),
-      artifacts: PROPOSAL_ENVELOPES,
-    });
-    await screen.findByTestId('detail-header');
-    expect(screen.queryByTestId('archive-trigger')).toBeNull();
-    cleanup();
-
-    // status 缺席（status null）：无入口
-    renderDetail({ detail: detail({ status: null }), artifacts: PROPOSAL_ENVELOPES });
-    await screen.findByTestId('detail-header');
-    expect(screen.queryByTestId('archive-trigger')).toBeNull();
+describe('ChangeDetailView：归档链退役（入口按钮 / 面板 / 状态源零渲染 + 归档列上图）', () => {
+  it('ArchivePanel 组装与入口按钮移除：archive-trigger / archive-confirm-dialog 零渲染（active / archived / status 缺席三态一致）', async () => {
+    for (const shape of [
+      detail(),
+      detail({ status: 'archived', source: 'archive' }),
+      detail({ status: null }),
+    ]) {
+      const view = renderDetail({ detail: shape, artifacts: PROPOSAL_ENVELOPES });
+      await screen.findByTestId('detail-header');
+      expect(screen.queryByTestId('archive-trigger')).toBeNull();
+      expect(screen.queryByTestId('archive-confirm-dialog')).toBeNull();
+      view.unmount();
+    }
   });
 
-  it('归档面板挂载位：active 形态点击触发 → panel 于 detail-header 之后、run 控制面板之前；status 非 active → panel 不渲染', async () => {
-    const view = renderDetail({ detail: detail(), artifacts: PROPOSAL_ENVELOPES });
-    fireEvent.click(await screen.findByTestId('archive-trigger'));
+  it('归档状态源摘除：不再调用 useArchiveFlow 链命令（archive_flow_state / archive_flow_start / archive_flow_preflight 零调用）', async () => {
+    renderDetail({ detail: detail(), artifacts: PROPOSAL_ENVELOPES });
+    await screen.findByTestId('flow-graph');
+    await waitFor(() => expect(detailCalls()).toHaveLength(1));
 
-    // panel 呈现（确认对话形态）且 DOM 序位于 detail-header 之后
-    const panel = await screen.findByTestId('archive-confirm-dialog');
-    const header = screen.getByTestId('detail-header');
-    expect(header.compareDocumentPosition(panel) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-
-    // 与 run 面并置但组件隔离：run 控制面板在场且位于 panel 之后（DOM 序锚）
-    const runPanelButton = document.querySelector('[data-testid="run-auto-next-phase"]');
-    expect(runPanelButton).not.toBeNull();
+    const commands = invokeMock.mock.calls.map((call) => call[0] as string);
     expect(
-      panel.compareDocumentPosition(runPanelButton as Node) & Node.DOCUMENT_POSITION_FOLLOWING,
-    ).toBeTruthy();
+      commands.some((command) => command.startsWith('archive_flow_')),
+      `归档链命令零调用，实际: ${commands.join(', ')}`,
+    ).toBe(false);
+  });
 
-    // status 非 active（已归档形态）：panel 挂载条件不成立（按钮本就不渲染——
-    // 两态分流由上一用例负断言；本行防渲染器回归的重挂双保险）
-    view.unmount();
-    renderDetail({
-      detail: detail({ status: 'archived', source: 'archive' }),
+  it('归档列入图：第 10 列 archive 列头常驻（列序与 PIPELINE_PHASES 同序，末位 archive）', async () => {
+    const { container } = renderDetail({ detail: detail(), artifacts: PROPOSAL_ENVELOPES });
+    const columns = await screen.findAllByTestId('flow-column');
+    expect(columns).toHaveLength(10);
+    const ids = columns.map((column) => column.getAttribute('data-testid') ?? '');
+    expect(ids.length).toBe(10);
+    // 末列为 archive（列容器 identity 锚：col:archive）
+    expect(container.querySelector('[data-testid="rf__node-col:archive"]')).not.toBeNull();
+    expect(container.querySelector('[data-testid="rf__node-col:code-analyze"]')).not.toBeNull();
+  });
+
+  it('归档列空态（无 run / 无 archive attempt）→ 详情图空列不报错、停等面降级渲染', async () => {
+    const { container } = renderDetail({
+      detail: detail({
+        pipeline: PIPELINE.map((phase) => ({ phase, attempts: [] })),
+      }),
       artifacts: PROPOSAL_ENVELOPES,
     });
-    await screen.findByTestId('detail-header');
+    await waitFor(() => expect(screen.getAllByTestId('flow-column')).toHaveLength(10));
+    // 归档空列仍在图内且零事件节点不崩溃
+    expect(container.querySelector('[data-testid="rf__node-col:archive"]')).not.toBeNull();
+    expect(screen.queryByTestId('flow-empty')).toBeNull();
+    // activeRun.archive === null（无在飞 run）→ 停等面不渲染归档确认卡片
     expect(screen.queryByTestId('archive-confirm-dialog')).toBeNull();
   });
 
-  it('链终态 refresh：Finished 信封 → detail 重查恰一次、回落已归档形态（archive-trigger 消失）', async () => {
-    // archive_flow_state 出运行中快照（hook 补订实时流），detail 初态 active
+  it('run 停等面承载归档确认：activeRun 停等在 archive 相位 → 归档确认卡片渲染（archive 载荷在场）', async () => {
     const original = invokeMock.getMockImplementation();
+    loadActiveRun(null);
     invokeMock.mockImplementation((command: string, args?: Record<string, unknown>) => {
-      if (command === 'archive_flow_state') {
-        return Promise.resolve({
-          stages: [{ stage: 'seal', status: 'running', detail: null }],
-          sessionId: 'sess-arch',
-        });
+      if (command !== 'change_flow_start' && command !== 'change_flow_confirm') {
+        return original!(command, args);
       }
-      return original!(command, args);
+      return Promise.resolve(null);
     });
-    loadFixture({ detail: detail(), artifacts: PROPOSAL_ENVELOPES });
+    loadFixture({
+      detail: detail({ activePhase: { phase: 'archive', attempt: 1, startAt: null } }),
+      artifacts: PROPOSAL_ENVELOPES,
+    });
+    loadActiveRun({
+      runId: 'run-archive-wait',
+      status: 'waitingConfirm',
+      phase: 'archive',
+      attempt: 1,
+      ask: null,
+      archive: {
+        name: 'add-feature',
+        completed: false,
+        incompletePhases: ['implement'],
+        missingArtifacts: ['design.md'],
+        deltaSpecs: ['desktop-flow'],
+        worktree: null,
+        branch: null,
+        mergeTarget: null,
+      },
+      startedAt: '2026-10-08T00:00:00Z',
+      nodes: [],
+      edges: [],
+    });
     render(
       <MemoryRouter initialEntries={[`/changes/${CHANGE_ID}`]}>{detailTree(ROOT)}</MemoryRouter>,
     );
-    await screen.findByTestId('archive-trigger');
 
-    // fixture 换已归档形态（refresh 的应答面——链收口后 db 事实已翻转），再投
-    // Finished 终态信封（hook 归并 → finished → onFinish=refresh）
-    loadFixture({
-      detail: detail({ status: 'archived', source: 'archive' }),
-      artifacts: PROPOSAL_ENVELOPES,
-    });
-    const channel = ChannelMock.instances.at(-1);
-    expect(channel).toBeDefined();
-    act(() => {
-      channel?.push({
-        ipc: 'finished',
-        summary: {
-          name: 'add-feature',
-          archivedDir: '2026-10-08-add-feature',
-          specs: 'none',
-          warnings: [],
-        },
-        error: null,
-      });
+    const card = await screen.findByTestId('run-archive-confirm-card');
+    expect(card.textContent).toContain('implement');
+    expect(card.textContent).toContain('design.md');
+    expect(card.textContent).toContain('desktop-flow');
+    // 退役入口仍零渲染（归档确认只此一条路径）
+    expect(screen.queryByTestId('archive-trigger')).toBeNull();
+    expect(screen.queryByTestId('archive-confirm-dialog')).toBeNull();
+  });
+
+  it('detail 拉取失败 → 详情页降级渲染（错误态）不崩溃，归档链零命令且退役面零渲染', async () => {
+    // 挂起门闩下以 reject 落定（既有错误态驱动同式）
+    renderDetail({ detail: null, hold: true });
+    detailResult = '库读失败';
+    await act(async () => {
+      releaseDetail?.();
     });
 
-    // refresh：detail 重查恰一次（初始 + 终态各一次）；回落已归档形态
-    await waitFor(() => expect(detailCalls()).toHaveLength(2));
-    await waitFor(() => expect(screen.queryByTestId('archive-trigger')).toBeNull());
-    expect(screen.getByTestId('detail-header').textContent).toContain('已归档');
+    await waitFor(() => expect(screen.getByTestId('error-note').textContent).toContain('库读失败'));
+    expect(screen.queryByTestId('archive-trigger')).toBeNull();
+    expect(screen.queryByTestId('archive-confirm-dialog')).toBeNull();
+    expect(screen.queryByTestId('run-archive-confirm-card')).toBeNull();
+    const commands = invokeMock.mock.calls.map((call) => call[0] as string);
+    expect(commands.some((command) => command.startsWith('archive_flow_'))).toBe(false);
+  });
+
+  it('既有渲染回归：详情头 / 状态徽章 / 产物区 / 抽屉入口不受归档链退役影响', async () => {
+    const { container } = renderDetail({ detail: detail(), artifacts: PROPOSAL_ENVELOPES });
+    await screen.findByTestId('detail-header');
+    expect(within(container).getByTestId('detail-header').textContent).toContain('进行中');
+    await waitFor(() => expect(within(container).getAllByTestId('artifact-card')).toHaveLength(1));
+    // 抽屉入口仍经列头可达（单一交互入口不变）
+    fireEvent.click(screen.getAllByTestId('flow-column')[0]);
+    expect(screen.getByTestId('detail-drawer') !== null).toBe(true);
+    fireEvent.click(screen.getByRole('button', { name: '关闭' }));
+    // run 控制面板（归档入口的新承载）照常在场
+    expect(screen.getByTestId('run-start') !== null).toBe(true);
   });
 });
 
@@ -1369,7 +1397,7 @@ describe('ChangeDetailView：详情头渲染 detail.title（AC-8）', () => {
 
     // 展示面取 title、命令面 / 面板面取 name（双字段可辨）
     expect(screen.getByLabelText('change add-feature 运行控制') !== null).toBe(true);
-    fireEvent.click(screen.getByTestId('archive-trigger'));
-    await screen.findByLabelText('change add-feature 归档确认');
+    // 归档入口已并入 run 停等面：退役按钮零渲染（name 仅展名面留存）
+    expect(screen.queryByTestId('archive-trigger')).toBeNull();
   });
 });

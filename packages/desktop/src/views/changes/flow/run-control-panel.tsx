@@ -13,6 +13,7 @@ import { Button } from '@/components/ui/button';
 
 import type {
   ActiveRunView,
+  ArchivePreflight,
   AskPayload,
   ChangeRunEntry,
   ChangeRunStatus,
@@ -87,20 +88,30 @@ function RunActions({
         )}
       </div>
       <span className="text-xs text-muted-foreground">
-        自动确认：仅跳过相位间停等；ask 中断、失败与终态收口仍停下等待，不自动归档。
+        自动确认：仅跳过相位间停等；归档前（archive）必停等确认，ask
+        中断、失败与终态收口仍停下等待——归档不自动推进。
       </span>
     </div>
   );
 }
 
-/** phase 间停等确认卡片（proceed=false → 受控终态 stopped）。 */
+/**
+ * 停等确认卡片单入口：`phase === 'archive'` → 归档前停等卡片（stop-before-archive
+ * 手动门，携归档前置载荷）；其余相位 → 既有个 phase 间确认卡片（proceed=false →
+ * 受控终态 stopped）。
+ */
 function ConfirmCard({
   actions,
   phase,
+  preflight,
 }: {
   actions: RunActions;
   phase: string;
+  preflight: ArchivePreflight | null;
 }): React.JSX.Element {
+  if (phase === 'archive') {
+    return <ArchiveConfirmCard actions={actions} preflight={preflight} />;
+  }
   return (
     <div
       className="mt-2 rounded-md border border-border bg-card px-3 py-2"
@@ -110,13 +121,150 @@ function ConfirmCard({
         相位 <span className="text-muted-foreground">{phase}</span> 已收口，是否继续推进下一相位？
       </div>
       <div className="mt-2 flex gap-2">
-        <Button onClick={() => void actions.confirm(true)} data-testid="run-confirm-proceed">
+        <Button onClick={() => void actions.confirm(true, true)} data-testid="run-confirm-proceed">
           继续
         </Button>
-        <Button onClick={() => void actions.confirm(false)} data-testid="run-confirm-stop">
+        <Button onClick={() => void actions.confirm(false, true)} data-testid="run-confirm-stop">
           终止运行
         </Button>
       </div>
+    </div>
+  );
+}
+
+/** 归档前置警告行（完成度 + 产物缺失；inform 不阻断）。 */
+function archiveWarnings(data: ArchivePreflight | null): string[] {
+  if (data === null) return [];
+  const warnings: string[] = [];
+  if (!data.completed) {
+    warnings.push(
+      data.incompletePhases.length > 0
+        ? `工作流未全部通过：${data.incompletePhases.join('、')}`
+        : '完成度不可核算（工作流类型无相位表）',
+    );
+  }
+  if (data.missingArtifacts.length > 0) {
+    warnings.push(`缺少产物文档：${data.missingArtifacts.join('、')}`);
+  }
+  return warnings;
+}
+
+/** 归档警告行组（informs，不阻断确认）。 */
+function ArchiveWarningRows({ warnings }: { warnings: string[] }): React.JSX.Element | null {
+  if (warnings.length === 0) return null;
+  return (
+    <div className="flex flex-col gap-1">
+      {warnings.map((warning) => (
+        <div
+          key={warning}
+          className="mt-1 break-all rounded-md bg-warn-bg px-2.5 py-1.5 text-[13px] text-warn"
+          data-testid="run-archive-warning"
+        >
+          {warning}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/** delta specs capability 清单行（缺席整块隐藏）。 */
+function ArchiveDeltaSpecs({ capabilities }: { capabilities: string[] }): React.JSX.Element | null {
+  if (capabilities.length === 0) return null;
+  return (
+    <div className="mt-1 text-[13px]" data-testid="run-archive-delta-specs">
+      delta specs（{capabilities.length} 个 capability）：{capabilities.join('、')}
+    </div>
+  );
+}
+
+/** 跳过同步勾选（载荷缺席亦呈现——降级不降能）。 */
+function ArchiveSyncSkip({
+  skipSync,
+  onChange,
+}: {
+  skipSync: boolean;
+  onChange: (checked: boolean) => void;
+}): React.JSX.Element {
+  return (
+    <label className="mt-1 flex items-center gap-1.5 text-[13px]">
+      <input
+        type="checkbox"
+        checked={skipSync}
+        onChange={(event) => onChange(event.target.checked)}
+        data-testid="run-archive-sync-skip"
+      />
+      跳过 delta specs 同步，直接归档
+    </label>
+  );
+}
+
+/** worktree 合入告知行（目标 = 主仓当前分支；探测失败呈现占位）。 */
+function ArchiveMergeNotice({ mergeTarget }: { mergeTarget: string | null }): React.JSX.Element {
+  return (
+    <div className="mt-1 break-all text-[13px]" data-testid="run-archive-merge-target">
+      将提交 worktree 并合入主仓当前分支：
+      <span className="text-muted-foreground">{mergeTarget ?? '（当前分支探测失败）'}</span>
+    </div>
+  );
+}
+
+/** 归档确认动作行（确认 → proceed=true 且 syncSpecs = `!skipSync`；终止 → 受控
+ * 终态 stopped）。 */
+function ArchiveConfirmActions({
+  actions,
+  skipSync,
+}: {
+  actions: RunActions;
+  skipSync: boolean;
+}): React.JSX.Element {
+  return (
+    <div className="mt-2 flex gap-2">
+      <Button
+        onClick={() => void actions.confirm(true, !skipSync)}
+        data-testid="run-archive-confirm-proceed"
+      >
+        确认归档
+      </Button>
+      <Button
+        onClick={() => void actions.confirm(false, true)}
+        data-testid="run-archive-confirm-stop"
+      >
+        终止运行
+      </Button>
+    </div>
+  );
+}
+
+/**
+ * 归档前停等确认卡片（stop-before-archive 手动门）：归档前置只读载荷随行
+ * （完成度警告 / delta specs 清单 / worktree 合入告知）+ 跳过同步勾选；「确认
+ * 归档」进入 archive 相位（proceed=true；syncSpecs = `!skipSync`——勾选跳过即
+ * 不回传同步），「终止运行」受控终态 stopped。
+ */
+function ArchiveConfirmCard({
+  actions,
+  preflight,
+}: {
+  actions: RunActions;
+  preflight: ArchivePreflight | null;
+}): React.JSX.Element {
+  const [skipSync, setSkipSync] = useState(false);
+  return (
+    <div
+      className="mt-2 rounded-md border border-warn bg-card px-3 py-2"
+      data-testid="run-archive-confirm-card"
+    >
+      <div className="text-[13px]">
+        等待确认进入归档：确认后进入 archive 相位（提交 worktree / 合入主仓 / 同步 delta specs /
+        双写收口）。
+      </div>
+      <ArchiveWarningRows warnings={archiveWarnings(preflight)} />
+      <ArchiveDeltaSpecs capabilities={preflight?.deltaSpecs ?? []} />
+      <ArchiveSyncSkip skipSync={skipSync} onChange={setSkipSync} />
+      {preflight !== null && preflight.worktree !== null && (
+        <ArchiveMergeNotice mergeTarget={preflight.mergeTarget} />
+      )}
+      <ArchiveConfirmActions actions={actions} skipSync={skipSync} />
     </div>
   );
 }
@@ -227,7 +375,7 @@ export function RunControlPanel({
         </div>
       )}
       {activeRun !== null && activeRun.status === 'waitingConfirm' && activeRun.phase !== null && (
-        <ConfirmCard actions={actions} phase={activeRun.phase} />
+        <ConfirmCard actions={actions} phase={activeRun.phase} preflight={activeRun.archive} />
       )}
       {activeRun !== null && activeRun.ask !== null && (
         <AskCard actions={actions} ask={activeRun.ask} />

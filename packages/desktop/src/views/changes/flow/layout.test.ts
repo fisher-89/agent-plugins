@@ -85,10 +85,10 @@ describe('nodePosition：布局即语义坐标公式', () => {
     expect(nodePosition(first).y).toBe(48);
   });
 
-  it('末列 colIndex=8 → x 恰为 8 × (COL_W + 20)（画布总宽边界 ≈2500px）', () => {
-    expect(nodePosition(column(8)).x).toBe(2240);
-    // 9 列总宽 = 8 × (COL_W + 20) + COL_W
-    expect(8 * (COL_W + 20) + COL_W).toBe(2500);
+  it('末列 colIndex=9（archive）→ x 恰为 9 × (COL_W + 20)（画布总宽边界上移一列）', () => {
+    expect(nodePosition(column(9)).x).toBe(9 * (COL_W + 20));
+    // 10 列总宽 = 9 × (COL_W + 20) + COL_W
+    expect(9 * (COL_W + 20) + COL_W).toBe(2780);
   });
 
   it('超大 order（如 1000）→ 坐标按公式线性外推，无钳制、无 NaN、不抛错', () => {
@@ -98,5 +98,53 @@ describe('nodePosition：布局即语义坐标公式', () => {
     expect(position).toEqual({ x: 18, y: 48 + 1000 * 128 });
     expect(Number.isFinite(position.x)).toBe(true);
     expect(Number.isFinite(position.y)).toBe(true);
+  });
+});
+
+describe('layout：PIPELINE_PHASES 十列布局（AC-1 / D5 双侧同步）', () => {
+  it('正向：PIPELINE_PHASES 长度 10 且含 archive（末列、code-analyze 之后）', () => {
+    expect(PIPELINE_PHASES).toHaveLength(10);
+    expect(PIPELINE_PHASES[PIPELINE_PHASES.length - 1]).toBe('archive');
+    expect(PIPELINE_PHASES[PIPELINE_PHASES.length - 2]).toBe('code-analyze');
+    expect(new Set(PIPELINE_PHASES).size).toBe(10);
+  });
+
+  it('正向：与后端 PIPELINE_PHASES 同序（十站表序逐位一致，双侧同步不漂移）', () => {
+    expect([...PIPELINE_PHASES]).toEqual([
+      'proposal',
+      'dev-design',
+      'test-design',
+      'implement',
+      'test-gen',
+      'test-execution',
+      'code-review',
+      'acceptance',
+      'code-analyze',
+      'archive',
+    ]);
+  });
+
+  it('边界：archive 列（colIndex=9）坐标合法且空列时节点列表不报错', () => {
+    const archiveColumn = column(9);
+    expect(archiveColumn.phase).toBe('archive');
+    const position = nodePosition(archiveColumn);
+    expect(position.y).toBe(0);
+    expect(position.x).toBe(9 * (COL_W + 20));
+    expect(Number.isFinite(position.x)).toBe(true);
+
+    // 空列（archive 零 attempt）→ 图仍产出该列容器、零事件节点
+    const graph = buildFlowGraph(detailWithTwoEvals());
+    const station = graph.columns.find((entry) => entry.phase === 'archive');
+    expect(station).toBeDefined();
+    expect(graph.nodes.filter((node) => node.parentId === 'col:archive')).toHaveLength(0);
+  });
+
+  it('异常（回归）：非法相位名（非十列成员）的步不入图（pipeline 外相位节点丢弃）', () => {
+    const graph = buildFlowGraph(detailWithTwoEvals());
+    const phases = new Set(graph.columns.map((entry) => entry.phase));
+    expect(phases.has('unknown-phase')).toBe(false);
+    for (const node of graph.nodes) {
+      expect(phases.has(node.phase)).toBe(true);
+    }
   });
 });

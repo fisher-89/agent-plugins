@@ -1,6 +1,7 @@
 //! `state.rs`（run 状态与步状态类型）的单元测试（test-design「state.rs ->
 //! state_test.rs」节）：RunUpdate 五变体 `ipc` 信封线格式、SessionEvent /
-//! Finished 载荷、ChangeRunStatus 终态矩阵、ChangeStepKind 九值词汇、
+//! Finished 载荷、ChangeRunStatus 终态矩阵、ChangeStepKind 十八值词汇、
+//! ArchivePreflight 八字段停等载荷、ConfirmWait 双态（archive 随行）、
 //! ChangeStepState 步状态行、ChangeRunSnapshot / ChangeRunSummary 往返、
 //! specta Type 可达。无进程边界依赖：serde_json / specta 内存构造与出线
 //! 断言，AgentEvent 载荷以 `AgentEvent::stamp` 固定构造（Mock策略：无 mock）。
@@ -13,8 +14,8 @@ use agent::{AgentBlock, AgentEventKind, AgentMessageRole};
 use serde_json::json;
 
 use crate::state::{
-    AskPayload, ChangeRunSnapshot, ChangeRunStatus, ChangeRunSummary, ChangeStepKind,
-    ChangeStepState, ChangeStepStatus, RunUpdate,
+    ArchivePreflight, AskPayload, ChangeRunSnapshot, ChangeRunStatus, ChangeRunSummary,
+    ChangeStepKind, ChangeStepState, ChangeStepStatus, RunUpdate,
 };
 
 /// 密封 AgentEvent fixture（固定盖戳时刻由 stamp 取当前时钟——载荷面断言以
@@ -83,9 +84,10 @@ fn run_update五变体线格式tag_ipc判别且驼峰键() {
     assert_eq!(ask["question"], json!("回溯到哪?"));
     assert_eq!(ask["options"], json!(["proposal", "retry"]));
 
-    // confirmWait 变体
+    // confirmWait 变体（普通相位停等：archive 载荷缺省 None）
     let wait = serde_json::to_value(&RunUpdate::ConfirmWait {
         phase: "test-gen".to_owned(),
+        archive: None,
     })
     .expect("confirmWait 出线应成功");
     assert_eq!(
@@ -94,6 +96,11 @@ fn run_update五变体线格式tag_ipc判别且驼峰键() {
         "camelCase 判别值逐字 confirmWait"
     );
     assert_eq!(wait["phase"], json!("test-gen"));
+    assert_eq!(
+        wait["archive"],
+        json!(null),
+        "普通相位停等 archive 载荷 None（null 留位不省键）"
+    );
 
     // 五变体判别值互异（封闭集可辨）
     let tags = [
@@ -202,45 +209,158 @@ fn 终态判别矩阵is_terminal互补() {
 }
 
 // ---------------------------------------------------------------------------
-// ChangeStepKind 九值词汇（三类可辨）
+// ChangeStepKind 十八值词汇（四类可辨，含归档 8 步词）
 // ---------------------------------------------------------------------------
 
+/// 归档 8 步词的 `camelCase` 线面（与 snake_case `as_str()` 逐字对应；
+/// 词面单点与 workflow `RunStepKind::as_str()` 同源，AC-2）。
 #[test]
-fn change_step_kind九值词汇线格式逐字且三类可辨() {
+fn change_step_kind归档八步词camelcase与snake同源() {
+    let wire = |kind: ChangeStepKind| serde_json::to_value(kind).expect("词汇出线应成功");
+    assert_eq!(wire(ChangeStepKind::Preflight), json!("preflight"));
+    assert_eq!(wire(ChangeStepKind::Commit), json!("commit"));
+    assert_eq!(wire(ChangeStepKind::Rebase), json!("rebase"));
+    assert_eq!(
+        wire(ChangeStepKind::ResolveConflicts),
+        json!("resolveConflicts"),
+        "多词步 camelCase 线格式"
+    );
+    assert_eq!(wire(ChangeStepKind::Merge), json!("merge"));
+    assert_eq!(
+        wire(ChangeStepKind::SpecSync),
+        json!("specSync"),
+        "多词步 camelCase 线格式"
+    );
+    assert_eq!(wire(ChangeStepKind::Seal), json!("seal"));
+    assert_eq!(wire(ChangeStepKind::Finalize), json!("finalize"));
+
+    // camelCase 线词 ↔ snake_case 身份串词面逐字对应（落库侧同词面可比）
+    for (kind, camel, snake) in [
+        (ChangeStepKind::Preflight, "preflight", "preflight"),
+        (ChangeStepKind::Commit, "commit", "commit"),
+        (ChangeStepKind::Rebase, "rebase", "rebase"),
+        (
+            ChangeStepKind::ResolveConflicts,
+            "resolveConflicts",
+            "resolve_conflicts",
+        ),
+        (ChangeStepKind::Merge, "merge", "merge"),
+        (ChangeStepKind::SpecSync, "specSync", "spec_sync"),
+        (ChangeStepKind::Seal, "seal", "seal"),
+        (ChangeStepKind::Finalize, "finalize", "finalize"),
+    ] {
+        assert_eq!(wire(kind), json!(camel), "camelCase 线词逐字");
+        assert_eq!(kind.as_str(), snake, "snake_case 身份串词逐字");
+        // 双向往返（camelCase 入线 → 枚举 → 回出线）
+        let back: ChangeStepKind =
+            serde_json::from_value(json!(camel)).expect("camelCase 词往返应成功");
+        assert_eq!(back, kind, "{camel} 往返逐词可辨");
+    }
+}
+
+/// 非法词反序列化拒绝（异常）：十八值封闭集之外的词形（snake 词 / kebab 词 /
+/// 近似词 / 空串）一律 `Err`（AC-2 线面契约守卫）。
+#[test]
+fn change_step_kind非法词反序列化拒绝() {
+    for illegal in [
+        "resolve_conflicts",
+        "spec_sync",
+        "spec-sync",
+        "phase_start",
+        "verdict_gate",
+        "preflightstep",
+        "git",
+        "archive",
+        "",
+    ] {
+        let back: Result<ChangeStepKind, _> = serde_json::from_value(json!(illegal));
+        assert!(back.is_err(), "ChangeStepKind 越集词 {illegal:?} 应拒绝");
+    }
+}
+
+#[test]
+fn change_step_kind十八值词汇线格式逐字且四类可辨() {
     let wire = |kind: ChangeStepKind| serde_json::to_value(kind).expect("词汇出线应成功");
 
-    // WorkerAgent 三角色
+    // WorkerAgent 五角色（含归档两会话步）
     assert_eq!(wire(ChangeStepKind::Executor), json!("executor"));
     assert_eq!(wire(ChangeStepKind::Evaluator), json!("evaluator"));
     assert_eq!(wire(ChangeStepKind::Decision), json!("decision"));
-    // ToolStep 三步
+    assert_eq!(wire(ChangeStepKind::SpecSync), json!("specSync"));
+    assert_eq!(
+        wire(ChangeStepKind::ResolveConflicts),
+        json!("resolveConflicts")
+    );
+    // ToolStep 五步（相位机 / 检查 / 归档内联）
     assert_eq!(wire(ChangeStepKind::PhaseStart), json!("phaseStart"));
     assert_eq!(wire(ChangeStepKind::StaticCheck), json!("staticCheck"));
+    assert_eq!(wire(ChangeStepKind::TestExecution), json!("testExecution"));
     assert_eq!(wire(ChangeStepKind::PhaseLog), json!("phaseLog"));
+    assert_eq!(wire(ChangeStepKind::Preflight), json!("preflight"));
+    assert_eq!(wire(ChangeStepKind::Seal), json!("seal"));
+    // Git 四步
+    assert_eq!(wire(ChangeStepKind::Commit), json!("commit"));
+    assert_eq!(wire(ChangeStepKind::Rebase), json!("rebase"));
+    assert_eq!(wire(ChangeStepKind::Merge), json!("merge"));
+    assert_eq!(wire(ChangeStepKind::Finalize), json!("finalize"));
     // Gate 三门
     assert_eq!(wire(ChangeStepKind::VerdictGate), json!("verdictGate"));
     assert_eq!(wire(ChangeStepKind::RetryGate), json!("retryGate"));
     assert_eq!(wire(ChangeStepKind::WhitelistGate), json!("whitelistGate"));
 
-    // 三类可辨（九值互异）
+    // 四类可辨（十八值互异）
     let all = [
         ChangeStepKind::Executor,
         ChangeStepKind::Evaluator,
         ChangeStepKind::Decision,
         ChangeStepKind::PhaseStart,
         ChangeStepKind::StaticCheck,
+        ChangeStepKind::TestExecution,
         ChangeStepKind::PhaseLog,
         ChangeStepKind::VerdictGate,
         ChangeStepKind::RetryGate,
         ChangeStepKind::WhitelistGate,
+        ChangeStepKind::Preflight,
+        ChangeStepKind::Commit,
+        ChangeStepKind::Rebase,
+        ChangeStepKind::ResolveConflicts,
+        ChangeStepKind::Merge,
+        ChangeStepKind::SpecSync,
+        ChangeStepKind::Seal,
+        ChangeStepKind::Finalize,
     ];
+    assert_eq!(all.len(), 18, "十八值穷举无遗漏");
     let mut wires: Vec<String> = all
         .iter()
         .map(|kind| wire(*kind).as_str().expect("串值").to_owned())
         .collect();
     wires.sort();
     wires.dedup();
-    assert_eq!(wires.len(), 9, "九值词汇互异（三类节点可辨）");
+    assert_eq!(wires.len(), 18, "十八值词汇互异（四类节点可辨）");
+
+    // 身份串词面与 workflow 落库侧 `RunStepKind::as_str()` 逐字同源
+    for (kind, step_kind) in [
+        (ChangeStepKind::Preflight, workflow::state::RunStepKind::Preflight),
+        (ChangeStepKind::Commit, workflow::state::RunStepKind::Commit),
+        (ChangeStepKind::Rebase, workflow::state::RunStepKind::Rebase),
+        (
+            ChangeStepKind::ResolveConflicts,
+            workflow::state::RunStepKind::ResolveConflicts,
+        ),
+        (ChangeStepKind::Merge, workflow::state::RunStepKind::Merge),
+        (ChangeStepKind::SpecSync, workflow::state::RunStepKind::SpecSync),
+        (ChangeStepKind::Seal, workflow::state::RunStepKind::Seal),
+        (
+            ChangeStepKind::Finalize,
+            workflow::state::RunStepKind::Finalize,
+        ),
+    ] {
+        assert_eq!(
+            kind.as_str(),
+            step_kind.as_str(),
+            "身份串词面跨侧逐字同源（落库零映射）"
+        );
+    }
 }
 
 #[test]
@@ -300,6 +420,7 @@ fn 快照与摘要全字段serde往返() {
             question: "是否回溯?".to_owned(),
             options: vec!["dev-design".to_owned(), "retry".to_owned()],
         }),
+        archive: None,
         started_at: 1_726_000_000_000,
         nodes: Vec::new(),
         edges: Vec::new(),
@@ -320,6 +441,7 @@ fn 快照与摘要全字段serde往返() {
         phase: None,
         attempt: None,
         ask: None,
+        archive: None,
         started_at: 1_726_000_000_000,
         nodes: Vec::new(),
         edges: Vec::new(),
@@ -378,10 +500,10 @@ fn change_step_kind十值词汇_testexecution出线逐字() {
     assert_eq!(back, ChangeStepKind::TestExecution, "新变体双向派生可用");
 }
 
-/// 边界：十值词汇互异（camelCase 判别值集合无碰撞——三类节点可辨不变量
-/// 保持：WorkerAgent 三角色 + ToolStep 三步一门禁 + Gate 三门）。
+/// 边界：十八值词汇互异（camelCase 判别值集合无碰撞——四类节点可辨不变量
+/// 保持：WorkerAgent 五角色 + ToolStep 五步 + Git 四步 + Gate 三门）。
 #[test]
-fn change_step_kind十值词汇互异无碰撞() {
+fn change_step_kind十八值词汇互异无碰撞() {
     let all = [
         ChangeStepKind::Executor,
         ChangeStepKind::Evaluator,
@@ -393,6 +515,14 @@ fn change_step_kind十值词汇互异无碰撞() {
         ChangeStepKind::VerdictGate,
         ChangeStepKind::RetryGate,
         ChangeStepKind::WhitelistGate,
+        ChangeStepKind::Preflight,
+        ChangeStepKind::Commit,
+        ChangeStepKind::Rebase,
+        ChangeStepKind::ResolveConflicts,
+        ChangeStepKind::Merge,
+        ChangeStepKind::SpecSync,
+        ChangeStepKind::Seal,
+        ChangeStepKind::Finalize,
     ];
     let wires: Vec<String> = all
         .iter()
@@ -409,8 +539,8 @@ fn change_step_kind十值词汇互异无碰撞() {
     sorted.dedup();
     assert_eq!(
         sorted.len(),
-        10,
-        "十值词汇互异（无 camelCase 碰撞），实际: {wires:?}"
+        18,
+        "十八值词汇互异（无 camelCase 碰撞），实际: {wires:?}"
     );
 }
 
@@ -531,7 +661,8 @@ fn run_notice自run_update投影五变体一一同型() {
     ));
     assert!(matches!(
         projection(&RunUpdate::ConfirmWait {
-            phase: "test-gen".to_owned()
+            phase: "test-gen".to_owned(),
+            archive: None
         }),
         crate::state::RunNotice::ConfirmWait
     ));
@@ -558,6 +689,7 @@ fn run_notice自run_update投影五变体一一同型() {
         },
         RunUpdate::ConfirmWait {
             phase: "p".to_owned(),
+            archive: None,
         },
         RunUpdate::Finished {
             status: ChangeRunStatus::Stopped,
@@ -635,6 +767,7 @@ fn 快照扩面_startedat与nodes全词汇camelcase出线() {
         phase: Some("test-execution".to_owned()),
         attempt: Some(1),
         ask: None,
+        archive: None,
         started_at: 1_726_000_000_000,
         nodes: steps,
         edges: Vec::new(),
@@ -810,6 +943,7 @@ fn 快照edges面零边空数组与多边序稳定() {
         phase: None,
         attempt: None,
         ask: None,
+        archive: None,
         started_at: 1_726_000_000_000,
         nodes: Vec::new(),
         edges: Vec::new(),
@@ -898,4 +1032,311 @@ fn change_step_state实例号递增可辨() {
         first,
         "空串（落盘失败空串口径）与合法 exec_id 可辨"
     );
+}
+
+// ---------------------------------------------------------------------------
+// ArchivePreflight 停等载荷与 ConfirmWait 双态（AC-7 / D2）
+// ---------------------------------------------------------------------------
+
+/// 归档前置只读载荷 fixture（八字段；停等面与 cursor 消费同一像）。
+fn sample_preflight() -> ArchivePreflight {
+    ArchivePreflight {
+        name: "demo-change".to_owned(),
+        completed: true,
+        incomplete_phases: Vec::new(),
+        missing_artifacts: Vec::new(),
+        delta_specs: vec!["specs/desktop-flow/spec.md".to_owned()],
+        worktree: Some("/tmp/wt/demo-change".to_owned()),
+        branch: Some("change/demo-change".to_owned()),
+        merge_target: Some("main".to_owned()),
+    }
+}
+
+/// ArchivePreflight 形状（正向）：八字段 camelCase 线面逐字段可辨，serde
+/// 往返无损，specta `Type` 可达（AC-7 / D2 停等载荷）。
+#[test]
+fn archive_preflight八字段线面与往返可辨() {
+    let preflight = sample_preflight();
+    let value = serde_json::to_value(&preflight).expect("出线应成功");
+    assert_eq!(value["name"], json!("demo-change"));
+    assert_eq!(value["completed"], json!(true));
+    assert_eq!(value["incompletePhases"], json!([]));
+    assert_eq!(value["missingArtifacts"], json!([]));
+    assert_eq!(value["deltaSpecs"], json!(["specs/desktop-flow/spec.md"]));
+    assert_eq!(value["worktree"], json!("/tmp/wt/demo-change"));
+    assert_eq!(value["branch"], json!("change/demo-change"));
+    assert_eq!(value["mergeTarget"], json!("main"));
+
+    let text = serde_json::to_string(&preflight).expect("出线应成功");
+    let back: ArchivePreflight = serde_json::from_str(&text).expect("往返应成功");
+    assert_eq!(back, preflight, "归档前置载荷往返无损");
+
+    // 逐字段可辨（八字段任一翻转即不等价）
+    assert_ne!(
+        ArchivePreflight {
+            completed: false,
+            ..preflight.clone()
+        },
+        preflight,
+        "completed 两态可辨"
+    );
+    assert_ne!(
+        ArchivePreflight {
+            merge_target: None,
+            ..preflight.clone()
+        },
+        preflight,
+        "mergeTarget 两态可辨"
+    );
+    assert_ne!(
+        ArchivePreflight {
+            delta_specs: Vec::new(),
+            ..preflight.clone()
+        },
+        preflight,
+        "deltaSpecs 空/非空可辨"
+    );
+}
+
+/// ArchivePreflight 边界（边界）：`completed` 两态（true / false）；
+/// `incomplete_phases` / `missing_artifacts` / `delta_specs` 空 Vec / 单元素 /
+/// 超长列表；`worktree` / `branch` / `merge_target` None 与 Some 两态
+///（AC-7 未完成警告面）。
+#[test]
+fn archive_preflight边界两态与列表形态() {
+    // 未完成形态：completed=false + 未过相位清单
+    let incomplete = ArchivePreflight {
+        name: "demo-change".to_owned(),
+        completed: false,
+        incomplete_phases: vec!["implement".to_owned()],
+        missing_artifacts: vec!["design.md".to_owned()],
+        delta_specs: Vec::new(),
+        worktree: None,
+        branch: None,
+        merge_target: None,
+    };
+    let value = serde_json::to_value(&incomplete).expect("出线应成功");
+    assert_eq!(value["completed"], json!(false));
+    assert_eq!(value["incompletePhases"], json!(["implement"]));
+    assert_eq!(value["missingArtifacts"], json!(["design.md"]));
+    assert_eq!(value["worktree"], json!(null));
+    assert_eq!(value["branch"], json!(null));
+    assert_eq!(value["mergeTarget"], json!(null));
+
+    // 超长列表边界（128 项）不 panic、逐条透出
+    let long: Vec<String> = (0..128).map(|index| format!("phase-{index:03}")).collect();
+    let wide = ArchivePreflight {
+        incomplete_phases: long.clone(),
+        delta_specs: long.clone(),
+        ..incomplete.clone()
+    };
+    let value = serde_json::to_value(&wide).expect("出线应成功");
+    assert_eq!(
+        value["incompletePhases"].as_array().map(Vec::len),
+        Some(128),
+        "超长未过相位清单逐条透出"
+    );
+    assert_eq!(value["deltaSpecs"].as_array().map(Vec::len), Some(128));
+    let back: ArchivePreflight =
+        serde_json::from_str(&serde_json::to_string(&wide).expect("x")).expect("往返应成功");
+    assert_eq!(back, wide, "超长列表往返无损");
+
+    // 空串 name 边界（中性类型零校验——拦截归构造侧）
+    let blank_name = ArchivePreflight {
+        name: String::new(),
+        ..incomplete.clone()
+    };
+    assert_eq!(blank_name.name, "");
+    assert_ne!(blank_name, incomplete, "空 name 与实名可辨");
+}
+
+/// ArchivePreflight 异常（异常）：缺失必填字段（name / completed）反序列化
+/// 拒绝；多余字段被忽略（线面契约守卫，AC-7）。
+#[test]
+fn archive_preflight缺失必填字段拒绝() {
+    let value = serde_json::to_value(sample_preflight()).expect("出线应成功");
+
+    let mut no_name = value.clone();
+    no_name.as_object_mut().expect("对象").remove("name");
+    assert!(
+        serde_json::from_value::<ArchivePreflight>(no_name).is_err(),
+        "缺 name 必填字段应拒绝"
+    );
+
+    let mut no_completed = value.clone();
+    no_completed.as_object_mut().expect("对象").remove("completed");
+    assert!(
+        serde_json::from_value::<ArchivePreflight>(no_completed).is_err(),
+        "缺 completed 必填字段应拒绝"
+    );
+
+    // 字段类型不匹配（completed 传串）拒绝
+    let mut wrong_type = value.clone();
+    wrong_type["completed"] = json!("yes");
+    assert!(
+        serde_json::from_value::<ArchivePreflight>(wrong_type).is_err(),
+        "completed 类型错配应拒绝"
+    );
+
+    // 多余字段被忽略（向前兼容消费）
+    let mut extra = value.clone();
+    extra["futureField"] = json!("ignored");
+    let back: ArchivePreflight =
+        serde_json::from_value(extra).expect("多余字段应忽略而不拒绝");
+    assert_eq!(back, sample_preflight());
+}
+
+/// RunUpdate::ConfirmWait 换形（正向）：archive=None（普通相位停等）与
+/// archive=Some(preflight)（archive 前停等）两态出线可辨；`kind()` 仍
+/// `"confirmWait"`、`RunNotice::ConfirmWait` 零载荷投影不变（AC-7 / D2）。
+#[test]
+fn confirm_wait双态归档载荷随行且kind不变() {
+    let plain = RunUpdate::ConfirmWait {
+        phase: "acceptance".to_owned(),
+        archive: None,
+    };
+    let archive_wait = RunUpdate::ConfirmWait {
+        phase: "archive".to_owned(),
+        archive: Some(sample_preflight()),
+    };
+
+    let plain_value = serde_json::to_value(&plain).expect("出线应成功");
+    let archive_value = serde_json::to_value(&archive_wait).expect("出线应成功");
+    assert_eq!(plain_value["ipc"], json!("confirmWait"));
+    assert_eq!(archive_value["ipc"], json!("confirmWait"));
+    assert_eq!(plain_value["phase"], json!("acceptance"));
+    assert_eq!(archive_value["phase"], json!("archive"));
+    assert_eq!(plain_value["archive"], json!(null));
+    assert_eq!(
+        archive_value["archive"]["completed"],
+        json!(true),
+        "archive 前停等随行前置只读载荷"
+    );
+    assert_eq!(archive_value["archive"]["name"], json!("demo-change"));
+    assert_ne!(plain_value, archive_value, "两态线面可辨");
+
+    assert_eq!(plain.kind(), "confirmWait");
+    assert_eq!(archive_wait.kind(), "confirmWait");
+
+    use crate::state::RunNotice;
+    assert!(matches!(RunNotice::from(&plain), RunNotice::ConfirmWait));
+    assert!(matches!(
+        RunNotice::from(&archive_wait),
+        RunNotice::ConfirmWait
+    ));
+    assert_eq!(
+        serde_json::to_value(RunNotice::from(&archive_wait)).expect("出线应成功"),
+        json!({"ipc": "confirmWait"}),
+        "广播零载荷：停等载荷不出进程"
+    );
+}
+
+/// ConfirmWait 载荷形态守卫（异常 / 边界）：`archive` 键恒随行出线（缺键即
+/// 线面漂移——进程内 seam 载荷无入站反序列化面，契约以出线键集与文档面钉
+/// 死）；六变体 `RunNotice` 不变（零新 kind，AC-7 / D2）。
+#[test]
+fn confirm_wait载荷archive键恒在场且notice六变体不变() {
+    let legacy = RunUpdate::ConfirmWait {
+        phase: "test-gen".to_owned(),
+        archive: None,
+    };
+    let value = serde_json::to_value(&legacy).expect("出线应成功");
+    let keys: Vec<&str> = value
+        .as_object()
+        .expect("ConfirmWait 为对象")
+        .keys()
+        .map(String::as_str)
+        .collect();
+    assert_eq!(
+        keys.len(),
+        3,
+        "ConfirmWait 恰三键（archive 为恒在场键、零键省形态）: {keys:?}"
+    );
+    assert!(
+        keys.contains(&"archive") && keys.contains(&"phase") && keys.contains(&"ipc"),
+        "键集 = ipc / phase / archive: {keys:?}"
+    );
+    assert_eq!(
+        value["archive"],
+        json!(null),
+        "缺省 archive 出线 null（留位不省键）"
+    );
+
+    // 六变体 kind 词封闭集不变（Step / Edge / SessionEvent / Ask /
+    // ConfirmWait / Finished）
+    use crate::state::RunNotice;
+    let notices = [
+        RunNotice::Step,
+        RunNotice::Edge,
+        RunNotice::SessionEvent,
+        RunNotice::Ask,
+        RunNotice::ConfirmWait,
+        RunNotice::Finished,
+    ];
+    let wires: Vec<String> = notices
+        .iter()
+        .map(|notice| {
+            serde_json::to_value(notice).expect("出线应成功")["ipc"]
+                .as_str()
+                .expect("串值")
+                .to_owned()
+        })
+        .collect();
+    assert_eq!(
+        wires,
+        vec![
+            "step",
+            "edge",
+            "sessionEvent",
+            "ask",
+            "confirmWait",
+            "finished"
+        ],
+        "六变体 kind 词封闭集零新增"
+    );
+}
+
+/// ChangeRunSnapshot.archive 出线（正向）：archive=Some(preflight) 与 None 两态
+/// 直出线，终态除名后恒 None（AC-7 / AC-10 活面投影源）。
+#[test]
+fn 快照archive出线两态与none留位() {
+    let with_archive = ChangeRunSnapshot {
+        run_id: "run-archive".to_owned(),
+        status: ChangeRunStatus::WaitingConfirm,
+        phase: Some("archive".to_owned()),
+        attempt: Some(1),
+        ask: None,
+        archive: Some(sample_preflight()),
+        started_at: 1_726_000_000_000,
+        nodes: Vec::new(),
+        edges: Vec::new(),
+    };
+    let value = serde_json::to_value(&with_archive).expect("出线应成功");
+    assert_eq!(value["archive"]["name"], json!("demo-change"));
+    assert_eq!(value["archive"]["completed"], json!(true));
+    assert_eq!(value["archive"]["mergeTarget"], json!("main"));
+
+    let without = ChangeRunSnapshot {
+        archive: None,
+        ..with_archive.clone()
+    };
+    let value = serde_json::to_value(&without).expect("出线应成功");
+    assert_eq!(
+        value["archive"],
+        json!(null),
+        "非归档停等 archive 槽恒 null（留位不省键）"
+    );
+    assert_eq!(
+        serde_json::to_string(&without)
+            .expect("出线应成功")
+            .matches("\"archive\":")
+            .count(),
+        1,
+        "archive 键恒在场（载荷槽 null 留位）"
+    );
+
+    let back: ChangeRunSnapshot =
+        serde_json::from_str(&serde_json::to_string(&with_archive).expect("x"))
+            .expect("往返应成功");
+    assert_eq!(back, with_archive, "携带归档载荷的快照往返无损");
 }

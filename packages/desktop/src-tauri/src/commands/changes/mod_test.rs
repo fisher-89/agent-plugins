@@ -335,7 +335,11 @@ fn 读命令id透传_列表详情产物与core查询serde等值且归档条目�
     assert_eq!(via_detail.id, "seeded-active", "详情携身份锚 id");
     assert_eq!(via_detail.name, "seeded-active", "详情 name 自记录直读");
     assert_eq!(via_detail.status, Some(ChangeStatus::Active));
-    assert_eq!(via_detail.pipeline.len(), 9, "固定 9 站全量输出");
+    assert_eq!(
+        via_detail.pipeline.len(),
+        10,
+        "固定 10 站全量输出（末列 archive）"
+    );
     let proposal = via_detail
         .pipeline
         .iter()
@@ -645,8 +649,8 @@ async fn create接线_建域落位_返回dto增id且按id立即可见可发起()
     assert_eq!(unified.detail.status, Some(ChangeStatus::Active));
     assert_eq!(
         unified.detail.pipeline.len(),
-        9,
-        "空流水线 9 站全量（发起面就绪）"
+        10,
+        "空流水线 10 站全量（发起面就绪，末列 archive）"
     );
     assert!(unified.active_run.is_none());
     // name 非寻址键：按 name 查询不可达（一切寻址以 id 为准）
@@ -1766,6 +1770,7 @@ fn 统一查询装配_waitingconfirm停等形态() {
     });
     guard.emit(RunUpdate::ConfirmWait {
         phase: "test-design".to_owned(),
+        archive: None,
     });
 
     let unified = get_change_detail(
@@ -1805,6 +1810,265 @@ fn 统一查询装配_waitingconfirm停等形态() {
     assert_eq!(same_run.status, workflow::state::RunStatus::Running);
     assert!(same_run.nodes.is_empty(), "在飞 run 起始行 nodes 恒空");
     assert!(same_run.edges.is_empty(), "在飞 run 起始行 edges 恒空");
+}
+
+/// `ActiveRunView.archive` 出线（正向）：归档前停等快照（`archive: Some`）经
+/// `get_change_detail` 活面投影直出（`ChangeRunSnapshot.archive` → `ActiveRunView.
+/// archive` 同值），普通停等 / 运行中恒 null（AC-7 / AC-10）。
+#[test]
+fn 统一查询装配_active_run_archive面两态出线() {
+    let env = Env::new("unified-archive");
+    let app = app_with(&env);
+    let state = app.state::<WorkspaceStores>();
+    let root = env.root();
+    let control = app.state::<Arc<orchestration::control::ChangeFlowControl>>();
+
+    let started_at = 1_727_000_400_000_i64;
+    {
+        let store = store_of(&app, &root);
+        seed_active(&store, "archive-change");
+        use workflow::state::RunStartCommand;
+        store
+            .start_change_run(&RunStartCommand {
+                run_id: "run-5".to_owned(),
+                change_id: "archive-change".to_owned(),
+                started_at,
+            })
+            .expect("run-5 起始行应成功");
+    }
+
+    let guard = control
+        .begin_run(&root, "archive-change", "run-5".to_owned(), started_at)
+        .expect("登记 run 应成功");
+
+    // ① 运行中：archive 槽恒 null（非停等点）
+    let running = get_change_detail(
+        state.clone(),
+        control.clone(),
+        root.clone(),
+        "archive-change".to_owned(),
+    )
+    .expect("应 Some");
+    let active = running.active_run.as_ref().expect("运行中 activeRun 在场");
+    assert!(
+        active.archive.is_none(),
+        "运行中 archive 槽恒 null（非归档前停等点）"
+    );
+
+    // ② 归档前停等：前置只读载荷随行出线（完成度 / delta specs / 合入目标）
+    let payload = orchestration::ArchivePreflight {
+        name: "archive-change".to_owned(),
+        completed: false,
+        incomplete_phases: vec!["implement".to_owned()],
+        missing_artifacts: vec!["design.md".to_owned()],
+        delta_specs: vec!["desktop-flow".to_owned()],
+        worktree: Some("/tmp/wt/archive-change".to_owned()),
+        branch: Some("change/archive-change".to_owned()),
+        merge_target: Some("main".to_owned()),
+    };
+    guard.emit(orchestration::state::RunUpdate::ConfirmWait {
+        phase: "archive".to_owned(),
+        archive: Some(payload.clone()),
+    });
+
+    let unified = get_change_detail(
+        state.clone(),
+        control.clone(),
+        root.clone(),
+        "archive-change".to_owned(),
+    )
+    .expect("应 Some");
+    let active = unified.active_run.as_ref().expect("停等中 activeRun 在场");
+    assert_eq!(
+        active.status,
+        orchestration::ChangeRunStatus::WaitingConfirm
+    );
+    assert_eq!(active.phase.as_deref(), Some("archive"));
+    assert_eq!(
+        active.archive.as_ref(),
+        Some(&payload),
+        "归档前置载荷自快照直出（逐字段同值）"
+    );
+
+    // 线面：camelCase 键 + null 留位（IPC 信封形状）
+    let value = serde_json::to_value(&unified).expect("出线应成功");
+    assert_eq!(value["activeRun"]["archive"]["name"], "archive-change");
+    assert_eq!(value["activeRun"]["archive"]["completed"], false);
+    assert_eq!(
+        value["activeRun"]["archive"]["incompletePhases"],
+        serde_json::json!(["implement"])
+    );
+    assert_eq!(
+        value["activeRun"]["archive"]["deltaSpecs"],
+        serde_json::json!(["desktop-flow"])
+    );
+    assert_eq!(value["activeRun"]["archive"]["mergeTarget"], "main");
+
+    // 普通相位停等（archive=None）→ 槽清空；终态除名后 active_run 缺席
+    guard.emit(orchestration::state::RunUpdate::ConfirmWait {
+        phase: "acceptance".to_owned(),
+        archive: None,
+    });
+    let unified = get_change_detail(
+        state.clone(),
+        control.clone(),
+        root.clone(),
+        "archive-change".to_owned(),
+    )
+    .expect("应 Some");
+    let active = unified.active_run.as_ref().expect("停等中 activeRun 在场");
+    assert!(
+        active.archive.is_none(),
+        "非归档停等点 archive 槽 null（不残留上一次载荷）"
+    );
+    guard.finish(orchestration::ChangeRunStatus::Completed, None);
+    let closed = get_change_detail(
+        state.clone(),
+        control.clone(),
+        root.clone(),
+        "archive-change".to_owned(),
+    )
+    .expect("应 Some");
+    assert!(
+        closed.active_run.is_none(),
+        "终态除名 → activeRun 退 null（archive 槽随之缺席）"
+    );
+}
+
+/// 统一视图既有字段回归（回归）：`ActiveRunView` 既有字段（run_id / status /
+/// phase / attempt / ask / started_at / nodes / edges）投影不变（AC-10 零改动锚）。
+#[test]
+fn 统一查询装配_active_run既有字段回归() {
+    let env = Env::new("unified-legacy-fields");
+    let app = app_with(&env);
+    let state = app.state::<WorkspaceStores>();
+    let root = env.root();
+    let control = app.state::<Arc<orchestration::control::ChangeFlowControl>>();
+
+    let started_at = 1_727_000_500_000_i64;
+    {
+        let store = store_of(&app, &root);
+        seed_active(&store, "legacy-change");
+        use workflow::state::RunStartCommand;
+        store
+            .start_change_run(&RunStartCommand {
+                run_id: "run-6".to_owned(),
+                change_id: "legacy-change".to_owned(),
+                started_at,
+            })
+            .expect("run-6 起始行应成功");
+    }
+    let guard = control
+        .begin_run(&root, "legacy-change", "run-6".to_owned(), started_at)
+        .expect("登记 run 应成功");
+    guard.emit(orchestration::state::RunUpdate::Ask {
+        question: "越权回溯是否放行?".to_owned(),
+        options: vec!["拒绝".to_owned(), "放行".to_owned()],
+    });
+
+    let unified = get_change_detail(
+        state.clone(),
+        control.clone(),
+        root.clone(),
+        "legacy-change".to_owned(),
+    )
+    .expect("应 Some");
+    let active = unified
+        .active_run
+        .as_ref()
+        .expect("ask 停等中 activeRun 在场");
+    assert_eq!(active.run_id, "run-6");
+    assert_eq!(active.status, orchestration::ChangeRunStatus::WaitingAsk);
+    assert_eq!(
+        active.ask.as_ref().map(|ask| ask.question.as_str()),
+        Some("越权回溯是否放行?"),
+        "ask 载荷投影不变"
+    );
+    assert!(
+        active.archive.is_none(),
+        "ask 停等 archive 槽恒 null（新增字段零污染既有面）"
+    );
+    assert!(
+        active.started_at.ends_with('Z') && active.started_at.contains('T'),
+        "startedAt ISO 串口径不变: {}",
+        active.started_at
+    );
+    assert!(active.nodes.is_empty() && active.edges.is_empty());
+    assert!(active.phase.is_none() && active.attempt.is_none());
+}
+
+/// `archive_change` 裸双写逃生口回归（回归）：薄命令直调写面 `archive` 双写
+/// （Seal 步之外的既有逃生口），随后列表归档组可达（AC-10 零改动锚）。
+#[test]
+fn archive_change裸双写逃生口回归() {
+    let env = Env::new("archive-escape-hatch");
+    let app = app_with(&env);
+    let root = env.root();
+    let store = store_of(&app, &root);
+    seed_active(&store, "seed-change");
+    fs::create_dir_all(env.archive_dir()).expect("创建 archive 树失败");
+    fs::create_dir_all(env.change_dir("seed-change")).expect("创建 change 目录失败");
+
+    let outcome = archive_change_with(app.handle().clone(), root.clone(), "seed-change".to_owned())
+        .expect("裸双写应成功");
+    assert_eq!(outcome.name, "seed-change");
+    assert_eq!(outcome.archived_date.len(), 10, "归档日期 YYYY-MM-DD");
+
+    let record = store
+        .find_change_record("seed-change")
+        .expect("查档应成功")
+        .expect("建档在案");
+    assert_eq!(record.status, workflow::state::ChangeStatus::Archived);
+    assert!(record.archived_at.is_some(), "archived_at 落值");
+
+    // 列表归档组可达（裸名 + 月分组不变）
+    let list = list_changes(app.state::<WorkspaceStores>(), root.clone());
+    let names: Vec<&str> = list
+        .archive_groups
+        .iter()
+        .flat_map(|group| group.changes.iter().map(|entry| entry.name.as_str()))
+        .collect();
+    assert!(
+        names.contains(&"seed-change"),
+        "归档条目入归档组: {names:?}"
+    );
+}
+
+/// `archive_change` 写面异常（异常）：两树未命中 → `Err(String)` 透传不 panic，
+/// 其余详情面不受阻断（AC-10 / D7 逃生口守卫）。
+#[test]
+fn archive_change写面异常err透传零阻断() {
+    let env = Env::new("archive-escape-err");
+    let app = app_with(&env);
+    let root = env.root();
+    let store = store_of(&app, &root);
+    seed_active(&store, "pending-change");
+
+    // 无磁盘目录（两树未命中）→ 显式 Err
+    let err = archive_change_with(
+        app.handle().clone(),
+        root.clone(),
+        "pending-change".to_owned(),
+    )
+    .expect_err("两树未命中应显式 Err");
+    assert!(
+        err.contains("目录未找到"),
+        "写面记因透传（不 panic）: {err}"
+    );
+
+    // 其余详情面不受阻断：详情仍可查、状态未翻转
+    let unified = get_change_detail(
+        app.state::<WorkspaceStores>(),
+        app.state::<Arc<orchestration::control::ChangeFlowControl>>(),
+        root.clone(),
+        "pending-change".to_owned(),
+    )
+    .expect("详情仍应可查");
+    assert_eq!(
+        unified.detail.status,
+        Some(workflow::state::ChangeStatus::Active),
+        "写面失败零 db 翻转"
+    );
 }
 
 /// 统一视图早退与未知 id 未找到（既有早退口径保留）：blank root → None；

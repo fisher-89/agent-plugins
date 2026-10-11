@@ -3,7 +3,7 @@
 //! workspace 多 change 真并行）：并行冲突检测、cancel watch、当前会话 id 槽、ask /
 //! 确认单次应答通道、`RunNotice` broadcast、重挂快照。run 生命周期由本注册
 //! 表承载**在飞 run 与停等面**，节点 + 边**双累积器**驻本表条目（emit 序追
-//! 加，全词汇 10 类；边四 kind 显式落边）；run 执行图落库 RunRecord /
+//! 加，全词汇 18 类；边四 kind 显式落边）；run 执行图落库 RunRecord /
 //! RunNodeRecord / RunEdgeRecord 三表（unify-run-state-persistence 决策翻案 +
 //! run-workflow-by-step 决策③：原「不建 flow_runs 表；run 终态即除名，桌面重
 //! 启后 run 消失」决策随翻案显式立项修订——本注册表保持进程内零 IO 不变
@@ -19,8 +19,8 @@ use std::sync::{Arc, Mutex};
 use tokio::sync::{broadcast, oneshot, watch};
 
 use crate::state::{
-    AskPayload, ChangeRunSnapshot, ChangeRunStatus, ChangeStepEdge, ChangeStepKind,
-    ChangeStepState, RunNotice, RunUpdate,
+    ArchivePreflight, AskPayload, ChangeRunSnapshot, ChangeRunStatus, ChangeStepEdge,
+    ChangeStepKind, ChangeStepState, RunNotice, RunUpdate,
 };
 
 /// broadcast 通道容量（步状态 + 会话事件窗口；溢出即滞后，由订阅侧重挂
@@ -37,11 +37,14 @@ struct RunEntry {
     attempt: Option<u32>,
     /// waitingAsk 载荷
     ask: Option<AskPayload>,
+    /// waitingConfirm 且停等点为 archive 前时的归档前置载荷（其余停等点 /
+    /// 非停等态恒 None）
+    archive: Option<ArchivePreflight>,
     /// 发起时刻（UTC unix 毫秒；`begin_run` 入参，与 RunRequest.started_at
     /// 同值——统一视图活面 startedAt 投影源）
     started_at: i64,
     /// 节点累积器（首次出现按 emit 序追加，同稳定身份键的后续 emit 就地合并
-    /// ——终态 / 会话 / 输出引用覆盖 running 行；全词汇 10 类零过滤）
+    /// ——终态 / 会话 / 输出引用覆盖 running 行；全词汇 18 类零过滤）
     nodes: Vec<ChangeStepState>,
     /// 边累积器（emit 序追加；四 kind 显式落边）
     edges: Vec<ChangeStepEdge>,
@@ -51,7 +54,7 @@ struct RunEntry {
     cancel: watch::Sender<bool>,
     /// 当前 WorkerAgent 会话 id 槽（停止寻址经既有 StopRegistry）
     session: Mutex<Option<String>>,
-    confirm_tx: Mutex<Option<oneshot::Sender<bool>>>,
+    confirm_tx: Mutex<Option<oneshot::Sender<(bool, bool)>>>,
     answer_tx: Mutex<Option<oneshot::Sender<String>>>,
     updates: broadcast::Sender<RunNotice>,
 }
@@ -97,6 +100,7 @@ impl ChangeFlowControl {
                 phase: None,
                 attempt: None,
                 ask: None,
+                archive: None,
                 started_at,
                 nodes: Vec::new(),
                 edges: Vec::new(),
@@ -174,9 +178,10 @@ impl ChangeFlowControl {
                             options: options.clone(),
                         });
                     }
-                    RunUpdate::ConfirmWait { phase } => {
+                    RunUpdate::ConfirmWait { phase, archive } => {
                         entry.phase = Some(phase.clone());
                         entry.status = ChangeRunStatus::WaitingConfirm;
+                        entry.archive = archive.clone();
                     }
                     RunUpdate::Finished { status, .. } => entry.status = *status,
                     RunUpdate::SessionEvent { .. } => {}
@@ -210,15 +215,22 @@ impl ChangeFlowControl {
             .map_err(|_| "ask 应答通道已关闭".to_owned())
     }
 
-    /// phase 间停等确认：proceed=false → walker 受控终态 stopped；
-    /// 无运行 run / 无等待方 → `Err`。
-    pub fn confirm(&self, root: &str, change_id: &str, proceed: bool) -> Result<(), String> {
+    /// phase 间停等确认：proceed=false → walker 受控终态 stopped；`sync_specs`
+    /// 为归档前停等点的「是否执行 delta specs 同步」选择回流（phase 间停等点
+    /// 置位值不影响；archive 前停等点消费）；无运行 run / 无等待方 → `Err`。
+    pub fn confirm(
+        &self,
+        root: &str,
+        change_id: &str,
+        proceed: bool,
+        sync_specs: bool,
+    ) -> Result<(), String> {
         let sender = self
             .take_pending(root, change_id, |entry| &entry.confirm_tx)
             .ok_or_else(|| format!("change \"{change_id}\" 无运行中的 run"))?;
         sender
             .ok_or_else(|| "当前无等待中的 phase 确认".to_owned())?
-            .send(proceed)
+            .send((proceed, sync_specs))
             .map_err(|_| "确认通道已关闭".to_owned())
     }
 
@@ -233,6 +245,7 @@ impl ChangeFlowControl {
                 phase: entry.phase.clone(),
                 attempt: entry.attempt,
                 ask: entry.ask.clone(),
+                archive: entry.archive.clone(),
                 started_at: entry.started_at,
                 nodes: entry.nodes.clone(),
                 edges: entry.edges.clone(),
@@ -314,16 +327,17 @@ impl RunGuard {
             .set_session(&self.key.0, &self.key.1, session_id);
     }
 
-    /// phase 间停等：挂起至 `change_flow_confirm` 应答；等待期间取消信号
-    /// 置位即以 proceed=false 收敛（停止不必先应答）。
-    pub async fn wait_confirm(&self) -> bool {
-        let (tx, rx) = oneshot::channel::<bool>();
+    /// phase 间停等：挂起至 `change_flow_confirm` 应答；等待期间取消信号置位
+    /// 即以 `(false, false)` 收敛（停止不必先应答）。返回 `(proceed, sync_specs)`
+    /// ——`sync_specs` 仅归档前停等点消费（是否执行 delta specs 同步）。
+    pub async fn wait_confirm(&self) -> (bool, bool) {
+        let (tx, rx) = oneshot::channel::<(bool, bool)>();
         if !self.register_pending(|entry| &entry.confirm_tx, tx) {
-            return false;
+            return (false, false);
         }
         tokio::select! {
-            proceed = rx => proceed.unwrap_or(false),
-            _ = self.cancelled_wait() => false,
+            answer = rx => answer.unwrap_or((false, false)),
+            _ = self.cancelled_wait() => (false, false),
         }
     }
 

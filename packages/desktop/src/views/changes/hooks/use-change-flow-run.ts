@@ -13,7 +13,9 @@ import { commands, type RunNotice } from '../../../types/generated/bindings';
 export interface UseChangeFlowRunResult {
   start: (autoNextPhase: boolean) => Promise<void>;
   stop: () => Promise<void>;
-  confirm: (proceed: boolean) => Promise<void>;
+  /** 相位间 / 归档前停等确认：`proceed=false` → 受控终态 stopped；`syncSpecs`
+   * 仅归档前停等点消费（是否执行 delta specs 同步，相位间停等点置位值不参与） */
+  confirm: (proceed: boolean, syncSpecs: boolean) => Promise<void>;
   answer: (text: string) => Promise<void>;
   error: string | null;
 }
@@ -101,9 +103,9 @@ function useRunActions(
     return run(() => commands.changeFlowStop(root, id));
   }, [root, id, run]);
   const confirm = useCallback(
-    (proceed: boolean) => {
+    (proceed: boolean, syncSpecs: boolean) => {
       if (root === null || id === null) return Promise.resolve();
-      return run(() => commands.changeFlowConfirm(root, id, proceed));
+      return run(() => commands.changeFlowConfirm(root, id, proceed, syncSpecs));
     },
     [root, id, run],
   );

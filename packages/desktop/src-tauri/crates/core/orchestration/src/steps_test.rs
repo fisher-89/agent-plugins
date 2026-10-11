@@ -24,12 +24,12 @@ use workflow::state::{
     RunNodeStateRecord, RunStartCommand, RunStateRecord, StepCommand, StepKind, StepStateRecord,
     StoreFault,
 };
-use workflow::write::{BacktrackInput, PhaseLogInput, SessionAnchors};
+use workflow::write::{ArchiveOutcome, BacktrackInput, PhaseLogInput, SessionAnchors};
 
 use crate::port::{
-    BoxToolFuture, StaticCheckOutcome, StaticCheckRunner, TestExecutionConclusion,
-    TestExecutionOutcome, TestExecutionRunner, ToolCommand, ToolStepOutput, ToolStepPort,
-    ToolStepRequest,
+    ArchiveVcsPort, BoxToolFuture, RebaseOutcome, StaticCheckOutcome, StaticCheckRunner,
+    TestExecutionConclusion, TestExecutionOutcome, TestExecutionRunner, ToolCommand,
+    ToolStepOutput, ToolStepPort, ToolStepRequest, WorktreeSnapshot,
 };
 use crate::steps::LocalToolSteps;
 
@@ -536,12 +536,30 @@ struct Assembled {
     execution: Arc<FakeTestExecutionRunner>,
 }
 
-/// 组合根装配（run 作用域一次：锚点随 run 铸新、runner / store 随进程复用）。
+/// 组合根装配（run 作用域一次：锚点随 run 铸新、runner / vcs / store 随进程
+/// 复用）；vcs 缺省为干净假件（既有非归档用例零改动）。
 fn assemble(
     store: Arc<dyn ChangeStateStore>,
     run_id: &str,
     static_check: FakeRunner,
     execution: FakeTestExecutionRunner,
+) -> Assembled {
+    assemble_with_vcs(
+        store,
+        run_id,
+        static_check,
+        execution,
+        Arc::new(FakeVcs::clean()),
+    )
+}
+
+/// 组合根装配（显式 vcs 缝注入——归档步用例的第三缝观察面）。
+fn assemble_with_vcs(
+    store: Arc<dyn ChangeStateStore>,
+    run_id: &str,
+    static_check: FakeRunner,
+    execution: FakeTestExecutionRunner,
+    vcs: Arc<FakeVcs>,
 ) -> Assembled {
     let static_check = Arc::new(static_check);
     let execution = Arc::new(execution);
@@ -549,6 +567,7 @@ fn assemble(
         Arc::new(SessionAnchors::new()),
         Arc::clone(&static_check) as Arc<dyn StaticCheckRunner>,
         Arc::clone(&execution) as Arc<dyn TestExecutionRunner>,
+        Arc::clone(&vcs) as Arc<dyn ArchiveVcsPort>,
         store,
         run_id.to_owned(),
     ));
@@ -556,6 +575,123 @@ fn assemble(
         steps,
         static_check,
         execution,
+    }
+}
+
+// ---------------------------------------------------------------------------
+// 装置：假 vcs 缝（ArchiveVcsPort 入参例外假件——可编程返回值 + 调用捕获 +
+// Err 注入；git 进程真实行为归 vcs-runtime crate 真件测试面）
+// ---------------------------------------------------------------------------
+
+/// 可编程归档 vcs 假件：脏探测 / 分支重放 / 快进 / 提交 / 合入判定 / 分支
+/// 探测各返回值可编程，调用计数与入参捕获供断言。
+struct FakeVcs {
+    calls: Mutex<Vec<String>>,
+    dirty: bool,
+    branch: Result<String, String>,
+    merged: Result<bool, String>,
+    rebase: Result<RebaseOutcome, String>,
+    commit_result: Result<(), String>,
+}
+
+impl FakeVcs {
+    /// 干净且可归档的默认形态（current_branch=main / branch_merged=false）。
+    fn clean() -> Self {
+        Self {
+            calls: Mutex::new(Vec::new()),
+            dirty: false,
+            branch: Ok("main".to_owned()),
+            merged: Ok(false),
+            rebase: Ok(RebaseOutcome::Rebased),
+            commit_result: Ok(()),
+        }
+    }
+
+    fn with_branch(mut self, branch: Result<String, String>) -> Self {
+        self.branch = branch;
+        self
+    }
+
+    fn with_merged(mut self, merged: Result<bool, String>) -> Self {
+        self.merged = merged;
+        self
+    }
+
+    fn calls(&self) -> Vec<String> {
+        self.calls.lock().expect("vcs 调用锁不可中毒").clone()
+    }
+
+    fn record(&self, label: &str) {
+        self.calls
+            .lock()
+            .expect("vcs 调用锁不可中毒")
+            .push(label.to_owned());
+    }
+}
+
+impl ArchiveVcsPort for FakeVcs {
+    fn dirty(&self, _root: &std::path::Path, paths: &[&str]) -> bool {
+        self.record(&format!("dirty:{}", paths.len()));
+        self.dirty
+    }
+
+    fn commit_all(&self, _worktree: &std::path::Path, _message: &str) -> Result<(), String> {
+        self.record("commit_all");
+        self.commit_result.clone()
+    }
+
+    fn branch_merged(&self, _main_root: &std::path::Path, branch: &str) -> Result<bool, String> {
+        self.record(&format!("branch_merged:{branch}"));
+        self.merged.clone()
+    }
+
+    fn rebase_branch(
+        &self,
+        _worktree: &std::path::Path,
+        onto: &str,
+    ) -> Result<RebaseOutcome, String> {
+        self.record(&format!("rebase_branch:{onto}"));
+        self.rebase.clone()
+    }
+
+    fn ff_merge(&self, _main_root: &std::path::Path, branch: &str) -> Result<(), String> {
+        self.record(&format!("ff_merge:{branch}"));
+        Ok(())
+    }
+
+    fn worktree_snapshot(&self, _root: &std::path::Path) -> Result<WorktreeSnapshot, String> {
+        self.record("worktree_snapshot");
+        Ok(WorktreeSnapshot {
+            head: "abc".to_owned(),
+            rebase_head: None,
+            status: Vec::new(),
+            index: Vec::new(),
+        })
+    }
+
+    fn rebase_continue(&self, _worktree: &std::path::Path) -> Result<RebaseOutcome, String> {
+        self.record("rebase_continue");
+        self.rebase.clone()
+    }
+
+    fn rebase_abort(&self, _worktree: &std::path::Path) -> Result<(), String> {
+        self.record("rebase_abort");
+        Ok(())
+    }
+
+    fn current_branch(&self, _main_root: &std::path::Path) -> Result<String, String> {
+        self.record("current_branch");
+        self.branch.clone()
+    }
+
+    fn commit_paths(
+        &self,
+        _main_root: &std::path::Path,
+        paths: &[&str],
+        _message: &str,
+    ) -> Result<(), String> {
+        self.record(&format!("commit_paths:{}", paths.len()));
+        self.commit_result.clone()
     }
 }
 
@@ -1896,4 +2032,604 @@ async fn test_execution_runner_err原样上抛() {
         .await
         .expect_err("runner Err 应透传");
     assert_eq!(err, "报告子目录创建失败", "Err(String) 原样（无再包装）");
+}
+
+// ---------------------------------------------------------------------------
+// 归档内联两步（AC-3 / AC-8）：ArchivePreflight 只读载荷与 ArchiveSeal 双写
+// ——两臂均不写 StepRecord 审计行（归档步为执行图节点，非相位机步骤）
+// ---------------------------------------------------------------------------
+
+/// 归档 workspace 夹具：真实 tempdir 根 + active change 目录（可选 specs/
+/// capability 子目录与产物三件）+ tempfile 真件库种子。
+struct ArchiveEnv {
+    root: tempfile::TempDir,
+    db: TestDb,
+}
+
+impl ArchiveEnv {
+    fn new(tag: &str, delta_specs: &[&str], artifacts: &[&str]) -> Self {
+        let root = tempfile::Builder::new()
+            .prefix(&format!("orchestration-steps-archive-{tag}-"))
+            .tempdir()
+            .expect("创建 workspace 临时目录失败");
+        let db = TestDb::open(tag);
+        seed_change(db.store.as_ref(), CHANGE_ID, NAME, "requirement");
+        let changes_root = root.path().join("openspec").join("changes");
+        let change_dir = changes_root.join(NAME);
+        std::fs::create_dir_all(&change_dir).expect("创建 change 目录失败");
+        // 归档树预建（目录改名目标父级在场——真实建域由 create 前置建域保证）
+        std::fs::create_dir_all(changes_root.join("archive")).expect("创建归档树失败");
+        for artifact in artifacts {
+            std::fs::write(change_dir.join(artifact), "内容").expect("写产物失败");
+        }
+        if !delta_specs.is_empty() {
+            for capability in delta_specs {
+                let dir = change_dir.join("specs").join(capability);
+                std::fs::create_dir_all(&dir).expect("创建 specs 子目录失败");
+                std::fs::write(dir.join("spec.md"), "# spec").expect("写 spec 失败");
+            }
+        }
+        Self { root, db }
+    }
+
+    fn root_str(&self) -> String {
+        self.root.path().to_string_lossy().into_owned()
+    }
+
+    /// 指定 root 的步执行（归档臂的 layout 锚 = 主 workspace root）。
+    async fn run_at(&self, steps: &LocalToolSteps, command: ToolCommand) -> Result<ToolStepOutput, String> {
+        steps
+            .run(ToolStepRequest {
+                root: self.root_str(),
+                command,
+            })
+            .await
+    }
+}
+
+/// ArchivePreflight 分支（正向）：完成度（completed / incomplete_phases）自
+/// PhaseRecord、delta specs 自磁盘目录扫描、branch / merge_target 自
+/// vcs.current_branch（AC-3）。
+#[tokio::test]
+async fn archive_preflight分支完成度与探测载荷自store与vcs() {
+    // 归档前完成度：9 相位无一 pass → completed=false + 全相位未过清单
+    let env = ArchiveEnv::new("preflight-incomplete", &["desktop-flow"], &["proposal.md"]);
+    let vcs = Arc::new(FakeVcs::clean());
+    let assembled = assemble_with_vcs(
+        env.db.store_arc(),
+        "run-preflight",
+        FakeRunner::passing(),
+        FakeTestExecutionRunner::passing(),
+        Arc::clone(&vcs),
+    );
+
+    let output = env
+        .run_at(
+            &assembled.steps,
+            ToolCommand::ArchivePreflight {
+                change_id: CHANGE_ID.to_owned(),
+            },
+        )
+        .await
+        .expect("归档前置应可用");
+    let ToolStepOutput::ArchivePreflight(payload) = output else {
+        panic!("产出应为 ArchivePreflight");
+    };
+    assert_eq!(payload.name, NAME, "name 自记录供给");
+    assert!(!payload.completed, "零 pass 落账 → completed=false");
+    assert!(
+        payload.incomplete_phases.contains(&"archive".to_owned()),
+        "未过相位含 archive: {:?}",
+        payload.incomplete_phases
+    );
+    assert_eq!(
+        payload.delta_specs,
+        vec!["desktop-flow".to_owned()],
+        "delta specs 自 change 目录 specs/ 扫描（字典序）"
+    );
+    assert!(
+        payload.missing_artifacts.contains(&"design.md".to_owned()),
+        "缺席产物清单含 design.md: {:?}",
+        payload.missing_artifacts
+    );
+    assert!(
+        !payload.missing_artifacts.contains(&"proposal.md".to_owned()),
+        "在场产物不入缺席清单"
+    );
+    assert!(payload.worktree.is_none(), "legacy 主 root change 无 worktree");
+    assert!(
+        payload.branch.is_none(),
+        "无 worktree 记录即无 change 分支（branch 随 worktree 在场）"
+    );
+    assert!(
+        payload.merge_target.is_none(),
+        "无 worktree 记录不做合入目标探测（零 vcs 触点）"
+    );
+    assert!(
+        !vcs.calls().contains(&"current_branch".to_owned()),
+        "legacy 形态零 vcs 探测: {:?}",
+        vcs.calls()
+    );
+
+    // 开相落账全表 → completed=true、未过清单清空
+    for (index, phase) in [
+        "proposal",
+        "dev-design",
+        "test-design",
+        "implement",
+        "test-gen",
+        "test-execution",
+        "code-review",
+        "acceptance",
+        "archive",
+    ]
+    .iter()
+    .enumerate()
+    {
+        seed_entry(
+            env.db.store.as_ref(),
+            CHANGE_ID,
+            phase,
+            Verdict::Pass,
+            TS_BASE + (index as i64) * 60_000,
+        );
+    }
+    let output = env
+        .run_at(
+            &assembled.steps,
+            ToolCommand::ArchivePreflight {
+                change_id: CHANGE_ID.to_owned(),
+            },
+        )
+        .await
+        .expect("归档前置应可用");
+    let ToolStepOutput::ArchivePreflight(payload) = output else {
+        panic!("产出应为 ArchivePreflight");
+    };
+    assert!(payload.completed, "全相位 pass → completed=true");
+    assert!(payload.incomplete_phases.is_empty(), "未过清单清空");
+}
+
+/// ArchivePreflight 边界（边界）：未建档 change → 显式 `Err`（不臆测）；
+/// `specs/` 目录缺席 → delta_specs 空；worktree 记录在场时 branch /
+/// merge_target 自 vcs 探测（AC-3 / AC-7）。
+#[tokio::test]
+async fn archive_preflight边界未建档与无specs目录与worktree探测() {
+    // 未建档 → 显式 Err（两臂共用前置解析）
+    let env = ArchiveEnv::new("preflight-missing", &[], &[]);
+    let assembled = assemble(
+        env.db.store_arc(),
+        "run-preflight",
+        FakeRunner::passing(),
+        FakeTestExecutionRunner::passing(),
+    );
+    let error = env
+        .run_at(
+            &assembled.steps,
+            ToolCommand::ArchivePreflight {
+                change_id: "不存在的-id".to_owned(),
+            },
+        )
+        .await
+        .expect_err("未建档应显式 Err");
+    assert!(error.contains("不可归档"), "记因: {error}");
+
+    // specs/ 目录缺席 → delta_specs 空（miss 非错误）
+    let output = env
+        .run_at(
+            &assembled.steps,
+            ToolCommand::ArchivePreflight {
+                change_id: CHANGE_ID.to_owned(),
+            },
+        )
+        .await
+        .expect("归档前置应可用");
+    let ToolStepOutput::ArchivePreflight(payload) = output else {
+        panic!("产出应为 ArchivePreflight");
+    };
+    assert!(payload.delta_specs.is_empty(), "无 specs/ 目录 → 空清单");
+
+    // worktree 记录在场：branch = change/<name>、merge_target 自 current_branch
+    let worktree_env = ArchiveEnv::new("preflight-worktree", &[], &[]);
+    let worktree_dir = worktree_env.root.path().join("worktrees").join(NAME);
+    std::fs::create_dir_all(worktree_dir.join("openspec").join("changes").join(NAME))
+        .expect("创建 worktree 目录失败");
+    let mut record = worktree_env
+        .db
+        .store
+        .find_change_record(CHANGE_ID)
+        .expect("查档应成功")
+        .expect("记录在案");
+    record.worktree = Some(worktree_dir.to_string_lossy().into_owned());
+    record.base_commit = Some("abc1234".to_owned());
+    worktree_env
+        .db
+        .store
+        .delete_change_record(CHANGE_ID)
+        .expect("清旧建档失败");
+    worktree_env
+        .db
+        .store
+        .create_change_record(record)
+        .expect("重建携 worktree 建档失败");
+    let vcs = Arc::new(FakeVcs::clean());
+    let assembled = assemble_with_vcs(
+        worktree_env.db.store_arc(),
+        "run-preflight",
+        FakeRunner::passing(),
+        FakeTestExecutionRunner::passing(),
+        Arc::clone(&vcs),
+    );
+    let output = worktree_env
+        .run_at(
+            &assembled.steps,
+            ToolCommand::ArchivePreflight {
+                change_id: CHANGE_ID.to_owned(),
+            },
+        )
+        .await
+        .expect("归档前置应可用");
+    let ToolStepOutput::ArchivePreflight(payload) = output else {
+        panic!("产出应为 ArchivePreflight");
+    };
+    assert_eq!(
+        payload.branch.as_deref(),
+        Some(format!("change/{NAME}").as_str()),
+        "归档分支名 = change/<name>（name 自记录供给）"
+    );
+    assert_eq!(
+        payload.merge_target.as_deref(),
+        Some("main"),
+        "合入目标自 vcs.current_branch 探测"
+    );
+    assert!(payload.worktree.is_some(), "worktree 记录随行");
+}
+
+/// ArchivePreflight 异常（异常）：`vcs.current_branch` 返回 Err（detached HEAD
+/// 空输出）→ merge_target 取 None（读面兜底，不 panic）；`branch_merged` /
+/// 库读失败同样不阻断载荷产出（AC-3 稳健面）。
+#[tokio::test]
+async fn archive_preflight探测失败降级不panic() {
+    let env = ArchiveEnv::new("preflight-detached", &[], &[]);
+    let worktree_dir = env.root.path().join("worktrees").join(NAME);
+    std::fs::create_dir_all(worktree_dir.join("openspec").join("changes").join(NAME))
+        .expect("创建 worktree 目录失败");
+    let mut record = env
+        .db
+        .store
+        .find_change_record(CHANGE_ID)
+        .expect("查档应成功")
+        .expect("记录在案");
+    record.worktree = Some(worktree_dir.to_string_lossy().into_owned());
+    env.db
+        .store
+        .delete_change_record(CHANGE_ID)
+        .expect("清旧建档失败");
+    env.db
+        .store
+        .create_change_record(record)
+        .expect("重建携 worktree 建档失败");
+
+    let vcs = Arc::new(
+        FakeVcs::clean()
+            .with_branch(Err("detached HEAD：无当前分支".to_owned()))
+            .with_merged(Err("detached HEAD：无法判定合入".to_owned())),
+    );
+    let assembled = assemble_with_vcs(
+        env.db.store_arc(),
+        "run-preflight",
+        FakeRunner::passing(),
+        FakeTestExecutionRunner::passing(),
+        Arc::clone(&vcs),
+    );
+    let output = env
+        .run_at(
+            &assembled.steps,
+            ToolCommand::ArchivePreflight {
+                change_id: CHANGE_ID.to_owned(),
+            },
+        )
+        .await
+        .expect("探测失败不阻断载荷产出");
+    let ToolStepOutput::ArchivePreflight(payload) = output else {
+        panic!("产出应为 ArchivePreflight");
+    };
+    assert!(
+        payload.merge_target.is_none(),
+        "current_branch Err → merge_target None（不臆测，不 panic）"
+    );
+    assert!(
+        payload.branch.is_some(),
+        "change 分支名不依赖 vcs 探测（记录在场即在案）"
+    );
+    assert!(vcs.calls().contains(&"current_branch".to_owned()));
+
+    // 库读失败（get_change Err）→ 显式 Err 上抛（不静默空载荷）
+    let faulty_env = ArchiveEnv::new("preflight-store-fault", &[], &[]);
+    let faulty = FakeStore::new();
+    faulty.seed_change(CHANGE_ID, NAME);
+    faulty.fail_read(StoreFault::Db("库读失败".to_owned()));
+    let assembled = assemble(
+        Arc::new(faulty) as Arc<dyn ChangeStateStore>,
+        "run-preflight",
+        FakeRunner::passing(),
+        FakeTestExecutionRunner::passing(),
+    );
+    let error = faulty_env
+        .run_at(
+            &assembled.steps,
+            ToolCommand::ArchivePreflight {
+                change_id: CHANGE_ID.to_owned(),
+            },
+        )
+        .await
+        .expect_err("库读失败应显式 Err");
+    assert!(error.contains("不可归档"), "读面兜底记因: {error}");
+}
+
+/// ArchiveSeal 分支（正向）：`ArchiveSeal { change_id }` 直调
+/// `workflow::write::archive` 双写 → `ToolStepOutput::ArchiveSeal(ArchiveOutcome)`
+/// ——目录改名 + db status 翻转双面在案（AC-3）。
+#[tokio::test]
+async fn archive_seal分支双写目录改名与status翻转() {
+    let env = ArchiveEnv::new("seal", &[], &["proposal.md"]);
+    let assembled = assemble(
+        env.db.store_arc(),
+        "run-seal",
+        FakeRunner::passing(),
+        FakeTestExecutionRunner::passing(),
+    );
+
+    let output = env
+        .run_at(
+            &assembled.steps,
+            ToolCommand::ArchiveSeal {
+                change_id: CHANGE_ID.to_owned(),
+            },
+        )
+        .await
+        .expect("归档双写应成功");
+    let ToolStepOutput::ArchiveSeal(ArchiveOutcome {
+        name,
+        archived_date,
+    }) = output
+    else {
+        panic!("产出应为 ArchiveSeal");
+    };
+    assert_eq!(name, NAME, "归档产出名自记录供给");
+    assert_eq!(archived_date.len(), 10, "归档日期 YYYY-MM-DD: {archived_date}");
+
+    // 磁盘半边：active 目录出局、archive 树命中 `YYYY-MM-DD-<name>`
+    let active_dir = env.root.path().join("openspec").join("changes").join(NAME);
+    assert!(!active_dir.exists(), "active 目录已改名出局");
+    let archived_dir = env
+        .root
+        .path()
+        .join("openspec")
+        .join("changes")
+        .join("archive")
+        .join(format!("{archived_date}-{NAME}"));
+    assert!(archived_dir.is_dir(), "archive 树命中归档目录");
+    assert!(archived_dir.join("proposal.md").is_file(), "产物随目录改名");
+
+    // db 半边：status 翻转 archived + archived_at 落值
+    let record = env
+        .db
+        .store
+        .find_change_record(CHANGE_ID)
+        .expect("查档应成功")
+        .expect("记录在案");
+    assert_eq!(record.status, ChangeStatus::Archived, "db status 已翻转");
+    assert!(record.archived_at.is_some(), "archived_at 落值（写事务内铸出）");
+    assert_eq!(record.name, NAME, "name 不随目录改名变");
+}
+
+/// ArchiveSeal 分支（异常）：双写写面 Err（active / archive 两树未命中 /
+/// worktree 形态引导）→ `Err(String)` 透传（失败停链前置，AC-8）。
+#[tokio::test]
+async fn archive_seal写面失败显式err透传() {
+    // 两树未命中（记录在案但 change 目录缺席）→ 显式 Err
+    let env = ArchiveEnv::new("seal-miss", &[], &[]);
+    std::fs::remove_dir_all(env.root.path().join("openspec").join("changes").join(NAME))
+        .expect("移除 active 目录失败");
+    let assembled = assemble(
+        env.db.store_arc(),
+        "run-seal",
+        FakeRunner::passing(),
+        FakeTestExecutionRunner::passing(),
+    );
+    let error = env
+        .run_at(
+            &assembled.steps,
+            ToolCommand::ArchiveSeal {
+                change_id: CHANGE_ID.to_owned(),
+            },
+        )
+        .await
+        .expect_err("两树未命中应显式 Err");
+    assert!(error.contains("目录未找到"), "记因: {error}");
+    let after = env
+        .db
+        .store
+        .find_change_record(CHANGE_ID)
+        .expect("查档应成功")
+        .expect("记录在案");
+    assert_eq!(after.status, ChangeStatus::Active, "拒绝即零 db 变更");
+
+    // worktree 形态引导（worktree 记录在场且主仓两树未命中）→ 显式 Err 引导
+    let worktree_env = ArchiveEnv::new("seal-worktree-miss", &[], &[]);
+    std::fs::remove_dir_all(
+        worktree_env
+            .root
+            .path()
+            .join("openspec")
+            .join("changes")
+            .join(NAME),
+    )
+    .expect("移除 active 目录失败");
+    let mut record = worktree_env
+        .db
+        .store
+        .find_change_record(CHANGE_ID)
+        .expect("查档应成功")
+        .expect("记录在案");
+    record.worktree = Some("/tmp/worktrees/demo-change".to_owned());
+    worktree_env
+        .db
+        .store
+        .delete_change_record(CHANGE_ID)
+        .expect("清旧建档失败");
+    worktree_env
+        .db
+        .store
+        .create_change_record(record)
+        .expect("重建携 worktree 建档失败");
+    let assembled = assemble(
+        worktree_env.db.store_arc(),
+        "run-seal",
+        FakeRunner::passing(),
+        FakeTestExecutionRunner::passing(),
+    );
+    let error = worktree_env
+        .run_at(
+            &assembled.steps,
+            ToolCommand::ArchiveSeal {
+                change_id: CHANGE_ID.to_owned(),
+            },
+        )
+        .await
+        .expect_err("worktree 形态未合入应显式 Err");
+    assert!(
+        error.contains("merge 回主仓"),
+        "worktree merge-first 引导记因: {error}"
+    );
+
+    // 未建档 → 显式 Err（写面读记录前置）
+    let error = env
+        .run_at(
+            &assembled.steps,
+            ToolCommand::ArchiveSeal {
+                change_id: "不存在的-id".to_owned(),
+            },
+        )
+        .await
+        .expect_err("未建档应显式 Err");
+    assert!(error.contains("未建档"), "记因: {error}");
+}
+
+/// 审计行零触点（正向）：ArchivePreflight / ArchiveSeal 两分支均不写
+/// `StepRecord` 审计行（归档步为执行图节点，非相位机步骤——`list_steps` 恒空），
+/// 相位机臂照常落行（对照面，AC-3 / 数据模型）。
+#[tokio::test]
+async fn 归档两臂不写审计行_相位机臂照常落行() {
+    let env = ArchiveEnv::new("audit-zero", &[], &[]);
+    let assembled = assemble(
+        env.db.store_arc(),
+        "run-audit-archive",
+        FakeRunner::passing(),
+        FakeTestExecutionRunner::passing(),
+    );
+
+    // 相位机臂照常落行（对照面：PhaseNext 一行审计）
+    let next = assembled
+        .steps
+        .run(ToolStepRequest {
+            root: env.root_str(),
+            command: ToolCommand::PhaseNext {
+                change_id: CHANGE_ID.to_owned(),
+                run_id: "run-audit-archive".to_owned(),
+            },
+        })
+        .await
+        .expect("相位路由应成功");
+    assert!(matches!(next, ToolStepOutput::PhaseNext(_)));
+    assert_eq!(
+        env.db
+            .store
+            .list_steps(CHANGE_ID, Some("run-audit-archive"))
+            .expect("读试应成功")
+            .len(),
+        1,
+        "相位机臂照常落一行审计"
+    );
+
+    // 归档两臂：审计零触点（驱动后审计行条数不变）
+    let _ = env
+        .run_at(
+            &assembled.steps,
+            ToolCommand::ArchivePreflight {
+                change_id: CHANGE_ID.to_owned(),
+            },
+        )
+        .await
+        .expect("归档前置应可用");
+    assert_eq!(
+        env.db
+            .store
+            .list_steps(CHANGE_ID, Some("run-audit-archive"))
+            .expect("读试应成功")
+            .len(),
+        1,
+        "ArchivePreflight 臂写零 StepRecord 审计行"
+    );
+    let _ = env
+        .run_at(
+            &assembled.steps,
+            ToolCommand::ArchiveSeal {
+                change_id: CHANGE_ID.to_owned(),
+            },
+        )
+        .await
+        .expect("归档双写应可用");
+    assert_eq!(
+        env.db
+            .store
+            .list_steps(CHANGE_ID, Some("run-audit-archive"))
+            .expect("读试应成功")
+            .len(),
+        1,
+        "ArchiveSeal 臂写零 StepRecord 审计行"
+    );
+}
+
+/// 归档 vcs 缝触发面（正向 / 边界）：Preflight 仅在 worktree 记录在场时探测
+/// （`current_branch` 零调用为 legacy 形态）；Seal 臂零 vcs 触点（双写为磁盘 +
+/// db 半边，git 步归 walker 直驱）（AC-3 / R2）。
+#[tokio::test]
+async fn 归档两臂vcs触点面零调用与按需探测() {
+    let env = ArchiveEnv::new("vcs-touch", &[], &[]);
+    let vcs = Arc::new(FakeVcs::clean().with_merged(Ok(true)));
+    let assembled = assemble_with_vcs(
+        env.db.store_arc(),
+        "run-vcs",
+        FakeRunner::passing(),
+        FakeTestExecutionRunner::passing(),
+        Arc::clone(&vcs),
+    );
+
+    let _ = env
+        .run_at(
+            &assembled.steps,
+            ToolCommand::ArchivePreflight {
+                change_id: CHANGE_ID.to_owned(),
+            },
+        )
+        .await
+        .expect("归档前置应可用");
+    assert!(vcs.calls().is_empty(), "legacy 形态零 vcs 调用: {:?}", vcs.calls());
+
+    let _ = env
+        .run_at(
+            &assembled.steps,
+            ToolCommand::ArchiveSeal {
+                change_id: CHANGE_ID.to_owned(),
+            },
+        )
+        .await
+        .expect("归档双写应可用");
+    assert!(
+        vcs.calls().is_empty(),
+        "Seal 臂零 vcs 触点（git 步归 walker 直驱）: {:?}",
+        vcs.calls()
+    );
 }

@@ -124,6 +124,7 @@ async fn 跨change并行隔离_订阅与停止寻址按id不串台() {
     // A 的状态流不串台到 B
     guard_a.emit(RunUpdate::ConfirmWait {
         phase: "proposal".to_owned(),
+        archive: None,
     });
     let got_a = rx_a.recv().await.unwrap();
     assert!(
@@ -262,14 +263,18 @@ async fn confirm应答回传挂起等待者_单次take() {
     let waiter = tokio::spawn(async move { waiter_guard.wait_confirm().await });
 
     assert!(
-        until_ok(|| control.confirm(ROOT, CHANGE_ID, true)).await,
+        until_ok(|| control.confirm(ROOT, CHANGE_ID, true, false)).await,
         "confirm 的 Ok 即 pending 通道登记证明"
     );
-    assert!(waiter.await.unwrap(), "proceed=true 回传 true");
+    assert_eq!(
+        waiter.await.unwrap(),
+        (true, false),
+        "proceed=true 回传 true（sync_specs=false 原样回流）"
+    );
 
     // take 语义：应答已消费，重复应答落空 Err
     let err = control
-        .confirm(ROOT, CHANGE_ID, true)
+        .confirm(ROOT, CHANGE_ID, true, false)
         .expect_err("重复应答应 Err");
     assert!(
         err.contains("无等待中的 phase 确认"),
@@ -286,8 +291,12 @@ async fn confirm应答回传挂起等待者_单次take() {
     let waiter_b_guard = Arc::clone(&guard_b);
     let waiter_b = tokio::spawn(async move { waiter_b_guard.wait_confirm().await });
 
-    assert!(until_ok(|| control_b.confirm(ROOT, CHANGE_ID, false)).await);
-    assert!(!waiter_b.await.unwrap(), "proceed=false 回传 false");
+    assert!(until_ok(|| control_b.confirm(ROOT, CHANGE_ID, false, false)).await);
+    assert_eq!(
+        waiter_b.await.unwrap(),
+        (false, false),
+        "proceed=false 回传 false"
+    );
 }
 
 /// confirm 无等待方：无运行 run → Err 携 change id；有 run 无挂起 → Err
@@ -298,7 +307,7 @@ async fn confirm无等待方err携id记因() {
 
     // 无运行 run
     let err = control
-        .confirm(ROOT, CHANGE_ID, true)
+        .confirm(ROOT, CHANGE_ID, true, false)
         .expect_err("无 run 应 Err");
     assert!(err.contains(CHANGE_ID), "错误显式携带 change id: {err}");
     assert!(err.contains("无运行中的 run"), "miss 记因: {err}");
@@ -308,7 +317,7 @@ async fn confirm无等待方err携id记因() {
         .begin_run(ROOT, CHANGE_ID, "run-1".to_owned(), STARTED_AT)
         .unwrap();
     let err = control
-        .confirm(ROOT, CHANGE_ID, true)
+        .confirm(ROOT, CHANGE_ID, true, false)
         .expect_err("无挂起应 Err");
     assert_eq!(err, "当前无等待中的 phase 确认");
 }
@@ -457,13 +466,40 @@ async fn publish快照面状态机镜像() {
     assert_eq!(snap.attempt, Some(2));
     assert!(snap.ask.is_none());
 
-    // ConfirmWait：waitingConfirm + 停等定位
+    // ConfirmWait：waitingConfirm + 停等定位（普通相位停等 archive 槽清空）
     guard.emit(RunUpdate::ConfirmWait {
         phase: "test-gen".to_owned(),
+        archive: None,
     });
     let snap = control.snapshot(ROOT, CHANGE_ID).unwrap();
     assert_eq!(snap.status, ChangeRunStatus::WaitingConfirm);
     assert_eq!(snap.phase.as_deref(), Some("test-gen"));
+    assert!(
+        snap.archive.is_none(),
+        "普通相位停等 archive 槽恒 None（停等载荷面）"
+    );
+
+    // ConfirmWait（archive 前停等）：前置只读载荷落 entry，快照出线
+    guard.emit(RunUpdate::ConfirmWait {
+        phase: "archive".to_owned(),
+        archive: Some(sample_preflight()),
+    });
+    let snap = control.snapshot(ROOT, CHANGE_ID).unwrap();
+    assert_eq!(snap.status, ChangeRunStatus::WaitingConfirm);
+    assert_eq!(snap.phase.as_deref(), Some("archive"));
+    let preflight = snap.archive.clone().expect("归档前停等应携前置载荷");
+    assert_eq!(preflight, sample_preflight());
+
+    // 回退到普通相位停等：archive 槽清空（不残留上一次载荷）
+    guard.emit(RunUpdate::ConfirmWait {
+        phase: "test-gen".to_owned(),
+        archive: None,
+    });
+    let snap = control.snapshot(ROOT, CHANGE_ID).unwrap();
+    assert!(
+        snap.archive.is_none(),
+        "普通相位停等清空 archive 槽（不残留）"
+    );
 
     // Ask：waitingAsk + 中断载荷
     guard.emit(RunUpdate::Ask {
@@ -495,6 +531,7 @@ async fn publish快照面状态机镜像() {
         "会话事件不改写状态"
     );
     assert_eq!(snap.phase.as_deref(), Some("test-gen"));
+    assert!(snap.archive.is_none(), "会话事件不改写归档载荷槽");
 }
 
 /// 取消信号中断挂起停等：wait_confirm / wait_answer 挂起期间 request_stop
@@ -517,9 +554,10 @@ async fn cancel置位中断挂起停等() {
     tokio::task::yield_now().await;
 
     assert!(control.request_stop(ROOT, CHANGE_ID), "停止置位");
-    assert!(
-        !confirm_waiter.await.unwrap(),
-        "取消置位 → proceed=false 收敛"
+    assert_eq!(
+        confirm_waiter.await.unwrap(),
+        (false, false),
+        "取消置位 → (false, false) 收敛（停止不必先应答）"
     );
     assert_eq!(
         answer_waiter.await.unwrap(),
@@ -609,6 +647,7 @@ async fn 复合键订阅隔离_broadcast按复合键寻址不串台() {
     // 各自 publish：载荷可辨（同一 change id，仅 root 不同）
     guard_a.emit(RunUpdate::ConfirmWait {
         phase: "proposal".to_owned(),
+        archive: None,
     });
     guard_b.emit(RunUpdate::Ask {
         question: "root-b 的提问".to_owned(),
@@ -821,6 +860,7 @@ async fn publish停等与终态_状态迁移照旧且notice对应() {
 
     guard.emit(RunUpdate::ConfirmWait {
         phase: "test-gen".to_owned(),
+        archive: None,
     });
     let snap = control.snapshot(ROOT, CHANGE_ID).unwrap();
     assert_eq!(snap.status, ChangeRunStatus::WaitingConfirm);
@@ -1069,5 +1109,154 @@ async fn 零边快照空数组与未登记publish零残留() {
     assert!(
         control.snapshot(ROOT, CHANGE_ID).is_none(),
         "终态除名（收口唯一出口）"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// 归档前停等扩展（AC-7 / D2）：sync_specs 回流四组合、archive 槽两态、
+// 终态除名后 snapshot 恒 None、广播零载荷
+// ---------------------------------------------------------------------------
+
+/// 归档前置只读载荷 fixture（八字段；与 walker / 命令层消费同一像）。
+fn sample_preflight() -> crate::state::ArchivePreflight {
+    crate::state::ArchivePreflight {
+        name: "demo-change".to_owned(),
+        completed: true,
+        incomplete_phases: Vec::new(),
+        missing_artifacts: Vec::new(),
+        delta_specs: vec!["specs/desktop-flow/spec.md".to_owned()],
+        worktree: Some("/tmp/wt/demo-change".to_owned()),
+        branch: Some("change/demo-change".to_owned()),
+        merge_target: Some("main".to_owned()),
+    }
+}
+
+/// confirm `sync_specs` 回流（正向）：`(proceed, sync_specs)` 四组合逐组合
+/// 原样回流（`wait_confirm` 返回二元组；AC-7 / D2）。
+#[tokio::test]
+async fn confirm回流四组合proceed与sync_specs逐组合() {
+    for (proceed, sync_specs) in [(true, true), (true, false), (false, true), (false, false)] {
+        let control = Arc::new(ChangeFlowControl::new());
+        let guard = Arc::new(
+            control
+                .begin_run(ROOT, CHANGE_ID, "run-1".to_owned(), STARTED_AT)
+                .unwrap(),
+        );
+        let waiter_guard = Arc::clone(&guard);
+        let waiter = tokio::spawn(async move { waiter_guard.wait_confirm().await });
+
+        assert!(
+            until_ok(|| control.confirm(ROOT, CHANGE_ID, proceed, sync_specs)).await,
+            "confirm 应抵达挂起等待者（proceed={proceed} sync_specs={sync_specs}）"
+        );
+        assert_eq!(
+            waiter.await.unwrap(),
+            (proceed, sync_specs),
+            "二元组逐组合原样回流（proceed={proceed} sync_specs={sync_specs}）"
+        );
+    }
+}
+
+/// confirm 异常面（异常）：无运行 run / 无等待方 → `Err` 记因；取消信号置位
+/// → `wait_confirm` 以 `(false, false)` 收敛（停止不必先应答，AC-7）。
+#[tokio::test]
+async fn confirm异常面miss记因与取消收敛() {
+    // 无运行 run → Err 携 id
+    let control = Arc::new(ChangeFlowControl::new());
+    let err = control
+        .confirm(ROOT, CHANGE_ID, true, true)
+        .expect_err("无 run 应 Err");
+    assert!(err.contains(CHANGE_ID) && err.contains("无运行中的 run"), "{err}");
+
+    // 有 run 无等待方 → Err（单次通道语义）
+    let run_control = Arc::new(ChangeFlowControl::new());
+    let _guard = run_control
+        .begin_run(ROOT, CHANGE_ID, "run-1".to_owned(), STARTED_AT)
+        .unwrap();
+    let err = run_control
+        .confirm(ROOT, CHANGE_ID, false, true)
+        .expect_err("无挂起应 Err");
+    assert_eq!(err, "当前无等待中的 phase 确认");
+
+    // 取消置位 → (false, false) 收敛（即便 sync_specs 请求 true 也不回流）
+    let cancel_control = Arc::new(ChangeFlowControl::new());
+    let guard = Arc::new(
+        cancel_control
+            .begin_run(ROOT, CHANGE_ID, "run-2".to_owned(), STARTED_AT)
+            .unwrap(),
+    );
+    let waiter_guard = Arc::clone(&guard);
+    let waiter = tokio::spawn(async move { waiter_guard.wait_confirm().await });
+    tokio::task::yield_now().await;
+    assert!(cancel_control.request_stop(ROOT, CHANGE_ID));
+    assert_eq!(
+        waiter.await.unwrap(),
+        (false, false),
+        "取消置位 → (false, false)（停止不必先应答）"
+    );
+}
+
+/// snapshot 归档槽两态（正向）：`archive: Some(preflight)` / `None` 与 publish
+/// 落值一致；终态除名后 snapshot 恒 None（archive 槽随之缺席，AC-7 / AC-10）。
+#[tokio::test]
+async fn snapshot_archive槽两态与除名缺席() {
+    let control = Arc::new(ChangeFlowControl::new());
+    let guard = control
+        .begin_run(ROOT, CHANGE_ID, "run-1".to_owned(), STARTED_AT)
+        .unwrap();
+
+    // 初始：running 恒 None
+    let snap = control.snapshot(ROOT, CHANGE_ID).expect("run 在册");
+    assert!(snap.archive.is_none(), "running 态 archive 槽恒 None");
+
+    // archive 前停等：载荷在场
+    guard.emit(RunUpdate::ConfirmWait {
+        phase: "archive".to_owned(),
+        archive: Some(sample_preflight()),
+    });
+    let snap = control.snapshot(ROOT, CHANGE_ID).expect("run 在册");
+    assert_eq!(snap.status, ChangeRunStatus::WaitingConfirm);
+    assert_eq!(snap.archive, Some(sample_preflight()));
+
+    // 终态除名：snapshot 恒 None（归档槽随之缺席）
+    let guard = control
+        .begin_run(ROOT, "change-c", "run-c".to_owned(), STARTED_AT)
+        .unwrap();
+    guard.emit(RunUpdate::ConfirmWait {
+        phase: "archive".to_owned(),
+        archive: Some(sample_preflight()),
+    });
+    guard.finish(ChangeRunStatus::Completed, None);
+    assert!(
+        control.snapshot(ROOT, "change-c").is_none(),
+        "终态除名后 snapshot 恒 None"
+    );
+    assert!(
+        control.snapshot(ROOT, CHANGE_ID).is_some(),
+        "他键 run 不受影响（复合键除名粒度）"
+    );
+}
+
+/// 广播零载荷（边界）：`ConfirmWait` 携带 archive 载荷但 `RunNotice::ConfirmWait`
+/// 仍 kind-only 零载荷（停等载荷不出进程——客户端经统一视图重查；AC-7 / D2）。
+#[tokio::test]
+async fn 归档停等广播零载荷kind_only() {
+    let control = Arc::new(ChangeFlowControl::new());
+    let guard = control
+        .begin_run(ROOT, CHANGE_ID, "run-1".to_owned(), STARTED_AT)
+        .unwrap();
+    let mut rx = control.subscribe(ROOT, CHANGE_ID).expect("订阅应成功");
+
+    guard.emit(RunUpdate::ConfirmWait {
+        phase: "archive".to_owned(),
+        archive: Some(sample_preflight()),
+    });
+
+    let notice = rx.recv().await.expect("通知应到达");
+    assert!(matches!(notice, RunNotice::ConfirmWait));
+    assert_eq!(
+        serde_json::to_value(notice).expect("出线应成功"),
+        serde_json::json!({"ipc": "confirmWait"}),
+        "通知单键零载荷（archive 载荷不出进程）"
     );
 }

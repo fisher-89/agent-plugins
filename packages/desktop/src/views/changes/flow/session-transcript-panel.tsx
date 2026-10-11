@@ -8,11 +8,13 @@ import type { SessionSummary } from '@/types/generated/bindings';
 import { useSessionTranscript } from '../hooks/use-session-transcript';
 import type { FlowRoleLabel, RoleSessionRef } from './types';
 
-/** role 分页文案。 */
+/** role 分页文案（归档两 agent 步各占一 role 页）。 */
 const ROLE_LABEL: Record<FlowRoleLabel, string> = {
   executor: '执行会话',
   evaluator: '评估会话',
   decision: '决策会话',
+  spec_sync: 'spec 同步会话',
+  resolve_conflicts: '解冲突会话',
 };
 
 interface SessionTranscriptPanelProps {

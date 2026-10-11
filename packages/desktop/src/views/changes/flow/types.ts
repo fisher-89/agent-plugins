@@ -40,17 +40,23 @@ export interface ActiveFlowNode extends FlowNodeBase {
 }
 
 /**
- * 运行步节点三分类词汇（runStepNode 节点类型徽章可辨）：WorkerAgent 三角色 /
- * ToolStep 四命令 / Gate 三门。
+ * 运行步节点四分类词汇（runStepNode 节点类型徽章可辨）：WorkerAgent 五角色 /
+ * ToolStep 命令 / Git 四步 / Gate 三门。
  */
-export type RunStepGroup = 'workerAgent' | 'toolStep' | 'gate';
+export type RunStepGroup = 'workerAgent' | 'toolStep' | 'git' | 'gate';
 
 /**
  * role 标签（WorkerRole 线格式，与后端 sourceRef 定式第三段一致）：
  * sourceRef = `<id>/<phase>/<role>/<attempt>`（身份段恒 change id，D3），
- * 会话转录联动按此 exact-match 反查 agentSessions（source='change'）。
+ * 会话转录联动按此 exact-match 反查 agentSessions（source='change'）；归档两
+ * agent 步以 `spec_sync` / `resolve_conflicts` 为第三段（节点 sessionId 直查优先）。
  */
-export type FlowRoleLabel = 'executor' | 'evaluator' | 'decision';
+export type FlowRoleLabel =
+  | 'executor'
+  | 'evaluator'
+  | 'decision'
+  | 'spec_sync'
+  | 'resolve_conflicts';
 
 /**
  * 转录联动寻址键
@@ -84,7 +90,7 @@ export interface RuntimeFlowNode extends FlowNodeBase {
 
 export type FlowNode = EvalFlowNode | ActiveFlowNode | RuntimeFlowNode;
 
-/** phase 列容器（9 站恒定，未走的站呈现空列） */
+/** phase 列容器（10 站恒定，未走的站呈现空列） */
 export interface FlowColumn {
   id: string;
   phase: string;

@@ -244,6 +244,71 @@ static TEST_EXECUTION_STEPS: &[StepDefinition] = &[
     },
 ];
 
+/// archive 相位步序列（10 步；确定性相位第二例）：PhaseStart（attempt max+1
+/// 分配）→ Preflight（store 读 + vcs 探测的只读校验）→ Commit（worktree 全域
+/// 提交，step 内「干净」跳过）→ Rebase（分支重放至主仓当前分支，冲突清单入跨步
+/// 产物）→ ResolveConflicts（条件执行：无冲突 passed + detail；有冲突经解冲突
+/// agent 会话解算）→ Merge（主仓 ff-only 快进）→ SpecSync（delta specs 在场且
+/// 未跳过时 agent 会话，否则 passed + 跳过因）→ Seal（写面 `archive` 双写收口）
+/// → Finalize（落盘 pathspec 提交，step 内「已落盘」跳过）→ PhaseLog（空
+/// report + 空 checklist 落 `verdict=pass`）。
+///
+/// 每步 `prompt_ref = None`（spec 同步 / 解冲突 prompt 由 orchestration 侧运行时
+/// 组装——workflow 不依赖 orchestration）、`on_fail = None`（步失败即 Terminal：
+/// 归档步失败不唤决策、不进相位重试）。
+static ARCHIVE_STEPS: &[StepDefinition] = &[
+    StepDefinition {
+        node: StepNode::PhaseStart,
+        prompt_ref: None,
+        on_fail: None,
+    },
+    StepDefinition {
+        node: StepNode::Preflight,
+        prompt_ref: None,
+        on_fail: None,
+    },
+    StepDefinition {
+        node: StepNode::Commit,
+        prompt_ref: None,
+        on_fail: None,
+    },
+    StepDefinition {
+        node: StepNode::Rebase,
+        prompt_ref: None,
+        on_fail: None,
+    },
+    StepDefinition {
+        node: StepNode::ResolveConflicts,
+        prompt_ref: None,
+        on_fail: None,
+    },
+    StepDefinition {
+        node: StepNode::Merge,
+        prompt_ref: None,
+        on_fail: None,
+    },
+    StepDefinition {
+        node: StepNode::SpecSync,
+        prompt_ref: None,
+        on_fail: None,
+    },
+    StepDefinition {
+        node: StepNode::Seal,
+        prompt_ref: None,
+        on_fail: None,
+    },
+    StepDefinition {
+        node: StepNode::Finalize,
+        prompt_ref: None,
+        on_fail: None,
+    },
+    StepDefinition {
+        node: StepNode::PhaseLog,
+        prompt_ref: None,
+        on_fail: None,
+    },
+];
+
 static CODE_REVIEW_STEPS: &[StepDefinition] = &[
     StepDefinition {
         node: StepNode::PhaseStart,
@@ -327,10 +392,11 @@ static TEST_EXECUTION_MANIFEST: &[ArtifactSpec] = &[ArtifactSpec {
     title: "测试报告",
 }];
 
-/// requirement 相位表（编译期静态装配：14 个角色知识 md 逐条 `include_str!`
-/// 显式字面路径；全静态零占位故全表 const 化，驻留 `'static` 只读共享）。每相
-/// 位同时声明计划步序列（steps）与产物清单（artifact_manifest）——计划图单源，
-/// walker 不自持步序、产物发现不落第二份归属表。
+/// requirement 相位表（9 个路由相位 = 8 个 agent 相位 + archive 确定性相位；
+/// 编译期静态装配：14 个角色知识 md 逐条 `include_str!` 显式字面路径；全静态零
+/// 占位故全表 const 化，驻留 `'static` 只读共享）。每相位同时声明计划步序列
+///（steps）与产物清单（artifact_manifest）——计划图单源，walker 不自持步序、
+/// 产物发现不落第二份归属表。
 static REQUIREMENT_TABLE: &[PhaseDefinition] = &[
     PhaseDefinition {
         id: "proposal",
@@ -437,6 +503,18 @@ static REQUIREMENT_TABLE: &[PhaseDefinition] = &[
             prompt: ACCEPTANCE_EVALUATOR_PROMPT,
             model_level: ModelLevel::High,
         }),
+    },
+    // archive：确定性相位第二例（test-execution 为先例）——无 executor /
+    // evaluator 会话、零 artifact_manifest；末尾 PhaseLog 以空 checklist 落账
+    // 即「相位已 pass」标记（非评估证据面）。归档为固定停止点（stop-before-
+    // archive），用户显式确认后才进入本相位。
+    PhaseDefinition {
+        id: "archive",
+        description: "归档收口",
+        steps: ARCHIVE_STEPS,
+        artifact_manifest: &[],
+        executor: None,
+        evaluator: None,
     },
 ];
 

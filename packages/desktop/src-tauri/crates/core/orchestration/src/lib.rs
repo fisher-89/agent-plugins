@@ -1,4 +1,3 @@
-pub mod archive_flow;
 pub mod control;
 pub mod decision;
 pub mod port;
@@ -11,11 +10,6 @@ pub mod transcript;
 pub mod verdict;
 pub mod walker;
 
-pub use archive_flow::{
-    preflight, run_archive_flow, ArchiveControl, ArchiveGuard, ArchivePreflight, ArchiveRequest,
-    ArchiveSnapshot, ArchiveSpecsStatus, ArchiveStage, ArchiveStageState, ArchiveStageStatus,
-    ArchiveSummary, ArchiveUpdate,
-};
 pub use control::{ChangeFlowControl, RunGuard};
 pub use decision::{CandidateReport, DecisionAction, DecisionInput};
 pub use port::{
@@ -27,15 +21,14 @@ pub use port::{
 pub use run_history::{finish_command, StoreRunHistory};
 pub use snapshot::StoreSnapshot;
 pub use state::{
-    AskPayload, ChangeRunSnapshot, ChangeRunStatus, ChangeRunSummary, ChangeStepEdge,
-    ChangeStepKind, ChangeStepState, ChangeStepStatus, EdgeKind, NodeKey, RunNotice, RunUpdate,
+    ArchivePreflight, AskPayload, ChangeRunSnapshot, ChangeRunStatus, ChangeRunSummary,
+    ChangeStepEdge, ChangeStepKind, ChangeStepState, ChangeStepStatus, EdgeKind, NodeKey, RunNotice,
+    RunUpdate,
 };
 pub use steps::LocalToolSteps;
 pub use verdict::EvaluatorChecklist;
 pub use walker::{new_run_id, walk_run, RunRequest};
 
-#[cfg(test)]
-mod archive_flow_test;
 #[cfg(test)]
 mod control_test;
 #[cfg(test)]

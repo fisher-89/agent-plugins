@@ -132,6 +132,10 @@ async fn command缺失或空串显式err() {
 #[cfg(windows)]
 #[tokio::test]
 async fn 超时收口返回err携超时记因且进程树清理路径被触达() {
+    // PATH 锁：本用例的 ping 须由 PATH 解析，同二进制内 PATH 全局替换窗口
+    // （空 PATH 注入）期间 spawn 会得到「命令不可解析 → 秒级非零退出」而非
+    // 超时收口——按 crate 互斥纪律与替换窗口串行。
+    let _guard = PATH_LOCK.lock().expect("PATH 锁不可中毒");
     let dir = tempdir("timeout");
     // 跨 shell 可用的长驻命令：Windows ping（git-bash 与 cmd 同解析到系统 ping）
     let command = "ping -n 30 127.0.0.1";

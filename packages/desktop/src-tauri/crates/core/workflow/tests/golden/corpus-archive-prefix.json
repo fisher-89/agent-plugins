@@ -81,6 +81,26 @@
     {
       "attempts": [],
       "phase": "code-analyze"
+    },
+    {
+      "attempts": [
+        {
+          "attempt": 1,
+          "backtrackReason": null,
+          "backtrackTo": null,
+          "checklist": [],
+          "decisionSessionId": null,
+          "evaluatorSessionId": null,
+          "executorSessionId": null,
+          "report": "",
+          "skipped": false,
+          "stale": false,
+          "startAt": "2024-09-22T10:13:23Z",
+          "timestamp": "2024-09-22T10:13:23Z",
+          "verdict": "pass"
+        }
+      ],
+      "phase": "archive"
     }
   ],
   "runs": [
@@ -102,6 +122,162 @@
       "reason": "All phases have passed evaluation. Ready for archiving.",
       "runId": "run-1727000040000",
       "startedAt": "2024-09-22T10:13:30Z",
+      "status": "completed"
+    },
+    {
+      "edges": [
+        {
+          "edgeKind": "forward",
+          "fromNodeKey": "archive:1:phase_start:0",
+          "toNodeKey": "archive:1:preflight:0"
+        },
+        {
+          "edgeKind": "forward",
+          "fromNodeKey": "archive:1:preflight:0",
+          "toNodeKey": "archive:1:commit:0"
+        },
+        {
+          "edgeKind": "forward",
+          "fromNodeKey": "archive:1:commit:0",
+          "toNodeKey": "archive:1:rebase:0"
+        },
+        {
+          "edgeKind": "forward",
+          "fromNodeKey": "archive:1:rebase:0",
+          "toNodeKey": "archive:1:resolve_conflicts:0"
+        },
+        {
+          "edgeKind": "forward",
+          "fromNodeKey": "archive:1:resolve_conflicts:0",
+          "toNodeKey": "archive:1:merge:0"
+        },
+        {
+          "edgeKind": "forward",
+          "fromNodeKey": "archive:1:merge:0",
+          "toNodeKey": "archive:1:spec_sync:0"
+        },
+        {
+          "edgeKind": "forward",
+          "fromNodeKey": "archive:1:spec_sync:0",
+          "toNodeKey": "archive:1:seal:0"
+        },
+        {
+          "edgeKind": "forward",
+          "fromNodeKey": "archive:1:seal:0",
+          "toNodeKey": "archive:1:finalize:0"
+        },
+        {
+          "edgeKind": "forward",
+          "fromNodeKey": "archive:1:finalize:0",
+          "toNodeKey": "archive:1:phase_log:0"
+        }
+      ],
+      "finishedAt": "2024-09-22T10:13:49Z",
+      "nodes": [
+        {
+          "attempt": 1,
+          "detail": null,
+          "instanceNo": 0,
+          "outputRef": null,
+          "phase": "archive",
+          "sessionId": null,
+          "status": "passed",
+          "step": "phase_start"
+        },
+        {
+          "attempt": 1,
+          "detail": "前置只读校验：8 相位已过 / 无缺产物",
+          "instanceNo": 0,
+          "outputRef": null,
+          "phase": "archive",
+          "sessionId": null,
+          "status": "passed",
+          "step": "preflight"
+        },
+        {
+          "attempt": 1,
+          "detail": "worktree 干净，无待提交变更（跳过）",
+          "instanceNo": 0,
+          "outputRef": null,
+          "phase": "archive",
+          "sessionId": null,
+          "status": "passed",
+          "step": "commit"
+        },
+        {
+          "attempt": 1,
+          "detail": "已重放至主仓当前分支，无冲突",
+          "instanceNo": 0,
+          "outputRef": null,
+          "phase": "archive",
+          "sessionId": null,
+          "status": "passed",
+          "step": "rebase"
+        },
+        {
+          "attempt": 1,
+          "detail": "无冲突，无需解算（跳过）",
+          "instanceNo": 0,
+          "outputRef": null,
+          "phase": "archive",
+          "sessionId": "ses-arch-resolve",
+          "status": "passed",
+          "step": "resolve_conflicts"
+        },
+        {
+          "attempt": 1,
+          "detail": "主仓 ff-only 快进完成",
+          "instanceNo": 0,
+          "outputRef": null,
+          "phase": "archive",
+          "sessionId": null,
+          "status": "passed",
+          "step": "merge"
+        },
+        {
+          "attempt": 1,
+          "detail": "delta specs 已同步",
+          "instanceNo": 0,
+          "outputRef": null,
+          "phase": "archive",
+          "sessionId": "ses-arch-spec-sync",
+          "status": "passed",
+          "step": "spec_sync"
+        },
+        {
+          "attempt": 1,
+          "detail": "双写收口：目录改名 + status 翻转",
+          "instanceNo": 0,
+          "outputRef": null,
+          "phase": "archive",
+          "sessionId": null,
+          "status": "passed",
+          "step": "seal"
+        },
+        {
+          "attempt": 1,
+          "detail": "归档产物已落盘，无待提交路径（跳过）",
+          "instanceNo": 0,
+          "outputRef": null,
+          "phase": "archive",
+          "sessionId": null,
+          "status": "passed",
+          "step": "finalize"
+        },
+        {
+          "attempt": 1,
+          "detail": "空 checklist 落账 verdict=pass",
+          "instanceNo": 0,
+          "outputRef": null,
+          "phase": "archive",
+          "sessionId": null,
+          "status": "passed",
+          "step": "phase_log"
+        }
+      ],
+      "reason": "archive phase landed an empty checklist verdict=pass",
+      "runId": "run-1727000041000",
+      "startedAt": "2024-09-22T10:13:40Z",
       "status": "completed"
     }
   ],

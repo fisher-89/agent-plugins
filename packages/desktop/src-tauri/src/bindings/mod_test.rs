@@ -999,16 +999,16 @@ fn create_change命令签面_root_name_goal三参不变() {
 }
 
 // ---------------------------------------------------------------------------
-// 归档链命令组与 ArchiveUpdate 家族（desktop-archive-change D1/D5——五命令
-// 出线 + tag ipc 线词锚；既有命令清单零删除零改名的随动守卫由上方全量清单
-// contains 语义承载）
+// 归档链退役（merge-archive-steps-into-flow AC-9 / AC-10）：归档五命令 /
+// ArchiveUpdate 家族 / ArchiveStage 词汇随归档链整体退役——生成物不含退役命令
+// 包装名与退役类型（bindings 零手改，再生成直出线；退役 diff 面由 code-review
+// 与 bindings:check 管线承载）
 // ---------------------------------------------------------------------------
 
-/// 归档五命令注册面：生成 bindings 的 commands 对象含五命令（camelCase 名齐
-/// 全；start / watch 携 typed Channel 参型；既有命令零删除零改名——全量清单
-/// 用例继续逐名命中）。
+/// 归档链退役面：生成 bindings 不含退役五命令包装名与退役 invoke 名（归档发起 /
+/// 停止 / 状态 / 预检 / 观察全并入 `changeFlow*` 命令面——AC-10）。
 #[test]
-fn 归档五命令注册面_camel_case名齐全且channel参型() {
+fn 归档五命令退役_生成物零残留() {
     let _lock = lock();
     let content = String::from_utf8(authoritative_snapshot()).expect("产物为 UTF-8 文本");
 
@@ -1020,8 +1020,8 @@ fn 归档五命令注册面_camel_case名齐全且channel参型() {
         "archiveFlowWatch",
     ] {
         assert!(
-            content.contains(&format!("{wrapper}:")),
-            "产物缺归档命令包装名 {wrapper}"
+            !content.contains(&format!("{wrapper}:")),
+            "生成物残留退役命令包装名 {wrapper}"
         );
     }
     for name in [
@@ -1032,72 +1032,33 @@ fn 归档五命令注册面_camel_case名齐全且channel参型() {
         "archive_flow_watch",
     ] {
         assert!(
-            content.contains(&format!("\"{name}\"")),
-            "产物缺归档 invoke 命令名 {name}"
+            !content.contains(&format!("\"{name}\"")),
+            "生成物残留退役 invoke 命令名 {name}"
         );
     }
-    // start / watch 首参为 typed Channel<ArchiveUpdate>，定位参名 id（原
-    // `change` 参名置换——AC-5 签面随动）
-    assert!(
-        content.contains("archiveFlowStart: (onEvent: Channel<ArchiveUpdate>, root: string, id: string, syncSpecs: boolean) => __TAURI_INVOKE<boolean>(\"archive_flow_start\", { onEvent, root, id, syncSpecs })"),
-        "archiveFlowStart 绑定首参为 typed Channel<ArchiveUpdate> 且四参齐（定位参 id）"
-    );
-    assert!(
-        content.contains(
-            "archiveFlowWatch: (onEvent: Channel<ArchiveUpdate>, root: string, id: string) => __TAURI_INVOKE<null>(\"archive_flow_watch\", { onEvent, root, id })"
-        ),
-        "archiveFlowWatch 绑定首参为 typed Channel<ArchiveUpdate>（定位参 id）"
-    );
+    // 退役类型面零残留（ArchiveStage / ArchiveUpdate / ArchiveSnapshot 等）
+    for retired in [
+        "ArchiveStage",
+        "ArchiveStageStatus",
+        "ArchiveSpecsStatus",
+        "ArchiveUpdate",
+        "ArchiveSnapshot",
+        "ArchiveSummary",
+        "ArchiveControl",
+        "ArchiveSink",
+    ] {
+        assert!(!content.contains(retired), "生成物残留退役类型 {retired}");
+    }
 }
 
-/// ArchiveUpdate 家族线词：ArchiveStage 六值 / ArchiveStageStatus 四值 /
-/// ArchiveSpecsStatus 三值 / ArchivePreflight 与 ArchiveSnapshot 字段面——D5
-/// 线格式锚。
+/// 归档前置载荷线面（正向）：归档链并入 run 后仅 `ArchivePreflight` 保留——八
+/// 字段 camelCase 出线且经 `ChangeRunSnapshot.archive` / `ActiveRunView.archive`
+/// 挂靠（AC-7 / AC-10 生成物面）。
 #[test]
-fn archive_update家族线词_阶段与状态与字段面() {
+fn archive_preflight线面字段面保留() {
     let _lock = lock();
     let content = String::from_utf8(authoritative_snapshot()).expect("产物为 UTF-8 文本");
 
-    // ArchiveStage 线词恰六值
-    let stage = type_section(&content, "ArchiveStage");
-    for wire in [
-        "preflight",
-        "specSync",
-        "commit",
-        "merge",
-        "seal",
-        "finalize",
-    ] {
-        assert!(
-            stage.contains(&format!("\"{wire}\"")),
-            "ArchiveStage 线词 {wire}，实际: {stage}"
-        );
-    }
-    // ArchiveStageStatus 四值
-    let status = type_section(&content, "ArchiveStageStatus");
-    for wire in ["running", "passed", "skipped", "failed"] {
-        assert!(
-            status.contains(&format!("\"{wire}\"")),
-            "ArchiveStageStatus 线词 {wire}"
-        );
-    }
-    // ArchiveSpecsStatus 三值
-    let specs = type_section(&content, "ArchiveSpecsStatus");
-    for wire in ["synced", "skipped", "none"] {
-        assert!(
-            specs.contains(&format!("\"{wire}\"")),
-            "ArchiveSpecsStatus 线词 {wire}"
-        );
-    }
-    // ArchiveUpdate tag ipc 三变体
-    let update = type_section(&content, "ArchiveUpdate");
-    for tag in ["stage", "sessionEvent", "finished"] {
-        assert!(
-            update.contains(&format!("{{ ipc: \"{tag}\"")),
-            "ArchiveUpdate tag ipc 变体 {tag}"
-        );
-    }
-    // ArchivePreflight 字段面（确认对话数据面）
     let preflight = type_section(&content, "ArchivePreflight");
     for field in [
         "name",
@@ -1108,26 +1069,30 @@ fn archive_update家族线词_阶段与状态与字段面() {
         "worktree",
         "branch",
         "mergeTarget",
-        "runActive",
     ] {
         assert!(
             preflight.contains(&format!("{field}:")),
             "ArchivePreflight 字段 {field}"
         );
     }
-    // ArchiveSnapshot 字段面（重挂快照）
-    let snapshot = type_section(&content, "ArchiveSnapshot");
-    assert!(snapshot.contains("stages:"), "ArchiveSnapshot 字段 stages");
+    // 挂靠面：统一视图活面携 archive 槽（camelCase；快照为进程内 seam 类型，
+    // 仅经 ActiveRunView 投影出线——`get_change_detail` 单一查询面）
+    let active_run = type_section(&content, "ActiveRunView");
     assert!(
-        snapshot.contains("sessionId:"),
-        "ArchiveSnapshot 字段 sessionId（camelCase）"
+        active_run.contains("archive: ArchivePreflight | null"),
+        "ActiveRunView 携 archive 槽: {active_run}"
     );
-    // ArchiveSummary 字段面（结果摘要——archivedDir camelCase）
-    let summary = type_section(&content, "ArchiveSummary");
-    for field in ["name", "archivedDir", "specs", "warnings"] {
-        assert!(
-            summary.contains(&format!("{field}:")),
-            "ArchiveSummary 字段 {field}"
-        );
-    }
+    // 归档相位停等经 changeFlow* 命令面承载（归档五命令零残留）
+    assert!(
+        content.contains("changeFlowStart: onEvent") || content.contains("changeFlowStart:"),
+        "归档停等经 changeFlow* 命令面"
+    );
+    assert!(
+        content.contains("changeFlowConfirm:"),
+        "确认（含 syncSpecs）经 changeFlowConfirm 命令面"
+    );
+    assert!(
+        !content.contains("archiveFlow"),
+        "归档五命令零残留（生成物面）"
+    );
 }

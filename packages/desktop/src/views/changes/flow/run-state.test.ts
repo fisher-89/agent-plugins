@@ -7,12 +7,12 @@ import type {
   ChangeStepState,
   RunStepKind,
 } from '../../../types/dto';
-import { runStepNodes, unifiedRunNodes } from './run-state';
+import { nodeIdentityKey, runStepNodes, unifiedRunNodes } from './run-state';
 
 // ---------------------------------------------------------------------------
 // run-state 纯函数直测（零 react / 零进程边界依赖）：统一视图 fixture 以绑定
 // 类型内存构造。覆盖：unifiedRunNodes 双源合成（`runs[].nodes` 展开 + 活节点
-// 并入 + 步词汇十值归一单点）/ runStepNodes 按后端稳定身份键
+// 并入 + 步词汇十八值归一单点）/ runStepNodes 按后端稳定身份键
 // `(phase, attempt, step, instanceNo)` 直渲染（槽位配对与 `:seq` 堆叠整体退役）。
 // ---------------------------------------------------------------------------
 
@@ -246,12 +246,12 @@ describe('runStepNodes：稳定身份键渲染（overlay 输入面）', () => {
     });
   });
 
-  it('三类可辨：十步词汇 → WorkerAgent / ToolStep / Gate 分组与 role 标签逐词对应', () => {
+  it('四类可辨：十八步词汇 → WorkerAgent / ToolStep / Git / Gate 分组与 role 逐词对应', () => {
     const GROUP_OF: Record<
       ChangeStepKind,
       {
-        group: 'workerAgent' | 'toolStep' | 'gate';
-        role: 'executor' | 'evaluator' | 'decision' | null;
+        group: 'workerAgent' | 'toolStep' | 'git' | 'gate';
+        role: 'executor' | 'evaluator' | 'decision' | 'spec_sync' | 'resolve_conflicts' | null;
       }
     > = {
       executor: { group: 'workerAgent', role: 'executor' },
@@ -264,6 +264,14 @@ describe('runStepNodes：稳定身份键渲染（overlay 输入面）', () => {
       verdictGate: { group: 'gate', role: null },
       retryGate: { group: 'gate', role: null },
       whitelistGate: { group: 'gate', role: null },
+      preflight: { group: 'toolStep', role: null },
+      commit: { group: 'git', role: null },
+      rebase: { group: 'git', role: null },
+      resolveConflicts: { group: 'workerAgent', role: 'resolve_conflicts' },
+      merge: { group: 'git', role: null },
+      specSync: { group: 'workerAgent', role: 'spec_sync' },
+      seal: { group: 'toolStep', role: null },
+      finalize: { group: 'git', role: null },
     };
 
     const steps = (Object.keys(GROUP_OF) as ChangeStepKind[]).map((kind, index) =>
@@ -271,7 +279,7 @@ describe('runStepNodes：稳定身份键渲染（overlay 输入面）', () => {
     );
 
     const nodes = runStepNodes(steps);
-    expect(nodes).toHaveLength(10);
+    expect(nodes).toHaveLength(18);
     for (const node of nodes) {
       const expected = GROUP_OF[node.runStepKind];
       expect(node.group).toBe(expected.group);
@@ -279,7 +287,7 @@ describe('runStepNodes：稳定身份键渲染（overlay 输入面）', () => {
     }
   });
 
-  it('缺号相位跳过：phase 不在 9 站内的步不入图（布局恒定）', () => {
+  it('缺号相位跳过：phase 不在 10 站内的步不入图（布局恒定）', () => {
     const steps = [stepRow({ phase: 'bootstrap' }), stepRow()];
     expect(runStepNodes(steps).map((node) => node.id)).toEqual(['run:implement:1:executor:0']);
   });
@@ -361,5 +369,119 @@ describe('unifiedRunNodes：词汇全词汇归一', () => {
       'retryGate',
       'whitelistGate',
     ]);
+  });
+});
+
+describe('run-state：归档 8 步词归一与 Git 分类（AC-2 / AC-9）', () => {
+  it('归档 8 步词归一：库读史 snake 词 → 活面 camel 词（resolve_conflicts / spec_sync 多词步逐词对应）', () => {
+    const steps = [
+      'preflight',
+      'commit',
+      'rebase',
+      'resolve_conflicts',
+      'merge',
+      'spec_sync',
+      'seal',
+      'finalize',
+    ].map((step, index) => runStepRow({ instanceNo: index, step: step as RunStepKind }));
+
+    const unified = unifiedRunNodes([runEntry({ nodes: steps })], []);
+
+    expect(unified.map((row) => row.step)).toEqual([
+      'preflight',
+      'commit',
+      'rebase',
+      'resolveConflicts',
+      'merge',
+      'specSync',
+      'seal',
+      'finalize',
+    ]);
+  });
+
+  it('反向归一：活面 camel 词 → 边表身份串 snake 词（nodeIdentityKey 与后端端点逐字可比）', () => {
+    const words: Array<[ChangeStepKind, string]> = [
+      ['resolveConflicts', 'resolve_conflicts'],
+      ['specSync', 'spec_sync'],
+      ['preflight', 'preflight'],
+      ['commit', 'commit'],
+      ['rebase', 'rebase'],
+      ['merge', 'merge'],
+      ['seal', 'seal'],
+      ['finalize', 'finalize'],
+    ];
+
+    for (const [kind, snake] of words) {
+      const node = runStepNodes([
+        stepRow({ phase: 'archive', attempt: 1, step: kind, instanceNo: 0 }),
+      ])[0];
+      expect(node).toBeDefined();
+      expect(nodeIdentityKey(node)).toBe(`archive:1:${snake}:0`);
+    }
+  });
+
+  it('归档节点渲染：十步按 (phase, attempt, step, instanceNo) 直渲染，group / runStepKind / instanceNo 逐字段在案', () => {
+    const kinds: ChangeStepKind[] = [
+      'phaseStart',
+      'preflight',
+      'commit',
+      'rebase',
+      'resolveConflicts',
+      'merge',
+      'specSync',
+      'seal',
+      'finalize',
+      'phaseLog',
+    ];
+    const steps = kinds.map((kind, index) =>
+      stepRow({
+        phase: 'archive',
+        attempt: 1,
+        step: kind,
+        instanceNo: index === 0 ? 0 : 1,
+        sessionId: kind === 'specSync' || kind === 'resolveConflicts' ? 'ses-arch' : null,
+      }),
+    );
+
+    const nodes = runStepNodes(steps);
+
+    expect(nodes.map((node) => node.runStepKind)).toEqual(kinds);
+    expect(nodes.map((node) => node.group)).toEqual([
+      'toolStep',
+      'toolStep',
+      'git',
+      'git',
+      'workerAgent',
+      'git',
+      'workerAgent',
+      'toolStep',
+      'git',
+      'toolStep',
+    ]);
+    expect(nodes.every((node) => node.phase === 'archive')).toBe(true);
+    expect(nodes.map((node) => node.instanceNo)).toEqual([0, 1, 1, 1, 1, 1, 1, 1, 1, 1]);
+    // 会话面：仅两个 agent 会话步携 sessionId
+    expect(nodes.filter((node) => node.sessionId !== null).map((node) => node.runStepKind)).toEqual(
+      ['resolveConflicts', 'specSync'],
+    );
+    // 列归属：archive 为第 10 列（colIndex=9）
+    expect(nodes.every((node) => node.colIndex === 9)).toBe(true);
+  });
+
+  it('归档列零步：零节点 → 空数组（archive 列空列不报错，miss 非错误）', () => {
+    expect(runStepNodes([])).toEqual([]);
+    // 仅其它相位节点时 archive 零节点不参与渲染
+    const nodes = runStepNodes([stepRow({ phase: 'implement', step: 'executor' })]);
+    expect(nodes).toHaveLength(1);
+    expect(nodes[0].colIndex).not.toBe(9);
+  });
+
+  it('未知步词降级：越集步词经 groupOf 缺省分组回落不崩（稳健面）', () => {
+    const nodes = runStepNodes([
+      stepRow({ phase: 'archive', step: 'unknownStep' as ChangeStepKind }),
+    ]);
+    expect(nodes).toHaveLength(1);
+    expect(nodes[0].runStepKind).toBe('unknownStep');
+    expect(nodes[0].role).toBeNull();
   });
 });

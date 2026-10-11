@@ -91,6 +91,10 @@
     {
       "attempts": [],
       "phase": "code-analyze"
+    },
+    {
+      "attempts": [],
+      "phase": "archive"
     }
   ],
   "runs": [],

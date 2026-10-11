@@ -7,10 +7,10 @@ use crate::port::{
     ToolCommand, ToolStepOutput, ToolStepPort, WorkerAgentPort, WorkerRole, WorkerTurnOutcome,
     WorkerTurnRequest, WorkflowSnapshotPort,
 };
-use crate::state::RunUpdate;
+use crate::state::{ArchivePreflight, RunUpdate};
 use workflow::write::{
-    BacktrackInput, BacktrackOutcome, DecisionLogOutcome, PhaseLogInput, PhaseLogOutcome,
-    PhaseNextOutcome, PhaseStartOutcome,
+    ArchiveOutcome, BacktrackInput, BacktrackOutcome, DecisionLogOutcome, PhaseLogInput,
+    PhaseLogOutcome, PhaseNextOutcome, PhaseStartOutcome,
 };
 
 // ---------------------------------------------------------------------------
@@ -157,10 +157,12 @@ async fn tool_command六变体封闭集且match穷尽分发() {
             ToolCommand::DecisionLog { .. } => "decision-log",
             ToolCommand::StaticCheck { .. } => "static-check",
             ToolCommand::TestExecution { .. } => "test-execution",
+            ToolCommand::ArchivePreflight { .. } => "archive-preflight",
+            ToolCommand::ArchiveSeal { .. } => "archive-seal",
         }
     }
 
-    // 定位载荷提取（match 穷尽第二锚）：七变体齐载 change_id（含 StaticCheck
+    // 定位载荷提取（match 穷尽第二锚）：九变体齐载 change_id（含 StaticCheck
     // 新字段——D12 归键，空串占位退役）
     fn change_id_of(command: &ToolCommand) -> &str {
         match command {
@@ -170,7 +172,9 @@ async fn tool_command六变体封闭集且match穷尽分发() {
             | ToolCommand::Backtrack { change_id, .. }
             | ToolCommand::DecisionLog { change_id, .. }
             | ToolCommand::StaticCheck { change_id }
-            | ToolCommand::TestExecution { change_id } => change_id,
+            | ToolCommand::TestExecution { change_id }
+            | ToolCommand::ArchivePreflight { change_id }
+            | ToolCommand::ArchiveSeal { change_id } => change_id,
         }
     }
 
@@ -219,8 +223,20 @@ async fn tool_command六变体封闭集且match穷尽分发() {
             },
             "static-check",
         ),
+        (
+            ToolCommand::ArchivePreflight {
+                change_id: CHANGE_ID.to_owned(),
+            },
+            "archive-preflight",
+        ),
+        (
+            ToolCommand::ArchiveSeal {
+                change_id: CHANGE_ID.to_owned(),
+            },
+            "archive-seal",
+        ),
     ];
-    assert_eq!(commands.len(), 6, "封闭集六变体");
+    assert_eq!(commands.len(), 8, "封闭集八变体（既有六 + 归档两新）");
 
     for (command, label) in &commands {
         assert_eq!(describe(command), *label, "变体 {label} 可辨");
@@ -285,6 +301,35 @@ fn static_check命令change_id归键构造面() {
         }
         other => panic!("变体漂移: {other:?}"),
     }
+    // 归档两新变体：描述穷尽 + 载荷归键可辨（封闭集扩臂锚）
+    fn describe_archive(command: &ToolCommand) -> &'static str {
+        match command {
+            ToolCommand::ArchivePreflight { .. } => "archive-preflight",
+            ToolCommand::ArchiveSeal { .. } => "archive-seal",
+            other => panic!("非归档命令: {other:?}"),
+        }
+    }
+    assert_eq!(
+        describe_archive(&ToolCommand::ArchivePreflight {
+            change_id: CHANGE_ID.to_owned()
+        }),
+        "archive-preflight"
+    );
+    assert_eq!(
+        describe_archive(&ToolCommand::ArchiveSeal {
+            change_id: CHANGE_ID.to_owned()
+        }),
+        "archive-seal"
+    );
+    assert_ne!(
+        ToolCommand::ArchivePreflight {
+            change_id: CHANGE_ID.to_owned()
+        },
+        ToolCommand::ArchiveSeal {
+            change_id: CHANGE_ID.to_owned()
+        },
+        "归档两新变体互异"
+    );
     // 载荷参与等值：id 不同即命令不同（审计行归桶可辨）；Clone/PartialEq 派生可用
     assert_ne!(
         check,
@@ -661,6 +706,8 @@ async fn test_execution命令第七变体封闭集且change载荷透传() {
             ToolCommand::DecisionLog { .. } => "decision-log",
             ToolCommand::StaticCheck { .. } => "static-check",
             ToolCommand::TestExecution { .. } => "test-execution",
+            ToolCommand::ArchivePreflight { .. } => "archive-preflight",
+            ToolCommand::ArchiveSeal { .. } => "archive-seal",
         }
     }
     assert_eq!(
@@ -866,4 +913,388 @@ fn test_execution_conclusion三值线格式逐字() {
     words.sort_unstable();
     words.dedup();
     assert_eq!(words.len(), 3, "三值互异");
+}
+
+// ---------------------------------------------------------------------------
+// 归档两会话角色与两新命令 / 产出变体（AC-2 / AC-3 / D3）
+// ---------------------------------------------------------------------------
+
+/// 归档前置只读载荷 fixture（八字段像；与 state / control / steps 消费同一面）。
+fn sample_preflight() -> ArchivePreflight {
+    ArchivePreflight {
+        name: "demo-change".to_owned(),
+        completed: true,
+        incomplete_phases: Vec::new(),
+        missing_artifacts: Vec::new(),
+        delta_specs: vec!["specs/desktop-flow/spec.md".to_owned()],
+        worktree: Some("/tmp/wt/demo-change".to_owned()),
+        branch: Some("change/demo-change".to_owned()),
+        merge_target: Some("main".to_owned()),
+    }
+}
+
+/// `WorkerRole` 五值（正向）：`as_str()` 逐字出线（executor / evaluator /
+/// decision / spec_sync / resolve_conflicts）——与 workflow `AgentRole` 同源
+/// 词面（AC-2 / D3）。
+#[test]
+fn worker_role五值as_str逐字且与agent_role同源() {
+    assert_eq!(WorkerRole::Executor.as_str(), "executor");
+    assert_eq!(WorkerRole::Evaluator.as_str(), "evaluator");
+    assert_eq!(WorkerRole::Decision.as_str(), "decision");
+    assert_eq!(
+        WorkerRole::SpecSync.as_str(),
+        "spec_sync",
+        "归档 spec 同步会话角色词"
+    );
+    assert_eq!(
+        WorkerRole::ResolveConflicts.as_str(),
+        "resolve_conflicts",
+        "归档冲突解算会话角色词"
+    );
+
+    // 五值互异（source_ref 第三段无撞号）
+    let mut words = vec![
+        WorkerRole::Executor.as_str(),
+        WorkerRole::Evaluator.as_str(),
+        WorkerRole::Decision.as_str(),
+        WorkerRole::SpecSync.as_str(),
+        WorkerRole::ResolveConflicts.as_str(),
+    ];
+    words.sort_unstable();
+    words.dedup();
+    assert_eq!(words.len(), 5, "五角色词互异（零撞号）");
+
+    // 与 workflow AgentRole 同源词面（跨 crate 逐字可比）
+    for (role, agent_role) in [
+        (WorkerRole::Executor, workflow::state::AgentRole::Executor),
+        (WorkerRole::Evaluator, workflow::state::AgentRole::Evaluator),
+        (WorkerRole::Decision, workflow::state::AgentRole::Decision),
+        (WorkerRole::SpecSync, workflow::state::AgentRole::SpecSync),
+        (
+            WorkerRole::ResolveConflicts,
+            workflow::state::AgentRole::ResolveConflicts,
+        ),
+    ] {
+        let wire = serde_json::to_value(agent_role).expect("出线应成功");
+        assert_eq!(
+            role.as_str(),
+            wire.as_str().expect("串值"),
+            "{agent_role:?} 两 crate 词面逐字同源"
+        );
+    }
+}
+
+/// provenance `source_ref` 组装面（正向）：归档两会话角色词互异且与 executor
+/// 不撞号——同 phase 同 attempt 内 source_ref 唯一（D3 / R4 会话归属可辨）。
+#[test]
+fn worker_role_provenance_role段互异不撞号() {
+    let source_ref = |role: WorkerRole| SessionProvenance {
+        source: "change".to_owned(),
+        source_ref: Some(format!("{CHANGE_ID}/archive/{}/1", role.as_str())),
+    };
+    let spec_sync = source_ref(WorkerRole::SpecSync);
+    let resolve = source_ref(WorkerRole::ResolveConflicts);
+    let executor = source_ref(WorkerRole::Executor);
+
+    let spec_sync_ref = spec_sync.source_ref.clone().expect("归档会话携 source_ref");
+    let resolve_ref = resolve.source_ref.clone().expect("归档会话携 source_ref");
+    let executor_ref = executor.source_ref.clone().expect("会话携 source_ref");
+    let mut sorted = vec![
+        spec_sync_ref.clone(),
+        resolve_ref.clone(),
+        executor_ref.clone(),
+    ];
+    sorted.sort();
+    sorted.dedup();
+    assert_eq!(sorted.len(), 3, "同 phase 同 attempt 内三角色 source_ref 互异");
+    assert!(spec_sync_ref.ends_with("/archive/spec_sync/1"));
+    assert!(resolve_ref.ends_with("/archive/resolve_conflicts/1"));
+    assert_ne!(
+        spec_sync_ref, resolve_ref,
+        "归档两会话不撞号（provenance 归属段逐字可辨）"
+    );
+    // 组装定式与 walker 消费面同式（change id / phase / role / attempt 四段）
+    assert_eq!(
+        spec_sync_ref,
+        format!("{CHANGE_ID}/archive/spec_sync/1"),
+        "source_ref 定式逐字"
+    );
+}
+
+/// `ToolCommand` 两新变体（正向）：`ArchivePreflight { change_id }` /
+/// `ArchiveSeal { change_id }` 构造 + PartialEq 可辨（change_id 载荷归键，
+/// AC-3）。
+#[test]
+fn tool_command归档两新变体构造与等值面() {
+    let preflight = ToolCommand::ArchivePreflight {
+        change_id: CHANGE_ID.to_owned(),
+    };
+    let seal = ToolCommand::ArchiveSeal {
+        change_id: CHANGE_ID.to_owned(),
+    };
+    assert_ne!(preflight, seal, "两新变体可辨（非同一命令）");
+    assert_eq!(
+        preflight,
+        ToolCommand::ArchivePreflight {
+            change_id: CHANGE_ID.to_owned()
+        },
+        "PartialEq 自反"
+    );
+    assert_ne!(
+        preflight,
+        ToolCommand::ArchivePreflight {
+            change_id: "other-id".to_owned()
+        },
+        "change_id 载荷参与等值（归键可辨）"
+    );
+    assert_ne!(
+        seal,
+        ToolCommand::ArchiveSeal {
+            change_id: "other-id".to_owned()
+        }
+    );
+
+    // Clone 派生可用（walker 侧命令组装与捕获面）
+    let cloned = preflight.clone();
+    assert_eq!(cloned, preflight);
+}
+
+/// `ToolStepOutput` 两新变体（正向）：`ArchivePreflight(ArchivePreflight)` /
+/// `ArchiveSeal(ArchiveOutcome)` 封闭集可构造、载荷可透传（AC-3）。
+#[tokio::test]
+async fn tool_step_output归档两新变体载荷透传() {
+    let preflight = sample_preflight();
+    let outcome = ArchiveOutcome {
+        name: "demo-change".to_owned(),
+        archived_date: "2026-02-02".to_owned(),
+    };
+
+    let outputs = vec![
+        ToolStepOutput::ArchivePreflight(preflight.clone()),
+        ToolStepOutput::ArchiveSeal(outcome.clone()),
+    ];
+    assert_eq!(outputs.len(), 2, "归档两新产出变体");
+
+    match outputs[0].clone() {
+        ToolStepOutput::ArchivePreflight(payload) => {
+            assert_eq!(payload, preflight, "前置只读载荷原样透传");
+            assert_eq!(payload.name, "demo-change");
+            assert!(payload.completed);
+        }
+        other => panic!("变体漂移: {other:?}"),
+    }
+    match outputs[1].clone() {
+        ToolStepOutput::ArchiveSeal(payload) => {
+            assert_eq!(payload, outcome, "双写产出原样透传");
+            assert_eq!(payload.name, "demo-change");
+            assert_eq!(payload.archived_date, "2026-02-02");
+        }
+        other => panic!("变体漂移: {other:?}"),
+    }
+    assert_ne!(
+        outputs[0], outputs[1],
+        "两新变体互异（线面判别可辨）"
+    );
+
+    // 命令经 ToolStepRequest 原样到达注入 port（命令面契约）
+    let (steps, seen) = RecordingSteps::capturing();
+    let output = steps
+        .run(crate::port::ToolStepRequest {
+            root: "/tmp/root".to_owned(),
+            command: ToolCommand::ArchiveSeal {
+                change_id: CHANGE_ID.to_owned(),
+            },
+        })
+        .await;
+    assert!(output.is_ok(), "归档命令经注入 port 可达");
+    let captured = seen.lock().expect("锁").clone();
+    assert_eq!(captured.len(), 1, "归档命令抵达注入 port");
+    assert!(matches!(
+        captured[0],
+        ToolCommand::ArchiveSeal { .. }
+    ));
+}
+
+/// `ToolStepOutput` 归档两变体异常（异常）：载荷类型不匹配的窄化分支不吞错
+///（`match` 穷尽 + 非目标变体显式 panic 的线面契约守卫——进程内 seam 无入站
+/// 反序列化面，类型收敛由编译期锚定，运行期以窄化提取承载）。
+#[test]
+fn tool_step_output归档变体窄化提取类型守卫() {
+    let outputs = [
+        ToolStepOutput::ArchivePreflight(sample_preflight()),
+        ToolStepOutput::ArchiveSeal(ArchiveOutcome {
+            name: "demo-change".to_owned(),
+            archived_date: "2026-02-02".to_owned(),
+        }),
+    ];
+
+    // 正确窄化：两分支各自可提（载荷类型固定）
+    let preflight = outputs
+        .iter()
+        .find_map(|output| match output {
+            ToolStepOutput::ArchivePreflight(payload) => Some(payload.clone()),
+            _ => None,
+        })
+        .expect("ArchivePreflight 变体应在场");
+    assert_eq!(preflight, sample_preflight());
+
+    let seal = outputs
+        .iter()
+        .find_map(|output| match output {
+            ToolStepOutput::ArchiveSeal(payload) => Some(payload.clone()),
+            _ => None,
+        })
+        .expect("ArchiveSeal 变体应在场");
+    assert_eq!(seal.archived_date, "2026-02-02");
+
+    // 错配窄化：以 ArchiveSeal 面提取 ArchivePreflight 变体 → None（不误取）
+    let mismatched = outputs
+        .iter()
+        .filter(|output| matches!(output, ToolStepOutput::ArchiveSeal(_)))
+        .find_map(|output| match output {
+            ToolStepOutput::ArchivePreflight(payload) => Some(payload.clone()),
+            _ => None,
+        });
+    assert!(mismatched.is_none(), "变体错配不误取（类型面封闭）");
+}
+
+/// `ArchiveVcsPort` 面（边界 / 回归）：归档第三缝 trait 全方法签名编译面在位
+///（dirty / commit_all / branch_merged / rebase_branch / ff_merge /
+/// worktree_snapshot / rebase_continue / rebase_abort / current_branch /
+/// commit_paths），实现可经 `Arc<dyn ArchiveVcsPort>` 作为 walker 显式入参注入
+///（AC-3 / R2 core 零 spawn 的结构前提；trait 面零改动锚）。
+#[test]
+fn archive_vcs_port面全方法签名编译锚() {
+    use std::path::Path;
+
+    use crate::port::{ArchiveVcsPort, RebaseOutcome, WorktreeSnapshot};
+
+    /// 编译面假件：全方法逐一实现（签名漂移即编译失败）。
+    struct VcsProbe {
+        branch: String,
+    }
+
+    impl ArchiveVcsPort for VcsProbe {
+        fn dirty(&self, _root: &Path, _paths: &[&str]) -> bool {
+            false
+        }
+        fn commit_all(&self, _worktree: &Path, _message: &str) -> Result<(), String> {
+            Ok(())
+        }
+        fn branch_merged(&self, _main_root: &Path, _branch: &str) -> Result<bool, String> {
+            Ok(false)
+        }
+        fn rebase_branch(&self, _worktree: &Path, _onto: &str) -> Result<RebaseOutcome, String> {
+            Ok(RebaseOutcome::Rebased)
+        }
+        fn ff_merge(&self, _main_root: &Path, _branch: &str) -> Result<(), String> {
+            Ok(())
+        }
+        fn worktree_snapshot(&self, _root: &Path) -> Result<WorktreeSnapshot, String> {
+            Ok(WorktreeSnapshot {
+                head: "abc123".to_owned(),
+                rebase_head: None,
+                status: Vec::new(),
+                index: Vec::new(),
+            })
+        }
+        fn rebase_continue(&self, _worktree: &Path) -> Result<RebaseOutcome, String> {
+            Ok(RebaseOutcome::Rebased)
+        }
+        fn rebase_abort(&self, _worktree: &Path) -> Result<(), String> {
+            Ok(())
+        }
+        fn current_branch(&self, _main_root: &Path) -> Result<String, String> {
+            Ok(self.branch.clone())
+        }
+        fn commit_paths(
+            &self,
+            _main_root: &Path,
+            _paths: &[&str],
+            _message: &str,
+        ) -> Result<(), String> {
+            Ok(())
+        }
+    }
+
+    fn assert_send_sync<T: Send + Sync>() {}
+    assert_send_sync::<VcsProbe>();
+
+    let port: Arc<dyn ArchiveVcsPort> = Arc::new(VcsProbe {
+        branch: "main".to_owned(),
+    });
+    assert_eq!(
+        port.current_branch(Path::new("/tmp/root")).expect("探测应可用"),
+        "main",
+        "合入目标分支探测（Preflight / Rebase 消费）"
+    );
+    assert_eq!(
+        port.branch_merged(Path::new("/tmp/root"), "change/demo")
+            .expect("判定应可用"),
+        false,
+        "合入段幂等跳过判定（Finalize 消费）"
+    );
+    assert!(!port.dirty(Path::new("/tmp/root"), &[]), "干净探测 → false（Commit 跳过）");
+    assert!(!port.dirty(Path::new("/tmp/root"), &["openspec"]));
+    assert_eq!(
+        port.rebase_branch(Path::new("/tmp/wt"), "main")
+            .expect("重放应可用"),
+        RebaseOutcome::Rebased,
+        "重放结果封闭集两态（Rebased / Conflicted）"
+    );
+    assert_ne!(
+        RebaseOutcome::Rebased,
+        RebaseOutcome::Conflicted(vec!["specs/a.md".to_owned()]),
+        "冲突清单随变体承载（无冲突 / 有冲突可辨）"
+    );
+
+    // 探测失败面（detached HEAD 空输出形态）：显式 Err 透传，调用方决定降级
+    struct DetachedVcs;
+    impl ArchiveVcsPort for DetachedVcs {
+        fn dirty(&self, _root: &Path, _paths: &[&str]) -> bool {
+            false
+        }
+        fn commit_all(&self, _worktree: &Path, _message: &str) -> Result<(), String> {
+            Ok(())
+        }
+        fn branch_merged(&self, _main_root: &Path, _branch: &str) -> Result<bool, String> {
+            Err("detached HEAD：无法判定合入".to_owned())
+        }
+        fn rebase_branch(&self, _worktree: &Path, _onto: &str) -> Result<RebaseOutcome, String> {
+            Ok(RebaseOutcome::Rebased)
+        }
+        fn ff_merge(&self, _main_root: &Path, _branch: &str) -> Result<(), String> {
+            Ok(())
+        }
+        fn worktree_snapshot(&self, _root: &Path) -> Result<WorktreeSnapshot, String> {
+            Err("vcs 调用失败".to_owned())
+        }
+        fn rebase_continue(&self, _worktree: &Path) -> Result<RebaseOutcome, String> {
+            Ok(RebaseOutcome::Rebased)
+        }
+        fn rebase_abort(&self, _worktree: &Path) -> Result<(), String> {
+            Ok(())
+        }
+        fn current_branch(&self, _main_root: &Path) -> Result<String, String> {
+            Err("detached HEAD：无当前分支".to_owned())
+        }
+        fn commit_paths(
+            &self,
+            _main_root: &Path,
+            _paths: &[&str],
+            _message: &str,
+        ) -> Result<(), String> {
+            Err("提交失败".to_owned())
+        }
+    }
+    let detached: Arc<dyn ArchiveVcsPort> = Arc::new(DetachedVcs);
+    let error = detached
+        .current_branch(Path::new("/tmp/root"))
+        .expect_err("detached HEAD 应显式 Err（不 panic）");
+    assert!(error.contains("detached HEAD"), "Err 语汇透传: {error}");
+    assert!(detached.branch_merged(Path::new("/tmp/root"), "change/x").is_err());
+    assert!(detached.worktree_snapshot(Path::new("/tmp/wt")).is_err());
+    assert!(detached
+        .commit_paths(Path::new("/tmp/root"), &["openspec"], "msg")
+        .is_err());
 }

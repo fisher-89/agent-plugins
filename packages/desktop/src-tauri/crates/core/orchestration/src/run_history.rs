@@ -1,9 +1,9 @@
 //! run 执行图落库 port 缝适配（run-workflow-by-step 决策③）：节点 + 边整包
 //! 投影单点 + finish 组装 helper + store 适配器。
 //!
-//! **零过滤纪律（AC-3）**：词汇本体 = `workflow::state::RunStepKind` 十值全词
-//! 汇，落库命令 `RunNodeEntry.step` 即该类型——10→5 过滤谓词整体退役（流程面步
-//! 骤 phase_start / phase_log 与三门不再被弃落，本模块零过滤逻辑）；边本体 =
+//! **零过滤纪律（AC-3）**：词汇本体 = `workflow::state::RunStepKind` 十八值全
+//! 词汇，落库命令 `RunNodeEntry.step` 即该类型——10→5 过滤谓词整体退役（流程面
+//! 步骤 phase_start / phase_log 与三门不再被弃落，本模块零过滤逻辑）；边本体 =
 //! `workflow::state::RunEdgeKind` 四值（与编排侧 [`EdgeKind`] 同一类型，零映
 //! 射零漂移）。
 
@@ -21,8 +21,8 @@ use crate::state::{
 };
 use crate::walker::RunRequest;
 
-/// 步词汇直映射（**十值 1:1 全映射，零过滤**）：编排侧 `ChangeStepKind` 与落库
-/// 侧 `RunStepKind` 同词面封闭集逐一对应——`step` 语义无弃落项。
+/// 步词汇直映射（**十八值 1:1 全映射，零过滤**）：编排侧 `ChangeStepKind` 与落
+/// 库侧 `RunStepKind` 同词面封闭集逐一对应——`step` 语义无弃落项。
 fn mapped_step(kind: ChangeStepKind) -> RunStepKind {
     match kind {
         ChangeStepKind::Executor => RunStepKind::Executor,
@@ -35,6 +35,14 @@ fn mapped_step(kind: ChangeStepKind) -> RunStepKind {
         ChangeStepKind::VerdictGate => RunStepKind::VerdictGate,
         ChangeStepKind::RetryGate => RunStepKind::RetryGate,
         ChangeStepKind::WhitelistGate => RunStepKind::WhitelistGate,
+        ChangeStepKind::Preflight => RunStepKind::Preflight,
+        ChangeStepKind::Commit => RunStepKind::Commit,
+        ChangeStepKind::Rebase => RunStepKind::Rebase,
+        ChangeStepKind::ResolveConflicts => RunStepKind::ResolveConflicts,
+        ChangeStepKind::Merge => RunStepKind::Merge,
+        ChangeStepKind::SpecSync => RunStepKind::SpecSync,
+        ChangeStepKind::Seal => RunStepKind::Seal,
+        ChangeStepKind::Finalize => RunStepKind::Finalize,
     }
 }
 

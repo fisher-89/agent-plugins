@@ -65,3 +65,58 @@ pub fn decision_prompt(input: &DecisionInput) -> String {
         attempt = input.attempt,
     )
 }
+
+// ---------------------------------------------------------------------------
+// 归档 agent prompt 单点（自 archive_flow.rs 搬移，文本零语义改动——增量合并语义
+// 与解算纪律单源 = desktop-change-archive spec requirement 自述，零 CLI skill
+// 溯源；零 MCP / __TOOL_ASK_USER__ / workflow.json 依赖；git 面收缩由模板明令
+// ——归档编排代执行收口）
+// ---------------------------------------------------------------------------
+
+/// spec 同步 prompt（入参为记录供给的 change **name**——prompt 内文面向用户 /
+/// 磁盘目录，恒 name 化）：增量合并语义自持（ADDED / MODIFIED / REMOVED /
+/// RENAMED、保留未提及内容、幂等、capability 缺席创建）。
+pub(crate) fn spec_sync_prompt(change: &str) -> String {
+    format!(
+        "你执行 change「{change}」归档链的 delta specs 同步段（完成度核对与归档确认已由桌面完成，无需重复）。
+
+对每个 `openspec/changes/{change}/specs/` 下的 `<capability>/spec.md`：
+1. 读 delta 与主基线 `openspec/specs/<capability>/spec.md`（主基线可能不存在）。
+2. 按增量语义合并——delta 表达意图而非整体替换，保留 delta 未提及的主 spec 内容：
+   - `## ADDED Requirements`：requirement 缺席则追加；已存在则更新为与 delta 一致。
+   - `## MODIFIED Requirements`：只应用增量——新增 scenario、修改列中的 scenario、修订描述；不复制既有 scenario。
+   - `## REMOVED Requirements`：整块移除该 requirement。
+   - `## RENAMED Requirements`：把 FROM: requirement 改名为 TO:。
+3. capability 主 spec 缺席时创建：简短 `## Purpose`（TBD 可）+ ADDED requirements。
+4. 合并幂等：对已同步的主基线重跑本段应零变化。
+
+约束（必须遵守）：
+- 只编辑 `openspec/specs/**`；不修改 `openspec/changes/{change}/`（delta 原件由归档收口整体迁移）。
+- 禁止调用 MCP 工具（change_list 等）、禁止 __TOOL_ASK_USER__、不读写 workflow.json。
+- 不执行任何 git 命令——提交与合入由桌面编排代执行。
+- 完成后最终消息简述各 capability 的合并动作（added / modified / removed / renamed）。"
+    )
+}
+
+/// 解冲突 prompt（入参为记录供给的 change **name**——prompt 内文面向用户 /
+/// 磁盘目录，恒 name 化）。
+pub(crate) fn merge_conflict_prompt(change: &str, conflicts: &[String]) -> String {
+    let list = conflicts.join("
+");
+    format!(
+        "你执行 change「{change}」归档链的合入冲突解算段。worktree 内重放分支 change/{change} 至主仓当前分支时以下文件冲突（冲突态已保留，rebase 进行中）：
+
+{list}
+
+对每个冲突文件：
+1. 读文件内的冲突标记区块（<<<<<<< / ======= / >>>>>>>），结合两侧语义裁决出正确的合并结果。
+2. 以裁决结果编辑该文件，移除全部冲突标记。
+3. 完成后对该文件执行 `git add <该文件路径>`（逐文件精确 add）。
+
+约束（必须遵守）：
+- 只编辑上面清单内的文件；清单外任何文件一律不动（含未提交 / staged 的无关内容——它们属于用户）。
+- 禁止 `git add -A` / `git add .`；禁止 `git commit` / `git merge` / `git rebase`（含 `git rebase --continue` / `git rebase --abort`）/ `git reset` / `git stash` 等收口或改写历史的命令——rebase 续走由桌面编排执行。
+- 禁止调用 MCP 工具、禁止 __TOOL_ASK_USER__。
+- 全部冲突文件解算并 add 后，最终消息简述各文件的裁决要点。"
+    )
+}

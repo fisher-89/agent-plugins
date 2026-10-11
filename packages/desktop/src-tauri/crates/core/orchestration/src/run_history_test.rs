@@ -36,9 +36,11 @@ const STARTED_AT: i64 = 1_727_000_000_000;
 fn request() -> RunRequest {
     RunRequest {
         root: "/ws/root".to_owned(),
+        main_root: "/ws/root".to_owned(),
         change_id: CHANGE_ID.to_owned(),
         run_id: RUN_ID.to_owned(),
         auto_next_phase: true,
+        stop_before: Some("archive".to_owned()),
         started_at: STARTED_AT,
     }
 }

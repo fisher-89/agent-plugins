@@ -1,7 +1,12 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vite-plus/test';
 
-import type { ActiveRunView, ChangeRunEntry, ChangeRunStatus } from '../../../types/dto';
+import type {
+  ActiveRunView,
+  ArchivePreflight,
+  ChangeRunEntry,
+  ChangeRunStatus,
+} from '../../../types/dto';
 import type { UseChangeFlowRunResult } from '../hooks/use-change-flow-run';
 import { RunControlPanel } from './run-control-panel';
 
@@ -17,6 +22,7 @@ function activeRun(overrides: Partial<ActiveRunView> = {}): ActiveRunView {
     phase: 'implement',
     attempt: 2,
     ask: null,
+    archive: null,
     startedAt: '2026-10-01T08:00:00.000Z',
     nodes: [],
     edges: [],
@@ -173,7 +179,7 @@ describe('RunControlPanel：发起区自动确认开关（AC-4）', () => {
     const hint = screen.getByText(/仅跳过相位间停等/);
     expect(hint.textContent).toContain('仅跳过相位间停等');
     expect(hint.textContent).toContain('ask 中断');
-    expect(hint.textContent).toContain('不自动归档');
+    expect(hint.textContent).toContain('归档不自动推进');
     expect(hint.className).toContain('text-muted-foreground');
 
     // 开启态：同一行文案仍在场（同一 DOM 节点——非条件渲染重建）
@@ -245,16 +251,144 @@ describe('RunControlPanel：waitingConfirm 卡片（phase 间拍板点）', () =
 
     fireEvent.click(screen.getByTestId('run-confirm-proceed'));
     expect(confirm).toHaveBeenCalledTimes(1);
-    expect(confirm).toHaveBeenLastCalledWith(true);
+    // 相位间停等点 syncSpecs 不参与（仅归档前停等点消费），恒回传 true
+    expect(confirm).toHaveBeenLastCalledWith(true, true);
 
     fireEvent.click(screen.getByTestId('run-confirm-stop'));
     expect(confirm).toHaveBeenCalledTimes(2);
-    expect(confirm).toHaveBeenLastCalledWith(false);
+    expect(confirm).toHaveBeenLastCalledWith(false, true);
   });
 
   it('activeRun running（phase 非停等态）：无确认卡片', () => {
     renderPanel(runStub(), { activeRun: activeRun(), lastRun: null });
     expect(screen.queryByTestId('run-confirm-card')).toBeNull();
+  });
+});
+
+describe('RunControlPanel：归档确认卡片（stop-before-archive 停等面，AC-7 / AC-9）', () => {
+  /** 归档前置只读载荷 fixture（八字段形；逐用例按需覆盖）。 */
+  function preflight(overrides: Partial<ArchivePreflight> = {}): ArchivePreflight {
+    return {
+      name: 'add-feature',
+      completed: false,
+      incompletePhases: ['implement'],
+      missingArtifacts: ['design.md'],
+      deltaSpecs: ['desktop-flow'],
+      worktree: '/tmp/wt/add-feature',
+      branch: 'change/add-feature',
+      mergeTarget: 'main',
+      ...overrides,
+    };
+  }
+
+  it('phase=archive + waitingConfirm → 渲染归档确认卡片，呈现完成度警告 / 未过相位 / 缺席产物 / delta specs / 合入目标', () => {
+    renderPanel(runStub(), {
+      activeRun: activeRun({
+        status: 'waitingConfirm',
+        phase: 'archive',
+        attempt: 1,
+        archive: preflight(),
+      }),
+      lastRun: null,
+    });
+
+    const card = screen.getByTestId('run-archive-confirm-card');
+    expect(card).toBeDefined();
+    const warnings = screen.getAllByTestId('run-archive-warning').map((row) => row.textContent);
+    expect(warnings).toEqual(['工作流未全部通过：implement', '缺少产物文档：design.md']);
+    expect(screen.getByTestId('run-archive-delta-specs').textContent).toContain('desktop-flow');
+    expect(screen.getByTestId('run-archive-merge-target').textContent).toContain('main');
+    // 归档确认卡片与普通确认卡片互斥（同一停等点单面承载）
+    expect(screen.queryByTestId('run-confirm-card')).toBeNull();
+  });
+
+  it('跳过同步勾选语义：不勾选 → confirm(true, true)（执行同步）；勾选跳过 → confirm(true, false)（syncSpecs=false）；终止 → confirm(false, true)', () => {
+    const confirm = vi.fn(async () => {});
+    renderPanel(runStub({ confirm }), {
+      activeRun: activeRun({ status: 'waitingConfirm', phase: 'archive', archive: preflight() }),
+      lastRun: null,
+    });
+
+    // 不勾选：syncSpecs = true（执行 delta specs 同步）
+    fireEvent.click(screen.getByTestId('run-archive-confirm-proceed'));
+    expect(confirm).toHaveBeenLastCalledWith(true, true);
+    expect(confirm).toHaveBeenCalledTimes(1);
+
+    // 勾选「跳过同步」：勾选态映射 syncSpecs=false 回传（执行同步的否定面）
+    fireEvent.click(screen.getByTestId('run-archive-sync-skip'));
+    fireEvent.click(screen.getByTestId('run-archive-confirm-proceed'));
+    expect(confirm).toHaveBeenCalledTimes(2);
+    expect(confirm).toHaveBeenLastCalledWith(true, false);
+
+    fireEvent.click(screen.getByTestId('run-archive-confirm-stop'));
+    expect(confirm).toHaveBeenLastCalledWith(false, true);
+  });
+
+  it('普通相位确认回归：phase 非 archive → 既有普通确认卡片（文案与 confirm(proceed, true) 单参语义不变）', () => {
+    renderPanel(runStub(), {
+      activeRun: activeRun({ status: 'waitingConfirm', phase: 'acceptance', archive: null }),
+      lastRun: null,
+    });
+
+    expect(screen.getByTestId('run-confirm-card').textContent).toContain('acceptance');
+    expect(screen.queryByTestId('run-archive-confirm-card')).toBeNull();
+  });
+
+  it('archive 载荷缺省（archive === null）→ 归档卡片降级渲染：警告与 delta specs 行缺席、跳过同步勾选仍可用', () => {
+    const confirm = vi.fn(async () => {});
+    renderPanel(runStub({ confirm }), {
+      activeRun: activeRun({ status: 'waitingConfirm', phase: 'archive', archive: null }),
+      lastRun: null,
+    });
+
+    const card = screen.getByTestId('run-archive-confirm-card');
+    expect(card.textContent).toContain('等待确认进入归档');
+    expect(screen.queryAllByTestId('run-archive-warning')).toHaveLength(0);
+    expect(screen.queryByTestId('run-archive-delta-specs')).toBeNull();
+    expect(screen.queryByTestId('run-archive-merge-target')).toBeNull();
+    // 降级不降能：跳过同步勾选仍可用且照常回传
+    fireEvent.click(screen.getByTestId('run-archive-sync-skip'));
+    fireEvent.click(screen.getByTestId('run-archive-confirm-proceed'));
+    expect(confirm).toHaveBeenLastCalledWith(true, false);
+  });
+
+  it('legacy 主 root 形态（worktree === null）→ 不渲染合入告知行（无 worktree 即无合入目标面）', () => {
+    renderPanel(runStub(), {
+      activeRun: activeRun({
+        status: 'waitingConfirm',
+        phase: 'archive',
+        archive: preflight({ worktree: null, branch: null, mergeTarget: null, completed: true }),
+      }),
+      lastRun: null,
+    });
+
+    expect(screen.getByTestId('run-archive-confirm-card')).toBeDefined();
+    expect(screen.queryByTestId('run-archive-merge-target')).toBeNull();
+  });
+
+  it('confirm 后端拒绝（无运行 run / 无等待方）：卡片不崩溃、保持等待确认、错误态呈现不静默吞错', async () => {
+    const confirm = vi.fn(async () => {
+      throw new Error('当前无等待中的 phase 确认');
+    });
+    const actions = runStub({ confirm, error: '当前无等待中的 phase 确认' });
+    renderPanel(actions, {
+      activeRun: activeRun({ status: 'waitingConfirm', phase: 'archive', archive: preflight() }),
+      lastRun: null,
+    });
+
+    fireEvent.click(screen.getByTestId('run-archive-confirm-proceed'));
+    expect(confirm).toHaveBeenCalledTimes(1);
+    // 卡片仍在（未静默切态）；错误原文经错误条呈现（run-error）
+    expect(screen.getByTestId('run-archive-confirm-card')).toBeDefined();
+    expect(screen.getByTestId('run-error').textContent).toContain('当前无等待中的 phase 确认');
+  });
+
+  it('归档确认卡片状态视觉：running 态无归档卡片（非停等点）', () => {
+    renderPanel(runStub(), {
+      activeRun: activeRun({ status: 'running', phase: 'archive', archive: null }),
+      lastRun: null,
+    });
+    expect(screen.queryByTestId('run-archive-confirm-card')).toBeNull();
   });
 });
 

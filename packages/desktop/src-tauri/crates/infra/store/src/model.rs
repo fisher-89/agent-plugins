@@ -784,9 +784,9 @@ impl RunRecord {
 /// 的落行形态，图史面——与 `StepRecord` 审计职责分立（审计 vs 图节点史，两表
 /// MUST NOT 互为替代，也不双写同一语义行）。
 ///
-/// 步词汇为**十值全词汇封闭集**（`RunStepKind`：agent 阶段三角色 + 脚本阶段两
-/// 检查步 + 流程面两步 + 三门 gate）——落库零过滤（旧 5 值步史模型与其 10→5 过
-/// 滤谓词整体退役）。
+/// 步词汇为**十八值全词汇封闭集**（`RunStepKind`：agent 阶段三角色 + 脚本阶段两
+/// 检查步 + 流程面两步 + 三门 gate + 归档 8 步）——落库零过滤（旧 5 值步史模型
+/// 与其 10→5 过滤谓词整体退役）。
 ///
 /// 稳定身份键 = `(run_id, phase, attempt, step, instance_no)`；`node_id()` 组装的
 /// 身份串 `"{phase}:{attempt}:{step}:{instance_no}"` 为边表端点口径（`attempt` 跨
@@ -815,7 +815,7 @@ pub struct RunNodeRecord {
     pub change_id: String,
     pub phase: String,
     pub attempt: u32,
-    /// 步词汇（十值全词汇封闭集，core 域枚举直用）
+    /// 步词汇（十八值全词汇封闭集，core 域枚举直用）
     pub step: RunStepKind,
     /// 同 `(phase, attempt, step)` 内的执行实例号（feedback 重跑为递增新节点）
     pub instance_no: u32,
