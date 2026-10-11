@@ -1,12 +1,3 @@
-//! change 流程状态缝：port trait + 中性状态类型。
-//!
-//! core/workflow 自持中性状态词汇（记录快照 + 写命令 + 错误面），写面与查询
-//! 面经 [`ChangeStateStore`] 落库——crate 零 infra 依赖（AC-2 红线），适配器
-//! `impl ChangeStateStore for Store` 驻 infra/store（D1）。时间戳统一 i64 UTC
-//! unix 毫秒（store 惯例口径）；ISO 串出线归 queries 层单点。中性类型与持久
-//! 化记录分离：native_model 版本治理全留 infra，本层零 derive 负担之外的形
-//! 状承诺（serde / specta 仅为线面复用与测试断言）。
-
 use std::fmt;
 
 use serde::{Deserialize, Serialize};

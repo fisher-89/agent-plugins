@@ -1,12 +1,3 @@
-//! run 执行图落库 port 缝适配（run-workflow-by-step 决策③）：节点 + 边整包
-//! 投影单点 + finish 组装 helper + store 适配器。
-//!
-//! **零过滤纪律（AC-3）**：词汇本体 = `workflow::state::RunStepKind` 十八值全
-//! 词汇，落库命令 `RunNodeEntry.step` 即该类型——10→5 过滤谓词整体退役（流程面
-//! 步骤 phase_start / phase_log 与三门不再被弃落，本模块零过滤逻辑）；边本体 =
-//! `workflow::state::RunEdgeKind` 四值（与编排侧 [`EdgeKind`] 同一类型，零映
-//! 射零漂移）。
-
 use std::sync::Arc;
 
 use workflow::state::{

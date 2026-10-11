@@ -1,15 +1,6 @@
-//! run 状态与步节点 / 边类型：`RunUpdate` Channel 信封（tag `ipc`）、运行状态机
-//! 词汇、步节点状态行、执行图边（端点 = 节点身份键）与快照 / 摘要 DTO。serde
-//! camelCase + specta `Type`——IPC 直用，前端 bindings 再生成直出线格式（与
-//! `AgentRunMessage` 同式先例）。
-
 use serde::{Deserialize, Serialize};
 use specta::Type;
 
-/// run 执行图边 kind 四值（线格式小写词：forward / feedback / retry /
-/// backtrack）：词汇本体单点驻 `workflow::state::RunEdgeKind`（与落库命令
-/// `RunEdgeEntry.edge_kind`、出线 `RunEdgeStateRecord.edge_kind` 同一份封闭集
-/// ——零映射零漂移）。
 pub use workflow::state::RunEdgeKind as EdgeKind;
 
 /// run 状态六档（camelCase 线格式）：三态运行期（running / 两类停等）与

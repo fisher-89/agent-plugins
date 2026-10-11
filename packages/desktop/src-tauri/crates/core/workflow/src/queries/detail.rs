@@ -1,18 +1,3 @@
-//! change 详情查询（按 change **id** 寻址）：固定 10 站流水线聚合 + 状态面 +
-//! run 运行史 + 产物清单。db 无该 id 记录 → 恒 `None`（文档形态分支整体退役
-//! ——零磁盘目录解析回退、零空流水线空面、零 workflow.json 读取）。
-//!
-//! 出线 DTO 约定（API 层转换，golden 契约）：db 中性状态类型（`state`）不出
-//! 线（`ChangeStatus` / `RunStatus` / `RunStepKind` / `RunStepStatus` 词汇枚
-//! 举先例直用）；本层 DTO 为自然结构体纯 derive（零字段属性、零手动序列化——
-//! `alias`/`skip_serializing_if`/自定义编解码任一都会被 specta phases 模式
-//! 判为相位差，分裂出 `*_Serialize/_Deserialize` 联合别名）。线面：缺省字段
-//! `null`、时间戳 ISO 串（由 `tests/golden` 逐字节钉死）；时间戳在 `From`
-//! 转换时定格为字符串（i64 毫秒 → RFC3339 收 queries 层单点）。状态面单源
-//! workspace 库（经 port 缝）；产物发现改 phase 定义清单驱动（相对路径枚举）。
-//! runs / nodes / edges 字段演进走 golden 显式重写流程（`DESKTOP_GOLDEN_REWRITE=1`
-//! + diff 人工确认留痕，unify-run-state-persistence 增键先例）。
-
 use serde::{Deserialize, Serialize};
 use specta::Type;
 

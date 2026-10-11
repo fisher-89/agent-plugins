@@ -1,18 +1,3 @@
-//! run 控制注册表（进程内，键 = `(workspace root, change id)` 复合——design
-//! D10 修掉两 workspace 改名 / 同名前缀假冲突先例 bug，worktree 隔离解锁同
-//! workspace 多 change 真并行）：并行冲突检测、cancel watch、当前会话 id 槽、ask /
-//! 确认单次应答通道、`RunNotice` broadcast、重挂快照。run 生命周期由本注册
-//! 表承载**在飞 run 与停等面**，节点 + 边**双累积器**驻本表条目（emit 序追
-//! 加，全词汇 18 类；边四 kind 显式落边）；run 执行图落库 RunRecord /
-//! RunNodeRecord / RunEdgeRecord 三表（unify-run-state-persistence 决策翻案 +
-//! run-workflow-by-step 决策③：原「不建 flow_runs 表；run 终态即除名，桌面重
-//! 启后 run 消失」决策随翻案显式立项修订——本注册表保持进程内零 IO 不变
-//! 量，落库写缝收 walker 侧 `RunHistoryPort`，终态即除名、重启后库史可达、残
-//! 留 running 经启动标定 interrupted）。发布单点：[`Self::publish`] 同步快照
-//! 面并广播——walker 经 [`RunGuard::emit`] 间达，WorkerAgent 会话事件经命令
-//! 层 sink 桥直发；广播侧仅发 kind-only [`RunNotice`]（载荷剥离单点，
-//! `From<&RunUpdate>`），`RunUpdate` 为进程内 seam 类型。
-
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
