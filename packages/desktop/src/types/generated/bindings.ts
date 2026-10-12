@@ -143,7 +143,7 @@ export const commands = {
 	 *  watch 订阅取路径，目录名知识不下沉前端。
 	 */
 	exploreDocPath: (root: string, name: string) => __TAURI_INVOKE<string | null>("explore_doc_path", { root, name }),
-	/**  explore 记录清单（按当前 workspace root 过滤，id 升序）；blank root → 空结果。 */
+	/**  explore 记录清单 */
 	listExploreRecords: (root: string) => __TAURI_INVOKE<ExploreRecord[]>("list_explore_records", { root }),
 	/**
 	 *  新建 explore 记录（导入绑定 / 新话题建档共用）：只写 DB，不触磁盘文件；

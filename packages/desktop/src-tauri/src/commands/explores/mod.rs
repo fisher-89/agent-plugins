@@ -136,7 +136,7 @@ pub fn explore_doc_path(root: String, name: String) -> Option<String> {
     )
 }
 
-/// explore 记录清单（按当前 workspace root 过滤，id 升序）；blank root → 空结果。
+/// explore 记录清单
 #[tauri::command]
 #[specta::specta]
 pub fn list_explore_records(

@@ -760,14 +760,16 @@ impl Store {
         })
     }
 
-    /// explore 清单：按 root 过滤，主键 id 升序（读出自然序，稳定可复现）。
+    /// explore 清单：按 root 过滤，主键 id 降序（新记录在前，稳定可复现）。
     /// root 为记录归属键（调用方持有 canonical root，store 不二次 canonicalize）。
     pub fn list_explore_records(&self, root: &str) -> Result<Vec<ExploreRecord>, StoreError> {
-        Ok(self
+        let mut records: Vec<ExploreRecord> = self
             .read_all::<ExploreRecord>("遍历探索清单")?
             .into_iter()
             .filter(|record| record.root == root)
-            .collect())
+            .collect();
+        records.sort_by_key(|record| std::cmp::Reverse(record.id));
+        Ok(records)
     }
 
     /// 按归属与名称寻址单条 explore 记录（详情页按展示名寻址）。

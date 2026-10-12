@@ -1974,7 +1974,7 @@ fn 同名不同root各建一档互不影响() {
 }
 
 #[test]
-fn list_explore_records仅返回入参root的记录且id升序() {
+fn list_explore_records仅返回入参root的记录且id降序() {
     let env = Env::new("explore-list");
     let store = open_workspace_ok(&env.db_path("ws"));
     let a1 = create_ok(&store, "C:\\ws\\alpha", "a-first");
@@ -1987,8 +1987,8 @@ fn list_explore_records仅返回入参root的记录且id升序() {
     let ids: Vec<i64> = list.iter().map(|record| record.id).collect();
     assert_eq!(
         ids,
-        vec![a1.id, a2.id, a3.id],
-        "仅入参 root 的记录、主键 id 升序稳定序"
+        vec![a3.id, a2.id, a1.id],
+        "仅入参 root 的记录、主键 id 降序稳定序"
     );
     assert!(
         list.iter().all(|record| record.root == "C:\\ws\\alpha"),

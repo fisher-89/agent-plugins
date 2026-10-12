@@ -3,7 +3,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { commands, type ExploreRecord } from '../../../types/generated/bindings';
 
 export interface ExploreListState {
-  /** 探索记录清单（store 按当前 root 过滤，id 升序；root 未就绪/切换过渡轮为空） */
+  /** 探索记录清单 */
   records: ExploreRecord[];
   loading: boolean;
   error: string | null;

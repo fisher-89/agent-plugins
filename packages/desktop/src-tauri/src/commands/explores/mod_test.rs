@@ -556,7 +556,7 @@ fn list_explore_records有两条记录返回与for_root直连serde等值的两�
         "薄包装不加工：命令面与 store 直连 serde 等值"
     );
     let ids: Vec<i64> = via_command.iter().map(|record| record.id).collect();
-    assert_eq!(ids, vec![first.id, second.id], "id 升序");
+    assert_eq!(ids, vec![second.id, first.id], "id 降序");
 }
 
 #[test]
