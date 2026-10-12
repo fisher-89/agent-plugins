@@ -229,6 +229,52 @@ js (Stryker):                       rust (cargo-mutants):
 - **拆段参数定案**：分段目标 **5 分钟/段**（半 CPU 约 250~300 mutants/段按 1~2 s/mutant 折算），
   段级软护栏 10 分钟；单文件超预算接受；自适应修正以上一段实测速率调整后续段大小。
 
+## 用户决策（2026-10-12 第五轮）：反馈边②形态定案
+
+1. **双时点反馈**：
+   - 突变执行**中断**（段执行 error / harness 崩 / 超时）→ **立即反馈 executor**，不等汇总；
+   - 全部段正常跑完 → **最后汇总突变得分**，仅未达标（score < threshold）才反馈。
+   - 达标 → pass 直接收口（机械 checklist 落账，零反馈）。
+2. **原始突变报告全程留存 reports 目录**（各段原始报告，不清理）；反馈内容只需
+   **告知报告文件路径**，MUST NOT 内联存活突变体清单。
+3. **遗留开放点 #1（明细截断口径）关闭**：原"存活突变体有界装配"方案作废，被
+   「结论 + 报告路径指引」取代——反馈 prompt 里的明细面只含结论摘要
+   （score / threshold / 中断错误摘要），明细交给 executor 自行读报告。
+
+### 反馈边②最终形态
+
+```
+MutationTest 步（分段顺序执行，共享 sandbox）
+  seg-1 ──► seg-2 ──► … ──► seg-k
+    │                      │
+    │ 中断（error/超时）      │ 全部完成
+    ▼                      ▼
+  立即反馈 executor      汇总: Σ计数 → score = (killed+timeout)
+  「突变中断于 seg-i:       /(total-ignored-compileError-runtimeError)
+   错误摘要 + 报告路径清单」   ├─ score ≥ threshold → PASS 收口（零反馈）
+    │                      └─ score <  threshold → 反馈 executor
+    │                        「score X% < threshold Y%
+    │                         + 原始报告路径清单」
+    ▼                      ▼
+  executor 读 reports 下原始报告自行定位存活突变体 / 中断原因
+  （修复 → 输入 mtime 变 → 复用门失效 → 重跑）
+```
+
+- **报告留存**：`reports/test/<plan>/mutation/`（或段级 `mutation-seg-<i>.json`）下
+  原始 Stryker / cargo-mutants 报告全程保留；sandbox/临时 config 的清理不影响
+  报告工件（cleanup 只动 `_stryker-tmp` 与临时 config）。
+- **预算计数**：中断反馈与未达标反馈都走 `FeedbackLoop` 独立计数（照既有
+  `feedback_limit` 机制，label 独立），超限升格相位 fail 不变。
+
+### ⚠ spec 写作警示（防误统一）
+
+`desktop-test-execution` 现行反馈边①原则是「修复会话输入面自足、**MUST NOT 依赖
+修复会话自读报告文件**」（findings_detail 有界内联）。反馈边②**反其道**：结论 +
+报告路径指引，executor 自读报告。**这是两种口径并存、系用户明确决策**，spec delta
+必须显式写成两反馈边的口径差异（MutationTest 反馈边 requirement 自带报告指引式语义），
+MUST NOT 被后来者"统一"掉；机械 checklist 第 3 条「mutation null 自动通过」保留不变
+（决策 3 观察期）。
+
 ## 收口状态与 spec delta 估计（提案输入）
 
 方案主线已收口（根因 / 拆步 / diff 清单封装 / Rust 映射表 / 拆段与 sandbox 复用 / 常量配置）。
@@ -244,6 +290,6 @@ js (Stryker):                       rust (cargo-mutants):
 | `desktop-change-worktree` | 估计零改动（清单封装落 vcs，不碰 worktree 语义） |
 | CLI 系 spec（mutation-testing / unit-test-executor 等） | **零改动**（决策 1：只处理桌面端） |
 
-## 遗留开放点（仅 1 项）
+## 遗留开放点
 
-1. 反馈边②明细面截断口径的最终确认（建议照 findings_detail 抄；提案 AC 里给一版再评审）。
+无。原 #1（明细截断口径）已由第五轮「双时点反馈 + 报告指引式」解消。全部主线决策收口，可转 propose。

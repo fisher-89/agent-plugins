@@ -611,8 +611,6 @@ async fn run_step(
     }
 }
 
-/// ① phase-next：run_id 会话窗口标识随行（进程内锚点随 run 存续——mid-phase
-/// interruption 由重入窗口比对标定）。
 async fn step_phase_next(
     tools: &Arc<dyn ToolStepPort>,
     request: &RunRequest,
@@ -825,9 +823,6 @@ async fn step_static_check(
     }
 }
 
-/// ⑤ test-execution 步：确定性测试执行链门禁（步声明 `OnFail::FeedbackLoop`）—
-/// —pass 收口（产物交 PhaseLog 步机械 checklist 代写，绿跑零 agent 会话）；fail /
-/// error 走反馈边修复重跑，超限升格相位 fail。
 async fn step_test_execution(
     ctx: &StepContext<'_>,
     trace: &mut EdgeTrace,
@@ -931,7 +926,6 @@ async fn step_test_execution(
     }
 }
 
-/// ⑥ evaluator 步：本相位 evaluator 会话（prompt 组装同 executor 单点）。
 async fn step_evaluator(
     ctx: &StepContext<'_>,
     trace: &mut EdgeTrace,
@@ -964,17 +958,17 @@ async fn step_evaluator(
     Ok(())
 }
 
-/// ⑦ verdict 解析门步：终态语义由步声明（`OnFail::FeedbackLoop`）承载——解析
-/// 失败诊断注入同一 evaluator 会话（Continue）修复重跑，每次重跑为
-/// `instance_no` 递增的新节点并以 `feedback` 边表达，独立计数 ≤ limit；超限
-/// 升格相位 fail（桌面代写 fail phase-log），回 phase-next 进重试 / 决策分叉。
-/// MUST NOT 臆测 verdict、MUST NOT 静默跳过；解析产物交 PhaseLog 步落账。
 async fn step_verdict_gate(
     ctx: &StepContext<'_>,
     trace: &mut EdgeTrace,
     cursor: &mut PhaseCursor,
     step: &StepDefinition,
 ) -> Result<StepFlow, Terminal> {
+    // code-analyze 相位声明 VerdictGate on_fail=Terminal（分析相位：verdict
+    // 解析失败即终态，无 agent 会话可续注修复）→ 单次解析，失败即停。
+    if step.on_fail == Some(OnFail::Terminal) {
+        return step_verdict_gate_terminal(ctx, trace, cursor).await;
+    }
     let limit = feedback_limit(step, "verdict-gate")?;
     let mut feedback: u32 = 0;
     loop {
@@ -1199,6 +1193,76 @@ fn feedback_limit(step: &StepDefinition, label: &str) -> Result<u32, Terminal> {
         Some(OnFail::Terminal) | None => Err(Terminal::failed(format!(
             "计划图漂移：{label} 步缺 OnFail::FeedbackLoop 声明"
         ))),
+    }
+}
+
+/// code-analyze 相位 VerdictGate 单次解析路径（`on_fail=Terminal`）：解析
+/// evaluator 收口产物中的 verdict——成功即 Proceed（交 PhaseLog 落账）；失败即
+/// Terminal（分析相位无 agent 会话可续注修复，显式停给用户）。
+async fn step_verdict_gate_terminal(
+    ctx: &StepContext<'_>,
+    trace: &mut EdgeTrace,
+    cursor: &mut PhaseCursor,
+) -> Result<StepFlow, Terminal> {
+    let instance_no = begin_node(
+        ctx.guard,
+        trace,
+        ctx.phase,
+        cursor.attempt,
+        ChangeStepKind::VerdictGate,
+        EdgeKind::Forward,
+    );
+    emit_node(
+        ctx.guard,
+        ctx.phase,
+        cursor.attempt,
+        ChangeStepKind::VerdictGate,
+        instance_no,
+        StepSettle::running(),
+    );
+    let Some(outcome) = &cursor.eval_outcome else {
+        emit_node(
+            ctx.guard,
+            ctx.phase,
+            cursor.attempt,
+            ChangeStepKind::VerdictGate,
+            instance_no,
+            StepSettle::failed(Some("缺 evaluator 收口产物".to_owned())),
+        );
+        return Err(Terminal::failed(format!(
+            "phase \"{}\" 计划步漂移：VerdictGate 步缺 evaluator 收口产物",
+            ctx.phase
+        )));
+    };
+    let text = outcome
+        .final_message
+        .clone()
+        .or_else(|| final_assistant_text(&outcome.transcript))
+        .unwrap_or_default();
+    match parse_verdict(&text) {
+        Ok(checklist) => {
+            emit_node(
+                ctx.guard,
+                ctx.phase,
+                cursor.attempt,
+                ChangeStepKind::VerdictGate,
+                instance_no,
+                StepSettle::passed(Some(format!("verdict={}", checklist.verdict.as_str()))),
+            );
+            cursor.verdict = Some(checklist);
+            Ok(StepFlow::Proceed)
+        }
+        Err(error) => {
+            emit_node(
+                ctx.guard,
+                ctx.phase,
+                cursor.attempt,
+                ChangeStepKind::VerdictGate,
+                instance_no,
+                StepSettle::failed(Some(diagnose_brief(&error))),
+            );
+            Err(Terminal::failed(format!("verdict 解析失败: {error}")))
+        }
     }
 }
 
