@@ -21,7 +21,8 @@ pub(crate) const VERSION_DETECT_TIMEOUT: Duration = Duration::from_secs(30);
 const OUTPUT_TAIL_LIMIT: usize = 500;
 
 /// 单 suite 执行结果：退出码 / 耗时 / 解析后的用例与覆盖原始计数 / 工件解析
-/// 错误面（`error` 进子报告 findings → summary problems execution_error）。
+/// 错误面（`error` 进子报告 findings → summary problems execution_error）/
+/// 脚本真实输出合并流（进 record 单点，不进 error 尾部）。
 #[derive(Debug)]
 pub(crate) struct PlanExecution {
     /// 命令退出码（超时 / 收口缺码记 -1）
@@ -37,6 +38,11 @@ pub(crate) struct PlanExecution {
     /// 执行 / 解析错误面（非基础设施失败——进 findings 供诊断归因；非零退出
     /// 携合并输出有界尾部）
     pub error: Option<String>,
+    /// 脚本真实输出合并流（stdout 前缀 + stderr 后缀，**不加 `2>&1`**——rust
+    /// 模板 `cargo test > results_file` 已把 stdout 重定向进结果工件，`2>&1`
+    /// 会把 stderr 混入污染 `parse_cargo_test`）；`mod.rs` 按 plan 序聚合后落
+    /// 单一 `.log` 供人工回查
+    pub output: Vec<u8>,
 }
 
 /// 原生写结果文件的框架（经 CLI outputFile / reporter destination 落盘，
@@ -117,9 +123,9 @@ pub(crate) async fn execute_plan(
         (status, stdout_bytes, stderr_bytes)
     })
     .await;
-    let (exit_code, exec_error) = match waited {
+    let (exit_code, exec_error, output) = match waited {
         Err(_) => {
-            // 超时：终止并收尸（子进程残留不悬挂执行链）
+            // 超时：终止并收尸（子进程残留不悬挂执行链）；无完整输出可记
             let _ = child.start_kill();
             let _ = child.wait().await;
             (
@@ -128,20 +134,23 @@ pub(crate) async fn execute_plan(
                     "测试命令超时（{} 秒）强制终止",
                     SUITE_COMMAND_TIMEOUT.as_secs()
                 )),
+                Vec::new(),
             )
         }
         Ok((Err(error), _, _)) => return Err(format!("测试命令等待失败: {error}")),
         Ok((Ok(status), stdout_bytes, stderr_bytes)) => {
             let exit_code = status.code().unwrap_or(-1);
-            // 合并输出（rust 模板仅重定向 stdout——编译错误面留在 stderr）
-            let mut output_text = String::from_utf8_lossy(&stdout_bytes).into_owned();
-            output_text.push_str(&String::from_utf8_lossy(&stderr_bytes));
+            // 合并流（rust 模板仅重定向 stdout——编译错误面留在 stderr）；不加
+            // `2>&1`：手工拼接只服务 record 回查，结果工件解析仍只读 stdout 面
+            let mut output = stdout_bytes;
+            output.extend_from_slice(&stderr_bytes);
+            let output_text = String::from_utf8_lossy(&output).into_owned();
             let exec_error = if status.success() {
                 None
             } else {
                 Some(non_zero_exit_error(exit_code, &output_text))
             };
-            (exit_code, exec_error)
+            (exit_code, exec_error, output)
         }
     };
 
@@ -163,6 +172,7 @@ pub(crate) async fn execute_plan(
         source_files,
         measured,
         error: exec_error.or(parse_error),
+        output,
     })
 }
 

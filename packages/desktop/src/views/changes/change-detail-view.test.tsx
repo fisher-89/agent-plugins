@@ -14,6 +14,7 @@ import type {
   SessionSummary,
 } from '../../types/dto';
 import { ChangeDetailView } from './change-detail-view';
+import { mountMaterials } from './flow/attachments';
 
 // ---------------------------------------------------------------------------
 // ChangeDetailView 单测 mock
@@ -35,6 +36,11 @@ const { ChannelMock, invokeMock } = vi.hoisted(() => {
 });
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: invokeMock, Channel: ChannelMock }));
+
+// 挂载层观测面（change-flow-show-step-only，AC-4 / D6）：materials memo 依赖收窄
+// 与两参调用形态经 `spy: true` 自动 mock 观测（ESM 命名空间不支持 `vi.spyOn`；
+// 自动 mock 保留原实现——调用次数可观测、行为零替换）
+vi.mock(import('./flow/attachments'), { spy: true });
 
 // ---------------------------------------------------------------------------
 // 详情取数 fixture（useChangeDetail 的进程边界应答面）：get_change_detail 与
@@ -428,19 +434,40 @@ describe('ChangeDetailView：页面组装（图区 / 产物区 / 抽屉）', () 
     expect(legacy.container.querySelector('[data-testid="detail-worktree"]')).toBeNull();
   });
 
-  it('列头 / 节点点击 → detail-drawer 挂载（selection 状态在本组件）；关闭后卸载', async () => {
+  it('列头 / 运行步节点点击 → detail-drawer 挂载（selection 状态在本组件）；关闭后卸载', async () => {
+    loadActiveRun(
+      activeRunView({
+        nodes: [
+          {
+            phase: 'proposal',
+            attempt: 1,
+            step: 'executor',
+            status: 'running',
+            sessionId: 'ses-exec-1',
+            detail: null,
+            instanceNo: 0,
+            outputRef: null,
+          },
+        ],
+      }),
+    );
     renderDetail({ detail: detail(), artifacts: PROPOSAL_ENVELOPES });
-    await waitFor(() => expect(screen.getAllByTestId('flow-node')).toHaveLength(2));
+    await waitFor(() => expect(screen.getAllByTestId('run-step-node')).toHaveLength(1));
 
+    // 列头 → 该站过程素材单列（挂载层两参调用：文档 + checklist 均挂列头）
     fireEvent.click(screen.getAllByTestId('flow-column')[0]);
     expect(screen.getByTestId('detail-drawer') !== null).toBe(true);
+    expect(screen.getByTestId('drawer-column-section').textContent).toContain('提案正文');
     fireEvent.click(screen.getByRole('button', { name: '关闭' }));
     expect(screen.queryByTestId('detail-drawer')).toBeNull();
 
-    fireEvent.click(screen.getByTestId('rf__node-eval:proposal:1'));
+    // 运行步节点（role 在场）→ 会话转录单列（页面组装层 selection 上抛链路可用）
+    fireEvent.click(screen.getByTestId('rf__node-run:proposal:1:executor:0'));
     expect(screen.getByTestId('detail-drawer') !== null).toBe(true);
-    // 抽屉 eval 节为所选 attempt 的 report（页面组装层 selection 上抛链路可用）
-    expect(screen.getByTestId('drawer-eval-section').textContent).toContain('提案评估未过');
+    await screen.findByTestId('session-transcript-panel');
+    expect(screen.getByTestId('detail-drawer').textContent).toContain(
+      'proposal · attempt 1 · runtime',
+    );
   });
 
   it('flow-empty 退役：任意 detail 形态（含 status 缺席 + pipeline 空）恒走图区，flow-empty 与「文档形态」文案零出现', async () => {
@@ -884,9 +911,10 @@ describe('ChangeDetailView：run 控制面板与运行 overlay 组装', () => {
     const check = screen.getByTestId('rf__node-run:implement:1:staticCheck:0');
     expect(within(check).getByTestId('run-step-group').textContent).toBe('ToolStep');
     expect(within(check).getByTestId('run-step-detail').textContent).toBe('2 处诊断');
-    // overlay 为加法：既有事件节点集合不变（flow-node 挂钩 = eval/active 事件
-    // 节点面；运行步节点经 run-step-node 挂钩另行可辨）
-    expect(screen.getAllByTestId('flow-node')).toHaveLength(2);
+    // 节点模型单分类：事件节点挂钩（flow-node）零残留，运行步节点经
+    // run-step-node 挂钩可辨
+    expect(screen.queryByTestId('flow-node')).toBeNull();
+    expect(screen.getAllByTestId('run-step-node')).toHaveLength(2);
   });
 
   it('重挂恢复（AC-10）：run 运行中 remount → activeRun 经统一查询恢复、步表非空且与 emit 序一致、运行中才补订 watch', async () => {
@@ -1186,15 +1214,40 @@ describe('ChangeDetailView：退役元素零渲染与详情图区恒态', () => 
   });
 
   it('面板传参收敛：命令面 prop changeId == URL id、展示面 name == detail.name（页内单一身份源 AC-7）', async () => {
-    // URL 段 id 与 detail.name 刻意不同：命令面（取数 / 运行 / 归档 / 转录
-    // 反查）恒取 URL id；展示面（标题 / aria-label）恒取 detail.name
+    // URL 段 id 与 detail.name 刻意不同：命令面（取数 / 运行 / 转录反查）恒取
+    // URL id；展示面（标题 / aria-label / stdout 磁盘面 change name）恒取
+    // detail.name
     const urlId = '0199a2f0-2003-7e45-8a9b-000000002003';
+    // 节点源取库读史（runs 尾行）：无在飞 run → 主操作仍为发起（run-start）；
+    // 步节点经统一视图常驻（收口后活面褪去、库读史常驻）
     renderDetail(
-      { detail: detail({ id: urlId, name: 'add-feature' }), artifacts: PROPOSAL_ENVELOPES },
+      {
+        detail: detail({
+          id: urlId,
+          name: 'add-feature',
+          runs: [
+            finishedRun({
+              nodes: [
+                {
+                  phase: 'implement',
+                  attempt: 1,
+                  step: 'executor',
+                  status: 'passed',
+                  sessionId: null,
+                  detail: null,
+                  instanceNo: 0,
+                  outputRef: null,
+                },
+              ],
+            }),
+          ],
+        }),
+        artifacts: PROPOSAL_ENVELOPES,
+      },
       ROOT,
       `/changes/${urlId}`,
     );
-    await screen.findByTestId('flow-graph');
+    await waitFor(() => expect(screen.getAllByTestId('run-step-node')).toHaveLength(1));
 
     // 取数面：URL id 即取数键
     expect(detailCalls()).toEqual([{ root: ROOT, id: urlId }]);
@@ -1213,14 +1266,14 @@ describe('ChangeDetailView：退役元素零渲染与详情图区恒态', () => 
       }),
     );
 
-    // 命令面（抽屉）：eval 节点选中 → 转录反查 sourceRef 身份段 = URL id
-    fireEvent.click(screen.getByTestId(`rf__node-eval:proposal:1`));
+    // 命令面（抽屉）：运行步节点选中 → 会话反查 sourceRef 身份段 = URL id
+    fireEvent.click(screen.getByTestId('rf__node-run:implement:1:executor:0'));
     await screen.findByTestId('detail-drawer');
     await waitFor(() =>
       expect(invokeMock).toHaveBeenCalledWith('agent_sessions', {
         root: ROOT,
         source: 'change',
-        sourceRef: `${urlId}/proposal/executor/1`,
+        sourceRef: `${urlId}/implement/executor/1`,
       }),
     );
   });
@@ -1399,5 +1452,229 @@ describe('ChangeDetailView：详情头渲染 detail.title（AC-8）', () => {
     expect(screen.getByLabelText('change add-feature 运行控制') !== null).toBe(true);
     // 归档入口已并入 run 停等面：退役按钮零渲染（name 仅展名面留存）
     expect(screen.queryByTestId('archive-trigger')).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 数据源收窄与 name 透传（change-flow-show-step-only，AC-4 / AC-5 / D6）：
+// `mountMaterials(detail, artifacts)` 两参调用（挂载与图无关）、materials memo
+// 依赖收窄 `[detail, artifacts]`（去 `graph`）、DetailDrawer 传 `detail.name`
+//（stdout 输出记录磁盘面与 `record_exec_output` 同口径按 change name 定位，
+// 非 URL id）。mountMaterials 经 `vi.mock(..., { spy: true })` 自动 mock 观测
+// 调用次数（ESM 命名空间不支持 `vi.spyOn`；原实现保留、行为零替换）。
+// ---------------------------------------------------------------------------
+
+/** proposal.md 文档片段描述符（文档归列按 detail.artifacts[].phase 下标配对）。 */
+const PROPOSAL_DESCRIPTOR: ArtifactDescriptor = {
+  kind: 'markdown-doc',
+  source: 'proposal.md',
+  title: '提案',
+  phase: 'proposal',
+};
+
+/** 清单信封 fixture 的清单归属相位（checklist 挂列头按 payload.phase）。 */
+const CHECKLIST_DESCRIPTOR: ArtifactDescriptor = {
+  kind: 'eval-checklist',
+  source: 'phases/proposal/attempt-1.md',
+  title: '评估清单',
+  phase: 'proposal',
+};
+
+/** session_detail 调用清单（抽屉转录重查的观察锚）。 */
+function sessionDetailCalls(): unknown[][] {
+  return invokeMock.mock.calls.filter(([name]) => name === 'session_detail');
+}
+
+function checklistEnvelope(): ArtifactEnvelope {
+  return envelope({
+    kind: 'eval-checklist',
+    title: '评估清单',
+    payload: { phase: 'proposal', attempt: 1, verdict: 'pass', items: [] },
+  });
+}
+
+/** 运行步节点行 fixture（统一查询活面步表行）。 */
+function stepRow(overrides: Partial<ChangeStepState> = {}): ChangeStepState {
+  return {
+    phase: 'implement',
+    attempt: 1,
+    step: 'executor',
+    status: 'running',
+    sessionId: 'ses-exec-1',
+    detail: null,
+    instanceNo: 0,
+    outputRef: null,
+    ...overrides,
+  };
+}
+
+describe('ChangeDetailView：素材挂载两参与 memo 依赖收窄（AC-4 / D6）', () => {
+  beforeEach(() => {
+    vi.mocked(mountMaterials).mockClear();
+  });
+
+  it('正向：mountMaterials 两参调用（detail + artifacts，无 graph 位置）→ 文档归列与 eval-checklist 挂列头照常', async () => {
+    const spy = vi.mocked(mountMaterials);
+    const artifacts = [proposalDoc(), checklistEnvelope()];
+    renderDetail({
+      detail: detail({ artifacts: [PROPOSAL_DESCRIPTOR, CHECKLIST_DESCRIPTOR] }),
+      artifacts: {
+        'markdown-doc:proposal.md': proposalDoc(),
+        'eval-checklist:phases/proposal/attempt-1.md': checklistEnvelope(),
+      },
+    });
+    await screen.findByTestId('flow-graph');
+    await waitFor(() => expect(screen.getByTestId('column-docs').textContent).toBe('2 份文档'));
+
+    // 调用形态：恰两参（graph 位置缺席——挂载层不再接收图）
+    expect(spy.mock.calls.length).toBeGreaterThan(0);
+    for (const call of spy.mock.calls) {
+      expect(call).toHaveLength(2);
+      expect(call[0]).toMatchObject({ id: CHANGE_ID });
+      expect(call[1]).toEqual(expect.any(Array));
+    }
+    // 真实组合产出：proposal 列头挂文档 + 清单两条（列头徽章计数为运行时证据）
+    const lastCall = spy.mock.calls[spy.mock.calls.length - 1];
+    expect(lastCall[1]).toHaveLength(artifacts.length);
+    fireEvent.click(screen.getAllByTestId('flow-column')[0]);
+    await screen.findByTestId('drawer-column-section');
+    expect(screen.getByTestId('drawer-column-section').textContent).toContain('提案正文');
+  });
+
+  it('正向：materials memo 不随渲染放大——会话事件通知触发的重渲染（detail / artifacts / graph 引用均不变）零重算', async () => {
+    const spy = vi.mocked(mountMaterials);
+    loadActiveRun(activeRunView({ nodes: [stepRow()] }));
+    renderDetail({ detail: detail(), artifacts: PROPOSAL_ENVELOPES });
+    await screen.findByTestId('run-stop');
+    await waitFor(() => expect(ChannelMock.instances).toHaveLength(1));
+
+    // 抽屉选中运行 executor 步：转录直查（重渲染的观察锚——通知到站须再查一次）
+    fireEvent.click(await screen.findByTestId('rf__node-run:implement:1:executor:0'));
+    await screen.findByTestId('session-transcript-panel');
+    await waitFor(() => expect(sessionDetailCalls()).toHaveLength(1));
+    const baseline = spy.mock.calls.length;
+    expect(baseline).toBeGreaterThan(0);
+
+    // 会话事件通知到站：150ms 去抖 → transcriptTick 自增 → ChangeDetailView /
+    // DetailLoaded 重渲染（数据源引用全不变）
+    await act(async () => {
+      lastChannel().push({ ipc: 'sessionEvent' });
+    });
+    // 重渲染确已发生（转录重查为证：refreshKey 变化驱动重查）
+    await waitFor(() => expect(sessionDetailCalls()).toHaveLength(2), { timeout: 5000 });
+
+    // 挂载零重算：memo 依赖面不含渲染通道（否则每次重渲染都会追加一次计算）
+    expect(spy.mock.calls.length).toBe(baseline);
+    expect(spy.mock.calls.every((call) => call.length === 2)).toBe(true);
+  });
+
+  it('正向：挂载随数据源提交驱动重算——统一查询刷新（detail / artifacts 引用更新）重算，增量受提交拍数约束', async () => {
+    const spy = vi.mocked(mountMaterials);
+    loadActiveRun(activeRunView({ nodes: [] }));
+    renderDetail({ detail: detail(), artifacts: PROPOSAL_ENVELOPES });
+    await screen.findByTestId('flow-graph');
+    await waitFor(() => expect(spy.mock.calls.length).toBeGreaterThan(0));
+    const baseline = spy.mock.calls.length;
+
+    // 统一查询重查：活面步节点增删（graph 活面变化随查询一并提交流入）
+    loadActiveRun(
+      activeRunView({
+        nodes: [stepRow(), stepRow({ step: 'staticCheck', outputRef: 'exec-1727-1' })],
+      }),
+    );
+    fireEvent.click(screen.getByText('刷新详情'));
+    await waitFor(() => expect(screen.getAllByTestId('run-step-node')).toHaveLength(2));
+
+    // 一次刷新周期 = detail 提交 + 产物提交两拍（各一次重算）：挂载随数据源提交
+    // 而非渲染次数放大（图活面变化不追加第三拍）
+    const delta = spy.mock.calls.length - baseline;
+    expect(delta).toBeGreaterThan(0);
+    expect(delta).toBeLessThanOrEqual(2);
+    expect(spy.mock.calls.every((call) => call.length === 2)).toBe(true);
+  });
+
+  it('边界：artifacts = [] / runs = []（零图零产物）→ materials 空 columnDocs、抽屉 name 仍透传，不抛错', async () => {
+    loadActiveRun(null);
+    renderDetail({ detail: detail({ artifacts: [] }), artifacts: {} });
+    await screen.findByTestId('flow-graph');
+
+    // 零产物 → 列头无文档徽章、列内零节点
+    expect(screen.queryByTestId('column-docs')).toBeNull();
+    expect(screen.queryByTestId('run-step-node')).toBeNull();
+    fireEvent.click(screen.getAllByTestId('flow-column')[0]);
+    await screen.findByTestId('drawer-column-section');
+    expect(screen.getByTestId('drawer-column-section').textContent).toContain('（无本站文档）');
+    expect(screen.queryByTestId('stdout-panel')).toBeNull();
+  });
+});
+
+describe('ChangeDetailView：stdout 面板按 detail.name 取数（AC-5 / D6）', () => {
+  /** URL id ≠ detail.name 的 stdout 用例装置（RUN 面 static-check 步携 outputRef）。 */
+  const URL_ID = '0199a2f0-2004-7e45-8a9b-000000002004';
+
+  function renderOutputNodeDetail() {
+    loadActiveRun(
+      activeRunView({
+        nodes: [
+          stepRow({
+            step: 'staticCheck',
+            status: 'passed',
+            sessionId: null,
+            outputRef: 'exec-1727000000000-9',
+          }),
+        ],
+      }),
+    );
+    return renderDetail(
+      { detail: detail({ id: URL_ID, name: 'add-feature' }), artifacts: PROPOSAL_ENVELOPES },
+      ROOT,
+      `/changes/${URL_ID}`,
+    );
+  }
+
+  it('正向：id ≠ name 建档 → 选中 outputRef 节点后抽屉经 readExecOutput(root, changeName=detail.name, execId) 取数', async () => {
+    renderOutputNodeDetail();
+    await waitFor(() => expect(screen.getAllByTestId('run-step-node')).toHaveLength(1));
+
+    fireEvent.click(screen.getByTestId('rf__node-run:implement:1:staticCheck:0'));
+    const panel = await screen.findByTestId('stdout-panel');
+    await waitFor(() =>
+      expect(invokeMock).toHaveBeenCalledWith('read_exec_output', {
+        root: ROOT,
+        changeName: 'add-feature',
+        execId: 'exec-1727000000000-9',
+      }),
+    );
+    // 磁盘面键恒 detail.name（与 record_exec_output 同口径，非 URL id）
+    const readCalls = invokeMock.mock.calls.filter(([name]) => name === 'read_exec_output');
+    expect(readCalls).toHaveLength(1);
+    const readArgs = readCalls[0][1] as { changeName: string; execId: string };
+    expect(readArgs.changeName).toBe('add-feature');
+    expect(readArgs.changeName).not.toBe(URL_ID);
+    expect(readArgs.execId).toBe('exec-1727000000000-9');
+    await waitFor(() => expect(panel.textContent).toContain('（无输出记录）'));
+  });
+
+  it('异常：miss（未知 exec_id / 记录缺失）→ stdout 空态呈现，不因 id 寻址漂移而炸图', async () => {
+    invokeMock.mockImplementation((command: string, args?: Record<string, unknown>) => {
+      if (command === 'read_exec_output') return Promise.resolve(null);
+      return detailIpc(command, args);
+    });
+    renderOutputNodeDetail();
+    await waitFor(() => expect(screen.getAllByTestId('run-step-node')).toHaveLength(1));
+
+    fireEvent.click(screen.getByTestId('rf__node-run:implement:1:staticCheck:0'));
+
+    await waitFor(() =>
+      expect(invokeMock).toHaveBeenCalledWith('read_exec_output', {
+        root: ROOT,
+        changeName: 'add-feature',
+        execId: 'exec-1727000000000-9',
+      }),
+    );
+    expect(screen.getByTestId('stdout-empty').textContent).toBe('（无输出记录）');
+    expect(screen.queryByTestId('stdout-error')).toBeNull();
+    // 抽屉其余面照常（错误态不阻断）
+    expect(screen.getByTestId('detail-drawer') !== null).toBe(true);
   });
 });

@@ -3,28 +3,16 @@ use std::process::Stdio;
 
 use orchestration::port::{BoxToolFuture, StaticCheckOutcome, StaticCheckRunner, ToolStepOutput};
 
-/// static-check 进程执行器（组合根按需构造）：输出记录模式默认
-/// [`exec::ExecOutput::Transient`]（反馈边只消费诊断文本，全量即弃）；`recorded` 装配
-/// 升 [`exec::ExecOutput::Recorded`]（全量落盘 change 报告目录树并经 `output_ref` 回填
-/// 引用，审计 / 回查面）。**输出记录单点驻 infra/exec**——本层零私有落盘分支。
-pub struct ProcessStaticCheck {
-    /// 输出记录锚（change 名，报告目录树定位用）；`None` = Transient 默认
-    record_anchor: Option<String>,
-}
+/// static-check 进程执行器（组合根按需构造）：输出记录模式恒
+/// [`exec::ExecOutput::Recorded`]（`run(root, name)` 收 change name，单一交错
+/// `.log` 落盘并回填 `output_ref` 引用，审计 / 回查面）。**输出记录单点驻
+/// infra/exec**——本层零私有落盘分支。
+pub struct ProcessStaticCheck;
 
 impl ProcessStaticCheck {
-    /// 构造（组合根装配）：默认 `exec::ExecOutput::Transient`。
+    /// 构造（组合根装配）：默认即 recorded（无装配分支）。
     pub fn new() -> Self {
-        Self {
-            record_anchor: None,
-        }
-    }
-
-    /// `Recorded` 模式装配：stdout / stderr 全量落盘并回填 `output_ref`。
-    pub fn recorded(change: impl Into<String>) -> Self {
-        Self {
-            record_anchor: Some(change.into()),
-        }
+        Self
     }
 }
 
@@ -35,15 +23,16 @@ impl Default for ProcessStaticCheck {
 }
 
 impl StaticCheckRunner for ProcessStaticCheck {
-    fn run(&self, root: &str) -> BoxToolFuture {
+    fn run(&self, root: &str, name: &str) -> BoxToolFuture {
         let root = root.to_owned();
-        let record_anchor = self.record_anchor.clone();
-        Box::pin(async move { execute(&root, record_anchor.as_deref()).await })
+        let name = name.to_owned();
+        Box::pin(async move { execute(&root, &name).await })
     }
 }
 
-/// 一次 static-check 执行全流程：配置读取 → spawn → 诊断拼接 → 退出码映射。
-async fn execute(root: &str, record_anchor: Option<&str>) -> Result<ToolStepOutput, String> {
+/// 一次 static-check 执行全流程：配置读取 → spawn（`2>&1` 交错）→ 诊断拼接 →
+/// 退出码映射 → 单一 `.log` 输出记录。
+async fn execute(root: &str, name: &str) -> Result<ToolStepOutput, String> {
     let report = config::load(Path::new(root));
     let Some(command) = report
         .config
@@ -63,27 +52,26 @@ async fn execute(root: &str, record_anchor: Option<&str>) -> Result<ToolStepOutp
     // 缺失吞成非零退出码——passed=false 反馈边空转烧预算，spawn 前先解析）
     ensure_program_resolvable(root, &command)?;
 
-    let mut command = exec::SystemCommand::script(&command).into_tokio();
+    let mut command = exec::SystemCommand::script(&format!("{command} 2>&1")).into_tokio();
+    // 仅 stdout 走管道：`2>&1` 已把 stderr 并入同一管道（两 fd 指向同一写端，
+    // 写入顺序即真实顺序——`diagnostics` / record 同流逐字还原终端）
     command
         .current_dir(root)
         .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
+        .stdout(Stdio::piped());
     let output = command
         .output()
         .await
         .map_err(|error| format!("static-check 命令拉起失败: {error}"))?;
 
-    // 诊断捕获：stdout + stderr 原样拼接（插件把合并输出打 stderr、信封
-    // 承载同文——此处诊断直接进产出， walker 反馈边定向注入）
-    let mut diagnostics = String::from_utf8_lossy(&output.stdout).into_owned();
-    diagnostics.push_str(&String::from_utf8_lossy(&output.stderr));
+    // 诊断捕获：交错 stdout 原样（`output.stderr` 恒空——2>&1 已在 OS 层合并）；
+    // 插件把合并输出打 stderr、信封承载同文——此处诊断直接进产出，walker 反馈边
+    // 定向注入
+    let diagnostics = String::from_utf8_lossy(&output.stdout).into_owned();
     let passed = output.status.success();
-    // 输出记录：默认 Transient（无 id 即弃）；Recorded 模式经 infra/exec 单点
-    // 落盘并回填引用（落盘失败降级 Transient——不因记录失败阻断检查主流程）
-    let output_ref = record_anchor.and_then(|change| {
-        exec::record_exec_output(Path::new(root), change, &output.stdout, &output.stderr).ok()
-    });
+    // 输出记录：默认 recorded——经 infra/exec 单点落单一 `.log` 并回填引用
+    //（落盘失败降级 None，不因记录失败阻断检查主流程）
+    let output_ref = exec::record_exec_output(Path::new(root), name, &output.stdout).ok();
     Ok(ToolStepOutput::StaticCheck(StaticCheckOutcome {
         passed,
         diagnostics: diagnostics.trim_end().to_owned(),

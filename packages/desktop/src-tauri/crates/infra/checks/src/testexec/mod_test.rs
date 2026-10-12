@@ -115,6 +115,7 @@ impl ChainWs {
                 "if ($args.Count -gt 0 -and $args[0] -eq '--version') { exit 0 }\n\
                  if ($env:SHIM_RESULTS_SRC -and $env:SHIM_DEST) { Copy-Item -Force $env:SHIM_RESULTS_SRC $env:SHIM_DEST }\n\
                  if ($env:SHIM_DEST -and $env:SHIM_MARKER) { Add-Content -Force -Path $env:SHIM_MARKER -Value 'ran' }\n\
+                 Write-Output 'shim-stdout-marker'\n\
                  if ($env:SHIM_EXIT) { exit ([int]$env:SHIM_EXIT) }\n\
                  exit 0\n",
             )
@@ -130,6 +131,7 @@ impl ChainWs {
                  if [ \"$1\" = \"--version\" ]; then exit 0; fi\n\
                  if [ -n \"$SHIM_RESULTS_SRC\" ] && [ -n \"$SHIM_DEST\" ]; then cp \"$SHIM_RESULTS_SRC\" \"$SHIM_DEST\"; fi\n\
                  if [ -n \"$SHIM_DEST\" ] && [ -n \"$SHIM_MARKER\" ]; then echo ran >> \"$SHIM_MARKER\"; fi\n\
+                 echo shim-stdout-marker\n\
                  exit \"${SHIM_EXIT:-0}\"\n",
             )
             .expect("写 node shim 失败");
@@ -323,6 +325,28 @@ async fn 绿跑全链_pass结论_四计数与报告落盘() {
         (5, 4, 0, 1)
     );
     assert_eq!(sub.exit_code, 0);
+
+    // 输出记录单点（AC-7）：record 内容 = 脚本真实输出合并流（stdout 标记在场），
+    // 非 summary JSON 重序列化；单一 `.log` 落 report_dir 同锚
+    assert!(!outcome.exec_id.is_empty(), "门禁产出恒回填 exec_id");
+    let recorded = exec::read_exec_output(ws.root(), CHANGE, &outcome.exec_id)
+        .expect("门禁引用可回查脚本输出");
+    let text = String::from_utf8_lossy(&recorded);
+    assert!(
+        text.contains("shim-stdout-marker"),
+        "record 内容为脚本真实输出（stdout 流），实际: {text:?}"
+    );
+    assert!(
+        !text.trim_start().starts_with('{'),
+        "record 内容非 summary JSON 重序列化，实际: {text:?}"
+    );
+    assert!(
+        !reports_dir
+            .join("exec-outputs")
+            .join(format!("{}.err", outcome.exec_id))
+            .exists(),
+        ".err 分文件退役（单一 .log）"
+    );
 }
 
 /// 正向：复用门装配（复用分支）——首跑落 summary 后输入未变二次 run 零命令
@@ -379,6 +403,28 @@ async fn 复用门装配_输入未变零spawn复用() {
             ..second_out.clone()
         },
         "除落盘引用外复用产出与首跑逐字段一致"
+    );
+
+    // 复用分支输出记录面（AC-7）：复用零 spawn → 本次合并流空，落空 `.log`（引用
+    // 每次新铸）；首跑 `.log` 不被复用跑覆写（记录单点面独立于复用门）
+    let first_record =
+        exec::read_exec_output(ws.root(), CHANGE, &first_out.exec_id).expect("首跑记录可回查");
+    assert!(
+        String::from_utf8_lossy(&first_record).contains("shim-stdout-marker"),
+        "首跑记录 = 脚本真实输出: {:?}",
+        String::from_utf8_lossy(&first_record)
+    );
+    let reused_record = exec::read_exec_output(ws.root(), CHANGE, &second_out.exec_id)
+        .expect("复用跑引用同样可回查（每次新铸）");
+    assert!(
+        reused_record.is_empty(),
+        "复用分支零 spawn → 空合并流落空 .log，实际: {:?}",
+        String::from_utf8_lossy(&reused_record)
+    );
+    assert_eq!(
+        exec::read_exec_output(ws.root(), CHANGE, &first_out.exec_id).expect("重复回查"),
+        first_record,
+        "首跑 .log 不被复用跑覆写"
     );
 }
 
@@ -774,6 +820,7 @@ fn conclusion三值映射逐字() {
             &hand_summary(checks_conclusion, Vec::new()),
             &[],
             reports_dir,
+            &[],
         );
         match output {
             ToolStepOutput::TestExecution(mapped) => {
@@ -910,14 +957,26 @@ fn 空扫描根返回none() {
 }
 
 /// 正向：一次门禁装配 → `exec_id` 与既有 `report_dir` 同口径（输出记录单点经
-/// infra/exec 落盘）；`read_exec_output` 回查内容与 summary 全量 JSON 一致。
+/// infra/exec 落单一 `.log`）；`read_exec_output` 回查内容 = 入参脚本真实输出
+/// 合并流（多 suite 按 plan 序拼接保真），**非 summary JSON 重序列化**；`.err`
+/// 分支退役（单一 `.log`）。
 #[test]
-fn 门禁exec_id与report_dir同口径且可回查() {
+fn 门禁exec_id落脚本输出且与report_dir同口径() {
     let dir = TempDir::new().expect("临时目录");
     let reports_dir = dir.path().join("openspec/changes/demo-change/reports/test");
     let summary = hand_summary(Conclusion::Pass, vec!["找不到问题".to_owned()]);
+    // 两 suite 输出按 plan 序拼接后的合并流（聚合序在 execute 循环内，记录单点
+    // 按传入序落盘保序）
+    let merged = b"suite-a stdout\nsuite-a stderr\nsuite-b stdout\n".to_vec();
 
-    let output = outcome(dir.path(), "demo-change", &summary, &[], &reports_dir);
+    let output = outcome(
+        dir.path(),
+        "demo-change",
+        &summary,
+        &[],
+        &reports_dir,
+        &merged,
+    );
     let ToolStepOutput::TestExecution(mapped) = output else {
         panic!("产出应为 TestExecution 变体");
     };
@@ -937,18 +996,120 @@ fn 门禁exec_id与report_dir同口径且可回查() {
             .exists(),
         "落盘位于 report_dir 同锚的 exec-outputs/<exec_id>.log"
     );
+    assert!(
+        !expected_dir
+            .join(format!("{}.err", mapped.exec_id))
+            .exists(),
+        ".err 分文件退役（单一 .log）"
+    );
+
     let read_back =
         exec::read_exec_output(dir.path(), "demo-change", &mapped.exec_id).expect("回查应命中");
-    let parsed: serde_json::Value = serde_json::from_slice(&read_back).expect("全量 JSON 可解析");
-    assert_eq!(parsed["conclusion"], serde_json::json!("pass"));
-    assert_eq!(parsed["phase"], serde_json::json!("test-execution"));
+    assert_eq!(
+        read_back, merged,
+        "record 内容 = 脚本真实输出合并流（逐字节、保序）"
+    );
+    let text = String::from_utf8(read_back).expect("脚本输出为 UTF-8");
+    assert!(
+        text.contains("suite-a stdout") && text.contains("suite-b stdout"),
+        "各 suite 输出逐段在场: {text:?}"
+    );
+}
 
-    // 多次装配 exec_id 互异（引用唯一面）
-    let second = outcome(dir.path(), "demo-change", &summary, &[], &reports_dir);
-    let ToolStepOutput::TestExecution(second) = second else {
+/// 边界 / 正向：多 suite 空 `output` → `merged_output` 空，仍落空 `.log` 可回查
+///（`Some(vec![])`）；回查内容 ≠ `serde_json::to_vec(summary)`（record 去
+/// summary JSON 重序列化）。
+#[test]
+fn 空合并流落空log可回查且非summary序列化() {
+    let dir = TempDir::new().expect("临时目录");
+    let reports_dir = dir.path().join("openspec/changes/demo-change/reports/test");
+    let summary = hand_summary(Conclusion::Error, vec!["执行错误归因".to_owned()]);
+
+    let output = outcome(
+        dir.path(),
+        "demo-change",
+        &summary,
+        &[],
+        &reports_dir,
+        &[],
+    );
+    let ToolStepOutput::TestExecution(mapped) = output else {
         panic!("产出应为 TestExecution 变体");
     };
-    assert_ne!(mapped.exec_id, second.exec_id, "多次运行 exec_id 互异");
+
+    let read_back =
+        exec::read_exec_output(dir.path(), "demo-change", &mapped.exec_id).expect("空流仍应可回查");
+    assert_eq!(read_back, Vec::<u8>::new(), "空合并流 → 空 .log");
+    let summary_json = serde_json::to_vec(&summary).expect("summary 可序列化");
+    assert_ne!(
+        read_back, summary_json,
+        "record 内容非 summary JSON 重序列化（去 serde summary 面）"
+    );
+}
+
+/// 幂等：重复装配（重跑 / 复用分支）→ 每次新铸 `exec_id`、单一 `.log` 独立落盘
+/// 互不覆写；report_dir 结构化报告不被 record 干扰（零 summary JSON 残留、零
+/// `.err` 残留）。
+#[test]
+fn 重复装配各自log互不覆写且零summary残留() {
+    let dir = TempDir::new().expect("临时目录");
+    let reports_dir = dir.path().join("openspec/changes/demo-change/reports/test");
+    std::fs::create_dir_all(&reports_dir).expect("建报告目录");
+    let structured = reports_dir.join("summary.json");
+    std::fs::write(&structured, "{\"phase\":\"test-execution\"}").expect("写结构化报告占位");
+    let summary = hand_summary(Conclusion::Pass, vec!["找不到问题".to_owned()]);
+
+    let first = outcome(
+        dir.path(),
+        "demo-change",
+        &summary,
+        &[],
+        &reports_dir,
+        b"first-run-output\n",
+    );
+    let second = outcome(
+        dir.path(),
+        "demo-change",
+        &summary,
+        &[],
+        &reports_dir,
+        b"second-run-output\n",
+    );
+    let (ToolStepOutput::TestExecution(first), ToolStepOutput::TestExecution(second)) =
+        (first, second)
+    else {
+        panic!("两跑产出均应为 TestExecution 变体");
+    };
+
+    assert_ne!(
+        first.exec_id, second.exec_id,
+        "每次装配新铸 exec_id（引用唯一面）"
+    );
+    assert_eq!(
+        exec::read_exec_output(dir.path(), "demo-change", &first.exec_id).expect("首跑回查"),
+        b"first-run-output\n".to_vec(),
+        "首跑 .log 不被后次覆写"
+    );
+    assert_eq!(
+        exec::read_exec_output(dir.path(), "demo-change", &second.exec_id).expect("次跑回查"),
+        b"second-run-output\n".to_vec(),
+        "次跑独立 .log"
+    );
+    // report_dir 面与 record 面隔离：结构化报告占位零改写、exec-outputs 仅 .log
+    assert_eq!(
+        std::fs::read_to_string(&structured).expect("结构化报告仍在"),
+        "{\"phase\":\"test-execution\"}",
+        "record 不干扰 report_dir 结构化报告"
+    );
+    let mut names: Vec<String> = std::fs::read_dir(reports_dir.join("exec-outputs"))
+        .expect("读输出记录目录")
+        .flatten()
+        .map(|entry| entry.file_name().to_string_lossy().into_owned())
+        .collect();
+    names.sort();
+    let mut expected = vec![format!("{}.log", first.exec_id), format!("{}.log", second.exec_id)];
+    expected.sort();
+    assert_eq!(names, expected, "仅 .log 落盘（零 .err / 零 summary 残留）");
 }
 
 /// 边界 / 异常：报告目录不可写（父路径被文件占位）→ 记录降级空串（未记录），
@@ -966,6 +1127,7 @@ fn 记录失败降级空串不阻断门禁结论() {
         &hand_summary(Conclusion::Fail, vec!["用例失败".to_owned()]),
         &[],
         &reports_dir,
+        b"suite output bytes\n",
     );
     let ToolStepOutput::TestExecution(mapped) = output else {
         panic!("产出应为 TestExecution 变体");

@@ -21,6 +21,7 @@ agent = { workspace = true }
 agent-runtime = { workspace = true }
 checks-runtime = { workspace = true }
 config = { workspace = true }
+exec = { workspace = true }
 foundation = { workspace = true }
 orchestration = { workspace = true }
 watch = { workspace = true }

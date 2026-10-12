@@ -41,6 +41,14 @@ export const commands = {
 	fallbackText: string | null,
 } | null>("read_artifact", { root, id, kind, source }).then((v) => (v==null?v:v as typeof v)),
 	/**
+	 *  读回某 exec 的输出记录（stdout 面板取数单点）：暴露
+	 *  `infra/exec::read_exec_output`——磁盘面按 change **name** 定位（与
+	 *  `record_exec_output` 同口径，非 id；id 仅作寻址键 / 会话 sourceRef 身份段），
+	 *  读单一 `.log` 全量字节。blank root 与未知 / 非法 `exec_id` 均 `None`（miss
+	 *  非错误）；非法字节以 UTF-8 lossy 替换符呈现（不 panic、不报错）。
+	 */
+	readExecOutput: (root: string, changeName: string, execId: string) => __TAURI_INVOKE<string | null>("read_exec_output", { root, changeName, execId }),
+	/**
 	 *  归档 change（双写：目录改名 + db status 翻转，写面 `archive` 单点；按
 	 *  change **id** 寻址）；blank root / id 显式 `Err`。IPC 薄命令（design D11：
 	 *  本轮无前端入口）。

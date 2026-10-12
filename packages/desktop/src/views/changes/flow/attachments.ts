@@ -1,9 +1,6 @@
 import type { ArtifactEnvelope, ChangeDetail } from '../../../types/dto';
 import { PIPELINE_PHASES } from './layout';
-import type { FlowGraph, FlowMaterials, FlowNode, FlowNodeKind } from './types';
-
-/** 同号多类节点并存时的挂载定位优先级：eval 优先，其次 active */
-const NODE_PRECEDENCE: readonly FlowNodeKind[] = ['eval', 'active'];
+import type { FlowMaterials } from './types';
 
 /**
  * 文档挂列：归属相位自后端清单出线（`detail.artifacts[].phase`——phase 定义清单
@@ -28,16 +25,6 @@ function isChecklistRef(value: unknown): value is ChecklistRefPayload {
   return candidate.attempt === null || typeof candidate.attempt === 'number';
 }
 
-function locateNode(nodes: FlowNode[], phase: string, attempt: number): FlowNode | null {
-  for (const kind of NODE_PRECEDENCE) {
-    const hit = nodes.find(
-      (node) => node.kind === kind && node.phase === phase && node.attempt === attempt,
-    );
-    if (hit !== undefined) return hit;
-  }
-  return null;
-}
-
 function append<T>(record: Record<string, T[]>, key: string, value: T): void {
   const bucket = record[key];
   if (bucket === undefined) record[key] = [value];
@@ -45,18 +32,13 @@ function append<T>(record: Record<string, T[]>, key: string, value: T): void {
 }
 
 /**
- * 两类素材按挂载规则归位：文档按清单归属挂列、eval-checklist 按 (phase, attempt)
- * 投影挂节点。
+ * 素材挂载单层：文档按清单归属、eval-checklist 按 payload 自带 `phase` 归属，**均
+ * 挂 phase 列头**（`columnDocs` 键 = 列 id；列头抽屉经 `ArtifactTabs` 呈现该站
+ * 全部过程素材，checklist 全套元数据由 `EvalChecklistRenderer` 渲染）。挂节点规则
+ * 随 eval / active 相位节点退役一并删除（`nodeChecklists` 退役）。
  */
-export function mountMaterials(
-  graph: FlowGraph,
-  detail: ChangeDetail,
-  envelopes: ArtifactEnvelope[],
-): FlowMaterials {
-  const materials: FlowMaterials = {
-    columnDocs: {},
-    nodeChecklists: {},
-  };
+export function mountMaterials(detail: ChangeDetail, envelopes: ArtifactEnvelope[]): FlowMaterials {
+  const materials: FlowMaterials = { columnDocs: {} };
   for (let index = 0; index < envelopes.length; index += 1) {
     const envelope = envelopes[index];
     if (envelope.kind === 'markdown-doc' || envelope.kind === 'tasks-progress') {
@@ -67,8 +49,9 @@ export function mountMaterials(
       const column = artifactColumn(descriptor.phase);
       if (column !== null) append(materials.columnDocs, column, envelope);
     } else if (envelope.kind === 'eval-checklist' && isChecklistRef(envelope.payload)) {
-      const node = locateNode(graph.nodes, envelope.payload.phase, envelope.payload.attempt ?? 0);
-      if (node !== null) append(materials.nodeChecklists, node.id, envelope);
+      // payload 自带 phase（pipeline 外相位不挂列——归属校验与文档同式）
+      const column = artifactColumn(envelope.payload.phase);
+      if (column !== null) append(materials.columnDocs, column, envelope);
     }
   }
   return materials;

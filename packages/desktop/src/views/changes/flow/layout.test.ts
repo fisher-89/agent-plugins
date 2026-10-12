@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vite-plus/test';
 
-import type { AttemptRecord, ChangeDetail } from '../../../types/dto';
+import type { ChangeDetail } from '../../../types/dto';
 import { buildFlowGraph } from './graph';
 import {
   COL_W,
@@ -10,29 +10,10 @@ import {
   ROW_H,
   nodePosition,
 } from './layout';
-import type { FlowColumn, FlowNode } from './types';
+import type { FlowColumn, FlowGraph, FlowNode, RuntimeFlowNode } from './types';
 
-function attempt(overrides: Partial<AttemptRecord> = {}): AttemptRecord {
-  return {
-    attempt: 1,
-    verdict: 'pass',
-    report: '评估记录',
-    checklist: [],
-    skipped: false,
-    stale: false,
-    startAt: null,
-    timestamp: null,
-    backtrackTo: null,
-    backtrackReason: null,
-    executorSessionId: null,
-    evaluatorSessionId: null,
-    decisionSessionId: null,
-    ...overrides,
-  };
-}
-
-/** proposal + dev-design 各 1 条 eval 的最小建档详情（产出可用于坐标取样的节点）。 */
-function detailWithTwoEvals(): ChangeDetail {
+/** 十站空 attempts 的建档详情（列骨架来源——节点模型单分类后节点经 runNodes 直供）。 */
+function detail(): ChangeDetail {
   return {
     id: 'add-feature',
     name: 'add-feature',
@@ -40,15 +21,47 @@ function detailWithTwoEvals(): ChangeDetail {
     source: 'active',
     status: 'active',
     created: null,
-    pipeline: PIPELINE_PHASES.map((phase) => ({
-      phase,
-      attempts: phase === 'proposal' || phase === 'dev-design' ? [attempt()] : [],
-    })),
+    pipeline: PIPELINE_PHASES.map((phase) => ({ phase, attempts: [] })),
     activePhase: null,
     runs: [],
     worktree: null,
     artifacts: [],
   };
+}
+
+/** 运行步节点 fixture（run-state.ts runStepNodes 同形投影的直构形态）。 */
+function runNode(overrides: Partial<RuntimeFlowNode> = {}): RuntimeFlowNode {
+  return {
+    id: 'run:proposal:1:executor:0',
+    kind: 'runtime',
+    phase: 'proposal',
+    attempt: 1,
+    colIndex: 0,
+    order: 0,
+    parentId: 'col:proposal',
+    runStepKind: 'executor',
+    group: 'workerAgent',
+    role: 'executor',
+    instanceNo: 0,
+    status: 'running',
+    sessionId: null,
+    detail: null,
+    outputRef: null,
+    ...overrides,
+  };
+}
+
+/** 两列各一枚运行步节点的图（坐标取样面——单分类节点模型的坐标公式）。 */
+function graphWithTwoRunSteps(): FlowGraph {
+  return buildFlowGraph(detail(), [
+    runNode(),
+    runNode({
+      id: 'run:dev-design:1:executor:0',
+      phase: 'dev-design',
+      colIndex: 1,
+      parentId: 'col:dev-design',
+    }),
+  ]);
 }
 
 function column(colIndex: number): FlowColumn {
@@ -64,8 +77,8 @@ describe('nodePosition：布局即语义坐标公式', () => {
     expect(COL_W).toBe(260);
   });
 
-  it('事件节点 x = COLUMN_PAD_X、y = COLUMN_HEADER_H + order × ROW_H（常量取值 18 / 48 / 128）', () => {
-    const graph = buildFlowGraph(detailWithTwoEvals());
+  it('运行步节点 x = COLUMN_PAD_X、y = COLUMN_HEADER_H + order × ROW_H（常量取值 18 / 48 / 128）', () => {
+    const graph = graphWithTwoRunSteps();
     const proposal = graph.nodes.find((node) => node.phase === 'proposal');
     const devDesign = graph.nodes.find((node) => node.phase === 'dev-design');
     if (proposal === undefined || devDesign === undefined) throw new Error('夹具节点缺失');
@@ -78,8 +91,8 @@ describe('nodePosition：布局即语义坐标公式', () => {
     expect(nodePosition(devDesign)).toEqual({ x: 18, y: 48 });
   });
 
-  it('order=0（列内首个事件）→ y 恰为 COLUMN_HEADER_H', () => {
-    const graph = buildFlowGraph(detailWithTwoEvals());
+  it('order=0（列内首个节点）→ y 恰为 COLUMN_HEADER_H', () => {
+    const graph = graphWithTwoRunSteps();
     const first = graph.nodes[0];
     expect(first.order).toBe(0);
     expect(nodePosition(first).y).toBe(48);
@@ -92,7 +105,7 @@ describe('nodePosition：布局即语义坐标公式', () => {
   });
 
   it('超大 order（如 1000）→ 坐标按公式线性外推，无钳制、无 NaN、不抛错', () => {
-    const graph = buildFlowGraph(detailWithTwoEvals());
+    const graph = graphWithTwoRunSteps();
     const node: FlowNode = { ...graph.nodes[0], order: 1000 };
     const position = nodePosition(node);
     expect(position).toEqual({ x: 18, y: 48 + 1000 * 128 });
@@ -132,19 +145,17 @@ describe('layout：PIPELINE_PHASES 十列布局（AC-1 / D5 双侧同步）', ()
     expect(position.x).toBe(9 * (COL_W + 20));
     expect(Number.isFinite(position.x)).toBe(true);
 
-    // 空列（archive 零 attempt）→ 图仍产出该列容器、零事件节点
-    const graph = buildFlowGraph(detailWithTwoEvals());
+    // 空列（archive 零步节点）→ 图仍产出该列容器、零节点
+    const graph = graphWithTwoRunSteps();
     const station = graph.columns.find((entry) => entry.phase === 'archive');
     expect(station).toBeDefined();
     expect(graph.nodes.filter((node) => node.parentId === 'col:archive')).toHaveLength(0);
   });
 
-  it('异常（回归）：非法相位名（非十列成员）的步不入图（pipeline 外相位节点丢弃）', () => {
-    const graph = buildFlowGraph(detailWithTwoEvals());
+  it('异常（回归）：列词汇恒为十站已知相位（未知相位不在列集合）', () => {
+    const graph = graphWithTwoRunSteps();
     const phases = new Set(graph.columns.map((entry) => entry.phase));
     expect(phases.has('unknown-phase')).toBe(false);
-    for (const node of graph.nodes) {
-      expect(phases.has(node.phase)).toBe(true);
-    }
+    expect([...phases]).toEqual([...PIPELINE_PHASES]);
   });
 });

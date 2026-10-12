@@ -3,18 +3,17 @@ import { useMemo, type CSSProperties } from 'react';
 
 import '@xyflow/react/dist/style.css';
 
-import { type EventFlowNode, FlowEventNode } from './flow-event-node';
 import { COL_W, COLUMN_HEADER_H, COLUMN_PAD_X, COLUMN_PAD_Y, ROW_H, nodePosition } from './layout';
 import { type ColumnFlowNode, PhaseColumnNode } from './phase-column-node';
 import { RunStepNode, type RunStepFlowNode } from './run-step-node';
 import type { DrawerSelection, FlowEdge, FlowEdgeKind, FlowGraph, FlowMaterials } from './types';
 
-type ChartNode = ColumnFlowNode | EventFlowNode | RunStepFlowNode;
+type ChartNode = ColumnFlowNode | RunStepFlowNode;
 
 /**
- * 边 kind → 锚定把手 id（对应 FlowEventNode / RunStepNode 四侧隐形 Handle）：布局
- * 为 9 列横向排布，跨列边水平锚定（前进右出左入、回跳左出右入），同列边垂直锚
- * 定（下出上入——retry 同相重跑与 feedback phase 内回边均落同列）。
+ * 边 kind → 锚定把手 id（对应 RunStepNode 四侧隐形 Handle）：布局为 9 列横向排布，
+ * 跨列边水平锚定（前进右出左入、回跳左出右入），同列边垂直锚定（下出上入——
+ * retry 同相重跑与 feedback phase 内回边均落同列）。
  */
 const EDGE_HANDLES: Record<FlowEdgeKind, { source: string; target: string }> = {
   forward: { source: 'right', target: 'left' },
@@ -37,9 +36,9 @@ interface ChangeFlowGraphProps {
   onSelect: (selection: DrawerSelection) => void;
 }
 
-const nodeTypes = { column: PhaseColumnNode, event: FlowEventNode, runStep: RunStepNode };
+const nodeTypes = { column: PhaseColumnNode, runStep: RunStepNode };
 
-/** 列内事件数 → 列容器高度（COLUMN_HEADER_H + 列内节点数 × ROW_H + COLUMN_PAD_Y） */
+/** 列内节点数 → 列容器高度（COLUMN_HEADER_H + 列内节点数 × ROW_H + COLUMN_PAD_Y） */
 function columnHeight(graph: FlowGraph, columnId: string): number {
   let count = 0;
   for (const node of graph.nodes) {
@@ -85,26 +84,16 @@ function toChartNodes(
       data: { phase: column.phase, docs: materials.columnDocs[column.id] ?? [], onSelect },
     };
   });
-  const events: ChartNode[] = graph.nodes.flatMap((node): ChartNode[] => {
-    const common = {
-      id: node.id,
-      parentId: node.parentId,
-      extent: 'parent' as const,
-      position: nodePosition(node),
-      style: { width: COL_W - COLUMN_PAD_X * 2 },
-    };
-    if (node.kind === 'runtime') {
-      return [
-        {
-          ...common,
-          type: 'runStep',
-          data: { node },
-        },
-      ];
-    }
-    return [{ ...common, type: 'event', data: { node } }];
-  });
-  return [...columns, ...events];
+  const steps: ChartNode[] = graph.nodes.map((node) => ({
+    id: node.id,
+    parentId: node.parentId,
+    extent: 'parent' as const,
+    position: nodePosition(node),
+    style: { width: COL_W - COLUMN_PAD_X * 2 },
+    type: 'runStep',
+    data: { node },
+  }));
+  return [...columns, ...steps];
 }
 
 function toChartEdges(edges: FlowEdge[]): Edge[] {
@@ -131,10 +120,13 @@ function FlowCanvas({ graph, materials, onSelect }: ChangeFlowGraphProps): React
   const edges = useMemo(() => toChartEdges(graph.edges), [graph.edges]);
   const translateExtent = useMemo(() => graphTranslateExtent(graph), [graph]);
   const onNodeClick = (_event: unknown, node: ChartNode): void => {
-    // 事件节点与运行步节点共用同一抽屉入口（运行步节点抽屉含会话转录联动）
-    if (node.type === 'event' || node.type === 'runStep') {
-      onSelect({ scope: 'node', nodeId: node.id });
-    }
+    // 点击判据（节点点击判据与 stdout 输出面板）：无信息源的 runtime 节点不可
+    // 点击——`role` 与 `outputRef` 皆 null（phaseStart / phaseLog / gate 三门 /
+    // git 四步 / preflight / seal）时 detail 短文本已在节点内显示，抽屉无增量
+    // 信息，不上抛 onSelect。列头点击经 PhaseColumnNode 本体上抛，不受本判据约束
+    if (node.type !== 'runStep') return;
+    if (node.data.node.role === null && node.data.node.outputRef === null) return;
+    onSelect({ scope: 'node', nodeId: node.id });
   };
   return (
     <div
@@ -160,7 +152,8 @@ function FlowCanvas({ graph, materials, onSelect }: ChangeFlowGraphProps): React
 
 /**
  * 流程图渲染薄层：只做模型 → xyflow 节点 / 边的映射与交互上抛，无布局运算
- * （坐标全部来自 nodePosition）。节点点击经 onSelect 上抛（DrawerSelection）。
+ * （坐标全部来自 nodePosition）。节点点击经 onSelect 上抛（DrawerSelection）：
+ * 无信息源（`role` 与 `outputRef` 皆 null）的 runtime 节点不上抛。
  */
 export function ChangeFlowGraph(props: ChangeFlowGraphProps): React.JSX.Element {
   return (

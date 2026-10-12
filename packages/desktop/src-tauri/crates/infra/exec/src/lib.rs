@@ -144,9 +144,9 @@ impl SystemCommand {
 /// 捕获 / 落盘分支）：
 /// - [`ExecOutput::Transient`]：spawn 即得、即时消费（反馈边注入）、即弃——无
 ///   id，全量不进库、不落盘引用；
-/// - [`ExecOutput::Recorded`]：stdout / stderr 全量落盘 change 报告目录树
-///   （`<report_dir>/exec-outputs/<exec_id>.log` / `.err`），`exec_id` 为回查引
-///   用（`RunNodeRecord.output_ref` 载体；MUST NOT 全文进节点行）。
+/// - [`ExecOutput::Recorded`]：输出全量落盘 change 报告目录树
+///   （`<report_dir>/exec-outputs/<exec_id>.log`），`exec_id` 为回查引用
+///   （`RunNodeRecord.output_ref` 载体；MUST NOT 全文进节点行）。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ExecOutput {
     /// 即弃（无 id；反馈边消费即够）
@@ -161,28 +161,22 @@ pub enum ExecOutput {
 /// exec 输出记录目录名（change 报告目录树内）。
 const EXEC_OUTPUT_DIR: &str = "exec-outputs";
 
-/// `ExecOutput::Recorded` 落盘半边（输出记录单点）：铸造 `exec_id` 并把 stdout /
-/// stderr 全量落盘到 change 报告目录树（`<report_dir>/exec-outputs/`），返回
-/// `exec_id` 引用。stdout / stderr 分文件保真（stdout = `<exec_id>.log`、stderr =
-/// `<exec_id>.err`），零截断零改写。
-pub fn record_exec_output(
-    root: &Path,
-    change: &str,
-    stdout: &[u8],
-    stderr: &[u8],
-) -> Result<String, String> {
+/// `ExecOutput::Recorded` 落盘半边（输出记录单点）：铸造 `exec_id` 并把**单一输出
+/// 流**全量落盘到 change 报告目录树（`<report_dir>/exec-outputs/<exec_id>.log`），
+/// 返回 `exec_id` 引用。单一流即完整还原终端——static-check 的 `2>&1` 交错流、
+/// test-execution 的 stdout + stderr 合并流；stdout / stderr 分文件（`.err`）已
+/// 退役（分离快照会丢失交错顺序、与终端不一致）。零截断零改写。
+pub fn record_exec_output(root: &Path, change: &str, output: &[u8]) -> Result<String, String> {
     let dir = exec_output_dir(root, change);
     std::fs::create_dir_all(&dir).map_err(|e| format!("创建 exec 输出目录失败: {e}"))?;
     let exec_id = mint_exec_id();
-    std::fs::write(dir.join(format!("{exec_id}.log")), stdout)
-        .map_err(|e| format!("落盘 exec stdout 失败: {e}"))?;
-    std::fs::write(dir.join(format!("{exec_id}.err")), stderr)
-        .map_err(|e| format!("落盘 exec stderr 失败: {e}"))?;
+    std::fs::write(dir.join(format!("{exec_id}.log")), output)
+        .map_err(|e| format!("落盘 exec 输出失败: {e}"))?;
     Ok(exec_id)
 }
 
-/// `ExecOutput::Recorded` 回查半边：读回 stdout 全量字节；未知 / 非法 `exec_id`
-/// → `None`（miss 非错误）。
+/// `ExecOutput::Recorded` 回查半边：读回单一 `.log` 全量字节（与
+/// [`record_exec_output`] 同口径）；未知 / 非法 `exec_id` → `None`（miss 非错误）。
 pub fn read_exec_output(root: &Path, change: &str, exec_id: &str) -> Option<Vec<u8>> {
     if !is_valid_exec_id(exec_id) {
         return None;

@@ -96,21 +96,27 @@ async fn execute(root: &str, change: &str) -> Result<ToolStepOutput, String> {
             && check_integrity(&existing, &disk_reports).is_empty()
             && is_reusable(&existing, newest)
         {
+            // 复用分支零 spawn：无本次捕获输出，record 落空 `.log`（引用每次新铸，
+            // 记录单点面独立于复用门）
             return Ok(outcome(
                 root_path,
                 change,
                 &existing,
                 &disk_reports,
                 &reports_dir,
+                &[],
             ));
         }
     }
 
     // ③ 逐 suite 执行（模板展开 + spawn + 超时 + 工件解析；子报告随 suite
-    // 阈值组装）
+    // 阈值组装）——各 suite 脚本真实输出按 plan 序（`plans` 迭代序，字典序稳定）
+    // 聚合为单一合并流，经 `outcome` 落 record 单点
     let mut sub_reports = Vec::new();
+    let mut merged_output: Vec<u8> = Vec::new();
     for plan in &plans {
         let execution = runner::execute_plan(plan, &reports_dir.join(&plan.id)).await?;
+        merged_output.extend_from_slice(&execution.output);
         sub_reports.push(build_sub_report(plan, execution, suites));
     }
 
@@ -129,21 +135,24 @@ async fn execute(root: &str, change: &str) -> Result<ToolStepOutput, String> {
         &summary,
         &sub_reports,
         &reports_dir,
+        &merged_output,
     ))
 }
 
 /// checks 结论 → port 载荷映射（checks-runtime 装配点唯一映射面：摘要面
 /// 服务步状态 detail，明细面服务反馈边修复 prompt——双面同源装配）。产出装配
-/// 同时完成**输出记录单点**：summary 全量经 `exec::record_exec_output` 落 change
-/// 报告目录树（`<report_dir>/exec-outputs/`）并携 `exec_id` 回查引用——与
-/// `report_dir` 同锚同口径（无私有捕获 / 落盘分支；落盘失败降级空串，
-/// `report_dir` 报告仍为全量权威）。
+/// 同时完成**输出记录单点**：各 suite 脚本真实输出（合并流）经
+/// `exec::record_exec_output` 落 change 报告目录树（`<report_dir>/exec-outputs/`）
+/// 并携 `exec_id` 回查引用——与 `report_dir` 同锚同口径（无私有捕获 / 落盘分支；
+/// 落盘失败降级空串，`report_dir` 报告仍为全量权威）。record 内容为**脚本真实
+/// 输出**（非 summary JSON 重序列化——后者非脚本输出、人工回查无价值）。
 fn outcome(
     root: &Path,
     change: &str,
     summary: &SummaryReport,
     sub_reports: &[SubReport],
     reports_dir: &Path,
+    merged_output: &[u8],
 ) -> ToolStepOutput {
     let conclusion = match summary.conclusion {
         Conclusion::Pass => TestExecutionConclusion::Pass,
@@ -159,18 +168,8 @@ fn outcome(
         findings_brief: findings_brief(summary),
         findings_detail: findings_detail(summary, sub_reports),
         report_dir: detect::to_posix(reports_dir),
-        exec_id: record_summary(root, change, summary),
+        exec_id: exec::record_exec_output(root, change, merged_output).unwrap_or_default(),
     })
-}
-
-/// summary 全量输出记录（`ExecOutput::Recorded` 半边）：编码为 JSON 字节经
-/// infra/exec 单点落盘；编码 / 落盘失败降级空串（未记录——报告目录仍为全量权威，
-/// 不因记录失败阻断门禁结论）。
-fn record_summary(root: &Path, change: &str, summary: &SummaryReport) -> String {
-    let Ok(bytes) = serde_json::to_vec(summary) else {
-        return String::new();
-    };
-    exec::record_exec_output(root, change, &bytes, &[]).unwrap_or_default()
 }
 
 /// 诊断摘要装配：单条 200 字符截断、至多 10 条（walker `diagnose_brief`

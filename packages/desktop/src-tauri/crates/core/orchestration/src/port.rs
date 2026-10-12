@@ -150,8 +150,9 @@ pub enum ToolStepOutput {
 pub struct StaticCheckOutcome {
     pub passed: bool,
     pub diagnostics: String,
-    /// 全量输出引用（`ExecOutput::Recorded { exec_id }`；`Transient` 模式恒 None
-    /// ——反馈边只消费 diagnostics，全量落盘为按需升级面）
+    /// 全量输出引用（`ExecOutput::Recorded { exec_id }`；默认 recorded → 恒回填
+    /// `Some(exec_id)`，落盘失败降级 `None`——不阻断检查主流程；反馈边仍只消费
+    /// `diagnostics`，全量经本引用回查）
     pub output_ref: Option<String>,
 }
 
@@ -211,9 +212,11 @@ pub trait ToolStepPort: Send + Sync {
 
 /// static-check spawn 缝（infra 实现；W4——static-check 非 agent 会话，独立
 /// port 不并入 [`WorkerAgentPort`]）。产出契约与 [`ToolStepPort`] 同封闭集
-///（`ToolStepOutput::StaticCheck`）。
+///（`ToolStepOutput::StaticCheck`）。**磁盘面 port 收 name**（输出记录
+/// `change_test_reports(root, name)` 为 name 化磁盘面，infra 侧零 store 依赖）；
+/// id → 记录 → name 的解析在 `steps.rs` 消费点（与 [`TestExecutionRunner`] 同式）。
 pub trait StaticCheckRunner: Send + Sync {
-    fn run(&self, root: &str) -> BoxToolFuture;
+    fn run(&self, root: &str, name: &str) -> BoxToolFuture;
 }
 
 /// test-execution spawn 缝（checks 边界 infra 实现；W4 红线与

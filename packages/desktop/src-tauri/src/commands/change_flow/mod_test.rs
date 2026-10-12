@@ -1,5 +1,5 @@
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -1561,4 +1561,139 @@ fn channel面五kind通知各自一拍且零载荷键() {
             "零载荷键（恰单键 ipc——kind-only 信封）: {frame}"
         );
     }
+}
+
+// ---------------------------------------------------------------------------
+// 组合根装配（change-flow-show-step-only，AC-6 / D4）：`ProcessStaticCheck::new()`
+// 零参构造（无 `recorded(change)` 装配分支——默认即 recorded）→ `LocalToolSteps`
+// StaticCheck 步 → 平台 shim 命令真实 spawn → infra/exec 单点落单一 `.log` 并
+// 回填 `output_ref`；审计行落库。与 `change_flow_start_with` 的组合根装配同式
+//（同一 `LocalToolSteps::new(...)` 五参 + `ProcessStaticCheck::new()`）。
+// ---------------------------------------------------------------------------
+
+/// PATH 前置 workspace 根窗口（shim 裸名经 PATH 解析；经 commands 级 PATH 锁
+/// 串行化，窗口关闭时恢复原 PATH）。
+fn prefix_path(
+    root: &Path,
+) -> (
+    std::sync::MutexGuard<'static, ()>,
+    Option<std::ffi::OsString>,
+) {
+    let guard = PATH_LOCK.lock().expect("PATH 锁不可中毒");
+    let original = std::env::var_os("PATH");
+    let base = original.clone().unwrap_or_default();
+    let dirs = std::env::split_paths(&base);
+    let joined = std::env::join_paths(std::iter::once(root.to_path_buf()).chain(dirs))
+        .expect("join PATH 失败");
+    std::env::set_var("PATH", joined);
+    (guard, original)
+}
+
+/// 在 workspace 根写入平台 static-check shim（stdout / stderr 交错写）；返回
+/// config 应登记的裸名（Windows 带 `.cmd` 后缀）。
+fn write_static_shim(root: &Path) -> String {
+    #[cfg(windows)]
+    {
+        let body = "@echo off\r\necho static-out\r\n1>&2 echo static-err\r\n";
+        fs::write(root.join("static-shim.cmd"), body).expect("写 shim 失败");
+        "static-shim.cmd".to_owned()
+    }
+    #[cfg(not(windows))]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let script = root.join("static-shim");
+        fs::write(&script, "#!/bin/sh\necho static-out\necho static-err >&2\n")
+            .expect("写 shim 失败");
+        fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).expect("补执行位");
+        "static-shim".to_owned()
+    }
+}
+
+#[tokio::test]
+async fn 组合根装配_staticcheck步默认recorded落单一log并回填引用() {
+    use orchestration::port::{ToolCommand, ToolStepOutput, ToolStepPort, ToolStepRequest};
+    use orchestration::steps::LocalToolSteps;
+    use workflow::state::ChangeStateStore;
+    use workflow::write::SessionAnchors;
+
+    let env = Env::new("static-check-assembly");
+    let root = env.root();
+    let app = app_with(&env);
+    seed_change(&app, &root, CHANGE, "requirement");
+    // 平台 shim 命令登记 config（真实 spawn 面）
+    let shim = write_static_shim(env.ws_root.path());
+    fs::create_dir_all(env.ws_root.path().join("openspec")).expect("建 openspec 目录");
+    fs::write(
+        env.ws_root.path().join("openspec/config.json"),
+        format!("{{ \"static_analysis\": \"{shim}\" }}"),
+    )
+    .expect("写 config 失败");
+
+    let store = app
+        .state::<WorkspaceStores>()
+        .for_root(&root)
+        .expect("for_root 应成功");
+    let store_port: Arc<dyn ChangeStateStore> = store.clone();
+    let tools = LocalToolSteps::new(
+        Arc::new(SessionAnchors::new()),
+        Arc::new(checks_runtime::ProcessStaticCheck::new()),
+        Arc::new(checks_runtime::ProcessTestExecution::new()),
+        Arc::new(vcs_runtime::ProcessArchiveVcs::new()),
+        store_port,
+        "run-assembly".to_owned(),
+    );
+
+    // PATH 前置窗口覆盖真实 spawn（shim 裸名解析）
+    let (guard, original) = prefix_path(env.ws_root.path());
+    let output = tools
+        .run(ToolStepRequest {
+            root: root.clone(),
+            command: ToolCommand::StaticCheck {
+                change_id: CHANGE.to_owned(),
+            },
+        })
+        .await;
+    restore_path(guard, original);
+    let output = output.expect("静态检查步应 Ok");
+
+    let ToolStepOutput::StaticCheck(outcome) = output else {
+        panic!("产出应为 StaticCheck 变体");
+    };
+    assert!(outcome.passed, "shim 退出 0 → passed");
+    assert_eq!(
+        outcome.diagnostics.lines().collect::<Vec<_>>(),
+        ["static-out", "static-err"],
+        "诊断 = 2>&1 交错 stdout"
+    );
+    let exec_id = outcome
+        .output_ref
+        .clone()
+        .expect("默认 recorded（零参 new() 装配）→ output_ref 恒回填");
+    assert!(exec_id.starts_with("exec-"), "exec_id 定式: {exec_id}");
+
+    let dir =
+        foundation::layout::change_test_reports(Path::new(&root), CHANGE).join("exec-outputs");
+    assert!(
+        dir.join(format!("{exec_id}.log")).is_file(),
+        "单一 .log 落盘（组合根零记录逻辑——记录单点驻 infra/exec）"
+    );
+    assert!(
+        !dir.join(format!("{exec_id}.err")).exists(),
+        ".err 分文件退役"
+    );
+    let read_back = exec::read_exec_output(Path::new(&root), CHANGE, &exec_id).expect("回查应命中");
+    assert_eq!(
+        String::from_utf8_lossy(&read_back)
+            .lines()
+            .collect::<Vec<_>>(),
+        ["static-out", "static-err"],
+        "记录内容 = 脚本真实交错输出"
+    );
+
+    // 审计行落库（StepKind::StaticCheck 经组合根装配链路可枚举）
+    let rows = store
+        .list_change_steps(CHANGE, Some("run-assembly"))
+        .expect("读审计行应成功");
+    assert_eq!(rows.len(), 1, "静态检查步恰一条审计行");
+    assert_eq!(rows[0].summary, "static_check passed=true");
 }

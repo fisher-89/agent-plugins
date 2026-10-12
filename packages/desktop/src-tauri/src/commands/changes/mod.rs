@@ -143,6 +143,21 @@ pub fn read_artifact(
     core_read_artifact(&location.dir, &phases, &kind, &source)
 }
 
+/// 读回某 exec 的输出记录（stdout 面板取数单点）：暴露
+/// `infra/exec::read_exec_output`——磁盘面按 change **name** 定位（与
+/// `record_exec_output` 同口径，非 id；id 仅作寻址键 / 会话 sourceRef 身份段），
+/// 读单一 `.log` 全量字节。blank root 与未知 / 非法 `exec_id` 均 `None`（miss
+/// 非错误）；非法字节以 UTF-8 lossy 替换符呈现（不 panic、不报错）。
+#[tauri::command]
+#[specta::specta]
+pub fn read_exec_output(root: String, change_name: String, exec_id: String) -> Option<String> {
+    if is_blank_root(&root) {
+        return None;
+    }
+    exec::read_exec_output(Path::new(&root), &change_name, &exec_id)
+        .map(|bytes| String::from_utf8_lossy(&bytes).into_owned())
+}
+
 /// 新建 change（建域四段：建档 + worktree add + worktree 内目录树与
 /// explore.md + bootstrap）；blank root 显式 `Err`。async + `spawn_blocking`
 /// 调 sync 写面（bootstrap 是分钟级 spawn——同步命令会冻结 UI，IPC 入参与

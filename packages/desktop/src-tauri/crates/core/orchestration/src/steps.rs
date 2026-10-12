@@ -186,7 +186,16 @@ async fn execute(
         ToolCommand::StaticCheck { change_id } => {
             // 审计行 change_id 归键（命令载荷携 id——空串占位退役，逐条
             // change id 可枚举），run_id 仍串链本 run 步骤序列
-            let output = static_check.run(&step.root).await;
+            // 磁盘面 port 收 name（输出记录目录派生为 name 化）：消费点经
+            // id → 记录 → name 解析（未建档显式 Err，与 TestExecution 分支同式）
+            let name = store
+                .get_change(&change_id)
+                .map_err(|error| error.to_string())?
+                .map(|record| record.name)
+                .ok_or_else(|| {
+                    format!("change \"{change_id}\" 未建档（无 ChangeRecord），无从执行静态检查")
+                })?;
+            let output = static_check.run(&step.root, &name).await;
             audit_outcome(
                 store.as_ref(),
                 &run_id,

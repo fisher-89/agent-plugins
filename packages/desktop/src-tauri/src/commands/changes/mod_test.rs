@@ -36,7 +36,7 @@ use workflow::state::{ChangeStateRecord, ChangeStatus, PhaseLogCommand};
 
 use super::{
     archive_change_with, create_change, create_change_with, get_change_detail, list_changes,
-    read_artifact,
+    read_artifact, read_exec_output,
 };
 
 /// 确定性时间戳（UTC unix 毫秒；2024-09-22 / 2026-02-02）。
@@ -2113,4 +2113,124 @@ fn 统一查询装配_早退与未知id未找到() {
         get_change_detail(state, control, root, "不存在".to_owned()).is_none(),
         "未知 id → None"
     );
+}
+
+// ---------------------------------------------------------------------------
+// read_exec_output（change-flow-show-step-only，AC-5）：IPC 薄命令暴露
+// `infra/exec::read_exec_output`——磁盘面按 change **name** 定位（与
+// `record_exec_output` 同口径），读单一 `.log` 全量字节并 UTF-8 lossy 成串；
+// miss（未知 / 非法 exec_id / blank root）恒 None，非错误。
+// ---------------------------------------------------------------------------
+
+/// 落一条输出记录（真实 infra/exec 落盘——命令面取数直调 State 直测）。
+fn record(root: &str, change_name: &str, bytes: &[u8]) -> String {
+    exec::record_exec_output(Path::new(root), change_name, bytes).expect("落盘应成功")
+}
+
+#[test]
+fn read_exec_output命中_内容为落盘log字节() {
+    let env = Env::new("exec-hit");
+    let root = env.root();
+    let exec_id = record(&root, "add-feature", b"suite stdout\nsuite stderr\n");
+
+    let text = read_exec_output(root.clone(), "add-feature".to_owned(), exec_id.clone())
+        .expect("已知 exec_id 应命中");
+    assert_eq!(
+        text, "suite stdout\nsuite stderr\n",
+        "内容 = 落盘 .log 字节（UTF-8 直读）"
+    );
+    // 落盘面：单一 .log（.err 退役）
+    let dir = foundation::layout::change_test_reports(Path::new(&root), "add-feature")
+        .join("exec-outputs");
+    assert!(dir.join(format!("{exec_id}.log")).is_file());
+    assert!(!dir.join(format!("{exec_id}.err")).exists());
+}
+
+#[test]
+fn read_exec_output非utf8字节_lossy替换符不panic() {
+    let env = Env::new("exec-lossy");
+    let root = env.root();
+    // 非法 UTF-8 序列（0xFF / 0xFE / 0xC3 后缺续字节）——不 panic 不报错
+    let exec_id = record(&root, "add-feature", b"head\xff\xfemid\xc3tail");
+    let text = read_exec_output(root, "add-feature".to_owned(), exec_id)
+        .expect("非法字节仍应命中（值非 UTF-8 不构成 miss）");
+    assert_eq!(
+        text, "head\u{FFFD}\u{FFFD}mid\u{FFFD}tail",
+        "非法字节以 lossy 替换符呈现"
+    );
+}
+
+#[test]
+fn read_exec_output按change_name定位_与id相异时仍命中() {
+    let env = Env::new("exec-name-keyed");
+    let root = env.root();
+    let change_id = "0199a2f0-2010-7e45-8a9b-000000002010";
+    let exec_id = record(&root, "add-feature", b"name-keyed\n");
+
+    // name 命中（与 record_exec_output 同口径）
+    assert_eq!(
+        read_exec_output(root.clone(), "add-feature".to_owned(), exec_id.clone()).as_deref(),
+        Some("name-keyed\n")
+    );
+    // id 形态寻址 miss（磁盘面恒按 name，非 id——id 只作命令面寻址键）
+    assert!(
+        read_exec_output(root, change_id.to_owned(), exec_id).is_none(),
+        "按 id 寻址 miss（name 化磁盘面）"
+    );
+}
+
+#[test]
+fn read_exec_output未命中与非法exec_id恒none() {
+    let env = Env::new("exec-miss");
+    let root = env.root();
+    let exec_id = record(&root, "add-feature", b"payload");
+
+    assert!(read_exec_output(
+        root.clone(),
+        "add-feature".to_owned(),
+        "exec-unknown".to_owned()
+    )
+    .is_none());
+    for hostile in ["", "..", "../secret", "a/b", r"a\b", "C:evil", "exec-1.log"] {
+        assert!(
+            read_exec_output(root.clone(), "add-feature".to_owned(), hostile.to_owned()).is_none(),
+            "非法 exec_id {hostile:?} 应拒绝（miss 非错误，零路径逃逸）"
+        );
+    }
+    assert!(read_exec_output(root, "ghost-change".to_owned(), exec_id).is_none());
+}
+
+#[test]
+fn read_exec_output_blank_root早退none() {
+    let env = Env::new("exec-blank");
+    let root = env.root();
+    let exec_id = record(&root, "add-feature", b"payload");
+
+    for blank in ["", "   ", "\t"] {
+        assert!(
+            read_exec_output(blank.to_owned(), "add-feature".to_owned(), exec_id.clone()).is_none(),
+            "blank root 早退 None: {blank:?}"
+        );
+    }
+}
+
+#[test]
+fn read_exec_output空输出与超长输出边界() {
+    let env = Env::new("exec-boundary");
+    let root = env.root();
+
+    // 空输出 → Some("")（命中语义，非 miss）
+    let empty = record(&root, "add-feature", b"");
+    assert_eq!(
+        read_exec_output(root.clone(), "add-feature".to_owned(), empty),
+        Some(String::new()),
+        "空输出 → Some(\"\")"
+    );
+
+    // 超长输出（>1000 chars）→ 完整返回不截断
+    let long = format!("{}\n尾行标记", "行".repeat(1200));
+    let exec_id = record(&root, "add-feature", long.as_bytes());
+    let text = read_exec_output(root, "add-feature".to_owned(), exec_id).expect("超长应命中");
+    assert_eq!(text, long, "超长输出完整返回不截断");
+    assert!(text.ends_with("尾行标记"));
 }

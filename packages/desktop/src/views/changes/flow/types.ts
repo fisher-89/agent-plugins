@@ -1,12 +1,4 @@
-import type {
-  ArtifactEnvelope,
-  AttemptRecord,
-  ChangeStepKind,
-  ChangeStepStatus,
-} from '../../../types/dto';
-
-/** 事件节点两分类 */
-export type FlowNodeKind = 'eval' | 'active';
+import type { ArtifactEnvelope, ChangeStepKind, ChangeStepStatus } from '../../../types/dto';
 
 /**
  * 边类型：直接读后端边表四 kind（`runs[].edges` / `activeRun.edges`）——forward
@@ -21,22 +13,10 @@ interface FlowNodeBase {
   /** attempt 缺号按 0 兜底（与后端 detail.rs 的 unwrap_or(0) 同款） */
   attempt: number;
   colIndex: number;
-  /** 列内归并序（0 起）：事件节点相对坐标的执行序项 */
+  /** 列内归并序（0 起）：节点相对坐标的执行序项 */
   order: number;
   /** 所属列容器 id `col:<phase>`（react-flow subflow 父节点） */
   parentId: string;
-}
-
-/** eval 事件：来自 pipeline 各站的 attempts[]，record 原样携带（verdict / report / checklist 等） */
-export interface EvalFlowNode extends FlowNodeBase {
-  kind: 'eval';
-  record: AttemptRecord;
-}
-
-/** active 事件：来自 activePhase，运行中无 verdict，位于所在列的接流末端 */
-export interface ActiveFlowNode extends FlowNodeBase {
-  kind: 'active';
-  startAt: string | null;
 }
 
 /**
@@ -67,11 +47,11 @@ export interface RoleSessionRef {
   sessionId: string | null;
 }
 
-/** run 步事件：来自库读史 `runs[].nodes` ∪ 在飞 run 活面的图 overlay
- *（run-state.ts 推导）。节点载荷（runStepKind / group / role / instanceNo /
- * status / sessionId / detail / outputRef 八面）即 react-flow 侧
- * `RunStepNodeData` 的字段源（run-step-node.tsx 按本投影定义
- * `{ node: RuntimeFlowNode }` 载荷）。节点按后端稳定身份键
+/** 运行步节点（节点模型单分类——eval / active 相位节点整体退役）：来自库读史
+ * `runs[].nodes` ∪ 在飞 run 活面的图 overlay（run-state.ts 推导）。节点载荷
+ * （runStepKind / group / role / instanceNo / status / sessionId / detail /
+ * outputRef 八面）即 react-flow 侧 `RunStepNodeData` 的字段源（run-step-node.tsx
+ * 按本投影定义 `{ node: RuntimeFlowNode }` 载荷）。节点按后端稳定身份键
  * `(phase, attempt, step, instanceNo)` 直渲染——同键多实例（feedback 重跑）
  * 以 instanceNo 区分不串扰。 */
 export interface RuntimeFlowNode extends FlowNodeBase {
@@ -88,7 +68,8 @@ export interface RuntimeFlowNode extends FlowNodeBase {
   outputRef: string | null;
 }
 
-export type FlowNode = EvalFlowNode | ActiveFlowNode | RuntimeFlowNode;
+/** 图节点单分类：仅 runtime step 节点 */
+export type FlowNode = RuntimeFlowNode;
 
 /** phase 列容器（10 站恒定，未走的站呈现空列） */
 export interface FlowColumn {
@@ -108,21 +89,21 @@ export interface FlowEdge {
 
 export interface FlowGraph {
   columns: FlowColumn[];
-  /** 事件节点按时间序归并后的执行序排列（列容器经 columns 单列承载） */
+  /** runtime step 节点按统一视图序排列（列容器经 columns 单列承载） */
   nodes: FlowNode[];
   edges: FlowEdge[];
 }
 
 /**
- * 挂载后的过程素材：文档挂列（columnDocs 键 = 列 id `col:<phase>`），
- * 记录挂节点（nodeChecklists 键 = 事件节点 id）。
+ * 挂载后的过程素材（单层：文档 + eval-checklist 均挂列）：`columnDocs` 键 = 列 id
+ * `col:<phase>`，值为该站过程文档（`markdown-doc` / `tasks-progress`）与
+ * eval-checklist 信封（挂列头后经 `ArtifactTabs` 渲染全套元数据）。
  */
 export interface FlowMaterials {
   columnDocs: Record<string, ArtifactEnvelope[]>;
-  nodeChecklists: Record<string, ArtifactEnvelope[]>;
 }
 
-/** 抽屉选中对象：列头（按 phase）与事件节点（按节点 id）共用同一交互入口 */
+/** 抽屉选中对象：列头（按 phase）与 runtime step 节点（按节点 id）共用同一交互入口 */
 export type DrawerSelection =
   | { scope: 'column'; phase: string }
   | { scope: 'node'; nodeId: string };

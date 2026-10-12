@@ -79,6 +79,24 @@ fn env_window() -> EnvWindow {
     EnvWindow(crate::TEST_ENV_LOCK.lock().expect("crate 环境锁不可中毒"))
 }
 
+/// 结果工件文本归一：CRLF → LF，并去除逐行尾随空白。rust 档 stdout 经注入的
+/// `cargo test > "{results_file}"` 重定向落工件（生产 spawn 为 `cmd /C` 双层包裹），
+/// cmd 会把重定向符前的分隔空格计入 echo 参数——尾随空格是壳解析产物而非工件内容
+/// 语义（stdout 全量落工件不变），故比对前归一。
+fn artifact_text(text: &str) -> String {
+    let lf = text.replace("\r\n", "\n");
+    let ends_with_newline = lf.ends_with('\n');
+    let mut lines = lf
+        .lines()
+        .map(str::trim_end)
+        .collect::<Vec<_>>()
+        .join("\n");
+    if ends_with_newline {
+        lines.push('\n');
+    }
+    lines
+}
+
 // ---------------------------------------------------------------------------
 // 模板展开（占位符替换——spawn 前纯函数面）
 // ---------------------------------------------------------------------------
@@ -381,6 +399,10 @@ async fn 非零退出且工件不可解析_error面产出() {
     );
     assert!(execution.cases.is_empty(), "零工件零用例（不产假用例）");
     assert!(execution.measured.is_none());
+    assert!(
+        execution.output.is_empty(),
+        "零输出命令 → output 空（合并流逐字，不虚构内容）"
+    );
 }
 
 /// 异常：非零退出且 stderr 携进程报错文本 → 错误面携带该文本
@@ -410,6 +432,16 @@ async fn 非零退出错误面携带进程报错文本() {
     assert!(
         error.contains("compile error detail"),
         "错误面携带进程自身报错文本（stderr 捕获面），实际: {error}"
+    );
+    // output 独立承载合并流：stderr 文本随 output 全量在场，error 面不外溢进 output
+    let merged = String::from_utf8_lossy(&execution.output).into_owned();
+    assert!(
+        merged.contains("compile error detail"),
+        "output 承载 stderr 合并流，实际: {merged:?}"
+    );
+    assert!(
+        !merged.contains("非零退出"),
+        "output 不并入 error 尾部语义，实际: {merged:?}"
     );
 }
 
@@ -499,5 +531,188 @@ fn 超时常量锚定() {
         VERSION_DETECT_TIMEOUT,
         Duration::from_secs(30),
         "CLI 版本探测 timeout 30_000 同值"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// PlanExecution.output（change-flow-show-step-only，AC-7 / D7）：脚本真实输出
+// **合并流**（stdout 字节前缀 + stderr 字节后缀，逐字；**不加 `2>&1`**——rust
+// 档 `cargo test > results_file` 已把 stdout 重定向进结果工件，`2>&1` 会把
+// stderr 混入污染 `parse_cargo_test`）。手工拼接只服务 record 回查，结果工件
+// 解析仍只读 stdout 面；`error` 面仍经合并文本派生。
+// ---------------------------------------------------------------------------
+
+/// 手工 TestPlan 构造（rust 档：`cargo test > {results_file}` 重定向注入面 +
+/// 覆盖工件独立面——output 承载与工件落位两读面）。
+fn rust_plan(cwd: &Path, template: String) -> TestPlan {
+    TestPlan {
+        id: "it_rust-shape".to_owned(),
+        framework: "rust".to_owned(),
+        root: "app".to_owned(),
+        cwd: cwd.to_path_buf(),
+        files: Vec::new(),
+        config_args: None,
+        shell_template: template.clone(),
+        cmd_template: template,
+        coverage_format: CoverageFormat::LlvmCov,
+        coverage_output: "coverage.txt",
+        results_output: "results.txt",
+    }
+}
+
+/// 正向：spawn 成功 → `PlanExecution.output` = `stdout_bytes` 前缀 + `stderr_bytes`
+/// 后缀的合并流（逐字，不加 `2>&1`）；工件解析面不受合并流影响（stdout 单独
+/// 落工件语义保持）。
+#[tokio::test]
+async fn 合并流_stdout前缀stderr后缀逐字() {
+    let _env = env_window();
+    let ws = TempDir::new().expect("临时目录");
+    let cwd = ws.path().join("app");
+    std::fs::create_dir_all(&cwd).expect("创建 suite cwd");
+    let template = if cfg!(windows) {
+        "cmd /C echo stdout-marker& 1>&2 echo stderr-marker".to_owned()
+    } else {
+        "echo stdout-marker; echo stderr-marker >&2".to_owned()
+    };
+    let plan = node_test_plan(&cwd, template);
+
+    let execution = execute_plan(&plan, &ws.path().join("reports").join("m"))
+        .await
+        .expect("绿跑形态应 Ok");
+
+    assert_eq!(execution.exit_code, 0, "退出码透传");
+    let merged = String::from_utf8_lossy(&execution.output).replace("\r\n", "\n");
+    assert_eq!(
+        merged, "stdout-marker\nstderr-marker\n",
+        "output = stdout 前缀 + stderr 后缀逐字拼接（非 2>&1 交错，序恒前缀-后缀）"
+    );
+}
+
+/// 正向：`output` 独立承载合并流——`error` 仍经 `output_text` 派生（携合并输出
+/// 有界尾部），`output` 字段不并入 error 尾部语义。
+#[tokio::test]
+async fn 合并流独立承载_error经合并文本派生() {
+    let _env = env_window();
+    let ws = TempDir::new().expect("临时目录");
+    let cwd = ws.path().join("app");
+    std::fs::create_dir_all(&cwd).expect("创建 suite cwd");
+    let template = if cfg!(windows) {
+        "cmd /C echo artifact-stdout& 1>&2 echo compile-error& exit /b 7".to_owned()
+    } else {
+        "echo artifact-stdout; echo compile-error >&2; exit 7".to_owned()
+    };
+    let plan = node_test_plan(&cwd, template);
+
+    let execution = execute_plan(&plan, &ws.path().join("reports").join("e"))
+        .await
+        .expect("被测域失败走产出（不 Err）");
+
+    assert_eq!(execution.exit_code, 7, "退出码透传");
+    let merged = String::from_utf8_lossy(&execution.output).replace("\r\n", "\n");
+    assert_eq!(
+        merged, "artifact-stdout\ncompile-error\n",
+        "output 逐字承载合并流（stdout 段 + stderr 段）"
+    );
+    let error = execution.error.expect("非零退出错误面在场");
+    assert!(
+        error.contains("非零退出") && error.contains("7"),
+        "error 面记因退出码，实际: {error}"
+    );
+    assert!(
+        error.contains("artifact-stdout") && error.contains("compile-error"),
+        "error 面经合并文本派生（有界尾部），实际: {error}"
+    );
+    assert!(
+        !merged.contains("非零退出"),
+        "output 不并入 error 尾部语义，实际: {merged:?}"
+    );
+}
+
+/// 正向：rust 档不加 `2>&1`——`cargo test > results.txt` 已重定向 stdout 进
+/// 结果工件（工件落报告树、捕获面为空），`output` 主要为 stderr（编译错误面）。
+#[tokio::test]
+async fn rust档不加重定向合并_stdout进工件而output承载stderr() {
+    let _env = env_window();
+    let ws = TempDir::new().expect("临时目录");
+    let cwd = ws.path().join("app");
+    std::fs::create_dir_all(&cwd).expect("创建 suite cwd");
+    let template = if cfg!(windows) {
+        "cmd /C echo cargo test& 1>&2 echo build-error".to_owned()
+    } else {
+        "echo cargo test; echo build-error >&2".to_owned()
+    };
+    let plan = rust_plan(&cwd, template);
+    let report_dir = ws.path().join("reports").join("rust-shape");
+
+    let execution = execute_plan(&plan, &report_dir)
+        .await
+        .expect("重定向注入形态应 Ok");
+
+    assert_eq!(execution.exit_code, 0, "退出码透传");
+    // 重定向注入：首个 `cargo test` 后插 `> "{results_file}"`——stdout 进工件
+    let results = std::fs::read_to_string(report_dir.join("results.txt"))
+        .expect("结果工件落报告树（stdout 重定向面）");
+    assert_eq!(
+        artifact_text(&results),
+        "cargo test\n",
+        "stdout 全量进结果工件（解析面单读面保持）"
+    );
+    // 捕获面：加上 `2>&1` 会把 stderr 混入工件面——未加即 output 只余 stderr
+    let merged = String::from_utf8_lossy(&execution.output).replace("\r\n", "\n");
+    assert_eq!(
+        merged, "build-error\n",
+        "output 承载 stderr（编译错误面），stdout 已进工件不进捕获面"
+    );
+}
+
+/// 边界：空 stdout + 空 stderr → `output` 空；大输出（>1000 bytes）→ `output`
+/// 全量承载不截断（stdout 长段前缀 + stderr 尾段后缀）。
+#[tokio::test]
+async fn 边界_空输出与大输出全量承载() {
+    let _env = env_window();
+    let ws = TempDir::new().expect("临时目录");
+    let cwd = ws.path().join("app");
+    std::fs::create_dir_all(&cwd).expect("创建 suite cwd");
+    let quiet = if cfg!(windows) {
+        "cmd /C exit /b 0".to_owned()
+    } else {
+        "true".to_owned()
+    };
+    let plan = node_test_plan(&cwd, quiet);
+    let execution = execute_plan(&plan, &ws.path().join("reports").join("empty"))
+        .await
+        .expect("静默命令应 Ok");
+    assert_eq!(
+        execution.output,
+        Vec::<u8>::new(),
+        "空 stdout + 空 stderr → output 空"
+    );
+
+    let long = "x".repeat(1500);
+    let verbose = if cfg!(windows) {
+        format!("cmd /C echo {long}& 1>&2 echo tail-error")
+    } else {
+        format!("echo {long}; echo tail-error >&2")
+    };
+    let plan = node_test_plan(&cwd, verbose);
+    let execution = execute_plan(&plan, &ws.path().join("reports").join("long"))
+        .await
+        .expect("大输出形态应 Ok");
+
+    let merged = String::from_utf8_lossy(&execution.output).into_owned();
+    assert!(
+        merged.len() > 1500,
+        "大输出全量承载不截断，实际 {} 字节",
+        merged.len()
+    );
+    assert!(merged.contains(&long), "1500 字符 stdout 段完整保留");
+    assert!(
+        merged.trim_end().ends_with("tail-error"),
+        "stderr 尾段随合并流在场，实际尾部: {:?}",
+        merged.chars().rev().take(20).collect::<String>()
+    );
+    assert!(
+        merged.find(&long).expect("stdout 段在场") < merged.find("tail-error").expect("stderr 段在场"),
+        "合并序恒 stdout 前缀 → stderr 后缀"
     );
 }

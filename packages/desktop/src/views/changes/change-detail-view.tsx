@@ -169,6 +169,7 @@ function useRootSwitchSuppress(root: string | null, id: string | null): string |
 function DetailContent({
   root,
   id,
+  name,
   graph,
   materials,
   artifacts,
@@ -176,6 +177,8 @@ function DetailContent({
 }: {
   root: string | null;
   id: string;
+  /** change name（stdout 面板磁盘面寻址键——与 record 同口径，非 id） */
+  name: string;
   graph: FlowGraph;
   materials: FlowMaterials;
   artifacts: ArtifactEnvelope[];
@@ -192,6 +195,7 @@ function DetailContent({
         materials={materials}
         root={root}
         changeId={id}
+        name={name}
         transcriptRefreshKey={transcriptRefreshKey}
         onClose={() => setSelection(null)}
       />
@@ -263,8 +267,8 @@ function useFlowGraphData(
     [detail, runNodes, runEdges],
   );
   const materials = useMemo<FlowMaterials>(
-    () => mountMaterials(graph, detail, artifacts),
-    [detail, graph, artifacts],
+    () => mountMaterials(detail, artifacts),
+    [detail, artifacts],
   );
   const lastRun = detail.runs.length > 0 ? detail.runs[detail.runs.length - 1] : null;
   return { graph, materials, lastRun };
@@ -297,6 +301,9 @@ function DetailLoaded({
         // 单一身份源 = URL id（detail 恒经该 id 取数、两值同源；不可达形态
         // 兜底记录 id 保取数链断裂时不静默丢身份）
         id={id ?? detail.id}
+        // stdout 面板磁盘面寻址键取 detail.name（与 record_exec_output 同口径，
+        // 非 URL id）
+        name={detail.name}
         graph={graph}
         materials={materials}
         artifacts={artifacts}

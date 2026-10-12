@@ -3739,7 +3739,8 @@ impl WorkflowSnapshotPort for StubSnapshot {
 struct NullRunner;
 
 impl StaticCheckRunner for NullRunner {
-    fn run(&self, _root: &str) -> BoxToolFuture {
+    // 磁盘面 port 收 (root, name)：假件零记录逻辑，双参原样吞下
+    fn run(&self, _root: &str, _name: &str) -> BoxToolFuture {
         Box::pin(async move { Ok(ToolStepOutput::StaticCheck(passing_check())) })
     }
 }
@@ -3748,7 +3749,7 @@ impl StaticCheckRunner for NullRunner {
 struct FailingRunner;
 
 impl StaticCheckRunner for FailingRunner {
-    fn run(&self, _root: &str) -> BoxToolFuture {
+    fn run(&self, _root: &str, _name: &str) -> BoxToolFuture {
         Box::pin(async move {
             Ok(ToolStepOutput::StaticCheck(StaticCheckOutcome {
                 passed: false,

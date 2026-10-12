@@ -157,9 +157,9 @@ pub(crate) async fn change_flow_start_with<R: tauri::Runtime>(
     // 进程 spawn 执行，spawn 驻 infra/vcs（core 零 spawn 红线）；同一实例注入
     // LocalToolSteps（Preflight 探测）与 walk_run（git 步直调）
     let vcs: Arc<dyn ArchiveVcsPort> = Arc::new(ProcessArchiveVcs::new());
-    // checks 执行器装配：static-check 默认 `ExecOutput::Transient`（全量即弃，
-    // 反馈边只消费诊断文本；升 `recorded(change)` 即经 infra/exec 单点落盘并回
-    // 填 output_ref）；test-execution 报告全量落 change 报告目录树并携 exec_id 回
+    // checks 执行器装配：static-check 默认即 `ExecOutput::Recorded`（change name
+    // 由 steps 消费点解析后传入，单一交错 `.log` 经 infra/exec 单点落盘并回填
+    // output_ref）；test-execution 报告全量落 change 报告目录树并携 exec_id 回
     // 查引用（同锚同口径）——输出记录单点驻 infra/exec，本组合根零记录逻辑
     let tools: Arc<dyn ToolStepPort> = Arc::new(LocalToolSteps::new(
         Arc::clone(&anchors),

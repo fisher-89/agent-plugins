@@ -425,50 +425,55 @@ impl ChangeStateStore for FakeStore {
 // 装置：假 runner（StaticCheckRunner / TestExecutionRunner 既有假件沿用）
 // ---------------------------------------------------------------------------
 
-/// 假 StaticCheckRunner：记录 root 调用、可编程产出 / Err(String)。
+/// 假 StaticCheckRunner：记录 `(root, name)` 双参调用、可编程产出 / Err(String)
+///（磁盘面 port 收 name——id → 记录 → name 的解析在 steps 消费点）。
 struct FakeRunner {
-    roots: Mutex<Vec<String>>,
+    calls: Mutex<Vec<(String, String)>>,
     result: Result<StaticCheckOutcome, String>,
 }
 
 impl FakeRunner {
     fn passing() -> Self {
-        Self {
-            roots: Mutex::new(Vec::new()),
-            result: Ok(StaticCheckOutcome {
-                passed: true,
-                diagnostics: String::new(),
-                output_ref: None,
-            }),
-        }
+        Self::with_result(Ok(StaticCheckOutcome {
+            passed: true,
+            diagnostics: String::new(),
+            // 默认 recorded：引用随产出回填（落盘失败 / 零 spawn 才 None）
+            output_ref: Some("exec-1727000000000-1".to_owned()),
+        }))
     }
 
     fn failing(diagnostics: &str) -> Self {
+        Self::with_result(Ok(StaticCheckOutcome {
+            passed: false,
+            diagnostics: diagnostics.to_owned(),
+            output_ref: Some("exec-1727000000000-2".to_owned()),
+        }))
+    }
+
+    fn with_result(result: Result<StaticCheckOutcome, String>) -> Self {
         Self {
-            roots: Mutex::new(Vec::new()),
-            result: Ok(StaticCheckOutcome {
-                passed: false,
-                diagnostics: diagnostics.to_owned(),
-                output_ref: None,
-            }),
+            calls: Mutex::new(Vec::new()),
+            result,
         }
     }
 
     /// Err 臂（臂产出 Err(String) 原样上抛 + 审计 error 行的注入面）。
     fn erring(message: &str) -> Self {
-        Self {
-            roots: Mutex::new(Vec::new()),
-            result: Err(message.to_owned()),
-        }
+        Self::with_result(Err(message.to_owned()))
+    }
+
+    /// 调用记录快照（root / name 透传断言面）。
+    fn calls(&self) -> Vec<(String, String)> {
+        self.calls.lock().expect("calls 锁不可中毒").clone()
     }
 }
 
 impl StaticCheckRunner for FakeRunner {
-    fn run(&self, root: &str) -> BoxToolFuture {
-        self.roots
+    fn run(&self, root: &str, name: &str) -> BoxToolFuture {
+        self.calls
             .lock()
-            .expect("root 锁不可中毒")
-            .push(root.to_owned());
+            .expect("calls 锁不可中毒")
+            .push((root.to_owned(), name.to_owned()));
         let result = self.result.clone();
         Box::pin(async move { result.map(ToolStepOutput::StaticCheck) })
     }
@@ -1744,13 +1749,15 @@ async fn backtrack步链路落库stale标记() {
     assert!(!entries[0].stale && !entries[1].stale, "无 stale 误伤");
 }
 
-/// StaticCheck 委托注入 runner：命令 → 注入假 runner 记录 root 透传、
-/// StaticCheckOutcome 原样包装。
+/// StaticCheck 委托注入 runner：命令 → 消费点 id → 记录 → name 解析 → 注入假
+/// runner 记录 `(root, name)` 双参（id ≠ name 形态下 name 非 id 可辨）、
+/// StaticCheckOutcome 原样包装；审计行落库 StepKind::StaticCheck。
 #[tokio::test]
-async fn static_check步委托注入runner且root透传() {
-    let fake = Arc::new(FakeStore::new());
+async fn static_check步委托注入runner且root与name透传() {
+    let db = TestDb::open("static-check-delegate");
+    seed_change(db.store.as_ref(), CHANGE_ID, NAME, "requirement");
     let assembled = assemble(
-        Arc::clone(&fake) as Arc<dyn ChangeStateStore>,
+        db.store_arc(),
         "run-1",
         FakeRunner::failing("clippy: 3 warnings\n1 error"),
         FakeTestExecutionRunner::passing(),
@@ -1770,14 +1777,204 @@ async fn static_check步委托注入runner且root透传() {
                 outcome.diagnostics, "clippy: 3 warnings\n1 error",
                 "产出原样包装"
             );
+            assert_eq!(
+                outcome.output_ref.as_deref(),
+                Some("exec-1727000000000-2"),
+                "failed 分支产出亦携 output_ref（recorded 恒回填，引用透传）"
+            );
         }
         other => panic!("产出应为 StaticCheck 变体，实际: {other:?}"),
     }
     assert_eq!(
-        assembled.static_check.roots.lock().expect("锁").as_slice(),
-        [ROOT],
-        "root 透传注入 runner（spawn cwd 语义）"
+        assembled.static_check.calls(),
+        [(ROOT.to_owned(), NAME.to_owned())],
+        "root / name 双参透传注入 runner（spawn cwd 与记录目录派生语义；name 非寻址 id）"
     );
+    // 审计行：StepKind::StaticCheck 落库（id 归键 + 摘要）
+    let rows = db
+        .store
+        .list_change_steps(CHANGE_ID, Some("run-1"))
+        .expect("读审计行应成功");
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].step_kind, StepKind::StaticCheck);
+    assert_eq!(rows[0].status, "ok");
+    assert_eq!(rows[0].summary, "static_check passed=false");
+}
+
+/// 正向：passed 与 failed 两分支产出均携 `output_ref`（StaticCheckOutcome 语义
+/// 不变——recorded 默认化后引用恒回填，两分支一致）；两分支审计行皆 `ok` 落库。
+#[tokio::test]
+async fn static_check两分支产出均携输出引用() {
+    let db = TestDb::open("static-check-branches");
+    seed_change(db.store.as_ref(), CHANGE_ID, NAME, "requirement");
+
+    let passing = assemble(
+        db.store_arc(),
+        "run-pass",
+        FakeRunner::passing(),
+        FakeTestExecutionRunner::passing(),
+    );
+    let output = run_step(
+        &passing.steps,
+        ToolCommand::StaticCheck {
+            change_id: CHANGE_ID.to_owned(),
+        },
+    )
+    .await;
+    match output {
+        ToolStepOutput::StaticCheck(outcome) => {
+            assert!(outcome.passed);
+            assert_eq!(
+                outcome.output_ref.as_deref(),
+                Some("exec-1727000000000-1"),
+                "passed 分支携输出引用（recorded 恒回填）"
+            );
+        }
+        other => panic!("产出应为 StaticCheck 变体，实际: {other:?}"),
+    }
+
+    let failing = assemble(
+        db.store_arc(),
+        "run-fail",
+        FakeRunner::failing("lint 失败"),
+        FakeTestExecutionRunner::passing(),
+    );
+    let output = run_step(
+        &failing.steps,
+        ToolCommand::StaticCheck {
+            change_id: CHANGE_ID.to_owned(),
+        },
+    )
+    .await;
+    match output {
+        ToolStepOutput::StaticCheck(outcome) => {
+            assert!(!outcome.passed);
+            assert_eq!(
+                outcome.output_ref.as_deref(),
+                Some("exec-1727000000000-2"),
+                "failed 分支同样携输出引用（recorded 恒回填）"
+            );
+        }
+        other => panic!("产出应为 StaticCheck 变体，实际: {other:?}"),
+    }
+
+    // 两分支审计行皆落（passed / failed 均落，status ok 半边）
+    let rows = db
+        .store
+        .list_change_steps(CHANGE_ID, None)
+        .expect("读审计行应成功");
+    assert_eq!(rows.len(), 2, "两分支各一条审计行");
+    for row in &rows {
+        assert_eq!(row.step_kind, StepKind::StaticCheck);
+        assert_eq!(row.status, "ok", "两分支审计行均 ok（失败态走 runner 产出）");
+    }
+}
+
+/// 异常：change 未建档（无 ChangeRecord）→ 步显式 `Err`（携 change id 与未建档
+/// 文案），runner 零调用（不 spawn——解析 miss 零发起）。
+#[tokio::test]
+async fn static_check未建档显式err且零发起() {
+    let db = TestDb::open("static-check-unregistered");
+    let assembled = assemble(
+        db.store_arc(),
+        "run-miss",
+        FakeRunner::passing(),
+        FakeTestExecutionRunner::passing(),
+    );
+
+    let err = assembled
+        .steps
+        .run(ToolStepRequest {
+            root: ROOT.to_owned(),
+            command: ToolCommand::StaticCheck {
+                change_id: "unregistered-id".to_owned(),
+            },
+        })
+        .await
+        .expect_err("未建档 id 应显式 Err");
+
+    assert!(
+        err.contains("unregistered-id") && err.contains("未建档"),
+        "解析 miss 记因显式（携 change id + 未建档文案）: {err}"
+    );
+    assert!(
+        assembled.static_check.calls().is_empty(),
+        "未建档不发起 runner（零 spawn）"
+    );
+}
+
+/// 异常：`store.get_change` 读故障（id → 记录 → name 解析面）→ `Err` 传播不
+/// 静默、runner 零调用；解析失败早退在 `audit_outcome` 之前 → 本次审计行缺席
+///（审计面只在 runner 调用后落行——实现如此，非审计失败被吞）。
+#[tokio::test]
+async fn static_check读故障err传播且零发起() {
+    let fake = Arc::new(FakeStore::new());
+    fake.seed_change(CHANGE_ID, NAME);
+    fake.fail_read(StoreFault::Db("读取建档记录失败".to_owned()));
+    let assembled = assemble(
+        Arc::clone(&fake) as Arc<dyn ChangeStateStore>,
+        "run-read-fault",
+        FakeRunner::passing(),
+        FakeTestExecutionRunner::passing(),
+    );
+
+    let err = assembled
+        .steps
+        .run(ToolStepRequest {
+            root: ROOT.to_owned(),
+            command: ToolCommand::StaticCheck {
+                change_id: CHANGE_ID.to_owned(),
+            },
+        })
+        .await
+        .expect_err("读路径 fault 应记因上抛不静默");
+
+    assert!(err.contains("db:"), "StoreFault Display 记因透传: {err}");
+    assert!(
+        assembled.static_check.calls().is_empty(),
+        "解析失败不发 runner（零 spawn）"
+    );
+    assert!(
+        fake.steps().is_empty(),
+        "解析面早退，审计行缺席（未触达 audit_outcome 单点）"
+    );
+}
+
+/// 边界：`id == name` 形态 → 解析 name 逐字等于 id（零漂移）；重复调用 → 每次
+/// 独立解析、runner 调用计数递增（无副作用）。
+#[tokio::test]
+async fn static_check同名形态与重复调用各自解析() {
+    let db = TestDb::open("static-check-same-name");
+    // id == name 形态（legacy 建档形态：id 与 name 同值）
+    seed_change(db.store.as_ref(), "same-name", "same-name", "requirement");
+    let assembled = assemble(
+        db.store_arc(),
+        "run-same",
+        FakeRunner::passing(),
+        FakeTestExecutionRunner::passing(),
+    );
+
+    for _ in 0..2 {
+        run_step(
+            &assembled.steps,
+            ToolCommand::StaticCheck {
+                change_id: "same-name".to_owned(),
+            },
+        )
+        .await;
+    }
+
+    let calls = assembled.static_check.calls();
+    assert_eq!(calls.len(), 2, "重复调用各自解析、每次一发（无副作用）");
+    for (root, name) in &calls {
+        assert_eq!(root, ROOT, "root 逐次透传");
+        assert_eq!(name, "same-name", "id == name 形态解析逐字等于 id（零漂移）");
+    }
+    let rows = db
+        .store
+        .list_change_steps("same-name", Some("run-same"))
+        .expect("读审计行应成功");
+    assert_eq!(rows.len(), 2, "两次调用两条审计行");
 }
 
 /// steps 写面 Err 统一上抛：change 未建档 / 相位非法 / workflow_type 不受支持
@@ -1852,10 +2049,11 @@ async fn 写面err统一以err_string上抛() {
 }
 
 /// runner Err 透传：注入假 runner 返回 Err → StaticCheck 步 Err(String) 原样
-///（反馈边升格的记因面）。
+///（反馈边升格的记因面；name 解析前置需已建档）。
 #[tokio::test]
 async fn runner_err原样透传() {
     let fake = Arc::new(FakeStore::new());
+    fake.seed_change(CHANGE_ID, NAME);
     let assembled = assemble(
         Arc::clone(&fake) as Arc<dyn ChangeStateStore>,
         "run-1",

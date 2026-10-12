@@ -2529,6 +2529,7 @@ dependencies = [
  "checks-runtime",
  "config",
  "embed-resource",
+ "exec",
  "foundation",
  "native_db",
  "orchestration",

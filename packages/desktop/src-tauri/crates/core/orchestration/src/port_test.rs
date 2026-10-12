@@ -92,18 +92,32 @@ impl ToolStepPort for RecordingSteps {
     }
 }
 
-/// 可编程产出 / Err 的假 StaticCheckRunner（root 透传断言面）。
+/// 可编程产出 / Err 的假 StaticCheckRunner（`(root, name)` 双参透传断言面
+/// ——磁盘面 port 收 name，解析在 steps 消费点；calls 经 Arc 共享供测试侧读）。
 struct ProgrammableRunner {
-    root_seen: Mutex<Vec<String>>,
+    calls: Arc<Mutex<Vec<(String, String)>>>,
     outcome: StaticCheckOutcome,
 }
 
+impl ProgrammableRunner {
+    fn with_outcome(outcome: StaticCheckOutcome) -> (Self, Arc<Mutex<Vec<(String, String)>>>) {
+        let calls = Arc::new(Mutex::new(Vec::new()));
+        (
+            Self {
+                calls: Arc::clone(&calls),
+                outcome,
+            },
+            calls,
+        )
+    }
+}
+
 impl StaticCheckRunner for ProgrammableRunner {
-    fn run(&self, root: &str) -> crate::port::BoxToolFuture {
-        self.root_seen
+    fn run(&self, root: &str, name: &str) -> crate::port::BoxToolFuture {
+        self.calls
             .lock()
-            .expect("root 锁不可中毒")
-            .push(root.to_owned());
+            .expect("calls 锁不可中毒")
+            .push((root.to_owned(), name.to_owned()));
         let outcome = self.outcome.clone();
         Box::pin(async move { Ok(ToolStepOutput::StaticCheck(outcome)) })
     }
@@ -430,8 +444,8 @@ fn tool_step_output各变体载荷写面原生类型逐字段相等() {
 }
 
 /// StaticCheckOutcome 字段面：passed true/false × diagnostics 空串 / 多行诊断 ×
-/// `output_ref` None（Transient 即弃）/ Some（Recorded 可回查）两态构造与读取
-///（passed=false 走定向反馈边的载荷面——AC-4 / AC-8）。
+/// `output_ref` Some（默认 recorded 回填）/ None（零 spawn 直过 / 落盘失败降级）
+/// 两态构造与读取（passed=false 走定向反馈边的载荷面——AC-4 / AC-8）。
 #[test]
 fn static_check_outcome字段面双值双诊断形态() {
     let passed_clean = StaticCheckOutcome {
@@ -455,8 +469,8 @@ fn static_check_outcome字段面双值双诊断形态() {
     );
     assert_eq!(failed_loud.clone(), failed_loud, "Clone/PartialEq 派生可用");
 
-    // 记录模式：`ExecOutput::Recorded { exec_id }` 引用随产出透传（None 态 =
-    // Transient 即弃，Some 态 = 全量输出可经 infra/exec 回查——两态可辨）
+    // 输出记录引用随产出透传：Some = 全量输出可经 infra/exec 回查（默认
+    // recorded），None = 零 spawn 直过 / 落盘失败降级——两态可辨
     let recorded = StaticCheckOutcome {
         passed: false,
         diagnostics: "lint 失败".to_owned(),
@@ -465,11 +479,11 @@ fn static_check_outcome字段面双值双诊断形态() {
     assert_eq!(
         recorded.output_ref.as_deref(),
         Some("exec-1727000000000"),
-        "Recorded 模式引用随产出透传（可回查）"
+        "recorded 引用随产出透传（可回查）"
     );
     assert_ne!(
         recorded.output_ref, failed_loud.output_ref,
-        "None（Transient 即弃）/ Some（Recorded 可回查）两态可辨"
+        "Some（可回查）/ None（零 spawn / 落盘失败降级）两态可辨"
     );
     assert_ne!(
         recorded, failed_loud,
@@ -482,30 +496,44 @@ fn static_check_outcome字段面双值双诊断形态() {
 // ---------------------------------------------------------------------------
 
 /// StaticCheckRunner trait 面：假实现经 Arc<dyn …> 注入、BoxToolFuture 返回
-/// 可用、root 参数透传（object safety + Send+Sync 编译锚——W4 缝成立前提）。
+/// 可用、`(root, name)` 双参透传（object safety + Send+Sync 编译锚——W4 缝
+/// 成立前提；`run(root, name)` 与 [`TestExecutionRunner`] 同型：spawn cwd 与
+/// 磁盘面 name 定位双参）。
 #[tokio::test]
-async fn static_check_runner假实现经arc注入且root透传() {
+async fn static_check_runner假实现经arc注入且root与name双参透传() {
     fn assert_send_sync<T: Send + Sync>() {}
     assert_send_sync::<Arc<dyn StaticCheckRunner>>();
 
-    let runner: Arc<dyn StaticCheckRunner> = Arc::new(ProgrammableRunner {
-        root_seen: Mutex::new(Vec::new()),
-        outcome: StaticCheckOutcome {
-            passed: false,
-            diagnostics: "lint 失败".to_owned(),
-            output_ref: None,
-        },
+    let (inner, calls) = ProgrammableRunner::with_outcome(StaticCheckOutcome {
+        // 默认 recorded：引用随产出回填（载荷语义不变）
+        passed: false,
+        diagnostics: "lint 失败".to_owned(),
+        output_ref: Some("exec-1727000000000-1".to_owned()),
     });
+    let runner: Arc<dyn StaticCheckRunner> = Arc::new(inner);
 
-    // root 参数透传 + BoxToolFuture resolve 可用（W4 缝）
-    let output = runner.run("/tmp/workspace-root").await.expect("产出应可用");
+    // 双参透传 + BoxToolFuture resolve 可用（W4 缝）
+    let output = runner
+        .run("/tmp/workspace-root", "demo-change")
+        .await
+        .expect("产出应可用");
     match output {
         ToolStepOutput::StaticCheck(outcome) => {
             assert!(!outcome.passed);
             assert_eq!(outcome.diagnostics, "lint 失败");
+            assert_eq!(
+                outcome.output_ref.as_deref(),
+                Some("exec-1727000000000-1"),
+                "默认 recorded 引用透传（caller 侧零改写）"
+            );
         }
         _ => panic!("产出变体漂移"),
     }
+    assert_eq!(
+        calls.lock().expect("锁").as_slice(),
+        [("/tmp/workspace-root".to_owned(), "demo-change".to_owned())],
+        "root / name 双参透传（spawn cwd 与记录目录派生语义）"
+    );
 }
 
 /// DiffContextPort trait 面：假实现经 Arc<dyn …> 注入、diff_context(root) 经
@@ -864,12 +892,12 @@ fn test_execution_outcome载荷字段面() {
         "报告目录定位全量 findings"
     );
 
-    // 输出引用两态与 report_dir 同锚同口径（AC-8）：`exec_id` 非空 = Recorded
-    // 记录模式（全量输出经 infra/exec 单点回查）、空串 = 未记录（report_dir
-    // 报告仍为全量权威），两态随 step 产出透传
+    // 输出引用两态与 report_dir 同锚同口径（AC-8）：`exec_id` 非空 = 脚本输出
+    // 已记录（经 infra/exec 单点回查）、空串 = 未记录（落盘失败 / 零输出装配
+    // 降级——report_dir 报告仍为全量权威），两态随 step 产出透传
     assert_eq!(
         outcome.exec_id, "",
-        "未记录形态空串（落盘失败 / Transient 降级——报告仍为全量权威）"
+        "未记录形态空串（落盘失败降级——报告仍为全量权威）"
     );
     let recorded = TestExecutionOutcome {
         exec_id: "exec-1727000000000".to_owned(),

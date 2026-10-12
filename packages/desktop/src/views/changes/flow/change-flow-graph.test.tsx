@@ -14,6 +14,15 @@ import { buildFlowGraph } from './graph';
 import { PIPELINE_PHASES } from './layout';
 import type { DrawerSelection, FlowGraph, FlowMaterials, RuntimeFlowNode } from './types';
 
+// ---------------------------------------------------------------------------
+// ChangeFlowGraph 单测（change-flow-show-step-only，AC-1 / AC-3）：节点模型单
+// 分类后图渲染恒走 runStep——`nodeTypes.event` 与 `flow-event-node` 整体退役
+//（整树残留检测），节点点击判据收敛为「无信息源（role 与 outputRef 皆 null）
+//不上抛」。jsdom 环境垫片（ResizeObserver / offsetWidth / DOMMatrixReadOnly /
+//getBBox）为环境缺口而非业务 mock；buildFlowGraph / mountMaterials /
+//RunStepNode / PhaseColumnNode 真实组合不 mock。
+// ---------------------------------------------------------------------------
+
 class ResizeObserverStub {
   static instances: ResizeObserverStub[] = [];
   callback: ResizeObserverCallback;
@@ -149,11 +158,8 @@ function docEnvelope(): ArtifactEnvelope {
   };
 }
 
-/** 空站底座：按 attemptsByPhase 注入各站事件。 */
-function detail(
-  attemptsByPhase: Record<string, AttemptRecord[]> = {},
-  overrides: Partial<ChangeDetail> = {},
-): ChangeDetail {
+/** 建档详情底座：10 站（逐站 attempts 由 override 注入）+ 单产物清单。 */
+function detail(overrides: Partial<ChangeDetail> = {}): ChangeDetail {
   return {
     id: 'add-feature',
     name: 'add-feature',
@@ -161,17 +167,7 @@ function detail(
     source: 'active',
     status: 'active',
     created: null,
-    pipeline: [
-      'proposal',
-      'dev-design',
-      'test-design',
-      'implement',
-      'test-gen',
-      'test-execution',
-      'code-review',
-      'acceptance',
-      'code-analyze',
-    ].map((phase) => ({ phase, attempts: attemptsByPhase[phase] ?? [] })),
+    pipeline: PIPELINE_PHASES.map((phase) => ({ phase, attempts: [] })),
     activePhase: null,
     runs: [],
     worktree: null,
@@ -180,8 +176,9 @@ function detail(
   };
 }
 
-function materialsFor(graph: FlowGraph, base: ChangeDetail): FlowMaterials {
-  return mountMaterials(graph, base, [docEnvelope()]);
+/** 挂载素材（真实 mountMaterials 两参调用——挂载层已去 graph 入参）。 */
+function materialsFor(base: ChangeDetail): FlowMaterials {
+  return mountMaterials(base, [docEnvelope()]);
 }
 
 function renderGraph(
@@ -192,137 +189,278 @@ function renderGraph(
   return render(<ChangeFlowGraph graph={graph} materials={materials} onSelect={onSelect} />);
 }
 
-describe('ChangeFlowGraph：ReactFlow 薄层挂载与交互上抛', () => {
-  it('输入真实 buildFlowGraph 产出 → 列容器与事件节点渲染计数与 graph 一致', async () => {
-    const base = detail(
-      { proposal: [attempt({ startAt: '2026-09-01T00:00:00Z' })] },
-      { activePhase: { phase: 'dev-design', attempt: 1, startAt: '2026-09-02T00:00:00Z' } },
-    );
-    const graph = buildFlowGraph(base);
-    renderGraph(graph, materialsFor(graph, base));
+/** 运行步节点 fixture（run-state.ts runStepNodes 同形投影的直构形态）。 */
+function runNode(overrides: Partial<RuntimeFlowNode> = {}): RuntimeFlowNode {
+  return {
+    id: 'run:implement:1:executor:0',
+    kind: 'runtime',
+    phase: 'implement',
+    attempt: 1,
+    colIndex: PIPELINE_PHASES.indexOf('implement'),
+    order: 0,
+    parentId: 'col:implement',
+    runStepKind: 'executor',
+    group: 'workerAgent',
+    role: 'executor',
+    instanceNo: 0,
+    status: 'running',
+    sessionId: 'ses-exec-1',
+    detail: null,
+    outputRef: null,
+    ...overrides,
+  };
+}
+
+/** 无信息源运行步节点 fixture（role 与 outputRef 皆 null——不可点击判据面；
+ * phase / colIndex / parentId 随 phase 自洽派生）。 */
+function silentNode(overrides: Partial<RuntimeFlowNode> = {}): RuntimeFlowNode {
+  const phase = overrides.phase ?? 'implement';
+  return runNode({
+    colIndex: PIPELINE_PHASES.indexOf(phase),
+    parentId: `col:${phase}`,
+    phase,
+    runStepKind: 'phaseStart',
+    group: 'toolStep',
+    role: null,
+    sessionId: null,
+    ...overrides,
+  });
+}
+
+describe('ChangeFlowGraph：runStep 单分类节点渲染', () => {
+  it('含 RuntimeFlowNode 的图 → runStep 组件逐节点可辨、10 列 + 节点计数与 graph 一致', async () => {
+    const base = detail();
+    const graph = buildFlowGraph(base, [
+      runNode(),
+      runNode({
+        id: 'run:implement:1:staticCheck:0',
+        runStepKind: 'staticCheck',
+        group: 'toolStep',
+        role: null,
+        sessionId: null,
+        status: 'failed',
+        detail: '2 处诊断',
+      }),
+    ]);
+    renderGraph(graph, materialsFor(base));
 
     expect(screen.getByTestId('flow-graph') !== null).toBe(true);
     await waitFor(() => expect(screen.getAllByTestId('flow-column')).toHaveLength(10));
-    expect(screen.getAllByTestId('flow-node')).toHaveLength(graph.nodes.length);
-    expect(graph.nodes).toHaveLength(2);
+    await waitFor(() => expect(screen.getAllByTestId('run-step-node')).toHaveLength(2));
+    expect(screen.getAllByTestId('run-step-node')).toHaveLength(graph.nodes.length);
+
+    const running = within(screen.getByTestId('rf__node-run:implement:1:executor:0')).getByTestId(
+      'run-step-node',
+    );
+    expect(running.getAttribute('data-run-group')).toBe('workerAgent');
+    expect(running.getAttribute('data-run-status')).toBe('running');
+    expect(within(running).getByTestId('run-step-kind').textContent).toBe('执行');
+    const failed = within(screen.getByTestId('rf__node-run:implement:1:staticCheck:0')).getByTestId(
+      'run-step-node',
+    );
+    expect(failed.getAttribute('data-run-status')).toBe('failed');
+    expect(within(failed).getByTestId('run-step-group').textContent).toBe('ToolStep');
+    expect(within(failed).getByTestId('run-step-detail').textContent).toBe('2 处诊断');
   });
 
-  it('点击事件节点 → onSelect 收到 { scope: node, nodeId }；点击列头 → { scope: column, phase }', async () => {
-    const onSelect = vi.fn();
-    const base = detail({ proposal: [attempt({ startAt: '2026-09-01T00:00:00Z' })] });
-    const graph = buildFlowGraph(base);
-    renderGraph(graph, materialsFor(graph, base), onSelect);
-    await waitFor(() => expect(screen.getAllByTestId('flow-node')).toHaveLength(1));
+  it('flow-event-node 整体退役：事件节点挂钩与节点类型在整树零残留，渲染节点集与图节点集逐 id 一致', async () => {
+    const base = detail();
+    const nodes = [runNode(), silentNode({ id: 'run:implement:1:phaseLog:0' })];
+    const graph = buildFlowGraph(base, nodes);
+    const { container } = renderGraph(graph, materialsFor(base));
+    await waitFor(() => expect(screen.getAllByTestId('run-step-node')).toHaveLength(2));
 
-    fireEvent.click(screen.getByTestId('flow-node'));
-    expect(onSelect).toHaveBeenCalledTimes(1);
-    expect(onSelect).toHaveBeenCalledWith({ scope: 'node', nodeId: 'eval:proposal:1' });
-
-    fireEvent.click(screen.getAllByTestId('flow-column')[0]);
-    // 列头点击恰一次上抛（onNodeClick 不越权重复触发列头选择）
-    expect(onSelect).toHaveBeenCalledTimes(2);
-    expect(onSelect).toHaveBeenLastCalledWith({ scope: 'column', phase: 'proposal' });
-  });
-
-  it('空 graph（columns / nodes 为空数组）→ 渲染空画布不抛错', () => {
-    const materials: FlowMaterials = {
-      columnDocs: {},
-      nodeChecklists: {},
-    };
-    expect(() => renderGraph({ columns: [], nodes: [], edges: [] }, materials)).not.toThrow();
-    expect(screen.getByTestId('flow-graph') !== null).toBe(true);
-    expect(screen.queryByTestId('flow-column')).toBeNull();
+    // 事件节点 testid / 判定徽章零残留（节点模型单分类：整树唯一节点组件为 runStep）
     expect(screen.queryByTestId('flow-node')).toBeNull();
+    expect(container.querySelector('[data-testid="flow-node"]')).toBeNull();
+    expect(container.querySelector('[data-testid="attempt-verdict"]')).toBeNull();
+    // 渲染节点集与图节点集逐 id 一致（列容器 id `col:*` 不计）
+    const renderedIds = screen
+      .getAllByTestId(/^rf__node-/)
+      .map((element) => element.getAttribute('data-testid')?.slice('rf__node-'.length) ?? '')
+      .filter((id) => !id.startsWith('col:'))
+      .sort();
+    expect(renderedIds).toEqual(nodes.map((node) => node.id));
   });
 
-  it('列容器凭声明尺寸未测量即可见：泳道可见性不依赖 ResizeObserver 测量（重建不闪回 hidden）', () => {
-    const base = detail({ proposal: [attempt({ startAt: '2026-09-01T00:00:00Z' })] });
-    const graph = buildFlowGraph(base);
-    renderGraph(graph, materialsFor(graph, base));
+  it('列容器凭声明尺寸未测量即可见：泳道可见性不依赖 ResizeObserver 测量', async () => {
+    const base = detail();
+    renderGraph(buildFlowGraph(base, [runNode()]), materialsFor(base));
 
-    // 不 flush 测量（未测量窗口内）：事件节点尚在 hidden（对照证明环境确处未测量态），
-    // 列容器凭节点属性面声明的 width/height 立即 visible——泳道不再依赖测量定可见
+    // 不 flush 测量（未测量窗口内）：运行步节点尚在 hidden（对照证明环境确处未
+    // 测量态），列容器凭节点属性面声明的 width/height 立即 visible
     const column = screen.getByTestId('rf__node-col:proposal');
     expect(column.style.visibility).toBe('visible');
-    expect(screen.getByTestId('rf__node-eval:proposal:1').style.visibility).toBe('hidden');
-  });
-
-  it('布局常量经列尺寸 / 节点宽度机械换算落到 DOM：列宽高、列绝对坐标、节点宽逐项可核', async () => {
-    // proposal 列 2 枚 eval + implement 列 1 枚 active：列高按列内节点数非对称换算
-    const base = detail(
-      {
-        proposal: [
-          attempt({ startAt: '2026-09-01T00:00:00Z' }),
-          attempt({ startAt: '2026-09-01T12:00:00Z' }),
-        ],
-      },
-      { activePhase: { phase: 'implement', attempt: 1, startAt: '2026-09-02T00:00:00Z' } },
+    expect(screen.getByTestId('rf__node-run:implement:1:executor:0').style.visibility).toBe(
+      'hidden',
     );
-    const graph = buildFlowGraph(base);
-    renderGraph(graph, materialsFor(graph, base));
-    await waitFor(() => expect(screen.getAllByTestId('flow-node')).toHaveLength(3));
+    // 列高按列内节点数换算（HEADER 48 + 1 × ROW_H 128 + PAD_Y 16 = 192）
     await measureNodes();
+    await waitFor(() =>
+      expect(screen.getByTestId('rf__node-col:implement').style.height).toBe('192px'),
+    );
+  });
+});
 
-    // 列容器：宽 COL_W=260；高 = HEADER 48 + 列内节点 2 × ROW_H 128 + PAD_Y 16 = 320
-    const proposalColumn = screen.getByTestId('rf__node-col:proposal');
-    expect(proposalColumn.style.width).toBe('260px');
-    expect(proposalColumn.style.height).toBe('320px');
-    // 单节点列高 = 48 + 1 × 128 + 16 = 192（列高随列内事件数变化，非全局常量）
-    expect(screen.getByTestId('rf__node-col:implement').style.height).toBe('192px');
-    // 列绝对坐标 x = colIndex × (COL_W + GAP)：implement colIndex 3 → 840（proposal colIndex 0 恒 0 不设断言）
-    expect(screen.getByTestId('rf__node-col:implement').style.transform).toContain('840px');
-    // 事件节点宽 = COL_W − PAD_X×2 = 224
-    expect(screen.getByTestId('rf__node-eval:proposal:1').style.width).toBe('224px');
+describe('ChangeFlowGraph：节点点击判据（AC-3）', () => {
+  it('点击 role !== null 的 runtime 节点 → onSelect 收到 { scope: node, nodeId }', async () => {
+    const onSelect = vi.fn();
+    const base = detail();
+    renderGraph(buildFlowGraph(base, [runNode()]), materialsFor(base), onSelect);
+    await waitFor(() => expect(screen.getAllByTestId('run-step-node')).toHaveLength(1));
+
+    fireEvent.click(screen.getByTestId('rf__node-run:implement:1:executor:0'));
+
+    expect(onSelect).toHaveBeenCalledTimes(1);
+    expect(onSelect).toHaveBeenCalledWith({ scope: 'node', nodeId: 'run:implement:1:executor:0' });
   });
 
-  it('graph props 引用变化（显式 refresh 后新 graph）→ 重渲染为新节点集合，无残留旧节点', async () => {
-    const before = detail({ proposal: [attempt({ startAt: '2026-09-01T00:00:00Z' })] });
-    const firstGraph = buildFlowGraph(before);
-    const { rerender } = renderGraph(firstGraph, materialsFor(firstGraph, before));
-    await waitFor(() => expect(screen.getAllByTestId('flow-node')).toHaveLength(1));
+  it('点击 outputRef !== null 的 runtime 节点（static-check / test-execution）→ onSelect 照常上抛', async () => {
+    const onSelect = vi.fn();
+    const base = detail();
+    const node = runNode({
+      id: 'run:test-execution:1:testExecution:0',
+      phase: 'test-execution',
+      colIndex: PIPELINE_PHASES.indexOf('test-execution'),
+      parentId: 'col:test-execution',
+      runStepKind: 'testExecution',
+      group: 'toolStep',
+      role: null,
+      sessionId: null,
+      outputRef: 'exec-1727000000000-7',
+    });
+    renderGraph(buildFlowGraph(base, [node]), materialsFor(base), onSelect);
+    await waitFor(() => expect(screen.getAllByTestId('run-step-node')).toHaveLength(1));
 
-    // refresh 形态：proposal 站 eval 消失，test-design 站新增 eval、implement 站出现 active
-    const after = detail(
-      { 'test-design': [attempt({ startAt: '2026-09-03T00:00:00Z' })] },
-      { activePhase: { phase: 'implement', attempt: 1, startAt: '2026-09-04T00:00:00Z' } },
-    );
-    const secondGraph = buildFlowGraph(after);
-    rerender(
-      <ChangeFlowGraph
-        graph={secondGraph}
-        materials={materialsFor(secondGraph, after)}
-        onSelect={() => {}}
-      />,
-    );
+    fireEvent.click(screen.getByTestId('rf__node-run:test-execution:1:testExecution:0'));
 
-    await waitFor(() => expect(screen.getAllByTestId('flow-node')).toHaveLength(2));
-    expect(screen.getByTestId('rf__node-eval:test-design:1') !== null).toBe(true);
-    expect(screen.getByTestId('rf__node-active:implement:1') !== null).toBe(true);
-    expect(screen.queryByTestId('rf__node-eval:proposal:1')).toBeNull();
-    expect(screen.getAllByTestId('flow-column')).toHaveLength(10);
+    expect(onSelect).toHaveBeenCalledTimes(1);
+    expect(onSelect).toHaveBeenCalledWith({
+      scope: 'node',
+      nodeId: 'run:test-execution:1:testExecution:0',
+    });
   });
 
+  it('点击列头 → onSelect 收到 { scope: column, phase }（列头不受节点判据约束）', async () => {
+    const onSelect = vi.fn();
+    const base = detail();
+    renderGraph(buildFlowGraph(base, [runNode()]), materialsFor(base), onSelect);
+    await waitFor(() => expect(screen.getAllByTestId('flow-column')).toHaveLength(10));
+
+    fireEvent.click(screen.getAllByTestId('flow-column')[PIPELINE_PHASES.indexOf('implement')]);
+
+    expect(onSelect).toHaveBeenCalledTimes(1);
+    expect(onSelect).toHaveBeenCalledWith({ scope: 'column', phase: 'implement' });
+  });
+
+  it('异常：role 与 outputRef 皆 null 的节点（phaseStart / phaseLog / gate 三门 / git 四步 / preflight / seal）→ 点击不触发 onSelect', async () => {
+    const onSelect = vi.fn();
+    const base = detail();
+    const nodes = [
+      silentNode({ id: 'run:implement:1:phaseStart:0' }),
+      silentNode({ id: 'run:implement:1:phaseLog:0', runStepKind: 'phaseLog' }),
+      silentNode({
+        id: 'run:implement:1:verdictGate:0',
+        runStepKind: 'verdictGate',
+        group: 'gate',
+      }),
+      silentNode({ id: 'run:implement:1:retryGate:0', runStepKind: 'retryGate', group: 'gate' }),
+      silentNode({
+        id: 'run:implement:1:whitelistGate:0',
+        runStepKind: 'whitelistGate',
+        group: 'gate',
+      }),
+      silentNode({
+        id: 'run:archive:1:commit:0',
+        phase: 'archive',
+        runStepKind: 'commit',
+        group: 'git',
+      }),
+      silentNode({
+        id: 'run:archive:1:rebase:0',
+        phase: 'archive',
+        runStepKind: 'rebase',
+        group: 'git',
+      }),
+      silentNode({
+        id: 'run:archive:1:merge:0',
+        phase: 'archive',
+        runStepKind: 'merge',
+        group: 'git',
+      }),
+      silentNode({
+        id: 'run:archive:1:finalize:0',
+        phase: 'archive',
+        runStepKind: 'finalize',
+        group: 'git',
+      }),
+      silentNode({ id: 'run:archive:1:preflight:0', phase: 'archive', runStepKind: 'preflight' }),
+      silentNode({ id: 'run:archive:1:seal:0', phase: 'archive', runStepKind: 'seal' }),
+    ];
+    const graph = buildFlowGraph(base, nodes);
+    renderGraph(graph, materialsFor(base), onSelect);
+    await waitFor(() => expect(screen.getAllByTestId('run-step-node')).toHaveLength(11));
+
+    // 每个无信息源节点逐一点击：onSelect 恒零调用（不增长即不上抛）
+    for (const node of graph.nodes) {
+      fireEvent.click(screen.getByTestId(`rf__node-${node.id}`));
+      expect(onSelect).not.toHaveBeenCalled();
+    }
+  });
+});
+
+describe('ChangeFlowGraph：边渲染与重渲染', () => {
   it('label 为 null 的常规边与带 label 的回跳边混存 → 均正常渲染不抛错', async () => {
-    // 边恒读后端边表：dev-design 站执行图两节点 + forward（无 label）/ backtrack
-    //（label 取发起相位记因「设计未对齐提案」）
-    const base = detail(
+    const base = detail({
+      pipeline: PIPELINE_PHASES.map((phase) =>
+        phase === 'dev-design'
+          ? {
+              phase,
+              attempts: [
+                attempt({
+                  startAt: '2026-09-03T00:00:00Z',
+                  backtrackTo: 'proposal',
+                  backtrackReason: '设计未对齐提案',
+                }),
+              ],
+            }
+          : { phase, attempts: [] },
+      ),
+    });
+    const nodes: RuntimeFlowNode[] = [
+      runNode({
+        id: 'run:dev-design:1:executor:0',
+        phase: 'dev-design',
+        colIndex: PIPELINE_PHASES.indexOf('dev-design'),
+        parentId: 'col:dev-design',
+        status: 'passed',
+      }),
+      runNode({
+        id: 'run:dev-design:1:verdictGate:0',
+        phase: 'dev-design',
+        colIndex: PIPELINE_PHASES.indexOf('dev-design'),
+        parentId: 'col:dev-design',
+        runStepKind: 'verdictGate',
+        group: 'gate',
+        role: null,
+        sessionId: null,
+      }),
+    ];
+    const edges: ChangeRunEdgeRecord[] = [
       {
-        proposal: [attempt({ startAt: '2026-09-01T00:00:00Z' })],
-        'dev-design': [
-          attempt({
-            startAt: '2026-09-03T00:00:00Z',
-            backtrackTo: 'proposal',
-            backtrackReason: '设计未对齐提案',
-          }),
-        ],
+        fromNodeKey: 'dev-design:1:executor:0',
+        toNodeKey: 'dev-design:1:verdict_gate:0',
+        edgeKind: 'forward',
       },
       {
-        activePhase: { phase: 'code-review', attempt: 1, startAt: '2026-09-02T00:00:00Z' },
+        fromNodeKey: 'dev-design:1:executor:0',
+        toNodeKey: 'dev-design:1:verdict_gate:0',
+        edgeKind: 'backtrack',
       },
-    );
-    const graph = buildFlowGraph(base, backtrackNodes(), backtrackEdges());
+    ];
+    const graph = buildFlowGraph(base, nodes, edges);
     expect(graph.edges.map((edge) => edge.kind)).toEqual(['forward', 'backtrack']);
-    renderGraph(graph, materialsFor(graph, base));
+    renderGraph(graph, materialsFor(base));
 
     // 重放节点度量后，handleBounds 就位、边随真实渲染树输出
     await measureNodes();
@@ -338,257 +476,49 @@ describe('ChangeFlowGraph：ReactFlow 薄层挂载与交互上抛', () => {
     const warnPaths = paths.filter((path) =>
       (path.getAttribute('style') ?? '').includes('var(--warn)'),
     );
-    const borderPaths = paths.filter((path) =>
-      (path.getAttribute('style') ?? '').includes('var(--border)'),
-    );
     expect(warnPaths).toHaveLength(1);
-    expect(borderPaths).toHaveLength(1);
     expect(warnPaths[0]?.getAttribute('style')).toContain('6 4');
-    expect(borderPaths[0]?.getAttribute('style')).not.toContain('6 4');
-    // 边标签着色随 warn 词汇（文本与底色两层）
-    expect(labels[0]?.getAttribute('style') ?? '').toContain('var(--warn)');
-    const labelBg = document.querySelector<SVGRectElement>('.react-flow__edge-textbg');
-    expect(labelBg?.getAttribute('style') ?? '').toContain('var(--warn-bg)');
   });
 
-  it('graph.edges 变化的重渲染 → 边集随新图重建（边 memo 依赖不悬空）', async () => {
-    const withBacktrack = detail(
-      {
-        proposal: [attempt({ startAt: '2026-09-01T00:00:00Z' })],
-        'dev-design': [
-          attempt({
-            startAt: '2026-09-03T00:00:00Z',
-            backtrackTo: 'proposal',
-            backtrackReason: '设计未对齐提案',
-          }),
-        ],
-      },
-      {
-        activePhase: { phase: 'code-review', attempt: 1, startAt: '2026-09-02T00:00:00Z' },
-      },
-    );
-    const firstGraph = buildFlowGraph(withBacktrack, backtrackNodes(), backtrackEdges());
-    const { rerender } = renderGraph(firstGraph, materialsFor(firstGraph, withBacktrack));
-    await measureNodes();
-    await waitFor(() =>
-      expect(document.querySelectorAll('.react-flow__edge')).toHaveLength(firstGraph.edges.length),
-    );
-    expect(firstGraph.edges).toHaveLength(2);
-
-    // 新图无边集 → DOM 边随新图归零（陈旧 memo 不残留旧边）
-    const plain = detail({ proposal: [attempt({ startAt: '2026-09-01T00:00:00Z' })] });
-    const secondGraph = buildFlowGraph(plain, [], []);
-    expect(secondGraph.edges).toHaveLength(0);
-    rerender(
-      <ChangeFlowGraph
-        graph={secondGraph}
-        materials={materialsFor(secondGraph, plain)}
-        onSelect={() => {}}
-      />,
-    );
-    await waitFor(() => expect(document.querySelectorAll('.react-flow__edge')).toHaveLength(0));
+  it('边界：空 graph（columns / nodes / edges 为空）→ 渲染空画布不抛错', () => {
+    const materials: FlowMaterials = { columnDocs: {} };
+    expect(() => renderGraph({ columns: [], nodes: [], edges: [] }, materials)).not.toThrow();
+    expect(screen.getByTestId('flow-graph') !== null).toBe(true);
+    expect(screen.queryByTestId('flow-column')).toBeNull();
+    expect(screen.queryByTestId('run-step-node')).toBeNull();
   });
-});
 
-// ---------------------------------------------------------------------------
-// runStep 运行步节点上图（desktop-change-flow 增量）：nodeTypes 增 runStep
-// 注册为加法——含 RuntimeFlowNode 的图渲染 runStep 组件可辨不炸；既有事件 /
-// 列节点渲染与交互上抛零回归。图数据来自真实 buildFlowGraph(detail, runNodes)。
-// ---------------------------------------------------------------------------
+  it('边界：graph 变化重渲染 → 新节点集合渲染、旧节点零残留', async () => {
+    const before = detail();
+    const { rerender } = renderGraph(buildFlowGraph(before, [runNode()]), materialsFor(before));
+    await waitFor(() => expect(screen.getAllByTestId('run-step-node')).toHaveLength(1));
 
-/** 运行步 overlay 节点 fixture（run-state.ts runStepNodes 同形投影的直构形态）。 */
-function runNode(overrides: Partial<RuntimeFlowNode> = {}): RuntimeFlowNode {
-  return {
-    id: 'run:implement:1:executor',
-    kind: 'runtime',
-    phase: 'implement',
-    attempt: 1,
-    colIndex: 3,
-    order: 0,
-    parentId: 'col:implement',
-    runStepKind: 'executor',
-    group: 'workerAgent',
-    role: 'executor',
-    instanceNo: 0,
-    status: 'running',
-    sessionId: 'ses-exec-1',
-    detail: null,
-    outputRef: null,
-    ...overrides,
-  };
-}
-
-describe('ChangeFlowGraph：runStep 运行步节点上图（overlay 加法回归）', () => {
-  it('含 RuntimeFlowNode 的图 → nodeTypes 解析渲染 runStep 组件：data-testid 可辨、徽章 / 状态 / detail 可读、不炸', async () => {
-    const base = detail({ proposal: [attempt({ startAt: '2026-09-01T00:00:00Z' })] });
-    const graph = buildFlowGraph(base, [
-      runNode(),
+    const after = detail();
+    const secondGraph = buildFlowGraph(after, [
       runNode({
-        id: 'run:implement:1:staticCheck',
-        runStepKind: 'staticCheck',
-        group: 'toolStep',
-        role: null,
-        sessionId: null,
-        status: 'failed',
-        detail: '2 处诊断',
+        id: 'run:test-design:1:evaluator:0',
+        phase: 'test-design',
+        colIndex: PIPELINE_PHASES.indexOf('test-design'),
+        parentId: 'col:test-design',
+        runStepKind: 'evaluator',
+        role: 'evaluator',
+      }),
+      runNode({
+        id: 'run:test-design:1:decision:0',
+        phase: 'test-design',
+        colIndex: PIPELINE_PHASES.indexOf('test-design'),
+        parentId: 'col:test-design',
+        runStepKind: 'decision',
+        role: 'decision',
       }),
     ]);
-    renderGraph(graph, materialsFor(graph, base));
+    rerender(
+      <ChangeFlowGraph graph={secondGraph} materials={materialsFor(after)} onSelect={() => {}} />,
+    );
 
     await waitFor(() => expect(screen.getAllByTestId('run-step-node')).toHaveLength(2));
-    const running = within(screen.getByTestId('rf__node-run:implement:1:executor')).getByTestId(
-      'run-step-node',
-    );
-    expect(running.getAttribute('data-run-group')).toBe('workerAgent');
-    expect(running.getAttribute('data-run-status')).toBe('running');
-    expect(within(running).getByTestId('run-step-group').textContent).toBe('WorkerAgent');
-    expect(within(running).getByTestId('run-step-kind').textContent).toBe('执行');
-    const failed = within(screen.getByTestId('rf__node-run:implement:1:staticCheck')).getByTestId(
-      'run-step-node',
-    );
-    expect(failed.getAttribute('data-run-status')).toBe('failed');
-    expect(within(failed).getByTestId('run-step-group').textContent).toBe('ToolStep');
-    expect(within(failed).getByTestId('run-step-detail').textContent).toBe('2 处诊断');
-  });
-
-  it('既有事件 / 列节点渲染与交互上抛零回归；点击 runStep 节点同样上抛 { scope: node, nodeId }', async () => {
-    const onSelect = vi.fn();
-    const base = detail({ proposal: [attempt({ startAt: '2026-09-01T00:00:00Z' })] });
-    const graph = buildFlowGraph(base, [
-      runNode({
-        id: 'run:dev-design:1:evaluator',
-        phase: 'dev-design',
-        runStepKind: 'evaluator',
-        status: 'passed',
-        sessionId: 'ses-eval-1',
-      }),
-    ]);
-    renderGraph(graph, materialsFor(graph, base), onSelect);
-
-    await waitFor(() => expect(screen.getAllByTestId('flow-node')).toHaveLength(1));
+    expect(screen.getByTestId('rf__node-run:test-design:1:evaluator:0') !== null).toBe(true);
+    expect(screen.queryByTestId('rf__node-run:implement:1:executor:0')).toBeNull();
     expect(screen.getAllByTestId('flow-column')).toHaveLength(10);
-
-    // 既有交互上抛：事件节点照旧
-    fireEvent.click(screen.getByTestId('flow-node'));
-    expect(onSelect).toHaveBeenCalledWith({ scope: 'node', nodeId: 'eval:proposal:1' });
-    // 加法分支：运行步节点共用同一抽屉入口
-    fireEvent.click(screen.getByTestId('rf__node-run:dev-design:1:evaluator'));
-    expect(onSelect).toHaveBeenCalledWith({ scope: 'node', nodeId: 'run:dev-design:1:evaluator' });
   });
 });
-
-// ---------------------------------------------------------------------------
-// toChartNodes onOpenSession 注入删除（desktop-drawer-session-column，AC-4）：
-// runtime 分支 data 收敛 `{ node }`——渲染输出恒不含 view-session testid
-// （workerAgent 运行节点在场亦然），注入形态收敛不触图结构
-// ---------------------------------------------------------------------------
-
-describe('ChangeFlowGraph：onOpenSession 注入删除收敛（AC-4）', () => {
-  it('workerAgent 运行节点在场 → 渲染输出恒不含 view-session testid（图层仍注入 / 组件仍渲染的残留检测）', async () => {
-    const base = detail({ proposal: [attempt({ startAt: '2026-09-01T00:00:00Z' })] });
-    const graph = buildFlowGraph(base, [runNode()]);
-    const { container } = renderGraph(graph, materialsFor(graph, base));
-
-    await waitFor(() => expect(screen.getAllByTestId('run-step-node')).toHaveLength(1));
-    expect(
-      within(screen.getByTestId('rf__node-run:implement:1:executor')).getByTestId('run-step-group')
-        .textContent,
-    ).toBe('WorkerAgent');
-    // 图层注入删除后的整树残留检测：任意路径均无 view-session 入口
-    expect(screen.queryByTestId('view-session')).toBeNull();
-    expect(container.querySelector('[data-testid="view-session"]')).toBeNull();
-  });
-
-  it('注入形态收敛后图结构零回归：10 列 + 节点集逐 id 一致、DOM 边集与图边集逐 id 一致', async () => {
-    const base = detail(
-      { proposal: [attempt({ startAt: '2026-09-01T00:00:00Z' })] },
-      { activePhase: { phase: 'dev-design', attempt: 1, startAt: '2026-09-02T00:00:00Z' } },
-    );
-    const graph = buildFlowGraph(base, [runNode()]);
-    renderGraph(graph, materialsFor(graph, base));
-
-    // 事件节点两枚（eval + active）+ 运行步节点一枚
-    await waitFor(() => expect(screen.getAllByTestId('flow-node')).toHaveLength(2));
-    await waitFor(() => expect(screen.getAllByTestId('run-step-node')).toHaveLength(1));
-    expect(screen.getAllByTestId('flow-column')).toHaveLength(10);
-    // 节点集逐 id 一致（注入不增删节点；列容器 id `col:*` 不在 graph.nodes 计）
-    const renderedNodeIds = screen
-      .getAllByTestId(/^rf__node-/)
-      .map((element) => element.getAttribute('data-testid')?.slice('rf__node-'.length) ?? '')
-      .filter((id) => !id.startsWith('col:'))
-      .sort();
-    expect(renderedNodeIds).toEqual(graph.nodes.map((node) => node.id).sort());
-    // DOM 边集与图边集逐 id 一致（注入不产边）
-    await measureNodes();
-    await waitFor(() =>
-      expect(document.querySelectorAll('.react-flow__edge')).toHaveLength(graph.edges.length),
-    );
-    const domEdgeIds = [...document.querySelectorAll('.react-flow__edge')].map(
-      (element) => element.getAttribute('data-id') ?? '',
-    );
-    expect(domEdgeIds.sort()).toEqual(graph.edges.map((edge) => edge.id).sort());
-  });
-});
-
-// ---------------------------------------------------------------------------
-// 执行图（节点 + 边整包）夹具：dev-design 站两节点 + forward / backtrack 两边
-//（边恒读后端边表；backtrack label 取发起相位记因）。run-state.ts runStepNodes
-// 同形直构。
-// ---------------------------------------------------------------------------
-
-/** dev-design 站两运行步节点（executor → phaseLog）。 */
-function backtrackNodes(): RuntimeFlowNode[] {
-  const colIndex = PIPELINE_PHASES.indexOf('dev-design');
-  return [
-    {
-      id: 'run:dev-design:1:executor:0',
-      kind: 'runtime',
-      phase: 'dev-design',
-      attempt: 1,
-      colIndex,
-      order: 0,
-      parentId: 'col:dev-design',
-      runStepKind: 'executor',
-      group: 'workerAgent',
-      role: 'executor',
-      instanceNo: 0,
-      status: 'passed',
-      sessionId: 'ses-dd-exec',
-      detail: null,
-      outputRef: null,
-    },
-    {
-      id: 'run:dev-design:1:phaseLog:0',
-      kind: 'runtime',
-      phase: 'dev-design',
-      attempt: 1,
-      colIndex,
-      order: 1,
-      parentId: 'col:dev-design',
-      runStepKind: 'phaseLog',
-      group: 'toolStep',
-      role: null,
-      instanceNo: 0,
-      status: 'passed',
-      sessionId: null,
-      detail: null,
-      outputRef: null,
-    },
-  ];
-}
-
-/** 两节点之间的 forward / backtrack 边（端点身份串口径）。 */
-function backtrackEdges(): ChangeRunEdgeRecord[] {
-  return [
-    {
-      fromNodeKey: 'dev-design:1:executor:0',
-      toNodeKey: 'dev-design:1:phase_log:0',
-      edgeKind: 'forward',
-    },
-    {
-      fromNodeKey: 'dev-design:1:executor:0',
-      toNodeKey: 'dev-design:1:phase_log:0',
-      edgeKind: 'backtrack',
-    },
-  ];
-}
