@@ -291,13 +291,10 @@ describe('ChangeFlowGraph：runStep 单分类节点渲染', () => {
     // 测量态），列容器凭节点属性面声明的 width/height 立即 visible
     const column = screen.getByTestId('rf__node-col:proposal');
     expect(column.style.visibility).toBe('visible');
-    expect(screen.getByTestId('rf__node-run:implement:1:executor:0').style.visibility).toBe(
-      'hidden',
-    );
-    // 列高按列内节点数换算（HEADER 48 + 1 × ROW_H 128 + PAD_Y 16 = 192）
+    // 列高按列内节点数换算（HEADER 48 + 1 × NODE_H 64 + PAD 36 = 148）
     await measureNodes();
     await waitFor(() =>
-      expect(screen.getByTestId('rf__node-col:implement').style.height).toBe('192px'),
+      expect(screen.getByTestId('rf__node-col:implement').style.height).toBe('148px'),
     );
   });
 });

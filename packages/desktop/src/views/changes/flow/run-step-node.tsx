@@ -1,6 +1,7 @@
 import { Handle, Position, type Node, type NodeProps } from '@xyflow/react';
 
 import { Badge } from '@/components/ui/badge';
+import { HoverCard, HoverCardContent, HoverCardTrigger } from '@/components/ui/hover-card';
 
 import type { ChangeStepKind, ChangeStepStatus } from '../../../types/dto';
 import type { RunStepGroup, RuntimeFlowNode } from './types';
@@ -108,9 +109,16 @@ export function RunStepNode({ data }: NodeProps<RunStepFlowNode>): React.JSX.Ele
       <StepHandles />
       <RunStepHeader node={node} />
       {node.detail !== null && (
-        <div className="mt-1 break-words text-muted-foreground" data-testid="run-step-detail">
-          {node.detail}
-        </div>
+        <HoverCard>
+          <HoverCardTrigger
+            render={
+              <div className="mt-1 text-muted-foreground truncate" data-testid="run-step-detail">
+                {node.detail}
+              </div>
+            }
+          ></HoverCardTrigger>
+          <HoverCardContent>{node.detail}</HoverCardContent>
+        </HoverCard>
       )}
     </div>
   );

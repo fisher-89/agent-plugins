@@ -371,8 +371,8 @@ function detailCalls(): Array<Record<string, unknown>> {
     .map(([, args]) => args as Record<string, unknown>);
 }
 
-describe('ChangeDetailView：页面组装（图区 / 产物区 / 抽屉）', () => {
-  it('建档详情 → flow-graph 图区、产物区并存，无 workflow 独立面板与文件表', async () => {
+describe('ChangeDetailView：页面组装（图区 / 抽屉）', () => {
+  it('建档详情 → flow-graph 图区，无 workflow 独立面板与文件表', async () => {
     const { container } = renderDetail({
       detail: detail(),
       artifacts: PROPOSAL_ENVELOPES,
@@ -381,8 +381,6 @@ describe('ChangeDetailView：页面组装（图区 / 产物区 / 抽屉）', () 
     // file_log 独立面板随载体退役：workflow-panel / filelog-table 零残留
     expect(within(container).queryByTestId('workflow-panel')).toBeNull();
     expect(within(container).queryByTestId('filelog-table')).toBeNull();
-    // 产物区照常渲染
-    expect(within(container).getAllByTestId('artifact-card')).toHaveLength(1);
   });
 
   it('Header 元信息：name / source / created（无代际徽标）；activePhase 运行中 badge（startAt null 不拼时间与占位）', async () => {
@@ -490,84 +488,6 @@ describe('ChangeDetailView：页面组装（图区 / 产物区 / 抽屉）', () 
     expect(within(clean.container).queryByTestId('warn-note')).toBeNull();
   });
 
-  it('产物区多文档 tab 切换：tab 按信封顺序、默认首项选中、点击切换仅渲染当前卡片；清单变短 active 收敛', async () => {
-    const three = [
-      proposalDoc(),
-      envelope({ title: '任务进度' }),
-      envelope({
-        kind: 'unknown-kind',
-        title: '未知产物',
-        payload: null,
-        fallbackText: '未知保底',
-      }),
-    ];
-    const descriptors: ArtifactDescriptor[] = [
-      { kind: 'markdown-doc', source: 'proposal.md', title: '提案', phase: 'proposal' },
-      { kind: 'tasks-progress', source: 'tasks.md', title: '任务进度', phase: 'dev-design' },
-      { kind: 'unknown-kind', source: 'notes.md', title: '未知产物', phase: 'proposal' },
-    ];
-    const view = renderDetail({
-      detail: detail({ artifacts: descriptors }),
-      artifacts: {
-        'markdown-doc:proposal.md': three[0],
-        'tasks-progress:tasks.md': three[1],
-        'unknown-kind:notes.md': three[2],
-      },
-    });
-    const { container } = view;
-    await waitFor(() => expect(within(container).getAllByTestId('artifact-tab')).toHaveLength(3));
-    const tabs = within(container).getAllByTestId('artifact-tab');
-    expect(tabs.map((tab) => tab.textContent)).toEqual(['提案', '任务进度', '未知产物']);
-    // 默认选中首项（TabsTrigger role=tab、选中态 aria-selected），且页面同时只有一张产物卡片
-    expect(tabs[0].getAttribute('aria-selected')).toBe('true');
-    expect(tabs[1].getAttribute('aria-selected')).toBe('false');
-    expect(within(container).getAllByTestId('artifact-card')).toHaveLength(1);
-    expect(container.textContent).toContain('提案正文');
-    expect(container.textContent).not.toContain('未知保底');
-
-    // base-ui Tabs 激活绑在 click，以 click 模拟切换
-    fireEvent.click(tabs[2]);
-    expect(within(container).getAllByTestId('artifact-card')).toHaveLength(1);
-    expect(container.textContent).toContain('未知保底');
-    expect(container.textContent).not.toContain('提案正文');
-    expect(within(container).getAllByTestId('artifact-tab')[2].getAttribute('aria-selected')).toBe(
-      'true',
-    );
-
-    // 显式刷新后清单变短（fixture 收敛为两产物）：active=2 越界收敛到末项（任务进度），不重置回首项
-    loadFixture({
-      detail: detail({ artifacts: descriptors.slice(0, 2) }),
-      artifacts: {
-        'markdown-doc:proposal.md': three[0],
-        'tasks-progress:tasks.md': three[1],
-      },
-    });
-    await act(async () => {
-      fireEvent.click(screen.getByRole('button', { name: '刷新详情' }));
-    });
-    await waitFor(() => expect(within(container).getAllByTestId('artifact-tab')).toHaveLength(2));
-    const shrunk = within(container).getAllByTestId('artifact-tab');
-    expect(shrunk.map((tab) => tab.textContent)).toEqual(['提案', '任务进度']);
-    expect(shrunk[1].getAttribute('aria-selected')).toBe('true');
-    expect(container.textContent).toContain('100%');
-  });
-
-  it('产物区单文档不设 tab 条、卡片直接渲染；空清单「（未发现可读产物）」占位', async () => {
-    const view = renderDetail({ detail: detail(), artifacts: PROPOSAL_ENVELOPES });
-    await waitFor(() =>
-      expect(within(view.container).getAllByTestId('artifact-card')).toHaveLength(1),
-    );
-    expect(within(view.container).queryByTestId('artifact-tabs')).toBeNull();
-    expect(within(view.container).getAllByTestId('artifact-card')).toHaveLength(1);
-
-    // 显式刷新换空产物清单 fixture：占位文案呈现
-    loadFixture({ detail: detail({ artifacts: [] }) });
-    await act(async () => {
-      fireEvent.click(screen.getByRole('button', { name: '刷新详情' }));
-    });
-    await waitFor(() => expect(view.container.textContent).toContain('（未发现可读产物）'));
-  });
-
   it('点击「刷新详情」重新拉取 get_change_detail；点击「← 返回列表」显式 navigate 落 /changes（不用历史回退）', async () => {
     renderDetail({ detail: detail() });
     await screen.findByTestId('flow-graph');
@@ -584,7 +504,7 @@ describe('ChangeDetailView：页面组装（图区 / 产物区 / 抽屉）', () 
     expect(screen.getByTestId('nav-stub') !== null).toBe(true);
   });
 
-  it('status 缺席 + pipeline 空（零列图）→ flow-graph 照常挂载、产物区照常，零 flow-empty 占位', async () => {
+  it('status 缺席 + pipeline 空（零列图）→ flow-graph 照常挂载，零 flow-empty 占位', async () => {
     const { container } = renderDetail({
       detail: detail({
         status: null,
@@ -595,14 +515,10 @@ describe('ChangeDetailView：页面组装（图区 / 产物区 / 抽屉）', () 
       }),
       artifacts: PROPOSAL_ENVELOPES,
     });
-    await waitFor(() => expect(within(container).getAllByTestId('artifact-card')).toHaveLength(1));
     // 图区常驻（零列图仍挂 flow-graph）——文档形态空图占位分支整体退役
-    expect(within(container).getByTestId('flow-graph') !== null).toBe(true);
+    await waitFor(() => expect(within(container).getByTestId('flow-graph')).not.toBeNull());
     expect(within(container).queryAllByTestId('flow-column')).toHaveLength(0);
     expect(within(container).queryByTestId('flow-empty')).toBeNull();
-    // 产物区不受 pipeline 空影响照常渲染
-    expect(within(container).getAllByTestId('artifact-card')).toHaveLength(1);
-    expect(container.textContent).toContain('提案正文');
   });
 
   it('建档 change 零 attempt（pipeline 10 空站含 archive）→ flow-graph 正常渲染 10 列', async () => {
@@ -837,7 +753,7 @@ describe('ChangeDetailView：run 控制面板与运行 overlay 组装', () => {
   });
 
   it('页面头部区挂 RunControlPanel：无运行 run 时发起入口在场（停止 / 状态徽章不呈现），既有组装并存零回归', async () => {
-    const { container } = renderDetail({
+    renderDetail({
       detail: detail(),
       artifacts: PROPOSAL_ENVELOPES,
     });
@@ -847,8 +763,6 @@ describe('ChangeDetailView：run 控制面板与运行 overlay 组装', () => {
     expect(screen.queryByTestId('run-stop')).toBeNull();
     expect(screen.queryByTestId('run-status')).toBeNull();
     expect(screen.queryByTestId('run-error')).toBeNull();
-    // 既有组装（新增为加法）：Header + 图区 + 产物区
-    expect(within(container).getAllByTestId('artifact-card')).toHaveLength(1);
 
     // 发起入口接通 useChangeFlowRun：change_flow_start 携 root / change id 与 Channel
     fireEvent.click(screen.getByTestId('run-start'));
@@ -1182,7 +1096,7 @@ describe('ChangeDetailView：退役元素零渲染与详情图区恒态', () => 
     expect(within(container).queryByTestId('filelog-table')).toBeNull();
   });
 
-  it('详情恒走图区：status 在场 → 10 站流水线图（末列 archive）+ 抽屉入口；status 缺席 + pipeline 空 → 同走图区（零列图）不崩溃不空白，产物区照常', async () => {
+  it('详情恒走图区：status 在场 → 10 站流水线图（末列 archive）+ 抽屉入口；status 缺席 + pipeline 空 → 同走图区（零列图）不崩溃不空白', async () => {
     // 建档：10 列流水线（末列 archive）+ 列头点击开抽屉（单一交互入口可达）
     const filed = renderDetail({ detail: detail(), artifacts: PROPOSAL_ENVELOPES });
     await waitFor(() => expect(screen.getAllByTestId('flow-column')).toHaveLength(10));
@@ -1190,27 +1104,6 @@ describe('ChangeDetailView：退役元素零渲染与详情图区恒态', () => 
     expect(screen.getByTestId('detail-drawer') !== null).toBe(true);
     fireEvent.click(screen.getByRole('button', { name: '关闭' }));
     filed.unmount();
-
-    // status 缺席 + pipeline 空：图区照常（零列图）+ 产物卡片照常渲染
-    //（有实质内容，非空白非崩溃；flow-empty 占位与其「文档形态」文案零出现）
-    const doc = renderDetail({
-      detail: detail({
-        status: null,
-        pipeline: [],
-        artifacts: [
-          { kind: 'markdown-doc', source: 'proposal.md', title: '提案', phase: 'proposal' },
-        ],
-      }),
-      artifacts: PROPOSAL_ENVELOPES,
-    });
-    await waitFor(() =>
-      expect(within(doc.container).getAllByTestId('artifact-card')).toHaveLength(1),
-    );
-    expect(within(doc.container).getByTestId('flow-graph') !== null).toBe(true);
-    expect(within(doc.container).queryByTestId('flow-empty')).toBeNull();
-    expect(doc.container.textContent).not.toContain('文档形态');
-    expect(doc.container.textContent).toContain('提案正文');
-    expect(doc.container.textContent).not.toContain('无法解析');
   });
 
   it('面板传参收敛：命令面 prop changeId == URL id、展示面 name == detail.name（页内单一身份源 AC-7）', async () => {
@@ -1400,11 +1293,10 @@ describe('ChangeDetailView：归档链退役（入口按钮 / 面板 / 状态源
     expect(commands.some((command) => command.startsWith('archive_flow_'))).toBe(false);
   });
 
-  it('既有渲染回归：详情头 / 状态徽章 / 产物区 / 抽屉入口不受归档链退役影响', async () => {
+  it('既有渲染回归：详情头 / 状态徽章 / 抽屉入口不受归档链退役影响', async () => {
     const { container } = renderDetail({ detail: detail(), artifacts: PROPOSAL_ENVELOPES });
     await screen.findByTestId('detail-header');
     expect(within(container).getByTestId('detail-header').textContent).toContain('进行中');
-    await waitFor(() => expect(within(container).getAllByTestId('artifact-card')).toHaveLength(1));
     // 抽屉入口仍经列头可达（单一交互入口不变）
     fireEvent.click(screen.getAllByTestId('flow-column')[0]);
     expect(screen.getByTestId('detail-drawer') !== null).toBe(true);

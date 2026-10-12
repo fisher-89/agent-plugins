@@ -56,6 +56,15 @@ export default defineConfig({
     },
     overrides: [
       {
+        files: ['*.tsx'],
+        rules: {
+          'max-lines-per-function': [
+            'error',
+            { max: 80, skipBlankLines: true, skipComments: true }, // react元素代码量普遍较大，放宽函数代码行阈值
+          ],
+        },
+      },
+      {
         files: ['*.test.ts', '*.test.tsx'],
         rules: {
           'max-lines-per-function': 'off',

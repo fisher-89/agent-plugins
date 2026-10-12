@@ -65,8 +65,7 @@ function toChartEdges(graph: FlowGraph): Edge[] {
   }));
 }
 
-/** 画布内层：默认 100% 视口；滚轮（含 Ctrl+滚轮）平移画布而非缩放，平移范围
- *  translateExtent 钳制在内容包围盒 + 少量边距内（无点背景，与周边 DOM 融合） */
+/** 画布内层 */
 function FlowCanvas({ graph, materials, onSelect }: ChangeFlowGraphProps): React.JSX.Element {
   const nodes = useMemo(
     () => toChartNodes(graph, materials, onSelect),
@@ -85,7 +84,7 @@ function FlowCanvas({ graph, materials, onSelect }: ChangeFlowGraphProps): React
   };
   return (
     <div
-      className="h-[440px] w-full overflow-hidden rounded-md bg-background"
+      className="flex-1 w-full overflow-hidden rounded-md bg-background"
       data-testid="flow-graph"
     >
       <ReactFlow

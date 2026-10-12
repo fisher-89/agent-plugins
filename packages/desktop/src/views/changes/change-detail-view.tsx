@@ -20,7 +20,6 @@ import { runStepNodes, unifiedRunEdges, unifiedRunNodes } from './flow/run-state
 import type { DrawerSelection, FlowGraph, FlowMaterials } from './flow/types';
 import { useChangeDetail } from './hooks/use-change-detail';
 import { useChangeFlowRun } from './hooks/use-change-flow-run';
-import { ArtifactTabs } from './renderers/artifact-tabs';
 
 function formatTime(value: string | null): string {
   if (value === null) return '—';
@@ -78,32 +77,9 @@ function FlowSection({
   onSelect: (selection: DrawerSelection) => void;
 }): React.JSX.Element {
   return (
-    <section className="mb-4 rounded-lg border border-border bg-card px-4 py-3.5">
+    <section className="h-full mb-4 rounded-lg border border-border bg-card px-4 py-3.5 flex flex-col">
       <h2 className="m-0 mb-2.5 text-[15px]">流程图</h2>
       <ChangeFlowGraph graph={graph} materials={materials} onSelect={onSelect} />
-    </section>
-  );
-}
-
-/** 产物区：多文档经 ArtifactTabs 切换（共享组件，语义见 artifact-tabs.tsx）；
- * 空清单以本节文案占位。 */
-function DetailSectionArtifacts({ artifacts }: { artifacts: ArtifactEnvelope[] }) {
-  if (artifacts.length === 0) {
-    return (
-      <section className="mb-4 rounded-lg border border-border bg-card px-4 py-3.5">
-        <h2 className="m-0 mb-2.5 text-[15px]">
-          产物 <span className="text-muted-foreground">(0)</span>
-        </h2>
-        <div className="text-muted-foreground">（未发现可读产物）</div>
-      </section>
-    );
-  }
-  return (
-    <section className="mb-4 rounded-lg border border-border bg-card px-4 py-3.5">
-      <h2 className="m-0 mb-2.5 text-[15px]">
-        产物 <span className="text-muted-foreground">({artifacts.length})</span>
-      </h2>
-      <ArtifactTabs artifacts={artifacts} />
     </section>
   );
 }
@@ -172,7 +148,6 @@ function DetailContent({
   name,
   graph,
   materials,
-  artifacts,
   transcriptRefreshKey,
 }: {
   root: string | null;
@@ -181,14 +156,12 @@ function DetailContent({
   name: string;
   graph: FlowGraph;
   materials: FlowMaterials;
-  artifacts: ArtifactEnvelope[];
   transcriptRefreshKey: number;
 }): React.JSX.Element {
   const [selection, setSelection] = useState<DrawerSelection | null>(null);
   return (
     <>
       <FlowSection graph={graph} materials={materials} onSelect={setSelection} />
-      <DetailSectionArtifacts artifacts={artifacts} />
       <DetailDrawer
         selection={selection}
         graph={graph}
@@ -287,7 +260,7 @@ function DetailLoaded({
 }: DetailLoadedProps): React.JSX.Element {
   const { graph, materials, lastRun } = useFlowGraphData(detail, activeRun, artifacts);
   return (
-    <div>
+    <div className="flex flex-col h-full">
       {header}
       <DetailActionPanels
         detail={detail}
@@ -296,19 +269,16 @@ function DetailLoaded({
         lastRun={lastRun}
         run={run}
       />
-      <DetailContent
-        root={root}
-        // 单一身份源 = URL id（detail 恒经该 id 取数、两值同源；不可达形态
-        // 兜底记录 id 保取数链断裂时不静默丢身份）
-        id={id ?? detail.id}
-        // stdout 面板磁盘面寻址键取 detail.name（与 record_exec_output 同口径，
-        // 非 URL id）
-        name={detail.name}
-        graph={graph}
-        materials={materials}
-        artifacts={artifacts}
-        transcriptRefreshKey={transcriptRefreshKey}
-      />
+      <div className="flex-1 min-h-0">
+        <DetailContent
+          root={root}
+          id={id ?? detail.id}
+          name={detail.name}
+          graph={graph}
+          materials={materials}
+          transcriptRefreshKey={transcriptRefreshKey}
+        />
+      </div>
     </div>
   );
 }

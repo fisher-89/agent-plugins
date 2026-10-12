@@ -84,15 +84,18 @@ describe('nodePosition：布局即语义坐标公式', () => {
     if (proposal === undefined || devDesign === undefined) throw new Error('夹具节点缺失');
     expect(proposal.order).toBe(0);
     expect(devDesign.order).toBe(0);
-    expect(nodeLayout(proposal).position).toEqual({ x: COLUMN_PADDING, y: COLUMN_HEADER_H });
-    expect(nodeLayout(devDesign).position).toEqual({ x: 18, y: 48 });
+    expect(nodeLayout(proposal).position).toEqual({
+      x: COLUMN_PADDING,
+      y: COLUMN_HEADER_H + COLUMN_PADDING,
+    });
+    expect(nodeLayout(devDesign).position).toEqual({ x: 18, y: 66 });
   });
 
-  it('order=0（列内首个节点）→ y 恰为 COLUMN_HEADER_H', () => {
+  it('order=0（列内首个节点）→ y 恰为 COLUMN_HEADER_H + COLUMN_PADDING', () => {
     const graph = graphWithTwoRunSteps();
     const first = graph.nodes[0];
     expect(first.order).toBe(0);
-    expect(nodeLayout(first).position.y).toBe(48);
+    expect(nodeLayout(first).position.y).toBe(66);
   });
 
   it('末列 colIndex=9（archive）→ x 恰为 9 × (COL_W + 20)（画布总宽边界上移一列）', () => {
@@ -105,7 +108,7 @@ describe('nodePosition：布局即语义坐标公式', () => {
     const graph = graphWithTwoRunSteps();
     const node: FlowNode = { ...graph.nodes[0], order: 1000 };
     const { position } = nodeLayout(node);
-    expect(position).toEqual({ x: 18, y: 48 + 1000 * 128 });
+    expect(position).toEqual({ x: 18, y: 48 + COLUMN_PADDING + 1000 * 96 });
     expect(Number.isFinite(position.x)).toBe(true);
     expect(Number.isFinite(position.y)).toBe(true);
   });
