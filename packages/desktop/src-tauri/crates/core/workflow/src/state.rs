@@ -371,9 +371,9 @@ pub enum OnFail {
         /// 反馈边独立计数上限
         limit: u32,
     },
-    /// 终态失败停给用户。现无步声明（verdict 解析失败自 feedback 边改造后不再
-    /// 走终态）；保留为线面兼容（wire 词 `"terminal"` 往返测试锁定），语义与
-    /// 缺省 `None` 等价。
+    /// 终态失败停给用户。现仅 code-analyze 相位 VerdictGate 声明（spec 定稿：
+    /// 分析相位 verdict 失败即终态）；其余 verdict 解析失败自 feedback 边改造后
+    /// 不再走终态。语义与缺省 `None` 等价。
     Terminal,
 }
 

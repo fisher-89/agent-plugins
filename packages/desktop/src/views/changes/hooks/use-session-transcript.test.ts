@@ -216,10 +216,12 @@ describe('useSessionTranscript：反查重放装载（AC-5 重放半边）', () 
     ]);
   });
 
-  it('同 sourceRef 多会话（重发同 attempt 的罕见形态）：以清单末位会话重放', async () => {
+  it('同 sourceRef 多会话（重启重跑同 attempt 的跨轮形态）：以清单首位（updated_at 降序最新）会话重放，不串上一轮会话', async () => {
+    // 后端清单按 updated_at 降序稳定序返回：首位 = 最近会话（重启轮），末位 =
+    // 上一轮旧会话
     sessionsResult = [
-      summary('ses-old', [turn(1, 'completed')]),
       summary(SESSION_ID, [turn(2, 'completed')]),
+      summary('ses-old', [turn(1, 'completed')]),
     ];
     transcriptResult = [textMessage(0, '最近会话')];
     const { result } = await mounted();
@@ -228,6 +230,10 @@ describe('useSessionTranscript：反查重放装载（AC-5 重放半边）', () 
     expect(invokeMock).toHaveBeenCalledWith('agent_session_transcript', {
       root: ROOT,
       sessionId: SESSION_ID,
+    });
+    expect(invokeMock).not.toHaveBeenCalledWith('agent_session_transcript', {
+      root: ROOT,
+      sessionId: 'ses-old',
     });
     expect(result.current.messages[0]?.parts[0]).toMatchObject({ type: 'text', text: '最近会话' });
   });
@@ -713,9 +719,9 @@ describe('useSessionTranscript：summary 三件套（AC-3 / D4）', () => {
     expect(result.current.running).toBe(true);
   });
 
-  it('反查命中：summary = 清单 latest 会话三件套（同 ref 多会话取末位口径对 summary 同样成立）', async () => {
+  it('反查命中：summary = 清单 latest 会话三件套（同 ref 多会话取降序首位口径对 summary 同样成立）', async () => {
     const latest = summary('ses-latest', [turn(12, 'completed')]);
-    sessionsResult = [summary('ses-old', [turn(11, 'completed')]), latest];
+    sessionsResult = [latest, summary('ses-old', [turn(11, 'completed')])];
     transcriptResult = REPLAY;
     const { result } = await mounted();
     await waitFor(() => expect(result.current.messages).toHaveLength(2));

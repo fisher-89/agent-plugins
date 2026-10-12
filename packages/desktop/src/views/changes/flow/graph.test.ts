@@ -1,12 +1,8 @@
 import { describe, expect, it } from 'vite-plus/test';
 
-import type {
-  AttemptRecord,
-  ChangeDetail,
-  ChangeRunEdgeRecord,
-  PhaseEntry,
-} from '../../../types/dto';
+import type { AttemptRecord, ChangeDetail, PhaseEntry } from '../../../types/dto';
 import { buildFlowGraph } from './graph';
+import type { UnifiedRunEdge } from './run-state';
 import type { RuntimeFlowNode } from './types';
 
 /**
@@ -91,13 +87,14 @@ function richDetail(): ChangeDetail {
 /** 运行步节点 fixture（run-state.ts runStepNodes 同形投影的直构形态）。 */
 function runNode(overrides: Partial<RuntimeFlowNode> = {}): RuntimeFlowNode {
   return {
-    id: 'run:implement:1:executor:0',
+    id: 'run:run-1727:implement:1:executor:0',
     kind: 'runtime',
     phase: 'implement',
     attempt: 1,
     colIndex: REQUIREMENT_PHASES.indexOf('implement'),
     order: 0,
     parentId: 'col:implement',
+    runId: 'run-1727',
     runStepKind: 'executor',
     group: 'workerAgent',
     role: 'executor',
@@ -110,13 +107,15 @@ function runNode(overrides: Partial<RuntimeFlowNode> = {}): RuntimeFlowNode {
   };
 }
 
-/** 边行 fixture（后端边表条目；端点恒为节点身份串
- * `"{phase}:{attempt}:{step}:{instanceNo}"`——`step` 为 snake 线词）。 */
-function edgeRow(overrides: Partial<ChangeRunEdgeRecord> = {}): ChangeRunEdgeRecord {
+/** 边行 fixture（统一视图边行；端点恒为节点身份串
+ * `"{phase}:{attempt}:{step}:{instanceNo}"`——`step` 为 snake 线词，归属 run id
+ * 随行）。 */
+function edgeRow(overrides: Partial<UnifiedRunEdge> = {}): UnifiedRunEdge {
   return {
     fromNodeKey: 'implement:1:phase_start:0',
     toNodeKey: 'implement:1:executor:0',
     edgeKind: 'forward',
+    runId: 'run-1727',
     ...overrides,
   };
 }
@@ -446,6 +445,71 @@ describe('buildFlowGraph：边表直读（runEdges）', () => {
     expect(graph.edges[0].source).not.toBe(graph.edges[0].target);
     expect(graph.edges[0].source).toBe('run:implement:1:executor:0');
     expect(graph.edges[0].target).toBe('run:implement:1:executor:1');
+  });
+
+  it('重启重跑同 attempt：跨 run 同名身份串边按归属 run 锚定（不锚错他轮节点）', () => {
+    const graph = buildFlowGraph(
+      detail(),
+      [
+        runNode({
+          id: 'run:run-1:test-gen:1:phaseStart:0',
+          runId: 'run-1',
+          phase: 'test-gen',
+          runStepKind: 'phaseStart',
+          group: 'toolStep',
+          role: null,
+          sessionId: null,
+        }),
+        runNode({
+          id: 'run:run-1:test-gen:1:executor:0',
+          runId: 'run-1',
+          phase: 'test-gen',
+          sessionId: 'ses-run-1',
+          status: 'passed',
+        }),
+        runNode({
+          id: 'run:run-2:test-gen:1:phaseStart:0',
+          runId: 'run-2',
+          phase: 'test-gen',
+          runStepKind: 'phaseStart',
+          group: 'toolStep',
+          role: null,
+          sessionId: null,
+        }),
+        runNode({
+          id: 'run:run-2:test-gen:1:executor:0',
+          runId: 'run-2',
+          phase: 'test-gen',
+          sessionId: 'ses-run-2',
+          status: 'running',
+        }),
+      ],
+      [
+        edgeRow({
+          runId: 'run-1',
+          fromNodeKey: 'test-gen:1:phase_start:0',
+          toNodeKey: 'test-gen:1:executor:0',
+        }),
+        edgeRow({
+          runId: 'run-2',
+          fromNodeKey: 'test-gen:1:phase_start:0',
+          toNodeKey: 'test-gen:1:executor:0',
+        }),
+      ],
+    );
+    // 两轮 phaseStart 节点并存（重启节点 id 携 run 段互不顶替）
+    expect(graph.nodes.map((node) => node.id)).toEqual([
+      'run:run-1:test-gen:1:phaseStart:0',
+      'run:run-1:test-gen:1:executor:0',
+      'run:run-2:test-gen:1:phaseStart:0',
+      'run:run-2:test-gen:1:executor:0',
+    ]);
+    // 边按归属 run 锚定：run-1 边落 run-1 节点、run-2 边落 run-2 节点（同身份串
+    // 不跨轮错锚）
+    expect(graph.edges.map((edge) => [edge.source, edge.target])).toEqual([
+      ['run:run-1:test-gen:1:phaseStart:0', 'run:run-1:test-gen:1:executor:0'],
+      ['run:run-2:test-gen:1:phaseStart:0', 'run:run-2:test-gen:1:executor:0'],
+    ]);
   });
 });
 

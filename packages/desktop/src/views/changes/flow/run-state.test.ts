@@ -4,10 +4,16 @@ import type {
   ChangeRunEntry,
   ChangeRunNodeRecord,
   ChangeStepKind,
-  ChangeStepState,
   RunStepKind,
 } from '../../../types/dto';
-import { nodeIdentityKey, runStepNodes, unifiedRunNodes } from './run-state';
+import {
+  nodeIdentityKey,
+  runNodeKey,
+  runStepNodes,
+  unifiedRunNodes,
+  type LiveRunFace,
+  type UnifiedRunStep,
+} from './run-state';
 
 /**
  * requirement 相位序夹具（D12：前端 `PIPELINE_PHASES` 常量退役，`runStepNodes`
@@ -26,14 +32,12 @@ const REQUIREMENT_PHASES = [
 ];
 
 // ---------------------------------------------------------------------------
-// run-state 纯函数直测（零 react / 零进程边界依赖）：统一视图 fixture 以绑定
-// 类型内存构造。覆盖：unifiedRunNodes 双源合成（`runs[].nodes` 展开 + 活节点
-// 并入 + 步词汇十八值归一单点）/ runStepNodes 按后端稳定身份键
-// `(phase, attempt, step, instanceNo)` 直渲染（槽位配对与 `:seq` 堆叠整体退役）。
+// run-state 纯函数直测（零 react / 零进程边界依赖）
 // ---------------------------------------------------------------------------
 
-/** 宽松默认值构造单条活面步状态行。 */
-function stepRow(overrides: Partial<ChangeStepState> = {}): ChangeStepState {
+/** 宽松默认值构造单条统一视图步行（ChangeStepState + 归属 run id——runStepNodes
+ * 与 unifiedRunNodes 期望面的共同口径）。 */
+function stepRow(overrides: Partial<UnifiedRunStep> = {}): UnifiedRunStep {
   return {
     phase: 'implement',
     attempt: 1,
@@ -43,8 +47,14 @@ function stepRow(overrides: Partial<ChangeStepState> = {}): ChangeStepState {
     detail: null,
     instanceNo: 0,
     outputRef: null,
+    runId: 'run-1727',
     ...overrides,
   };
+}
+
+/** 宽松默认值构造活面 run 缝（LiveRunFace：run id + 节点 / 边同源捆绑）。 */
+function liveFace(overrides: Partial<LiveRunFace> = {}): LiveRunFace {
+  return { runId: 'run-live', nodes: [], edges: [], ...overrides };
 }
 
 /** 宽松默认值构造库读史节点行（ChangeRunNodeRecord，snake 词全词汇）。 */
@@ -88,10 +98,10 @@ describe('unifiedRunNodes：双源合成（库读史 ∪ 活面）', () => {
         ],
       }),
     ];
-    expect(unifiedRunNodes(runs, [])).toEqual([
-      stepRow({ step: 'executor' }),
-      stepRow({ step: 'staticCheck', sessionId: null }),
-      stepRow({ step: 'evaluator', sessionId: 'ses-eval-1' }),
+    expect(unifiedRunNodes(runs, null)).toEqual([
+      stepRow({ runId: 'run-1', step: 'executor' }),
+      stepRow({ runId: 'run-1', step: 'staticCheck', sessionId: null }),
+      stepRow({ runId: 'run-1', step: 'evaluator', sessionId: 'ses-eval-1' }),
     ]);
   });
 
@@ -109,7 +119,7 @@ describe('unifiedRunNodes：双源合成（库读史 ∪ 活面）', () => {
         ],
       }),
     ];
-    expect(unifiedRunNodes(runs, []).map((row) => row.step)).toEqual([
+    expect(unifiedRunNodes(runs, null).map((row) => row.step)).toEqual([
       'staticCheck',
       'testExecution',
       'phaseStart',
@@ -133,9 +143,13 @@ describe('unifiedRunNodes：双源合成（库读史 ∪ 活面）', () => {
         nodes: [runStepRow({ instanceNo: 0, attempt: 2, status: 'passed' })],
       }),
     ];
-    const steps = unifiedRunNodes(runs, [stepRow({ attempt: 3, status: 'passed' })]);
+    const steps = unifiedRunNodes(
+      runs,
+      liveFace({ nodes: [stepRow({ runId: 'run-live', attempt: 3, status: 'passed' })] }),
+    );
     expect(steps.map((row) => row.attempt)).toEqual([1, 2, 3]);
-    expect(steps[2]).toMatchObject({ attempt: 3, status: 'passed' });
+    expect(steps.map((row) => row.runId)).toEqual(['run-1', 'run-2', 'run-live']);
+    expect(steps[2]).toMatchObject({ attempt: 3, status: 'passed', runId: 'run-live' });
   });
 
   it('稳定身份键随行：instanceNo 与 outputRef 自库读史直透（feedback 重跑实例不串扰）', () => {
@@ -153,7 +167,7 @@ describe('unifiedRunNodes：双源合成（库读史 ∪ 活面）', () => {
         ],
       }),
     ];
-    const steps = unifiedRunNodes(runs, []);
+    const steps = unifiedRunNodes(runs, null);
     expect(steps.map((row) => row.instanceNo)).toEqual([0, 1]);
     expect(steps[1]).toMatchObject({
       instanceNo: 1,
@@ -163,15 +177,65 @@ describe('unifiedRunNodes：双源合成（库读史 ∪ 活面）', () => {
     });
   });
 
-  it('空 runs / 空 liveNodes → 空数组（零 run 收口后无史形态）；仅 live（首 run 运行中零库史）→ 活节点全量出', () => {
-    expect(unifiedRunNodes([], [])).toEqual([]);
+  it('空 runs / 空活面 → 空数组（零 run 收口后无史形态）；仅 live（首 run 运行中零库史）→ 活节点全量出', () => {
+    expect(unifiedRunNodes([], null)).toEqual([]);
     // 首 run 运行中（库面无史）→ 活面节点表全量出、零库读史分量
     expect(
       unifiedRunNodes(
         [],
-        [stepRow({ step: 'executor' }), stepRow({ step: 'staticCheck', attempt: 2 })],
+        liveFace({
+          nodes: [
+            stepRow({ runId: 'run-live', step: 'executor' }),
+            stepRow({ runId: 'run-live', step: 'staticCheck', attempt: 2 }),
+          ],
+        }),
       ),
-    ).toEqual([stepRow({ step: 'executor' }), stepRow({ step: 'staticCheck', attempt: 2 })]);
+    ).toEqual([
+      stepRow({ runId: 'run-live', step: 'executor' }),
+      stepRow({ runId: 'run-live', step: 'staticCheck', attempt: 2 }),
+    ]);
+  });
+});
+
+describe('unifiedRunNodes / runStepNodes：重启重跑同 attempt（跨 run 同名身份键）', () => {
+  it('两 run 同 (phase, attempt, step, instanceNo)：节点 id 携 run 归属段互不顶替、全量出线', () => {
+    const runs = [
+      runEntry({
+        runId: 'run-1',
+        nodes: [
+          runStepRow({ phase: 'test-gen', attempt: 1, step: 'phase_start', sessionId: null }),
+        ],
+      }),
+    ];
+    const steps = unifiedRunNodes(
+      runs,
+      liveFace({
+        runId: 'run-2',
+        nodes: [
+          stepRow({
+            runId: 'run-2',
+            phase: 'test-gen',
+            attempt: 1,
+            step: 'phaseStart',
+            sessionId: null,
+          }),
+        ],
+      }),
+    );
+    const nodes = runStepNodes(steps, REQUIREMENT_PHASES);
+    // 前一轮与重启轮的 phaseStart 同为 attempt 1 实例 0：id 以 run 段区分、两节点并存
+    expect(nodes.map((node) => node.id)).toEqual([
+      'run:run-1:test-gen:1:phaseStart:0',
+      'run:run-2:test-gen:1:phaseStart:0',
+    ]);
+    expect(nodes.map((node) => node.runId)).toEqual(['run-1', 'run-2']);
+    expect(new Set(nodes.map((node) => node.id)).size).toBe(nodes.length);
+  });
+
+  it('runNodeKey：run 归属段前拼身份键（边锚定与节点侧同式），nodeIdentityKey 仍为后端端点口径', () => {
+    const node = runStepNodes([stepRow({ runId: 'run-9' })], REQUIREMENT_PHASES)[0];
+    expect(runNodeKey(node)).toBe('run-9:implement:1:executor:0');
+    expect(nodeIdentityKey(node)).toBe('implement:1:executor:0');
   });
 });
 
@@ -189,8 +253,8 @@ describe('runStepNodes：稳定身份键渲染（overlay 输入面）', () => {
     const nodes = runStepNodes(steps, REQUIREMENT_PHASES);
     expect(nodes).toHaveLength(2);
     expect(nodes.map((node) => node.id)).toEqual([
-      'run:implement:1:executor:0',
-      'run:implement:1:executor:1',
+      'run:run-1727:implement:1:executor:0',
+      'run:run-1727:implement:1:executor:1',
     ]);
     expect(nodes[1]).toMatchObject({
       instanceNo: 1,
@@ -201,7 +265,7 @@ describe('runStepNodes：稳定身份键渲染（overlay 输入面）', () => {
     expect(new Set(nodes.map((node) => node.id)).size).toBe(nodes.length);
   });
 
-  it('id 定式逐字：run:<phase>:<attempt>:<step>:<instanceNo>（`:seq` 堆叠全退役）', () => {
+  it('id 定式逐字：run:<runId>:<phase>:<attempt>:<step>:<instanceNo>（`:seq` 堆叠全退役）', () => {
     const steps = [
       stepRow(),
       stepRow({ step: 'staticCheck', sessionId: null }),
@@ -211,10 +275,10 @@ describe('runStepNodes：稳定身份键渲染（overlay 输入面）', () => {
 
     const nodes = runStepNodes(steps, REQUIREMENT_PHASES);
     expect(nodes.map((node) => node.id)).toEqual([
-      'run:implement:1:executor:0',
-      'run:implement:1:staticCheck:0',
-      'run:implement:1:staticCheck:0',
-      'run:implement:1:staticCheck:1',
+      'run:run-1727:implement:1:executor:0',
+      'run:run-1727:implement:1:staticCheck:0',
+      'run:run-1727:implement:1:staticCheck:0',
+      'run:run-1727:implement:1:staticCheck:1',
     ]);
     expect(nodes.some((node) => node.id.includes(':seq'))).toBe(false);
   });
@@ -233,13 +297,14 @@ describe('runStepNodes：稳定身份键渲染（overlay 输入面）', () => {
 
     const nodes = runStepNodes(steps, REQUIREMENT_PHASES);
     expect(nodes[0]).toEqual({
-      id: 'run:implement:1:executor:0',
+      id: 'run:run-1727:implement:1:executor:0',
       kind: 'runtime',
       phase: 'implement',
       attempt: 1,
       colIndex: 3,
       order: 0,
       parentId: 'col:implement',
+      runId: 'run-1727',
       runStepKind: 'executor',
       group: 'workerAgent',
       role: 'executor',
@@ -250,7 +315,7 @@ describe('runStepNodes：稳定身份键渲染（overlay 输入面）', () => {
       outputRef: null,
     });
     expect(nodes[1]).toMatchObject({
-      id: 'run:implement:1:phaseLog:0',
+      id: 'run:run-1727:implement:1:phaseLog:0',
       kind: 'runtime',
       runStepKind: 'phaseLog',
       group: 'toolStep',
@@ -306,7 +371,7 @@ describe('runStepNodes：稳定身份键渲染（overlay 输入面）', () => {
   it('缺号相位跳过：phase 不在相位表内的步不入图（列序随出线）', () => {
     const steps = [stepRow({ phase: 'bootstrap' }), stepRow()];
     expect(runStepNodes(steps, REQUIREMENT_PHASES).map((node) => node.id)).toEqual([
-      'run:implement:1:executor:0',
+      'run:run-1727:implement:1:executor:0',
     ]);
   });
 
@@ -339,7 +404,7 @@ describe('run-state：缺省字段（推导不崩）', () => {
     ];
     const nodes = runStepNodes(steps, REQUIREMENT_PHASES);
     expect(nodes[0]).toMatchObject({
-      id: 'run:implement:1:whitelistGate:0',
+      id: 'run:run-1727:implement:1:whitelistGate:0',
       group: 'gate',
       role: null,
       sessionId: null,
@@ -349,10 +414,10 @@ describe('run-state：缺省字段（推导不崩）', () => {
   });
 
   it('instanceNo 缺号（undefined）→ 身份串退化不崩，不抛错', () => {
-    const broken = { ...stepRow(), instanceNo: undefined } as unknown as ChangeStepState;
+    const broken = { ...stepRow(), instanceNo: undefined } as unknown as UnifiedRunStep;
     const nodes = runStepNodes([broken], REQUIREMENT_PHASES);
     expect(nodes).toHaveLength(1);
-    expect(nodes[0].id).toBe('run:implement:1:executor:undefined');
+    expect(nodes[0].id).toBe('run:run-1727:implement:1:executor:undefined');
   });
 });
 
@@ -374,7 +439,7 @@ describe('unifiedRunNodes：词汇全词汇归一', () => {
     const steps = PERSISTED_WORDS.map((step, index) =>
       runStepRow({ instanceNo: index, step, sessionId: null }),
     );
-    const unified = unifiedRunNodes([runEntry({ nodes: steps })], []);
+    const unified = unifiedRunNodes([runEntry({ nodes: steps })], null);
     expect(unified.map((row) => row.step)).toEqual([
       'executor',
       'evaluator',
@@ -403,7 +468,7 @@ describe('run-state：归档 8 步词归一与 Git 分类（AC-2 / AC-9）', () 
       'finalize',
     ].map((step, index) => runStepRow({ instanceNo: index, step: step as RunStepKind }));
 
-    const unified = unifiedRunNodes([runEntry({ nodes: steps })], []);
+    const unified = unifiedRunNodes([runEntry({ nodes: steps })], null);
 
     expect(unified.map((row) => row.step)).toEqual([
       'preflight',

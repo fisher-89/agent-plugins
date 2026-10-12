@@ -716,12 +716,13 @@ fn expected_steps(phase: &str) -> Vec<StepNode> {
 }
 
 /// 相位 → `on_fail` 声明期望（三门禁步 FeedbackLoop{5}——static-check /
-/// test-execution / verdict-gate；其余 None）。
-fn expected_on_fail(node: StepNode) -> Option<OnFail> {
+/// test-execution / verdict-gate；code-analyze 的 VerdictGate 例外为
+/// Terminal——spec 定稿「分析相位 verdict 失败即终态」；其余 None）。
+fn expected_on_fail(phase_id: &str, node: StepNode) -> Option<OnFail> {
     match node {
-        StepNode::StaticCheck | StepNode::TestExecution | StepNode::VerdictGate => {
-            Some(OnFail::FeedbackLoop { limit: 5 })
-        }
+        StepNode::StaticCheck | StepNode::TestExecution => Some(OnFail::FeedbackLoop { limit: 5 }),
+        StepNode::VerdictGate if phase_id == "code-analyze" => Some(OnFail::Terminal),
+        StepNode::VerdictGate => Some(OnFail::FeedbackLoop { limit: 5 }),
         _ => None,
     }
 }
@@ -1005,7 +1006,7 @@ fn 计划图on_fail语义与步绑定() {
         for step in def.steps {
             assert_eq!(
                 step.on_fail,
-                expected_on_fail(step.node),
+                expected_on_fail(def.id, step.node),
                 "相位 {} 步 {:?} 的 on_fail 声明",
                 def.id,
                 step.node
@@ -1594,10 +1595,6 @@ fn test_only表prompt静态非空且步spec同源() {
     assert!(test_execution.executor.is_some() && test_execution.evaluator.is_some());
 }
 
-/// test-only 表 steps / on_fail 全表扫描（正向 / 边界）：逐相位步序与本表期望
-/// 一致、首步恒 PhaseStart、末步恒 PhaseLog、VerdictGate 与 Evaluator 步同进退、
-/// on_fail 三态与步绑定（门禁反馈步仅 test-gen 的 StaticCheck 与 test-execution 的
-/// TestExecution）。
 #[test]
 fn test_only表steps与on_fail全表扫描() {
     let table = phase_table("test-only").expect("test-only 应返回 Some");
@@ -1626,14 +1623,15 @@ fn test_only表steps与on_fail全表扫描() {
         for step in def.steps {
             assert_eq!(
                 step.on_fail,
-                expected_on_fail(step.node),
+                expected_on_fail(def.id, step.node),
                 "相位 {} 步 {:?} on_fail 声明",
                 def.id,
                 step.node
             );
             if matches!(step.on_fail, Some(OnFail::FeedbackLoop { .. })) {
                 let allowed = (def.id == "test-gen" && step.node == StepNode::StaticCheck)
-                    || (def.id == "test-execution" && step.node == StepNode::TestExecution);
+                    || (def.id == "test-execution" && step.node == StepNode::TestExecution)
+                    || step.node == StepNode::VerdictGate;
                 assert!(
                     allowed,
                     "test-only 相位 {} 步 {:?} 不得携 FeedbackLoop",

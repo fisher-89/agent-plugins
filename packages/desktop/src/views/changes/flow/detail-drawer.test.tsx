@@ -157,6 +157,7 @@ function runtimeNode(overrides: Partial<RuntimeFlowNode> = {}): RuntimeFlowNode 
     colIndex: REQUIREMENT_PHASES.indexOf('implement'),
     order: 0,
     parentId: 'col:implement',
+    runId: 'run-1727',
     runStepKind: 'executor',
     group: 'workerAgent',
     role: 'executor',

@@ -868,23 +868,7 @@ export type ExploreDoc = {
 	content: string,
 };
 
-/**
- *  explore 清单记录（workspace 维度，落所属 workspace 的独立 db 文件
- *  `workspaces/` 子树，`root` 即归属键，与名下会话链同库——级联删除与链还原
- *  同实例收敛）：内容唯一真源在磁盘笔记文件（由 agent 会话流程懒创建），记录
- *  是身份、文件是可丢弃投影——文件被删记录保留，未落盘记录照常存在（数据三
- *  分：记录 / 内容 / 对话）。独立主键与文件名解耦：文件改名经 in-place 改
- *  `name` 保主键，会话链绑定不破。
- * 
- *  字段演进：version 2 新增 `title`（人类可读标题，展示面与寻址键分离——
- *  `name` 退化为纯 stem 寻址键）与 `promoted_to`（指向已 promote 的 change
- *  id）；version 3 新增 `workflow_type`（工作流类型，合法值 `requirement` |
- *  `test-only`）——存量旧行经版本机制 decode-only 升级（v1→v2：`title = name`、
- *  `promoted_to = None`；v2→v3：`workflow_type = "requirement"`，零手工迁移；
- *  `AgentProviderRecord` / `ChangeRecord` 加字段先例同模式）。
- * 
- *  时间戳均为 UTC unix 毫秒 `i64`，与 [`WorkspaceRecord`] 同口径。
- */
+/**  explore 清单记录 */
 export type ExploreRecord = {
 	/**  记录 id（主键，写事务内 max+1 分配；身份与文件名解耦） */
 	id: number,

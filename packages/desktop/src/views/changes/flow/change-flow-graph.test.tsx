@@ -6,11 +6,11 @@ import type {
   ArtifactEnvelope,
   AttemptRecord,
   ChangeDetail,
-  ChangeRunEdgeRecord,
 } from '../../../types/dto';
 import { mountMaterials } from './attachments';
 import { ChangeFlowGraph } from './change-flow-graph';
 import { buildFlowGraph } from './graph';
+import type { UnifiedRunEdge } from './run-state';
 import type { DrawerSelection, FlowGraph, FlowMaterials, RuntimeFlowNode } from './types';
 
 /**
@@ -214,6 +214,7 @@ function runNode(overrides: Partial<RuntimeFlowNode> = {}): RuntimeFlowNode {
     colIndex: REQUIREMENT_PHASES.indexOf('implement'),
     order: 0,
     parentId: 'col:implement',
+    runId: 'run-1727',
     runStepKind: 'executor',
     group: 'workerAgent',
     role: 'executor',
@@ -462,16 +463,18 @@ describe('ChangeFlowGraph：边渲染与重渲染', () => {
         sessionId: null,
       }),
     ];
-    const edges: ChangeRunEdgeRecord[] = [
+    const edges: UnifiedRunEdge[] = [
       {
         fromNodeKey: 'dev-design:1:executor:0',
         toNodeKey: 'dev-design:1:verdict_gate:0',
         edgeKind: 'forward',
+        runId: 'run-1727',
       },
       {
         fromNodeKey: 'dev-design:1:executor:0',
         toNodeKey: 'dev-design:1:verdict_gate:0',
         edgeKind: 'backtrack',
+        runId: 'run-1727',
       },
     ];
     const graph = buildFlowGraph(base, nodes, edges);

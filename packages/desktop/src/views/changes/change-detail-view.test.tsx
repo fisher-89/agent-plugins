@@ -471,7 +471,7 @@ describe('ChangeDetailView：页面组装（图区 / 抽屉）', () => {
     expect(screen.queryByTestId('detail-drawer')).toBeNull();
 
     // 运行步节点（role 在场）→ 会话转录单列（页面组装层 selection 上抛链路可用）
-    fireEvent.click(screen.getByTestId('rf__node-run:proposal:1:executor:0'));
+    fireEvent.click(screen.getByTestId('rf__node-run:run-1727:proposal:1:executor:0'));
     expect(screen.getByTestId('detail-drawer') !== null).toBe(true);
     await screen.findByTestId('session-transcript-panel');
     expect(screen.getByTestId('detail-drawer').textContent).toContain(
@@ -831,9 +831,9 @@ describe('ChangeDetailView：run 控制面板与运行 overlay 组装', () => {
     await waitFor(() => expect(screen.getAllByTestId('run-step-node')).toHaveLength(2), {
       timeout: 5000,
     });
-    const executor = screen.getByTestId('rf__node-run:implement:1:executor:0');
+    const executor = screen.getByTestId('rf__node-run:run-1727:implement:1:executor:0');
     expect(within(executor).getByTestId('run-step-group').textContent).toBe('WorkerAgent');
-    const check = screen.getByTestId('rf__node-run:implement:1:staticCheck:0');
+    const check = screen.getByTestId('rf__node-run:run-1727:implement:1:staticCheck:0');
     expect(within(check).getByTestId('run-step-group').textContent).toBe('ToolStep');
     expect(within(check).getByTestId('run-step-detail').textContent).toBe('2 处诊断');
     // 节点模型单分类：事件节点挂钩（flow-node）零残留，运行步节点经
@@ -885,7 +885,9 @@ describe('ChangeDetailView：run 控制面板与运行 overlay 组装', () => {
     const nodes = screen.getAllByTestId('run-step-node');
     expect(nodes[0].getAttribute('data-run-status')).toBe('passed');
     expect(nodes[1].getAttribute('data-run-status')).toBe('running');
-    expect(screen.getByTestId('rf__node-run:implement:1:staticCheck:0') !== null).toBe(true);
+    expect(screen.getByTestId('rf__node-run:run-1727:implement:1:staticCheck:0') !== null).toBe(
+      true,
+    );
   });
 
   it('库读史常驻（图常驻渲染）：runs[].nodes 零通知即上图（收口后不回落），activeRun 活节点叠加其上', async () => {
@@ -929,8 +931,8 @@ describe('ChangeDetailView：run 控制面板与运行 overlay 组装', () => {
 
     // 库读史步节点常驻（passed 终态样式）+ 活步叠加（running）
     await waitFor(() => expect(screen.getAllByTestId('run-step-node')).toHaveLength(2));
-    expect(screen.getByTestId('rf__node-run:implement:1:executor:0') !== null).toBe(true);
-    expect(screen.getByTestId('rf__node-run:implement:1:evaluator:0') !== null).toBe(true);
+    expect(screen.getByTestId('rf__node-run:run-1727:implement:1:executor:0') !== null).toBe(true);
+    expect(screen.getByTestId('rf__node-run:run-1727:implement:1:evaluator:0') !== null).toBe(true);
   });
 
   it('两 run 全史叠加 + 第三 run 活节点叠加（AC-9）：同列同相位 attempt 递增各自成节点可辨，稳定身份键 (phase,attempt,step,instanceNo) 无冲突', async () => {
@@ -999,9 +1001,73 @@ describe('ChangeDetailView：run 控制面板与运行 overlay 组装', () => {
       within(screen.getByTestId(nodeId))
         .getByTestId('run-step-node')
         .getAttribute('data-run-status');
-    expect(status('rf__node-run:implement:1:executor:0')).toBe('passed');
-    expect(status('rf__node-run:implement:2:executor:0')).toBe('passed');
-    expect(status('rf__node-run:implement:3:executor:0')).toBe('running');
+    expect(status('rf__node-run:run-1:implement:1:executor:0')).toBe('passed');
+    expect(status('rf__node-run:run-2:implement:2:executor:0')).toBe('passed');
+    expect(status('rf__node-run:run-3:implement:3:executor:0')).toBe('running');
+  });
+
+  it('重启重跑同 attempt：跨 run 同名步节点并存，选中重启轮节点 → 会话直查取重启轮 session（不串上一轮）', async () => {
+    // 前一轮（run-1）与重启轮（run-2）同 (implement, 1, executor, 0)：节点 id 携
+    // run 段并存；抽屉选中须按 run 解析到重启轮节点（sessionId = ses-new）
+    loadActiveRun(
+      activeRunView({
+        runId: 'run-2',
+        nodes: [
+          {
+            phase: 'implement',
+            attempt: 1,
+            step: 'executor',
+            status: 'running',
+            sessionId: 'ses-new',
+            detail: null,
+            instanceNo: 0,
+            outputRef: null,
+          },
+        ],
+      }),
+    );
+    detailFixture = {
+      'ses-new': transcriptSession('ses-new', `${CHANGE_ID}/implement/executor/1`),
+    };
+    transcriptFixture = { 'ses-new': [textEvent(0, 'user', '重启轮正文')] };
+    renderDetail({
+      detail: detail({
+        runs: [
+          finishedRun({
+            runId: 'run-1',
+            nodes: [
+              {
+                instanceNo: 0,
+                phase: 'implement',
+                attempt: 1,
+                step: 'executor',
+                status: 'passed',
+                sessionId: 'ses-old',
+                detail: null,
+                outputRef: null,
+              },
+            ],
+          }),
+        ],
+      }),
+    });
+    await screen.findByTestId('run-stop');
+    await waitFor(() => expect(screen.getAllByTestId('run-step-node')).toHaveLength(2));
+
+    // 两轮 executor 节点并存（id 携 run 段、互不顶替）
+    expect(screen.getByTestId('rf__node-run:run-1:implement:1:executor:0') !== null).toBe(true);
+    fireEvent.click(screen.getByTestId('rf__node-run:run-2:implement:1:executor:0'));
+
+    const panel = await screen.findByTestId('session-transcript-panel');
+    await waitFor(() => expect(panel.textContent).toContain('重启轮正文'));
+    expect(invokeMock).toHaveBeenCalledWith('session_detail', {
+      root: ROOT,
+      sessionId: 'ses-new',
+    });
+    expect(invokeMock).not.toHaveBeenCalledWith('session_detail', {
+      root: ROOT,
+      sessionId: 'ses-old',
+    });
   });
 
   it('run 终态通知触发统一视图重查：收口后主操作回到发起、收口记因自 runs 尾行呈现', async () => {
@@ -1051,7 +1117,7 @@ describe('ChangeDetailView：run 控制面板与运行 overlay 组装', () => {
     await screen.findByTestId('run-stop');
     await waitFor(() => expect(ChannelMock.instances).toHaveLength(1));
 
-    fireEvent.click(await screen.findByTestId('rf__node-run:implement:1:executor:0'));
+    fireEvent.click(await screen.findByTestId('rf__node-run:run-1727:implement:1:executor:0'));
 
     const panel = await screen.findByTestId('session-transcript-panel');
     await waitFor(() => expect(panel.textContent).toContain('重放正文'));
@@ -1171,7 +1237,7 @@ describe('ChangeDetailView：退役元素零渲染与详情图区恒态', () => 
     );
 
     // 命令面（抽屉）：运行步节点选中 → 会话反查 sourceRef 身份段 = URL id
-    fireEvent.click(screen.getByTestId('rf__node-run:implement:1:executor:0'));
+    fireEvent.click(screen.getByTestId('rf__node-run:run-1727:implement:1:executor:0'));
     await screen.findByTestId('detail-drawer');
     await waitFor(() =>
       expect(invokeMock).toHaveBeenCalledWith('agent_sessions', {
@@ -1452,7 +1518,7 @@ describe('ChangeDetailView：素材挂载两参与 memo 依赖收窄（AC-4 / D6
     await waitFor(() => expect(ChannelMock.instances).toHaveLength(1));
 
     // 抽屉选中运行 executor 步：转录直查（重渲染的观察锚——通知到站须再查一次）
-    fireEvent.click(await screen.findByTestId('rf__node-run:implement:1:executor:0'));
+    fireEvent.click(await screen.findByTestId('rf__node-run:run-1727:implement:1:executor:0'));
     await screen.findByTestId('session-transcript-panel');
     await waitFor(() => expect(sessionDetailCalls()).toHaveLength(1));
     const baseline = spy.mock.calls.length;
@@ -1539,7 +1605,7 @@ describe('ChangeDetailView：stdout 面板按 detail.name 取数（AC-5 / D6）'
     renderOutputNodeDetail();
     await waitFor(() => expect(screen.getAllByTestId('run-step-node')).toHaveLength(1));
 
-    fireEvent.click(screen.getByTestId('rf__node-run:implement:1:staticCheck:0'));
+    fireEvent.click(screen.getByTestId('rf__node-run:run-1727:implement:1:staticCheck:0'));
     const panel = await screen.findByTestId('stdout-panel');
     await waitFor(() =>
       expect(invokeMock).toHaveBeenCalledWith('read_exec_output', {
@@ -1566,7 +1632,7 @@ describe('ChangeDetailView：stdout 面板按 detail.name 取数（AC-5 / D6）'
     renderOutputNodeDetail();
     await waitFor(() => expect(screen.getAllByTestId('run-step-node')).toHaveLength(1));
 
-    fireEvent.click(screen.getByTestId('rf__node-run:implement:1:staticCheck:0'));
+    fireEvent.click(screen.getByTestId('rf__node-run:run-1727:implement:1:staticCheck:0'));
 
     await waitFor(() =>
       expect(invokeMock).toHaveBeenCalledWith('read_exec_output', {
@@ -1645,7 +1711,7 @@ describe('ChangeDetailView：列序随 detail.pipeline（requirement / test-only
     await screen.findByTestId('flow-graph');
     await waitFor(() =>
       expect(
-        container.querySelector('[data-testid="rf__node-run:code-analyze:1:executor:0"]'),
+        container.querySelector('[data-testid="rf__node-run:run-1727:code-analyze:1:executor:0"]'),
       ).not.toBeNull(),
     );
   });
@@ -1676,7 +1742,7 @@ describe('ChangeDetailView：列序随 detail.pipeline（requirement / test-only
     await screen.findByTestId('flow-graph');
     await waitFor(() => expect(screen.getAllByTestId('flow-column')).toHaveLength(6));
     expect(
-      container.querySelector('[data-testid="rf__node-run:implement:1:executor:0"]'),
+      container.querySelector('[data-testid="rf__node-run:run-1727:implement:1:executor:0"]'),
     ).toBeNull();
   });
 

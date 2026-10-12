@@ -192,21 +192,7 @@ impl From<AgentRunRecord> for AgentRunRecordV3 {
     }
 }
 
-/// explore 清单记录（workspace 维度，落所属 workspace 的独立 db 文件
-/// `workspaces/` 子树，`root` 即归属键，与名下会话链同库——级联删除与链还原
-/// 同实例收敛）：内容唯一真源在磁盘笔记文件（由 agent 会话流程懒创建），记录
-/// 是身份、文件是可丢弃投影——文件被删记录保留，未落盘记录照常存在（数据三
-/// 分：记录 / 内容 / 对话）。独立主键与文件名解耦：文件改名经 in-place 改
-/// `name` 保主键，会话链绑定不破。
-///
-/// 字段演进：version 2 新增 `title`（人类可读标题，展示面与寻址键分离——
-/// `name` 退化为纯 stem 寻址键）与 `promoted_to`（指向已 promote 的 change
-/// id）；version 3 新增 `workflow_type`（工作流类型，合法值 `requirement` |
-/// `test-only`）——存量旧行经版本机制 decode-only 升级（v1→v2：`title = name`、
-/// `promoted_to = None`；v2→v3：`workflow_type = "requirement"`，零手工迁移；
-/// `AgentProviderRecord` / `ChangeRecord` 加字段先例同模式）。
-///
-/// 时间戳均为 UTC unix 毫秒 `i64`，与 [`WorkspaceRecord`] 同口径。
+/// explore 清单记录
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 #[native_model(id = 4, version = 3, from = ExploreRecordV2)]
@@ -234,11 +220,6 @@ pub struct ExploreRecord {
 }
 
 impl ExploreRecord {
-    /// 由归属与名称构造新记录：`id` 置 0（写事务内 max+1 分配覆盖），
-    /// `title` 默认 = `name`（恒非空不变量），`workflow_type` 默认
-    /// `"requirement"`（合法值权威仍在写面相位表，此处只落缺省），
-    /// `promoted_to = None`（草稿态），`created_at = updated_at = now`（新建
-    /// 语义）。
     pub fn new(root: &str, name: &str, now: i64) -> Self {
         Self {
             id: 0,
@@ -360,15 +341,7 @@ impl From<ExploreRecord> for ExploreRecordV2 {
     }
 }
 
-/// agent 会话记录（workspace 维度，落所属 workspace 的独立 db 文件
-/// `workspaces/` 子树，与名下转录 / 轮统计行同库——级联删除与全史重放同实例
-/// 收敛）：会话一等公民的落库形态，core 铸 id 直作字符串主键（`WorkspaceRecord.root`
-/// 字符串主键既有先例）。
-///
-/// `config_snapshot` 存装配配置快照而非跨库引用（`AgentInstanceRecord` 在
-/// 全局库、session 在 workspace 库，store 惯例禁跨库引用；实例改名 / 删除
-/// 不伤历史会话）。`source` / `source_ref` 为会话级来源归属（会话化后来源
-/// 圈定的主归属，explore 级联删除据此圈定）。
+/// agent 会话记录
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 #[native_model(id = 7, version = 1)]
@@ -406,22 +379,7 @@ pub struct SessionConfigSnapshot {
     pub permission_mode: AgentPermissionMode,
 }
 
-/// agent 会话转录单表（workspace 维度，落所属会话同一 workspace 库——同库
-/// 内 N:1 引用，无跨库引用）：密封事件**直挂 session** 的转录载体（会话全史
-/// = 重放与 resume 重建唯一来源），run 退化为轮统计行不再挂事件。包装 struct
-/// 打 native_db derive，嵌装 core `agent::AgentEvent` 纯类型作载荷——core
-/// 保持 derive-free，native_model 版本治理全部留在 infra 侧。**密封事件
-/// only**：`MessageDelta` 永不落库（sink 防御性忽略）。
-///
-/// 编码后端为 serde_json（[`SerdeJsonCodec`]）：`AgentEvent` 内部 tag 枚举
-/// 经 `#[serde(flatten)]` 扁平进信封，serde 的 flatten 语义要求自描述编码，
-/// bincode 1.3 的定长 map 不支持；JSON 与 core「serde camelCase 线格式即
-/// 落库形态」口径一致。
-///
-/// 主键为合成 u128 打包键（native_db 复合主键不受支持，既有 Spike① 留痕）：
-/// 高 64 位 `hash64(session_id)`、低 64 位 seq，`to_key()` 大端字节序保证
-/// 字典序即数值序，同会话内自然序即重放序（delta 占 seq 产生库内空洞，排序
-/// 键语义合法）。`session_id` 另立非唯一二级索引保查询形态。
+/// agent 会话转录单表
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 #[native_model(id = 8, version = 1, with = SerdeJsonCodec)]
@@ -465,23 +423,7 @@ impl SessionEventRecord {
 
 // --- change 流程状态记录（workspace 维度，落所属 workspace 库）--------------
 
-/// change 建档记录（desktop-change-state-store 四模型之一）：change 流程状态
-/// 的身份主行——`id` 即 change 身份锚（建档铸出的稳定唯一标识，UUID 形态，
-/// 终身恒定不复用），`name` 降为普通属性（恒裸名、可变、无唯一约束、MUST NOT
-/// 作身份键），状态 / 时间戳与运行中 phase 随行。markdown 产物（proposal /
-/// design / tasks / specs / reports / explore）留磁盘 change 目录，双载体边界
-/// 与 `ExploreRecord` 先例同构（记录在 db、产物在磁盘）。
-///
-/// 身份换锚经 native_model 版本段演进（9:v2 → 9:v3：主键 `name` → `id`，物理
-/// 表 `9_2_name` → `9_3_id`）：旧形态行对新读面结构性不可见，零 `from` 解码 /
-/// 迁移链——`ChangeRecordV1` 及其双向 `From` 随身份换锚整体退役；旧形态库由
-/// [`WORKSPACE_STORE_FORMAT_VERSION`] 机制整体作废重建。
-///
-/// 字段演进：version 4 新增 `title`（人类可读标题，恒非空）——存量 v3 行经
-/// 版本机制 decode-only 升级（`title = name`，零手工迁移；`ExploreRecord` /
-/// `AgentProviderRecord` 加字段先例同模式）。
-///
-/// 时间戳为 UTC unix 毫秒 `i64`，与 `WorkspaceRecord` 同口径。
+/// change 建档记录
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 #[native_model(id = 9, version = 4, from = ChangeRecordV3)]
@@ -520,9 +462,6 @@ pub struct ChangeRecord {
 }
 
 impl ChangeRecord {
-    /// 由建档档案构造新记录（`status` 恒 active 起步、无 active_phase；id 为
-    /// 写面铸出的身份锚随记录入列；title 默认 = name（恒非空不变量）；
-    /// `worktree` / `base_commit` 建域组合随建档入列，legacy 形态传 `None`）。
     pub fn new(
         id: &str,
         name: &str,
@@ -614,15 +553,7 @@ impl From<ChangeRecord> for ChangeRecordV3 {
     }
 }
 
-/// workspace 库格式版本标记记录（库级单键；`pub(crate)`——内部治理记录，
-/// 不入信封注册表）：change 身份锚形态版本载体（D3 / D5）。`format_version`
-/// 语义编号：1 = name 主键形态时代（实机从未写标记，探测以「缺失」判定），
-/// 2 = change 身份锚 id 形态，3 = run 执行图节点 / 边模型（`RunNodeRecord` /
-/// `RunEdgeRecord` 取代旧步史模型，run-workflow-by-step 决策③）；未来
-/// bump 递增，探测规则「缺失或低于当前 → 作废」不变。
-///
-/// 旧形态数据只有两种去向——不可达（全局库旧文件的惰性废弃）或整体丢弃
-/// （workspace 库的探测作废重建）；MUST NOT 存在第三条 decode / migrate 路径。
+/// workspace 库格式版本标记记录
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 #[native_model(id = 15, version = 1)]
@@ -655,10 +586,7 @@ pub struct ChangeActivePhase {
     pub start_at: i64,
 }
 
-/// 相位评估条目记录（desktop-change-state-store 四模型之二）：一次评估落账
-/// 一行（原 workflow.json `eval[]` 条目的库形态）。checklist 子项不内嵌，落
-/// [`ChecklistItemRecord`] 子表（写时机不变——phase_log 单事务内同落，拆存
-/// 储不拆原子性）；evidence 长文本走独立版本链。
+/// 相位评估条目记录
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 #[native_model(id = 10, version = 2)]
@@ -700,13 +628,7 @@ pub struct PhaseRecord {
     pub timestamp: i64,
 }
 
-/// checklist 检查项子行（desktop-change-state-store 四模型之三）：挂
-/// [`PhaseRecord`] 的独立子表，打包主键序即 evaluator 输出序。独立
-/// native_model 版本链（evidence 长文本演进与 PhaseRecord 解耦）。
-///
-/// 主键为合成 u128 打包键（native_db 复合主键不受支持，`SessionEventRecord`
-/// 先例同构）：高 64 位 phase_id、低 64 位 item_index，`to_key()` 大端字节序
-/// 保证同相位内自然序即 item_index 升序。
+/// checklist 检查项子行
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 #[native_model(id = 11, version = 1)]
@@ -797,16 +719,7 @@ impl StepRecord {
 // --- run 运行史记录（unify-run-state-persistence：决策翻案「不建 flow_runs
 // 表」，run 运行史落库两表；与 StepRecord 审计职责分立）---------------------
 
-/// run 运行史主行（workspace 维度，落所属 workspace 库；unify-run-state-
-/// persistence 翻案「不建 flow_runs 表」决策立项）：每 run 一行，发起建
-/// running 行（支撑启动标定）、收口终态更新（单事务与步整包同落）。全史保留
-/// 不截 last_run（运行史审计面）；attempt 经 `phase_start` max+1 分配跨 run
-/// 不撞号，全史叠加在同一列面分层。
-///
-/// 状态词汇五值：`running` + 终态三值（completed / stopped / failed）+
-/// `interrupted`（仅启动标定产生，运行期写路径不产生）；停等两态不落库（应
-/// 答通道活在进程内）。时间戳为 UTC unix 毫秒 `i64`，与 `WorkspaceRecord`
-/// 同口径。
+/// run 运行史主行
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 #[native_model(id = 13, version = 2)]
@@ -845,22 +758,7 @@ impl RunRecord {
     }
 }
 
-/// run 执行图节点行（workspace 维度，落所属 workspace 库）：run 收口节点整包
-/// 的落行形态，图史面——与 `StepRecord` 审计职责分立（审计 vs 图节点史，两表
-/// MUST NOT 互为替代，也不双写同一语义行）。
-///
-/// 步词汇为**十八值全词汇封闭集**（`RunStepKind`：agent 阶段三角色 + 脚本阶段两
-/// 检查步 + 流程面两步 + 三门 gate + 归档 8 步）——落库零过滤（旧 5 值步史模型
-/// 与其 10→5 过滤谓词整体退役）。
-///
-/// 稳定身份键 = `(run_id, phase, attempt, step, instance_no)`；`node_id()` 组装的
-/// 身份串 `"{phase}:{attempt}:{step}:{instance_no}"` 为边表端点口径（`attempt` 跨
-/// run max+1 分配不撞号 → 身份串全库唯一）。
-///
-/// 主键为合成 u128 打包键（native_db 复合主键不受支持，`SessionEventRecord`
-/// 先例同构）：高 64 位 `hash64(run_id)`、低 64 位 node_seq（run 内 emit 序），
-/// 大端字节序保证同 run 内自然序即 emit 序。`run_id` 另立非唯一二级索引保查询
-/// 形态。`timestamp` = finish 的 finished_at（整包同刻，corpus 确定性）。
+/// run 执行图节点行
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 #[native_model(id = 16, version = 1)]
@@ -900,8 +798,6 @@ pub struct RunNodeRecord {
 }
 
 impl RunNodeRecord {
-    /// 由收口整包条目构造记录：`node_key` 打包自 `hash64(run_id)` + `node_seq`
-    ///（整包下标 = run 内 emit 序），`timestamp` 随整包统一（= finished_at）。
     pub fn new(
         run_id: &str,
         change_id: &str,

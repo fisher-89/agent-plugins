@@ -48,11 +48,12 @@ async function loadBySessionId(root: string, sessionId: string): Promise<Transcr
 
 /** 反查兜底：sourceRef 定式 exact-match（定式身份段恒 change id——
  * `<id>/<phase>/<role>/<attempt>` 与 `<id>/archive/*`；同 sourceRef 多会话
- * 取最近一条）。 */
+ * 取最近一条——后端清单按 `updated_at` 降序稳定序返回，**首位即最近会话**
+ * （重启重跑同 attempt 的跨轮形态取最新轮，不串上一轮会话）。 */
 async function loadBySourceRef(root: string, sourceRef: string): Promise<TranscriptLoad | null> {
   const summaries = await commands.agentSessions(root, 'change', sourceRef);
   if (summaries.length === 0) return null;
-  const latest = summaries[summaries.length - 1];
+  const latest = summaries[0];
   const transcript = await commands.agentSessionTranscript(root, latest.row.id);
   return {
     transcript,

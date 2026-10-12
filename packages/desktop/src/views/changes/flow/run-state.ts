@@ -1,11 +1,3 @@
-/**
- * run 步节点转换层：统一视图（`detail.runs[].nodes` ∪ `activeRun.nodes`）→ 图
- * overlay 运行步节点；边同源（`detail.runs[].edges` ∪ `activeRun.edges`）。零
- * react 依赖直测；**库读史常驻**（步节点自 `runs[].nodes` 派生收口后常驻上图，
- * 与运行中实时面走同一转换函数）。节点按后端稳定身份键
- * `(phase, attempt, step, instanceNo)` 直渲染——槽位配对 / `:seq` 堆叠机制整体
- * 退役（同键多实例由 instanceNo 区分）。
- */
 import type {
   ChangeRunEdgeRecord,
   ChangeRunEntry,
@@ -75,6 +67,13 @@ export function nodeIdentityKey(node: RuntimeFlowNode): string {
   return `${node.phase}:${node.attempt}:${stepWord(node.runStepKind)}:${node.instanceNo}`;
 }
 
+/** run 维度边端点键（图内边锚定单点）：`"<runId>:<身份键>"`——后端边表端点
+ * 身份串无 run 段（跨 run 同名身份串合法：重启 / 中断重跑同 attempt），前拼
+ * 归属 run id 后与节点侧同式可比，跨轮边不再错锚。 */
+export function runNodeKey(node: RuntimeFlowNode): string {
+  return `${node.runId}:${nodeIdentityKey(node)}`;
+}
+
 /** 库读史节点行 → 活面步状态行（词汇归一收本文件单点）。 */
 function stepFromRecord(record: ChangeRunNodeRecord): ChangeStepState {
   return {
@@ -89,25 +88,53 @@ function stepFromRecord(record: ChangeRunNodeRecord): ChangeStepState {
   };
 }
 
-/** 统一视图节点源合成（同一转换函数的输入面）：`runs[].nodes`（全词汇库读史，
- * runs 序 = startedAt 序即稳定分层序）∪ liveNodes（在飞 run 活节点）——收口后
- * 活节点褪去、库读史常驻。 */
-export function unifiedRunNodes(
-  runs: ChangeRunEntry[],
-  liveNodes: ChangeStepState[],
-): ChangeStepState[] {
-  const persisted = runs.flatMap((run) => run.nodes.map(stepFromRecord));
-  return [...persisted, ...liveNodes];
+/** 统一视图步行：`ChangeStepState` + 归属 run id（重启 / 中断重跑同
+ * `(phase, attempt, step, instanceNo)` 的跨 run 同名身份键以 run 归属段区分）。 */
+export interface UnifiedRunStep extends ChangeStepState {
+  runId: string;
 }
 
-/** 统一视图边源合成：`runs[].edges`（库读史边表）∪ liveEdges（在飞 run 活面
- * 边表）——两来源同型（身份串端点 + 四 kind），前端零形状归一。 */
+/** 统一视图边行：`ChangeRunEdgeRecord` + 归属 run id（端点身份串按归属 run 内
+ * 节点解析——跨 run 同名端点不再错锚到他轮节点）。 */
+export interface UnifiedRunEdge extends ChangeRunEdgeRecord {
+  runId: string;
+}
+
+/** 统一视图活面缝：在飞 run 的节点 / 边与 run id 同源捆绑（双面一致的单参
+ * 形态；`ActiveRunView` 结构兼容）。 */
+export interface LiveRunFace {
+  runId: string;
+  nodes: ChangeStepState[];
+  edges: ChangeRunEdgeRecord[];
+}
+
+/** 统一视图节点源合成（同一转换函数的输入面）：`runs[].nodes`（全词汇库读史，
+ * runs 序 = startedAt 序即稳定分层序）∪ liveRun.nodes（在飞 run 活节点）——
+ * 收口后活节点褪去、库读史常驻；两源皆携归属 run id（节点 id 与边锚定的 run
+ * 维度同源）。 */
+export function unifiedRunNodes(
+  runs: ChangeRunEntry[],
+  liveRun: LiveRunFace | null,
+): UnifiedRunStep[] {
+  const persisted = runs.flatMap((run) =>
+    run.nodes.map((record) => ({ ...stepFromRecord(record), runId: run.runId })),
+  );
+  const live =
+    liveRun === null ? [] : liveRun.nodes.map((step) => ({ ...step, runId: liveRun.runId }));
+  return [...persisted, ...live];
+}
+
+/** 统一视图边源合成：`runs[].edges`（库读史边表）∪ liveRun.edges（在飞 run 活
+ * 面边表）——两来源同型（身份串端点 + 四 kind），各携归属 run id（边端点按
+ * 归属 run 内节点解析）。 */
 export function unifiedRunEdges(
   runs: ChangeRunEntry[],
-  liveEdges: ChangeRunEdgeRecord[],
-): ChangeRunEdgeRecord[] {
-  const persisted = runs.flatMap((run) => run.edges);
-  return [...persisted, ...liveEdges];
+  liveRun: LiveRunFace | null,
+): UnifiedRunEdge[] {
+  const persisted = runs.flatMap((run) => run.edges.map((edge) => ({ ...edge, runId: run.runId })));
+  const live =
+    liveRun === null ? [] : liveRun.edges.map((edge) => ({ ...edge, runId: liveRun.runId }));
+  return [...persisted, ...live];
 }
 
 /** 步词汇 → 节点分组（四类节点可辨）：归档步归组与后端 `StepNode::group()`
@@ -140,10 +167,11 @@ function roleOf(step: ChangeStepKind): FlowRoleLabel | null {
   return null;
 }
 
-/** 步状态表 → 图 overlay 运行步节点（按后端稳定身份键直渲染）。列序由
- * `phaseOrder` 显式传入（= `detail.pipeline.map(p => p.phase)`，后端相位表
- * 出线序；前端零静态相位序常量）——坑位校验：`phaseOrder` 外相位的节点不入图。 */
-export function runStepNodes(steps: ChangeStepState[], phaseOrder: string[]): RuntimeFlowNode[] {
+/** 步状态表 → 图 overlay 运行步节点（按「run id + 后端稳定身份键」直渲染——
+ * 节点 id 携归属 run 段，跨 run 同名身份键互不顶替）。列序由 `phaseOrder` 显式
+ * 传入（= `detail.pipeline.map(p => p.phase)`，后端相位表出线序；前端零静态相
+ * 位序常量）——坑位校验：`phaseOrder` 外相位的节点不入图。 */
+export function runStepNodes(steps: UnifiedRunStep[], phaseOrder: string[]): RuntimeFlowNode[] {
   const nodes: RuntimeFlowNode[] = [];
   const columnOrder = new Map<string, number>();
   for (const step of steps) {
@@ -152,13 +180,14 @@ export function runStepNodes(steps: ChangeStepState[], phaseOrder: string[]): Ru
     const order = columnOrder.get(step.phase) ?? 0;
     columnOrder.set(step.phase, order + 1);
     nodes.push({
-      id: `run:${step.phase}:${step.attempt}:${step.step}:${step.instanceNo}`,
+      id: `run:${step.runId}:${step.phase}:${step.attempt}:${step.step}:${step.instanceNo}`,
       kind: 'runtime',
       phase: step.phase,
       attempt: step.attempt,
       colIndex,
       order,
       parentId: `col:${step.phase}`,
+      runId: step.runId,
       runStepKind: step.step,
       group: groupOf(step.step),
       role: roleOf(step.step),

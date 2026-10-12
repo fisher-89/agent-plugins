@@ -17,6 +17,7 @@ function runtimeNode(overrides: Partial<RuntimeFlowNode> = {}): RuntimeFlowNode 
     colIndex: 3,
     order: 0,
     parentId: 'col:implement',
+    runId: 'run-1727',
     runStepKind: 'executor',
     group: 'workerAgent',
     role: 'executor',

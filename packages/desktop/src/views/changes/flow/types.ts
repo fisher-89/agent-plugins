@@ -54,6 +54,9 @@ export interface RoleSessionRef {
  * 以 instanceNo 区分不串扰。 */
 export interface RuntimeFlowNode extends FlowNodeBase {
   kind: 'runtime';
+  /** 归属 run id（节点 id 第一身份段——重启 / 中断重跑同 attempt 的跨 run
+   * 同名身份键不再串扰） */
+  runId: string;
   runStepKind: ChangeStepKind;
   group: RunStepGroup;
   role: FlowRoleLabel | null;

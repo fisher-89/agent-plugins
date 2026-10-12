@@ -1,5 +1,5 @@
-import type { ChangeDetail, ChangeRunEdgeRecord, PhaseEntry } from '../../../types/dto';
-import { nodeIdentityKey } from './run-state';
+import type { ChangeDetail, PhaseEntry } from '../../../types/dto';
+import { runNodeKey, type UnifiedRunEdge } from './run-state';
 import type { FlowColumn, FlowEdge, FlowGraph, FlowNode, RuntimeFlowNode } from './types';
 
 /** 列内归并序：同列节点按归并后相对次序 0 起编号 */
@@ -24,22 +24,24 @@ function backtrackReason(pipeline: PhaseEntry[], phase: string): string | null {
   return null;
 }
 
-/** 后端边表 → 图边（端点按节点稳定身份键寻址；悬空端点降级跳过不渲染——数据
- * 缺口不炸图）。列差 Δ 派生已退役。 */
+/** 后端边表 → 图边（端点按「run id + 节点稳定身份键」寻址——边表端点身份串
+ * 无 run 段，跨 run 同名身份串以边行归属 run 段前拼比对，重启重跑同 attempt
+ * 的跨轮边不锚错他轮节点；悬空端点降级跳过不渲染——数据缺口不炸图）。列差
+ * Δ 派生已退役。 */
 function tableEdges(
-  edges: readonly ChangeRunEdgeRecord[],
+  edges: readonly UnifiedRunEdge[],
   nodes: FlowNode[],
   pipeline: PhaseEntry[],
 ): FlowEdge[] {
   const byKey = new Map<string, RuntimeFlowNode>();
   for (const node of nodes) {
-    if (node.kind === 'runtime') byKey.set(nodeIdentityKey(node), node);
+    if (node.kind === 'runtime') byKey.set(runNodeKey(node), node);
   }
   const flowEdges: FlowEdge[] = [];
   for (let index = 0; index < edges.length; index += 1) {
     const edge = edges[index];
-    const source = byKey.get(edge.fromNodeKey);
-    const target = byKey.get(edge.toNodeKey);
+    const source = byKey.get(`${edge.runId}:${edge.fromNodeKey}`);
+    const target = byKey.get(`${edge.runId}:${edge.toNodeKey}`);
     if (source === undefined || target === undefined) continue;
     flowEdges.push({
       id: `edge:${index}:${source.id}->${target.id}`,
@@ -52,18 +54,11 @@ function tableEdges(
   return flowEdges;
 }
 
-/** 详情聚合 → 流程图模型；`pipeline` 为空（v0 早期代际）返回空图（无列无节点）。
- * 节点模型为**单分类：仅 runtime step 节点**（eval / active 相位节点整体退役，
- * `sequence = [...runNodes]`；运行中由 running 态 runtime 节点承载）。`runNodes` /
- * `runEdges` 为运行执行图 overlay（统一视图派生——`runStepNodes(unifiedRunNodes(
- * detail.runs, activeRun?.nodes))` + `unifiedRunEdges(detail.runs, activeRun?.edges)`
- * 单源拼装：库读史 ∪ 在飞活面同一转换函数，图常驻渲染零回落；缺省 / 空参即无
- * 运行态）。`pipeline` 仍供 `tableEdges` 的 backtrack 边 label（回跳记因）与列序
- * （`columns` 由 `detail.pipeline` 出线序派生，前端零静态相位序常量）。 */
+/** 详情聚合 → 流程图模型 */
 export function buildFlowGraph(
   detail: ChangeDetail,
   runNodes?: RuntimeFlowNode[],
-  runEdges?: readonly ChangeRunEdgeRecord[],
+  runEdges?: readonly UnifiedRunEdge[],
 ): FlowGraph {
   if (detail.pipeline.length === 0) {
     return { columns: [], nodes: [], edges: [] };

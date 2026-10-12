@@ -230,13 +230,10 @@ function useFlowGraphData(
   // 列序单源 = `detail.pipeline` 出线序（requirement 9 列 / test-only 6 列）
   const phaseOrder = useMemo(() => detail.pipeline.map((entry) => entry.phase), [detail]);
   const runNodes = useMemo(
-    () => runStepNodes(unifiedRunNodes(detail.runs, activeRun?.nodes ?? []), phaseOrder),
+    () => runStepNodes(unifiedRunNodes(detail.runs, activeRun), phaseOrder),
     [detail.runs, activeRun, phaseOrder],
   );
-  const runEdges = useMemo(
-    () => unifiedRunEdges(detail.runs, activeRun?.edges ?? []),
-    [detail.runs, activeRun],
-  );
+  const runEdges = useMemo(() => unifiedRunEdges(detail.runs, activeRun), [detail.runs, activeRun]);
   const graph = useMemo<FlowGraph>(
     () => buildFlowGraph(detail, runNodes, runEdges),
     [detail, runNodes, runEdges],
