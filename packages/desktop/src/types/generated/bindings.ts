@@ -117,13 +117,6 @@ export const commands = {
 	changeFlowAnswer: (root: string, id: string, answer: string) => __TAURI_INVOKE<null>("change_flow_answer", { root, id, answer }),
 	changeFlowConfirm: (root: string, id: string, proceed: boolean, syncSpecs: boolean) => __TAURI_INVOKE<null>("change_flow_confirm", { root, id, proceed, syncSpecs }),
 	changeFlowWatch: (onEvent: Channel<RunNotice>, root: string, id: string) => __TAURI_INVOKE<null>("change_flow_watch", { onEvent, root, id }),
-	/**
-	 *  新建 change（建域四段：建档 + worktree add + worktree 内目录树与
-	 *  explore.md + bootstrap）；blank root 显式 `Err`。async + `spawn_blocking`
-	 *  调 sync 写面（bootstrap 是分钟级 spawn——同步命令会冻结 UI，IPC 入参与
-	 *  返回类型面不变）。手动新建路径 `title = name`（不加输入框，D1）；promote
-	 *  路径经 [`create_change_with`] 泛型缝显式传 `explore.title`。
-	 */
 	createChange: (root: string, name: string, goal: string) => __TAURI_INVOKE<CreateOutcome>("create_change", { root, name, goal }),
 	/**  读取单篇笔记全文；未知 stem、穿越名或文件缺失返回 `None`（不报错）。 */
 	readExplore: (root: string, name: string) => __TAURI_INVOKE<{
@@ -218,12 +211,7 @@ export type ActivePhase = {
 	startAt: string | null,
 };
 
-/**
- *  统一视图活面投影（unify-run-state-persistence D11）：注册表快照的线面像
- *  ——`startedAt` ISO 化收本命令层单点（快照毫秒 → ISO 串），nodes 全词汇
- *  emit 序透传；edges 随行出线（线面形状与库读史 `runs[].edges` 同型——
- *  前端两类来源同一转换函数消费，零双形状）。
- */
+/**  统一视图活面投影 */
 export type ActiveRunView = {
 	runId: string,
 	status: ChangeRunStatus,

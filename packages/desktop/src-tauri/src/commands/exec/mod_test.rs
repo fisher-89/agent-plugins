@@ -366,7 +366,7 @@ fn seed_session_with_closed_turn(store: &store::Store, id: &str) -> i64 {
                         num_turns: Some(3),
                         duration_ms: Some(4000),
                         cost_usd: None,
-                        usage: serde_json::json!({ "inputTokens": 7, "outputTokens": 9 }),
+                        usage: serde_json::json!({ "input_tokens": 7, "output_tokens": 9 }),
                         session_id: Some("s-1".to_owned()),
                     },
                 ),
