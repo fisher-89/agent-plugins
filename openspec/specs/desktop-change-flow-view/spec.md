@@ -8,12 +8,12 @@
 
 ### Requirement: 流程图节点模型与两分类
 
-change 详情页 SHALL 以 react-flow 流程图承载执行史，节点粒度 SHALL 为 attempt 级。转换层 SHALL 将 `ChangeDetail` 的事件归并为两类节点：
+change 详情页 SHALL 以 react-flow 流程图承载执行史，节点模型 SHALL 收敛为**单分类（仅 runtime step 节点）**。转换层 SHALL 将运行执行图（`runs[].nodes` 库读史 ∪ 在飞 run 活面，`run-state.ts` 统一视图派生）归并为 runtime step 节点，MUST NOT 再归并 eval（phase attempt）节点或 active（`activePhase`）节点：
 
-- **eval 节点**：来自 `pipeline` 各站的 `attempts[]`（verdict / checklist / report / skipped / stale），实心呈现——pass 绿、fail 红；`stale: true` 的节点 SHALL 半透明淡化（废弃支线）；
-- **active 节点**：来自 `activePhase`（运行中，无 verdict），pulse 运行中视觉，位于所在列的接流末端。
+- **runtime step 节点**：按后端稳定身份键 `(phase, attempt, step, instanceNo)` 直渲染，running 态 pulse、failed 红态、stopped 灰态、passed 常态；
+- **eval / active 相位节点整体退役**：`collectEvals` / `collectActive` / `mergeByStartAt` / `anchorMs` 删除，`sequence = [...runNodes]`；运行中由 running 态 runtime 节点承载；header Badge 仍读 `detail.activePhase`（保留，仅移除图上 active 节点）。
 
-`interrupted[]` 留档 SHALL 不再上图：读模型（Rust `Workflow` / `ChangeDetail`）MUST NOT 解析该字段，前端节点模型 MUST NOT 保留 interrupted 词汇（`FlowNodeKind` 收敛 `'eval' | 'active'`）；磁盘上既有 `workflow.json` 的 `interrupted[]` 数据 SHALL 原样保留（serde 未知字段忽略），MUST NOT 迁移或清除，写入方（插件 CLI）MUST NOT 因本变更改动。9 站顺序 SHALL 以 `PIPELINE_PHASES` 固定序列为准（proposal → dev-design → test-design → implement → test-gen → test-execution → code-review → acceptance → code-analyze），不依赖 eval 排列。
+`interrupted[]` 留档 SHALL 保持不上图：读模型（Rust `Workflow` / `ChangeDetail`）MUST NOT 解析该字段，前端节点模型 MUST NOT 保留 interrupted 词汇（`FlowNodeKind` 概念整体退役，前端节点类型单一为 `runtime`）；磁盘上既有 `workflow.json` 的 `interrupted[]` 数据 SHALL 原样保留（serde 未知字段忽略），MUST NOT 迁移或清除，写入方（插件 CLI）MUST NOT 因本变更改动。10 站顺序 SHALL 以 `PIPELINE_PHASES` 固定序列为准（proposal → dev-design → test-design → implement → test-gen → test-execution → code-review → acceptance → code-analyze → archive），不依赖 eval 排列。
 
 #### Scenario: 两分类节点呈现
 
@@ -23,31 +23,41 @@ change 详情页 SHALL 以 react-flow 流程图承载执行史，节点粒度 SH
 #### Scenario: interrupted 留档不出图且数据保留
 
 - **WHEN** 打开 workflow.json 含 `interrupted[]` 留档的存量 v2 change（v2-b 夹具形态：`interrupted` 的 test-gen#1 与 `active_phase` 的 implement#2 均不在 eval 序列内）
-- **THEN** test-gen#1 不以任何节点形态出现在图上（"未收口"语义由 implement#2 的 active 节点承担），磁盘 workflow.json 的 `interrupted[]` 数据原样保留、详情查询不报错
+- **THEN** test-gen#1 不以任何节点形态出现在图上，磁盘 workflow.json 的 `interrupted[]` 数据原样保留、详情查询不报错
 
 #### Scenario: stale 淡化
 
 - **WHEN** 某站的最新 pass eval 被 backtrack 标记 `stale: true`
 - **THEN** 该节点呈半透明淡化，表示废弃支线，但仍保留在图上
 
+#### Scenario: 单分类节点呈现
+
+- **WHEN** 打开一个含多 attempt 与 backtrack 的 v2 change 详情
+- **THEN** 图上仅呈现 runtime step 节点（WorkerAgent / ToolStep / Gate / Git 类型可辨，running / failed / stopped / passed 状态如实），无 eval 节点、无 active 节点、无 dashed 灰显的 interrupted 节点
+
+#### Scenario: 运行中由 running 态 runtime 节点承载
+
+- **WHEN** 某 change run 运行至 implement 相位（含 active_phase 残留）
+- **THEN** 当前执行位置的 runtime step 节点呈 pulse 运行态，图上无独立 active 节点；header Badge 仍读 `detail.activePhase` 呈现「运行中 · implement · attempt N」
+
 ### Requirement: 10 列手工坐标布局
 
-布局 SHALL 采用手工坐标，MUST NOT 引入 dagre / elk 等自动布局引擎：`x = PIPELINE_PHASES.indexOf(phase) × COL_W`（10 列恒定，未走过的站呈现空列），`y = 列内执行序 × ROW_H`。同 phase 的全部事件 SHALL 纵向对齐成一列。phase 列 SHALL 以 react-flow v12 subflow 承载（`parentId` + `extent: 'parent'`），列头展示 phase 名与该站过程文档徽章。`PIPELINE_PHASES` SHALL 为 10 列（proposal → dev-design → test-design → implement → test-gen → test-execution → code-review → acceptance → code-analyze → archive，后端 `detail.rs` 与前端 `layout.ts` 双侧同步）。COL_W / ROW_H 常量取值由 design 定夺。视口 SHALL 默认 100% 缩放（MUST NOT 初始 fitView 适配），滚轮 SHALL 平移画布，显式刷新重绘时 SHALL 保留当前视口。
+布局 SHALL 采用手工坐标，MUST NOT 引入 dagre / elk 等自动布局引擎：`x = PIPELINE_PHASES.indexOf(phase) × COL_W`（10 列恒定，未走过的站呈现空列），`y = 列内执行序 × ROW_H`。同 phase 的全部 step 节点 SHALL 纵向对齐成一列。phase 列 SHALL 以 react-flow v12 subflow 承载（`parentId` + `extent: 'parent'`），列头展示 phase 名与该站过程文档徽章（含 eval-checklist 素材，见「过程素材挂载规则」）。`PIPELINE_PHASES` SHALL 为 10 列（proposal → dev-design → test-design → implement → test-gen → test-execution → code-review → acceptance → code-analyze → archive，后端 `detail.rs` 与前端 `layout.ts` 双侧同步）。COL_W / ROW_H 常量取值由 design 定夺。视口 SHALL 默认 100% 缩放（MUST NOT 初始 fitView 适配），滚轮 SHALL 平移画布，显式刷新重绘时 SHALL 保留当前视口。
 
 #### Scenario: 列对齐与空列恒定
 
-- **WHEN** 某 change 只走到 dev-design 站（proposal 有 eval 记录）
-- **THEN** proposal 与 dev-design 事件各自纵向对齐成列，后续 8 站仍以空列呈现（含 code-analyze 占位列与 archive 列），列总数恒为 10
+- **WHEN** 某 change 只走到 dev-design 站（proposal 有 step 节点）
+- **THEN** proposal 与 dev-design 的 step 节点各自纵向对齐成列，后续 8 站仍以空列呈现（含 code-analyze 占位列与 archive 列），列总数恒为 10
 
 #### Scenario: archive 列常驻
 
 - **WHEN** 打开已归档 change（含 archive 相位空 checklist PhaseRecord 与 10 步节点）
-- **THEN** archive 列为第 10 列常驻呈现（1 个 pass eval 节点 + 10 步节点），与 test-execution 列同构，不因 refresh 蒸发
+- **THEN** archive 列为第 10 列常驻呈现（10 步节点，无 pass eval 节点），与 test-execution 列同构，不因 refresh 蒸发
 
 #### Scenario: backtrack 重做自动向左
 
 - **WHEN** test-execution#1 fail 后 backtrack 回 test-gen 并重做 test-gen#2
-- **THEN** 重做的 test-gen#2 节点位于 test-gen 列（Δx < 0），无需显式边分类即呈现为向左回跳
+- **THEN** 重做的 test-gen#2 step 节点位于 test-gen 列（Δx < 0），无需显式边分类即呈现为向左回跳
 
 ### Requirement: 时间序边推导
 
@@ -72,12 +82,12 @@ change 详情页 SHALL 以 react-flow 流程图承载执行史，节点粒度 SH
 
 ### Requirement: 过程素材挂载规则
 
-素材挂载分两层：**文档挂列、记录挂节点**。
+素材挂载 SHALL 为**单层：文档挂列**（列头承载该站全部过程素材，含过程文档与 eval-checklist 信封）。
 
 - 过程文档（`artifacts` 中 `markdown-doc` / `tasks-progress` 类）SHALL 经 **后端 phase 清单归属**挂到 phase 列（列头徽章，每站一份、不随 attempt 重复）：`proposal.md` 与 `specs/**` → proposal、`design.md` 与 `tasks.md` → dev-design、`test-reports/**` → test-execution——归属 SHALL 来自源码 phase 清单（desktop-workflow-write-face「相位定义有序 step 序列与 artifact 清单」）经 detail 出线，前端 `docColumn(source)` 字符串→列静态映射 SHALL 退役。清单未声明归属的文档 SHALL 落入「未归属」处理（design 定夺展示位置），MUST NOT 误挂到错误站。`explore.md` MUST NOT 入图（探索在流程之外，不属于任何站）。
-- eval-checklist 信封（payload 自带 `phase` + `attempt`）SHALL 挂到对应 attempt 节点（PhaseRecord 投影分支，不走相对路径清单）。
+- eval-checklist 信封（payload 自带 `phase` + `attempt` + `verdict` + `items`）SHALL 挂到对应 **phase 列头**（`artifactColumn` 已有 pipeline 外相位校验，`EvalChecklistRenderer` 已能渲染全套元数据，列头抽屉经 `ArtifactTabs` 即达），不再挂节点。
 
-file_log 挂载 SHALL 退役：file_log 条目挂节点规则与 `scope='workflow'` 图外独立面板随载体退役一并删除（前端 file-log 面板组件与挂载分支移除）。
+`nodeChecklists` SHALL 退役：`FlowMaterials` 仅保留 `columnDocs`；`NODE_PRECEDENCE` / `locateNode` 删除；`mountMaterials` 签名去 `graph` 参数（连带 `useFlowGraphData` 的 materials memo 依赖收窄为 `[detail, artifacts]`）。file_log 挂载 SHALL 保持退役（file_log 条目挂节点规则与 `scope='workflow'` 图外独立面板随载体退役一并删除）。
 
 归属 SHALL 由后端 phase 清单供给，前端 MUST NOT 保留第二份 docColumn 静态映射；后端 `ChangeDetail` DTO 与 `PIPELINE_PHASES` MUST NOT 因本能力新增 file_log 相关字段。
 
@@ -94,11 +104,22 @@ file_log 挂载 SHALL 退役：file_log 条目挂节点规则与 `scope='workflo
 #### Scenario: explore.md 隐身与文件面板退役
 
 - **WHEN** 打开任一 change 详情，产物清单含 `explore.md`
-- **THEN** explore.md 不出现在图中，图上无文件徽章挂靠（节点文件区概念已退役），无 workflow 独立面板渲染
+- **THEN** explore.md 不出现在图中，图上无文件徽章挂靠，无 workflow 独立面板渲染
+
+#### Scenario: eval-checklist 挂列头
+
+- **WHEN** 某 change 的 implement 站存在带 `phase`/`attempt` payload 的 eval-checklist 信封
+- **THEN** 该信封挂 implement 列头（列头抽屉经 `ArtifactTabs` 呈现 checklist 条目与 verdict），`FlowMaterials.nodeChecklists` 无此条目、`mountMaterials` 不接收 `graph`
 
 ### Requirement: 右侧抽屉单一交互入口
 
-phase 列头与 attempt 节点 SHALL 提供同一交互入口：点击打开右侧抽屉。抽屉 SHALL 为双列布局：左列（约 60% 宽）为会话信息区——上方呈现选中节点关联会话的元信息（session id、运行状态徽章等，具体字段清单由 design 定夺，数据取自会话查询的 `SessionSummary`），下方转录 tab 与时间线拉满左列高度滚动；右列为二分节【本站文档 | eval report+checklist】（原第三分节「文件表」随 file_log 退役删除），各节在右列内滚动。抽屉整体宽度 SHALL 保持约 960px 并保留 `max-w-[85vw]`；遮罩点击关闭与右贴边定位不变。无会话联动的选中（列头 / ToolStep / Gate / 无 role 运行步）左列 SHALL 呈空态占位，双列结构 MUST NOT 因选中类型跳变。本站文档节 SHALL 复用 `renderers/registry`（经 `ArtifactView` 渲染，新增产物 kind 仍只需在 registry 追加一行）；eval 节展示该 attempt 的 report 与 checklist 条目。列头点击与节点点击 MUST NOT 出现两套并存的展开交互。
+phase 列头与 runtime step 节点 SHALL 提供同一交互入口：点击打开右侧抽屉。抽屉 SHALL 为**单列布局**（宽度约 960px 并保留 `max-w-[85vw]`，遮罩点击关闭与右贴边定位不变），内容按选中类型分派：
+
+- **列头**：该站过程文档 + eval-checklist 素材（`columnDocs`，经 `ArtifactTabs` 渲染）；
+- **WorkerAgent step 节点**（`role !== null`）：单列会话转录（复用 `SessionTranscriptPanel`，`sessionId` 直查优先 / sourceRef 反查兜底）；
+- **带 `outputRef` 的 step 节点**（static-check / test-execution）：单列 stdout 面板（新组件，见「节点点击判据与 stdout 输出面板」）。
+
+抽屉 SHALL 删除 `DrawerEvalSection` + `InlineChecklist` 与 eval/active 分支；评估 report（`node.record.report`）MUST NOT 展示（eval 节点已退役）。无点击判据 SHALL 前置：`sessionId`/`role` 与 `outputRef` 皆 null 的 runtime 节点不可点击（不 `onSelect`），抽屉不会以无信息源选中打开。列头点击与节点点击 MUST NOT 出现两套并存的展开交互。
 
 #### Scenario: 节点点击抽屉双列内容
 
@@ -114,6 +135,26 @@ phase 列头与 attempt 节点 SHALL 提供同一交互入口：点击打开右�
 
 - **WHEN** 某 attempt 的会话转录、report 与 checklist 内容均超出可视高度
 - **THEN** 左列时间线在左列内滚动、右列二分节在右列内滚动，抽屉本体 MUST NOT 退回整列单滚
+
+#### Scenario: WorkerAgent 节点点击单列转录
+
+- **WHEN** 点击 executor / evaluator / decision / specSync / resolveConflicts step 节点（`role !== null`）
+- **THEN** 抽屉单列呈该会话转录（`SessionTranscriptPanel`），无「本站文档」节、无「评估记录」节
+
+#### Scenario: 带输出引用节点点击单列 stdout
+
+- **WHEN** 点击 static-check 或 test-execution step 节点（`outputRef !== null`）
+- **THEN** 抽屉单列呈 stdout 面板（经 `read_exec_output` 渲染脚本输出），无会话转录区、无文档节
+
+#### Scenario: 列头点击同入口
+
+- **WHEN** 点击 dev-design 列头
+- **THEN** 打开与节点点击相同的右侧抽屉，单列呈该站过程文档（design.md / tasks.md）与 eval-checklist 素材，无会话转录区
+
+#### Scenario: 双列结构已退役
+
+- **WHEN** 打开任一节点 / 列头抽屉
+- **THEN** 抽屉为单列（无左列会话区 + 右列文档区的双列切分），内容随选中类型分派，抽屉本体 MUST NOT 退回双列布局
 
 ### Requirement: 三代际降级
 
@@ -165,12 +206,12 @@ phase 列头与 attempt 节点 SHALL 提供同一交互入口：点击打开右�
 
 ### Requirement: 纯函数转换层与渲染薄层
 
-`detail → { nodes, edges }` 转换 SHALL 为独立纯函数模块（`views/changes/` 下，目录与命名由 design 定夺），不依赖 react 宿主组件状态、不发起任何 invoke，vitest SHALL 直测其边界：前进 / 重试 / 回跳 / stale 淡化 / active 接流末端 / attempt 缺号 / 时间戳缺失 / 文档归属映射 / workflow scope 剔除。react-flow SHALL 仅作渲染薄层，其库内布局与交互语义 MUST NOT 做逐项断言（符合「不逐项验证库语义」约定）。
+`detail → { nodes, edges }` 转换 SHALL 为独立纯函数模块（`views/changes/` 下，目录与命名由 design 定夺），不依赖 react 宿主组件状态、不发起任何 invoke，vitest SHALL 直测其边界：前进 / 重试 / 回跳 / 节点派生（step 节点直读稳定身份键）/ attempt 缺号 / 时间戳缺失 / 文档归属映射 / workflow scope 剔除。react-flow SHALL 仅作渲染薄层，其库内布局与交互语义 MUST NOT 做逐项断言（符合「不逐项验证库语义」约定）。
 
 #### Scenario: 转换层直测
 
-- **WHEN** 以 v2-a / v2-b 夹具形状的 `ChangeDetail` 数据（含 fail→retry、backtrack、stale）调用转换函数
-- **THEN** 输出的节点坐标符合列索引 / 执行序公式，边集合与方向符合时间序推导，无需挂载 react 组件即可断言
+- **WHEN** 以 v2-a / v2-b 夹具形状的 `ChangeDetail` 数据（含 fail→retry、backtrack）调用转换函数
+- **THEN** 输出的节点坐标符合列索引 / 执行序公式，边集合与方向符合时间序推导，节点集仅含 runtime step 节点，无需挂载 react 组件即可断言
 
 ### Requirement: desktop 版本升级交付
 
@@ -183,14 +224,14 @@ phase 列头与 attempt 节点 SHALL 提供同一交互入口：点击打开右�
 
 ### Requirement: 运行态节点与实时执行视图
 
-change 详情流程图 SHALL 升级为实时执行视图：运行期间，当前执行位置的节点 SHALL 呈现运行态（pulse 视觉，与既有 active 节点同款），ToolStep 节点、Git 节点与 Gate 节点 SHALL 与 WorkerAgent 节点同等上图并可辨（四类可区分）。运行态呈现 SHALL 与既有节点模型并存：eval（实心 pass 绿 / fail 红）、stale 淡化规则不变；`PIPELINE_PHASES` 10 列布局、边表读取规则与空列恒定 MUST NOT 因运行态呈现改变。
+change 详情流程图 SHALL 升级为实时执行视图：运行期间，当前执行位置的 step 节点 SHALL 呈现运行态（pulse 视觉），ToolStep 节点、Git 节点与 Gate 节点 SHALL 与 WorkerAgent 节点同等上图并可辨（四类可区分）。运行态呈现 SHALL 与既有节点模型并存：step 节点 running / failed / stopped / passed 四态如实；`PIPELINE_PHASES` 10 列布局、边表读取规则与空列恒定 MUST NOT 因运行态呈现改变。eval 节点与 active 节点 SHALL 不再上图（相位节点整体退役，见「流程图节点模型与两分类」）。
 
 运行收口后，图 SHALL 保持**步节点常驻渲染**：已落库执行图节点（`runs[].nodes` 十八值全词汇）自统一视图派生常驻上图，与运行中实时面走**同一条派生路径**；运行态视觉（pulse）褪去、终态样式呈现。常驻渲染 SHALL 取**全史叠加**（多次 run 的节点全部保留），archive 相位节点随当前 run 常驻。节点身份键 SHALL 为 `(phase, attempt, step, instanceNo)`（自后端直读），前端 `runStepNodes` 的「槽位配对 + `:seq` 后缀堆叠」机制 SHALL 退役。归档步词 SHALL 落到 `RunStepGroup` 的 git / exec / agent 分类（`GROUP_LABEL` 同步），`archive-panel` / `StageList` 六段清单 SHALL 退役（归档六段作为 archive 列 step 节点呈现，不设独立面板）。
 
 #### Scenario: 运行态与四类并存
 
 - **WHEN** implement#2 相位运行中且历史上有 fail→retry 与 active_phase 残留，archive 相位随后进入
-- **THEN** 图上同时呈现：历史 eval 节点（实心三色）、active_phase 的 active 节点（pulse）与当前节点（pulse 运行态）及同相位的 ToolStep / Git / Gate 节点（类型可辨、状态如实）
+- **THEN** 图上同时呈现：历史 step 节点（终态）、当前节点（pulse 运行态）及同相位的 ToolStep / Git / Gate 节点（类型可辨、状态如实），无 eval 节点、无 active 节点
 
 #### Scenario: archive 步节点上图
 
@@ -214,16 +255,18 @@ change 详情流程图 SHALL 升级为实时执行视图：运行期间，当前
 
 ### Requirement: 节点会话转录联动
 
-WorkerAgent 节点（executor / evaluator / decision / spec_sync / resolve_conflicts）SHALL 提供到对应会话转录的联动：点击运行中的 WorkerAgent 节点 SHALL 打开该会话的实时时间线，点击已收口的 WorkerAgent 节点 SHALL 打开转录重放。会话寻址 SHALL 记录 id 直查优先：attempt 记录暴露的会话槽位 id 在场时按 session id 直查；槽位缺席时回退既有 sourceRef 定式反查（身份段为 change id；归档步两会话的 sourceRef 定式由 design 定稿，MUST 在同 phase 同 attempt 内唯一）。eval 节点与 active 节点的抽屉联动 SHALL 均覆盖三会话（executor / evaluator / decision）；归档步节点（spec_sync / resolve_conflicts）SHALL 经其节点 `session_id` 直查转录（无 attempt 三槽位概念）。ToolStep / Git / Gate 节点 SHALL 沿用右侧抽屉单交互入口呈现步骤结果（左列空态占位、右列展示步骤输出摘要）。
+WorkerAgent 节点（executor / evaluator / decision / spec_sync / resolve_conflicts）SHALL 提供到对应会话转录的联动：点击运行中的 WorkerAgent 节点 SHALL 打开该会话的实时时间线，点击已收口的 WorkerAgent 节点 SHALL 打开转录重放。会话寻址 SHALL 记录 id 直查优先：节点记录暴露的会话槽位 id（`sessionId`）在场时按 session id 直查；槽位缺席时回退既有 sourceRef 定式反查（身份段为 change id；归档步两会话的 sourceRef 定式由 design 定稿，MUST 在同 phase 同 attempt 内唯一）。归档步节点（spec_sync / resolve_conflicts）SHALL 经其节点 `session_id` 直查转录（无 attempt 三槽位概念）。
+
+eval 节点与 active 节点的三会话联动（executor / evaluator / decision 三 tab）SHALL 整体退役（eval / active 节点已移除）；ToolStep / Git / Gate 节点 SHALL 沿用右侧抽屉单交互入口呈现步骤结果——无 role 且无 `outputRef` 的 ToolStep / Git / Gate 节点不可点击（`detail` 短文本已在节点内显示）；带 `outputRef` 的 static-check / test-execution 节点经 stdout 面板呈现输出（见「节点点击判据与 stdout 输出面板」）。
 
 #### Scenario: 归档步节点转录直查
 
 - **WHEN** 点击 archive 相位的 SpecSync 或 ResolveConflicts 节点（`session_id` 在案）
-- **THEN** 抽屉左列经节点 `session_id` 直查该会话转录（实时流 / 重放一致），ToolStep / Git 步节点左列空态、右列呈现步骤输出摘要
+- **THEN** 抽屉单列经节点 `session_id` 直查该会话转录（实时流 / 重放一致）
 
 #### Scenario: 槽位缺席回退反查
 
-- **WHEN** 打开槽位列 None 的 attempt 记录（缺省落账）
+- **WHEN** 打开 WorkerAgent step 节点且其 `sessionId` 缺席（缺省落账）
 - **THEN** 转录面板回退 sourceRef 定式反查（身份段 = change id）并照常重放，行为与直查路径一致可靠
 
 #### Scenario: 运行中节点实时转录经转录库
@@ -238,7 +281,7 @@ WorkerAgent 节点（executor / evaluator / decision / spec_sync / resolve_confl
 
 #### Scenario: 记录 id 直查优先
 
-- **WHEN** 某 attempt 记录携带会话槽位 id，且同 sourceRef 定式下存在多条会话
+- **WHEN** 某节点记录携带会话槽位 id，且同 sourceRef 定式下存在多条会话
 - **THEN** 转录面板按槽位 id 精确直查该会话，MUST NOT 落入「同 ref 多会话取最近一条」的反查歧义
 
 #### Scenario: decision 第三 tab 与空态
@@ -254,7 +297,7 @@ WorkerAgent 节点（executor / evaluator / decision / spec_sync / resolve_confl
 #### Scenario: 查看会话按钮不呈现
 
 - **WHEN** WorkerAgent 节点渲染（运行中或已收口）
-- **THEN** 节点上无「查看会话」按钮，点击节点本体即打开抽屉查看左列转录；无独立会话 route 引入
+- **THEN** 节点上无「查看会话」按钮，点击节点本体即打开抽屉查看转录；无独立会话 route 引入
 
 ### Requirement: 运行控制入口与 ask 应答
 
@@ -317,6 +360,32 @@ change 清单条目 SHALL 渲染 `summary.title`（人类可读标题，恒非�
 
 - **WHEN** 扫描清单 / 详情视图对 title 的渲染逻辑
 - **THEN** 无「title 为空回退 name」的前端分支（后端 title 恒非空）；data-testid 挂钩在案，无样式类名查询挂钩
+
+### Requirement: 节点点击判据与 stdout 输出面板
+
+runtime step 节点点击 SHALL 按信息源分派判据：`role !== null` → 单列会话转录（复用 `SessionTranscriptPanel`）；`outputRef !== null` → 单列 stdout 面板（新组件）；两者皆 null → 不可点击（不 `onSelect`）。该判据 SHALL 为转换 / 交互层纯函数可测（不依赖 react 宿主）。
+
+stdout 面板 SHALL 经 `hooks/use-exec-output.ts` 取数：以 `(root, changeName, outputRef)` 调 `commands.readExecOutput(root, changeName, execId)`（返回 `Option<String>`，UTF-8 lossy；miss=None），将脚本真实输出渲染为单列文本区；miss 或读回失败 SHALL 呈空态 / 错误态（不炸图）。`read_exec_output` 磁盘面按 change name 定位（与 `record_exec_output` 同口径），`DetailDrawer` SHALL 新增 `name` prop（取 `detail.name`，非 id）供 stdout 面板寻址。
+
+#### Scenario: 有 role 节点分派到转录
+
+- **WHEN** 点击 `role !== null` 的 runtime step 节点
+- **THEN** 抽屉分派到会话转录单列，不发起 `read_exec_output`
+
+#### Scenario: 有 outputRef 节点分派到 stdout
+
+- **WHEN** 点击 `outputRef !== null` 的 runtime step 节点（static-check / test-execution）
+- **THEN** 抽屉分派到 stdout 面板，经 `readExecOutput(root, name, outputRef)` 渲染脚本真实输出
+
+#### Scenario: 双 null 节点不可点击
+
+- **WHEN** 点击 phaseStart / phaseLog / verdictGate / retryGate / whitelistGate / commit / rebase / merge / finalize / preflight / seal 节点（`role` 与 `outputRef` 皆 null）
+- **THEN** 不触发 `onSelect`、抽屉不打开，节点本身仍照常渲染
+
+#### Scenario: stdout 面板空态与错误态
+
+- **WHEN** `readExecOutput` 返回 `None`（exec_id 未知 / 非法）或读回失败
+- **THEN** stdout 面板呈空态 / 错误态提示，流程图与抽屉不报错、不崩溃
 
 ## Module Contract
 
