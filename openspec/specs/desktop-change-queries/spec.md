@@ -47,11 +47,11 @@ workflow crate 的 queries SHALL 返回全量 change 列表，条目集合 SHALL
 
 ### Requirement: change 详情聚合
 
-queries SHALL 聚合单个 change 的详情（**按 id 寻址**），状态面单源自 workspace 库：10 站流水线（proposal / dev-design / test-design / implement / test-gen / test-execution / code-review / acceptance / code-analyze / archive）逐站展开 PhaseRecord 的 attempt 序列（attempt 序号、verdict、report、checklist 的 item / pass / evidence、timestamp），并暴露 `active_phase`（自 ChangeRecord）与 backtrack 字段（backtrack_to / backtrack_reason）；checklist 自 ChecklistItemRecord 子表按打包键序重组，线面聚合形状不变。详情 SHALL 出线 `id`（身份锚）、`name`（恒裸名）与 `title`（恒非空）。详情 SHALL 出线 `worktree` 路径（自 ChangeRecord.worktree 直读透出；None → null）。产物发现与信封读取的路径解析 SHALL 经 **id → 记录 → name / worktree** 分辨率；`worktree=None` 的 change 维持主仓两树解析既有语义。**文档形态分支整体退役**：db 无该 id 记录时详情 SHALL 返回「未找到」（`None`），MUST NOT 回退磁盘目录解析、MUST NOT 读取任何 workflow.json。`id` / `title` 字段为 detail 线面字段演进，SHALL 走 golden 显式重写流程。
+queries SHALL 聚合单个 change 的详情（**按 id 寻址**），状态面单源自 workspace 库：流水线相位序 SHALL 随 `record.workflow_type` 出线（`phase_table(workflow_type)` 的相位序——requirement 9 列、test-only 6 列；MUST NOT 使用固定 10 站 `PIPELINE_PHASES` 常量）逐站展开 PhaseRecord 的 attempt 序列（attempt 序号、verdict、report、checklist 的 item / pass / evidence、timestamp），并暴露 `active_phase`（自 ChangeRecord）与 backtrack 字段（backtrack_to / backtrack_reason）；checklist 自 ChecklistItemRecord 子表按打包键序重组，线面聚合形状不变。详情 SHALL 出线 `id`（身份锚）、`name`（恒裸名）与 `title`（恒非空）。详情 SHALL 出线 `worktree` 路径（自 ChangeRecord.worktree 直读透出；None → null）。产物发现与信封读取的路径解析 SHALL 经 **id → 记录 → name / worktree** 分辨率；`worktree=None` 的 change 维持主仓两树解析既有语义。**文档形态分支整体退役**：db 无该 id 记录时详情 SHALL 返回「未找到」（`None`），MUST NOT 回退磁盘目录解析、MUST NOT 读取任何 workflow.json。`id` / `title` 字段为 detail 线面字段演进，SHALL 走 golden 显式重写流程。
 
-详情 SHALL 同时出线 **run 执行图全量读面**：`runs` 数组（自 RunRecord 全史投影），每 run 的 `nodes`（自 RunNodeRecord 投影：phase / attempt / step / instanceNo / stepKind / status / sessionId / detail / outputRef）与 `edges`（自 RunEdgeRecord 投影：fromNodeKey / toNodeKey / edgeKind ∈ forward / feedback / retry / backtrack）。节点身份键 `(phase, attempt, step, instanceNo)` SHALL 为稳定出线键；边 SHALL 显式出线。节点 `stepKind` SHALL 为十八值全词汇（含 8 个归档步词）。时间戳 SHALL 维持既有口径（db i64 毫秒落库、出线 ISO 串 + null）；DTO SHALL 纯 derive 零字段属性，10 站流水线 / 十八值 nodes / edges 字段演进 SHALL 走 golden 显式重写流程，bindings 再生成同步前端类型。详情标示「运行中」SHALL 与实际在飞 run 一致；archive 相位完成落账后 `phase_next` 路由 done，详情 MUST NOT 呈运行中假象。
+详情 SHALL 同时出线 **run 执行图全量读面**：`runs` 数组（自 RunRecord 全史投影），每 run 的 `nodes`（自 RunNodeRecord 投影：phase / attempt / step / instanceNo / stepKind / status / sessionId / detail / outputRef）与 `edges`（自 RunEdgeRecord 投影：fromNodeKey / toNodeKey / edgeKind ∈ forward / feedback / retry / backtrack）。节点身份键 `(phase, attempt, step, instanceNo)` SHALL 为稳定出线键；边 SHALL 显式出线。节点 `stepKind` SHALL 为十八值全词汇（含 8 个归档步词）。时间戳 SHALL 维持既有口径（db i64 毫秒落库、出线 ISO 串 + null）；DTO SHALL 纯 derive 零字段属性，流水线相位序 / 十八值 nodes / edges 字段演进 SHALL 走 golden 显式重写流程，bindings 再生成同步前端类型。详情标示「运行中」SHALL 与实际在飞 run 一致；archive 相位完成落账后 `phase_next` 路由 done，详情 MUST NOT 呈运行中假象。
 
-详情 SHALL 同时给出该 change 目录内可读产物的清单（经 artifact 插件按 phase 定义清单驱动发现）；archive 相位无产物清单（不产 proposal / design / tasks 类文档），MUST NOT 为 archive 列挂过程文档。
+详情 SHALL 同时给出该 change 目录内可读产物的清单（经 artifact 插件按 phase 定义清单驱动发现）；archive 与 code-analyze 相位无产物清单（不产 proposal / design / tasks 类文档），MUST NOT 为 archive / code-analyze 列挂过程文档。
 
 #### Scenario: 流水线含重试与回跳轨迹
 
@@ -61,7 +61,7 @@ queries SHALL 聚合单个 change 的详情（**按 id 寻址**），状态面�
 #### Scenario: 归档 change 全状态面（错配修复锚点）
 
 - **WHEN** 打开归档 change 详情（记录 status=archived，磁盘目录名为 `YYYY-MM-DD-<name>`，经 id 寻址）
-- **THEN** 出线 `status=archived`、10 站 pipeline 与 runs 全量呈现（archive 列 PhaseRecord 与 step 节点在案），`name` 为裸名、`id` 恒在案；产物清单经带前缀目录命中
+- **THEN** 出线 `status=archived`、相位序随 workflow_type 的 pipeline 与 runs 全量呈现（archive 列 PhaseRecord 与 step 节点在案），`name` 为裸名、`id` 恒在案；产物清单经带前缀目录命中
 
 #### Scenario: worktree 路径出线与产物经 worktree 解析
 
@@ -90,7 +90,7 @@ queries SHALL 聚合单个 change 的详情（**按 id 寻址**），状态面�
 
 #### Scenario: 10 站流水线 golden 显式重写
 
-- **WHEN** detail DTO 增 archive 列与十八值 nodes 后运行语料回归测试
+- **WHEN** detail DTO 相位序随 workflow_type 出线后运行语料回归测试
 - **THEN** diff 经 `DESKTOP_GOLDEN_REWRITE=1` 显式再生成并人工确认预期范围留痕，非静默重写；bindings 一致性守卫绿
 
 #### Scenario: title 出线与 golden 显式重写
@@ -102,6 +102,16 @@ queries SHALL 聚合单个 change 的详情（**按 id 寻址**），状态面�
 
 - **WHEN** detail DTO 增 `id` 字段（与列表 `id` 投影）后运行语料回归测试
 - **THEN** diff 经 `DESKTOP_GOLDEN_REWRITE=1` 显式再生成并人工确认预期范围留痕，非静默重写；bindings 一致性守卫绿
+
+#### Scenario: 相位序随 workflow_type 出线
+
+- **WHEN** 分别查询 `workflow_type="requirement"` 与 `"test-only"` 的 change 详情
+- **THEN** requirement 的 `pipeline` 为 9 列（proposal…archive，无 code-analyze，archive 第 9 列）、test-only 为 6 列（proposal / code-analyze / test-design / test-gen / test-execution / archive，archive 第 6 列）；`pipeline` 相位序与 `phase_table(workflow_type)` 逐一一致
+
+#### Scenario: 未知 workflow_type 读面不退化
+
+- **WHEN** 查询 `workflow_type` 为不受支持值（如 `"bug-fix"`）的 change 详情
+- **THEN** 详情按 design 定稿形态呈现（`None` / 空 pipeline / 显式错误三选一），MUST NOT 静默按 requirement 的 9 列出线；产物清单不误按 requirement 清单发现
 
 ### Requirement: 详情暴露 attempt 会话槽位
 

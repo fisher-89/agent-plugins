@@ -291,7 +291,7 @@ change run SHALL 以双 root 组合执行（能力语义见 desktop-change-workt
 以下边界 SHALL 作为 V1 显式限制留痕（后续变更偿还，不由实现隐式吸收）：
 
 1. **引擎恒 CLI**：change 执行会话恒走 claude code CLI 引擎（插件 dev-team 天然加载，protect-files 护栏过渡期依赖）；SDK 引擎 MUST NOT 承载 change 执行（无插件加载机制）。
-2. **工作流类型**：仅 requirement 工作流全链；bug-fix / test-only 相位表后续独立 change。
+2. **工作流类型**：requirement 与 test-only 工作流全链；bug-fix 相位表后续独立 change。
 3. **计划图静态编译期、非通用图引擎**：计划图（workflow → phase → step 序列 + 依赖边 + artifact 清单）SHALL 为编译期 const 表 + `include_str!` 静态装配，MUST NOT 实现运行时加载的通用图引擎或图定义文件格式；执行图（节点 + 边）为 db 落库的运行记录，MUST NOT 上位为路由权威（路由仍问 `phase_next`）。原「walker 只硬编码 walk 本相位循环图」表述随本变更翻案显式立项（step 序列下沉为 `PhaseDefinition.steps`）。
 4. **file_log 载体退役**：desktop run 与视图全链零 file_log 触点（git diff 供变更上下文）为既定裁定；外部归档对账（openspec CLI 归档改名后的 db status 翻转时机）留 design 定稿（见 proposal 待决问题）。
 5. **protect-files 过渡依赖**：步前实时护栏过渡期依赖插件 hook；插件真下线前需独立 change 补桌面原生护栏（内核 permission 层方向），本期仅留痕。
@@ -410,6 +410,20 @@ archive 相位（无 evaluator、无 checklist 的确定性相位）SHALL 在末
 
 - **WHEN** 分别驱动评估相位（verdict 产物）、test-execution 相位（test_outcome 产物）与 archive 相位（空 checklist）
 - **THEN** `step_phase_log` 三分支按产物在否分离，无按 phase 名判断、无跨分支误判
+
+### Requirement: 发起前置校验类型分派（严格拒绝未知类型）
+
+`change_flow_start` 前置校验 SHALL 保留「`phase_table(record.workflow_type)` 返回 `None` → 显式拒绝」的门：`"requirement"` / `"test-only"` 出线放行（test-only 进表后自然放行），其余（含空白 / bug-fix）SHALL 显式 `Err`。错误文案 SHALL 通吃 `{requirement, test-only}`，MUST NOT 再写死「V1 仅 requirement」、MUST NOT 引入「未知类型静默跑 requirement」的 fallback。walker 全程 SHALL 不新增 workflow_type 分支——相位序 / 步序列仍由写面 `phase_next` 依 `record.workflow_type` 下发的相位表承载。
+
+#### Scenario: test-only 发起放行
+
+- **WHEN** 对已建档 `workflow_type="test-only"` 的 change 调用 `change_flow_start` 前置校验
+- **THEN** 校验通过（test-only 相位表在位），run 按 `TEST_ONLY_TABLE` 相位序走（proposal → code-analyze → … → archive）
+
+#### Scenario: 未知类型显式拒绝
+
+- **WHEN** 对 `workflow_type="bug-fix"`（或空白）的 change 调用 `change_flow_start`
+- **THEN** 显式 `Err`（文案含 `{requirement, test-only}` 支持面），不进入运行态、不落任何账
 
 ## Module Contract
 
