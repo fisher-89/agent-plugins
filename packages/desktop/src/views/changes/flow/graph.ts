@@ -1,5 +1,4 @@
 import type { ChangeDetail, ChangeRunEdgeRecord, PhaseEntry } from '../../../types/dto';
-import { PIPELINE_PHASES } from './layout';
 import { nodeIdentityKey } from './run-state';
 import type { FlowColumn, FlowEdge, FlowGraph, FlowNode, RuntimeFlowNode } from './types';
 
@@ -59,7 +58,8 @@ function tableEdges(
  * `runEdges` 为运行执行图 overlay（统一视图派生——`runStepNodes(unifiedRunNodes(
  * detail.runs, activeRun?.nodes))` + `unifiedRunEdges(detail.runs, activeRun?.edges)`
  * 单源拼装：库读史 ∪ 在飞活面同一转换函数，图常驻渲染零回落；缺省 / 空参即无
- * 运行态）。`pipeline` 仍供 `tableEdges` 的 backtrack 边 label（回跳记因）。 */
+ * 运行态）。`pipeline` 仍供 `tableEdges` 的 backtrack 边 label（回跳记因）与列序
+ * （`columns` 由 `detail.pipeline` 出线序派生，前端零静态相位序常量）。 */
 export function buildFlowGraph(
   detail: ChangeDetail,
   runNodes?: RuntimeFlowNode[],
@@ -68,9 +68,11 @@ export function buildFlowGraph(
   if (detail.pipeline.length === 0) {
     return { columns: [], nodes: [], edges: [] };
   }
-  const columns: FlowColumn[] = PIPELINE_PHASES.map((phase, colIndex) => ({
-    id: `col:${phase}`,
-    phase,
+  // 列序单源 = `detail.pipeline`（后端相位表出线序：requirement 9 列 /
+  // test-only 6 列；colIndex = 数组下标，列 id = `col:<phase>`）
+  const columns: FlowColumn[] = detail.pipeline.map((entry, colIndex) => ({
+    id: `col:${entry.phase}`,
+    phase: entry.phase,
     colIndex,
   }));
   const sequence: FlowNode[] = [...(runNodes ?? [])];

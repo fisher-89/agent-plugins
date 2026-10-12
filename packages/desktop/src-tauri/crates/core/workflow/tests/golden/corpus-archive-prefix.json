@@ -79,10 +79,6 @@
       "phase": "acceptance"
     },
     {
-      "attempts": [],
-      "phase": "code-analyze"
-    },
-    {
       "attempts": [
         {
           "attempt": 1,

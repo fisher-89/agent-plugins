@@ -240,6 +240,14 @@ fn check_explore_name(name: &str) -> Result<(), StoreError> {
 /// 改动需同步）。`delete_explore_record` 据此圈定级联删除的归属会话。
 const EXPLORE_RUN_SOURCE: &str = "explore";
 
+/// workflow_type 合法值集（store 自持校验：trim + case-insensitive 命中
+/// `{requirement, test-only}`；合法值唯一权威仍是写面 `phase_table`，store
+/// MUST NOT 依赖 workflow——与 kebab-case 自持校验同纪律）。
+fn is_valid_workflow_type(value: &str) -> bool {
+    let value = value.trim();
+    value.eq_ignore_ascii_case("requirement") || value.eq_ignore_ascii_case("test-only")
+}
+
 /// 数据维度（信封维度标签 + db 查看命令 scope 入参双职）：`User` 全局库 /
 /// `Workspace` workspace 库。serde 线值为 `"user"` / `"workspace"`。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
@@ -933,6 +941,33 @@ impl Store {
         let rw = self.db.rw_transaction().map_err(db_err("开启写事务"))?;
         rw.upsert(updated.clone()).map_err(db_err("写入探索记录"))?;
         rw.commit().map_err(db_err("提交 set_explore_title 事务"))?;
+        Ok(updated)
+    }
+
+    /// 回填工作流类型（workflow_type 回填唯一写口，读路径 `read_explore` MUST
+    /// NOT 写入）：按 `(root, name)` 找到记录后 in-place 写 `workflow_type`
+    /// （落 canonical 小写值）+ 刷新 `updated_at`（保主键 → 保会话链绑定；幂等
+    /// 覆写）。非法值（非 `{requirement, test-only}`）→ `Err`；记录 miss →
+    /// `Err`。
+    pub fn set_explore_workflow_type(
+        &self,
+        root: &str,
+        name: &str,
+        workflow_type: &str,
+    ) -> Result<ExploreRecord, StoreError> {
+        if !is_valid_workflow_type(workflow_type) {
+            return Err(StoreError::Db(format!(
+                "非法 workflow_type: {workflow_type:?}（合法值: requirement | test-only）"
+            )));
+        }
+        let mut updated = self
+            .find_explore_record(root, name)?
+            .ok_or_else(|| StoreError::Db(format!("记录不存在: root={root:?} name={name:?}")))?;
+        updated.workflow_type = workflow_type.trim().to_ascii_lowercase();
+        updated.updated_at = now_millis();
+        let rw = self.db.rw_transaction().map_err(db_err("开启写事务"))?;
+        rw.upsert(updated.clone()).map_err(db_err("写入探索记录"))?;
+        rw.commit().map_err(db_err("提交 set_explore_workflow_type 事务"))?;
         Ok(updated)
     }
 

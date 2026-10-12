@@ -356,17 +356,142 @@ fn 未建档id显式err不静默空产出() {
     );
 }
 
-/// workflow_type 非 requirement → Err 显式分层出口（W8 写面侧）。
+/// workflow_type 未知 → Err 显式分层出口（W8 写面侧）：文案通吃
+/// `{requirement, test-only}` 两值、不再出现「V1 仅 requirement」旧字样。
 #[test]
-fn workflow_type非requirement时err显式分层出口() {
-    let fake = RouteStore::with_workflow_type("bug-fix");
+fn workflow_type未知时err显式分层出口文案通吃两值() {
+    let long_unknown = "x".repeat(1200);
+    for workflow_type in [
+        "bug-fix",
+        "refactor",
+        "",
+        " ",
+        "test_only",
+        long_unknown.as_str(),
+        "test-only🚀",
+        "require\nment",
+    ] {
+        let fake = RouteStore::with_workflow_type(workflow_type);
 
-    let err = phase_next(&fake, CHANGE_ID, RUN, &SessionAnchors::new())
-        .expect_err("非 requirement 应 Err");
+        let err = phase_next(&fake, CHANGE_ID, RUN, &SessionAnchors::new())
+            .expect_err("未知 workflow_type 应 Err");
+
+        assert!(
+            err.contains("workflow_type"),
+            "Err 记因携 workflow_type 字段名，实际: {err}"
+        );
+        assert!(
+            err.contains("requirement") && err.contains("test-only"),
+            "文案通吃合法值集 {{requirement, test-only}}，实际: {err}"
+        );
+        assert!(
+            !err.contains("仅 requirement"),
+            "旧「V1 仅 requirement」字样退役，实际: {err}"
+        );
+        if !workflow_type.trim().is_empty() {
+            assert!(
+                err.contains(workflow_type),
+                "文案携实际类型值 {workflow_type:?}，实际: {err}"
+            );
+        }
+    }
+}
+
+/// test-only 类型分派可走通（正向 / 新增）：`workflow_type="test-only"` 的
+/// change 按 `TEST_ONLY_TABLE` 序推进——不因类型被拒（proposal pass →
+/// next_phase = code-analyze，白名单 = test-only 表序前置集）。
+#[test]
+fn workflow_type_test_only可推进且白名单随test_only表() {
+    let fake = RouteStore::with_workflow_type("test-only");
+    fake.push(entry("proposal", 1, Verdict::Pass, t(1)));
+
+    let outcome = route(&fake, RUN, &SessionAnchors::new());
+
+    assert_eq!(
+        outcome.next_phase.as_deref(),
+        Some("code-analyze"),
+        "test-only 表序下一相位为 code-analyze"
+    );
+    assert_eq!(
+        outcome.allowed_backtrack_phases,
+        vec!["proposal".to_owned(), "code-analyze".to_owned()],
+        "白名单 = test-only 新相位的表序前置集"
+    );
+    let last = outcome.last_result.expect("有相位史应携 last_result");
+    assert_eq!(last.phase, "proposal");
+    assert_eq!(last.verdict, Verdict::Pass);
+
+    // 末相位（archive）推进 → 无下一相位（内容面收口）
+    let fake_done = RouteStore::with_workflow_type("test-only");
+    for (phase, attempt) in [
+        ("proposal", 1),
+        ("code-analyze", 1),
+        ("test-design", 1),
+        ("test-gen", 1),
+        ("test-execution", 1),
+    ] {
+        fake_done.push(entry(phase, attempt, Verdict::Pass, t(attempt as u32)));
+    }
+    let done = route(&fake_done, RUN, &SessionAnchors::new());
+    assert_eq!(
+        done.next_phase.as_deref(),
+        Some("archive"),
+        "五相位 pass 后下一相位 = archive"
+    );
+    assert!(!done.done, "未全 pass 前不落终态");
+    fake_done.push(entry("archive", 1, Verdict::Pass, t(9)));
+    let finished = route(&fake_done, RUN, &SessionAnchors::new());
+    assert!(finished.done, "test-only 全表 pass 后 done");
+    assert_eq!(
+        finished.next_phase, None,
+        "test-only 全表 pass 后无下一相位（零 requirement 相位越表）"
+    );
+    assert!(
+        finished.allowed_backtrack_phases.is_empty(),
+        "终态白名单空集"
+    );
+}
+
+/// test-only 表外条目（异常 / 新增）：requirement 独有相位（implement）条目
+/// 不参与 test-only 推进判定（表外条目零计数——`all_passed` 只认本表相位）。
+#[test]
+fn workflow_type_test_only表外条目不参与推进判定() {
+    let fake = RouteStore::with_workflow_type("test-only");
+    for (phase, attempt) in [
+        ("proposal", 1),
+        ("code-analyze", 1),
+        ("test-design", 1),
+        ("test-gen", 1),
+        ("test-execution", 1),
+        // 表外条目（requirement 独有相位）不得使 test-only 表「全 pass」
+        ("implement", 1),
+        ("dev-design", 1),
+    ] {
+        fake.push(entry(phase, attempt, Verdict::Pass, t(attempt as u32)));
+    }
+
+    let outcome = route(&fake, RUN, &SessionAnchors::new());
 
     assert!(
-        err.contains("bug-fix") && err.contains("requirement"),
-        "W8 分层出口记因，实际: {err}"
+        !outcome.done,
+        "表外条目零计数：test-only 六相位表缺 archive → 非终态"
+    );
+    assert_eq!(
+        outcome.next_phase.as_deref(),
+        Some("archive"),
+        "下一相位仍为表内未过相位 archive（表外条目被忽略）"
+    );
+    assert_eq!(
+        outcome.allowed_backtrack_phases,
+        vec![
+            "proposal".to_owned(),
+            "code-analyze".to_owned(),
+            "test-design".to_owned(),
+            "test-gen".to_owned(),
+            "test-execution".to_owned(),
+            "archive".to_owned(),
+        ],
+        "白名单 = test-only 表序前缀集（不含表外相位）"
     );
 }
 

@@ -2182,7 +2182,7 @@ fn delete_miss幂等返回false() {
 //（AC-1 / AC-3 / AC-5 / AC-6；title 默认 = name、promoted_to 默认 None）
 // ---------------------------------------------------------------------------
 
-/// 裸 redb 向 explore 物表 `4_2_id` 直写一行（预置存量非 kebab 记录——建档 /
+/// 裸 redb 向 explore 物表 `4_3_id` 直写一行（预置存量非 kebab 记录——建档 /
 /// 改名两写口已拒非 kebab，存量行只能经裸字节预置；list / find 读面零 name
 /// 合法性校验）。调用方必须先 drop Store 释放文件锁（redb 单写者语义）。
 fn inject_explore_row(path: &Path, record: &ExploreRecord) {
@@ -2344,6 +2344,7 @@ fn 存量非kebab记录仍可读_list与find零校验() {
         root: "C:\\ws\\alpha".to_owned(),
         name: "Legacy_Topic".to_owned(),
         title: "Legacy_Topic".to_owned(),
+        workflow_type: "requirement".to_owned(),
         promoted_to: None,
         created_at: 1_700_000_000_000,
         updated_at: 1_700_000_000_000,
@@ -2433,6 +2434,232 @@ fn set_explore_title_miss返回err() {
     assert!(
         matches!(&result, Err(StoreError::Db(_))),
         "记录不存在应 Err，实际: {result:?}"
+    );
+}
+
+/// set_explore_workflow_type 正向（AC-9）：合法值 `"test-only"` → in-place 写
+/// （主键 / name / title / promoted_to 全不变）+ 刷新 `updated_at`，返回更新记录
+/// 且落库可寻址读出。
+#[test]
+fn set_explore_workflow_type正向写test_only与刷新updated_at() {
+    let env = Env::new("explore-set-workflow-type");
+    let store = open_workspace_ok(&env.db_path("ws"));
+    let original = create_ok(&store, "C:\\ws\\alpha", "api-retry");
+    assert_eq!(
+        original.workflow_type, "requirement",
+        "建档默认 workflow_type = requirement"
+    );
+
+    let updated = store
+        .set_explore_workflow_type("C:\\ws\\alpha", "api-retry", "test-only")
+        .expect("合法 workflow_type 回填应成功");
+
+    assert_eq!(updated.workflow_type, "test-only", "workflow_type 更新为入参");
+    assert_eq!(updated.id, original.id, "主键不变（保会话链）");
+    assert_eq!(updated.name, original.name, "name 不变（in-place 改列）");
+    assert_eq!(updated.title, original.title, "title 不变（回填不触 title）");
+    assert_eq!(
+        updated.promoted_to, original.promoted_to,
+        "promoted_to 不变（回填不触 promote 打标）"
+    );
+    assert_eq!(
+        updated.created_at, original.created_at,
+        "created_at 不变（建档时刻锚）"
+    );
+    assert!(
+        updated.updated_at >= original.updated_at,
+        "updated_at 刷新（不早于原值）"
+    );
+    assert_eq!(
+        store
+            .find_explore_record("C:\\ws\\alpha", "api-retry")
+            .unwrap(),
+        Some(updated.clone()),
+        "落库后可寻址读出更新形态"
+    );
+    assert_eq!(
+        store.list_explore_records("C:\\ws\\alpha").unwrap(),
+        vec![updated],
+        "in-place 写不新增行（列表恒单行）"
+    );
+}
+
+/// set_explore_workflow_type 大小写 / 空白 canonical（正向 / 边界）：首尾空白 +
+/// 大小写混排 → trim + 小写命中合法值集并按 canonical 小写落库；幂等覆写同值 /
+/// 反复覆写不报错（updated_at 单调不减）。
+#[test]
+fn set_explore_workflow_type大小写空白规范化与幂等覆写() {
+    let cases = [
+        ("Test-Only", "test-only"),
+        ("  test-only  ", "test-only"),
+        ("REQUIREMENT", "requirement"),
+        (" Requirement ", "requirement"),
+        ("\ttest-only\n", "test-only"),
+    ];
+    for (idx, (input, expected)) in cases.iter().enumerate() {
+        let env = Env::new(&format!("explore-set-wf-canonical-{idx}"));
+        let store = open_workspace_ok(&env.db_path("ws"));
+        let name = format!("canonical-{idx}");
+        create_ok(&store, "C:\\ws\\alpha", &name);
+
+        let updated = store
+            .set_explore_workflow_type("C:\\ws\\alpha", &name, input)
+            .expect("规范化后命中应成功");
+
+        assert_eq!(
+            updated.workflow_type, *expected,
+            "入参 {input:?} 落 canonical 小写值"
+        );
+    }
+
+    // 幂等覆写：同值 / 反复覆写均不报错，记录恒单行
+    let env = Env::new("explore-set-wf-idempotent");
+    let store = open_workspace_ok(&env.db_path("ws"));
+    create_ok(&store, "C:\\ws\\alpha", "idem-topic");
+    let first = store
+        .set_explore_workflow_type("C:\\ws\\alpha", "idem-topic", "test-only")
+        .expect("首次覆写应成功");
+    let again = store
+        .set_explore_workflow_type("C:\\ws\\alpha", "idem-topic", "TEST-ONLY")
+        .expect("同值覆写应幂等成功");
+    let back = store
+        .set_explore_workflow_type("C:\\ws\\alpha", "idem-topic", "requirement")
+        .expect("再覆写回 requirement 应成功");
+
+    assert_eq!(first.workflow_type, "test-only");
+    assert_eq!(again.workflow_type, "test-only", "同值覆写结果稳定");
+    assert_eq!(back.workflow_type, "requirement", "可反复覆写（单向无边）");
+    assert!(again.updated_at >= first.updated_at, "覆写刷新 updated_at");
+    assert_eq!(
+        store.list_explore_records("C:\\ws\\alpha").unwrap().len(),
+        1,
+        "覆写恒 in-place（零新增行）"
+    );
+}
+
+/// set_explore_workflow_type 非法值拒绝（异常）：空白 / 未知值 → `Err`
+///（store 自持合法值集 `{requirement, test-only}`），记录零改动。
+#[test]
+fn set_explore_workflow_type非法值拒绝且记录零改动() {
+    let env = Env::new("explore-set-wf-invalid");
+    let store = open_workspace_ok(&env.db_path("ws"));
+    let original = create_ok(&store, "C:\\ws\\alpha", "api-retry");
+
+    for workflow_type in ["", "   ", "\t\n", "bug-fix", "refactor", "test_only", "requirement2"] {
+        let result =
+            store.set_explore_workflow_type("C:\\ws\\alpha", "api-retry", workflow_type);
+        assert!(
+            matches!(&result, Err(StoreError::Db(_))),
+            "非法 workflow_type {workflow_type:?} 应 Err，实际: {result:?}"
+        );
+    }
+    // 边界：超长（>1000 字符）与特殊字符（NUL / 内嵌换行 / emoji）值同拒（长度
+    // 与字符集零兜底——不截断、不折叠）
+    let long_unknown = "x".repeat(1200);
+    let edge_cases = [
+        long_unknown.as_str(),
+        "requirement\u{0}",
+        "test\u{0}-only",
+        "require\nment",
+        "test-only🚀",
+    ];
+    for workflow_type in edge_cases {
+        let result = store.set_explore_workflow_type("C:\\ws\\alpha", "api-retry", workflow_type);
+        assert!(
+            matches!(&result, Err(StoreError::Db(_))),
+            "超长 / 特殊字符 workflow_type {workflow_type:?} 应 Err，实际: {result:?}"
+        );
+    }
+    assert_eq!(
+        store
+            .find_explore_record("C:\\ws\\alpha", "api-retry")
+            .unwrap(),
+        Some(original),
+        "拒绝面零改动（workflow_type / updated_at 均未变）"
+    );
+}
+
+/// set_explore_workflow_type miss（异常）：记录不存在 → `Err`（store 透传
+/// NotFound 语义），且不新增行。
+#[test]
+fn set_explore_workflow_type_miss返回err() {
+    let env = Env::new("explore-set-wf-miss");
+    let store = open_workspace_ok(&env.db_path("ws"));
+
+    let result = store.set_explore_workflow_type("C:\\ws\\alpha", "ghost", "test-only");
+    assert!(
+        matches!(&result, Err(StoreError::Db(_))),
+        "记录不存在应 Err，实际: {result:?}"
+    );
+    assert!(
+        store.list_explore_records("C:\\ws\\alpha").unwrap().is_empty(),
+        "miss 路径零写入"
+    );
+    // root 归属错位同 miss（归属键寻址单点）
+    create_ok(&store, "C:\\ws\\alpha", "api-retry");
+    assert!(
+        store
+            .set_explore_workflow_type("C:\\ws\\beta", "api-retry", "test-only")
+            .is_err(),
+        "异 root 归属寻址应 miss"
+    );
+}
+
+/// is_valid_workflow_type 自持合法值集（边界 / AC-9）：store 层校验不依赖
+/// workflow crate（零相位表依赖）——`{requirement, test-only}` 单源、trim +
+/// case-insensitive；越集 / 空白一律拒绝。
+#[test]
+fn set_explore_workflow_type自持合法值集不依赖workflow() {
+    let env = Env::new("explore-set-wf-value-set");
+    let store = open_workspace_ok(&env.db_path("ws"));
+    let record = create_ok(&store, "C:\\ws\\alpha", "value-set");
+
+    // 合法值集逐值命中（两值 + 大小写 / 空白变体），每次均落 canonical 小写
+    for (value, expected) in [
+        ("requirement", "requirement"),
+        ("test-only", "test-only"),
+        ("REQUIREMENT", "requirement"),
+        ("Test-Only", "test-only"),
+        (" test-only ", "test-only"),
+    ] {
+        let updated = store
+            .set_explore_workflow_type("C:\\ws\\alpha", "value-set", value)
+            .unwrap_or_else(|e| panic!("合法值 {value:?} 应命中: {e}"));
+        assert_eq!(updated.workflow_type, expected, "合法值 {value:?} 落 canonical");
+        assert_eq!(updated.id, record.id, "覆写保主键");
+    }
+
+    // 越集值（含其它工作流类型名 / 近似值）一律拒绝，记录零改动
+    store
+        .set_explore_workflow_type("C:\\ws\\alpha", "value-set", "requirement")
+        .expect("复位 requirement 应成功");
+    for value in [
+        "bug-fix",
+        "feature",
+        "test",
+        "test-only-flow",
+        "requirement-workflow",
+        "",
+        " ",
+    ] {
+        let result = store.set_explore_workflow_type("C:\\ws\\alpha", "value-set", value);
+        assert!(
+            result.is_err(),
+            "越集值 {value:?} 应拒绝（自持合法值集单源）"
+        );
+    }
+    assert_eq!(
+        store
+            .find_explore_record("C:\\ws\\alpha", "value-set")
+            .unwrap()
+            .map(|record| record.workflow_type),
+        Some("requirement".to_owned()),
+        "全部拒绝面记录 workflow_type 零改动"
+    );
+    assert_eq!(
+        store.list_explore_records("C:\\ws\\alpha").unwrap().len(),
+        1,
+        "校验全在写前（拒绝面零新增行）"
     );
 }
 
@@ -5184,7 +5411,7 @@ const CHANGE_RECORD_TABLE: &str = "9_4_id";
 
 /// explore 记录表裸表名（ExploreRecord id=4 / version=2（新增 title /
 /// promoted_to 列——旧 4_1_id 表对新读面结构性不可见）/ 主键 `id`；explore-name-file-binding）。
-const EXPLORE_RECORD_TABLE: &str = "4_2_id";
+const EXPLORE_RECORD_TABLE: &str = "4_3_id";
 
 /// 旧形态物表名（身份换锚前：9:v2 主键 `name`；加 title 列前：9:v3 主键 `id`；
 /// explore 加新列前：4:v1 主键 `id`）——表名机制第二道防线断言锚：新读面结构性
@@ -5323,7 +5550,7 @@ fn preset_old_shape_workspace_db(path: &Path, legacy_names: &[&str]) {
 
 // ---------------------------------------------------------------------------
 // 表名版本段映射（AC-8 表名机制）：物表名与 native_db 命名公式同源断言 +
-// 真实库物表名清单对照（`9_4_id` / `4_2_id` 反转 9_3_id / 4_1_id）
+// 真实库物表名清单对照（`9_4_id` / `4_3_id` 反转 9_3_id / 4_2_id / 4_1_id）
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -5353,8 +5580,8 @@ fn 表名版本段映射_物表名与命名公式同源_旧表名零在场() {
         "explore 记录物表名与 native_db 内部命名公式一致"
     );
     assert_eq!(
-        EXPLORE_RECORD_TABLE, "4_2_id",
-        "explore 物表 4_2_id（v2 新增 title / promoted_to 列：4_1_id → 4_2_id）"
+        EXPLORE_RECORD_TABLE, "4_3_id",
+        "explore 物表 4_3_id（v3 新增 workflow_type 列：4_2_id → 4_3_id）"
     );
     assert_eq!(PHASE_RECORD_TABLE, "10_2_id", "相位物表 10:v2 主键 id");
     assert_eq!(
@@ -5399,6 +5626,7 @@ fn 表名版本段映射_物表名与命名公式同源_旧表名零在场() {
     for retired in [
         "9_2_name",
         RETIRED_CHANGE_RECORD_V3_TABLE,
+        "4_2_id",
         RETIRED_EXPLORE_RECORD_V1_TABLE,
         "10_1_change",
         "12_1_change",

@@ -7,7 +7,22 @@ import type {
   ChangeDetail,
 } from '../../../types/dto';
 import { mountMaterials } from './attachments';
-import { PIPELINE_PHASES } from './layout';
+
+/**
+ * requirement 相位序夹具（D12：前端 `PIPELINE_PHASES` 常量退役，列序改由
+ * `detail.pipeline` 出线承载，测试各自内联 fixture）：9 列，archive 为第 9 列。
+ */
+const REQUIREMENT_PHASES = [
+  'proposal',
+  'dev-design',
+  'test-design',
+  'implement',
+  'test-gen',
+  'test-execution',
+  'code-review',
+  'acceptance',
+  'archive',
+];
 
 // ---------------------------------------------------------------------------
 // mountMaterials 单测：挂载层为纯函数（无 Mock）。文档归属 = 后端清单出线
@@ -61,7 +76,7 @@ function detail(overrides: Partial<ChangeDetail> = {}): ChangeDetail {
     source: 'active',
     status: 'active',
     created: null,
-    pipeline: PIPELINE_PHASES.map((phase) => ({
+    pipeline: REQUIREMENT_PHASES.map((phase) => ({
       phase,
       attempts: phase === 'dev-design' ? [attempt({ attempt: 2 })] : [],
     })),
@@ -132,7 +147,7 @@ describe('mountMaterials：文档挂列（清单归属 detail.artifacts[].phase�
     const artifacts = [descriptor('markdown-doc', 'design.md', '设计')];
     const multiAttempt = detail({
       artifacts,
-      pipeline: PIPELINE_PHASES.map((phase) => ({
+      pipeline: REQUIREMENT_PHASES.map((phase) => ({
         phase,
         attempts:
           phase === 'dev-design'
@@ -213,7 +228,7 @@ describe('mountMaterials：聚合与空态', () => {
 describe('mountMaterials：NODE_PRECEDENCE 退役（checklist 恒挂列头）', () => {
   it('节点全缺席（pipeline 各站零 attempt + activePhase 在场）→ checklist 仍挂 payload.phase 列头', () => {
     const base = detail({
-      pipeline: PIPELINE_PHASES.map((phase) => ({ phase, attempts: [] })),
+      pipeline: REQUIREMENT_PHASES.map((phase) => ({ phase, attempts: [] })),
       activePhase: { phase: 'dev-design', attempt: 3, startAt: '2026-09-05T00:00:00Z' },
     });
     const checklist = envelope('eval-checklist', '评估清单', {
@@ -252,7 +267,7 @@ describe('mountMaterials：file_log 挂载分支退役', () => {
     // 历史上会产文件挂载的多 attempt 形态（fileLog 已不在 ChangeDetail 类型面，
     // 夹具带该字段即编译失败——编译期锚定半边）
     const base = detail({
-      pipeline: PIPELINE_PHASES.map((phase) => ({
+      pipeline: REQUIREMENT_PHASES.map((phase) => ({
         phase,
         attempts: phase === 'dev-design' ? [attempt({ attempt: 1 }), attempt({ attempt: 2 })] : [],
       })),
@@ -278,5 +293,84 @@ describe('mountMaterials：file_log 挂载分支退役', () => {
     // 零文件挂载节点、零图外素材：仅 eval-checklist 挂 dev-design 列头
     expect(Object.keys(materials.columnDocs)).toEqual(['col:dev-design']);
     expect(materials.columnDocs['col:dev-design']).toEqual([envelopes[0]]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 归属校验随 detail.pipeline 出线（desktop-test-only-flow AC-5）：两表各自成立
+// ---------------------------------------------------------------------------
+
+/** test-only 相位序夹具：6 列，code-analyze 第 2 列、archive 第 6 列。 */
+const TEST_ONLY_PHASES = [
+  'proposal',
+  'code-analyze',
+  'test-design',
+  'test-gen',
+  'test-execution',
+  'archive',
+];
+
+/** test-only 详情底座（6 站全空 attempts；产物按用例注入）。 */
+function testOnlyDetail(overrides: Partial<ChangeDetail> = {}): ChangeDetail {
+  return detail({
+    pipeline: TEST_ONLY_PHASES.map((phase) => ({ phase, attempts: [] })),
+    ...overrides,
+  });
+}
+
+describe('mountMaterials：test-only 列相位集（归属校验随 pipeline）', () => {
+  it('正向：test-only pipeline → proposal / test-execution 照常挂列，code-analyze 列零 artifact 归属（清单空）', () => {
+    const artifacts = [
+      descriptor('markdown-doc', 'proposal.md', '测试向提案'),
+      descriptor('markdown-doc', 'test-reports/run-1.md', '测试报告'),
+    ];
+    const materials = mountMaterials(testOnlyDetail({ artifacts }), envelopesFor(artifacts));
+
+    expect(materials.columnDocs['col:proposal']).toHaveLength(1);
+    expect(materials.columnDocs['col:test-execution']).toHaveLength(1);
+    expect(materials.columnDocs['col:code-analyze']).toBeUndefined();
+  });
+
+  it('异常：归属某 test-only 列外相位（dev-design / implement）→ 跳过该 artifact（不误挂错站）', () => {
+    const artifacts = [
+      descriptor('markdown-doc', 'design.md', '设计'),
+      { ...descriptor('markdown-doc', 'proposal.md', '提案'), phase: 'implement' },
+      descriptor('markdown-doc', 'proposal.md', '提案'),
+    ];
+    const materials = mountMaterials(testOnlyDetail({ artifacts }), envelopesFor(artifacts));
+
+    expect(materials.columnDocs['col:dev-design']).toBeUndefined();
+    expect(materials.columnDocs['col:implement']).toBeUndefined();
+    expect(materials.columnDocs['col:proposal']).toHaveLength(1);
+  });
+
+  it('正向：eval-checklist payload.phase = code-analyze（test-only 表内相位）→ 照常挂 code-analyze 列头', () => {
+    const checklist = envelope('eval-checklist', '代码分析评估清单', {
+      phase: 'code-analyze',
+      attempt: 1,
+      verdict: 'pass',
+      items: [],
+    });
+    const materials = mountMaterials(testOnlyDetail(), [checklist]);
+
+    expect(materials.columnDocs['col:code-analyze']).toEqual([checklist]);
+  });
+
+  it('异常：eval-checklist payload.phase 为 test-only 表外相位 → 不误挂任何列', () => {
+    const base = testOnlyDetail();
+    const broken = [
+      envelope('eval-checklist', '表外相位', { phase: 'dev-design', attempt: 1 }),
+      envelope('eval-checklist', '表外相位', { phase: 'implement', attempt: 1 }),
+      envelope('eval-checklist', '表外相位', { phase: 'code-review', attempt: 1 }),
+    ];
+    const materials = mountMaterials(base, broken);
+
+    expect(materials.columnDocs).toEqual({});
+  });
+
+  it('边界：全空入参（test-only 空 pipeline）→ columnDocs 单键空对象，不抛错', () => {
+    const materials = mountMaterials(testOnlyDetail({ pipeline: [] }), []);
+
+    expect(materials).toEqual({ columnDocs: {} });
   });
 });

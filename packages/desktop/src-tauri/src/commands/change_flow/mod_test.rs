@@ -228,20 +228,56 @@ async fn start前置校验无建档与相位表缺失各自err且成因互不重
         false,
     )
     .await
-    .expect_err("非 requirement 应 Err");
+    .expect_err("未知 workflow_type 应 Err");
     assert!(
-        err.contains("bugfix-change") && err.contains("bug-fix") && err.contains("requirement"),
+        err.contains("bugfix-change") && err.contains("bug-fix"),
         "成因二（相位表缺失，记录 name 呈现）: {err}"
+    );
+    assert!(
+        err.contains("requirement") && err.contains("test-only"),
+        "拒绝文案通吃 {{requirement, test-only}} 两值: {err}"
+    );
+    assert!(
+        !err.contains("仅支持 requirement 工作流"),
+        "旧「仅支持 requirement 工作流」字样退役: {err}"
     );
     assert!(
         !err.contains("id-bugfix-anchor"),
         "相位表拒绝面恒 name 化（id → 记录 → name 分辨率单点）: {err}"
     );
 
+    // 边界成因：超长（>1000 字符）workflow_type 相位表同样不命中 → 同一严格
+    // 拒绝面（不截断、不折叠、零兜底）
+    let long_type = "x".repeat(1200);
+    seed_change_full(
+        &app,
+        &env.root(),
+        "id-long-wf",
+        "long-wf-change",
+        &long_type,
+    );
+    let err = change_flow_start_with(
+        app.handle().clone(),
+        discarding_channel(),
+        env.root(),
+        "id-long-wf".to_owned(),
+        false,
+    )
+    .await
+    .expect_err("超长 workflow_type 应 Err");
+    assert!(
+        err.contains("long-wf-change"),
+        "超长类型同样归因相位表缺失（记录 name 呈现）: {err}"
+    );
+    assert!(
+        err.contains("requirement") && err.contains("test-only"),
+        "超长类型拒绝文案同样通吃两值: {err}"
+    );
+
     // 两成因互不重合且登记面零副作用（并行冲突分支另见「start同change并行」
     // 用例——本用例失败分支零 begin_run 登记）
     let control = app.state::<Arc<ChangeFlowControl>>();
-    for id in ["legacy-cli-change", "id-bugfix-anchor"] {
+    for id in ["legacy-cli-change", "id-bugfix-anchor", "id-long-wf"] {
         assert!(
             control.snapshot(&env.root(), id).is_none(),
             "失败分支零登记: {id}"
@@ -1696,4 +1732,98 @@ async fn 组合根装配_staticcheck步默认recorded落单一log并回填引用
         .expect("读审计行应成功");
     assert_eq!(rows.len(), 1, "静态检查步恰一条审计行");
     assert_eq!(rows[0].summary, "static_check passed=true");
+}
+
+// ---------------------------------------------------------------------------
+// start 前置校验的 test-only 放行（desktop-test-only-flow AC-4）：两值分派下
+// test-only 记录不再被前置校验拒绝——walker 相位分派由写面相位表承担
+// ---------------------------------------------------------------------------
+
+/// test-only 记录发起（正向 / 新增）：`phase_table("test-only")` 命中 → 前置
+/// 校验放行，提前 resolve 返回 running 摘要；后台 walker 真实驱动至终态
+///（相位分派随 test-only 表，命令层零 workflow_type 分支）。
+#[tokio::test]
+async fn start_test_only记录放行且提前resolve返回running摘要() {
+    let env = Env::new("test-only-start");
+    env.change_dir(CHANGE);
+    let app = app_with(&env);
+    let root = env.root();
+    seed_change(&app, &root, CHANGE, "test-only");
+    seed_cli_default_instance(&app);
+
+    let _guard = PATH_LOCK.lock().expect("PATH 锁不可中毒");
+    let original = std::env::var_os("PATH");
+    std::env::set_var("PATH", "");
+
+    let (channel, captured) = capturing_channel();
+    let result = change_flow_start_with(
+        app.handle().clone(),
+        channel,
+        root.clone(),
+        CHANGE.to_owned(),
+        false,
+    )
+    .await;
+
+    // 前置校验放行：不落入「未知 workflow_type 拒绝」分支
+    let summary = match result {
+        Ok(summary) => summary,
+        Err(err) => panic!("test-only 记录应放行（两值分派），实际 Err: {err}"),
+    };
+    assert!(
+        summary.run_id.starts_with("run-"),
+        "run-<millis> 铸造: {}",
+        summary.run_id
+    );
+    assert_eq!(
+        summary.status,
+        super::ChangeRunStatus::Running,
+        "提前 resolve 返回 running 态摘要"
+    );
+    let control = app.state::<Arc<ChangeFlowControl>>();
+    assert_eq!(
+        control
+            .snapshot(&env.root(), CHANGE)
+            .map(|snap| snap.run_id),
+        Some(summary.run_id.clone()),
+        "run 登记即快照可见"
+    );
+
+    // 后台 walker 真实驱动终态（test-only 表相位分派由写面承担）
+    wait_for("Finished 信封", || {
+        captured
+            .lock()
+            .expect("捕获锁不可中毒")
+            .iter()
+            .any(|value| value["ipc"] == "finished")
+    });
+    match original {
+        Some(value) => std::env::set_var("PATH", value),
+        None => std::env::remove_var("PATH"),
+    }
+    drop(_guard);
+
+    // 落库相位属 test-only 表（首相位 proposal 恒为两表共有；零 dev-design /
+    // implement 等 requirement 独有相位落账）
+    let store = app.state::<WorkspaceStores>();
+    let phases: Vec<String> = store
+        .for_root(&env.root())
+        .expect("for_root 应成功")
+        .list_phase_records(CHANGE)
+        .expect("读相位史应成功")
+        .into_iter()
+        .map(|record| record.phase)
+        .collect();
+    assert!(
+        phases.iter().all(|phase| [
+            "proposal",
+            "code-analyze",
+            "test-design",
+            "test-gen",
+            "test-execution",
+            "archive"
+        ]
+        .contains(&phase.as_str())),
+        "落账相位均在 test-only 表内，实际: {phases:?}"
+    );
 }

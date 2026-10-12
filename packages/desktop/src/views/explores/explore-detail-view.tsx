@@ -5,6 +5,7 @@ import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/componen
 
 import { AgentMessages } from '../../components/agent';
 import { extractMarkdownTitle } from '../../lib/explore-title';
+import { extractWorkflowType } from '../../lib/explore-workflow-type';
 import type { ExploreRecord } from '../../types/dto';
 import { ExploreComposer } from './components/explore-composer';
 import { ExplorePreview } from './components/explore-preview';
@@ -46,22 +47,103 @@ function useTitleBackfill(
   }, [content, recordName, currentTitle, promotedTo, updateTitle]);
 }
 
-/** promote 动作：在飞标记（防重复提交）与行内错误（后端 Err 原文） */
+/** promote 动作：在飞标记（防重复提交）、类型选择器本地态与行内错误（后端 Err 原文） */
 function usePromoteAction(
   record: ExploreRecord | null,
-  promote: (name: string) => Promise<void>,
-): { promoting: boolean; promoteError: string | null; onPromote: () => void } {
+  promote: (name: string, workflowType: string) => Promise<void>,
+  updateWorkflowType: (name: string, workflowType: string) => Promise<void>,
+): {
+  promoting: boolean;
+  promoteError: string | null;
+  workflowType: string;
+  onWorkflowTypeChange: (next: string) => void;
+  onPromote: () => void;
+} {
   const [promoting, setPromoting] = useState(false);
   const [promoteError, setPromoteError] = useState<string | null>(null);
+  // 选择器默认值 = `record.workflowType`（agent 推算值经 `extractWorkflowType`
+  // 回填落库）；推算 / 人工改选后随记录值跟随（本地态即选择器现值）
+  const stored = record?.workflowType ?? 'requirement';
+  const [workflowType, setWorkflowType] = useState(stored);
+  useEffect(() => {
+    setWorkflowType(stored);
+  }, [stored]);
+  // 改即写：人工改选经显式写命令落库（沿 title 改即写模式；失败静默，选择器
+  // 保持用户当前选择，下次进详情回落到库内值）
+  const onWorkflowTypeChange = useCallback(
+    (next: string) => {
+      setWorkflowType(next);
+      if (record === null) return;
+      updateWorkflowType(record.name, next).catch(() => {
+        // 回填失败静默：库内值保持原值，下次进详情回落到库内值
+      });
+    },
+    [record, updateWorkflowType],
+  );
   const onPromote = useCallback(() => {
     if (record === null || promoting) return;
     setPromoting(true);
     setPromoteError(null);
-    promote(record.name)
+    promote(record.name, workflowType)
       .catch((err: unknown) => setPromoteError(String(err)))
       .finally(() => setPromoting(false));
-  }, [record, promoting, promote]);
-  return { promoting, promoteError, onPromote };
+  }, [record, promoting, workflowType, promote]);
+  return { promoting, promoteError, workflowType, onWorkflowTypeChange, onPromote };
+}
+
+/**
+ * 类型回填：消费 watch 防抖 / 终态定点重读后的**稳定内容**，解析约定标记行
+ * `workflow_type: <requirement|test-only>`，与 `record.workflowType` 不同则经
+ * 显式写命令 `update_explore_workflow_type` 回填（读路径 `read_explore` 零写入）。
+ * 解析失败（无标记行 / 非法值）或无差异 → 零 invoke；回填失败静默
+ * （`record.workflowType` 保持原值，用户可在 promote 入口改选）。
+ */
+function useWorkflowTypeBackfill(
+  content: string | null,
+  recordName: string | null,
+  currentWorkflowType: string | null,
+  promotedTo: string | null,
+  updateWorkflowType: (name: string, workflowType: string) => Promise<void>,
+): void {
+  useEffect(() => {
+    if (
+      recordName === null ||
+      currentWorkflowType === null ||
+      promotedTo !== null ||
+      content === null
+    ) {
+      return;
+    }
+    const parsed = extractWorkflowType(content);
+    if (parsed === null || parsed === currentWorkflowType) return;
+    updateWorkflowType(recordName, parsed).catch(() => {
+      // 回填失败静默：record.workflowType 保持原值，下次内容变化再试
+    });
+  }, [content, recordName, currentWorkflowType, promotedTo, updateWorkflowType]);
+}
+
+/** 记录面回填单点：title 与 workflow_type 两路解析回填（均消费 watch 稳定内容、
+ * 均静默失败——解析失败 / 无差异零 invoke）。 */
+function useRecordBackfill(
+  record: ExploreRecord | null,
+  promotedTo: string | null,
+  content: string | null,
+  list: ExploreListState,
+): void {
+  useTitleBackfill(
+    content,
+    record?.name ?? null,
+    record?.title ?? null,
+    promotedTo,
+    list.updateTitle,
+  );
+  useWorkflowTypeBackfill(
+    content,
+    record?.name ?? null,
+    record?.workflowType ?? null,
+    promotedTo,
+    list.updateWorkflowType,
+  );
 }
 
 /** promoted 态动作面：「已转变更」徽标 + 「查看变更」跳转（恒 id 寻址） */
@@ -86,23 +168,64 @@ function PromotedActions({ onJump }: { onJump: () => void }): React.JSX.Element 
   );
 }
 
+/** 草稿态动作面：工作流类型选择器（两字面选项普通 select，默认 = 推算值，改即写
+ * 落库）+「启动变更」入口 */
+function DraftActions({
+  promoting,
+  workflowType,
+  onWorkflowTypeChange,
+  onPromote,
+}: {
+  promoting: boolean;
+  workflowType: string;
+  onWorkflowTypeChange: (next: string) => void;
+  onPromote: () => void;
+}): React.JSX.Element {
+  return (
+    <>
+      <select
+        className="cursor-pointer rounded-md border border-border bg-transparent px-1.5 py-0.5 text-sm"
+        data-testid="explore-workflow-type-select"
+        value={workflowType}
+        onChange={(event) => onWorkflowTypeChange(event.target.value)}
+      >
+        <option value="requirement">requirement</option>
+        <option value="test-only">test-only</option>
+      </select>
+      <button
+        type="button"
+        className="cursor-pointer rounded-md border border-border bg-transparent px-3 py-1.5 text-sm hover:bg-muted disabled:pointer-events-none disabled:opacity-50"
+        data-testid="explore-promote-trigger"
+        disabled={promoting}
+        onClick={onPromote}
+      >
+        启动变更
+      </button>
+    </>
+  );
+}
+
 /**
  * 详情头：渲染 `title`（人类可读标题，恒非空——无空态回退分支）+ 变更动作面。
- * `promotedTo` 为空即草稿态：「启动变更」入口 + 行内错误块；非空即 promoted
- * 态：「已转变更」徽标 + 「查看变更」跳转（`/changes/<change_id>`，MUST NOT
- * 自动导航离开）。
+ * `promotedTo` 为空即草稿态：「工作流类型选择器」+「启动变更」入口 + 行内错误块；
+ * 非空即 promoted 态：「已转变更」徽标 + 「查看变更」跳转（`/changes/<change_id>`，
+ * MUST NOT 自动导航离开）。
  */
 function ExploreDetailHeader({
   record,
   onJump,
   promoting,
   promoteError,
+  workflowType,
+  onWorkflowTypeChange,
   onPromote,
 }: {
   record: ExploreRecord;
   onJump: () => void;
   promoting: boolean;
   promoteError: string | null;
+  workflowType: string;
+  onWorkflowTypeChange: (next: string) => void;
   onPromote: () => void;
 }): React.JSX.Element {
   const promoted = record.promotedTo !== null;
@@ -114,15 +237,12 @@ function ExploreDetailHeader({
       {promoted ? (
         <PromotedActions onJump={onJump} />
       ) : (
-        <button
-          type="button"
-          className="cursor-pointer rounded-md border border-border bg-transparent px-3 py-1.5 text-sm hover:bg-muted disabled:pointer-events-none disabled:opacity-50"
-          data-testid="explore-promote-trigger"
-          disabled={promoting}
-          onClick={onPromote}
-        >
-          启动变更
-        </button>
+        <DraftActions
+          onPromote={onPromote}
+          onWorkflowTypeChange={onWorkflowTypeChange}
+          promoting={promoting}
+          workflowType={workflowType}
+        />
       )}
       {promoteError !== null && (
         <div
@@ -203,7 +323,7 @@ function MissingRecord(): React.JSX.Element {
  * 探索详情页（双栏）：左对话区、右文档预览，resizable 可拖分界。文档取数与
  * watch 订阅收口 useExploreDoc（订阅生命周期即页面生命周期，卸载即退订）；
  * 会话链还原 / 续话收口 useExploreSession；run 终态（running true→false）定点
- * 重读文档，预览即随落盘更新；title 回填见 useTitleBackfill。
+ * 重读文档，预览即随落盘更新；title 与 workflow_type 回填见 useRecordBackfill。
  */
 export function ExploreDetailView({
   root,
@@ -217,15 +337,10 @@ export function ExploreDetailView({
   const doc = useExploreDoc(root, name);
   const session = useExploreSession(root, record);
   const wasRunning = useRef(false);
-  const { promoting, promoteError, onPromote } = usePromoteAction(record, list.promote);
+  const { promoting, promoteError, workflowType, onWorkflowTypeChange, onPromote } =
+    usePromoteAction(record, list.promote, list.updateWorkflowType);
 
-  useTitleBackfill(
-    doc.doc?.content ?? null,
-    record?.name ?? null,
-    record?.title ?? null,
-    promotedTo,
-    list.updateTitle,
-  );
+  useRecordBackfill(record, promotedTo, doc.doc?.content ?? null, list);
 
   // run 终态定点重读文档（含本轮 agent 落盘 / 更新笔记的情形）；挂载不触发
   useEffect(() => {
@@ -240,9 +355,11 @@ export function ExploreDetailView({
       <ExploreDetailHeader
         onJump={() => void navigate(`/changes/${record.promotedTo}`)}
         onPromote={onPromote}
+        onWorkflowTypeChange={onWorkflowTypeChange}
         promoteError={promoteError}
         promoting={promoting}
         record={record}
+        workflowType={workflowType}
       />
       <ResizablePanelGroup className="min-h-0 flex-1" orientation="horizontal">
         <ResizablePanel defaultSize="55" minSize="25">

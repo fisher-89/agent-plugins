@@ -32,6 +32,7 @@ function record(overrides: Partial<ExploreRecord> = {}): ExploreRecord {
     root: ROOT,
     name: 'api-retry',
     title: '接口重试策略',
+    workflowType: 'requirement',
     promotedTo: null,
     createdAt: 1727000000000,
     updatedAt: 1727000000000,
@@ -50,6 +51,7 @@ function makeList(overrides: Partial<ExploreListState> = {}): ExploreListState {
     rename: vi.fn(),
     remove: vi.fn(),
     updateTitle: vi.fn().mockResolvedValue(undefined),
+    updateWorkflowType: vi.fn().mockResolvedValue(undefined),
     promote: vi.fn().mockResolvedValue(undefined),
     ...overrides,
   };
@@ -121,7 +123,7 @@ describe('ExploreDetailView：详情头与 promoted 两态（AC-8）', () => {
     );
   });
 
-  it('正向：草稿态（promotedTo 为 null）→ 「启动变更」入口；点击调 list.promote 恰一次', async () => {
+  it('正向：草稿态（promotedTo 为 null）→ 「启动变更」入口；点击调 list.promote 携当前选择类型恰一次', async () => {
     const list = makeList();
     renderDetail(record(), list);
 
@@ -130,7 +132,7 @@ describe('ExploreDetailView：详情头与 promoted 两态（AC-8）', () => {
     fireEvent.click(trigger);
 
     await waitFor(() => expect(list.promote).toHaveBeenCalledTimes(1));
-    expect(list.promote).toHaveBeenCalledWith('api-retry');
+    expect(list.promote).toHaveBeenCalledWith('api-retry', 'requirement');
   });
 
   it('异常：list.promote reject → 行内错误块呈现错误文本、页面不崩', async () => {
@@ -206,5 +208,204 @@ describe('ExploreDetailView：promoted 停读与缺失态（AC-8 / 边界）', (
     expect(screen.queryByTestId('explore-detail-title')).toBeNull();
     const commands = invokeMock.mock.calls.map(([name]) => name);
     expect(commands).not.toContain('read_explore');
+  });
+});
+
+describe('ExploreDetailView：promote 类型选择器与改即写（AC-8）', () => {
+  it('正向：草稿态渲染类型选择器（explore-workflow-type-select），默认值 = record.workflowType（两态各一则）', async () => {
+    renderDetail(record({ workflowType: 'requirement' }), makeList());
+    const select = await screen.findByTestId('explore-workflow-type-select');
+    expect((select as HTMLSelectElement).value).toBe('requirement');
+
+    cleanup();
+
+    renderDetail(record({ workflowType: 'test-only' }), makeList());
+    const selectTestOnly = await screen.findByTestId('explore-workflow-type-select');
+    expect((selectTestOnly as HTMLSelectElement).value).toBe('test-only');
+  });
+
+  it('正向：选择器恰两字面选项（requirement / test-only，闭集不越集）', async () => {
+    renderDetail(record(), makeList());
+
+    const select = await screen.findByTestId('explore-workflow-type-select');
+    const options = Array.from(select.querySelectorAll('option')).map((option) => option.value);
+    expect(options).toEqual(['requirement', 'test-only']);
+  });
+
+  it('正向：改选类型 → list.updateWorkflowType(name, 新值) 恰一次（改即写落库）', async () => {
+    const list = makeList();
+    renderDetail(record(), list);
+
+    const select = await screen.findByTestId('explore-workflow-type-select');
+    fireEvent.change(select, { target: { value: 'test-only' } });
+
+    await waitFor(() =>
+      expect(list.updateWorkflowType).toHaveBeenCalledWith('api-retry', 'test-only'),
+    );
+    expect(list.updateWorkflowType).toHaveBeenCalledTimes(1);
+  });
+
+  it('正向：改选后点「启动变更」→ promote(name, 最终选择类型)（携带改选值而非库内值）', async () => {
+    const list = makeList();
+    renderDetail(record({ workflowType: 'requirement' }), list);
+
+    const select = await screen.findByTestId('explore-workflow-type-select');
+    fireEvent.change(select, { target: { value: 'test-only' } });
+    await waitFor(() =>
+      expect(list.updateWorkflowType).toHaveBeenCalledWith('api-retry', 'test-only'),
+    );
+
+    fireEvent.click(screen.getByTestId('explore-promote-trigger'));
+    await waitFor(() => expect(list.promote).toHaveBeenCalledTimes(1));
+    expect(list.promote).toHaveBeenCalledWith('api-retry', 'test-only');
+  });
+
+  it('边界：记录值变更 → 选择器随 record.workflowType 复位（本地态跟随记录）', async () => {
+    const { rerender } = renderDetail(record({ workflowType: 'test-only' }), makeList());
+
+    const select = await screen.findByTestId('explore-workflow-type-select');
+    expect((select as HTMLSelectElement).value).toBe('test-only');
+
+    // 记录值变化（如另一端回填后重进 / 记录回流）→ 选择器随记录复位
+    rerender(
+      <MemoryRouter initialEntries={['/explores/api-retry']}>
+        <Routes>
+          <Route
+            path="/explores/:name"
+            element={<ExploreDetailView list={makeList()} record={record()} root={ROOT} />}
+          />
+        </Routes>
+      </MemoryRouter>,
+    );
+    await waitFor(() =>
+      expect(screen.getByTestId<HTMLSelectElement>('explore-workflow-type-select').value).toBe(
+        'requirement',
+      ),
+    );
+  });
+
+  it('异常：改选触发的 updateWorkflowType reject → 静默（无错误块、选择器保持用户当前选择、页面不崩）', async () => {
+    const list = makeList({
+      updateWorkflowType: vi.fn().mockRejectedValue(new Error('workflow_type 不受支持')),
+    });
+    renderDetail(record(), list);
+
+    const select = await screen.findByTestId('explore-workflow-type-select');
+    fireEvent.change(select, { target: { value: 'test-only' } });
+
+    await waitFor(() =>
+      expect(list.updateWorkflowType).toHaveBeenCalledWith('api-retry', 'test-only'),
+    );
+    // 回填失败静默（沿 useTitleBackfill 先例：库内值保持原值，不呈现错误块）
+    expect(screen.queryByTestId('explore-promote-error')).toBeNull();
+    expect(screen.getByTestId<HTMLSelectElement>('explore-workflow-type-select').value).toBe(
+      'test-only',
+    );
+    expect(screen.getByTestId('explore-detail-title')).toBeTruthy();
+  });
+
+  it('边界：promoted 态不渲染选择器（动作面收敛为「查看变更」）', async () => {
+    renderDetail(record({ promotedTo: 'chg-018f3a-0001' }), makeList());
+
+    await screen.findByTestId('explore-promoted-badge');
+    expect(screen.queryByTestId('explore-workflow-type-select')).toBeNull();
+    expect(screen.queryByTestId('explore-promote-trigger')).toBeNull();
+  });
+});
+
+describe('ExploreDetailView：workflow_type 回填 effect（AC-8 链路）', () => {
+  it('正向：doc 含约定标记行 test-only 且与 record.workflowType 不同 → list.updateWorkflowType 恰一次', async () => {
+    const list = makeList();
+    docResult = { name: 'api-retry', content: 'workflow_type: test-only\n\n正文段落' };
+    renderDetail(record({ workflowType: 'requirement' }), list);
+
+    await waitFor(() =>
+      expect(list.updateWorkflowType).toHaveBeenCalledWith('api-retry', 'test-only'),
+    );
+    expect(list.updateWorkflowType).toHaveBeenCalledTimes(1);
+  });
+
+  it('正向：标记值为 requirement 而记录为 test-only → 反向回填亦触发', async () => {
+    const list = makeList();
+    docResult = { name: 'api-retry', content: '# 标题\nworkflow_type: requirement\n' };
+    renderDetail(record({ workflowType: 'test-only' }), list);
+
+    await waitFor(() =>
+      expect(list.updateWorkflowType).toHaveBeenCalledWith('api-retry', 'requirement'),
+    );
+    expect(list.updateWorkflowType).toHaveBeenCalledTimes(1);
+  });
+
+  it('边界：标记值与 record.workflowType 相同 → 零 updateWorkflowType（无差异零 invoke）', async () => {
+    const list = makeList();
+    docResult = { name: 'api-retry', content: '# 接口重试策略\nworkflow_type: requirement\n' };
+    renderDetail(record({ workflowType: 'requirement' }), list);
+
+    await screen.findByTestId('explore-detail-title');
+    await waitFor(() =>
+      expect(invokeMock).toHaveBeenCalledWith('read_explore', { root: ROOT, name: 'api-retry' }),
+    );
+    expect(list.updateWorkflowType).not.toHaveBeenCalled();
+  });
+
+  it('异常：无标记行 / 标记值非法 → 零 updateWorkflowType、零报错（record 保持原值）', async () => {
+    for (const content of [
+      '只有正文，没有约定标记行',
+      'workflow_type: bug-fix\n正文',
+      'workflow_type:\n正文',
+    ]) {
+      cleanup();
+      const list = makeList();
+      docResult = { name: 'api-retry', content };
+      renderDetail(record({ workflowType: 'requirement' }), list);
+
+      await screen.findByTestId('explore-detail-title');
+      await waitFor(() =>
+        expect(invokeMock).toHaveBeenCalledWith('read_explore', {
+          root: ROOT,
+          name: 'api-retry',
+        }),
+      );
+      expect(list.updateWorkflowType).not.toHaveBeenCalled();
+      expect(screen.queryByTestId('explore-promote-error')).toBeNull();
+      expect(screen.getByTestId('explore-workflow-type-select')).toBeTruthy();
+    }
+  });
+
+  it('异常：回填 reject → 静默（无错误块、页面不崩、选择器默认仍随记录值）', async () => {
+    const list = makeList({
+      updateWorkflowType: vi.fn().mockRejectedValue(new Error('回填写失败')),
+    });
+    docResult = { name: 'api-retry', content: 'workflow_type: test-only\n正文' };
+    renderDetail(record({ workflowType: 'requirement' }), list);
+
+    await waitFor(() =>
+      expect(list.updateWorkflowType).toHaveBeenCalledWith('api-retry', 'test-only'),
+    );
+    expect(screen.queryByTestId('explore-promote-error')).toBeNull();
+    expect(screen.getByTestId<HTMLSelectElement>('explore-workflow-type-select').value).toBe(
+      'requirement',
+    );
+    expect(screen.getByTestId('explore-detail-title')).toBeTruthy();
+  });
+
+  it('边界：promoted 态（promotedTo 非空）停回填、零 updateWorkflowType（笔记已移走）', async () => {
+    const list = makeList();
+    docResult = { name: 'api-retry', content: 'workflow_type: test-only\n正文' };
+    renderDetail(record({ promotedTo: 'chg-018f3a-0001' }), list);
+
+    await screen.findByTestId('explore-promoted-preview');
+    expect(list.updateWorkflowType).not.toHaveBeenCalled();
+    expect(list.updateTitle).not.toHaveBeenCalled();
+  });
+
+  it('边界：记录缺失（record = null）→ 零回填零取数，缺失态占位照常', async () => {
+    const list = makeList();
+    docResult = { name: 'api-retry', content: 'workflow_type: test-only\n正文' };
+    renderDetail(null, list);
+
+    await screen.findByTestId('explore-detail-missing');
+    expect(list.updateWorkflowType).not.toHaveBeenCalled();
+    expect(invokeMock.mock.calls.map(([name]) => name)).not.toContain('read_explore');
   });
 });

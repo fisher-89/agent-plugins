@@ -202,7 +202,8 @@ afterEach(() => {
   }
 });
 
-/** 9 站流水线的固定站名（与 Rust PIPELINE_PHASES 一致）。 */
+/** requirement 相位序夹具（D12：前端 `PIPELINE_PHASES` 常量退役，列序由
+ * `detail.pipeline` 出线承载）：9 列，archive 为末列、无 code-analyze 占位列。 */
 const PIPELINE = [
   'proposal',
   'dev-design',
@@ -212,7 +213,17 @@ const PIPELINE = [
   'test-execution',
   'code-review',
   'acceptance',
+  'archive',
+];
+
+/** test-only 相位序夹具：6 列，code-analyze 第 2 列、archive 第 6 列。 */
+const TEST_ONLY_PIPELINE = [
+  'proposal',
   'code-analyze',
+  'test-design',
+  'test-gen',
+  'test-execution',
+  'archive',
 ];
 
 /** 以宽松默认值构造单条 AttemptRecord，便于逐字段控制分支形态。 */
@@ -521,11 +532,11 @@ describe('ChangeDetailView：页面组装（图区 / 抽屉）', () => {
     expect(within(container).queryByTestId('flow-empty')).toBeNull();
   });
 
-  it('建档 change 零 attempt（pipeline 10 空站含 archive）→ flow-graph 正常渲染 10 列', async () => {
+  it('建档 change 零 attempt（pipeline 9 空站含 archive）→ flow-graph 正常渲染 9 列', async () => {
     renderDetail({
       detail: detail({ pipeline: PIPELINE.map((phase) => ({ phase, attempts: [] })) }),
     });
-    await waitFor(() => expect(screen.getAllByTestId('flow-column')).toHaveLength(10));
+    await waitFor(() => expect(screen.getAllByTestId('flow-column')).toHaveLength(9));
     expect(screen.queryByTestId('flow-empty')).toBeNull();
   });
 
@@ -1096,10 +1107,10 @@ describe('ChangeDetailView：退役元素零渲染与详情图区恒态', () => 
     expect(within(container).queryByTestId('filelog-table')).toBeNull();
   });
 
-  it('详情恒走图区：status 在场 → 10 站流水线图（末列 archive）+ 抽屉入口；status 缺席 + pipeline 空 → 同走图区（零列图）不崩溃不空白', async () => {
-    // 建档：10 列流水线（末列 archive）+ 列头点击开抽屉（单一交互入口可达）
+  it('详情恒走图区：status 在场 → 9 站流水线图（末列 archive）+ 抽屉入口；status 缺席 + pipeline 空 → 同走图区（零列图）不崩溃不空白，产物区照常', async () => {
+    // 建档：9 列流水线（末列 archive）+ 列头点击开抽屉（单一交互入口可达）
     const filed = renderDetail({ detail: detail(), artifacts: PROPOSAL_ENVELOPES });
-    await waitFor(() => expect(screen.getAllByTestId('flow-column')).toHaveLength(10));
+    await waitFor(() => expect(screen.getAllByTestId('flow-column')).toHaveLength(9));
     fireEvent.click(screen.getAllByTestId('flow-column')[0]);
     expect(screen.getByTestId('detail-drawer') !== null).toBe(true);
     fireEvent.click(screen.getByRole('button', { name: '关闭' }));
@@ -1175,7 +1186,7 @@ describe('ChangeDetailView：退役元素零渲染与详情图区恒态', () => 
 // ---------------------------------------------------------------------------
 // 归档链退役（merge-archive-steps-into-flow AC-9）：归档入口按钮 / 归档面板 /
 // 归档状态源整体摘除——归档入口由 run 流程的 stop-before-archive 停等面承载，
-// 归档列（第 10 列）经详情图区常驻渲染
+// 归档列（第 9 列 requirement / 第 6 列 test-only）经详情图区常驻渲染
 // ---------------------------------------------------------------------------
 
 describe('ChangeDetailView：归档链退役（入口按钮 / 面板 / 状态源零渲染 + 归档列上图）', () => {
@@ -1205,15 +1216,15 @@ describe('ChangeDetailView：归档链退役（入口按钮 / 面板 / 状态源
     ).toBe(false);
   });
 
-  it('归档列入图：第 10 列 archive 列头常驻（列序与 PIPELINE_PHASES 同序，末位 archive）', async () => {
+  it('归档列入图：第 9 列 archive 列头常驻（列序与 requirement 相位表同序，末位 archive）', async () => {
     const { container } = renderDetail({ detail: detail(), artifacts: PROPOSAL_ENVELOPES });
     const columns = await screen.findAllByTestId('flow-column');
-    expect(columns).toHaveLength(10);
+    expect(columns).toHaveLength(9);
     const ids = columns.map((column) => column.getAttribute('data-testid') ?? '');
-    expect(ids.length).toBe(10);
-    // 末列为 archive（列容器 identity 锚：col:archive）
+    expect(ids.length).toBe(9);
+    // 末列为 archive（列容器 identity 锚：col:archive）；requirement 表零 code-analyze 占位列
     expect(container.querySelector('[data-testid="rf__node-col:archive"]')).not.toBeNull();
-    expect(container.querySelector('[data-testid="rf__node-col:code-analyze"]')).not.toBeNull();
+    expect(container.querySelector('[data-testid="rf__node-col:code-analyze"]')).toBeNull();
   });
 
   it('归档列空态（无 run / 无 archive attempt）→ 详情图空列不报错、停等面降级渲染', async () => {
@@ -1223,7 +1234,7 @@ describe('ChangeDetailView：归档链退役（入口按钮 / 面板 / 状态源
       }),
       artifacts: PROPOSAL_ENVELOPES,
     });
-    await waitFor(() => expect(screen.getAllByTestId('flow-column')).toHaveLength(10));
+    await waitFor(() => expect(screen.getAllByTestId('flow-column')).toHaveLength(9));
     // 归档空列仍在图内且零事件节点不崩溃
     expect(container.querySelector('[data-testid="rf__node-col:archive"]')).not.toBeNull();
     expect(screen.queryByTestId('flow-empty')).toBeNull();
@@ -1568,5 +1579,124 @@ describe('ChangeDetailView：stdout 面板按 detail.name 取数（AC-5 / D6）'
     expect(screen.queryByTestId('stdout-error')).toBeNull();
     // 抽屉其余面照常（错误态不阻断）
     expect(screen.getByTestId('detail-drawer') !== null).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 流程图层列序随 detail.pipeline 出线（desktop-test-only-flow AC-6 / AC-5）：
+// requirement 9 列 / test-only 6 列；code-analyze 节点列位由 phaseOrder 派生
+// ---------------------------------------------------------------------------
+
+describe('ChangeDetailView：列序随 detail.pipeline（requirement / test-only 两表）', () => {
+  it('正向：requirement detail → 流程图 9 列（末列 archive、零 code-analyze 占位列）', async () => {
+    const { container } = renderDetail({ detail: detail(), artifacts: PROPOSAL_ENVELOPES });
+
+    await waitFor(() => expect(screen.getAllByTestId('flow-column')).toHaveLength(9));
+    const ids = screen
+      .getAllByTestId('flow-column')
+      .map((column) => column.getAttribute('data-testid') ?? '');
+    expect(ids).toHaveLength(9);
+    expect(container.querySelector('[data-testid="rf__node-col:archive"]')).not.toBeNull();
+    expect(container.querySelector('[data-testid="rf__node-col:code-analyze"]')).toBeNull();
+  });
+
+  it('正向：test-only detail → 流程图 6 列，code-analyze 列头在场、archive 第 6 列', async () => {
+    const { container } = renderDetail({
+      detail: detail({
+        pipeline: TEST_ONLY_PIPELINE.map((phase) => ({
+          phase,
+          attempts: phase === 'proposal' ? [attempt({ verdict: 'pass' })] : [],
+        })),
+      }),
+    });
+
+    await waitFor(() => expect(screen.getAllByTestId('flow-column')).toHaveLength(6));
+    expect(container.querySelector('[data-testid="rf__node-col:code-analyze"]')).not.toBeNull();
+    expect(container.querySelector('[data-testid="rf__node-col:archive"]')).not.toBeNull();
+    // requirement 独有相位零列（不臆造占位列）
+    for (const phase of ['dev-design', 'implement', 'code-review', 'acceptance']) {
+      expect(container.querySelector(`[data-testid="rf__node-col:${phase}"]`)).toBeNull();
+    }
+  });
+
+  it('正向：test-only 的 code-analyze 运行步节点上图（列位 = pipeline 序第 2 列）', async () => {
+    const { container } = renderDetail({
+      detail: detail({
+        pipeline: TEST_ONLY_PIPELINE.map((phase) => ({ phase, attempts: [] })),
+        runs: [
+          finishedRun({
+            nodes: [
+              {
+                instanceNo: 0,
+                phase: 'code-analyze',
+                attempt: 1,
+                step: 'executor',
+                status: 'passed',
+                sessionId: 'ses-code-analyze',
+                detail: null,
+                outputRef: null,
+              },
+            ],
+          }),
+        ],
+      }),
+    });
+
+    await screen.findByTestId('flow-graph');
+    await waitFor(() =>
+      expect(
+        container.querySelector('[data-testid="rf__node-run:code-analyze:1:executor:0"]'),
+      ).not.toBeNull(),
+    );
+  });
+
+  it('异常：test-only 列序外相位（implement）运行步 → 不入图（phaseOrder.indexOf < 0 跳过）', async () => {
+    const { container } = renderDetail({
+      detail: detail({
+        pipeline: TEST_ONLY_PIPELINE.map((phase) => ({ phase, attempts: [] })),
+        runs: [
+          finishedRun({
+            nodes: [
+              {
+                instanceNo: 0,
+                phase: 'implement',
+                attempt: 1,
+                step: 'executor',
+                status: 'passed',
+                sessionId: 'ses-out-of-table',
+                detail: null,
+                outputRef: null,
+              },
+            ],
+          }),
+        ],
+      }),
+    });
+
+    await screen.findByTestId('flow-graph');
+    await waitFor(() => expect(screen.getAllByTestId('flow-column')).toHaveLength(6));
+    expect(
+      container.querySelector('[data-testid="rf__node-run:implement:1:executor:0"]'),
+    ).toBeNull();
+  });
+
+  it('边界：空 pipeline → 零列图渲染不崩（flow-graph 常驻、flow-empty 不出现）', async () => {
+    const { container } = renderDetail({ detail: detail({ pipeline: [], runs: [] }) });
+
+    await screen.findByTestId('flow-graph');
+    expect(within(container).queryAllByTestId('flow-column')).toHaveLength(0);
+    expect(within(container).queryByTestId('flow-empty')).toBeNull();
+  });
+
+  it('边界：两表列数各自稳定（requirement 9 / test-only 6，列序与出线序逐位一致）', async () => {
+    const requirement = renderDetail({ detail: detail() });
+    await waitFor(() => expect(screen.getAllByTestId('flow-column')).toHaveLength(9));
+    requirement.unmount();
+
+    const testOnly = renderDetail({
+      detail: detail({ pipeline: TEST_ONLY_PIPELINE.map((phase) => ({ phase, attempts: [] })) }),
+    });
+    await waitFor(() => expect(screen.getAllByTestId('flow-column')).toHaveLength(6));
+    testOnly.unmount();
   });
 });

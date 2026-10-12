@@ -55,6 +55,7 @@ macro_rules! all_commands {
             $crate::commands::explores::rename_explore_record,
             $crate::commands::explores::delete_explore_record,
             $crate::commands::explores::update_explore_title,
+            $crate::commands::explores::update_explore_workflow_type,
             $crate::commands::explores::promote_explore,
             $crate::commands::watch::watch_subscribe,
             $crate::commands::watch::watch_unsubscribe,

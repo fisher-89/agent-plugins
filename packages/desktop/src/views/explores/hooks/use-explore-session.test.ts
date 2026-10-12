@@ -40,6 +40,7 @@ function exploreRecord(): ExploreRecord {
     root: ROOT,
     name: 'api-retry',
     title: 'api-retry',
+    workflowType: 'requirement',
     promotedTo: null,
     createdAt: 1727000000000,
     updatedAt: 1727000000000,

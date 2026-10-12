@@ -11,8 +11,23 @@ import type {
 import { mountMaterials } from './attachments';
 import { ChangeFlowGraph } from './change-flow-graph';
 import { buildFlowGraph } from './graph';
-import { PIPELINE_PHASES } from './layout';
 import type { DrawerSelection, FlowGraph, FlowMaterials, RuntimeFlowNode } from './types';
+
+/**
+ * requirement 相位序夹具（D12：前端 `PIPELINE_PHASES` 常量退役，列序改由
+ * `detail.pipeline` 出线承载，测试各自内联 fixture）：9 列，archive 为第 9 列。
+ */
+const REQUIREMENT_PHASES = [
+  'proposal',
+  'dev-design',
+  'test-design',
+  'implement',
+  'test-gen',
+  'test-execution',
+  'code-review',
+  'acceptance',
+  'archive',
+];
 
 // ---------------------------------------------------------------------------
 // ChangeFlowGraph 单测（change-flow-show-step-only，AC-1 / AC-3）：节点模型单
@@ -167,7 +182,7 @@ function detail(overrides: Partial<ChangeDetail> = {}): ChangeDetail {
     source: 'active',
     status: 'active',
     created: null,
-    pipeline: PIPELINE_PHASES.map((phase) => ({ phase, attempts: [] })),
+    pipeline: REQUIREMENT_PHASES.map((phase) => ({ phase, attempts: [] })),
     activePhase: null,
     runs: [],
     worktree: null,
@@ -196,7 +211,7 @@ function runNode(overrides: Partial<RuntimeFlowNode> = {}): RuntimeFlowNode {
     kind: 'runtime',
     phase: 'implement',
     attempt: 1,
-    colIndex: PIPELINE_PHASES.indexOf('implement'),
+    colIndex: REQUIREMENT_PHASES.indexOf('implement'),
     order: 0,
     parentId: 'col:implement',
     runStepKind: 'executor',
@@ -216,7 +231,7 @@ function runNode(overrides: Partial<RuntimeFlowNode> = {}): RuntimeFlowNode {
 function silentNode(overrides: Partial<RuntimeFlowNode> = {}): RuntimeFlowNode {
   const phase = overrides.phase ?? 'implement';
   return runNode({
-    colIndex: PIPELINE_PHASES.indexOf(phase),
+    colIndex: REQUIREMENT_PHASES.indexOf(phase),
     parentId: `col:${phase}`,
     phase,
     runStepKind: 'phaseStart',
@@ -228,7 +243,7 @@ function silentNode(overrides: Partial<RuntimeFlowNode> = {}): RuntimeFlowNode {
 }
 
 describe('ChangeFlowGraph：runStep 单分类节点渲染', () => {
-  it('含 RuntimeFlowNode 的图 → runStep 组件逐节点可辨、10 列 + 节点计数与 graph 一致', async () => {
+  it('含 RuntimeFlowNode 的图 → runStep 组件逐节点可辨、列数与出线序一致 + 节点计数与 graph 一致', async () => {
     const base = detail();
     const graph = buildFlowGraph(base, [
       runNode(),
@@ -245,7 +260,9 @@ describe('ChangeFlowGraph：runStep 单分类节点渲染', () => {
     renderGraph(graph, materialsFor(base));
 
     expect(screen.getByTestId('flow-graph') !== null).toBe(true);
-    await waitFor(() => expect(screen.getAllByTestId('flow-column')).toHaveLength(10));
+    await waitFor(() =>
+      expect(screen.getAllByTestId('flow-column')).toHaveLength(REQUIREMENT_PHASES.length),
+    );
     await waitFor(() => expect(screen.getAllByTestId('run-step-node')).toHaveLength(2));
     expect(screen.getAllByTestId('run-step-node')).toHaveLength(graph.nodes.length);
 
@@ -318,7 +335,7 @@ describe('ChangeFlowGraph：节点点击判据（AC-3）', () => {
     const node = runNode({
       id: 'run:test-execution:1:testExecution:0',
       phase: 'test-execution',
-      colIndex: PIPELINE_PHASES.indexOf('test-execution'),
+      colIndex: REQUIREMENT_PHASES.indexOf('test-execution'),
       parentId: 'col:test-execution',
       runStepKind: 'testExecution',
       group: 'toolStep',
@@ -342,9 +359,11 @@ describe('ChangeFlowGraph：节点点击判据（AC-3）', () => {
     const onSelect = vi.fn();
     const base = detail();
     renderGraph(buildFlowGraph(base, [runNode()]), materialsFor(base), onSelect);
-    await waitFor(() => expect(screen.getAllByTestId('flow-column')).toHaveLength(10));
+    await waitFor(() =>
+      expect(screen.getAllByTestId('flow-column')).toHaveLength(REQUIREMENT_PHASES.length),
+    );
 
-    fireEvent.click(screen.getAllByTestId('flow-column')[PIPELINE_PHASES.indexOf('implement')]);
+    fireEvent.click(screen.getAllByTestId('flow-column')[REQUIREMENT_PHASES.indexOf('implement')]);
 
     expect(onSelect).toHaveBeenCalledTimes(1);
     expect(onSelect).toHaveBeenCalledWith({ scope: 'column', phase: 'implement' });
@@ -409,7 +428,7 @@ describe('ChangeFlowGraph：节点点击判据（AC-3）', () => {
 describe('ChangeFlowGraph：边渲染与重渲染', () => {
   it('label 为 null 的常规边与带 label 的回跳边混存 → 均正常渲染不抛错', async () => {
     const base = detail({
-      pipeline: PIPELINE_PHASES.map((phase) =>
+      pipeline: REQUIREMENT_PHASES.map((phase) =>
         phase === 'dev-design'
           ? {
               phase,
@@ -428,14 +447,14 @@ describe('ChangeFlowGraph：边渲染与重渲染', () => {
       runNode({
         id: 'run:dev-design:1:executor:0',
         phase: 'dev-design',
-        colIndex: PIPELINE_PHASES.indexOf('dev-design'),
+        colIndex: REQUIREMENT_PHASES.indexOf('dev-design'),
         parentId: 'col:dev-design',
         status: 'passed',
       }),
       runNode({
         id: 'run:dev-design:1:verdictGate:0',
         phase: 'dev-design',
-        colIndex: PIPELINE_PHASES.indexOf('dev-design'),
+        colIndex: REQUIREMENT_PHASES.indexOf('dev-design'),
         parentId: 'col:dev-design',
         runStepKind: 'verdictGate',
         group: 'gate',
@@ -495,7 +514,7 @@ describe('ChangeFlowGraph：边渲染与重渲染', () => {
       runNode({
         id: 'run:test-design:1:evaluator:0',
         phase: 'test-design',
-        colIndex: PIPELINE_PHASES.indexOf('test-design'),
+        colIndex: REQUIREMENT_PHASES.indexOf('test-design'),
         parentId: 'col:test-design',
         runStepKind: 'evaluator',
         role: 'evaluator',
@@ -503,7 +522,7 @@ describe('ChangeFlowGraph：边渲染与重渲染', () => {
       runNode({
         id: 'run:test-design:1:decision:0',
         phase: 'test-design',
-        colIndex: PIPELINE_PHASES.indexOf('test-design'),
+        colIndex: REQUIREMENT_PHASES.indexOf('test-design'),
         parentId: 'col:test-design',
         runStepKind: 'decision',
         role: 'decision',
@@ -516,6 +535,6 @@ describe('ChangeFlowGraph：边渲染与重渲染', () => {
     await waitFor(() => expect(screen.getAllByTestId('run-step-node')).toHaveLength(2));
     expect(screen.getByTestId('rf__node-run:test-design:1:evaluator:0') !== null).toBe(true);
     expect(screen.queryByTestId('rf__node-run:implement:1:executor:0')).toBeNull();
-    expect(screen.getAllByTestId('flow-column')).toHaveLength(10);
+    expect(screen.getAllByTestId('flow-column')).toHaveLength(REQUIREMENT_PHASES.length);
   });
 });

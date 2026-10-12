@@ -22,6 +22,7 @@ function record(id: number, name: string, root = ROOT): ExploreRecord {
     root,
     name,
     title: name,
+    workflowType: 'requirement',
     promotedTo: null,
     createdAt: 1727000000000 + id,
     updatedAt: 1727000000000 + id,
@@ -442,7 +443,7 @@ describe('useExploreList：详情页动作（updateTitle / promote，AC-5 / AC-8
     expect(invokeMock).toHaveBeenLastCalledWith('list_explore_records', { root: ROOT });
   });
 
-  it('promote：invoke("promote_explore", { root, name }) → 成功后 refresh（promoted 态随清单取数回流）', async () => {
+  it('promote：invoke("promote_explore", { root, name, workflowType }) → 成功后 refresh（promoted 态随清单取数回流）', async () => {
     const promoted = titledRecord(1, 'api-retry', '接口重试策略', 'chg-018f3a-0001');
     invokeMock.mockImplementation((command: string) => {
       if (command === 'list_explore_records') {
@@ -463,12 +464,13 @@ describe('useExploreList：详情页动作（updateTitle / promote，AC-5 / AC-8
     );
 
     await act(async () => {
-      await result.current.promote('api-retry');
+      await result.current.promote('api-retry', 'requirement');
     });
 
     expect(invokeMock).toHaveBeenCalledWith('promote_explore', {
       root: ROOT,
       name: 'api-retry',
+      workflowType: 'requirement',
     });
     await waitFor(() => expect(result.current.records).toEqual([promoted]));
     expect(result.current.records[0].promotedTo).toBe('chg-018f3a-0001');
@@ -492,7 +494,9 @@ describe('useExploreList：详情页动作（updateTitle / promote，AC-5 / AC-8
     expect(result.current.records).toEqual([record(1, 'api-retry')]);
 
     await act(async () => {
-      await expect(result.current.promote('api-retry')).rejects.toThrow('启动变更失败');
+      await expect(result.current.promote('api-retry', 'requirement')).rejects.toThrow(
+        '启动变更失败',
+      );
     });
     await waitFor(() => expect(result.current.error).toContain('启动变更失败'));
     expect(result.current.records).toEqual([record(1, 'api-retry')]);
@@ -503,9 +507,155 @@ describe('useExploreList：详情页动作（updateTitle / promote，AC-5 / AC-8
 
     await act(async () => {
       await result.current.updateTitle('topic', '标题');
-      await result.current.promote('topic');
+      await result.current.promote('topic', 'requirement');
     });
 
     expect(invokeMock).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 详情页动作薄封装（desktop-test-only-flow AC-8）：updateWorkflowType(name,
+// workflowType) —— invoke 后 refresh；失败落 error 且向外 rethrow 供详情页行内
+// 捕获；无 root 守卫为 no-op（零 IPC）。
+// ---------------------------------------------------------------------------
+
+describe('useExploreList：updateWorkflowType 动作（回填唯一写口，AC-8）', () => {
+  it('updateWorkflowType：invoke("update_explore_workflow_type", { root, name, workflowType }) → 成功后以当前 root 重新取数', async () => {
+    const testOnly: ExploreRecord = { ...record(1, 'api-retry'), workflowType: 'test-only' };
+    invokeMock.mockImplementation((command: string) => {
+      if (command === 'list_explore_records') {
+        const updated = invokeMock.mock.calls.some(
+          ([name]) => name === 'update_explore_workflow_type',
+        );
+        return Promise.resolve(updated ? [testOnly] : [record(1, 'api-retry')]);
+      }
+      if (command === 'update_explore_workflow_type') return Promise.resolve(testOnly);
+      return Promise.resolve(null);
+    });
+
+    const { result } = renderHook(() => useExploreList(ROOT));
+    await waitFor(() => expect(result.current.records).toEqual([record(1, 'api-retry')]));
+    expect(result.current.records[0].workflowType).toBe('requirement');
+
+    await act(async () => {
+      await result.current.updateWorkflowType('api-retry', 'test-only');
+    });
+
+    expect(invokeMock).toHaveBeenCalledWith('update_explore_workflow_type', {
+      root: ROOT,
+      name: 'api-retry',
+      workflowType: 'test-only',
+    });
+    await waitFor(() => expect(result.current.records).toEqual([testOnly]));
+    expect(result.current.records[0].workflowType).toBe('test-only');
+    expect(invokeMock).toHaveBeenLastCalledWith('list_explore_records', { root: ROOT });
+  });
+
+  it('updateWorkflowType 两合法值逐值透传（requirement / test-only 参数逐字不变）', async () => {
+    invokeMock.mockResolvedValue([record(1, 'api-retry')]);
+
+    const { result } = renderHook(() => useExploreList(ROOT));
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    await act(async () => {
+      await result.current.updateWorkflowType('api-retry', 'test-only');
+    });
+    expect(invokeMock).toHaveBeenCalledWith('update_explore_workflow_type', {
+      root: ROOT,
+      name: 'api-retry',
+      workflowType: 'test-only',
+    });
+
+    await act(async () => {
+      await result.current.updateWorkflowType('api-retry', 'requirement');
+    });
+    expect(invokeMock).toHaveBeenCalledWith('update_explore_workflow_type', {
+      root: ROOT,
+      name: 'api-retry',
+      workflowType: 'requirement',
+    });
+    expect(
+      invokeMock.mock.calls.filter(([name]) => name === 'update_explore_workflow_type'),
+    ).toHaveLength(2);
+  });
+
+  it('边界：超长（>1000 字符）与特殊字符（内嵌换行 / NUL / emoji）值零本地校验、逐字透传（权威在后端）', async () => {
+    invokeMock.mockResolvedValue([record(1, 'api-retry')]);
+
+    const { result } = renderHook(() => useExploreList(ROOT));
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    const edgeValues = ['x'.repeat(1200), 'require\nment', 'test-only\u0000', 'test-only🚀'];
+    for (const workflowType of edgeValues) {
+      await act(async () => {
+        await result.current.updateWorkflowType('api-retry', workflowType);
+      });
+      expect(invokeMock).toHaveBeenCalledWith('update_explore_workflow_type', {
+        root: ROOT,
+        name: 'api-retry',
+        workflowType,
+      });
+    }
+    expect(
+      invokeMock.mock.calls.filter(([name]) => name === 'update_explore_workflow_type'),
+    ).toHaveLength(edgeValues.length);
+    expect(result.current.error).toBeNull();
+  });
+
+  it('updateWorkflowType reject：error 置位（清单保持原值：workflowType 不变）且 Promise 拒绝供行内捕获', async () => {
+    invokeMock.mockImplementation((command: string) => {
+      if (command === 'list_explore_records') return Promise.resolve([record(1, 'api-retry')]);
+      if (command === 'update_explore_workflow_type') {
+        return Promise.reject(new Error('workflow_type "bug-fix" 不受支持'));
+      }
+      return Promise.resolve(null);
+    });
+
+    const { result } = renderHook(() => useExploreList(ROOT));
+    await waitFor(() => expect(result.current.records).toHaveLength(1));
+
+    await act(async () => {
+      await expect(result.current.updateWorkflowType('api-retry', 'bug-fix')).rejects.toThrow(
+        '不受支持',
+      );
+    });
+
+    await waitFor(() => expect(result.current.error).toContain('不受支持'));
+    expect(result.current.records).toEqual([record(1, 'api-retry')]);
+    expect(result.current.records[0].workflowType).toBe('requirement');
+  });
+
+  it('无 root 守卫：root 为 null → updateWorkflowType no-op（零 IPC、不入 error 态）', async () => {
+    const { result } = renderHook(() => useExploreList(null));
+
+    await act(async () => {
+      await result.current.updateWorkflowType('topic', 'test-only');
+    });
+
+    expect(invokeMock).not.toHaveBeenCalled();
+    expect(result.current.error).toBeNull();
+  });
+
+  it('三个详情页动作并列可用（updateTitle / updateWorkflowType / promote 同源薄封装）', async () => {
+    invokeMock.mockResolvedValue([record(1, 'api-retry')]);
+
+    const { result } = renderHook(() => useExploreList(ROOT));
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    await act(async () => {
+      await result.current.updateTitle('api-retry', '标题');
+      await result.current.updateWorkflowType('api-retry', 'test-only');
+      await result.current.promote('api-retry', 'test-only');
+    });
+
+    const names = invokeMock.mock.calls
+      .map(([name]) => name)
+      .filter((name) => name !== 'list_explore_records');
+    expect(names).toEqual([
+      'update_explore_title',
+      'update_explore_workflow_type',
+      'promote_explore',
+    ]);
   });
 });

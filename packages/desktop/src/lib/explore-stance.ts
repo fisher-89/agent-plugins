@@ -1,3 +1,8 @@
+/**
+ * explore stance 前导模板（desktop 包自持；与插件
+ * `plugins/dev-team/skills/openspec-explore/SKILL.md` 双源互链——stance 立场段
+ * 与笔记落盘约定同源叙述，改动需双侧同步）。
+ */
 function stancePreamble(topic: string): string {
   return `你在探索模式下工作。这是思考与调研时间，不是实现时间：可以读文件、搜代码、调查仓库，但绝不写应用代码，也绝不为了存放笔记而创建 change 目录（用户明确要求产出 OpenSpec 工件时除外）。
 
@@ -11,6 +16,7 @@ function stancePreamble(topic: string): string {
 ## 笔记落盘
 - 本次探索的笔记 MUST 写入 workspace 下 openspec/explores/${topic}.md（文件名 MUST 等于 ${topic}，MUST NOT 自拟其它文件名）
 - 笔记首行写 \`# <标题>\`（人类可读标题，用于探索清单展示；写中文标题亦可）
+- 笔记第二行写 \`workflow_type: <requirement|test-only>\`（推算变更类型：目标是补测试 / 生成测试用例 → test-only，否则 requirement）
 - 默认追加；仅用户明确要求时才整文件重写
 - 若文件尚不存在，先写入一段简短的主题与背景骨架
 

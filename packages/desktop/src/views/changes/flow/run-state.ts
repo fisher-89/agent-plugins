@@ -14,7 +14,6 @@ import type {
   ChangeStepState,
   RunStepKind,
 } from '../../../types/dto';
-import { PIPELINE_PHASES } from './layout';
 import type { FlowRoleLabel, RunStepGroup, RuntimeFlowNode } from './types';
 
 /** 步词汇归一单点：库读史 snake 词（RunStepKind）→ 活面 camel 词
@@ -141,13 +140,14 @@ function roleOf(step: ChangeStepKind): FlowRoleLabel | null {
   return null;
 }
 
-/** 步状态表 → 图 overlay 运行步节点（按后端稳定身份键直渲染；坑位校验：pipeline
- * 外相位的节点不入图）。 */
-export function runStepNodes(steps: ChangeStepState[]): RuntimeFlowNode[] {
+/** 步状态表 → 图 overlay 运行步节点（按后端稳定身份键直渲染）。列序由
+ * `phaseOrder` 显式传入（= `detail.pipeline.map(p => p.phase)`，后端相位表
+ * 出线序；前端零静态相位序常量）——坑位校验：`phaseOrder` 外相位的节点不入图。 */
+export function runStepNodes(steps: ChangeStepState[], phaseOrder: string[]): RuntimeFlowNode[] {
   const nodes: RuntimeFlowNode[] = [];
   const columnOrder = new Map<string, number>();
   for (const step of steps) {
-    const colIndex = PIPELINE_PHASES.indexOf(step.phase);
+    const colIndex = phaseOrder.indexOf(step.phase);
     if (colIndex < 0) continue;
     const order = columnOrder.get(step.phase) ?? 0;
     columnOrder.set(step.phase, order + 1);

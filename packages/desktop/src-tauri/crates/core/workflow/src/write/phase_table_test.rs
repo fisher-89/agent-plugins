@@ -2,7 +2,8 @@ use agent::ModelLevel;
 use serde::{Deserialize, Serialize};
 
 use super::phase_table::{
-    allowed_backtrack_phases, phase_table, PhaseAgentSpec, PhaseDefinition, MAX_RETRY_TIMES,
+    allowed_backtrack_phases, dependents, phase_table, PhaseAgentSpec, PhaseDefinition,
+    MAX_RETRY_TIMES,
 };
 use crate::state::{OnFail, StepDefinition, StepNode};
 
@@ -17,6 +18,25 @@ const REQUIREMENT_PHASE_ORDER: [&str; 9] = [
     "code-review",
     "acceptance",
     "archive",
+];
+
+/// test-only 相位表表序（6 相位：5 个 agent 相位 + archive 确定性相位）。
+const TEST_ONLY_PHASE_ORDER: [&str; 6] = [
+    "proposal",
+    "code-analyze",
+    "test-design",
+    "test-gen",
+    "test-execution",
+    "archive",
+];
+
+/// code-analyze 相位步序（P→E 分析相位；AC-2）。
+const CODE_ANALYZE_STEP_ORDER: [StepNode; 5] = [
+    StepNode::PhaseStart,
+    StepNode::Executor,
+    StepNode::Evaluator,
+    StepNode::VerdictGate,
+    StepNode::PhaseLog,
 ];
 
 /// 归档相位步序（design 数据模型表；AC-2）。
@@ -45,6 +65,14 @@ const DUAL_ROLE_PHASES: [&str; 6] = [
 
 /// 评估-only 相位（executor 为 None）。
 const EVAL_ONLY_PHASES: [&str; 2] = ["code-review", "acceptance"];
+
+/// 按 id 取相位定义（缺表项即 panic——fixture 表漂移立即显形）。
+fn phase_of(table: &'static [PhaseDefinition], id: &str) -> &'static PhaseDefinition {
+    table
+        .iter()
+        .find(|def| def.id == id)
+        .unwrap_or_else(|| panic!("相位 {id} 应在表内"))
+}
 
 #[test]
 fn phase_table_requirement返回全表且相位序稳定() {
@@ -118,14 +146,373 @@ fn phase_table_requirement返回全表且相位序稳定() {
 }
 
 #[test]
-fn phase_table_非requirement类型拒绝返回none() {
-    // V1 仅 requirement：其余 workflow_type 一律 None（W8 写面侧显式拒绝依据）
-    for workflow_type in ["bug-fix", "test-only", "refactor", ""] {
+fn phase_table_未知类型拒绝返回none() {
+    // 两值分派：requirement / test-only 外的其余 workflow_type 一律 None（写面侧
+    // 显式拒绝依据——不退化、不臆测、零兜底）
+    for workflow_type in ["bug-fix", "refactor", "", " ", "requirement2", "test_only"] {
         assert!(
             phase_table(workflow_type).is_none(),
-            "workflow_type \"{workflow_type}\" 应拒绝（None）"
+            "workflow_type {workflow_type:?} 应拒绝（None）"
         );
     }
+}
+
+/// 未知类型边界（边界 / 新增）：超长（>1000 字符）与特殊字符（NUL / 内嵌换行 /
+/// emoji）类型值一律不命中——trim 后仍非两合法值 → `None`（不截断、不折叠、不
+/// panic，零兜底）。
+#[test]
+fn phase_table超长与特殊字符类型值不命中() {
+    let long_unknown = "x".repeat(1200);
+    let long_known_prefix = format!("{}requirement", "y".repeat(1200));
+    for workflow_type in [
+        long_unknown.as_str(),
+        long_known_prefix.as_str(),
+        "requirement\u{0}",
+        "test\u{0}-only",
+        "require\nment",
+        "test-only🚀",
+        "\u{0}",
+    ] {
+        assert!(
+            phase_table(workflow_type).is_none(),
+            "超长 / 特殊字符类型值 {workflow_type:?} 应拒绝（None）"
+        );
+    }
+    assert!(
+        long_unknown.len() > 1000 && long_known_prefix.len() > 1000,
+        "边界样本须越过 1000 字符刻度，实际 {} / {}",
+        long_unknown.len(),
+        long_known_prefix.len()
+    );
+}
+
+#[test]
+fn phase_table_test_only返回六相位且序稳定() {
+    let table = phase_table("test-only").expect("test-only 应返回 Some");
+
+    assert_eq!(table.len(), 6, "test-only 六相位（含 archive）");
+    let ids: Vec<&str> = table.iter().map(|def| def.id).collect();
+    assert_eq!(ids, TEST_ONLY_PHASE_ORDER.to_vec(), "test-only 相位序稳定");
+
+    // 末位 archive 确定性相位（无 executor / evaluator、零清单）
+    let archive = table.last().expect("末位相位应在场");
+    assert_eq!(archive.id, "archive", "archive 为末位（第 6）相位");
+    assert!(archive.executor.is_none(), "test-only archive executor 恒 None");
+    assert!(archive.evaluator.is_none(), "test-only archive evaluator 恒 None");
+    assert!(archive.artifact_manifest.is_empty(), "test-only archive 零清单");
+
+    // requirement 独有相位不在 test-only 表内（两表分派不串味）
+    for absent in ["dev-design", "implement", "code-review", "acceptance"] {
+        assert!(!ids.contains(&absent), "test-only 表不含 requirement 独有相位 {absent}");
+    }
+    // code-analyze 唯 test-only 表独有（requirement 表零此相位）
+    let requirement = phase_table("requirement").expect("requirement 应返回 Some");
+    assert!(
+        !requirement.iter().any(|def| def.id == "code-analyze"),
+        "code-analyze 为 test-only 独有相位"
+    );
+}
+
+/// 表间复用矩阵（正向）：test-only 的 proposal / test-design / test-gen /
+/// test-execution 直接复用 requirement 同名 static（steps 与角色 prompt 同源），
+/// archive 复用 `ARCHIVE_STEPS`，code-analyze 用新增 `CODE_ANALYZE_STEPS`
+///（复用即单源——不复制步序列）。
+#[test]
+fn test_only表复用requirement同名steps与prompt() {
+    let requirement = phase_table("requirement").expect("requirement 应返回 Some");
+    let test_only = phase_table("test-only").expect("test-only 应返回 Some");
+
+    for id in ["proposal", "test-design", "test-gen", "test-execution"] {
+        let lhs = phase_of(requirement, id);
+        let rhs = phase_of(test_only, id);
+        assert_eq!(
+            lhs.steps, rhs.steps,
+            "相位 {id} 复用 requirement 同名 steps（步序列逐位等值）"
+        );
+        assert_eq!(
+            lhs.executor, rhs.executor,
+            "相位 {id} 复用 requirement 同名 executor prompt spec"
+        );
+        assert_eq!(
+            lhs.evaluator, rhs.evaluator,
+            "相位 {id} 复用 requirement 同名 evaluator prompt spec"
+        );
+        assert_eq!(
+            lhs.artifact_manifest, rhs.artifact_manifest,
+            "相位 {id} 复用 requirement 同名产物清单"
+        );
+    }
+
+    // archive 复用 ARCHIVE_STEPS（步序列逐位等值）
+    let test_only_archive = phase_of(test_only, "archive");
+    let archive_steps: Vec<StepNode> = test_only_archive.steps.iter().map(|step| step.node).collect();
+    assert_eq!(archive_steps, ARCHIVE_STEP_ORDER.to_vec(), "test-only archive 复用 ARCHIVE_STEPS");
+
+    // code-analyze 用 CODE_ANALYZE_STEPS（P→E 五步形态）
+    let code_analyze = phase_of(test_only, "code-analyze");
+    let code_analyze_steps: Vec<StepNode> =
+        code_analyze.steps.iter().map(|step| step.node).collect();
+    assert_eq!(
+        code_analyze_steps,
+        CODE_ANALYZE_STEP_ORDER.to_vec(),
+        "code-analyze 步序 = [PhaseStart, Executor, Evaluator, VerdictGate, PhaseLog]"
+    );
+    // 提案相位描述改「测试向提案」（复用 step 静态但人读语义随类型）
+    assert_eq!(phase_of(test_only, "proposal").description, "测试向提案");
+}
+
+/// code-analyze 相位声明（正向 / AC-2）：步序 P→E 五步、VerdictGate
+/// `on_fail=Terminal`、executor / evaluator 均 `ModelLevel::High`、产物清单空、
+/// 两常量静态非空零占位。
+#[test]
+fn code_analyze相位声明_p形态与零清单与双高角色() {
+    let test_only = phase_table("test-only").expect("test-only 应返回 Some");
+    let code_analyze = phase_of(test_only, "code-analyze");
+
+    // 步序 P→E（与 proposal / dev-design 同形）
+    let nodes: Vec<StepNode> = code_analyze.steps.iter().map(|step| step.node).collect();
+    assert_eq!(nodes, CODE_ANALYZE_STEP_ORDER.to_vec());
+    assert_eq!(
+        code_analyze.steps.first().map(|step| step.node),
+        Some(StepNode::PhaseStart)
+    );
+    assert_eq!(
+        code_analyze.steps.last().map(|step| step.node),
+        Some(StepNode::PhaseLog)
+    );
+
+    // VerdictGate 携 Terminal；其余步 on_fail 恒 None
+    let verdict = code_analyze
+        .steps
+        .iter()
+        .find(|step| step.node == StepNode::VerdictGate)
+        .expect("code-analyze 应含 VerdictGate 步");
+    assert_eq!(verdict.on_fail, Some(OnFail::Terminal), "VerdictGate 失败即终态");
+    for step in code_analyze.steps {
+        if step.node != StepNode::VerdictGate {
+            assert_eq!(step.on_fail, None, "步 {:?} 无失败语义（缺省 Terminal）", step.node);
+        }
+    }
+
+    // 双角色均 High 档、prompt 静态非空零占位（`include_str!` 编译期装配）
+    let executor = code_analyze.executor.as_ref().expect("code-analyze 应有 executor");
+    let evaluator = code_analyze.evaluator.as_ref().expect("code-analyze 应有 evaluator");
+    assert_eq!(executor.model_level, ModelLevel::High, "code-analyze executor 档位");
+    assert_eq!(evaluator.model_level, ModelLevel::High, "code-analyze evaluator 档位");
+    for spec in [executor, evaluator] {
+        assert!(!spec.prompt.is_empty(), "code-analyze prompt 静态非空");
+        assert!(
+            !spec.prompt.contains("<role>") && !spec.prompt.contains("{{"),
+            "code-analyze prompt 零占位"
+        );
+    }
+    // 步 prompt_ref 与角色 spec prompt 同源（防两处字面路径漂移）
+    let executor_step = code_analyze
+        .steps
+        .iter()
+        .find(|step| step.node == StepNode::Executor)
+        .expect("含 Executor 步");
+    let evaluator_step = code_analyze
+        .steps
+        .iter()
+        .find(|step| step.node == StepNode::Evaluator)
+        .expect("含 Evaluator 步");
+    assert_eq!(executor_step.prompt_ref, Some(executor.prompt));
+    assert_eq!(evaluator_step.prompt_ref, Some(evaluator.prompt));
+    assert_ne!(
+        executor.prompt, evaluator.prompt,
+        "executor / evaluator 为两份各异角色知识（planner / evaluator）"
+    );
+
+    // 产物清单空数组（分析相位不铸产物）
+    assert!(
+        code_analyze.artifact_manifest.is_empty(),
+        "code-analyze 清单空数组（不虚设占位项）"
+    );
+}
+
+/// 空白 / 大小写边界（边界）：`phase_table` 先 trim 再 `eq_ignore_ascii_case`
+/// 命中——首尾空白与任意大小写不误判、不退化。
+#[test]
+fn phase_table_空白与大小写规范化命中() {
+    let requirement = phase_table("requirement").expect("requirement 命中");
+    let test_only = phase_table("test-only").expect("test-only 命中");
+
+    // 大小写不敏感
+    assert_eq!(phase_table("REQUIREMENT").map(|t| t.len()), Some(requirement.len()));
+    assert_eq!(phase_table("Test-Only").map(|t| t.len()), Some(test_only.len()));
+    assert_eq!(phase_table("test-ONLY").map(|t| t.len()), Some(test_only.len()));
+    // 首尾空白 trim 后命中（" test-only " 不因空白误判为未知）
+    assert_eq!(phase_table(" requirement ").map(|t| t.len()), Some(requirement.len()));
+    assert_eq!(phase_table(" test-only ").map(|t| t.len()), Some(test_only.len()));
+    assert_eq!(phase_table("\ttest-only\n").map(|t| t.len()), Some(test_only.len()));
+    // 表序 / 表身同源（返回同一静态表）
+    assert_eq!(
+        phase_table("TEST-ONLY").map(|t| t.as_ptr()),
+        Some(test_only.as_ptr())
+    );
+    // 空白+大小写混排仍不越集
+    assert!(phase_table(" BUG-FIX ").is_none());
+}
+
+/// 表内自描述前置依赖（边界）：test-only 表 `prerequisites` 逐相位照表声明
+///（proposal=[]、code-analyze=[proposal]、test-design=[proposal, code-analyze]、
+/// test-gen=[test-design]、test-execution=[test-gen]、archive=[]）；requirement
+/// 表前置与既有 match 语义一致（集合语义对照，不依赖声明序）。
+#[test]
+fn 表内自描述prerequisites逐相位声明() {
+    let test_only = phase_table("test-only").expect("test-only 应返回 Some");
+    let expect_test_only: &[(&str, &[&str])] = &[
+        ("proposal", &[]),
+        ("code-analyze", &["proposal"]),
+        ("test-design", &["proposal", "code-analyze"]),
+        ("test-gen", &["test-design"]),
+        ("test-execution", &["test-gen"]),
+        ("archive", &[]),
+    ];
+    for def in test_only {
+        let (_, expected) = expect_test_only
+            .iter()
+            .find(|(id, _)| *id == def.id)
+            .unwrap_or_else(|| panic!("对照表缺相位 {}", def.id));
+        assert_eq!(def.prerequisites, *expected, "test-only 相位 {} 前置依赖", def.id);
+    }
+
+    let requirement = phase_table("requirement").expect("requirement 应返回 Some");
+    let expect_requirement: &[(&str, &[&str])] = &[
+        ("proposal", &[]),
+        ("dev-design", &["proposal"]),
+        ("test-design", &["proposal", "dev-design"]),
+        ("implement", &["dev-design"]),
+        ("test-gen", &["test-design", "implement"]),
+        ("test-execution", &["test-gen", "implement"]),
+        ("code-review", &["test-gen", "implement"]),
+        ("acceptance", &["proposal", "dev-design", "implement"]),
+        ("archive", &[]),
+    ];
+    for def in requirement {
+        let (_, expected) = expect_requirement
+            .iter()
+            .find(|(id, _)| *id == def.id)
+            .unwrap_or_else(|| panic!("对照表缺相位 {}", def.id));
+        assert_eq!(def.prerequisites.len(), expected.len(), "相位 {} 前置个数", def.id);
+        for prerequisite in *expected {
+            assert!(
+                def.prerequisites.contains(prerequisite),
+                "相位 {} 前置应含 {prerequisite}",
+                def.id
+            );
+        }
+        // 前置恒为表内已知相位 id（零悬空引用）、且不含自身
+        let ids: Vec<&str> = requirement.iter().map(|phase| phase.id).collect();
+        for prerequisite in def.prerequisites {
+            assert!(ids.contains(prerequisite), "相位 {} 前置 {prerequisite} 应在表内", def.id);
+            assert_ne!(*prerequisite, def.id, "相位 {} 前置不含自身（无自环）", def.id);
+        }
+    }
+}
+
+/// `dependents` 表内遍历（正向）：下游 = 表内 `prerequisites` 含本相位者，两表
+/// 各自类型感知（test-only 不多推 dev-design 等表外相位）。
+#[test]
+fn dependents下游遍历随表分派() {
+    let requirement = phase_table("requirement").expect("requirement 应返回 Some");
+    let test_only = phase_table("test-only").expect("test-only 应返回 Some");
+
+    assert_eq!(
+        dependents(requirement, "proposal"),
+        vec!["dev-design".to_owned(), "test-design".to_owned(), "acceptance".to_owned()],
+        "requirement 下 proposal 的下游按表序"
+    );
+    assert_eq!(
+        dependents(requirement, "implement"),
+        vec![
+            "test-gen".to_owned(),
+            "test-execution".to_owned(),
+            "code-review".to_owned(),
+            "acceptance".to_owned(),
+        ],
+        "requirement 下 implement 的下游按表序"
+    );
+    assert!(
+        dependents(requirement, "archive").is_empty(),
+        "archive 无下游（末相位不在任何相位前置集内）"
+    );
+
+    // test-only：code-analyze 下游 = test-design（其余相位前置不含 code-analyze）
+    assert_eq!(
+        dependents(test_only, "proposal"),
+        vec!["code-analyze".to_owned(), "test-design".to_owned()],
+        "test-only 下 proposal 的下游"
+    );
+    assert_eq!(
+        dependents(test_only, "code-analyze"),
+        vec!["test-design".to_owned()],
+        "test-only 下 code-analyze 的下游仅 test-design"
+    );
+    assert_eq!(
+        dependents(test_only, "test-gen"),
+        vec!["test-execution".to_owned()],
+        "test-only 下 test-gen 的下游仅 test-execution"
+    );
+    // 表外相位（requirement 独有 / 未知）→ 空集（不臆测）
+    assert!(dependents(test_only, "implement").is_empty(), "test-only 表不含 implement");
+    assert!(dependents(test_only, "dev-design").is_empty());
+}
+
+/// `dependents` 边界（异常）：未知 phase / 空 phase / 空表 → 空 Vec，不 panic。
+#[test]
+fn dependents未知相位与空表返回空vec() {
+    let requirement = phase_table("requirement").expect("requirement 应返回 Some");
+    let test_only = phase_table("test-only").expect("test-only 应返回 Some");
+
+    for table in [requirement, test_only] {
+        assert!(dependents(table, "不存在的相位").is_empty());
+        assert!(dependents(table, "").is_empty());
+        assert!(dependents(table, " ").is_empty());
+    }
+    assert!(dependents(&[], "proposal").is_empty(), "空表零下游");
+}
+
+/// 回溯白名单随表分派（正向）：两表下 `allowed_backtrack_phases` 各按本表表序
+/// 取前缀集（test-only 下 code-analyze 回溯含 proposal、test-design 含
+/// proposal + code-analyze）。
+#[test]
+fn 回溯白名单随表分派两表各按本表序() {
+    let requirement = phase_table("requirement").expect("requirement 应返回 Some");
+    let test_only = phase_table("test-only").expect("test-only 应返回 Some");
+
+    let expect = |ids: &[&str]| ids.iter().map(|id| (*id).to_owned()).collect::<Vec<_>>();
+
+    assert_eq!(
+        allowed_backtrack_phases(test_only, "code-analyze"),
+        expect(&["proposal", "code-analyze"]),
+        "test-only code-analyze 回溯含 proposal（第 2 相位）"
+    );
+    assert_eq!(
+        allowed_backtrack_phases(test_only, "test-design"),
+        expect(&["proposal", "code-analyze", "test-design"]),
+        "test-only test-design 回溯含 proposal + code-analyze"
+    );
+    assert_eq!(
+        allowed_backtrack_phases(test_only, "archive"),
+        expect(&TEST_ONLY_PHASE_ORDER),
+        "test-only archive 覆盖全表（6 相位）"
+    );
+    assert!(
+        allowed_backtrack_phases(test_only, "proposal").is_empty(),
+        "test-only 首相位无前置可回溯"
+    );
+    assert!(
+        !allowed_backtrack_phases(test_only, "test-gen").iter().any(|phase| phase == "implement"),
+        "test-only 白名单不含表外相位 implement"
+    );
+
+    // requirement 表同语义（对照锚，防两表串味）
+    assert_eq!(
+        allowed_backtrack_phases(requirement, "acceptance"),
+        expect(&REQUIREMENT_PHASE_ORDER[..8]),
+    );
 }
 
 #[test]
@@ -297,7 +684,7 @@ fn 白名单未知相位返回空vec不臆测() {
 /// 计划步序列期望表（design 数据模型表逐相位声明；`OnFail` 三态按步绑定）。
 fn expected_steps(phase: &str) -> Vec<StepNode> {
     match phase {
-        "proposal" | "dev-design" | "test-design" => vec![
+        "proposal" | "dev-design" | "test-design" | "code-analyze" => vec![
             StepNode::PhaseStart,
             StepNode::Executor,
             StepNode::Evaluator,
@@ -345,7 +732,7 @@ fn expected_on_fail(node: StepNode) -> Option<OnFail> {
 #[test]
 fn 计划图steps声明逐相位与设计表一致() {
     let table = phase_table("requirement").expect("requirement 应返回 Some");
-    assert_eq!(table.len(), 9, "V1 唯一 workflow_type 九相位（含 archive）");
+    assert_eq!(table.len(), 9, "requirement 九相位（含 archive）");
 
     for def in table {
         let actual: Vec<StepNode> = def.steps.iter().map(|step| step.node).collect();
@@ -670,11 +1057,19 @@ fn 计划图类型收敛与const表逐项等值() {
             description,
             steps,
             artifact_manifest,
+            prerequisites,
             executor,
             evaluator,
         } = def;
         assert_eq!(*id, def.id, "id 字段解构等值");
         assert!(!description.is_empty(), "相位 {id} description 非空");
+        // 前置依赖表内自描述（字段类型 `&'static [&'static str]`；无独立 match 兜底）
+        let _: &&'static [&'static str] = prerequisites;
+        assert_eq!(
+            *prerequisites,
+            def.prerequisites,
+            "prerequisites 字段解构等值（表内自描述单源）"
+        );
         assert_eq!(
             steps.len(),
             expected_steps(id).len(),
@@ -1081,6 +1476,190 @@ fn archive_steps类型收敛_封闭集取值且长度十() {
             ),
             "归档步 {:?} 不得为路由相位的角色 / 门禁步",
             step.node
+        );
+    }
+}
+
+// ---------------------------------------------------------------------------
+// test-only 表（AC-1 / AC-2 / AC-3）：步序 / 清单复用 / prompt 静态面 / 分派边界
+// ---------------------------------------------------------------------------
+
+/// test-only 表产物清单（正向）：proposal 复用 `PROPOSAL_MANIFEST`（proposal.md +
+/// specs/**）、test-execution 复用 `TEST_EXECUTION_MANIFEST`（test-reports/**）、
+/// code-analyze 空数组（分析相位零产物）、其余无产物相位空数组。
+#[test]
+fn test_only表产物清单复用与code_analyze零清单() {
+    let table = phase_table("test-only").expect("test-only 应返回 Some");
+
+    let expect: &[(&str, &[(&str, &str)])] = &[
+        (
+            "proposal",
+            &[("markdown-doc", "proposal.md"), ("markdown-doc", "specs/**")],
+        ),
+        ("code-analyze", &[]),
+        ("test-design", &[]),
+        ("test-gen", &[]),
+        (
+            "test-execution",
+            &[("markdown-doc", "test-reports/**")],
+        ),
+        ("archive", &[]),
+    ];
+
+    for def in table {
+        let (_, expected) = expect
+            .iter()
+            .find(|(id, _)| *id == def.id)
+            .unwrap_or_else(|| panic!("对照表缺相位 {}", def.id));
+        let actual: Vec<(&str, &str)> = def
+            .artifact_manifest
+            .iter()
+            .map(|spec| (spec.kind, spec.path))
+            .collect();
+        assert_eq!(actual, expected.to_vec(), "test-only 相位 {} 产物清单", def.id);
+        for spec in def.artifact_manifest {
+            assert!(!spec.title.is_empty(), "清单标题非空（{}）", spec.path);
+            assert!(
+                !spec.path.starts_with('/') && !spec.path.starts_with(".."),
+                "清单路径恒相对且无越界：{}",
+                spec.path
+            );
+        }
+    }
+
+    // code-analyze 零清单（空数组，不虚设占位项——分析相位不铸产物）
+    let code_analyze = phase_of(table, "code-analyze");
+    assert!(code_analyze.artifact_manifest.is_empty(), "code-analyze 清单空数组");
+}
+
+/// test-only 表 prompt 静态面（正向）：有静态 prompt 的 agent 步恒 `&'static str`
+/// 且非空零占位、步 `prompt_ref` 与角色 spec 同源；archive 两会话步 `prompt_ref`
+/// 恒 `None`（运行时组装）；test-execution 无 agent 步（确定性相位）。
+#[test]
+fn test_only表prompt静态非空且步spec同源() {
+    let table = phase_table("test-only").expect("test-only 应返回 Some");
+
+    let mut agent_step_prompts = 0usize;
+    for def in table {
+        for step in def.steps {
+            match step.node.role() {
+                Some(_) if def.id == "archive" => {
+                    assert_eq!(
+                        step.prompt_ref, None,
+                        "归档 agent 步 prompt_ref 恒 None（prompt 归 orchestration）"
+                    );
+                }
+                Some(_) => {
+                    let prompt = step
+                        .prompt_ref
+                        .unwrap_or_else(|| panic!("相位 {} agent 步应有静态 prompt", def.id));
+                    let _: &'static str = prompt;
+                    assert!(!prompt.is_empty(), "相位 {} agent 步 prompt 静态非空", def.id);
+                    assert!(
+                        !prompt.contains("<role>") && !prompt.contains("{{"),
+                        "相位 {} prompt 零占位",
+                        def.id
+                    );
+                    agent_step_prompts += 1;
+                }
+                None => {
+                    assert_eq!(
+                        step.prompt_ref, None,
+                        "相位 {} 非 agent 步 prompt_ref 恒 None",
+                        def.id
+                    );
+                }
+            }
+        }
+
+        // 步 prompt 与角色 spec prompt 同源（防两处字面路径漂移）
+        if let Some(spec) = &def.executor {
+            if let Some(step) = def.steps.iter().find(|step| step.node == StepNode::Executor) {
+                assert_eq!(step.prompt_ref, Some(spec.prompt), "相位 {} executor 同源", def.id);
+            }
+        }
+        if let Some(spec) = &def.evaluator {
+            if let Some(step) = def.steps.iter().find(|step| step.node == StepNode::Evaluator) {
+                assert_eq!(step.prompt_ref, Some(spec.prompt), "相位 {} evaluator 同源", def.id);
+            }
+        }
+    }
+    // proposal / code-analyze / test-design / test-gen 各 2 条 = 8 条 agent 步
+    //（test-execution 确定性相位无静态 prompt agent 步、archive 运行时组装）
+    assert_eq!(agent_step_prompts, 8, "8 条 agent 步 prompt 齐备");
+
+    // test-execution 相位无 agent 步但保留双角色 spec（编排身份面）
+    let test_execution = phase_of(table, "test-execution");
+    assert!(!test_execution.steps.iter().any(|step| step.node.role().is_some()));
+    assert!(test_execution.executor.is_some() && test_execution.evaluator.is_some());
+}
+
+/// test-only 表 steps / on_fail 全表扫描（正向 / 边界）：逐相位步序与本表期望
+/// 一致、首步恒 PhaseStart、末步恒 PhaseLog、VerdictGate 与 Evaluator 步同进退、
+/// on_fail 三态与步绑定（门禁反馈步仅 test-gen 的 StaticCheck 与 test-execution 的
+/// TestExecution）。
+#[test]
+fn test_only表steps与on_fail全表扫描() {
+    let table = phase_table("test-only").expect("test-only 应返回 Some");
+    assert_eq!(table.len(), 6);
+
+    for def in table {
+        let actual: Vec<StepNode> = def.steps.iter().map(|step| step.node).collect();
+        assert_eq!(actual, expected_steps(def.id), "test-only 相位 {} 步序", def.id);
+        assert!(!def.steps.is_empty(), "相位 {} steps 非空", def.id);
+        assert_eq!(
+            def.steps.first().map(|step| step.node),
+            Some(StepNode::PhaseStart),
+            "相位 {} 首步恒 PhaseStart",
+            def.id
+        );
+        assert_eq!(
+            def.steps.last().map(|step| step.node),
+            Some(StepNode::PhaseLog),
+            "相位 {} 末步恒 PhaseLog",
+            def.id
+        );
+        let has_evaluator = def.steps.iter().any(|step| step.node == StepNode::Evaluator);
+        let has_verdict = def.steps.iter().any(|step| step.node == StepNode::VerdictGate);
+        assert_eq!(has_verdict, has_evaluator, "相位 {} VerdictGate 与 Evaluator 同进退", def.id);
+
+        for step in def.steps {
+            assert_eq!(
+                step.on_fail,
+                expected_on_fail(step.node),
+                "相位 {} 步 {:?} on_fail 声明",
+                def.id,
+                step.node
+            );
+            if matches!(step.on_fail, Some(OnFail::FeedbackLoop { .. })) {
+                let allowed = (def.id == "test-gen" && step.node == StepNode::StaticCheck)
+                    || (def.id == "test-execution" && step.node == StepNode::TestExecution);
+                assert!(
+                    allowed,
+                    "test-only 相位 {} 步 {:?} 不得携 FeedbackLoop",
+                    def.id, step.node
+                );
+            }
+        }
+    }
+}
+
+/// 分派边界（异常 / 负向）：未知类型不落任一表——`phase_table` 返回 `None` 而非
+/// 退化 requirement（写面 / 详情读面显式拒绝的依据）。
+#[test]
+fn phase_table未知类型不退化requirement() {
+    let requirement = phase_table("requirement").expect("requirement 应返回 Some");
+    let test_only = phase_table("test-only").expect("test-only 应返回 Some");
+    assert_ne!(
+        requirement.as_ptr(),
+        test_only.as_ptr(),
+        "两表为不同静态表（两值分派不共用同一份表身）"
+    );
+
+    for unknown in ["bug-fix", "Bug-Fix", "", " ", "\t", "requirement-s", " test-only2"] {
+        assert!(
+            phase_table(unknown).is_none(),
+            "未知类型 {unknown:?} 恒 None（MUST NOT 静默当 requirement 跑）"
         );
     }
 }

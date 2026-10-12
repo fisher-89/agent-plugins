@@ -20,6 +20,7 @@ static EMPTY_MANIFEST: &[PhaseDefinition] = &[PhaseDefinition {
     description: "空清单 fixture",
     steps: &[],
     artifact_manifest: &[],
+    prerequisites: &[],
     executor: None,
     evaluator: None,
 }];

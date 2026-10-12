@@ -117,7 +117,16 @@ export const commands = {
 	changeFlowAnswer: (root: string, id: string, answer: string) => __TAURI_INVOKE<null>("change_flow_answer", { root, id, answer }),
 	changeFlowConfirm: (root: string, id: string, proceed: boolean, syncSpecs: boolean) => __TAURI_INVOKE<null>("change_flow_confirm", { root, id, proceed, syncSpecs }),
 	changeFlowWatch: (onEvent: Channel<RunNotice>, root: string, id: string) => __TAURI_INVOKE<null>("change_flow_watch", { onEvent, root, id }),
-	createChange: (root: string, name: string, goal: string) => __TAURI_INVOKE<CreateOutcome>("create_change", { root, name, goal }),
+	/**
+	 *  新建 change（建域四段：建档 + worktree add + worktree 内目录树与
+	 *  explore.md + bootstrap）；blank root 显式 `Err`。async + `spawn_blocking`
+	 *  调 sync 写面（bootstrap 是分钟级 spawn——同步命令会冻结 UI，IPC 入参与
+	 *  返回类型面不变）。手动新建路径 `title = name`（不加输入框，D1）；
+	 *  `workflow_type` 自类型选择器（合法值 `requirement` | `test-only`，非法值经
+	 *  写面显式拒绝）；promote 路径经 [`create_change_with`] 泛型缝显式传
+	 *  `explore.title` 与 workflow_type。
+	 */
+	createChange: (root: string, name: string, goal: string, workflowType: string) => __TAURI_INVOKE<CreateOutcome>("create_change", { root, name, goal, workflowType }),
 	/**  读取单篇笔记全文；未知 stem、穿越名或文件缺失返回 `None`（不报错）。 */
 	readExplore: (root: string, name: string) => __TAURI_INVOKE<{
 	/**  笔记名（= 文件 stem） */
@@ -162,10 +171,19 @@ export const commands = {
 	 */
 	updateExploreTitle: (root: string, name: string, title: string) => __TAURI_INVOKE<ExploreRecord>("update_explore_title", { root, name, title }),
 	/**
-	 *  启动变更（promote，move 语义）：blank root / 非 kebab name 显式 `Err`。
-	 *  步序见 [`promote_explore_with`]；命令层 MUST NOT 直接磁盘删除。
+	 *  回填 explore 工作流类型（workflow_type 回填唯一写入口——读路径
+	 *  `read_explore` 纯读零写入）：blank root / 非法 workflow_type（`phase_table`
+	 *  不命中）显式 `Err`；经 `for_root` 路由所属 workspace 库并调 store
+	 *  `set_explore_workflow_type`（in-place 写 + 刷新 `updated_at`），返回更新后
+	 *  的记录。
 	 */
-	promoteExplore: (root: string, name: string) => __TAURI_INVOKE<PromoteOutcome>("promote_explore", { root, name }),
+	updateExploreWorkflowType: (root: string, name: string, workflowType: string) => __TAURI_INVOKE<ExploreRecord>("update_explore_workflow_type", { root, name, workflowType }),
+	/**
+	 *  启动变更（promote，move 语义）：blank root / 非 kebab name / 非法
+	 *  workflow_type 显式 `Err`。步序见 [`promote_explore_with`]；命令层 MUST NOT
+	 *  直接磁盘删除。
+	 */
+	promoteExplore: (root: string, name: string, workflowType: string) => __TAURI_INVOKE<PromoteOutcome>("promote_explore", { root, name, workflowType }),
 	/**
 	 *  订阅单个文件：建 infra 订阅 + 桥接线程（mpsc 信号 → Channel 事件推送），
 	 *  返回 subscription_id。同一路径重复订阅幂等（命中既有订阅原样返回 id，
@@ -860,9 +878,10 @@ export type ExploreDoc = {
  * 
  *  字段演进：version 2 新增 `title`（人类可读标题，展示面与寻址键分离——
  *  `name` 退化为纯 stem 寻址键）与 `promoted_to`（指向已 promote 的 change
- *  id）——存量 v1 行经版本机制 decode-only 升级（`title = name`、
- *  `promoted_to = None`，零手工迁移；`AgentProviderRecord` / `ChangeRecord`
- *  加字段先例同模式）。
+ *  id）；version 3 新增 `workflow_type`（工作流类型，合法值 `requirement` |
+ *  `test-only`）——存量旧行经版本机制 decode-only 升级（v1→v2：`title = name`、
+ *  `promoted_to = None`；v2→v3：`workflow_type = "requirement"`，零手工迁移；
+ *  `AgentProviderRecord` / `ChangeRecord` 加字段先例同模式）。
  * 
  *  时间戳均为 UTC unix 毫秒 `i64`，与 [`WorkspaceRecord`] 同口径。
  */
@@ -878,6 +897,11 @@ export type ExploreRecord = {
 	 *  `# <标题>` 后经 `set_explore_title` 回填覆盖）
 	 */
 	title: string,
+	/**
+	 *  工作流类型（合法值 `requirement` | `test-only`；创建与升级默认 =
+	 *  `requirement`，agent 推算类型经 `set_explore_workflow_type` 回填覆盖）
+	 */
+	workflowType: string,
 	/**  指向已 promote 的 **change id** 身份锚；`None` = 草稿态 */
 	promotedTo: string | null,
 	/**  建档时间（UTC unix 毫秒） */

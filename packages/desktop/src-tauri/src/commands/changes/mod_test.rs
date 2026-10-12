@@ -337,8 +337,8 @@ fn 读命令id透传_列表详情产物与core查询serde等值且归档条目�
     assert_eq!(via_detail.status, Some(ChangeStatus::Active));
     assert_eq!(
         via_detail.pipeline.len(),
-        10,
-        "固定 10 站全量输出（末列 archive）"
+        9,
+        "固定 9 站全量输出（末列 archive）"
     );
     let proposal = via_detail
         .pipeline
@@ -556,6 +556,7 @@ async fn create接线_建域落位_返回dto增id且按id立即可见可发起()
         "fix-bug".to_owned(),
         goal.to_owned(),
         "fix-bug".to_owned(),
+        "requirement".to_owned(),
     )
     .await
     .expect("合法输入经命令层应 Ok");
@@ -649,8 +650,8 @@ async fn create接线_建域落位_返回dto增id且按id立即可见可发起()
     assert_eq!(unified.detail.status, Some(ChangeStatus::Active));
     assert_eq!(
         unified.detail.pipeline.len(),
-        10,
-        "空流水线 10 站全量（发起面就绪，末列 archive）"
+        9,
+        "空流水线 9 站全量（发起面就绪，末列 archive）"
     );
     assert!(unified.active_run.is_none());
     // name 非寻址键：按 name 查询不可达（一切寻址以 id 为准）
@@ -686,6 +687,7 @@ async fn create_title透传_显式值落库且默认name形态() {
         "fix-title".to_owned(),
         "goal".to_owned(),
         "人类可读标题".to_owned(),
+        "requirement".to_owned(),
     )
     .await
     .expect("显式 title 应 Ok");
@@ -704,6 +706,7 @@ async fn create_title透传_显式值落库且默认name形态() {
         "fix-default".to_owned(),
         "goal".to_owned(),
         "fix-default".to_owned(),
+        "requirement".to_owned(),
     )
     .await
     .expect("默认 title 应 Ok");
@@ -727,23 +730,31 @@ async fn create_title透传_显式值落库且默认name形态() {
     assert_eq!(entry.name, "fix-title", "条目 name 恒裸名");
 }
 
-/// create_change IPC 三参签面不变（边界）：title 不扩 IPC 入参面——
-/// `create_change` 恰 (app, root, name, goal) 四形参、`create_change_with` 五形参
-/// （title 为泛型测试缝追加）。编译面锚（不实际调用，不起运行时）。
+/// create_change IPC 四参签面（边界 / 改写）：title 不扩 IPC 入参面，
+/// workflow_type 扩为第四业务入参——`create_change` 恰 (app, root, name, goal,
+/// workflow_type) 五形参、`create_change_with` 六形参（title 为泛型测试缝追加）。
+/// 编译面锚（不实际调用，不起运行时）。
 #[test]
-fn create_change_三参签面不变_title不扩ipc入参() {
-    fn assert_four<F, Fut>(_f: F)
-    where
-        F: Fn(tauri::AppHandle, String, String, String) -> Fut,
-    {
-    }
+fn create_change四参签面_workflow_type扩ipc入参() {
     fn assert_five<F, Fut>(_f: F)
     where
-        F: Fn(tauri::AppHandle<tauri::test::MockRuntime>, String, String, String, String) -> Fut,
+        F: Fn(tauri::AppHandle, String, String, String, String) -> Fut,
     {
     }
-    assert_four(create_change);
-    assert_five(create_change_with::<tauri::test::MockRuntime>);
+    fn assert_six<F, Fut>(_f: F)
+    where
+        F: Fn(
+            tauri::AppHandle<tauri::test::MockRuntime>,
+            String,
+            String,
+            String,
+            String,
+            String,
+        ) -> Fut,
+    {
+    }
+    assert_five(create_change);
+    assert_six(create_change_with::<tauri::test::MockRuntime>);
 }
 
 // ---------------------------------------------------------------------------
@@ -922,6 +933,7 @@ async fn create错误映射_同名active冲突err且零目录零建档() {
         "fix-bug".to_owned(),
         "goal".to_owned(),
         "fix-bug".to_owned(),
+        "requirement".to_owned(),
     )
     .await
     .expect_err("同名 active 冲突应 Err");
@@ -984,6 +996,7 @@ async fn blank_root双口径_读命令早退空结果_create显式err() {
             "fix-bug".to_owned(),
             "goal".to_owned(),
             "fix-bug".to_owned(),
+            "requirement".to_owned(),
         )
         .await
         .expect_err("blank root create 应 Err");
@@ -1056,6 +1069,7 @@ async fn create拒绝映射_非git仓err透传且零产生() {
         "fix-bug".to_owned(),
         "goal".to_owned(),
         "fix-bug".to_owned(),
+        "requirement".to_owned(),
     )
     .await
     .expect_err("非 git 仓应 Err");
@@ -2233,4 +2247,332 @@ fn read_exec_output空输出与超长输出边界() {
     let text = read_exec_output(root, "add-feature".to_owned(), exec_id).expect("超长应命中");
     assert_eq!(text, long, "超长输出完整返回不截断");
     assert!(text.ends_with("尾行标记"));
+}
+
+// ---------------------------------------------------------------------------
+// workflow_type 四参透传（desktop-test-only-flow AC-7）：create_change /
+// create_change_with 的 workflow_type 入参落库 + 详情列序出线 + 非法值拒绝
+// ---------------------------------------------------------------------------
+
+/// create_change_with 透传 test-only 类型（正向 / 新增）：落库
+/// `record.workflow_type == "test-only"`，返回 DTO 仍恰五键
+///（created / id / name / warnings / worktree）。
+#[tokio::test]
+async fn create_workflow_type透传test_only且dto五键不变() {
+    let _path_guard = crate::commands::TEST_PATH_LOCK
+        .lock()
+        .expect("PATH 锁不可中毒");
+    let env = Env::new("create-wf-test-only");
+    env.as_git_repo();
+    let app = app_with(&env);
+    let root = env.root();
+
+    let outcome = create_change_with(
+        app.handle().clone(),
+        root.clone(),
+        "only-tests".to_owned(),
+        "给既有模块补测试用例".to_owned(),
+        "only-tests".to_owned(),
+        "test-only".to_owned(),
+    )
+    .await
+    .expect("合法 test-only 应 Ok");
+
+    let record = store_of(&app, &root)
+        .find_change_record(&outcome.id)
+        .expect("查档应成功")
+        .expect("建档在案");
+    assert_eq!(
+        record.workflow_type, "test-only",
+        "workflow_type 透传写面并落库"
+    );
+    assert_eq!(record.name, "only-tests", "name 为可展示属性");
+
+    // DTO 恰五键（类型入参不扩出线面）
+    let value = serde_json::to_value(&outcome).expect("序列化失败");
+    let mut keys: Vec<&str> = value
+        .as_object()
+        .expect("序列化为对象")
+        .keys()
+        .map(String::as_str)
+        .collect();
+    keys.sort_unstable();
+    assert_eq!(
+        keys,
+        vec!["created", "id", "name", "warnings", "worktree"],
+        "CreateOutcome 恰五键"
+    );
+}
+
+/// create_change 四参 IPC 的 title=name 口径（正向 / 新增）：IPC 命令以
+/// `title = name` 调用泛型缝——以 `create_change_with` 同口径显式传
+/// `title = name` 复现该链路，落库 title 与 name 逐字相等且 workflow_type
+/// 不丢参（`create_change` 本体为 Wry 句柄命令，MockRuntime 不可直调，签面由
+/// `create_change四参签面_workflow_type扩ipc入参` 编译期锚定）。
+#[tokio::test]
+async fn create_change四参title口径透传workflow_type() {
+    let _path_guard = crate::commands::TEST_PATH_LOCK
+        .lock()
+        .expect("PATH 锁不可中毒");
+    let env = Env::new("create-wf-ipc");
+    env.as_git_repo();
+    let app = app_with(&env);
+    let root = env.root();
+
+    let outcome = create_change_with(
+        app.handle().clone(),
+        root.clone(),
+        "ipc-only-tests".to_owned(),
+        "四参链路 goal".to_owned(),
+        "ipc-only-tests".to_owned(),
+        "test-only".to_owned(),
+    )
+    .await
+    .expect("四参链路应 Ok");
+
+    let record = store_of(&app, &root)
+        .find_change_record(&outcome.id)
+        .expect("查档应成功")
+        .expect("建档在案");
+    assert_eq!(record.workflow_type, "test-only", "workflow_type 不丢参");
+    assert_eq!(
+        record.title, record.name,
+        "create_change 内部 title = name（手动新建默认）"
+    );
+    assert_eq!(record.title, "ipc-only-tests");
+}
+
+/// 大小写 / 空白 canonical（边界 / 新增）：`"Test-Only "` → 落库 `"test-only"`。
+#[tokio::test]
+async fn create_workflow_type大小写空白canonical落库() {
+    let _path_guard = crate::commands::TEST_PATH_LOCK
+        .lock()
+        .expect("PATH 锁不可中毒");
+    let env = Env::new("create-wf-canonical");
+    env.as_git_repo();
+    let app = app_with(&env);
+    let root = env.root();
+
+    let outcome = create_change_with(
+        app.handle().clone(),
+        root.clone(),
+        "canonical-wf".to_owned(),
+        "canonical goal".to_owned(),
+        "canonical-wf".to_owned(),
+        "Test-Only ".to_owned(),
+    )
+    .await
+    .expect("规范化后命中应 Ok");
+
+    let record = store_of(&app, &root)
+        .find_change_record(&outcome.id)
+        .expect("查档应成功")
+        .expect("建档在案");
+    assert_eq!(record.workflow_type, "test-only", "落 canonical 小写值");
+}
+
+/// 非法 workflow_type 拒绝（异常 / 新增）：显式 `Err`（文案通吃两值）、零建档
+/// 零建域（无目录、无 worktree 落位）。
+#[tokio::test]
+async fn create非法workflow_type拒绝_零建档零建域() {
+    let _path_guard = crate::commands::TEST_PATH_LOCK
+        .lock()
+        .expect("PATH 锁不可中毒");
+    let env = Env::new("create-wf-invalid");
+    env.as_git_repo();
+    let app = app_with(&env);
+    let root = env.root();
+
+    for (idx, workflow_type) in ["bug-fix", "", " ", "\t", "refactor"].iter().enumerate() {
+        let name = format!("bad-wf-{idx}");
+        let err = create_change_with(
+            app.handle().clone(),
+            root.clone(),
+            name.clone(),
+            "非法类型 goal".to_owned(),
+            name.clone(),
+            (*workflow_type).to_owned(),
+        )
+        .await
+        .expect_err("非法 workflow_type 应 Err");
+
+        assert!(
+            err.contains("workflow_type")
+                && err.contains("requirement")
+                && err.contains("test-only"),
+            "写面校验 Err 透传（列出合法值集），实际: {err}"
+        );
+        assert!(
+            !env.changes_dir().join(&name).exists(),
+            "零目录创建（校验全 IO 前置）"
+        );
+        assert!(
+            !env.data_dir.path().join("worktrees").join(&name).exists(),
+            "零 worktree 落位"
+        );
+    }
+    // 边界：超长（>1000 字符）与特殊字符（NUL / 内嵌换行 / emoji）类型值同拒
+    //（写面字符集与长度零兜底，不截断、不折叠，校验全 IO 前置）
+    let long_unknown = "x".repeat(1200);
+    let edge_cases = [
+        long_unknown,
+        "requirement\u{0}".to_owned(),
+        "require\nment".to_owned(),
+        "test-only🚀".to_owned(),
+    ];
+    for (idx, workflow_type) in edge_cases.iter().enumerate() {
+        let name = format!("bad-wf-edge-{idx}");
+        let err = create_change_with(
+            app.handle().clone(),
+            root.clone(),
+            name.clone(),
+            "非法类型 goal".to_owned(),
+            name.clone(),
+            workflow_type.clone(),
+        )
+        .await
+        .expect_err("超长 / 特殊字符 workflow_type 应 Err");
+
+        assert!(
+            err.contains("workflow_type"),
+            "Err 记因携字段名，实际: {err}"
+        );
+        assert!(
+            !env.changes_dir().join(&name).exists(),
+            "零目录创建（校验全 IO 前置）"
+        );
+    }
+    assert!(
+        store_of(&app, &root)
+            .list_change_records()
+            .expect("查清单应成功")
+            .is_empty(),
+        "拒绝面 db 零建档"
+    );
+}
+
+/// 跨模块组合（详情出线 / 正向）：`get_change_detail` 对 test-only 记录 →
+/// `pipeline` 6 列（code-analyze 第 2 列、archive 第 6 列）；对 requirement
+/// 记录 → 9 列（末列 archive、无 code-analyze）。
+#[tokio::test]
+async fn get_change_detail列序随workflow_type出线() {
+    let _path_guard = crate::commands::TEST_PATH_LOCK
+        .lock()
+        .expect("PATH 锁不可中毒");
+    let env = Env::new("detail-wf-columns");
+    env.as_git_repo();
+    let app = app_with(&env);
+    let root = env.root();
+    let state = app.state::<WorkspaceStores>();
+    let control = app.state::<Arc<orchestration::control::ChangeFlowControl>>();
+
+    let test_only = create_change_with(
+        app.handle().clone(),
+        root.clone(),
+        "only-tests".to_owned(),
+        "补测试 goal".to_owned(),
+        "only-tests".to_owned(),
+        "test-only".to_owned(),
+    )
+    .await
+    .expect("test-only 建档应 Ok");
+    let requirement = create_change_with(
+        app.handle().clone(),
+        root.clone(),
+        "full-flow".to_owned(),
+        "常规需求 goal".to_owned(),
+        "full-flow".to_owned(),
+        "requirement".to_owned(),
+    )
+    .await
+    .expect("requirement 建档应 Ok");
+
+    let only = get_change_detail(
+        state.clone(),
+        control.clone(),
+        root.clone(),
+        test_only.id.clone(),
+    )
+    .expect("test-only 详情应可达");
+    let phases: Vec<&str> = only
+        .detail
+        .pipeline
+        .iter()
+        .map(|station| station.phase.as_str())
+        .collect();
+    assert_eq!(
+        phases,
+        vec![
+            "proposal",
+            "code-analyze",
+            "test-design",
+            "test-gen",
+            "test-execution",
+            "archive"
+        ],
+        "test-only 六列出线（code-analyze 第 2 列 / archive 第 6 列）"
+    );
+
+    let full = get_change_detail(
+        state.clone(),
+        control.clone(),
+        root.clone(),
+        requirement.id.clone(),
+    )
+    .expect("requirement 详情应可达");
+    let phases: Vec<&str> = full
+        .detail
+        .pipeline
+        .iter()
+        .map(|station| station.phase.as_str())
+        .collect();
+    assert_eq!(phases.len(), 9, "requirement 九列出线");
+    assert_eq!(phases[8], "archive", "archive 为末列");
+    assert!(
+        !phases.iter().any(|phase| *phase == "code-analyze"),
+        "requirement 列序零 code-analyze 占位"
+    );
+}
+
+/// 跨模块组合（详情出线 / 异常）：`workflow_type="bug-fix"` 记录 →
+/// `get_change_detail` 返回 `None`（读面不 fallback requirement）。
+#[test]
+fn get_change_detail未知workflow_type恒none() {
+    let env = Env::new("detail-wf-unknown");
+    let app = app_with(&env);
+    let root = env.root();
+    let state = app.state::<WorkspaceStores>();
+    let control = app.state::<Arc<orchestration::control::ChangeFlowControl>>();
+
+    // 种子：db 直插未知类型记录（写面已拒——存量 / 异常形态单点可达）
+    store_of(&app, &root)
+        .create_change_record(ChangeStateRecord {
+            id: "legacy-unknown".to_owned(),
+            name: "legacy-unknown".to_owned(),
+            title: "legacy-unknown".to_owned(),
+            workflow_type: "bug-fix".to_owned(),
+            created_at: CREATED_AT,
+            status: ChangeStatus::Active,
+            archived_at: None,
+            active_phase: None,
+            worktree: None,
+            base_commit: None,
+        })
+        .expect("建档 fixture 应成功");
+
+    assert!(
+        get_change_detail(
+            state.clone(),
+            control.clone(),
+            root.clone(),
+            "legacy-unknown".to_owned()
+        )
+        .is_none(),
+        "未知 workflow_type → 详情 None（不 fallback requirement）"
+    );
+    // 对照：未知 id 同语义（既有持衡面）
+    assert!(
+        get_change_detail(state, control, root, "ghost-id".to_owned()).is_none(),
+        "未建档 id → None"
+    );
 }

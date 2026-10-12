@@ -83,6 +83,17 @@ impl Env {
     }
 
     fn promote(&self, name: &str, note: &str, title: &str) -> Result<PromoteOutcome, String> {
+        self.promote_with_workflow_type(name, note, title, "requirement")
+    }
+
+    /// 全参形态（显式 workflow_type 透传断言面）。
+    fn promote_with_workflow_type(
+        &self,
+        name: &str,
+        note: &str,
+        title: &str,
+        workflow_type: &str,
+    ) -> Result<PromoteOutcome, String> {
         promote_explore(
             &self.root,
             &self.worktree_root,
@@ -91,6 +102,7 @@ impl Env {
             name,
             note,
             title,
+            workflow_type,
         )
     }
 }
@@ -604,4 +616,152 @@ fn promote_explore_sync零tokio上下文依赖() {
         .expect("裸线程应正常结束")
         .expect("promote 应成功");
     assert_eq!(change_name, "sync-topic", "无 tokio 上下文亦可直调");
+}
+
+// ---------------------------------------------------------------------------
+// workflow_type 透传（新增）：promote → create 的入参透传链路
+// ---------------------------------------------------------------------------
+
+/// workflow_type 透传（正向 / 新增）：传 `"test-only"` → 铸出的
+/// `ChangeStateRecord.workflow_type == "test-only"`（透传 create 生效，
+/// move 半边照常）。
+#[test]
+fn promote透传test_only类型铸出() {
+    let env = Env::new("wf-test-only");
+    let note = "# 补测试\n\n目标是给既有模块补测试用例";
+    let note_path = env.seed_note("test-only-topic", note);
+
+    let outcome = env
+        .promote_with_workflow_type("test-only-topic", note, "补测试", "test-only")
+        .expect("合法 workflow_type 应成功");
+
+    let record = env.store.created_record();
+    assert_eq!(record.workflow_type, "test-only", "透传 test-only 落库");
+    assert_eq!(record.name, "test-only-topic", "change 名 = explore.name");
+    assert_eq!(outcome.change_name, "test-only-topic");
+    assert!(
+        !note_path.exists(),
+        "move 半边照常（类型不影响搬运语义）"
+    );
+    assert!(env.change_dir("test-only-topic").join("explore.md").is_file());
+}
+
+/// workflow_type 缺省语义持衡（正向 / 改写）：传 `"requirement"` → 落
+/// `"requirement"`（既有 promote 语义逐字不变）。
+#[test]
+fn promote透传requirement类型持衡() {
+    let env = Env::new("wf-requirement");
+    let note = "# 既有语义\n正文";
+    env.seed_note("req-topic", note);
+
+    env.promote_with_workflow_type("req-topic", note, "既有语义", "requirement")
+        .expect("合法 workflow_type 应成功");
+
+    assert_eq!(env.store.created_record().workflow_type, "requirement");
+}
+
+/// 大小写 / 空白 canonical（边界 / 新增）：`"Test-Only"` → 落库 `"test-only"`。
+#[test]
+fn promote_workflow_type大小写与空白规范化落小写() {
+    for (idx, (input, expected)) in [
+        ("Test-Only", "test-only"),
+        ("  test-only  ", "test-only"),
+        ("REQUIREMENT", "requirement"),
+        (" Requirement ", "requirement"),
+    ]
+    .iter()
+    .enumerate()
+    {
+        let env = Env::new(&format!("wf-canonical-{idx}"));
+        let name = format!("canonical-{idx}");
+        let note = "# 规范化\n正文";
+        env.seed_note(&name, note);
+
+        env.promote_with_workflow_type(&name, note, "规范化", input)
+            .expect("规范化后命中应成功");
+
+        assert_eq!(
+            env.store.created_record().workflow_type,
+            *expected,
+            "入参 {input:?} 落 canonical 小写值"
+        );
+    }
+}
+
+/// 非法 workflow_type 透传拒绝（异常 / 新增）：create 前置校验 `Err` 原样
+/// 透传 → 零铸出（零建档）、主仓笔记零删除。
+#[test]
+fn promote非法workflow_type拒绝_零铸出笔记零删除() {
+    for (idx, workflow_type) in ["bug-fix", "", " ", "refactor"].iter().enumerate() {
+        let env = Env::new(&format!("wf-invalid-{idx}"));
+        let name = format!("bad-wf-{idx}");
+        let note = "# 非法类型\n正文";
+        let note_path = env.seed_note(&name, note);
+
+        let error = env
+            .promote_with_workflow_type(&name, note, "非法类型", workflow_type)
+            .expect_err("非法 workflow_type 应 Err");
+
+        assert!(
+            error.contains("workflow_type")
+                && error.contains("requirement")
+                && error.contains("test-only"),
+            "create 校验 Err 透传（列出合法值集），实际: {error}"
+        );
+        assert_eq!(
+            env.store.records.lock().expect("记录锁不可中毒").len(),
+            0,
+            "零铸出（前置拒绝在任何 IO 之前）"
+        );
+        assert!(note_path.is_file(), "主仓笔记零删除");
+        assert_eq!(
+            fs::read_to_string(&note_path).expect("读笔记失败"),
+            note,
+            "主仓笔记内容零变化"
+        );
+        assert!(
+            env.vcs.calls().is_empty(),
+            "vcs 零调用（类型校验先于 git 探测），实际: {:?}",
+            env.vcs.calls()
+        );
+    }
+}
+
+/// workflow_type 边界（边界 / 新增）：超长（>1000 字符）与特殊字符（NUL / 内嵌
+/// 换行 / emoji）类型值 → create 前置校验 `Err` 原样透传，零铸出、主仓笔记零删除。
+#[test]
+fn promote_workflow_type超长与特殊字符拒绝() {
+    let long_unknown = "x".repeat(1200);
+    let cases = [
+        long_unknown.as_str(),
+        "requirement\u{0}",
+        "require\nment",
+        "test-only🚀",
+    ];
+    for (idx, workflow_type) in cases.iter().enumerate() {
+        let env = Env::new(&format!("wf-edge-{idx}"));
+        let name = format!("bad-wf-edge-{idx}");
+        let note = "# 边界类型\n正文";
+        let note_path = env.seed_note(&name, note);
+
+        let error = env
+            .promote_with_workflow_type(&name, note, "边界类型", workflow_type)
+            .expect_err("超长 / 特殊字符 workflow_type 应 Err");
+
+        assert!(
+            error.contains("workflow_type"),
+            "create 校验 Err 透传，实际: {error}"
+        );
+        assert_eq!(
+            env.store.records.lock().expect("记录锁不可中毒").len(),
+            0,
+            "零铸出（前置拒绝在任何 IO 之前）"
+        );
+        assert!(note_path.is_file(), "主仓笔记零删除");
+        assert_eq!(
+            fs::read_to_string(&note_path).expect("读笔记失败"),
+            note,
+            "主仓笔记内容零变化"
+        );
+    }
 }

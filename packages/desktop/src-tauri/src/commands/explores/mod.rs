@@ -1,6 +1,6 @@
-//! explore 命令轨道（查询 + 显式写）：九条命令——三读（单文件读取 / 导入
-//! 扫描 / 文档路径派生）+ 六记录面（清单 / 建档 / 改名 / 删除 / 标题回填 /
-//! promote）。
+//! explore 命令轨道（查询 + 显式写）：十条命令——三读（单文件读取 / 导入
+//! 扫描 / 文档路径派生）+ 七记录面（清单 / 建档 / 改名 / 删除 / 标题回填 /
+//! 类型回填 / promote）。
 //!
 //! 三件事纪律沿 `commands/changes` 模板：参数转换 → 调用（workflow 查询或
 //! store 操作）→ 错误映射；blank root 纪律同口径（空/空白 root 不进入查询
@@ -35,7 +35,7 @@ use foundation::layout::resolve;
 use store::{ExploreRecord, WorkspaceStores};
 use vcs_runtime::{worktree_dir, ProcessWorktree};
 use workflow::queries::{self, ExploreDoc, ExploreScanEntry};
-use workflow::write::{self, PromoteOutcome};
+use workflow::write::{self, phase_table, PromoteOutcome};
 
 /// root 显式格式检查：空/空白串不进入查询链路（同 `commands::changes` 口径）。
 fn is_blank_root(root: &str) -> bool {
@@ -237,29 +237,60 @@ pub fn update_explore_title(
         .map_err(|e| e.to_string())
 }
 
-/// 启动变更（promote，move 语义）：blank root / 非 kebab name 显式 `Err`。
-/// 步序见 [`promote_explore_with`]；命令层 MUST NOT 直接磁盘删除。
+/// 回填 explore 工作流类型（workflow_type 回填唯一写入口——读路径
+/// `read_explore` 纯读零写入）：blank root / 非法 workflow_type（`phase_table`
+/// 不命中）显式 `Err`；经 `for_root` 路由所属 workspace 库并调 store
+/// `set_explore_workflow_type`（in-place 写 + 刷新 `updated_at`），返回更新后
+/// 的记录。
+#[tauri::command]
+#[specta::specta]
+pub fn update_explore_workflow_type(
+    stores: State<'_, WorkspaceStores>,
+    root: String,
+    name: String,
+    workflow_type: String,
+) -> Result<ExploreRecord, String> {
+    if is_blank_root(&root) {
+        return Err("非法 root: 不得为空白".to_owned());
+    }
+    if phase_table(&workflow_type).is_none() {
+        return Err(format!(
+            "workflow_type \"{workflow_type}\" 不受支持（支持 requirement / test-only）"
+        ));
+    }
+    stores
+        .for_root(&root)
+        .map_err(|e| e.to_string())?
+        .set_explore_workflow_type(&root, &name, &workflow_type)
+        .map_err(|e| e.to_string())
+}
+
+/// 启动变更（promote，move 语义）：blank root / 非 kebab name / 非法
+/// workflow_type 显式 `Err`。步序见 [`promote_explore_with`]；命令层 MUST NOT
+/// 直接磁盘删除。
 #[tauri::command]
 #[specta::specta]
 pub async fn promote_explore(
     app: AppHandle,
     root: String,
     name: String,
+    workflow_type: String,
 ) -> Result<PromoteOutcome, String> {
-    promote_explore_with(app, root, name).await
+    promote_explore_with(app, root, name, workflow_type).await
 }
 
 /// [`promote_explore`] 的泛型测试缝（生产注入 Wry 句柄、测试注入 MockRuntime
 /// 句柄）：① 读主仓笔记全文（未落盘 / 空白 → 显式 `Err` 引导先完成探索）；
 /// ② 读 `ExploreRecord`（不存在 / 已 promoted → 显式 `Err`）；③ 经 vcs 落位
 /// 派生父锚后 `spawn_blocking` 调写面 `workflow::write::promote_explore`
-///（复用 create 建 change + 删主仓笔记——move 半边）；④ 成功后 store
-/// `mark_explore_promoted` 打标（失败 → `Err` 携 change id 与手动恢复指引；
-/// 会话链保留、MUST NOT 删记录）。
+///（复用 create 建 change + 删主仓笔记——move 半边，workflow_type 透传写面）；
+/// ④ 成功后 store `mark_explore_promoted` 打标（失败 → `Err` 携 change id 与
+/// 手动恢复指引；会话链保留、MUST NOT 删记录）。
 pub(crate) async fn promote_explore_with<R: tauri::Runtime>(
     app: AppHandle<R>,
     root: String,
     name: String,
+    workflow_type: String,
 ) -> Result<PromoteOutcome, String> {
     if is_blank_root(&root) {
         return Err("非法 root: 不得为空白".to_owned());
@@ -267,6 +298,11 @@ pub(crate) async fn promote_explore_with<R: tauri::Runtime>(
     if !is_kebab_case(&name) {
         return Err(format!(
             "name 必须为 kebab-case（小写字母/数字，可用 `-` 连接），收到: {name:?}"
+        ));
+    }
+    if phase_table(&workflow_type).is_none() {
+        return Err(format!(
+            "workflow_type \"{workflow_type}\" 不受支持（支持 requirement / test-only）"
         ));
     }
     let stores = app.state::<WorkspaceStores>();
@@ -316,6 +352,7 @@ pub(crate) async fn promote_explore_with<R: tauri::Runtime>(
             &promote_name,
             &note_text,
             &title,
+            &workflow_type,
         )
     })
     .await

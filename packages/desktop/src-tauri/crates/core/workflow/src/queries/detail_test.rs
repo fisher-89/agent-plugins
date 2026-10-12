@@ -1,8 +1,8 @@
 //! `queries::change_detail` 的单元测试（test-design「queries/detail.rs ->
 //! detail_test.rs」节，重写主体）：id 寻址（db 无该 id 记录 → 恒 `None`——零
 //! 磁盘目录解析回退、零空流水线文档形态）、归档 change 全状态面（status=
-//! archived、10 站 pipeline、runs 全量出线）、`ChangeDetail.id` 首字段与裸名
-//!（归档日期前缀零入名）、created 恒自 `created_at` 单源、db 重组 10 站流水线
+//! archived、9 站 pipeline、runs 全量出线）、`ChangeDetail.id` 首字段与裸名
+//!（归档日期前缀零入名）、created 恒自 `created_at` 单源、db 重组 9 站流水线
 //!（attempt 升序、checklist 内联、槽位三列直读、stale / backtrack 字段透出）、
 //! 时间出线单点（i64 millis → RFC3339 ISO 串 + null；epoch 0 →
 //! `1970-01-01T00:00:00Z` 口径）、槽位全缺（三会话槽位 + start_at 全 null 面）、
@@ -25,7 +25,6 @@ use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
 use super::change_detail;
-use super::detail::PIPELINE_PHASES;
 use crate::model::{ChecklistItem, Verdict};
 use crate::state::{
     ActivePhaseState, BacktrackCommand, ChangeStateRecord, ChangeStateStore, ChangeStatus,
@@ -51,6 +50,34 @@ const ID_WT_GONE: &str = "0192a1b2-c3d4-7e5f-8a9b-0c1d2e3f4c10";
 const ID_ARCH_GONE: &str = "0192a1b2-c3d4-7e5f-8a9b-0c1d2e3f4c11";
 /// 未建档查询串（db 无此 id——零目录回退输入面）。
 const ID_UNKNOWN: &str = "0192a1b2-c3d4-7e5f-8a9b-0c1d2e3f4cff";
+
+/// requirement 相位序夹具（D12：`detail.rs` 的 `PIPELINE_PHASES` 常量退役——
+/// 列序改由 `phase_table(record.workflow_type)` 出线，测试自备 fixture）：9 列，
+/// archive 为第 9 列、无 code-analyze 占位列。
+const REQUIREMENT_PHASES: [&str; 9] = [
+    "proposal",
+    "dev-design",
+    "test-design",
+    "implement",
+    "test-gen",
+    "test-execution",
+    "code-review",
+    "acceptance",
+    "archive",
+];
+
+/// test-only 相位序夹具：6 列，code-analyze 为第 2 列、archive 为第 6 列。
+const TEST_ONLY_PHASES: [&str; 6] = [
+    "proposal",
+    "code-analyze",
+    "test-design",
+    "test-gen",
+    "test-execution",
+    "archive",
+];
+
+/// 未知工作流类型（不在相位表内——读面显式 `None`，MUST NOT 静默当 requirement）。
+const WORKFLOW_TYPE_UNKNOWN: &str = "bug-fix";
 
 /// 临时 workspace 根 RAII + 进程内假件 store。
 struct Env {
@@ -109,6 +136,22 @@ impl Env {
     /// 任意形态记录种子（worktree 执行锚面）。
     fn seed_record(&self, record: ChangeStateRecord) {
         self.store.set_record(record);
+    }
+
+    /// 任意 workflow_type 的建档记录种子（两值分派 / 未知类型断言面）。
+    fn seed_typed(&self, id: &str, name: &str, workflow_type: &str) {
+        self.seed_record(ChangeStateRecord {
+            id: id.to_owned(),
+            name: name.to_owned(),
+            title: name.to_owned(),
+            workflow_type: workflow_type.to_owned(),
+            created_at: T0,
+            status: ChangeStatus::Active,
+            archived_at: None,
+            active_phase: None,
+            worktree: None,
+            base_commit: None,
+        });
     }
 
     fn push_entry(&self, entry: PhaseStateRecord) {
@@ -404,7 +447,7 @@ fn entry(
     }
 }
 
-/// 固定 10 站相位名序列（流水线站序断言直读；archive 为末列）。
+/// 固定 9 站相位名序列（流水线站序断言直读；archive 为末列）。
 fn pipeline_phases(detail: &super::ChangeDetail) -> Vec<&str> {
     detail
         .pipeline
@@ -414,11 +457,11 @@ fn pipeline_phases(detail: &super::ChangeDetail) -> Vec<&str> {
 }
 
 // ---------------------------------------------------------------------------
-// 正向：归档 change 全状态面（id 寻址 → status / 10 站 / runs 全量出线）
+// 正向：归档 change 全状态面（id 寻址 → status / 9 站 / runs 全量出线）
 // ---------------------------------------------------------------------------
 
 /// 建档 archived（记录 id 与裸名）+ 磁盘目录带 `YYYY-MM-DD-` 前缀 →
-/// change_detail(layout, store, id) → status=archived、10 站 pipeline、runs 全
+/// change_detail(layout, store, id) → status=archived、9 站 pipeline、runs 全
 /// 量出线（AC-2 主锚——记录恒可达、文档形态错配链结构性退役）。
 #[test]
 fn 归档change全状态面_十站流水线与runs全量出线() {
@@ -495,8 +538,8 @@ fn 归档change全状态面_十站流水线与runs全量出线() {
     );
     assert_eq!(
         pipeline_phases(&detail),
-        PIPELINE_PHASES.to_vec(),
-        "10 站 pipeline 全量出线（MUST NOT 落文档形态空面）"
+        REQUIREMENT_PHASES.to_vec(),
+        "9 站 pipeline 全量出线（MUST NOT 落文档形态空面）"
     );
     assert_eq!(detail.pipeline[0].attempts.len(), 1, "proposal 站条目在案");
     assert_eq!(detail.pipeline[3].attempts[0].report, "实现完成");
@@ -659,11 +702,11 @@ fn created单源_恒取created_at() {
 }
 
 // ---------------------------------------------------------------------------
-// 正向：db 重组流水线（10 站 / attempt 升序 / checklist 内联 / 槽位与
+// 正向：db 重组流水线（9 站 / attempt 升序 / checklist 内联 / 槽位与
 // stale / backtrack 字段透出）
 // ---------------------------------------------------------------------------
 
-/// 记录序列（多相位多 attempt + checklist + 回跳 stale 标记）→ 10 站流水线
+/// 记录序列（多相位多 attempt + checklist + 回跳 stale 标记）→ 9 站流水线
 /// 重组：站序固定、attempt 升序、checklist 随行、槽位三列直读、stale /
 /// backtrack_to / backtrack_reason 字段透出（id 寻址——记录供给语义重证）。
 #[test]
@@ -739,8 +782,8 @@ fn db重组流水线_十站与attempt升序与checklist内联() {
 
     let detail = env.detail(ID_MULTI);
 
-    // 10 站全量输出，顺序固定
-    assert_eq!(pipeline_phases(&detail), PIPELINE_PHASES.to_vec());
+    // 9 站全量输出，顺序固定
+    assert_eq!(pipeline_phases(&detail), REQUIREMENT_PHASES.to_vec());
 
     // dev-design 单站折叠两条 attempt，按 attempt 升序、checklist 随行
     let dev_design = &detail.pipeline[1];
@@ -810,7 +853,7 @@ fn db重组流水线_十站与attempt升序与checklist内联() {
     );
 }
 
-/// 未覆盖相位站点仍在且 attempts 为空（10 站全量输出，顺序不依赖落行排列）。
+/// 未覆盖相位站点仍在且 attempts 为空（9 站全量输出，顺序不依赖落行排列）。
 #[test]
 fn 未覆盖相位站点仍在且attempts为空() {
     let env = Env::new("partial");
@@ -833,7 +876,7 @@ fn 未覆盖相位站点仍在且attempts为空() {
 
     assert_eq!(
         pipeline_phases(&detail),
-        PIPELINE_PHASES.to_vec(),
+        REQUIREMENT_PHASES.to_vec(),
         "顺序固定，不依赖条目排列"
     );
     let test_gen = &detail.pipeline[4]; // "test-gen"
@@ -1005,7 +1048,7 @@ fn 建档记录恒可达_定位miss状态面在() {
         "source 自记录映射"
     );
     assert!(detail.artifacts.is_empty(), "定位 miss 产物清单空");
-    assert_eq!(detail.pipeline.len(), 10, "建档 10 站流水线照常");
+    assert_eq!(detail.pipeline.len(), 9, "建档 9 站流水线照常");
 }
 
 // ---------------------------------------------------------------------------
@@ -1090,7 +1133,7 @@ fn worktree路径出线_与库内记录逐字一致且产物自worktree发现() 
 }
 
 /// worktree 手动删恒可达：记录在场（worktree=Some）+ 定位全 miss（worktree
-/// 目录被删、未 merge）→ 仍 `Some`：流水线 10 站、产物清单空、状态面在、
+/// 目录被删、未 merge）→ 仍 `Some`：流水线 9 站、产物清单空、状态面在、
 /// `source` 自 record.status 映射（active → Active）——「建档记录恒可达详情」
 /// 字面（worktree=Some 形态）。
 #[test]
@@ -1108,8 +1151,8 @@ fn worktree手动删_建档记录恒可达source自status映射() {
     assert_eq!(detail.status, Some(ChangeStatus::Active), "状态面在");
     assert_eq!(
         detail.pipeline.len(),
-        PIPELINE_PHASES.len(),
-        "建档 10 站流水线照常"
+        REQUIREMENT_PHASES.len(),
+        "建档 9 站流水线照常"
     );
     assert!(detail.artifacts.is_empty(), "定位 miss 产物清单空");
     assert_eq!(
@@ -1529,8 +1572,8 @@ fn 详情run史出线_零run空数组与单节点零边() {
     assert!(detail.runs.is_empty(), "在档记录无 run 行 → 空数组");
     assert_eq!(
         detail.pipeline.len(),
-        PIPELINE_PHASES.len(),
-        "记录在档：10 站流水线照常（非文档形态空面）"
+        REQUIREMENT_PHASES.len(),
+        "记录在档：9 站流水线照常（非文档形态空面）"
     );
     let value = serde_json::to_value(&detail).expect("序列化应成功");
     assert!(
@@ -1596,7 +1639,7 @@ fn 详情run史出线_并列稳定序与读err降级() {
     env_err.file("runned", "proposal.md", "# 提案");
     let detail = env_err.detail(ID_RUNNED);
     assert!(detail.runs.is_empty(), "list_runs Err → runs 降级空数组");
-    assert_eq!(detail.pipeline.len(), 10, "详情其余面不受阻断");
+    assert_eq!(detail.pipeline.len(), 9, "详情其余面不受阻断");
     assert!(
         !detail.artifacts.is_empty(),
         "产物清单不受 runs 读面失败影响"
@@ -1645,25 +1688,28 @@ fn 详情run史出线_并列稳定序与读err降级() {
 // 归档列与归档节点投影（AC-1 / AC-4 / AC-6）
 // ---------------------------------------------------------------------------
 
-/// 十列 pipeline（正向）：`PIPELINE_PHASES` 恰 10 列且末列为 `archive`（第 10 列、
-/// `code-analyze` 之后）；无 attempt 的 archive 站为空序列（miss 非错误）；与前
-/// 端 `flow/layout.ts` 同序双侧同步（AC-1 / D5）。
+/// 九列 pipeline（正向 / 改写）：requirement 记录 → `phase_table("requirement")`
+/// 恰 9 列且末列为 `archive`（第 9 列）；`detail.rs` 不再持有 `PIPELINE_PHASES`
+/// 常量（列序唯一来源 = 相位表）；无 attempt 的 archive 站为空序列（miss 非错误）。
 #[test]
-fn pipeline十列含archive且空站序列() {
-    let env = Env::new("pipeline-ten-columns");
+fn pipeline九列含archive且空站序列() {
+    let env = Env::new("pipeline-nine-columns");
     env.seed(ID_RUNNED, "runned", T0, None);
     env.file("runned", "proposal.md", "# 提案");
 
     let detail = env.detail(ID_RUNNED);
     let phases = pipeline_phases(&detail);
-    assert_eq!(phases.len(), 10, "十列布局");
+    assert_eq!(phases.len(), 9, "requirement 九列布局");
     assert_eq!(
         phases,
-        PIPELINE_PHASES.to_vec(),
-        "站序与 PIPELINE_PHASES 常量逐位一致"
+        REQUIREMENT_PHASES.to_vec(),
+        "站序与 requirement 相位表逐位一致"
     );
-    assert_eq!(phases[8], "code-analyze");
-    assert_eq!(phases[9], "archive", "archive 恒为末列（第 10 列）");
+    assert!(
+        !phases.iter().any(|phase| *phase == "code-analyze"),
+        "requirement 表无 code-analyze（零占位列）"
+    );
+    assert_eq!(phases[8], "archive", "archive 恒为末列（第 9 列）");
     assert_eq!(
         phases.iter().filter(|phase| **phase == "archive").count(),
         1,
@@ -1681,12 +1727,180 @@ fn pipeline十列含archive且空站序列() {
     );
     let value = serde_json::to_value(&detail).expect("序列化应成功");
     assert!(
-        value["pipeline"][9]["attempts"]
+        value["pipeline"][8]["attempts"]
             .as_array()
             .is_some_and(Vec::is_empty),
         "空站 attempts 恒为空数组（不省键）"
     );
-    assert_eq!(value["pipeline"][9]["phase"], "archive");
+    assert_eq!(value["pipeline"][8]["phase"], "archive");
+    assert_eq!(
+        value["pipeline"].as_array().map(Vec::len),
+        Some(9),
+        "线形 pipeline 恰 9 列"
+    );
+}
+
+/// test-only 六列 pipeline（正向 / 新增）：`workflow_type="test-only"` 记录 →
+/// `phase_table("test-only")` 恰 6 列（`proposal / code-analyze / test-design /
+/// test-gen / test-execution / archive`），code-analyze 第 2 列（`colIndex=1`）、
+/// archive 第 6 列（`colIndex=5`）。
+#[test]
+fn pipeline_test_only六列含code_analyze与archive末列() {
+    let env = Env::new("pipeline-test-only");
+    env.seed_typed(ID_RUNNED, "runned", "test-only");
+    env.file("runned", "proposal.md", "# 测试向提案");
+
+    let detail = env.detail(ID_RUNNED);
+    let phases = pipeline_phases(&detail);
+    assert_eq!(phases.len(), 6, "test-only 六列布局");
+    assert_eq!(
+        phases,
+        TEST_ONLY_PHASES.to_vec(),
+        "站序与 test-only 相位表逐位一致"
+    );
+    assert_eq!(phases[1], "code-analyze", "code-analyze 为第 2 列");
+    assert_eq!(phases[5], "archive", "archive 为第 6 列（末列）");
+    // requirement 独有相位不在 test-only 列序内（零占位）
+    for absent in ["dev-design", "implement", "code-review", "acceptance"] {
+        assert!(
+            !phases.iter().any(|phase| *phase == absent),
+            "test-only 列序不含 {absent}"
+        );
+    }
+    // 全列 attempts 空序列（零 attempt 列恒空数组，不报错）
+    assert!(
+        detail.pipeline.iter().all(|station| station.attempts.is_empty()),
+        "未落账六列 attempts 全空"
+    );
+
+    let value = serde_json::to_value(&detail).expect("序列化应成功");
+    assert_eq!(
+        value["pipeline"].as_array().map(Vec::len),
+        Some(6),
+        "线形 pipeline 恰 6 列"
+    );
+    assert_eq!(value["pipeline"][1]["phase"], "code-analyze");
+    assert_eq!(value["pipeline"][5]["phase"], "archive");
+}
+
+/// 两表 archive 列位置边界（边界 / 新增）：requirement（9）与 test-only（6）两
+/// 表 `archive` 恒为 `pipeline` 末列（`len - 1`，archive 第 9 / 第 6 列）。
+#[test]
+fn pipeline两表archive恒为末列() {
+    for (tag, workflow_type, expected_len) in [
+        ("archive-pos-req", "requirement", 9usize),
+        ("archive-pos-test", "test-only", 6usize),
+    ] {
+        let env = Env::new(tag);
+        env.seed_typed(ID_RUNNED, "runned", workflow_type);
+
+        let detail = env.detail(ID_RUNNED);
+        let phases = pipeline_phases(&detail);
+        assert_eq!(phases.len(), expected_len, "{workflow_type} 列数");
+        assert_eq!(phases[expected_len - 1], "archive", "{workflow_type} 末列恒 archive");
+        assert_eq!(
+            phases.iter().position(|phase| *phase == "archive"),
+            Some(expected_len - 1),
+            "{workflow_type} archive 位置 = 末下标"
+        );
+    }
+}
+
+/// 未知工作流类型（异常 / 新增）：`workflow_type="bug-fix"` 记录 →
+/// `change_detail` 返回 `None`（不 fallback requirement、不臆造流水线）。
+#[test]
+fn detail未知workflow_type恒none零fallback() {
+    let env = Env::new("unknown-workflow-type");
+    env.seed_typed(ID_RUNNED, "runned", WORKFLOW_TYPE_UNKNOWN);
+    // 磁盘目录与产物齐备：仍不得以磁盘树 / 目录名冒充 requirement 表
+    env.file("runned", "proposal.md", "# 提案");
+
+    assert!(
+        env.detail_opt(ID_RUNNED).is_none(),
+        "未知 workflow_type → None（MUST NOT 静默当 requirement 跑）"
+    );
+
+    // 空白 / 空串 / 超长 / 特殊字符类型同语义（相位表不命中，零 null 兜底）
+    let long_unknown = "x".repeat(1200);
+    let cases = [
+        "",
+        " ",
+        "\t",
+        long_unknown.as_str(),
+        "requirement\u{0}",
+        "require\nment",
+        "test-only🚀",
+    ];
+    for (idx, workflow_type) in cases.iter().enumerate() {
+        let env2 = Env::new(&format!("blank-workflow-type-{idx}"));
+        env2.seed_typed(ID_RUNNED, "runned", workflow_type);
+        assert!(
+            env2.detail_opt(ID_RUNNED).is_none(),
+            "空白 / 超长 / 特殊字符 workflow_type {workflow_type:?} → None"
+        );
+    }
+}
+
+/// 产物清单随相位表（正向 / 改写）：清单 = `phase_table(record.workflow_type)`
+/// 的 artifact_manifest——requirement 下 proposal / dev-design / test-execution
+/// 产物各自挂相位；test-only 下 code-analyze 零清单（不虚设占位项）。
+#[test]
+fn detail产物清单随workflow_type相位表() {
+    // requirement：proposal.md / design.md / tasks.md / test-reports 产物齐备
+    let env = Env::new("manifest-requirement");
+    env.seed(ID_RUNNED, "runned", T0, None);
+    env.file("runned", "proposal.md", "# 提案");
+    env.file("runned", "design.md", "# 设计");
+    env.file("runned", "tasks.md", "- [x] 一步\n");
+    env.file("runned", "test-reports/report.md", "# 报告");
+
+    let detail = env.detail(ID_RUNNED);
+    let paths: Vec<&str> = detail
+        .artifacts
+        .iter()
+        .map(|artifact| artifact.source.as_str())
+        .collect();
+    for expected in ["proposal.md", "design.md", "tasks.md"] {
+        assert!(
+            paths.contains(&expected),
+            "requirement 清单发现 {expected}，实际: {paths:?}"
+        );
+    }
+    assert!(
+        detail
+            .artifacts
+            .iter()
+            .any(|artifact| artifact.kind == "tasks-progress"),
+        "tasks.md 走 tasks-progress 特化视图"
+    );
+
+    // test-only：proposal / test-execution 产物照常、code-analyze 零清单归属
+    let env2 = Env::new("manifest-test-only");
+    env2.seed_typed(ID_RUNNED, "runned", "test-only");
+    env2.file("runned", "proposal.md", "# 测试向提案");
+    env2.file("runned", "test-reports/report.md", "# 报告");
+
+    let detail2 = env2.detail(ID_RUNNED);
+    let paths2: Vec<&str> = detail2
+        .artifacts
+        .iter()
+        .map(|artifact| artifact.source.as_str())
+        .collect();
+    assert!(paths2.contains(&"proposal.md"), "test-only proposal 产物照常挂列");
+    assert!(
+        detail2
+            .artifacts
+            .iter()
+            .all(|artifact| artifact.phase != "code-analyze"),
+        "code-analyze 零清单 → 无产物归属该列，实际: {paths2:?}"
+    );
+    assert!(
+        detail2
+            .artifacts
+            .iter()
+            .all(|artifact| TEST_ONLY_PHASES.contains(&artifact.phase.as_str())),
+        "产物归属相位均在 test-only 表内"
+    );
 }
 
 /// archive 空 checklist 落账投影（正向）：archive 以 `report=""` + 空 checklist
@@ -1737,7 +1951,7 @@ fn archive空checklist落账投影为pass尝试记录() {
     assert!(attempt.backtrack_to.is_none() && attempt.backtrack_reason.is_none());
 
     let value = serde_json::to_value(&detail).expect("序列化应成功");
-    let wire = &value["pipeline"][9]["attempts"][0];
+    let wire = &value["pipeline"][8]["attempts"][0];
     assert_eq!(wire["verdict"], "pass");
     assert_eq!(wire["report"], "");
     assert!(

@@ -78,7 +78,7 @@ describe('ChangeCreateDialog：弹窗开合与成功提交流转', () => {
     });
   });
 
-  it('合法输入提交：invoke("create_change") 恰一次且载荷为 {root, name, goal}；成功即关窗并触发 onCreated(outcome.id) 恰一次（id 身份锚直连导航）', async () => {
+  it('合法输入提交：invoke("create_change") 恰一次且载荷为 {root, name, goal, workflowType}；成功即关窗并触发 onCreated(outcome.id) 恰一次（id 身份锚直连导航）', async () => {
     const onCreated = vi.fn();
     renderDialog(onCreated);
     openForm();
@@ -90,7 +90,7 @@ describe('ChangeCreateDialog：弹窗开合与成功提交流转', () => {
     expect(onCreated).toHaveBeenCalledWith(OUTCOME.id);
     expect(onCreated).not.toHaveBeenCalledWith(OUTCOME.name);
     expect(createCalls()).toEqual([
-      { root: ROOT, name: 'fix-bug', goal: '修复登录重试的竞态问题' },
+      { root: ROOT, name: 'fix-bug', goal: '修复登录重试的竞态问题', workflowType: 'requirement' },
     ]);
     // 成功关窗：输入区退场
     await waitFor(() => expect(screen.queryByTestId('change-create-name')).toBeNull());
@@ -127,7 +127,9 @@ describe('ChangeCreateDialog：提交前 trim 与 free-form goal 透传', () => 
     submit('  fix-bug  ', '  带空白的目标文本  ');
 
     await waitFor(() => expect(createCalls()).toHaveLength(1));
-    expect(createCalls()).toEqual([{ root: ROOT, name: 'fix-bug', goal: '带空白的目标文本' }]);
+    expect(createCalls()).toEqual([
+      { root: ROOT, name: 'fix-bug', goal: '带空白的目标文本', workflowType: 'requirement' },
+    ]);
   });
 
   it('goal 多行 + emoji + 超 1000 字符原样透传不损（free-form UTF-8 前端半边）', async () => {
@@ -138,7 +140,9 @@ describe('ChangeCreateDialog：提交前 trim 与 free-form goal 透传', () => 
     submit('rich-goal', goal);
 
     await waitFor(() => expect(createCalls()).toHaveLength(1));
-    expect(createCalls()).toEqual([{ root: ROOT, name: 'rich-goal', goal }]);
+    expect(createCalls()).toEqual([
+      { root: ROOT, name: 'rich-goal', goal, workflowType: 'requirement' },
+    ]);
   });
 });
 
@@ -219,7 +223,12 @@ describe('ChangeCreateDialog：必填与本地 kebab-case 校验（失败留窗�
     submit(name, '上界内 goal');
 
     await waitFor(() => expect(createCalls()).toHaveLength(1));
-    expect(createCalls()[0]).toEqual({ root: ROOT, name, goal: '上界内 goal' });
+    expect(createCalls()[0]).toEqual({
+      root: ROOT,
+      name,
+      goal: '上界内 goal',
+      workflowType: 'requirement',
+    });
     await waitFor(() => expect(onCreated).toHaveBeenCalledWith(OUTCOME.id));
   });
 });
@@ -242,6 +251,109 @@ describe('ChangeCreateDialog：后端错误行内呈现（失败留窗）', () =
     expect(error.className).toContain('break-all');
     // 失败留窗：输入区仍在场（修正后可直接重提）
     expect(screen.getByTestId('change-create-name') !== null).toBe(true);
+    expect(onCreated).not.toHaveBeenCalled();
+  });
+});
+
+describe('ChangeCreateDialog：工作流类型选择器（AC-7）', () => {
+  beforeEach(() => {
+    invokeMock.mockReset();
+    invokeMock.mockResolvedValue(OUTCOME);
+  });
+
+  it('正向：弹窗内联类型选择器（change-create-workflow-type），两字面选项，默认 requirement', () => {
+    renderDialog();
+    openForm();
+
+    const select = screen.getByTestId<HTMLSelectElement>('change-create-workflow-type');
+    expect(select.value).toBe('requirement');
+    expect(Array.from(select.querySelectorAll('option')).map((option) => option.value)).toEqual([
+      'requirement',
+      'test-only',
+    ]);
+    expect(screen.queryByTestId('change-create-error')).toBeNull();
+  });
+
+  it('正向：改选 test-only 后提交 → 四参载荷 workflowType 为 test-only', async () => {
+    renderDialog();
+    openForm();
+
+    fireEvent.change(screen.getByTestId('change-create-workflow-type'), {
+      target: { value: 'test-only' },
+    });
+    submit('only-tests', '给既有模块补测试用例');
+
+    await waitFor(() => expect(createCalls()).toHaveLength(1));
+    expect(createCalls()).toEqual([
+      { root: ROOT, name: 'only-tests', goal: '给既有模块补测试用例', workflowType: 'test-only' },
+    ]);
+  });
+
+  it('正向：不改选时提交 → 四参载荷 workflowType 为默认 requirement', async () => {
+    renderDialog();
+    openForm();
+
+    submit('fix-bug', '修复登录重试的竞态问题');
+
+    await waitFor(() => expect(createCalls()).toHaveLength(1));
+    expect(createCalls()[0].workflowType).toBe('requirement');
+  });
+
+  it('正向：成功后重置把类型归回默认 requirement（再开即新表单）', async () => {
+    const onCreated = vi.fn();
+    renderDialog(onCreated);
+    openForm();
+
+    fireEvent.change(screen.getByTestId('change-create-workflow-type'), {
+      target: { value: 'test-only' },
+    });
+    submit('only-tests', '补测试目标');
+    await waitFor(() => expect(onCreated).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(screen.queryByTestId('change-create-name')).toBeNull());
+
+    openForm();
+    expect(screen.getByTestId<HTMLSelectElement>('change-create-workflow-type').value).toBe(
+      'requirement',
+    );
+  });
+
+  it('边界：类型选择不影响本地必填 / kebab 校验语义（校验失败零 invoke）', () => {
+    const onCreated = vi.fn();
+    renderDialog(onCreated);
+    openForm();
+
+    fireEvent.change(screen.getByTestId('change-create-workflow-type'), {
+      target: { value: 'test-only' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: '提交' }));
+
+    expect(createCalls()).toHaveLength(0);
+    expect(onCreated).not.toHaveBeenCalled();
+    expect(screen.getByTestId('change-create-error').textContent).toContain('校验不通过');
+
+    // 非法 kebab 名称 + test-only 选择 → 仍零 invoke
+    fireEvent.change(screen.getByTestId('change-create-name'), { target: { value: 'Fix_Bug' } });
+    fireEvent.change(screen.getByTestId('change-create-goal'), { target: { value: '合法 goal' } });
+    fireEvent.click(screen.getByRole('button', { name: '提交' }));
+    expect(createCalls()).toHaveLength(0);
+    expect(screen.getByTestId<HTMLSelectElement>('change-create-workflow-type').value).toBe(
+      'test-only',
+    );
+  });
+
+  it('异常：invoke reject（后端类型拒绝文案）→ 行内呈现、留窗、onCreated 零调用、选择器保留用户选择', async () => {
+    invokeMock.mockRejectedValue(
+      'workflow_type "bug-fix" 不受支持（支持 requirement / test-only）',
+    );
+    const onCreated = vi.fn();
+    renderDialog(onCreated);
+    openForm();
+
+    submit('fix-bug', '修复登录重试的竞态问题');
+
+    const error = await screen.findByTestId('change-create-error');
+    expect(error.textContent).toContain('不受支持');
+    expect(screen.getByTestId('change-create-name')).toBeTruthy();
     expect(onCreated).not.toHaveBeenCalled();
   });
 });

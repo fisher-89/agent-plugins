@@ -78,6 +78,15 @@ impl BacktrackStore {
         }
     }
 
+    /// 指定 workflow_type 的建档（两值分派 / 未知类型断言面）。
+    fn with_workflow_type(entries: Vec<PhaseStateRecord>, workflow_type: &str) -> Self {
+        let store = Self::with_entries(entries);
+        if let Some(record) = store.record.lock().expect("记录锁不可中毒").as_mut() {
+            record.workflow_type = workflow_type.to_owned();
+        }
+        store
+    }
+
     fn set_fault(&self, fault: StoreFault) {
         *self.fault.lock().expect("故障锁不可中毒") = Some(fault);
     }
@@ -232,6 +241,22 @@ fn full_pass_history() -> Vec<PhaseStateRecord> {
         "test-execution",
         "code-review",
         "acceptance",
+    ]
+    .iter()
+    .enumerate()
+    .map(|(idx, phase)| pass_entry(phase, 1, t(idx as u32 + 1)))
+    .collect()
+}
+
+/// test-only 全相位 pass 历史（6 相位表序；stale 传播随 test-only 表）。
+fn test_only_pass_history() -> Vec<PhaseStateRecord> {
+    [
+        "proposal",
+        "code-analyze",
+        "test-design",
+        "test-gen",
+        "test-execution",
+        "archive",
     ]
     .iter()
     .enumerate()
@@ -597,4 +622,156 @@ fn store故障传播err记因() {
         err.contains("db:") && err.contains("注入的回跳写故障"),
         "Err 记因携带 fault 语境，实际: {err}"
     );
+}
+
+// ---------------------------------------------------------------------------
+// workflow_type 分派（新增）：未知类型严格拒绝 + test-only 表内 prerequisites
+// 驱动的 stale 传播
+// ---------------------------------------------------------------------------
+
+/// workflow_type 未知 → Err 且零写（文案通吃 `{requirement, test-only}`、旧
+/// 「V1 仅 requirement」字样退役）。
+#[test]
+fn workflow_type未知拒绝零写文案通吃两值() {
+    let long_unknown = "x".repeat(1200);
+    for workflow_type in [
+        "bug-fix",
+        "refactor",
+        "",
+        " ",
+        "test_only",
+        long_unknown.as_str(),
+        "test-only🚀",
+        "require\nment",
+    ] {
+        let fake = BacktrackStore::with_workflow_type(full_pass_history(), workflow_type);
+
+        let err = fake
+            .run(&input_at(
+                "test-gen",
+                "proposal",
+                "类型未知",
+                &["proposal", "dev-design", "test-design", "implement", "test-gen"],
+            ))
+            .expect_err("未知 workflow_type 应 Err");
+
+        assert!(
+            err.contains("workflow_type"),
+            "Err 记因携字段名，实际: {err}"
+        );
+        assert!(
+            err.contains("requirement") && err.contains("test-only"),
+            "文案通吃合法值集，实际: {err}"
+        );
+        assert!(!err.contains("仅 requirement"), "旧字样退役，实际: {err}");
+        assert_eq!(fake.command_count(), 0, "类型校验前置：零写命令");
+    }
+}
+
+/// test-only 回溯 stale 传播（正向 / 新增）：`code-analyze` 回改 → 闭包 =
+/// `{test-design, test-gen, test-execution}`（表内 prerequisites 推导，不含
+/// requirement 独有相位）。
+#[test]
+fn test_only回溯stale闭包随表内prerequisites() {
+    let fake = BacktrackStore::with_workflow_type(test_only_pass_history(), "test-only");
+
+    fake.run(&input_at(
+        "test-design",
+        "code-analyze",
+        "代码分析返工",
+        &["proposal", "code-analyze", "test-design"],
+    ))
+    .expect("test-only 表内回溯应成功");
+
+    assert_eq!(fake.command_count(), 1, "恰一条回跳写命令");
+    let command = &fake.commands.lock().expect("命令锁不可中毒")[0];
+    assert_eq!(command.change_id, CHANGE_ID);
+    assert_eq!(command.phase, "test-design");
+    assert_eq!(command.to, "code-analyze");
+    assert_closure_set(command, &["test-design", "test-gen", "test-execution"]);
+    assert!(
+        !command.stale_dependents.iter().any(|id| id == "code-analyze"),
+        "目标自身不在闭包内"
+    );
+    assert!(
+        !command
+            .stale_dependents
+            .iter()
+            .any(|id| matches!(id.as_str(), "dev-design" | "implement" | "code-review")),
+        "requirement 独有相位不入 test-only 闭包，实际: {:?}",
+        command.stale_dependents
+    );
+
+    // test-gen 回改 → 闭包仅 test-execution 一支
+    let fake2 = BacktrackStore::with_workflow_type(test_only_pass_history(), "test-only");
+    fake2
+        .run(&input_at(
+            "test-execution",
+            "test-gen",
+            "测试代码返工",
+            &["proposal", "code-analyze", "test-design", "test-gen", "test-execution"],
+        ))
+        .expect("test-only 表内回溯应成功");
+    let command2 = &fake2.commands.lock().expect("命令锁不可中毒")[0];
+    assert_closure_set(command2, &["test-execution"]);
+
+    // 末相位 archive 回改 → 空闭包（无下游）
+    let fake3 = BacktrackStore::with_workflow_type(test_only_pass_history(), "test-only");
+    fake3
+        .run(&input_at(
+            "archive",
+            "archive",
+            "归档口径返工",
+            &[
+                "proposal",
+                "code-analyze",
+                "test-design",
+                "test-gen",
+                "test-execution",
+                "archive",
+            ],
+        ))
+        .expect("自回溯应成功");
+    let command3 = &fake3.commands.lock().expect("命令锁不可中毒")[0];
+    assert!(
+        command3.stale_dependents.is_empty(),
+        "test-only 末相位无下游 → 空闭包，实际: {:?}",
+        command3.stale_dependents
+    );
+}
+
+/// test-only 表位校验（异常 / 新增）：requirement 独有相位（implement）不在
+/// test-only 表内 → 双端表位显式 `Err` 且零写。
+#[test]
+fn test_only表外相位拒绝零写() {
+    let fake = BacktrackStore::with_workflow_type(test_only_pass_history(), "test-only");
+
+    // 发起相位表外
+    let err = fake
+        .run(&input_at(
+            "implement",
+            "proposal",
+            "表外发起",
+            &["proposal", "implement"],
+        ))
+        .expect_err("表外发起相位应 Err");
+    assert!(
+        err.contains("implement") && err.contains("test-only"),
+        "Err 携表外相位与类型语境，实际: {err}"
+    );
+
+    // 目标相位表外
+    let err = fake
+        .run(&input_at(
+            "test-design",
+            "dev-design",
+            "表外目标",
+            &["proposal", "dev-design", "test-design"],
+        ))
+        .expect_err("表外目标相位应 Err");
+    assert!(
+        err.contains("dev-design") && err.contains("test-only"),
+        "Err 携表外目标语境，实际: {err}"
+    );
+    assert_eq!(fake.command_count(), 0, "零写命令");
 }

@@ -98,11 +98,12 @@ pub(crate) async fn change_flow_start_with<R: tauri::Runtime>(
         .find_change_record(&id)
         .map_err(|e| e.to_string())?
         .ok_or_else(|| format!("change \"{id}\" 未建档（无 ChangeRecord），无从编排"))?;
-    // 前置校验 2：workflow_type=requirement（写面相位表 None → 显式拒绝；
-    // V1 范围显式拒绝 bug-fix / test-only，优于相位机半途报错）
+    // 前置校验 2：workflow_type 命中相位表（`requirement` / `test-only` 出线
+    // 放行；写面相位表 None → 显式拒绝——未知类型拒绝优于相位机半途报错，
+    // MUST NOT 静默按 requirement 跑）
     if phase_table(&record.workflow_type).is_none() {
         return Err(format!(
-            "仅支持 requirement 工作流（change \"{}\" 的 workflow_type 为 \"{}\"）",
+            "仅支持 requirement / test-only 工作流（change \"{}\" 的 workflow_type 为 \"{}\"）",
             record.name, record.workflow_type
         ));
     }

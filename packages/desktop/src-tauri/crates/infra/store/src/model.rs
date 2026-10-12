@@ -201,14 +201,15 @@ impl From<AgentRunRecord> for AgentRunRecordV3 {
 ///
 /// 字段演进：version 2 新增 `title`（人类可读标题，展示面与寻址键分离——
 /// `name` 退化为纯 stem 寻址键）与 `promoted_to`（指向已 promote 的 change
-/// id）——存量 v1 行经版本机制 decode-only 升级（`title = name`、
-/// `promoted_to = None`，零手工迁移；`AgentProviderRecord` / `ChangeRecord`
-/// 加字段先例同模式）。
+/// id）；version 3 新增 `workflow_type`（工作流类型，合法值 `requirement` |
+/// `test-only`）——存量旧行经版本机制 decode-only 升级（v1→v2：`title = name`、
+/// `promoted_to = None`；v2→v3：`workflow_type = "requirement"`，零手工迁移；
+/// `AgentProviderRecord` / `ChangeRecord` 加字段先例同模式）。
 ///
 /// 时间戳均为 UTC unix 毫秒 `i64`，与 [`WorkspaceRecord`] 同口径。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
-#[native_model(id = 4, version = 2, from = ExploreRecordV1)]
+#[native_model(id = 4, version = 3, from = ExploreRecordV2)]
 #[native_db]
 pub struct ExploreRecord {
     /// 记录 id（主键，写事务内 max+1 分配；身份与文件名解耦）
@@ -221,6 +222,9 @@ pub struct ExploreRecord {
     /// 人类可读标题，恒非空（创建与升级默认 = `name`，agent 产出笔记首行
     /// `# <标题>` 后经 `set_explore_title` 回填覆盖）
     pub title: String,
+    /// 工作流类型（合法值 `requirement` | `test-only`；创建与升级默认 =
+    /// `requirement`，agent 推算类型经 `set_explore_workflow_type` 回填覆盖）
+    pub workflow_type: String,
     /// 指向已 promote 的 **change id** 身份锚；`None` = 草稿态
     pub promoted_to: Option<String>,
     /// 建档时间（UTC unix 毫秒）
@@ -231,14 +235,17 @@ pub struct ExploreRecord {
 
 impl ExploreRecord {
     /// 由归属与名称构造新记录：`id` 置 0（写事务内 max+1 分配覆盖），
-    /// `title` 默认 = `name`（恒非空不变量），`promoted_to = None`（草稿态），
-    /// `created_at = updated_at = now`（新建语义）。
+    /// `title` 默认 = `name`（恒非空不变量），`workflow_type` 默认
+    /// `"requirement"`（合法值权威仍在写面相位表，此处只落缺省），
+    /// `promoted_to = None`（草稿态），`created_at = updated_at = now`（新建
+    /// 语义）。
     pub fn new(root: &str, name: &str, now: i64) -> Self {
         Self {
             id: 0,
             root: root.to_owned(),
             name: name.to_owned(),
             title: name.to_owned(),
+            workflow_type: "requirement".to_owned(),
             promoted_to: None,
             created_at: now,
             updated_at: now,
@@ -247,8 +254,8 @@ impl ExploreRecord {
 }
 
 /// `ExploreRecord` 的 version 1 历史形态（仅作 native_model 升级链的解码
-/// 目标，不注册进库模型组、不出公共查询面）：无 `title` / `promoted_to` 列。
-/// 存量 v1 行经版本机制自动升级（零迁移代码路径）。
+/// 目标，不注册进库模型组、不出公共查询面）：无 `title` / `promoted_to` /
+/// `workflow_type` 列。存量 v1 行经版本机制自动升级（零迁移代码路径）。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 #[native_model(id = 4, version = 1)]
@@ -265,7 +272,32 @@ pub(crate) struct ExploreRecordV1 {
     pub updated_at: i64,
 }
 
-impl From<ExploreRecordV1> for ExploreRecord {
+/// `ExploreRecord` 的 version 2 历史形态（同 v1，仅作升级链中转的解码目标，
+/// 不注册进库模型组、不出公共查询面）：有 `title` / `promoted_to`，无
+/// `workflow_type` 列。存量 v2 行经版本机制自动升级（`workflow_type` 读出默认
+/// `"requirement"`，零迁移代码路径）。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[native_model(id = 4, version = 2, from = ExploreRecordV1)]
+pub(crate) struct ExploreRecordV2 {
+    /// 记录 id（主键）
+    pub id: i64,
+    /// workspace 归属（canonical root）
+    pub root: String,
+    /// 笔记文件 stem 寻址键
+    pub name: String,
+    /// 人类可读标题
+    pub title: String,
+    /// 指向已 promote 的 change id 身份锚
+    pub promoted_to: Option<String>,
+    /// 建档时间（UTC unix 毫秒）
+    pub created_at: i64,
+    /// 最近更新时间（UTC unix 毫秒）
+    pub updated_at: i64,
+}
+
+/// v1 → v2 升级半边（原 v1 → 当前形态升级语义平移：缺列读兼容）。
+impl From<ExploreRecordV1> for ExploreRecordV2 {
     fn from(previous: ExploreRecordV1) -> Self {
         let name = previous.name;
         Self {
@@ -281,14 +313,47 @@ impl From<ExploreRecordV1> for ExploreRecord {
     }
 }
 
-/// 降级半边（native_model `from` 属性要求双向 `From`；运行时无降级读取路径，
-/// 新字段丢弃——只保升级语义真实性，降级形态不作数据承诺）。
-impl From<ExploreRecord> for ExploreRecordV1 {
+/// v2 → v1 降级半边（native_model `from` 属性要求双向 `From`；运行时无降级读取
+/// 路径，v2 新增字段丢弃——只保升级语义真实性，降级形态不作数据承诺）。
+impl From<ExploreRecordV2> for ExploreRecordV1 {
+    fn from(record: ExploreRecordV2) -> Self {
+        Self {
+            id: record.id,
+            root: record.root,
+            name: record.name,
+            created_at: record.created_at,
+            updated_at: record.updated_at,
+        }
+    }
+}
+
+/// v2 → v3 升级半边：新增列读出默认 `"requirement"`（缺列读兼容——存量记录
+/// 自建档起恒 requirement 工作流），其余直透。
+impl From<ExploreRecordV2> for ExploreRecord {
+    fn from(previous: ExploreRecordV2) -> Self {
+        Self {
+            id: previous.id,
+            root: previous.root,
+            name: previous.name,
+            title: previous.title,
+            // 缺列读兼容：旧记录无工作流类型列，缺省语义 = requirement
+            workflow_type: "requirement".to_owned(),
+            promoted_to: previous.promoted_to,
+            created_at: previous.created_at,
+            updated_at: previous.updated_at,
+        }
+    }
+}
+
+/// v3 → v2 降级半边（新字段丢弃——只保升级语义真实性）。
+impl From<ExploreRecord> for ExploreRecordV2 {
     fn from(record: ExploreRecord) -> Self {
         Self {
             id: record.id,
             root: record.root,
             name: record.name,
+            title: record.title,
+            promoted_to: record.promoted_to,
             created_at: record.created_at,
             updated_at: record.updated_at,
         }

@@ -71,6 +71,17 @@ impl Env {
     }
 
     fn create(&self, name: &str, goal: &str) -> Result<CreateOutcome, String> {
+        self.create_full(name, goal, name, "requirement")
+    }
+
+    /// 全参形态（显式 title + workflow_type 载荷断言面）。
+    fn create_full(
+        &self,
+        name: &str,
+        goal: &str,
+        title: &str,
+        workflow_type: &str,
+    ) -> Result<CreateOutcome, String> {
         create(
             &self.root,
             &self.worktree_root,
@@ -78,7 +89,8 @@ impl Env {
             &self.vcs,
             name,
             goal,
-            name,
+            title,
+            workflow_type,
         )
     }
 
@@ -89,15 +101,7 @@ impl Env {
         goal: &str,
         title: &str,
     ) -> Result<CreateOutcome, String> {
-        create(
-            &self.root,
-            &self.worktree_root,
-            &self.store,
-            &self.vcs,
-            name,
-            goal,
-            title,
-        )
+        self.create_full(name, goal, title, "requirement")
     }
 
     /// worktree 内 change 目录（目录树 / explore.md 的落点）。
@@ -750,7 +754,7 @@ fn create建档载荷含title字段逐字段断言() {
     let record = env.store.created_record();
     assert_eq!(record.title, "载荷标题", "载荷 title 逐字");
     assert_eq!(record.name, "payload-change", "载荷 name 逐字");
-    assert_eq!(record.workflow_type, "requirement", "V1 恒 requirement");
+    assert_eq!(record.workflow_type, "requirement", "缺省类型 requirement");
     assert_eq!(record.status, ChangeStatus::Active, "active 起步");
     assert_eq!(record.archived_at, None);
     assert_eq!(record.active_phase, None);
@@ -760,6 +764,169 @@ fn create建档载荷含title字段逐字段断言() {
         "建档载荷携 worktree 执行锚"
     );
     assert_eq!(record.base_commit.as_deref(), Some(FAKE_HEAD));
+}
+
+/// workflow_type 透传（正向 / 新增）：传 `"test-only"` → 落库
+/// `ChangeStateRecord.workflow_type == "test-only"`（硬编码 requirement 退役），
+/// 建域照常（worktree 内目录 + explore.md 仍在）。
+#[test]
+fn create透传test_only类型的建档载荷() {
+    let env = Env::new("wf-test-only");
+
+    let outcome = env
+        .create_full("topic-only", "补测试向 goal", "补测试", "test-only")
+        .expect("合法 workflow_type 应 Ok");
+
+    let record = env.store.created_record();
+    assert_eq!(record.workflow_type, "test-only", "落库 workflow_type == 入参");
+    assert_eq!(record.id, outcome.id, "建档载荷即本次铸出 id");
+    assert_eq!(record.title, "补测试", "title 与 workflow_type 两入参互不串扰");
+    assert!(
+        env.change_dir("topic-only").join("explore.md").is_file(),
+        "建域照常（workflow_type 为纯载荷，零建域分支）"
+    );
+}
+
+/// workflow_type 缺省语义持衡（正向 / 改写）：传 `"requirement"` → 落库
+/// `"requirement"`（既有默认行为逐字不变）。
+#[test]
+fn create透传requirement类型持衡() {
+    let env = Env::new("wf-requirement");
+
+    env.create_full("topic-req", "既有语义 goal", "既有语义", "requirement")
+        .expect("合法 workflow_type 应 Ok");
+
+    let record = env.store.created_record();
+    assert_eq!(record.workflow_type, "requirement", "显式 requirement 逐字落库");
+}
+
+/// 大小写 / 空白 canonical（边界 / 新增）：首尾空白 + 大写混排 → trim +
+/// 小写后命中相位表并落 canonical 小写值。
+#[test]
+fn create_workflow_type大小写与空白规范化落小写() {
+    let cases = [
+        ("Test-Only", "test-only"),
+        ("  test-only  ", "test-only"),
+        ("REQUIREMENT", "requirement"),
+        (" Requirement ", "requirement"),
+        ("\ttest-only\n", "test-only"),
+    ];
+    for (idx, (input, expected)) in cases.iter().enumerate() {
+        let env = Env::new(&format!("wf-canonical-{idx}"));
+        let name = format!("canonical-{idx}");
+
+        env.create_full(&name, "规范化 goal", &name, input)
+            .expect("规范化后命中应 Ok");
+
+        let record = env.store.created_record();
+        assert_eq!(
+            record.workflow_type, *expected,
+            "入参 {input:?} 落 canonical 小写值"
+        );
+    }
+}
+
+/// 未知 workflow_type 拒绝（异常 / 新增）：非法值 → 显式 `Err` 且零建档 /
+/// 零目录 / 零 vcs 调用（校验全 IO 前置），文案通吃 `{requirement, test-only}`。
+#[test]
+fn create非法workflow_type拒绝_零建档零建域() {
+    for (idx, workflow_type) in ["bug-fix", "", " ", "\t\n", "refactor", "test_only"]
+        .iter()
+        .enumerate()
+    {
+        let env = Env::new(&format!("wf-invalid-{idx}"));
+
+        let error = env
+            .create_full("bad-wf", "非法类型 goal", "非法类型", workflow_type)
+            .expect_err("未知 workflow_type 应 Err");
+
+        assert!(
+            error.contains("workflow_type")
+                && error.contains("requirement")
+                && error.contains("test-only"),
+            "错误文案归因并列出合法值集，实际: {error}"
+        );
+        assert_eq!(env.store.create_call_count(), 0, "db 零建档");
+        assert!(
+            env.active_dir_names().is_empty(),
+            "零目录（拒绝面零副作用），实际: {:?}",
+            env.active_dir_names()
+        );
+        assert_eq!(
+            env.worktree_root.read_dir().map(|d| d.count()).unwrap_or(0),
+            0,
+            "零 worktree 目录"
+        );
+        assert!(
+            env.vcs.calls().is_empty(),
+            "vcs 零调用（含 probe），实际: {:?}",
+            env.vcs.calls()
+        );
+    }
+}
+
+/// workflow_type 边界（边界 / 新增）：超长（>1000 字符）与特殊字符（NUL / 内嵌
+/// 换行 / emoji）类型值不命中合法值集 → 显式 `Err`，零建档零建域零 vcs 调用
+///（校验全 IO 前置，长值不截断、不折叠）。
+#[test]
+fn create_workflow_type超长与特殊字符拒绝() {
+    let long_unknown = "x".repeat(1200);
+    let cases = [
+        long_unknown.as_str(),
+        "requirement\u{0}",
+        "test\u{0}-only",
+        "require\nment",
+        "test-only🚀",
+    ];
+    for (idx, workflow_type) in cases.iter().enumerate() {
+        let env = Env::new(&format!("wf-edge-{idx}"));
+
+        let error = env
+            .create_full("edge-wf", "边界类型 goal", "边界类型", workflow_type)
+            .expect_err("超长 / 特殊字符 workflow_type 应 Err");
+
+        assert!(
+            error.contains("workflow_type"),
+            "Err 记因携字段名，实际: {error}"
+        );
+        assert_eq!(env.store.create_call_count(), 0, "db 零建档");
+        assert!(
+            env.active_dir_names().is_empty(),
+            "零目录（拒绝面零副作用），实际: {:?}",
+            env.active_dir_names()
+        );
+        assert!(
+            env.vcs.calls().is_empty(),
+            "vcs 零调用（含 probe），实际: {:?}",
+            env.vcs.calls()
+        );
+    }
+}
+
+/// 校验顺序边界（边界 / 新增）：workflow_type 校验先于 git 探测但后于名称 /
+/// goal 校验——非法名与非法 workflow_type 同投 → 归因名称；合法名 + 非法
+/// workflow_type → 归因类型。
+#[test]
+fn create_workflow_type校验顺序_名称先决() {
+    let env = Env::new("wf-order");
+
+    let error = env
+        .create_full("Bad_Name", "ok goal", "ok", "bug-fix")
+        .expect_err("非法名应 Err");
+    assert!(
+        error.contains("kebab-case"),
+        "非法名先决于 workflow_type，实际: {error}"
+    );
+
+    let env2 = Env::new("wf-order-2");
+    let error = env2
+        .create_full("valid-name", "ok goal", "ok", "bug-fix")
+        .expect_err("非法类型应 Err");
+    assert!(
+        error.contains("workflow_type"),
+        "名称合法后归因 workflow_type，实际: {error}"
+    );
+    assert_eq!(env2.store.create_call_count(), 0, "零建档");
 }
 
 /// goal 多行 + emoji + 超长字符 + 首尾空白：explore.md 字节保真（UTF-8

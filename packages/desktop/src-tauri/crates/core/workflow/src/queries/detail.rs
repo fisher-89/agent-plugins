@@ -12,21 +12,6 @@ use crate::state::{
 use crate::write::{phase_table, utc_date};
 use foundation::layout::Layout;
 
-/// 固定 10 站流水线（顺序固定，不依赖落行排列；archive 恒为第 10 列，与前端
-/// `flow/layout.ts` 的 `PIPELINE_PHASES` 同序双侧同步）。
-pub const PIPELINE_PHASES: [&str; 10] = [
-    "proposal",
-    "dev-design",
-    "test-design",
-    "implement",
-    "test-gen",
-    "test-execution",
-    "code-review",
-    "acceptance",
-    "code-analyze",
-    "archive",
-];
-
 /// 运行中 phase 状态（线面）。
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
@@ -196,10 +181,12 @@ pub struct ChangeDetail {
 
 /// 聚合单个 change 的详情（按 id 寻址）；db 无该 id 记录 → 恒 `None`
 ///（未知 id 未找到——MUST NOT 回退磁盘目录解析、MUST NOT 返回文档形态空面、
-/// 零 workflow.json 读取）。纯读：record 先读后定位（design D12）——`name` /
-/// `worktree` 自记录直供 `locate_change` 回退（merge 前主仓两树未命中仍可
-/// 达）；**建档记录恒可达详情**——定位全 miss（worktree 被手动删除、未
-/// merge）→ dir 缺席、产物清单空、状态面在（`source` 自 record.status 映射）。
+/// 零 workflow.json 读取）；`record.workflow_type` 不在相位表内（未知 / 空白
+/// 类型）→ 同样恒 `None`（读面严格：不静默按 requirement 出线）。纯读：
+/// record 先读后定位（design D12）——`name` / `worktree` 自记录直供
+/// `locate_change` 回退（merge 前主仓两树未命中仍可达）；**建档记录恒可达
+/// 详情**——定位全 miss（worktree 被手动删除、未 merge）→ dir 缺席、产物清单
+/// 空、状态面在（`source` 自 record.status 映射）。
 pub fn change_detail(
     layout: &Layout,
     store: &dyn ChangeStateStore,
@@ -207,6 +194,9 @@ pub fn change_detail(
 ) -> Option<ChangeDetail> {
     // 未建档（未知 id）→ 恒 None（零磁盘回退零文档形态）
     let record = store.get_change(id).ok().flatten()?;
+    // 相位表随 workflow_type 分派（未知类型 → 恒 None，与未知 id 同语义「详情
+    // 不可达」——读面 MUST NOT 静默按 requirement 出线）
+    let table = phase_table(&record.workflow_type)?;
     // 磁盘面 name / worktree 恒自记录供给（id → 记录 → name 分辨率单点）
     let location = locate_change(layout, record.worktree.as_deref(), record.name.as_str());
     let entries = store.list_phase_records(id).unwrap_or_default();
@@ -245,13 +235,11 @@ pub fn change_detail(
     // 记录恒在，name 恒裸名不带前缀）
     let created = Some(utc_date(record.created_at));
 
-    // 固定 10 站全量输出（无 attempt 记录的站为空序列；archive 列末位）
-    let mut pipeline: Vec<PhaseEntry> = PIPELINE_PHASES
+    // 流水线相位序 = `phase_table(workflow_type)` 相位序（requirement 9 列 /
+    // test-only 6 列，archive 列位置随表；无 attempt 记录的站为空序列）
+    let mut pipeline: Vec<PhaseEntry> = table
         .iter()
-        .map(|phase| PhaseEntry {
-            phase: (*phase).to_string(),
-            attempts: Vec::new(),
-        })
+        .map(|definition| PhaseEntry { phase: definition.id.to_string(), attempts: Vec::new() })
         .collect();
     for entry in &entries {
         if let Some(station) = pipeline
@@ -274,9 +262,9 @@ pub fn change_detail(
         start_at: Some(iso_from_millis(active.start_at)),
     });
     // 产物发现经定位目录 + 相位定义清单（清单为唯一候选来源；归属随清单出线）；
-    // 定位 miss（建档记录恒可达路径）→ 产物清单空。不受支持的 workflow_type
-    //（表外）→ 空清单（无候选来源，零全树扫描兜底）。
-    let manifest = phase_table(&record.workflow_type).unwrap_or_default();
+    // 定位 miss（建档记录恒可达路径）→ 产物清单空；archive / code-analyze 相位
+    // 零产物清单。
+    let manifest = table;
     let artifacts = location
         .as_ref()
         .map(|location| discover_artifacts(&location.dir, &entries, manifest))

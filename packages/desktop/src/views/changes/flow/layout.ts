@@ -1,19 +1,5 @@
 import type { FlowColumn, FlowEdge, FlowGraph, FlowNode } from './types';
 
-/** 固定 10 站流水线前端镜像（与 Rust queries::detail 的 PIPELINE_PHASES 同序，改动需双侧同步；archive 恒为第 10 列） */
-export const PIPELINE_PHASES: readonly string[] = [
-  'proposal',
-  'dev-design',
-  'test-design',
-  'implement',
-  'test-gen',
-  'test-execution',
-  'code-review',
-  'acceptance',
-  'code-analyze',
-  'archive',
-];
-
 const GRAPH_PADDING = 24;
 
 export const COLUMN_HEADER_H = 48;

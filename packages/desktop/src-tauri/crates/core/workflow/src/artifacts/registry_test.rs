@@ -66,6 +66,7 @@ static EMPTY_MANIFEST: &[PhaseDefinition] = &[PhaseDefinition {
     description: "空清单 fixture",
     steps: &[],
     artifact_manifest: &[],
+    prerequisites: &[],
     executor: None,
     evaluator: None,
 }];
@@ -81,6 +82,7 @@ static DUAL_HIT_MANIFEST: &[PhaseDefinition] = &[
             path: "specs/alpha/spec.md",
             title: "精确规格",
         }],
+        prerequisites: &[],
         executor: None,
         evaluator: None,
     },
@@ -93,6 +95,7 @@ static DUAL_HIT_MANIFEST: &[PhaseDefinition] = &[
             path: "specs/**",
             title: "规格目录",
         }],
+        prerequisites: &[],
         executor: None,
         evaluator: None,
     },

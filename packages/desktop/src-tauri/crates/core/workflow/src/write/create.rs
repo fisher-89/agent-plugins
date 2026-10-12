@@ -25,6 +25,7 @@ use time::OffsetDateTime;
 use foundation::layout::resolve;
 
 use crate::state::{ChangeStateRecord, ChangeStateStore, ChangeStatus};
+use crate::write::phase_table::phase_table;
 use crate::write::worktree::WorktreePort;
 
 /// 名称长度上限（与插件 `createChange` 同宽）。
@@ -123,6 +124,11 @@ pub(crate) fn utc_date(millis: i64) -> String {
 /// `worktree_root` 落位父锚（worktree 目录 = `worktree_root/<name>`）。
 /// `title` 为人类可读标题（手动路径传 `name`，promote 路径显式继承
 /// `explore.title`）；空白标题回退 `name`（title 恒非空单点）。
+/// `workflow_type` 为工作流类型入参（合法值 = `phase_table` 命中：
+/// `requirement` | `test-only`；其余显式拒绝，落库取 canonical 小写值）。
+// 双根 + 三 port + 三标量：入参面为写面组合根装配契约（design「公共函数 / API」
+// 定稿签名），拆结构体只增间接。
+#[allow(clippy::too_many_arguments)]
 pub fn create(
     main_root: &Path,
     worktree_root: &Path,
@@ -131,6 +137,7 @@ pub fn create(
     name: &str,
     goal: &str,
     title: &str,
+    workflow_type: &str,
 ) -> Result<CreateOutcome, String> {
     // 前置①②：名称与 goal（纯内存校验）
     if !is_kebab_case(name) {
@@ -150,6 +157,14 @@ pub fn create(
     // 前置②补：标题回退单点（title 恒非空不变量——空白标题回退 name，前端
     // 零空态回退分支）
     let title = if title.trim().is_empty() { name } else { title };
+    // 前置②补：workflow_type 合法值校验（`phase_table` 命中为唯一权威；落
+    // canonical 小写值——未知类型显式拒绝，零退化 requirement）
+    let workflow_type = workflow_type.trim().to_ascii_lowercase();
+    if phase_table(&workflow_type).is_none() {
+        return Err(format!(
+            "workflow_type \"{workflow_type}\" 不受支持（支持 requirement / test-only）"
+        ));
+    }
     // 前置③：主仓 active 目录已存在（既有三道校验风格——冲突检查先于 git
     // 探测，vcs 零调用）
     let main_layout = resolve(main_root);
@@ -201,8 +216,8 @@ pub fn create(
             id: id.clone(),
             name: name.to_owned(),
             title: title.to_owned(),
-            // V1 唯一支持的工作流类型（与发起前置校验同口径）
-            workflow_type: "requirement".to_owned(),
+            // 工作流类型随入参落库（前置校验已收口 canonical 小写值）
+            workflow_type: workflow_type.clone(),
             created_at,
             status: ChangeStatus::Active,
             archived_at: None,

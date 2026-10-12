@@ -10,6 +10,7 @@ use workflow::queries as queries_lib;
 use super::{
     create_explore_record, delete_explore_record, explore_doc_path, list_explore_records,
     promote_explore_with, read_explore, rename_explore_record, scan_explores, update_explore_title,
+    update_explore_workflow_type,
 };
 
 // ---------------------------------------------------------------------------
@@ -859,9 +860,14 @@ async fn promote_explore四步成功_笔记移走记录保留打标() {
     let note_path = env.note("api-retry", note);
     create_explore_record(state.clone(), root.clone(), "api-retry".to_owned()).expect("建档应成功");
 
-    let outcome = promote_explore_with(app.handle().clone(), root.clone(), "api-retry".to_owned())
-        .await
-        .expect("promote 应成功");
+    let outcome = promote_explore_with(
+        app.handle().clone(),
+        root.clone(),
+        "api-retry".to_owned(),
+        "requirement".to_owned(),
+    )
+    .await
+    .expect("promote 应成功");
 
     // ① 主仓笔记已删（move 半边）
     assert!(!note_path.exists(), "主仓 explores/api-retry.md 已删");
@@ -902,6 +908,10 @@ async fn promote_explore四步成功_笔记移走记录保留打标() {
         .expect("建档在案");
     assert_eq!(change.name, "api-retry");
     assert_eq!(change.title, record.title, "title 继承 explore.title");
+    assert_eq!(
+        change.workflow_type, "requirement",
+        "workflow_type 透传入参（既有缺省语义持衡）"
+    );
 }
 
 /// promote_explore blank root / 非 kebab 拒绝（异常）：显式 `Err` 且零读写
@@ -917,15 +927,25 @@ async fn promote_explore_blank_root与非kebab显式err零读写() {
         .expect("建档应成功");
 
     for root_arg in [String::new(), "   ".to_owned()] {
-        let err = promote_explore_with(app.handle().clone(), root_arg, "valid-topic".to_owned())
-            .await
-            .expect_err("blank root 应 Err");
+        let err = promote_explore_with(
+            app.handle().clone(),
+            root_arg,
+            "valid-topic".to_owned(),
+            "requirement".to_owned(),
+        )
+        .await
+        .expect_err("blank root 应 Err");
         assert_eq!(err, "非法 root: 不得为空白");
     }
     for name in ["BadCase", "bad_case", "1bad", "bad-name-"] {
-        let err = promote_explore_with(app.handle().clone(), root.clone(), name.to_owned())
-            .await
-            .expect_err("非 kebab name 应 Err");
+        let err = promote_explore_with(
+            app.handle().clone(),
+            root.clone(),
+            name.to_owned(),
+            "requirement".to_owned(),
+        )
+        .await
+        .expect_err("非 kebab name 应 Err");
         assert!(
             err.contains("kebab-case"),
             "Err 归因 kebab 口径，实际: {err}"
@@ -954,9 +974,14 @@ async fn promote_explore笔记未落盘或空白拒绝() {
     create_explore_record(state.clone(), root.clone(), "no-note".to_owned()).expect("建档应成功");
 
     // 未落盘
-    let err = promote_explore_with(app.handle().clone(), root.clone(), "no-note".to_owned())
-        .await
-        .expect_err("未落盘应 Err");
+    let err = promote_explore_with(
+        app.handle().clone(),
+        root.clone(),
+        "no-note".to_owned(),
+        "requirement".to_owned(),
+    )
+    .await
+    .expect_err("未落盘应 Err");
     assert!(
         err.contains("尚未落盘") && err.contains("no-note"),
         "Err 携引导文案，实际: {err}"
@@ -964,9 +989,14 @@ async fn promote_explore笔记未落盘或空白拒绝() {
 
     // 落盘但内容空白
     env.note("no-note", "   \n\t");
-    let err = promote_explore_with(app.handle().clone(), root.clone(), "no-note".to_owned())
-        .await
-        .expect_err("空白内容应 Err");
+    let err = promote_explore_with(
+        app.handle().clone(),
+        root.clone(),
+        "no-note".to_owned(),
+        "requirement".to_owned(),
+    )
+    .await
+    .expect_err("空白内容应 Err");
     assert!(err.contains("尚未落盘或内容为空白"), "实际: {err}");
 
     let record = state
@@ -1004,9 +1034,14 @@ async fn promote_explore已promoted拒绝() {
         .mark_explore_promoted(&root, "done-topic", "chg-already")
         .expect("预置打标应成功");
 
-    let err = promote_explore_with(app.handle().clone(), root.clone(), "done-topic".to_owned())
-        .await
-        .expect_err("已 promoted 应 Err");
+    let err = promote_explore_with(
+        app.handle().clone(),
+        root.clone(),
+        "done-topic".to_owned(),
+        "requirement".to_owned(),
+    )
+    .await
+    .expect_err("已 promoted 应 Err");
 
     assert!(
         err.contains("已转变更") && err.contains("chg-already"),
@@ -1022,5 +1057,369 @@ async fn promote_explore已promoted拒绝() {
             .and_then(|record| record.promoted_to),
         Some("chg-already".to_owned()),
         "原打标值零改动"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// promote_explore workflow_type 三参（desktop-test-only-flow AC-8）：类型透传
+// 铸出 + 非法值拒绝 + canonical 规范化
+// ---------------------------------------------------------------------------
+
+/// promote_explore_with 透传 test-only（正向 / 新增）：铸出的 change
+/// `workflow_type == "test-only"`，move 半边（笔记移走 + 打标）照常。
+#[tokio::test]
+async fn promote_explore透传test_only且move照常() {
+    let _path_guard = crate::commands::TEST_PATH_LOCK
+        .lock()
+        .expect("PATH 锁不可中毒");
+    let env = Env::new("promote-wf-test-only");
+    env.as_git_repo();
+    let app = app_with_data(&env);
+    let state = app.state::<WorkspaceStores>();
+    let root = env.root();
+    let note = "# 补测试\n\n目标是给既有模块补测试用例";
+    let note_path = env.note("only-tests", note);
+    create_explore_record(state.clone(), root.clone(), "only-tests".to_owned())
+        .expect("建档应成功");
+
+    let outcome = promote_explore_with(
+        app.handle().clone(),
+        root.clone(),
+        "only-tests".to_owned(),
+        "test-only".to_owned(),
+    )
+    .await
+    .expect("合法 test-only promote 应成功");
+
+    let change = state
+        .for_root(&root)
+        .expect("for_root 应成功")
+        .find_change_record(&outcome.change_id)
+        .expect("查档应成功")
+        .expect("建档在案");
+    assert_eq!(
+        change.workflow_type, "test-only",
+        "workflow_type 透传写面并落库"
+    );
+    assert_eq!(change.name, "only-tests", "change 名 = explore.name");
+    assert!(!note_path.exists(), "move 半边照常（类型不影响搬运语义）");
+    let record = state
+        .for_root(&root)
+        .expect("for_root 应成功")
+        .find_explore_record(&root, "only-tests")
+        .expect("find 应成功")
+        .expect("记录保留");
+    assert_eq!(
+        record.promoted_to.as_deref(),
+        Some(outcome.change_id.as_str()),
+        "打标照常"
+    );
+}
+
+/// promote_explore_with 非法 workflow_type（异常 / 新增）：命令层
+/// `phase_table` 校验 → 显式 `Err`（文案通吃两值）、零铸出、笔记零改删。
+#[tokio::test]
+async fn promote_explore非法workflow_type拒绝零铸出() {
+    let _path_guard = crate::commands::TEST_PATH_LOCK
+        .lock()
+        .expect("PATH 锁不可中毒");
+    let env = Env::new("promote-wf-invalid");
+    env.as_git_repo();
+    let app = app_with_data(&env);
+    let state = app.state::<WorkspaceStores>();
+    let root = env.root();
+    let note_path = env.note("valid-topic", "# 标题\n正文");
+    create_explore_record(state.clone(), root.clone(), "valid-topic".to_owned())
+        .expect("建档应成功");
+
+    for workflow_type in ["bug-fix", "", " ", "refactor", "test_only"] {
+        let err = promote_explore_with(
+            app.handle().clone(),
+            root.clone(),
+            "valid-topic".to_owned(),
+            workflow_type.to_owned(),
+        )
+        .await
+        .expect_err("非法 workflow_type 应 Err");
+
+        assert!(
+            err.contains("workflow_type")
+                && err.contains("requirement")
+                && err.contains("test-only"),
+            "命令层校验文案（列出合法值集），实际: {err}"
+        );
+    }
+    assert!(note_path.is_file(), "笔记零改删");
+    assert!(
+        state
+            .for_root(&root)
+            .expect("for_root 应成功")
+            .list_change_records()
+            .expect("清单应成功")
+            .is_empty(),
+        "零铸出"
+    );
+    assert_eq!(
+        state
+            .for_root(&root)
+            .expect("for_root 应成功")
+            .find_explore_record(&root, "valid-topic")
+            .expect("find 应成功")
+            .and_then(|record| record.promoted_to),
+        None,
+        "零打标"
+    );
+}
+
+/// promote_explore_with 大小写 / 空白 canonical（边界 / 新增）：`"Test-Only "`
+/// → 落库 `"test-only"`。
+#[tokio::test]
+async fn promote_explore_workflow_type大小写空白canonical() {
+    let _path_guard = crate::commands::TEST_PATH_LOCK
+        .lock()
+        .expect("PATH 锁不可中毒");
+    let env = Env::new("promote-wf-canonical");
+    env.as_git_repo();
+    let app = app_with_data(&env);
+    let state = app.state::<WorkspaceStores>();
+    let root = env.root();
+    let note = "# 规范化\n正文";
+    env.note("canonical-topic", note);
+    create_explore_record(state.clone(), root.clone(), "canonical-topic".to_owned())
+        .expect("建档应成功");
+
+    let outcome = promote_explore_with(
+        app.handle().clone(),
+        root.clone(),
+        "canonical-topic".to_owned(),
+        "Test-Only ".to_owned(),
+    )
+    .await
+    .expect("规范化后命中应成功");
+
+    let change = state
+        .for_root(&root)
+        .expect("for_root 应成功")
+        .find_change_record(&outcome.change_id)
+        .expect("查档应成功")
+        .expect("建档在案");
+    assert_eq!(change.workflow_type, "test-only", "落 canonical 小写值");
+}
+
+// ---------------------------------------------------------------------------
+// update_explore_workflow_type（desktop-test-only-flow AC-8 / AC-9 命令半边）：
+// 回填唯一写入口——合法值落库、非法值 / blank root 拒绝、记录 miss 透传
+// ---------------------------------------------------------------------------
+
+/// update_explore_workflow_type 正向（新增）：合法值 `test-only` → in-place 回填
+/// `workflowType`、刷新 `updated_at`、返回更新记录；主键 / name / title 不变。
+#[test]
+fn update_explore_workflow_type正向回填与刷新updated_at() {
+    let env = Env::new("update-wf-ok");
+    let app = app_with_stores(&env);
+    let state = app.state::<WorkspaceStores>();
+    let original =
+        create_explore_record(state.clone(), env.root(), "topic-a".to_owned()).expect("建档应成功");
+    assert_eq!(
+        original.workflow_type, "requirement",
+        "建档默认 requirement"
+    );
+
+    let updated = update_explore_workflow_type(
+        state.clone(),
+        env.root(),
+        "topic-a".to_owned(),
+        "test-only".to_owned(),
+    )
+    .expect("回填应成功");
+
+    assert_eq!(
+        updated.workflow_type, "test-only",
+        "返回更新后 workflowType"
+    );
+    assert_eq!(updated.id, original.id, "主键不变（保会话链）");
+    assert_eq!(updated.name, original.name, "name 不变");
+    assert_eq!(updated.title, original.title, "title 不变");
+    assert_eq!(updated.created_at, original.created_at, "created_at 不变");
+    assert!(
+        updated.updated_at >= original.updated_at,
+        "updated_at 刷新（不早于原值）"
+    );
+    assert_eq!(
+        state
+            .for_root(&env.root())
+            .expect("for_root 应成功")
+            .find_explore_record(&env.root(), "topic-a")
+            .expect("find 应成功"),
+        Some(updated),
+        "落库可寻址读出（in-place 写单行）"
+    );
+}
+
+/// update_explore_workflow_type canonical（边界 / 新增）：大小写 / 空白变体 →
+/// trim + 小写命中并落 canonical 小写值。
+#[test]
+fn update_explore_workflow_type大小写空白canonical() {
+    let env = Env::new("update-wf-canonical");
+    let app = app_with_stores(&env);
+    let state = app.state::<WorkspaceStores>();
+    create_explore_record(state.clone(), env.root(), "topic-a".to_owned()).expect("建档应成功");
+
+    for (value, expected) in [
+        ("Test-Only", "test-only"),
+        ("  test-only  ", "test-only"),
+        ("REQUIREMENT", "requirement"),
+        (" Requirement ", "requirement"),
+    ] {
+        let updated = update_explore_workflow_type(
+            state.clone(),
+            env.root(),
+            "topic-a".to_owned(),
+            value.to_owned(),
+        )
+        .unwrap_or_else(|e| panic!("规范化值 {value:?} 应命中: {e}"));
+        assert_eq!(
+            updated.workflow_type, expected,
+            "入参 {value:?} 落 canonical"
+        );
+    }
+}
+
+/// update_explore_workflow_type blank root / 非法值拒绝（异常 / 新增）：显式
+/// `Err` 且记录零改动。
+#[test]
+fn update_explore_workflow_type_blank_root与非法值拒绝零改动() {
+    let env = Env::new("update-wf-reject");
+    let app = app_with_stores(&env);
+    let state = app.state::<WorkspaceStores>();
+    let original =
+        create_explore_record(state.clone(), env.root(), "topic-a".to_owned()).expect("建档应成功");
+
+    for root in [String::new(), "   ".to_owned()] {
+        let err = update_explore_workflow_type(
+            state.clone(),
+            root,
+            "topic-a".to_owned(),
+            "test-only".to_owned(),
+        )
+        .expect_err("blank root 应 Err");
+        assert_eq!(err, "非法 root: 不得为空白");
+    }
+    for workflow_type in ["", "   ", "\n\t", "bug-fix", "refactor", "test_only"] {
+        let err = update_explore_workflow_type(
+            state.clone(),
+            env.root(),
+            "topic-a".to_owned(),
+            workflow_type.to_owned(),
+        )
+        .expect_err("非法 workflow_type 应 Err");
+        assert!(
+            err.contains("workflow_type")
+                && err.contains("requirement")
+                && err.contains("test-only"),
+            "命令层校验文案（列出合法值集），实际: {err}"
+        );
+    }
+    // 边界：超长（>1000 字符）与特殊字符（NUL / 内嵌换行 / emoji）值同拒
+    //（命令层字符集与长度零兜底，不截断、不折叠）
+    let long_unknown = "x".repeat(1200);
+    let edge_cases = [
+        long_unknown,
+        "requirement\u{0}".to_owned(),
+        "require\nment".to_owned(),
+        "test-only🚀".to_owned(),
+    ];
+    for workflow_type in edge_cases {
+        let err = update_explore_workflow_type(
+            state.clone(),
+            env.root(),
+            "topic-a".to_owned(),
+            workflow_type,
+        )
+        .expect_err("超长 / 特殊字符 workflow_type 应 Err");
+        assert!(
+            err.contains("workflow_type")
+                && err.contains("requirement")
+                && err.contains("test-only"),
+            "命令层校验文案（列出合法值集），实际: {err}"
+        );
+    }
+    assert_eq!(
+        state
+            .for_root(&env.root())
+            .expect("for_root 应成功")
+            .find_explore_record(&env.root(), "topic-a")
+            .expect("find 应成功"),
+        Some(original),
+        "拒绝面零改动"
+    );
+}
+
+/// update_explore_workflow_type 记录 miss（异常 / 新增）：store `Err` 透传
+///（不存在 / 异 root 归属寻址），零新增行。
+#[test]
+fn update_explore_workflow_type_miss透传err() {
+    let env = Env::new("update-wf-miss");
+    let app = app_with_stores(&env);
+    let state = app.state::<WorkspaceStores>();
+
+    let err = update_explore_workflow_type(
+        state.clone(),
+        env.root(),
+        "ghost".to_owned(),
+        "test-only".to_owned(),
+    )
+    .expect_err("记录不存在应 Err");
+    assert!(
+        err.contains("ghost"),
+        "store Err 透传（携寻址语境），实际: {err}"
+    );
+    assert!(
+        list_explore_records(state.clone(), env.root())
+            .expect("清单应成功")
+            .is_empty(),
+        "miss 路径零新增行"
+    );
+
+    // 异 root 归属寻址同 miss
+    create_explore_record(state.clone(), env.root(), "topic-a".to_owned()).expect("建档应成功");
+    assert!(
+        update_explore_workflow_type(
+            state.clone(),
+            env.other_root(),
+            "topic-a".to_owned(),
+            "test-only".to_owned()
+        )
+        .is_err(),
+        "异 root 归属寻址应 miss"
+    );
+}
+
+/// 读路径零写入（边界 / 保留）：`read_explore` 纯读——读取笔记不改动记录
+///（回填唯一写入口 = update_explore_workflow_type）。
+#[test]
+fn read_explore读路径零写入不触回填() {
+    let env = Env::new("read-wf-pure");
+    let app = app_with_stores(&env);
+    let state = app.state::<WorkspaceStores>();
+    let original =
+        create_explore_record(state.clone(), env.root(), "topic-a".to_owned()).expect("建档应成功");
+    env.note("topic-a", "# 标题\nworkflow_type: test-only\n");
+
+    let doc = read_explore(env.root(), "topic-a".to_owned());
+    assert!(doc.is_some(), "笔记读取应命中");
+
+    assert_eq!(
+        state
+            .for_root(&env.root())
+            .expect("for_root 应成功")
+            .find_explore_record(&env.root(), "topic-a")
+            .expect("find 应成功"),
+        Some(original.clone()),
+        "读路径零写入（记录与 updated_at 均未变）"
+    );
+    assert_eq!(
+        original.workflow_type, "requirement",
+        "读路径不推断类型（回填归命令层显式调用）"
     );
 }

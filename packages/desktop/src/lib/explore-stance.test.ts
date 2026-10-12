@@ -118,3 +118,66 @@ describe('buildExplorePrompt：name 注入与首行标题约定（AC-4 模板注
     expect(output.endsWith('输入')).toBe(true);
   });
 });
+
+describe('buildExplorePrompt：workflow_type 标记行约定（AC-8 stance 半边）', () => {
+  it('正向：输出含第二行 `workflow_type: <requirement|test-only>` 标记行约定（与首行标题约定同构）', () => {
+    const output = buildExplorePrompt('调研一下', TOPIC);
+
+    expect(output).toContain('笔记第二行写');
+    expect(output).toContain('workflow_type: <requirement|test-only>');
+    // 与首行标题约定同构（同段落内的并列条目、同「笔记第 N 行写 …」句式）
+    expect(output).toContain('笔记首行写');
+    expect(output).toContain('# <标题>');
+  });
+
+  it('正向：输出含判断标准（目标是补测试 / 生成测试用例 → test-only，否则 requirement）', () => {
+    const output = buildExplorePrompt('调研一下', TOPIC);
+
+    expect(output).toContain('目标是补测试');
+    expect(output).toContain('生成测试用例');
+    expect(output).toContain('test-only');
+    expect(output).toContain('否则 requirement');
+    // 两合法值形态均在约定内（值集与后端 phase_table 同宽）
+    expect(output).toContain('requirement');
+  });
+
+  it('边界：首行标题约定与第二行类型约定并存且顺序正确（首行在前、第二行在后）', () => {
+    const output = buildExplorePrompt('输入', TOPIC);
+
+    const titleIndex = output.indexOf('笔记首行写');
+    const workflowTypeIndex = output.indexOf('笔记第二行写');
+
+    expect(titleIndex).toBeGreaterThanOrEqual(0);
+    expect(workflowTypeIndex).toBeGreaterThanOrEqual(0);
+    expect(titleIndex).toBeLessThan(workflowTypeIndex);
+    // 两条约定均在「## 笔记落盘」段内（段落归属不漂移）
+    const sectionIndex = output.indexOf('## 笔记落盘');
+    expect(sectionIndex).toBeGreaterThanOrEqual(0);
+    expect(sectionIndex).toBeLessThan(titleIndex);
+  });
+
+  it('边界：文件名约定段与两条标记行约定并存（段内条目齐备且不互相吞并）', () => {
+    const output = buildExplorePrompt('输入', TOPIC);
+
+    for (const clause of [
+      `文件名 MUST 等于 ${TOPIC}`,
+      '笔记首行写',
+      '笔记第二行写',
+      '默认追加',
+      '若文件尚不存在',
+    ]) {
+      expect(output).toContain(clause);
+    }
+  });
+
+  it('异常：空 userInput / 空 topic 下类型约定段照常输出，不崩（既有模板拼接持衡）', () => {
+    for (const topic of ['', 'has space', '中文话题', 'emoji-🚀-topic']) {
+      expect(() => buildExplorePrompt('', topic)).not.toThrow();
+      const output = buildExplorePrompt('', topic);
+
+      expect(output).toContain('workflow_type: <requirement|test-only>');
+      expect(output).toContain('目标是补测试');
+      expect(output.startsWith(PREAMBLE_HEAD)).toBe(true);
+    }
+  });
+});

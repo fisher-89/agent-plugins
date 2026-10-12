@@ -484,7 +484,7 @@ describe('ChangeListView：新建入口挂载与创建流转（创建 → refres
     await waitFor(() => expect(probePathname()).toBe(`/changes/${createdId}`));
     expect(probePathname()).not.toBe('/changes/fix-bug');
     expect(createCalls()).toEqual([
-      { root: ROOT, name: 'fix-bug', goal: '修复登录重试的竞态问题' },
+      { root: ROOT, name: 'fix-bug', goal: '修复登录重试的竞态问题', workflowType: 'requirement' },
     ]);
     // 清单刷新：onCreated → state.refresh() → list_changes 重新取数
     await waitFor(() => expect(listCalls().length).toBe(2));

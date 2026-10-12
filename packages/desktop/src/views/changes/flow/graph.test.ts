@@ -7,13 +7,28 @@ import type {
   PhaseEntry,
 } from '../../../types/dto';
 import { buildFlowGraph } from './graph';
-import { PIPELINE_PHASES } from './layout';
 import type { RuntimeFlowNode } from './types';
+
+/**
+ * requirement 相位序夹具（D12：前端 `PIPELINE_PHASES` 常量退役，列序改由
+ * `detail.pipeline` 出线承载，测试各自内联 fixture）：9 列，archive 为第 9 列。
+ */
+const REQUIREMENT_PHASES = [
+  'proposal',
+  'dev-design',
+  'test-design',
+  'implement',
+  'test-gen',
+  'test-execution',
+  'code-review',
+  'acceptance',
+  'archive',
+];
 
 // ---------------------------------------------------------------------------
 // buildFlowGraph 单测（change-flow-show-step-only，AC-1 / D1 / D5）：节点模型
 // 单分类——**仅 runtime step 节点**（`sequence = [...runNodes]`，eval / active
-// 相位节点整体退役）；纯函数直测（无 mock）：真实组合 layout（PIPELINE_PHASES）
+// 相位节点整体退役）；纯函数直测（无 mock）：真实组合 layout（REQUIREMENT_PHASES）
 // 与 run-state（nodeIdentityKey）。
 // ---------------------------------------------------------------------------
 
@@ -41,7 +56,7 @@ function station(phase: string, attempts: AttemptRecord[]): PhaseEntry {
   return { phase, attempts };
 }
 
-/** 建档详情底座：10 站全空 attempts，逐用例按需注入事件。 */
+/** 建档详情底座：9 站全空 attempts（requirement 相位表序），逐用例按需注入事件。 */
 function detail(overrides: Partial<ChangeDetail> = {}): ChangeDetail {
   return {
     id: 'add-feature',
@@ -50,7 +65,7 @@ function detail(overrides: Partial<ChangeDetail> = {}): ChangeDetail {
     source: 'active',
     status: 'active',
     created: '2026-09-01',
-    pipeline: PIPELINE_PHASES.map((phase) => station(phase, [])),
+    pipeline: REQUIREMENT_PHASES.map((phase) => station(phase, [])),
     activePhase: null,
     runs: [],
     worktree: null,
@@ -62,7 +77,7 @@ function detail(overrides: Partial<ChangeDetail> = {}): ChangeDetail {
 /** 多 attempt + activePhase 在场的详情（eval / active 退役前的「非空节点源」形态）。 */
 function richDetail(): ChangeDetail {
   return detail({
-    pipeline: PIPELINE_PHASES.map((phase) => {
+    pipeline: REQUIREMENT_PHASES.map((phase) => {
       if (phase === 'proposal') return station(phase, [attempt({ attempt: 1 })]);
       if (phase === 'dev-design') {
         return station(phase, [attempt({ attempt: 1 }), attempt({ attempt: 2 })]);
@@ -80,7 +95,7 @@ function runNode(overrides: Partial<RuntimeFlowNode> = {}): RuntimeFlowNode {
     kind: 'runtime',
     phase: 'implement',
     attempt: 1,
-    colIndex: PIPELINE_PHASES.indexOf('implement'),
+    colIndex: REQUIREMENT_PHASES.indexOf('implement'),
     order: 0,
     parentId: 'col:implement',
     runStepKind: 'executor',
@@ -111,14 +126,16 @@ function nodeIds(nodes: { id: string }[]): string[] {
 }
 
 describe('buildFlowGraph：列骨架与空图', () => {
-  it('pipeline 非空 → 恒 10 列容器（id / phase / colIndex 与 PIPELINE_PHASES 同序）', () => {
+  it('pipeline 非空 → 列序与列数取自 detail.pipeline（id / phase / colIndex 与出线序同序）', () => {
     const graph = buildFlowGraph(detail());
-    expect(graph.columns).toHaveLength(10);
+    expect(graph.columns).toHaveLength(REQUIREMENT_PHASES.length);
     expect(graph.columns.map((column) => column.id)).toEqual(
-      PIPELINE_PHASES.map((phase) => `col:${phase}`),
+      REQUIREMENT_PHASES.map((phase) => `col:${phase}`),
     );
-    expect(graph.columns.map((column) => column.phase)).toEqual([...PIPELINE_PHASES]);
-    expect(graph.columns.map((column) => column.colIndex)).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8, 9]);
+    expect(graph.columns.map((column) => column.phase)).toEqual([...REQUIREMENT_PHASES]);
+    expect(graph.columns.map((column) => column.colIndex)).toEqual(
+      REQUIREMENT_PHASES.map((_, index) => index),
+    );
   });
 
   it('pipeline 为空数组（v0 形态）→ 返回空图：columns / nodes / edges 全空', () => {
@@ -129,13 +146,15 @@ describe('buildFlowGraph：列骨架与空图', () => {
     });
   });
 
-  it('多 attempt + activePhase 非空 + runNodes 缺省 → 零节点零边（eval / active 不再上图，仅 10 空列）', () => {
+  it('多 attempt + activePhase 非空 + runNodes 缺省 → 零节点零边（eval / active 不再上图，仅空列）', () => {
     const graph = buildFlowGraph(richDetail());
-    expect(graph.columns).toHaveLength(10);
+    expect(graph.columns).toHaveLength(REQUIREMENT_PHASES.length);
     expect(graph.nodes).toEqual([]);
     expect(graph.edges).toEqual([]);
-    // 10 列容器均无节点归属（未走的站呈现空列）
-    expect(graph.columns.filter((column) => column.id.startsWith('col:'))).toHaveLength(10);
+    // 各列容器均无节点归属（未走的站呈现空列）
+    expect(graph.columns.filter((column) => column.id.startsWith('col:'))).toHaveLength(
+      REQUIREMENT_PHASES.length,
+    );
   });
 });
 
@@ -172,7 +191,7 @@ describe('buildFlowGraph：单分类 runtime 节点（runNodes 直录）', () =>
         id: 'run:proposal:1:evaluator:0',
         phase: 'proposal',
         attempt: 1,
-        colIndex: PIPELINE_PHASES.indexOf('proposal'),
+        colIndex: REQUIREMENT_PHASES.indexOf('proposal'),
         parentId: 'col:proposal',
         runStepKind: 'evaluator',
         role: 'evaluator',
@@ -237,7 +256,7 @@ describe('buildFlowGraph：单分类 runtime 节点（runNodes 直录）', () =>
     const base = detail();
     expect(buildFlowGraph(base).nodes).toEqual([]);
     expect(buildFlowGraph(base, []).nodes).toEqual([]);
-    expect(buildFlowGraph(base).columns).toHaveLength(10);
+    expect(buildFlowGraph(base).columns).toHaveLength(REQUIREMENT_PHASES.length);
   });
 });
 
@@ -311,7 +330,7 @@ describe('buildFlowGraph：边表直读（runEdges）', () => {
 
   it('backtrack 边 label 取发起相位最近一次条目记因（pipeline 参数保留生效）', () => {
     const base = detail({
-      pipeline: PIPELINE_PHASES.map((phase) =>
+      pipeline: REQUIREMENT_PHASES.map((phase) =>
         phase === 'implement'
           ? station(phase, [
               attempt({ attempt: 1 }),
@@ -347,7 +366,7 @@ describe('buildFlowGraph：边表直读（runEdges）', () => {
   it('发起相位无记因（backtrackReason 全 null）→ 回跳边 label 为 null（不渲染字符串 "null"）', () => {
     const graph = buildFlowGraph(
       detail({
-        pipeline: PIPELINE_PHASES.map((phase) =>
+        pipeline: REQUIREMENT_PHASES.map((phase) =>
           phase === 'implement' ? station(phase, [attempt({ attempt: 1 })]) : station(phase, []),
         ),
       }),
@@ -427,5 +446,83 @@ describe('buildFlowGraph：边表直读（runEdges）', () => {
     expect(graph.edges[0].source).not.toBe(graph.edges[0].target);
     expect(graph.edges[0].source).toBe('run:implement:1:executor:0');
     expect(graph.edges[0].target).toBe('run:implement:1:executor:1');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 列骨架随 detail.pipeline 出线（desktop-test-only-flow AC-5 / AC-6）：两表各自
+// 成立；pipeline 外相位零列（不臆造）
+// ---------------------------------------------------------------------------
+
+/** test-only 相位序夹具：6 列，code-analyze 第 2 列、archive 第 6 列。 */
+const TEST_ONLY_PHASES = [
+  'proposal',
+  'code-analyze',
+  'test-design',
+  'test-gen',
+  'test-execution',
+  'archive',
+];
+
+/** test-only 详情底座：6 站（test-only 相位表序）全空 attempts。 */
+function testOnlyDetail(overrides: Partial<ChangeDetail> = {}): ChangeDetail {
+  return detail({
+    pipeline: TEST_ONLY_PHASES.map((phase) => station(phase, [])),
+    ...overrides,
+  });
+}
+
+describe('buildFlowGraph：两表列骨架（requirement 9 / test-only 6）', () => {
+  it('正向：test-only detail（6 相位 pipeline）→ 6 列，code-analyze colIndex=1、archive colIndex=5', () => {
+    const graph = buildFlowGraph(testOnlyDetail());
+
+    expect(graph.columns).toHaveLength(6);
+    expect(graph.columns.map((column) => column.phase)).toEqual([...TEST_ONLY_PHASES]);
+    expect(graph.columns.map((column) => column.id)).toEqual(
+      TEST_ONLY_PHASES.map((phase) => `col:${phase}`),
+    );
+    expect(graph.columns.map((column) => column.colIndex)).toEqual([0, 1, 2, 3, 4, 5]);
+    expect(graph.columns.find((column) => column.phase === 'code-analyze')?.colIndex).toBe(1);
+    expect(graph.columns.find((column) => column.phase === 'archive')?.colIndex).toBe(5);
+  });
+
+  it('正向：test-only 列骨架零 requirement 独有相位（不越表臆造列）', () => {
+    const graph = buildFlowGraph(testOnlyDetail());
+
+    for (const phase of ['dev-design', 'implement', 'code-review', 'acceptance']) {
+      expect(graph.columns.some((column) => column.phase === phase)).toBe(false);
+    }
+  });
+
+  it('异常：pipeline 外相位的运行步节点 → 零列承载（列集合恒由 pipeline 决定）', () => {
+    const graph = buildFlowGraph(testOnlyDetail(), [
+      runNode({
+        id: 'run:implement:1:executor:0',
+        phase: 'implement',
+        parentId: 'col:implement',
+        colIndex: -1,
+      }),
+    ]);
+
+    expect(graph.columns).toHaveLength(6);
+    expect(graph.columns.some((column) => column.phase === 'implement')).toBe(false);
+    // 节点原序直录（列集合不臆造归属列）
+    expect(nodeIds(graph.nodes)).toEqual(['run:implement:1:executor:0']);
+  });
+
+  it('边界：两表列数各自稳定且 archive 恒为末列（requirement colIndex=8 / test-only colIndex=5）', () => {
+    const requirementGraph = buildFlowGraph(detail());
+    const requirementArchive = requirementGraph.columns.at(-1);
+    expect(requirementGraph.columns).toHaveLength(9);
+    expect(requirementArchive?.phase).toBe('archive');
+    expect(requirementArchive?.colIndex).toBe(8);
+
+    const testOnlyArchive = buildFlowGraph(testOnlyDetail()).columns.at(-1);
+    expect(testOnlyArchive?.phase).toBe('archive');
+    expect(testOnlyArchive?.colIndex).toBe(5);
+  });
+
+  it('边界：test-only pipeline 空数组 → 空图（与 requirement 同款空态语义）', () => {
+    expect(buildFlowGraph(detail({ pipeline: [] }))).toEqual({ columns: [], nodes: [], edges: [] });
   });
 });

@@ -544,23 +544,94 @@ fn skipped约束两面各就位() {
     assert_eq!(fake_fail.command_count(), 0, "约束拒绝零写命令");
 }
 
-/// workflow_type 非 requirement → Err 且零写（W8 分层出口）。
+/// workflow_type 未知 → Err 且零写；test-only 类型落账可走通（两值分派 +
+/// 表位校验随类型表）。
 #[test]
-fn workflow_type非requirement拒绝零写入() {
-    let missing_active = LogStore::with_active_phase(None);
-    if let Some(record) = missing_active.record.lock().expect("记录锁").as_mut() {
-        record.workflow_type = "refactor".to_owned();
+fn workflow_type未知拒绝零写入且test_only可落账() {
+    // 未知类型：文案通吃两值、旧「V1 仅 requirement」字样退役
+    let long_unknown = "x".repeat(1200);
+    for workflow_type in [
+        "refactor",
+        "bug-fix",
+        "",
+        " ",
+        "test_only",
+        long_unknown.as_str(),
+        "test-only🚀",
+        "require\nment",
+    ] {
+        let fake = LogStore::with_active_phase(None);
+        if let Some(record) = fake.record.lock().expect("记录锁").as_mut() {
+            record.workflow_type = workflow_type.to_owned();
+        }
+
+        let err = fake
+            .log(&PhaseLogInput {
+                phase: "proposal".to_owned(),
+                ..base_input()
+            })
+            .expect_err("未知 workflow_type 应 Err");
+
+        assert!(
+            err.contains("workflow_type"),
+            "Err 记因携字段名，实际: {err}"
+        );
+        assert!(
+            err.contains("requirement") && err.contains("test-only"),
+            "文案通吃合法值集，实际: {err}"
+        );
+        assert!(!err.contains("仅 requirement"), "旧字样退役，实际: {err}");
+        assert_eq!(fake.command_count(), 0, "零写命令");
     }
 
-    let err = missing_active
+    // test-only：code-analyze 开相后落账照常（不因类型被拒）
+    let fake = LogStore::with_active_phase(Some(ActivePhaseState {
+        phase: "code-analyze".to_owned(),
+        attempt: 1,
+        start_at: T0,
+    }));
+    if let Some(record) = fake.record.lock().expect("记录锁").as_mut() {
+        record.workflow_type = "test-only".to_owned();
+    }
+
+    let outcome = fake
         .log(&PhaseLogInput {
-            phase: "proposal".to_owned(),
+            phase: "code-analyze".to_owned(),
             ..base_input()
         })
-        .expect_err("非 requirement 应 Err");
+        .expect("test-only 表内相位落账应成功");
 
-    assert!(err.contains("refactor"), "W8 分层出口记因，实际: {err}");
-    assert_eq!(missing_active.command_count(), 0, "零写命令");
+    assert_eq!(outcome.phase, "code-analyze");
+    assert_eq!(outcome.attempt, 1, "attempt 自写面推导");
+    let commands = fake.commands.lock().expect("命令锁不可中毒").clone();
+    assert_eq!(commands.len(), 1, "log_phase 恰一次");
+    assert_eq!(commands[0].phase, "code-analyze");
+    assert_eq!(
+        commands[0].start_at,
+        Some(T0),
+        "start_at 自 active_phase 继承"
+    );
+
+    // test-only 表外相位（implement）仍拒（表位校验随 workflow_type 表）
+    let fake = LogStore::with_active_phase(Some(ActivePhaseState {
+        phase: "implement".to_owned(),
+        attempt: 1,
+        start_at: T0,
+    }));
+    if let Some(record) = fake.record.lock().expect("记录锁").as_mut() {
+        record.workflow_type = "test-only".to_owned();
+    }
+    let err = fake
+        .log(&PhaseLogInput {
+            phase: "implement".to_owned(),
+            ..base_input()
+        })
+        .expect_err("test-only 表外相位应 Err");
+    assert!(
+        err.contains("implement") && err.contains("test-only"),
+        "Err 携表外相位与类型语境，实际: {err}"
+    );
+    assert_eq!(fake.command_count(), 0, "表位校验前置：零写命令");
 }
 
 /// 未建档 id → Err 显式零写入：库空（假件 get_change 恒 None）与库内有建档

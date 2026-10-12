@@ -17,11 +17,13 @@ export interface ExploreListState {
   remove: (name: string) => void;
   /** 标题回填（title 回填唯一写口）：invoke 后 refresh；失败向外 rethrow 供行内呈现 */
   updateTitle: (name: string, title: string) => Promise<void>;
+  /** 工作流类型回填（workflow_type 回填唯一写口；promote 选择器改即写）：invoke 后 refresh；失败向外 rethrow 供行内呈现 */
+  updateWorkflowType: (name: string, workflowType: string) => Promise<void>;
   /** 启动变更（promote，move 语义）：invoke 后 refresh；失败向外 rethrow 供行内呈现 */
-  promote: (name: string) => Promise<void>;
+  promote: (name: string, workflowType: string) => Promise<void>;
 }
 
-/** 动作面汇总（清单三动作 + 详情页两动作；`...actions` 逐字段即 [`ExploreListState`] 的动作段） */
+/** 动作面汇总（清单三动作 + 详情页三动作；`...actions` 逐字段即 [`ExploreListState`] 的动作段） */
 type ExploreActions = ExploreRecordActions & ExploreDetailActions;
 
 interface ExploreRecordActions {
@@ -30,10 +32,11 @@ interface ExploreRecordActions {
   remove: (name: string) => void;
 }
 
-/** 详情页动作面（title 回填 / promote）：失败向外 rethrow 供详情页行内捕获 */
+/** 详情页动作面（title / workflow_type 回填、promote）：失败向外 rethrow 供详情页行内捕获 */
 interface ExploreDetailActions {
   updateTitle: (name: string, title: string) => Promise<void>;
-  promote: (name: string) => Promise<void>;
+  updateWorkflowType: (name: string, workflowType: string) => Promise<void>;
+  promote: (name: string, workflowType: string) => Promise<void>;
 }
 
 /** 清单动作薄封装：invoke 后 refresh；失败落 error 态（不中断页面） */
@@ -98,11 +101,11 @@ function useExploreDetailActions(
     },
     [root, refresh, onError],
   );
-  const promote = useCallback(
-    async (name: string) => {
+  const updateWorkflowType = useCallback(
+    async (name: string, workflowType: string) => {
       if (!root) return;
       try {
-        await commands.promoteExplore(root, name);
+        await commands.updateExploreWorkflowType(root, name, workflowType);
         refresh();
       } catch (err: unknown) {
         onError(String(err));
@@ -111,10 +114,23 @@ function useExploreDetailActions(
     },
     [root, refresh, onError],
   );
-  return { updateTitle, promote };
+  const promote = useCallback(
+    async (name: string, workflowType: string) => {
+      if (!root) return;
+      try {
+        await commands.promoteExplore(root, name, workflowType);
+        refresh();
+      } catch (err: unknown) {
+        onError(String(err));
+        throw err;
+      }
+    },
+    [root, refresh, onError],
+  );
+  return { updateTitle, updateWorkflowType, promote };
 }
 
-/** 动作面组合：清单三动作 + 详情页两动作（返回面即 [`ExploreActions`]） */
+/** 动作面组合：清单三动作 + 详情页三动作（返回面即 [`ExploreActions`]） */
 function useExploreActions(
   root: string | null,
   refresh: () => void,

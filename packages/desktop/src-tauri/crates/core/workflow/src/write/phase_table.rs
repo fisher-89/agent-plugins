@@ -10,9 +10,10 @@ pub struct PhaseAgentSpec {
     pub model_level: ModelLevel,
 }
 
-/// 单相位定义（requirement 表静态项）：计划图节点（有序 step 序列 + 产物清单）
-/// 与角色 prompt spec 的单源载体。code-review / acceptance 为评估-only 相位，
-/// executor 为 `None`（其 step 序列不含 Executor 步）。
+/// 单相位定义（相位表静态项）：计划图节点（有序 step 序列 + 产物清单）、角色
+/// prompt spec 与直接前置依赖的单源载体。code-review / acceptance 为评估-only
+/// 相位，executor 为 `None`（其 step 序列不含 Executor 步）；archive 为确定性
+/// 相位，executor / evaluator 均 `None`。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PhaseDefinition {
     pub id: &'static str,
@@ -21,6 +22,9 @@ pub struct PhaseDefinition {
     pub steps: &'static [StepDefinition],
     /// 相位声明产物清单（相对路径 → phase 归属权威来源）
     pub artifact_manifest: &'static [ArtifactSpec],
+    /// 相位直接前置依赖（表内自描述；stale 传播与下游推导的唯一事实源，
+    /// MUST NOT 存在第二份独立 match）
+    pub prerequisites: &'static [&'static str],
     pub executor: Option<PhaseAgentSpec>,
     pub evaluator: Option<PhaseAgentSpec>,
 }
@@ -35,8 +39,12 @@ pub(crate) const MAX_REPORT_CHARS: usize = 2000;
 /// max 500 同源）。
 pub(crate) const MAX_REASON_CHARS: usize = 500;
 
-/// V1 唯一支持的相位表键（W8：其余 workflow_type 在发起前置校验显式拒绝）。
+/// requirement 工作流类型键（相位表键之一；其余类型在写面 / 发起前置校验显式
+/// 拒绝）。
 const REQUIREMENT_WORKFLOW_TYPE: &str = "requirement";
+
+/// test-only 工作流类型键（相位表键之二）。
+const TEST_ONLY_WORKFLOW_TYPE: &str = "test-only";
 
 /// 会话窗口轮次上限（与插件 `checkRoundLimit` 同源；超限显式 `Err`）。
 pub(crate) const MAX_ROUNDS: u32 = 20;
@@ -62,6 +70,8 @@ const TEST_EXECUTION_EVALUATOR_PROMPT: &str =
     include_str!("../prompts/test-execution-evaluator.md");
 const CODE_REVIEW_EVALUATOR_PROMPT: &str = include_str!("../prompts/code-review-evaluator.md");
 const ACCEPTANCE_EVALUATOR_PROMPT: &str = include_str!("../prompts/acceptance-evaluator.md");
+const CODE_ANALYZE_EXECUTOR_PROMPT: &str = include_str!("../prompts/code-analyze-planner.md");
+const CODE_ANALYZE_EVALUATOR_PROMPT: &str = include_str!("../prompts/code-analyze-evaluator.md");
 
 // --- 相位计划步序列（编译期 const 有序序列；kind / role 由 `StepNode` 派生，
 // 门禁步由 step 声明而非 walker 常量注入）---------------------------------
@@ -88,6 +98,37 @@ static PROPOSAL_STEPS: &[StepDefinition] = &[
         on_fail: Some(OnFail::FeedbackLoop {
             limit: FEEDBACK_LOOP_LIMIT,
         }),
+    },
+    StepDefinition {
+        node: StepNode::PhaseLog,
+        prompt_ref: None,
+        on_fail: None,
+    },
+];
+
+/// code-analyze 相位步序列（P→E，与 proposal / dev-design 同形的分析设计相位：
+/// PhaseStart → Executor → Evaluator → VerdictGate → PhaseLog；VerdictGate
+/// `on_fail=Terminal`）。
+static CODE_ANALYZE_STEPS: &[StepDefinition] = &[
+    StepDefinition {
+        node: StepNode::PhaseStart,
+        prompt_ref: None,
+        on_fail: None,
+    },
+    StepDefinition {
+        node: StepNode::Executor,
+        prompt_ref: Some(CODE_ANALYZE_EXECUTOR_PROMPT),
+        on_fail: None,
+    },
+    StepDefinition {
+        node: StepNode::Evaluator,
+        prompt_ref: Some(CODE_ANALYZE_EVALUATOR_PROMPT),
+        on_fail: None,
+    },
+    StepDefinition {
+        node: StepNode::VerdictGate,
+        prompt_ref: None,
+        on_fail: Some(OnFail::Terminal),
     },
     StepDefinition {
         node: StepNode::PhaseLog,
@@ -404,6 +445,7 @@ static REQUIREMENT_TABLE: &[PhaseDefinition] = &[
         description: "需求提案与规格说明",
         steps: PROPOSAL_STEPS,
         artifact_manifest: PROPOSAL_MANIFEST,
+        prerequisites: &[],
         executor: Some(PhaseAgentSpec {
             prompt: PROPOSAL_EXECUTOR_PROMPT,
             model_level: ModelLevel::High,
@@ -418,6 +460,7 @@ static REQUIREMENT_TABLE: &[PhaseDefinition] = &[
         description: "详细设计与任务拆解",
         steps: DEV_DESIGN_STEPS,
         artifact_manifest: DEV_DESIGN_MANIFEST,
+        prerequisites: &["proposal"],
         executor: Some(PhaseAgentSpec {
             prompt: DEV_DESIGN_EXECUTOR_PROMPT,
             model_level: ModelLevel::High,
@@ -432,6 +475,7 @@ static REQUIREMENT_TABLE: &[PhaseDefinition] = &[
         description: "测试设计",
         steps: TEST_DESIGN_STEPS,
         artifact_manifest: &[],
+        prerequisites: &["proposal", "dev-design"],
         executor: Some(PhaseAgentSpec {
             prompt: TEST_DESIGN_EXECUTOR_PROMPT,
             model_level: ModelLevel::High,
@@ -446,6 +490,7 @@ static REQUIREMENT_TABLE: &[PhaseDefinition] = &[
         description: "代码实现",
         steps: IMPLEMENT_STEPS,
         artifact_manifest: &[],
+        prerequisites: &["dev-design"],
         executor: Some(PhaseAgentSpec {
             prompt: IMPLEMENT_EXECUTOR_PROMPT,
             model_level: ModelLevel::Low,
@@ -460,6 +505,7 @@ static REQUIREMENT_TABLE: &[PhaseDefinition] = &[
         description: "测试代码生成",
         steps: TEST_GEN_STEPS,
         artifact_manifest: &[],
+        prerequisites: &["test-design", "implement"],
         executor: Some(PhaseAgentSpec {
             prompt: TEST_GEN_EXECUTOR_PROMPT,
             model_level: ModelLevel::Low,
@@ -474,6 +520,7 @@ static REQUIREMENT_TABLE: &[PhaseDefinition] = &[
         description: "测试执行与诊断",
         steps: TEST_EXECUTION_STEPS,
         artifact_manifest: TEST_EXECUTION_MANIFEST,
+        prerequisites: &["test-gen", "implement"],
         executor: Some(PhaseAgentSpec {
             prompt: TEST_EXECUTION_EXECUTOR_PROMPT,
             model_level: ModelLevel::Low,
@@ -488,6 +535,7 @@ static REQUIREMENT_TABLE: &[PhaseDefinition] = &[
         description: "代码审查",
         steps: CODE_REVIEW_STEPS,
         artifact_manifest: &[],
+        prerequisites: &["test-gen", "implement"],
         executor: None,
         evaluator: Some(PhaseAgentSpec {
             prompt: CODE_REVIEW_EVALUATOR_PROMPT,
@@ -499,6 +547,7 @@ static REQUIREMENT_TABLE: &[PhaseDefinition] = &[
         description: "验收评估",
         steps: ACCEPTANCE_STEPS,
         artifact_manifest: &[],
+        prerequisites: &["proposal", "dev-design", "implement"],
         executor: None,
         evaluator: Some(PhaseAgentSpec {
             prompt: ACCEPTANCE_EVALUATOR_PROMPT,
@@ -514,21 +563,120 @@ static REQUIREMENT_TABLE: &[PhaseDefinition] = &[
         description: "归档收口",
         steps: ARCHIVE_STEPS,
         artifact_manifest: &[],
+        prerequisites: &[],
         executor: None,
         evaluator: None,
     },
 ];
 
-/// 按工作流类型取相位表；V1 仅 `requirement` 返回 `Some`，其余 `None`
-///（W8 发起前置校验依据，显式拒绝优于相位机半途报错）。
+/// test-only 相位表（6 个路由相位 = 5 个 agent 相位 + archive 确定性相位）：
+/// proposal 复用 requirement 同名 step 静态与 prompt（描述改「测试向提案」，
+/// 是否拆独立 prompt 留待看效果）；code-analyze 为新增 P→E 分析相位
+/// （`CODE_ANALYZE_STEPS` + 两个新增角色 md，零产物清单）；test-design /
+/// test-gen 复用同名 static；test-execution 沿用 desktop 确定性格
+/// （`[PhaseStart, TestExecution, PhaseLog]`，零 agent，不照搬插件侧
+/// Executor→E）；archive 复用 `ARCHIVE_STEPS`。
+static TEST_ONLY_TABLE: &[PhaseDefinition] = &[
+    PhaseDefinition {
+        id: "proposal",
+        description: "测试向提案",
+        steps: PROPOSAL_STEPS,
+        artifact_manifest: PROPOSAL_MANIFEST,
+        prerequisites: &[],
+        executor: Some(PhaseAgentSpec {
+            prompt: PROPOSAL_EXECUTOR_PROMPT,
+            model_level: ModelLevel::High,
+        }),
+        evaluator: Some(PhaseAgentSpec {
+            prompt: PROPOSAL_EVALUATOR_PROMPT,
+            model_level: ModelLevel::High,
+        }),
+    },
+    PhaseDefinition {
+        id: "code-analyze",
+        description: "既有代码分析",
+        steps: CODE_ANALYZE_STEPS,
+        artifact_manifest: &[],
+        prerequisites: &["proposal"],
+        executor: Some(PhaseAgentSpec {
+            prompt: CODE_ANALYZE_EXECUTOR_PROMPT,
+            model_level: ModelLevel::High,
+        }),
+        evaluator: Some(PhaseAgentSpec {
+            prompt: CODE_ANALYZE_EVALUATOR_PROMPT,
+            model_level: ModelLevel::High,
+        }),
+    },
+    PhaseDefinition {
+        id: "test-design",
+        description: "测试设计",
+        steps: TEST_DESIGN_STEPS,
+        artifact_manifest: &[],
+        prerequisites: &["proposal", "code-analyze"],
+        executor: Some(PhaseAgentSpec {
+            prompt: TEST_DESIGN_EXECUTOR_PROMPT,
+            model_level: ModelLevel::High,
+        }),
+        evaluator: Some(PhaseAgentSpec {
+            prompt: TEST_DESIGN_EVALUATOR_PROMPT,
+            model_level: ModelLevel::High,
+        }),
+    },
+    PhaseDefinition {
+        id: "test-gen",
+        description: "测试代码生成",
+        steps: TEST_GEN_STEPS,
+        artifact_manifest: &[],
+        prerequisites: &["test-design"],
+        executor: Some(PhaseAgentSpec {
+            prompt: TEST_GEN_EXECUTOR_PROMPT,
+            model_level: ModelLevel::Low,
+        }),
+        evaluator: Some(PhaseAgentSpec {
+            prompt: TEST_GEN_EVALUATOR_PROMPT,
+            model_level: ModelLevel::Low,
+        }),
+    },
+    PhaseDefinition {
+        id: "test-execution",
+        description: "测试执行与诊断",
+        steps: TEST_EXECUTION_STEPS,
+        artifact_manifest: TEST_EXECUTION_MANIFEST,
+        prerequisites: &["test-gen"],
+        executor: Some(PhaseAgentSpec {
+            prompt: TEST_EXECUTION_EXECUTOR_PROMPT,
+            model_level: ModelLevel::Low,
+        }),
+        evaluator: Some(PhaseAgentSpec {
+            prompt: TEST_EXECUTION_EVALUATOR_PROMPT,
+            model_level: ModelLevel::Low,
+        }),
+    },
+    // archive：与 requirement 表同形（确定性相位，无 executor / evaluator、
+    // 零 artifact_manifest、固定停止点）。
+    PhaseDefinition {
+        id: "archive",
+        description: "归档收口",
+        steps: ARCHIVE_STEPS,
+        artifact_manifest: &[],
+        prerequisites: &[],
+        executor: None,
+        evaluator: None,
+    },
+];
+
+/// 按工作流类型取相位表：`requirement` → `REQUIREMENT_TABLE`（9 相位）、
+/// `test-only` → `TEST_ONLY_TABLE`（6 相位），其余（含空白 / 未知 / bug-fix）
+/// → `None`（不退化——写面 / 发起前置校验依据，显式拒绝优于相位机半途报错）。
 pub fn phase_table(workflow_type: &str) -> Option<&'static [PhaseDefinition]> {
-    if !workflow_type
-        .trim()
-        .eq_ignore_ascii_case(REQUIREMENT_WORKFLOW_TYPE)
-    {
-        return None;
+    let workflow_type = workflow_type.trim();
+    if workflow_type.eq_ignore_ascii_case(REQUIREMENT_WORKFLOW_TYPE) {
+        return Some(REQUIREMENT_TABLE);
     }
-    Some(REQUIREMENT_TABLE)
+    if workflow_type.eq_ignore_ascii_case(TEST_ONLY_WORKFLOW_TYPE) {
+        return Some(TEST_ONLY_TABLE);
+    }
+    None
 }
 
 /// 当前相位在表中的全部前置相位（含自身；与插件 `computeAllowedBacktrackPhases`
@@ -546,27 +694,13 @@ pub fn allowed_backtrack_phases(table: &[PhaseDefinition], current_phase: &str) 
         .collect()
 }
 
-/// requirement 直接前置依赖表（stale 传播的单一事实源，与插件
-/// `PHASE_PREREQUISITES` 一比一）。
-fn prerequisites(phase: &str) -> &'static [&'static str] {
-    match phase {
-        "dev-design" => &["proposal"],
-        "test-design" => &["proposal", "dev-design"],
-        "test-gen" => &["test-design", "implement"],
-        "implement" => &["dev-design"],
-        "test-execution" => &["test-gen", "implement"],
-        "code-review" => &["test-gen", "implement"],
-        "acceptance" => &["proposal", "dev-design", "implement"],
-        _ => &[],
-    }
-}
-
 /// 依赖 `phase` 的全部下游相位（表序；与插件 `getDependents` 同源推导：
-/// 表内前置含 `phase` 即为下游）。
+/// 表内前置含 `phase` 即为下游——前置依赖表内自描述，无第二份独立 match，
+/// 类型感知随表分派天然成立）。
 pub(crate) fn dependents(table: &[PhaseDefinition], phase: &str) -> Vec<String> {
     table
         .iter()
-        .filter(|candidate| prerequisites(candidate.id).contains(&phase))
+        .filter(|candidate| candidate.prerequisites.contains(&phase))
         .map(|candidate| candidate.id.to_owned())
         .collect()
 }

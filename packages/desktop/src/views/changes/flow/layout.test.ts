@@ -2,13 +2,30 @@ import { describe, expect, it } from 'vite-plus/test';
 
 import type { ChangeDetail } from '../../../types/dto';
 import { buildFlowGraph } from './graph';
-import { COLUMN_HEADER_H, columnLayout, nodeLayout, PIPELINE_PHASES } from './layout';
+import { COLUMN_HEADER_H, columnLayout, nodeLayout } from './layout';
 import type { FlowColumn, FlowGraph, FlowNode, RuntimeFlowNode } from './types';
 
 const COLUMN_PADDING = 18;
 const COLUMN_WIDTH = 260;
 
-/** 十站空 attempts 的建档详情（列骨架来源——节点模型单分类后节点经 runNodes 直供）。 */
+/**
+ * requirement 相位序夹具（D12：前端 `PIPELINE_PHASES` 常量退役，列序改由
+ * `detail.pipeline` 出线承载，测试各自内联 fixture）：9 列，archive 为第 9 列、
+ * 无 code-analyze 占位列。
+ */
+const REQUIREMENT_PHASES = [
+  'proposal',
+  'dev-design',
+  'test-design',
+  'implement',
+  'test-gen',
+  'test-execution',
+  'code-review',
+  'acceptance',
+  'archive',
+];
+
+/** 九站空 attempts 的建档详情（列骨架来源——节点模型单分类后节点经 runNodes 直供）。 */
 function detail(): ChangeDetail {
   return {
     id: 'add-feature',
@@ -17,7 +34,7 @@ function detail(): ChangeDetail {
     source: 'active',
     status: 'active',
     created: null,
-    pipeline: PIPELINE_PHASES.map((phase) => ({ phase, attempts: [] })),
+    pipeline: REQUIREMENT_PHASES.map((phase) => ({ phase, attempts: [] })),
     activePhase: null,
     runs: [],
     worktree: null,
@@ -65,7 +82,7 @@ function graph(): FlowGraph {
 }
 
 function column(colIndex: number): FlowColumn {
-  const phase = PIPELINE_PHASES[colIndex];
+  const phase = REQUIREMENT_PHASES[colIndex];
   return { id: `col:${phase}`, phase, colIndex };
 }
 
@@ -98,10 +115,10 @@ describe('nodePosition：布局即语义坐标公式', () => {
     expect(nodeLayout(first).position.y).toBe(66);
   });
 
-  it('末列 colIndex=9（archive）→ x 恰为 9 × (COL_W + 20)（画布总宽边界上移一列）', () => {
-    expect(columnLayout(column(9), graph()).position.x).toBe(9 * (COLUMN_WIDTH + 20));
-    // 10 列总宽 = 9 × (COL_W + 20) + COL_W
-    expect(9 * (COLUMN_WIDTH + 20) + COLUMN_WIDTH).toBe(2780);
+  it('末列 colIndex=8（archive）→ x 恰为 8 × (COL_W + 20)（画布总宽边界上移一列）', () => {
+    expect(columnLayout(column(8), graph()).position.x).toBe(8 * (COLUMN_WIDTH + 20));
+    // 9 列总宽 = 8 × (COL_W + 20) + COL_W
+    expect(8 * (COLUMN_WIDTH + 20) + COLUMN_WIDTH).toBe(2500);
   });
 
   it('超大 order（如 1000）→ 坐标按公式线性外推，无钳制、无 NaN、不抛错', () => {
@@ -114,35 +131,13 @@ describe('nodePosition：布局即语义坐标公式', () => {
   });
 });
 
-describe('layout：PIPELINE_PHASES 十列布局（AC-1 / D5 双侧同步）', () => {
-  it('正向：PIPELINE_PHASES 长度 10 且含 archive（末列、code-analyze 之后）', () => {
-    expect(PIPELINE_PHASES).toHaveLength(10);
-    expect(PIPELINE_PHASES[PIPELINE_PHASES.length - 1]).toBe('archive');
-    expect(PIPELINE_PHASES[PIPELINE_PHASES.length - 2]).toBe('code-analyze');
-    expect(new Set(PIPELINE_PHASES).size).toBe(10);
-  });
-
-  it('正向：与后端 PIPELINE_PHASES 同序（十站表序逐位一致，双侧同步不漂移）', () => {
-    expect([...PIPELINE_PHASES]).toEqual([
-      'proposal',
-      'dev-design',
-      'test-design',
-      'implement',
-      'test-gen',
-      'test-execution',
-      'code-review',
-      'acceptance',
-      'code-analyze',
-      'archive',
-    ]);
-  });
-
-  it('边界：archive 列（colIndex=9）坐标合法且空列时节点列表不报错', () => {
-    const archiveColumn = column(9);
+describe('layout：列序由 detail.pipeline 出线（D12：PIPELINE_PHASES 常量退役）', () => {
+  it('边界：archive 列（colIndex=8）坐标合法且空列时节点列表不报错', () => {
+    const archiveColumn = column(8);
     expect(archiveColumn.phase).toBe('archive');
     const { position } = columnLayout(archiveColumn, graph());
     expect(position.y).toBe(0);
-    expect(position.x).toBe(9 * (COLUMN_WIDTH + 20));
+    expect(position.x).toBe(8 * (COLUMN_WIDTH + 20));
     expect(Number.isFinite(position.x)).toBe(true);
 
     // 空列（archive 零步节点）→ 图仍产出该列容器、零节点
@@ -152,10 +147,10 @@ describe('layout：PIPELINE_PHASES 十列布局（AC-1 / D5 双侧同步）', ()
     expect(mockGraph.nodes.filter((node) => node.parentId === 'col:archive')).toHaveLength(0);
   });
 
-  it('异常（回归）：列词汇恒为十站已知相位（未知相位不在列集合）', () => {
+  it('异常（回归）：列词汇恒为该 change 相位表已知相位（未知相位不在列集合）', () => {
     const graph = graphWithTwoRunSteps();
     const phases = new Set(graph.columns.map((entry) => entry.phase));
     expect(phases.has('unknown-phase')).toBe(false);
-    expect([...phases]).toEqual([...PIPELINE_PHASES]);
+    expect([...phases]).toEqual([...REQUIREMENT_PHASES]);
   });
 });

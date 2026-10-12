@@ -19,7 +19,7 @@
 //! ## 归档前缀样本（D13）
 //!
 //! 归档 change（db archived 裸名 + `archived_at` + 磁盘 `YYYY-MM-DD-` 前缀
-//! 目录）入 golden：detail 全状态面（status=archived、10 站 pipeline 与 runs
+//! 目录）入 golden：detail 全状态面（status=archived、9 站 pipeline 与 runs
 //! 全量）与列表归档组（裸名 + id + `archived_at` 月分组）双面。
 //!
 //! ## golden 重写开关
@@ -156,6 +156,7 @@ impl Corpus {
             name,
             goal,
             name,
+            "requirement",
         )
     }
 
@@ -955,7 +956,7 @@ fn build_run_interrupted() -> Corpus {
 
 /// 归档前缀样本语料（D13）：db archived（固定 id + 裸名 `seeded-archived` +
 /// `archived_at` 2026-02-02）+ 磁盘 `YYYY-MM-DD-` 前缀目录（产物树）+ 相位行
-/// 与 run 史种子 → detail 全状态面 golden（status=archived、10 站 pipeline 与
+/// 与 run 史种子 → detail 全状态面 golden（status=archived、9 站 pipeline 与
 /// runs 全量出线；错配链结构性退役——AC-2）。
 fn build_archive_prefix() -> Corpus {
     let corpus = Corpus::new("archive-prefix");
@@ -1505,7 +1506,7 @@ fn corpus列表混合语料_golden对拍() {
 }
 
 /// 归档前缀样本语料（D13）：db archived 裸名 + `archived_at` + 磁盘
-/// `YYYY-MM-DD-` 前缀目录 → detail 全状态面 golden（status=archived、10 站
+/// `YYYY-MM-DD-` 前缀目录 → detail 全状态面 golden（status=archived、9 站
 /// pipeline 与 runs 全量出线；id / 裸名出线——AC-2 golden 半边）。
 #[test]
 fn corpus归档前缀样本_golden对拍() {
@@ -1529,7 +1530,7 @@ fn corpus归档前缀样本_golden对拍() {
         "归档状态面在场（非文档形态空面）"
     );
     let pipeline = projection["pipeline"].as_array().expect("pipeline 为数组");
-    assert_eq!(pipeline.len(), 10, "10 站 pipeline 全量出线（含 archive 末列）");
+    assert_eq!(pipeline.len(), 9, "9 站 pipeline 全量出线（含 archive 末列，无 code-analyze 占位列）");
     assert!(
         !pipeline[0]["attempts"]
             .as_array()
@@ -2059,7 +2060,7 @@ fn corpusgolden重写后_diff范围键集断言() {
         "归档前缀样本状态面 archived 在案"
     );
     let pipeline = value["pipeline"].as_array().expect("pipeline 为数组");
-    assert_eq!(pipeline.len(), 10, "归档前缀样本 10 站 pipeline 全量出线");
+    assert_eq!(pipeline.len(), 9, "归档前缀样本 9 站 pipeline 全量出线");
     assert_eq!(
         pipeline.last().and_then(|station| station["phase"].as_str()),
         Some("archive"),
@@ -2345,6 +2346,7 @@ fn 真件create_fs失败补偿_重开db零残留() {
             "fix-bug",
             "补偿路径 goal",
             "fix-bug",
+            "requirement",
         )
         .expect_err("fs 半边失败应 Err");
         assert!(
@@ -2870,7 +2872,7 @@ fn 真件detail未找到与建档恒可达() {
         "source 自 record.status 映射"
     );
     assert!(detail.artifacts.is_empty(), "定位 miss 产物清单空");
-    assert!(!detail.pipeline.is_empty(), "建档流水线 10 站全量输出");
+    assert!(!detail.pipeline.is_empty(), "建档流水线 9 站全量输出");
 }
 
 /// run 写面真件回环（unify-run-state-persistence，test-design「write/run.rs ->

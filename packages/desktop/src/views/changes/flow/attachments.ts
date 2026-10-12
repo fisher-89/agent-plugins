@@ -1,14 +1,15 @@
 import type { ArtifactEnvelope, ChangeDetail } from '../../../types/dto';
-import { PIPELINE_PHASES } from './layout';
 import type { FlowMaterials } from './types';
 
 /**
  * 文档挂列：归属相位自后端清单出线（`detail.artifacts[].phase`——phase 定义清单
- * 为归属权威源，前端字符串 → 列静态映射已退役）。空归属 / pipeline 外相位 →
- * 不挂列（未归属文档不误挂到错误站）。命中返回列 id，否则 null。
+ * 为归属权威源，前端字符串 → 列静态映射已退役）。归属校验以该 change
+ * `detail.pipeline` 的相位集为准（列序出线单源：requirement 9 列 / test-only
+ * 6 列），空归属 / pipeline 外相位 → 不挂列（未归属文档不误挂到错误站）。命中
+ * 返回列 id，否则 null。
  */
-function artifactColumn(phase: string | null): string | null {
-  if (phase === null || phase === '' || PIPELINE_PHASES.indexOf(phase) < 0) return null;
+function artifactColumn(phase: string | null, pipelinePhases: Set<string>): string | null {
+  if (phase === null || phase === '' || !pipelinePhases.has(phase)) return null;
   return `col:${phase}`;
 }
 
@@ -39,6 +40,8 @@ function append<T>(record: Record<string, T[]>, key: string, value: T): void {
  */
 export function mountMaterials(detail: ChangeDetail, envelopes: ArtifactEnvelope[]): FlowMaterials {
   const materials: FlowMaterials = { columnDocs: {} };
+  // 归属校验的相位集 = `detail.pipeline` 相位集（列序出线单源；零静态相位序常量）
+  const pipelinePhases = new Set(detail.pipeline.map((entry) => entry.phase));
   for (let index = 0; index < envelopes.length; index += 1) {
     const envelope = envelopes[index];
     if (envelope.kind === 'markdown-doc' || envelope.kind === 'tasks-progress') {
@@ -46,11 +49,11 @@ export function mountMaterials(detail: ChangeDetail, envelopes: ArtifactEnvelope
       // 取清单归属相位（source 仅作寻址键，归属恒读 phase）
       const descriptor = detail.artifacts[index];
       if (descriptor === undefined) continue;
-      const column = artifactColumn(descriptor.phase);
+      const column = artifactColumn(descriptor.phase, pipelinePhases);
       if (column !== null) append(materials.columnDocs, column, envelope);
     } else if (envelope.kind === 'eval-checklist' && isChecklistRef(envelope.payload)) {
       // payload 自带 phase（pipeline 外相位不挂列——归属校验与文档同式）
-      const column = artifactColumn(envelope.payload.phase);
+      const column = artifactColumn(envelope.payload.phase, pipelinePhases);
       if (column !== null) append(materials.columnDocs, column, envelope);
     }
   }

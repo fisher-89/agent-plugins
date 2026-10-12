@@ -324,15 +324,68 @@ fn 非法相位拒绝且store零写入() {
     assert!(record.active_phase.is_none(), "active_phase 未被写入");
 }
 
-/// workflow_type 非 requirement → Err 且零写入（W8 分层出口）。
+/// workflow_type 未知 → Err 且零写入；test-only 类型可走通（两值分派）。
 #[test]
-fn workflow_type非requirement拒绝零写入() {
+fn workflow_type未知拒绝零写入且test_only可开相() {
+    // 未知类型：文案通吃两值、旧「V1 仅 requirement」字样退役
+    let long_unknown = "x".repeat(1200);
+    for workflow_type in [
+        "bug-fix",
+        "refactor",
+        "",
+        " ",
+        "test_only",
+        long_unknown.as_str(),
+        "test-only🚀",
+        "require\nment",
+    ] {
+        let fake = StartStore::with_workflow_type(workflow_type);
+
+        let err = fake.start("proposal").expect_err("未知 workflow_type 应 Err");
+
+        assert!(
+            err.contains("workflow_type"),
+            "Err 记因携字段名，实际: {err}"
+        );
+        assert!(
+            err.contains("requirement") && err.contains("test-only"),
+            "文案通吃合法值集，实际: {err}"
+        );
+        assert!(
+            !err.contains("仅 requirement"),
+            "旧字样退役，实际: {err}"
+        );
+        assert_eq!(fake.start_call_count(), 0, "零写入");
+    }
+
+    // test-only：proposal / code-analyze 开相照常（不因类型被拒）
+    for phase in ["proposal", "code-analyze"] {
+        let fake = StartStore::with_workflow_type("test-only");
+
+        let outcome = fake
+            .start(phase)
+            .unwrap_or_else(|e| panic!("test-only 相位 {phase} 应可开相: {e}"));
+
+        assert_eq!(outcome.phase, phase);
+        assert_eq!(fake.start_call_count(), 1, "start_phase 恰一次");
+        let record = fake.get_change(CHANGE_ID).unwrap().unwrap();
+        assert_eq!(
+            record.active_phase.map(|active| active.phase),
+            Some(phase.to_owned()),
+            "active_phase 落开相相位"
+        );
+    }
+
+    // test-only 表外相位（implement）仍拒（表位校验随 workflow_type 表）
     let fake = StartStore::with_workflow_type("test-only");
-
-    let err = fake.start("proposal").expect_err("非 requirement 应 Err");
-
-    assert!(err.contains("test-only"), "W8 分层出口记因，实际: {err}");
-    assert_eq!(fake.start_call_count(), 0, "零写入");
+    let err = fake
+        .start("implement")
+        .expect_err("test-only 表外相位应 Err");
+    assert!(
+        err.contains("implement") && err.contains("test-only"),
+        "Err 携表外相位与类型语境，实际: {err}"
+    );
+    assert_eq!(fake.start_call_count(), 0, "表位校验前置：零写入");
 }
 
 /// 未建档 id → Err 显式零写入：库空（假件 get_change 恒 None）与库内有建档

@@ -40,7 +40,7 @@ impl Drop for RestoreOnDrop {
     }
 }
 
-/// 34 条命令的生成包装名（camelCase，与 `generate_handler!` 时代命令清单一一
+/// 35 条命令的生成包装名（camelCase，与 `generate_handler!` 时代命令清单一一
 /// 对应；历史缺录为既有滞后债，contains 语义不致红、按现行口径只补录本变更
 /// 自身新命令）。
 const COMMAND_WRAPPERS: &[&str] = &[
@@ -71,6 +71,7 @@ const COMMAND_WRAPPERS: &[&str] = &[
     "renameExploreRecord",
     "deleteExploreRecord",
     "updateExploreTitle",
+    "updateExploreWorkflowType",
     "promoteExplore",
     "watchSubscribe",
     "watchUnsubscribe",
@@ -109,6 +110,7 @@ const COMMAND_NAMES: &[&str] = &[
     "rename_explore_record",
     "delete_explore_record",
     "update_explore_title",
+    "update_explore_workflow_type",
     "promote_explore",
     "watch_subscribe",
     "watch_unsubscribe",
@@ -812,12 +814,12 @@ fn dto_types清单不残留退役幽灵条目() {
 }
 
 #[test]
-fn command清单补录_archive_change后32条且既有锚点与在册命令保持() {
+fn command清单补录_archive_change后35条且既有锚点与在册命令保持() {
     // 本变更自身新命令补录（历史缺录为既有滞后债，contains 语义不致红、不在
-    // 本变更范围）：条目数 32 → 34（promote_explore / update_explore_title），
+    // 本变更范围）：条目数 34 → 35（update_explore_workflow_type），
     // 首尾锚点不变
-    assert_eq!(COMMAND_NAMES.len(), 34, "命令清单恰补录本变更两条");
-    assert_eq!(COMMAND_WRAPPERS.len(), 34, "包装清单恰补录本变更两条");
+    assert_eq!(COMMAND_NAMES.len(), 35, "命令清单恰补录本变更一条");
+    assert_eq!(COMMAND_WRAPPERS.len(), 35, "包装清单恰补录本变更一条");
     assert_eq!(COMMAND_NAMES.first(), Some(&"list_changes"));
     assert_eq!(COMMAND_NAMES.last(), Some(&"workspace_config"));
     assert!(COMMAND_NAMES.contains(&"archive_change"), "invoke 名补录");
@@ -826,6 +828,15 @@ fn command清单补录_archive_change后32条且既有锚点与在册命令保�
     assert!(
         COMMAND_NAMES.contains(&"update_explore_title"),
         "invoke 名补录"
+    );
+    // 本变更新增命令（explore 工作流类型回填唯一写口）
+    assert!(
+        COMMAND_NAMES.contains(&"update_explore_workflow_type"),
+        "invoke 名补录（update_explore_workflow_type）"
+    );
+    assert!(
+        COMMAND_WRAPPERS.contains(&"updateExploreWorkflowType"),
+        "包装名补录（updateExploreWorkflowType）"
     );
     // 无 interrupted 相关命令混入（历史口径持衡）
     assert!(
@@ -980,21 +991,25 @@ fn change_detail出线含worktree_string_or_null() {
     );
 }
 
-/// 签面不变：`create_change` 命令包装参数面不变（root / name / goal——async
-/// 化零 bindings 漂移）。
+/// 签面随动：`create_change` 命令包装参数面扩为四参（root / name / goal /
+/// workflowType——desktop-test-only-flow 类型选择器入参）。
 #[test]
-fn create_change命令签面_root_name_goal三参不变() {
+fn create_change命令签面_root_name_goal_workflow_type四参() {
     let _lock = lock();
     let content = String::from_utf8(authoritative_snapshot()).expect("产物为 UTF-8 文本");
 
-    // 命令包装形态：invoke 目标 + 三参对象（async 化零漂移）
+    // 命令包装形态：invoke 目标 + 四参对象
     assert!(
-        content.contains("createChange: (root: string, name: string, goal: string) =>"),
-        "createChange 参数面不变（root / name / goal），实际段缺失"
+        content.contains(
+            "createChange: (root: string, name: string, goal: string, workflowType: string) =>"
+        ),
+        "createChange 参数面为四参（root / name / goal / workflowType），实际段缺失"
     );
     assert!(
-        content.contains(r#"__TAURI_INVOKE<CreateOutcome>("create_change", { root, name, goal })"#),
-        "invoke 目标 create_change 与三参对象不变"
+        content.contains(
+            r#"__TAURI_INVOKE<CreateOutcome>("create_change", { root, name, goal, workflowType })"#
+        ),
+        "invoke 目标 create_change 与四参对象随动"
     );
 }
 

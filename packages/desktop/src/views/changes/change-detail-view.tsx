@@ -227,9 +227,11 @@ function useFlowGraphData(
   activeRun: ActiveRunView | null,
   artifacts: ArtifactEnvelope[],
 ): { graph: FlowGraph; materials: FlowMaterials; lastRun: ChangeRunEntry | null } {
+  // 列序单源 = `detail.pipeline` 出线序（requirement 9 列 / test-only 6 列）
+  const phaseOrder = useMemo(() => detail.pipeline.map((entry) => entry.phase), [detail]);
   const runNodes = useMemo(
-    () => runStepNodes(unifiedRunNodes(detail.runs, activeRun?.nodes ?? [])),
-    [detail.runs, activeRun],
+    () => runStepNodes(unifiedRunNodes(detail.runs, activeRun?.nodes ?? []), phaseOrder),
+    [detail.runs, activeRun, phaseOrder],
   );
   const runEdges = useMemo(
     () => unifiedRunEdges(detail.runs, activeRun?.edges ?? []),

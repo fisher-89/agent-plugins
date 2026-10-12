@@ -10,8 +10,23 @@ import type {
 import { mountMaterials } from './attachments';
 import { DetailDrawer } from './detail-drawer';
 import { buildFlowGraph } from './graph';
-import { PIPELINE_PHASES } from './layout';
 import type { DrawerSelection, FlowGraph, FlowMaterials, RuntimeFlowNode } from './types';
+
+/**
+ * requirement 相位序夹具（D12：前端 `PIPELINE_PHASES` 常量退役，列序改由
+ * `detail.pipeline` 出线承载，测试各自内联 fixture）：9 列，archive 为第 9 列。
+ */
+const REQUIREMENT_PHASES = [
+  'proposal',
+  'dev-design',
+  'test-design',
+  'implement',
+  'test-gen',
+  'test-execution',
+  'code-review',
+  'acceptance',
+  'archive',
+];
 
 // ---------------------------------------------------------------------------
 // DetailDrawer 单测（change-flow-show-step-only，AC-2）：单列分派——列头 →
@@ -84,7 +99,7 @@ function detail(overrides: Partial<ChangeDetail> = {}): ChangeDetail {
     source: 'active',
     status: 'active',
     created: null,
-    pipeline: PIPELINE_PHASES.map((phase) => ({ phase, attempts: [] })),
+    pipeline: REQUIREMENT_PHASES.map((phase) => ({ phase, attempts: [] })),
     activePhase: null,
     runs: [],
     worktree: null,
@@ -139,7 +154,7 @@ function runtimeNode(overrides: Partial<RuntimeFlowNode> = {}): RuntimeFlowNode 
     kind: 'runtime',
     phase: 'implement',
     attempt: 2,
-    colIndex: PIPELINE_PHASES.indexOf('implement'),
+    colIndex: REQUIREMENT_PHASES.indexOf('implement'),
     order: 0,
     parentId: 'col:implement',
     runStepKind: 'executor',

@@ -210,7 +210,7 @@ fn db读源detail按id寻址_与queries直调serde等值() {
         "detail 与 queries 直调 serde 等值"
     );
 
-    // 字段面抽查：建档判别 / 状态面 / 10 站流水线重组
+    // 字段面抽查：建档判别 / 状态面 / 9 站流水线重组（requirement 表相位序）
     assert_eq!(detail.source, ChangeSource::Active);
     assert_eq!(detail.status, Some(ChangeStatus::Active));
     assert_eq!(
@@ -220,8 +220,8 @@ fn db读源detail按id寻址_与queries直调serde等值() {
     );
     assert_eq!(
         detail.pipeline.len(),
-        10,
-        "固定 10 站全量流水线（末列 archive）"
+        9,
+        "requirement 9 站全量流水线（末列 archive；列序自 phase_table 出线）"
     );
     let proposal = &detail.pipeline[0];
     assert_eq!(proposal.attempts.len(), 1);

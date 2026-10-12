@@ -9,6 +9,22 @@ import type {
 } from '../../../types/dto';
 import { nodeIdentityKey, runStepNodes, unifiedRunNodes } from './run-state';
 
+/**
+ * requirement 相位序夹具（D12：前端 `PIPELINE_PHASES` 常量退役，`runStepNodes`
+ * 改显式传序，测试各自内联 fixture）：9 列，archive 为第 9 列（colIndex=8）。
+ */
+const REQUIREMENT_PHASES = [
+  'proposal',
+  'dev-design',
+  'test-design',
+  'implement',
+  'test-gen',
+  'test-execution',
+  'code-review',
+  'acceptance',
+  'archive',
+];
+
 // ---------------------------------------------------------------------------
 // run-state 纯函数直测（零 react / 零进程边界依赖）：统一视图 fixture 以绑定
 // 类型内存构造。覆盖：unifiedRunNodes 双源合成（`runs[].nodes` 展开 + 活节点
@@ -170,7 +186,7 @@ describe('runStepNodes：稳定身份键渲染（overlay 输入面）', () => {
       }),
     ];
 
-    const nodes = runStepNodes(steps);
+    const nodes = runStepNodes(steps, REQUIREMENT_PHASES);
     expect(nodes).toHaveLength(2);
     expect(nodes.map((node) => node.id)).toEqual([
       'run:implement:1:executor:0',
@@ -193,7 +209,7 @@ describe('runStepNodes：稳定身份键渲染（overlay 输入面）', () => {
       stepRow({ step: 'staticCheck', sessionId: null, instanceNo: 1 }),
     ];
 
-    const nodes = runStepNodes(steps);
+    const nodes = runStepNodes(steps, REQUIREMENT_PHASES);
     expect(nodes.map((node) => node.id)).toEqual([
       'run:implement:1:executor:0',
       'run:implement:1:staticCheck:0',
@@ -215,7 +231,7 @@ describe('runStepNodes：稳定身份键渲染（overlay 输入面）', () => {
       }),
     ];
 
-    const nodes = runStepNodes(steps);
+    const nodes = runStepNodes(steps, REQUIREMENT_PHASES);
     expect(nodes[0]).toEqual({
       id: 'run:implement:1:executor:0',
       kind: 'runtime',
@@ -278,7 +294,7 @@ describe('runStepNodes：稳定身份键渲染（overlay 输入面）', () => {
       stepRow({ step: kind, attempt: index }),
     );
 
-    const nodes = runStepNodes(steps);
+    const nodes = runStepNodes(steps, REQUIREMENT_PHASES);
     expect(nodes).toHaveLength(18);
     for (const node of nodes) {
       const expected = GROUP_OF[node.runStepKind];
@@ -287,9 +303,11 @@ describe('runStepNodes：稳定身份键渲染（overlay 输入面）', () => {
     }
   });
 
-  it('缺号相位跳过：phase 不在 10 站内的步不入图（布局恒定）', () => {
+  it('缺号相位跳过：phase 不在相位表内的步不入图（列序随出线）', () => {
     const steps = [stepRow({ phase: 'bootstrap' }), stepRow()];
-    expect(runStepNodes(steps).map((node) => node.id)).toEqual(['run:implement:1:executor:0']);
+    expect(runStepNodes(steps, REQUIREMENT_PHASES).map((node) => node.id)).toEqual([
+      'run:implement:1:executor:0',
+    ]);
   });
 
   it('列内归并序：同列多节点按归并序 0 起编号（order 面）', () => {
@@ -299,7 +317,7 @@ describe('runStepNodes：稳定身份键渲染（overlay 输入面）', () => {
       stepRow({ step: 'verdictGate', sessionId: null }),
     ];
 
-    const nodes = runStepNodes(steps);
+    const nodes = runStepNodes(steps, REQUIREMENT_PHASES);
     expect(nodes.every((node) => node.colIndex === 3 && node.parentId === 'col:implement')).toBe(
       true,
     );
@@ -307,8 +325,8 @@ describe('runStepNodes：稳定身份键渲染（overlay 输入面）', () => {
   });
 
   it('空节点表 → 空数组（零节点 run 非错误）；单节点零边无反馈边渲染（overlay 缺省输出）', () => {
-    expect(runStepNodes([])).toEqual([]);
-    const single = runStepNodes([stepRow({ status: 'passed' })]);
+    expect(runStepNodes([], REQUIREMENT_PHASES)).toEqual([]);
+    const single = runStepNodes([stepRow({ status: 'passed' })], REQUIREMENT_PHASES);
     expect(single).toHaveLength(1);
     expect(single[0].instanceNo).toBe(0);
   });
@@ -319,7 +337,7 @@ describe('run-state：缺省字段（推导不崩）', () => {
     const steps = [
       stepRow({ step: 'whitelistGate', sessionId: null, detail: null, outputRef: null }),
     ];
-    const nodes = runStepNodes(steps);
+    const nodes = runStepNodes(steps, REQUIREMENT_PHASES);
     expect(nodes[0]).toMatchObject({
       id: 'run:implement:1:whitelistGate:0',
       group: 'gate',
@@ -332,7 +350,7 @@ describe('run-state：缺省字段（推导不崩）', () => {
 
   it('instanceNo 缺号（undefined）→ 身份串退化不崩，不抛错', () => {
     const broken = { ...stepRow(), instanceNo: undefined } as unknown as ChangeStepState;
-    const nodes = runStepNodes([broken]);
+    const nodes = runStepNodes([broken], REQUIREMENT_PHASES);
     expect(nodes).toHaveLength(1);
     expect(nodes[0].id).toBe('run:implement:1:executor:undefined');
   });
@@ -412,9 +430,10 @@ describe('run-state：归档 8 步词归一与 Git 分类（AC-2 / AC-9）', () 
     ];
 
     for (const [kind, snake] of words) {
-      const node = runStepNodes([
-        stepRow({ phase: 'archive', attempt: 1, step: kind, instanceNo: 0 }),
-      ])[0];
+      const node = runStepNodes(
+        [stepRow({ phase: 'archive', attempt: 1, step: kind, instanceNo: 0 })],
+        REQUIREMENT_PHASES,
+      )[0];
       expect(node).toBeDefined();
       expect(nodeIdentityKey(node)).toBe(`archive:1:${snake}:0`);
     }
@@ -443,7 +462,7 @@ describe('run-state：归档 8 步词归一与 Git 分类（AC-2 / AC-9）', () 
       }),
     );
 
-    const nodes = runStepNodes(steps);
+    const nodes = runStepNodes(steps, REQUIREMENT_PHASES);
 
     expect(nodes.map((node) => node.runStepKind)).toEqual(kinds);
     expect(nodes.map((node) => node.group)).toEqual([
@@ -464,24 +483,120 @@ describe('run-state：归档 8 步词归一与 Git 分类（AC-2 / AC-9）', () 
     expect(nodes.filter((node) => node.sessionId !== null).map((node) => node.runStepKind)).toEqual(
       ['resolveConflicts', 'specSync'],
     );
-    // 列归属：archive 为第 10 列（colIndex=9）
-    expect(nodes.every((node) => node.colIndex === 9)).toBe(true);
+    // 列归属：archive 为第 9 列（colIndex=8）
+    expect(nodes.every((node) => node.colIndex === 8)).toBe(true);
   });
 
   it('归档列零步：零节点 → 空数组（archive 列空列不报错，miss 非错误）', () => {
-    expect(runStepNodes([])).toEqual([]);
+    expect(runStepNodes([], REQUIREMENT_PHASES)).toEqual([]);
     // 仅其它相位节点时 archive 零节点不参与渲染
-    const nodes = runStepNodes([stepRow({ phase: 'implement', step: 'executor' })]);
+    const nodes = runStepNodes(
+      [stepRow({ phase: 'implement', step: 'executor' })],
+      REQUIREMENT_PHASES,
+    );
     expect(nodes).toHaveLength(1);
-    expect(nodes[0].colIndex).not.toBe(9);
+    expect(nodes[0].colIndex).not.toBe(8);
   });
 
   it('未知步词降级：越集步词经 groupOf 缺省分组回落不崩（稳健面）', () => {
-    const nodes = runStepNodes([
-      stepRow({ phase: 'archive', step: 'unknownStep' as ChangeStepKind }),
-    ]);
+    const nodes = runStepNodes(
+      [stepRow({ phase: 'archive', step: 'unknownStep' as ChangeStepKind })],
+      REQUIREMENT_PHASES,
+    );
     expect(nodes).toHaveLength(1);
     expect(nodes[0].runStepKind).toBe('unknownStep');
     expect(nodes[0].role).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// phaseOrder 显式传序（desktop-test-only-flow AC-5 / AC-6）：列序恒由入参相位序
+// 推导（前端零静态相位序常量），两表各自成立
+// ---------------------------------------------------------------------------
+
+/** test-only 相位序夹具：6 列，code-analyze 下标 1、archive 下标 5。 */
+const TEST_ONLY_PHASES = [
+  'proposal',
+  'code-analyze',
+  'test-design',
+  'test-gen',
+  'test-execution',
+  'archive',
+];
+
+describe('runStepNodes：phaseOrder 显式传序（AC-5 / AC-6）', () => {
+  it('test-only phaseOrder：code-analyze 下标 1、test-gen 下标 3、archive 下标 5（列序随出线序）', () => {
+    const steps = [
+      stepRow({ phase: 'code-analyze', step: 'executor' }),
+      stepRow({ phase: 'test-gen', step: 'staticCheck', sessionId: null }),
+      stepRow({ phase: 'archive', step: 'commit', sessionId: null }),
+    ];
+
+    const nodes = runStepNodes(steps, TEST_ONLY_PHASES);
+
+    expect(nodes.map((node) => node.colIndex)).toEqual([1, 3, 5]);
+    expect(nodes.map((node) => node.parentId)).toEqual([
+      'col:code-analyze',
+      'col:test-gen',
+      'col:archive',
+    ]);
+  });
+
+  it('同一相位在 requirement 9 列与 test-only 6 列下 colIndex 各自为真（列序即语义坐标）', () => {
+    const steps = [stepRow({ phase: 'archive', step: 'commit', sessionId: null })];
+
+    expect(runStepNodes(steps, REQUIREMENT_PHASES)[0].colIndex).toBe(8);
+    expect(runStepNodes(steps, TEST_ONLY_PHASES)[0].colIndex).toBe(5);
+  });
+
+  it('异常：phaseOrder 为空数组 → 全部步不入图（零臆造列位）', () => {
+    const steps = [
+      stepRow({ phase: 'proposal' }),
+      stepRow({ phase: 'code-analyze' }),
+      stepRow({ phase: 'archive', step: 'commit', sessionId: null }),
+    ];
+
+    expect(runStepNodes(steps, [])).toEqual([]);
+  });
+
+  it('异常：两表互不越集——requirement 独有相位在 test-only 序下跳过、test-only 独有相位在 requirement 序下跳过', () => {
+    const steps = [
+      stepRow({ phase: 'implement', step: 'executor' }),
+      stepRow({ phase: 'code-analyze', step: 'executor' }),
+      stepRow({ phase: 'proposal', step: 'executor' }),
+    ];
+
+    const requirementNodes = runStepNodes(steps, REQUIREMENT_PHASES);
+    expect(requirementNodes.map((node) => node.phase)).toEqual(['implement', 'proposal']);
+    expect(requirementNodes.map((node) => node.colIndex)).toEqual([3, 0]);
+
+    const testOnlyNodes = runStepNodes(steps, TEST_ONLY_PHASES);
+    expect(testOnlyNodes.map((node) => node.phase)).toEqual(['code-analyze', 'proposal']);
+    expect(testOnlyNodes.map((node) => node.colIndex)).toEqual([1, 0]);
+  });
+
+  it('边界：列内归并序随传入 phaseOrder 独立成立（不跨表串扰）', () => {
+    const steps = [
+      stepRow({ phase: 'test-design', attempt: 1, step: 'executor' }),
+      stepRow({ phase: 'test-design', attempt: 1, step: 'evaluator' }),
+      stepRow({ phase: 'test-design', attempt: 1, step: 'verdictGate', sessionId: null }),
+    ];
+
+    const nodes = runStepNodes(steps, TEST_ONLY_PHASES);
+
+    expect(nodes.map((node) => node.order)).toEqual([0, 1, 2]);
+    expect(nodes.every((node) => node.colIndex === 2)).toBe(true);
+    expect(nodes.map((node) => node.runStepKind)).toEqual(['executor', 'evaluator', 'verdictGate']);
+  });
+
+  it('边界：身份键与列位解耦——同一步在两套 phaseOrder 下 id 不变、colIndex 变', () => {
+    const steps = [stepRow({ phase: 'archive', step: 'phaseStart', sessionId: null })];
+
+    const requirementNode = runStepNodes(steps, REQUIREMENT_PHASES)[0];
+    const testOnlyNode = runStepNodes(steps, TEST_ONLY_PHASES)[0];
+
+    expect(nodeIdentityKey(requirementNode)).toBe('archive:1:phase_start:0');
+    expect(nodeIdentityKey(testOnlyNode)).toBe(nodeIdentityKey(requirementNode));
+    expect(requirementNode.colIndex).not.toBe(testOnlyNode.colIndex);
   });
 });

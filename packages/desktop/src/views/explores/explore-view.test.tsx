@@ -30,6 +30,7 @@ function record(id: number, name: string, title: string): ExploreRecord {
     root: ROOT,
     name,
     title,
+    workflowType: 'requirement',
     promotedTo: null,
     createdAt: 1727000000000 + id,
     updatedAt: 1727000000000 + id,
@@ -115,12 +116,13 @@ describe('ExploreView 详情页：list 透传与缺记录态（AC-8 / AC-5 动�
     const title = await screen.findByTestId('explore-detail-title');
     expect(title.textContent).toBe('接口重试策略');
 
-    // list.promote 可达：点击「启动变更」→ invoke promote_explore
+    // list.promote 可达：点击「启动变更」→ invoke promote_explore（携选择器当前类型）
     fireEvent.click(screen.getByTestId('explore-promote-trigger'));
     await waitFor(() =>
       expect(invokeMock).toHaveBeenCalledWith('promote_explore', {
         root: ROOT,
         name: 'api-retry',
+        workflowType: 'requirement',
       }),
     );
   });

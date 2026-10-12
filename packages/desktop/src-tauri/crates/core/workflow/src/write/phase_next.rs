@@ -100,7 +100,7 @@ pub fn phase_next(
         .ok_or_else(|| format!("change \"{change_id}\" 未建档（无 ChangeRecord），无从路由"))?;
     let table = phase_table(&record.workflow_type).ok_or_else(|| {
         format!(
-            "workflow_type \"{}\" 不受支持（V1 仅 requirement 工作流）",
+            "workflow_type \"{}\" 不受支持（支持 requirement / test-only 工作流）",
             record.workflow_type
         )
     })?;
