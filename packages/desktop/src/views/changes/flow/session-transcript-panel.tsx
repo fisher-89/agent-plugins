@@ -1,25 +1,13 @@
-import { useEffect, useState } from 'react';
-
 import { AgentMessages } from '@/components/agent';
 import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
 import type { SessionSummary } from '@/types/generated/bindings';
 
 import { useSessionTranscript } from '../hooks/use-session-transcript';
 import type { FlowRoleLabel, RoleSessionRef } from './types';
 
-/** role 分页文案（归档两 agent 步各占一 role 页）。 */
-const ROLE_LABEL: Record<FlowRoleLabel, string> = {
-  executor: '执行会话',
-  evaluator: '评估会话',
-  decision: '决策会话',
-  spec_sync: 'spec 同步会话',
-  resolve_conflicts: '解冲突会话',
-};
-
 interface SessionTranscriptPanelProps {
   root: string | null;
-  roleRefs: RoleSessionRef[];
+  roleRef: RoleSessionRef | null;
   /** 变更通知触发的转录重查键（会话事件通知 150ms 去抖自增；实时面统一
    * 转录库重查——liveEvents 退役） */
   refreshKey?: number;
@@ -59,48 +47,24 @@ function SessionMeta({
 /** role 分页转录面板 */
 export function SessionTranscriptPanel({
   root,
-  roleRefs,
+  roleRef,
   refreshKey,
 }: SessionTranscriptPanelProps): React.JSX.Element {
-  const [activeIndex, setActiveIndex] = useState(0);
-  // refs 变化（换节点）时回到首页
-  useEffect(() => {
-    setActiveIndex(0);
-  }, [roleRefs]);
-
-  if (roleRefs.length === 0) {
+  if (!roleRef) {
     return (
       <div className="text-[13px] text-muted-foreground" data-testid="drawer-session-empty">
         （当前选中无关联会话）
       </div>
     );
   }
-  const active = roleRefs[Math.min(activeIndex, roleRefs.length - 1)];
   return (
-    <section
-      className="flex h-full min-h-0 flex-col"
-      data-testid="session-transcript-panel"
-      data-role={active.role}
-    >
-      <div className="mb-2 flex shrink-0 flex-wrap items-center gap-1.5">
-        <h3 className="m-0 text-[13px] text-muted-foreground">会话转录</h3>
-        {roleRefs.length > 1 &&
-          roleRefs.map((ref, index) => (
-            <Button
-              key={ref.sessionId ?? ref.sourceRef ?? ref.role}
-              onClick={() => setActiveIndex(index)}
-              data-testid="transcript-role-tab"
-            >
-              {ROLE_LABEL[ref.role]}
-            </Button>
-          ))}
-      </div>
+    <section className="flex h-full min-h-0 flex-col" data-testid="session-transcript-panel">
       <RoleTranscript
-        key={active.sessionId ?? active.sourceRef ?? active.role}
+        key={roleRef.sessionId ?? roleRef.sourceRef ?? roleRef.role}
         root={root}
-        sessionId={active.sessionId}
-        sourceRef={active.sourceRef}
-        role={active.role}
+        sessionId={roleRef.sessionId}
+        sourceRef={roleRef.sourceRef}
+        role={roleRef.role}
         refreshKey={refreshKey}
       />
     </section>

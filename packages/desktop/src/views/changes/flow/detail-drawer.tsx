@@ -24,23 +24,19 @@ interface DetailDrawerProps {
 }
 
 /**
- * 选中对象 → 会话转录联动寻址键组（身份段恒 change id，与服务端写侧
- * `<id>/<phase>/<role>/<attempt>` 定式逐字一致）。节点模型单分类后仅
- * WorkerAgent 步有 role（ToolStep / Git / Gate 恒 null → 无转录面）。
+ * 选中对象 → 会话转录联动寻址键组
  */
-function selectionRoleRefs(
+function selectionRoleRef(
   selection: DrawerSelection,
   node: FlowNode | null,
   changeId: string,
-): RoleSessionRef[] {
-  if (selection.scope !== 'node' || node === null || node.role === null) return [];
-  return [
-    {
-      role: node.role,
-      sessionId: node.sessionId,
-      sourceRef: `${changeId}/${node.phase}/${node.role}/${node.attempt}`,
-    },
-  ];
+): RoleSessionRef | null {
+  if (selection.scope !== 'node' || node === null || node.role === null) return null;
+  return {
+    role: node.role,
+    sessionId: node.sessionId,
+    sourceRef: `${changeId}/${node.phase}/${node.role}/${node.attempt}`,
+  };
 }
 
 /** 选中标题：列头为 phase 名；节点为 phase + attempt + kind（节点缺失时中性占位） */
@@ -112,7 +108,7 @@ function DrawerContent({
     return (
       <SessionTranscriptPanel
         root={root}
-        roleRefs={selectionRoleRefs(selection, node, changeId)}
+        roleRef={selectionRoleRef(selection, node, changeId)}
         refreshKey={transcriptRefreshKey}
       />
     );

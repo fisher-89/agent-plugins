@@ -284,7 +284,6 @@ describe('DetailDrawer：runtime 步节点单列分派', () => {
     });
 
     const panel = await screen.findByTestId('session-transcript-panel');
-    expect(panel.getAttribute('data-role')).toBe('executor');
     await waitFor(() =>
       expect(invokeMock).toHaveBeenCalledWith('session_detail', {
         root: ROOT,

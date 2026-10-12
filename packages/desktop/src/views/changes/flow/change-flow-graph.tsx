@@ -10,18 +10,6 @@ import type { DrawerSelection, FlowEdge, FlowEdgeKind, FlowGraph, FlowMaterials 
 
 type ChartNode = ColumnFlowNode | RunStepFlowNode;
 
-/**
- * 边 kind → 锚定把手 id（对应 RunStepNode 四侧隐形 Handle）：布局为 9 列横向排布，
- * 跨列边水平锚定（前进右出左入、回跳左出右入），同列边垂直锚定（下出上入——
- * retry 同相重跑与 feedback phase 内回边均落同列）。
- */
-const EDGE_HANDLES: Record<FlowEdgeKind, { source: string; target: string }> = {
-  forward: { source: 'right', target: 'left' },
-  backtrack: { source: 'left', target: 'right' },
-  retry: { source: 'bottom', target: 'top' },
-  feedback: { source: 'bottom', target: 'top' },
-};
-
 /** 边 kind 视觉：backtrack 虚线（回跳）+ feedback 虚线（phase 内回边，可辨）、
  * 其余实线。 */
 function edgeStyle(kind: FlowEdgeKind): CSSProperties {
@@ -69,22 +57,19 @@ function toChartNodes(
   materials: FlowMaterials,
   onSelect: ChangeFlowGraphProps['onSelect'],
 ): ChartNode[] {
-  const columns: ChartNode[] = graph.columns.map((column) => {
+  const columns: ColumnFlowNode[] = graph.columns.map((column) => {
     const height = columnHeight(graph, column.id);
     return {
       id: column.id,
       type: 'column',
       position: nodePosition(column),
-      // 声明尺寸走节点属性面（非仅 style）：xyflow 的可见性判据
-      // nodeHasDimensions 优先读声明尺寸，泳道不依赖 ResizeObserver 测量——
-      // 节点对象重建（run 步并入 / 图重算）不再把泳道打回未测量 hidden 态
       width: COL_W,
       height,
       style: { width: COL_W, height },
       data: { phase: column.phase, docs: materials.columnDocs[column.id] ?? [], onSelect },
     };
   });
-  const steps: ChartNode[] = graph.nodes.map((node) => ({
+  const steps: RunStepFlowNode[] = graph.nodes.map((node) => ({
     id: node.id,
     parentId: node.parentId,
     extent: 'parent' as const,
@@ -101,8 +86,6 @@ function toChartEdges(edges: FlowEdge[]): Edge[] {
     id: edge.id,
     source: edge.source,
     target: edge.target,
-    sourceHandle: EDGE_HANDLES[edge.kind].source,
-    targetHandle: EDGE_HANDLES[edge.kind].target,
     label: edge.label ?? undefined,
     style: edgeStyle(edge.kind),
     labelStyle: { fill: 'var(--warn)', fontSize: 10 },
@@ -144,6 +127,7 @@ function FlowCanvas({ graph, materials, onSelect }: ChangeFlowGraphProps): React
         translateExtent={translateExtent}
         zoomOnScroll={false}
         zoomOnPinch={false}
+        zoomOnDoubleClick={false}
         panOnScroll
       />
     </div>

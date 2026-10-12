@@ -57,7 +57,7 @@ function ChatBubble({ message }: { message: AgentUIMessage }): React.JSX.Element
   return (
     <Message align={isUser ? 'end' : 'start'} data-testid="chat-bubble" data-role={message.role}>
       <MessageContent
-        className={`rounded-lg border border-border px-3 py-2 ${isUser ? 'bg-muted' : 'bg-card'}`}
+        className={`rounded-lg border border-border px-3 py-2 ${isUser ? 'bg-muted ml-3' : 'bg-card mr-3'}`}
       >
         <div className="mb-0.5 text-xs text-muted-foreground">{message.role}</div>
         {message.parts.map((part, index) => (
@@ -198,14 +198,11 @@ export function AgentMessages({
         className="flex min-h-0 max-h-screen flex-1 flex-col rounded-lg border border-border bg-card"
         data-testid="agent-messages"
       >
-        <div className="flex items-center gap-2 border-b border-border px-3 py-2">
-          <h2 className="m-0 text-[15px]">对话</h2>
-          {running && (
-            <span className="text-xs text-muted-foreground" data-testid="agent-messages-running">
-              运行中…
-            </span>
-          )}
-        </div>
+        {running && (
+          <span className="p-3 text-muted-foreground" data-testid="agent-messages-running">
+            运行中…
+          </span>
+        )}
         {loading && visibleMessages.length === 0 ? (
           <div className="p-3 text-muted-foreground" data-testid="agent-messages-loading">
             会话还原中…
