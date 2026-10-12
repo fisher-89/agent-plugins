@@ -288,7 +288,7 @@ fn turn_done_kind(is_error: bool) -> AgentEventKind {
         num_turns: Some(2),
         duration_ms: Some(800),
         cost_usd: Some(0.05),
-        usage: serde_json::json!({ "inputTokens": 10, "outputTokens": 20 }),
+        usage: serde_json::json!({ "input_tokens": 10, "output_tokens": 20 }),
         session_id: Some("sdk-9-1727000000009".to_owned()),
     }
 }
@@ -747,7 +747,7 @@ async fn drive_turn_done统计收口_唯一口径承接_除名流出终态() {
     assert_eq!(outcome.cost_usd, Some(0.05));
     assert_eq!(
         outcome.usage,
-        serde_json::json!({ "inputTokens": 10, "outputTokens": 20 })
+        serde_json::json!({ "input_tokens": 10, "output_tokens": 20 })
     );
     assert_eq!(
         outcome.remote_session_id.as_deref(),

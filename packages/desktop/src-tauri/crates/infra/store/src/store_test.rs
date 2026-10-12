@@ -1485,7 +1485,7 @@ fn list_sessions清单聚合现算与降序稳定及过滤() {
     assert_eq!(
         hot.stats.input_tokens,
         Some(20),
-        "累计 token 自转录 TurnDone usage 鸭子类型求和（camelCase 键）"
+        "累计 token 自转录 TurnDone usage 鸭子类型求和（snake_case 键）"
     );
     assert_eq!(hot.turns.len(), 1, "轮统计行随行返回（发起序）");
     assert_eq!(
@@ -1731,7 +1731,7 @@ fn turn_done_kind(is_error: bool) -> AgentEventKind {
         num_turns: Some(1),
         duration_ms: Some(1234),
         cost_usd: Some(0.5),
-        usage: serde_json::json!({ "inputTokens": 10, "outputTokens": 2 }),
+        usage: serde_json::json!({ "input_tokens": 10, "output_tokens": 2 }),
         session_id: Some("s-1".to_owned()),
     }
 }

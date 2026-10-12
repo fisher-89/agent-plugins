@@ -84,7 +84,7 @@ fn turn_done(seq: u64, input_tokens: u64, duration_ms: u64) -> AgentEvent {
             num_turns: Some(1),
             duration_ms: Some(duration_ms),
             cost_usd: None,
-            usage: serde_json::json!({ "inputTokens": input_tokens, "outputTokens": 2 }),
+            usage: serde_json::json!({ "input_tokens": input_tokens, "output_tokens": 2 }),
             session_id: Some("sdk-1".to_owned()),
         },
     )
@@ -111,7 +111,7 @@ fn finish_turn_ok(sink: &StoreSink, turn_id: i64, status: agent::AgentRunStatus)
         num_turns: Some(3),
         duration_ms: Some(4000),
         cost_usd: Some(0.2),
-        usage: serde_json::json!({ "inputTokens": 50 }),
+        usage: serde_json::json!({ "input_tokens": 50 }),
         error: None,
         remote_session_id: None,
     };
@@ -465,7 +465,7 @@ fn list_sessions聚合现算轮数累计墙钟累计token与降序稳定() {
     assert_eq!(
         stats.input_tokens,
         Some(10),
-        "累计 token 自转录 TurnDone usage 鸭子类型求和（camelCase 键）"
+        "累计 token 自转录 TurnDone usage 鸭子类型求和（snake_case 键）"
     );
     assert_eq!(summaries[0].turns.len(), 1, "轮统计行随行返回");
 }

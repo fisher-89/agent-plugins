@@ -181,7 +181,7 @@ fn outcome() -> TurnOutcome {
         num_turns: Some(4),
         duration_ms: Some(5000),
         cost_usd: Some(0.12),
-        usage: serde_json::json!({ "inputTokens": 10, "outputTokens": 20 }),
+        usage: serde_json::json!({ "input_tokens": 10, "output_tokens": 20 }),
         error: None,
         remote_session_id: Some("sdk-3-1727000000009".to_owned()),
     }
@@ -373,7 +373,7 @@ fn turn_outcome全字段驼峰线格式往返逐字段相等() {
     assert_eq!(value["durationMs"], serde_json::json!(5000));
     assert_eq!(value["costUsd"], serde_json::json!(0.12));
     assert_eq!(
-        value["usage"]["inputTokens"],
+        value["usage"]["input_tokens"],
         serde_json::json!(10),
         "usage 原值透传"
     );

@@ -152,8 +152,7 @@ fn turn_summary(record: &AgentRunRecord) -> TurnSummary {
     }
 }
 
-/// 聚合统计现算：轮数自轮行行数、累计墙钟自轮行时长求和、累计 token 自转录
-/// `TurnDone.usage` 鸭子类型求和——统计字段缺席合法缺省（降级不违约）。
+/// 聚合统计现算
 fn aggregate_stats(
     turn_count: usize,
     turns: &[TurnSummary],
@@ -162,8 +161,8 @@ fn aggregate_stats(
     SessionStats {
         turn_count: turn_count as u64,
         total_duration_ms: sum_present(turns.iter().map(|turn| turn.duration_ms)),
-        input_tokens: sum_usage_tokens(events, "inputTokens"),
-        output_tokens: sum_usage_tokens(events, "outputTokens"),
+        input_tokens: sum_usage_tokens(events, "input_tokens"),
+        output_tokens: sum_usage_tokens(events, "output_tokens"),
     }
 }
 
@@ -175,9 +174,7 @@ fn sum_present(values: impl Iterator<Item = Option<u64>>) -> Option<u64> {
     })
 }
 
-/// 转录 `TurnDone.usage` 鸭子类型求和：以数值键（serde camelCase 线值）取
-/// token 口径，非对象 usage / 缺键 / 非数值不计——真实 usage 形状首次落库后
-/// 复核键集是否需扩展（design 待决问题留痕）。
+/// 转录 `TurnDone.usage` 求和
 fn sum_usage_tokens(events: &[AgentEvent], key: &str) -> Option<u64> {
     let mut total: u64 = 0;
     let mut any = false;
@@ -755,8 +752,8 @@ impl Store {
         Ok(SessionStats {
             turn_count,
             total_duration_ms,
-            input_tokens: sum_usage_tokens(&events, "inputTokens"),
-            output_tokens: sum_usage_tokens(&events, "outputTokens"),
+            input_tokens: sum_usage_tokens(&events, "input_tokens"),
+            output_tokens: sum_usage_tokens(&events, "output_tokens"),
         })
     }
 
