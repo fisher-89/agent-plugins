@@ -328,11 +328,13 @@ fn expected_steps(phase: &str) -> Vec<StepNode> {
     }
 }
 
-/// 相位 → `on_fail` 声明期望（门禁步 FeedbackLoop{5}、verdict 门 Terminal、其余 None）。
+/// 相位 → `on_fail` 声明期望（三门禁步 FeedbackLoop{5}——static-check /
+/// test-execution / verdict-gate；其余 None）。
 fn expected_on_fail(node: StepNode) -> Option<OnFail> {
     match node {
-        StepNode::StaticCheck | StepNode::TestExecution => Some(OnFail::FeedbackLoop { limit: 5 }),
-        StepNode::VerdictGate => Some(OnFail::Terminal),
+        StepNode::StaticCheck | StepNode::TestExecution | StepNode::VerdictGate => {
+            Some(OnFail::FeedbackLoop { limit: 5 })
+        }
         _ => None,
     }
 }
@@ -608,9 +610,6 @@ fn 计划图prompt静态非空且零占位() {
     assert_eq!(agent_step_prompts, 12, "12 条 agent 步 prompt 齐备");
 }
 
-/// on_fail 语义：三态穷举可构造且与步绑定——StaticCheck / TestExecution 携
-/// `FeedbackLoop { limit: 5 }`、VerdictGate 携 `Terminal`、其余步恒 None
-///（AC-2 语义前置；门禁 / 终态仅与特定步绑定，负向断言）。
 #[test]
 fn 计划图on_fail语义与步绑定() {
     let table = phase_table("requirement").expect("requirement 应返回 Some");
@@ -624,12 +623,11 @@ fn 计划图on_fail语义与步绑定() {
                 def.id,
                 step.node
             );
-            // 负向面：仅 implement / test-gen 的 StaticCheck 与 test-execution 的
-            // TestExecution 携 FeedbackLoop；其余任何步不得携 FeedbackLoop
             if matches!(step.on_fail, Some(OnFail::FeedbackLoop { .. })) {
                 let allowed = (matches!(def.id, "implement" | "test-gen")
                     && step.node == StepNode::StaticCheck)
-                    || (def.id == "test-execution" && step.node == StepNode::TestExecution);
+                    || (def.id == "test-execution" && step.node == StepNode::TestExecution)
+                    || step.node == StepNode::VerdictGate;
                 assert!(
                     allowed,
                     "相位 {} 步 {:?} 不得携 FeedbackLoop",

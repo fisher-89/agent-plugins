@@ -1,8 +1,3 @@
-//! evaluator verdict 解析器：evaluator 最终消息 → checklist JSON（容忍围栏
-//! 代码块包裹）。结构漂移 / report 超长显式 `Err` 停给用户——不臆测 verdict、
-//! 不静默降级（解析器密集测试锁漂移形态）。checklist 载荷直用
-//! `workflow::model` 域类型（无跨进程视图镜像层）。
-
 use serde::Deserialize;
 use workflow::model::{ChecklistItem, Verdict};
 
@@ -59,8 +54,7 @@ fn brace_slice(text: &str) -> Option<String> {
     (start < end).then(|| text[start..=end].to_owned())
 }
 
-/// 解析 evaluator 最终消息为 checklist：JSON 载体提取 → 封闭结构校验 →
-/// report 长度门。任一步漂移显式 `Err`（walker 停给用户）。
+/// 解析 evaluator 最终消息为 checklist
 pub fn parse_verdict(text: &str) -> Result<EvaluatorChecklist, String> {
     let raw = extract_json(text)?;
     let checklist: EvaluatorChecklist =

@@ -3,10 +3,10 @@ import { useMemo, type CSSProperties } from 'react';
 
 import '@xyflow/react/dist/style.css';
 
-import { COL_W, COLUMN_HEADER_H, COLUMN_PAD_X, COLUMN_PAD_Y, ROW_H, nodePosition } from './layout';
+import { graphTranslateExtent, columnLayout, nodeLayout, edgeHandle } from './layout';
 import { type ColumnFlowNode, PhaseColumnNode } from './phase-column-node';
 import { RunStepNode, type RunStepFlowNode } from './run-step-node';
-import type { DrawerSelection, FlowEdge, FlowEdgeKind, FlowGraph, FlowMaterials } from './types';
+import type { DrawerSelection, FlowEdgeKind, FlowGraph, FlowMaterials } from './types';
 
 type ChartNode = ColumnFlowNode | RunStepFlowNode;
 
@@ -26,63 +26,35 @@ interface ChangeFlowGraphProps {
 
 const nodeTypes = { column: PhaseColumnNode, runStep: RunStepNode };
 
-/** 列内节点数 → 列容器高度（COLUMN_HEADER_H + 列内节点数 × ROW_H + COLUMN_PAD_Y） */
-function columnHeight(graph: FlowGraph, columnId: string): number {
-  let count = 0;
-  for (const node of graph.nodes) {
-    if (node.parentId === columnId) count += 1;
-  }
-  return COLUMN_HEADER_H + count * ROW_H + COLUMN_PAD_Y;
-}
-
-/** 平移边距：内容包围盒向四周外扩量（视口最多越出节点范围至此） */
-const PAN_MARGIN = 24;
-
-/** 图内容包围盒 + PAN_MARGIN → translateExtent：平移不越出节点范围 + 少量边距 */
-function graphTranslateExtent(graph: FlowGraph): [[number, number], [number, number]] {
-  let maxX = 0;
-  let maxY = 0;
-  for (const column of graph.columns) {
-    maxX = Math.max(maxX, nodePosition(column).x + COL_W);
-    maxY = Math.max(maxY, columnHeight(graph, column.id));
-  }
-  return [
-    [-PAN_MARGIN, -PAN_MARGIN],
-    [maxX + PAN_MARGIN, maxY + PAN_MARGIN],
-  ];
-}
-
 function toChartNodes(
   graph: FlowGraph,
   materials: FlowMaterials,
   onSelect: ChangeFlowGraphProps['onSelect'],
 ): ChartNode[] {
   const columns: ColumnFlowNode[] = graph.columns.map((column) => {
-    const height = columnHeight(graph, column.id);
     return {
+      ...columnLayout(column, graph),
       id: column.id,
       type: 'column',
-      position: nodePosition(column),
-      width: COL_W,
-      height,
-      style: { width: COL_W, height },
       data: { phase: column.phase, docs: materials.columnDocs[column.id] ?? [], onSelect },
     };
   });
-  const steps: RunStepFlowNode[] = graph.nodes.map((node) => ({
-    id: node.id,
-    parentId: node.parentId,
-    extent: 'parent' as const,
-    position: nodePosition(node),
-    style: { width: COL_W - COLUMN_PAD_X * 2 },
-    type: 'runStep',
-    data: { node },
-  }));
+  const steps: RunStepFlowNode[] = graph.nodes.map((node) => {
+    return {
+      ...nodeLayout(node),
+      id: node.id,
+      parentId: node.parentId,
+      extent: 'parent' as const,
+      type: 'runStep',
+      data: { node },
+    };
+  });
   return [...columns, ...steps];
 }
 
-function toChartEdges(edges: FlowEdge[]): Edge[] {
-  return edges.map((edge) => ({
+function toChartEdges(graph: FlowGraph): Edge[] {
+  return graph.edges.map((edge) => ({
+    ...edgeHandle(edge, graph),
     id: edge.id,
     source: edge.source,
     target: edge.target,
@@ -100,7 +72,7 @@ function FlowCanvas({ graph, materials, onSelect }: ChangeFlowGraphProps): React
     () => toChartNodes(graph, materials, onSelect),
     [graph, materials, onSelect],
   );
-  const edges = useMemo(() => toChartEdges(graph.edges), [graph.edges]);
+  const edges = useMemo(() => toChartEdges(graph), [graph]);
   const translateExtent = useMemo(() => graphTranslateExtent(graph), [graph]);
   const onNodeClick = (_event: unknown, node: ChartNode): void => {
     // 点击判据（节点点击判据与 stdout 输出面板）：无信息源的 runtime 节点不可

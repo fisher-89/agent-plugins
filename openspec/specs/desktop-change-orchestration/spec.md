@@ -12,8 +12,8 @@ Desktop 后端 SHALL 提供编排运行时（walker，core/orchestration），�
 
 相位内 step 序列的特殊控制流 SHALL 以 step 级语义表达，MUST NOT 以 walker 内 step 类型特判实现：
 
-- **feedback 边**（static-check / test-execution 失败 → 同一 agent step 修复 → 重跑）：失败步 `on_fail` 声明的定向反馈循环，独立计数 ≤5，超限升格相位 fail；每次重跑为 `instance_no` 递增的**新节点**，图上以 `feedback` 边表达；
-- **verdict 解析失败**：终态失败停给用户，MUST NOT 臆测 verdict、MUST NOT 静默跳过；
+- **feedback 边**（门禁步失败 → 同一 agent 会话修复 → 重跑）：失败步 `on_fail` 声明的定向反馈循环，独立计数 ≤5，超限升格相位 fail；每次重跑为 `instance_no` 递增的**新节点**，图上以 `feedback` 边表达。注入对象分角色：static-check / test-execution 失败注入本相位 executor 会话，verdict 解析失败注入本相位 evaluator 会话；
+- **verdict 解析失败**：解析错误诊断反馈边续注同一 evaluator 会话修复重跑（MUST NOT 臆测 verdict、MUST NOT 静默跳过）；超限升格相位 fail 进相位重试 / 决策分叉；
 - **归档步失败**：archive 相位步 `on_fail=None` 的失败即 `Terminal`（不唤决策、不进相位重试）；
 - **phase 间 confirm 停等**：仍为 run 级 `auto_next_phase` 开关，并支持「按指定 phase 停止」（archive 为固定停止点）。
 
@@ -171,17 +171,22 @@ implement / test-gen 相位的 executor 收口后，walker SHALL 必经 static-c
 
 ### Requirement: verdict 解析与 phase-log 代写
 
-Evaluator 会话 SHALL 依 prompt 约定在最终消息输出 checklist JSON（不自调 MCP `phase_log`）。Walker SHALL 解析该 JSON 并代调写面 `phase_log`（进程内）落 eval 记录（PhaseRecord + ChecklistItemRecord 原子落库）；解析失败 SHALL 将运行停给用户（呈现原始输出与失败原因），MUST NOT 臆测 verdict、MUST NOT 静默跳过落账。checklist JSON 结构 SHALL 瘦身为 `{ verdict, report, checklist }`（checklist 逐项 `{ item, pass, evidence }`）；phase / attempt / skipped SHALL 由 walker 盖戳落账（evaluator 不回声），`EvaluatorChecklist` 解析类型 MUST NOT 要求 phase / attempt / skipped 字段。确定性相位（test-execution 机械 checklist、archive 空 checklist）SHALL 走 `step_phase_log` 的独立分支，不经 evaluator verdict 解析。
+Evaluator 会话 SHALL 依 prompt 约定在最终消息输出 checklist JSON（不自调 MCP `phase_log`）。Walker SHALL 解析该 JSON 并代调写面 `phase_log`（进程内）落 eval 记录（PhaseRecord + ChecklistItemRecord 原子落库）；解析失败 SHALL 走反馈边（解析错误诊断续注同一 evaluator 会话修复重跑，独立计数 ≤5），MUST NOT 臆测 verdict、MUST NOT 静默跳过落账；超限 SHALL 升格相位 fail（桌面代写 fail phase-log）进相位重试 / 决策分叉。checklist JSON 结构 SHALL 瘦身为 `{ verdict, report, checklist }`（checklist 逐项 `{ item, pass, evidence }`）；phase / attempt / skipped SHALL 由 walker 盖戳落账（evaluator 不回声），`EvaluatorChecklist` 解析类型 MUST NOT 要求 phase / attempt / skipped 字段。确定性相位（test-execution 机械 checklist、archive 空 checklist）SHALL 走 `step_phase_log` 的独立分支，不经 evaluator verdict 解析。
 
 #### Scenario: verdict 代写落账
 
 - **WHEN** evaluator 最终消息输出合法 checklist JSON（verdict=pass，无 phase / attempt / skipped 字段）
 - **THEN** walker 以该 checklist 盖 phase / attempt / skipped 后经写面 `phase_log` 落 eval 记录，`phase_next` 随后推进
 
-#### Scenario: 解析失败停给用户
+#### Scenario: 解析失败反馈边修复
 
 - **WHEN** evaluator 最终消息不含可解析的 checklist JSON（结构漂移或空输出）
-- **THEN** run 停止并呈现 evaluator 原始输出与解析失败原因，状态库无新增 eval 记录，用户可显式重试该 attempt
+- **THEN** 门步节点呈失败态，解析失败原因注入同一 evaluator 会话（Continue，`feedback` 边）修复后重解析（`instance_no` 递增新节点）；当轮修复期间状态库无新增 eval 记录
+
+#### Scenario: 解析失败超限升格
+
+- **WHEN** 同 attempt 内解析失败经 5 次反馈修复仍未收敛
+- **THEN** walker 代写 fail phase-log（report 携升格记因、fail checklist 携解析错误、executor + evaluator 双槽位）升格相位 fail，回写面 `phase_next` 进相位重试 / 决策分叉
 
 ### Requirement: 决策协议
 
@@ -192,7 +197,7 @@ Evaluator 会话 SHALL 依 prompt 约定在最终消息输出 checklist JSON（�
 - `{ action: "stop", reason }` — 终止 run；
 - `{ action: "ask", question, options[] }` — 无法裁决，UI 中断提问。
 
-写面 `backtrack` SHALL 对 `backtrack_to` 做白名单二次校验（工具侧兜底）：越权目标 SHALL 被拒绝且 run 停给用户，MUST NOT 落任何越权回跳账（状态库零变更）。决策输出解析失败按「verdict 解析失败」同款停给用户处理。
+写面 `backtrack` SHALL 对 `backtrack_to` 做白名单二次校验（工具侧兜底）：越权目标 SHALL 被拒绝且 run 停给用户，MUST NOT 落任何越权回跳账（状态库零变更）。决策输出解析失败显式失败停给用户（决策会话不设反馈边，区别于 verdict 解析失败）。
 
 #### Scenario: 白名单内自治回跳
 
@@ -314,7 +319,7 @@ change run SHALL 以双 root 组合执行（能力语义见 desktop-change-workt
 
 ### Requirement: run 落库写缝与累积器驻服务端
 
-run 落库写缝 SHALL 收在 walker 侧单点：`walk_run` 终态出口（`guard.finish` 处）一次完成终态更新 + 节点整包 + 边整包 + active_phase 处置（同事务，desktop-change-state-store「run 执行图落库」「启动标定与 active_phase 悬挂处置」）；`ChangeFlowControl` SHALL 保持进程内零 IO 不变量（不持 store 句柄，store 写经 walker 侧 port / 命令层装配注入）。累积器 SHALL 移驻服务端并升级为**节点 + 边双累积**：`RunEntry`（注册表条目）自持节点列表（全词汇、emit 序、`instance_no` 分配）与边列表（feedback / retry / backtrack 显式落边），walker 经 `RunGuard::emit` 间达零变化；重挂快照 SHALL 含 nodes + edges（重挂恢复不再恒空）。启动装配 SHALL 执行启动标定（残留 running → interrupted，操作面见 desktop-change-state-store）。停止 / 会话失败 / verdict 解析失败等一切 run 死亡路径 SHALL 汇聚同一 finish 落包出口（终态出口唯一既有不变量）。
+run 落库写缝 SHALL 收在 walker 侧单点：`walk_run` 终态出口（`guard.finish` 处）一次完成终态更新 + 节点整包 + 边整包 + active_phase 处置（同事务，desktop-change-state-store「run 执行图落库」「启动标定与 active_phase 悬挂处置」）；`ChangeFlowControl` SHALL 保持进程内零 IO 不变量（不持 store 句柄，store 写经 walker 侧 port / 命令层装配注入）。累积器 SHALL 移驻服务端并升级为**节点 + 边双累积**：`RunEntry`（注册表条目）自持节点列表（全词汇、emit 序、`instance_no` 分配）与边列表（feedback / retry / backtrack 显式落边），walker 经 `RunGuard::emit` 间达零变化；重挂快照 SHALL 含 nodes + edges（重挂恢复不再恒空）。启动装配 SHALL 执行启动标定（残留 running → interrupted，操作面见 desktop-change-state-store）。停止 / 会话失败 / 决策解析失败 / 相位预算耗尽等一切 run 死亡路径 SHALL 汇聚同一 finish 落包出口（终态出口唯一既有不变量）。
 
 #### Scenario: 写缝单点与 control 零 IO
 
@@ -323,7 +328,7 @@ run 落库写缝 SHALL 收在 walker 侧单点：`walk_run` 终态出口（`guar
 
 #### Scenario: 全死亡路径同一出口
 
-- **WHEN** run 分别以 completed / stopped（用户停止）/ failed（会话失败、verdict 解析失败）收口
+- **WHEN** run 分别以 completed / stopped（用户停止）/ failed（会话失败、决策解析失败）收口
 - **THEN** 三路径均经同一 finish 落包出口：终态 + reason + 节点整包 + 边整包 + active_phase 处置单事务落库，库读史与内存面终态一致
 
 #### Scenario: 重挂恢复节点与边完整
@@ -333,7 +338,7 @@ run 落库写缝 SHALL 收在 walker 侧单点：`walk_run` 终态出口（`guar
 
 ### Requirement: 相位 prompt 组装面静态化（静态主体 + 动态 append）
 
-executor / evaluator 会话 prompt SHALL 以写面下发的静态角色知识文本（desktop-phase-prompts / desktop-workflow-write-face）为主体；动态面 SHALL 全部 append 而非模板替换：上下文头一行 `change: <name>`、回溯原因行、static-check / 测试修复失败注入、输出协议附录（evaluator）、decision 三列表（决策会话）。prompt 组装 MUST NOT 使用 `<change>` / `<phase>` 模板替换。`WorkerTurnRequest.provenance.source_ref = <change>/<phase>/<role>/<attempt>` 与 `root` / `model_level` 结构化通道不变——phase / attempt 盖戳不依赖 prompt 文本。
+executor / evaluator 会话 prompt SHALL 以写面下发的静态角色知识文本（desktop-phase-prompts / desktop-workflow-write-face）为主体；动态面 SHALL 全部 append 而非模板替换：上下文头一行 `change: <name>`、回溯原因行、static-check / 测试修复失败注入、verdict 解析失败修复注入（evaluator 续注）、输出协议附录（evaluator）、decision 三列表（决策会话）。prompt 组装 MUST NOT 使用 `<change>` / `<phase>` 模板替换。`WorkerTurnRequest.provenance.source_ref = <change>/<phase>/<role>/<attempt>` 与 `root` / `model_level` 结构化通道不变——phase / attempt 盖戳不依赖 prompt 文本。
 
 #### Scenario: 上下文头在场
 
@@ -343,8 +348,8 @@ executor / evaluator 会话 prompt SHALL 以写面下发的静态角色知识文
 
 #### Scenario: 反馈注入仍 append
 
-- **WHEN** static-check 或 test-execution 失败走定向反馈边
-- **THEN** 修复反馈文本以 append 注入同一 executor 会话 prompt（不重写静态主体）
+- **WHEN** static-check / test-execution 失败或 verdict 解析失败走定向反馈边
+- **THEN** 修复反馈文本以 append 注入同一 agent 会话 prompt（不重写静态主体）——门禁步注入 executor 会话、verdict 门注入 evaluator 会话
 - **AND** 回溯场景的回溯原因行照常 append
 
 ### Requirement: 角色要点静态化（role_brief 退役）
@@ -414,7 +419,7 @@ archive 相位（无 evaluator、无 checklist 的确定性相位）SHALL 在末
 | `crates/core/orchestration/src/port.rs` | 「相位机 + 工具步」进程内缝（语义换血） | ToolStepPort 进程内直调 core/workflow 写面；ToolCommand 封闭集收缩（ChangeFiles 出局）；WorkerAgentPort 契约不变；测试假引擎 + 假写面双缝直驱 |
 | `crates/core/orchestration/src/steps.rs`（LocalToolSteps） | 相位机步进程内直调写面 | 直调面签名不变（载体在写面内换血）；每步结果落 StepRecord 审计行（经写面） |
 | `crates/core/orchestration/src/snapshot.rs` | ChangeDetail 只读装配 | 读源改 workspace 库 change 状态（经 queries）；磁盘扫描保留产物发现 |
-| `crates/core/orchestration/src/verdict.rs` + `decision.rs`（不改） | 结构化输出解析 | 封闭 schema（checklist 信封 + 决策四动作封闭集）；解析失败显式失败停给用户 |
+| `crates/core/orchestration/src/verdict.rs` + `decision.rs`（不改） | 结构化输出解析 | 封闭 schema（checklist 信封 + 决策四动作封闭集）；解析失败显式 Err 上抛——处置归 walker 按步声明分叉（verdict 反馈边 / 决策终态） |
 | `crates/core/orchestration/src/prompt.rs`（不改） | prompt 组装与运行时插值 | 模板取自 core/workflow 相位表单源 |
 | `crates/core/orchestration/src/transcript.rs`（砍半） | 会话转录消费 | 仅保留 `final_assistant_text`（verdict 提取）；`extract_write_paths` 出局 |
 | `crates/infra/agent/src/worker.rs` | WorkerAgentPort 实现 + static-check spawn 缝 | compose_turn 新会话 + StopRegistry 终止 + 密封转录；provenance `source="change"`；spawn 不进 core |

@@ -18,7 +18,7 @@ pub enum ChangeRunStatus {
     Completed,
     /// 受控终止（用户停止 / confirm=false / 决策 stop 动作）
     Stopped,
-    /// 失败终止（写面 / 会话失败 / 解析失败显式停给用户）
+    /// 失败终止（写面 / 会话失败 / 决策解析失败显式停给用户）
     Failed,
 }
 

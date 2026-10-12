@@ -1,16 +1,4 @@
-/**
- * 流程图布局常量与坐标纯函数（10 列手工坐标，布局即语义；不引入 dagre / elk）。
- *
- * 坐标约定（design 数据模型）：
- * - 列容器为画布绝对坐标：x = colIndex × COL_W，y = 0；容器宽 COL_W，
- *   高 = COLUMN_HEADER_H + 列内节点数 × ROW_H + COLUMN_PAD_Y（高度由
- *   ChangeFlowGraph 按列内事件数机械换算，不在此函数职责内）。
- * - 事件节点为相对父列坐标（react-flow subflow：parentId + extent 'parent'）：
- *   x = COLUMN_PAD_X，y = COLUMN_HEADER_H + order × ROW_H。
- *   与 AC-1 公式 x = 列索引 × COL_W、y = 执行序 × ROW_H 一一对应，
- *   COLUMN_HEADER_H 即列容器自身的常量偏移项。
- */
-import type { FlowColumn, FlowNode } from './types';
+import type { FlowColumn, FlowEdge, FlowGraph, FlowNode } from './types';
 
 /** 固定 10 站流水线前端镜像（与 Rust queries::detail 的 PIPELINE_PHASES 同序，改动需双侧同步；archive 恒为第 10 列） */
 export const PIPELINE_PHASES: readonly string[] = [
@@ -26,17 +14,90 @@ export const PIPELINE_PHASES: readonly string[] = [
   'archive',
 ];
 
-export const COL_W = 260;
-const COL_W_GAP = 20;
-export const ROW_H = 128;
+const GRAPH_PADDING = 24;
+
 export const COLUMN_HEADER_H = 48;
-export const COLUMN_PAD_X = 18;
-export const COLUMN_PAD_Y = 16;
+const COLUMN_WIDTH = 260;
+const COLUMN_GAP_X = 20;
+const COLUMN_PADDING = 18;
+
+const NODE_WIDTH = COLUMN_WIDTH - COLUMN_PADDING * 2;
+const NODE_HEIGHT = 64;
+const NODE_GAP_Y = 32;
+
+type Position = { x: number; y: number };
+
+type Size = { width: number; height: number };
+
+type Layout = Size & { position: Position };
+
+export function graphTranslateExtent(graph: FlowGraph): [[number, number], [number, number]] {
+  const { width, height } = graphSize(graph);
+  return [
+    [-GRAPH_PADDING, -GRAPH_PADDING],
+    [width + GRAPH_PADDING, height + GRAPH_PADDING],
+  ];
+}
+
+function graphSize(graph: FlowGraph): Size {
+  const columnCount = graph.columns.length;
+  const width = columnCount * COLUMN_WIDTH + (columnCount - 1) * COLUMN_GAP_X;
+  let maxY = 0;
+  for (const column of graph.columns) {
+    maxY = Math.max(maxY, columnSize(column, graph).height);
+  }
+  return { width, height: maxY };
+}
+
+export function columnLayout(column: FlowColumn, graph: FlowGraph): Layout {
+  return { ...columnSize(column, graph), position: columnPosition(column) };
+}
+
+function columnSize(column: FlowColumn, graph: FlowGraph): Size {
+  let count = 0;
+  for (const node of graph.nodes) {
+    if (node.parentId === column.id) count += 1;
+  }
+  const height =
+    COLUMN_HEADER_H + count * NODE_HEIGHT + (count - 1) * NODE_GAP_Y + COLUMN_PADDING * 2;
+  return { width: COLUMN_WIDTH, height };
+}
+
+function columnPosition(column: FlowColumn): Position {
+  return { x: column.colIndex * (COLUMN_WIDTH + COLUMN_GAP_X), y: 0 };
+}
+
+export function nodeLayout(node: FlowNode): Layout {
+  return {
+    ...nodeSize(node),
+    position: nodePositionInColumn(node),
+  };
+}
+
+function nodeSize(_: FlowNode): Size {
+  return { width: NODE_WIDTH, height: NODE_HEIGHT };
+}
 
 /** react-flow 就绪坐标：列容器为画布绝对坐标，事件节点为相对父列坐标 */
-export function nodePosition(node: FlowColumn | FlowNode): { x: number; y: number } {
-  if ('kind' in node) {
-    return { x: COLUMN_PAD_X, y: COLUMN_HEADER_H + node.order * ROW_H };
+function nodePositionInColumn(node: FlowNode): Position {
+  return {
+    x: COLUMN_PADDING,
+    y: COLUMN_HEADER_H + COLUMN_PADDING + node.order * (NODE_HEIGHT + NODE_GAP_Y),
+  };
+}
+
+export function edgeHandle(
+  edge: FlowEdge,
+  graph: FlowGraph,
+): { sourceHandle: string; targetHandle: string } | undefined {
+  const sourceNode = graph.nodes.find((node) => node.id === edge.source);
+  const targetNode = graph.nodes.find((node) => node.id === edge.target);
+  if (!sourceNode || !targetNode) {
+    return;
   }
-  return { x: node.colIndex * (COL_W + COL_W_GAP), y: 0 };
+  const isCrossPhase = sourceNode.parentId !== targetNode.parentId;
+  const isForward = edge.kind === 'forward';
+  const sourceHandle = isCrossPhase ? (isForward ? 'right' : 'left') : 'bottom';
+  const targetHandle = isCrossPhase ? (isForward ? 'left' : 'right') : 'top';
+  return { sourceHandle, targetHandle };
 }

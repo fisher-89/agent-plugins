@@ -2982,6 +2982,218 @@ async fn 反馈边恰五次且超限升格相位fail不跑evaluator() {
     }
 }
 
+/// verdict 解析失败反馈边：evaluator 首发产出不可解析文本 → 门 failed 节点 →
+/// 解析错误诊断注入同一 evaluator 会话（Continue，feedback 边）修复 → 重解析
+/// （instance_no 递增新节点）pass 收口。门步 `on_fail` 声明 FeedbackLoop{5}
+/// ——VerdictGate 反馈边语义的假双缝全链。
+#[tokio::test]
+async fn verdict解析失败反馈边修复_续注同evaluator会话重解析() {
+    let timeline = Arc::new(Mutex::new(Vec::new()));
+    let (worker, requests, sessions) = FakeWorker::new(&timeline)
+        .with_evaluator_reports(vec![
+            Ok("评估结论正文，无 JSON".to_owned()),
+            Ok(PASS_JSON.to_owned()),
+        ])
+        .assemble();
+    let (tools, commands) = FakeTools::new(&timeline)
+        .with_phase_next(vec![
+            route_outcome("proposal", &["proposal"]),
+            done_outcome(),
+        ])
+        .assemble();
+
+    let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
+    let control = Arc::new(ChangeFlowControl::new());
+
+    let (task, _rx, history) = spawn_run(worker, tools, snapshot, &control, false, "/tmp/root");
+    let _confirmer = spawn_confirmer(&control, true);
+    let status = task.await.expect("run 任务正常结束");
+    assert_eq!(status, ChangeRunStatus::Completed, "修复后 pass 收敛");
+
+    // 会话面：evaluator 首发 + 修复轮 Continue 同会话（假件回声——槽位值续注
+    // 不漂移）
+    let sessions = sessions.lock().expect("会话登记锁");
+    let evaluators = sessions_of(&sessions, WorkerRole::Evaluator);
+    assert_eq!(evaluators.len(), 2, "首发 + 一轮修复");
+    assert_eq!(evaluators[0], evaluators[1], "修复轮续注同一 evaluator 会话");
+    drop(sessions);
+
+    // 请求面：修复轮 Continue 会话 id = 首发会话 id，prompt 携解析错误与协议
+    // 重申（verdict_fix_prompt 组装面）
+    let requests = requests.lock().expect("请求锁");
+    let eval_requests: Vec<&WorkerTurnRequest> = requests
+        .iter()
+        .filter(|request| request.role == WorkerRole::Evaluator)
+        .collect();
+    assert_eq!(eval_requests.len(), 2);
+    assert!(eval_requests[0].continue_session.is_none(), "首发 New");
+    assert_eq!(
+        eval_requests[1].continue_session.as_deref(),
+        Some(evaluators[0].as_str()),
+        "修复轮 Continue 同会话"
+    );
+    assert!(
+        eval_requests[1].prompt.contains("第 1/5 次反馈修复")
+            && eval_requests[1].prompt.contains("未在最终消息中找到合法 JSON")
+            && eval_requests[1].prompt.contains("## 输出协议"),
+        "修复 prompt 携解析错误与协议重申: {}",
+        eval_requests[1].prompt
+    );
+    drop(requests);
+
+    // 图面：verdict_gate 节点 instance_no 递增（0 failed → 1 passed）；feedback
+    // 边自失败门节点指向 evaluator 修复节点
+    let finish = history.finish().expect("finish 落包捕获");
+    let gate_nodes: Vec<&RunNodeEntry> = finish
+        .nodes
+        .iter()
+        .filter(|entry| entry.step.as_str() == "verdict_gate")
+        .collect();
+    assert_eq!(gate_nodes.len(), 2, "解析失败与重解析各一节点");
+    assert_eq!(gate_nodes[0].instance_no, 0);
+    assert_eq!(gate_nodes[0].status, RunStepStatus::Failed);
+    assert_eq!(gate_nodes[1].instance_no, 1);
+    assert_eq!(gate_nodes[1].status, RunStepStatus::Passed);
+    let feedback_edges: Vec<&workflow::state::RunEdgeEntry> = finish
+        .edges
+        .iter()
+        .filter(|edge| edge.edge_kind == workflow::state::RunEdgeKind::Feedback)
+        .collect();
+    assert_eq!(feedback_edges.len(), 1, "恰一条 feedback 边");
+    assert_eq!(
+        feedback_edges[0].from_node_key, "proposal:1:verdict_gate:0",
+        "feedback 边起于失败门节点"
+    );
+    assert_eq!(
+        feedback_edges[0].to_node_key, "proposal:1:evaluator:1",
+        "feedback 边终于 evaluator 修复节点"
+    );
+
+    // 落账面：修复后 pass checklist 落账（非升格代写）
+    let commands = commands.lock().expect("命令锁");
+    let payload = commands
+        .iter()
+        .find_map(|command| match command {
+            ToolCommand::PhaseLog { input, .. } => Some(input.clone()),
+            _ => None,
+        })
+        .expect("phase-log 落账在场");
+    assert!(
+        payload.checklist.iter().all(|item| item.pass),
+        "修复后 verdict pass 落账"
+    );
+    drop(commands);
+}
+
+/// verdict 解析失败反馈边超限升格（真实写面组合）：5 attempt ×（首发 + 5 修复）
+/// 连续解析失败 → 每 attempt 超限代写 fail phase-log（executor + evaluator 双
+/// 槽位）→ 重试预算耗尽决策 stop 收敛。evaluator 队列恰 30 垃圾（精确值——
+/// 假件耗尽回落 PASS_JSON，多给掩盖 off-by-one）。
+#[tokio::test]
+async fn 真实写面组合_verdict解析失败反馈边超限_升格双槽位决策stop() {
+    let root = TempRoot::new("verdict-upgrade");
+    root.change(NAME);
+    let db = TestDb::open("verdict-upgrade");
+    seed_change(db.store.as_ref(), CHANGE_ID, NAME);
+
+    let garbage = "评估结论正文，无 JSON".to_owned();
+    let timeline = Arc::new(Mutex::new(Vec::new()));
+    let (worker, _requests, sessions) = FakeWorker::new(&timeline)
+        .with_evaluator_reports(vec![Ok(garbage.clone()); 30])
+        .with_decision_reports(vec![
+            r#"{ "action": "stop", "reason": "评估输出修复与重试预算均耗尽" }"#.to_owned(),
+        ])
+        .assemble();
+    let steps: Arc<dyn ToolStepPort> = Arc::new(LocalToolSteps::new(
+        Arc::new(SessionAnchors::new()),
+        Arc::new(NullRunner),
+        Arc::new(NullTestExecutionRunner),
+        Arc::new(FakeVcs::clean()),
+        db.store_arc(),
+        "run-1".to_owned(),
+    ));
+
+    let snapshot: Arc<dyn WorkflowSnapshotPort> =
+        Arc::new(StoreSnapshot::new(root.root_str(), db.store_arc()));
+    let control = Arc::new(ChangeFlowControl::new());
+
+    let (task, _rx, history) =
+        spawn_run(worker, steps, snapshot, &control, false, &root.root_str());
+    let _confirmer = spawn_confirmer(&control, true);
+    let status = task.await.expect("run 任务正常结束");
+    assert_eq!(
+        status,
+        ChangeRunStatus::Stopped,
+        "反馈边与重试预算均耗尽后决策 stop 收敛"
+    );
+    let finish = history.finish().expect("finish 落包捕获");
+    assert!(
+        finish.reason.as_deref().is_some_and(|reason| reason.contains("决策 stop")),
+        "决策 stop 收敛记因: {:?}",
+        finish.reason
+    );
+
+    // 会话面：5 attempt ×（evaluator 首发 + 5 修复）30 轮，组内续注同会话
+    let sessions = sessions.lock().expect("会话登记锁");
+    let executor_sessions = sessions_of(&sessions, WorkerRole::Executor);
+    assert_eq!(executor_sessions.len(), 5, "5 attempt 各一轮 executor");
+    let evaluator_sessions = sessions_of(&sessions, WorkerRole::Evaluator);
+    assert_eq!(evaluator_sessions.len(), 30, "5 attempt × 6 轮");
+    let attempt_sessions: Vec<String> = evaluator_sessions.iter().step_by(6).cloned().collect();
+    for (k, chunk) in evaluator_sessions.chunks(6).enumerate() {
+        assert!(
+            chunk.iter().all(|id| id == &attempt_sessions[k]),
+            "同 attempt 反馈修复轮续注同 evaluator 会话（槽位值不漂移）"
+        );
+    }
+    let decisions = sessions_of(&sessions, WorkerRole::Decision);
+    assert_eq!(decisions.len(), 1, "决策会话恰一轮");
+    drop(sessions);
+
+    // fail 条目：五轮升格代写——report 携升格、item 为评估输出格式、双槽位
+    // 在场（区别于 static-check 升格仅 executor 单槽）；最新条目携决策挂账键
+    let entries = db
+        .store
+        .list_phase_records(CHANGE_ID)
+        .expect("读相位条目应成功");
+    assert_eq!(entries.len(), 5, "五轮升格 fail 纯追加");
+    for (idx, entry) in entries.iter().enumerate() {
+        assert_eq!(entry.phase, "proposal");
+        assert_eq!(entry.verdict, Verdict::Fail);
+        assert!(
+            entry.report.contains("升格"),
+            "升格代写 report 记因: {}",
+            entry.report
+        );
+        assert_eq!(entry.checklist.len(), 1);
+        assert_eq!(entry.checklist[0].item, "评估输出格式");
+        assert!(!entry.checklist[0].pass);
+        assert!(
+            entry.checklist[0].evidence.contains("未在最终消息中找到合法 JSON"),
+            "evidence 携解析错误全文: {}",
+            entry.checklist[0].evidence
+        );
+        assert_eq!(
+            entry.executor_session_id.as_deref(),
+            Some(executor_sessions[idx].as_str()),
+            "fail 条目携 executor 槽位"
+        );
+        assert_eq!(
+            entry.evaluator_session_id.as_deref(),
+            Some(attempt_sessions[idx].as_str()),
+            "fail 条目携 evaluator 槽位、值续注该 attempt 首发会话"
+        );
+    }
+    for entry in entries.iter().take(4) {
+        assert!(entry.decision_session_id.is_none());
+    }
+    assert_eq!(
+        entries[4].decision_session_id.as_deref(),
+        Some(decisions[0].as_str()),
+        "决策收口后最新 fail 条目定点挂账"
+    );
+}
+
 /// walk_run 步状态流出上图（正向）：全程每步 emit RunUpdate::Step
 ///（phase / attempt / step / status 逐档可辨）：三类节点（WorkerAgent /
 /// ToolStep / Gate）状态均经状态流出（图上可观测输入面——AC-4/AC-5）。

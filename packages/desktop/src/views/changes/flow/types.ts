@@ -1,11 +1,9 @@
-import type { ArtifactEnvelope, ChangeStepKind, ChangeStepStatus } from '../../../types/dto';
+import type { ArtifactEnvelope, ChangeStepKind, ChangeStepStatus, RunEdgeKind } from '@/types/dto';
 
 /**
- * 边类型：直接读后端边表四 kind（`runs[].edges` / `activeRun.edges`）——forward
- * 计划序推进 / feedback gate 失败回同 phase agent 步（phase 内回边）/ retry phase
- * fail 后同相位重跑 / backtrack 跨相位回跳。列差 Δ 派生整体退役。
+ * 边类型：直接读后端边表
  */
-export type FlowEdgeKind = 'forward' | 'feedback' | 'retry' | 'backtrack';
+export type FlowEdgeKind = RunEdgeKind;
 
 interface FlowNodeBase {
   id: string;

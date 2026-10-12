@@ -61,3 +61,4 @@
 - [x] 【Desktop】将流程设计进一步抽象，每个phase下有多个step，step分为exec/agent/gate，全流程按step顺序执行，中断/继续/回退也按step粒度
 - [x] 【Desktop】会话中途继续提问时，无需携带角色prompt，当前explore会反复发送角色信息
 - [ ] 【Desktop】优化各阶段prompt，补全模板概念
+- [ ] 【Desktop】移除src/views/changes/flow/layout.ts PIPELINE_PHASES，改为读取接口返回phase

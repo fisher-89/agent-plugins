@@ -41,9 +41,7 @@ const REQUIREMENT_WORKFLOW_TYPE: &str = "requirement";
 /// 会话窗口轮次上限（与插件 `checkRoundLimit` 同源；超限显式 `Err`）。
 pub(crate) const MAX_ROUNDS: u32 = 20;
 
-/// 门禁反馈边独立计数上限（static-check / test-execution 步 `on_fail` 声明的
-/// `FeedbackLoop { limit }` 取值单源；与相位 retry 预算分账，超限才升格相位
-/// fail——原 walker 侧 `*_FEEDBACK_LIMIT` 常量随 step 声明退役）。
+/// 门禁反馈边独立计数上限
 pub(crate) const FEEDBACK_LOOP_LIMIT: u32 = 5;
 
 // --- 相位 prompt 静态装配单源（`include_str!` 显式字面路径；executor /
@@ -87,7 +85,9 @@ static PROPOSAL_STEPS: &[StepDefinition] = &[
     StepDefinition {
         node: StepNode::VerdictGate,
         prompt_ref: None,
-        on_fail: Some(OnFail::Terminal),
+        on_fail: Some(OnFail::FeedbackLoop {
+            limit: FEEDBACK_LOOP_LIMIT,
+        }),
     },
     StepDefinition {
         node: StepNode::PhaseLog,
@@ -115,7 +115,9 @@ static DEV_DESIGN_STEPS: &[StepDefinition] = &[
     StepDefinition {
         node: StepNode::VerdictGate,
         prompt_ref: None,
-        on_fail: Some(OnFail::Terminal),
+        on_fail: Some(OnFail::FeedbackLoop {
+            limit: FEEDBACK_LOOP_LIMIT,
+        }),
     },
     StepDefinition {
         node: StepNode::PhaseLog,
@@ -143,7 +145,9 @@ static TEST_DESIGN_STEPS: &[StepDefinition] = &[
     StepDefinition {
         node: StepNode::VerdictGate,
         prompt_ref: None,
-        on_fail: Some(OnFail::Terminal),
+        on_fail: Some(OnFail::FeedbackLoop {
+            limit: FEEDBACK_LOOP_LIMIT,
+        }),
     },
     StepDefinition {
         node: StepNode::PhaseLog,
@@ -178,7 +182,9 @@ static IMPLEMENT_STEPS: &[StepDefinition] = &[
     StepDefinition {
         node: StepNode::VerdictGate,
         prompt_ref: None,
-        on_fail: Some(OnFail::Terminal),
+        on_fail: Some(OnFail::FeedbackLoop {
+            limit: FEEDBACK_LOOP_LIMIT,
+        }),
     },
     StepDefinition {
         node: StepNode::PhaseLog,
@@ -213,7 +219,9 @@ static TEST_GEN_STEPS: &[StepDefinition] = &[
     StepDefinition {
         node: StepNode::VerdictGate,
         prompt_ref: None,
-        on_fail: Some(OnFail::Terminal),
+        on_fail: Some(OnFail::FeedbackLoop {
+            limit: FEEDBACK_LOOP_LIMIT,
+        }),
     },
     StepDefinition {
         node: StepNode::PhaseLog,
@@ -244,18 +252,7 @@ static TEST_EXECUTION_STEPS: &[StepDefinition] = &[
     },
 ];
 
-/// archive 相位步序列（10 步；确定性相位第二例）：PhaseStart（attempt max+1
-/// 分配）→ Preflight（store 读 + vcs 探测的只读校验）→ Commit（worktree 全域
-/// 提交，step 内「干净」跳过）→ Rebase（分支重放至主仓当前分支，冲突清单入跨步
-/// 产物）→ ResolveConflicts（条件执行：无冲突 passed + detail；有冲突经解冲突
-/// agent 会话解算）→ Merge（主仓 ff-only 快进）→ SpecSync（delta specs 在场且
-/// 未跳过时 agent 会话，否则 passed + 跳过因）→ Seal（写面 `archive` 双写收口）
-/// → Finalize（落盘 pathspec 提交，step 内「已落盘」跳过）→ PhaseLog（空
-/// report + 空 checklist 落 `verdict=pass`）。
-///
-/// 每步 `prompt_ref = None`（spec 同步 / 解冲突 prompt 由 orchestration 侧运行时
-/// 组装——workflow 不依赖 orchestration）、`on_fail = None`（步失败即 Terminal：
-/// 归档步失败不唤决策、不进相位重试）。
+/// archive 相位步序列（10 步；确定性相位第二例）
 static ARCHIVE_STEPS: &[StepDefinition] = &[
     StepDefinition {
         node: StepNode::PhaseStart,
@@ -323,7 +320,9 @@ static CODE_REVIEW_STEPS: &[StepDefinition] = &[
     StepDefinition {
         node: StepNode::VerdictGate,
         prompt_ref: None,
-        on_fail: Some(OnFail::Terminal),
+        on_fail: Some(OnFail::FeedbackLoop {
+            limit: FEEDBACK_LOOP_LIMIT,
+        }),
     },
     StepDefinition {
         node: StepNode::PhaseLog,
@@ -346,7 +345,9 @@ static ACCEPTANCE_STEPS: &[StepDefinition] = &[
     StepDefinition {
         node: StepNode::VerdictGate,
         prompt_ref: None,
-        on_fail: Some(OnFail::Terminal),
+        on_fail: Some(OnFail::FeedbackLoop {
+            limit: FEEDBACK_LOOP_LIMIT,
+        }),
     },
     StepDefinition {
         node: StepNode::PhaseLog,

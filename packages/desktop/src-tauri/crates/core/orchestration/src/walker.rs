@@ -19,7 +19,9 @@ use crate::port::{
     TestExecutionOutcome, ToolCommand, ToolStepOutput, ToolStepPort, WorkerAgentPort, WorkerRole,
     WorkerTurnOutcome, WorkerTurnRequest, WorkflowSnapshotPort, WorktreeSnapshot,
 };
-use crate::prompt::{decision_prompt, evaluator_prompt, merge_conflict_prompt, spec_sync_prompt};
+use crate::prompt::{
+    decision_prompt, evaluator_prompt, merge_conflict_prompt, spec_sync_prompt, verdict_fix_prompt,
+};
 use crate::run_history;
 use crate::state::{
     ArchivePreflight, ChangeRunStatus, ChangeStepEdge, ChangeStepKind, ChangeStepState,
@@ -492,6 +494,8 @@ struct PhaseCursor {
     executor_session: Option<String>,
     /// executor 模型档（相位表 spec 供给；反馈边续注不换档）
     executor_level: ModelLevel,
+    /// evaluator 模型档（相位表 spec 供给；verdict 反馈边续注不换档）
+    evaluator_level: ModelLevel,
     /// evaluator 步收口产物（VerdictGate / PhaseLog 步消费）
     eval_outcome: Option<WorkerTurnOutcome>,
     /// verdict 解析产物（PhaseLog 步消费）
@@ -521,6 +525,11 @@ impl PhaseCursor {
             executor_session: None,
             executor_level: next
                 .executor
+                .as_ref()
+                .map(|spec| spec.model_level)
+                .unwrap_or_default(),
+            evaluator_level: next
+                .evaluator
                 .as_ref()
                 .map(|spec| spec.model_level)
                 .unwrap_or_default(),
@@ -560,10 +569,7 @@ async fn run_step(
             step_evaluator(ctx, trace, cursor).await?;
             Ok(StepFlow::Proceed)
         }
-        StepNode::VerdictGate => {
-            step_verdict_gate(ctx, trace, cursor, step).await?;
-            Ok(StepFlow::Proceed)
-        }
+        StepNode::VerdictGate => step_verdict_gate(ctx, trace, cursor, step).await,
         StepNode::PhaseLog => {
             step_phase_log(ctx, trace, cursor).await?;
             Ok(StepFlow::Proceed)
@@ -954,86 +960,126 @@ async fn step_evaluator(
     )
     .await?;
     cursor.eval_outcome = Some(outcome);
+    cursor.evaluator_level = evaluator.model_level;
     Ok(())
 }
 
-/// ⑦ verdict 解析门步：终态语义由步声明（`OnFail::Terminal`）承载——解析失败
-/// 显式失败停给用户，MUST NOT 臆测 verdict、MUST NOT 静默跳过；解析产物交
-/// PhaseLog 步落账。
+/// ⑦ verdict 解析门步：终态语义由步声明（`OnFail::FeedbackLoop`）承载——解析
+/// 失败诊断注入同一 evaluator 会话（Continue）修复重跑，每次重跑为
+/// `instance_no` 递增的新节点并以 `feedback` 边表达，独立计数 ≤ limit；超限
+/// 升格相位 fail（桌面代写 fail phase-log），回 phase-next 进重试 / 决策分叉。
+/// MUST NOT 臆测 verdict、MUST NOT 静默跳过；解析产物交 PhaseLog 步落账。
 async fn step_verdict_gate(
     ctx: &StepContext<'_>,
     trace: &mut EdgeTrace,
     cursor: &mut PhaseCursor,
     step: &StepDefinition,
-) -> Result<(), Terminal> {
-    let instance_no = begin_node(
-        ctx.guard,
-        trace,
-        ctx.phase,
-        cursor.attempt,
-        ChangeStepKind::VerdictGate,
-        EdgeKind::Forward,
-    );
-    emit_node(
-        ctx.guard,
-        ctx.phase,
-        cursor.attempt,
-        ChangeStepKind::VerdictGate,
-        instance_no,
-        StepSettle::running(),
-    );
-    let Some(outcome) = &cursor.eval_outcome else {
+) -> Result<StepFlow, Terminal> {
+    let limit = feedback_limit(step, "verdict-gate")?;
+    let mut feedback: u32 = 0;
+    loop {
+        let instance_no = begin_node(
+            ctx.guard,
+            trace,
+            ctx.phase,
+            cursor.attempt,
+            ChangeStepKind::VerdictGate,
+            EdgeKind::Forward,
+        );
         emit_node(
             ctx.guard,
             ctx.phase,
             cursor.attempt,
             ChangeStepKind::VerdictGate,
             instance_no,
-            StepSettle::failed(Some("缺 evaluator 收口产物".to_owned())),
+            StepSettle::running(),
         );
-        return Err(Terminal::failed(format!(
-            "phase \"{}\" 计划步漂移：VerdictGate 步缺 evaluator 收口产物",
-            ctx.phase
-        )));
-    };
-    let text = outcome
-        .final_message
-        .clone()
-        .or_else(|| final_assistant_text(&outcome.transcript))
-        .unwrap_or_default();
-    match parse_verdict(&text) {
-        Ok(checklist) => {
-            emit_node(
-                ctx.guard,
-                ctx.phase,
-                cursor.attempt,
-                ChangeStepKind::VerdictGate,
-                instance_no,
-                StepSettle::passed(Some(format!("verdict={}", checklist.verdict.as_str()))),
-            );
-            cursor.verdict = Some(checklist);
-            Ok(())
-        }
-        Err(error) => {
-            emit_node(
-                ctx.guard,
-                ctx.phase,
-                cursor.attempt,
-                ChangeStepKind::VerdictGate,
-                instance_no,
-                StepSettle::failed(Some(diagnose_brief(&error))),
-            );
-            match step.on_fail {
-                // 终态停给用户（相位表 VerdictGate 声明 Terminal）；缺省 `None`
-                // 亦显式失败收场——两条路径同为显式停给用户，不吞不猜
-                Some(OnFail::Terminal) | None => {
-                    Err(Terminal::failed(format!("verdict 解析失败: {error}")))
+        // 会话 id 与最终消息文本一次取走（同会话续注 / 重解析所需），避免后续
+        // cursor 赋值与借用冲突；None 产物 = 计划图漂移（无会话可续注、无文本
+        // 可修）——保持显式失败停给用户，MUST NOT 走反馈边
+        let (session_id, text) = match cursor.eval_outcome.as_ref() {
+            Some(outcome) => (
+                outcome.session_id.clone(),
+                outcome
+                    .final_message
+                    .clone()
+                    .or_else(|| final_assistant_text(&outcome.transcript))
+                    .unwrap_or_default(),
+            ),
+            None => {
+                emit_node(
+                    ctx.guard,
+                    ctx.phase,
+                    cursor.attempt,
+                    ChangeStepKind::VerdictGate,
+                    instance_no,
+                    StepSettle::failed(Some("缺 evaluator 收口产物".to_owned())),
+                );
+                return Err(Terminal::failed(format!(
+                    "phase \"{}\" 计划步漂移：VerdictGate 步缺 evaluator 收口产物",
+                    ctx.phase
+                )));
+            }
+        };
+        match parse_verdict(&text) {
+            Ok(checklist) => {
+                emit_node(
+                    ctx.guard,
+                    ctx.phase,
+                    cursor.attempt,
+                    ChangeStepKind::VerdictGate,
+                    instance_no,
+                    StepSettle::passed(Some(format!("verdict={}", checklist.verdict.as_str()))),
+                );
+                cursor.verdict = Some(checklist);
+                return Ok(StepFlow::Proceed);
+            }
+            Err(error) => {
+                emit_node(
+                    ctx.guard,
+                    ctx.phase,
+                    cursor.attempt,
+                    ChangeStepKind::VerdictGate,
+                    instance_no,
+                    StepSettle::failed(Some(diagnose_brief(&error))),
+                );
+                if feedback >= limit {
+                    // 超限升格相位 fail（桌面代写，不跑 executor；携 executor +
+                    // evaluator 双槽位——两会话均在反馈循环中在场）
+                    step_verdict_gate_upgraded_phase_log(
+                        ctx.tools,
+                        ctx.guard,
+                        trace,
+                        ctx.request,
+                        ctx.phase,
+                        cursor.attempt,
+                        cursor.executor_session.as_deref(),
+                        Some(session_id.as_str()),
+                        &error,
+                    )
+                    .await?;
+                    cursor.failed = true;
+                    return Ok(StepFlow::Upgraded);
                 }
-                // 反馈边语义仅门禁（static-check / test-execution）步使用；误声明
-                // 不臆造反馈对象，按显式失败收场
-                Some(OnFail::FeedbackLoop { .. }) => Err(Terminal::failed(format!(
-                    "verdict 解析失败: {error}（VerdictGate 步不支持反馈边语义）"
-                ))),
+                feedback += 1;
+                // 反馈边：解析失败诊断注入同一 evaluator 会话（Continue）修复
+                // ——修复节点为 instance_no 递增的独立新节点，边 kind = feedback
+                let fix = run_worker(
+                    ctx.worker,
+                    ctx.guard,
+                    ctx.request,
+                    &ctx.request.root,
+                    ctx.phase,
+                    cursor.attempt,
+                    WorkerRole::Evaluator,
+                    verdict_fix_prompt(&error, feedback, limit),
+                    cursor.evaluator_level,
+                    Some(session_id),
+                    trace,
+                    EdgeKind::Feedback,
+                )
+                .await?;
+                cursor.eval_outcome = Some(fix);
             }
         }
     }
@@ -1145,8 +1191,8 @@ async fn step_phase_log(
 }
 
 /// 门禁步反馈边上限读取（**步声明单点**）：缺声明 / 误声明即计划图漂移——
-/// MUST NOT 由 walker 侧常量兜底（反馈边计数上限随门禁 step 声明退役，两门禁相
-/// 位各自的独立预算不再驻 walker）。
+/// MUST NOT 由 walker 侧常量兜底（反馈边计数上限随门禁 step 声明退役，三门禁
+/// 步各自的独立预算不再驻 walker）。
 fn feedback_limit(step: &StepDefinition, label: &str) -> Result<u32, Terminal> {
     match step.on_fail {
         Some(OnFail::FeedbackLoop { limit }) => Ok(limit),
@@ -1322,6 +1368,67 @@ async fn step_test_execution_upgraded_phase_log(
             skipped: false,
             executor_session_id: fix_session.map(ToOwned::to_owned),
             evaluator_session_id: None,
+            decision_session_id: None,
+        },
+    )
+    .await?;
+    emit_node(
+        guard,
+        phase,
+        attempt,
+        ChangeStepKind::PhaseLog,
+        instance_no,
+        StepSettle::passed(Some(format!("attempt {} 已落账", logged.attempt))),
+    );
+    Ok(())
+}
+
+/// 超限升格落账：桌面代写 fail checklist（评估输出反馈边超限），随后回
+/// phase-next 进重试 / 决策分叉。fail 条目携 executor + evaluator 双槽位（反馈
+/// 边续注同一 evaluator 会话、executor 会话自 executor 步在场；decision 未跑无
+/// 会话可记）——条目 item / evidence 会流入下一 attempt 双 prompt 与决策输入。
+#[allow(clippy::too_many_arguments)]
+async fn step_verdict_gate_upgraded_phase_log(
+    tools: &Arc<dyn ToolStepPort>,
+    guard: &RunGuard,
+    trace: &mut EdgeTrace,
+    request: &RunRequest,
+    phase: &str,
+    attempt: u32,
+    executor_session: Option<&str>,
+    evaluator_session: Option<&str>,
+    error: &str,
+) -> Result<(), Terminal> {
+    let instance_no = begin_node(
+        guard,
+        trace,
+        phase,
+        attempt,
+        ChangeStepKind::PhaseLog,
+        EdgeKind::Forward,
+    );
+    emit_node(
+        guard,
+        phase,
+        attempt,
+        ChangeStepKind::PhaseLog,
+        instance_no,
+        StepSettle::running(),
+    );
+    let logged = run_phase_log(
+        tools,
+        request,
+        PhaseLogInput {
+            phase: phase.to_owned(),
+            report: "评估输出反馈边超限（连续修复未通过），相位升格 fail".to_owned(),
+            checklist: vec![ChecklistItem {
+                item: "评估输出格式".to_owned(),
+                pass: false,
+                evidence: error.to_owned(),
+            }],
+            skipped: false,
+            executor_session_id: executor_session.map(ToOwned::to_owned),
+            evaluator_session_id: evaluator_session.map(ToOwned::to_owned),
             decision_session_id: None,
         },
     )

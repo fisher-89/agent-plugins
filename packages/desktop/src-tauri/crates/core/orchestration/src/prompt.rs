@@ -19,6 +19,17 @@ pub fn evaluator_prompt(phase_prompt: &str) -> String {
     format!("{phase_prompt}{}", evaluator_protocol())
 }
 
+/// verdict 解析失败反馈修复 prompt：解析错误 + 输出协议重申（复用
+/// `evaluator_protocol`——形状文本单源，不落第三份副本）。续注同一 evaluator
+/// 会话（Continue）：保留评估结论，仅修正最终消息格式后重新收口。
+pub(crate) fn verdict_fix_prompt(error: &str, feedback: u32, limit: u32) -> String {
+    format!(
+        "评估输出解析失败（第 {feedback}/{limit} 次反馈修复）：{error}\n\n\
+         请保留你上一轮的评估结论，仅修正最终消息的输出格式后重新收口。{}",
+        evaluator_protocol()
+    )
+}
+
 /// 决策 prompt：有界输入组装（fail checklist + 白名单 + 候选 eval report）
 /// + 四动作封闭集说明。输出协议同 evaluator——最终消息仅输出一个决策 JSON。
 pub fn decision_prompt(input: &DecisionInput) -> String {

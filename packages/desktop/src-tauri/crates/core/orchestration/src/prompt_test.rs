@@ -1,5 +1,7 @@
 use crate::decision::{CandidateReport, DecisionInput};
-use crate::prompt::{decision_prompt, evaluator_prompt, merge_conflict_prompt, spec_sync_prompt};
+use crate::prompt::{
+    decision_prompt, evaluator_prompt, merge_conflict_prompt, spec_sync_prompt, verdict_fix_prompt,
+};
 use workflow::model::{ChecklistItem, Verdict};
 
 #[test]
@@ -31,6 +33,37 @@ fn evaluator_prompt协议附录瘦身形状与红线() {
         prompt,
         format!("{phase_prompt}{}", evaluator_prompt("")),
         "phase_prompt 逐字节保真（仅追加协议附录）"
+    );
+}
+
+#[test]
+fn verdict_fix_prompt解析错误与协议重申在场() {
+    let prompt = verdict_fix_prompt("checklist JSON 结构漂移: missing field `verdict`", 2, 5);
+
+    // 反馈修复信封：轮次 + 解析错误 + 保留结论仅修格式的引导
+    assert!(prompt.contains("第 2/5 次反馈修复"), "轮次信封在场");
+    assert!(
+        prompt.contains("checklist JSON 结构漂移: missing field `verdict`"),
+        "解析错误原样插值"
+    );
+    assert!(prompt.contains("仅修正最终消息的输出格式"), "保留结论引导在场");
+    // 协议重申复用 evaluator_protocol 单源：红线与 JSON 形状同附录（不落第三份
+    // 副本——与 evaluator_prompt 附录逐字节同尾）
+    assert!(
+        prompt.contains("## 输出协议")
+            && prompt.contains("禁止调用")
+            && prompt.contains("\"verdict\"")
+            && prompt.contains("\"checklist\""),
+        "输出协议附录随修复 prompt 重申"
+    );
+    assert_eq!(
+        prompt,
+        format!(
+            "评估输出解析失败（第 2/5 次反馈修复）：checklist JSON 结构漂移: missing field `verdict`\n\n\
+             请保留你上一轮的评估结论，仅修正最终消息的输出格式后重新收口。{}",
+            evaluator_prompt("")
+        ),
+        "修复 prompt 与 evaluator_prompt 共用同一协议附录文本"
     );
 }
 

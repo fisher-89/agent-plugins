@@ -362,19 +362,18 @@ impl StepNode {
     }
 }
 
-/// 步失败语义（`StepDefinition.on_fail`）：两变体恰好覆盖 walker 三处特殊控制
-/// 流里的两处（相位间 confirm 停等为 run 级 `auto_next_phase` 开关，非 step 属
-/// 性）；缺省 `None` = 直接按步失败收场（显式失败停给用户，不静默吞）。
+/// 步失败语义（`StepDefinition.on_fail`）
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub enum OnFail {
-    /// 定向反馈边：失败步诊断注入本相位 executor 会话（Continue）修复重跑，
-    /// 独立计数 ≤ `limit`，超限升格相位 fail（不计相位 retry 预算）
+    /// 定向反馈边
     FeedbackLoop {
         /// 反馈边独立计数上限
         limit: u32,
     },
-    /// 终态失败停给用户（verdict 解析失败等——不臆测、不静默跳过）
+    /// 终态失败停给用户。现无步声明（verdict 解析失败自 feedback 边改造后不再
+    /// 走终态）；保留为线面兼容（wire 词 `"terminal"` 往返测试锁定），语义与
+    /// 缺省 `None` 等价。
     Terminal,
 }
 
