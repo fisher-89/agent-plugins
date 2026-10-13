@@ -5,7 +5,7 @@
 
 use agent::{AgentBlock, AgentEvent, AgentEventKind, AgentMessageRole};
 
-use crate::transcript::final_assistant_text;
+use crate::transcript::{failure_reason, final_assistant_text};
 
 // ---------------------------------------------------------------------------
 // 装置：密封事件 fixture（Message 事件 + ToolUse / ToolResult / Text 块）
@@ -18,6 +18,31 @@ fn message(seq: u64, role: AgentMessageRole, blocks: Vec<AgentBlock>) -> AgentEv
             role,
             blocks,
             parent_tool_use_id: None,
+        },
+    )
+}
+
+fn notice(seq: u64, subtype: &str, payload: serde_json::Value) -> AgentEvent {
+    AgentEvent::stamp(
+        seq,
+        AgentEventKind::SystemNotice {
+            subtype: subtype.to_owned(),
+            payload,
+        },
+    )
+}
+
+fn turn_done(seq: u64, subtype: &str, is_error: bool) -> AgentEvent {
+    AgentEvent::stamp(
+        seq,
+        AgentEventKind::TurnDone {
+            subtype: subtype.to_owned(),
+            is_error,
+            num_turns: None,
+            duration_ms: None,
+            cost_usd: None,
+            usage: serde_json::Value::Null,
+            session_id: None,
         },
     )
 }
@@ -127,4 +152,68 @@ fn empty_transcript_yields_none_text() {
         None,
         "空事件数组 → None（文本提取器合法空态）"
     );
+}
+
+// ---------------------------------------------------------------------------
+// failure_reason：失败成因提取（api_error 记因优先，失败 TurnDone subtype 兜底）
+// ---------------------------------------------------------------------------
+
+#[test]
+fn failure_reason_prefers_api_error_cause() {
+    // 会话中途恢复过的 api_retry 不充当成因（已恢复通知非失败记因）；
+    // 末条 api_error 的 error 载荷才是失败记因
+    let transcript = vec![
+        message(0, AgentMessageRole::Assistant, vec![text_block("干活")]),
+        notice(
+            1,
+            "api_retry",
+            serde_json::json!({ "attempt": 1, "error": "已恢复的抖动" }),
+        ),
+        notice(
+            2,
+            "api_error",
+            serde_json::json!({ "error": "API 流失败: HttpError: Invalid content type was returned: \"text/html\"" }),
+        ),
+        turn_done(3, "api_error", true),
+    ];
+    assert_eq!(
+        failure_reason(&transcript).as_deref(),
+        Some("API 流失败: HttpError: Invalid content type was returned: \"text/html\""),
+        "api_error 记因载荷为失败成因唯一口径"
+    );
+}
+
+#[test]
+fn failure_reason_falls_back_to_failed_turn_done_subtype() {
+    // 记因通知缺席（CLI 引擎无 api_error 留痕）：失败 TurnDone.subtype 兜底
+    let transcript = vec![
+        message(0, AgentMessageRole::Assistant, vec![text_block("干活")]),
+        turn_done(1, "error_during_execution", true),
+    ];
+    assert_eq!(
+        failure_reason(&transcript).as_deref(),
+        Some("error_during_execution"),
+        "TurnDone 失败 subtype 兜底成因"
+    );
+}
+
+#[test]
+fn failure_reason_absence_shapes_return_none() {
+    // 成功 TurnDone 不充当成因（非失败语境）
+    let ok = vec![turn_done(0, "success", false)];
+    assert_eq!(failure_reason(&ok), None, "成功收口无失败成因");
+
+    // api_error 记因载荷缺 error 字段 / 空白 → 不记因
+    let blank_cause = vec![
+        notice(0, "api_error", serde_json::json!({ "error": "  " })),
+        turn_done(1, "api_error", true),
+    ];
+    assert_eq!(
+        failure_reason(&blank_cause).as_deref(),
+        Some("api_error"),
+        "空白记因载荷回落 TurnDone subtype"
+    );
+
+    // 空转录 → None（调用点回落通用文案）
+    assert_eq!(failure_reason(&[]), None);
 }

@@ -250,6 +250,10 @@ struct FakeWorker {
     /// 归档两会话角色产出队列（spec_sync / resolve_conflicts 共用；`Ok` 文本
     /// 为收口消息，`Err` 为会话失败注入，耗尽回落 None 正常收口）
     archive_reports: Mutex<VecDeque<Result<String, String>>>,
+    /// executor 会话失败注入队列（耗尽回落正常收口）：`Some` 携 api_error 记因
+    /// 载荷，`None` 为失败但无记因（`Failed` 收敛回落通用文案面）——两者均
+    /// 返回 `Failed` 收敛的密封转录
+    executor_failures: Mutex<VecDeque<Option<String>>>,
     counter: AtomicUsize,
     gate: Option<Arc<EvaluatorGate>>,
 }
@@ -263,6 +267,7 @@ impl FakeWorker {
             evaluator_reports: Mutex::new(VecDeque::new()),
             decision_reports: Mutex::new(VecDeque::new()),
             archive_reports: Mutex::new(VecDeque::new()),
+            executor_failures: Mutex::new(VecDeque::new()),
             counter: AtomicUsize::new(0),
             gate: None,
         }
@@ -271,6 +276,12 @@ impl FakeWorker {
     /// 归档两会话角色产出预录（spec_sync / resolve_conflicts 共用队列）。
     fn with_archive_reports(mut self, reports: Vec<Result<String, String>>) -> Self {
         self.archive_reports = Mutex::new(reports.into());
+        self
+    }
+
+    /// executor 会话失败注入预录（`Some` 携 api_error 记因载荷，`None` 无记因）。
+    fn with_executor_failures(mut self, causes: Vec<Option<String>>) -> Self {
+        self.executor_failures = Mutex::new(causes.into());
         self
     }
 
@@ -361,6 +372,17 @@ impl WorkerAgentPort for FakeWorker {
             _ => None,
         };
 
+        // executor 会话失败注入（耗尽回落 None = 会话正常收口）
+        let executor_failure = match role {
+            WorkerRole::Executor => Some(
+                self.executor_failures
+                    .lock()
+                    .expect("executor 失败队列锁不可中毒")
+                    .pop_front(),
+            ),
+            _ => None,
+        };
+
         Box::pin(async move {
             // evaluator 停等门：armed 期间挂起（停止时序窗口；notify_one 带许可
             // 语义——放行通知早于 future 首轮 poll 亦不丢）
@@ -370,6 +392,43 @@ impl WorkerAgentPort for FakeWorker {
                 }
             }
             let _ = &mut timeline;
+            // executor 失败注入：Failed 收敛 + 携成因的密封转录（真实引擎
+            // api_error 记因 + 失败 TurnDone 的同形形态；无记因时 TurnDone
+            // subtype 置空——成因提取显式缺席的形态）
+            if let Some(cause) = executor_failure.flatten() {
+                let mut transcript = Vec::new();
+                let subtype = match cause {
+                    Some(cause) => {
+                        transcript.push(agent::AgentEvent::stamp(
+                            0,
+                            agent::AgentEventKind::SystemNotice {
+                                subtype: "api_error".to_owned(),
+                                payload: serde_json::json!({ "error": cause }),
+                            },
+                        ));
+                        "api_error"
+                    }
+                    None => "",
+                };
+                transcript.push(agent::AgentEvent::stamp(
+                    1,
+                    agent::AgentEventKind::TurnDone {
+                        subtype: subtype.to_owned(),
+                        is_error: true,
+                        num_turns: None,
+                        duration_ms: None,
+                        cost_usd: None,
+                        usage: serde_json::Value::Null,
+                        session_id: None,
+                    },
+                ));
+                return Ok(WorkerTurnOutcome {
+                    session_id,
+                    status: AgentRunStatus::Failed,
+                    final_message: None,
+                    transcript,
+                });
+            }
             let final_message = match role {
                 WorkerRole::Executor => None,
                 WorkerRole::Evaluator => match evaluator.flatten() {
@@ -3299,6 +3358,95 @@ async fn 工具步失败显式failed且原因流出() {
             .contains("phase-start 失败"),
         "原因经 Finished 流出: {:?}",
         finish.reason
+    );
+}
+
+/// walk_run 会话失败收敛携真因（失败成因随行面）：executor 会话 `Failed` 收敛 +
+/// api_error 记因 → 步 detail 与 run 终态 reason 同文携成因（诊断真因直给，
+/// 不再只剩通用文案）。
+#[tokio::test]
+async fn 会话失败收敛携真因随节点与终态() {
+    let timeline = Arc::new(Mutex::new(Vec::new()));
+    let (worker, _, _) = FakeWorker::new(&timeline)
+        .with_executor_failures(vec![Some(
+            "API 流失败: HttpError: Invalid content type was returned: \"text/html\"".to_owned(),
+        )])
+        .assemble();
+    let (tools, _) = FakeTools::new(&timeline)
+        .with_phase_next(vec![route_outcome("proposal", &[])])
+        .assemble();
+
+    let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
+    let control = Arc::new(ChangeFlowControl::new());
+
+    let (task, mut rx, history) = spawn_run(worker, tools, snapshot, &control, false, "/tmp/root");
+    let _confirmer = spawn_confirmer(&control, true);
+    let status = task.await.expect("run 任务正常结束");
+
+    assert_eq!(status, ChangeRunStatus::Failed, "会话失败收敛显式 failed");
+    assert!(drain_notices(&mut rx)
+        .iter()
+        .any(|notice| *notice == RunNotice::Finished));
+    let finish = history.finish().expect("finish 落包捕获");
+    assert_eq!(finish.status, RunStatus::Failed);
+    assert!(
+        finish
+            .reason
+            .as_deref()
+            .unwrap_or_default()
+            .contains("Invalid content type"),
+        "run 终态 reason 携失败真因: {:?}",
+        finish.reason
+    );
+
+    // 步 detail 同文携真因（executor 失败节点）
+    let executor = finish
+        .nodes
+        .iter()
+        .find(|node| node.step == workflow::state::RunStepKind::Executor)
+        .expect("executor 节点在案");
+    let detail = executor.detail.as_deref().unwrap_or_default();
+    assert!(
+        detail.contains("会话失败收敛") && detail.contains("Invalid content type"),
+        "步 detail 携通用前缀 + 真因，实际: {detail}"
+    );
+}
+
+/// walk_run 会话失败收敛成因缺席回落（边界）：`Failed` 收敛但转录无记因载荷
+/// → 通用文案（调用点回落，不空 detail）。
+#[tokio::test]
+async fn 会话失败收敛成因缺席回落通用文案() {
+    let timeline = Arc::new(Mutex::new(Vec::new()));
+    let (worker, _, _) = FakeWorker::new(&timeline)
+        .with_executor_failures(vec![None])
+        .assemble();
+    let (tools, _) = FakeTools::new(&timeline)
+        .with_phase_next(vec![route_outcome("proposal", &[])])
+        .assemble();
+
+    let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
+    let control = Arc::new(ChangeFlowControl::new());
+
+    let (task, _rx, history) = spawn_run(worker, tools, snapshot, &control, false, "/tmp/root");
+    let _confirmer = spawn_confirmer(&control, true);
+    let status = task.await.expect("run 任务正常结束");
+
+    assert_eq!(status, ChangeRunStatus::Failed);
+    let finish = history.finish().expect("finish 落包捕获");
+    assert_eq!(
+        finish.reason.as_deref(),
+        Some("会话失败收敛"),
+        "成因缺席回落通用文案"
+    );
+    let executor = finish
+        .nodes
+        .iter()
+        .find(|node| node.step == workflow::state::RunStepKind::Executor)
+        .expect("executor 节点在案");
+    assert_eq!(
+        executor.detail.as_deref(),
+        Some("会话失败收敛"),
+        "步 detail 同口径回落"
     );
 }
 

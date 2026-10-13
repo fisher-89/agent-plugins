@@ -28,7 +28,7 @@ use crate::state::{
     ChangeStepStatus, EdgeKind, NodeKey, RunUpdate,
 };
 use crate::steps::change_branch;
-use crate::transcript::final_assistant_text;
+use crate::transcript::{failure_reason, final_assistant_text};
 use crate::verdict::{parse_verdict, EvaluatorChecklist};
 
 /// 会话 provenance 来源（sourceRef = change id / 相位 / 角色 / attempt 四段——
@@ -2752,20 +2752,31 @@ async fn run_worker(
             return Err(Terminal::failed(format!("会话执行失败: {error}")));
         }
     };
-    let (settle, status) = match outcome.status {
-        AgentRunStatus::Completed => (StepSettle::passed(None), outcome.status),
-        AgentRunStatus::Failed => (
-            StepSettle::failed(Some("会话失败收敛".to_owned())),
-            outcome.status,
-        ),
+    let (settle, terminal) = match outcome.status {
+        AgentRunStatus::Completed => (StepSettle::passed(None), None),
+        AgentRunStatus::Failed => {
+            // 失败成因随行（api_error 记因 / TurnDone subtype 兜底）：步 detail
+            // 与 run 终态同文携真因；缺席回落通用文案
+            let reason = match failure_reason(&outcome.transcript) {
+                Some(cause) => format!("会话失败收敛: {}", diagnose_brief(&cause)),
+                None => "会话失败收敛".to_owned(),
+            };
+            (
+                StepSettle::failed(Some(reason.clone())),
+                Some(Terminal::failed(reason)),
+            )
+        }
         AgentRunStatus::Stopped => (
             StepSettle::stopped(Some("会话被终止".to_owned())),
-            outcome.status,
+            Some(Terminal::stopped("会话被终止")),
         ),
-        AgentRunStatus::Running => (
-            StepSettle::failed(Some("会话收口缺终态".to_owned())),
-            outcome.status,
-        ),
+        AgentRunStatus::Running => {
+            let reason = "会话收口缺终态".to_owned();
+            (
+                StepSettle::failed(Some(reason.clone())),
+                Some(Terminal::failed(reason)),
+            )
+        }
     };
     emit_node(
         guard,
@@ -2775,12 +2786,9 @@ async fn run_worker(
         instance_no,
         settle.with_session(Some(outcome.session_id.clone())),
     );
-    match status {
-        AgentRunStatus::Completed => Ok(outcome),
-        AgentRunStatus::Stopped => Err(Terminal::stopped("会话被终止")),
-        AgentRunStatus::Failed | AgentRunStatus::Running => {
-            Err(Terminal::failed("会话失败收敛".to_owned()))
-        }
+    match terminal {
+        None => Ok(outcome),
+        Some(terminal) => Err(terminal),
     }
 }
 
