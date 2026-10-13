@@ -1,0 +1,17 @@
+{
+  "mutants": [
+    { "outcome": "Caught", "file": "crates/core/checks/src/model.rs", "line": 214 },
+    { "outcome": "Caught", "file": "crates/core/checks/src/model.rs", "line": 458 },
+    { "outcome": "Caught", "file": "crates/core/checks/src/aggregate.rs", "line": 516 },
+    { "outcome": "Caught", "file": "crates/core/checks/src/aggregate.rs", "line": 541 },
+    { "outcome": "missed", "file": "crates/core/checks/src/aggregate.rs", "line": 522 },
+    { "outcome": "missed", "file": "crates/core/checks/src/model.rs", "line": 473 },
+    { "outcome": "TIMEOUT", "file": "crates/core/checks/src/parser/mod.rs", "line": 88 },
+    { "outcome": "unviable", "file": "crates/core/checks/src/parser/rust.rs", "line": 31 },
+    { "outcome": "not-mutated", "file": "crates/core/checks/src/diagnose.rs", "line": 12 },
+    { "outcome": "NOT_MUTATED", "file": "crates/core/checks/src/globmatch.rs", "line": 9 },
+    { "outcome": "surprising-outcome", "file": "crates/core/checks/src/reuse.rs", "line": 40 },
+    { "file": "crates/core/checks/src/lib.rs", "line": 3 }
+  ],
+  "durationMs": 4210.75
+}

@@ -732,7 +732,7 @@ pub(crate) fn pack_checklist_item_key(phase_id: i64, item_index: u32) -> u128 {
     ((phase_id as u128) << 64) | (item_index as u128)
 }
 
-/// 相位机步骤审计行（desktop-change-state-store 四模型之四）：编排七臂命令
+/// 相位机步骤审计行（desktop-change-state-store 四模型之四）：编排八臂命令
 /// 包络逐条落行，`run_id` 串链同 run 步骤序列。审计 only——MUST NOT 作为
 /// run 恢复依据（run 状态驻内存 ChangeFlowControl，续走由 phase_next 依
 /// eval 历史重算）。
@@ -750,7 +750,7 @@ pub struct StepRecord {
     pub change_id: String,
     /// 所属 run（`run-<millis>` 铸造标识，同 run 步骤串链键）
     pub run_id: String,
-    /// 步骤种类（封闭集七值，core 域枚举直用）
+    /// 步骤种类（封闭集八值，core 域枚举直用）
     pub step_kind: StepKind,
     /// 步终态（线格式词：ok | error）
     pub status: String,
@@ -841,7 +841,7 @@ pub struct RunNodeRecord {
     pub change_id: String,
     pub phase: String,
     pub attempt: u32,
-    /// 步词汇（十八值全词汇封闭集，core 域枚举直用）
+    /// 步词汇（十九值全词汇封闭集，core 域枚举直用）
     pub step: RunStepKind,
     /// 同 `(phase, attempt, step)` 内的执行实例号（feedback 重跑为递增新节点）
     pub instance_no: u32,

@@ -867,6 +867,15 @@ fn build_run_history() -> Corpus {
                 None,
                 Some("conclusion=pass total=3"),
             ),
+            // mutation_test 拆步新词样本（AC-1 / AC-9 十九值投影语料在案）
+            step(
+                "dev-design",
+                1,
+                ChangeStepKind::MutationTest,
+                ChangeStepStatus::Passed,
+                None,
+                Some("conclusion=pass score=95 threshold=80"),
+            ),
             step(
                 "dev-design",
                 1,
@@ -1653,14 +1662,15 @@ fn corpusrun全史语料_golden对拍() {
     let corpus = build_run_history();
     let projection = project_detail(&corpus, "id-run-history");
 
-    // 全词汇断言：runs[].nodes[].step 十值全词汇在案（零过滤——flow 面步骤与三
-    // 门同整包落库）
-    const FULL_WORDS: [&str; 10] = [
+    // 全词汇断言：runs[].nodes[].step 十九值全词汇在案（零过滤——flow 面步骤与三
+    // 门同整包落库；mutation_test 拆步新词在案，AC-1 / AC-2）
+    const FULL_WORDS: [&str; 11] = [
         "executor",
         "evaluator",
         "decision",
         "static_check",
         "test_execution",
+        "mutation_test",
         "phase_start",
         "phase_log",
         "verdict_gate",
@@ -1675,7 +1685,10 @@ fn corpusrun全史语料_golden对拍() {
         let nodes = run["nodes"].as_array().expect("nodes 为数组");
         for node in nodes {
             let word = node["step"].as_str().expect("step 出线词");
-            assert!(FULL_WORDS.contains(&word), "落库步词汇 {word} 越十值封闭集");
+            assert!(
+                FULL_WORDS.contains(&word),
+                "落库步词汇 {word} 越十九值封闭集"
+            );
             if !seen_words.contains(&word) {
                 seen_words.push(word);
             }
@@ -1683,11 +1696,11 @@ fn corpusrun全史语料_golden对拍() {
         }
     }
     assert_eq!(
-        nodes_seen, 12,
-        "run-1 十一条 + run-2 一条，实际: {nodes_seen}"
+        nodes_seen, 13,
+        "run-1 十二条（含 mutation_test 拆步新词样本）+ run-2 一条，实际: {nodes_seen}"
     );
     for word in FULL_WORDS {
-        assert!(seen_words.contains(&word), "十词汇 {word} 应在案（零过滤）");
+        assert!(seen_words.contains(&word), "词汇 {word} 应在案（零过滤）");
     }
     assert!(
         !projection["runs"][0]

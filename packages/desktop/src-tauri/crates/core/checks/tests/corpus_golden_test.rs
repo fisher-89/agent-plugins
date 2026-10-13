@@ -435,3 +435,185 @@ fn 语料完整性_golden目录与语料集合一致() {
     actual.sort();
     assert_eq!(actual, expected, "golden 文件集应与语料集合一致");
 }
+
+// ---------------------------------------------------------------------------
+// 段级 mutation 语料对拍（desktop-fix-mutation-test / AC-9）：fixtures/
+// mutation-seg/{cargo,stryker} → parse_*_seg → merge_mutation_blocks →
+// build_mutation_block → 归并块结论（score / threshold / pass）投影与 golden
+// 等值；映射表样本与未知 outcome（runtimeError 留痕）在案
+// ---------------------------------------------------------------------------
+
+/// 段级语料清单（独立子树——不入 corpus 八套清单，README 独立维护）。
+const MUTATION_SEG_FIXTURES: &[&str] = &["mutation-seg-cargo", "mutation-seg-stryker"];
+
+fn mutation_seg_root() -> PathBuf {
+    manifest_dir()
+        .join("tests")
+        .join("fixtures")
+        .join("mutation-seg")
+}
+
+fn mutation_seg_golden_dir() -> PathBuf {
+    manifest_dir().join("tests").join("golden-mutation-seg")
+}
+
+/// 段级语料全链投影：宽容解析（映射表归位）→ 计数归并（单段）→ 归并块结论
+/// 投影（确定性字段——duration_ms 取段耗时、计数七键 + score / threshold /
+/// pass）。
+fn project_seg_fixture(fixture: &str) -> serde_json::Value {
+    let raw = fs::read_to_string(mutation_seg_root().join(fixture).join("seg-report.json"))
+        .expect("段级 fixture seg-report.json 应存在");
+    let parsed = match fixture {
+        "mutation-seg-cargo" => checks::model::parse_cargo_mutants_seg(&raw),
+        "mutation-seg-stryker" => checks::model::parse_stryker_seg(&raw),
+        other => panic!("段级 fixture {other} 未路由解析器"),
+    };
+    let report = parsed.unwrap_or_else(|error| panic!("{fixture} 解析失败: {error}"));
+    let threshold = 70.0;
+    let block = checks::aggregate::build_mutation_block(report.measured, threshold);
+    let merged =
+        checks::aggregate::merge_mutation_blocks(std::slice::from_ref(&block)).expect("单段归并非空");
+    serde_json::json!({
+        "fixture": fixture,
+        "tool": report.tool.as_str(),
+        "durationMs": report.duration_ms,
+        "counts": [
+            merged.measured.killed,
+            merged.measured.survived,
+            merged.measured.timeout,
+            merged.measured.no_coverage,
+            merged.measured.compile_error,
+            merged.measured.runtime_error,
+            merged.measured.ignored,
+            merged.measured.total,
+        ],
+        "score": merged.score,
+        "threshold": merged.threshold,
+        "pass": merged.pass,
+    })
+}
+
+/// 对比或覆写单份段级 golden（corpus 先例同款——独立目录独立开关）。
+fn check_or_rewrite_seg(golden_name: &str, projection: &serde_json::Value) {
+    let normalized = format!(
+        "{}\n",
+        serde_json::to_string_pretty(projection).expect("投影序列化失败")
+    );
+    let golden_path = mutation_seg_golden_dir().join(format!("{golden_name}.json"));
+    if rewrite_mode() {
+        fs::create_dir_all(mutation_seg_golden_dir()).expect("创建段级 golden 目录失败");
+        fs::write(&golden_path, &normalized).expect("写段级 golden 失败");
+        return;
+    }
+    let expected = fs::read_to_string(&golden_path).unwrap_or_else(|err| {
+        panic!(
+            "段级 golden {golden_name}.json 缺失（先以 {REWRITE_ENV}=1 生成）: {err}"
+        )
+    });
+    assert_eq!(
+        normalized, expected,
+        "fixture {golden_name} 的段级投影与 golden 漂移；若为有意演进，以 {REWRITE_ENV}=1 重写并 review diff"
+    );
+}
+
+/// 正向：cargo-mutants 段级 fixture → `parse_cargo_mutants_seg` → 计数归并 →
+/// 归并块结论投影与 golden 等值（AC-9 映射表样本 + 段级报告 fixtures）。
+#[test]
+fn golden_mutation_seg_cargo_映射表样本全链投影() {
+    let projection = project_seg_fixture("mutation-seg-cargo");
+    assert_eq!(projection["tool"], "cargo_mutants");
+    // 映射表样本：4 Caught + 1 TIMEOUT → killed=4, timeout=1；missed=2 → survived
+    // unviable=1 → compileError；not-mutated×2 → ignored=2；未知 outcome + 缺
+    // outcome 字段 → runtimeError=2
+    assert_eq!(
+        projection["counts"],
+        serde_json::json!([4, 2, 1, 0, 1, 2, 2, 12]),
+        "映射表逐位归位（killed / survived / timeout / noCoverage / compileError / runtimeError / ignored / total）"
+    );
+    // score = (4+1)/(12-1-2-2) = 5/7 = 71.43 → pass (>= 70)
+    assert_eq!(projection["score"], 71.43, "score 公式单点（两位舍入）");
+    assert_eq!(projection["threshold"], 70.0);
+    assert_eq!(projection["pass"], true);
+    check_or_rewrite_seg("mutation-seg-cargo", &projection);
+}
+
+/// 正向：Stryker 段级 fixture → `parse_stryker_seg`（metrics 面优先）→ 归并
+/// 结论投影与 golden 等值；未知 status 留痕 runtimeError（宽容不丢数据）。
+#[test]
+fn golden_mutation_seg_stryker_metrics面全链投影() {
+    let projection = project_seg_fixture("mutation-seg-stryker");
+    assert_eq!(projection["tool"], "stryker");
+    // metrics 面显式在案（files 面不参与计数——metrics 优先口径）
+    assert_eq!(
+        projection["counts"],
+        serde_json::json!([18, 4, 2, 1, 0, 1, 3, 29]),
+        "metrics 面逐位在案"
+    );
+    // score = (18+2)/(29-3-0-1) = 20/25 = 80.0 → pass
+    assert_eq!(projection["score"], 80.0);
+    assert_eq!(projection["pass"], true);
+    check_or_rewrite_seg("mutation-seg-stryker", &projection);
+}
+
+/// 边界：未知 outcome 样本投影含 runtimeError 计数（宽容不丢数据留痕——cargo
+/// fixture 的 surprising-outcome + 缺 outcome 条目恰 2 计入 runtimeError）。
+#[test]
+fn 段级未知outcome样本runtimeError留痕() {
+    let cargo = project_seg_fixture("mutation-seg-cargo");
+    assert_eq!(
+        cargo["counts"][5], 2,
+        "未知 outcome + 缺 outcome 字段条目 → runtimeError=2（留痕不丢）"
+    );
+    let stryker = project_seg_fixture("mutation-seg-stryker");
+    // stryker metrics 面 runtimeErrors=1 显式在案（files 面的 surprised-status
+    // 不参与 metrics 优先计数）
+    assert_eq!(stryker["counts"][5], 1, "metrics 面 runtimeErrors 显式在案");
+}
+
+/// golden 重写纪律（异常）：对拍差异 → 测试失败并提示；仅
+/// `DESKTOP_GOLDEN_REWRITE=1` 显式重写（禁止静默重写，AC-9）——以重写开关
+/// 缺省下 golden 文件在位断言承载。
+#[test]
+fn 段级golden重写纪律_开关缺省下文件在位() {
+    if rewrite_mode() {
+        // 重写模式下目录正在被覆写，跳过在位断言（复核轮再验）
+        return;
+    }
+    for fixture in MUTATION_SEG_FIXTURES {
+        let path = mutation_seg_golden_dir().join(format!("{fixture}.json"));
+        assert!(
+            path.is_file(),
+            "段级 golden {fixture}.json 应在位（先以 {REWRITE_ENV}=1 生成）"
+        );
+    }
+}
+
+/// 语料清单（边界）：段级语料 ≥ 规模下限（两套：cargo 映射表 + stryker
+/// metrics 面）；fixture 目录与清单一致（防样本被静默删减）；损坏面口径——
+/// 解析失败显式 panic 不静默（结构面严格）。
+#[test]
+fn 段级语料清单_目录与清单一致且规模下限() {
+    let mut actual: Vec<String> = fs::read_dir(mutation_seg_root())
+        .expect("mutation-seg 目录应存在")
+        .flatten()
+        .filter(|entry| entry.path().is_dir())
+        .map(|entry| entry.file_name().to_string_lossy().into_owned())
+        .collect();
+    actual.sort();
+    let mut expected: Vec<String> = MUTATION_SEG_FIXTURES.iter().map(|s| s.to_string()).collect();
+    expected.sort();
+    assert_eq!(actual, expected, "mutation-seg 目录与清单表不一致");
+    assert!(
+        MUTATION_SEG_FIXTURES.len() >= 2,
+        "段级语料规模下限（≥2 套：cargo 映射表 + stryker metrics）"
+    );
+
+    // 损坏面口径：非 JSON seg-report → 解析显式 Err（结构面严格——corpus
+    // 损坏族「解析不 panic、显式降级」同口径的严格半边）
+    let err = checks::model::parse_cargo_mutants_seg("{ truncated")
+        .expect_err("损坏 seg-report 应 Err");
+    assert!(!err.is_empty(), "Err 记因非空（不 panic 不静默）");
+    let err = checks::model::parse_stryker_seg("")
+        .expect_err("空 seg-report 应 Err");
+    assert!(!err.is_empty());
+}

@@ -25,7 +25,7 @@ impl ChangeStatus {
     }
 }
 
-/// 相位机步骤种类封闭集（七臂命令包络；线格式 snake_case 词）。
+/// 相位机步骤种类封闭集（八臂命令包络；线格式 snake_case 词）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Type)]
 #[serde(rename_all = "snake_case")]
 pub enum StepKind {
@@ -36,6 +36,7 @@ pub enum StepKind {
     DecisionLog,
     StaticCheck,
     TestExecution,
+    MutationTest,
 }
 
 impl StepKind {
@@ -49,6 +50,7 @@ impl StepKind {
             StepKind::DecisionLog => "decision_log",
             StepKind::StaticCheck => "static_check",
             StepKind::TestExecution => "test_execution",
+            StepKind::MutationTest => "mutation_test",
         }
     }
 }
@@ -189,7 +191,7 @@ pub struct BacktrackCommand {
     pub stale_dependents: Vec<String>,
 }
 
-/// 步骤审计写命令（`StepCommand`）：编排七臂命令包络逐条落行。
+/// 步骤审计写命令（`StepCommand`）：编排八臂命令包络逐条落行。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StepCommand {
     pub run_id: String,
@@ -243,9 +245,10 @@ pub enum AgentRole {
     ResolveConflicts,
 }
 
-/// 计划步节点全词汇（18 值封闭集，线格式 snake_case 词）：agent 阶段三角色 +
-/// 脚本阶段两检查步 + 流程面两步 + 三门 gate + 归档 8 步。词汇本体单点——计划图
-/// 声明（[`StepDefinition::node`]）与执行图落库（[`RunStepKind`]）同词面 1:1 全映射。
+/// 计划步节点全词汇（19 值封闭集，线格式 snake_case 词）：agent 阶段三角色、
+/// 脚本阶段三检查步（static-check / test-execution / mutation-test）、流程面两步、
+/// 三门 gate 与归档 8 步。词汇本体单点——计划图声明（[`StepDefinition::node`]）
+/// 与执行图落库（[`RunStepKind`]）同词面 1:1 全映射。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Type)]
 #[serde(rename_all = "snake_case")]
 pub enum StepNode {
@@ -261,6 +264,8 @@ pub enum StepNode {
     StaticCheck,
     /// test-execution 门禁工具步（确定性测试执行链）
     TestExecution,
+    /// mutation-test 门禁工具步（确定性突变执行链，独立反馈边②）
+    MutationTest,
     /// phase-log 相位机步
     PhaseLog,
     /// verdict 解析门
@@ -297,6 +302,7 @@ impl StepNode {
             StepNode::PhaseStart => "phase_start",
             StepNode::StaticCheck => "static_check",
             StepNode::TestExecution => "test_execution",
+            StepNode::MutationTest => "mutation_test",
             StepNode::PhaseLog => "phase_log",
             StepNode::VerdictGate => "verdict_gate",
             StepNode::RetryGate => "retry_gate",
@@ -325,6 +331,7 @@ impl StepNode {
             StepNode::PhaseStart
             | StepNode::StaticCheck
             | StepNode::TestExecution
+            | StepNode::MutationTest
             | StepNode::PhaseLog
             | StepNode::Preflight
             | StepNode::Seal => StepGroup::Exec,
@@ -348,6 +355,7 @@ impl StepNode {
             StepNode::PhaseStart
             | StepNode::StaticCheck
             | StepNode::TestExecution
+            | StepNode::MutationTest
             | StepNode::PhaseLog
             | StepNode::Preflight
             | StepNode::Commit
@@ -440,11 +448,11 @@ impl RunStatus {
     }
 }
 
-/// run 步词汇封闭集（**十八值全词汇**，线格式 snake_case 词）：agent 阶段
-///（executor / evaluator / decision）、脚本阶段（static_check / test_execution）、
-/// 流程面步骤（phase_start / phase_log）、三门 gate（verdict_gate、retry_gate、
-/// whitelist_gate）与归档 8 步（preflight / commit / rebase / resolve_conflicts /
-/// merge / spec_sync / seal / finalize）。词汇本体单点——落库命令
+/// run 步词汇封闭集（**十九值全词汇**，线格式 snake_case 词）：agent 阶段
+///（executor / evaluator / decision）、脚本阶段（static_check / test_execution /
+/// mutation_test）、流程面步骤（phase_start / phase_log）、三门 gate（verdict_gate、
+/// retry_gate、whitelist_gate）与归档 8 步（preflight / commit / rebase /
+/// resolve_conflicts / merge / spec_sync / seal / finalize）。词汇本体单点——落库命令
 ///（`RunNodeEntry.step`）与查询投影（`detail.rs`）同本类型消费，落库零过滤
 ///（旧 5 值词表的过滤谓词已退役）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Type)]
@@ -460,6 +468,8 @@ pub enum RunStepKind {
     StaticCheck,
     /// test-execution 门禁工具步
     TestExecution,
+    /// mutation-test 门禁工具步
+    MutationTest,
     /// phase-start 相位机步
     PhaseStart,
     /// phase-log 相位机步
@@ -497,6 +507,7 @@ impl RunStepKind {
             RunStepKind::Decision => "decision",
             RunStepKind::StaticCheck => "static_check",
             RunStepKind::TestExecution => "test_execution",
+            RunStepKind::MutationTest => "mutation_test",
             RunStepKind::PhaseStart => "phase_start",
             RunStepKind::PhaseLog => "phase_log",
             RunStepKind::VerdictGate => "verdict_gate",
@@ -630,7 +641,7 @@ pub struct RunStartCommand {
     pub started_at: i64,
 }
 
-/// run 节点整包条目（finish 载荷内联；词汇 = [`RunStepKind`] 十八值全词汇，零
+/// run 节点整包条目（finish 载荷内联；词汇 = [`RunStepKind`] 十九值全词汇，零
 /// 过滤）。`node_seq` 由整包下标盖戳（store 侧组装打包主键）。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RunNodeEntry {
@@ -771,7 +782,7 @@ pub trait ChangeStateStore: Send + Sync {
     /// 稳定序由实现保证）。
     fn list_runs(&self, change_id: &str) -> Result<Vec<RunStateRecord>, StoreFault>;
 
-    /// run 执行图节点行（`run_id` 圈定，node_seq 升序 = emit 序；十八值全词汇
+    /// run 执行图节点行（`run_id` 圈定，node_seq 升序 = emit 序；十九值全词汇
     /// 零过滤——读面与写面同一份封闭集）。
     fn list_run_nodes(&self, run_id: &str) -> Result<Vec<RunNodeStateRecord>, StoreFault>;
 

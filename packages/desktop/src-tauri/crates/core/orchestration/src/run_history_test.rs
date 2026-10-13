@@ -1,5 +1,5 @@
 //! `run_history.rs` 的单元测试（test-design「run_history.rs ->
-//! run_history_test.rs」节）：词汇直映射十值零过滤（`persisted_step` 过滤谓词整
+//! run_history_test.rs」节）：词汇直映射十九值零过滤（`persisted_step` 过滤谓词整
 //! 体退役——编译面锚 + 全词汇在案行为锚，AC-3）、`finish_command` 组装（节点整包
 //! 全词汇 + 边整包四 kind 端点身份串 + 实例号递增直透 + 终态三值映射 +
 //! session_id / detail / output_ref 两态透传 + 空整包含空集 + 悬空边不静默丢弃）、
@@ -63,14 +63,15 @@ fn step(
 }
 
 // ---------------------------------------------------------------------------
-// 词汇直映射：十值零过滤（`persisted_step` 过滤谓词整体退役）
+// 词汇直映射：十九值零过滤（`persisted_step` 过滤谓词整体退役）
 // ---------------------------------------------------------------------------
 
-/// 十值全词汇直映射：`ChangeStepKind` 与 `RunStepKind` 1:1 同词面全映射——流程
-/// 面三步（phase_start / phase_log / 三门）不再被弃落（编译面锚：`persisted_step`
-/// 符号缺席，引用即不编译，AC-3 退役面）。
+/// 十九值全词汇直映射：`ChangeStepKind` 与 `RunStepKind` 1:1 同词面全映射——流程
+/// 面三步（phase_start / phase_log / 三门）不再被弃落，mutation_test 拆步新词
+/// 在案（编译面锚：`persisted_step` 符号缺席，引用即不编译，AC-3 退役面；
+/// AC-1 / AC-2 十九值零过滤）。
 #[test]
-fn 全词汇直映射十值零过滤() {
+fn 全词汇直映射十九值零过滤() {
     let all = [
         (
             ChangeStepKind::Executor,
@@ -93,6 +94,10 @@ fn 全词汇直映射十值零过滤() {
             workflow::state::RunStepKind::TestExecution,
         ),
         (
+            ChangeStepKind::MutationTest,
+            workflow::state::RunStepKind::MutationTest,
+        ),
+        (
             ChangeStepKind::PhaseStart,
             workflow::state::RunStepKind::PhaseStart,
         ),
@@ -112,7 +117,28 @@ fn 全词汇直映射十值零过滤() {
             ChangeStepKind::WhitelistGate,
             workflow::state::RunStepKind::WhitelistGate,
         ),
+        (
+            ChangeStepKind::Preflight,
+            workflow::state::RunStepKind::Preflight,
+        ),
+        (ChangeStepKind::Commit, workflow::state::RunStepKind::Commit),
+        (ChangeStepKind::Rebase, workflow::state::RunStepKind::Rebase),
+        (
+            ChangeStepKind::ResolveConflicts,
+            workflow::state::RunStepKind::ResolveConflicts,
+        ),
+        (ChangeStepKind::Merge, workflow::state::RunStepKind::Merge),
+        (
+            ChangeStepKind::SpecSync,
+            workflow::state::RunStepKind::SpecSync,
+        ),
+        (ChangeStepKind::Seal, workflow::state::RunStepKind::Seal),
+        (
+            ChangeStepKind::Finalize,
+            workflow::state::RunStepKind::Finalize,
+        ),
     ];
+    assert_eq!(all.len(), 19, "十九值封闭集全枚举");
 
     let nodes: Vec<ChangeStepState> = all
         .iter()
@@ -127,10 +153,17 @@ fn 全词汇直映射十值零过滤() {
         &[],
     );
 
-    assert_eq!(command.nodes.len(), 10, "十值全词汇零过滤");
+    assert_eq!(command.nodes.len(), 19, "十九值全词汇零过滤");
     for (index, (_, expect)) in all.iter().enumerate() {
         assert_eq!(command.nodes[index].step, *expect, "第 {index} 词汇直映射");
     }
+    assert!(
+        command
+            .nodes
+            .iter()
+            .any(|node| node.step == workflow::state::RunStepKind::MutationTest),
+        "mutation_test 拆步新词直映射在案（AC-1 / AC-2）"
+    );
     assert!(
         command
             .nodes
@@ -144,6 +177,22 @@ fn 全词汇直映射十值零过滤() {
             .iter()
             .any(|node| node.step == workflow::state::RunStepKind::WhitelistGate),
         "三门之 whitelist_gate 不再被弃落"
+    );
+
+    // 双射校验（异常面 / 词汇同源不漂移）：无两个 ChangeStepKind 映到同一
+    // RunStepKind（19 对互异即双射——两侧封闭集同势）
+    let mut mapped: Vec<&'static str> = command
+        .nodes
+        .iter()
+        .map(|node| node.step.as_str())
+        .collect();
+    let total = mapped.len();
+    mapped.sort_unstable();
+    mapped.dedup();
+    assert_eq!(
+        mapped.len(),
+        total,
+        "双射无两词映一（词汇同源不漂移），实际: {mapped:?}"
     );
 }
 

@@ -1,0 +1,33 @@
+{
+  "metrics": {
+    "killed": 18,
+    "survived": 4,
+    "timeout": 2,
+    "noCoverage": 1,
+    "compileErrors": 0,
+    "runtimeErrors": 1,
+    "ignored": 3,
+    "totalMutants": 29,
+    "totalDetected": 20,
+    "totalUndetected": 5
+  },
+  "files": {
+    "src/views/changes/flow/run-state.ts": {
+      "mutants": [
+        { "status": "Killed", "duration": 812.4 },
+        { "status": "Killed", "duration": 640.1 },
+        { "status": "Survived", "duration": 933.0 },
+        { "status": "surprised-status", "duration": 15.5 }
+      ]
+    },
+    "src/views/changes/flow/run-step-node.tsx": {
+      "mutants": [
+        { "status": "Timeout", "duration": 15000.0 },
+        { "status": "NoCoverage", "duration": 4.2 },
+        { "status": "RuntimeError", "duration": 9.8 },
+        { "status": "Ignored" }
+      ]
+    }
+  },
+  "durationMs": 9876.5
+}

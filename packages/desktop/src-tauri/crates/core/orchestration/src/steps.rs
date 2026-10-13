@@ -10,8 +10,8 @@ use workflow::state::{
 use workflow::write::{phase_table, SessionAnchors};
 
 use crate::port::{
-    ArchiveVcsPort, BoxToolFuture, StaticCheckRunner, TestExecutionRunner, ToolCommand,
-    ToolStepOutput, ToolStepPort, ToolStepRequest,
+    ArchiveVcsPort, BoxToolFuture, MutationRunner, StaticCheckRunner, TestExecutionRunner,
+    ToolCommand, ToolStepOutput, ToolStepPort, ToolStepRequest,
 };
 use crate::state::ArchivePreflight;
 
@@ -23,6 +23,8 @@ pub struct LocalToolSteps {
     anchors: Arc<SessionAnchors>,
     static_check: Arc<dyn StaticCheckRunner>,
     test_execution: Arc<dyn TestExecutionRunner>,
+    /// 突变执行缝（checks 边界 infra 实现；清单 / 补丁经本消费点 vcs 缝取数注入）
+    mutation: Arc<dyn MutationRunner>,
     /// 归档 git 步执行缝（Preflight 的 vcs 探测同走本缝；进程 spawn 驻
     /// `crates/infra/vcs`）
     vcs: Arc<dyn ArchiveVcsPort>,
@@ -36,6 +38,7 @@ impl LocalToolSteps {
         anchors: Arc<SessionAnchors>,
         static_check: Arc<dyn StaticCheckRunner>,
         test_execution: Arc<dyn TestExecutionRunner>,
+        mutation: Arc<dyn MutationRunner>,
         vcs: Arc<dyn ArchiveVcsPort>,
         store: Arc<dyn ChangeStateStore>,
         run_id: String,
@@ -44,6 +47,7 @@ impl LocalToolSteps {
             anchors,
             static_check,
             test_execution,
+            mutation,
             vcs,
             store,
             run_id,
@@ -56,6 +60,7 @@ impl ToolStepPort for LocalToolSteps {
         let anchors = Arc::clone(&self.anchors);
         let static_check = Arc::clone(&self.static_check);
         let test_execution = Arc::clone(&self.test_execution);
+        let mutation = Arc::clone(&self.mutation);
         let vcs = Arc::clone(&self.vcs);
         let store = Arc::clone(&self.store);
         let run_id = self.run_id.clone();
@@ -64,6 +69,7 @@ impl ToolStepPort for LocalToolSteps {
                 anchors,
                 static_check,
                 test_execution,
+                mutation,
                 vcs,
                 store,
                 run_id,
@@ -74,11 +80,14 @@ impl ToolStepPort for LocalToolSteps {
     }
 }
 
-/// 执行一次工具步骤
+/// 执行一次工具步骤（三检查缝 + vcs + store 的组合根入参面——参数数随
+/// mutation 缝扩至 8，沿 `walk_run` 先例显式 allow）
+#[allow(clippy::too_many_arguments)]
 async fn execute(
     anchors: Arc<SessionAnchors>,
     static_check: Arc<dyn StaticCheckRunner>,
     test_execution: Arc<dyn TestExecutionRunner>,
+    mutation: Arc<dyn MutationRunner>,
     vcs: Arc<dyn ArchiveVcsPort>,
     store: Arc<dyn ChangeStateStore>,
     run_id: String,
@@ -240,6 +249,42 @@ async fn execute(
                         Some(outcome.report_dir.clone()),
                     )),
                     Ok(_) => Err("test_execution 输出漂移：产出类型不匹配".to_owned()),
+                    Err(error) => Err(error.clone()),
+                },
+            );
+            output
+        }
+        ToolCommand::MutationTest { change_id } => {
+            // 磁盘面 port 收 name（报告目录派生为 name 化）：消费点经
+            // id → 记录 → name 解析（未建档显式 Err，与 TestExecution 分支同式）
+            let name = store
+                .get_change(&change_id)
+                .map_err(|error| error.to_string())?
+                .map(|record| record.name)
+                .ok_or_else(|| {
+                    format!("change \"{change_id}\" 未建档（无 ChangeRecord），无从执行突变门禁")
+                })?;
+            // 突变范围与补丁唯一入口（vcs 缝取数注入 runner——checks 侧零 git；
+            // 取数失败显式传播，MUST NOT 降级空清单 / 空补丁）
+            let files = vcs.change_edit_set(Path::new(&step.root), "HEAD")?;
+            let patch = vcs.change_edit_patch(Path::new(&step.root), "HEAD")?;
+            let output = mutation.run(&step.root, &name, &files, &patch).await;
+            audit_outcome(
+                store.as_ref(),
+                &run_id,
+                &change_id,
+                StepKind::MutationTest,
+                match &output {
+                    Ok(ToolStepOutput::MutationTest(outcome)) => Ok((
+                        format!(
+                            "mutation_test conclusion={} score={} threshold={}",
+                            outcome.conclusion.as_str(),
+                            outcome.score,
+                            outcome.threshold
+                        ),
+                        None,
+                    )),
+                    Ok(_) => Err("mutation_test 输出漂移：产出类型不匹配".to_owned()),
                     Err(error) => Err(error.clone()),
                 },
             );

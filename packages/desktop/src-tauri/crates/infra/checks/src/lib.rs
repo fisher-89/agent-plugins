@@ -1,6 +1,9 @@
 mod static_check;
 mod testexec;
 
+pub mod mutation;
+
+pub use mutation::ProcessMutation;
 pub use static_check::ProcessStaticCheck;
 pub use testexec::ProcessTestExecution;
 

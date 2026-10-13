@@ -363,3 +363,57 @@ pub(crate) fn commit_paths(main_root: &Path, paths: &[&str], message: &str) -> R
     commit_args.extend(globs.iter().map(String::as_str));
     git(main_root, &commit_args).map(|_| ())
 }
+
+// ---------------------------------------------------------------------------
+// 变更文件清单 / 补丁（突变范围唯一入口——`change_edit_set` 是全仓取 diff /
+// 列清单的单点封装，`change_edit_patch` 与其同居；checks-runtime 依赖面零 vcs，
+// 清单与补丁经 `ArchiveVcsPort` 缝注入 MutationRunner）
+// ---------------------------------------------------------------------------
+
+/// 变更文件清单唯一入口：`git diff <base> --name-only -z` ∪ `git ls-files
+/// --others --exclude-standard -z`（untracked 并入——新建源文件不 add 也入清
+/// 单），排序去重、POSIX 归一后返回。`base = "HEAD"` 时即本 change 编辑集
+/// （worktree 语义）。git 失败显式 `Err`——MUST NOT 静默降级空清单（空清单会
+/// 误走 diff 空跳过）。
+pub(crate) fn change_edit_set(root: &Path, base: &str) -> Result<Vec<String>, String> {
+    validate_base(base)?;
+    let tracked = git(root, &["diff", base, "--name-only", "-z"])?;
+    let untracked = git(root, &["ls-files", "--others", "--exclude-standard", "-z"])?;
+    let mut files = std::collections::BTreeSet::new();
+    for raw in [tracked, untracked] {
+        for entry in raw.split('\0').filter(|entry| !entry.is_empty()) {
+            files.insert(entry.replace('\\', "/"));
+        }
+    }
+    Ok(files.into_iter().collect())
+}
+
+/// `--in-diff` 补丁唯一入口：untracked 面先行 `git add -N`（intent-to-add——不改
+/// 文件内容、不改 worktree 语义：worktree 为 change 私有执行锚，归档 `commit_all`
+/// 本就 `add -A` 收编；重复执行幂等，不回退标记）再 `git diff <base>` 输出
+/// unified diff 文本。与 [`change_edit_set`] 同居 vcs 单点，checks 侧零 git spawn。
+pub(crate) fn change_edit_patch(root: &Path, base: &str) -> Result<String, String> {
+    validate_base(base)?;
+    // 仅对 untracked 清单面做 intent-to-add（与 change_edit_set 的 untracked 口径
+    // 同源同集——gitignore 面不入）
+    let untracked = git(root, &["ls-files", "--others", "--exclude-standard", "-z"])?;
+    let paths: Vec<&str> = untracked
+        .split('\0')
+        .filter(|entry| !entry.is_empty())
+        .collect();
+    if !paths.is_empty() {
+        let mut add_args: Vec<&str> = vec!["add", "-N", "--"];
+        add_args.extend_from_slice(&paths);
+        git(root, &add_args)?;
+    }
+    git(root, &["diff", base])
+}
+
+/// base 入参前置校验（空白 base 显式 Err——`git diff ""` 的歧义语境不可辨，
+/// 显式拒绝优于 git 半途报错；含换行 / 超长等非法 rev 交 git 失败显式 Err）。
+fn validate_base(base: &str) -> Result<(), String> {
+    if base.trim().is_empty() {
+        return Err("变更文件清单取数失败：base 为空（期望 rev 形态如 \"HEAD\"）".to_owned());
+    }
+    Ok(())
+}

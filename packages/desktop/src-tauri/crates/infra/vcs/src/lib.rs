@@ -150,4 +150,12 @@ impl ArchiveVcsPort for ProcessArchiveVcs {
     fn commit_paths(&self, main_root: &Path, paths: &[&str], message: &str) -> Result<(), String> {
         git::commit_paths(main_root, paths, message)
     }
+
+    fn change_edit_set(&self, root: &Path, base: &str) -> Result<Vec<String>, String> {
+        git::change_edit_set(root, base)
+    }
+
+    fn change_edit_patch(&self, root: &Path, base: &str) -> Result<String, String> {
+        git::change_edit_patch(root, base)
+    }
 }

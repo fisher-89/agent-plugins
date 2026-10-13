@@ -9,13 +9,15 @@ import type {
 import type { FlowRoleLabel, RunStepGroup, RuntimeFlowNode } from './types';
 
 /** 步词汇归一单点：库读史 snake 词（RunStepKind）→ 活面 camel 词
- *（ChangeStepKind）——十八值全词汇逐词对应（落库零过滤后读面同词汇）。 */
+ *（ChangeStepKind）——十九值全词汇逐词对应（落库零过滤后读面同词汇）。 */
 function normalizeKind(step: RunStepKind): ChangeStepKind {
   switch (step) {
     case 'static_check':
       return 'staticCheck';
     case 'test_execution':
       return 'testExecution';
+    case 'mutation_test':
+      return 'mutationTest';
     case 'phase_start':
       return 'phaseStart';
     case 'phase_log':
@@ -43,6 +45,8 @@ function stepWord(kind: ChangeStepKind): string {
       return 'static_check';
     case 'testExecution':
       return 'test_execution';
+    case 'mutationTest':
+      return 'mutation_test';
     case 'phaseStart':
       return 'phase_start';
     case 'phaseLog':

@@ -1275,13 +1275,14 @@ fn run_edge_row(
     }
 }
 
-/// 十八值全词汇（节点出线零过滤断言面；含归档 8 步词）。
-const ALL_STEP_KINDS: [RunStepKind; 18] = [
+/// 十九值全词汇（节点出线零过滤断言面；含归档 8 步词与拆步新词 mutation_test）。
+const ALL_STEP_KINDS: [RunStepKind; 19] = [
     RunStepKind::Executor,
     RunStepKind::Evaluator,
     RunStepKind::Decision,
     RunStepKind::StaticCheck,
     RunStepKind::TestExecution,
+    RunStepKind::MutationTest,
     RunStepKind::PhaseStart,
     RunStepKind::PhaseLog,
     RunStepKind::VerdictGate,
@@ -1428,10 +1429,11 @@ fn 详情run史出线_两run全史投影与时间iso口径() {
     );
 }
 
-/// 节点全词汇出线：一次覆盖十值词汇的 run → 十值全词汇在案（含 phaseStart /
-/// phaseLog / 三门），零过滤（AC-3 / AC-6）。
+/// 节点全词汇出线：一次覆盖十九值词汇的 run → 十九值全词汇在案（含
+/// phaseStart / phaseLog / 三门与 mutation_test 拆步新词），零过滤（AC-3 /
+/// AC-6 / AC-2 十九值零过滤）。
 #[test]
-fn 详情节点出线_十八值全词汇零过滤() {
+fn 详情节点出线_十九值全词汇零过滤() {
     let env = Env::new("run-nodes-vocab");
     env.seed(ID_RUNNED, "runned", T0, None);
     env.store.push_run(RunStateRecord {
@@ -1446,7 +1448,7 @@ fn 详情节点出线_十八值全词汇零过滤() {
 
     let detail = env.detail(ID_RUNNED);
     let nodes = &detail.runs[0].nodes;
-    assert_eq!(nodes.len(), 18, "十八值全词汇零过滤（含归档 8 步词）");
+    assert_eq!(nodes.len(), 19, "十九值全词汇零过滤（含归档 8 步词与 mutation_test）");
     let projected: Vec<RunStepKind> = nodes.iter().map(|node| node.step).collect();
     assert_eq!(projected, ALL_STEP_KINDS.to_vec());
 
@@ -1466,6 +1468,7 @@ fn 详情节点出线_十八值全词汇零过滤() {
             "decision",
             "static_check",
             "test_execution",
+            "mutation_test",
             "phase_start",
             "phase_log",
             "verdict_gate",

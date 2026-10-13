@@ -1,7 +1,7 @@
 //! `state.rs` 中性状态类型的单元测试（test-design「state.rs ->
-//! state_test.rs」节）：计划图侧类型封闭集（StepNode 十八值全词汇 +
+//! state_test.rs」节）：计划图侧类型封闭集（StepNode 十九值全词汇 +
 //! `group()` / `role()` 派生访问器（四分类含 Git）+ OnFail 两变体 + StepDefinition /
-//! ArtifactSpec 声明面）+ 执行图侧词汇（RunStepKind 十八值零过滤 /
+//! ArtifactSpec 声明面）+ 执行图侧词汇（RunStepKind 十九值零过滤 /
 //! RunEdgeKind 四值 snake_case）+ 节点与边中性类型序列化往返（身份键
 //! `(run_id, phase, attempt, step, instance_no)`、session_id / detail /
 //! output_ref 两态）+ ChangeStateRecord 身份面（`id` 首字段为身份锚、`name`
@@ -55,11 +55,11 @@ fn run_status五值线面lowercase逐字() {
     assert_eq!(RunStatus::Interrupted.as_str(), "interrupted");
 }
 
-/// RunStepKind **十八值全词汇**出线恰为 snake_case 词（AC-2 词汇单点前置——落库命
+/// RunStepKind **十九值全词汇**出线恰为 snake_case 词（AC-2 词汇单点前置——落库命
 /// 令与查询投影同类型消费；流程面 phase_start / phase_log 与三门不再被过滤弃落，
-/// 归档 8 步词同面在案）。
+/// 归档 8 步词同面在案；mutation_test 拆步新词在案，AC-1 / AC-2）。
 #[test]
-fn run_step_kind十八值全词汇snake_case逐字() {
+fn run_step_kind十九值全词汇snake_case逐字() {
     let wire = |kind: RunStepKind| serde_json::to_value(kind).expect("词汇出线应成功");
     assert_eq!(wire(RunStepKind::Executor), json!("executor"));
     assert_eq!(wire(RunStepKind::Evaluator), json!("evaluator"));
@@ -70,6 +70,11 @@ fn run_step_kind十八值全词汇snake_case逐字() {
         "库读史 snake 词（前端归一单点消费）"
     );
     assert_eq!(wire(RunStepKind::TestExecution), json!("test_execution"));
+    assert_eq!(
+        wire(RunStepKind::MutationTest),
+        json!("mutation_test"),
+        "突变门禁步 snake 词（拆步新词——mutation_test ↔ mutationTest 归一在案）"
+    );
     assert_eq!(wire(RunStepKind::PhaseStart), json!("phase_start"));
     assert_eq!(wire(RunStepKind::PhaseLog), json!("phase_log"));
     assert_eq!(wire(RunStepKind::VerdictGate), json!("verdict_gate"));
@@ -94,6 +99,7 @@ fn run_step_kind十八值全词汇snake_case逐字() {
     assert_eq!(RunStepKind::Decision.as_str(), "decision");
     assert_eq!(RunStepKind::StaticCheck.as_str(), "static_check");
     assert_eq!(RunStepKind::TestExecution.as_str(), "test_execution");
+    assert_eq!(RunStepKind::MutationTest.as_str(), "mutation_test");
     assert_eq!(RunStepKind::PhaseStart.as_str(), "phase_start");
     assert_eq!(RunStepKind::PhaseLog.as_str(), "phase_log");
     assert_eq!(RunStepKind::VerdictGate.as_str(), "verdict_gate");
@@ -107,6 +113,22 @@ fn run_step_kind十八值全词汇snake_case逐字() {
     assert_eq!(RunStepKind::SpecSync.as_str(), "spec_sync");
     assert_eq!(RunStepKind::Seal.as_str(), "seal");
     assert_eq!(RunStepKind::Finalize.as_str(), "finalize");
+
+    // StepKind 命令包络八臂（线词面同源——mutation_test 在案，AC-1 审计线词面）
+    let wire_kind = |kind: StepKind| serde_json::to_value(kind).expect("包络词出线应成功");
+    assert_eq!(wire_kind(StepKind::PhaseNext), json!("phase_next"));
+    assert_eq!(wire_kind(StepKind::PhaseStart), json!("phase_start"));
+    assert_eq!(wire_kind(StepKind::PhaseLog), json!("phase_log"));
+    assert_eq!(wire_kind(StepKind::Backtrack), json!("backtrack"));
+    assert_eq!(wire_kind(StepKind::DecisionLog), json!("decision_log"));
+    assert_eq!(wire_kind(StepKind::StaticCheck), json!("static_check"));
+    assert_eq!(wire_kind(StepKind::TestExecution), json!("test_execution"));
+    assert_eq!(
+        wire_kind(StepKind::MutationTest),
+        json!("mutation_test"),
+        "八臂命令包络 mutation_test 线词面"
+    );
+    assert_eq!(StepKind::MutationTest.as_str(), "mutation_test");
 }
 
 /// RunStepStatus 四值出线恰为 camelCase 词（步状态线格式）。
@@ -128,11 +150,12 @@ fn 非法词反序列化拒绝_封闭集防线() {
         let back: Result<RunStatus, _> = serde_json::from_value(json!(illegal));
         assert!(back.is_err(), "RunStatus 越集词 {illegal:?} 应拒绝");
     }
-    // RunStepKind：camel 词 / 近似词 / 空串越集（十八值词汇之外的词形一律拒绝）
+    // RunStepKind：camel 词 / 近似词 / 空串越集（十九值词汇之外的词形一律拒绝）
     for illegal in [
         "verdictGate",
         "staticCheck",
         "testExecution",
+        "mutationTest",
         "retryGate",
         "whitelistGate",
         "event",
@@ -141,6 +164,7 @@ fn 非法词反序列化拒绝_封闭集防线() {
         "specSync",
         "spec-sync",
         "phaseStart",
+        "mutation",
         "",
     ] {
         let back: Result<RunStepKind, _> = serde_json::from_value(json!(illegal));
@@ -822,17 +846,18 @@ fn change_state_store全方法id形参编译面() {
 }
 
 // ---------------------------------------------------------------------------
-// 计划图侧类型（StepNode 十八值全词汇 + 派生访问器 + OnFail / StepDefinition /
+// 计划图侧类型（StepNode 十九值全词汇 + 派生访问器 + OnFail / StepDefinition /
 // ArtifactSpec）
 // ---------------------------------------------------------------------------
 
-/// `StepNode` 十八值全词汇 snake_case 逐字出线（executor / evaluator / decision /
-/// phase_start / static_check / test_execution / phase_log / verdict_gate /
-/// retry_gate / whitelist_gate + 归档八步 preflight / commit / rebase /
-/// resolve_conflicts / merge / spec_sync / seal / finalize）——词汇本体单点（计划图
-/// 声明与执行图落库同词面 1:1 全映射，AC-2 全词汇前置）。
+/// `StepNode` 十九值全词汇 snake_case 逐字出线（executor / evaluator / decision /
+/// phase_start / static_check / test_execution / mutation_test / phase_log /
+/// verdict_gate / retry_gate / whitelist_gate + 归档八步 preflight / commit /
+/// rebase / resolve_conflicts / merge / spec_sync / seal / finalize）——词汇本体
+/// 单点（计划图声明与执行图落库同词面 1:1 全映射，AC-2 全词汇前置；mutation_test
+/// 拆步新词在案，AC-1）。
 #[test]
-fn step_node十八值全词汇snake_case逐字() {
+fn step_node十九值全词汇snake_case逐字() {
     let wire = |node: StepNode| serde_json::to_value(node).expect("词汇出线应成功");
     assert_eq!(wire(StepNode::Executor), json!("executor"));
     assert_eq!(wire(StepNode::Evaluator), json!("evaluator"));
@@ -840,6 +865,11 @@ fn step_node十八值全词汇snake_case逐字() {
     assert_eq!(wire(StepNode::PhaseStart), json!("phase_start"));
     assert_eq!(wire(StepNode::StaticCheck), json!("static_check"));
     assert_eq!(wire(StepNode::TestExecution), json!("test_execution"));
+    assert_eq!(
+        wire(StepNode::MutationTest),
+        json!("mutation_test"),
+        "突变门禁步拆步新词（AC-1 / AC-2）"
+    );
     assert_eq!(wire(StepNode::PhaseLog), json!("phase_log"));
     assert_eq!(wire(StepNode::VerdictGate), json!("verdict_gate"));
     assert_eq!(wire(StepNode::RetryGate), json!("retry_gate"));
@@ -860,6 +890,7 @@ fn step_node十八值全词汇snake_case逐字() {
     assert_eq!(StepNode::PhaseStart.as_str(), "phase_start");
     assert_eq!(StepNode::StaticCheck.as_str(), "static_check");
     assert_eq!(StepNode::TestExecution.as_str(), "test_execution");
+    assert_eq!(StepNode::MutationTest.as_str(), "mutation_test");
     assert_eq!(StepNode::PhaseLog.as_str(), "phase_log");
     assert_eq!(StepNode::VerdictGate.as_str(), "verdict_gate");
     assert_eq!(StepNode::RetryGate.as_str(), "retry_gate");
@@ -874,10 +905,10 @@ fn step_node十八值全词汇snake_case逐字() {
     assert_eq!(StepNode::Finalize.as_str(), "finalize");
 }
 
-/// `StepNode` 与 `RunStepKind` 逐字同源（18 值 1:1 全映射；线格式词一字不差，
+/// `StepNode` 与 `RunStepKind` 逐字同源（19 值 1:1 全映射；线格式词一字不差，
 /// AC-2 / AC-6 落库零过滤前置）。
 #[test]
-fn step_node与run_step_kind逐字同源十八值() {
+fn step_node与run_step_kind逐字同源十九值() {
     for (node, kind, word) in [
         (StepNode::Executor, RunStepKind::Executor, "executor"),
         (StepNode::Evaluator, RunStepKind::Evaluator, "evaluator"),
@@ -888,6 +919,11 @@ fn step_node与run_step_kind逐字同源十八值() {
             StepNode::TestExecution,
             RunStepKind::TestExecution,
             "test_execution",
+        ),
+        (
+            StepNode::MutationTest,
+            RunStepKind::MutationTest,
+            "mutation_test",
         ),
         (StepNode::PhaseLog, RunStepKind::PhaseLog, "phase_log"),
         (
@@ -929,11 +965,13 @@ fn step_node与run_step_kind逐字同源十八值() {
 /// 与跨类皆可辨（AC-2 派生访问器零冗余字段；D4 分派前置）。
 #[test]
 fn step_node分组与角色派生访问器一致() {
-    // Exec 组：相位机步 + 检查步 + 归档内联步（preflight / seal）
+    // Exec 组：相位机步 + 检查步（含拆步新词 mutation_test）+ 归档内联步
+    //（preflight / seal）
     for node in [
         StepNode::PhaseStart,
         StepNode::StaticCheck,
         StepNode::TestExecution,
+        StepNode::MutationTest,
         StepNode::PhaseLog,
         StepNode::Preflight,
         StepNode::Seal,
@@ -971,7 +1009,7 @@ fn step_node分组与角色派生访问器一致() {
         assert_eq!(node.group(), StepGroup::Gate, "{node:?} 属 Gate");
         assert_eq!(node.role(), None, "门步无角色");
     }
-    // 四分类互斥：Exec / Agent / Git / Gate 覆盖全词汇（18 值无遗漏无重叠）
+    // 四分类互斥：Exec / Agent / Git / Gate 覆盖全词汇（19 值无遗漏无重叠）
     let groups: Vec<StepGroup> = [
         StepNode::Executor,
         StepNode::Evaluator,
@@ -979,6 +1017,7 @@ fn step_node分组与角色派生访问器一致() {
         StepNode::PhaseStart,
         StepNode::StaticCheck,
         StepNode::TestExecution,
+        StepNode::MutationTest,
         StepNode::PhaseLog,
         StepNode::VerdictGate,
         StepNode::RetryGate,
@@ -995,8 +1034,8 @@ fn step_node分组与角色派生访问器一致() {
     .iter()
     .map(|node| node.group())
     .collect();
-    assert_eq!(groups.len(), 18, "十八值穷举无遗漏");
-    assert_eq!(groups.iter().filter(|g| **g == StepGroup::Exec).count(), 6);
+    assert_eq!(groups.len(), 19, "十九值穷举无遗漏");
+    assert_eq!(groups.iter().filter(|g| **g == StepGroup::Exec).count(), 7);
     assert_eq!(groups.iter().filter(|g| **g == StepGroup::Agent).count(), 5);
     assert_eq!(groups.iter().filter(|g| **g == StepGroup::Git).count(), 4);
     assert_eq!(groups.iter().filter(|g| **g == StepGroup::Gate).count(), 3);
@@ -1227,13 +1266,14 @@ fn run_node_state_record全字段往返可辨() {
         }
     }
 
-    // 十八值全词汇 step 出线（节点行 zero filter 前置）
+    // 十九值全词汇 step 出线（节点行 zero filter 前置；mutation_test 拆步新词在案）
     for (kind, word) in [
         (RunStepKind::Executor, "executor"),
         (RunStepKind::Evaluator, "evaluator"),
         (RunStepKind::Decision, "decision"),
         (RunStepKind::StaticCheck, "static_check"),
         (RunStepKind::TestExecution, "test_execution"),
+        (RunStepKind::MutationTest, "mutation_test"),
         (RunStepKind::PhaseStart, "phase_start"),
         (RunStepKind::PhaseLog, "phase_log"),
         (RunStepKind::VerdictGate, "verdict_gate"),

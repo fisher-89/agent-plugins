@@ -391,6 +391,8 @@ fn build_sub_report(
         test_files: Vec::new(),
         source_files: execution.source_files,
         coverage,
+        // 突变面由独立 MutationTest 步承载并回填 summary mutation 位；本链不产
+        // 突变结果（拆步语义——测试 / 覆盖率修绿后才跑突变）
         mutation: None,
         findings: execution.error.map(|error| vec![error]),
     }

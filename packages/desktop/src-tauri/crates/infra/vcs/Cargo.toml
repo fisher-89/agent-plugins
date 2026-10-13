@@ -12,3 +12,4 @@ workflow = { workspace = true }
 # 真件测试（真实 git tempdir 仓 / 真实快命令子进程）的夹具装置。
 [dev-dependencies]
 tempfile = { workspace = true }
+tokio = { workspace = true, features = ["rt", "macros"] }

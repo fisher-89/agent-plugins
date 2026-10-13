@@ -689,3 +689,302 @@ fn command字段仅存在性断言不锚措辞() {
         "command 在场即可（透传入参，措辞不进契约）"
     );
 }
+
+// ---------------------------------------------------------------------------
+// mutation 聚合单点（desktop-fix-mutation-test / AC-4 / AC-5）：
+// build_mutation_block（score 公式单点 `(killed+timeout)/(total-ignored-
+// compileError-runtimeError)`，分母 0 → 100.0，两位舍入，pass = score >=
+// threshold）+ merge_mutation_blocks（段计数求和归并，阈值取首块；空 → None）
+// ---------------------------------------------------------------------------
+
+use crate::aggregate::{build_mutation_block, merge_mutation_blocks};
+
+/// mutation 计数 fixture（全字段显式）。
+fn mutation_counts(
+    killed: u64,
+    survived: u64,
+    timeout: u64,
+    no_coverage: u64,
+    compile_error: u64,
+    runtime_error: u64,
+    ignored: u64,
+    total: u64,
+) -> MutationMeasured {
+    MutationMeasured {
+        killed,
+        survived,
+        timeout,
+        no_coverage,
+        compile_error,
+        runtime_error,
+        ignored,
+        total,
+        detected: killed + timeout,
+        undetected: survived + no_coverage,
+    }
+}
+
+/// 正向：典型计数 → score 逐字等于公式值（两位舍入，1/3 → 33.33）；
+/// `pass = score >= threshold`。
+#[test]
+fn build_mutation_block典型计数score逐字与阈值判定() {
+    // killed=1, timeout=0, valid = total(3) - 0 - 0 - 0 = 3 → 1/3 → 33.33
+    let block = build_mutation_block(mutation_counts(1, 1, 0, 0, 0, 0, 0, 3), 80.0);
+    assert_eq!(block.score, 33.33, "两位舍入（1/3 → 33.33）");
+    assert!(!block.pass, "33.33 < 80 → fail");
+    assert_eq!(block.threshold, 80.0);
+    assert_eq!(block.overrides, None, "override 组不产（V1 边界）");
+
+    // killed=7, timeout=1 → 8/10-2(ignored)=8/8 → 100.0
+    let block = build_mutation_block(mutation_counts(7, 1, 1, 0, 0, 0, 2, 10), 80.0);
+    assert_eq!(block.score, 100.0);
+    assert!(block.pass, "100.0 >= 80 → pass");
+
+    // 典型 55 分样本（corpus mutation-block fixture 同型：11 killed + 2 timeout
+    // / 27 total - 3 noCoverage 计入分母吗——noCoverage 不入分母排除面）
+    // valid = 27 - 0 - 0 - 0 = 27；(11+2)/27 = 48.15
+    let block = build_mutation_block(mutation_counts(11, 7, 2, 3, 0, 0, 0, 27), 70.0);
+    assert_eq!(block.score, 48.15, "(11+2)/27 = 48.148… → 48.15");
+    assert!(!block.pass);
+}
+
+/// 正向：`killed + timeout` 混合计入分子、`no_coverage` 不入分母排除面（分母
+/// 仅排 `ignored / compileError / runtimeError`）。
+#[test]
+fn build_mutation_block分子分母口径_no_coverage入分母不入排除面() {
+    // noCoverage 计入 total（分母）但不在排除面：
+    // killed=2, timeout=1, noCoverage=1, total=10 → valid = 10-0-0-0 = 10 → 3/10
+    let block = build_mutation_block(mutation_counts(2, 0, 1, 1, 0, 0, 0, 10), 30.0);
+    assert_eq!(block.score, 30.0, "noCoverage 计入分母（不入排除面）");
+    assert!(block.pass, "30.0 >= 30 → 恰等 pass");
+
+    // 排除面三键各扣：total=10, ignored=2, compileError=1, runtimeError=1 →
+    // valid = 6；killed=4, timeout=2 → 6/6 = 100.0
+    let block = build_mutation_block(mutation_counts(4, 0, 2, 0, 1, 1, 2, 10), 95.0);
+    assert_eq!(block.score, 100.0, "排除面三键各扣（valid = 6）");
+    assert!(block.pass);
+}
+
+/// 异常：分母 0（全 ignored / compileError / runtimeError / 全 0）→ score =
+/// 100.0（既有语义）；`threshold` = `NaN` → `pass = false`（`>=` 恒假）；
+/// `threshold` = `Inf` → fail。
+#[test]
+fn build_mutation_block分母零与NaN与Inf阈值() {
+    // 全 0（零段块边界）→ 100.0
+    let block = build_mutation_block(mutation_counts(0, 0, 0, 0, 0, 0, 0, 0), 80.0);
+    assert_eq!(block.score, 100.0, "分母 0 → 100.0（既有语义）");
+    assert!(block.pass, "100.0 >= 80");
+
+    // 全 ignored（valid = 3-3 = 0）→ 100.0
+    let block = build_mutation_block(mutation_counts(0, 0, 0, 0, 0, 0, 3, 3), 80.0);
+    assert_eq!(block.score, 100.0, "全 ignored → 分母 0 → 100.0");
+
+    // 全 compileError + runtimeError → 100.0
+    let block = build_mutation_block(mutation_counts(0, 0, 0, 0, 2, 1, 0, 3), 80.0);
+    assert_eq!(block.score, 100.0);
+
+    // threshold NaN → pass = false（>= 恒假——f64 NaN 比较面）
+    let block = build_mutation_block(mutation_counts(10, 0, 0, 0, 0, 0, 0, 10), f64::NAN);
+    assert_eq!(block.score, 100.0);
+    assert!(!block.pass, "threshold = NaN → pass 恒假");
+
+    // threshold Inf → fail（100.0 < Inf）
+    let block = build_mutation_block(mutation_counts(10, 0, 0, 0, 0, 0, 0, 10), f64::INFINITY);
+    assert!(!block.pass, "threshold = Inf → fail");
+}
+
+/// 边界：`score == threshold` 等值 → `pass = true`（`>=` 边界）；`threshold`
+/// = `0.0` / `-0.0` 恒 pass；`threshold` > 100 → 必 fail；计数极大（f64 转换
+/// 精度稳定不 panic）。
+#[test]
+fn build_mutation_block边界阈值与极大计数() {
+    // 恰等边界（killed=1 + timeout=1 / total=4 → 50.0 >= 50.0 → pass）
+    let block = build_mutation_block(mutation_counts(1, 0, 1, 0, 0, 0, 0, 4), 50.0);
+    assert_eq!(block.score, 50.0);
+    assert!(block.pass, "score == threshold → pass（>= 边界）");
+
+    // threshold 0.0 / -0.0 恒 pass（score ≥ 0 恒真——全 survived 面 0 分也 pass）
+    for threshold in [0.0, -0.0] {
+        let block = build_mutation_block(mutation_counts(0, 5, 0, 0, 0, 0, 0, 5), threshold);
+        assert_eq!(block.score, 0.0, "全 survived → 0.0 分");
+        assert!(block.pass, "threshold = {threshold} → 恒 pass");
+    }
+
+    // threshold > 100 → 必 fail
+    let block = build_mutation_block(mutation_counts(10, 0, 0, 0, 0, 0, 0, 10), 100.001);
+    assert!(!block.pass, "threshold > 100 → 必 fail");
+
+    // 极大计数（f64 转换精度稳定）：u64::MAX/4 量级不 panic、求和不溢出
+    let big = u64::MAX / 4;
+    let block = build_mutation_block(mutation_counts(big, 0, big, 0, 0, 0, 0, big * 2), 100.0);
+    assert_eq!(block.score, 100.0, "2big/2big = 100.0（极大计数精度稳定）");
+    assert!(block.pass, "恰等阈值 pass");
+
+    // 分子分母俱大但不等：killed=big, total=4big → big/4big = 25.0
+    let block = build_mutation_block(mutation_counts(big, 0, 0, 0, 0, 0, 0, big * 4), 20.0);
+    assert_eq!(block.score, 25.0, "big/4big = 25.0");
+    assert!(block.pass, "25.0 >= 20");
+}
+
+/// mutation 块 fixture（pass / score / threshold 显式——merge 用例构造面）。
+fn mutation_block(
+    score: f64,
+    threshold: f64,
+    counts: MutationMeasured,
+) -> MutationBlock {
+    MutationBlock {
+        pass: score >= threshold,
+        score,
+        threshold,
+        measured: counts,
+        overrides: None,
+    }
+}
+
+/// 正向：多段计数求和归并（各字段和 = 段和）、阈值取首块（`aggregate_mutation`
+/// 既有语义——MUST NOT 新增归并公式）。
+#[test]
+fn merge_mutation_blocks多段求和与阈值取首块() {
+    let seg0 = mutation_block(
+        100.0,
+        80.0,
+        mutation_counts(4, 0, 1, 0, 0, 0, 1, 6),
+    );
+    let seg1 = mutation_block(
+        50.0,
+        70.0,
+        mutation_counts(1, 2, 0, 0, 0, 0, 0, 4),
+    );
+    let merged = merge_mutation_blocks(&[seg0.clone(), seg1.clone()]).expect("归并块应在场");
+
+    // 各字段和 = 段和
+    assert_eq!(merged.measured.killed, 5, "killed 求和");
+    assert_eq!(merged.measured.survived, 2);
+    assert_eq!(merged.measured.timeout, 1);
+    assert_eq!(merged.measured.ignored, 1);
+    assert_eq!(merged.measured.total, 10, "total 求和");
+    // 归并块重算 score：(5+1)/(10-1) = 6/9 = 66.67
+    assert_eq!(merged.score, 66.67, "归并块重算 score（计数求和后交 build 单点）");
+    assert_eq!(merged.threshold, 80.0, "阈值取首块（既有语义）");
+    assert!(!merged.pass, "66.67 < 80（首块阈值判定）");
+    assert_eq!(merged.overrides, None);
+}
+
+/// 正向：单段（`[单元素]`）→ 归并块计数 / 阈值与原段等值。
+#[test]
+fn merge_mutation_blocks单段等值透传() {
+    let seg = mutation_block(95.5, 80.0, mutation_counts(9, 0, 1, 0, 0, 0, 0, 10));
+    let merged = merge_mutation_blocks(&[seg.clone()]).expect("单段归并不为空");
+    assert_eq!(merged.measured, seg.measured, "单段计数等值");
+    assert_eq!(merged.threshold, seg.threshold, "阈值等值");
+    assert_eq!(merged.score, 100.0, "(9+1)/10 = 100.0");
+    assert!(merged.pass);
+}
+
+/// 异常：空 slice `&[]` → `None`（不产块——段清单非空前置的调用方语义）。
+#[test]
+fn merge_mutation_blocks空slice返回none() {
+    assert_eq!(
+        merge_mutation_blocks(&[]),
+        None,
+        "空 slice 不产块（不产半截归并）"
+    );
+}
+
+/// 边界：超大列表（1000 段）归并不炸、顺序不影响计数和；段计数含 0 / `u64`
+/// 大值混合。
+#[test]
+fn merge_mutation_blocks超大列表与顺序无关与大值混合() {
+    // 1000 段等值计数：每段 killed=1, total=2 → 归并 killed=1000, total=2000
+    let segs: Vec<MutationBlock> = (0..1000)
+        .map(|index| {
+            mutation_block(
+                if index % 2 == 0 { 100.0 } else { 0.0 },
+                50.0,
+                mutation_counts(1, 1, 0, 0, 0, 0, 0, 2),
+            )
+        })
+        .collect();
+    let merged = merge_mutation_blocks(&segs).expect("超大列表归并不炸");
+    assert_eq!(merged.measured.killed, 1000);
+    assert_eq!(merged.measured.total, 2000);
+    // (1000+0)/2000 = 50.0
+    assert_eq!(merged.score, 50.0);
+    assert!(merged.pass, "50.0 >= 50.0（首块阈值恰等）");
+
+    // 顺序无关：逆序归并计数和一致
+    let reversed: Vec<MutationBlock> = segs.iter().rev().cloned().collect();
+    let merged_rev = merge_mutation_blocks(&reversed).expect("逆序归并不炸");
+    assert_eq!(
+        merged_rev.measured, merged.measured,
+        "顺序不影响计数和（求和交换律）"
+    );
+
+    // 0 / 大值混合段
+    let mixed = [
+        mutation_block(0.0, 10.0, mutation_counts(0, 0, 0, 0, 0, 0, 0, 0)),
+        mutation_block(100.0, 10.0, mutation_counts(u64::MAX / 8, 0, 0, 0, 0, 0, 0, u64::MAX / 8)),
+    ];
+    let merged = merge_mutation_blocks(&mixed).expect("混合段归并不炸");
+    assert_eq!(merged.measured.total, u64::MAX / 8, "0 段不扰求和");
+    assert_eq!(merged.score, 100.0);
+}
+
+/// 组合（链路方向：`aggregate_mutation` → `merge_mutation_blocks` /
+/// `build_mutation_block`）：corpus 样本下新旧公式逐字等值（公式不变回归锚），
+/// 无块样本仍 `None`（corpus 保真语义——`build_summary_report` 消费面）。
+#[test]
+fn aggregate_mutation同式对拍_经summary组装面() {
+    // 子报告携 mutation 块 → summary.mutation 归并（两段求和交单点公式）
+    let sub0 = SubReport {
+        framework: "rust".to_owned(),
+        root: "crates/core".to_owned(),
+        timestamp: "2026-10-06T08:00:00.000Z".to_owned(),
+        exit_code: 0,
+        duration_ms: 10.0,
+        summary: counts(3, 3, 0, 0),
+        error_cases: Vec::new(),
+        test_files: Vec::new(),
+        source_files: Vec::new(),
+        coverage: None,
+        mutation: Some(mutation_block(
+            100.0,
+            80.0,
+            mutation_counts(4, 0, 1, 0, 0, 0, 1, 6),
+        )),
+        findings: None,
+    };
+    let mut sub1 = sub0.clone();
+    sub1.framework = "vite-plus".to_owned();
+    sub1.mutation = Some(mutation_block(50.0, 70.0, mutation_counts(1, 2, 0, 0, 0, 0, 0, 4)));
+
+    let summary = build_summary_report(&[sub0, sub1], &[], "cmd", OffsetDateTime::UNIX_EPOCH);
+    let merged = summary.mutation.expect("归并块应在场");
+    assert_eq!(merged.measured.killed, 5, "归并计数求和");
+    assert_eq!(merged.measured.total, 10);
+    assert_eq!(merged.score, 66.67, "新旧公式逐字等值（回归锚）");
+    assert_eq!(merged.threshold, 80.0, "阈值取首块");
+
+    // 无块样本 → None（corpus 保真——mutation null 观察期）
+    let no_block = sub0_clone_with_none();
+    let summary = build_summary_report(&[no_block], &[], "cmd", OffsetDateTime::UNIX_EPOCH);
+    assert_eq!(summary.mutation, None, "无块样本仍 None（corpus 保真语义）");
+
+    /// mutation 缺省子报告（null 观察期样本）。
+    fn sub0_clone_with_none() -> SubReport {
+        SubReport {
+            framework: "rust".to_owned(),
+            root: ".".to_owned(),
+            timestamp: "2026-10-06T08:00:00.000Z".to_owned(),
+            exit_code: 0,
+            duration_ms: 1.0,
+            summary: counts(1, 1, 0, 0),
+            error_cases: Vec::new(),
+            test_files: Vec::new(),
+            source_files: Vec::new(),
+            coverage: None,
+            mutation: None,
+            findings: None,
+        }
+    }
+}

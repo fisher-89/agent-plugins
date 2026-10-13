@@ -15,7 +15,8 @@ use crate::decision::{
     ensure_backtrack_allowed, parse_decision, CandidateReport, DecisionAction, DecisionInput,
 };
 use crate::port::{
-    ArchiveVcsPort, RebaseOutcome, RunHistoryPort, StaticCheckOutcome, TestExecutionConclusion,
+    ArchiveVcsPort, MutationSkipReason, MutationTestConclusion, MutationTestOutcome,
+    RebaseOutcome, RunHistoryPort, StaticCheckOutcome, TestExecutionConclusion,
     TestExecutionOutcome, ToolCommand, ToolStepOutput, ToolStepPort, WorkerAgentPort, WorkerRole,
     WorkerTurnOutcome, WorkerTurnRequest, WorkflowSnapshotPort, WorktreeSnapshot,
 };
@@ -502,6 +503,9 @@ struct PhaseCursor {
     verdict: Option<EvaluatorChecklist>,
     /// test-execution 门禁通过产物（PhaseLog 步机械代写消费）
     test_outcome: Option<TestExecutionOutcome>,
+    /// mutation-test 门禁通过产物（含跳过面——PhaseLog 步机械 checklist 第 3 条
+    /// evidence 三态消费；与 `test_outcome` 双槽并立互不覆盖）
+    mutation_outcome: Option<MutationTestOutcome>,
     /// 归档前置载荷（Preflight 步产出 → Commit / Rebase / ResolveConflicts /
     /// Merge / SpecSync / Finalize 消费）
     preflight: Option<ArchivePreflight>,
@@ -536,6 +540,7 @@ impl PhaseCursor {
             eval_outcome: None,
             verdict: None,
             test_outcome: None,
+            mutation_outcome: None,
             preflight: None,
             rebase_conflicts: None,
             sync_specs,
@@ -565,6 +570,7 @@ async fn run_step(
         }
         StepNode::StaticCheck => step_static_check(ctx, trace, cursor, step).await,
         StepNode::TestExecution => step_test_execution(ctx, trace, cursor, step).await,
+        StepNode::MutationTest => step_mutation_test(ctx, trace, cursor, step).await,
         StepNode::Evaluator => {
             step_evaluator(ctx, trace, cursor).await?;
             Ok(StepFlow::Proceed)
@@ -926,6 +932,135 @@ async fn step_test_execution(
     }
 }
 
+/// ④′ mutation-test 步：确定性突变门禁 + 独立反馈边②（报告指引式口径，与
+/// test-execution 反馈边①「有界内联自足」反向并存——系用户明确决策，MUST NOT
+/// 统一）。双时点：全部段跑完仅未达标反馈（score / threshold 结论摘要 + 报告路
+/// 径清单），段中断错误随载荷即时反馈（反馈边②在 walker 侧同走 fail 面）；达标
+/// pass 直接收口（零反馈）。独立计数（label `"mutation-test"`，与 static-check /
+/// test-execution 反馈计数器分立），超限升格相位 fail。
+async fn step_mutation_test(
+    ctx: &StepContext<'_>,
+    trace: &mut EdgeTrace,
+    cursor: &mut PhaseCursor,
+    step: &StepDefinition,
+) -> Result<StepFlow, Terminal> {
+    let limit = feedback_limit(step, "mutation-test")?;
+    let mut feedback: u32 = 0;
+    let mut fix_session: Option<String> = None;
+    loop {
+        let instance_no = begin_node(
+            ctx.guard,
+            trace,
+            ctx.phase,
+            cursor.attempt,
+            ChangeStepKind::MutationTest,
+            EdgeKind::Forward,
+        );
+        emit_node(
+            ctx.guard,
+            ctx.phase,
+            cursor.attempt,
+            ChangeStepKind::MutationTest,
+            instance_no,
+            StepSettle::running(),
+        );
+        let outcome: MutationTestOutcome = match run_tool::<MutationTestOutcome>(
+            ctx.tools,
+            &ctx.request.root,
+            ToolCommand::MutationTest {
+                change_id: ctx.request.change_id.clone(),
+            },
+            "mutation-test",
+        )
+        .await
+        {
+            Ok(outcome) => outcome,
+            Err(terminal) => {
+                // runner 显式 Err（工具不可达 / 配置不支持 / 写盘失败）停给用户：
+                // 节点呈失败态、run 不静默越过、不产出部分结论
+                emit_node(
+                    ctx.guard,
+                    ctx.phase,
+                    cursor.attempt,
+                    ChangeStepKind::MutationTest,
+                    instance_no,
+                    StepSettle::failed(Some("突变执行显式失败（停给用户）".to_owned())),
+                );
+                return Err(terminal);
+            }
+        };
+        if outcome.conclusion == MutationTestConclusion::Pass {
+            // 达标 / 跳过面（null 观察期不判 fail）：零反馈收口，结论落双槽
+            emit_node(
+                ctx.guard,
+                ctx.phase,
+                cursor.attempt,
+                ChangeStepKind::MutationTest,
+                instance_no,
+                StepSettle::passed(Some(format!(
+                    "conclusion={} score={} threshold={}",
+                    outcome.conclusion.as_str(),
+                    outcome.score,
+                    outcome.threshold
+                ))),
+            );
+            cursor.mutation_outcome = Some(outcome);
+            return Ok(StepFlow::Proceed);
+        }
+        emit_node(
+            ctx.guard,
+            ctx.phase,
+            cursor.attempt,
+            ChangeStepKind::MutationTest,
+            instance_no,
+            StepSettle::failed(Some(diagnose_brief(&outcome.feedback_text))),
+        );
+        if feedback >= limit {
+            // 超限升格相位 fail（桌面代写，不跑 evaluator；消耗相位 retry 预算；仅
+            // 携 executor 槽位——evaluator 未跑无会话可记）
+            step_mutation_test_upgraded_phase_log(
+                ctx.tools,
+                ctx.guard,
+                trace,
+                ctx.request,
+                ctx.phase,
+                cursor.attempt,
+                &outcome,
+                fix_session.as_deref(),
+            )
+            .await?;
+            cursor.failed = true;
+            return Ok(StepFlow::Upgraded);
+        }
+        feedback += 1;
+        // 反馈边②报告指引式：prompt 只嵌载荷 feedback_text（结论摘要 + 报告路径
+        // 清单），MUST NOT 内联存活突变体清单——明细由 executor 自行读报告
+        let fix_prompt = format!(
+            "突变测试未通过（第 {feedback}/{limit} 次反馈修复，conclusion={}），\
+             请根据以下指引补测试杀突变后重新提交：\n\n{}",
+            outcome.conclusion.as_str(),
+            outcome.feedback_text
+        );
+        let turn = run_worker(
+            ctx.worker,
+            ctx.guard,
+            ctx.request,
+            &ctx.request.root,
+            ctx.phase,
+            cursor.attempt,
+            WorkerRole::Executor,
+            fix_prompt,
+            cursor.executor_level,
+            fix_session.clone(),
+            trace,
+            EdgeKind::Feedback,
+        )
+        .await?;
+        fix_session = Some(turn.session_id.clone());
+        cursor.executor_session = Some(turn.session_id);
+    }
+}
+
 async fn step_evaluator(
     ctx: &StepContext<'_>,
     trace: &mut EdgeTrace,
@@ -1106,10 +1241,11 @@ async fn step_phase_log(
         StepSettle::running(),
     );
     if let Some(outcome) = cursor.test_outcome.take() {
+        let mutation = cursor.mutation_outcome.take();
         let logged = run_phase_log(
             ctx.tools,
             ctx.request,
-            test_execution_phase_log_input(ctx.phase, &outcome),
+            test_execution_phase_log_input(ctx.phase, &outcome, mutation.as_ref()),
         )
         .await?;
         emit_node(
@@ -1347,9 +1483,14 @@ async fn step_fail_phase_log(
 
 /// pass 机械 checklist 代写载荷：三条目全 pass（verdict 由 checklist 全 pass 推
 /// 导）——① suite 结论一致 ② 聚合 conclusion 与计数一致 ③ mutation null 自动通
-/// 过（V1 恒真）；report 携 conclusion + 计数 + 报告路径摘要；三会话槽位恒
-/// `None`（绿跑零 agent）。
-fn test_execution_phase_log_input(phase: &str, outcome: &TestExecutionOutcome) -> PhaseLogInput {
+/// 过（判定语义恒 pass——null 观察期不收紧，D8；evidence 三态：跑过且达标 /
+/// diff 空跳过 / null（未跑），NoExecutor 并入 null 态附注）；report 携
+/// conclusion + 计数 + 报告路径摘要；三会话槽位恒 `None`（绿跑零 agent）。
+fn test_execution_phase_log_input(
+    phase: &str,
+    outcome: &TestExecutionOutcome,
+    mutation: Option<&MutationTestOutcome>,
+) -> PhaseLogInput {
     PhaseLogInput {
         phase: phase.to_owned(),
         report: format!(
@@ -1374,13 +1515,30 @@ fn test_execution_phase_log_input(phase: &str, outcome: &TestExecutionOutcome) -
             ChecklistItem {
                 item: "mutation null 自动通过".to_owned(),
                 pass: true,
-                evidence: "V1 不移植 mutation，报告位恒 null（spec V1 边界）".to_owned(),
+                evidence: mutation_evidence(mutation),
             },
         ],
         skipped: false,
         executor_session_id: None,
         evaluator_session_id: None,
         decision_session_id: None,
+    }
+}
+
+/// 机械 checklist 第 3 条 evidence 三态（E8）：`skip=None` → 「跑过且达标（score
+/// X ≥ threshold Y）」；`skip=EmptyDiff` → 「diff 空跳过」；`skip=NoExecutor` →
+/// 「null（未跑）」并附注「无突变执行器」；`mutation=None` → 「null（未跑）」。
+fn mutation_evidence(mutation: Option<&MutationTestOutcome>) -> String {
+    match mutation {
+        Some(outcome) => match outcome.skip {
+            None => format!(
+                "跑过且达标（score {} ≥ threshold {}）",
+                outcome.score, outcome.threshold
+            ),
+            Some(MutationSkipReason::EmptyDiff) => "diff 空跳过".to_owned(),
+            Some(MutationSkipReason::NoExecutor) => "null（未跑）：全部 suite 无突变执行器".to_owned(),
+        },
+        None => "null（未跑）".to_owned(),
     }
 }
 
@@ -1428,6 +1586,68 @@ async fn step_test_execution_upgraded_phase_log(
                 item: "测试执行".to_owned(),
                 pass: false,
                 evidence: diagnose_brief(&outcome.findings_brief),
+            }],
+            skipped: false,
+            executor_session_id: fix_session.map(ToOwned::to_owned),
+            evaluator_session_id: None,
+            decision_session_id: None,
+        },
+    )
+    .await?;
+    emit_node(
+        guard,
+        phase,
+        attempt,
+        ChangeStepKind::PhaseLog,
+        instance_no,
+        StepSettle::passed(Some(format!("attempt {} 已落账", logged.attempt))),
+    );
+    Ok(())
+}
+
+/// 超限升格落账：桌面代写 fail checklist（突变测试反馈边②超限），随后回
+/// phase-next 进重试 / 决策分叉。fail 条目仅携 executor 槽位（携反馈会话 id；
+/// evaluator 未跑无会话可记）；evidence 携反馈文本（结论摘要 + 报告路径清单）。
+#[allow(clippy::too_many_arguments)]
+async fn step_mutation_test_upgraded_phase_log(
+    tools: &Arc<dyn ToolStepPort>,
+    guard: &RunGuard,
+    trace: &mut EdgeTrace,
+    request: &RunRequest,
+    phase: &str,
+    attempt: u32,
+    outcome: &MutationTestOutcome,
+    fix_session: Option<&str>,
+) -> Result<(), Terminal> {
+    let instance_no = begin_node(
+        guard,
+        trace,
+        phase,
+        attempt,
+        ChangeStepKind::PhaseLog,
+        EdgeKind::Forward,
+    );
+    emit_node(
+        guard,
+        phase,
+        attempt,
+        ChangeStepKind::PhaseLog,
+        instance_no,
+        StepSettle::running(),
+    );
+    let logged = run_phase_log(
+        tools,
+        request,
+        PhaseLogInput {
+            phase: phase.to_owned(),
+            report: format!(
+                "突变测试反馈边超限（连续修复未达标，conclusion={}），相位升格 fail",
+                outcome.conclusion.as_str()
+            ),
+            checklist: vec![ChecklistItem {
+                item: "突变测试".to_owned(),
+                pass: false,
+                evidence: diagnose_brief(&outcome.feedback_text),
             }],
             skipped: false,
             executor_session_id: fix_session.map(ToOwned::to_owned),
@@ -2915,6 +3135,16 @@ impl TryFrom<ToolStepOutput> for TestExecutionOutcome {
     fn try_from(value: ToolStepOutput) -> Result<Self, Self::Error> {
         match value {
             ToolStepOutput::TestExecution(outcome) => Ok(outcome),
+            _ => Err(()),
+        }
+    }
+}
+
+impl TryFrom<ToolStepOutput> for MutationTestOutcome {
+    type Error = ();
+    fn try_from(value: ToolStepOutput) -> Result<Self, Self::Error> {
+        match value {
+            ToolStepOutput::MutationTest(outcome) => Ok(outcome),
             _ => Err(()),
         }
     }

@@ -1338,3 +1338,383 @@ fn path隔离_err面_git不可用引导() {
         );
     }
 }
+
+// ---------------------------------------------------------------------------
+// 变更文件清单 / 补丁唯一入口（desktop-fix-mutation-test / AC-3）：
+// change_edit_set（tracked ∪ untracked 排序去重 POSIX 归一）+ change_edit_patch
+// （untracked intent-to-add 后 unified diff）——真实 git tempdir 装置直驱
+// ---------------------------------------------------------------------------
+
+/// 正向：`change_edit_set` tracked 修改 + untracked 新建并入 → 清单含两类文件、
+/// 字典序排序、去重、POSIX 归一（AC-3 / D3）。
+#[test]
+fn change_edit_set_tracked与untracked并入且字典序去重() {
+    let vcs = archive_vcs();
+    let (_dir, root) = init_repo("edit-set-mixed");
+    // tracked 修改
+    fs_write(&root, "a.txt", "modified\n");
+    // untracked 新建（嵌套深层 + 特殊文件名）
+    std::fs::create_dir_all(root.join("src").join("nested")).expect("建子目录");
+    fs_write(&root, "src/nested/mod.rs", "pub fn f() {}\n");
+    fs_write(&root, "src/lib.rs", "mod nested;\n");
+    fs_write(&root, "文件 名.txt", "特殊名\n");
+
+    let files = vcs
+        .change_edit_set(&root, "HEAD")
+        .expect("清单取数应成功");
+    assert_eq!(
+        files,
+        vec![
+            "a.txt".to_owned(),
+            "src/lib.rs".to_owned(),
+            "src/nested/mod.rs".to_owned(),
+            "文件 名.txt".to_owned(),
+        ],
+        "tracked ∪ untracked 并入、字典序排序、逐项在案"
+    );
+    // 去重：无重复项（BTreeSet 并集语义）
+    let mut unique = files.clone();
+    unique.sort();
+    unique.dedup();
+    assert_eq!(unique.len(), files.len(), "清单无重复项");
+    // POSIX 归一：反斜杠不出线（git -z 输出恒正斜杠——断言形态面）
+    for file in &files {
+        assert!(
+            !file.contains('\\'),
+            "POSIX 归一（反斜杠不出线）: {file}"
+        );
+    }
+}
+
+/// 正向：仅 tracked 改动（无 untracked）→ 清单恰为 diff 面；仅 untracked →
+/// 清单为 ls-files 面（两源口径分立）。
+#[test]
+fn change_edit_set_仅tracked与仅untracked两源口径分立() {
+    let vcs = archive_vcs();
+    let (_dir, root) = init_repo("edit-set-sources");
+
+    // 仅 tracked：改 a.txt
+    fs_write(&root, "a.txt", "changed\n");
+    let tracked_only = vcs.change_edit_set(&root, "HEAD").expect("tracked 面应成功");
+    assert_eq!(tracked_only, vec!["a.txt".to_owned()], "清单恰为 diff 面");
+
+    // 复位 tracked 改动
+    git(&root, &["checkout", "--", "a.txt"]);
+
+    // 仅 untracked：新建 b.txt
+    fs_write(&root, "b.txt", "new\n");
+    let untracked_only = vcs.change_edit_set(&root, "HEAD").expect("untracked 面应成功");
+    assert_eq!(untracked_only, vec!["b.txt".to_owned()], "清单为 ls-files 面");
+}
+
+/// 正向：`base = "HEAD"` 语义——清单恰为本 change 编辑集（worktree 语义：工作
+/// 区对 HEAD 的全部未提交面）；其它合法 base（sha / 分支名）透传生效。
+#[test]
+fn change_edit_set_base语义_head与sha透传() {
+    let vcs = archive_vcs();
+    let (_dir, root) = init_repo("edit-set-base");
+    let head = head_sha(&root);
+
+    // HEAD 语义：未提交面（tracked + untracked）
+    fs_write(&root, "a.txt", "worktree edit\n");
+    fs_write(&root, "untracked.txt", "new\n");
+    let head_set = vcs.change_edit_set(&root, "HEAD").expect("HEAD 面应成功");
+    assert_eq!(
+        head_set,
+        vec!["a.txt".to_owned(), "untracked.txt".to_owned()],
+        "HEAD 语义 = 本 change 编辑集（worktree 语义）"
+    );
+
+    // 提交后对 HEAD 零改动
+    git(&root, &["add", "-A"]);
+    git(
+        &root,
+        &[
+            "-c",
+            "user.name=fixture",
+            "-c",
+            "user.email=fixture@example.com",
+            "commit",
+            "-q",
+            "-m",
+            "second",
+        ],
+    );
+    let clean = vcs.change_edit_set(&root, "HEAD").expect("干净面应成功");
+    assert_eq!(clean, Vec::<String>::new(), "提交后对 HEAD 零编辑集");
+
+    // 其它合法 base（sha 透传）：上一提交 → 本次提交的变更面
+    let sha_set = vcs.change_edit_set(&root, &head).expect("sha 面应成功");
+    assert_eq!(
+        sha_set,
+        vec!["a.txt".to_owned(), "untracked.txt".to_owned()],
+        "sha base 透传生效（两文件为该提交的变更面）"
+    );
+}
+
+/// 异常：非 git 目录 / git 命令失败 → 显式 `Err`（MUST NOT 静默降级空清单
+/// ——空清单会误走 diff 空跳过）。
+#[test]
+fn change_edit_set_非git仓显式err不静默降级() {
+    let vcs = archive_vcs();
+    let (_dir, plain) = plain_dir("edit-set-plain");
+    let error = vcs
+        .change_edit_set(&plain, "HEAD")
+        .expect_err("非 git 目录应 Err");
+    assert!(
+        error.contains("失败") || error.contains("git"),
+        "Err 携 git 语境，实际: {error}"
+    );
+}
+
+/// 异常：`base` 非法——`""` 空串 → 前置校验显式 Err（含引导文案）；非存在 rev
+/// / 含换行 / 超长（>1000 字符）→ git 失败显式 Err 不 panic。
+#[test]
+fn change_edit_set_base非法族显式err不panic() {
+    let vcs = archive_vcs();
+    let (_dir, root) = init_repo("edit-set-bad-base");
+
+    // 空串：前置校验（validate_base）显式拒绝
+    let empty_error = vcs
+        .change_edit_set(&root, "")
+        .expect_err("空 base 应 Err");
+    assert!(
+        empty_error.contains("base 为空"),
+        "空 base 前置校验记因: {empty_error}"
+    );
+
+    // 非存在 rev / 含换行 / 超长 → git 失败显式 Err
+    let long_rev = "f".repeat(1200);
+    for bad_base in ["不存在的rev-xyz", "HEAD\nbranch", long_rev.as_str()] {
+        let error = vcs
+            .change_edit_set(&root, bad_base)
+            .expect_err(&format!("非法 base {bad_base:?} 应 Err"));
+        assert!(!error.is_empty(), "Err 记因非空");
+    }
+}
+
+/// 边界：干净仓零改动 → `Ok(空 Vec)`（与 `Err` 严格区分）；单文件清单 / 超大
+/// 清单（100+ 文件）顺序稳定。
+#[test]
+fn change_edit_set_干净仓空vec与超大清单顺序稳定() {
+    let vcs = archive_vcs();
+    let (_dir, root) = init_repo("edit-set-boundary");
+
+    // 干净仓：Ok(空)——与 Err 严格区分（空清单合法面）
+    let clean = vcs.change_edit_set(&root, "HEAD").expect("干净仓 Ok 面");
+    assert_eq!(clean, Vec::<String>::new(), "干净仓零改动 = Ok(空 Vec)");
+
+    // 单文件清单
+    fs_write(&root, "only.txt", "one\n");
+    assert_eq!(
+        vcs.change_edit_set(&root, "HEAD").expect("单文件面"),
+        vec!["only.txt".to_owned()],
+        "单文件清单"
+    );
+
+    // 超大清单（100+ untracked 文件）顺序稳定（字典序）
+    std::fs::create_dir_all(root.join("bulk")).expect("建 bulk 目录");
+    for index in (0..120).rev() {
+        fs_write(&root, &format!("bulk/f{index:03}.rs"), "// generated\n");
+    }
+    let bulk = vcs.change_edit_set(&root, "HEAD").expect("超大清单面");
+    assert_eq!(bulk.len(), 121, "超大清单全量在案（1 + 120）");
+    let mut sorted = bulk.clone();
+    sorted.sort();
+    assert_eq!(bulk, sorted, "顺序稳定（字典序）");
+    assert!(bulk.windows(2).all(|pair| pair[0] < pair[1]), "严格递增无重复");
+}
+
+/// 边界：双源重复（intent-to-add 后 diff 面与 ls-files 面并集）→ 去重单条；
+/// 特殊文件名（空格 / 中文 / emoji）与深层路径归一。
+#[test]
+fn change_edit_set_双源去重与特殊文件名归一() {
+    let vcs = archive_vcs();
+    let (_dir, root) = init_repo("edit-set-dedupe");
+
+    // untracked 文件先经 intent-to-add（add -N）：diff 面与 ls-files 面双源并集
+    std::fs::create_dir_all(root.join("deep").join("a").join("b")).expect("建深层目录");
+    fs_write(&root, "deep/a/b/c.rs", "deep new\n");
+    git(&root, &["add", "-N", "deep/a/b/c.rs"]);
+    fs_write(&root, "emoji 🚀.txt", "emoji\n");
+    fs_write(&root, "中文 文件.txt", "中文\n");
+
+    let files = vcs.change_edit_set(&root, "HEAD").expect("并集面应成功");
+    assert_eq!(
+        files.iter().filter(|file| *file == "deep/a/b/c.rs").count(),
+        1,
+        "双源重复去重单条（intent-to-add 后 diff / ls-files 双面并集）: {files:?}"
+    );
+    assert!(
+        files.contains(&"emoji 🚀.txt".to_owned())
+            && files.contains(&"中文 文件.txt".to_owned())
+            && files.contains(&"deep/a/b/c.rs".to_owned()),
+        "特殊文件名（空格 / 中文 / emoji）与深层路径在案: {files:?}"
+    );
+}
+
+/// 边界：`root` 不存在 / `root` 指向文件 → 显式 `Err`。
+#[test]
+fn change_edit_set_root不存在或指向文件显式err() {
+    let vcs = archive_vcs();
+    let (_dir, root) = init_repo("edit-set-root-err");
+
+    // root 不存在
+    let missing = root.join("no-such-dir");
+    assert!(
+        vcs.change_edit_set(&missing, "HEAD").is_err(),
+        "root 不存在应 Err"
+    );
+
+    // root 指向文件
+    let file = root.join("a.txt");
+    assert!(
+        vcs.change_edit_set(&file, "HEAD").is_err(),
+        "root 指向文件应 Err"
+    );
+}
+
+/// 正向：untracked 经 `git add -N` 后补丁含新文件 unified diff hunk（行级
+/// 精度，E2 / 风险 3 定稿——intent-to-add 不回退标记）。
+#[test]
+fn change_edit_patch_untracked经intent_to_add后补丁含新文件hunk() {
+    let vcs = archive_vcs();
+    let (_dir, root) = init_repo("edit-patch-untracked");
+    fs_write(&root, "fresh.rs", "line one\nline two\n");
+
+    let patch = vcs
+        .change_edit_patch(&root, "HEAD")
+        .expect("补丁取数应成功");
+    assert!(
+        patch.contains("diff --git a/fresh.rs b/fresh.rs"),
+        "补丁含新文件段头: {patch}"
+    );
+    assert!(
+        patch.contains("--- /dev/null") && patch.contains("+++ b/fresh.rs"),
+        "新文件创建面 hunks（/dev/null → b/）: {patch}"
+    );
+    assert!(
+        patch.contains("+line one") && patch.contains("+line two"),
+        "行级 hunk 内容在案: {patch}"
+    );
+    // intent-to-add 标记在位（index 记 intent 条目——ls-files 面可查；
+    // add -N 不回退——worktree 私有锚）
+    let staged = git(&root, &["ls-files", "--stage", "fresh.rs"]);
+    assert!(
+        staged.contains("fresh.rs"),
+        "intent-to-add 标记保留（git add -N 不回退）: {staged}"
+    );
+}
+
+/// 正向：tracked 修改 → 补丁含对应 hunks；多文件补丁含多 `diff --git` 文件段
+/// 头（供段切片——mutation segments 消费面）。
+#[test]
+fn change_edit_patch_多文件补丁含多段头() {
+    let vcs = archive_vcs();
+    let (_dir, root) = init_repo("edit-patch-multi");
+    fs_write(&root, "a.txt", "alpha v1\n");
+    std::fs::create_dir_all(root.join("src")).expect("建 src");
+    fs_write(&root, "src/lib.rs", "fn one() {}\n");
+    git(&root, &["add", "-A"]);
+    git(
+        &root,
+        &[
+            "-c",
+            "user.name=fixture",
+            "-c",
+            "user.email=fixture@example.com",
+            "commit",
+            "-q",
+            "-m",
+            "base",
+        ],
+    );
+
+    // 两 tracked 文件各改一行 + 一 untracked 新建
+    fs_write(&root, "a.txt", "alpha v2\n");
+    fs_write(&root, "src/lib.rs", "fn one() {}\nfn two() {}\n");
+    fs_write(&root, "extra.txt", "brand new\n");
+
+    let patch = vcs
+        .change_edit_patch(&root, "HEAD")
+        .expect("补丁取数应成功");
+    assert_eq!(
+        patch.matches("diff --git").count(),
+        3,
+        "三文件段头（多文件补丁供段切片）: {patch}"
+    );
+    assert!(patch.contains("a/a.txt") && patch.contains("b/a.txt"));
+    assert!(patch.contains("+++ b/src/lib.rs"));
+    assert!(
+        patch.contains("+fn two() {}"),
+        "tracked 修改 hunk 在案: {patch}"
+    );
+    assert!(patch.contains("+brand new"), "untracked hunk 在案");
+}
+
+/// 异常：非 git 目录 / 非法 `base` → 显式 `Err`（与 `change_edit_set` 同口径）。
+#[test]
+fn change_edit_patch_非git仓与非法base显式err() {
+    let vcs = archive_vcs();
+    let (_dir, plain) = plain_dir("edit-patch-plain");
+    assert!(
+        vcs.change_edit_patch(&plain, "HEAD").is_err(),
+        "非 git 目录应 Err"
+    );
+
+    let (_dir2, root) = init_repo("edit-patch-bad-base");
+    let empty_error = vcs
+        .change_edit_patch(&root, "")
+        .expect_err("空 base 应 Err");
+    assert!(empty_error.contains("base 为空"), "同口径前置校验: {empty_error}");
+    assert!(
+        vcs.change_edit_patch(&root, "不存在的rev-xyz").is_err(),
+        "非存在 rev 应 Err"
+    );
+}
+
+/// 边界：干净仓 → 空串（零补丁）；补丁文本含特殊字符（换行 / CRLF / emoji
+/// 内容）往返不破坏 diff 形态。
+#[test]
+fn change_edit_patch_干净仓空串与特殊字符保真() {
+    let vcs = archive_vcs();
+    let (_dir, root) = init_repo("edit-patch-boundary");
+
+    // 干净仓：空串（零补丁——与 Err 严格区分）
+    let clean = vcs.change_edit_patch(&root, "HEAD").expect("干净仓 Ok 面");
+    assert_eq!(clean, "", "干净仓零 diff = 空串");
+
+    // 特殊字符内容：CRLF 混排 + emoji + 中文（补丁往返不破坏 diff 形态）
+    fs_write(&root, "special.txt", "crlf line\r\nemoji 🚀 内容\n中文行\n");
+    let patch = vcs
+        .change_edit_patch(&root, "HEAD")
+        .expect("特殊字符补丁面应成功");
+    assert!(
+        patch.starts_with("diff --git a/special.txt b/special.txt"),
+        "diff 形态起点保真: {patch}"
+    );
+    assert!(
+        patch.contains("+crlf line\r") || patch.contains("+crlf line"),
+        "CRLF 内容保真（git 原样承载）: {patch}"
+    );
+    assert!(patch.contains("🚀"), "emoji 内容保真");
+    assert!(patch.contains("中文行"), "中文内容保真");
+}
+
+/// 边界：`git add -N` 幂等——重复调用结果一致（intent-to-add 重复执行不改语
+/// 义，E2 单次执行口径）。
+#[test]
+fn change_edit_patch_幂等_重复调用结果一致() {
+    let vcs = archive_vcs();
+    let (_dir, root) = init_repo("edit-patch-idempotent");
+    fs_write(&root, "fresh.rs", "stable content\n");
+    fs_write(&root, "a.txt", "tracked edit\n");
+
+    let first = vcs.change_edit_patch(&root, "HEAD").expect("首次补丁面");
+    let second = vcs.change_edit_patch(&root, "HEAD").expect("二次补丁面");
+    assert_eq!(
+        first, second,
+        "git add -N 幂等：重复调用补丁逐字一致（intent-to-add 重复执行不改语义）"
+    );
+    assert!(!first.is_empty(), "补丁非空（双源在场）");
+}

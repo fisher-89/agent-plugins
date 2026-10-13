@@ -27,7 +27,8 @@ use workflow::state::{
 use workflow::write::{ArchiveOutcome, BacktrackInput, PhaseLogInput, SessionAnchors};
 
 use crate::port::{
-    ArchiveVcsPort, BoxToolFuture, RebaseOutcome, StaticCheckOutcome, StaticCheckRunner,
+    ArchiveVcsPort, BoxToolFuture, MutationCounts, MutationSkipReason, MutationTestConclusion,
+    MutationTestOutcome, RebaseOutcome, StaticCheckOutcome, StaticCheckRunner,
     TestExecutionConclusion, TestExecutionOutcome, TestExecutionRunner, ToolCommand,
     ToolStepOutput, ToolStepPort, ToolStepRequest, WorktreeSnapshot,
 };
@@ -533,16 +534,19 @@ impl TestExecutionRunner for FakeTestExecutionRunner {
 // 装置：组合根装配与步驱动
 // ---------------------------------------------------------------------------
 
-/// 组合根装配句柄：steps + 双 runner 假件（调用记录读面）。五参构造同式——
-/// run 级锚点 + 双 spawn 缝 + store 缝 + run_id（组合根一次装配）。
+/// 组合根装配句柄：steps + 双 runner + mutation 假件（调用记录读面）。七参构造
+/// 同式——run 级锚点 + 三 spawn 缝 + vcs 缝 + store 缝 + run_id（组合根一次
+/// 装配）。
 struct Assembled {
     steps: Arc<LocalToolSteps>,
     static_check: Arc<FakeRunner>,
     execution: Arc<FakeTestExecutionRunner>,
+    mutation: Arc<FakeMutationRunner>,
 }
 
 /// 组合根装配（run 作用域一次：锚点随 run 铸新、runner / vcs / store 随进程
-/// 复用）；vcs 缺省为干净假件（既有非归档用例零改动）。
+/// 复用）；vcs 缺省为干净假件（既有非归档用例零改动）、mutation 缺省产出
+/// EmptyDiff 跳过面（零突变语义不扰既有用例）。
 fn assemble(
     store: Arc<dyn ChangeStateStore>,
     run_id: &str,
@@ -558,7 +562,8 @@ fn assemble(
     )
 }
 
-/// 组合根装配（显式 vcs 缝注入——归档步用例的第三缝观察面）。
+/// 组合根装配（显式 vcs 缝注入——归档步用例的第三缝观察面）；mutation 缺省
+/// EmptyDiff 跳过面。
 fn assemble_with_vcs(
     store: Arc<dyn ChangeStateStore>,
     run_id: &str,
@@ -566,12 +571,32 @@ fn assemble_with_vcs(
     execution: FakeTestExecutionRunner,
     vcs: Arc<FakeVcs>,
 ) -> Assembled {
+    assemble_with_vcs_and_mutation(
+        store,
+        run_id,
+        static_check,
+        execution,
+        vcs,
+        Arc::new(FakeMutationRunner::skipping()),
+    )
+}
+
+/// 组合根装配（显式 vcs + mutation 双缝注入——MutationTest 臂的观察面）。
+fn assemble_with_vcs_and_mutation(
+    store: Arc<dyn ChangeStateStore>,
+    run_id: &str,
+    static_check: FakeRunner,
+    execution: FakeTestExecutionRunner,
+    vcs: Arc<FakeVcs>,
+    mutation: Arc<FakeMutationRunner>,
+) -> Assembled {
     let static_check = Arc::new(static_check);
     let execution = Arc::new(execution);
     let steps = Arc::new(LocalToolSteps::new(
         Arc::new(SessionAnchors::new()),
         Arc::clone(&static_check) as Arc<dyn StaticCheckRunner>,
         Arc::clone(&execution) as Arc<dyn TestExecutionRunner>,
+        Arc::clone(&mutation) as Arc<dyn crate::port::MutationRunner>,
         Arc::clone(&vcs) as Arc<dyn ArchiveVcsPort>,
         store,
         run_id.to_owned(),
@@ -580,6 +605,7 @@ fn assemble_with_vcs(
         steps,
         static_check,
         execution,
+        mutation,
     }
 }
 
@@ -589,7 +615,7 @@ fn assemble_with_vcs(
 // ---------------------------------------------------------------------------
 
 /// 可编程归档 vcs 假件：脏探测 / 分支重放 / 快进 / 提交 / 合入判定 / 分支
-/// 探测各返回值可编程，调用计数与入参捕获供断言。
+/// 探测 / 清单与补丁取数各返回值可编程，调用计数与入参捕获供断言。
 struct FakeVcs {
     calls: Mutex<Vec<String>>,
     dirty: bool,
@@ -597,6 +623,14 @@ struct FakeVcs {
     merged: Result<bool, String>,
     rebase: Result<RebaseOutcome, String>,
     commit_result: Result<(), String>,
+    /// 变更文件清单（change_edit_set 产出面）
+    edit_set: Mutex<Vec<String>>,
+    /// 清单取数 Err 注入位
+    edit_set_error: Mutex<Option<String>>,
+    /// `--in-diff` 补丁（change_edit_patch 产出面）
+    edit_patch: Mutex<String>,
+    /// 补丁取数 Err 注入位
+    edit_patch_error: Mutex<Option<String>>,
 }
 
 impl FakeVcs {
@@ -609,7 +643,36 @@ impl FakeVcs {
             merged: Ok(false),
             rebase: Ok(RebaseOutcome::Rebased),
             commit_result: Ok(()),
+            edit_set: Mutex::new(Vec::new()),
+            edit_set_error: Mutex::new(None),
+            edit_patch: Mutex::new(String::new()),
+            edit_patch_error: Mutex::new(None),
         }
+    }
+
+    /// 清单 / 补丁产出面编程（突变执行链组合用例的数据注入）。
+    fn with_edit(self, files: Vec<String>, patch: &str) -> Self {
+        *self.edit_set.lock().expect("vcs 清单锁不可中毒") = files;
+        *self.edit_patch.lock().expect("vcs 补丁锁不可中毒") = patch.to_owned();
+        self
+    }
+
+    /// 清单取数 Err 注入（MUST NOT 降级空清单的传播面）。
+    fn with_edit_set_error(self, error: &str) -> Self {
+        *self
+            .edit_set_error
+            .lock()
+            .expect("vcs 清单错误锁不可中毒") = Some(error.to_owned());
+        self
+    }
+
+    /// 补丁取数 Err 注入（补丁失败同样 MUST NOT 降级空补丁的传播面）。
+    fn with_edit_patch_error(self, error: &str) -> Self {
+        *self
+            .edit_patch_error
+            .lock()
+            .expect("vcs 补丁错误锁不可中毒") = Some(error.to_owned());
+        self
     }
 
     fn with_branch(mut self, branch: Result<String, String>) -> Self {
@@ -697,6 +760,142 @@ impl ArchiveVcsPort for FakeVcs {
     ) -> Result<(), String> {
         self.record(&format!("commit_paths:{}", paths.len()));
         self.commit_result.clone()
+    }
+
+    fn change_edit_set(&self, _root: &std::path::Path, base: &str) -> Result<Vec<String>, String> {
+        self.record(&format!("change_edit_set:{base}"));
+        if let Some(error) = self
+            .edit_set_error
+            .lock()
+            .expect("vcs 清单错误锁不可中毒")
+            .clone()
+        {
+            return Err(error);
+        }
+        let files = self
+            .edit_set
+            .lock()
+            .expect("vcs 清单锁不可中毒")
+            .clone();
+        Ok(files)
+    }
+
+    fn change_edit_patch(&self, _root: &std::path::Path, base: &str) -> Result<String, String> {
+        self.record(&format!("change_edit_patch:{base}"));
+        if let Some(error) = self
+            .edit_patch_error
+            .lock()
+            .expect("vcs 补丁错误锁不可中毒")
+            .clone()
+        {
+            return Err(error);
+        }
+        let patch = self
+            .edit_patch
+            .lock()
+            .expect("vcs 补丁锁不可中毒")
+            .clone();
+        Ok(patch)
+    }
+}
+
+/// 可编程 MutationRunner 假件（记录四参 + 可编程产出 / Err——MutationTest 臂
+/// 观察面）。
+struct FakeMutationRunner {
+    calls: Mutex<Vec<(String, String, Vec<String>, String)>>,
+    result: Result<MutationTestOutcome, String>,
+}
+
+impl FakeMutationRunner {
+    /// EmptyDiff 跳过面缺省形态（零突变语义——非 mutation 用例不被扰动）。
+    fn skipping() -> Self {
+        Self::with_result(Ok(MutationTestOutcome {
+            conclusion: MutationTestConclusion::Pass,
+            skip: Some(MutationSkipReason::EmptyDiff),
+            score: 0.0,
+            threshold: 0.0,
+            counts: Default::default(),
+            report_paths: Vec::new(),
+            feedback_text: String::new(),
+        }))
+    }
+
+    fn passing() -> Self {
+        Self::with_result(Ok(MutationTestOutcome {
+            conclusion: MutationTestConclusion::Pass,
+            skip: None,
+            score: 95.0,
+            threshold: 80.0,
+            counts: MutationCounts {
+                killed: 9,
+                survived: 0,
+                timeout: 0,
+                compile_error: 0,
+                runtime_error: 0,
+                ignored: 1,
+                total: 10,
+            },
+            report_paths: vec!["reports/test/app_rust/mutation/mutation.json".to_owned()],
+            feedback_text: String::new(),
+        }))
+    }
+
+    fn failing(feedback_text: &str) -> Self {
+        Self::with_result(Ok(MutationTestOutcome {
+            conclusion: MutationTestConclusion::Fail,
+            skip: None,
+            score: 55.0,
+            threshold: 80.0,
+            counts: MutationCounts {
+                killed: 5,
+                survived: 4,
+                timeout: 0,
+                compile_error: 0,
+                runtime_error: 0,
+                ignored: 1,
+                total: 10,
+            },
+            report_paths: vec!["reports/test/app_rust/mutation/mutation.json".to_owned()],
+            feedback_text: feedback_text.to_owned(),
+        }))
+    }
+
+    fn erring(message: &str) -> Self {
+        Self::with_result(Err(message.to_owned()))
+    }
+
+    fn with_result(result: Result<MutationTestOutcome, String>) -> Self {
+        Self {
+            calls: Mutex::new(Vec::new()),
+            result,
+        }
+    }
+
+    /// 四参调用记录（root / name / files / patch 透传断言面）。
+    fn calls(&self) -> Vec<(String, String, Vec<String>, String)> {
+        self.calls.lock().expect("calls 锁不可中毒").clone()
+    }
+}
+
+impl crate::port::MutationRunner for FakeMutationRunner {
+    fn run(
+        &self,
+        root: &str,
+        name: &str,
+        files: &[String],
+        patch: &str,
+    ) -> crate::port::BoxToolFuture {
+        self.calls
+            .lock()
+            .expect("calls 锁不可中毒")
+            .push((
+                root.to_owned(),
+                name.to_owned(),
+                files.to_vec(),
+                patch.to_owned(),
+            ));
+        let result = self.result.clone();
+        Box::pin(async move { result.map(ToolStepOutput::MutationTest) })
     }
 }
 
@@ -1496,7 +1695,7 @@ async fn store故障_读路径fault经臂err上抛() {
 }
 
 // ---------------------------------------------------------------------------
-// 直调面持衡：ToolStepPort 直调语义不变（五参构造迁移）
+// 直调面持衡：ToolStepPort 直调语义不变（七缝构造迁移）
 // ---------------------------------------------------------------------------
 
 /// `ToolCommand.PhaseNext → workflow::write`：真实 LocalToolSteps + 真实
@@ -2150,11 +2349,12 @@ async fn 锚点实例随steps复用且run_id隔离() {
     assert_eq!(fresh.round, 1, "换 run_id 基线独立（per-run 装配锚）");
 }
 
-/// 五参构造双 runner 注入：锚点 + static_check + test_execution + store + run_id
-///（组合根同式装配的进程内证据半边；分发臂委托 root / name 透传——name 为
-/// id → 记录解析值）。
+/// 七缝构造三 runner 注入（改写——`LocalToolSteps::new` 增 mutation 缝）：锚点
+/// + static_check + test_execution + mutation + vcs + store + run_id（组合根
+/// 同式装配的进程内证据半边；各缝经 Arc 独立注入互不串扰；分发臂委托 root /
+/// name 透传——name 为 id → 记录解析值）。
 #[tokio::test]
-async fn 五参构造双runner注入_分发臂委托() {
+async fn 七缝构造三runner注入_分发臂委托() {
     let fake = Arc::new(FakeStore::new());
     fake.seed_change(CHANGE_ID, NAME);
     let execution = FakeTestExecutionRunner::with_result(Ok(TestExecutionOutcome {
@@ -2829,5 +3029,302 @@ async fn 归档两臂vcs触点面零调用与按需探测() {
         vcs.calls().is_empty(),
         "Seal 臂零 vcs 触点（git 步归 walker 直驱）: {:?}",
         vcs.calls()
+    );
+}
+
+// ---------------------------------------------------------------------------
+// MutationTest 臂（desktop-fix-mutation-test）：七缝装配 + vcs 缝取数注入 +
+// 四参透传 + 审计行 + 未建档零发起 + Err 传播
+// ---------------------------------------------------------------------------
+
+/// MutationTest 臂正向（已建档 id ≠ name）：`vcs.change_edit_set` /
+/// `change_edit_patch` 收 `("HEAD")`、`mutation.run` 收四参 `(root, name,
+/// files, patch)` 逐字透传（name 为记录解析后的磁盘名）、审计行
+/// `StepKind::MutationTest`（摘要携 conclusion / score / threshold）。
+#[tokio::test]
+async fn mutation_test臂_vcs取数注入runner四参透传且审计落行() {
+    let db = TestDb::open("mutation-arm");
+    seed_change(db.store.as_ref(), CHANGE_ID, NAME, "requirement");
+    let vcs = Arc::new(FakeVcs::clean().with_edit(
+        vec!["src/lib.rs".to_owned(), "src/util.rs".to_owned()],
+        "diff --git a/src/lib.rs b/src/lib.rs\n+新行\n",
+    ));
+    let assembled = assemble_with_vcs_and_mutation(
+        db.store_arc(),
+        "run-mutation",
+        FakeRunner::passing(),
+        FakeTestExecutionRunner::passing(),
+        Arc::clone(&vcs) as Arc<FakeVcs>,
+        Arc::new(FakeMutationRunner::passing()),
+    );
+
+    let output = run_step(
+        &assembled.steps,
+        ToolCommand::MutationTest {
+            change_id: CHANGE_ID.to_owned(),
+        },
+    )
+    .await;
+    match output {
+        ToolStepOutput::MutationTest(outcome) => {
+            assert_eq!(outcome.conclusion, MutationTestConclusion::Pass);
+            assert_eq!(outcome.score, 95.0);
+            assert_eq!(outcome.threshold, 80.0);
+        }
+        other => panic!("产出变体漂移: {other:?}"),
+    }
+
+    // vcs 缝取数：恰一次 change_edit_set + 一次 change_edit_patch，base 恒 "HEAD"
+    assert_eq!(
+        vcs.calls(),
+        [
+            "change_edit_set:HEAD".to_owned(),
+            "change_edit_patch:HEAD".to_owned(),
+        ],
+        "vcs 缝取数序（清单先行、补丁随后），base 恒 HEAD（worktree 语义）"
+    );
+
+    // mutation.run 四参：root 透传、name = 记录解析后的磁盘名、files / patch 逐字
+    let captured = assembled.mutation.calls();
+    assert_eq!(captured.len(), 1, "恰一次 runner 调用");
+    let (root, name, files, patch) = &captured[0];
+    assert_eq!(root, ROOT, "root 逐字透传（exec root）");
+    assert_eq!(name, NAME, "name = 记录解析后的磁盘名（非寻址 id）");
+    assert_eq!(
+        files,
+        &vec!["src/lib.rs".to_owned(), "src/util.rs".to_owned()],
+        "files = vcs 清单注入（清单入参，E3）"
+    );
+    assert_eq!(
+        patch, "diff --git a/src/lib.rs b/src/lib.rs\n+新行\n",
+        "patch = vcs 补丁注入（--in-diff 补丁入参）"
+    );
+
+    // 审计行：StepKind::MutationTest + 摘要携 conclusion / score / threshold
+    let rows = db
+        .store
+        .list_change_steps(CHANGE_ID, Some("run-mutation"))
+        .expect("读审计行应成功");
+    assert_eq!(rows.len(), 1, "恰一条 mutation 审计行");
+    assert_eq!(rows[0].step_kind, StepKind::MutationTest);
+    assert_eq!(rows[0].status, "ok");
+    assert!(
+        rows[0].summary.contains("conclusion=pass")
+            && rows[0].summary.contains("score=95")
+            && rows[0].summary.contains("threshold=80"),
+        "审计摘要携 conclusion / score / threshold: {}",
+        rows[0].summary
+    );
+}
+
+/// MutationTest 臂异常（未建档）：显式 `Err`，零 vcs 调用、零 mutation 调用
+/// （不 spawn——解析单点前置）。
+#[tokio::test]
+async fn mutation_test臂未建档显式err且零发起() {
+    let db = TestDb::open("mutation-unregistered");
+    let vcs = Arc::new(FakeVcs::clean());
+    let assembled = assemble_with_vcs_and_mutation(
+        db.store_arc(),
+        "run-unregistered",
+        FakeRunner::passing(),
+        FakeTestExecutionRunner::passing(),
+        vcs,
+        Arc::new(FakeMutationRunner::passing()),
+    );
+
+    let err = assembled
+        .steps
+        .run(ToolStepRequest {
+            root: ROOT.to_owned(),
+            command: ToolCommand::MutationTest {
+                change_id: "ghost-id".to_owned(),
+            },
+        })
+        .await
+        .expect_err("未建档 id 应 Err");
+    assert!(
+        err.contains("ghost-id") && err.contains("未建档"),
+        "解析 miss 记因显式: {err}"
+    );
+    assert!(
+        assembled.mutation.calls().is_empty(),
+        "未建档零 mutation 发起（不 spawn）"
+    );
+    let rows = db
+        .store
+        .list_change_steps("ghost-id", Some("run-unregistered"))
+        .expect("读审计行应成功");
+    assert!(rows.is_empty(), "未建档零审计行（Err 前置于审计）");
+}
+
+/// MutationTest 臂异常（vcs 取数失败）：`change_edit_set` Err → 传播不静默
+/// （MUST NOT 降级空清单），`mutation.run` 零发起；补丁 Err 同口径。
+#[tokio::test]
+async fn mutation_test臂vcs取数err传播且runner零发起() {
+    let db = TestDb::open("mutation-vcs-err");
+    seed_change(db.store.as_ref(), CHANGE_ID, NAME, "requirement");
+
+    // 清单 Err：补丁与 runner 均零发起
+    let vcs = Arc::new(FakeVcs::clean().with_edit_set_error("git diff 失败（退出码 128）"));
+    let assembled = assemble_with_vcs_and_mutation(
+        db.store_arc(),
+        "run-vcs-err",
+        FakeRunner::passing(),
+        FakeTestExecutionRunner::passing(),
+        vcs,
+        Arc::new(FakeMutationRunner::passing()),
+    );
+    let err = assembled
+        .steps
+        .run(ToolStepRequest {
+            root: ROOT.to_owned(),
+            command: ToolCommand::MutationTest {
+                change_id: CHANGE_ID.to_owned(),
+            },
+        })
+        .await
+        .expect_err("清单 Err 应传播");
+    assert!(
+        err.contains("git diff 失败"),
+        "Err 原文传播不静默（MUST NOT 降级空清单）: {err}"
+    );
+    assert!(
+        assembled.mutation.calls().is_empty(),
+        "清单 Err 后 runner 零发起"
+    );
+
+    // 补丁 Err：清单成功不豁免补丁失败——runner 同样零发起
+    let vcs = Arc::new(
+        FakeVcs::clean()
+            .with_edit(vec!["src/lib.rs".to_owned()], "")
+            .with_edit_patch_error("git add -N 失败"),
+    );
+    let assembled = assemble_with_vcs_and_mutation(
+        db.store_arc(),
+        "run-patch-err",
+        FakeRunner::passing(),
+        FakeTestExecutionRunner::passing(),
+        vcs,
+        Arc::new(FakeMutationRunner::passing()),
+    );
+    let err = assembled
+        .steps
+        .run(ToolStepRequest {
+            root: ROOT.to_owned(),
+            command: ToolCommand::MutationTest {
+                change_id: CHANGE_ID.to_owned(),
+            },
+        })
+        .await
+        .expect_err("补丁 Err 应传播");
+    assert!(
+        err.contains("git add -N 失败"),
+        "补丁 Err 原文传播不静默（MUST NOT 降级空补丁）: {err}"
+    );
+    assert!(
+        assembled.mutation.calls().is_empty(),
+        "补丁 Err 后 runner 零发起"
+    );
+}
+
+/// MutationTest 臂异常（runner Err）：`mutation.run` Err → 传播 + 审计 error
+/// 行（失败不阻断审计）。
+#[tokio::test]
+async fn mutation_test臂runner_err传播且审计error行() {
+    let db = TestDb::open("mutation-runner-err");
+    seed_change(db.store.as_ref(), CHANGE_ID, NAME, "requirement");
+    let assembled = assemble_with_vcs_and_mutation(
+        db.store_arc(),
+        "run-runner-err",
+        FakeRunner::passing(),
+        FakeTestExecutionRunner::passing(),
+        Arc::new(FakeVcs::clean().with_edit(vec!["src/lib.rs".to_owned()], "diff --git a/x b/x\n")),
+        Arc::new(FakeMutationRunner::erring("cargo mutants 拉起失败（程序不可达？）")),
+    );
+
+    let err = assembled
+        .steps
+        .run(ToolStepRequest {
+            root: ROOT.to_owned(),
+            command: ToolCommand::MutationTest {
+                change_id: CHANGE_ID.to_owned(),
+            },
+        })
+        .await
+        .expect_err("runner Err 应传播");
+    assert_eq!(
+        err, "cargo mutants 拉起失败（程序不可达？）",
+        "Err 原文传播（无再包装）"
+    );
+
+    // 审计 error 行（失败不阻断审计——Err 串入 summary）
+    let rows = db
+        .store
+        .list_change_steps(CHANGE_ID, Some("run-runner-err"))
+        .expect("读审计行应成功");
+    assert_eq!(rows.len(), 1, "Err 仍落审计行");
+    assert_eq!(rows[0].step_kind, StepKind::MutationTest);
+    assert_eq!(rows[0].status, "error");
+    assert!(
+        rows[0].summary.contains("cargo mutants 拉起失败"),
+        "error 行摘要携 Err 记因: {}",
+        rows[0].summary
+    );
+}
+
+/// MutationTest 臂边界：`id == name` 形态 name 逐字等于 id；files 空清单照常
+/// 透传（EmptyDiff 判定归 mutation 侧——缝零加工）；重复调用独立解析、runner
+/// 调用计数递增。
+#[tokio::test]
+async fn mutation_test臂同名形态与空清单透传与重复调用() {
+    let db = TestDb::open("mutation-boundary");
+    // id == name 形态：同字面量建档（name 解析退化为 id 逐字）
+    seed_change(db.store.as_ref(), CHANGE_ID, CHANGE_ID, "requirement");
+    let assembled = assemble_with_vcs_and_mutation(
+        db.store_arc(),
+        "run-boundary",
+        FakeRunner::passing(),
+        FakeTestExecutionRunner::passing(),
+        Arc::new(FakeVcs::clean()), // 空清单 / 空补丁缺省（照常透传）
+        Arc::new(FakeMutationRunner::skipping()),
+    );
+
+    // 首次调用：空清单透传（EmptyDiff 判定归 mutation 侧——缝不加工）
+    let output = run_step(
+        &assembled.steps,
+        ToolCommand::MutationTest {
+            change_id: CHANGE_ID.to_owned(),
+        },
+    )
+    .await;
+    match output {
+        ToolStepOutput::MutationTest(outcome) => {
+            assert_eq!(
+                outcome.skip,
+                Some(MutationSkipReason::EmptyDiff),
+                "空清单经缝透传 → runner 侧判 EmptyDiff（缝不加工）"
+            );
+        }
+        other => panic!("产出漂移: {other:?}"),
+    }
+    let captured = assembled.mutation.calls();
+    assert_eq!(captured[0].1, CHANGE_ID, "id == name 形态 name 逐字等于 id");
+    assert!(
+        captured[0].2.is_empty() && captured[0].3.is_empty(),
+        "空清单 / 空补丁照常透传"
+    );
+
+    // 重复调用：独立解析、runner 调用计数递增
+    run_step(
+        &assembled.steps,
+        ToolCommand::MutationTest {
+            change_id: CHANGE_ID.to_owned(),
+        },
+    )
+    .await;
+    assert_eq!(
+        assembled.mutation.calls().len(),
+        2,
+        "重复调用 runner 计数递增（每次独立取数注入）"
     );
 }

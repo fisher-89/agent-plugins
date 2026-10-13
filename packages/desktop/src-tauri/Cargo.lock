@@ -1174,6 +1174,7 @@ dependencies = [
  "tempfile",
  "time",
  "tokio",
+ "workflow",
 ]
 
 [[package]]
@@ -10275,6 +10276,7 @@ dependencies = [
  "foundation",
  "orchestration",
  "tempfile",
+ "tokio",
  "workflow",
 ]
 

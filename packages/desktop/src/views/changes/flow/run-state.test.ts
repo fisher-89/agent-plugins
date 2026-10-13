@@ -327,7 +327,7 @@ describe('runStepNodes：稳定身份键渲染（overlay 输入面）', () => {
     });
   });
 
-  it('四类可辨：十八步词汇 → WorkerAgent / ToolStep / Git / Gate 分组与 role 逐词对应', () => {
+  it('四类可辨：十九步词汇 → WorkerAgent / ToolStep / Git / Gate 分组与 role 逐词对应', () => {
     const GROUP_OF: Record<
       ChangeStepKind,
       {
@@ -341,6 +341,7 @@ describe('runStepNodes：稳定身份键渲染（overlay 输入面）', () => {
       phaseStart: { group: 'toolStep', role: null },
       staticCheck: { group: 'toolStep', role: null },
       testExecution: { group: 'toolStep', role: null },
+      mutationTest: { group: 'toolStep', role: null },
       phaseLog: { group: 'toolStep', role: null },
       verdictGate: { group: 'gate', role: null },
       retryGate: { group: 'gate', role: null },
@@ -360,7 +361,7 @@ describe('runStepNodes：稳定身份键渲染（overlay 输入面）', () => {
     );
 
     const nodes = runStepNodes(steps, REQUIREMENT_PHASES);
-    expect(nodes).toHaveLength(18);
+    expect(nodes).toHaveLength(19);
     for (const node of nodes) {
       const expected = GROUP_OF[node.runStepKind];
       expect(node.group).toBe(expected.group);
@@ -421,37 +422,84 @@ describe('run-state：缺省字段（推导不崩）', () => {
   });
 });
 
-// RunStepKind 词汇 import 面锚（十值全词汇直测归一单点的输入域）
+// RunStepKind 词汇 import 面锚（十九值全词汇直测归一单点的输入域——mutation_test
+// 拆步新词在案，AC-1 / AC-2）
 const PERSISTED_WORDS: RunStepKind[] = [
   'executor',
   'evaluator',
   'decision',
   'static_check',
   'test_execution',
+  'mutation_test',
   'phase_start',
   'phase_log',
   'verdict_gate',
   'retry_gate',
   'whitelist_gate',
+  'preflight',
+  'commit',
+  'rebase',
+  'resolve_conflicts',
+  'merge',
+  'spec_sync',
+  'seal',
+  'finalize',
 ];
-describe('unifiedRunNodes：词汇全词汇归一', () => {
-  it('十值 snake 词全量归一可达（词汇漂移即断）', () => {
+
+/** 十九值 snake 词 → camel 词期望表（normalizeKind 逐词对拍——词汇漂移即断）。 */
+const NORMALIZE_EXPECTED: Array<[RunStepKind, ChangeStepKind]> = [
+  ['executor', 'executor'],
+  ['evaluator', 'evaluator'],
+  ['decision', 'decision'],
+  ['static_check', 'staticCheck'],
+  ['test_execution', 'testExecution'],
+  ['mutation_test', 'mutationTest'],
+  ['phase_start', 'phaseStart'],
+  ['phase_log', 'phaseLog'],
+  ['verdict_gate', 'verdictGate'],
+  ['retry_gate', 'retryGate'],
+  ['whitelist_gate', 'whitelistGate'],
+  ['preflight', 'preflight'],
+  ['commit', 'commit'],
+  ['rebase', 'rebase'],
+  ['resolve_conflicts', 'resolveConflicts'],
+  ['merge', 'merge'],
+  ['spec_sync', 'specSync'],
+  ['seal', 'seal'],
+  ['finalize', 'finalize'],
+];
+
+describe('unifiedRunNodes：十九值词汇全量归一', () => {
+  it('十九值 snake 词全量归一可达（normalizeKind 逐词对拍——词汇漂移即断）', () => {
     const steps = PERSISTED_WORDS.map((step, index) =>
       runStepRow({ instanceNo: index, step, sessionId: null }),
     );
     const unified = unifiedRunNodes([runEntry({ nodes: steps })], null);
-    expect(unified.map((row) => row.step)).toEqual([
-      'executor',
-      'evaluator',
-      'decision',
-      'staticCheck',
-      'testExecution',
-      'phaseStart',
-      'phaseLog',
-      'verdictGate',
-      'retryGate',
-      'whitelistGate',
-    ]);
+    expect(unified.map((row) => row.step)).toEqual(NORMALIZE_EXPECTED.map(([, camel]) => camel));
+    // 逐词对拍（mutation_test → mutationTest 拆步新词在案）
+    for (const [snake, camel] of NORMALIZE_EXPECTED) {
+      const row = unified.find((_, index) => PERSISTED_WORDS[index] === snake);
+      // normalizeKind(${snake}) → ${camel}
+      expect(row?.step).toBe(camel);
+    }
+  });
+
+  it('双向 round-trip：stepWord(normalizeKind(word)) 恒回 snake 词（十九值全词汇）', () => {
+    const steps = PERSISTED_WORDS.map((step, index) =>
+      runStepRow({ instanceNo: index, step, sessionId: null }),
+    );
+    const unified = unifiedRunNodes([runEntry({ nodes: steps })], null);
+    const nodes = runStepNodes(unified, REQUIREMENT_PHASES);
+    // nodeIdentityKey 内嵌 stepWord 反向归一——round-trip 逐词回到 snake 词面
+    for (const [snake, camel] of NORMALIZE_EXPECTED) {
+      const node = nodes.find((candidate) => candidate.runStepKind === camel);
+      expect(node).toBeDefined();
+      if (node) {
+        expect(nodeIdentityKey(node)).toBe(
+          `implement:1:${snake}:${PERSISTED_WORDS.indexOf(snake)}`,
+        );
+      }
+    }
   });
 });
 
@@ -665,3 +713,76 @@ describe('runStepNodes：phaseOrder 显式传序（AC-5 / AC-6）', () => {
     expect(requirementNode.colIndex).not.toBe(testOnlyNode.colIndex);
   });
 });
+
+// ---------------------------------------------------------------------------
+// mutationTest 步词汇（desktop-fix-mutation-test / AC-1 / AC-2）：归一表新词 +
+// groupOf 落 toolStep（exec 组）+ 枚举外字符串 default 面 + 零过滤丢步
+// ---------------------------------------------------------------------------
+
+describe('mutationTest 步词汇归一与分组（AC-2）', () => {
+  it('normalizeKind：mutation_test → mutationTest 拆步新词逐字在案', () => {
+    const steps = [runStepRow({ instanceNo: 0, step: 'mutation_test', sessionId: null })];
+    const unified = unifiedRunNodes([runEntry({ nodes: steps })], null);
+    expect(unified.map((row) => row.step)).toEqual(['mutationTest']);
+  });
+
+  it('stepWord 反向归一：mutationTest → mutation_test（nodeIdentityKey 与后端边表端点逐字可比）', () => {
+    const node = runStepNodes(
+      [
+        stepRow({
+          phase: 'test-execution',
+          attempt: 1,
+          step: 'mutationTest',
+          instanceNo: 0,
+          sessionId: null,
+        }),
+      ],
+      REQUIREMENT_PHASES,
+    )[0];
+    expect(node).toBeDefined();
+    if (node) {
+      expect(nodeIdentityKey(node)).toBe('test-execution:1:mutation_test:0');
+      expect(runNodeKey(node)).toBe('run-1727:test-execution:1:mutation_test:0');
+    }
+  });
+
+  it('groupOf：mutationTest 经 default 落 toolStep（exec 组）；role 恒 null', () => {
+    const nodes = runStepNodes(
+      [stepRow({ phase: 'test-execution', step: 'mutationTest', sessionId: null })],
+      REQUIREMENT_PHASES,
+    );
+    expect(nodes).toHaveLength(1);
+    // mutationTest 归 exec 组（经 groupOf default）
+    expect(nodes[0].group).toBe('toolStep');
+    expect(nodes[0].role).toBeNull();
+  });
+
+  it('枚举外字符串（未知词 cast）→ default 落 toolStep 不崩不抛（稳健面）', () => {
+    const rogue = 'totallyUnknownStep' as ChangeStepKind;
+    const nodes = runStepNodes([stepRow({ step: rogue, sessionId: null })], REQUIREMENT_PHASES);
+    expect(nodes).toHaveLength(1);
+    // 未知词经 default 兜底落 toolStep
+    expect(nodes[0].group).toBe('toolStep');
+    expect(nodes[0].role).toBeNull();
+  });
+
+  it('零过滤丢步：十九词全词汇经 runStepNodes 全量出图（mutation_test 在案不被滤除）', () => {
+    const steps = PERSISTED_WORDS.map((step, index) =>
+      stepRow({ instanceNo: index, step: normalizeWord(step), sessionId: null }),
+    );
+    const nodes = runStepNodes(steps, REQUIREMENT_PHASES);
+    // 十九词全量出图（零过滤）
+    expect(nodes).toHaveLength(19);
+    expect(nodes.some((node) => node.runStepKind === 'mutationTest')).toBe(true);
+    expect(new Set(nodes.map((node) => node.id)).size).toBe(19);
+  });
+});
+
+/** snake 词 → 活面 camel 词（测试内小表——19 词 round-trip 用）。 */
+function normalizeWord(word: RunStepKind): ChangeStepKind {
+  const entry = NORMALIZE_EXPECTED.find(([snake]) => snake === word);
+  if (!entry) {
+    throw new Error(`词汇表缺项: ${word}`);
+  }
+  return entry[1];
+}

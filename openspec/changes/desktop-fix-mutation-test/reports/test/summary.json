@@ -1,0 +1,49 @@
+{
+  "phase": "test-execution",
+  "command": "desktop change run: test-execution gate",
+  "timestamp": "2026-10-13T12:39:06.6258374Z",
+  "duration_seconds": 266.0,
+  "total": 1771,
+  "passed": 1771,
+  "failed": 0,
+  "skipped": 0,
+  "conclusion": "pass",
+  "problems": [],
+  "coverage": {
+    "pass": true,
+    "measured": {
+      "lines": 97.39,
+      "branches": 90.49,
+      "functions": 95.26
+    },
+    "thresholds": {
+      "lines": 90.0,
+      "branches": 85.0,
+      "functions": 90.0
+    }
+  },
+  "mutation": null,
+  "plans": [
+    {
+      "id": "plugins_dev-team_vite-plus",
+      "framework": "vite-plus",
+      "root": "plugins/dev-team",
+      "path": "reports/test/plugins_dev-team_vite-plus"
+    },
+    {
+      "id": "packages_desktop_vite-plus",
+      "framework": "vite-plus",
+      "root": "packages/desktop",
+      "path": "reports/test/packages_desktop_vite-plus"
+    },
+    {
+      "id": "packages_desktop_src-tauri_rust",
+      "framework": "rust",
+      "root": "packages/desktop/src-tauri",
+      "path": "reports/test/packages_desktop_src-tauri_rust"
+    }
+  ],
+  "findings": [
+    "全部测试通过且覆盖率达阈值"
+  ]
+}

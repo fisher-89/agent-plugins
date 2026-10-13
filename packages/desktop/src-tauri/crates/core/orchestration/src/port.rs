@@ -82,7 +82,7 @@ pub trait WorkerAgentPort: Send + Sync {
     fn run(&self, turn: WorkerTurnRequest) -> BoxTurnFuture;
 }
 
-/// 工具步命令封闭集（相位机四步 + 两检查门禁 + 归档内联两步；写通道唯一——
+/// 工具步命令封闭集（相位机四步 + 三检查门禁 + 归档内联两步；写通道唯一——
 /// 相位机载荷直载写面输入类型，进程内直调 `workflow::write`）。各变体定位载荷
 /// 为 change **id**（一切寻址以 id 为准；磁盘面 name 由消费点经记录解析）。
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -114,6 +114,9 @@ pub enum ToolCommand {
     /// test-execution 门禁（确定性测试执行链；id 定位写面与记录，报告目录
     /// 派生经记录 name 解析）
     TestExecution { change_id: String },
+    /// mutation-test 门禁（确定性突变执行链；清单 / 补丁经 vcs 缝取数注入，
+    /// 报告目录派生经记录 name 解析）
+    MutationTest { change_id: String },
     /// 归档前置只读载荷（store 读 + vcs 探测；请求 root 恒主 workspace root
     /// ——layout 解析与主仓分支探测锚）
     ArchivePreflight { change_id: String },
@@ -131,8 +134,9 @@ pub struct ToolStepRequest {
 }
 
 /// 工具步产出（封闭集，载荷 = 写面原生类型；PhaseNext 体量最大（白名单 +
-/// prompt 双 Vec），Box 收敛变体尺寸差）。
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// prompt 双 Vec），Box 收敛变体尺寸差）。`MutationTestOutcome` 载荷携 f64
+///（score / threshold）——本枚举只派生 `PartialEq`（零 `Eq`）。
+#[derive(Debug, Clone, PartialEq)]
 pub enum ToolStepOutput {
     PhaseNext(Box<PhaseNextOutcome>),
     PhaseStart(PhaseStartOutcome),
@@ -141,6 +145,7 @@ pub enum ToolStepOutput {
     DecisionLog(workflow::write::DecisionLogOutcome),
     StaticCheck(StaticCheckOutcome),
     TestExecution(TestExecutionOutcome),
+    MutationTest(MutationTestOutcome),
     ArchivePreflight(ArchivePreflight),
     ArchiveSeal(workflow::write::ArchiveOutcome),
 }
@@ -204,6 +209,86 @@ pub struct TestExecutionOutcome {
     pub exec_id: String,
 }
 
+/// mutation-test 门禁结论三值（`TestExecutionConclusion` 同型；线格式小写词）：
+/// `Pass` = 逐 suite 全达标（含跳过面——null 观察期不判 fail）、`Fail` = 全部段
+/// 跑完但有 suite 未达标、`Error` = 段中断（段执行 error / harness 崩 / 超时）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MutationTestConclusion {
+    /// 逐 suite 全部达标 / 跳过面收口
+    Pass,
+    /// 全部段跑完但有 suite 未达标
+    Fail,
+    /// 段中断（错误摘要随 `feedback_text` 即时反馈，不等汇总）
+    Error,
+}
+
+impl MutationTestConclusion {
+    /// 线格式小写词。
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Pass => "pass",
+            Self::Fail => "fail",
+            Self::Error => "error",
+        }
+    }
+}
+
+/// 突变跳过因两值（`Option` 缺省 = 已执行；线格式 snake_case 词）：
+/// `EmptyDiff` = 突变面为空（diff 空跳过）、`NoExecutor` = 全部 suite 无突变
+/// 执行器（框架设计上无执行器，与「工具没装」语义不同）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MutationSkipReason {
+    /// 突变面为空（编辑集无可突变文件落入任何 suite 桶）
+    EmptyDiff,
+    /// 全部 suite 无突变执行器（node-test 等）
+    NoExecutor,
+}
+
+impl MutationSkipReason {
+    /// 线格式 snake_case 词。
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::EmptyDiff => "empty_diff",
+            Self::NoExecutor => "no_executor",
+        }
+    }
+}
+
+/// 突变归并计数载荷（`MutationMeasured` 计数面的 port 流量像——载荷类型自持，
+/// core/orchestration 零 checks 依赖）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct MutationCounts {
+    pub killed: u64,
+    pub survived: u64,
+    pub timeout: u64,
+    pub compile_error: u64,
+    pub runtime_error: u64,
+    pub ignored: u64,
+    pub total: u64,
+}
+
+/// mutation-test 门禁产出载荷（**零 Serialize 不进 IPC**：只在进程内 walker
+/// 反馈边②与机械 checklist 消费，MUST NOT 经 bindings / `RunUpdate` 出线——
+/// 全量明细留报告文件）。
+#[derive(Debug, Clone, PartialEq)]
+pub struct MutationTestOutcome {
+    /// 聚合结论
+    pub conclusion: MutationTestConclusion,
+    /// 跳过因（`None` = 已执行）
+    pub skip: Option<MutationSkipReason>,
+    /// 归并块口径得分（skip 时 0.0 占位）
+    pub score: f64,
+    /// 归并块口径阈值（首块阈值；skip 时 0.0 占位）
+    pub threshold: f64,
+    /// 归并计数
+    pub counts: MutationCounts,
+    /// 段级 + 归并报告路径清单（POSIX）
+    pub report_paths: Vec<String>,
+    /// 反馈文本（反馈边②报告指引式：结论摘要 + 报告路径清单；pass 恒空串；
+    /// MUST NOT 内联存活突变体清单——明细由 executor 自行读报告）
+    pub feedback_text: String,
+}
+
 /// ToolStep 契约（进程内缝）：相位机四步由编排侧 [`crate::steps::LocalToolSteps`]
 /// 直调写面，static-check 委托注入的 [`StaticCheckRunner`]。
 pub trait ToolStepPort: Send + Sync {
@@ -227,6 +312,18 @@ pub trait StaticCheckRunner: Send + Sync {
 /// 点（D7）。
 pub trait TestExecutionRunner: Send + Sync {
     fn run(&self, root: &str, name: &str) -> BoxToolFuture;
+}
+
+/// mutation-test spawn 缝（checks 边界 infra 实现；检查域家族第三成员，W4 红线
+/// 与 [`TestExecutionRunner`] 同型——spawn 不进 core）。产出契约同 `ToolStepOutput`
+/// 封闭集（`ToolStepOutput::MutationTest`）。**四参显式化**（E3）：`root` = exec
+/// root（worktree）、`name` = change 磁盘名（报告目录 `change_test_reports(root,
+/// name)` 派生）、`files` = 突变面清单入参、`patch` = `--in-diff` 补丁入参——
+/// 两者同经 vcs 缝（[`ArchiveVcsPort::change_edit_set`] / [`change_edit_patch`]）
+/// 取数后由 `steps.rs` 注入，checks-runtime 依赖面零 vcs（清单 / 补丁唯一入口在
+/// vcs 边界）。
+pub trait MutationRunner: Send + Sync {
+    fn run(&self, root: &str, name: &str, files: &[String], patch: &str) -> BoxToolFuture;
 }
 
 /// git diff 变更文件上下文缝（infra 实现；W5——git diff 是进程 spawn，落
@@ -270,6 +367,16 @@ pub trait ArchiveVcsPort: Send + Sync {
     /// "/**" 形态>`（glob 覆盖已删除路径——裸目录 pathspec 对已删除目录报
     /// "did not match"；无关 staged / untracked 原样保留——pathspec 纪律）。
     fn commit_paths(&self, main_root: &Path, paths: &[&str], message: &str) -> Result<(), String>;
+    /// 变更文件清单唯一入口（**突变范围与文件清单唯一入口**，清单获取全仓单点）：
+    /// `git diff <base> --name-only -z` ∪ `git ls-files --others --exclude-standard -z`
+    /// （untracked 并入），排序去重 POSIX 归一；`base = "HEAD"` 时即本 change 编辑集
+    ///（worktree 语义）。git 失败显式 `Err`——MUST NOT 静默降级空清单（空清单会
+    /// 误走 diff 空跳过）。
+    fn change_edit_set(&self, root: &Path, base: &str) -> Result<Vec<String>, String>;
+    /// `--in-diff` 补丁唯一入口：untracked 面先行 `git add -N`（intent-to-add，
+    /// E2）再 `git diff <base>` 输出 unified diff 文本；与 [`Self::change_edit_set`]
+    /// 同居 vcs 单点，checks 侧零 git spawn。
+    fn change_edit_patch(&self, root: &Path, base: &str) -> Result<String, String>;
 }
 
 /// rebase 结果：冲突语义 = 冲突态保留、不 abort——收口归调用方。

@@ -8,7 +8,8 @@ use agent::{AgentRunStatus, ModelLevel};
 
 use crate::control::ChangeFlowControl;
 use crate::port::{
-    ArchiveVcsPort, BoxToolFuture, BoxTurnFuture, RebaseOutcome, RunHistoryPort,
+    ArchiveVcsPort, BoxToolFuture, BoxTurnFuture, MutationCounts, MutationSkipReason,
+    MutationTestConclusion, MutationTestOutcome, RebaseOutcome, RunHistoryPort,
     StaticCheckOutcome, StaticCheckRunner, TestExecutionConclusion, TestExecutionOutcome,
     TestExecutionRunner, ToolCommand, ToolStepOutput, ToolStepPort, ToolStepRequest,
     WorkerAgentPort, WorkerRole, WorkerTurnOutcome, WorkerTurnRequest, WorkflowSnapshotPort,
@@ -480,9 +481,11 @@ struct FakeTools {
     archive_preflight: Mutex<VecDeque<ArchivePreflight>>,
     /// 归档双写产出可编程序列（耗尽回落 archive_seal_outcome）
     archive_seal: Mutex<VecDeque<workflow::write::ArchiveOutcome>>,
+    /// mutation-test 产出可编程序列（耗尽回落 EmptyDiff 跳过面恒 Pass）
+    mutation: Mutex<VecDeque<MutationTestOutcome>>,
     /// 命中即 Err 的步标签（phase-next / phase-start / phase-log / backtrack /
-    /// decision-log / static-check / test-execution / archive-preflight /
-    /// archive-seal）
+    /// decision-log / static-check / test-execution / mutation-test /
+    /// archive-preflight / archive-seal）
     fail_on: Mutex<Option<String>>,
     attempt_counter: AtomicUsize,
 }
@@ -498,6 +501,7 @@ impl FakeTools {
             test_execution: Mutex::new(VecDeque::new()),
             archive_preflight: Mutex::new(VecDeque::new()),
             archive_seal: Mutex::new(VecDeque::new()),
+            mutation: Mutex::new(VecDeque::new()),
             fail_on: Mutex::new(None),
             attempt_counter: AtomicUsize::new(0),
         }
@@ -532,9 +536,15 @@ impl FakeTools {
 
     /// test-execution 产出序列预录（pass / fail / error 四态；用例由
     /// test-gen 阶段 walker_test 扩展节承接——本装置先行为反馈边扩展备妥）。
-    #[allow(dead_code)]
     fn with_test_execution(mut self, outcomes: Vec<TestExecutionOutcome>) -> Self {
         self.test_execution = Mutex::new(outcomes.into());
+        self
+    }
+
+    /// mutation-test 产出序列预录（Pass / Fail / Error 三态与跳过面；
+    /// 耗尽回落 EmptyDiff 跳过面恒 Pass 零反馈）。
+    fn with_mutation(mut self, outcomes: Vec<MutationTestOutcome>) -> Self {
+        self.mutation = Mutex::new(outcomes.into());
         self
     }
 
@@ -558,6 +568,7 @@ fn command_label(command: &ToolCommand) -> &'static str {
         ToolCommand::DecisionLog { .. } => "decision-log",
         ToolCommand::StaticCheck { .. } => "static-check",
         ToolCommand::TestExecution { .. } => "test-execution",
+        ToolCommand::MutationTest { .. } => "mutation-test",
         ToolCommand::ArchivePreflight { .. } => "archive-preflight",
         ToolCommand::ArchiveSeal { .. } => "archive-seal",
     }
@@ -665,6 +676,26 @@ impl ToolStepPort for FakeTools {
                         exec_id: String::new(),
                     });
                 Box::pin(async move { Ok(ToolStepOutput::TestExecution(outcome)) })
+            }
+            // mutation-test 可编程臂：预录产出序列逐次弹出（Pass / Fail /
+            // Error 与跳过面），耗尽回落 EmptyDiff 跳过面恒 Pass 零反馈——
+            // 非突变用例零扰动
+            ToolCommand::MutationTest { .. } => {
+                let outcome = self
+                    .mutation
+                    .lock()
+                    .expect("mutation-test 队列锁不可中毒")
+                    .pop_front()
+                    .unwrap_or(MutationTestOutcome {
+                        conclusion: MutationTestConclusion::Pass,
+                        skip: Some(MutationSkipReason::EmptyDiff),
+                        score: 0.0,
+                        threshold: 0.0,
+                        counts: MutationCounts::default(),
+                        report_paths: Vec::new(),
+                        feedback_text: String::new(),
+                    });
+                Box::pin(async move { Ok(ToolStepOutput::MutationTest(outcome)) })
             }
             // 归档前置只读载荷臂：预录载荷逐次弹出（耗尽回落 legacy 主 root
             // 形态——worktree / branch / merge_target 缺省 None）
@@ -816,6 +847,14 @@ struct FakeVcs {
     ff_merge_result: Mutex<Result<(), String>>,
     snapshot: Mutex<Result<WorktreeSnapshot, String>>,
     snapshot_head: Mutex<Option<String>>,
+    /// 变更文件清单（change_edit_set 产出面）
+    edit_set: Mutex<Vec<String>>,
+    /// 清单取数 Err 注入位
+    edit_set_error: Mutex<Option<String>>,
+    /// `--in-diff` 补丁（change_edit_patch 产出面）
+    edit_patch: Mutex<String>,
+    /// 补丁取数 Err 注入位
+    edit_patch_error: Mutex<Option<String>>,
 }
 
 impl FakeVcs {
@@ -834,7 +873,18 @@ impl FakeVcs {
             ff_merge_result: Mutex::new(Ok(())),
             snapshot: Mutex::new(Ok(snapshot_of("head-a", None))),
             snapshot_head: Mutex::new(None),
+            edit_set: Mutex::new(Vec::new()),
+            edit_set_error: Mutex::new(None),
+            edit_patch: Mutex::new(String::new()),
+            edit_patch_error: Mutex::new(None),
         }
+    }
+
+    /// 清单 / 补丁产出面编程（突变执行链组合用例的数据注入）。
+    fn with_edit(self, files: Vec<String>, patch: &str) -> Self {
+        *self.edit_set.lock().expect("vcs 清单锁不可中毒") = files;
+        *self.edit_patch.lock().expect("vcs 补丁锁不可中毒") = patch.to_owned();
+        self
     }
 
     fn with_dirty(self, dirty: bool) -> Self {
@@ -990,6 +1040,40 @@ impl ArchiveVcsPort for FakeVcs {
             .lock()
             .expect("vcs 落盘锁不可中毒")
             .clone()
+    }
+
+    fn change_edit_set(&self, _root: &std::path::Path, base: &str) -> Result<Vec<String>, String> {
+        self.record(format!("change_edit_set:{base}"));
+        if let Some(error) = self
+            .edit_set_error
+            .lock()
+            .expect("vcs 清单错误锁不可中毒")
+            .clone()
+        {
+            return Err(error);
+        }
+        Ok(self
+            .edit_set
+            .lock()
+            .expect("vcs 清单锁不可中毒")
+            .clone())
+    }
+
+    fn change_edit_patch(&self, _root: &std::path::Path, base: &str) -> Result<String, String> {
+        self.record(format!("change_edit_patch:{base}"));
+        if let Some(error) = self
+            .edit_patch_error
+            .lock()
+            .expect("vcs 补丁错误锁不可中毒")
+            .clone()
+        {
+            return Err(error);
+        }
+        Ok(self
+            .edit_patch
+            .lock()
+            .expect("vcs 补丁锁不可中毒")
+            .clone())
     }
 }
 
@@ -1756,6 +1840,7 @@ async fn 真实写面组合全程演进对照一致() {
         Arc::new(SessionAnchors::new()),
         Arc::new(NullRunner),
         Arc::new(NullTestExecutionRunner),
+        Arc::new(NullMutationRunner),
         Arc::new(FakeVcs::clean()),
         db.store_arc(),
         "run-1".to_owned(),
@@ -1922,6 +2007,7 @@ async fn 重入自active_phase续走不重跑已pass相位() {
         Arc::new(SessionAnchors::new()),
         Arc::new(NullRunner),
         Arc::new(NullTestExecutionRunner),
+        Arc::new(NullMutationRunner),
         Arc::new(FakeVcs::clean()),
         db.store_arc(),
         "run-1".to_owned(),
@@ -3167,6 +3253,7 @@ async fn 真实写面组合_verdict解析失败反馈边超限_升格双槽位�
         Arc::new(SessionAnchors::new()),
         Arc::new(NullRunner),
         Arc::new(NullTestExecutionRunner),
+        Arc::new(NullMutationRunner),
         Arc::new(FakeVcs::clean()),
         db.store_arc(),
         "run-1".to_owned(),
@@ -3552,6 +3639,7 @@ async fn 真实写面组合_会话槽位落账与决策挂账全链对应() {
         Arc::new(SessionAnchors::new()),
         Arc::new(NullRunner),
         Arc::new(NullTestExecutionRunner),
+        Arc::new(NullMutationRunner),
         Arc::new(FakeVcs::clean()),
         db.store_arc(),
         "run-1".to_owned(),
@@ -3637,6 +3725,7 @@ async fn 真实写面组合_决策挂账先于解析_parse失败同样留痕() {
         Arc::new(SessionAnchors::new()),
         Arc::new(NullRunner),
         Arc::new(NullTestExecutionRunner),
+        Arc::new(NullMutationRunner),
         Arc::new(FakeVcs::clean()),
         db.store_arc(),
         "run-1".to_owned(),
@@ -3733,6 +3822,7 @@ async fn 真实写面组合_升格fail条目仅携executor槽位且修复轮续�
         Arc::new(SessionAnchors::new()),
         Arc::new(FailingRunner),
         Arc::new(NullTestExecutionRunner),
+        Arc::new(NullMutationRunner),
         Arc::new(FakeVcs::clean()),
         db.store_arc(),
         "run-1".to_owned(),
@@ -4055,13 +4145,15 @@ async fn 步状态词汇零新增_决策挂账全程无新步信封() {
             .into_iter()
             .map(|(_, _, kind, _)| kind)
             .collect();
-    // 落库十值全词汇零过滤（词汇漂移防线：封闭集之外的词出现即破坏）
-    const VOCAB: [&str; 10] = [
+    // 落库十九值全词汇零过滤（词汇漂移防线：封闭集之外的词出现即破坏；
+    // mutation_test 拆步新词在案——AC-1 / AC-2）
+    const VOCAB: [&str; 11] = [
         "executor",
         "evaluator",
         "decision",
         "static_check",
         "test_execution",
+        "mutation_test",
         "phase_start",
         "phase_log",
         "verdict_gate",
@@ -4138,6 +4230,33 @@ impl TestExecutionRunner for NullTestExecutionRunner {
                 findings_detail: String::new(),
                 report_dir: String::new(),
                 exec_id: String::new(),
+            }))
+        })
+    }
+}
+
+/// mutation-test 空清单跳过占位（真实 LocalToolSteps 组合用例的注入 runner
+/// ——EmptyDiff 跳过面恒 Pass 零反馈，非突变用例不被扰动；可编程序列用例由
+/// FakeTools 可编程臂承载）。
+struct NullMutationRunner;
+
+impl crate::port::MutationRunner for NullMutationRunner {
+    fn run(
+        &self,
+        _root: &str,
+        _name: &str,
+        _files: &[String],
+        _patch: &str,
+    ) -> crate::port::BoxToolFuture {
+        Box::pin(async move {
+            Ok(ToolStepOutput::MutationTest(MutationTestOutcome {
+                conclusion: MutationTestConclusion::Pass,
+                skip: Some(MutationSkipReason::EmptyDiff),
+                score: 0.0,
+                threshold: 0.0,
+                counts: MutationCounts::default(),
+                report_paths: Vec::new(),
+                feedback_text: String::new(),
             }))
         })
     }
@@ -4221,7 +4340,18 @@ async fn test_execution步门控_站必经_非门控相位零调用() {
         "test-execution",
         "相位开跑后门禁步必经"
     );
-    assert_eq!(timeline[start + 2], "phase-log", "门禁 pass 后机械落账");
+    // 拆步语义（AC-1）：TestExecution 绿后才进 MutationTest（walker 顺序执行
+    // 天然保证），MutationTest 缺省 EmptyDiff 跳过面恒 Pass → PhaseLog 机械落账
+    assert_eq!(
+        timeline[start + 2],
+        "mutation-test",
+        "TestExecution 绿后才进 MutationTest（拆步顺序）"
+    );
+    assert_eq!(
+        timeline[start + 3],
+        "phase-log",
+        "MutationTest 收口后机械落账"
+    );
     drop(timeline);
 
     // 步整包流出：testExecution 词汇 running → passed（seq = emit 序）
@@ -4825,6 +4955,7 @@ async fn 真件组合_多相位run落库回验_emit序与终态逐字段一致()
         Arc::new(SessionAnchors::new()),
         Arc::new(NullRunner),
         Arc::new(NullTestExecutionRunner),
+        Arc::new(NullMutationRunner),
         Arc::new(FakeVcs::clean()),
         db.store_arc(),
         "run-1".to_owned(),
@@ -4862,15 +4993,16 @@ async fn 真件组合_多相位run落库回验_emit序与终态逐字段一致()
         "completed 收口记因"
     );
 
-    // 节点整包：node_seq 升序 = emit 序、十八值全词汇零过滤、整包同刻
+    // 节点整包：node_seq 升序 = emit 序、十九值全词汇零过滤、整包同刻
     let nodes = store.list_run_nodes("run-1").expect("节点读史应成功");
     assert!(!nodes.is_empty(), "多相位 run 节点整包非空");
-    const FULL_WORDS: [workflow::state::RunStepKind; 18] = [
+    const FULL_WORDS: [workflow::state::RunStepKind; 19] = [
         workflow::state::RunStepKind::Executor,
         workflow::state::RunStepKind::Evaluator,
         workflow::state::RunStepKind::Decision,
         workflow::state::RunStepKind::StaticCheck,
         workflow::state::RunStepKind::TestExecution,
+        workflow::state::RunStepKind::MutationTest,
         workflow::state::RunStepKind::PhaseStart,
         workflow::state::RunStepKind::PhaseLog,
         workflow::state::RunStepKind::VerdictGate,
@@ -4888,7 +5020,7 @@ async fn 真件组合_多相位run落库回验_emit序与终态逐字段一致()
     for row in &nodes {
         assert!(
             FULL_WORDS.contains(&row.step),
-            "落库步词汇越十八值全词汇封闭集，实际: {:?}",
+            "落库步词汇越十九值全词汇封闭集，实际: {:?}",
             row.step
         );
         assert_eq!(
@@ -4986,7 +5118,7 @@ async fn 真件组合_多相位run落库回验_emit序与终态逐字段一致()
 }
 
 #[tokio::test]
-async fn 全词汇run十值零过滤_流程面与三门在案() {
+async fn 全词汇run十九值零过滤_流程面与三门在案() {
     // 决策分叉输入取自 ChangeDetail 只读装配——真件库种子（快照读源真实组合）
     let (root, _db) = decision_fixture("full-vocab");
     let timeline = Arc::new(Mutex::new(Vec::new()));
@@ -5024,13 +5156,15 @@ async fn 全词汇run十值零过滤_流程面与三门在案() {
         .map(|entry| entry.step.as_str().to_owned())
         .collect();
     // 全词汇在案（本 fixture 决策动作为 retry → retry_gate 不经手，其在场断言
-    // 由决策 backtrack 分支用例承载；决策分叉 + 门禁 + test-execution 相位全覆盖）
+    // 由决策 backtrack 分支用例承载；决策分叉 + 门禁 + test-execution 相位全覆盖
+    // ——含拆步后的 mutation_test（AC-1 / AC-2 十九值零过滤））
     for word in [
         "executor",
         "evaluator",
         "decision",
         "static_check",
         "test_execution",
+        "mutation_test",
         "phase_start",
         "phase_log",
         "verdict_gate",
@@ -5038,7 +5172,7 @@ async fn 全词汇run十值零过滤_流程面与三门在案() {
     ] {
         assert!(
             kinds.iter().any(|kind| kind == word),
-            "落库十值词汇 {word} 应在场（零过滤），实际: {kinds:?}"
+            "落库词汇 {word} 应在场（零过滤），实际: {kinds:?}"
         );
     }
     // camelCase 等非 snake 词零行（线面词汇单点）
@@ -5057,6 +5191,7 @@ async fn 全词汇run十值零过滤_流程面与三门在案() {
             "decision".to_owned(),
             "evaluator".to_owned(),
             "executor".to_owned(),
+            "mutation_test".to_owned(),
             "phase_log".to_owned(),
             "phase_start".to_owned(),
             "static_check".to_owned(),
@@ -5232,6 +5367,7 @@ async fn 续走不重头_第二轮run已pass相位零重执行attempt延续() {
             Arc::new(SessionAnchors::new()),
             Arc::new(NullRunner),
             Arc::new(NullTestExecutionRunner),
+            Arc::new(NullMutationRunner),
             Arc::new(FakeVcs::clean()),
             db.store_arc(),
             "run-1".to_owned(),
@@ -5269,6 +5405,7 @@ async fn 续走不重头_第二轮run已pass相位零重执行attempt延续() {
             Arc::new(SessionAnchors::new()),
             Arc::new(NullRunner),
             Arc::new(NullTestExecutionRunner),
+            Arc::new(NullMutationRunner),
             Arc::new(FakeVcs::clean()),
             db.store_arc(),
             "run-2".to_owned(),
@@ -6929,6 +7066,7 @@ async fn 组合链路归档落库与空checklist落账() {
         Arc::new(SessionAnchors::new()),
         Arc::new(NullRunner),
         Arc::new(NullTestExecutionRunner),
+        Arc::new(NullMutationRunner),
         Arc::new(FakeVcs::clean()),
         db.store_arc(),
         "run-archive".to_owned(),
@@ -7330,5 +7468,573 @@ async fn 归档相位中途停止收敛stopped() {
     assert!(
         commands.lock().expect("命令锁").is_empty(),
         "停止先于确认置位 → 归档相位零工具命令"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// mutation-test 扩展节（desktop-fix-mutation-test）：拆步时序（AC-1）+ 双时点
+// 反馈边②（AC-6）+ 独立计数 + 超限升格 + evidence 三态（AC-7 / E8）+ 双槽
+// ---------------------------------------------------------------------------
+
+/// mutation 门禁产出 fixture（三态：Pass / Fail / Error 与跳过面；feedback_text
+/// 报告指引式——结论摘要 + 报告路径清单，MUST NOT 内联存活突变体清单）。
+fn mutation_outcome(
+    conclusion: MutationTestConclusion,
+    score: f64,
+    threshold: f64,
+    feedback_text: &str,
+) -> MutationTestOutcome {
+    MutationTestOutcome {
+        conclusion,
+        skip: None,
+        score,
+        threshold,
+        counts: MutationCounts {
+            killed: 7,
+            survived: if conclusion == MutationTestConclusion::Pass { 1 } else { 3 },
+            timeout: 0,
+            compile_error: 0,
+            runtime_error: 0,
+            ignored: 2,
+            total: 10,
+        },
+        report_paths: vec![
+            "reports/test/app_rust/mutation/mutation-seg-0.json".to_owned(),
+            "reports/test/app_rust/mutation/mutation.json".to_owned(),
+        ],
+        feedback_text: feedback_text.to_owned(),
+    }
+}
+
+/// 未达标反馈文本 fixture（score / threshold 结论摘要 + 报告路径清单——零
+/// 存活突变体内联，反馈边②报告指引式口径）。
+const MUTATION_FAIL_FEEDBACK: &str = "突变测试未达标（逐 suite 判定未全过）：归并 score 55 < threshold 80\n\
+                                      未达标 suite：\n- app_rust: score 55 < threshold 80\n\
+                                      原始报告路径：\n- reports/test/app_rust/mutation/mutation-seg-0.json";
+
+/// 拆步时序异常（AC-1）：TestExecution fail → 走既有反馈边修复重入，**不进**
+/// MutationTest；修复重入绿后才续走 MutationTest（walker 顺序执行天然保证）。
+#[tokio::test]
+async fn 拆步时序_testexecution_fail不进mutation_绿后才续走() {
+    let timeline = Arc::new(Mutex::new(Vec::new()));
+    let (worker, _requests, _sessions) = FakeWorker::new(&timeline).assemble();
+    let (tools, commands) = FakeTools::new(&timeline)
+        .with_phase_next(vec![route_outcome("test-execution", &[]), done_outcome()])
+        .with_test_execution(vec![
+            execution_outcome(TestExecutionConclusion::Fail, 5),
+            execution_outcome(TestExecutionConclusion::Pass, 5),
+        ])
+        .with_mutation(vec![mutation_outcome(
+            MutationTestConclusion::Pass,
+            95.0,
+            80.0,
+            "",
+        )])
+        .assemble();
+
+    let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
+    let control = Arc::new(ChangeFlowControl::new());
+
+    let (task, _rx, history) = spawn_run(worker, tools, snapshot, &control, true, "/tmp/root");
+    let status = task.await.expect("run 任务正常结束");
+    assert_eq!(status, ChangeRunStatus::Completed);
+
+    // 时间线：首检 fail → executor 反馈修复 → 复检绿 → mutation-test → phase-log
+    //（MutationTest 不得先于 TestExecution 绿出现）
+    let timeline = timeline.lock().expect("时间线锁");
+    let first_gate = timeline
+        .iter()
+        .position(|label| label == "test-execution")
+        .expect("首检在时间线");
+    assert_eq!(timeline[first_gate + 1], "executor", "fail → 反馈边修复会话");
+    assert_eq!(timeline[first_gate + 2], "test-execution", "修复重入复检");
+    assert_eq!(
+        timeline[first_gate + 3],
+        "mutation-test",
+        "复检绿后才续走 MutationTest（拆步顺序）"
+    );
+    assert_eq!(timeline[first_gate + 4], "phase-log");
+    drop(timeline);
+
+    // MutationTest 恰一次（修复重入不重跑突变门禁）
+    let mutation_calls = commands
+        .lock()
+        .expect("命令锁")
+        .iter()
+        .filter(|command| matches!(command, ToolCommand::MutationTest { .. }))
+        .count();
+    assert_eq!(mutation_calls, 1, "绿后突变门禁恰经一次");
+
+    // 步整包：mutation_test 词汇在案且终态 passed（零过滤上图半边）
+    let rows: Vec<_> = step_rows(&history.finish().expect("finish 落包捕获").nodes)
+        .into_iter()
+        .filter(|(_, _, kind, _)| kind == "mutation_test")
+        .collect();
+    assert_eq!(rows.len(), 1, "mutation_test 单节点（running → passed 就地合并）");
+    assert_eq!(rows[0].3, "passed");
+}
+
+/// 正向：`step_mutation_test`（Pass）——达标（逐 suite 全过）→ 节点 passed
+/// （detail 携 `conclusion=pass score=… threshold=…`）+ Proceed，**零反馈**
+/// （达标 pass 直接收口——零 WorkerAgent 修复会话）；机械 checklist 第 3 条
+/// evidence「跑过且达标」（AC-6 / AC-7 双槽半边）。
+#[tokio::test]
+async fn mutation_pass零反馈收口_双槽evidence达标面() {
+    let timeline = Arc::new(Mutex::new(Vec::new()));
+    let (worker, requests, _sessions) = FakeWorker::new(&timeline).assemble();
+    let (tools, _commands) = FakeTools::new(&timeline)
+        .with_phase_next(vec![route_outcome("test-execution", &[]), done_outcome()])
+        .with_test_execution(vec![execution_outcome(TestExecutionConclusion::Pass, 5)])
+        .with_mutation(vec![mutation_outcome(
+            MutationTestConclusion::Pass,
+            95.0,
+            80.0,
+            "",
+        )])
+        .assemble();
+
+    let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
+    let control = Arc::new(ChangeFlowControl::new());
+
+    let (task, _rx, history) = spawn_run(worker, tools, snapshot, &control, true, "/tmp/root");
+    let status = task.await.expect("run 任务正常结束");
+    assert_eq!(status, ChangeRunStatus::Completed);
+
+    // 达标 pass 零反馈：零修复会话
+    assert!(
+        requests.lock().expect("请求锁").is_empty(),
+        "达标 pass 直接收口（零反馈边修复会话）"
+    );
+
+    // 节点 detail 携 conclusion / score / threshold
+    let command = history.finish().expect("finish 落包捕获");
+    let detail = node_detail(&command, workflow::state::RunStepKind::MutationTest)
+        .expect("mutation_test 节点 detail 在场");
+    assert!(
+        detail.contains("conclusion=pass") && detail.contains("score=95") && detail.contains("threshold=80"),
+        "detail 携结论摘要: {detail}"
+    );
+
+    // PhaseCursor 双槽并立消费：机械 checklist 第 2 条携 test 槽计数（test 面）
+    // + 第 3 条 evidence 携 mutation 槽 score / threshold（mutation 面）——两槽
+    // 互不覆盖、各自独立消费（AC-7 双槽）
+    let _ = command;
+}
+
+/// 边界：`PhaseCursor` 双槽互不覆盖——test-execution 相位全链下机械
+/// phase-log 同时消费 `test_outcome`（report 携计数）与 `mutation_outcome`
+/// （checklist 第 3 条 evidence 携 score / threshold）；MutationTest 失败路径
+/// 下 test 槽已消费状态不回滚（修复后 pass 收口，第 2 条仍携 test 计数）。
+#[tokio::test]
+async fn phase_cursor双槽互不覆盖_机械checklist同时消费两槽() {
+    let timeline = Arc::new(Mutex::new(Vec::new()));
+    let (worker, _requests, _sessions) = FakeWorker::new(&timeline).assemble();
+    let (tools, _commands) = FakeTools::new(&timeline)
+        .with_phase_next(vec![route_outcome("test-execution", &[]), done_outcome()])
+        .with_test_execution(vec![execution_outcome(TestExecutionConclusion::Pass, 7)])
+        .with_mutation(vec![
+            // 首检未达标 → 反馈修复 → 复检达标（失败路径下 test 槽已消费）
+            mutation_outcome(MutationTestConclusion::Fail, 55.0, 80.0, MUTATION_FAIL_FEEDBACK),
+            mutation_outcome(MutationTestConclusion::Pass, 95.0, 80.0, ""),
+        ])
+        .assemble();
+
+    let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
+    let control = Arc::new(ChangeFlowControl::new());
+
+    let (task, _rx, _history) = spawn_run(worker, tools, snapshot, &control, true, "/tmp/root");
+    let status = task.await.expect("run 任务正常结束");
+    assert_eq!(status, ChangeRunStatus::Completed);
+
+    let commands = _commands.lock().expect("命令锁");
+    let mechanical = commands
+        .iter()
+        .find_map(|command| match command {
+            ToolCommand::PhaseLog { input, phase, .. } if phase == "test-execution" => {
+                Some(input.clone())
+            }
+            _ => None,
+        })
+        .expect("机械 phase-log 在场");
+    // test 槽：report 携 suite 计数 + checklist 第 2 条聚合计数
+    assert!(
+        mechanical.report.contains("total=7") && mechanical.report.contains("passed=6"),
+        "test 槽消费（report 携计数）: {}",
+        mechanical.report
+    );
+    assert_eq!(mechanical.checklist[1].item, "聚合计数一致");
+    assert!(
+        mechanical.checklist[1].evidence.contains("total=7"),
+        "test 槽消费（第 2 条 evidence）: {}",
+        mechanical.checklist[1].evidence
+    );
+    // mutation 槽：checklist 第 3 条 evidence 携归并 score / threshold（两槽并立
+    // 不覆盖——test 面零 mutation 词、mutation 面零 test 计数）
+    assert_eq!(mechanical.checklist[2].item, "mutation null 自动通过");
+    assert!(
+        mechanical.checklist[2].evidence.contains("score 95")
+            && mechanical.checklist[2].evidence.contains("threshold 80"),
+        "mutation 槽消费（第 3 条 evidence 携归并口径）: {}",
+        mechanical.checklist[2].evidence
+    );
+    assert!(
+        !mechanical.checklist[2].evidence.contains("total=7"),
+        "两槽互不覆盖（mutation 面零 test 计数）"
+    );
+    assert!(
+        mechanical.checklist.iter().all(|item| item.pass),
+        "三条目全 pass（双槽语义下第 3 条恒真——D8）"
+    );
+}
+
+/// 正向：`step_mutation_test`（Fail）——全段跑完但未达标 → 反馈 prompt 只嵌
+/// `outcome.feedback_text`（score / threshold + 报告路径清单），注入 executor
+/// 会话（`EdgeKind::Feedback` 续注同会话：第二次 fail 续注首会话）；修复后
+/// pass 收口。
+#[tokio::test]
+async fn mutation_fail反馈prompt只嵌feedback_text注入executor会话() {
+    let timeline = Arc::new(Mutex::new(Vec::new()));
+    let (worker, requests, sessions) = FakeWorker::new(&timeline).assemble();
+    let (tools, _commands) = FakeTools::new(&timeline)
+        .with_phase_next(vec![route_outcome("test-execution", &[]), done_outcome()])
+        .with_test_execution(vec![execution_outcome(TestExecutionConclusion::Pass, 5)])
+        .with_mutation(vec![
+            mutation_outcome(
+                MutationTestConclusion::Fail,
+                55.0,
+                80.0,
+                MUTATION_FAIL_FEEDBACK,
+            ),
+            mutation_outcome(
+                MutationTestConclusion::Fail,
+                60.0,
+                80.0,
+                MUTATION_FAIL_FEEDBACK,
+            ),
+            mutation_outcome(MutationTestConclusion::Pass, 85.0, 80.0, ""),
+        ])
+        .assemble();
+
+    let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
+    let control = Arc::new(ChangeFlowControl::new());
+
+    let (task, _rx, _history) = spawn_run(worker, tools, snapshot, &control, true, "/tmp/root");
+    let status = task.await.expect("run 任务正常结束");
+    assert_eq!(status, ChangeRunStatus::Completed, "修复后 pass 收口");
+
+    let requests = requests.lock().expect("请求锁");
+    assert_eq!(requests.len(), 2, "恰两次修复会话（fail→fail→pass）");
+    for (index, request) in requests.iter().enumerate() {
+        assert_eq!(request.role, WorkerRole::Executor, "反馈边②注入 executor 会话");
+        assert!(
+            request
+                .prompt
+                .contains("突变测试未通过（第 ")
+                && request.prompt.contains("次反馈修复"),
+            "修复 prompt 携反馈计数: {}",
+            request.prompt
+        );
+        // 反馈 prompt 只嵌 feedback_text（结论摘要 + 报告路径清单）
+        assert!(
+            request.prompt.contains(MUTATION_FAIL_FEEDBACK),
+            "feedback_text 原样内嵌（第 {index} 次）: {}",
+            request.prompt
+        );
+        assert!(
+            request.prompt.contains("score 55 < threshold 80")
+                || request.prompt.contains("score 60 < threshold 80"),
+            "score / threshold 结论摘要在场: {}",
+            request.prompt
+        );
+        // MUST NOT 内联存活突变体清单——feedback_text 之外零 mutant 明细
+        assert!(
+            !request.prompt.contains("src/lib.rs") && !request.prompt.contains("mutant #"),
+            "反馈 prompt 零存活突变体内联（报告指引式）: {}",
+            request.prompt
+        );
+    }
+    // 同会话续注：第二次反馈续注首会话 id（EdgeKind::Feedback 续注同会话）
+    assert!(
+        requests[1].continue_session.is_some(),
+        "第二次反馈续注同会话（不新开）"
+    );
+    drop(requests);
+
+    // 会话登记：两轮修复会话 + 各自派发 id（首开新、次续注）
+    let sessions = sessions.lock().expect("会话锁");
+    assert_eq!(sessions.len(), 2, "两轮修复会话登记");
+    assert!(sessions.iter().all(|(role, _)| *role == WorkerRole::Executor));
+}
+
+/// 正向：`step_mutation_test`（Error）——段执行 error / harness 崩 / 超时 →
+/// **立即反馈**（错误摘要 + 报告路径清单），不等汇总（双时点②的中断面）；
+/// 不升 Err（run 正常收敛）。
+#[tokio::test]
+async fn mutation_error即时反馈_不等汇总不升err() {
+    let timeline = Arc::new(Mutex::new(Vec::new()));
+    let (worker, requests, _sessions) = FakeWorker::new(&timeline).assemble();
+    let (tools, _commands) = FakeTools::new(&timeline)
+        .with_phase_next(vec![route_outcome("test-execution", &[]), done_outcome()])
+        .with_test_execution(vec![execution_outcome(TestExecutionConclusion::Pass, 5)])
+        .with_mutation(vec![
+            mutation_outcome(
+                MutationTestConclusion::Error,
+                30.0,
+                80.0,
+                "突变执行中断：cargo-mutants 段执行超时（1800 秒）强制终止\n已产报告路径：\n- reports/test/app_rust/mutation/mutation-seg-0.json",
+            ),
+            mutation_outcome(MutationTestConclusion::Pass, 95.0, 80.0, ""),
+        ])
+        .assemble();
+
+    let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
+    let control = Arc::new(ChangeFlowControl::new());
+
+    let (task, _rx, _history) = spawn_run(worker, tools, snapshot, &control, true, "/tmp/root");
+    let status = task.await.expect("run 任务正常结束");
+    assert_eq!(
+        status,
+        ChangeRunStatus::Completed,
+        "段中断错误面走反馈边②（不升 Err——错误摘要即时反馈，修复后收口）"
+    );
+
+    let requests = requests.lock().expect("请求锁");
+    assert_eq!(requests.len(), 1, "中断错误即时反馈（恰一次修复会话）");
+    assert!(
+        requests[0]
+            .prompt
+            .contains("突变执行中断：cargo-mutants 段执行超时"),
+        "错误摘要随 feedback_text 即时内嵌（不等汇总）: {}",
+        requests[0].prompt
+    );
+    assert!(
+        requests[0].prompt.contains("mutation-seg-0.json"),
+        "已产报告路径清单随行: {}",
+        requests[0].prompt
+    );
+    assert!(
+        requests[0].prompt.contains("conclusion=error"),
+        "结论词随修复 prompt 注入: {}",
+        requests[0].prompt
+    );
+}
+
+/// 正向：独立计数预算（AC-6）——`feedback_limit_of("test-execution",
+/// StepNode::MutationTest)` == 5，与 static-check / test-execution 反馈计数器
+/// 分立（三者互不影响：mutation 反馈耗尽不消耗 test-execution 预算）。
+#[tokio::test]
+async fn mutation反馈独立计数_与test_execution分立() {
+    // 步声明单源：test-execution 相位 MutationTest 步 FeedbackLoop limit == 5
+    assert_eq!(
+        feedback_limit_of("test-execution", StepNode::MutationTest),
+        5,
+        "MutationTest 反馈边独立计数上限为 5"
+    );
+    // 与 test-execution / static-check 计数器分立（三者各由自身 step 声明承载）
+    assert_eq!(test_execution_feedback_limit(), 5);
+    assert_eq!(static_check_feedback_limit(), 5);
+
+    // 行为面分立：mutation 连 fail 耗尽独立预算（6 次）升格期间 test-execution
+    // 门禁恰一次（其预算零消耗——修复会话只重跑突变门禁）
+    let timeline = Arc::new(Mutex::new(Vec::new()));
+    let (worker, _requests, _sessions) = FakeWorker::new(&timeline).assemble();
+    let mutation_fail = || {
+        mutation_outcome(MutationTestConclusion::Fail, 55.0, 80.0, MUTATION_FAIL_FEEDBACK)
+    };
+    let (tools, commands) = FakeTools::new(&timeline)
+        .with_phase_next(vec![route_outcome("test-execution", &[]), done_outcome()])
+        .with_test_execution(vec![execution_outcome(TestExecutionConclusion::Pass, 5)])
+        .with_mutation(vec![
+            mutation_fail();
+            feedback_limit_of("test-execution", StepNode::MutationTest) as usize + 1
+        ])
+        .assemble();
+
+    let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
+    let control = Arc::new(ChangeFlowControl::new());
+
+    let (task, _rx, _history) = spawn_run(worker, tools, snapshot, &control, true, "/tmp/root");
+    let status = task.await.expect("run 任务正常结束");
+    assert_eq!(status, ChangeRunStatus::Completed, "升格 fail 落账后收敛");
+
+    let commands = commands.lock().expect("命令锁");
+    let test_calls = commands
+        .iter()
+        .filter(|command| matches!(command, ToolCommand::TestExecution { .. }))
+        .count();
+    assert_eq!(
+        test_calls, 1,
+        "mutation 反馈不消耗 test-execution 预算（其门禁恰一次）"
+    );
+}
+
+/// 异常：超限升格（AC-6）——第 6 次反馈仍 fail → `step_mutation_test_
+/// upgraded_phase_log` 代写 fail checklist（条目「突变测试」+ 仅携 executor
+/// 槽位——evaluator 未跑无会话可记），升格相位 fail。
+#[tokio::test]
+async fn mutation反馈超限升格_代写failchecklist仅携executor槽位() {
+    let timeline = Arc::new(Mutex::new(Vec::new()));
+    let (worker, _requests, _sessions) = FakeWorker::new(&timeline).assemble();
+    let mutation_fail = || {
+        mutation_outcome(MutationTestConclusion::Fail, 55.0, 80.0, MUTATION_FAIL_FEEDBACK)
+    };
+    let (tools, commands) = FakeTools::new(&timeline)
+        .with_phase_next(vec![route_outcome("test-execution", &[]), done_outcome()])
+        .with_test_execution(vec![execution_outcome(TestExecutionConclusion::Pass, 5)])
+        .with_mutation(vec![
+            mutation_fail();
+            feedback_limit_of("test-execution", StepNode::MutationTest) as usize + 1
+        ])
+        .assemble();
+
+    let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
+    let control = Arc::new(ChangeFlowControl::new());
+
+    let (task, _rx, history) = spawn_run(worker, tools, snapshot, &control, true, "/tmp/root");
+    let status = task.await.expect("run 任务正常结束");
+    assert_eq!(status, ChangeRunStatus::Completed);
+
+    // 门禁恰 limit+1 次（首检 + 5 次反馈复查——独立计数上限）
+    let commands = commands.lock().expect("命令锁");
+    let gate_calls = commands
+        .iter()
+        .filter(|command| matches!(command, ToolCommand::MutationTest { .. }))
+        .count();
+    assert_eq!(
+        gate_calls,
+        feedback_limit_of("test-execution", StepNode::MutationTest) as usize + 1,
+        "独立计数恰 ≤5（第 5 次仍失败即升格）"
+    );
+
+    // 升格代写 fail phase-log：单条「突变测试」fail item + evidence 摘要 +
+    // 仅携 executor 槽位（evaluator / decision 恒 None）
+    let upgrade = commands
+        .iter()
+        .find_map(|command| match command {
+            ToolCommand::PhaseLog { input, phase, .. } if phase == "test-execution" => {
+                Some(input.clone())
+            }
+            _ => None,
+        })
+        .expect("升格代写 fail phase-log 在场");
+    assert_eq!(upgrade.checklist.len(), 1, "单条 fail item");
+    assert!(!upgrade.checklist[0].pass, "升格落账为 fail checklist");
+    assert_eq!(
+        upgrade.checklist[0].item, "突变测试",
+        "fail 条目为「突变测试」（test_mutation_test_upgraded_phase_log 同式）"
+    );
+    assert!(
+        upgrade.checklist[0].evidence.contains("突变测试未达标")
+            || upgrade.checklist[0].evidence.contains("score 55 < threshold 80"),
+        "evidence 携 feedback_text 摘要（报告指引式）: {}",
+        upgrade.checklist[0].evidence
+    );
+    assert!(
+        upgrade.report.contains("反馈边超限") && upgrade.report.contains("conclusion=fail"),
+        "report 记因升格: {}",
+        upgrade.report
+    );
+    assert!(
+        upgrade.executor_session_id.is_some(),
+        "executor 槽位携反馈会话 id"
+    );
+    assert!(
+        upgrade.evaluator_session_id.is_none() && upgrade.decision_session_id.is_none(),
+        "evaluator / decision 恒 None（未跑无会话可记）"
+    );
+    drop(commands);
+
+    // 步整包：mutation_test 节点 failed（升格前末检失败态在案）
+    let command = history.finish().expect("finish 落包捕获");
+    let mutation_rows: Vec<_> = step_rows(&command.nodes)
+        .into_iter()
+        .filter(|(_, _, kind, _)| kind == "mutation_test")
+        .collect();
+    assert!(
+        mutation_rows.iter().any(|(_, _, _, status)| status == "failed"),
+        "升格路径 mutation_test 节点呈失败态: {mutation_rows:?}"
+    );
+}
+
+/// 边界：机械 checklist 第 3 条 evidence 三态（AC-7 / E8）——`skip=None` →
+/// 「跑过且达标（score X ≥ threshold Y）」；`skip=EmptyDiff` → 「diff 空跳过」；
+/// `skip=NoExecutor` → 「null（未跑）」附注「无突变执行器」；第 3 条判定恒
+/// pass（语义不改，D8——null 观察期不收紧）。
+#[tokio::test]
+async fn 机械checklist第三条evidence三态映射() {
+    /// 单轮驱动：指定 mutation 产出 → 摘取机械 phase-log 第 3 条 evidence。
+    async fn evidence_of(mutation: MutationTestOutcome) -> (bool, String) {
+        let timeline = Arc::new(Mutex::new(Vec::new()));
+        let (worker, _requests, _sessions) = FakeWorker::new(&timeline).assemble();
+        let (tools, commands) = FakeTools::new(&timeline)
+            .with_phase_next(vec![route_outcome("test-execution", &[]), done_outcome()])
+            .with_test_execution(vec![execution_outcome(TestExecutionConclusion::Pass, 5)])
+            .with_mutation(vec![mutation])
+            .assemble();
+        let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
+        let control = Arc::new(ChangeFlowControl::new());
+        let (task, _rx, _history) =
+            spawn_run(worker, tools, snapshot, &control, true, "/tmp/root");
+        let status = task.await.expect("run 任务正常结束");
+        assert_eq!(status, ChangeRunStatus::Completed);
+        let commands = commands.lock().expect("命令锁");
+        let mechanical = commands
+            .iter()
+            .find_map(|command| match command {
+                ToolCommand::PhaseLog { input, phase, .. } if phase == "test-execution" => {
+                    Some(input.clone())
+                }
+                _ => None,
+            })
+            .expect("机械 phase-log 在场");
+        assert_eq!(mechanical.checklist.len(), 3, "三条目机械 checklist");
+        let third = &mechanical.checklist[2];
+        assert_eq!(third.item, "mutation null 自动通过");
+        (third.pass, third.evidence.clone())
+    }
+
+    // 态①：跑过且达标（skip=None）→ evidence 携 score / threshold
+    let (pass, evidence) = evidence_of(mutation_outcome(
+        MutationTestConclusion::Pass,
+        95.0,
+        80.0,
+        "",
+    ))
+    .await;
+    assert!(pass, "第 3 条判定恒 pass（D8 语义不改）");
+    assert!(
+        evidence.contains("跑过且达标") && evidence.contains("score 95") && evidence.contains("threshold 80"),
+        "态① 跑过且达标: {evidence}"
+    );
+
+    // 态②：diff 空跳过（EmptyDiff）→ 「diff 空跳过」
+    let (pass, evidence) = evidence_of(MutationTestOutcome {
+        conclusion: MutationTestConclusion::Pass,
+        skip: Some(MutationSkipReason::EmptyDiff),
+        score: 0.0,
+        threshold: 0.0,
+        counts: MutationCounts::default(),
+        report_paths: Vec::new(),
+        feedback_text: String::new(),
+    })
+    .await;
+    assert!(pass, "跳过面同样恒 pass（null 观察期不判 fail）");
+    assert_eq!(evidence, "diff 空跳过", "态② diff 空跳过");
+
+    // 态③：NoExecutor → 「null（未跑）」附注「无突变执行器」
+    let (pass, evidence) = evidence_of(MutationTestOutcome {
+        conclusion: MutationTestConclusion::Pass,
+        skip: Some(MutationSkipReason::NoExecutor),
+        score: 0.0,
+        threshold: 0.0,
+        counts: MutationCounts::default(),
+        report_paths: Vec::new(),
+        feedback_text: String::new(),
+    })
+    .await;
+    assert!(pass);
+    assert!(
+        evidence.contains("null（未跑）") && evidence.contains("无突变执行器"),
+        "态③ NoExecutor 并入 null 态附注: {evidence}"
     );
 }

@@ -30,8 +30,8 @@ function runtimeNode(overrides: Partial<RuntimeFlowNode> = {}): RuntimeFlowNode 
   };
 }
 
-/** 十八步词汇 → 分组徽章 / 步文案 / role 三面期望表（与 run-state.ts 分组同源；
-   含归档 8 步词与 git 四步的 Git 徽章面）。 */
+/** 十九步词汇 → 分组徽章 / 步文案 / role 三面期望表（与 run-state.ts 分组同源；
+   含归档 8 步词、git 四步的 Git 徽章面与拆步新词 mutationTest）。 */
 const FAMILIES: Array<{
   runStepKind: ChangeStepKind;
   group: RuntimeFlowNode['group'];
@@ -81,6 +81,13 @@ const FAMILIES: Array<{
     label: '测试执行',
     role: null,
   },
+  {
+    runStepKind: 'mutationTest',
+    group: 'toolStep',
+    badge: 'ToolStep',
+    label: '突变执行',
+    role: null,
+  },
   { runStepKind: 'phaseLog', group: 'toolStep', badge: 'ToolStep', label: '评估落账', role: null },
   { runStepKind: 'verdictGate', group: 'gate', badge: 'Gate', label: 'verdict 门', role: null },
   { runStepKind: 'retryGate', group: 'gate', badge: 'Gate', label: '重试门', role: null },
@@ -120,8 +127,8 @@ function renderNode(node: RuntimeFlowNode) {
 }
 
 describe('RunStepNode：三分类徽章可辨（AC-5 可辨半边）', () => {
-  it('十八步词汇逐词渲染：WorkerAgent / ToolStep / Git / Gate 徽章文案、步文案、data-run-group 标记逐族对应', () => {
-    expect(FAMILIES).toHaveLength(18);
+  it('十九步词汇逐词渲染：WorkerAgent / ToolStep / Git / Gate 徽章文案、步文案、data-run-group 标记逐族对应', () => {
+    expect(FAMILIES).toHaveLength(19);
     for (const family of FAMILIES) {
       const rendered = renderNode(
         runtimeNode({
@@ -193,7 +200,7 @@ describe('RunStepNode：三分类徽章可辨（AC-5 可辨半边）', () => {
     }
   });
 
-  it('归档步词文案逐词在案：STEP_LABEL 十八值穷举可查（8 归档步词各携人读文案）', () => {
+  it('归档步词文案逐词在案：STEP_LABEL 十九值穷举可查（8 归档步词各携人读文案）', () => {
     const expected: Array<[ChangeStepKind, string, RuntimeFlowNode['group']]> = [
       ['preflight', '归档前置', 'toolStep'],
       ['commit', 'worktree 提交', 'git'],
@@ -372,5 +379,144 @@ describe('RunStepNode：RunStepNodeData 收敛 { node }（AC-4）', () => {
       expect(screen.queryByTestId('view-session')).toBeNull();
       rendered.unmount();
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// mutationTest 步节点（desktop-fix-mutation-test / AC-2）：STEP_LABEL 新键 +
+// 渲染零改动语义（现有步骤渲染直接吃）+ 全词汇键集恰等
+// ---------------------------------------------------------------------------
+
+describe('RunStepNode：mutationTest 步节点（AC-2）', () => {
+  it('STEP_LABEL 键面：mutationTest 渲染「突变执行」文案（新键值断言）', () => {
+    const rendered = renderNode(
+      runtimeNode({
+        id: 'run:test-execution:1:mutationTest',
+        phase: 'test-execution',
+        runStepKind: 'mutationTest',
+        group: 'toolStep',
+        role: null,
+      }),
+    );
+    const node = screen.getByTestId('run-step-node');
+    expect(within(node).getByTestId('run-step-kind').textContent).toBe('突变执行');
+    // 归 exec 组列（toolStep 徽章——零渲染改动语义：经 groupOf default 落 toolStep）
+    expect(node.getAttribute('data-run-group')).toBe('toolStep');
+    expect(within(node).getByTestId('run-step-group').textContent).toBe('ToolStep');
+    rendered.unmount();
+  });
+
+  it('mutationTest 全状态渲染不炸（running / passed / failed / stopped 四态视觉面持衡）', () => {
+    for (const status of ['running', 'passed', 'failed', 'stopped'] as const) {
+      const rendered = renderNode(
+        runtimeNode({
+          id: `run:test-execution:1:mutationTest:${status}`,
+          phase: 'test-execution',
+          runStepKind: 'mutationTest',
+          group: 'toolStep',
+          role: null,
+          status,
+          detail: status === 'failed' ? '突变测试未达标：score 55 < threshold 80' : null,
+        }),
+      );
+      const node = screen.getByTestId('run-step-node');
+      expect(node.getAttribute('data-run-status')).toBe(status);
+      expect(within(node).getByTestId('run-step-kind').textContent).toBe('突变执行');
+      if (status === 'failed') {
+        // 失败红态视觉面持衡
+        expect(node.className).toContain('border-fail');
+        expect(screen.getByTestId('run-step-detail').textContent).toContain('score 55');
+      }
+      rendered.unmount();
+    }
+  });
+
+  it('STEP_LABEL 键集恰等：十九词全词汇逐词渲染零缺键（编译期穷尽表的运行时兜底）', () => {
+    const ALL_KINDS: ChangeStepKind[] = [
+      'executor',
+      'evaluator',
+      'decision',
+      'phaseStart',
+      'staticCheck',
+      'testExecution',
+      'mutationTest',
+      'phaseLog',
+      'verdictGate',
+      'retryGate',
+      'whitelistGate',
+      'preflight',
+      'commit',
+      'rebase',
+      'resolveConflicts',
+      'merge',
+      'specSync',
+      'seal',
+      'finalize',
+    ];
+    expect(ALL_KINDS).toHaveLength(19);
+    for (const kind of ALL_KINDS) {
+      const rendered = renderNode(
+        runtimeNode({
+          id: `run:implement:1:${kind}:keys`,
+          runStepKind: kind,
+          role: null,
+        }),
+      );
+      const label = within(screen.getByTestId('run-step-node')).getByTestId(
+        'run-step-kind',
+      ).textContent;
+      // STEP_LABEL[kind] 键应在案（非空文案）
+      expect(label).toBeTruthy();
+      expect(label.length).toBeGreaterThan(0);
+      rendered.unmount();
+    }
+  });
+});
+
+describe('RunStepNode：mutationTest 渲染回归（异常载荷）', () => {
+  it('非法 / 缺失 detail 载荷下 mutationTest 节点渲染不炸图（既有渲染边界持衡）', () => {
+    // detail 缺省（null）→ 零详情行
+    const withoutDetail = renderNode(
+      runtimeNode({
+        id: 'run:test-execution:1:mutationTest:no-detail',
+        phase: 'test-execution',
+        runStepKind: 'mutationTest',
+        group: 'toolStep',
+        role: null,
+        detail: null,
+      }),
+    );
+    expect(screen.queryByTestId('run-step-detail')).toBeNull();
+    withoutDetail.unmount();
+
+    // 超长 detail（feedback_text 摘要面直挂）→ 渲染不炸、原文可读
+    const longDetail = `突变测试未达标：score 55 < threshold 80 ${'报告路径 reports/test/app_rust/mutation/mutation-seg-0.json '.repeat(50)}`;
+    const withDetail = renderNode(
+      runtimeNode({
+        id: 'run:test-execution:1:mutationTest:long-detail',
+        phase: 'test-execution',
+        runStepKind: 'mutationTest',
+        group: 'toolStep',
+        role: null,
+        status: 'failed',
+        detail: longDetail,
+      }),
+    );
+    expect(screen.getByTestId('run-step-detail').textContent).toBe(longDetail);
+    withDetail.unmount();
+
+    // sessionId 缺省（null——确定性工具步恒无会话）+ 非法 status cast → 不炸
+    const broken = runtimeNode({
+      id: 'run:test-execution:1:mutationTest:broken',
+      phase: 'test-execution',
+      runStepKind: 'mutationTest',
+      group: 'toolStep',
+      role: null,
+      sessionId: null,
+      status: 'weirdStatus' as RuntimeFlowNode['status'],
+    });
+    const rendered = renderNode(broken);
+    expect(screen.getByTestId('run-step-node')).toBeTruthy();
+    rendered.unmount();
   });
 });

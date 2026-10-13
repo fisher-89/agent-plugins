@@ -1818,7 +1818,7 @@ impl Store {
 
     /// run 执行图节点行：按 run 圈定（`run_id` 二级索引语义），`node_seq` 升序
     /// （= emit 序——同 run 打包键高 64 位恒一致，主键自然序即 node_seq 序）。
-    /// 十八值全词汇零过滤（读面与写面同一份封闭集）。
+    /// 十九值全词汇零过滤（读面与写面同一份封闭集）。
     pub fn list_run_nodes(&self, run_id: &str) -> Result<Vec<RunNodeStateRecord>, StoreError> {
         let mut records: Vec<RunNodeRecord> = self
             .read_all::<RunNodeRecord>("遍历 run 节点整包")?

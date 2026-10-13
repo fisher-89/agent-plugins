@@ -156,11 +156,11 @@ impl RunEventSink for RecordingSink {
 // ToolCommand 六变体封闭集
 // ---------------------------------------------------------------------------
 
-/// ToolCommand 七变体封闭集：七变体构造 + match 穷尽分发编译期锚定；各变体定
+/// ToolCommand 十变体封闭集：十变体构造 + match 穷尽分发编译期锚定；各变体定
 /// 位载荷 `change_id` 原样承接（id 归键——字段改名置换）；载荷直载写面输入类
 /// 型（PhaseLogInput / BacktrackInput 原样承接——AC-6 进程内缝命令面）。
 #[tokio::test]
-async fn tool_command六变体封闭集且match穷尽分发() {
+async fn tool_command十变体封闭集且match穷尽分发() {
     // match 穷尽：缺任一变体即编译失败（封闭集收缩形态的编译期锚）
     fn describe(command: &ToolCommand) -> &'static str {
         match command {
@@ -171,12 +171,13 @@ async fn tool_command六变体封闭集且match穷尽分发() {
             ToolCommand::DecisionLog { .. } => "decision-log",
             ToolCommand::StaticCheck { .. } => "static-check",
             ToolCommand::TestExecution { .. } => "test-execution",
+            ToolCommand::MutationTest { .. } => "mutation-test",
             ToolCommand::ArchivePreflight { .. } => "archive-preflight",
             ToolCommand::ArchiveSeal { .. } => "archive-seal",
         }
     }
 
-    // 定位载荷提取（match 穷尽第二锚）：九变体齐载 change_id（含 StaticCheck
+    // 定位载荷提取（match 穷尽第二锚）：十变体齐载 change_id（含 StaticCheck
     // 新字段——D12 归键，空串占位退役）
     fn change_id_of(command: &ToolCommand) -> &str {
         match command {
@@ -187,6 +188,7 @@ async fn tool_command六变体封闭集且match穷尽分发() {
             | ToolCommand::DecisionLog { change_id, .. }
             | ToolCommand::StaticCheck { change_id }
             | ToolCommand::TestExecution { change_id }
+            | ToolCommand::MutationTest { change_id }
             | ToolCommand::ArchivePreflight { change_id }
             | ToolCommand::ArchiveSeal { change_id } => change_id,
         }
@@ -238,6 +240,12 @@ async fn tool_command六变体封闭集且match穷尽分发() {
             "static-check",
         ),
         (
+            ToolCommand::MutationTest {
+                change_id: CHANGE_ID.to_owned(),
+            },
+            "mutation-test",
+        ),
+        (
             ToolCommand::ArchivePreflight {
                 change_id: CHANGE_ID.to_owned(),
             },
@@ -250,7 +258,7 @@ async fn tool_command六变体封闭集且match穷尽分发() {
             "archive-seal",
         ),
     ];
-    assert_eq!(commands.len(), 8, "封闭集八变体（既有六 + 归档两新）");
+    assert_eq!(commands.len(), 9, "封闭集九变体在场枚举（另 TestExecution 单测专行）");
 
     for (command, label) in &commands {
         assert_eq!(describe(command), *label, "变体 {label} 可辨");
@@ -720,8 +728,8 @@ fn sample_execution_outcome(conclusion: TestExecutionConclusion) -> TestExecutio
 }
 
 /// 正向：ToolCommand 第七变体封闭集——TestExecution 构造 + match 穷尽编译锚
-/// + change_id 载荷与 name 入参透传 + 七变体互异（既有六变体测试扩行，零改动
-/// 持衡）。
+/// + change_id 载荷与 name 入参透传 + 门禁双命令互异（十变体封闭集下 TestExecution
+/// 专行，零改动持衡）。
 #[tokio::test]
 async fn test_execution命令第七变体封闭集且change载荷透传() {
     // match 穷尽：缺 TestExecution 臂即编译失败（封闭集扩臂的编译期锚）
@@ -734,6 +742,7 @@ async fn test_execution命令第七变体封闭集且change载荷透传() {
             ToolCommand::DecisionLog { .. } => "decision-log",
             ToolCommand::StaticCheck { .. } => "static-check",
             ToolCommand::TestExecution { .. } => "test-execution",
+            ToolCommand::MutationTest { .. } => "mutation-test",
             ToolCommand::ArchivePreflight { .. } => "archive-preflight",
             ToolCommand::ArchiveSeal { .. } => "archive-seal",
         }
@@ -1243,6 +1252,12 @@ fn archive_vcs_port面全方法签名编译锚() {
         ) -> Result<(), String> {
             Ok(())
         }
+        fn change_edit_set(&self, _root: &Path, _base: &str) -> Result<Vec<String>, String> {
+            Ok(Vec::new())
+        }
+        fn change_edit_patch(&self, _root: &Path, _base: &str) -> Result<String, String> {
+            Ok(String::new())
+        }
     }
 
     fn assert_send_sync<T: Send + Sync>() {}
@@ -1314,6 +1329,12 @@ fn archive_vcs_port面全方法签名编译锚() {
         ) -> Result<(), String> {
             Err("提交失败".to_owned())
         }
+        fn change_edit_set(&self, _root: &Path, _base: &str) -> Result<Vec<String>, String> {
+            Err("变更文件清单取数失败".to_owned())
+        }
+        fn change_edit_patch(&self, _root: &Path, _base: &str) -> Result<String, String> {
+            Err("补丁取数失败".to_owned())
+        }
     }
     let detached: Arc<dyn ArchiveVcsPort> = Arc::new(DetachedVcs);
     let error = detached
@@ -1325,4 +1346,554 @@ fn archive_vcs_port面全方法签名编译锚() {
     assert!(detached
         .commit_paths(Path::new("/tmp/root"), &["openspec"], "msg")
         .is_err());
+}
+
+// ---------------------------------------------------------------------------
+// mutation-test 扩展节（desktop-fix-mutation-test）：载荷类型自持（零
+// Serialize / 零 checks 依赖）+ MutationRunner 四参缝 + ArchiveVcsPort 清单 /
+// 补丁两方法 trait 面
+// ---------------------------------------------------------------------------
+
+use crate::port::{
+    ArchiveVcsPort, BoxToolFuture, MutationCounts, MutationRunner, MutationSkipReason,
+    MutationTestConclusion, MutationTestOutcome,
+};
+
+/// 已执行形态 mutation 产出 fixture（skip=None——归并块口径 score / threshold
+/// 在位；feedback_text 非空携报告路径指引）。
+fn sample_mutation_outcome(conclusion: MutationTestConclusion) -> MutationTestOutcome {
+    MutationTestOutcome {
+        conclusion,
+        skip: None,
+        score: 87.5,
+        threshold: 80.0,
+        counts: MutationCounts {
+            killed: 7,
+            survived: 1,
+            timeout: 0,
+            compile_error: 0,
+            runtime_error: 0,
+            ignored: 2,
+            total: 10,
+        },
+        report_paths: vec![
+            "C:/ws/openspec/changes/c/reports/test/app_rust/mutation/mutation-seg-0.json"
+                .to_owned(),
+            "C:/ws/openspec/changes/c/reports/test/app_rust/mutation/mutation.json".to_owned(),
+        ],
+        feedback_text: match conclusion {
+            MutationTestConclusion::Pass => String::new(),
+            MutationTestConclusion::Fail => {
+                "突变测试未达标（逐 suite 判定未全过）：归并 score 87.5 < threshold 90.0\n\
+                 原始报告路径：\n- mutation/mutation-seg-0.json"
+                    .to_owned()
+            }
+            MutationTestConclusion::Error => {
+                "突变执行中断：cargo-mutants 段执行超时（1800 秒）强制终止\n\
+                 已产报告路径：\n- mutation/mutation-seg-0.json"
+                    .to_owned()
+            }
+        },
+    }
+}
+
+/// 可编程 MutationRunner 假件（ProgrammableRunner 同式）：记录四参
+/// `(root, name, files, patch)` 逐字透传 + 可编程产出 / Err(String)。
+struct FakeMutationRunner {
+    calls: Arc<Mutex<Vec<(String, String, Vec<String>, String)>>>,
+    result: Result<MutationTestOutcome, String>,
+}
+
+impl FakeMutationRunner {
+    fn with_result(
+        result: Result<MutationTestOutcome, String>,
+    ) -> (
+        Self,
+        Arc<Mutex<Vec<(String, String, Vec<String>, String)>>>,
+    ) {
+        let calls: Arc<Mutex<Vec<(String, String, Vec<String>, String)>>> =
+            Arc::new(Mutex::new(Vec::new()));
+        (
+            Self {
+                calls: calls.clone(),
+                result,
+            },
+            calls,
+        )
+    }
+}
+
+impl MutationRunner for FakeMutationRunner {
+    fn run(&self, root: &str, name: &str, files: &[String], patch: &str) -> BoxToolFuture {
+        self.calls
+            .lock()
+            .expect("calls 锁不可中毒")
+            .push((
+                root.to_owned(),
+                name.to_owned(),
+                files.to_vec(),
+                patch.to_owned(),
+            ));
+        let result = self.result.clone();
+        Box::pin(async move { result.map(ToolStepOutput::MutationTest) })
+    }
+}
+
+/// 正向：`ToolStepOutput::MutationTest` 载荷写面原生类型逐字段相等（全字段
+/// conclusion / skip / score / threshold / counts / report_paths /
+/// feedback_text——E3 载荷自持面）。
+#[test]
+fn tool_step_output_mutation_test载荷全字段相等() {
+    let fail = sample_mutation_outcome(MutationTestConclusion::Fail);
+    let output = ToolStepOutput::MutationTest(fail.clone());
+    match output {
+        ToolStepOutput::MutationTest(extracted) => {
+            assert_eq!(
+                extracted, fail,
+                "载荷逐字段相等（Clone / PartialEq 派生可用）"
+            );
+            assert_eq!(extracted.conclusion, MutationTestConclusion::Fail);
+            assert_eq!(extracted.skip, None, "已执行形态 skip 恒 None");
+            assert_eq!(extracted.score, 87.5, "归并块口径得分");
+            assert_eq!(extracted.threshold, 80.0, "首块阈值");
+            assert_eq!(
+                (
+                    extracted.counts.killed,
+                    extracted.counts.survived,
+                    extracted.counts.timeout,
+                    extracted.counts.compile_error,
+                    extracted.counts.runtime_error,
+                    extracted.counts.ignored,
+                    extracted.counts.total,
+                ),
+                (7, 1, 0, 0, 0, 2, 10),
+                "七字段计数逐位在案"
+            );
+            assert_eq!(extracted.report_paths.len(), 2, "段级 + 归并报告路径清单");
+            assert!(
+                extracted.feedback_text.contains("score 87.5 < threshold 90.0"),
+                "feedback_text 携结论摘要（报告指引式）: {}",
+                extracted.feedback_text
+            );
+        }
+        other => panic!("变体漂移: {other:?}"),
+    }
+}
+
+/// 正向：`MutationTestOutcome` 形态——`skip = None`（已执行）时 score /
+/// threshold 为归并块口径值；`feedback_text` 非空（Fail / Error）携报告路径
+/// 指引、Pass 恒空串（达标零反馈语义）。
+#[test]
+fn mutation_test_outcome形态_已执行与feedback_text面() {
+    let pass = sample_mutation_outcome(MutationTestConclusion::Pass);
+    assert_eq!(pass.skip, None);
+    assert!(
+        pass.feedback_text.is_empty(),
+        "Pass 恒空串（达标 pass 零反馈）"
+    );
+    let fail = sample_mutation_outcome(MutationTestConclusion::Fail);
+    assert!(
+        fail.feedback_text.contains("原始报告路径"),
+        "Fail feedback_text 携报告路径清单"
+    );
+    let error = sample_mutation_outcome(MutationTestConclusion::Error);
+    assert!(
+        error.feedback_text.contains("已产报告路径")
+            && error.feedback_text.contains("mutation-seg-0.json"),
+        "Error feedback_text 携中断错误摘要 + 已产报告路径清单（双时点②）"
+    );
+    // 三值互异（conclusion 参与载荷等值）
+    assert_ne!(pass, fail, "Pass / Fail 可辨");
+    assert_ne!(fail, error, "Fail / Error 可辨");
+    assert_eq!(pass.clone(), pass, "PartialEq 自反");
+}
+
+/// 边界：`MutationTestOutcome` 边界形态——`skip = Some(…)` 时 score /
+/// threshold 置 0.0 占位（null 观察期不判分）；`report_paths` POSIX（反斜杠
+/// 不出线——装配点 `to_posix` 口径）。
+#[test]
+fn mutation_test_outcome边界_skip占位与posix报告路径() {
+    for skip in [MutationSkipReason::EmptyDiff, MutationSkipReason::NoExecutor] {
+        let skipped = MutationTestOutcome {
+            conclusion: MutationTestConclusion::Pass,
+            skip: Some(skip),
+            score: 0.0,
+            threshold: 0.0,
+            counts: MutationCounts::default(),
+            report_paths: Vec::new(),
+            feedback_text: String::new(),
+        };
+        assert_eq!(
+            skipped.conclusion,
+            MutationTestConclusion::Pass,
+            "跳过面结论恒 Pass（null 观察期不判 fail）"
+        );
+        assert_eq!(skipped.score, 0.0, "skip 时 score 0.0 占位");
+        assert_eq!(skipped.threshold, 0.0, "skip 时 threshold 0.0 占位");
+        assert_eq!(
+            (skipped.counts.killed, skipped.counts.total),
+            (0, 0),
+            "skip 面计数零占位"
+        );
+    }
+
+    // POSIX 报告路径（反斜杠不出线）：装配口径以 to_posix 归一，载荷面断言无反斜杠
+    let executed = sample_mutation_outcome(MutationTestConclusion::Fail);
+    for path in &executed.report_paths {
+        assert!(
+            !path.contains('\\'),
+            "报告路径 POSIX 形态（反斜杠不出线）: {path}"
+        );
+    }
+}
+
+/// 正向：`MutationTestConclusion` 三值 / `MutationSkipReason` 两值 as_str
+/// 线格式小写词逐值断言（`TestExecutionConclusion` 同型）+ 互异。
+#[test]
+fn mutation_conclusion与skip_reason线格式逐字() {
+    assert_eq!(MutationTestConclusion::Pass.as_str(), "pass");
+    assert_eq!(MutationTestConclusion::Fail.as_str(), "fail");
+    assert_eq!(MutationTestConclusion::Error.as_str(), "error");
+    let mut conclusions = vec![
+        MutationTestConclusion::Pass.as_str(),
+        MutationTestConclusion::Fail.as_str(),
+        MutationTestConclusion::Error.as_str(),
+    ];
+    conclusions.sort_unstable();
+    conclusions.dedup();
+    assert_eq!(conclusions.len(), 3, "三值互异");
+
+    assert_eq!(MutationSkipReason::EmptyDiff.as_str(), "empty_diff");
+    assert_eq!(MutationSkipReason::NoExecutor.as_str(), "no_executor");
+    assert_ne!(
+        MutationSkipReason::EmptyDiff.as_str(),
+        MutationSkipReason::NoExecutor.as_str(),
+        "两跳过因互异"
+    );
+}
+
+/// 边界：`MutationCounts` 七字段逐字段写面 + `u64` 大值（`u64::MAX`）构造不
+/// panic（计数面无饱和运算，纯载荷直存）。
+#[test]
+fn mutation_counts七字段与u64大值构造不panic() {
+    let counts = MutationCounts {
+        killed: 1,
+        survived: 2,
+        timeout: 3,
+        compile_error: 4,
+        runtime_error: 5,
+        ignored: 6,
+        total: 21,
+    };
+    // 穷尽解构（无 `..` 兜底——字段增删即编译失败）
+    let MutationCounts {
+        killed,
+        survived,
+        timeout,
+        compile_error,
+        runtime_error,
+        ignored,
+        total,
+    } = counts;
+    assert_eq!((killed, survived, timeout), (1, 2, 3));
+    assert_eq!((compile_error, runtime_error, ignored, total), (4, 5, 6, 21));
+
+    let huge = MutationCounts {
+        killed: u64::MAX,
+        survived: u64::MAX,
+        timeout: u64::MAX,
+        compile_error: u64::MAX,
+        runtime_error: u64::MAX,
+        ignored: u64::MAX,
+        total: u64::MAX,
+    };
+    assert_eq!(huge.total, u64::MAX, "u64 大值构造不 panic（纯载荷直存）");
+    assert_eq!(MutationCounts::default().total, 0, "Default 零占位");
+}
+
+/// 边界：Mutation 族载荷**零 Serialize 不进 IPC**——类型面不派生 Serialize
+/// （编译期锚：消费面泛型仅要求 Clone + PartialEq，Serialize 约束缺席即证明
+/// 载荷不经 bindings / `RunUpdate` 出线）；载荷类型自持（零 checks 依赖）。
+#[test]
+fn mutation载荷零serialize不进ipc_类型面自持() {
+    /// 仅要求 Clone + PartialEq 的消费面（walker 反馈边②进程内消费同型）
+    /// ——Serialize 约束缺席即零 IPC 通道。
+    fn consume_in_process(outcome: MutationTestOutcome) -> MutationTestOutcome {
+        outcome.clone()
+    }
+    let outcome = consume_in_process(sample_mutation_outcome(MutationTestConclusion::Fail));
+    assert_eq!(outcome.conclusion, MutationTestConclusion::Fail);
+    // 类型自持：port 流量像自持七字段计数（不经 checks 模型转换出线）
+    assert_eq!(outcome.counts.total, 10, "port 流量像自持（零 checks 依赖）");
+}
+
+/// 正向：`MutationRunner` trait 面——假实现经 `Arc<dyn …>` 注入、四参
+/// `(root, name, files, patch)` 逐字透传（files = 清单入参、patch = 补丁入参，
+/// E3）、`Send + Sync` 编译锚、BoxToolFuture resolve 出 `ToolStepOutput::
+/// MutationTest`。
+#[tokio::test]
+async fn mutation_runner假实现经arc注入且四参逐字透传() {
+    fn assert_send_sync<T: Send + Sync>() {}
+    assert_send_sync::<Arc<dyn MutationRunner>>();
+
+    let (inner, calls) = FakeMutationRunner::with_result(Ok(sample_mutation_outcome(
+        MutationTestConclusion::Pass,
+    )));
+    let runner: Arc<dyn MutationRunner> = Arc::new(inner);
+
+    let files = vec!["src/lib.rs".to_owned(), "src/util.rs".to_owned()];
+    let patch = "diff --git a/src/lib.rs b/src/lib.rs\n--- a/src/lib.rs\n+++ b/src/lib.rs\n"
+        .to_owned();
+    let output = runner
+        .run("/tmp/workspace-root", "demo-change", &files, &patch)
+        .await
+        .expect("产出应可用");
+    assert!(
+        matches!(output, ToolStepOutput::MutationTest(outcome) if outcome.conclusion == MutationTestConclusion::Pass),
+        "BoxToolFuture resolve 出 MutationTest 变体"
+    );
+
+    let captured = calls.lock().expect("锁").clone();
+    assert_eq!(captured.len(), 1, "恰一次调用");
+    let (root, name, captured_files, captured_patch) = &captured[0];
+    assert_eq!(
+        root, "/tmp/workspace-root",
+        "root 逐字透传（exec root / worktree）"
+    );
+    assert_eq!(name, "demo-change", "name 逐字透传（磁盘面 change 名）");
+    assert_eq!(
+        captured_files, &files,
+        "files = 清单入参逐字透传（不截断不改写）"
+    );
+    assert_eq!(
+        captured_patch, &patch,
+        "patch = --in-diff 补丁入参逐字透传"
+    );
+}
+
+/// 异常：假实现产出 `Err` → `BoxToolFuture` 透传不吞（E5 显式 Err 面的缝侧
+/// 半边）；`Ok(ToolStepOutput::MutationTest)` 分发正确。
+#[tokio::test]
+async fn mutation_runner_err臂透传不吞且ok臂分发正确() {
+    let (inner, _calls) =
+        FakeMutationRunner::with_result(Err("cargo mutants 拉起失败（程序不可达？）".to_owned()));
+    let runner: Arc<dyn MutationRunner> = Arc::new(inner);
+    let err = runner
+        .run("/tmp/root", "c", &[], "")
+        .await
+        .expect_err("Err 臂应上抛");
+    assert_eq!(
+        err, "cargo mutants 拉起失败（程序不可达？）",
+        "Err(String) 原样（无再包装）"
+    );
+
+    let (inner, _calls) = FakeMutationRunner::with_result(Ok(sample_mutation_outcome(
+        MutationTestConclusion::Fail,
+    )));
+    let runner: Arc<dyn MutationRunner> = Arc::new(inner);
+    match runner.run("/tmp/root", "c", &[], "").await {
+        Ok(ToolStepOutput::MutationTest(outcome)) => {
+            assert_eq!(outcome.conclusion, MutationTestConclusion::Fail);
+        }
+        other => panic!("分发漂移: {other:?}"),
+    }
+}
+
+/// 边界：`files` 空 / 单元素 / 超大列表（1000 项）、`patch` 空串 / 超长
+/// （>100KB）/ 含特殊字符（`\n` / emoji 文件名）均逐字透传不截断（缝零加工
+/// 纪律——突变面裁决归 runner 侧）。
+#[tokio::test]
+async fn mutation_runner边界入参逐字透传不截断() {
+    // 空清单 + 空补丁
+    let (inner, calls) = FakeMutationRunner::with_result(Ok(sample_mutation_outcome(
+        MutationTestConclusion::Pass,
+    )));
+    let runner: Arc<dyn MutationRunner> = Arc::new(inner);
+    runner
+        .run("/tmp/root", "c", &[], "")
+        .await
+        .expect("空入参应可用");
+    {
+        let guard = calls.lock().expect("锁");
+        assert_eq!(
+            guard[0].2,
+            Vec::<String>::new(),
+            "空清单原样透传（EmptyDiff 判定归 runner）"
+        );
+        assert_eq!(guard[0].3, "", "空补丁原样透传");
+    }
+
+    // 单元素 + emoji 文件名（POSIX 形态）
+    let single = vec!["src/文件 🚀.rs".to_owned()];
+    runner
+        .run("/tmp/root", "c", &single, "patch 文本")
+        .await
+        .expect("单元素应可用");
+    {
+        let guard = calls.lock().expect("锁");
+        assert_eq!(guard[1].2, single, "单元素清单 + emoji 文件名逐字透传");
+    }
+
+    // 超大清单（1000 项）
+    let huge: Vec<String> = (0..1000).map(|index| format!("src/f{index:04}.rs")).collect();
+    runner
+        .run("/tmp/root", "c", &huge, "p")
+        .await
+        .expect("超大清单应可用");
+    {
+        let guard = calls.lock().expect("锁");
+        assert_eq!(guard[2].2.len(), 1000, "超大清单（1000 项）不截断");
+        assert_eq!(guard[2].2, huge, "逐项等值");
+    }
+
+    // 超长补丁（>100KB）+ 特殊字符
+    let long_patch = format!(
+        "{}\npatch 行 🚀 结束",
+        "diff --git a/x b/x\n+加行".repeat(4000)
+    );
+    assert!(long_patch.len() > 100_000, "补丁须越过 100KB 刻度");
+    runner
+        .run("/tmp/root", "c", &[], &long_patch)
+        .await
+        .expect("超长补丁应可用");
+    {
+        let guard = calls.lock().expect("锁");
+        assert_eq!(guard[3].3, long_patch, "超长补丁逐字透传（>100KB 不截断）");
+        assert!(
+            guard[3].3.contains('\n') && guard[3].3.contains('🚀'),
+            "特殊字符保真"
+        );
+    }
+}
+
+/// 正向：`ArchiveVcsPort` 清单 / 补丁两方法 trait 面——假实现经 trait object
+/// 动态分发记录 `(root, base)` 两参透传（`base = "HEAD"` 形态）；Err 面原文
+/// 透传不降级；空清单 / 空补丁 Ok 面透传（与 Err 面严格区分）。
+#[tokio::test]
+async fn archive_vcs_port清单与补丁两方法trait面() {
+    use std::path::Path;
+
+    use crate::port::{RebaseOutcome, WorktreeSnapshot};
+
+    /// 记录两参 + 可编程产出的假件（清单 / 补丁缝观察面）。
+    struct RecordingVcs {
+        calls: Mutex<Vec<(String, String)>>,
+        set: Result<Vec<String>, String>,
+        patch: Result<String, String>,
+    }
+    impl ArchiveVcsPort for RecordingVcs {
+        fn dirty(&self, _root: &Path, _paths: &[&str]) -> bool {
+            false
+        }
+        fn commit_all(&self, _worktree: &Path, _message: &str) -> Result<(), String> {
+            Ok(())
+        }
+        fn branch_merged(&self, _main_root: &Path, _branch: &str) -> Result<bool, String> {
+            Ok(false)
+        }
+        fn rebase_branch(&self, _worktree: &Path, _onto: &str) -> Result<RebaseOutcome, String> {
+            Ok(RebaseOutcome::Rebased)
+        }
+        fn ff_merge(&self, _main_root: &Path, _branch: &str) -> Result<(), String> {
+            Ok(())
+        }
+        fn worktree_snapshot(&self, _root: &Path) -> Result<WorktreeSnapshot, String> {
+            Ok(WorktreeSnapshot {
+                head: "abc".to_owned(),
+                rebase_head: None,
+                status: Vec::new(),
+                index: Vec::new(),
+            })
+        }
+        fn rebase_continue(&self, _worktree: &Path) -> Result<RebaseOutcome, String> {
+            Ok(RebaseOutcome::Rebased)
+        }
+        fn rebase_abort(&self, _worktree: &Path) -> Result<(), String> {
+            Ok(())
+        }
+        fn current_branch(&self, _main_root: &Path) -> Result<String, String> {
+            Ok("main".to_owned())
+        }
+        fn commit_paths(
+            &self,
+            _main_root: &Path,
+            _paths: &[&str],
+            _message: &str,
+        ) -> Result<(), String> {
+            Ok(())
+        }
+        fn change_edit_set(&self, root: &Path, base: &str) -> Result<Vec<String>, String> {
+            self.calls
+                .lock()
+                .expect("calls 锁")
+                .push((root.display().to_string(), base.to_owned()));
+            self.set.clone()
+        }
+        fn change_edit_patch(&self, root: &Path, base: &str) -> Result<String, String> {
+            self.calls
+                .lock()
+                .expect("calls 锁")
+                .push((root.display().to_string(), base.to_owned()));
+            self.patch.clone()
+        }
+    }
+
+    fn assert_send_sync<T: Send + Sync>() {}
+    assert_send_sync::<RecordingVcs>();
+
+    let port: Arc<dyn ArchiveVcsPort> = Arc::new(RecordingVcs {
+        calls: Mutex::new(Vec::new()),
+        set: Ok(vec!["src/lib.rs".to_owned()]),
+        patch: Ok("diff --git a/src/lib.rs b/src/lib.rs\n".to_owned()),
+    });
+    let root = Path::new("/tmp/ws/root");
+    assert_eq!(
+        port.change_edit_set(root, "HEAD")
+            .expect("清单取数应可用"),
+        vec!["src/lib.rs".to_owned()],
+        "trait object 动态分发结果透传"
+    );
+    assert_eq!(
+        port.change_edit_patch(root, "HEAD")
+            .expect("补丁取数应可用"),
+        "diff --git a/src/lib.rs b/src/lib.rs\n",
+        "补丁透传"
+    );
+
+    // Err 面：显式 Err 原文透传（MUST NOT 降级空清单 / 空补丁）
+    let failing: Arc<dyn ArchiveVcsPort> = Arc::new(RecordingVcs {
+        calls: Mutex::new(Vec::new()),
+        set: Err("git diff 失败（退出码 128）".to_owned()),
+        patch: Err("git add -N 失败".to_owned()),
+    });
+    assert_eq!(
+        failing
+            .change_edit_set(root, "HEAD")
+            .expect_err("Err 面应上抛"),
+        "git diff 失败（退出码 128）",
+        "Err 原文透传不包装不吞"
+    );
+    assert_eq!(
+        failing
+            .change_edit_patch(root, "HEAD")
+            .expect_err("Err 面应上抛"),
+        "git add -N 失败"
+    );
+
+    // 边界：空清单 / 空补丁 Ok 面透传（干净仓形态——与 Err 面严格区分）
+    let empty: Arc<dyn ArchiveVcsPort> = Arc::new(RecordingVcs {
+        calls: Mutex::new(Vec::new()),
+        set: Ok(Vec::new()),
+        patch: Ok(String::new()),
+    });
+    assert_eq!(
+        empty.change_edit_set(root, "HEAD").expect("空清单 Ok 面"),
+        Vec::<String>::new(),
+        "空清单透传（干净仓合法形态）"
+    );
+    assert_eq!(
+        empty.change_edit_patch(root, "HEAD").expect("空补丁 Ok 面"),
+        "",
+        "空补丁透传（干净仓零 diff 合法形态）"
+    );
 }

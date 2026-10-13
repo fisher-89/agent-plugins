@@ -1,0 +1,18 @@
+{
+  "counts": [
+    4,
+    2,
+    1,
+    0,
+    1,
+    2,
+    2,
+    12
+  ],
+  "durationMs": 4210.75,
+  "fixture": "mutation-seg-cargo",
+  "pass": true,
+  "score": 71.43,
+  "threshold": 70.0,
+  "tool": "cargo_mutants"
+}

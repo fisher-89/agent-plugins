@@ -272,7 +272,10 @@ static TEST_GEN_STEPS: &[StepDefinition] = &[
 ];
 
 /// test-execution 相位步序列：确定性门禁步承接（绿跑零 agent——无 Executor /
-/// Evaluator / VerdictGate 步），pass 后 PhaseLog 步携机械 checklist 落账。
+/// Evaluator / VerdictGate 步），pass 后 PhaseLog 步携机械 checklist 落账。拆步
+/// 语义：`PhaseStart → TestExecution → MutationTest → PhaseLog`——测试 / 覆盖率
+/// 修绿后才跑突变（walker 顺序执行天然保证），MutationTest `on_fail` 走独立
+/// 反馈边②；requirement / test-only 两表共用同一 static 天然同式。
 static TEST_EXECUTION_STEPS: &[StepDefinition] = &[
     StepDefinition {
         node: StepNode::PhaseStart,
@@ -281,6 +284,13 @@ static TEST_EXECUTION_STEPS: &[StepDefinition] = &[
     },
     StepDefinition {
         node: StepNode::TestExecution,
+        prompt_ref: None,
+        on_fail: Some(OnFail::FeedbackLoop {
+            limit: FEEDBACK_LOOP_LIMIT,
+        }),
+    },
+    StepDefinition {
+        node: StepNode::MutationTest,
         prompt_ref: None,
         on_fail: Some(OnFail::FeedbackLoop {
             limit: FEEDBACK_LOOP_LIMIT,
@@ -592,8 +602,8 @@ static REQUIREMENT_TABLE: &[PhaseDefinition] = &[
 /// 是否拆独立 prompt 留待看效果）；code-analyze 为新增 P→E 分析相位
 /// （`CODE_ANALYZE_STEPS` + 两个新增角色 md，零产物清单）；test-design /
 /// test-gen 复用同名 static；test-execution 沿用 desktop 确定性格
-/// （`[PhaseStart, TestExecution, PhaseLog]`，零 agent，不照搬插件侧
-/// Executor→E）；archive 复用 `ARCHIVE_STEPS`。
+/// （`[PhaseStart, TestExecution, MutationTest, PhaseLog]` 拆步，零 agent，不照搬
+/// 插件侧 Executor→E）；archive 复用 `ARCHIVE_STEPS`。
 static TEST_ONLY_TABLE: &[PhaseDefinition] = &[
     PhaseDefinition {
         id: "proposal",

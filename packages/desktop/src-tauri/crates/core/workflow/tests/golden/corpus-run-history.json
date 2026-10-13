@@ -218,6 +218,16 @@
         },
         {
           "attempt": 1,
+          "detail": "conclusion=pass score=95 threshold=80",
+          "instanceNo": 0,
+          "outputRef": null,
+          "phase": "dev-design",
+          "sessionId": null,
+          "status": "passed",
+          "step": "mutation_test"
+        },
+        {
+          "attempt": 1,
           "detail": null,
           "instanceNo": 0,
           "outputRef": null,

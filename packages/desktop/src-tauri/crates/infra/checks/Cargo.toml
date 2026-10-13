@@ -16,3 +16,8 @@ tokio = { workspace = true, features = ["process", "io-util", "rt", "macros", "t
 
 [dev-dependencies]
 tempfile = { workspace = true }
+# 组合根链路用例（mod_test）需 workflow 写面类型（SessionAnchors /
+# ChangeStateStore 假件）；tokio test-util 供段 spawn 超时用例的虚拟时钟推进
+# （start_paused + 手动 advance——agent 运行时同款先例）。
+tokio = { workspace = true, features = ["test-util"] }
+workflow = { workspace = true }

@@ -1,0 +1,14 @@
+$ pnpm run server:check && pnpm run bindings:export && pnpm run client:check
+$ cargo fmt --manifest-path src-tauri/Cargo.toml && cargo clippy --manifest-path src-tauri/Cargo.toml
+    Checking workflow v0.1.0 (C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\desktop-fix-mutation-test\packages\desktop\src-tauri\crates\core\workflow)
+    Checking orchestration v0.1.0 (C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\desktop-fix-mutation-test\packages\desktop\src-tauri\crates\core\orchestration)
+    Checking store v0.1.0 (C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\desktop-fix-mutation-test\packages\desktop\src-tauri\crates\infra\store)
+    Checking vcs-runtime v0.1.0 (C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\desktop-fix-mutation-test\packages\desktop\src-tauri\crates\infra\vcs)
+    Checking checks-runtime v0.1.0 (C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\desktop-fix-mutation-test\packages\desktop\src-tauri\crates\infra\checks)
+    Checking agent-runtime v0.1.0 (C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\desktop-fix-mutation-test\packages\desktop\src-tauri\crates\infra\agent)
+    Checking dev-team v0.1.0 (C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\desktop-fix-mutation-test\packages\desktop\src-tauri)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 9.82s
+$ cargo run --quiet -p export-bindings --manifest-path src-tauri/Cargo.toml
+$ vp check --fix && knip
+[1m[94mpass:[39m[0m Formatting completed for checked files [2m(10.3s)[0m
+[1m[94mpass:[39m[0m Found no warnings, lint errors, or type errors in 162 files [2m(2.5s, 16 threads)[0m

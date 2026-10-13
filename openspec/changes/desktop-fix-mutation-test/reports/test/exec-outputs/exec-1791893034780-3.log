@@ -1,0 +1,939 @@
+[1m[33mwarn:[39m[0m No project-local vite-plus installation was found. Run `vp install` in `C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\desktop-fix-mutation-test\plugins\dev-team` to install dependencies.
+[1m[2mnote:[0m[0m You are running [94m`vp test`[39m as a Vite+ built-in command. If you meant to run the test npm script, use [94m`vpr test`[39m instead.
+vite.config.ts (1:620) [33m[UNRESOLVED_IMPORT] [0mCould not resolve 'vite-plus' in vite.config.ts
+ - Module not found, treating it as an external dependency in vite.config.ts at 620..631
+
+build\hooks-profile.ts (1:616) [33m[UNRESOLVED_IMPORT] [0mCould not resolve 'zod/v4' in build/hooks-profile.ts
+ - Module not found, treating it as an external dependency in build/hooks-profile.ts at 616..624
+
+bin\src\schemas\workflow.schema.ts (1:654) [33m[UNRESOLVED_IMPORT] [0mCould not resolve 'zod/v4' in bin/src/schemas/workflow.schema.ts
+ - Module not found, treating it as an external dependency in bin/src/schemas/workflow.schema.ts at 654..662
+
+bin\src\schemas\archi-write.schema.ts (1:660) [33m[UNRESOLVED_IMPORT] [0mCould not resolve 'zod/v4' in bin/src/schemas/archi-write.schema.ts
+ - Module not found, treating it as an external dependency in bin/src/schemas/archi-write.schema.ts at 660..668
+
+bin\src\schemas\archi-query.schema.ts (1:660) [33m[UNRESOLVED_IMPORT] [0mCould not resolve 'zod/v4' in bin/src/schemas/archi-query.schema.ts
+ - Module not found, treating it as an external dependency in bin/src/schemas/archi-query.schema.ts at 660..668
+
+bin\src\schemas\test-execution-output.schema.ts (8:18) [33m[UNRESOLVED_IMPORT] [0mCould not resolve 'zod/v4' in bin/src/schemas/test-execution-output.schema.ts
+   [38;5;246m╭[0m[38;5;246m─[0m[38;5;246m[[0m bin/src/schemas/test-execution-output.schema.ts:8:19 [38;5;246m][0m
+   [38;5;246m│[0m
+ [38;5;246m8 │[0m [38;5;249mi[0m[38;5;249mm[0m[38;5;249mp[0m[38;5;249mo[0m[38;5;249mr[0m[38;5;249mt[0m[38;5;249m [0m[38;5;249m{[0m[38;5;249m [0m[38;5;249mz[0m[38;5;249m [0m[38;5;249m}[0m[38;5;249m [0m[38;5;249mf[0m[38;5;249mr[0m[38;5;249mo[0m[38;5;249mm[0m[38;5;249m [0m'zod/v4'[38;5;249m;[0m
+ [38;5;240m  │[0m                   ────┬───  
+ [38;5;240m  │[0m                       ╰───── Module not found, treating it as an external dependency
+[38;5;246m───╯[0m
+
+bin\src\schemas\phase-log.schema.ts (1:656) [33m[UNRESOLVED_IMPORT] [0mCould not resolve 'zod/v4' in bin/src/schemas/phase-log.schema.ts
+ - Module not found, treating it as an external dependency in bin/src/schemas/phase-log.schema.ts at 656..664
+
+bin\src\schemas\archi-validate.schema.ts (1:666) [33m[UNRESOLVED_IMPORT] [0mCould not resolve 'zod/v4' in bin/src/schemas/archi-validate.schema.ts
+ - Module not found, treating it as an external dependency in bin/src/schemas/archi-validate.schema.ts at 666..674
+
+bin\src\schemas\change-files.schema.ts (1:662) [33m[UNRESOLVED_IMPORT] [0mCould not resolve 'zod/v4' in bin/src/schemas/change-files.schema.ts
+ - Module not found, treating it as an external dependency in bin/src/schemas/change-files.schema.ts at 662..670
+
+bin\src\schemas\test-resolve-paths.schema.ts (1:674) [33m[UNRESOLVED_IMPORT] [0mCould not resolve 'zod/v4' in bin/src/schemas/test-resolve-paths.schema.ts
+ - Module not found, treating it as an external dependency in bin/src/schemas/test-resolve-paths.schema.ts at 674..682
+
+bin\src\schemas\archi-decide.schema.ts (1:662) [33m[UNRESOLVED_IMPORT] [0mCould not resolve 'zod/v4' in bin/src/schemas/archi-decide.schema.ts
+ - Module not found, treating it as an external dependency in bin/src/schemas/archi-decide.schema.ts at 662..670
+
+bin\src\schemas\workflow-files.schema.ts (1:666) [33m[UNRESOLVED_IMPORT] [0mCould not resolve 'zod/v4' in bin/src/schemas/workflow-files.schema.ts
+ - Module not found, treating it as an external dependency in bin/src/schemas/workflow-files.schema.ts at 666..674
+
+bin\src\schemas\archi-check.schema.ts (1:660) [33m[UNRESOLVED_IMPORT] [0mCould not resolve 'zod/v4' in bin/src/schemas/archi-check.schema.ts
+ - Module not found, treating it as an external dependency in bin/src/schemas/archi-check.schema.ts at 660..668
+
+bin\src\schemas\spec-list.schema.ts (1:656) [33m[UNRESOLVED_IMPORT] [0mCould not resolve 'zod/v4' in bin/src/schemas/spec-list.schema.ts
+ - Module not found, treating it as an external dependency in bin/src/schemas/spec-list.schema.ts at 656..664
+
+bin\src\schemas\change-list.schema.ts (1:660) [33m[UNRESOLVED_IMPORT] [0mCould not resolve 'zod/v4' in bin/src/schemas/change-list.schema.ts
+ - Module not found, treating it as an external dependency in bin/src/schemas/change-list.schema.ts at 660..668
+
+bin\src\schemas\config\config.schema.ts (1:673) [33m[UNRESOLVED_IMPORT] [0mCould not resolve 'zod/v4' in bin/src/schemas/config/config.schema.ts
+ - Module not found, treating it as an external dependency in bin/src/schemas/config/config.schema.ts at 673..681
+
+bin\src\schemas\backtrack.schema.ts (1:656) [33m[UNRESOLVED_IMPORT] [0mCould not resolve 'zod/v4' in bin/src/schemas/backtrack.schema.ts
+ - Module not found, treating it as an external dependency in bin/src/schemas/backtrack.schema.ts at 656..664
+
+bin\src\schemas\phase-start.schema.ts (1:660) [33m[UNRESOLVED_IMPORT] [0mCould not resolve 'zod/v4' in bin/src/schemas/phase-start.schema.ts
+ - Module not found, treating it as an external dependency in bin/src/schemas/phase-start.schema.ts at 660..668
+
+bin\src\schemas\config-get.schema.ts (1:658) [33m[UNRESOLVED_IMPORT] [0mCould not resolve 'zod/v4' in bin/src/schemas/config-get.schema.ts
+ - Module not found, treating it as an external dependency in bin/src/schemas/config-get.schema.ts at 658..666
+
+bin\src\schemas\phase-next.schema.ts (1:658) [33m[UNRESOLVED_IMPORT] [0mCould not resolve 'zod/v4' in bin/src/schemas/phase-next.schema.ts
+ - Module not found, treating it as an external dependency in bin/src/schemas/phase-next.schema.ts at 658..666
+
+bin\src\schemas\change-create.schema.ts (1:664) [33m[UNRESOLVED_IMPORT] [0mCould not resolve 'zod/v4' in bin/src/schemas/change-create.schema.ts
+ - Module not found, treating it as an external dependency in bin/src/schemas/change-create.schema.ts at 664..672
+
+bin\src\schemas\test-detect-frameworks.schema.ts (1:682) [33m[UNRESOLVED_IMPORT] [0mCould not resolve 'zod/v4' in bin/src/schemas/test-detect-frameworks.schema.ts
+ - Module not found, treating it as an external dependency in bin/src/schemas/test-detect-frameworks.schema.ts at 682..690
+
+bin\src\schemas\public\project-root.schema.ts (1:685) [33m[UNRESOLVED_IMPORT] [0mCould not resolve 'zod/v4' in bin/src/schemas/public/project-root.schema.ts
+ - Module not found, treating it as an external dependency in bin/src/schemas/public/project-root.schema.ts at 685..693
+
+[31mfailed to load config from C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\desktop-fix-mutation-test\plugins\dev-team\vite.config.ts[39m
+
+[31m⎯⎯⎯⎯⎯⎯⎯[39m[1m[41m Startup Error [49m[22m[31m⎯⎯⎯⎯⎯⎯⎯⎯[39m
+Error [ERR_MODULE_NOT_FOUND]: Cannot find package 'vite-plus' imported from C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\desktop-fix-mutation-test\plugins\dev-team\vite.config.ts.timestamp-1791892831216-af1679ca802238.mjs
+    at Object.getPackageJSONURL (node:internal/modules/package_json_reader:331:9)
+    at packageResolve (node:internal/modules/esm/resolve:784:25)
+    at moduleResolve (node:internal/modules/esm/resolve:873:18)
+    at defaultResolve (node:internal/modules/esm/resolve:1006:11)
+    at #cachedDefaultResolve (node:internal/modules/esm/loader:705:20)
+    at #resolveAndMaybeBlockOnLoaderThread (node:internal/modules/esm/loader:725:38)
+    at ModuleLoader.resolveSync (node:internal/modules/esm/loader:763:56)
+    at #resolve (node:internal/modules/esm/loader:687:17)
+    at ModuleLoader.getOrCreateModuleJob (node:internal/modules/esm/loader:607:35)
+    at ModuleJob.syncLink (node:internal/modules/esm/module_job:276:33) {
+  code: 'ERR_MODULE_NOT_FOUND'
+}
+
+
+
+JSON report written to C:/Users/wps/.dev-team/worktrees/wps-claude-plugin-7166d8c61feeae705846d569251abee6/desktop-fix-mutation-test/openspec/changes/desktop-fix-mutation-test/reports/test/packages_desktop_vite-plus/results.json
+[1m[2mnote:[0m[0m You are running [94m`vp test`[39m as a Vite+ built-in command. If you meant to run the test npm script, use [94m`vpr test`[39m instead.
+
+running 227 tests
+test bindings::mod_test::command清单补录_archive_change后35条且既有锚点与在册命令保持 ... ok
+test bindings::mod_test::dto类型清单零补录_条目数与首尾锚持衡 ... ok
+test bindings::mod_test::agent_engine_kind出线为cli与sdk字面量联合 ... ok
+test bindings::mod_test::agent_event出线为kind判别联合且seq摊平变体字面量camel_case ... ok
+test bindings::mod_test::agent_start与watch_subscribe绑定为typed_channel参数 ... ok
+test bindings::mod_test::agent_start绑定签名含尾部agent入参且invoke参数对象恒含agent键 ... ok
+test bindings::mod_test::archive_change绑定为root_id入参的outcome直返 ... ok
+test bindings::mod_test::archive_outcome与change_status出线且change_status小写线值联合 ... ok
+test bindings::mod_test::在册类型不重录_既有五型各恰一条 ... ok
+test bindings::mod_test::archive_preflight线面字段面保留 ... ok
+test bindings::mod_test::attempt_record出线三会话槽位键恒在场且nullable ... ok
+test bindings::mod_test::change_detail与change_summary出线含id字段为首 ... ok
+test bindings::mod_test::change_detail出线含worktree_string_or_null ... ok
+test bindings::mod_test::code_stats绑定为root_depth入参的三面dto直返 ... ok
+test bindings::mod_test::create_change命令签面_root_name_goal_workflow_type四参 ... ok
+test commands::agents::mod_test::agent命令_cli新建provider可空ok_sdk选存量provider_ok ... ok
+test bindings::mod_test::create_outcome出线恰五字段_id为首字段 ... ok
+test commands::agents::mod_test::agent命令_sdk缺provider与悬空引用reject_store校验单点透传 ... ok
+test bindings::mod_test::dto_types清单不残留退役幽灵条目 ... ok
+test commands::agents::mod_test::agent命令_set_default_miss_id_err_删除miss幂等okfalse ... ok
+test bindings::mod_test::framework与diagnostic_kind出线为camel_case字面量联合 ... ok
+test commands::agents::mod_test::agent命令_删默认agent后default解析none_set_default标记即切换返回更新后记录_list恰一默认 ... ok
+test commands::agents::mod_test::provider删除语义_命中oktrue_被引用err透传_miss幂等okfalse_空库list空数组 ... ok
+test commands::agents::mod_test::provider命令_重名保存err清单不变_更新miss_id_err_name空白err ... ok
+test bindings::mod_test::json_value字段出线unknown且时间戳字段出线string ... ok
+test commands::agents::mod_test::save_agent_provider_id存在且api_key空串_读存量回填原值 ... ok
+test bindings::mod_test::session_detail绑定为root_session_id入参的nullable三件套直返 ... ok
+test commands::agents::mod_test::save_agent_provider留空key更新回填原值不落空串 ... ok
+test commands::agents::mod_test::save_agent_provider_id存在且api_key非空_直接落新值_新建传空key空值落库 ... ok
+test commands::agents::mod_test::save_api_key回填与新context_length参正交 ... ok
+test bindings::mod_test::workspace_config绑定为root入参的report直返 ... ok
+test commands::agents::mod_test::save留空context_length为none不落0或128000字面 ... ok
+test commands::agents::mod_test::save编辑态context_length双向翻转按入参落库 ... ok
+test commands::agents::mod_test::全部命令面err错误串不含api_key明文_错误只含name与id语境 ... ok
+test commands::change_flow::mod_test::answer与confirm无等待方时err透传 ... ok
+test commands::agents::mod_test::save携context_length落库且重开一致 ... ok
+test commands::change_flow::mod_test::confirm校验blank与无运行run双面err ... ok
+test bindings::mod_test::产物父目录缺失时create_dir_all先行导出成功 ... ok
+test commands::change_flow::mod_test::confirm透传sync_specs四组合至注册表 ... ok
+test commands::change_flow::mod_test::channel面五kind通知各自一拍且零载荷键 ... ok
+test commands::agents::mod_test::管理命令组合链save新建_list呈现_save更新_delete删除_重开后状态一致 ... ok
+test bindings::mod_test::同输入连续两次导出产物逐字节一致且无机器路径嵌入 ... ok
+test commands::change_flow::mod_test::sink事件桥接_session_event记会话锚且publish透传 ... ok
+test commands::change_flow::mod_test::auto_next_phase_true不绕过守卫与前置校验 ... ok
+test commands::change_flow::mod_test::auto_next_phase_false默认档受理面回归 ... ok
+test bindings::mod_test::命令错误面为promise_reject透传无result包装 ... ok
+test commands::change_flow::mod_test::auto_next_phase_true透传受理零confirmwait照常后台收敛 ... ok
+test bindings::mod_test::导出产物包含全部32条命令包装名与invoke命令名及出线dto类型名 ... ok
+test commands::change_flow::mod_test::stop运行中置位且幂等忽略不报错 ... ok
+test bindings::mod_test::归档五命令退役_生成物零残留 ... ok
+test commands::change_flow::mod_test::watch补订运行中接收后续信封_无run时ok非错误 ... ok
+test commands::change_flow::mod_test::参数转换守卫blank_id五缝各就位 ... ok
+test bindings::mod_test::退役类型inventory与filelog族从产物收缩_detail三字段删除状态面两键新增 ... ok
+test commands::change_flow::mod_test::start同change并行run冲突err ... ok
+test commands::change_flow::mod_test::start前置校验无建档与相位表缺失各自err且成因互不重合 ... ok
+test commands::change_flow::mod_test::参数转换守卫blank_root各命令模板保留 ... ok
+test commands::change_flow::mod_test::exec_root解析成功_相位落workspace库且无第二库文件 ... ok
+test commands::changes::mod_test::create_change四参签面_workflow_type扩ipc入参 ... ok
+test bindings::mod_test::配置域十二型出线且逐字段形态对位 ... ok
+test commands::change_flow::mod_test::start_test_only记录放行且提前resolve返回running摘要 ... ok
+test commands::changes::mod_test::blank_root双口径_读命令早退空结果_create显式err ... ok
+test bindings::mod_test::预先篡改产物文件后重导出恢复权威内容 ... ok
+test commands::changes::mod_test::archive_change写面异常err透传零阻断 ... ok
+test commands::change_flow::mod_test::start走完路由相位停在archive前且confirm拒绝收敛stopped ... ok
+test commands::changes::mod_test::archive_change裸双写逃生口回归 ... ok
+test commands::changes::mod_test::archive接线_双写成功返回outcome且随后list按月分组可达 ... ok
+test commands::changes::mod_test::archive错误映射_无建档与目标冲突与blank参数各自显式err ... ok
+test commands::changes::mod_test::create错误映射_同名active冲突err且零目录零建档 ... ok
+test commands::changes::mod_test::detail_worktree感知_出线且产物命中worktree内文件 ... ok
+test commands::changes::mod_test::get_change_detail未知workflow_type恒none ... ok
+test commands::changes::mod_test::list归组随动_worktree条目入active组状态面完整 ... ok
+test commands::changes::mod_test::read_exec_output_blank_root早退none ... ok
+test commands::changes::mod_test::read_exec_output命中_内容为落盘log字节 ... ok
+test commands::changes::mod_test::read_exec_output按change_name定位_与id相异时仍命中 ... ok
+test commands::changes::mod_test::read_exec_output未命中与非法exec_id恒none ... ok
+test commands::changes::mod_test::read_exec_output空输出与超长输出边界 ... ok
+test commands::changes::mod_test::read_artifact_worktree命中_主仓miss不落空且legacy持衡 ... ok
+test commands::changes::mod_test::read_exec_output非utf8字节_lossy替换符不panic ... ok
+test commands::changes::mod_test::read_artifact信封出线持衡_五字段往返与负路径越权source拒绝 ... ok
+test commands::changes::mod_test::磁盘only零呈现_命令面零入列不可达且目录字节零变化 ... ok
+test commands::changes::mod_test::归档引导命令面_unmerged_err透传merge文案 ... ok
+test commands::changes::mod_test::统一查询装配_active_run_archive面两态出线 ... ok
+test commands::changes::mod_test::统一查询装配_waitingconfirm停等形态 ... ok
+test commands::changes::mod_test::统一查询装配_active_run既有字段回归 ... ok
+test commands::changes::mod_test::统一查询装配_runs全史与active_run活面与终态退场 ... ok
+test commands::changes::mod_test::统一查询装配_早退与未知id未找到 ... ok
+test commands::config::mod_test::root指向普通文件返回err ... ok
+test commands::changes::mod_test::统一查询装配_运行中run多边活面 ... ok
+test commands::config::mod_test::workspace_config以string原签名直调_无state薄包装结构证明 ... ok
+test commands::config::mod_test::workspace_config命令与inner纯函数结果逐字段一致_命令层零加工 ... ok
+test commands::config::mod_test::不存在root路径返回err不panic ... ok
+test commands::config::mod_test::合法配置文件返回ok_diagnostics为空且信封字段平移一致 ... ok
+test commands::config::mod_test::坏json返回ok加json_invalid诊断与默认config_两通道分层 ... ok
+test commands::config::mod_test::有效root无配置文件返回ok加file_missing诊断与全默认config ... ok
+test commands::config::mod_test::空白root返回err ... ok
+test commands::changes::mod_test::读命令id透传_列表详情产物与core查询serde等值且归档条目恒裸名携id ... ok
+test commands::config::mod_test::超长不存在路径root返回err不panic ... ok
+test commands::config::mod_test::连续两次调用各自完整读取_改写文件后结果随之变化 ... ok
+test commands::config::mod_test::不可读root返回err_windows下以悬空junction使metadata失败 ... ok
+test commands::db::mod_test::db_models_scope_global忽略root仅返回user维度三行且blank_root不影响 ... ok
+test commands::db::mod_test::db_records_scope_global扫描全局库记录信封_key为root串 ... ok
+test commands::db::mod_test::db_models_scope_workspace返回八行且与直连serde一致 ... ok
+test commands::db::mod_test::db_records未知模型名返回err错误串与store层一致不静默吞错 ... ok
+test commands::db::mod_test::db_records_scope_workspace按主键自然序分页扫描拼接不重不漏 ... ok
+test commands::db::mod_test::workspace维度root不可寻址_两命令err透传不panic ... ok
+test commands::db::mod_test::workspace_scope_blank_root的db_models与db_records同口径返回空结果 ... ok
+test commands::exec::agent::agent_test::outcome_summary与turn_summary同构_终态部件与重放同形状 ... ok
+test commands::exec::agent::agent_test::outcome_summary装配逐字段承接_status与统计与finished_at ... ok
+test commands::exec::agent::agent_test::running_summary签名锚定_自中性数据装配running形态轮行 ... ok
+test commands::exec::agent::agent_test::信封event变体序列化tag为ipc判别event且载荷camel_case ... ok
+test commands::exec::agent::agent_test::信封record变体序列化tag为ipc判别record且轮行camel_case ... ok
+test commands::db::mod_test::两库清单互不混列_跨维度模型名扫描err ... ok
+test commands::exec::mod_test::agent_session_transcript落库转录后按seq序全史重放 ... ok
+test commands::exec::mod_test::agent_sessions携root直查dto且source过滤透传 ... ok
+test commands::changes::mod_test::create_change四参title口径透传workflow_type ... ok
+test commands::exec::mod_test::agent_start_blank_root守卫err且零落库 ... ok
+test commands::exec::mod_test::agent_start_sdk空配置时config_missing映射err直抵前端 ... ok
+test commands::exec::mod_test::agent_start参数转换_session引用与来源与agent透传 ... ok
+test commands::exec::mod_test::agent_start无默认agent时err引导管理页 ... ok
+test commands::exec::mod_test::agent_stop命中登记句柄置位成功返回ok ... ok
+test commands::exec::mod_test::agent_stop对未运行会话与不存在session_id幂等ok ... ok
+test commands::exec::mod_test::root不可寻址_三查询命令err透传不panic ... ok
+test commands::exec::mod_test::session_detail_blank_root守卫none先行于库寻址 ... ok
+test commands::exec::mod_test::session_detail查无此id_err透传不吞成none ... ok
+test commands::exec::mod_test::session_detail直查返回三件套与清单面对应条目全等 ... ok
+test commands::db::mod_test::db_records_limit超500截断且截断后剩余可经offset续读 ... ok
+test commands::exec::mod_test::session_detail运行中会话轮行呈running且应答不加状态字段 ... ok
+test commands::exec::mod_test::session_detail跨root隔离_会话落a库经b库单查err ... ok
+test commands::explores::mod_test::blank_root纪律矩阵_list与scan空结果_create与rename与delete为err ... ok
+test commands::exec::mod_test::不存在会话转录空数组且blank_root守卫空结果 ... ok
+test commands::explores::mod_test::create_explore_record建档返回记录dto且list可见 ... ok
+test commands::explores::mod_test::create_explore_record携root经for_root落该workspace库 ... ok
+test commands::explores::mod_test::create_explore_record重复名store错误透传为命令err字符串 ... ok
+test commands::explores::mod_test::explore_doc_path有效root与合法name返回与布局派生逐段相等的路径 ... ok
+test commands::explores::mod_test::delete_explore_record删除已绑定记录返回true再删返回false幂等 ... ok
+test commands::explores::mod_test::explore_doc_path穿越名与blank_root返回none ... ok
+test commands::explores::mod_test::list_explore_records_blank_root返回空数组 ... ok
+test commands::explores::mod_test::list_explore_records有两条记录返回与for_root直连serde等值的两条dto ... ok
+test commands::explores::mod_test::promote_explore_blank_root与非kebab显式err零读写 ... ok
+test commands::changes::mod_test::create_title透传_显式值落库且默认name形态 ... ok
+test commands::explores::mod_test::promote_explore已promoted拒绝 ... ok
+test commands::explores::mod_test::promote_explore笔记未落盘或空白拒绝 ... ok
+test commands::changes::mod_test::create_workflow_type大小写空白canonical落库 ... ok
+test commands::change_flow::mod_test::start归档互斥面摘除_无归档注册表照常受理 ... ok
+test commands::explores::mod_test::read_explore_blank_root返回none不panic ... ok
+test commands::explores::mod_test::read_explore有效root与已落盘笔记返回与workflow直查serde等值的doc ... ok
+test commands::explores::mod_test::read_explore穿越分量名在命令边界拒绝返回none ... ok
+test commands::explores::mod_test::read_explore读路径零写入不触回填 ... ok
+test commands::explores::mod_test::rename_explore_record改名后返回更新记录且新名可寻址 ... ok
+test commands::explores::mod_test::rename保主键且delete级联名下runs与events在同一workspace库内收敛 ... ok
+test commands::explores::mod_test::root不可寻址_五命令err透传不panic ... ok
+test commands::explores::mod_test::scan_explores_blank_root返回空数组不进入查询链路 ... ok
+test commands::explores::mod_test::scan_explores求差结果与workflow扫描减workspace库绑定手工求差一致 ... ok
+test commands::explores::mod_test::scan_explores过滤非kebab_stem与已绑定过滤并存 ... ok
+test commands::explores::mod_test::update_explore_title正向回填并返回更新记录 ... ok
+test commands::explores::mod_test::update_explore_title空白root与空白title显式err ... ok
+test commands::explores::mod_test::update_explore_workflow_type_blank_root与非法值拒绝零改动 ... ok
+test commands::changes::mod_test::create_workflow_type透传test_only且dto五键不变 ... ok
+test commands::change_flow::mod_test::start提前resolve返回running摘要且channel首事件到达后台驱动不阻塞 ... ok
+test commands::explores::mod_test::update_explore_workflow_type_miss透传err ... ok
+test commands::explores::mod_test::update_explore_workflow_type大小写空白canonical ... ok
+test commands::explores::mod_test::update_explore_workflow_type正向回填与刷新updated_at ... ok
+test commands::explores::mod_test::三文件一经绑定b后导入候选恰为未绑定的a与c ... ok
+test commands::changes::mod_test::create拒绝映射_非git仓err透传且零产生 ... ok
+test commands::change_flow::mod_test::worktree目录缺失拒绝_显式err且零run登记 ... ok
+test commands::explores::mod_test::全部文件已绑定时导入候选为空数组 ... ok
+test commands::explores::mod_test::大小写差异文件按记录name精确求差不引入文件系统折叠 ... ok
+test commands::explores::mod_test::两workspace同名建档各自独立_甲库建档后乙库清单为空 ... ok
+test commands::explores::mod_test::目录缺失且无绑定时导入候选为空数组两空集求差 ... ok
+test commands::explores::mod_test::绑定记录的文件已删孤儿仍被滤除不回入候选 ... ok
+test commands::stats::mod_test::code_stats以string加u32原签名直调_无state薄包装结构证明 ... ok
+test commands::stats::mod_test::root指向普通文件返回err ... ok
+test commands::explores::mod_test::非法记录名建档在命令边界返回err ... ok
+test commands::stats::mod_test::depth0树无目录节点_根层直属文件仍为顶层文件叶 ... ok
+test commands::stats::mod_test::code_stats命令与inner纯函数结果逐字段一致_命令层零加工 ... ok
+test commands::stats::mod_test::不存在root路径返回err不panic ... ok
+test commands::stats::mod_test::depth1树仅顶层一层且节点聚合为子树全量 ... ok
+test commands::stats::mod_test::share值域0到100且与code降序单调一致_计数非负 ... ok
+test commands::stats::mod_test::不可读root返回err_windows下以悬空junction使metadata失败 ... ok
+test commands::stats::mod_test::仅注释与空行的语言_code为0_share为0 ... ok
+test commands::stats::mod_test::两语言code相等的tie按语言名字典序 ... ok
+test commands::stats::mod_test::任意层级名为openspec的目录同样排除 ... ok
+test commands::stats::mod_test::含空格与中文名的目录_path出线保持原名 ... ok
+test commands::stats::mod_test::多语言fixture汇总面与语言面同源自洽且按code降序 ... ok
+test commands::stats::mod_test::嵌套fixture树面posix路径_末段名与children字典序 ... ok
+test commands::stats::mod_test::文件叶挂于父目录children_同父条目目录先于文件 ... ok
+test commands::stats::mod_test::文件叶行统计与目录聚合自洽_四项均叶加子目录 ... ok
+test commands::stats::mod_test::五十个顶层子目录混合命名children字典序稳定全量呈现 ... ok
+test commands::stats::mod_test::根层openspec目录整棵排除_三面均无其文件 ... ok
+test commands::stats::mod_test::根层直属文件为顶层文件叶_不计入任何目录节点聚合 ... ok
+test commands::stats::mod_test::空白root返回err ... ok
+test commands::stats::mod_test::超长不存在路径root返回err不panic ... ok
+test commands::stats::mod_test::深度外文件不出叶_仅并入最深可达祖先聚合 ... ok
+test commands::watch::mod_test::不同路径分别订阅各自独立id且事件互不串扰 ... ok
+test commands::watch::mod_test::未知id与重复退订均返回false幂等 ... ok
+test commands::watch::mod_test::目标文件不存在时订阅返回ok且文件出现后修改信号送达 ... ok
+test commands::watch::mod_test::订阅返回id且修改后channel收到仅含path的信号帧 ... ok
+test commands::stats::mod_test::深度为聚合截断参数_depth1与depth10的汇总语言面完全相等 ... ok
+test commands::stats::mod_test::目录存在但无被识别文件返回空report而非err ... ok
+test commands::workspaces::mod_test::add传入不存在的目录返回err且含canonicalize前缀 ... ok
+test commands::workspaces::mod_test::add_workspace后注册记录落全局库且对应workspace库文件已创建 ... ok
+test commands::workspaces::mod_test::add_workspace返回值序列化顶层键恰为三字段驼峰命名无redb概念泄漏 ... ok
+test commands::workspaces::mod_test::add传入书写不等价string返回root与库内canonical_key同源 ... ok
+test commands::workspaces::mod_test::remove不驱逐缓存_重加同root经缓存实例即读即得 ... ok
+test commands::workspaces::mod_test::remove仅删注册记录_重加同root后explore与会话链历史完整可读 ... ok
+test commands::workspaces::mod_test::三命令结果与直连两级库注册表公共api结果serde一致_薄包装不加工 ... ok
+test commands::workspaces::mod_test::remove后db文件名与字节保持原样不自动清理 ... ok
+test commands::workspaces::mod_test::workspace库文件损坏时add_workspace返回err且注册记录保留 ... ok
+test commands::workspaces::mod_test::大小写不同string二次add经命令面仅一条且原记录原样返回 ... ok
+test commands::workspaces::mod_test::未注册root的remove经命令面返回false幂等 ... ok
+test commands::workspaces::mod_test::空库经命令面list返回空数组 ... ok
+test commands::workspaces::mod_test::空字符串root时add为err而remove为ok_false两命令语义一致 ... ok
+test commands::workspaces::mod_test::等价路径经命令面remove命中同一条无孤儿条目 ... ok
+test commands::changes::mod_test::create接线_建域落位_返回dto增id且按id立即可见可发起 ... ok
+test commands::workspaces::mod_test::经命令面add_list顺序与直连一致_删除与重开后状态经命令面可复现 ... ok
+test commands::watch::mod_test::同一路径重复订阅返回同一subscription_id且信号帧数与单订阅一致不翻倍 ... ok
+test commands::explores::mod_test::promote_explore非法workflow_type拒绝零铸出 ... ok
+test commands::watch::mod_test::以有效id退订返回true且此后修改channel无后续帧 ... ok
+test commands::explores::mod_test::promote_explore透传test_only且move照常 ... ok
+test commands::explores::mod_test::promote_explore四步成功_笔记移走记录保留打标 ... ok
+test commands::change_flow::mod_test::并行冲突键id_同名异id各自受理且异root同id互不误拒 ... ok
+test commands::exec::mod_test::agent_start成功链路提前resolve返回running轮行且会话行轮行已落库 ... ok
+test commands::explores::mod_test::promote_explore_workflow_type大小写空白canonical ... ok
+test commands::exec::mod_test::agent_start_kernelscoped_stopregistry托管的命中链经channel流出终态部件 ... ok
+test commands::changes::mod_test::get_change_detail列序随workflow_type出线 ... ok
+test commands::changes::mod_test::create非法workflow_type拒绝_零建档零建域 ... ok
+test commands::change_flow::mod_test::组合根装配_staticcheck步默认recorded落单一log并回填引用 ... ok
+
+test result: ok. 227 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 22.35s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+info: cargo-llvm-cov currently setting cfg(coverage); you can opt-out it by passing --no-cfg-coverage
+   Compiling proc-macro2 v1.0.107
+   Compiling unicode-ident v1.0.26
+   Compiling quote v1.0.47
+   Compiling windows-link v0.2.1
+   Compiling memchr v2.8.3
+   Compiling cfg-if v1.0.5
+   Compiling itoa v1.0.18
+   Compiling serde_core v1.0.229
+   Compiling zmij v1.0.23
+   Compiling bytes v1.12.1
+   Compiling siphasher v1.0.3
+   Compiling fastrand v2.5.0
+   Compiling percent-encoding v2.3.2
+   Compiling equivalent v1.0.2
+   Compiling hashbrown v0.17.1
+   Compiling getrandom v0.4.3
+   Compiling windows-sys v0.61.2
+   Compiling writeable v0.6.4
+   Compiling litemap v0.8.3
+   Compiling pin-project-lite v0.2.17
+   Compiling utf8_iter v1.0.4
+   Compiling aho-corasick v1.1.5
+   Compiling serde v1.0.229
+   Compiling http v1.5.0
+   Compiling regex-syntax v0.8.11
+   Compiling icu_normalizer_data v2.3.0
+   Compiling icu_properties_data v2.3.0
+   Compiling indexmap v2.14.2
+   Compiling fnv v1.0.7
+   Compiling num-conv v0.2.2
+   Compiling time-core v0.1.9
+   Compiling powerfmt v0.2.0
+   Compiling version_check v0.9.5
+   Compiling autocfg v1.5.1
+   Compiling scopeguard v1.2.0
+   Compiling phf_shared v0.13.1
+   Compiling serde_json v1.0.151
+   Compiling once_cell v1.21.4
+   Compiling thiserror v2.0.20
+   Compiling form_urlencoded v1.2.2
+   Compiling stable_deref_trait v1.2.1
+   Compiling libc v0.2.189
+   Compiling syn v3.0.6
+   Compiling syn v2.0.119
+   Compiling semver v1.0.28
+   Compiling phf_generator v0.13.1
+   Compiling bitflags v2.13.2
+   Compiling glob v0.3.4
+   Compiling smallvec v1.16.1
+   Compiling anyhow v1.0.104
+   Compiling regex-automata v0.4.18
+   Compiling thiserror v1.0.69
+   Compiling parking_lot_core v0.9.12
+   Compiling find-msvc-tools v0.1.13
+   Compiling shlex v2.0.1
+   Compiling camino v1.2.6
+   Compiling lock_api v0.4.14
+   Compiling winapi-util v0.1.11
+   Compiling base64 v0.23.1
+   Compiling log v0.4.34
+   Compiling same-file v1.0.6
+   Compiling cc v1.4.7
+   Compiling tracing-core v0.1.36
+   Compiling winnow v1.0.4
+   Compiling walkdir v2.5.0
+   Compiling futures-core v0.3.34
+   Compiling rustc_version v0.4.1
+   Compiling regex v1.13.1
+   Compiling phf_codegen v0.13.1
+   Compiling socket2 v0.6.5
+   Compiling mio v1.2.3
+   Compiling toml_parser v1.1.3+spec-1.1.0
+   Compiling synstructure v0.14.0
+   Compiling typeid v1.0.3
+   Compiling toml_writer v1.1.2+spec-1.1.0
+   Compiling strsim v0.11.1
+   Compiling ident_case v1.0.1
+   Compiling erased-serde v0.4.10
+   Compiling byteorder v1.5.0
+   Compiling darling_core v0.24.1
+   Compiling unic-char-range v0.9.0
+   Compiling unic-common v0.9.0
+   Compiling dunce v1.0.5
+   Compiling new_debug_unreachable v1.0.6
+   Compiling string_cache_codegen v0.6.1
+   Compiling unic-char-property v0.9.0
+   Compiling unic-ucd-version v0.9.0
+   Compiling futures-sink v0.3.34
+   Compiling precomputed-hash v0.1.1
+   Compiling dyn-clone v1.0.20
+   Compiling alloc-no-stdlib v2.0.4
+   Compiling serde_spanned v1.1.1
+   Compiling parking_lot v0.12.5
+   Compiling thiserror-impl v1.0.69
+   Compiling phf_macros v0.13.1
+   Compiling tracing-attributes v0.1.31
+   Compiling unic-ucd-ident v0.9.0
+   Compiling quick-xml v0.42.0
+   Compiling generic-array v0.14.7
+   Compiling serde_derive v1.0.229
+   Compiling zerofrom-derive v0.1.8
+   Compiling yoke-derive v0.8.3
+   Compiling zerovec-derive v0.11.6
+   Compiling displaydoc v0.2.7
+   Compiling thiserror-impl v2.0.20
+   Compiling tokio-macros v2.7.2
+   Compiling web_atoms v0.2.6
+   Compiling alloc-stdlib v0.2.4
+   Compiling string_cache v0.9.0
+   Compiling brotli-decompressor v5.0.3
+   Compiling ctor-proc-macro v0.0.7
+   Compiling dtoa v1.0.11
+   Compiling phf v0.13.1
+   Compiling windows_x86_64_msvc v0.52.6
+   Compiling tokio v1.53.1
+   Compiling dtoa-short v0.3.5
+   Compiling tracing v0.1.44
+   Compiling ctor v0.8.0
+   Compiling cssparser-macros v0.6.1
+   Compiling derive_more-impl v2.1.1
+   Compiling darling_macro v0.24.1
+   Compiling zerofrom v0.1.8
+   Compiling brotli v8.0.4
+   Compiling tendril v0.5.1
+   Compiling selectors v0.36.1
+   Compiling deranged v0.5.8
+   Compiling indexmap v1.9.3
+   Compiling darling v0.24.1
+   Compiling uuid v1.26.1
+   Compiling toml_datetime v1.1.1+spec-1.1.0
+   Compiling time-macros v0.2.32
+   Compiling typenum v1.20.1
+   Compiling slab v0.4.12
+   Compiling toml v1.1.6+spec-1.1.0
+   Compiling markup5ever v0.38.0
+   Compiling derive_more v2.1.1
+   Compiling cssparser v0.36.0
+   Compiling futures-channel v0.3.34
+   Compiling yoke v0.8.3
+   Compiling serde_derive_internals v0.29.1
+   Compiling servo_arc v0.4.3
+   Compiling schemars v0.8.22
+   Compiling time v0.3.55
+   Compiling rustc-hash v2.1.3
+   Compiling hashbrown v0.12.3
+   Compiling bit-vec v0.8.0
+   Compiling serde_with_macros v3.23.0
+   Compiling schemars_derive v0.8.22
+   Compiling bit-set v0.8.0
+   Compiling windows-targets v0.52.6
+   Compiling html5ever v0.38.0
+   Compiling cfb v0.7.3
+   Compiling cargo-platform v0.1.9
+   Compiling jsonptr v0.6.3
+   Compiling futures-macro v0.3.34
+   Compiling base64 v0.22.1
+   Compiling futures-io v0.3.34
+   Compiling foldhash v0.2.0
+   Compiling futures-task v0.3.34
+   Compiling serde-untagged v0.1.9
+   Compiling serde_with v3.23.0
+   Compiling json-patch v3.0.1
+   Compiling infer v0.19.0
+   Compiling cargo_metadata v0.19.2
+   Compiling tokio-util v0.7.19
+   Compiling block-buffer v0.10.4
+   Compiling crypto-common v0.1.7
+   Compiling futures-util v0.3.34
+   Compiling zerovec v0.11.8
+   Compiling zerotrie v0.2.5
+   Compiling digest v0.10.7
+   Compiling http-body v1.1.0
+   Compiling cpufeatures v0.2.17
+   Compiling mime v0.3.17
+   Compiling plist v1.10.1
+   Compiling tower-service v0.3.3
+   Compiling sha2 v0.10.9
+   Compiling crossbeam-utils v0.8.23
+   Compiling paste v1.0.15
+   Compiling vswhom-sys v0.1.3
+   Compiling specta v2.0.0-rc.25
+   Compiling dom_query v0.27.0
+   Compiling windows-link v0.1.3
+   Compiling Inflector v0.11.4
+   Compiling heck v0.5.0
+   Compiling httparse v1.10.1
+   Compiling tinystr v0.8.4
+   Compiling potential_utf v0.1.6
+   Compiling option-ext v0.2.0
+   Compiling atomic-waker v1.1.2
+   Compiling try-lock v0.2.5
+   Compiling windows-sys v0.59.0
+   Compiling specta-macros v2.0.0-rc.25
+   Compiling windows-result v0.4.1
+   Compiling icu_locale_core v2.3.0
+   Compiling icu_collections v2.3.0
+   Compiling h2 v0.4.19
+   Compiling windows-strings v0.5.1
+   Compiling want v0.3.1
+   Compiling unicase v2.9.0
+   Compiling httpdate v1.0.3
+   Compiling windows-strings v0.4.2
+   Compiling windows-result v0.3.4
+   Compiling vswhom v0.1.0
+   Compiling windows-registry v0.6.1
+   Compiling windows-interface v0.59.3
+   Compiling windows-implement v0.60.2
+   Compiling sync_wrapper v1.0.2
+   Compiling toml_datetime v0.7.5+spec-1.1.0
+   Compiling winnow v0.7.15
+   Compiling ipnet v2.12.2
+   Compiling icu_provider v2.3.1
+   Compiling tower-layer v0.3.3
+   Compiling dirs-sys v0.5.0
+   Compiling http-body-util v0.1.5
+   Compiling tower v0.5.3
+   Compiling dirs v6.0.0
+   Compiling icu_properties v2.3.0
+   Compiling icu_normalizer v2.3.0
+   Compiling windows-threading v0.1.0
+   Compiling windows-core v0.61.2
+   Compiling ring v0.17.14
+   Compiling crc32fast v1.5.2
+   Compiling winreg v0.55.0
+   Compiling zerocopy v0.8.57
+   Compiling unicode-segmentation v1.13.3
+   Compiling simd-adler32 v0.3.10
+   Compiling hyper v1.11.1
+   Compiling toml v0.9.12+spec-1.1.0
+   Compiling embed-resource v3.0.11
+   Compiling rustversion v1.0.23
+   Compiling crossbeam-epoch v0.9.21
+   Compiling adler2 v2.0.1
+   Compiling idna_adapter v1.2.2
+   Compiling tauri-winres v0.3.6
+   Compiling windows-numerics v0.2.0
+   Compiling windows-collections v0.2.0
+   Compiling windows-future v0.2.1
+   Compiling raw-window-handle v0.6.2
+   Compiling idna v1.1.0
+   Compiling cargo_toml v0.22.3
+   Compiling hyper-util v0.1.20
+   Compiling windows v0.61.3
+   Compiling webview2-com-sys v0.38.2
+   Compiling getrandom v0.2.17
+   Compiling untrusted v0.9.0
+   Compiling url v2.5.8
+   Compiling either v1.18.0
+   Compiling zeroize v1.9.0
+   Compiling rand_core v0.6.4
+   Compiling miniz_oxide v0.9.1
+   Compiling dpi v0.1.2
+   Compiling rustls-pki-types v1.15.1
+   Compiling cookie v0.18.2
+   Compiling rustls v0.23.45
+   Compiling crossbeam-deque v0.8.8
+   Compiling urlpattern v0.3.0
+   Compiling encoding_rs v0.8.42
+   Compiling flate2 v1.1.10
+   Compiling miniz_oxide v0.8.9
+   Compiling fdeflate v0.3.7
+   Compiling crossbeam-channel v0.5.17
+   Compiling rustls-webpki v0.103.15
+   Compiling webview2-com-macros v0.8.1
+   Compiling error-chain v0.12.4
+   Compiling tauri-utils v2.9.3
+   Compiling phf_shared v0.11.3
+   Compiling windows-version v0.1.7
+   Compiling simdutf8 v0.1.5
+   Compiling core_detect v1.0.0
+   Compiling pulldown-cmark v0.9.6
+   Compiling ppv-lite86 v0.2.21
+   Compiling bitflags v1.3.2
+   Compiling native-tls v0.2.18
+   Compiling subtle v2.6.1
+   Compiling multiversion_no_op v1.0.0
+   Compiling png v0.17.16
+   Compiling rand_chacha v0.3.1
+   Compiling schannel v0.1.29
+   Compiling rand v0.8.8
+   Compiling bstr v1.13.1
+   Compiling lazy_static v1.5.0
+   Compiling tauri-runtime v2.11.3
+   Compiling tauri-build v2.6.3
+   Compiling tauri-plugin v2.6.3
+   Compiling wry v0.55.1
+   Compiling windows_x86_64_msvc v0.53.1
+   Compiling phf_generator v0.11.3
+   Compiling tempfile v3.27.0
+   Compiling ico v0.5.0
+   Compiling tower-http v0.6.11
+   Compiling mime_guess v2.0.5
+   Compiling futures-executor v0.3.34
+   Compiling foundation v0.1.0 (C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\desktop-fix-mutation-test\packages\desktop\src-tauri\crates\core\foundation)
+   Compiling cargo_metadata v0.14.2
+   Compiling bytecount v0.6.9
+   Compiling getrandom v0.3.4
+   Compiling tauri-runtime-wry v2.11.4
+   Compiling ucd-trie v0.1.7
+   Compiling tauri-codegen v2.6.3
+   Compiling tokio-native-tls v0.3.1
+   Compiling futures v0.3.34
+   Compiling pest v2.9.2
+   Compiling phf_codegen v0.11.3
+   Compiling tokio-rustls v0.26.5
+   Compiling phf v0.11.3
+   Compiling itertools v0.14.0
+   Compiling softbuffer v0.4.8
+   Compiling keyboard-types v0.7.0
+   Compiling axum-core v0.5.6
+   Compiling skeptic v0.13.7
+   Compiling serialize-to-javascript-impl v0.1.2
+   Compiling pin-project-internal v1.1.13
+   Compiling parse-zoneinfo v0.3.1
+   Compiling tauri v2.11.6
+   Compiling num-traits v0.2.19
+   Compiling windows_x86_64_msvc v0.48.5
+   Compiling matchit v0.8.4
+   Compiling hyper-rustls v0.27.10
+   Compiling chrono-tz-build v0.3.0
+   Compiling serialize-to-javascript v0.1.2
+   Compiling tauri-macros v2.6.3
+   Compiling muda v0.19.3
+   Compiling pest_meta v2.9.2
+   Compiling prost-derive v0.14.4
+   Compiling pin-project v1.1.13
+   Compiling axum v0.8.9
+   Compiling hyper-tls v0.6.0
+   Compiling windows-targets v0.53.5
+   Compiling rustls-platform-verifier v0.7.0
+   Compiling window-vibrancy v0.6.0
+   Compiling hyper-timeout v0.5.2
+   Compiling tokio-stream v0.1.19
+   Compiling async-trait v0.1.92
+   Compiling serde_repr v0.1.21
+   Compiling libm v0.2.16
+   Compiling ref-cast v1.0.27
+   Compiling reqwest v0.13.5
+   Compiling pest_generator v2.9.2
+   Compiling windows-sys v0.60.2
+   Compiling prost v0.14.4
+   Compiling chrono-tz v0.9.0
+   Compiling globset v0.4.20
+   Compiling agent v0.1.0 (C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\desktop-fix-mutation-test\packages\desktop\src-tauri\crates\core\agent)
+   Compiling ref-cast-impl v1.0.27
+   Compiling async-stream-impl v0.3.6
+   Compiling serde_derive_internals v0.30.0
+   Compiling futures-timer v3.0.4
+   Compiling windows-targets v0.48.5
+   Compiling ignore v0.4.33
+   Compiling tonic v0.14.6
+   Compiling async-stream v0.3.6
+   Compiling rig-http v0.43.0
+   Compiling pest_derive v2.9.2
+   Compiling schemars_derive v1.2.2
+   Compiling workflow v0.1.0 (C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\desktop-fix-mutation-test\packages\desktop\src-tauri\crates\core\workflow)
+   Compiling tao v0.35.3
+   Compiling chrono v0.4.45
+   Compiling native_model v0.4.20
+   Compiling tauri-plugin-fs v2.5.2
+   Compiling zerocopy-derive v0.8.57
+   Compiling deunicode v1.6.2
+   Compiling redb v1.5.1
+   Compiling redb v2.6.3
+   Compiling schemars v1.2.2
+   Compiling slug v0.1.6
+   Compiling tonic-prost v0.14.6
+   Compiling humansize v2.1.3
+   Compiling rig-reqwest v0.43.0
+   Compiling globwalk v0.9.1
+   Compiling ordered-float v5.5.0
+   Compiling windows-sys v0.48.0
+   Compiling webview2-com v0.38.2
+   Compiling native_db v0.8.2
+   Compiling bincode v1.3.3
+   Compiling native_model_macro v0.4.20
+   Compiling rayon-core v1.13.0
+   Compiling anstyle v1.0.14
+   Compiling winapi v0.3.9
+   Compiling clap_lex v1.1.1
+   Compiling rig-core v0.43.0
+   Compiling tera v1.20.1
+   Compiling orchestration v0.1.0 (C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\desktop-fix-mutation-test\packages\desktop\src-tauri\crates\core\orchestration)
+   Compiling json5 v0.4.1
+   Compiling clap_builder v4.6.7
+   Compiling prost-types v0.14.4
+   Compiling tauri-plugin-updater v2.12.0
+   Compiling tauri-plugin-devtools v2.2.1
+   Compiling tauri-plugin-dialog v2.7.3
+   Compiling exec v0.1.0 (C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\desktop-fix-mutation-test\packages\desktop\src-tauri\crates\infra\exec)
+   Compiling config v0.1.0 (C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\desktop-fix-mutation-test\packages\desktop\src-tauri\crates\core\config)
+   Compiling sharded-slab v0.1.7
+   Compiling colored v2.2.0
+   Compiling matchers v0.2.0
+   Compiling clap_derive v4.6.7
+   Compiling serde_spanned v0.6.9
+   Compiling toml_datetime v0.6.11
+   Compiling tracing-log v0.2.0
+   Compiling native_db_macro v0.8.2
+   Compiling nu-ansi-term v0.50.3
+   Compiling thread_local v1.1.10
+   Compiling rfd v0.16.0
+   Compiling toml_write v0.1.2
+   Compiling tracing-subscriber v0.3.23
+   Compiling devtools-wire-format v0.6.0
+   Compiling tonic-health v0.14.6
+   Compiling tonic-web v0.14.6
+   Compiling clap v4.6.7
+   Compiling encoding_rs_io v0.1.8
+   Compiling toml_edit v0.22.27
+   Compiling itertools v0.11.0
+   Compiling tokei v13.0.0
+   Compiling ringbuf v0.4.8
+   Compiling notify-types v2.1.0
+   Compiling derive_arbitrary v1.4.2
+   Compiling home v0.5.12
+   Compiling grep-matcher v0.1.9
+   Compiling hashbrown v0.14.5
+   Compiling memmap2 v0.9.11
+   Compiling term_size v0.3.2
+   Compiling etcetera v0.8.0
+   Compiling notify v8.2.0
+   Compiling grep-searcher v0.1.17
+   Compiling devtools-core v0.4.0
+   Compiling clap-cargo v0.13.0
+   Compiling table_formatter v0.6.1
+   Compiling rayon v1.12.0
+   Compiling dashmap v6.2.1
+   Compiling checks v0.1.0 (C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\desktop-fix-mutation-test\packages\desktop\src-tauri\crates\core\checks)
+   Compiling arbitrary v1.4.2
+   Compiling toml v0.8.23
+   Compiling local-ip-address v0.5.7
+   Compiling dev-team v0.1.0 (C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\desktop-fix-mutation-test\packages\desktop\src-tauri)
+   Compiling zip v4.6.1
+   Compiling specta-util v0.0.12
+   Compiling specta-serde v0.0.12
+   Compiling specta-typescript v0.0.12
+   Compiling minisign-verify v0.2.5
+   Compiling watch v0.1.0 (C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\desktop-fix-mutation-test\packages\desktop\src-tauri\crates\infra\watch)
+   Compiling vcs-runtime v0.1.0 (C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\desktop-fix-mutation-test\packages\desktop\src-tauri\crates\infra\vcs)
+   Compiling store v0.1.0 (C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\desktop-fix-mutation-test\packages\desktop\src-tauri\crates\infra\store)
+   Compiling checks-runtime v0.1.0 (C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\desktop-fix-mutation-test\packages\desktop\src-tauri\crates\infra\checks)
+   Compiling tauri-plugin-single-instance v2.4.5
+   Compiling tauri-specta v2.0.0-rc.25
+   Compiling rig-memory v0.43.0
+   Compiling rig v0.43.0
+   Compiling agent-runtime v0.1.0 (C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\desktop-fix-mutation-test\packages\desktop\src-tauri\crates\infra\agent)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2m 01s
+     Running unittests src\lib.rs (target\llvm-cov-target\debug\deps\dev_team-f2deef6012aafdd1.exe)
+     Running unittests src\main.rs (target\llvm-cov-target\debug\deps\dev_team-e8b55385c218d519.exe)
+
+    Finished report saved to C:/Users/wps/.dev-team/worktrees/wps-claude-plugin-7166d8c61feeae705846d569251abee6/desktop-fix-mutation-test/openspec/changes/desktop-fix-mutation-test/reports/test/packages_desktop_src-tauri_rust/coverage-summary.json
+   Compiling checks-runtime v0.1.0 (C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\desktop-fix-mutation-test\packages\desktop\src-tauri\crates\infra\checks)
+warning: function `段级未知outcome样本runtimeError留痕` should have a snake case name
+   --> crates\core\checks\tests\corpus_golden_test.rs:561:4
+    |
+561 | fn 段级未知outcome样本runtimeError留痕() {
+    |    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: convert the identifier to snake case: `段级未知outcome样本runtime_error留痕`
+    |
+    = note: `#[warn(non_snake_case)]` (part of `#[warn(nonstandard_style)]`) on by default
+
+warning: associated function `failing` is never used
+   --> crates\core\orchestration\src\steps_test.rs:843:8
+    |
+809 | impl FakeMutationRunner {
+    | ----------------------- associated function in this implementation
+...
+843 |     fn failing(feedback_text: &str) -> Self {
+    |        ^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: method `with_edit` is never used
+   --> crates\core\orchestration\src\walker_test.rs:825:8
+    |
+801 | impl FakeVcs {
+    | ------------ method in this implementation
+...
+825 |     fn with_edit(self, files: Vec<String>, patch: &str) -> Self {
+    |        ^^^^^^^^^
+
+warning: `checks` (test "corpus_golden_test") generated 1 warning
+warning: `orchestration` (lib test) generated 2 warnings
+warning: function `build_mutation_block分母零与NaN与Inf阈值` should have a snake case name
+   --> crates\core\checks\src\aggregate_test.rs:772:4
+    |
+772 | fn build_mutation_block分母零与NaN与Inf阈值() {
+    |    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: convert the identifier to snake case: `build_mutation_block分母零与_na_n与_inf阈值`
+    |
+    = note: `#[warn(non_snake_case)]` (part of `#[warn(nonstandard_style)]`) on by default
+
+warning: `checks` (lib test) generated 1 warning
+warning: unused imports: `MutationMeasured` and `MutationSegReport`
+  --> crates\infra\checks\src\mutation\mod_test.rs:25:21
+   |
+25 | use checks::model::{MutationMeasured, MutationSegReport, MutationTool};
+   |                     ^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+error[E0277]: `SegmentFailure` doesn't implement `Debug`
+    --> crates\infra\checks\src\mutation\cargo_mutants_test.rs:222:10
+     |
+ 222 |         .expect("假 spawn 段执行应 Ok");
+     |          ^^^^^^ the trait `Debug` is not implemented for `SegmentFailure`
+     |
+     = note: add `#[derive(Debug)]` to `SegmentFailure` or manually `impl Debug for SegmentFailure`
+note: required by a bound in `Result::<T, E>::expect`
+    --> C:\Users\wps\.rustup\toolchains\stable-x86_64-pc-windows-msvc\lib/rustlib/src/rust\library\core\src\result.rs:1181:12
+     |
+1179 |     pub fn expect(self, msg: &str) -> T
+     |            ------ required by a bound in this associated function
+1180 |     where
+1181 |         E: fmt::Debug,
+     |            ^^^^^^^^^^ required by this bound in `Result::<T, E>::expect`
+help: consider annotating `SegmentFailure` with `#[derive(Debug)]`
+    -->  crates\infra\checks\src\mutation\mod.rs:55:1
+     |
+  55 + #[derive(Debug)]
+  56 | pub(crate) enum SegmentFailure {
+     |
+
+error[E0277]: `SegmentFailure` doesn't implement `Debug`
+    --> crates\infra\checks\src\mutation\cargo_mutants_test.rs:278:10
+     |
+ 278 |         .expect("段 0 应 Ok");
+     |          ^^^^^^ the trait `Debug` is not implemented for `SegmentFailure`
+     |
+     = note: add `#[derive(Debug)]` to `SegmentFailure` or manually `impl Debug for SegmentFailure`
+note: required by a bound in `Result::<T, E>::expect`
+    --> C:\Users\wps\.rustup\toolchains\stable-x86_64-pc-windows-msvc\lib/rustlib/src/rust\library\core\src\result.rs:1181:12
+     |
+1179 |     pub fn expect(self, msg: &str) -> T
+     |            ------ required by a bound in this associated function
+1180 |     where
+1181 |         E: fmt::Debug,
+     |            ^^^^^^^^^^ required by this bound in `Result::<T, E>::expect`
+help: consider annotating `SegmentFailure` with `#[derive(Debug)]`
+    -->  crates\infra\checks\src\mutation\mod.rs:55:1
+     |
+  55 + #[derive(Debug)]
+  56 | pub(crate) enum SegmentFailure {
+     |
+
+error[E0277]: `SegmentFailure` doesn't implement `Debug`
+    --> crates\infra\checks\src\mutation\cargo_mutants_test.rs:281:10
+     |
+ 281 |         .expect("段 1 应 Ok");
+     |          ^^^^^^ the trait `Debug` is not implemented for `SegmentFailure`
+     |
+     = note: add `#[derive(Debug)]` to `SegmentFailure` or manually `impl Debug for SegmentFailure`
+note: required by a bound in `Result::<T, E>::expect`
+    --> C:\Users\wps\.rustup\toolchains\stable-x86_64-pc-windows-msvc\lib/rustlib/src/rust\library\core\src\result.rs:1181:12
+     |
+1179 |     pub fn expect(self, msg: &str) -> T
+     |            ------ required by a bound in this associated function
+1180 |     where
+1181 |         E: fmt::Debug,
+     |            ^^^^^^^^^^ required by this bound in `Result::<T, E>::expect`
+help: consider annotating `SegmentFailure` with `#[derive(Debug)]`
+    -->  crates\infra\checks\src\mutation\mod.rs:55:1
+     |
+  55 + #[derive(Debug)]
+  56 | pub(crate) enum SegmentFailure {
+     |
+
+error[E0277]: `SegmentFailure` doesn't implement `std::fmt::Display`
+   --> crates\infra\checks\src\mutation\cargo_mutants_test.rs:408:68
+    |
+408 |             .unwrap_or_else(|error| panic!("段 {index} 边界补丁段执行应 Ok: {error}"));
+    |                                                                             ^^^^^^^ `SegmentFailure` cannot be formatted with the default formatter
+    |
+help: the trait `std::fmt::Display` is not implemented for `SegmentFailure`
+   --> crates\infra\checks\src\mutation\mod.rs:55:1
+    |
+ 55 | pub(crate) enum SegmentFailure {
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    = note: in format strings you may be able to use `{:?}` (or {:#?} for pretty-print) instead
+
+error[E0277]: `SegmentFailure` doesn't implement `Debug`
+    --> crates\infra\checks\src\mutation\stryker_test.rs:318:10
+     |
+ 318 |         .expect("假 spawn 段执行应 Ok");
+     |          ^^^^^^ the trait `Debug` is not implemented for `SegmentFailure`
+     |
+     = note: add `#[derive(Debug)]` to `SegmentFailure` or manually `impl Debug for SegmentFailure`
+note: required by a bound in `Result::<T, E>::expect`
+    --> C:\Users\wps\.rustup\toolchains\stable-x86_64-pc-windows-msvc\lib/rustlib/src/rust\library\core\src\result.rs:1181:12
+     |
+1179 |     pub fn expect(self, msg: &str) -> T
+     |            ------ required by a bound in this associated function
+1180 |     where
+1181 |         E: fmt::Debug,
+     |            ^^^^^^^^^^ required by this bound in `Result::<T, E>::expect`
+help: consider annotating `SegmentFailure` with `#[derive(Debug)]`
+    -->  crates\infra\checks\src\mutation\mod.rs:55:1
+     |
+  55 + #[derive(Debug)]
+  56 | pub(crate) enum SegmentFailure {
+     |
+
+For more information about this error, try `rustc --explain E0277`.
+warning: `checks-runtime` (lib test) generated 1 warning
+error: could not compile `checks-runtime` (lib test) due to 5 previous errors; 1 warning emitted

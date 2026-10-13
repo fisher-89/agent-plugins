@@ -509,28 +509,11 @@ fn format_coverage_failure(measured: &CoverageMeasured, thresholds: &CoverageThr
     format!("Coverage below threshold: {}", parts.join(", "))
 }
 
-/// 突变聚合（CLI `computeMutationResult` 主干同语义）：无任何子报告携突变
-/// 块 → `None`（生产聚合恒 `None`——V1 不移植 mutation；corpus 含块样本时
-/// 按计数加权归并）。override 组不产（V1 边界）。
-fn aggregate_mutation(sub_reports: &[SubReport]) -> Option<MutationBlock> {
-    let blocks: Vec<&MutationBlock> = sub_reports
-        .iter()
-        .filter_map(|report| report.mutation.as_ref())
-        .collect();
-    let first = blocks.first()?;
-    let mut measured = MutationMeasured::default();
-    for block in &blocks {
-        measured.killed += block.measured.killed;
-        measured.survived += block.measured.survived;
-        measured.timeout += block.measured.timeout;
-        measured.no_coverage += block.measured.no_coverage;
-        measured.compile_error += block.measured.compile_error;
-        measured.runtime_error += block.measured.runtime_error;
-        measured.ignored += block.measured.ignored;
-        measured.total += block.measured.total;
-        measured.detected += block.measured.detected;
-        measured.undetected += block.measured.undetected;
-    }
+/// score 公式单点（`build_mutation_block` 与 `aggregate_mutation` 逐字同式）：
+/// `score = (killed + timeout) / (total - ignored - compileError - runtimeError)`
+///（分母排除 ignored + compileError + runtimeError；分母为 0 → 100.0；两位舍
+/// 入），阈值判定 `pass = score >= threshold`。MUST NOT 引入百分比平均等新口径。
+pub fn build_mutation_block(measured: MutationMeasured, threshold: f64) -> MutationBlock {
     let valid = measured
         .total
         .saturating_sub(measured.ignored)
@@ -543,14 +526,45 @@ fn aggregate_mutation(sub_reports: &[SubReport]) -> Option<MutationBlock> {
             (measured.killed + measured.timeout) as f64 / valid as f64 * 100.0,
         )
     };
-    let threshold = first.threshold;
-    Some(MutationBlock {
+    MutationBlock {
         pass: score >= threshold,
         score,
         threshold,
         measured,
         overrides: None,
-    })
+    }
+}
+
+/// 段计数求和归并（段当子报告——计数求和后交 [`build_mutation_block`] 重算
+/// score；阈值取首块，`aggregate_mutation` 既有语义）。空 slice → `None`（不产
+/// 块）。MUST NOT 新增归并公式。
+pub fn merge_mutation_blocks(blocks: &[MutationBlock]) -> Option<MutationBlock> {
+    let first = blocks.first()?;
+    let mut measured = MutationMeasured::default();
+    for block in blocks {
+        measured.killed += block.measured.killed;
+        measured.survived += block.measured.survived;
+        measured.timeout += block.measured.timeout;
+        measured.no_coverage += block.measured.no_coverage;
+        measured.compile_error += block.measured.compile_error;
+        measured.runtime_error += block.measured.runtime_error;
+        measured.ignored += block.measured.ignored;
+        measured.total += block.measured.total;
+        measured.detected += block.measured.detected;
+        measured.undetected += block.measured.undetected;
+    }
+    Some(build_mutation_block(measured, first.threshold))
+}
+
+/// 突变聚合（CLI `computeMutationResult` 主干同语义）：无任何子报告携突变
+/// 块 → `None`（未跑 / 跳过——突变位由独立 MutationTest 步归并回填 summary 的
+/// mutation 位；corpus 含块样本时按计数加权归并）。override 组不产（V1 边界）。
+fn aggregate_mutation(sub_reports: &[SubReport]) -> Option<MutationBlock> {
+    let blocks: Vec<MutationBlock> = sub_reports
+        .iter()
+        .filter_map(|report| report.mutation.clone())
+        .collect();
+    merge_mutation_blocks(&blocks)
 }
 
 /// 汇总报告组装（CLI `generateSummaryReport` 同语义）：计数合并、problems

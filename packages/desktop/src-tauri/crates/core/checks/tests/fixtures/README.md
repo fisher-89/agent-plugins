@@ -42,3 +42,17 @@
 - 语料样本零改写原则：golden 漂移优先怀疑实现漂移，重写前先 review diff。
 - 新增语料：目录 + 清单行 + `CORPUS_FIXTURES` 常量 + `suites_for` 映射同步维护。
 - 样本规模下限八套（绿跑三档 + 红跑 + mutation / 未知字段 / 损坏 ×2）。
+
+## 段级 mutation 语料（mutation-seg——desktop-fix-mutation-test / AC-9）
+
+独立子树（不入 corpus 八套清单；golden 独立目录 `tests/golden-mutation-seg/`，
+重写开关同 `DESKTOP_GOLDEN_REWRITE`）。
+
+| 目录 | 执行器 | 形态 | 对应 golden |
+|------|--------|------|-------------|
+| `mutation-seg/mutation-seg-cargo/` | cargo-mutants | `seg-report.json`（`--json` mutants 数组：Caught / missed / TIMEOUT / unviable / not-mutated 全映射表样本 + 未知 outcome + 缺 outcome 字段条目） | `golden-mutation-seg/mutation-seg-cargo.json` |
+| `mutation-seg/mutation-seg-stryker/` | Stryker | `seg-report.json`（metrics 聚合面 + files 逐 mutant 面——metrics 优先口径；含 NoCoverage / RuntimeError / Ignored 词面） | `golden-mutation-seg/mutation-seg-stryker.json` |
+
+消费方：`corpus_golden_test.rs` 段级对拍节（`project_seg_fixture`：宽容解析 →
+单段归并 → 归并块结论投影）；映射表逐位归位与 runtimeError 留痕由
+`段级未知outcome样本runtimeError留痕` 断言承载。

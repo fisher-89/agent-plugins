@@ -702,6 +702,7 @@ fn expected_steps(phase: &str) -> Vec<StepNode> {
         "test-execution" => vec![
             StepNode::PhaseStart,
             StepNode::TestExecution,
+            StepNode::MutationTest,
             StepNode::PhaseLog,
         ],
         "code-review" | "acceptance" => vec![
@@ -715,12 +716,14 @@ fn expected_steps(phase: &str) -> Vec<StepNode> {
     }
 }
 
-/// 相位 → `on_fail` 声明期望（三门禁步 FeedbackLoop{5}——static-check /
-/// test-execution / verdict-gate；code-analyze 的 VerdictGate 例外为
-/// Terminal——spec 定稿「分析相位 verdict 失败即终态」；其余 None）。
+/// 相位 → `on_fail` 声明期望（四门禁步 FeedbackLoop{5}——static-check /
+/// test-execution / mutation-test / verdict-gate；code-analyze 的 VerdictGate
+/// 例外为 Terminal——spec 定稿「分析相位 verdict 失败即终态」；其余 None）。
 fn expected_on_fail(phase_id: &str, node: StepNode) -> Option<OnFail> {
     match node {
-        StepNode::StaticCheck | StepNode::TestExecution => Some(OnFail::FeedbackLoop { limit: 5 }),
+        StepNode::StaticCheck
+        | StepNode::TestExecution
+        | StepNode::MutationTest => Some(OnFail::FeedbackLoop { limit: 5 }),
         StepNode::VerdictGate if phase_id == "code-analyze" => Some(OnFail::Terminal),
         StepNode::VerdictGate => Some(OnFail::FeedbackLoop { limit: 5 }),
         _ => None,
@@ -1015,7 +1018,8 @@ fn 计划图on_fail语义与步绑定() {
             if matches!(step.on_fail, Some(OnFail::FeedbackLoop { .. })) {
                 let allowed = (matches!(def.id, "implement" | "test-gen")
                     && step.node == StepNode::StaticCheck)
-                    || (def.id == "test-execution" && step.node == StepNode::TestExecution)
+                    || (def.id == "test-execution"
+                        && matches!(step.node, StepNode::TestExecution | StepNode::MutationTest))
                     || step.node == StepNode::VerdictGate;
                 assert!(
                     allowed,
@@ -1428,7 +1432,7 @@ fn archive步分组可派生_三分支缝分派前置() {
     );
 }
 
-/// ARCHIVE_STEPS 类型收敛（异常）：archive 十步均为 `StepNode` 十八值封闭集
+/// ARCHIVE_STEPS 类型收敛（异常）：archive 十步均为 `StepNode` 十九值封闭集
 /// 成员（线画 snake_case 词与执行图落库同源、不引用退役 `ArchiveStage` 词汇），
 /// 长度恰 10、无越集节点（AC-2）。
 #[test]
@@ -1441,7 +1445,7 @@ fn archive_steps类型收敛_封闭集取值且长度十() {
 
     assert_eq!(archive.steps.len(), 10, "ARCHIVE_STEPS 长度恰 10");
 
-    // 十步词面均在 StepNode 十八值封闭集内（逐词往返 = snake_case 线词）
+    // 十步词面均在 StepNode 十九值封闭集内（逐词往返 = snake_case 线词）
     let closed_set: Vec<&'static str> = ARCHIVE_STEP_ORDER
         .iter()
         .map(|node| node.as_str())
@@ -1631,7 +1635,8 @@ fn test_only表steps与on_fail全表扫描() {
             );
             if matches!(step.on_fail, Some(OnFail::FeedbackLoop { .. })) {
                 let allowed = (def.id == "test-gen" && step.node == StepNode::StaticCheck)
-                    || (def.id == "test-execution" && step.node == StepNode::TestExecution)
+                    || (def.id == "test-execution"
+                        && matches!(step.node, StepNode::TestExecution | StepNode::MutationTest))
                     || step.node == StepNode::VerdictGate;
                 assert!(
                     allowed,
@@ -1659,6 +1664,122 @@ fn phase_table未知类型不退化requirement() {
         assert!(
             phase_table(unknown).is_none(),
             "未知类型 {unknown:?} 恒 None（MUST NOT 静默当 requirement 跑）"
+        );
+    }
+}
+
+// ---------------------------------------------------------------------------
+// test-execution 拆步（desktop-fix-mutation-test / AC-1）：四步序 + MutationTest
+// on_fail 反馈边② + 两表同式 + 序列边界
+// ---------------------------------------------------------------------------
+
+/// 拆步四步序（正向 / AC-1）：`TEST_EXECUTION_STEPS` 恰 `[PhaseStart,
+/// TestExecution, MutationTest, PhaseLog]`——测试 / 覆盖率修绿后才跑突变
+/// （walker 顺序执行天然保证）；requirement 与 test-only 两表复用同一 static
+/// （`steps` 指针等值即天然同式）。
+#[test]
+fn test_execution拆步四步序且两表同式() {
+    for workflow_type in ["requirement", "test-only"] {
+        let table = phase_table(workflow_type).expect("相位表应可达");
+        let def = phase_of(table, "test-execution");
+        let nodes: Vec<StepNode> = def.steps.iter().map(|step| step.node).collect();
+        assert_eq!(
+            nodes,
+            [
+                StepNode::PhaseStart,
+                StepNode::TestExecution,
+                StepNode::MutationTest,
+                StepNode::PhaseLog,
+            ],
+            "{workflow_type} 表 test-execution 拆步四步序（AC-1）"
+        );
+        assert_eq!(def.steps.len(), 4, "步数 3 → 4（拆步插入 MutationTest）");
+    }
+
+    // 两表同式：同一 static 引用（`steps` 切片指针逐字等值——天然同式不漂移）
+    let requirement = phase_table("requirement").expect("requirement 应返回 Some");
+    let test_only = phase_table("test-only").expect("test-only 应返回 Some");
+    let lhs = phase_of(requirement, "test-execution");
+    let rhs = phase_of(test_only, "test-execution");
+    assert!(
+        std::ptr::eq(lhs.steps.as_ptr(), rhs.steps.as_ptr()),
+        "两表 test-execution steps 共用同一 static（指针等值）"
+    );
+    assert_eq!(lhs.steps, rhs.steps, "逐元素等值双断言（Copy 面）");
+}
+
+/// MutationTest `on_fail` 形态（正向 / AC-6）：`on_fail =
+/// Some(OnFail::FeedbackLoop { limit: FEEDBACK_LOOP_LIMIT })`（独立反馈边②，
+/// 与 test-execution 反馈边①分立计数）；`prompt_ref = None`（确定性工具步零
+/// agent prompt）。
+#[test]
+fn mutation_test步on_fail反馈边与prompt_ref恒none() {
+    use super::phase_table::FEEDBACK_LOOP_LIMIT;
+
+    assert_eq!(FEEDBACK_LOOP_LIMIT, 5, "反馈边独立计数上限常量锚定");
+
+    for workflow_type in ["requirement", "test-only"] {
+        let table = phase_table(workflow_type).expect("相位表应可达");
+        let def = phase_of(table, "test-execution");
+        let mutation = def
+            .steps
+            .iter()
+            .find(|step| step.node == StepNode::MutationTest)
+            .unwrap_or_else(|| panic!("{workflow_type} 表应含 MutationTest 步"));
+        assert_eq!(
+            mutation.on_fail,
+            Some(OnFail::FeedbackLoop {
+                limit: FEEDBACK_LOOP_LIMIT
+            }),
+            "{workflow_type} 表 MutationTest on_fail = FeedbackLoop{{5}}"
+        );
+        assert_eq!(mutation.prompt_ref, None, "确定性工具步 prompt_ref 恒 None");
+    }
+}
+
+/// 序列边界（改写 / AC-1）：`PhaseLog` 恒末位（落账步收尾不变量）、MutationTest
+/// 恰一次（拆步不重复插入）、TestExecution 与 MutationTest 相邻且序保持
+///（绿后才突变）。
+#[test]
+fn test_execution拆步序列边界_phaselog末位且mutation恰一次() {
+    let table = phase_table("requirement").expect("requirement 应返回 Some");
+    let def = phase_of(table, "test-execution");
+    let nodes: Vec<StepNode> = def.steps.iter().map(|step| step.node).collect();
+
+    assert_eq!(
+        nodes.last(),
+        Some(&StepNode::PhaseLog),
+        "PhaseLog 恒末位（落账步收尾不变量）"
+    );
+    assert_eq!(
+        nodes.iter().filter(|node| **node == StepNode::MutationTest).count(),
+        1,
+        "MutationTest 恰一次（拆步不重复插入）"
+    );
+    let test_pos = nodes
+        .iter()
+        .position(|node| *node == StepNode::TestExecution)
+        .expect("TestExecution 在场");
+    let mutation_pos = nodes
+        .iter()
+        .position(|node| *node == StepNode::MutationTest)
+        .expect("MutationTest 在场");
+    assert_eq!(
+        mutation_pos,
+        test_pos + 1,
+        "MutationTest 紧随 TestExecution（绿后才突变，顺序保证）"
+    );
+
+    // 其它相位零改动：MutationTest 仅出现于 test-execution 相位（拆步不影响
+    // 静态检查 / 归档等相位）
+    for def in table.iter().filter(|def| def.id != "test-execution") {
+        assert!(
+            !def
+                .steps
+                .iter()
+                .any(|step| step.node == StepNode::MutationTest),
+            "相位 {} 不含 MutationTest 步（拆步仅作用 test-execution）",
+            def.id
         );
     }
 }

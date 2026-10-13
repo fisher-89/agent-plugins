@@ -9,7 +9,7 @@ use tauri::{AppHandle, Manager};
 
 use ::agent::StopRegistry;
 use agent_runtime::{compose_turn, ComposedTurn, KernelWorkerPort};
-use checks_runtime::{ProcessStaticCheck, ProcessTestExecution};
+use checks_runtime::{ProcessMutation, ProcessStaticCheck, ProcessTestExecution};
 use orchestration::control::ChangeFlowControl;
 use orchestration::port::{
     ArchiveVcsPort, RunEventSink, RunHistoryPort, ToolStepPort, WorkerAgentPort,
@@ -166,6 +166,7 @@ pub(crate) async fn change_flow_start_with<R: tauri::Runtime>(
         Arc::clone(&anchors),
         Arc::new(ProcessStaticCheck::new()),
         Arc::new(ProcessTestExecution::new()),
+        Arc::new(ProcessMutation::new()),
         Arc::clone(&vcs),
         Arc::clone(&store_port),
         run_id.clone(),

@@ -1604,7 +1604,7 @@ fn channel面五kind通知各自一拍且零载荷键() {
 // 零参构造（无 `recorded(change)` 装配分支——默认即 recorded）→ `LocalToolSteps`
 // StaticCheck 步 → 平台 shim 命令真实 spawn → infra/exec 单点落单一 `.log` 并
 // 回填 `output_ref`；审计行落库。与 `change_flow_start_with` 的组合根装配同式
-//（同一 `LocalToolSteps::new(...)` 五参 + `ProcessStaticCheck::new()`）。
+//（同一 `LocalToolSteps::new(...)` 七参 + `ProcessStaticCheck::new()`）。
 // ---------------------------------------------------------------------------
 
 /// PATH 前置 workspace 根窗口（shim 裸名经 PATH 解析；经 commands 级 PATH 锁
@@ -1674,6 +1674,7 @@ async fn 组合根装配_staticcheck步默认recorded落单一log并回填引用
         Arc::new(SessionAnchors::new()),
         Arc::new(checks_runtime::ProcessStaticCheck::new()),
         Arc::new(checks_runtime::ProcessTestExecution::new()),
+        Arc::new(checks_runtime::ProcessMutation::new()),
         Arc::new(vcs_runtime::ProcessArchiveVcs::new()),
         store_port,
         "run-assembly".to_owned(),
