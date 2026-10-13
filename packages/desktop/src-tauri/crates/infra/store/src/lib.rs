@@ -4,7 +4,7 @@ mod envelope;
 mod model;
 mod store;
 
-pub use envelope::{ModelInfo, RecordEnvelope};
+pub use envelope::{ModelInfo, RecordEnvelope, RecordsPage};
 pub use model::{
     AgentEngineKind, AgentInstanceRecord, AgentModelTiers, AgentProviderRecord, AgentRunRecord,
     ChangeActivePhase, ChangeRecord, ChecklistItemRecord, ExploreRecord, PhaseRecord,

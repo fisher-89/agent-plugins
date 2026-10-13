@@ -4,8 +4,8 @@ use std::path::{Path, PathBuf};
 use agent::{AgentEvent, AgentEventKind};
 
 use crate::{
-    AgentEngineKind, AgentInstanceRecord, AgentModelTiers, AgentProviderRecord,
-    SessionConfigSnapshot, SessionRecord, Store, StoreError,
+    AgentEngineKind, AgentInstanceRecord, AgentModelTiers, AgentProviderRecord, RecordEnvelope,
+    RecordsPage, SessionConfigSnapshot, SessionRecord, Store, StoreError,
 };
 use workflow::state::{ChangeStateRecord, ChangeStatus};
 
@@ -92,7 +92,10 @@ fn scan_err(store: &Store, model: &str) -> String {
     match store.scan(model, 0, 10) {
         Err(err @ StoreError::Db(_)) => err.to_string(),
         Err(other) => panic!("模型 {model:?} 应返回 Db 变体，实际: {other:?}"),
-        Ok(page) => panic!("模型 {model:?} 应 Err，实际返回 {} 行", page.len()),
+        Ok(page) => panic!(
+            "模型 {model:?} 应 Err，实际返回 {} 行",
+            page.records.len()
+        ),
     }
 }
 
@@ -249,6 +252,7 @@ fn scan两新模型分页主键自然序翻页不重不漏_key数值id信封valu
         global
             .scan(model, offset, limit)
             .unwrap_or_else(|e| panic!("scan({model}) 应成功: {e}"))
+            .records
             .into_iter()
             .map(|envelope| envelope.key)
             .collect()
@@ -265,17 +269,31 @@ fn scan两新模型分页主键自然序翻页不重不漏_key数值id信封valu
         "agent_provider 分页拼接恰为全部记录主键自然序，不重不漏"
     );
 
+    // 各页 total 恒全量计数（分页信封随动后新模型行零漂移）
+    assert_eq!(
+        global.scan("agent_provider", 0, 2).unwrap().total,
+        3,
+        "agent_provider 各页 total 恒全量计数（非本页条数）"
+    );
+    assert_eq!(
+        global.scan("agent_provider", 2, 2).unwrap().total,
+        3,
+        "agent_provider 续页 total 与首页一致（同一读事务快照口径）"
+    );
+
     // agent_instance 同口径（单行）
     let agent_page = global.scan("agent_instance", 0, 10).unwrap();
-    assert_eq!(agent_page.len(), 1);
+    assert_eq!(agent_page.records.len(), 1, "agent_instance 恰一行");
+    assert_eq!(agent_page.total, 1, "agent_instance total 与实有记录数一致");
     assert!(
-        agent_page[0].key.is_i64(),
+        agent_page.records[0].key.is_i64(),
         "agent_instance key 为数值 id 信封"
     );
 
     // value 为 camelCase JSON（db-inspector 查看器零改动触达前提）
     let provider_page = global.scan("agent_provider", 0, 10).unwrap();
-    let value = &provider_page[0].value;
+    assert_eq!(provider_page.total, 3, "provider total 与实有记录数一致");
+    let value = &provider_page.records[0].value;
     assert_eq!(value["name"], serde_json::json!("丙"));
     assert_eq!(
         value["baseUrl"],
@@ -283,16 +301,18 @@ fn scan两新模型分页主键自然序翻页不重不漏_key数值id信封valu
     );
     assert_eq!(value["apiKey"], serde_json::json!("sk-live-1234567890"));
     assert_eq!(value["models"]["high"], serde_json::json!("m-high"));
-    let agent_value = &agent_page[0].value;
+    let agent_value = &agent_page.records[0].value;
     assert_eq!(agent_value["name"], serde_json::json!("扫描实例"));
     assert_eq!(agent_value["engine"], serde_json::json!("cli"));
     assert_eq!(agent_value["isDefault"], serde_json::json!(false));
 
-    // 空页边界：offset 恰等于总数返回空数组不报错（信封 API 签名零变化）
+    // 空页边界：offset 恰等于总数返回空页不报错，total 恒全量（快照自洽 R2）
+    let beyond = global.scan("agent_provider", 3, 10).unwrap();
     assert!(
-        global.scan("agent_provider", 3, 10).unwrap().is_empty(),
-        "offset 恰等于记录总数返回空数组"
+        beyond.records.is_empty(),
+        "offset 恰等于记录总数返回空 records"
     );
+    assert_eq!(beyond.total, 3, "offset 恰等总数：records 空而 total 恒全量");
 }
 
 #[test]
@@ -339,19 +359,20 @@ fn scan_change信封key投影为记录id_value内name仍为属性在场() {
         .unwrap_or_else(|e| panic!("create_change_record 应成功: {e}"));
 
     let page = ws.scan("change", 0, 10).unwrap();
-    assert_eq!(page.len(), 1);
+    assert_eq!(page.records.len(), 1);
+    assert_eq!(page.total, 1, "change total 与实有记录数一致");
     assert_eq!(
-        page[0].key,
+        page.records[0].key,
         serde_json::json!("chg-envelope-1"),
         "change 信封 key = 记录 id（自 name 面翻转；身份锚随主键换锚）"
     );
     assert_eq!(
-        page[0].value["name"],
+        page.records[0].value["name"],
         serde_json::json!("换锚档"),
         "value 内 name 仍为普通属性在场（非主键）"
     );
     assert_eq!(
-        page[0].value["id"],
+        page.records[0].value["id"],
         serde_json::json!("chg-envelope-1"),
         "value 内 id 与信封 key 同源"
     );
@@ -404,21 +425,22 @@ fn 注册表零新增行_workspace维度恰八行_format模型不可见且scan_e
 }
 
 // ---------------------------------------------------------------------------
-// scan 分页边界矩阵（以 session 载荷承载：create_session 无目录依赖）
+// scan 分页边界矩阵（以 session 载荷承载：create_session 无目录依赖）——
+// RecordsPage 两字段断言（records 区间 + total 恒全量计数，同一读事务快照）
 // ---------------------------------------------------------------------------
 
 #[test]
-fn scan_offset首页恰为总数与超过总数三种形态返回正确() {
+fn scan_offset首页恰为总数与超过总数三形态_records区间与total同快照() {
     let env = Env::new("scan-offset");
     let store = open_ws_ok(&env.db_path("ws"));
     for index in 0..3 {
         seed_session(&store, &format!("ses-offset-{index}"));
     }
 
-    let ids = |offset: u32, limit: u32| -> Vec<String> {
-        store
-            .scan("session", offset, limit)
-            .unwrap()
+    let page_ids = |offset: u32, limit: u32| -> (Vec<String>, u64) {
+        let page = store.scan("session", offset, limit).unwrap();
+        let ids = page
+            .records
             .iter()
             .map(|envelope| {
                 envelope
@@ -427,43 +449,56 @@ fn scan_offset首页恰为总数与超过总数三种形态返回正确() {
                     .expect("session key 为会话 id 字符串")
                     .to_owned()
             })
-            .collect()
+            .collect();
+        (ids, page.total)
     };
 
+    let (first, total) = page_ids(0, 10);
     assert_eq!(
-        ids(0, 10),
+        first,
         vec!["ses-offset-0", "ses-offset-1", "ses-offset-2"],
         "offset=0 首页全量"
     );
+    assert_eq!(total, 3, "total 为全量计数（非本页条数）");
+
+    let (at_end, total) = page_ids(3, 10);
+    assert!(at_end.is_empty(), "offset 恰等于记录总数返回空页");
     assert_eq!(
-        ids(3, 10),
-        Vec::<String>::new(),
-        "offset 恰等于记录总数返回空页"
+        total, 3,
+        "offset 恰等总数：records 空而 total 恒全量（快照级自洽 R2）"
     );
-    assert_eq!(
-        ids(u32::MAX, 10),
-        Vec::<String>::new(),
-        "offset 超过记录总数（u32::MAX）返回空数组不报错"
+
+    let (beyond, total) = page_ids(u32::MAX, 10);
+    assert!(
+        beyond.is_empty(),
+        "offset 超过记录总数（u32::MAX）返回空页不报错"
     );
+    assert_eq!(total, 3, "offset 超界：total 恒全量计数");
 }
 
 #[test]
-fn scan_limit为零返回空大limit返回剩余全部() {
+fn scan_limit为零返回空大limit返回剩余全部_total恒全量() {
     let env = Env::new("scan-limit");
     let store = open_ws_ok(&env.db_path("ws"));
     for index in 0..3 {
         seed_session(&store, &format!("ses-limit-{index}"));
     }
 
-    let len = |offset: u32, limit: u32| store.scan("session", offset, limit).unwrap().len();
+    let zero = store.scan("session", 0, 0).unwrap();
+    assert!(zero.records.is_empty(), "limit=0 返回空页（不推进不炸）");
+    assert_eq!(zero.total, 3, "limit=0：total 恒全量计数");
 
-    assert_eq!(len(0, 0), 0, "limit=0 返回空数组");
-    assert_eq!(len(1, 100), 2, "limit 大于剩余记录数返回剩余全部");
-    assert_eq!(len(0, 2), 2, "limit 小于总数返回恰 limit 条");
+    let rest = store.scan("session", 1, 100).unwrap();
+    assert_eq!(rest.records.len(), 2, "limit 大于剩余记录数返回剩余全部");
+    assert_eq!(rest.total, 3, "records 区间截断不缩水 total");
+
+    let exact = store.scan("session", 0, 2).unwrap();
+    assert_eq!(exact.records.len(), 2, "limit 小于总数返回恰 limit 条");
+    assert_eq!(exact.total, 3, "records 区间截断不缩水 total");
 }
 
 #[test]
-fn scan_limit超过500截断为500上限语义() {
+fn scan_limit超过500截断为500上限语义_total仍全量计数() {
     let env = Env::new("scan-limit-cap");
     let store = open_ws_ok(&env.db_path("ws"));
     // 505 条 > 上限 500：截断语义与「恰好 500 条」歧义区分
@@ -472,12 +507,18 @@ fn scan_limit超过500截断为500上限语义() {
     }
 
     let first_page = store.scan("session", 0, 5000).unwrap();
-    assert_eq!(first_page.len(), 500, "limit 超上限截断为 500");
+    assert_eq!(first_page.records.len(), 500, "limit 超上限截断为 500");
+    assert_eq!(
+        first_page.total, 505,
+        "截断只作用 records 区间，total 仍全量计数（不随截断缩水）"
+    );
     let rest = store.scan("session", 500, 5000).unwrap();
-    assert_eq!(rest.len(), 5, "截断后剩余记录可经 offset 续读");
+    assert_eq!(rest.records.len(), 5, "截断后剩余记录可经 offset 续读");
+    assert_eq!(rest.total, 505, "续页 total 恒全量计数");
     let mut union: Vec<String> = first_page
+        .records
         .iter()
-        .chain(rest.iter())
+        .chain(rest.records.iter())
         .map(|envelope| envelope.key.as_str().expect("session key 串").to_owned())
         .collect();
     union.sort_unstable();
@@ -488,6 +529,88 @@ fn scan_limit超过500截断为500上限语义() {
         union, expected,
         "两页拼接覆盖全部 505 条不重不漏（同序逐字一致）"
     );
+}
+
+// ---------------------------------------------------------------------------
+// 库存形态边界（list 参数映射）：空库 / 单条库 / offset 超界——快照级自洽
+// ---------------------------------------------------------------------------
+
+#[test]
+fn scan库存形态边界_空库单条库与offset超界records空而total恒自洽() {
+    let env = Env::new("scan-stock-shape");
+    let store = open_ws_ok(&env.db_path("ws"));
+
+    // 空库：恰 { records: [], total: 0 }
+    let empty = store
+        .scan("session", 0, 10)
+        .unwrap_or_else(|e| panic!("空库 scan 应成功: {e}"));
+    assert_eq!(
+        empty,
+        RecordsPage {
+            records: Vec::new(),
+            total: 0
+        },
+        "空库返回空分页信封（records 空数组 + total 0）"
+    );
+
+    // 单条库：{ records: [1 条], total: 1 }
+    seed_session(&store, "ses-single");
+    let single = store.scan("session", 0, 10).unwrap();
+    assert_eq!(single.records.len(), 1, "单条库 records 恰 1 条");
+    assert_eq!(single.total, 1, "单条库 total 恒 1");
+
+    // limit = 0 连续取页不推进不炸（records 恒空、total 恒全量）
+    let zero_limit = store.scan("session", 0, 0).unwrap();
+    assert!(
+        zero_limit.records.is_empty(),
+        "limit=0 连续取页不推进（records 恒空）"
+    );
+    assert_eq!(zero_limit.total, 1, "limit=0：total 恒全量计数");
+
+    // offset 超界：records 空而 total 恒全量
+    let beyond = store.scan("session", 1, 10).unwrap();
+    assert!(beyond.records.is_empty(), "offset 恰等总数 records 空页");
+    assert_eq!(
+        beyond.total, 1,
+        "offset 超界：records 空而 total 恒全量（快照级自洽 R2）"
+    );
+    let way_beyond = store.scan("session", u32::MAX, 10).unwrap();
+    assert!(
+        way_beyond.records.is_empty(),
+        "offset u32::MAX 同口径空页不报错"
+    );
+    assert_eq!(way_beyond.total, 1, "offset u32::MAX：total 恒全量计数");
+}
+
+// ---------------------------------------------------------------------------
+// 翻页拼接与幽灵空页边界（total 口径）
+// ---------------------------------------------------------------------------
+
+#[test]
+fn scan_total恰为limit整数倍_末页后空页records空而total不变() {
+    let env = Env::new("scan-ghost-page");
+    let store = open_ws_ok(&env.db_path("ws"));
+    for index in 0..100 {
+        seed_session(&store, &format!("ses-mul-{index:03}"));
+    }
+
+    // total=100 恰为 limit=50 整数倍：末页 records 50 条、无剩余可翻
+    let page2 = store.scan("session", 50, 50).expect("第二页应成功");
+    assert_eq!(page2.records.len(), 50, "末页 records 恰 limit 条");
+    assert_eq!(
+        50 + page2.records.len() as u64,
+        page2.total,
+        "末页 offset + records.len() == total"
+    );
+
+    // 下一页：records 空而 total 不变——「幽灵空页」在数据接口侧的边界锚
+    //（前端由此导出 next 禁用）
+    let ghost = store.scan("session", 100, 50).expect("下一页应成功（空页非 Err）");
+    assert!(
+        ghost.records.is_empty(),
+        "幽灵空页 records 空（接口侧边界锚）"
+    );
+    assert_eq!(ghost.total, 100, "空页 total 不变（页界与行集同快照）");
 }
 
 // ---------------------------------------------------------------------------
@@ -502,9 +625,9 @@ fn scan_key信封workspace根串run数值event对象三口径各自成立() {
     let global = open_global_ok(&env.db_path("global"));
     let workspace = add_ok(&global, &env.ws("keyed"));
     let ws_page = global.scan("workspace", 0, 10).unwrap();
-    assert_eq!(ws_page.len(), 1);
+    assert_eq!(ws_page.records.len(), 1);
     assert_eq!(
-        ws_page[0].key,
+        ws_page.records[0].key,
         serde_json::json!(workspace.root),
         "workspace key 信封为 canonical root 字符串"
     );
@@ -517,17 +640,17 @@ fn scan_key信封workspace根串run数值event对象三口径各自成立() {
     append_raw(&ws, &session_id, 7);
 
     let session_page = ws.scan("session", 0, 10).unwrap();
-    assert_eq!(session_page.len(), 1);
+    assert_eq!(session_page.records.len(), 1);
     assert_eq!(
-        session_page[0].key,
+        session_page.records[0].key,
         serde_json::json!(session_id),
         "session key 信封为 core 铸会话 id 字符串"
     );
 
     let event_page = ws.scan("session_event", 0, 10).unwrap();
-    assert_eq!(event_page.len(), 1);
+    assert_eq!(event_page.records.len(), 1);
     assert_eq!(
-        event_page[0].key,
+        event_page.records[0].key,
         serde_json::json!({ "sessionId": session_id, "seq": 7 }),
         "session_event key 信封为 sessionId/seq 对象形态"
     );
@@ -541,9 +664,9 @@ fn scan_event_value信封u128打包键为十六进制字符串合法json可还�
     append_raw(&store, &session_id, 3);
 
     let page = store.scan("session_event", 0, 10).unwrap();
-    assert_eq!(page.len(), 1);
+    assert_eq!(page.records.len(), 1);
 
-    let value = &page[0].value;
+    let value = &page.records[0].value;
     let event_key_text = value["eventKey"].as_str().expect("eventKey 为字符串");
     assert!(
         event_key_text.starts_with("0x"),
@@ -571,7 +694,7 @@ fn scan_value信封为小驼峰结构化json人可读无二进制泄漏() {
     // workspace value：三字段 camelCase 且文本可读（无 bincode 字节串）——全局库
     let global = open_global_ok(&env.db_path("global"));
     let workspace = add_ok(&global, &env.ws("readable"));
-    let ws_value = &global.scan("workspace", 0, 10).unwrap()[0].value;
+    let ws_value = &global.scan("workspace", 0, 10).unwrap().records[0].value;
     let mut ws_keys: Vec<&str> = ws_value
         .as_object()
         .expect("value 为 JSON 对象")
@@ -591,7 +714,7 @@ fn scan_value信封为小驼峰结构化json人可读无二进制泄漏() {
     let ws = open_ws_ok(&env.db_path("ws"));
     let session_id = seed_session(&ws, "ses-readable");
     append_raw(&ws, &session_id, 0);
-    let session_value = &ws.scan("session", 0, 10).unwrap()[0].value;
+    let session_value = &ws.scan("session", 0, 10).unwrap().records[0].value;
     assert_eq!(session_value["id"], serde_json::json!(session_id));
     assert_eq!(session_value["source"], serde_json::json!("debug"));
     assert_eq!(
@@ -599,7 +722,7 @@ fn scan_value信封为小驼峰结构化json人可读无二进制泄漏() {
         serde_json::json!("sdk")
     );
 
-    let event_value = &ws.scan("session_event", 0, 10).unwrap()[0].value;
+    let event_value = &ws.scan("session_event", 0, 10).unwrap().records[0].value;
     assert_eq!(
         event_value["event"]["kind"],
         serde_json::json!("raw"),
@@ -647,6 +770,105 @@ fn scan未知模型名与空串返回err且错误串含模型名() {
         "空串同样走未知模型错误面: {err_empty}"
     );
 
-    // 异常不产生副作用：本库已注册模型仍可扫描
-    assert!(store.scan("session", 0, 10).unwrap().is_empty());
+    // 异常不产生副作用：本库已注册模型仍可扫描（空库空信封口径）
+    let intact = store.scan("session", 0, 10).unwrap();
+    assert!(intact.records.is_empty(), "本库已注册模型仍可扫描");
+    assert_eq!(intact.total, 0, "空库 total 0");
+}
+
+// ---------------------------------------------------------------------------
+// RecordsPage DTO 与新模型零改动覆盖
+// ---------------------------------------------------------------------------
+
+#[test]
+fn records_page_dto线面camel_case恰两字段且derive面可用() {
+    let env = Env::new("records-page-dto");
+    let store = open_ws_ok(&env.db_path("ws"));
+    seed_session(&store, "ses-dto");
+
+    let page = store.scan("session", 0, 10).expect("scan 应成功");
+
+    // serde camelCase 序列化形态恰 { records, total }（与 ModelInfo /
+    // RecordEnvelope 同口径）
+    let wire = serde_json::to_value(&page).expect("RecordsPage 可序列化");
+    let object = wire.as_object().expect("线面为 JSON 对象");
+    assert_eq!(
+        object.keys().map(String::as_str).collect::<Vec<_>>(),
+        vec!["records", "total"],
+        "camelCase 线面恰 {{ records, total }} 两键"
+    );
+    assert_eq!(wire["total"], serde_json::json!(1), "total 为数值计数");
+
+    // Debug / Clone / PartialEq derive 面可用
+    let cloned = page.clone();
+    assert_eq!(page, cloned, "Clone 后 PartialEq 相等");
+    let debug = format!("{page:?}");
+    assert!(
+        debug.contains("RecordsPage") && debug.contains("total"),
+        "Debug 面可读: {debug}"
+    );
+}
+
+#[test]
+fn records_page_total为u64大值序列化为合法json_number不溢出不乱码() {
+    let page = RecordsPage {
+        records: Vec::new(),
+        total: u64::MAX,
+    };
+    let wire = serde_json::to_value(&page).expect("大值 total 可序列化");
+    assert_eq!(
+        wire["total"].as_u64(),
+        Some(u64::MAX),
+        "超 u32 范围的 u64 total 序列化为合法 JSON number 无损"
+    );
+    let text = serde_json::to_string(&wire).expect("产物为合法 JSON 文本");
+    assert!(!text.contains('\u{FFFD}'), "无乱码标记: {text}");
+    let reparsed: serde_json::Value = serde_json::from_str(&text).expect("可无损再解析");
+    assert_eq!(reparsed, wire, "大值 total 文本往返无损");
+}
+
+#[test]
+fn 全部注册模型空库扫描均回空分页信封_十一个per_model包装零新分支() {
+    let env = Env::new("all-models-scan");
+
+    // 全局库三模型：ScanFn 返回类型随动后空库均恰空分页信封（登记一行接入
+    // 不因分页信封漂移）
+    let global = open_global_ok(&env.db_path("global"));
+    for model in ["workspace", "agent_provider", "agent_instance"] {
+        let page = global
+            .scan(model, 0, 10)
+            .unwrap_or_else(|e| panic!("全局库 scan({model}) 应成功: {e}"));
+        assert_eq!(
+            page,
+            RecordsPage {
+                records: Vec::new(),
+                total: 0
+            },
+            "全局库模型 {model} 空库空分页信封（per-model 包装零新分支）"
+        );
+    }
+    drop(global);
+
+    // workspace 库八模型同口径（MODEL_ENTRIES 注册表零改动面持衡）
+    let ws = open_ws_ok(&env.db_path("ws"));
+    for model in [
+        "agent_run",
+        "session",
+        "session_event",
+        "explore",
+        "change",
+        "phase",
+        "checklist_item",
+        "step",
+    ] {
+        let page = ws
+            .scan(model, 0, 10)
+            .unwrap_or_else(|e| panic!("workspace 库 scan({model}) 应成功: {e}"));
+        assert_eq!(
+            page.records,
+            Vec::<RecordEnvelope>::new(),
+            "workspace 库模型 {model} 空库 records 空"
+        );
+        assert_eq!(page.total, 0, "workspace 库模型 {model} 空库 total 0");
+    }
 }

@@ -642,6 +642,7 @@ fn 两workspace各自for_root同会话id并行写入互不串库() {
     let keys_a: Vec<String> = store_a
         .scan("session", 0, 10)
         .unwrap()
+        .records
         .iter()
         .map(|envelope| {
             envelope
@@ -1830,6 +1831,7 @@ fn scan分页按offset_limit返回主键自然序翻页拼接不重不漏() {
         store
             .scan("workspace", offset, limit)
             .unwrap_or_else(|e| panic!("scan 应成功: {e}"))
+            .records
             .into_iter()
             .map(|envelope| {
                 envelope
@@ -1853,20 +1855,72 @@ fn scan分页按offset_limit返回主键自然序翻页拼接不重不漏() {
     let mut expected: Vec<String> = seeded.iter().map(|record| record.root.clone()).collect();
     expected.sort();
     assert_eq!(union, expected, "拼接结果恰为全部记录的主键自然序");
+
+    // 分页信封随动：各页 total 恒全量计数（非本页条数，同一读事务快照口径）
+    for (offset, limit) in [(0u32, 2u32), (2, 2), (4, 2)] {
+        let page = store.scan("workspace", offset, limit).unwrap();
+        assert_eq!(
+            page.total, 5,
+            "各页 total 恒全量计数（offset={offset}, limit={limit}）"
+        );
+    }
 }
 
 #[test]
-fn scan未知模型名与空串返回err不panic且错误串可读() {
+fn scan分页信封返回面_records为区间信封且total为全量计数() {
+    let env = Env::new("scan-page-envelope");
+    let store = open_global_ok(&env.db_path("global"));
+    for index in 0..30 {
+        add_ok(&store, &env.ws(&format!("page-ws-{index:02}")));
+    }
+
+    let page = store
+        .scan("workspace", 10, 10)
+        .unwrap_or_else(|e| panic!("scan 应成功: {e}"));
+    assert_eq!(
+        page.records.len(),
+        10,
+        "records 恰区间 10 条（offset 10 / limit 10）"
+    );
+    assert_eq!(page.total, 30, "total = 该模型全量计数（非本页条数）");
+
+    // 信封逐字段与改造前一致：key 为 canonical root 字符串、value 为
+    // camelCase 三字段 JSON 对象
+    for envelope in &page.records {
+        assert!(envelope.key.is_string(), "workspace key 信封为 root 字符串");
+        assert!(envelope.value.is_object(), "workspace value 信封为对象");
+        assert!(
+            envelope.value.get("root").is_some()
+                && envelope.value.get("name").is_some()
+                && envelope.value.get("addedAt").is_some(),
+            "value 字段面与改造前一致（三字段 camelCase）"
+        );
+    }
+
+    // 逐页 total 同口径一致（records 区间 + total 全量经公共面贯通）
+    for (offset, limit) in [(0u32, 10u32), (20, 10), (30, 10)] {
+        let next = store.scan("workspace", offset, limit).unwrap();
+        assert_eq!(next.total, 30, "任意页 total 恒全量计数（offset={offset}）");
+    }
+}
+
+#[test]
+fn scan未知模型名与模型名str边界返回err不panic且错误串可读() {
     let env = Env::new("scan-unknown");
     let store = open_global_ok(&env.db_path("global"));
 
-    for name in ["nope", ""] {
+    let long_name = "模".repeat(1001);
+    for name in ["nope", "", long_name.as_str(), "怪\n名\0🚀"] {
         let result = store.scan(name, 0, 10);
         let err = result.expect_err(&format!("未知模型 {name:?} 应 Err"));
         assert!(matches!(err, StoreError::Db(_)), "变体为 Db，实际: {err:?}");
         assert!(
             err.to_string().contains("未知模型"),
             "错误串含「未知模型」语境便于排查，实际: {err}"
+        );
+        assert!(
+            err.to_string().contains(name),
+            "错误串含模型名便于排查，实际: {err}"
         );
     }
     // 失败不产生任何副作用：库仍可正常读写
@@ -4657,7 +4711,11 @@ fn log_change_phase重复attempt查重返回conflict且事务零残留() {
         "无半截相位行"
     );
     assert_eq!(
-        store.scan("checklist_item", 0, 10).unwrap().len(),
+        store
+            .scan("checklist_item", 0, 10)
+            .unwrap()
+            .records
+            .len(),
         0,
         "无孤立 checklist 子行"
     );
@@ -5245,6 +5303,7 @@ fn list_phase_records多相位多attempt交错落账_按落行序checklist内联
     let keys = store
         .scan("checklist_item", 0, 10)
         .unwrap()
+        .records
         .into_iter()
         .map(|envelope| {
             envelope.key["itemKey"]
@@ -5315,7 +5374,7 @@ fn 信封零改动覆盖四新模型_list_models计数与scan信封可读() {
     );
 
     // scan 零改动可读四新模型记录信封（change 信封 key = 记录 id 主键投影）
-    let changes = store.scan("change", 0, 10).unwrap();
+    let changes = store.scan("change", 0, 10).unwrap().records;
     assert_eq!(changes.len(), 1);
     assert_eq!(
         changes[0].key,
@@ -5333,12 +5392,12 @@ fn 信封零改动覆盖四新模型_list_models计数与scan信封可读() {
         "active_phase 清位后信封出 null"
     );
 
-    let phases = store.scan("phase", 0, 10).unwrap();
+    let phases = store.scan("phase", 0, 10).unwrap().records;
     assert_eq!(phases.len(), 1);
     assert_eq!(phases[0].key, serde_json::json!(1), "phase 主键 = id");
 
     // checklist_item 信封 key 为 {phaseId, itemKey} 对象，itemKey 为十六进制串
-    let items = store.scan("checklist_item", 0, 10).unwrap();
+    let items = store.scan("checklist_item", 0, 10).unwrap().records;
     assert_eq!(items.len(), 2);
     for (envelope, index) in items.iter().zip([0u32, 1]) {
         assert_eq!(
@@ -5353,7 +5412,7 @@ fn 信封零改动覆盖四新模型_list_models计数与scan信封可读() {
         );
     }
 
-    let steps = store.scan("step", 0, 10).unwrap();
+    let steps = store.scan("step", 0, 10).unwrap().records;
     assert_eq!(steps.len(), 1);
     assert_eq!(steps[0].key, serde_json::json!(1), "step 主键 = id");
     assert_eq!(steps[0].value["runId"], serde_json::json!("run-1"));

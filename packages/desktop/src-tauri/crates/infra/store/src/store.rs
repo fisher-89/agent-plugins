@@ -13,7 +13,7 @@ use serde_json::Value;
 use specta::Type;
 
 use crate::canonical;
-use crate::envelope::{self, ModelInfo, RecordEnvelope};
+use crate::envelope::{self, ModelInfo, RecordsPage};
 use crate::model::{
     now_millis, pack_session_event_key, AgentEngineKind, AgentInstanceRecord, AgentProviderRecord,
     AgentRunRecord, ChangeActivePhase, ChangeRecord, ChecklistItemRecord, ExploreRecord,
@@ -1879,13 +1879,14 @@ impl Store {
 
     /// 按模型主键自然序分页扫描（`skip(offset).take(limit)`；`limit` 上限
     /// 500 超出截断；未知模型名 Err——含跨维度模型名，维度由实例锁定）。
-    /// key/value 均为 JSON 值，native_db 类型不越信封。
+    /// 返回分页信封（records + total 同一读事务快照）；key/value 均为
+    /// JSON 值，native_db 类型不越信封。
     pub fn scan(
         &self,
         model: &str,
         offset: u32,
         limit: u32,
-    ) -> Result<Vec<RecordEnvelope>, StoreError> {
+    ) -> Result<RecordsPage, StoreError> {
         envelope::scan(&self.db, self.dimension, model, offset, limit)
     }
 

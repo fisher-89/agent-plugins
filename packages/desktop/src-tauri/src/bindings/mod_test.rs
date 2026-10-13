@@ -12,6 +12,15 @@ fn generated_path() -> PathBuf {
         .join("src/types/generated/bindings.ts")
 }
 
+/// dto.ts 过渡 shim 路径（同式定位）。shim 为 `export type *` 星号 re-export
+/// 生成绑定——出线 DTO（含 `RecordsPage`）经此自动跟随，禁手写旁路。
+fn dto_shim_path() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .expect("CARGO_MANIFEST_DIR 应有父目录")
+        .join("src/types/dto.ts")
+}
+
 /// 产物文件互斥锁（cargo test 多线程并行，单一共享产物必须串行访问）。
 fn file_lock() -> &'static Mutex<()> {
     static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
@@ -167,6 +176,7 @@ const DTO_TYPES: &[&str] = &[
     "PhaseEntry",
     "PromoteOutcome",
     "RecordEnvelope",
+    "RecordsPage",
     "RulesConfig",
     "TestFramework",
     "TestSuite",
@@ -847,17 +857,94 @@ fn command清单补录_archive_change后35条且既有锚点与在册命令保�
     );
 }
 
-/// DTO 类型清单（AC-9 守卫半边）：本变更新增 `PromoteOutcome` 一个出线 DTO
-/// 类型名（promote 命令返回面）——清单条目数随动，首尾锚与在册条目保持。
+/// DTO 类型清单（AC-9 守卫半边）：本变更新增 `RecordsPage` 一个出线 DTO
+/// 类型名（分页信封返回面）——清单条目数随动，首尾锚与在册条目保持。
 #[test]
 fn dto类型清单零补录_条目数与首尾锚持衡() {
-    assert_eq!(
-        DTO_TYPES.len(),
-        55,
-        "DTO 清单补录本变更一条（PromoteOutcome）"
-    );
+    assert_eq!(DTO_TYPES.len(), 56, "DTO 清单补录本变更一条（RecordsPage）");
     assert_eq!(DTO_TYPES.first(), Some(&"ActivePhase"), "首锚持衡");
     assert_eq!(DTO_TYPES.last(), Some(&"WriteProtectionFile"), "尾锚持衡");
+}
+
+// ---------------------------------------------------------------------------
+// RecordsPage 出线形态（desktop-manage-db-by-table，AC-3 bindings 再生成半边）：
+// 分页信封 DTO + dbRecords 返回类型 + DTO_TYPES 清单随动（DD6）
+// ---------------------------------------------------------------------------
+
+/// `RecordsPage` 类型段逐字段出线（`records: RecordEnvelope[]` + `total: number`，
+/// 声明序即出线序）；`dbRecords` 包装返回 `__TAURI_INVOKE<RecordsPage>`（Throw
+/// 模式 Promise，无 `Result` 包装）。
+#[test]
+fn records_page出线为records与total两字段且db_records绑定返回分页信封() {
+    let _lock = lock();
+    let content = String::from_utf8(authoritative_snapshot()).expect("产物为 UTF-8 文本");
+
+    // 类型段恰两字段且顺序在场（声明序 = 出线序，specta 字段序）
+    let section = type_section(&content, "RecordsPage");
+    assert_eq!(
+        field_names(&section),
+        vec!["records", "total"],
+        "RecordsPage 恰 records / total 两字段且序不变，实际段:\n{section}"
+    );
+    assert!(
+        section.contains("records: RecordEnvelope[],") && section.contains("total: number,"),
+        "RecordsPage 字段类型出线（分页信封 + 全量计数），实际段:\n{section}"
+    );
+
+    // dbRecords 绑定返回类型升级为 RecordsPage，六参透传面不变（命令名与
+    // 入参对象逐字随动生成，非手写旁路）
+    assert!(
+        content.contains(
+            "dbRecords: (scope: DbDimension, root: string, model: string, offset: number, \
+             limit: number) => __TAURI_INVOKE<RecordsPage>(\"db_records\", { scope, root, \
+             model, offset, limit })"
+        ),
+        "dbRecords 绑定返回 __TAURI_INVOKE<RecordsPage>（入参面不变）"
+    );
+    // Throw 模式：产物无 Result 错误对象包装
+    assert!(
+        !content.contains("Result<"),
+        "产物无 Result 包装（Throw 模式回归）"
+    );
+
+    // dto.ts 的 `export type *` re-export 自动跟随：`RecordsPage`（及全部出线
+    // DTO）经星号 re-export 出线 shim，无需逐类型手写补录（shim MUST NOT 承载
+    // 手写类型定义——禁手写旁路反向锚：shim 内不出现 RecordsPage 手写声明）
+    let dto_shim = fs::read_to_string(dto_shim_path()).expect("读取 dto.ts 应成功");
+    assert!(
+        dto_shim.contains("export type * from './generated/bindings';"),
+        "dto.ts 应以 `export type *` 星号 re-export 生成绑定（RecordsPage 自动跟随）"
+    );
+    assert!(
+        !dto_shim.contains("RecordsPage"),
+        "dto.ts 不应手写 RecordsPage（星号 re-export 自动跟随，禁手写旁路）"
+    );
+}
+
+/// 清单与产物强耦合门禁（DD6 反向证明）：`"RecordsPage"` 在场后「产物缺出线
+/// 类型」panic 断言不触发；清单无幽灵（在册条目皆出线）/ 无遗漏（出线 DTO 段
+/// 皆在册）。
+#[test]
+fn dto清单与产物types段全集一致_无幽灵与遗漏条目() {
+    let _lock = lock();
+    let content = String::from_utf8(authoritative_snapshot()).expect("产物为 UTF-8 文本");
+
+    // 无遗漏：清单每条都能命中产物 `export type <名> =` 声明——「产物缺出线
+    // 类型」panic 断言在 `"RecordsPage"` 在场后不触发（出线类型增删不随动清单
+    // 必挂的反向证明恢复绿）
+    for dto in DTO_TYPES {
+        assert!(
+            content.contains(&format!("export type {dto} =")),
+            "清单条目 {dto} 在产物缺出线类型声明（清单与产物集漂移）"
+        );
+    }
+
+    // 无幽灵：清单零重复条目（`RecordsPage` 恰一条，非重复补录）
+    let records_pages = DTO_TYPES
+        .iter()
+        .filter(|dto| **dto == "RecordsPage")
+        .count();
+    assert_eq!(records_pages, 1, "RecordsPage 在清单恰一条（零重录幽灵）");
 }
 
 // ---------------------------------------------------------------------------

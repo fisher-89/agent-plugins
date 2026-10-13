@@ -1,0 +1,1 @@
+packages/desktop 查看数据库页面，做以下优化：1.根据model模型自动生成表格（ui使用shadecn）；2. 数据接口带分页；3. 使用抽屉查看详情；

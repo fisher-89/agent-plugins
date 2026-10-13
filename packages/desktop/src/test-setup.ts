@@ -1,3 +1,5 @@
+import { configure } from '@testing-library/react';
+
 // jsdom 缺 Web Animations API，@base-ui 有两个消费面需要分别兜底：
 // 1. ScrollArea 视口的滚动收尾探测无条件调用 viewport.getAnimations({subtree})
 //    ——补空实现（无动画在进行）满足探测语义，消除未捕获异常；
@@ -20,3 +22,8 @@ if (typeof globalThis.ResizeObserver !== 'function') {
   }
   Object.assign(globalThis, { ResizeObserver: ResizeObserverStub });
 }
+
+// 测试门禁高并行运行（覆盖度量 + rust llvm-cov 编译抢 CPU）时 jsdom 定时器 /
+// rAF 可被饿死：RTL 异步等待（waitFor / findBy）默认 1s 预算会被负载抖动打穿
+// （抽屉弹层等异步呈现断言偶发超时）。放宽到 5s——等待语义不变，仅失败反馈变慢。
+configure({ asyncUtilTimeout: 5000 });

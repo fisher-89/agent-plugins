@@ -5,6 +5,8 @@
 //! 不存在，注册表即「新模型 = 定义 struct + 登记一行」的最小机制，也是查看
 //! 器零模型特定代码的落点。native_db 类型不越信封——信封值经 serde_json
 //! 编解码（记录落库为 native_model bincode，此处解码回 JSON 值，人可读）。
+//! 分页扫描随页返回 [`RecordsPage`] 分页信封（records + total 同一读事务
+//! 快照），页界元数据是接口一等契约。
 
 use native_db::{Database, ToInput};
 use serde::{Deserialize, Serialize};
@@ -37,11 +39,23 @@ pub struct RecordEnvelope {
     pub value: Value,
 }
 
+/// 分页信封：offset / limit 区间记录 + 该模型全量计数（二者同一读事务
+/// 快照——并发写下页界与行集自洽，`total` 是页界唯一事实源）。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct RecordsPage {
+    /// 区间记录信封
+    pub records: Vec<RecordEnvelope>,
+    /// 该模型全量计数
+    pub total: u64,
+}
+
 /// 记录计数 fn-pointer：走 `Database::len` 主键口径。
 type CountFn = fn(&Database<'static>) -> Result<u64, StoreError>;
-/// 分页扫描 fn-pointer：主键自然序 `skip(offset).take(limit)`；`key_of` 由
-/// 分发方从注册表行传入。
-type ScanFn = fn(&Database<'static>, u32, u32, KeyOfFn) -> Result<Vec<RecordEnvelope>, StoreError>;
+/// 分页扫描 fn-pointer：主键自然序 `skip(offset).take(limit)`，随页返回
+/// 分页信封（records + total 同一读事务快照）；`key_of` 由分发方从注册表行
+/// 传入。
+type ScanFn = fn(&Database<'static>, u32, u32, KeyOfFn) -> Result<RecordsPage, StoreError>;
 /// 记录主键 JSON 构造 fn-pointer：入参为记录序列化后的 JSON 值。
 type KeyOfFn = fn(&Value) -> Value;
 
@@ -158,15 +172,15 @@ pub(crate) fn list_models(
         .collect()
 }
 
-/// 按模型名分页扫描记录信封（维度随实例锁定：跨维度模型名按「未知模型」
-/// Err）；未知模型名 Err。
+/// 按模型名分页扫描记录信封并随页返回分页信封（维度随实例锁定：跨维度
+/// 模型名按「未知模型」Err）；未知模型名 Err。
 pub(crate) fn scan(
     db: &Database<'static>,
     dimension: DbDimension,
     model: &str,
     offset: u32,
     limit: u32,
-) -> Result<Vec<RecordEnvelope>, StoreError> {
+) -> Result<RecordsPage, StoreError> {
     let entry = MODEL_ENTRIES
         .iter()
         .find(|entry| entry.dimension == dimension && entry.name == model)
@@ -174,15 +188,17 @@ pub(crate) fn scan(
     (entry.scan)(db, offset, limit.min(MAX_SCAN_LIMIT), entry.key_of)
 }
 
-/// 主键自然序分页扫描（`skip(offset).take(limit)`），记录经 serde 转 JSON
-/// 值组装信封（key 由 `key_of` 从记录 JSON 构造）。
+/// 主键自然序分页扫描（`skip(offset).take(limit)`），同一读事务内先取
+/// 全量计数再取区间记录组装分页信封（records + total 同一快照）；记录经
+/// serde 转 JSON 值组装信封（key 由 `key_of` 从记录 JSON 构造）。
 fn scan_model<T: ToInput + Serialize>(
     db: &Database<'static>,
     offset: u32,
     limit: u32,
     key_of: KeyOfFn,
-) -> Result<Vec<RecordEnvelope>, StoreError> {
+) -> Result<RecordsPage, StoreError> {
     let r = db.r_transaction().map_err(db_err("开启读事务"))?;
+    let total = r.len().primary::<T>().map_err(db_err("统计记录数"))?;
     let page: Vec<T> = r
         .scan()
         .primary::<T>()
@@ -193,7 +209,8 @@ fn scan_model<T: ToInput + Serialize>(
         .take(limit as usize)
         .collect::<native_db::db_type::Result<Vec<_>>>()
         .map_err(db_err("扫描记录"))?;
-    page.into_iter()
+    let records = page
+        .into_iter()
         .map(|record| {
             let value = serde_json::to_value(&record)
                 .map_err(|e| StoreError::Db(format!("编码记录信封: {e}")))?;
@@ -202,7 +219,8 @@ fn scan_model<T: ToInput + Serialize>(
                 value,
             })
         })
-        .collect()
+        .collect::<Result<Vec<_>, StoreError>>()?;
+    Ok(RecordsPage { records, total })
 }
 
 /// 记录计数（`Database::len` 主键口径）。
@@ -218,7 +236,7 @@ fn scan_workspaces(
     offset: u32,
     limit: u32,
     key_of: KeyOfFn,
-) -> Result<Vec<RecordEnvelope>, StoreError> {
+) -> Result<RecordsPage, StoreError> {
     scan_model::<WorkspaceRecord>(db, offset, limit, key_of)
 }
 
@@ -227,7 +245,7 @@ fn scan_agent_providers(
     offset: u32,
     limit: u32,
     key_of: KeyOfFn,
-) -> Result<Vec<RecordEnvelope>, StoreError> {
+) -> Result<RecordsPage, StoreError> {
     scan_model::<AgentProviderRecord>(db, offset, limit, key_of)
 }
 
@@ -236,7 +254,7 @@ fn scan_agent_instances(
     offset: u32,
     limit: u32,
     key_of: KeyOfFn,
-) -> Result<Vec<RecordEnvelope>, StoreError> {
+) -> Result<RecordsPage, StoreError> {
     scan_model::<AgentInstanceRecord>(db, offset, limit, key_of)
 }
 
@@ -245,7 +263,7 @@ fn scan_agent_runs(
     offset: u32,
     limit: u32,
     key_of: KeyOfFn,
-) -> Result<Vec<RecordEnvelope>, StoreError> {
+) -> Result<RecordsPage, StoreError> {
     scan_model::<AgentRunRecord>(db, offset, limit, key_of)
 }
 
@@ -254,7 +272,7 @@ fn scan_sessions(
     offset: u32,
     limit: u32,
     key_of: KeyOfFn,
-) -> Result<Vec<RecordEnvelope>, StoreError> {
+) -> Result<RecordsPage, StoreError> {
     scan_model::<SessionRecord>(db, offset, limit, key_of)
 }
 
@@ -263,7 +281,7 @@ fn scan_session_events(
     offset: u32,
     limit: u32,
     key_of: KeyOfFn,
-) -> Result<Vec<RecordEnvelope>, StoreError> {
+) -> Result<RecordsPage, StoreError> {
     scan_model::<SessionEventRecord>(db, offset, limit, key_of)
 }
 
@@ -272,7 +290,7 @@ fn scan_explores(
     offset: u32,
     limit: u32,
     key_of: KeyOfFn,
-) -> Result<Vec<RecordEnvelope>, StoreError> {
+) -> Result<RecordsPage, StoreError> {
     scan_model::<ExploreRecord>(db, offset, limit, key_of)
 }
 
@@ -281,7 +299,7 @@ fn scan_changes(
     offset: u32,
     limit: u32,
     key_of: KeyOfFn,
-) -> Result<Vec<RecordEnvelope>, StoreError> {
+) -> Result<RecordsPage, StoreError> {
     scan_model::<ChangeRecord>(db, offset, limit, key_of)
 }
 
@@ -290,7 +308,7 @@ fn scan_phases(
     offset: u32,
     limit: u32,
     key_of: KeyOfFn,
-) -> Result<Vec<RecordEnvelope>, StoreError> {
+) -> Result<RecordsPage, StoreError> {
     scan_model::<PhaseRecord>(db, offset, limit, key_of)
 }
 
@@ -299,7 +317,7 @@ fn scan_checklist_items(
     offset: u32,
     limit: u32,
     key_of: KeyOfFn,
-) -> Result<Vec<RecordEnvelope>, StoreError> {
+) -> Result<RecordsPage, StoreError> {
     scan_model::<ChecklistItemRecord>(db, offset, limit, key_of)
 }
 
@@ -308,7 +326,7 @@ fn scan_steps(
     offset: u32,
     limit: u32,
     key_of: KeyOfFn,
-) -> Result<Vec<RecordEnvelope>, StoreError> {
+) -> Result<RecordsPage, StoreError> {
     scan_model::<StepRecord>(db, offset, limit, key_of)
 }
 

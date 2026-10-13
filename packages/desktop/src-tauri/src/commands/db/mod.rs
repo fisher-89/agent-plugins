@@ -11,7 +11,7 @@
 
 use tauri::State;
 
-use store::{DbDimension, ModelInfo, RecordEnvelope, WorkspaceStores};
+use store::{DbDimension, ModelInfo, RecordsPage, WorkspaceStores};
 
 #[cfg(test)]
 mod mod_test;
@@ -41,9 +41,9 @@ pub fn db_models(
     }
 }
 
-/// 按模型主键自然序分页扫描记录信封（只读；scope 寻址两库，分页语义不变；
-/// 未知模型名 reject——含跨维度模型名，维度由实例锁定；Global 忽略 root，
-/// Workspace blank root → 空结果）。
+/// 按模型主键自然序分页扫描记录信封，随页返回分页信封（只读；scope 寻址
+/// 两库，分页语义不变；未知模型名 reject——含跨维度模型名，维度由实例锁定；
+/// Global 忽略 root，Workspace blank root → 空信封不触发库解析）。
 #[tauri::command]
 #[specta::specta]
 pub fn db_records(
@@ -53,10 +53,13 @@ pub fn db_records(
     model: String,
     offset: u32,
     limit: u32,
-) -> Result<Vec<RecordEnvelope>, String> {
+) -> Result<RecordsPage, String> {
     match scope {
         DbDimension::User => stores.global().scan(&model, offset, limit),
-        DbDimension::Workspace if is_blank_root(&root) => Ok(Vec::new()),
+        DbDimension::Workspace if is_blank_root(&root) => Ok(RecordsPage {
+            records: Vec::new(),
+            total: 0,
+        }),
         DbDimension::Workspace => {
             let store = stores.for_root(&root).map_err(|e| e.to_string())?;
             store.scan(&model, offset, limit)

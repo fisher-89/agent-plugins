@@ -1,7 +1,7 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 
-import type { ModelInfo, RecordEnvelope } from '../../../types/dto';
+import type { ModelInfo, RecordEnvelope, RecordsPage } from '../../../types/dto';
 import { useDbInspector } from './use-db-inspector';
 
 const { invokeMock } = vi.hoisted(() => ({
@@ -37,7 +37,8 @@ function envelopes(count: number, from = 0): RecordEnvelope[] {
   }));
 }
 
-/** 按命令名分发：db_models 恒回清单，db_records 按 offset/limit 切库存。 */
+/** 按命令名分发：db_models 恒回清单，db_records 按 offset/limit 切库存，
+ * 回分页信封（records 区间 + total = 库存全量计数）。 */
 function mockDispatch(inventory: RecordEnvelope[] = []) {
   invokeMock.mockImplementation(
     (command: string, params?: { model?: string; offset?: number; limit?: number }) => {
@@ -47,7 +48,8 @@ function mockDispatch(inventory: RecordEnvelope[] = []) {
       if (command === 'db_records') {
         const offset = params?.offset ?? 0;
         const limit = params?.limit ?? 50;
-        return Promise.resolve(inventory.slice(offset, offset + limit).map((e) => ({ ...e })));
+        const records = inventory.slice(offset, offset + limit).map((e) => ({ ...e }));
+        return Promise.resolve({ records, total: inventory.length });
       }
       return Promise.resolve(null);
     },
@@ -256,14 +258,18 @@ describe('useDbInspector：selectModel 与翻页', () => {
     expect(countOf('db_records')).toBe(recordsCalls); // offset 未变 → 不重取
   });
 
-  it('记录数恰为整页倍数：hasMore 判定使翻页拼接不重不漏', async () => {
-    mockDispatch(envelopes(100)); // 恰两整页
+  it('total 导出页界：首页 hasMore 由 total 判定，翻页拼接不重不漏', async () => {
+    mockDispatch(envelopes(60)); // 库存 60 = 1 整页 50 + 10
     const { result } = renderHook(() => useDbInspector(ROOT));
     await waitFor(() => expect(result.current.loading).toBe(false));
 
     await selectModel(result, 'agent_run');
     await waitFor(() => expect(result.current.records).toHaveLength(50));
-    expect(result.current.hasMore).toBe(true);
+
+    // total 为接口全量计数快照（非本页条数），页界全部由其导出
+    expect(result.current.total).toBe(60);
+    expect(result.current.page).toBe(1); // offset 0 / 50 + 1
+    expect(result.current.hasMore).toBe(true); // 0 + 50 < 60
     const page1Keys = result.current.records.map((envelope) => envelope.key);
 
     act(() => {
@@ -271,14 +277,87 @@ describe('useDbInspector：selectModel 与翻页', () => {
     });
     await waitFor(() => expect(result.current.records[0]?.key).toBe(50));
     const page2Keys = result.current.records.map((envelope) => envelope.key);
-    // 恰为整页倍数的边界：第二页仍整页 → hasMore 判 true（再翻得空页后转 false）
-    expect(page2Keys).toHaveLength(50);
-    expect(result.current.hasMore).toBe(true);
+
+    expect(result.current.total).toBe(60); // 翻页不改 total（恒全量计数）
+    expect(result.current.page).toBe(2); // offset 50 / 50 + 1
+    expect(result.current.hasMore).toBe(false); // 50 + 10 < 60 不成立
 
     const union = [...page1Keys, ...page2Keys];
     expect(new Set(union).size).toBe(union.length); // 不重
-    expect(union).toHaveLength(100); // 不漏
+    expect(union).toHaveLength(60); // 不漏
     expect(union.every((key, index) => key === index)).toBe(true); // 拼接即全集自然序
+  });
+
+  it('total 恰为 PAGE_SIZE 整数倍：末页 next 禁用、无幽灵空页（AC-4 / DD5）', async () => {
+    mockDispatch(envelopes(100)); // 库存 100 = 恰两整页
+    const { result } = renderHook(() => useDbInspector(ROOT));
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    await selectModel(result, 'agent_run');
+    await waitFor(() => expect(result.current.records).toHaveLength(50));
+
+    expect(result.current.total).toBe(100);
+    expect(result.current.totalPages).toBe(2); // max(1, ceil(100/50))
+    expect(result.current.hasMore).toBe(true); // 0 + 50 < 100
+
+    act(() => {
+      result.current.nextPage();
+    });
+    await waitFor(() => expect(result.current.records[0]?.key).toBe(50));
+    expect(result.current.page).toBe(2);
+    // 末页（50 + 50 == total）：hasMore 显式 false —— 废除旧
+    // `records.length === PAGE_SIZE` 启发式（旧口径此处误判 true 并翻出空页）
+    expect(result.current.hasMore).toBe(false);
+
+    act(() => {
+      result.current.nextPage();
+    });
+    // 锚定在越界取数完成（offset 与在途标志双双落定），避免读到上一页残留
+    await waitFor(() => expect(result.current.recordsLoading).toBe(false));
+    expect(result.current.offset).toBe(100);
+    // 越过末页：空页但 total 恒全量，页码自洽不崩
+    expect(result.current.records).toHaveLength(0);
+    expect(result.current.total).toBe(100);
+    expect(result.current.page).toBe(3);
+    expect(result.current.hasMore).toBe(false);
+  });
+
+  it('total=0 / total=1 / 超大 total：totalPages 取 max(1, …) 不除零、页界不 NaN', async () => {
+    // total = 0（空模型）
+    mockDispatch(envelopes(0));
+    const empty = renderHook(() => useDbInspector(ROOT));
+    await waitFor(() => expect(empty.result.current.loading).toBe(false));
+    await selectModel(empty.result, 'agent_run');
+    await waitFor(() => expect(empty.result.current.records).toHaveLength(0));
+    expect(empty.result.current.total).toBe(0);
+    expect(empty.result.current.totalPages).toBe(1); // max(1, ceil(0/50))
+    expect(empty.result.current.page).toBe(1);
+    expect(empty.result.current.hasMore).toBe(false); // 0 + 0 < 0 不成立
+
+    // total = 1（单条）：恰一页
+    mockDispatch(envelopes(1));
+    const single = renderHook(() => useDbInspector(ROOT));
+    await waitFor(() => expect(single.result.current.loading).toBe(false));
+    await selectModel(single.result, 'agent_run');
+    await waitFor(() => expect(single.result.current.records).toHaveLength(1));
+    expect(single.result.current.totalPages).toBe(1);
+    expect(single.result.current.hasMore).toBe(false); // 0 + 1 < 1 不成立
+
+    // 超大 total（Number.MAX_SAFE_INTEGER 量级）：页界运算不溢出、不 NaN
+    const hugeTotal = Number.MAX_SAFE_INTEGER;
+    invokeMock.mockImplementation((command: string) => {
+      if (command === 'db_models') return Promise.resolve(MODELS.map((m) => ({ ...m })));
+      return Promise.resolve({ records: envelopes(50), total: hugeTotal });
+    });
+    const huge = renderHook(() => useDbInspector(ROOT));
+    await waitFor(() => expect(huge.result.current.loading).toBe(false));
+    await selectModel(huge.result, 'agent_run');
+    await waitFor(() => expect(huge.result.current.records).toHaveLength(50));
+
+    expect(huge.result.current.total).toBe(hugeTotal);
+    expect(huge.result.current.totalPages).toBe(Math.ceil(hugeTotal / 50));
+    expect(Number.isFinite(huge.result.current.totalPages)).toBe(true);
+    expect(huge.result.current.hasMore).toBe(true); // 0 + 50 < huge
   });
 });
 
@@ -343,6 +422,33 @@ describe('useDbInspector：scope / root 切换重置与重取', () => {
     expect(result.current.offset).toBe(0);
     expect(result.current.records).toEqual([]);
   });
+
+  it('root 参数 str 边界逐档（空串 blank / 超长 >1000 字符 / 特殊字符 emoji / 正常值）均同口径复位并以新 root 重取', async () => {
+    // root 仅作 IPC 透传与 effect 依赖键，形态不影响分支——四档逐一验证复位语义
+    const roots = ['', `C:\\demo\\${'x'.repeat(1001)}`, '根\n路径\0🎯', 'C:\\demo\\normal'];
+    mockDispatch(envelopes(10));
+    const { result, rerender } = renderHook(
+      (props: { root: string }) => useDbInspector(props.root),
+      { initialProps: { root: ROOT } },
+    );
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    for (const nextRoot of roots) {
+      await selectModel(result, 'agent_run');
+      await waitFor(() => expect(result.current.records).toHaveLength(10));
+
+      rerender({ root: nextRoot });
+
+      // 每档 root 变更即复位选中与分页，并以新 root 透传重取清单
+      await waitFor(() =>
+        expect(lastParamsOf('db_models')).toEqual({ scope: 'workspace', root: nextRoot }),
+      );
+      expect(result.current.selected).toBeNull();
+      expect(result.current.offset).toBe(0);
+      expect(result.current.records).toEqual([]);
+      expect(result.current.total).toBe(0); // 页界快照同口径复位（不呈伪 total）
+    }
+  });
 });
 
 describe('useDbInspector：错误态（查询轨 inline，无 toast）', () => {
@@ -397,10 +503,10 @@ describe('useDbInspector：加载态、翻页竞态取消守卫与 refresh 严�
   });
 
   it('选中模型取数进行中：recordsLoading 置位，完成后清除并落页', async () => {
-    let resolveRecords: (records: RecordEnvelope[]) => void = () => {};
+    let resolveRecords: (page: RecordsPage) => void = () => {};
     invokeMock.mockImplementation((command: string) => {
       if (command === 'db_models') return Promise.resolve([...MODELS]);
-      return new Promise<RecordEnvelope[]>((resolve) => {
+      return new Promise<RecordsPage>((resolve) => {
         resolveRecords = resolve;
       });
     });
@@ -414,7 +520,7 @@ describe('useDbInspector：加载态、翻页竞态取消守卫与 refresh 严�
     expect(result.current.recordsError).toBeNull(); // 在途不误报错误
 
     await act(async () => {
-      resolveRecords(envelopes(5));
+      resolveRecords({ records: envelopes(5), total: 5 });
     });
     expect(result.current.recordsLoading).toBe(false);
     expect(result.current.records).toHaveLength(5);
@@ -422,10 +528,10 @@ describe('useDbInspector：加载态、翻页竞态取消守卫与 refresh 严�
   });
 
   it('翻页竞态：旧页响应迟到不顶替新页（取消守卫生效，新页数据不被污染）', async () => {
-    const resolvers: Array<(records: RecordEnvelope[]) => void> = [];
+    const resolvers: Array<(page: RecordsPage) => void> = [];
     invokeMock.mockImplementation((command: string) => {
       if (command === 'db_models') return Promise.resolve([...MODELS]);
-      return new Promise<RecordEnvelope[]>((resolve) => {
+      return new Promise<RecordsPage>((resolve) => {
         resolvers.push(resolve);
       });
     });
@@ -443,12 +549,12 @@ describe('useDbInspector：加载态、翻页竞态取消守卫与 refresh 严�
     await waitFor(() => expect(resolvers.length).toBe(2)); // 第 2 页请求已发出
 
     await act(async () => {
-      resolvers[1](envelopes(3, 50)); // 新页（offset 50）先返回
+      resolvers[1]({ records: envelopes(3, 50), total: 53 }); // 新页（offset 50）先返回
     });
     await waitFor(() => expect(result.current.records[0]?.key).toBe(50));
 
     await act(async () => {
-      resolvers[0](envelopes(3, 0)); // 旧页迟到返回
+      resolvers[0]({ records: envelopes(3, 0), total: 3 }); // 旧页迟到返回
     });
     // 取消守卫：旧页响应被丢弃，不顶替新页、不扰加载态
     expect(result.current.records[0]?.key).toBe(50);
@@ -457,11 +563,11 @@ describe('useDbInspector：加载态、翻页竞态取消守卫与 refresh 严�
   });
 
   it('翻页竞态（错误向）：旧页迟到失败不置 recordsError、新页数据不丢', async () => {
-    const resolvers: Array<(records: RecordEnvelope[]) => void> = [];
+    const resolvers: Array<(page: RecordsPage) => void> = [];
     const rejectors: Array<(error: unknown) => void> = [];
     invokeMock.mockImplementation((command: string) => {
       if (command === 'db_models') return Promise.resolve([...MODELS]);
-      return new Promise<RecordEnvelope[]>((resolve, reject) => {
+      return new Promise<RecordsPage>((resolve, reject) => {
         resolvers.push(resolve);
         rejectors.push(reject);
       });
@@ -480,7 +586,7 @@ describe('useDbInspector：加载态、翻页竞态取消守卫与 refresh 严�
     await waitFor(() => expect(resolvers.length).toBe(2));
 
     await act(async () => {
-      resolvers[1](envelopes(3, 50)); // 新页成功返回
+      resolvers[1]({ records: envelopes(3, 50), total: 53 }); // 新页成功返回
     });
     await waitFor(() => expect(result.current.records[0]?.key).toBe(50));
 

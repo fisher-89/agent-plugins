@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
-import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 
-import type { ModelInfo, RecordEnvelope } from '../../types/dto';
+import type { ModelInfo, RecordEnvelope, RecordsPage } from '../../types/dto';
 import { DbInspectorView } from './db-inspector-view';
 
 // ---------------------------------------------------------------------------
@@ -12,8 +12,8 @@ import { DbInspectorView } from './db-inspector-view';
 // db_records，固定 fixture 并记录调用序列，断言 scope / root 入参）。hook 重置
 // 语义（scope 切换 → 清单重取 + 选中 / 分页复位）经真实组合的 invoke 面可观测，
 // 不以替身 state 注入降级。sonner 以 spy mock 注入：查询轨错误呈现断言「无任何
-// toast 调用」（错误 inline 双轨语义）。只读四件套：清单 + 计数、分页、单条
-// JSON、空/错误态。
+// toast 调用」（错误 inline 双轨语义）。只读四件套：清单 + 计数、分页自动表格、
+// 单条抽屉详情、空/错误态。
 // ---------------------------------------------------------------------------
 
 const { toastErrorMock, toastInfoMock, invokeMock } = vi.hoisted(() => ({
@@ -43,7 +43,8 @@ const MODELS: ModelInfo[] = [
   { name: 'agent_run', count: 0 },
 ];
 
-function envelope(key: unknown, value: Record<string, unknown>): RecordEnvelope {
+// value 允许退化形态（null / 数组 / 标量）：AC-2 的非对象 value 行覆盖
+function envelope(key: unknown, value: unknown): RecordEnvelope {
   return { key, value };
 }
 
@@ -74,7 +75,8 @@ function lastParamsOf(command: string): Record<string, unknown> | undefined {
 }
 
 /** 按命令名分发：db_models 恒回清单，db_records 按 offset/limit 切库存（仅
- * stockedModel 命中库存，其余模型回空——选中即按模型取各自记录）。 */
+ * stockedModel 命中库存，其余模型回空信封——选中即按模型取各自记录）；回
+ * 分页信封（records 区间 + total = 库存全量计数）。 */
 function mockIpc(inventory: RecordEnvelope[] = [], stockedModel = 'workspace') {
   invokeMock.mockImplementation(
     (command: string, params?: { model?: string; offset?: number; limit?: number }) => {
@@ -82,36 +84,74 @@ function mockIpc(inventory: RecordEnvelope[] = [], stockedModel = 'workspace') {
         return Promise.resolve(MODELS.map((model) => ({ ...model })));
       }
       if (command === 'db_records') {
-        if (params?.model !== stockedModel) return Promise.resolve([]);
+        if (params?.model !== stockedModel) return Promise.resolve({ records: [], total: 0 });
         const offset = params?.offset ?? 0;
         const limit = params?.limit ?? PAGE_SIZE;
-        return Promise.resolve(inventory.slice(offset, offset + limit).map((e) => ({ ...e })));
+        const records = inventory.slice(offset, offset + limit).map((e) => ({ ...e }));
+        return Promise.resolve({ records, total: inventory.length });
       }
       return Promise.resolve([]);
     },
   );
 }
 
-/** 点击模型行（以 data-model 精确寻址）并等待记录区呈现（空态或记录行）。 */
+/** 记录区表格：`db-records-table` 容器内的 <table>（shadcn Table 结构）。
+ * 抽屉 modal 打开时 base-ui 将背景页置 aria-hidden（inert）——「抽屉保留现状」类
+ * 断言须在开抽屉状态下读取背景列表，故角色查询显式含隐藏节点；关闭态语义不变。 */
+function recordsTable(): HTMLElement {
+  return screen.getByRole('table', { hidden: true });
+}
+
+/** 表头列名序列（key 恒首列，后见键补尾列）。 */
+function headerColumns(): string[] {
+  return within(recordsTable())
+    .getAllByRole('columnheader', { hidden: true })
+    .map((cell) => cell.textContent ?? '');
+}
+
+/** 数据行序列（不含表头行）。 */
+function bodyRows(): HTMLElement[] {
+  return within(recordsTable()).getAllByRole('row', { hidden: true }).slice(1);
+}
+
+/** 某行各单元格文本（与列位一一对齐，缺失键为空串）。 */
+function rowCells(row: HTMLElement): string[] {
+  return within(row)
+    .getAllByRole('cell', { hidden: true })
+    .map((cell) => cell.textContent ?? '');
+}
+
+/** 点击模型行（以 data-model 精确寻址）并等待记录区呈现（空态或记录表格）。 */
 async function selectModelAndWait(modelName: string) {
   const target = screen
     .getAllByTestId('db-model-item')
-    .find((item) => item.getAttribute('data-model') === modelName);
+    .find((item) => within(item).queryByText(modelName, { exact: false }) !== null);
   if (!target) throw new Error(`模型行 ${modelName} 不在清单中`);
   fireEvent.click(target);
   await waitFor(() => {
     if (screen.queryByTestId('db-records-empty') !== null) return;
-    if (screen.getAllByTestId('db-record-item').length > 0) return;
-    throw new Error('记录区尚未呈现（空态或记录行）');
+    if (screen.queryByTestId('db-records-table') !== null) return;
+    throw new Error('记录区尚未呈现（空态或记录表格）');
   });
 }
 
 /** 真实组合进入「清单已载 + 模型已选中 + 记录已落页」呈现态。 */
 async function renderWithModelSelected(inventory: RecordEnvelope[], modelName = 'workspace') {
+  cleanup();
   mockIpc(inventory);
   render(<DbInspectorView root={ROOT} />);
   await waitFor(() => expect(screen.queryByTestId('db-models-loading')).toBeNull());
   await selectModelAndWait(modelName);
+}
+
+/** 抽屉标题文本（`data-slot="drawer-title"` 定位，避开区块级 h2 标题）。 */
+function drawerTitle(): string | null {
+  return document.querySelector('[data-slot="drawer-title"]')?.textContent ?? null;
+}
+
+/** 分页控件行文案：「第 {page} / {totalPages} 页（共 {total} 条）」。 */
+function pageInfoText(): string {
+  return screen.getByText(/第 \d+ \/ \d+ 页（共 \d+ 条）/).textContent ?? '';
 }
 
 // ---------------------------------------------------------------------------
@@ -138,7 +178,7 @@ describe('DbInspectorView：数据模型', () => {
     expect(items[1].textContent).toContain('agent_run');
     expect(items[1].textContent).toContain('0');
     // 未选中模型：记录区不挂载（真实 hook：selected=null 不发 db_records）
-    expect(screen.queryByTestId('db-record-item')).toBeNull();
+    expect(screen.queryByTestId('db-records-table')).toBeNull();
     expect(countOf('db_records')).toBe(0);
     // 清单取数经 IPC 边界：挂载即携默认 scope（workspace 库）与 root
     expect(invokeMock).toHaveBeenCalledWith('db_models', WS_PARAMS);
@@ -195,7 +235,7 @@ describe('DbInspectorView：数据模型', () => {
     expect(screen.getByTestId('db-records-empty') !== null).toBe(true);
     expect(screen.getByTestId('db-records-empty').textContent).toContain('暂无记录');
     expect(screen.queryByTestId('db-inspector-error')).toBeNull();
-    expect(screen.queryByTestId('db-record-item')).toBeNull();
+    expect(screen.queryByTestId('db-records-table')).toBeNull();
     // 记录区标题以「所选模型名」呈现（agent_run 为清单第二项，非 find 首项）
     expect(screen.getByRole('heading', { name: 'agent_run' }) !== null).toBe(true);
   });
@@ -229,93 +269,453 @@ describe('DbInspectorView：数据模型', () => {
 });
 
 // ---------------------------------------------------------------------------
-// 记录分页区：信封行、翻页控件边界、加载形态（整页库存驱动真实翻页链）
+// 模型驱动自动表格（AC-1）：key 恒首列 + value 顶层键并集首见稳定序 + 缺失键
+// 空单元格 + 非对象 value 退化 value 尾列；零模型特定分支
 // ---------------------------------------------------------------------------
 
-describe('DbInspectorView：分页扫描与翻页控件', () => {
+describe('DbInspectorView：模型驱动自动表格', () => {
   beforeEach(() => {
     invokeMock.mockReset();
     toastErrorMock.mockReset();
     toastInfoMock.mockReset();
   });
 
-  it('选中模型后记录区按信封行呈现：key 预览 + value 摘要，整页 hasMore 驱动翻页控件', async () => {
+  it('正向：记录区呈 shadcn Table 结构，表头为 key + value 顶层键并集（首见稳定序）', async () => {
     await renderWithModelSelected(pagedInventory());
 
-    const rows = screen.getAllByTestId('db-record-item');
+    // shadcn ui/table 组件族真实渲染：table / thead / tbody / tr / th / td 结构在场
+    const table = recordsTable();
+    expect(table.tagName).toBe('TABLE');
+    expect(within(table).getAllByRole('columnheader').length).toBeGreaterThan(0);
+    expect(within(table).getAllByRole('row').length).toBeGreaterThan(1);
+
+    // 首行 value 顶层键 {id, prompt}；次行 {eventKey, runId} 后见键补尾列；
+    // 其余行同键不重复追加 → 并集首见稳定序，key 恒首列
+    expect(headerColumns()).toEqual(['key', 'id', 'prompt', 'eventKey', 'runId']);
+
+    // 各行单元格与列位对齐（缺失键空单元格）
+    const rows = bodyRows();
     expect(rows).toHaveLength(PAGE_SIZE); // 60 条库存切第 0 页整 50 条
-    expect(rows[0].textContent).toContain('key: 1');
-    expect(rows[0].textContent).toContain('{"id":1,"prompt":"你好"}');
-    expect(rows[1].textContent).toContain('key: {"runId":1,"seq":0}');
+    expect(rowCells(rows[0])).toEqual(['1', '1', '"你好"', '', '']);
+    expect(rowCells(rows[1])).toEqual(['{"runId":1,"seq":0}', '', '', '"0x1"', '1']);
+    expect(rowCells(rows[2])).toEqual(['2', '2', '', '', '']);
+
     // 有记录时既不呈空态也不呈错误区（空态 / 错误 / 记录三分支互斥）
     expect(screen.queryByTestId('db-records-empty')).toBeNull();
     expect(screen.queryByText(/记录扫描失败/)).toBeNull();
     // 控件边界：首页 prev 禁用、整页 hasMore=true 时 next 可用
     expect(screen.getByTestId('db-page-prev').hasAttribute('disabled')).toBe(true);
     expect(screen.getByTestId('db-page-next').hasAttribute('disabled')).toBe(false);
-    expect(screen.getByText('offset 0') !== null).toBe(true);
   });
 
-  it('记录行 className 精确匹配：仅被点开的行带 text-primary，关闭行保持基线', async () => {
-    await renderWithModelSelected(pagedInventory());
-
-    const base =
-      'block w-full cursor-pointer border-0 border-b border-b-border bg-transparent px-0 py-2 text-left last:border-b-0 hover:text-primary ';
-    let rows = screen.getAllByTestId('db-record-item');
-    expect(rows[0].className).toBe(base);
-    expect(rows[1].className).toBe(base);
-
-    fireEvent.click(rows[0]);
-    rows = screen.getAllByTestId('db-record-item');
-    expect(rows[0].className).toBe(`${base}text-primary`);
-    expect(rows[1].className).toBe(base);
-  });
-
-  it('value 摘要按 120 字符边界截断：短值原样、恰 120 不截、121 截断加省略号', async () => {
-    const exact120 = JSON.stringify({ pad: 'x'.repeat(110) }); // 恰 120 字符
-    const over = JSON.stringify({ pad: 'y'.repeat(111) }); // 121 字符
-    expect(exact120).toHaveLength(120);
-    expect(over).toHaveLength(121);
+  it('正向：零模型特定分支——换一组顶层键的 fixture 出表无需改组件', async () => {
+    // 未在任何既有用例出现过的模型键形：列由数据驱动推导，非硬编码
     await renderWithModelSelected([
-      envelope(1, { id: 1 }),
-      envelope(2, JSON.parse(exact120) as Record<string, unknown>),
-      envelope(3, JSON.parse(over) as Record<string, unknown>),
+      envelope('a', { alpha: 1, beta: 'x' }),
+      envelope('b', { gamma: true, alpha: 2 }),
     ]);
 
-    const rows = screen.getAllByTestId('db-record-item');
-    expect(rows[0].textContent).toBe('key: 1{"id":1}'); // 短值原样、无省略号
-    expect(rows[1].textContent).toBe(`key: 2${exact120}`); // 恰等于 max：不截断
-    expect(rows[2].textContent).toBe(`key: 3${over.slice(0, 120)}…`); // 超出：截断 + 省略号
+    expect(headerColumns()).toEqual(['key', 'alpha', 'beta', 'gamma']);
+    const rows = bodyRows();
+    expect(rowCells(rows[0])).toEqual(['"a"', '1', '"x"', '']);
+    expect(rowCells(rows[1])).toEqual(['"b"', '2', '', 'true']);
   });
 
-  it('翻页控件按 offset / hasMore 边界启用或禁用：整页库存下 next/prev 真实翻页', async () => {
-    // 库存恰一整页：第 0 页 hasMore=true，第 1 页空 → hasMore=false
-    mockIpc(Array.from({ length: PAGE_SIZE }, (_, index) => envelope(index, { id: index })));
-    render(<DbInspectorView root={ROOT} />);
-    await waitFor(() => expect(screen.queryByTestId('db-models-loading')).toBeNull());
-    await selectModelAndWait('workspace');
+  it('异常：value 顶层非对象行（null / 数组 / 标量）退化为 value 尾列承载摘要', async () => {
+    await renderWithModelSelected([
+      envelope(1, { id: 1 }),
+      envelope(2, null),
+      envelope(3, [1, 2, 3]),
+      envelope(4, '文本'),
+      envelope(5, 42),
+    ]);
 
-    // 首页：prev 禁用、next 可用
-    expect(screen.getByTestId('db-page-prev').hasAttribute('disabled')).toBe(true);
+    // 对象行贡献 id 列；非对象行触发 value 尾列（全非对象页则恰 key + value 两列）
+    expect(headerColumns()).toEqual(['key', 'id', 'value']);
+    const rows = bodyRows();
+    expect(rowCells(rows[0])).toEqual(['1', '1', '']); // 对象行：value 尾列空单元格
+    expect(rowCells(rows[1])).toEqual(['2', '', 'null']);
+    expect(rowCells(rows[2])).toEqual(['3', '', '[1,2,3]']);
+    expect(rowCells(rows[3])).toEqual(['4', '', '"文本"']);
+    expect(rowCells(rows[4])).toEqual(['5', '', '42']);
+  });
+
+  it('异常：全非对象页恰 key + value 两列；混合页并集列与 value 尾列并存不串位', async () => {
+    // 全非对象页：无对象行贡献字段列 → 恰 key + value 两列
+    await renderWithModelSelected([envelope(1, null), envelope(2, 7)]);
+    expect(headerColumns()).toEqual(['key', 'value']);
+    expect(rowCells(bodyRows()[0])).toEqual(['1', 'null']);
+    expect(rowCells(bodyRows()[1])).toEqual(['2', '7']);
+
+    // 混合页：对象行并集列在前、value 尾列并存，各行列位互不串位
+    await renderWithModelSelected([
+      envelope(1, { id: 1 }),
+      envelope(2, '退化标量'),
+      envelope(3, { id: 3, name: 'n' }),
+    ]);
+    expect(headerColumns()).toEqual(['key', 'id', 'name', 'value']);
+    const rows = bodyRows();
+    expect(rowCells(rows[0])).toEqual(['1', '1', '', '']);
+    expect(rowCells(rows[1])).toEqual(['2', '', '', '"退化标量"']);
+    expect(rowCells(rows[2])).toEqual(['3', '3', '"n"', '']);
+  });
+
+  it('边界：空对象 value 不贡献列；对象键恰为 value 与退化列同名合并（DD3）', async () => {
+    // value = {}（空对象）：不贡献任何顶层键，仅 key 列
+    await renderWithModelSelected([envelope(1, {}), envelope(2, { id: 2 })]);
+    expect(headerColumns()).toEqual(['key', 'id']);
+    expect(rowCells(bodyRows()[0])).toEqual(['1', '']); // 缺失键空单元格
+
+    // 对象键恰为 "value"：与非对象行退化列同名合并，不重复追加第二列
+    await renderWithModelSelected([
+      envelope(1, { value: '对象内同名键' }),
+      envelope(2, '退化行整值'),
+    ]);
+    expect(headerColumns()).toEqual(['key', 'value']);
+    expect(rowCells(bodyRows()[0])).toEqual(['1', '"对象内同名键"']);
+    expect(rowCells(bodyRows()[1])).toEqual(['2', '"退化行整值"']);
+  });
+
+  it('边界：records 空 / 单元素 / 超大页（PAGE_SIZE 50 行）渲染不炸', async () => {
+    // 空：空态分支（表格不挂载）
+    await renderWithModelSelected([]);
+    expect(screen.queryByTestId('db-records-table')).toBeNull();
+    expect(screen.getByTestId('db-records-empty') !== null).toBe(true);
+
+    // 单元素
+    await renderWithModelSelected([envelope(1, { id: 1 })]);
+    expect(bodyRows()).toHaveLength(1);
+    expect(headerColumns()).toEqual(['key', 'id']);
+
+    // 超大页：整 50 行渲染不炸
+    await renderWithModelSelected(
+      Array.from({ length: PAGE_SIZE }, (_, index) => envelope(index, { id: index })),
+    );
+    expect(bodyRows()).toHaveLength(PAGE_SIZE);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 单元格摘要与退化（AC-2）：120 字截断口径 + key 列同口径 + JSON 不可序列化
+// 形态退化
+// ---------------------------------------------------------------------------
+
+describe('DbInspectorView：单元格摘要与退化', () => {
+  beforeEach(() => {
+    invokeMock.mockReset();
+    toastErrorMock.mockReset();
+    toastInfoMock.mockReset();
+  });
+
+  it('正向：短于 120 原样；特殊字符经 JSON 转义呈单行', async () => {
+    await renderWithModelSelected([
+      envelope(1, { id: 1, prompt: '短摘要' }),
+      envelope(2, { id: 2, note: '第一行\n第二行\t含\t制表' }),
+    ]);
+
+    const rows = bodyRows();
+    // 首行先见 prompt 列、次行后见 note 列补尾（首见稳定序）
+    expect(headerColumns()).toEqual(['key', 'id', 'prompt', 'note']);
+    // 短值原样呈现（无省略号）
+    expect(rowCells(rows[0])).toEqual(['1', '1', '"短摘要"', '']);
+    // 含换行 / 制表的字符串经 JSON.stringify 转义为字面量 → 摘要恒单行
+    const noteCell = rowCells(rows[1])[3];
+    expect(noteCell).toBe(JSON.stringify('第一行\n第二行\t含\t制表'));
+    expect(noteCell).not.toContain('\n');
+  });
+
+  it('正向：嵌套对象 value 摘要为压缩 JSON 单行（字段名可读）', async () => {
+    await renderWithModelSelected([
+      envelope(1, { id: 1, payload: { event: { seq: 3, kind: 'raw' }, tags: ['a'] } }),
+    ]);
+
+    const cell = rowCells(bodyRows()[0])[2];
+    expect(cell).toBe(JSON.stringify({ event: { seq: 3, kind: 'raw' }, tags: ['a'] }));
+    expect(cell).not.toContain('\n'); // 压缩形态：无换行
+    expect(cell).toContain('"seq"'); // 字段名可读
+    expect(cell).toContain('"kind"');
+  });
+
+  it('正向：key 列同口径呈主键摘要并按 120 截断', async () => {
+    const longKey = `k${'x'.repeat(130)}`; // 131 字符
+    await renderWithModelSelected([
+      envelope(1, { id: 1 }),
+      envelope({ runId: 1, seq: 0 }, { id: 2 }),
+      envelope(longKey, { id: 3 }),
+    ]);
+
+    const rows = bodyRows();
+    // key 列：数字键 / 对象键按单行 JSON 摘要呈现
+    expect(rowCells(rows[0])[0]).toBe('1');
+    expect(rowCells(rows[1])[0]).toBe('{"runId":1,"seq":0}');
+    // 超长 key 同口径 120 截断 + 省略号（JSON 形态带引号，截断作用于整段 JSON 文本）
+    expect(rowCells(rows[2])[0]).toBe(`"${longKey.slice(0, 119)}…`);
+  });
+
+  it('异常：value 顶层不可序列化形态（undefined）摘要退化为空串不抛错', async () => {
+    await renderWithModelSelected([
+      envelope(1, { id: 1, missing: undefined }),
+      envelope(2, { id: 2, missing: undefined }),
+    ]);
+
+    expect(headerColumns()).toEqual(['key', 'id', 'missing']);
+    const rows = bodyRows();
+    // 键在场但值 undefined → JSON.stringify 返 undefined → valueSummary 退化空串
+    expect(rowCells(rows[0])[2]).toBe('');
+    expect(rowCells(rows[1])[2]).toBe('');
+  });
+
+  it('边界：120 字符摘要恰 120 不截、121 截断加省略号', async () => {
+    const exact120 = 'x'.repeat(120); // 恰 120 字符的字段值
+    const over121 = 'y'.repeat(121); // 121 字符的字段值
+    await renderWithModelSelected([envelope(1, { pad: exact120 }), envelope(2, { pad: over121 })]);
+
+    const rows = bodyRows();
+    // 单元格摘要 = 字段值的 JSON 形态（带引号），截断作用于整段 JSON 文本
+    // （120 + 省略号），故带引号后恰 120 字符的字段值亦在截断线上
+    expect(rowCells(rows[0])[0]).toBe('1');
+    expect(rowCells(rows[0])[1]).toBe(`"${exact120.slice(0, 119)}…`);
+    expect(rowCells(rows[0])[1]).toHaveLength(121);
+    expect(rowCells(rows[1])[1]).toBe(`"${over121.slice(0, 119)}…`);
+    expect(rowCells(rows[1])[1]).toHaveLength(121);
+  });
+
+  it('边界：超长 value（>1000 字符）截断稳定且空对象摘要为 {}', async () => {
+    const longText = 'z'.repeat(1500);
+    await renderWithModelSelected([envelope(1, { blob: longText }), envelope(2, {})]);
+
+    const rows = bodyRows();
+    // 超长字段值截断稳定：JSON 摘要恰 121 字符（120 字 + 省略号）且以省略号收尾
+    const blobCell = rowCells(rows[0])[1];
+    expect(blobCell).toHaveLength(121);
+    expect(blobCell.endsWith('…')).toBe(true);
+    // 空对象行不贡献列（列并集仅 blob），该行 blob 列为空单元格
+    expect(rowCells(rows[1])[1]).toBe('');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 抽屉单条详情（AC-5）+ 列表换血收起（AC-6）：点行选中 + StandardDrawer 右侧
+// 滑出，title = key JSON、content = key+value 信封 pretty JSON、footer 恒「关闭」；
+// 换模型 / 翻页 / 切 scope / 刷新成功即收起，详情不残留
+// ---------------------------------------------------------------------------
+
+describe('DbInspectorView：抽屉单条详情与换血收起', () => {
+  beforeEach(() => {
+    invokeMock.mockReset();
+    toastErrorMock.mockReset();
+    toastInfoMock.mockReset();
+  });
+
+  it('正向：点表格行 → 行选中态 + 抽屉滑出（title = key JSON、content = 信封 pretty JSON、footer 恒「关闭」）', async () => {
+    const record = envelope(
+      { runId: 1, seq: 3 },
+      { eventKey: '0x10000000000000003', runId: 1, event: { seq: 3, kind: 'raw' } },
+    );
+    await renderWithModelSelected([record]);
+
+    // 抽屉开合使页面 inert（base-ui Portal）：先取行引用再点开
+    const firstRow = bodyRows()[0];
+    fireEvent.click(firstRow);
+
+    // 行选中态（data-state="selected"）
+    await waitFor(() => expect(firstRow.getAttribute('data-state')).toBe('selected'));
+    // 抽屉右侧滑出：title = key JSON 文本
+    await waitFor(() => expect(drawerTitle()).toBe(JSON.stringify(record.key)));
+    // content = key + value 信封 pretty JSON
+    const detail = await screen.findByTestId('db-record-json');
+    expect(detail.textContent).toBe(JSON.stringify(record, null, 2));
+    expect(detail.textContent).toContain('"eventKey"');
+    expect(detail.textContent).toContain('0x10000000000000003');
+    // footer 恒「关闭」（弹层内容容器内恰一枚按钮且为「关闭」）
+    const shell = document.querySelector('[data-slot="drawer-content"]');
+    expect(shell).not.toBeNull(); // 抽屉内容容器在场（footer 恒单按钮断言前置）
+    expect(Array.from(shell?.querySelectorAll('button') ?? []).map((b) => b.textContent)).toEqual([
+      '关闭',
+    ]);
+  });
+
+  it('正向：同页点他行即换详情（单实例受控，title 与 content 同步换血）', async () => {
+    const first = envelope(1, { id: 1, name: '第一条' });
+    const second = envelope(2, { id: 2, name: '第二条' });
+    await renderWithModelSelected([first, second]);
+
+    // 抽屉开合使页面 inert（base-ui Portal）：先取行引用再点开
+    const [firstRow, secondRow] = bodyRows();
+    fireEvent.click(firstRow);
+    await waitFor(() => expect(drawerTitle()).toBe(JSON.stringify(first.key)));
+
+    fireEvent.click(secondRow);
+    await waitFor(() => expect(drawerTitle()).toBe(JSON.stringify(second.key)));
+    expect(drawerTitle()).not.toBe(JSON.stringify(first.key));
+    const detail = screen.getByTestId('db-record-json');
+    expect(detail.textContent).toBe(JSON.stringify(second, null, 2));
+  });
+
+  it('异常：点「关闭」→ 抽屉退场、行选中清除', async () => {
+    await renderWithModelSelected([envelope(1, { id: 1 })]);
+
+    const firstRow = bodyRows()[0];
+    fireEvent.click(firstRow);
+    await waitFor(() => expect(drawerTitle()).toBe('1'));
+
+    fireEvent.click(screen.getByRole('button', { name: '关闭' }));
+    await waitFor(() => expect(drawerTitle()).toBeNull());
+    await waitFor(() => expect(firstRow.getAttribute('data-state')).toBeNull());
+  });
+
+  it('异常：刷新失败（recordsError）不换血 → 抽屉保留现状、详情不越出当前列表', async () => {
+    await renderWithModelSelected(pagedInventory());
+
+    const firstRow = bodyRows()[0];
+    fireEvent.click(firstRow);
+    await waitFor(() => expect(drawerTitle()).toBe('1'));
+    const detailBefore = screen.getByTestId('db-record-json').textContent;
+
+    // 刷新失败：db_records reject（db_models 清单轨不受影响）
+    invokeMock.mockImplementation((command: string) => {
+      if (command === 'db_models') return Promise.resolve([...MODELS]);
+      return Promise.reject(new Error('db: workspace 库打开失败'));
+    });
+    fireEvent.click(screen.getByTestId('db-refresh'));
+
+    // 错误 inline 呈现（查询轨错误不走 toast——双轨语义）
+    expect(
+      (await screen.findByText(/记录扫描失败：Error: db: workspace 库打开失败/)) !== null,
+    ).toBe(true);
+    expect(toastErrorMock).not.toHaveBeenCalled();
+
+    // 抽屉保留现状：records 快照不换血 → 收起 effect deps（selected / offset /
+    // records 引用）未变，开合态、title、content 均不被失败响应顶替
+    expect(drawerTitle()).toBe('1');
+    expect(screen.getByTestId('db-record-json').textContent).toBe(detailBefore);
+    expect(firstRow.getAttribute('data-state')).toBe('selected');
+    // 详情不越出当前列表：抽屉 title 对应记录仍在当前渲染行 key 列中
+    // （旧页数据未被半残响应清除，详情不指向不存在的记录）
+    expect(bodyRows().map((row) => rowCells(row)[0])).toContain(drawerTitle());
+    // 旧页记录与页界文案不被顶替（records / total 快照保留）
+    expect(bodyRows()).toHaveLength(PAGE_SIZE);
+    expect(pageInfoText()).toBe('第 1 / 2 页（共 60 条）');
+  });
+
+  it('边界：翻页 / 刷新成功（列表换血）→ 抽屉收起，详情不残留（DD4）', async () => {
+    await renderWithModelSelected(pagedInventory());
+
+    const firstRow = bodyRows()[0];
+    fireEvent.click(firstRow);
+    await waitFor(() => expect(drawerTitle()).toBe('1'));
+
+    // 翻页（offset 变化）：记录列表换血，抽屉收起不残留
+    fireEvent.click(screen.getByTestId('db-page-next'));
+    await waitFor(() => expect(drawerTitle()).toBeNull());
+    await waitFor(() => expect(rowCells(bodyRows()[0])[0]).toBe('50'));
+
+    // 重新开抽屉 → 刷新成功（records 引用变化）：抽屉同样收起
+    const page2FirstRow = bodyRows()[0];
+    fireEvent.click(page2FirstRow);
+    await waitFor(() => expect(drawerTitle()).toBe('50'));
+    fireEvent.click(screen.getByTestId('db-refresh'));
+    await waitFor(() => expect(drawerTitle()).toBeNull());
+  });
+
+  it('边界：换模型 / 切 scope → 抽屉收起；行内无 JSON 详情块（详情仅抽屉内）', async () => {
+    await renderWithModelSelected(pagedInventory());
+
+    const firstRow = bodyRows()[0];
+    fireEvent.click(firstRow);
+    await waitFor(() => expect(drawerTitle()).toBe('1'));
+
+    // 换模型（selected 变化，agent_run 计数 0 → 空态）：抽屉收起
+    fireEvent.click(screen.getAllByTestId('db-model-item')[1]);
+    await waitFor(() => expect(drawerTitle()).toBeNull());
+    expect(screen.getByTestId('db-records-empty') !== null).toBe(true);
+
+    // 行内无 JSON 详情块：记录区无常驻 db-record-detail / 行内 pre（详情仅抽屉）
+    await renderWithModelSelected(pagedInventory());
+    expect(screen.queryByTestId('db-record-detail')).toBeNull();
+    const rows = bodyRows();
+    for (const row of rows) {
+      expect(row.querySelector('pre')).toBeNull();
+    }
+
+    // 切 scope：selected 复位 → 记录区卸载，抽屉随之退场
+    fireEvent.click(screen.getByTestId('db-scope-user'));
+    await waitFor(() =>
+      expect(screen.getByTestId('db-scope-user').getAttribute('aria-pressed')).toBe('true'),
+    );
+    expect(drawerTitle()).toBeNull();
+    expect(screen.queryByTestId('db-records-table')).toBeNull();
+  });
+
+  it('边界：records 空列表无行可选、抽屉不可达', async () => {
+    await renderWithModelSelected([]);
+
+    expect(screen.getByTestId('db-records-empty') !== null).toBe(true);
+    expect(screen.queryByTestId('db-records-table')).toBeNull();
+    expect(drawerTitle()).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 真实页界控件 + 空错态 + 只读边界（AC-4 / AC-7）：页界全部由接口 total 导出，
+// 废除 records.length === PAGE_SIZE 启发式
+// ---------------------------------------------------------------------------
+
+describe('DbInspectorView：真实页界控件、空错态与只读边界', () => {
+  beforeEach(() => {
+    invokeMock.mockReset();
+    toastErrorMock.mockReset();
+    toastInfoMock.mockReset();
+  });
+
+  it('正向：分页控件呈「第 {page} / {totalPages} 页（共 {total} 条）」+ 上一页 / 下一页', async () => {
+    await renderWithModelSelected(pagedInventory());
+
+    // 第 1 / 2 页（共 60 条）：total 60、totalPages ceil(60/50)=2
+    expect(pageInfoText()).toBe('第 1 / 2 页（共 60 条）');
+    expect(screen.getByRole('button', { name: '上一页' }) !== null).toBe(true);
+    expect(screen.getByRole('button', { name: '下一页' }) !== null).toBe(true);
+  });
+
+  it('正向：total 恰为 PAGE_SIZE 整数倍时末页 next 禁用、无幽灵空页（AC-4 呈现锚）', async () => {
+    // 库存恰 100 条 = 2 整页：末页（offset 50）next 应由 total 判定禁用
+    await renderWithModelSelected(
+      Array.from({ length: 100 }, (_, index) => envelope(index, { id: index })),
+    );
+
+    expect(pageInfoText()).toBe('第 1 / 2 页（共 100 条）');
     expect(screen.getByTestId('db-page-next').hasAttribute('disabled')).toBe(false);
-    expect(screen.getByText('offset 0') !== null).toBe(true);
 
     fireEvent.click(screen.getByTestId('db-page-next'));
-    // 第 1 页空（库存恰一整页）：取数完成空态呈现后，offset 50、hasMore=false
-    await waitFor(() => expect(screen.getByTestId('db-records-empty') !== null).toBe(true));
-    expect(screen.getByText('offset 50') !== null).toBe(true);
+    await waitFor(() => expect(pageInfoText()).toBe('第 2 / 2 页（共 100 条）'));
+    expect(rowCells(bodyRows()[0])[0]).toBe('50'); // 末页真实落页
+    // 末页（50 + 50 == total）：next 显式禁用 —— 废除旧
+    // `records.length === PAGE_SIZE` 启发式（旧口径此处误判可翻并翻出空页）
     expect(screen.getByTestId('db-page-next').hasAttribute('disabled')).toBe(true);
+    expect(screen.getByTestId('db-page-prev').hasAttribute('disabled')).toBe(false);
     expect(lastParamsOf('db_records')).toEqual({
       ...WS_PARAMS,
       model: 'workspace',
       offset: 50,
       limit: PAGE_SIZE,
     });
-    expect(screen.getByTestId('db-page-prev').hasAttribute('disabled')).toBe(false);
-    expect(screen.getByTestId('db-records-empty') !== null).toBe(true);
+  });
+
+  it('正向：db-page-prev / db-page-next 真实翻页（IPC 入参透传不变）', async () => {
+    await renderWithModelSelected(pagedInventory());
+
+    expect(screen.getByTestId('db-page-prev').hasAttribute('disabled')).toBe(true); // 首页
+    fireEvent.click(screen.getByTestId('db-page-next'));
+    await waitFor(() => expect(pageInfoText()).toBe('第 2 / 2 页（共 60 条）'));
+    expect(lastParamsOf('db_records')).toEqual({
+      ...WS_PARAMS,
+      model: 'workspace',
+      offset: 50,
+      limit: PAGE_SIZE,
+    });
 
     fireEvent.click(screen.getByTestId('db-page-prev'));
-    await waitFor(() => expect(screen.getAllByTestId('db-record-item')).toHaveLength(PAGE_SIZE));
+    await waitFor(() => expect(pageInfoText()).toBe('第 1 / 2 页（共 60 条）'));
     expect(lastParamsOf('db_records')).toEqual({
       ...WS_PARAMS,
       model: 'workspace',
@@ -325,10 +725,46 @@ describe('DbInspectorView：分页扫描与翻页控件', () => {
     expect(screen.getByTestId('db-page-prev').hasAttribute('disabled')).toBe(true);
   });
 
-  it('recordsLoading 呈现进行中形态且翻页控件禁用', async () => {
+  it('异常：空态（计数 0 → db-records-empty）不误报错误', async () => {
+    mockIpc();
+    render(<DbInspectorView root={ROOT} />);
+    await waitFor(() => expect(screen.queryByTestId('db-models-loading')).toBeNull());
+
+    await selectModelAndWait('agent_run');
+
+    expect(screen.getByTestId('db-records-empty') !== null).toBe(true);
+    expect(screen.queryByText(/记录扫描失败/)).toBeNull();
+    expect(screen.queryByTestId('db-inspector-error')).toBeNull();
+  });
+
+  it('异常：inline 持久错误（记录 reject / workspace 库打开失败）不白屏、无 toast 顶替', async () => {
     invokeMock.mockImplementation((command: string) => {
       if (command === 'db_models') return Promise.resolve([...MODELS]);
-      return new Promise<RecordEnvelope[]>(() => {}); // 记录取数在途
+      return Promise.reject(new Error('db: workspace 库打开失败'));
+    });
+    render(<DbInspectorView root={ROOT} />);
+    await waitFor(() => expect(screen.queryByTestId('db-models-loading')).toBeNull());
+
+    fireEvent.click(screen.getAllByTestId('db-model-item')[0]);
+
+    expect(
+      (await screen.findByText(/记录扫描失败：Error: db: workspace 库打开失败/)) !== null,
+    ).toBe(true);
+    // 不白屏：模型区与记录区 header 仍在
+    expect(screen.getByTestId('db-model-list') !== null).toBe(true);
+    expect(screen.getByRole('heading', { name: 'workspace' }) !== null).toBe(true);
+    // 无 toast 顶替（查询轨 inline 持久双轨语义）
+    expect(toastErrorMock).not.toHaveBeenCalled();
+    expect(toastInfoMock).not.toHaveBeenCalled();
+    // inline 持久：静置后错误区仍在
+    await act(async () => {});
+    expect(screen.getByText(/记录扫描失败/) !== null).toBe(true);
+  });
+
+  it('边界：recordsLoading 时翻页控件禁用', async () => {
+    invokeMock.mockImplementation((command: string) => {
+      if (command === 'db_models') return Promise.resolve([...MODELS]);
+      return new Promise<RecordsPage>(() => {}); // 记录取数在途
     });
     render(<DbInspectorView root={ROOT} />);
     await waitFor(() => expect(screen.queryByTestId('db-models-loading')).toBeNull());
@@ -341,93 +777,8 @@ describe('DbInspectorView：分页扫描与翻页控件', () => {
     // loading 中不呈空态（避免误报「暂无记录」）
     expect(screen.queryByTestId('db-records-empty')).toBeNull();
   });
-});
 
-// ---------------------------------------------------------------------------
-// 单条 JSON 查看
-// ---------------------------------------------------------------------------
-
-describe('DbInspectorView：单条 JSON 查看', () => {
-  beforeEach(() => {
-    invokeMock.mockReset();
-    toastErrorMock.mockReset();
-    toastInfoMock.mockReset();
-  });
-
-  it('点开单条记录：以 pretty JSON 完整呈现 key 与 value，字段名可读', async () => {
-    const record = envelope(
-      { runId: 1, seq: 3 },
-      { eventKey: '0x10000000000000003', runId: 1, event: { seq: 3, kind: 'raw' } },
-    );
-    await renderWithModelSelected([record]);
-
-    fireEvent.click(screen.getByTestId('db-record-item'));
-
-    const detail = screen.getByTestId('db-record-json');
-    expect(detail.textContent).toBe(JSON.stringify(record, null, 2));
-    expect(detail.textContent).toContain('"eventKey"');
-    expect(detail.textContent).toContain('"runId"');
-    expect(detail.textContent).toContain('0x10000000000000003');
-    expect(screen.getByText(/记录详情（信封 JSON）/) !== null).toBe(true);
-  });
-
-  it('换模型 / 换页收起单条详情（记录列表换血详情不残留）', async () => {
-    await renderWithModelSelected(pagedInventory());
-
-    fireEvent.click(screen.getAllByTestId('db-record-item')[0]);
-    expect(screen.getByTestId('db-record-detail') !== null).toBe(true);
-
-    // 换页（offset 变化）：记录列表换血，详情收起不残留
-    fireEvent.click(screen.getByTestId('db-page-next'));
-    await waitFor(() => expect(screen.queryByTestId('db-record-detail')).toBeNull());
-    await waitFor(() =>
-      expect(screen.getAllByTestId('db-record-item')[0].textContent).toContain('key: 50'),
-    );
-
-    // 换模型（selected 变化）：详情同样收起
-    fireEvent.click(screen.getAllByTestId('db-record-item')[0]);
-    expect(screen.getByTestId('db-record-detail') !== null).toBe(true);
-    fireEvent.click(screen.getAllByTestId('db-model-item')[1]); // agent_run（计数 0 → 空态）
-    await waitFor(() => expect(screen.queryByTestId('db-record-detail')).toBeNull());
-    expect(screen.getByTestId('db-records-empty') !== null).toBe(true);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// 错误态与只读边界（查询轨 error 态回归）
-// ---------------------------------------------------------------------------
-
-describe('DbInspectorView：错误态与只读边界', () => {
-  beforeEach(() => {
-    invokeMock.mockReset();
-    toastErrorMock.mockReset();
-    toastInfoMock.mockReset();
-  });
-
-  it('recordsError 置位：inline 持久错误区呈现、页面不白屏、已有清单不丢失、无 toast 调用', async () => {
-    invokeMock.mockImplementation((command: string) => {
-      if (command === 'db_models') return Promise.resolve([...MODELS]);
-      return Promise.reject(new Error('db: 未知模型: nope'));
-    });
-    render(<DbInspectorView root={ROOT} />);
-    await waitFor(() => expect(screen.queryByTestId('db-models-loading')).toBeNull());
-    fireEvent.click(screen.getAllByTestId('db-model-item')[0]);
-
-    expect((await screen.findByText(/记录扫描失败：Error: db: 未知模型: nope/)) !== null).toBe(
-      true,
-    );
-    expect(screen.getAllByTestId('db-model-item')).toHaveLength(2); // 清单不丢失
-    expect(screen.getByTestId('db-model-list') !== null).toBe(true); // 页面不白屏
-    // 错误在场时不呈空态（错误态优先于空态，两区不同时渲染）
-    expect(screen.queryByTestId('db-records-empty')).toBeNull();
-    // inline 持久：静置后错误区仍在（后续渲染不顶替）
-    await waitFor(() => expect(screen.getByText(/记录扫描失败/) !== null).toBe(true));
-    // 查询轨「错误呈现双轨」：无任何 toast 调用
-    expect(toastErrorMock).not.toHaveBeenCalled();
-    expect(toastInfoMock).not.toHaveBeenCalled();
-  });
-
-  it('只读边界：渲染树可交互控件仅选择、翻页、刷新类，无任何写操作入口', async () => {
+  it('边界：只读边界——可交互控件仅选择 / 翻页 / 刷新类，无任何写操作入口', async () => {
     await renderWithModelSelected(pagedInventory());
 
     const buttons = screen.getAllByRole('button');
@@ -437,9 +788,7 @@ describe('DbInspectorView：错误态与只读边界', () => {
     const offenders = buttons
       .filter((button) => {
         const isNav = readonlyActions.some((action) => button.textContent === action);
-        const isRow =
-          button.getAttribute('data-testid') === 'db-model-item' ||
-          button.getAttribute('data-testid') === 'db-record-item';
+        const isRow = button.getAttribute('data-testid') === 'db-model-item';
         return !isNav && !isRow;
       })
       .map((button) => button.textContent ?? '');
@@ -449,24 +798,24 @@ describe('DbInspectorView：错误态与只读边界', () => {
     expect(writeish).toHaveLength(0);
   });
 
-  it('模型行与记录行均可点选（选择类控件语义）', async () => {
+  it('边界：模型行与记录行均可点选（选择类控件语义）', async () => {
     await renderWithModelSelected([envelope(1, { id: 1 })]);
 
     expect(within(screen.getByTestId('db-model-list')).getAllByRole('button')).toHaveLength(2);
     // 模型行点选已由装置点击承载：db_records 携所选模型名与 root
     expect(lastParamsOf('db_records')).toMatchObject({ model: 'workspace', root: ROOT });
-    // 记录行点开单条详情
-    fireEvent.click(screen.getByTestId('db-record-item'));
-    expect(screen.getByTestId('db-record-detail') !== null).toBe(true);
+    // 记录行点开抽屉详情
+    const firstRow = bodyRows()[0];
+    fireEvent.click(firstRow);
+    await waitFor(() => expect(drawerTitle()).toBe('1'));
+    expect(screen.getByTestId('db-record-json') !== null).toBe(true);
   });
 });
 
 // ---------------------------------------------------------------------------
 // scope 双 tab（desktop-workspace-db-split）：全局库 / workspace 库切换按钮组
 // （aria-pressed 同 agent 页切换行模式），默认 workspace 库。真实组合
-// useDbInspector：切换经 hook setScope 派发，重置语义（清单以新 scope 重取、
-// 选中模型复位 / 记录区卸载）经 invoke 面与渲染树联动断言，不以替身 state
-// 注入降级。
+// useDbInspector：切换经 hook setScope 派发，重置语义经 invoke 面与渲染树联动断言。
 // ---------------------------------------------------------------------------
 
 describe('DbInspectorView：scope 双 tab（全局库 / workspace 库）', () => {
@@ -503,7 +852,8 @@ describe('DbInspectorView：scope 双 tab（全局库 / workspace 库）', () =>
         if (command === 'db_records') {
           const offset = params?.offset ?? 0;
           const limit = params?.limit ?? PAGE_SIZE;
-          return Promise.resolve([envelope(1, { id: 1 })].slice(offset, offset + limit));
+          const records = [envelope(1, { id: 1 })].slice(offset, offset + limit);
+          return Promise.resolve({ records, total: 1 });
         }
         return Promise.resolve([]);
       },
@@ -513,7 +863,7 @@ describe('DbInspectorView：scope 双 tab（全局库 / workspace 库）', () =>
     expect(countOf('db_models')).toBe(1);
     expect(invokeMock).toHaveBeenCalledWith('db_models', WS_PARAMS);
     await selectModelAndWait('agent_run');
-    expect(screen.getByTestId('db-record-item') !== null).toBe(true);
+    expect(screen.getByRole('table') !== null).toBe(true);
 
     fireEvent.click(screen.getByTestId('db-scope-user'));
 
@@ -522,15 +872,14 @@ describe('DbInspectorView：scope 双 tab（全局库 / workspace 库）', () =>
     expect(countOf('db_models')).toBe(2);
     expect(screen.getByTestId('db-scope-user').getAttribute('aria-pressed')).toBe('true');
     expect(screen.getByTestId('db-scope-workspace').getAttribute('aria-pressed')).toBe('false');
-    // 选中模型复位：记录区卸载（行与空态均不残留）
-    await waitFor(() => expect(screen.queryByTestId('db-record-item')).toBeNull());
+    // 选中模型复位：记录区卸载（表格与空态均不残留）
+    await waitFor(() => expect(screen.queryByTestId('db-records-table')).toBeNull());
     // 两库清单互不混列可观测：全局库清单重取后仅 workspace 一行
     await waitFor(() => expect(screen.getAllByTestId('db-model-item')).toHaveLength(1));
     expect(screen.getAllByTestId('db-model-item')[0].getAttribute('data-model')).toBe('workspace');
-    // 静置复核：未选中状态下记录区不复活（scope 切换在位响应被取消守卫丢弃，
-    // 记录区保持卸载形态稳定）
+    // 静置复核：未选中状态下记录区不复活（scope 切换在位响应被取消守卫丢弃）
     await act(async () => {});
-    expect(screen.queryByTestId('db-record-item')).toBeNull();
+    expect(screen.queryByTestId('db-records-table')).toBeNull();
     expect(screen.queryByTestId('db-records-empty')).toBeNull();
     expect(screen.getByTestId('db-model-list') !== null).toBe(true);
   });

@@ -74,7 +74,8 @@ const fakeDetail: ChangeDetail = {
 };
 
 // db 查看域 fixture：DbInspectorView 挂载即 invoke("db_models")，mock 必须回
-// 数组形态（null 会使 hook state.models 置 null 而崩），信封按 offset/limit 切页
+// 数组形态（null 会使 hook state.models 置 null 而崩）；db_records 回分页信封
+// （records 按 offset/limit 切页 + total = 库存全量计数）
 const DB_MODELS: ModelInfo[] = [
   { name: 'workspace', count: 2 },
   { name: 'agent_run', count: 1 },
@@ -212,7 +213,8 @@ function mockIpc() {
       if (command === 'db_records') {
         const offset = params?.offset ?? 0;
         const limit = params?.limit ?? 50;
-        return Promise.resolve(DB_RECORDS.slice(offset, offset + limit).map((e) => ({ ...e })));
+        const records = DB_RECORDS.slice(offset, offset + limit).map((e) => ({ ...e }));
+        return Promise.resolve({ records, total: DB_RECORDS.length });
       }
       if (command === 'agent_sessions' || command === 'agent_session_transcript') {
         return Promise.resolve([]);
@@ -246,6 +248,13 @@ function mockIpc() {
 /** mock.calls 中某命令的调用次数。 */
 function countOf(command: string): number {
   return invokeMock.mock.calls.filter(([name]) => name === command).length;
+}
+
+/** mock.calls 中某命令最近一次的入参对象（无调用即报错）。 */
+function lastParamsOf(command: string): Record<string, unknown> {
+  const calls = invokeMock.mock.calls.filter(([name]) => name === command);
+  if (calls.length === 0) throw new Error(`命令 ${command} 无调用记录`);
+  return calls.at(-1)?.[1] as Record<string, unknown>;
 }
 
 /** workspace 选择器 trigger（DropdownMenuTrigger 收敛到 data-slot）。 */
@@ -949,6 +958,47 @@ describe('App：路由化顶层页面切换（changes | agent | db）', () => {
     expect(screen.getByTestId('nav-db').hasAttribute('data-active')).toBe(true);
     expect(screen.getByTestId('nav-changes').hasAttribute('data-active')).toBe(false);
     expect(screen.getByTestId('nav-agent').hasAttribute('data-active')).toBe(false);
+  });
+
+  it('db 分支选中模型后记录表格经 fixture { records, total } 信封渲染（组合链：路由 → 壳 → DbInspectorView）', async () => {
+    await restored();
+
+    fireEvent.click(screen.getByTestId('nav-db'));
+    await waitFor(() => expect(screen.getByTestId('db-model-list') !== null).toBe(true));
+
+    // 选中计数非 0 的 workspace 模型 → db_records 携 offset/limit 取分页信封
+    fireEvent.click(screen.getAllByTestId('db-model-item')[0]);
+    await waitFor(() =>
+      expect(lastParamsOf('db_records')).toMatchObject({
+        scope: 'workspace',
+        root: FIRST.root,
+        model: 'workspace',
+        offset: 0,
+        limit: 50,
+      }),
+    );
+
+    // fixture `{ records, total }` 信封驱动表格渲染：列 = key + value 顶层键并集
+    const table = await screen.findByRole('table');
+    const heads = within(table)
+      .getAllByRole('columnheader')
+      .map((cell) => cell.textContent);
+    expect(heads).toEqual([
+      'key',
+      'root',
+      'name',
+      'addedAt',
+      'id',
+      'prompt',
+      'status',
+      'eventKey',
+      'runId',
+      'event',
+    ]);
+    expect(within(table).getAllByRole('row')).toHaveLength(DB_RECORDS.length + 1); // + 表头行
+
+    // total 出线为页界文案（共 3 条 → 恰 1 页），fixture 面与生成物同形
+    expect(screen.getByText(/第 1 \/ 1 页（共 3 条）/) !== null).toBe(true);
   });
 
   it('切至 db 页再切回 changes：清单页重挂重发 list_changes 恰一次、list_workspaces 不增长（清单取数入清单页）', async () => {

@@ -202,11 +202,11 @@ export const commands = {
 	 */
 	dbModels: (scope: DbDimension, root: string) => __TAURI_INVOKE<ModelInfo[]>("db_models", { scope, root }),
 	/**
-	 *  按模型主键自然序分页扫描记录信封（只读；scope 寻址两库，分页语义不变；
-	 *  未知模型名 reject——含跨维度模型名，维度由实例锁定；Global 忽略 root，
-	 *  Workspace blank root → 空结果）。
+	 *  按模型主键自然序分页扫描记录信封，随页返回分页信封（只读；scope 寻址
+	 *  两库，分页语义不变；未知模型名 reject——含跨维度模型名，维度由实例锁定；
+	 *  Global 忽略 root，Workspace blank root → 空信封不触发库解析）。
 	 */
-	dbRecords: (scope: DbDimension, root: string, model: string, offset: number, limit: number) => __TAURI_INVOKE<RecordEnvelope[]>("db_records", { scope, root, model, offset, limit }).then((v) => (v.map(i=>i) as typeof v)),
+	dbRecords: (scope: DbDimension, root: string, model: string, offset: number, limit: number) => __TAURI_INVOKE<RecordsPage>("db_records", { scope, root, model, offset, limit }).then((v) => (({...v,records:v.records.map(i=>i)}) as typeof v)),
 	/**
 	 *  工作区代码统计：root 有效性检查 → tokei 单次解析 → 汇总 / 语言 / 树三面组装。
 	 *  缺失 / 不可读 / 非目录 root 返回 `Err`（MUST NOT panic、MUST NOT 静默空报告）；
@@ -985,6 +985,17 @@ export type RecordEnvelope = {
 	key: unknown,
 	/**  记录本体（serde 转 JSON 值） */
 	value: unknown,
+};
+
+/**
+ *  分页信封：offset / limit 区间记录 + 该模型全量计数（二者同一读事务
+ *  快照——并发写下页界与行集自洽，`total` 是页界唯一事实源）。
+ */
+export type RecordsPage = {
+	/**  区间记录信封 */
+	records: RecordEnvelope[],
+	/**  该模型全量计数 */
+	total: number,
 };
 
 /**  自定义规则配置，按工作流阶段分组；子字段为字符串列表或未设。 */

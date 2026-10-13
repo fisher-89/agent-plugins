@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 import {
   commands,
@@ -31,7 +31,13 @@ export interface DbInspectorState {
   recordsError: string | null;
   /** 当前页起始偏移 */
   offset: number;
-  /** 是否可能有下一页（以「本页记录数 === PAGE_SIZE」判定） */
+  /** 该模型全量计数（接口信封 `total` 快照；未选中 / 无数据为 0） */
+  total: number;
+  /** 当前页码（1 起，`offset / PAGE_SIZE + 1` 导出） */
+  page: number;
+  /** 总页数（`max(1, ceil(total / PAGE_SIZE))` 导出） */
+  totalPages: number;
+  /** 是否可能有下一页（由接口 `total` 导出：`offset + records.length < total`） */
   hasMore: boolean;
   /** 重取当前页 */
   refresh: () => void;
@@ -77,21 +83,29 @@ function useDbModels(
   return { models, loading, error };
 }
 
-/** 记录分页取数：选中模型 / 翻页 / 刷新 / scope 变更触发；未选中模型不取数 */
+/** 记录分页取数：选中模型 / 翻页 / 刷新 / scope 变更触发；未选中模型不取数。
+ * 消费分页信封（records + total），存 `total` 快照供页界导出 */
 function useDbRecords(
   scope: DbDimension,
   root: string,
   selected: string | null,
   offset: number,
   tick: number,
-): { records: RecordEnvelope[]; recordsLoading: boolean; recordsError: string | null } {
+): {
+  records: RecordEnvelope[];
+  total: number;
+  recordsLoading: boolean;
+  recordsError: string | null;
+} {
   const [records, setRecords] = useState<RecordEnvelope[]>([]);
+  const [total, setTotal] = useState(0);
   const [recordsLoading, setRecordsLoading] = useState(false);
   const [recordsError, setRecordsError] = useState<string | null>(null);
 
   useEffect(() => {
     if (selected === null) {
       setRecords([]);
+      setTotal(0);
       setRecordsError(null);
       setRecordsLoading(false);
       return;
@@ -103,7 +117,8 @@ function useDbRecords(
       .dbRecords(scope, root, selected, offset, PAGE_SIZE)
       .then((result) => {
         if (cancelled) return;
-        setRecords(result);
+        setRecords(result.records);
+        setTotal(result.total);
         setRecordsLoading(false);
       })
       .catch((err: unknown) => {
@@ -116,16 +131,30 @@ function useDbRecords(
     };
   }, [scope, root, selected, offset, tick]);
 
-  return { records, recordsLoading, recordsError };
+  return { records, total, recordsLoading, recordsError };
 }
 
 /**
  * 数据库器取数收口 hook：scope 态（默认 workspace 库，切全局库为显式动作）；
  * 模型清单随 scope / root 变更重取，scope / root 变更同步重置选中模型与分页；
- * 记录分页由用户显式动作触发（选中模型 / 翻页 / 刷新），invoke "db_records"。
+ * 记录分页由用户显式动作触发（选中模型 / 翻页 / 刷新），invoke "db_records"；
+ * 页界（hasMore / 页码 / 总页数）由接口分页信封 `total` 导出，无页长启发式。
  * 错误呈现沿查询轨语义：失败置 error 态 inline 持久（不走 toast）。无轮询、
  * 无事件订阅。
  */
+/** 跳过 effect 首跑：挂载不算「变更」，仅在 dep 真正变化时触发回调。
+ *  用于 scope / root 复位——首跑落地会晚于用户选中动作、把刚选中的模型抹掉。 */
+function useChangedEffect(deps: readonly unknown[], run: () => void): void {
+  const firstRun = useRef(true);
+  useEffect(() => {
+    if (firstRun.current) {
+      firstRun.current = false;
+      return;
+    }
+    run();
+  }, deps);
+}
+
 export function useDbInspector(root: string): DbInspectorState {
   const [scope, setScopeState] = useState<DbDimension>('workspace');
   const [selected, setSelected] = useState<string | null>(null);
@@ -134,13 +163,13 @@ export function useDbInspector(root: string): DbInspectorState {
 
   // scope / root 变更即重置选中模型与分页（两库清单互不混列，选中与页码
   // 不跨库沿用），模型清单经 useDbModels 的 effect 随之重取
-  useEffect(() => {
+  useChangedEffect([scope, root], () => {
     setSelected(null);
     setOffset(0);
-  }, [scope, root]);
+  });
 
   const { models, loading, error } = useDbModels(scope, root);
-  const { records, recordsLoading, recordsError } = useDbRecords(
+  const { records, total, recordsLoading, recordsError } = useDbRecords(
     scope,
     root,
     selected,
@@ -168,7 +197,10 @@ export function useDbInspector(root: string): DbInspectorState {
     recordsLoading,
     recordsError,
     offset,
-    hasMore: records.length === PAGE_SIZE,
+    total,
+    page: offset / PAGE_SIZE + 1,
+    totalPages: Math.max(1, Math.ceil(total / PAGE_SIZE)),
+    hasMore: offset + records.length < total,
     refresh,
     selectModel,
     nextPage,

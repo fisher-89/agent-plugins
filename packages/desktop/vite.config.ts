@@ -79,5 +79,9 @@ export default defineConfig({
     environment: 'jsdom',
     globals: true,
     setupFiles: ['src/test-setup.ts'],
+    // 异步等待预算放宽到 5s（test-setup.ts asyncUtilTimeout）后，单测总超时须
+    // 高于其上界，避免负载抖动下「等待未果」被 testTimeout 先截断。
+    testTimeout: 20000,
+    hookTimeout: 20000,
   },
 });
