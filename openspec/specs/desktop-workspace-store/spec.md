@@ -154,7 +154,7 @@ store SHALL 以包装建模类型化 agent 会话事件：包装 struct（承载
 store SHALL 暴露只读的通用记录信封 API 穿透模型层类型壁垒：
 
 - `list_models() -> Vec<ModelInfo{ name, count }>`：已注册模型清单与记录计数
-- `scan(model, offset, limit) -> Vec<RecordEnvelope{ key: Value, value: Value }>`：按模型分页扫描，`key` / `value` 以 JSON Value 呈现
+- `scan(model, offset, limit) -> RecordsPage{ records: Vec<RecordEnvelope{ key: Value, value: Value }>, total: u64 }`：按模型分页扫描并随页返回分页元数据——`records` 为区间记录信封（`key` / `value` 以 JSON Value 呈现），`total` 为该模型全量计数（与 `records` 同一读事务快照）
 
 native_db 类型 MUST NOT 越信封（信封值经 serde_json 编解码）；API SHALL 只读，MUST NOT 提供写操作。新注册的模型 SHALL 无需改动信封 API 即可被清单与扫描覆盖（查看器零模型特定代码）。
 
@@ -166,7 +166,7 @@ native_db 类型 MUST NOT 越信封（信封值经 serde_json 编解码）；API
 #### Scenario: 分页扫描
 
 - **WHEN** 对任一模型以 `scan(model, offset, limit)` 分页请求
-- **THEN** 返回对应区间的记录信封（key/value 为 JSON Value），翻页拼接覆盖全量且不重不漏
+- **THEN** 返回分页信封：对应区间的记录信封（key/value 为 JSON Value）+ `total` 全量计数（同读事务快照），翻页拼接覆盖全量且不重不漏
 
 #### Scenario: 信封 API 只读
 
