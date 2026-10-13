@@ -56,12 +56,12 @@ workflow crate SHALL 提供**全量聚合 + golden 快照对比**的回归测试
 
 ### Requirement: run 运行史语料维度
 
-workflow crate 的 db 种子语料 SHALL 覆盖 run 执行图维度（RunRecord / RunNodeRecord / RunEdgeRecord）：同 change 多 run 全史样本（≥2 run，attempt 跨 run 递增不撞号）、interrupted 标定样本、**节点全词汇样本**（十八类步词汇在场，含 phase_start / phase_log / 三门 gate 与 8 个归档步）、**archive 相位样本**（10 步节点 + 空 checklist PhaseRecord + 串行 forward 边）、**feedback 边样本**、**边 kind 四值样本**（forward / feedback / retry / backtrack 各至少一条）、`session_id` / `detail` / `output_ref` 有无两态。聚合 golden SHALL 覆盖 detail 线面 `runs` / `nodes` / `edges` 投影（全史出线、稳定身份键、十八值全词汇、边 kind 四值、时间戳 ISO 串口径）；golden 更新 SHALL 沿显式重写流程。种子构造 SHALL 经 store run 域操作面写入，MUST NOT 以裸表插桩绕过操作面。
+workflow crate 的 db 种子语料 SHALL 覆盖 run 执行图维度（RunRecord / RunNodeRecord / RunEdgeRecord）：同 change 多 run 全史样本（≥2 run，attempt 跨 run 递增不撞号）、interrupted 标定样本、**节点全词汇样本**（十九类步词汇在场，含 phase_start / phase_log / 三门 gate、mutation_test 与 8 个归档步）、**archive 相位样本**（10 步节点 + 空 checklist PhaseRecord + 串行 forward 边）、**feedback 边样本**、**边 kind 四值样本**（forward / feedback / retry / backtrack 各至少一条）、`session_id` / `detail` / `output_ref` 有无两态。聚合 golden SHALL 覆盖 detail 线面 `runs` / `nodes` / `edges` 投影（全史出线、稳定身份键、十九值全词汇、边 kind 四值、时间戳 ISO 串口径）；golden 更新 SHALL 沿显式重写流程。种子构造 SHALL 经 store run 域操作面写入，MUST NOT 以裸表插桩绕过操作面。
 
 #### Scenario: run 维度种子在案
 
 - **WHEN** 检查 `tests/fixtures/` 种子构造器与语料清单
-- **THEN** 含多 run 全史、interrupted 标定、节点十八值全词汇、archive 相位、feedback 边、边 kind 四值、sessionId / detail / outputRef 两态样本各至少一个，全部经 store run 域操作面构造
+- **THEN** 含多 run 全史、interrupted 标定、节点十九值全词汇、archive 相位、feedback 边、边 kind 四值、sessionId / detail / outputRef 两态样本各至少一个，全部经 store run 域操作面构造
 
 #### Scenario: golden 覆盖 nodes / edges 投影
 
@@ -70,8 +70,8 @@ workflow crate 的 db 种子语料 SHALL 覆盖 run 执行图维度（RunRecord 
 
 #### Scenario: 全词汇与 archive 断言防漂移
 
-- **WHEN** 语料样本经含流程面步骤（phase_start / phase_log / 三门）、8 个归档步与 feedback 重跑的构造序列落库后快照
-- **THEN** run_nodes 投影十八类词汇全在案（零过滤）、archive 相位 10 步节点以 forward 边串行、feedback 重跑为 `instanceNo` 递增独立节点、run_edges 投影含 feedback 边；断言随快照回归常驻
+- **WHEN** 语料样本经含流程面步骤（phase_start / phase_log / 三门）、mutation_test、8 个归档步与 feedback 重跑的构造序列落库后快照
+- **THEN** run_nodes 投影十九类词汇全在案（零过滤）、archive 相位 10 步节点以 forward 边串行、feedback 重跑为 `instanceNo` 递增独立节点、run_edges 投影含 feedback 边；断言随快照回归常驻
 
 ## Module Contract
 

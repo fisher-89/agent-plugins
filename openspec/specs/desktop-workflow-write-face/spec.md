@@ -158,7 +158,7 @@ core/workflow SHALL 保持 change 流程状态的 Rust 单一权威（读 + 写�
 - `artifact_manifest: [ArtifactSpec]`：相位声明产物清单；archive / code-analyze 相位 SHALL 无 `artifact_manifest`（不产 proposal / design / tasks 类文档）；
 - `executor` / `evaluator: Option<PhaseAgentSpec>`：archive 相位 SHALL 为 `None` / `None`（确定性相位）。
 
-`StepNode` 词汇 SHALL 保持十八值（`executor` / `evaluator` / `decision` / `static_check` / `test_execution` / `phase_start` / `phase_log` / `verdict_gate` / `retry_gate` / `whitelist_gate` / `preflight` / `commit` / `rebase` / `resolve_conflicts` / `merge` / `spec_sync` / `seal` / `finalize`），与 `RunStepKind` / `ChangeStepKind` 同词面 1:1 全映射；code-analyze 复用既有 `Executor` / `Evaluator` / `VerdictGate` / `PhaseStart` / `PhaseLog` 步词，MUST NOT 新增步词。`StepGroup` SHALL 保持四分类（`Exec` / `Agent` / `Gate` / `Git`）。`REQUIREMENT_TABLE` 的 archive `PhaseDefinition` SHALL 声明 10 步序列：`PhaseStart → Preflight → Commit → Rebase → ResolveConflicts → Merge → SpecSync → Seal → Finalize → PhaseLog`（`ResolveConflicts` 为条件执行步，`on_fail=None`——步失败即 Terminal）。`TEST_ONLY_TABLE` SHALL 复用 requirement 同名 step 静态（proposal / test-design / test-gen / test-execution / archive），并新增 `CODE_ANALYZE_STEPS`：`PhaseStart → Executor → Evaluator → VerdictGate → PhaseLog`（P→E，`on_fail=Terminal` 于 VerdictGate）。
+`StepNode` 词汇 SHALL 为十九值（`executor` / `evaluator` / `decision` / `static_check` / `test_execution` / `mutation_test` / `phase_start` / `phase_log` / `verdict_gate` / `retry_gate` / `whitelist_gate` / `preflight` / `commit` / `rebase` / `resolve_conflicts` / `merge` / `spec_sync` / `seal` / `finalize`），与 `RunStepKind` / `ChangeStepKind` 同词面 1:1 全映射（`mutation_test` 线词入封闭集，18→19 为白名单式扩展）；code-analyze 复用既有 `Executor` / `Evaluator` / `VerdictGate` / `PhaseStart` / `PhaseLog` 步词，MUST NOT 新增步词。`StepGroup` SHALL 保持四分类（`Exec` / `Agent` / `Gate` / `Git`），`mutation_test` 归 `Exec`。`REQUIREMENT_TABLE` 的 archive `PhaseDefinition` SHALL 声明 10 步序列：`PhaseStart → Preflight → Commit → Rebase → ResolveConflicts → Merge → SpecSync → Seal → Finalize → PhaseLog`（`ResolveConflicts` 为条件执行步，`on_fail=None`——步失败即 Terminal）。`TEST_ONLY_TABLE` SHALL 复用 requirement 同名 step 静态（proposal / test-design / test-gen / test-execution / archive），并新增 `CODE_ANALYZE_STEPS`：`PhaseStart → Executor → Evaluator → VerdictGate → PhaseLog`（P→E，`on_fail=Terminal` 于 VerdictGate）。
 
 `steps` SHALL 全静态声明（const 表内联，`prompt_ref` 经编译期 `include_str!` 映射回静态 prompt 表）；MUST NOT 将 prompt 文本收进 db 定义表、MUST NOT 经 port 缝做运行时定义加载。`artifact_manifest` 为「相对路径 → phase」归属的权威来源，前端 `docColumn` 静态映射退役后 MUST NOT 在 core/workflow 之外再保留第二份 phase 归属表。
 
@@ -167,10 +167,10 @@ core/workflow SHALL 保持 change 流程状态的 Rust 单一权威（读 + 写�
 - **WHEN** 审查 `phase_table.rs` 的 `PhaseDefinition` 表条目（含 archive 与 code-analyze）
 - **THEN** 每相位 `steps` 为编译期 const 有序序列（kind / role / prompt_ref / on_fail 齐备），archive 相位 10 步在案且 `executor=None` / `evaluator=None`，code-analyze 5 步在案（P→E）；无 db 定义表、无 port 缝定义读、无运行时文件 IO
 
-#### Scenario: StepNode 十八值与四分类分组
+#### Scenario: StepNode 十九值与四分类分组
 
 - **WHEN** 审查 `StepNode` / `RunStepKind` / `StepGroup` 定义
-- **THEN** 词汇十八值全映射（8 个归档步词在案，code-analyze 零新步词）；`StepGroup` 含 Git，commit / rebase / merge / finalize 归 Git、preflight / seal 归 Exec、spec_sync / resolve_conflicts 归 Agent
+- **THEN** 词汇十九值全映射（8 个归档步词与 `mutation_test` 在案，code-analyze 零新步词）；`StepGroup` 含 Git，commit / rebase / merge / finalize 归 Git、preflight / seal / mutation_test 归 Exec、spec_sync / resolve_conflicts 归 Agent
 
 #### Scenario: artifact 清单权威归属
 
@@ -195,7 +195,7 @@ core/workflow SHALL 保持 change 流程状态的 Rust 单一权威（读 + 写�
 | test-execution | [test-gen] |
 | archive | [] |
 
-step 复用 SHALL 为：proposal / test-design / test-gen 复用 requirement 同名 `*_STEPS`（含同名 executor / evaluator prompt），test-execution 复用 `TEST_EXECUTION_STEPS`（确定性门禁 `[PhaseStart, TestExecution, PhaseLog]`，零 agent，不照搬插件侧 Executor→E），archive 复用 `ARCHIVE_STEPS`，code-analyze 用新增 `CODE_ANALYZE_STEPS`。test-only 的 `proposal` 描述 SHALL 为「测试向提案」（description 字段语义，prompt 主体暂复用 requirement proposal prompt，是否拆分独立 prompt 留待看效果）。
+step 复用 SHALL 为：proposal / test-design / test-gen 复用 requirement 同名 `*_STEPS`（含同名 executor / evaluator prompt），test-execution 复用 `TEST_EXECUTION_STEPS`（确定性门禁 `[PhaseStart, TestExecution, MutationTest, PhaseLog]`——拆步：测试 / 覆盖率修绿后才跑突变，MutationTest `on_fail=FeedbackLoop`，零 agent，不照搬插件侧 Executor→E），archive 复用 `ARCHIVE_STEPS`，code-analyze 用新增 `CODE_ANALYZE_STEPS`。test-only 的 `proposal` 描述 SHALL 为「测试向提案」（description 字段语义，prompt 主体暂复用 requirement proposal prompt，是否拆分独立 prompt 留待看效果）。
 
 #### Scenario: test-only 六相位序与复用
 

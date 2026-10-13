@@ -113,6 +113,25 @@ static-check SHALL 由「默认 `Transient`」改为**默认 `Recorded`**（`run
 - **WHEN** 前端以未知 / 非法 `exec_id` 调 `read_exec_output` 命令，或以已知 `exec_id` 调取含非 UTF-8 字节的输出
 - **THEN** 前者返回 `None`（miss 非错误）；后者返回 UTF-8 lossy 字符串（非法字节以替换符呈现），不 panic、不报错
 
+### Requirement: mutation 执行面与 MutationRunner port 归属
+
+突变执行 SHALL 落 checks 边界：进程执行落位 `crates/infra/checks/src/mutation/`（testexec/ 旁新模块：分段调度、Stryker / cargo-mutants 模板展开 spawn、outcome 映射、段级与归并报告写盘、sandbox 复用与全段后一次清理），纯层判定（映射表口径、score 公式、段计数归并、阈值判定）落位 `crates/core/checks`（纯函数 fixtures 直驱可测，零 spawn 零 Tauri 红线不变）。`MutationRunner` port SHALL 留 `orchestration::port` 原地（port 归属消费者先例同式，与 `TestExecutionRunner` 并列；`ToolCommand::MutationTest` / `ToolStepOutput::MutationTest` 入封闭集）；`checks-runtime` 依赖面 MUST NOT 扩 vcs——变更文件清单（`change_edit_set`）由 walker 经 vcs 缝取数后以 `MutationRunner::run(root, name, files)` 入参注入，清单获取实现在 `infra/vcs`。突变报告 SHALL 落 change 报告目录 `reports/test/<plan>/mutation/` 子树（段级 `mutation-seg-<i>.json` + 归并块，全程留存），路径经 foundation layout 推导（命名隔离双禁令唯一触点纪律不变）。
+
+#### Scenario: 双层落位与零 spawn 红线
+
+- **WHEN** 审查 mutation 纯层（映射 / score / 归并）与执行模块（spawn / 分段 / 清理）的落位
+- **THEN** 纯层在 core/checks（fixtures 直驱、零 spawn 零 Tauri），进程执行在 infra/checks/src/mutation/；core/checks 无 tokio process 依赖
+
+#### Scenario: 清单经入参注入不扩依赖
+
+- **WHEN** MutationRunner 执行需要变更文件清单
+- **THEN** 清单由 `change_edit_set`（infra/vcs）产出、walker 经 vcs 缝取数后传入 `run(root, name, files)`；checks-runtime 的 Cargo.toml 无 vcs 依赖
+
+#### Scenario: 报告落 change 报告树
+
+- **WHEN** 突变分段执行完毕
+- **THEN** 段级原始报告与归并块落 `reports/test/<plan>/mutation/` 子树（经 layout 推导零路径字面量），全程留存不清理
+
 ## Module Contract
 
 | 模块 | 职责 | 关键契约 |
