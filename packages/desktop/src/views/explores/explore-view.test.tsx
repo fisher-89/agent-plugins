@@ -32,6 +32,7 @@ function record(id: number, name: string, title: string): ExploreRecord {
     title,
     workflowType: 'requirement',
     promotedTo: null,
+    sessionId: null,
     createdAt: 1727000000000 + id,
     updatedAt: 1727000000000 + id,
   };

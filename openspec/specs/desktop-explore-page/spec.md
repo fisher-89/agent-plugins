@@ -62,7 +62,7 @@ agent 会话中落盘的新 explore 文件 MUST NOT 自动进入清单（绑定�
 
 ### Requirement: 对话区呈现
 
-对话区 SHALL 以共享 agent 会话组件族（`components/agent/`，见 desktop-agent-chat-infra）呈现，MUST NOT 保留视图层私有的事件渲染实现：状态面经统一会话基建（`use-agent-chat` + `TauriAgentTransport`），实时流经 transport 走 `agent_start` 的 Channel（执行流通道），历史经 `agent_run_chain` + `agent_run_events` 重放装载进 UIMessage 状态（实时与重放同一状态形状）。呈现面 SHALL 以 `AgentMessages` 对话透镜渲染：user / assistant 消息各成气泡；文本块渲染 markdown、思考块折叠呈现、工具调用渲染为可读卡片并与同 id 工具结果成对呈现（配对收口于适配层）；`AskUserQuestion` 的 ToolUse SHALL 呈现为静态卡片（问题与选项原样可读），答案经 composer 文本输入（questionnaire 接线为二期）。composer SHALL 采用 `AgentInput`：prompt 输入与 permission-mode 档位选择（沿用调试页档位语义与默认值，env 不设参数——运行恒为完整环境），运行中忽略重复发送并提供停止入口。滚动 SHALL 沿用 shadcn `message-scroller` 组合（滚动行为由组件负责，消息状态留在应用层）。
+对话区 SHALL 以共享 agent 会话组件族（`components/agent/`，见 desktop-agent-chat-infra）呈现，MUST NOT 保留视图层私有的事件渲染实现：状态面经统一会话基建（`use-agent-chat` + `TauriAgentTransport`），实时流经 transport 走 `agent_start` 的 Channel（执行流通道），历史经 `session_detail(root, sessionId)` 单查 + `agent_session_transcript` 重放装载进 UIMessage 状态（实时与重放同一状态形状）。呈现面 SHALL 以 `AgentMessages` 对话透镜渲染：user / assistant 消息各成气泡；文本块渲染 markdown、思考块折叠呈现、工具调用渲染为可读卡片并与同 id 工具结果成对呈现（配对收口于适配层）；`AskUserQuestion` 的 ToolUse SHALL 呈现为静态卡片（问题与选项原样可读），答案经 composer 文本输入（questionnaire 接线为二期）。composer SHALL 采用 `AgentInput`：prompt 输入与 permission-mode 档位选择（沿用调试页档位语义与默认值，env 不设参数——运行恒为完整环境），运行中忽略重复发送并提供停止入口。滚动 SHALL 沿用 shadcn `message-scroller` 组合（滚动行为由组件负责，消息状态留在应用层）。
 
 #### Scenario: 四变体气泡映射
 
@@ -86,12 +86,12 @@ agent 会话中落盘的新 explore 文件 MUST NOT 自动进入清单（绑定�
 
 ### Requirement: 会话链与 stance 前导
 
-每个 explore SHALL 对应一条会话链：打开详情页 SHALL 默认续最近链（按 `source="explore"` + 该 explore 的 `source_ref` 定位链头，沿 `parent_run_id` 回溯还原全部历史 run 并重放落库事件），无链则下次发送起链（首条 run 创建链）。MVP MUST NOT 提供「新会话」动作。发送时 SHALL 将 desktop 内置的精简 explore stance 前导模板拼接进 prompt 头部（模板归属 desktop 包，注释与 `plugins/dev-team/skills/openspec-explore/SKILL.md` 双源互链）；stance 前导 SHALL 注入当前记录 `name`（agent 落盘文件名 MUST 等于 `record.name`，MUST NOT 自拟）并明示「笔记首行写 `# <标题>`」与「推算变更类型并写约定标记行」两条约定（标记行与首行标题同构，具体格式由 design 定稿）。续话 SHALL 以链尾 run 的 `session_id` 作为 `resume_session_id` 发起。双恢复 SHALL 为：文档从磁盘读 + 对话重放该链落库事件，两者互不依赖对方存在。
+每个 explore SHALL 对应一条会话链（同一 session 的轮序列即链，按 `started_at` 有序）：打开详情页 SHALL 以记录字段 `ExploreRecord.session_id`（最近一次 agent 会话 id，`agent_start` 完成后回写）**直查** `session_detail(root, sessionId)` 并重放落库事件还原全部历史；`session_id` 为空（尚无会话）则下次发送起链（首条 run 创建会话并回写 id）。按 `source="explore"` + `source_ref` 反查定位链头并沿 `parent_run_id` 回溯的路径 SHALL 退役（前端不再经来源反查会话）。MVP MUST NOT 提供「新会话」动作。发送时 SHALL 将 desktop 内置的精简 explore stance 前导模板拼接进 prompt 头部（模板归属 desktop 包，注释与 `plugins/dev-team/skills/openspec-explore/SKILL.md` 双源互链）；stance 前导 SHALL 注入当前记录 `name`（agent 落盘文件名 MUST 等于 `record.name`，MUST NOT 自拟）并明示「笔记首行写 `# <标题>`」与「推算变更类型并写约定标记行」两条约定（标记行与首行标题同构，具体格式由 design 定稿）。续话 SHALL 以记录回写的 `session_id` 作为会话引用（`Continue`）发起。双恢复 SHALL 为：文档从磁盘读 + 对话重放该会话落库事件，两者互不依赖对方存在。
 
 #### Scenario: 重开续链双恢复
 
-- **WHEN** 用户完成两轮对话后离开并重新打开该 explore
-- **THEN** 预览从磁盘恢复当前 explore.md，对话区按序重放两条 run 的全部落库事件；再次发送时以链尾 `session_id` 续话而非新会话
+- **WHEN** 用户完成两轮对话后离开并重新打开该 explore（记录 `session_id` 已回写）
+- **THEN** 预览从磁盘恢复当前 explore.md，对话区以 `session_id` 直查 `session_detail` 并按序重放该会话全部落库事件；再次发送时以该 `session_id` 续话而非新会话
 
 #### Scenario: stance 拼接注入 name
 

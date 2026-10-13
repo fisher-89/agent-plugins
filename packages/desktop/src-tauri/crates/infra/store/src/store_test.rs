@@ -2182,9 +2182,7 @@ fn delete_miss幂等返回false() {
 //（AC-1 / AC-3 / AC-5 / AC-6；title 默认 = name、promoted_to 默认 None）
 // ---------------------------------------------------------------------------
 
-/// 裸 redb 向 explore 物表 `4_3_id` 直写一行（预置存量非 kebab 记录——建档 /
-/// 改名两写口已拒非 kebab，存量行只能经裸字节预置；list / find 读面零 name
-/// 合法性校验）。调用方必须先 drop Store 释放文件锁（redb 单写者语义）。
+/// 裸 redb 向 explore 物表直写一行
 fn inject_explore_row(path: &Path, record: &ExploreRecord) {
     assert_eq!(
         EXPLORE_RECORD_TABLE,
@@ -2346,6 +2344,7 @@ fn 存量非kebab记录仍可读_list与find零校验() {
         title: "Legacy_Topic".to_owned(),
         workflow_type: "requirement".to_owned(),
         promoted_to: None,
+        session_id: None,
         created_at: 1_700_000_000_000,
         updated_at: 1_700_000_000_000,
     };
@@ -5409,16 +5408,17 @@ impl redb::Key for RawNativeDbKey {
 /// 不可见）/ 主键 `id`）。
 const CHANGE_RECORD_TABLE: &str = "9_4_id";
 
-/// explore 记录表裸表名（ExploreRecord id=4 / version=2（新增 title /
-/// promoted_to 列——旧 4_1_id 表对新读面结构性不可见）/ 主键 `id`；explore-name-file-binding）。
-const EXPLORE_RECORD_TABLE: &str = "4_3_id";
+/// explore 记录表裸表名（ExploreRecord id=4 / version=4（新增 session_id 列——旧
+/// 4_3_id 表对新读面结构性不可见）/ 主键 `id`；explore-name-file-binding）。
+const EXPLORE_RECORD_TABLE: &str = "4_4_id";
 
 /// 旧形态物表名（身份换锚前：9:v2 主键 `name`；加 title 列前：9:v3 主键 `id`；
-/// explore 加新列前：4:v1 主键 `id`）——表名机制第二道防线断言锚：新读面结构性
+/// explore 加新列前：4:v1 / 4:v3 主键 `id`）——表名机制第二道防线断言锚：新读面结构性
 /// 不可见。
 const OLD_CHANGE_RECORD_TABLE: &str = "9_2_name";
 const RETIRED_CHANGE_RECORD_V3_TABLE: &str = "9_3_id";
 const RETIRED_EXPLORE_RECORD_V1_TABLE: &str = "4_1_id";
+const RETIRED_EXPLORE_RECORD_V3_TABLE: &str = "4_3_id";
 
 /// 相位 / 步骤 / run 记录物表名与归属列二级索引表名（版本段换锚：10:v2 / 12:v2
 /// / 13:v2，归属列 `change_id`；run 主键 `run_id`）。
@@ -5550,7 +5550,7 @@ fn preset_old_shape_workspace_db(path: &Path, legacy_names: &[&str]) {
 
 // ---------------------------------------------------------------------------
 // 表名版本段映射（AC-8 表名机制）：物表名与 native_db 命名公式同源断言 +
-// 真实库物表名清单对照（`9_4_id` / `4_3_id` 反转 9_3_id / 4_2_id / 4_1_id）
+// 真实库物表名清单对照（`9_4_id` / `4_4_id` 反转 9_3_id / 4_3_id / 4_2_id / 4_1_id）
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -5580,8 +5580,8 @@ fn 表名版本段映射_物表名与命名公式同源_旧表名零在场() {
         "explore 记录物表名与 native_db 内部命名公式一致"
     );
     assert_eq!(
-        EXPLORE_RECORD_TABLE, "4_3_id",
-        "explore 物表 4_3_id（v3 新增 workflow_type 列：4_2_id → 4_3_id）"
+        EXPLORE_RECORD_TABLE, "4_4_id",
+        "explore 物表 4_4_id（v4 新增 session_id 列：4_3_id → 4_4_id）"
     );
     assert_eq!(PHASE_RECORD_TABLE, "10_2_id", "相位物表 10:v2 主键 id");
     assert_eq!(
@@ -5628,6 +5628,7 @@ fn 表名版本段映射_物表名与命名公式同源_旧表名零在场() {
         RETIRED_CHANGE_RECORD_V3_TABLE,
         "4_2_id",
         RETIRED_EXPLORE_RECORD_V1_TABLE,
+        RETIRED_EXPLORE_RECORD_V3_TABLE,
         "10_1_change",
         "12_1_change",
         "13_1_change",

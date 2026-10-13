@@ -91,7 +91,7 @@ Walker SHALL 将每相位循环表达为四类节点（step 定义声明 kind）
 - **Git 节点**（commit / rebase / merge / finalize vcs 步，落 vcs 边界 `crates/infra/vcs`）：经独立 vcs 缝 `Arc<dyn ArchiveVcsPort>` 进程 spawn 执行；
 - **Gate 节点**（verdict 解析 / retry 计数 / 白名单校验）：纯 Rust 分支。
 
-ToolStep / Git MUST NOT 以命令式内联实现：其执行结果 SHALL 作为图上节点状态可观测（失败 = 可见失败态，与 WorkerAgent 失败同等呈现）。节点状态 SHALL 为派生视图 = **库读史（`RunRecord` / `RunNodeRecord` / `RunEdgeRecord`）∪ 进程内注册表在飞 run（`RunEntry` 节点 + 边累积器）** × 按 provenance 反查的 session 集；执行图节点 SHALL 以稳定身份键 `(run_id, phase, attempt, step, instance_no)` 寻址，边 SHALL 以 `RunEdgeRecord` 四值 `edge_kind ∈ { forward, feedback, retry, backtrack }` 显式落库。步词汇 SHALL 为全词汇封闭集（agent 阶段 + 脚本阶段 + 流程面步骤 + 三门 gate + 8 个归档步），落库与回显同一份词汇。已收口 run 的任一节点状态与边 SHALL 可由库读史单独重算得出。
+ToolStep / Git MUST NOT 以命令式内联实现：其执行结果 SHALL 作为图上节点状态可观测（失败 = 可见失败态，与 WorkerAgent 失败同等呈现）。节点状态 SHALL 为派生视图 = **库读史（`RunRecord` / `RunNodeRecord` / `RunEdgeRecord`）∪ 进程内注册表在飞 run（`RunEntry` 节点 + 边累积器）**；节点行 SHALL 直接携 `session_id`（会话转录经 session id 直查，不再按 provenance 反查会话集）；执行图节点 SHALL 以稳定身份键 `(run_id, phase, attempt, step, instance_no)` 寻址，边 SHALL 以 `RunEdgeRecord` 四值 `edge_kind ∈ { forward, feedback, retry, backtrack }` 显式落库。步词汇 SHALL 为全词汇封闭集（agent 阶段 + 脚本阶段 + 流程面步骤 + 三门 gate + 8 个归档步），落库与回显同一份词汇。已收口 run 的任一节点状态与边 SHALL 可由库读史单独重算得出。
 
 #### Scenario: ToolStep / Git 失败同等可见
 
@@ -122,14 +122,14 @@ Walker MUST NOT 经任何 CLI 子进程变更 change 流程状态（dev-team CLI
 - **WHEN** 审查 core/orchestration 源码的进程创建调用
 - **THEN** orchestration 模块内零进程 spawn；检查域 spawn（static-check / test-execution）经 port 缝由 `crates/infra/checks` 承载，git 步 spawn 经 `ArchiveVcsPort` 缝由 `crates/infra/vcs` 承载
 
-### Requirement: 会话挂靠 provenance 与节点状态派生
+### Requirement: 会话挂靠 provenance 与转录 session id 直查
 
-Walker 发起的 executor / evaluator / decision / spec_sync / resolve_conflicts 会话 SHALL 携带 provenance：`source="change"`、`source_ref=<id>/<phase>/<role>/<attempt>`（身份段为 change id——单一身份锚贯穿，name 可变不入寻址键；归档步两会话的 source_ref 定式由 design 定稿，MUST 在同 phase 同 attempt 内唯一，避免 spec_sync 与 resolve_conflicts 撞号）。节点运行态 SHALL 由按 provenance 反查的会话集派生（`agentSessions` 按 source / sourceRef 过滤既有面）；会话转录 SHALL 可观测：运行中实时流、结束后重放一致。会话停止 SHALL 复用 StopRegistry 既有终止面，对已终态目标幂等忽略。
+Walker 发起的 executor / evaluator / decision / spec_sync / resolve_conflicts 会话 SHALL 携带 provenance：`source="change"`、`source_ref=<id>/<phase>/<role>/<attempt>`（身份段为 change id——单一身份锚贯穿，name 可变不入寻址键；归档步两会话的 source_ref 定式由 design 定稿，MUST 在同 phase 同 attempt 内唯一，避免 spec_sync 与 resolve_conflicts 撞号）。该 `source_ref` SHALL 由 walker 在会话创建时写入并随会话记录持久化（`SessionProvenance` 字段面保持），作为来源归属留痕。节点运行态与转录寻址 SHALL 经 run 节点行的 `session_id` 直查（run 节点行携该步会话 id，见 desktop-change-state-store「run 执行图落库」；前端不再按 provenance 反查会话集）。会话转录 SHALL 可观测：运行中实时流、结束后重放一致。会话停止 SHALL 复用 StopRegistry 既有终止面，对已终态目标幂等忽略。
 
-#### Scenario: 按归属反查会话集
+#### Scenario: provenance 留痕与 session id 直查
 
 - **WHEN** 某 change 的 implement#2 相位已发起 executor 与 evaluator 会话（或 archive 相位已发起 spec_sync 会话）
-- **THEN** 按 `source="change"` + `source_ref="<id>/<phase>/<role>/<attempt>"` 等过滤查询可枚举对应会话及其运行态，派生出节点状态，无需任何额外注册表
+- **THEN** 两会话记录各自 `SessionProvenance.source="change"` 且 `source_ref="<id>/<phase>/<role>/<attempt>"` 逐字在案（归档步两会话 source_ref 同 phase 同 attempt 内唯一）；节点转录经其 run 节点行 `session_id` 直查（无需 `agentSessions` 按 source / sourceRef 反查）
 
 #### Scenario: 转录可观测与停止
 
@@ -429,7 +429,7 @@ archive 相位（无 evaluator、无 checklist 的确定性相位）SHALL 在末
 
 | 模块 | 职责 | 关键契约 |
 |------|------|----------|
-| `crates/core/orchestration`（运行时域，tokio） | 薄图 walker：相位循环、三类节点执行、Gate 分支 | 红线：零相位转移规则（每步过渡问写面 phase-next）；ToolStep 节点化（不内联）；节点状态纯派生（db 状态 × provenance 反查）；模块内零进程 spawn；依赖方向 orchestration → workflow；对落库载体无感知 |
+| `crates/core/orchestration`（运行时域，tokio） | 薄图 walker：相位循环、三类节点执行、Gate 分支 | 红线：零相位转移规则（每步过渡问写面 phase-next）；ToolStep 节点化（不内联）；节点状态纯派生（库读史 run 节点行 ∪ 在飞 run，节点行携 `session_id`）；模块内零进程 spawn；依赖方向 orchestration → workflow；对落库载体无感知 |
 | `crates/core/orchestration/src/port.rs` | 「相位机 + 工具步」进程内缝（语义换血） | ToolStepPort 进程内直调 core/workflow 写面；ToolCommand 封闭集收缩（ChangeFiles 出局）；WorkerAgentPort 契约不变；测试假引擎 + 假写面双缝直驱 |
 | `crates/core/orchestration/src/steps.rs`（LocalToolSteps） | 相位机步进程内直调写面 | 直调面签名不变（载体在写面内换血）；每步结果落 StepRecord 审计行（经写面） |
 | `crates/core/orchestration/src/snapshot.rs` | ChangeDetail 只读装配 | 读源改 workspace 库 change 状态（经 queries）；磁盘扫描保留产物发现 |
@@ -439,7 +439,7 @@ archive 相位（无 evaluator、无 checklist 的确定性相位）SHALL 在末
 | `crates/infra/agent/src/worker.rs` | WorkerAgentPort 实现 + static-check spawn 缝 | compose_turn 新会话 + StopRegistry 终止 + 密封转录；provenance `source="change"`；spawn 不进 core |
 | `src/commands/` change_flow 命令组 | 运行控制 IPC 面 | 发起前置校验改 db 建档校验（workflow.json 可解析校验退役）；发起 / 停止 / 应答 / 确认契约不变 |
 | `crates/core/workflow`（写面 + 读面，见 desktop-workflow-write-face） | change 状态域权威 | 读写同屋檐、落库 workspace 库；walker 经进程内直调消费，不复制路由语义 |
-| `crates/infra/store`（复用） | 会话记录与反查 + change 状态落库 | `agentSessions` 按 source / sourceRef 过滤派生节点状态；不建 flow_runs 表 |
+| `crates/infra/store`（复用） | 会话记录 + change 状态落库 | `SessionRecord` 携 `SessionProvenance`（`source` / `source_ref` 留痕，会话创建时写入）；run 节点行携 `session_id` 供会话直查；不建 flow_runs 表 |
 | `crates/infra/devteam` | **（删除）** | 整体删除（discover / runner），零遗留 |
 | 既有 hooks（复用，不改） | 步前护栏与无外围账 | protect-files 原样生效（过渡期）；record-files / sweep-phase 未绑定 no-op（fail-open 刻意设计）；static-check 桌面模式由 spawn 步承接 |
 | `crates/core/orchestration/src/walker.rs` | 停等节奏分支 | `RunRequest` + `auto_next_phase` 字段（run 级、发起定格）；drive() 确认点 `if !auto_next_phase` 才 emit `ConfirmWait` + `wait_confirm`；auto 模式不进 `WaitingConfirm`、零新事件；头注释口径同步 |

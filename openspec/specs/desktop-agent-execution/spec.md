@@ -43,7 +43,7 @@ Desktop 后端 SHALL 将「agent 执行」确立为第五类边界（agent 边�
 - **运行会话**：`run_session(New | Continue{id}, prompt)` 形状的会话建立与轮驱动——`New` 建立新会话，`Continue{id}` 以既有会话续发新一轮；返回 token 级增量流（思考/回复可辨）与可终止句柄。会话过程流式传输、能区分思考和回复、可终止。
 - **查询会话**：`query_sessions(...)` 形状的会话记录查询——会话清单与聚合统计（提问轮数、累计墙钟、累计 token 消耗；MVP 从轮统计行现算，MUST NOT 维护累计列，字段面可扩展）。
 
-session SHALL 为一等公民：会话 id 由 core 铸造；转录 = 会话全史（密封事件直挂 session，单表），resume 重建源 SHALL 为会话全史，MUST NOT 以单 run 事件拼凑转录。core SHALL 维护双 id 映射（core session id ↔ engine_handle）；engine_handle 经协议到达（spawn 响应或事件上报，见「P1 引擎协议不变量与缺省降级」）。会话 SHALL 存引擎/模型/权限档的**配置快照**而非跨库引用（`AgentInstanceRecord` 在全局库、session 在 workspace 库，禁跨库引用；实例改名/删除不伤历史会话）。会话 SHALL 承载来源归属（source / source_ref），explore 链等消费方经会话归属寻址。
+session SHALL 为一等公民：会话 id 由 core 铸造；转录 = 会话全史（密封事件直挂 session，单表），resume 重建源 SHALL 为会话全史，MUST NOT 以单 run 事件拼凑转录。core SHALL 维护双 id 映射（core session id ↔ engine_handle）；engine_handle 经协议到达（spawn 响应或事件上报，见「P1 引擎协议不变量与缺省降级」）。会话 SHALL 存引擎/模型/权限档的**配置快照**而非跨库引用（`AgentInstanceRecord` 在全局库、session 在 workspace 库，禁跨库引用；实例改名/删除不伤历史会话）。会话 SHALL 承载来源归属（`SessionProvenance{source, source_ref}`，作 provenance/持久化记录用），但前端寻址与重放 SHALL 以 **`sessionId` 直查**（`session_detail`）为准，MUST NOT 经 `source` / `source_ref` 反查会话（`sourceRef` 反查取最近一条的路径退役；来源侧——如 explore 记录——持会话 id 并直接给出）。
 
 #### Scenario: 新建会话运行
 
@@ -485,8 +485,8 @@ agent 会话持久化 SHALL 以 **workspace 维度**落盘于所属 workspace �
 
 `commands/exec/` SHALL 承载执行与查询命令，命令体 SHALL 收敛为内核公共 API 的薄包装（三件事纪律：参数转换 → 调用 → 错误映射）：
 
-- 发起命令（现 `agent_start`）：参数转换后调用内核 `run_session` 形状 API——`New` 建立会话、`Continue{id}` 续轮（现 `resume_session_id` 语义平移）；编排（runner 组装、tee、落库、盖戳、收敛）SHALL 全部下沉内核，命令体 MUST NOT 编排。来源参数（`source` / `source_ref`）SHALL 写入会话归属；不传时缺省 `debug`。cwd 恒为当前 workspace root（root 解析所属 workspace 库保留）；引擎组装 SHALL 经内核组合根（见「引擎门面与 EngineKind 参数选择」），命令体 MUST NOT 直接构造具体引擎。命令命名与参数面演进由 design 定稿（保留语义升级或更名会话域命令二选一，见提案待决问题）
-- 查询命令（现 `agent_runs` / `agent_run_events` / `agent_run_chain`）：演进为会话域查询薄包装（会话清单含聚合统计 / 会话转录重放 / 会话按来源寻址），参数含 root → workspace 库解析 → store/内核查询 → DTO；旧 run 域命令的退役/收窄路径由 design 定稿
+- 发起命令（现 `agent_start`）：参数转换后调用内核 `run_session` 形状 API——`New` 建立会话、`Continue{id}` 续轮（现 `resume_session_id` 语义平移）；编排（runner 组装、tee、落库、盖戳、收敛）SHALL 全部下沉内核，命令体 MUST NOT 编排。来源参数（`source` / `source_ref`）SHALL 写入会话归属（provenance 记录用）；`source` 不传时缺省 `debug`，`source_ref` 前端恒传 null（会话寻址改走 `sessionId` 直查，不再经来源反查）。cwd 恒为当前 workspace root（root 解析所属 workspace 库保留）；引擎组装 SHALL 经内核组合根（见「引擎门面与 EngineKind 参数选择」），命令体 MUST NOT 直接构造具体引擎。命令命名与参数面演进由 design 定稿（保留语义升级或更名会话域命令二选一，见提案待决问题）
+- 查询命令（现 `agent_runs` / `agent_run_events` / `agent_run_chain`）：演进为会话域查询薄包装（会话清单含聚合统计 / 会话转录重放 / 源过滤清单），参数含 root → workspace 库解析 → store/内核查询 → DTO；前端寻址与重放 SHALL 走 `session_detail` 单查（见「session_detail 单查面」）而非按来源反查取最近一条；旧 run 域命令的退役/收窄路径由 design 定稿
 - 终止命令（现 `agent_stop`）：见「agent_stop 终止与提前 resolve」；root 寻址保留
 
 错误约定沿用既有模板 `Result<T, String>`：CLI 不可发现、spawn 失败、SDK 引擎配置缺失（经 `AgentStartError` 中性变体）、无默认 agent 可解析、workspace 库打开失败等 SHALL 以 `Err` 抵达前端，MUST NOT 静默吞掉。
@@ -498,8 +498,8 @@ agent 会话持久化 SHALL 以 **workspace 维度**落盘于所属 workspace �
 
 #### Scenario: 来源与会话续接参数透传
 
-- **WHEN** explore 页以 `source="explore"`、`source_ref=<记录键>` 且携带会话引用发起续轮
-- **THEN** 生成会话归属携带对应字段且以该会话全史续接（SDK 走转录重建、CLI 走 engine_handle resume）；调试页 invoke（不传来源参数）生成的会话 `source="debug"`
+- **WHEN** explore 页以 `source="explore"`、`source_ref=null` 且携带记录回写的 `sessionId` 发起续轮
+- **THEN** 生成会话归属 `source="explore"` 且以该会话全史续接（SDK 走转录重建、CLI 走 engine_handle resume）；调试页 invoke（不传来源参数）生成的会话 `source="debug"`
 
 #### Scenario: agent 缺省与解析
 

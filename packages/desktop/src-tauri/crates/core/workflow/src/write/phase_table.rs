@@ -418,14 +418,32 @@ static DEV_DESIGN_MANIFEST: &[ArtifactSpec] = &[
     ArtifactSpec {
         kind: "markdown-doc",
         path: "design.md",
-        title: "设计",
+        title: "开发设计",
     },
     ArtifactSpec {
-        kind: "tasks-progress",
+        kind: "markdown-doc",
         path: "tasks.md",
-        title: "任务进度",
+        title: "任务拆分",
     },
 ];
+
+static CODE_ANALYZE_MANIFEST: &[ArtifactSpec] = &[ArtifactSpec {
+    kind: "markdown-doc",
+    path: "design.md",
+    title: "源码分析",
+}];
+
+static TEST_DESIGN_MANIFEST: &[ArtifactSpec] = &[ArtifactSpec {
+    kind: "markdown-doc",
+    path: "test-design.md",
+    title: "测试设计",
+}];
+
+static IMPLEMENT_MANIFEST: &[ArtifactSpec] = &[ArtifactSpec {
+    kind: "tasks-progress",
+    path: "tasks.md",
+    title: "任务进度",
+}];
 
 /// test-execution 相位产物清单（测试报告树）。
 static TEST_EXECUTION_MANIFEST: &[ArtifactSpec] = &[ArtifactSpec {
@@ -474,7 +492,7 @@ static REQUIREMENT_TABLE: &[PhaseDefinition] = &[
         id: "test-design",
         description: "测试设计",
         steps: TEST_DESIGN_STEPS,
-        artifact_manifest: &[],
+        artifact_manifest: TEST_DESIGN_MANIFEST,
         prerequisites: &["proposal", "dev-design"],
         executor: Some(PhaseAgentSpec {
             prompt: TEST_DESIGN_EXECUTOR_PROMPT,
@@ -489,7 +507,7 @@ static REQUIREMENT_TABLE: &[PhaseDefinition] = &[
         id: "implement",
         description: "代码实现",
         steps: IMPLEMENT_STEPS,
-        artifact_manifest: &[],
+        artifact_manifest: IMPLEMENT_MANIFEST,
         prerequisites: &["dev-design"],
         executor: Some(PhaseAgentSpec {
             prompt: IMPLEMENT_EXECUTOR_PROMPT,
@@ -596,7 +614,7 @@ static TEST_ONLY_TABLE: &[PhaseDefinition] = &[
         id: "code-analyze",
         description: "既有代码分析",
         steps: CODE_ANALYZE_STEPS,
-        artifact_manifest: &[],
+        artifact_manifest: CODE_ANALYZE_MANIFEST,
         prerequisites: &["proposal"],
         executor: Some(PhaseAgentSpec {
             prompt: CODE_ANALYZE_EXECUTOR_PROMPT,
@@ -611,7 +629,7 @@ static TEST_ONLY_TABLE: &[PhaseDefinition] = &[
         id: "test-design",
         description: "测试设计",
         steps: TEST_DESIGN_STEPS,
-        artifact_manifest: &[],
+        artifact_manifest: TEST_DESIGN_MANIFEST,
         prerequisites: &["proposal", "code-analyze"],
         executor: Some(PhaseAgentSpec {
             prompt: TEST_DESIGN_EXECUTOR_PROMPT,

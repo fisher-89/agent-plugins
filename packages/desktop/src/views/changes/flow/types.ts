@@ -41,17 +41,10 @@ export type FlowRoleLabel =
  */
 export interface RoleSessionRef {
   role: FlowRoleLabel;
-  sourceRef: string | null;
   sessionId: string | null;
 }
 
-/** 运行步节点（节点模型单分类——eval / active 相位节点整体退役）：来自库读史
- * `runs[].nodes` ∪ 在飞 run 活面的图 overlay（run-state.ts 推导）。节点载荷
- * （runStepKind / group / role / instanceNo / status / sessionId / detail /
- * outputRef 八面）即 react-flow 侧 `RunStepNodeData` 的字段源（run-step-node.tsx
- * 按本投影定义 `{ node: RuntimeFlowNode }` 载荷）。节点按后端稳定身份键
- * `(phase, attempt, step, instanceNo)` 直渲染——同键多实例（feedback 重跑）
- * 以 instanceNo 区分不串扰。 */
+/** 运行步节点 */
 export interface RuntimeFlowNode extends FlowNodeBase {
   kind: 'runtime';
   /** 归属 run id（节点 id 第一身份段——重启 / 中断重跑同 attempt 的跨 run

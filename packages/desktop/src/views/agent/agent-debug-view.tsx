@@ -75,7 +75,7 @@ export function AgentDebugView({ root }: AgentDebugViewProps): React.JSX.Element
   const history = useAgentRunHistory(root, source);
   const agentOptions = useAgentOptions();
   const [showRaw, setShowRaw] = useState(false);
-  const session = useAgentChat({ source: 'debug', sourceRef: null, root });
+  const session = useAgentChat({ source: 'debug', sessionId: null, root });
 
   // 每跑重置（每跑 New 会话）：上一跑 messages / events / chain / 会话镜像
   // 清空，不串场

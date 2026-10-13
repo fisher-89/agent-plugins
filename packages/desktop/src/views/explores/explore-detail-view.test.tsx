@@ -34,6 +34,7 @@ function record(overrides: Partial<ExploreRecord> = {}): ExploreRecord {
     title: '接口重试策略',
     workflowType: 'requirement',
     promotedTo: null,
+    sessionId: null,
     createdAt: 1727000000000,
     updatedAt: 1727000000000,
     ...overrides,

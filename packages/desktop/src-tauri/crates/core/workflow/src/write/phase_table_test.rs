@@ -826,8 +826,9 @@ fn 计划图产物清单声明逐相位与设计表一致() {
             ],
             "dev-design" => vec![
                 ("markdown-doc", "design.md"),
-                ("tasks-progress", "tasks.md"),
+                ("markdown-doc", "tasks.md"),
             ],
+            "implement" => vec![("tasks-progress", "tasks.md")],
             "test-execution" => vec![("markdown-doc", "test-reports/**")],
             _ => Vec::new(),
         }

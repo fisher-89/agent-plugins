@@ -128,7 +128,7 @@ const SESSION_BODY = {
   permissionMode: 'bypassPermissions' as const,
   sessionId: 'ses-0-1727000000000',
   source: 'explore',
-  sourceRef: '7',
+  sourceRef: null,
 };
 
 /** Channel mock 实例形状（vi.hoisted 内 class 不外泄类型，取其结构）。 */
@@ -196,7 +196,7 @@ describe('TauriAgentTransport：sendMessages', () => {
     expect(args['permissionMode']).toBe('bypassPermissions');
     expect(args['sessionId']).toBe(SESSION_BODY.sessionId);
     expect(args['source']).toBe('explore');
-    expect(args['sourceRef']).toBe('7');
+    expect(args['sourceRef']).toBeNull();
     expect(args['agent']).toBeNull();
   });
 

@@ -13,7 +13,7 @@ Walker SHALL 在 test-execution 相位收敛点执行确定性 test-execution �
 #### Scenario: 绿跑零 agent
 
 - **WHEN** walker 走到 test-execution 相位且全部 suite 通过、覆盖率达阈值
-- **THEN** 零 WorkerAgent 会话发起（无 `source_ref` 为 `<change>/test-execution/<role>/<attempt>` 的会话记录），机械 checklist 代写 `phase_log` 落账 pass，相位推进
+- **THEN** 零 WorkerAgent 会话发起（该步 run 节点行 `session_id` 为空、无 provenance `source_ref` 为 `<change-id>/test-execution/<role>/<attempt>` 的会话记录），机械 checklist 代写 `phase_log` 落账 pass，相位推进
 
 #### Scenario: runner 显式失败停给用户
 

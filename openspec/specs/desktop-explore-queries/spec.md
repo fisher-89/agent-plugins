@@ -46,7 +46,7 @@ queries SHALL 新增目录扫描（`scan_explores(layout)` 或等价 API）：�
 
 ### Requirement: 查询层纪律与命令面
 
-查询层纪律 SHALL 不变：explore 读面为纯读操作（MUST NOT 写入、移动或修改任何文件——explore.md 由 agent 会话流程创建，应用无落盘路径）；域 crate（workflow）MUST NOT 依赖 Tauri。命令层 SHALL 开通 explore 薄命令（`commands/explores/` 轨道）：`read_explore` / 导入扫描 / explore 记录 CRUD / `update_explore_title` / `promote_explore`——无状态、参数转换 → 调用 → DTO，blank root 返回空结果（读命令）或显式 `Err`（写命令，照 `commands/queries/mod.rs` 既有纪律）；`read_explore` 返回纯 markdown 文本 DTO，MUST NOT 套用 change 域的 `ArtifactEnvelope` 信封。`promote_explore` 为跨域写命令（见「promote_explore 命令与笔记搬运」），MUST NOT 在命令层直接执行磁盘删除——笔记搬运半边 SHALL 经 workflow 写面完成。
+查询层纪律 SHALL 不变：explore 读面为纯读操作（MUST NOT 写入、移动或修改任何文件——explore.md 由 agent 会话流程创建，应用无落盘路径）；域 crate（workflow）MUST NOT 依赖 Tauri。命令层 SHALL 开通 explore 薄命令（`commands/explores/` 轨道）：`read_explore` / 导入扫描 / explore 记录 CRUD / `update_explore_title` / `update_explore_workflow_type` / `promote_explore`——无状态、参数转换 → 调用 → DTO，blank root 返回空结果（读命令）或显式 `Err`（写命令，照 `commands/queries/mod.rs` 既有纪律）；`read_explore` 返回纯 markdown 文本 DTO，MUST NOT 套用 change 域的 `ArtifactEnvelope` 信封。explore 记录面（含 `ExploreRecord` 的 `session_id` 回写列）由 store 应用层持有，前端不再经 `source_ref` 反查会话（会话走 `sessionId` 直查，见 desktop-agent-execution「session_detail 单查面」）；读面 MUST NOT 新增反查类命令。`promote_explore` 为跨域写命令（见「promote_explore 命令与笔记搬运」），MUST NOT 在命令层直接执行磁盘删除——笔记搬运半边 SHALL 经 workflow 写面完成。
 
 #### Scenario: 只读保证
 

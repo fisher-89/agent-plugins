@@ -121,10 +121,10 @@ change 详情页 SHALL 以 react-flow 流程图承载执行史，节点模型 SH
 phase 列头与 runtime step 节点 SHALL 提供同一交互入口：点击打开右侧抽屉。抽屉 SHALL 为**单列布局**（宽度约 960px 并保留 `max-w-[85vw]`，遮罩点击关闭与右贴边定位不变），内容按选中类型分派：
 
 - **列头**：该站过程文档 + eval-checklist 素材（`columnDocs`，经 `ArtifactTabs` 渲染）；
-- **WorkerAgent step 节点**（`role !== null`）：单列会话转录（复用 `SessionTranscriptPanel`，`sessionId` 直查优先 / sourceRef 反查兜底）；
+- **WorkerAgent step 节点**（`role !== null`）：单列会话转录（复用 `SessionTranscriptPanel`，按节点 `sessionId` 直查；槽位缺席时呈「此步无会话记录」空态）；
 - **带 `outputRef` 的 step 节点**（static-check / test-execution）：单列 stdout 面板（新组件，见「节点点击判据与 stdout 输出面板」）。
 
-抽屉 SHALL 删除 `DrawerEvalSection` + `InlineChecklist` 与 eval/active 分支；评估 report（`node.record.report`）MUST NOT 展示（eval 节点已退役）。无点击判据 SHALL 前置：`sessionId`/`role` 与 `outputRef` 皆 null 的 runtime 节点不可点击（不 `onSelect`），抽屉不会以无信息源选中打开。列头点击与节点点击 MUST NOT 出现两套并存的展开交互。
+抽屉 SHALL 删除 `DrawerEvalSection` + `InlineChecklist` 与 eval/active 分支；评估 report（`node.record.report`）MUST NOT 展示（eval 节点已退役）。点击判据 SHALL 前置：`role` 与 `outputRef` 皆 null 的 runtime 节点不可点击（不 `onSelect`）；`role !== null` 而 `sessionId === null` 的节点仍可点击，抽屉呈「此步无会话记录」空态占位（不再回退 sourceRef 反查）。列头点击与节点点击 MUST NOT 出现两套并存的展开交互。
 
 #### Scenario: 节点点击抽屉双列内容
 
@@ -260,7 +260,7 @@ change 详情流程图 SHALL 升级为实时执行视图：运行期间，当前
 
 ### Requirement: 节点会话转录联动
 
-WorkerAgent 节点（executor / evaluator / decision / spec_sync / resolve_conflicts）SHALL 提供到对应会话转录的联动：点击运行中的 WorkerAgent 节点 SHALL 打开该会话的实时时间线，点击已收口的 WorkerAgent 节点 SHALL 打开转录重放。会话寻址 SHALL 记录 id 直查优先：节点记录暴露的会话槽位 id（`sessionId`）在场时按 session id 直查；槽位缺席时回退既有 sourceRef 定式反查（身份段为 change id；归档步两会话的 sourceRef 定式由 design 定稿，MUST 在同 phase 同 attempt 内唯一）。归档步节点（spec_sync / resolve_conflicts）SHALL 经其节点 `session_id` 直查转录（无 attempt 三槽位概念）。
+WorkerAgent 节点（executor / evaluator / decision / spec_sync / resolve_conflicts）SHALL 提供到对应会话转录的联动：点击运行中的 WorkerAgent 节点 SHALL 打开该会话的实时时间线，点击已收口的 WorkerAgent 节点 SHALL 打开转录重放。会话寻址 SHALL 为节点 `sessionId` 直查：节点记录暴露的会话槽位 id（`sessionId`）经会话查询面精确寻址（`sessionDetail` + `agentSessionTranscript`），前端 MUST NOT 再以 `agentSessions` 按 `source_ref` 过滤反查会话（sourceRef 反查路径整体退役）。槽位缺席（`role !== null` 而 `sessionId === null`）时 SHALL 呈「此步无会话记录」步面空态占位，MUST NOT 回退反查、MUST NOT 虚构会话。归档步节点（spec_sync / resolve_conflicts）SHALL 同样经其节点 `sessionId` 直查转录（无 attempt 三槽位概念）。后端 provenance `source_ref` 定式（`<id>/<phase>/<role>/<attempt>`）仍由 walker 在会话创建时写入并持久化于会话记录（见 desktop-change-orchestration「会话挂靠 provenance 与转录 session id 直查」），但前端转录面板不再以其作反向寻址依据。
 
 eval 节点与 active 节点的三会话联动（executor / evaluator / decision 三 tab）SHALL 整体退役（eval / active 节点已移除）；ToolStep / Git / Gate 节点 SHALL 沿用右侧抽屉单交互入口呈现步骤结果——无 role 且无 `outputRef` 的 ToolStep / Git / Gate 节点不可点击（`detail` 短文本已在节点内显示）；带 `outputRef` 的 static-check / test-execution 节点经 stdout 面板呈现输出（见「节点点击判据与 stdout 输出面板」）。
 
@@ -269,10 +269,10 @@ eval 节点与 active 节点的三会话联动（executor / evaluator / decision
 - **WHEN** 点击 archive 相位的 SpecSync 或 ResolveConflicts 节点（`session_id` 在案）
 - **THEN** 抽屉单列经节点 `session_id` 直查该会话转录（实时流 / 重放一致）
 
-#### Scenario: 槽位缺席回退反查
+#### Scenario: 槽位缺席呈步面空态
 
 - **WHEN** 打开 WorkerAgent step 节点且其 `sessionId` 缺席（缺省落账）
-- **THEN** 转录面板回退 sourceRef 定式反查（身份段 = change id）并照常重放，行为与直查路径一致可靠
+- **THEN** 转录面板呈「此步无会话记录」空态占位（react 面零取数），MUST NOT 回退 sourceRef 定式反查、MUST NOT 发起 `agent_sessions` 反向查询
 
 #### Scenario: 运行中节点实时转录经转录库
 
@@ -284,20 +284,20 @@ eval 节点与 active 节点的三会话联动（executor / evaluator / decision
 - **WHEN** run 收口后点击历史某 attempt 的 evaluator 节点
 - **THEN** 经会话查询重放完整转录，与运行时实时呈现一致，不依赖原进程存活
 
-#### Scenario: 记录 id 直查优先
+#### Scenario: 记录 id 精确直查
 
-- **WHEN** 某节点记录携带会话槽位 id，且同 sourceRef 定式下存在多条会话
-- **THEN** 转录面板按槽位 id 精确直查该会话，MUST NOT 落入「同 ref 多会话取最近一条」的反查歧义
+- **WHEN** 某节点记录携带会话槽位 id
+- **THEN** 转录面板按槽位 id 精确直查该会话，MUST NOT 落入「同 ref 多会话取最近一条」的反查歧义（前端不再持有 sourceRef 定式）
 
 #### Scenario: decision 第三 tab 与空态
 
-- **WHEN** 点击某 eval 节点打开抽屉，该 attempt 的 decision 槽位在场（或缺席）两种形态分别驱动
-- **THEN** 抽屉呈 executor / evaluator / decision 三转录 tab；decision 槽位在场时按 id 直查其转录，缺席时 decision tab 呈空态，executor / evaluator 两 tab 不受影响
+- **WHEN** 点击某 attempt 的 decision 槽位节点，该槽位在场（或缺席）两种形态分别驱动
+- **THEN** 该槽位在场时按 id 直查其转录，缺席时呈「此步无会话记录」空态占位，其余 role 节点不受影响
 
-#### Scenario: active 节点三会话反查联动
+#### Scenario: 会话槽位缺席不虚构
 
-- **WHEN** 打开一个残留 active_phase 的 change（如 CLI 外部跑的 run、刷新重挂或 crash 残留），点击 active 节点
-- **THEN** 抽屉左列呈 executor / evaluator / decision 三转录 tab，已开跑角色经 sourceRef 反查重放已落库转录（含进行中会话已流出部分），未开跑角色呈「（暂无该会话转录）」空态；全程不订阅实时事件流，亦不虚构未开跑角色的会话
+- **WHEN** 打开 `role !== null` 而 `session_id` 为空（未开跑 / 缺省落账）的 WorkerAgent 步节点
+- **THEN** 抽屉呈「此步无会话记录」空态占位，MUST NOT 经 provenance 反查虚构会话、全程不订阅实时事件流
 
 #### Scenario: 查看会话按钮不呈现
 
@@ -431,12 +431,12 @@ stdout 面板 SHALL 经 `hooks/use-exec-output.ts` 取数：以 `(root, changeNa
 | `packages/desktop/src-tauri/crates/core/workflow/src/queries/detail.rs` | 详情线面收敛 | `ChangeDetail.interrupted` 与线面 `InterruptedEntry` 删；其余字段线面口径（=null + ISO 串、纯 derive 零字段属性）不变 |
 | `packages/desktop/src/views/changes/flow/run-control-panel.tsx` | 发起开关与轻提示 | 发起区「自动确认」开关默认关 + 一行说明文案；运行期定格；data-testid 挂钩；确认卡片 / ask 卡片呈现逻辑不变 |
 | `packages/desktop/src/views/changes/hooks/use-change-flow-run.ts` | start 传参与 id 透传 | `start(autoNextPhase: boolean)` → `commands.changeFlowStart(channel, root, id, autoNextPhase)`；发起 / 停止 / 确认 / 应答命令携 change id；订阅生命周期不变 |
-| `packages/desktop/src/views/changes/flow/detail-drawer.tsx` | sourceRef 定式组装 | 身份段改 change id（`<id>/<phase>/<role>/<attempt>` 与 active 三 role 反查同式）；会话槽位 id 直查优先不变 |
+| `packages/desktop/src/views/changes/flow/detail-drawer.tsx` | 会话槽位直查分派 | 节点 `sessionId` 直查（`RoleSessionRef` 仅 `{ role, sessionId }`，无 sourceRef 字段）；槽位缺席呈「此步无会话记录」空态，前端零 sourceRef 反查 |
 | `packages/desktop/src/views/changes/flow/`（graph.ts / attachments.ts / run-state.ts） | 零触点 | 转换层纯函数、挂载规则、reducer 不涉 change 身份；`PIPELINE_PHASES` 布局与边推导不变 |
 | `packages/desktop/src/views/changes/flow/run-state.ts`（不改） | 零触点 | 无新事件词汇，纯 reducer 与 `ChangeFlowRunState` 模型不动 |
 | `packages/desktop/src/types/generated/bindings.ts` | 类型再生跟随 | `ChangeDetail.interrupted` / `InterruptedEntry` / `inventory` / `fileLog` / `unparsable` 再生后消失；tsc 全量类型检查拦截前端消费漂移 |
-| `packages/desktop/src/views/changes/hooks/use-session-transcript.ts` | 转录反查 | `agent_sessions(root, 'change', sourceRef)` 的 sourceRef 身份段 = change id；summary 面（transcript / running 之外返回 `SessionSummary`：row + stats + turns）；id 直查优先 + sourceRef 反查兜底、seq 归并逻辑不变 |
-| `packages/desktop/src/views/changes/flow/detail-drawer.tsx` | 双列布局改造 | 左列会话区约 60%（元信息 + 转录拉满滚动）+ 右列三分节列内滚动；约 960px + `max-w-[85vw]`；`selectionRoleRefs` 补 active 三 role 反查（sessionId 恒 null）；无会话选中左列空态占位 |
+| `packages/desktop/src/views/changes/hooks/use-session-transcript.ts` | 会话直查 | `sessionId` 单参直查（`sessionDetail` + `agentSessionTranscript`），`sessionId === null` 时不发起 IPC；`sourceRef` 入参与 `loadBySourceRef` 反查整体退役；summary 面（transcript / running 之外返回 `SessionSummary`：row + stats + turns）不变 |
+| `packages/desktop/src/views/changes/flow/detail-drawer.tsx` | 单列布局与槽位缺席空态 | 单列宽度约 960px + `max-w-[85vw]`；`selectionRoleRef` 收敛为 `{ role, sessionId }`（active 三 role 反查随 active 节点退役一并删除）；`role !== null` 而 `sessionId === null` 呈「此步无会话记录」空态占位（零反查） |
 | `packages/desktop/src/views/changes/flow/session-transcript-panel.tsx` | 左列转录 tab 与元信息 | executor / evaluator / decision 三 tab 不变；新增会话元信息呈现（清单 design 定夺）；复用 `AgentMessages` 无第二套对话渲染 |
 | `packages/desktop/src/views/changes/flow/run-step-node.tsx` + `change-flow-graph.tsx` | 查看会话入口下线 | `onOpenSession` prop 与按钮删除；节点点击即抽屉联动，无独立会话 route |
 | `packages/desktop/src/views/changes/flow/types.ts` + `graph.ts` + `flow-event-node.tsx` + `attachments.ts` | interrupted 前端词汇清除 | `FlowNodeKind` 收敛 `'eval' | 'active'`；`collectInterrupted` / `InterruptedBody` / dashed 分支删；`NODE_PRECEDENCE` 收敛 `['eval', 'active']` |

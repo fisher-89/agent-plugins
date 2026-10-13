@@ -10,21 +10,21 @@
 
 前端 SHALL 提供 headless 会话基建 hook `use-agent-chat`(置于 `packages/desktop/src/hooks/`),内部以 ai-sdk v7 `useChat` 承载对话状态,transport 为自定义 `TauriAgentTransport`(实现 v7 `ChatTransport`),把会话发起 invoke + Tauri `Channel<AgentEvent>` 适配为 `ReadableStream<UIMessageChunk>`。`UIMessage` SHALL 成为前端对话状态的一等模型。基建 SHALL 满足:
 
-- **重放装载**: 打开会话时经会话域查询命令(会话清单 + 会话转录重放,携 root)取落库**密封转录**,经 `eventsToUIMessages` 纯函数重建 UIMessage 状态(`setMessages`);重放重建的状态与实时累积收口的状态 SHALL 同一形状(重开恢复 = 重放,两路同构)。
-- **发送穿透**: 发送 SHALL 经 `sendMessage` 以 `ChatRequestOptions.body` 携带应用层会话参数(`root`、`permissionMode`、会话引用(`Continue{id}`,链尾/当前会话提供)、`source`、`sourceRef`);会话状态由应用层在发送时刻提供,transport SHALL 为无状态转换器(不进构造闭包、无 ref 插线);会话文本组装(如 explore stance 拼接)SHALL 留在来源侧,基建只收口会话参数。
+- **重放装载**: 打开会话时以会话 id **直查**会话单查命令 `session_detail(root, sessionId)`(携 root 寻址所属 workspace 库),再经会话转录重放取落库**密封转录**,经 `eventsToUIMessages` 纯函数重建 UIMessage 状态(`setMessages`);会话 id 由来源侧显式提供(`sourceRef` 反查取最近一条会话的路径 SHALL 退役)。重放重建的状态与实时累积收口的状态 SHALL 同一形状(重开恢复 = 重放,两路同构);`sessionId` 为 null 时不发起任何重放查询。
+- **发送穿透**: 发送 SHALL 经 `sendMessage` 以 `ChatRequestOptions.body` 携带应用层会话参数(`root`、`permissionMode`、会话引用 `sessionId`(`Continue` 语义,链尾/当前会话提供,无会话为 null)、`source`);会话状态由应用层在发送时刻提供,transport SHALL 为无状态转换器(不进构造闭包、无 ref 插线);会话文本组装(如 explore stance 拼接)SHALL 留在来源侧,基建只收口会话参数。`sourceRef` SHALL 恒为 null(前端不再经来源反查会话,来源归属仅作 provenance 透传)。
 - **增量流式**: 实时路 SHALL 消费 `MessageDelta` 事件——经 `eventToChunk` 映射为 ai-sdk 原生 `text-delta` / `reasoning-delta` chunk 挂 provisional 消息(思考/回复可辨),密封 Message 到达后以密封内容替换;一轮回复 SHALL 呈现为单条连续增长的消息, MUST NOT 出现逐 delta 碎行。
 - **停止**: `stop` SHALL 触达 Rust 侧终止命令(MUST NOT 仅截断前端流);后端收敛后 Channel 流出的终止终态部件照常进入状态。
 - **终态同构**: 终态记录 SHALL 转为与实时事件同构的状态部件(`data-run-record`)附进流;重放路径 SHALL 从会话记录合成同款部件,两路收敛到同一状态形状,续轮(取当前会话)从中取。
 
 #### Scenario: 重放装载重建
 
-- **WHEN** 打开一条已有两轮往复的会话
-- **THEN** `use-agent-chat` 经会话域查询取落库密封转录,`eventsToUIMessages` 重建出的 UIMessage 序列与该会话实时运行收口后的状态形状一致(第一轮内容在场,无缺轮)
+- **WHEN** 打开一条已有两轮往复的会话(来源侧提供其 `sessionId`)
+- **THEN** `use-agent-chat` 以 `sessionId` 直查 `session_detail` 并取会话转录重放,`eventsToUIMessages` 重建出的 UIMessage 序列与该会话实时运行收口后的状态形状一致(第一轮内容在场,无缺轮)
 
 #### Scenario: 会话参数穿透
 
 - **WHEN** 在已有会话(会话 id=`s1`)中发送一条消息
-- **THEN** `TauriAgentTransport.sendMessages` 收到的 options.body 含会话引用 `s1` 及 root / permissionMode / source / sourceRef,并原样进入会话发起 invoke 参数;transport 自身不持有会话状态
+- **THEN** `TauriAgentTransport.sendMessages` 收到的 options.body 含会话引用 `sessionId="s1"` 及 root / permissionMode / source,并原样进入会话发起 invoke 参数;transport 自身不持有会话状态
 
 #### Scenario: 增量流式与密封替换
 
@@ -120,7 +120,7 @@ ai-sdk(`ai` 包)SHALL 锚定 v7 并收口于基建层(适配层、transport、`u
 |------|------|----------|
 | `packages/desktop/src/lib/agent-adapter.ts` | 事件适配纯函数(双层) | `eventsToUIMessages`(仅密封转录)/ `eventToChunk`(+delta 路:`text-delta` / `reasoning-delta` → provisional,密封替换);保真锁定(seq、`parentToolUseId`、配对键、`data-*` 部件、未知透传);工具同 id 配对收口 |
 | `packages/desktop/src/lib/agent-transport.ts` | `ChatTransport` 适配 | 会话域 body 参数穿透发起 invoke;Channel 事件 → `UIMessageChunk` 流(含 delta);终态部件 + finish 收流;`reconnectToStream` 返回 null(重连由会话重放承担) |
-| `packages/desktop/src/hooks/use-agent-chat.ts` | headless 会话基建 | `useChat`(ai v7)+ transport;重放装载(会话查询 → 密封转录 → `setMessages`);发送组装(会话参数收口,文本组装留来源侧);`stop` → 终止命令;密封收口归一 |
+| `packages/desktop/src/hooks/use-agent-chat.ts` | headless 会话基建 | `useChat`(ai v7)+ transport;重放装载(`sessionId` 直查 `session_detail` → 密封转录 → `setMessages`);发送组装(会话参数收口,文本组装留来源侧);`stop` → 终止命令;密封收口归一 |
 | `packages/desktop/src/components/agent/` | 展示组件族 | 语义不变(provisional/密封差异由状态层吸收);对话透镜共享块渲染件;辅助载体 system 消息过滤;`message-scroller` 滚动承载 |
-| `packages/desktop/src/views/explores/hooks/use-explore-session.ts` | 探索链消费面 | 会话域参数(source/sourceRef/会话引用)语义等价切换,行为不回退 |
+| `packages/desktop/src/views/explores/hooks/use-explore-session.ts` | 探索链消费面 | 会话域参数(source/sessionId 会话引用)语义等价切换,行为不回退;`sourceRef` 反查退役 |
 | Rust 会话域命令面(详见 desktop-agent-execution) | stop 与提前 resolve | 终止命令按运行中的会话活动轮寻址;发起命令提前 resolve;`stopped` 收敛;终态经 Channel 同构部件流出 |

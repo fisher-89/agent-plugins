@@ -85,7 +85,7 @@ change 详情页 SHALL 以 run 流程的 archive 相位为归档入口：db `Cha
 
 ### Requirement: spec 同步 agent 与归档链语义自持
 
-delta specs 在场且用户未选择跳过时，SpecSync 步 SHALL 在 Merge 步之后发起一个 spec 同步 agent 会话：会话 cwd = 主 workspace root（worktree change 与 legacy 同锚——worktree change 的 delta specs 已随合入进入主仓 active 树，legacy 本就在主仓），同步编辑直接落在主仓主基线。prompt SHALL 逐 capability 将 delta spec 增量合并进 `openspec/specs/<capability>/spec.md` 主基线：`ADDED` 追加（requirement 已存在则更新为与 delta 一致）/ `MODIFIED` 增量应用（新增 scenario、修改列中 scenario、修订描述，不复制既有 scenario）/ `REMOVED` 整块移除 / `RENAMED` 改名，保留 delta 未提及的主 spec 内容，合并幂等（对已同步基线重跑零变化）；capability 主 spec 缺席时创建（简 Purpose + ADDED requirements）。以上增量合并语义 SHALL 以本 requirement 为单源定义（归档相位为唯一定义源），spec 与 prompt MUST NOT 引用 CLI skill 文档作为语义或护栏溯源；prompt MUST NOT 依赖 MCP 工具、`__TOOL_ASK_USER__` 或 workflow.json，change 名与路径上下文 SHALL 由桌面插值。会话 SHALL 走既有 WorkerAgent 通道（compose_turn 新会话、CLI 引擎、bypassPermissions、provenance `source="change"` 且 source_ref 携 change id 与归档步语义段——定式由 design 定稿）、转录可观测（实时 + 重放一致）且可停止（StopRegistry 既有终止面）；路径沙箱前缀校验以主仓 root 为锚，同步编辑囚于主仓内。agent 失败或被停止时该步 SHALL `Terminal`（零归档变更：db 零变化、归档树零改名；已完成的提交与合入不回滚），可重试（同步幂等，重试自 SpecSync 步续走）。无 delta specs 或用户选择跳过时 SpecSync SHALL 零会话、`passed` + `detail` 记跳过因。
+delta specs 在场且用户未选择跳过时，SpecSync 步 SHALL 在 Merge 步之后发起一个 spec 同步 agent 会话：会话 cwd = 主 workspace root（worktree change 与 legacy 同锚——worktree change 的 delta specs 已随合入进入主仓 active 树，legacy 本就在主仓），同步编辑直接落在主仓主基线。prompt SHALL 逐 capability 将 delta spec 增量合并进 `openspec/specs/<capability>/spec.md` 主基线：`ADDED` 追加（requirement 已存在则更新为与 delta 一致）/ `MODIFIED` 增量应用（新增 scenario、修改列中 scenario、修订描述，不复制既有 scenario）/ `REMOVED` 整块移除 / `RENAMED` 改名，保留 delta 未提及的主 spec 内容，合并幂等（对已同步基线重跑零变化）；capability 主 spec 缺席时创建（简 Purpose + ADDED requirements）。以上增量合并语义 SHALL 以本 requirement 为单源定义（归档相位为唯一定义源），spec 与 prompt MUST NOT 引用 CLI skill 文档作为语义或护栏溯源；prompt MUST NOT 依赖 MCP 工具、`__TOOL_ASK_USER__` 或 workflow.json，change 名与路径上下文 SHALL 由桌面插值。会话 SHALL 走既有 WorkerAgent 通道（compose_turn 新会话、CLI 引擎、bypassPermissions、provenance `source="change"` 且 source_ref 携 change id 与归档步语义段——定式由 design 定稿，创建时写入并持久化于 `SessionProvenance`）、转录可观测（实时 + 重放一致）且可停止（StopRegistry 既有终止面）；路径沙箱前缀校验以主仓 root 为锚，同步编辑囚于主仓内。前端转录联动 SHALL 经该归档步节点 `session_id` 直查（`source_ref` 定式不再作前端反向寻址依据，见 desktop-change-flow-view「节点会话转录联动」）。agent 失败或被停止时该步 SHALL `Terminal`（零归档变更：db 零变化、归档树零改名；已完成的提交与合入不回滚），可重试（同步幂等，重试自 SpecSync 步续走）。无 delta specs 或用户选择跳过时 SpecSync SHALL 零会话、`passed` + `detail` 记跳过因。
 
 #### Scenario: 同步基线为主仓当前 specs
 
@@ -100,7 +100,7 @@ delta specs 在场且用户未选择跳过时，SpecSync 步 SHALL 在 Merge 步
 #### Scenario: 无 delta specs 零 agent 会话
 
 - **WHEN** 对无 `specs/` 子树的 change 进入 archive 相位
-- **THEN** 全程零归档 agent 会话记录（provenance 反查为空），SpecSync 步 `passed` + 跳过因，链直落 Seal / Finalize 收口
+- **THEN** 全程零归档 agent 会话记录（run 节点行与 PhaseRecord 会话槽位皆空、无 provenance 为 change 归档步的会话），SpecSync 步 `passed` + 跳过因，链直落 Seal / Finalize 收口
 
 #### Scenario: 增量合并保真与幂等
 

@@ -26,7 +26,6 @@ type AgentStartSessionParams = {
   permissionMode: AgentStartArgs[3];
   sessionId: AgentStartArgs[4];
   source: AgentStartArgs[5];
-  sourceRef: AgentStartArgs[6];
   agent: AgentStartArgs[7];
 };
 
@@ -74,7 +73,6 @@ function readSessionParams(body: object | undefined): AgentStartSessionParams {
     source,
     permissionMode: readPermissionMode(get('permissionMode')),
     sessionId: readNullableString(get('sessionId'), 'sessionId'),
-    sourceRef: readNullableString(get('sourceRef'), 'sourceRef'),
     agent: readAgentId(get('agent')),
   };
 }
@@ -230,7 +228,7 @@ export class TauriAgentTransport implements ChatTransport<AgentUIMessage> {
         session.permissionMode,
         session.sessionId,
         session.source,
-        session.sourceRef,
+        null,
         session.agent,
       )
       .then((record) => {

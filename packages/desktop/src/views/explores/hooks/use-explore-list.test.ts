@@ -24,6 +24,7 @@ function record(id: number, name: string, root = ROOT): ExploreRecord {
     title: name,
     workflowType: 'requirement',
     promotedTo: null,
+    sessionId: null,
     createdAt: 1727000000000 + id,
     updatedAt: 1727000000000 + id,
   };

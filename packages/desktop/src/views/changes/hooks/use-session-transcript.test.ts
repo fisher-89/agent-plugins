@@ -5,15 +5,14 @@ import type { AgentEvent, SessionSummary, TurnSummary } from '../../../types/dto
 import { useSessionTranscript } from './use-session-transcript';
 
 // ---------------------------------------------------------------------------
-// 进程边界 Mock：invoke 按命令名分发（session_detail / agent_sessions /
-// agent_session_transcript，可切换 resolve / reject 并记录入参——desktop-
-// change-session-visibility 扩展 session_detail 直查臂）；agent-adapter 不
-// mock：真实实现参与折叠与去重（内部模块不 mock）。覆盖：直查优先（D8）/
-// 反查兜底 / sourceRef 定式 / 空闲与空态 / 实时 seq 去重并入 / running 标志 /
-// reject（AC-5 转录联动半边 + AC-8 直查半边）；refreshKey 重查键（change run
-// 面实时统一转录库——通知触发重查面）。注：实时 seq 去重并入为归档链专用面
-// （`liveEvents` 参数保留供 archive-panel 复用，见 hook 头注释），change run
-// 面恒缺省 → 重放单源。
+// 进程边界 Mock：invoke 按命令名分发（session_detail / agent_session_transcript，
+// 可切换 resolve / reject 并记录入参——desktop-change-session-visibility 的
+// sessionId 单点直查寻址）；agent-adapter 不 mock：真实实现参与折叠与去重
+//（内部模块不 mock）。覆盖：直查单点寻址（D8）/ 参数定式 / sessionId null 空闲
+// 与空态 / 实时 seq 去重并入 / running 标志 / reject（AC-5 转录联动半边 + AC-8
+// 直查半边）；refreshKey 重查键（change run 面实时统一转录库——通知触发重查面）。
+// 注：实时 seq 去重并入为归档链专用面（`liveEvents` 参数保留供 archive-panel
+// 复用，见 hook 头注释），change run 面恒缺省 → 重放单源。
 // ---------------------------------------------------------------------------
 
 const { invokeMock } = vi.hoisted(() => ({ invokeMock: vi.fn() }));
@@ -25,7 +24,6 @@ vi.mock('@tauri-apps/api/core', () => ({ invoke: invokeMock }));
 // ---------------------------------------------------------------------------
 
 const ROOT = 'C:\\demo\\flow';
-const SOURCE_REF = 'add-feature/implement/executor/1';
 const SESSION_ID = 'ses-exec-1';
 const TS = 1727000000000;
 
@@ -45,13 +43,13 @@ function turn(turnId: number, status: TurnSummary['status']): TurnSummary {
   };
 }
 
-function summary(id: string, turns: TurnSummary[], sourceRef: string = SOURCE_REF): SessionSummary {
+function summary(id: string, turns: TurnSummary[]): SessionSummary {
   return {
     row: {
       id,
       remoteSessionId: `engine-${id}`,
       configSnapshot: { engine: 'cli', model: null, permissionMode: 'bypassPermissions' },
-      provenance: { source: 'change', sourceRef },
+      provenance: { source: 'change', sourceRef: null },
       createdAt: TS,
       updatedAt: TS + 1,
     },
@@ -89,29 +87,21 @@ function runStarted(seq: number): AgentEvent {
 }
 
 // ---------------------------------------------------------------------------
-// 可编程 IPC：单查 / 反查清单与转录均可切 reject（字符串 = reject 文本；
-// SessionSummary[] 之外可给 null = blank root 空结果透传形态）
+// 可编程 IPC：session_detail 单查与转录重放均可切 reject（字符串 = reject
+// 文本；SessionSummary 之外可给 null = blank root 空结果透传形态）
 // ---------------------------------------------------------------------------
 
-let sessionsResult: SessionSummary[] | string;
 let transcriptResult: AgentEvent[] | string;
 let detailResult: SessionSummary | null | string;
 
 function mockIpc() {
-  sessionsResult = [summary(SESSION_ID, [turn(11, 'completed')])];
   transcriptResult = REPLAY;
   detailResult = summary(SESSION_ID, [turn(11, 'completed')]);
-  invokeMock.mockImplementation((command: string, params?: Record<string, unknown>) => {
+  invokeMock.mockImplementation((command: string) => {
     if (command === 'session_detail') {
       return typeof detailResult === 'string'
         ? Promise.reject(detailResult)
         : Promise.resolve(detailResult);
-    }
-    if (command === 'agent_sessions') {
-      void params;
-      return typeof sessionsResult === 'string'
-        ? Promise.reject(sessionsResult)
-        : Promise.resolve(sessionsResult);
     }
     if (command === 'agent_session_transcript') {
       return typeof transcriptResult === 'string'
@@ -129,7 +119,6 @@ beforeEach(() => {
 
 interface Params {
   root: string | null;
-  sourceRef: string | null;
   sessionId: string | null;
   liveEvents: AgentEvent[];
   /** 变更通知触发的重查键（unify-run-state-persistence：自增即重查转录库） */
@@ -139,8 +128,7 @@ interface Params {
 function propsWith(overrides: Partial<Params>): Params {
   return {
     root: ROOT,
-    sourceRef: SOURCE_REF,
-    sessionId: null,
+    sessionId: SESSION_ID,
     liveEvents: [],
     ...overrides,
   };
@@ -154,19 +142,18 @@ async function mounted(overrides: Partial<Params> = {}) {
   return rendered;
 }
 
-function sessionsCalls(): unknown[][] {
-  return invokeMock.mock.calls.filter(([name]) => name === 'agent_sessions');
+function detailCalls(): unknown[][] {
+  return invokeMock.mock.calls.filter(([name]) => name === 'session_detail');
 }
 
-describe('useSessionTranscript：反查重放装载（AC-5 重放半边）', () => {
-  it('反查命中：agent_sessions（source=change + sourceRef 精确）→ 转录重放 → agent-adapter 折叠 messages', async () => {
+describe('useSessionTranscript：sessionId 直查重放装载（AC-5 重放半边）', () => {
+  it('直查命中：session_detail（root + sessionId 精确）→ 转录重放 → agent-adapter 折叠 messages', async () => {
     const { result } = await mounted();
     await waitFor(() => expect(result.current.messages).toHaveLength(2));
 
-    expect(invokeMock).toHaveBeenCalledWith('agent_sessions', {
+    expect(invokeMock).toHaveBeenCalledWith('session_detail', {
       root: ROOT,
-      source: 'change',
-      sourceRef: SOURCE_REF,
+      sessionId: SESSION_ID,
     });
     expect(invokeMock).toHaveBeenCalledWith('agent_session_transcript', {
       root: ROOT,
@@ -182,24 +169,23 @@ describe('useSessionTranscript：反查重放装载（AC-5 重放半边）', () 
     expect(result.current.error).toBeNull();
   });
 
-  it('反查参数定式：source 恒为 change、sourceRef 原样透传、root 寻址（exact-match 契约）', async () => {
-    await mounted({ sourceRef: 'add-feature/test-gen/evaluator/3' });
-    await waitFor(() => expect(sessionsCalls()).toHaveLength(1));
+  it('直查参数定式：sessionId 原样透传、root 寻址（exact-id 契约，不反查）', async () => {
+    await mounted({ sessionId: 'ses-test-gen-3' });
+    await waitFor(() => expect(detailCalls()).toHaveLength(1));
 
-    expect(sessionsCalls()[0]).toEqual([
-      'agent_sessions',
-      { root: ROOT, source: 'change', sourceRef: 'add-feature/test-gen/evaluator/3' },
+    expect(detailCalls()[0]).toEqual([
+      'session_detail',
+      { root: ROOT, sessionId: 'ses-test-gen-3' },
     ]);
   });
 
-  it('sourceRef 变化即重查：新 sourceRef 反查 + 对应转录重放（运行步节点选中联动）', async () => {
+  it('sessionId 变化即重查：新 sessionId 直查 + 对应转录重放（运行步节点选中联动）', async () => {
     const { result, rerender } = await mounted();
     await waitFor(() => expect(result.current.messages).toHaveLength(2));
 
-    const decisionRef = 'add-feature/dev-design/decision/1';
-    sessionsResult = [summary('ses-decision-1', [turn(21, 'completed')], decisionRef)];
+    detailResult = summary('ses-decision-1', [turn(21, 'completed')]);
     transcriptResult = [textMessage(0, '决策会话输出')];
-    rerender(propsWith({ sourceRef: decisionRef }));
+    rerender(propsWith({ sessionId: 'ses-decision-1' }));
     await waitFor(() =>
       expect(result.current.messages.map((message) => message.id)).toEqual(['evt-0']),
     );
@@ -208,23 +194,14 @@ describe('useSessionTranscript：反查重放装载（AC-5 重放半边）', () 
       type: 'text',
       text: '决策会话输出',
     });
-    const calls = sessionsCalls();
+    const calls = detailCalls();
     expect(calls).toHaveLength(2);
-    expect(calls[1]).toEqual([
-      'agent_sessions',
-      { root: ROOT, source: 'change', sourceRef: decisionRef },
-    ]);
+    expect(calls[1]).toEqual(['session_detail', { root: ROOT, sessionId: 'ses-decision-1' }]);
   });
 
-  it('同 sourceRef 多会话（重启重跑同 attempt 的跨轮形态）：以清单首位（updated_at 降序最新）会话重放，不串上一轮会话', async () => {
-    // 后端清单按 updated_at 降序稳定序返回：首位 = 最近会话（重启轮），末位 =
-    // 上一轮旧会话
-    sessionsResult = [
-      summary(SESSION_ID, [turn(2, 'completed')]),
-      summary('ses-old', [turn(1, 'completed')]),
-    ];
-    transcriptResult = [textMessage(0, '最近会话')];
-    const { result } = await mounted();
+  it('sessionId 直查唯一寻址：只重放该 id 的转录（不串其他会话，单点精确无歧义）', async () => {
+    transcriptResult = [textMessage(0, '直查会话')];
+    const { result } = await mounted({ sessionId: SESSION_ID });
     await waitFor(() => expect(result.current.messages).toHaveLength(1));
 
     expect(invokeMock).toHaveBeenCalledWith('agent_session_transcript', {
@@ -235,24 +212,25 @@ describe('useSessionTranscript：反查重放装载（AC-5 重放半边）', () 
       root: ROOT,
       sessionId: 'ses-old',
     });
-    expect(result.current.messages[0]?.parts[0]).toMatchObject({ type: 'text', text: '最近会话' });
+    expect(detailCalls()).toEqual([['session_detail', { root: ROOT, sessionId: SESSION_ID }]]);
+    expect(result.current.messages[0]?.parts[0]).toMatchObject({ type: 'text', text: '直查会话' });
   });
 });
 
 describe('useSessionTranscript：running 标志（面板头部流式状态）', () => {
   it('轮行含 running → true；全部终态 → false（两形态切换）', async () => {
-    sessionsResult = [summary(SESSION_ID, [turn(11, 'running')])];
+    detailResult = summary(SESSION_ID, [turn(11, 'running')]);
     const running = await mounted();
     await waitFor(() => expect(running.result.current.running).toBe(true));
     running.unmount();
 
-    sessionsResult = [summary(SESSION_ID, [turn(11, 'completed')])];
+    detailResult = summary(SESSION_ID, [turn(11, 'completed')]);
     const done = await mounted();
     await waitFor(() => expect(done.result.current.running).toBe(false));
   });
 
   it('混合轮行（completed + running 存续）：running 置真（任一轮 running 即 running，非全称量词）', async () => {
-    sessionsResult = [summary(SESSION_ID, [turn(10, 'completed'), turn(11, 'running')])];
+    detailResult = summary(SESSION_ID, [turn(10, 'completed'), turn(11, 'running')]);
     const { result } = await mounted();
     await waitFor(() => expect(result.current.running).toBe(true));
 
@@ -261,15 +239,13 @@ describe('useSessionTranscript：running 标志（面板头部流式状态）', 
   });
 
   it('会话切换后 running 随新会话轮行重算：running 会话 → 终态会话，running 复位 false', async () => {
-    sessionsResult = [summary(SESSION_ID, [turn(11, 'running')])];
+    detailResult = summary(SESSION_ID, [turn(11, 'running')]);
     const { result, rerender } = await mounted();
     await waitFor(() => expect(result.current.running).toBe(true));
 
-    sessionsResult = [
-      summary('ses-next', [turn(21, 'completed')], 'add-feature/implement/executor/2'),
-    ];
+    detailResult = summary('ses-next', [turn(21, 'completed')]);
     transcriptResult = [textMessage(0, '下一会话')];
-    rerender(propsWith({ sourceRef: 'add-feature/implement/executor/2' }));
+    rerender(propsWith({ sessionId: 'ses-next' }));
     await waitFor(() => expect(result.current.running).toBe(false));
 
     expect(result.current.messages.map((message) => message.id)).toEqual(['evt-0']);
@@ -278,8 +254,8 @@ describe('useSessionTranscript：running 标志（面板头部流式状态）', 
 });
 
 describe('useSessionTranscript：空闲与空态（边界）', () => {
-  it('sourceRef null（未选中节点）：零 invoke、messages 空、running false、error null、summary null', async () => {
-    const { result } = await mounted({ sourceRef: null });
+  it('sessionId null（未选中节点）：零 invoke、messages 空、running false、error null、summary null', async () => {
+    const { result } = await mounted({ sessionId: null });
 
     expect(invokeMock).not.toHaveBeenCalled();
     expect(result.current.messages).toEqual([]);
@@ -297,26 +273,25 @@ describe('useSessionTranscript：空闲与空态（边界）', () => {
     expect(result.current.summary).toBeNull();
   });
 
-  it('反查空清单：messages 空、running false、error null、summary null、不触发转录重放（节点尚无会话的合法空态）', async () => {
-    sessionsResult = [];
-    const { result } = await mounted();
-    await waitFor(() => expect(sessionsCalls()).toHaveLength(1));
+  it('sessionId null：messages 空、running false、error null、summary null、不触发单查与转录重放（无槽位合法空态）', async () => {
+    const { result } = await mounted({ sessionId: null });
+    await act(async () => {});
 
     expect(result.current.messages).toEqual([]);
     expect(result.current.running).toBe(false);
     expect(result.current.error).toBeNull();
     expect(result.current.summary).toBeNull();
+    expect(invokeMock.mock.calls.filter(([name]) => name === 'session_detail')).toHaveLength(0);
     expect(
       invokeMock.mock.calls.filter(([name]) => name === 'agent_session_transcript'),
     ).toHaveLength(0);
   });
 
-  it('反查空清单后实时事件到站：无库内会话底座，实时事件不越权呈现在 messages（空会话不虚构转录）', async () => {
-    sessionsResult = [];
-    const { result, rerender } = await mounted();
-    await waitFor(() => expect(sessionsCalls()).toHaveLength(1));
+  it('sessionId null 后实时事件到站：无库内会话底座，实时事件不越权呈现在 messages（空会话不虚构转录）', async () => {
+    const { result, rerender } = await mounted({ sessionId: null });
+    expect(result.current.messages).toEqual([]);
 
-    rerender(propsWith({ liveEvents: [textMessage(2, '无主实时片段')] }));
+    rerender(propsWith({ sessionId: null, liveEvents: [textMessage(2, '无主实时片段')] }));
     await act(async () => {});
     expect(result.current.messages).toEqual([]);
     expect(result.current.error).toBeNull();
@@ -370,11 +345,11 @@ describe('useSessionTranscript：实时去重并入（AC-5 实时半边）', () 
   });
 
   it('重放未就绪时实时事件静默等待：messages 保持空不崩；重放到达后以重放为底', async () => {
-    let resolveSessions: (value: SessionSummary[]) => void = () => {};
+    let resolveDetail: (value: SessionSummary | null) => void = () => {};
     invokeMock.mockImplementation((command: string) => {
-      if (command === 'agent_sessions') {
-        return new Promise<SessionSummary[]>((resolve) => {
-          resolveSessions = resolve;
+      if (command === 'session_detail') {
+        return new Promise<SessionSummary | null>((resolve) => {
+          resolveDetail = resolve;
         });
       }
       return Promise.resolve(REPLAY);
@@ -388,7 +363,7 @@ describe('useSessionTranscript：实时去重并入（AC-5 实时半边）', () 
     expect(result.current.messages).toEqual([]);
 
     await act(async () => {
-      resolveSessions([summary(SESSION_ID, [turn(11, 'completed')])]);
+      resolveDetail(summary(SESSION_ID, [turn(11, 'completed')]));
     });
     await waitFor(() => expect(result.current.messages).toHaveLength(2));
     expect(result.current.messages.map((message) => message.id)).toEqual(['evt-0', 'evt-1']);
@@ -404,15 +379,15 @@ describe('useSessionTranscript：实时去重并入（AC-5 实时半边）', () 
     expect(result.current.messages.map((message) => message.id)).toEqual(['evt-0', 'evt-1']);
   });
 
-  it('竞态守卫：切走 sourceRef 后旧反查后到不回写 messages（disposed 清理生效）', async () => {
-    const resolvers: Array<(sessions: SessionSummary[]) => void> = [];
+  it('竞态守卫：切走 sessionId 后旧直查后到不回写 messages（disposed 清理生效）', async () => {
+    const resolvers: Array<(detail: SessionSummary | null) => void> = [];
     const transcriptBySession: Record<string, AgentEvent[]> = {
       'ses-old-ref': [textMessage(0, '旧会话回写')],
       'ses-new-ref': [textMessage(0, '新会话正文')],
     };
     invokeMock.mockImplementation((command: string, params?: Record<string, unknown>) => {
-      if (command === 'agent_sessions') {
-        return new Promise<SessionSummary[]>((resolve) => {
+      if (command === 'session_detail') {
+        return new Promise<SessionSummary | null>((resolve) => {
           resolvers.push(resolve);
         });
       }
@@ -423,15 +398,15 @@ describe('useSessionTranscript：实时去重并入（AC-5 实时半边）', () 
       return Promise.resolve(null);
     });
     const { result, rerender } = renderHook((input: Params) => useSessionTranscript(input), {
-      initialProps: propsWith({}),
+      initialProps: propsWith({ sessionId: 'ses-old-ref' }),
     });
 
-    rerender(propsWith({ sourceRef: 'add-feature/implement/executor/2' }));
+    rerender(propsWith({ sessionId: 'ses-new-ref' }));
     expect(resolvers).toHaveLength(2);
 
-    // 新 ref 先落定
+    // 新 id 先落定
     await act(async () => {
-      resolvers[1]?.([summary('ses-new-ref', [turn(21, 'completed')])]);
+      resolvers[1]?.(summary('ses-new-ref', [turn(21, 'completed')]));
     });
     await waitFor(() =>
       expect(result.current.messages.map((message) => message.id)).toEqual(['evt-0']),
@@ -441,9 +416,9 @@ describe('useSessionTranscript：实时去重并入（AC-5 实时半边）', () 
       text: '新会话正文',
     });
 
-    // 旧 ref 后落定：不回写旧会话转录
+    // 旧 id 后落定：不回写旧会话转录
     await act(async () => {
-      resolvers[0]?.([summary('ses-old-ref', [turn(11, 'completed')])]);
+      resolvers[0]?.(summary('ses-old-ref', [turn(11, 'completed')]));
     });
     await act(async () => {});
     expect(result.current.messages.map((message) => message.id)).toEqual(['evt-0']);
@@ -456,30 +431,30 @@ describe('useSessionTranscript：实时去重并入（AC-5 实时半边）', () 
 
   it('竞态守卫：切走后旧查询 reject 不置入过期 error（disposed 门禁覆盖 catch 臂）', async () => {
     const gates: Array<{
-      resolve: (sessions: SessionSummary[]) => void;
+      resolve: (detail: SessionSummary | null) => void;
       reject: (cause: unknown) => void;
     }> = [];
     invokeMock.mockImplementation((command: string) =>
-      command === 'agent_sessions'
-        ? new Promise<SessionSummary[]>((resolve, reject) => {
+      command === 'session_detail'
+        ? new Promise<SessionSummary | null>((resolve, reject) => {
             gates.push({ resolve, reject });
           })
         : Promise.resolve(REPLAY),
     );
     const { result, rerender } = renderHook((input: Params) => useSessionTranscript(input), {
-      initialProps: propsWith({}),
+      initialProps: propsWith({ sessionId: 'ses-old' }),
     });
 
-    rerender(propsWith({ sourceRef: 'add-feature/implement/executor/2' }));
+    rerender(propsWith({ sessionId: 'ses-new' }));
     expect(gates).toHaveLength(2);
 
-    // 新 ref 先落定成功
+    // 新 id 先落定成功
     await act(async () => {
-      gates[1]?.resolve([summary('ses-new', [turn(21, 'completed')])]);
+      gates[1]?.resolve(summary('ses-new', [turn(21, 'completed')]));
     });
     await waitFor(() => expect(result.current.messages).toHaveLength(2));
 
-    // 旧 ref 后 reject：error 保持 null（过期失败不呈现）
+    // 旧 id 后 reject：error 保持 null（过期失败不呈现）
     await act(async () => {
       gates[0]?.reject('db: 旧查询失败');
     });
@@ -490,8 +465,8 @@ describe('useSessionTranscript：实时去重并入（AC-5 实时半边）', () 
 });
 
 describe('useSessionTranscript：invoke reject（面板可感知错误）', () => {
-  it('反查 reject：error 呈现、messages 保持空', async () => {
-    sessionsResult = 'db: 会话查询失败';
+  it('session_detail reject：error 呈现、messages 保持空', async () => {
+    detailResult = 'db: 会话查询失败';
     const { result } = await mounted();
     await waitFor(() => expect(result.current.error).toBe('db: 会话查询失败'));
 
@@ -508,7 +483,7 @@ describe('useSessionTranscript：invoke reject（面板可感知错误）', () =
 
   it('非字符串 reject（Error 实例）：String 归一后 cause 原样透传（不吞错、不替换为通用文案）', async () => {
     invokeMock.mockImplementation((command: string) =>
-      command === 'agent_sessions'
+      command === 'session_detail'
         ? Promise.reject(new Error('db: 连接中断'))
         : Promise.resolve(REPLAY),
     );
@@ -521,26 +496,19 @@ describe('useSessionTranscript：invoke reject（面板可感知错误）', () =
 });
 
 // ---------------------------------------------------------------------------
-// 直查优先（desktop-change-session-visibility，AC-8 / D8）：槽位 sessionId 在
-// 场走 session_detail 单查 → running 自轮行推导 → agent_session_transcript 重
-// 放；agent_sessions 恰零调用（有 id 不走反查）；直查 Err 错误态不回退反查
-//（回退仅限槽位缺席，防同 ref 多会话歧义回流）。
+// 直查单点寻址（desktop-change-session-visibility，AC-8 / D8）：槽位 sessionId
+// 在场走 session_detail 单查 → running 自轮行推导 → agent_session_transcript
+// 重放；反查路径已整体退役（agent_sessions 恰零调用为红线守卫）。直查 Err 错误
+// 态不静默降级（无回退路径，防同 ref 多会话歧义回流）。
 // ---------------------------------------------------------------------------
 
-describe('useSessionTranscript：直查优先（D8）', () => {
-  function detailCalls(): unknown[][] {
-    return invokeMock.mock.calls.filter(([name]) => name === 'session_detail');
-  }
-
+describe('useSessionTranscript：直查单点寻址（D8）', () => {
   function sessionsCalls(): unknown[][] {
     return invokeMock.mock.calls.filter(([name]) => name === 'agent_sessions');
   }
 
-  it('sessionId 在场：invoke session_detail 携 { root, sessionId } → 轮行推导 → 转录重放装配 messages；agent_sessions 恰零调用（直查优先）', async () => {
-    const { result } = await mounted({
-      sessionId: 'ses-slot-1',
-      sourceRef: null,
-    });
+  it('sessionId 在场：invoke session_detail 携 { root, sessionId } → 轮行推导 → 转录重放装配 messages；agent_sessions 恰零调用（反查退役）', async () => {
+    const { result } = await mounted({ sessionId: 'ses-slot-1' });
     await waitFor(() => expect(result.current.messages).toHaveLength(2));
 
     expect(detailCalls()).toEqual([['session_detail', { root: ROOT, sessionId: 'ses-slot-1' }]]);
@@ -554,12 +522,9 @@ describe('useSessionTranscript：直查优先（D8）', () => {
     expect(sessionsCalls()).toHaveLength(0);
   });
 
-  it('直查应答轮行含 running → running 置真（面板头部流式状态与反查路径同一推导式）', async () => {
+  it('直查应答轮行含 running → running 置真（面板头部流式状态与单查路径同一推导式）', async () => {
     detailResult = summary('ses-slot-1', [turn(11, 'running')]);
-    const { result } = await mounted({
-      sessionId: 'ses-slot-1',
-      sourceRef: null,
-    });
+    const { result } = await mounted({ sessionId: 'ses-slot-1' });
 
     await waitFor(() => expect(result.current.running).toBe(true));
     expect(result.current.error).toBeNull();
@@ -568,10 +533,7 @@ describe('useSessionTranscript：直查优先（D8）', () => {
 
   it('直查混合轮行（completed + running）：running 置真；切至全终态新会话后复位 false', async () => {
     detailResult = summary('ses-slot-1', [turn(10, 'completed'), turn(11, 'running')]);
-    const { result, rerender } = await mounted({
-      sessionId: 'ses-slot-1',
-      sourceRef: null,
-    });
+    const { result, rerender } = await mounted({ sessionId: 'ses-slot-1' });
     await waitFor(() => expect(result.current.running).toBe(true));
 
     detailResult = summary('ses-slot-2', [turn(21, 'completed'), turn(22, 'failed')]);
@@ -586,10 +548,7 @@ describe('useSessionTranscript：直查优先（D8）', () => {
 
   it('直查路径转录重放 reject：error 呈现 cause 原文、messages 空（单查成功不豁免重放失败）', async () => {
     transcriptResult = 'db: 转录读取失败';
-    const { result } = await mounted({
-      sessionId: 'ses-slot-1',
-      sourceRef: null,
-    });
+    const { result } = await mounted({ sessionId: 'ses-slot-1' });
     await waitFor(() => expect(result.current.error).toBe('db: 转录读取失败'));
 
     expect(result.current.messages).toEqual([]);
@@ -597,11 +556,8 @@ describe('useSessionTranscript：直查优先（D8）', () => {
     expect(sessionsCalls()).toHaveLength(0);
   });
 
-  it('sessionId 变化（rerender）→ 直查新会话重放（选中联动，与 sourceRef 变化重查同型）', async () => {
-    const { result, rerender } = await mounted({
-      sessionId: 'ses-slot-1',
-      sourceRef: null,
-    });
+  it('sessionId 变化（rerender）→ 直查新会话重放（选中联动，单点寻址同型）', async () => {
+    const { result, rerender } = await mounted({ sessionId: 'ses-slot-1' });
     await waitFor(() => expect(result.current.messages).toHaveLength(2));
 
     detailResult = summary('ses-slot-2', [turn(21, 'completed')]);
@@ -619,17 +575,13 @@ describe('useSessionTranscript：直查优先（D8）', () => {
     expect(detailCalls()[1]).toEqual(['session_detail', { root: ROOT, sessionId: 'ses-slot-2' }]);
   });
 
-  it('直查模式下 liveEvents seq 归并：以直查重放为底去重并入（assembleTranscript 语义与反查路径一致）', async () => {
-    const { result, rerender } = await mounted({
-      sessionId: 'ses-slot-1',
-      sourceRef: null,
-    });
+  it('直查模式下 liveEvents seq 归并：以直查重放为底去重并入（assembleTranscript 语义与单查路径一致）', async () => {
+    const { result, rerender } = await mounted({ sessionId: 'ses-slot-1' });
     await waitFor(() => expect(result.current.messages).toHaveLength(2));
 
     rerender(
       propsWith({
         sessionId: 'ses-slot-1',
-        sourceRef: null,
         liveEvents: [textMessage(1, '重复 seq 1'), textMessage(2, '直查实时片段')],
       }),
     );
@@ -646,12 +598,9 @@ describe('useSessionTranscript：直查优先（D8）', () => {
     });
   });
 
-  it('session_detail reject（悬挂 id）：error 呈现 + messages 空，agent_sessions 恰零调用（直查 Err 不静默回退反查）', async () => {
+  it('session_detail reject（悬挂 id）：error 呈现 + messages 空，agent_sessions 恰零调用（直查 Err 不静默降级）', async () => {
     detailResult = '会话不存在: id=ses-gone';
-    const { result } = await mounted({
-      sessionId: 'ses-gone',
-      sourceRef: 'add-feature/implement/executor/1',
-    });
+    const { result } = await mounted({ sessionId: 'ses-gone' });
     await waitFor(() => expect(result.current.error).toBe('会话不存在: id=ses-gone'));
 
     expect(result.current.messages).toEqual([]);
@@ -661,10 +610,7 @@ describe('useSessionTranscript：直查优先（D8）', () => {
 
   it('sessionDetail 应答 null（blank root 空结果透传）：空态呈现、summary null，不发起 agent_session_transcript', async () => {
     detailResult = null;
-    const { result } = await mounted({
-      sessionId: 'ses-slot-1',
-      sourceRef: null,
-    });
+    const { result } = await mounted({ sessionId: 'ses-slot-1' });
     await waitFor(() => expect(detailCalls()).toHaveLength(1));
 
     expect(result.current.messages).toEqual([]);
@@ -676,8 +622,8 @@ describe('useSessionTranscript：直查优先（D8）', () => {
     ).toHaveLength(0);
   });
 
-  it('sessionId 与 sourceRef 双 null（decision 槽位缺席）：清空态零 invoke、summary null（不误挂他 attempt 会话）', async () => {
-    const { result } = await mounted({ sessionId: null, sourceRef: null });
+  it('sessionId null（槽位缺席）：清空态零 invoke、summary null（不误挂他 attempt 会话）', async () => {
+    const { result } = await mounted({ sessionId: null });
 
     expect(invokeMock).not.toHaveBeenCalled();
     expect(result.current.messages).toEqual([]);
@@ -690,20 +636,16 @@ describe('useSessionTranscript：直查优先（D8）', () => {
 // ---------------------------------------------------------------------------
 // summary 三件套（desktop-drawer-session-column，AC-3 / D4）：返回面增
 // `summary: SessionSummary | null`（row + stats + turns）——与 messages 同一次
-// 取数（直查 sessionDetail 应答 / 反查清单 latest），不重复发 invoke；错误态
-// 与空态下 summary 恒 null（不虚构元信息）。
+// 取数（直查 sessionDetail 应答），不重复发 invoke；错误态与空态下 summary 恒
+// null（不虚构元信息）。
 // ---------------------------------------------------------------------------
 
 describe('useSessionTranscript：summary 三件套（AC-3 / D4）', () => {
-  function detailCalls(): unknown[][] {
-    return invokeMock.mock.calls.filter(([name]) => name === 'session_detail');
-  }
-
   it('直查命中：summary = session_detail 应答三件套逐字段（row / stats / turns），且与 messages 同一次直查取数', async () => {
     const direct = summary('ses-slot-1', [turn(11, 'running')]);
     detailResult = direct;
     transcriptResult = REPLAY;
-    const { result } = await mounted({ sessionId: 'ses-slot-1', sourceRef: null });
+    const { result } = await mounted({ sessionId: 'ses-slot-1' });
     await waitFor(() => expect(result.current.messages).toHaveLength(2));
 
     // 逐字段同源：row 身份面 / provenance / stats / turns 全量透出
@@ -719,42 +661,43 @@ describe('useSessionTranscript：summary 三件套（AC-3 / D4）', () => {
     expect(result.current.running).toBe(true);
   });
 
-  it('反查命中：summary = 清单 latest 会话三件套（同 ref 多会话取降序首位口径对 summary 同样成立）', async () => {
-    const latest = summary('ses-latest', [turn(12, 'completed')]);
-    sessionsResult = [latest, summary('ses-old', [turn(11, 'completed')])];
+  it('直查命中：summary 三件套随应答透出（row 身份面 + stats + turns 与应答逐字段同源；调试会话 provenance.sourceRef 为 null）', async () => {
+    const direct = summary('ses-latest', [turn(12, 'completed')]);
+    detailResult = direct;
     transcriptResult = REPLAY;
-    const { result } = await mounted();
+    const { result } = await mounted({ sessionId: 'ses-latest' });
     await waitFor(() => expect(result.current.messages).toHaveLength(2));
 
     expect(result.current.summary?.row.id).toBe('ses-latest');
-    expect(result.current.summary?.row.provenance).toEqual(latest.row.provenance);
-    expect(result.current.summary?.stats).toEqual(latest.stats);
-    expect(result.current.summary?.turns).toEqual(latest.turns);
+    expect(result.current.summary?.row.provenance).toEqual(direct.row.provenance);
+    expect(result.current.summary?.row.provenance.sourceRef).toBeNull();
+    expect(result.current.summary?.stats).toEqual(direct.stats);
+    expect(result.current.summary?.turns).toEqual(direct.turns);
   });
 
-  it('sourceRef 变化重查：summary 随新会话更新（与 messages / running 同一 effect 重查链）', async () => {
+  it('sessionId 变化重查：summary 随新会话更新（与 messages / running 同一 effect 重查链）', async () => {
     const { result, rerender } = await mounted();
     await waitFor(() => expect(result.current.summary?.row.id).toBe(SESSION_ID));
 
-    const nextRef = 'add-feature/implement/evaluator/1';
-    sessionsResult = [summary('ses-evaluator-1', [turn(21, 'completed')], nextRef)];
+    const nextId = 'ses-evaluator-1';
+    detailResult = summary(nextId, [turn(21, 'completed')]);
     transcriptResult = [textMessage(0, '评估会话输出')];
-    rerender(propsWith({ sourceRef: nextRef }));
-    await waitFor(() => expect(result.current.summary?.row.id).toBe('ses-evaluator-1'));
+    rerender(propsWith({ sessionId: nextId }));
+    await waitFor(() => expect(result.current.summary?.row.id).toBe(nextId));
 
-    expect(result.current.summary?.row.provenance.sourceRef).toBe(nextRef);
+    expect(result.current.summary?.row.provenance.sourceRef).toBeNull();
     expect(result.current.messages.map((message) => message.id)).toEqual(['evt-0']);
   });
 
-  it('reject 错误态：error 呈现、summary 保持 null（错误态不虚构元信息）', async () => {
-    sessionsResult = 'db: 会话查询失败';
-    const fallback = await mounted();
-    await waitFor(() => expect(fallback.result.current.error).toBe('db: 会话查询失败'));
-    expect(fallback.result.current.summary).toBeNull();
-    fallback.unmount();
+  it('reject 错误态：error 呈现、summary 保持 null（转录重放失败与单查失败两臂皆不虚构元信息）', async () => {
+    transcriptResult = 'db: 转录读取失败';
+    const replayFail = await mounted();
+    await waitFor(() => expect(replayFail.result.current.error).toBe('db: 转录读取失败'));
+    expect(replayFail.result.current.summary).toBeNull();
+    replayFail.unmount();
 
     detailResult = '会话不存在: id=ses-gone';
-    const direct = await mounted({ sessionId: 'ses-gone', sourceRef: null });
+    const direct = await mounted({ sessionId: 'ses-gone' });
     await waitFor(() => expect(direct.result.current.error).toBe('会话不存在: id=ses-gone'));
     expect(direct.result.current.summary).toBeNull();
   });
@@ -766,16 +709,13 @@ describe('useSessionTranscript：refreshKey 重查键（unify-run-state-persiste
   }
 
   it('refreshKey bump → 重新发起同一寻址查询（sessionId 直查优先，通知触发重查面 AC-10）', async () => {
-    const { result, rerender } = await mounted({
-      sessionId: SESSION_ID,
-      sourceRef: null,
-    });
+    const { result, rerender } = await mounted({ sessionId: SESSION_ID });
     expect(result.current.messages.length).toBe(REPLAY.length);
     const base = transcriptCalls().length;
     expect(base).toBeGreaterThan(0);
 
     await act(async () => {
-      rerender(propsWith({ sessionId: SESSION_ID, sourceRef: null, refreshKey: 1 }));
+      rerender(propsWith({ sessionId: SESSION_ID, refreshKey: 1 }));
     });
     await act(async () => {});
     expect(transcriptCalls().length, 'refreshKey 自增即重查转录库').toBe(base + 1);
@@ -784,22 +724,22 @@ describe('useSessionTranscript：refreshKey 重查键（unify-run-state-persiste
     expect(latest.sessionId).toBe(SESSION_ID);
 
     await act(async () => {
-      rerender(propsWith({ sessionId: SESSION_ID, sourceRef: null, refreshKey: 2 }));
+      rerender(propsWith({ sessionId: SESSION_ID, refreshKey: 2 }));
     });
     await act(async () => {});
     expect(transcriptCalls().length, '再次 bump 再次重查').toBe(base + 2);
   });
 
   it('refreshKey 不变时寻址键变化仍即时重查（节点切换联动既有语义不因刷新键引入而弱化）', async () => {
-    const { rerender } = await mounted({ sourceRef: SOURCE_REF });
-    const base = sessionsCalls().length;
+    const { rerender } = await mounted({ sessionId: 'ses-a' });
+    const base = detailCalls().length;
 
     await act(async () => {
-      rerender(propsWith({ sourceRef: 'change/other-phase/executor/1', refreshKey: 0 }));
+      rerender(propsWith({ sessionId: 'ses-b', refreshKey: 0 }));
     });
     await act(async () => {});
-    expect(sessionsCalls().length, '寻址键变化即时重查（refreshKey 恒定）').toBe(base + 1);
-    const latest = sessionsCalls().at(-1)?.[1] as Record<string, unknown>;
-    expect(latest.sourceRef).toBe('change/other-phase/executor/1');
+    expect(detailCalls().length, '寻址键变化即时重查（refreshKey 恒定）').toBe(base + 1);
+    const latest = detailCalls().at(-1)?.[1] as Record<string, unknown>;
+    expect(latest.sessionId).toBe('ses-b');
   });
 });

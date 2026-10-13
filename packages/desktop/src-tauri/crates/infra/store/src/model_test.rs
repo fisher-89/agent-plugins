@@ -1211,7 +1211,7 @@ fn checklist_item_record_native_model往返版本1逐字段保真() {
 // 换锚整体退役——旧形态数据零 decode 路径（D5：不可达或整体丢弃）。
 // ---------------------------------------------------------------------------
 
-use crate::model::{ChangeRecord, ChangeRecordV3, ExploreRecord, ExploreRecordV1, ExploreRecordV2};
+use crate::model::{ChangeRecord, ChangeRecordV3, ExploreRecord, ExploreRecordV1, ExploreRecordV2, ExploreRecordV3};
 use workflow::state::ChangeStatus;
 
 // ---------------------------------------------------------------------------
@@ -1220,16 +1220,17 @@ use workflow::state::ChangeStatus;
 // `"requirement"`）+ 升级链双向 `From`（v1 ⇄ v2 ⇄ v3）。
 // ---------------------------------------------------------------------------
 
-/// ExploreRecord v3 回环：title / workflow_type 两态（requirement 与
-/// test-only）/ promoted_to 两态构造 → encode / decode 往返逐字段相等
-///（版本头 = 3）。
+/// ExploreRecord v4 回环：title / workflow_type 两态（requirement 与
+/// test-only）/ promoted_to 两态 / session_id 两态构造 → encode / decode 往返逐字段相等
+///（版本头 = 4）。
 #[test]
-fn explore_record_v3回环_workflow_type两态逐字段相等() {
-    for (workflow_type, promoted_to) in [
-        ("requirement", None),
+fn explore_record_v4回环_session_id两态逐字段相等() {
+    for (workflow_type, promoted_to, session_id) in [
+        ("requirement", None, None),
         (
             "test-only",
             Some("0198f7a0-0000-7000-8000-0000000000c9".to_owned()),
+            Some("ses-3-1727000000000".to_owned()),
         ),
     ] {
         let record = ExploreRecord {
@@ -1239,19 +1240,20 @@ fn explore_record_v3回环_workflow_type两态逐字段相等() {
             title: "接口重试策略".to_owned(),
             workflow_type: workflow_type.to_owned(),
             promoted_to: promoted_to.clone(),
+            session_id: session_id.clone(),
             created_at: 1_727_000_000_000,
             updated_at: 1_727_000_090_000,
         };
-        let bytes = native_model::encode(&record).expect("encode v3 应成功");
+        let bytes = native_model::encode(&record).expect("encode v4 应成功");
         let (decoded, version) =
-            native_model::decode::<ExploreRecord>(bytes).expect("decode v3 应成功");
+            native_model::decode::<ExploreRecord>(bytes).expect("decode v4 应成功");
         assert_eq!(
-            version, 3,
-            "ExploreRecord 4:v3 版本头（workflow_type 字段面入册）"
+            version, 4,
+            "ExploreRecord 4:v4 版本头（session_id 字段面入册）"
         );
         assert_eq!(
             decoded, record,
-            "v3 往返逐字段相等（workflow_type {workflow_type} / promoted_to {promoted_to:?}）"
+            "v4 往返逐字段相等（workflow_type {workflow_type} / promoted_to {promoted_to:?} / session_id {session_id:?}）"
         );
         assert_eq!(decoded.id, 7, "id 主键往返保真（身份锚）");
         assert_eq!(decoded.name, "api-retry", "name 寻址键往返保真");
@@ -1261,14 +1263,15 @@ fn explore_record_v3回环_workflow_type两态逐字段相等() {
             "workflow_type 两态往返保真"
         );
         assert_eq!(decoded.promoted_to, promoted_to, "promoted_to 两态保真");
+        assert_eq!(decoded.session_id, session_id, "session_id 两态保真");
     }
 }
 
-/// ExploreRecord V2 → V3 decode-only 升级（AC-9）：V2 形态记录 encode → 以
-/// V3 解码 → `workflow_type == "requirement"`（缺列读出默认），其余字段
-///（title / promoted_to / id / 时间戳两态）逐字直透；零 `migrate` 调用。
+/// ExploreRecord V2 → V3 → V4 decode-only 升级：V2 形态记录 encode → 以 V4
+/// 解码 → `workflow_type == "requirement"`、`session_id == None`（缺列读出默认），
+/// 其余字段逐字直透；零 `migrate` 调用。
 #[test]
-fn explore_record_v2到v3_decode_only升级_workflow_type默认requirement() {
+fn explore_record_v2到v4_decode_only升级_workflow_type与session_id默认() {
     for promoted_to in [
         None,
         Some("0198f7a0-0000-7000-8000-0000000000d1".to_owned()),
@@ -1291,14 +1294,15 @@ fn explore_record_v2到v3_decode_only升级_workflow_type默认requirement() {
         assert_eq!(legacy_version, 2, "存量形态封装为 version 2");
         assert_eq!(legacy_decoded, legacy, "v2 载荷按 v2 解码逐字段相等");
 
-        // 同一载荷经版本机制透明升级为 v3（零 migrate 调用）
+        // 同一载荷经版本机制透明升级为 v4（零 migrate 调用）
         let (upgraded, version) =
-            native_model::decode::<ExploreRecord>(legacy_bytes).expect("v2 载荷应升级为 v3");
+            native_model::decode::<ExploreRecord>(legacy_bytes).expect("v2 载荷应升级为 v4");
         assert_eq!(version, 2, "decode 返回载荷头版本（升级链源版本）");
         assert_eq!(
             upgraded.workflow_type, "requirement",
             "缺列读兼容：存量记录读出默认 requirement（零迁移）"
         );
+        assert_eq!(upgraded.session_id, None, "session_id 缺列读出默认 None");
         assert_eq!(upgraded.title, "存量标题", "title 直透（v2 已有列）");
         assert_eq!(upgraded.promoted_to, promoted_to, "promoted_to 直透");
         assert_eq!(upgraded.id, legacy.id, "id 主键逐字一致");
@@ -1306,28 +1310,36 @@ fn explore_record_v2到v3_decode_only升级_workflow_type默认requirement() {
         assert_eq!(upgraded.name, legacy.name, "name 寻址键逐字一致");
         assert_eq!(upgraded.created_at, legacy.created_at, "created_at 逐字一致");
         assert_eq!(upgraded.updated_at, legacy.updated_at, "updated_at 逐字一致");
-        // 升级形态回环无损（v3 编码 → v3 解码）
+        // 升级形态回环无损（v4 编码 → v4 解码）
         let round_trip =
             native_model::encode(&upgraded).expect("升级形态 encode 应成功");
         let (again, again_version) =
-            native_model::decode::<ExploreRecord>(round_trip).expect("v3 回环解码应成功");
-        assert_eq!(again_version, 3);
+            native_model::decode::<ExploreRecord>(round_trip).expect("v4 回环解码应成功");
+        assert_eq!(again_version, 4);
         assert_eq!(again, upgraded, "升级形态再编码回环逐字段相等");
     }
 }
 
-/// ExploreRecord native_model 元数据（边界 / AC-9）：`version = 3` 且升级链
-/// `from = ExploreRecordV2`；物表名版本段随之升为 `4_3_id`（旧表 4_2_id 对新
+/// ExploreRecord native_model 元数据（边界）：`version = 4` 且升级链
+/// `from = ExploreRecordV3`；物表名版本段随之升为 `4_4_id`（旧表 4_3_id 对新
 /// 读面不可见）。
 #[test]
-fn explore_record_v3元数据_版本升三且升级链自v2() {
+fn explore_record_v4元数据_版本升四且升级链自v3() {
     assert_eq!(
         (
             <ExploreRecord as native_model::Model>::native_model_id(),
             <ExploreRecord as native_model::Model>::native_model_version()
         ),
+        (4, 4),
+        "ExploreRecord 4:v4（新增 session_id 列）"
+    );
+    assert_eq!(
+        (
+            <ExploreRecordV3 as native_model::Model>::native_model_id(),
+            <ExploreRecordV3 as native_model::Model>::native_model_version()
+        ),
         (4, 3),
-        "ExploreRecord 4:v3（新增 workflow_type 列）"
+        "中转形态 ExploreRecordV3 4:v3 入升级链"
     );
     assert_eq!(
         (
@@ -1346,7 +1358,7 @@ fn explore_record_v3元数据_版本升三且升级链自v2() {
         "链首 ExploreRecordV1 4:v1"
     );
 
-    // 升级链 V1 → V2 → V3 全程可解码（逐跳 version 头可辨）
+    // 升级链 V1 → V2 → V3 → V4 全程可解码（逐跳 version 头可辨）
     let v1 = ExploreRecordV1 {
         id: 1,
         root: r"C:\ws\chain".to_owned(),
@@ -1362,24 +1374,30 @@ fn explore_record_v3元数据_版本升三且升级链自v2() {
     assert_eq!(as_v2.title, "chain-topic", "v1 → v2：title 兜底 name");
     assert_eq!(as_v2.promoted_to, None);
 
-    let (as_v3, v3_version) = native_model::decode::<ExploreRecord>(
+    let (as_v3, v3_version) = native_model::decode::<ExploreRecordV3>(
         native_model::encode(&as_v2).expect("encode v2 应成功"),
     )
     .expect("v2 → v3 应可解码");
     assert_eq!(v3_version, 2);
-    assert_eq!(
-        as_v3.workflow_type, "requirement",
-        "升级链末端读出默认 requirement"
-    );
+    assert_eq!(as_v3.workflow_type, "requirement", "升级链读出默认 requirement");
     assert_eq!(as_v3.title, "chain-topic");
-    assert_eq!(as_v3.id, 1);
+
+    let (as_v4, v4_version) = native_model::decode::<ExploreRecord>(
+        native_model::encode(&as_v3).expect("encode v3 应成功"),
+    )
+    .expect("v3 → v4 应可解码");
+    assert_eq!(v4_version, 3);
+    assert_eq!(as_v4.workflow_type, "requirement");
+    assert_eq!(as_v4.session_id, None, "升级链末端 session_id = None（缺列读兼容）");
+    assert_eq!(as_v4.title, "chain-topic");
+    assert_eq!(as_v4.id, 1);
 }
 
-/// From<ExploreRecord> for ExploreRecordV2（边界 / AC-9）：降级半边形丢弃
-/// `workflow_type`，其余六字段逐字一致（只保升级语义真实性，降级形态不作数据
-/// 承诺）；降级后升级回来 workflow_type 归默认 `"requirement"`。
+/// From<ExploreRecord> for ExploreRecordV2（边界）：降级半边形经 V3 中转丢弃
+/// `session_id` 与 `workflow_type`，其余字段逐字一致（只保升级语义真实性，降级形态不作数据
+/// 承诺）；降级后升级回来 workflow_type 归默认 `"requirement"`、session_id 归 None。
 #[test]
-fn explore_record_v3到v2降级半边丢弃workflow_type() {
+fn explore_record_v4到v2降级半边经v3中转丢弃session_id与workflow_type() {
     let record = ExploreRecord {
         id: 11,
         root: r"C:\ws\down".to_owned(),
@@ -1387,10 +1405,11 @@ fn explore_record_v3到v2降级半边丢弃workflow_type() {
         title: "降级样本".to_owned(),
         workflow_type: "test-only".to_owned(),
         promoted_to: Some("chg-9".to_owned()),
+        session_id: Some("ses-1-1700000000000".to_owned()),
         created_at: 1_727_000_000_000,
         updated_at: 1_727_000_080_000,
     };
-    let downgraded = ExploreRecordV2::from(record.clone());
+    let downgraded = ExploreRecordV2::from(ExploreRecordV3::from(record.clone()));
     assert_eq!(downgraded.id, record.id);
     assert_eq!(downgraded.root, record.root);
     assert_eq!(downgraded.name, record.name);
@@ -1406,17 +1425,21 @@ fn explore_record_v3到v2降级半边丢弃workflow_type() {
     assert_eq!(oldest.created_at, record.created_at);
     assert_eq!(oldest.updated_at, record.updated_at);
 
-    // 升级回来：workflow_type 归默认 requirement（降级不保 workflow_type）
-    let round_trip = ExploreRecord::from(ExploreRecordV2::from(ExploreRecordV1 {
+    // 升级回来：workflow_type 归默认 requirement、session_id 归 None（降级不保）
+    let round_trip = ExploreRecord::from(ExploreRecordV3::from(ExploreRecordV2::from(ExploreRecordV1 {
         id: record.id,
         root: record.root.clone(),
         name: record.name.clone(),
         created_at: record.created_at,
         updated_at: record.updated_at,
-    }));
+    })));
     assert_eq!(
         round_trip.workflow_type, "requirement",
         "降级丢弃后升级归默认 requirement"
+    );
+    assert_eq!(
+        round_trip.session_id, None,
+        "降级丢弃后升级 session_id 归 None"
     );
     assert_eq!(round_trip.title, record.name, "降级丢弃后升级兜底 title = name");
     assert_eq!(round_trip.promoted_to, None, "降级丢弃后升级 promoted_to = None");
@@ -1463,12 +1486,12 @@ fn explore_record_v2历史形态七字段无workflow_type() {
     assert_eq!(back, v2, "v2 回环逐字段相等");
 }
 
-/// ExploreRecord V1 → V3 decode-only 升级（AC-9）：V1 形态记录 encode → 以当前
+/// ExploreRecord V1 → V4 decode-only 升级：V1 形态记录 encode → 以当前
 /// 形态解码 → `title == name`、`promoted_to == None`、`workflow_type ==
-/// "requirement"`、其余字段逐字一致；零 `migrate` 调用（升级由 native_model
-/// `from` 链 V1 → V2 → V3 在读取时透明完成）。
+/// "requirement"`、`session_id == None`、其余字段逐字一致；零 `migrate` 调用
+///（升级由 native_model `from` 链 V1 → V2 → V3 → V4 在读取时透明完成）。
 #[test]
-fn explore_record_v1到v3_decode_only升级_title兜底name且零迁移() {
+fn explore_record_v1到v4_decode_only升级_title兜底name且零迁移() {
     let legacy = ExploreRecordV1 {
         id: 3,
         root: r"C:\ws\legacy".to_owned(),
@@ -1483,9 +1506,9 @@ fn explore_record_v1到v3_decode_only升级_title兜底name且零迁移() {
     assert_eq!(legacy_version, 1, "存量形态封装为 version 1");
     assert_eq!(legacy_decoded, legacy, "v1 载荷按 v1 解码逐字段相等");
 
-    // 同一载荷经版本机制透明升级为 v3（零 migrate 调用——AC-9）
+    // 同一载荷经版本机制透明升级为 v4（零 migrate 调用）
     let (upgraded, version) =
-        native_model::decode::<ExploreRecord>(legacy_bytes).expect("v1 载荷应升级为 v3");
+        native_model::decode::<ExploreRecord>(legacy_bytes).expect("v1 载荷应升级为 v4");
     assert_eq!(version, 1, "decode 返回载荷头版本（升级链源版本）");
     assert_eq!(
         upgraded.title, upgraded.name,
@@ -1499,6 +1522,10 @@ fn explore_record_v1到v3_decode_only升级_title兜底name且零迁移() {
     assert_eq!(
         upgraded.workflow_type, "requirement",
         "升级末端 workflow_type = requirement（缺列读兼容）"
+    );
+    assert_eq!(
+        upgraded.session_id, None,
+        "升级末端 session_id = None（缺列读兼容）"
     );
     assert_eq!(upgraded.id, legacy.id, "id 主键逐字一致");
     assert_eq!(upgraded.root, legacy.root, "root 归属逐字一致");
@@ -1525,10 +1552,11 @@ fn explore_record_v2到v1降级半边丢弃新字段() {
         title: "降级样本".to_owned(),
         workflow_type: "requirement".to_owned(),
         promoted_to: Some("chg-9".to_owned()),
+        session_id: None,
         created_at: 1_727_000_000_000,
         updated_at: 1_727_000_080_000,
     };
-    let v2 = ExploreRecordV2::from(record.clone());
+    let v2 = ExploreRecordV2::from(ExploreRecordV3::from(record.clone()));
     let downgraded = ExploreRecordV1::from(v2);
     assert_eq!(downgraded.id, record.id);
     assert_eq!(downgraded.root, record.root);
@@ -1536,8 +1564,8 @@ fn explore_record_v2到v1降级半边丢弃新字段() {
     assert_eq!(downgraded.created_at, record.created_at);
     assert_eq!(downgraded.updated_at, record.updated_at);
     // 再升级回来：新字段按升级语义兜底（title = name、promoted_to = None、
-    // workflow_type = requirement）
-    let round_trip = ExploreRecord::from(ExploreRecordV2::from(downgraded));
+    // workflow_type = requirement、session_id = None）
+    let round_trip = ExploreRecord::from(ExploreRecordV3::from(ExploreRecordV2::from(downgraded)));
     assert_eq!(
         round_trip.title, record.name,
         "降级丢弃后升级兜底 title = name"
@@ -1549,6 +1577,10 @@ fn explore_record_v2到v1降级半边丢弃新字段() {
     assert_eq!(
         round_trip.workflow_type, "requirement",
         "降级丢弃后升级 workflow_type = requirement"
+    );
+    assert_eq!(
+        round_trip.session_id, None,
+        "降级丢弃后升级 session_id = None"
     );
     assert_eq!(round_trip.id, record.id);
 }
@@ -1704,13 +1736,13 @@ fn title恒非空不变量_构造与升级两路径默认name兜底() {
     assert_eq!(change.title, change.name);
 
     // 升级路径：V1 / V3 升级半边 title 亦非空（= name）
-    let upgraded_explore = ExploreRecord::from(ExploreRecordV2::from(ExploreRecordV1 {
+    let upgraded_explore = ExploreRecord::from(ExploreRecordV3::from(ExploreRecordV2::from(ExploreRecordV1 {
         id: 1,
         root: "C:\\ws\\alpha".to_owned(),
         name: "upgraded-topic".to_owned(),
         created_at: 1,
         updated_at: 2,
-    }));
+    })));
     assert_eq!(upgraded_explore.title, "upgraded-topic");
     assert!(!upgraded_explore.title.is_empty());
     assert_eq!(upgraded_explore.promoted_to, None);
@@ -1855,13 +1887,13 @@ fn 表名版本段_native_model_id与version断言_公式锚() {
             <ExploreRecord as native_model::Model>::native_model_id(),
             <ExploreRecord as native_model::Model>::native_model_version()
         ),
-        (4, 3),
-        "ExploreRecord 4:v3（新增 workflow_type 列——物表 4_2_id → 4_3_id）"
+        (4, 4),
+        "ExploreRecord 4:v4（新增 session_id 列——物表 4_3_id → 4_4_id）"
     );
     assert_eq!(
-        table(4, 3, "id"),
-        "4_3_id",
-        "explore 物表名公式锚（旧表 4_2_id 对新读面不可见）"
+        table(4, 4, "id"),
+        "4_4_id",
+        "explore 物表名公式锚（旧表 4_3_id 对新读面不可见）"
     );
 
     assert_eq!(

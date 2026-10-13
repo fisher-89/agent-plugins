@@ -16,7 +16,7 @@ export interface ExploreSendInput {
 export function useExploreSession(root: string | null, record: ExploreRecord | null) {
   const session = useAgentChat({
     source: EXPLORE_SOURCE,
-    sourceRef: record !== null ? String(record.id) : null,
+    sessionId: record?.sessionId ?? null,
     root,
   });
 

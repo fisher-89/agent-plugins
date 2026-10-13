@@ -15,10 +15,10 @@ import {
   type TurnSummary,
 } from '../types/generated/bindings';
 
-/** 会话来源参数（source 二元组 + cwd；sourceRef=null 即不重放装载） */
+/** 会话来源参数（source + sessionId + cwd；sessionId=null 即不重放装载） */
 export interface UseAgentChatParams {
   source: string;
-  sourceRef: string | null;
+  sessionId: string | null;
   root: string | null;
 }
 
@@ -72,17 +72,13 @@ function withTurns(session: SessionSummary, turns: TurnSummary[]): SessionSummar
 }
 
 /** 运行中轮行的会话镜像（early-resolve 回写；字段以轮行为准的运行时投影） */
-function sessionFromTurn(
-  record: TurnSummary,
-  source: string,
-  sourceRef: string | null,
-): SessionSummary {
+function sessionFromTurn(record: TurnSummary, source: string): SessionSummary {
   return {
     row: {
       id: record.sessionId,
       remoteSessionId: null,
       configSnapshot: null,
-      provenance: { source, sourceRef },
+      provenance: { source, sourceRef: null },
       createdAt: record.startedAt,
       updatedAt: record.startedAt,
     },
@@ -118,7 +114,6 @@ function chainWrites(
   setTurns: (turns: TurnSummary[]) => void,
   setEvents: (events: AgentEvent[]) => void,
   source: string,
-  sourceRef: string | null,
 ): {
   upsertTurn: (record: TurnSummary) => void;
   handleRecord: (record: TurnSummary) => void;
@@ -143,7 +138,7 @@ function chainWrites(
   const handleRecord = (record: TurnSummary) => {
     currentSessionIdRef.current = record.sessionId;
     if (sessionRef.current?.row.id !== record.sessionId) {
-      const mirror = sessionFromTurn(record, source, sourceRef);
+      const mirror = sessionFromTurn(record, source);
       sessionRef.current = mirror;
       setSession(mirror);
     }
@@ -163,7 +158,7 @@ function chainWrites(
 
 /** 镜像与 transport 观测回调：running 轮行回写会话、终态按轮 id 替换、密封
  * 事件入镜像（delta 只上 chunk 流不入镜像） */
-function useSessionMirrors(source: string, sourceRef: string | null): SessionMirrors {
+function useSessionMirrors(source: string): SessionMirrors {
   const [session, setSession] = useState<SessionSummary | null>(null);
   const [turns, setTurns] = useState<TurnSummary[]>([]);
   const [events, setEvents] = useState<AgentEvent[]>([]);
@@ -180,7 +175,6 @@ function useSessionMirrors(source: string, sourceRef: string | null): SessionMir
     setTurns,
     setEvents,
     source,
-    sourceRef,
   );
 
   // transport 观测点：实时密封事件入镜像（append 保序）
@@ -208,16 +202,15 @@ function useSessionMirrors(source: string, sourceRef: string | null): SessionMir
   };
 }
 
-/** 重放取数：最新会话（`updated_at` 降序首项）+ 其全史密封转录（空会话空转录） */
+/** 重放取数：sessionId 直查 sessionDetail → 密封转录；sessionId=null → 空 */
 async function loadReplay(
   root: string,
-  source: string,
-  sourceRef: string,
+  sessionId: string,
 ): Promise<{ latest: SessionSummary | null; events: AgentEvent[] }> {
-  const sessions = await commands.agentSessions(root, source, sourceRef);
-  const latest = sessions[0] ?? null;
-  const events = latest !== null ? await commands.agentSessionTranscript(root, latest.row.id) : [];
-  return { latest, events };
+  const detail = await commands.sessionDetail(root, sessionId);
+  if (detail === null) return { latest: null, events: [] };
+  const events = await commands.agentSessionTranscript(root, sessionId);
+  return { latest: detail, events };
 }
 
 /** 重放结果回写：镜像真相（ref）与渲染态、消息重建一并落位 */
@@ -237,21 +230,21 @@ function applyReplay(
   setMessages(buildMessages(events, latest?.turns ?? []));
 }
 
-/** 重放装载：source 二元组变更触发；镜像与消息状态按查询结果重建 */
+/** 重放装载：sessionId 变更触发；镜像与消息状态按查询结果重建 */
 function useSessionReplay(
   params: UseAgentChatParams,
   mirrorsRef: React.RefObject<SessionMirrors>,
   setMessages: (messages: AgentUIMessage[]) => void,
 ): { loading: boolean; error: string | null } {
-  const { source, sourceRef, root } = params;
+  const { sessionId, root } = params;
   const [loading, setLoading] = useState(false);
   const [replayError, setReplayError] = useState<string | null>(null);
 
   useEffect(() => {
-    // 镜像经 ref 读取：效果仅随 source 二元组触发（镜像对象每渲染重建，
+    // 镜像经 ref 读取：效果仅随 sessionId 触发（镜像对象每渲染重建，
     // 直接入 deps 会造成逐渲染重放循环）
     const mirrors = mirrorsRef.current;
-    if (root === null || sourceRef === null) {
+    if (root === null || sessionId === null) {
       mirrors.clear();
       setLoading(false);
       setReplayError(null);
@@ -261,7 +254,7 @@ function useSessionReplay(
     let cancelled = false;
     setLoading(true);
     setReplayError(null);
-    loadReplay(root, source, sourceRef)
+    loadReplay(root, sessionId)
       .then(({ latest, events }) => {
         if (cancelled) return;
         applyReplay(mirrors, setMessages, latest, events);
@@ -275,7 +268,7 @@ function useSessionReplay(
     return () => {
       cancelled = true;
     };
-  }, [source, sourceRef, root, setMessages, mirrorsRef]);
+  }, [sessionId, root, setMessages, mirrorsRef]);
 
   return { loading, error: replayError };
 }
@@ -291,7 +284,7 @@ function useSessionActions(
   stop: () => void;
   reset: () => void;
 } {
-  const { source, sourceRef, root } = params;
+  const { source, root } = params;
 
   const sendMessage = useCallback(
     (input: AgentChatSendInput) => {
@@ -307,11 +300,11 @@ function useSessionActions(
           // 当前会话 Continue（early-resolve 轮行回写）；无会话 New
           sessionId: mirrors.currentSessionIdRef.current,
           source,
-          sourceRef,
+          sourceRef: null,
         },
       });
     },
-    [chat, mirrors.currentSessionIdRef, root, source, sourceRef],
+    [chat, mirrors.currentSessionIdRef, root, source],
   );
 
   const stop = useCallback(() => {
@@ -334,7 +327,7 @@ function useSessionActions(
  * 入参变更（source 二元组）触发重放装载；发送 / 停止 / 重置见模块文档。
  */
 export function useAgentChat(params: UseAgentChatParams): UseAgentChatState {
-  const mirrors = useSessionMirrors(params.source, params.sourceRef);
+  const mirrors = useSessionMirrors(params.source);
 
   const transport = useMemo(
     () => new TauriAgentTransport({ onEvent: mirrors.handleEvent, onRecord: mirrors.handleRecord }),

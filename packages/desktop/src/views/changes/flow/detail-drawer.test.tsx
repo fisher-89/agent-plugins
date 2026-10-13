@@ -316,7 +316,9 @@ describe('DetailDrawer：runtime 步节点单列分派', () => {
     );
   });
 
-  it('正向：sessionId 缺席（旧条目）→ sourceRef 定式反查兜底（身份段恒 change id）', async () => {
+  it('边界：sessionId 缺席（旧条目）→ 无反查兜底，呈「此步无会话记录」空态（react 面零取数）', async () => {
+    // sourceRef 定式反查退役：槽位 sessionId 缺席即无会话可寻址，不得按定式回退
+    // 反查（杜绝「同 ref 多会话取最近一条」歧义），如实呈步面空态
     sessionsFixture = {
       [`${CHANGE_ID}/implement/executor/2`]: [
         transcriptSession('ses-exec-2', `${CHANGE_ID}/implement/executor/2`),
@@ -328,15 +330,10 @@ describe('DetailDrawer：runtime 步节点单列分派', () => {
       nodeId: 'run:implement:2:executor:0',
     });
 
-    const panel = await screen.findByTestId('session-transcript-panel');
-    await waitFor(() =>
-      expect(invokeMock).toHaveBeenCalledWith('agent_sessions', {
-        root: ROOT,
-        source: 'change',
-        sourceRef: `${CHANGE_ID}/implement/executor/2`,
-      }),
-    );
-    await waitFor(() => expect(panel.textContent).toContain('反查命中正文'));
+    const empty = await screen.findByTestId('drawer-session-empty');
+    expect(empty.textContent).toBe('此步无会话记录');
+    expect(screen.queryByTestId('session-transcript-panel')).toBeNull();
+    expect(invokeMock).not.toHaveBeenCalled();
   });
 
   it('正向：outputRef !== null（role null 的 static-check / test-execution 步）→ 单列 StdoutPanel 取数 { root, changeName, execId }', async () => {

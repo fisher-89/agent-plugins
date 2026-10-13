@@ -29,13 +29,11 @@ interface DetailDrawerProps {
 function selectionRoleRef(
   selection: DrawerSelection,
   node: FlowNode | null,
-  changeId: string,
 ): RoleSessionRef | null {
   if (selection.scope !== 'node' || node === null || node.role === null) return null;
   return {
     role: node.role,
     sessionId: node.sessionId,
-    sourceRef: `${changeId}/${node.phase}/${node.role}/${node.attempt}`,
   };
 }
 
@@ -73,6 +71,16 @@ function DrawerEmptyPlaceholder(): React.JSX.Element {
   );
 }
 
+/** WorkerAgent 步无会话槽位（role 在场而 `sessionId` 缺席）的步面空态占位——
+ * sourceRef 定式反查退役后不再按定式回退寻址，如实呈「此步无会话记录」。 */
+function StepSessionEmptyPlaceholder(): React.JSX.Element {
+  return (
+    <div className="text-[13px] text-muted-foreground" data-testid="drawer-session-empty">
+      此步无会话记录
+    </div>
+  );
+}
+
 /**
  * 抽屉内容单列分派（信息源判据）：
  * - 列头 → 该站过程素材（文档 + eval-checklist）；
@@ -88,7 +96,6 @@ function DrawerContent({
   columnId,
   materials,
   root,
-  changeId,
   name,
   transcriptRefreshKey,
 }: {
@@ -105,10 +112,12 @@ function DrawerContent({
     return <ColumnMaterialsSection materials={materials.columnDocs[columnId] ?? []} />;
   }
   if (node !== null && node.role !== null) {
+    // 会话槽位缺席（旧条目 / 未回写）：反查定式退役后不再回退寻址，步面空态兜底
+    if (node.sessionId === null) return <StepSessionEmptyPlaceholder />;
     return (
       <SessionTranscriptPanel
         root={root}
-        roleRef={selectionRoleRef(selection, node, changeId)}
+        roleRef={selectionRoleRef(selection, node)}
         refreshKey={transcriptRefreshKey}
       />
     );

@@ -1236,16 +1236,14 @@ describe('ChangeDetailView：退役元素零渲染与详情图区恒态', () => 
       }),
     );
 
-    // 命令面（抽屉）：运行步节点选中 → 会话反查 sourceRef 身份段 = URL id
+    // 命令面（抽屉）：运行步节点槽位 sessionId 缺席 → 无反查兜底（sourceRef 定式
+    // 反查退役），呈「此步无会话记录」步面空态；零 agent_sessions 反查命令
     fireEvent.click(screen.getByTestId('rf__node-run:run-1727:implement:1:executor:0'));
     await screen.findByTestId('detail-drawer');
     await waitFor(() =>
-      expect(invokeMock).toHaveBeenCalledWith('agent_sessions', {
-        root: ROOT,
-        source: 'change',
-        sourceRef: `${urlId}/implement/executor/1`,
-      }),
+      expect(screen.getByTestId('drawer-session-empty').textContent).toBe('此步无会话记录'),
     );
+    expect(invokeMock.mock.calls.filter(([name]) => name === 'agent_sessions')).toHaveLength(0);
   });
 });
 

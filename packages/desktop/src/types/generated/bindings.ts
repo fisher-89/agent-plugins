@@ -888,6 +888,8 @@ export type ExploreRecord = {
 	workflowType: string,
 	/**  指向已 promote 的 **change id** 身份锚；`None` = 草稿态 */
 	promotedTo: string | null,
+	/**  最近一次 agent 会话 id（`agent_start` 完成后回写；None = 尚无会话） */
+	sessionId: string | null,
 	/**  建档时间（UTC unix 毫秒） */
 	createdAt: number,
 	/**  最近更新时间（UTC unix 毫秒） */

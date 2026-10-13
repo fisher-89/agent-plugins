@@ -18,12 +18,7 @@ vi.mock('@tauri-apps/api/core', () => ({ invoke: invokeMock }));
 // ---------------------------------------------------------------------------
 
 const ROOT = 'C:\\demo\\flow';
-const EXECUTOR_REF = 'add-feature/implement/executor/1';
-const EVALUATOR_REF = 'add-feature/implement/evaluator/1';
-const DECISION_REF = 'add-feature/implement/decision/1';
 const EXECUTOR_SESSION = 'ses-exec-1';
-const EVALUATOR_SESSION = 'ses-eval-1';
-const DECISION_SESSION = 'ses-decision-1';
 const TS = 1727000000000;
 
 function turn(turnId: number, sessionId: string, status: TurnSummary['status']): TurnSummary {
@@ -40,13 +35,13 @@ function turn(turnId: number, sessionId: string, status: TurnSummary['status']):
   };
 }
 
-function summary(id: string, sourceRef: string, turns: TurnSummary[]): SessionSummary {
+function summary(id: string, turns: TurnSummary[]): SessionSummary {
   return {
     row: {
       id,
       remoteSessionId: `engine-${id}`,
       configSnapshot: { engine: 'cli', model: null, permissionMode: 'bypassPermissions' },
-      provenance: { source: 'change', sourceRef },
+      provenance: { source: 'change', sourceRef: null },
       createdAt: TS,
       updatedAt: TS + 1,
     },
@@ -72,55 +67,30 @@ function textMessage(seq: number, text: string): AgentEvent {
 }
 
 function roleRef(): RoleSessionRef {
-  return { role: 'executor', sourceRef: EXECUTOR_REF, sessionId: null };
+  return { role: 'executor', sessionId: EXECUTOR_SESSION };
 }
 
 // ---------------------------------------------------------------------------
-// 可编程 IPC：按 sessionId 直查（session_detail）、按 sourceRef 反查、按
-// sessionId 取转录——三臂注册表
+// 可编程 IPC：按 sessionId 直查会话（session_detail）、按 sessionId 取转录
+// （agent_session_transcript）——两臂注册表。sourceRef 反查臂退役：组件只
+// 按节点槽位 sessionId 精确寻址。
 // ---------------------------------------------------------------------------
 
-let sessionsByRef: Record<string, SessionSummary[]>;
 let transcriptBySession: Record<string, AgentEvent[]>;
 let detailBySession: Record<string, SessionSummary | null | string>;
 
 function mockIpc() {
-  sessionsByRef = {
-    [EXECUTOR_REF]: [
-      summary(EXECUTOR_SESSION, EXECUTOR_REF, [turn(11, EXECUTOR_SESSION, 'completed')]),
-    ],
-    [EVALUATOR_REF]: [
-      summary(EVALUATOR_SESSION, EVALUATOR_REF, [turn(12, EVALUATOR_SESSION, 'completed')]),
-    ],
-    [DECISION_REF]: [
-      summary(DECISION_SESSION, DECISION_REF, [turn(13, DECISION_SESSION, 'completed')]),
-    ],
-  };
   transcriptBySession = {
     [EXECUTOR_SESSION]: [textMessage(0, '执行会话首轮'), textMessage(1, '执行会话续文')],
-    [EVALUATOR_SESSION]: [textMessage(0, '评估会话结论')],
-    [DECISION_SESSION]: [textMessage(0, '决策会话问询')],
   };
   detailBySession = {
-    [EXECUTOR_SESSION]: summary(EXECUTOR_SESSION, EXECUTOR_REF, [
-      turn(11, EXECUTOR_SESSION, 'completed'),
-    ]),
-    [EVALUATOR_SESSION]: summary(EVALUATOR_SESSION, EVALUATOR_REF, [
-      turn(12, EVALUATOR_SESSION, 'completed'),
-    ]),
-    [DECISION_SESSION]: summary(DECISION_SESSION, DECISION_REF, [
-      turn(13, DECISION_SESSION, 'completed'),
-    ]),
+    [EXECUTOR_SESSION]: summary(EXECUTOR_SESSION, [turn(11, EXECUTOR_SESSION, 'completed')]),
   };
   invokeMock.mockImplementation((command: string, params?: Record<string, unknown>) => {
     if (command === 'session_detail') {
       const id = (params?.sessionId as string | undefined) ?? '';
       const hit = detailBySession[id];
       return typeof hit === 'string' ? Promise.reject(hit) : Promise.resolve(hit ?? null);
-    }
-    if (command === 'agent_sessions') {
-      const ref = (params?.sourceRef as string | undefined) ?? '';
-      return Promise.resolve(sessionsByRef[ref] ?? []);
     }
     if (command === 'agent_session_transcript') {
       const id = (params?.sessionId as string | undefined) ?? '';
@@ -168,12 +138,10 @@ describe('SessionTranscriptPanel：AgentMessages 渲染与重放单源', () => {
     await waitFor(() => expect(panelTexts()).toHaveLength(2));
 
     // 通知到达：转录库追加一条新密封事件（落库先于通知），refreshKey 自增
-    sessionsByRef[EXECUTOR_REF] = [
-      summary(EXECUTOR_SESSION, EXECUTOR_REF, [
-        turn(11, EXECUTOR_SESSION, 'completed'),
-        turn(12, EXECUTOR_SESSION, 'completed'),
-      ]),
-    ];
+    detailBySession[EXECUTOR_SESSION] = summary(EXECUTOR_SESSION, [
+      turn(11, EXECUTOR_SESSION, 'completed'),
+      turn(12, EXECUTOR_SESSION, 'completed'),
+    ]);
     transcriptBySession[EXECUTOR_SESSION] = [
       textMessage(0, '执行会话首轮'),
       textMessage(1, '执行会话续文'),
@@ -186,17 +154,17 @@ describe('SessionTranscriptPanel：AgentMessages 渲染与重放单源', () => {
   });
 
   it('会话运行中 → agent-messages-running 呈现；全部终态 → 无该标记（运行中实时与收口重放同组件）', async () => {
-    sessionsByRef[EXECUTOR_REF] = [
-      summary(EXECUTOR_SESSION, EXECUTOR_REF, [turn(11, EXECUTOR_SESSION, 'running')]),
-    ];
+    detailBySession[EXECUTOR_SESSION] = summary(EXECUTOR_SESSION, [
+      turn(11, EXECUTOR_SESSION, 'running'),
+    ]);
     const running = renderPanel(roleRef());
     await waitFor(() => expect(screen.getByTestId('agent-messages-running') !== null).toBe(true));
     running.unmount();
 
     // 恢复终态轮行 fixture（同测试前半段已改为 running）
-    sessionsByRef[EXECUTOR_REF] = [
-      summary(EXECUTOR_SESSION, EXECUTOR_REF, [turn(11, EXECUTOR_SESSION, 'completed')]),
-    ];
+    detailBySession[EXECUTOR_SESSION] = summary(EXECUTOR_SESSION, [
+      turn(11, EXECUTOR_SESSION, 'completed'),
+    ]);
     const done = renderPanel(roleRef());
     await waitFor(() => expect(panelTexts()).toHaveLength(2));
     expect(screen.queryByTestId('agent-messages-running')).toBeNull();
@@ -205,12 +173,10 @@ describe('SessionTranscriptPanel：AgentMessages 渲染与重放单源', () => {
 });
 
 describe('SessionTranscriptPanel：空态与错误（边界 / 异常）', () => {
-  it('反查无会话：transcript-empty 空态呈现不炸、session-meta 整体不渲染（元信息不虚构会话——D4）', async () => {
-    await mounted({
-      role: 'executor',
-      sourceRef: 'add-feature/code-review/executor/1',
-      sessionId: null,
-    });
+  it('槽位 sessionId null：零 invoke、transcript-empty 空态呈现不炸、session-meta 整体不渲染（不虚构会话——D4）', async () => {
+    await mounted({ role: 'executor', sessionId: null });
+
+    expect(invokeMock).not.toHaveBeenCalled();
     await waitFor(() => expect(screen.getByTestId('transcript-empty') !== null).toBe(true));
 
     expect(screen.queryByTestId('agent-messages')).toBeNull();
@@ -226,9 +192,9 @@ describe('SessionTranscriptPanel：空态与错误（边界 / 异常）', () => 
     expect(screen.getByTestId('transcript-empty') !== null).toBe(true);
   });
 
-  it('反查 reject → transcript-error 呈现、session-meta 同样不渲染（错误态无元信息可呈）', async () => {
+  it('session_detail reject → transcript-error 呈现、session-meta 同样不渲染（错误态无元信息可呈）', async () => {
     invokeMock.mockImplementation((command: string) =>
-      command === 'agent_sessions' ? Promise.reject('db: 会话查询失败') : Promise.resolve(null),
+      command === 'session_detail' ? Promise.reject('db: 会话查询失败') : Promise.resolve(null),
     );
     await mounted();
     await waitFor(() =>
@@ -251,13 +217,11 @@ describe('SessionTranscriptPanel：会话元信息区（SessionMeta）', () => {
   }
 
   it('summary 在场（轮行含 running）：session id、「运行中」徽章、轮数、token 合计逐项可辨', async () => {
-    const runningSummary = summary(EXECUTOR_SESSION, EXECUTOR_REF, [
-      turn(11, EXECUTOR_SESSION, 'running'),
-    ]);
+    const runningSummary = summary(EXECUTOR_SESSION, [turn(11, EXECUTOR_SESSION, 'running')]);
     runningSummary.stats = { ...runningSummary.stats, inputTokens: 120, outputTokens: 88 };
-    sessionsByRef[EXECUTOR_REF] = [runningSummary];
+    detailBySession[EXECUTOR_SESSION] = runningSummary;
 
-    await mounted({ role: 'executor', sourceRef: EXECUTOR_REF, sessionId: null });
+    await mounted(roleRef());
     await waitFor(() => expect(screen.getByTestId('session-meta') !== null).toBe(true));
 
     expect(metaText('session-meta-id')).toBe(EXECUTOR_SESSION);
@@ -269,7 +233,7 @@ describe('SessionTranscriptPanel：会话元信息区（SessionMeta）', () => {
   });
 
   it('summary 在场（全部终态轮行）：徽章「已收口」（与 agent-messages-running 消失同源推导——状态单一事实源为轮行清单）', async () => {
-    await mounted({ role: 'executor', sourceRef: EXECUTOR_REF, sessionId: null });
+    await mounted(roleRef());
     await waitFor(() => expect(screen.getByTestId('session-meta') !== null).toBe(true));
 
     expect(metaText('session-meta-status')).toBe('已收口');
@@ -277,7 +241,7 @@ describe('SessionTranscriptPanel：会话元信息区（SessionMeta）', () => {
   });
 
   it('stats.inputTokens / outputTokens null → 「—」占位（不渲染字符串 "null"）；id 截断为 CSS 面、title 属性携全量', async () => {
-    const first = await mounted({ role: 'executor', sourceRef: EXECUTOR_REF, sessionId: null });
+    const first = await mounted(roleRef());
     await waitFor(() => expect(screen.getByTestId('session-meta') !== null).toBe(true));
 
     expect(metaText('session-meta-tokens')).toBe('tokens — / —');
@@ -285,9 +249,9 @@ describe('SessionTranscriptPanel：会话元信息区（SessionMeta）', () => {
     first.unmount();
 
     const longId = 'ses-' + 'x'.repeat(200);
-    const longSummary = summary(longId, EXECUTOR_REF, [turn(11, longId, 'completed')]);
-    sessionsByRef[EXECUTOR_REF] = [longSummary];
-    const rerendered = renderPanel({ role: 'executor', sourceRef: EXECUTOR_REF, sessionId: null });
+    detailBySession[longId] = summary(longId, [turn(11, longId, 'completed')]);
+    transcriptBySession[longId] = [];
+    const rerendered = renderPanel({ role: 'executor', sessionId: longId });
     await waitFor(() =>
       expect(screen.getByTestId('session-meta-id').getAttribute('title')).toBe(longId),
     );
@@ -298,12 +262,8 @@ describe('SessionTranscriptPanel：会话元信息区（SessionMeta）', () => {
     rerendered.unmount();
   });
 
-  it('summary null（反查无会话 / 未开跑角色）：session-meta 整体不渲染、transcript-empty 承担（D4）', async () => {
-    await mounted({
-      role: 'executor',
-      sourceRef: 'add-feature/code-review/executor/1',
-      sessionId: null,
-    });
+  it('summary null（槽位 sessionId null / 未开跑角色）：session-meta 整体不渲染、transcript-empty 承担（D4）', async () => {
+    await mounted({ role: 'executor', sessionId: null });
     await waitFor(() => expect(screen.getByTestId('transcript-empty') !== null).toBe(true));
     expect(screen.queryByTestId('session-meta')).toBeNull();
     expect(screen.queryByTestId('session-meta-id')).toBeNull();

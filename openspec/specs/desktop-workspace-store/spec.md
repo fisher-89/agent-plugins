@@ -81,7 +81,7 @@ store SHALL 以新模型 `SessionRecord`（workspace 维度，落所属 workspac
 - `id`：core 铸的会话 id（字符串主键；native_db 对字符串主键的支撑度由 design spike 核实，不支持则退合成数值 id + 会话 id 唯一二级索引，查询形态不变）
 - `engine_session_id`：引擎侧句柄（cli: claude session id；sdk: 可缺省），与 core session id 构成双 id 映射的落库半边
 - `config_snapshot`：装配配置快照（engine / model / 权限档）——SHALL 存快照而非跨库引用（`AgentInstanceRecord` 在全局库、session 在 workspace 库，store 惯例禁跨库引用；实例改名/删除不伤历史会话）
-- `source` / `source_ref`：来源归属（`debug` | `explore` | …，缺省 `debug`；explore 指向 `ExploreRecord` 主键）——会话化后来源圈定的主归属
+- `source` / `source_ref`：来源归属（`debug` | `explore` | …，缺省 `debug`；explore 指向 `ExploreRecord` 主键）——provenance 持久记录面（后端仍用于来源圈定与 explore 记录级联删除）；前端 SHALL NOT 经 `source_ref` 反查会话（会话寻址与重放走 `sessionId` 直查，见 desktop-agent-execution「session_detail 单查面」）
 - `created_at` / `updated_at`（UTC unix 毫秒，同既有时间戳口径）
 
 会话数据 SHALL 收敛为「转录单表 + 轮统计行」：密封事件**直挂 session**（单表，承载模型与键位见「类型化事件模型 AgentEventRecord」）；run 退化为**轮统计行**（每轮一行，挂 session 外键，字段面为 TurnDone 统计口径与时间戳），MUST NOT 再以「单 run 事件 + 链指针」承载会话历史。会话模型 SHALL 随记录信封 API（`list_models` / `scan`）零改动可浏览。
@@ -184,9 +184,9 @@ redb 面向单进程嵌入场景，双开（如 dev 与已装正式版指向同�
 
 ### Requirement: ExploreRecord 模型与 explore 清单操作面
 
-store SHALL 以 `ExploreRecord` 模型承载 explore 清单条目与 agent 会话绑定。字段面 SHALL 含：独立主键 `id`（写事务内 max+1 分配）、`root`（workspace 归属，canonical 口径与 `WorkspaceRecord` 一致）、`name`（笔记文件 stem 寻址键，kebab-case 口径）、`title`（人类可读标题，恒非空——创建与升级默认 = name，agent 产出标题经 `set_explore_title` 回填覆盖）、`workflow_type`（工作流类型，合法值 `requirement` | `test-only`——创建与升级默认 = `requirement`，agent 推算类型经 `set_explore_workflow_type` 回填覆盖）、`promoted_to`（`Option<String>`，指向已 promote 的 **change id** 身份锚，None = 草稿态）、`created_at` / `updated_at`（UTC unix 毫秒，同既有时间戳口径）。维度声明：`ExploreRecord` 归 **workspace 维度**（workspace 数据分离裁定，落所属 workspace 的独立 db 文件，见 desktop-data-dimensions），内容唯一真源在磁盘 `explore.md`（workspace repo），数据三分——记录（workspace 库）/ 内容（磁盘）/ 对话（同 workspace 库的会话转录 + 轮统计行）。
+store SHALL 以 `ExploreRecord` 模型承载 explore 清单条目与 agent 会话绑定。字段面 SHALL 含：独立主键 `id`（写事务内 max+1 分配）、`root`（workspace 归属，canonical 口径与 `WorkspaceRecord` 一致）、`name`（笔记文件 stem 寻址键，kebab-case 口径）、`title`（人类可读标题，恒非空——创建与升级默认 = name，agent 产出标题经 `set_explore_title` 回填覆盖）、`workflow_type`（工作流类型，合法值 `requirement` | `test-only`——创建与升级默认 = `requirement`，agent 推算类型经 `set_explore_workflow_type` 回填覆盖）、`promoted_to`（`Option<String>`，指向已 promote 的 **change id** 身份锚，None = 草稿态）、`session_id`（`Option<String>`，最近一次 agent 会话 id——`agent_start` 完成后回写，None = 尚无会话；前端据此以 `session_detail` 直查重放，取代 `source_ref` 反查）、`created_at` / `updated_at`（UTC unix 毫秒，同既有时间戳口径）。维度声明：`ExploreRecord` 归 **workspace 维度**（workspace 数据分离裁定，落所属 workspace 的独立 db 文件，见 desktop-data-dimensions），内容唯一真源在磁盘 `explore.md`（workspace repo），数据三分——记录（workspace 库）/ 内容（磁盘）/ 对话（同 workspace 库的会话转录 + 轮统计行）。
 
-`ExploreRecord` SHALL 经 native_model 版本升级（v1→v2 decode-only：`from = ExploreRecordV1`，旧记录自动升级读出 `title = name`、`promoted_to = None`；v2→v3 decode-only：`from = ExploreRecordV2`，旧记录自动升级读出 `workflow_type = "requirement"`——AgentProviderRecord / ChangeRecord 加字段先例同模式）原地演进，MUST NOT 手工迁移步骤或 legacy 迁移层；存量库 SHALL additive 打开。`name` 校验 SHALL 升级为 kebab-case（等价 `^[a-z][a-z0-9]*(-[a-z0-9]+)*$`、长度 ≤ 128，与写面 `create` 同口径；store 自持校验，MUST NOT 依赖 workflow）——`create_explore_record` / `rename_explore_record` 的非法名称 / 目标名校验均升级。
+`ExploreRecord` SHALL 经 native_model 版本升级（v1→v2 decode-only：`from = ExploreRecordV1`，旧记录自动升级读出 `title = name`、`promoted_to = None`；v2→v3 decode-only：`from = ExploreRecordV2`，旧记录自动升级读出 `workflow_type = "requirement"`；v3→v4 decode-only：`from = ExploreRecordV3`，旧记录自动升级读出 `session_id = None`——AgentProviderRecord / ChangeRecord 加字段先例同模式）原地演进，MUST NOT 手工迁移步骤或 legacy 迁移层；存量库 SHALL additive 打开。`name` 校验 SHALL 升级为 kebab-case（等价 `^[a-z][a-z0-9]*(-[a-z0-9]+)*$`、长度 ≤ 128，与写面 `create` 同口径；store 自持校验，MUST NOT 依赖 workflow）——`create_explore_record` / `rename_explore_record` 的非法名称 / 目标名校验均升级。
 
 store SHALL 提供 explore 清单操作面：`list_explore_records(root)`（按 root 过滤）、`create_explore_record`、`delete_explore_record`（删记录 MUST NOT 触碰磁盘文件；记录名下的**会话及其转录与轮统计行** SHALL 随记录**同事务级联删除**——按会话归属 `(source="explore", source_ref=记录id)` 圈定。id 为幸存行上 max+1 的可复用计数，级联清理是悬空 `source_ref` 不被复用 id 错挂的引用完整性保证；MUST NOT 波及 debug 来源或其他 `source_ref` 的会话）。store SHALL 新增 `set_explore_title(root, name, title)`（in-place 写 `title` 并刷新 `updated_at`；`title` 空白 → `Err`）、`set_explore_workflow_type(root, name, workflow_type)`（in-place 写 `workflow_type` 并刷新 `updated_at`；非法值 → `Err`）与 `mark_explore_promoted(root, name, change_id)`（in-place 写 `promoted_to = Some(change_id)` 并刷新 `updated_at`；已 promoted → `Err`）三个操作面。孤儿语义 SHALL 为：磁盘文件被删记录保留（不自动清理，预览空态、下次落盘重建——文件是记录的可丢弃投影）；promote 后记录保留（`promoted_to` 打标，MUST NOT 删记录，会话链保留）。新模型 SHALL 随既有记录信封 API（`list_models` / `scan`）零改动可浏览。级联删除与会话还原 SHALL 天然收敛于同一 workspace 库实例内（记录与会话同库，无跨库引用）。
 
@@ -208,7 +208,7 @@ store SHALL 提供 explore 清单操作面：`list_explore_records(root)`（按 
 #### Scenario: 删除级联清会话且 id 复用不错链
 
 - **WHEN** 某 `ExploreRecord`（id=N）名下已有 `source="explore"`、`source_ref="N"` 的会话（含转录与轮统计行），执行 `delete_explore_record` 后再新建记录（幸存行 max+1 复用 id=N）
-- **THEN** 被删记录名下会话及其转录/统计行已同事务消失（按会话归属圈定），新记录名下会话还原为空不捞旧聊天；debug 来源及指向其他记录 id 的会话原样存活
+- **THEN** 被删记录名下会话及其转录/统计行已同事务消失（按会话归属 `source_ref` 圈定，与记录 `session_id` 是否指向该会话无关），新记录名下会话还原为空（`session_id` 空缺，不捞旧聊天）；debug 来源及指向其他记录 id 的会话原样存活
 
 #### Scenario: 信封 API 零改动覆盖
 
@@ -222,13 +222,23 @@ store SHALL 提供 explore 清单操作面：`list_explore_records(root)`（按 
 
 #### Scenario: 存量 v1 记录 decode-only 升级
 
-- **WHEN** 打开含 v1 形态 `ExploreRecord`（无 `title` / `promoted_to` / `workflow_type`）的存量 workspace 库并查询
-- **THEN** 记录经 native_model 版本机制自动升级可读，`title` 读出 = `name`、`promoted_to` 读出 `None`、`workflow_type` 读出 `"requirement"`，无手工迁移步骤、无 legacy 迁移层；新建档记录三字段按写入回读一致
+- **WHEN** 打开含 v1 形态 `ExploreRecord`（无 `title` / `promoted_to` / `workflow_type` / `session_id`）的存量 workspace 库并查询
+- **THEN** 记录经 native_model 版本机制自动升级可读，`title` 读出 = `name`、`promoted_to` 读出 `None`、`workflow_type` 读出 `"requirement"`、`session_id` 读出 `None`，无手工迁移步骤、无 legacy 迁移层；新建档记录四字段按写入回读一致
 
 #### Scenario: 存量 v2 记录 workflow_type decode-only 升级
 
 - **WHEN** 打开含 v2 形态 `ExploreRecord`（无 `workflow_type`）的存量 workspace 库并查询
 - **THEN** 记录经 native_model 版本机制自动升级可读，`workflow_type` 读出 `"requirement"`（默认），`title` / `promoted_to` 原值不变，无手工迁移步骤
+
+#### Scenario: 存量 v3 记录 session_id decode-only 升级
+
+- **WHEN** 打开含 v3 形态 `ExploreRecord`（无 `session_id`）的存量 workspace 库并查询
+- **THEN** 记录经 native_model 版本机制自动升级可读，`session_id` 读出 `None`（缺列默认），`title` / `workflow_type` / `promoted_to` 原值不变，无手工迁移步骤
+
+#### Scenario: session_id 回写与直查重放
+
+- **WHEN** 对已建档 explore 发起一次 agent 会话并完成后回写 `session_id`，随后重开库查询
+- **THEN** 记录 `session_id` 为最近一次会话 id、`updated_at` 已刷新，`id` / `root` / `name` / `title` / `promoted_to` 不变；前端以该 `session_id` 经 `session_detail` 直查重放（不再经 `source_ref` 反查）
 
 #### Scenario: 名称校验升级为 kebab-case
 
@@ -262,7 +272,7 @@ store SHALL 提供 explore 清单操作面：`list_explore_records(root)`（按 
 #### Scenario: 会话归属还原
 
 - **WHEN** 某 explore 会话含三轮（三行轮统计行同属一个 session）
-- **THEN** 按会话归属（source + source_ref → session）查询返回该会话及其三轮统计行（发起顺序排列），转录重放给出全史
+- **THEN** 按会话归属（source + source_ref → session）查询返回该会话及其三轮统计行（发起顺序排列），转录重放给出全史；前端另以记录回写的 `session_id` 经 `session_detail` 直查同一会话
 
 #### Scenario: 事件重放走会话转录
 
@@ -515,7 +525,7 @@ workspace 库 SHALL 承载 store 格式版本（change 身份锚形态版本—�
 | `WorkspaceStores`（新） | 两级解析与实例缓存 | `global()` → 全局库；`for_root(root)` → workspace 库（per-root 缓存复用，进程内单开）；挂 Tauri State；`add_workspace` 预开校验；`remove_workspace` 文件保留 |
 | `WorkspaceRecord`（模型） | workspace 注册记录（user 维度） | PK = canonical root；root / name / added_at；落全局库 |
 | `SessionRecord`（模型，新） | agent 会话一等公民（workspace 维度） | core 铸 id 主键（spike 裁定形态）/ engine_session_id 双 id 映射落库半边 / config_snapshot 快照非引用 / source / source_ref / 时间戳；落所属 workspace 库 |
-| `ExploreRecord`（模型） | explore 清单与绑定记录（workspace 维度） | 落所属 workspace 库；PK 独立自增 id；级联删除按会话归属圈定（转录 + 轮统计行同事务删，`source_ref` 复用不错链）与会话还原同库收敛；孤儿保留 |
+| `ExploreRecord`（模型） | explore 清单与绑定记录（workspace 维度） | 落所属 workspace 库；PK 独立自增 id；字段含 `session_id`（最近 agent 会话 id，`agent_start` 后回写，前端据此经 `session_detail` 直查重放）；级联删除按会话归属圈定（转录 + 轮统计行同事务删，`source_ref` 复用不错链）与会话还原同库收敛；孤儿保留 |
 | `AgentRunRecord`（模型，轮统计行） | agent 会话轮统计（workspace 维度） | PK = id（workspace 库域内自增）；挂 session 外键；字段面 = TurnDone 统计口径 + 起止时间戳 + 状态；native_model 版本原地演进，无迁移层 |
 | `AgentEventRecord`（模型，新） | 类型化事件记录（workspace 维度，会话转录） | PK 以 session 圈定（session id + seq 复合键，spike 裁定退路合成键 + session id 二级索引）；仅密封事件（delta 永不落库）；嵌装 `agent::AgentEvent`（含 Raw 逃生舱）；core 类型 derive-free |
 | legacy 迁移模块（新） | 一次性迁移 | read_only 读旧 redb → 事务写 native_db → 旧文件 `.bak` 留档；失败不破坏旧库；过渡期后收 redb |

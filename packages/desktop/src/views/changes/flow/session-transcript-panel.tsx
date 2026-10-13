@@ -60,10 +60,9 @@ export function SessionTranscriptPanel({
   return (
     <section className="flex h-full min-h-0 flex-col" data-testid="session-transcript-panel">
       <RoleTranscript
-        key={roleRef.sessionId ?? roleRef.sourceRef ?? roleRef.role}
+        key={roleRef.sessionId ?? roleRef.role}
         root={root}
         sessionId={roleRef.sessionId}
-        sourceRef={roleRef.sourceRef}
         role={roleRef.role}
         refreshKey={refreshKey}
       />
@@ -75,20 +74,17 @@ export function SessionTranscriptPanel({
 function RoleTranscript({
   root,
   sessionId,
-  sourceRef,
   role,
   refreshKey,
 }: {
   root: string | null;
   sessionId: string | null;
-  sourceRef: string | null;
   role: FlowRoleLabel;
   refreshKey?: number;
 }): React.JSX.Element {
   const { messages, running, error, summary } = useSessionTranscript({
     root,
     sessionId,
-    sourceRef,
     refreshKey,
   });
   return (

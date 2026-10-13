@@ -115,7 +115,7 @@ queries SHALL 聚合单个 change 的详情（**按 id 寻址**），状态面�
 
 ### Requirement: 详情暴露 attempt 会话槽位
 
-change 详情聚合 SHALL 在 attempt 记录（PhaseRecord 的线面投影）中暴露记录在案的会话槽位：executor / evaluator / decision 三槽位的会话 id，自 PhaseRecord 三槽位列直读透出（与 `SessionRecord` 同库，join 为库内一等查询）。槽位列 None 的记录（缺省落账）SHALL 以 null 呈现三值，MUST NOT 报错、MUST NOT 以 sourceRef 反查等派生手段虚构槽位值。DTO SHALL 沿既定口径（纯 derive、零字段属性、时间出线 ISO 串 + null），经 bindings 再生成同步前端类型。查询层 SHALL 保持纯读：槽位为直读透出，MUST NOT 在查询层写入或回填 db。
+change 详情聚合 SHALL 在 attempt 记录（PhaseRecord 的线面投影）中暴露记录在案的会话槽位：executor / evaluator / decision 三槽位的会话 id，自 PhaseRecord 三槽位列直读透出（与 `SessionRecord` 同库，join 为库内一等查询）。槽位列 None 的记录（缺省落账）SHALL 以 null 呈现三值，MUST NOT 报错、MUST NOT 以 sourceRef 反查等派生手段虚构槽位值。run 执行图节点行（`runs[].nodes[].sessionId`）SHALL 直读透出，作为前端会话转录的 sessionId 直查键（前端不再以 provenance `source_ref` 反查会话；`source_ref` 仍为后端 `SessionProvenance` 留痕字段，见 desktop-change-orchestration「会话挂靠 provenance 与转录 session id 直查」，前端零消费）。DTO SHALL 沿既定口径（纯 derive、零字段属性、时间出线 ISO 串 + null），经 bindings 再生成同步前端类型。查询层 SHALL 保持纯读：槽位为直读透出，MUST NOT 在查询层写入或回填 db。
 
 #### Scenario: 含槽位记录透出会话 id
 
@@ -126,6 +126,11 @@ change 详情聚合 SHALL 在 attempt 记录（PhaseRecord 的线面投影）中
 
 - **WHEN** 查询槽位列为 None 的 PhaseRecord（缺省落账）
 - **THEN** 全部 attempt 记录的三槽位均为 null，聚合不报错、详情其余区块照常
+
+#### Scenario: run 节点 sessionId 直出任转录直查键
+
+- **WHEN** 查询含已发起 WorkerAgent 步的 run 详情
+- **THEN** 各节点行 `sessionId` 与库内 `RunNodeRecord.session_id` 逐字一致（WorkerAgent 步有值、非 WorkerAgent 步为 null）；前端经该 id 直查会话转录，零 `source_ref` 反查消费
 
 #### Scenario: bindings 同步
 

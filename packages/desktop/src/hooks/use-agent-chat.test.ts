@@ -6,7 +6,7 @@ import type { AgentEvent, SessionSummary, TurnSummary } from '../types/dto';
 import { useAgentChat, type UseAgentChatParams } from './use-agent-chat';
 
 // ---------------------------------------------------------------------------
-// 进程边界 Mock：invoke 按命令名分发（agent_sessions / agent_session_transcript /
+// 进程边界 Mock：invoke 按命令名分发（session_detail / agent_session_transcript /
 // agent_start / agent_stop，可切换 resolve/reject 并记录入参）；Channel mock
 // 为可编程 class（捕获 onmessage，测试直接投递 Event / Record 信封驱动实时
 // 流与终态回流）。适配层与 transport 以真实实现参与，不 mock `ai` 的 useChat。
@@ -30,10 +30,9 @@ vi.mock('@tauri-apps/api/core', () => ({ invoke: invokeMock, Channel: ChannelMoc
 // ---------------------------------------------------------------------------
 
 const ROOT = 'C:\\demo\\alpha';
-const SOURCE_REF = '7';
 const SESSION_ID = 'ses-3-1727000000000';
 
-const DEBUG_PARAMS: UseAgentChatParams = { source: 'explore', sourceRef: SOURCE_REF, root: ROOT };
+const DEBUG_PARAMS: UseAgentChatParams = { source: 'explore', sessionId: SESSION_ID, root: ROOT };
 
 function turn(
   turnId: number,
@@ -62,7 +61,7 @@ function sessionSummary(
       id: SESSION_ID,
       remoteSessionId: 's-engine',
       configSnapshot: { engine: 'sdk', model: 'glm-high', permissionMode: 'bypassPermissions' },
-      provenance: { source: 'explore', sourceRef: SOURCE_REF },
+      provenance: { source: 'explore', sourceRef: null },
       createdAt: 1727000000000,
       updatedAt: 1727000009999,
       ...row,
@@ -134,8 +133,8 @@ function mockIpc() {
   startCalls = 0;
   invokeMock.mockReset();
   invokeMock.mockImplementation((command: string) => {
-    if (command === 'agent_sessions') {
-      return Promise.resolve(sessionsResult);
+    if (command === 'session_detail') {
+      return Promise.resolve(sessionsResult[0] ?? null);
     }
     if (command === 'agent_session_transcript') {
       return Promise.resolve(transcript);
@@ -209,13 +208,13 @@ function startCallArgs(): Record<string, unknown> {
 // ---------------------------------------------------------------------------
 
 describe('useAgentChat：重放装载', () => {
-  it('挂载发起 agent_sessions 携 (root, source, sourceRef) 三参 + agent_session_transcript 携 (root, sessionId)，经适配层重建消息；会话镜像与查询一致', async () => {
+  it('挂载发起 session_detail 携 (root, sessionId) + agent_session_transcript 携 (root, sessionId)，经适配层重建消息；会话镜像与查询一致', async () => {
     const { result } = await mounted();
 
-    const sessionCalls = invokeMock.mock.calls.filter(([name]) => name === 'agent_sessions');
-    expect(sessionCalls).toEqual([
-      ['agent_sessions', { root: ROOT, source: 'explore', sourceRef: SOURCE_REF }],
-    ]);
+    expect(invokeMock).toHaveBeenCalledWith('session_detail', {
+      root: ROOT,
+      sessionId: SESSION_ID,
+    });
     expect(invokeMock).toHaveBeenCalledWith('agent_session_transcript', {
       root: ROOT,
       sessionId: SESSION_ID,
@@ -287,8 +286,8 @@ describe('useAgentChat：发送组装与停止', () => {
       permissionMode: 'bypassPermissions',
       sessionId: SESSION_ID,
       source: 'explore',
-      sourceRef: SOURCE_REF,
     });
+    expect(args['sourceRef']).toBeNull();
     expect(args['onEvent']).toBeInstanceOf(ChannelMock);
   });
 
@@ -376,7 +375,7 @@ describe('useAgentChat：发送组装与停止', () => {
 // ---------------------------------------------------------------------------
 
 describe('useAgentChat：边界', () => {
-  it('无历史会话（空清单）→ 发送以 sessionId=null 穿透（New 语义），来源三元组仍齐全', async () => {
+  it('无历史会话（sessionId 直查 detail 返回 null）→ 发送以 sessionId=null 穿透（New 语义），来源参数齐全', async () => {
     sessionsResult = [];
     transcript = [];
     const { result } = await mounted();
@@ -389,7 +388,7 @@ describe('useAgentChat：边界', () => {
     const args = startCallArgs();
     expect(args['sessionId']).toBeNull();
     expect(args['source']).toBe('explore');
-    expect(args['sourceRef']).toBe(SOURCE_REF);
+    expect(args['sourceRef']).toBeNull();
   });
 
   it('root 为 null（未选定 workspace）：重放不发起、发送 no-op，不崩', async () => {
@@ -406,8 +405,8 @@ describe('useAgentChat：边界', () => {
     expect(result.current.messages).toEqual([]);
   });
 
-  it('sourceRef 为 null（debug 场景）：不重放装载，发送以 null 穿透 source / 会话参数，不崩', async () => {
-    const { result } = await mounted({ source: 'debug', sourceRef: null, root: ROOT });
+  it('sessionId 为 null（debug 场景）：不重放装载，发送以 null 穿透 source / 会话参数，不崩', async () => {
+    const { result } = await mounted({ source: 'debug', sessionId: null, root: ROOT });
 
     expect(invokeMock).not.toHaveBeenCalled();
     expect(result.current.messages).toEqual([]);
@@ -514,28 +513,24 @@ describe('useAgentChat：发送组装 agent 穿透', () => {
     expect(args['sessionId']).toBe(SESSION_ID);
     expect(args['root']).toBe(ROOT);
     expect(args['source']).toBe('explore');
-    expect(args['sourceRef']).toBe(SOURCE_REF);
+    expect(args['sourceRef']).toBeNull();
     expect(args['prompt']).toBe(SEND_INPUT.prompt);
     expect(args['permissionMode']).toBe('bypassPermissions');
   });
 });
 
 // ---------------------------------------------------------------------------
-// 生成绑定调用面（AC-5 回归锁定）：agent_sessions / agent_session_transcript /
-// agent_stop 裸 invoke → typed bindings 机械替换后，invoke 命令名与 camelCase
-// 参数逐字不变（生成绑定底层仍走 @tauri-apps/api/core 的 invoke，mock 机制
-// 切换后依旧生效）；root 寻址参数随双库拆分进入会话查询与停止命令。
+// 生成绑定调用面（AC-5 回归锁定）
 // ---------------------------------------------------------------------------
 
 describe('useAgentChat：生成绑定调用面', () => {
   it('发起经生成绑定入口后 invoke 收到 "agent_start" 与 7 个 camelCase 会话参数逐字不变，返回 running 轮行透传', async () => {
     const { result } = await mounted();
 
-    // 重放：命令名与 root 寻址三元组逐字不变
-    expect(invokeMock).toHaveBeenCalledWith('agent_sessions', {
+    // 重放：命令名与 root 寻址参数逐字不变
+    expect(invokeMock).toHaveBeenCalledWith('session_detail', {
       root: ROOT,
-      source: 'explore',
-      sourceRef: SOURCE_REF,
+      sessionId: SESSION_ID,
     });
 
     act(() => {
@@ -563,31 +558,31 @@ describe('useAgentChat：生成绑定调用面', () => {
       agent: null,
       sessionId: SESSION_ID,
       source: 'explore',
-      sourceRef: SOURCE_REF,
+      sourceRef: null,
     });
     // 返回 running 轮行透传（提前 resolve：running 置位、会话可寻址）
     await waitFor(() => expect(result.current.chain).toHaveLength(3));
     expect(result.current.running).toBe(true);
   });
 
-  it('重放经生成绑定后 invoke 收到 "agent_session_transcript" 与 { root, sessionId }：无会话零转录调用、有会话恰一次全史调用', async () => {
+  it('重放经生成绑定后 invoke 收到 "session_detail" 与 { root, sessionId }：无会话零调用、有会话恰一次全史调用', async () => {
     const { result } = await mounted();
 
-    expect(invokeMock.mock.calls.filter(([name]) => name === 'agent_session_transcript')).toEqual([
-      ['agent_session_transcript', { root: ROOT, sessionId: SESSION_ID }],
+    expect(invokeMock.mock.calls.filter(([name]) => name === 'session_detail')).toEqual([
+      ['session_detail', { root: ROOT, sessionId: SESSION_ID }],
     ]);
     // 消息重建不变：4 密封事件 + 2 轮统计行部件 = 6 条
     expect(result.current.messages).toHaveLength(6);
 
-    // 无会话：零转录调用（空会话语义在绑定切换后保持）
+    // sessionId=null：零调用（空会话语义在绑定切换后保持）
     const callsBeforeEmpty = invokeMock.mock.calls.length;
     sessionsResult = [];
     transcript = [];
-    const empty = await mounted();
+    const empty = await mounted({ source: 'explore', sessionId: null, root: ROOT });
     expect(
       invokeMock.mock.calls
         .slice(callsBeforeEmpty)
-        .filter(([name]) => name === 'agent_session_transcript'),
+        .filter(([name]) => name === 'session_detail' || name === 'agent_session_transcript'),
     ).toHaveLength(0);
     expect(empty.result.current.messages).toEqual([]);
   });
@@ -671,16 +666,16 @@ describe('useAgentChat：镜像只收密封事件', () => {
 });
 
 describe('useAgentChat：装载双查询 reject 面', () => {
-  it('agent_sessions reject：error 态呈现（错误串透传）、loading 复位、不静默以空清单装载', async () => {
+  it('session_detail reject：error 态呈现（错误串透传）、loading 复位、不静默以空清单装载', async () => {
     invokeMock.mockImplementation((command: string) => {
-      if (command === 'agent_sessions') return Promise.reject('db: 会话清单读取失败');
+      if (command === 'session_detail') return Promise.reject('db: 会话详情读取失败');
       return Promise.resolve(null);
     });
 
     const { result } = await mounted();
 
     await waitFor(() => expect(result.current.error).not.toBeNull());
-    expect(result.current.error).toContain('会话清单读取失败');
+    expect(result.current.error).toContain('会话详情读取失败');
     expect(result.current.loading).toBe(false);
     // 未装载：镜像与消息保持空态（错误可见而非静默空）
     expect(result.current.events).toEqual([]);
@@ -689,8 +684,8 @@ describe('useAgentChat：装载双查询 reject 面', () => {
 
   it('agent_session_transcript reject：error 态呈现（错误串透传）、不静默以空转录装载', async () => {
     invokeMock.mockImplementation((command: string) => {
-      if (command === 'agent_sessions') {
-        return Promise.resolve([sessionSummary({}, REPLAY_TURNS)]);
+      if (command === 'session_detail') {
+        return Promise.resolve(sessionSummary({}, REPLAY_TURNS));
       }
       if (command === 'agent_session_transcript') {
         return Promise.reject('db: 转录读取失败');
