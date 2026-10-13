@@ -1,0 +1,381 @@
+{
+  "framework": "rust",
+  "root": "packages/desktop/src-tauri",
+  "timestamp": "2026-10-12T16:32:17.1070853Z",
+  "exit_code": 0,
+  "duration_ms": 211837.0,
+  "summary": {
+    "total": 1653,
+    "passed": 1653,
+    "failed": 0,
+    "skipped": 0
+  },
+  "error_cases": [],
+  "test_files": [],
+  "source_files": [
+    {
+      "file": "C:\\Users\\wps\\.dev-team\\worktrees\\wps-claude-plugin-7166d8c61feeae705846d569251abee6\\fill-test-in-desktop-components\\packages\\desktop\\src-tauri\\src\\bindings\\mod.rs",
+      "coverage": {
+        "lines": 100.0,
+        "branches": null,
+        "functions": null,
+        "total_lines": 22,
+        "covered_lines": 22,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "C:\\Users\\wps\\.dev-team\\worktrees\\wps-claude-plugin-7166d8c61feeae705846d569251abee6\\fill-test-in-desktop-components\\packages\\desktop\\src-tauri\\src\\bindings\\mod_test.rs",
+      "coverage": {
+        "lines": 99.78,
+        "branches": null,
+        "functions": null,
+        "total_lines": 454,
+        "covered_lines": 453,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "C:\\Users\\wps\\.dev-team\\worktrees\\wps-claude-plugin-7166d8c61feeae705846d569251abee6\\fill-test-in-desktop-components\\packages\\desktop\\src-tauri\\src\\commands\\agents\\mod.rs",
+      "coverage": {
+        "lines": 100.0,
+        "branches": null,
+        "functions": null,
+        "total_lines": 46,
+        "covered_lines": 46,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "C:\\Users\\wps\\.dev-team\\worktrees\\wps-claude-plugin-7166d8c61feeae705846d569251abee6\\fill-test-in-desktop-components\\packages\\desktop\\src-tauri\\src\\commands\\agents\\mod_test.rs",
+      "coverage": {
+        "lines": 99.71,
+        "branches": null,
+        "functions": null,
+        "total_lines": 341,
+        "covered_lines": 340,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "C:\\Users\\wps\\.dev-team\\worktrees\\wps-claude-plugin-7166d8c61feeae705846d569251abee6\\fill-test-in-desktop-components\\packages\\desktop\\src-tauri\\src\\commands\\change_flow\\mod.rs",
+      "coverage": {
+        "lines": 85.33,
+        "branches": null,
+        "functions": null,
+        "total_lines": 150,
+        "covered_lines": 128,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "C:\\Users\\wps\\.dev-team\\worktrees\\wps-claude-plugin-7166d8c61feeae705846d569251abee6\\fill-test-in-desktop-components\\packages\\desktop\\src-tauri\\src\\commands\\change_flow\\mod_test.rs",
+      "coverage": {
+        "lines": 98.91,
+        "branches": null,
+        "functions": null,
+        "total_lines": 1008,
+        "covered_lines": 997,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "C:\\Users\\wps\\.dev-team\\worktrees\\wps-claude-plugin-7166d8c61feeae705846d569251abee6\\fill-test-in-desktop-components\\packages\\desktop\\src-tauri\\src\\commands\\changes\\mod.rs",
+      "coverage": {
+        "lines": 88.29,
+        "branches": null,
+        "functions": null,
+        "total_lines": 111,
+        "covered_lines": 98,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "C:\\Users\\wps\\.dev-team\\worktrees\\wps-claude-plugin-7166d8c61feeae705846d569251abee6\\fill-test-in-desktop-components\\packages\\desktop\\src-tauri\\src\\commands\\changes\\mod_test.rs",
+      "coverage": {
+        "lines": 99.86,
+        "branches": null,
+        "functions": null,
+        "total_lines": 1446,
+        "covered_lines": 1444,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "C:\\Users\\wps\\.dev-team\\worktrees\\wps-claude-plugin-7166d8c61feeae705846d569251abee6\\fill-test-in-desktop-components\\packages\\desktop\\src-tauri\\src\\commands\\config\\mod.rs",
+      "coverage": {
+        "lines": 100.0,
+        "branches": null,
+        "functions": null,
+        "total_lines": 12,
+        "covered_lines": 12,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "C:\\Users\\wps\\.dev-team\\worktrees\\wps-claude-plugin-7166d8c61feeae705846d569251abee6\\fill-test-in-desktop-components\\packages\\desktop\\src-tauri\\src\\commands\\config\\mod_test.rs",
+      "coverage": {
+        "lines": 98.5,
+        "branches": null,
+        "functions": null,
+        "total_lines": 133,
+        "covered_lines": 131,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "C:\\Users\\wps\\.dev-team\\worktrees\\wps-claude-plugin-7166d8c61feeae705846d569251abee6\\fill-test-in-desktop-components\\packages\\desktop\\src-tauri\\src\\commands\\db\\mod.rs",
+      "coverage": {
+        "lines": 100.0,
+        "branches": null,
+        "functions": null,
+        "total_lines": 18,
+        "covered_lines": 18,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "C:\\Users\\wps\\.dev-team\\worktrees\\wps-claude-plugin-7166d8c61feeae705846d569251abee6\\fill-test-in-desktop-components\\packages\\desktop\\src-tauri\\src\\commands\\db\\mod_test.rs",
+      "coverage": {
+        "lines": 100.0,
+        "branches": null,
+        "functions": null,
+        "total_lines": 311,
+        "covered_lines": 311,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "C:\\Users\\wps\\.dev-team\\worktrees\\wps-claude-plugin-7166d8c61feeae705846d569251abee6\\fill-test-in-desktop-components\\packages\\desktop\\src-tauri\\src\\commands\\exec\\agent.rs",
+      "coverage": {
+        "lines": 100.0,
+        "branches": null,
+        "functions": null,
+        "total_lines": 21,
+        "covered_lines": 21,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "C:\\Users\\wps\\.dev-team\\worktrees\\wps-claude-plugin-7166d8c61feeae705846d569251abee6\\fill-test-in-desktop-components\\packages\\desktop\\src-tauri\\src\\commands\\exec\\agent_test.rs",
+      "coverage": {
+        "lines": 100.0,
+        "branches": null,
+        "functions": null,
+        "total_lines": 101,
+        "covered_lines": 101,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "C:\\Users\\wps\\.dev-team\\worktrees\\wps-claude-plugin-7166d8c61feeae705846d569251abee6\\fill-test-in-desktop-components\\packages\\desktop\\src-tauri\\src\\commands\\exec\\mod.rs",
+      "coverage": {
+        "lines": 83.54,
+        "branches": null,
+        "functions": null,
+        "total_lines": 79,
+        "covered_lines": 66,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "C:\\Users\\wps\\.dev-team\\worktrees\\wps-claude-plugin-7166d8c61feeae705846d569251abee6\\fill-test-in-desktop-components\\packages\\desktop\\src-tauri\\src\\commands\\exec\\mod_test.rs",
+      "coverage": {
+        "lines": 99.43,
+        "branches": null,
+        "functions": null,
+        "total_lines": 525,
+        "covered_lines": 522,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "C:\\Users\\wps\\.dev-team\\worktrees\\wps-claude-plugin-7166d8c61feeae705846d569251abee6\\fill-test-in-desktop-components\\packages\\desktop\\src-tauri\\src\\commands\\explores\\mod.rs",
+      "coverage": {
+        "lines": 95.08,
+        "branches": null,
+        "functions": null,
+        "total_lines": 183,
+        "covered_lines": 174,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "C:\\Users\\wps\\.dev-team\\worktrees\\wps-claude-plugin-7166d8c61feeae705846d569251abee6\\fill-test-in-desktop-components\\packages\\desktop\\src-tauri\\src\\commands\\explores\\mod_test.rs",
+      "coverage": {
+        "lines": 99.76,
+        "branches": null,
+        "functions": null,
+        "total_lines": 849,
+        "covered_lines": 847,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "C:\\Users\\wps\\.dev-team\\worktrees\\wps-claude-plugin-7166d8c61feeae705846d569251abee6\\fill-test-in-desktop-components\\packages\\desktop\\src-tauri\\src\\commands\\stats\\mod.rs",
+      "coverage": {
+        "lines": 99.04,
+        "branches": null,
+        "functions": null,
+        "total_lines": 104,
+        "covered_lines": 103,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "C:\\Users\\wps\\.dev-team\\worktrees\\wps-claude-plugin-7166d8c61feeae705846d569251abee6\\fill-test-in-desktop-components\\packages\\desktop\\src-tauri\\src\\commands\\stats\\mod_test.rs",
+      "coverage": {
+        "lines": 95.49,
+        "branches": null,
+        "functions": null,
+        "total_lines": 466,
+        "covered_lines": 445,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "C:\\Users\\wps\\.dev-team\\worktrees\\wps-claude-plugin-7166d8c61feeae705846d569251abee6\\fill-test-in-desktop-components\\packages\\desktop\\src-tauri\\src\\commands\\watch\\mod.rs",
+      "coverage": {
+        "lines": 100.0,
+        "branches": null,
+        "functions": null,
+        "total_lines": 35,
+        "covered_lines": 35,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "C:\\Users\\wps\\.dev-team\\worktrees\\wps-claude-plugin-7166d8c61feeae705846d569251abee6\\fill-test-in-desktop-components\\packages\\desktop\\src-tauri\\src\\commands\\watch\\mod_test.rs",
+      "coverage": {
+        "lines": 97.52,
+        "branches": null,
+        "functions": null,
+        "total_lines": 161,
+        "covered_lines": 157,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "C:\\Users\\wps\\.dev-team\\worktrees\\wps-claude-plugin-7166d8c61feeae705846d569251abee6\\fill-test-in-desktop-components\\packages\\desktop\\src-tauri\\src\\commands\\workspaces\\mod.rs",
+      "coverage": {
+        "lines": 100.0,
+        "branches": null,
+        "functions": null,
+        "total_lines": 20,
+        "covered_lines": 20,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "C:\\Users\\wps\\.dev-team\\worktrees\\wps-claude-plugin-7166d8c61feeae705846d569251abee6\\fill-test-in-desktop-components\\packages\\desktop\\src-tauri\\src\\commands\\workspaces\\mod_test.rs",
+      "coverage": {
+        "lines": 100.0,
+        "branches": null,
+        "functions": null,
+        "total_lines": 304,
+        "covered_lines": 304,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "C:\\Users\\wps\\.dev-team\\worktrees\\wps-claude-plugin-7166d8c61feeae705846d569251abee6\\fill-test-in-desktop-components\\packages\\desktop\\src-tauri\\src\\main.rs",
+      "coverage": {
+        "lines": 0.0,
+        "branches": null,
+        "functions": null,
+        "total_lines": 30,
+        "covered_lines": 0,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    }
+  ],
+  "coverage": {
+    "pass": true,
+    "measured": {
+      "lines": 97.28409090909092,
+      "branches": null,
+      "functions": 90.8284023668639
+    },
+    "thresholds": {
+      "lines": 90.0,
+      "branches": 85.0,
+      "functions": 90.0
+    }
+  },
+  "mutation": null
+}
