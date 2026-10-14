@@ -1539,6 +1539,169 @@ fn list_sessions缺席缺省与空库空清单() {
 }
 
 #[test]
+fn find_session_summary命中与清单面逐字段全等() {
+    let env = Env::new("summary-hit");
+    let store = open_workspace_ok(&env.db_path("ws"));
+    seed_session(&store, "ses-x");
+    seed_session(&store, "ses-y");
+    // ses-x：转录 TurnDone + 一轮终态行（同 list_sessions 聚合用例口径）
+    store
+        .append_session_events("ses-x", &[stamped(0, turn_done_kind(false))])
+        .expect("append 应成功");
+    let turn = store
+        .begin_agent_turn("ses-x", 1727000000000)
+        .expect("begin 应成功");
+    store
+        .finish_agent_turn(
+            turn.id,
+            &finish_shell(
+                turn.id,
+                AgentRunStatus::Completed,
+                Some(1727000004000),
+                Some(1),
+                Some(4000),
+                None,
+            ),
+        )
+        .expect("finish 应成功");
+
+    let found = store
+        .find_session_summary("ses-x")
+        .expect("单查应成功")
+        .expect("在场");
+    let listed = store
+        .list_sessions(None, None)
+        .expect("清单应成功")
+        .into_iter()
+        .find(|summary| summary.row.id == "ses-x")
+        .expect("清单面 ses-x 在场");
+    assert_eq!(
+        found, listed,
+        "单查与清单面对应条目逐字段全等（聚合组装同一段代码）"
+    );
+    assert_eq!(found.stats.turn_count, 1);
+    assert_eq!(found.stats.input_tokens, Some(10));
+}
+
+#[test]
+fn find_session_summary查无此id与空id返回none不虚构会话() {
+    let env = Env::new("summary-miss");
+    let store = open_workspace_ok(&env.db_path("ws"));
+    // 空库 miss
+    assert_eq!(
+        store.find_session_summary("ses-404").unwrap(),
+        None,
+        "空库查无此 id → Ok(None)"
+    );
+    // 有库 miss：单查只圈定目标 id，不虚构会话
+    seed_session(&store, "ses-hit");
+    assert_eq!(
+        store.find_session_summary("ses-404").unwrap(),
+        None,
+        "有库查无此 id → Ok(None)"
+    );
+    // 空 session_id 同样 Ok(None)（不 panic）
+    assert_eq!(store.find_session_summary("").unwrap(), None);
+}
+
+#[test]
+fn find_session_summary无轮行会话统计缺省与清单面全等() {
+    let env = Env::new("summary-bare");
+    let store = open_workspace_ok(&env.db_path("ws"));
+    seed_session(&store, "ses-bare");
+
+    let found = store
+        .find_session_summary("ses-bare")
+        .expect("单查应成功")
+        .expect("在场");
+    assert_eq!(found.stats.turn_count, 0, "无轮行统计缺省（降级不违约）");
+    assert_eq!(found.stats.total_duration_ms, None);
+    assert_eq!(found.stats.input_tokens, None);
+    assert_eq!(found.stats.output_tokens, None);
+    assert!(found.turns.is_empty());
+
+    let listed = store
+        .list_sessions(None, None)
+        .expect("清单应成功")
+        .remove(0);
+    assert_eq!(
+        found, listed,
+        "无轮行路径同样与清单面逐字段全等"
+    );
+}
+
+#[test]
+fn find_session_summary轮行发起顺序started_at升序并列turn_id() {
+    let env = Env::new("summary-turn-order");
+    let store = open_workspace_ok(&env.db_path("ws"));
+    seed_session(&store, "ses-order");
+    // turn1：started_at 后到；turn2：started_at 先到（id 序与时间序交叉）；
+    // turn3：与 turn2 同 started_at（并列走 turn_id 升序）
+    let turn1 = store
+        .begin_agent_turn("ses-order", 1727000000300)
+        .expect("begin 1 应成功");
+    let turn2 = store
+        .begin_agent_turn("ses-order", 1727000000100)
+        .expect("begin 2 应成功");
+    let turn3 = store
+        .begin_agent_turn("ses-order", 1727000000100)
+        .expect("begin 3 应成功");
+
+    let found = store
+        .find_session_summary("ses-order")
+        .expect("单查应成功")
+        .expect("在场");
+    let order: Vec<i64> = found.turns.iter().map(|turn| turn.turn_id).collect();
+    assert_eq!(
+        order,
+        vec![turn2.id, turn3.id, turn1.id],
+        "发起顺序：started_at 升序，并列按 turn_id 升序（.then 分支）"
+    );
+}
+
+#[test]
+fn list_session_events多会话交错落库索引圈定完整升序互不串号() {
+    let env = Env::new("replay-interleaved");
+    let store = open_workspace_ok(&env.db_path("ws"));
+    seed_session(&store, "ses-a");
+    seed_session(&store, "ses-b");
+    // 交错 append（同会话内 seq 独立续排，跨会话互不占位）
+    store
+        .append_session_events("ses-a", &[stamped(0, raw_kind("a0"))])
+        .expect("append a0 应成功");
+    store
+        .append_session_events("ses-b", &[stamped(0, raw_kind("b0"))])
+        .expect("append b0 应成功");
+    store
+        .append_session_events(
+            "ses-a",
+            &[stamped(1, raw_kind("a1")), stamped(2, raw_kind("a2"))],
+        )
+        .expect("append a1/a2 应成功");
+    store
+        .append_session_events("ses-b", &[stamped(1, raw_kind("b1"))])
+        .expect("append b1 应成功");
+
+    let a = store.list_session_events("ses-a").unwrap();
+    let b = store.list_session_events("ses-b").unwrap();
+    assert_eq!(
+        a.iter().map(raw_tag).collect::<Vec<_>>(),
+        vec!["a0", "a1", "a2"],
+        "ses-a 圈定完整且 seq 升序"
+    );
+    assert_eq!(
+        a.iter().map(|event| event.seq).collect::<Vec<_>>(),
+        vec![0, 1, 2]
+    );
+    assert_eq!(
+        b.iter().map(raw_tag).collect::<Vec<_>>(),
+        vec!["b0", "b1"],
+        "ses-b 圈定完整且互不串号"
+    );
+    assert_eq!(b.iter().map(|event| event.seq).collect::<Vec<_>>(), vec![0, 1]);
+}
+
+#[test]
 fn list_session_events空洞容忍升序不补洞() {
     let env = Env::new("replay-holes");
     let store = open_workspace_ok(&env.db_path("ws"));

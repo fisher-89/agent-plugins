@@ -17,8 +17,8 @@ use crate::envelope::{self, ModelInfo, RecordsPage};
 use crate::model::{
     now_millis, pack_session_event_key, AgentEngineKind, AgentInstanceRecord, AgentProviderRecord,
     AgentRunRecord, ChangeActivePhase, ChangeRecord, ChecklistItemRecord, ExploreRecord,
-    PhaseRecord, RunEdgeRecord, RunNodeRecord, RunRecord, SessionEventRecord, SessionRecord,
-    StepRecord, StoreMetaRecord, WorkspaceRecord, WORKSPACE_STORE_FORMAT_KEY,
+    PhaseRecord, RunEdgeRecord, RunNodeRecord, RunRecord, SessionEventRecord, SessionEventRecordKey,
+    SessionRecord, StepRecord, StoreMetaRecord, WorkspaceRecord, WORKSPACE_STORE_FORMAT_KEY,
     WORKSPACE_STORE_FORMAT_VERSION,
 };
 use workflow::model::{ChecklistItem, Verdict};
@@ -164,6 +164,23 @@ fn aggregate_stats(
         input_tokens: sum_usage_tokens(events, "input_tokens"),
         output_tokens: sum_usage_tokens(events, "output_tokens"),
     }
+}
+
+/// 聚合组装（清单面与单查共用）：轮行发起顺序排序 + 统计现算 + DTO 映射。
+/// 两面共用本函数，`find_session_detail` 与 `list_sessions` 对应条目逐字段全等。
+fn assemble_summary(
+    session: &SessionRecord,
+    mut turns: Vec<TurnSummary>,
+    events: Vec<AgentEvent>,
+) -> Result<SessionSummary, String> {
+    // 发起顺序：`started_at` 升序，并列按轮 id 升序（确定可复现）
+    turns.sort_by(|a, b| a.started_at.cmp(&b.started_at).then(a.turn_id.cmp(&b.turn_id)));
+    let stats = aggregate_stats(turns.len(), &turns, &events);
+    Ok(SessionSummary {
+        row: session_row(session)?,
+        stats,
+        turns,
+    })
 }
 
 /// 可缺省数值求和：全缺席 → None（缺席合法缺省），部分在场合计在场的值。
@@ -547,6 +564,33 @@ impl Store {
         Ok(hit)
     }
 
+    /// 会话轮行（按 session 圈定）：单查装配的轮行来源。孤儿轮行
+    /// （`session_id` 为 None）不出任何会话清单——谓词逐字同清单面。
+    /// 发起顺序排序收口在 [`assemble_summary`]，此处不排序。
+    fn list_agent_turns(&self, session_id: &str) -> Result<Vec<TurnSummary>, String> {
+        Ok(self
+            .read_all::<AgentRunRecord>("遍历轮统计行")
+            .map_err(|e| e.to_string())?
+            .iter()
+            .filter(|run| run.session_id.as_deref() == Some(session_id))
+            .map(turn_summary)
+            .collect())
+    }
+
+    /// 会话单查装配：主键直查行 + 本会话轮行 + 本会话事件 → 聚合组装。
+    /// 查无此 id 返回 `Ok(None)`，由 port 层映射为显式 Err（单查语义分层）。
+    pub fn find_session_summary(
+        &self,
+        session_id: &str,
+    ) -> Result<Option<SessionSummary>, String> {
+        let Some(session) = self.find_session(session_id).map_err(|e| e.to_string())? else {
+            return Ok(None);
+        };
+        let turns = self.list_agent_turns(session_id)?;
+        let events = self.list_session_events(session_id)?;
+        assemble_summary(&session, turns, events).map(Some)
+    }
+
     /// 轮统计行 begin：写事务内 `max(id)+1` 分配（与插入原子，首行 id=1），
     /// `session_id` 挂 core 会话、`running` 初值，返回含 id 的记录。
     pub fn begin_agent_turn(
@@ -676,11 +720,7 @@ impl Store {
         Ok(())
     }
 
-    /// 会话清单：来源过滤（`source` / `source_ref` 各自可选）+ `updated_at`
-    /// 降序稳定序（并列按 id 降序，与运行清单同哲学）+ 聚合统计现算（轮数 /
-    /// 累计墙钟自轮统计行、累计 token 自转录 TurnDone usage 鸭子类型求和，
-    /// 缺席合法缺省——MVP 不维护累计列）+ 轮统计行随行返回（发起顺序）。
-    /// 全表读 + 内存过滤——调试页数据量小，与清单读面同哲学。
+    /// 会话清单
     pub fn list_sessions(
         &self,
         source: Option<&str>,
@@ -700,24 +740,15 @@ impl Store {
             .map_err(|e| e.to_string())?;
         let mut summaries = Vec::with_capacity(sessions.len());
         for session in &sessions {
-            let mut turns: Vec<TurnSummary> = runs
+            // 预读 runs 向量内存过滤（勿改成逐会话 `list_agent_turns`——那会把
+            // 轮行全表读从一遍变 S 遍）；发起顺序排序收口在 [`assemble_summary`]
+            let turns: Vec<TurnSummary> = runs
                 .iter()
                 .filter(|run| run.session_id.as_deref() == Some(session.id.as_str()))
                 .map(turn_summary)
                 .collect();
-            // 发起顺序：`started_at` 升序，并列按轮 id 升序（确定可复现）
-            turns.sort_by(|a, b| {
-                a.started_at
-                    .cmp(&b.started_at)
-                    .then(a.turn_id.cmp(&b.turn_id))
-            });
             let events = self.list_session_events(&session.id)?;
-            let stats = aggregate_stats(turns.len(), &turns, &events);
-            summaries.push(SessionSummary {
-                row: session_row(session)?,
-                stats,
-                turns,
-            });
+            summaries.push(assemble_summary(session, turns, events)?);
         }
         summaries.sort_by(|a, b| {
             b.row
@@ -728,24 +759,29 @@ impl Store {
         Ok(summaries)
     }
 
-    /// 转录重放：全表读 + 内存过滤出本会话（`session_id` 非唯一二级索引保
-    /// 查询形态），seq 升序返回（打包主键大端序保证同会话内自然序即重放序；
-    /// 增量占 seq 产生的库内空洞不破坏有序性），不要求运行进程存活。
+    /// 转录重放
     pub fn list_session_events(&self, session_id: &str) -> Result<Vec<AgentEvent>, String> {
-        let mut events: Vec<AgentEvent> = self
-            .read_all::<SessionEventRecord>("遍历会话转录")
-            .map_err(|e| e.to_string())?
-            .into_iter()
-            .filter(|record| record.session_id == session_id)
-            .map(|record| record.event)
-            .collect();
+        let r = self
+            .db
+            .r_transaction()
+            .map_err(|e| db_err("开启读事务")(e).to_string())?;
+        let scan = r
+            .scan()
+            .secondary::<SessionEventRecord>(SessionEventRecordKey::session_id)
+            .map_err(|e| db_err("按会话索引读取转录")(e).to_string())?;
+        let records = scan
+            .range(session_id.to_owned()..=session_id.to_owned())
+            .map_err(|e| db_err("按会话索引范围读取转录")(e).to_string())?;
+        let mut events = Vec::new();
+        for record in records {
+            let record = record.map_err(|e| db_err("读取会话转录")(e).to_string())?;
+            events.push(record.event);
+        }
         events.sort_by_key(|event| event.seq);
         Ok(events)
     }
 
-    /// 对账纠偏重导显式入口：从转录 `TurnDone` 事件重算聚合（轮数 / 累计
-    /// 墙钟 / 累计 token），不改密封转录、不隐式挂读路径。轮统计行缺席或
-    /// 偏差时以转录为准的校正口径。
+    /// 对账纠偏重导显式入口
     pub fn reconcile_session_stats(&self, session_id: &str) -> Result<SessionStats, String> {
         let events = self.list_session_events(session_id)?;
         let mut turn_count: u64 = 0;
@@ -765,8 +801,7 @@ impl Store {
         })
     }
 
-    /// explore 清单：按 root 过滤，主键 id 降序（新记录在前，稳定可复现）。
-    /// root 为记录归属键（调用方持有 canonical root，store 不二次 canonicalize）。
+    /// explore 清单
     pub fn list_explore_records(&self, root: &str) -> Result<Vec<ExploreRecord>, StoreError> {
         let mut records: Vec<ExploreRecord> = self
             .read_all::<ExploreRecord>("遍历探索清单")?
@@ -789,11 +824,7 @@ impl Store {
             .find(|record| record.name == name))
     }
 
-    /// 新建 explore 记录：写事务内 `max(id)+1` 分配（与插入原子，与
-    /// [`Store::begin_agent_run`] 同语义）；同 `(root, name)` 已存在 → `Err`。
-    /// `name` 校验为 kebab-case + 长度 ≤128（与写面 `create` 同口径——promote
-    /// 免转换冲突的前提）。只写 DB——磁盘笔记文件由 agent 会话流程懒创建，本
-    /// 方法不触磁盘。
+    /// 新建 explore 记录
     pub fn create_explore_record(
         &self,
         root: &str,
@@ -854,11 +885,7 @@ impl Store {
         Ok(updated)
     }
 
-    /// 删除 explore 记录：MUST NOT 触碰磁盘文件（文件是记录的可丢弃投影，
-    /// 删除方向亦然）；记录名下的**归属会话及其转录与轮统计行**随记录**同
-    /// 事务级联删除**（会话化后级联圈定自主平移至会话归属）——id 是幸存行上
-    /// max+1 的可复用计数，悬空 `source_ref` 不清则下次建档复用 id 时旧聊天
-    /// 经 `(source, source_ref)` 匹配错挂到新记录。miss 幂等 `Ok(false)`。
+    /// 删除 explore 记录
     pub fn delete_explore_record(&self, root: &str, name: &str) -> Result<bool, StoreError> {
         let Some(record) = self.find_explore_record(root, name)? else {
             return Ok(false);

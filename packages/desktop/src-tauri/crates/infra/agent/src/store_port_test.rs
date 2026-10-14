@@ -603,8 +603,8 @@ fn reconcile_stats无turn_done转录时缺省统计不报错() {
 }
 
 // ---------------------------------------------------------------------------
-// SessionQuery：find_session_detail 单查两段式（AC-6 单查半边：find_session
-// miss-fast 锚定 + 清单面收敛；运行状态自轮行推导；跨 workspace 库隔离）
+// SessionQuery：find_session_detail 单查单点（AC-6 单查半边：store 单会话装配
+// 面直取；miss 显式 Err；运行状态自轮行推导；跨 workspace 库隔离）
 // ---------------------------------------------------------------------------
 
 /// seed 一轮完整轮行（TurnDone 转录 + begin/finish 轮行）的会话。
@@ -626,7 +626,7 @@ fn seed_full_session(env: &Env, id: &str) {
 fn find_session_detail命中返回row_stats_turns三件套与清单面逐字段全等() {
     let env = Env::new("find-hit");
     seed_full_session(&env, "ses-x");
-    // 第二会话在库：单查仍精确定位目标行（清单面收敛取单条）
+    // 第二会话在库：单查仍精确定位目标行（单会话装配面只圈定目标 id）
     seed_full_session(&env, "ses-y");
 
     let found = env.query.find_session_detail("ses-x").expect("单查应成功");
@@ -689,7 +689,7 @@ fn find_session_detail含未收轮时轮行呈running且无顶层状态字段() 
 
 #[test]
 fn find_session_detail查无此id两形态显式err不返回空清单() {
-    // 形态一：空库查无此 id（第一段 find_session miss-fast，不触全表）
+    // 形态一：空库查无此 id（单会话装配面主键直查 miss，不触全表）
     let empty = Env::new("find-miss-empty");
     let error = empty
         .query
