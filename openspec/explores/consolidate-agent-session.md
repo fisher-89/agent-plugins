@@ -108,3 +108,102 @@ app 命令层 src-tauri/src/commands/
 - `packages/desktop/src-tauri/src/commands/exec/{mod,agent}.rs` — app 层词汇转换 + 摘要装配
 - `packages/desktop/src/hooks/use-agent-chat.ts`、`src/lib/agent-transport.ts` — 前端 New/Continue 判定
 - spec: `openspec/specs/desktop-agent-execution`、`desktop-crate-layout`、`desktop-agent-chat-infra`
+
+---
+
+# 二轮细化：线索 C port 形态与各线索落地推演（按推荐跟进）
+
+## 本轮新证据（设计定稿的依据）
+
+1. **spec 已钦定方向**：`desktop-agent-execution` spec L488 明文「发起命令…命令体 MUST NOT
+   编排」「编排（runner 组装、tee、落库、盖戳、收敛）SHALL 全部下沉内核」。本探索诉求
+   （启动逻辑归一 core/agent）是**兑现既有 spec 意图**，不是新架构——现状是收口未完成态。
+2. **core 错误词汇已预留**：`AgentStartError::ConfigMissing` 文档串原文含「引用的会话不存在
+   或不属产出方等」——Continue 治理错误的落点词汇在 core 已存在，下沉零词汇新增。
+3. **compose 绕过 port 直掏 store**：`compose.rs::begin` 经 `query.store()` escape hatch 直调
+   `find_session`（不走 `SessionQuery` port）——因 port 面缺口：`find_session_detail` 返回重载
+   SessionSummary（row+stats+turns），本查只需行内两字段（engine / engine_session_id）。
+4. **worker.rs 落位被后续 spec 钦定**：`desktop-change-orchestration` / `desktop-change-archive`
+   的文件清单明文列 `crates/infra/agent/src/worker.rs` 为 WorkerAgentPort 实现位。故
+   agent-runtime → orchestration 依赖边是**crate-layout spec 陈旧**（先立白名单后长依赖），
+   非违规漂移；修法是修订白名单，不是搬 worker.rs。
+5. **疑似未用依赖**：agent-runtime 的 Cargo.toml 声明 `config` / `foundation`，全源码
+   （含测试）grep 零 `use config::` / `use foundation::`——疑似残留，可顺带清查。
+6. **orchestration → agent 依赖边已存在**（Cargo.toml 已声明）：WorkerTurnRequest 改用
+   SessionRef 词汇零新增边。
+7. **spec 未钉 WorkerTurnRequest 字段面**：`continue_session: Option<String>` 只存在于代码
+   注释，spec 层无钉死——线索 A 改词无需修订 change-orchestration spec。
+
+## 线索 C 定稿推演：治理段下沉的 port 形态
+
+现状（infra `compose.rs::begin` L99-118）三连校验 + 提取 prior_handle：
+
+```
+Continue { id } ──► query.store().find_session(id)   ← 绕 port 直掏 store
+        miss  ──► Err "会话不存在: {id}"
+        engine≠store_kind ──► Err "会话非当前引擎产出（跨引擎续会话不支持）"
+        engine_session_id None ──► Err "会话缺少引擎句柄，无法续接"
+        ok ──► Some(handle) ──► TurnRequest.prior_handle（调用方提取，词汇外溢）
+```
+
+目标形态（治理单点 = SessionKernel::begin_turn；core 不解释产出方概念）：
+
+```rust
+// core/agent/port.rs — SessionQuery 增一员（读面；补 lean 行查询缺口）
+pub struct Continuation { pub prior_handle: String }        // 中性数据
+pub enum ContinueError {                                    // 三成因一对一
+    Unknown(String),          // 会话不存在
+    ProducerMismatch(String), // 非当前产出方（中性词——core 禁 engine 字样，
+                              //   spec scenario 明文 grep engine/rig/openai）
+    HandleMissing(String),    // 句柄未上报
+}
+fn resolve_continuation(&self, id: &str, expected_producer: &str)
+    -> Result<Continuation, ContinueError>;                 // 比对在 port 实现侧
+```
+
+- `TurnRequest` 变化：`prior_handle` 字段退役（调用方不再提取）；新增
+  `expected_producer: Option<String>`（New 恒 None；opaque token——core 只透传，比对在
+  infra store_port 实现内，engine 概念不出 core）。
+- `SessionKernel::begin_turn` Continue 分支自查 `resolve_continuation`，产物直接注入
+  `SessionOpen.prior_handle`——治理与铸 id/建行/开轮/登记同点收口。
+- 错误映射：`ContinueError → AgentStartError::ConfigMissing`（词汇已预留）。
+- `query.store()` escape hatch 随下沉自然退役（compose 不再需要行级查询）。
+- 消费方瘦身后：`ComposedTurn::begin` = 快照定型 + TurnRequest 组装 + kernel 调用三件事。
+- 测试面：compose_test 钉死的三条消息（会话不存在 ses-404 / 跨引擎 / 句柄缺失，三因消息
+  互不重合）随治理迁址——断言平移到 kernel_test（假 query port）+ store_port_test
+  （真 store 比对），文案不变。
+
+## 线索 A / B / D 落地细化
+
+**A（词汇收口）**：`SessionRef::from_option(Option<String>)`（正向单点，exec/mod.rs 与
+worker.rs 两处 match 消解）+ `SessionRef::prior_id() -> Option<String>`（反向，
+sdk/runner::continue_session_id 消解）。`WorkerTurnRequest.continue_session: Option<String>`
+→ `session: SessionRef`（orchestration → agent 边已在）；walker 三处续注点
+（decision ask 应答 L2836 / static-check 反馈边 L806-830 / test-execution 反馈边）
+改持 SessionRef。
+
+**B（提取器回家 + spec 修订）**：`transcript.rs` 两纯函数（仅 import agent 类型，零障碍）
+→ core/agent（建议 `agent::transcript` 模块）。消费方 walker（4 处）/ worker（1 处）依赖边
+均已存在。**注意**：移动不消 agent-runtime → orchestration 边（worker 仍需 port 类型）；
+该边由后续 spec 钦定，同步修订 crate-layout 白名单：
+`agent-runtime → agent + orchestration(port 类型) + store(port 落地) + exec(ShellBase)`
+，并清查 config / foundation 疑似未用依赖。
+
+**D（摘要装配收口）**：`TurnSummary::running(&RunningTurn)` +
+`TurnSummary::from_outcome(&TurnOutcome, session_id, started_at)` 进 core（TurnSummary 本就
+是 core 类型，装配是纯投影）；`exec/agent.rs` 只剩 `AgentRunMessage` IPC 信封（specta/serde
+app 面残留合法）。
+
+## 决策点（提案前需拍板）
+
+1. **CLI 预检归位**：worker.rs 的 `is_cli_engine → discover` 预检是"启动会话"治理半边，但
+   挪入 `ComposedTurn::begin` 会改变 exec 轨道失败面（现状：exec 轨道 CLI 缺失在 ask 段
+   spawn 失败→error_cli_missing 事件收敛；change 轨道 begin 前显式 Err 零半成品）。统一即
+   exec 轨道提前 resolve 直接 Err——更严格但行为变化，需明示取舍。
+2. **resolve_continuation 归属**：SessionQuery（读面，倾向）vs 独立小 port。
+3. **expected_producer 命名与形态**：中性词定稿（producer / lineage 二选一）+ token 形态
+   （AgentEngineKind serde 串 "cli"/"sdk"，impl 自由 core 不感知）。
+4. **变更切分**：A+C 同域合一 change（「agent 会话启动归一 core」）；B 独立 change（提取器
+   回家 + crate-layout 白名单修订，含清查未用依赖）；D 微小可并入 A+C。涉及 spec 修订面：
+   desktop-agent-execution 增补治理段 requirement（L488 意图的细化落点）；desktop-crate-layout
+   白名单修订（随 B）。
