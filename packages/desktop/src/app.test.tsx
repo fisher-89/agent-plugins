@@ -216,7 +216,10 @@ function mockIpc() {
         const records = DB_RECORDS.slice(offset, offset + limit).map((e) => ({ ...e }));
         return Promise.resolve({ records, total: DB_RECORDS.length });
       }
-      if (command === 'agent_sessions' || command === 'agent_session_transcript') {
+      if (command === 'agent_sessions') {
+        return Promise.resolve({ sessions: [], total: 0 });
+      }
+      if (command === 'agent_session_transcript') {
         return Promise.resolve([]);
       }
       // agent 选择器挂载取数（useAgentOptions 发起 list_agent_instances）：同回
@@ -1035,7 +1038,7 @@ describe('App：路由化顶层页面切换（changes | agent | db）', () => {
     expect(screen.getByTestId('nav-agent').hasAttribute('data-active')).toBe(false);
   });
 
-  it('侧栏点击「Agent 调试」→ agent_sessions 挂载取数携当前 workspace root（返回 [] 数组形态不变）', async () => {
+  it('侧栏点击「Agent 调试」→ agent_sessions 挂载取数携当前 workspace root 与分页入参（SessionPage 信封形态）', async () => {
     await restored();
 
     fireEvent.click(screen.getByTestId('nav-agent'));
@@ -1045,6 +1048,8 @@ describe('App：路由化顶层页面切换（changes | agent | db）', () => {
       root: FIRST.root,
       source: 'debug',
       sourceRef: null,
+      offset: 0,
+      limit: 20,
     });
   });
 

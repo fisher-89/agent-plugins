@@ -8,8 +8,8 @@ use crate::runner::{
     RunHandle, SessionCtx, SessionInjections, SessionOpen, SessionRef, TurnQuestion,
 };
 use crate::session::{
-    new_session_id, NewSessionRow, SessionProvenance, SessionRow, SessionStats, SessionSummary,
-    TurnSummary,
+    new_session_id, NewSessionRow, SessionPage, SessionProvenance, SessionRow, SessionStats,
+    SessionSummary, TurnSummary,
 };
 use crate::state::{AgentRunState, RunStateMachine};
 
@@ -146,8 +146,13 @@ impl SessionQuery for NoopQuery {
         &self,
         _source: Option<&str>,
         _source_ref: Option<&str>,
-    ) -> Result<Vec<SessionSummary>, String> {
-        Ok(Vec::new())
+        _offset: u32,
+        _limit: u32,
+    ) -> Result<SessionPage, String> {
+        Ok(SessionPage {
+            sessions: Vec::new(),
+            total: 0,
+        })
     }
 
     fn find_session_detail(&self, _session_id: &str) -> Result<SessionSummary, String> {

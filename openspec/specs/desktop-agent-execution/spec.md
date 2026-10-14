@@ -41,7 +41,7 @@ Desktop 后端 SHALL 将「agent 执行」确立为第五类边界（agent 边�
 `core/agent` SHALL 以会话为公共 API 的寻址与生命周期单位，提供两件公共能力（用户愿景原文的契约化）：
 
 - **运行会话**：`run_session(New | Continue{id}, prompt)` 形状的会话建立与轮驱动——`New` 建立新会话，`Continue{id}` 以既有会话续发新一轮；返回 token 级增量流（思考/回复可辨）与可终止句柄。会话过程流式传输、能区分思考和回复、可终止。
-- **查询会话**：`query_sessions(...)` 形状的会话记录查询——会话清单与聚合统计（提问轮数、累计墙钟、累计 token 消耗；MVP 从轮统计行现算，MUST NOT 维护累计列，字段面可扩展）。
+- **查询会话**：`query_sessions(...)` 形状的会话记录查询——会话清单（分页信封：`offset` / `limit` 区间 + 过滤集全量 `total`）与聚合统计（提问轮数、累计墙钟、累计 token 消耗；MVP 从轮统计行现算，MUST NOT 维护累计列，字段面可扩展）。
 
 session SHALL 为一等公民：会话 id 由 core 铸造；转录 = 会话全史（密封事件直挂 session，单表），resume 重建源 SHALL 为会话全史，MUST NOT 以单 run 事件拼凑转录。core SHALL 维护双 id 映射（core session id ↔ engine_handle）；engine_handle 经协议到达（spawn 响应或事件上报，见「P1 引擎协议不变量与缺省降级」）。会话 SHALL 存引擎/模型/权限档的**配置快照**而非跨库引用（`AgentInstanceRecord` 在全局库、session 在 workspace 库，禁跨库引用；实例改名/删除不伤历史会话）。会话 SHALL 承载来源归属（`SessionProvenance{source, source_ref}`，作 provenance/持久化记录用），但前端寻址与重放 SHALL 以 **`sessionId` 直查**（`session_detail`）为准，MUST NOT 经 `source` / `source_ref` 反查会话（`sourceRef` 反查取最近一条的路径退役；来源侧——如 explore 记录——持会话 id 并直接给出）。
 
@@ -57,8 +57,8 @@ session SHALL 为一等公民：会话 id 由 core 铸造；转录 = 会话全�
 
 #### Scenario: 会话查询与聚合统计
 
-- **WHEN** 对某 workspace 查询会话清单
-- **THEN** 返回会话记录及现算聚合统计（轮数/累计墙钟/累计 token，缺席字段合法缺省），无需维护累计列
+- **WHEN** 对某 workspace 分页查询会话清单（携 `offset` / `limit` 与来源过滤）
+- **THEN** 返回该页会话记录及现算聚合统计（轮数/累计墙钟/累计 token，缺席字段合法缺省）与过滤集全量计数 `total`，无需维护累计列；越界 `offset` 返回空页而 `total` 恒为过滤集全量
 
 #### Scenario: 双 id 映射
 
@@ -464,7 +464,7 @@ agent 会话持久化 SHALL 以 **workspace 维度**落盘于所属 workspace �
 
 ### Requirement: session_detail 单查面
 
-会话查询契约 SHALL 增加按 session id 的单查面：core `SessionQuery` trait SHALL 增加单查方法（按 id 返回会话行 + 聚合统计 + 轮行清单），infra 实现以 store `find_session` 为底座（store schema 零变更），轮行的运行状态 SHALL 自轮行清单推导（存在 running 轮行即 running，否则取终态）。命令面 SHALL 提供薄包装命令 `session_detail(root, session_id)`（经 builder 注册、bindings 再生成；命令体三件事纪律）。语义约定：不存在 session id SHALL 显式 `Err`（单查语义与清单空态区分，查无此 id 视为调用方错误）；blank root SHALL 返回空结果（与 `agent_sessions` / `agent_session_transcript` 同口径）；单查 SHALL 按 root 解析所属 workspace 库，跨库隔离语义与既有查询命令一致。既有 `agent_sessions` / `agent_session_transcript` 的签名与语义 MUST NOT 收窄或变更。
+会话查询契约 SHALL 增加按 session id 的单查面：core `SessionQuery` trait SHALL 增加单查方法（按 id 返回会话行 + 聚合统计 + 轮行清单），infra 实现以 store `find_session` 为底座（store schema 零变更），轮行的运行状态 SHALL 自轮行清单推导（存在 running 轮行即 running，否则取终态）。命令面 SHALL 提供薄包装命令 `session_detail(root, session_id)`（经 builder 注册、bindings 再生成；命令体三件事纪律）。语义约定：不存在 session id SHALL 显式 `Err`（单查语义与清单空态区分，查无此 id 视为调用方错误）；blank root SHALL 返回空结果（与 `agent_sessions` / `agent_session_transcript` 同口径）；单查 SHALL 按 root 解析所属 workspace 库，跨库隔离语义与既有查询命令一致。既有 `agent_session_transcript` 的签名与语义 MUST NOT 收窄或变更；`agent_sessions` SHALL 为分页查询面——`offset` / `limit` 入参、随页返回 `SessionPage { sessions, total }` 分页信封（`total` 为过滤集全量计数、越界 offset 空页恒 total、limit 超上限截断），来源过滤与 `updated_at` 降序稳定序语义不变。
 
 #### Scenario: 单查返回会话行与轮行
 
@@ -486,7 +486,7 @@ agent 会话持久化 SHALL 以 **workspace 维度**落盘于所属 workspace �
 `commands/exec/` SHALL 承载执行与查询命令，命令体 SHALL 收敛为内核公共 API 的薄包装（三件事纪律：参数转换 → 调用 → 错误映射）：
 
 - 发起命令（现 `agent_start`）：参数转换后调用内核 `run_session` 形状 API——`New` 建立会话、`Continue{id}` 续轮（现 `resume_session_id` 语义平移）；编排（runner 组装、tee、落库、盖戳、收敛）SHALL 全部下沉内核，命令体 MUST NOT 编排。来源参数（`source` / `source_ref`）SHALL 写入会话归属（provenance 记录用）；`source` 不传时缺省 `debug`，`source_ref` 前端恒传 null（会话寻址改走 `sessionId` 直查，不再经来源反查）。cwd 恒为当前 workspace root（root 解析所属 workspace 库保留）；引擎组装 SHALL 经内核组合根（见「引擎门面与 EngineKind 参数选择」），命令体 MUST NOT 直接构造具体引擎。命令命名与参数面演进由 design 定稿（保留语义升级或更名会话域命令二选一，见提案待决问题）
-- 查询命令（现 `agent_runs` / `agent_run_events` / `agent_run_chain`）：演进为会话域查询薄包装（会话清单含聚合统计 / 会话转录重放 / 源过滤清单），参数含 root → workspace 库解析 → store/内核查询 → DTO；前端寻址与重放 SHALL 走 `session_detail` 单查（见「session_detail 单查面」）而非按来源反查取最近一条；旧 run 域命令的退役/收窄路径由 design 定稿
+- 查询命令（现 `agent_runs` / `agent_run_events` / `agent_run_chain`）：演进为会话域查询薄包装（分页会话清单含聚合统计与 total 计数 / 会话转录重放 / 源过滤清单），参数含 root → workspace 库解析 → store/内核查询 → DTO；前端寻址与重放 SHALL 走 `session_detail` 单查（见「session_detail 单查面」）而非按来源反查取最近一条；旧 run 域命令的退役/收窄路径由 design 定稿
 - 终止命令（现 `agent_stop`）：见「agent_stop 终止与提前 resolve」；root 寻址保留
 
 错误约定沿用既有模板 `Result<T, String>`：CLI 不可发现、spawn 失败、SDK 引擎配置缺失（经 `AgentStartError` 中性变体）、无默认 agent 可解析、workspace 库打开失败等 SHALL 以 `Err` 抵达前端，MUST NOT 静默吞掉。
@@ -575,7 +575,7 @@ Agent 调试页历史区 SHALL 提供会话来源筛选：debug / change / 全�
 #### Scenario: 切换筛选重查
 
 - **WHEN** 筛选切到 change（或全部）
-- **THEN** 以对应 source（或不过滤）重查会话清单并呈现 change 会话；再次显式刷新按当前筛选重取，无自动轮询
+- **THEN** 以对应 source（或不过滤）重查会话清单并呈现 change 会话；再次显式刷新按当前筛选与当前页重取，无自动轮询；翻页为用户显式动作
 
 #### Scenario: 三态来源重放同等可用
 
@@ -688,7 +688,7 @@ headless 禁 ask：CLI 引擎命令行组装 SHALL 追加 `--disallowedTools Ask
 | agent 会话域前端 hooks | 流订阅 + 查询 | Tauri Channel 实时订阅（执行流通道例外）+ invoke 会话查询重放；查询仍显式触发 |
 | `packages/desktop/src-tauri/Cargo.toml`（workspace 依赖） | rig facade 切换 | `rig` 条目：`=0.43.0` 锁版、`default-features = false`、features `reqwest` + `native-tls` + memory（单条目定稿，双条目解析钉子退役——见依赖足迹条目）；`regex` 条目；members 行与目录名不变；测试构建另经 agent-runtime 的 dev-dependencies 加 `rig` `test-utils` feature（流缝 mock 装置仅测试启用，不入生产构建） |
 | `packages/desktop/src-tauri/src/bindings/` | IPC 类型镜像 | 经 export-bindings 再生成（信封与命令面演进），非手改；快照测试同步再生成 |
-| `crates/core/agent/src/port.rs` `SessionQuery` | 单查契约 | 增按 id 单查方法（会话行 + 统计 + 轮行，running 自轮行推导）；`list_sessions` / `transcript` 不动 |
+| `crates/core/agent/src/port.rs` `SessionQuery` | 单查契约 | 增按 id 单查方法（会话行 + 统计 + 轮行，running 自轮行推导）；`list_sessions` 演进为分页签名（`offset` / `limit` → `SessionPage`）；`transcript` 不动 |
 | `crates/infra/agent/src/store_port.rs` | 单查实现 | 以 store `find_session` 为底座（store schema 零变更）；workspace 库隔离 |
 | `src/commands/exec/mod.rs` | `session_detail` 命令 | 薄包装三件事纪律；不存在 id → `Err`；blank root → 空结果；builder 注册 + bindings 再生成 |
 | `packages/desktop/src/views/agent/hooks/use-agent-run-history.ts` | 来源筛选参数化 | 去硬编码 `'debug'`；三态筛选重查；显式刷新模式不变 |

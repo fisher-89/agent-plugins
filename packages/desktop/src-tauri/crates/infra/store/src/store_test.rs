@@ -1538,6 +1538,118 @@ fn list_sessions缺席缺省与空库空清单() {
     );
 }
 
+/// 落 n 个 updated_at 递增的会话行（列表序 = id 字面降序：id 批号补齐两位）。
+fn seed_n_sessions(store: &Store, n: usize, prefix: &str) {
+    for i in 0..n {
+        let id = format!("{prefix}-{:02}", n - i);
+        store
+            .create_session(&session_record(&id, "debug", None))
+            .expect("create 应成功");
+        store
+            .bind_session_remote(&id, None, 1727000000000 + (n - i) as i64)
+            .expect("bind 应成功");
+    }
+}
+
+#[test]
+fn list_sessions_page分页拼接不重不漏与全量清单逐条全等() {
+    let env = Env::new("sessions-page-join");
+    let store = open_workspace_ok(&env.db_path("ws"));
+    seed_n_sessions(&store, 5, "ses-p");
+
+    // 三页拼接：不重不漏（页宽 2 走 2/2/1）
+    let mut joined = Vec::new();
+    for offset in [0, 2, 4] {
+        let page = store.list_sessions_page(None, None, offset, 2).unwrap();
+        assert_eq!(page.total, 5, "total 恒为过滤集全量（非本页长度）");
+        joined.extend(page.sessions);
+    }
+    let ids: Vec<String> = joined.iter().map(|s| s.row.id.clone()).collect();
+    assert_eq!(
+        ids,
+        vec!["ses-p-05", "ses-p-04", "ses-p-03", "ses-p-02", "ses-p-01"],
+        "拼接不重不漏且维持 updated_at 降序"
+    );
+
+    // 与全量清单逐条全等（共享核心：不过滤页窗即全量读面）
+    let full = store.list_sessions(None, None).unwrap();
+    assert_eq!(joined, full, "分页拼接与全量清单逐字段全等");
+}
+
+#[test]
+fn list_sessions_page越界offset空页且total恒全量() {
+    let env = Env::new("sessions-page-oob");
+    let store = open_workspace_ok(&env.db_path("ws"));
+    seed_n_sessions(&store, 3, "ses-o");
+
+    let page = store.list_sessions_page(None, None, 100, 20).unwrap();
+    assert!(page.sessions.is_empty(), "越界 offset 合法空页");
+    assert_eq!(page.total, 3, "空页仍携过滤集全量 total");
+
+    // 尾页刚好落界内：末条在场
+    let tail = store.list_sessions_page(None, None, 2, 20).unwrap();
+    assert_eq!(tail.sessions.len(), 1, "offset 落界内取到末条");
+    assert_eq!(tail.total, 3);
+}
+
+#[test]
+fn list_sessions_pagelimit零空页与超上限截断() {
+    let env = Env::new("sessions-page-limit");
+    let store = open_workspace_ok(&env.db_path("ws"));
+    seed_n_sessions(&store, 3, "ses-l");
+
+    // limit = 0：空页，total 全量
+    let zero = store.list_sessions_page(None, None, 0, 0).unwrap();
+    assert!(zero.sessions.is_empty(), "limit=0 合法空页");
+    assert_eq!(zero.total, 3);
+
+    // limit 超上限截断（种子超上限后一页只取 MAX_SESSION_PAGE_LIMIT 条）
+    let big = open_workspace_ok(&env.db_path("ws-big"));
+    seed_n_sessions(&big, 501, "ses-b");
+    let clamped = big.list_sessions_page(None, None, 0, 9000).unwrap();
+    assert_eq!(
+        clamped.sessions.len(),
+        500,
+        "limit 超 MAX_SESSION_PAGE_LIMIT 截断"
+    );
+    assert_eq!(clamped.total, 501, "total 不受 limit 截断影响");
+}
+
+#[test]
+fn list_sessions_page过滤与分页组合total为过滤集计数() {
+    let env = Env::new("sessions-page-filter");
+    let store = open_workspace_ok(&env.db_path("ws"));
+    seed_session(&store, "ses-d-1");
+    seed_session(&store, "ses-d-2");
+    store
+        .create_session(&session_record("ses-x-1", "explore", Some("42")))
+        .expect("create 应成功");
+    store
+        .create_session(&session_record("ses-x-2", "explore", Some("77")))
+        .expect("create 应成功");
+
+    // source 过滤：total 是过滤集计数（2），不是库内全量（4）
+    let page = store
+        .list_sessions_page(Some("explore"), None, 0, 20)
+        .unwrap();
+    assert_eq!(page.total, 2, "total = 过滤集计数");
+    assert_eq!(page.sessions.len(), 2);
+
+    // source + source_ref 双过滤再分页
+    let ref42 = store
+        .list_sessions_page(Some("explore"), Some("42"), 0, 20)
+        .unwrap();
+    assert_eq!(ref42.total, 1);
+    assert_eq!(ref42.sessions[0].row.id, "ses-x-1");
+
+    // 过滤集内分页：total 仍为过滤集全量
+    let paged = store
+        .list_sessions_page(Some("explore"), None, 1, 1)
+        .unwrap();
+    assert_eq!(paged.total, 2, "分页不改 total 语义");
+    assert_eq!(paged.sessions.len(), 1);
+}
+
 #[test]
 fn find_session_summary命中与清单面逐字段全等() {
     let env = Env::new("summary-hit");

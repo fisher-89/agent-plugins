@@ -142,6 +142,7 @@ const DTO_TYPES: &[&str] = &[
     "AgentProviderRecord",
     "AgentRunMessage",
     "AgentRunStatus",
+    "SessionPage",
     "SessionRow",
     "SessionStats",
     "SessionSummary",
@@ -861,7 +862,7 @@ fn command清单补录_archive_change后35条且既有锚点与在册命令保�
 /// 类型名（分页信封返回面）——清单条目数随动，首尾锚与在册条目保持。
 #[test]
 fn dto类型清单零补录_条目数与首尾锚持衡() {
-    assert_eq!(DTO_TYPES.len(), 56, "DTO 清单补录本变更一条（RecordsPage）");
+    assert_eq!(DTO_TYPES.len(), 57, "DTO 清单补录本变更一条（SessionPage）");
     assert_eq!(DTO_TYPES.first(), Some(&"ActivePhase"), "首锚持衡");
     assert_eq!(DTO_TYPES.last(), Some(&"WriteProtectionFile"), "尾锚持衡");
 }
@@ -918,6 +919,44 @@ fn records_page出线为records与total两字段且db_records绑定返回分页�
     assert!(
         !dto_shim.contains("RecordsPage"),
         "dto.ts 不应手写 RecordsPage（星号 re-export 自动跟随，禁手写旁路）"
+    );
+}
+
+/// `SessionPage` 类型段逐字段出线（`sessions: SessionSummary[]` + `total: number`，
+/// 声明序即出线序）；`agentSessions` 包装返回 `__TAURI_INVOKE<SessionPage>`，六参
+/// 透传面携分页入参（root / source / sourceRef / offset / limit）。
+#[test]
+fn session_page出线为sessions与total两字段且agent_sessions绑定返回分页信封() {
+    let _lock = lock();
+    let content = String::from_utf8(authoritative_snapshot()).expect("产物为 UTF-8 文本");
+
+    // 类型段恰两字段且顺序在场（声明序 = 出线序，specta 字段序）
+    let section = type_section(&content, "SessionPage");
+    assert_eq!(
+        field_names(&section),
+        vec!["sessions", "total"],
+        "SessionPage 恰 sessions / total 两字段且序不变，实际段:\n{section}"
+    );
+    assert!(
+        section.contains("sessions: SessionSummary[],") && section.contains("total: number,"),
+        "SessionPage 字段类型出线（分页信封 + 全量计数），实际段:\n{section}"
+    );
+
+    // agentSessions 绑定返回类型升级为 SessionPage，分页入参透传（非手写旁路）
+    assert!(
+        content.contains(
+            "agentSessions: (root: string, source: string | null, sourceRef: string | null, \
+             offset: number, limit: number) => __TAURI_INVOKE<SessionPage>(\"agent_sessions\", \
+             { root, source, sourceRef, offset, limit })"
+        ),
+        "agentSessions 绑定返回 __TAURI_INVOKE<SessionPage>（分页入参透传）"
+    );
+
+    // dto.ts 星号 re-export 自动跟随（禁手写旁路反向锚）
+    let dto_shim = fs::read_to_string(dto_shim_path()).expect("读取 dto.ts 应成功");
+    assert!(
+        !dto_shim.contains("SessionPage"),
+        "dto.ts 不应手写 SessionPage（星号 re-export 自动跟随，禁手写旁路）"
     );
 }
 

@@ -69,15 +69,23 @@ function chatEvent(seq: number, text: string): AgentEvent {
 }
 
 function historyState(overrides: Partial<AgentRunHistoryState> = {}): AgentRunHistoryState {
+  const sessions = overrides.sessions ?? [];
   return {
-    sessions: [],
     events: [],
     selectedSessionId: null,
     loading: false,
     error: null,
+    // 缺省由 sessions 推导（空态口径看 total，非当前页长度）
+    total: sessions.length,
+    page: 1,
+    totalPages: 1,
     refresh: vi.fn(),
+    setPage: vi.fn(),
+    nextPage: vi.fn(),
+    prevPage: vi.fn(),
     openSession: vi.fn(),
     ...overrides,
+    sessions,
   };
 }
 
@@ -93,6 +101,7 @@ describe('AgentRunHistory：会话列表与触发（AC-5 / D13）', () => {
           session('ses-1-1727000000000', 'completed', TS + 1),
           session('ses-2-1727000000000', 'failed', TS + 2),
         ],
+        total: 2,
       }),
     );
 
@@ -107,7 +116,7 @@ describe('AgentRunHistory：会话列表与触发（AC-5 / D13）', () => {
     expect(screen.getAllByTestId('run-row-error')[0]?.textContent).toContain(
       '进程结束但未产出收敛事件',
     );
-    // 头行计数随清单长度（非恒 0/1 硬编码）
+    // 头行计数取过滤集全量 total（非当前页长度）
     expect(screen.getByTestId('agent-run-history').textContent).toContain('历史会话 (2)');
   });
 
@@ -327,5 +336,90 @@ describe('AgentRunHistory：来源筛选三态按钮组（AC-3）', () => {
     expect(screen.getAllByTestId('agent-run-row')).toHaveLength(1);
     // 清单非空时不出空态文案（空态仅限零清单）
     expect(screen.queryByTestId('history-empty')).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 分页器接入（AC：totalPages > 1 时呈通用分页器，翻页回调 setPage）
+// ---------------------------------------------------------------------------
+
+describe('AgentRunHistory：分页器接入', () => {
+  it('totalPages > 1 呈分页器，摘要行携全量 total 与真实页界', () => {
+    mount(
+      historyState({
+        sessions: [session('ses-1-1727000000000', 'completed', TS)],
+        total: 45,
+        page: 2,
+        totalPages: 3,
+      }),
+    );
+
+    const pager = screen.getByTestId('agent-history-pagination');
+    expect(pager).toBeTruthy();
+    expect(pager.textContent).toContain('第 2 / 3 页（共 45 条）');
+    expect(screen.getByRole('button', { name: '下一页' })).toBeTruthy();
+  });
+
+  it('点下一页 → nextPage；点页码 → setPage 携目标页', () => {
+    const setPage = vi.fn<(page: number) => void>();
+    const nextPage = vi.fn();
+    mount(
+      historyState({
+        sessions: [session('ses-1-1727000000000', 'completed', TS)],
+        total: 45,
+        page: 2,
+        totalPages: 3,
+        setPage,
+        nextPage,
+      }),
+    );
+
+    // 通用分页器下一页回调 onPageChange(page+1) → 经 hook 的 setPage 落点
+    fireEvent.click(screen.getByRole('button', { name: '下一页' }));
+    expect(setPage).toHaveBeenCalledWith(3);
+
+    fireEvent.click(screen.getByRole('button', { name: '第 3 页' }));
+    expect(setPage).toHaveBeenLastCalledWith(3);
+  });
+
+  it('边界：totalPages=1 不渲染分页器（可见性由调用方把关）', () => {
+    mount(historyState({ total: 3, page: 1, totalPages: 1 }));
+    expect(screen.queryByTestId('agent-history-pagination')).toBeNull();
+  });
+
+  it('loading 期分页器 disabled（翻页不与取数竞跑）', () => {
+    mount(
+      historyState({
+        sessions: [session('ses-1-1727000000000', 'completed', TS)],
+        total: 45,
+        page: 1,
+        totalPages: 3,
+        loading: true,
+      }),
+    );
+    for (const button of within(screen.getByTestId('agent-history-pagination')).getAllByRole(
+      'button',
+    )) {
+      expect(button.hasAttribute('disabled')).toBe(true);
+    }
+  });
+
+  it('头行计数取 total 而非当前页长度（多页仅呈本页行数）', () => {
+    mount(
+      historyState({
+        sessions: [session('ses-1-1727000000000', 'completed', TS)],
+        total: 45,
+        page: 1,
+        totalPages: 3,
+      }),
+    );
+    expect(screen.getByTestId('agent-run-history').textContent).toContain('历史会话 (45)');
+    expect(screen.getAllByTestId('agent-run-row')).toHaveLength(1);
+  });
+
+  it('边界：total=0 空态呈文案且不渲染分页器（越界页不闪空态另由 total 兜住）', () => {
+    mount(historyState({ total: 0, totalPages: 1 }));
+    expect(screen.getByTestId('history-empty')).toBeTruthy();
+    expect(screen.queryByTestId('agent-history-pagination')).toBeNull();
   });
 });

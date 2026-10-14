@@ -199,7 +199,9 @@ fn agent_sessions携root直查dto且source过滤透传() {
         .expect("bind 应成功");
     seed_sdk_session(&store, "ses-cmd-explore", None, "explore", Some("42"));
 
-    let all = agent_sessions(state.clone(), root.clone(), None, None).expect("清单应成功");
+    let all = agent_sessions(state.clone(), root.clone(), None, None, 0, 20)
+        .expect("清单应成功")
+        .sessions;
     let ids: Vec<String> = all.iter().map(|summary| summary.row.id.clone()).collect();
     assert_eq!(
         ids,
@@ -218,8 +220,11 @@ fn agent_sessions携root直查dto且source过滤透传() {
         root.clone(),
         Some("explore".to_owned()),
         None,
+        0,
+        20,
     )
-    .expect("过滤清单应成功");
+    .expect("过滤清单应成功")
+    .sessions;
     assert_eq!(
         explores
             .iter()
@@ -233,17 +238,66 @@ fn agent_sessions携root直查dto且source过滤透传() {
         root.clone(),
         Some("explore".to_owned()),
         Some("42".to_owned()),
+        0,
+        20,
     )
-    .expect("过滤清单应成功");
+    .expect("过滤清单应成功")
+    .sessions;
     assert_eq!(ref42.len(), 1);
     let none_match = agent_sessions(
         state.clone(),
         root.clone(),
         Some("explore".to_owned()),
         Some("99".to_owned()),
+        0,
+        20,
     )
-    .expect("过滤清单应成功");
+    .expect("过滤清单应成功")
+    .sessions;
     assert!(none_match.is_empty(), "source_ref 不匹配为空");
+}
+
+#[test]
+fn agent_sessions分页offset_limit透传与total为过滤集全量() {
+    let env = Env::new("sessions-paged");
+    let app = app_with_stores(&env);
+    let state = app.state::<WorkspaceStores>();
+    let root = env.root_of("alpha");
+    let store = state.for_root(&root).expect("for_root 应成功");
+    // 三个 debug 会话 + 一个 explore 会话（total 过滤口径对照）
+    for id in ["ses-pg-1", "ses-pg-2", "ses-pg-3"] {
+        seed_sdk_session(&store, id, None, "debug", None);
+    }
+    seed_sdk_session(&store, "ses-pg-x", None, "explore", Some("42"));
+
+    // 第 2 页（offset=2, limit=2）：offset/limit 过命令面不加工，直落 store 切片
+    let page =
+        agent_sessions(state.clone(), root.clone(), None, None, 2, 2).expect("分页清单应成功");
+    assert_eq!(page.total, 4, "total = 过滤集全量（非本页长度）");
+    assert_eq!(
+        page.sessions.len(),
+        2,
+        "offset/limit 透传（页宽 2 圈定本页）"
+    );
+
+    // 越界 offset：空页 + 满 total（与 db 检视同口径）
+    let oob = agent_sessions(state.clone(), root.clone(), None, None, 99, 2)
+        .expect("越界 offset 合法空页");
+    assert!(oob.sessions.is_empty());
+    assert_eq!(oob.total, 4, "越界 offset 空页恒携过滤集全量");
+
+    // 过滤 + 分页：total 是过滤集计数（1），不是库内全量
+    let filtered = agent_sessions(
+        state.clone(),
+        root.clone(),
+        Some("explore".to_owned()),
+        None,
+        0,
+        20,
+    )
+    .expect("过滤分页清单应成功");
+    assert_eq!(filtered.total, 1);
+    assert_eq!(filtered.sessions[0].row.id, "ses-pg-x");
 }
 
 #[test]
@@ -317,8 +371,9 @@ fn 不存在会话转录空数组且blank_root守卫空结果() {
         .expect("blank root 返回空结果不报错");
     assert!(blank.is_empty());
     let blank_list =
-        agent_sessions(state, String::new(), None, None).expect("blank root 清单返回空结果");
-    assert!(blank_list.is_empty());
+        agent_sessions(state, String::new(), None, None, 0, 20).expect("blank root 清单返回空结果");
+    assert!(blank_list.sessions.is_empty());
+    assert_eq!(blank_list.total, 0, "blank root 空信封 total=0");
 }
 
 // ---------------------------------------------------------------------------
@@ -390,7 +445,9 @@ fn session_detail直查返回三件套与清单面对应条目全等() {
         .expect("命中为 Some 包裹（查无此 id 才 Err）");
 
     // 与清单面对应条目逐字段全等（聚合形状单一来源）
-    let listed = agent_sessions(state.clone(), root.clone(), None, None).expect("清单应成功");
+    let listed = agent_sessions(state.clone(), root.clone(), None, None, 0, 20)
+        .expect("清单应成功")
+        .sessions;
     assert_eq!(listed.len(), 1);
     assert_eq!(found, listed[0], "命令面单查与清单面同形状");
 
@@ -872,7 +929,7 @@ fn root不可寻址_三查询命令err透传不panic() {
         .into_owned();
 
     for err in [
-        agent_sessions(state.clone(), missing.clone(), None, None).expect_err("清单应 Err"),
+        agent_sessions(state.clone(), missing.clone(), None, None, 0, 20).expect_err("清单应 Err"),
         agent_session_transcript(state.clone(), missing.clone(), "ses-x".to_owned())
             .expect_err("转录应 Err"),
         session_detail(state.clone(), missing.clone(), "ses-x".to_owned()).expect_err("详情应 Err"),

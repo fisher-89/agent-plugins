@@ -12,8 +12,8 @@ use tauri::{AppHandle, Manager, State};
 // `mod agent`（本地薄包装模块）与外部 `agent` 契约 crate 同名：外部 crate
 // 以 `::agent::` 显式消歧
 use ::agent::{
-    KernelOutput, ModelLevel, SessionCtx, SessionProvenance, SessionRef, SessionSummary,
-    StopRegistry, TurnSummary,
+    KernelOutput, ModelLevel, SessionCtx, SessionPage, SessionProvenance, SessionRef,
+    SessionSummary, StopRegistry, TurnSummary,
 };
 use agent_runtime::compose_turn;
 use store::WorkspaceStores;
@@ -133,8 +133,7 @@ pub fn agent_stop(
     Ok(())
 }
 
-/// 会话清单 + 聚合统计（来源过滤，`updated_at` 降序）：root 寻址所属
-/// workspace 库直查 DTO，无领域解释；blank root → 空结果。
+/// 会话清单分页 + 聚合统计
 #[tauri::command]
 #[specta::specta]
 pub fn agent_sessions(
@@ -142,12 +141,22 @@ pub fn agent_sessions(
     root: String,
     source: Option<String>,
     source_ref: Option<String>,
-) -> Result<Vec<SessionSummary>, String> {
+    offset: u32,
+    limit: u32,
+) -> Result<SessionPage, String> {
     if is_blank_root(&root) {
-        return Ok(Vec::new());
+        return Ok(SessionPage {
+            sessions: Vec::new(),
+            total: 0,
+        });
     }
     let store = stores.for_root(&root).map_err(|e| e.to_string())?;
-    agent_runtime::session_query(store).list_sessions(source.as_deref(), source_ref.as_deref())
+    agent_runtime::session_query(store).list_sessions(
+        source.as_deref(),
+        source_ref.as_deref(),
+        offset,
+        limit,
+    )
 }
 
 /// 会话全史转录重放（密封事件 seq 序，不要求运行进程存活）；blank root →

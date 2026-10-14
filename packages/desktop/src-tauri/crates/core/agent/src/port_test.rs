@@ -3,7 +3,9 @@ use std::sync::{Arc, Mutex};
 use crate::event::{AgentEvent, AgentEventKind, AgentMessageRole};
 use crate::port::{SessionQuery, SessionSink, TurnOutcome};
 use crate::runner::AgentRunStatus;
-use crate::session::{NewSessionRow, SessionProvenance, SessionRow, SessionStats, SessionSummary};
+use crate::session::{
+    NewSessionRow, SessionPage, SessionProvenance, SessionRow, SessionStats, SessionSummary,
+};
 
 // ---------------------------------------------------------------------------
 // 假 sink / 假 query：内存记录调用序与载荷（trait 本身即注入面）
@@ -134,8 +136,13 @@ impl SessionQuery for FakeQuery {
         &self,
         _source: Option<&str>,
         _source_ref: Option<&str>,
-    ) -> Result<Vec<SessionSummary>, String> {
-        Ok(self.summaries.clone())
+        _offset: u32,
+        _limit: u32,
+    ) -> Result<SessionPage, String> {
+        Ok(SessionPage {
+            total: self.summaries.len() as u64,
+            sessions: self.summaries.clone(),
+        })
     }
 
     fn find_session_detail(&self, _session_id: &str) -> Result<SessionSummary, String> {
@@ -280,8 +287,8 @@ fn 假query经arc_dyn注入三方法返回形态编译锚定() {
         detail: Err("假 query 缺省不响应单查".to_owned()),
     });
 
-    let summaries = query
-        .list_sessions(Some("debug"), None)
+    let page = query
+        .list_sessions(Some("debug"), None, 0, 20)
         .expect("list_sessions 应成功");
     let events = query
         .transcript("ses-1-1727000000000")
@@ -290,10 +297,11 @@ fn 假query经arc_dyn注入三方法返回形态编译锚定() {
         .reconcile_stats("ses-1-1727000000000")
         .expect("reconcile_stats 应成功");
 
-    assert_eq!(summaries.len(), 1, "Vec<SessionSummary> 返回形态");
+    assert_eq!(page.sessions.len(), 1, "SessionPage.sessions 返回形态");
+    assert_eq!(page.total, 1, "SessionPage.total 返回形态");
     assert_eq!(events.len(), 1, "Vec<AgentEvent> 返回形态");
     assert_eq!(stats.turn_count, 1, "SessionStats 返回形态");
-    assert_eq!(summaries[0].row.id, "ses-1-1727000000000");
+    assert_eq!(page.sessions[0].row.id, "ses-1-1727000000000");
 }
 
 // ---------------------------------------------------------------------------

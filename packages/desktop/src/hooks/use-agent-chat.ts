@@ -25,7 +25,7 @@ export interface UseAgentChatParams {
 /** 单次发送入参 */
 interface AgentChatSendInput {
   prompt: string;
-  permissionMode: AgentPermissionMode;
+  permissionMode: AgentPermissionMode | null;
   agent?: number | null;
 }
 

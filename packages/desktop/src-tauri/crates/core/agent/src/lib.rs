@@ -13,8 +13,8 @@ pub use runner::{
     RunHandle, SessionCtx, SessionInjections, SessionOpen, SessionRef, TurnQuestion,
 };
 pub use session::{
-    new_session_id, NewSessionRow, SessionProvenance, SessionRow, SessionStats, SessionSummary,
-    TurnSummary,
+    new_session_id, NewSessionRow, SessionPage, SessionProvenance, SessionRow, SessionStats,
+    SessionSummary, TurnSummary,
 };
 pub use state::{AgentRunState, RunStateMachine};
 

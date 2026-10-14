@@ -2,13 +2,14 @@ import { useEffect, useState } from 'react';
 
 import { StandardSelect } from '@/components/standard/select';
 import { Button } from '@/components/ui/button';
+import { Field, FieldLabel } from '@/components/ui/field';
 
 import type { AgentInstanceRecord, AgentPermissionMode } from '../../../types/generated/bindings';
 
 /** 发起一次运行的入参（hooks 与表单共用；cwd 隐含当前 workspace root、model 不进本期，均无输入） */
 export interface AgentStartInput {
   prompt: string;
-  permissionMode: AgentPermissionMode;
+  permissionMode: AgentPermissionMode | null;
   /** agent 实例 id（null = 缺省——由后端解析默认 agent；explore 链恒 null） */
   agent: number | null;
 }
@@ -27,10 +28,7 @@ const PERMISSION_OPTIONS: { value: AgentPermissionMode; label: string }[] = [
   { value: 'default', label: 'default' },
 ];
 
-/** agent 选择器：选项 = agent 实例清单（名称 + engine 标注），不再渲染缺省
- * 项——清单装载后父级 effect 自动落位默认实例（defaultId）；清单为空时值
- * 保持 null，发起走后端缺省解析，无默认经错误横幅显式报错。清单守卫：
- * Select 仅能选中已渲染 option 值，清单外程序值不回填不触发 onChange */
+/** agent 选择器 */
 function AgentSelect({
   agents,
   value,
@@ -41,13 +39,10 @@ function AgentSelect({
   onChange: (value: number | null) => void;
 }): React.JSX.Element {
   return (
-    <span className="flex items-center gap-1.5 text-sm">
-      <label className="text-xs text-muted-foreground" htmlFor="agent-select">
-        agent
-      </label>
+    <Field orientation="horizontal" className="w-fit">
+      <FieldLabel>agent</FieldLabel>
       <StandardSelect
         id="agent-select"
-        className="rounded-md border border-border bg-transparent px-1.5 py-0.5 text-sm"
         data-testid="agent-select"
         value={value}
         onChange={onChange}
@@ -56,7 +51,7 @@ function AgentSelect({
           label: `${record.name}（${record.engine}）`,
         }))}
       />
-    </span>
+    </Field>
   );
 }
 
@@ -71,31 +66,20 @@ function ModeSelect<T extends string>({
   id: string;
   label: string;
   options: { value: T; label: string }[];
-  value: T;
-  onChange: (value: T) => void;
+  value: T | null;
+  onChange: (value: T | null) => void;
 }): React.JSX.Element {
   return (
-    <span className="flex items-center gap-1.5 text-sm">
-      <label className="text-xs text-muted-foreground" htmlFor={id}>
-        {label}
-      </label>
-      <select
-        id={id}
-        className="rounded-md border border-border bg-transparent px-1.5 py-0.5 text-sm"
+    <Field orientation="horizontal" className="w-fit">
+      <FieldLabel>{label}</FieldLabel>
+      <StandardSelect
+        id="agent-select"
         data-testid={id}
         value={value}
-        onChange={(e) => {
-          const next = options.find((option) => option.value === e.target.value);
-          if (next) onChange(next.value);
-        }}
-      >
-        {options.map((option) => (
-          <option key={option.value} value={option.value}>
-            {option.label}
-          </option>
-        ))}
-      </select>
-    </span>
+        onChange={onChange}
+        items={options}
+      />
+    </Field>
   );
 }
 
@@ -114,9 +98,9 @@ function StartToolbar({
   prompt: string;
   agents: AgentInstanceRecord[];
   agentId: number | null;
-  permissionMode: AgentPermissionMode;
+  permissionMode: AgentPermissionMode | null;
   onAgentChange: (value: number | null) => void;
-  onPermissionModeChange: (value: AgentPermissionMode) => void;
+  onPermissionModeChange: (value: AgentPermissionMode | null) => void;
   onStart: (input: AgentStartInput) => void;
 }): React.JSX.Element {
   return (
@@ -141,18 +125,12 @@ function StartToolbar({
   );
 }
 
-/**
- * 参数面（最小集）：prompt 必填（空则禁用启动）、agent 选择器（选项 =
- * agent 实例清单，默认选中默认 agent；缺省项与空清单均可发起——走后端
- * 缺省解析，无默认 agent 经错误横幅显式报错）、permission-mode 三档下拉
- * 默认 bypassPermissions（无头 default 档下需审批工具直接被拒，调试页以
- * 完整循环为默认）。bare 档不读 OAuth 凭据与系统 keychain，须
- * ANTHROPIC_API_KEY 等外部认证前提——开关旁固定提示。
- */
 export function AgentRunForm({ disabled, agents, onStart }: AgentRunFormProps): React.JSX.Element {
   const [prompt, setPrompt] = useState('');
   const [agentId, setAgentId] = useState<number | null>(null);
-  const [permissionMode, setPermissionMode] = useState<AgentPermissionMode>('bypassPermissions');
+  const [permissionMode, setPermissionMode] = useState<AgentPermissionMode | null>(
+    'bypassPermissions',
+  );
 
   // 默认选中默认 agent（清单装载后自动落位；用户显式改动不被回写）
   const defaultId = agents.find((record) => record.isDefault)?.id ?? null;

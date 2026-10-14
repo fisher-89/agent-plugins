@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 
 import { AgentMessages } from '@/components/agent';
 import { StandardDrawer } from '@/components/standard/drawer';
+import { StandardPagination } from '@/components/standard/pagination';
 import { Button } from '@/components/ui/button';
 import { eventsToUIMessages } from '@/lib/agent-adapter';
 import type { AgentEvent, AgentRunStatus, SessionSummary } from '@/types/dto';
@@ -130,6 +131,9 @@ function ReplayArea({
       content={<AgentMessages messages={eventsToUIMessages(events)} />}
       open={open}
       onOpenChange={(value) => {
+        if (open !== value) {
+          setOpen(value);
+        }
         if (!value) {
           onClose?.();
         }
@@ -153,7 +157,7 @@ export function AgentRunHistory({
     >
       <div className="mb-2 flex items-center justify-between">
         <h2 className="m-0 text-[15px]">
-          历史会话 <span className="text-muted-foreground">({state.sessions.length})</span>
+          历史会话 <span className="text-muted-foreground">({state.total})</span>
         </h2>
         <div className="flex items-center gap-2">
           <SourceFilter source={source} onChange={onSourceChange} />
@@ -175,7 +179,7 @@ export function AgentRunHistory({
           加载中…
         </div>
       )}
-      {!state.loading && state.sessions.length === 0 && state.error === null && (
+      {!state.loading && state.total === 0 && state.error === null && (
         <div className="text-muted-foreground" data-testid="history-empty">
           暂无历史会话，点击「刷新历史」获取。
         </div>
@@ -183,6 +187,16 @@ export function AgentRunHistory({
       {state.sessions.map((session) => (
         <SessionRow key={session.row.id} session={session} onOpen={state.openSession} />
       ))}
+      {state.totalPages > 1 && (
+        <StandardPagination
+          page={state.page}
+          totalPages={state.totalPages}
+          total={state.total}
+          disabled={state.loading}
+          data-testid="agent-history-pagination"
+          onPageChange={state.setPage}
+        />
+      )}
       <ReplayArea sessionId={state.selectedSessionId} events={state.events} />
     </section>
   );

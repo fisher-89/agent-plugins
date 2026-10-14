@@ -283,7 +283,7 @@ store SHALL 提供 explore 清单操作面：`list_explore_records(root)`（按 
 
 store SHALL 经 workspace 库实例提供会话域查询面（core 查询契约的 infra 实现与命令面直查的共用底座）：
 
-- **会话清单**：按 root（实例即上下文）与来源（`source` / `source_ref`）过滤，排序稳定可复现；每会话附聚合统计——轮数、累计墙钟、累计 token **从轮统计行现算**，MUST NOT 维护累计列；统计字段缺席合法（缺省 `None`，降级不违约）
+- **会话清单**：按 root（实例即上下文）与来源（`source` / `source_ref`）过滤，排序稳定可复现；每会话附聚合统计——轮数、累计墙钟、累计 token **从轮统计行现算**，MUST NOT 维护累计列；统计字段缺席合法（缺省 `None`，降级不违约）。清单查询 SHALL 支持 `offset` / `limit` 分页并随页返回 `SessionPage { sessions, total }`（`total` 为过滤集全量计数；越界 `offset` 空页恒 `total`；`limit` 超上限截断）；聚合统计仅对返回页会话现算
 - **会话转录重放**：按会话返回全史密封事件（seq 有序），MUST NOT 要求运行进程存活
 - **对账纠偏重导**：SHALL 为显式调用入口（core 查询路径或维护命令触发）——从转录重建统计/索引作误差校正，非主路径；MUST NOT 隐式挂在读路径，MUST NOT 提供绕过 write-through 的常规写入口
 
@@ -520,7 +520,7 @@ workspace 库 SHALL 承载 store 格式版本（change 身份锚形态版本—�
 | 管理操作面（新，全局库实例） | provider / agent CRUD + 默认标记 | 唯一约束报 `StoreError`；标记新默认原子清旧；引用删除阻止；删默认清标记；信封 API 零改动覆盖 |
 | `crates/infra/store/src/model.rs` | 模型面 | `SessionRecord`（新，workspace 维度：core 铸 id / engine_session_id / config_snapshot / source / source_ref / 时间戳）；`AgentRunRecord` 轮统计行化（native_model 版本演进）；事件记录 session 键化（spike 定形态）；core 类型 derive-free 不变 |
 | `crates/infra/store/src/store.rs` | 操作面 | 会话域 write-through 原子操作（会话建立/密封追加/轮收尾）；旧 begin/append/finish 平移退役；静态模型注册 workspace 组增 `SessionRecord` |
-| 会话查询与对账面（新） | core 查询契约的 infra 实现 | 会话清单（来源过滤 + 聚合现算 + 缺省合法）；转录重放（全史 seq 序）；对账重导（显式入口、误差校正、不动转录） |
+| 会话查询与对账面（新） | core 查询契约的 infra 实现 | 会话清单（来源过滤 + 分页信封 + 聚合现算 + 缺省合法）；转录重放（全史 seq 序）；对账重导（显式入口、误差校正、不动转录） |
 | workspace 库路径派生（新，单点） | canonical root → db 文件路径 | 纯函数、确定性、抗碰撞、无路径成分；store 内唯一组装点，消费侧零派生逻辑 |
 | `WorkspaceStores`（新） | 两级解析与实例缓存 | `global()` → 全局库；`for_root(root)` → workspace 库（per-root 缓存复用，进程内单开）；挂 Tauri State；`add_workspace` 预开校验；`remove_workspace` 文件保留 |
 | `WorkspaceRecord`（模型） | workspace 注册记录（user 维度） | PK = canonical root；root / name / added_at；落全局库 |

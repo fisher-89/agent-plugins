@@ -201,8 +201,8 @@ fn begin_turn分配轮id且finish_turn终态整行替换挂core会话() {
 
     let summaries = env
         .query
-        .list_sessions(None, None)
-        .expect("list_sessions 应成功");
+        .list_sessions(None, None, 0, 20)
+        .expect("list_sessions 应成功").sessions;
     assert_eq!(summaries.len(), 1);
     let turns = &summaries[0].turns;
     assert_eq!(turns.len(), 2, "两轮行挂 core 会话随行返回");
@@ -447,8 +447,8 @@ fn list_sessions聚合现算轮数累计墙钟累计token与降序稳定() {
 
     let summaries = env
         .query
-        .list_sessions(None, None)
-        .expect("list_sessions 应成功");
+        .list_sessions(None, None, 0, 20)
+        .expect("list_sessions 应成功").sessions;
     assert_eq!(summaries.len(), 2);
     assert_eq!(
         summaries[0].row.id, "ses-new",
@@ -483,8 +483,8 @@ fn list_sessions来源过滤生效且缺席缺省空库空清单() {
     // source 过滤
     let explores = env
         .query
-        .list_sessions(Some("explore"), None)
-        .expect("list_sessions 应成功");
+        .list_sessions(Some("explore"), None, 0, 20)
+        .expect("list_sessions 应成功").sessions;
     assert_eq!(
         explores
             .iter()
@@ -496,20 +496,20 @@ fn list_sessions来源过滤生效且缺席缺省空库空清单() {
     // source_ref 过滤
     let ref42 = env
         .query
-        .list_sessions(Some("explore"), Some("42"))
-        .expect("list_sessions 应成功");
+        .list_sessions(Some("explore"), Some("42"), 0, 20)
+        .expect("list_sessions 应成功").sessions;
     assert_eq!(ref42.len(), 1);
     let ref99 = env
         .query
-        .list_sessions(Some("explore"), Some("99"))
-        .expect("list_sessions 应成功");
+        .list_sessions(Some("explore"), Some("99"), 0, 20)
+        .expect("list_sessions 应成功").sessions;
     assert!(ref99.is_empty(), "source_ref 不匹配过滤为空");
 
     // 无轮行会话：统计缺省（降级不违约）
     let summaries = env
         .query
-        .list_sessions(None, None)
-        .expect("list_sessions 应成功");
+        .list_sessions(None, None, 0, 20)
+        .expect("list_sessions 应成功").sessions;
     for summary in &summaries {
         assert_eq!(summary.stats.turn_count, 0);
         assert_eq!(summary.stats.total_duration_ms, None);
@@ -522,8 +522,9 @@ fn list_sessions来源过滤生效且缺席缺省空库空清单() {
     let empty_env = Env::new("empty-list");
     assert!(empty_env
         .query
-        .list_sessions(None, None)
+        .list_sessions(None, None, 0, 20)
         .expect("空库清单应成功")
+        .sessions
         .is_empty());
 }
 
@@ -632,8 +633,8 @@ fn find_session_detail命中返回row_stats_turns三件套与清单面逐字段�
     let found = env.query.find_session_detail("ses-x").expect("单查应成功");
     let listed = env
         .query
-        .list_sessions(None, None)
-        .expect("list_sessions 应成功")
+        .list_sessions(None, None, 0, 20)
+        .expect("list_sessions 应成功").sessions
         .into_iter()
         .find(|summary| summary.row.id == "ses-x")
         .expect("清单面含目标条目");
@@ -759,8 +760,8 @@ fn session_query构造返回core查询契约实现() {
     let env = Env::new("session-query-ctor");
     let query: Arc<dyn SessionQuery> = crate::session_query(Arc::clone(&env.store));
     let summaries = query
-        .list_sessions(None, None)
-        .expect("经 trait object 查询应成功");
+        .list_sessions(None, None, 0, 20)
+        .expect("经 trait object 查询应成功").sessions;
     assert!(summaries.is_empty(), "空库空清单");
 }
 

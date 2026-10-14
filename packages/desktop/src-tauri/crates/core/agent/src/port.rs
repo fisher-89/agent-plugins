@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::event::AgentEvent;
 use crate::runner::AgentRunStatus;
-use crate::session::{NewSessionRow, SessionStats, SessionSummary};
+use crate::session::{NewSessionRow, SessionPage, SessionStats, SessionSummary};
 
 /// 轮收口中性数据：store 轮行落库与 IPC 终态装配共用的唯一收口形状。统计
 /// 字段面与 TurnDone 事件一致（唯一口径）；`usage` 为 TurnDone 原值透传
@@ -65,18 +65,16 @@ pub trait SessionSink: Send + Sync {
 /// 查询契约（core 定接口、infra 实现）：会话清单聚合 / 转录重放 / 对账重导。
 /// 查询面不要求运行进程存活；统计与附带字段缺席合法缺省（降级不违约）。
 pub trait SessionQuery: Send + Sync {
-    /// 会话清单（来源过滤；`updated_at` 降序稳定序）+ 聚合统计现算 + 轮行
-    /// 随行返回。
+    /// 会话清单
     fn list_sessions(
         &self,
         source: Option<&str>,
         source_ref: Option<&str>,
-    ) -> Result<Vec<SessionSummary>, String>;
+        offset: u32,
+        limit: u32,
+    ) -> Result<SessionPage, String>;
 
-    /// 按 session id 单查会话（行 + 聚合统计 + 轮行，复用
-    /// [`SessionSummary`] 聚合形状，零新 DTO）。查无此 id 显式 `Err`（单查
-    /// 语义与清单空态区分，查无此 id 视为调用方错误）；运行状态自轮行推导
-    ///（存在 running 轮行即 running，否则取终态）。
+    /// 按 session id 单查会话
     fn find_session_detail(&self, session_id: &str) -> Result<SessionSummary, String>;
 
     /// 会话全史转录重放（密封事件 seq 升序、容忍库内空洞）。

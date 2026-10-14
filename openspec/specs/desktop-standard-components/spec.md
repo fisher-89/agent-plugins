@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Desktop 前端标准组件层（`packages/desktop/src/components/standard/`）契约：`useOpen` 受控 / 非受控开合归一 hook，`StandardDialog` / `StandardDrawer` / `StandardSelect` 标准组件契约（trigger / footer / 值透出 / 透传双态），以及本层 colocated 单元测试纪律（role / 可及名 / 文本 / data-* 查询挂钩、零样式类名查询、产品源码零因测改动）。
+Desktop 前端标准组件层（`packages/desktop/src/components/standard/`）契约：`useOpen` 受控 / 非受控开合归一 hook，`StandardDialog` / `StandardDrawer` / `StandardSelect` 标准组件契约（trigger / footer / 值透出 / 透传双态），`StandardPagination` 标准分页器契约（页码 / 上下页 / 摘要行），以及本层 colocated 单元测试纪律（role / 可及名 / 文本 / data-* 查询挂钩、零样式类名查询、产品源码零因测改动）。
 
 ## Requirements
 
@@ -89,7 +89,7 @@ Desktop 前端标准组件层（`packages/desktop/src/components/standard/`）�
 
 ### Requirement: standard 组件单元测试纪律
 
-`packages/desktop/src/components/standard/` SHALL 以 colocated 单元测试直接锁定本层契约（`dailog.test.tsx` / `drawer.test.tsx` / `select.test.tsx` / `hooks/use-open.test.ts` 与源文件同目录落位），MUST NOT 仅依赖消费方测试间接覆盖。测试 SHALL 覆盖各契约分支（useOpen 受控 / 非受控 / 回调缺省；StandardDialog trigger 双态 / footer 双态 / 显式关窗；StandardDrawer trigger 双态 / 透传 / 受控开合；StandardSelect 值双态 / 选择回调 / disabled）。查询挂钩 SHALL 为 role / 可及名 / 文本 / `data-testid`（及语义 data-* 属性），MUST NOT 以样式类名作为查询条件（类名仅可作透传断言的被检属性）；base-ui 弹层开合 SHALL 以异步收敛断言（如 `findByRole('listbox')` / `waitFor`）承载。本层零进程边界，测试 MUST NOT mock 被测组件或 `src/components/ui/**` 底座；产品源码（四个被测文件）MUST NOT 因测试可测性改动。
+`packages/desktop/src/components/standard/` SHALL 以 colocated 单元测试直接锁定本层契约（`dailog.test.tsx` / `drawer.test.tsx` / `select.test.tsx` / `pagination.test.tsx` / `hooks/use-open.test.ts` 与源文件同目录落位），MUST NOT 仅依赖消费方测试间接覆盖。测试 SHALL 覆盖各契约分支（useOpen 受控 / 非受控 / 回调缺省；StandardDialog trigger 双态 / footer 双态 / 显式关窗；StandardDrawer trigger 双态 / 透传 / 受控开合；StandardSelect 值双态 / 选择回调 / disabled；StandardPagination 页码渲染 / 翻页回调 / 越界与 disabled 边界 / 摘要行双态）。查询挂钩 SHALL 为 role / 可及名 / 文本 / `data-testid`（及语义 data-* 属性），MUST NOT 以样式类名作为查询条件（类名仅可作透传断言的被检属性）；base-ui 弹层开合 SHALL 以异步收敛断言（如 `findByRole('listbox')` / `waitFor`）承载。本层零进程边界，测试 MUST NOT mock 被测组件或 `src/components/ui/**` 底座；产品源码（五个被测文件）MUST NOT 因测试可测性改动。
 
 #### Scenario: colocated 测试直达契约分支
 
@@ -132,6 +132,12 @@ Desktop 前端标准组件层（`packages/desktop/src/components/standard/`）�
 |------|-------|------|
 | `StandardSelect<T extends string \| number>` | `value: T \| null`；`onChange: (value: T \| null) => void`；`items: { value: string \| number; label: string }[]`；`placeholder?: string`（缺省「请选择」）；`disabled?: boolean`；`data-testid?` / `id?` / `className?` | items 逐项渲染 `SelectItem`；选中经 `onChange` 收值；`SelectValue` 透出 `data-testid` 与 `data-value={value}`（null 缺席），`id` / `className` 等透传 `SelectValue`；`disabled` 透传底层 `Select` |
 
+### Component: `packages/desktop/src/components/standard/pagination.tsx`
+
+| 组件 | Props | 描述 |
+|------|-------|------|
+| `StandardPagination` | `page: number`（1 起）；`totalPages: number`（≥1，调用方由 total 推导）；`total?: number`（在场才呈摘要行）；`onPageChange: (page: number) => void`；`disabled?: boolean`；`data-testid?` / `className?` | 通用分页器：「上一页」/ 页码按钮 /「下一页」，当前页 `aria-current="page"`；`total` 在场时中间插摘要「第 {page} / {totalPages} 页（共 {total} 条）」，缺省不呈；页数 >7 时窗口缩为 `1 … p±1 … N`（省略号以 `PaginationEllipsis` 承载）；零取数零状态，页界与计数全由调用方推导传入 |
+
 ### Component: `packages/desktop/src/components/standard/` 测试面
 
 | 文件 | 职责 | 关键契约 |
@@ -139,4 +145,5 @@ Desktop 前端标准组件层（`packages/desktop/src/components/standard/`）�
 | `dailog.test.tsx` | StandardDialog 契约单测 | trigger 双态 / footer 双态 / `onSubmit(close)` 显式关窗 / 取消与关闭零 onSubmit；role + 文本挂钩 |
 | `drawer.test.tsx` | StandardDrawer 契约单测 | trigger 开合 / 恒「关闭」footer / `containerClassName` 透传（类名作被检属性）/ 受控 `open` / `onOpenChange` |
 | `select.test.tsx` | StandardSelect 契约单测 | 选项渲染 / 选择回调 / `data-value` 与 placeholder 双态 / disabled 禁开；`findByRole('listbox')` 异步收敛 |
+| `pagination.test.tsx` | StandardPagination 契约单测 | 上一页 / 页码 / 下一页渲染与回调携目标页；`aria-current` 当前页；首页 / 末页越界回调不发；`disabled` 全量拦点击；`total` 在场呈摘要行、缺席不呈；`totalPages=1` 仍渲染；页多时窗口缩为 `1 … p±1 … N` |
 | `hooks/use-open.test.ts` | useOpen 契约单测 | 非受控初始态 / 开合回调 / 受控 prop 同步 / 回调缺省安全（`renderHook` 承载） |

@@ -89,11 +89,8 @@ export const commands = {
 	setDefaultAgentInstance: (id: number) => __TAURI_INVOKE<AgentInstanceRecord>("set_default_agent_instance", { id }),
 	agentStart: (onEvent: Channel<AgentRunMessage>, root: string, prompt: string, permissionMode: AgentPermissionMode, sessionId: string | null, source: string | null, sourceRef: string | null, agent: number | null) => __TAURI_INVOKE<TurnSummary>("agent_start", { onEvent, root, prompt, permissionMode, sessionId, source, sourceRef, agent }),
 	agentStop: (root: string, sessionId: string) => __TAURI_INVOKE<null>("agent_stop", { root, sessionId }),
-	/**
-	 *  会话清单 + 聚合统计（来源过滤，`updated_at` 降序）：root 寻址所属
-	 *  workspace 库直查 DTO，无领域解释；blank root → 空结果。
-	 */
-	agentSessions: (root: string, source: string | null, sourceRef: string | null) => __TAURI_INVOKE<SessionSummary[]>("agent_sessions", { root, source, sourceRef }),
+	/**  会话清单分页 + 聚合统计 */
+	agentSessions: (root: string, source: string | null, sourceRef: string | null, offset: number, limit: number) => __TAURI_INVOKE<SessionPage>("agent_sessions", { root, source, sourceRef, offset, limit }),
 	/**
 	 *  会话全史转录重放（密封事件 seq 序，不要求运行进程存活）；blank root →
 	 *  空结果。
@@ -1119,6 +1116,18 @@ export type RunStepStatus =
 "failed" | 
 /**  步因停止 / 终止收敛 */
 "stopped";
+
+/**
+ *  会话清单分页信封：本页会话 + 过滤集全量计数（页界由 `total` 导出，
+ *  不以「页长 === limit」猜下一页）。越界 `offset` 合法空页而 `total` 恒为
+ *  过滤集全量（与 db 检视 `RecordsPage` 同口径）。
+ */
+export type SessionPage = {
+	/**  本页会话清单项（`updated_at` 降序稳定序） */
+	sessions: SessionSummary[],
+	/**  过滤集全量计数（分页前计数，非本页长度） */
+	total: number,
+};
 
 /**
  *  来源归属：来源受控字符串（debug | explore | …，缺省 debug）+ 来源内定位

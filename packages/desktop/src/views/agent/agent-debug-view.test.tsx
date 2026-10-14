@@ -103,8 +103,13 @@ let startBehavior: { mode: 'resolve' | 'reject'; value: TurnSummary | string } |
 /** agent 实例清单 fixture（list_agent_instances 应答；默认空清单 = 缺省语义）。 */
 let instancesFixture: AgentInstanceRecord[] = [];
 
-/** 会话清单 fixture（agent_sessions 应答；默认空清单，来源筛选用例按需注入）。 */
+/** 会话清单 fixture（agent_sessions 应答 `SessionPage` 信封；默认空清单，来源筛选用例按需注入）。 */
 let historySessionsFixture: SessionSummary[] = [];
+
+/** agent_sessions 应答信封（total 缺省由清单推导）。 */
+function historyPage() {
+  return { sessions: historySessionsFixture, total: historySessionsFixture.length };
+}
 
 function mockIpc() {
   ChannelMock.instances.length = 0;
@@ -120,7 +125,7 @@ function mockIpc() {
       return new Promise<TurnSummary>(() => {});
     }
     if (command === 'agent_stop') return Promise.resolve(null);
-    if (command === 'agent_sessions') return Promise.resolve(historySessionsFixture);
+    if (command === 'agent_sessions') return Promise.resolve(historyPage());
     if (command === 'agent_session_transcript') return Promise.resolve([]);
     if (command === 'list_agent_instances') return Promise.resolve(instancesFixture);
     return Promise.resolve(null);
@@ -484,6 +489,8 @@ describe('AgentDebugView：来源筛选接线（AC-3）', () => {
       root: ROOT,
       source: 'debug',
       sourceRef: null,
+      offset: 0,
+      limit: 20,
     });
   });
 
@@ -499,6 +506,8 @@ describe('AgentDebugView：来源筛选接线（AC-3）', () => {
       root: ROOT,
       source: 'change',
       sourceRef: null,
+      offset: 0,
+      limit: 20,
     });
     expect(
       within(screen.getByTestId('history-source-filter'))
@@ -544,6 +553,8 @@ describe('AgentDebugView：来源筛选接线（AC-3）', () => {
         root: ROOT,
         source: null,
         sourceRef: null,
+        offset: 0,
+        limit: 20,
       }),
     );
     const rows = await screen.findAllByTestId('agent-run-row');

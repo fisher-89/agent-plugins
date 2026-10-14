@@ -4,8 +4,8 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock};
 
 use agent::{
-    AgentEvent, AgentEventKind, SessionProvenance, SessionRow, SessionStats, SessionSummary,
-    TurnSummary,
+    AgentEvent, AgentEventKind, SessionPage, SessionProvenance, SessionRow, SessionStats,
+    SessionSummary, TurnSummary,
 };
 use native_db::{Builder, Database, Models};
 use serde::{Deserialize, Serialize};
@@ -205,6 +205,10 @@ fn sum_usage_tokens(events: &[AgentEvent], key: &str) -> Option<u64> {
     }
     any.then_some(total)
 }
+
+/// 会话清单分页上限（IPC 滥用兜底，与 db 检视 `MAX_SCAN_LIMIT` 同层同理；
+/// 前端恒传页宽 20，超上限截断）。
+const MAX_SESSION_PAGE_LIMIT: u32 = 500;
 
 /// explore 名称长度上限（与写面 `create` 同宽）。
 const MAX_EXPLORE_NAME_LENGTH: usize = 128;
@@ -720,13 +724,20 @@ impl Store {
         Ok(())
     }
 
-    /// 会话清单
-    pub fn list_sessions(
+    /// 会话清单查询核心（全量 / 分页共用）：来源过滤（`source` / `source_ref`
+    /// 各自可选）→ `updated_at` 降序稳定序在**行层**排定（并列按 id 降序；排
+    /// 序键纯行字段，与装配后排序同序）→ 记 `total`（过滤集全量，分页前计
+    /// 数，非本页长度）→ 可选切片 → 只对返回条目现算聚合（轮数 / 累计墙钟自
+    /// 轮统计行、累计 token 自转录 TurnDone usage 鸭子类型求和，缺席合法缺省
+    /// ——MVP 不维护累计列）。聚合成本随页宽而非会话总量。
+    /// 全表读 + 内存过滤——调试页数据量小，与清单读面同哲学。
+    fn query_sessions(
         &self,
         source: Option<&str>,
         source_ref: Option<&str>,
-    ) -> Result<Vec<SessionSummary>, String> {
-        let sessions: Vec<SessionRecord> = self
+        page: Option<(u32, u32)>,
+    ) -> Result<(Vec<SessionSummary>, u64), String> {
+        let mut sessions: Vec<SessionRecord> = self
             .read_all::<SessionRecord>("遍历会话清单")
             .map_err(|e| e.to_string())?
             .into_iter()
@@ -735,11 +746,25 @@ impl Store {
                 source_ref.is_none_or(|reference| record.source_ref.as_deref() == Some(reference))
             })
             .collect();
+        sessions.sort_by(|a, b| b.updated_at.cmp(&a.updated_at).then_with(|| b.id.cmp(&a.id)));
+        let total = sessions.len() as u64;
+        let window: &[SessionRecord] = match page {
+            None => &sessions,
+            Some((offset, limit)) => {
+                let start = offset as usize;
+                if start >= sessions.len() {
+                    &[] // 越界 offset：合法空页，`total` 恒为过滤集全量
+                } else {
+                    let end = start.saturating_add(limit.min(MAX_SESSION_PAGE_LIMIT) as usize);
+                    &sessions[start..end.min(sessions.len())]
+                }
+            }
+        };
         let runs = self
             .read_all::<AgentRunRecord>("遍历轮统计行")
             .map_err(|e| e.to_string())?;
-        let mut summaries = Vec::with_capacity(sessions.len());
-        for session in &sessions {
+        let mut summaries = Vec::with_capacity(window.len());
+        for session in window {
             // 预读 runs 向量内存过滤（勿改成逐会话 `list_agent_turns`——那会把
             // 轮行全表读从一遍变 S 遍）；发起顺序排序收口在 [`assemble_summary`]
             let turns: Vec<TurnSummary> = runs
@@ -750,13 +775,34 @@ impl Store {
             let events = self.list_session_events(&session.id)?;
             summaries.push(assemble_summary(session, turns, events)?);
         }
-        summaries.sort_by(|a, b| {
-            b.row
-                .updated_at
-                .cmp(&a.row.updated_at)
-                .then_with(|| b.row.id.cmp(&a.row.id))
-        });
-        Ok(summaries)
+        Ok((summaries, total))
+    }
+
+    /// 会话清单（全量）：与 [`Self::list_sessions_page`] 同一核心、不过滤页
+    /// 窗（全量读面——测试对账与既有清单读面消费）。聚合统计现算 + 轮行随行
+    /// 返回（发起顺序收口在 [`assemble_summary`]）。
+    pub fn list_sessions(
+        &self,
+        source: Option<&str>,
+        source_ref: Option<&str>,
+    ) -> Result<Vec<SessionSummary>, String> {
+        self.query_sessions(source, source_ref, None)
+            .map(|(summaries, _)| summaries)
+    }
+
+    /// 会话清单（分页）：`offset` / `limit` 圈定本页，随页返回 [`SessionPage`]
+    /// 信封（`total` 为过滤集全量计数）。`limit` 超 [`MAX_SESSION_PAGE_LIMIT`]
+    /// 截断、`limit = 0` 返回空页、越界 `offset` 返回空页而 `total` 恒为过滤集
+    /// 全量。
+    pub fn list_sessions_page(
+        &self,
+        source: Option<&str>,
+        source_ref: Option<&str>,
+        offset: u32,
+        limit: u32,
+    ) -> Result<SessionPage, String> {
+        let (sessions, total) = self.query_sessions(source, source_ref, Some((offset, limit)))?;
+        Ok(SessionPage { sessions, total })
     }
 
     /// 转录重放

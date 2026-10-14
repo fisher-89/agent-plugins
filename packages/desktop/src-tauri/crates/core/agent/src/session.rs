@@ -111,3 +111,15 @@ pub struct SessionSummary {
     /// 轮统计行（发起顺序）
     pub turns: Vec<TurnSummary>,
 }
+
+/// 会话清单分页信封：本页会话 + 过滤集全量计数（页界由 `total` 导出，
+/// 不以「页长 === limit」猜下一页）。越界 `offset` 合法空页而 `total` 恒为
+/// 过滤集全量（与 db 检视 `RecordsPage` 同口径）。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionPage {
+    /// 本页会话清单项（`updated_at` 降序稳定序）
+    pub sessions: Vec<SessionSummary>,
+    /// 过滤集全量计数（分页前计数，非本页长度）
+    pub total: u64,
+}

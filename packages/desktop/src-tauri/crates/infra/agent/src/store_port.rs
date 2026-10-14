@@ -1,14 +1,8 @@
-//! 内核持久 / 查询 port 的 store 适配：core 契约（[`agent::SessionSink`] /
-//! [`agent::SessionQuery`]）的 infra 实现落点。
-//!
-//! write-through 原子操作、聚合现算与对账重导全部委托 store 操作面（store
-//! 单点），本模块只做 core 契约类型 ↔ store 记录类型的映射；增量防御由
-//! store sink 兜底（纵深，内核泵已分类）。
-
 use std::sync::Arc;
 
 use agent::{
-    AgentEvent, NewSessionRow, SessionQuery, SessionSink, SessionStats, SessionSummary, TurnOutcome,
+    AgentEvent, NewSessionRow, SessionPage, SessionQuery, SessionSink, SessionStats, SessionSummary,
+    TurnOutcome,
 };
 use store::{SessionConfigSnapshot, SessionRecord, Store};
 
@@ -112,8 +106,11 @@ impl SessionQuery for StoreQuery {
         &self,
         source: Option<&str>,
         source_ref: Option<&str>,
-    ) -> Result<Vec<SessionSummary>, String> {
-        self.store.list_sessions(source, source_ref)
+        offset: u32,
+        limit: u32,
+    ) -> Result<SessionPage, String> {
+        self.store
+            .list_sessions_page(source, source_ref, offset, limit)
     }
 
     /// 单查单点：store 单会话装配面（主键直查 + 本会话轮行 + 本会话事件 →

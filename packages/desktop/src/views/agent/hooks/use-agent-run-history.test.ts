@@ -1,7 +1,7 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 
-import type { AgentEvent, SessionSummary } from '../../../types/dto';
+import type { AgentEvent, SessionPage, SessionSummary } from '../../../types/dto';
 import { useAgentRunHistory } from './use-agent-run-history';
 
 // ---------------------------------------------------------------------------
@@ -56,6 +56,11 @@ function raw(seq: number): AgentEvent {
   };
 }
 
+/** 后端分页信封：`{ sessions, total }`（total = 过滤集全量计数）。 */
+function pageOf(sessions: SessionSummary[], total = sessions.length) {
+  return { sessions, total };
+}
+
 const ID_LATEST = 'ses-3-1727000000000';
 const ID_OLDER = 'ses-2-1727000000000';
 
@@ -68,7 +73,7 @@ describe('useAgentRunHistory：显式刷新与点开重放', () => {
   });
 
   it('挂载即自动取数：invoke("agent_sessions") 恰一次（debug 来源过滤），sessions 承接清单', async () => {
-    invokeMock.mockResolvedValue(SESSIONS_DESC);
+    invokeMock.mockResolvedValue(pageOf(SESSIONS_DESC));
     const { result } = renderHook(() => useAgentRunHistory(ROOT, 'debug'));
 
     await waitFor(() => expect(result.current.sessions).toEqual(SESSIONS_DESC));
@@ -78,13 +83,15 @@ describe('useAgentRunHistory：显式刷新与点开重放', () => {
       root: ROOT,
       source: 'debug',
       sourceRef: null,
+      offset: 0,
+      limit: 20,
     });
     expect(result.current.loading).toBe(false);
     expect(result.current.error).toBeNull();
   });
 
   it('refresh() 重取仍携同一 root：invoke("agent_sessions") 重发且 sessions 按后端降序原样承接', async () => {
-    invokeMock.mockResolvedValue(SESSIONS_DESC);
+    invokeMock.mockResolvedValue(pageOf(SESSIONS_DESC));
     const { result } = renderHook(() => useAgentRunHistory(ROOT, 'debug'));
     await waitFor(() => expect(result.current.sessions).toEqual(SESSIONS_DESC));
 
@@ -98,6 +105,8 @@ describe('useAgentRunHistory：显式刷新与点开重放', () => {
         root: ROOT,
         source: 'debug',
         sourceRef: null,
+        offset: 0,
+        limit: 20,
       });
       expect(result.current.sessions).toEqual(SESSIONS_DESC);
       expect(result.current.loading).toBe(false);
@@ -106,7 +115,7 @@ describe('useAgentRunHistory：显式刷新与点开重放', () => {
   });
 
   it('openSession(id) → invoke("agent_session_transcript", { root, sessionId }) → events 更新、selectedSessionId 跟随', async () => {
-    invokeMock.mockResolvedValue([]);
+    invokeMock.mockResolvedValue(pageOf([]));
     const events = [runStarted(0), raw(1)];
     invokeMock.mockImplementation((command: string, params?: { sessionId?: string }) => {
       if (command === 'agent_session_transcript') {
@@ -143,7 +152,7 @@ describe('useAgentRunHistory：显式刷新与点开重放', () => {
 
   it('refresh 失败后重试成功：error 清回 null、sessions 承接清单（失败不黏滞）', async () => {
     invokeMock.mockRejectedValueOnce('db: 清单打开失败');
-    invokeMock.mockResolvedValue(SESSIONS_DESC);
+    invokeMock.mockResolvedValue(pageOf(SESSIONS_DESC));
     const { result } = renderHook(() => useAgentRunHistory(ROOT, 'debug'));
     await waitFor(() => expect(result.current.error).toBe('db: 清单打开失败'));
 
@@ -162,7 +171,7 @@ describe('useAgentRunHistory：显式刷新与点开重放', () => {
     invokeMock.mockImplementation((command: string, params?: { sessionId?: string }) =>
       command === 'agent_session_transcript' && params?.sessionId === ID_LATEST
         ? Promise.resolve(events)
-        : Promise.resolve(SESSIONS_DESC),
+        : Promise.resolve(pageOf(SESSIONS_DESC)),
     );
     const { result } = renderHook(() => useAgentRunHistory(ROOT, 'debug'));
     act(() => {
@@ -187,14 +196,14 @@ describe('useAgentRunHistory：显式刷新与点开重放', () => {
   });
 
   it('重放轨道取数中单独置 loading：点开会话未返回时 loading=true，返回后复位', async () => {
-    invokeMock.mockResolvedValue([]);
+    invokeMock.mockResolvedValue(pageOf([]));
     let resolveTranscript: (events: AgentEvent[]) => void = () => {};
     invokeMock.mockImplementation((command: string) =>
       command === 'agent_session_transcript'
         ? new Promise<AgentEvent[]>((resolve) => {
             resolveTranscript = resolve;
           })
-        : Promise.resolve(SESSIONS_DESC),
+        : Promise.resolve(pageOf(SESSIONS_DESC)),
     );
     const { result } = renderHook(() => useAgentRunHistory(ROOT, 'debug'));
     await waitFor(() => expect(result.current.sessions).toEqual(SESSIONS_DESC));
@@ -212,7 +221,7 @@ describe('useAgentRunHistory：显式刷新与点开重放', () => {
   });
 
   it('openSession reject：error 置串、loading 复位、sessions 清单不受影响', async () => {
-    invokeMock.mockResolvedValue(SESSIONS_DESC);
+    invokeMock.mockResolvedValue(pageOf(SESSIONS_DESC));
     const { result } = renderHook(() => useAgentRunHistory(ROOT, 'debug'));
     act(() => {
       result.current.refresh();
@@ -230,10 +239,10 @@ describe('useAgentRunHistory：显式刷新与点开重放', () => {
   });
 
   it('取数进行中 loading=true、返回后复位；两轨道任一取数中即 loading', async () => {
-    let resolveSessions: (sessions: SessionSummary[]) => void = () => {};
+    let resolveSessions: (page: SessionPage) => void = () => {};
     invokeMock.mockImplementation(
       () =>
-        new Promise<SessionSummary[]>((resolve) => {
+        new Promise<SessionPage>((resolve) => {
           resolveSessions = resolve;
         }),
     );
@@ -245,16 +254,16 @@ describe('useAgentRunHistory：显式刷新与点开重放', () => {
     await waitFor(() => expect(result.current.loading).toBe(true));
 
     await act(async () => {
-      resolveSessions(SESSIONS_DESC);
+      resolveSessions(pageOf(SESSIONS_DESC));
     });
     await waitFor(() => expect(result.current.loading).toBe(false));
   });
 
   it('清单轨道竞态守卫：切走 source 后旧查询落定不回写 sessions、不置入旧 error', async () => {
-    const resolvers: Array<(sessions: SessionSummary[]) => void> = [];
+    const resolvers: Array<(page: SessionPage) => void> = [];
     invokeMock.mockImplementation((command: string) =>
       command === 'agent_sessions'
-        ? new Promise<SessionSummary[]>((resolve) => {
+        ? new Promise<SessionPage>((resolve) => {
             resolvers.push(resolve);
           })
         : Promise.resolve([]),
@@ -271,13 +280,13 @@ describe('useAgentRunHistory：显式刷新与点开重放', () => {
     // 新 source 先落定：sessions 承接新清单
     const fresh = [summary('ses-change-fresh', 900)];
     await act(async () => {
-      resolvers[1]?.(fresh);
+      resolvers[1]?.(pageOf(fresh));
     });
     await waitFor(() => expect(result.current.sessions).toEqual(fresh));
 
     // 旧 source 后落定（reject）：不得回写 sessions、不得置入旧错误
     await act(async () => {
-      resolvers[0]?.(undefined as unknown as SessionSummary[]);
+      resolvers[0]?.(undefined as unknown as SessionPage);
     });
     await act(async () => {});
     expect(result.current.sessions).toEqual(fresh);
@@ -322,7 +331,7 @@ describe('useAgentRunHistory：显式刷新与点开重放', () => {
   });
 
   it('root 为 null（未选定 workspace）：不发起任何 invoke，sessions 保持空态（跳过取数分支）', async () => {
-    invokeMock.mockResolvedValue(SESSIONS_DESC);
+    invokeMock.mockResolvedValue(pageOf(SESSIONS_DESC));
     const { result } = renderHook(() => useAgentRunHistory(null, 'debug'));
 
     await act(async () => {
@@ -347,7 +356,7 @@ describe('useAgentRunHistory：显式刷新与点开重放', () => {
   });
 
   it('agent_sessions 返回 []：sessions 为空数组不崩', async () => {
-    invokeMock.mockResolvedValue([]);
+    invokeMock.mockResolvedValue(pageOf([]));
     const { result } = renderHook(() => useAgentRunHistory(ROOT, 'debug'));
 
     act(() => {
@@ -397,7 +406,7 @@ describe('useAgentRunHistory：生成绑定调用面', () => {
   });
 
   it('经生成绑定入口后 invoke 收到 "agent_sessions" + { root, source, sourceRef }（挂载恰一次）与 "agent_session_transcript" + { root, sessionId }，清单降序承接与事件透传不变', async () => {
-    invokeMock.mockResolvedValue(SESSIONS_DESC);
+    invokeMock.mockResolvedValue(pageOf(SESSIONS_DESC));
     const { result } = renderHook(() => useAgentRunHistory(ROOT, 'debug'));
     await waitFor(() => expect(result.current.sessions).toEqual(SESSIONS_DESC));
 
@@ -416,6 +425,8 @@ describe('useAgentRunHistory：生成绑定调用面', () => {
       root: ROOT,
       source: 'debug',
       sourceRef: null,
+      offset: 0,
+      limit: 20,
     });
     expect(invokeMock).toHaveBeenCalledWith('agent_session_transcript', {
       root: ROOT,
@@ -426,7 +437,7 @@ describe('useAgentRunHistory：生成绑定调用面', () => {
   });
 
   it('agent_sessions 返回 [] → sessions 为空数组不崩（绑定切换不改变空态）', async () => {
-    invokeMock.mockResolvedValue([]);
+    invokeMock.mockResolvedValue(pageOf([]));
     const { result } = renderHook(() => useAgentRunHistory(ROOT, 'debug'));
 
     await waitFor(() => {
@@ -437,7 +448,7 @@ describe('useAgentRunHistory：生成绑定调用面', () => {
   });
 
   it('refresh / openSession reject → error 置串、loading 复位、sessions 清单不受影响（错误路径不变）', async () => {
-    invokeMock.mockResolvedValue(SESSIONS_DESC);
+    invokeMock.mockResolvedValue(pageOf(SESSIONS_DESC));
     const { result } = renderHook(() => useAgentRunHistory(ROOT, 'debug'));
     await waitFor(() => expect(result.current.sessions).toEqual(SESSIONS_DESC));
 
@@ -468,7 +479,7 @@ describe('useAgentRunHistory：来源筛选参数化（AC-3）', () => {
   }
 
   it("source='change' 挂载 → invoke agent_sessions 携 { root, source: 'change', sourceRef: null }，sessions 承接清单", async () => {
-    invokeMock.mockResolvedValue(SESSIONS_DESC);
+    invokeMock.mockResolvedValue(pageOf(SESSIONS_DESC));
     const { result } = renderHook(() => useAgentRunHistory(ROOT, 'change'));
 
     await waitFor(() => expect(result.current.sessions).toEqual(SESSIONS_DESC));
@@ -478,6 +489,8 @@ describe('useAgentRunHistory：来源筛选参数化（AC-3）', () => {
       root: ROOT,
       source: 'change',
       sourceRef: null,
+      offset: 0,
+      limit: 20,
     });
   });
 
@@ -492,7 +505,7 @@ describe('useAgentRunHistory：来源筛选参数化（AC-3）', () => {
         },
       },
     ];
-    invokeMock.mockResolvedValue(mixed);
+    invokeMock.mockResolvedValue(pageOf(mixed));
     const { result } = renderHook(() => useAgentRunHistory(ROOT, 'all'));
 
     await waitFor(() => expect(result.current.sessions).toEqual(mixed));
@@ -501,11 +514,13 @@ describe('useAgentRunHistory：来源筛选参数化（AC-3）', () => {
       root: ROOT,
       source: null,
       sourceRef: null,
+      offset: 0,
+      limit: 20,
     });
   });
 
   it("source 变化（rerender 'debug' → 'change'）→ effect 重查：agent_sessions 按新 source 重发", async () => {
-    invokeMock.mockResolvedValue(SESSIONS_DESC);
+    invokeMock.mockResolvedValue(pageOf(SESSIONS_DESC));
     type SourceProp = { source: 'debug' | 'change' | 'all' };
     const { rerender } = renderHook((props: SourceProp) => useAgentRunHistory(ROOT, props.source), {
       initialProps: { source: 'debug' },
@@ -519,11 +534,13 @@ describe('useAgentRunHistory：来源筛选参数化（AC-3）', () => {
       root: ROOT,
       source: 'change',
       sourceRef: null,
+      offset: 0,
+      limit: 20,
     });
   });
 
   it('refresh() 重取携当前 source（显式刷新模式不变）；取数稳定后静置无新增调用（无轮询无订阅回归）', async () => {
-    invokeMock.mockResolvedValue(SESSIONS_DESC);
+    invokeMock.mockResolvedValue(pageOf(SESSIONS_DESC));
     const { result } = renderHook(() => useAgentRunHistory(ROOT, 'change'));
     await waitFor(() => expect(result.current.sessions).toEqual(SESSIONS_DESC));
     expect(sessionsCalls()).toHaveLength(1);
@@ -536,6 +553,8 @@ describe('useAgentRunHistory：来源筛选参数化（AC-3）', () => {
       root: ROOT,
       source: 'change',
       sourceRef: null,
+      offset: 0,
+      limit: 20,
     });
 
     // 静置窗口：挂载取数稳定后无轮询无订阅（零新增 agent_sessions 调用）
@@ -543,5 +562,168 @@ describe('useAgentRunHistory：来源筛选参数化（AC-3）', () => {
       await new Promise((resolve) => setTimeout(resolve, 50));
     });
     expect(sessionsCalls()).toHaveLength(2);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 分页（AC：agent_sessions 携 offset / limit，SessionPage 信封 total 推页界）
+// ---------------------------------------------------------------------------
+
+describe('useAgentRunHistory：分页取数与页界导出', () => {
+  beforeEach(() => {
+    invokeMock.mockReset();
+  });
+
+  it('挂载即携 offset: 0 / limit: 20（PAGE_SIZE 常量口径），total 推 totalPages', async () => {
+    invokeMock.mockResolvedValue(pageOf(SESSIONS_DESC, 45));
+    const { result } = renderHook(() => useAgentRunHistory(ROOT, 'debug'));
+
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(invokeMock).toHaveBeenCalledWith('agent_sessions', {
+      root: ROOT,
+      source: 'debug',
+      sourceRef: null,
+      offset: 0,
+      limit: 20,
+    });
+    expect(result.current.total).toBe(45);
+    expect(result.current.page).toBe(1);
+    expect(result.current.totalPages).toBe(3);
+  });
+
+  it('setPage(3) → invoke 携 offset: 40（(page-1) * PAGE_SIZE），sessions 承接该页', async () => {
+    const page3 = [summary('ses-p3', 42)];
+    invokeMock.mockImplementation((command: string) =>
+      command === 'agent_sessions' ? Promise.resolve(pageOf(page3, 45)) : Promise.resolve([]),
+    );
+    const { result } = renderHook(() => useAgentRunHistory(ROOT, 'debug'));
+    await waitFor(() => expect(result.current.totalPages).toBe(3));
+
+    act(() => {
+      result.current.setPage(3);
+    });
+    await waitFor(() => expect(result.current.page).toBe(3));
+    await waitFor(() => expect(result.current.sessions).toEqual(page3));
+    expect(invokeMock).toHaveBeenLastCalledWith('agent_sessions', {
+      root: ROOT,
+      source: 'debug',
+      sourceRef: null,
+      offset: 40,
+      limit: 20,
+    });
+  });
+
+  it('边界：setPage 越界夹在 [1, totalPages]，nextPage / prevPage 到界不动', async () => {
+    invokeMock.mockResolvedValue(pageOf(SESSIONS_DESC, 45));
+    const { result } = renderHook(() => useAgentRunHistory(ROOT, 'debug'));
+    await waitFor(() => expect(result.current.totalPages).toBe(3));
+
+    act(() => {
+      result.current.setPage(100);
+    });
+    await waitFor(() => expect(result.current.page).toBe(3));
+
+    act(() => {
+      result.current.nextPage();
+    });
+    await waitFor(() => expect(result.current.page).toBe(3));
+
+    act(() => {
+      result.current.prevPage();
+    });
+    await waitFor(() => expect(result.current.page).toBe(2));
+
+    act(() => {
+      result.current.prevPage();
+    });
+    await waitFor(() => expect(result.current.page).toBe(1));
+
+    act(() => {
+      result.current.prevPage();
+    });
+    await waitFor(() => expect(result.current.page).toBe(1));
+  });
+
+  it('total 收缩致当前页越界：夹回末页重取（本页空结果不落），totalPages 收敛', async () => {
+    let total = 45;
+    invokeMock.mockImplementation((command: string) =>
+      command === 'agent_sessions'
+        ? Promise.resolve(pageOf([summary('ses-x', 9)], total))
+        : Promise.resolve([]),
+    );
+    const { result } = renderHook(() => useAgentRunHistory(ROOT, 'debug'));
+    await waitFor(() => expect(result.current.totalPages).toBe(3));
+
+    act(() => {
+      result.current.setPage(3);
+    });
+    await waitFor(() => expect(result.current.page).toBe(3));
+
+    // 总量收缩到 1 页 → 第 3 页越界 → 回末页（第 1 页）重取
+    total = 5;
+    act(() => {
+      result.current.refresh();
+    });
+    await waitFor(() => expect(result.current.page).toBe(1));
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(result.current.total).toBe(5);
+    expect(result.current.totalPages).toBe(1);
+  });
+
+  it('source 变化回第 1 页：高页位切 source 后 offset 归 0', async () => {
+    invokeMock.mockResolvedValue(pageOf(SESSIONS_DESC, 45));
+    type SourceProp = { source: 'debug' | 'change' };
+    const { result, rerender } = renderHook(
+      (props: SourceProp) => useAgentRunHistory(ROOT, props.source),
+      { initialProps: { source: 'debug' } },
+    );
+    await waitFor(() => expect(result.current.totalPages).toBe(3));
+    act(() => {
+      result.current.setPage(3);
+    });
+    await waitFor(() => expect(result.current.page).toBe(3));
+
+    rerender({ source: 'change' });
+    await waitFor(() => expect(result.current.page).toBe(1));
+    expect(invokeMock).toHaveBeenLastCalledWith('agent_sessions', {
+      root: ROOT,
+      source: 'change',
+      sourceRef: null,
+      offset: 0,
+      limit: 20,
+    });
+  });
+
+  it('refresh() 停留当前页：高页位刷新 offset 不变（按当前筛选与当前页重取）', async () => {
+    invokeMock.mockResolvedValue(pageOf(SESSIONS_DESC, 45));
+    const { result } = renderHook(() => useAgentRunHistory(ROOT, 'debug'));
+    await waitFor(() => expect(result.current.totalPages).toBe(3));
+    act(() => {
+      result.current.setPage(2);
+    });
+    await waitFor(() => expect(result.current.page).toBe(2));
+
+    act(() => {
+      result.current.refresh();
+    });
+    await waitFor(() => expect(result.current.page).toBe(2));
+    expect(invokeMock).toHaveBeenLastCalledWith('agent_sessions', {
+      root: ROOT,
+      source: 'debug',
+      sourceRef: null,
+      offset: 20,
+      limit: 20,
+    });
+  });
+
+  it('边界：空清单 total=0 → totalPages=1（页界不塌 0），sessions 空数组', async () => {
+    invokeMock.mockResolvedValue(pageOf([]));
+    const { result } = renderHook(() => useAgentRunHistory(ROOT, 'debug'));
+
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(result.current.total).toBe(0);
+    expect(result.current.totalPages).toBe(1);
+    expect(result.current.page).toBe(1);
+    expect(result.current.sessions).toEqual([]);
   });
 });
