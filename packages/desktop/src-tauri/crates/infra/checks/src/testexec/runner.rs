@@ -15,11 +15,6 @@ pub(crate) const SUITE_COMMAND_TIMEOUT: Duration = Duration::from_secs(600);
 /// 框架版本探测超时（CLI `timeout: 30_000` 同值）。
 pub(crate) const VERSION_DETECT_TIMEOUT: Duration = Duration::from_secs(30);
 
-/// 非零退出错误面携带的合并输出尾部字符上限（CLI `logCommandFailure` stderr
-/// 500 字截断同量级——报告文件面归因原料；反馈边载荷再经 findings_brief
-/// 200 字符截断收口）。
-const OUTPUT_TAIL_LIMIT: usize = 500;
-
 /// 单 suite 执行结果：退出码 / 耗时 / 解析后的用例与覆盖原始计数 / 工件解析
 /// 错误面（`error` 进子报告 findings → summary problems execution_error）/
 /// 脚本真实输出合并流（进 record 单点，不进 error 尾部）。
@@ -144,11 +139,10 @@ pub(crate) async fn execute_plan(
             // `2>&1`：手工拼接只服务 record 回查，结果工件解析仍只读 stdout 面
             let mut output = stdout_bytes;
             output.extend_from_slice(&stderr_bytes);
-            let output_text = String::from_utf8_lossy(&output).into_owned();
             let exec_error = if status.success() {
                 None
             } else {
-                Some(non_zero_exit_error(exit_code, &output_text))
+                Some(non_zero_exit_error(exit_code, &output))
             };
             (exit_code, exec_error, output)
         }
@@ -184,29 +178,13 @@ async fn read_all<R: tokio::io::AsyncRead + Unpin>(pipe: &mut Option<R>, buffer:
     }
 }
 
-/// 非零退出错误面：记因退出码并携带合并输出有界尾部（被测域自身报错文本
-/// ——编译 / 断言失败归因原料、反馈边修复会话的唯一直接线索；CLI
-/// `formatMutationCommandError` 首条非空 stderr 归因同向）。输出为空回落裸
-/// 退出码措辞。
-fn non_zero_exit_error(exit_code: i32, output_text: &str) -> String {
-    let tail = output_tail(output_text);
-    if tail.is_empty() {
-        format!("测试命令非零退出（{exit_code}）")
-    } else {
-        format!("测试命令非零退出（{exit_code}）：{tail}")
-    }
-}
-
-/// 合并输出的有界尾部（按字符截取防多字节切半，末段优先——编译 / 断言错误
-/// 通常在输出末段；超限以省略号前缀示意截断）。
-fn output_tail(text: &str) -> String {
-    let trimmed = text.trim_end();
-    let total = trimmed.chars().count();
-    if total <= OUTPUT_TAIL_LIMIT {
-        return trimmed.to_owned();
-    }
-    let tail: String = trimmed.chars().skip(total - OUTPUT_TAIL_LIMIT).collect();
-    format!("…{tail}")
+/// 非零退出错误面：记因退出码并携错误信息 + 输出末尾双段（被测域自身报错
+/// 文本——编译 / 断言失败归因原料、反馈边修复会话的唯一直接线索；exec
+/// `ProcessOutput` 统一装配，不再自截尾部——旧字符截断口径会把 JS 错误首行
+/// 截掉）。输出为空回落裸退出码措辞。
+fn non_zero_exit_error(exit_code: i32, output: &[u8]) -> String {
+    let head = format!("测试命令非零退出（{exit_code}）");
+    exec::ProcessOutput::new(exit_code, output.to_vec()).failure_message(&head)
 }
 
 /// 占位符模板展开：`{report_dir}` / `{results_file}` / `{coverage_file}` /

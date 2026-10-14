@@ -9,6 +9,7 @@ node_modules
 
 # 突变测试
 _stryker-tmp
+mutation-stryker-seg-*.conf.json
 
 # 构建相关
 plugins/*/.pack-staging/

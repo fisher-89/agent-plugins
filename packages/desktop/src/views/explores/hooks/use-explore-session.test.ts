@@ -617,23 +617,25 @@ describe('useExploreSession：send 注入 record.name（AC-4 组装半边）', (
   it('正向：既有会话续话裸发送（不携带 stance / name）；换记录（sessionId 空缺）经 ensure 归位后首轮随新 name 注入', async () => {
     // 槽位寻址（反查二元组退役）：recordA 携既有会话 sessionId 续话；recordB
     // 槽位空缺（存量行）→ ensure 归位出空会话 id，首轮（零轮）随新 name 拼 stance
-    invokeMock.mockImplementation((command: string, params?: Record<string, unknown>) => {
-      if (command === 'session_detail') {
-        return Promise.resolve(params?.sessionId === SESSION_ID ? sessionFixture : null);
-      }
-      if (command === 'agent_session_transcript') return Promise.resolve([]);
-      if (command === 'ensure_explore_session') {
-        const name = String(params?.name ?? '');
-        return Promise.resolve({
-          ...exploreRecord(),
-          id: name === 'other-topic' ? 8 : RECORD_ID,
-          name,
-          sessionId: name === 'other-topic' ? 'ses-b-1727000002000' : SESSION_ID,
-        } satisfies ExploreRecord);
-      }
-      if (command === 'agent_start') return Promise.resolve(startResult);
-      return Promise.resolve(null);
-    });
+    invokeMock.mockImplementation(
+      (command: string, params: Record<string, string | number | null> = {}) => {
+        if (command === 'session_detail') {
+          return Promise.resolve(params.sessionId === SESSION_ID ? sessionFixture : null);
+        }
+        if (command === 'agent_session_transcript') return Promise.resolve([]);
+        if (command === 'ensure_explore_session') {
+          const name = String(params.name ?? '');
+          return Promise.resolve({
+            ...exploreRecord(),
+            id: name === 'other-topic' ? 8 : RECORD_ID,
+            name,
+            sessionId: name === 'other-topic' ? 'ses-b-1727000002000' : SESSION_ID,
+          } satisfies ExploreRecord);
+        }
+        if (command === 'agent_start') return Promise.resolve(startResult);
+        return Promise.resolve(null);
+      },
+    );
 
     const { result, rerender } = renderHook(
       (props: { record: ExploreRecord | null }) => useExploreSession(ROOT, props.record),
@@ -708,10 +710,7 @@ describe('useExploreSession：会话归位 ensure 承接（session_id 空缺修�
 
     const { result } = await mounted(missingSession);
 
-    await waitFor(
-      () => expect(result.current.chain).toEqual(sessionFixture.turns),
-      '重放以归位 session_id 直查还原',
-    );
+    await waitFor(() => expect(result.current.chain).toEqual(sessionFixture.turns));
     expect(invokeMock).toHaveBeenCalledWith('ensure_explore_session', {
       root: ROOT,
       name: 'api-retry',

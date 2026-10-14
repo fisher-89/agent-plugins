@@ -123,6 +123,32 @@ pub(crate) fn cleanup_stryker_artifacts(mutation_dir: &Path) {
     }
 }
 
+/// 失败桶保留的调试产物清单（POSIX；sandbox 目录在前 + 临时 config 字典序，
+/// 仅列在盘项——Fatal 可能发生在段 config 写盘前，此时清单为空）。
+pub(crate) fn stryker_retained_artifacts(mutation_dir: &Path) -> Vec<String> {
+    let mut paths = Vec::new();
+    let sandbox = mutation_dir.join(STRYKER_TMP_DIR_NAME);
+    if sandbox.is_dir() {
+        paths.push(to_posix(&sandbox));
+    }
+    let Ok(entries) = std::fs::read_dir(mutation_dir) else {
+        return paths;
+    };
+    let mut configs: Vec<PathBuf> = entries
+        .flatten()
+        .map(|entry| entry.path())
+        .filter(|path| {
+            path.file_name().is_some_and(|name| {
+                let name = name.to_string_lossy();
+                name.starts_with("mutation-stryker-seg-") && name.ends_with(".conf.json")
+            })
+        })
+        .collect();
+    configs.sort();
+    paths.extend(configs.iter().map(|path| to_posix(path)));
+    paths
+}
+
 /// 突变报告目录创建（写盘失败显式 Err——E5）。
 fn create_mutation_dir(mutation_dir: &Path) -> Result<(), String> {
     std::fs::create_dir_all(mutation_dir)

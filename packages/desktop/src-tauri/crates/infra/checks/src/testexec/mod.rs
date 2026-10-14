@@ -35,8 +35,8 @@ const FINDING_BRIEF_LIMIT: usize = 200;
 /// 诊断摘要条数上限。
 const FINDING_BRIEF_MAX_ITEMS: usize = 10;
 
-/// 修复边明细单条错误消息截断上限（runner `OUTPUT_TAIL_LIMIT` 同量级——
-/// 报告面归因原料口径）。
+/// 修复边明细单条错误消息截断上限（exec `ProcessOutput` 末尾行口径同量级
+/// ——报告面归因原料收口）。
 const DETAIL_MESSAGE_LIMIT: usize = 500;
 
 /// 修复边明细单条堆栈截断上限（定位帧通常在前几行）。

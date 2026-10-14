@@ -40,13 +40,7 @@ export const commands = {
 	/**  渲染器缺席时的保底文本 */
 	fallbackText: string | null,
 } | null>("read_artifact", { root, id, kind, source }).then((v) => (v==null?v:v as typeof v)),
-	/**
-	 *  读回某 exec 的输出记录（stdout 面板取数单点）：暴露
-	 *  `infra/exec::read_exec_output`——磁盘面按 change **name** 定位（与
-	 *  `record_exec_output` 同口径，非 id；id 仅作寻址键 / 会话 sourceRef 身份段），
-	 *  读单一 `.log` 全量字节。blank root 与未知 / 非法 `exec_id` 均 `None`（miss
-	 *  非错误）；非法字节以 UTF-8 lossy 替换符呈现（不 panic、不报错）。
-	 */
+	/**  读回某 exec 的输出记录 */
 	readExecOutput: (root: string, changeName: string, execId: string) => __TAURI_INVOKE<string | null>("read_exec_output", { root, changeName, execId }),
 	/**
 	 *  归档 change（双写：目录改名 + db status 翻转，写面 `archive` 单点；按
@@ -114,15 +108,6 @@ export const commands = {
 	changeFlowAnswer: (root: string, id: string, answer: string) => __TAURI_INVOKE<null>("change_flow_answer", { root, id, answer }),
 	changeFlowConfirm: (root: string, id: string, proceed: boolean, syncSpecs: boolean) => __TAURI_INVOKE<null>("change_flow_confirm", { root, id, proceed, syncSpecs }),
 	changeFlowWatch: (onEvent: Channel<RunNotice>, root: string, id: string) => __TAURI_INVOKE<null>("change_flow_watch", { onEvent, root, id }),
-	/**
-	 *  新建 change（建域四段：建档 + worktree add + worktree 内目录树与
-	 *  explore.md + bootstrap）；blank root 显式 `Err`。async + `spawn_blocking`
-	 *  调 sync 写面（bootstrap 是分钟级 spawn——同步命令会冻结 UI，IPC 入参与
-	 *  返回类型面不变）。手动新建路径 `title = name`（不加输入框，D1）；
-	 *  `workflow_type` 自类型选择器（合法值 `requirement` | `test-only`，非法值经
-	 *  写面显式拒绝）；promote 路径经 [`create_change_with`] 泛型缝显式传
-	 *  `explore.title` 与 workflow_type。
-	 */
 	createChange: (root: string, name: string, goal: string, workflowType: string) => __TAURI_INVOKE<CreateOutcome>("create_change", { root, name, goal, workflowType }),
 	/**  读取单篇笔记全文；未知 stem、穿越名或文件缺失返回 `None`（不报错）。 */
 	readExplore: (root: string, name: string) => __TAURI_INVOKE<{

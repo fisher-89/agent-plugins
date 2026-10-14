@@ -5,12 +5,16 @@
 //! - 平台标志：`into_std` / `into_tokio` 统一施加（Windows `CREATE_NO_WINDOW`
 //!   抑制 GUI 进程 spawn 控制台命令的窗口闪烁）——新平台在此加 cfg 臂，
 //!   调用方零改动；
-//! - 进程树击杀：`kill_tree`（Windows `taskkill` / unix `kill`）。
+//! - 进程树击杀：`kill_tree`（Windows `taskkill` / unix `kill`）；
+//! - 进程输出解读面：[`ProcessOutput`]（错误信息 + 末尾行双面——失败归因
+//!   文本统一装配，替代各调用点自截尾部）。
 
+mod output;
 mod shell;
 
 #[cfg(windows)]
 pub use shell::probe_windows_shell;
+pub use output::ProcessOutput;
 pub use shell::{resolve_shell, ShellBase};
 
 use std::ffi::{OsStr, OsString};
@@ -175,19 +179,27 @@ pub fn record_exec_output(root: &Path, change: &str, output: &[u8]) -> Result<St
     Ok(exec_id)
 }
 
-/// `ExecOutput::Recorded` 回查半边：读回单一 `.log` 全量字节（与
-/// [`record_exec_output`] 同口径）；未知 / 非法 `exec_id` → `None`（miss 非错误）。
 pub fn read_exec_output(root: &Path, change: &str, exec_id: &str) -> Option<Vec<u8>> {
+    read_exec_output_in(&foundation::layout::resolve(root).changes_root.join(change), exec_id)
+}
+
+pub fn read_exec_output_in(change_dir: &Path, exec_id: &str) -> Option<Vec<u8>> {
     if !is_valid_exec_id(exec_id) {
         return None;
     }
-    std::fs::read(exec_output_dir(root, change).join(format!("{exec_id}.log"))).ok()
+    let dir = exec_output_dir_in(change_dir);
+    std::fs::read(dir.join(format!("{exec_id}.log"))).ok()
 }
 
 /// 输出记录目录派生（与 test-execution 报告树同锚：`change_test_reports/<name>/`
 /// ——`report_dir` 与 `exec_id` 同口径，见 desktop-checks-domain）。
 fn exec_output_dir(root: &Path, change: &str) -> PathBuf {
-    foundation::layout::change_test_reports(root, change).join(EXEC_OUTPUT_DIR)
+    exec_output_dir_in(&foundation::layout::resolve(root).changes_root.join(change))
+}
+
+/// [`exec_output_dir`] 的 change 目录变体（`reports/test` 后缀经 layout 单点）。
+fn exec_output_dir_in(change_dir: &Path) -> PathBuf {
+    foundation::layout::change_test_reports_in(change_dir).join(EXEC_OUTPUT_DIR)
 }
 
 /// `exec_id` 形态校验（路径分量安全：非空且仅 ASCII 字母数字与 `-`——防

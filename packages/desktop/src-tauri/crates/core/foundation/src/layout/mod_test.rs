@@ -488,3 +488,25 @@ fn 报告目录常量组两员逐字锚定() {
     assert_eq!(REPORTS_DIR_NAME, "reports");
     assert_eq!(TEST_REPORTS_DIR_NAME, "test");
 }
+
+/// `change_test_reports_in`：change 目录 → reports / test 两级后缀（与
+/// `change_test_reports` 同后缀单点——change 目录由三态定位面供给，任意锚
+/// 派生的报告树同构）。
+#[test]
+fn change_test_reports_in_change目录后缀与root变体同构() {
+    use super::change_test_reports_in;
+
+    let change_dir = PathBuf::from("wt-root").join(DOMAIN_DIR_NAME).join(CHANGES_DIR_NAME).join("demo");
+    assert_eq!(
+        change_test_reports_in(&change_dir),
+        change_dir.join(REPORTS_DIR_NAME).join(TEST_REPORTS_DIR_NAME),
+        "change 目录变体 = 目录直拼 reports/test 后缀"
+    );
+    // 与 root + change 变体同构（后缀单点——两派生共享同一拼接）
+    let temp = TempDir::new("report-in-derive");
+    let via_root = change_test_reports(&temp.0, "demo");
+    let via_dir = change_test_reports_in(
+        &resolve(&temp.0).changes_root.join("demo"),
+    );
+    assert_eq!(via_root, via_dir, "root 变体与 change 目录变体同构");
+}

@@ -99,7 +99,7 @@ fn bare逐参直传零壳包装() {
 // 退役；AC-6）
 // ---------------------------------------------------------------------------
 
-use crate::{read_exec_output, record_exec_output};
+use crate::{read_exec_output, read_exec_output_in, record_exec_output};
 
 /// 临时 workspace 根 RAII（报告目录树落盘 + 回查真实往返）。
 struct TempRoot(std::path::PathBuf);
@@ -206,6 +206,40 @@ fn read_exec_output已知引用回读同一log() {
         read_exec_output(root.path(), "demo", &exec_id).expect("重复回查应命中"),
         output
     );
+}
+
+/// 正向：`read_exec_output_in`（change 目录定位变体）——目录由 `locate_change`
+/// 类三态定位面供给，任意锚（worktree / active / archive）record 的 `.log` 经
+/// change 目录回读逐字节一致；与 root 变体同构（后缀单点）。
+#[test]
+fn read_exec_output_in_change目录定位与root变体同构() {
+    // 异锚落盘：模拟 worktree 锚（与 root 非同根）
+    let anchor = TempRoot::new("in-anchor");
+    let output = "worktree suite 输出\n".as_bytes().to_vec();
+    let exec_id = record_exec_output(anchor.path(), "demo", &output).expect("落盘应成功");
+    let change_dir = foundation::layout::resolve(anchor.path())
+        .changes_root
+        .join("demo");
+
+    assert_eq!(
+        read_exec_output_in(&change_dir, &exec_id).expect("change 目录定位应命中"),
+        output,
+        "change 目录变体回读与写入逐字节一致"
+    );
+    // 同构：root 变体等值（reports/test 后缀单点派生）
+    assert_eq!(
+        read_exec_output_in(&change_dir, &exec_id),
+        read_exec_output(anchor.path(), "demo", &exec_id),
+        "两变体同锚等值"
+    );
+    // 校验语义同 root 变体：未知 / 非法 exec_id → None（miss 非错误）
+    assert!(read_exec_output_in(&change_dir, "exec-unknown").is_none());
+    for hostile in ["", "..", "a/b", "exec-1.log"] {
+        assert!(
+            read_exec_output_in(&change_dir, hostile).is_none(),
+            "非法 exec_id {hostile:?} 应拒绝（零路径逃逸）"
+        );
+    }
 }
 
 /// 异常：未知 exec_id / 非法形态（空串 / `..` / 路径分隔符 / 盘符 / `.log`

@@ -1718,3 +1718,197 @@ fn change_edit_patch_幂等_重复调用结果一致() {
     );
     assert!(!first.is_empty(), "补丁非空（双源在场）");
 }
+
+// ---------------------------------------------------------------------------
+// ensure_mutation_artifact_exclude（.git/info/exclude 幂等追加 + staged 残留
+// 撤出）——失败段调试产物留盘复现但 MUST NOT 进归档提交
+// ---------------------------------------------------------------------------
+
+/// 读取 root 的 info/exclude 全文（装置断言原料；经 git-path 解析——与生产
+/// `resolve_info_exclude` 同口径）。
+fn read_exclude(root: &Path) -> String {
+    let raw = git(&root, &["rev-parse", "--git-path", "info/exclude"]);
+    let raw = raw.trim();
+    let path = PathBuf::from(raw);
+    let path = if path.is_absolute() {
+        path
+    } else {
+        root.join(path)
+    };
+    std::fs::read_to_string(path).unwrap_or_default()
+}
+
+/// 幂等：预置注释行 + 两条规则后重复 ensure → 各 pattern 恰一行、注释行原
+/// 样、二次调用零追加。
+#[test]
+fn ensure幂等_重复调用不重复追加() {
+    let (_dir, root) = init_repo("ensure-idempotent");
+    git::ensure_mutation_artifact_exclude(&root).expect("首次 ensure 应成功");
+    git::ensure_mutation_artifact_exclude(&root).expect("二次 ensure 应成功");
+    let content = read_exclude(&root);
+    assert_eq!(
+        content.matches("_stryker-tmp/").count(),
+        1,
+        "sandbox 规则恰一行: {content}"
+    );
+    assert_eq!(
+        content
+            .matches("mutation-stryker-seg-*.conf.json")
+            .count(),
+        1,
+        "临时 config 规则恰一行: {content}"
+    );
+}
+
+/// CRLF 兼容 + `.git/info` 目录补建：CRLF 仓追加用 CRLF、目录缺失重建。
+#[test]
+fn ensure兼容crlf与补目录() {
+    let (_dir, root) = init_repo("ensure-crlf");
+    // 预置 CRLF 注释行
+    std::fs::create_dir_all(root.join(".git").join("info")).expect("建 info 目录");
+    std::fs::write(root.join(".git").join("info").join("exclude"), "# custom\r\n")
+        .expect("预置 CRLF exclude");
+    git::ensure_mutation_artifact_exclude(&root).expect("CRLF 仓 ensure 应成功");
+    let content = read_exclude(&root);
+    assert!(content.contains("# custom\r\n"), "既有 CRLF 行原样: {content:?}");
+    assert!(
+        content.contains("_stryker-tmp/\r\n"),
+        "追加行跟随 CRLF: {content:?}"
+    );
+
+    // 目录缺失：删 .git/info 后 ensure 重建
+    std::fs::remove_dir_all(root.join(".git").join("info")).expect("删 info 目录");
+    git::ensure_mutation_artifact_exclude(&root).expect("目录缺失 ensure 应成功");
+    assert!(
+        read_exclude(&root).contains("mutation-stryker-seg-*.conf.json"),
+        "目录重建 + 规则在案"
+    );
+}
+
+/// ensure 后调试产物三面全剔：change_edit_set 不含、status --porcelain 不列
+/// （dirty 不被顶真）、add -A 后 diff --cached 不含。
+#[test]
+fn ensure后_调试产物三面全剔() {
+    let vcs = archive_vcs();
+    let (_dir, root) = init_repo("ensure-three-faces");
+    git::ensure_mutation_artifact_exclude(&root).expect("ensure 应成功");
+
+    // 深位调试产物在盘（报告树真实形态）
+    let mutation = root
+        .join("openspec")
+        .join("changes")
+        .join("demo")
+        .join("reports")
+        .join("test")
+        .join("app_vite-plus")
+        .join("mutation");
+    std::fs::create_dir_all(mutation.join("_stryker-tmp").join("sandbox-x")).expect("建 sandbox");
+    fs_write(
+        &root,
+        "openspec/changes/demo/reports/test/app_vite-plus/mutation/mutation-stryker-seg-0.conf.json",
+        "{}\n",
+    );
+    // 对照组：普通编辑照常入清单
+    fs_write(&root, "a.txt", "edited\n");
+
+    // 面 1：清单不含
+    let files = vcs.change_edit_set(&root, "HEAD").expect("清单应成功");
+    assert_eq!(files, vec!["a.txt".to_owned()], "调试产物不入清单");
+    // 面 2：status 不列（dirty 不被顶真）
+    let status = git(&root, &["status", "--porcelain"]);
+    assert!(!status.contains("stryker"), "status 不列调试产物: {status}");
+    assert!(status.contains("a.txt"), "普通编辑照常在列");
+    // 面 3：add -A 后 staged 不含
+    git(&root, &["add", "-A"]);
+    let staged = git(&root, &["diff", "--cached", "--name-only"]);
+    assert!(!staged.contains("stryker"), "add -A 不收录调试产物: {staged}");
+    assert!(staged.contains("a.txt"), "普通编辑照常收录");
+}
+
+/// 升级路径：修复前 `git add -N` 留下的 intent-to-add 残留被 ensure 撤出索引
+///（文件留盘）。
+#[test]
+fn ensure撤出intent_to_add残留() {
+    let (_dir, root) = init_repo("ensure-reset-residue");
+    // 模拟修复前残留：临时 config 已被 add -N（intent-to-add 不出
+    // `diff --cached`，但确在索引、add -A / commit 会真正收录）
+    std::fs::create_dir_all(root.join("reports")).expect("建 reports 目录");
+    fs_write(&root, "reports/mutation-stryker-seg-0.conf.json", "{}\n");
+    git(&root, &["add", "-N", "--", "reports/mutation-stryker-seg-0.conf.json"]);
+    let cached = git(&root, &["ls-files", "--cached"]);
+    assert!(
+        cached.contains("mutation-stryker-seg-0.conf.json"),
+        "前置：残留确在索引（{cached}）"
+    );
+
+    git::ensure_mutation_artifact_exclude(&root).expect("ensure 应成功");
+    // 撤出索引、文件留盘
+    let cached = git(&root, &["ls-files", "--cached"]);
+    assert!(
+        !cached.contains("mutation-stryker-seg-0.conf.json"),
+        "残留撤出索引: {cached}"
+    );
+    assert!(
+        root.join("reports/mutation-stryker-seg-0.conf.json").is_file(),
+        "文件留盘（只撤索引不删文件）"
+    );
+    // 归档面验收：add -A 后 staged 不含（不进归档提交）
+    git(&root, &["add", "-A"]);
+    let staged = git(&root, &["diff", "--cached", "--name-only"]);
+    assert!(
+        !staged.contains("mutation-stryker-seg-0.conf.json"),
+        "add -A 不收录残留: {staged}"
+    );
+}
+
+/// 非 git 仓：ensure 显式 Err（前序 change_edit_set 的 git 调用已先行 Err，
+/// 此处直测 ensure 自身错误面）。
+#[test]
+fn ensure非git仓_显式err() {
+    let dir = tempfile::Builder::new()
+        .prefix("vcs-git-test-ensure-nongit-")
+        .tempdir()
+        .expect("创建临时目录失败");
+    assert!(
+        git::ensure_mutation_artifact_exclude(dir.path()).is_err(),
+        "非 git 仓显式 Err"
+    );
+}
+
+/// linked worktree：ensure(worktree) 写主仓共享 exclude（common-dir 形态回
+/// 归锚）——worktree 内产物同被剔除。
+#[test]
+fn ensure_worktree写主仓共享exclude() {
+    let _guard = lock_path();
+    let (_dir, root) = init_repo("ensure-worktree-main");
+    let (_wt_dir, wt) = worktree_slot("ensure-worktree-wt");
+    git(&root, &["worktree", "add", &wt.to_string_lossy(), "-b", "change/wt"]);
+
+    // worktree 内深位产物
+    let mutation = wt
+        .join("openspec")
+        .join("changes")
+        .join("demo")
+        .join("reports")
+        .join("test")
+        .join("mutation");
+    std::fs::create_dir_all(mutation.join("_stryker-tmp")).expect("建 sandbox");
+    std::fs::write(mutation.join("mutation-stryker-seg-0.conf.json"), "{}\n")
+        .expect("写临时 config");
+
+    git::ensure_mutation_artifact_exclude(&wt).expect("worktree ensure 应成功");
+    // 主仓 .git/info/exclude 在案（common dir 共享）
+    let main_exclude =
+        std::fs::read_to_string(root.join(".git").join("info").join("exclude"))
+            .unwrap_or_default();
+    assert!(
+        main_exclude.contains("_stryker-tmp/"),
+        "主仓 exclude 在案: {main_exclude}"
+    );
+    // worktree 内 untracked 剔除
+    let untracked = git(&wt, &["ls-files", "--others", "--exclude-standard"]);
+    assert!(
+        !untracked.contains("stryker"),
+        "worktree 产物被共享 exclude 剔除: {untracked}"
+    );
+}

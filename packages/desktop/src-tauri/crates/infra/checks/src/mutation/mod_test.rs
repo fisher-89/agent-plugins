@@ -40,7 +40,7 @@ use workflow::write::SessionAnchors;
 
 use super::report::to_posix;
 use super::{
-    bucket_suites, framework_name, mutation_tool, normalize_root, output_tail, skip_outcome,
+    bucket_suites, framework_name, mutation_tool, normalize_root, skip_outcome,
     ProcessMutation, EST_MUTANTS_PER_FILE, MUTATION_JOBS_DIVISOR, PER_MUTANT_TIMEOUT_SECS,
     SEGMENT_BUDGET_MS, SEGMENT_GUARD_MS,
 };
@@ -805,7 +805,7 @@ async fn 执行链js_suite全链stryker假spawn产出() {
     window.set_out(STRYKER_SEG_PASS);
     window.set_report(&report_path);
 
-    let files = vec!["app/src/a.test.ts".to_owned()];
+    let files = vec!["app/src/a.ts".to_owned()];
     let output = run(&ws, &files).await.expect("js 全链应成功");
     let outcome = outcome_of(output);
     assert_eq!(outcome.conclusion, MutationTestConclusion::Pass);
@@ -937,6 +937,12 @@ async fn 段中断_conclusion_error即时反馈不等汇总() {
     assert!(
         summary["mutation"].is_null(),
         "中断面 MUST NOT 回填 summary mutation 位"
+    );
+    // rust 桶中断零保留（保留面只属 Stryker 失败桶的临时产物）
+    assert!(
+        !outcome.feedback_text.contains("保留的失败段"),
+        "rust 中断无保留段: {}",
+        outcome.feedback_text
     );
 
     // 假 spawn 执行链证据：两 suite 各一次、argv 携各自 plan 段补丁路径
@@ -1410,20 +1416,20 @@ fn suite归桶_前缀匹配与跨桶单归与锚点归一() {
     ];
     let files = vec![
         "app/src/lib.rs".to_owned(),
-        "app/nested/deep.rs".to_owned(),
+        "app/nested/deep.ts".to_owned(),
         "outside/other.rs".to_owned(),
         // Windows 反斜杠入参归一 POSIX 后归桶
         "app\\src\\win.rs".to_owned(),
     ];
     let buckets = bucket_suites(root, &suites, &files);
 
-    // 最长前缀匹配：app/nested/deep.rs 归 nested 桶（最具体）、app/src/* 归 app 桶
+    // 最长前缀匹配：app/nested/deep.ts 归 nested 桶（最具体）、app/src/* 归 app 桶
     assert_eq!(
         buckets[0].files,
         vec!["app/src/lib.rs", "app/src/win.rs"],
         "app 桶（POSIX 归一后排序去重）"
     );
-    assert_eq!(buckets[1].files, vec!["app/nested/deep.rs"], "nested 桶（最长前缀）");
+    assert_eq!(buckets[1].files, vec!["app/nested/deep.ts"], "nested 桶（最长前缀）");
     // plan id / 框架 / 阈值 / 执行器绑定面
     assert_eq!(
         buckets[0].plan_id, "app_rust",
@@ -1548,7 +1554,274 @@ fn 段级解析路由与产出模型面() {
 
     // 解析失败显式 Err（结构面严格——路由不吞）
     assert!(super::parse_seg(MutationTool::CargoMutants, "broken").is_err());
+}
 
-    // 合并输出尾部单点（mod.rs 消费面）与 cargo_mutants_test 对拍
-    assert_eq!(output_tail("ok".as_bytes()), "ok");
+// ---------------------------------------------------------------------------
+// 归桶过滤（mutate 清单消费面）：excludes 全桶 + Stryker 桶可插桩/测试文件
+// 两规则（tool-scoped）——空桶跳过语义与假绿防线
+// ---------------------------------------------------------------------------
+
+/// 夹具小助手：suite 构造（excludes 缺省 None）。
+fn filter_suite(root: &str, framework: TestFramework, excludes: Vec<&str>) -> config::TestSuite {
+    config::TestSuite {
+        root: root.to_owned(),
+        framework,
+        cwd: ".".to_owned(),
+        config: None,
+        includes: None,
+        excludes: (!excludes.is_empty()).then(|| excludes_into_strings(excludes)),
+        coverage: config::CoverageThresholds {
+            lines: 80.0,
+            branches: 70.0,
+            functions: 75.0,
+        },
+        mutation: MutationConfig {
+            cwd: None,
+            score: 80.0,
+        },
+    }
+}
+
+/// `Vec<&str>` → `Vec<String>`。
+fn excludes_into_strings(values: Vec<&str>) -> Vec<String> {
+    values.into_iter().map(str::to_owned).collect()
+}
+
+/// 纯层：可插桩扩展名 allowlist + 测试文件剔除**仅 Stryker 桶**生效——vitest
+/// 桶滤掉不可插桩扩展名与 `.test./.spec./__tests__` 标记，源文件留桶；rust 桶
+///（cargo-mutants `--in-diff` 切片自滤）不受扩展名/测试文件约束。
+#[test]
+fn 归桶过滤_可插桩扩展名与测试文件仅stryker桶剔除() {
+    let root = Path::new("/ws");
+    let suites = vec![filter_suite("app", TestFramework::Vitest, Vec::new())];
+    let files = vec![
+        "app/src/a.ts".to_owned(),
+        "app/src/b.tsx".to_owned(),
+        "app/src/c.vue".to_owned(),
+        "app/README.md".to_owned(),
+        "app/package.json".to_owned(),
+        "app/src/styles.css".to_owned(),
+        "app/src/logo.png".to_owned(),
+        "app/src/a.test.ts".to_owned(),
+        "app/src/b.spec.tsx".to_owned(),
+        "app/src/__tests__/helper.ts".to_owned(),
+    ];
+    let buckets = bucket_suites(root, &suites, &files);
+    assert_eq!(
+        buckets[0].files,
+        vec![
+            "app/src/a.ts".to_owned(),
+            "app/src/b.tsx".to_owned(),
+            "app/src/c.vue".to_owned(),
+        ],
+        "可插桩源文件留桶、不可插桩扩展名与测试文件剔除"
+    );
+
+    // rust 桶不受约束（`.rs` / 测试文件照入——cargo-mutants --in-diff 自滤）
+    let suites = vec![filter_suite("app", TestFramework::Rust, Vec::new())];
+    let files = vec![
+        "app/src/lib.rs".to_owned(),
+        "app/README.md".to_owned(),
+        "app/tests/x.rs".to_owned(),
+    ];
+    let buckets = bucket_suites(root, &suites, &files);
+    assert_eq!(
+        buckets[0].files,
+        vec![
+            "app/README.md".to_owned(),
+            "app/src/lib.rs".to_owned(),
+            "app/tests/x.rs".to_owned(),
+        ],
+        "rust 桶零扩展名/测试文件约束"
+    );
+}
+
+/// 纯层：`suite.excludes` 全桶消费（CLI `isFileExcluded` 口径）——vitest 与
+/// rust 桶各自的 excludes 命中即不入桶。
+#[test]
+fn 归桶过滤_excludes全桶消费() {
+    let root = Path::new("/ws");
+    let suites = vec![
+        filter_suite("app", TestFramework::Vitest, vec!["src/generated/**"]),
+        filter_suite("src-tauri", TestFramework::Rust, vec!["**/*_schema.rs"]),
+    ];
+    let files = vec![
+        "app/src/keep.ts".to_owned(),
+        "app/src/generated/bindings.ts".to_owned(),
+        "src-tauri/src/keep.rs".to_owned(),
+        "src-tauri/src/foo_schema.rs".to_owned(),
+    ];
+    let buckets = bucket_suites(root, &suites, &files);
+    assert_eq!(
+        buckets[0].files,
+        vec!["app/src/keep.ts".to_owned()],
+        "vitest 桶 excludes 命中剔除"
+    );
+    assert_eq!(
+        buckets[1].files,
+        vec!["src-tauri/src/keep.rs".to_owned()],
+        "rust 桶 excludes 命中剔除（全桶口径）"
+    );
+}
+
+/// 全链：Stryker 桶全滤空（只喂不可插桩 / 测试文件）→ `EmptyDiff` skip（Pass、
+/// mutation 位 null、**零 spawn**——dry-run 0 mutant → score 100.0 假绿路径
+/// 不可达）。
+#[tokio::test]
+async fn 全桶滤空_emptydiff零spawn假绿防线() {
+    let window = SpawnWindow::enter("filter-empty");
+    let ws = ChainWs::with_config("filter-empty", VITEST_CONFIG).with_summary();
+    let files = vec![
+        "app/README.md".to_owned(),
+        "app/package.json".to_owned(),
+        "app/src/a.test.ts".to_owned(),
+    ];
+    let output = run(&ws, &files).await.expect("空突变面产 Ok 载荷");
+    let outcome = outcome_of(output);
+    assert_eq!(outcome.conclusion, MutationTestConclusion::Pass, "跳过面恒 Pass");
+    assert_eq!(
+        outcome.skip,
+        Some(MutationSkipReason::EmptyDiff),
+        "全滤空 → EmptyDiff（mutation 位 null 观察期）"
+    );
+    assert_eq!(
+        (outcome.score, outcome.threshold),
+        (0.0, 0.0),
+        "跳过面占位计"
+    );
+    assert!(
+        outcome.report_paths.is_empty(),
+        "零段零报告: {:?}",
+        outcome.report_paths
+    );
+    assert!(window.records().is_empty(), "零 spawn（假绿路径不可达）");
+    let summary = read_summary(&ws);
+    assert!(
+        summary["mutation"].is_null(),
+        "跳过面 MUST NOT 回填 summary mutation 位"
+    );
+}
+
+/// 全链：单桶滤空掉出 runnable（vitest 桶滤空、rust 桶照跑）——spawn 恰一次
+/// 且 argv 只含 cargo mutants 面。
+#[tokio::test]
+async fn 单桶滤空掉出runnable_余桶照跑() {
+    let window = SpawnWindow::enter("filter-partial");
+    let config = r#"{ "tests": [
+  { "root": "app", "framework": "vitest", "coverage": { "lines": 80, "branches": 70, "functions": 75 }, "mutation": { "score": 80 } },
+  { "root": "src-tauri", "framework": "rust", "coverage": { "lines": 80, "branches": 70, "functions": 75 }, "mutation": { "score": 70 } }
+] }"#;
+    let ws = ChainWs::with_config("filter-partial", config).with_summary();
+    window.install_fake_cargo(&ws.root.join("src-tauri"));
+    window.set_out(CARGO_SEG_PASS);
+
+    // vitest 桶只喂不可插桩文件（滤空）；rust 桶正常
+    let files = vec![
+        "app/styles.css".to_owned(),
+        "src-tauri/src/main.rs".to_owned(),
+    ];
+    let output = run(&ws, &files).await.expect("余桶照跑应成功");
+    let outcome = outcome_of(output);
+    assert_eq!(outcome.conclusion, MutationTestConclusion::Pass);
+    assert_eq!(outcome.skip, None, "有可跑桶非跳过");
+    assert_eq!((outcome.score, outcome.threshold), (90.0, 70.0), "rust 桶归并");
+
+    let records = window.records();
+    assert_eq!(records.len(), 1, "恰一次 spawn（vitest 桶滤空零 spawn）");
+    assert_eq!(records[0].argv[0], "mutants", "唯一 spawn 为 cargo-mutants 面");
+}
+
+/// 全链：**Stryker 段失败 → 失败桶临时面保留**——临时 config + `_stryker-tmp`
+/// 在盘、反馈面附保留段与两条路径（供单段复现）。
+#[tokio::test]
+async fn 中断保留失败段产物_反馈附路径() {
+    let window = SpawnWindow::enter("retain-failure");
+    let ws = ChainWs::with_config("retain-failure", VITEST_CONFIG).with_summary();
+    window.install_npx();
+    fs::create_dir_all(ws.root.join("app")).expect("建 suite 执行目录");
+    // 假 npx 非零退出 + 无段报告（run_segment 写盘 config 后 spawn 崩面）
+    window.set_out(SEG_INTERRUPT_GARBAGE);
+    window.set_exit(101);
+    // 预置 sandbox 目录（真 Stryker 建置面模拟）
+    let mutation_dir = foundation::layout::change_test_reports(&ws.root, ws.change)
+        .join("app_vitest")
+        .join("mutation");
+    fs::create_dir_all(mutation_dir.join("_stryker-tmp").join("sandbox-x"))
+        .expect("预置 sandbox");
+
+    let files = vec!["app/src/a.ts".to_owned()];
+    let output = run(&ws, &files).await.expect("中断面产 Ok 载荷");
+    let outcome = outcome_of(output);
+    assert_eq!(outcome.conclusion, MutationTestConclusion::Error, "段中断收束");
+
+    // 临时面在盘（config 由 run_segment 写盘、sandbox 预置——cleanup 跳过保留）
+    let config_path = mutation_dir.join("mutation-stryker-seg-0.conf.json");
+    assert!(
+        config_path.is_file(),
+        "失败段临时 config 在盘: {}",
+        to_posix(&config_path)
+    );
+    assert!(
+        mutation_dir.join("_stryker-tmp").is_dir(),
+        "失败桶 sandbox 在盘: {}",
+        to_posix(&mutation_dir)
+    );
+    // 反馈面：保留段 + 两条路径（sandbox 在前 + config）
+    let feedback = &outcome.feedback_text;
+    assert!(
+        feedback.contains("保留的失败段调试产物"),
+        "保留段在案: {feedback}"
+    );
+    assert!(
+        feedback.contains("_stryker-tmp") && feedback.contains("mutation-stryker-seg-0.conf.json"),
+        "保留产物路径清单: {feedback}"
+    );
+    assert!(
+        feedback.contains("已产报告路径"),
+        "已产报告路径段保留: {feedback}"
+    );
+}
+
+/// 全链：成功收束照清（保留面反面）——全段成功后临时 config 与 `_stryker-tmp`
+/// 不在盘、报告工件原样在位。
+#[tokio::test]
+async fn 成功全段_临时产物照清() {
+    let window = SpawnWindow::enter("retain-clean");
+    let ws = ChainWs::with_config("retain-clean", VITEST_CONFIG);
+    window.install_npx();
+    fs::create_dir_all(ws.root.join("app")).expect("建 suite 执行目录");
+    window.set_out(STRYKER_SEG_PASS);
+    let mutation_dir = foundation::layout::change_test_reports(&ws.root, ws.change)
+        .join("app_vitest")
+        .join("mutation");
+    let report_path = mutation_dir.join("mutation-seg-0.json");
+    window.set_report(&report_path);
+    // 预置 sandbox 目录（成功后应被清理）
+    fs::create_dir_all(mutation_dir.join("_stryker-tmp").join("sandbox-x"))
+        .expect("预置 sandbox");
+
+    let files = vec!["app/src/a.ts".to_owned()];
+    let output = run(&ws, &files).await.expect("成功面应成功");
+    let outcome = outcome_of(output);
+    assert_eq!(outcome.conclusion, MutationTestConclusion::Pass);
+
+    assert!(
+        !mutation_dir.join("_stryker-tmp").exists(),
+        "成功收束 sandbox 照清"
+    );
+    let leftover: Vec<_> = std::fs::read_dir(&mutation_dir)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter(|entry| {
+            let name = entry.file_name().to_string_lossy().into_owned();
+            name.starts_with("mutation-stryker-seg-")
+        })
+        .collect();
+    assert!(leftover.is_empty(), "成功收束临时 config 照清");
+    assert!(report_path.is_file(), "段级报告工件原样在位");
+    assert!(
+        mutation_dir.join("mutation.json").is_file(),
+        "归并报告工件原样在位"
+    );
 }

@@ -74,21 +74,31 @@ pub fn mutation_jobs() -> usize {
     (parallelism / MUTATION_JOBS_DIVISOR).max(1)
 }
 
-/// 合并输出有界尾部（`testexec::runner` 同量级口径——段报告面归因原料；反馈边
-/// 只取结论摘要，尾部留错误面归因）。
-const OUTPUT_TAIL_LIMIT: usize = 500;
+/// Stryker 可插桩扩展名 allowlist（镜像 `@stryker-mutator/instrumenter`
+/// `getFormat` 注册表——白名单之外的扩展名插桩器抛 `Unable to parse … No
+/// parser registered`，整个 Stryker run 崩溃且不产出报告）。不带点形态
+/// （与 `rsplit_once('.')` 产出的扩展名直接比对）。
+const STRYKER_INSTRUMENTABLE_EXTS: [&str; 12] = [
+    "js", "jsx", "mjs", "cjs", "ts", "mts", "cts", "tsx", "vue", "html", "htm", "svelte",
+];
 
-/// 合并输出有界尾部（末段优先——编译 / 执行错误通常在输出末段；超限省略号前缀
-/// 示意截断）。
-pub(crate) fn output_tail(output: &[u8]) -> String {
-    let text = String::from_utf8_lossy(output);
-    let trimmed = text.trim_end();
-    let total = trimmed.chars().count();
-    if total <= OUTPUT_TAIL_LIMIT {
-        return trimmed.to_owned();
+/// 文件是否 Stryker 可插桩（扩展名小写比对 allowlist；无扩展名 / 未知扩展名
+/// 均不可插桩）。
+fn is_stryker_instrumentable(file: &str) -> bool {
+    file.rsplit_once('.').is_some_and(|(_, extension)| {
+        STRYKER_INSTRUMENTABLE_EXTS.contains(&extension.to_ascii_lowercase().as_str())
+    })
+}
+
+/// 文件是否测试文件（CLI `deriveSourceFiles` 反向口径）：路径含 `__tests__/`
+/// 目录或 basename 含 `.test.` / `.spec.` 标记。测试文件是判定 oracle，不作
+/// 突变对象（CLI 注释声称的 `_test.` / `test_` 标记代码未实现，不移植）。
+fn is_test_file(file: &str) -> bool {
+    if file.contains("__tests__/") {
+        return true;
     }
-    let tail: String = trimmed.chars().skip(total - OUTPUT_TAIL_LIMIT).collect();
-    format!("…{tail}")
+    let name = file.rsplit('/').next().unwrap_or(file);
+    name.contains(".test.") || name.contains(".spec.")
 }
 
 /// mutation-test 进程执行器（无状态，组合根按需构造）。
@@ -150,26 +160,38 @@ async fn execute(
     let mut report_paths: Vec<String> = Vec::new();
     let mut stryker_dirs: Vec<PathBuf> = Vec::new();
     let mut interruption: Option<String> = None;
+    // 失败桶临时面保留：失败（Interrupted / Fatal）的 Stryker 桶临时 config 与
+    // sandbox 不清理，反馈面附路径供单段复现（保留粒度 = 失败桶全临时面——段
+    // index 不上抛（`SegmentFailure` 只携 String）、sandbox 本跨段共享、清单有
+    // 界且失败段 config 必在其中（段串行））；成功面照清，rust 桶无临时面
+    let mut retain: Option<PathBuf> = None;
     for bucket in &runnable {
         let bucket = *bucket;
+        let mutation_dir = reports_dir.join(&bucket.plan_id).join("mutation");
         if bucket.tool == Some(MutationTool::Stryker) {
-            stryker_dirs.push(reports_dir.join(&bucket.plan_id).join("mutation"));
+            stryker_dirs.push(mutation_dir.clone());
         }
         match run_suite(root_path, &reports_dir, bucket, patch, &mut report_paths).await {
             Ok(block) => suite_results.push((bucket.plan_id.clone(), block)),
             Err(SegmentFailure::Fatal(error)) => {
-                cleanup_stryker_dirs(&stryker_dirs);
-                return Err(error);
+                if bucket.tool == Some(MutationTool::Stryker) {
+                    retain = Some(mutation_dir);
+                }
+                let retained = cleanup_stryker_dirs(&stryker_dirs, retain.as_ref());
+                return Err(format!("{error}{}", retained_artifacts_section(&retained)));
             }
             Err(SegmentFailure::Interrupted(error)) => {
+                if bucket.tool == Some(MutationTool::Stryker) {
+                    retain = Some(mutation_dir);
+                }
                 interruption = Some(error);
                 break;
             }
         }
     }
     // sandbox 跨段复用后的全段一次清理（只清 `_stryker-tmp` 与临时 config，报告
-    // 工件不触碰）
-    cleanup_stryker_dirs(&stryker_dirs);
+    // 工件不触碰；keep 面 = 失败桶临时面保留）
+    let retained = cleanup_stryker_dirs(&stryker_dirs, retain.as_ref());
 
     let blocks: Vec<MutationBlock> = suite_results
         .iter()
@@ -185,8 +207,9 @@ async fn execute(
             None => (0.0, 0.0, MutationCounts::default()),
         };
         let feedback_text = format!(
-            "突变执行中断：{error}\n已产报告路径：\n{}",
-            bullet_paths(&report_paths)
+            "突变执行中断：{error}\n已产报告路径：\n{}{}",
+            bullet_paths(&report_paths),
+            retained_artifacts_section(&retained)
         );
         return Ok(ToolStepOutput::MutationTest(MutationTestOutcome {
             conclusion: MutationTestConclusion::Error,
@@ -271,6 +294,11 @@ fn bucket_suites(root_path: &Path, suites: &[TestSuite], files: &[String]) -> Ve
         .collect();
     for file in files {
         let normalized = file.replace('\\', "/").trim_start_matches('/').to_owned();
+        // excludes 全桶消费（CLI `isFileExcluded` 同口径——任何 suite 的排除
+        // glob 命中即不入任何桶，含 rust 桶）
+        if checks::aggregate::is_file_excluded(&normalized, suites) {
+            continue;
+        }
         let mut best: Option<usize> = None;
         let mut best_len = 0usize;
         for (index, bucket) in buckets.iter().enumerate() {
@@ -283,6 +311,15 @@ fn bucket_suites(root_path: &Path, suites: &[TestSuite], files: &[String]) -> Ve
             }
         }
         if let Some(index) = best {
+            // Stryker 桶专属过滤（tool-scoped——node-test 等无执行器桶不受
+            // 约束，NoExecutor 跳过面口径不变）：不可插桩扩展名 / 测试文件不
+            // 进 mutate 面（不可插桩文件让插桩器整 run 崩溃；测试文件是判定
+            // oracle 非突变对象）
+            if buckets[index].tool == Some(MutationTool::Stryker)
+                && (!is_stryker_instrumentable(&normalized) || is_test_file(&normalized))
+            {
+                continue;
+            }
             buckets[index].files.push(normalized);
         }
     }
@@ -566,6 +603,18 @@ fn bullet_paths(paths: &[String]) -> String {
         .join("\n")
 }
 
+/// 保留产物段（Err / 中断反馈面追加；空清单 → 空串——rust 桶失败等零保留
+/// 场景段落不出现）。
+fn retained_artifacts_section(retained: &[String]) -> String {
+    if retained.is_empty() {
+        return String::new();
+    }
+    format!(
+        "\n保留的失败段调试产物（供单段复现；已由 .git/info/exclude 排除在归档外）：\n{}",
+        bullet_paths(retained)
+    )
+}
+
 /// 归并计数载荷转换（port 流量像 ↔ checks 测量面）。
 fn counts_of(measured: &MutationMeasured) -> MutationCounts {
     MutationCounts {
@@ -579,9 +628,16 @@ fn counts_of(measured: &MutationMeasured) -> MutationCounts {
     }
 }
 
-/// Stryker sandbox 清单清理（全段后一次 / Fatal 收束时 best-effort）。
-fn cleanup_stryker_dirs(dirs: &[PathBuf]) {
+/// Stryker sandbox 清单清理（全段后一次 / Fatal 收束时 best-effort；`keep` 面
+/// = 失败桶临时面保留——收集在盘保留产物路径返回，供反馈面引用）。
+fn cleanup_stryker_dirs(dirs: &[PathBuf], keep: Option<&PathBuf>) -> Vec<String> {
+    let mut retained = Vec::new();
     for dir in dirs {
+        if keep.is_some_and(|keep| keep == dir) {
+            retained.extend(report::stryker_retained_artifacts(dir));
+            continue;
+        }
         report::cleanup_stryker_artifacts(dir);
     }
+    retained
 }

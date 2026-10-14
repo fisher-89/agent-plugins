@@ -21,7 +21,7 @@ use tempfile::TempDir;
 use super::super::mod_test::{SpawnRecord, SpawnWindow};
 use super::super::report::to_posix;
 use super::super::{
-    mutation_jobs, output_tail, SegmentFailure, MUTATION_JOBS_DIVISOR, PER_MUTANT_TIMEOUT_SECS,
+    mutation_jobs, SegmentFailure, MUTATION_JOBS_DIVISOR, PER_MUTANT_TIMEOUT_SECS,
     SEGMENT_SPAWN_TIMEOUT_MS,
 };
 use super::{json_payload, run_segment, segment_failure_message};
@@ -433,22 +433,21 @@ async fn 补丁入参边界_空串超大与特殊字符不破坏() {
     }
 }
 
-/// 合并输出有界尾部（`output_tail` 消费面）：≤500 字原样、超限省略号前缀截断
-/// （段报告面归因原料口径——mod.rs 单点、本模块引用对拍）。
+/// 段中断错误面双段形态（exec `ProcessOutput` 装配——行口径末尾与错误信息
+/// 段；覆盖面主体在 exec `output_test`，此处只对拍本模块 head 接线）。
 #[test]
-fn 合并输出有界尾部_超限省略号截断() {
-    let short = "short output";
-    assert_eq!(output_tail(short.as_bytes()), "short output", "≤500 原样");
-
-    let long = "x".repeat(600);
-    let tail = output_tail(long.as_bytes());
-    assert_eq!(tail.chars().count(), 501, "截断至 500 + 省略号");
-    assert!(tail.starts_with('…'), "省略号前缀示意截断");
-
-    // 尾部优先（末段留痕——编译 / 执行错误通常在输出末段）
-    let graded = format!("{}tail-marker", "a".repeat(600));
-    assert!(
-        output_tail(graded.as_bytes()).ends_with("tail-marker"),
-        "末段优先留痕"
+fn 段中断错误面_双段装配接线() {
+    let message = segment_failure_message(
+        101,
+        b"unmutated\nerror: build failed\ntail-marker\n".as_ref(),
+    );
+    assert!(message.contains("cargo-mutants 段执行失败（退出码 101，未产出可解析 JSON 段报告）"));
+    assert!(message.contains("错误信息：\nerror: build failed"), "错误信息段在案");
+    assert!(message.contains("输出末尾（50 行）："), "输出末尾段在案");
+    assert!(message.ends_with("tail-marker"), "末段留痕");
+    // 空输出 → 裸 head（无冒号缀）
+    assert_eq!(
+        segment_failure_message(1, b""),
+        "cargo-mutants 段执行失败（退出码 1，未产出可解析 JSON 段报告）"
     );
 }

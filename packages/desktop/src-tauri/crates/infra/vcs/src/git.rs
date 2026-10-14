@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Stdio;
 
 use orchestration::port::{IndexEntry, RebaseOutcome, StatusEntry, WorktreeSnapshot};
@@ -374,11 +374,13 @@ pub(crate) fn commit_paths(main_root: &Path, paths: &[&str], message: &str) -> R
 /// --others --exclude-standard -z`（untracked 并入——新建源文件不 add 也入清
 /// 单），排序去重、POSIX 归一后返回。`base = "HEAD"` 时即本 change 编辑集
 /// （worktree 语义）。git 失败显式 `Err`——MUST NOT 静默降级空清单（空清单会
-/// 误走 diff 空跳过）。
+/// 误走 diff 空跳过）。取数链路内幂等确保 mutation 调试产物忽略规则（见
+/// [`ensure_mutation_artifact_exclude`]——发生在任何段临时 config 写盘前）。
 pub(crate) fn change_edit_set(root: &Path, base: &str) -> Result<Vec<String>, String> {
     validate_base(base)?;
     let tracked = git(root, &["diff", base, "--name-only", "-z"])?;
     let untracked = git(root, &["ls-files", "--others", "--exclude-standard", "-z"])?;
+    ensure_mutation_artifact_exclude(root)?;
     let mut files = std::collections::BTreeSet::new();
     for raw in [tracked, untracked] {
         for entry in raw.split('\0').filter(|entry| !entry.is_empty()) {
@@ -386,6 +388,119 @@ pub(crate) fn change_edit_set(root: &Path, base: &str) -> Result<Vec<String>, St
         }
     }
     Ok(files.into_iter().collect())
+}
+
+/// mutation 调试产物忽略规则（`.git/info/exclude` 追加面；basename 语义任意
+/// 深度命中——`_stryker-tmp/` 目录段 / `mutation-stryker-seg-*.conf.json`
+/// 文件名）。一次 ensure 三覆盖：`commit_all` 的 `add -A`、`dirty` 的
+/// `status --porcelain`、本清单的 `ls-files --others --exclude-standard`
+/// 全自动剔除——失败段调试产物留盘复现但 MUST NOT 进归档提交。
+const MUTATION_EXCLUDE_PATTERNS: [&str; 2] =
+    ["_stryker-tmp/", "mutation-stryker-seg-*.conf.json"];
+
+/// 幂等确保 mutation 调试产物忽略规则写入 workspace `.git/info/exclude`：
+/// 已全在 → 零写盘；缺任一 → 补齐（`.git/info` 目录缺失则创建；行终止符跟随
+/// 既有内容——CRLF 仓不写裸 LF）。配套撤出 staged 面残留（修复前 `git add -N`
+/// 的 intent-to-add——tracked 面 ignore 盖不住，`add -A` 会真正收录；文件留
+/// 盘只撤索引）。写盘 / git 失败显式 `Err`（保证优先：排除写不进就别让
+/// mutation 继续跑）。经 `git rev-parse --git-path` 解析——linked worktree 返回
+/// 主仓 common-dir 绝对路径（主仓 + 全部 worktree 共享一份）。
+pub(crate) fn ensure_mutation_artifact_exclude(root: &Path) -> Result<(), String> {
+    let exclude_path = resolve_info_exclude(root)?;
+    let existing = std::fs::read_to_string(&exclude_path).unwrap_or_default();
+    if !MUTATION_EXCLUDE_PATTERNS
+        .iter()
+        .all(|pattern| exclude_line_present(&existing, pattern))
+    {
+        if let Some(parent) = exclude_path.parent() {
+            std::fs::create_dir_all(parent).map_err(|error| {
+                format!(
+                    "mutation 调试产物忽略目录创建失败 {}: {error}",
+                    parent.display()
+                )
+            })?;
+        }
+        let newline = if existing.contains("\r\n") { "\r\n" } else { "\n" };
+        let mut updated = existing.clone();
+        for pattern in MUTATION_EXCLUDE_PATTERNS {
+            if !exclude_line_present(&existing, pattern) {
+                if !updated.is_empty() && !updated.ends_with(newline) {
+                    updated.push_str(newline);
+                }
+                updated.push_str(pattern);
+                updated.push_str(newline);
+            }
+        }
+        std::fs::write(&exclude_path, updated).map_err(|error| {
+            format!(
+                "mutation 调试产物忽略规则写盘失败 {}: {error}",
+                exclude_path.display()
+            )
+        })?;
+    }
+    reset_staged_mutation_artifacts(root)
+}
+
+/// `.git/info/exclude` 路径解析（`git rev-parse --git-path`——相对输出对
+/// root 绝对化；linked worktree 返回主仓绝对路径直接可用）。
+fn resolve_info_exclude(root: &Path) -> Result<PathBuf, String> {
+    let raw = git(root, &["rev-parse", "--git-path", "info/exclude"])?;
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return Err(
+            "mutation 调试产物忽略规则定位失败：git-path info/exclude 输出为空".to_owned(),
+        );
+    }
+    let path = Path::new(trimmed);
+    Ok(if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        root.join(path)
+    })
+}
+
+/// 行级存在判定（剥 `\r` 后整行相等——避免子串误命中注释行）。
+fn exclude_line_present(content: &str, pattern: &str) -> bool {
+    content
+        .split('\n')
+        .any(|line| line.trim_end_matches('\r') == pattern)
+}
+
+/// staged 条目是否 mutation 调试产物（路径含 `_stryker-tmp` 段，或 basename
+/// 匹配临时 config 命名前缀 + `.conf.json` 后缀）。
+fn is_mutation_artifact_entry(entry: &str) -> bool {
+    let segments: Vec<&str> = entry.split('/').collect();
+    if segments
+        .iter()
+        .take(segments.len().saturating_sub(1))
+        .any(|segment| *segment == "_stryker-tmp")
+    {
+        return true;
+    }
+    segments
+        .last()
+        .copied()
+        .unwrap_or(entry)
+        .starts_with("mutation-stryker-seg-")
+        && entry.ends_with(".conf.json")
+}
+
+/// 撤出索引面的 mutation 调试产物（`git reset -q --` 只撤索引、文件留盘——
+/// 用户不会主动 stage 这两个自有命名，安全）。探测面用 `ls-files --cached`
+///（索引清单）：intent-to-add 条目不出现在 `diff --cached`（实测），但确在
+/// 索引里、`add -A` / `commit` 会真正收录——升级残留场景靠本面撤出。
+fn reset_staged_mutation_artifacts(root: &Path) -> Result<(), String> {
+    let staged = git(root, &["ls-files", "--cached", "-z"])?;
+    let matches: Vec<&str> = staged
+        .split('\0')
+        .filter(|entry| !entry.is_empty() && is_mutation_artifact_entry(entry))
+        .collect();
+    if matches.is_empty() {
+        return Ok(());
+    }
+    let mut args: Vec<&str> = vec!["reset", "-q", "--"];
+    args.extend(matches.iter().copied());
+    git(root, &args).map(|_| ())
 }
 
 /// `--in-diff` 补丁唯一入口：untracked 面先行 `git add -N`（intent-to-add——不改

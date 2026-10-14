@@ -5,8 +5,7 @@ use std::time::Duration;
 use exec::SystemCommand;
 
 use super::{
-    mutation_jobs, output_tail, SegmentFailure, PER_MUTANT_TIMEOUT_SECS,
-    SEGMENT_SPAWN_TIMEOUT_MS,
+    mutation_jobs, SegmentFailure, PER_MUTANT_TIMEOUT_SECS, SEGMENT_SPAWN_TIMEOUT_MS,
 };
 
 /// 段执行：`cargo mutants --in-diff <seg patch> --json --baseline skip --jobs
@@ -85,16 +84,11 @@ pub(crate) async fn run_segment(
     }
 }
 
-/// 段中断错误面（非零退出 / stdout 无 JSON 载荷；携合并输出有界尾部）。
+/// 段中断错误面（非零退出 / stdout 无 JSON 载荷；错误信息 + 输出末尾双段
+/// ——exec `ProcessOutput` 统一装配）。
 fn segment_failure_message(exit_code: i32, output: &[u8]) -> String {
-    let tail = output_tail(output);
-    if tail.is_empty() {
-        format!("cargo-mutants 段执行失败（退出码 {exit_code}，未产出可解析 JSON 段报告）")
-    } else {
-        format!(
-            "cargo-mutants 段执行失败（退出码 {exit_code}，未产出可解析 JSON 段报告）：{tail}"
-        )
-    }
+    let head = format!("cargo-mutants 段执行失败（退出码 {exit_code}，未产出可解析 JSON 段报告）");
+    exec::ProcessOutput::new(exit_code, output.to_vec()).failure_message(&head)
 }
 
 /// JSON 载荷提取（stdout 可能混杂人类可读进度输出——首个 `{` / `[` 起、末个

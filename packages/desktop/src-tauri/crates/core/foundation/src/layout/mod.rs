@@ -54,9 +54,14 @@ pub fn config_path(root: &Path) -> PathBuf {
 
 /// 把 workspace 根目录与 change 名解析为 change 测试报告目录
 pub fn change_test_reports(root: &Path, change: &str) -> PathBuf {
-    resolve(root)
-        .changes_root
-        .join(change)
+    change_test_reports_in(&resolve(root).changes_root.join(change))
+}
+
+/// 把 change 目录解析为该 change 的测试报告目录（`reports/test` 后缀单点——
+/// change 目录由 `locate_change` 类三态定位面供给，worktree / active / archive
+/// 各态目录同后缀派生）。
+pub fn change_test_reports_in(change_dir: &Path) -> PathBuf {
+    change_dir
         .join(REPORTS_DIR_NAME)
         .join(TEST_REPORTS_DIR_NAME)
 }

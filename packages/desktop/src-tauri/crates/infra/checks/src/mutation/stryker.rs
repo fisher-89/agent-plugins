@@ -5,7 +5,7 @@ use std::time::Duration;
 use exec::SystemCommand;
 
 use super::report::{self, to_posix, STRYKER_TMP_DIR_NAME};
-use super::{mutation_jobs, output_tail, SegmentFailure, SEGMENT_SPAWN_TIMEOUT_MS};
+use super::{mutation_jobs, SegmentFailure, SEGMENT_SPAWN_TIMEOUT_MS};
 
 /// Windows 上补探测的可执行后缀（PATHEXT 主干；与 cmd 搜索口径一致——镜像
 /// `testexec::runner` 的私有实现，不改其可见性）。
@@ -114,17 +114,11 @@ pub(crate) async fn run_segment(segment: &StrykerSegment<'_>) -> Result<String, 
     }
 }
 
-/// 段中断错误面（非零退出 / 无段报告；携合并输出有界尾部——报告文件面归因原
-/// 料，反馈边只取摘要）。
+/// 段中断错误面（非零退出 / 无段报告；错误信息 + 输出末尾双段——exec
+/// `ProcessOutput` 统一装配，报告文件面归因原料交反馈边取摘要）。
 fn segment_failure_message(exit_code: i32, output: &[u8]) -> String {
-    let tail = output_tail(output);
-    if tail.is_empty() {
-        format!("Stryker 段执行失败（退出码 {exit_code}，未产出可解析段报告）")
-    } else {
-        format!(
-            "Stryker 段执行失败（退出码 {exit_code}，未产出可解析段报告）：{tail}"
-        )
-    }
+    let head = format!("Stryker 段执行失败（退出码 {exit_code}，未产出可解析段报告）");
+    exec::ProcessOutput::new(exit_code, output.to_vec()).failure_message(&head)
 }
 
 /// 临时 config 组装（CLI `generateTempConfig` 口径的桌面段化形态：`mutate` = 段

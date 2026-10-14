@@ -332,8 +332,9 @@ fn under_root(path: &str, root: &str) -> bool {
 }
 
 /// 文件是否被任一 suite 的 excludes 剔除（CLI `isFileExcluded` 同语义：
-/// 排除 glob 相对 suite root 解释，命中该 suite 树下文件即剔除）。
-fn is_file_excluded(path: &str, suites: &[TestSuite]) -> bool {
+/// 排除 glob 相对 suite root 解释，命中该 suite 树下文件即剔除）。消费面：
+/// coverage 归因 scope 判定 + checks-runtime mutation 归桶过滤。
+pub fn is_file_excluded(path: &str, suites: &[TestSuite]) -> bool {
     suites.iter().any(|suite| is_excluded_by_suite(path, suite))
 }
 

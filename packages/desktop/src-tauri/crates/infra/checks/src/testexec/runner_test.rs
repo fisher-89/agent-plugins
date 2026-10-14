@@ -4,7 +4,7 @@ use std::time::Duration;
 use tempfile::TempDir;
 
 use super::{
-    execute_plan, expand_template, non_zero_exit_error, output_tail, OUTPUT_TAIL_LIMIT,
+    execute_plan, expand_template, non_zero_exit_error,
     SUITE_COMMAND_TIMEOUT, VERSION_DETECT_TIMEOUT,
 };
 use crate::testexec::detect::TestPlan;
@@ -445,46 +445,25 @@ async fn 非零退出错误面携带进程报错文本() {
     );
 }
 
-/// 单元：非零退出错误面拼装——携输出时「退出码 + 有界尾部」、空输出回落裸
-/// 退出码措辞。
+/// 单元：非零退出错误面拼装——错误信息 + 输出末尾双段（exec `ProcessOutput`
+/// 统一装配），空输出回落裸退出码措辞。
 #[test]
-fn 非零退出错误面_尾部拼装与空回落() {
+fn 非零退出错误面_双段拼装与空回落() {
     assert_eq!(
-        non_zero_exit_error(3, ""),
+        non_zero_exit_error(3, b""),
         "测试命令非零退出（3）",
         "空输出回落裸退出码措辞"
     );
     assert_eq!(
-        non_zero_exit_error(7, "error: could not compile\n"),
-        "测试命令非零退出（7）：error: could not compile",
-        "输出尾部随错误面拼装"
-    );
-}
-
-/// 单元：合并输出有界尾部——短文本去尾随空白原样、超长取末段 + 省略号前缀
-///（字符有界防多字节切半）。
-#[test]
-fn 合并输出尾部_短原样超长尾部截断() {
-    assert_eq!(
-        output_tail("  行一\n行二\n"),
-        "  行一\n行二",
-        "短文本透传（仅尾随空白剪除——行首缩进保留）"
+        non_zero_exit_error(7, b"error: could not compile\n"),
+        "测试命令非零退出（7）\n错误信息：\nerror: could not compile\n输出末尾（50 行）：\nerror: could not compile",
+        "错误信息段在前、输出末尾段在后"
     );
     assert_eq!(
-        output_tail("  \n"),
-        "",
-        "空白输出为空串（裸退出码回落判据）"
+        non_zero_exit_error(7, b"plain output line\n"),
+        "测试命令非零退出（7）\n输出末尾（50 行）：\nplain output line",
+        "无错误模式命中时仅输出末尾段"
     );
-
-    let long = format!("{}\n尾行", "x".repeat(600));
-    let tail = output_tail(&long);
-    assert!(tail.starts_with('…'), "超长截断带省略号前缀");
-    assert_eq!(
-        tail.chars().count(),
-        OUTPUT_TAIL_LIMIT + 1,
-        "尾部 = 上限字符 + 省略号"
-    );
-    assert!(tail.ends_with("尾行"), "输出末段完整保留");
 }
 
 /// 边界：命令成功退出但零工件（未写 results / coverage）→ 工件解析错误面
