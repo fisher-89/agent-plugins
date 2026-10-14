@@ -262,10 +262,10 @@ fn test_only表复用requirement同名steps与prompt() {
 }
 
 /// code-analyze 相位声明（正向 / AC-2）：步序 P→E 五步、VerdictGate
-/// `on_fail=Terminal`、executor / evaluator 均 `ModelLevel::High`、产物清单空、
-/// 两常量静态非空零占位。
+/// `on_fail=Terminal`、executor / evaluator 均 `ModelLevel::High`、产物清单声明
+/// `markdown-doc·design.md`（源码分析文档）、两常量静态非空零占位。
 #[test]
-fn code_analyze相位声明_p形态与零清单与双高角色() {
+fn code_analyze相位声明_p形态与design清单与双高角色() {
     let test_only = phase_table("test-only").expect("test-only 应返回 Some");
     let code_analyze = phase_of(test_only, "code-analyze");
 
@@ -324,10 +324,20 @@ fn code_analyze相位声明_p形态与零清单与双高角色() {
         "executor / evaluator 为两份各异角色知识（planner / evaluator）"
     );
 
-    // 产物清单空数组（分析相位不铸产物）
+    // 产物清单声明 design.md（分析相位铸源码分析文档，清单外文档零入列）
+    let manifest: Vec<(&str, &str)> = code_analyze
+        .artifact_manifest
+        .iter()
+        .map(|spec| (spec.kind, spec.path))
+        .collect();
+    assert_eq!(
+        manifest,
+        vec![("markdown-doc", "design.md")],
+        "code-analyze 清单声明源码分析 design.md"
+    );
     assert!(
-        code_analyze.artifact_manifest.is_empty(),
-        "code-analyze 清单空数组（不虚设占位项）"
+        code_analyze.artifact_manifest[0].title == "源码分析",
+        "清单标题随声明（源码分析）"
     );
 }
 
@@ -815,8 +825,9 @@ fn 计划图steps边界_门禁相位限定() {
 
 /// 计划图单源 artifact_manifest 声明：proposal 含 `markdown-doc·proposal.md` /
 /// `markdown-doc·specs/**`；dev-design 含 `markdown-doc·design.md` /
-/// `tasks-progress·tasks.md`；test-execution 含 `markdown-doc·test-reports/**`
-///（AC-1 / AC-7 归属权威源）。
+/// `markdown-doc·tasks.md`；test-design 含 `markdown-doc·test-design.md`；
+/// implement 含 `tasks-progress·tasks.md`（下发面：实现期进度视图声明）；
+/// test-execution 含 `markdown-doc·test-reports/**`（AC-1 / AC-7 归属权威源）。
 #[test]
 fn 计划图产物清单声明逐相位与设计表一致() {
     let table = phase_table("requirement").expect("requirement 应返回 Some");
@@ -831,6 +842,7 @@ fn 计划图产物清单声明逐相位与设计表一致() {
                 ("markdown-doc", "design.md"),
                 ("markdown-doc", "tasks.md"),
             ],
+            "test-design" => vec![("markdown-doc", "test-design.md")],
             "implement" => vec![("tasks-progress", "tasks.md")],
             "test-execution" => vec![("markdown-doc", "test-reports/**")],
             _ => Vec::new(),
@@ -854,16 +866,9 @@ fn 计划图产物清单声明逐相位与设计表一致() {
         }
     }
 
-    // 无产物相位（implement / test-gen / code-review / acceptance / archive 等）
-    // → 空数组（清单零占位不虚设；清单为唯一候选来源）
-    for id in [
-        "test-design",
-        "implement",
-        "test-gen",
-        "code-review",
-        "acceptance",
-        "archive",
-    ] {
+    // 无产物相位（test-gen / code-review / acceptance / archive 等）→ 空数组
+    //（清单零占位不虚设；清单为唯一候选来源）
+    for id in ["test-gen", "code-review", "acceptance", "archive"] {
         let def = table
             .iter()
             .find(|def| def.id == id)
@@ -1492,9 +1497,10 @@ fn archive_steps类型收敛_封闭集取值且长度十() {
 
 /// test-only 表产物清单（正向）：proposal 复用 `PROPOSAL_MANIFEST`（proposal.md +
 /// specs/**）、test-execution 复用 `TEST_EXECUTION_MANIFEST`（test-reports/**）、
-/// code-analyze 空数组（分析相位零产物）、其余无产物相位空数组。
+/// code-analyze 声明 `markdown-doc·design.md`（源码分析）、test-design 声明
+/// `markdown-doc·test-design.md`、其余无产物相位空数组。
 #[test]
-fn test_only表产物清单复用与code_analyze零清单() {
+fn test_only表产物清单复用与code_analyze清单声明() {
     let table = phase_table("test-only").expect("test-only 应返回 Some");
 
     let expect: &[(&str, &[(&str, &str)])] = &[
@@ -1502,8 +1508,8 @@ fn test_only表产物清单复用与code_analyze零清单() {
             "proposal",
             &[("markdown-doc", "proposal.md"), ("markdown-doc", "specs/**")],
         ),
-        ("code-analyze", &[]),
-        ("test-design", &[]),
+        ("code-analyze", &[("markdown-doc", "design.md")]),
+        ("test-design", &[("markdown-doc", "test-design.md")]),
         ("test-gen", &[]),
         (
             "test-execution",
@@ -1533,9 +1539,12 @@ fn test_only表产物清单复用与code_analyze零清单() {
         }
     }
 
-    // code-analyze 零清单（空数组，不虚设占位项——分析相位不铸产物）
+    // code-analyze 清单声明 design.md（源码分析文档，分析相位铸产物在案）
     let code_analyze = phase_of(table, "code-analyze");
-    assert!(code_analyze.artifact_manifest.is_empty(), "code-analyze 清单空数组");
+    assert_eq!(
+        code_analyze.artifact_manifest[0].title, "源码分析",
+        "code-analyze 清单标题随声明"
+    );
 }
 
 /// test-only 表 prompt 静态面（正向）：有静态 prompt 的 agent 步恒 `&'static str`

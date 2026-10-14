@@ -155,7 +155,7 @@ core/workflow SHALL 保持 change 流程状态的 Rust 单一权威（读 + 写�
 
 - `steps: [StepDefinition]`：相位内有序 step 序列；`StepDefinition` SHALL 携 `kind`（`exec` | `agent` | `gate` | `git` 四类封闭集，经 `StepNode::group()` 派生）、`role`（agent 步角色）、`prompt_ref`（指向 `include_str!` 静态 prompt 的引用键，非 agent 步可缺省）、`on_fail` 语义（feedback 循环 / 终态 / 升格相位 fail）；
 - `prerequisites: &'static [&'static str]`：相位直接前置依赖（表内自描述，stale 传播与 allowed_backtrack 推导的唯一事实源；MUST NOT 存在第二份独立 match）；
-- `artifact_manifest: [ArtifactSpec]`：相位声明产物清单；archive / code-analyze 相位 SHALL 无 `artifact_manifest`（不产 proposal / design / tasks 类文档）；
+- `artifact_manifest: [ArtifactSpec]`：相位声明产物清单；archive 相位 SHALL 无 `artifact_manifest`（不产文档）；requirement 表 test-design SHALL 声明 `markdown-doc·test-design.md`、implement SHALL 声明 `tasks-progress·tasks.md`（实现期进度视图，服务 phase_next 下发面——发现面同路径按首命中去重，tasks.md 出列为 dev-design 的 markdown-doc 单候选）；test-only 表 code-analyze SHALL 声明 `markdown-doc·design.md`（源码分析）；
 - `executor` / `evaluator: Option<PhaseAgentSpec>`：archive 相位 SHALL 为 `None` / `None`（确定性相位）。
 
 `StepNode` 词汇 SHALL 为十九值（`executor` / `evaluator` / `decision` / `static_check` / `test_execution` / `mutation_test` / `phase_start` / `phase_log` / `verdict_gate` / `retry_gate` / `whitelist_gate` / `preflight` / `commit` / `rebase` / `resolve_conflicts` / `merge` / `spec_sync` / `seal` / `finalize`），与 `RunStepKind` / `ChangeStepKind` 同词面 1:1 全映射（`mutation_test` 线词入封闭集，18→19 为白名单式扩展）；code-analyze 复用既有 `Executor` / `Evaluator` / `VerdictGate` / `PhaseStart` / `PhaseLog` 步词，MUST NOT 新增步词。`StepGroup` SHALL 保持四分类（`Exec` / `Agent` / `Gate` / `Git`），`mutation_test` 归 `Exec`。`REQUIREMENT_TABLE` 的 archive `PhaseDefinition` SHALL 声明 10 步序列：`PhaseStart → Preflight → Commit → Rebase → ResolveConflicts → Merge → SpecSync → Seal → Finalize → PhaseLog`（`ResolveConflicts` 为条件执行步，`on_fail=None`——步失败即 Terminal）。`TEST_ONLY_TABLE` SHALL 复用 requirement 同名 step 静态（proposal / test-design / test-gen / test-execution / archive），并新增 `CODE_ANALYZE_STEPS`：`PhaseStart → Executor → Evaluator → VerdictGate → PhaseLog`（P→E，`on_fail=Terminal` 于 VerdictGate）。
@@ -175,7 +175,7 @@ core/workflow SHALL 保持 change 流程状态的 Rust 单一权威（读 + 写�
 #### Scenario: artifact 清单权威归属
 
 - **WHEN** 查阅 requirement 与 test-only 工作流各相位的 `artifact_manifest`
-- **THEN** proposal.md / specs/** 属 proposal、design.md / tasks.md 属 dev-design、test-reports/** 属 test-execution（以清单声明为准）；archive 与 code-analyze 相位零 artifact_manifest；清单之外文档不挂 phase 列
+- **THEN** proposal.md / specs/** 属 proposal、design.md / tasks.md 属 dev-design、test-design.md 属 test-design、test-reports/** 属 test-execution（以清单声明为准）；implement 声明 `tasks-progress·tasks.md`（下发面，发现面同路径首命中去重不重复出列）；test-only 下 code-analyze 声明 design.md、test-design 声明 test-design.md；archive 相位零 artifact_manifest；清单之外文档不挂 phase 列
 
 #### Scenario: PhaseAgentSpec 静态化不翻案
 

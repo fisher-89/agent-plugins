@@ -1065,31 +1065,33 @@ fn 计划步序列与清单随next相位下发() {
         outcome
             .artifact_manifest
             .iter()
-            .any(|spec| spec.kind == "tasks-progress" && spec.path == "tasks.md"),
-        "dev-design 清单含 tasks-progress 项"
+            .any(|spec| spec.kind == "markdown-doc" && spec.path == "tasks.md"),
+        "dev-design 清单含 tasks.md（markdown-doc 文档视图）"
     );
 }
 
-/// 相位无产物清单（implement 等）→ `artifact_manifest` 空 Vec 下发（零占位不
+/// 相位无产物清单（test-gen 等）→ `artifact_manifest` 空 Vec 下发（零占位不
 /// 虚设）；同时 steps 携门禁步声明（StaticCheck 携 FeedbackLoop{5}）——walker
-/// 消费步声明的下发行。
+/// 消费步声明的下发行。（implement 清单现声明 `tasks-progress·tasks.md`，
+/// 空清单示例相位让位给 test-gen。）
 #[test]
 fn 无清单相位下发空manifest与门禁步声明() {
     let fake = RouteStore::seeded(vec![
         entry("proposal", 1, Verdict::Pass, t(1)),
         entry("dev-design", 1, Verdict::Pass, t(2)),
         entry("test-design", 1, Verdict::Pass, t(3)),
+        entry("implement", 1, Verdict::Pass, t(4)),
     ]);
 
     let outcome = route(&fake, RUN, &SessionAnchors::new());
 
-    assert_eq!(outcome.next_phase.as_deref(), Some("implement"));
+    assert_eq!(outcome.next_phase.as_deref(), Some("test-gen"));
     assert!(
         outcome.artifact_manifest.is_empty(),
-        "implement 无产物清单 → 空 Vec 下发"
+        "test-gen 无产物清单 → 空 Vec 下发"
     );
-    let implement = phase_def("implement");
-    assert_eq!(outcome.steps, implement.steps.to_vec());
+    let test_gen = phase_def("test-gen");
+    assert_eq!(outcome.steps, test_gen.steps.to_vec());
     assert!(
         outcome.steps.iter().any(|step| matches!(
             step.on_fail,

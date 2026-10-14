@@ -556,11 +556,9 @@ fn 归档change全状态面_十站流水线与runs全量出线() {
         detail.artifacts
     );
     assert!(
-        detail
-            .artifacts
-            .iter()
-            .any(|artifact| artifact.kind == "tasks-progress"),
-        "tasks.md 勾选计数照常可达"
+        detail.artifacts.iter().any(|artifact| artifact.kind == "markdown-doc"
+            && artifact.source == "tasks.md"),
+        "tasks.md 文档视图照常可达"
     );
 }
 
@@ -1845,16 +1843,18 @@ fn detail未知workflow_type恒none零fallback() {
 }
 
 /// 产物清单随相位表（正向 / 改写）：清单 = `phase_table(record.workflow_type)`
-/// 的 artifact_manifest——requirement 下 proposal / dev-design / test-execution
-/// 产物各自挂相位；test-only 下 code-analyze 零清单（不虚设占位项）。
+/// 的 artifact_manifest——requirement 下 proposal / dev-design / test-design /
+/// test-execution 产物各自挂相位；test-only 下 code-analyze 的 design.md 与
+/// test-design.md 各自挂归属相位（清单补全后可见）。
 #[test]
 fn detail产物清单随workflow_type相位表() {
-    // requirement：proposal.md / design.md / tasks.md / test-reports 产物齐备
+    // requirement：proposal.md / design.md / tasks.md / test-design.md / test-reports 产物齐备
     let env = Env::new("manifest-requirement");
     env.seed(ID_RUNNED, "runned", T0, None);
     env.file("runned", "proposal.md", "# 提案");
     env.file("runned", "design.md", "# 设计");
     env.file("runned", "tasks.md", "- [x] 一步\n");
+    env.file("runned", "test-design.md", "# 测试设计");
     env.file("runned", "test-reports/report.md", "# 报告");
 
     let detail = env.detail(ID_RUNNED);
@@ -1863,24 +1863,41 @@ fn detail产物清单随workflow_type相位表() {
         .iter()
         .map(|artifact| artifact.source.as_str())
         .collect();
-    for expected in ["proposal.md", "design.md", "tasks.md"] {
+    for expected in ["proposal.md", "design.md", "tasks.md", "test-design.md"] {
         assert!(
             paths.contains(&expected),
             "requirement 清单发现 {expected}，实际: {paths:?}"
         );
     }
-    assert!(
-        detail
-            .artifacts
-            .iter()
-            .any(|artifact| artifact.kind == "tasks-progress"),
-        "tasks.md 走 tasks-progress 特化视图"
+    // tasks.md 走 markdown-doc 文档视图（dev-design 首命中清单项；implement 的
+    // tasks-progress 声明服务 phase_next 下发面，不进发现面）
+    let tasks = detail
+        .artifacts
+        .iter()
+        .find(|artifact| artifact.source == "tasks.md")
+        .expect("tasks.md 在案");
+    assert_eq!(
+        (tasks.kind.as_str(), tasks.phase.as_str()),
+        ("markdown-doc", "dev-design"),
+        "tasks.md 走 markdown-doc 文档视图归属 dev-design"
+    );
+    let test_design = detail
+        .artifacts
+        .iter()
+        .find(|artifact| artifact.source == "test-design.md")
+        .expect("test-design.md 在案");
+    assert_eq!(
+        test_design.phase, "test-design",
+        "test-design.md 归属 test-design 相位"
     );
 
-    // test-only：proposal / test-execution 产物照常、code-analyze 零清单归属
+    // test-only：proposal / test-execution 产物照常、code-analyze 的 design.md
+    // 与 test-design.md 各自挂归属相位
     let env2 = Env::new("manifest-test-only");
     env2.seed_typed(ID_RUNNED, "runned", "test-only");
     env2.file("runned", "proposal.md", "# 测试向提案");
+    env2.file("runned", "design.md", "# 源码分析");
+    env2.file("runned", "test-design.md", "# 测试设计");
     env2.file("runned", "test-reports/report.md", "# 报告");
 
     let detail2 = env2.detail(ID_RUNNED);
@@ -1890,12 +1907,23 @@ fn detail产物清单随workflow_type相位表() {
         .map(|artifact| artifact.source.as_str())
         .collect();
     assert!(paths2.contains(&"proposal.md"), "test-only proposal 产物照常挂列");
-    assert!(
-        detail2
-            .artifacts
-            .iter()
-            .all(|artifact| artifact.phase != "code-analyze"),
-        "code-analyze 零清单 → 无产物归属该列，实际: {paths2:?}"
+    let code_analyze_doc = detail2
+        .artifacts
+        .iter()
+        .find(|artifact| artifact.source == "design.md")
+        .expect("code-analyze 的 design.md 在案");
+    assert_eq!(
+        code_analyze_doc.phase, "code-analyze",
+        "code-analyze 的 design.md 挂 code-analyze 列"
+    );
+    let test_design2 = detail2
+        .artifacts
+        .iter()
+        .find(|artifact| artifact.source == "test-design.md")
+        .expect("test-only test-design.md 在案");
+    assert_eq!(
+        test_design2.phase, "test-design",
+        "test-design.md 挂 test-design 列"
     );
     assert!(
         detail2

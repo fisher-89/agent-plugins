@@ -136,7 +136,10 @@ fn 清单命中tasks候选收录并解析计数() {
     assert!(fallback.contains("待办 2"), "实际: {fallback}");
 }
 
-/// requirement 真件清单驱动：tasks.md 收录且 `phase = dev-design` 归属随清单。
+/// requirement 真件清单驱动：tasks.md 唯一候选归属 dev-design——kind 随首命中
+/// 清单项绑定（dev-design 的 `markdown-doc·tasks.md`）；implement 的
+/// `tasks-progress·tasks.md` 声明服务 phase_next 下发面，发现面同路径按首命中
+/// 去重不重复出列。
 #[test]
 fn requirement清单驱动发现_phase归属随清单() {
     let change = TempChange::new("requirement-manifest");
@@ -145,15 +148,15 @@ fn requirement清单驱动发现_phase归属随清单() {
     let manifest = phase_table("requirement").expect("requirement 表恒可达");
     let descriptors = discover_artifacts(&change.0, &[], manifest);
 
-    let tasks: Vec<(&str, &str)> = descriptors
+    let tasks: Vec<(&str, &str, &str)> = descriptors
         .iter()
-        .filter(|d| d.kind == KIND)
-        .map(|d| (d.source.as_str(), d.phase.as_str()))
+        .filter(|d| d.source == "tasks.md")
+        .map(|d| (d.kind.as_str(), d.source.as_str(), d.phase.as_str()))
         .collect();
     assert_eq!(
         tasks,
-        vec![("tasks.md", "dev-design")],
-        "tasks.md 归属 dev-design（清单声明相位）"
+        vec![("markdown-doc", "tasks.md", "dev-design")],
+        "tasks.md 唯一候选：kind / 归属随首命中清单项（dev-design）"
     );
 }
 

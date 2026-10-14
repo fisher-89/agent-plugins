@@ -174,8 +174,8 @@ fn requirement清单命中_phase归属随清单声明() {
     assert_eq!(descriptors.len(), 5, "实际：{descriptors:?}");
 }
 
-/// 文件类候选经插件 parse 判 kind（markdown-doc / tasks-progress）；eval-checklist
-/// 走 PhaseRecord 投影分支，两来源在出口汇合同一清单（AC-7 D3）。
+/// 文件类候选经插件 parse 判 kind（markdown-doc）；eval-checklist 走 PhaseRecord
+/// 投影分支，两来源在出口汇合同一清单（AC-7 D3）。
 #[test]
 fn 文件类与投影分支在出口汇合同一清单() {
     let change = TempChange::new("merged");
@@ -189,21 +189,18 @@ fn 文件类与投影分支在出口汇合同一清单() {
 
     let descriptors = discover_artifacts(&change.0, &phases, requirement_manifest());
     let kinds: Vec<&str> = descriptors.iter().map(|d| d.kind.as_str()).collect();
-    assert!(
-        kinds.contains(&"tasks-progress"),
-        "文件类特化 kind：{kinds:?}"
+    // tasks.md 首命中清单项为 dev-design 的 markdown-doc 声明（implement 的
+    // tasks-progress 声明服务 phase_next 下发面，发现面同路径首命中去重）
+    assert_eq!(
+        kinds,
+        vec!["eval-checklist", "markdown-doc", "markdown-doc"],
+        "投影分支先于文件类 markdown-doc，tasks.md 走 markdown-doc"
     );
-    assert!(kinds.contains(&"markdown-doc"), "文件类 markdown kind");
-    assert!(kinds.contains(&"eval-checklist"), "投影分支 kind");
 
-    // 插件顺序：特化 kind（tasks-progress / eval-checklist）先于 markdown-doc
+    // 插件顺序：特化 kind（eval-checklist）先于 markdown-doc
     let doc_pos = kinds.iter().position(|k| *k == "markdown-doc").unwrap();
-    let tasks_pos = kinds.iter().position(|k| *k == "tasks-progress").unwrap();
     let eval_pos = kinds.iter().position(|k| *k == "eval-checklist").unwrap();
-    assert!(
-        tasks_pos < doc_pos && eval_pos < doc_pos,
-        "实际序：{kinds:?}"
-    );
+    assert!(eval_pos < doc_pos, "实际序：{kinds:?}");
 
     // 投影分支归属 = PhaseRecord 投影相位；文件类归属 = 清单声明相位
     let eval = descriptors
@@ -216,9 +213,13 @@ fn 文件类与投影分支在出口汇合同一清单() {
     );
     let tasks = descriptors
         .iter()
-        .find(|d| d.kind == "tasks-progress")
+        .find(|d| d.source == "tasks.md")
         .expect("tasks 候选应在案");
-    assert_eq!(tasks.phase, "dev-design");
+    assert_eq!(
+        (tasks.kind.as_str(), tasks.phase.as_str()),
+        ("markdown-doc", "dev-design"),
+        "tasks.md 文档视图归属 dev-design（首命中清单项）"
+    );
 }
 
 /// `specs/**` 前缀 glob 深路径命中（specs/x/y/spec.md）——相对路径枚举面。

@@ -2,12 +2,6 @@
   "activePhase": null,
   "artifacts": [
     {
-      "kind": "tasks-progress",
-      "phase": "dev-design",
-      "source": "tasks.md",
-      "title": "任务进度"
-    },
-    {
       "kind": "eval-checklist",
       "phase": "proposal",
       "source": "0",
@@ -18,6 +12,12 @@
       "phase": "proposal",
       "source": "proposal.md",
       "title": "提案"
+    },
+    {
+      "kind": "markdown-doc",
+      "phase": "dev-design",
+      "source": "tasks.md",
+      "title": "任务"
     }
   ],
   "created": "2024-09-22",
