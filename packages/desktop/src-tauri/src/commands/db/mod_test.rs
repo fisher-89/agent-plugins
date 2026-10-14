@@ -200,7 +200,7 @@ fn db_models_scope_workspace返回八行且与直连serde一致() {
         counts,
         vec![
             ("agent_run".to_owned(), 0),
-            ("session".to_owned(), 1),
+            ("session".to_owned(), 2),
             ("session_event".to_owned(), 2),
             ("explore".to_owned(), 1),
             ("change".to_owned(), 0),

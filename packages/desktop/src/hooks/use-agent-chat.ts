@@ -284,7 +284,7 @@ function useSessionActions(
   stop: () => void;
   reset: () => void;
 } {
-  const { source, root } = params;
+  const { source, sessionId, root } = params;
 
   const sendMessage = useCallback(
     (input: AgentChatSendInput) => {
@@ -297,14 +297,15 @@ function useSessionActions(
           prompt: input.prompt,
           permissionMode: input.permissionMode,
           agent: input.agent ?? null,
-          // 当前会话 Continue（early-resolve 轮行回写）；无会话 New
-          sessionId: mirrors.currentSessionIdRef.current,
+          // 当前会话 Continue（early-resolve 轮行回写）；镜像尚未确立（重放
+          // 未落地 / 失败）时回落来源侧的会话引用——来源已有会话就绝不新铸
+          sessionId: mirrors.currentSessionIdRef.current ?? sessionId,
           source,
           sourceRef: null,
         },
       });
     },
-    [chat, mirrors.currentSessionIdRef, root, source],
+    [chat, mirrors.currentSessionIdRef, sessionId, root, source],
   );
 
   const stop = useCallback(() => {

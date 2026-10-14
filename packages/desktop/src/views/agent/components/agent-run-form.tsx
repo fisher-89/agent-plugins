@@ -72,13 +72,7 @@ function ModeSelect<T extends string>({
   return (
     <Field orientation="horizontal" className="w-fit">
       <FieldLabel>{label}</FieldLabel>
-      <StandardSelect
-        id="agent-select"
-        data-testid={id}
-        value={value}
-        onChange={onChange}
-        items={options}
-      />
+      <StandardSelect id={id} data-testid={id} value={value} onChange={onChange} items={options} />
     </Field>
   );
 }

@@ -1,8 +1,8 @@
 use std::sync::Arc;
 
 use agent::{
-    AgentEvent, NewSessionRow, SessionPage, SessionQuery, SessionSink, SessionStats, SessionSummary,
-    TurnOutcome,
+    AgentEvent, NewSessionRow, SessionPage, SessionQuery, SessionSink, SessionStats,
+    SessionSummary, TurnOutcome,
 };
 use store::{SessionConfigSnapshot, SessionRecord, Store};
 

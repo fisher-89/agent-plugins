@@ -49,7 +49,7 @@ impl Drop for RestoreOnDrop {
     }
 }
 
-/// 35 条命令的生成包装名（camelCase，与 `generate_handler!` 时代命令清单一一
+/// 36 条命令的生成包装名（camelCase，与 `generate_handler!` 时代命令清单一一
 /// 对应；历史缺录为既有滞后债，contains 语义不致红、按现行口径只补录本变更
 /// 自身新命令）。
 const COMMAND_WRAPPERS: &[&str] = &[
@@ -81,6 +81,7 @@ const COMMAND_WRAPPERS: &[&str] = &[
     "deleteExploreRecord",
     "updateExploreTitle",
     "updateExploreWorkflowType",
+    "ensureExploreSession",
     "promoteExplore",
     "watchSubscribe",
     "watchUnsubscribe",
@@ -90,7 +91,7 @@ const COMMAND_WRAPPERS: &[&str] = &[
     "workspaceConfig",
 ];
 
-/// 34 条命令的 IPC 命令名（snake_case，invoke 目标；补录口径同上）。
+/// 36 条命令的 IPC 命令名（snake_case，invoke 目标；补录口径同上）。
 const COMMAND_NAMES: &[&str] = &[
     "list_changes",
     "get_change_detail",
@@ -120,6 +121,7 @@ const COMMAND_NAMES: &[&str] = &[
     "delete_explore_record",
     "update_explore_title",
     "update_explore_workflow_type",
+    "ensure_explore_session",
     "promote_explore",
     "watch_subscribe",
     "watch_unsubscribe",
@@ -825,12 +827,12 @@ fn dto_types清单不残留退役幽灵条目() {
 }
 
 #[test]
-fn command清单补录_archive_change后35条且既有锚点与在册命令保持() {
+fn command清单补录_archive_change后36条且既有锚点与在册命令保持() {
     // 本变更自身新命令补录（历史缺录为既有滞后债，contains 语义不致红、不在
-    // 本变更范围）：条目数 34 → 35（update_explore_workflow_type），
+    // 本变更范围）：条目数 35 → 36（ensure_explore_session），
     // 首尾锚点不变
-    assert_eq!(COMMAND_NAMES.len(), 35, "命令清单恰补录本变更一条");
-    assert_eq!(COMMAND_WRAPPERS.len(), 35, "包装清单恰补录本变更一条");
+    assert_eq!(COMMAND_NAMES.len(), 36, "命令清单恰补录本变更一条");
+    assert_eq!(COMMAND_WRAPPERS.len(), 36, "包装清单恰补录本变更一条");
     assert_eq!(COMMAND_NAMES.first(), Some(&"list_changes"));
     assert_eq!(COMMAND_NAMES.last(), Some(&"workspace_config"));
     assert!(COMMAND_NAMES.contains(&"archive_change"), "invoke 名补录");
@@ -840,7 +842,16 @@ fn command清单补录_archive_change后35条且既有锚点与在册命令保�
         COMMAND_NAMES.contains(&"update_explore_title"),
         "invoke 名补录"
     );
-    // 本变更新增命令（explore 工作流类型回填唯一写口）
+    // 本变更新增命令（explore 会话归位唯一入口）
+    assert!(
+        COMMAND_NAMES.contains(&"ensure_explore_session"),
+        "invoke 名补录（ensure_explore_session）"
+    );
+    assert!(
+        COMMAND_WRAPPERS.contains(&"ensureExploreSession"),
+        "包装名补录（ensureExploreSession）"
+    );
+    // 前轮变更新增命令（explore 工作流类型回填唯一写口）——在册保持
     assert!(
         COMMAND_NAMES.contains(&"update_explore_workflow_type"),
         "invoke 名补录（update_explore_workflow_type）"

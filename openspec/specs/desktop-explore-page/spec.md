@@ -86,11 +86,11 @@ agent 会话中落盘的新 explore 文件 MUST NOT 自动进入清单（绑定�
 
 ### Requirement: 会话链与 stance 前导
 
-每个 explore SHALL 对应一条会话链（同一 session 的轮序列即链，按 `started_at` 有序）：打开详情页 SHALL 以记录字段 `ExploreRecord.session_id`（最近一次 agent 会话 id，`agent_start` 完成后回写）**直查** `session_detail(root, sessionId)` 并重放落库事件还原全部历史；`session_id` 为空（尚无会话）则下次发送起链（首条 run 创建会话并回写 id）。按 `source="explore"` + `source_ref` 反查定位链头并沿 `parent_run_id` 回溯的路径 SHALL 退役（前端不再经来源反查会话）。MVP MUST NOT 提供「新会话」动作。发送时 SHALL 将 desktop 内置的精简 explore stance 前导模板拼接进 prompt 头部（模板归属 desktop 包，注释与 `plugins/dev-team/skills/openspec-explore/SKILL.md` 双源互链）；stance 前导 SHALL 注入当前记录 `name`（agent 落盘文件名 MUST 等于 `record.name`，MUST NOT 自拟）并明示「笔记首行写 `# <标题>`」与「推算变更类型并写约定标记行」两条约定（标记行与首行标题同构，具体格式由 design 定稿）。续话 SHALL 以记录回写的 `session_id` 作为会话引用（`Continue`）发起。双恢复 SHALL 为：文档从磁盘读 + 对话重放该会话落库事件，两者互不依赖对方存在。
+每个 explore SHALL 对应一条会话链（同一 session 的轮序列即链，按 `started_at` 有序）：打开详情页 SHALL 以记录字段 `ExploreRecord.session_id`（归属 agent 会话 id，建档同事务预建空会话并回写；存量记录经 `ensure_explore_session` 归位补齐）**直查** `session_detail(root, sessionId)` 并重放落库事件还原全部历史；会话尚无轮（建档预建的空会话）则下次发送即其首轮（Continue 开轮，不新铸会话）。按 `source="explore"` + `source_ref` 反查定位链头并沿 `parent_run_id` 回溯的路径 SHALL 退役（前端不再经来源反查会话）。MVP MUST NOT 提供「新会话」动作。发送时 SHALL 将 desktop 内置的精简 explore stance 前导模板拼接进 prompt 头部（模板归属 desktop 包，注释与 `plugins/dev-team/skills/openspec-explore/SKILL.md` 双源互链）；stance 前导 SHALL 注入当前记录 `name`（agent 落盘文件名 MUST 等于 `record.name`，MUST NOT 自拟）并明示「笔记首行写 `# <标题>`」与「推算变更类型并写约定标记行」两条约定（标记行与首行标题同构，具体格式由 design 定稿）。续话 SHALL 以记录回写的 `session_id` 作为会话引用（`Continue`）发起。双恢复 SHALL 为：文档从磁盘读 + 对话重放该会话落库事件，两者互不依赖对方存在。
 
 #### Scenario: 重开续链双恢复
 
-- **WHEN** 用户完成两轮对话后离开并重新打开该 explore（记录 `session_id` 已回写）
+- **WHEN** 用户完成两轮对话后离开并重新打开该 explore（记录 `session_id` 在案，建档即回写）
 - **THEN** 预览从磁盘恢复当前 explore.md，对话区以 `session_id` 直查 `session_detail` 并按序重放该会话全部落库事件；再次发送时以该 `session_id` 续话而非新会话
 
 #### Scenario: stance 拼接注入 name

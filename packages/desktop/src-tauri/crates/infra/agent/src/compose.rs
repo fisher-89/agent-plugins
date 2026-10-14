@@ -86,9 +86,13 @@ pub fn compose_turn(
 }
 
 impl ComposedTurn {
-    /// 发起一轮（Continue 校验 + prior_handle 提取 + 快照组装 + 内核 begin）：
-    /// 会话不存在 / 非当前引擎产出（快照 engine ≠ 解析 kind）/ 引擎句柄缺失
-    /// → `Err` 显式失败（不落库不推流）。
+    /// 发起一轮（Continue 校验 + prior_handle 提取 + 快照组装 + 内核 begin）。
+    /// Continue 二态：
+    /// - **未开轮**（无引擎句柄 + 无轮行 + 无转录，explore 建档预建空会话的
+    ///   首轮）：跳过引擎匹配与句柄检查，`prior_handle` 传 None（引擎侧按
+    ///   全新会话开跑），并把本轮真实装配快照回写定型。
+    /// - **已开轮**：会话不存在 / 非当前引擎产出（快照 engine ≠ 解析 kind）/
+    ///   引擎句柄缺失 → `Err` 显式失败（不落库不推流）。
     pub fn begin(
         &self,
         session: SessionRef,
@@ -96,6 +100,19 @@ impl ComposedTurn {
         ctx: SessionCtx,
         provenance: SessionProvenance,
     ) -> Result<RunningTurn, String> {
+        // 快照由组合根组装（core 不解释）
+        let model = self
+            .models
+            .as_ref()
+            .map(|(high, low)| match ctx.model_level {
+                agent::ModelLevel::High => high.clone(),
+                agent::ModelLevel::Low => low.clone(),
+            });
+        let snapshot = store::SessionConfigSnapshot {
+            engine: self.store_kind,
+            model,
+            permission_mode: ctx.permission_mode,
+        };
         let prior_handle = match &session {
             SessionRef::New => None,
             SessionRef::Continue { id } => {
@@ -105,31 +122,34 @@ impl ComposedTurn {
                     .find_session(id)
                     .map_err(|e| e.to_string())?
                     .ok_or_else(|| format!("会话不存在: {id}"))?;
-                if record.config_snapshot.engine != self.store_kind {
-                    return Err(format!("会话非当前引擎产出（跨引擎续会话不支持）: {id}"));
+                // 未开轮（无句柄 + 无轮行 + 无转录）：预建空会话首轮，按全新
+                // 会话开跑 + 快照定型；其余续会话治理三连
+                if self
+                    .query
+                    .store()
+                    .is_unstarted_session(id)
+                    .map_err(|e| e.to_string())?
+                {
+                    self.query
+                        .store()
+                        .restamp_session_config(id, &snapshot)
+                        .map_err(|e| e.to_string())?;
+                    None
+                } else {
+                    if record.config_snapshot.engine != self.store_kind {
+                        return Err(format!("会话非当前引擎产出（跨引擎续会话不支持）: {id}"));
+                    }
+                    Some(
+                        record
+                            .engine_session_id
+                            .clone()
+                            .ok_or_else(|| format!("会话缺少引擎句柄，无法续接: {id}"))?,
+                    )
                 }
-                Some(
-                    record
-                        .engine_session_id
-                        .clone()
-                        .ok_or_else(|| format!("会话缺少引擎句柄，无法续接: {id}"))?,
-                )
             }
         };
-        // 快照由组合根组装（core 不解释）
-        let model = self
-            .models
-            .as_ref()
-            .map(|(high, low)| match ctx.model_level {
-                agent::ModelLevel::High => high.clone(),
-                agent::ModelLevel::Low => low.clone(),
-            });
-        let config_snapshot = serde_json::to_value(store::SessionConfigSnapshot {
-            engine: self.store_kind,
-            model,
-            permission_mode: ctx.permission_mode,
-        })
-        .map_err(|e| format!("配置快照组装失败: {e}"))?;
+        let config_snapshot =
+            serde_json::to_value(snapshot).map_err(|e| format!("配置快照组装失败: {e}"))?;
         self.kernel
             .begin_turn(
                 Arc::clone(&self.runner),

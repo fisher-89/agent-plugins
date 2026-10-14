@@ -92,10 +92,7 @@ fn scan_err(store: &Store, model: &str) -> String {
     match store.scan(model, 0, 10) {
         Err(err @ StoreError::Db(_)) => err.to_string(),
         Err(other) => panic!("模型 {model:?} 应返回 Db 变体，实际: {other:?}"),
-        Ok(page) => panic!(
-            "模型 {model:?} 应 Err，实际返回 {} 行",
-            page.records.len()
-        ),
+        Ok(page) => panic!("模型 {model:?} 应 Err，实际返回 {} 行", page.records.len()),
     }
 }
 
@@ -312,7 +309,10 @@ fn scan两新模型分页主键自然序翻页不重不漏_key数值id信封valu
         beyond.records.is_empty(),
         "offset 恰等于记录总数返回空 records"
     );
-    assert_eq!(beyond.total, 3, "offset 恰等总数：records 空而 total 恒全量");
+    assert_eq!(
+        beyond.total, 3,
+        "offset 恰等总数：records 空而 total 恒全量"
+    );
 }
 
 #[test]
@@ -605,7 +605,9 @@ fn scan_total恰为limit整数倍_末页后空页records空而total不变() {
 
     // 下一页：records 空而 total 不变——「幽灵空页」在数据接口侧的边界锚
     //（前端由此导出 next 禁用）
-    let ghost = store.scan("session", 100, 50).expect("下一页应成功（空页非 Err）");
+    let ghost = store
+        .scan("session", 100, 50)
+        .expect("下一页应成功（空页非 Err）");
     assert!(
         ghost.records.is_empty(),
         "幽灵空页 records 空（接口侧边界锚）"

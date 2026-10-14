@@ -1,29 +1,3 @@
-//! explore 命令轨道（查询 + 显式写）：十条命令——三读（单文件读取 / 导入
-//! 扫描 / 文档路径派生）+ 七记录面（清单 / 建档 / 改名 / 删除 / 标题回填 /
-//! 类型回填 / promote）。
-//!
-//! 三件事纪律沿 `commands/changes` 模板：参数转换 → 调用（workflow 查询或
-//! store 操作）→ 错误映射；blank root 纪律同口径（空/空白 root 不进入查询
-//! 与 store 链路：查询直接空结果语义、写命令 `Err`——写无空结果语义，无
-//! panic 无错误弹窗）。记录面经 `for_root(&root)` 路由至**所属 workspace 库**
-//! （记录 / 名下会话链同库收敛，见 desktop-workspace-store 双库布局）。
-//! 查询侧纯读零写入（笔记文件由 agent 会话流程创建，应用无落盘路径）；记录
-//! 侧只写 DB（记录是身份，磁盘文件是可丢弃投影，删除记录不动文件，记录名下
-//! 会话 runs+events 随记录在 store 层同事务级联删除）。
-//!
-//! 绑定过滤在命令层：workflow 扫描只列目录不认识 store，「未绑定」以 explore
-//! 记录清单求差滤除（已绑定 stem 不再出现在导入清单），并再滤除非 kebab-case
-//! stem（store 建档已拒非 kebab，过滤避免「点击后报错」；workflow 扫描口径保持
-//! 宽松、旧非 kebab 文件仍可经 `read_explore` 读取）。
-//!
-//! `promote_explore` 为跨域写命令（move 语义）：读笔记全文 → 读记录 → 经写面
-//! `workflow::write::promote_explore` 建 change（复用 create，worktree 内
-//! explore.md = 笔记全文）并删主仓笔记 → store 打标 `promoted_to`（会话链保留、
-//! MUST NOT 删记录）。命令层 MUST NOT 直接 `remove_file`——磁盘笔记删除只在
-//! 写面发生。
-//! 能力 spec：`specs/desktop-explore-queries/spec.md`、
-//! `specs/desktop-explore-page/spec.md`（路径相对域根）。
-
 use std::path::{Path, PathBuf};
 
 #[cfg(test)]
@@ -262,6 +236,27 @@ pub fn update_explore_workflow_type(
         .for_root(&root)
         .map_err(|e| e.to_string())?
         .set_explore_workflow_type(&root, &name, &workflow_type)
+        .map_err(|e| e.to_string())
+}
+
+/// explore 会话归位（幂等）：保证记录 `session_id` 指向一条名下会话并返回
+/// 更新后的记录。详情页打开时 invoke 一次——存量记录（v3 升级行 `session_id`
+/// 空缺）由此补齐归属会话，前端再以 `sessionId` 直查重放。blank root / 记录
+/// 不存在 → 显式 `Err`。
+#[tauri::command]
+#[specta::specta]
+pub fn ensure_explore_session(
+    stores: State<'_, WorkspaceStores>,
+    root: String,
+    name: String,
+) -> Result<ExploreRecord, String> {
+    if is_blank_root(&root) {
+        return Err("非法 root: 不得为空白".to_owned());
+    }
+    stores
+        .for_root(&root)
+        .map_err(|e| e.to_string())?
+        .ensure_explore_session(&root, &name)
         .map_err(|e| e.to_string())
 }
 

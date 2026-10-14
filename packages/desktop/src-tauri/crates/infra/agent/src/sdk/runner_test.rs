@@ -304,37 +304,38 @@ fn continue装载缝err形态报转录读取失败并记因() {
     );
 }
 
-#[test]
-fn continue重建空史报会话缺失语义且三成因互不重合() {
+/// 空转录（会话存在但从未开轮——explore 建档预建空会话）按空史首轮开跑，
+/// 不再视同会话缺失；会话缺失 / 装载失败两成因仍显式失败且互不重合。
+#[tokio::test]
+async fn continue空转录按空史首轮开跑_缺失与装载失败仍显式失败() {
     let (resume, _calls) = loader(Ok(Some(Vec::new())));
     let runner = SdkRunner::new(complete_config(), Some(resume), None);
 
-    let error = runner
+    let session = runner
         .open_session(open_continue("ses-empty"))
-        .expect_err("重建空史必须 Err");
-    let AgentStartError::ConfigMissing(message) = &error else {
-        panic!("应为 ConfigMissing，实际: {error:?}");
-    };
-    assert!(
-        message.contains("重建历史为空"),
-        "空史成因（视同会话缺失），实际: {message}"
-    );
+        .expect("空转录会话首轮应开跑（空史开跑，非会话缺失）");
+    drop(session);
 
-    // 三形态成因互不重合（可区分）
+    // 两形态成因互不重合（可区分）
     let (none_loader, _) = loader(Ok(None));
     let none_message = SdkRunner::new(complete_config(), Some(none_loader), None)
         .open_session(open_continue("ses-a"))
-        .expect_err("")
+        .expect_err("会话不存在必须 Err")
         .to_string();
     let (err_loader, _) = loader(Err("读取失败".to_owned()));
     let err_message = SdkRunner::new(complete_config(), Some(err_loader), None)
         .open_session(open_continue("ses-b"))
-        .expect_err("")
+        .expect_err("装载失败必须 Err")
         .to_string();
-    let empty_message = error.to_string();
+    assert!(
+        none_message.contains("会话不存在"),
+        "会话缺失成因，实际: {none_message}"
+    );
+    assert!(
+        err_message.contains("转录读取失败"),
+        "装载失败成因，实际: {err_message}"
+    );
     assert_ne!(none_message, err_message);
-    assert_ne!(err_message, empty_message);
-    assert_ne!(none_message, empty_message);
 }
 
 #[test]

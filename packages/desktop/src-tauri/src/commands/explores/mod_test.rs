@@ -8,9 +8,9 @@ use store::{AgentEngineKind, SessionConfigSnapshot, SessionRecord, WorkspaceStor
 use workflow::queries as queries_lib;
 
 use super::{
-    create_explore_record, delete_explore_record, explore_doc_path, list_explore_records,
-    promote_explore_with, read_explore, rename_explore_record, scan_explores, update_explore_title,
-    update_explore_workflow_type,
+    create_explore_record, delete_explore_record, ensure_explore_session, explore_doc_path,
+    list_explore_records, promote_explore_with, read_explore, rename_explore_record, scan_explores,
+    update_explore_title, update_explore_workflow_type,
 };
 
 // ---------------------------------------------------------------------------
@@ -824,6 +824,47 @@ fn update_explore_title空白root与空白title显式err() {
         Some(original),
         "拒绝面零改动"
     );
+}
+
+// ---------------------------------------------------------------------------
+// ensure_explore_session（会话归位命令半边）：建档即预建空会话 → ensure 幂等；
+// 存量记录（session_id 空缺）→ ensure 补齐归属会话
+// ---------------------------------------------------------------------------
+
+/// ensure_explore_session 正向 + 幂等：建档已预建空会话 → ensure 原样返回
+/// （session_id 不变、不新增会话行）；blank root / 记录不存在 → 显式 Err。
+#[test]
+fn ensure_explore_session正向幂等与err面() {
+    let env = Env::new("ensure-session-ok");
+    let app = app_with_stores(&env);
+    let state = app.state::<WorkspaceStores>();
+    let created =
+        create_explore_record(state.clone(), env.root(), "topic-a".to_owned()).expect("建档应成功");
+    let pinned = created
+        .session_id
+        .clone()
+        .expect("建档即预建空会话并回写 session_id");
+
+    // ① 幂等：既有指针在 → 原样返回
+    let ensured = ensure_explore_session(state.clone(), env.root(), "topic-a".to_owned())
+        .expect("ensure 应成功");
+    assert_eq!(
+        ensured.session_id.as_deref(),
+        Some(pinned.as_str()),
+        "既有指针在：session_id 不变"
+    );
+
+    // ② blank root → 显式 Err
+    for root in [String::new(), "   ".to_owned()] {
+        let err = ensure_explore_session(state.clone(), root, "topic-a".to_owned())
+            .expect_err("blank root 应 Err");
+        assert_eq!(err, "非法 root: 不得为空白");
+    }
+
+    // ③ 记录不存在 → 显式 Err
+    let err = ensure_explore_session(state.clone(), env.root(), "ghost".to_owned())
+        .expect_err("记录不存在应 Err");
+    assert!(err.contains("记录不存在"), "miss 成因显式，实际: {err}");
 }
 
 // ---------------------------------------------------------------------------

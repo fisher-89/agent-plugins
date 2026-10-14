@@ -375,7 +375,9 @@ describe('useAgentChat：发送组装与停止', () => {
 // ---------------------------------------------------------------------------
 
 describe('useAgentChat：边界', () => {
-  it('无历史会话（sessionId 直查 detail 返回 null）→ 发送以 sessionId=null 穿透（New 语义），来源参数齐全', async () => {
+  it('重放 miss（sessionId 直查 detail 返回 null）→ 发送仍沿用来源侧 sessionId（Continue，不新铸）', async () => {
+    // 来源侧已持会话引用（explore 记录回写的 session_id）：重放 miss 是数据
+    // 不一致，发起侧不静默 fork 新会话，沿用来源引用续发（后端显式 Err 兜底）
     sessionsResult = [];
     transcript = [];
     const { result } = await mounted();
@@ -386,7 +388,7 @@ describe('useAgentChat：边界', () => {
     await act(async () => {});
 
     const args = startCallArgs();
-    expect(args['sessionId']).toBeNull();
+    expect(args['sessionId']).toBe(SESSION_ID);
     expect(args['source']).toBe('explore');
     expect(args['sourceRef']).toBeNull();
   });
@@ -434,12 +436,13 @@ describe('useAgentChat：边界', () => {
     expect(result.current.events).toEqual([]);
     expect(result.current.chain).toEqual([]);
     expect(result.current.session).toBeNull();
-    // 重置后可正常发起新一轮：空会话语义（sessionId 缺省 null 即 New）
+    // 重置清镜像后发起：来源侧仍持会话引用即续发同会话（不因 reset fork 新
+    // 会话）；来源侧无引用（debug 页 sessionId=null）→ New，见上一例
     act(() => {
       result.current.sendMessage(SEND_INPUT);
     });
     await act(async () => {});
-    expect(startCallArgs()['sessionId']).toBeNull();
+    expect(startCallArgs()['sessionId']).toBe(SESSION_ID);
   });
 });
 

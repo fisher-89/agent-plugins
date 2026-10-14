@@ -4,8 +4,8 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock};
 
 use agent::{
-    AgentEvent, AgentEventKind, SessionPage, SessionProvenance, SessionRow, SessionStats,
-    SessionSummary, TurnSummary,
+    AgentEvent, AgentEventKind, AgentPermissionMode, SessionPage, SessionProvenance, SessionRow,
+    SessionStats, SessionSummary, TurnSummary,
 };
 use native_db::{Builder, Database, Models};
 use serde::{Deserialize, Serialize};
@@ -17,9 +17,9 @@ use crate::envelope::{self, ModelInfo, RecordsPage};
 use crate::model::{
     now_millis, pack_session_event_key, AgentEngineKind, AgentInstanceRecord, AgentProviderRecord,
     AgentRunRecord, ChangeActivePhase, ChangeRecord, ChecklistItemRecord, ExploreRecord,
-    PhaseRecord, RunEdgeRecord, RunNodeRecord, RunRecord, SessionEventRecord, SessionEventRecordKey,
-    SessionRecord, StepRecord, StoreMetaRecord, WorkspaceRecord, WORKSPACE_STORE_FORMAT_KEY,
-    WORKSPACE_STORE_FORMAT_VERSION,
+    PhaseRecord, RunEdgeRecord, RunNodeRecord, RunRecord, SessionConfigSnapshot,
+    SessionEventRecord, SessionEventRecordKey, SessionRecord, StepRecord, StoreMetaRecord,
+    WorkspaceRecord, WORKSPACE_STORE_FORMAT_KEY, WORKSPACE_STORE_FORMAT_VERSION,
 };
 use workflow::model::{ChecklistItem, Verdict};
 use workflow::state::{
@@ -174,7 +174,11 @@ fn assemble_summary(
     events: Vec<AgentEvent>,
 ) -> Result<SessionSummary, String> {
     // 发起顺序：`started_at` 升序，并列按轮 id 升序（确定可复现）
-    turns.sort_by(|a, b| a.started_at.cmp(&b.started_at).then(a.turn_id.cmp(&b.turn_id)));
+    turns.sort_by(|a, b| {
+        a.started_at
+            .cmp(&b.started_at)
+            .then(a.turn_id.cmp(&b.turn_id))
+    });
     let stats = aggregate_stats(turns.len(), &turns, &events);
     Ok(SessionSummary {
         row: session_row(session)?,
@@ -260,6 +264,25 @@ fn check_explore_name(name: &str) -> Result<(), StoreError> {
 /// explore 来源受控字符串：与前端 `EXPLORE_SOURCE` 口径一致（两处同字面量，
 /// 改动需同步）。`delete_explore_record` 据此圈定级联删除的归属会话。
 const EXPLORE_RUN_SOURCE: &str = "explore";
+
+/// explore 预建空会话
+fn empty_explore_session(record: &ExploreRecord) -> SessionRecord {
+    let now = now_millis();
+    SessionRecord {
+        id: agent::new_session_id(),
+        engine_session_id: None,
+        config_snapshot: SessionConfigSnapshot {
+            // 占位值：未开轮会话不做引擎匹配（见 `compose::begin` 未开轮分支）
+            engine: AgentEngineKind::Sdk,
+            model: None,
+            permission_mode: AgentPermissionMode::BypassPermissions,
+        },
+        source: EXPLORE_RUN_SOURCE.to_owned(),
+        source_ref: Some(record.id.to_string()),
+        created_at: now,
+        updated_at: now,
+    }
+}
 
 /// workflow_type 合法值集（store 自持校验：trim + case-insensitive 命中
 /// `{requirement, test-only}`；合法值唯一权威仍是写面 `phase_table`，store
@@ -583,10 +606,7 @@ impl Store {
 
     /// 会话单查装配：主键直查行 + 本会话轮行 + 本会话事件 → 聚合组装。
     /// 查无此 id 返回 `Ok(None)`，由 port 层映射为显式 Err（单查语义分层）。
-    pub fn find_session_summary(
-        &self,
-        session_id: &str,
-    ) -> Result<Option<SessionSummary>, String> {
+    pub fn find_session_summary(&self, session_id: &str) -> Result<Option<SessionSummary>, String> {
         let Some(session) = self.find_session(session_id).map_err(|e| e.to_string())? else {
             return Ok(None);
         };
@@ -746,7 +766,11 @@ impl Store {
                 source_ref.is_none_or(|reference| record.source_ref.as_deref() == Some(reference))
             })
             .collect();
-        sessions.sort_by(|a, b| b.updated_at.cmp(&a.updated_at).then_with(|| b.id.cmp(&a.id)));
+        sessions.sort_by(|a, b| {
+            b.updated_at
+                .cmp(&a.updated_at)
+                .then_with(|| b.id.cmp(&a.id))
+        });
         let total = sessions.len() as u64;
         let window: &[SessionRecord] = match page {
             None => &sessions,
@@ -870,7 +894,10 @@ impl Store {
             .find(|record| record.name == name))
     }
 
-    /// 新建 explore 记录
+    /// 新建 explore 记录：同事务预建**空会话**（无轮、无引擎句柄）并把其 id
+    /// 回写进 `session_id`——记录建档即有会话归属，详情页打开即可重放/续发，
+    /// 首条提问以 `Continue` 开启该会话的首轮（见 `compose::begin` 未开轮
+    /// 分支）。两行同事务：失败不留半边（记录与会话要么都在、要么都不在）。
     pub fn create_explore_record(
         &self,
         root: &str,
@@ -897,13 +924,16 @@ impl Store {
         };
         let mut record = ExploreRecord::new(root, name, now_millis());
         record.id = next_id;
+        let session = empty_explore_session(&record);
+        record.session_id = Some(session.id.clone());
         rw.insert(record.clone()).map_err(db_err("写入探索记录"))?;
+        rw.insert(session).map_err(db_err("写入探索空会话"))?;
         rw.commit()
             .map_err(db_err("提交 create_explore_record 事务"))?;
         Ok(record)
     }
 
-    /// in-place 改名（保主键 → 保 `source_ref` 会话链绑定），刷新 `updated_at`；
+    /// in-place 改名（保主键 → 保 `session_id` 指针与会话链绑定），刷新 `updated_at`；
     /// 目标名已存在 → `Err`。目标名校验为 kebab-case + 长度 ≤128（与建档同
     /// 口径）。删 + 重建会分配新主键导致链断，改名必须 in-place。
     pub fn rename_explore_record(
@@ -937,8 +967,7 @@ impl Store {
             return Ok(false);
         };
         let rw = self.db.rw_transaction().map_err(db_err("开启写事务"))?;
-        // 级联圈定：explore 来源且 source_ref 指向本记录 id 的会话（全表读 +
-        // 内存过滤，与清单读面同哲学——调试页数据量小）
+        let pointer = record.session_id.as_deref();
         let source_ref = record.id.to_string();
         let bound_sessions: Vec<SessionRecord> = rw
             .scan()
@@ -950,8 +979,9 @@ impl Store {
             .map_err(db_err("扫描会话清单"))?
             .into_iter()
             .filter(|session| {
-                session.source == EXPLORE_RUN_SOURCE
-                    && session.source_ref.as_deref() == Some(&source_ref)
+                pointer == Some(session.id.as_str())
+                    || (session.source == EXPLORE_RUN_SOURCE
+                        && session.source_ref.as_deref() == Some(&source_ref))
             })
             .collect();
         for session in &bound_sessions {
@@ -1040,7 +1070,8 @@ impl Store {
         updated.updated_at = now_millis();
         let rw = self.db.rw_transaction().map_err(db_err("开启写事务"))?;
         rw.upsert(updated.clone()).map_err(db_err("写入探索记录"))?;
-        rw.commit().map_err(db_err("提交 set_explore_workflow_type 事务"))?;
+        rw.commit()
+            .map_err(db_err("提交 set_explore_workflow_type 事务"))?;
         Ok(updated)
     }
 
@@ -1070,6 +1101,99 @@ impl Store {
         rw.commit()
             .map_err(db_err("提交 mark_explore_promoted 事务"))?;
         Ok(updated)
+    }
+
+    /// explore 会话归位
+    pub fn ensure_explore_session(
+        &self,
+        root: &str,
+        name: &str,
+    ) -> Result<ExploreRecord, StoreError> {
+        let mut record = self
+            .find_explore_record(root, name)?
+            .ok_or_else(|| StoreError::Db(format!("记录不存在: root={root:?} name={name:?}")))?;
+        // ① 既有指针仍在
+        if let Some(session_id) = record.session_id.as_deref() {
+            if self.find_session(session_id)?.is_some() {
+                return Ok(record);
+            }
+        }
+        // ② 名下归属会话兜底（含 v3 升级行 / 老前端发起的会话）
+        let source_ref = record.id.to_string();
+        let bound = self
+            .read_all::<SessionRecord>("遍历会话清单")?
+            .into_iter()
+            .filter(|session| {
+                session.source == EXPLORE_RUN_SOURCE
+                    && session.source_ref.as_deref() == Some(&source_ref)
+            })
+            .max_by_key(|session| session.updated_at)
+            .map(|session| session.id);
+        // ③ 无归属会话 → 预建空会话
+        let session_id = match bound {
+            Some(id) => id,
+            None => {
+                let session = empty_explore_session(&record);
+                let id = session.id.clone();
+                let rw = self.db.rw_transaction().map_err(db_err("开启写事务"))?;
+                rw.insert(session).map_err(db_err("写入探索空会话"))?;
+                rw.commit()
+                    .map_err(db_err("提交 ensure_explore_session 建会话事务"))?;
+                id
+            }
+        };
+        record.session_id = Some(session_id);
+        record.updated_at = now_millis();
+        let rw = self.db.rw_transaction().map_err(db_err("开启写事务"))?;
+        rw.upsert(record.clone()).map_err(db_err("写入探索记录"))?;
+        rw.commit()
+            .map_err(db_err("提交 ensure_explore_session 事务"))?;
+        Ok(record)
+    }
+
+    /// 会话是否**未开轮**：无引擎句柄、无轮行、无转录三者同时成立——即 explore
+    /// 建档预建的空会话形态。首轮放行与快照定型凭此判定（与「开过轮但句柄未
+    /// 上报」的会话区分开：后者仍走续会话治理，不放宽跨引擎守卫）。
+    pub fn is_unstarted_session(&self, session_id: &str) -> Result<bool, StoreError> {
+        let record = self
+            .find_session(session_id)?
+            .ok_or_else(|| StoreError::Db(format!("会话不存在: id={session_id}")))?;
+        if record.engine_session_id.is_some() {
+            return Ok(false);
+        }
+        let turns = self.list_agent_turns(session_id).map_err(StoreError::Db)?;
+        if !turns.is_empty() {
+            return Ok(false);
+        }
+        let events = self
+            .list_session_events(session_id)
+            .map_err(StoreError::Db)?;
+        Ok(events.is_empty())
+    }
+
+    /// 未开轮会话配置定型：首次开轮时把建档占位快照替换为真实装配快照
+    /// （engine / model / permission 三面，续会话引擎路由凭此比对）。仅对
+    /// [`Self::is_unstarted_session`] 的会话生效，其余（已开轮 / 已定型）
+    /// 原样不动（保续话路由稳定）；会话不存在 → `Err`。
+    pub fn restamp_session_config(
+        &self,
+        session_id: &str,
+        config: &SessionConfigSnapshot,
+    ) -> Result<(), StoreError> {
+        if !self.is_unstarted_session(session_id)? {
+            return Ok(());
+        }
+        let rw = self.db.rw_transaction().map_err(db_err("开启写事务"))?;
+        let mut stored: SessionRecord = rw
+            .get()
+            .primary(session_id)
+            .map_err(db_err("读取会话记录"))?
+            .ok_or_else(|| StoreError::Db(format!("会话不存在: id={session_id}")))?;
+        stored.config_snapshot = config.clone();
+        rw.upsert(stored).map_err(db_err("写入会话快照"))?;
+        rw.commit()
+            .map_err(db_err("提交 restamp_session_config 事务"))?;
+        Ok(())
     }
 
     /// provider 清单：主键 id 升序自然序（稳定可复现）。
@@ -1954,12 +2078,7 @@ impl Store {
     /// 500 超出截断；未知模型名 Err——含跨维度模型名，维度由实例锁定）。
     /// 返回分页信封（records + total 同一读事务快照）；key/value 均为
     /// JSON 值，native_db 类型不越信封。
-    pub fn scan(
-        &self,
-        model: &str,
-        offset: u32,
-        limit: u32,
-    ) -> Result<RecordsPage, StoreError> {
+    pub fn scan(&self, model: &str, offset: u32, limit: u32) -> Result<RecordsPage, StoreError> {
         envelope::scan(&self.db, self.dimension, model, offset, limit)
     }
 

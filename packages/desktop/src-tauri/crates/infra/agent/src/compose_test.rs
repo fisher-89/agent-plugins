@@ -532,20 +532,65 @@ fn continue跨引擎续会话被快照比对拒绝() {
     );
 }
 
-#[test]
-fn continue引擎句柄缺失时拒绝且三成因消息互不重合() {
-    let env = DualEnv::new("remote-missing");
+/// 未开轮会话（`engine_session_id = None`，explore 建档预建空会话）Continue
+/// 首轮放行：不拒句柄缺失、不比引擎快照、`prior_handle` 为 None（引擎侧按全新
+/// 会话开跑），并把本轮真实装配快照回写定型。
+#[tokio::test]
+async fn continue未开轮会话首轮放行并定型快照() {
+    let env = DualEnv::new("unstarted-first-turn");
     let stores = env.stores();
-    let provider_id = seed_provider(&stores, "句柄缺失供应");
-    seed_sdk_instance(&stores, "句柄缺失实例", Some(provider_id));
+    let provider_id = seed_provider(&stores, "首轮供应");
+    seed_sdk_instance(&stores, "首轮实例", Some(provider_id));
     let store = stores.for_root(&env.root()).expect("for_root 应成功");
-    seed_sdk_session(&store, "ses-no-remote", None);
+    // 未开轮：无引擎句柄（建档预建空会话形态）
+    seed_sdk_session(&store, "ses-fresh", None);
+
+    let composed = compose_turn(&stores, Arc::new(StopRegistry::new()), env.store(), None)
+        .expect("解析应成功");
+    let running = composed
+        .begin(
+            SessionRef::Continue {
+                id: "ses-fresh".to_owned(),
+            },
+            "首轮提问".to_owned(),
+            ctx(&env.root()),
+            debug_provenance(),
+        )
+        .expect("未开轮会话首轮应放行");
+    assert_eq!(running.session_id, "ses-fresh", "沿用预建会话 id（非新铸）");
+
+    // 快照定型：占位快照被本轮真实装配覆写（engine / permission 两面）
+    let stamped = store
+        .find_session("ses-fresh")
+        .expect("读会话")
+        .expect("会话在库");
+    assert_eq!(
+        stamped.config_snapshot.engine,
+        store::AgentEngineKind::Sdk,
+        "快照定型为本轮解析引擎"
+    );
+}
+
+/// 未开轮判定收紧：**开过轮但句柄未上报**的会话不算未开轮——续会话治理三连
+/// 照旧（句柄缺失显式 Err），跨引擎守卫不因缺句柄而放宽。
+#[tokio::test]
+async fn continue已开轮但句柄未上报仍走续会话治理() {
+    let env = DualEnv::new("ran-no-handle");
+    let stores = env.stores();
+    let provider_id = seed_provider(&stores, "缺柄供应");
+    seed_sdk_instance(&stores, "缺柄实例", Some(provider_id));
+    let store = stores.for_root(&env.root()).expect("for_root 应成功");
+    // 无引擎句柄，但已有轮行（开过轮）
+    seed_sdk_session(&store, "ses-ran", None);
+    store
+        .begin_agent_turn("ses-ran", 1727000000000)
+        .expect("开轮行");
 
     let composed = compose_turn(&stores, Arc::new(StopRegistry::new()), env.store(), None)
         .expect("解析应成功");
     let error = err_of(composed.begin(
         SessionRef::Continue {
-            id: "ses-no-remote".to_owned(),
+            id: "ses-ran".to_owned(),
         },
         "续一轮".to_owned(),
         ctx(&env.root()),
@@ -553,10 +598,9 @@ fn continue引擎句柄缺失时拒绝且三成因消息互不重合() {
     ));
     assert!(
         error.contains("缺少引擎句柄"),
-        "remote 句柄缺失成因，实际: {error}"
+        "已开轮会话仍要求句柄，实际: {error}"
     );
-
-    // 三成因（会话不存在 / 跨引擎 / remote 缺失）消息互不重合
+    // 未开轮放行不适用于此形态（成因消息互不重合）
     assert!(
         !error.contains("会话不存在") && !error.contains("非当前引擎产出"),
         "成因消息互不重合"

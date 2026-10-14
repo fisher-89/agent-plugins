@@ -380,8 +380,16 @@ fn 同root跨两级库生命周期派生同一路径_重开后会话与explore�
         "同 root 跨重开派生同一路径（不产生第二文件）"
     );
     let summaries = store.list_sessions(None, None).unwrap();
-    assert_eq!(summaries.len(), 1, "先写入的会话重开后完整可读");
-    assert_eq!(summaries[0].row.id, session_id);
+    // 播种 1 行 + 建档预建空会话 1 行，两行重开后都在
+    assert_eq!(
+        summaries.len(),
+        2,
+        "先写入的会话与建档预建会话重开后完整可读"
+    );
+    assert!(
+        summaries.iter().any(|s| s.row.id == session_id),
+        "显式播种会话重开后可读"
+    );
     assert_eq!(
         store.list_explore_records(&root).unwrap(),
         vec![explore],
@@ -590,7 +598,7 @@ fn 组合链open注册后for_root落库会话与explore且全局库无混入() {
             .collect::<Vec<_>>(),
         vec![
             ("agent_run", 0),
-            ("session", 1),
+            ("session", 2),
             ("session_event", 0),
             ("explore", 1),
             ("change", 0),
@@ -598,17 +606,24 @@ fn 组合链open注册后for_root落库会话与explore且全局库无混入() {
             ("checklist_item", 0),
             ("step", 0)
         ],
-        "workspace 库八模型组：按会话域布局写入 session / explore，change 流程状态四模型计数 0 也列出，无注册表混入"
+        "workspace 库八模型组：按会话域布局写入 session / explore（建档预建空会话 +1），change 流程状态四模型计数 0 也列出，无注册表混入"
     );
     assert_eq!(
         stores.global().list_workspaces().unwrap(),
         vec![record],
         "全局库清单仅注册记录（会话 / explore 不在注册表）"
     );
-    // 组合链写入各自完整可读
+    // 组合链写入各自完整可读（播种 1 行 + 建档预建空会话 1 行）
     let summaries = store.list_sessions(None, None).unwrap();
-    assert_eq!(summaries.len(), 1, "会话落 workspace 库");
-    assert_eq!(summaries[0].row.id, session_id);
+    assert_eq!(
+        summaries.len(),
+        2,
+        "会话落 workspace 库（含建档预建空会话）"
+    );
+    assert!(
+        summaries.iter().any(|summary| summary.row.id == session_id),
+        "显式播种会话可读"
+    );
     assert_eq!(
         store.list_explore_records(&root).unwrap(),
         vec![explore],
@@ -631,15 +646,19 @@ fn 两workspace各自for_root同会话id并行写入互不串库() {
     let explore_a = create_ok(&store_a, &rec_a.root, "same-topic");
     let explore_b = create_ok(&store_b, &rec_b.root, "same-topic");
 
-    // A 库清单与 scan 不含 B 的任何记录
+    // A 库清单与 scan 不含 B 的任何记录（每库 = 显式播种 1 行 + 建档预建空会话 1 行）
     let ids_a: Vec<String> = store_a
         .list_sessions(None, None)
         .unwrap()
         .iter()
         .map(|summary| summary.row.id.clone())
         .collect();
-    assert_eq!(ids_a, vec!["ses-parallel"], "A 库会话清单恰本库一行");
-    let keys_a: Vec<String> = store_a
+    assert_eq!(ids_a.len(), 2, "A 库会话清单恰两行（播种 + 建档预建）");
+    assert!(
+        ids_a.contains(&"ses-parallel".to_owned()),
+        "A 库含显式播种会话"
+    );
+    let mut keys_a: Vec<String> = store_a
         .scan("session", 0, 10)
         .unwrap()
         .records
@@ -652,7 +671,10 @@ fn 两workspace各自for_root同会话id并行写入互不串库() {
                 .to_owned()
         })
         .collect();
-    assert_eq!(keys_a, vec!["ses-parallel"], "A 库 scan 恰本库一行");
+    keys_a.sort();
+    let mut ids_sorted = ids_a.clone();
+    ids_sorted.sort();
+    assert_eq!(keys_a, ids_sorted, "A 库 scan 与清单同集（序不同不作契约）");
     assert_eq!(
         store_a.list_explore_records(&rec_a.root).unwrap(),
         vec![explore_a],
@@ -1736,10 +1758,7 @@ fn find_session_summary无轮行会话统计缺省与清单面全等() {
         .list_sessions(None, None)
         .expect("清单应成功")
         .remove(0);
-    assert_eq!(
-        found, listed,
-        "无轮行路径同样与清单面逐字段全等"
-    );
+    assert_eq!(found, listed, "无轮行路径同样与清单面逐字段全等");
 }
 
 #[test]
@@ -1810,7 +1829,10 @@ fn list_session_events多会话交错落库索引圈定完整升序互不串号(
         vec!["b0", "b1"],
         "ses-b 圈定完整且互不串号"
     );
-    assert_eq!(b.iter().map(|event| event.seq).collect::<Vec<_>>(), vec![0, 1]);
+    assert_eq!(
+        b.iter().map(|event| event.seq).collect::<Vec<_>>(),
+        vec![0, 1]
+    );
 }
 
 #[test]
@@ -2302,6 +2324,166 @@ fn 同名不同root各建一档互不影响() {
     );
 }
 
+/// 建档同事务预建空会话：`session_id` 非空、指向名下空会话（无轮、无引擎
+/// 句柄）、归属圈定键为 `source=explore` + `source_ref=记录 id`。
+#[test]
+fn create_explore_record同事务预建空会话并回写session_id() {
+    let env = Env::new("explore-create-session");
+    let store = open_workspace_ok(&env.db_path("ws"));
+
+    let record = create_ok(&store, "C:\\ws\\alpha", "api-retry");
+
+    let session_id = record
+        .session_id
+        .clone()
+        .expect("建档即回写 session_id（非 None）");
+    let session = store
+        .find_session(&session_id)
+        .unwrap()
+        .expect("预建空会话已落库");
+    assert_eq!(session.source, "explore", "来源归属 explore（级联圈定键）");
+    assert_eq!(
+        session.source_ref.as_deref(),
+        Some(record.id.to_string().as_str()),
+        "source_ref 指向记录 id 十进制串"
+    );
+    assert!(
+        session.engine_session_id.is_none(),
+        "空会话无引擎句柄（未开轮）"
+    );
+    let summary = store.find_session_summary(&session_id).unwrap().unwrap();
+    assert!(summary.turns.is_empty(), "空会话无轮行");
+    assert!(
+        store.list_session_events(&session_id).unwrap().is_empty(),
+        "空会话无转录"
+    );
+}
+
+/// ensure_explore_session 幂等三臂：既有指针在 → 原样返回；指针空缺但名下
+/// 有归属会话（存量 v3 升级行）→ 回写该会话 id；两者皆无 → 预建空会话。
+#[test]
+fn ensure_explore_session幂等三臂归位session_id() {
+    let env = Env::new("explore-ensure-session");
+    let ws_path = env.db_path("ws");
+    let store = open_workspace_ok(&ws_path);
+
+    // ① 既有指针在（建档已回写）→ 原样返回，不新建
+    let record = create_ok(&store, "C:\\ws\\alpha", "api-retry");
+    let pinned = record.session_id.clone().expect("建档回写 session_id");
+    let again = store
+        .ensure_explore_session("C:\\ws\\alpha", "api-retry")
+        .expect("ensure 应成功");
+    assert_eq!(
+        again.session_id.as_deref(),
+        Some(pinned.as_str()),
+        "① 既有指针在：原样返回、不新建"
+    );
+    assert_eq!(
+        store.list_sessions_page(None, None, 0, 10).unwrap().total,
+        1,
+        "① 不新增会话行"
+    );
+
+    // ② / ③ 需裸注入存量行：先关库（redb 单开），注入后重开
+    drop(store);
+    let legacy = ExploreRecord {
+        id: 99,
+        root: "C:\\ws\\beta".to_owned(),
+        name: "legacy-topic".to_owned(),
+        title: "legacy-topic".to_owned(),
+        workflow_type: "requirement".to_owned(),
+        promoted_to: None,
+        session_id: None,
+        created_at: 1_700_000_000_000,
+        updated_at: 1_700_000_000_000,
+    };
+    inject_explore_row(&ws_path, &legacy);
+    let bare = ExploreRecord {
+        id: 100,
+        root: "C:\\ws\\beta".to_owned(),
+        name: "bare-topic".to_owned(),
+        title: "bare-topic".to_owned(),
+        workflow_type: "requirement".to_owned(),
+        promoted_to: None,
+        session_id: None,
+        created_at: 1_700_000_000_000,
+        updated_at: 1_700_000_000_000,
+    };
+    inject_explore_row(&ws_path, &bare);
+    let store = open_workspace_ok(&ws_path);
+
+    // ② 指针空缺但名下有归属会话（v3 升级行形态：session_id 恒 None）→
+    //    回写名下最新归属会话 id
+    let bound = session_record("ses-adopt", "explore", Some("99"));
+    store.create_session(&bound).expect("造名下会话");
+    let adopted = store
+        .ensure_explore_session("C:\\ws\\beta", "legacy-topic")
+        .expect("ensure 存量行应成功");
+    assert_eq!(
+        adopted.session_id.as_deref(),
+        Some("ses-adopt"),
+        "② 指针空缺但名下有归属会话 → 回写其 id"
+    );
+
+    // ③ 两者皆无 → 预建空会话
+    let ensured = store
+        .ensure_explore_session("C:\\ws\\beta", "bare-topic")
+        .expect("ensure 无归属记录应补建会话");
+    let minted = ensured.session_id.clone().expect("③ 预建会话 id 回写");
+    assert!(
+        minted.starts_with("ses-"),
+        "③ 预建空会话 id 由 core 铸造，实际: {minted}"
+    );
+    let session = store.find_session(&minted).unwrap().expect("③ 会话已落库");
+    assert_eq!(session.source, "explore");
+    assert_eq!(session.source_ref.as_deref(), Some("100"));
+}
+
+/// restamp_session_config：未开轮会话覆写快照、已开轮不覆写、miss Err。
+#[test]
+fn restamp_session_config未开轮覆写已开轮不覆写() {
+    let env = Env::new("session-restamp");
+    let store = open_workspace_ok(&env.db_path("ws"));
+    let record = create_ok(&store, "C:\\ws\\alpha", "api-retry");
+    let session_id = record.session_id.clone().expect("建档回写");
+
+    let real = SessionConfigSnapshot {
+        engine: AgentEngineKind::Cli,
+        model: None,
+        permission_mode: AgentPermissionMode::Default,
+    };
+    store
+        .restamp_session_config(&session_id, &real)
+        .expect("未开轮应可定型");
+    let stamped = store.find_session(&session_id).unwrap().unwrap();
+    assert_eq!(
+        stamped.config_snapshot, real,
+        "未开轮会话快照被覆写为真实装配"
+    );
+
+    // 已开轮（引擎句柄在）→ 不覆写
+    store
+        .bind_session_remote(&session_id, Some("sdk-1"), 1727000000000)
+        .expect("绑定引擎句柄");
+    let later = SessionConfigSnapshot {
+        engine: AgentEngineKind::Sdk,
+        model: Some("m".to_owned()),
+        permission_mode: AgentPermissionMode::BypassPermissions,
+    };
+    store
+        .restamp_session_config(&session_id, &later)
+        .expect("已开轮 restamp 不报错");
+    let after = store.find_session(&session_id).unwrap().unwrap();
+    assert_eq!(
+        after.config_snapshot, real,
+        "已开轮会话快照不覆写（保续话路由）"
+    );
+
+    // miss → Err
+    let missing = store.restamp_session_config("ses-404", &later);
+    assert!(missing.is_err(), "会话不存在应 Err");
+}
+
 #[test]
 fn list_explore_records仅返回入参root的记录且id降序() {
     let env = Env::new("explore-list");
@@ -2782,10 +2964,16 @@ fn set_explore_workflow_type正向写test_only与刷新updated_at() {
         .set_explore_workflow_type("C:\\ws\\alpha", "api-retry", "test-only")
         .expect("合法 workflow_type 回填应成功");
 
-    assert_eq!(updated.workflow_type, "test-only", "workflow_type 更新为入参");
+    assert_eq!(
+        updated.workflow_type, "test-only",
+        "workflow_type 更新为入参"
+    );
     assert_eq!(updated.id, original.id, "主键不变（保会话链）");
     assert_eq!(updated.name, original.name, "name 不变（in-place 改列）");
-    assert_eq!(updated.title, original.title, "title 不变（回填不触 title）");
+    assert_eq!(
+        updated.title, original.title,
+        "title 不变（回填不触 title）"
+    );
     assert_eq!(
         updated.promoted_to, original.promoted_to,
         "promoted_to 不变（回填不触 promote 打标）"
@@ -2873,9 +3061,16 @@ fn set_explore_workflow_type非法值拒绝且记录零改动() {
     let store = open_workspace_ok(&env.db_path("ws"));
     let original = create_ok(&store, "C:\\ws\\alpha", "api-retry");
 
-    for workflow_type in ["", "   ", "\t\n", "bug-fix", "refactor", "test_only", "requirement2"] {
-        let result =
-            store.set_explore_workflow_type("C:\\ws\\alpha", "api-retry", workflow_type);
+    for workflow_type in [
+        "",
+        "   ",
+        "\t\n",
+        "bug-fix",
+        "refactor",
+        "test_only",
+        "requirement2",
+    ] {
+        let result = store.set_explore_workflow_type("C:\\ws\\alpha", "api-retry", workflow_type);
         assert!(
             matches!(&result, Err(StoreError::Db(_))),
             "非法 workflow_type {workflow_type:?} 应 Err，实际: {result:?}"
@@ -2920,7 +3115,10 @@ fn set_explore_workflow_type_miss返回err() {
         "记录不存在应 Err，实际: {result:?}"
     );
     assert!(
-        store.list_explore_records("C:\\ws\\alpha").unwrap().is_empty(),
+        store
+            .list_explore_records("C:\\ws\\alpha")
+            .unwrap()
+            .is_empty(),
         "miss 路径零写入"
     );
     // root 归属错位同 miss（归属键寻址单点）
@@ -2953,7 +3151,10 @@ fn set_explore_workflow_type自持合法值集不依赖workflow() {
         let updated = store
             .set_explore_workflow_type("C:\\ws\\alpha", "value-set", value)
             .unwrap_or_else(|e| panic!("合法值 {value:?} 应命中: {e}"));
-        assert_eq!(updated.workflow_type, expected, "合法值 {value:?} 落 canonical");
+        assert_eq!(
+            updated.workflow_type, expected,
+            "合法值 {value:?} 落 canonical"
+        );
         assert_eq!(updated.id, record.id, "覆写保主键");
     }
 
@@ -3157,7 +3358,7 @@ fn 删除记录级联清掉归属会话与其转录与轮统计行且复用id不
         "轮统计行行级联删除"
     );
 
-    // 复用 id 后归属圈定为空：错链不再发生
+    // 复用 id 后：不捞旧聊天——名下只剩新记录预建的空会话，无转录无轮行
     let c = create_ok(&store, "C:\\ws\\alpha", "combine-agent-and-explore-chat");
     assert_eq!(
         c.id, b.id,
@@ -3166,7 +3367,21 @@ fn 删除记录级联清掉归属会话与其转录与轮统计行且复用id不
     let rebound = store
         .list_sessions(Some("explore"), Some(&c.id.to_string()))
         .unwrap();
-    assert!(rebound.is_empty(), "新记录（从未发过消息）归属圈定为空");
+    assert!(
+        rebound
+            .iter()
+            .all(|summary| summary.turns.is_empty() && summary.stats.turn_count == 0),
+        "新记录名下仅预建空会话（零转录零轮行）——不捞旧聊天"
+    );
+    for summary in &rebound {
+        assert!(
+            store
+                .list_session_events(&summary.row.id)
+                .unwrap()
+                .is_empty(),
+            "预建空会话无转录"
+        );
+    }
 }
 
 /// 级联只圈 (source=explore, source_ref=本记录 id)：debug 来源同定位串、
@@ -3249,14 +3464,128 @@ fn 级联删除不波及无关会话与转录与轮行() {
             "无关会话轮行存活: {survivor}"
         );
     }
-    // 隔壁归属圈定不受牵连
+    // 隔壁归属圈定不受牵连（预建空会话 + 显式播种会话，两行）
     assert_eq!(
         store
             .list_sessions(Some("explore"), Some(&keeper.id.to_string()))
             .unwrap()
             .len(),
+        2,
+        "隔壁记录归属会话仍可圈定（建档预建 + 显式播种）"
+    );
+}
+
+/// 级联固定锚 = 记录 `session_id` **指针**：会话 `source_ref` 缺席（前端发起
+/// 会话恒不传 source_ref）仍随指针级联——这是 `source_ref` 圈定漏删的回归锚。
+/// 并集半边：`source_ref` 归属本记录但不被指针指向的存量残留一并清理；他人链
+/// 会话原样存活。
+#[test]
+fn 级联按session_id指针圈定_source_ref缺席仍删且他人链保留() {
+    let env = Env::new("explore-delete-anchor");
+    let ws_path = env.db_path("ws");
+    let store = open_workspace_ok(&ws_path);
+
+    // ① 指针指向的会话：source_ref 缺席（模拟前端 agent_start 发起、provenance
+    //    不带 source_ref 的形态——旧 source_ref 圈定会漏删它）
+    let pointed = "ses-anchor-pointed";
+    store
+        .create_session(&session_record(pointed, "explore", None))
+        .expect("落指针会话行（source_ref 缺席）");
+    store
+        .append_session_events(pointed, &[stamped(0, run_started_kind())])
+        .expect("落转录");
+    let pointed_turn = store.begin_agent_turn(pointed, 100).expect("开轮行");
+
+    // ② source_ref 归属本记录、但不被指针指向（旧数据多链残留）→ 一并清理
+    let legacy = "ses-anchor-legacy";
+    store
+        .create_session(&session_record(legacy, "explore", Some("50")))
+        .expect("落存量归属会话行");
+    store
+        .append_session_events(legacy, &[stamped(0, run_started_kind())])
+        .expect("落转录");
+    store.begin_agent_turn(legacy, 150).expect("开轮行");
+
+    // ③ 他人链（source_ref 指向别的记录 id、也不被指针指向）→ 原样存活
+    let stranger = "ses-anchor-stranger";
+    store
+        .create_session(&session_record(stranger, "explore", Some("99")))
+        .expect("落他人链会话行");
+    store
+        .append_session_events(stranger, &[stamped(0, run_started_kind())])
+        .expect("落转录");
+    let stranger_turn = store.begin_agent_turn(stranger, 200).expect("开轮行");
+
+    // 记录 session_id 指针 → ①（裸注入需独占 redb：先关库，注入后重开）
+    drop(store);
+    let record = ExploreRecord {
+        id: 50,
+        root: "C:\\ws\\alpha".to_owned(),
+        name: "anchor-topic".to_owned(),
+        title: "anchor-topic".to_owned(),
+        workflow_type: "requirement".to_owned(),
+        promoted_to: None,
+        session_id: Some(pointed.to_owned()),
+        created_at: 1_700_000_000_000,
+        updated_at: 1_700_000_000_000,
+    };
+    inject_explore_row(&ws_path, &record);
+    let store = open_workspace_ok(&ws_path);
+
+    assert!(
+        store
+            .delete_explore_record("C:\\ws\\alpha", "anchor-topic")
+            .unwrap(),
+        "命中删除返回 true"
+    );
+
+    // ① 指针会话（source_ref 缺席）随指针级联：会话 + 转录 + 轮行同事务消失
+    assert!(
+        store.find_session(pointed).unwrap().is_none(),
+        "指针指向的会话级联删除（source_ref 缺席不豁免）"
+    );
+    assert!(
+        store.list_session_events(pointed).unwrap().is_empty(),
+        "指针会话转录级联删除"
+    );
+    assert!(
+        store
+            .list_sessions(None, None)
+            .unwrap()
+            .iter()
+            .all(|summary| summary
+                .turns
+                .iter()
+                .all(|row| row.turn_id != pointed_turn.id)),
+        "指针会话轮行级联删除"
+    );
+
+    // ② 存量归属残留一并清理（source_ref 半边兜底）
+    assert!(
+        store.find_session(legacy).unwrap().is_none(),
+        "source_ref 归属本记录的存量残留随记录清理"
+    );
+
+    // ③ 他人链原样存活（记录 + 转录 + 轮行）
+    assert!(
+        store.find_session(stranger).unwrap().is_some(),
+        "他人链会话保留（非本记录链）"
+    );
+    assert_eq!(
+        store.list_session_events(stranger).unwrap().len(),
         1,
-        "隔壁记录归属会话仍可圈定"
+        "他人链会话转录存活"
+    );
+    assert!(
+        store
+            .list_sessions(None, None)
+            .unwrap()
+            .iter()
+            .any(|summary| summary
+                .turns
+                .iter()
+                .any(|row| row.turn_id == stranger_turn.id)),
+        "他人链会话轮行存活"
     );
 }
 
@@ -4986,11 +5315,7 @@ fn log_change_phase重复attempt查重返回conflict且事务零残留() {
         "无半截相位行"
     );
     assert_eq!(
-        store
-            .scan("checklist_item", 0, 10)
-            .unwrap()
-            .records
-            .len(),
+        store.scan("checklist_item", 0, 10).unwrap().records.len(),
         0,
         "无孤立 checklist 子行"
     );

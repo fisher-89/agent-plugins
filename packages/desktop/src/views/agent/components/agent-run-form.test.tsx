@@ -1,7 +1,7 @@
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vite-plus/test';
 
-import type { AgentInstanceRecord, AgentPermissionMode } from '../../../types/dto';
+import type { AgentInstanceRecord } from '../../../types/dto';
 import { AgentRunForm } from './agent-run-form';
 
 // AgentRunForm 为纯回调组件（onStart 以 vi.fn() 注入），无进程边界，不需要 Mock。
@@ -33,46 +33,56 @@ function startButton(): HTMLButtonElement {
   return screen.getByTestId('agent-start');
 }
 
-function selectOf(testId: string): HTMLSelectElement {
+/** StandardSelect（base-ui Select）读值：testid 落在 SelectValue span
+ * （`data-value` 承载选中值），trigger 为其外层 button（role=combobox）。 */
+function selectValue(testId: string): HTMLElement {
   return screen.getByTestId(testId);
 }
 
-/** agent-select 为 StandardSelect（base-ui Select）：testid 落在 SelectValue
- * span（data-value 承载选中 id），trigger 为其外层 button（role=combobox）。 */
-function agentValue(): HTMLElement {
-  return screen.getByTestId('agent-select');
-}
-
-function agentTrigger(): HTMLElement {
-  const trigger = agentValue().closest('button');
-  if (!trigger) throw new Error('agent-select 不在 trigger button 内');
+function selectTrigger(testId: string): HTMLElement {
+  const trigger = selectValue(testId).closest('button');
+  if (!trigger) throw new Error(`${testId} 不在 trigger button 内`);
   return trigger;
 }
 
-/** 打开 agent 选择器：base-ui Select 以 mousedown 打开、开启动作为 frame
- * 异步执行，以 listbox 出现收敛最终态。 */
-async function openAgentSelect(): Promise<void> {
-  fireEvent.mouseDown(agentTrigger());
+/** 打开选择器（幂等：已开则不重复 mousedown——重复 mousedown 会 toggle 关闭）：
+ * base-ui Select 以 mousedown 打开、开启动作为 frame 异步执行，以 listbox
+ * 出现收敛最终态。 */
+async function openSelect(testId: string): Promise<void> {
+  if (screen.queryByRole('listbox')) return;
+  fireEvent.mouseDown(selectTrigger(testId));
   await screen.findByRole('listbox');
 }
 
-/** 打开选择器并点选指定 label 项：pointerDown 先行满足 base-ui 鼠标选择
- * 守卫（allowMouseSelectionRef），click 提交选中。option 查询收敛在 listbox
- * 内（native permission-mode select 的 option 同样呈 role=option）。 */
-async function pickAgent(label: string): Promise<void> {
-  await openAgentSelect();
+/** 打开选择器并点选指定 label 项：pointerDown 先行满足 base-ui 鼠标选择守卫
+ * （allowMouseSelectionRef），click 提交选中。option 查询收敛在 listbox 内。 */
+async function pickOption(testId: string, label: string): Promise<void> {
+  await openSelect(testId);
   const option = within(screen.getByRole('listbox')).getByRole('option', { name: label });
   fireEvent.pointerDown(option);
   fireEvent.click(option);
 }
 
+/** 选择器内可见选项 label 清单（弹层已开；顺序即渲染序）。 */
+function optionLabels(): string[] {
+  return within(screen.getByRole('listbox'))
+    .getAllByRole('option')
+    .map((option) => option.textContent ?? '');
+}
+
 describe('AgentRunForm：参数面默认值与 prompt 必填（AC-5）', () => {
-  it('初始 permission-mode=bypassPermissions（默认档断言）', () => {
+  it('初始 permission-mode=bypassPermissions（默认档断言）', async () => {
     mount();
 
-    expect(selectOf('agent-permission-mode').value).toBe('bypassPermissions');
+    expect(selectValue('agent-permission-mode').getAttribute('data-value')).toBe(
+      'bypassPermissions',
+    );
     // bare 认证前提提示初始不在场
     expect(screen.queryByTestId('bare-auth-note')).toBeNull();
+
+    // 默认档即列表首项（bypassPermissions / acceptEdits / default）
+    await openSelect('agent-permission-mode');
+    expect(optionLabels()).toEqual(['bypassPermissions', 'acceptEdits', 'default']);
   });
 
   it('prompt 为空串时启动按钮禁用；输入任意非空后启用', () => {
@@ -103,16 +113,16 @@ describe('AgentRunForm：onStart 回调与档位切换', () => {
     } satisfies AgentStartInput);
   });
 
-  it('permission-mode 三档下拉含 default / acceptEdits / bypassPermissions 且均可选回填', () => {
+  it('permission-mode 三档下拉含 default / acceptEdits / bypassPermissions 且均可选回填', async () => {
     mount();
 
-    const select = selectOf('agent-permission-mode');
-    const values = Array.from(select.options).map((option) => option.value);
-    expect(values).toEqual(['bypassPermissions', 'acceptEdits', 'default']);
+    await openSelect('agent-permission-mode');
+    const labels = optionLabels();
+    expect(labels).toEqual(['bypassPermissions', 'acceptEdits', 'default']);
 
-    for (const value of values as AgentPermissionMode[]) {
-      fireEvent.change(select, { target: { value } });
-      expect(select.value).toBe(value);
+    for (const label of labels) {
+      await pickOption('agent-permission-mode', label);
+      expect(selectValue('agent-permission-mode').getAttribute('data-value')).toBe(label);
     }
   });
 });
@@ -121,20 +131,20 @@ describe('AgentRunForm：agent 选择器（调试页 agent 选择，默认选中
   it('空清单：trigger 呈缺省占位（请选择）、data-value 缺席、弹层无 option（发起走后端缺省解析）', async () => {
     mount();
 
-    expect(agentValue().getAttribute('data-value')).toBeNull();
-    expect(agentValue().textContent).toBe('请选择');
+    expect(selectValue('agent-select').getAttribute('data-value')).toBeNull();
+    expect(selectValue('agent-select').textContent).toBe('请选择');
 
-    await openAgentSelect();
+    await openSelect('agent-select');
     expect(within(screen.getByRole('listbox')).queryAllByRole('option')).toHaveLength(0);
   });
 
   it('清单含默认 agent：初始即选中默认 agent（isDefault 记录 id，trigger 呈其 label）', async () => {
     mount(false, [agentInstance(3, 'cli-a', 'cli'), agentInstance(7, 'sdk-b', 'sdk', true)]);
 
-    expect(agentValue().getAttribute('data-value')).toBe('7');
-    expect(agentValue().textContent).toBe('sdk-b（sdk）');
+    expect(selectValue('agent-select').getAttribute('data-value')).toBe('7');
+    expect(selectValue('agent-select').textContent).toBe('sdk-b（sdk）');
 
-    await openAgentSelect();
+    await openSelect('agent-select');
     const options = within(screen.getByRole('listbox')).getAllByRole('option');
     expect(options.map((option) => option.textContent)).toEqual(['cli-a（cli）', 'sdk-b（sdk）']);
   });
@@ -145,8 +155,8 @@ describe('AgentRunForm：agent 选择器（调试页 agent 选择，默认选中
       agentInstance(7, 'sdk-b', 'sdk', true),
     ]);
 
-    await pickAgent('cli-a（cli）');
-    expect(agentValue().getAttribute('data-value')).toBe('3');
+    await pickOption('agent-select', 'cli-a（cli）');
+    expect(selectValue('agent-select').getAttribute('data-value')).toBe('3');
     typePrompt('显式 agent 调试轮');
     fireEvent.click(startButton());
 

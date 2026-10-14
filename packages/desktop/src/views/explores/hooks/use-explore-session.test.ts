@@ -143,6 +143,8 @@ const sessionFixture = sessionSummary([turn(11), turn(12)]);
 let sessionsResult: SessionSummary[] | string;
 let transcript: AgentEvent[] | string;
 let startResult: TurnSummary | string | null;
+/** ensure_explore_session 应答（会话归位：返回补全 session_id 的记录） */
+let ensureResult: ExploreRecord | string;
 
 function mockIpc() {
   ChannelMock.instances.length = 0;
@@ -150,6 +152,8 @@ function mockIpc() {
   transcript = [textEvent(0, '首轮结论'), turnDoneEvent(1), textEvent(2, '续轮结论')];
   // 提前 resolve 契约：agent_start 返回 running 轮行（当前会话随 onRecord 确立）
   startResult = turn(13, 'running', 'ses-13-1727000001000');
+  // 建档已预建空会话：ensure 幂等返回原记录（session_id 已在）
+  ensureResult = exploreRecord();
   invokeMock.mockImplementation((command: string, _params?: Record<string, unknown>) => {
     if (command === 'session_detail') {
       return typeof sessionsResult === 'string'
@@ -161,6 +165,11 @@ function mockIpc() {
         return Promise.reject(transcript);
       }
       return Promise.resolve(transcript);
+    }
+    if (command === 'ensure_explore_session') {
+      return typeof ensureResult === 'string'
+        ? Promise.reject(ensureResult)
+        : Promise.resolve(ensureResult);
     }
     if (command === 'agent_start') {
       return typeof startResult === 'string'
@@ -265,7 +274,8 @@ describe('useExploreSession：send 拼接 stance 与当前会话续话（AC-9，
     expect(args.onEvent).toBeInstanceOf(ChannelMock);
   });
 
-  it('无会话时 send（首条起会话）：prompt 拼 stance 前导、sessionId 不传（null 即 New）、来源三元组仍携带', async () => {
+  it('无轮会话 send（预建空会话首轮）：prompt 拼 stance 前导、sessionId 沿用记录会话（Continue，不新铸）、来源三元组仍携带', async () => {
+    // 建档预建空会话：sessionId 已在、零轮零转录——首轮即 Continue 开轮
     sessionsResult = [];
     transcript = [];
     const { result } = await mounted();
@@ -277,7 +287,7 @@ describe('useExploreSession：send 拼接 stance 与当前会话续话（AC-9，
 
     const args = startCallArgs();
     expect(args.prompt).toBe(buildExplorePrompt(SEND_INPUT.prompt, 'api-retry'));
-    expect(args.sessionId).toBeNull();
+    expect(args.sessionId).toBe(SESSION_ID);
     expect(args.source).toBe('explore');
     expect(args.sourceRef).toBeNull();
   });
@@ -604,14 +614,23 @@ describe('useExploreSession：send 注入 record.name（AC-4 组装半边）', (
     expect(String(args.prompt)).toContain('文件名 MUST 等于 api-retry');
   });
 
-  it('正向：既有会话续话裸发送（不携带 stance / name）；换记录（无会话）新会话首条随新 name 注入', async () => {
-    // 槽位寻址（反查二元组退役）：recordA 携既有会话 sessionId 续话，recordB
-    // 槽位缺席（null）→ 新会话首条随新 name 注入 stance 前导
+  it('正向：既有会话续话裸发送（不携带 stance / name）；换记录（sessionId 空缺）经 ensure 归位后首轮随新 name 注入', async () => {
+    // 槽位寻址（反查二元组退役）：recordA 携既有会话 sessionId 续话；recordB
+    // 槽位空缺（存量行）→ ensure 归位出空会话 id，首轮（零轮）随新 name 拼 stance
     invokeMock.mockImplementation((command: string, params?: Record<string, unknown>) => {
       if (command === 'session_detail') {
         return Promise.resolve(params?.sessionId === SESSION_ID ? sessionFixture : null);
       }
       if (command === 'agent_session_transcript') return Promise.resolve([]);
+      if (command === 'ensure_explore_session') {
+        const name = String(params?.name ?? '');
+        return Promise.resolve({
+          ...exploreRecord(),
+          id: name === 'other-topic' ? 8 : RECORD_ID,
+          name,
+          sessionId: name === 'other-topic' ? 'ses-b-1727000002000' : SESSION_ID,
+        } satisfies ExploreRecord);
+      }
       if (command === 'agent_start') return Promise.resolve(startResult);
       return Promise.resolve(null);
     });
@@ -634,11 +653,11 @@ describe('useExploreSession：send 注入 record.name（AC-4 组装半边）', (
     deliverRecord(turn(13, 'completed', 'ses-13-1727000001000'));
     await waitFor(() => expect(result.current.running).toBe(false));
 
-    // 换记录（无既有会话——槽位 sessionId null）：镜像重放清空 → 新会话首条
-    // stance 随新 name 注入
+    // 换记录（sessionId 空缺 → ensure 归位出空会话）：镜像重放清空 → 首轮
+    // stance 随新 name 注入，sessionId 沿用归位会话（不新铸）
     rerender({ record: { ...exploreRecord(), id: 8, name: 'other-topic', sessionId: null } });
     await act(async () => {});
-    expect(result.current.chain).toEqual([]);
+    await waitFor(() => expect(result.current.chain).toEqual([]));
 
     act(() => {
       result.current.send(SEND_INPUT);
@@ -647,6 +666,7 @@ describe('useExploreSession：send 注入 record.name（AC-4 组装半边）', (
     expect(String(startCallArgs().prompt)).toBe(
       buildExplorePrompt(SEND_INPUT.prompt, 'other-topic'),
     );
+    expect(startCallArgs().sessionId).toBe('ses-b-1727000002000');
   });
 
   it('边界：record 为 null → send 为 no-op（零 agent_start IPC）', async () => {
@@ -657,6 +677,73 @@ describe('useExploreSession：send 注入 record.name（AC-4 组装半边）', (
     });
     await act(async () => {});
 
+    expect(invokeMock.mock.calls.filter(([name]) => name === 'agent_start')).toHaveLength(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 会话归位（ensure_explore_session）：记录 session_id 空缺（存量 v3 升级行 /
+// 写回缺失遗留）→ 挂载即 invoke 归位并承接其 id 作重放与续话键；保证「退出重
+// 进详情页能看到会话」的修复半边。
+// ---------------------------------------------------------------------------
+
+describe('useExploreSession：会话归位 ensure 承接（session_id 空缺修复）', () => {
+  const missingSession: ExploreRecord = { ...exploreRecord(), sessionId: null };
+  const ensured: ExploreRecord = { ...exploreRecord(), sessionId: 'ses-adopt-1727000003000' };
+
+  function mockEnsure(result: ExploreRecord | string) {
+    invokeMock.mockImplementation((command: string) => {
+      if (command === 'ensure_explore_session') {
+        return typeof result === 'string' ? Promise.reject(result) : Promise.resolve(result);
+      }
+      if (command === 'session_detail') return Promise.resolve(sessionFixture);
+      if (command === 'agent_session_transcript') return Promise.resolve([]);
+      if (command === 'agent_start') return Promise.resolve(startResult);
+      return Promise.resolve(null);
+    });
+  }
+
+  it('record.sessionId 空缺：挂载即 ensure 归位，并以归位 id 重放（退出重进可还原会话）', async () => {
+    mockEnsure(ensured);
+
+    const { result } = await mounted(missingSession);
+
+    await waitFor(
+      () => expect(result.current.chain).toEqual(sessionFixture.turns),
+      '重放以归位 session_id 直查还原',
+    );
+    expect(invokeMock).toHaveBeenCalledWith('ensure_explore_session', {
+      root: ROOT,
+      name: 'api-retry',
+    });
+    expect(invokeMock).toHaveBeenCalledWith('session_detail', {
+      root: ROOT,
+      sessionId: 'ses-adopt-1727000003000',
+    });
+  });
+
+  it('record.sessionId 已在：不发起 ensure（建档已回写，幂等旁路）', async () => {
+    mockEnsure(ensured);
+
+    const { result } = await mounted();
+
+    await waitFor(() => expect(result.current.chain).toHaveLength(2));
+    expect(
+      invokeMock.mock.calls.filter(([name]) => name === 'ensure_explore_session'),
+    ).toHaveLength(0);
+  });
+
+  it('归位失败：静默降级——无会话可重放、send 为 no-op（不新铸会话）', async () => {
+    mockEnsure('归位失败');
+
+    const { result } = await mounted(missingSession);
+    await act(async () => {});
+
+    expect(result.current.chain).toEqual([]);
+    act(() => {
+      result.current.send(SEND_INPUT);
+    });
+    await act(async () => {});
     expect(invokeMock.mock.calls.filter(([name]) => name === 'agent_start')).toHaveLength(0);
   });
 });

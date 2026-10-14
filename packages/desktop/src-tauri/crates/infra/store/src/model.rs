@@ -213,7 +213,8 @@ pub struct ExploreRecord {
     pub workflow_type: String,
     /// 指向已 promote 的 **change id** 身份锚；`None` = 草稿态
     pub promoted_to: Option<String>,
-    /// 最近一次 agent 会话 id（`agent_start` 完成后回写；None = 尚无会话）
+    /// 归属 agent 会话 id（建档同事务预建空会话并回写；存量记录经
+    /// `ensure_explore_session` 归位补齐；None = 尚无会话归属）
     pub session_id: Option<String>,
     /// 建档时间（UTC unix 毫秒）
     pub created_at: i64,
@@ -419,7 +420,7 @@ pub struct SessionRecord {
     pub config_snapshot: SessionConfigSnapshot,
     /// 来源受控字符串（debug | explore | …），缺省 debug
     pub source: String,
-    /// 来源内定位（explore 指向探索记录主键的十进制串；调试会话为 None）
+    /// 来源内定位
     pub source_ref: Option<String>,
     /// 建档时间（UTC unix 毫秒）
     pub created_at: i64,

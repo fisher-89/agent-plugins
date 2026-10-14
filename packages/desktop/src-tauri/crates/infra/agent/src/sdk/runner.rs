@@ -58,9 +58,10 @@ impl SdkRunner {
     }
 
     /// 续会话解析：全新运行空史；显式续会话经装载缝取**会话全史转录**并重建
-    /// rig 对话史——loader `Err`（库读取失败）/ `None`（会话不存在）/ 重建
-    /// 空史，全部以 [`AgentStartError::ConfigMissing`] 显式失败（不产生记录，
-    /// `Err` 抵达前端）。
+    /// rig 对话史。空转录（会话存在但从未开轮——explore 建档预建空会话的
+    /// 首轮）→ 空史照常开跑；loader `Err`（库读取失败）/ `None`（会话不存在）
+    /// / 有事件却重建不出有效史（损坏转录），全部以
+    /// [`AgentStartError::ConfigMissing`] 显式失败（不产生记录，`Err` 抵达前端）。
     fn resolve_resume(&self, session_id: &Option<String>) -> Result<Vec<Message>, AgentStartError> {
         let Some(session_id) = session_id else {
             return Ok(Vec::new());
@@ -73,6 +74,9 @@ impl SdkRunner {
         let events = loader(session_id)
             .map_err(|error| AgentStartError::ConfigMissing(format!("转录读取失败: {error}")))?
             .ok_or_else(|| AgentStartError::ConfigMissing(format!("会话不存在: {session_id}")))?;
+        if events.is_empty() {
+            return Ok(Vec::new()); // 未开轮会话：首轮即空史开跑
+        }
         resume::rebuild(&events).map_err(AgentStartError::ConfigMissing)
     }
 }

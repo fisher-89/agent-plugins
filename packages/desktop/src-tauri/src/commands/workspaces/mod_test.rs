@@ -457,10 +457,13 @@ fn remove仅删注册记录_重加同root后explore与会话链历史完整可�
     let summaries = ws
         .list_sessions(Some("explore"), Some(&explores[0].id.to_string()))
         .unwrap();
-    assert_eq!(summaries.len(), 1, "归属会话历史完整");
-    assert_eq!(
-        summaries[0].row.provenance.source_ref.as_deref(),
-        Some(explores[0].id.to_string().as_str()),
+    // 显式播种会话 + 建档预建空会话，两行都跨 remove-readd 存续
+    assert_eq!(summaries.len(), 2, "归属会话历史完整（含建档预建空会话）");
+    assert!(
+        summaries
+            .iter()
+            .any(|summary| summary.row.provenance.source_ref.as_deref()
+                == Some(explores[0].id.to_string().as_str())),
         "链绑定（source_ref）跨 remove-readd 保持"
     );
     assert_eq!(

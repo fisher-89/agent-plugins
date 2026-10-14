@@ -176,6 +176,13 @@ export const commands = {
 	 */
 	updateExploreWorkflowType: (root: string, name: string, workflowType: string) => __TAURI_INVOKE<ExploreRecord>("update_explore_workflow_type", { root, name, workflowType }),
 	/**
+	 *  explore 会话归位（幂等）：保证记录 `session_id` 指向一条名下会话并返回
+	 *  更新后的记录。详情页打开时 invoke 一次——存量记录（v3 升级行 `session_id`
+	 *  空缺）由此补齐归属会话，前端再以 `sessionId` 直查重放。blank root / 记录
+	 *  不存在 → 显式 `Err`。
+	 */
+	ensureExploreSession: (root: string, name: string) => __TAURI_INVOKE<ExploreRecord>("ensure_explore_session", { root, name }),
+	/**
 	 *  启动变更（promote，move 语义）：blank root / 非 kebab name / 非法
 	 *  workflow_type 显式 `Err`。步序见 [`promote_explore_with`]；命令层 MUST NOT
 	 *  直接磁盘删除。
@@ -887,7 +894,10 @@ export type ExploreRecord = {
 	workflowType: string,
 	/**  指向已 promote 的 **change id** 身份锚；`None` = 草稿态 */
 	promotedTo: string | null,
-	/**  最近一次 agent 会话 id（`agent_start` 完成后回写；None = 尚无会话） */
+	/**
+	 *  归属 agent 会话 id（建档同事务预建空会话并回写；存量记录经
+	 *  `ensure_explore_session` 归位补齐；None = 尚无会话归属）
+	 */
 	sessionId: string | null,
 	/**  建档时间（UTC unix 毫秒） */
 	createdAt: number,
