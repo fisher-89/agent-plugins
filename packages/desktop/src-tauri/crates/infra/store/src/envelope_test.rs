@@ -62,6 +62,7 @@ fn seed_session(store: &Store, id: &str) -> String {
             engine_session_id: None,
             config_snapshot: SessionConfigSnapshot {
                 engine: AgentEngineKind::Sdk,
+                agent_instance_id: None,
                 model: Some("m-high".to_owned()),
                 permission_mode: agent::AgentPermissionMode::BypassPermissions,
             },
@@ -241,7 +242,7 @@ fn scan两新模型分页主键自然序翻页不重不漏_key数值id信封valu
         .collect();
     let _agent = upsert_agent_ok(
         &global,
-        AgentInstanceRecord::new("扫描实例".to_owned(), AgentEngineKind::Cli, None),
+        AgentInstanceRecord::new("扫描实例".to_owned(), AgentEngineKind::Sdk, Some(seeded[0].id)),
     );
 
     // 分页扫描：offset/limit 翻页拼接不重不漏（主键自然序）
@@ -300,7 +301,7 @@ fn scan两新模型分页主键自然序翻页不重不漏_key数值id信封valu
     assert_eq!(value["models"]["high"], serde_json::json!("m-high"));
     let agent_value = &agent_page.records[0].value;
     assert_eq!(agent_value["name"], serde_json::json!("扫描实例"));
-    assert_eq!(agent_value["engine"], serde_json::json!("cli"));
+    assert_eq!(agent_value["engine"], serde_json::json!("sdk"));
     assert_eq!(agent_value["isDefault"], serde_json::json!(false));
 
     // 空页边界：offset 恰等于总数返回空页不报错，total 恒全量（快照自洽 R2）

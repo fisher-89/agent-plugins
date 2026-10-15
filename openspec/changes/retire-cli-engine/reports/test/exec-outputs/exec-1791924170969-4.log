@@ -1,0 +1,497 @@
+[1m[33mwarn:[39m[0m No project-local vite-plus installation was found. Run `vp install` in `C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\retire-cli-engine\plugins\dev-team` to install dependencies.
+[1m[2mnote:[0m[0m You are running [94m`vp test`[39m as a Vite+ built-in command. If you meant to run the test npm script, use [94m`vpr test`[39m instead.
+vite.config.ts (1:596) [33m[UNRESOLVED_IMPORT] [0mCould not resolve 'vite-plus' in vite.config.ts
+ - Module not found, treating it as an external dependency in vite.config.ts at 596..607
+
+build\hooks-profile.ts (1:592) [33m[UNRESOLVED_IMPORT] [0mCould not resolve 'zod/v4' in build/hooks-profile.ts
+ - Module not found, treating it as an external dependency in build/hooks-profile.ts at 592..600
+
+bin\src\schemas\archi-write.schema.ts (1:636) [33m[UNRESOLVED_IMPORT] [0mCould not resolve 'zod/v4' in bin/src/schemas/archi-write.schema.ts
+ - Module not found, treating it as an external dependency in bin/src/schemas/archi-write.schema.ts at 636..644
+
+bin\src\schemas\phase-log.schema.ts (1:632) [33m[UNRESOLVED_IMPORT] [0mCould not resolve 'zod/v4' in bin/src/schemas/phase-log.schema.ts
+ - Module not found, treating it as an external dependency in bin/src/schemas/phase-log.schema.ts at 632..640
+
+bin\src\schemas\archi-validate.schema.ts (1:642) [33m[UNRESOLVED_IMPORT] [0mCould not resolve 'zod/v4' in bin/src/schemas/archi-validate.schema.ts
+ - Module not found, treating it as an external dependency in bin/src/schemas/archi-validate.schema.ts at 642..650
+
+bin\src\schemas\workflow.schema.ts (1:630) [33m[UNRESOLVED_IMPORT] [0mCould not resolve 'zod/v4' in bin/src/schemas/workflow.schema.ts
+ - Module not found, treating it as an external dependency in bin/src/schemas/workflow.schema.ts at 630..638
+
+bin\src\schemas\archi-query.schema.ts (1:636) [33m[UNRESOLVED_IMPORT] [0mCould not resolve 'zod/v4' in bin/src/schemas/archi-query.schema.ts
+ - Module not found, treating it as an external dependency in bin/src/schemas/archi-query.schema.ts at 636..644
+
+bin\src\schemas\archi-check.schema.ts (1:636) [33m[UNRESOLVED_IMPORT] [0mCould not resolve 'zod/v4' in bin/src/schemas/archi-check.schema.ts
+ - Module not found, treating it as an external dependency in bin/src/schemas/archi-check.schema.ts at 636..644
+
+bin\src\schemas\change-list.schema.ts (1:636) [33m[UNRESOLVED_IMPORT] [0mCould not resolve 'zod/v4' in bin/src/schemas/change-list.schema.ts
+ - Module not found, treating it as an external dependency in bin/src/schemas/change-list.schema.ts at 636..644
+
+bin\src\schemas\archi-decide.schema.ts (1:638) [33m[UNRESOLVED_IMPORT] [0mCould not resolve 'zod/v4' in bin/src/schemas/archi-decide.schema.ts
+ - Module not found, treating it as an external dependency in bin/src/schemas/archi-decide.schema.ts at 638..646
+
+bin\src\schemas\test-resolve-paths.schema.ts (1:650) [33m[UNRESOLVED_IMPORT] [0mCould not resolve 'zod/v4' in bin/src/schemas/test-resolve-paths.schema.ts
+ - Module not found, treating it as an external dependency in bin/src/schemas/test-resolve-paths.schema.ts at 650..658
+
+bin\src\schemas\test-execution-output.schema.ts (8:18) [33m[UNRESOLVED_IMPORT] [0mCould not resolve 'zod/v4' in bin/src/schemas/test-execution-output.schema.ts
+   [38;5;246m╭[0m[38;5;246m─[0m[38;5;246m[[0m bin/src/schemas/test-execution-output.schema.ts:8:19 [38;5;246m][0m
+   [38;5;246m│[0m
+ [38;5;246m8 │[0m [38;5;249mi[0m[38;5;249mm[0m[38;5;249mp[0m[38;5;249mo[0m[38;5;249mr[0m[38;5;249mt[0m[38;5;249m [0m[38;5;249m{[0m[38;5;249m [0m[38;5;249mz[0m[38;5;249m [0m[38;5;249m}[0m[38;5;249m [0m[38;5;249mf[0m[38;5;249mr[0m[38;5;249mo[0m[38;5;249mm[0m[38;5;249m [0m'zod/v4'[38;5;249m;[0m
+ [38;5;240m  │[0m                   ────┬───  
+ [38;5;240m  │[0m                       ╰───── Module not found, treating it as an external dependency
+[38;5;246m───╯[0m
+
+bin\src\schemas\change-files.schema.ts (1:638) [33m[UNRESOLVED_IMPORT] [0mCould not resolve 'zod/v4' in bin/src/schemas/change-files.schema.ts
+ - Module not found, treating it as an external dependency in bin/src/schemas/change-files.schema.ts at 638..646
+
+bin\src\schemas\spec-list.schema.ts (1:632) [33m[UNRESOLVED_IMPORT] [0mCould not resolve 'zod/v4' in bin/src/schemas/spec-list.schema.ts
+ - Module not found, treating it as an external dependency in bin/src/schemas/spec-list.schema.ts at 632..640
+
+bin\src\schemas\workflow-files.schema.ts (1:642) [33m[UNRESOLVED_IMPORT] [0mCould not resolve 'zod/v4' in bin/src/schemas/workflow-files.schema.ts
+ - Module not found, treating it as an external dependency in bin/src/schemas/workflow-files.schema.ts at 642..650
+
+bin\src\schemas\config\config.schema.ts (1:649) [33m[UNRESOLVED_IMPORT] [0mCould not resolve 'zod/v4' in bin/src/schemas/config/config.schema.ts
+ - Module not found, treating it as an external dependency in bin/src/schemas/config/config.schema.ts at 649..657
+
+bin\src\schemas\backtrack.schema.ts (1:632) [33m[UNRESOLVED_IMPORT] [0mCould not resolve 'zod/v4' in bin/src/schemas/backtrack.schema.ts
+ - Module not found, treating it as an external dependency in bin/src/schemas/backtrack.schema.ts at 632..640
+
+bin\src\schemas\config-get.schema.ts (1:634) [33m[UNRESOLVED_IMPORT] [0mCould not resolve 'zod/v4' in bin/src/schemas/config-get.schema.ts
+ - Module not found, treating it as an external dependency in bin/src/schemas/config-get.schema.ts at 634..642
+
+bin\src\schemas\phase-next.schema.ts (1:634) [33m[UNRESOLVED_IMPORT] [0mCould not resolve 'zod/v4' in bin/src/schemas/phase-next.schema.ts
+ - Module not found, treating it as an external dependency in bin/src/schemas/phase-next.schema.ts at 634..642
+
+bin\src\schemas\change-create.schema.ts (1:640) [33m[UNRESOLVED_IMPORT] [0mCould not resolve 'zod/v4' in bin/src/schemas/change-create.schema.ts
+ - Module not found, treating it as an external dependency in bin/src/schemas/change-create.schema.ts at 640..648
+
+bin\src\schemas\test-detect-frameworks.schema.ts (1:658) [33m[UNRESOLVED_IMPORT] [0mCould not resolve 'zod/v4' in bin/src/schemas/test-detect-frameworks.schema.ts
+ - Module not found, treating it as an external dependency in bin/src/schemas/test-detect-frameworks.schema.ts at 658..666
+
+bin\src\schemas\phase-start.schema.ts (1:636) [33m[UNRESOLVED_IMPORT] [0mCould not resolve 'zod/v4' in bin/src/schemas/phase-start.schema.ts
+ - Module not found, treating it as an external dependency in bin/src/schemas/phase-start.schema.ts at 636..644
+
+bin\src\schemas\public\project-root.schema.ts (1:661) [33m[UNRESOLVED_IMPORT] [0mCould not resolve 'zod/v4' in bin/src/schemas/public/project-root.schema.ts
+ - Module not found, treating it as an external dependency in bin/src/schemas/public/project-root.schema.ts at 661..669
+
+[31mfailed to load config from C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\retire-cli-engine\plugins\dev-team\vite.config.ts[39m
+
+[31m⎯⎯⎯⎯⎯⎯⎯[39m[1m[41m Startup Error [49m[22m[31m⎯⎯⎯⎯⎯⎯⎯⎯[39m
+Error [ERR_MODULE_NOT_FOUND]: Cannot find package 'vite-plus' imported from C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\retire-cli-engine\plugins\dev-team\vite.config.ts.timestamp-1791924006037-ad314f996c4f78.mjs
+    at Object.getPackageJSONURL (node:internal/modules/package_json_reader:331:9)
+    at packageResolve (node:internal/modules/esm/resolve:784:25)
+    at moduleResolve (node:internal/modules/esm/resolve:873:18)
+    at defaultResolve (node:internal/modules/esm/resolve:1006:11)
+    at #cachedDefaultResolve (node:internal/modules/esm/loader:705:20)
+    at #resolveAndMaybeBlockOnLoaderThread (node:internal/modules/esm/loader:725:38)
+    at ModuleLoader.resolveSync (node:internal/modules/esm/loader:763:56)
+    at #resolve (node:internal/modules/esm/loader:687:17)
+    at ModuleLoader.getOrCreateModuleJob (node:internal/modules/esm/loader:607:35)
+    at ModuleJob.syncLink (node:internal/modules/esm/module_job:276:33) {
+  code: 'ERR_MODULE_NOT_FOUND'
+}
+
+
+
+JSON report written to C:/Users/wps/.dev-team/worktrees/wps-claude-plugin-7166d8c61feeae705846d569251abee6/retire-cli-engine/openspec/changes/retire-cli-engine/reports/test/packages_desktop_vite-plus/results.json
+[1m[2mnote:[0m[0m You are running [94m`vp test`[39m as a Vite+ built-in command. If you meant to run the test npm script, use [94m`vpr test`[39m instead.
+info: cargo-llvm-cov currently setting cfg(coverage); you can opt-out it by passing --no-cfg-coverage
+   Compiling proc-macro2 v1.0.107
+   Compiling quote v1.0.47
+   Compiling unicode-ident v1.0.26
+   Compiling windows-link v0.2.1
+   Compiling memchr v2.8.3
+   Compiling cfg-if v1.0.5
+   Compiling itoa v1.0.18
+   Compiling serde_core v1.0.229
+   Compiling zmij v1.0.23
+   Compiling bytes v1.12.1
+   Compiling siphasher v1.0.3
+   Compiling fastrand v2.5.0
+   Compiling percent-encoding v2.3.2
+   Compiling hashbrown v0.17.1
+   Compiling equivalent v1.0.2
+   Compiling windows-sys v0.61.2
+   Compiling writeable v0.6.4
+   Compiling litemap v0.8.3
+   Compiling getrandom v0.4.3
+   Compiling utf8_iter v1.0.4
+   Compiling pin-project-lite v0.2.17
+   Compiling aho-corasick v1.1.5
+   Compiling regex-syntax v0.8.11
+   Compiling http v1.5.0
+   Compiling serde v1.0.229
+   Compiling icu_normalizer_data v2.3.0
+   Compiling indexmap v2.14.2
+   Compiling icu_properties_data v2.3.0
+   Compiling fnv v1.0.7
+   Compiling num-conv v0.2.2
+   Compiling time-core v0.1.9
+   Compiling powerfmt v0.2.0
+   Compiling autocfg v1.5.1
+   Compiling version_check v0.9.5
+   Compiling scopeguard v1.2.0
+   Compiling phf_shared v0.13.1
+   Compiling serde_json v1.0.151
+   Compiling once_cell v1.21.4
+   Compiling thiserror v2.0.20
+   Compiling form_urlencoded v1.2.2
+   Compiling semver v1.0.28
+   Compiling stable_deref_trait v1.2.1
+   Compiling libc v0.2.189
+   Compiling glob v0.3.4
+   Compiling bitflags v2.13.2
+   Compiling syn v3.0.6
+   Compiling syn v2.0.119
+   Compiling phf_generator v0.13.1
+   Compiling mio v1.2.3
+   Compiling socket2 v0.6.5
+   Compiling smallvec v1.16.1
+   Compiling anyhow v1.0.104
+   Compiling regex-automata v0.4.18
+   Compiling thiserror v1.0.69
+   Compiling find-msvc-tools v0.1.13
+   Compiling parking_lot_core v0.9.12
+   Compiling shlex v2.0.1
+   Compiling camino v1.2.6
+   Compiling winapi-util v0.1.11
+   Compiling lock_api v0.4.14
+   Compiling log v0.4.34
+   Compiling base64 v0.23.1
+   Compiling cc v1.4.7
+   Compiling same-file v1.0.6
+   Compiling tracing-core v0.1.36
+   Compiling winnow v1.0.4
+   Compiling futures-core v0.3.34
+   Compiling regex v1.13.1
+   Compiling phf_codegen v0.13.1
+   Compiling rustc_version v0.4.1
+   Compiling walkdir v2.5.0
+   Compiling synstructure v0.14.0
+   Compiling toml_parser v1.1.3+spec-1.1.0
+   Compiling strsim v0.11.1
+   Compiling typeid v1.0.3
+   Compiling ident_case v1.0.1
+   Compiling toml_writer v1.1.2+spec-1.1.0
+   Compiling byteorder v1.5.0
+   Compiling erased-serde v0.4.10
+   Compiling unic-char-range v0.9.0
+   Compiling new_debug_unreachable v1.0.6
+   Compiling unic-common v0.9.0
+   Compiling darling_core v0.24.1
+   Compiling dunce v1.0.5
+   Compiling string_cache_codegen v0.6.1
+   Compiling unic-char-property v0.9.0
+   Compiling precomputed-hash v0.1.1
+   Compiling futures-sink v0.3.34
+   Compiling dyn-clone v1.0.20
+   Compiling unic-ucd-version v0.9.0
+   Compiling alloc-no-stdlib v2.0.4
+   Compiling thiserror-impl v1.0.69
+   Compiling phf_macros v0.13.1
+   Compiling tracing-attributes v0.1.31
+   Compiling parking_lot v0.12.5
+   Compiling serde_spanned v1.1.1
+   Compiling quick-xml v0.42.0
+   Compiling serde_derive v1.0.229
+   Compiling zerofrom-derive v0.1.8
+   Compiling yoke-derive v0.8.3
+   Compiling zerovec-derive v0.11.6
+   Compiling displaydoc v0.2.7
+   Compiling thiserror-impl v2.0.20
+   Compiling tokio-macros v2.7.2
+   Compiling alloc-stdlib v0.2.4
+   Compiling unic-ucd-ident v0.9.0
+   Compiling web_atoms v0.2.6
+   Compiling brotli-decompressor v5.0.3
+   Compiling string_cache v0.9.0
+   Compiling phf v0.13.1
+   Compiling generic-array v0.14.7
+   Compiling windows_x86_64_msvc v0.52.6
+   Compiling dtoa v1.0.11
+   Compiling tokio v1.53.1
+   Compiling ctor-proc-macro v0.0.7
+   Compiling brotli v8.0.4
+   Compiling tracing v0.1.44
+   Compiling dtoa-short v0.3.5
+   Compiling cssparser-macros v0.6.1
+   Compiling zerofrom v0.1.8
+   Compiling derive_more-impl v2.1.1
+   Compiling darling_macro v0.24.1
+   Compiling tendril v0.5.1
+   Compiling selectors v0.36.1
+   Compiling indexmap v1.9.3
+   Compiling ctor v0.8.0
+   Compiling uuid v1.26.1
+   Compiling deranged v0.5.8
+   Compiling toml_datetime v1.1.1+spec-1.1.0
+   Compiling time-macros v0.2.32
+   Compiling darling v0.24.1
+   Compiling typenum v1.20.1
+   Compiling slab v0.4.12
+   Compiling derive_more v2.1.1
+   Compiling markup5ever v0.38.0
+   Compiling toml v1.1.6+spec-1.1.0
+   Compiling cssparser v0.36.0
+   Compiling futures-channel v0.3.34
+   Compiling yoke v0.8.3
+   Compiling serde_derive_internals v0.29.1
+   Compiling servo_arc v0.4.3
+   Compiling rustc-hash v2.1.3
+   Compiling time v0.3.55
+   Compiling bit-vec v0.8.0
+   Compiling schemars v0.8.22
+   Compiling hashbrown v0.12.3
+   Compiling serde_with_macros v3.23.0
+   Compiling schemars_derive v0.8.22
+   Compiling bit-set v0.8.0
+   Compiling html5ever v0.38.0
+   Compiling windows-targets v0.52.6
+   Compiling cargo-platform v0.1.9
+   Compiling jsonptr v0.6.3
+   Compiling cfb v0.7.3
+   Compiling futures-macro v0.3.34
+   Compiling futures-task v0.3.34
+   Compiling futures-io v0.3.34
+   Compiling foldhash v0.2.0
+   Compiling base64 v0.22.1
+   Compiling json-patch v3.0.1
+   Compiling infer v0.19.0
+   Compiling serde-untagged v0.1.9
+   Compiling cargo_metadata v0.19.2
+   Compiling serde_with v3.23.0
+   Compiling tokio-util v0.7.19
+   Compiling crypto-common v0.1.7
+   Compiling futures-util v0.3.34
+   Compiling block-buffer v0.10.4
+   Compiling zerovec v0.11.8
+   Compiling zerotrie v0.2.5
+   Compiling plist v1.10.1
+   Compiling digest v0.10.7
+   Compiling http-body v1.1.0
+   Compiling mime v0.3.17
+   Compiling cpufeatures v0.2.17
+   Compiling paste v1.0.15
+   Compiling tower-service v0.3.3
+   Compiling crossbeam-utils v0.8.23
+   Compiling sha2 v0.10.9
+   Compiling vswhom-sys v0.1.3
+   Compiling dom_query v0.27.0
+   Compiling specta v2.0.0-rc.25
+   Compiling heck v0.5.0
+   Compiling httparse v1.10.1
+   Compiling Inflector v0.11.4
+   Compiling windows-link v0.1.3
+   Compiling option-ext v0.2.0
+   Compiling try-lock v0.2.5
+   Compiling atomic-waker v1.1.2
+   Compiling specta-macros v2.0.0-rc.25
+   Compiling h2 v0.4.19
+   Compiling want v0.3.1
+   Compiling windows-sys v0.59.0
+   Compiling windows-strings v0.5.1
+   Compiling windows-result v0.4.1
+   Compiling tinystr v0.8.4
+   Compiling potential_utf v0.1.6
+   Compiling unicase v2.9.0
+   Compiling icu_locale_core v2.3.0
+   Compiling icu_collections v2.3.0
+   Compiling httpdate v1.0.3
+   Compiling windows-registry v0.6.1
+   Compiling windows-strings v0.4.2
+   Compiling windows-result v0.3.4
+   Compiling windows-interface v0.59.3
+   Compiling windows-implement v0.60.2
+   Compiling sync_wrapper v1.0.2
+   Compiling toml_datetime v0.7.5+spec-1.1.0
+   Compiling tower-layer v0.3.3
+   Compiling ipnet v2.12.2
+   Compiling winnow v0.7.15
+   Compiling dirs-sys v0.5.0
+   Compiling vswhom v0.1.0
+   Compiling http-body-util v0.1.5
+   Compiling icu_provider v2.3.1
+   Compiling dirs v6.0.0
+   Compiling tower v0.5.3
+   Compiling windows-threading v0.1.0
+   Compiling windows-core v0.61.2
+   Compiling hyper v1.11.1
+   Compiling ring v0.17.14
+   Compiling rustversion v1.0.23
+   Compiling crc32fast v1.5.2
+   Compiling simd-adler32 v0.3.10
+   Compiling zerocopy v0.8.57
+   Compiling icu_normalizer v2.3.0
+   Compiling icu_properties v2.3.0
+   Compiling winreg v0.55.0
+   Compiling unicode-segmentation v1.13.3
+   Compiling toml v0.9.12+spec-1.1.0
+   Compiling embed-resource v3.0.11
+   Compiling hyper-util v0.1.20
+   Compiling windows-numerics v0.2.0
+   Compiling windows-collections v0.2.0
+   Compiling windows-future v0.2.1
+   Compiling raw-window-handle v0.6.2
+   Compiling idna_adapter v1.2.2
+   Compiling tauri-winres v0.3.6
+   Compiling cargo_toml v0.22.3
+   Compiling adler2 v2.0.1
+   Compiling idna v1.1.0
+   Compiling crossbeam-epoch v0.9.21
+   Compiling windows v0.61.3
+   Compiling webview2-com-sys v0.38.2
+   Compiling getrandom v0.2.17
+   Compiling url v2.5.8
+   Compiling either v1.18.0
+   Compiling untrusted v0.9.0
+   Compiling zeroize v1.9.0
+   Compiling encoding_rs v0.8.42
+   Compiling rand_core v0.6.4
+   Compiling miniz_oxide v0.9.1
+   Compiling dpi v0.1.2
+   Compiling rustls-pki-types v1.15.1
+   Compiling cookie v0.18.2
+   Compiling urlpattern v0.3.0
+   Compiling crossbeam-deque v0.8.8
+   Compiling rustls v0.23.45
+   Compiling flate2 v1.1.10
+   Compiling miniz_oxide v0.8.9
+   Compiling fdeflate v0.3.7
+   Compiling crossbeam-channel v0.5.17
+   Compiling webview2-com-macros v0.8.1
+   Compiling error-chain v0.12.4
+   Compiling tauri-utils v2.9.3
+   Compiling ppv-lite86 v0.2.21
+   Compiling phf_shared v0.11.3
+   Compiling windows-version v0.1.7
+   Compiling multiversion_no_op v1.0.0
+   Compiling core_detect v1.0.0
+   Compiling native-tls v0.2.18
+   Compiling pulldown-cmark v0.9.6
+   Compiling bitflags v1.3.2
+   Compiling rand_chacha v0.3.1
+   Compiling subtle v2.6.1
+   Compiling simdutf8 v0.1.5
+error: failed to write C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\retire-cli-engine\packages\desktop\src-tauri\target\llvm-cov-target\debug\deps\libcore_detect-ed46d787b013ba35.rmeta: 另一个程序正在使用此文件，进程无法访问。 (os error 32)
+
+error: process didn't exit successfully: `C:\Users\wps\.rustup\toolchains\stable-x86_64-pc-windows-msvc\bin\rustc.exe --crate-name core_detect --edition=2018 C:\Users\wps\.cargo\registry\src\rsproxy.cn-e3de039b2554c837\core_detect-1.0.0\src\lib.rs --error-format=json --json=diagnostic-rendered-ansi,artifacts,future-incompat --crate-type lib --emit=dep-info,metadata,link -C embed-bitcode=no -C debuginfo=2 --cfg "feature=\"default\"" --check-cfg cfg(docsrs,test) --check-cfg "cfg(feature, values(\"assume_has_cpuid\", \"default\", \"unstable_has_cpuid\"))" -C metadata=10144dd498a06b8d -C extra-filename=-ed46d787b013ba35 --out-dir C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\retire-cli-engine\packages\desktop\src-tauri\target\llvm-cov-target\debug\deps -L dependency=C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\retire-cli-engine\packages\desktop\src-tauri\target\llvm-cov-target\debug\deps --cap-lints allow` (exit code: 1)
+error: could not compile `core_detect` (lib) due to 1 previous error
+warning: build failed, waiting for other jobs to finish...
+error: process didn't exit successfully: `C:\Users\wps\.rustup\toolchains\stable-x86_64-pc-windows-msvc\bin\cargo.exe test --tests --manifest-path C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\retire-cli-engine\packages\desktop\src-tauri\Cargo.toml --target-dir C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\retire-cli-engine\packages\desktop\src-tauri\target\llvm-cov-target` (exit code: 101)
+   Compiling tokio v1.53.1
+   Compiling tauri v2.11.6
+   Compiling rig-http v0.43.0
+   Compiling watch v0.1.0 (C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\retire-cli-engine\packages\desktop\src-tauri\crates\infra\watch)
+   Compiling checks v0.1.0 (C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\retire-cli-engine\packages\desktop\src-tauri\crates\core\checks)
+   Compiling config v0.1.0 (C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\retire-cli-engine\packages\desktop\src-tauri\crates\core\config)
+   Compiling foundation v0.1.0 (C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\retire-cli-engine\packages\desktop\src-tauri\crates\core\foundation)
+warning: function `段级未知outcome样本runtimeError留痕` should have a snake case name
+   --> crates\core\checks\tests\corpus_golden_test.rs:561:4
+    |
+561 | fn 段级未知outcome样本runtimeError留痕() {
+    |    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: convert the identifier to snake case: `段级未知outcome样本runtime_error留痕`
+    |
+    = note: `#[warn(non_snake_case)]` (part of `#[warn(nonstandard_style)]`) on by default
+
+warning: `checks` (test "corpus_golden_test") generated 1 warning
+warning: function `build_mutation_block分母零与NaN与Inf阈值` should have a snake case name
+   --> crates\core\checks\src\aggregate_test.rs:772:4
+    |
+772 | fn build_mutation_block分母零与NaN与Inf阈值() {
+    |    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: convert the identifier to snake case: `build_mutation_block分母零与_na_n与_inf阈值`
+    |
+    = note: `#[warn(non_snake_case)]` (part of `#[warn(nonstandard_style)]`) on by default
+
+   Compiling tauri-plugin-fs v2.5.2
+   Compiling tauri-plugin-updater v2.12.0
+   Compiling tauri-plugin-devtools v2.2.1
+   Compiling tauri-plugin-dialog v2.7.3
+   Compiling tokio-util v0.7.19
+   Compiling agent v0.1.0 (C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\retire-cli-engine\packages\desktop\src-tauri\crates\core\agent)
+   Compiling tokio-rustls v0.26.5
+   Compiling exec v0.1.0 (C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\retire-cli-engine\packages\desktop\src-tauri\crates\infra\exec)
+   Compiling tokio-native-tls v0.3.1
+   Compiling dev-team v0.1.0 (C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\retire-cli-engine\packages\desktop\src-tauri)
+warning: `checks` (lib test) generated 1 warning
+   Compiling h2 v0.4.19
+   Compiling tower v0.5.3
+   Compiling tokio-stream v0.1.19
+   Compiling workflow v0.1.0 (C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\retire-cli-engine\packages\desktop\src-tauri\crates\core\workflow)
+   Compiling tower-http v0.6.11
+   Compiling axum v0.8.9
+   Compiling hyper v1.11.1
+   Compiling orchestration v0.1.0 (C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\retire-cli-engine\packages\desktop\src-tauri\crates\core\orchestration)
+   Compiling store v0.1.0 (C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\retire-cli-engine\packages\desktop\src-tauri\crates\infra\store)
+   Compiling hyper-util v0.1.20
+   Compiling vcs-runtime v0.1.0 (C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\retire-cli-engine\packages\desktop\src-tauri\crates\infra\vcs)
+   Compiling checks-runtime v0.1.0 (C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\retire-cli-engine\packages\desktop\src-tauri\crates\infra\checks)
+error: character literal may only contain one codepoint
+    --> crates\infra\store\src\model_test.rs:2344:24
+     |
+2344 |         !text.contains('{}') && !text.contains("%s") && !text.contains("{0}"),
+     |                        ^^^^
+     |
+help: if you meant to write a string literal, use double quotes
+     |
+2344 -         !text.contains('{}') && !text.contains("%s") && !text.contains("{0}"),
+2344 +         !text.contains("{}") && !text.contains("%s") && !text.contains("{0}"),
+     |
+
+   Compiling hyper-tls v0.6.0
+   Compiling hyper-rustls v0.27.10
+   Compiling hyper-timeout v0.5.2
+   Compiling reqwest v0.13.5
+   Compiling tonic v0.14.6
+   Compiling tauri-specta v2.0.0-rc.25
+   Compiling tauri-plugin-single-instance v2.4.5
+   Compiling rig-reqwest v0.43.0
+   Compiling tonic-prost v0.14.6
+   Compiling tonic-web v0.14.6
+warning: field `0` is never read
+  --> crates\infra\checks\src\testexec\runner_test.rs:76:18
+   |
+76 | struct EnvWindow(std::sync::MutexGuard<'static, ()>);
+   |        --------- ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |        |
+   |        field in this struct
+   |
+   = help: consider removing this field
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: field `0` is never read
+  --> crates\infra\checks\src\static_check_test.rs:10:18
+   |
+10 | struct EnvWindow(std::sync::MutexGuard<'static, ()>);
+   |        --------- ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |        |
+   |        field in this struct
+   |
+   = help: consider removing this field
+
+   Compiling tonic-health v0.14.6
+   Compiling devtools-wire-format v0.6.0
+   Compiling rig-core v0.43.0
+error: could not compile `store` (lib test) due to 1 previous error
+warning: build failed, waiting for other jobs to finish...
+warning: `checks-runtime` (lib test) generated 2 warnings
+warning: associated function `failing` is never used
+   --> crates\core\orchestration\src\steps_test.rs:843:8
+    |
+809 | impl FakeMutationRunner {
+    | ----------------------- associated function in this implementation
+...
+843 |     fn failing(feedback_text: &str) -> Self {
+    |        ^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: method `with_edit` is never used
+   --> crates\core\orchestration\src\walker_test.rs:884:8
+    |
+860 | impl FakeVcs {
+    | ------------ method in this implementation
+...
+884 |     fn with_edit(self, files: Vec<String>, patch: &str) -> Self {
+    |        ^^^^^^^^^
+
+warning: `orchestration` (lib test) generated 2 warnings

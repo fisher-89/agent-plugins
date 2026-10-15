@@ -14,7 +14,7 @@ use crate::sdk::context::{ContextDefense, DefenseNotice};
 use crate::sdk::{context, r#loop, resume};
 use crate::ResumeTranscript;
 
-/// 事件通道有界容量（与 CLI 泵同策略：背压阻塞 send，事件不丢、内存有界）。
+/// 事件通道有界容量（背压阻塞 send，事件不丢、内存有界）。
 const EVENT_CHANNEL_CAPACITY: usize = 256;
 
 /// 提问通道有界容量（单问送达；单会话单活动轮，容量 4 为余量）。

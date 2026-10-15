@@ -36,6 +36,15 @@ const ROOT = 'C:\\demo\\beta';
 
 const SESSION_ID = 'ses-1-1727000000000';
 
+/** store `SessionConfigSnapshot` 快照线形态（serde camelCase；v2 增
+ * `agentInstanceId` 实例外键——fixture 缺键即类型红，防漂移）。 */
+interface ConfigSnapshotFixture {
+  engine: 'cli' | 'sdk';
+  agentInstanceId: number | null;
+  model: string | null;
+  permissionMode: string;
+}
+
 function run(turnId: number, status: TurnSummary['status']): TurnSummary {
   return {
     turnId,
@@ -522,7 +531,12 @@ describe('AgentDebugView：来源筛选接线（AC-3）', () => {
         row: {
           id: 'ses-debug-1',
           remoteSessionId: null,
-          configSnapshot: null,
+          configSnapshot: {
+            engine: 'sdk',
+            agentInstanceId: 7,
+            model: 'glm-high',
+            permissionMode: 'bypassPermissions',
+          } satisfies ConfigSnapshotFixture,
           provenance: { source: 'debug', sourceRef: null },
           createdAt: 1727000000000,
           updatedAt: 1727000000300,
@@ -534,7 +548,12 @@ describe('AgentDebugView：来源筛选接线（AC-3）', () => {
         row: {
           id: 'ses-change-1',
           remoteSessionId: null,
-          configSnapshot: null,
+          configSnapshot: {
+            engine: 'cli',
+            agentInstanceId: null,
+            model: null,
+            permissionMode: 'bypassPermissions',
+          } satisfies ConfigSnapshotFixture,
           provenance: { source: 'change', sourceRef: 'add-feature/implement/executor/1' },
           createdAt: 1727000000000,
           updatedAt: 1727000000200,
@@ -628,5 +647,73 @@ describe('AgentDebugView：流式呈现（AC-1 UI 半边）', () => {
     });
     const texts = screen.getAllByTestId('block-text').map((node) => node.textContent);
     expect(texts).toEqual(['你好工作区']);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// configSnapshot fixture 补 agentInstanceId 键（fixture 随动，AC-7）
+// ---------------------------------------------------------------------------
+
+describe('AgentDebugView：configSnapshot fixture 携 agentInstanceId 键（AC-7 随动）', () => {
+  it('补键后历史清单呈现既有断言保绿（具体 id 与 null 两形态同口径）', async () => {
+    const snapshotSdk: ConfigSnapshotFixture = {
+      engine: 'sdk',
+      agentInstanceId: 7,
+      model: 'glm-high',
+      permissionMode: 'bypassPermissions',
+    };
+    const snapshotLegacy: ConfigSnapshotFixture = {
+      engine: 'cli',
+      agentInstanceId: null,
+      model: null,
+      permissionMode: 'bypassPermissions',
+    };
+    // fixture 两形态键在场（缺键旧形态由类型面拦截，运行面再锚一次）
+    expect(snapshotSdk).toHaveProperty('agentInstanceId', 7);
+    expect(snapshotLegacy).toHaveProperty('agentInstanceId', null);
+    historySessionsFixture = [
+      {
+        row: {
+          id: 'ses-a-1727000000000',
+          remoteSessionId: null,
+          configSnapshot: snapshotSdk,
+          provenance: { source: 'debug', sourceRef: null },
+          createdAt: 1727000000000,
+          updatedAt: 1727000000300,
+        },
+        stats: { turnCount: 1, totalDurationMs: 100, inputTokens: null, outputTokens: null },
+        turns: [],
+      },
+      {
+        row: {
+          id: 'ses-b-1727000000000',
+          remoteSessionId: null,
+          configSnapshot: snapshotLegacy,
+          provenance: { source: 'change', sourceRef: 'add-feature/implement/executor/1' },
+          createdAt: 1727000000000,
+          updatedAt: 1727000000200,
+        },
+        stats: { turnCount: 2, totalDurationMs: 200, inputTokens: null, outputTokens: null },
+        turns: [],
+      },
+    ];
+    render(<AgentDebugView root={ROOT} />);
+
+    const buttons = within(screen.getByTestId('history-source-filter')).getAllByRole('button');
+    fireEvent.click(buttons[2]);
+    await waitFor(() =>
+      expect(invokeMock).toHaveBeenLastCalledWith('agent_sessions', {
+        root: ROOT,
+        source: null,
+        sourceRef: null,
+        offset: 0,
+        limit: 20,
+      }),
+    );
+    const rows = await screen.findAllByTestId('agent-run-row');
+    expect(rows.map((row) => row.getAttribute('data-session-id'))).toEqual([
+      'ses-a-1727000000000',
+      'ses-b-1727000000000',
+    ]);
   });
 });

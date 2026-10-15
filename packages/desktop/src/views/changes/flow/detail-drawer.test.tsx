@@ -183,13 +183,27 @@ function outputNode(overrides: Partial<RuntimeFlowNode> = {}): RuntimeFlowNode {
   });
 }
 
+/** store `SessionConfigSnapshot` 快照线形态（serde camelCase；v2 增
+ * `agentInstanceId` 实例外键——fixture 缺键即类型红，防漂移）。 */
+interface ConfigSnapshotFixture {
+  engine: 'cli' | 'sdk';
+  agentInstanceId: number | null;
+  model: string | null;
+  permissionMode: string;
+}
+
 /** 会话清单项 fixture（session_detail 应答；轮行已收敛 = 重放形态）。 */
 function transcriptSession(sessionId: string, sourceRef: string): SessionSummary {
   return {
     row: {
       id: sessionId,
       remoteSessionId: null,
-      configSnapshot: null,
+      configSnapshot: {
+        engine: 'sdk',
+        agentInstanceId: null,
+        model: 'glm-high',
+        permissionMode: 'bypassPermissions',
+      } satisfies ConfigSnapshotFixture,
       provenance: { source: 'change', sourceRef },
       createdAt: 1727000000000,
       updatedAt: 1727000001000,
@@ -441,5 +455,39 @@ describe('DetailDrawer：双列结构退役（单列壳）', () => {
       expect(products).toHaveLength(1);
       unmount();
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// configSnapshot fixture 补 agentInstanceId 键（fixture 随动，AC-7）
+// ---------------------------------------------------------------------------
+
+describe('DetailDrawer：configSnapshot fixture 携 agentInstanceId 键（AC-7 随动）', () => {
+  it('补键后转录面板既有断言保绿（null 存量缺列语义）；具体 id 形态同口径', async () => {
+    const legacy = transcriptSession('ses-exec-2', `${CHANGE_ID}/implement/executor/2`);
+    // helper 默认形态：agentInstanceId null（存量会话缺列语义）
+    expect((legacy.row.configSnapshot as ConfigSnapshotFixture).agentInstanceId).toBeNull();
+    detailFixture = { 'ses-exec-2': legacy };
+    transcriptFixture = {
+      'ses-exec-2': [textEvent(0, 'user', '实现该功能'), textEvent(1, 'assistant', '开始实现')],
+    };
+    renderDrawer(world([runtimeNode()]), {
+      scope: 'node',
+      nodeId: 'run:implement:2:executor:0',
+    });
+
+    const panel = await screen.findByTestId('session-transcript-panel');
+    await waitFor(() => expect(panel.textContent).toContain('开始实现'));
+
+    // 具体实例 id（新会话语义）形态：fixture 同形、呈现面不受影响
+    const fresh = transcriptSession('ses-exec-2', `${CHANGE_ID}/implement/executor/2`);
+    fresh.row.configSnapshot = {
+      engine: 'sdk',
+      agentInstanceId: 7,
+      model: 'glm-high',
+      permissionMode: 'bypassPermissions',
+    } satisfies ConfigSnapshotFixture;
+    expect((fresh.row.configSnapshot as ConfigSnapshotFixture).agentInstanceId).toBe(7);
+    detailFixture = { 'ses-exec-2': fresh };
   });
 });

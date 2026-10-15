@@ -52,6 +52,15 @@ function turn(
   };
 }
 
+/** store `SessionConfigSnapshot` 快照线形态（serde camelCase；v2 增
+ * `agentInstanceId` 实例外键——fixture 缺键即类型红，防漂移）。 */
+interface ConfigSnapshotFixture {
+  engine: 'cli' | 'sdk';
+  agentInstanceId: number | null;
+  model: string | null;
+  permissionMode: string;
+}
+
 function sessionSummary(
   row: Partial<SessionSummary['row']> = {},
   turns: TurnSummary[],
@@ -60,7 +69,12 @@ function sessionSummary(
     row: {
       id: SESSION_ID,
       remoteSessionId: 's-engine',
-      configSnapshot: { engine: 'sdk', model: 'glm-high', permissionMode: 'bypassPermissions' },
+      configSnapshot: {
+        engine: 'sdk',
+        agentInstanceId: 7,
+        model: 'glm-high',
+        permissionMode: 'bypassPermissions',
+      } satisfies ConfigSnapshotFixture,
       provenance: { source: 'explore', sourceRef: null },
       createdAt: 1727000000000,
       updatedAt: 1727000009999,
@@ -706,5 +720,48 @@ describe('useAgentChat：装载双查询 reject 面', () => {
     // 不产半成品重建）
     expect(result.current.session).toBeNull();
     expect(result.current.chain).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// configSnapshot fixture 补 agentInstanceId 键（fixture 随动，AC-7）
+// ---------------------------------------------------------------------------
+
+describe('useAgentChat：configSnapshot fixture 携 agentInstanceId 键（AC-7 随动）', () => {
+  it('默认 fixture（新会话语义：具体实例 id）装载后会话镜像快照同形保绿', async () => {
+    const { result } = await mounted();
+
+    const snapshot = result.current.session?.row.configSnapshot as ConfigSnapshotFixture;
+    expect(snapshot).toHaveProperty('agentInstanceId', 7);
+    expect(snapshot.engine).toBe('sdk');
+    expect(snapshot.model).toBe('glm-high');
+  });
+
+  it('engine cli 历史快照与 agentInstanceId null（存量缺列）形态照常装载不炸', async () => {
+    sessionsResult = [
+      sessionSummary(
+        {
+          id: 'ses-legacy-1',
+          configSnapshot: {
+            engine: 'cli',
+            agentInstanceId: null,
+            model: null,
+            permissionMode: 'bypassPermissions',
+          } satisfies ConfigSnapshotFixture,
+        },
+        [],
+      ),
+    ];
+    transcript = [];
+    const { result } = await mounted({ ...DEBUG_PARAMS, sessionId: 'ses-legacy-1' });
+
+    expect(result.current.error).toBeNull();
+    // 呈现断言容忍两形态：null（存量会话缺列语义）与具体实例 id（新会话语义）
+    expect(result.current.session?.row.configSnapshot).toEqual({
+      engine: 'cli',
+      agentInstanceId: null,
+      model: null,
+      permissionMode: 'bypassPermissions',
+    });
   });
 });

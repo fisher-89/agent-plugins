@@ -86,11 +86,7 @@ fn env_window() -> EnvWindow {
 fn artifact_text(text: &str) -> String {
     let lf = text.replace("\r\n", "\n");
     let ends_with_newline = lf.ends_with('\n');
-    let mut lines = lf
-        .lines()
-        .map(str::trim_end)
-        .collect::<Vec<_>>()
-        .join("\n");
+    let mut lines = lf.lines().map(str::trim_end).collect::<Vec<_>>().join("\n");
     if ends_with_newline {
         lines.push('\n');
     }
@@ -691,7 +687,8 @@ async fn 边界_空输出与大输出全量承载() {
         merged.chars().rev().take(20).collect::<String>()
     );
     assert!(
-        merged.find(&long).expect("stdout 段在场") < merged.find("tail-error").expect("stderr 段在场"),
+        merged.find(&long).expect("stdout 段在场")
+            < merged.find("tail-error").expect("stderr 段在场"),
         "合并序恒 stdout 前缀 → stderr 后缀"
     );
 }

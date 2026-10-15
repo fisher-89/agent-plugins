@@ -82,7 +82,9 @@ pub fn list_agent_instances(
 }
 
 /// 保存 agent 实例（新建 / 更新合一）：sdk 缺 provider / 悬空引用校验在
-/// store 单点；默认标记不由入参写（新建恒非默认、更新保留存量标记）。
+/// store 单点；默认标记不由入参写（新建恒非默认、更新保留存量标记）。携
+/// `engine: Cli` 拒绝（存量行可读可删不可改）——拒面经 store 校验
+/// `Err(String)` 透传，命令体零校验逻辑、签名与参数类型不收窄。
 #[tauri::command]
 #[specta::specta]
 pub fn save_agent_instance(
@@ -111,7 +113,9 @@ pub fn delete_agent_instance(stores: State<'_, WorkspaceStores>, id: i64) -> Res
         .map_err(|e| e.to_string())
 }
 
-/// 标记默认 agent（标记即切换，旧默认自动清除）：返回更新后记录。
+/// 标记默认 agent（标记即切换，旧默认自动清除）：返回更新后记录。Cli 实例
+/// 拒绝（默认标记仅可落 sdk 实例）——拒面经 store 校验 `Err(String)` 透传，
+/// 命令体零校验逻辑。
 #[tauri::command]
 #[specta::specta]
 pub fn set_default_agent_instance(

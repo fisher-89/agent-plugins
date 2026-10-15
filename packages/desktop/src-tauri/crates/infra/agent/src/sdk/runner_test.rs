@@ -670,7 +670,9 @@ async fn 停止晚于eof时泵已收敛无二次收敛事件() {
 #[test]
 fn 门面sdk分发的启动校验行为与直构runner一致() {
     // 空配置：门面产物与直构 runner 同样以 ConfigMissing 拒绝且消息一致
-    let via_facade = EngineFacade::new().runner_for(EngineKind::Sdk, EngineConfig::empty());
+    let via_facade = EngineFacade::new()
+        .runner_for(EngineKind::Sdk, EngineConfig::empty())
+        .expect("Sdk 臂构造成功");
     let via_direct = SdkRunner::new(EngineConfig::empty(), None, None);
 
     let facade_error = via_facade
@@ -686,8 +688,9 @@ fn 门面sdk分发的启动校验行为与直构runner一致() {
 
     // 携装载缝的门面：Continue 校验同样一致
     let (resume, _) = loader(Ok(None));
-    let with_resume =
-        EngineFacade::with_resume_transcript(resume).runner_for(EngineKind::Sdk, complete_config());
+    let with_resume = EngineFacade::with_resume_transcript(resume)
+        .runner_for(EngineKind::Sdk, complete_config())
+        .expect("Sdk 臂构造成功");
     let error = with_resume
         .open_session(open_continue("ses-facade"))
         .expect_err("门面 Continue 校验必须 Err");

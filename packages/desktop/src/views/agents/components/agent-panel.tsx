@@ -22,7 +22,6 @@ const EMPTY_FORM: AgentFormState = { id: null, name: '', engine: 'sdk', provider
 
 const ENGINE_OPTIONS: { value: AgentEngineKind; label: string }[] = [
   { value: 'sdk', label: 'sdk' },
-  { value: 'cli', label: 'cli' },
 ];
 
 /** 编辑记录 → 表单初值（null = 新建，engine 初始 sdk） */
@@ -37,7 +36,8 @@ function toFormState(editing: AgentInstanceRecord | null): AgentFormState {
       };
 }
 
-/** 引擎二值下拉（就地表单控件：原生 select + 轨道同款描边样式） */
+/** 引擎下拉（就地表单控件：原生 select + 轨道同款描边样式；单值 sdk——
+ * CLI 租户退役，下拉无 `cli` 档） */
 function EngineSelect({
   value,
   onChange,
@@ -70,15 +70,13 @@ function EngineSelect({
   );
 }
 
-/** provider 选择（cli 档禁用——provider 可空；sdk 档必选，未选前端禁提交） */
+/** provider 选择（恒启用必选——sdk 唯一活档，未选前端禁提交） */
 function ProviderSelect({
   providers,
-  engine,
   value,
   onChange,
 }: {
   providers: AgentProviderRecord[];
-  engine: AgentEngineKind;
   value: number | null;
   onChange: (value: number | null) => void;
 }): React.JSX.Element {
@@ -91,7 +89,6 @@ function ProviderSelect({
         id="agent-provider-select"
         className="rounded-md border border-border bg-transparent px-1.5 py-0.5 text-sm disabled:opacity-50"
         data-testid="agent-provider-select"
-        disabled={engine === 'cli'}
         value={value === null ? '' : String(value)}
         onChange={(e) => onChange(e.target.value === '' ? null : Number(e.target.value))}
       >
@@ -106,7 +103,7 @@ function ProviderSelect({
   );
 }
 
-/** 表单字段行（名称 + engine 二值 + provider 选择；回写经 onPatch 合并） */
+/** 表单字段行（名称 + engine 单值 sdk + provider 选择；回写经 onPatch 合并） */
 function AgentFormFields({
   form,
   providers,
@@ -132,7 +129,6 @@ function AgentFormFields({
       </span>
       <EngineSelect onChange={(engine) => onPatch({ engine })} value={form.engine} />
       <ProviderSelect
-        engine={form.engine}
         onChange={(providerId) => onPatch({ providerId })}
         providers={providers}
         value={form.providerId}
@@ -201,7 +197,7 @@ function AgentForm({
     setBusy(false);
     if (saved !== null) onDone();
   };
-  const canSave = form.name.trim() !== '' && (form.engine === 'cli' || form.providerId !== null);
+  const canSave = form.name.trim() !== '' && form.providerId !== null;
   return (
     <div className="mt-3 rounded-md border border-border px-2.5 py-2" data-testid="agent-form">
       <AgentFormFields
@@ -238,7 +234,9 @@ function DefaultMark({ record }: { record: AgentInstanceRecord }): React.JSX.Ele
   return null;
 }
 
-/** 清单行（name / engine / 引用 provider 名 / 默认标记 + 行内编辑 / 删除） */
+/** 清单行（name / engine / 引用 provider 名 / 默认标记 + 行内编辑 / 删除）。
+ * 存量 cli 行只读可删：「编辑」「设为默认」禁用（title 提示退役事实），
+ * 「删除」保留（design DD4） */
 function AgentListItem({
   record,
   providers,
@@ -252,6 +250,8 @@ function AgentListItem({
   onSetDefault: (id: number) => void;
   onRemove: (id: number) => void;
 }): React.JSX.Element {
+  const retired = record.engine === 'cli';
+  const retiredTitle = 'CLI 租户已下线，实例只读';
   return (
     <li
       className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-md border border-border px-2.5 py-1.5 text-sm"
@@ -269,12 +269,20 @@ function AgentListItem({
         size="sm"
         variant="secondary"
         data-testid="agent-set-default"
-        disabled={record.isDefault}
+        disabled={record.isDefault || retired}
+        title={retired ? retiredTitle : undefined}
         onClick={() => onSetDefault(record.id)}
       >
         设为默认
       </Button>
-      <Button size="sm" variant="secondary" data-testid="agent-edit" onClick={() => onEdit(record)}>
+      <Button
+        size="sm"
+        variant="secondary"
+        data-testid="agent-edit"
+        disabled={retired}
+        title={retired ? retiredTitle : undefined}
+        onClick={() => onEdit(record)}
+      >
         编辑
       </Button>
       <Button
@@ -342,11 +350,12 @@ function AgentStatusFaces({ state }: { state: AgentInstancesState }): React.JSX.
 }
 
 /**
- * Agents 栏：清单（name / engine / 引用 provider 名 / 默认标记）+ 新建 /
- * 编辑表单（engine 二值下拉 + provider 选择，sdk 必选）+ 默认标记切换
- * （标记即切换，旧默认自动清除）+ 删除（默认 agent 删除后全局无默认）。
+ * Agents 栏：清单（name / engine / 引用 provider 名 / 默认标记；存量 cli 行
+ * 只读可删——「编辑」「设为默认」禁用）+ 新建 / 编辑表单（engine 单值下拉
+ * sdk + provider 选择，恒必选）+ 默认标记切换（标记即切换，旧默认自动清除）
+ * + 删除（默认 agent 删除后全局无默认）。
  * 保存 / 删除 / 设默认失败经 hook 动作轨道 toast 呈现（含 sdk 缺 provider /
- * 悬空引用 / 重名 `Err`），清单不变；清单加载失败 inline error 态。
+ * 悬空引用 / 重名 / 拒 Cli `Err`），清单不变；清单加载失败 inline error 态。
  */
 export function AgentPanel({
   state,

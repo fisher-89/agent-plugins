@@ -66,12 +66,26 @@ function turn(
   };
 }
 
+/** store `SessionConfigSnapshot` 快照线形态（serde camelCase；v2 增
+ * `agentInstanceId` 实例外键——fixture 缺键即类型红，防漂移）。 */
+interface ConfigSnapshotFixture {
+  engine: 'cli' | 'sdk';
+  agentInstanceId: number | null;
+  model: string | null;
+  permissionMode: string;
+}
+
 function sessionSummary(turns: TurnSummary[], id: string = SESSION_ID): SessionSummary {
   return {
     row: {
       id,
       remoteSessionId: 's-tail',
-      configSnapshot: { engine: 'cli', model: null, permissionMode: 'bypassPermissions' },
+      configSnapshot: {
+        engine: 'cli',
+        agentInstanceId: null,
+        model: null,
+        permissionMode: 'bypassPermissions',
+      } satisfies ConfigSnapshotFixture,
       provenance: { source: 'explore', sourceRef: String(RECORD_ID) },
       createdAt: 1727000000000,
       updatedAt: 1727000009999,
@@ -744,5 +758,47 @@ describe('useExploreSession：会话归位 ensure 承接（session_id 空缺修�
     });
     await act(async () => {});
     expect(invokeMock.mock.calls.filter(([name]) => name === 'agent_start')).toHaveLength(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// configSnapshot fixture 补 agentInstanceId 键（fixture 随动，AC-7）
+// ---------------------------------------------------------------------------
+
+describe('useExploreSession：configSnapshot fixture 携 agentInstanceId 键（AC-7 随动）', () => {
+  it('补键后重放装载既有断言保绿（agentInstanceId null 存量缺列语义）', async () => {
+    const { result } = await mounted();
+
+    expect(result.current.loading).toBe(false);
+    expect(result.current.error).toBeNull();
+    expect(result.current.events).toHaveLength(3);
+
+    const snapshot = sessionFixture.row.configSnapshot as ConfigSnapshotFixture;
+    expect(snapshot).toHaveProperty('agentInstanceId', null);
+    expect(snapshot.engine).toBe('cli');
+    expect(snapshot.permissionMode).toBe('bypassPermissions');
+  });
+
+  it('sdk 新会话形态（agentInstanceId 具体 id）照常装载（两形态同口径）', async () => {
+    const sdkSession = sessionSummary([turn(14)], 'ses-snap-2');
+    sdkSession.row.configSnapshot = {
+      engine: 'sdk',
+      agentInstanceId: 9,
+      model: 'glm-high',
+      permissionMode: 'bypassPermissions',
+    } satisfies ConfigSnapshotFixture;
+    sessionsResult = [sdkSession];
+    transcript = [textEvent(0, '新会话输出')];
+
+    const { result } = await mounted(exploreRecord());
+
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(result.current.error).toBeNull();
+    expect(sdkSession.row.configSnapshot).toEqual({
+      engine: 'sdk',
+      agentInstanceId: 9,
+      model: 'glm-high',
+      permissionMode: 'bypassPermissions',
+    });
   });
 });

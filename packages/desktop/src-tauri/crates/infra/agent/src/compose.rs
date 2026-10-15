@@ -4,23 +4,26 @@ use agent::{
     AgentRunner, RunningTurn, SessionCtx, SessionKernel, SessionProvenance, SessionQuery,
     SessionRef, StopRegistry, TurnRequest,
 };
-use store::{AgentEngineKind, Store, WorkspaceStores};
+use store::{AgentEngineKind, Store, WorkspaceStores, CLI_TENANT_RETIRED};
 
 use crate::store_port::{StoreQuery, StoreSink};
 use crate::{EngineConfig, EngineFacade, EngineKind};
 
-/// 解析产物（组合根内聚）：引擎 kind + 组装好的连接配置 + 快照定型双面。
-/// 引擎具体类型不出本结构（门面 `runner_for` 签名与编排层零改动承诺的参数
-/// 传递面）。
+/// 解析产物（组合根内聚）：引擎 kind + 组装好的连接配置 + 快照定型双面 +
+/// 实例外键。引擎具体类型不出本结构（门面 `runner_for` 签名与编排层零改动
+/// 承诺的参数传递面）。
 struct ResolvedEngine {
-    /// 引擎二值（门面 `EngineKind`，自 store 本地 `AgentEngineKind` 映射）
+    /// 引擎二值（门面 `EngineKind`，自 store 本地 `AgentEngineKind` 映射；
+    /// `Cli` 实例在解析单点即拒，恒 `Sdk`）
     kind: EngineKind,
-    /// 连接配置（sdk 臂由引用 provider 组装；cli 臂 `EngineConfig::empty()`
-    /// 占位，CLI 引擎不消费）
+    /// 连接配置（sdk 臂由引用 provider 组装）
     config: EngineConfig,
     /// sdk 引擎上下文窗长（provider `context_length` 列旁路，不经
-    /// `EngineConfig`；`None` = 未配置走 128K 缺省；cli 臂恒 None）
+    /// `EngineConfig`；`None` = 未配置走 128K 缺省）
     context_window: Option<u64>,
+    /// 解析目标实例 id（快照 `agent_instance_id` 载荷；缺省与显式路径同经
+    /// 解析单点，恒在）
+    agent_instance_id: i64,
 }
 
 /// 组合根装配产物：内核 + 解析好的 runner + store 查询面（Continue 校验）+
@@ -36,6 +39,8 @@ pub struct ComposedTurn {
     store_kind: AgentEngineKind,
     /// 快照模型双档（provider high / low 档）
     models: Option<(String, String)>,
+    /// 解析目标实例 id（快照 `agent_instance_id` 装配载荷）
+    agent_instance_id: i64,
 }
 
 /// 运行发起解析 + 装配（解析单点）：`registry` 为壳层托管的停止注册表（内核
@@ -54,13 +59,14 @@ pub fn compose_turn(
     let query = Arc::new(StoreQuery::new(Arc::clone(&store)));
     let kernel = SessionKernel::new(Arc::new(StoreSink::new(store)), registry);
     // resume 装载缝以会话全史转录闭合（引擎中立数据：session_id → 密封事件
-    // 全史；CLI 引擎持有不消费，CLI 续会话仍走引擎侧先行句柄）
+    // 全史）
     let resume: crate::ResumeTranscript = {
         let query = Arc::clone(&query);
         Arc::new(move |session_id: &str| query.transcript(session_id).map(Some))
     };
-    // 快照定型双面：引擎二值映射 + 模型双档（sdk 取 provider 双档、cli 无模型
-    // 装配概念；档位定型归 begin 按轮级 model_level 取档）
+    // 快照定型双面：引擎二值映射 + 模型双档（sdk 取 provider 双档；档位定型
+    // 归 begin 按轮级 model_level 取档）。`Cli` 臂为解析拒收后的不可达死臂
+    // ——映射原样保留（多租户机制不塌），不引入 panic 形态（design DD9）
     let (store_kind, models) = match resolved.kind {
         EngineKind::Cli => (AgentEngineKind::Cli, None),
         EngineKind::Sdk => (
@@ -71,10 +77,11 @@ pub fn compose_turn(
             )),
         ),
     };
+    // runner_for 的 Err 经 `?` 传导（`Cli` 臂生产不可达，防御兜底）
     let runner: Arc<dyn AgentRunner> = Arc::from(
         EngineFacade::with_resume_transcript(resume)
             .with_context_window(resolved.context_window)
-            .runner_for(resolved.kind, resolved.config),
+            .runner_for(resolved.kind, resolved.config)?,
     );
     Ok(ComposedTurn {
         kernel,
@@ -82,17 +89,12 @@ pub fn compose_turn(
         query,
         store_kind,
         models,
+        agent_instance_id: resolved.agent_instance_id,
     })
 }
 
 impl ComposedTurn {
-    /// 发起一轮（Continue 校验 + prior_handle 提取 + 快照组装 + 内核 begin）。
-    /// Continue 二态：
-    /// - **未开轮**（无引擎句柄 + 无轮行 + 无转录，explore 建档预建空会话的
-    ///   首轮）：跳过引擎匹配与句柄检查，`prior_handle` 传 None（引擎侧按
-    ///   全新会话开跑），并把本轮真实装配快照回写定型。
-    /// - **已开轮**：会话不存在 / 非当前引擎产出（快照 engine ≠ 解析 kind）/
-    ///   引擎句柄缺失 → `Err` 显式失败（不落库不推流）。
+    /// 发起一轮（Continue 校验 + prior_handle 提取 + 快照组装 + 内核 begin）
     pub fn begin(
         &self,
         session: SessionRef,
@@ -110,6 +112,7 @@ impl ComposedTurn {
             });
         let snapshot = store::SessionConfigSnapshot {
             engine: self.store_kind,
+            agent_instance_id: Some(self.agent_instance_id),
             model,
             permission_mode: ctx.permission_mode,
         };
@@ -139,12 +142,7 @@ impl ComposedTurn {
                     if record.config_snapshot.engine != self.store_kind {
                         return Err(format!("会话非当前引擎产出（跨引擎续会话不支持）: {id}"));
                     }
-                    Some(
-                        record
-                            .engine_session_id
-                            .clone()
-                            .ok_or_else(|| format!("会话缺少引擎句柄，无法续接: {id}"))?,
-                    )
+                    record.engine_session_id.clone()
                 }
             }
         };
@@ -165,16 +163,11 @@ impl ComposedTurn {
             )
             .map_err(|e| e.to_string())
     }
-
-    /// 引擎二值观测（crate 内）：CLI 臂由 worker 轮前预检 CLI 可发现性
-    ///（CliMissing 收敛 `Err` + 零半成品记录）；SDK 臂不预检（ConfigMissing
-    /// 归 [`Self::begin`] 的 open 段显式 `Err`）。
-    pub(crate) fn is_cli_engine(&self) -> bool {
-        self.store_kind == AgentEngineKind::Cli
-    }
 }
 
-/// 运行发起解析单点（语义自命令层原样平移；解析产物含快照定型双面）。
+/// 运行发起解析单点（语义自命令层原样平移；解析产物含快照定型双面 + 实例
+/// 外键）。缺省与显式路径同臂：`engine: Cli` 实例一律显式 `Err`
+/// （[`CLI_TENANT_RETIRED`] 逐字文案，不构造引擎、不静默回退）。
 fn resolve_agent_engine(
     stores: &WorkspaceStores,
     agent: Option<i64>,
@@ -220,13 +213,10 @@ fn resolve_agent_engine(
                 // 窗长旁路：provider 可空列原样携带（None = 缺省启发式在
                 // runner 侧解析，不落缺省字面）
                 context_window: provider.context_length,
+                agent_instance_id: instance.id,
             })
         }
-        AgentEngineKind::Cli => Ok(ResolvedEngine {
-            kind: EngineKind::Cli,
-            config: EngineConfig::empty(),
-            context_window: None,
-        }),
+        AgentEngineKind::Cli => Err(CLI_TENANT_RETIRED.to_owned()),
     }
 }
 

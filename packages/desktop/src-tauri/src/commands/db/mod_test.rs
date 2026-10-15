@@ -59,6 +59,7 @@ fn seed_session(store: &store::Store, id: &str) -> String {
             engine_session_id: None,
             config_snapshot: SessionConfigSnapshot {
                 engine: AgentEngineKind::Sdk,
+                agent_instance_id: None,
                 model: Some("m-high".to_owned()),
                 permission_mode: ::agent::AgentPermissionMode::BypassPermissions,
             },

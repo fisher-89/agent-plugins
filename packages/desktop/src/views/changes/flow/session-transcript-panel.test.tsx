@@ -35,12 +35,26 @@ function turn(turnId: number, sessionId: string, status: TurnSummary['status']):
   };
 }
 
+/** store `SessionConfigSnapshot` 快照线形态（serde camelCase；v2 增
+ * `agentInstanceId` 实例外键——fixture 缺键即类型红，防漂移）。 */
+interface ConfigSnapshotFixture {
+  engine: 'cli' | 'sdk';
+  agentInstanceId: number | null;
+  model: string | null;
+  permissionMode: string;
+}
+
 function summary(id: string, turns: TurnSummary[]): SessionSummary {
   return {
     row: {
       id,
       remoteSessionId: `engine-${id}`,
-      configSnapshot: { engine: 'cli', model: null, permissionMode: 'bypassPermissions' },
+      configSnapshot: {
+        engine: 'cli',
+        agentInstanceId: null,
+        model: null,
+        permissionMode: 'bypassPermissions',
+      } satisfies ConfigSnapshotFixture,
       provenance: { source: 'change', sourceRef: null },
       createdAt: TS,
       updatedAt: TS + 1,
@@ -283,5 +297,45 @@ describe('SessionTranscriptPanel：会话元信息区（SessionMeta）', () => {
     const scroller = conversation.querySelector('[data-slot="message-scroller-viewport"]');
     expect(scroller?.className).toContain('overflow-y-auto');
     expect(`${panel.className} ${conversation.className}`).not.toContain('max-h-[480px]');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// configSnapshot fixture 补 agentInstanceId 键（fixture 随动，AC-7）
+// ---------------------------------------------------------------------------
+
+describe('SessionTranscriptPanel：configSnapshot fixture 携 agentInstanceId 键（AC-7 随动）', () => {
+  it('补键后重放与元信息呈现既有断言保绿（agentInstanceId null 存量缺列语义）', async () => {
+    await mounted(roleRef());
+    await waitFor(() => expect(screen.getByTestId('session-meta') !== null).toBe(true));
+
+    const stored = detailBySession[EXECUTOR_SESSION] as SessionSummary;
+    const snapshot = stored.row.configSnapshot as ConfigSnapshotFixture;
+    expect(snapshot).toHaveProperty('agentInstanceId', null);
+    expect(snapshot.engine).toBe('cli');
+    expect(panelTexts()).toEqual(['执行会话首轮', '执行会话续文']);
+  });
+
+  it('sdk 新会话形态（agentInstanceId 具体 id）呈现不受影响（两形态同口径）', async () => {
+    const sdkSummary = summary(EXECUTOR_SESSION, [turn(11, EXECUTOR_SESSION, 'completed')]);
+    sdkSummary.row.configSnapshot = {
+      engine: 'sdk',
+      agentInstanceId: 9,
+      model: 'glm-high',
+      permissionMode: 'bypassPermissions',
+    } satisfies ConfigSnapshotFixture;
+    detailBySession[EXECUTOR_SESSION] = sdkSummary;
+
+    await mounted(roleRef());
+    await waitFor(() => expect(screen.getByTestId('session-meta') !== null).toBe(true));
+
+    const stored = detailBySession[EXECUTOR_SESSION];
+    expect(stored.row.configSnapshot).toEqual({
+      engine: 'sdk',
+      agentInstanceId: 9,
+      model: 'glm-high',
+      permissionMode: 'bypassPermissions',
+    });
+    expect(screen.queryByTestId('transcript-error')).toBeNull();
   });
 });

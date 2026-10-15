@@ -40,10 +40,6 @@ async fn execute(
     sink: Arc<dyn RunEventSink>,
     turn: WorkerTurnRequest,
 ) -> Result<WorkerTurnOutcome, String> {
-    // CLI 预检（CLI 引擎臂）
-    if composed.is_cli_engine() {
-        crate::discover::discover().map_err(|error| error.to_string())?;
-    }
     let session = match turn.continue_session {
         None => SessionRef::New,
         Some(id) => SessionRef::Continue { id },

@@ -405,10 +405,12 @@ impl From<ExploreRecord> for ExploreRecordV3 {
     }
 }
 
-/// agent 会话记录
+/// agent 会话记录（version 2：`config_snapshot` 增实例外键 `agent_instance_id`，
+/// 经 `SessionRecordV1` 版本链自动升级——旧快照读出 `None`，其余字段原样，
+/// 零迁移代码路径）
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
-#[native_model(id = 7, version = 1)]
+#[native_model(id = 7, version = 2, from = SessionRecordV1)]
 #[native_db]
 pub struct SessionRecord {
     /// core 铸会话 id（字符串主键，`ses-` 前缀铸造格式由 core 单点承载）
@@ -416,7 +418,7 @@ pub struct SessionRecord {
     pub id: String,
     /// 引擎侧会话标识（双 id 映射落库半边；未上报为 None）
     pub engine_session_id: Option<String>,
-    /// 装配配置快照（engine / model / permission；快照非引用）
+    /// 装配配置快照（engine / 实例外键 / model / permission；快照非引用）
     pub config_snapshot: SessionConfigSnapshot,
     /// 来源受控字符串（debug | explore | …），缺省 debug
     pub source: String,
@@ -429,18 +431,120 @@ pub struct SessionRecord {
 }
 
 /// 装配配置快照（store 本地定型，嵌套 struct 不落独立模型——嵌装先例同
-/// 转录单表的 `AgentEvent`）：engine / model / permission 三面。快照是记录
-/// 自证——续会话引擎路由凭此比对（core 契约不解释装配概念，core 侧以
-/// serde_json::Value 不透明承载）。
+/// 转录单表的 `AgentEvent`）：engine / 实例外键 / model / permission 四面。
+/// 快照是记录自证——续会话引擎路由凭此比对（core 契约不解释装配概念，
+/// core 侧以 serde_json::Value 不透明承载）。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct SessionConfigSnapshot {
-    /// 引擎二值（cli / sdk，store 本地枚举同 [`AgentEngineKind`]）
+    /// 引擎二值（cli / sdk，store 本地枚举同 [`AgentEngineKind`]；`cli` 为
+    /// 退役态历史事实，字段保留不删）
     pub engine: AgentEngineKind,
-    /// 模型标识（cli 引擎无模型装配概念，None）
+    /// 装配时点实例 id 的快照复制值（会话 ↔ 实例的显式外键，多 agent 时代的
+    /// 过滤 / 聚合锚）：复制值非跨库引用（`AgentInstanceRecord` 在全局库、
+    /// session 在 workspace 库，MUST NOT 引申为跨库 join 或存在性约束）；
+    /// `None` = 存量行缺列（v1 → v2 升级链读出）
+    #[serde(default)]
+    pub agent_instance_id: Option<i64>,
+    /// 模型标识（无模型装配概念的引擎为 None）
     pub model: Option<String>,
     /// permission-mode 档位
     pub permission_mode: AgentPermissionMode,
+}
+
+/// `SessionConfigSnapshot` 的旧三字段形态（仅作 `SessionRecordV1` 升级链的
+/// 解码目标，不注册进库模型组、不出公共查询面）：bincode 嵌套结构变布局必须
+/// 整结构换型（serde `default` 不救 bincode 缺字段），故旧快照需独立 V1 形态。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct SessionConfigSnapshotV1 {
+    /// 引擎二值
+    pub engine: AgentEngineKind,
+    /// 模型标识
+    pub model: Option<String>,
+    /// permission-mode 档位
+    pub permission_mode: AgentPermissionMode,
+}
+
+/// v1 → v2 升级半边（缺列读兼容：旧快照无实例外键列）。
+impl From<SessionConfigSnapshotV1> for SessionConfigSnapshot {
+    fn from(previous: SessionConfigSnapshotV1) -> Self {
+        Self {
+            engine: previous.engine,
+            agent_instance_id: None,
+            model: previous.model,
+            permission_mode: previous.permission_mode,
+        }
+    }
+}
+
+/// 降级半边（native_model `from` 属性要求双向 `From`；运行时无降级读取路径，
+/// `agent_instance_id` 丢弃——只保升级语义真实性，降级形态不作数据承诺）。
+impl From<SessionConfigSnapshot> for SessionConfigSnapshotV1 {
+    fn from(snapshot: SessionConfigSnapshot) -> Self {
+        Self {
+            engine: snapshot.engine,
+            model: snapshot.model,
+            permission_mode: snapshot.permission_mode,
+        }
+    }
+}
+
+/// `SessionRecord` 的 version 1 历史形态（仅作 native_model 升级链的解码
+/// 目标，不注册进库模型组、不出公共查询面）：`config_snapshot` 为旧三字段
+/// 快照形态。存量 v1 行经版本机制自动升级（`agent_instance_id` 读出 `None`、
+/// 其余字段原样，零迁移代码路径）。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[native_model(id = 7, version = 1)]
+pub(crate) struct SessionRecordV1 {
+    /// core 铸会话 id（字符串主键）
+    pub id: String,
+    /// 引擎侧会话标识（双 id 映射落库半边；未上报为 None）
+    pub engine_session_id: Option<String>,
+    /// 装配配置快照（旧三字段形态）
+    pub config_snapshot: SessionConfigSnapshotV1,
+    /// 来源受控字符串（debug | explore | …），缺省 debug
+    pub source: String,
+    /// 来源内定位（explore 指向探索记录主键的十进制串；调试会话为 None）
+    pub source_ref: Option<String>,
+    /// 建档时间（UTC unix 毫秒）
+    pub created_at: i64,
+    /// 最近更新时间（UTC unix 毫秒）
+    pub updated_at: i64,
+}
+
+/// v1 → v2 升级半边（缺列读兼容：旧快照 `agent_instance_id` 读出 `None`，
+/// 其余字段原样平移）。
+impl From<SessionRecordV1> for SessionRecord {
+    fn from(previous: SessionRecordV1) -> Self {
+        Self {
+            id: previous.id,
+            engine_session_id: previous.engine_session_id,
+            config_snapshot: previous.config_snapshot.into(),
+            source: previous.source,
+            source_ref: previous.source_ref,
+            created_at: previous.created_at,
+            updated_at: previous.updated_at,
+        }
+    }
+}
+
+/// 降级半边（native_model `from` 属性要求双向 `From`；运行时无降级读取
+/// 路径，`agent_instance_id` 随嵌套快照降级丢弃——只保升级语义真实性，
+/// 降级形态不作数据承诺）。
+impl From<SessionRecord> for SessionRecordV1 {
+    fn from(record: SessionRecord) -> Self {
+        Self {
+            id: record.id,
+            engine_session_id: record.engine_session_id,
+            config_snapshot: record.config_snapshot.into(),
+            source: record.source,
+            source_ref: record.source_ref,
+            created_at: record.created_at,
+            updated_at: record.updated_at,
+        }
+    }
 }
 
 /// agent 会话转录单表
@@ -976,16 +1080,26 @@ pub struct AgentModelTiers {
     pub low: String,
 }
 
+/// 「CLI 租户已下线」共享拒收文案（design DD3）：`runner_for` /
+/// `resolve_agent_engine` / `upsert_agent_instance` /
+/// `set_default_agent_instance` 四拒点逐字复用、不加前后缀——同一产品事实
+/// 同一文案，防多处措辞漂移；常量落 store（依赖方向 agent-runtime → store，
+/// store 不反向取词）。文案含退役事实 + 管理页引导 + 改默认引导。
+pub const CLI_TENANT_RETIRED: &str = "CLI 租户已下线：请前往 Agent 管理页（/agents）新建或改用 sdk agent，并将其设为默认（存量 cli 实例可读可删不可改）";
+
 /// agent 实例引擎二值（agent 管理域，store 本地枚举）：serde camelCase 线值
 /// `"cli" | "sdk"` 与门面 `EngineKind` 同线值域。持久化的是配置值域而非引擎
 /// 实现——store 禁拖引擎门面 crate（零新增依赖），`AgentEngineKind` →
-/// `EngineKind` 映射收运行发起解析单点（两臂 match）。
+/// `EngineKind` 映射收运行发起解析单点（两臂 match）。**变体集与 bincode
+/// 序号（`Cli`=0 / `Sdk`=1）为解码锚，MUST NOT 增删重排**（删/重排即
+/// `AgentInstanceRecord` + `SessionRecord` 两表报废含 sdk 数据）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub enum AgentEngineKind {
-    /// 本机 claude CLI 租户
+    /// 本机 claude CLI 租户（解码兼容，不再可选：写入面与运行发起解析均拒，
+    /// 存量行只读；bincode 序号 0 永久保留为历史数据解码锚）
     Cli,
-    /// 进程内 sdk 租户
+    /// 进程内 sdk 租户（唯一活档）
     Sdk,
 }
 
@@ -1110,10 +1224,12 @@ impl std::fmt::Debug for AgentProviderRecord {
     }
 }
 
-/// agent 实例记录（agent 管理域，user 维度落全局库）：引擎选择（cli / sdk）
-/// 与 provider 引用（sdk 必填且引用存在、cli 可空）+ 默认标记（全局恒至多
-/// 一；写入只发生在 store 的 `set_default_agent_instance` 与删除清标记两处，
-/// upsert 不参与写）。
+/// agent 实例记录（agent 管理域，user 维度落全局库）：引擎选择（线值
+/// `cli` | `sdk` 双值保留，写入面仅收 `sdk`——存量 cli 行可读可删不可改）
+/// 与 provider 引用（`sdk` 必填且引用存在；「cli 可空」语义随 CLI 租户退役，
+/// 存量 cli 行 provider 可空只读保留）+ 默认标记（全局恒至多一；写入只发生
+/// 在 store 的 `set_default_agent_instance` 与删除清标记两处，upsert 不参与
+/// 写；默认标记仅可落 sdk 实例）。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 #[native_model(id = 6, version = 1)]
@@ -1126,7 +1242,8 @@ pub struct AgentInstanceRecord {
     pub name: String,
     /// 引擎二值（cli / sdk；映射到门面 `EngineKind` 收运行发起解析单点）
     pub engine: AgentEngineKind,
-    /// 引用 provider id（同库 [`AgentProviderRecord`] 主键；sdk 必填、cli 可空）
+    /// 引用 provider id（同库 [`AgentProviderRecord`] 主键；`sdk` 必填且引用
+    /// 存在——`sdk` 唯一活档，存量 `cli` 行可空只读保留）
     pub provider_id: Option<i64>,
     /// 默认标记（缺省运行解析入口；全局恒至多一）
     pub is_default: bool,

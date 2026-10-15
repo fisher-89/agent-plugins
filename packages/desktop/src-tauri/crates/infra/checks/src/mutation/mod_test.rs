@@ -63,8 +63,9 @@ pub(super) struct SpawnRecord {
 }
 
 /// 假 spawn 窗口：持 crate 级 `TEST_ENV_LOCK`（进程全局 env 串行化）+ PATH
-/// 前置 shim 目录 + `FAKE_SPAWN_*` 可编程键收口（Drop 恢复 PATH、摘除全部键、
-/// 释放锁——与 testexec `PathWindowGuard` 同式先例）。
+/// 前置 shim 目录（Windows 附前置 msys 工具目录——假执行体外部件解析）+
+/// `FAKE_SPAWN_*` 可编程键收口（Drop 恢复 PATH、摘除全部键、释放锁——与
+/// testexec `PathWindowGuard` 同式先例）。
 pub(super) struct SpawnWindow {
     /// 进 PATH 前原 PATH（Drop 还原面）
     original_path: Option<OsString>,
@@ -86,6 +87,16 @@ impl SpawnWindow {
             .expect("创建假 spawn shim 目录失败");
         let original_path = std::env::var_os("PATH");
         let mut entries: Vec<PathBuf> = vec![shim.path().to_path_buf()];
+        // msys coreutils 目录（`cp` / `mkdir`）紧随 shim 前置：假执行体脚本的
+        // 外部件解析不依赖宿主 PATH 是否含 Git usr/bin——桌面应用门禁进程
+        // （GUI 拉起）PATH 无 usr/bin，裸 shim 前置下 `mkdir` / `cp` 恒
+        // command not found，`mutants.out/outcomes.json` 静默缺位（stderr 随
+        // 零突变体臂丢弃）→ 全零计数 → score 恒 100 假绿。定位失败跳过
+        // （bash 落位失败随后显式 panic 报因，不在此静默吞错）。
+        #[cfg(windows)]
+        if let Some(tools) = msys_tool_dir() {
+            entries.push(tools);
+        }
         if let Some(value) = &original_path {
             entries.extend(std::env::split_paths(value));
         }
@@ -263,6 +274,29 @@ impl Drop for SpawnWindow {
     }
 }
 
+/// msys coreutils 目录（Git for Windows `usr/bin`——`cp` / `mkdir` 等 POSIX
+/// 外部件所在；假执行体脚本外部件的可靠解析源，Windows PATH 前置消费）：
+/// bash 直查目录已携该二件（完整 `usr/bin` 形态）即用之，否则回退
+/// `..\usr\bin` 兄弟目录。探测失败返回 `None`——调用方跳过 PATH 前置，bash
+/// 落位失败随后以显式 panic 报因（不在此静默吞错）。
+#[cfg(windows)]
+fn msys_tool_dir() -> Option<PathBuf> {
+    let has_tools = |dir: &Path| dir.join("cp.exe").is_file() && dir.join("mkdir.exe").is_file();
+    let bash = match exec::resolve_shell() {
+        exec::ShellBase::GitBash(path) => path,
+        _ => return None,
+    };
+    let dir = bash.parent()?.to_path_buf();
+    if has_tools(&dir) {
+        return Some(dir);
+    }
+    let sibling = dir.join("..").join("usr").join("bin");
+    if has_tools(&sibling) {
+        return Some(sibling);
+    }
+    None
+}
+
 /// Windows：定位 Git for Windows msys bash（`cargo.exe` 拷贝源）——`resolve_shell`
 /// 探到的 `Git\bin\bash.exe` 为 47KB 壳时回退其 `..\usr\bin` 兄弟目录（bash.exe +
 /// msys-2.0.dll 同目录为完整运行单元，实测可独立拷贝运行）。
@@ -310,14 +344,7 @@ fn set_executable(path: &Path) {
 #[cfg(not(unix))]
 fn set_executable(_path: &Path) {}
 
-/// 假 `mutants` 执行体（cargo mutants 面；`$0` = `mutants` 跨平台同构）：
-/// 记录 argv / cwd / env → 可编程自旋挂起（超时面）→ 可编程输出（argv 子串命
-/// 中换 ALT 源与退出码——多 suite 差异编程）→ canned 源逐行回写 stdout（段报
-/// 告面在 `FAKE_SPAWN_REPORT` 在位时同源写出）→ cargo-mutants 报告文件面
-/// （`FAKE_SPAWN_CARGO_OUTCOMES` 在位时在 cwd 重建 `mutants.out/outcomes.json`
-/// ——真实工具段报告权威落位模拟；ALT 命中换 `…_ALT` 源、缺省不写 = 零报告）。
-/// 纯内建命令（零外部依赖——msys
-/// bash 非交互 PATH 无 Git usr/bin）。
+/// 假 `mutants` 执行体
 const MUTANTS_SCRIPT: &str = r#"#!/bin/sh
 {
   printf 'argv'
@@ -1382,7 +1409,8 @@ async fn 组合根链路_localtoolsteps_vcs假件_processmutation假spawn() {
         "vcs 取数双缝按序各一次"
     );
 
-    // 段补丁 = vcs 补丁切片（清单 / 补丁注入 `--in-diff` 面逐字透传）
+    // 段补丁 = vcs 补丁切片 + suite 根前缀剥离（清单匹配恒项目根相对、落盘段
+    // 补丁路径剥 suite 根——cargo mutants 以 spawn cwd 相对路径匹配 `--in-diff`）
     let seg_patch = reports
         .join("app_rust")
         .join("mutation")

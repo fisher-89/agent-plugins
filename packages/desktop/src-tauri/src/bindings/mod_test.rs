@@ -349,6 +349,30 @@ fn agent_engine_kind出线为cli与sdk字面量联合() {
 }
 
 #[test]
+fn save_agent_instance绑定签名不收窄且配置快照键经store出线() {
+    let _lock = lock();
+    let content = String::from_utf8(authoritative_snapshot()).expect("产物为 UTF-8 文本");
+
+    // saveAgentInstance 包装签名逐字（AC-2 线值锚 / AC-5 参数类型不收窄：
+    // id / providerId 恒 `number | null`、engine 恒 `AgentEngineKind` 双值
+    // 类型——校验层拒绝、非类型层收窄）
+    assert!(
+        content.contains(
+            "saveAgentInstance: (id: number | null, name: string, engine: AgentEngineKind, providerId: number | null) => __TAURI_INVOKE<AgentInstanceRecord>(\"save_agent_instance\", { id, name, engine, providerId })"
+        ),
+        "saveAgentInstance 参数类型不收窄、invoke 参数对象恒四键"
+    );
+
+    // SessionRow.configSnapshot 出线恒为 opaque `unknown`（快照 JSON 不透明、
+    // 零手写类型旁路）——AC-7 新键 agentInstanceId 的线面锚在 store serde 侧
+    //（model_test 承载 camelCase 与数值保真断言）
+    assert!(
+        content.contains("configSnapshot: unknown,"),
+        "配置快照出线保持 unknown（不结构化展开）"
+    );
+}
+
+#[test]
 fn agent_event出线为kind判别联合且seq摊平变体字面量camel_case() {
     let _lock = lock();
     let content = String::from_utf8(authoritative_snapshot()).expect("产物为 UTF-8 文本");

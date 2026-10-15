@@ -6,10 +6,12 @@ import type { AgentInstancesState } from '../hooks/use-agent-instances';
 import { AgentPanel } from './agent-panel';
 
 // ---------------------------------------------------------------------------
-// state（AgentInstancesState）与 providers 均为显式入参注入（入参例外）：
+// state（AgentInstancesState）与 providers 均为显式入参注入（入参数外）：
 // 动作 save / remove / setDefault 以 vi.fn() 可编程 resolve / reject；
 // providers fixture 含命中 / 缺失引用两形态；组件不触 invoke（无 IPC），
-// sdk 必填校验单点在 store（前端不抢做校验，仅呈现后端 Err）。
+// sdk 必填与拒 Cli 校验单点在 store（前端不抢做校验，仅呈现后端 Err）。
+// 存量 cli 行只读可删（DD4）：「编辑」「设为默认」禁用 + title 退役提示、
+// 「删除」保留；engine 下拉收单值 sdk（AC-8）。
 // ---------------------------------------------------------------------------
 
 /** provider 记录 fixture。 */
@@ -23,7 +25,7 @@ function providerRecord(id: number, name: string): AgentProviderRecord {
   };
 }
 
-/** agent 实例 fixture（providerId 缺省 null，对齐 cli 形态直呼）。 */
+/** agent 实例 fixture（providerId 缺省 null，对齐存量 cli 行直呼）。 */
 function instance(
   id: number,
   name: string,
@@ -58,8 +60,12 @@ function typeInto(testId: string, value: string) {
   fireEvent.change(screen.getByTestId(testId), { target: { value } });
 }
 
-describe('AgentPanel：清单呈现', () => {
-  it('清单渲染 name / engine 二值 / 引用 provider 名（经 providers 清单按 id 解析）/ 默认标记', () => {
+// ---------------------------------------------------------------------------
+// 清单呈现：存量 cli 行只读可删（DD4 / AC-5 前端半边）
+// ---------------------------------------------------------------------------
+
+describe('AgentPanel：清单呈现（存量 cli 行历史可读）', () => {
+  it('清单渲染 name / engine 文本 / 引用 provider 名（经 providers 清单按 id 解析）/ 默认标记', () => {
     mount(
       fakeState({
         instances: [instance(1, 'cli实例', 'cli', null, true), instance(2, 'sdk实例', 'sdk', 22)],
@@ -70,15 +76,14 @@ describe('AgentPanel：清单呈现', () => {
     expect(items).toHaveLength(2);
     expect(items[0].getAttribute('data-name')).toBe('cli实例');
     expect(items[0].textContent).toContain('cli');
-    // cli 无引用 → 占位「—」；默认标记呈徽标
+    // cli 无引用 → 占位「—」；默认标记呈徽标（历史可读，R5 呈现兜底）
     expect(items[0].textContent).toContain('provider: —');
     expect(screen.getByTestId('agent-default-badge').textContent).toBe('默认');
 
-    // sdk 行经 providers 按 id 解析引用 provider 名（悬空 id 兜底 #id 形态）
+    // sdk 行经 providers 按 id 解析引用 provider 名
     expect(items[1].textContent).toContain('端点乙');
     expect(items[1].textContent).toContain('sdk');
-    // 切换入口逐行齐备（统一动作按钮形态），当前默认行的入口禁用（自设默认
-    // 无意义——标记即切换，入口保留以免行间错位）
+    // 切换入口逐行齐备：当前默认行禁用（自设默认无意义）
     const setDefaultEntries = screen.getAllByTestId<HTMLButtonElement>('agent-set-default');
     expect(setDefaultEntries).toHaveLength(2);
     expect(setDefaultEntries[0].disabled).toBe(true);
@@ -90,89 +95,195 @@ describe('AgentPanel：清单呈现', () => {
 
     expect(screen.getByTestId('agent-item').textContent).toContain('provider: #999');
   });
+
+  it('cli 行「编辑」「设为默认」禁用且 title 提示退役事实；「删除」保留可用；sdk 行不受影响', () => {
+    mount(
+      fakeState({
+        instances: [instance(1, 'cli实例', 'cli'), instance(2, 'sdk实例', 'sdk', 22)],
+      }),
+    );
+    const items = screen.getAllByTestId('agent-item');
+
+    const retiredTitle = 'CLI 租户已下线，实例只读';
+    const cliEdit = within(items[0]).getByTestId<HTMLButtonElement>('agent-edit');
+    expect(cliEdit.disabled).toBe(true);
+    expect(cliEdit.getAttribute('title')).toBe(retiredTitle);
+    const cliSetDefault = within(items[0]).getByTestId<HTMLButtonElement>('agent-set-default');
+    expect(cliSetDefault.disabled).toBe(true);
+    expect(cliSetDefault.getAttribute('title')).toBe(retiredTitle);
+    expect(within(items[0]).getByTestId<HTMLButtonElement>('agent-delete').disabled).toBe(false);
+
+    // sdk 行编辑 / 设默认不受影响（无退役 title）
+    const sdkEdit = within(items[1]).getByTestId<HTMLButtonElement>('agent-edit');
+    expect(sdkEdit.disabled).toBe(false);
+    expect(sdkEdit.getAttribute('title')).toBeNull();
+    expect(within(items[1]).getByTestId<HTMLButtonElement>('agent-set-default').disabled).toBe(
+      false,
+    );
+  });
+
+  it('cli 行「删除」保留可用 → state.remove 恰调用一次（只读可删的删半边）', async () => {
+    const state = mount(fakeState({ instances: [instance(1, 'cli实例', 'cli')] }));
+
+    fireEvent.click(screen.getByTestId('agent-delete'));
+    await waitFor(() => expect(state.remove).toHaveBeenCalledTimes(1));
+    expect(state.remove).toHaveBeenCalledWith(1);
+  });
 });
 
-describe('AgentPanel：表单与提交（AC-3 前端半）', () => {
+// ---------------------------------------------------------------------------
+// engine 下拉收单值与 canSave 无 cli 分支（AC-8）
+// ---------------------------------------------------------------------------
+
+describe('AgentPanel：engine 下拉收单值与 canSave 无 cli 分支（AC-8）', () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
-  it('cli agent provider 可空提交 → state.save 以 (null, name, "cli", null) 恰调用一次', async () => {
-    const state = mount(fakeState());
+  it('engine 下拉 options 恰 [sdk]（无 cli 档）且表单恒 sdk', () => {
+    mount(fakeState());
 
     fireEvent.click(screen.getByTestId('agent-new'));
-    typeInto('agent-name', 'cli新实例');
-    fireEvent.change(screen.getByTestId('agent-engine-kind'), { target: { value: 'cli' } });
-    fireEvent.click(screen.getByTestId('agent-save'));
-
-    await waitFor(() => expect(state.save).toHaveBeenCalledTimes(1));
-    expect(state.save).toHaveBeenCalledWith({
-      id: null,
-      name: 'cli新实例',
-      engine: 'cli',
-      providerId: null,
-    });
+    const engineSelect = screen.getByTestId<HTMLSelectElement>('agent-engine-kind');
+    // 既有「engine 下拉仅 cli / sdk 二值」断言翻转为单值断言（无 'cli' 档）
+    expect(Array.from(engineSelect.options).map((option) => option.value)).toEqual(['sdk']);
+    expect(Array.from(engineSelect.options).map((option) => option.textContent)).toEqual(['sdk']);
+    expect(engineSelect.value).toBe('sdk');
   });
 
-  it('sdk agent 选 provider 提交 → save 携 providerId', async () => {
+  it('sdk + 非空名 + provider 齐 → 保存启用且 state.save 恰调一次携全参', async () => {
     const state = mount(fakeState());
 
     fireEvent.click(screen.getByTestId('agent-new'));
-    typeInto('agent-name', 'sdk新实例');
-    // engine 初始 sdk：provider 选择启用
-    fireEvent.change(screen.getByTestId('agent-provider-select'), {
-      target: { value: '22' },
-    });
-    fireEvent.click(screen.getByTestId('agent-save'));
+    typeInto('agent-name', '新实例');
+    fireEvent.change(screen.getByTestId('agent-provider-select'), { target: { value: '22' } });
 
+    expect(screen.getByTestId<HTMLButtonElement>('agent-save').disabled).toBe(false);
+    fireEvent.click(screen.getByTestId('agent-save'));
     await waitFor(() => expect(state.save).toHaveBeenCalledTimes(1));
     expect(state.save).toHaveBeenCalledWith({
       id: null,
-      name: 'sdk新实例',
+      name: '新实例',
       engine: 'sdk',
       providerId: 22,
     });
   });
 
-  it('engine 下拉仅 cli / sdk 二值；cli 档 provider 下拉禁用（可空语义）', () => {
-    mount(fakeState());
+  it('空名 / 纯空白名 → 保存禁用（trim 门禁）；超长与特殊字符名照常启用且原样透传', async () => {
+    const state = mount(fakeState());
 
     fireEvent.click(screen.getByTestId('agent-new'));
-    const engineSelect = screen.getByTestId<HTMLSelectElement>('agent-engine-kind');
-    expect(Array.from(engineSelect.options).map((option) => option.value)).toEqual(['sdk', 'cli']);
+    fireEvent.change(screen.getByTestId('agent-provider-select'), { target: { value: '11' } });
+    const save = screen.getByTestId<HTMLButtonElement>('agent-save');
 
-    fireEvent.change(engineSelect, { target: { value: 'cli' } });
-    expect(screen.getByTestId<HTMLSelectElement>('agent-provider-select').disabled).toBe(true);
-    fireEvent.change(engineSelect, { target: { value: 'sdk' } });
-    expect(screen.getByTestId<HTMLSelectElement>('agent-provider-select').disabled).toBe(false);
+    typeInto('agent-name', '');
+    expect(save.disabled).toBe(true);
+    typeInto('agent-name', '   ');
+    expect(save.disabled).toBe(true);
+
+    // name str 边界：超长 >1000 / 特殊字符 emoji 引号 非空白即放行
+    // （单行 input 按 HTML 语义不携换行，沿 provider-panel 同口径，特殊字符取
+    // emoji + 引号形态）
+    const specialName = '特殊 "名😀"';
+    typeInto('agent-name', `超长名${'名'.repeat(1100)}`);
+    expect(save.disabled).toBe(false);
+    typeInto('agent-name', specialName);
+    expect(save.disabled).toBe(false);
+
+    // 特殊字符名原样透传（canSave 只看 trim 非空，不加工不拒绝）
+    fireEvent.click(save);
+    await waitFor(() => expect(state.save).toHaveBeenCalledTimes(1));
+    expect(state.save).toHaveBeenCalledWith({
+      id: null,
+      name: specialName,
+      engine: 'sdk',
+      providerId: 11,
+    });
+  });
+
+  it('providerId null 恒禁用保存（canSave 双条件：name 非空 && providerId 非空）', () => {
+    const state = mount(fakeState());
+
+    fireEvent.click(screen.getByTestId('agent-new'));
+    typeInto('agent-name', '无provider实例');
+    expect(screen.getByTestId<HTMLButtonElement>('agent-save').disabled).toBe(true);
+    fireEvent.click(screen.getByTestId('agent-save'));
+    expect(state.save).not.toHaveBeenCalled();
   });
 });
+
+// ---------------------------------------------------------------------------
+// provider 选择器恒启用必选（AC-8）
+// ---------------------------------------------------------------------------
+
+describe('AgentPanel：provider 选择器恒启用必选（AC-8）', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('无 cli 档禁用语义：选择器恒可交互（disabled 恒 false），选中回写随保存提交', async () => {
+    const state = mount(fakeState());
+
+    fireEvent.click(screen.getByTestId('agent-new'));
+    typeInto('agent-name', '恒启用实例');
+    const providerSelect = screen.getByTestId<HTMLSelectElement>('agent-provider-select');
+    expect(providerSelect.disabled).toBe(false);
+
+    fireEvent.change(providerSelect, { target: { value: '11' } });
+    expect(screen.getByTestId<HTMLSelectElement>('agent-provider-select').value).toBe('11');
+    fireEvent.click(screen.getByTestId('agent-save'));
+    await waitFor(() => expect(state.save).toHaveBeenCalledTimes(1));
+    expect(state.save).toHaveBeenCalledWith({
+      id: null,
+      name: '恒启用实例',
+      engine: 'sdk',
+      providerId: 11,
+    });
+  });
+
+  it('providers 空清单 → 选择器空态呈现、保存不可达（canSave false）不白屏', () => {
+    mount(fakeState(), []);
+
+    fireEvent.click(screen.getByTestId('agent-new'));
+    typeInto('agent-name', '空清单实例');
+    const providerSelect = screen.getByTestId<HTMLSelectElement>('agent-provider-select');
+    expect(Array.from(providerSelect.options).map((option) => option.textContent)).toEqual([
+      '（未选择）',
+    ]);
+    expect(screen.getByTestId<HTMLButtonElement>('agent-save').disabled).toBe(true);
+  });
+
+  it('providers 单元素清单选择器稳定呈现（未选择 + 单档两项）', () => {
+    mount(fakeState(), [providerRecord(31, '唯一端点')]);
+
+    fireEvent.click(screen.getByTestId('agent-new'));
+    const providerSelect = screen.getByTestId<HTMLSelectElement>('agent-provider-select');
+    expect(Array.from(providerSelect.options).map((option) => option.textContent)).toEqual([
+      '（未选择）',
+      '唯一端点',
+    ]);
+    expect(providerSelect.disabled).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 保存失败呈现（双层兜底的后端层经动作轨透传，前端不吞）
+// ---------------------------------------------------------------------------
 
 describe('AgentPanel：保存失败呈现（异常）', () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
-  it('sdk 未选 provider：保存入口禁用、state.save 不被调用（校验单点在 store 的后端面由命令层测试承载）', () => {
-    const state = mount(fakeState());
-
-    fireEvent.click(screen.getByTestId('agent-new'));
-    typeInto('agent-name', 'sdk无provider实例');
-    // engine 初始 sdk、providerId 恒 null：canSave 前端门禁不发起提交
-    expect(screen.getByTestId<HTMLButtonElement>('agent-save').disabled).toBe(true);
-    fireEvent.click(screen.getByTestId('agent-save'));
-    expect(state.save).not.toHaveBeenCalled();
-  });
-
-  it('后端 reject（save resolve null 模拟 Err 经动作轨 toast 呈现）：表单保持、清单不变', async () => {
+  it('save 返回 null（模拟 store 拒收等 Err 经动作轨 toast 呈现）：表单保持、清单不变', async () => {
     const state = mount(
       fakeState({
-        instances: [instance(1, '存量实例', 'cli', null)],
+        instances: [instance(1, '存量实例', 'sdk', 22)],
         save: vi.fn().mockResolvedValue(null),
       }),
     );
 
-    // 编辑存量 sdk 实例（引用 providerId=22）后提交：后端重名等 Err 以 null 返回
+    // 编辑 sdk 实例后提交：后端 Err 以 null 返回（动作轨 toast 呈现不进本面）
     fireEvent.click(screen.getByTestId('agent-edit'));
     typeInto('agent-name', '改名实例');
     fireEvent.click(screen.getByTestId('agent-save'));
@@ -183,9 +294,20 @@ describe('AgentPanel：保存失败呈现（异常）', () => {
     expect(screen.getAllByTestId('agent-item')).toHaveLength(1);
     expect(screen.getAllByTestId('agent-item')[0].getAttribute('data-name')).toBe('存量实例');
   });
+
+  it('cli 行编辑入口禁用 → 表单不进 cli 编辑态（编辑禁用为主形态，DD4）', () => {
+    mount(fakeState({ instances: [instance(1, 'cli存量', 'cli')] }));
+
+    fireEvent.click(screen.getByTestId('agent-edit'));
+    expect(screen.queryByTestId('agent-form')).toBeNull();
+  });
 });
 
-describe('AgentPanel：默认标记切换（AC-4 前端半）', () => {
+// ---------------------------------------------------------------------------
+// 默认标记切换与删除（sdk 行；既有语义零改动回归锚）
+// ---------------------------------------------------------------------------
+
+describe('AgentPanel：默认标记切换', () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
@@ -193,7 +315,7 @@ describe('AgentPanel：默认标记切换（AC-4 前端半）', () => {
   it('切换默认 → state.setDefault 以目标 id 恰调用一次', async () => {
     const state = mount(
       fakeState({
-        instances: [instance(1, '甲', 'cli', null, true), instance(2, '乙', 'cli')],
+        instances: [instance(1, '甲', 'sdk', 11, true), instance(2, '乙', 'sdk', 11)],
       }),
     );
 
@@ -204,7 +326,7 @@ describe('AgentPanel：默认标记切换（AC-4 前端半）', () => {
   });
 
   it('成功后清单刷新呈现唯一默认标记（hook 刷新 → props 更新的呈现面）', async () => {
-    const instances = [instance(1, '甲', 'cli', null, true), instance(2, '乙', 'cli')];
+    const instances = [instance(1, '甲', 'sdk', 11, true), instance(2, '乙', 'sdk', 11)];
     const state = fakeState({
       instances,
       setDefault: vi.fn().mockImplementation(async (id: number) => {
@@ -228,8 +350,6 @@ describe('AgentPanel：默认标记切换（AC-4 前端半）', () => {
       );
     });
     const items = screen.getAllByTestId('agent-item');
-    // 唯一默认标记移至乙（行内切换入口文案「设为默认」含「默认」二字，以徽标
-    // testid 为准）
     expect(within(items[0]).queryByTestId('agent-default-badge')).toBeNull();
     expect(within(items[1]).getByTestId('agent-default-badge') !== null).toBe(true);
     expect(screen.getAllByTestId('agent-default-badge')).toHaveLength(1);
@@ -241,8 +361,8 @@ describe('AgentPanel：删除（边界）', () => {
     vi.clearAllMocks();
   });
 
-  it('删除 agent → state.remove 调用恰一次', async () => {
-    const state = mount(fakeState({ instances: [instance(1, '甲', 'cli')] }));
+  it('删除 sdk agent → state.remove 调用恰一次', async () => {
+    const state = mount(fakeState({ instances: [instance(1, '甲', 'sdk', 11)] }));
 
     fireEvent.click(screen.getByTestId('agent-delete'));
     await waitFor(() => expect(state.remove).toHaveBeenCalledTimes(1));
@@ -250,7 +370,7 @@ describe('AgentPanel：删除（边界）', () => {
   });
 
   it('默认 agent 删除后清单刷新无默认标记（fixture 驱动，无顺延）', async () => {
-    const instances = [instance(1, '甲', 'cli', null, true), instance(2, '乙', 'cli')];
+    const instances = [instance(1, '甲', 'sdk', 11, true), instance(2, '乙', 'sdk', 11)];
     const state = fakeState({
       instances,
       remove: vi.fn().mockImplementation(async (id: number) => {
@@ -276,19 +396,13 @@ describe('AgentPanel：删除（边界）', () => {
   });
 });
 
-describe('AgentPanel：边界与状态面', () => {
+// ---------------------------------------------------------------------------
+// 状态面（既有断言保绿）
+// ---------------------------------------------------------------------------
+
+describe('AgentPanel：状态面', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-  });
-
-  it('providers 清单为空时 provider 下拉空态（仅「未选择」项）', () => {
-    mount(fakeState(), []);
-
-    fireEvent.click(screen.getByTestId('agent-new'));
-    const providerSelect = screen.getByTestId<HTMLSelectElement>('agent-provider-select');
-    expect(Array.from(providerSelect.options).map((option) => option.textContent)).toEqual([
-      '（未选择）',
-    ]);
   });
 
   it('空清单空态渲染不崩；loading / error 态呈现不变形', () => {

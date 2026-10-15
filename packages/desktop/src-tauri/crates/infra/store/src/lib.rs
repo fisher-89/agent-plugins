@@ -9,6 +9,7 @@ pub use model::{
     AgentEngineKind, AgentInstanceRecord, AgentModelTiers, AgentProviderRecord, AgentRunRecord,
     ChangeActivePhase, ChangeRecord, ChecklistItemRecord, ExploreRecord, PhaseRecord,
     SessionConfigSnapshot, SessionEventRecord, SessionRecord, StepRecord, WorkspaceRecord,
+    CLI_TENANT_RETIRED,
 };
 pub use store::{DbDimension, Store, StoreError, WorkspaceStores};
 

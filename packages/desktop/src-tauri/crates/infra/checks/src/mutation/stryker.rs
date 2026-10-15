@@ -108,8 +108,7 @@ pub(crate) async fn run_segment(segment: &StrykerSegment<'_>) -> Result<String, 
     match std::fs::read_to_string(&report_path) {
         Ok(raw) if serde_json::from_str::<serde_json::Value>(&raw).is_ok() => Ok(raw),
         _ => Err(SegmentFailure::Interrupted(segment_failure_message(
-            exit_code,
-            &output,
+            exit_code, &output,
         ))),
     }
 }

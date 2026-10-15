@@ -1,0 +1,1345 @@
+diff --git a/crates/infra/agent/src/sdk/policy.rs b/crates/infra/agent/src/sdk/policy.rs
+index 74f4b0476c01..cf170e753898 100644
+--- a/crates/infra/agent/src/sdk/policy.rs
++++ b/crates/infra/agent/src/sdk/policy.rs
+@@ -1,6 +1,6 @@
+ //! 静态权限三档纯决策表：档位 × 工具名 → 允许/拒绝。
+ //!
+-//! 档位语义与 CLI 租户的 permission-mode 对齐（档位枚举为 core 契约
++//! 档位语义对齐 core 契约的 permission-mode 三档（档位枚举为 core 契约
+ //! [`AgentPermissionMode`]，本表是 sdk 引擎侧的解释落点）：
+ //! - `default`：只读四工具放行，写面与执行面拒绝（无头下需审批工具直接被拒
+ //!   的同款口径——只读档不给执行权）
+diff --git a/crates/infra/agent/src/sdk/runner.rs b/crates/infra/agent/src/sdk/runner.rs
+index 829e951608bb..7d2d9d0e5720 100644
+--- a/crates/infra/agent/src/sdk/runner.rs
++++ b/crates/infra/agent/src/sdk/runner.rs
+@@ -14,7 +14,7 @@ use crate::sdk::context::{ContextDefense, DefenseNotice};
+ use crate::sdk::{context, r#loop, resume};
+ use crate::ResumeTranscript;
+ 
+-/// 事件通道有界容量（与 CLI 泵同策略：背压阻塞 send，事件不丢、内存有界）。
++/// 事件通道有界容量（背压阻塞 send，事件不丢、内存有界）。
+ const EVENT_CHANNEL_CAPACITY: usize = 256;
+ 
+ /// 提问通道有界容量（单问送达；单会话单活动轮，容量 4 为余量）。
+diff --git a/crates/infra/agent/src/sdk/runner_test.rs b/crates/infra/agent/src/sdk/runner_test.rs
+index cce230774e83..acdbad433986 100644
+--- a/crates/infra/agent/src/sdk/runner_test.rs
++++ b/crates/infra/agent/src/sdk/runner_test.rs
+@@ -670,7 +670,9 @@ async fn 停止晚于eof时泵已收敛无二次收敛事件() {
+ #[test]
+ fn 门面sdk分发的启动校验行为与直构runner一致() {
+     // 空配置：门面产物与直构 runner 同样以 ConfigMissing 拒绝且消息一致
+-    let via_facade = EngineFacade::new().runner_for(EngineKind::Sdk, EngineConfig::empty());
++    let via_facade = EngineFacade::new()
++        .runner_for(EngineKind::Sdk, EngineConfig::empty())
++        .expect("Sdk 臂构造成功");
+     let via_direct = SdkRunner::new(EngineConfig::empty(), None, None);
+ 
+     let facade_error = via_facade
+@@ -686,8 +688,9 @@ fn 门面sdk分发的启动校验行为与直构runner一致() {
+ 
+     // 携装载缝的门面：Continue 校验同样一致
+     let (resume, _) = loader(Ok(None));
+-    let with_resume =
+-        EngineFacade::with_resume_transcript(resume).runner_for(EngineKind::Sdk, complete_config());
++    let with_resume = EngineFacade::with_resume_transcript(resume)
++        .runner_for(EngineKind::Sdk, complete_config())
++        .expect("Sdk 臂构造成功");
+     let error = with_resume
+         .open_session(open_continue("ses-facade"))
+         .expect_err("门面 Continue 校验必须 Err");
+diff --git a/crates/infra/agent/src/store_port.rs b/crates/infra/agent/src/store_port.rs
+index 25e35b48775a..eaba6444c224 100644
+--- a/crates/infra/agent/src/store_port.rs
++++ b/crates/infra/agent/src/store_port.rs
+@@ -132,7 +132,7 @@ impl SessionQuery for StoreQuery {
+ }
+ 
+ /// core 建行入参 → store 会话记录（建档即双侧同刻；快照自 JSON 形态回收为
+-/// store 定型三面，非组合根产出的快照在此显式失败——fail fast，不静默降级）。
++/// store 定型四面，非组合根产出的快照在此显式失败——fail fast，不静默降级）。
+ fn store_record(session: &NewSessionRow) -> Result<SessionRecord, String> {
+     let snapshot: SessionConfigSnapshot = serde_json::from_value(session.config_snapshot.clone())
+         .map_err(|e| format!("配置快照非法: {e}"))?;
+diff --git a/crates/infra/agent/src/worker.rs b/crates/infra/agent/src/worker.rs
+index 81857df0c9e8..e6c07e1d5e70 100644
+--- a/crates/infra/agent/src/worker.rs
++++ b/crates/infra/agent/src/worker.rs
+@@ -40,10 +40,6 @@ async fn execute(
+     sink: Arc<dyn RunEventSink>,
+     turn: WorkerTurnRequest,
+ ) -> Result<WorkerTurnOutcome, String> {
+-    // CLI 预检（CLI 引擎臂）
+-    if composed.is_cli_engine() {
+-        crate::discover::discover().map_err(|error| error.to_string())?;
+-    }
+     let session = match turn.continue_session {
+         None => SessionRef::New,
+         Some(id) => SessionRef::Continue { id },
+diff --git a/crates/infra/agent/src/worker_test.rs b/crates/infra/agent/src/worker_test.rs
+index 77e520b5d7c8..4208643871c4 100644
+--- a/crates/infra/agent/src/worker_test.rs
++++ b/crates/infra/agent/src/worker_test.rs
+@@ -1,5 +1,9 @@
+-use std::ffi::OsString;
+-use std::path::Path;
++//! worker 全链用例（sdk 引擎承载）：假 sink + `DualEnv` 真库 +
++//! `KernelWorkerPort`。CLI 租户退役——PATH 隔离 / 假 CLI shim /
++//! `TEST_PATH_LOCK` 串行装置与 CliMissing 收敛用例随 cli 档用例群废弃
++//! （无消费者即删）；sdk 轮全程无 PATH 轮前预检（`discover` 已随 `cli/`
++//! 目录删除，预检分支删除回归经本文件全链用例保绿锚定）。
++
+ use std::sync::{Arc, Mutex};
+ 
+ use agent::{
+@@ -20,12 +24,8 @@ use crate::compose_turn;
+ /// 会话 provenance 来源（与 walker 的 `SOURCE_CHANGE` 同一契约字面量）。
+ const SOURCE_CHANGE: &str = "change";
+ 
+-/// PATH 环境变量修改串行化（CLI 臂用例共享；同进程测试并行跑时 set_var 为
+-/// 进程全局操作）。async-aware 锁：隔离窗口跨 await 持有。
+-use crate::TEST_PATH_LOCK as PATH_LOCK;
+-
+ // ---------------------------------------------------------------------------
+-// 装置：tempdir 真库双环境 + 假 sink + PATH 隔离 + 假 CLI shim
++// 装置：tempdir 真库双环境 + 假 sink（双面捕获）
+ // ---------------------------------------------------------------------------
+ 
+ /// 数据根 + workspace 根双临时目录装置（stores 以 OnceLock 缓存——redb 单
+@@ -72,27 +72,37 @@ impl DualEnv {
+     }
+ }
+ 
+-/// 假 `RunEventSink`：Arc + Mutex Vec 捕获 run 状态流出（SessionEvent 透传
+-/// 断言面）。
++/// 假 `RunEventSink`：双面捕获——Mutex Vec 终态断言面 + 无界通道实时唤醒面
++///（测试任务挂起等待事件，调度器方可推进 IO / 退避定时器）。
+ struct CapturingSink {
+     updates: Arc<Mutex<Vec<RunUpdate>>>,
++    live: tokio::sync::mpsc::UnboundedSender<RunUpdate>,
++}
++
++/// 捕获面句柄（断言 + 实时等待）。
++struct Captured {
++    updates: Arc<Mutex<Vec<RunUpdate>>>,
++    live_rx: tokio::sync::mpsc::UnboundedReceiver<RunUpdate>,
+ }
+ 
+ impl CapturingSink {
+-    /// 构造即铸 trait object（KernelWorkerPort 注入面），返回（sink, 捕获缓冲）。
+-    fn capturing() -> (Arc<dyn RunEventSink>, Arc<Mutex<Vec<RunUpdate>>>) {
++    /// 构造即铸 trait object（KernelWorkerPort 注入面），返回（sink, 捕获面）。
++    fn capturing() -> (Arc<dyn RunEventSink>, Captured) {
+         let updates = Arc::new(Mutex::new(Vec::new()));
++        let (live_tx, live_rx) = tokio::sync::mpsc::unbounded_channel();
+         (
+             Arc::new(Self {
+                 updates: Arc::clone(&updates),
++                live: live_tx,
+             }),
+-            updates,
++            Captured { updates, live_rx },
+         )
+     }
+ }
+ 
+ impl RunEventSink for CapturingSink {
+     fn emit(&self, update: RunUpdate) {
++        let _ = self.live.send(update.clone());
+         self.updates
+             .lock()
+             .expect("事件捕获锁不可中毒")
+@@ -100,109 +110,63 @@ impl RunEventSink for CapturingSink {
+     }
+ }
+ 
+-/// PATH 环境守卫：构造即替换，drop 恢复原值（断言失败也不遗留污染）。
+-struct PathIsolation {
+-    original: Option<OsString>,
+-}
+-
+-impl PathIsolation {
+-    /// PATH 置空（CLI / shim 均不可发现的隔离态）。
+-    fn empty() -> Self {
+-        let original = std::env::var_os("PATH");
+-        std::env::set_var("PATH", "");
+-        Self { original }
+-    }
+-
+-    /// PATH 指向单目录（假 CLI shim 发现态）。
+-    fn replace_with(dir: &Path) -> Self {
+-        let original = std::env::var_os("PATH");
+-        let value = std::env::join_paths([dir]).expect("拼接 PATH 值失败");
+-        std::env::set_var("PATH", value);
+-        Self { original }
++impl Captured {
++    /// 全量已捕获的 SessionEvent 流（session_id, event）。
++    fn events(&self) -> Vec<(String, agent::AgentEvent)> {
++        session_events_of(&self.updates.lock().expect("事件捕获锁不可中毒"))
+     }
+-}
+ 
+-impl Drop for PathIsolation {
+-    fn drop(&mut self) {
+-        match self.original.take() {
+-            Some(value) => std::env::set_var("PATH", value),
+-            None => std::env::remove_var("PATH"),
++    /// 阻塞等待首个会话事件透传（挂起测试任务——事件 IO / 退避定时器经调度
++    /// 器推进；返回运行会话 id，即 begin 同步段完成锚）。
++    async fn wait_first_session(&mut self) -> String {
++        loop {
++            let update = self.live_rx.recv().await.expect("run 事件流不应提前关闭");
++            if let RunUpdate::SessionEvent { session_id, .. } = update {
++                return session_id;
++            }
+         }
+     }
+-}
+-
+-/// 平台 JSONL echo 行（Windows cmd 双引号直出；其余平台单引号包裹）。
+-#[cfg(windows)]
+-fn shim_echo(json: &str) -> String {
+-    format!("echo {json}")
+-}
+-
+-/// 平台 JSONL echo 行（Unix 版）。
+-#[cfg(not(windows))]
+-fn shim_echo(json: &str) -> String {
+-    format!("echo '{json}'")
+-}
+ 
+-/// 合成 claude CLI shim 脚本
+-fn claude_shim_script(pause_mid_turn: bool, pause_tail: bool) -> String {
+-    const INIT: &str = r#"{"type":"system","subtype":"init","model":"claude-opus","session_id":"s-1","tools":["Bash"],"mcp_servers":[]}"#;
+-    const ASSISTANT: &str = r#"{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"final verdict pass"}]}}"#;
+-    const RESULT: &str = r#"{"type":"result","subtype":"success","is_error":false,"num_turns":2,"duration_ms":99,"total_cost_usd":0.1,"usage":{},"session_id":"s-1"}"#;
+-    #[cfg(windows)]
+-    let pause: &str = r#""%SystemRoot%\System32\ping.exe" -n 5 127.0.0.1 >nul"#;
+-    #[cfg(not(windows))]
+-    let pause: &str = "/bin/sleep 4";
+-
+-    let mut lines: Vec<String> = Vec::new();
+-    #[cfg(windows)]
+-    lines.push("@echo off".to_owned());
+-    #[cfg(not(windows))]
+-    lines.push("#!/bin/sh".to_owned());
+-    lines.push(shim_echo(INIT));
+-    if pause_mid_turn {
+-        lines.push(pause.to_owned());
+-    }
+-    lines.push(shim_echo(ASSISTANT));
+-    lines.push(shim_echo(RESULT));
+-    if pause_tail {
+-        lines.push(pause.to_owned());
++    /// 阻塞等待「未见过」的新会话首事件（多轮顺序用例复用同一捕获面）。
++    async fn wait_new_session(&mut self, seen: &[String]) -> String {
++        loop {
++            let candidate = self.wait_first_session().await;
++            if !seen.contains(&candidate) {
++                return candidate;
++            }
++        }
+     }
+-    lines.join("\n")
+ }
+ 
+-/// 合成 claude 入口目录（PATH 注入目标）：Windows 落 `claude.cmd`，其余平台
+-/// 落带可执行位的 `claude`。
+-fn claude_shim_dir(tag: &str, pause_mid_turn: bool, pause_tail: bool) -> tempfile::TempDir {
+-    let dir = tempfile::Builder::new()
+-        .prefix(&format!("worker-test-{tag}-shim-"))
+-        .tempdir()
+-        .expect("创建 shim 目录失败");
+-    let script = claude_shim_script(pause_mid_turn, pause_tail);
+-    #[cfg(windows)]
+-    {
+-        std::fs::write(dir.path().join("claude.cmd"), script).expect("写 shim 失败");
+-    }
+-    #[cfg(not(windows))]
+-    {
+-        use std::os::unix::fs::PermissionsExt;
+-        let path = dir.path().join("claude");
+-        std::fs::write(&path, script).expect("写 shim 失败");
+-        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755))
+-            .expect("置 shim 可执行位失败");
+-    }
+-    dir
+-}
++// ---------------------------------------------------------------------------
++// fixture：sdk 默认实例 / sdk 快照会话行 / 最小密封转录
++// ---------------------------------------------------------------------------
+ 
+-/// cli 默认实例 fixture（缺省解析可走通的零配置臂）。
+-fn seed_cli_default(stores: &WorkspaceStores, name: &str) -> i64 {
++/// sdk 默认实例 fixture（provider 齐备——缺省解析可走通的唯一活档臂）。
++fn seed_sdk_default(stores: &WorkspaceStores, name: &str) -> i64 {
++    let provider = stores
++        .global()
++        .upsert_agent_provider(AgentProviderRecord::new(
++            format!("{name}供应"),
++            "http://127.0.0.1:9/v1".to_owned(),
++            "sk-worker".to_owned(),
++            AgentModelTiers {
++                high: "m-high".to_owned(),
++                medium: "m-medium".to_owned(),
++                low: "m-low".to_owned(),
++            },
++            None,
++        ))
++        .expect("落 provider fixture")
++        .id;
+     let id = stores
+         .global()
+         .upsert_agent_instance(AgentInstanceRecord::new(
+             name.to_owned(),
+-            AgentEngineKind::Cli,
+-            None,
++            AgentEngineKind::Sdk,
++            Some(provider),
+         ))
+-        .expect("落 cli 实例 fixture")
++        .expect("落 sdk 实例 fixture")
+         .id;
+     stores
+         .global()
+@@ -243,15 +207,16 @@ fn seed_sdk_default_with_blank_provider(stores: &WorkspaceStores) {
+         .expect("置默认实例 fixture");
+ }
+ 
+-/// cli 快照会话行 fixture（Continue 引用底座）。
+-fn seed_cli_session(store: &store::Store, id: &str, source_ref: Option<&str>) {
++/// sdk 快照会话行 fixture（Continue 引用底座）。
++fn seed_sdk_session(store: &store::Store, id: &str, source_ref: Option<&str>) {
+     store
+         .create_session(&SessionRecord {
+             id: id.to_owned(),
+-            engine_session_id: Some("s-cli-1".to_owned()),
++            engine_session_id: Some("sdk-legacy-1727000000001".to_owned()),
+             config_snapshot: SessionConfigSnapshot {
+-                engine: AgentEngineKind::Cli,
+-                model: None,
++                engine: AgentEngineKind::Sdk,
++                agent_instance_id: Some(7),
++                model: Some("m-high".to_owned()),
+                 permission_mode: AgentPermissionMode::BypassPermissions,
+             },
+             source: SOURCE_CHANGE.to_owned(),
+@@ -259,7 +224,36 @@ fn seed_cli_session(store: &store::Store, id: &str, source_ref: Option<&str>) {
+             created_at: 1727000000000,
+             updated_at: 1727000000000,
+         })
+-        .expect("落 cli 会话行 fixture");
++        .expect("落 sdk 会话行 fixture");
++}
++
++/// 最小密封转录 fixture（Continue 全史重建非空的前提）。
++fn seed_transcript(store: &store::Store, session_id: &str) {
++    let transcript = vec![
++        agent::AgentEvent::stamp(
++            0,
++            AgentEventKind::Message {
++                role: AgentMessageRole::User,
++                blocks: vec![AgentBlock::Text {
++                    text: "上一轮问".to_owned(),
++                }],
++                parent_tool_use_id: None,
++            },
++        ),
++        agent::AgentEvent::stamp(
++            1,
++            AgentEventKind::Message {
++                role: AgentMessageRole::Assistant,
++                blocks: vec![AgentBlock::Text {
++                    text: "上一轮答".to_owned(),
++                }],
++                parent_tool_use_id: None,
++            },
++        ),
++    ];
++    store
++        .append_session_events(session_id, &transcript)
++        .expect("落转录 fixture");
+ }
+ 
+ /// change 来源的轮请求 fixture（sourceRef 按 `<change>/<phase>/<role>/<attempt>`
+@@ -293,53 +287,27 @@ fn session_events_of(updates: &[RunUpdate]) -> Vec<(String, agent::AgentEvent)>
+         .collect()
+ }
+ 
+-/// 轮询探针至有值（后台透传/收敛的观测窗口）。
+-async fn wait_until<T>(what: &str, mut probe: impl FnMut() -> Option<T>) -> T {
+-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+-    loop {
+-        if let Some(value) = probe() {
+-            return value;
+-        }
+-        assert!(
+-            std::time::Instant::now() < deadline,
+-            "等待{what}超时（30s）"
+-        );
+-        tokio::task::yield_now().await;
+-        std::thread::sleep(std::time::Duration::from_millis(5));
+-    }
+-}
+-
+ // ---------------------------------------------------------------------------
+-// 装配半边：provenance / permission / continue 引用（AC-7）
++// 装配半边：provenance / permission / 实例外键（AC-7）
+ // ---------------------------------------------------------------------------
+ 
+-#[tokio::test]
+-async fn change_provenance_and_permission_are_assembled_into_session_row() {
++#[tokio::test(start_paused = true)]
++async fn change来源与permission装配入会话行_engine恒sdk携实例id() {
+     let env = DualEnv::new("provenance");
+     let stores = env.stores();
+-    seed_cli_default(&stores, "装配实例");
++    let default_id = seed_sdk_default(&stores, "装配实例");
+     let registry = Arc::new(StopRegistry::new());
+-    let (sink, updates) = CapturingSink::capturing();
++    let (sink, mut captured) = CapturingSink::capturing();
+     let composed: ComposedTurn =
+         compose_turn(&stores, Arc::clone(&registry), env.store(), None).expect("解析应成功");
+     let port = KernelWorkerPort::new(composed, sink);
+     let root = env.root();
+     let request = turn_request(&root, "chg-flow/implement/executor/1", WorkerRole::Executor);
+ 
+-    let _guard = PATH_LOCK.lock().expect("PATH 锁不可中毒");
+-    let shim = claude_shim_dir("provenance", true, false);
+-    let _isolation = PathIsolation::replace_with(shim.path());
+-
+     let task = tokio::spawn(async move { port.run(request).await });
+     // 首个会话事件透传即 begin 已完成（会话行按 provenance 定式落库），随后
+-    // 经停止窗口收敛（shim 轮中停顿留出置位窗口——沿 sealed_pump / mid_drive
+-    // 同款装置）
+-    let session_id = wait_until("首个会话事件透传", || {
+-        session_events_of(&updates.lock().expect("事件捕获锁不可中毒"))
+-            .first()
+-            .map(|(session_id, _)| session_id.clone())
+-    })
+-    .await;
++    // 置位停止经退避窗口收敛
++    let session_id = captured.wait_first_session().await;
+     assert!(
+         registry.request_stop(&session_id),
+         "begin 同步段已登记停止句柄"
+@@ -349,8 +317,11 @@ async fn change_provenance_and_permission_are_assembled_into_session_row() {
+         .await
+         .expect("run 任务正常结束")
+         .expect("装配会话应发起");
+-    drop(_isolation);
+-    drop(_guard);
++    assert_eq!(
++        outcome.status,
++        AgentRunStatus::Stopped,
++        "停止置位后驱动终止以 stopped 收敛"
++    );
+ 
+     let store = stores.for_root(&root).expect("for_root 应成功");
+     let row = store
+@@ -371,22 +342,32 @@ async fn change_provenance_and_permission_are_assembled_into_session_row() {
+         AgentPermissionMode::BypassPermissions,
+         "permission 恒 bypassPermissions"
+     );
+-    assert_eq!(row.config_snapshot.engine, AgentEngineKind::Cli);
++    assert_eq!(
++        row.config_snapshot.engine,
++        AgentEngineKind::Sdk,
++        "sdk 唯一活档装配（CLI 租户退役后 engine 恒 sdk）"
++    );
++    assert_eq!(
++        row.config_snapshot.agent_instance_id,
++        Some(default_id),
++        "快照携解析实例外键（DD8）"
++    );
+ }
+ 
+-#[tokio::test]
+-async fn continue_session_reuses_existing_row_without_duplicates() {
++#[tokio::test(start_paused = true)]
++async fn continue会话复用既有行不重复建() {
+     let env = DualEnv::new("continue");
+     let stores = env.stores();
+-    seed_cli_default(&stores, "续话实例");
++    seed_sdk_default(&stores, "续话实例");
+     let registry = Arc::new(StopRegistry::new());
+     let store = stores.for_root(&env.root()).expect("for_root 应成功");
+-    seed_cli_session(
++    seed_sdk_session(
+         &store,
+         "ses-flow-continue",
+         Some("chg-flow/proposal/executor/0"),
+     );
+-    let (sink, updates) = CapturingSink::capturing();
++    seed_transcript(&store, "ses-flow-continue");
++    let (sink, mut captured) = CapturingSink::capturing();
+     let composed: ComposedTurn =
+         compose_turn(&stores, Arc::clone(&registry), env.store(), None).expect("解析应成功");
+     let port = KernelWorkerPort::new(composed, sink);
+@@ -395,18 +376,9 @@ async fn continue_session_reuses_existing_row_without_duplicates() {
+     let mut request = turn_request(&root, "chg-flow/implement/executor/1", WorkerRole::Executor);
+     request.continue_session = Some("ses-flow-continue".to_owned());
+ 
+-    let _guard = PATH_LOCK.lock().expect("PATH 锁不可中毒");
+-    let shim = claude_shim_dir("continue", true, false);
+-    let _isolation = PathIsolation::replace_with(shim.path());
+-
+     let task = tokio::spawn(async move { port.run(request).await });
+     // 首个会话事件透传即 Continue 会话已发起，随后经停止窗口收敛
+-    let event_session_id = wait_until("首个会话事件透传", || {
+-        session_events_of(&updates.lock().expect("事件捕获锁不可中毒"))
+-            .first()
+-            .map(|(session_id, _)| session_id.clone())
+-    })
+-    .await;
++    let event_session_id = captured.wait_first_session().await;
+     assert!(
+         registry.request_stop(&event_session_id),
+         "begin 同步段已登记停止句柄"
+@@ -416,8 +388,6 @@ async fn continue_session_reuses_existing_row_without_duplicates() {
+         .await
+         .expect("run 任务正常结束")
+         .expect("Continue 引用应复用既有会话行");
+-    drop(_isolation);
+-    drop(_guard);
+ 
+     assert_eq!(
+         outcome.session_id, "ses-flow-continue",
+@@ -433,7 +403,7 @@ async fn continue_session_reuses_existing_row_without_duplicates() {
+ // ---------------------------------------------------------------------------
+ 
+ #[test]
+-fn empty_store_default_resolution_errs_with_management_hint() {
++fn 空库缺省解析err引导管理页且零落库() {
+     let env = DualEnv::new("no-default");
+     let stores = env.stores();
+ 
+@@ -457,11 +427,13 @@ fn empty_store_default_resolution_errs_with_management_hint() {
+ }
+ 
+ #[tokio::test]
+-async fn open_stage_failure_propagates_err_without_half_records() {
++async fn open段配置缺失显式err传播且零半成品记录() {
++    // ConfigMissing 归位口径（AC-1 预检删除回归的错误面半边）：provider 配置
++    // 缺失归 begin() open 段显式 Err——错误面不移位、不静默、零半成品记录
+     let env = DualEnv::new("open-fail");
+     let stores = env.stores();
+     seed_sdk_default_with_blank_provider(&stores);
+-    let (sink, _updates) = CapturingSink::capturing();
++    let (sink, _captured) = CapturingSink::capturing();
+     let composed: ComposedTurn =
+         compose_turn(&stores, Arc::new(StopRegistry::new()), env.store(), None)
+             .expect("解析应成功");
+@@ -496,70 +468,15 @@ async fn open_stage_failure_propagates_err_without_half_records() {
+ }
+ 
+ // ---------------------------------------------------------------------------
+-// CLI 引擎不可达（PATH 隔离 → 轮前预检 Err + 零半成品记录）
+-// ---------------------------------------------------------------------------
+-
+-/// CLI 引擎不可达（PATH 隔离）：CLI 引擎臂轮前预检 discover 失败 → Err
+-/// 传播且 `begin` 未发生——会话 / 轮行零半成品记录、sink 零透传（CliMissing
+-/// 收敛 Err + 零半成品记录，不以合成 failed 轮的 Ok 形态带病续走）。
+-#[tokio::test]
+-async fn path_isolated_cli_missing_errs_with_zero_half_records() {
+-    let env = DualEnv::new("cli-missing");
+-    let stores = env.stores();
+-    seed_cli_default(&stores, "隔离实例");
+-    let (sink, updates) = CapturingSink::capturing();
+-    let composed: ComposedTurn =
+-        compose_turn(&stores, Arc::new(StopRegistry::new()), env.store(), None)
+-            .expect("解析应成功");
+-    let port = KernelWorkerPort::new(composed, sink);
+-    let root = env.root();
+-
+-    let _guard = PATH_LOCK.lock().expect("PATH 锁不可中毒");
+-    let _isolation = PathIsolation::empty();
+-    let result = port
+-        .run(turn_request(
+-            &root,
+-            "chg-flow/implement/executor/1",
+-            WorkerRole::Executor,
+-        ))
+-        .await;
+-    drop(_isolation);
+-    drop(_guard);
+-
+-    let error = match result {
+-        Err(error) => error,
+-        Ok(_) => panic!("PATH 隔离触发 CliMissing 必须 Err（不以合成终态 Ok 带病续走）"),
+-    };
+-    assert!(
+-        error.contains("CLI 未找到") && error.contains("claude"),
+-        "Err 携 CLI 缺失记因（显式失败不静默），实际: {error}"
+-    );
+-
+-    // 预检先行：begin 未发生 → 会话 / 轮行零半成品记录（内核契约承接）
+-    let store = stores.for_root(&root).expect("for_root 应成功");
+-    assert!(
+-        store
+-            .list_sessions(None, None)
+-            .expect("清单应成功")
+-            .is_empty(),
+-        "CliMissing 零半成品记录（预检先于 begin）"
+-    );
+-    assert!(
+-        updates.lock().expect("事件捕获锁不可中毒").is_empty(),
+-        "零 SessionEvent 透传（begin 未发生）"
+-    );
+-}
+-
+-// ---------------------------------------------------------------------------
+-// 泵收集与透传（假 CLI shim 预录密封事件；AC-7 反查数据面 / AC-5 实时流来源）
++// 泵收集与透传（sdk 拒连端点一轮一命；AC-7 反查数据面 / AC-5 实时流来源）
+ // ---------------------------------------------------------------------------
+ 
+-#[tokio::test]
+-async fn sealed_pump_collects_transcript_and_forwards_session_events() {
++#[tokio::test(start_paused = true)]
++async fn 泵收集密封转录并透传会话事件_拒连一轮一命收敛() {
+     let env = DualEnv::new("pump");
+     let stores = env.stores();
+-    seed_cli_default(&stores, "泵收集实例");
+-    let (sink, updates) = CapturingSink::capturing();
++    seed_sdk_default(&stores, "泵收集实例");
++    let (sink, captured) = CapturingSink::capturing();
+     let registry = Arc::new(StopRegistry::new());
+     let composed: ComposedTurn =
+         compose_turn(&stores, Arc::clone(&registry), env.store(), None).expect("解析应成功");
+@@ -567,67 +484,47 @@ async fn sealed_pump_collects_transcript_and_forwards_session_events() {
+     let root = env.root();
+     let request = turn_request(&root, "chg-flow/implement/executor/1", WorkerRole::Executor);
+ 
+-    let _guard = PATH_LOCK.lock().expect("PATH 锁不可中毒");
+-    let shim = claude_shim_dir("pump", false, true);
+-    let _isolation = PathIsolation::replace_with(shim.path());
+-
+     let task = tokio::spawn(async move { port.run(request).await });
+-    // 轮末停顿窗口内置位停止：三条密封事件已全量透传，CLI 会话泵随停止请求
+-    // 收口（观察流闭合），状态机已收敛 → 终态 Completed
+-    wait_until("三条密封事件透传", || {
+-        let count = session_events_of(&updates.lock().expect("事件捕获锁不可中毒")).len();
+-        (count >= 3).then_some(count)
+-    })
+-    .await;
+-    let session_id = session_events_of(&updates.lock().expect("事件捕获锁不可中毒"))[0]
+-        .0
+-        .clone();
+-    assert!(
+-        registry.request_stop(&session_id),
+-        "begin 同步段已登记停止句柄"
+-    );
+-
++    // 自然收敛：拒连端点重试护栏逐次留痕后耗尽（paused 时钟快进退避），一轮
++    // 一命收口
+     let outcome = task
+         .await
+         .expect("run 任务正常结束")
+-        .expect("假 CLI 会话应正常收敛");
+-    drop(_isolation);
+-    drop(_guard);
++        .expect("sdk 会话应正常发起");
+ 
+-    // 终态与转录：密封事件全集收集 + final_message 承接末条 assistant 文本
+-    assert_eq!(outcome.status, AgentRunStatus::Completed);
++    // 终态与转录：密封事件全集收集（RunStarted / user / api_retry ×3 /
++    // api_error / TurnDone 全部密封——增量以外皆落转录）
++    assert_eq!(outcome.status, AgentRunStatus::Failed, "拒连端点失败收敛");
++    let transcript = &outcome.transcript;
+     assert_eq!(
+-        outcome.transcript.len(),
+-        3,
+-        "init / assistant / result 全集"
++        transcript.len(),
++        7,
++        "RunStarted / user / api_retry ×3 / api_error / TurnDone 全集"
+     );
+     assert!(matches!(
+-        &outcome.transcript[0].kind,
+-        AgentEventKind::RunStarted { model: Some(model), .. } if model == "claude-opus"
+-    ));
+-    assert!(matches!(
+-        &outcome.transcript[1].kind,
+-        AgentEventKind::Message { role, blocks, .. }
+-            if role == &AgentMessageRole::Assistant
+-                && matches!(&blocks[0], AgentBlock::Text { text } if text == "final verdict pass")
++        &transcript[0].kind,
++        AgentEventKind::RunStarted { .. }
+     ));
++    assert!(
++        matches!(&transcript[1].kind, AgentEventKind::Message { role, .. }
++        if role == &AgentMessageRole::User)
++    );
++    assert!(
++        matches!(&transcript[2].kind, AgentEventKind::SystemNotice { subtype, .. }
++        if subtype == "api_retry")
++    );
++    assert!(
++        matches!(&transcript[5].kind, AgentEventKind::SystemNotice { subtype, .. }
++        if subtype == "api_error")
++    );
+     assert!(matches!(
+-        &outcome.transcript[2].kind,
+-        AgentEventKind::TurnDone {
+-            is_error: false,
+-            num_turns: Some(2),
+-            ..
+-        }
++        &transcript[6].kind,
++        AgentEventKind::TurnDone { is_error: true, .. }
+     ));
+-    assert_eq!(
+-        outcome.final_message.as_deref(),
+-        Some("final verdict pass"),
+-        "final_message 承接终态载体"
+-    );
+ 
+-    // sink 透传：每条观察以 RunUpdate::SessionEvent 流出且载荷保真
+-    let events = session_events_of(&updates.lock().expect("事件捕获锁不可中毒"));
+-    assert_eq!(events.len(), 3, "三条观察全量透传");
++    // sink 透传：全量观察以 RunUpdate::SessionEvent 流出且与收集转录同源保真
++    let events = captured.events();
++    assert_eq!(events.len(), transcript.len(), "观察全量透传");
+     assert!(
+         events
+             .iter()
+@@ -639,7 +536,7 @@ async fn sealed_pump_collects_transcript_and_forwards_session_events() {
+             .into_iter()
+             .map(|(_, event)| event)
+             .collect::<Vec<_>>(),
+-        outcome.transcript,
++        *transcript,
+         "透传事件与收集转录同源保真"
+     );
+ 
+@@ -653,11 +550,15 @@ async fn sealed_pump_collects_transcript_and_forwards_session_events() {
+         1,
+         "source='change' + sourceRef 精确反查命中"
+     );
+-    assert_eq!(summaries[0].turns[0].status, AgentRunStatus::Completed);
+-    assert_eq!(
+-        summaries[0].row.remote_session_id.as_deref(),
+-        Some("s-1"),
+-        "引擎侧标识上报落双 id 映射"
++    assert_eq!(summaries[0].turns[0].status, AgentRunStatus::Failed);
++    let remote = summaries[0]
++        .row
++        .remote_session_id
++        .as_deref()
++        .expect("引擎侧标识上报落双 id 映射");
++    assert!(
++        remote.starts_with("sdk-"),
++        "sdk 引擎侧标识每轮铸造上报，实际: {remote}"
+     );
+ }
+ 
+@@ -665,31 +566,22 @@ async fn sealed_pump_collects_transcript_and_forwards_session_events() {
+ // 停止收敛（AC-7 停止半边）
+ // ---------------------------------------------------------------------------
+ 
+-#[tokio::test]
+-async fn mid_drive_stop_converges_stopped_and_keeps_collected_events() {
++#[tokio::test(start_paused = true)]
++async fn 中途停止收敛stopped并保留已收集事件() {
+     let env = DualEnv::new("stop");
+     let stores = env.stores();
+-    seed_cli_default(&stores, "停止实例");
++    seed_sdk_default(&stores, "停止实例");
+     let registry = Arc::new(StopRegistry::new());
+-    let (sink, updates) = CapturingSink::capturing();
++    let (sink, mut captured) = CapturingSink::capturing();
+     let composed: ComposedTurn =
+         compose_turn(&stores, Arc::clone(&registry), env.store(), None).expect("解析应成功");
+     let port = KernelWorkerPort::new(composed, sink);
+     let root = env.root();
+     let request = turn_request(&root, "chg-flow/implement/executor/1", WorkerRole::Executor);
+ 
+-    let _guard = PATH_LOCK.lock().expect("PATH 锁不可中毒");
+-    let shim = claude_shim_dir("stop", true, false);
+-    let _isolation = PathIsolation::replace_with(shim.path());
+-
+     let task = tokio::spawn(async move { port.run(request).await });
+     // 首个会话事件透传即取得运行会话槽（命令层 sink 桥的同步半边），随后置位停止
+-    let session_id = wait_until("首个会话事件透传", || {
+-        session_events_of(&updates.lock().expect("事件捕获锁不可中毒"))
+-            .first()
+-            .map(|(session_id, _)| session_id.clone())
+-    })
+-    .await;
++    let session_id = captured.wait_first_session().await;
+     assert!(
+         registry.request_stop(&session_id),
+         "begin 同步段已登记停止句柄（键 = core session id）"
+@@ -699,8 +591,6 @@ async fn mid_drive_stop_converges_stopped_and_keeps_collected_events() {
+         .await
+         .expect("run 任务正常结束")
+         .expect("停止收敛仍 Ok 携终态");
+-    drop(_isolation);
+-    drop(_guard);
+ 
+     assert_eq!(
+         outcome.status,
+@@ -718,7 +608,7 @@ async fn mid_drive_stop_converges_stopped_and_keeps_collected_events() {
+         !registry.request_stop(&session_id),
+         "终态除名后停止寻址 miss"
+     );
+-    let events = session_events_of(&updates.lock().expect("事件捕获锁不可中毒"));
++    let events = captured.events();
+     assert!(
+         events.iter().any(|(id, event)| id == &outcome.session_id
+             && matches!(event.kind, AgentEventKind::RunStarted { .. })),
+@@ -730,16 +620,16 @@ async fn mid_drive_stop_converges_stopped_and_keeps_collected_events() {
+ // 三角色 provenance 定式（D3 / AC-7 反查面）
+ // ---------------------------------------------------------------------------
+ 
+-#[tokio::test]
+-async fn three_roles_map_verbatim_into_source_ref_segments() {
++#[tokio::test(start_paused = true)]
++async fn 三角色provenance定式逐段落库且精确反查命中() {
+     let env = DualEnv::new("roles");
+     let stores = env.stores();
+-    seed_cli_default(&stores, "角色实例");
++    seed_sdk_default(&stores, "角色实例");
+     let registry = Arc::new(StopRegistry::new());
+-    let (sink, updates) = CapturingSink::capturing();
++    let (sink, mut captured) = CapturingSink::capturing();
+     let composed: ComposedTurn =
+         compose_turn(&stores, Arc::clone(&registry), env.store(), None).expect("解析应成功");
+-    let port = KernelWorkerPort::new(composed, sink);
++    let port = Arc::new(KernelWorkerPort::new(composed, sink));
+     let root = env.root();
+ 
+     let roles = [
+@@ -748,10 +638,6 @@ async fn three_roles_map_verbatim_into_source_ref_segments() {
+         ("chg-flow/implement/decision/3", WorkerRole::Decision),
+     ];
+ 
+-    let _guard = PATH_LOCK.lock().expect("PATH 锁不可中毒");
+-    let shim = claude_shim_dir("roles", true, false);
+-    let _isolation = PathIsolation::replace_with(shim.path());
+-    let port = Arc::new(port);
+     let mut seen: Vec<String> = Vec::new();
+     for (source_ref, role) in roles {
+         let request = turn_request(&root, source_ref, role);
+@@ -759,14 +645,8 @@ async fn three_roles_map_verbatim_into_source_ref_segments() {
+             let port = Arc::clone(&port);
+             async move { port.run(request).await }
+         });
+-        // 首个「未见会话」事件透传即本轮 begin 已完成，随后经停止窗口收敛
+-        let session_id = wait_until("本轮首个会话事件透传", || {
+-            session_events_of(&updates.lock().expect("事件捕获锁不可中毒"))
+-                .iter()
+-                .map(|(session_id, _)| session_id.clone())
+-                .find(|session_id| !seen.contains(session_id))
+-        })
+-        .await;
++        // 本轮「未见会话」首事件透传即本轮 begin 已完成，随后经停止窗口收敛
++        let session_id = captured.wait_new_session(&seen).await;
+         seen.push(session_id.clone());
+         assert!(
+             registry.request_stop(&session_id),
+@@ -778,8 +658,6 @@ async fn three_roles_map_verbatim_into_source_ref_segments() {
+             .expect("各角色会话均应发起");
+         assert!(outcome.session_id.starts_with("ses-"), "每轮独立新会话");
+     }
+-    drop(_isolation);
+-    drop(_guard);
+ 
+     let store = stores.for_root(&root).expect("for_root 应成功");
+     let summaries = store
+diff --git a/crates/infra/checks/src/mutation/cargo_mutants_test.rs b/crates/infra/checks/src/mutation/cargo_mutants_test.rs
+index b3d2f2fa3bba..0f5b588ee81c 100644
+--- a/crates/infra/checks/src/mutation/cargo_mutants_test.rs
++++ b/crates/infra/checks/src/mutation/cargo_mutants_test.rs
+@@ -1,19 +1,3 @@
+-//! `cargo_mutants.rs` 的单元测试（test-design「cargo_mutants.rs ->
+-//! cargo_mutants_test.rs」节）：argv 模板展开逐参等值（`mutants --workspace
+-//! --in-diff <段补丁> --baseline skip --jobs <半 CPU> --timeout 300`）+ 常量锚
+-//! 定 + `CARGO_TARGET_DIR` 多段共享 env 断言 + 补丁入参边界 + 段报告权威面
+-//! （`mutants.out/outcomes.json` 在位且可解析 → 段完成，真实 outcomes 形态解析
+-//! 对拍）+ 零突变体段（退出 0 无报告 → 空计数面合成载荷）+ 陈旧报告清场 + 段
+-//! 中断错误面 + 失败面（ENOENT / 非零退出 / 超时→中断不挂死）。
+-//!
+-//! Mock策略（test-design 本节 Mock 表）：子进程 spawn（cargo mutants——进程边
+-//! 界）经**假 spawn 装置**承载——`mod_test::SpawnWindow`（PATH 前置假 `cargo`
+-//! shim + 记录 argv / env / cwd + 可编程输出、报告文件落位（cwd 重建
+-//! `mutants.out/outcomes.json`）、超时（自旋挂起 + 虚拟时钟推进）、非零退出；
+-//! ENOENT 臂 = PATH 隔离使程序缺席——`TEST_ENV_LOCK` 串行化，testexec
+-//! EnvWindow 先例同款）；`available_parallelism` 不 mock（jobs 期望值按真实
+-//! CPU 重算关系式 `max(1, n/2)`）。
+-
+ use std::fs;
+ use std::path::PathBuf;
+ use std::time::{Duration, Instant};
+diff --git a/crates/infra/checks/src/mutation/mod_test.rs b/crates/infra/checks/src/mutation/mod_test.rs
+index 71aaa8f48254..6891e4c86ccc 100644
+--- a/crates/infra/checks/src/mutation/mod_test.rs
++++ b/crates/infra/checks/src/mutation/mod_test.rs
+@@ -63,8 +63,9 @@ pub(super) struct SpawnRecord {
+ }
+ 
+ /// 假 spawn 窗口：持 crate 级 `TEST_ENV_LOCK`（进程全局 env 串行化）+ PATH
+-/// 前置 shim 目录 + `FAKE_SPAWN_*` 可编程键收口（Drop 恢复 PATH、摘除全部键、
+-/// 释放锁——与 testexec `PathWindowGuard` 同式先例）。
++/// 前置 shim 目录（Windows 附前置 msys 工具目录——假执行体外部件解析）+
++/// `FAKE_SPAWN_*` 可编程键收口（Drop 恢复 PATH、摘除全部键、释放锁——与
++/// testexec `PathWindowGuard` 同式先例）。
+ pub(super) struct SpawnWindow {
+     /// 进 PATH 前原 PATH（Drop 还原面）
+     original_path: Option<OsString>,
+@@ -86,6 +87,16 @@ impl SpawnWindow {
+             .expect("创建假 spawn shim 目录失败");
+         let original_path = std::env::var_os("PATH");
+         let mut entries: Vec<PathBuf> = vec![shim.path().to_path_buf()];
++        // msys coreutils 目录（`cp` / `mkdir`）紧随 shim 前置：假执行体脚本的
++        // 外部件解析不依赖宿主 PATH 是否含 Git usr/bin——桌面应用门禁进程
++        // （GUI 拉起）PATH 无 usr/bin，裸 shim 前置下 `mkdir` / `cp` 恒
++        // command not found，`mutants.out/outcomes.json` 静默缺位（stderr 随
++        // 零突变体臂丢弃）→ 全零计数 → score 恒 100 假绿。定位失败跳过
++        // （bash 落位失败随后显式 panic 报因，不在此静默吞错）。
++        #[cfg(windows)]
++        if let Some(tools) = msys_tool_dir() {
++            entries.push(tools);
++        }
+         if let Some(value) = &original_path {
+             entries.extend(std::env::split_paths(value));
+         }
+@@ -263,6 +274,29 @@ impl Drop for SpawnWindow {
+     }
+ }
+ 
++/// msys coreutils 目录（Git for Windows `usr/bin`——`cp` / `mkdir` 等 POSIX
++/// 外部件所在；假执行体脚本外部件的可靠解析源，Windows PATH 前置消费）：
++/// bash 直查目录已携该二件（完整 `usr/bin` 形态）即用之，否则回退
++/// `..\usr\bin` 兄弟目录。探测失败返回 `None`——调用方跳过 PATH 前置，bash
++/// 落位失败随后以显式 panic 报因（不在此静默吞错）。
++#[cfg(windows)]
++fn msys_tool_dir() -> Option<PathBuf> {
++    let has_tools = |dir: &Path| dir.join("cp.exe").is_file() && dir.join("mkdir.exe").is_file();
++    let bash = match exec::resolve_shell() {
++        exec::ShellBase::GitBash(path) => path,
++        _ => return None,
++    };
++    let dir = bash.parent()?.to_path_buf();
++    if has_tools(&dir) {
++        return Some(dir);
++    }
++    let sibling = dir.join("..").join("usr").join("bin");
++    if has_tools(&sibling) {
++        return Some(sibling);
++    }
++    None
++}
++
+ /// Windows：定位 Git for Windows msys bash（`cargo.exe` 拷贝源）——`resolve_shell`
+ /// 探到的 `Git\bin\bash.exe` 为 47KB 壳时回退其 `..\usr\bin` 兄弟目录（bash.exe +
+ /// msys-2.0.dll 同目录为完整运行单元，实测可独立拷贝运行）。
+@@ -310,14 +344,7 @@ fn set_executable(path: &Path) {
+ #[cfg(not(unix))]
+ fn set_executable(_path: &Path) {}
+ 
+-/// 假 `mutants` 执行体（cargo mutants 面；`$0` = `mutants` 跨平台同构）：
+-/// 记录 argv / cwd / env → 可编程自旋挂起（超时面）→ 可编程输出（argv 子串命
+-/// 中换 ALT 源与退出码——多 suite 差异编程）→ canned 源逐行回写 stdout（段报
+-/// 告面在 `FAKE_SPAWN_REPORT` 在位时同源写出）→ cargo-mutants 报告文件面
+-/// （`FAKE_SPAWN_CARGO_OUTCOMES` 在位时在 cwd 重建 `mutants.out/outcomes.json`
+-/// ——真实工具段报告权威落位模拟；ALT 命中换 `…_ALT` 源、缺省不写 = 零报告）。
+-/// 纯内建命令（零外部依赖——msys
+-/// bash 非交互 PATH 无 Git usr/bin）。
++/// 假 `mutants` 执行体
+ const MUTANTS_SCRIPT: &str = r#"#!/bin/sh
+ {
+   printf 'argv'
+@@ -1382,7 +1409,8 @@ async fn 组合根链路_localtoolsteps_vcs假件_processmutation假spawn() {
+         "vcs 取数双缝按序各一次"
+     );
+ 
+-    // 段补丁 = vcs 补丁切片（清单 / 补丁注入 `--in-diff` 面逐字透传）
++    // 段补丁 = vcs 补丁切片 + suite 根前缀剥离（清单匹配恒项目根相对、落盘段
++    // 补丁路径剥 suite 根——cargo mutants 以 spawn cwd 相对路径匹配 `--in-diff`）
+     let seg_patch = reports
+         .join("app_rust")
+         .join("mutation")
+diff --git a/crates/infra/checks/src/mutation/report_test.rs b/crates/infra/checks/src/mutation/report_test.rs
+index df5f17e6577f..0bd343f621aa 100644
+--- a/crates/infra/checks/src/mutation/report_test.rs
++++ b/crates/infra/checks/src/mutation/report_test.rs
+@@ -15,10 +15,9 @@ use checks::model::{MutationBlock, MutationMeasured};
+ use tempfile::TempDir;
+ 
+ use super::{
+-    cleanup_stryker_artifacts, merged_block_path, mtime_ms, segment_patch_name,
+-    segment_patch_path, segment_report_name, segment_report_path, segment_reusable,
+-    stryker_config_name, to_posix, write_merged_block, write_segment_patch,
+-    write_segment_report, STRYKER_TMP_DIR_NAME,
++    cleanup_stryker_artifacts, merged_block_path, mtime_ms, segment_patch_name, segment_patch_path,
++    segment_report_name, segment_report_path, segment_reusable, stryker_config_name, to_posix,
++    write_merged_block, write_segment_patch, write_segment_report, STRYKER_TMP_DIR_NAME,
+ };
+ 
+ /// 段报告 fixture（工具原始输出原样——含未知键与特殊字符，写盘不重排不丢）。
+@@ -40,7 +39,8 @@ fn set_mtime(path: &Path, millis_since_epoch: u64) {
+         .write(true)
+         .open(path)
+         .expect("打开文件设 mtime 失败");
+-    let time = std::time::SystemTime::UNIX_EPOCH + std::time::Duration::from_millis(millis_since_epoch);
++    let time =
++        std::time::SystemTime::UNIX_EPOCH + std::time::Duration::from_millis(millis_since_epoch);
+     file.set_modified(time).expect("set_modified 失败");
+ }
+ 
+@@ -61,10 +61,13 @@ fn 段报告写盘_原样留存与序号连续() {
+     }
+ 
+     // 段补丁命名同序
+-    let patch_path = write_segment_patch(&mutation, 1, "diff --git a/x b/x\n")
+-        .expect("段补丁写盘应成功");
++    let patch_path =
++        write_segment_patch(&mutation, 1, "diff --git a/x b/x\n").expect("段补丁写盘应成功");
+     assert_eq!(
+-        patch_path.file_name().expect("文件名在场").to_string_lossy(),
++        patch_path
++            .file_name()
++            .expect("文件名在场")
++            .to_string_lossy(),
+         "mutation-seg-1.patch",
+         "段补丁命名同序"
+     );
+@@ -138,7 +141,10 @@ fn 复用门_在位且新鲜则复用() {
+ 
+     // 相等边界：mtime 相等 → 复用（`>=` 判据）
+     set_mtime(&path, 7_000);
+-    assert!(segment_reusable(&path, Some(7_000)), "mtime 相等 → 复用（>= 边界）");
++    assert!(
++        segment_reusable(&path, Some(7_000)),
++        "mtime 相等 → 复用（>= 边界）"
++    );
+ }
+ 
+ /// 复用门失效（异常）：段报告缺失 / 损坏（非 JSON）→ 失效（不 panic 不 Err
+@@ -157,10 +163,7 @@ fn 复用门失效_缺失与损坏不panic() {
+     let path = segment_report_path(&mutation, 0);
+     fs::create_dir_all(&mutation).expect("建目录");
+     fs::write(&path, "not json{{{").expect("写损坏报告");
+-    assert!(
+-        !segment_reusable(&path, None),
+-        "损坏（非 JSON）→ 失效重跑"
+-    );
++    assert!(!segment_reusable(&path, None), "损坏（非 JSON）→ 失效重跑");
+ 
+     // 空文件同样损坏面
+     fs::write(&path, "").expect("写空报告");
+@@ -217,8 +220,14 @@ fn stryker清理边界_报告工件不触碰() {
+ 
+     // sandbox 与两份 config 已清
+     assert!(!sandbox.exists(), "_stryker-tmp 已清理");
+-    assert!(!mutation.join(stryker_config_name(0)).exists(), "config 0 已清理");
+-    assert!(!mutation.join(stryker_config_name(3)).exists(), "config 3 已清理");
++    assert!(
++        !mutation.join(stryker_config_name(0)).exists(),
++        "config 0 已清理"
++    );
++    assert!(
++        !mutation.join(stryker_config_name(3)).exists(),
++        "config 3 已清理"
++    );
+ 
+     // 报告工件不触碰
+     assert!(segment_report_path(&mutation, 0).is_file(), "段报告 0 留存");
+@@ -228,7 +237,10 @@ fn stryker清理边界_报告工件不触碰() {
+ 
+     // 二次清理幂等（best-effort——目录已在首轮删除）
+     cleanup_stryker_artifacts(&mutation);
+-    assert!(segment_report_path(&mutation, 0).is_file(), "二次清理后报告仍留存");
++    assert!(
++        segment_report_path(&mutation, 0).is_file(),
++        "二次清理后报告仍留存"
++    );
+ 
+     // 不存在目录 → 静默不 panic
+     cleanup_stryker_artifacts(&mutation.join("no-such-dir"));
+@@ -251,5 +263,9 @@ fn 命名与路径面_逐字与posix归一() {
+     );
+ 
+     // mtime 读取：不存在文件 → None（不 panic）
+-    assert_eq!(mtime_ms(Path::new("no-such-file.json")), None, "缺文件 mtime None");
++    assert_eq!(
++        mtime_ms(Path::new("no-such-file.json")),
++        None,
++        "缺文件 mtime None"
++    );
+ }
+diff --git a/crates/infra/checks/src/mutation/stryker.rs b/crates/infra/checks/src/mutation/stryker.rs
+index 999f1399fe82..39d2fc43d8db 100644
+--- a/crates/infra/checks/src/mutation/stryker.rs
++++ b/crates/infra/checks/src/mutation/stryker.rs
+@@ -108,8 +108,7 @@ pub(crate) async fn run_segment(segment: &StrykerSegment<'_>) -> Result<String,
+     match std::fs::read_to_string(&report_path) {
+         Ok(raw) if serde_json::from_str::<serde_json::Value>(&raw).is_ok() => Ok(raw),
+         _ => Err(SegmentFailure::Interrupted(segment_failure_message(
+-            exit_code,
+-            &output,
++            exit_code, &output,
+         ))),
+     }
+ }
+diff --git a/crates/infra/checks/src/mutation/stryker_test.rs b/crates/infra/checks/src/mutation/stryker_test.rs
+index 33667614bd7f..ef47525e612a 100644
+--- a/crates/infra/checks/src/mutation/stryker_test.rs
++++ b/crates/infra/checks/src/mutation/stryker_test.rs
+@@ -18,8 +18,8 @@ use std::time::{Duration, Instant};
+ 
+ use tempfile::TempDir;
+ 
+-use super::super::mutation_jobs;
+ use super::super::mod_test::SpawnWindow;
++use super::super::mutation_jobs;
+ use super::super::report::to_posix;
+ use super::super::{SegmentFailure, SEGMENT_SPAWN_TIMEOUT_MS};
+ use super::{
+@@ -63,7 +63,10 @@ fn 临时config组装_共享sandbox与半cpu与json直写() {
+     let suite_cwd = Path::new("/ws/root/app");
+     let mutation_dir = Path::new("/ws/root/reports/test/app_vite-plus/mutation");
+     let report_path = mutation_dir.join("mutation-seg-0.json");
+-    let files = vec!["app/src/a.test.ts".to_owned(), "app/src/b.test.ts".to_owned()];
++    let files = vec![
++        "app/src/a.test.ts".to_owned(),
++        "app/src/b.test.ts".to_owned(),
++    ];
+ 
+     let config = build_config(
+         &segment(suite_cwd, mutation_dir, 0, &files, project, "vite-plus"),
+@@ -128,7 +131,11 @@ fn 临时config组装_共享sandbox与半cpu与json直写() {
+ fn runner与插件包映射_三框架封闭() {
+     assert_eq!(test_runner("jest"), "jest");
+     assert_eq!(test_runner("vitest"), "vitest");
+-    assert_eq!(test_runner("vite-plus"), "vitest", "vite-plus 共用 vitest runner");
++    assert_eq!(
++        test_runner("vite-plus"),
++        "vitest",
++        "vite-plus 共用 vitest runner"
++    );
+     // 兜底面：未知框架退 vitest（js 族三值封闭——非 js 不进 Stryker 面）
+     assert_eq!(test_runner("unknown"), "vitest");
+ 
+@@ -163,13 +170,21 @@ fn runner与插件包映射_三框架封闭() {
+ fn 清单相对化_cwd内外与特殊目录名() {
+     // cwd 内 → 相对 POSIX
+     assert_eq!(
+-        relative_to_cwd(Path::new("/ws/root"), Path::new("/ws/root/app"), "app/src/x.ts"),
++        relative_to_cwd(
++            Path::new("/ws/root"),
++            Path::new("/ws/root/app"),
++            "app/src/x.ts"
++        ),
+         "src/x.ts",
+         "cwd 内清单项相对化"
+     );
+     // cwd 外 → 绝对路径 POSIX 形态
+     assert_eq!(
+-        relative_to_cwd(Path::new("/ws/root"), Path::new("/ws/root/app"), "other/lib.rs"),
++        relative_to_cwd(
++            Path::new("/ws/root"),
++            Path::new("/ws/root/app"),
++            "other/lib.rs"
++        ),
+         "/ws/root/other/lib.rs",
+         "cwd 外退绝对路径"
+     );
+@@ -209,7 +224,9 @@ fn 清单边界_空单超大与suite_config块() {
+     assert_eq!(config["mutate"], serde_json::json!(["src/only.test.ts"]));
+ 
+     // 超大清单（1000 glob）
+-    let huge: Vec<String> = (0..1000).map(|index| format!("src/f{index:03}.test.ts")).collect();
++    let huge: Vec<String> = (0..1000)
++        .map(|index| format!("src/f{index:03}.test.ts"))
++        .collect();
+     let config = build_config(
+         &segment(suite_cwd, mutation_dir, 0, &huge, project, "vitest"),
+         &report_path,
+@@ -224,7 +241,14 @@ fn 清单边界_空单超大与suite_config块() {
+     let suite_config: PathBuf = Path::new("/ws/root/app/vitest.workspace.ts").to_path_buf();
+     let with_config = StrykerSegment {
+         suite_config: Some(suite_config.as_path()),
+-        ..segment(Path::new("/ws/root/app"), mutation_dir, 0, &single, project, "vitest")
++        ..segment(
++            Path::new("/ws/root/app"),
++            mutation_dir,
++            0,
++            &single,
++            project,
++            "vitest",
++        )
+     };
+     let config = build_config(&with_config, &report_path);
+     assert_eq!(
+@@ -238,8 +262,7 @@ fn 清单边界_空单超大与suite_config块() {
+ /// 缺工具是显式可修问题）；可达程序（PATH 真实探测）→ `Ok`。
+ #[test]
+ fn ensure_on_path_不可达显式err可达ok() {
+-    let error = ensure_on_path("definitely-not-a-real-program-xyz")
+-        .expect_err("不可达程序应 Err");
++    let error = ensure_on_path("definitely-not-a-real-program-xyz").expect_err("不可达程序应 Err");
+     assert!(
+         error.contains("突变执行器不可达") && error.contains("definitely-not-a-real-program-xyz"),
+         "Err 记因可修面（E5）: {error}"
+@@ -271,7 +294,11 @@ impl SpawnWs {
+             .expect("创建临时 workspace 失败");
+         let root = tmp.path().to_path_buf();
+         let suite_cwd = root.join("app");
+-        let mutation_dir = root.join("reports").join("test").join("app_vitest").join("mutation");
++        let mutation_dir = root
++            .join("reports")
++            .join("test")
++            .join("app_vitest")
++            .join("mutation");
+         fs::create_dir_all(&suite_cwd).expect("建 suite 执行目录");
+         fs::create_dir_all(&mutation_dir).expect("建突变报告目录");
+         Self {
+@@ -376,7 +403,9 @@ async fn 非零退出中断_携退出码与输出尾部捕获() {
+                 "输出捕获（合并输出有界尾部）: {message}"
+             );
+         }
+-        Err(SegmentFailure::Fatal(message)) => panic!("非零退出应 Interrupted 而非 Fatal: {message}"),
++        Err(SegmentFailure::Fatal(message)) => {
++            panic!("非零退出应 Interrupted 而非 Fatal: {message}")
++        }
+         Ok(raw) => panic!("零段报告应中断，实际 Ok: {raw}"),
+     }
+ 
+diff --git a/crates/infra/checks/src/static_check_test.rs b/crates/infra/checks/src/static_check_test.rs
+index 2a0859911cb8..19765470f803 100644
+--- a/crates/infra/checks/src/static_check_test.rs
++++ b/crates/infra/checks/src/static_check_test.rs
+@@ -184,7 +184,10 @@ async fn 失败形态_passed假_诊断捕获不丢() {
+     let command = write_shim(
+         &ws,
+         "fail-shim",
+-        &[("lint-failed-to-stderr", true), ("lint-failed-to-stdout", false)],
++        &[
++            ("lint-failed-to-stderr", true),
++            ("lint-failed-to-stdout", false),
++        ],
+         Some(3),
+     );
+     ws.write_config(Some(&command));
+@@ -333,7 +336,12 @@ async fn 默认recorded_引用恒回填且交错流落单一log() {
+     let command = write_shim(
+         &ws,
+         "interleave-shim",
+-        &[("out-1", false), ("err-1", true), ("out-2", false), ("err-2", true)],
++        &[
++            ("out-1", false),
++            ("err-1", true),
++            ("out-2", false),
++            ("err-2", true),
++        ],
+         None,
+     );
+     ws.write_config(Some(&command));
+@@ -400,15 +408,16 @@ async fn 落盘目录按name派生_与id形态无关() {
+         .expect("执行应 Ok");
+     let exec_id = outcome.output_ref.clone().expect("回填引用");
+ 
+-    let expected_dir = foundation::layout::change_test_reports(ws.path(), "demo-change")
+-        .join("exec-outputs");
++    let expected_dir =
++        foundation::layout::change_test_reports(ws.path(), "demo-change").join("exec-outputs");
+     assert!(
+         expected_dir.join(format!("{exec_id}.log")).is_file(),
+         "记录目录经 change name 派生: {}",
+         expected_dir.display()
+     );
+     assert!(
+-        String::from_utf8_lossy(&read_output(&ws, "demo-change", &exec_id)).contains("name-derived-line")
++        String::from_utf8_lossy(&read_output(&ws, "demo-change", &exec_id))
++            .contains("name-derived-line")
+     );
+     // 以另一 change 名回查 → miss（目录按 name 隔离）
+     assert!(
+@@ -424,7 +433,12 @@ async fn 仅stderr输出与空输出_单流捕获与空log可回查() {
+     let _env = env_window();
+     let ws = TempWs::new("stderr-only");
+     let _path = PathPrefix::enter(ws.path());
+-    let command = write_shim(&ws, "stderr-only-shim", &[("only-stderr-marker", true)], None);
++    let command = write_shim(
++        &ws,
++        "stderr-only-shim",
++        &[("only-stderr-marker", true)],
++        None,
++    );
+     ws.write_config(Some(&command));
+ 
+     let outcome = check(&ws.root_str(), "demo-change")
+@@ -523,7 +537,9 @@ async fn 重复run_各自exec_id落独立log且前次不被覆写() {
+     let second_bytes = read_output(&ws, "demo-change", &second_id);
+     assert_eq!(first_bytes, second_bytes, "两次执行内容各自保真");
+     assert_eq!(
+-        String::from_utf8_lossy(&first_bytes).lines().collect::<Vec<_>>(),
++        String::from_utf8_lossy(&first_bytes)
++            .lines()
++            .collect::<Vec<_>>(),
+         ["first-line", "second-line"]
+     );
+     // 前次记录未被覆写（重复回读恒同字节）
+diff --git a/crates/infra/checks/src/testexec/mod_test.rs b/crates/infra/checks/src/testexec/mod_test.rs
+index 43fb32200a08..2541814206c9 100644
+--- a/crates/infra/checks/src/testexec/mod_test.rs
++++ b/crates/infra/checks/src/testexec/mod_test.rs
+@@ -1025,14 +1025,7 @@ fn 空合并流落空log可回查且非summary序列化() {
+     let reports_dir = dir.path().join("openspec/changes/demo-change/reports/test");
+     let summary = hand_summary(Conclusion::Error, vec!["执行错误归因".to_owned()]);
+ 
+-    let output = outcome(
+-        dir.path(),
+-        "demo-change",
+-        &summary,
+-        &[],
+-        &reports_dir,
+-        &[],
+-    );
++    let output = outcome(dir.path(), "demo-change", &summary, &[], &reports_dir, &[]);
+     let ToolStepOutput::TestExecution(mapped) = output else {
+         panic!("产出应为 TestExecution 变体");
+     };
+@@ -1107,7 +1100,10 @@ fn 重复装配各自log互不覆写且零summary残留() {
+         .map(|entry| entry.file_name().to_string_lossy().into_owned())
+         .collect();
+     names.sort();
+-    let mut expected = vec![format!("{}.log", first.exec_id), format!("{}.log", second.exec_id)];
++    let mut expected = vec![
++        format!("{}.log", first.exec_id),
++        format!("{}.log", second.exec_id),
++    ];
+     expected.sort();
+     assert_eq!(names, expected, "仅 .log 落盘（零 .err / 零 summary 残留）");
+ }
+diff --git a/crates/infra/checks/src/testexec/runner_test.rs b/crates/infra/checks/src/testexec/runner_test.rs
+index 1b75d83f87e5..2eb703a5c99e 100644
+--- a/crates/infra/checks/src/testexec/runner_test.rs
++++ b/crates/infra/checks/src/testexec/runner_test.rs
+@@ -86,11 +86,7 @@ fn env_window() -> EnvWindow {
+ fn artifact_text(text: &str) -> String {
+     let lf = text.replace("\r\n", "\n");
+     let ends_with_newline = lf.ends_with('\n');
+-    let mut lines = lf
+-        .lines()
+-        .map(str::trim_end)
+-        .collect::<Vec<_>>()
+-        .join("\n");
++    let mut lines = lf.lines().map(str::trim_end).collect::<Vec<_>>().join("\n");
+     if ends_with_newline {
+         lines.push('\n');
+     }
+@@ -691,7 +687,8 @@ async fn 边界_空输出与大输出全量承载() {
+         merged.chars().rev().take(20).collect::<String>()
+     );
+     assert!(
+-        merged.find(&long).expect("stdout 段在场") < merged.find("tail-error").expect("stderr 段在场"),
++        merged.find(&long).expect("stdout 段在场")
++            < merged.find("tail-error").expect("stderr 段在场"),
+         "合并序恒 stdout 前缀 → stderr 后缀"
+     );
+ }

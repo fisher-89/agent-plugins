@@ -43,12 +43,26 @@ function turn(turnId: number, status: TurnSummary['status']): TurnSummary {
   };
 }
 
+/** store `SessionConfigSnapshot` 快照线形态（serde camelCase；v2 增
+ * `agentInstanceId` 实例外键——fixture 缺键即类型红，防漂移）。 */
+interface ConfigSnapshotFixture {
+  engine: 'cli' | 'sdk';
+  agentInstanceId: number | null;
+  model: string | null;
+  permissionMode: string;
+}
+
 function summary(id: string, turns: TurnSummary[]): SessionSummary {
   return {
     row: {
       id,
       remoteSessionId: `engine-${id}`,
-      configSnapshot: { engine: 'cli', model: null, permissionMode: 'bypassPermissions' },
+      configSnapshot: {
+        engine: 'cli',
+        agentInstanceId: null,
+        model: null,
+        permissionMode: 'bypassPermissions',
+      } satisfies ConfigSnapshotFixture,
       provenance: { source: 'change', sourceRef: null },
       createdAt: TS,
       updatedAt: TS + 1,
@@ -741,5 +755,44 @@ describe('useSessionTranscript：refreshKey 重查键（unify-run-state-persiste
     expect(detailCalls().length, '寻址键变化即时重查（refreshKey 恒定）').toBe(base + 1);
     const latest = detailCalls().at(-1)?.[1] as Record<string, unknown>;
     expect(latest.sessionId).toBe('ses-b');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// configSnapshot fixture 补 agentInstanceId 键（fixture 随动，AC-7）
+// ---------------------------------------------------------------------------
+
+describe('useSessionTranscript：configSnapshot fixture 携 agentInstanceId 键（AC-7 随动）', () => {
+  it('补键后装载既有断言保绿（快照含 agentInstanceId null——存量缺列语义）', async () => {
+    detailResult = summary('ses-snapshot-1', [turn(11, 'completed')]);
+    transcriptResult = REPLAY;
+    const { result } = await mounted({ sessionId: 'ses-snapshot-1' });
+    await waitFor(() => expect(result.current.messages).toHaveLength(2));
+
+    const snapshot = result.current.summary?.row.configSnapshot as ConfigSnapshotFixture;
+    expect(snapshot).toHaveProperty('agentInstanceId', null);
+    expect(snapshot.engine).toBe('cli');
+    expect(result.current.error).toBeNull();
+  });
+
+  it('sdk 新会话形态（agentInstanceId 具体 id）照常透出（两形态同口径）', async () => {
+    const newer = summary('ses-snapshot-2', [turn(12, 'completed')]);
+    newer.row.configSnapshot = {
+      engine: 'sdk',
+      agentInstanceId: 9,
+      model: 'glm-high',
+      permissionMode: 'bypassPermissions',
+    } satisfies ConfigSnapshotFixture;
+    detailResult = newer;
+    transcriptResult = [];
+    const { result } = await mounted({ sessionId: 'ses-snapshot-2' });
+    await waitFor(() => expect(result.current.summary?.row.id).toBe('ses-snapshot-2'));
+
+    expect(result.current.summary?.row.configSnapshot).toEqual({
+      engine: 'sdk',
+      agentInstanceId: 9,
+      model: 'glm-high',
+      permissionMode: 'bypassPermissions',
+    });
   });
 });

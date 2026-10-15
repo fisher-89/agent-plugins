@@ -53,10 +53,6 @@ impl Env {
     }
 }
 
-/// PATH 环境变量修改串行化（进程全局操作；与 change_flow/mod_test 的 PATH
-/// 隔离窗口共用 commands 级共享锁）。
-use crate::commands::TEST_PATH_LOCK as PATH_LOCK;
-
 /// 以 MockRuntime 建测用 app，并在其中 manage 真实 WorkspaceStores（打开 env
 /// 数据根的全局库）与 `Arc<StopRegistry>`（内核治理面挂载，须先于 start 托管）。
 fn app_with_stores(env: &Env) -> App<tauri::test::MockRuntime> {
@@ -132,24 +128,6 @@ fn seed_sdk_default(stores: &WorkspaceStores, name: &str, provider_id: i64) -> i
     id
 }
 
-/// cli 默认实例 fixture（返回实例 id）。
-fn seed_cli_default(stores: &WorkspaceStores, name: &str) -> i64 {
-    let id = stores
-        .global()
-        .upsert_agent_instance(AgentInstanceRecord::new(
-            name.to_owned(),
-            AgentEngineKind::Cli,
-            None,
-        ))
-        .expect("落 cli 实例 fixture")
-        .id;
-    stores
-        .global()
-        .set_default_agent_instance(id)
-        .expect("置默认实例 fixture");
-    id
-}
-
 /// sdk 快照会话行 fixture（Continue 用例底座）。
 fn seed_sdk_session(
     store: &store::Store,
@@ -164,6 +142,7 @@ fn seed_sdk_session(
             engine_session_id: remote.map(str::to_owned),
             config_snapshot: SessionConfigSnapshot {
                 engine: AgentEngineKind::Sdk,
+                agent_instance_id: None,
                 model: Some("m-high".to_owned()),
                 permission_mode: AgentPermissionMode::BypassPermissions,
             },
@@ -568,7 +547,14 @@ async fn agent_start_blank_root守卫err且零落库() {
     let env = Env::new("start-blank-root");
     let app = app_with_stores(&env);
     let stores = app.state::<WorkspaceStores>();
-    seed_cli_default(stores.inner(), "守卫实例");
+    let provider = seed_provider(
+        stores.inner(),
+        "守卫供应",
+        "sk-test",
+        "https://api.example.com/v1",
+        "m-high",
+    );
+    seed_sdk_default(stores.inner(), "守卫实例", provider);
 
     let result = agent_start_with(
         app.handle().clone(),
@@ -681,11 +667,16 @@ async fn agent_start成功链路提前resolve返回running轮行且会话行轮�
     let app = app_with_stores(&env);
     let stores = app.state::<WorkspaceStores>();
     let root = env.root_of("alpha");
-    seed_cli_default(stores.inner(), "提前resolve实例");
-
-    let _guard = PATH_LOCK.lock().expect("PATH 锁不可中毒");
-    let original = std::env::var_os("PATH");
-    std::env::set_var("PATH", ""); // ask 段 discover 失败（不影响提前 resolve）
+    // 非法 base_url（URL 含空格）：open 段配置校验通过、请求编码段同步 Err →
+    // 泵以 api_error 即时收敛，不落网络不进重试退避
+    let provider = seed_provider(
+        stores.inner(),
+        "提前resolve供应",
+        "sk-test",
+        "http://bad host/v1",
+        "m-high",
+    );
+    seed_sdk_default(stores.inner(), "提前resolve实例", provider);
 
     let (channel, captured) = capturing_channel();
     let result = agent_start_with(
@@ -730,7 +721,8 @@ async fn agent_start成功链路提前resolve返回running轮行且会话行轮�
         "来源缺省 debug"
     );
 
-    // PATH 恢复前等待后台泵收敛（隔离 PATH 下 spawn 失败合成收敛，不触真实 CLI）
+    // 等待后台泵收敛（非法 base_url 编码段同步 Err → api_error 即时收敛，
+    // 不落网络不触真实 CLI）
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
     loop {
         let terminal = captured
@@ -745,10 +737,6 @@ async fn agent_start成功链路提前resolve返回running轮行且会话行轮�
         tokio::task::yield_now().await;
         std::thread::sleep(std::time::Duration::from_millis(5));
     }
-    match original {
-        Some(value) => std::env::set_var("PATH", value),
-        None => std::env::remove_var("PATH"),
-    }
 }
 
 #[tokio::test]
@@ -757,16 +745,24 @@ async fn agent_start参数转换_session引用与来源与agent透传() {
     let app = app_with_stores(&env);
     let stores = app.state::<WorkspaceStores>();
     let root = env.root_of("alpha");
-    // 显式 agent（cli）+ Continue 底座会话（cli 快照：跨引擎拒绝先行验证
+    // 显式 agent（sdk）+ Continue 底座会话（存量 cli 快照：跨引擎拒绝先行验证
     // Continue 寻址正确性——若 session_id 未透传则不会命中跨引擎拒绝）
-    let cli_id = seed_cli_default(stores.inner(), "参数转换实例");
+    let provider = seed_provider(
+        stores.inner(),
+        "参数转换供应",
+        "sk-test",
+        "https://api.example.com/v1",
+        "m-high",
+    );
+    let sdk_id = seed_sdk_default(stores.inner(), "参数转换实例", provider);
     let store = stores.inner().for_root(&root).expect("for_root 应成功");
     store
         .create_session(&SessionRecord {
             id: "ses-param-continue".to_owned(),
             engine_session_id: Some("s-cli-1".to_owned()),
             config_snapshot: SessionConfigSnapshot {
-                engine: AgentEngineKind::Sdk,
+                engine: AgentEngineKind::Cli,
+                agent_instance_id: None,
                 model: Some("m-high".to_owned()),
                 permission_mode: AgentPermissionMode::BypassPermissions,
             },
@@ -777,7 +773,7 @@ async fn agent_start参数转换_session引用与来源与agent透传() {
         })
         .expect("落 Continue 底座会话行");
 
-    // Continue + source/sourceRef 透传：跨引擎拒绝（sdk 快照会话以 cli agent 续）
+    // Continue + source/sourceRef 透传：跨引擎拒绝（存量 cli 快照会话以 sdk agent 续）
     let result = agent_start_with(
         app.handle().clone(),
         discarding_channel(),
@@ -787,11 +783,11 @@ async fn agent_start参数转换_session引用与来源与agent透传() {
         Some("ses-param-continue".to_owned()),
         Some("explore".to_owned()),
         Some("7".to_owned()),
-        Some(cli_id),
+        Some(sdk_id),
     )
     .await;
 
-    let error = result.expect_err("cli agent 续 sdk 快照会话必须被拒");
+    let error = result.expect_err("存量 cli 快照会话以 sdk agent 续必须被拒");
     assert!(
         error.contains("非当前引擎产出") && error.contains("ses-param-continue"),
         "session_id 透传至 Continue 校验（参数转换半边），实际: {error}"
@@ -806,12 +802,18 @@ async fn agent_start_kernelscoped_stopregistry托管的命中链经channel流出
     let app = app_with_stores(&env);
     let stores = app.state::<WorkspaceStores>();
     let root = env.root_of("alpha");
-    seed_cli_default(stores.inner(), "停止链实例");
+    // 非法 base_url（URL 含空格）：open 段配置校验通过、请求编码段同步 Err——
+    // 停止臂与泵收敛竞速收敛口径不变（终态部件观测半边）
+    let provider = seed_provider(
+        stores.inner(),
+        "停止链供应",
+        "sk-test",
+        "http://bad host/v1",
+        "m-high",
+    );
+    seed_sdk_default(stores.inner(), "停止链实例", provider);
 
     let (channel, captured) = capturing_channel();
-    let _guard = PATH_LOCK.lock().expect("PATH 锁不可中毒");
-    let original = std::env::var_os("PATH");
-    std::env::set_var("PATH", ""); // CLI 缺失 → 合成收敛 failed（Channel 观测）
 
     let summary = agent_start_with(
         app.handle().clone(),
@@ -832,7 +834,7 @@ async fn agent_start_kernelscoped_stopregistry托管的命中链经channel流出
     let registry = app.state::<Arc<StopRegistry>>();
     let _ = registry.request_stop(&summary.session_id);
 
-    // 轮询捕获 Channel 直至终态 Record 信封（后台转发任务；合成收敛 failed）
+    // 轮询捕获 Channel 直至终态 Record 信封（后台转发任务；停止截停收敛）
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
     let terminal = loop {
         let found = captured
@@ -849,11 +851,6 @@ async fn agent_start_kernelscoped_stopregistry托管的命中链经channel流出
         std::thread::sleep(std::time::Duration::from_millis(5));
     };
 
-    match original {
-        Some(value) => std::env::set_var("PATH", value),
-        None => std::env::remove_var("PATH"),
-    }
-
     assert_eq!(
         terminal["record"]["sessionId"],
         serde_json::json!(summary.session_id),
@@ -861,8 +858,8 @@ async fn agent_start_kernelscoped_stopregistry托管的命中链经channel流出
     );
     assert_eq!(
         terminal["record"]["status"],
-        serde_json::json!("failed"),
-        "CLI 缺失合成收敛 failed 经 Channel 流出"
+        serde_json::json!("stopped"),
+        "stopregistry 命中截停 stopped 收敛经 Channel 流出（泵 select 停止臂先于编码段 Err 获胜）"
     );
 }
 

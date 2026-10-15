@@ -15,10 +15,9 @@ use checks::model::{MutationBlock, MutationMeasured};
 use tempfile::TempDir;
 
 use super::{
-    cleanup_stryker_artifacts, merged_block_path, mtime_ms, segment_patch_name,
-    segment_patch_path, segment_report_name, segment_report_path, segment_reusable,
-    stryker_config_name, to_posix, write_merged_block, write_segment_patch,
-    write_segment_report, STRYKER_TMP_DIR_NAME,
+    cleanup_stryker_artifacts, merged_block_path, mtime_ms, segment_patch_name, segment_patch_path,
+    segment_report_name, segment_report_path, segment_reusable, stryker_config_name, to_posix,
+    write_merged_block, write_segment_patch, write_segment_report, STRYKER_TMP_DIR_NAME,
 };
 
 /// 段报告 fixture（工具原始输出原样——含未知键与特殊字符，写盘不重排不丢）。
@@ -40,7 +39,8 @@ fn set_mtime(path: &Path, millis_since_epoch: u64) {
         .write(true)
         .open(path)
         .expect("打开文件设 mtime 失败");
-    let time = std::time::SystemTime::UNIX_EPOCH + std::time::Duration::from_millis(millis_since_epoch);
+    let time =
+        std::time::SystemTime::UNIX_EPOCH + std::time::Duration::from_millis(millis_since_epoch);
     file.set_modified(time).expect("set_modified 失败");
 }
 
@@ -61,10 +61,13 @@ fn 段报告写盘_原样留存与序号连续() {
     }
 
     // 段补丁命名同序
-    let patch_path = write_segment_patch(&mutation, 1, "diff --git a/x b/x\n")
-        .expect("段补丁写盘应成功");
+    let patch_path =
+        write_segment_patch(&mutation, 1, "diff --git a/x b/x\n").expect("段补丁写盘应成功");
     assert_eq!(
-        patch_path.file_name().expect("文件名在场").to_string_lossy(),
+        patch_path
+            .file_name()
+            .expect("文件名在场")
+            .to_string_lossy(),
         "mutation-seg-1.patch",
         "段补丁命名同序"
     );
@@ -138,7 +141,10 @@ fn 复用门_在位且新鲜则复用() {
 
     // 相等边界：mtime 相等 → 复用（`>=` 判据）
     set_mtime(&path, 7_000);
-    assert!(segment_reusable(&path, Some(7_000)), "mtime 相等 → 复用（>= 边界）");
+    assert!(
+        segment_reusable(&path, Some(7_000)),
+        "mtime 相等 → 复用（>= 边界）"
+    );
 }
 
 /// 复用门失效（异常）：段报告缺失 / 损坏（非 JSON）→ 失效（不 panic 不 Err
@@ -157,10 +163,7 @@ fn 复用门失效_缺失与损坏不panic() {
     let path = segment_report_path(&mutation, 0);
     fs::create_dir_all(&mutation).expect("建目录");
     fs::write(&path, "not json{{{").expect("写损坏报告");
-    assert!(
-        !segment_reusable(&path, None),
-        "损坏（非 JSON）→ 失效重跑"
-    );
+    assert!(!segment_reusable(&path, None), "损坏（非 JSON）→ 失效重跑");
 
     // 空文件同样损坏面
     fs::write(&path, "").expect("写空报告");
@@ -217,8 +220,14 @@ fn stryker清理边界_报告工件不触碰() {
 
     // sandbox 与两份 config 已清
     assert!(!sandbox.exists(), "_stryker-tmp 已清理");
-    assert!(!mutation.join(stryker_config_name(0)).exists(), "config 0 已清理");
-    assert!(!mutation.join(stryker_config_name(3)).exists(), "config 3 已清理");
+    assert!(
+        !mutation.join(stryker_config_name(0)).exists(),
+        "config 0 已清理"
+    );
+    assert!(
+        !mutation.join(stryker_config_name(3)).exists(),
+        "config 3 已清理"
+    );
 
     // 报告工件不触碰
     assert!(segment_report_path(&mutation, 0).is_file(), "段报告 0 留存");
@@ -228,7 +237,10 @@ fn stryker清理边界_报告工件不触碰() {
 
     // 二次清理幂等（best-effort——目录已在首轮删除）
     cleanup_stryker_artifacts(&mutation);
-    assert!(segment_report_path(&mutation, 0).is_file(), "二次清理后报告仍留存");
+    assert!(
+        segment_report_path(&mutation, 0).is_file(),
+        "二次清理后报告仍留存"
+    );
 
     // 不存在目录 → 静默不 panic
     cleanup_stryker_artifacts(&mutation.join("no-such-dir"));
@@ -251,5 +263,9 @@ fn 命名与路径面_逐字与posix归一() {
     );
 
     // mtime 读取：不存在文件 → None（不 panic）
-    assert_eq!(mtime_ms(Path::new("no-such-file.json")), None, "缺文件 mtime None");
+    assert_eq!(
+        mtime_ms(Path::new("no-such-file.json")),
+        None,
+        "缺文件 mtime None"
+    );
 }

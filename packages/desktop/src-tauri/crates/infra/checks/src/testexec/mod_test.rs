@@ -1025,14 +1025,7 @@ fn 空合并流落空log可回查且非summary序列化() {
     let reports_dir = dir.path().join("openspec/changes/demo-change/reports/test");
     let summary = hand_summary(Conclusion::Error, vec!["执行错误归因".to_owned()]);
 
-    let output = outcome(
-        dir.path(),
-        "demo-change",
-        &summary,
-        &[],
-        &reports_dir,
-        &[],
-    );
+    let output = outcome(dir.path(), "demo-change", &summary, &[], &reports_dir, &[]);
     let ToolStepOutput::TestExecution(mapped) = output else {
         panic!("产出应为 TestExecution 变体");
     };
@@ -1107,7 +1100,10 @@ fn 重复装配各自log互不覆写且零summary残留() {
         .map(|entry| entry.file_name().to_string_lossy().into_owned())
         .collect();
     names.sort();
-    let mut expected = vec![format!("{}.log", first.exec_id), format!("{}.log", second.exec_id)];
+    let mut expected = vec![
+        format!("{}.log", first.exec_id),
+        format!("{}.log", second.exec_id),
+    ];
     expected.sort();
     assert_eq!(names, expected, "仅 .log 落盘（零 .err / 零 summary 残留）");
 }

@@ -1,6 +1,6 @@
 //! 静态权限三档纯决策表：档位 × 工具名 → 允许/拒绝。
 //!
-//! 档位语义与 CLI 租户的 permission-mode 对齐（档位枚举为 core 契约
+//! 档位语义对齐 core 契约的 permission-mode 三档（档位枚举为 core 契约
 //! [`AgentPermissionMode`]，本表是 sdk 引擎侧的解释落点）：
 //! - `default`：只读四工具放行，写面与执行面拒绝（无头下需审批工具直接被拒
 //!   的同款口径——只读档不给执行权）

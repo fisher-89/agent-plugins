@@ -8,7 +8,9 @@ use tauri::{App, Manager};
 
 use ::agent::StopRegistry;
 use orchestration::control::ChangeFlowControl;
-use store::{AgentEngineKind, AgentInstanceRecord, WorkspaceStores};
+use store::{
+    AgentEngineKind, AgentInstanceRecord, AgentModelTiers, AgentProviderRecord, WorkspaceStores,
+};
 use workflow::state::{ChangeStateRecord, ChangeStatus};
 
 use ::agent::{AgentEvent, AgentEventKind};
@@ -104,18 +106,37 @@ fn seed_change_full(
         .expect("建档种子应成功");
 }
 
-/// cli 默认实例 fixture（组合根缺省解析可走通——发起链路真实驱动的用例共用）。
-fn seed_cli_default_instance(app: &App<tauri::test::MockRuntime>) {
+/// sdk 默认实例 fixture（组合根缺省解析可走通——发起链路真实驱动的用例共用）。
+/// provider 三件套留空：executor 轮在 `begin()` open 段以 `ConfigMissing`
+/// 显式收敛 failed（CLI 租户退役后原 CliMissing 合成收敛的归位口径——不
+/// spawn 进程不落网络）。
+fn seed_sdk_default_instance(app: &App<tauri::test::MockRuntime>) {
     let stores = app.state::<WorkspaceStores>();
+    let provider = stores
+        .inner()
+        .global()
+        .upsert_agent_provider(AgentProviderRecord::new(
+            "组合根供应".to_owned(),
+            String::new(),
+            String::new(),
+            AgentModelTiers {
+                high: String::new(),
+                medium: String::new(),
+                low: String::new(),
+            },
+            None,
+        ))
+        .expect("落 provider fixture")
+        .id;
     let id = stores
         .inner()
         .global()
         .upsert_agent_instance(AgentInstanceRecord::new(
             "组合根实例".to_owned(),
-            AgentEngineKind::Cli,
-            None,
+            AgentEngineKind::Sdk,
+            Some(provider),
         ))
-        .expect("落 cli 实例 fixture")
+        .expect("落 sdk 实例 fixture")
         .id;
     stores
         .inner()
@@ -124,19 +145,7 @@ fn seed_cli_default_instance(app: &App<tauri::test::MockRuntime>) {
         .expect("置默认实例 fixture");
 }
 
-/// PATH 隔离窗口开启（executor 会话以 CliMissing 合成收敛，不 spawn 真实
-/// claude）：返回原值供窗口关闭时恢复；窗口经 commands 级 PATH 锁串行化。
-fn isolate_path() -> (
-    std::sync::MutexGuard<'static, ()>,
-    Option<std::ffi::OsString>,
-) {
-    let guard = PATH_LOCK.lock().expect("PATH 锁不可中毒");
-    let original = std::env::var_os("PATH");
-    std::env::set_var("PATH", "");
-    (guard, original)
-}
-
-/// PATH 隔离窗口关闭（先恢复原值再放锁——窗口过早关闭会把真实 CLI 泄入 run）。
+/// PATH 隔离窗口关闭（先恢复原值再放锁——供 [`prefix_path`] 前置窗口收尾）。
 fn restore_path(guard: std::sync::MutexGuard<'static, ()>, original: Option<std::ffi::OsString>) {
     match original {
         Some(value) => std::env::set_var("PATH", value),
@@ -286,7 +295,7 @@ async fn start前置校验无建档与相位表缺失各自err且成因互不重
 }
 
 // ---------------------------------------------------------------------------
-// start 提前 resolve 与组合根装配（db 种子，PATH 隔离驱动收敛）
+// start 提前 resolve 与组合根装配（db 种子，缺省解析 + open 段显式收敛）
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
@@ -297,15 +306,8 @@ async fn start提前resolve返回running摘要且channel首事件到达后台驱
     let root = env.root();
     seed_change(&app, &root, CHANGE, "requirement");
 
-    // cli 默认实例 fixture（组合根缺省解析可走通）
-    seed_cli_default_instance(&app);
-
-    // PATH 隔离：executor 会话以 CliMissing 合成收敛（不 spawn 真实 claude）。
-    // 隔离窗口覆盖至后台 turn 收敛（提前 resolve 后 walker 仍在驱动，窗口
-    // 过早关闭会把真实 CLI 泄入 run）；窗口经共享 PATH 锁串行化
-    let _guard = PATH_LOCK.lock().expect("PATH 锁不可中毒");
-    let original = std::env::var_os("PATH");
-    std::env::set_var("PATH", "");
+    // sdk 默认实例 fixture（组合根缺省解析可走通）
+    seed_sdk_default_instance(&app);
 
     let (channel, captured) = capturing_channel();
     let result = change_flow_start_with(
@@ -354,12 +356,7 @@ async fn start提前resolve返回running摘要且channel首事件到达后台驱
             .any(|value| value["ipc"] == "finished")
     });
 
-    // 后台 turn 已收敛，隔离窗口可关闭（先恢复 PATH 再放锁）
-    match original {
-        Some(value) => std::env::set_var("PATH", value),
-        None => std::env::remove_var("PATH"),
-    }
-    drop(_guard);
+    // 后台 turn 已收敛
     let updates = captured.lock().expect("捕获锁不可中毒");
     assert!(
         updates.iter().any(|value| value["ipc"] == "step"),
@@ -376,8 +373,8 @@ async fn start提前resolve返回running摘要且channel首事件到达后台驱
         control.snapshot(&env.root(), CHANGE).is_none()
     });
 
-    // run 运行史落库证据（unify-run-state-persistence 每 run 两写）：PATH 隔离
-    // 下 executor CliMissing → 合成收敛 failed；finish 单事务落终态 + 步整包 +
+    // run 运行史落库证据（unify-run-state-persistence 每 run 两写）：executor
+    // 轮 open 段 ConfigMissing 显式收敛 failed；finish 单事务落终态 + 步整包 +
     // active_phase 清位（D1 悬挂杀除——executor 失败前 phase-start 已开相）
     let store = app
         .state::<WorkspaceStores>()
@@ -393,7 +390,7 @@ async fn start提前resolve返回running摘要且channel首事件到达后台驱
     assert_eq!(
         runs[0].status,
         workflow::state::RunStatus::Failed,
-        "PATH 隔离下合成收敛 failed（后台 walker 真实驱动 + 落库）"
+        "executor open 段 ConfigMissing 收敛 failed（后台 walker 真实驱动 + 落库）"
     );
     assert!(runs[0].finished_at.is_some(), "收口时刻在案");
     let record = store
@@ -469,10 +466,7 @@ async fn auto_next_phase_true透传受理零confirmwait照常后台收敛() {
     let app = app_with(&env);
     let root = env.root();
     seed_change(&app, &root, CHANGE, "requirement");
-    seed_cli_default_instance(&app);
-
-    // PATH 隔离：executor 会话以 CliMissing 合成收敛（窗口覆盖至后台 turn 收敛）
-    let (path_guard, original) = isolate_path();
+    seed_sdk_default_instance(&app);
 
     let (channel, captured) = capturing_channel();
     let result = change_flow_start_with(
@@ -506,7 +500,7 @@ async fn auto_next_phase_true透传受理零confirmwait照常后台收敛() {
         Some(summary.run_id.clone())
     );
 
-    // 后台 walker 真实驱动至收敛（PATH 隔离下 executor CliMissing → failed）
+    // 后台 walker 真实驱动至收敛（executor 轮 open 段 ConfigMissing → failed）
     wait_for("Finished 信封", || {
         captured
             .lock()
@@ -514,9 +508,6 @@ async fn auto_next_phase_true透传受理零confirmwait照常后台收敛() {
             .iter()
             .any(|value| value["ipc"] == "finished")
     });
-
-    // 后台 turn 已收敛，隔离窗口可关闭
-    restore_path(path_guard, original);
 
     // auto 参数达 walker：更新流全程零 confirmWait 信封
     let updates = captured.lock().expect("捕获锁不可中毒");
@@ -564,9 +555,7 @@ async fn auto_next_phase_false默认档受理面回归() {
     let app = app_with(&env);
     let root = env.root();
     seed_change(&app, &root, CHANGE, "requirement");
-    seed_cli_default_instance(&app);
-
-    let (path_guard, original) = isolate_path();
+    seed_sdk_default_instance(&app);
 
     let (channel, captured) = capturing_channel();
     let result = change_flow_start_with(
@@ -603,10 +592,8 @@ async fn auto_next_phase_false默认档受理面回归() {
             .any(|value| value["ipc"] == "finished")
     });
 
-    restore_path(path_guard, original);
-
-    // 终态面语义不变：合成收敛 failed（步通知 + 终态通知照常流出；终态值
-    // 随 run 运行史落库可查——kind-only 通知零载荷）
+    // 终态面语义不变：open 段 ConfigMissing 收敛 failed（步通知 + 终态通知
+    // 照常流出；终态值随 run 运行史落库可查——kind-only 通知零载荷）
     let updates = captured.lock().expect("捕获锁不可中毒");
     assert!(
         updates.iter().any(|value| value["ipc"] == "step"),
@@ -987,9 +974,9 @@ async fn worktree目录缺失拒绝_显式err且零run登记() {
         .expect("清理 worktree 建档");
     drop(store);
     seed_change(&app, &root, CHANGE, "requirement");
-    seed_cli_default_instance(&app); // 组合根缺省解析可走通（发起链路半边）
-                                     // legacy 发起不因本分支 Err（PATH 隔离下真实驱动收敛 failed 即证可达）
-    let (_path_guard, original) = isolate_path();
+    // 组合根缺省解析可走通（发起链路半边）；legacy 发起不因本分支 Err
+    //（后台 walker 真实驱动收敛 failed 即证可达）
+    seed_sdk_default_instance(&app);
     let result = change_flow_start_with(
         app.handle().clone(),
         discarding_channel(),
@@ -998,7 +985,6 @@ async fn worktree目录缺失拒绝_显式err且零run登记() {
         false,
     )
     .await;
-    restore_path(_path_guard, original);
     assert!(
         result.is_ok(),
         "legacy 记录（worktree=None）不经 worktree 存在性校验，实际: {result:?}"
@@ -1009,7 +995,7 @@ async fn worktree目录缺失拒绝_显式err且零run登记() {
 /// → 发起成功（提前 resolve summary running）；发起后相位半边落 **workspace
 /// root 库**（for_root(root) 实例可查），且数据根 `workspaces/` 子树无以
 /// worktree 路径派生的第二库文件（store 身份恒 workspace root——AC-6 db
-/// 半边；PATH 隔离下 CLI 引擎合成收敛既有装置驱动）。
+/// 半边；executor 轮 open 段 ConfigMissing 显式收敛，不 spawn 进程）。
 #[tokio::test]
 async fn exec_root解析成功_相位落workspace库且无第二库文件() {
     let env = Env::new("wt-exec-root");
@@ -1026,9 +1012,8 @@ async fn exec_root解析成功_相位落workspace库且无第二库文件() {
     fs::create_dir_all(worktree.join("openspec/changes").join(CHANGE))
         .expect("预置 worktree openspec 树失败");
     seed_change_with_worktree(&app, &root, CHANGE, &worktree);
-    seed_cli_default_instance(&app); // 组合根缺省解析可走通（发起链路半边）
+    seed_sdk_default_instance(&app); // 组合根缺省解析可走通（发起链路半边）
 
-    let (_path_guard, original) = isolate_path();
     let summary = change_flow_start_with(
         app.handle().clone(),
         discarding_channel(),
@@ -1050,7 +1035,6 @@ async fn exec_root解析成功_相位落workspace库且无第二库文件() {
     wait_for("run 终态除名", || {
         control.snapshot(&root, CHANGE).is_none()
     });
-    restore_path(_path_guard, original);
 
     // run 运行史落 workspace root 库（写入经注入的 for_root(root) 实例——
     // run 落库写缝与相位写面同实例）
@@ -1107,9 +1091,7 @@ async fn 并行冲突键id_同名异id各自受理且异root同id互不误拒() 
     seed_change_full(&app, &root_a, "id-a1", CHANGE, "requirement");
     seed_change_full(&app, &root_a, "id-a2", CHANGE, "requirement");
     seed_change(&app, &root_b, CHANGE, "requirement");
-    seed_cli_default_instance(&app);
-
-    let (_path_guard, original) = isolate_path();
+    seed_sdk_default_instance(&app);
 
     // rootA 预登记运行中 run（guard 在手不收敛——确定性冲突锚；注记：
     // `run-<millis>` 同毫秒可同号，run_id 不作唯一性断言面）
@@ -1195,7 +1177,6 @@ async fn 并行冲突键id_同名异id各自受理且异root同id互不误拒() 
     wait_for("rootA id-a2 与 rootB run 终态除名", || {
         control.snapshot(&root_a, "id-a2").is_none() && control.snapshot(&root_b, CHANGE).is_none()
     });
-    restore_path(_path_guard, original);
     drop(guard_a1); // rootA 预登记 run 随 guard 终结除名
 
     // 各键独立驱动证据：各自 workspace 库 StepRecord 以自身 run_id 串链在案
@@ -1281,8 +1262,7 @@ async fn start归档互斥面摘除_无归档注册表照常受理() {
     let app = app_with(&env);
     let root = env.root();
     seed_change(&app, &root, CHANGE, "requirement");
-    seed_cli_default_instance(&app);
-    let (path_guard, original) = isolate_path();
+    seed_sdk_default_instance(&app);
 
     let (channel, captured) = capturing_channel();
     let summary = change_flow_start_with(
@@ -1310,7 +1290,6 @@ async fn start归档互斥面摘除_无归档注册表照常受理() {
             .iter()
             .any(|value| value["ipc"] == "finished")
     });
-    restore_path(path_guard, original);
     wait_for("终态除名", || control.snapshot(&root, CHANGE).is_none());
     let store = app
         .state::<WorkspaceStores>()
@@ -1331,7 +1310,7 @@ async fn start走完路由相位停在archive前且confirm拒绝收敛stopped() 
     let app = app_with(&env);
     let root = env.root();
     seed_change(&app, &root, CHANGE, "requirement");
-    seed_cli_default_instance(&app);
+    seed_sdk_default_instance(&app);
     let store = app
         .state::<WorkspaceStores>()
         .for_root(&root)
@@ -1750,11 +1729,7 @@ async fn start_test_only记录放行且提前resolve返回running摘要() {
     let app = app_with(&env);
     let root = env.root();
     seed_change(&app, &root, CHANGE, "test-only");
-    seed_cli_default_instance(&app);
-
-    let _guard = PATH_LOCK.lock().expect("PATH 锁不可中毒");
-    let original = std::env::var_os("PATH");
-    std::env::set_var("PATH", "");
+    seed_sdk_default_instance(&app);
 
     let (channel, captured) = capturing_channel();
     let result = change_flow_start_with(
@@ -1798,11 +1773,6 @@ async fn start_test_only记录放行且提前resolve返回running摘要() {
             .iter()
             .any(|value| value["ipc"] == "finished")
     });
-    match original {
-        Some(value) => std::env::set_var("PATH", value),
-        None => std::env::remove_var("PATH"),
-    }
-    drop(_guard);
 
     // 落库相位属 test-only 表（首相位 proposal 恒为两表共有；零 dev-design /
     // implement 等 requirement 独有相位落账）

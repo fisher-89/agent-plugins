@@ -13,6 +13,7 @@ use tauri::{App, Manager};
 
 use store::{
     AgentEngineKind, AgentInstanceRecord, AgentModelTiers, AgentProviderRecord, WorkspaceStores,
+    CLI_TENANT_RETIRED,
 };
 
 use super::{
@@ -291,22 +292,17 @@ fn provider删除语义_命中oktrue_被引用err透传_miss幂等okfalse_空库
 }
 
 // ---------------------------------------------------------------------------
-// agent 命令 engine 约束（AC-3）：sdk 必填校验单点在 store，命令层透传
+// agent 命令 engine 约束（AC-3 / AC-5）：sdk 必填与拒 Cli 校验单点在 store，
+// 命令层零校验逻辑、Err(String) 透传
 // ---------------------------------------------------------------------------
 
 #[test]
-fn agent命令_cli新建provider可空ok_sdk选存量provider_ok() {
+fn agent命令_sdk新建携provider_ok_薄包装透传store落库记录() {
     let env = Env::new("agent-engine-ok");
     let app = app_with_stores(&env);
     let state = app.state::<WorkspaceStores>();
 
-    // cli 引擎 provider 可空
-    let cli =
-        save_agent(&state, None, "cli实例", AgentEngineKind::Cli, None).expect("cli 新建应成功");
-    assert_eq!(cli.provider_id, None);
-    assert!(!cli.is_default, "新建恒非默认（默认标记唯一写口）");
-
-    // sdk 引擎选存量 provider
+    // sdk 引擎选存量 provider：命令体平参直入 store（薄包装不加工）
     let provider = save_new_provider(&state, "引擎端点", "sk-live-1234567890").expect("新建应成功");
     let sdk = save_agent(
         &state,
@@ -317,7 +313,177 @@ fn agent命令_cli新建provider可空ok_sdk选存量provider_ok() {
     )
     .expect("sdk 新建应成功");
     assert_eq!(sdk.provider_id, Some(provider.id));
-    assert_eq!(list_agent_instances(state.clone()).unwrap(), vec![cli, sdk]);
+    assert!(!sdk.is_default, "新建恒非默认（默认标记唯一写口）");
+    assert_eq!(
+        list_agent_instances(state.clone()).unwrap(),
+        vec![sdk],
+        "清单透传落库记录（薄包装不加工）"
+    );
+}
+
+/// 预置存量 cli 实例行（native_db 裸构造绕过 store 写入口拒面——命令面「存量
+/// 行更新拒」透传链的被测前提数据形态；须在 `app_with_stores` 之前落盘）。
+fn preset_cli_row(env: &Env, id: i64, name: &str, is_default: bool) {
+    let path = env.data_dir.path().join("desktop-global.redb");
+    let mut models = native_db::Models::new();
+    models
+        .define::<AgentInstanceRecord>()
+        .expect("定义 AgentInstanceRecord 失败");
+    let db = native_db::Builder::new()
+        .create(&models, &path)
+        .expect("预置存量全局库失败");
+    let rw = db.rw_transaction().expect("开启写事务失败");
+    let mut instance = AgentInstanceRecord::new(name.to_owned(), AgentEngineKind::Cli, None);
+    instance.id = id;
+    instance.is_default = is_default;
+    rw.insert(instance).expect("写入存量 cli 行失败");
+    rw.commit().expect("提交预置事务失败");
+}
+
+#[test]
+fn save_agent_instance拒cli透传_新建与更新均逐字退役文案() {
+    let env = Env::new("agent-cmd-reject-cli");
+    let app = app_with_stores(&env);
+    let state = app.state::<WorkspaceStores>();
+    let provider = save_new_provider(&state, "拒面端点", "sk-live-1234567890").expect("新建应成功");
+
+    // engine: Cli 新建 → Err（store 单点校验透传不吞不改写；除 StoreError::Db
+    // 通用前缀外逐字 CLI_TENANT_RETIRED，DD3）
+    let err = err_of(save_agent(
+        &state,
+        None,
+        "cli新实例",
+        AgentEngineKind::Cli,
+        None,
+    ));
+    assert_eq!(
+        err,
+        format!("db: {CLI_TENANT_RETIRED}"),
+        "命令面 Err 为 store 错误串原样透传，实际: {err}"
+    );
+
+    // engine: Cli 更新形态同拒（携存量 id 同样先过入参口）
+    let created = save_agent(
+        &state,
+        None,
+        "sdk在库",
+        AgentEngineKind::Sdk,
+        Some(provider.id),
+    )
+    .expect("sdk 新建应成功");
+    let err = err_of(save_agent(
+        &state,
+        Some(created.id),
+        "更新为cli",
+        AgentEngineKind::Cli,
+        None,
+    ));
+    assert_eq!(err, format!("db: {CLI_TENANT_RETIRED}"), "更新臂同文案透传");
+
+    // 拒后零写入：清单仅 sdk 在库行
+    assert_eq!(
+        list_agent_instances(state.clone()).unwrap(),
+        vec![created],
+        "失败无副作用：清单不变"
+    );
+}
+
+#[test]
+fn save_agent_instance存量cli行更新拒_含改engine整行透传store单点() {
+    let env = Env::new("agent-cmd-reject-stored");
+    preset_cli_row(&env, 7, "存量cli", false);
+    let app = app_with_stores(&env);
+    let state = app.state::<WorkspaceStores>();
+    let provider = save_new_provider(&state, "整行端点", "sk-live-1234567890").expect("新建应成功");
+
+    // 存量 cli 行整行更新（含「改 engine 为 sdk」）→ 拒——命令面 → store
+    // 双拒透传组合链贯通（AC-5 全链锚）
+    let err = err_of(save_agent(
+        &state,
+        Some(7),
+        "存量cli改sdk",
+        AgentEngineKind::Sdk,
+        Some(provider.id),
+    ));
+    assert_eq!(
+        err,
+        format!("db: {CLI_TENANT_RETIRED}"),
+        "存量行口透传，实际: {err}"
+    );
+
+    // 拒后零写入：存量行原样可读（list 呈现），并可删（可读可删不可改）
+    let listed = list_agent_instances(state.clone()).unwrap();
+    assert_eq!(listed.len(), 1, "拒后零写入");
+    assert_eq!(listed[0].engine, AgentEngineKind::Cli, "存量行原样");
+    assert_eq!(listed[0].name, "存量cli", "存量行整行不可改");
+    assert!(
+        delete_agent_instance(state.clone(), 7).unwrap(),
+        "存量 cli 行可删（可读可删不可改的删半边）"
+    );
+}
+
+#[test]
+fn set_default_agent_instance拒cli目标_逐字透传且零写入() {
+    let env = Env::new("agent-cmd-reject-default");
+    preset_cli_row(&env, 9, "默认cli", true);
+    let app = app_with_stores(&env);
+    let state = app.state::<WorkspaceStores>();
+
+    // Cli 目标 id → Err（store 单点校验透传），除 StoreError::Db 通用前缀外
+    // 逐字 CLI_TENANT_RETIRED（DD3）
+    let err = err_of(set_default_agent_instance(state.clone(), 9));
+    assert_eq!(err, format!("db: {CLI_TENANT_RETIRED}"), "实际: {err}");
+
+    // 零数据写入：存量默认 cli 不被顺手清（is_default 仍 true）
+    let default = state
+        .inner()
+        .global()
+        .default_agent_instance()
+        .unwrap()
+        .expect("默认解析应命中存量行");
+    assert_eq!(default.id, 9, "存量默认 cli 实例原样");
+    assert!(default.is_default, "不清 is_default（零数据写入）");
+}
+
+#[test]
+fn save_agent边界_id零为新建_负数与i64max更新miss记因_name怪值透传() {
+    let env = Env::new("agent-cmd-edge");
+    let app = app_with_stores(&env);
+    let state = app.state::<WorkspaceStores>();
+    let provider = save_new_provider(&state, "边界端点", "sk-live-1234567890").expect("新建应成功");
+
+    // id Some(0) 等价新建（命令体 id.unwrap_or(0) 平参口径零改动）
+    let created = save_agent(
+        &state,
+        Some(0),
+        "零号新建",
+        AgentEngineKind::Sdk,
+        Some(provider.id),
+    )
+    .expect("Some(0) 新建应成功");
+    assert!(created.id > 0, "Some(0) 走新建臂分配 id");
+
+    // name 超长（>1000）/ 特殊字符（`\n` `\0` emoji）平参透传不加工
+    for name in [
+        format!("超长名{}", "名".repeat(1100)),
+        "特殊\n名\u{0}😀".to_owned(),
+    ] {
+        let saved = save_agent(&state, None, &name, AgentEngineKind::Sdk, Some(provider.id))
+            .expect("怪值 name 应成功");
+        assert_eq!(saved.name, name, "name 平参透传不加工");
+    }
+
+    // 更新 miss（-1 / i64::MAX）→ 既有「agent 不存在」Err 透传携 id 语境
+    for id in [-1_i64, i64::MAX] {
+        let err = err_of(save_agent(
+            &state,
+            Some(id),
+            "幽灵更新",
+            AgentEngineKind::Sdk,
+            Some(provider.id),
+        ));
+        assert!(err.contains(&id.to_string()), "Err 携 id 语境，实际: {err}");
+    }
 }
 
 #[test]
@@ -357,9 +523,23 @@ fn agent命令_删默认agent后default解析none_set_default标记即切换返�
     let env = Env::new("agent-default-cmd");
     let app = app_with_stores(&env);
     let state = app.state::<WorkspaceStores>();
-    let first = save_agent(&state, None, "甲实例", AgentEngineKind::Cli, None).expect("新建应成功");
-    let second =
-        save_agent(&state, None, "乙实例", AgentEngineKind::Cli, None).expect("第二实例新建应成功");
+    let provider = save_new_provider(&state, "默认端点", "sk-live-1234567890").expect("新建应成功");
+    let first = save_agent(
+        &state,
+        None,
+        "甲实例",
+        AgentEngineKind::Sdk,
+        Some(provider.id),
+    )
+    .expect("新建应成功");
+    let second = save_agent(
+        &state,
+        None,
+        "乙实例",
+        AgentEngineKind::Sdk,
+        Some(provider.id),
+    )
+    .expect("第二实例新建应成功");
     assert_ne!(first.id, second.id);
 
     // 标记默认 → 删除默认 agent → default 解析 None（store 同事务清标记）
@@ -386,16 +566,25 @@ fn agent命令_删默认agent后default解析none_set_default标记即切换返�
 }
 
 #[test]
-fn agent命令_set_default_miss_id_err_删除miss幂等okfalse() {
+fn agent命令_set_default_miss与拒cli透传_删除miss幂等okfalse() {
     let env = Env::new("agent-cmd-miss");
     let app = app_with_stores(&env);
     let state = app.state::<WorkspaceStores>();
-    let agent =
-        save_agent(&state, None, "在库实例", AgentEngineKind::Cli, None).expect("新建应成功");
+    let provider = save_new_provider(&state, "miss端点", "sk-live-1234567890").expect("新建应成功");
+    let agent = save_agent(
+        &state,
+        None,
+        "在库实例",
+        AgentEngineKind::Sdk,
+        Some(provider.id),
+    )
+    .expect("新建应成功");
 
-    // set_default miss id：Err
-    let err = set_default_agent_instance(state.clone(), 999).expect_err("miss id 应 Err");
-    assert!(err.contains("999"), "错误串含 id 语境，实际: {err}");
+    // set_default miss id（0 / -1 / i64::MAX）：既有「agent 不存在」Err 透传
+    for id in [0_i64, -1, i64::MAX] {
+        let err = set_default_agent_instance(state.clone(), id).expect_err("miss id 应 Err");
+        assert!(err.contains(&id.to_string()), "Err 携 id 语境，实际: {err}");
+    }
 
     // delete miss 幂等 Ok(false)
     assert!(
@@ -403,8 +592,10 @@ fn agent命令_set_default_miss_id_err_删除miss幂等okfalse() {
         "删除 miss 幂等返回 false"
     );
 
-    // 既有默认标记不受 miss 影响（miss 前 set_default 一次复核）
+    // 既有默认标记不受 miss 影响（miss 前 set_default 一次复核）+ 已默认幂等透传
     set_default_agent_instance(state.clone(), agent.id).expect("标记应成功");
+    let again = set_default_agent_instance(state.clone(), agent.id).expect("已默认幂等透传");
+    assert!(again.is_default, "重复标记幂等仍为默认");
     let _ = set_default_agent_instance(state.clone(), 999);
     assert!(
         state

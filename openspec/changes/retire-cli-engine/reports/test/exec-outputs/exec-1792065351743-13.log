@@ -1,0 +1,378 @@
+JSON report written to C:/Users/wps/.dev-team/worktrees/wps-claude-plugin-7166d8c61feeae705846d569251abee6/retire-cli-engine/openspec/changes/retire-cli-engine/reports/test/plugins_dev-team_vite-plus/results.json
+lint failed
+JSON report written to C:/Users/wps/.dev-team/worktrees/wps-claude-plugin-7166d8c61feeae705846d569251abee6/retire-cli-engine/openspec/changes/retire-cli-engine/reports/test/packages_desktop_vite-plus/results.json
+[1m[2mnote:[0m[0m You are running [94m`vp test`[39m as a Vite+ built-in command. If you meant to run the test npm script, use [94m`vpr test`[39m instead.
+
+running 247 tests
+test bindings::mod_test::command清单补录_archive_change后36条且既有锚点与在册命令保持 ... ok
+test bindings::mod_test::dto类型清单零补录_条目数与首尾锚持衡 ... ok
+test bindings::mod_test::agent_engine_kind出线为cli与sdk字面量联合 ... ok
+test bindings::mod_test::agent_event出线为kind判别联合且seq摊平变体字面量camel_case ... ok
+test bindings::mod_test::agent_start与watch_subscribe绑定为typed_channel参数 ... ok
+test bindings::mod_test::agent_start绑定签名含尾部agent入参且invoke参数对象恒含agent键 ... ok
+test bindings::mod_test::archive_change绑定为root_id入参的outcome直返 ... ok
+test bindings::mod_test::archive_outcome与change_status出线且change_status小写线值联合 ... ok
+test bindings::mod_test::archive_preflight线面字段面保留 ... ok
+test bindings::mod_test::attempt_record出线三会话槽位键恒在场且nullable ... ok
+test bindings::mod_test::change_detail与change_summary出线含id字段为首 ... ok
+test bindings::mod_test::change_detail出线含worktree_string_or_null ... ok
+test bindings::mod_test::在册类型不重录_既有五型各恰一条 ... ok
+test bindings::mod_test::code_stats绑定为root_depth入参的三面dto直返 ... ok
+test bindings::mod_test::create_change命令签面_root_name_goal_workflow_type四参 ... ok
+test bindings::mod_test::create_outcome出线恰五字段_id为首字段 ... ok
+test bindings::mod_test::dto_types清单不残留退役幽灵条目 ... ok
+test bindings::mod_test::dto清单与产物types段全集一致_无幽灵与遗漏条目 ... ok
+test bindings::mod_test::framework与diagnostic_kind出线为camel_case字面量联合 ... ok
+test commands::agents::mod_test::agent命令_sdk新建携provider_ok_薄包装透传store落库记录 ... ok
+test bindings::mod_test::json_value字段出线unknown且时间戳字段出线string ... ok
+test commands::agents::mod_test::agent命令_sdk缺provider与悬空引用reject_store校验单点透传 ... ok
+test bindings::mod_test::records_page出线为records与total两字段且db_records绑定返回分页信封 ... ok
+test commands::agents::mod_test::agent命令_set_default_miss与拒cli透传_删除miss幂等okfalse ... ok
+test bindings::mod_test::save_agent_instance绑定签名不收窄且配置快照键经store出线 ... ok
+test commands::agents::mod_test::agent命令_删默认agent后default解析none_set_default标记即切换返回更新后记录_list恰一默认 ... ok
+test commands::agents::mod_test::provider删除语义_命中oktrue_被引用err透传_miss幂等okfalse_空库list空数组 ... ok
+test commands::agents::mod_test::provider命令_重名保存err清单不变_更新miss_id_err_name空白err ... ok
+test bindings::mod_test::session_detail绑定为root_session_id入参的nullable三件套直返 ... ok
+test commands::agents::mod_test::save_agent_instance拒cli透传_新建与更新均逐字退役文案 ... ok
+test commands::agents::mod_test::save_agent_provider_id存在且api_key空串_读存量回填原值 ... ok
+test bindings::mod_test::session_page出线为sessions与total两字段且agent_sessions绑定返回分页信封 ... ok
+test commands::agents::mod_test::save_agent_provider_id存在且api_key非空_直接落新值_新建传空key空值落库 ... ok
+test commands::agents::mod_test::save_agent_provider留空key更新回填原值不落空串 ... ok
+test bindings::mod_test::workspace_config绑定为root入参的report直返 ... ok
+test commands::agents::mod_test::save_agent边界_id零为新建_负数与i64max更新miss记因_name怪值透传 ... ok
+test commands::agents::mod_test::save_api_key回填与新context_length参正交 ... ok
+test commands::agents::mod_test::save留空context_length为none不落0或128000字面 ... ok
+test commands::agents::mod_test::save_agent_instance存量cli行更新拒_含改engine整行透传store单点 ... ok
+test commands::agents::mod_test::save编辑态context_length双向翻转按入参落库 ... ok
+test commands::agents::mod_test::全部命令面err错误串不含api_key明文_错误只含name与id语境 ... ok
+test commands::change_flow::mod_test::answer与confirm无等待方时err透传 ... ok
+test commands::agents::mod_test::save携context_length落库且重开一致 ... ok
+test bindings::mod_test::产物父目录缺失时create_dir_all先行导出成功 ... ok
+test commands::agents::mod_test::set_default_agent_instance拒cli目标_逐字透传且零写入 ... ok
+test commands::change_flow::mod_test::channel面五kind通知各自一拍且零载荷键 ... ok
+test commands::change_flow::mod_test::confirm校验blank与无运行run双面err ... ok
+test commands::agents::mod_test::管理命令组合链save新建_list呈现_save更新_delete删除_重开后状态一致 ... ok
+test commands::change_flow::mod_test::confirm透传sync_specs四组合至注册表 ... ok
+test bindings::mod_test::同输入连续两次导出产物逐字节一致且无机器路径嵌入 ... ok
+test commands::change_flow::mod_test::sink事件桥接_session_event记会话锚且publish透传 ... ok
+test commands::change_flow::mod_test::auto_next_phase_true不绕过守卫与前置校验 ... ok
+test bindings::mod_test::命令错误面为promise_reject透传无result包装 ... ok
+test commands::change_flow::mod_test::auto_next_phase_false默认档受理面回归 ... ok
+test bindings::mod_test::导出产物包含全部32条命令包装名与invoke命令名及出线dto类型名 ... ok
+test commands::change_flow::mod_test::auto_next_phase_true透传受理零confirmwait照常后台收敛 ... ok
+test commands::change_flow::mod_test::stop运行中置位且幂等忽略不报错 ... ok
+test commands::change_flow::mod_test::watch补订运行中接收后续信封_无run时ok非错误 ... ok
+test bindings::mod_test::归档五命令退役_生成物零残留 ... ok
+test commands::change_flow::mod_test::参数转换守卫blank_id五缝各就位 ... ok
+test bindings::mod_test::退役类型inventory与filelog族从产物收缩_detail三字段删除状态面两键新增 ... ok
+test commands::change_flow::mod_test::参数转换守卫blank_root各命令模板保留 ... ok
+test commands::change_flow::mod_test::start同change并行run冲突err ... ok
+test commands::change_flow::mod_test::exec_root解析成功_相位落workspace库且无第二库文件 ... ok
+test commands::change_flow::mod_test::start前置校验无建档与相位表缺失各自err且成因互不重合 ... ok
+test commands::changes::mod_test::create_change四参签面_workflow_type扩ipc入参 ... ok
+test bindings::mod_test::配置域十二型出线且逐字段形态对位 ... ok
+test commands::change_flow::mod_test::start_test_only记录放行且提前resolve返回running摘要 ... ok
+test commands::change_flow::mod_test::start归档互斥面摘除_无归档注册表照常受理 ... ok
+test commands::change_flow::mod_test::start提前resolve返回running摘要且channel首事件到达后台驱动不阻塞 ... ok
+test commands::changes::mod_test::blank_root双口径_读命令早退空结果_create显式err ... ok
+test commands::change_flow::mod_test::worktree目录缺失拒绝_显式err且零run登记 ... ok
+test bindings::mod_test::预先篡改产物文件后重导出恢复权威内容 ... ok
+test commands::changes::mod_test::archive_change写面异常err透传零阻断 ... ok
+test commands::change_flow::mod_test::start走完路由相位停在archive前且confirm拒绝收敛stopped ... ok
+test commands::changes::mod_test::archive接线_双写成功返回outcome且随后list按月分组可达 ... ok
+test commands::changes::mod_test::archive_change裸双写逃生口回归 ... ok
+test commands::changes::mod_test::archive错误映射_无建档与目标冲突与blank参数各自显式err ... ok
+test commands::changes::mod_test::create错误映射_同名active冲突err且零目录零建档 ... ok
+test commands::change_flow::mod_test::并行冲突键id_同名异id各自受理且异root同id互不误拒 ... ok
+test commands::changes::mod_test::read_exec_output_blank_root早退none ... ok
+test commands::changes::mod_test::detail_worktree感知_出线且产物命中worktree内文件 ... ok
+test commands::changes::mod_test::get_change_detail未知workflow_type恒none ... ok
+test commands::changes::mod_test::list归组随动_worktree条目入active组状态面完整 ... ok
+test commands::changes::mod_test::read_artifact_worktree命中_主仓miss不落空且legacy持衡 ... ok
+test commands::changes::mod_test::read_artifact信封出线持衡_五字段往返与负路径越权source拒绝 ... ok
+test commands::changes::mod_test::read_exec_output_worktree记录经name定位回读命中 ... ok
+test commands::changes::mod_test::read_exec_output_归档日期前缀目录命中 ... ok
+test commands::changes::mod_test::read_exec_output命中_内容为落盘log字节 ... ok
+test commands::changes::mod_test::read_exec_output_同名共存候选探测两change各自可回读 ... ok
+test commands::changes::mod_test::read_exec_output按change_name定位_与id相异时仍命中 ... ok
+test commands::changes::mod_test::read_exec_output未命中与非法exec_id恒none ... ok
+test commands::changes::mod_test::read_exec_output空输出与超长输出边界 ... ok
+test commands::changes::mod_test::read_exec_output非utf8字节_lossy替换符不panic ... ok
+test commands::changes::mod_test::归档引导命令面_unmerged_err透传merge文案 ... ok
+test commands::changes::mod_test::统一查询装配_active_run_archive面两态出线 ... ok
+test commands::changes::mod_test::磁盘only零呈现_命令面零入列不可达且目录字节零变化 ... ok
+test commands::config::mod_test::root指向普通文件返回err ... ok
+test commands::config::mod_test::workspace_config以string原签名直调_无state薄包装结构证明 ... ok
+test commands::config::mod_test::workspace_config命令与inner纯函数结果逐字段一致_命令层零加工 ... ok
+test commands::changes::mod_test::统一查询装配_waitingconfirm停等形态 ... ok
+test commands::config::mod_test::不存在root路径返回err不panic ... ok
+test commands::changes::mod_test::统一查询装配_active_run既有字段回归 ... ok
+test commands::config::mod_test::坏json返回ok加json_invalid诊断与默认config_两通道分层 ... ok
+test commands::config::mod_test::合法配置文件返回ok_diagnostics为空且信封字段平移一致 ... ok
+test commands::config::mod_test::空白root返回err ... ok
+test commands::config::mod_test::有效root无配置文件返回ok加file_missing诊断与全默认config ... ok
+test commands::config::mod_test::超长不存在路径root返回err不panic ... ok
+test commands::config::mod_test::连续两次调用各自完整读取_改写文件后结果随之变化 ... ok
+test commands::changes::mod_test::统一查询装配_runs全史与active_run活面与终态退场 ... ok
+test commands::config::mod_test::不可读root返回err_windows下以悬空junction使metadata失败 ... ok
+test commands::changes::mod_test::统一查询装配_早退与未知id未找到 ... ok
+test commands::db::mod_test::db_models_scope_global忽略root仅返回user维度三行且blank_root不影响 ... ok
+test commands::db::mod_test::db_records_model名str边界_未知模型err且错误串与store层一致 ... ok
+test commands::changes::mod_test::统一查询装配_运行中run多边活面 ... ok
+test commands::db::mod_test::db_records_scope_global扫描全局库记录信封_key为root串 ... ok
+test commands::db::mod_test::db_records_scope枚举线值反序列化_未知变体reject不panic ... ok
+test commands::changes::mod_test::读命令id透传_列表详情产物与core查询serde等值且归档条目恒裸名携id ... ok
+test commands::db::mod_test::db_records_blank_root返回空信封_非法路径root按不存在库reject不误判blank ... ok
+test commands::db::mod_test::db_models_scope_workspace返回八行且与直连serde一致 ... ok
+test commands::db::mod_test::db_records未知模型名返回err错误串与store层一致不静默吞错 ... ok
+test commands::db::mod_test::db_records_scope_workspace按主键自然序分页扫描拼接不重不漏 ... ok
+test commands::db::mod_test::db_records_scope两值寻址两库记录互不混列 ... ok
+test commands::db::mod_test::workspace维度root不可寻址_两命令err透传不panic ... ok
+test commands::exec::agent::agent_test::outcome_summary与turn_summary同构_终态部件与重放同形状 ... ok
+test commands::exec::agent::agent_test::outcome_summary装配逐字段承接_status与统计与finished_at ... ok
+test commands::exec::agent::agent_test::running_summary签名锚定_自中性数据装配running形态轮行 ... ok
+test commands::exec::agent::agent_test::信封event变体序列化tag为ipc判别event且载荷camel_case ... ok
+test commands::exec::agent::agent_test::信封record变体序列化tag为ipc判别record且轮行camel_case ... ok
+test commands::db::mod_test::workspace_scope_blank_root的db_models与db_records同口径返回空结果 ... ok
+test commands::db::mod_test::两库清单互不混列_跨维度模型名扫描err ... ok
+test commands::db::mod_test::db_records分页信封薄透传_与直连store_scan结果serde一致 ... ok
+test commands::db::mod_test::db_records_workspace库文件损坏_两命令err不panic ... ok
+test commands::exec::mod_test::agent_session_transcript落库转录后按seq序全史重放 ... ok
+test commands::exec::mod_test::agent_sessions分页offset_limit透传与total为过滤集全量 ... ok
+test commands::exec::mod_test::agent_start_blank_root守卫err且零落库 ... ok
+test commands::exec::mod_test::agent_sessions携root直查dto且source过滤透传 ... ok
+test commands::exec::mod_test::agent_start_kernelscoped_stopregistry托管的命中链经channel流出终态部件 ... ok
+test commands::exec::mod_test::agent_start_sdk空配置时config_missing映射err直抵前端 ... ok
+test commands::changes::mod_test::create_change四参title口径透传workflow_type ... ok
+test commands::exec::mod_test::agent_stop命中登记句柄置位成功返回ok ... ok
+test commands::exec::mod_test::agent_stop对未运行会话与不存在session_id幂等ok ... ok
+test commands::exec::mod_test::agent_start参数转换_session引用与来源与agent透传 ... ok
+test commands::exec::mod_test::root不可寻址_三查询命令err透传不panic ... ok
+test commands::exec::mod_test::session_detail_blank_root守卫none先行于库寻址 ... ok
+test commands::exec::mod_test::agent_start无默认agent时err引导管理页 ... ok
+test commands::exec::mod_test::agent_start成功链路提前resolve返回running轮行且会话行轮行已落库 ... ok
+test commands::exec::mod_test::session_detail查无此id_err透传不吞成none ... ok
+test commands::explores::mod_test::blank_root纪律矩阵_list与scan空结果_create与rename与delete为err ... ok
+test commands::exec::mod_test::session_detail直查返回三件套与清单面对应条目全等 ... ok
+test commands::exec::mod_test::不存在会话转录空数组且blank_root守卫空结果 ... ok
+test commands::exec::mod_test::session_detail运行中会话轮行呈running且应答不加状态字段 ... ok
+test commands::exec::mod_test::session_detail跨root隔离_会话落a库经b库单查err ... ok
+test commands::explores::mod_test::create_explore_record建档返回记录dto且list可见 ... ok
+test commands::explores::mod_test::create_explore_record携root经for_root落该workspace库 ... ok
+test commands::explores::mod_test::create_explore_record重复名store错误透传为命令err字符串 ... ok
+test commands::explores::mod_test::explore_doc_path有效root与合法name返回与布局派生逐段相等的路径 ... ok
+test commands::explores::mod_test::explore_doc_path穿越名与blank_root返回none ... ok
+test commands::explores::mod_test::ensure_explore_session正向幂等与err面 ... ok
+test commands::explores::mod_test::delete_explore_record删除已绑定记录返回true再删返回false幂等 ... ok
+test commands::explores::mod_test::list_explore_records_blank_root返回空数组 ... ok
+test commands::explores::mod_test::list_explore_records有两条记录返回与for_root直连serde等值的两条dto ... ok
+test commands::explores::mod_test::promote_explore_blank_root与非kebab显式err零读写 ... ok
+test commands::explores::mod_test::promote_explore已promoted拒绝 ... ok
+test commands::explores::mod_test::read_explore_blank_root返回none不panic ... ok
+test commands::explores::mod_test::promote_explore笔记未落盘或空白拒绝 ... ok
+test commands::explores::mod_test::read_explore有效root与已落盘笔记返回与workflow直查serde等值的doc ... ok
+test commands::explores::mod_test::read_explore穿越分量名在命令边界拒绝返回none ... ok
+test commands::explores::mod_test::read_explore读路径零写入不触回填 ... ok
+test commands::explores::mod_test::rename_explore_record改名后返回更新记录且新名可寻址 ... ok
+test commands::explores::mod_test::root不可寻址_五命令err透传不panic ... ok
+test commands::explores::mod_test::scan_explores_blank_root返回空数组不进入查询链路 ... ok
+test commands::explores::mod_test::rename保主键且delete级联名下runs与events在同一workspace库内收敛 ... ok
+test commands::explores::mod_test::scan_explores求差结果与workflow扫描减workspace库绑定手工求差一致 ... ok
+test commands::explores::mod_test::scan_explores过滤非kebab_stem与已绑定过滤并存 ... ok
+test commands::explores::mod_test::update_explore_title正向回填并返回更新记录 ... ok
+test commands::explores::mod_test::update_explore_title空白root与空白title显式err ... ok
+test commands::db::mod_test::db_records_limit超500截断且截断后剩余可经offset续读 ... ok
+test commands::explores::mod_test::update_explore_workflow_type_blank_root与非法值拒绝零改动 ... ok
+test commands::explores::mod_test::update_explore_workflow_type_miss透传err ... ok
+test commands::explores::mod_test::update_explore_workflow_type大小写空白canonical ... ok
+test commands::explores::mod_test::update_explore_workflow_type正向回填与刷新updated_at ... ok
+test commands::db::mod_test::db_records分页int边界过命令面不加工_空页total恒全量 ... ok
+test commands::explores::mod_test::三文件一经绑定b后导入候选恰为未绑定的a与c ... ok
+test commands::explores::mod_test::全部文件已绑定时导入候选为空数组 ... ok
+test commands::explores::mod_test::大小写差异文件按记录name精确求差不引入文件系统折叠 ... ok
+test commands::explores::mod_test::两workspace同名建档各自独立_甲库建档后乙库清单为空 ... ok
+test commands::explores::mod_test::目录缺失且无绑定时导入候选为空数组两空集求差 ... ok
+test commands::stats::mod_test::code_stats以string加u32原签名直调_无state薄包装结构证明 ... ok
+test commands::explores::mod_test::非法记录名建档在命令边界返回err ... ok
+test commands::stats::mod_test::code_stats命令与inner纯函数结果逐字段一致_命令层零加工 ... ok
+test commands::stats::mod_test::root指向普通文件返回err ... ok
+test commands::explores::mod_test::绑定记录的文件已删孤儿仍被滤除不回入候选 ... ok
+test commands::stats::mod_test::depth0树无目录节点_根层直属文件仍为顶层文件叶 ... ok
+test commands::stats::mod_test::不存在root路径返回err不panic ... ok
+test commands::stats::mod_test::share值域0到100且与code降序单调一致_计数非负 ... ok
+test commands::stats::mod_test::不可读root返回err_windows下以悬空junction使metadata失败 ... ok
+test commands::stats::mod_test::两语言code相等的tie按语言名字典序 ... ok
+test commands::stats::mod_test::depth1树仅顶层一层且节点聚合为子树全量 ... ok
+test commands::stats::mod_test::仅注释与空行的语言_code为0_share为0 ... ok
+test commands::changes::mod_test::create_title透传_显式值落库且默认name形态 ... ok
+test commands::stats::mod_test::任意层级名为openspec的目录同样排除 ... ok
+test commands::stats::mod_test::含空格与中文名的目录_path出线保持原名 ... ok
+test commands::stats::mod_test::多语言fixture汇总面与语言面同源自洽且按code降序 ... ok
+test commands::stats::mod_test::文件叶挂于父目录children_同父条目目录先于文件 ... ok
+test commands::stats::mod_test::文件叶行统计与目录聚合自洽_四项均叶加子目录 ... ok
+test commands::stats::mod_test::嵌套fixture树面posix路径_末段名与children字典序 ... ok
+test commands::stats::mod_test::五十个顶层子目录混合命名children字典序稳定全量呈现 ... ok
+test commands::stats::mod_test::根层openspec目录整棵排除_三面均无其文件 ... ok
+test commands::stats::mod_test::空白root返回err ... ok
+test commands::stats::mod_test::超长不存在路径root返回err不panic ... ok
+test commands::stats::mod_test::根层直属文件为顶层文件叶_不计入任何目录节点聚合 ... ok
+test commands::stats::mod_test::深度外文件不出叶_仅并入最深可达祖先聚合 ... ok
+test commands::watch::mod_test::不同路径分别订阅各自独立id且事件互不串扰 ... ok
+test commands::stats::mod_test::深度为聚合截断参数_depth1与depth10的汇总语言面完全相等 ... ok
+test commands::watch::mod_test::未知id与重复退订均返回false幂等 ... ok
+test commands::watch::mod_test::目标文件不存在时订阅返回ok且文件出现后修改信号送达 ... ok
+test commands::stats::mod_test::目录存在但无被识别文件返回空report而非err ... ok
+test commands::watch::mod_test::订阅返回id且修改后channel收到仅含path的信号帧 ... ok
+test commands::workspaces::mod_test::add传入不存在的目录返回err且含canonicalize前缀 ... ok
+test commands::workspaces::mod_test::add_workspace后注册记录落全局库且对应workspace库文件已创建 ... ok
+test commands::workspaces::mod_test::add_workspace返回值序列化顶层键恰为三字段驼峰命名无redb概念泄漏 ... ok
+test commands::workspaces::mod_test::add传入书写不等价string返回root与库内canonical_key同源 ... ok
+test commands::workspaces::mod_test::remove不驱逐缓存_重加同root经缓存实例即读即得 ... ok
+test commands::workspaces::mod_test::remove仅删注册记录_重加同root后explore与会话链历史完整可读 ... ok
+test commands::workspaces::mod_test::三命令结果与直连两级库注册表公共api结果serde一致_薄包装不加工 ... ok
+test commands::workspaces::mod_test::remove后db文件名与字节保持原样不自动清理 ... ok
+test commands::workspaces::mod_test::workspace库文件损坏时add_workspace返回err且注册记录保留 ... ok
+test commands::workspaces::mod_test::大小写不同string二次add经命令面仅一条且原记录原样返回 ... ok
+test commands::workspaces::mod_test::未注册root的remove经命令面返回false幂等 ... ok
+test commands::workspaces::mod_test::空库经命令面list返回空数组 ... ok
+test commands::workspaces::mod_test::空字符串root时add为err而remove为ok_false两命令语义一致 ... ok
+test commands::workspaces::mod_test::等价路径经命令面remove命中同一条无孤儿条目 ... ok
+test commands::workspaces::mod_test::经命令面add_list顺序与直连一致_删除与重开后状态经命令面可复现 ... ok
+test commands::changes::mod_test::create_workflow_type大小写空白canonical落库 ... ok
+test commands::watch::mod_test::同一路径重复订阅返回同一subscription_id且信号帧数与单订阅一致不翻倍 ... ok
+test commands::watch::mod_test::以有效id退订返回true且此后修改channel无后续帧 ... ok
+test commands::changes::mod_test::create_workflow_type透传test_only且dto五键不变 ... ok
+test commands::changes::mod_test::create拒绝映射_非git仓err透传且零产生 ... ok
+test commands::changes::mod_test::create接线_建域落位_返回dto增id且按id立即可见可发起 ... ok
+test commands::changes::mod_test::create非法workflow_type拒绝_零建档零建域 ... ok
+test commands::change_flow::mod_test::组合根装配_staticcheck步默认recorded落单一log并回填引用 ... ok
+test commands::changes::mod_test::get_change_detail列序随workflow_type出线 ... ok
+test commands::explores::mod_test::promote_explore_workflow_type大小写空白canonical ... ok
+test commands::explores::mod_test::promote_explore四步成功_笔记移走记录保留打标 ... ok
+test commands::explores::mod_test::promote_explore透传test_only且move照常 ... ok
+test commands::explores::mod_test::promote_explore非法workflow_type拒绝零铸出 ... ok
+
+test result: ok. 247 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 24.24s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+info: cargo-llvm-cov currently setting cfg(coverage); you can opt-out it by passing --no-cfg-coverage
+   Compiling dev-team v0.1.0 (C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\retire-cli-engine\packages\desktop\src-tauri)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 23.15s
+     Running unittests src\lib.rs (target\llvm-cov-target\debug\deps\dev_team-f2deef6012aafdd1.exe)
+     Running unittests src\main.rs (target\llvm-cov-target\debug\deps\dev_team-e8b55385c218d519.exe)
+
+    Finished report saved to C:/Users/wps/.dev-team/worktrees/wps-claude-plugin-7166d8c61feeae705846d569251abee6/retire-cli-engine/openspec/changes/retire-cli-engine/reports/test/packages_desktop_src-tauri_rust/coverage-summary.json
+warning: function `快照组装携agentInstanceId与定型双面_json线键camel_case` should have a snake case name
+    --> crates\infra\agent\src\compose_test.rs:1150:10
+     |
+1150 | async fn 快照组装携agentInstanceId与定型双面_json线键camel_case() {
+     |          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: convert the identifier to snake case: `快照组装携agent_instance_id与定型双面_json线键camel_case`
+     |
+     = note: `#[warn(non_snake_case)]` (part of `#[warn(nonstandard_style)]`) on by default
+
+warning: function `段级未知outcome样本runtimeError留痕` should have a snake case name
+   --> crates\core\checks\tests\corpus_golden_test.rs:561:4
+    |
+561 | fn 段级未知outcome样本runtimeError留痕() {
+    |    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: convert the identifier to snake case: `段级未知outcome样本runtime_error留痕`
+    |
+    = note: `#[warn(non_snake_case)]` (part of `#[warn(nonstandard_style)]`) on by default
+
+warning: `agent-runtime` (lib test) generated 1 warning
+warning: `checks` (test "corpus_golden_test") generated 1 warning
+warning: field `0` is never read
+  --> crates\infra\checks\src\testexec\runner_test.rs:76:18
+   |
+76 | struct EnvWindow(std::sync::MutexGuard<'static, ()>);
+   |        --------- ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |        |
+   |        field in this struct
+   |
+   = help: consider removing this field
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: field `0` is never read
+  --> crates\infra\checks\src\static_check_test.rs:10:18
+   |
+10 | struct EnvWindow(std::sync::MutexGuard<'static, ()>);
+   |        --------- ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |        |
+   |        field in this struct
+   |
+   = help: consider removing this field
+
+warning: associated function `failing` is never used
+   --> crates\core\orchestration\src\steps_test.rs:843:8
+    |
+809 | impl FakeMutationRunner {
+    | ----------------------- associated function in this implementation
+...
+843 |     fn failing(feedback_text: &str) -> Self {
+    |        ^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: method `with_edit` is never used
+   --> crates\core\orchestration\src\walker_test.rs:917:8
+    |
+893 | impl FakeVcs {
+    | ------------ method in this implementation
+...
+917 |     fn with_edit(self, files: Vec<String>, patch: &str) -> Self {
+    |        ^^^^^^^^^
+
+warning: function `旧json形态缺agentInstanceId键经serde_default读none不炸` should have a snake case name
+    --> crates\infra\store\src\model_test.rs:2598:4
+     |
+2598 | fn 旧json形态缺agentInstanceId键经serde_default读none不炸() {
+     |    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: convert the identifier to snake case: `旧json形态缺agent_instance_id键经serde_default读none不炸`
+     |
+     = note: `#[warn(non_snake_case)]` (part of `#[warn(nonstandard_style)]`) on by default
+
+warning: function `build_mutation_block分母零与NaN与Inf阈值` should have a snake case name
+   --> crates\core\checks\src\aggregate_test.rs:772:4
+    |
+772 | fn build_mutation_block分母零与NaN与Inf阈值() {
+    |    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: convert the identifier to snake case: `build_mutation_block分母零与_na_n与_inf阈值`
+    |
+    = note: `#[warn(non_snake_case)]` (part of `#[warn(nonstandard_style)]`) on by default
+
+warning: `checks-runtime` (lib test) generated 2 warnings
+warning: `orchestration` (lib test) generated 2 warnings
+warning: `store` (lib test) generated 1 warning
+warning: `checks` (lib test) generated 1 warning
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 3.75s
+     Running unittests src\lib.rs (target\debug\deps\agent-ed00760de21cc2d9.exe)
+     Running unittests src\lib.rs (target\debug\deps\agent_runtime-859917f77fb35052.exe)
+     Running unittests src\lib.rs (target\debug\deps\checks-907d7576406cbc22.exe)
+     Running tests\corpus_golden_test.rs (target\debug\deps\corpus_golden_test-3569dc83d7c493e8.exe)
+     Running unittests src\lib.rs (target\debug\deps\checks_runtime-590a5916e1ae2899.exe)
+     Running unittests src\lib.rs (target\debug\deps\config-2c1c243542647694.exe)
+     Running unittests src\lib.rs (target\debug\deps\dev_team-36ce58f472df7282.exe)
+     Running unittests src\main.rs (target\debug\deps\dev_team-84ecc3b901542f65.exe)
+     Running unittests src\lib.rs (target\debug\deps\exec-36ce52bfbf0fd45a.exe)
+     Running unittests src\main.rs (target\debug\deps\export_bindings-3122d2eaf50feb28.exe)
+     Running unittests src\lib.rs (target\debug\deps\foundation-fa39654a8a2e609f.exe)
+     Running unittests src\lib.rs (target\debug\deps\orchestration-09d8e7218b71393f.exe)
+     Running unittests src\lib.rs (target\debug\deps\store-6d624c8ffd37f7b9.exe)
+     Running unittests src\lib.rs (target\debug\deps\vcs_runtime-eda2a4aef3171c18.exe)
+     Running unittests src\lib.rs (target\debug\deps\watch-c9b72cdce151090d.exe)
+     Running unittests src\lib.rs (target\debug\deps\workflow-f104169c245d4654.exe)
+     Running tests\corpus_golden_test.rs (target\debug\deps\corpus_golden_test-9e08affa7e79bee7.exe)
+   Doc-tests agent
+   Doc-tests agent_runtime
+   Doc-tests checks
+   Doc-tests checks_runtime
+   Doc-tests config
+   Doc-tests dev_team
+   Doc-tests exec
+   Doc-tests foundation
+   Doc-tests orchestration
+   Doc-tests store
+   Doc-tests vcs_runtime
+   Doc-tests watch
+   Doc-tests workflow

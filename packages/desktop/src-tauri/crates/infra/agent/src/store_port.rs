@@ -132,7 +132,7 @@ impl SessionQuery for StoreQuery {
 }
 
 /// core 建行入参 → store 会话记录（建档即双侧同刻；快照自 JSON 形态回收为
-/// store 定型三面，非组合根产出的快照在此显式失败——fail fast，不静默降级）。
+/// store 定型四面，非组合根产出的快照在此显式失败——fail fast，不静默降级）。
 fn store_record(session: &NewSessionRow) -> Result<SessionRecord, String> {
     let snapshot: SessionConfigSnapshot = serde_json::from_value(session.config_snapshot.clone())
         .map_err(|e| format!("配置快照非法: {e}"))?;

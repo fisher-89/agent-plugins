@@ -692,13 +692,27 @@ function textEvent(seq: number, role: 'user' | 'assistant', text: string): Agent
   };
 }
 
+/** store `SessionConfigSnapshot` 快照线形态（serde camelCase；v2 增
+ * `agentInstanceId` 实例外键——fixture 缺键即类型红，防漂移）。 */
+interface ConfigSnapshotFixture {
+  engine: 'cli' | 'sdk';
+  agentInstanceId: number | null;
+  model: string | null;
+  permissionMode: string;
+}
+
 /** 会话清单项 fixture（agent_sessions 应答；轮行已收敛 = 重放形态）。 */
 function transcriptSession(sessionId: string, sourceRef: string): SessionSummary {
   return {
     row: {
       id: sessionId,
       remoteSessionId: null,
-      configSnapshot: null,
+      configSnapshot: {
+        engine: 'sdk',
+        agentInstanceId: null,
+        model: 'glm-high',
+        permissionMode: 'bypassPermissions',
+      } satisfies ConfigSnapshotFixture,
       provenance: { source: 'change', sourceRef },
       createdAt: 1727000000000,
       updatedAt: 1727000001000,
@@ -1762,5 +1776,32 @@ describe('ChangeDetailView：列序随 detail.pipeline（requirement / test-only
     });
     await waitFor(() => expect(screen.getAllByTestId('flow-column')).toHaveLength(6));
     testOnly.unmount();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// configSnapshot fixture 补 agentInstanceId 键（fixture 随动，AC-7）
+// ---------------------------------------------------------------------------
+
+describe('ChangeDetailView：configSnapshot fixture 携 agentInstanceId 键（AC-7 随动）', () => {
+  it('fixture 补键后页面组装既有断言保绿（null 存量与具体 id 两形态同口径）', async () => {
+    // helper 默认形态：agentInstanceId null（存量缺列语义）
+    const legacy = transcriptSession('ses-legacy', `${CHANGE_ID}/implement/executor/1`);
+    expect((legacy.row.configSnapshot as ConfigSnapshotFixture).agentInstanceId).toBeNull();
+
+    // 具体实例 id 形态（新会话语义）
+    const fresh = transcriptSession('ses-fresh', `${CHANGE_ID}/implement/executor/1`);
+    fresh.row.configSnapshot = {
+      engine: 'sdk',
+      agentInstanceId: 7,
+      model: 'glm-high',
+      permissionMode: 'bypassPermissions',
+    } satisfies ConfigSnapshotFixture;
+    expect((fresh.row.configSnapshot as ConfigSnapshotFixture).agentInstanceId).toBe(7);
+
+    // 既有组装断言保绿（详情 / 图区 / 控制面板恒态不受 fixture 形状随动影响）
+    renderDetail({ detail: detail() });
+    await screen.findByTestId('flow-graph');
+    expect(screen.getByTestId('run-control-panel').textContent).toContain('运行控制');
   });
 });

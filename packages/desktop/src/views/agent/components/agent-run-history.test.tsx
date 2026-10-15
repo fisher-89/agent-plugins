@@ -24,6 +24,15 @@ function turn(turnId: number, status: TurnSummary['status']): TurnSummary {
   };
 }
 
+/** store `SessionConfigSnapshot` 快照线形态（serde camelCase；v2 增
+ * `agentInstanceId` 实例外键——fixture 缺键即类型红，防漂移）。 */
+interface ConfigSnapshotFixture {
+  engine: 'cli' | 'sdk';
+  agentInstanceId: number | null;
+  model: string | null;
+  permissionMode: string;
+}
+
 function session(
   id: string,
   status: TurnSummary['status'],
@@ -34,7 +43,12 @@ function session(
     row: {
       id,
       remoteSessionId: `engine-${id}`,
-      configSnapshot: { engine: 'sdk', model: 'glm-high', permissionMode: 'bypassPermissions' },
+      configSnapshot: {
+        engine: 'sdk',
+        agentInstanceId: 7,
+        model: 'glm-high',
+        permissionMode: 'bypassPermissions',
+      } satisfies ConfigSnapshotFixture,
       provenance: { source: 'debug', sourceRef: null },
       createdAt: TS,
       updatedAt,
@@ -421,5 +435,41 @@ describe('AgentRunHistory：分页器接入', () => {
     mount(historyState({ total: 0, totalPages: 1 }));
     expect(screen.getByTestId('history-empty')).toBeTruthy();
     expect(screen.queryByTestId('agent-history-pagination')).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// configSnapshot fixture 补 agentInstanceId 键（fixture 随动，AC-7）
+// ---------------------------------------------------------------------------
+
+describe('AgentRunHistory：configSnapshot fixture 携 agentInstanceId 键（AC-7 随动）', () => {
+  it('补键后清单呈现既有断言保绿（多元素清单 + 两形态快照同口径）', () => {
+    const legacy = session('ses-3-1727000000000', 'completed', TS + 3);
+    legacy.row.configSnapshot = {
+      engine: 'cli',
+      agentInstanceId: null,
+      model: null,
+      permissionMode: 'bypassPermissions',
+    } satisfies ConfigSnapshotFixture;
+    mount(
+      historyState({
+        sessions: [
+          session('ses-1-1727000000000', 'completed', TS + 1),
+          session('ses-2-1727000000000', 'failed', TS + 2),
+          legacy,
+        ],
+      }),
+    );
+
+    // 呈现断言容忍两形态：具体实例 id（新会话语义）与 null（存量缺列语义）；
+    // fixture 补键后既有行渲染断言保持
+    const rows = screen.getAllByTestId('agent-run-row');
+    expect(rows).toHaveLength(3);
+    expect(screen.getAllByTestId('run-status').map((node) => node.textContent)).toEqual([
+      '已完成',
+      '失败',
+      '已完成',
+    ]);
+    expect(screen.getByTestId('agent-run-history').textContent).toContain('历史会话 (3)');
   });
 });

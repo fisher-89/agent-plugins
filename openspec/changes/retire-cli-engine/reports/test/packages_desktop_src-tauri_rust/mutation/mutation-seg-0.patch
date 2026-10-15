@@ -1,0 +1,3893 @@
+diff --git a/crates/infra/agent/src/cli/discover.rs b/crates/infra/agent/src/cli/discover.rs
+deleted file mode 100644
+index 4480e1f4aa7b..000000000000
+--- a/crates/infra/agent/src/cli/discover.rs
++++ /dev/null
+@@ -1,51 +0,0 @@
+-//! CLI 发现：PATH 目录扫描定位可执行入口。
+-//!
+-//! [`discover_in`] 为纯函数（入参目录列表，可用合成目录单测、不依赖真实
+-//! CLI）；[`discover`] 为读 `PATH` 环境变量的薄包装。Windows 上 `claude`
+-//! 通常为 npm 的 `.cmd` shim（不可直接 spawn，须经 `cmd /C` 包装——包装
+-//! 在 spawn 侧处理），按 `.cmd` / `.bat` / `.exe` 优先序探测；其余平台
+-//! 单一裸名。
+-
+-use std::path::{Path, PathBuf};
+-
+-use agent::AgentStartError;
+-
+-/// Windows 上按优先序探测的候选文件名（`.cmd` shim 最常见，最先探测）。
+-const WINDOWS_CANDIDATES: [&str; 3] = ["claude.cmd", "claude.bat", "claude.exe"];
+-
+-/// 其余平台的候选裸名。
+-const DEFAULT_CANDIDATE: &str = "claude";
+-
+-/// CLI 缺失的显式错误文案（MUST NOT 静默空转）。
+-const CLI_MISSING: &str = "PATH 上未发现 claude 可执行入口";
+-
+-/// 在给定目录列表内按平台优先序发现 CLI 入口：命中返回完整路径，全部
+-/// miss 返回 `AgentStartError::CliMissing`。
+-pub fn discover_in<I, D>(dirs: I) -> Result<PathBuf, AgentStartError>
+-where
+-    I: IntoIterator<Item = D>,
+-    D: AsRef<Path>,
+-{
+-    let candidates: &[&str] = if cfg!(windows) {
+-        &WINDOWS_CANDIDATES
+-    } else {
+-        &[DEFAULT_CANDIDATE]
+-    };
+-    for dir in dirs {
+-        for candidate in candidates {
+-            let path = dir.as_ref().join(candidate);
+-            if path.is_file() {
+-                return Ok(path);
+-            }
+-        }
+-    }
+-    Err(AgentStartError::CliMissing(CLI_MISSING.to_owned()))
+-}
+-
+-/// 读 `PATH` 环境变量并委托 [`discover_in`]；`PATH` 缺失视同 CLI 缺失。
+-pub fn discover() -> Result<PathBuf, AgentStartError> {
+-    let dirs = std::env::var_os("PATH")
+-        .map(|value| std::env::split_paths(&value).collect::<Vec<PathBuf>>())
+-        .unwrap_or_default();
+-    discover_in(dirs)
+-}
+diff --git a/crates/infra/agent/src/cli/discover_test.rs b/crates/infra/agent/src/cli/discover_test.rs
+deleted file mode 100644
+index 8ecfb26de4e8..000000000000
+--- a/crates/infra/agent/src/cli/discover_test.rs
++++ /dev/null
+@@ -1,162 +0,0 @@
+-//! `discover` 的单元测试（AC-2 / D14）：`discover_in` 纯函数按平台优先序在
+-//! 合成目录内发现 CLI 入口；`discover` 薄包装读 PATH（env 修改以互斥锁串行
+-//! 化保护并恢复）。文件系统候选以 tempfile 真开合成目录，不依赖真实 CLI。
+-
+-use std::path::{Path, PathBuf};
+-
+-use agent::AgentStartError;
+-
+-use crate::discover::{discover, discover_in};
+-
+-/// PATH 环境变量修改串行化（同进程测试并行跑，set_var 为进程全局操作）。
+-use crate::TEST_PATH_LOCK as PATH_LOCK;
+-
+-/// 当前平台应探测的候选文件名（与 discover_in 的平台分支对齐）。
+-const PLATFORM_CANDIDATES: [&str; 3] = if cfg!(windows) {
+-    ["claude.cmd", "claude.bat", "claude.exe"]
+-} else {
+-    ["claude", "claude", "claude"]
+-};
+-
+-/// 合成目录：TempDir 由测试持有保活（drop 即删除，不得先行归还路径）。
+-fn tempdir(tag: &str) -> tempfile::TempDir {
+-    tempfile::Builder::new()
+-        .prefix(&format!("discover-test-{tag}-"))
+-        .tempdir()
+-        .expect("创建合成目录失败")
+-}
+-
+-fn write_file(dir: &Path, name: &str) -> PathBuf {
+-    let path = dir.join(name);
+-    std::fs::write(&path, b"").expect("写伪候选文件失败");
+-    path
+-}
+-
+-// ---------------------------------------------------------------------------
+-// discover_in：正向与优先序
+-// ---------------------------------------------------------------------------
+-
+-#[test]
+-fn 合成目录含平台首选候选时发现并返回该路径() {
+-    let dir = tempdir("hit");
+-    let candidate = PLATFORM_CANDIDATES[0];
+-    let expected = write_file(dir.path(), candidate);
+-
+-    let found = discover_in([dir.path()]).expect("应发现候选");
+-    assert_eq!(found, expected, "返回完整路径");
+-}
+-
+-#[cfg(windows)]
+-#[test]
+-fn 同目录三候选并存时按cmd_bat_exe优先序取cmd() {
+-    let dir = tempdir("priority");
+-    let cmd = write_file(dir.path(), "claude.cmd");
+-    write_file(dir.path(), "claude.bat");
+-    write_file(dir.path(), "claude.exe");
+-
+-    let found = discover_in([dir.path()]).expect("应发现候选");
+-    assert_eq!(found, cmd, "D14：.cmd > .bat > .exe 优先序");
+-}
+-
+-#[cfg(windows)]
+-#[test]
+-fn 仅bat或仅exe时依序降级发现对应文件() {
+-    // 仅 .bat
+-    let bat_dir = tempdir("only-bat");
+-    let bat = write_file(bat_dir.path(), "claude.bat");
+-    assert_eq!(discover_in([bat_dir.path()]).expect("应发现 .bat"), bat);
+-
+-    // 仅 .exe
+-    let exe_dir = tempdir("only-exe");
+-    let exe = write_file(exe_dir.path(), "claude.exe");
+-    assert_eq!(discover_in([exe_dir.path()]).expect("应发现 .exe"), exe);
+-}
+-
+-#[test]
+-fn 多目录各含候选时先声明目录优先() {
+-    let first = tempdir("first-dir");
+-    let second = tempdir("second-dir");
+-    let expected = write_file(first.path(), PLATFORM_CANDIDATES[0]);
+-    write_file(second.path(), PLATFORM_CANDIDATES[0]);
+-
+-    let found = discover_in([first.path(), second.path()]).expect("应发现候选");
+-    assert_eq!(found, expected, "先声明目录优先");
+-}
+-
+-// ---------------------------------------------------------------------------
+-// discover_in：边界与异常
+-// ---------------------------------------------------------------------------
+-
+-#[test]
+-fn 目录列表含不存在目录时跳过不panic() {
+-    let dir = tempdir("skip-missing");
+-    let expected = write_file(dir.path(), PLATFORM_CANDIDATES[0]);
+-    let missing = dir.path().join("no-such-dir");
+-
+-    let found = discover_in([&missing, dir.path()]).expect("失效 PATH 项被跳过后仍可发现");
+-    assert_eq!(found, expected);
+-}
+-
+-#[test]
+-fn 目录列表为空或全部无候选时返回cli_missing且display含检索线索() {
+-    // 空目录列表
+-    let empty: Vec<PathBuf> = Vec::new();
+-    let err = discover_in(empty).expect_err("空列表必须显式失败");
+-    assert!(
+-        matches!(err, AgentStartError::CliMissing(_)),
+-        "变体为 CliMissing，实际: {err:?}"
+-    );
+-
+-    // 目录存在但无任何候选（只有无关文件）
+-    let junk_dir = tempdir("junk");
+-    write_file(junk_dir.path(), "claude-shim.txt");
+-    let err = discover_in([junk_dir.path()]).expect_err("无候选必须显式失败");
+-    assert!(matches!(err, AgentStartError::CliMissing(_)));
+-
+-    let text = err.to_string();
+-    assert!(
+-        text.contains("未发现"),
+-        "Display 携带检索线索（MUST NOT 静默空转），实际: {text}"
+-    );
+-}
+-
+-// ---------------------------------------------------------------------------
+-// discover：读 PATH 薄包装
+-// ---------------------------------------------------------------------------
+-
+-#[test]
+-fn 以合成path薄包装可发现伪cli且恢复原path() {
+-    let _guard = PATH_LOCK.lock().expect("PATH 锁不可中毒");
+-    let dir = tempdir("path-wrap");
+-    let candidate = PLATFORM_CANDIDATES[0];
+-    let expected = write_file(dir.path(), candidate);
+-
+-    let original = std::env::var_os("PATH");
+-    std::env::set_var("PATH", dir.path());
+-    let result = discover();
+-    // 先恢复再断言：断言失败也不遗留污染的 PATH
+-    match original {
+-        Some(value) => std::env::set_var("PATH", value),
+-        None => std::env::remove_var("PATH"),
+-    }
+-
+-    let found = result.expect("合成 PATH 应发现伪 CLI");
+-    assert_eq!(found, expected);
+-}
+-
+-#[test]
+-fn path缺失视同cli缺失() {
+-    let _guard = PATH_LOCK.lock().expect("PATH 锁不可中毒");
+-    let original = std::env::var_os("PATH");
+-    std::env::remove_var("PATH");
+-    let result = discover();
+-    match original {
+-        Some(value) => std::env::set_var("PATH", value),
+-        None => std::env::remove_var("PATH"),
+-    }
+-
+-    assert!(
+-        matches!(result, Err(AgentStartError::CliMissing(_))),
+-        "PATH 缺失视同 CLI 缺失，实际: {result:?}"
+-    );
+-}
+diff --git a/crates/infra/agent/src/cli/flags.rs b/crates/infra/agent/src/cli/flags.rs
+deleted file mode 100644
+index 55e962d7c625..000000000000
+--- a/crates/infra/agent/src/cli/flags.rs
++++ /dev/null
+@@ -1,49 +0,0 @@
+-use agent::AgentPermissionMode;
+-
+-/// 协议轮参数的 CLI 投影（ask 阶段组装输入；cwd 经 `current_dir` 传递不进
+-/// 本形状）。
+-pub struct TurnParams {
+-    /// 轮提问
+-    pub prompt: String,
+-    /// permission-mode 档位
+-    pub permission_mode: AgentPermissionMode,
+-    /// 引擎侧先行句柄（`--resume <id>` 尾追加规则；None 即全新会话）
+-    pub resume_handle: Option<String>,
+-}
+-
+-/// `--permission-mode` flag 值（serde 序列化派生：值单一来源 = 线格式值域，
+-/// 与落库 / IPC 命名逐字一致，无双轨字符串副本）。
+-fn permission_mode_flag_value() -> String {
+-    match serde_json::to_value(AgentPermissionMode::AcceptEdits) {
+-        Ok(serde_json::Value::String(text)) => text,
+-        _ => unreachable!("档位枚举序列化恒为 JSON 字符串"),
+-    }
+-}
+-
+-/// 组装 CLI 参数序列（不含程序名本身，逐参传递）。
+-pub fn build_args(params: &TurnParams) -> Vec<String> {
+-    let mut args = vec![
+-        "-p".to_owned(),
+-        params.prompt.clone(),
+-        "--output-format".to_owned(),
+-        "stream-json".to_owned(),
+-        "--verbose".to_owned(),
+-    ];
+-    match params.permission_mode {
+-        AgentPermissionMode::BypassPermissions => {
+-            args.push("--dangerously-skip-permissions".to_owned());
+-        }
+-        AgentPermissionMode::AcceptEdits => {
+-            args.push("--permission-mode".to_owned());
+-            args.push(permission_mode_flag_value());
+-        }
+-        AgentPermissionMode::Default => {}
+-    }
+-    if let Some(session_id) = &params.resume_handle {
+-        args.push("--resume".to_owned());
+-        args.push(session_id.clone());
+-    }
+-    args.push("--disallowedTools".to_owned());
+-    args.push("AskUserQuestion".to_owned());
+-    args
+-}
+diff --git a/crates/infra/agent/src/cli/flags_test.rs b/crates/infra/agent/src/cli/flags_test.rs
+deleted file mode 100644
+index b0c21ba1afde..000000000000
+--- a/crates/infra/agent/src/cli/flags_test.rs
++++ /dev/null
+@@ -1,406 +0,0 @@
+-use agent::AgentPermissionMode;
+-
+-use crate::flags::{build_args, TurnParams};
+-
+-fn params(prompt: &str, permission_mode: AgentPermissionMode) -> TurnParams {
+-    TurnParams {
+-        prompt: prompt.to_owned(),
+-        permission_mode,
+-        resume_handle: None,
+-    }
+-}
+-
+-/// 带引擎侧先行句柄的组装入参（其余字段同 [`params`]）。
+-fn params_with_resume(
+-    prompt: &str,
+-    permission_mode: AgentPermissionMode,
+-    resume_handle: Option<&str>,
+-) -> TurnParams {
+-    TurnParams {
+-        resume_handle: resume_handle.map(str::to_owned),
+-        ..params(prompt, permission_mode)
+-    }
+-}
+-
+-// ---------------------------------------------------------------------------
+-// flag 序列零回归（正向：三档全组合，尾禁 ask 两枚恒最末）
+-// ---------------------------------------------------------------------------
+-
+-#[test]
+-fn bypass档组装恰含六要素flag尾禁ask两枚无多余项() {
+-    let args = build_args(&params("任务", AgentPermissionMode::BypassPermissions));
+-
+-    assert_eq!(
+-        args,
+-        vec![
+-            "-p".to_owned(),
+-            "任务".to_owned(),
+-            "--output-format".to_owned(),
+-            "stream-json".to_owned(),
+-            "--verbose".to_owned(),
+-            "--dangerously-skip-permissions".to_owned(),
+-            "--disallowedTools".to_owned(),
+-            "AskUserQuestion".to_owned(),
+-        ],
+-        "组装结果恰为六要素（含尾禁 ask 两枚），无额外 flag"
+-    );
+-}
+-
+-#[test]
+-fn 三档全组合组装结果与既有基线逐项相等() {
+-    // Default（无 permission flag）/ AcceptEdits / BypassPermissions 三档穷尽：
+-    // 组装结果与现行基线逐项相等（尾禁 ask 两枚恒在最末）
+-    for (mode, expected_flags) in [
+-        (AgentPermissionMode::Default, None),
+-        (
+-            AgentPermissionMode::AcceptEdits,
+-            Some(["--permission-mode", "acceptEdits"].as_slice()),
+-        ),
+-        (
+-            AgentPermissionMode::BypassPermissions,
+-            Some(["--dangerously-skip-permissions"].as_slice()),
+-        ),
+-    ] {
+-        let args = build_args(&params("任务", mode));
+-        assert_eq!(
+-            args,
+-            baseline_args("任务", mode),
+-            "组合 permission={mode:?} 与现行基线逐项相等"
+-        );
+-        // 档位段（基础五要素 -p/prompt/stream-json/verbose 之后、禁 ask 尾两枚
+-        // 之前）
+-        let head = &args[..args.len() - 2];
+-        match expected_flags {
+-            Some(expected) => assert_eq!(
+-                &head[5..],
+-                expected,
+-                "组合 permission={mode:?} 档位段逐字一致"
+-            ),
+-            None => assert!(
+-                head[5..].is_empty(),
+-                "组合 permission={mode:?} 无档位 flag，实际: {head:?}"
+-            ),
+-        }
+-        assert_eq!(
+-            &args[args.len() - 2..],
+-            ["--disallowedTools", "AskUserQuestion"],
+-            "组合 permission={mode:?} 尾禁 ask 两枚恒在最末"
+-        );
+-    }
+-}
+-
+-#[test]
+-fn accept_edits档位值与serde派生线值同源() {
+-    let derived =
+-        serde_json::to_value(AgentPermissionMode::AcceptEdits).expect("档位枚举序列化应成功");
+-    assert_eq!(
+-        derived,
+-        serde_json::json!("acceptEdits"),
+-        "serde 派生值与既有落库/线格式口径逐字一致"
+-    );
+-
+-    let args = build_args(&params("任务", AgentPermissionMode::AcceptEdits));
+-    let position = args
+-        .iter()
+-        .position(|arg| arg == "--permission-mode")
+-        .expect("acceptEdits 组装含 --permission-mode flag");
+-    assert_eq!(
+-        args.get(position + 1).map(String::as_str),
+-        Some("acceptEdits"),
+-        "flag 值串逐字为 acceptEdits（单一来源，无字符串副本）"
+-    );
+-}
+-
+-#[test]
+-fn default档无permission_flag() {
+-    let default = build_args(&params("任务", AgentPermissionMode::Default));
+-    assert!(
+-        !default.iter().any(|arg| arg.contains("permission")),
+-        "default 档无 permission flag（CLI -p 默认档），实际: {default:?}"
+-    );
+-}
+-
+-// ---------------------------------------------------------------------------
+-// prompt 保真（边界）
+-// ---------------------------------------------------------------------------
+-
+-#[test]
+-fn 空prompt仍组装空串arg作为单个参数() {
+-    let args = build_args(&params("", AgentPermissionMode::Default));
+-
+-    assert_eq!(args.first().map(String::as_str), Some("-p"));
+-    assert_eq!(
+-        args.get(1).map(String::as_str),
+-        Some(""),
+-        "空 prompt 为单个空 arg"
+-    );
+-}
+-
+-#[test]
+-fn prompt含空格引号换行中文emoji时原样保留不拆分() {
+-    let prompt = "两句话 第一句\n\"quoted\" 引号 🎉 中文";
+-    let args = build_args(&params(prompt, AgentPermissionMode::Default));
+-
+-    assert_eq!(
+-        args.get(1).map(String::as_str),
+-        Some(prompt),
+-        "prompt 为单个 arg 原样保留"
+-    );
+-    assert_eq!(
+-        args.iter().filter(|arg| **arg == "-p").count(),
+-        1,
+-        "不因空白被拆分"
+-    );
+-}
+-
+-#[test]
+-fn 超长prompt完整保留于arg() {
+-    let prompt = "长".repeat(1200);
+-    let args = build_args(&params(&prompt, AgentPermissionMode::Default));
+-
+-    assert_eq!(args.get(1).map(String::as_str), Some(prompt.as_str()));
+-}
+-
+-// ---------------------------------------------------------------------------
+-// --resume 段与禁 ask 尾两枚（prior_handle Some/None）
+-// ---------------------------------------------------------------------------
+-
+-#[test]
+-fn prior_handle为some时resume段紧邻尾禁ask两枚且前缀与基线一致() {
+-    let args = build_args(&params_with_resume(
+-        "任务",
+-        AgentPermissionMode::BypassPermissions,
+-        Some("s-1"),
+-    ));
+-
+-    // 禁 ask 两枚恒为参数序列最末两枚（Continue 组合同样成立）
+-    assert_eq!(
+-        &args[args.len() - 2..],
+-        ["--disallowedTools", "AskUserQuestion"],
+-        "禁 ask 两枚恒在最末，实际: {args:?}"
+-    );
+-    // --resume <id> 两枚紧邻禁 ask 尾两枚之前（variadic flag 之后的唯一安全位）
+-    assert_eq!(
+-        &args[args.len() - 4..args.len() - 2],
+-        ["--resume", "s-1"],
+-        "--resume <id> 紧邻禁 ask 尾两枚之前，实际: {args:?}"
+-    );
+-    // resume 段之外的前缀与无 resume 基线逐项相等
+-    let baseline = build_args(&params("任务", AgentPermissionMode::BypassPermissions));
+-    assert_eq!(
+-        &args[..args.len() - 4],
+-        &baseline[..baseline.len() - 2],
+-        "resume 段之外的前缀与既有序列逐项相等"
+-    );
+-}
+-
+-#[test]
+-fn prior_handle为none时组装结果与既有基线逐项相等且无resume() {
+-    for permission_mode in [
+-        AgentPermissionMode::Default,
+-        AgentPermissionMode::AcceptEdits,
+-        AgentPermissionMode::BypassPermissions,
+-    ] {
+-        let args = build_args(&params("任务", permission_mode));
+-        assert!(
+-            !args.iter().any(|arg| arg == "--resume"),
+-            "组合 permission={permission_mode:?} 无 --resume"
+-        );
+-        assert_eq!(
+-            args,
+-            baseline_args("任务", permission_mode),
+-            "None 组装与现行基线逐项相等（组合 permission={permission_mode:?}）"
+-        );
+-    }
+-}
+-
+-#[test]
+-fn 组合下resume紧邻尾禁ask两枚且档位flag与相对次序不变() {
+-    for permission_mode in [
+-        AgentPermissionMode::Default,
+-        AgentPermissionMode::AcceptEdits,
+-        AgentPermissionMode::BypassPermissions,
+-    ] {
+-        let with_resume = build_args(&params_with_resume("任务", permission_mode, Some("s-1")));
+-        let without_resume = build_args(&params("任务", permission_mode));
+-
+-        // 禁 ask 两枚恒最末（New / Continue 组合位置一致）
+-        assert_eq!(
+-            &with_resume[with_resume.len() - 2..],
+-            ["--disallowedTools", "AskUserQuestion"],
+-            "组合 permission={permission_mode:?}：禁 ask 两枚恒在最末"
+-        );
+-        // --resume 段紧邻禁 ask 尾两枚之前
+-        assert_eq!(
+-            &with_resume[with_resume.len() - 4..with_resume.len() - 2],
+-            ["--resume", "s-1"],
+-            "组合 permission={permission_mode:?}：--resume 恒在禁 ask 两枚之前"
+-        );
+-        // resume 段之前与无 resume 组装逐项相等（档位 flag 面与相对次序不变）
+-        assert_eq!(
+-            &with_resume[..with_resume.len() - 4],
+-            &without_resume[..without_resume.len() - 2],
+-            "组合 permission={permission_mode:?}：档位 flag 面与相对次序不变"
+-        );
+-    }
+-}
+-
+-// ---------------------------------------------------------------------------
+-// resume id 保真（边界）
+-// ---------------------------------------------------------------------------
+-
+-#[test]
+-fn prior_handle空串仍组装resume与空arg() {
+-    let args = build_args(&params_with_resume(
+-        "任务",
+-        AgentPermissionMode::Default,
+-        Some(""),
+-    ));
+-
+-    assert_eq!(
+-        &args[args.len() - 4..args.len() - 2],
+-        ["--resume", ""],
+-        "空串 prior_handle 仍组装为 --resume + 空 arg 两项（禁 ask 两枚之前），实际: {args:?}"
+-    );
+-    assert_eq!(
+-        &args[args.len() - 2..],
+-        ["--disallowedTools", "AskUserQuestion"],
+-        "禁 ask 两枚恒在最末"
+-    );
+-}
+-
+-#[test]
+-fn prior_handle含空格引号换行emoji超长时原样保留单个arg() {
+-    let handle = "s 1 \"quoted\"\nnext 🎉 中文";
+-    let long = format!("{handle}{}", "x".repeat(1000));
+-    let args = build_args(&params_with_resume(
+-        "任务",
+-        AgentPermissionMode::Default,
+-        Some(&long),
+-    ));
+-
+-    // resume id 处于禁 ask 尾两枚之前的末位 arg
+-    assert_eq!(
+-        args.get(args.len() - 3).map(String::as_str),
+-        Some(long.as_str()),
+-        "prior_handle 原样保留为单个 arg，不被空白/特殊字符拆分或截断"
+-    );
+-    assert_eq!(
+-        args.iter().filter(|arg| *arg == "--resume").count(),
+-        1,
+-        "不因 id 内空白产生第二个 --resume flag"
+-    );
+-    assert_eq!(
+-        &args[args.len() - 2..],
+-        ["--disallowedTools", "AskUserQuestion"],
+-        "禁 ask 两枚恒在最末"
+-    );
+-}
+-
+-// ---------------------------------------------------------------------------
+-// headless 禁 ask 尾两枚（--disallowedTools AskUserQuestion 恒最末）
+-// ---------------------------------------------------------------------------
+-
+-#[test]
+-fn 禁ask两枚恒为参数序列最末两枚_三档乘resume全组合() {
+-    for permission_mode in [
+-        AgentPermissionMode::Default,
+-        AgentPermissionMode::AcceptEdits,
+-        AgentPermissionMode::BypassPermissions,
+-    ] {
+-        for resume_handle in [None, Some("s-1")] {
+-            let args = build_args(&params_with_resume("任务", permission_mode, resume_handle));
+-            assert_eq!(
+-                &args[args.len() - 2..],
+-                ["--disallowedTools", "AskUserQuestion"],
+-                "组合 permission={permission_mode:?} resume={resume_handle:?}：禁 ask 两枚恒为最末两枚，实际: {args:?}"
+-            );
+-            // 各恰一枚（variadic flag 无重复；工具名字面量 camelCase 逐字）
+-            assert_eq!(
+-                args.iter().filter(|arg| *arg == "--disallowedTools").count(),
+-                1,
+-                "组合 permission={permission_mode:?} resume={resume_handle:?}：--disallowedTools 恰一枚"
+-            );
+-            assert_eq!(
+-                args.iter().filter(|arg| *arg == "AskUserQuestion").count(),
+-                1,
+-                "组合 permission={permission_mode:?} resume={resume_handle:?}：AskUserQuestion 恰一枚"
+-            );
+-        }
+-    }
+-}
+-
+-// ---------------------------------------------------------------------------
+-// 禁用 flag 负向与 cwd（边界）
+-// ---------------------------------------------------------------------------
+-
+-#[test]
+-fn 全组合不含禁用flag() {
+-    let forbidden = ["--resume", "--include-partial-messages", "--model"];
+-    for permission_mode in [
+-        AgentPermissionMode::Default,
+-        AgentPermissionMode::AcceptEdits,
+-        AgentPermissionMode::BypassPermissions,
+-    ] {
+-        let args = build_args(&params("任务", permission_mode));
+-        for flag in forbidden {
+-            assert!(
+-                !args.iter().any(|arg| arg.starts_with(flag)),
+-                "组合 permission={permission_mode:?} 不得含 {flag}，实际: {args:?}"
+-            );
+-        }
+-    }
+-}
+-
+-#[test]
+-fn cwd不进协议轮参数形状_组装结果不含工作目录片段() {
+-    // 协议轮参数形状（TurnParams）无 cwd 字段：cwd 仅经 Command::current_dir
+-    // 传递（编译期锚定——本构造若需 cwd 即编译失败）；组装结果亦不含路径片段
+-    let turn_params = TurnParams {
+-        prompt: "任务".to_owned(),
+-        permission_mode: AgentPermissionMode::BypassPermissions,
+-        resume_handle: None,
+-    };
+-    let args = build_args(&turn_params);
+-
+-    assert!(
+-        !args
+-            .iter()
+-            .any(|arg| arg.contains("work") || arg.contains("demo") || arg.contains('\\')),
+-        "组装结果不含 cwd 片段，实际: {args:?}"
+-    );
+-    // 三档组装互异性（档位 flag 面各自成立）
+-    let default_args = build_args(&params("任务", AgentPermissionMode::Default));
+-    let accept_args = build_args(&params("任务", AgentPermissionMode::AcceptEdits));
+-    assert_ne!(args, default_args);
+-    assert_ne!(args, accept_args);
+-}
+-
+-// ---------------------------------------------------------------------------
+-// 基线对照装置（现行组装序列，逐项镜像）
+-// ---------------------------------------------------------------------------
+-
+-/// 无 resume 组装的现行基线：基础五要素 + 档位 flag + 尾禁 ask 两枚
+-/// （`--resume` 段由各用例按 prior_handle 侧断言，不在此镜像）。
+-fn baseline_args(prompt: &str, permission_mode: AgentPermissionMode) -> Vec<String> {
+-    let mut args = vec![
+-        "-p".to_owned(),
+-        prompt.to_owned(),
+-        "--output-format".to_owned(),
+-        "stream-json".to_owned(),
+-        "--verbose".to_owned(),
+-    ];
+-    match permission_mode {
+-        AgentPermissionMode::BypassPermissions => {
+-            args.push("--dangerously-skip-permissions".to_owned());
+-        }
+-        AgentPermissionMode::AcceptEdits => {
+-            args.push("--permission-mode".to_owned());
+-            args.push("acceptEdits".to_owned());
+-        }
+-        AgentPermissionMode::Default => {}
+-    }
+-    args.push("--disallowedTools".to_owned());
+-    args.push("AskUserQuestion".to_owned());
+-    args
+-}
+diff --git a/crates/infra/agent/src/cli/jsonl.rs b/crates/infra/agent/src/cli/jsonl.rs
+deleted file mode 100644
+index e147e499ccc0..000000000000
+--- a/crates/infra/agent/src/cli/jsonl.rs
++++ /dev/null
+@@ -1,201 +0,0 @@
+-use agent::{AgentBlock, AgentEventKind, AgentMessageRole};
+-use serde_json::Value;
+-
+-/// 单行归一化；空白行（纯空白）与 thinking_tokens 估算遥测行返回 `None`。
+-pub fn normalize_line(line: &str) -> Option<AgentEventKind> {
+-    if line.trim().is_empty() {
+-        return None;
+-    }
+-    let parsed: Value = match serde_json::from_str(line) {
+-        Ok(value) => value,
+-        Err(_) => return Some(unparsable(line)),
+-    };
+-    let event_type = parsed.get("type").and_then(Value::as_str);
+-    match event_type {
+-        Some("system") => system_event(&parsed),
+-        Some(role @ ("assistant" | "user")) => Some(message_event(role, &parsed)),
+-        Some("result") => Some(result_event(&parsed)),
+-        Some(event_type) => Some(raw(event_type, line)),
+-        None => Some(raw("unknown", line)),
+-    }
+-}
+-
+-/// `Raw` 兜底：未知 `type` / 非 JSON 行原文透传。
+-fn raw(event_type: &str, line: &str) -> AgentEventKind {
+-    AgentEventKind::Raw {
+-        event_type: event_type.to_owned(),
+-        raw_json: line.to_owned(),
+-    }
+-}
+-
+-/// 非 JSON 行兜底变体。
+-fn unparsable(line: &str) -> AgentEventKind {
+-    AgentEventKind::Raw {
+-        event_type: "unparsable".to_owned(),
+-        raw_json: line.to_owned(),
+-    }
+-}
+-
+-/// `type=system`：`subtype=init` → RunStarted；`subtype=thinking_tokens` →
+-/// None（思考流式 token 估算遥测：每几 token 一条的高频进度信号，估算口径
+-/// 已被 result → TurnDone.usage 权威收口，不进密封词面——不落库不上传输
+-/// 面，同空白行不占 seq）；其余 → SystemNotice（payload 存原 JSON，不封闭
+-/// 枚举）。
+-fn system_event(parsed: &Value) -> Option<AgentEventKind> {
+-    let subtype = parsed
+-        .get("subtype")
+-        .and_then(Value::as_str)
+-        .unwrap_or_default();
+-    if subtype == "thinking_tokens" {
+-        return None;
+-    }
+-    if subtype == "init" {
+-        let tools = string_list(parsed.get("tools"));
+-        let mcp_servers = string_list(parsed.get("mcp_servers"));
+-        return Some(AgentEventKind::RunStarted {
+-            model: optional_string(parsed.get("model")),
+-            session_id: optional_string(parsed.get("session_id")),
+-            tools,
+-            mcp_servers,
+-        });
+-    }
+-    Some(AgentEventKind::SystemNotice {
+-        subtype: subtype.to_owned(),
+-        payload: parsed.clone(),
+-    })
+-}
+-
+-fn message_event(role: &str, parsed: &Value) -> AgentEventKind {
+-    let content = parsed.get("message").and_then(|m| m.get("content"));
+-    let blocks = match content {
+-        Some(Value::Array(items)) => items.iter().filter_map(block).collect(),
+-        Some(Value::String(text)) => vec![AgentBlock::Text { text: text.clone() }],
+-        _ => Vec::new(),
+-    };
+-    let role = if role == "user" {
+-        let all_results = !blocks.is_empty()
+-            && blocks
+-                .iter()
+-                .all(|b| matches!(b, AgentBlock::ToolResult { .. }));
+-        if all_results {
+-            AgentMessageRole::Tool
+-        } else {
+-            AgentMessageRole::User
+-        }
+-    } else {
+-        AgentMessageRole::Assistant
+-    };
+-    AgentEventKind::Message {
+-        role,
+-        blocks,
+-        parent_tool_use_id: optional_string(parsed.get("parent_tool_use_id")),
+-    }
+-}
+-
+-/// 块映射：text→Text、thinking→Thinking、tool_use→ToolUse、tool_result→
+-/// ToolResult（content 扁平化为字符串、is_error 缺失 false）；其余未知块
+-/// 类型跳过（块级未知不堵信封——事件级由 Raw 兜底）。
+-fn block(value: &Value) -> Option<AgentBlock> {
+-    match value.get("type").and_then(Value::as_str) {
+-        Some("text") => Some(AgentBlock::Text {
+-            text: value
+-                .get("text")
+-                .and_then(Value::as_str)
+-                .unwrap_or_default()
+-                .to_owned(),
+-        }),
+-        Some("thinking") => Some(AgentBlock::Thinking {
+-            thinking: value
+-                .get("thinking")
+-                .and_then(Value::as_str)
+-                .unwrap_or_default()
+-                .to_owned(),
+-        }),
+-        Some("tool_use") => Some(AgentBlock::ToolUse {
+-            id: value
+-                .get("id")
+-                .and_then(Value::as_str)
+-                .unwrap_or_default()
+-                .to_owned(),
+-            name: value
+-                .get("name")
+-                .and_then(Value::as_str)
+-                .unwrap_or_default()
+-                .to_owned(),
+-            input: value.get("input").cloned().unwrap_or(Value::Null),
+-        }),
+-        Some("tool_result") => Some(AgentBlock::ToolResult {
+-            id: value
+-                .get("id")
+-                .and_then(Value::as_str)
+-                .unwrap_or_default()
+-                .to_owned(),
+-            content: flatten_content(value.get("content")),
+-            is_error: value
+-                .get("is_error")
+-                .and_then(Value::as_bool)
+-                .unwrap_or(false),
+-        }),
+-        _ => None,
+-    }
+-}
+-
+-/// ToolResult.content 扁平化：字符串原样；数组逐元素取文本后按行拼接
+-/// （元素为对象时取其 `text` 字段，否则 JSON 序列化兜底）；其余形态 JSON
+-/// 序列化；缺失空串。
+-fn flatten_content(value: Option<&Value>) -> String {
+-    match value {
+-        Some(Value::String(text)) => text.clone(),
+-        Some(Value::Array(items)) => items
+-            .iter()
+-            .map(|item| match item {
+-                Value::String(text) => text.clone(),
+-                other => other
+-                    .get("text")
+-                    .and_then(Value::as_str)
+-                    .map(str::to_owned)
+-                    .unwrap_or_else(|| other.to_string()),
+-            })
+-            .collect::<Vec<String>>()
+-            .join("\n"),
+-        Some(other) => other.to_string(),
+-        None => String::new(),
+-    }
+-}
+-
+-/// `type=result` → TurnDone：`total_cost_usd` → `cost_usd` 等字段对齐，
+-/// 缺失置 null / false。
+-fn result_event(parsed: &Value) -> AgentEventKind {
+-    AgentEventKind::TurnDone {
+-        subtype: parsed
+-            .get("subtype")
+-            .and_then(Value::as_str)
+-            .unwrap_or_default()
+-            .to_owned(),
+-        is_error: parsed
+-            .get("is_error")
+-            .and_then(Value::as_bool)
+-            .unwrap_or(false),
+-        num_turns: parsed.get("num_turns").and_then(Value::as_u64),
+-        duration_ms: parsed.get("duration_ms").and_then(Value::as_u64),
+-        cost_usd: parsed.get("total_cost_usd").and_then(Value::as_f64),
+-        usage: parsed.get("usage").cloned().unwrap_or(Value::Null),
+-        session_id: optional_string(parsed.get("session_id")),
+-    }
+-}
+-
+-/// 可空字符串字段提取：缺失或非字符串 → None。
+-fn optional_string(value: Option<&Value>) -> Option<String> {
+-    value.and_then(Value::as_str).map(str::to_owned)
+-}
+-
+-/// 字符串数组字段提取：缺失或形态不符 → 空表（保留可归一化的元素）。
+-fn string_list(value: Option<&Value>) -> Vec<String> {
+-    match value {
+-        Some(Value::Array(items)) => items
+-            .iter()
+-            .filter_map(|item| item.as_str().map(str::to_owned))
+-            .collect(),
+-        _ => Vec::new(),
+-    }
+-}
+diff --git a/crates/infra/agent/src/cli/jsonl_test.rs b/crates/infra/agent/src/cli/jsonl_test.rs
+deleted file mode 100644
+index cdb001e0245b..000000000000
+--- a/crates/infra/agent/src/cli/jsonl_test.rs
++++ /dev/null
+@@ -1,440 +0,0 @@
+-use agent::{AgentEventKind, AgentMessageRole};
+-
+-use crate::jsonl::normalize_line;
+-
+-/// system/init 行：model / session_id / tools / mcp_servers 齐备。
+-const INIT_LINE: &str = r#"{"type":"system","subtype":"init","model":"claude-opus","session_id":"s-1","tools":["Bash","Read"],"mcp_servers":["mcp-a"]}"#;
+-/// assistant 行：thinking + tool_use 两块。
+-const ASSISTANT_TOOL_USE_LINE: &str = r#"{"type":"assistant","message":{"role":"assistant","content":[{"type":"thinking","thinking":"想一下"},{"type":"tool_use","id":"tu_1","name":"Bash","input":{"command":"ls"}}]},"parent_tool_use_id":null}"#;
+-/// user 行：tool_result 块（content 为数组形态）。
+-const USER_TOOL_RESULT_LINE: &str = r#"{"type":"user","message":{"role":"user","content":[{"type":"tool_result","id":"tu_1","content":[{"type":"text","text":"行一"},{"type":"text","text":"行二"}]}]}}"#;
+-/// result 行：全字段齐备。
+-const RESULT_LINE: &str = r#"{"type":"result","subtype":"success","is_error":false,"num_turns":3,"duration_ms":1234,"total_cost_usd":0.42,"usage":{"input_tokens":10},"session_id":"s-1"}"#;
+-
+-// ---------------------------------------------------------------------------
+-// 正向：五类行的归一化
+-// ---------------------------------------------------------------------------
+-
+-#[test]
+-fn system_init行归一化为run_started并提取四字段() {
+-    let Some(AgentEventKind::RunStarted {
+-        model,
+-        session_id,
+-        tools,
+-        mcp_servers,
+-    }) = normalize_line(INIT_LINE)
+-    else {
+-        panic!("init 行应归一化为 RunStarted");
+-    };
+-
+-    assert_eq!(model.as_deref(), Some("claude-opus"));
+-    assert_eq!(session_id.as_deref(), Some("s-1"));
+-    assert_eq!(tools, vec!["Bash".to_owned(), "Read".to_owned()]);
+-    assert_eq!(mcp_servers, vec!["mcp-a".to_owned()]);
+-}
+-
+-#[test]
+-fn system其余subtype归一化为system_notice且payload存原json() {
+-    let line = r#"{"type":"system","subtype":"permission_denial","tool":"Bash"}"#;
+-    let Some(AgentEventKind::SystemNotice { subtype, payload }) = normalize_line(line) else {
+-        panic!("其余 system 行应归一化为 SystemNotice（不封闭枚举）");
+-    };
+-
+-    assert_eq!(subtype, "permission_denial");
+-    assert_eq!(
+-        payload,
+-        serde_json::json!({ "type": "system", "subtype": "permission_denial", "tool": "Bash" }),
+-        "payload 为原 JSON 全量"
+-    );
+-}
+-
+-#[test]
+-fn system_thinking_tokens行估算遥测丢弃返回none() {
+-    // CLI 思考流式期间每几 token 一条（estimated_tokens 累计估算，权威口径
+-    // 已由 result → TurnDone.usage 收口）：不进密封词面，同空白行不占 seq
+-    let line = r#"{"type":"system","subtype":"thinking_tokens","estimated_tokens":27,"estimated_tokens_delta":1,"uuid":"u-1","session_id":"s-1"}"#;
+-    assert_eq!(
+-        normalize_line(line),
+-        None,
+-        "thinking_tokens 为流式估算遥测，应丢弃不占归一化位"
+-    );
+-}
+-
+-#[test]
+-fn assistant与user行归一化为message且blocks按类型映射() {
+-    let Some(AgentEventKind::Message {
+-        role,
+-        blocks,
+-        parent_tool_use_id,
+-    }) = normalize_line(ASSISTANT_TOOL_USE_LINE)
+-    else {
+-        panic!("assistant 行应归一化为 Message");
+-    };
+-    assert_eq!(role, AgentMessageRole::Assistant, "role 取自 type");
+-    assert_eq!(parent_tool_use_id, None);
+-    assert_eq!(blocks.len(), 2, "thinking + tool_use 两块");
+-    assert!(matches!(&blocks[0], agent::AgentBlock::Thinking { thinking } if thinking == "想一下"));
+-}
+-
+-#[test]
+-fn tool_use与tool_result块的id_name_input与扁平content映射正确() {
+-    let Some(AgentEventKind::Message { blocks, .. }) = normalize_line(ASSISTANT_TOOL_USE_LINE)
+-    else {
+-        panic!("assistant 行应归一化为 Message");
+-    };
+-    // 第二块为 tool_use：id/name/input 直取
+-    assert!(
+-        matches!(
+-            &blocks[1],
+-            agent::AgentBlock::ToolUse { id, name, input }
+-                if id == "tu_1" && name == "Bash" && input == &serde_json::json!({ "command": "ls" })
+-        ),
+-        "tool_use 块字段映射，实际: {:?}",
+-        blocks[1]
+-    );
+-
+-    // user 行：tool_result content 数组逐元素取 text 按行拼接
+-    let Some(AgentEventKind::Message { blocks, .. }) = normalize_line(USER_TOOL_RESULT_LINE) else {
+-        panic!("user 行应归一化为 Message");
+-    };
+-    assert!(
+-        matches!(
+-            &blocks[0],
+-            agent::AgentBlock::ToolResult { id, content, is_error }
+-                if id == "tu_1" && content == "行一\n行二" && !*is_error
+-        ),
+-        "tool_result 数组 content 扁平化拼接，实际: {:?}",
+-        blocks[0]
+-    );
+-}
+-
+-#[test]
+-fn result行归一化为turn_done且字段名对齐() {
+-    let Some(AgentEventKind::TurnDone {
+-        subtype,
+-        is_error,
+-        num_turns,
+-        duration_ms,
+-        cost_usd,
+-        usage,
+-        session_id,
+-    }) = normalize_line(RESULT_LINE)
+-    else {
+-        panic!("result 行应归一化为 TurnDone");
+-    };
+-
+-    assert_eq!(subtype, "success");
+-    assert!(!is_error);
+-    assert_eq!(num_turns, Some(3));
+-    assert_eq!(duration_ms, Some(1234));
+-    assert_eq!(cost_usd, Some(0.42), "total_cost_usd → cost_usd 对齐");
+-    assert_eq!(usage, serde_json::json!({ "input_tokens": 10 }));
+-    assert_eq!(session_id.as_deref(), Some("s-1"));
+-}
+-
+-// ---------------------------------------------------------------------------
+-// user 型行按块构成归一 role（引擎抹平差异：纯 tool_result → tool）
+-// ---------------------------------------------------------------------------
+-
+-#[test]
+-fn 纯tool_result的user行重标为tool_role() {
+-    let Some(AgentEventKind::Message { role, .. }) = normalize_line(USER_TOOL_RESULT_LINE) else {
+-        panic!("user 行应归一化为 Message");
+-    };
+-    assert_eq!(
+-        role,
+-        AgentMessageRole::Tool,
+-        "CLI 以 user 型回灌工具结果，进 core 前重标 tool"
+-    );
+-}
+-
+-#[test]
+-fn text与tool_result混排的user行保留user_role() {
+-    let line = r#"{"type":"user","message":{"content":[{"type":"tool_result","id":"tu_5","content":"ok"},{"type":"text","text":"附带说明"}]}}"#;
+-    let Some(AgentEventKind::Message { role, blocks, .. }) = normalize_line(line) else {
+-        panic!("混排行应归一化为 Message");
+-    };
+-    assert_eq!(
+-        role,
+-        AgentMessageRole::User,
+-        "混排（text + tool_result）是用户言语，不重标"
+-    );
+-    assert_eq!(blocks.len(), 2, "两块全保留");
+-}
+-
+-#[test]
+-fn 空content的user行保留user_role不误重标() {
+-    let line = r#"{"type":"user","message":{"content":[]},"parent_tool_use_id":"tu_9"}"#;
+-    let Some(AgentEventKind::Message { role, blocks, .. }) = normalize_line(line) else {
+-        panic!("空 content 行应归一化为 Message");
+-    };
+-    assert_eq!(
+-        role,
+-        AgentMessageRole::User,
+-        "空块不构成纯 tool_result，不重标"
+-    );
+-    assert!(blocks.is_empty());
+-}
+-
+-#[test]
+-fn 纯文本user行保留user_role() {
+-    let line = r#"{"type":"user","message":{"content":"用户提问"}}"#;
+-    let Some(AgentEventKind::Message { role, .. }) = normalize_line(line) else {
+-        panic!("纯文本 user 行应归一化为 Message");
+-    };
+-    assert_eq!(role, AgentMessageRole::User);
+-}
+-
+-// ---------------------------------------------------------------------------
+-// 正向：未知 / 非 JSON 的 Raw 兜底
+-// ---------------------------------------------------------------------------
+-
+-#[test]
+-fn 未知type合法json归一化为raw且原文透传() {
+-    let line = r#"{"type":"stream_event","x":1}"#;
+-    let Some(AgentEventKind::Raw {
+-        event_type,
+-        raw_json,
+-    }) = normalize_line(line)
+-    else {
+-        panic!("未知 type 应归一化为 Raw（AC-2）");
+-    };
+-    assert_eq!(event_type, "stream_event", "eventType 取自 type 值");
+-    assert_eq!(raw_json, line, "rawJson 为原文");
+-}
+-
+-#[test]
+-fn 非json行归一化为unparsable且永不炸解析() {
+-    let line = "这不是 JSON {";
+-    let Some(AgentEventKind::Raw {
+-        event_type,
+-        raw_json,
+-    }) = normalize_line(line)
+-    else {
+-        panic!("非 JSON 行应归一化为 Raw");
+-    };
+-    assert_eq!(event_type, "unparsable");
+-    assert_eq!(raw_json, line);
+-}
+-
+-#[test]
+-fn 缺type键的合法json归一化为unknown形态raw() {
+-    let line = r#"{"foo":1}"#;
+-    let Some(AgentEventKind::Raw {
+-        event_type,
+-        raw_json,
+-    }) = normalize_line(line)
+-    else {
+-        panic!("缺 type 应有 Raw 兜底，不丢事件");
+-    };
+-    assert_eq!(event_type, "unknown");
+-    assert_eq!(raw_json, line);
+-}
+-
+-// ---------------------------------------------------------------------------
+-// 边界：空白行 / 字段缺失 / content 形态
+-// ---------------------------------------------------------------------------
+-
+-#[test]
+-fn 空白行跳过返回none不占seq() {
+-    assert_eq!(normalize_line(""), None);
+-    assert_eq!(normalize_line("   "), None);
+-    assert_eq!(normalize_line("\t \r"), None);
+-}
+-
+-#[test]
+-fn message的content为字符串时降级为单个text块() {
+-    let line = r#"{"type":"assistant","message":{"content":"纯文本正文"}}"#;
+-    let Some(AgentEventKind::Message { blocks, .. }) = normalize_line(line) else {
+-        panic!("应归一化为 Message");
+-    };
+-    assert_eq!(blocks.len(), 1, "字符串 content 降级为单个块，不丢正文");
+-    assert!(
+-        matches!(&blocks[0], agent::AgentBlock::Text { text } if text == "纯文本正文"),
+-        "实际: {:?}",
+-        blocks[0]
+-    );
+-}
+-
+-#[test]
+-fn message含未知块类型时跳过该块不堵信封() {
+-    let line = r#"{"type":"assistant","message":{"content":[{"type":"mystery_block","x":1},{"type":"text","text":"正文"}]}}"#;
+-    let Some(AgentEventKind::Message { blocks, .. }) = normalize_line(line) else {
+-        panic!("块级未知不堵事件信封");
+-    };
+-    assert_eq!(blocks.len(), 1, "未知块跳过，已知块保留");
+-    assert!(matches!(&blocks[0], agent::AgentBlock::Text { text } if text == "正文"));
+-}
+-
+-#[test]
+-fn tool_result的content为数组时拼接为非数组时json序列化兜底() {
+-    // 非数组形态：对象 → JSON 序列化
+-    let object_line = r#"{"type":"user","message":{"content":[{"type":"tool_result","id":"tu_2","content":{"weird":true}}]}}"#;
+-    let Some(AgentEventKind::Message { blocks, .. }) = normalize_line(object_line) else {
+-        panic!("应归一化为 Message");
+-    };
+-    assert!(
+-        matches!(&blocks[0], agent::AgentBlock::ToolResult { content, .. }
+-            if content == r#"{"weird":true}"#),
+-        "非数组 content JSON 序列化兜底，实际: {:?}",
+-        blocks[0]
+-    );
+-
+-    // 字符串形态：原样
+-    let string_line = r#"{"type":"user","message":{"content":[{"type":"tool_result","id":"tu_3","content":"直接文本"}]}}"#;
+-    let Some(AgentEventKind::Message { blocks, .. }) = normalize_line(string_line) else {
+-        panic!("应归一化为 Message");
+-    };
+-    assert!(
+-        matches!(&blocks[0], agent::AgentBlock::ToolResult { content, .. } if content == "直接文本"),
+-    );
+-}
+-
+-#[test]
+-fn tool_result的is_error缺失视作false有true时保真() {
+-    let error_line = r#"{"type":"user","message":{"content":[{"type":"tool_result","id":"tu_4","content":"失败","is_error":true}]}}"#;
+-    let Some(AgentEventKind::Message { blocks, .. }) = normalize_line(error_line) else {
+-        panic!("应归一化为 Message");
+-    };
+-    assert!(matches!(
+-        &blocks[0],
+-        agent::AgentBlock::ToolResult { is_error: true, .. }
+-    ));
+-    // 缺失 → false（与 USER_TOOL_RESULT_LINE 同口径）
+-    let Some(AgentEventKind::Message { blocks, .. }) = normalize_line(USER_TOOL_RESULT_LINE) else {
+-        panic!("应归一化为 Message");
+-    };
+-    assert!(matches!(
+-        &blocks[0],
+-        agent::AgentBlock::ToolResult {
+-            is_error: false,
+-            ..
+-        }
+-    ));
+-}
+-
+-#[test]
+-fn init缺model与session置null缺tools与mcp置空数组() {
+-    let line = r#"{"type":"system","subtype":"init"}"#;
+-    let Some(AgentEventKind::RunStarted {
+-        model,
+-        session_id,
+-        tools,
+-        mcp_servers,
+-    }) = normalize_line(line)
+-    else {
+-        panic!("缺字段 init 行仍归一化为 RunStarted");
+-    };
+-    assert_eq!(model, None);
+-    assert_eq!(session_id, None);
+-    assert!(tools.is_empty());
+-    assert!(mcp_servers.is_empty());
+-}
+-
+-#[test]
+-fn result缺汇总字段时置null与false() {
+-    let line = r#"{"type":"result"}"#;
+-    let Some(AgentEventKind::TurnDone {
+-        subtype,
+-        is_error,
+-        num_turns,
+-        duration_ms,
+-        cost_usd,
+-        usage,
+-        session_id,
+-    }) = normalize_line(line)
+-    else {
+-        panic!("缺字段 result 行仍归一化为 TurnDone");
+-    };
+-    assert_eq!(subtype, "");
+-    assert!(!is_error);
+-    assert_eq!(num_turns, None);
+-    assert_eq!(duration_ms, None);
+-    assert_eq!(cost_usd, None);
+-    assert_eq!(usage, serde_json::Value::Null);
+-    assert_eq!(session_id, None);
+-}
+-
+-#[test]
+-fn message行携parent_tool_use_id时提取为有值形态() {
+-    let line = r#"{"type":"user","message":{"content":[]},"parent_tool_use_id":"tu_9"}"#;
+-    let Some(AgentEventKind::Message {
+-        parent_tool_use_id, ..
+-    }) = normalize_line(line)
+-    else {
+-        panic!("应归一化为 Message");
+-    };
+-    assert_eq!(
+-        parent_tool_use_id.as_deref(),
+-        Some("tu_9"),
+-        "子代理归因字段提取"
+-    );
+-}
+-
+-// ---------------------------------------------------------------------------
+-// 边界：多行序列、洪峰与深嵌套（seq 单调口径在 jsonl 层即「空白行不占号」）
+-// ---------------------------------------------------------------------------
+-
+-#[test]
+-fn 多行混合fixture归一化序列仅含非空白行且空白行不占位() {
+-    let lines = [
+-        INIT_LINE,
+-        "", // 空白行：None，不占归一化位（泵侧 seq 不递增）
+-        ASSISTANT_TOOL_USE_LINE,
+-        "   ",
+-        USER_TOOL_RESULT_LINE,
+-        RESULT_LINE,
+-    ];
+-    let kinds: Vec<AgentEventKind> = lines
+-        .iter()
+-        .filter_map(|line| normalize_line(line))
+-        .collect();
+-
+-    // 4 条非空白行 → 恰 4 个归一化产物（泵按序盖 seq 0..4，AC-2 seq 单调）
+-    assert_eq!(kinds.len(), 4, "空白行不占归一化位");
+-    assert!(matches!(kinds[0], AgentEventKind::RunStarted { .. }));
+-    assert!(matches!(kinds[1], AgentEventKind::Message { .. }));
+-    assert!(matches!(kinds[2], AgentEventKind::Message { .. }));
+-    assert!(matches!(kinds[3], AgentEventKind::TurnDone { .. }));
+-}
+-
+-#[test]
+-fn 零行输入产出零事件不报错() {
+-    assert_eq!(normalize_line(""), None, "空输入归一化为 None");
+-}
+-
+-#[test]
+-fn 三百行混合fixture全部产出事件不丢不炸() {
+-    let mut count = 0usize;
+-    for index in 0..300 {
+-        let line = match index % 5 {
+-            0 => INIT_LINE.to_owned(),
+-            1 => ASSISTANT_TOOL_USE_LINE.to_owned(),
+-            2 => USER_TOOL_RESULT_LINE.to_owned(),
+-            3 => RESULT_LINE.to_owned(),
+-            _ => format!(r#"{{"type":"noise-{index}","n":{index}}}"#),
+-        };
+-        if normalize_line(&line).is_some() {
+-            count += 1;
+-        }
+-    }
+-    assert_eq!(count, 300, "洪峰全量产出（含未知 type 的 Raw），零丢失");
+-}
+-
+-#[test]
+-fn 深嵌套payload与超长字符串不炸且保真() {
+-    // SystemNotice payload 深嵌套
+-    let deep_line = r#"{"type":"system","subtype":"dump","a":{"b":{"c":{"d":[1,2,{"e":"深"}]}}}}"#;
+-    let Some(AgentEventKind::SystemNotice { payload, .. }) = normalize_line(deep_line) else {
+-        panic!("深嵌套 payload 不炸解析");
+-    };
+-    assert_eq!(payload["a"]["b"]["c"]["d"][2]["e"], serde_json::json!("深"));
+-
+-    // Raw 行含超长字符串（>1000 字符）
+-    let long_value = "长".repeat(1500);
+-    let long_line = format!(r#"{{"type":"huge","blob":"{long_value}"}}"#);
+-    let Some(AgentEventKind::Raw { raw_json, .. }) = normalize_line(&long_line) else {
+-        panic!("超长行不炸解析");
+-    };
+-    assert!(raw_json.contains(&long_value), "rawJson 超长原文保真");
+-}
+diff --git a/crates/infra/agent/src/cli/mod.rs b/crates/infra/agent/src/cli/mod.rs
+deleted file mode 100644
+index 6779d57bcd40..000000000000
+--- a/crates/infra/agent/src/cli/mod.rs
++++ /dev/null
+@@ -1,26 +0,0 @@
+-//! `cli` 引擎：本机 claude CLI 租户（本 workspace 唯一 spawn 触点）。
+-//!
+-//! 四模块自 `src/` 平移落位（移动非删除，内容零改动）：
+-//! - [`discover`]：CLI 可执行入口发现（Windows `.cmd` shim 优先序）
+-//! - [`flags`]：参数 → 命令行 flag 序列组装（纯函数）
+-//! - [`jsonl`]：stdout JSONL 逐行归一化为 [`agent::AgentEventKind`]（未知
+-//!   type / 非 JSON 行 Raw 透传：永不丢事件、永不炸解析）
+-//! - [`runner`]：spawn + stdout 逐行泵 + 有界事件流 + EOF 无 result 补发
+-//!   合成收敛事件
+-//!
+-//! 对外形状经门面 `lib.rs` 以 `cli` 前缀 re-export（`discover` / `build_args`
+-//! / `normalize_line` / [`crate::ClaudeCliRunner`]），引擎细节不出门面。
+-
+-pub mod discover;
+-pub mod flags;
+-pub mod jsonl;
+-pub mod runner;
+-
+-#[cfg(test)]
+-mod discover_test;
+-#[cfg(test)]
+-mod flags_test;
+-#[cfg(test)]
+-mod jsonl_test;
+-#[cfg(test)]
+-mod runner_test;
+diff --git a/crates/infra/agent/src/cli/runner.rs b/crates/infra/agent/src/cli/runner.rs
+deleted file mode 100644
+index 9f7b7a92665d..000000000000
+--- a/crates/infra/agent/src/cli/runner.rs
++++ /dev/null
+@@ -1,258 +0,0 @@
+-use std::path::{Path, PathBuf};
+-
+-use agent::{
+-    AgentEventKind, AgentRunner, AgentSession, AgentStartError, RunHandle, SessionOpen,
+-    TurnQuestion,
+-};
+-use tokio::io::{AsyncBufReadExt, BufReader};
+-use tokio::process::{ChildStdout, Command};
+-use tokio::sync::mpsc;
+-
+-use crate::{discover, flags, jsonl};
+-
+-/// 事件通道有界容量（背压策略：泵任务阻塞在 `send`，事件不丢、内存有界）。
+-const EVENT_CHANNEL_CAPACITY: usize = 256;
+-
+-/// 提问通道有界容量（单问送达；单会话单活动轮，容量 4 为余量）。
+-const QUESTION_CHANNEL_CAPACITY: usize = 4;
+-
+-/// EOF 无 TurnDone 事件时合成收敛事件的 subtype（design D6：收敛恒由
+-/// TurnDone 驱动，状态机不需要 EOF 特判）。
+-const PROCESS_EXIT_SUBTYPE: &str = "error_process_exit";
+-
+-/// 无状态 runner 构造。
+-pub struct ClaudeCliRunner;
+-
+-impl ClaudeCliRunner {
+-    /// 无状态 runner：全部运行态在 `open_session` 产出的会话泵任务内。
+-    pub fn new() -> Self {
+-        Self
+-    }
+-}
+-
+-impl Default for ClaudeCliRunner {
+-    fn default() -> Self {
+-        Self::new()
+-    }
+-}
+-
+-impl AgentRunner for ClaudeCliRunner {
+-    /// open 段无 IO（CLI 发现延后至 ask——发现是文件系统扫描；injections 为
+-    /// 会话级注入，CLI 租户 MVP 不消费，整合方式引擎自选：忽略）。
+-    fn open_session(&self, open: SessionOpen) -> Result<AgentSession, AgentStartError> {
+-        let (question_tx, question_rx) = mpsc::channel::<TurnQuestion>(QUESTION_CHANNEL_CAPACITY);
+-        let (observation_tx, observation_rx) =
+-            mpsc::channel::<agent::AgentEventKind>(EVENT_CHANNEL_CAPACITY);
+-        let handle = RunHandle::default();
+-        tokio::spawn(session_pump(
+-            open,
+-            question_rx,
+-            observation_tx,
+-            handle.clone(),
+-        ));
+-        Ok(AgentSession {
+-            observations: observation_rx,
+-            questions: question_tx,
+-            handle,
+-        })
+-    }
+-}
+-
+-/// 会话泵任务（ask 段）
+-async fn session_pump(
+-    open: SessionOpen,
+-    mut questions: mpsc::Receiver<TurnQuestion>,
+-    observations: mpsc::Sender<agent::AgentEventKind>,
+-    handle: RunHandle,
+-) {
+-    let Some(question) = questions.recv().await else {
+-        return; // 组合根半边先关：无问即无泵生命周期
+-    };
+-    match spawn_turn(&open, &question, &handle) {
+-        Ok(process) => {
+-            // 一轮一命：run 返回即泵生命周期终点（EOF 收敛与停止路径在
+-            // `pump_lines` 内均已单轮终止），stopped 返回值不再消费
+-            process.run(observations.clone()).await;
+-        }
+-        Err(error) => {
+-            let _ = observations
+-                .send(AgentEventKind::TurnDone {
+-                    subtype: spawn_failure_subtype(&error),
+-                    is_error: true,
+-                    num_turns: None,
+-                    duration_ms: None,
+-                    cost_usd: None,
+-                    usage: serde_json::Value::Null,
+-                    session_id: None,
+-                })
+-                .await;
+-        }
+-    }
+-}
+-
+-/// spawn 失败合成收敛事件的 subtype（CLI 合成收敛事件的命名口径）。
+-fn spawn_failure_subtype(error: &AgentStartError) -> String {
+-    match error {
+-        AgentStartError::CliMissing(_) => "error_cli_missing".to_owned(),
+-        _ => "error_spawn_failed".to_owned(),
+-    }
+-}
+-
+-/// 单轮进程租户：spawn 产物（stdout 行流 + 退出码 oneshot + 击杀缝 + 停止
+-/// 信号句柄）。每轮进程即逻辑 actor 的一次 ask 兑现。
+-struct TurnProcess {
+-    stdout: ChildStdout,
+-    exit: tokio::sync::oneshot::Receiver<Option<i32>>,
+-    kill: Box<dyn FnOnce() + Send>,
+-    handle: RunHandle,
+-}
+-
+-impl TurnProcess {
+-    /// 逐行泵至轮终态：EOF（正常/异常）或停止路径。返回是否停止路径终止。
+-    async fn run(self, observations: mpsc::Sender<agent::AgentEventKind>) -> bool {
+-        let Self {
+-            stdout,
+-            exit,
+-            kill,
+-            handle,
+-        } = self;
+-        pump_lines(
+-            BufReader::new(stdout),
+-            async { exit.await.unwrap_or(None) },
+-            observations,
+-            &handle,
+-            kill,
+-        )
+-        .await
+-    }
+-}
+-
+-/// spawn 单轮进程：CLI 发现 → flag 组装（`--resume` 走先行句柄）→ 命令组装
+-/// → spawn。启动失败 `Err`（CliMissing / SpawnFailed）。
+-fn spawn_turn(
+-    open: &SessionOpen,
+-    question: &TurnQuestion,
+-    handle: &RunHandle,
+-) -> Result<TurnProcess, AgentStartError> {
+-    let program = discover::discover()?;
+-    let args = flags::build_args(&flags::TurnParams {
+-        prompt: question.prompt.clone(),
+-        permission_mode: open.ctx.permission_mode,
+-        resume_handle: open.prior_handle.clone(),
+-    });
+-    let mut command = build_command(&program, &args, &open.ctx.workspace_root);
+-    let mut child = command.spawn().map_err(|e| {
+-        AgentStartError::SpawnFailed(format!("{} 启动失败: {e}", program.display()))
+-    })?;
+-    let stdout = child
+-        .stdout
+-        .take()
+-        .ok_or_else(|| AgentStartError::SpawnFailed("stdout 未按管道打开".to_owned()))?;
+-    let stderr = child.stderr.take();
+-    // stderr 排水任务：不读会撑满管道缓冲导致子进程写阻塞（内容本期不消费）
+-    if let Some(stderr) = stderr {
+-        tokio::spawn(async move {
+-            let mut lines = BufReader::new(stderr).lines();
+-            while let Ok(Some(_)) = lines.next_line().await {}
+-        });
+-    }
+-    // 退出码任务：独占 child.wait()（EOF 后泵消费退出码）；停止路径经
+-    // 击杀缝终止进程后 wait 随之返回，oneshot 发送端静默失败（接收端已关）
+-    let pid = child.id();
+-    let (exit_tx, exit_rx) = tokio::sync::oneshot::channel();
+-    tokio::spawn(async move {
+-        let _ = exit_tx.send(child.wait().await.ok().and_then(|status| status.code()));
+-    });
+-    Ok(TurnProcess {
+-        stdout,
+-        exit: exit_rx,
+-        kill: Box::new(move || exec::kill_tree(pid)),
+-        handle: handle.clone(),
+-    })
+-}
+-
+-/// 组装 spawn 命令：Windows `.cmd` / `.bat` shim 不可直接 spawn，经
+-/// `cmd /C` 包装（args 逐参传递）；cwd 经 `current_dir` 传递（非 flag）；
+-/// stdout 按管道打开，stderr 按管道打开供排水，stdin 关闭（无头无输入）；
+-/// Windows 无窗抑制由 exec 统一施加。
+-fn build_command(program: &Path, args: &[String], cwd: &PathBuf) -> Command {
+-    let needs_shim = cfg!(windows)
+-        && matches!(
+-            program.extension().and_then(std::ffi::OsStr::to_str),
+-            Some("cmd") | Some("bat")
+-        );
+-    let mut command = if needs_shim {
+-        exec::SystemCommand::bare("cmd")
+-            .arg("/C")
+-            .arg(program)
+-            .args(args)
+-            .into_tokio()
+-    } else {
+-        exec::SystemCommand::bare(program).args(args).into_tokio()
+-    };
+-    command
+-        .current_dir(cwd)
+-        .stdin(std::process::Stdio::null())
+-        .stdout(std::process::Stdio::piped())
+-        .stderr(std::process::Stdio::piped());
+-    command
+-}
+-
+-/// 逐行泵核心
+-pub(crate) async fn pump_lines<R, F, K>(
+-    reader: BufReader<R>,
+-    exit_code: F,
+-    sender: mpsc::Sender<agent::AgentEventKind>,
+-    handle: &RunHandle,
+-    kill: K,
+-) -> bool
+-where
+-    R: tokio::io::AsyncRead + Unpin,
+-    F: std::future::Future<Output = Option<i32>>,
+-    K: FnOnce(),
+-{
+-    let mut lines = reader.lines();
+-    let mut saw_result = false;
+-    let stopped = loop {
+-        tokio::select! {
+-            line = lines.next_line() => match line {
+-                Ok(Some(line)) => {
+-                    let Some(kind) = jsonl::normalize_line(&line) else {
+-                        continue;
+-                    };
+-                    if matches!(kind, AgentEventKind::TurnDone { .. }) {
+-                        saw_result = true;
+-                    }
+-                    if sender.send(kind).await.is_err() {
+-                        return false;
+-                    }
+-                }
+-                _ => break false,
+-            },
+-            _ = handle.wait_requested() => break true,
+-        }
+-    };
+-    if stopped {
+-        // 尽力语义：击杀失败静默不重试不阻塞（能力 spec
+-        // `specs/desktop-agent-execution/spec.md` 已留痕已知限制，路径相对域根）
+-        kill();
+-        return true;
+-    }
+-    let usage = exit_code
+-        .await
+-        .map(|code| serde_json::json!({ "exitCode": code }))
+-        .unwrap_or(serde_json::Value::Null);
+-    if !saw_result {
+-        let kind = AgentEventKind::TurnDone {
+-            subtype: PROCESS_EXIT_SUBTYPE.to_owned(),
+-            is_error: true,
+-            num_turns: None,
+-            duration_ms: None,
+-            cost_usd: None,
+-            usage,
+-            session_id: None,
+-        };
+-        let _ = sender.send(kind).await;
+-    }
+-    false
+-}
+diff --git a/crates/infra/agent/src/cli/runner_test.rs b/crates/infra/agent/src/cli/runner_test.rs
+deleted file mode 100644
+index 501f65bf4313..000000000000
+--- a/crates/infra/agent/src/cli/runner_test.rs
++++ /dev/null
+@@ -1,658 +0,0 @@
+-use std::io::Cursor;
+-use std::path::PathBuf;
+-use std::sync::{Arc, Mutex};
+-
+-use tokio::io::{AsyncWriteExt, BufReader};
+-use tokio::sync::mpsc;
+-
+-use agent::{
+-    AgentEvent, AgentEventKind, AgentMessageRole, AgentPermissionMode, AgentRunner, ModelLevel,
+-    RunHandle, SessionCtx, SessionInjections, SessionOpen, SessionRef, TurnQuestion,
+-};
+-
+-use crate::runner::{pump_lines, ClaudeCliRunner};
+-
+-/// PATH 环境变量修改串行化（同进程测试并行跑，set_var 为进程全局操作）。
+-use crate::TEST_PATH_LOCK as PATH_LOCK;
+-
+-/// system/init 行。
+-const INIT_LINE: &str = r#"{"type":"system","subtype":"init","model":"claude-opus","session_id":"s-1","tools":["Bash"],"mcp_servers":[]}"#;
+-/// assistant 行：tool_use 块。
+-const ASSISTANT_TOOL_USE_LINE: &str = r#"{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"tu_1","name":"Bash","input":{"command":"ls"}}]}}"#;
+-/// user 行：tool_result 块。
+-const USER_TOOL_RESULT_LINE: &str = r#"{"type":"user","message":{"role":"user","content":[{"type":"tool_result","id":"tu_1","content":"ok"}]}}"#;
+-/// 正常收敛 result 行。
+-const RESULT_LINE: &str = r#"{"type":"result","subtype":"success","is_error":false,"num_turns":2,"duration_ms":99,"total_cost_usd":0.1,"usage":{},"session_id":"s-1"}"#;
+-
+-/// 以内存行流驱动泵核心并回收全部未盖戳事件（通道容量取测试所需，洪峰 256）。
+-/// 停止信号缝取默认句柄（未请求）、击杀缝取空闭包（停止路径用例经 StopRig）。
+-async fn pump_all(fixture: String, capacity: usize, exit_code: Option<i32>) -> Vec<AgentEventKind> {
+-    let (sender, mut receiver) = mpsc::channel(capacity);
+-    let exit_code = std::future::ready(exit_code);
+-    pump_lines(
+-        BufReader::new(Cursor::new(fixture.into_bytes())),
+-        exit_code,
+-        sender,
+-        &RunHandle::default(),
+-        || {},
+-    )
+-    .await;
+-    let mut events = Vec::new();
+-    while let Some(event) = receiver.recv().await {
+-        events.push(event);
+-    }
+-    events
+-}
+-
+-/// 测试侧盖戳采样（镜像内核泵盖戳口径）：未盖戳词汇按到达序盖 0..n 单调
+-/// seq——空白行不占号、Raw 占号、合成收敛占下一号的落点即在盖戳处。
+-fn stamp_events(kinds: Vec<AgentEventKind>) -> Vec<AgentEvent> {
+-    kinds
+-        .into_iter()
+-        .enumerate()
+-        .map(|(seq, kind)| AgentEvent::stamp(seq as u64, kind))
+-        .collect()
+-}
+-
+-/// 洪峰 fixture：314 条 message + 1 条 result（含 result 收尾，不触发合成）。
+-fn flood_fixture(lines: usize) -> String {
+-    let mut fixture = String::new();
+-    for index in 0..lines - 1 {
+-        fixture.push_str(&format!(
+-            r#"{{"type":"assistant","message":{{"content":[{{"type":"text","text":"行{index}"}}]}}}}"#
+-        ));
+-        fixture.push('\n');
+-    }
+-    fixture.push_str(RESULT_LINE);
+-    fixture.push('\n');
+-    fixture
+-}
+-
+-// ---------------------------------------------------------------------------
+-// 泵任务：完整会话（单元 + 跨 crate 契约正向）
+-// ---------------------------------------------------------------------------
+-
+-#[tokio::test]
+-async fn 完整会话fixture逐行入泵事件按序送达且线格式可被core表达() {
+-    let fixture =
+-        format!("{INIT_LINE}\n{ASSISTANT_TOOL_USE_LINE}\n{USER_TOOL_RESULT_LINE}\n{RESULT_LINE}\n");
+-    let kinds = pump_all(fixture, 256, Some(0i32)).await;
+-    assert_eq!(kinds.len(), 4, "四行 → 四事件，正常 result 收尾不补发");
+-
+-    // 盖戳采样 + 线格式断言：camelCase 顶层键 + kind 判别（跨 crate 契约接缝）
+-    let events = stamp_events(kinds);
+-    for (index, event) in events.iter().enumerate() {
+-        assert_eq!(event.seq, index as u64, "到达序即盖戳序，从 0 单调递增");
+-        let value = serde_json::to_value(event).expect("序列化成功");
+-        assert!(value.get("seq").is_some() && value.get("timestampMs").is_some());
+-        // 每条事件 JSON 均可经 core 信封反序列化（infra 不私造 core 不认识的变体）
+-        let roundtrip: AgentEvent = serde_json::from_value(value).expect("core 信封可反序列化");
+-        assert_eq!(roundtrip, *event);
+-    }
+-
+-    // 事件序：init → assistant(tool_use) → tool(tool_result) → result(TurnDone)
+-    assert!(matches!(
+-        &events[0].kind,
+-        AgentEventKind::RunStarted { model: Some(model), .. } if model == "claude-opus"
+-    ));
+-    assert!(matches!(
+-        &events[1].kind,
+-        AgentEventKind::Message { role, blocks, .. }
+-            if role == &AgentMessageRole::Assistant
+-                && matches!(&blocks[0], agent::AgentBlock::ToolUse { id, .. } if id == "tu_1")
+-    ));
+-    assert!(matches!(
+-        &events[2].kind,
+-        AgentEventKind::Message { role, blocks, .. }
+-            if role == &AgentMessageRole::Tool
+-                && matches!(&blocks[0], agent::AgentBlock::ToolResult { id, is_error, .. } if id == "tu_1" && !is_error)
+-    ));
+-    assert!(matches!(
+-        &events[3].kind,
+-        AgentEventKind::TurnDone {
+-            is_error: false,
+-            num_turns: Some(2),
+-            ..
+-        }
+-    ));
+-}
+-
+-#[tokio::test]
+-async fn 空白行不占号混入fixture时盖戳序全程单调() {
+-    let fixture = format!(
+-        "{INIT_LINE}\n\n   \n{ASSISTANT_TOOL_USE_LINE}\n{USER_TOOL_RESULT_LINE}\n{RESULT_LINE}\n"
+-    );
+-    let events = stamp_events(pump_all(fixture, 256, None).await);
+-
+-    let seqs: Vec<u64> = events.iter().map(|event| event.seq).collect();
+-    assert_eq!(seqs, vec![0, 1, 2, 3], "空白行不占号，盖戳序全程 0..n 单调");
+-}
+-
+-// ---------------------------------------------------------------------------
+-// 泵任务：EOF 合成收敛（TurnDone 更名适配）
+-// ---------------------------------------------------------------------------
+-
+-#[tokio::test]
+-async fn eof无result且携带退出码时补发合成turn_done() {
+-    // 模拟进程异常退出（退出码 7）：EOF 无 result
+-    let fixture = format!("{INIT_LINE}\n{ASSISTANT_TOOL_USE_LINE}\n");
+-    let events = stamp_events(pump_all(fixture, 256, Some(7i32)).await);
+-
+-    assert_eq!(events.len(), 3, "两行事件 + 一条合成收敛");
+-    let Some(AgentEventKind::TurnDone {
+-        subtype,
+-        is_error,
+-        usage,
+-        ..
+-    }) = events.last().map(|event| event.kind.clone())
+-    else {
+-        panic!("事件流恒以 TurnDone 终止（单一收敛机制）");
+-    };
+-    assert_eq!(subtype, "error_process_exit");
+-    assert!(is_error, "合成收敛为失败形态");
+-    assert_eq!(
+-        usage,
+-        serde_json::json!({ "exitCode": 7 }),
+-        "退出码记入 usage"
+-    );
+-    assert_eq!(
+-        events.last().expect("有事件").seq,
+-        2,
+-        "合成事件占下一号（盖戳序）"
+-    );
+-}
+-
+-#[tokio::test]
+-async fn 空输出流即退出时仅一条合成turn_done且占零号() {
+-    let events = stamp_events(pump_all(String::new(), 256, Some(1i32)).await);
+-
+-    assert_eq!(events.len(), 1, "零输入 → 单条合成收敛");
+-    assert_eq!(events[0].seq, 0);
+-    assert!(matches!(
+-        &events[0].kind,
+-        AgentEventKind::TurnDone { subtype, is_error: true, .. } if subtype == "error_process_exit"
+-    ));
+-}
+-
+-// ---------------------------------------------------------------------------
+-// 泵任务：有界通道背压与 Raw 透传
+-// ---------------------------------------------------------------------------
+-
+-#[tokio::test]
+-async fn 超容量洪峰315行经背压全量送达零丢失() {
+-    // 通道容量 256 < 输入 315 行：生产端阻塞在 send 而非丢弃（通道口径）。
+-    // 泵以 &RunHandle 借用驱动（pump_lines 缝签名），故 spawn 的是接收端排空
+-    // 任务（持有 receiver 满足 'static），泵本体留在测试线程上并发推进。
+-    let (sender, mut receiver) = mpsc::channel(256);
+-    let fixture = flood_fixture(315);
+-    let handle = RunHandle::default();
+-    let drain = tokio::spawn(async move {
+-        let mut received = Vec::new();
+-        while let Some(event) = receiver.recv().await {
+-            received.push(event);
+-        }
+-        received
+-    });
+-
+-    pump_lines(
+-        BufReader::new(Cursor::new(fixture.into_bytes())),
+-        std::future::ready(Some(0i32)),
+-        sender,
+-        &handle,
+-        || {},
+-    )
+-    .await;
+-    let received = drain.await.expect("排空任务正常结束");
+-
+-    assert_eq!(
+-        received.len(),
+-        315,
+-        "315 行全量送达（含 result 收尾），零丢失"
+-    );
+-    // 到达序单调（盖戳序的可观测投影）：到达序即产出序
+-    let stamped = stamp_events(received);
+-    let seqs: Vec<u64> = stamped.iter().map(|event| event.seq).collect();
+-    let expected: Vec<u64> = (0..315).collect();
+-    assert_eq!(seqs, expected, "到达序全程单调无跳号");
+-    assert!(matches!(
+-        stamped.last().expect("非空").kind,
+-        AgentEventKind::TurnDone {
+-            is_error: false,
+-            ..
+-        }
+-    ));
+-}
+-
+-#[tokio::test]
+-async fn 混入未知type与非json行时raw按产出序透传() {
+-    let unknown = r#"{"type":"mystery","x":1}"#;
+-    let not_json = "?? 不是 JSON ??";
+-    let fixture = format!("{INIT_LINE}\n{unknown}\n{not_json}\n\n{RESULT_LINE}\n");
+-    let events = stamp_events(pump_all(fixture, 256, None).await);
+-
+-    assert_eq!(
+-        events.len(),
+-        4,
+-        "空白行跳过，未知/非 JSON 行以 Raw 占产出位"
+-    );
+-    assert!(matches!(
+-        &events[1].kind,
+-        AgentEventKind::Raw { event_type, raw_json }
+-            if event_type == "mystery" && raw_json == unknown
+-    ));
+-    assert!(matches!(
+-        &events[2].kind,
+-        AgentEventKind::Raw { event_type, raw_json }
+-            if event_type == "unparsable" && raw_json == not_json
+-    ));
+-    // 盖戳序仍连续：Raw 透传不跳号
+-    let seqs: Vec<u64> = events.iter().map(|event| event.seq).collect();
+-    assert_eq!(seqs, vec![0, 1, 2, 3]);
+-}
+-
+-// ---------------------------------------------------------------------------
+-// open / ask 两段形态（P1 协议平移不改 CLI 租户行为面）
+-// ---------------------------------------------------------------------------
+-
+-fn open_with(cwd: PathBuf) -> SessionOpen {
+-    SessionOpen {
+-        injections: SessionInjections::default(),
+-        ctx: SessionCtx {
+-            workspace_root: cwd,
+-            permission_mode: AgentPermissionMode::BypassPermissions,
+-            model_level: ModelLevel::High,
+-        },
+-        session: SessionRef::New,
+-        prior_handle: Some("s-resume-1".to_owned()),
+-    }
+-}
+-
+-#[tokio::test]
+-async fn open段无io_不依赖cli可发现且三件套在场() {
+-    let _guard = PATH_LOCK.lock().expect("PATH 锁不可中毒");
+-    let dir = tempfile::Builder::new()
+-        .prefix("cli-runner-open-")
+-        .tempdir()
+-        .expect("创建合成目录失败");
+-    let original = std::env::var_os("PATH");
+-    std::env::set_var("PATH", ""); // CLI 不可发现
+-
+-    let runner = ClaudeCliRunner::new();
+-    let result = runner.open_session(open_with(dir.path().to_path_buf()));
+-
+-    match original {
+-        Some(value) => std::env::set_var("PATH", value),
+-        None => std::env::remove_var("PATH"),
+-    }
+-
+-    // open 段无 IO（发现延后至 ask）：CLI 缺失不失败，三件套即返
+-    let session = result.expect("open 段无 IO：CLI 不可发现也不失败");
+-    assert!(!session.handle.stop_requested());
+-    // 参数留存：resume_handle 留存至 ask 段（flags 尾追加规则见 flags_test）
+-    let _ = session
+-        .questions
+-        .send(TurnQuestion {
+-            prompt: "占位".to_owned(),
+-        })
+-        .await;
+-}
+-
+-#[tokio::test]
+-async fn ask段cli缺失时spawn失败以合成收敛记因且会话终止() {
+-    let _guard = PATH_LOCK.lock().expect("PATH 锁不可中毒");
+-    let dir = tempfile::Builder::new()
+-        .prefix("cli-runner-ask-")
+-        .tempdir()
+-        .expect("创建合成目录失败");
+-    let original = std::env::var_os("PATH");
+-    std::env::set_var("PATH", ""); // ask 段 discover 失败
+-
+-    let runner = ClaudeCliRunner::new();
+-    let mut session = runner
+-        .open_session(open_with(dir.path().to_path_buf()))
+-        .expect("open 应成功");
+-    let result = session
+-        .questions
+-        .send(TurnQuestion {
+-            prompt: "触发 spawn 的一轮".to_owned(),
+-        })
+-        .await;
+-    assert!(result.is_ok(), "问题送达（ask 段失败在泵内收敛）");
+-
+-    // PATH 仍为空的窗口内等待合成收敛（保证 spawn_turn 在隔离 PATH 下失败，
+-    // 不触真实 CLI）：spawn 失败以合成收敛事件 failed 记因，会话终止
+-    let first = session.observations.recv().await.expect("合成收敛事件");
+-    match original {
+-        Some(value) => std::env::set_var("PATH", value),
+-        None => std::env::remove_var("PATH"),
+-    }
+-
+-    let AgentEventKind::TurnDone {
+-        subtype, is_error, ..
+-    } = &first
+-    else {
+-        panic!("spawn 失败以 TurnDone 合成收敛，实际: {first:?}");
+-    };
+-    assert_eq!(subtype, "error_cli_missing", "CliMissing 成因 subtype");
+-    assert!(*is_error);
+-
+-    // 会话终止（观察流关闭）
+-    let rest = drain_events(&mut session.observations).await;
+-    assert!(rest.is_empty(), "spawn 失败后会话终止，实际: {rest:?}");
+-
+-    // 第二问送达被拒：spawn 失败臂终止泵（一轮一命），questions 接收端随之
+-    // drop——第二问按「引擎侧已终止」失败收敛（内核 ask 失败臂的 seam 投影）
+-    assert!(
+-        session
+-            .questions
+-            .send(TurnQuestion {
+-                prompt: "第二问".to_owned(),
+-            })
+-            .await
+-            .is_err(),
+-        "泵终止后第二问送达必须被拒（接收端已 drop）"
+-    );
+-}
+-
+-// ---------------------------------------------------------------------------
+-// 会话泵一轮一命（合成 claude shim：单问服务后泵终止、观测通道关闭）
+-// ---------------------------------------------------------------------------
+-
+-/// 平台 JSONL echo 行（Windows cmd 双引号直出；其余平台单引号包裹）。
+-#[cfg(windows)]
+-fn shim_echo(json: &str) -> String {
+-    format!("echo {json}")
+-}
+-
+-/// 平台 JSONL echo 行（Unix 版）。
+-#[cfg(not(windows))]
+-fn shim_echo(json: &str) -> String {
+-    format!("echo '{json}'")
+-}
+-
+-/// 合成 claude CLI shim 脚本：init 行 + result 行（正常 result 收尾，EOF 由
+-/// 脚本退出产生，不触发合成收敛）。纯 ASCII 文本（cmd echo 无代码页歧义）。
+-fn claude_shim_script() -> String {
+-    const INIT: &str = r#"{"type":"system","subtype":"init","model":"claude-opus","session_id":"s-fake","tools":["Bash"],"mcp_servers":[]}"#;
+-    const RESULT: &str = r#"{"type":"result","subtype":"success","is_error":false,"num_turns":1,"duration_ms":9,"total_cost_usd":0,"usage":{},"session_id":"s-fake"}"#;
+-    #[cfg(windows)]
+-    let mut lines: Vec<String> = vec!["@echo off".to_owned()];
+-    #[cfg(not(windows))]
+-    let mut lines: Vec<String> = vec!["#!/bin/sh".to_owned()];
+-    lines.push(shim_echo(INIT));
+-    lines.push(shim_echo(RESULT));
+-    lines.join("\n")
+-}
+-
+-/// 合成 claude 入口目录（PATH 注入目标）：Windows 落 `claude.cmd`，其余平台
+-/// 落带可执行位的 `claude`。
+-fn claude_shim_dir(tag: &str) -> tempfile::TempDir {
+-    let dir = tempfile::Builder::new()
+-        .prefix(&format!("cli-runner-{tag}-shim-"))
+-        .tempdir()
+-        .expect("创建 shim 目录失败");
+-    let script = claude_shim_script();
+-    #[cfg(windows)]
+-    {
+-        std::fs::write(dir.path().join("claude.cmd"), script).expect("写 shim 失败");
+-    }
+-    #[cfg(not(windows))]
+-    {
+-        use std::os::unix::fs::PermissionsExt;
+-        let path = dir.path().join("claude");
+-        std::fs::write(&path, script).expect("写 shim 失败");
+-        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755))
+-            .expect("置 shim 可执行位失败");
+-    }
+-    dir
+-}
+-
+-#[tokio::test]
+-async fn ask泵一轮一命_单问服务后观测通道关闭且第二问送达被拒() {
+-    let _guard = PATH_LOCK.lock().expect("PATH 锁不可中毒");
+-    let shim = claude_shim_dir("one-turn");
+-    let original = std::env::var_os("PATH");
+-    std::env::set_var(
+-        "PATH",
+-        std::env::join_paths([shim.path()]).expect("拼接 PATH 值失败"),
+-    );
+-
+-    let runner = ClaudeCliRunner::new();
+-    let mut session = runner
+-        .open_session(open_with(shim.path().to_path_buf()))
+-        .expect("open 应成功");
+-    let sent = session
+-        .questions
+-        .send(TurnQuestion {
+-            prompt: "one-turn".to_owned(),
+-        })
+-        .await;
+-    assert!(sent.is_ok(), "首问送达（泵存活）");
+-
+-    // 单轮事件：init → RunStarted，result → TurnDone（正常收尾不合成）
+-    let first = session.observations.recv().await.expect("RunStarted 事件");
+-    let second = session.observations.recv().await.expect("TurnDone 事件");
+-    // PATH 还原（后续断言不再 spawn）
+-    match original {
+-        Some(value) => std::env::set_var("PATH", value),
+-        None => std::env::remove_var("PATH"),
+-    }
+-
+-    assert!(
+-        matches!(&first, AgentEventKind::RunStarted { model: Some(model), .. } if model == "claude-opus"),
+-        "init 行 → RunStarted 先导，实际: {first:?}"
+-    );
+-    assert!(
+-        matches!(
+-            &second,
+-            AgentEventKind::TurnDone {
+-                is_error: false,
+-                num_turns: Some(1),
+-                ..
+-            }
+-        ),
+-        "result 行 → TurnDone 正常收敛，实际: {second:?}"
+-    );
+-
+-    // 一轮一命收口：单问服务完毕即泵任务返回 → observations 发送端全 drop
+-    // → 观测通道关闭（内核 EOF 收口缝：recv 返回 None）
+-    assert!(
+-        session.observations.recv().await.is_none(),
+-        "单问服务后观测通道必须关闭（EOF 收口缝）"
+-    );
+-    // 第二问送达被拒：泵已终止，questions 接收端随之 drop
+-    assert!(
+-        session
+-            .questions
+-            .send(TurnQuestion {
+-                prompt: "第二问".to_owned(),
+-            })
+-            .await
+-            .is_err(),
+-        "一轮一命：泵终止后第二问送达必须被拒（接收端已 drop）"
+-    );
+-}
+-
+-#[test]
+-fn 两次new实例互不共享状态() {
+-    fn assert_runner<R: AgentRunner>(_: &R) {}
+-
+-    let first = ClaudeCliRunner::new();
+-    let second = ClaudeCliRunner;
+-    assert_runner(&first);
+-    assert_runner(&second);
+-
+-    // 无状态：零大小单元结构，两个实例无可共享的运行态字段
+-    assert_eq!(std::mem::size_of_val(&first), 0);
+-    assert_eq!(std::mem::size_of_val(&second), 0);
+-}
+-
+-// ---------------------------------------------------------------------------
+-// 泵任务：停止信号分支（select 行流 vs 停止信号——停止链「RunHandle 信号 →
+-// CLI 租户泵收敛」的真实泵落点）。停止路径以 duplex 内存行流 + 捕获型击杀缝
+-// 驱动（不触真实进程），EOF 时序由测试持有的行流写端单边决定，无投递竞速。
+-// ---------------------------------------------------------------------------
+-
+-/// 停止路径驱动装置：泵在独立任务上运行，测试持有行流写端与停止句柄。
+-struct StopRig {
+-    pump: tokio::task::JoinHandle<()>,
+-    receiver: mpsc::Receiver<AgentEventKind>,
+-    handle: RunHandle,
+-    /// 击杀缝调用记录（pid 入参按调用序收集）。
+-    kill_calls: Arc<Mutex<Vec<Option<u32>>>>,
+-    /// 行流写端（持有以维持流打开；drop 即 EOF）。
+-    writer: tokio::io::DuplexStream,
+-}
+-
+-fn stop_rig(pid: Option<u32>) -> StopRig {
+-    let (writer, reader) = tokio::io::duplex(64);
+-    let (sender, receiver) = mpsc::channel(16);
+-    let handle = RunHandle::default();
+-    let kill_calls = Arc::new(Mutex::new(Vec::new()));
+-    let spy = Arc::clone(&kill_calls);
+-    let pump_handle = handle.clone();
+-    let pump = tokio::spawn(async move {
+-        pump_lines(
+-            BufReader::new(reader),
+-            std::future::ready(None),
+-            sender,
+-            &pump_handle,
+-            move || {
+-                spy.lock().expect("击杀记录锁不可中毒").push(pid);
+-            },
+-        )
+-        .await;
+-    });
+-    StopRig {
+-        pump,
+-        receiver,
+-        handle,
+-        kill_calls,
+-        writer,
+-    }
+-}
+-
+-/// 写入一行 JSONL 并刷新（读端存活前提下的受控写入）。
+-async fn write_line(writer: &mut tokio::io::DuplexStream, line: &str) {
+-    writer
+-        .write_all(format!("{line}\n").as_bytes())
+-        .await
+-        .expect("写入行流失败");
+-    writer.flush().await.expect("刷新行流失败");
+-}
+-
+-async fn drain_events(receiver: &mut mpsc::Receiver<AgentEventKind>) -> Vec<AgentEventKind> {
+-    let mut events = Vec::new();
+-    while let Some(event) = receiver.recv().await {
+-        events.push(event);
+-    }
+-    events
+-}
+-
+-#[tokio::test]
+-async fn 停止信号中止泵且击杀缝以捕获pid被调恰一次且剩余行不再产出() {
+-    let mut rig = stop_rig(Some(4242));
+-    write_line(&mut rig.writer, INIT_LINE).await;
+-    let first = rig.receiver.recv().await.expect("行事件先于停止信号产出");
+-    assert!(
+-        matches!(first, AgentEventKind::RunStarted { .. }),
+-        "停止前已写入的行按序产出"
+-    );
+-
+-    // 停止信号单边决定收敛：此时无行可读，select 必命中停止分支
+-    rig.handle.request_stop();
+-    rig.pump.await.expect("泵任务正常结束（停止分支命中）");
+-
+-    // 泵已退出：行流剩余行不再产出（读端已关闭，尽力写入被忽略）
+-    let _ = rig
+-        .writer
+-        .write_all(ASSISTANT_TOOL_USE_LINE.as_bytes())
+-        .await;
+-
+-    assert!(
+-        drain_events(&mut rig.receiver).await.is_empty(),
+-        "停止中止后剩余行不再产出"
+-    );
+-    assert_eq!(
+-        *rig.kill_calls.lock().expect("击杀记录锁不可中毒"),
+-        vec![Some(4242)],
+-        "击杀缝恰被调一次且携带捕获的 pid"
+-    );
+-}
+-
+-#[tokio::test]
+-async fn 停止路径不合成收敛已产出事件原样保留() {
+-    let mut rig = stop_rig(Some(7));
+-    write_line(&mut rig.writer, INIT_LINE).await;
+-    let first = rig.receiver.recv().await.expect("已产出事件先到达");
+-
+-    rig.handle.request_stop();
+-    rig.pump.await.expect("泵任务正常结束");
+-
+-    let drained = drain_events(&mut rig.receiver).await;
+-    // 已产出事件原样保留（不因停止清除），且不补发 error_process_exit 合成
+-    // 收敛——给编排侧 stopped 显式收敛让路（真实泵停止分支的唯一自动化落点）
+-    assert!(matches!(first, AgentEventKind::RunStarted { .. }));
+-    assert!(
+-        drained.is_empty(),
+-        "停止路径不合成收敛，事件流以已产出事件收尾"
+-    );
+-}
+-
+-#[tokio::test]
+-async fn 无pid时停止路径仍收敛且击杀缝以none被调不panic() {
+-    // spawn 未达（pid 为 None）的尽力语义：停止路径照常收敛、击杀缝照常被调
+-    let mut rig = stop_rig(None);
+-    write_line(&mut rig.writer, INIT_LINE).await;
+-    let _first = rig.receiver.recv().await.expect("已产出事件先到达");
+-
+-    rig.handle.request_stop();
+-    rig.pump.await.expect("停止路径收敛不 panic");
+-
+-    assert_eq!(
+-        *rig.kill_calls.lock().expect("击杀记录锁不可中毒"),
+-        vec![None],
+-        "无 pid 时击杀缝以 None 被调恰一次"
+-    );
+-}
+-
+-#[tokio::test]
+-async fn 信号晚于eof时泵已按eof语义收敛无二次合成且击杀缝不被调() {
+-    let mut rig = stop_rig(Some(9));
+-    write_line(&mut rig.writer, INIT_LINE).await;
+-    let first = rig.receiver.recv().await.expect("行事件产出");
+-    assert!(matches!(first, AgentEventKind::RunStarted { .. }));
+-
+-    // 行流先 EOF（stop 未请求）：既有 EOF 合成收敛语义不回归
+-    drop(rig.writer);
+-    rig.pump.await.expect("泵按 EOF 语义正常收敛");
+-
+-    let mut events = vec![first];
+-    while let Some(event) = rig.receiver.recv().await {
+-        events.push(event);
+-    }
+-    assert_eq!(events.len(), 2, "行事件 + 一条合成收敛");
+-    let last = events.last().expect("非空");
+-    assert!(matches!(
+-        last,
+-        AgentEventKind::TurnDone {
+-            ref subtype,
+-            is_error: true,
+-            ..
+-        } if subtype == "error_process_exit"
+-    ));
+-
+-    // stop 请求在泵退出后才置位：无二次合成、击杀缝不被调（泵已不在）
+-    rig.handle.request_stop();
+-    assert!(
+-        drain_events(&mut rig.receiver).await.is_empty(),
+-        "泵已退出：停止信号不产生二次收敛"
+-    );
+-    assert!(
+-        rig.kill_calls
+-            .lock()
+-            .expect("击杀记录锁不可中毒")
+-            .is_empty(),
+-        "EOF 收敛路径不触达击杀缝"
+-    );
+-}
+diff --git a/crates/infra/agent/src/compose.rs b/crates/infra/agent/src/compose.rs
+index f3fb5672dfe9..64a460f65109 100644
+--- a/crates/infra/agent/src/compose.rs
++++ b/crates/infra/agent/src/compose.rs
+@@ -4,23 +4,26 @@ use agent::{
+     AgentRunner, RunningTurn, SessionCtx, SessionKernel, SessionProvenance, SessionQuery,
+     SessionRef, StopRegistry, TurnRequest,
+ };
+-use store::{AgentEngineKind, Store, WorkspaceStores};
++use store::{AgentEngineKind, Store, WorkspaceStores, CLI_TENANT_RETIRED};
+ 
+ use crate::store_port::{StoreQuery, StoreSink};
+ use crate::{EngineConfig, EngineFacade, EngineKind};
+ 
+-/// 解析产物（组合根内聚）：引擎 kind + 组装好的连接配置 + 快照定型双面。
+-/// 引擎具体类型不出本结构（门面 `runner_for` 签名与编排层零改动承诺的参数
+-/// 传递面）。
++/// 解析产物（组合根内聚）：引擎 kind + 组装好的连接配置 + 快照定型双面 +
++/// 实例外键。引擎具体类型不出本结构（门面 `runner_for` 签名与编排层零改动
++/// 承诺的参数传递面）。
+ struct ResolvedEngine {
+-    /// 引擎二值（门面 `EngineKind`，自 store 本地 `AgentEngineKind` 映射）
++    /// 引擎二值（门面 `EngineKind`，自 store 本地 `AgentEngineKind` 映射；
++    /// `Cli` 实例在解析单点即拒，恒 `Sdk`）
+     kind: EngineKind,
+-    /// 连接配置（sdk 臂由引用 provider 组装；cli 臂 `EngineConfig::empty()`
+-    /// 占位，CLI 引擎不消费）
++    /// 连接配置（sdk 臂由引用 provider 组装）
+     config: EngineConfig,
+     /// sdk 引擎上下文窗长（provider `context_length` 列旁路，不经
+-    /// `EngineConfig`；`None` = 未配置走 128K 缺省；cli 臂恒 None）
++    /// `EngineConfig`；`None` = 未配置走 128K 缺省）
+     context_window: Option<u64>,
++    /// 解析目标实例 id（快照 `agent_instance_id` 载荷；缺省与显式路径同经
++    /// 解析单点，恒在）
++    agent_instance_id: i64,
+ }
+ 
+ /// 组合根装配产物：内核 + 解析好的 runner + store 查询面（Continue 校验）+
+@@ -36,6 +39,8 @@ pub struct ComposedTurn {
+     store_kind: AgentEngineKind,
+     /// 快照模型双档（provider high / low 档）
+     models: Option<(String, String)>,
++    /// 解析目标实例 id（快照 `agent_instance_id` 装配载荷）
++    agent_instance_id: i64,
+ }
+ 
+ /// 运行发起解析 + 装配（解析单点）：`registry` 为壳层托管的停止注册表（内核
+@@ -54,13 +59,14 @@ pub fn compose_turn(
+     let query = Arc::new(StoreQuery::new(Arc::clone(&store)));
+     let kernel = SessionKernel::new(Arc::new(StoreSink::new(store)), registry);
+     // resume 装载缝以会话全史转录闭合（引擎中立数据：session_id → 密封事件
+-    // 全史；CLI 引擎持有不消费，CLI 续会话仍走引擎侧先行句柄）
++    // 全史）
+     let resume: crate::ResumeTranscript = {
+         let query = Arc::clone(&query);
+         Arc::new(move |session_id: &str| query.transcript(session_id).map(Some))
+     };
+-    // 快照定型双面：引擎二值映射 + 模型双档（sdk 取 provider 双档、cli 无模型
+-    // 装配概念；档位定型归 begin 按轮级 model_level 取档）
++    // 快照定型双面：引擎二值映射 + 模型双档（sdk 取 provider 双档；档位定型
++    // 归 begin 按轮级 model_level 取档）。`Cli` 臂为解析拒收后的不可达死臂
++    // ——映射原样保留（多租户机制不塌），不引入 panic 形态（design DD9）
+     let (store_kind, models) = match resolved.kind {
+         EngineKind::Cli => (AgentEngineKind::Cli, None),
+         EngineKind::Sdk => (
+@@ -71,10 +77,11 @@ pub fn compose_turn(
+             )),
+         ),
+     };
++    // runner_for 的 Err 经 `?` 传导（`Cli` 臂生产不可达，防御兜底）
+     let runner: Arc<dyn AgentRunner> = Arc::from(
+         EngineFacade::with_resume_transcript(resume)
+             .with_context_window(resolved.context_window)
+-            .runner_for(resolved.kind, resolved.config),
++            .runner_for(resolved.kind, resolved.config)?,
+     );
+     Ok(ComposedTurn {
+         kernel,
+@@ -82,17 +89,12 @@ pub fn compose_turn(
+         query,
+         store_kind,
+         models,
++        agent_instance_id: resolved.agent_instance_id,
+     })
+ }
+ 
+ impl ComposedTurn {
+-    /// 发起一轮（Continue 校验 + prior_handle 提取 + 快照组装 + 内核 begin）。
+-    /// Continue 二态：
+-    /// - **未开轮**（无引擎句柄 + 无轮行 + 无转录，explore 建档预建空会话的
+-    ///   首轮）：跳过引擎匹配与句柄检查，`prior_handle` 传 None（引擎侧按
+-    ///   全新会话开跑），并把本轮真实装配快照回写定型。
+-    /// - **已开轮**：会话不存在 / 非当前引擎产出（快照 engine ≠ 解析 kind）/
+-    ///   引擎句柄缺失 → `Err` 显式失败（不落库不推流）。
++    /// 发起一轮（Continue 校验 + prior_handle 提取 + 快照组装 + 内核 begin）
+     pub fn begin(
+         &self,
+         session: SessionRef,
+@@ -110,6 +112,7 @@ impl ComposedTurn {
+             });
+         let snapshot = store::SessionConfigSnapshot {
+             engine: self.store_kind,
++            agent_instance_id: Some(self.agent_instance_id),
+             model,
+             permission_mode: ctx.permission_mode,
+         };
+@@ -139,12 +142,7 @@ impl ComposedTurn {
+                     if record.config_snapshot.engine != self.store_kind {
+                         return Err(format!("会话非当前引擎产出（跨引擎续会话不支持）: {id}"));
+                     }
+-                    Some(
+-                        record
+-                            .engine_session_id
+-                            .clone()
+-                            .ok_or_else(|| format!("会话缺少引擎句柄，无法续接: {id}"))?,
+-                    )
++                    record.engine_session_id.clone()
+                 }
+             }
+         };
+@@ -165,16 +163,11 @@ impl ComposedTurn {
+             )
+             .map_err(|e| e.to_string())
+     }
+-
+-    /// 引擎二值观测（crate 内）：CLI 臂由 worker 轮前预检 CLI 可发现性
+-    ///（CliMissing 收敛 `Err` + 零半成品记录）；SDK 臂不预检（ConfigMissing
+-    /// 归 [`Self::begin`] 的 open 段显式 `Err`）。
+-    pub(crate) fn is_cli_engine(&self) -> bool {
+-        self.store_kind == AgentEngineKind::Cli
+-    }
+ }
+ 
+-/// 运行发起解析单点（语义自命令层原样平移；解析产物含快照定型双面）。
++/// 运行发起解析单点（语义自命令层原样平移；解析产物含快照定型双面 + 实例
++/// 外键）。缺省与显式路径同臂：`engine: Cli` 实例一律显式 `Err`
++/// （[`CLI_TENANT_RETIRED`] 逐字文案，不构造引擎、不静默回退）。
+ fn resolve_agent_engine(
+     stores: &WorkspaceStores,
+     agent: Option<i64>,
+@@ -220,13 +213,10 @@ fn resolve_agent_engine(
+                 // 窗长旁路：provider 可空列原样携带（None = 缺省启发式在
+                 // runner 侧解析，不落缺省字面）
+                 context_window: provider.context_length,
++                agent_instance_id: instance.id,
+             })
+         }
+-        AgentEngineKind::Cli => Ok(ResolvedEngine {
+-            kind: EngineKind::Cli,
+-            config: EngineConfig::empty(),
+-            context_window: None,
+-        }),
++        AgentEngineKind::Cli => Err(CLI_TENANT_RETIRED.to_owned()),
+     }
+ }
+ 
+diff --git a/crates/infra/agent/src/compose_test.rs b/crates/infra/agent/src/compose_test.rs
+index 42b523c17603..8d4480c47c9d 100644
+--- a/crates/infra/agent/src/compose_test.rs
++++ b/crates/infra/agent/src/compose_test.rs
+@@ -1,17 +1,21 @@
+ use std::path::{Path, PathBuf};
+-use std::sync::Arc;
++use std::sync::atomic::{AtomicUsize, Ordering};
++use std::sync::{Arc, Mutex};
+ 
+ use native_db::{Builder, Models};
++use tokio::sync::mpsc;
+ 
+ use agent::{
+-    AgentMessageRole, AgentPermissionMode, ModelLevel, SessionCtx, SessionProvenance, SessionRef,
++    AgentMessageRole, AgentPermissionMode, AgentRunner, AgentSession, AgentStartError, ModelLevel,
++    RunHandle, SessionCtx, SessionKernel, SessionOpen, SessionProvenance, SessionQuery, SessionRef,
+     StopRegistry,
+ };
+ 
++use crate::store_port::StoreQuery;
+ use crate::{compose_turn, ComposedTurn};
+ use store::{
+     AgentEngineKind, AgentInstanceRecord, AgentModelTiers, AgentProviderRecord,
+-    SessionConfigSnapshot, SessionRecord, WorkspaceStores,
++    SessionConfigSnapshot, SessionRecord, WorkspaceStores, CLI_TENANT_RETIRED,
+ };
+ 
+ /// sdk provider fixture 的可指定窗长变体（AC-9 组合根接线用）。
+@@ -38,9 +42,6 @@ fn seed_provider_with_context_length(
+         .id
+ }
+ 
+-/// PATH 环境变量修改串行化（CLI 臂真实驱动用例）。
+-use crate::TEST_PATH_LOCK as PATH_LOCK;
+-
+ /// Err 半边摘取（ComposedTurn / RunningTurn 不实现 Debug，expect_err 不可用）。
+ fn err_of<T>(result: Result<T, String>) -> String {
+     match result {
+@@ -135,21 +136,24 @@ fn seed_sdk_instance(stores: &WorkspaceStores, name: &str, provider_id: Option<i
+     id
+ }
+ 
+-/// cli 实例 fixture（默认标记）。
+-fn seed_cli_instance(stores: &WorkspaceStores, name: &str) -> i64 {
+-    let id = stores
+-        .global()
+-        .upsert_agent_instance(AgentInstanceRecord::new(
+-            name.to_owned(),
+-            AgentEngineKind::Cli,
+-            None,
+-        ))
+-        .expect("落 cli 实例 fixture")
+-        .id;
+-    stores
+-        .global()
+-        .set_default_agent_instance(id)
+-        .expect("置默认实例 fixture");
++/// 预置存量全局库并写入 cli 实例行（native_db 裸构造绕过 store 写入口拒面
++/// ——「存量 cli 行」为 AC-4 / AC-5 拒收行为的被测前提数据形态；须在
++/// `WorkspaceStores::open` 之前落盘，返回记录 id）。
++fn preset_cli_instance(env: &DualEnv, id: i64, name: &str, is_default: bool) -> i64 {
++    let path = env.data_root.path().join("desktop-global.redb");
++    let mut models = Models::new();
++    models
++        .define::<store::AgentInstanceRecord>()
++        .expect("定义 AgentInstanceRecord 失败");
++    let db = Builder::new()
++        .create(&models, &path)
++        .expect("预置存量全局库失败");
++    let rw = db.rw_transaction().expect("开启写事务失败");
++    let mut instance = store::AgentInstanceRecord::new(name.to_owned(), AgentEngineKind::Cli, None);
++    instance.id = id;
++    instance.is_default = is_default;
++    rw.insert(instance).expect("写入存量 cli 实例失败");
++    rw.commit().expect("提交预置事务失败");
+     id
+ }
+ 
+@@ -160,6 +164,7 @@ fn seed_sdk_session(store: &store::Store, id: &str, remote: Option<&str>) -> ()
+         engine_session_id: remote.map(str::to_owned),
+         config_snapshot: SessionConfigSnapshot {
+             engine: AgentEngineKind::Sdk,
++            agent_instance_id: None,
+             model: Some("m-high".to_owned()),
+             permission_mode: AgentPermissionMode::BypassPermissions,
+         },
+@@ -309,38 +314,65 @@ async fn 快照模型按轮级档位定型_low轮取低档high轮取高档() {
+ }
+ 
+ #[tokio::test]
+-async fn 显式cli实例解析_快照engine为cli且模型为none() {
++async fn 显式cli实例解析_逐字拒收退役文案且零落库() {
+     let env = DualEnv::new("explicit-cli");
++    let cli_id = preset_cli_instance(&env, 41, "命令行实例", false);
+     let stores = env.stores();
+-    let cli_id = seed_cli_instance(&stores, "命令行实例");
+ 
+-    let composed = compose_turn(
++    let error = err_of(compose_turn(
+         &stores,
+         Arc::new(StopRegistry::new()),
+         env.store(),
+         Some(cli_id),
+-    )
+-    .expect("显式 cli 解析应成功");
++    ));
+ 
++    assert_eq!(
++        error, CLI_TENANT_RETIRED,
++        "显式路径对 engine: Cli 实例逐字拒收（AC-4），实际: {error}"
++    );
++    // 拒收不落库不静默回退（不构造引擎）
+     let store = stores.for_root(&env.root()).expect("for_root 应成功");
+-    let running = composed
+-        .begin(
+-            SessionRef::New,
+-            "cli 快照一轮".to_owned(),
+-            ctx(&env.root()),
+-            debug_provenance(),
+-        )
+-        .expect("begin 应成功");
+-    let session_id = running.session_id.clone();
+-    drop(running);
+-    let session = store
+-        .find_session(&session_id)
+-        .expect("find_session 应成功")
+-        .expect("New 建会话行");
+-    assert_eq!(session.config_snapshot.engine, AgentEngineKind::Cli);
++    assert!(
++        store
++            .list_sessions(None, None)
++            .expect("清单应成功")
++            .is_empty(),
++        "拒收零落库"
++    );
++}
++
++#[test]
++fn 缺省发起默认实例为存量cli_同臂同文案拒且不清默认标记零落库() {
++    let env = DualEnv::new("default-cli");
++    let cli_id = preset_cli_instance(&env, 42, "默认命令行实例", true);
++    let stores = env.stores();
++
++    let error = err_of(compose_turn(
++        &stores,
++        Arc::new(StopRegistry::new()),
++        env.store(),
++        None,
++    ));
++
+     assert_eq!(
+-        session.config_snapshot.model, None,
+-        "cli 臂 EngineConfig::empty()（cli 实例不消费配置，无模型装配概念）"
++        error, CLI_TENANT_RETIRED,
++        "缺省路径同臂同文案（AC-5 缺省发起半边），实际: {error}"
++    );
++    // 不清 is_default、零数据写入（拒收先于任何写面）
++    let default = stores
++        .global()
++        .default_agent_instance()
++        .expect("default 解析应成功")
++        .expect("默认实例仍在库");
++    assert_eq!(default.id, cli_id, "存量默认 cli 实例原样在库");
++    assert!(default.is_default, "拒收不清 is_default");
++    let store = stores.for_root(&env.root()).expect("for_root 应成功");
++    assert!(
++        store
++            .list_sessions(None, None)
++            .expect("清单应成功")
++            .is_empty(),
++        "拒收零落库"
+     );
+ }
+ 
+@@ -504,6 +536,7 @@ fn continue跨引擎续会话被快照比对拒绝() {
+         engine_session_id: Some("s-cli-1".to_owned()),
+         config_snapshot: SessionConfigSnapshot {
+             engine: AgentEngineKind::Cli,
++            agent_instance_id: None,
+             model: None,
+             permission_mode: AgentPermissionMode::BypassPermissions,
+         },
+@@ -532,9 +565,6 @@ fn continue跨引擎续会话被快照比对拒绝() {
+     );
+ }
+ 
+-/// 未开轮会话（`engine_session_id = None`，explore 建档预建空会话）Continue
+-/// 首轮放行：不拒句柄缺失、不比引擎快照、`prior_handle` 为 None（引擎侧按全新
+-/// 会话开跑），并把本轮真实装配快照回写定型。
+ #[tokio::test]
+ async fn continue未开轮会话首轮放行并定型快照() {
+     let env = DualEnv::new("unstarted-first-turn");
+@@ -571,8 +601,9 @@ async fn continue未开轮会话首轮放行并定型快照() {
+     );
+ }
+ 
+-/// 未开轮判定收紧：**开过轮但句柄未上报**的会话不算未开轮——续会话治理三连
+-/// 照旧（句柄缺失显式 Err），跨引擎守卫不因缺句柄而放宽。
++/// 未开轮判定收紧：**开过轮但句柄未上报**的会话不算未开轮——不走未开轮
++/// 首轮放行（快照不重定型），续会话治理照走且 `prior_handle` 以 None 透传
++/// 照常续接（DD2 硬门槛退役，句柄缺失不再显式 Err）。
+ #[tokio::test]
+ async fn continue已开轮但句柄未上报仍走续会话治理() {
+     let env = DualEnv::new("ran-no-handle");
+@@ -588,46 +619,89 @@ async fn continue已开轮但句柄未上报仍走续会话治理() {
+ 
+     let composed = compose_turn(&stores, Arc::new(StopRegistry::new()), env.store(), None)
+         .expect("解析应成功");
+-    let error = err_of(composed.begin(
+-        SessionRef::Continue {
+-            id: "ses-ran".to_owned(),
+-        },
+-        "续一轮".to_owned(),
+-        ctx(&env.root()),
+-        debug_provenance(),
+-    ));
+-    assert!(
+-        error.contains("缺少引擎句柄"),
+-        "已开轮会话仍要求句柄，实际: {error}"
++    let running = composed
++        .begin(
++            SessionRef::Continue {
++                id: "ses-ran".to_owned(),
++            },
++            "续一轮".to_owned(),
++            ctx(&env.root()),
++            debug_provenance(),
++        )
++        .expect("缺句柄不再硬拒（DD2）：prior_handle 透传 None 照常续接");
++
++    // 已开轮 → 不走未开轮首轮放行：既有快照原样保留（不重定型）
++    let session = store
++        .find_session("ses-ran")
++        .expect("find_session 应成功")
++        .expect("续接沿用既有会话行");
++    assert_eq!(
++        session.engine_session_id, None,
++        "留痕列不被回写（prior_handle 透传不加工）"
+     );
+-    // 未开轮放行不适用于此形态（成因消息互不重合）
+-    assert!(
+-        !error.contains("会话不存在") && !error.contains("非当前引擎产出"),
+-        "成因消息互不重合"
++    assert_eq!(
++        session.config_snapshot.agent_instance_id, None,
++        "已开轮不走未开轮放行：快照不被本轮装配覆写"
++    );
++    let summaries = store.list_sessions(None, None).expect("清单应成功");
++    assert_eq!(summaries.len(), 1, "不重复建会话行");
++    assert_eq!(summaries[0].turns.len(), 2, "既有轮行之上续轮行照开");
++    drop(running);
++}
++
++#[tokio::test]
++async fn 续会话缺引擎句柄不再硬拒_prior_handle透传none照常续接() {
++    // AC-6 主锚：`engine_session_id` 缺失不再触发「会话缺少引擎句柄」硬门槛
++    // ——`prior_handle` 以 Option 原样透传（None），续会话照常发起
++    let env = DualEnv::new("remote-missing");
++    let stores = env.stores();
++    let provider_id = seed_provider(&stores, "句柄缺失供应");
++    seed_sdk_instance(&stores, "句柄缺失实例", Some(provider_id));
++    let store = stores.for_root(&env.root()).expect("for_root 应成功");
++    seed_sdk_session(&store, "ses-no-remote", None);
++    seed_transcript(&store, "ses-no-remote");
++
++    let composed = compose_turn(&stores, Arc::new(StopRegistry::new()), env.store(), None)
++        .expect("解析应成功");
++    let running = composed
++        .begin(
++            SessionRef::Continue {
++                id: "ses-no-remote".to_owned(),
++            },
++            "续一轮".to_owned(),
++            ctx(&env.root()),
++            debug_provenance(),
++        )
++        .expect("缺引擎句柄不再硬拒（AC-6）：prior_handle 透传 None 照常续接");
++
++    // 留痕保留：engine_session_id 不被 begin 回写（透传不加工不校验）
++    let session = store
++        .find_session("ses-no-remote")
++        .expect("find_session 应成功")
++        .expect("续接沿用既有会话行");
++    assert_eq!(
++        session.engine_session_id, None,
++        "prior_handle None 透传，留痕列不被回写"
+     );
++    let summaries = store.list_sessions(None, None).expect("清单应成功");
++    assert_eq!(summaries.len(), 1, "不重复建会话行");
++    assert_eq!(summaries[0].turns.len(), 1, "续轮行照开");
++    drop(running);
+ }
+ 
+ // ---------------------------------------------------------------------------
+ // 装配产物组合（sink/query/门面/内核真实装配：begin_turn/drive 可直接驱动）
+ // ---------------------------------------------------------------------------
+ 
+-#[tokio::test]
+-async fn 装配产物真实驱动_cli臂隔离path下failed收敛且会话行轮行转录齐落库() {
++#[tokio::test(start_paused = true)]
++async fn 装配产物真实驱动_sdk轮失败收敛且会话行轮行转录齐落库() {
+     let env = DualEnv::new("drive-real");
+     let stores = env.stores();
+-    let cli_id = seed_cli_instance(&stores, "驱动实例");
++    let provider_id = seed_provider(&stores, "驱动供应");
++    seed_sdk_instance(&stores, "驱动实例", Some(provider_id));
+ 
+-    let composed = compose_turn(
+-        &stores,
+-        Arc::new(StopRegistry::new()),
+-        env.store(),
+-        Some(cli_id),
+-    )
+-    .expect("解析应成功");
+-
+-    let _guard = PATH_LOCK.lock().expect("PATH 锁不可中毒");
+-    let original = std::env::var_os("PATH");
+-    std::env::set_var("PATH", ""); // ask 段 discover 失败 → 合成收敛
++    let composed = compose_turn(&stores, Arc::new(StopRegistry::new()), env.store(), None)
++        .expect("解析应成功");
+ 
+     let running = composed
+         .begin(
+@@ -640,18 +714,15 @@ async fn 装配产物真实驱动_cli臂隔离path下failed收敛且会话行轮
+             },
+         )
+         .expect("begin 应成功");
++    let session_id = running.session_id.clone();
+ 
++    // 拒连端点一轮一命：重试护栏逐次留痕后耗尽失败收敛（paused 时钟快进）
+     let outcome = running.drive(|_output| {}).await;
+ 
+-    match original {
+-        Some(value) => std::env::set_var("PATH", value),
+-        None => std::env::remove_var("PATH"),
+-    }
+-
+     assert_eq!(
+         outcome.status,
+         agent::AgentRunStatus::Failed,
+-        "CLI 缺失合成收敛 failed"
++        "sdk 轮拒连端点以 api_error 失败收敛"
+     );
+     // sink 真实装配：会话行 + 轮行 + 转录齐落库；provenance debug 承接
+     let store = stores.for_root(&env.root()).expect("for_root 应成功");
+@@ -663,15 +734,16 @@ async fn 装配产物真实驱动_cli臂隔离path下failed收敛且会话行轮
+     );
+     assert_eq!(summaries[0].turns.len(), 1);
+     assert_eq!(summaries[0].turns[0].status, agent::AgentRunStatus::Failed);
+-    // query 真实装配：转录重放含合成 TurnDone
+-    let transcript = store
+-        .list_session_events(&summaries[0].row.id)
+-        .expect("转录应成功");
+-    assert_eq!(transcript.len(), 1, "恰合成收敛一条密封事件");
+-    assert!(matches!(
+-        &transcript[0].kind,
+-        agent::AgentEventKind::TurnDone { subtype, is_error: true, .. } if subtype == "error_cli_missing"
+-    ));
++    // query 真实装配：转录重放含 api_error 收敛事件
++    let transcript = store.list_session_events(&session_id).expect("转录应成功");
++    assert!(
++        matches!(
++            &transcript.last().expect("非空").kind,
++            agent::AgentEventKind::TurnDone { subtype, is_error: true, .. } if subtype == "api_error"
++        ),
++        "转录末条为失败收敛事件，实际: {:?}",
++        transcript.last()
++    );
+ }
+ 
+ #[tokio::test]
+@@ -802,18 +874,16 @@ fn resolve_provider缺列时透传none不落128k字面() {
+ }
+ 
+ #[test]
+-fn resolve_cli臂context_window恒none() {
++fn resolve_cli臂逐字拒收退役文案() {
+     let env = DualEnv::new("ctx-cli");
++    let cli_id = preset_cli_instance(&env, 43, "cli窗长实例", false);
+     let stores = env.stores();
+-    let cli_id = seed_cli_instance(&stores, "cli窗长实例");
+ 
+-    let resolved = match super::resolve_agent_engine(&stores, Some(cli_id)) {
+-        Ok(resolved) => resolved,
+-        Err(error) => panic!("cli 解析应成功: {error}"),
+-    };
++    let error = err_of(super::resolve_agent_engine(&stores, Some(cli_id)));
++
+     assert_eq!(
+-        resolved.context_window, None,
+-        "cli 臂恒 None（窗长载荷为 sdk 引擎旁路，CLI 不消费）"
++        error, CLI_TENANT_RETIRED,
++        "解析单点对 engine: Cli 实例显式拒收（不构造引擎、不静默回退），实际: {error}"
+     );
+ }
+ 
+@@ -825,11 +895,12 @@ fn resolve_cli臂context_window恒none() {
+ /// 落会话行 / 轮行于**注入实例**（注入 store 的 list_sessions 可查）；异根
+ /// rootB 库零行——store 半边唯一入口是注入参（cwd / rootB 不触发第二处库解
+ /// 析；worktree 路径在类型上不可能进入库解析）。
+-#[tokio::test]
++#[tokio::test(start_paused = true)]
+ async fn 注入实例消费_会话行轮行落注入库且异根库零行() {
+     let env = DualEnv::new("inject-isolation");
+     let stores = env.stores();
+-    let cli_id = seed_cli_instance(&stores, "注入消费实例");
++    let provider_id = seed_provider(&stores, "注入消费供应");
++    let sdk_id = seed_sdk_instance(&stores, "注入消费实例", Some(provider_id));
+     let root_b = tempfile::Builder::new()
+         .prefix("compose-test-inject-other-root-")
+         .tempdir()
+@@ -842,14 +913,10 @@ async fn 注入实例消费_会话行轮行落注入库且异根库零行() {
+         &stores,
+         Arc::new(StopRegistry::new()),
+         std::sync::Arc::clone(&injected),
+-        Some(cli_id),
++        Some(sdk_id),
+     )
+     .expect("解析应成功");
+ 
+-    let _guard = PATH_LOCK.lock().expect("PATH 锁不可中毒");
+-    let original = std::env::var_os("PATH");
+-    std::env::set_var("PATH", ""); // cli 缺失合成收敛（不 spawn 真实引擎）
+-
+     let running = composed
+         .begin(
+             SessionRef::New,
+@@ -860,15 +927,10 @@ async fn 注入实例消费_会话行轮行落注入库且异根库零行() {
+         .expect("begin 应成功");
+     let outcome = running.drive(|_output| {}).await;
+ 
+-    match original {
+-        Some(value) => std::env::set_var("PATH", value),
+-        None => std::env::remove_var("PATH"),
+-    }
+-
+     assert_eq!(
+         outcome.status,
+         agent::AgentRunStatus::Failed,
+-        "PATH 隔离下 CLI 合成收敛 failed（落库面不受收敛形态影响）"
++        "sdk 拒连端点失败收敛（落库面不受收敛形态影响）"
+     );
+ 
+     // 注入实例：会话行 + 轮行在场（begin 即落库，逐字段可查）
+@@ -899,3 +961,517 @@ async fn 注入实例消费_会话行轮行落注入库且异根库零行() {
+         "异根库零行（store 半边唯一入口 = 注入参）"
+     );
+ }
++
++// ---------------------------------------------------------------------------
++// begin() 载荷断言装置：kernel 端口（sink）与 runner 端口均以记录型假件注入
++// （trait 假件为显式注入依赖的测试侧替身）——prior_handle / config_snapshot
++// 载荷与「跨引擎 Err 时 kernel 零调用」经假件调用面直读；store 半边仍为
++// 真库实例（Continue 校验寻址）。
++// ---------------------------------------------------------------------------
++
++/// 记录型假 runner：捕获 `open_session` 的 `prior_handle` 载荷，返回最小
++/// `AgentSession`（观测 / 提问通道即弃——本节用例只走 begin 同步段）。
++struct RecordingRunner {
++    prior_handles: Mutex<Vec<Option<String>>>,
++}
++
++impl RecordingRunner {
++    fn new() -> Arc<Self> {
++        Arc::new(Self {
++            prior_handles: Mutex::new(Vec::new()),
++        })
++    }
++
++    /// 已捕获的 prior_handle 序列（按调用序）。
++    fn captured(&self) -> Vec<Option<String>> {
++        self.prior_handles.lock().expect("捕获锁不可中毒").clone()
++    }
++}
++
++impl AgentRunner for RecordingRunner {
++    fn open_session(&self, open: SessionOpen) -> Result<AgentSession, AgentStartError> {
++        self.prior_handles
++            .lock()
++            .expect("捕获锁不可中毒")
++            .push(open.prior_handle);
++        let (observation_tx, observation_rx) = mpsc::channel(4);
++        let (question_tx, question_rx) = mpsc::channel(4);
++        drop(observation_tx);
++        drop(question_rx);
++        Ok(AgentSession {
++            observations: observation_rx,
++            questions: question_tx,
++            handle: RunHandle::default(),
++        })
++    }
++}
++
++/// 记录型假 sink：`SessionSink` 端口调用计数 + `create_session` 载荷捕获。
++struct RecordingSink {
++    created: Mutex<Vec<agent::NewSessionRow>>,
++    begin_turns: AtomicUsize,
++}
++
++impl RecordingSink {
++    fn new() -> Arc<Self> {
++        Arc::new(Self {
++            created: Mutex::new(Vec::new()),
++            begin_turns: AtomicUsize::new(0),
++        })
++    }
++
++    /// 已捕获的建行载荷（按调用序）。
++    fn created_rows(&self) -> Vec<agent::NewSessionRow> {
++        self.created.lock().expect("捕获锁不可中毒").clone()
++    }
++}
++
++impl agent::SessionSink for RecordingSink {
++    fn create_session(&self, session: &agent::NewSessionRow) -> Result<(), String> {
++        self.created
++            .lock()
++            .expect("捕获锁不可中毒")
++            .push(session.clone());
++        Ok(())
++    }
++
++    fn begin_turn(&self, _session_id: &str, _started_at: i64) -> Result<i64, String> {
++        Ok(self.begin_turns.fetch_add(1, Ordering::Relaxed) as i64 + 1)
++    }
++
++    fn next_seq(&self, _session_id: &str) -> Result<u64, String> {
++        Ok(0)
++    }
++
++    fn append_sealed(&self, _session_id: &str, _event: &agent::AgentEvent) -> Result<(), String> {
++        Ok(())
++    }
++
++    fn finish_turn(&self, _turn_id: i64, _outcome: &agent::TurnOutcome) -> Result<(), String> {
++        Ok(())
++    }
++
++    fn bind_remote_session(
++        &self,
++        _session_id: &str,
++        _remote: &str,
++        _updated_at: i64,
++    ) -> Result<(), String> {
++        Ok(())
++    }
++}
++
++/// 以假件装配 `ComposedTurn`（compose 子模块可直触私有字段——测试侧装配缝；
++/// store 半边仍为真库实例）。
++fn composed_with_fakes(
++    store: std::sync::Arc<store::Store>,
++    runner: Arc<RecordingRunner>,
++    sink: Arc<RecordingSink>,
++    models: Option<(String, String)>,
++    agent_instance_id: i64,
++) -> ComposedTurn {
++    ComposedTurn {
++        kernel: SessionKernel::new(sink, Arc::new(StopRegistry::new())),
++        runner,
++        query: Arc::new(StoreQuery::new(store)),
++        store_kind: AgentEngineKind::Sdk,
++        models,
++        agent_instance_id,
++    }
++}
++
++#[tokio::test]
++async fn prior_handle透传四形态_句柄原样与none缺省与new恒none() {
++    let env = DualEnv::new("prior-handle");
++    let stores = env.stores();
++    let store = stores.for_root(&env.root()).expect("for_root 应成功");
++    let long_handle = format!("sdk-{}", "句".repeat(1100));
++    seed_sdk_session(&store, "ses-handle-empty", Some(""));
++    seed_sdk_session(&store, "ses-handle-long", Some(&long_handle));
++    seed_sdk_session(&store, "ses-handle-weird", Some("句柄\n零\u{0}字符😀"));
++    seed_sdk_session(&store, "ses-handle-none", None);
++
++    let runner = RecordingRunner::new();
++    let sink = RecordingSink::new();
++    let composed = composed_with_fakes(
++        store,
++        Arc::clone(&runner),
++        Arc::clone(&sink),
++        Some(("m-high".to_owned(), "m-low".to_owned())),
++        71,
++    );
++
++    // 续会话句柄四形态：Some("") / 超长 / 特殊字符原样透传（Option 透传不
++    // 校验不加工），None 缺省透传（AC-6 硬门槛退役的载荷面）
++    for id in [
++        "ses-handle-empty",
++        "ses-handle-long",
++        "ses-handle-weird",
++        "ses-handle-none",
++    ] {
++        composed
++            .begin(
++                SessionRef::Continue { id: id.to_owned() },
++                "续一轮".to_owned(),
++                ctx(&env.root()),
++                debug_provenance(),
++            )
++            .unwrap_or_else(|e| panic!("续会话 {id} 应成功: {e}"));
++    }
++    // New：prior_handle 恒 None
++    composed
++        .begin(
++            SessionRef::New,
++            "新会话一轮".to_owned(),
++            ctx(&env.root()),
++            debug_provenance(),
++        )
++        .expect("New 应成功");
++
++    assert_eq!(
++        runner.captured(),
++        vec![
++            Some(String::new()),
++            Some(long_handle),
++            Some("句柄\n零\u{0}字符😀".to_owned()),
++            None,
++            None,
++        ],
++        "prior_handle 四形态原样透传（Some 三边界不加工 / None 缺省 / New 恒 None）"
++    );
++    assert_eq!(
++        sink.begin_turns.load(Ordering::Relaxed),
++        5,
++        "五次 begin 均开轮（透传不拦截）"
++    );
++}
++
++#[tokio::test]
++async fn 快照组装携agentInstanceId与定型双面_json线键camel_case() {
++    let env = DualEnv::new("snapshot-key");
++    let stores = env.stores();
++    let store = stores.for_root(&env.root()).expect("for_root 应成功");
++
++    let runner = RecordingRunner::new();
++    let sink = RecordingSink::new();
++    let composed = composed_with_fakes(
++        store,
++        Arc::clone(&runner),
++        Arc::clone(&sink),
++        Some(("m-high".to_owned(), "m-low".to_owned())),
++        i64::MAX,
++    );
++
++    composed
++        .begin(
++            SessionRef::New,
++            "高档一轮".to_owned(),
++            ctx(&env.root()),
++            debug_provenance(),
++        )
++        .expect("begin 应成功");
++    composed
++        .begin(
++            SessionRef::New,
++            "低档一轮".to_owned(),
++            SessionCtx {
++                model_level: ModelLevel::Low,
++                ..ctx(&env.root())
++            },
++            debug_provenance(),
++        )
++        .expect("begin 应成功");
++
++    let created = sink.created_rows();
++    assert_eq!(created.len(), 2, "恰两轮 create_session");
++    let high = &created[0].config_snapshot;
++    assert_eq!(
++        high["engine"],
++        serde_json::json!("sdk"),
++        "快照 engine 定型双面保留（DD9）"
++    );
++    assert_eq!(
++        high["agentInstanceId"],
++        serde_json::json!(i64::MAX),
++        "实例外键恒在（DD8 / AC-7）——i64::MAX 经 serde 数值不失真"
++    );
++    assert_eq!(high["model"], serde_json::json!("m-high"), "High 档取 high");
++    assert_eq!(
++        high["permissionMode"],
++        serde_json::json!("bypassPermissions"),
++        "permissionMode 零变化"
++    );
++    let low = &created[1].config_snapshot;
++    assert_eq!(low["model"], serde_json::json!("m-low"), "Low 档取 low");
++    assert_eq!(
++        low["agentInstanceId"],
++        serde_json::json!(i64::MAX),
++        "档位定型不影响实例外键"
++    );
++}
++
++#[tokio::test]
++async fn models装配为none时快照model为null且实例外键int边界serde不失真() {
++    // DD9 死臂载荷：models: None（Cli 死臂映射形态）经假件装配直驱——快照
++    // model: null 照常、agentInstanceId 恒 Some（不因无模型装配而漏键）；实例
++    // id int 边界（0 / -1 / i64::MAX）经 serde 数值不失真（DD8 / AC-7 边界行）
++    let env = DualEnv::new("models-none");
++    let stores = env.stores();
++    let store = stores.for_root(&env.root()).expect("for_root 应成功");
++    let runner = RecordingRunner::new();
++    let sink = RecordingSink::new();
++
++    for instance_id in [0_i64, -1, i64::MAX] {
++        let composed = composed_with_fakes(
++            std::sync::Arc::clone(&store),
++            Arc::clone(&runner),
++            Arc::clone(&sink),
++            None,
++            instance_id,
++        );
++        composed
++            .begin(
++                SessionRef::New,
++                "无模型装配一轮".to_owned(),
++                ctx(&env.root()),
++                debug_provenance(),
++            )
++            .expect("begin 应成功");
++    }
++
++    let created = sink.created_rows();
++    assert_eq!(created.len(), 3, "三边界实例 id 各恰一轮 create_session");
++    for (index, instance_id) in [0_i64, -1, i64::MAX].into_iter().enumerate() {
++        let snapshot = &created[index].config_snapshot;
++        assert_eq!(
++            snapshot["model"],
++            serde_json::Value::Null,
++            "model: null 照常出线"
++        );
++        assert_eq!(
++            snapshot["agentInstanceId"],
++            serde_json::json!(instance_id),
++            "agentInstanceId 恒 Some 且 {instance_id} 经 serde 数值不失真"
++        );
++    }
++}
++
++#[tokio::test]
++async fn 跨引擎续会话前置拒_零sink调用零runner开面() {
++    // AC-4「存量 cli 会话续接显式失败」+ DD10 门序：跨引擎校验先于 prior_handle
++    // 透传与 kernel.begin_turn——前置 Err 不落库不推流（kernel 假件零调用计数）
++    let env = DualEnv::new("cross-engine-fake");
++    let stores = env.stores();
++    let store = stores.for_root(&env.root()).expect("for_root 应成功");
++    store
++        .create_session(&SessionRecord {
++            id: "ses-cli-made-fake".to_owned(),
++            engine_session_id: Some("s-cli-1".to_owned()),
++            config_snapshot: SessionConfigSnapshot {
++                engine: AgentEngineKind::Cli,
++                agent_instance_id: None,
++                model: None,
++                permission_mode: AgentPermissionMode::BypassPermissions,
++            },
++            source: "debug".to_owned(),
++            source_ref: None,
++            created_at: 1727000000000,
++            updated_at: 1727000000000,
++        })
++        .expect("落存量 cli 会话行");
++    seed_transcript(&store, "ses-cli-made-fake");
++
++    let runner = RecordingRunner::new();
++    let sink = RecordingSink::new();
++    let composed = composed_with_fakes(
++        store,
++        Arc::clone(&runner),
++        Arc::clone(&sink),
++        Some(("m-high".to_owned(), "m-low".to_owned())),
++        74,
++    );
++
++    let error = err_of(composed.begin(
++        SessionRef::Continue {
++            id: "ses-cli-made-fake".to_owned(),
++        },
++        "跨引擎续一轮".to_owned(),
++        ctx(&env.root()),
++        debug_provenance(),
++    ));
++    assert!(
++        error.contains("非当前引擎产出"),
++        "存量 cli 会话续接显式失败（AC-4 落点），实际: {error}"
++    );
++    assert_eq!(
++        runner.captured(),
++        Vec::<Option<String>>::new(),
++        "门序保持：跨引擎校验先于 prior_handle 透传（runner 零开面）"
++    );
++    assert_eq!(
++        sink.begin_turns.load(Ordering::Relaxed),
++        0,
++        "kernel 零调用：不开轮行"
++    );
++    assert!(sink.created_rows().is_empty(), "kernel 零调用：不建会话行");
++
++    // AC-4「会话列表 / 转录照常可读」（R5 呈现兜底）：拒收零落库不推流之外，
++    // 存量 cli 会话的读面零改动——session_query 侧单查与转录重放照常可读
++    let detail = composed
++        .query
++        .find_session_detail("ses-cli-made-fake")
++        .expect("存量 cli 会话单查照常可读");
++    assert_eq!(
++        detail.row.id, "ses-cli-made-fake",
++        "存量 cli 会话行读面零改动"
++    );
++    let transcript = composed
++        .query
++        .transcript("ses-cli-made-fake")
++        .expect("存量 cli 会话转录重放照常可读");
++    assert_eq!(transcript.len(), 2, "密封转录原样可读（呈现兜底不受拒收影响）");
++}
++
++#[tokio::test]
++async fn question为str边界三形态透传不加工不panic() {
++    let env = DualEnv::new("question-edge");
++    let stores = env.stores();
++    let store = stores.for_root(&env.root()).expect("for_root 应成功");
++    let runner = RecordingRunner::new();
++    let sink = RecordingSink::new();
++    let composed = composed_with_fakes(
++        store,
++        Arc::clone(&runner),
++        Arc::clone(&sink),
++        Some(("m-high".to_owned(), "m-low".to_owned())),
++        75,
++    );
++
++    for question in [
++        String::new(),
++        format!("超长一轮{}", "长".repeat(1100)),
++        "多行\n提问\u{0}含零宽😀".to_owned(),
++    ] {
++        composed
++            .begin(
++                SessionRef::New,
++                question,
++                ctx(&env.root()),
++                debug_provenance(),
++            )
++            .expect("question str 边界透传不加工（begin 成立即受理）");
++    }
++    assert_eq!(
++        sink.begin_turns.load(Ordering::Relaxed),
++        3,
++        "三形态均开轮（透传不拦截不 panic）"
++    );
++}
++
++#[test]
++fn 显式agent_id边界零与负数与i64max均miss记因() {
++    let env = DualEnv::new("agent-edge");
++    let stores = env.stores();
++    for id in [0_i64, -1, i64::MAX] {
++        let error = err_of(compose_turn(
++            &stores,
++            Arc::new(StopRegistry::new()),
++            env.store(),
++            Some(id),
++        ));
++        assert!(
++            error.contains("agent 不存在") && error.contains(&id.to_string()),
++            "miss 走既有「agent 不存在」分支携 id 记因，实际: {error}"
++        );
++    }
++}
++
++#[test]
++fn 续会话id边界空串与超长与特殊字符均走会话不存在分支不panic() {
++    let env = DualEnv::new("session-id-edge");
++    let stores = env.stores();
++    let provider_id = seed_provider(&stores, "边界供应");
++    seed_sdk_instance(&stores, "边界实例", Some(provider_id));
++    let composed = compose_turn(&stores, Arc::new(StopRegistry::new()), env.store(), None)
++        .expect("解析应成功");
++    for id in [
++        "".to_owned(),
++        format!("ses-{}", "超".repeat(1100)),
++        "特殊\u{0}字符😀\n会话".to_owned(),
++    ] {
++        let error = err_of(composed.begin(
++            SessionRef::Continue { id: id.clone() },
++            "边界续一轮".to_owned(),
++            ctx(&env.root()),
++            debug_provenance(),
++        ));
++        assert!(
++            error.contains("会话不存在"),
++            "miss 走「会话不存在」分支不 panic，实际: {error}"
++        );
++    }
++}
++
++#[tokio::test]
++async fn 新会话快照携实例id_缺省与显式路径同填some() {
++    let env = DualEnv::new("snapshot-instance");
++    let stores = env.stores();
++    let provider_id = seed_provider(&stores, "快照供应");
++    let sdk_id = seed_sdk_instance(&stores, "快照实例", Some(provider_id));
++    let store = stores.for_root(&env.root()).expect("for_root 应成功");
++
++    // 显式路径：快照携实例 id（DD8）
++    let composed = compose_turn(
++        &stores,
++        Arc::new(StopRegistry::new()),
++        env.store(),
++        Some(sdk_id),
++    )
++    .expect("显式解析应成功");
++    let running = composed
++        .begin(
++            SessionRef::New,
++            "显式路径一轮".to_owned(),
++            ctx(&env.root()),
++            debug_provenance(),
++        )
++        .expect("begin 应成功");
++    let session = store
++        .find_session(&running.session_id)
++        .expect("find_session 应成功")
++        .expect("New 建会话行");
++    assert_eq!(
++        session.config_snapshot.agent_instance_id,
++        Some(sdk_id),
++        "显式路径快照携实例 id"
++    );
++    let json = serde_json::to_value(&session.config_snapshot).expect("快照序列化应成功");
++    assert_eq!(
++        json["agentInstanceId"],
++        serde_json::json!(sdk_id),
++        "serde 线键 agentInstanceId camelCase 出线"
++    );
++    drop(running);
++
++    // 缺省路径：同经 resolve 取实例、同填 Some
++    let composed = compose_turn(&stores, Arc::new(StopRegistry::new()), env.store(), None)
++        .expect("缺省解析应成功");
++    let running = composed
++        .begin(
++            SessionRef::New,
++            "缺省路径一轮".to_owned(),
++            ctx(&env.root()),
++            debug_provenance(),
++        )
++        .expect("begin 应成功");
++    let session = store
++        .find_session(&running.session_id)
++        .expect("find_session 应成功")
++        .expect("New 建会话行");
++    assert_eq!(
++        session.config_snapshot.agent_instance_id,
++        Some(sdk_id),
++        "缺省路径同填 Some（同经 resolve 单点取实例）"
++    );
++    drop(running);
++}
+diff --git a/crates/infra/agent/src/lib.rs b/crates/infra/agent/src/lib.rs
+index 5a9b397ba73f..2ffb47fc58a8 100644
+--- a/crates/infra/agent/src/lib.rs
++++ b/crates/infra/agent/src/lib.rs
+@@ -1,4 +1,3 @@
+-mod cli;
+ mod compose;
+ mod sdk;
+ mod store_port;
+@@ -6,35 +5,33 @@ mod worker;
+ 
+ use agent::AgentRunner;
+ 
+-pub use cli::runner::ClaudeCliRunner;
+ pub use compose::{compose_turn, ComposedTurn};
+ pub use sdk::config::EngineConfig;
+ pub use sdk::log::{append_engine_log, init_engine_log, install_engine_panic_hook};
+ pub use store_port::session_query;
+ pub use worker::KernelWorkerPort;
+ 
+-pub use cli::{discover, flags, jsonl, runner};
+-
+ /// 引擎二值：`agent_start` 的 `engine` 参数值域（serde/specta camelCase，
+-/// 线格式 `"cli" | "sdk"`；`Option` 承载缺省，不传即 CLI 租户、行为与演进
+-/// 前一致）。住 infra 门面，core 契约零污染。
++/// 线格式 `"cli" | "sdk"`；`Option` 承载缺省）。`Cli` 为退役态·协议预留——
++/// 多租户机制（本机 CLI / 进程内 SDK / 远程 API）保留，CLI 租户实现已随
++/// retire-cli-engine 退役、无生产构造路径。住 infra 门面，core 契约零污染。
+ #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize, specta::Type)]
+ #[serde(rename_all = "camelCase")]
+ pub enum EngineKind {
+-    /// 本机 claude CLI 租户（缺省）
++    /// 本机 claude CLI 租户（退役态·协议预留）
+     Cli,
+-    /// 进程内 sdk 租户
++    /// 进程内 sdk 租户（唯一活档）
+     Sdk,
+ }
+ 
+ /// 续会话转录装载缝（引擎中立数据）：session_id → 事件转录。`None` = 会话
+ /// 不存在或非 sdk 产出；`Err` = 库读取失败。sdk 引擎 `start()` 时调用并
+-/// 重建对话史；cli 引擎持有不消费。
++/// 重建对话史。
+ pub type ResumeTranscript =
+     std::sync::Arc<dyn Fn(&str) -> Result<Option<Vec<agent::AgentEvent>>, String> + Send + Sync>;
+ 
+ /// 引擎门面：`runner_for` 为引擎构造唯一 match 点（编排层零引擎分支）。
+-/// `resume` 装载缝与 sdk 引擎窗长载荷随门面持有，按引擎分发（CLI 臂不消费）。
++/// `resume` 装载缝与 sdk 引擎窗长载荷随门面持有，按引擎分发。
+ pub struct EngineFacade {
+     resume: Option<ResumeTranscript>,
+     /// sdk 引擎上下文窗长（组合根旁路载荷，不经 `EngineConfig` 三字段；
+@@ -43,7 +40,7 @@ pub struct EngineFacade {
+ }
+ 
+ impl EngineFacade {
+-    /// 无续会话注入的门面（CLI 路径零成本）。
++    /// 无续会话注入的门面。
+     pub fn new() -> Self {
+         Self {
+             resume: None,
+@@ -51,8 +48,7 @@ impl EngineFacade {
+         }
+     }
+ 
+-    /// 携 store 转录装载缝的门面：sdk 引擎续会话经此解析，CLI 引擎持有
+-    /// 不消费。
++    /// 携 store 转录装载缝的门面：sdk 引擎续会话经此解析。
+     pub fn with_resume_transcript(loader: ResumeTranscript) -> Self {
+         Self {
+             resume: Some(loader),
+@@ -71,15 +67,22 @@ impl EngineFacade {
+     }
+ 
+     /// 引擎构造唯一 match 点：kind 选臂、engine_cfg 供 sdk 臂组装 rig
+-    /// client（CLI 臂忽略）。引擎具体类型不出门面。
+-    pub fn runner_for(&self, kind: EngineKind, engine_cfg: EngineConfig) -> Box<dyn AgentRunner> {
++    /// client。引擎具体类型不出门面。`EngineKind::Cli` 臂退役为显式 `Err`
++    /// （[`store::CLI_TENANT_RETIRED`] 逐字文案）——生产路径不可达（组合根
++    /// `resolve_agent_engine` 先行拒 Cli），该臂为结构保留 + 防御兜底，
++    /// **唯一 match 点结构与 `EngineKind` 双值不塌**。
++    pub fn runner_for(
++        &self,
++        kind: EngineKind,
++        engine_cfg: EngineConfig,
++    ) -> Result<Box<dyn AgentRunner>, String> {
+         match kind {
+-            EngineKind::Cli => Box::new(ClaudeCliRunner::new()),
+-            EngineKind::Sdk => Box::new(sdk::runner::SdkRunner::new(
++            EngineKind::Cli => Err(store::CLI_TENANT_RETIRED.to_owned()),
++            EngineKind::Sdk => Ok(Box::new(sdk::runner::SdkRunner::new(
+                 engine_cfg,
+                 self.resume.clone(),
+                 self.context_window,
+-            )),
++            ))),
+         }
+     }
+ }
+diff --git a/crates/infra/agent/src/lib_test.rs b/crates/infra/agent/src/lib_test.rs
+index 491a33862e3e..fc11a0b9b270 100644
+--- a/crates/infra/agent/src/lib_test.rs
++++ b/crates/infra/agent/src/lib_test.rs
+@@ -1,17 +1,14 @@
+ use std::path::Path;
+ use std::sync::atomic::{AtomicUsize, Ordering};
+-use std::sync::{Arc, Mutex};
++use std::sync::Arc;
+ 
+ use crate::sdk::runner::SdkRunner;
+ use crate::{
+-    compose_turn, session_query, ClaudeCliRunner, ComposedTurn, EngineConfig, EngineFacade,
+-    EngineKind, ResumeTranscript,
++    compose_turn, session_query, ComposedTurn, EngineConfig, EngineFacade, EngineKind,
++    ResumeTranscript,
+ };
+ use agent::AgentRunner;
+-use store::WorkspaceStores;
+-
+-/// PATH 环境变量修改串行化（进程全局操作）。
+-static PATH_LOCK: Mutex<()> = Mutex::new(());
++use store::{WorkspaceStores, CLI_TENANT_RETIRED};
+ 
+ /// 内存三形态闭包替身 + 调用计数（装载缝注入依赖的测试侧替身）。
+ fn counting_loader(
+@@ -49,11 +46,6 @@ fn crate根导出面锚定_组合根与查询面与既有门面re_export可达()
+     let query_signature: fn(Arc<store::Store>) -> Arc<dyn agent::SessionQuery> = session_query;
+     let _ = query_signature;
+ 
+-    // 既有门面 re-export 零 diff 回归：EngineKind / EngineConfig /
+-    // ClaudeCliRunner / cli 模块别名
+-    let cli_runner = ClaudeCliRunner::new();
+-    assert_eq!(std::mem::size_of_val(&cli_runner), 0, "无状态 CLI runner");
+-
+     // EngineConfig 三字段零改动承诺回归（构造形态与 empty 占位）
+     let config = EngineConfig {
+         api_key: "k".to_owned(),
+@@ -95,7 +87,7 @@ fn engine_kind线格式值域逐字为cli与sdk且非法值拒绝() {
+ }
+ 
+ // ---------------------------------------------------------------------------
+-// ResumeTranscript 缝语义平移（类型形状不变 + CLI 臂持有不消费）
++// ResumeTranscript 缝语义平移（类型形状不变）
+ // ---------------------------------------------------------------------------
+ 
+ #[test]
+@@ -120,113 +112,15 @@ fn resume_transcript缝类型形状入参str返回result_option_vec且闭包替
+     assert_eq!(none_calls.load(Ordering::Relaxed), 1);
+ }
+ 
+-#[tokio::test]
+-async fn cli分发路径持有装载缝不消费_调用计数恒零() {
+-    let (loader, calls) = counting_loader(Ok(Some(Vec::new())));
+-    let facade = EngineFacade::with_resume_transcript(loader);
+-
+-    // CLI 臂：open_session（持有缝不消费）→ ask（spawn_turn 不读转录，续会话
+-    // 走 --resume flag）——装载缝调用计数恒零
+-    let _guard = PATH_LOCK.lock().expect("PATH 锁不可中毒");
+-    let dir = tempfile::Builder::new()
+-        .prefix("facade-cli-resume-")
+-        .tempdir()
+-        .expect("创建合成目录失败");
+-    let original = std::env::var_os("PATH");
+-    std::env::set_var("PATH", ""); // ask 段 discover 失败（不触装载缝）
+-
+-    let runner = facade.runner_for(EngineKind::Cli, EngineConfig::empty());
+-    let mut session = runner
+-        .open_session(agent::SessionOpen {
+-            injections: agent::SessionInjections::default(),
+-            ctx: agent::SessionCtx {
+-                workspace_root: dir.path().to_path_buf(),
+-                permission_mode: agent::AgentPermissionMode::BypassPermissions,
+-                model_level: agent::ModelLevel::High,
+-            },
+-            session: agent::SessionRef::Continue {
+-                id: "ses-cli-1".to_owned(),
+-            },
+-            prior_handle: Some("s-legacy-1".to_owned()),
+-        })
+-        .expect("CLI 臂 open 段无 IO");
+-    let _ = session
+-        .questions
+-        .send(agent::TurnQuestion {
+-            prompt: "CLI 续会话一轮".to_owned(),
+-        })
+-        .await;
+-    while session.observations.recv().await.is_some() {}
+-
+-    match original {
+-        Some(value) => std::env::set_var("PATH", value),
+-        None => std::env::remove_var("PATH"),
+-    }
+-
+-    assert_eq!(
+-        calls.load(Ordering::Relaxed),
+-        0,
+-        "CLI 引擎持有装载缝不消费（调用计数恒零回归）"
+-    );
+-}
+-
+ // ---------------------------------------------------------------------------
+-// 门面双臂分发回归
++// 门面分发回归
+ // ---------------------------------------------------------------------------
+ 
+-#[tokio::test]
+-async fn cli臂隔离path下ask段以cli_missing合成收敛() {
+-    let _guard = PATH_LOCK.lock().expect("PATH 锁不可中毒");
+-    let dir = tempfile::Builder::new()
+-        .prefix("facade-cli-missing-")
+-        .tempdir()
+-        .expect("创建合成目录失败");
+-    let original = std::env::var_os("PATH");
+-    std::env::set_var("PATH", "");
+-
+-    let runner = EngineFacade::new().runner_for(EngineKind::Cli, EngineConfig::empty());
+-    let mut session = runner
+-        .open_session(agent::SessionOpen {
+-            injections: agent::SessionInjections::default(),
+-            ctx: agent::SessionCtx {
+-                workspace_root: dir.path().to_path_buf(),
+-                permission_mode: agent::AgentPermissionMode::BypassPermissions,
+-                model_level: agent::ModelLevel::High,
+-            },
+-            session: agent::SessionRef::New,
+-            prior_handle: None,
+-        })
+-        .expect("CLI 臂 open 段无 IO");
+-    session
+-        .questions
+-        .send(agent::TurnQuestion {
+-            prompt: "隔离 PATH 下的一轮".to_owned(),
+-        })
+-        .await
+-        .expect("问题送达");
+-    let mut events = Vec::new();
+-    while let Some(event) = session.observations.recv().await {
+-        events.push(event);
+-    }
+-
+-    match original {
+-        Some(value) => std::env::set_var("PATH", value),
+-        None => std::env::remove_var("PATH"),
+-    }
+-
+-    // 隔离 PATH：ask 段 discover 失败 → CliMissing 形态的合成收敛（engine 分发
+-    // 住门面后 CLI 租户行为面零回归）
+-    assert_eq!(events.len(), 1, "恰一条合成收敛");
+-    assert!(matches!(
+-        &events[0],
+-        agent::AgentEventKind::TurnDone { subtype, is_error: true, .. }
+-            if subtype == "error_cli_missing"
+-    ));
+-}
+-
+ #[test]
+ fn sdk臂空配置open以config_missing显式失败() {
+-    let runner = EngineFacade::new().runner_for(EngineKind::Sdk, EngineConfig::empty());
++    let runner = EngineFacade::new()
++        .runner_for(EngineKind::Sdk, EngineConfig::empty())
++        .expect("Sdk 臂构造成功");
+     let error = runner
+         .open_session(agent::SessionOpen {
+             injections: agent::SessionInjections::default(),
+@@ -271,7 +165,8 @@ fn with_context_window_builder链式构造且分发行为与直构一致() {
+     // 链式构造：new() → with_context_window(Some)（builder 缝，链式语义）
+     let via_facade = EngineFacade::new()
+         .with_context_window(Some(200_000))
+-        .runner_for(EngineKind::Sdk, EngineConfig::empty());
++        .runner_for(EngineKind::Sdk, EngineConfig::empty())
++        .expect("Sdk 臂构造成功");
+     let via_direct = SdkRunner::new(EngineConfig::empty(), None, Some(200_000));
+ 
+     // 门面分发行为与直构一致（open 校验错误面等价断言，沿既有门面分发一致性口径）
+@@ -289,7 +184,8 @@ fn with_context_window_builder链式构造且分发行为与直构一致() {
+     // with_context_window(None) 同为合法载荷（透传 None = 缺省防线）
+     let none_facade = EngineFacade::new()
+         .with_context_window(None)
+-        .runner_for(EngineKind::Sdk, EngineConfig::empty());
++        .runner_for(EngineKind::Sdk, EngineConfig::empty())
++        .expect("Sdk 臂构造成功");
+     let none_direct = SdkRunner::new(EngineConfig::empty(), None, None);
+     assert_eq!(
+         none_facade
+@@ -309,8 +205,9 @@ fn 既有构造路径缺省none不变_续会话校验行为与现状一致() {
+     // with_resume_transcript 产物（不携窗长）→ runner_for(Sdk)：Continue 校验
+     // 行为与直构 SdkRunner::new(cfg, loader, None) 一致（缺省防线装配不改校验面）
+     let (loader, _calls) = counting_loader(Ok(None));
+-    let via_facade =
+-        EngineFacade::with_resume_transcript(loader).runner_for(EngineKind::Sdk, complete_cfg());
++    let via_facade = EngineFacade::with_resume_transcript(loader)
++        .runner_for(EngineKind::Sdk, complete_cfg())
++        .expect("Sdk 臂构造成功");
+     let (direct_loader, _direct_calls) = counting_loader(Ok(None));
+     let via_direct = SdkRunner::new(complete_cfg(), Some(direct_loader), None);
+ 
+@@ -337,3 +234,156 @@ fn complete_cfg() -> EngineConfig {
+         model_low: "rig-test-model".to_owned(),
+     }
+ }
++
++// ---------------------------------------------------------------------------
++// 门面 Cli 臂显式 Err 防御兜底（DD1 / AC-2 / AC-4 文案面）
++// ---------------------------------------------------------------------------
++
++#[test]
++fn cli臂直入runner_for以逐字退役文案显式拒绝且不panic() {
++    // 旁路构造防御形态：生产路径不可达（组合根 resolve 先行拒 Cli），该臂为
++    // 结构保留 + 防御兜底——弃 `unreachable!`，显式 Err 不 panic
++    let error = match EngineFacade::new().runner_for(EngineKind::Cli, EngineConfig::empty()) {
++        Err(error) => error,
++        Ok(_) => panic!("Cli 臂必须显式 Err，不得返回 Ok 产物"),
++    };
++    assert_eq!(
++        error, CLI_TENANT_RETIRED,
++        "错误串逐字 CLI_TENANT_RETIRED（四拒点同文案，DD3），实际: {error}"
++    );
++    assert!(
++        error.contains("CLI 租户已下线") && error.contains("/agents"),
++        "文案含退役事实与管理页引导，实际: {error}"
++    );
++}
++
++#[test]
++fn cli臂零ok变体混入_双值穷举恰一分支() {
++    // `EngineKind` 双值 match 穷举：Sdk 构造 Ok 产物（真实 SdkRunner）、Cli 恒
++    // Err——唯一 match 点结构不塌（AC-2），Err 面无已删类型产物（编译锚）
++    for kind in [EngineKind::Sdk, EngineKind::Cli] {
++        let result = EngineFacade::new().runner_for(kind, complete_cfg());
++        match kind {
++            EngineKind::Sdk => {
++                let runner = result.expect("Sdk 臂构造 Ok");
++                // 产物经 trait 面可驱动（空续会话装载缝 → 显式失败不 panic）
++                assert!(
++                    runner
++                        .open_session(open_continue("ses-double-arms"))
++                        .is_err(),
++                    "Sdk 臂产物为可驱动的 AgentRunner"
++                );
++            }
++            EngineKind::Cli => {
++                let error = match result {
++                    Err(error) => error,
++                    Ok(_) => panic!("Cli 臂恒 Err（不可达死臂不产 runner）"),
++                };
++                assert_eq!(error, CLI_TENANT_RETIRED);
++            }
++        }
++    }
++}
++
++#[test]
++fn cli臂拒收面不触装载缝_调用计数恒零() {
++    let (loader, calls) = counting_loader(Ok(Some(Vec::new())));
++    let error = match EngineFacade::with_resume_transcript(loader)
++        .runner_for(EngineKind::Cli, EngineConfig::empty())
++    {
++        Err(error) => error,
++        Ok(_) => panic!("Cli 臂必须显式 Err"),
++    };
++    assert_eq!(error, CLI_TENANT_RETIRED, "拒收文案不因装载缝注入而漂移");
++    assert_eq!(
++        calls.load(Ordering::Relaxed),
++        0,
++        "Cli 臂拒收于构造面，装载缝零消费"
++    );
++}
++
++// ---------------------------------------------------------------------------
++// runner_for Sdk 臂构造接线边界（context_window / 字段 str 面）
++// ---------------------------------------------------------------------------
++
++#[test]
++fn sdk臂窗长边界零与u64max均ok且行为与直构一致() {
++    // `context_window: Option<u64>` 边界：Some(0) / Some(u64::MAX) 均 Ok 透传
++    // （不 panic 不落缺省字面），分发行为与直构 SdkRunner 一致
++    for window in [Some(0), Some(u64::MAX)] {
++        let via_facade = EngineFacade::new()
++            .with_context_window(window)
++            .runner_for(EngineKind::Sdk, complete_cfg())
++            .expect("Sdk 臂构造成功");
++        let via_direct = SdkRunner::new(complete_cfg(), None, window);
++        assert_eq!(
++            via_facade
++                .open_session(open_continue("ses-window-boundary"))
++                .expect_err("无装载缝续会话必须显式失败")
++                .to_string(),
++            via_direct
++                .open_session(open_continue("ses-window-boundary"))
++                .expect_err("直构同口径失败")
++                .to_string(),
++            "窗长 {window:?} 载荷门面分发与直构一致"
++        );
++    }
++}
++
++#[tokio::test]
++async fn sdk臂字段str边界怪值原样构造且空串仍逐字段判缺() {
++    // 空串：仍判缺（不 trim 不回填——空即缺，字段面原样参与校验）
++    let runner = EngineFacade::new()
++        .runner_for(EngineKind::Sdk, EngineConfig::empty())
++        .expect("空配置亦 Ok 构造（参数校验归 runner open 段，门面不抢做）");
++    let blank_error = runner
++        .open_session(open_continue("ses-blank-cfg"))
++        .expect_err("空配置 open 必须显式失败");
++    assert!(
++        matches!(&blank_error, agent::AgentStartError::ConfigMissing(msg)
++            if msg.contains("api_key") && msg.contains("base_url") && msg.contains("model")),
++        "空串判缺成因可辨，实际: {blank_error:?}"
++    );
++
++    // 超长（>1000 字符）/ 特殊字符（`\n` `\0` emoji）/ 纯空白：非空即在场，
++    // 构造面原样携带不加工（不 panic、不拒绝、不规范化为缺省）
++    let weird = EngineConfig {
++        api_key: format!("sk-{}\n\u{0}🎯", "x".repeat(1024)),
++        base_url: "   ".to_owned(),
++        model_high: format!("m-high-{}", "超".repeat(1200)),
++        model_low: String::new(),
++    };
++    let runner = EngineFacade::new()
++        .runner_for(EngineKind::Sdk, weird)
++        .expect("怪值配置构造成功");
++    // Low 档：空串 model_low 原样参与判缺（怪值不吞掉空串成因）
++    let low_error = runner
++        .open_session(agent::SessionOpen {
++            injections: agent::SessionInjections::default(),
++            ctx: agent::SessionCtx {
++                workspace_root: Path::new("C:\\ws").to_path_buf(),
++                permission_mode: agent::AgentPermissionMode::BypassPermissions,
++                model_level: agent::ModelLevel::Low,
++            },
++            session: agent::SessionRef::New,
++            prior_handle: None,
++        })
++        .expect_err("model_low 空串低档必须显式失败");
++    assert!(
++        matches!(&low_error, agent::AgentStartError::ConfigMissing(msg) if msg.contains("model_low")),
++        "空串字段原样参与判缺，实际: {low_error:?}"
++    );
++    // High 档：怪值字段非缺即在场——open 成功（原样携带不加工不拒绝）
++    let _session = runner
++        .open_session(agent::SessionOpen {
++            injections: agent::SessionInjections::default(),
++            ctx: agent::SessionCtx {
++                workspace_root: Path::new("C:\\ws").to_path_buf(),
++                permission_mode: agent::AgentPermissionMode::BypassPermissions,
++                model_level: agent::ModelLevel::High,
++            },
++            session: agent::SessionRef::New,
++            prior_handle: None,
++        })
++        .expect("超长 / 特殊字符 / 纯空白怪值 open 应成功（原样携带）");
++}
+diff --git a/crates/infra/agent/src/sdk/config_test.rs b/crates/infra/agent/src/sdk/config_test.rs
+index 55c77abfd5fb..a32a34ba25a1 100644
+--- a/crates/infra/agent/src/sdk/config_test.rs
++++ b/crates/infra/agent/src/sdk/config_test.rs
+@@ -71,7 +71,9 @@ fn empty经is_complete判定为缺失且sdk启动以config_missing失败且文
+     use crate::EngineFacade;
+     use std::path::PathBuf;
+ 
+-    let runner = EngineFacade::new().runner_for(crate::EngineKind::Sdk, empty);
++    let runner = EngineFacade::new()
++        .runner_for(crate::EngineKind::Sdk, empty)
++        .expect("Sdk 臂构造成功");
+     let error = runner
+         .open_session(agent::SessionOpen {
+             injections: agent::SessionInjections::default(),

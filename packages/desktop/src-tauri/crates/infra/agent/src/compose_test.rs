@@ -1,17 +1,21 @@
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex};
 
 use native_db::{Builder, Models};
+use tokio::sync::mpsc;
 
 use agent::{
-    AgentMessageRole, AgentPermissionMode, ModelLevel, SessionCtx, SessionProvenance, SessionRef,
+    AgentMessageRole, AgentPermissionMode, AgentRunner, AgentSession, AgentStartError, ModelLevel,
+    RunHandle, SessionCtx, SessionKernel, SessionOpen, SessionProvenance, SessionQuery, SessionRef,
     StopRegistry,
 };
 
+use crate::store_port::StoreQuery;
 use crate::{compose_turn, ComposedTurn};
 use store::{
     AgentEngineKind, AgentInstanceRecord, AgentModelTiers, AgentProviderRecord,
-    SessionConfigSnapshot, SessionRecord, WorkspaceStores,
+    SessionConfigSnapshot, SessionRecord, WorkspaceStores, CLI_TENANT_RETIRED,
 };
 
 /// sdk provider fixture 的可指定窗长变体（AC-9 组合根接线用）。
@@ -37,9 +41,6 @@ fn seed_provider_with_context_length(
         .expect("落 provider fixture")
         .id
 }
-
-/// PATH 环境变量修改串行化（CLI 臂真实驱动用例）。
-use crate::TEST_PATH_LOCK as PATH_LOCK;
 
 /// Err 半边摘取（ComposedTurn / RunningTurn 不实现 Debug，expect_err 不可用）。
 fn err_of<T>(result: Result<T, String>) -> String {
@@ -135,21 +136,24 @@ fn seed_sdk_instance(stores: &WorkspaceStores, name: &str, provider_id: Option<i
     id
 }
 
-/// cli 实例 fixture（默认标记）。
-fn seed_cli_instance(stores: &WorkspaceStores, name: &str) -> i64 {
-    let id = stores
-        .global()
-        .upsert_agent_instance(AgentInstanceRecord::new(
-            name.to_owned(),
-            AgentEngineKind::Cli,
-            None,
-        ))
-        .expect("落 cli 实例 fixture")
-        .id;
-    stores
-        .global()
-        .set_default_agent_instance(id)
-        .expect("置默认实例 fixture");
+/// 预置存量全局库并写入 cli 实例行（native_db 裸构造绕过 store 写入口拒面
+/// ——「存量 cli 行」为 AC-4 / AC-5 拒收行为的被测前提数据形态；须在
+/// `WorkspaceStores::open` 之前落盘，返回记录 id）。
+fn preset_cli_instance(env: &DualEnv, id: i64, name: &str, is_default: bool) -> i64 {
+    let path = env.data_root.path().join("desktop-global.redb");
+    let mut models = Models::new();
+    models
+        .define::<store::AgentInstanceRecord>()
+        .expect("定义 AgentInstanceRecord 失败");
+    let db = Builder::new()
+        .create(&models, &path)
+        .expect("预置存量全局库失败");
+    let rw = db.rw_transaction().expect("开启写事务失败");
+    let mut instance = store::AgentInstanceRecord::new(name.to_owned(), AgentEngineKind::Cli, None);
+    instance.id = id;
+    instance.is_default = is_default;
+    rw.insert(instance).expect("写入存量 cli 实例失败");
+    rw.commit().expect("提交预置事务失败");
     id
 }
 
@@ -160,6 +164,7 @@ fn seed_sdk_session(store: &store::Store, id: &str, remote: Option<&str>) -> () 
         engine_session_id: remote.map(str::to_owned),
         config_snapshot: SessionConfigSnapshot {
             engine: AgentEngineKind::Sdk,
+            agent_instance_id: None,
             model: Some("m-high".to_owned()),
             permission_mode: AgentPermissionMode::BypassPermissions,
         },
@@ -309,38 +314,65 @@ async fn 快照模型按轮级档位定型_low轮取低档high轮取高档() {
 }
 
 #[tokio::test]
-async fn 显式cli实例解析_快照engine为cli且模型为none() {
+async fn 显式cli实例解析_逐字拒收退役文案且零落库() {
     let env = DualEnv::new("explicit-cli");
+    let cli_id = preset_cli_instance(&env, 41, "命令行实例", false);
     let stores = env.stores();
-    let cli_id = seed_cli_instance(&stores, "命令行实例");
 
-    let composed = compose_turn(
+    let error = err_of(compose_turn(
         &stores,
         Arc::new(StopRegistry::new()),
         env.store(),
         Some(cli_id),
-    )
-    .expect("显式 cli 解析应成功");
+    ));
 
-    let store = stores.for_root(&env.root()).expect("for_root 应成功");
-    let running = composed
-        .begin(
-            SessionRef::New,
-            "cli 快照一轮".to_owned(),
-            ctx(&env.root()),
-            debug_provenance(),
-        )
-        .expect("begin 应成功");
-    let session_id = running.session_id.clone();
-    drop(running);
-    let session = store
-        .find_session(&session_id)
-        .expect("find_session 应成功")
-        .expect("New 建会话行");
-    assert_eq!(session.config_snapshot.engine, AgentEngineKind::Cli);
     assert_eq!(
-        session.config_snapshot.model, None,
-        "cli 臂 EngineConfig::empty()（cli 实例不消费配置，无模型装配概念）"
+        error, CLI_TENANT_RETIRED,
+        "显式路径对 engine: Cli 实例逐字拒收（AC-4），实际: {error}"
+    );
+    // 拒收不落库不静默回退（不构造引擎）
+    let store = stores.for_root(&env.root()).expect("for_root 应成功");
+    assert!(
+        store
+            .list_sessions(None, None)
+            .expect("清单应成功")
+            .is_empty(),
+        "拒收零落库"
+    );
+}
+
+#[test]
+fn 缺省发起默认实例为存量cli_同臂同文案拒且不清默认标记零落库() {
+    let env = DualEnv::new("default-cli");
+    let cli_id = preset_cli_instance(&env, 42, "默认命令行实例", true);
+    let stores = env.stores();
+
+    let error = err_of(compose_turn(
+        &stores,
+        Arc::new(StopRegistry::new()),
+        env.store(),
+        None,
+    ));
+
+    assert_eq!(
+        error, CLI_TENANT_RETIRED,
+        "缺省路径同臂同文案（AC-5 缺省发起半边），实际: {error}"
+    );
+    // 不清 is_default、零数据写入（拒收先于任何写面）
+    let default = stores
+        .global()
+        .default_agent_instance()
+        .expect("default 解析应成功")
+        .expect("默认实例仍在库");
+    assert_eq!(default.id, cli_id, "存量默认 cli 实例原样在库");
+    assert!(default.is_default, "拒收不清 is_default");
+    let store = stores.for_root(&env.root()).expect("for_root 应成功");
+    assert!(
+        store
+            .list_sessions(None, None)
+            .expect("清单应成功")
+            .is_empty(),
+        "拒收零落库"
     );
 }
 
@@ -504,6 +536,7 @@ fn continue跨引擎续会话被快照比对拒绝() {
         engine_session_id: Some("s-cli-1".to_owned()),
         config_snapshot: SessionConfigSnapshot {
             engine: AgentEngineKind::Cli,
+            agent_instance_id: None,
             model: None,
             permission_mode: AgentPermissionMode::BypassPermissions,
         },
@@ -532,9 +565,6 @@ fn continue跨引擎续会话被快照比对拒绝() {
     );
 }
 
-/// 未开轮会话（`engine_session_id = None`，explore 建档预建空会话）Continue
-/// 首轮放行：不拒句柄缺失、不比引擎快照、`prior_handle` 为 None（引擎侧按全新
-/// 会话开跑），并把本轮真实装配快照回写定型。
 #[tokio::test]
 async fn continue未开轮会话首轮放行并定型快照() {
     let env = DualEnv::new("unstarted-first-turn");
@@ -571,8 +601,9 @@ async fn continue未开轮会话首轮放行并定型快照() {
     );
 }
 
-/// 未开轮判定收紧：**开过轮但句柄未上报**的会话不算未开轮——续会话治理三连
-/// 照旧（句柄缺失显式 Err），跨引擎守卫不因缺句柄而放宽。
+/// 未开轮判定收紧：**开过轮但句柄未上报**的会话不算未开轮——不走未开轮
+/// 首轮放行（快照不重定型），续会话治理照走且 `prior_handle` 以 None 透传
+/// 照常续接（DD2 硬门槛退役，句柄缺失不再显式 Err）。
 #[tokio::test]
 async fn continue已开轮但句柄未上报仍走续会话治理() {
     let env = DualEnv::new("ran-no-handle");
@@ -588,46 +619,89 @@ async fn continue已开轮但句柄未上报仍走续会话治理() {
 
     let composed = compose_turn(&stores, Arc::new(StopRegistry::new()), env.store(), None)
         .expect("解析应成功");
-    let error = err_of(composed.begin(
-        SessionRef::Continue {
-            id: "ses-ran".to_owned(),
-        },
-        "续一轮".to_owned(),
-        ctx(&env.root()),
-        debug_provenance(),
-    ));
-    assert!(
-        error.contains("缺少引擎句柄"),
-        "已开轮会话仍要求句柄，实际: {error}"
+    let running = composed
+        .begin(
+            SessionRef::Continue {
+                id: "ses-ran".to_owned(),
+            },
+            "续一轮".to_owned(),
+            ctx(&env.root()),
+            debug_provenance(),
+        )
+        .expect("缺句柄不再硬拒（DD2）：prior_handle 透传 None 照常续接");
+
+    // 已开轮 → 不走未开轮首轮放行：既有快照原样保留（不重定型）
+    let session = store
+        .find_session("ses-ran")
+        .expect("find_session 应成功")
+        .expect("续接沿用既有会话行");
+    assert_eq!(
+        session.engine_session_id, None,
+        "留痕列不被回写（prior_handle 透传不加工）"
     );
-    // 未开轮放行不适用于此形态（成因消息互不重合）
-    assert!(
-        !error.contains("会话不存在") && !error.contains("非当前引擎产出"),
-        "成因消息互不重合"
+    assert_eq!(
+        session.config_snapshot.agent_instance_id, None,
+        "已开轮不走未开轮放行：快照不被本轮装配覆写"
     );
+    let summaries = store.list_sessions(None, None).expect("清单应成功");
+    assert_eq!(summaries.len(), 1, "不重复建会话行");
+    assert_eq!(summaries[0].turns.len(), 2, "既有轮行之上续轮行照开");
+    drop(running);
+}
+
+#[tokio::test]
+async fn 续会话缺引擎句柄不再硬拒_prior_handle透传none照常续接() {
+    // AC-6 主锚：`engine_session_id` 缺失不再触发「会话缺少引擎句柄」硬门槛
+    // ——`prior_handle` 以 Option 原样透传（None），续会话照常发起
+    let env = DualEnv::new("remote-missing");
+    let stores = env.stores();
+    let provider_id = seed_provider(&stores, "句柄缺失供应");
+    seed_sdk_instance(&stores, "句柄缺失实例", Some(provider_id));
+    let store = stores.for_root(&env.root()).expect("for_root 应成功");
+    seed_sdk_session(&store, "ses-no-remote", None);
+    seed_transcript(&store, "ses-no-remote");
+
+    let composed = compose_turn(&stores, Arc::new(StopRegistry::new()), env.store(), None)
+        .expect("解析应成功");
+    let running = composed
+        .begin(
+            SessionRef::Continue {
+                id: "ses-no-remote".to_owned(),
+            },
+            "续一轮".to_owned(),
+            ctx(&env.root()),
+            debug_provenance(),
+        )
+        .expect("缺引擎句柄不再硬拒（AC-6）：prior_handle 透传 None 照常续接");
+
+    // 留痕保留：engine_session_id 不被 begin 回写（透传不加工不校验）
+    let session = store
+        .find_session("ses-no-remote")
+        .expect("find_session 应成功")
+        .expect("续接沿用既有会话行");
+    assert_eq!(
+        session.engine_session_id, None,
+        "prior_handle None 透传，留痕列不被回写"
+    );
+    let summaries = store.list_sessions(None, None).expect("清单应成功");
+    assert_eq!(summaries.len(), 1, "不重复建会话行");
+    assert_eq!(summaries[0].turns.len(), 1, "续轮行照开");
+    drop(running);
 }
 
 // ---------------------------------------------------------------------------
 // 装配产物组合（sink/query/门面/内核真实装配：begin_turn/drive 可直接驱动）
 // ---------------------------------------------------------------------------
 
-#[tokio::test]
-async fn 装配产物真实驱动_cli臂隔离path下failed收敛且会话行轮行转录齐落库() {
+#[tokio::test(start_paused = true)]
+async fn 装配产物真实驱动_sdk轮失败收敛且会话行轮行转录齐落库() {
     let env = DualEnv::new("drive-real");
     let stores = env.stores();
-    let cli_id = seed_cli_instance(&stores, "驱动实例");
+    let provider_id = seed_provider(&stores, "驱动供应");
+    seed_sdk_instance(&stores, "驱动实例", Some(provider_id));
 
-    let composed = compose_turn(
-        &stores,
-        Arc::new(StopRegistry::new()),
-        env.store(),
-        Some(cli_id),
-    )
-    .expect("解析应成功");
-
-    let _guard = PATH_LOCK.lock().expect("PATH 锁不可中毒");
-    let original = std::env::var_os("PATH");
-    std::env::set_var("PATH", ""); // ask 段 discover 失败 → 合成收敛
+    let composed = compose_turn(&stores, Arc::new(StopRegistry::new()), env.store(), None)
+        .expect("解析应成功");
 
     let running = composed
         .begin(
@@ -640,18 +714,15 @@ async fn 装配产物真实驱动_cli臂隔离path下failed收敛且会话行轮
             },
         )
         .expect("begin 应成功");
+    let session_id = running.session_id.clone();
 
+    // 拒连端点一轮一命：重试护栏逐次留痕后耗尽失败收敛（paused 时钟快进）
     let outcome = running.drive(|_output| {}).await;
-
-    match original {
-        Some(value) => std::env::set_var("PATH", value),
-        None => std::env::remove_var("PATH"),
-    }
 
     assert_eq!(
         outcome.status,
         agent::AgentRunStatus::Failed,
-        "CLI 缺失合成收敛 failed"
+        "sdk 轮拒连端点以 api_error 失败收敛"
     );
     // sink 真实装配：会话行 + 轮行 + 转录齐落库；provenance debug 承接
     let store = stores.for_root(&env.root()).expect("for_root 应成功");
@@ -663,15 +734,16 @@ async fn 装配产物真实驱动_cli臂隔离path下failed收敛且会话行轮
     );
     assert_eq!(summaries[0].turns.len(), 1);
     assert_eq!(summaries[0].turns[0].status, agent::AgentRunStatus::Failed);
-    // query 真实装配：转录重放含合成 TurnDone
-    let transcript = store
-        .list_session_events(&summaries[0].row.id)
-        .expect("转录应成功");
-    assert_eq!(transcript.len(), 1, "恰合成收敛一条密封事件");
-    assert!(matches!(
-        &transcript[0].kind,
-        agent::AgentEventKind::TurnDone { subtype, is_error: true, .. } if subtype == "error_cli_missing"
-    ));
+    // query 真实装配：转录重放含 api_error 收敛事件
+    let transcript = store.list_session_events(&session_id).expect("转录应成功");
+    assert!(
+        matches!(
+            &transcript.last().expect("非空").kind,
+            agent::AgentEventKind::TurnDone { subtype, is_error: true, .. } if subtype == "api_error"
+        ),
+        "转录末条为失败收敛事件，实际: {:?}",
+        transcript.last()
+    );
 }
 
 #[tokio::test]
@@ -802,18 +874,16 @@ fn resolve_provider缺列时透传none不落128k字面() {
 }
 
 #[test]
-fn resolve_cli臂context_window恒none() {
+fn resolve_cli臂逐字拒收退役文案() {
     let env = DualEnv::new("ctx-cli");
+    let cli_id = preset_cli_instance(&env, 43, "cli窗长实例", false);
     let stores = env.stores();
-    let cli_id = seed_cli_instance(&stores, "cli窗长实例");
 
-    let resolved = match super::resolve_agent_engine(&stores, Some(cli_id)) {
-        Ok(resolved) => resolved,
-        Err(error) => panic!("cli 解析应成功: {error}"),
-    };
+    let error = err_of(super::resolve_agent_engine(&stores, Some(cli_id)));
+
     assert_eq!(
-        resolved.context_window, None,
-        "cli 臂恒 None（窗长载荷为 sdk 引擎旁路，CLI 不消费）"
+        error, CLI_TENANT_RETIRED,
+        "解析单点对 engine: Cli 实例显式拒收（不构造引擎、不静默回退），实际: {error}"
     );
 }
 
@@ -825,11 +895,12 @@ fn resolve_cli臂context_window恒none() {
 /// 落会话行 / 轮行于**注入实例**（注入 store 的 list_sessions 可查）；异根
 /// rootB 库零行——store 半边唯一入口是注入参（cwd / rootB 不触发第二处库解
 /// 析；worktree 路径在类型上不可能进入库解析）。
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn 注入实例消费_会话行轮行落注入库且异根库零行() {
     let env = DualEnv::new("inject-isolation");
     let stores = env.stores();
-    let cli_id = seed_cli_instance(&stores, "注入消费实例");
+    let provider_id = seed_provider(&stores, "注入消费供应");
+    let sdk_id = seed_sdk_instance(&stores, "注入消费实例", Some(provider_id));
     let root_b = tempfile::Builder::new()
         .prefix("compose-test-inject-other-root-")
         .tempdir()
@@ -842,13 +913,9 @@ async fn 注入实例消费_会话行轮行落注入库且异根库零行() {
         &stores,
         Arc::new(StopRegistry::new()),
         std::sync::Arc::clone(&injected),
-        Some(cli_id),
+        Some(sdk_id),
     )
     .expect("解析应成功");
-
-    let _guard = PATH_LOCK.lock().expect("PATH 锁不可中毒");
-    let original = std::env::var_os("PATH");
-    std::env::set_var("PATH", ""); // cli 缺失合成收敛（不 spawn 真实引擎）
 
     let running = composed
         .begin(
@@ -860,15 +927,10 @@ async fn 注入实例消费_会话行轮行落注入库且异根库零行() {
         .expect("begin 应成功");
     let outcome = running.drive(|_output| {}).await;
 
-    match original {
-        Some(value) => std::env::set_var("PATH", value),
-        None => std::env::remove_var("PATH"),
-    }
-
     assert_eq!(
         outcome.status,
         agent::AgentRunStatus::Failed,
-        "PATH 隔离下 CLI 合成收敛 failed（落库面不受收敛形态影响）"
+        "sdk 拒连端点失败收敛（落库面不受收敛形态影响）"
     );
 
     // 注入实例：会话行 + 轮行在场（begin 即落库，逐字段可查）
@@ -898,4 +960,518 @@ async fn 注入实例消费_会话行轮行落注入库且异根库零行() {
         other_summaries.is_empty(),
         "异根库零行（store 半边唯一入口 = 注入参）"
     );
+}
+
+// ---------------------------------------------------------------------------
+// begin() 载荷断言装置：kernel 端口（sink）与 runner 端口均以记录型假件注入
+// （trait 假件为显式注入依赖的测试侧替身）——prior_handle / config_snapshot
+// 载荷与「跨引擎 Err 时 kernel 零调用」经假件调用面直读；store 半边仍为
+// 真库实例（Continue 校验寻址）。
+// ---------------------------------------------------------------------------
+
+/// 记录型假 runner：捕获 `open_session` 的 `prior_handle` 载荷，返回最小
+/// `AgentSession`（观测 / 提问通道即弃——本节用例只走 begin 同步段）。
+struct RecordingRunner {
+    prior_handles: Mutex<Vec<Option<String>>>,
+}
+
+impl RecordingRunner {
+    fn new() -> Arc<Self> {
+        Arc::new(Self {
+            prior_handles: Mutex::new(Vec::new()),
+        })
+    }
+
+    /// 已捕获的 prior_handle 序列（按调用序）。
+    fn captured(&self) -> Vec<Option<String>> {
+        self.prior_handles.lock().expect("捕获锁不可中毒").clone()
+    }
+}
+
+impl AgentRunner for RecordingRunner {
+    fn open_session(&self, open: SessionOpen) -> Result<AgentSession, AgentStartError> {
+        self.prior_handles
+            .lock()
+            .expect("捕获锁不可中毒")
+            .push(open.prior_handle);
+        let (observation_tx, observation_rx) = mpsc::channel(4);
+        let (question_tx, question_rx) = mpsc::channel(4);
+        drop(observation_tx);
+        drop(question_rx);
+        Ok(AgentSession {
+            observations: observation_rx,
+            questions: question_tx,
+            handle: RunHandle::default(),
+        })
+    }
+}
+
+/// 记录型假 sink：`SessionSink` 端口调用计数 + `create_session` 载荷捕获。
+struct RecordingSink {
+    created: Mutex<Vec<agent::NewSessionRow>>,
+    begin_turns: AtomicUsize,
+}
+
+impl RecordingSink {
+    fn new() -> Arc<Self> {
+        Arc::new(Self {
+            created: Mutex::new(Vec::new()),
+            begin_turns: AtomicUsize::new(0),
+        })
+    }
+
+    /// 已捕获的建行载荷（按调用序）。
+    fn created_rows(&self) -> Vec<agent::NewSessionRow> {
+        self.created.lock().expect("捕获锁不可中毒").clone()
+    }
+}
+
+impl agent::SessionSink for RecordingSink {
+    fn create_session(&self, session: &agent::NewSessionRow) -> Result<(), String> {
+        self.created
+            .lock()
+            .expect("捕获锁不可中毒")
+            .push(session.clone());
+        Ok(())
+    }
+
+    fn begin_turn(&self, _session_id: &str, _started_at: i64) -> Result<i64, String> {
+        Ok(self.begin_turns.fetch_add(1, Ordering::Relaxed) as i64 + 1)
+    }
+
+    fn next_seq(&self, _session_id: &str) -> Result<u64, String> {
+        Ok(0)
+    }
+
+    fn append_sealed(&self, _session_id: &str, _event: &agent::AgentEvent) -> Result<(), String> {
+        Ok(())
+    }
+
+    fn finish_turn(&self, _turn_id: i64, _outcome: &agent::TurnOutcome) -> Result<(), String> {
+        Ok(())
+    }
+
+    fn bind_remote_session(
+        &self,
+        _session_id: &str,
+        _remote: &str,
+        _updated_at: i64,
+    ) -> Result<(), String> {
+        Ok(())
+    }
+}
+
+/// 以假件装配 `ComposedTurn`（compose 子模块可直触私有字段——测试侧装配缝；
+/// store 半边仍为真库实例）。
+fn composed_with_fakes(
+    store: std::sync::Arc<store::Store>,
+    runner: Arc<RecordingRunner>,
+    sink: Arc<RecordingSink>,
+    models: Option<(String, String)>,
+    agent_instance_id: i64,
+) -> ComposedTurn {
+    ComposedTurn {
+        kernel: SessionKernel::new(sink, Arc::new(StopRegistry::new())),
+        runner,
+        query: Arc::new(StoreQuery::new(store)),
+        store_kind: AgentEngineKind::Sdk,
+        models,
+        agent_instance_id,
+    }
+}
+
+#[tokio::test]
+async fn prior_handle透传四形态_句柄原样与none缺省与new恒none() {
+    let env = DualEnv::new("prior-handle");
+    let stores = env.stores();
+    let store = stores.for_root(&env.root()).expect("for_root 应成功");
+    let long_handle = format!("sdk-{}", "句".repeat(1100));
+    seed_sdk_session(&store, "ses-handle-empty", Some(""));
+    seed_sdk_session(&store, "ses-handle-long", Some(&long_handle));
+    seed_sdk_session(&store, "ses-handle-weird", Some("句柄\n零\u{0}字符😀"));
+    seed_sdk_session(&store, "ses-handle-none", None);
+
+    let runner = RecordingRunner::new();
+    let sink = RecordingSink::new();
+    let composed = composed_with_fakes(
+        store,
+        Arc::clone(&runner),
+        Arc::clone(&sink),
+        Some(("m-high".to_owned(), "m-low".to_owned())),
+        71,
+    );
+
+    // 续会话句柄四形态：Some("") / 超长 / 特殊字符原样透传（Option 透传不
+    // 校验不加工），None 缺省透传（AC-6 硬门槛退役的载荷面）
+    for id in [
+        "ses-handle-empty",
+        "ses-handle-long",
+        "ses-handle-weird",
+        "ses-handle-none",
+    ] {
+        composed
+            .begin(
+                SessionRef::Continue { id: id.to_owned() },
+                "续一轮".to_owned(),
+                ctx(&env.root()),
+                debug_provenance(),
+            )
+            .unwrap_or_else(|e| panic!("续会话 {id} 应成功: {e}"));
+    }
+    // New：prior_handle 恒 None
+    composed
+        .begin(
+            SessionRef::New,
+            "新会话一轮".to_owned(),
+            ctx(&env.root()),
+            debug_provenance(),
+        )
+        .expect("New 应成功");
+
+    assert_eq!(
+        runner.captured(),
+        vec![
+            Some(String::new()),
+            Some(long_handle),
+            Some("句柄\n零\u{0}字符😀".to_owned()),
+            None,
+            None,
+        ],
+        "prior_handle 四形态原样透传（Some 三边界不加工 / None 缺省 / New 恒 None）"
+    );
+    assert_eq!(
+        sink.begin_turns.load(Ordering::Relaxed),
+        5,
+        "五次 begin 均开轮（透传不拦截）"
+    );
+}
+
+#[tokio::test]
+async fn 快照组装携agentInstanceId与定型双面_json线键camel_case() {
+    let env = DualEnv::new("snapshot-key");
+    let stores = env.stores();
+    let store = stores.for_root(&env.root()).expect("for_root 应成功");
+
+    let runner = RecordingRunner::new();
+    let sink = RecordingSink::new();
+    let composed = composed_with_fakes(
+        store,
+        Arc::clone(&runner),
+        Arc::clone(&sink),
+        Some(("m-high".to_owned(), "m-low".to_owned())),
+        i64::MAX,
+    );
+
+    composed
+        .begin(
+            SessionRef::New,
+            "高档一轮".to_owned(),
+            ctx(&env.root()),
+            debug_provenance(),
+        )
+        .expect("begin 应成功");
+    composed
+        .begin(
+            SessionRef::New,
+            "低档一轮".to_owned(),
+            SessionCtx {
+                model_level: ModelLevel::Low,
+                ..ctx(&env.root())
+            },
+            debug_provenance(),
+        )
+        .expect("begin 应成功");
+
+    let created = sink.created_rows();
+    assert_eq!(created.len(), 2, "恰两轮 create_session");
+    let high = &created[0].config_snapshot;
+    assert_eq!(
+        high["engine"],
+        serde_json::json!("sdk"),
+        "快照 engine 定型双面保留（DD9）"
+    );
+    assert_eq!(
+        high["agentInstanceId"],
+        serde_json::json!(i64::MAX),
+        "实例外键恒在（DD8 / AC-7）——i64::MAX 经 serde 数值不失真"
+    );
+    assert_eq!(high["model"], serde_json::json!("m-high"), "High 档取 high");
+    assert_eq!(
+        high["permissionMode"],
+        serde_json::json!("bypassPermissions"),
+        "permissionMode 零变化"
+    );
+    let low = &created[1].config_snapshot;
+    assert_eq!(low["model"], serde_json::json!("m-low"), "Low 档取 low");
+    assert_eq!(
+        low["agentInstanceId"],
+        serde_json::json!(i64::MAX),
+        "档位定型不影响实例外键"
+    );
+}
+
+#[tokio::test]
+async fn models装配为none时快照model为null且实例外键int边界serde不失真() {
+    // DD9 死臂载荷：models: None（Cli 死臂映射形态）经假件装配直驱——快照
+    // model: null 照常、agentInstanceId 恒 Some（不因无模型装配而漏键）；实例
+    // id int 边界（0 / -1 / i64::MAX）经 serde 数值不失真（DD8 / AC-7 边界行）
+    let env = DualEnv::new("models-none");
+    let stores = env.stores();
+    let store = stores.for_root(&env.root()).expect("for_root 应成功");
+    let runner = RecordingRunner::new();
+    let sink = RecordingSink::new();
+
+    for instance_id in [0_i64, -1, i64::MAX] {
+        let composed = composed_with_fakes(
+            std::sync::Arc::clone(&store),
+            Arc::clone(&runner),
+            Arc::clone(&sink),
+            None,
+            instance_id,
+        );
+        composed
+            .begin(
+                SessionRef::New,
+                "无模型装配一轮".to_owned(),
+                ctx(&env.root()),
+                debug_provenance(),
+            )
+            .expect("begin 应成功");
+    }
+
+    let created = sink.created_rows();
+    assert_eq!(created.len(), 3, "三边界实例 id 各恰一轮 create_session");
+    for (index, instance_id) in [0_i64, -1, i64::MAX].into_iter().enumerate() {
+        let snapshot = &created[index].config_snapshot;
+        assert_eq!(
+            snapshot["model"],
+            serde_json::Value::Null,
+            "model: null 照常出线"
+        );
+        assert_eq!(
+            snapshot["agentInstanceId"],
+            serde_json::json!(instance_id),
+            "agentInstanceId 恒 Some 且 {instance_id} 经 serde 数值不失真"
+        );
+    }
+}
+
+#[tokio::test]
+async fn 跨引擎续会话前置拒_零sink调用零runner开面() {
+    // AC-4「存量 cli 会话续接显式失败」+ DD10 门序：跨引擎校验先于 prior_handle
+    // 透传与 kernel.begin_turn——前置 Err 不落库不推流（kernel 假件零调用计数）
+    let env = DualEnv::new("cross-engine-fake");
+    let stores = env.stores();
+    let store = stores.for_root(&env.root()).expect("for_root 应成功");
+    store
+        .create_session(&SessionRecord {
+            id: "ses-cli-made-fake".to_owned(),
+            engine_session_id: Some("s-cli-1".to_owned()),
+            config_snapshot: SessionConfigSnapshot {
+                engine: AgentEngineKind::Cli,
+                agent_instance_id: None,
+                model: None,
+                permission_mode: AgentPermissionMode::BypassPermissions,
+            },
+            source: "debug".to_owned(),
+            source_ref: None,
+            created_at: 1727000000000,
+            updated_at: 1727000000000,
+        })
+        .expect("落存量 cli 会话行");
+    seed_transcript(&store, "ses-cli-made-fake");
+
+    let runner = RecordingRunner::new();
+    let sink = RecordingSink::new();
+    let composed = composed_with_fakes(
+        store,
+        Arc::clone(&runner),
+        Arc::clone(&sink),
+        Some(("m-high".to_owned(), "m-low".to_owned())),
+        74,
+    );
+
+    let error = err_of(composed.begin(
+        SessionRef::Continue {
+            id: "ses-cli-made-fake".to_owned(),
+        },
+        "跨引擎续一轮".to_owned(),
+        ctx(&env.root()),
+        debug_provenance(),
+    ));
+    assert!(
+        error.contains("非当前引擎产出"),
+        "存量 cli 会话续接显式失败（AC-4 落点），实际: {error}"
+    );
+    assert_eq!(
+        runner.captured(),
+        Vec::<Option<String>>::new(),
+        "门序保持：跨引擎校验先于 prior_handle 透传（runner 零开面）"
+    );
+    assert_eq!(
+        sink.begin_turns.load(Ordering::Relaxed),
+        0,
+        "kernel 零调用：不开轮行"
+    );
+    assert!(sink.created_rows().is_empty(), "kernel 零调用：不建会话行");
+
+    // AC-4「会话列表 / 转录照常可读」（R5 呈现兜底）：拒收零落库不推流之外，
+    // 存量 cli 会话的读面零改动——session_query 侧单查与转录重放照常可读
+    let detail = composed
+        .query
+        .find_session_detail("ses-cli-made-fake")
+        .expect("存量 cli 会话单查照常可读");
+    assert_eq!(
+        detail.row.id, "ses-cli-made-fake",
+        "存量 cli 会话行读面零改动"
+    );
+    let transcript = composed
+        .query
+        .transcript("ses-cli-made-fake")
+        .expect("存量 cli 会话转录重放照常可读");
+    assert_eq!(transcript.len(), 2, "密封转录原样可读（呈现兜底不受拒收影响）");
+}
+
+#[tokio::test]
+async fn question为str边界三形态透传不加工不panic() {
+    let env = DualEnv::new("question-edge");
+    let stores = env.stores();
+    let store = stores.for_root(&env.root()).expect("for_root 应成功");
+    let runner = RecordingRunner::new();
+    let sink = RecordingSink::new();
+    let composed = composed_with_fakes(
+        store,
+        Arc::clone(&runner),
+        Arc::clone(&sink),
+        Some(("m-high".to_owned(), "m-low".to_owned())),
+        75,
+    );
+
+    for question in [
+        String::new(),
+        format!("超长一轮{}", "长".repeat(1100)),
+        "多行\n提问\u{0}含零宽😀".to_owned(),
+    ] {
+        composed
+            .begin(
+                SessionRef::New,
+                question,
+                ctx(&env.root()),
+                debug_provenance(),
+            )
+            .expect("question str 边界透传不加工（begin 成立即受理）");
+    }
+    assert_eq!(
+        sink.begin_turns.load(Ordering::Relaxed),
+        3,
+        "三形态均开轮（透传不拦截不 panic）"
+    );
+}
+
+#[test]
+fn 显式agent_id边界零与负数与i64max均miss记因() {
+    let env = DualEnv::new("agent-edge");
+    let stores = env.stores();
+    for id in [0_i64, -1, i64::MAX] {
+        let error = err_of(compose_turn(
+            &stores,
+            Arc::new(StopRegistry::new()),
+            env.store(),
+            Some(id),
+        ));
+        assert!(
+            error.contains("agent 不存在") && error.contains(&id.to_string()),
+            "miss 走既有「agent 不存在」分支携 id 记因，实际: {error}"
+        );
+    }
+}
+
+#[test]
+fn 续会话id边界空串与超长与特殊字符均走会话不存在分支不panic() {
+    let env = DualEnv::new("session-id-edge");
+    let stores = env.stores();
+    let provider_id = seed_provider(&stores, "边界供应");
+    seed_sdk_instance(&stores, "边界实例", Some(provider_id));
+    let composed = compose_turn(&stores, Arc::new(StopRegistry::new()), env.store(), None)
+        .expect("解析应成功");
+    for id in [
+        "".to_owned(),
+        format!("ses-{}", "超".repeat(1100)),
+        "特殊\u{0}字符😀\n会话".to_owned(),
+    ] {
+        let error = err_of(composed.begin(
+            SessionRef::Continue { id: id.clone() },
+            "边界续一轮".to_owned(),
+            ctx(&env.root()),
+            debug_provenance(),
+        ));
+        assert!(
+            error.contains("会话不存在"),
+            "miss 走「会话不存在」分支不 panic，实际: {error}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn 新会话快照携实例id_缺省与显式路径同填some() {
+    let env = DualEnv::new("snapshot-instance");
+    let stores = env.stores();
+    let provider_id = seed_provider(&stores, "快照供应");
+    let sdk_id = seed_sdk_instance(&stores, "快照实例", Some(provider_id));
+    let store = stores.for_root(&env.root()).expect("for_root 应成功");
+
+    // 显式路径：快照携实例 id（DD8）
+    let composed = compose_turn(
+        &stores,
+        Arc::new(StopRegistry::new()),
+        env.store(),
+        Some(sdk_id),
+    )
+    .expect("显式解析应成功");
+    let running = composed
+        .begin(
+            SessionRef::New,
+            "显式路径一轮".to_owned(),
+            ctx(&env.root()),
+            debug_provenance(),
+        )
+        .expect("begin 应成功");
+    let session = store
+        .find_session(&running.session_id)
+        .expect("find_session 应成功")
+        .expect("New 建会话行");
+    assert_eq!(
+        session.config_snapshot.agent_instance_id,
+        Some(sdk_id),
+        "显式路径快照携实例 id"
+    );
+    let json = serde_json::to_value(&session.config_snapshot).expect("快照序列化应成功");
+    assert_eq!(
+        json["agentInstanceId"],
+        serde_json::json!(sdk_id),
+        "serde 线键 agentInstanceId camelCase 出线"
+    );
+    drop(running);
+
+    // 缺省路径：同经 resolve 取实例、同填 Some
+    let composed = compose_turn(&stores, Arc::new(StopRegistry::new()), env.store(), None)
+        .expect("缺省解析应成功");
+    let running = composed
+        .begin(
+            SessionRef::New,
+            "缺省路径一轮".to_owned(),
+            ctx(&env.root()),
+            debug_provenance(),
+        )
+        .expect("begin 应成功");
+    let session = store
+        .find_session(&running.session_id)
+        .expect("find_session 应成功")
+        .expect("New 建会话行");
+    assert_eq!(
+        session.config_snapshot.agent_instance_id,
+        Some(sdk_id),
+        "缺省路径同填 Some（同经 resolve 单点取实例）"
+    );
+    drop(running);
 }

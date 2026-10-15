@@ -184,7 +184,10 @@ async fn 失败形态_passed假_诊断捕获不丢() {
     let command = write_shim(
         &ws,
         "fail-shim",
-        &[("lint-failed-to-stderr", true), ("lint-failed-to-stdout", false)],
+        &[
+            ("lint-failed-to-stderr", true),
+            ("lint-failed-to-stdout", false),
+        ],
         Some(3),
     );
     ws.write_config(Some(&command));
@@ -333,7 +336,12 @@ async fn 默认recorded_引用恒回填且交错流落单一log() {
     let command = write_shim(
         &ws,
         "interleave-shim",
-        &[("out-1", false), ("err-1", true), ("out-2", false), ("err-2", true)],
+        &[
+            ("out-1", false),
+            ("err-1", true),
+            ("out-2", false),
+            ("err-2", true),
+        ],
         None,
     );
     ws.write_config(Some(&command));
@@ -400,15 +408,16 @@ async fn 落盘目录按name派生_与id形态无关() {
         .expect("执行应 Ok");
     let exec_id = outcome.output_ref.clone().expect("回填引用");
 
-    let expected_dir = foundation::layout::change_test_reports(ws.path(), "demo-change")
-        .join("exec-outputs");
+    let expected_dir =
+        foundation::layout::change_test_reports(ws.path(), "demo-change").join("exec-outputs");
     assert!(
         expected_dir.join(format!("{exec_id}.log")).is_file(),
         "记录目录经 change name 派生: {}",
         expected_dir.display()
     );
     assert!(
-        String::from_utf8_lossy(&read_output(&ws, "demo-change", &exec_id)).contains("name-derived-line")
+        String::from_utf8_lossy(&read_output(&ws, "demo-change", &exec_id))
+            .contains("name-derived-line")
     );
     // 以另一 change 名回查 → miss（目录按 name 隔离）
     assert!(
@@ -424,7 +433,12 @@ async fn 仅stderr输出与空输出_单流捕获与空log可回查() {
     let _env = env_window();
     let ws = TempWs::new("stderr-only");
     let _path = PathPrefix::enter(ws.path());
-    let command = write_shim(&ws, "stderr-only-shim", &[("only-stderr-marker", true)], None);
+    let command = write_shim(
+        &ws,
+        "stderr-only-shim",
+        &[("only-stderr-marker", true)],
+        None,
+    );
     ws.write_config(Some(&command));
 
     let outcome = check(&ws.root_str(), "demo-change")
@@ -523,7 +537,9 @@ async fn 重复run_各自exec_id落独立log且前次不被覆写() {
     let second_bytes = read_output(&ws, "demo-change", &second_id);
     assert_eq!(first_bytes, second_bytes, "两次执行内容各自保真");
     assert_eq!(
-        String::from_utf8_lossy(&first_bytes).lines().collect::<Vec<_>>(),
+        String::from_utf8_lossy(&first_bytes)
+            .lines()
+            .collect::<Vec<_>>(),
         ["first-line", "second-line"]
     );
     // 前次记录未被覆写（重复回读恒同字节）

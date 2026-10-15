@@ -258,3 +258,73 @@ describe('useAgentInstances：错误双轨', () => {
     expect(result.current.error).toBeNull();
   });
 });
+
+// ---------------------------------------------------------------------------
+// cli mock 数据处置（fixture 面）：hook 透传不校验（拒 Cli 校验单点在 store），
+// 后端拒收经动作轨 toast 透传不吞
+// ---------------------------------------------------------------------------
+
+describe('useAgentInstances：cli mock 数据处置（fixture 面）', () => {
+  beforeEach(() => {
+    invokeMock.mockReset();
+    toastErrorMock.mockReset();
+    stored = [];
+  });
+
+  it('纯 cli 清单照常加载呈现——hook 透传不校验（校验单点在 store）', async () => {
+    invokeMock.mockResolvedValue([instance(1, 'cli-a', 'cli'), instance(2, 'cli-b', 'cli', true)]);
+    const { result } = renderHook(() => useAgentInstances());
+
+    await waitFor(() => expect(result.current.instances).toHaveLength(2));
+
+    expect(result.current.instances.map((row) => row.engine)).toEqual(['cli', 'cli']);
+    expect(result.current.error).toBeNull();
+    expect(result.current.loading).toBe(false);
+  });
+
+  it('sdk + cli 混合清单照常加载（fixture 构造器 engine 两值均可达）', async () => {
+    invokeMock.mockResolvedValue([
+      instance(1, 'cli存量', 'cli'),
+      instance(2, 'sdk活档', 'sdk', true),
+    ]);
+    const { result } = renderHook(() => useAgentInstances());
+
+    await waitFor(() => expect(result.current.instances).toHaveLength(2));
+
+    expect(result.current.instances.map((row) => row.engine)).toEqual(['cli', 'sdk']);
+    const defaults = result.current.instances.filter((row) => row.isDefault);
+    expect(defaults.map((row) => row.engine)).toEqual(['sdk']);
+  });
+
+  it('save 携 cli 被后端 mock reject（CLI_TENANT_RETIRED 文案）→ 错误态透传不吞', async () => {
+    const RETIRED =
+      'db: CLI 租户已下线：请前往 Agent 管理页（/agents）新建或改用 sdk agent，并将其设为默认（存量 cli 实例可读可删不可改）';
+    invokeMock.mockImplementation((command: string) => {
+      if (command === 'list_agent_instances') return Promise.resolve([]);
+      if (command === 'save_agent_instance') return Promise.reject(new Error(RETIRED));
+      return Promise.resolve(null);
+    });
+    const { result } = renderHook(() => useAgentInstances());
+    await settleLoaded();
+
+    await act(async () => {
+      const saved = await result.current.save({
+        id: null,
+        name: 'cli新实例',
+        engine: 'cli',
+        providerId: null,
+      });
+      expect(saved).toBeNull();
+    });
+
+    // 后端拒收呈现链：toast 固定前缀 + 退役文案透传（不吞不改写语义）
+    expect(toastErrorMock).toHaveBeenCalledTimes(1);
+    const [message] = toastErrorMock.mock.calls[0] as [string];
+    expect(message).toContain('保存 agent 失败：');
+    expect(message).toContain('CLI 租户已下线');
+    expect(message).toContain('/agents');
+    expect(message).toContain('存量 cli 实例可读可删不可改');
+    // 动作轨失败不置 error 态（错误双轨口径零改动）
+    expect(result.current.error).toBeNull();
+  });
+});

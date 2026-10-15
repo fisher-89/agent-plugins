@@ -18,8 +18,8 @@ use std::time::{Duration, Instant};
 
 use tempfile::TempDir;
 
-use super::super::mutation_jobs;
 use super::super::mod_test::SpawnWindow;
+use super::super::mutation_jobs;
 use super::super::report::to_posix;
 use super::super::{SegmentFailure, SEGMENT_SPAWN_TIMEOUT_MS};
 use super::{
@@ -63,7 +63,10 @@ fn 临时config组装_共享sandbox与半cpu与json直写() {
     let suite_cwd = Path::new("/ws/root/app");
     let mutation_dir = Path::new("/ws/root/reports/test/app_vite-plus/mutation");
     let report_path = mutation_dir.join("mutation-seg-0.json");
-    let files = vec!["app/src/a.test.ts".to_owned(), "app/src/b.test.ts".to_owned()];
+    let files = vec![
+        "app/src/a.test.ts".to_owned(),
+        "app/src/b.test.ts".to_owned(),
+    ];
 
     let config = build_config(
         &segment(suite_cwd, mutation_dir, 0, &files, project, "vite-plus"),
@@ -128,7 +131,11 @@ fn 临时config组装_共享sandbox与半cpu与json直写() {
 fn runner与插件包映射_三框架封闭() {
     assert_eq!(test_runner("jest"), "jest");
     assert_eq!(test_runner("vitest"), "vitest");
-    assert_eq!(test_runner("vite-plus"), "vitest", "vite-plus 共用 vitest runner");
+    assert_eq!(
+        test_runner("vite-plus"),
+        "vitest",
+        "vite-plus 共用 vitest runner"
+    );
     // 兜底面：未知框架退 vitest（js 族三值封闭——非 js 不进 Stryker 面）
     assert_eq!(test_runner("unknown"), "vitest");
 
@@ -163,13 +170,21 @@ fn runner与插件包映射_三框架封闭() {
 fn 清单相对化_cwd内外与特殊目录名() {
     // cwd 内 → 相对 POSIX
     assert_eq!(
-        relative_to_cwd(Path::new("/ws/root"), Path::new("/ws/root/app"), "app/src/x.ts"),
+        relative_to_cwd(
+            Path::new("/ws/root"),
+            Path::new("/ws/root/app"),
+            "app/src/x.ts"
+        ),
         "src/x.ts",
         "cwd 内清单项相对化"
     );
     // cwd 外 → 绝对路径 POSIX 形态
     assert_eq!(
-        relative_to_cwd(Path::new("/ws/root"), Path::new("/ws/root/app"), "other/lib.rs"),
+        relative_to_cwd(
+            Path::new("/ws/root"),
+            Path::new("/ws/root/app"),
+            "other/lib.rs"
+        ),
         "/ws/root/other/lib.rs",
         "cwd 外退绝对路径"
     );
@@ -209,7 +224,9 @@ fn 清单边界_空单超大与suite_config块() {
     assert_eq!(config["mutate"], serde_json::json!(["src/only.test.ts"]));
 
     // 超大清单（1000 glob）
-    let huge: Vec<String> = (0..1000).map(|index| format!("src/f{index:03}.test.ts")).collect();
+    let huge: Vec<String> = (0..1000)
+        .map(|index| format!("src/f{index:03}.test.ts"))
+        .collect();
     let config = build_config(
         &segment(suite_cwd, mutation_dir, 0, &huge, project, "vitest"),
         &report_path,
@@ -224,7 +241,14 @@ fn 清单边界_空单超大与suite_config块() {
     let suite_config: PathBuf = Path::new("/ws/root/app/vitest.workspace.ts").to_path_buf();
     let with_config = StrykerSegment {
         suite_config: Some(suite_config.as_path()),
-        ..segment(Path::new("/ws/root/app"), mutation_dir, 0, &single, project, "vitest")
+        ..segment(
+            Path::new("/ws/root/app"),
+            mutation_dir,
+            0,
+            &single,
+            project,
+            "vitest",
+        )
     };
     let config = build_config(&with_config, &report_path);
     assert_eq!(
@@ -238,8 +262,7 @@ fn 清单边界_空单超大与suite_config块() {
 /// 缺工具是显式可修问题）；可达程序（PATH 真实探测）→ `Ok`。
 #[test]
 fn ensure_on_path_不可达显式err可达ok() {
-    let error = ensure_on_path("definitely-not-a-real-program-xyz")
-        .expect_err("不可达程序应 Err");
+    let error = ensure_on_path("definitely-not-a-real-program-xyz").expect_err("不可达程序应 Err");
     assert!(
         error.contains("突变执行器不可达") && error.contains("definitely-not-a-real-program-xyz"),
         "Err 记因可修面（E5）: {error}"
@@ -271,7 +294,11 @@ impl SpawnWs {
             .expect("创建临时 workspace 失败");
         let root = tmp.path().to_path_buf();
         let suite_cwd = root.join("app");
-        let mutation_dir = root.join("reports").join("test").join("app_vitest").join("mutation");
+        let mutation_dir = root
+            .join("reports")
+            .join("test")
+            .join("app_vitest")
+            .join("mutation");
         fs::create_dir_all(&suite_cwd).expect("建 suite 执行目录");
         fs::create_dir_all(&mutation_dir).expect("建突变报告目录");
         Self {
@@ -376,7 +403,9 @@ async fn 非零退出中断_携退出码与输出尾部捕获() {
                 "输出捕获（合并输出有界尾部）: {message}"
             );
         }
-        Err(SegmentFailure::Fatal(message)) => panic!("非零退出应 Interrupted 而非 Fatal: {message}"),
+        Err(SegmentFailure::Fatal(message)) => {
+            panic!("非零退出应 Interrupted 而非 Fatal: {message}")
+        }
         Ok(raw) => panic!("零段报告应中断，实际 Ok: {raw}"),
     }
 

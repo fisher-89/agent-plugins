@@ -514,12 +514,11 @@ describe('DbInspectorView：抽屉单条详情与换血收起', () => {
     );
     await renderWithModelSelected([record]);
 
-    // 抽屉开合使页面 inert（base-ui Portal）：先取行引用再点开
-    const firstRow = bodyRows()[0];
-    fireEvent.click(firstRow);
-
-    // 行选中态（data-state="selected"）
-    await waitFor(() => expect(firstRow.getAttribute('data-state')).toBe('selected'));
+    // 行选中态（data-state="selected"）：点行后按现行首行重查断言——门禁高
+    // 并行下列表重渲染可能换行节点（捕获节点引用会在换血后指向游离节点，5s
+    // 等待预算内恒 null），断言用户可见结果而非节点身份
+    fireEvent.click(bodyRows()[0]);
+    await waitFor(() => expect(bodyRows()[0].getAttribute('data-state')).toBe('selected'));
     // 抽屉右侧滑出：title = key JSON 文本
     await waitFor(() => expect(drawerTitle()).toBe(JSON.stringify(record.key)));
     // content = key + value 信封 pretty JSON
@@ -567,8 +566,7 @@ describe('DbInspectorView：抽屉单条详情与换血收起', () => {
   it('异常：刷新失败（recordsError）不换血 → 抽屉保留现状、详情不越出当前列表', async () => {
     await renderWithModelSelected(pagedInventory());
 
-    const firstRow = bodyRows()[0];
-    fireEvent.click(firstRow);
+    fireEvent.click(bodyRows()[0]);
     await waitFor(() => expect(drawerTitle()).toBe('1'));
     const detailBefore = screen.getByTestId('db-record-json').textContent;
 
@@ -586,10 +584,11 @@ describe('DbInspectorView：抽屉单条详情与换血收起', () => {
     expect(toastErrorMock).not.toHaveBeenCalled();
 
     // 抽屉保留现状：records 快照不换血 → 收起 effect deps（selected / offset /
-    // records 引用）未变，开合态、title、content 均不被失败响应顶替
+    // records 引用）未变，开合态、title、content 均不被失败响应顶替；行选中态
+    // 按现行首行重查（捕获节点引用不耐列表重渲染换血——同上）
     expect(drawerTitle()).toBe('1');
     expect(screen.getByTestId('db-record-json').textContent).toBe(detailBefore);
-    expect(firstRow.getAttribute('data-state')).toBe('selected');
+    expect(bodyRows()[0].getAttribute('data-state')).toBe('selected');
     // 详情不越出当前列表：抽屉 title 对应记录仍在当前渲染行 key 列中
     // （旧页数据未被半残响应清除，详情不指向不存在的记录）
     expect(bodyRows().map((row) => rowCells(row)[0])).toContain(drawerTitle());

@@ -1,3 +1,10 @@
+# 扁平化 node_modules（npm 同款布局）：isolated 布局下 vite-plus 内部经
+# import.meta.url（realpath）解析出的 `tsgolint.cmd` 落在
+# `.pnpm/vite-plus@…/…/.bin` 深路径；该路径经 oxlint 的 `cmd.exe` 批处理中转
+# 时超过 ~250 字符阈值（CreateProcess MAX_PATH 边界），`vp check` 以
+# 「The system cannot find the path specified」失败。hoisted 布局把候选路径
+# 收敛到 `node_modules/.bin`（约 150 字符），lint 类型检查恢复正常。
+nodeLinker: hoisted
 allowBuilds:
   esbuild: true
 minimumReleaseAgeExclude:

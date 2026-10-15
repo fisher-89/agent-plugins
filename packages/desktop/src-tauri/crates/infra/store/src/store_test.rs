@@ -8,7 +8,7 @@ use agent::{
 use native_db::{Builder, Models};
 
 use crate::model::{
-    pack_checklist_item_key, StoreMetaRecord, WORKSPACE_STORE_FORMAT_KEY,
+    pack_checklist_item_key, StoreMetaRecord, CLI_TENANT_RETIRED, WORKSPACE_STORE_FORMAT_KEY,
     WORKSPACE_STORE_FORMAT_VERSION,
 };
 use crate::store::{workspace_db_file_name, GLOBAL_DB_FILE_NAME};
@@ -1070,6 +1070,7 @@ fn session_record(id: &str, source: &str, source_ref: Option<&str>) -> SessionRe
         engine_session_id: None,
         config_snapshot: SessionConfigSnapshot {
             engine: AgentEngineKind::Sdk,
+            agent_instance_id: None,
             model: Some("m-high".to_owned()),
             permission_mode: AgentPermissionMode::BypassPermissions,
         },
@@ -2449,6 +2450,7 @@ fn restamp_session_config未开轮覆写已开轮不覆写() {
 
     let real = SessionConfigSnapshot {
         engine: AgentEngineKind::Cli,
+        agent_instance_id: None,
         model: None,
         permission_mode: AgentPermissionMode::Default,
     };
@@ -2467,6 +2469,7 @@ fn restamp_session_config未开轮覆写已开轮不覆写() {
         .expect("绑定引擎句柄");
     let later = SessionConfigSnapshot {
         engine: AgentEngineKind::Sdk,
+        agent_instance_id: None,
         model: Some("m".to_owned()),
         permission_mode: AgentPermissionMode::BypassPermissions,
     };
@@ -3879,26 +3882,31 @@ fn provider空库list空向量_find对不存在与0与负数与i64max均none() {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn agent_upsert_cli引擎provider可空_sdk选存量provider保存成功() {
+fn agent_upsert_sdk新建与更新照常ok_恒非默认且更新臂保留存量标记() {
     let env = Env::new("mgmt-agent-engine");
     let store = open_global_ok(&env.db_path("global"));
-
-    // cli 引擎 provider 可空（provider_id=None 保存成功）
-    let cli = upsert_agent_ok(&store, fixture_agent("cli实例", AgentEngineKind::Cli, None));
-    assert_eq!(cli.provider_id, None);
-    assert_eq!(cli.id, 1);
-
-    // sdk 引擎选存量 provider 保存成功
     let provider = upsert_provider_ok(&store, fixture_provider("端点"));
+
+    // sdk 引擎选存量 provider 新建保存成功（表尾 max+1 分配、恒非默认）
     let sdk = upsert_agent_ok(
         &store,
         fixture_agent("sdk实例", AgentEngineKind::Sdk, Some(provider.id)),
     );
     assert_eq!(sdk.provider_id, Some(provider.id));
+    assert_eq!(sdk.id, 1, "表尾 max+1 分配（id 自 1 起）");
+    assert!(!sdk.is_default, "新建臂恒非默认（默认标记唯一写口）");
+
+    // 更新臂（id>0）照常整行替换且保留存量默认标记
+    store.set_default_agent_instance(sdk.id).unwrap();
+    let mut renamed = fixture_agent("改名后", AgentEngineKind::Sdk, Some(provider.id));
+    renamed.id = sdk.id;
+    let updated = upsert_agent_ok(&store, renamed);
+    assert_eq!(updated.id, sdk.id, "更新 id 不变");
+    assert!(updated.is_default, "更新臂保留存量默认标记");
     assert_eq!(
         store.list_agent_instances().unwrap(),
-        vec![cli, sdk],
-        "两引擎实例并存"
+        vec![updated],
+        "清单读回一致"
     );
 }
 
@@ -3941,29 +3949,37 @@ fn agent_upsert_sdk缺provider_err_悬空引用err() {
 fn agent_upsert_name查重_同name重复新建与更新撞名err_name空白err() {
     let env = Env::new("mgmt-agent-dup");
     let store = open_global_ok(&env.db_path("global"));
+    let provider = upsert_provider_ok(&store, fixture_provider("端点"));
     let first = upsert_agent_ok(
         &store,
-        fixture_agent("同名实例", AgentEngineKind::Cli, None),
+        fixture_agent("同名实例", AgentEngineKind::Sdk, Some(provider.id)),
     );
 
     // 同 name 重复新建 Err
-    let dup_new =
-        store.upsert_agent_instance(fixture_agent("同名实例", AgentEngineKind::Sdk, None));
+    let dup_new = store.upsert_agent_instance(fixture_agent(
+        "同名实例",
+        AgentEngineKind::Sdk,
+        Some(provider.id),
+    ));
     assert!(dup_new.is_err(), "同 name 重复新建应 Err");
 
     // 更新撞名 Err
     let second = upsert_agent_ok(
         &store,
-        fixture_agent("另一实例", AgentEngineKind::Cli, None),
+        fixture_agent("另一实例", AgentEngineKind::Sdk, Some(provider.id)),
     );
-    let mut renamed = fixture_agent("同名实例", AgentEngineKind::Cli, None);
+    let mut renamed = fixture_agent("同名实例", AgentEngineKind::Sdk, Some(provider.id));
     renamed.id = second.id;
     let dup_update = store.upsert_agent_instance(renamed);
     assert!(dup_update.is_err(), "更新撞名应 Err");
 
     // name 空白 Err
     for name in ["", "  "] {
-        let blank = store.upsert_agent_instance(fixture_agent(name, AgentEngineKind::Cli, None));
+        let blank = store.upsert_agent_instance(fixture_agent(
+            name,
+            AgentEngineKind::Sdk,
+            Some(provider.id),
+        ));
         assert!(
             matches!(&blank, Err(StoreError::Db(_))),
             "name 空白应 Err，实际: {blank:?}"
@@ -3981,9 +3997,10 @@ fn agent_upsert_name查重_同name重复新建与更新撞名err_name空白err()
 fn agent_upsert默认标记写口_新建臂入参true被强制false_更新臂保留存量标记() {
     let env = Env::new("mgmt-agent-default-write");
     let store = open_global_ok(&env.db_path("global"));
+    let provider = upsert_provider_ok(&store, fixture_provider("端点"));
 
     // 新建臂：入参 is_default=true 被强制落 false（入参标记不参与写）
-    let mut requested = fixture_agent("新建臂", AgentEngineKind::Cli, None);
+    let mut requested = fixture_agent("新建臂", AgentEngineKind::Sdk, Some(provider.id));
     requested.is_default = true;
     let created = upsert_agent_ok(&store, requested);
     assert!(
@@ -3997,7 +4014,7 @@ fn agent_upsert默认标记写口_新建臂入参true被强制false_更新臂保
 
     // 更新臂：保留存量标记（默认 agent 改名 / 换 provider 后仍为默认）
     assert!(store.set_default_agent_instance(created.id).is_ok());
-    let mut renamed = fixture_agent("改名后", AgentEngineKind::Cli, None);
+    let mut renamed = fixture_agent("改名后", AgentEngineKind::Sdk, Some(provider.id));
     renamed.id = created.id;
     renamed.is_default = false; // 入参标记 false 同样不参与写
     let updated = upsert_agent_ok(&store, renamed);
@@ -4027,7 +4044,7 @@ fn remove_agent_instance删默认agent_ok后default解析none且清单少一行(
     store.set_default_agent_instance(agent.id).unwrap();
     let _survivor = upsert_agent_ok(
         &store,
-        fixture_agent("幸存实例", AgentEngineKind::Cli, None),
+        fixture_agent("幸存实例", AgentEngineKind::Sdk, Some(provider.id)),
     );
 
     let hit = store.remove_agent_instance(agent.id).unwrap();
@@ -4045,9 +4062,16 @@ fn remove_agent_instance删默认agent_ok后default解析none且清单少一行(
 fn remove_agent_instance_miss幂等okfalse_删非默认不影响既有默认() {
     let env = Env::new("mgmt-agent-remove-miss");
     let store = open_global_ok(&env.db_path("global"));
-    let default_agent = upsert_agent_ok(&store, fixture_agent("默认", AgentEngineKind::Cli, None));
+    let provider = upsert_provider_ok(&store, fixture_provider("端点"));
+    let default_agent = upsert_agent_ok(
+        &store,
+        fixture_agent("默认", AgentEngineKind::Sdk, Some(provider.id)),
+    );
     store.set_default_agent_instance(default_agent.id).unwrap();
-    let other = upsert_agent_ok(&store, fixture_agent("非默认", AgentEngineKind::Cli, None));
+    let other = upsert_agent_ok(
+        &store,
+        fixture_agent("非默认", AgentEngineKind::Sdk, Some(provider.id)),
+    );
 
     assert!(
         !store.remove_agent_instance(999).unwrap(),
@@ -4074,9 +4098,10 @@ fn default_agent_instance有默认some无默认none() {
         "无默认返回 None（清单扫 is_default，恒零或一）"
     );
 
+    let provider = upsert_provider_ok(&store, fixture_provider("端点"));
     let agent = upsert_agent_ok(
         &store,
-        fixture_agent("默认实例", AgentEngineKind::Cli, None),
+        fixture_agent("默认实例", AgentEngineKind::Sdk, Some(provider.id)),
     );
     store.set_default_agent_instance(agent.id).unwrap();
     let resolved = store
@@ -4091,8 +4116,15 @@ fn default_agent_instance有默认some无默认none() {
 fn set_default标记即切换_甲到乙全局恰一默认为乙_返回更新后记录() {
     let env = Env::new("mgmt-agent-default-switch");
     let store = open_global_ok(&env.db_path("global"));
-    let agent_a = upsert_agent_ok(&store, fixture_agent("甲", AgentEngineKind::Cli, None));
-    let agent_b = upsert_agent_ok(&store, fixture_agent("乙", AgentEngineKind::Cli, None));
+    let provider = upsert_provider_ok(&store, fixture_provider("端点"));
+    let agent_a = upsert_agent_ok(
+        &store,
+        fixture_agent("甲", AgentEngineKind::Sdk, Some(provider.id)),
+    );
+    let agent_b = upsert_agent_ok(
+        &store,
+        fixture_agent("乙", AgentEngineKind::Sdk, Some(provider.id)),
+    );
     store.set_default_agent_instance(agent_a.id).unwrap();
 
     let switched = store.set_default_agent_instance(agent_b.id).unwrap();
@@ -4125,8 +4157,15 @@ fn set_default标记即切换_甲到乙全局恰一默认为乙_返回更新后�
 fn set_default重复标记同一agent幂等_切换后全清单is_default恰一true() {
     let env = Env::new("mgmt-agent-default-idempotent");
     let store = open_global_ok(&env.db_path("global"));
-    let agent = upsert_agent_ok(&store, fixture_agent("甲", AgentEngineKind::Cli, None));
-    let other = upsert_agent_ok(&store, fixture_agent("乙", AgentEngineKind::Cli, None));
+    let provider = upsert_provider_ok(&store, fixture_provider("端点"));
+    let agent = upsert_agent_ok(
+        &store,
+        fixture_agent("甲", AgentEngineKind::Sdk, Some(provider.id)),
+    );
+    let other = upsert_agent_ok(
+        &store,
+        fixture_agent("乙", AgentEngineKind::Sdk, Some(provider.id)),
+    );
     store.set_default_agent_instance(agent.id).unwrap();
 
     let again = store.set_default_agent_instance(agent.id).unwrap();
@@ -4153,7 +4192,11 @@ fn set_default重复标记同一agent幂等_切换后全清单is_default恰一tr
 fn set_default_miss_id_err且既有默认标记不变() {
     let env = Env::new("mgmt-agent-default-miss");
     let store = open_global_ok(&env.db_path("global"));
-    let agent = upsert_agent_ok(&store, fixture_agent("甲", AgentEngineKind::Cli, None));
+    let provider = upsert_provider_ok(&store, fixture_provider("端点"));
+    let agent = upsert_agent_ok(
+        &store,
+        fixture_agent("甲", AgentEngineKind::Sdk, Some(provider.id)),
+    );
     store.set_default_agent_instance(agent.id).unwrap();
 
     let result = store.set_default_agent_instance(999);
@@ -4171,6 +4214,233 @@ fn set_default_miss_id_err且既有默认标记不变() {
         Some(agent.id),
         "既有默认标记不变"
     );
+}
+
+// ---------------------------------------------------------------------------
+// 拒 Cli 写面（DD5 / AC-5）：upsert 双口 + set_default 拒目标 + 零写入
+// ---------------------------------------------------------------------------
+
+/// 预置存量 cli 实例行（native_db 裸构造绕过 store 写入口拒面——存量 cli 行
+/// 「可读可删不可改」语义的被测前提数据形态；须在 `open_global_ok` 之前落盘）。
+fn preset_cli_row(path: &Path, id: i64, name: &str, is_default: bool) {
+    let mut models = Models::new();
+    models
+        .define::<AgentInstanceRecord>()
+        .expect("定义 AgentInstanceRecord 失败");
+    let db = Builder::new()
+        .create(&models, path)
+        .expect("预置存量全局库失败");
+    let rw = db.rw_transaction().expect("开启写事务失败");
+    let mut instance = AgentInstanceRecord::new(name.to_owned(), AgentEngineKind::Cli, None);
+    instance.id = id;
+    instance.is_default = is_default;
+    rw.insert(instance).expect("写入存量 cli 行失败");
+    rw.commit().expect("提交预置事务失败");
+}
+
+#[test]
+fn upsert拒cli双口_入参cli新建更新均err且存量cli行整行不可改() {
+    let env = Env::new("mgmt-reject-cli-upsert");
+    let global_path = env.db_path("global");
+    preset_cli_row(&global_path, 7, "存量cli", false);
+    let store = open_global_ok(&global_path);
+    let provider = upsert_provider_ok(&store, fixture_provider("端点"));
+
+    // 口① 入参 engine == Cli：新建（id=0）与更新（id>0）均拒，文案逐字
+    let new_cli = store.upsert_agent_instance(fixture_agent("新cli", AgentEngineKind::Cli, None));
+    let err = new_cli.expect_err("入参 Cli 新建应拒");
+    assert!(
+        matches!(&err, StoreError::Db(message) if message == CLI_TENANT_RETIRED),
+        "入参口 Err 载荷逐字 CLI_TENANT_RETIRED，实际: {err:?}"
+    );
+
+    let cli_update = store.upsert_agent_instance({
+        let mut args = fixture_agent("入参cli更新", AgentEngineKind::Cli, None);
+        args.id = 7;
+        args
+    });
+    let err = cli_update.expect_err("入参 Cli 更新存量 id 应拒（先于行存在校验）");
+    assert!(
+        matches!(&err, StoreError::Db(message) if message == CLI_TENANT_RETIRED),
+        "入参口更新臂 Err 载荷逐字，实际: {err:?}"
+    );
+
+    // 口② 存量行 engine == Cli：整行不可改——含「改 engine 为 sdk 的整行更新」
+    let mut to_sdk = fixture_agent("存量cli改sdk", AgentEngineKind::Sdk, Some(provider.id));
+    to_sdk.id = 7;
+    let err = store
+        .upsert_agent_instance(to_sdk)
+        .expect_err("存量 cli 行改 engine 为 sdk 应拒");
+    assert!(
+        matches!(&err, StoreError::Db(message) if message == CLI_TENANT_RETIRED),
+        "存量行口 Err 载荷逐字 CLI_TENANT_RETIRED，实际: {err:?}"
+    );
+
+    // 拒后零写入：存量行照旧可读（find）；清单仅该行
+    let listed = store.list_agent_instances().unwrap();
+    assert_eq!(listed.len(), 1, "拒后零写入（不产生新行）");
+    assert_eq!(listed[0].id, 7, "存量行原样在册");
+    assert_eq!(listed[0].engine, AgentEngineKind::Cli, "存量行 engine 原样");
+    assert_eq!(listed[0].name, "存量cli", "存量行 name 原样（整行不可改）");
+
+    // 存量行可删（可读可删不可改的删半边）：remove 语义零改动
+    assert!(store.remove_agent_instance(7).unwrap(), "存量 cli 行可删");
+    assert!(store.list_agent_instances().unwrap().is_empty());
+}
+
+#[test]
+fn set_default拒cli目标_err逐字且零写入不清任何默认标记() {
+    let env = Env::new("mgmt-reject-cli-default");
+    let global_path = env.db_path("global");
+    // 存量默认 cli 实例（AC-5 主锚：存量默认 cli 不被顺手清）
+    preset_cli_row(&global_path, 9, "默认cli", true);
+    let store = open_global_ok(&global_path);
+    let provider = upsert_provider_ok(&store, fixture_provider("端点"));
+    let sdk = upsert_agent_ok(
+        &store,
+        fixture_agent("sdk实例", AgentEngineKind::Sdk, Some(provider.id)),
+    );
+
+    // 目标实例 engine == Cli → Err 载荷逐字（默认标记仅可落 sdk 实例）
+    let err = store
+        .set_default_agent_instance(9)
+        .expect_err("cli 目标设默认应拒");
+    assert!(
+        matches!(&err, StoreError::Db(message) if message == CLI_TENANT_RETIRED),
+        "Err 载荷逐字 CLI_TENANT_RETIRED，实际: {err:?}"
+    );
+
+    // 零数据写入：存量默认 cli 不被清（is_default 仍 true）、sdk 未被误置
+    let default = store
+        .default_agent_instance()
+        .unwrap()
+        .expect("默认解析应命中存量行");
+    assert_eq!(default.id, 9, "存量默认 cli 实例不被顺手清");
+    assert!(default.is_default, "is_default 原样");
+    let listed = store.list_agent_instances().unwrap();
+    assert!(
+        listed
+            .iter()
+            .all(|record| record.id == sdk.id || !record.is_default || record.id == 9),
+        "零数据写入（除存量默认外无新默认落位）"
+    );
+    assert!(
+        listed.iter().filter(|record| record.is_default).count() == 1,
+        "全局恰一默认（存量 cli 默认原样在位）"
+    );
+
+    // sdk 目标不受影响（拒面精确只挡 cli 臂）
+    let switched = store
+        .set_default_agent_instance(sdk.id)
+        .expect("sdk 目标应成功");
+    assert!(switched.is_default, "sdk 目标设默认照常");
+}
+
+#[test]
+fn upsert边界_name超长与特殊字符照常落库_id负数与i64max_miss记因() {
+    let env = Env::new("mgmt-upsert-edge");
+    let store = open_global_ok(&env.db_path("global"));
+    let provider = upsert_provider_ok(&store, fixture_provider("端点"));
+
+    // name 超长（>1000 字符）与特殊字符（`\n` `\0` emoji）非空白即合法
+    // （原样落库不加工不拒绝）
+    for name in [
+        format!("超长名{}", "名".repeat(1100)),
+        "特殊\n名\u{0}😀".to_owned(),
+    ] {
+        let created = upsert_agent_ok(
+            &store,
+            fixture_agent(&name, AgentEngineKind::Sdk, Some(provider.id)),
+        );
+        assert_eq!(created.name, name, "name 原样落库不加工");
+    }
+
+    // id 边界 -1 / i64::MAX：miss → 既有「agent 不存在」Err（id=0 为新建语义）
+    for id in [-1_i64, i64::MAX] {
+        let mut args = fixture_agent("边界更新", AgentEngineKind::Sdk, Some(provider.id));
+        args.id = id;
+        let err = store
+            .upsert_agent_instance(args)
+            .expect_err("miss id 应 Err");
+        assert!(
+            err.to_string().contains(&id.to_string()),
+            "Err 携 id 语境，实际: {err}"
+        );
+    }
+}
+
+#[test]
+fn set_default边界_miss零与负与i64max均err_已默认幂等ok() {
+    let env = Env::new("mgmt-default-edge");
+    let store = open_global_ok(&env.db_path("global"));
+    let provider = upsert_provider_ok(&store, fixture_provider("端点"));
+    let agent = upsert_agent_ok(
+        &store,
+        fixture_agent("甲", AgentEngineKind::Sdk, Some(provider.id)),
+    );
+    store.set_default_agent_instance(agent.id).unwrap();
+
+    // miss id（0 / -1 / i64::MAX）既有「agent 不存在」Err
+    for id in [0_i64, -1, i64::MAX] {
+        let err = store
+            .set_default_agent_instance(id)
+            .expect_err("miss id 应 Err");
+        assert!(
+            err.to_string().contains(&id.to_string()),
+            "Err 携 id 语境，实际: {err}"
+        );
+    }
+
+    // 目标已默认幂等 Ok（仍恰一默认）
+    let again = store
+        .set_default_agent_instance(agent.id)
+        .expect("已默认幂等 Ok");
+    assert!(again.is_default, "重复标记幂等");
+    let defaults = store
+        .list_agent_instances()
+        .unwrap()
+        .iter()
+        .filter(|record| record.is_default)
+        .count();
+    assert_eq!(
+        defaults, 1,
+        "幂等后全局仍恰一默认（upsert 臂恒非默认写口纪律保持）"
+    );
+}
+
+#[test]
+fn bind_session_remote边界_remote空串超长特殊字符原样留痕_重复绑定覆盖写() {
+    let env = Env::new("bind-remote-edge");
+    let store = open_workspace_ok(&env.db_path("ws"));
+    seed_session(&store, "ses-bind-edge");
+
+    // remote 参数 str 边界：空串 / 超长 >1000 / 特殊字符 `\n` `\0` emoji——
+    // 原样留痕不校验（留痕写面零改动）
+    let long = format!("h-{}", "长".repeat(1100));
+    let remotes: [&str; 3] = ["", &long, "特殊\n零\u{0}句柄😀"];
+    for (index, remote) in remotes.iter().enumerate() {
+        store
+            .bind_session_remote("ses-bind-edge", Some(*remote), 1727000020000 + index as i64)
+            .expect("边界 remote 留痕应成功");
+        let row = store.find_session("ses-bind-edge").unwrap().expect("在场");
+        assert_eq!(
+            row.engine_session_id.as_deref(),
+            Some(*remote),
+            "remote 原样留痕不校验"
+        );
+    }
+
+    // 重复绑定覆盖写（last-write 语义零改动）
+    store
+        .bind_session_remote("ses-bind-edge", Some("second"), 1727000030000)
+        .expect("覆盖写应成功");
+    let row = store.find_session("ses-bind-edge").unwrap().expect("在场");
+    assert_eq!(
+        row.engine_session_id.as_deref(),
+        Some("second"),
+        "last-write 覆盖"
+    );
+    assert_eq!(row.updated_at, 1727000030000, "覆盖写同步刷 updated_at");
 }
 
 // ---------------------------------------------------------------------------

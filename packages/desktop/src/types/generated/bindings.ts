@@ -71,7 +71,9 @@ export const commands = {
 	listAgentInstances: () => __TAURI_INVOKE<AgentInstanceRecord[]>("list_agent_instances"),
 	/**
 	 *  保存 agent 实例（新建 / 更新合一）：sdk 缺 provider / 悬空引用校验在
-	 *  store 单点；默认标记不由入参写（新建恒非默认、更新保留存量标记）。
+	 *  store 单点；默认标记不由入参写（新建恒非默认、更新保留存量标记）。携
+	 *  `engine: Cli` 拒绝（存量行可读可删不可改）——拒面经 store 校验
+	 *  `Err(String)` 透传，命令体零校验逻辑、签名与参数类型不收窄。
 	 */
 	saveAgentInstance: (id: number | null, name: string, engine: AgentEngineKind, providerId: number | null) => __TAURI_INVOKE<AgentInstanceRecord>("save_agent_instance", { id, name, engine, providerId }),
 	/**
@@ -79,7 +81,11 @@ export const commands = {
 	 *  miss 幂等 `Ok(false)`。
 	 */
 	deleteAgentInstance: (id: number) => __TAURI_INVOKE<boolean>("delete_agent_instance", { id }),
-	/**  标记默认 agent（标记即切换，旧默认自动清除）：返回更新后记录。 */
+	/**
+	 *  标记默认 agent（标记即切换，旧默认自动清除）：返回更新后记录。Cli 实例
+	 *  拒绝（默认标记仅可落 sdk 实例）——拒面经 store 校验 `Err(String)` 透传，
+	 *  命令体零校验逻辑。
+	 */
 	setDefaultAgentInstance: (id: number) => __TAURI_INVOKE<AgentInstanceRecord>("set_default_agent_instance", { id }),
 	agentStart: (onEvent: Channel<AgentRunMessage>, root: string, prompt: string, permissionMode: AgentPermissionMode, sessionId: string | null, source: string | null, sourceRef: string | null, agent: number | null) => __TAURI_INVOKE<TurnSummary>("agent_start", { onEvent, root, prompt, permissionMode, sessionId, source, sourceRef, agent }),
 	agentStop: (root: string, sessionId: string) => __TAURI_INVOKE<null>("agent_stop", { root, sessionId }),
@@ -254,12 +260,17 @@ export type AgentDelta =
  *  agent 实例引擎二值（agent 管理域，store 本地枚举）：serde camelCase 线值
  *  `"cli" | "sdk"` 与门面 `EngineKind` 同线值域。持久化的是配置值域而非引擎
  *  实现——store 禁拖引擎门面 crate（零新增依赖），`AgentEngineKind` →
- *  `EngineKind` 映射收运行发起解析单点（两臂 match）。
+ *  `EngineKind` 映射收运行发起解析单点（两臂 match）。**变体集与 bincode
+ *  序号（`Cli`=0 / `Sdk`=1）为解码锚，MUST NOT 增删重排**（删/重排即
+ *  `AgentInstanceRecord` + `SessionRecord` 两表报废含 sdk 数据）。
  */
 export type AgentEngineKind = 
-/**  本机 claude CLI 租户 */
+/**
+ *  本机 claude CLI 租户（解码兼容，不再可选：写入面与运行发起解析均拒，
+ *  存量行只读；bincode 序号 0 永久保留为历史数据解码锚）
+ */
 "cli" | 
-/**  进程内 sdk 租户 */
+/**  进程内 sdk 租户（唯一活档） */
 "sdk";
 
 /**
@@ -294,10 +305,12 @@ export type AgentEventKind =
 { kind: "raw"; eventType: string; rawJson: string };
 
 /**
- *  agent 实例记录（agent 管理域，user 维度落全局库）：引擎选择（cli / sdk）
- *  与 provider 引用（sdk 必填且引用存在、cli 可空）+ 默认标记（全局恒至多
- *  一；写入只发生在 store 的 `set_default_agent_instance` 与删除清标记两处，
- *  upsert 不参与写）。
+ *  agent 实例记录（agent 管理域，user 维度落全局库）：引擎选择（线值
+ *  `cli` | `sdk` 双值保留，写入面仅收 `sdk`——存量 cli 行可读可删不可改）
+ *  与 provider 引用（`sdk` 必填且引用存在；「cli 可空」语义随 CLI 租户退役，
+ *  存量 cli 行 provider 可空只读保留）+ 默认标记（全局恒至多一；写入只发生
+ *  在 store 的 `set_default_agent_instance` 与删除清标记两处，upsert 不参与
+ *  写；默认标记仅可落 sdk 实例）。
  */
 export type AgentInstanceRecord = {
 	/**  记录 id（主键，写事务内 max+1 分配；后续 workspace 关联引用锚点） */
@@ -306,7 +319,10 @@ export type AgentInstanceRecord = {
 	name: string,
 	/**  引擎二值（cli / sdk；映射到门面 `EngineKind` 收运行发起解析单点） */
 	engine: AgentEngineKind,
-	/**  引用 provider id（同库 [`AgentProviderRecord`] 主键；sdk 必填、cli 可空） */
+	/**
+	 *  引用 provider id（同库 [`AgentProviderRecord`] 主键；`sdk` 必填且引用
+	 *  存在——`sdk` 唯一活档，存量 `cli` 行可空只读保留）
+	 */
 	providerId: number | null,
 	/**  默认标记（缺省运行解析入口；全局恒至多一） */
 	isDefault: boolean,

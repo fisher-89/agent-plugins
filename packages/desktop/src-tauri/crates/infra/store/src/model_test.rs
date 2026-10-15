@@ -254,6 +254,7 @@ fn session_record全字段serde往返_camel_case线格式逐字段() {
         engine_session_id: Some("sdk-7-1727000000001".to_owned()),
         config_snapshot: SessionConfigSnapshot {
             engine: AgentEngineKind::Sdk,
+            agent_instance_id: None,
             model: Some("m-high".to_owned()),
             permission_mode: AgentPermissionMode::BypassPermissions,
         },
@@ -299,6 +300,7 @@ fn session_config_snapshot三字段往返且model_none与engine_session_id_none�
     ] {
         let snapshot = SessionConfigSnapshot {
             engine,
+            agent_instance_id: None,
             model: model.clone(),
             permission_mode: AgentPermissionMode::AcceptEdits,
         };
@@ -321,6 +323,7 @@ fn session_config_snapshot三字段往返且model_none与engine_session_id_none�
         engine_session_id: None,
         config_snapshot: SessionConfigSnapshot {
             engine: AgentEngineKind::Cli,
+            agent_instance_id: None,
             model: None,
             permission_mode: AgentPermissionMode::Default,
         },
@@ -2328,4 +2331,359 @@ fn run_node_edge_key_hex线面编码回环无损() {
     let back: RunEdgeRecord = serde_json::from_value(value).expect("反序列化应成功");
     assert_eq!(back, edge, "hex 线面回环无损（edge_seq 边界）");
     assert_eq!(back.edge_seq(), u64::MAX);
+}
+
+// ---------------------------------------------------------------------------
+// CLI_TENANT_RETIRED 共享拒收文案（DD3）：四拒点逐字复用的常量内容面
+// ---------------------------------------------------------------------------
+
+use crate::model::{SessionConfigSnapshotV1, SessionRecordV1};
+
+#[test]
+fn cli_tenant_retired文案常量逐字锚_退役事实与引导齐备() {
+    // 逐字锚：DD3 定稿文案（多处复用不拼接不加前后缀——防措辞漂移）
+    assert_eq!(
+        crate::model::CLI_TENANT_RETIRED,
+        "CLI 租户已下线：请前往 Agent 管理页（/agents）新建或改用 sdk agent，并将其设为默认（存量 cli 实例可读可删不可改）"
+    );
+    let text = crate::model::CLI_TENANT_RETIRED;
+    assert!(!text.is_empty(), "非空 &str");
+    assert!(text.contains("CLI 租户已下线"), "退役事实在场");
+    assert!(text.contains("/agents"), "管理页引导在场");
+    assert!(text.contains("设为默认"), "改默认引导在场");
+    assert!(
+        text.contains("存量 cli 实例可读可删不可改"),
+        "存量行口径在场"
+    );
+}
+
+#[test]
+fn cli_tenant_retired无格式化占位符残留() {
+    let text = crate::model::CLI_TENANT_RETIRED;
+    assert!(
+        !text.contains("{}") && !text.contains("%s") && !text.contains("{0}"),
+        "无格式化占位符残留（逐字复用，防多处措辞漂移），实际: {text}"
+    );
+    // 文案内中文 / /agents 路径 / 全角括号为固定字面（呈现面不转义不截断的
+    // 前端半边断言挂 agent-panel 章节）
+    assert!(text.contains('（') && text.contains('）'), "全角括号字面");
+}
+
+// ---------------------------------------------------------------------------
+// AgentEngineKind 变体序号解码锚（AC-3）：bincode 字节级 0 / 1 钉死
+// ---------------------------------------------------------------------------
+
+/// bincode 序号锚定装置：以「engine 为首字段」的最小 native_model 记录直读
+/// 变体序号（native_model header 8 字节 = id u32 小端 + version u32 小端，
+/// bincode 1.3 体首 4 字节 = 枚举变体序号 u32 小端）。仅测试侧锚定，不注册
+/// 进库模型组。
+#[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+#[native_model::native_model(id = 700, version = 1)]
+struct EngineOrdinalAnchor {
+    engine: AgentEngineKind,
+}
+
+#[test]
+fn agent_engine_kind变体序号锚_cli恰0_sdk恰1字节级() {
+    let cli = native_model::encode(&EngineOrdinalAnchor {
+        engine: AgentEngineKind::Cli,
+    })
+    .expect("encode Cli 锚");
+    let sdk = native_model::encode(&EngineOrdinalAnchor {
+        engine: AgentEngineKind::Sdk,
+    })
+    .expect("encode Sdk 锚");
+    assert_eq!(
+        &cli[8..12],
+        &[0, 0, 0, 0],
+        "Cli 编码恰序号 0（u32 小端，变体序号钉死）"
+    );
+    assert_eq!(
+        &sdk[8..12],
+        &[1, 0, 0, 0],
+        "Sdk 编码恰序号 1（u32 小端，变体序号钉死）"
+    );
+}
+
+#[test]
+fn agent_engine_kind反向解码锚字节0与1命中_越界与空体拒解不panic() {
+    let sdk = native_model::encode(&EngineOrdinalAnchor {
+        engine: AgentEngineKind::Sdk,
+    })
+    .expect("encode Sdk 锚");
+
+    // 字节 [1] → Sdk（正向回读）
+    let (decoded, version) =
+        native_model::decode::<EngineOrdinalAnchor>(sdk.clone()).expect("序号 1 解码应成功");
+    assert_eq!(decoded.engine, AgentEngineKind::Sdk);
+    assert_eq!(version, 1);
+
+    // 字节 [0] → Cli（改写序号位反向锚）
+    let mut cli_bytes = sdk.clone();
+    cli_bytes[8..12].copy_from_slice(&[0, 0, 0, 0]);
+    let (decoded, _) =
+        native_model::decode::<EngineOrdinalAnchor>(cli_bytes).expect("序号 0 解码应成功");
+    assert_eq!(decoded.engine, AgentEngineKind::Cli);
+
+    // [2] 越界：两变体枚举无序号 2 → 拒解 Err 不 panic（防静默错位——两表报废级红线）
+    let mut rogue = sdk.clone();
+    rogue[8] = 2;
+    assert!(
+        native_model::decode::<EngineOrdinalAnchor>(rogue).is_err(),
+        "序号 2 越界必须拒解"
+    );
+
+    // 空字节串 / 截断体：空体在 native_model header 解析段即 panic（第三方
+    // 契约面 `Wrapper::deserialize` unwrap——非我方解码面可控）；截断体 header
+    // 可读、体残缺走我方 `Err` 拒解。两者均不静默产出错位行。
+    assert!(
+        std::panic::catch_unwind(|| native_model::decode::<EngineOrdinalAnchor>(Vec::new()))
+            .is_err(),
+        "空字节串不静默解码（native_model header 解析 panic，非 Err 契约）"
+    );
+    assert!(
+        native_model::decode::<EngineOrdinalAnchor>(sdk[..10].to_vec()).is_err(),
+        "截断体拒解 Err"
+    );
+}
+
+#[test]
+fn agent_engine_kind两表载荷roundtrip逐字段一致() {
+    // 含存量两变体行的库 roundtrip 照读零错位：AgentInstanceRecord.engine 与
+    // SessionConfigSnapshot.engine（嵌于 SessionRecord）两表载荷 bincode
+    // roundtrip 逐字段一致
+    for engine in [AgentEngineKind::Cli, AgentEngineKind::Sdk] {
+        let instance = AgentInstanceRecord {
+            id: 3,
+            name: "存量行".to_owned(),
+            engine,
+            provider_id: None,
+            is_default: true,
+        };
+        let bytes = native_model::encode(&instance).expect("encode instance");
+        let (decoded, version) =
+            native_model::decode::<AgentInstanceRecord>(bytes).expect("decode instance");
+        assert_eq!(version, 1, "实例行 v1 封装零改动");
+        assert_eq!(decoded, instance, "实例行 engine roundtrip 逐字段一致");
+
+        let record = SessionRecord {
+            id: "ses-engine-rt".to_owned(),
+            engine_session_id: Some("h-1".to_owned()),
+            config_snapshot: SessionConfigSnapshot {
+                engine,
+                agent_instance_id: Some(42),
+                model: Some("m".to_owned()),
+                permission_mode: AgentPermissionMode::Default,
+            },
+            source: "debug".to_owned(),
+            source_ref: None,
+            created_at: 1,
+            updated_at: 2,
+        };
+        let bytes = native_model::encode(&record).expect("encode session");
+        let (decoded, version) =
+            native_model::decode::<SessionRecord>(bytes).expect("decode session");
+        assert_eq!(version, 2, "会话行 v2 封装");
+        assert_eq!(decoded, record, "会话行快照 engine roundtrip 逐字段一致");
+    }
+}
+
+// ---------------------------------------------------------------------------
+// SessionConfigSnapshot 实例外键与 SessionRecord v1→v2 演进链（DD6 / DD7 / AC-7）
+// ---------------------------------------------------------------------------
+
+#[test]
+fn 存量v1会话行经版本机制升级_实例外键读none其余原样() {
+    let v1 = SessionRecordV1 {
+        id: "ses-v1-1727000000000".to_owned(),
+        engine_session_id: Some("cli-3-1727000000001".to_owned()),
+        config_snapshot: SessionConfigSnapshotV1 {
+            engine: AgentEngineKind::Cli,
+            model: None,
+            permission_mode: AgentPermissionMode::BypassPermissions,
+        },
+        source: "debug".to_owned(),
+        source_ref: None,
+        created_at: 1727000000000,
+        updated_at: 1727000005000,
+    };
+    let legacy_bytes = native_model::encode(&v1).expect("encode v1");
+    let (legacy_decoded, legacy_version) =
+        native_model::decode::<SessionRecordV1>(legacy_bytes.clone()).expect("v1 载荷直解");
+    assert_eq!(legacy_version, 1, "v1 封装");
+    assert_eq!(legacy_decoded, v1, "v1 形态自身往返逐字段一致");
+
+    let (upgraded, version) =
+        native_model::decode::<SessionRecord>(legacy_bytes).expect("v1 载荷应经版本机制升级");
+    assert_eq!(
+        version, 1,
+        "decode 返回载荷头版本（升级链源版本）；升级由值面承载（下方逐字段）"
+    );
+    assert_eq!(
+        upgraded.config_snapshot.agent_instance_id, None,
+        "旧快照实例外键读出 None（升级半边真实，零迁移代码路径）"
+    );
+    assert_eq!(upgraded.id, v1.id);
+    assert_eq!(upgraded.engine_session_id, v1.engine_session_id);
+    assert_eq!(upgraded.config_snapshot.engine, AgentEngineKind::Cli);
+    assert_eq!(upgraded.config_snapshot.model, None);
+    assert_eq!(
+        upgraded.config_snapshot.permission_mode,
+        AgentPermissionMode::BypassPermissions
+    );
+    assert_eq!(upgraded.source, v1.source);
+    assert_eq!(upgraded.source_ref, v1.source_ref);
+    assert_eq!(upgraded.created_at, v1.created_at);
+    assert_eq!(upgraded.updated_at, v1.updated_at);
+}
+
+#[test]
+fn v2新会话行快照实例外键some_roundtrip原样() {
+    let v2 = SessionRecord {
+        id: "ses-v2-1727000000000".to_owned(),
+        engine_session_id: Some("sdk-9-1727000000001".to_owned()),
+        config_snapshot: SessionConfigSnapshot {
+            engine: AgentEngineKind::Sdk,
+            agent_instance_id: Some(1727),
+            model: Some("m-high".to_owned()),
+            permission_mode: AgentPermissionMode::AcceptEdits,
+        },
+        source: "explore".to_owned(),
+        source_ref: Some("42".to_owned()),
+        created_at: 1727000000000,
+        updated_at: 1727000005000,
+    };
+    let bytes = native_model::encode(&v2).expect("encode v2");
+    let (decoded, version) = native_model::decode::<SessionRecord>(bytes).expect("decode v2");
+    assert_eq!(version, 2);
+    assert_eq!(
+        decoded.config_snapshot.agent_instance_id,
+        Some(1727),
+        "v2 新快照 agent_instance_id roundtrip 原样"
+    );
+    assert_eq!(decoded, v2, "全字段 roundtrip 一致");
+}
+
+#[test]
+fn 会话记录降级半边from丢弃实例外键不panic() {
+    let v2 = SessionRecord {
+        id: "ses-downgrade".to_owned(),
+        engine_session_id: None,
+        config_snapshot: SessionConfigSnapshot {
+            engine: AgentEngineKind::Sdk,
+            agent_instance_id: Some(9),
+            model: Some("m".to_owned()),
+            permission_mode: AgentPermissionMode::Default,
+        },
+        source: "debug".to_owned(),
+        source_ref: None,
+        created_at: 1,
+        updated_at: 2,
+    };
+    // 降级半边（native_model `from` 双向 From 要求）：新增字段丢弃、缺省占位
+    // ——只保升级语义真实性，降级形态不作数据承诺
+    let v1: SessionRecordV1 = v2.clone().into();
+    assert_eq!(v1.id, v2.id);
+    assert_eq!(v1.engine_session_id, v2.engine_session_id);
+    assert_eq!(v1.config_snapshot.engine, AgentEngineKind::Sdk);
+    assert_eq!(v1.config_snapshot.model, Some("m".to_owned()));
+    // 再升级：agent_instance_id 缺省 None（丢弃不回填）
+    let back: SessionRecord = v1.into();
+    assert_eq!(back.config_snapshot.agent_instance_id, None);
+    assert_eq!(back.id, v2.id);
+    assert_eq!(back.config_snapshot.model, v2.config_snapshot.model);
+}
+
+#[test]
+fn 旧json形态缺agentInstanceId键经serde_default读none不炸() {
+    // store_port 旧载荷 / 前端旧形态 JSON：缺新键经 `#[serde(default)]` 读 None
+    let legacy = serde_json::json!({
+        "engine": "sdk",
+        "model": "m-high",
+        "permissionMode": "acceptEdits"
+    });
+    let snapshot: SessionConfigSnapshot =
+        serde_json::from_value(legacy).expect("旧三键 JSON 应可读");
+    assert_eq!(snapshot.agent_instance_id, None, "缺键读 None 不炸");
+    assert_eq!(snapshot.engine, AgentEngineKind::Sdk);
+    assert_eq!(snapshot.model, Some("m-high".to_owned()));
+    assert_eq!(snapshot.permission_mode, AgentPermissionMode::AcceptEdits);
+}
+
+#[test]
+fn 实例外键serde边界_none与零与负与i64max线键camel_case不失真() {
+    for id in [None, Some(0), Some(-1), Some(i64::MAX)] {
+        let snapshot = SessionConfigSnapshot {
+            engine: AgentEngineKind::Sdk,
+            agent_instance_id: id,
+            model: Some("m".to_owned()),
+            permission_mode: AgentPermissionMode::Default,
+        };
+        let value = serde_json::to_value(&snapshot).expect("序列化应成功");
+        assert!(
+            value.get("agentInstanceId").is_some(),
+            "线键恒在场（None 出线 null 不省略），实际: {value}"
+        );
+        assert_eq!(
+            value["agentInstanceId"],
+            serde_json::json!(id),
+            "数值不失真（0 / -1 / i64::MAX）"
+        );
+        let back: SessionConfigSnapshot = serde_json::from_value(value).expect("反序列化应成功");
+        assert_eq!(back.agent_instance_id, id, "回读原样");
+    }
+}
+
+#[test]
+fn v2快照bincode布局锚_实例外键紧随engine之后() {
+    // DD7 定序回归钉：`agent_instance_id` 置 `engine` 之后（bincode 位置编码
+    // ——布局重排即存量行解码错位）。以「engine 序号（Sdk=1）+ Some 标记 +
+    // i64::MAX 小端」唯一组合窗口定位：engine 序号恰紧邻实例外键字节。
+    let record = SessionRecord {
+        id: "layout-anchor".to_owned(),
+        engine_session_id: None,
+        config_snapshot: SessionConfigSnapshot {
+            engine: AgentEngineKind::Sdk,
+            agent_instance_id: Some(i64::MAX),
+            model: None,
+            permission_mode: AgentPermissionMode::Default,
+        },
+        source: "debug".to_owned(),
+        source_ref: None,
+        created_at: 0,
+        updated_at: 0,
+    };
+    let bytes = native_model::encode(&record).expect("encode v2");
+    // i64::MAX 小端 = 7×0xFF + 0x7F；窗口 = engine 序号（Sdk=1，u32 小端）
+    // + Some 标记 + i64::MAX 值
+    let pattern: Vec<u8> = [1_u8, 0, 0, 0, 1]
+        .into_iter()
+        .chain(std::iter::repeat(0xFF_u8).take(7))
+        .chain([0x7F_u8])
+        .collect();
+    let hits: Vec<usize> = bytes
+        .windows(pattern.len())
+        .enumerate()
+        .filter_map(|(index, window)| (window == pattern.as_slice()).then_some(index))
+        .collect();
+    assert_eq!(
+        hits.len(),
+        1,
+        "「engine 序号 1 + Some 标记 + i64::MAX」唯一落位（engine 之后紧邻居位），实际命中: {hits:?}"
+    );
+    // 同位反证：engine 置 Cli（序号 0）时组合窗口不再命中（engine 字节确属窗口）
+    let cli_record = SessionRecord {
+        config_snapshot: SessionConfigSnapshot {
+            engine: AgentEngineKind::Cli,
+            ..record.config_snapshot.clone()
+        },
+        ..record.clone()
+    };
+    let cli_bytes = native_model::encode(&cli_record).expect("encode Cli 布局对照");
+    assert!(
+        !cli_bytes
+            .windows(pattern.len())
+            .any(|window| window == pattern.as_slice()),
+        "engine 换 Cli 后窗口不再命中（engine 字节确属紧邻组合）"
+    );
 }

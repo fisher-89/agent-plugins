@@ -19,12 +19,26 @@ vi.mock('@tauri-apps/api/core', () => ({ invoke: invokeMock }));
 /** workspace root（会话 id 为 core 铸造全局唯一，取数 invoke 携 root 寻址） */
 const ROOT = 'C:\\demo\\beta';
 
+/** store `SessionConfigSnapshot` 快照线形态（serde camelCase；v2 增
+ * `agentInstanceId` 实例外键——fixture 缺键即类型红，防漂移）。 */
+interface ConfigSnapshotFixture {
+  engine: 'cli' | 'sdk';
+  agentInstanceId: number | null;
+  model: string | null;
+  permissionMode: string;
+}
+
 function summary(id: string, updatedAt: number): SessionSummary {
   return {
     row: {
       id,
       remoteSessionId: `engine-${id}`,
-      configSnapshot: { engine: 'sdk', model: 'glm-high', permissionMode: 'bypassPermissions' },
+      configSnapshot: {
+        engine: 'sdk',
+        agentInstanceId: 7,
+        model: 'glm-high',
+        permissionMode: 'bypassPermissions',
+      } satisfies ConfigSnapshotFixture,
       provenance: { source: 'debug', sourceRef: null },
       createdAt: 1727000000000,
       updatedAt,
@@ -725,5 +739,119 @@ describe('useAgentRunHistory：分页取数与页界导出', () => {
     expect(result.current.totalPages).toBe(1);
     expect(result.current.page).toBe(1);
     expect(result.current.sessions).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// configSnapshot fixture 补 agentInstanceId 键（fixture 随动，AC-7）
+// ---------------------------------------------------------------------------
+
+/** id 边界形态的会话行 fixture（agentInstanceId 携 0 / -1 / MAX_SAFE_INTEGER）。 */
+function summaryWithInstanceId(
+  id: string,
+  agentInstanceId: number,
+  updatedAt: number,
+): SessionSummary {
+  return {
+    row: {
+      id,
+      remoteSessionId: `engine-${id}`,
+      configSnapshot: {
+        engine: 'sdk',
+        agentInstanceId,
+        model: 'glm-high',
+        permissionMode: 'bypassPermissions',
+      } satisfies ConfigSnapshotFixture,
+      provenance: { source: 'debug', sourceRef: null },
+      createdAt: 1727000000000,
+      updatedAt,
+    },
+    stats: { turnCount: 0, totalDurationMs: 0, inputTokens: null, outputTokens: null },
+    turns: [],
+  };
+}
+
+describe('useAgentRunHistory：configSnapshot fixture 携 agentInstanceId 键（AC-7 随动）', () => {
+  beforeEach(() => {
+    invokeMock.mockReset();
+  });
+
+  it('默认 fixture（新会话语义：具体实例 id）装载后清单镜像快照同形保绿', async () => {
+    invokeMock.mockResolvedValue(pageOf(SESSIONS_DESC));
+    const { result } = renderHook(() => useAgentRunHistory(ROOT, 'debug'));
+
+    await waitFor(() => expect(result.current.sessions).toEqual(SESSIONS_DESC));
+
+    const snapshot = result.current.sessions[0].row.configSnapshot as ConfigSnapshotFixture;
+    expect(snapshot).toHaveProperty('agentInstanceId', 7);
+    expect(snapshot.engine).toBe('sdk');
+    expect(result.current.error).toBeNull();
+  });
+
+  it('engine cli 历史快照与 agentInstanceId null（存量缺列）形态照常装载不炸（缺键旧形态经类型面拦截）', async () => {
+    const legacy: SessionSummary = {
+      row: {
+        id: 'ses-legacy-cli',
+        remoteSessionId: 'cli-1-1727000000002',
+        configSnapshot: {
+          engine: 'cli',
+          agentInstanceId: null,
+          model: null,
+          permissionMode: 'bypassPermissions',
+        } satisfies ConfigSnapshotFixture,
+        provenance: { source: 'debug', sourceRef: null },
+        createdAt: 1727000000000,
+        updatedAt: 200,
+      },
+      stats: { turnCount: 1, totalDurationMs: 100, inputTokens: null, outputTokens: null },
+      turns: [],
+    };
+    invokeMock.mockResolvedValue(pageOf([legacy]));
+    const { result } = renderHook(() => useAgentRunHistory(ROOT, 'debug'));
+
+    await waitFor(() => expect(result.current.sessions).toHaveLength(1));
+
+    // 呈现断言容忍两形态：null（存量会话缺列语义）原样透出（不回填不加工）
+    expect(result.current.sessions[0].row.configSnapshot).toEqual({
+      engine: 'cli',
+      agentInstanceId: null,
+      model: null,
+      permissionMode: 'bypassPermissions',
+    });
+    expect(result.current.error).toBeNull();
+  });
+
+  it('agentInstanceId id 边界（0 / -1 / MAX_SAFE_INTEGER）与清单空 / 单元素 / 多元素载荷同口径承接', async () => {
+    // 多元素：id 边界三形态混入（呈现断言容忍，不加工不拒绝）
+    const mixed = [
+      summaryWithInstanceId('ses-zero', 0, 300),
+      summaryWithInstanceId('ses-negative', -1, 200),
+      summaryWithInstanceId('ses-max', Number.MAX_SAFE_INTEGER, 100),
+    ];
+    invokeMock.mockResolvedValue(pageOf(mixed));
+    const { result } = renderHook(() => useAgentRunHistory(ROOT, 'debug'));
+    await waitFor(() => expect(result.current.sessions).toHaveLength(3));
+    expect(
+      result.current.sessions.map(
+        (session) => (session.row.configSnapshot as ConfigSnapshotFixture).agentInstanceId,
+      ),
+    ).toEqual([0, -1, Number.MAX_SAFE_INTEGER]);
+
+    // 单元素载荷同口径（list 映射边界）
+    invokeMock.mockResolvedValue(pageOf(mixed.slice(0, 1)));
+    act(() => {
+      result.current.refresh();
+    });
+    await waitFor(() => expect(result.current.sessions).toHaveLength(1));
+    expect(
+      (result.current.sessions[0].row.configSnapshot as ConfigSnapshotFixture).agentInstanceId,
+    ).toBe(0);
+
+    // 空清单载荷同口径
+    invokeMock.mockResolvedValue(pageOf([]));
+    act(() => {
+      result.current.refresh();
+    });
+    await waitFor(() => expect(result.current.sessions).toEqual([]));
   });
 });

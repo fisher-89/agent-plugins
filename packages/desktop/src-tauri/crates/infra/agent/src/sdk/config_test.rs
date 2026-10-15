@@ -71,7 +71,9 @@ fn empty经is_complete判定为缺失且sdk启动以config_missing失败且文�
     use crate::EngineFacade;
     use std::path::PathBuf;
 
-    let runner = EngineFacade::new().runner_for(crate::EngineKind::Sdk, empty);
+    let runner = EngineFacade::new()
+        .runner_for(crate::EngineKind::Sdk, empty)
+        .expect("Sdk 臂构造成功");
     let error = runner
         .open_session(agent::SessionOpen {
             injections: agent::SessionInjections::default(),

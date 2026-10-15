@@ -1,0 +1,2107 @@
+diff --git a/crates/infra/store/src/envelope_test.rs b/crates/infra/store/src/envelope_test.rs
+index dcb560a2184b..1d840c03ea7f 100644
+--- a/crates/infra/store/src/envelope_test.rs
++++ b/crates/infra/store/src/envelope_test.rs
+@@ -62,6 +62,7 @@ fn seed_session(store: &Store, id: &str) -> String {
+             engine_session_id: None,
+             config_snapshot: SessionConfigSnapshot {
+                 engine: AgentEngineKind::Sdk,
++                agent_instance_id: None,
+                 model: Some("m-high".to_owned()),
+                 permission_mode: agent::AgentPermissionMode::BypassPermissions,
+             },
+@@ -241,7 +242,7 @@ fn scan两新模型分页主键自然序翻页不重不漏_key数值id信封valu
+         .collect();
+     let _agent = upsert_agent_ok(
+         &global,
+-        AgentInstanceRecord::new("扫描实例".to_owned(), AgentEngineKind::Cli, None),
++        AgentInstanceRecord::new("扫描实例".to_owned(), AgentEngineKind::Sdk, Some(seeded[0].id)),
+     );
+ 
+     // 分页扫描：offset/limit 翻页拼接不重不漏（主键自然序）
+@@ -300,7 +301,7 @@ fn scan两新模型分页主键自然序翻页不重不漏_key数值id信封valu
+     assert_eq!(value["models"]["high"], serde_json::json!("m-high"));
+     let agent_value = &agent_page.records[0].value;
+     assert_eq!(agent_value["name"], serde_json::json!("扫描实例"));
+-    assert_eq!(agent_value["engine"], serde_json::json!("cli"));
++    assert_eq!(agent_value["engine"], serde_json::json!("sdk"));
+     assert_eq!(agent_value["isDefault"], serde_json::json!(false));
+ 
+     // 空页边界：offset 恰等于总数返回空页不报错，total 恒全量（快照自洽 R2）
+diff --git a/crates/infra/store/src/lib.rs b/crates/infra/store/src/lib.rs
+index b08bf27965a8..b85edd2a13cb 100644
+--- a/crates/infra/store/src/lib.rs
++++ b/crates/infra/store/src/lib.rs
+@@ -9,6 +9,7 @@ pub use model::{
+     AgentEngineKind, AgentInstanceRecord, AgentModelTiers, AgentProviderRecord, AgentRunRecord,
+     ChangeActivePhase, ChangeRecord, ChecklistItemRecord, ExploreRecord, PhaseRecord,
+     SessionConfigSnapshot, SessionEventRecord, SessionRecord, StepRecord, WorkspaceRecord,
++    CLI_TENANT_RETIRED,
+ };
+ pub use store::{DbDimension, Store, StoreError, WorkspaceStores};
+ 
+diff --git a/crates/infra/store/src/model.rs b/crates/infra/store/src/model.rs
+index 9e332a0c6c14..1dce09488b79 100644
+--- a/crates/infra/store/src/model.rs
++++ b/crates/infra/store/src/model.rs
+@@ -405,10 +405,12 @@ impl From<ExploreRecord> for ExploreRecordV3 {
+     }
+ }
+ 
+-/// agent 会话记录
++/// agent 会话记录（version 2：`config_snapshot` 增实例外键 `agent_instance_id`，
++/// 经 `SessionRecordV1` 版本链自动升级——旧快照读出 `None`，其余字段原样，
++/// 零迁移代码路径）
+ #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
+ #[serde(rename_all = "camelCase")]
+-#[native_model(id = 7, version = 1)]
++#[native_model(id = 7, version = 2, from = SessionRecordV1)]
+ #[native_db]
+ pub struct SessionRecord {
+     /// core 铸会话 id（字符串主键，`ses-` 前缀铸造格式由 core 单点承载）
+@@ -416,7 +418,7 @@ pub struct SessionRecord {
+     pub id: String,
+     /// 引擎侧会话标识（双 id 映射落库半边；未上报为 None）
+     pub engine_session_id: Option<String>,
+-    /// 装配配置快照（engine / model / permission；快照非引用）
++    /// 装配配置快照（engine / 实例外键 / model / permission；快照非引用）
+     pub config_snapshot: SessionConfigSnapshot,
+     /// 来源受控字符串（debug | explore | …），缺省 debug
+     pub source: String,
+@@ -429,20 +431,122 @@ pub struct SessionRecord {
+ }
+ 
+ /// 装配配置快照（store 本地定型，嵌套 struct 不落独立模型——嵌装先例同
+-/// 转录单表的 `AgentEvent`）：engine / model / permission 三面。快照是记录
+-/// 自证——续会话引擎路由凭此比对（core 契约不解释装配概念，core 侧以
+-/// serde_json::Value 不透明承载）。
++/// 转录单表的 `AgentEvent`）：engine / 实例外键 / model / permission 四面。
++/// 快照是记录自证——续会话引擎路由凭此比对（core 契约不解释装配概念，
++/// core 侧以 serde_json::Value 不透明承载）。
+ #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+ #[serde(rename_all = "camelCase")]
+ pub struct SessionConfigSnapshot {
+-    /// 引擎二值（cli / sdk，store 本地枚举同 [`AgentEngineKind`]）
++    /// 引擎二值（cli / sdk，store 本地枚举同 [`AgentEngineKind`]；`cli` 为
++    /// 退役态历史事实，字段保留不删）
++    pub engine: AgentEngineKind,
++    /// 装配时点实例 id 的快照复制值（会话 ↔ 实例的显式外键，多 agent 时代的
++    /// 过滤 / 聚合锚）：复制值非跨库引用（`AgentInstanceRecord` 在全局库、
++    /// session 在 workspace 库，MUST NOT 引申为跨库 join 或存在性约束）；
++    /// `None` = 存量行缺列（v1 → v2 升级链读出）
++    #[serde(default)]
++    pub agent_instance_id: Option<i64>,
++    /// 模型标识（无模型装配概念的引擎为 None）
++    pub model: Option<String>,
++    /// permission-mode 档位
++    pub permission_mode: AgentPermissionMode,
++}
++
++/// `SessionConfigSnapshot` 的旧三字段形态（仅作 `SessionRecordV1` 升级链的
++/// 解码目标，不注册进库模型组、不出公共查询面）：bincode 嵌套结构变布局必须
++/// 整结构换型（serde `default` 不救 bincode 缺字段），故旧快照需独立 V1 形态。
++#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
++#[serde(rename_all = "camelCase")]
++pub(crate) struct SessionConfigSnapshotV1 {
++    /// 引擎二值
+     pub engine: AgentEngineKind,
+-    /// 模型标识（cli 引擎无模型装配概念，None）
++    /// 模型标识
+     pub model: Option<String>,
+     /// permission-mode 档位
+     pub permission_mode: AgentPermissionMode,
+ }
+ 
++/// v1 → v2 升级半边（缺列读兼容：旧快照无实例外键列）。
++impl From<SessionConfigSnapshotV1> for SessionConfigSnapshot {
++    fn from(previous: SessionConfigSnapshotV1) -> Self {
++        Self {
++            engine: previous.engine,
++            agent_instance_id: None,
++            model: previous.model,
++            permission_mode: previous.permission_mode,
++        }
++    }
++}
++
++/// 降级半边（native_model `from` 属性要求双向 `From`；运行时无降级读取路径，
++/// `agent_instance_id` 丢弃——只保升级语义真实性，降级形态不作数据承诺）。
++impl From<SessionConfigSnapshot> for SessionConfigSnapshotV1 {
++    fn from(snapshot: SessionConfigSnapshot) -> Self {
++        Self {
++            engine: snapshot.engine,
++            model: snapshot.model,
++            permission_mode: snapshot.permission_mode,
++        }
++    }
++}
++
++/// `SessionRecord` 的 version 1 历史形态（仅作 native_model 升级链的解码
++/// 目标，不注册进库模型组、不出公共查询面）：`config_snapshot` 为旧三字段
++/// 快照形态。存量 v1 行经版本机制自动升级（`agent_instance_id` 读出 `None`、
++/// 其余字段原样，零迁移代码路径）。
++#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
++#[serde(rename_all = "camelCase")]
++#[native_model(id = 7, version = 1)]
++pub(crate) struct SessionRecordV1 {
++    /// core 铸会话 id（字符串主键）
++    pub id: String,
++    /// 引擎侧会话标识（双 id 映射落库半边；未上报为 None）
++    pub engine_session_id: Option<String>,
++    /// 装配配置快照（旧三字段形态）
++    pub config_snapshot: SessionConfigSnapshotV1,
++    /// 来源受控字符串（debug | explore | …），缺省 debug
++    pub source: String,
++    /// 来源内定位（explore 指向探索记录主键的十进制串；调试会话为 None）
++    pub source_ref: Option<String>,
++    /// 建档时间（UTC unix 毫秒）
++    pub created_at: i64,
++    /// 最近更新时间（UTC unix 毫秒）
++    pub updated_at: i64,
++}
++
++/// v1 → v2 升级半边（缺列读兼容：旧快照 `agent_instance_id` 读出 `None`，
++/// 其余字段原样平移）。
++impl From<SessionRecordV1> for SessionRecord {
++    fn from(previous: SessionRecordV1) -> Self {
++        Self {
++            id: previous.id,
++            engine_session_id: previous.engine_session_id,
++            config_snapshot: previous.config_snapshot.into(),
++            source: previous.source,
++            source_ref: previous.source_ref,
++            created_at: previous.created_at,
++            updated_at: previous.updated_at,
++        }
++    }
++}
++
++/// 降级半边（native_model `from` 属性要求双向 `From`；运行时无降级读取
++/// 路径，`agent_instance_id` 随嵌套快照降级丢弃——只保升级语义真实性，
++/// 降级形态不作数据承诺）。
++impl From<SessionRecord> for SessionRecordV1 {
++    fn from(record: SessionRecord) -> Self {
++        Self {
++            id: record.id,
++            engine_session_id: record.engine_session_id,
++            config_snapshot: record.config_snapshot.into(),
++            source: record.source,
++            source_ref: record.source_ref,
++            created_at: record.created_at,
++            updated_at: record.updated_at,
++        }
++    }
++}
++
+ /// agent 会话转录单表
+ #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+ #[serde(rename_all = "camelCase")]
+@@ -976,16 +1080,26 @@ pub struct AgentModelTiers {
+     pub low: String,
+ }
+ 
++/// 「CLI 租户已下线」共享拒收文案（design DD3）：`runner_for` /
++/// `resolve_agent_engine` / `upsert_agent_instance` /
++/// `set_default_agent_instance` 四拒点逐字复用、不加前后缀——同一产品事实
++/// 同一文案，防多处措辞漂移；常量落 store（依赖方向 agent-runtime → store，
++/// store 不反向取词）。文案含退役事实 + 管理页引导 + 改默认引导。
++pub const CLI_TENANT_RETIRED: &str = "CLI 租户已下线：请前往 Agent 管理页（/agents）新建或改用 sdk agent，并将其设为默认（存量 cli 实例可读可删不可改）";
++
+ /// agent 实例引擎二值（agent 管理域，store 本地枚举）：serde camelCase 线值
+ /// `"cli" | "sdk"` 与门面 `EngineKind` 同线值域。持久化的是配置值域而非引擎
+ /// 实现——store 禁拖引擎门面 crate（零新增依赖），`AgentEngineKind` →
+-/// `EngineKind` 映射收运行发起解析单点（两臂 match）。
++/// `EngineKind` 映射收运行发起解析单点（两臂 match）。**变体集与 bincode
++/// 序号（`Cli`=0 / `Sdk`=1）为解码锚，MUST NOT 增删重排**（删/重排即
++/// `AgentInstanceRecord` + `SessionRecord` 两表报废含 sdk 数据）。
+ #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+ #[serde(rename_all = "camelCase")]
+ pub enum AgentEngineKind {
+-    /// 本机 claude CLI 租户
++    /// 本机 claude CLI 租户（解码兼容，不再可选：写入面与运行发起解析均拒，
++    /// 存量行只读；bincode 序号 0 永久保留为历史数据解码锚）
+     Cli,
+-    /// 进程内 sdk 租户
++    /// 进程内 sdk 租户（唯一活档）
+     Sdk,
+ }
+ 
+@@ -1110,10 +1224,12 @@ impl std::fmt::Debug for AgentProviderRecord {
+     }
+ }
+ 
+-/// agent 实例记录（agent 管理域，user 维度落全局库）：引擎选择（cli / sdk）
+-/// 与 provider 引用（sdk 必填且引用存在、cli 可空）+ 默认标记（全局恒至多
+-/// 一；写入只发生在 store 的 `set_default_agent_instance` 与删除清标记两处，
+-/// upsert 不参与写）。
++/// agent 实例记录（agent 管理域，user 维度落全局库）：引擎选择（线值
++/// `cli` | `sdk` 双值保留，写入面仅收 `sdk`——存量 cli 行可读可删不可改）
++/// 与 provider 引用（`sdk` 必填且引用存在；「cli 可空」语义随 CLI 租户退役，
++/// 存量 cli 行 provider 可空只读保留）+ 默认标记（全局恒至多一；写入只发生
++/// 在 store 的 `set_default_agent_instance` 与删除清标记两处，upsert 不参与
++/// 写；默认标记仅可落 sdk 实例）。
+ #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+ #[serde(rename_all = "camelCase")]
+ #[native_model(id = 6, version = 1)]
+@@ -1126,7 +1242,8 @@ pub struct AgentInstanceRecord {
+     pub name: String,
+     /// 引擎二值（cli / sdk；映射到门面 `EngineKind` 收运行发起解析单点）
+     pub engine: AgentEngineKind,
+-    /// 引用 provider id（同库 [`AgentProviderRecord`] 主键；sdk 必填、cli 可空）
++    /// 引用 provider id（同库 [`AgentProviderRecord`] 主键；`sdk` 必填且引用
++    /// 存在——`sdk` 唯一活档，存量 `cli` 行可空只读保留）
+     pub provider_id: Option<i64>,
+     /// 默认标记（缺省运行解析入口；全局恒至多一）
+     pub is_default: bool,
+diff --git a/crates/infra/store/src/model_test.rs b/crates/infra/store/src/model_test.rs
+index de24e1d12bed..d4ad78abd3f2 100644
+--- a/crates/infra/store/src/model_test.rs
++++ b/crates/infra/store/src/model_test.rs
+@@ -254,6 +254,7 @@ fn session_record全字段serde往返_camel_case线格式逐字段() {
+         engine_session_id: Some("sdk-7-1727000000001".to_owned()),
+         config_snapshot: SessionConfigSnapshot {
+             engine: AgentEngineKind::Sdk,
++            agent_instance_id: None,
+             model: Some("m-high".to_owned()),
+             permission_mode: AgentPermissionMode::BypassPermissions,
+         },
+@@ -299,6 +300,7 @@ fn session_config_snapshot三字段往返且model_none与engine_session_id_none
+     ] {
+         let snapshot = SessionConfigSnapshot {
+             engine,
++            agent_instance_id: None,
+             model: model.clone(),
+             permission_mode: AgentPermissionMode::AcceptEdits,
+         };
+@@ -321,6 +323,7 @@ fn session_config_snapshot三字段往返且model_none与engine_session_id_none
+         engine_session_id: None,
+         config_snapshot: SessionConfigSnapshot {
+             engine: AgentEngineKind::Cli,
++            agent_instance_id: None,
+             model: None,
+             permission_mode: AgentPermissionMode::Default,
+         },
+@@ -2329,3 +2332,358 @@ fn run_node_edge_key_hex线面编码回环无损() {
+     assert_eq!(back, edge, "hex 线面回环无损（edge_seq 边界）");
+     assert_eq!(back.edge_seq(), u64::MAX);
+ }
++
++// ---------------------------------------------------------------------------
++// CLI_TENANT_RETIRED 共享拒收文案（DD3）：四拒点逐字复用的常量内容面
++// ---------------------------------------------------------------------------
++
++use crate::model::{SessionConfigSnapshotV1, SessionRecordV1};
++
++#[test]
++fn cli_tenant_retired文案常量逐字锚_退役事实与引导齐备() {
++    // 逐字锚：DD3 定稿文案（多处复用不拼接不加前后缀——防措辞漂移）
++    assert_eq!(
++        crate::model::CLI_TENANT_RETIRED,
++        "CLI 租户已下线：请前往 Agent 管理页（/agents）新建或改用 sdk agent，并将其设为默认（存量 cli 实例可读可删不可改）"
++    );
++    let text = crate::model::CLI_TENANT_RETIRED;
++    assert!(!text.is_empty(), "非空 &str");
++    assert!(text.contains("CLI 租户已下线"), "退役事实在场");
++    assert!(text.contains("/agents"), "管理页引导在场");
++    assert!(text.contains("设为默认"), "改默认引导在场");
++    assert!(
++        text.contains("存量 cli 实例可读可删不可改"),
++        "存量行口径在场"
++    );
++}
++
++#[test]
++fn cli_tenant_retired无格式化占位符残留() {
++    let text = crate::model::CLI_TENANT_RETIRED;
++    assert!(
++        !text.contains("{}") && !text.contains("%s") && !text.contains("{0}"),
++        "无格式化占位符残留（逐字复用，防多处措辞漂移），实际: {text}"
++    );
++    // 文案内中文 / /agents 路径 / 全角括号为固定字面（呈现面不转义不截断的
++    // 前端半边断言挂 agent-panel 章节）
++    assert!(text.contains('（') && text.contains('）'), "全角括号字面");
++}
++
++// ---------------------------------------------------------------------------
++// AgentEngineKind 变体序号解码锚（AC-3）：bincode 字节级 0 / 1 钉死
++// ---------------------------------------------------------------------------
++
++/// bincode 序号锚定装置：以「engine 为首字段」的最小 native_model 记录直读
++/// 变体序号（native_model header 8 字节 = id u32 小端 + version u32 小端，
++/// bincode 1.3 体首 4 字节 = 枚举变体序号 u32 小端）。仅测试侧锚定，不注册
++/// 进库模型组。
++#[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
++#[native_model::native_model(id = 700, version = 1)]
++struct EngineOrdinalAnchor {
++    engine: AgentEngineKind,
++}
++
++#[test]
++fn agent_engine_kind变体序号锚_cli恰0_sdk恰1字节级() {
++    let cli = native_model::encode(&EngineOrdinalAnchor {
++        engine: AgentEngineKind::Cli,
++    })
++    .expect("encode Cli 锚");
++    let sdk = native_model::encode(&EngineOrdinalAnchor {
++        engine: AgentEngineKind::Sdk,
++    })
++    .expect("encode Sdk 锚");
++    assert_eq!(
++        &cli[8..12],
++        &[0, 0, 0, 0],
++        "Cli 编码恰序号 0（u32 小端，变体序号钉死）"
++    );
++    assert_eq!(
++        &sdk[8..12],
++        &[1, 0, 0, 0],
++        "Sdk 编码恰序号 1（u32 小端，变体序号钉死）"
++    );
++}
++
++#[test]
++fn agent_engine_kind反向解码锚字节0与1命中_越界与空体拒解不panic() {
++    let sdk = native_model::encode(&EngineOrdinalAnchor {
++        engine: AgentEngineKind::Sdk,
++    })
++    .expect("encode Sdk 锚");
++
++    // 字节 [1] → Sdk（正向回读）
++    let (decoded, version) =
++        native_model::decode::<EngineOrdinalAnchor>(sdk.clone()).expect("序号 1 解码应成功");
++    assert_eq!(decoded.engine, AgentEngineKind::Sdk);
++    assert_eq!(version, 1);
++
++    // 字节 [0] → Cli（改写序号位反向锚）
++    let mut cli_bytes = sdk.clone();
++    cli_bytes[8..12].copy_from_slice(&[0, 0, 0, 0]);
++    let (decoded, _) =
++        native_model::decode::<EngineOrdinalAnchor>(cli_bytes).expect("序号 0 解码应成功");
++    assert_eq!(decoded.engine, AgentEngineKind::Cli);
++
++    // [2] 越界：两变体枚举无序号 2 → 拒解 Err 不 panic（防静默错位——两表报废级红线）
++    let mut rogue = sdk.clone();
++    rogue[8] = 2;
++    assert!(
++        native_model::decode::<EngineOrdinalAnchor>(rogue).is_err(),
++        "序号 2 越界必须拒解"
++    );
++
++    // 空字节串 / 截断体：空体在 native_model header 解析段即 panic（第三方
++    // 契约面 `Wrapper::deserialize` unwrap——非我方解码面可控）；截断体 header
++    // 可读、体残缺走我方 `Err` 拒解。两者均不静默产出错位行。
++    assert!(
++        std::panic::catch_unwind(|| native_model::decode::<EngineOrdinalAnchor>(Vec::new()))
++            .is_err(),
++        "空字节串不静默解码（native_model header 解析 panic，非 Err 契约）"
++    );
++    assert!(
++        native_model::decode::<EngineOrdinalAnchor>(sdk[..10].to_vec()).is_err(),
++        "截断体拒解 Err"
++    );
++}
++
++#[test]
++fn agent_engine_kind两表载荷roundtrip逐字段一致() {
++    // 含存量两变体行的库 roundtrip 照读零错位：AgentInstanceRecord.engine 与
++    // SessionConfigSnapshot.engine（嵌于 SessionRecord）两表载荷 bincode
++    // roundtrip 逐字段一致
++    for engine in [AgentEngineKind::Cli, AgentEngineKind::Sdk] {
++        let instance = AgentInstanceRecord {
++            id: 3,
++            name: "存量行".to_owned(),
++            engine,
++            provider_id: None,
++            is_default: true,
++        };
++        let bytes = native_model::encode(&instance).expect("encode instance");
++        let (decoded, version) =
++            native_model::decode::<AgentInstanceRecord>(bytes).expect("decode instance");
++        assert_eq!(version, 1, "实例行 v1 封装零改动");
++        assert_eq!(decoded, instance, "实例行 engine roundtrip 逐字段一致");
++
++        let record = SessionRecord {
++            id: "ses-engine-rt".to_owned(),
++            engine_session_id: Some("h-1".to_owned()),
++            config_snapshot: SessionConfigSnapshot {
++                engine,
++                agent_instance_id: Some(42),
++                model: Some("m".to_owned()),
++                permission_mode: AgentPermissionMode::Default,
++            },
++            source: "debug".to_owned(),
++            source_ref: None,
++            created_at: 1,
++            updated_at: 2,
++        };
++        let bytes = native_model::encode(&record).expect("encode session");
++        let (decoded, version) =
++            native_model::decode::<SessionRecord>(bytes).expect("decode session");
++        assert_eq!(version, 2, "会话行 v2 封装");
++        assert_eq!(decoded, record, "会话行快照 engine roundtrip 逐字段一致");
++    }
++}
++
++// ---------------------------------------------------------------------------
++// SessionConfigSnapshot 实例外键与 SessionRecord v1→v2 演进链（DD6 / DD7 / AC-7）
++// ---------------------------------------------------------------------------
++
++#[test]
++fn 存量v1会话行经版本机制升级_实例外键读none其余原样() {
++    let v1 = SessionRecordV1 {
++        id: "ses-v1-1727000000000".to_owned(),
++        engine_session_id: Some("cli-3-1727000000001".to_owned()),
++        config_snapshot: SessionConfigSnapshotV1 {
++            engine: AgentEngineKind::Cli,
++            model: None,
++            permission_mode: AgentPermissionMode::BypassPermissions,
++        },
++        source: "debug".to_owned(),
++        source_ref: None,
++        created_at: 1727000000000,
++        updated_at: 1727000005000,
++    };
++    let legacy_bytes = native_model::encode(&v1).expect("encode v1");
++    let (legacy_decoded, legacy_version) =
++        native_model::decode::<SessionRecordV1>(legacy_bytes.clone()).expect("v1 载荷直解");
++    assert_eq!(legacy_version, 1, "v1 封装");
++    assert_eq!(legacy_decoded, v1, "v1 形态自身往返逐字段一致");
++
++    let (upgraded, version) =
++        native_model::decode::<SessionRecord>(legacy_bytes).expect("v1 载荷应经版本机制升级");
++    assert_eq!(
++        version, 1,
++        "decode 返回载荷头版本（升级链源版本）；升级由值面承载（下方逐字段）"
++    );
++    assert_eq!(
++        upgraded.config_snapshot.agent_instance_id, None,
++        "旧快照实例外键读出 None（升级半边真实，零迁移代码路径）"
++    );
++    assert_eq!(upgraded.id, v1.id);
++    assert_eq!(upgraded.engine_session_id, v1.engine_session_id);
++    assert_eq!(upgraded.config_snapshot.engine, AgentEngineKind::Cli);
++    assert_eq!(upgraded.config_snapshot.model, None);
++    assert_eq!(
++        upgraded.config_snapshot.permission_mode,
++        AgentPermissionMode::BypassPermissions
++    );
++    assert_eq!(upgraded.source, v1.source);
++    assert_eq!(upgraded.source_ref, v1.source_ref);
++    assert_eq!(upgraded.created_at, v1.created_at);
++    assert_eq!(upgraded.updated_at, v1.updated_at);
++}
++
++#[test]
++fn v2新会话行快照实例外键some_roundtrip原样() {
++    let v2 = SessionRecord {
++        id: "ses-v2-1727000000000".to_owned(),
++        engine_session_id: Some("sdk-9-1727000000001".to_owned()),
++        config_snapshot: SessionConfigSnapshot {
++            engine: AgentEngineKind::Sdk,
++            agent_instance_id: Some(1727),
++            model: Some("m-high".to_owned()),
++            permission_mode: AgentPermissionMode::AcceptEdits,
++        },
++        source: "explore".to_owned(),
++        source_ref: Some("42".to_owned()),
++        created_at: 1727000000000,
++        updated_at: 1727000005000,
++    };
++    let bytes = native_model::encode(&v2).expect("encode v2");
++    let (decoded, version) = native_model::decode::<SessionRecord>(bytes).expect("decode v2");
++    assert_eq!(version, 2);
++    assert_eq!(
++        decoded.config_snapshot.agent_instance_id,
++        Some(1727),
++        "v2 新快照 agent_instance_id roundtrip 原样"
++    );
++    assert_eq!(decoded, v2, "全字段 roundtrip 一致");
++}
++
++#[test]
++fn 会话记录降级半边from丢弃实例外键不panic() {
++    let v2 = SessionRecord {
++        id: "ses-downgrade".to_owned(),
++        engine_session_id: None,
++        config_snapshot: SessionConfigSnapshot {
++            engine: AgentEngineKind::Sdk,
++            agent_instance_id: Some(9),
++            model: Some("m".to_owned()),
++            permission_mode: AgentPermissionMode::Default,
++        },
++        source: "debug".to_owned(),
++        source_ref: None,
++        created_at: 1,
++        updated_at: 2,
++    };
++    // 降级半边（native_model `from` 双向 From 要求）：新增字段丢弃、缺省占位
++    // ——只保升级语义真实性，降级形态不作数据承诺
++    let v1: SessionRecordV1 = v2.clone().into();
++    assert_eq!(v1.id, v2.id);
++    assert_eq!(v1.engine_session_id, v2.engine_session_id);
++    assert_eq!(v1.config_snapshot.engine, AgentEngineKind::Sdk);
++    assert_eq!(v1.config_snapshot.model, Some("m".to_owned()));
++    // 再升级：agent_instance_id 缺省 None（丢弃不回填）
++    let back: SessionRecord = v1.into();
++    assert_eq!(back.config_snapshot.agent_instance_id, None);
++    assert_eq!(back.id, v2.id);
++    assert_eq!(back.config_snapshot.model, v2.config_snapshot.model);
++}
++
++#[test]
++fn 旧json形态缺agentInstanceId键经serde_default读none不炸() {
++    // store_port 旧载荷 / 前端旧形态 JSON：缺新键经 `#[serde(default)]` 读 None
++    let legacy = serde_json::json!({
++        "engine": "sdk",
++        "model": "m-high",
++        "permissionMode": "acceptEdits"
++    });
++    let snapshot: SessionConfigSnapshot =
++        serde_json::from_value(legacy).expect("旧三键 JSON 应可读");
++    assert_eq!(snapshot.agent_instance_id, None, "缺键读 None 不炸");
++    assert_eq!(snapshot.engine, AgentEngineKind::Sdk);
++    assert_eq!(snapshot.model, Some("m-high".to_owned()));
++    assert_eq!(snapshot.permission_mode, AgentPermissionMode::AcceptEdits);
++}
++
++#[test]
++fn 实例外键serde边界_none与零与负与i64max线键camel_case不失真() {
++    for id in [None, Some(0), Some(-1), Some(i64::MAX)] {
++        let snapshot = SessionConfigSnapshot {
++            engine: AgentEngineKind::Sdk,
++            agent_instance_id: id,
++            model: Some("m".to_owned()),
++            permission_mode: AgentPermissionMode::Default,
++        };
++        let value = serde_json::to_value(&snapshot).expect("序列化应成功");
++        assert!(
++            value.get("agentInstanceId").is_some(),
++            "线键恒在场（None 出线 null 不省略），实际: {value}"
++        );
++        assert_eq!(
++            value["agentInstanceId"],
++            serde_json::json!(id),
++            "数值不失真（0 / -1 / i64::MAX）"
++        );
++        let back: SessionConfigSnapshot = serde_json::from_value(value).expect("反序列化应成功");
++        assert_eq!(back.agent_instance_id, id, "回读原样");
++    }
++}
++
++#[test]
++fn v2快照bincode布局锚_实例外键紧随engine之后() {
++    // DD7 定序回归钉：`agent_instance_id` 置 `engine` 之后（bincode 位置编码
++    // ——布局重排即存量行解码错位）。以「engine 序号（Sdk=1）+ Some 标记 +
++    // i64::MAX 小端」唯一组合窗口定位：engine 序号恰紧邻实例外键字节。
++    let record = SessionRecord {
++        id: "layout-anchor".to_owned(),
++        engine_session_id: None,
++        config_snapshot: SessionConfigSnapshot {
++            engine: AgentEngineKind::Sdk,
++            agent_instance_id: Some(i64::MAX),
++            model: None,
++            permission_mode: AgentPermissionMode::Default,
++        },
++        source: "debug".to_owned(),
++        source_ref: None,
++        created_at: 0,
++        updated_at: 0,
++    };
++    let bytes = native_model::encode(&record).expect("encode v2");
++    // i64::MAX 小端 = 7×0xFF + 0x7F；窗口 = engine 序号（Sdk=1，u32 小端）
++    // + Some 标记 + i64::MAX 值
++    let pattern: Vec<u8> = [1_u8, 0, 0, 0, 1]
++        .into_iter()
++        .chain(std::iter::repeat(0xFF_u8).take(7))
++        .chain([0x7F_u8])
++        .collect();
++    let hits: Vec<usize> = bytes
++        .windows(pattern.len())
++        .enumerate()
++        .filter_map(|(index, window)| (window == pattern.as_slice()).then_some(index))
++        .collect();
++    assert_eq!(
++        hits.len(),
++        1,
++        "「engine 序号 1 + Some 标记 + i64::MAX」唯一落位（engine 之后紧邻居位），实际命中: {hits:?}"
++    );
++    // 同位反证：engine 置 Cli（序号 0）时组合窗口不再命中（engine 字节确属窗口）
++    let cli_record = SessionRecord {
++        config_snapshot: SessionConfigSnapshot {
++            engine: AgentEngineKind::Cli,
++            ..record.config_snapshot.clone()
++        },
++        ..record.clone()
++    };
++    let cli_bytes = native_model::encode(&cli_record).expect("encode Cli 布局对照");
++    assert!(
++        !cli_bytes
++            .windows(pattern.len())
++            .any(|window| window == pattern.as_slice()),
++        "engine 换 Cli 后窗口不再命中（engine 字节确属紧邻组合）"
++    );
++}
+diff --git a/crates/infra/store/src/store.rs b/crates/infra/store/src/store.rs
+index ed12ee6cb214..c7f60478e288 100644
+--- a/crates/infra/store/src/store.rs
++++ b/crates/infra/store/src/store.rs
+@@ -19,7 +19,7 @@ use crate::model::{
+     AgentRunRecord, ChangeActivePhase, ChangeRecord, ChecklistItemRecord, ExploreRecord,
+     PhaseRecord, RunEdgeRecord, RunNodeRecord, RunRecord, SessionConfigSnapshot,
+     SessionEventRecord, SessionEventRecordKey, SessionRecord, StepRecord, StoreMetaRecord,
+-    WorkspaceRecord, WORKSPACE_STORE_FORMAT_KEY, WORKSPACE_STORE_FORMAT_VERSION,
++    WorkspaceRecord, CLI_TENANT_RETIRED, WORKSPACE_STORE_FORMAT_KEY, WORKSPACE_STORE_FORMAT_VERSION,
+ };
+ use workflow::model::{ChecklistItem, Verdict};
+ use workflow::state::{
+@@ -274,6 +274,7 @@ fn empty_explore_session(record: &ExploreRecord) -> SessionRecord {
+         config_snapshot: SessionConfigSnapshot {
+             // 占位值：未开轮会话不做引擎匹配（见 `compose::begin` 未开轮分支）
+             engine: AgentEngineKind::Sdk,
++            agent_instance_id: None,
+             model: None,
+             permission_mode: AgentPermissionMode::BypassPermissions,
+         },
+@@ -1308,8 +1309,12 @@ impl Store {
+     /// **强制 `is_default = false`**——默认标记唯一写口为
+     /// [`Store::set_default_agent_instance`]）/ id>0 整行替换（查重排除自身、
+     /// **保留存量默认标记**——入参标记不参与写，不变式免受前端入参影响）。
++    /// 拒 Cli 双口（design DD5）：① 入参 `engine == Cli` 新建与更新均拒
++    /// （[`CLI_TENANT_RETIRED`] 文案）；② 存量行 `engine == Cli` 整行拒
++    /// （可读可删不可改，含「改 engine 为 sdk 的整行更新」）。
+     /// `engine == Sdk` 时 `provider_id` 必填且引用 provider 须存在（缺失 /
+-    /// 悬空均 `Err`）；cli 可空（携引用同样校验悬空）。返回落库记录。
++    /// 悬空均 `Err`——`sdk` 唯一活档，存量 `cli` 行 provider 可空只读保留）。
++    /// 返回落库记录。
+     pub fn upsert_agent_instance(
+         &self,
+         agent: AgentInstanceRecord,
+@@ -1317,6 +1322,9 @@ impl Store {
+         if agent.name.trim().is_empty() {
+             return Err(StoreError::Db("agent 名不得为空白".to_owned()));
+         }
++        if agent.engine == AgentEngineKind::Cli {
++            return Err(StoreError::Db(CLI_TENANT_RETIRED.to_owned()));
++        }
+         if agent.engine == AgentEngineKind::Sdk && agent.provider_id.is_none() {
+             return Err(StoreError::Db(format!(
+                 "sdk agent 须选择 provider: {}",
+@@ -1357,11 +1365,16 @@ impl Store {
+                 record.is_default = false;
+             }
+             id => {
+-                // 更新臂：整行替换保留存量默认标记
++                // 更新臂：整行替换保留存量默认标记；存量行 engine == Cli 拒
++                // （整行不可改，含「改 engine 为 sdk 的整行更新」——入口口
++                // 已拒入参 Cli，此处兜存量行口）
+                 let stored = all
+                     .iter()
+                     .find(|record| record.id == id)
+                     .ok_or_else(|| StoreError::Db(format!("agent 不存在: id={id}")))?;
++                if stored.engine == AgentEngineKind::Cli {
++                    return Err(StoreError::Db(CLI_TENANT_RETIRED.to_owned()));
++                }
+                 record.is_default = stored.is_default;
+             }
+         }
+@@ -1392,7 +1405,9 @@ impl Store {
+     }
+ 
+     /// 标记即切换（默认标记唯一写口）：单写事务内清全部既有默认 → 置目标
+-    /// （全局恒至多一）；miss `Err`；返回更新后记录。
++    /// （全局恒至多一）；miss `Err`；目标实例 `engine == Cli` 拒
++    /// （[`CLI_TENANT_RETIRED`]——默认标记仅可落 sdk 实例，防造出必失败的
++    /// 缺省发起路径）；返回更新后记录。
+     pub fn set_default_agent_instance(&self, id: i64) -> Result<AgentInstanceRecord, StoreError> {
+         let rw = self.db.rw_transaction().map_err(db_err("开启写事务"))?;
+         let all: Vec<AgentInstanceRecord> = rw
+@@ -1408,6 +1423,9 @@ impl Store {
+             .find(|record| record.id == id)
+             .cloned()
+             .ok_or_else(|| StoreError::Db(format!("agent 不存在: id={id}")))?;
++        if target.engine == AgentEngineKind::Cli {
++            return Err(StoreError::Db(CLI_TENANT_RETIRED.to_owned()));
++        }
+         for mut record in all {
+             if record.is_default && record.id != id {
+                 record.is_default = false;
+diff --git a/crates/infra/store/src/store_test.rs b/crates/infra/store/src/store_test.rs
+index e998aa6c0cda..199cfe8c3601 100644
+--- a/crates/infra/store/src/store_test.rs
++++ b/crates/infra/store/src/store_test.rs
+@@ -8,7 +8,7 @@ use agent::{
+ use native_db::{Builder, Models};
+ 
+ use crate::model::{
+-    pack_checklist_item_key, StoreMetaRecord, WORKSPACE_STORE_FORMAT_KEY,
++    pack_checklist_item_key, StoreMetaRecord, CLI_TENANT_RETIRED, WORKSPACE_STORE_FORMAT_KEY,
+     WORKSPACE_STORE_FORMAT_VERSION,
+ };
+ use crate::store::{workspace_db_file_name, GLOBAL_DB_FILE_NAME};
+@@ -1070,6 +1070,7 @@ fn session_record(id: &str, source: &str, source_ref: Option<&str>) -> SessionRe
+         engine_session_id: None,
+         config_snapshot: SessionConfigSnapshot {
+             engine: AgentEngineKind::Sdk,
++            agent_instance_id: None,
+             model: Some("m-high".to_owned()),
+             permission_mode: AgentPermissionMode::BypassPermissions,
+         },
+@@ -2449,6 +2450,7 @@ fn restamp_session_config未开轮覆写已开轮不覆写() {
+ 
+     let real = SessionConfigSnapshot {
+         engine: AgentEngineKind::Cli,
++        agent_instance_id: None,
+         model: None,
+         permission_mode: AgentPermissionMode::Default,
+     };
+@@ -2467,6 +2469,7 @@ fn restamp_session_config未开轮覆写已开轮不覆写() {
+         .expect("绑定引擎句柄");
+     let later = SessionConfigSnapshot {
+         engine: AgentEngineKind::Sdk,
++        agent_instance_id: None,
+         model: Some("m".to_owned()),
+         permission_mode: AgentPermissionMode::BypassPermissions,
+     };
+@@ -3879,26 +3882,31 @@ fn provider空库list空向量_find对不存在与0与负数与i64max均none() {
+ // ---------------------------------------------------------------------------
+ 
+ #[test]
+-fn agent_upsert_cli引擎provider可空_sdk选存量provider保存成功() {
++fn agent_upsert_sdk新建与更新照常ok_恒非默认且更新臂保留存量标记() {
+     let env = Env::new("mgmt-agent-engine");
+     let store = open_global_ok(&env.db_path("global"));
+-
+-    // cli 引擎 provider 可空（provider_id=None 保存成功）
+-    let cli = upsert_agent_ok(&store, fixture_agent("cli实例", AgentEngineKind::Cli, None));
+-    assert_eq!(cli.provider_id, None);
+-    assert_eq!(cli.id, 1);
+-
+-    // sdk 引擎选存量 provider 保存成功
+     let provider = upsert_provider_ok(&store, fixture_provider("端点"));
++
++    // sdk 引擎选存量 provider 新建保存成功（表尾 max+1 分配、恒非默认）
+     let sdk = upsert_agent_ok(
+         &store,
+         fixture_agent("sdk实例", AgentEngineKind::Sdk, Some(provider.id)),
+     );
+     assert_eq!(sdk.provider_id, Some(provider.id));
++    assert_eq!(sdk.id, 1, "表尾 max+1 分配（id 自 1 起）");
++    assert!(!sdk.is_default, "新建臂恒非默认（默认标记唯一写口）");
++
++    // 更新臂（id>0）照常整行替换且保留存量默认标记
++    store.set_default_agent_instance(sdk.id).unwrap();
++    let mut renamed = fixture_agent("改名后", AgentEngineKind::Sdk, Some(provider.id));
++    renamed.id = sdk.id;
++    let updated = upsert_agent_ok(&store, renamed);
++    assert_eq!(updated.id, sdk.id, "更新 id 不变");
++    assert!(updated.is_default, "更新臂保留存量默认标记");
+     assert_eq!(
+         store.list_agent_instances().unwrap(),
+-        vec![cli, sdk],
+-        "两引擎实例并存"
++        vec![updated],
++        "清单读回一致"
+     );
+ }
+ 
+@@ -3941,29 +3949,37 @@ fn agent_upsert_sdk缺provider_err_悬空引用err() {
+ fn agent_upsert_name查重_同name重复新建与更新撞名err_name空白err() {
+     let env = Env::new("mgmt-agent-dup");
+     let store = open_global_ok(&env.db_path("global"));
++    let provider = upsert_provider_ok(&store, fixture_provider("端点"));
+     let first = upsert_agent_ok(
+         &store,
+-        fixture_agent("同名实例", AgentEngineKind::Cli, None),
++        fixture_agent("同名实例", AgentEngineKind::Sdk, Some(provider.id)),
+     );
+ 
+     // 同 name 重复新建 Err
+-    let dup_new =
+-        store.upsert_agent_instance(fixture_agent("同名实例", AgentEngineKind::Sdk, None));
++    let dup_new = store.upsert_agent_instance(fixture_agent(
++        "同名实例",
++        AgentEngineKind::Sdk,
++        Some(provider.id),
++    ));
+     assert!(dup_new.is_err(), "同 name 重复新建应 Err");
+ 
+     // 更新撞名 Err
+     let second = upsert_agent_ok(
+         &store,
+-        fixture_agent("另一实例", AgentEngineKind::Cli, None),
++        fixture_agent("另一实例", AgentEngineKind::Sdk, Some(provider.id)),
+     );
+-    let mut renamed = fixture_agent("同名实例", AgentEngineKind::Cli, None);
++    let mut renamed = fixture_agent("同名实例", AgentEngineKind::Sdk, Some(provider.id));
+     renamed.id = second.id;
+     let dup_update = store.upsert_agent_instance(renamed);
+     assert!(dup_update.is_err(), "更新撞名应 Err");
+ 
+     // name 空白 Err
+     for name in ["", "  "] {
+-        let blank = store.upsert_agent_instance(fixture_agent(name, AgentEngineKind::Cli, None));
++        let blank = store.upsert_agent_instance(fixture_agent(
++            name,
++            AgentEngineKind::Sdk,
++            Some(provider.id),
++        ));
+         assert!(
+             matches!(&blank, Err(StoreError::Db(_))),
+             "name 空白应 Err，实际: {blank:?}"
+@@ -3981,9 +3997,10 @@ fn agent_upsert_name查重_同name重复新建与更新撞名err_name空白err()
+ fn agent_upsert默认标记写口_新建臂入参true被强制false_更新臂保留存量标记() {
+     let env = Env::new("mgmt-agent-default-write");
+     let store = open_global_ok(&env.db_path("global"));
++    let provider = upsert_provider_ok(&store, fixture_provider("端点"));
+ 
+     // 新建臂：入参 is_default=true 被强制落 false（入参标记不参与写）
+-    let mut requested = fixture_agent("新建臂", AgentEngineKind::Cli, None);
++    let mut requested = fixture_agent("新建臂", AgentEngineKind::Sdk, Some(provider.id));
+     requested.is_default = true;
+     let created = upsert_agent_ok(&store, requested);
+     assert!(
+@@ -3997,7 +4014,7 @@ fn agent_upsert默认标记写口_新建臂入参true被强制false_更新臂保
+ 
+     // 更新臂：保留存量标记（默认 agent 改名 / 换 provider 后仍为默认）
+     assert!(store.set_default_agent_instance(created.id).is_ok());
+-    let mut renamed = fixture_agent("改名后", AgentEngineKind::Cli, None);
++    let mut renamed = fixture_agent("改名后", AgentEngineKind::Sdk, Some(provider.id));
+     renamed.id = created.id;
+     renamed.is_default = false; // 入参标记 false 同样不参与写
+     let updated = upsert_agent_ok(&store, renamed);
+@@ -4027,7 +4044,7 @@ fn remove_agent_instance删默认agent_ok后default解析none且清单少一行(
+     store.set_default_agent_instance(agent.id).unwrap();
+     let _survivor = upsert_agent_ok(
+         &store,
+-        fixture_agent("幸存实例", AgentEngineKind::Cli, None),
++        fixture_agent("幸存实例", AgentEngineKind::Sdk, Some(provider.id)),
+     );
+ 
+     let hit = store.remove_agent_instance(agent.id).unwrap();
+@@ -4045,9 +4062,16 @@ fn remove_agent_instance删默认agent_ok后default解析none且清单少一行(
+ fn remove_agent_instance_miss幂等okfalse_删非默认不影响既有默认() {
+     let env = Env::new("mgmt-agent-remove-miss");
+     let store = open_global_ok(&env.db_path("global"));
+-    let default_agent = upsert_agent_ok(&store, fixture_agent("默认", AgentEngineKind::Cli, None));
++    let provider = upsert_provider_ok(&store, fixture_provider("端点"));
++    let default_agent = upsert_agent_ok(
++        &store,
++        fixture_agent("默认", AgentEngineKind::Sdk, Some(provider.id)),
++    );
+     store.set_default_agent_instance(default_agent.id).unwrap();
+-    let other = upsert_agent_ok(&store, fixture_agent("非默认", AgentEngineKind::Cli, None));
++    let other = upsert_agent_ok(
++        &store,
++        fixture_agent("非默认", AgentEngineKind::Sdk, Some(provider.id)),
++    );
+ 
+     assert!(
+         !store.remove_agent_instance(999).unwrap(),
+@@ -4074,9 +4098,10 @@ fn default_agent_instance有默认some无默认none() {
+         "无默认返回 None（清单扫 is_default，恒零或一）"
+     );
+ 
++    let provider = upsert_provider_ok(&store, fixture_provider("端点"));
+     let agent = upsert_agent_ok(
+         &store,
+-        fixture_agent("默认实例", AgentEngineKind::Cli, None),
++        fixture_agent("默认实例", AgentEngineKind::Sdk, Some(provider.id)),
+     );
+     store.set_default_agent_instance(agent.id).unwrap();
+     let resolved = store
+@@ -4091,8 +4116,15 @@ fn default_agent_instance有默认some无默认none() {
+ fn set_default标记即切换_甲到乙全局恰一默认为乙_返回更新后记录() {
+     let env = Env::new("mgmt-agent-default-switch");
+     let store = open_global_ok(&env.db_path("global"));
+-    let agent_a = upsert_agent_ok(&store, fixture_agent("甲", AgentEngineKind::Cli, None));
+-    let agent_b = upsert_agent_ok(&store, fixture_agent("乙", AgentEngineKind::Cli, None));
++    let provider = upsert_provider_ok(&store, fixture_provider("端点"));
++    let agent_a = upsert_agent_ok(
++        &store,
++        fixture_agent("甲", AgentEngineKind::Sdk, Some(provider.id)),
++    );
++    let agent_b = upsert_agent_ok(
++        &store,
++        fixture_agent("乙", AgentEngineKind::Sdk, Some(provider.id)),
++    );
+     store.set_default_agent_instance(agent_a.id).unwrap();
+ 
+     let switched = store.set_default_agent_instance(agent_b.id).unwrap();
+@@ -4125,8 +4157,15 @@ fn set_default标记即切换_甲到乙全局恰一默认为乙_返回更新后
+ fn set_default重复标记同一agent幂等_切换后全清单is_default恰一true() {
+     let env = Env::new("mgmt-agent-default-idempotent");
+     let store = open_global_ok(&env.db_path("global"));
+-    let agent = upsert_agent_ok(&store, fixture_agent("甲", AgentEngineKind::Cli, None));
+-    let other = upsert_agent_ok(&store, fixture_agent("乙", AgentEngineKind::Cli, None));
++    let provider = upsert_provider_ok(&store, fixture_provider("端点"));
++    let agent = upsert_agent_ok(
++        &store,
++        fixture_agent("甲", AgentEngineKind::Sdk, Some(provider.id)),
++    );
++    let other = upsert_agent_ok(
++        &store,
++        fixture_agent("乙", AgentEngineKind::Sdk, Some(provider.id)),
++    );
+     store.set_default_agent_instance(agent.id).unwrap();
+ 
+     let again = store.set_default_agent_instance(agent.id).unwrap();
+@@ -4153,7 +4192,11 @@ fn set_default重复标记同一agent幂等_切换后全清单is_default恰一tr
+ fn set_default_miss_id_err且既有默认标记不变() {
+     let env = Env::new("mgmt-agent-default-miss");
+     let store = open_global_ok(&env.db_path("global"));
+-    let agent = upsert_agent_ok(&store, fixture_agent("甲", AgentEngineKind::Cli, None));
++    let provider = upsert_provider_ok(&store, fixture_provider("端点"));
++    let agent = upsert_agent_ok(
++        &store,
++        fixture_agent("甲", AgentEngineKind::Sdk, Some(provider.id)),
++    );
+     store.set_default_agent_instance(agent.id).unwrap();
+ 
+     let result = store.set_default_agent_instance(999);
+@@ -4173,6 +4216,233 @@ fn set_default_miss_id_err且既有默认标记不变() {
+     );
+ }
+ 
++// ---------------------------------------------------------------------------
++// 拒 Cli 写面（DD5 / AC-5）：upsert 双口 + set_default 拒目标 + 零写入
++// ---------------------------------------------------------------------------
++
++/// 预置存量 cli 实例行（native_db 裸构造绕过 store 写入口拒面——存量 cli 行
++/// 「可读可删不可改」语义的被测前提数据形态；须在 `open_global_ok` 之前落盘）。
++fn preset_cli_row(path: &Path, id: i64, name: &str, is_default: bool) {
++    let mut models = Models::new();
++    models
++        .define::<AgentInstanceRecord>()
++        .expect("定义 AgentInstanceRecord 失败");
++    let db = Builder::new()
++        .create(&models, path)
++        .expect("预置存量全局库失败");
++    let rw = db.rw_transaction().expect("开启写事务失败");
++    let mut instance = AgentInstanceRecord::new(name.to_owned(), AgentEngineKind::Cli, None);
++    instance.id = id;
++    instance.is_default = is_default;
++    rw.insert(instance).expect("写入存量 cli 行失败");
++    rw.commit().expect("提交预置事务失败");
++}
++
++#[test]
++fn upsert拒cli双口_入参cli新建更新均err且存量cli行整行不可改() {
++    let env = Env::new("mgmt-reject-cli-upsert");
++    let global_path = env.db_path("global");
++    preset_cli_row(&global_path, 7, "存量cli", false);
++    let store = open_global_ok(&global_path);
++    let provider = upsert_provider_ok(&store, fixture_provider("端点"));
++
++    // 口① 入参 engine == Cli：新建（id=0）与更新（id>0）均拒，文案逐字
++    let new_cli = store.upsert_agent_instance(fixture_agent("新cli", AgentEngineKind::Cli, None));
++    let err = new_cli.expect_err("入参 Cli 新建应拒");
++    assert!(
++        matches!(&err, StoreError::Db(message) if message == CLI_TENANT_RETIRED),
++        "入参口 Err 载荷逐字 CLI_TENANT_RETIRED，实际: {err:?}"
++    );
++
++    let cli_update = store.upsert_agent_instance({
++        let mut args = fixture_agent("入参cli更新", AgentEngineKind::Cli, None);
++        args.id = 7;
++        args
++    });
++    let err = cli_update.expect_err("入参 Cli 更新存量 id 应拒（先于行存在校验）");
++    assert!(
++        matches!(&err, StoreError::Db(message) if message == CLI_TENANT_RETIRED),
++        "入参口更新臂 Err 载荷逐字，实际: {err:?}"
++    );
++
++    // 口② 存量行 engine == Cli：整行不可改——含「改 engine 为 sdk 的整行更新」
++    let mut to_sdk = fixture_agent("存量cli改sdk", AgentEngineKind::Sdk, Some(provider.id));
++    to_sdk.id = 7;
++    let err = store
++        .upsert_agent_instance(to_sdk)
++        .expect_err("存量 cli 行改 engine 为 sdk 应拒");
++    assert!(
++        matches!(&err, StoreError::Db(message) if message == CLI_TENANT_RETIRED),
++        "存量行口 Err 载荷逐字 CLI_TENANT_RETIRED，实际: {err:?}"
++    );
++
++    // 拒后零写入：存量行照旧可读（find）；清单仅该行
++    let listed = store.list_agent_instances().unwrap();
++    assert_eq!(listed.len(), 1, "拒后零写入（不产生新行）");
++    assert_eq!(listed[0].id, 7, "存量行原样在册");
++    assert_eq!(listed[0].engine, AgentEngineKind::Cli, "存量行 engine 原样");
++    assert_eq!(listed[0].name, "存量cli", "存量行 name 原样（整行不可改）");
++
++    // 存量行可删（可读可删不可改的删半边）：remove 语义零改动
++    assert!(store.remove_agent_instance(7).unwrap(), "存量 cli 行可删");
++    assert!(store.list_agent_instances().unwrap().is_empty());
++}
++
++#[test]
++fn set_default拒cli目标_err逐字且零写入不清任何默认标记() {
++    let env = Env::new("mgmt-reject-cli-default");
++    let global_path = env.db_path("global");
++    // 存量默认 cli 实例（AC-5 主锚：存量默认 cli 不被顺手清）
++    preset_cli_row(&global_path, 9, "默认cli", true);
++    let store = open_global_ok(&global_path);
++    let provider = upsert_provider_ok(&store, fixture_provider("端点"));
++    let sdk = upsert_agent_ok(
++        &store,
++        fixture_agent("sdk实例", AgentEngineKind::Sdk, Some(provider.id)),
++    );
++
++    // 目标实例 engine == Cli → Err 载荷逐字（默认标记仅可落 sdk 实例）
++    let err = store
++        .set_default_agent_instance(9)
++        .expect_err("cli 目标设默认应拒");
++    assert!(
++        matches!(&err, StoreError::Db(message) if message == CLI_TENANT_RETIRED),
++        "Err 载荷逐字 CLI_TENANT_RETIRED，实际: {err:?}"
++    );
++
++    // 零数据写入：存量默认 cli 不被清（is_default 仍 true）、sdk 未被误置
++    let default = store
++        .default_agent_instance()
++        .unwrap()
++        .expect("默认解析应命中存量行");
++    assert_eq!(default.id, 9, "存量默认 cli 实例不被顺手清");
++    assert!(default.is_default, "is_default 原样");
++    let listed = store.list_agent_instances().unwrap();
++    assert!(
++        listed
++            .iter()
++            .all(|record| record.id == sdk.id || !record.is_default || record.id == 9),
++        "零数据写入（除存量默认外无新默认落位）"
++    );
++    assert!(
++        listed.iter().filter(|record| record.is_default).count() == 1,
++        "全局恰一默认（存量 cli 默认原样在位）"
++    );
++
++    // sdk 目标不受影响（拒面精确只挡 cli 臂）
++    let switched = store
++        .set_default_agent_instance(sdk.id)
++        .expect("sdk 目标应成功");
++    assert!(switched.is_default, "sdk 目标设默认照常");
++}
++
++#[test]
++fn upsert边界_name超长与特殊字符照常落库_id负数与i64max_miss记因() {
++    let env = Env::new("mgmt-upsert-edge");
++    let store = open_global_ok(&env.db_path("global"));
++    let provider = upsert_provider_ok(&store, fixture_provider("端点"));
++
++    // name 超长（>1000 字符）与特殊字符（`\n` `\0` emoji）非空白即合法
++    // （原样落库不加工不拒绝）
++    for name in [
++        format!("超长名{}", "名".repeat(1100)),
++        "特殊\n名\u{0}😀".to_owned(),
++    ] {
++        let created = upsert_agent_ok(
++            &store,
++            fixture_agent(&name, AgentEngineKind::Sdk, Some(provider.id)),
++        );
++        assert_eq!(created.name, name, "name 原样落库不加工");
++    }
++
++    // id 边界 -1 / i64::MAX：miss → 既有「agent 不存在」Err（id=0 为新建语义）
++    for id in [-1_i64, i64::MAX] {
++        let mut args = fixture_agent("边界更新", AgentEngineKind::Sdk, Some(provider.id));
++        args.id = id;
++        let err = store
++            .upsert_agent_instance(args)
++            .expect_err("miss id 应 Err");
++        assert!(
++            err.to_string().contains(&id.to_string()),
++            "Err 携 id 语境，实际: {err}"
++        );
++    }
++}
++
++#[test]
++fn set_default边界_miss零与负与i64max均err_已默认幂等ok() {
++    let env = Env::new("mgmt-default-edge");
++    let store = open_global_ok(&env.db_path("global"));
++    let provider = upsert_provider_ok(&store, fixture_provider("端点"));
++    let agent = upsert_agent_ok(
++        &store,
++        fixture_agent("甲", AgentEngineKind::Sdk, Some(provider.id)),
++    );
++    store.set_default_agent_instance(agent.id).unwrap();
++
++    // miss id（0 / -1 / i64::MAX）既有「agent 不存在」Err
++    for id in [0_i64, -1, i64::MAX] {
++        let err = store
++            .set_default_agent_instance(id)
++            .expect_err("miss id 应 Err");
++        assert!(
++            err.to_string().contains(&id.to_string()),
++            "Err 携 id 语境，实际: {err}"
++        );
++    }
++
++    // 目标已默认幂等 Ok（仍恰一默认）
++    let again = store
++        .set_default_agent_instance(agent.id)
++        .expect("已默认幂等 Ok");
++    assert!(again.is_default, "重复标记幂等");
++    let defaults = store
++        .list_agent_instances()
++        .unwrap()
++        .iter()
++        .filter(|record| record.is_default)
++        .count();
++    assert_eq!(
++        defaults, 1,
++        "幂等后全局仍恰一默认（upsert 臂恒非默认写口纪律保持）"
++    );
++}
++
++#[test]
++fn bind_session_remote边界_remote空串超长特殊字符原样留痕_重复绑定覆盖写() {
++    let env = Env::new("bind-remote-edge");
++    let store = open_workspace_ok(&env.db_path("ws"));
++    seed_session(&store, "ses-bind-edge");
++
++    // remote 参数 str 边界：空串 / 超长 >1000 / 特殊字符 `\n` `\0` emoji——
++    // 原样留痕不校验（留痕写面零改动）
++    let long = format!("h-{}", "长".repeat(1100));
++    let remotes: [&str; 3] = ["", &long, "特殊\n零\u{0}句柄😀"];
++    for (index, remote) in remotes.iter().enumerate() {
++        store
++            .bind_session_remote("ses-bind-edge", Some(*remote), 1727000020000 + index as i64)
++            .expect("边界 remote 留痕应成功");
++        let row = store.find_session("ses-bind-edge").unwrap().expect("在场");
++        assert_eq!(
++            row.engine_session_id.as_deref(),
++            Some(*remote),
++            "remote 原样留痕不校验"
++        );
++    }
++
++    // 重复绑定覆盖写（last-write 语义零改动）
++    store
++        .bind_session_remote("ses-bind-edge", Some("second"), 1727000030000)
++        .expect("覆盖写应成功");
++    let row = store.find_session("ses-bind-edge").unwrap().expect("在场");
++    assert_eq!(
++        row.engine_session_id.as_deref(),
++        Some("second"),
++        "last-write 覆盖"
++    );
++    assert_eq!(row.updated_at, 1727000030000, "覆盖写同步刷 updated_at");
++}
++
+ // ---------------------------------------------------------------------------
+ // 存量库 additive 打开（AC-10）：native_db 裸构造仅 WorkspaceRecord 的存量
+ // 全局库写盘（fixture 构造，非 mock）→ 新代码 open_global 成功读写。
+diff --git a/src/bindings/mod_test.rs b/src/bindings/mod_test.rs
+index 806ff038c377..fa7338c9a8aa 100644
+--- a/src/bindings/mod_test.rs
++++ b/src/bindings/mod_test.rs
+@@ -348,6 +348,30 @@ fn agent_engine_kind出线为cli与sdk字面量联合() {
+     );
+ }
+ 
++#[test]
++fn save_agent_instance绑定签名不收窄且配置快照键经store出线() {
++    let _lock = lock();
++    let content = String::from_utf8(authoritative_snapshot()).expect("产物为 UTF-8 文本");
++
++    // saveAgentInstance 包装签名逐字（AC-2 线值锚 / AC-5 参数类型不收窄：
++    // id / providerId 恒 `number | null`、engine 恒 `AgentEngineKind` 双值
++    // 类型——校验层拒绝、非类型层收窄）
++    assert!(
++        content.contains(
++            "saveAgentInstance: (id: number | null, name: string, engine: AgentEngineKind, providerId: number | null) => __TAURI_INVOKE<AgentInstanceRecord>(\"save_agent_instance\", { id, name, engine, providerId })"
++        ),
++        "saveAgentInstance 参数类型不收窄、invoke 参数对象恒四键"
++    );
++
++    // SessionRow.configSnapshot 出线恒为 opaque `unknown`（快照 JSON 不透明、
++    // 零手写类型旁路）——AC-7 新键 agentInstanceId 的线面锚在 store serde 侧
++    //（model_test 承载 camelCase 与数值保真断言）
++    assert!(
++        content.contains("configSnapshot: unknown,"),
++        "配置快照出线保持 unknown（不结构化展开）"
++    );
++}
++
+ #[test]
+ fn agent_event出线为kind判别联合且seq摊平变体字面量camel_case() {
+     let _lock = lock();
+diff --git a/src/commands/agents/mod.rs b/src/commands/agents/mod.rs
+index 5645addf9b55..f38330a20e7a 100644
+--- a/src/commands/agents/mod.rs
++++ b/src/commands/agents/mod.rs
+@@ -82,7 +82,9 @@ pub fn list_agent_instances(
+ }
+ 
+ /// 保存 agent 实例（新建 / 更新合一）：sdk 缺 provider / 悬空引用校验在
+-/// store 单点；默认标记不由入参写（新建恒非默认、更新保留存量标记）。
++/// store 单点；默认标记不由入参写（新建恒非默认、更新保留存量标记）。携
++/// `engine: Cli` 拒绝（存量行可读可删不可改）——拒面经 store 校验
++/// `Err(String)` 透传，命令体零校验逻辑、签名与参数类型不收窄。
+ #[tauri::command]
+ #[specta::specta]
+ pub fn save_agent_instance(
+@@ -111,7 +113,9 @@ pub fn delete_agent_instance(stores: State<'_, WorkspaceStores>, id: i64) -> Res
+         .map_err(|e| e.to_string())
+ }
+ 
+-/// 标记默认 agent（标记即切换，旧默认自动清除）：返回更新后记录。
++/// 标记默认 agent（标记即切换，旧默认自动清除）：返回更新后记录。Cli 实例
++/// 拒绝（默认标记仅可落 sdk 实例）——拒面经 store 校验 `Err(String)` 透传，
++/// 命令体零校验逻辑。
+ #[tauri::command]
+ #[specta::specta]
+ pub fn set_default_agent_instance(
+diff --git a/src/commands/agents/mod_test.rs b/src/commands/agents/mod_test.rs
+index fecf6cd182fa..021de37c0546 100644
+--- a/src/commands/agents/mod_test.rs
++++ b/src/commands/agents/mod_test.rs
+@@ -13,6 +13,7 @@ use tauri::{App, Manager};
+ 
+ use store::{
+     AgentEngineKind, AgentInstanceRecord, AgentModelTiers, AgentProviderRecord, WorkspaceStores,
++    CLI_TENANT_RETIRED,
+ };
+ 
+ use super::{
+@@ -291,22 +292,17 @@ fn provider删除语义_命中oktrue_被引用err透传_miss幂等okfalse_空库
+ }
+ 
+ // ---------------------------------------------------------------------------
+-// agent 命令 engine 约束（AC-3）：sdk 必填校验单点在 store，命令层透传
++// agent 命令 engine 约束（AC-3 / AC-5）：sdk 必填与拒 Cli 校验单点在 store，
++// 命令层零校验逻辑、Err(String) 透传
+ // ---------------------------------------------------------------------------
+ 
+ #[test]
+-fn agent命令_cli新建provider可空ok_sdk选存量provider_ok() {
++fn agent命令_sdk新建携provider_ok_薄包装透传store落库记录() {
+     let env = Env::new("agent-engine-ok");
+     let app = app_with_stores(&env);
+     let state = app.state::<WorkspaceStores>();
+ 
+-    // cli 引擎 provider 可空
+-    let cli =
+-        save_agent(&state, None, "cli实例", AgentEngineKind::Cli, None).expect("cli 新建应成功");
+-    assert_eq!(cli.provider_id, None);
+-    assert!(!cli.is_default, "新建恒非默认（默认标记唯一写口）");
+-
+-    // sdk 引擎选存量 provider
++    // sdk 引擎选存量 provider：命令体平参直入 store（薄包装不加工）
+     let provider = save_new_provider(&state, "引擎端点", "sk-live-1234567890").expect("新建应成功");
+     let sdk = save_agent(
+         &state,
+@@ -317,7 +313,177 @@ fn agent命令_cli新建provider可空ok_sdk选存量provider_ok() {
+     )
+     .expect("sdk 新建应成功");
+     assert_eq!(sdk.provider_id, Some(provider.id));
+-    assert_eq!(list_agent_instances(state.clone()).unwrap(), vec![cli, sdk]);
++    assert!(!sdk.is_default, "新建恒非默认（默认标记唯一写口）");
++    assert_eq!(
++        list_agent_instances(state.clone()).unwrap(),
++        vec![sdk],
++        "清单透传落库记录（薄包装不加工）"
++    );
++}
++
++/// 预置存量 cli 实例行（native_db 裸构造绕过 store 写入口拒面——命令面「存量
++/// 行更新拒」透传链的被测前提数据形态；须在 `app_with_stores` 之前落盘）。
++fn preset_cli_row(env: &Env, id: i64, name: &str, is_default: bool) {
++    let path = env.data_dir.path().join("desktop-global.redb");
++    let mut models = native_db::Models::new();
++    models
++        .define::<AgentInstanceRecord>()
++        .expect("定义 AgentInstanceRecord 失败");
++    let db = native_db::Builder::new()
++        .create(&models, &path)
++        .expect("预置存量全局库失败");
++    let rw = db.rw_transaction().expect("开启写事务失败");
++    let mut instance = AgentInstanceRecord::new(name.to_owned(), AgentEngineKind::Cli, None);
++    instance.id = id;
++    instance.is_default = is_default;
++    rw.insert(instance).expect("写入存量 cli 行失败");
++    rw.commit().expect("提交预置事务失败");
++}
++
++#[test]
++fn save_agent_instance拒cli透传_新建与更新均逐字退役文案() {
++    let env = Env::new("agent-cmd-reject-cli");
++    let app = app_with_stores(&env);
++    let state = app.state::<WorkspaceStores>();
++    let provider = save_new_provider(&state, "拒面端点", "sk-live-1234567890").expect("新建应成功");
++
++    // engine: Cli 新建 → Err（store 单点校验透传不吞不改写；除 StoreError::Db
++    // 通用前缀外逐字 CLI_TENANT_RETIRED，DD3）
++    let err = err_of(save_agent(
++        &state,
++        None,
++        "cli新实例",
++        AgentEngineKind::Cli,
++        None,
++    ));
++    assert_eq!(
++        err,
++        format!("db: {CLI_TENANT_RETIRED}"),
++        "命令面 Err 为 store 错误串原样透传，实际: {err}"
++    );
++
++    // engine: Cli 更新形态同拒（携存量 id 同样先过入参口）
++    let created = save_agent(
++        &state,
++        None,
++        "sdk在库",
++        AgentEngineKind::Sdk,
++        Some(provider.id),
++    )
++    .expect("sdk 新建应成功");
++    let err = err_of(save_agent(
++        &state,
++        Some(created.id),
++        "更新为cli",
++        AgentEngineKind::Cli,
++        None,
++    ));
++    assert_eq!(err, format!("db: {CLI_TENANT_RETIRED}"), "更新臂同文案透传");
++
++    // 拒后零写入：清单仅 sdk 在库行
++    assert_eq!(
++        list_agent_instances(state.clone()).unwrap(),
++        vec![created],
++        "失败无副作用：清单不变"
++    );
++}
++
++#[test]
++fn save_agent_instance存量cli行更新拒_含改engine整行透传store单点() {
++    let env = Env::new("agent-cmd-reject-stored");
++    preset_cli_row(&env, 7, "存量cli", false);
++    let app = app_with_stores(&env);
++    let state = app.state::<WorkspaceStores>();
++    let provider = save_new_provider(&state, "整行端点", "sk-live-1234567890").expect("新建应成功");
++
++    // 存量 cli 行整行更新（含「改 engine 为 sdk」）→ 拒——命令面 → store
++    // 双拒透传组合链贯通（AC-5 全链锚）
++    let err = err_of(save_agent(
++        &state,
++        Some(7),
++        "存量cli改sdk",
++        AgentEngineKind::Sdk,
++        Some(provider.id),
++    ));
++    assert_eq!(
++        err,
++        format!("db: {CLI_TENANT_RETIRED}"),
++        "存量行口透传，实际: {err}"
++    );
++
++    // 拒后零写入：存量行原样可读（list 呈现），并可删（可读可删不可改）
++    let listed = list_agent_instances(state.clone()).unwrap();
++    assert_eq!(listed.len(), 1, "拒后零写入");
++    assert_eq!(listed[0].engine, AgentEngineKind::Cli, "存量行原样");
++    assert_eq!(listed[0].name, "存量cli", "存量行整行不可改");
++    assert!(
++        delete_agent_instance(state.clone(), 7).unwrap(),
++        "存量 cli 行可删（可读可删不可改的删半边）"
++    );
++}
++
++#[test]
++fn set_default_agent_instance拒cli目标_逐字透传且零写入() {
++    let env = Env::new("agent-cmd-reject-default");
++    preset_cli_row(&env, 9, "默认cli", true);
++    let app = app_with_stores(&env);
++    let state = app.state::<WorkspaceStores>();
++
++    // Cli 目标 id → Err（store 单点校验透传），除 StoreError::Db 通用前缀外
++    // 逐字 CLI_TENANT_RETIRED（DD3）
++    let err = err_of(set_default_agent_instance(state.clone(), 9));
++    assert_eq!(err, format!("db: {CLI_TENANT_RETIRED}"), "实际: {err}");
++
++    // 零数据写入：存量默认 cli 不被顺手清（is_default 仍 true）
++    let default = state
++        .inner()
++        .global()
++        .default_agent_instance()
++        .unwrap()
++        .expect("默认解析应命中存量行");
++    assert_eq!(default.id, 9, "存量默认 cli 实例原样");
++    assert!(default.is_default, "不清 is_default（零数据写入）");
++}
++
++#[test]
++fn save_agent边界_id零为新建_负数与i64max更新miss记因_name怪值透传() {
++    let env = Env::new("agent-cmd-edge");
++    let app = app_with_stores(&env);
++    let state = app.state::<WorkspaceStores>();
++    let provider = save_new_provider(&state, "边界端点", "sk-live-1234567890").expect("新建应成功");
++
++    // id Some(0) 等价新建（命令体 id.unwrap_or(0) 平参口径零改动）
++    let created = save_agent(
++        &state,
++        Some(0),
++        "零号新建",
++        AgentEngineKind::Sdk,
++        Some(provider.id),
++    )
++    .expect("Some(0) 新建应成功");
++    assert!(created.id > 0, "Some(0) 走新建臂分配 id");
++
++    // name 超长（>1000）/ 特殊字符（`\n` `\0` emoji）平参透传不加工
++    for name in [
++        format!("超长名{}", "名".repeat(1100)),
++        "特殊\n名\u{0}😀".to_owned(),
++    ] {
++        let saved = save_agent(&state, None, &name, AgentEngineKind::Sdk, Some(provider.id))
++            .expect("怪值 name 应成功");
++        assert_eq!(saved.name, name, "name 平参透传不加工");
++    }
++
++    // 更新 miss（-1 / i64::MAX）→ 既有「agent 不存在」Err 透传携 id 语境
++    for id in [-1_i64, i64::MAX] {
++        let err = err_of(save_agent(
++            &state,
++            Some(id),
++            "幽灵更新",
++            AgentEngineKind::Sdk,
++            Some(provider.id),
++        ));
++        assert!(err.contains(&id.to_string()), "Err 携 id 语境，实际: {err}");
++    }
+ }
+ 
+ #[test]
+@@ -357,9 +523,23 @@ fn agent命令_删默认agent后default解析none_set_default标记即切换返
+     let env = Env::new("agent-default-cmd");
+     let app = app_with_stores(&env);
+     let state = app.state::<WorkspaceStores>();
+-    let first = save_agent(&state, None, "甲实例", AgentEngineKind::Cli, None).expect("新建应成功");
+-    let second =
+-        save_agent(&state, None, "乙实例", AgentEngineKind::Cli, None).expect("第二实例新建应成功");
++    let provider = save_new_provider(&state, "默认端点", "sk-live-1234567890").expect("新建应成功");
++    let first = save_agent(
++        &state,
++        None,
++        "甲实例",
++        AgentEngineKind::Sdk,
++        Some(provider.id),
++    )
++    .expect("新建应成功");
++    let second = save_agent(
++        &state,
++        None,
++        "乙实例",
++        AgentEngineKind::Sdk,
++        Some(provider.id),
++    )
++    .expect("第二实例新建应成功");
+     assert_ne!(first.id, second.id);
+ 
+     // 标记默认 → 删除默认 agent → default 解析 None（store 同事务清标记）
+@@ -386,16 +566,25 @@ fn agent命令_删默认agent后default解析none_set_default标记即切换返
+ }
+ 
+ #[test]
+-fn agent命令_set_default_miss_id_err_删除miss幂等okfalse() {
++fn agent命令_set_default_miss与拒cli透传_删除miss幂等okfalse() {
+     let env = Env::new("agent-cmd-miss");
+     let app = app_with_stores(&env);
+     let state = app.state::<WorkspaceStores>();
+-    let agent =
+-        save_agent(&state, None, "在库实例", AgentEngineKind::Cli, None).expect("新建应成功");
++    let provider = save_new_provider(&state, "miss端点", "sk-live-1234567890").expect("新建应成功");
++    let agent = save_agent(
++        &state,
++        None,
++        "在库实例",
++        AgentEngineKind::Sdk,
++        Some(provider.id),
++    )
++    .expect("新建应成功");
+ 
+-    // set_default miss id：Err
+-    let err = set_default_agent_instance(state.clone(), 999).expect_err("miss id 应 Err");
+-    assert!(err.contains("999"), "错误串含 id 语境，实际: {err}");
++    // set_default miss id（0 / -1 / i64::MAX）：既有「agent 不存在」Err 透传
++    for id in [0_i64, -1, i64::MAX] {
++        let err = set_default_agent_instance(state.clone(), id).expect_err("miss id 应 Err");
++        assert!(err.contains(&id.to_string()), "Err 携 id 语境，实际: {err}");
++    }
+ 
+     // delete miss 幂等 Ok(false)
+     assert!(
+@@ -403,8 +592,10 @@ fn agent命令_set_default_miss_id_err_删除miss幂等okfalse() {
+         "删除 miss 幂等返回 false"
+     );
+ 
+-    // 既有默认标记不受 miss 影响（miss 前 set_default 一次复核）
++    // 既有默认标记不受 miss 影响（miss 前 set_default 一次复核）+ 已默认幂等透传
+     set_default_agent_instance(state.clone(), agent.id).expect("标记应成功");
++    let again = set_default_agent_instance(state.clone(), agent.id).expect("已默认幂等透传");
++    assert!(again.is_default, "重复标记幂等仍为默认");
+     let _ = set_default_agent_instance(state.clone(), 999);
+     assert!(
+         state
+diff --git a/src/commands/change_flow/mod_test.rs b/src/commands/change_flow/mod_test.rs
+index 0c9757eda5de..daad4d24ca72 100644
+--- a/src/commands/change_flow/mod_test.rs
++++ b/src/commands/change_flow/mod_test.rs
+@@ -8,7 +8,9 @@ use tauri::{App, Manager};
+ 
+ use ::agent::StopRegistry;
+ use orchestration::control::ChangeFlowControl;
+-use store::{AgentEngineKind, AgentInstanceRecord, WorkspaceStores};
++use store::{
++    AgentEngineKind, AgentInstanceRecord, AgentModelTiers, AgentProviderRecord, WorkspaceStores,
++};
+ use workflow::state::{ChangeStateRecord, ChangeStatus};
+ 
+ use ::agent::{AgentEvent, AgentEventKind};
+@@ -104,18 +106,37 @@ fn seed_change_full(
+         .expect("建档种子应成功");
+ }
+ 
+-/// cli 默认实例 fixture（组合根缺省解析可走通——发起链路真实驱动的用例共用）。
+-fn seed_cli_default_instance(app: &App<tauri::test::MockRuntime>) {
++/// sdk 默认实例 fixture（组合根缺省解析可走通——发起链路真实驱动的用例共用）。
++/// provider 三件套留空：executor 轮在 `begin()` open 段以 `ConfigMissing`
++/// 显式收敛 failed（CLI 租户退役后原 CliMissing 合成收敛的归位口径——不
++/// spawn 进程不落网络）。
++fn seed_sdk_default_instance(app: &App<tauri::test::MockRuntime>) {
+     let stores = app.state::<WorkspaceStores>();
++    let provider = stores
++        .inner()
++        .global()
++        .upsert_agent_provider(AgentProviderRecord::new(
++            "组合根供应".to_owned(),
++            String::new(),
++            String::new(),
++            AgentModelTiers {
++                high: String::new(),
++                medium: String::new(),
++                low: String::new(),
++            },
++            None,
++        ))
++        .expect("落 provider fixture")
++        .id;
+     let id = stores
+         .inner()
+         .global()
+         .upsert_agent_instance(AgentInstanceRecord::new(
+             "组合根实例".to_owned(),
+-            AgentEngineKind::Cli,
+-            None,
++            AgentEngineKind::Sdk,
++            Some(provider),
+         ))
+-        .expect("落 cli 实例 fixture")
++        .expect("落 sdk 实例 fixture")
+         .id;
+     stores
+         .inner()
+@@ -124,19 +145,7 @@ fn seed_cli_default_instance(app: &App<tauri::test::MockRuntime>) {
+         .expect("置默认实例 fixture");
+ }
+ 
+-/// PATH 隔离窗口开启（executor 会话以 CliMissing 合成收敛，不 spawn 真实
+-/// claude）：返回原值供窗口关闭时恢复；窗口经 commands 级 PATH 锁串行化。
+-fn isolate_path() -> (
+-    std::sync::MutexGuard<'static, ()>,
+-    Option<std::ffi::OsString>,
+-) {
+-    let guard = PATH_LOCK.lock().expect("PATH 锁不可中毒");
+-    let original = std::env::var_os("PATH");
+-    std::env::set_var("PATH", "");
+-    (guard, original)
+-}
+-
+-/// PATH 隔离窗口关闭（先恢复原值再放锁——窗口过早关闭会把真实 CLI 泄入 run）。
++/// PATH 隔离窗口关闭（先恢复原值再放锁——供 [`prefix_path`] 前置窗口收尾）。
+ fn restore_path(guard: std::sync::MutexGuard<'static, ()>, original: Option<std::ffi::OsString>) {
+     match original {
+         Some(value) => std::env::set_var("PATH", value),
+@@ -286,7 +295,7 @@ async fn start前置校验无建档与相位表缺失各自err且成因互不重
+ }
+ 
+ // ---------------------------------------------------------------------------
+-// start 提前 resolve 与组合根装配（db 种子，PATH 隔离驱动收敛）
++// start 提前 resolve 与组合根装配（db 种子，缺省解析 + open 段显式收敛）
+ // ---------------------------------------------------------------------------
+ 
+ #[tokio::test]
+@@ -297,15 +306,8 @@ async fn start提前resolve返回running摘要且channel首事件到达后台驱
+     let root = env.root();
+     seed_change(&app, &root, CHANGE, "requirement");
+ 
+-    // cli 默认实例 fixture（组合根缺省解析可走通）
+-    seed_cli_default_instance(&app);
+-
+-    // PATH 隔离：executor 会话以 CliMissing 合成收敛（不 spawn 真实 claude）。
+-    // 隔离窗口覆盖至后台 turn 收敛（提前 resolve 后 walker 仍在驱动，窗口
+-    // 过早关闭会把真实 CLI 泄入 run）；窗口经共享 PATH 锁串行化
+-    let _guard = PATH_LOCK.lock().expect("PATH 锁不可中毒");
+-    let original = std::env::var_os("PATH");
+-    std::env::set_var("PATH", "");
++    // sdk 默认实例 fixture（组合根缺省解析可走通）
++    seed_sdk_default_instance(&app);
+ 
+     let (channel, captured) = capturing_channel();
+     let result = change_flow_start_with(
+@@ -354,12 +356,7 @@ async fn start提前resolve返回running摘要且channel首事件到达后台驱
+             .any(|value| value["ipc"] == "finished")
+     });
+ 
+-    // 后台 turn 已收敛，隔离窗口可关闭（先恢复 PATH 再放锁）
+-    match original {
+-        Some(value) => std::env::set_var("PATH", value),
+-        None => std::env::remove_var("PATH"),
+-    }
+-    drop(_guard);
++    // 后台 turn 已收敛
+     let updates = captured.lock().expect("捕获锁不可中毒");
+     assert!(
+         updates.iter().any(|value| value["ipc"] == "step"),
+@@ -376,8 +373,8 @@ async fn start提前resolve返回running摘要且channel首事件到达后台驱
+         control.snapshot(&env.root(), CHANGE).is_none()
+     });
+ 
+-    // run 运行史落库证据（unify-run-state-persistence 每 run 两写）：PATH 隔离
+-    // 下 executor CliMissing → 合成收敛 failed；finish 单事务落终态 + 步整包 +
++    // run 运行史落库证据（unify-run-state-persistence 每 run 两写）：executor
++    // 轮 open 段 ConfigMissing 显式收敛 failed；finish 单事务落终态 + 步整包 +
+     // active_phase 清位（D1 悬挂杀除——executor 失败前 phase-start 已开相）
+     let store = app
+         .state::<WorkspaceStores>()
+@@ -393,7 +390,7 @@ async fn start提前resolve返回running摘要且channel首事件到达后台驱
+     assert_eq!(
+         runs[0].status,
+         workflow::state::RunStatus::Failed,
+-        "PATH 隔离下合成收敛 failed（后台 walker 真实驱动 + 落库）"
++        "executor open 段 ConfigMissing 收敛 failed（后台 walker 真实驱动 + 落库）"
+     );
+     assert!(runs[0].finished_at.is_some(), "收口时刻在案");
+     let record = store
+@@ -469,10 +466,7 @@ async fn auto_next_phase_true透传受理零confirmwait照常后台收敛() {
+     let app = app_with(&env);
+     let root = env.root();
+     seed_change(&app, &root, CHANGE, "requirement");
+-    seed_cli_default_instance(&app);
+-
+-    // PATH 隔离：executor 会话以 CliMissing 合成收敛（窗口覆盖至后台 turn 收敛）
+-    let (path_guard, original) = isolate_path();
++    seed_sdk_default_instance(&app);
+ 
+     let (channel, captured) = capturing_channel();
+     let result = change_flow_start_with(
+@@ -506,7 +500,7 @@ async fn auto_next_phase_true透传受理零confirmwait照常后台收敛() {
+         Some(summary.run_id.clone())
+     );
+ 
+-    // 后台 walker 真实驱动至收敛（PATH 隔离下 executor CliMissing → failed）
++    // 后台 walker 真实驱动至收敛（executor 轮 open 段 ConfigMissing → failed）
+     wait_for("Finished 信封", || {
+         captured
+             .lock()
+@@ -515,9 +509,6 @@ async fn auto_next_phase_true透传受理零confirmwait照常后台收敛() {
+             .any(|value| value["ipc"] == "finished")
+     });
+ 
+-    // 后台 turn 已收敛，隔离窗口可关闭
+-    restore_path(path_guard, original);
+-
+     // auto 参数达 walker：更新流全程零 confirmWait 信封
+     let updates = captured.lock().expect("捕获锁不可中毒");
+     assert!(
+@@ -564,9 +555,7 @@ async fn auto_next_phase_false默认档受理面回归() {
+     let app = app_with(&env);
+     let root = env.root();
+     seed_change(&app, &root, CHANGE, "requirement");
+-    seed_cli_default_instance(&app);
+-
+-    let (path_guard, original) = isolate_path();
++    seed_sdk_default_instance(&app);
+ 
+     let (channel, captured) = capturing_channel();
+     let result = change_flow_start_with(
+@@ -603,10 +592,8 @@ async fn auto_next_phase_false默认档受理面回归() {
+             .any(|value| value["ipc"] == "finished")
+     });
+ 
+-    restore_path(path_guard, original);
+-
+-    // 终态面语义不变：合成收敛 failed（步通知 + 终态通知照常流出；终态值
+-    // 随 run 运行史落库可查——kind-only 通知零载荷）
++    // 终态面语义不变：open 段 ConfigMissing 收敛 failed（步通知 + 终态通知
++    // 照常流出；终态值随 run 运行史落库可查——kind-only 通知零载荷）
+     let updates = captured.lock().expect("捕获锁不可中毒");
+     assert!(
+         updates.iter().any(|value| value["ipc"] == "step"),
+@@ -987,9 +974,9 @@ async fn worktree目录缺失拒绝_显式err且零run登记() {
+         .expect("清理 worktree 建档");
+     drop(store);
+     seed_change(&app, &root, CHANGE, "requirement");
+-    seed_cli_default_instance(&app); // 组合根缺省解析可走通（发起链路半边）
+-                                     // legacy 发起不因本分支 Err（PATH 隔离下真实驱动收敛 failed 即证可达）
+-    let (_path_guard, original) = isolate_path();
++    // 组合根缺省解析可走通（发起链路半边）；legacy 发起不因本分支 Err
++    //（后台 walker 真实驱动收敛 failed 即证可达）
++    seed_sdk_default_instance(&app);
+     let result = change_flow_start_with(
+         app.handle().clone(),
+         discarding_channel(),
+@@ -998,7 +985,6 @@ async fn worktree目录缺失拒绝_显式err且零run登记() {
+         false,
+     )
+     .await;
+-    restore_path(_path_guard, original);
+     assert!(
+         result.is_ok(),
+         "legacy 记录（worktree=None）不经 worktree 存在性校验，实际: {result:?}"
+@@ -1009,7 +995,7 @@ async fn worktree目录缺失拒绝_显式err且零run登记() {
+ /// → 发起成功（提前 resolve summary running）；发起后相位半边落 **workspace
+ /// root 库**（for_root(root) 实例可查），且数据根 `workspaces/` 子树无以
+ /// worktree 路径派生的第二库文件（store 身份恒 workspace root——AC-6 db
+-/// 半边；PATH 隔离下 CLI 引擎合成收敛既有装置驱动）。
++/// 半边；executor 轮 open 段 ConfigMissing 显式收敛，不 spawn 进程）。
+ #[tokio::test]
+ async fn exec_root解析成功_相位落workspace库且无第二库文件() {
+     let env = Env::new("wt-exec-root");
+@@ -1026,9 +1012,8 @@ async fn exec_root解析成功_相位落workspace库且无第二库文件() {
+     fs::create_dir_all(worktree.join("openspec/changes").join(CHANGE))
+         .expect("预置 worktree openspec 树失败");
+     seed_change_with_worktree(&app, &root, CHANGE, &worktree);
+-    seed_cli_default_instance(&app); // 组合根缺省解析可走通（发起链路半边）
++    seed_sdk_default_instance(&app); // 组合根缺省解析可走通（发起链路半边）
+ 
+-    let (_path_guard, original) = isolate_path();
+     let summary = change_flow_start_with(
+         app.handle().clone(),
+         discarding_channel(),
+@@ -1050,7 +1035,6 @@ async fn exec_root解析成功_相位落workspace库且无第二库文件() {
+     wait_for("run 终态除名", || {
+         control.snapshot(&root, CHANGE).is_none()
+     });
+-    restore_path(_path_guard, original);
+ 
+     // run 运行史落 workspace root 库（写入经注入的 for_root(root) 实例——
+     // run 落库写缝与相位写面同实例）
+@@ -1107,9 +1091,7 @@ async fn 并行冲突键id_同名异id各自受理且异root同id互不误拒()
+     seed_change_full(&app, &root_a, "id-a1", CHANGE, "requirement");
+     seed_change_full(&app, &root_a, "id-a2", CHANGE, "requirement");
+     seed_change(&app, &root_b, CHANGE, "requirement");
+-    seed_cli_default_instance(&app);
+-
+-    let (_path_guard, original) = isolate_path();
++    seed_sdk_default_instance(&app);
+ 
+     // rootA 预登记运行中 run（guard 在手不收敛——确定性冲突锚；注记：
+     // `run-<millis>` 同毫秒可同号，run_id 不作唯一性断言面）
+@@ -1195,7 +1177,6 @@ async fn 并行冲突键id_同名异id各自受理且异root同id互不误拒()
+     wait_for("rootA id-a2 与 rootB run 终态除名", || {
+         control.snapshot(&root_a, "id-a2").is_none() && control.snapshot(&root_b, CHANGE).is_none()
+     });
+-    restore_path(_path_guard, original);
+     drop(guard_a1); // rootA 预登记 run 随 guard 终结除名
+ 
+     // 各键独立驱动证据：各自 workspace 库 StepRecord 以自身 run_id 串链在案
+@@ -1281,8 +1262,7 @@ async fn start归档互斥面摘除_无归档注册表照常受理() {
+     let app = app_with(&env);
+     let root = env.root();
+     seed_change(&app, &root, CHANGE, "requirement");
+-    seed_cli_default_instance(&app);
+-    let (path_guard, original) = isolate_path();
++    seed_sdk_default_instance(&app);
+ 
+     let (channel, captured) = capturing_channel();
+     let summary = change_flow_start_with(
+@@ -1310,7 +1290,6 @@ async fn start归档互斥面摘除_无归档注册表照常受理() {
+             .iter()
+             .any(|value| value["ipc"] == "finished")
+     });
+-    restore_path(path_guard, original);
+     wait_for("终态除名", || control.snapshot(&root, CHANGE).is_none());
+     let store = app
+         .state::<WorkspaceStores>()
+@@ -1331,7 +1310,7 @@ async fn start走完路由相位停在archive前且confirm拒绝收敛stopped()
+     let app = app_with(&env);
+     let root = env.root();
+     seed_change(&app, &root, CHANGE, "requirement");
+-    seed_cli_default_instance(&app);
++    seed_sdk_default_instance(&app);
+     let store = app
+         .state::<WorkspaceStores>()
+         .for_root(&root)
+@@ -1750,11 +1729,7 @@ async fn start_test_only记录放行且提前resolve返回running摘要() {
+     let app = app_with(&env);
+     let root = env.root();
+     seed_change(&app, &root, CHANGE, "test-only");
+-    seed_cli_default_instance(&app);
+-
+-    let _guard = PATH_LOCK.lock().expect("PATH 锁不可中毒");
+-    let original = std::env::var_os("PATH");
+-    std::env::set_var("PATH", "");
++    seed_sdk_default_instance(&app);
+ 
+     let (channel, captured) = capturing_channel();
+     let result = change_flow_start_with(
+@@ -1798,11 +1773,6 @@ async fn start_test_only记录放行且提前resolve返回running摘要() {
+             .iter()
+             .any(|value| value["ipc"] == "finished")
+     });
+-    match original {
+-        Some(value) => std::env::set_var("PATH", value),
+-        None => std::env::remove_var("PATH"),
+-    }
+-    drop(_guard);
+ 
+     // 落库相位属 test-only 表（首相位 proposal 恒为两表共有；零 dev-design /
+     // implement 等 requirement 独有相位落账）
+diff --git a/src/commands/db/mod_test.rs b/src/commands/db/mod_test.rs
+index a95bbb443cd7..1f92f173ba1e 100644
+--- a/src/commands/db/mod_test.rs
++++ b/src/commands/db/mod_test.rs
+@@ -59,6 +59,7 @@ fn seed_session(store: &store::Store, id: &str) -> String {
+             engine_session_id: None,
+             config_snapshot: SessionConfigSnapshot {
+                 engine: AgentEngineKind::Sdk,
++                agent_instance_id: None,
+                 model: Some("m-high".to_owned()),
+                 permission_mode: ::agent::AgentPermissionMode::BypassPermissions,
+             },
+diff --git a/src/commands/exec/mod_test.rs b/src/commands/exec/mod_test.rs
+index 3c9c75656687..486f4ff760ef 100644
+--- a/src/commands/exec/mod_test.rs
++++ b/src/commands/exec/mod_test.rs
+@@ -53,10 +53,6 @@ impl Env {
+     }
+ }
+ 
+-/// PATH 环境变量修改串行化（进程全局操作；与 change_flow/mod_test 的 PATH
+-/// 隔离窗口共用 commands 级共享锁）。
+-use crate::commands::TEST_PATH_LOCK as PATH_LOCK;
+-
+ /// 以 MockRuntime 建测用 app，并在其中 manage 真实 WorkspaceStores（打开 env
+ /// 数据根的全局库）与 `Arc<StopRegistry>`（内核治理面挂载，须先于 start 托管）。
+ fn app_with_stores(env: &Env) -> App<tauri::test::MockRuntime> {
+@@ -132,24 +128,6 @@ fn seed_sdk_default(stores: &WorkspaceStores, name: &str, provider_id: i64) -> i
+     id
+ }
+ 
+-/// cli 默认实例 fixture（返回实例 id）。
+-fn seed_cli_default(stores: &WorkspaceStores, name: &str) -> i64 {
+-    let id = stores
+-        .global()
+-        .upsert_agent_instance(AgentInstanceRecord::new(
+-            name.to_owned(),
+-            AgentEngineKind::Cli,
+-            None,
+-        ))
+-        .expect("落 cli 实例 fixture")
+-        .id;
+-    stores
+-        .global()
+-        .set_default_agent_instance(id)
+-        .expect("置默认实例 fixture");
+-    id
+-}
+-
+ /// sdk 快照会话行 fixture（Continue 用例底座）。
+ fn seed_sdk_session(
+     store: &store::Store,
+@@ -164,6 +142,7 @@ fn seed_sdk_session(
+             engine_session_id: remote.map(str::to_owned),
+             config_snapshot: SessionConfigSnapshot {
+                 engine: AgentEngineKind::Sdk,
++                agent_instance_id: None,
+                 model: Some("m-high".to_owned()),
+                 permission_mode: AgentPermissionMode::BypassPermissions,
+             },
+@@ -568,7 +547,14 @@ async fn agent_start_blank_root守卫err且零落库() {
+     let env = Env::new("start-blank-root");
+     let app = app_with_stores(&env);
+     let stores = app.state::<WorkspaceStores>();
+-    seed_cli_default(stores.inner(), "守卫实例");
++    let provider = seed_provider(
++        stores.inner(),
++        "守卫供应",
++        "sk-test",
++        "https://api.example.com/v1",
++        "m-high",
++    );
++    seed_sdk_default(stores.inner(), "守卫实例", provider);
+ 
+     let result = agent_start_with(
+         app.handle().clone(),
+@@ -681,11 +667,16 @@ async fn agent_start成功链路提前resolve返回running轮行且会话行轮
+     let app = app_with_stores(&env);
+     let stores = app.state::<WorkspaceStores>();
+     let root = env.root_of("alpha");
+-    seed_cli_default(stores.inner(), "提前resolve实例");
+-
+-    let _guard = PATH_LOCK.lock().expect("PATH 锁不可中毒");
+-    let original = std::env::var_os("PATH");
+-    std::env::set_var("PATH", ""); // ask 段 discover 失败（不影响提前 resolve）
++    // 非法 base_url（URL 含空格）：open 段配置校验通过、请求编码段同步 Err →
++    // 泵以 api_error 即时收敛，不落网络不进重试退避
++    let provider = seed_provider(
++        stores.inner(),
++        "提前resolve供应",
++        "sk-test",
++        "http://bad host/v1",
++        "m-high",
++    );
++    seed_sdk_default(stores.inner(), "提前resolve实例", provider);
+ 
+     let (channel, captured) = capturing_channel();
+     let result = agent_start_with(
+@@ -730,7 +721,8 @@ async fn agent_start成功链路提前resolve返回running轮行且会话行轮
+         "来源缺省 debug"
+     );
+ 
+-    // PATH 恢复前等待后台泵收敛（隔离 PATH 下 spawn 失败合成收敛，不触真实 CLI）
++    // 等待后台泵收敛（非法 base_url 编码段同步 Err → api_error 即时收敛，
++    // 不落网络不触真实 CLI）
+     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+     loop {
+         let terminal = captured
+@@ -745,10 +737,6 @@ async fn agent_start成功链路提前resolve返回running轮行且会话行轮
+         tokio::task::yield_now().await;
+         std::thread::sleep(std::time::Duration::from_millis(5));
+     }
+-    match original {
+-        Some(value) => std::env::set_var("PATH", value),
+-        None => std::env::remove_var("PATH"),
+-    }
+ }
+ 
+ #[tokio::test]
+@@ -757,16 +745,24 @@ async fn agent_start参数转换_session引用与来源与agent透传() {
+     let app = app_with_stores(&env);
+     let stores = app.state::<WorkspaceStores>();
+     let root = env.root_of("alpha");
+-    // 显式 agent（cli）+ Continue 底座会话（cli 快照：跨引擎拒绝先行验证
++    // 显式 agent（sdk）+ Continue 底座会话（存量 cli 快照：跨引擎拒绝先行验证
+     // Continue 寻址正确性——若 session_id 未透传则不会命中跨引擎拒绝）
+-    let cli_id = seed_cli_default(stores.inner(), "参数转换实例");
++    let provider = seed_provider(
++        stores.inner(),
++        "参数转换供应",
++        "sk-test",
++        "https://api.example.com/v1",
++        "m-high",
++    );
++    let sdk_id = seed_sdk_default(stores.inner(), "参数转换实例", provider);
+     let store = stores.inner().for_root(&root).expect("for_root 应成功");
+     store
+         .create_session(&SessionRecord {
+             id: "ses-param-continue".to_owned(),
+             engine_session_id: Some("s-cli-1".to_owned()),
+             config_snapshot: SessionConfigSnapshot {
+-                engine: AgentEngineKind::Sdk,
++                engine: AgentEngineKind::Cli,
++                agent_instance_id: None,
+                 model: Some("m-high".to_owned()),
+                 permission_mode: AgentPermissionMode::BypassPermissions,
+             },
+@@ -777,7 +773,7 @@ async fn agent_start参数转换_session引用与来源与agent透传() {
+         })
+         .expect("落 Continue 底座会话行");
+ 
+-    // Continue + source/sourceRef 透传：跨引擎拒绝（sdk 快照会话以 cli agent 续）
++    // Continue + source/sourceRef 透传：跨引擎拒绝（存量 cli 快照会话以 sdk agent 续）
+     let result = agent_start_with(
+         app.handle().clone(),
+         discarding_channel(),
+@@ -787,11 +783,11 @@ async fn agent_start参数转换_session引用与来源与agent透传() {
+         Some("ses-param-continue".to_owned()),
+         Some("explore".to_owned()),
+         Some("7".to_owned()),
+-        Some(cli_id),
++        Some(sdk_id),
+     )
+     .await;
+ 
+-    let error = result.expect_err("cli agent 续 sdk 快照会话必须被拒");
++    let error = result.expect_err("存量 cli 快照会话以 sdk agent 续必须被拒");
+     assert!(
+         error.contains("非当前引擎产出") && error.contains("ses-param-continue"),
+         "session_id 透传至 Continue 校验（参数转换半边），实际: {error}"
+@@ -806,12 +802,18 @@ async fn agent_start_kernelscoped_stopregistry托管的命中链经channel流出
+     let app = app_with_stores(&env);
+     let stores = app.state::<WorkspaceStores>();
+     let root = env.root_of("alpha");
+-    seed_cli_default(stores.inner(), "停止链实例");
++    // 非法 base_url（URL 含空格）：open 段配置校验通过、请求编码段同步 Err——
++    // 停止臂与泵收敛竞速收敛口径不变（终态部件观测半边）
++    let provider = seed_provider(
++        stores.inner(),
++        "停止链供应",
++        "sk-test",
++        "http://bad host/v1",
++        "m-high",
++    );
++    seed_sdk_default(stores.inner(), "停止链实例", provider);
+ 
+     let (channel, captured) = capturing_channel();
+-    let _guard = PATH_LOCK.lock().expect("PATH 锁不可中毒");
+-    let original = std::env::var_os("PATH");
+-    std::env::set_var("PATH", ""); // CLI 缺失 → 合成收敛 failed（Channel 观测）
+ 
+     let summary = agent_start_with(
+         app.handle().clone(),
+@@ -832,7 +834,7 @@ async fn agent_start_kernelscoped_stopregistry托管的命中链经channel流出
+     let registry = app.state::<Arc<StopRegistry>>();
+     let _ = registry.request_stop(&summary.session_id);
+ 
+-    // 轮询捕获 Channel 直至终态 Record 信封（后台转发任务；合成收敛 failed）
++    // 轮询捕获 Channel 直至终态 Record 信封（后台转发任务；停止截停收敛）
+     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+     let terminal = loop {
+         let found = captured
+@@ -849,11 +851,6 @@ async fn agent_start_kernelscoped_stopregistry托管的命中链经channel流出
+         std::thread::sleep(std::time::Duration::from_millis(5));
+     };
+ 
+-    match original {
+-        Some(value) => std::env::set_var("PATH", value),
+-        None => std::env::remove_var("PATH"),
+-    }
+-
+     assert_eq!(
+         terminal["record"]["sessionId"],
+         serde_json::json!(summary.session_id),
+@@ -861,8 +858,8 @@ async fn agent_start_kernelscoped_stopregistry托管的命中链经channel流出
+     );
+     assert_eq!(
+         terminal["record"]["status"],
+-        serde_json::json!("failed"),
+-        "CLI 缺失合成收敛 failed 经 Channel 流出"
++        serde_json::json!("stopped"),
++        "stopregistry 命中截停 stopped 收敛经 Channel 流出（泵 select 停止臂先于编码段 Err 获胜）"
+     );
+ }
+ 
+diff --git a/src/commands/explores/mod_test.rs b/src/commands/explores/mod_test.rs
+index 617d8fec1ad4..e8e5105a4244 100644
+--- a/src/commands/explores/mod_test.rs
++++ b/src/commands/explores/mod_test.rs
+@@ -113,6 +113,7 @@ fn seed_chat_session(store: &store::Store, id: &str, source_ref: Option<&str>) -
+             engine_session_id: None,
+             config_snapshot: SessionConfigSnapshot {
+                 engine: AgentEngineKind::Sdk,
++                agent_instance_id: None,
+                 model: Some("m-high".to_owned()),
+                 permission_mode: agent::AgentPermissionMode::BypassPermissions,
+             },
+diff --git a/src/commands/workspaces/mod_test.rs b/src/commands/workspaces/mod_test.rs
+index dbc4b8d41cbc..430805335651 100644
+--- a/src/commands/workspaces/mod_test.rs
++++ b/src/commands/workspaces/mod_test.rs
+@@ -85,6 +85,7 @@ fn seed_chat_session(
+             engine_session_id: None,
+             config_snapshot: SessionConfigSnapshot {
+                 engine: AgentEngineKind::Sdk,
++                agent_instance_id: None,
+                 model: Some("m-high".to_owned()),
+                 permission_mode: agent::AgentPermissionMode::BypassPermissions,
+             },

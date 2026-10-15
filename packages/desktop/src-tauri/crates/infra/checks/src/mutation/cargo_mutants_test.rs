@@ -1,19 +1,3 @@
-//! `cargo_mutants.rs` 的单元测试（test-design「cargo_mutants.rs ->
-//! cargo_mutants_test.rs」节）：argv 模板展开逐参等值（`mutants --workspace
-//! --in-diff <段补丁> --baseline skip --jobs <半 CPU> --timeout 300`）+ 常量锚
-//! 定 + `CARGO_TARGET_DIR` 多段共享 env 断言 + 补丁入参边界 + 段报告权威面
-//! （`mutants.out/outcomes.json` 在位且可解析 → 段完成，真实 outcomes 形态解析
-//! 对拍）+ 零突变体段（退出 0 无报告 → 空计数面合成载荷）+ 陈旧报告清场 + 段
-//! 中断错误面 + 失败面（ENOENT / 非零退出 / 超时→中断不挂死）。
-//!
-//! Mock策略（test-design 本节 Mock 表）：子进程 spawn（cargo mutants——进程边
-//! 界）经**假 spawn 装置**承载——`mod_test::SpawnWindow`（PATH 前置假 `cargo`
-//! shim + 记录 argv / env / cwd + 可编程输出、报告文件落位（cwd 重建
-//! `mutants.out/outcomes.json`）、超时（自旋挂起 + 虚拟时钟推进）、非零退出；
-//! ENOENT 臂 = PATH 隔离使程序缺席——`TEST_ENV_LOCK` 串行化，testexec
-//! EnvWindow 先例同款）；`available_parallelism` 不 mock（jobs 期望值按真实
-//! CPU 重算关系式 `max(1, n/2)`）。
-
 use std::fs;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};

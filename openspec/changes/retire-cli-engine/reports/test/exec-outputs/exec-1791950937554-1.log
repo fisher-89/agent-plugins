@@ -1,0 +1,125 @@
+JSON report written to C:/Users/wps/.dev-team/worktrees/wps-claude-plugin-7166d8c61feeae705846d569251abee6/retire-cli-engine/openspec/changes/retire-cli-engine/reports/test/plugins_dev-team_vite-plus/results.json
+lint failed
+JSON report written to C:/Users/wps/.dev-team/worktrees/wps-claude-plugin-7166d8c61feeae705846d569251abee6/retire-cli-engine/openspec/changes/retire-cli-engine/reports/test/packages_desktop_vite-plus/results.json
+[1m[2mnote:[0m[0m You are running [94m`vp test`[39m as a Vite+ built-in command. If you meant to run the test npm script, use [94m`vpr test`[39m instead.
+info: cargo-llvm-cov currently setting cfg(coverage); you can opt-out it by passing --no-cfg-coverage
+   Compiling workflow v0.1.0 (C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\retire-cli-engine\packages\desktop\src-tauri\crates\core\workflow)
+   Compiling dev-team v0.1.0 (C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\retire-cli-engine\packages\desktop\src-tauri)
+   Compiling orchestration v0.1.0 (C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\retire-cli-engine\packages\desktop\src-tauri\crates\core\orchestration)
+   Compiling store v0.1.0 (C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\retire-cli-engine\packages\desktop\src-tauri\crates\infra\store)
+error: failed to build archive at `C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\retire-cli-engine\packages\desktop\src-tauri\target\llvm-cov-target\debug\deps\libworkflow-dea3854afa4d56a7.rlib`: failed to rename archive file: 另一个程序正在使用此文件，进程无法访问。 (os error 32)
+
+error: process didn't exit successfully: `C:\Users\wps\.rustup\toolchains\stable-x86_64-pc-windows-msvc\bin\rustc.exe --crate-name workflow --edition=2021 crates\core\workflow\src\lib.rs --error-format=json --json=diagnostic-rendered-ansi,artifacts,future-incompat --crate-type lib --emit=dep-info,metadata,link -C embed-bitcode=no -C debuginfo=2 --check-cfg cfg(docsrs,test) --check-cfg "cfg(feature, values())" -C metadata=6ba2be4257be0f6a -C extra-filename=-dea3854afa4d56a7 --out-dir C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\retire-cli-engine\packages\desktop\src-tauri\target\llvm-cov-target\debug\deps -C incremental=C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\retire-cli-engine\packages\desktop\src-tauri\target\llvm-cov-target\debug\incremental -L dependency=C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\retire-cli-engine\packages\desktop\src-tauri\target\llvm-cov-target\debug\deps --extern agent=C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\retire-cli-engine\packages\desktop\src-tauri\target\llvm-cov-target\debug\deps\libagent-7ea27134e83bbd11.rmeta --extern foundation=C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\retire-cli-engine\packages\desktop\src-tauri\target\llvm-cov-target\debug\deps\libfoundation-d9572b33e62e3a89.rmeta --extern serde=C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\retire-cli-engine\packages\desktop\src-tauri\target\llvm-cov-target\debug\deps\libserde-5fe1f48ab8f60e52.rmeta --extern serde_json=C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\retire-cli-engine\packages\desktop\src-tauri\target\llvm-cov-target\debug\deps\libserde_json-40a392f876a11d6d.rmeta --extern specta=C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\retire-cli-engine\packages\desktop\src-tauri\target\llvm-cov-target\debug\deps\libspecta-d9115214cc9c4e13.rmeta --extern time=C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\retire-cli-engine\packages\desktop\src-tauri\target\llvm-cov-target\debug\deps\libtime-cffc278105646a55.rmeta --extern uuid=C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\retire-cli-engine\packages\desktop\src-tauri\target\llvm-cov-target\debug\deps\libuuid-071c6666e0d10bd3.rmeta -C instrument-coverage --cfg=coverage` (exit code: 1)
+error: could not compile `workflow` (lib) due to 1 previous error
+warning: build failed, waiting for other jobs to finish...
+error: process didn't exit successfully: `C:\Users\wps\.rustup\toolchains\stable-x86_64-pc-windows-msvc\bin\cargo.exe test --tests --manifest-path C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\retire-cli-engine\packages\desktop\src-tauri\Cargo.toml --target-dir C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\retire-cli-engine\packages\desktop\src-tauri\target\llvm-cov-target` (exit code: 101)
+warning: function `快照组装携agentInstanceId与定型双面_json线键camel_case` should have a snake case name
+    --> crates\infra\agent\src\compose_test.rs:1065:10
+     |
+1065 | async fn 快照组装携agentInstanceId与定型双面_json线键camel_case() {
+     |          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: convert the identifier to snake case: `快照组装携agent_instance_id与定型双面_json线键camel_case`
+     |
+     = note: `#[warn(non_snake_case)]` (part of `#[warn(nonstandard_style)]`) on by default
+
+warning: function `段级未知outcome样本runtimeError留痕` should have a snake case name
+   --> crates\core\checks\tests\corpus_golden_test.rs:561:4
+    |
+561 | fn 段级未知outcome样本runtimeError留痕() {
+    |    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: convert the identifier to snake case: `段级未知outcome样本runtime_error留痕`
+    |
+    = note: `#[warn(non_snake_case)]` (part of `#[warn(nonstandard_style)]`) on by default
+
+warning: `agent-runtime` (lib test) generated 1 warning
+warning: `checks` (test "corpus_golden_test") generated 1 warning
+warning: field `0` is never read
+  --> crates\infra\checks\src\testexec\runner_test.rs:76:18
+   |
+76 | struct EnvWindow(std::sync::MutexGuard<'static, ()>);
+   |        --------- ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |        |
+   |        field in this struct
+   |
+   = help: consider removing this field
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: field `0` is never read
+  --> crates\infra\checks\src\static_check_test.rs:10:18
+   |
+10 | struct EnvWindow(std::sync::MutexGuard<'static, ()>);
+   |        --------- ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |        |
+   |        field in this struct
+   |
+   = help: consider removing this field
+
+warning: associated function `failing` is never used
+   --> crates\core\orchestration\src\steps_test.rs:843:8
+    |
+809 | impl FakeMutationRunner {
+    | ----------------------- associated function in this implementation
+...
+843 |     fn failing(feedback_text: &str) -> Self {
+    |        ^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: method `with_edit` is never used
+   --> crates\core\orchestration\src\walker_test.rs:884:8
+    |
+860 | impl FakeVcs {
+    | ------------ method in this implementation
+...
+884 |     fn with_edit(self, files: Vec<String>, patch: &str) -> Self {
+    |        ^^^^^^^^^
+
+warning: function `旧json形态缺agentInstanceId键经serde_default读none不炸` should have a snake case name
+    --> crates\infra\store\src\model_test.rs:2598:4
+     |
+2598 | fn 旧json形态缺agentInstanceId键经serde_default读none不炸() {
+     |    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: convert the identifier to snake case: `旧json形态缺agent_instance_id键经serde_default读none不炸`
+     |
+     = note: `#[warn(non_snake_case)]` (part of `#[warn(nonstandard_style)]`) on by default
+
+warning: function `build_mutation_block分母零与NaN与Inf阈值` should have a snake case name
+   --> crates\core\checks\src\aggregate_test.rs:772:4
+    |
+772 | fn build_mutation_block分母零与NaN与Inf阈值() {
+    |    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: convert the identifier to snake case: `build_mutation_block分母零与_na_n与_inf阈值`
+    |
+    = note: `#[warn(non_snake_case)]` (part of `#[warn(nonstandard_style)]`) on by default
+
+warning: `checks-runtime` (lib test) generated 2 warnings
+warning: `orchestration` (lib test) generated 2 warnings
+warning: `store` (lib test) generated 1 warning
+warning: `checks` (lib test) generated 1 warning
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 4.14s
+     Running unittests src\lib.rs (target\debug\deps\agent-ed00760de21cc2d9.exe)
+     Running unittests src\lib.rs (target\debug\deps\agent_runtime-859917f77fb35052.exe)
+     Running unittests src\lib.rs (target\debug\deps\checks-907d7576406cbc22.exe)
+     Running tests\corpus_golden_test.rs (target\debug\deps\corpus_golden_test-3569dc83d7c493e8.exe)
+     Running unittests src\lib.rs (target\debug\deps\checks_runtime-590a5916e1ae2899.exe)
+     Running unittests src\lib.rs (target\debug\deps\config-2c1c243542647694.exe)
+     Running unittests src\lib.rs (target\debug\deps\dev_team-36ce58f472df7282.exe)
+     Running unittests src\main.rs (target\debug\deps\dev_team-84ecc3b901542f65.exe)
+     Running unittests src\lib.rs (target\debug\deps\exec-36ce52bfbf0fd45a.exe)
+     Running unittests src\main.rs (target\debug\deps\export_bindings-3122d2eaf50feb28.exe)
+     Running unittests src\lib.rs (target\debug\deps\foundation-fa39654a8a2e609f.exe)
+     Running unittests src\lib.rs (target\debug\deps\orchestration-09d8e7218b71393f.exe)
+     Running unittests src\lib.rs (target\debug\deps\store-6d624c8ffd37f7b9.exe)
+     Running unittests src\lib.rs (target\debug\deps\vcs_runtime-eda2a4aef3171c18.exe)
+     Running unittests src\lib.rs (target\debug\deps\watch-c9b72cdce151090d.exe)
+     Running unittests src\lib.rs (target\debug\deps\workflow-f104169c245d4654.exe)
+     Running tests\corpus_golden_test.rs (target\debug\deps\corpus_golden_test-9e08affa7e79bee7.exe)
+   Doc-tests agent
+   Doc-tests agent_runtime
+   Doc-tests checks
+   Doc-tests checks_runtime
+   Doc-tests config
+   Doc-tests dev_team
+   Doc-tests exec
+   Doc-tests foundation
+   Doc-tests orchestration
+   Doc-tests store
+   Doc-tests vcs_runtime
+   Doc-tests watch
+   Doc-tests workflow

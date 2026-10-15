@@ -19,7 +19,7 @@ use crate::model::{
     AgentRunRecord, ChangeActivePhase, ChangeRecord, ChecklistItemRecord, ExploreRecord,
     PhaseRecord, RunEdgeRecord, RunNodeRecord, RunRecord, SessionConfigSnapshot,
     SessionEventRecord, SessionEventRecordKey, SessionRecord, StepRecord, StoreMetaRecord,
-    WorkspaceRecord, WORKSPACE_STORE_FORMAT_KEY, WORKSPACE_STORE_FORMAT_VERSION,
+    WorkspaceRecord, CLI_TENANT_RETIRED, WORKSPACE_STORE_FORMAT_KEY, WORKSPACE_STORE_FORMAT_VERSION,
 };
 use workflow::model::{ChecklistItem, Verdict};
 use workflow::state::{
@@ -274,6 +274,7 @@ fn empty_explore_session(record: &ExploreRecord) -> SessionRecord {
         config_snapshot: SessionConfigSnapshot {
             // 占位值：未开轮会话不做引擎匹配（见 `compose::begin` 未开轮分支）
             engine: AgentEngineKind::Sdk,
+            agent_instance_id: None,
             model: None,
             permission_mode: AgentPermissionMode::BypassPermissions,
         },
@@ -1308,14 +1309,21 @@ impl Store {
     /// **强制 `is_default = false`**——默认标记唯一写口为
     /// [`Store::set_default_agent_instance`]）/ id>0 整行替换（查重排除自身、
     /// **保留存量默认标记**——入参标记不参与写，不变式免受前端入参影响）。
+    /// 拒 Cli 双口（design DD5）：① 入参 `engine == Cli` 新建与更新均拒
+    /// （[`CLI_TENANT_RETIRED`] 文案）；② 存量行 `engine == Cli` 整行拒
+    /// （可读可删不可改，含「改 engine 为 sdk 的整行更新」）。
     /// `engine == Sdk` 时 `provider_id` 必填且引用 provider 须存在（缺失 /
-    /// 悬空均 `Err`）；cli 可空（携引用同样校验悬空）。返回落库记录。
+    /// 悬空均 `Err`——`sdk` 唯一活档，存量 `cli` 行 provider 可空只读保留）。
+    /// 返回落库记录。
     pub fn upsert_agent_instance(
         &self,
         agent: AgentInstanceRecord,
     ) -> Result<AgentInstanceRecord, StoreError> {
         if agent.name.trim().is_empty() {
             return Err(StoreError::Db("agent 名不得为空白".to_owned()));
+        }
+        if agent.engine == AgentEngineKind::Cli {
+            return Err(StoreError::Db(CLI_TENANT_RETIRED.to_owned()));
         }
         if agent.engine == AgentEngineKind::Sdk && agent.provider_id.is_none() {
             return Err(StoreError::Db(format!(
@@ -1357,11 +1365,16 @@ impl Store {
                 record.is_default = false;
             }
             id => {
-                // 更新臂：整行替换保留存量默认标记
+                // 更新臂：整行替换保留存量默认标记；存量行 engine == Cli 拒
+                // （整行不可改，含「改 engine 为 sdk 的整行更新」——入口口
+                // 已拒入参 Cli，此处兜存量行口）
                 let stored = all
                     .iter()
                     .find(|record| record.id == id)
                     .ok_or_else(|| StoreError::Db(format!("agent 不存在: id={id}")))?;
+                if stored.engine == AgentEngineKind::Cli {
+                    return Err(StoreError::Db(CLI_TENANT_RETIRED.to_owned()));
+                }
                 record.is_default = stored.is_default;
             }
         }
@@ -1392,7 +1405,9 @@ impl Store {
     }
 
     /// 标记即切换（默认标记唯一写口）：单写事务内清全部既有默认 → 置目标
-    /// （全局恒至多一）；miss `Err`；返回更新后记录。
+    /// （全局恒至多一）；miss `Err`；目标实例 `engine == Cli` 拒
+    /// （[`CLI_TENANT_RETIRED`]——默认标记仅可落 sdk 实例，防造出必失败的
+    /// 缺省发起路径）；返回更新后记录。
     pub fn set_default_agent_instance(&self, id: i64) -> Result<AgentInstanceRecord, StoreError> {
         let rw = self.db.rw_transaction().map_err(db_err("开启写事务"))?;
         let all: Vec<AgentInstanceRecord> = rw
@@ -1408,6 +1423,9 @@ impl Store {
             .find(|record| record.id == id)
             .cloned()
             .ok_or_else(|| StoreError::Db(format!("agent 不存在: id={id}")))?;
+        if target.engine == AgentEngineKind::Cli {
+            return Err(StoreError::Db(CLI_TENANT_RETIRED.to_owned()));
+        }
         for mut record in all {
             if record.is_default && record.id != id {
                 record.is_default = false;
