@@ -11,9 +11,9 @@
 Desktop 后端 SHALL 将「agent 执行」确立为第五类边界（agent 边界），并按 core/infra 分离落地为两个 crate：
 
 - `crates/core/agent`（裸名 `agent`）：**会话域内核**——会话域中立契约与内核编排：`AgentEvent` 词汇（delta/sealed 双层）、P1 引擎协议（会话建立 / question / stop / 观察回流）、会话状态机与收敛状态机（running → completed/failed/stopped）、seq/时间戳盖戳治理、停止注册（内存态）、write-through 持久化编排、查询契约与 port 定义。纯度原则修订（2026-10-01 裁定）：「纯类型无 IO」改写为「**无对外部世界的直接 IO、经 port**」——文件/进程/网络等直接 IO MUST NOT 出现，IO 一律经 core 定义的 port 由 infra 实现；进程内存原语（时钟盖戳、mpsc/Notify、内存注册表）不在禁令内。MUST NOT 依赖 Tauri，MUST NOT 执行进程 spawn，MUST NOT 认识 claude（不出现 claude 特有 flag 名与 JSONL 行解析），MUST NOT 认识引擎（不出现 engine / rig / openai 概念）；loop / memory / LLM 协议归 infra 不变。
-- `crates/infra/agent`（裸名 `agent-runtime`）：agent 边界的引擎门面与实现——对外以 `EngineKind`（`cli` | `sdk`）参数选择引擎，引擎分发 SHALL 为门面内唯一 match 点；内部承载 `cli/` 引擎（CLI 发现（Windows `.cmd`）、进程 spawn、stdout 逐行泵、JSONL 解析归一化）与 `sdk/` 引擎（rig 进程内租户：agent loop、自建工具面、静态权限 policy、路径沙箱、事件归一化、会话转录恢复）。SHALL 实现内核 port（含 store 持久面与查询面要求的落地）；MUST NOT 依赖 Tauri（进程 spawn 是 agent 边界自身的实现细节，非 shell 边界职责）；`rig`（rig-core 的 re-export facade，sdk-engine-gap-closure 自直连切换）SHALL 恒编译、MUST NOT 设 feature gate（SDK 引擎定位为不依赖本地环境的 agent，开箱即用，不提供 CLI-only 裁剪档；rig-core 经 facade 传递入树）。
+- `crates/infra/agent`（裸名 `agent-runtime`）：agent 边界的引擎门面与实现——对外以 `EngineKind`（`cli` | `sdk`）参数选择引擎（值域保留为多租户协议预留），引擎分发 SHALL 为门面内唯一 match 点；内部承载 `sdk/` 引擎（rig 进程内租户：agent loop、自建工具面、静态权限 policy、路径沙箱、事件归一化、会话转录恢复）。`cli/` 引擎（本机 Claude CLI 租户：CLI 发现（Windows `.cmd`）、进程 spawn、stdout 逐行泵、JSONL 解析归一化）实现 SHALL 随 retire-cli-engine 退役（`cli/` 模块删除；`EngineKind::Cli` 臂退役为显式 `Err("CLI 租户已下线")`，多租户机制保留——见「引擎门面与 EngineKind 参数选择」）。SHALL 实现内核 port（含 store 持久面与查询面要求的落地）；MUST NOT 依赖 Tauri（进程 spawn 是 agent 边界自身的实现细节，非 shell 边界职责）；`rig`（rig-core 的 re-export facade，sdk-engine-gap-closure 自直连切换）SHALL 恒编译、MUST NOT 设 feature gate（SDK 引擎定位为不依赖本地环境的 agent，开箱即用，不提供 CLI-only 裁剪档；rig-core 经 facade 传递入树）。
 
-依赖方向 SHALL 为：壳 crate → `agent` + `agent-runtime`，`agent-runtime → agent`；`agent` MUST NOT 依赖 workspace 内任何 crate（port 落点裁定的默认形态：core 定义 port、infra 实现，该规则保持不变；若 design 裁定 core 直依 store crate，须同步修订 desktop-crate-layout）。两 crate SHALL 注册进 `src-tauri/Cargo.toml` workspace members（rust 套件注册于 src-tauri 根，测试自动覆盖），且 MUST NOT 据此预建其他 infra 边界目录。单 crate 起步（`cli/`、`sdk/` 子模块收拢）；拆引擎子 crate + 门面 re-export 仅作膨胀后的逃生门，MUST NOT 预建。
+依赖方向 SHALL 为：壳 crate → `agent` + `agent-runtime`，`agent-runtime → agent`；`agent` MUST NOT 依赖 workspace 内任何 crate（port 落点裁定的默认形态：core 定义 port、infra 实现，该规则保持不变；若 design 裁定 core 直依 store crate，须同步修订 desktop-crate-layout）。两 crate SHALL 注册进 `src-tauri/Cargo.toml` workspace members（rust 套件注册于 src-tauri 根，测试自动覆盖），且 MUST NOT 据此预建其他 infra 边界目录。单 crate 起步（`sdk/` 子模块收拢）；拆引擎子 crate + 门面 re-export 仅作膨胀后的逃生门，MUST NOT 预建。
 
 #### Scenario: 依赖方向机械可验
 
@@ -24,12 +24,12 @@ Desktop 后端 SHALL 将「agent 执行」确立为第五类边界（agent 边�
 #### Scenario: core 不认识 claude 与引擎且无直接 IO
 
 - **WHEN** 审查 `crates/core/agent` 源码
-- **THEN** 无 claude 特有概念（flag 名、JSONL 行解析、claude 事件 type 名），亦无引擎概念（engine / rig / openai 字样）；无文件/进程/网络直接 IO 触点（IO 全经 port 签名表达）；claude 细节全部关在 `agent-runtime` 的 `cli/` 引擎内，rig / openai 细节全部关在 `sdk/` 引擎内
+- **THEN** 无 claude 特有概念（flag 名、JSONL 行解析、claude 事件 type 名），亦无引擎概念（engine / rig / openai 字样）；无文件/进程/网络直接 IO 触点（IO 全经 port 签名表达）；claude 细节零残留于源码（`cli/` 引擎已随 retire-cli-engine 退役），rig / openai 细节全部关在 `sdk/` 引擎内
 
 #### Scenario: spawn 住在 infra
 
 - **WHEN** 检索进程 spawn 调用（`std::process` / `tokio::process`）
-- **THEN** 仅出现在 `crates/infra/agent` 的 `cli/` 引擎子模块；`core/agent` 与壳 command 层无 spawn
+- **THEN** 仅出现在 `crates/infra/agent`（`sdk/` bash 工具执行体）；`core/agent` 与壳 command 层无 spawn
 
 #### Scenario: 引擎唯一分发点
 
@@ -43,7 +43,7 @@ Desktop 后端 SHALL 将「agent 执行」确立为第五类边界（agent 边�
 - **运行会话**：`run_session(New | Continue{id}, prompt)` 形状的会话建立与轮驱动——`New` 建立新会话，`Continue{id}` 以既有会话续发新一轮；返回 token 级增量流（思考/回复可辨）与可终止句柄。会话过程流式传输、能区分思考和回复、可终止。
 - **查询会话**：`query_sessions(...)` 形状的会话记录查询——会话清单（分页信封：`offset` / `limit` 区间 + 过滤集全量 `total`）与聚合统计（提问轮数、累计墙钟、累计 token 消耗；MVP 从轮统计行现算，MUST NOT 维护累计列，字段面可扩展）。
 
-session SHALL 为一等公民：会话 id 由 core 铸造；转录 = 会话全史（密封事件直挂 session，单表），resume 重建源 SHALL 为会话全史，MUST NOT 以单 run 事件拼凑转录。core SHALL 维护双 id 映射（core session id ↔ engine_handle）；engine_handle 经协议到达（spawn 响应或事件上报，见「P1 引擎协议不变量与缺省降级」）。会话 SHALL 存引擎/模型/权限档的**配置快照**而非跨库引用（`AgentInstanceRecord` 在全局库、session 在 workspace 库，禁跨库引用；实例改名/删除不伤历史会话）。会话 SHALL 承载来源归属（`SessionProvenance{source, source_ref}`，作 provenance/持久化记录用），但前端寻址与重放 SHALL 以 **`sessionId` 直查**（`session_detail`）为准，MUST NOT 经 `source` / `source_ref` 反查会话（`sourceRef` 反查取最近一条的路径退役；来源侧——如 explore 记录——持会话 id 并直接给出）。
+session SHALL 为一等公民：会话 id 由 core 铸造；转录 = 会话全史（密封事件直挂 session，单表），resume 重建源 SHALL 为会话全史，MUST NOT 以单 run 事件拼凑转录。core SHALL 维护双 id 映射（core session id ↔ engine_handle）；engine_handle 经协议到达（spawn 响应或事件上报，见「P1 引擎协议不变量与缺省降级」）。双 id 映射 SHALL 定位为**留痕**（「这轮落在哪个引擎侧会话」的引擎中立观测/考古事实，落库半边保留）；续会话寻址 SHALL 以会话 id + 全史转录重建为准，MUST NOT 以引擎句柄缺失阻断续会话（寻址硬门槛随 CLI 租户退役——`begin()` 不再对缺 `engine_session_id` 的会话报「无法续接」）。会话 SHALL 存引擎/模型/权限档/实例外键的**配置快照**而非跨库引用（`AgentInstanceRecord` 在全局库、session 在 workspace 库，禁跨库引用；实例改名/删除不伤历史会话；`agent_instance_id` 为快照复制值的显式关联键，见 desktop-workspace-store「SessionRecord 模型与会话转录单表」）。会话 SHALL 承载来源归属（`SessionProvenance{source, source_ref}`，作 provenance/持久化记录用），但前端寻址与重放 SHALL 以 **`sessionId` 直查**（`session_detail`）为准，MUST NOT 经 `source` / `source_ref` 反查会话（`sourceRef` 反查取最近一条的路径退役；来源侧——如 explore 记录——持会话 id 并直接给出）。
 
 #### Scenario: 新建会话运行
 
@@ -63,7 +63,7 @@ session SHALL 为一等公民：会话 id 由 core 铸造；转录 = 会话全�
 #### Scenario: 双 id 映射
 
 - **WHEN** 会话建立后引擎经 spawn 响应或事件上报 engine_handle
-- **THEN** core 记录 core session id ↔ engine_handle 双 id 映射，续轮与恢复按映射寻址
+- **THEN** core 记录 core session id ↔ engine_handle 双 id 映射（留痕落库）；续轮与恢复以会话 id + 全史转录寻址，映射缺失不阻断续会话
 
 ### Requirement: AgentEvent 信封与 loop 可见性
 
@@ -142,7 +142,7 @@ loop 调试关键信息 SHALL 在一等公民位：tool_use 与 tool_result 成�
 - **轮驱动**：question；**终止**：stop（`RunHandle` 竞态语义保留为默认形态，Stop 消息替代与否由 design 定稿）
 - **观察回流**：Delta / Sealed / Notice / Raw / TurnDone（见「AgentEvent 信封与 loop 可见性」）
 
-协议 SHALL 满足 P1 四不变量（流式可实现 / 统计口径唯一 / 唯一标识上报 / 注入轮分离，见「P1 引擎协议不变量与缺省降级」）。事件流 SHALL 以有界通道承载；抽象 SHALL 支持以假引擎（预录事件序列）替换真实引擎供内核与上层测试。多租户（本机 CLI / 进程内 SDK / 远程 API）SHALL 都能落在协议预留内——CLI 泵 stdout 生产流，SDK 进程内泵任务灌流，API 以轮询 / watch 模拟流；本变更实现 CLI 与 SDK（rig 进程内）两租户，远程 API 租户 MUST NOT 预建实现。协议参数面 MUST NOT 出现 engine / agent 概念——引擎选择住 infra 门面，core 契约零污染。
+协议 SHALL 满足 P1 四不变量（流式可实现 / 统计口径唯一 / 唯一标识上报 / 注入轮分离，见「P1 引擎协议不变量与缺省降级」）。事件流 SHALL 以有界通道承载；抽象 SHALL 支持以假引擎（预录事件序列）替换真实引擎供内核与上层测试。多租户（本机 CLI / 进程内 SDK / 远程 API）SHALL 都能落在协议预留内——CLI 泵 stdout 生产流，SDK 进程内泵任务灌流，API 以轮询 / watch 模拟流；当前实现 SDK（rig 进程内）单租户（CLI 租户实现已随 retire-cli-engine 退役、租户位保留），远程 API 租户 MUST NOT 预建实现。协议参数面 MUST NOT 出现 engine / agent 概念——引擎选择住 infra 门面，core 契约零污染。
 
 run 状态机 SHALL 位于 `core/agent`（治理面）：running → completed | failed | stopped，由 TurnDone（含 is_error）驱动收敛为 completed / failed，显式终止请求 SHALL 经独立收敛分支收敛为 `stopped`，收敛后 MUST NOT 再接受状态变更。
 
@@ -154,7 +154,7 @@ run 状态机 SHALL 位于 `core/agent`（治理面）：running → completed |
 #### Scenario: 假引擎可替换
 
 - **WHEN** 内核编排测试以预录事件序列的假引擎注入
-- **THEN** write-through 持久化 / 状态机收敛 / 会话轮推进全程可测，无需真实 CLI 进程或真实 SDK 调用
+- **THEN** write-through 持久化 / 状态机收敛 / 会话轮推进全程可测，无需任何真实引擎调用
 
 #### Scenario: 状态机收敛
 
@@ -163,15 +163,15 @@ run 状态机 SHALL 位于 `core/agent`（治理面）：running → completed |
 
 #### Scenario: 双引擎协议同构
 
-- **WHEN** SDK 与 CLI 引擎各自实现引擎协议并被同一内核编排消费
-- **THEN** 内核编排代码无引擎分支（零改动复用）；停止信号对两引擎同样生效
+- **WHEN** SDK 引擎与假引擎（预录序列，未来租户位）各自实现引擎协议并被同一内核编排消费
+- **THEN** 内核编排代码无引擎分支（零改动复用）；停止信号对各租户实现同样生效（多租户协议预留可考）
 
 ### Requirement: agent_stop 终止与提前 resolve
 
 命令面 SHALL 提供终止入口，发起命令 SHALL 维持提前 resolve 契约：
 
 - 发起命令 SHALL 在会话/轮记录落库并进入 running 后**提前 resolve**，返回 running 态记录（id 立即可知）；执行 SHALL 转入内核编排继续（内核持久面持有 store 收尾），终态记录经 Channel 以与实时事件同构的状态部件流出，MUST NOT 再依赖 invoke 返回携带终态。
-- 终止命令 SHALL 按运行中的会话活动轮寻址: 将轮状态收敛为受控终态 `stopped`、尽力终止引擎执行体（CLI 引擎为 Windows 进程树击杀（`cmd /C` 包装下 `taskkill /T` 或等价）；SDK 引擎为经停止信号取消泵任务（drop future）——机制由 design 定稿核实；寻址键（run/轮 id 沿用或会话键，root 消解跨库歧义保留）由 design 定稿）、经 Channel 流出终止终态部件（与实时事件同构）。`stopped` SHALL 与 `completed` / `failed` 同列受控终态（用户主动终止与引擎失败语义区分，收敛后 MUST NOT 再接受状态变更）。停止注册（内存态）收内核治理面。
+- 终止命令 SHALL 按运行中的会话活动轮寻址: 将轮状态收敛为受控终态 `stopped`、尽力终止引擎执行体（经停止信号取消泵任务（drop future）——机制由 design 定稿核实；寻址键（run/轮 id 沿用或会话键，root 消解跨库歧义保留）由 design 定稿）、经 Channel 流出终止终态部件（与实时事件同构）。`stopped` SHALL 与 `completed` / `failed` 同列受控终态（用户主动终止与引擎失败语义区分，收敛后 MUST NOT 再接受状态变更）。停止注册（内存态）收内核治理面。
 - 对非 running 目标（已终态或不存在）的终止 SHALL 幂等忽略，MUST NOT 报错崩溃或误改既有终态。
 - 停止后的重放 SHALL 与实时一致: 重放路径从会话转录（含 `stopped` 终态）还原与实时查看相同的呈现（终态部件同构）。
 
@@ -183,7 +183,7 @@ run 状态机 SHALL 位于 `core/agent`（治理面）：running → completed |
 #### Scenario: stop 收敛与引擎终止
 
 - **WHEN** 运行中 invoke 终止命令
-- **THEN** 轮状态收敛为 `stopped`，Channel 流出终止终态部件；CLI 运行的进程树被击杀（claude 子进程不再存活），SDK 运行的泵任务被取消（事件流终止、future drop）
+- **THEN** 轮状态收敛为 `stopped`，Channel 流出终止终态部件；运行的泵任务被取消（事件流终止、future drop），无孤儿泵残留
 
 #### Scenario: 幂等忽略
 
@@ -195,41 +195,9 @@ run 状态机 SHALL 位于 `core/agent`（治理面）：running → completed |
 - **WHEN** 停止一轮运行后重新打开该会话查看
 - **THEN** 重放呈现与停止时实时呈现一致（含 `stopped` 终态部件），续话以会话最新状态为准
 
-### Requirement: Claude CLI 租户（MVP）
-
-`agent-runtime` 的 `cli/` 引擎 SHALL 以本机 Claude Code CLI（`-p` 无头 + `--output-format stream-json --verbose`）实现 `AgentRunner`：
-
-- stream-json SHALL 是唯一线上格式（解析路径唯一）；text / json 格式 MUST NOT 进入实现
-- 环境档位 MUST NOT 进运行参数面：`AgentRunParams` 无 env 字段，`agent_start` 无 env 参数，运行恒走完整环境（default）；`--bare` flag MUST NOT 组装（bare 档与其认证前提提示已从调试页 / explore 页参数面移除）。run 记录 `env` 列保留（store 既有 schema），落库恒为 `"default"`
-- permission-mode SHALL 参数面三档（`default` / `acceptEdits` / `bypassPermissions`），默认 `bypassPermissions`（`--dangerously-skip-permissions`）——`-p` 默认 `default` 档下需审批工具直接被拒、看不到真实 loop，本机自有 repo 的调试页场景裁决以完整循环为默认
-- cwd SHALL 为当前 workspace root（隐含，不设参数）；model MUST NOT 进 MVP 参数面（继承用户 CLI 默认）
-- CLI 发现 SHALL 处理 Windows `.cmd` shim（`cmd /C` 包装或解析真实入口）；CLI 不可发现时 SHALL 显式报错（错误事件 / Err），MUST NOT 静默空转
-- **resume 续会话 SHALL 实现**：`AgentRunParams` 增可选 `resume_session_id: Option<String>`，非空时 flag 组装 `--resume <id>`（与 `-p` 组合即「以该 session 续发新一轮」）；`None` 时行为与既有 one-shot 完全一致。`--continue`（隐式续最近会话）MUST NOT 实现——续话一律显式 `session_id`，语义明确可追溯
-- 用户终止运行 SHALL 经 `agent_stop` 命令实现（进程树击杀与状态收敛见「agent_stop 终止与提前 resolve」，非 flag 面职责）；MVP MUST NOT 实现：`--continue` 隐式续会话、`--include-partial-messages` 增量流
-
-#### Scenario: flag 组装
-
-- **WHEN** 以 bypassPermissions 参数组装命令行
-- **THEN** 含 `-p --output-format stream-json --verbose --dangerously-skip-permissions`，不含 `--bare` 与 `--resume`
-
-#### Scenario: resume flag 组装
-
-- **WHEN** 以 `resume_session_id = Some("sess-1")` 组装命令行
-- **THEN** 参数含 `--resume sess-1`，其余 flag（`-p` / stream-json / `--verbose` / permission 档位）不变；`None` 时不出现 `--resume`
-
-#### Scenario: JSONL 逐行泵
-
-- **WHEN** 以多行 stream-json 输出 fixture 驱动 runner 解析（不经真实进程）
-- **THEN** 逐行归一化为 AgentEvent 序列且行间无串扰，进程退出后 run 收敛
-
-#### Scenario: Windows CLI 发现
-
-- **WHEN** PATH 上的 `claude` 为 `.cmd` shim
-- **THEN** spawn 成功（经 `cmd /C` 包装或解析后的真实入口）；CLI 不存在时得到显式错误而非静默空转
-
 ### Requirement: 引擎门面与 EngineKind 参数选择
 
-`agent-runtime` SHALL 作为 agent 引擎门面：对外一套应用协议（invoke 面 + 事件流 + 会话记录 + Timeline 渲染），经 `EngineKind`（`cli` | `sdk`）参数选择引擎；协议统一 SHALL 落在内核协议层而非各引擎私有形态。门面 SHALL 提供 `runner_for(kind, engine_cfg)` 形状的构造入口——`EngineConfig` 结构体形态（api_key / base_url / model 三件套）由组合根注入，SDK 引擎用以组装 rig client；CLI 引擎不消费 engine_cfg。**解析单点自命令层下沉至内核组合根**（desktop-agent-management「默认 agent 与运行发起解析」的落点平移，解析语义不变）：缺省路径解析默认 agent、显式路径按所选 agent 解析、产物为 `EngineKind` + `EngineConfig`（sdk 时由引用 provider 组装、model 取 provider 三档 high 档）。换解析落点时 `EngineConfig` 消费面 MUST NOT 变化。启动失败抹平：`AgentStartError` 的中性变体 `ConfigMissing` 承接 SDK 侧连接配置不齐等启动失败——core 唯一触碰点，变体集 MUST NOT 再增。
+`agent-runtime` SHALL 作为 agent 引擎门面：对外一套应用协议（invoke 面 + 事件流 + 会话记录 + Timeline 渲染），经 `EngineKind`（`cli` | `sdk`）参数选择引擎（值域保留为多租户协议预留，`Cli` 为退役态）；协议统一 SHALL 落在内核协议层而非各引擎私有形态。门面 SHALL 提供 `runner_for(kind, engine_cfg)` 形状的构造入口——`EngineConfig` 结构体形态（api_key / base_url / model 三件套）由组合根注入，SDK 引擎用以组装 rig client；`EngineKind::Cli` 臂 SHALL 退役为显式 `Err("CLI 租户已下线")` 形态（runner 构造失败面，具体形态——`Result` 包装或等价——由 design 定稿），**唯一 match 点结构与 `EngineKind` 双值 MUST NOT 塌**（多租户机制保留，未来本机 CLI / 远程 API 租户仍落协议预留）。**解析单点自命令层下沉至内核组合根**（desktop-agent-management「默认 agent 与运行发起解析」的落点平移，解析语义不变）：缺省路径解析默认 agent、显式路径按所选 agent 解析、产物为 `EngineKind` + `EngineConfig`（sdk 时由引用 provider 组装、model 取 provider 三档 high 档）；解析遇 `engine: Cli` 实例（缺省与显式路径同）SHALL 显式 `Err("CLI 租户已下线")`，MUST NOT 静默回退。换解析落点时 `EngineConfig` 消费面 MUST NOT 变化。启动失败抹平：`AgentStartError` 的中性变体 `ConfigMissing` 承接 SDK 侧连接配置不齐等启动失败——core 唯一触碰点，变体集 MUST NOT 再增。
 
 #### Scenario: 门面构造与 core 零污染
 
@@ -239,7 +207,12 @@ run 状态机 SHALL 位于 `core/agent`（治理面）：running → completed |
 #### Scenario: 解析点下沉零改动
 
 - **WHEN** 审查下沉后的组合根解析实现与门面签名
-- **THEN** 解析语义（默认 agent / 显式 agent / sdk provider 组装 / high 档 / 无默认 `Err`）与下沉前一致，`runner_for` 签名与 `EngineConfig` 结构体零 diff，命令层无引擎解析残留
+- **THEN** 解析语义（默认 agent / 显式 agent / sdk provider 组装 / high 档 / 无默认 `Err` / cli 实例 `Err`）与设计一致，`runner_for` 唯一 match 点结构与 `EngineConfig` 结构体零塌，命令层无引擎解析残留
+
+#### Scenario: cli 解析显式失败
+
+- **WHEN** 解析目标实例 `engine` 为 `cli`（缺省默认实例或显式选择的存量 cli 实例）
+- **THEN** 返回 `Err("CLI 租户已下线")`（文案引导管理页），不构造任何引擎、不落库不推流
 
 ### Requirement: SDK 引擎（rig 进程内租户）
 
@@ -326,7 +299,7 @@ SDK 引擎工具面 SHALL 增第七工具 `bash`，`RunStarted.tools` SHALL 报�
 
 - **档位归属**：Default 档拒绝、AcceptEdits / BypassPermissions 档放行（见「SDK 引擎静态权限与路径沙箱」的三档分化）；拒绝形态与 write/edit 同构（`SystemNotice{subtype:"permission_denied"}` + is_error=true ToolResult，run 不中断）
 - **进程执行**：`tokio::process`，cwd = workspace root，环境继承当前进程；shell 底座 Windows SHALL 优先探测 git-bash（unix 语法对模型成功率最高），探测失败退 `cmd /C` 兜底（不损开箱即跑）；unix 侧 `sh -c`
-- **停止语义**：`kill_on_drop(true)` + Windows 进程树清理复用 `cli/runner.rs` `kill_process_tree` 的 `taskkill /T /F` 形状（future drop 不自动杀子进程树；仅复用形状，`cli/` 文件零 diff）
+- **停止语义**：`kill_on_drop(true)` + Windows 进程树清理沿 `taskkill /T /F` 形状（原 `cli/runner.rs` `kill_process_tree` 同形，形状随 retire-cli-engine 迁驻 `sdk/bash.rs` 唯一持有；future drop 不自动杀子进程树）
 - **超时**：缺省 120s、钳位 [1s, 600s]——活性护栏，非安全护栏
 - **知情边界**：授权/沙箱/安全机制不进本期——BypassPermissions 默认档下 bash 即模型可执行任意命令、护栏为零；命令级白/黑名单、真沙箱、交互审批留后续 change（边界条款见「SDK 租户 MVP 边界与已知限制」）
 
@@ -489,7 +462,7 @@ agent 会话持久化 SHALL 以 **workspace 维度**落盘于所属 workspace �
 - 查询命令（现 `agent_runs` / `agent_run_events` / `agent_run_chain`）：演进为会话域查询薄包装（分页会话清单含聚合统计与 total 计数 / 会话转录重放 / 源过滤清单），参数含 root → workspace 库解析 → store/内核查询 → DTO；前端寻址与重放 SHALL 走 `session_detail` 单查（见「session_detail 单查面」）而非按来源反查取最近一条；旧 run 域命令的退役/收窄路径由 design 定稿
 - 终止命令（现 `agent_stop`）：见「agent_stop 终止与提前 resolve」；root 寻址保留
 
-错误约定沿用既有模板 `Result<T, String>`：CLI 不可发现、spawn 失败、SDK 引擎配置缺失（经 `AgentStartError` 中性变体）、无默认 agent 可解析、workspace 库打开失败等 SHALL 以 `Err` 抵达前端，MUST NOT 静默吞掉。
+错误约定沿用既有模板 `Result<T, String>`：spawn 失败、SDK 引擎配置缺失（经 `AgentStartError` 中性变体）、无默认 agent 可解析、存量 cli 实例解析（CLI 租户已下线）、workspace 库打开失败等 SHALL 以 `Err` 抵达前端，MUST NOT 静默吞掉。
 
 #### Scenario: 命令体薄包装
 
@@ -499,7 +472,7 @@ agent 会话持久化 SHALL 以 **workspace 维度**落盘于所属 workspace �
 #### Scenario: 来源与会话续接参数透传
 
 - **WHEN** explore 页以 `source="explore"`、`source_ref=null` 且携带记录回写的 `sessionId` 发起续轮
-- **THEN** 生成会话归属 `source="explore"` 且以该会话全史续接（SDK 走转录重建、CLI 走 engine_handle resume）；调试页 invoke（不传来源参数）生成的会话 `source="debug"`
+- **THEN** 生成会话归属 `source="explore"` 且以该会话全史续接（store 全史转录重建）；调试页 invoke（不传来源参数）生成的会话 `source="debug"`
 
 #### Scenario: agent 缺省与解析
 
@@ -513,7 +486,7 @@ agent 会话持久化 SHALL 以 **workspace 维度**落盘于所属 workspace �
 
 #### Scenario: 错误 reject 传达
 
-- **WHEN** CLI 不可发现、SDK 引擎配置缺失、无默认 agent 可解析或所属 workspace 库打开失败时发起运行
+- **WHEN** SDK 引擎配置缺失、解析目标为存量 cli 实例（CLI 租户已下线）、无默认 agent 可解析或所属 workspace 库打开失败时发起运行
 - **THEN** 前端收到 `Err(String)` 并可呈现，无静默成功
 
 ### Requirement: Agent 调试页
@@ -584,19 +557,19 @@ Agent 调试页历史区 SHALL 提供会话来源筛选：debug / change / 全�
 
 ### Requirement: 引擎泵一轮一命与 headless 无问收口
 
-`agent-runtime` 的 `cli/` 与 `sdk/` 引擎会话泵任务（`session_pump`）SHALL 服务**恰一个提问**：轮终态产出后泵任务 SHALL 返回（观察通道发送端随之释放 → 内核观测通道关闭）。泵 MUST NOT 回到提问接收等待下一轮（多问循环 MUST NOT 残留）；spawn 失败与停止路径的既有单轮终止语义 SHALL 保持不变。会话史 SHALL 不依赖泵内跨轮回灌（SDK 泵的跨轮 `history_slot` 随一轮一命移除；会话史唯一来源仍是 store 全史转录重建）。
+`agent-runtime` 的 `sdk/` 引擎会话泵任务（`session_pump`）SHALL 服务**恰一个提问**：轮终态产出后泵任务 SHALL 返回（观察通道发送端随之释放 → 内核观测通道关闭）。泵 MUST NOT 回到提问接收等待下一轮（多问循环 MUST NOT 残留）；spawn 失败与停止路径的既有单轮终止语义 SHALL 保持不变。会话史 SHALL 不依赖泵内跨轮回灌（SDK 泵的跨轮 `history_slot` 随一轮一命移除；会话史唯一来源仍是 store 全史转录重建）。
 
 `core/agent` 的 `drive` SHALL 保持「观测通道关闭（引擎侧单边 EOF）→ converge」为**唯一收口缝**，MUST NOT 引入状态机 break、stop select 或第二收口路径；内核测试假 runner 的引擎侧单边 EOF（`close_stream`）即该契约的测试面，真实泵 SHALL 履行同一契约。
 
 消费纪律：任何消费方对同一逻辑会话的每一轮 SHALL 经 `compose_turn → begin → open_session` 新开引擎会话（既有消费现实：chat Continue 与 walker 每步均如此）；泵返回后同一引擎会话通道上的提问送达 SHALL 走内核 ask 失败臂（failed 记因「轮提问送达失败（引擎侧已终止）」），MUST NOT 复活常驻泵。
 
-headless 禁 ask：CLI 引擎命令行组装 SHALL 追加 `--disallowedTools AskUserQuestion`，且 MUST 置于参数序列**末尾**（`--resume` 及其值之后——variadic flag 置中间会吞并后续参数）。无头 agent 需用户决策时 SHALL 以问题文本作为本轮最终消息收口（turnDone 正常收敛），MUST NOT 经 AskUserQuestion 工具中途提问；用户应答 SHALL 经既有 Continue 机制（`SessionRef::Continue` → store 取 `engine_session_id` → `--resume`）同会话续轮。SDK 引擎工具面为封闭清单（无 ask 类工具），MUST NOT 组装该 flag。
+headless 无问收口：无头 agent 需用户决策时 SHALL 以问题文本作为本轮最终消息收口（turnDone 正常收敛），MUST NOT 经 ask 类工具中途提问（SDK 引擎工具面为封闭清单，无 ask 类工具、无 disallowedTools 等 CLI flag 组装概念）；用户应答 SHALL 经既有 Continue 机制（`SessionRef::Continue` → store 全史转录重建）同会话续轮。
 
 注释口径：kernel / runner 的「逐轮等待提问 / 回到等待下一轮 / 逐轮驱动（ask 语义）」注释 SHALL 更新为一轮一命口径。
 
 #### Scenario: 泵单轮收口驱动内核 EOF converge
 
-- **WHEN** 引擎泵产出轮终态事件（CLI 进程退出 / SDK loop 收敛）
+- **WHEN** 引擎泵产出轮终态事件（SDK loop 收敛）
 - **THEN** 泵任务返回且观察通道发送端释放（观测通道 `recv` 返回 `None`），内核 `drive` 的观测循环以通道关闭退出并 converge（finish_turn + `TurnFinished` 流出、轮行落库终态、注册表除名）
 - **AND** 泵任务不再回到提问接收等待下一轮
 
@@ -608,36 +581,35 @@ headless 禁 ask：CLI 引擎命令行组装 SHALL 追加 `--disallowedTools Ask
 
 #### Scenario: disallowedTools flag 末尾组装
 
-- **WHEN** 以任意 permission 档位（含带 `--resume` 的续会话）组装 CLI 命令行
-- **THEN** 参数序列末尾两枚为 `--disallowedTools` 与 `AskUserQuestion`，位于 `--resume` 及其值之后，其余 flag（`-p` / stream-json / `--verbose` / permission 档位）不变
-- **AND** SDK 引擎的组装面无 disallowedTools 概念（工具面封闭清单本无 ask 工具）
+- **WHEN** 审查 SDK 引擎的工具面与命令组装面
+- **THEN** 工具面为封闭七工具清单（无 ask 类工具），组装面无 disallowedTools 概念（`--disallowedTools` 末位组装规则随 CLI 租户退役，历史 cli 会话转录不受影响）
 
 #### Scenario: 无问文本收口与同会话续轮
 
-- **WHEN** 无头 CLI agent 需要用户决策
-- **THEN** 该轮不发生 AskUserQuestion 工具调用，agent 以问题文本作为本轮最终消息收口（turnDone 正常 converge，终端消息到达消费方）
-- **AND** 用户应答后经 Continue（store 取 `engine_session_id` → `--resume`）同会话续轮，前轮全史在场（walker 决策环与 chat 面既有路径）
+- **WHEN** 无头 agent 需要用户决策
+- **THEN** 该轮不发生 ask 类工具调用，agent 以问题文本作为本轮最终消息收口（turnDone 正常 converge，终端消息到达消费方）
+- **AND** 用户应答后经 Continue（store 全史转录重建）同会话续轮，前轮全史在场（walker 决策环与 chat 面既有路径）
 
 #### Scenario: 停止与 spawn 失败语义保持
 
-- **WHEN** 泵轮中途收到停止信号，或 spawn 失败（CLI 缺失）
-- **THEN** 既有语义不变：停止路径不合成收敛、击杀缝被调、轮收敛 `stopped`；spawn 失败以合成收敛事件 failed 记因且泵终止
+- **WHEN** 泵轮中途收到停止信号，或 spawn 失败（SDK 启动失败）
+- **THEN** 既有语义不变：停止路径不合成收敛、终止缝被调、轮收敛 `stopped`；spawn 失败以合成收敛事件 failed 记因且泵终止
 - **AND** 两路径均为单轮终止，与一轮一命语义同形，无回归
 
 ### Requirement: MVP 边界与已知限制
 
 以下边界 SHALL 作为 MVP 显式限制留痕（后续变更偿还，不由实现隐式吸收）：
 
-1. **kill 已实现（偿还「无 kill」限制）**：`agent_stop` 提供终止入口（见「agent_stop 终止与提前 resolve」）；残余限制——进程树击杀失败时 claude 子进程可能残留（Windows 尤甚），应用中途关闭时的孤儿进程仍为已知限制
-2. **续会话经 resume 落地**：`--resume <session_id>` 随 explore 会话链实现（见「Claude CLI 租户（MVP）」）；`--continue` 隐式续会话 MUST NOT 实现；调试页自身仍不提供 resume 入口（续话仅 explore 会话链消费）
+1. **kill 已实现（偿还「无 kill」限制）**：`agent_stop` 提供终止入口（见「agent_stop 终止与提前 resolve」）；残余限制——bash 工具进程树清理失败时子进程可能残留，应用中途关闭时的孤儿进程仍为已知限制
+2. **续会话经转录重建落地**：续会话以 store 全史转录重建为唯一重建源（见「SDK 引擎 resume（store 即会话）」）；`--continue` 隐式续会话语义（CLI 时代）随 CLI 租户退役；调试页自身仍不提供 resume 入口（续话仅 explore 会话链消费）
 3. **留存无清理**：事件转录无上限增长
-4. **交互工具限制（agent-turn-eof 修订）**：headless CLI 运行 SHALL 显式禁用 AskUserQuestion（`--disallowedTools AskUserQuestion`，见「引擎泵一轮一命与 headless 无问收口」）——agent 需用户决策时以问题文本作为本轮最终消息收口，应答经 Continue（`--resume`）同会话续轮；explore / chat 页对转录中既存 AskUserQuestion ToolUse 的静态可读卡渲染（问题/选项原样呈现）与 composer 文本输入续话呈现不变；questionnaire 组件接线为二期
+4. **交互工具限制（agent-turn-eof 修订）**：SDK 工具面为封闭清单（无 ask 类工具，见「引擎泵一轮一命与 headless 无问收口」）——agent 需用户决策时以问题文本作为本轮最终消息收口，应答经 Continue（store 全史转录重建）同会话续轮；explore / chat 页对转录中既存 AskUserQuestion ToolUse 的静态可读卡渲染（问题/选项原样呈现）与 composer 文本输入续话呈现不变；questionnaire 组件接线为二期
 5. **bypassPermissions 默认**：deny 规则仍生效；agent 运行可在 workspace 内无审批改动文件——本裁决限于本机自有 repo 的调试场景
 
 #### Scenario: 终止入口可用
 
 - **WHEN** 审查调试页与 explore 页
-- **THEN** 运行中提供停止入口且触发 `agent_stop`；进程树击杀失败时的孤儿进程残余留痕于本 spec
+- **THEN** 运行中提供停止入口且触发 `agent_stop`；进程树清理失败时的孤儿进程残余留痕于本 spec
 
 #### Scenario: 限制留痕可考
 
