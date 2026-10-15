@@ -2620,6 +2620,8 @@ fn 真件phase_next锚点基线平移_首见与复见与run隔离() {
         None,
         t(1),
     );
+    // 历史 fail 挂决策标记（已决形态）：未决 fail 会被 verdict-fail 决策分叉
+    // 捕获，本用例聚焦锚点 / round 语义
     corpus.run_phase(
         "id-demo-change",
         "dev-design",
@@ -2630,6 +2632,10 @@ fn 真件phase_next锚点基线平移_首见与复见与run隔离() {
         None,
         t(2),
     );
+    corpus
+        .store
+        .amend_change_decision_session("id-demo-change", "dev-design", "sess-seed-1")
+        .expect("决策挂账种子应成功");
     corpus.run_phase(
         "id-demo-change",
         "dev-design",
@@ -2640,6 +2646,10 @@ fn 真件phase_next锚点基线平移_首见与复见与run隔离() {
         None,
         t(3),
     );
+    corpus
+        .store
+        .amend_change_decision_session("id-demo-change", "dev-design", "sess-seed-2")
+        .expect("决策挂账种子应成功");
 
     let anchors = SessionAnchors::new();
     let first = phase_next(&corpus.store, "id-demo-change", "run-a", &anchors).expect("路由应成功");

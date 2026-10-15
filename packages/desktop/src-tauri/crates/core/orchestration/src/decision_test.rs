@@ -215,6 +215,7 @@ fn decision_input有界组装边界形态构造合法() {
         fail_checklist: Vec::new(),
         allowed: Vec::new(),
         candidates: Vec::new(),
+        eval_only: false,
     };
     assert_eq!(empty.phase, "implement");
     assert!(empty.fail_checklist.is_empty() && empty.allowed.is_empty());
@@ -241,6 +242,7 @@ fn decision_input有界组装边界形态构造合法() {
             verdict: Some(Verdict::Pass),
             report: Some("提案通过".to_owned()),
         }],
+        eval_only: true,
     };
     assert_eq!(full.fail_checklist.len(), 2);
     assert_eq!(

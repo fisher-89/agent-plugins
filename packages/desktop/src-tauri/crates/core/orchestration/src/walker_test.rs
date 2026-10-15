@@ -805,6 +805,39 @@ fn max_retries_outcome(phase: &str, allowed: &[&str], last_report: &str) -> Phas
         error: Some(PhaseNextError::MaxRetriesExceeded {
             phase: phase.to_owned(),
             round: 6,
+            eval_only: false,
+        }),
+    }
+}
+
+/// 预录 verdict fail 决策分叉产出（第 1 条 fail 即分叉的形态：round=2 =
+/// 首条 fail 落账后的次轮；eval_only 按 phase 形态给定——决策 prompt 指引段
+/// 分派键；其余面与 max_retries_outcome 同形）。
+fn verdict_fail_outcome(
+    phase: &str,
+    allowed: &[&str],
+    last_report: &str,
+    eval_only: bool,
+) -> PhaseNextOutcome {
+    PhaseNextOutcome {
+        done: false,
+        next_phase: None,
+        round: 2,
+        steps: Vec::new(),
+        artifact_manifest: Vec::new(),
+        executor: None,
+        evaluator: None,
+        allowed_backtrack_phases: allowed.iter().map(|id| id.to_string()).collect(),
+        last_result: Some(LastResult {
+            phase: phase.to_owned(),
+            verdict: Verdict::Fail,
+            report: last_report.to_owned(),
+            timestamp: None,
+        }),
+        error: Some(PhaseNextError::VerdictFail {
+            phase: phase.to_owned(),
+            round: 2,
+            eval_only,
         }),
     }
 }
@@ -1913,17 +1946,11 @@ async fn 真实写面组合全程演进对照一致() {
     );
 }
 
-/// walk_run 重入自 active_phase 续走（AC-7 续走半边）：预置中段 db 种子
-///（前序相位已落 pass、active_phase 指向中段）——发起 run 首次 phase-next 即
-/// 解析到 active_phase、已 pass 相位零 phase-start / executor 调用；中断相位
-/// 承接重试（attempt 2）而非新开回合。
 #[tokio::test]
 async fn 重入自active_phase续走不重跑已pass相位() {
     let root = TempRoot::new("resume");
     root.change(NAME);
     let db = TestDb::open("resume");
-    // 中段种子：proposal 已 pass、test-design 及其后已 pass、dev-design
-    // 中断残留（1 条 fail），再开相 dev-design（attempt 事务内推导 = 2）
     seed_change(db.store.as_ref(), CHANGE_ID, NAME);
     seed_entry(
         db.store.as_ref(),
@@ -1943,6 +1970,9 @@ async fn 重入自active_phase续走不重跑已pass相位() {
         Vec::new(),
         TS_BASE + 60_000,
     );
+    db.store
+        .amend_decision_session(CHANGE_ID, "dev-design", "sess-decision-seed")
+        .expect("种子决策挂账应成功");
     seed_entry(
         db.store.as_ref(),
         CHANGE_ID,
@@ -2077,9 +2107,6 @@ async fn 重入自active_phase续走不重跑已pass相位() {
 // AC-1 fail 重试 / AC-2 决策分叉
 // ---------------------------------------------------------------------------
 
-/// walk_run fail 预算内重试：verdict=fail 且 phase-next 返回同相位重试 →
-/// attempt 递增重跑 executor / evaluator；重试上限判定不自建（写面 phase-next
-/// 权威返回——脚本直接给 done 收敛，walker 未自数 fail 次数）。
 #[tokio::test]
 async fn fail预算内重试attempt递增重跑() {
     let timeline = Arc::new(Mutex::new(Vec::new()));
@@ -2206,6 +2233,135 @@ async fn 决策分叉唤起恰一次且输入有界() {
     let _ = sessions;
 }
 
+/// walk_run verdict fail 决策分叉：phase-next 返回 VerdictFail（任意相位第
+/// 1 条未决 verdict fail——本用例为 code-review，评估-only 形态）→ 立即唤起
+/// 决策 agent（不自走同相位重跑），prompt 携评估-only 指引段（retry 仅重评
+/// 不修复）；决策 retry → 同相位重跑恰一次（evaluator attempt 1 → 2）。
+#[tokio::test]
+async fn verdict_fail分叉立即唤起决策_retry决议重跑同相位() {
+    // db 种子：proposal / implement pass + code-review fail（决策输入读源）
+    let root = TempRoot::new("eval-only-decision");
+    root.change(NAME);
+    let db = TestDb::open("eval-only-decision");
+    seed_change(db.store.as_ref(), CHANGE_ID, NAME);
+    seed_entry(
+        db.store.as_ref(),
+        CHANGE_ID,
+        "proposal",
+        Verdict::Pass,
+        "提案通过",
+        Vec::new(),
+        TS_BASE,
+    );
+    seed_entry(
+        db.store.as_ref(),
+        CHANGE_ID,
+        "implement",
+        Verdict::Pass,
+        "实现齐备",
+        Vec::new(),
+        TS_BASE + 60_000,
+    );
+    seed_entry(
+        db.store.as_ref(),
+        CHANGE_ID,
+        "code-review",
+        Verdict::Fail,
+        "审查未过",
+        vec![ChecklistItem {
+            item: "错误处理".to_owned(),
+            pass: false,
+            evidence: "unwrap 裸用 3 处".to_owned(),
+        }],
+        TS_BASE + 120_000,
+    );
+
+    let allowed = [
+        "proposal",
+        "dev-design",
+        "test-design",
+        "implement",
+        "test-gen",
+        "test-execution",
+        "code-review",
+    ];
+    let timeline = Arc::new(Mutex::new(Vec::new()));
+    let (worker, requests, _) = FakeWorker::new(&timeline)
+        .with_decision_reports(vec![r#"{ "action": "retry" }"#.to_owned()])
+        .assemble();
+    let (tools, commands) = FakeTools::new(&timeline)
+        .with_phase_next(vec![
+            // 首轮正常路由（白名单缓存面）→ 相位 pass 落账 → 次轮分叉错误 →
+            // 决策 retry → 重路由同相位 → 重跑 pass → done
+            route_outcome("code-review", &allowed),
+            verdict_fail_outcome("code-review", &allowed, "审查未过", true),
+            route_outcome("code-review", &allowed),
+            done_outcome(),
+        ])
+        .assemble();
+
+    let snapshot: Arc<dyn WorkflowSnapshotPort> =
+        Arc::new(StoreSnapshot::new(root.root_str(), db.store_arc()));
+    let control = Arc::new(ChangeFlowControl::new());
+
+    let (task, _rx, _history) =
+        spawn_run(worker, tools, snapshot, &control, false, &root.root_str());
+    let _confirmer = spawn_confirmer(&control, true);
+    let status = task.await.expect("run 任务正常结束");
+    assert_eq!(
+        status,
+        ChangeRunStatus::Completed,
+        "评估-only fail → 决策 retry → 重跑 pass → done"
+    );
+
+    let requests = requests.lock().expect("请求锁");
+
+    // 决策 agent 恰唤起一次：prompt 携评估-only 指引段 + db fail checklist
+    let decision_requests: Vec<&WorkerTurnRequest> = requests
+        .iter()
+        .filter(|request| request.role == WorkerRole::Decision)
+        .collect();
+    assert_eq!(decision_requests.len(), 1, "决策 agent 恰唤起一次");
+    let prompt = &decision_requests[0].prompt;
+    assert!(
+        prompt.contains("评估-only 相位（无 executor）")
+            && prompt.contains("retry 仅会重新评估同一份产物、不会修复"),
+        "评估-only 指引段在场（重试重评 vs 回退修复的语义锚）: {prompt}"
+    );
+    assert!(
+        prompt.contains("错误处理") && prompt.contains("unwrap 裸用 3 处"),
+        "fail checklist（item + evidence）自 db 快照随行: {prompt}"
+    );
+
+    // 决策 retry → 同相位重跑恰一次：code-review evaluator attempt 1 → 2
+    let evaluator_attempts: Vec<String> = requests
+        .iter()
+        .filter(|request| request.role == WorkerRole::Evaluator)
+        .filter_map(|request| request.provenance.source_ref.as_deref())
+        .filter(|source_ref| source_ref.contains("code-review/evaluator"))
+        .map(str::to_owned)
+        .collect();
+    assert_eq!(
+        evaluator_attempts,
+        vec![
+            format!("{CHANGE_ID}/code-review/evaluator/1"),
+            format!("{CHANGE_ID}/code-review/evaluator/2"),
+        ],
+        "evaluator 两轮（首轮 pass 落账后次轮分叉为装置预录，决策 retry 重跑一轮）"
+    );
+    drop(requests);
+
+    // retry 决议零 backtrack 步
+    assert!(
+        commands
+            .lock()
+            .expect("命令锁")
+            .iter()
+            .all(|command| !matches!(command, ToolCommand::Backtrack { .. })),
+        "retry 决议零 backtrack 步"
+    );
+}
+
 /// walk_run backtrack 决议执行：决议 backtrack（to ∈ 白名单）→ ToolCommand::
 /// Backtrack 携 allowed 白名单发起 → 目标相位自该处重跑（AC-2 执行半边）。
 #[tokio::test]
@@ -2291,10 +2447,12 @@ async fn backtrack决议携白名单执行并重路由() {
     );
 }
 
-/// walk_run retry 预算内自走（边界）：预算内 fail 重试全程决策 agent 零调用
-///（phase-next 恒同相位重试，walker 自走——AC-2 尾句）。
+/// walk_run 决策分叉触发红线（边界）：phase-next 响应无 error 时全程决策
+/// agent 零调用——决策只由路由权威（phase_next 分叉触发）唤起，walker 不自
+/// 持「fail 即决策」转移规则（fail→分叉判定驻写面；本用例假路由恒正常下发，
+/// 对 walker 侧零自走决策的红线对照）。
 #[tokio::test]
-async fn retry预算内决策agent零调用() {
+async fn 路由无error全程决策agent零调用() {
     let timeline = Arc::new(Mutex::new(Vec::new()));
     let (worker, requests, _) = FakeWorker::new(&timeline)
         .with_evaluator_reports(vec![
@@ -2326,7 +2484,7 @@ async fn retry预算内决策agent零调用() {
             .expect("请求锁")
             .iter()
             .all(|request| request.role != WorkerRole::Decision),
-        "预算内 fail 重试全程决策 agent 零调用（walker 自走）"
+        "路由无 error 全程决策 agent 零调用（决策只由 phase_next 分叉触发唤起）"
     );
 }
 
@@ -3232,8 +3390,9 @@ async fn verdict解析失败反馈边修复_续注同evaluator会话重解析() 
 
 /// verdict 解析失败反馈边超限升格（真实写面组合）：5 attempt ×（首发 + 5 修复）
 /// 连续解析失败 → 每 attempt 超限代写 fail phase-log（executor + evaluator 双
-/// 槽位）→ 重试预算耗尽决策 stop 收敛。evaluator 队列恰 30 垃圾（精确值——
-/// 假件耗尽回落 PASS_JSON，多给掩盖 off-by-one）。
+/// 槽位）→ 每轮 fail 决策分叉（retry ×4 兑现重跑）→ 第 5 轮决策 stop 收敛。
+/// evaluator 队列恰 30 垃圾（精确值——假件耗尽回落 PASS_JSON，多给掩盖
+/// off-by-one）。
 #[tokio::test]
 async fn 真实写面组合_verdict解析失败反馈边超限_升格双槽位决策stop() {
     let root = TempRoot::new("verdict-upgrade");
@@ -3246,6 +3405,10 @@ async fn 真实写面组合_verdict解析失败反馈边超限_升格双槽位�
     let (worker, _requests, sessions) = FakeWorker::new(&timeline)
         .with_evaluator_reports(vec![Ok(garbage.clone()); 30])
         .with_decision_reports(vec![
+            r#"{ "action": "retry" }"#.to_owned(),
+            r#"{ "action": "retry" }"#.to_owned(),
+            r#"{ "action": "retry" }"#.to_owned(),
+            r#"{ "action": "retry" }"#.to_owned(),
             r#"{ "action": "stop", "reason": "评估输出修复与重试预算均耗尽" }"#.to_owned(),
         ])
         .assemble();
@@ -3293,11 +3456,12 @@ async fn 真实写面组合_verdict解析失败反馈边超限_升格双槽位�
         );
     }
     let decisions = sessions_of(&sessions, WorkerRole::Decision);
-    assert_eq!(decisions.len(), 1, "决策会话恰一轮");
+    assert_eq!(decisions.len(), 5, "每轮 fail 各一轮决策（4 retry + 1 stop）");
     drop(sessions);
 
     // fail 条目：五轮升格代写——report 携升格、item 为评估输出格式、双槽位
-    // 在场（区别于 static-check 升格仅 executor 单槽）；最新条目携决策挂账键
+    // 在场（区别于 static-check 升格仅 executor 单槽）；每轮决策收口后其条目
+    // 定点挂账（verdict 落账时 decision 槽位恒缺省，挂账经 decision_log 单点）
     let entries = db
         .store
         .list_phase_records(CHANGE_ID)
@@ -3330,14 +3494,13 @@ async fn 真实写面组合_verdict解析失败反馈边超限_升格双槽位�
             "fail 条目携 evaluator 槽位、值续注该 attempt 首发会话"
         );
     }
-    for entry in entries.iter().take(4) {
-        assert!(entry.decision_session_id.is_none());
+    for (idx, entry) in entries.iter().enumerate() {
+        assert_eq!(
+            entry.decision_session_id.as_deref(),
+            Some(decisions[idx].as_str()),
+            "每轮决策收口后其 fail 条目定点挂账"
+        );
     }
-    assert_eq!(
-        entries[4].decision_session_id.as_deref(),
-        Some(decisions[0].as_str()),
-        "决策收口后最新 fail 条目定点挂账"
-    );
 }
 
 /// walk_run 步状态流出上图（正向）：全程每步 emit RunUpdate::Step
@@ -3632,6 +3795,10 @@ async fn 真实写面组合_会话槽位落账与决策挂账全链对应() {
             Ok(fail_json("五")),
         ])
         .with_decision_reports(vec![
+            r#"{ "action": "retry" }"#.to_owned(),
+            r#"{ "action": "retry" }"#.to_owned(),
+            r#"{ "action": "retry" }"#.to_owned(),
+            r#"{ "action": "retry" }"#.to_owned(),
             r#"{ "action": "stop", "reason": "预算耗尽人工介入" }"#.to_owned(),
         ])
         .assemble();
@@ -3655,14 +3822,19 @@ async fn 真实写面组合_会话槽位落账与决策挂账全链对应() {
     let status = task.await.expect("run 任务正常结束");
     assert_eq!(status, ChangeRunStatus::Stopped, "决策 stop 收敛受控停止");
 
-    // 假引擎会话序（槽位值对应断言的事实源）：executor / evaluator 交替五轮 + 决策一轮
+    // 假引擎会话序（槽位值对应断言的事实源）：executor / evaluator 交替五轮；
+    // 每轮 fail 各一轮决策（前 4 retry 兑现重跑 + 末轮 stop）
     let sessions = sessions.lock().expect("会话登记锁");
     let executors = sessions_of(&sessions, WorkerRole::Executor);
     let evaluators = sessions_of(&sessions, WorkerRole::Evaluator);
     let decisions = sessions_of(&sessions, WorkerRole::Decision);
     assert_eq!(executors.len(), 5, "五轮 executor（每 attempt 一会话）");
     assert_eq!(evaluators.len(), 5, "五轮 evaluator");
-    assert_eq!(decisions.len(), 1, "决策会话恰一轮（收口即 completed）");
+    assert_eq!(
+        decisions.len(),
+        5,
+        "每轮 fail 各一轮决策（4 retry + 1 stop）"
+    );
     drop(sessions);
 
     // verdict 条目落库：executor / evaluator 槽位与会话序逐一对应（取值自
@@ -3686,18 +3858,15 @@ async fn 真实写面组合_会话槽位落账与决策挂账全链对应() {
             "evaluator 槽位随行落账"
         );
     }
-    // verdict 落账时 decision 槽位恒缺省（D5）；决策收口后最新条目定点挂账
-    for entry in entries.iter().take(4) {
-        assert!(
-            entry.decision_session_id.is_none(),
-            "verdict 条目落账无 decision 槽位"
+    // verdict 落账时 decision 槽位恒缺省（D5）；每轮决策收口后其条目经
+    // decision_log 写面单点定点挂账
+    for (idx, entry) in entries.iter().enumerate() {
+        assert_eq!(
+            entry.decision_session_id.as_deref(),
+            Some(decisions[idx].as_str()),
+            "决策会话收口后其 id 记录在案（walk_run → LocalToolSteps → decision_log 写面）"
         );
     }
-    assert_eq!(
-        entries[4].decision_session_id.as_deref(),
-        Some(decisions[0].as_str()),
-        "决策会话收口后其 id 记录在案（walk_run → LocalToolSteps → decision_log 写面）"
-    );
 }
 
 /// 挂账先于决策解析（真实组合链留痕）：决策会话产出漂移文本 → parse 失败路
@@ -3719,7 +3888,13 @@ async fn 真实写面组合_决策挂账先于解析_parse失败同样留痕() {
             Ok(fail_json("四")),
             Ok(fail_json("五")),
         ])
-        .with_decision_reports(vec!["不是决策 JSON".to_owned()])
+        .with_decision_reports(vec![
+            r#"{ "action": "retry" }"#.to_owned(),
+            r#"{ "action": "retry" }"#.to_owned(),
+            r#"{ "action": "retry" }"#.to_owned(),
+            r#"{ "action": "retry" }"#.to_owned(),
+            "不是决策 JSON".to_owned(),
+        ])
         .assemble();
     let steps: Arc<dyn ToolStepPort> = Arc::new(LocalToolSteps::new(
         Arc::new(SessionAnchors::new()),
@@ -3757,10 +3932,10 @@ async fn 真实写面组合_决策挂账先于解析_parse失败同样留痕() {
         finish.reason
     );
 
-    // 留痕：最新 fail 条目已携决策会话 id
+    // 留痕：最新 fail 条目已携决策会话 id（第 5 轮决策输出漂移文本）
     let sessions = sessions.lock().expect("会话登记锁");
     let decisions = sessions_of(&sessions, WorkerRole::Decision);
-    assert_eq!(decisions.len(), 1);
+    assert_eq!(decisions.len(), 5, "每轮 fail 各一轮决策（末轮输出漂移文本）");
     drop(sessions);
     let entries = db
         .store
@@ -3769,7 +3944,7 @@ async fn 真实写面组合_决策挂账先于解析_parse失败同样留痕() {
     assert_eq!(entries.len(), 5);
     assert_eq!(
         entries[4].decision_session_id.as_deref(),
-        Some(decisions[0].as_str()),
+        Some(decisions[4].as_str()),
         "parse 失败路径同样留痕"
     );
 }
@@ -3815,6 +3990,10 @@ async fn 真实写面组合_升格fail条目仅携executor槽位且修复轮续�
     let timeline = Arc::new(Mutex::new(Vec::new()));
     let (worker, requests, sessions) = FakeWorker::new(&timeline)
         .with_decision_reports(vec![
+            r#"{ "action": "retry" }"#.to_owned(),
+            r#"{ "action": "retry" }"#.to_owned(),
+            r#"{ "action": "retry" }"#.to_owned(),
+            r#"{ "action": "retry" }"#.to_owned(),
             r#"{ "action": "stop", "reason": "反馈边与重试预算均耗尽" }"#.to_owned(),
         ])
         .assemble();
@@ -3850,7 +4029,7 @@ async fn 真实写面组合_升格fail条目仅携executor槽位且修复轮续�
         "升格路径零 evaluator 会话（前置相位已预置 pass，本 run 仅 implement 站）"
     );
     let decisions = sessions_of(&sessions, WorkerRole::Decision);
-    assert_eq!(decisions.len(), 1);
+    assert_eq!(decisions.len(), 5, "每轮升格 fail 各一轮决策（4 retry + 1 stop）");
     let executor_sessions = sessions_of(&sessions, WorkerRole::Executor);
     assert_eq!(
         executor_sessions.len(),
@@ -3904,14 +4083,13 @@ async fn 真实写面组合_升格fail条目仅携executor槽位且修复轮续�
         );
         assert!(entry.evaluator_session_id.is_none(), "evaluator 未跑无槽位");
     }
-    for entry in upgrades.iter().take(4) {
-        assert!(entry.decision_session_id.is_none());
+    for (idx, entry) in upgrades.iter().enumerate() {
+        assert_eq!(
+            entry.decision_session_id.as_deref(),
+            Some(decisions[idx].as_str()),
+            "每轮决策收口后其升格 fail 条目定点挂账"
+        );
     }
-    assert_eq!(
-        upgrades[4].decision_session_id.as_deref(),
-        Some(decisions[0].as_str()),
-        "决策收口后最新 fail 条目定点挂账"
-    );
 }
 
 /// 决策会话收口即挂账（假写面 DecisionLog 臂适配）：ToolCommand::DecisionLog
@@ -4178,7 +4356,8 @@ async fn 步状态词汇零新增_决策挂账全程无新步信封() {
 // 装置：无产出快照占位（假双缝用例不触快照面——决策分叉用例另用真实 StoreSnapshot）
 // ---------------------------------------------------------------------------
 
-/// 决策分叉未触发的用例的快照占位（walker 仅在 MaxRetriesExceeded 分叉读快照）。
+/// 决策分叉未触发的用例的快照占位（walker 仅在决策分叉触发点——重试上限 /
+/// 评估-only fail——读快照）。
 struct StubSnapshot;
 
 impl WorkflowSnapshotPort for StubSnapshot {

@@ -61,8 +61,14 @@ pub fn decision_prompt(input: &DecisionInput) -> String {
         })
         .collect::<Vec<_>>()
         .join("\n");
+    // 相位 retry 语义指引段
+    let retry_note = if input.eval_only {
+        "\n该相位为评估-only 相位（无 executor）：retry 仅会重新评估同一份产物、不会修复——若失败项须通过修改代码 / 产物解决，应 backtrack 到对应前置相位。"
+    } else {
+        "\n该相位带 executor：retry 将携失败清单重新执行本相位修复；若失败根因在上游产物（设计 / 规格缺陷），应 backtrack 到对应前置相位。"
+    };
     format!(
-        "相位「{phase}」第 {attempt} 次 attempt 评估失败，需要你做出路由决策。\n\n\
+        "相位「{phase}」第 {attempt} 次 attempt 评估失败，需要你做出路由决策。{retry_note}\n\n\
 ## 失败清单\n\n{fail_items}\n\n\
 ## 可回溯白名单（仅可从中选择 backtrack 目标）\n\n{allowed}\n\n\
 ## 候选相位最近一次评估报告\n\n{candidates}\n\n\

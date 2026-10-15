@@ -34,12 +34,20 @@ impl SessionAnchors {
     }
 }
 
-/// 路由错误封闭集：重试上限是决策 agent 的唤起触发点（其余失败路径一律
-/// `Err` 串走显式失败）。
+/// 路由错误封闭集：verdict fail（未决）与重试上限标注是决策 agent 的两个
+/// 唤起触发点（其余失败路径一律 `Err` 串走显式失败）。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PhaseNextError {
-    /// 相位连续 fail 达重试上限（决策分叉）
-    MaxRetriesExceeded { phase: String, round: u32 },
+    MaxRetriesExceeded {
+        phase: String,
+        round: u32,
+        eval_only: bool,
+    },
+    VerdictFail {
+        phase: String,
+        round: u32,
+        eval_only: bool,
+    },
 }
 
 /// 最近一次评估条目快照（决策输入面）。
@@ -173,22 +181,42 @@ pub fn phase_next(
         .iter()
         .filter(|entry| entry.phase == next.id && entry.verdict == Verdict::Fail)
         .count() as u32;
-    if window_fails >= MAX_RETRY_TIMES {
-        return Ok(PhaseNextOutcome {
-            done: false,
-            next_phase: None,
+    // 决策已决防重触发：本相位最新 fail 条目已挂决策会话（决策分叉后决策
+    // agent 选了 retry）→ 同一条目不再重复触发决策，放行恰一次同相位重跑
+    //——否则 retry 决议会陷入 phase-next ↔ 决策空转，相位永不重执行。新
+    // 落账的 fail 条目无决策标记，触发点对新条目照常生效。
+    let latest_fail =
+        latest_phase_entry(&entries, next.id).filter(|entry| entry.verdict == Verdict::Fail);
+    let fail_decided = latest_fail.is_some_and(|entry| entry.decision_session_id.is_some());
+    // 失败相位是否评估-only（executor 缺席而 evaluator 在场）：决策 prompt
+    // 指引段的分派键——retry 的真实语义（仅重评 vs 携失败清单重跑修复）。
+    let eval_only = next.executor.is_none() && next.evaluator.is_some();
+    if window_fails >= MAX_RETRY_TIMES && !fail_decided {
+        return Ok(error_outcome(
             round,
-            steps: Vec::new(),
-            artifact_manifest: Vec::new(),
-            executor: None,
-            evaluator: None,
-            allowed_backtrack_phases: Vec::new(),
             last_result,
-            error: Some(PhaseNextError::MaxRetriesExceeded {
+            PhaseNextError::MaxRetriesExceeded {
                 phase: next.id.to_owned(),
                 round,
-            }),
-        });
+                eval_only,
+            },
+        ));
+    }
+    // verdict fail 立即决策分叉（所有带 evaluator 的相位）：决策一次的消耗
+    // 低于盲目同相位重跑（executor / evaluator 会话重复执行），重试修复或
+    // 回退由决策 agent 裁决。确定性相位（archive：executor / evaluator 双
+    // 缺席）不触发——重跑确定性步序列有效。已决条目（fail_decided）放行
+    // 一次重跑 = retry 决议的兑现面（携失败反馈段）。
+    if next.evaluator.is_some() && latest_fail.is_some() && !fail_decided {
+        return Ok(error_outcome(
+            round,
+            last_result,
+            PhaseNextError::VerdictFail {
+                phase: next.id.to_owned(),
+                round,
+                eval_only,
+            },
+        ));
     }
     let retry_feedback =
         latest_phase_entry(&entries, next.id).filter(|entry| entry.verdict == Verdict::Fail);
@@ -201,6 +229,27 @@ pub fn phase_next(
         last_result,
         retry_feedback,
     ))
+}
+
+/// 决策分叉错误响应（两触发点共用形：不下发相位 / 步序 / 清单 / 角色 spec，
+/// 白名单空——白名单由 walker 缓存的前一站正常路由响应供给）。
+fn error_outcome(
+    round: u32,
+    last_result: Option<LastResult>,
+    error: PhaseNextError,
+) -> PhaseNextOutcome {
+    PhaseNextOutcome {
+        done: false,
+        next_phase: None,
+        round,
+        steps: Vec::new(),
+        artifact_manifest: Vec::new(),
+        executor: None,
+        evaluator: None,
+        allowed_backtrack_phases: Vec::new(),
+        last_result,
+        error: Some(error),
+    }
 }
 
 /// 相位是否已过（非 stale 的 pass / skipped 条目在位；与插件 `hasPhasePassed`

@@ -42,6 +42,10 @@ pub struct DecisionInput {
     pub allowed: Vec<String>,
     /// 候选相位最近 eval report
     pub candidates: Vec<CandidateReport>,
+    /// 失败相位是否评估-only（executor 定义缺席而 evaluator 在场）：决策
+    /// prompt 指引段的分派键——retry 的真实语义（仅重评同一份产物 vs 携
+    /// 失败清单重跑修复）
+    pub eval_only: bool,
 }
 
 /// 解析决策最终消息为四动作封闭集：JSON 载体提取 → tag `action` 判别。

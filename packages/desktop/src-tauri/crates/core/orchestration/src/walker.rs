@@ -216,8 +216,7 @@ async fn drive(
             );
         }
         if let Some(error) = &next.error {
-            // 决策分叉（max_retries_exceeded → 决策 agent；路由上限 /
-            // backtrack 目标非法等失败路径已在步执行体显式 Err 终态）
+            // 决策分叉
             match resolve_deadlock(
                 worker, tools, snapshot, guard, request, &next, error, &allowed, &mut trace,
             )
@@ -2617,7 +2616,7 @@ impl TryFrom<ToolStepOutput> for ArchiveOutcome {
 }
 
 // ---------------------------------------------------------------------------
-// 决策分叉（D7：仅 phase-next 返回 max_retries_exceeded 时唤起决策 agent）
+// 决策分叉
 // ---------------------------------------------------------------------------
 
 enum Deadlock {
@@ -2626,8 +2625,8 @@ enum Deadlock {
     Terminal(Terminal),
 }
 
-/// phase-next 重试上限分叉：唤起决策 agent——有界输入（fail checklist +
-/// 写面下发白名单 + 候选相位最近 eval report），四动作封闭集分叉。
+/// phase-next 决策分叉（两触发点：verdict fail 未决 / 重试上限标注——任意
+/// 相位 verdict fail 均直达决策，自走同相位重跑退役）
 #[allow(clippy::too_many_arguments)]
 async fn resolve_deadlock(
     worker: &Arc<dyn WorkerAgentPort>,
@@ -2640,12 +2639,13 @@ async fn resolve_deadlock(
     allowed: &[String],
     trace: &mut EdgeTrace,
 ) -> Deadlock {
-    let PhaseNextError::MaxRetriesExceeded {
-        phase: fail_phase, ..
-    } = error;
+    let (fail_phase, eval_only) = match error {
+        PhaseNextError::MaxRetriesExceeded { phase, eval_only, .. }
+        | PhaseNextError::VerdictFail { phase, eval_only, .. } => (phase, *eval_only),
+    };
     if next.last_result.is_none() {
         return Deadlock::Terminal(Terminal::failed(
-            "phase-next 报 max_retries_exceeded 但缺 last_result 快照，无法组装决策输入".to_owned(),
+            "phase-next 报决策分叉触发但缺 last_result 快照，无法组装决策输入".to_owned(),
         ));
     }
     let detail = match snapshot.detail(&request.root, &request.change_id) {
@@ -2654,7 +2654,7 @@ async fn resolve_deadlock(
             return Deadlock::Terminal(Terminal::failed(format!("快照读取失败: {message}")))
         }
     };
-    let input = build_decision_input(&detail, fail_phase, allowed);
+    let input = build_decision_input(&detail, fail_phase, allowed, eval_only);
     let action = match decision_session(worker, tools, guard, request, &input, trace).await {
         Ok(action) => action,
         Err(terminal) => return Deadlock::Terminal(terminal),
@@ -2757,6 +2757,8 @@ async fn resolve_deadlock(
                 Err(terminal) => Deadlock::Terminal(terminal),
             }
         }
+        // retry 决议的兑现依赖写面已决 latch：决策会话已挂账最新 fail 条目，
+        // phase_next 对同一条目不再重触发决策分叉、放行恰一次同相位重跑。
         DecisionAction::Retry => Deadlock::Continue,
         DecisionAction::Stop { reason } => Deadlock::Terminal(Terminal {
             status: ChangeRunStatus::Stopped,
@@ -2843,11 +2845,12 @@ async fn decision_session(
     }
 }
 
-/// 决策有界输入组装
+/// 决策有界输入组装（eval_only：失败相位是否评估-only——决策 prompt 的指引面）
 fn build_decision_input(
     detail: &ChangeDetail,
     fail_phase: &str,
     allowed: &[String],
+    eval_only: bool,
 ) -> DecisionInput {
     let station = detail
         .pipeline
@@ -2896,6 +2899,7 @@ fn build_decision_input(
         fail_checklist,
         allowed: allowed.to_vec(),
         candidates,
+        eval_only,
     }
 }
 

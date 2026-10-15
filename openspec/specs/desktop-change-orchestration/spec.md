@@ -13,7 +13,7 @@ Desktop 后端 SHALL 提供编排运行时（walker，core/orchestration），�
 相位内 step 序列的特殊控制流 SHALL 以 step 级语义表达，MUST NOT 以 walker 内 step 类型特判实现：
 
 - **feedback 边**（门禁步失败 → 同一 agent 会话修复 → 重跑）：失败步 `on_fail` 声明的定向反馈循环，独立计数 ≤5，超限升格相位 fail；每次重跑为 `instance_no` 递增的**新节点**，图上以 `feedback` 边表达。注入对象分角色：static-check / test-execution 失败注入本相位 executor 会话，verdict 解析失败注入本相位 evaluator 会话；
-- **verdict 解析失败**：解析错误诊断反馈边续注同一 evaluator 会话修复重跑（MUST NOT 臆测 verdict、MUST NOT 静默跳过）；超限升格相位 fail 进相位重试 / 决策分叉；
+- **verdict 解析失败**：解析错误诊断反馈边续注同一 evaluator 会话修复重跑（MUST NOT 臆测 verdict、MUST NOT 静默跳过）；超限升格相位 fail 进决策分叉（重跑经决策 retry 决议兑现）；
 - **归档步失败**：archive 相位步 `on_fail=None` 的失败即 `Terminal`（不唤决策、不进相位重试）；
 - **phase 间 confirm 停等**：仍为 run 级 `auto_next_phase` 开关，并支持「按指定 phase 停止」（archive 为固定停止点）。
 
@@ -34,10 +34,10 @@ Desktop 后端 SHALL 提供编排运行时（walker，core/orchestration），�
 - **WHEN** 审查 drive 主循环与 `step_evaluator` / `step_executor`
 - **THEN** drive 无 `next.evaluator.is_none()` 检查；声明 Evaluator / VerdictGate 步而 `evaluator=None` 的漂移仍被 `step_evaluator` 的 None 检查拦截；archive 相位（`evaluator=None` 且 steps 无 Evaluator 步）零拦截
 
-#### Scenario: fail 重试与预算上限
+#### Scenario: verdict fail 直接决策分叉
 
-- **WHEN** evaluator verdict 为 fail 且重试未超预算
-- **THEN** walker 不唤决策 agent 自走重试同相位；连续 fail 达 5 次后停止自走并按决策协议分叉
+- **WHEN** 任意带 evaluator 相位落 verdict=fail 条目（最新 fail 条目未挂决策会话）
+- **THEN** 写面 `phase_next` 不自走重路由同相位（盲目重跑的会话消耗高于一次决策），立即返回 verdict fail 决策分叉触发；窗口 fail 数达上限（含决策 retry 兑现的重跑）时以重试上限变体标注。确定性相位（archive：executor / evaluator 双缺席）不触发，fail 落账照常同相位重路由
 
 #### Scenario: 中断续走不重头
 
@@ -74,7 +74,7 @@ Desktop run SHALL 支持「自动确认」运行模式：`RunRequest.auto_next_p
 
 #### Scenario: auto run 的 ask 仍停等人
 
-- **WHEN** auto 模式 run 中决策 agent 输出 ask 动作（重试预算耗尽后的提问）
+- **WHEN** auto 模式 run 中决策 agent 输出 ask 动作（verdict fail 决策分叉的提问）
 - **THEN** run 照常进入 `WaitingAsk` 并呈现问题与选项，walker 挂起等应答；MUST NOT 自动选择任何选项，用户应答后 run 继续
 
 #### Scenario: 发起定格与停止重发
@@ -147,7 +147,7 @@ Desktop run 的 executor / evaluator prompt 组装 SHALL 以 git diff（工作�
 
 ### Requirement: static-check spawn 步门禁
 
-implement / test-gen 相位的 executor 收口后，walker SHALL 必经 static-check 步（checks 边界 `crates/infra/checks` spawn 执行，承接原 SubagentStop hook 的门禁职责；该步由相位 step 定义声明，非 `STATIC_CHECK_PHASES` 常量注入）。static-check 步 SHALL 经 id → 记录 → name 解析（`store.get_change(id).map(name)`，与 test-execution 分支同式）把 change name 传入 `StaticCheckRunner::run(root, name)`——name 供 infra 侧 output 落盘（recorded，`output_ref` 回填，`<report_dir>/exec-outputs/<exec_id>.log`）；未建档（无 `ChangeRecord`）显式 `Err`。static-check 失败 SHALL 走**定向反馈边**：将捕获的诊断反馈注入同一 executor 会话（Continue）修复，独立计数上限 5 次（沿原 hook `loop_limit` 语义）；每次修复重跑为 `instance_no` 递增的新节点、图上以 `feedback` 边表达。超限 SHALL 升格为相位 fail（walker 以桌面代写的 fail checklist 经写面 `phase_log` 落账，不跑 evaluator，进入重试 / 决策路径并消耗相位 retry 预算）。MUST NOT 将反馈边重试直接计入相位 retry 预算。非 implement / test-gen 相位 MUST NOT 触发 static-check（其 step 序列不含 static-check 步）。
+implement / test-gen 相位的 executor 收口后，walker SHALL 必经 static-check 步（checks 边界 `crates/infra/checks` spawn 执行，承接原 SubagentStop hook 的门禁职责；该步由相位 step 定义声明，非 `STATIC_CHECK_PHASES` 常量注入）。static-check 步 SHALL 经 id → 记录 → name 解析（`store.get_change(id).map(name)`，与 test-execution 分支同式）把 change name 传入 `StaticCheckRunner::run(root, name)`——name 供 infra 侧 output 落盘（recorded，`output_ref` 回填，`<report_dir>/exec-outputs/<exec_id>.log`）；未建档（无 `ChangeRecord`）显式 `Err`。static-check 失败 SHALL 走**定向反馈边**：将捕获的诊断反馈注入同一 executor 会话（Continue）修复，独立计数上限 5 次（沿原 hook `loop_limit` 语义）；每次修复重跑为 `instance_no` 递增的新节点、图上以 `feedback` 边表达。超限 SHALL 升格为相位 fail（walker 以桌面代写的 fail checklist 经写面 `phase_log` 落账，不跑 evaluator，进入决策分叉——重跑经决策 retry 决议兑现，窗口 fail 计数即预算面）。MUST NOT 将反馈边重试直接计入相位 retry 预算。非 implement / test-gen 相位 MUST NOT 触发 static-check（其 step 序列不含 static-check 步）。
 
 #### Scenario: 修复反馈边
 
@@ -157,7 +157,7 @@ implement / test-gen 相位的 executor 收口后，walker SHALL 必经 static-c
 #### Scenario: 反馈边超限升格
 
 - **WHEN** 同一相位内定向反馈边已达 5 次仍不通过
-- **THEN** walker 以代写 fail checklist 经写面 `phase_log` 落账（不跑 evaluator），相位按 fail 收场进入重试 / 决策路径，walker 不再注入反馈边
+- **THEN** walker 以代写 fail checklist 经写面 `phase_log` 落账（不跑 evaluator），相位按 fail 收场进入决策分叉（重跑经决策 retry 决议兑现），walker 不再注入反馈边
 
 #### Scenario: 门禁相位限定
 
@@ -171,7 +171,7 @@ implement / test-gen 相位的 executor 收口后，walker SHALL 必经 static-c
 
 ### Requirement: verdict 解析与 phase-log 代写
 
-Evaluator 会话 SHALL 依 prompt 约定在最终消息输出 checklist JSON（不自调 MCP `phase_log`）。Walker SHALL 解析该 JSON 并代调写面 `phase_log`（进程内）落 eval 记录（PhaseRecord + ChecklistItemRecord 原子落库）；解析失败 SHALL 走反馈边（解析错误诊断续注同一 evaluator 会话修复重跑，独立计数 ≤5），MUST NOT 臆测 verdict、MUST NOT 静默跳过落账；超限 SHALL 升格相位 fail（桌面代写 fail phase-log）进相位重试 / 决策分叉。checklist JSON 结构 SHALL 瘦身为 `{ verdict, report, checklist }`（checklist 逐项 `{ item, pass, evidence }`）；phase / attempt / skipped SHALL 由 walker 盖戳落账（evaluator 不回声），`EvaluatorChecklist` 解析类型 MUST NOT 要求 phase / attempt / skipped 字段。确定性相位（test-execution 机械 checklist、archive 空 checklist）SHALL 走 `step_phase_log` 的独立分支，不经 evaluator verdict 解析。
+Evaluator 会话 SHALL 依 prompt 约定在最终消息输出 checklist JSON（不自调 MCP `phase_log`）。Walker SHALL 解析该 JSON 并代调写面 `phase_log`（进程内）落 eval 记录（PhaseRecord + ChecklistItemRecord 原子落库）；解析失败 SHALL 走反馈边（解析错误诊断续注同一 evaluator 会话修复重跑，独立计数 ≤5），MUST NOT 臆测 verdict、MUST NOT 静默跳过落账；超限 SHALL 升格相位 fail（桌面代写 fail phase-log）进决策分叉（重跑经决策 retry 决议兑现）。checklist JSON 结构 SHALL 瘦身为 `{ verdict, report, checklist }`（checklist 逐项 `{ item, pass, evidence }`）；phase / attempt / skipped SHALL 由 walker 盖戳落账（evaluator 不回声），`EvaluatorChecklist` 解析类型 MUST NOT 要求 phase / attempt / skipped 字段。确定性相位（test-execution 机械 checklist、archive 空 checklist）SHALL 走 `step_phase_log` 的独立分支，不经 evaluator verdict 解析。
 
 #### Scenario: verdict 代写落账
 
@@ -186,16 +186,18 @@ Evaluator 会话 SHALL 依 prompt 约定在最终消息输出 checklist JSON（�
 #### Scenario: 解析失败超限升格
 
 - **WHEN** 同 attempt 内解析失败经 5 次反馈修复仍未收敛
-- **THEN** walker 代写 fail phase-log（report 携升格记因、fail checklist 携解析错误、executor + evaluator 双槽位）升格相位 fail，回写面 `phase_next` 进相位重试 / 决策分叉
+- **THEN** walker 代写 fail phase-log（report 携升格记因、fail checklist 携解析错误、executor + evaluator 双槽位）升格相位 fail，回写面 `phase_next` 进决策分叉（重跑经决策 retry 决议兑现）
 
 ### Requirement: 决策协议
 
-写面 `phase_next` 返回重试上限（fail 且需跨相位跳转）时，walker SHALL 唤起决策 agent（compose_turn 新会话）；retry 预算内 SHALL NOT 唤起（walker 自走重试）。决策 agent 输入 SHALL 有界且来自 db 状态与写面响应：fail checklist（fail 项 + evidence）、`allowed_backtrack_phases`（写面 `phase_next` 白名单）、候选相位最近一次 eval report。决策输出 SHALL 为封闭集：
+写面 `phase_next` 返回决策分叉触发（任意带 evaluator 相位的 verdict fail——最新 fail 条目未挂决策会话；或窗口 fail 数达重试上限的标注变体）时，walker SHALL 唤起决策 agent（compose_turn 新会话）；walker 自走同相位重跑 SHALL 退役（盲目重跑的会话消耗高于一次决策——重试修复一律经决策 retry 决议兑现）。决策 agent 输入 SHALL 有界且来自 db 状态与写面响应：fail checklist（fail 项 + evidence）、`allowed_backtrack_phases`（写面 `phase_next` 白名单）、候选相位最近一次 eval report、相位 retry 语义标记（决策 prompt 指引段按形态分派：评估-only 相位 retry 仅重评不修复、修复须回退；带 executor 相位 retry 携失败清单重跑修复、根因上游仍应回退）。决策输出 SHALL 为封闭集：
 
 - `{ action: "backtrack", backtrack_to ∈ 白名单, reason ≤500 }` — 自治，walker 经写面 `backtrack` 执行；
 - `{ action: "retry" }` — 同相位重试；
 - `{ action: "stop", reason }` — 终止 run；
 - `{ action: "ask", question, options[] }` — 无法裁决，UI 中断提问。
+
+决策 retry 决议的兑现 SHALL 依赖「已决条目放行恰一次」语义：决策会话挂账（decision_session_id）后的同一条目 MUST NOT 重复触发决策分叉，写面 `phase_next` 对其正常路由回同相位放行恰一次重跑（新落账 fail 条目无决策标记，触发点对新条目照常生效）——否则 retry 决议会陷入 phase-next ↔ 决策空转，相位永不重执行。
 
 写面 `backtrack` SHALL 对 `backtrack_to` 做白名单二次校验（工具侧兜底）：越权目标 SHALL 被拒绝且 run 停给用户，MUST NOT 落任何越权回跳账（状态库零变更）。决策输出解析失败显式失败停给用户（决策会话不设反馈边，区别于 verdict 解析失败）。
 
@@ -213,6 +215,11 @@ Evaluator 会话 SHALL 依 prompt 约定在最终消息输出 checklist JSON（�
 
 - **WHEN** 决策 agent 输出 `{action:"ask", question:..., options:[...]}`
 - **THEN** run 进入中断等待态，UI 呈现问题与选项；用户应答后 run 按应答继续（应答经运行控制命令面回流 walker）
+
+#### Scenario: verdict fail 分叉与 retry 兑现
+
+- **WHEN** code-review#1 落 verdict=fail（评估-only 相位，prompt 携「retry 仅重评」指引段）且决策 agent 输出 `{action:"retry"}`
+- **THEN** walker 唤起决策 agent 恰一次，retry 决议后同相位放行恰一次重跑（evaluator 重评）；重跑再落新 fail 条目时决策分叉对新条目照常触发。带 executor 相位（如 implement）verdict fail 同式分叉（prompt 携「retry 携失败清单重跑修复」指引段），retry 决议后 executor 携失败反馈段重跑
 
 ### Requirement: run 双 root 组合与 exec root 解析
 
@@ -427,7 +434,7 @@ archive 相位（无 evaluator、无 checklist 的确定性相位）SHALL 在末
 
 ### Requirement: MutationTest 步接线与独立反馈预算
 
-walker SHALL 在 test-execution 相位按 `TEST_EXECUTION_STEPS` 步序列（`PhaseStart → TestExecution → MutationTest → PhaseLog`，定义见 desktop-workflow-write-face）顺序执行：TestExecution 结论 pass 后才执行 MutationTest 门禁步（`ToolCommand::MutationTest` 经 `MutationRunner` port 由 checks 边界 infra 实现），TestExecution fail / error 走既有反馈边修复重入——「测试 / 覆盖率修绿后再执行突变」由步序列顺序执行天然保证，walker MUST NOT 在 TestExecution 未 pass 时发起突变 spawn。MutationTest 失败（中断 / 未达标）SHALL 走**独立定向反馈边**（反馈边②，报告指引式口径，见 desktop-mutation-testing）：注入本相位 executor 会话修复（补测试杀突变）——反馈边注入对象分角色清单随本条扩为 static-check / test-execution / mutation-test 失败注入 executor、verdict 解析失败注入 evaluator。反馈边② SHALL 经 `feedback_limit(step, "mutation-test")` 独立计数、上限 5（与 static-check / test-execution 反馈计数器分立，各自计满各自升格），MUST NOT 计入相位 retry 预算；超限 walker SHALL 代写 fail checklist 经写面 `phase_log` 升格相位 fail（不跑 evaluator，进入重试 / 决策路径）。`step_phase_log` 的 test 分支 SHALL 消费 `test_outcome` + `mutation_outcome` 双槽（机械 checklist 双槽，见 desktop-test-execution）；archive 分支双槽恒 None（三分流按「产物在否」分离语义不变）。
+walker SHALL 在 test-execution 相位按 `TEST_EXECUTION_STEPS` 步序列（`PhaseStart → TestExecution → MutationTest → PhaseLog`，定义见 desktop-workflow-write-face）顺序执行：TestExecution 结论 pass 后才执行 MutationTest 门禁步（`ToolCommand::MutationTest` 经 `MutationRunner` port 由 checks 边界 infra 实现），TestExecution fail / error 走既有反馈边修复重入——「测试 / 覆盖率修绿后再执行突变」由步序列顺序执行天然保证，walker MUST NOT 在 TestExecution 未 pass 时发起突变 spawn。MutationTest 失败（中断 / 未达标）SHALL 走**独立定向反馈边**（反馈边②，报告指引式口径，见 desktop-mutation-testing）：注入本相位 executor 会话修复（补测试杀突变）——反馈边注入对象分角色清单随本条扩为 static-check / test-execution / mutation-test 失败注入 executor、verdict 解析失败注入 evaluator。反馈边② SHALL 经 `feedback_limit(step, "mutation-test")` 独立计数、上限 5（与 static-check / test-execution 反馈计数器分立，各自计满各自升格），MUST NOT 计入相位 retry 预算；超限 walker SHALL 代写 fail checklist 经写面 `phase_log` 升格相位 fail（不跑 evaluator，进入决策分叉——重跑经决策 retry 决议兑现）。`step_phase_log` 的 test 分支 SHALL 消费 `test_outcome` + `mutation_outcome` 双槽（机械 checklist 双槽，见 desktop-test-execution）；archive 分支双槽恒 None（三分流按「产物在否」分离语义不变）。
 
 #### Scenario: 拆步时序绿后才突变
 

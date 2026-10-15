@@ -83,12 +83,14 @@ fn decision_prompt有界组装五段在场() {
             verdict: Some(Verdict::Pass),
             report: Some("设计与任务拆解齐备".to_owned()),
         }],
+        eval_only: false,
     };
 
     let prompt = decision_prompt(&input);
 
     // 五段逐段在场：失败相位信封 + fail checklist 行 + 白名单行 + 候选 eval
-    // report + 四动作封闭集说明（有界输入半边）
+    // report + 四动作封闭集说明（有界输入半边）；评估-only 指引段缺席（非
+    // 评估-only 相位不注入重试语义注记）
     assert!(
         prompt.contains("test-gen") && prompt.contains("3"),
         "失败相位信封"
@@ -113,6 +115,32 @@ fn decision_prompt有界组装五段在场() {
         prompt.contains("白名单") && prompt.contains("拒绝"),
         "越权红线说明在场"
     );
+    // 带 executor 相位指引段：retry 携失败清单重跑修复（根因上游仍应回退）
+    assert!(
+        prompt.contains("该相位带 executor：retry 将携失败清单重新执行本相位修复"),
+        "带 executor 指引段在场（重试修复 vs 回退的真实语义）"
+    );
+    assert!(
+        !prompt.contains("评估-only 相位"),
+        "带 executor 相位不出评估-only 指引形态"
+    );
+
+    // 评估-only 相位（executor 缺席，如 code-review / acceptance fail）：指引段
+    // 换形——retry 仅重评不修复、修复须回退前置相位（决策 agent 的语义锚）
+    let eval_only_input = DecisionInput {
+        eval_only: true,
+        ..input
+    };
+    let eval_only_prompt = decision_prompt(&eval_only_input);
+    assert!(
+        eval_only_prompt.contains("评估-only 相位（无 executor）")
+            && eval_only_prompt.contains("retry 仅会重新评估同一份产物、不会修复"),
+        "评估-only 指引段在场（重试重评 vs 回退修复的真实语义）"
+    );
+    assert!(
+        !eval_only_prompt.contains("该相位带 executor"),
+        "评估-only 相位不出带 executor 指引形态"
+    );
 }
 
 #[test]
@@ -124,6 +152,7 @@ fn decision_prompt空集三态组装不崩段落缺席稳定() {
         fail_checklist: Vec::new(),
         allowed: Vec::new(),
         candidates: Vec::new(),
+        eval_only: false,
     };
     let prompt = decision_prompt(&input);
     assert!(prompt.contains("implement"), "相位信封在场");
@@ -140,6 +169,7 @@ fn decision_prompt空集三态组装不崩段落缺席稳定() {
             verdict: None,
             report: None,
         }],
+        eval_only: false,
     };
     let prompt = decision_prompt(&with_none);
     assert!(
@@ -161,6 +191,7 @@ fn prompt确定性_同输入重复组装逐字节一致() {
         }],
         allowed: vec!["proposal".to_owned()],
         candidates: Vec::new(),
+        eval_only: false,
     };
 
     assert_eq!(
