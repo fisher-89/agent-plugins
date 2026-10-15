@@ -1,21 +1,24 @@
 //! `cargo_mutants.rs` 的单元测试（test-design「cargo_mutants.rs ->
-//! cargo_mutants_test.rs」节）：argv 模板展开逐参等值（`mutants --in-diff <段
-//! 补丁> --json --baseline skip --jobs <半 CPU> --timeout 300`）+ 常量锚定 +
-//! `CARGO_TARGET_DIR` 多段共享 env 断言 + 补丁入参边界 + JSON 载荷提取（整文本
-//! 本可解析优先 / 首 `{`[` 起末 `}`]` 止最宽候选）+ 段中断错误面 + 失败面
-//! （ENOENT / 非零退出 / 超时→中断不挂死）。
+//! cargo_mutants_test.rs」节）：argv 模板展开逐参等值（`mutants --workspace
+//! --in-diff <段补丁> --baseline skip --jobs <半 CPU> --timeout 300`）+ 常量锚
+//! 定 + `CARGO_TARGET_DIR` 多段共享 env 断言 + 补丁入参边界 + 段报告权威面
+//! （`mutants.out/outcomes.json` 在位且可解析 → 段完成，真实 outcomes 形态解析
+//! 对拍）+ 零突变体段（退出 0 无报告 → 空计数面合成载荷）+ 陈旧报告清场 + 段
+//! 中断错误面 + 失败面（ENOENT / 非零退出 / 超时→中断不挂死）。
 //!
 //! Mock策略（test-design 本节 Mock 表）：子进程 spawn（cargo mutants——进程边
 //! 界）经**假 spawn 装置**承载——`mod_test::SpawnWindow`（PATH 前置假 `cargo`
-//! shim + 记录 argv / env / cwd + 可编程输出、超时（自旋挂起 + 虚拟时钟推进）、
-//! 非零退出；ENOENT 臂 = PATH 隔离使程序缺席——`TEST_ENV_LOCK` 串行化，
-//! testexec EnvWindow 先例同款）；`available_parallelism` 不 mock（jobs 期望值
-//! 按真实 CPU 重算关系式 `max(1, n/2)`）。
+//! shim + 记录 argv / env / cwd + 可编程输出、报告文件落位（cwd 重建
+//! `mutants.out/outcomes.json`）、超时（自旋挂起 + 虚拟时钟推进）、非零退出；
+//! ENOENT 臂 = PATH 隔离使程序缺席——`TEST_ENV_LOCK` 串行化，testexec
+//! EnvWindow 先例同款）；`available_parallelism` 不 mock（jobs 期望值按真实
+//! CPU 重算关系式 `max(1, n/2)`）。
 
 use std::fs;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
+use checks::model::parse_cargo_mutants_seg;
 use tempfile::TempDir;
 
 use super::super::mod_test::{SpawnRecord, SpawnWindow};
@@ -24,11 +27,23 @@ use super::super::{
     mutation_jobs, SegmentFailure, MUTATION_JOBS_DIVISOR, PER_MUTANT_TIMEOUT_SECS,
     SEGMENT_SPAWN_TIMEOUT_MS,
 };
-use super::{json_payload, run_segment, segment_failure_message};
+use super::{run_segment, segment_failure_message};
 
-/// cargo-mutants 段报告 canned（`--json` stdout 面——1 killed + 1 missed）。
-const CARGO_SEG_CANNED: &str =
-    r#"{ "mutants": [ { "outcome": "Caught" }, { "outcome": "missed" } ], "durationMs": 500.0 }"#;
+/// cargo-mutants 段报告 canned（真实 `mutants.out/outcomes.json` 全形态——
+/// outcomes 逐条 + 计数面：1 caught + 1 missed / total 2）。
+const CARGO_SEG_CANNED: &str = r#"{
+  "outcomes": [
+    { "scenario": { "Mutant": { "name": "src/lib.rs:3:5: replace add with 0" } }, "summary": "CaughtMutant" },
+    { "scenario": { "Mutant": { "name": "src/lib.rs:3:5: replace add with ()" } }, "summary": "MissedMutant" }
+  ],
+  "total_mutants": 2,
+  "missed": 1,
+  "caught": 1,
+  "timeout": 0,
+  "unviable": 0,
+  "success": false,
+  "cargo_mutants_version": "27.1.0"
+}"#;
 
 /// argv 模板面常量锚定（AC-4：`--baseline skip` / per-mutant 超时 / 段 spawn
 /// 硬超时 / jobs 半 CPU 除数——D9 不进 config schema）。
@@ -36,7 +51,10 @@ const CARGO_SEG_CANNED: &str =
 fn argv模板常量面锚定() {
     assert_eq!(PER_MUTANT_TIMEOUT_SECS, 300, "per-mutant 超时 300 秒");
     assert_eq!(MUTATION_JOBS_DIVISOR, 2, "并发除数 2（半 CPU）");
-    assert_eq!(SEGMENT_SPAWN_TIMEOUT_MS, 1_800_000, "段 spawn 硬超时 30 分钟");
+    assert_eq!(
+        SEGMENT_SPAWN_TIMEOUT_MS, 1_800_000,
+        "段 spawn 硬超时 30 分钟"
+    );
 }
 
 /// jobs 计算：`max(1, available_parallelism() / 2)` 关系式（CPU 1 → 1、2 → 1、
@@ -64,38 +82,6 @@ fn jobs计算_半cpu关系式抽样口径() {
     assert!(mutation_jobs() >= 1, "jobs 下限 1（单核 CPU）");
 }
 
-/// JSON 载荷提取：整文本可解析优先（stdout 零杂质形态）；混杂人类可读进度
-/// 输出时取首 `{`/`[` 起、末 `}`/`]` 止最宽候选；不可解析 → `None`（段中断
-/// 错误面输入）。
-#[test]
-fn json载荷提取_整文本优先与最宽候选() {
-    // 整文本可解析优先
-    let pure = r#"{"mutants":[{"outcome":"Caught"}]}"#;
-    assert_eq!(json_payload(pure), Some(pure), "整文本可解析优先");
-
-    // 混杂人类可读进度输出（零括号杂质）：首个 { 起、末个 } 止最宽候选
-    let mixed = "Compiling crate v0.1.0\nRunning 12/12 mutants\n{\n  \"outcome\": \"Caught\"\n}\nFinished in 3.2s";
-    assert_eq!(
-        json_payload(mixed),
-        Some("{\n  \"outcome\": \"Caught\"\n}"),
-        "最宽候选（首个左花括号到末个右花括号）"
-    );
-
-    // 数组形态候选
-    let array_mixed = "progress...\n[{\"outcome\":\"missed\"}]\ndone";
-    assert_eq!(json_payload(array_mixed), Some("[{\"outcome\":\"missed\"}]"));
-
-    // 方括号进度行干扰（`[====]` 先于 JSON 出线）：最宽候选自 `[==========]`
-    // 起不可解析 → 保守 None（不吞半截——段中断错误面承接收）
-    let bracket_noise = "[==========] 12/12 mutants\n{\"outcome\":\"Caught\"}\ndone";
-    assert_eq!(json_payload(bracket_noise), None, "括号杂质下保守 None（不吞）");
-
-    // 不可解析 → None
-    assert_eq!(json_payload("no json at all"), None, "零 JSON 候选 → None");
-    assert_eq!(json_payload("{ broken ]"), None, "首末错配 → None");
-    assert_eq!(json_payload(""), None, "空输出 → None");
-}
-
 /// 段中断错误面：非零退出且无可解析报告 → 错误文案携退出码与输出有界尾部；
 /// 空输出 → 无尾部缀形。
 #[test]
@@ -106,7 +92,10 @@ fn 段中断错误面_携退出码与有界尾部() {
         message.contains("未产出可解析 JSON 段报告"),
         "记因无报告: {message}"
     );
-    assert!(message.contains("error: build failed"), "携输出尾部: {message}");
+    assert!(
+        message.contains("error: build failed"),
+        "携输出尾部: {message}"
+    );
 
     // 空输出 → 无尾部缀形（文案仍完整）
     let empty = segment_failure_message(1, b"");
@@ -154,8 +143,8 @@ async fn spawn失败面_路径隔离下显式fatal() {
 }
 
 // ---------------------------------------------------------------------------
-// spawn 面（假 spawn）用例：argv 模板展开 / CARGO_TARGET_DIR 多段共享 /
-// 非零退出中断 / 超时中断 / 补丁入参边界
+// spawn 面（假 spawn）用例：argv 模板展开 / CARGO_TARGET_DIR 多段共享 / 段报
+// 告权威 / 零突变体段 / 陈旧清场 / 非零退出中断 / 超时中断 / 补丁入参边界
 // ---------------------------------------------------------------------------
 
 /// spawn 面 fixture：tempdir workspace（suite 执行目录 + 突变报告目录——
@@ -190,7 +179,9 @@ impl SpawnWs {
 
     /// 段补丁写盘（`mutation-seg-<index>.patch`——`--in-diff` 传参面）。
     fn write_patch(&self, index: usize, content: &str) -> PathBuf {
-        let path = self.mutation_dir.join(format!("mutation-seg-{index}.patch"));
+        let path = self
+            .mutation_dir
+            .join(format!("mutation-seg-{index}.patch"));
         fs::write(&path, content).expect("写段补丁");
         path
     }
@@ -205,40 +196,46 @@ fn env_of(record: &SpawnRecord, key: &str) -> Option<String> {
         .map(|(_, value)| value.clone())
 }
 
-/// 正向：**spawn 模板展开**——argv 逐参等值（`mutants --in-diff <段补丁> --json
-/// --baseline skip --jobs <半 CPU> --timeout 300`，AC-4）+ spawn cwd 捕获 +
-/// `CARGO_TARGET_DIR` env 面捕获（假 spawn 记录面——Mock 表装置，执行链真实
-/// 组合）。
+/// 正向：**spawn 模板展开 + 段报告权威落位**——argv 逐参等值（`mutants
+/// --workspace --in-diff <段补丁> --baseline skip --jobs <半 CPU> --timeout
+/// 300`，AC-4）+ spawn cwd 捕获 + `CARGO_TARGET_DIR` env 面捕获 + 段报告 =
+/// `mutants.out/outcomes.json` 原样（真实工具全形态 canned，解析对拍 1 killed +
+/// 1 missed）。
 #[tokio::test]
-async fn spawn模板展开_argv逐参等值与cwd和env捕获() {
+async fn spawn模板展开_argv逐参等值与报告权威落位() {
     let ws = SpawnWs::new("argv");
     let window = SpawnWindow::enter("cargo-argv");
     window.install_fake_cargo(&ws.exec_dir);
-    window.set_out(CARGO_SEG_CANNED);
+    window.set_cargo_outcomes(CARGO_SEG_CANNED);
     let patch_path = ws.write_patch(0, "diff --git a/app/src/lib.rs b/app/src/lib.rs\n");
 
     let raw = run_segment(&patch_path, &ws.exec_dir)
         .await
         .expect("假 spawn 段执行应 Ok");
-    let parsed: serde_json::Value =
-        serde_json::from_str(raw.trim_end()).expect("段报告 = canned 可解析");
     assert_eq!(
-        parsed["mutants"].as_array().expect("mutants 数组").len(),
-        2,
-        "段报告 = canned 原样（1 killed + 1 missed）"
+        raw.trim_end(),
+        CARGO_SEG_CANNED.trim_end(),
+        "段报告 = canned 原样（mutants.out/outcomes.json 权威落位）"
     );
+    let parsed = parse_cargo_mutants_seg(&raw).expect("真实 outcomes 形态可解析");
+    assert_eq!(parsed.measured.killed, 1, "caught → killed");
+    assert_eq!(parsed.measured.survived, 1, "missed → survived");
+    assert_eq!(parsed.measured.total, 2, "计数面直读 total");
 
     let records = window.records();
     assert_eq!(records.len(), 1, "恰一次假 spawn");
     let argv = &records[0].argv;
     assert_eq!(argv.len(), 10, "argv 十参封闭: {argv:?}");
     assert_eq!(argv[0], "mutants", "argv 首 token（cargo 子命令面）");
-    assert_eq!(argv[1], "--in-diff", "段补丁入参位");
+    assert_eq!(
+        argv[1], "--workspace",
+        "workspace 突变面（混合 workspace 全成员扫描）"
+    );
+    assert_eq!(argv[2], "--in-diff", "段补丁入参位");
     assert!(
-        argv[2].replace('\\', "/").ends_with("mutation-seg-0.patch"),
+        argv[3].replace('\\', "/").ends_with("mutation-seg-0.patch"),
         "--in-diff 携段补丁路径: {argv:?}"
     );
-    assert_eq!(argv[3], "--json", "JSON 报告面");
     assert_eq!(argv[4], "--baseline", "baseline 位");
     assert_eq!(argv[5], "skip", "baseline skip（AC-4）");
     assert_eq!(argv[6], "--jobs", "jobs 位");
@@ -269,7 +266,7 @@ async fn cargo_target_dir多段共享_env断言同一不重置() {
     let ws = SpawnWs::new("shared-target");
     let window = SpawnWindow::enter("cargo-target");
     window.install_fake_cargo(&ws.exec_dir);
-    window.set_out(CARGO_SEG_CANNED);
+    window.set_cargo_outcomes(CARGO_SEG_CANNED);
 
     let patch0 = ws.write_patch(0, "diff --git a/app/src/a.rs b/app/src/a.rs\n");
     let patch1 = ws.write_patch(1, "diff --git a/app/src/b.rs b/app/src/b.rs\n");
@@ -284,9 +281,9 @@ async fn cargo_target_dir多段共享_env断言同一不重置() {
     assert_eq!(records.len(), 2, "两段各恰一次假 spawn");
     for (index, record) in records.iter().enumerate() {
         assert_eq!(record.argv[0], "mutants", "段 {index} argv 首 token");
-        assert_eq!(record.argv[1], "--in-diff");
+        assert_eq!(record.argv[2], "--in-diff");
         assert!(
-            record.argv[2]
+            record.argv[3]
                 .replace('\\', "/")
                 .ends_with(&format!("mutation-seg-{index}.patch")),
             "段 {index} --in-diff 携各自段补丁: {:?}",
@@ -296,7 +293,10 @@ async fn cargo_target_dir多段共享_env断言同一不重置() {
 
     let dir0 = env_of(&records[0], "CARGO_TARGET_DIR").expect("段 0 env 捕获");
     let dir1 = env_of(&records[1], "CARGO_TARGET_DIR").expect("段 1 env 捕获");
-    assert_eq!(dir0, dir1, "多段共享同一 CARGO_TARGET_DIR（MUST NOT 每段重置）");
+    assert_eq!(
+        dir0, dir1,
+        "多段共享同一 CARGO_TARGET_DIR（MUST NOT 每段重置）"
+    );
     assert_eq!(
         dir0.replace('\\', "/"),
         to_posix(&ws.exec_dir.join("target")),
@@ -304,9 +304,73 @@ async fn cargo_target_dir多段共享_env断言同一不重置() {
     );
 }
 
+/// 正向（零突变体段）：**退出 0 且无报告 = diff 零可突变交叠**——cargo-mutants
+/// 对 EmptyDiff / NoSourceFiles / NoMutants 恒退出 0 且不产报告（非故障语义）
+/// → 合成空计数面载荷（解析全零、不中断）。
+#[tokio::test]
+async fn 退出零无报告_零突变体段合成空计数面() {
+    let ws = SpawnWs::new("zero-mutants");
+    let window = SpawnWindow::enter("cargo-zero");
+    window.install_fake_cargo(&ws.exec_dir);
+    // 不编程 outcomes —— 假执行体不写报告（真实工具零交叠面同形）
+    let patch_path = ws.write_patch(0, "diff --git a/app/src/lib.rs b/app/src/lib.rs\n");
+
+    let raw = run_segment(&patch_path, &ws.exec_dir)
+        .await
+        .expect("退出 0 无报告 = 零突变体段（非中断）");
+    let parsed = parse_cargo_mutants_seg(&raw).expect("空计数面载荷可解析");
+    assert_eq!(
+        (
+            parsed.measured.killed,
+            parsed.measured.survived,
+            parsed.measured.timeout,
+            parsed.measured.compile_error,
+            parsed.measured.runtime_error,
+            parsed.measured.ignored,
+            parsed.measured.total,
+        ),
+        (0, 0, 0, 0, 0, 0, 0),
+        "零突变体段计数全零（空段 valid == 0 → 归并 score 100 恒过）"
+    );
+    assert_eq!(window.records().len(), 1, "恰一次假 spawn");
+}
+
+/// 正向（陈旧清场）：**spawn 前清除陈旧 `mutants.out`**——上一段 / 上次运行的
+/// 陈旧 outcomes.json MUST NOT 被本段误读：预置陈旧报告（caught 5）+ 假执行体
+/// 零交叠面（不写报告、退出 0）→ 返回空计数面而非陈旧内容，且陈旧报告已被清除。
+#[tokio::test]
+async fn 陈旧报告清场_上一段残留不误读() {
+    let ws = SpawnWs::new("stale");
+    let window = SpawnWindow::enter("cargo-stale");
+    window.install_fake_cargo(&ws.exec_dir);
+    // 预置陈旧报告（上一段残留面）
+    let stale_dir = ws.exec_dir.join("mutants.out");
+    fs::create_dir_all(&stale_dir).expect("建陈旧报告目录");
+    fs::write(
+        stale_dir.join("outcomes.json"),
+        r#"{ "caught": 5, "missed": 0, "timeout": 0, "unviable": 0 }"#,
+    )
+    .expect("写陈旧 outcomes");
+
+    // 假执行体不写报告（本段零交叠面）——陈旧报告必须被清场而非误读
+    let patch_path = ws.write_patch(0, "diff --git a/app/src/lib.rs b/app/src/lib.rs\n");
+    let raw = run_segment(&patch_path, &ws.exec_dir)
+        .await
+        .expect("清场后零交叠段应空计数面");
+    let parsed = parse_cargo_mutants_seg(&raw).expect("空计数面载荷可解析");
+    assert_eq!(
+        parsed.measured.killed, 0,
+        "陈旧 caught=5 MUST NOT 被本段误读（spawn 前清场）"
+    );
+    assert!(
+        !ws.exec_dir.join("mutants.out").exists(),
+        "陈旧 mutants.out 已被 spawn 前清场移除"
+    );
+}
+
 /// 异常：**非零退出 → 输出捕获 + 中断**——假 spawn 可编程非零退出（退出码
-/// 101）且 stdout 无 JSON 载荷 → `SegmentFailure::Interrupted` 携退出码与合并输
-/// 出有界尾部（双时点②中断面原料）。
+/// 101）且零段报告 → `SegmentFailure::Interrupted` 携退出码与合并输出有界尾
+/// 部（双时点②中断面原料）。
 #[tokio::test]
 async fn 非零退出中断_携退出码与输出尾部捕获() {
     let ws = SpawnWs::new("exit101");
@@ -329,7 +393,9 @@ async fn 非零退出中断_携退出码与输出尾部捕获() {
                 "输出捕获（合并输出有界尾部）: {message}"
             );
         }
-        Err(SegmentFailure::Fatal(message)) => panic!("非零退出应 Interrupted 而非 Fatal: {message}"),
+        Err(SegmentFailure::Fatal(message)) => {
+            panic!("非零退出应 Interrupted 而非 Fatal: {message}")
+        }
         Ok(raw) => panic!("零段报告应中断，实际 Ok: {raw}"),
     }
 
@@ -337,7 +403,10 @@ async fn 非零退出中断_携退出码与输出尾部捕获() {
     let records = window.records();
     assert_eq!(records.len(), 1, "恰一次假 spawn");
     assert_eq!(records[0].argv[0], "mutants");
-    assert_eq!(records[0].argv.get(1).map(String::as_str), Some("--in-diff"));
+    assert_eq!(
+        records[0].argv.get(2).map(String::as_str),
+        Some("--in-diff")
+    );
 }
 
 /// 异常：**超时 → 中断不挂死**——假 spawn 可编程自旋挂起（管道恒开、读挂
@@ -387,7 +456,7 @@ async fn 补丁入参边界_空串超大与特殊字符不破坏() {
     let ws = SpawnWs::new("patch-bounds");
     let window = SpawnWindow::enter("cargo-patch");
     window.install_fake_cargo(&ws.exec_dir);
-    window.set_out(CARGO_SEG_CANNED);
+    window.set_cargo_outcomes(CARGO_SEG_CANNED);
 
     let patches: Vec<(usize, String)> = vec![
         // 空串补丁
@@ -408,8 +477,8 @@ async fn 补丁入参边界_空串超大与特殊字符不破坏() {
             .unwrap_or_else(|error| panic!("段 {index} 边界补丁段执行应 Ok: {error}"));
         assert_eq!(
             raw.trim_end(),
-            CARGO_SEG_CANNED,
-            "段 {index} canned 原样（补丁面不扰输出捕获）"
+            CARGO_SEG_CANNED.trim_end(),
+            "段 {index} canned 原样（补丁面不扰报告落位）"
         );
 
         // 文件传参面：写盘往返逐字节不破坏（补丁内容不进 argv——只携路径）
@@ -422,9 +491,9 @@ async fn 补丁入参边界_空串超大与特殊字符不破坏() {
         // argv 面：路径完整（超大 / 特殊字符内容零进 argv）
         let records = window.records();
         assert_eq!(records.len(), 1, "段 {index} 恰一次假 spawn");
-        assert_eq!(records[0].argv[1], "--in-diff");
+        assert_eq!(records[0].argv[2], "--in-diff");
         assert!(
-            records[0].argv[2]
+            records[0].argv[3]
                 .replace('\\', "/")
                 .ends_with(&format!("mutation-seg-{index}.patch")),
             "段 {index} --in-diff 路径完整: {:?}",
@@ -439,10 +508,20 @@ async fn 补丁入参边界_空串超大与特殊字符不破坏() {
 fn 段中断错误面_双段装配接线() {
     let message = segment_failure_message(
         101,
-        b"unmutated\nerror: build failed\ntail-marker\n".as_ref(),
+        b"unmutated
+error: build failed
+tail-marker
+"
+        .as_ref(),
     );
     assert!(message.contains("cargo-mutants 段执行失败（退出码 101，未产出可解析 JSON 段报告）"));
-    assert!(message.contains("错误信息：\nerror: build failed"), "错误信息段在案");
+    assert!(
+        message.contains(
+            "错误信息：
+error: build failed"
+        ),
+        "错误信息段在案"
+    );
     assert!(message.contains("输出末尾（50 行）："), "输出末尾段在案");
     assert!(message.ends_with("tail-marker"), "末段留痕");
     // 空输出 → 裸 head（无冒号缀）

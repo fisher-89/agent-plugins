@@ -6,9 +6,7 @@
 //! Mock策略（test-design 本节 Mock 表）：无——清单 / 补丁文本 / 速率观测值
 //! 均为显式入参，纯函数直测零 mock 零 spawn。
 
-use super::super::{
-    EST_MUTANTS_PER_FILE, SEGMENT_BUDGET_MS, SEGMENT_GUARD_MS,
-};
+use super::super::{EST_MUTANTS_PER_FILE, SEGMENT_BUDGET_MS, SEGMENT_GUARD_MS};
 use super::{
     adaptive_chunk_size, estimate_duration_ms, segment_count, slice_patch, static_chunk_size,
 };
@@ -22,7 +20,11 @@ fn 静态估算耗时公式面锚定() {
         EST_MUTANTS_PER_FILE as u64 * 2000,
         "单文件 = 10 mutants × 2s = 20s"
     );
-    assert_eq!(estimate_duration_ms(15), 300_000, "15 文件 = 300s（恰等段预算刻度）");
+    assert_eq!(
+        estimate_duration_ms(15),
+        300_000,
+        "15 文件 = 300s（恰等段预算刻度）"
+    );
     // 饱和运算防溢出（超大文件数不 panic——饱和至 u64::MAX）
     assert_eq!(
         estimate_duration_ms(usize::MAX),
@@ -71,7 +73,11 @@ fn 首段静态初值均分() {
 #[test]
 fn 自适应块大小_修正方向与上下限() {
     // 慢速率（5 s/mutant → 每文件 50s → 300000/50000 = 6）
-    assert_eq!(adaptive_chunk_size(5.0, 100), 6, "慢于保守初值 → 段变小（6 < 15 静态）");
+    assert_eq!(
+        adaptive_chunk_size(5.0, 100),
+        6,
+        "慢于保守初值 → 段变小（6 < 15 静态）"
+    );
     // 快速率（0.5 s/mutant → 每文件 5s → 300000/5000 = 60）
     assert_eq!(adaptive_chunk_size(0.5, 100), 60, "快于初值 → 段变大");
     // 修正方向：慢速率块 < 快速率块
@@ -122,7 +128,11 @@ fn 组合_三段切分并集覆盖零交叠顺序稳定() {
     }
     // 并集 = 全清单、零交叠、顺序稳定
     let flattened: Vec<&String> = chunks.iter().copied().flatten().collect();
-    assert_eq!(flattened, files.iter().collect::<Vec<_>>(), "并集 = 全清单且顺序稳定");
+    assert_eq!(
+        flattened,
+        files.iter().collect::<Vec<_>>(),
+        "并集 = 全清单且顺序稳定"
+    );
     let mut ranges_sum = 0usize;
     for chunk in &chunks {
         ranges_sum += chunk.len();
@@ -151,7 +161,7 @@ fn 补丁切片_段内文件hunks与前导文本丢弃() {
                  fn b() {}\n\
                  +新增行 b\n";
 
-    let sliced = slice_patch(patch, &["src/b.rs".to_owned()]);
+    let sliced = slice_patch(patch, &["src/b.rs".to_owned()], "");
     assert!(
         sliced.contains("diff --git a/src/b.rs b/src/b.rs"),
         "段补丁含段内文件段头: {sliced}"
@@ -167,7 +177,7 @@ fn 补丁切片_段内文件hunks与前导文本丢弃() {
     );
 
     // 多文件段：并集口径
-    let both = slice_patch(patch, &["src/a.rs".to_owned(), "src/b.rs".to_owned()]);
+    let both = slice_patch(patch, &["src/a.rs".to_owned(), "src/b.rs".to_owned()], "");
     assert_eq!(both.matches("diff --git").count(), 2, "双文件段齐备");
 }
 
@@ -175,22 +185,26 @@ fn 补丁切片_段内文件hunks与前导文本丢弃() {
 /// 切片不 panic（行级精度交 cargo-mutants）；文件清单空 → 空串。
 #[test]
 fn 补丁切片_畸形与空入参不panic() {
-    assert_eq!(slice_patch("", &["src/a.rs".to_owned()]), "", "空 patch 切片空串");
     assert_eq!(
-        slice_patch("diff --git a/x b/x\n+任意", &[]),
+        slice_patch("", &["src/a.rs".to_owned()], ""),
+        "",
+        "空 patch 切片空串"
+    );
+    assert_eq!(
+        slice_patch("diff --git a/x b/x\n+任意", &[], ""),
         "",
         "空清单切片空串"
     );
     // 无段头的裸 hunk（异常形态）→ 丢弃不 panic
     assert_eq!(
-        slice_patch("@@ -1,2 +1,2 @@\n-old\n+new\n", &["x.rs".to_owned()]),
+        slice_patch("@@ -1,2 +1,2 @@\n-old\n+new\n", &["x.rs".to_owned()], ""),
         "",
         "无段头裸 hunk 丢弃"
     );
     // 半截 hunk（段头在、hunk 截断）→ 原样归属不 panic
     let truncated = "diff --git a/x.rs b/x.rs\n--- a/x.rs\n+++ b/x.rs\n@@ -1,2 +1,2 @@\n-old";
     assert_eq!(
-        slice_patch(truncated, &["x.rs".to_owned()]),
+        slice_patch(truncated, &["x.rs".to_owned()], ""),
         truncated,
         "半截 hunk 原样归属（行级精度交 cargo-mutants）"
     );
@@ -206,7 +220,7 @@ fn 补丁切片_特殊文件名不破坏() {
                  @@ -1,1 +1,2 @@\n\
                  +含空格\n";
     assert!(
-        slice_patch(space, &["src/my file.rs".to_owned()]).contains("+含空格"),
+        slice_patch(space, &["src/my file.rs".to_owned()], "").contains("+含空格"),
         "空格路径切片（rfind 兜住）"
     );
 
@@ -216,7 +230,7 @@ fn 补丁切片_特殊文件名不破坏() {
                    @@ -1,1 +1,2 @@\n\
                    +中文 emoji 行\n";
     assert!(
-        slice_patch(unicode, &["src/文件 🚀.rs".to_owned()]).contains("+中文 emoji 行"),
+        slice_patch(unicode, &["src/文件 🚀.rs".to_owned()], "").contains("+中文 emoji 行"),
         "中文 / emoji 路径切片"
     );
 
@@ -230,7 +244,7 @@ fn 补丁切片_特殊文件名不破坏() {
                   @@ -1,1 +1,2 @@\n\
                   +解码行\n";
     assert_eq!(
-        slice_patch(quoted, &["src/文.txt".to_owned()]),
+        slice_patch(quoted, &["src/文.txt".to_owned()], ""),
         "",
         "git 原生引用形态段丢弃不 panic（路径不可辨面）"
     );
@@ -241,7 +255,7 @@ fn 补丁切片_特殊文件名不破坏() {
                   +++ b/\"src/\\346\\226\\207.txt\"\n\
                   @@ -1,1 +1,2 @@\n\
                   +解码行\n";
-    let sliced = slice_patch(hybrid, &["src/文.txt".to_owned()]);
+    let sliced = slice_patch(hybrid, &["src/文.txt".to_owned()], "");
     assert!(
         sliced.contains("+解码行"),
         "+++ b/ 前缀 + C 引用路径八进制解码兜底命中: {sliced}"
@@ -257,8 +271,93 @@ fn 补丁切片_特殊文件名不破坏() {
                    @@ -1,1 +0,0 @@\n\
                    -删除行\n";
     assert!(
-        slice_patch(deleted, &["gone.rs".to_owned()]).contains("-删除行"),
+        slice_patch(deleted, &["gone.rs".to_owned()], "").contains("-删除行"),
         "删除面段头可辨 → 照常入段（行级精度归 cargo-mutants）"
+    );
+}
+
+/// 段补丁路径重写：清单匹配恒项目根相对、落盘段补丁剥 suite 根前缀——
+/// `diff --git a/<p> b/<p>` / `--- a/<p>` / `+++ b/<p>` 三类行剥
+/// `<strip_dir>/`，hunk 体与 `/dev/null` 侧逐字保留；前缀空串 = suite 锚项目
+/// 根（cargo mutants 以 spawn cwd 相对路径匹配 `--in-diff`，Stryker mutate 清
+/// 单 relative_to_cwd 同约定）。
+#[test]
+fn 补丁切片_suite根前缀剥离与空串透传() {
+    let patch = "diff --git a/app/src/lib.rs b/app/src/lib.rs\n\
+                 index 1111111..2222222 100644\n\
+                 --- a/app/src/lib.rs\n\
+                 +++ b/app/src/lib.rs\n\
+                 @@ -1,2 +1,3 @@\n\
+                 fn a() {}\n\
+                 +新增行\n";
+
+    // suite 根前缀剥离：三类路径行剥 `app/`，hunk 体逐字保留
+    let stripped = slice_patch(patch, &["app/src/lib.rs".to_owned()], "app");
+    assert_eq!(
+        stripped,
+        "diff --git a/src/lib.rs b/src/lib.rs\n\
+         index 1111111..2222222 100644\n\
+         --- a/src/lib.rs\n\
+         +++ b/src/lib.rs\n\
+         @@ -1,2 +1,3 @@\n\
+         fn a() {}\n\
+         +新增行\n",
+        "三类路径行剥 suite 根前缀，其余行逐字保留"
+    );
+
+    // 前缀空串（suite 锚项目根）→ 逐字透传（路径已相对执行目录）
+    assert_eq!(
+        slice_patch(patch, &["app/src/lib.rs".to_owned()], ""),
+        patch,
+        "strip_dir 空串全段透传"
+    );
+
+    // 删除面：`+++ /dev/null` 侧不剥、`--- a/` 侧照剥
+    let deleted = "diff --git a/app/src/gone.rs b/app/src/gone.rs\n\
+                   deleted file mode 100644\n\
+                   --- a/app/src/gone.rs\n\
+                   +++ /dev/null\n\
+                   @@ -1,1 +0,0 @@\n\
+                   -删除行\n";
+    assert_eq!(
+        slice_patch(deleted, &["app/src/gone.rs".to_owned()], "app"),
+        "diff --git a/src/gone.rs b/src/gone.rs\n\
+         deleted file mode 100644\n\
+         --- a/src/gone.rs\n\
+         +++ /dev/null\n\
+         @@ -1,1 +0,0 @@\n\
+         -删除行\n",
+        "删除面剥 a/ 侧、/dev/null 侧保留"
+    );
+
+    // 新增面：`--- /dev/null` 侧不剥、`+++ b/` 侧照剥
+    let added = "diff --git a/app/src/new.rs b/app/src/new.rs\n\
+                 new file mode 100644\n\
+                 --- /dev/null\n\
+                 +++ b/app/src/new.rs\n\
+                 @@ -0,0 +1,1 @@\n\
+                 +新增行\n";
+    assert_eq!(
+        slice_patch(added, &["app/src/new.rs".to_owned()], "app"),
+        "diff --git a/src/new.rs b/src/new.rs\n\
+         new file mode 100644\n\
+         --- /dev/null\n\
+         +++ b/src/new.rs\n\
+         @@ -0,0 +1,1 @@\n\
+         +新增行\n",
+        "新增面剥 b/ 侧、/dev/null 侧保留"
+    );
+
+    // 前缀不匹配的路径（跨 suite 前缀误入清单的防御面）→ 原样保留不误剥
+    let other = "diff --git a/other/src/lib.rs b/other/src/lib.rs\n\
+                 --- a/other/src/lib.rs\n\
+                 +++ b/other/src/lib.rs\n\
+                 @@ -1,1 +1,2 @@\n\
+                 +新增行\n";
+    assert_eq!(
+        slice_patch(other, &["other/src/lib.rs".to_owned()], "app"),
+        other,
+        "非 suite 根前缀路径不误剥"
     );
 }
 

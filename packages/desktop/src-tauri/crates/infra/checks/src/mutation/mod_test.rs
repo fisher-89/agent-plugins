@@ -40,9 +40,9 @@ use workflow::write::SessionAnchors;
 
 use super::report::to_posix;
 use super::{
-    bucket_suites, framework_name, mutation_tool, normalize_root, skip_outcome,
-    ProcessMutation, EST_MUTANTS_PER_FILE, MUTATION_JOBS_DIVISOR, PER_MUTANT_TIMEOUT_SECS,
-    SEGMENT_BUDGET_MS, SEGMENT_GUARD_MS,
+    bucket_suites, framework_name, mutation_tool, normalize_root, skip_outcome, ProcessMutation,
+    EST_MUTANTS_PER_FILE, MUTATION_JOBS_DIVISOR, PER_MUTANT_TIMEOUT_SECS, SEGMENT_BUDGET_MS,
+    SEGMENT_GUARD_MS,
 };
 
 // ---------------------------------------------------------------------------
@@ -112,8 +112,7 @@ impl SpawnWindow {
             if !target.is_file() {
                 let (bash, dll) = msys_bash_sources();
                 fs::copy(&bash, &target).expect("拷贝 msys bash 为假 cargo.exe");
-                fs::copy(&dll, self.shim.path().join("msys-2.0.dll"))
-                    .expect("拷贝 msys-2.0.dll");
+                fs::copy(&dll, self.shim.path().join("msys-2.0.dll")).expect("拷贝 msys-2.0.dll");
             }
         }
         #[cfg(not(windows))]
@@ -182,6 +181,27 @@ impl SpawnWindow {
         std::env::set_var("FAKE_SPAWN_REPORT", path);
     }
 
+    /// cargo-mutants 段报告权威落位编程（真实工具在 cwd 重建
+    /// `mutants.out/outcomes.json` 面模拟；缺省不写 = 真实工具 diff 零可突变交
+    /// 叠 / 崩溃无报告面）。argv ALT 命中时不消费本源（换
+    /// [`Self::set_cargo_outcomes_alt`]）。
+    pub(super) fn set_cargo_outcomes(&self, body: &str) -> PathBuf {
+        let path = self.shim.path().join("fake-cargo-outcomes.json");
+        fs::write(&path, body).expect("写 canned cargo outcomes");
+        std::env::set_var("FAKE_SPAWN_CARGO_OUTCOMES", &path);
+        path
+    }
+
+    /// cargo-mutants 段报告 ALT 源（argv 子串命中 → 换 outcomes 源——多 suite
+    /// 差异编程；与 [`Self::set_alt`] 共用 `FAKE_SPAWN_ARG_MATCH` 命中键，命中且
+    /// 未设 ALT 源 = 不写报告，与真实工具零交叠面同形）。
+    pub(super) fn set_cargo_outcomes_alt(&self, argv_match: &str, body: &str) {
+        let path = self.shim.path().join("fake-cargo-outcomes-alt.json");
+        fs::write(&path, body).expect("写 canned ALT cargo outcomes");
+        std::env::set_var("FAKE_SPAWN_ARG_MATCH", argv_match);
+        std::env::set_var("FAKE_SPAWN_CARGO_OUTCOMES_ALT", &path);
+    }
+
     /// 记录清零（多 run 同窗序列化用例的记录分界）。
     pub(super) fn reset_records(&self) {
         let _ = fs::remove_file(self.log_path());
@@ -235,6 +255,8 @@ impl Drop for SpawnWindow {
             "FAKE_SPAWN_EXIT_ALT",
             "FAKE_SPAWN_SLEEP",
             "FAKE_SPAWN_REPORT",
+            "FAKE_SPAWN_CARGO_OUTCOMES",
+            "FAKE_SPAWN_CARGO_OUTCOMES_ALT",
         ] {
             std::env::remove_var(key);
         }
@@ -250,10 +272,7 @@ fn msys_bash_sources() -> (PathBuf, PathBuf) {
         exec::ShellBase::GitBash(path) => path,
         _ => panic!("假 spawn 装置需要 Git for Windows bash（resolve_shell 未探测到 GitBash）"),
     };
-    let dir = bash
-        .parent()
-        .expect("bash 路径应有父目录")
-        .to_path_buf();
+    let dir = bash.parent().expect("bash 路径应有父目录").to_path_buf();
     let direct = (dir.join("bash.exe"), dir.join("msys-2.0.dll"));
     if direct.0.is_file() && direct.1.is_file() {
         return direct;
@@ -294,7 +313,10 @@ fn set_executable(_path: &Path) {}
 /// 假 `mutants` 执行体（cargo mutants 面；`$0` = `mutants` 跨平台同构）：
 /// 记录 argv / cwd / env → 可编程自旋挂起（超时面）→ 可编程输出（argv 子串命
 /// 中换 ALT 源与退出码——多 suite 差异编程）→ canned 源逐行回写 stdout（段报
-/// 告面在 `FAKE_SPAWN_REPORT` 在位时同源写出）。纯内建命令（零外部依赖——msys
+/// 告面在 `FAKE_SPAWN_REPORT` 在位时同源写出）→ cargo-mutants 报告文件面
+/// （`FAKE_SPAWN_CARGO_OUTCOMES` 在位时在 cwd 重建 `mutants.out/outcomes.json`
+/// ——真实工具段报告权威落位模拟；ALT 命中换 `…_ALT` 源、缺省不写 = 零报告）。
+/// 纯内建命令（零外部依赖——msys
 /// bash 非交互 PATH 无 Git usr/bin）。
 const MUTANTS_SCRIPT: &str = r#"#!/bin/sh
 {
@@ -333,6 +355,14 @@ if [ -n "$fake_out" ] && [ -f "$fake_out" ]; then
       printf '%s\n' "$fake_line"
     done < "$fake_out" > "$FAKE_SPAWN_REPORT"
   fi
+fi
+fake_cargo_outcomes=${FAKE_SPAWN_CARGO_OUTCOMES:-}
+if [ -n "$fake_matched" ]; then
+  fake_cargo_outcomes=${FAKE_SPAWN_CARGO_OUTCOMES_ALT:-}
+fi
+if [ -n "$fake_cargo_outcomes" ] && [ -f "$fake_cargo_outcomes" ]; then
+  mkdir -p mutants.out
+  cp "$fake_cargo_outcomes" mutants.out/outcomes.json
 fi
 exit "$fake_exit"
 "#;
@@ -420,51 +450,56 @@ const TWO_RUST_CONFIG: &str = r#"{ "tests": [
 const VITEST_CONFIG: &str = r#"{ "tests": [ { "root": "app", "framework": "vitest", "coverage": { "lines": 80, "branches": 70, "functions": 75 }, "mutation": { "score": 80 } } ] }"#;
 
 /// Stryker 段报告 canned（metrics 面：9 killed + 1 survived / 10 → score 90）。
-const STRYKER_SEG_PASS: &str = r#"{ "metrics": { "killed": 9, "survived": 1, "totalMutants": 10 }, "durationMs": 3000.0 }"#;
+const STRYKER_SEG_PASS: &str =
+    r#"{ "metrics": { "killed": 9, "survived": 1, "totalMutants": 10 }, "durationMs": 3000.0 }"#;
 
 /// 段中断 canned（非 JSON 损坏输出——harness 崩面）。
 const SEG_INTERRUPT_GARBAGE: &str = "harness crashed: boom-marker";
 
-/// cargo-mutants 段报告 fixture（9 killed + 1 survived / total 10——score 90）。
+/// cargo-mutants 段报告 fixture（`mutants.out/outcomes.json` 真实形态——运行
+/// 面计数面：9 caught + 1 missed / total 10 → score 90）。
 const CARGO_SEG_PASS: &str = r#"{
-  "mutants": [
-    { "outcome": "Caught" }, { "outcome": "Caught" }, { "outcome": "Caught" },
-    { "outcome": "Caught" }, { "outcome": "Caught" }, { "outcome": "Caught" },
-    { "outcome": "Caught" }, { "outcome": "Caught" }, { "outcome": "Caught" },
-    { "outcome": "missed" }
-  ],
-  "durationMs": 1200.0
+  "outcomes": [],
+  "total_mutants": 10,
+  "missed": 1,
+  "caught": 9,
+  "timeout": 0,
+  "unviable": 0,
+  "success": true,
+  "cargo_mutants_version": "27.1.0"
 }"#;
 
-/// cargo-mutants 段报告 fixture（5 killed + 5 survived / total 10——score 50
-/// 未达 80 阈）。
+/// cargo-mutants 段报告 fixture（5 caught + 5 missed / total 10——score 50 未达
+/// 80 阈）。
 const CARGO_SEG_FAIL: &str = r#"{
-  "mutants": [
-    { "outcome": "Caught" }, { "outcome": "Caught" }, { "outcome": "Caught" },
-    { "outcome": "Caught" }, { "outcome": "Caught" },
-    { "outcome": "missed" }, { "outcome": "missed" }, { "outcome": "missed" },
-    { "outcome": "missed" }, { "outcome": "missed" }
-  ],
-  "durationMs": 2400.0
+  "outcomes": [],
+  "total_mutants": 10,
+  "missed": 5,
+  "caught": 5,
+  "timeout": 0,
+  "unviable": 0,
+  "success": false,
+  "cargo_mutants_version": "27.1.0"
 }"#;
 
 /// cargo-mutants 段报告 canned（`killed` caught + `survived` missed；score =
 /// killed / total 两位舍入）。
 fn cargo_seg(killed: usize, survived: usize) -> String {
-    let mut entries: Vec<&str> = Vec::with_capacity(killed + survived);
-    entries.extend((0..killed).map(|_| r#"{ "outcome": "Caught" }"#));
-    entries.extend((0..survived).map(|_| r#"{ "outcome": "missed" }"#));
     format!(
-        r#"{{ "mutants": [{}], "durationMs": 1000.0 }}"#,
-        entries.join(", ")
+        r#"{{ "outcomes": [], "total_mutants": {total}, "missed": {survived}, "caught": {killed}, "timeout": 0, "unviable": 0, "success": true }}"#,
+        total = killed + survived,
     )
 }
 
 /// 组合根链路 change **id**（≠ name——id → 记录 → name 解析面可辨）。
 const COMBO_CHANGE_ID: &str = "combo-change-0001";
 
-/// 组合根链路 fake vcs 补丁（单文件段——切片逐字等值注入 `--in-diff` 段补丁）。
+/// 组合根链路 fake vcs 补丁（单文件段；清单匹配用项目根相对路径）。
 const COMBO_PATCH: &str = "diff --git a/app/src/lib.rs b/app/src/lib.rs\n--- a/app/src/lib.rs\n+++ b/app/src/lib.rs\n@@ -1 +1 @@\n-old\n+new\n";
+
+/// 组合根链路段补丁期望（vcs 补丁切片 + suite 根 `app/` 前缀剥离——落盘面路径
+/// 相对 suite 执行目录，cargo mutants `--in-diff` 源树匹配口径）。
+const COMBO_PATCH_STRIPPED: &str = "diff --git a/src/lib.rs b/src/lib.rs\n--- a/src/lib.rs\n+++ b/src/lib.rs\n@@ -1 +1 @@\n-old\n+new\n";
 
 // ---------------------------------------------------------------------------
 // 装置：workspace fixture
@@ -824,7 +859,10 @@ async fn 执行链js_suite全链stryker假spawn产出() {
         (9, 1, 0, 0, 0, 0, 10),
         "Stryker metrics 面归位计数"
     );
-    assert!(outcome.feedback_text.is_empty(), "Pass 恒空串（达标零反馈）");
+    assert!(
+        outcome.feedback_text.is_empty(),
+        "Pass 恒空串（达标零反馈）"
+    );
     assert_eq!(outcome.report_paths.len(), 2, "段级 + 归并报告");
     assert!(
         outcome.report_paths[0].ends_with("app_vitest/mutation/mutation-seg-0.json"),
@@ -882,8 +920,8 @@ async fn 段中断_conclusion_error即时反馈不等汇总() {
     let ws = ChainWs::with_config("interrupt", TWO_RUST_CONFIG).with_summary();
     window.install_fake_cargo(&ws.root.join("app"));
     window.install_fake_cargo(&ws.root.join("src-tauri"));
-    window.set_out(CARGO_SEG_PASS); // suite1 面：90 ≥ 80 达标完成
-    window.set_alt("src-tauri_rust", SEG_INTERRUPT_GARBAGE, Some(101)); // suite2 面：损坏输出 + 非零退出
+    window.set_cargo_outcomes(CARGO_SEG_PASS); // suite1 面：90 ≥ 80 达标完成（报告文件落位）
+    window.set_alt("src-tauri_rust", SEG_INTERRUPT_GARBAGE, Some(101)); // suite2 面：非零退出 + 零段报告（ALT 命中不写 outcomes）
 
     let files = vec![
         "app/src/lib.rs".to_owned(),
@@ -913,7 +951,10 @@ async fn 段中断_conclusion_error即时反馈不等汇总() {
     );
 
     let feedback = &outcome.feedback_text;
-    assert!(feedback.contains("突变执行中断"), "错误摘要在案: {feedback}");
+    assert!(
+        feedback.contains("突变执行中断"),
+        "错误摘要在案: {feedback}"
+    );
     assert!(
         feedback.contains("退出码 101") && feedback.contains("未产出可解析 JSON 段报告"),
         "记因面（非零退出 + 无段报告）: {feedback}"
@@ -949,13 +990,17 @@ async fn 段中断_conclusion_error即时反馈不等汇总() {
     let records = window.records();
     assert_eq!(records.len(), 2, "两 suite 各恰一次假 spawn");
     assert_eq!(records[0].argv[0], "mutants");
+    assert_eq!(
+        records[0].argv[1], "--workspace",
+        "workspace 突变面（混合 workspace 全成员）"
+    );
     assert!(
-        records[0].argv[2].contains("app_rust"),
+        records[0].argv[3].contains("app_rust"),
         "suite1 段补丁路径: {:?}",
         records[0].argv
     );
     assert!(
-        records[1].argv[2].contains("src-tauri_rust"),
+        records[1].argv[3].contains("src-tauri_rust"),
         "suite2 段补丁路径: {:?}",
         records[1].argv
     );
@@ -976,8 +1021,8 @@ async fn 逐suite多阈值判定_全过pass有败fail首块阈值() {
     let ws1 = ChainWs::with_config("all-pass", TWO_RUST_CONFIG);
     window.install_fake_cargo(&ws1.root.join("app"));
     window.install_fake_cargo(&ws1.root.join("src-tauri"));
-    window.set_out(CARGO_SEG_PASS); // 90
-    window.set_alt("src-tauri_rust", &cargo_seg(15, 5), None); // 75
+    window.set_cargo_outcomes(CARGO_SEG_PASS); // 90
+    window.set_cargo_outcomes_alt("src-tauri_rust", &cargo_seg(15, 5)); // 75
     let all_pass = outcome_of(run(&ws1, &files).await.expect("全过面应 Ok"));
     assert_eq!(all_pass.conclusion, MutationTestConclusion::Pass);
     assert!(
@@ -1007,8 +1052,8 @@ async fn 逐suite多阈值判定_全过pass有败fail首块阈值() {
     let ws2 = ChainWs::with_config("has-fail", TWO_RUST_CONFIG);
     window.install_fake_cargo(&ws2.root.join("app"));
     window.install_fake_cargo(&ws2.root.join("src-tauri"));
-    window.set_out(CARGO_SEG_FAIL); // 50
-    window.set_alt("src-tauri_rust", &cargo_seg(19, 1), None); // 95
+    window.set_cargo_outcomes(CARGO_SEG_FAIL); // 50
+    window.set_cargo_outcomes_alt("src-tauri_rust", &cargo_seg(19, 1)); // 95
     let has_fail = outcome_of(run(&ws2, &files).await.expect("有败面应 Ok"));
     assert_eq!(
         has_fail.conclusion,
@@ -1065,18 +1110,20 @@ impl FakeVcs {
 
 impl ArchiveVcsPort for FakeVcs {
     fn change_edit_set(&self, root: &Path, base: &str) -> Result<Vec<String>, String> {
-        self.calls
-            .lock()
-            .expect("calls 锁不可中毒")
-            .push(("change_edit_set", to_posix(root), base.to_owned()));
+        self.calls.lock().expect("calls 锁不可中毒").push((
+            "change_edit_set",
+            to_posix(root),
+            base.to_owned(),
+        ));
         Ok(self.files.clone())
     }
 
     fn change_edit_patch(&self, root: &Path, base: &str) -> Result<String, String> {
-        self.calls
-            .lock()
-            .expect("calls 锁不可中毒")
-            .push(("change_edit_patch", to_posix(root), base.to_owned()));
+        self.calls.lock().expect("calls 锁不可中毒").push((
+            "change_edit_patch",
+            to_posix(root),
+            base.to_owned(),
+        ));
         Ok(self.patch.clone())
     }
 
@@ -1089,11 +1136,7 @@ impl ArchiveVcsPort for FakeVcs {
     fn branch_merged(&self, _main_root: &Path, _branch: &str) -> Result<bool, String> {
         unimplemented!("组合根链路不触归档 git 缝")
     }
-    fn rebase_branch(
-        &self,
-        _worktree: &Path,
-        _onto: &str,
-    ) -> Result<RebaseOutcome, String> {
+    fn rebase_branch(&self, _worktree: &Path, _onto: &str) -> Result<RebaseOutcome, String> {
         unimplemented!("组合根链路不触归档 git 缝")
     }
     fn ff_merge(&self, _main_root: &Path, _branch: &str) -> Result<(), String> {
@@ -1267,14 +1310,14 @@ impl TestExecutionRunner for UnusedSeamRunner {
 /// 组合：**组合根链路**——`LocalToolSteps` MutationTest 分支 → fake vcs（清单 /
 /// 补丁唯一入口假件，`base` 恒 `HEAD`）→ 真实 `ProcessMutation::run` 四参（假
 /// spawn 主链）→ outcome 载荷逐字段断言；id → 记录 → name 解析（报告目录携
-/// `demo-change`）、vcs 补丁切片逐字注入 `--in-diff` 段补丁、审计行落账
-/// （AC-3 / E3 / E11）。
+/// `demo-change`）、vcs 补丁切片 + suite 根前缀剥离注入 `--in-diff` 段补丁、
+/// 审计行落账（AC-3 / E3 / E11）。
 #[tokio::test]
 async fn 组合根链路_localtoolsteps_vcs假件_processmutation假spawn() {
     let window = SpawnWindow::enter("combo-root");
     let ws = ChainWs::with_config("combo-root", RUST_APP_CONFIG);
     window.install_fake_cargo(&ws.root.join("app"));
-    window.set_out(CARGO_SEG_PASS);
+    window.set_cargo_outcomes(CARGO_SEG_PASS);
 
     let vcs = Arc::new(FakeVcs::new(vec!["app/src/lib.rs".to_owned()], COMBO_PATCH));
     let store = Arc::new(FakeStore::new());
@@ -1346,15 +1389,16 @@ async fn 组合根链路_localtoolsteps_vcs假件_processmutation假spawn() {
         .join("mutation-seg-0.patch");
     assert_eq!(
         fs::read_to_string(&seg_patch).expect("段补丁在盘"),
-        COMBO_PATCH,
-        "vcs 补丁经切片逐字注入 --in-diff 段补丁"
+        COMBO_PATCH_STRIPPED,
+        "vcs 补丁经切片 + suite 根前缀剥离注入 --in-diff 段补丁"
     );
 
     // 假 spawn 主链在位（执行链按 Mock 表走假 spawn）
     let records = window.records();
     assert_eq!(records.len(), 1, "真实 execute 主链恰一次假 spawn");
     assert_eq!(records[0].argv[0], "mutants", "argv 首 token");
-    assert_eq!(records[0].argv[1], "--in-diff", "段补丁入参位");
+    assert_eq!(records[0].argv[1], "--workspace", "workspace 突变面");
+    assert_eq!(records[0].argv[2], "--in-diff", "段补丁入参位");
 
     // 审计行（StepKind::MutationTest，摘要携 conclusion / score / threshold）
     let rows = store.audit_rows();
@@ -1429,7 +1473,11 @@ fn suite归桶_前缀匹配与跨桶单归与锚点归一() {
         vec!["app/src/lib.rs", "app/src/win.rs"],
         "app 桶（POSIX 归一后排序去重）"
     );
-    assert_eq!(buckets[1].files, vec!["app/nested/deep.ts"], "nested 桶（最长前缀）");
+    assert_eq!(
+        buckets[1].files,
+        vec!["app/nested/deep.ts"],
+        "nested 桶（最长前缀）"
+    );
     // plan id / 框架 / 阈值 / 执行器绑定面
     assert_eq!(
         buckets[0].plan_id, "app_rust",
@@ -1526,7 +1574,10 @@ fn 突变常量锚定与config_schema零新字段() {
 /// 反馈（null 观察期载荷面单点）。
 #[test]
 fn 跳过面产出形态_恒pass零占位() {
-    for reason in [MutationSkipReason::EmptyDiff, MutationSkipReason::NoExecutor] {
+    for reason in [
+        MutationSkipReason::EmptyDiff,
+        MutationSkipReason::NoExecutor,
+    ] {
         let output = skip_outcome(reason);
         let outcome = outcome_of(output);
         assert_eq!(outcome.conclusion, MutationTestConclusion::Pass);
@@ -1540,11 +1591,13 @@ fn 跳过面产出形态_恒pass零占位() {
 /// / `MutationTool` 两值自持（纯层 fixtures 直驱——E4 零 spawn 零 Tauri）。
 #[test]
 fn 段级解析路由与产出模型面() {
-    let cargo = super::parse_seg(MutationTool::CargoMutants, CARGO_SEG_PASS)
-        .expect("cargo 段解析应成功");
+    let cargo =
+        super::parse_seg(MutationTool::CargoMutants, CARGO_SEG_PASS).expect("cargo 段解析应成功");
     assert_eq!(cargo.tool, MutationTool::CargoMutants);
     assert_eq!(cargo.measured.killed, 9);
-    assert_eq!(cargo.duration_ms, 1200.0);
+    // 真实 outcomes.json 无 durationMs 键 → 0.0（自适应速率回落静态初值——
+    // run_suite「工具未携 → 静态初值续用」既有口径）
+    assert_eq!(cargo.duration_ms, 0.0);
 
     let stryker_raw = r#"{ "metrics": { "killed": 3, "survived": 1, "totalMutants": 4 } }"#;
     let stryker =
@@ -1678,7 +1731,11 @@ async fn 全桶滤空_emptydiff零spawn假绿防线() {
     ];
     let output = run(&ws, &files).await.expect("空突变面产 Ok 载荷");
     let outcome = outcome_of(output);
-    assert_eq!(outcome.conclusion, MutationTestConclusion::Pass, "跳过面恒 Pass");
+    assert_eq!(
+        outcome.conclusion,
+        MutationTestConclusion::Pass,
+        "跳过面恒 Pass"
+    );
     assert_eq!(
         outcome.skip,
         Some(MutationSkipReason::EmptyDiff),
@@ -1713,7 +1770,7 @@ async fn 单桶滤空掉出runnable_余桶照跑() {
 ] }"#;
     let ws = ChainWs::with_config("filter-partial", config).with_summary();
     window.install_fake_cargo(&ws.root.join("src-tauri"));
-    window.set_out(CARGO_SEG_PASS);
+    window.set_cargo_outcomes(CARGO_SEG_PASS);
 
     // vitest 桶只喂不可插桩文件（滤空）；rust 桶正常
     let files = vec![
@@ -1724,11 +1781,18 @@ async fn 单桶滤空掉出runnable_余桶照跑() {
     let outcome = outcome_of(output);
     assert_eq!(outcome.conclusion, MutationTestConclusion::Pass);
     assert_eq!(outcome.skip, None, "有可跑桶非跳过");
-    assert_eq!((outcome.score, outcome.threshold), (90.0, 70.0), "rust 桶归并");
+    assert_eq!(
+        (outcome.score, outcome.threshold),
+        (90.0, 70.0),
+        "rust 桶归并"
+    );
 
     let records = window.records();
     assert_eq!(records.len(), 1, "恰一次 spawn（vitest 桶滤空零 spawn）");
-    assert_eq!(records[0].argv[0], "mutants", "唯一 spawn 为 cargo-mutants 面");
+    assert_eq!(
+        records[0].argv[0], "mutants",
+        "唯一 spawn 为 cargo-mutants 面"
+    );
 }
 
 /// 全链：**Stryker 段失败 → 失败桶临时面保留**——临时 config + `_stryker-tmp`
@@ -1746,13 +1810,16 @@ async fn 中断保留失败段产物_反馈附路径() {
     let mutation_dir = foundation::layout::change_test_reports(&ws.root, ws.change)
         .join("app_vitest")
         .join("mutation");
-    fs::create_dir_all(mutation_dir.join("_stryker-tmp").join("sandbox-x"))
-        .expect("预置 sandbox");
+    fs::create_dir_all(mutation_dir.join("_stryker-tmp").join("sandbox-x")).expect("预置 sandbox");
 
     let files = vec!["app/src/a.ts".to_owned()];
     let output = run(&ws, &files).await.expect("中断面产 Ok 载荷");
     let outcome = outcome_of(output);
-    assert_eq!(outcome.conclusion, MutationTestConclusion::Error, "段中断收束");
+    assert_eq!(
+        outcome.conclusion,
+        MutationTestConclusion::Error,
+        "段中断收束"
+    );
 
     // 临时面在盘（config 由 run_segment 写盘、sandbox 预置——cleanup 跳过保留）
     let config_path = mutation_dir.join("mutation-stryker-seg-0.conf.json");
@@ -1797,8 +1864,7 @@ async fn 成功全段_临时产物照清() {
     let report_path = mutation_dir.join("mutation-seg-0.json");
     window.set_report(&report_path);
     // 预置 sandbox 目录（成功后应被清理）
-    fs::create_dir_all(mutation_dir.join("_stryker-tmp").join("sandbox-x"))
-        .expect("预置 sandbox");
+    fs::create_dir_all(mutation_dir.join("_stryker-tmp").join("sandbox-x")).expect("预置 sandbox");
 
     let files = vec!["app/src/a.ts".to_owned()];
     let output = run(&ws, &files).await.expect("成功面应成功");

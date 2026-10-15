@@ -48,10 +48,8 @@ pub(crate) fn adaptive_chunk_size(rate_sec_per_mutant: f64, remaining: usize) ->
     size.clamp(1, remaining)
 }
 
-/// 补丁按文件段切片（`--in-diff` 段补丁面）：patch 按 `diff --git` 文件段头切
-/// 分，段 i 的补丁只含段内文件的 hunk——行级精度交 cargo-mutants，切片只保证
-/// 文件级归属；段头不可辨（罕见引用形态）的段丢弃（不 panic、不重复计入多段）。
-pub(crate) fn slice_patch(patch: &str, files: &[String]) -> String {
+/// 补丁按文件段切片
+pub(crate) fn slice_patch(patch: &str, files: &[String], strip_dir: &str) -> String {
     let wanted: BTreeSet<&str> = files.iter().map(String::as_str).collect();
     let mut sections: Vec<(Option<String>, String)> = Vec::new();
     let mut current: Option<(Option<String>, String)> = None;
@@ -80,11 +78,49 @@ pub(crate) fn slice_patch(patch: &str, files: &[String]) -> String {
         };
         if let Some(path) = path {
             if wanted.contains(path.as_str()) {
-                sliced.push_str(&text);
+                sliced.push_str(&rewrite_section_paths(&text, strip_dir));
             }
         }
     }
     sliced
+}
+
+/// 段补丁路径重写（项目根相对 → suite 执行目录相对）：`diff --git a/<p> b/<p>`
+/// / `--- a/<p>` / `+++ b/<p>` 三类行剥 suite 根前缀，其余行（`/dev/null` 侧、
+/// hunk 体、rename 元数据）逐字保留；`strip_dir` 空串 = suite 锚项目根，全段逐
+/// 字透传。路径行尾终止符（`\r` 等）原样保留。
+fn rewrite_section_paths(section: &str, strip_dir: &str) -> String {
+    section
+        .split_inclusive('\n')
+        .map(|line| rewrite_path_line(line, strip_dir))
+        .collect()
+}
+
+/// 单行路径重写（三类路径行剥前缀；不匹配行原样返回）。
+fn rewrite_path_line(line: &str, strip_dir: &str) -> String {
+    if let Some(rest) = line.strip_prefix("diff --git a/") {
+        if let Some(split) = rest.rfind(" b/") {
+            let (old, new) = (&rest[..split], &rest[split + 3..]);
+            return format!(
+                "diff --git a/{} b/{}",
+                strip_suite_dir(old, strip_dir),
+                strip_suite_dir(new, strip_dir),
+            );
+        }
+    } else if let Some(rest) = line.strip_prefix("--- a/") {
+        return format!("--- a/{}", strip_suite_dir(rest, strip_dir));
+    } else if let Some(rest) = line.strip_prefix("+++ b/") {
+        return format!("+++ b/{}", strip_suite_dir(rest, strip_dir));
+    }
+    line.to_owned()
+}
+
+/// 剥 suite 根前缀（`<strip_dir>/<path>` → `<path>`；不匹配 → 原样——前缀空串
+/// 时 `strip_prefix("")` 恒命中、再剥 `/` 不命中即原样，项目根锚自然退化为透传）。
+fn strip_suite_dir<'a>(path: &'a str, strip_dir: &str) -> &'a str {
+    path.strip_prefix(strip_dir)
+        .and_then(|rest| rest.strip_prefix('/'))
+        .unwrap_or(path)
 }
 
 /// `diff --git a/<path> b/<path>` 段头路径解析（a 侧；` rfind(" b/")` 兜住路径

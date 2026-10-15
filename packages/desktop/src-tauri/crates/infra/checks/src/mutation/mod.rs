@@ -496,10 +496,18 @@ async fn execute_segment(
     let tool = bucket.tool.expect("可执行桶恒有执行器");
     let raw = match tool {
         MutationTool::CargoMutants => {
+            // 段补丁路径重写基准：suite 执行目录相对项目根的 POSIX 路径（cargo
+            // mutants 以 spawn cwd 相对路径对源树匹配 `--in-diff`；Stryker
+            // `mutate` 清单 relative_to_cwd 同约定——suite 锚项目根时为空串透传）
+            let exec_rel = bucket
+                .exec_dir
+                .strip_prefix(root_path)
+                .map(report::to_posix)
+                .unwrap_or_default();
             let patch_path = report::write_segment_patch(
                 mutation_dir,
                 index,
-                &segments::slice_patch(patch, chunk),
+                &segments::slice_patch(patch, chunk, &exec_rel),
             )
             .map_err(SegmentFailure::Fatal)?;
             cargo_mutants::run_segment(&patch_path, &bucket.exec_dir).await?
@@ -519,9 +527,8 @@ async fn execute_segment(
     };
     // 段原始报告写盘（工具原始输出原样、全程留存；写盘失败 → 显式 Err 面）
     report::write_segment_report(mutation_dir, index, &raw).map_err(SegmentFailure::Fatal)?;
-    parse_seg(tool, &raw).map_err(|error| {
-        SegmentFailure::Interrupted(format!("段 {index} 报告不可解析：{error}"))
-    })
+    parse_seg(tool, &raw)
+        .map_err(|error| SegmentFailure::Interrupted(format!("段 {index} 报告不可解析：{error}")))
 }
 
 /// 段报告解析（按执行器路由 core/checks 宽容解析 + outcome 映射表）。
@@ -558,13 +565,17 @@ fn backfill_summary(reports_dir: &Path, block: &MutationBlock) -> Result<(), Str
     if !value.is_object() {
         return Ok(());
     }
-    let block_value = serde_json::to_value(block)
-        .map_err(|error| format!("归并块序列化失败: {error}"))?;
+    let block_value =
+        serde_json::to_value(block).map_err(|error| format!("归并块序列化失败: {error}"))?;
     value["mutation"] = block_value;
     let rewritten = serde_json::to_string_pretty(&value)
         .map_err(|error| format!("summary 序列化失败: {error}"))?;
-    std::fs::write(&path, rewritten)
-        .map_err(|error| format!("summary mutation 位回写失败 {}: {error}", report::to_posix(&path)))
+    std::fs::write(&path, rewritten).map_err(|error| {
+        format!(
+            "summary mutation 位回写失败 {}: {error}",
+            report::to_posix(&path)
+        )
+    })
 }
 
 /// 未达标反馈文本（反馈边②报告指引式：score / threshold 结论摘要 + 逐 suite

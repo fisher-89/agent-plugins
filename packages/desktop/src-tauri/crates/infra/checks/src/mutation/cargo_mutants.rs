@@ -4,23 +4,44 @@ use std::time::Duration;
 
 use exec::SystemCommand;
 
-use super::{
-    mutation_jobs, SegmentFailure, PER_MUTANT_TIMEOUT_SECS, SEGMENT_SPAWN_TIMEOUT_MS,
-};
+use super::{mutation_jobs, SegmentFailure, PER_MUTANT_TIMEOUT_SECS, SEGMENT_SPAWN_TIMEOUT_MS};
 
-/// 段执行：`cargo mutants --in-diff <seg patch> --json --baseline skip --jobs
-/// <半 CPU> --timeout <PER_MUTANT_TIMEOUT_SECS>` spawn（超时 + 输出捕获，段补丁
-/// 经 argv 传参零 shell 包装）；`CARGO_TARGET_DIR` 锚 suite 执行目录 `target/`
-/// ——各段共享同一 target dir（增量编译跨段复用，MUST NOT 每段重置）。段原始
-/// 报告 = `--json` 载荷（stdout 提取），由调用方写盘。
+/// cargo-mutants 段报告目录（spawn cwd 相对——默认写 `<cwd>/mutants.out`，
+/// `--output` 未传）。
+const CARGO_MUTANTS_OUT_DIR: &str = "mutants.out";
+
+/// cargo-mutants 运行结果报告文件名（`mutants.out/outcomes.json`——逐突变体
+/// outcome 与计数面的权威落位；运行面 stdout 只有人类可读进度行，`--json` 仅
+/// 作用于 `--list`）。
+const CARGO_OUTCOMES_FILE: &str = "outcomes.json";
+
+/// 零突变体段合成载荷（计数面直读形态——`parse_cargo_mutants_seg` 计数面同式；
+/// 全零计数 → 归并块 valid == 0 → score 100 恒过，空段不拖累 suite 判定）。
+const ZERO_MUTANTS_PAYLOAD: &str = r#"{ "caught": 0, "missed": 0, "timeout": 0, "unviable": 0 }"#;
+
+/// 段执行：`cargo mutants --workspace --in-diff <seg patch> --baseline skip
+/// --jobs <半 CPU> --timeout <PER_MUTANT_TIMEOUT_SECS>` spawn（超时 + 输出捕获，
+/// 段补丁经 argv 传参零 shell 包装）。`--workspace` 必带：suite 根是混合
+/// workspace（根包 + `crates/**` 成员），缺省只扫根包——`crates/**`（业务逻辑
+/// 主场）将永不在突变面内；`--in-diff` 行级过滤把运行面收窄到 diff 交叠突变体。
+/// `CARGO_TARGET_DIR` 锚 suite 执行目录 `target/`——各段共享同一 target dir（增
+/// 量编译跨段复用，MUST NOT 每段重置）。
+///
+/// 段原始报告 = `mutants.out/outcomes.json`（spawn 前清场防陈旧误读；报告在位
+/// 且可解析 → 段完成——工具以非零退出表达未达标等语义不中断，Stryker 报告文件
+/// 面同约定），由调用方写盘。退出 0 且无报告 = diff 与可突变面零交叠
+/// （cargo-mutants 对 EmptyDiff / NoSourceFiles / NoMutants 恒退出 0 且不产报告
+/// ——「无突变体可测」非故障）→ 零突变体段（合成空计数面载荷）。
 pub(crate) async fn run_segment(
     patch_path: &Path,
     exec_dir: &Path,
 ) -> Result<String, SegmentFailure> {
+    // 段报告落位清场：上一段 / 上次运行的陈旧 outcomes.json MUST NOT 被本段误读
+    // （best-effort——目录缺席等失败不阻断，spawn 后报告在位即权威）
+    let _ = std::fs::remove_dir_all(exec_dir.join(CARGO_MUTANTS_OUT_DIR));
     let command = SystemCommand::bare("cargo")
-        .args(["mutants", "--in-diff"])
+        .args(["mutants", "--workspace", "--in-diff"])
         .arg(patch_path)
-        .arg("--json")
         .args(["--baseline", "skip", "--jobs"])
         .arg(mutation_jobs().to_string())
         .args(["--timeout"])
@@ -72,14 +93,17 @@ pub(crate) async fn run_segment(
         }
     };
 
-    // 段报告为权威：`--json` 载荷可解析 → 段完成（cargo-mutants 以非零退出表
-    // 达未达标等语义不中断）；否则（崩溃 / 未产出报告）→ 中断即时反馈
-    let output_text = String::from_utf8_lossy(&output);
-    match json_payload(&output_text) {
-        Some(payload) => Ok(payload.to_owned()),
-        None => Err(SegmentFailure::Interrupted(segment_failure_message(
-            exit_code,
-            &output,
+    // 段报告为权威：`outcomes.json` 在位且可解析 → 段完成（cargo-mutants 以非零
+    // 退出表达未达标等语义不中断）；退出 0 且无报告 → 零突变体段（合成空计数
+    // 面）；其余（崩溃 / 无报告非零退出）→ 中断即时反馈
+    let outcomes_path = exec_dir
+        .join(CARGO_MUTANTS_OUT_DIR)
+        .join(CARGO_OUTCOMES_FILE);
+    match std::fs::read_to_string(&outcomes_path) {
+        Ok(raw) if serde_json::from_str::<serde_json::Value>(&raw).is_ok() => Ok(raw),
+        _ if exit_code == 0 => Ok(ZERO_MUTANTS_PAYLOAD.to_owned()),
+        _ => Err(SegmentFailure::Interrupted(segment_failure_message(
+            exit_code, &output,
         ))),
     }
 }
@@ -89,23 +113,6 @@ pub(crate) async fn run_segment(
 fn segment_failure_message(exit_code: i32, output: &[u8]) -> String {
     let head = format!("cargo-mutants 段执行失败（退出码 {exit_code}，未产出可解析 JSON 段报告）");
     exec::ProcessOutput::new(exit_code, output.to_vec()).failure_message(&head)
-}
-
-/// JSON 载荷提取（stdout 可能混杂人类可读进度输出——首个 `{` / `[` 起、末个
-/// `}` / `]` 止的最宽候选可解析即取；整文本可解析优先）。
-fn json_payload(text: &str) -> Option<&str> {
-    if serde_json::from_str::<serde_json::Value>(text).is_ok() {
-        return Some(text);
-    }
-    let start = text.find(['{', '['])?;
-    let end = text.rfind(['}', ']'])?;
-    if end < start {
-        return None;
-    }
-    let candidate = &text[start..=end];
-    serde_json::from_str::<serde_json::Value>(candidate)
-        .ok()
-        .map(|_| candidate)
 }
 
 /// 管道读尽（`None` 管道 = 未捕获臂，静默跳过）。
