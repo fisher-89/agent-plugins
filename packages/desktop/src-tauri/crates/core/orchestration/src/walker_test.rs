@@ -888,6 +888,13 @@ struct FakeVcs {
     edit_patch: Mutex<String>,
     /// 补丁取数 Err 注入位
     edit_patch_error: Mutex<Option<String>>,
+    /// worktree 清理（remove_worktree 产出面——Cleanup 步尽力语义注入位）
+    remove_result: Mutex<Result<(), String>>,
+    /// remove_worktree 双参捕获（Cleanup 步参数透传断言观察面）
+    remove_calls: Mutex<Vec<(PathBuf, PathBuf)>>,
+    /// Ok 时是否真实移除磁盘目录（默认关——多段子用例共享 TempRoot 时防
+    /// fixture 交叉污染；成功移除观察面用例显式开启）
+    remove_removes_dir: Mutex<bool>,
 }
 
 impl FakeVcs {
@@ -910,6 +917,9 @@ impl FakeVcs {
             edit_set_error: Mutex::new(None),
             edit_patch: Mutex::new(String::new()),
             edit_patch_error: Mutex::new(None),
+            remove_result: Mutex::new(Ok(())),
+            remove_calls: Mutex::new(Vec::new()),
+            remove_removes_dir: Mutex::new(false),
         }
     }
 
@@ -953,6 +963,30 @@ impl FakeVcs {
     fn with_ff_merge_result(self, result: Result<(), String>) -> Self {
         *self.ff_merge_result.lock().expect("vcs 快进锁不可中毒") = result;
         self
+    }
+
+    /// worktree 清理产出面编程（Cleanup 步失败警告注入——Ok / Err 可编程）。
+    fn with_remove_result(self, result: Result<(), String>) -> Self {
+        *self.remove_result.lock().expect("vcs 清理锁不可中毒") = result;
+        self
+    }
+
+    /// Ok 时真实移除磁盘目录（成功移除观察面用例显式开启——fs 不 mock 的
+    /// 「worktree 目录消失」断言面；默认关防共享 fixture 交叉污染）。
+    fn with_real_removal(self) -> Self {
+        *self
+            .remove_removes_dir
+            .lock()
+            .expect("vcs 清理开关锁不可中毒") = true;
+        self
+    }
+
+    /// remove_worktree 双参捕获快照（Cleanup 步参数透传断言入口）。
+    fn remove_calls(&self) -> Vec<(PathBuf, PathBuf)> {
+        self.remove_calls
+            .lock()
+            .expect("vcs 清理调用锁不可中毒")
+            .clone()
     }
 
     /// 解冲突后验用：B 快照 HEAD 与 rebase 半程标记可编程（后验四判据的注入面）。
@@ -1107,6 +1141,35 @@ impl ArchiveVcsPort for FakeVcs {
             .lock()
             .expect("vcs 补丁锁不可中毒")
             .clone())
+    }
+
+    fn remove_worktree(
+        &self,
+        main_root: &std::path::Path,
+        worktree: &std::path::Path,
+    ) -> Result<(), String> {
+        self.record(format!("remove_worktree:{}", worktree.display()));
+        self.remove_calls
+            .lock()
+            .expect("vcs 清理调用锁不可中毒")
+            .push((main_root.to_owned(), worktree.to_owned()));
+        let result = self
+            .remove_result
+            .lock()
+            .expect("vcs 清理锁不可中毒")
+            .clone();
+        // Ok 且显式开启时真实移除磁盘目录（worktree 目录消失 = 归档 Cleanup
+        // 成功面的观察锚——fs 不 mock，在场探测为被测逻辑本体；默认关防多段
+        // 子用例共享 TempRoot 的 fixture 交叉污染）
+        if result.is_ok()
+            && *self
+                .remove_removes_dir
+                .lock()
+                .expect("vcs 清理开关锁不可中毒")
+        {
+            let _ = std::fs::remove_dir_all(worktree);
+        }
+        result
     }
 }
 
@@ -4323,9 +4386,9 @@ async fn 步状态词汇零新增_决策挂账全程无新步信封() {
             .into_iter()
             .map(|(_, _, kind, _)| kind)
             .collect();
-    // 落库十九值全词汇零过滤（词汇漂移防线：封闭集之外的词出现即破坏；
-    // mutation_test 拆步新词在案——AC-1 / AC-2）
-    const VOCAB: [&str; 11] = [
+    // 落库二十值全词汇零过滤（词汇漂移防线：封闭集之外的词出现即破坏；
+    // mutation_test 拆步新词与 cleanup 尽力步新臂在案——AC-1 / AC-2）
+    const VOCAB: [&str; 12] = [
         "executor",
         "evaluator",
         "decision",
@@ -4337,6 +4400,7 @@ async fn 步状态词汇零新增_决策挂账全程无新步信封() {
         "verdict_gate",
         "retry_gate",
         "whitelist_gate",
+        "cleanup",
     ];
     for kind in &kinds {
         assert!(
@@ -5172,10 +5236,10 @@ async fn 真件组合_多相位run落库回验_emit序与终态逐字段一致()
         "completed 收口记因"
     );
 
-    // 节点整包：node_seq 升序 = emit 序、十九值全词汇零过滤、整包同刻
+    // 节点整包：node_seq 升序 = emit 序、二十值全词汇零过滤、整包同刻
     let nodes = store.list_run_nodes("run-1").expect("节点读史应成功");
     assert!(!nodes.is_empty(), "多相位 run 节点整包非空");
-    const FULL_WORDS: [workflow::state::RunStepKind; 19] = [
+    const FULL_WORDS: [workflow::state::RunStepKind; 20] = [
         workflow::state::RunStepKind::Executor,
         workflow::state::RunStepKind::Evaluator,
         workflow::state::RunStepKind::Decision,
@@ -5193,13 +5257,14 @@ async fn 真件组合_多相位run落库回验_emit序与终态逐字段一致()
         workflow::state::RunStepKind::ResolveConflicts,
         workflow::state::RunStepKind::Merge,
         workflow::state::RunStepKind::SpecSync,
+        workflow::state::RunStepKind::Cleanup,
         workflow::state::RunStepKind::Seal,
         workflow::state::RunStepKind::Finalize,
     ];
     for row in &nodes {
         assert!(
             FULL_WORDS.contains(&row.step),
-            "落库步词汇越十九值全词汇封闭集，实际: {:?}",
+            "落库步词汇越二十值全词汇封闭集，实际: {:?}",
             row.step
         );
         assert_eq!(
@@ -5233,7 +5298,7 @@ async fn 真件组合_多相位run落库回验_emit序与终态逐字段一致()
         nodes.iter().any(|row| row.session_id.is_some()),
         "WorkerAgent 步 session_id 透传落库"
     );
-    // 归档相位十步节点在案（全相位含 archive 走完的落库面）
+    // 归档相位十一步节点在案（全相位含 archive 走完的落库面）
     let archive_words: Vec<&str> = nodes
         .iter()
         .filter(|row| row.phase == "archive")
@@ -5249,11 +5314,12 @@ async fn 真件组合_多相位run落库回验_emit序与终态逐字段一致()
             "resolve_conflicts",
             "merge",
             "spec_sync",
+            "cleanup",
             "seal",
             "finalize",
             "phase_log"
         ],
-        "归档十步节点随整包落库"
+        "归档十一步节点随整包落库"
     );
 
     // 边整包：四 kind 词汇落库、端点身份串指向本 run 节点身份键
@@ -5297,7 +5363,7 @@ async fn 真件组合_多相位run落库回验_emit序与终态逐字段一致()
 }
 
 #[tokio::test]
-async fn 全词汇run十九值零过滤_流程面与三门在案() {
+async fn 全词汇run零过滤_流程面与三门在案() {
     // 决策分叉输入取自 ChangeDetail 只读装配——真件库种子（快照读源真实组合）
     let (root, _db) = decision_fixture("full-vocab");
     let timeline = Arc::new(Mutex::new(Vec::new()));
@@ -5336,7 +5402,7 @@ async fn 全词汇run十九值零过滤_流程面与三门在案() {
         .collect();
     // 全词汇在案（本 fixture 决策动作为 retry → retry_gate 不经手，其在场断言
     // 由决策 backtrack 分支用例承载；决策分叉 + 门禁 + test-execution 相位全覆盖
-    // ——含拆步后的 mutation_test（AC-1 / AC-2 十九值零过滤））
+    // ——含拆步后的 mutation_test（AC-1 / AC-2 非归档词零过滤））
     for word in [
         "executor",
         "evaluator",
@@ -6300,16 +6366,16 @@ fn new_run_id铸造定式与互异不panic() {
 }
 
 // ---------------------------------------------------------------------------
-// 归档相位（AC-3 / AC-4 / AC-6 / AC-7 / AC-8）：十步执行序、git 步走 vcs 缝、
+// 归档相位（AC-3 / AC-4 / AC-6 / AC-7 / AC-8）：十一步执行序、git 步走 vcs 缝、
 // 条件步短路、停等门、失败停链与组合链路落库
 // ---------------------------------------------------------------------------
 
-/// 归档相位十步执行序（正向）：假写面 + 假 vcs 驱动 archive 相位 →
+/// 归档相位十一步执行序（正向）：假写面 + 假 vcs 驱动 archive 相位 →
 /// PhaseStart → Preflight → Commit → Rebase → ResolveConflicts → Merge →
-/// SpecSync → Seal → Finalize → PhaseLog 按序落节点（emit 序即落包序），全步
-/// `passed`（AC-3）。
+/// SpecSync → Cleanup → Seal → Finalize → PhaseLog 按序落节点（emit 序即落包序），全步
+/// `passed`（AC-3 / AC-4 11 步链序）。
 #[tokio::test]
-async fn 归档相位十步执行序按计划步序落包() {
+async fn 归档相位十一步执行序按计划步序落包() {
     let timeline = Arc::new(Mutex::new(Vec::new()));
     let (worker, _requests, _sessions) = FakeWorker::new(&timeline).assemble();
     let (tools, commands) = FakeTools::new(&timeline)
@@ -6347,11 +6413,12 @@ async fn 归档相位十步执行序按计划步序落包() {
             "resolve_conflicts",
             "merge",
             "spec_sync",
+            "cleanup",
             "seal",
             "finalize",
             "phase_log"
         ],
-        "归档十步序与设计表逐位一致"
+        "归档十一步序与设计表逐位一致（Cleanup 介于 SpecSync 与 Seal）"
     );
     assert!(
         rows.iter().all(|row| row.0 == "archive"),
@@ -6395,6 +6462,399 @@ async fn 归档相位十步执行序按计划步序落包() {
     assert!(
         timeline_roles.is_empty(),
         "零 agent 会话（归档确定性相位）: {timeline_roles:?}"
+    );
+}
+
+/// 归档 Cleanup 成功清理（正向，AC-5）：worktree 记录在场且目录在盘 →
+/// `remove_worktree` 经 vcs 缝直调 → Cleanup 节点 `passed` + detail「已移除
+/// worktree（{path}）」；worktree 磁盘目录消失（假件 Ok 即真实移除——fs 不
+/// mock）；Seal / Finalize / PhaseLog 照常续走、run 收口 Completed。
+#[tokio::test]
+async fn 归档cleanup成功移除_worktree目录消失且链照常收口() {
+    let root = TempRoot::new("archive-cleanup-ok");
+    root.change(NAME);
+    let worktree = worktree_dir(&root);
+    assert!(
+        std::path::Path::new(&worktree).is_dir(),
+        "前置：worktree 目录在场（root.change 预置）"
+    );
+    let timeline = Arc::new(Mutex::new(Vec::new()));
+    let (worker, _requests, _sessions) = FakeWorker::new(&timeline).assemble();
+    let (tools, _commands) = FakeTools::new(&timeline)
+        .with_phase_next(vec![archive_route_outcome(), done_outcome()])
+        .with_archive_preflight(archive_preflight_twice(&worktree, Vec::new()))
+        .assemble();
+    let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
+    let control = Arc::new(ChangeFlowControl::new());
+
+    let vcs = Arc::new(FakeVcs::clean().with_real_removal());
+    let (task, _rx, history) = spawn_run_with_vcs(
+        worker,
+        tools,
+        Arc::clone(&vcs),
+        Arc::clone(&snapshot),
+        &control,
+        true,
+        &root.root_str(),
+        &root.root_str(),
+        Some("archive"),
+    );
+    let _confirmer = spawn_confirmer(&control, true);
+    let status = task.await.expect("run 任务正常结束");
+
+    assert_eq!(status, ChangeRunStatus::Completed, "清理成功链照常收口");
+    // 清理步参数面：remove_worktree 以 (main_root, worktree) 双参原样到达 port
+    let calls = vcs.remove_calls();
+    assert_eq!(calls.len(), 1, "remove_worktree 恰一次: {calls:?}");
+    assert_eq!(calls[0].0, root.0, "main_root 双参透传");
+    assert_eq!(
+        calls[0].1,
+        std::path::PathBuf::from(&worktree),
+        "worktree 路径双参透传（preflight.worktree 载荷零改写）"
+    );
+    // 磁盘面：worktree 目录消失（git worktree list 不再列出的等价观察面）
+    assert!(
+        !std::path::Path::new(&worktree).exists(),
+        "worktree 磁盘目录已移除"
+    );
+    // 节点面：Cleanup passed + detail 成功摘要；Seal / Finalize / PhaseLog 续走
+    let command = history.finish().expect("收口落包应在案");
+    assert_eq!(
+        node_detail(&command, workflow::state::RunStepKind::Cleanup).as_deref(),
+        Some(format!("已移除 worktree（{worktree}）").as_str()),
+        "Cleanup detail 携成功摘要（路径逐字）"
+    );
+    assert!(
+        node_detail(&command, workflow::state::RunStepKind::Seal)
+            .as_deref()
+            .is_some_and(|detail| detail.contains("已归档")),
+        "Seal 照常收口（ArchiveOutcome 消费面零变化）"
+    );
+    let rows = node_rows(&command);
+    for step in ["cleanup", "seal", "finalize", "phase_log"] {
+        assert!(
+            rows.iter()
+                .any(|row| row.1 == step && row.2 == "passed"),
+            "步 {step} passed（清理成功不断链）: {rows:?}"
+        );
+    }
+}
+
+/// 归档 Cleanup 失败尽力不断链（异常，AC-6）：remove_worktree 可编程 Err →
+/// 步恒 `passed`、detail 携警告（worktree 路径 + `git worktree remove --force`
+/// 手动指引——生产 Err 语境由 `ProcessArchiveVcs` 组装，假件 Err 注入同构文案）；
+/// Seal / Finalize / PhaseLog 照常收口、run 收口 Completed、`ArchiveOutcome`
+/// 消费面零变化（Seal detail 归档摘要与成功形态一致）。
+#[tokio::test]
+async fn 归档cleanup失败尽力_警告detail步恒passed且收口不断链() {
+    let root = TempRoot::new("archive-cleanup-err");
+    root.change(NAME);
+    let worktree = worktree_dir(&root);
+    let timeline = Arc::new(Mutex::new(Vec::new()));
+    let (worker, _requests, _sessions) = FakeWorker::new(&timeline).assemble();
+    let (tools, _commands) = FakeTools::new(&timeline)
+        .with_phase_next(vec![archive_route_outcome(), done_outcome()])
+        .with_archive_preflight(archive_preflight_twice(&worktree, Vec::new()))
+        .assemble();
+    let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
+    let control = Arc::new(ChangeFlowControl::new());
+
+    // Err 注入携真实 worktree 路径（与 ProcessArchiveVcs D6 Err 面同构——
+    // 路径 + `git worktree remove --force {path}` 手动指引）
+    let vcs = Arc::new(FakeVcs::clean().with_remove_result(Err(format!(
+        "worktree 移除失败（{worktree}）: \
+         请手动执行 git worktree remove --force {worktree} 清理"
+    ))));
+    let (task, _rx, history) = spawn_run_with_vcs(
+        worker,
+        tools,
+        Arc::clone(&vcs),
+        Arc::clone(&snapshot),
+        &control,
+        true,
+        &root.root_str(),
+        &root.root_str(),
+        Some("archive"),
+    );
+    let _confirmer = spawn_confirmer(&control, true);
+    let status = task.await.expect("run 任务正常结束");
+
+    assert_eq!(
+        status,
+        ChangeRunStatus::Completed,
+        "尽力步失败不回滚归档（链必收口、永不 Terminal）"
+    );
+    let command = history.finish().expect("收口落包应在案");
+    let cleanup_detail = node_detail(&command, workflow::state::RunStepKind::Cleanup)
+        .expect("Cleanup detail 应在案");
+    assert!(
+        cleanup_detail.contains("worktree 清理失败"),
+        "detail 携失败警告: {cleanup_detail}"
+    );
+    assert!(
+        cleanup_detail.contains(&worktree),
+        "警告携 worktree 路径: {cleanup_detail}"
+    );
+    assert!(
+        cleanup_detail.contains("git worktree remove --force"),
+        "警告携手动清理指引: {cleanup_detail}"
+    );
+    let rows = node_rows(&command);
+    assert_eq!(
+        rows.iter().find(|row| row.1 == "cleanup").map(|row| row.2.as_str()),
+        Some("passed"),
+        "步恒 passed（失败仅 detail 警告）: {rows:?}"
+    );
+    // 收口面：Seal / Finalize / PhaseLog 照常、ArchiveOutcome 消费面零变化
+    assert!(
+        node_detail(&command, workflow::state::RunStepKind::Seal)
+            .as_deref()
+            .is_some_and(|detail| detail.contains("已归档")),
+        "Seal 照常收口（ArchiveOutcome 字段零变化）"
+    );
+    for step in ["finalize", "phase_log"] {
+        assert!(
+            rows.iter().any(|row| row.1 == step && row.2 == "passed"),
+            "步 {step} 照常收口: {rows:?}"
+        );
+    }
+    // branch 零触碰（AC-7）：失败路径调用记录词汇白名单——无 delete_branch 面
+    let calls = vcs.calls();
+    assert!(
+        !calls.iter().any(|call| call.contains("delete_branch")),
+        "全程零 branch 删除触点（含 remove 失败路径）: {calls:?}"
+    );
+    assert_eq!(
+        vcs.call_count("remove_worktree:"),
+        1,
+        "remove_worktree 恰一次（失败也只试一次）: {calls:?}"
+    );
+}
+
+/// 归档 Cleanup 缺席幂等跳过（边界，AC-6）：worktree 记录在场但目录不在盘
+///（手动清 / 重试链形态；分支已合入 → Preflight 目录缺失分流照常）→ `passed`
+/// + detail「worktree 已不在场，跳过清理」、零失败面、零 remove 调用。
+#[tokio::test]
+async fn 归档cleanup缺席幂等跳过_零失败面() {
+    let root = TempRoot::new("archive-cleanup-absent");
+    root.change(NAME);
+    // 缺席 worktree 路径（落位根与主仓分置形态——目录从未建位，与真实
+    // worktrees/{身份段}/ 落位同构）
+    let worktree = root.0.join("worktrees-seg").join(NAME);
+    let worktree = worktree.to_string_lossy().into_owned();
+    assert!(
+        !std::path::Path::new(&worktree).exists(),
+        "前置：worktree 目录缺席"
+    );
+
+    let timeline = Arc::new(Mutex::new(Vec::new()));
+    let (worker, _requests, _sessions) = FakeWorker::new(&timeline).assemble();
+    let (tools, _commands) = FakeTools::new(&timeline)
+        .with_phase_next(vec![archive_route_outcome(), done_outcome()])
+        .with_archive_preflight(archive_preflight_twice(&worktree, Vec::new()))
+        .assemble();
+    let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
+    let control = Arc::new(ChangeFlowControl::new());
+
+    // 分支已合入（目录缺失分流 = 已合入照常；未合入会显式引导恢复目录——
+    // 那是 Preflight 失败面，非 Cleanup 缺席跳过面）
+    let vcs = Arc::new(FakeVcs::clean().with_merged(Ok(true)));
+    let (task, _rx, history) = spawn_run_with_vcs(
+        worker,
+        tools,
+        Arc::clone(&vcs),
+        Arc::clone(&snapshot),
+        &control,
+        true,
+        &root.root_str(),
+        &root.root_str(),
+        Some("archive"),
+    );
+    let _confirmer = spawn_confirmer(&control, true);
+    let status = task.await.expect("run 任务正常结束");
+
+    assert_eq!(status, ChangeRunStatus::Completed, "缺席跳过零失败面");
+    let command = history.finish().expect("收口落包应在案");
+    assert_eq!(
+        node_detail(&command, workflow::state::RunStepKind::Cleanup).as_deref(),
+        Some("worktree 已不在场，跳过清理"),
+        "TXT_SKIP_ABSENT 逐字注记"
+    );
+    let rows = node_rows(&command);
+    assert_eq!(
+        rows.iter().find(|row| row.1 == "cleanup").map(|row| row.2.as_str()),
+        Some("passed"),
+        "缺席跳过恒 passed"
+    );
+    assert!(
+        vcs.remove_calls().is_empty(),
+        "目录缺席零 remove 调用（在场探测驻调用方）: {:?}",
+        vcs.calls()
+    );
+}
+
+/// 归档 Cleanup 幂等重入（重试链，AC-6）：缺席跳过后链重入（重试链二次进入
+/// Cleanup）同样 `passed` + 同词注记，不自绊。
+#[tokio::test]
+async fn 归档cleanup缺席重试链重入同词注记不自绊() {
+    let root = TempRoot::new("archive-cleanup-retry");
+    root.change(NAME);
+    let worktree = root.0.join("worktrees-seg").join(NAME);
+    let worktree = worktree.to_string_lossy().into_owned();
+    assert!(
+        !std::path::Path::new(&worktree).exists(),
+        "前置：worktree 目录缺席"
+    );
+    let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
+
+    for round in ["first", "retry"] {
+        let timeline = Arc::new(Mutex::new(Vec::new()));
+        let (worker, _requests, _sessions) = FakeWorker::new(&timeline).assemble();
+        let (tools, _commands) = FakeTools::new(&timeline)
+            .with_phase_next(vec![archive_route_outcome(), done_outcome()])
+            .with_archive_preflight(archive_preflight_twice(&worktree, Vec::new()))
+            .assemble();
+        let control = Arc::new(ChangeFlowControl::new());
+        let vcs = Arc::new(FakeVcs::clean().with_merged(Ok(true)));
+        let (task, _rx, history) = spawn_run_with_vcs(
+            worker,
+            tools,
+            Arc::clone(&vcs),
+            Arc::clone(&snapshot),
+            &control,
+            true,
+            &root.root_str(),
+            &root.root_str(),
+            Some("archive"),
+        );
+        let _confirmer = spawn_confirmer(&control, true);
+        let status = task.await.expect("run 任务正常结束");
+
+        assert_eq!(status, ChangeRunStatus::Completed, "{round} 轮照常收口");
+        let command = history.finish().expect("收口落包应在案");
+        assert_eq!(
+            node_detail(&command, workflow::state::RunStepKind::Cleanup).as_deref(),
+            Some("worktree 已不在场，跳过清理"),
+            "{round} 轮同词注记（幂等重入不自绊）"
+        );
+        assert!(
+            vcs.remove_calls().is_empty(),
+            "{round} 轮零 remove 调用"
+        );
+    }
+}
+
+/// 归档 Cleanup legacy 零触碰（边界，AC-7）：`worktree=None` change 归档 →
+/// Cleanup `passed` + detail 记跳过因（TXT_SKIP_LEGACY 复用）、零 `git worktree`
+/// 触点（remove 零调用）；调用记录词汇白名单无 branch 删除面。
+#[tokio::test]
+async fn 归档cleanuplegacy跳过_零worktree触点与零branch触碰() {
+    let timeline = Arc::new(Mutex::new(Vec::new()));
+    let (worker, _requests, _sessions) = FakeWorker::new(&timeline).assemble();
+    let (tools, _commands) = FakeTools::new(&timeline)
+        .with_phase_next(vec![archive_route_outcome(), done_outcome()])
+        .assemble();
+    let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
+    let control = Arc::new(ChangeFlowControl::new());
+
+    let vcs = Arc::new(FakeVcs::clean());
+    let (task, _rx, history) = spawn_run_with_vcs(
+        worker,
+        tools,
+        Arc::clone(&vcs),
+        Arc::clone(&snapshot),
+        &control,
+        true,
+        "/tmp/root",
+        "/tmp/root",
+        Some("archive"),
+    );
+    let _confirmer = spawn_confirmer(&control, true);
+    let status = task.await.expect("run 任务正常结束");
+
+    assert_eq!(status, ChangeRunStatus::Completed);
+    let command = history.finish().expect("收口落包应在案");
+    assert_eq!(
+        node_detail(&command, workflow::state::RunStepKind::Cleanup).as_deref(),
+        Some("legacy 无 worktree"),
+        "TXT_SKIP_LEGACY 复用（跳过因逐字）"
+    );
+    let rows = node_rows(&command);
+    assert_eq!(
+        rows.iter().find(|row| row.1 == "cleanup").map(|row| row.2.as_str()),
+        Some("passed"),
+        "legacy 清理步 passed"
+    );
+    assert!(
+        vcs.remove_calls().is_empty(),
+        "legacy 零 git worktree 触点: {:?}",
+        vcs.calls()
+    );
+    // 词汇白名单（AC-7）：全程调用记录无 branch 删除面（dirty / commit_all /
+    // rebase_branch / ff_merge / worktree_snapshot / remove_worktree 在列形态）
+    let calls = vcs.calls();
+    assert!(
+        !calls.iter().any(|call| call.contains("delete_branch")),
+        "零 branch 删除触点: {calls:?}"
+    );
+}
+
+/// 归档 Cleanup 缺前置载荷（异常）：计划漂移面（计划步序列缺 Preflight、
+/// Cleanup 先行）→ Cleanup 节点 failed + Terminal——尽力语义不吞计划漂移
+///（非清理失败面，沿既有归档步漂移面）。
+#[tokio::test]
+async fn 归档cleanup缺前置载荷_计划漂移failed且terminal() {
+    let timeline = Arc::new(Mutex::new(Vec::new()));
+    let (worker, _requests, _sessions) = FakeWorker::new(&timeline).assemble();
+    // 计划漂移形态：计划步序列跳过 Preflight、以 Cleanup 起步（PhaseCursor 无
+    // 前置载荷——archive_context 缺位面）
+    let mut drift = archive_route_outcome();
+    drift.steps = vec![StepDefinition {
+        node: StepNode::Cleanup,
+        prompt_ref: None,
+        on_fail: None,
+    }];
+    let (tools, _commands) = FakeTools::new(&timeline)
+        .with_phase_next(vec![drift])
+        .assemble();
+    let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
+    let control = Arc::new(ChangeFlowControl::new());
+
+    let vcs = Arc::new(FakeVcs::clean());
+    let (task, _rx, history) = spawn_run_with_vcs(
+        worker,
+        tools,
+        Arc::clone(&vcs),
+        Arc::clone(&snapshot),
+        &control,
+        true,
+        "/tmp/root",
+        "/tmp/root",
+        Some("archive"),
+    );
+    let _confirmer = spawn_confirmer(&control, true);
+    let status = task.await.expect("run 任务正常结束");
+
+    assert_eq!(status, ChangeRunStatus::Failed, "计划漂移 → Terminal（非尽力面）");
+    let command = history.finish().expect("收口落包应在案");
+    let failed = command
+        .nodes
+        .iter()
+        .find(|node| node.status == RunStepStatus::Failed)
+        .expect("失败节点在案");
+    assert_eq!(
+        failed.step,
+        workflow::state::RunStepKind::Cleanup,
+        "失败节点恰为 Cleanup（漂移因记步上）"
+    );
+    assert_eq!(
+        failed.detail.as_deref(),
+        Some("缺归档前置载荷"),
+        "漂移记因逐字"
+    );
+    assert!(
+        vcs.remove_calls().is_empty(),
+        "漂移面零 remove 触点（先于清理逻辑拒绝）"
     );
 }
 
@@ -7023,7 +7483,7 @@ async fn auto模式归档前仍停等且归档后零确认() {
 }
 
 /// evaluator 检查移除（正向）：archive 相位产出 `executor=None` / `evaluator=None`
-/// 仍可进入执行（`drive` 无 `next.evaluator.is_none()` 硬检查）——十步照常落包
+/// 仍可进入执行（`drive` 无 `next.evaluator.is_none()` 硬检查）——十一步照常落包
 /// 并收口（AC-5）。
 #[tokio::test]
 async fn 归档相位零角色spec仍可进入执行() {
@@ -7057,8 +7517,8 @@ async fn 归档相位零角色spec仍可进入执行() {
     let command = history.finish().expect("收口落包应在案");
     assert_eq!(
         command.nodes.len(),
-        10,
-        "归档十步全落包（零 evaluator 检查无阻）: {:?}",
+        11,
+        "归档十一步全落包（零 evaluator 检查无阻）: {:?}",
         node_rows(&command)
     );
     let labels: Vec<&str> = commands
@@ -7207,7 +7667,7 @@ async fn 归档git步vcs失败即停链() {
 
 /// 组合链路落库与空 checklist 落账（正向，AC-4 / AC-6）：真件 store + 真件
 /// `LocalToolSteps`（假 vcs 缝）驱动归档相位收口 → archive 相位以 `report=""` +
-/// 空 checklist 落 `verdict=pass` PhaseRecord；归档十步节点 + 串行 forward 边落
+/// 空 checklist 落 `verdict=pass` PhaseRecord；归档十一步节点 + 串行 forward 边落
 /// 既有三表（零新表），身份键 `(phase, attempt, step, instance_no)` 稳定唯一。
 #[tokio::test]
 async fn 组合链路归档落库与空checklist落账() {
@@ -7288,7 +7748,7 @@ async fn 组合链路归档落库与空checklist落账() {
         "归档三会话槽位恒 None"
     );
 
-    // 执行图落库（AC-6）：十步节点 + 九条 forward 边（零新表）
+    // 执行图落库（AC-6 / AC-9）：十一步节点 + 十条 forward 边（零新表）
     let nodes = db
         .store
         .list_run_nodes("run-archive")
@@ -7307,11 +7767,12 @@ async fn 组合链路归档落库与空checklist落账() {
             "resolve_conflicts",
             "merge",
             "spec_sync",
+            "cleanup",
             "seal",
             "finalize",
             "phase_log"
         ],
-        "归档十步全落 RunNodeRecord（零过滤）"
+        "归档十一步全落 RunNodeRecord（零过滤）"
     );
     assert!(
         nodes
@@ -7340,7 +7801,7 @@ async fn 组合链路归档落库与空checklist落账() {
         .store
         .list_run_edges("run-archive")
         .expect("读边史应成功");
-    assert_eq!(edges.len(), 9, "串行推进边 = 节点数 - 1");
+    assert_eq!(edges.len(), 10, "串行推进边 = 节点数 - 1");
     assert!(
         edges
             .iter()
@@ -7348,7 +7809,16 @@ async fn 组合链路归档落库与空checklist落账() {
         "归档串行边全 forward（零反馈 / 重试 / 回溯）"
     );
     assert_eq!(edges[0].from_node_key, "archive:1:phase_start:0");
-    assert_eq!(edges[8].to_node_key, "archive:1:phase_log:0");
+    assert_eq!(edges[9].to_node_key, "archive:1:phase_log:0");
+    // cleanup 节点串行边序（AC-9 落库组合）：SpecSync → Cleanup → Seal 相邻边
+    assert_eq!(edges[6].from_node_key, "archive:1:spec_sync:0");
+    assert_eq!(
+        edges[6].from_node_key, edges[5].to_node_key,
+        "SpecSync → Cleanup 边序衔接（emit 序即边序）"
+    );
+    assert_eq!(edges[6].to_node_key, "archive:1:cleanup:0");
+    assert_eq!(edges[7].from_node_key, "archive:1:cleanup:0");
+    assert_eq!(edges[7].to_node_key, "archive:1:seal:0", "Cleanup → Seal 相邻边");
 
     let runs = db
         .store

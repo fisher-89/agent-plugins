@@ -2,8 +2,11 @@
 //! create 建域四段组合（D2/D3/D4/D5）——铸出 uuid v7 形态 id（D1）→ 建档（携
 //! id / worktree / base_commit）+ worktree add（HEAD 基线铸 change/<name>
 //! 分支）+ worktree 内目录树与 explore.md（goal 原文）+ bootstrap / 警告收集；
-//! 前置七道全 IO 前置（拒绝面零 worktree、零建档、零目录、vcs 零调用），④ 为
-//! 同名 **active** name 扫描查重（归档同名合法化——D11）；补偿链按 id 删本次
+//! 前置九道全 IO 前置（拒绝面零 worktree、零建档、零目录、vcs 零调用），④ 为
+//! 同名 **active** name 扫描查重（归档同名合法化——D11），⑧ 为 active 建档数
+//! 上限（`ACTIVE_CHANGE_LIMIT` 硬编码、归档记录不计入——worktree-cleanup-and-
+//! active-cap AC-1 / AC-3），⑨ 为 worktree 磁盘保底门槛（= 上限 + SLACK 派生
+//! 7，仅直属子目录计入——AC-2 db 与磁盘漂移防线）；补偿链按 id 删本次
 //! 自插行（add 失败：删建档 + 尽力删分支；树写出失败：remove → 删分支 → 删
 //! 建档；bootstrap 段失败不回收）；created 出线取 db created_at 日期；铸出
 //! 路径断言 id 非空 / 同名单次重铸相异 / 与库内逐字一致（零固定值对拍）；成功
@@ -1624,5 +1627,354 @@ fn create_outcome_serde线形状恰五键且id首字段() {
     assert!(
         debug.starts_with("CreateOutcome { id: "),
         "id 为声明序首字段，实际: {debug}"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// 前置⑧：active 建档数上限（worktree-cleanup-and-active-cap / AC-1 / AC-3）：
+// 硬编码上限（源码常量单点）全 IO 前置——拒绝面零建档零目录零 worktree 零 vcs
+// 调用；归档记录不计入
+// ---------------------------------------------------------------------------
+
+/// 前置⑧ 拒绝（异常）：db 预置 5 条 `status=active` → 显式 `Err`；文案含
+/// 「当前 5」「上限 5」与「归档或手动清理」引导（D6 单点文案）；拒绝面零
+/// 副作用（store 零建档、vcs 零调用——上限道先于 git 探测）。
+#[test]
+fn active上限拒绝_5条active时err文案含计数与引导且零副作用() {
+    let env = Env::new("cap-reject");
+    for index in 0..5 {
+        env.store.seed(
+            &format!("0198f7a0-0000-7000-8000-0000000000c{index}"),
+            &format!("cap-filled-{index}"),
+            ChangeStatus::Active,
+        );
+    }
+
+    let error = env
+        .create("cap-sixth", "第 6 个 change goal")
+        .expect_err("5 条 active 已达上限应 Err");
+
+    assert!(
+        error.contains("active change 数已达上限"),
+        "错误归因 active 上限道，实际: {error}"
+    );
+    assert!(
+        error.contains("当前 5") && error.contains("上限 5"),
+        "文案含当前计数 5 与上限 5（D6 单点文案）: {error}"
+    );
+    assert!(
+        error.contains("归档或手动清理"),
+        "文案携「归档或手动清理」引导: {error}"
+    );
+    // 拒绝面零副作用（AC-1 / AC-3：全 IO 前置）
+    assert_eq!(env.store.create_call_count(), 0, "db 零建档调用");
+    assert_eq!(env.store.record_count(), 5, "库内仅种子五行零变动");
+    assert!(
+        env.active_dir_names().is_empty(),
+        "主仓 active 树零目录，实际: {:?}",
+        env.active_dir_names()
+    );
+    assert!(
+        dir_names(&env.worktree_root).is_empty(),
+        "worktree_root 零新目录"
+    );
+    assert!(
+        env.vcs.calls().is_empty(),
+        "vcs 零调用（上限道先于 git 探测），实际: {:?}",
+        env.vcs.calls()
+    );
+}
+
+/// 前置⑧ 边界（正向）：db 4 条 active → 第 5 个创建成功（`CreateOutcome` 正常
+/// 出线，建域四段照常；上限为「达到即拒」——4 < 5 仍可创建）。
+#[test]
+fn active上限下第5个创建成功_4条active时() {
+    let env = Env::new("cap-under");
+    for index in 0..4 {
+        env.store.seed(
+            &format!("0198f7a0-0000-7000-8000-0000000000d{index}"),
+            &format!("cap-under-{index}"),
+            ChangeStatus::Active,
+        );
+    }
+
+    let outcome = env
+        .create("cap-fifth", "第 5 个 change goal")
+        .expect("4 条 active 时第 5 个应创建成功");
+
+    assert!(!outcome.id.is_empty(), "CreateOutcome 正常出线（身份锚在案）");
+    assert_eq!(outcome.name, "cap-fifth");
+    assert_eq!(env.store.create_call_count(), 1, "db 恰一次建档");
+    assert_eq!(env.store.record_count(), 5, "库内 4 种子 + 1 新建档");
+    assert!(
+        env.change_dir("cap-fifth").join("explore.md").is_file(),
+        "建域四段照常（worktree 内目录树 + explore.md）"
+    );
+}
+
+/// 前置⑧ 边界：归档记录不计入——5 条 `status=archived` + 4 条 active → 创建
+/// 成功（计数仅 status=active 面）。
+#[test]
+fn 归档记录不计入_5条archived加4条active创建成功() {
+    let env = Env::new("cap-archived-free");
+    for index in 0..5 {
+        env.store.seed(
+            &format!("0198f7a0-0000-7000-8000-0000000000e{index}"),
+            &format!("cap-archived-{index}"),
+            ChangeStatus::Archived,
+        );
+    }
+    for index in 0..4 {
+        env.store.seed(
+            &format!("0198f7a0-0000-7000-8000-0000000000f{index}"),
+            &format!("cap-live-{index}"),
+            ChangeStatus::Active,
+        );
+    }
+
+    let outcome = env
+        .create("cap-archived-free-new", "归档不占额度 goal")
+        .expect("归档记录不计入，第 5 个 active 应创建成功");
+
+    assert!(!outcome.id.is_empty());
+    let records = env.store.records();
+    assert_eq!(records.len(), 10, "5 归档 + 4 active + 1 新建档");
+    assert_eq!(
+        records
+            .iter()
+            .filter(|record| record.status == ChangeStatus::Active)
+            .count(),
+        5,
+        "active 恰 5 条（上限道只在 create 时刻生效，创建后达上限合法）"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// 前置⑨：worktree 磁盘保底门槛（AC-2）：门槛 = 上限 + SLACK = 7，fs 扫
+// `worktree_root` 直属子目录数（仅 `file_type().is_dir()` 计入）——db 与磁盘
+// 漂移防线（孤儿 / 手动残留不占 active 额度但占磁盘）
+// ---------------------------------------------------------------------------
+
+/// 前置⑨ 拒绝（异常）：`worktree_root` 直属子目录 8 个 → 显式 `Err`；文案含
+/// 目录数 8、门槛 7 与「git worktree list」对账引导；拒绝面零副作用。
+#[test]
+fn worktree门槛拒绝_8个直属子目录err文案含对账引导() {
+    let env = Env::new("threshold-reject");
+    fs::create_dir_all(&env.worktree_root).expect("建 worktree_root 失败");
+    for index in 0..8 {
+        fs::create_dir_all(env.worktree_root.join(format!("residual-{index}")))
+            .expect("预置残留目录失败");
+    }
+
+    let error = env
+        .create("threshold-next", "门槛道 goal")
+        .expect_err("8 个直属子目录越门槛应 Err");
+
+    assert!(
+        error.contains("worktree 目录数已达保底门槛"),
+        "错误归因磁盘保底门槛道，实际: {error}"
+    );
+    assert!(
+        error.contains("当前 8") && error.contains("门槛 7"),
+        "文案含目录数 8 与门槛 7（严格大于才拒的派生门槛）: {error}"
+    );
+    assert!(
+        error.contains("git worktree list"),
+        "文案携「git worktree list」对账引导: {error}"
+    );
+    // 拒绝面零副作用
+    assert_eq!(env.store.create_call_count(), 0, "db 零建档调用");
+    assert!(
+        env.vcs.calls().is_empty(),
+        "vcs 零调用（门槛道先于 git 探测），实际: {:?}",
+        env.vcs.calls()
+    );
+}
+
+/// 前置⑨ 正向：7 个直属子目录（恰为门槛值）→ 照常创建（严格大于才拒）。
+#[test]
+fn worktree门槛恰7个目录照常创建() {
+    let env = Env::new("threshold-at");
+    fs::create_dir_all(&env.worktree_root).expect("建 worktree_root 失败");
+    for index in 0..7 {
+        fs::create_dir_all(env.worktree_root.join(format!("kept-{index}")))
+            .expect("预置在途目录失败");
+    }
+
+    let outcome = env
+        .create("threshold-ok", "门槛值 goal")
+        .expect("恰 7 个目录（== 门槛）应照常创建");
+
+    assert!(!outcome.id.is_empty(), "CreateOutcome 正常出线");
+    assert_eq!(
+        dir_names(&env.worktree_root).len(),
+        8,
+        "创建后 worktree_root 共 8 目录（7 预置 + 1 新建域）"
+    );
+}
+
+/// 前置⑨ 边界：`worktree_root` 不存在（NotFound）→ 计 0 通过（尚无 worktree
+/// 面）；目录内普通文件条目不计入（仅 `file_type().is_dir()`——7 目录 + 3 文件
+/// 仍照常创建）。
+#[test]
+fn worktree门槛_目录缺席计零通过且普通文件不计入() {
+    // 形态一：worktree_root 不存在（Env::new 后即缺席）→ 计 0 → 创建成功
+    let absent = Env::new("threshold-absent");
+    assert!(
+        !absent.worktree_root.exists(),
+        "前置：worktree_root 尚不存在"
+    );
+    absent
+        .create("absent-threshold", "尚无 worktree 面 goal")
+        .expect("worktree_root 缺席应计 0 通过");
+
+    // 形态二：7 目录 + 3 普通文件 → 仅目录计入（7 == 门槛）→ 照常创建
+    let files = Env::new("threshold-files");
+    fs::create_dir_all(&files.worktree_root).expect("建 worktree_root 失败");
+    for index in 0..7 {
+        fs::create_dir_all(files.worktree_root.join(format!("kept-{index}")))
+            .expect("预置目录失败");
+    }
+    for index in 0..3 {
+        fs::write(files.worktree_root.join(format!("loose-{index}.txt")), "散落文件\n")
+            .expect("预置普通文件失败");
+    }
+
+    files
+        .create("files-not-counted", "文件不计入 goal")
+        .expect("普通文件条目不计入，7 目录应照常创建");
+}
+
+/// 前置⑨ 异常：`fs::read_dir` 非 NotFound 读错误（worktree_root 为普通文件
+/// 形态）→ 显式 `Err`「worktree 目录扫描失败」（不静默计 0、不伪装通过），
+/// vcs 零调用。
+#[test]
+fn worktree门槛_非notfound读错误显式err() {
+    let env = Env::new("threshold-io-err");
+    // worktree_root 位点为普通文件（父目录 temp_dir 已在）→ read_dir 产生
+    // 非 NotFound 读错误（ENOTDIR 面——误扫成 0 会绕过门槛，故显式 Err）
+    fs::write(&env.worktree_root, "not a directory\n").expect("预置普通文件失败");
+    assert!(
+        env.worktree_root.is_file(),
+        "前置：worktree_root 为普通文件形态"
+    );
+
+    let error = env
+        .create("threshold-io", "读错误 goal")
+        .expect_err("非 NotFound 读错误应显式 Err");
+
+    assert!(
+        error.contains("worktree 目录扫描失败"),
+        "错误归因扫描失败（不静默计 0），实际: {error}"
+    );
+    assert!(
+        env.vcs.calls().is_empty(),
+        "vcs 零调用（读错误道先于 git 探测），实际: {:?}",
+        env.vcs.calls()
+    );
+}
+
+/// 前置⑨ 边界：db 与磁盘漂移场景——3 条 active（各携在盘 worktree）+ 5 个
+/// 残留目录 = 磁盘 8 目录 > 门槛 7 → 前置⑨拦（孤儿 / 手动残留防线，AC-2）。
+#[test]
+fn db与磁盘漂移_3active加5残留合计8目录被门槛拦() {
+    let env = Env::new("threshold-drift");
+    // 3 条 active（在盘 worktree 目录在场——create 建域的正常残留形态）
+    for index in 0..3 {
+        env.store.seed(
+            &format!("0198f7a0-0000-7000-8000-00000000010{index}"),
+            &format!("drift-live-{index}"),
+            ChangeStatus::Active,
+        );
+        fs::create_dir_all(env.worktree_root.join(format!("drift-live-{index}")))
+            .expect("预置 active worktree 目录失败");
+    }
+    // 5 个孤儿 / 手动残留目录（不占 active 额度但占磁盘）
+    for index in 0..5 {
+        fs::create_dir_all(env.worktree_root.join(format!("orphan-{index}")))
+            .expect("预置残留目录失败");
+    }
+
+    let error = env
+        .create("drift-next", "漂移场景 goal")
+        .expect_err("3 active + 5 残留 = 磁盘 8 目录应被门槛拦");
+
+    assert!(
+        error.contains("worktree 目录数已达保底门槛")
+            && error.contains("当前 8")
+            && error.contains("门槛 7"),
+        "前置⑨拦（漂移防线——active 计数 3 < 上限 5 未拦）: {error}"
+    );
+    assert_eq!(env.store.create_call_count(), 0, "db 零建档调用");
+}
+
+// ---------------------------------------------------------------------------
+// 前置序：⑧⑨ 插在前置④（同名 active 查重）之后、前置⑤（git 探测）之前
+//（AC-1 / AC-3 全 IO 前置的可辨面）
+// ---------------------------------------------------------------------------
+
+/// 前置序（边界）：同名 active 场景仍先④拒——错误文案为同名建档道而非上限道
+///（即使 active 计数已达上限）。
+#[test]
+fn 前置序_同名active先于上限道拒绝() {
+    let env = Env::new("order-same-name");
+    for index in 0..5 {
+        let name = if index == 0 { "dupe" } else { &format!("order-fill-{index}") };
+        env.store.seed(
+            &format!("0198f7a0-0000-7000-8000-00000000011{index}"),
+            name,
+            ChangeStatus::Active,
+        );
+    }
+
+    let error = env.create("dupe", "同名 goal").expect_err("同名 active 应 Err");
+
+    assert!(
+        error.contains("已存在同名建档记录"),
+        "先④拒（同名建档道文案），实际: {error}"
+    );
+    assert!(
+        !error.contains("active change 数已达上限"),
+        "同名道先于上限道（错误可辨不串道），实际: {error}"
+    );
+    assert_eq!(env.store.create_call_count(), 0, "db 零建档调用");
+    assert!(env.vcs.calls().is_empty(), "vcs 零调用");
+}
+
+/// 前置序（边界）：active 计数 5 且磁盘目录超门槛 → 错误文案为 active 上限道
+///（先⑧后⑨可辨——两道同越时归因不混淆）；vcs 零调用（⑧⑨ 均先于 git 探测⑤）。
+#[test]
+fn 前置序_active上限道先于磁盘门槛道() {
+    let env = Env::new("order-cap-then-threshold");
+    for index in 0..5 {
+        env.store.seed(
+            &format!("0198f7a0-0000-7000-8000-00000000012{index}"),
+            &format!("order-cap-{index}"),
+            ChangeStatus::Active,
+        );
+    }
+    fs::create_dir_all(&env.worktree_root).expect("建 worktree_root 失败");
+    for index in 0..8 {
+        fs::create_dir_all(env.worktree_root.join(format!("residual-{index}")))
+            .expect("预置残留目录失败");
+    }
+
+    let error = env
+        .create("order-next", "双道同越 goal")
+        .expect_err("两道同越应 Err");
+
+    assert!(
+        error.contains("active change 数已达上限"),
+        "先⑧后⑨（active 上限道文案），实际: {error}"
+    );
+    assert!(
+        !error.contains("保底门槛"),
+        "⑨ 不可先于 ⑧（归因可辨），实际: {error}"
+    );
+    assert_eq!(env.store.create_call_count(), 0, "db 零建档调用");
+    assert!(
+        env.vcs.calls().is_empty(),
+        "⑧⑨ 均先于 git 探测⑤（vcs 零调用），实际: {:?}",
+        env.vcs.calls()
     );
 }

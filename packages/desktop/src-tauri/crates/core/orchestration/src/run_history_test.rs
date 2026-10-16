@@ -1,6 +1,7 @@
 //! `run_history.rs` 的单元测试（test-design「run_history.rs ->
-//! run_history_test.rs」节）：词汇直映射十九值零过滤（`persisted_step` 过滤谓词整
-//! 体退役——编译面锚 + 全词汇在案行为锚，AC-3）、`finish_command` 组装（节点整包
+//! run_history_test.rs」节）：词汇直映射二十值零过滤（`persisted_step` 过滤谓词整
+//! 体退役——编译面锚 + 全词汇在案行为锚，AC-3；cleanup 尽力步新臂直映射在案）、
+//! `finish_command` 组装（节点整包
 //! 全词汇 + 边整包四 kind 端点身份串 + 实例号递增直透 + 终态三值映射 +
 //! session_id / detail / output_ref 两态透传 + 空整包含空集 + 悬空边不静默丢弃）、
 //! `StoreRunHistory` 适配器真件委派（run_started 落 running 行 / run_finished
@@ -63,15 +64,48 @@ fn step(
 }
 
 // ---------------------------------------------------------------------------
-// 词汇直映射：十九值零过滤（`persisted_step` 过滤谓词整体退役）
+// 词汇直映射：二十值零过滤（`persisted_step` 过滤谓词整体退役）
 // ---------------------------------------------------------------------------
 
-/// 十九值全词汇直映射：`ChangeStepKind` 与 `RunStepKind` 1:1 同词面全映射——流程
-/// 面三步（phase_start / phase_log / 三门）不再被弃落，mutation_test 拆步新词
-/// 在案（编译面锚：`persisted_step` 符号缺席，引用即不编译，AC-3 退役面；
-/// AC-1 / AC-2 十九值零过滤）。
+/// mapped_step 新臂直映射（正向，worktree-cleanup-and-active-cap）：
+/// `ChangeStepKind::Cleanup` → `RunStepKind::Cleanup` 1:1 直映射——`as_str()`
+/// 同词面 `"cleanup"` 逐字（归档尽力步落库零过滤单点）。
 #[test]
-fn 全词汇直映射十九值零过滤() {
+fn mapped_step_cleanup直映射_同词面逐字() {
+    let nodes = [step(
+        ChangeStepKind::Cleanup,
+        ChangeStepStatus::Passed,
+        None,
+    )];
+    let command = finish_command(
+        &request(),
+        ChangeRunStatus::Completed,
+        None,
+        STARTED_AT,
+        &nodes,
+        &[],
+    );
+    assert_eq!(command.nodes.len(), 1);
+    assert_eq!(
+        command.nodes[0].step,
+        workflow::state::RunStepKind::Cleanup,
+        "cleanup 直映射零过滤"
+    );
+    assert_eq!(
+        command.nodes[0].step.as_str(),
+        ChangeStepKind::Cleanup.as_str(),
+        "两域 as_str 同词面逐字（cleanup）"
+    );
+    assert_eq!(command.nodes[0].step.as_str(), "cleanup");
+}
+
+/// 二十值全词汇直映射：`ChangeStepKind` 与 `RunStepKind` 1:1 同词面全映射——流程
+/// 面三步（phase_start / phase_log / 三门）不再被弃落，mutation_test 拆步新词
+/// 在案、cleanup 尽力步新臂在案（编译面锚：`persisted_step` 符号缺席，引用即不
+/// 编译，AC-3 退役面；AC-1 / AC-2 二十值零过滤——finish_command 落包
+/// `nodes.len()==20` 零过滤，cleanup 节点在案、无静默丢弃）。
+#[test]
+fn 全词汇直映射二十值零过滤() {
     let all = [
         (
             ChangeStepKind::Executor,
@@ -132,13 +166,17 @@ fn 全词汇直映射十九值零过滤() {
             ChangeStepKind::SpecSync,
             workflow::state::RunStepKind::SpecSync,
         ),
+        (
+            ChangeStepKind::Cleanup,
+            workflow::state::RunStepKind::Cleanup,
+        ),
         (ChangeStepKind::Seal, workflow::state::RunStepKind::Seal),
         (
             ChangeStepKind::Finalize,
             workflow::state::RunStepKind::Finalize,
         ),
     ];
-    assert_eq!(all.len(), 19, "十九值封闭集全枚举");
+    assert_eq!(all.len(), 20, "二十值封闭集全枚举");
 
     let nodes: Vec<ChangeStepState> = all
         .iter()
@@ -153,7 +191,7 @@ fn 全词汇直映射十九值零过滤() {
         &[],
     );
 
-    assert_eq!(command.nodes.len(), 19, "十九值全词汇零过滤");
+    assert_eq!(command.nodes.len(), 20, "二十值全词汇零过滤（cleanup 节点在案）");
     for (index, (_, expect)) in all.iter().enumerate() {
         assert_eq!(command.nodes[index].step, *expect, "第 {index} 词汇直映射");
     }
@@ -163,6 +201,13 @@ fn 全词汇直映射十九值零过滤() {
             .iter()
             .any(|node| node.step == workflow::state::RunStepKind::MutationTest),
         "mutation_test 拆步新词直映射在案（AC-1 / AC-2）"
+    );
+    assert!(
+        command
+            .nodes
+            .iter()
+            .any(|node| node.step == workflow::state::RunStepKind::Cleanup),
+        "cleanup 尽力步新臂直映射在案（零静默丢弃）"
     );
     assert!(
         command
@@ -180,7 +225,7 @@ fn 全词汇直映射十九值零过滤() {
     );
 
     // 双射校验（异常面 / 词汇同源不漂移）：无两个 ChangeStepKind 映到同一
-    // RunStepKind（19 对互异即双射——两侧封闭集同势）
+    // RunStepKind（20 对互异即双射——两侧封闭集同势）
     let mut mapped: Vec<&'static str> = command
         .nodes
         .iter()

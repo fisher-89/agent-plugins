@@ -198,12 +198,22 @@ function ArchiveSyncSkip({
   );
 }
 
-/** worktree 合入告知行（目标 = 主仓当前分支；探测失败呈现占位）。 */
-function ArchiveMergeNotice({ mergeTarget }: { mergeTarget: string | null }): React.JSX.Element {
+/** worktree 合入与清理告知行（目标 = 主仓当前分支；收口后自动移除 worktree、
+ * 分支保留——删除磁盘目录属用户可感知动作，确认在先；探测失败呈现占位）。
+ * 分支名自归档前置载荷 `branch`（`change/<name>`，worktree 记录在场才在案）。 */
+function ArchiveMergeNotice({
+  mergeTarget,
+  branch,
+}: {
+  mergeTarget: string | null;
+  branch: string | null;
+}): React.JSX.Element {
   return (
     <div className="mt-1 break-all text-[13px]" data-testid="run-archive-merge-target">
-      将提交 worktree 并合入主仓当前分支：
+      将执行提交 + 合入主仓当前分支：
       <span className="text-muted-foreground">{mergeTarget ?? '（当前分支探测失败）'}</span>
+      ；收口后自动移除 worktree（分支{' '}
+      <span className="text-muted-foreground">{branch ?? 'change/<name>'}</span> 保留）
     </div>
   );
 }
@@ -256,13 +266,13 @@ function ArchiveConfirmCard({
     >
       <div className="text-[13px]">
         等待确认进入归档：确认后进入 archive 相位（提交 worktree / 合入主仓 / 同步 delta specs /
-        双写收口）。
+        {preflight !== null && preflight.worktree !== null && ' 自动移除 worktree /'} 双写收口）。
       </div>
       <ArchiveWarningRows warnings={archiveWarnings(preflight)} />
       <ArchiveDeltaSpecs capabilities={preflight?.deltaSpecs ?? []} />
       <ArchiveSyncSkip skipSync={skipSync} onChange={setSkipSync} />
       {preflight !== null && preflight.worktree !== null && (
-        <ArchiveMergeNotice mergeTarget={preflight.mergeTarget} />
+        <ArchiveMergeNotice mergeTarget={preflight.mergeTarget} branch={preflight.branch} />
       )}
       <ArchiveConfirmActions actions={actions} skipSync={skipSync} />
     </div>

@@ -1023,10 +1023,10 @@ fn build_archive_prefix() -> Corpus {
         )],
         &[],
     );
-    // 归档相位 run 史样本（AC-6 语料半边）：archive 十步节点（8 归档步词 +
-    // PhaseStart / PhaseLog）整包喂入 + 串行 forward 边（零反馈 / 重试 / 回溯），
-    // git 步（commit / rebase / merge / finalize）与 agent 步（resolve_conflicts /
-    // spec_sync）会话面可辨
+    // 归档相位 run 史样本（AC-6 语料半边）：archive 十一步节点（9 归档步词，含
+    // cleanup 尽力步样本 + PhaseStart / PhaseLog）整包喂入 + 串行 forward 边
+    //（零反馈 / 重试 / 回溯），git 步（commit / rebase / merge / cleanup /
+    // finalize）与 agent 步（resolve_conflicts / spec_sync）会话面可辨
     corpus.run_start("id-seeded-archived", "run-1727000041000", t(20));
     corpus.run_finish(
         "id-seeded-archived",
@@ -1094,6 +1094,14 @@ fn build_archive_prefix() -> Corpus {
             step(
                 "archive",
                 1,
+                ChangeStepKind::Cleanup,
+                ChangeStepStatus::Passed,
+                None,
+                Some("已移除 worktree（<WORKTREE_ROOT>/seeded-archived）"),
+            ),
+            step(
+                "archive",
+                1,
                 ChangeStepKind::Seal,
                 ChangeStepStatus::Passed,
                 None,
@@ -1149,6 +1157,11 @@ fn build_archive_prefix() -> Corpus {
             ),
             edge(
                 key("archive", 1, ChangeStepKind::SpecSync, 0),
+                key("archive", 1, ChangeStepKind::Cleanup, 0),
+                EdgeKind::Forward,
+            ),
+            edge(
+                key("archive", 1, ChangeStepKind::Cleanup, 0),
                 key("archive", 1, ChangeStepKind::Seal, 0),
                 EdgeKind::Forward,
             ),
@@ -1566,7 +1579,8 @@ fn corpus归档前缀样本_golden对拍() {
             .is_some_and(Vec::is_empty),
         "空 checklist 落账样本"
     );
-    // 归档相位 run 史：十步节点全词汇（8 归档步词 + PhaseStart / PhaseLog）
+    // 归档相位 run 史：十一步节点全词汇（9 归档步词（cleanup 尽力步样本在案）
+    // + PhaseStart / PhaseLog）
     let archive_run = runs
         .iter()
         .find(|run| run["runId"].as_str() == Some("run-1727000041000"))
@@ -1587,11 +1601,12 @@ fn corpus归档前缀样本_golden对拍() {
             "resolve_conflicts",
             "merge",
             "spec_sync",
+            "cleanup",
             "seal",
             "finalize",
             "phase_log",
         ],
-        "归档十步词逐字在案（含 git 步分类词面）"
+        "归档十一步词逐字在案（含 git 步分类词面与 cleanup 尽力步样本）"
     );
     assert!(
         archive_run["edges"]
@@ -1662,8 +1677,9 @@ fn corpusrun全史语料_golden对拍() {
     let corpus = build_run_history();
     let projection = project_detail(&corpus, "id-run-history");
 
-    // 全词汇断言：runs[].nodes[].step 十九值全词汇在案（零过滤——flow 面步骤与三
-    // 门同整包落库；mutation_test 拆步新词在案，AC-1 / AC-2）
+    // 全词汇断言：runs[].nodes[].step 非归档十九词在案（零过滤——flow 面步骤与三
+    // 门同整包落库；mutation_test 拆步新词在案，AC-1 / AC-2；归档 9 步词样本由
+    // corpus-archive-prefix golden 承载）
     const FULL_WORDS: [&str; 11] = [
         "executor",
         "evaluator",
@@ -1687,7 +1703,7 @@ fn corpusrun全史语料_golden对拍() {
             let word = node["step"].as_str().expect("step 出线词");
             assert!(
                 FULL_WORDS.contains(&word),
-                "落库步词汇 {word} 越十九值封闭集"
+                "落库步词汇 {word} 越二十值封闭集"
             );
             if !seen_words.contains(&word) {
                 seen_words.push(word);

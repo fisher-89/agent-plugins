@@ -1198,8 +1198,8 @@ fn tool_step_output归档变体窄化提取类型守卫() {
 /// `ArchiveVcsPort` 面（边界 / 回归）：归档第三缝 trait 全方法签名编译面在位
 ///（dirty / commit_all / branch_merged / rebase_branch / ff_merge /
 /// worktree_snapshot / rebase_continue / rebase_abort / current_branch /
-/// commit_paths），实现可经 `Arc<dyn ArchiveVcsPort>` 作为 walker 显式入参注入
-///（AC-3 / R2 core 零 spawn 的结构前提；trait 面零改动锚）。
+/// commit_paths / remove_worktree），实现可经 `Arc<dyn ArchiveVcsPort>` 作为
+/// walker 显式入参注入（AC-3 / R2 core 零 spawn 的结构前提；trait 面零改动锚）。
 #[test]
 fn archive_vcs_port面全方法签名编译锚() {
     use std::path::Path;
@@ -1257,6 +1257,9 @@ fn archive_vcs_port面全方法签名编译锚() {
         }
         fn change_edit_patch(&self, _root: &Path, _base: &str) -> Result<String, String> {
             Ok(String::new())
+        }
+        fn remove_worktree(&self, _main_root: &Path, _worktree: &Path) -> Result<(), String> {
+            Ok(())
         }
     }
 
@@ -1334,6 +1337,9 @@ fn archive_vcs_port面全方法签名编译锚() {
         }
         fn change_edit_patch(&self, _root: &Path, _base: &str) -> Result<String, String> {
             Err("补丁取数失败".to_owned())
+        }
+        fn remove_worktree(&self, _main_root: &Path, _worktree: &Path) -> Result<(), String> {
+            Err("worktree 移除失败".to_owned())
         }
     }
     let detached: Arc<dyn ArchiveVcsPort> = Arc::new(DetachedVcs);
@@ -1836,6 +1842,9 @@ async fn archive_vcs_port清单与补丁两方法trait面() {
                 .push((root.display().to_string(), base.to_owned()));
             self.patch.clone()
         }
+        fn remove_worktree(&self, _main_root: &Path, _worktree: &Path) -> Result<(), String> {
+            Ok(())
+        }
     }
 
     fn assert_send_sync<T: Send + Sync>() {}
@@ -1895,5 +1904,127 @@ async fn archive_vcs_port清单与补丁两方法trait面() {
         empty.change_edit_patch(root, "HEAD").expect("空补丁 Ok 面"),
         "",
         "空补丁透传（干净仓零 diff 合法形态）"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// ArchiveVcsPort.remove_worktree trait 面（worktree-cleanup-and-active-cap /
+// AC-5 / AC-6 / AC-7）：清理步执行缝签名编译锚 + 可编程注入 + Err 面契约 +
+// 零探测方法边界 + Send + Sync 契约持衡
+// ---------------------------------------------------------------------------
+
+/// `remove_worktree` trait 面可注入（正向 / 异常 / 边界）：测试假件实现
+///「既有方法族 + remove_worktree」即编译通过（port 面零探测方法——在场探测驻
+/// 调用方 fs 判定，trait 无 probe / exists 方法，编译面锚定）；Ok / Err 可编程
+/// 且 `(main_root, worktree)` 双参原样捕获；经 `Arc<dyn ArchiveVcsPort>` 注入
+/// 后按可编程结果出线（walker 消费面契约，AC-5 / AC-6）。
+#[test]
+fn archive_vcs_port_remove_worktree可注入且双参捕获与err契约() {
+    use std::path::{Path, PathBuf};
+
+    use crate::port::{ArchiveVcsPort, RebaseOutcome, WorktreeSnapshot};
+
+    /// 清理面假件：remove_worktree Ok / Err 可编程 + 双参捕获（git 子进程边界
+    /// 以注入 port 假件替代——本节只锚签名与透传，生产实现的路径 + 手动指引
+    /// 组装内容由 infra/vcs 真件节断言）。
+    struct CleanupVcs {
+        result: Result<(), String>,
+        calls: std::sync::Mutex<Vec<(PathBuf, PathBuf)>>,
+    }
+    impl ArchiveVcsPort for CleanupVcs {
+        fn dirty(&self, _root: &Path, _paths: &[&str]) -> bool {
+            false
+        }
+        fn commit_all(&self, _worktree: &Path, _message: &str) -> Result<(), String> {
+            Ok(())
+        }
+        fn branch_merged(&self, _main_root: &Path, _branch: &str) -> Result<bool, String> {
+            Ok(false)
+        }
+        fn rebase_branch(&self, _worktree: &Path, _onto: &str) -> Result<RebaseOutcome, String> {
+            Ok(RebaseOutcome::Rebased)
+        }
+        fn ff_merge(&self, _main_root: &Path, _branch: &str) -> Result<(), String> {
+            Ok(())
+        }
+        fn worktree_snapshot(&self, _root: &Path) -> Result<WorktreeSnapshot, String> {
+            Ok(WorktreeSnapshot {
+                head: "abc".to_owned(),
+                rebase_head: None,
+                status: Vec::new(),
+                index: Vec::new(),
+            })
+        }
+        fn rebase_continue(&self, _worktree: &Path) -> Result<RebaseOutcome, String> {
+            Ok(RebaseOutcome::Rebased)
+        }
+        fn rebase_abort(&self, _worktree: &Path) -> Result<(), String> {
+            Ok(())
+        }
+        fn current_branch(&self, _main_root: &Path) -> Result<String, String> {
+            Ok("main".to_owned())
+        }
+        fn commit_paths(
+            &self,
+            _main_root: &Path,
+            _paths: &[&str],
+            _message: &str,
+        ) -> Result<(), String> {
+            Ok(())
+        }
+        fn change_edit_set(&self, _root: &Path, _base: &str) -> Result<Vec<String>, String> {
+            Ok(Vec::new())
+        }
+        fn change_edit_patch(&self, _root: &Path, _base: &str) -> Result<String, String> {
+            Ok(String::new())
+        }
+        fn remove_worktree(&self, main_root: &Path, worktree: &Path) -> Result<(), String> {
+            self.calls
+                .lock()
+                .expect("清理调用锁")
+                .push((main_root.to_owned(), worktree.to_owned()));
+            self.result.clone()
+        }
+    }
+
+    // Send + Sync 契约持衡（跨线程经 Arc<dyn ArchiveVcsPort> 注入 walker 的
+    // 编译前提——trait 对象契约随新方法扩展不破）
+    fn assert_send_sync<T: Send + Sync>() {}
+    assert_send_sync::<CleanupVcs>();
+
+    let main_root = PathBuf::from("/tmp/ws/main");
+    let worktree = PathBuf::from("/tmp/ws/worktrees/seg/fix-bug");
+
+    // Ok 面可编程：trait object 动态分发按可编程结果出线，双参原样抵达
+    let ok_port: Arc<dyn ArchiveVcsPort> = Arc::new(CleanupVcs {
+        result: Ok(()),
+        calls: std::sync::Mutex::new(Vec::new()),
+    });
+    ok_port
+        .remove_worktree(&main_root, &worktree)
+        .expect("Ok 面应可用");
+    // 双参捕获断言（经内部假件直查——Arc<dyn> 不可 downcast，另铸同形假件取捕获）
+    let probe = CleanupVcs {
+        result: Ok(()),
+        calls: std::sync::Mutex::new(Vec::new()),
+    };
+    probe.remove_worktree(&main_root, &worktree).expect("Ok 面");
+    assert_eq!(
+        probe.calls.lock().expect("清理调用锁").as_slice(),
+        [(main_root.clone(), worktree.clone())],
+        "remove_worktree 双参原样捕获（零改写零换序）"
+    );
+
+    // Err 面契约：String 错误串原样透传（port 面零改写零吞）
+    let err_port: Arc<dyn ArchiveVcsPort> = Arc::new(CleanupVcs {
+        result: Err("git worktree remove 失败（退出码 128）".to_owned()),
+        calls: std::sync::Mutex::new(Vec::new()),
+    });
+    let error = err_port
+        .remove_worktree(&main_root, &worktree)
+        .expect_err("Err 面应上抛");
+    assert_eq!(
+        error, "git worktree remove 失败（退出码 128）",
+        "Err(String) 串契约原样透传（组装内容由 infra/vcs 真件节断言）"
     );
 }

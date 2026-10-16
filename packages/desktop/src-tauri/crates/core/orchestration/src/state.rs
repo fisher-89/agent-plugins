@@ -34,7 +34,7 @@ impl ChangeRunStatus {
 /// 步词汇（四类节点可辨）：WorkerAgent 步（executor / evaluator / decision /
 /// spec-sync / resolve-conflicts）+ 相位机 / 工具步（phase-start / phase-log /
 /// static-check / test-execution / mutation-test / preflight / seal）+ Git 步
-///（commit / rebase / merge / finalize）+ Gate 三门。
+///（commit / rebase / merge / cleanup / finalize）+ Gate 三门。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub enum ChangeStepKind {
@@ -72,6 +72,8 @@ pub enum ChangeStepKind {
     Merge,
     /// 归档 delta specs 同步步（agent 会话）
     SpecSync,
+    /// 归档 worktree 清理步（vcs，尽力步）
+    Cleanup,
     /// 归档双写收口步（内联步）
     Seal,
     /// 归档落盘提交步（vcs）
@@ -100,6 +102,7 @@ impl ChangeStepKind {
             ChangeStepKind::ResolveConflicts => "resolve_conflicts",
             ChangeStepKind::Merge => "merge",
             ChangeStepKind::SpecSync => "spec_sync",
+            ChangeStepKind::Cleanup => "cleanup",
             ChangeStepKind::Seal => "seal",
             ChangeStepKind::Finalize => "finalize",
         }

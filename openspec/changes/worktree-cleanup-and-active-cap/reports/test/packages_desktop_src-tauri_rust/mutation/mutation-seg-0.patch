@@ -1,0 +1,2479 @@
+diff --git a/crates/core/orchestration/src/port.rs b/crates/core/orchestration/src/port.rs
+index 56365c17f30b..1f50e4a39dd6 100644
+--- a/crates/core/orchestration/src/port.rs
++++ b/crates/core/orchestration/src/port.rs
+@@ -377,6 +377,13 @@ pub trait ArchiveVcsPort: Send + Sync {
+     /// E2）再 `git diff <base>` 输出 unified diff 文本；与 [`Self::change_edit_set`]
+     /// 同居 vcs 单点，checks 侧零 git spawn。
+     fn change_edit_patch(&self, root: &Path, base: &str) -> Result<String, String>;
++    /// worktree 清理：`git worktree remove --force <path>`（`-C main_root` 锚）
++    /// ——归档相位 Cleanup 步的尽力步执行缝，`--force` 带走 bootstrap 的
++    /// `node_modules` / `target` 磁盘大头；branch MUST NOT 触碰（`worktree
++    /// remove` 本就不动分支）；`Err` 面带路径与手动清理指引（`git worktree
++    /// remove --force <path>`）。worktree 在场探测驻调用方 fs 判定，port 零探
++    /// 测方法。
++    fn remove_worktree(&self, main_root: &Path, worktree: &Path) -> Result<(), String>;
+ }
+ 
+ /// rebase 结果：冲突语义 = 冲突态保留、不 abort——收口归调用方。
+diff --git a/crates/core/orchestration/src/port_test.rs b/crates/core/orchestration/src/port_test.rs
+index 1563556847db..03776a9528f6 100644
+--- a/crates/core/orchestration/src/port_test.rs
++++ b/crates/core/orchestration/src/port_test.rs
+@@ -1198,8 +1198,8 @@ fn tool_step_output归档变体窄化提取类型守卫() {
+ /// `ArchiveVcsPort` 面（边界 / 回归）：归档第三缝 trait 全方法签名编译面在位
+ ///（dirty / commit_all / branch_merged / rebase_branch / ff_merge /
+ /// worktree_snapshot / rebase_continue / rebase_abort / current_branch /
+-/// commit_paths），实现可经 `Arc<dyn ArchiveVcsPort>` 作为 walker 显式入参注入
+-///（AC-3 / R2 core 零 spawn 的结构前提；trait 面零改动锚）。
++/// commit_paths / remove_worktree），实现可经 `Arc<dyn ArchiveVcsPort>` 作为
++/// walker 显式入参注入（AC-3 / R2 core 零 spawn 的结构前提；trait 面零改动锚）。
+ #[test]
+ fn archive_vcs_port面全方法签名编译锚() {
+     use std::path::Path;
+@@ -1258,6 +1258,9 @@ fn archive_vcs_port面全方法签名编译锚() {
+         fn change_edit_patch(&self, _root: &Path, _base: &str) -> Result<String, String> {
+             Ok(String::new())
+         }
++        fn remove_worktree(&self, _main_root: &Path, _worktree: &Path) -> Result<(), String> {
++            Ok(())
++        }
+     }
+ 
+     fn assert_send_sync<T: Send + Sync>() {}
+@@ -1335,6 +1338,9 @@ fn archive_vcs_port面全方法签名编译锚() {
+         fn change_edit_patch(&self, _root: &Path, _base: &str) -> Result<String, String> {
+             Err("补丁取数失败".to_owned())
+         }
++        fn remove_worktree(&self, _main_root: &Path, _worktree: &Path) -> Result<(), String> {
++            Err("worktree 移除失败".to_owned())
++        }
+     }
+     let detached: Arc<dyn ArchiveVcsPort> = Arc::new(DetachedVcs);
+     let error = detached
+@@ -1836,6 +1842,9 @@ async fn archive_vcs_port清单与补丁两方法trait面() {
+                 .push((root.display().to_string(), base.to_owned()));
+             self.patch.clone()
+         }
++        fn remove_worktree(&self, _main_root: &Path, _worktree: &Path) -> Result<(), String> {
++            Ok(())
++        }
+     }
+ 
+     fn assert_send_sync<T: Send + Sync>() {}
+@@ -1897,3 +1906,125 @@ async fn archive_vcs_port清单与补丁两方法trait面() {
+         "空补丁透传（干净仓零 diff 合法形态）"
+     );
+ }
++
++// ---------------------------------------------------------------------------
++// ArchiveVcsPort.remove_worktree trait 面（worktree-cleanup-and-active-cap /
++// AC-5 / AC-6 / AC-7）：清理步执行缝签名编译锚 + 可编程注入 + Err 面契约 +
++// 零探测方法边界 + Send + Sync 契约持衡
++// ---------------------------------------------------------------------------
++
++/// `remove_worktree` trait 面可注入（正向 / 异常 / 边界）：测试假件实现
++///「既有方法族 + remove_worktree」即编译通过（port 面零探测方法——在场探测驻
++/// 调用方 fs 判定，trait 无 probe / exists 方法，编译面锚定）；Ok / Err 可编程
++/// 且 `(main_root, worktree)` 双参原样捕获；经 `Arc<dyn ArchiveVcsPort>` 注入
++/// 后按可编程结果出线（walker 消费面契约，AC-5 / AC-6）。
++#[test]
++fn archive_vcs_port_remove_worktree可注入且双参捕获与err契约() {
++    use std::path::{Path, PathBuf};
++
++    use crate::port::{ArchiveVcsPort, RebaseOutcome, WorktreeSnapshot};
++
++    /// 清理面假件：remove_worktree Ok / Err 可编程 + 双参捕获（git 子进程边界
++    /// 以注入 port 假件替代——本节只锚签名与透传，生产实现的路径 + 手动指引
++    /// 组装内容由 infra/vcs 真件节断言）。
++    struct CleanupVcs {
++        result: Result<(), String>,
++        calls: std::sync::Mutex<Vec<(PathBuf, PathBuf)>>,
++    }
++    impl ArchiveVcsPort for CleanupVcs {
++        fn dirty(&self, _root: &Path, _paths: &[&str]) -> bool {
++            false
++        }
++        fn commit_all(&self, _worktree: &Path, _message: &str) -> Result<(), String> {
++            Ok(())
++        }
++        fn branch_merged(&self, _main_root: &Path, _branch: &str) -> Result<bool, String> {
++            Ok(false)
++        }
++        fn rebase_branch(&self, _worktree: &Path, _onto: &str) -> Result<RebaseOutcome, String> {
++            Ok(RebaseOutcome::Rebased)
++        }
++        fn ff_merge(&self, _main_root: &Path, _branch: &str) -> Result<(), String> {
++            Ok(())
++        }
++        fn worktree_snapshot(&self, _root: &Path) -> Result<WorktreeSnapshot, String> {
++            Ok(WorktreeSnapshot {
++                head: "abc".to_owned(),
++                rebase_head: None,
++                status: Vec::new(),
++                index: Vec::new(),
++            })
++        }
++        fn rebase_continue(&self, _worktree: &Path) -> Result<RebaseOutcome, String> {
++            Ok(RebaseOutcome::Rebased)
++        }
++        fn rebase_abort(&self, _worktree: &Path) -> Result<(), String> {
++            Ok(())
++        }
++        fn current_branch(&self, _main_root: &Path) -> Result<String, String> {
++            Ok("main".to_owned())
++        }
++        fn commit_paths(
++            &self,
++            _main_root: &Path,
++            _paths: &[&str],
++            _message: &str,
++        ) -> Result<(), String> {
++            Ok(())
++        }
++        fn change_edit_set(&self, _root: &Path, _base: &str) -> Result<Vec<String>, String> {
++            Ok(Vec::new())
++        }
++        fn change_edit_patch(&self, _root: &Path, _base: &str) -> Result<String, String> {
++            Ok(String::new())
++        }
++        fn remove_worktree(&self, main_root: &Path, worktree: &Path) -> Result<(), String> {
++            self.calls
++                .lock()
++                .expect("清理调用锁")
++                .push((main_root.to_owned(), worktree.to_owned()));
++            self.result.clone()
++        }
++    }
++
++    // Send + Sync 契约持衡（跨线程经 Arc<dyn ArchiveVcsPort> 注入 walker 的
++    // 编译前提——trait 对象契约随新方法扩展不破）
++    fn assert_send_sync<T: Send + Sync>() {}
++    assert_send_sync::<CleanupVcs>();
++
++    let main_root = PathBuf::from("/tmp/ws/main");
++    let worktree = PathBuf::from("/tmp/ws/worktrees/seg/fix-bug");
++
++    // Ok 面可编程：trait object 动态分发按可编程结果出线，双参原样抵达
++    let ok_port: Arc<dyn ArchiveVcsPort> = Arc::new(CleanupVcs {
++        result: Ok(()),
++        calls: std::sync::Mutex::new(Vec::new()),
++    });
++    ok_port
++        .remove_worktree(&main_root, &worktree)
++        .expect("Ok 面应可用");
++    // 双参捕获断言（经内部假件直查——Arc<dyn> 不可 downcast，另铸同形假件取捕获）
++    let probe = CleanupVcs {
++        result: Ok(()),
++        calls: std::sync::Mutex::new(Vec::new()),
++    };
++    probe.remove_worktree(&main_root, &worktree).expect("Ok 面");
++    assert_eq!(
++        probe.calls.lock().expect("清理调用锁").as_slice(),
++        [(main_root.clone(), worktree.clone())],
++        "remove_worktree 双参原样捕获（零改写零换序）"
++    );
++
++    // Err 面契约：String 错误串原样透传（port 面零改写零吞）
++    let err_port: Arc<dyn ArchiveVcsPort> = Arc::new(CleanupVcs {
++        result: Err("git worktree remove 失败（退出码 128）".to_owned()),
++        calls: std::sync::Mutex::new(Vec::new()),
++    });
++    let error = err_port
++        .remove_worktree(&main_root, &worktree)
++        .expect_err("Err 面应上抛");
++    assert_eq!(
++        error, "git worktree remove 失败（退出码 128）",
++        "Err(String) 串契约原样透传（组装内容由 infra/vcs 真件节断言）"
++    );
++}
+diff --git a/crates/core/orchestration/src/run_history.rs b/crates/core/orchestration/src/run_history.rs
+index 033bc75b376e..1255b8ef9f09 100644
+--- a/crates/core/orchestration/src/run_history.rs
++++ b/crates/core/orchestration/src/run_history.rs
+@@ -12,7 +12,7 @@ use crate::state::{
+ };
+ use crate::walker::RunRequest;
+ 
+-/// 步词汇直映射（**十九值 1:1 全映射，零过滤**）：编排侧 `ChangeStepKind` 与落
++/// 步词汇直映射（**二十值 1:1 全映射，零过滤**）：编排侧 `ChangeStepKind` 与落
+ /// 库侧 `RunStepKind` 同词面封闭集逐一对应——`step` 语义无弃落项。
+ fn mapped_step(kind: ChangeStepKind) -> RunStepKind {
+     match kind {
+@@ -33,6 +33,7 @@ fn mapped_step(kind: ChangeStepKind) -> RunStepKind {
+         ChangeStepKind::ResolveConflicts => RunStepKind::ResolveConflicts,
+         ChangeStepKind::Merge => RunStepKind::Merge,
+         ChangeStepKind::SpecSync => RunStepKind::SpecSync,
++        ChangeStepKind::Cleanup => RunStepKind::Cleanup,
+         ChangeStepKind::Seal => RunStepKind::Seal,
+         ChangeStepKind::Finalize => RunStepKind::Finalize,
+     }
+diff --git a/crates/core/orchestration/src/run_history_test.rs b/crates/core/orchestration/src/run_history_test.rs
+index 7fb16cdedc41..205572ab383f 100644
+--- a/crates/core/orchestration/src/run_history_test.rs
++++ b/crates/core/orchestration/src/run_history_test.rs
+@@ -1,6 +1,7 @@
+ //! `run_history.rs` 的单元测试（test-design「run_history.rs ->
+-//! run_history_test.rs」节）：词汇直映射十九值零过滤（`persisted_step` 过滤谓词整
+-//! 体退役——编译面锚 + 全词汇在案行为锚，AC-3）、`finish_command` 组装（节点整包
++//! run_history_test.rs」节）：词汇直映射二十值零过滤（`persisted_step` 过滤谓词整
++//! 体退役——编译面锚 + 全词汇在案行为锚，AC-3；cleanup 尽力步新臂直映射在案）、
++//! `finish_command` 组装（节点整包
+ //! 全词汇 + 边整包四 kind 端点身份串 + 实例号递增直透 + 终态三值映射 +
+ //! session_id / detail / output_ref 两态透传 + 空整包含空集 + 悬空边不静默丢弃）、
+ //! `StoreRunHistory` 适配器真件委派（run_started 落 running 行 / run_finished
+@@ -63,15 +64,48 @@ fn step(
+ }
+ 
+ // ---------------------------------------------------------------------------
+-// 词汇直映射：十九值零过滤（`persisted_step` 过滤谓词整体退役）
++// 词汇直映射：二十值零过滤（`persisted_step` 过滤谓词整体退役）
+ // ---------------------------------------------------------------------------
+ 
+-/// 十九值全词汇直映射：`ChangeStepKind` 与 `RunStepKind` 1:1 同词面全映射——流程
++/// mapped_step 新臂直映射（正向，worktree-cleanup-and-active-cap）：
++/// `ChangeStepKind::Cleanup` → `RunStepKind::Cleanup` 1:1 直映射——`as_str()`
++/// 同词面 `"cleanup"` 逐字（归档尽力步落库零过滤单点）。
++#[test]
++fn mapped_step_cleanup直映射_同词面逐字() {
++    let nodes = [step(
++        ChangeStepKind::Cleanup,
++        ChangeStepStatus::Passed,
++        None,
++    )];
++    let command = finish_command(
++        &request(),
++        ChangeRunStatus::Completed,
++        None,
++        STARTED_AT,
++        &nodes,
++        &[],
++    );
++    assert_eq!(command.nodes.len(), 1);
++    assert_eq!(
++        command.nodes[0].step,
++        workflow::state::RunStepKind::Cleanup,
++        "cleanup 直映射零过滤"
++    );
++    assert_eq!(
++        command.nodes[0].step.as_str(),
++        ChangeStepKind::Cleanup.as_str(),
++        "两域 as_str 同词面逐字（cleanup）"
++    );
++    assert_eq!(command.nodes[0].step.as_str(), "cleanup");
++}
++
++/// 二十值全词汇直映射：`ChangeStepKind` 与 `RunStepKind` 1:1 同词面全映射——流程
+ /// 面三步（phase_start / phase_log / 三门）不再被弃落，mutation_test 拆步新词
+-/// 在案（编译面锚：`persisted_step` 符号缺席，引用即不编译，AC-3 退役面；
+-/// AC-1 / AC-2 十九值零过滤）。
++/// 在案、cleanup 尽力步新臂在案（编译面锚：`persisted_step` 符号缺席，引用即不
++/// 编译，AC-3 退役面；AC-1 / AC-2 二十值零过滤——finish_command 落包
++/// `nodes.len()==20` 零过滤，cleanup 节点在案、无静默丢弃）。
+ #[test]
+-fn 全词汇直映射十九值零过滤() {
++fn 全词汇直映射二十值零过滤() {
+     let all = [
+         (
+             ChangeStepKind::Executor,
+@@ -132,13 +166,17 @@ fn 全词汇直映射十九值零过滤() {
+             ChangeStepKind::SpecSync,
+             workflow::state::RunStepKind::SpecSync,
+         ),
++        (
++            ChangeStepKind::Cleanup,
++            workflow::state::RunStepKind::Cleanup,
++        ),
+         (ChangeStepKind::Seal, workflow::state::RunStepKind::Seal),
+         (
+             ChangeStepKind::Finalize,
+             workflow::state::RunStepKind::Finalize,
+         ),
+     ];
+-    assert_eq!(all.len(), 19, "十九值封闭集全枚举");
++    assert_eq!(all.len(), 20, "二十值封闭集全枚举");
+ 
+     let nodes: Vec<ChangeStepState> = all
+         .iter()
+@@ -153,7 +191,7 @@ fn 全词汇直映射十九值零过滤() {
+         &[],
+     );
+ 
+-    assert_eq!(command.nodes.len(), 19, "十九值全词汇零过滤");
++    assert_eq!(command.nodes.len(), 20, "二十值全词汇零过滤（cleanup 节点在案）");
+     for (index, (_, expect)) in all.iter().enumerate() {
+         assert_eq!(command.nodes[index].step, *expect, "第 {index} 词汇直映射");
+     }
+@@ -164,6 +202,13 @@ fn 全词汇直映射十九值零过滤() {
+             .any(|node| node.step == workflow::state::RunStepKind::MutationTest),
+         "mutation_test 拆步新词直映射在案（AC-1 / AC-2）"
+     );
++    assert!(
++        command
++            .nodes
++            .iter()
++            .any(|node| node.step == workflow::state::RunStepKind::Cleanup),
++        "cleanup 尽力步新臂直映射在案（零静默丢弃）"
++    );
+     assert!(
+         command
+             .nodes
+@@ -180,7 +225,7 @@ fn 全词汇直映射十九值零过滤() {
+     );
+ 
+     // 双射校验（异常面 / 词汇同源不漂移）：无两个 ChangeStepKind 映到同一
+-    // RunStepKind（19 对互异即双射——两侧封闭集同势）
++    // RunStepKind（20 对互异即双射——两侧封闭集同势）
+     let mut mapped: Vec<&'static str> = command
+         .nodes
+         .iter()
+diff --git a/crates/core/orchestration/src/state.rs b/crates/core/orchestration/src/state.rs
+index 04f943ef7a44..df98c6b407ef 100644
+--- a/crates/core/orchestration/src/state.rs
++++ b/crates/core/orchestration/src/state.rs
+@@ -34,7 +34,7 @@ impl ChangeRunStatus {
+ /// 步词汇（四类节点可辨）：WorkerAgent 步（executor / evaluator / decision /
+ /// spec-sync / resolve-conflicts）+ 相位机 / 工具步（phase-start / phase-log /
+ /// static-check / test-execution / mutation-test / preflight / seal）+ Git 步
+-///（commit / rebase / merge / finalize）+ Gate 三门。
++///（commit / rebase / merge / cleanup / finalize）+ Gate 三门。
+ #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Type)]
+ #[serde(rename_all = "camelCase")]
+ pub enum ChangeStepKind {
+@@ -72,6 +72,8 @@ pub enum ChangeStepKind {
+     Merge,
+     /// 归档 delta specs 同步步（agent 会话）
+     SpecSync,
++    /// 归档 worktree 清理步（vcs，尽力步）
++    Cleanup,
+     /// 归档双写收口步（内联步）
+     Seal,
+     /// 归档落盘提交步（vcs）
+@@ -100,6 +102,7 @@ impl ChangeStepKind {
+             ChangeStepKind::ResolveConflicts => "resolve_conflicts",
+             ChangeStepKind::Merge => "merge",
+             ChangeStepKind::SpecSync => "spec_sync",
++            ChangeStepKind::Cleanup => "cleanup",
+             ChangeStepKind::Seal => "seal",
+             ChangeStepKind::Finalize => "finalize",
+         }
+diff --git a/crates/core/orchestration/src/state_test.rs b/crates/core/orchestration/src/state_test.rs
+index 032bb9ec190c..a174fee886e1 100644
+--- a/crates/core/orchestration/src/state_test.rs
++++ b/crates/core/orchestration/src/state_test.rs
+@@ -1,10 +1,11 @@
+ //! `state.rs`（run 状态与步状态类型）的单元测试（test-design「state.rs ->
+ //! state_test.rs」节）：RunUpdate 五变体 `ipc` 信封线格式、SessionEvent /
+-//! Finished 载荷、ChangeRunStatus 终态矩阵、ChangeStepKind 十九值词汇、
+-//! ArchivePreflight 八字段停等载荷、ConfirmWait 双态（archive 随行）、
+-//! ChangeStepState 步状态行、ChangeRunSnapshot / ChangeRunSummary 往返、
+-//! specta Type 可达。无进程边界依赖：serde_json / specta 内存构造与出线
+-//! 断言，AgentEvent 载荷以 `AgentEvent::stamp` 固定构造（Mock策略：无 mock）。
++//! Finished 载荷、ChangeRunStatus 终态矩阵、ChangeStepKind 二十值词汇（cleanup
++//! 归 Git 组——camel 与 snake 同形词面）、ArchivePreflight 八字段停等载荷、
++//! ConfirmWait 双态（archive 随行）、ChangeStepState 步状态行、
++//! ChangeRunSnapshot / ChangeRunSummary 往返、specta Type 可达。无进程边界
++//! 依赖：serde_json / specta 内存构造与出线断言，AgentEvent 载荷以
++//! `AgentEvent::stamp` 固定构造（Mock策略：无 mock）。
+ //!
+ //! 线面注记：`RunUpdate` 仅 Serialize（IPC 出线信封），线格式以出线 JSON 逐
+ //! 字段断言承载；`ChangeRunStatus` / `ChangeStepKind` / `ChangeStepState` /
+@@ -209,13 +210,13 @@ fn 终态判别矩阵is_terminal互补() {
+ }
+ 
+ // ---------------------------------------------------------------------------
+-// ChangeStepKind 十九值词汇（四类可辨，含归档 8 步词与拆步新词 mutationTest）
++// ChangeStepKind 二十值词汇（四类可辨，含归档 9 步词与拆步新词 mutationTest）
+ // ---------------------------------------------------------------------------
+ 
+-/// 归档 8 步词的 `camelCase` 线面（与 snake_case `as_str()` 逐字对应；
++/// 归档 9 步词的 `camelCase` 线面（与 snake_case `as_str()` 逐字对应；
+ /// 词面单点与 workflow `RunStepKind::as_str()` 同源，AC-2）。
+ #[test]
+-fn change_step_kind归档八步词camelcase与snake同源() {
++fn change_step_kind归档九步词camelcase与snake同源() {
+     let wire = |kind: ChangeStepKind| serde_json::to_value(kind).expect("词汇出线应成功");
+     assert_eq!(wire(ChangeStepKind::Preflight), json!("preflight"));
+     assert_eq!(wire(ChangeStepKind::Commit), json!("commit"));
+@@ -231,6 +232,12 @@ fn change_step_kind归档八步词camelcase与snake同源() {
+         json!("specSync"),
+         "多词步 camelCase 线格式"
+     );
++    // cleanup：snake / camel 同形逐字（identity 词——归 Git 步族）
++    assert_eq!(
++        wire(ChangeStepKind::Cleanup),
++        json!("cleanup"),
++        "cleanup camel 与 snake 同形逐字（identity 词）"
++    );
+     assert_eq!(wire(ChangeStepKind::Seal), json!("seal"));
+     assert_eq!(wire(ChangeStepKind::Finalize), json!("finalize"));
+ 
+@@ -246,6 +253,7 @@ fn change_step_kind归档八步词camelcase与snake同源() {
+         ),
+         (ChangeStepKind::Merge, "merge", "merge"),
+         (ChangeStepKind::SpecSync, "specSync", "spec_sync"),
++        (ChangeStepKind::Cleanup, "cleanup", "cleanup"),
+         (ChangeStepKind::Seal, "seal", "seal"),
+         (ChangeStepKind::Finalize, "finalize", "finalize"),
+     ] {
+@@ -258,9 +266,10 @@ fn change_step_kind归档八步词camelcase与snake同源() {
+     }
+ }
+ 
+-/// 非法词反序列化拒绝（异常）：十九值封闭集之外的词形（snake 词 / kebab 词 /
++/// 非法词反序列化拒绝（异常）：二十值封闭集之外的词形（snake 词 / kebab 词 /
+ /// 近似词 / 空串 / 超长串 / 含换行与 emoji 的词）一律 `Err`（AC-2 线面契约守卫
+-/// ——camelCase 封闭集不吞词）。
++/// ——camelCase 封闭集不吞词；cleanup 扩词不松动防线：clean-up / cleanUp 等
++/// 近似词仍拒）。
+ #[test]
+ fn change_step_kind非法词反序列化拒绝() {
+     let long_word = "mutation".repeat(200);
+@@ -276,6 +285,10 @@ fn change_step_kind非法词反序列化拒绝() {
+         "mutation_test",
+         "mutationTestStep",
+         "MutationTest",
++        "clean-up",
++        "cleanUp",
++        "cleanupStep",
++        "Cleanup",
+         "",
+         "
+ ",
+@@ -288,7 +301,7 @@ fn change_step_kind非法词反序列化拒绝() {
+ }
+ 
+ #[test]
+-fn change_step_kind十九值词汇线格式逐字且四类可辨() {
++fn change_step_kind二十值词汇线格式逐字且四类可辨() {
+     let wire = |kind: ChangeStepKind| serde_json::to_value(kind).expect("词汇出线应成功");
+ 
+     // WorkerAgent 五角色（含归档两会话步）
+@@ -313,17 +326,23 @@ fn change_step_kind十九值词汇线格式逐字且四类可辨() {
+     assert_eq!(wire(ChangeStepKind::PhaseLog), json!("phaseLog"));
+     assert_eq!(wire(ChangeStepKind::Preflight), json!("preflight"));
+     assert_eq!(wire(ChangeStepKind::Seal), json!("seal"));
+-    // Git 四步
++    // Git 五步（cleanup 尽力步入组——cleanup camel 与 snake 同形）
+     assert_eq!(wire(ChangeStepKind::Commit), json!("commit"));
+     assert_eq!(wire(ChangeStepKind::Rebase), json!("rebase"));
+     assert_eq!(wire(ChangeStepKind::Merge), json!("merge"));
++    assert_eq!(
++        wire(ChangeStepKind::Cleanup),
++        json!("cleanup"),
++        "cleanup 尽力步词面（归 Git 步族）"
++    );
++    assert_eq!(ChangeStepKind::Cleanup.as_str(), "cleanup");
+     assert_eq!(wire(ChangeStepKind::Finalize), json!("finalize"));
+     // Gate 三门
+     assert_eq!(wire(ChangeStepKind::VerdictGate), json!("verdictGate"));
+     assert_eq!(wire(ChangeStepKind::RetryGate), json!("retryGate"));
+     assert_eq!(wire(ChangeStepKind::WhitelistGate), json!("whitelistGate"));
+ 
+-    // 四类可辨（十九值互异）
++    // 四类可辨（二十值互异）
+     let all = [
+         ChangeStepKind::Executor,
+         ChangeStepKind::Evaluator,
+@@ -342,17 +361,18 @@ fn change_step_kind十九值词汇线格式逐字且四类可辨() {
+         ChangeStepKind::ResolveConflicts,
+         ChangeStepKind::Merge,
+         ChangeStepKind::SpecSync,
++        ChangeStepKind::Cleanup,
+         ChangeStepKind::Seal,
+         ChangeStepKind::Finalize,
+     ];
+-    assert_eq!(all.len(), 19, "十九值穷举无遗漏");
++    assert_eq!(all.len(), 20, "二十值穷举无遗漏");
+     let mut wires: Vec<String> = all
+         .iter()
+         .map(|kind| wire(*kind).as_str().expect("串值").to_owned())
+         .collect();
+     wires.sort();
+     wires.dedup();
+-    assert_eq!(wires.len(), 19, "十九值词汇互异（四类节点可辨）");
++    assert_eq!(wires.len(), 20, "二十值词汇互异（四类节点可辨）");
+ 
+     // 身份串词面与 workflow 落库侧 `RunStepKind::as_str()` 逐字同源
+     for (kind, step_kind) in [
+@@ -365,6 +385,10 @@ fn change_step_kind十九值词汇线格式逐字且四类可辨() {
+         ),
+         (ChangeStepKind::Merge, workflow::state::RunStepKind::Merge),
+         (ChangeStepKind::SpecSync, workflow::state::RunStepKind::SpecSync),
++        (
++            ChangeStepKind::Cleanup,
++            workflow::state::RunStepKind::Cleanup,
++        ),
+         (ChangeStepKind::Seal, workflow::state::RunStepKind::Seal),
+         (
+             ChangeStepKind::Finalize,
+@@ -500,7 +524,7 @@ fn specta_type可达编译期锚定() {
+ // ---------------------------------------------------------------------------
+ 
+ /// 正向：TestExecution 出线 `testExecution` camelCase 逐字断言（serde
+-/// rename_all camelCase 线格式；十九值封闭集下专词断言持衡）。
++/// rename_all camelCase 线格式；二十值封闭集下专词断言持衡）。
+ #[test]
+ fn change_step_kind专词_testexecution出线逐字() {
+     let wire = serde_json::to_value(ChangeStepKind::TestExecution).expect("词汇出线应成功");
+@@ -516,11 +540,11 @@ fn change_step_kind专词_testexecution出线逐字() {
+     assert_eq!(back, ChangeStepKind::TestExecution, "新变体双向派生可用");
+ }
+ 
+-/// 边界：十九值词汇互异（camelCase 判别值集合无碰撞——四类节点可辨不变量
+-/// 保持：WorkerAgent 五角色 + ToolStep 六步（含 mutationTest）+ Git 四步 +
+-/// Gate 三门）。
++/// 边界：二十值词汇互异（camelCase 判别值集合无碰撞——四类节点可辨不变量
++/// 保持：WorkerAgent 五角色 + ToolStep 六步（含 mutationTest）+ Git 五步（含
++/// cleanup）+ Gate 三门）。
+ #[test]
+-fn change_step_kind十九值词汇互异无碰撞() {
++fn change_step_kind二十值词汇互异无碰撞() {
+     let all = [
+         ChangeStepKind::Executor,
+         ChangeStepKind::Evaluator,
+@@ -539,6 +563,7 @@ fn change_step_kind十九值词汇互异无碰撞() {
+         ChangeStepKind::ResolveConflicts,
+         ChangeStepKind::Merge,
+         ChangeStepKind::SpecSync,
++        ChangeStepKind::Cleanup,
+         ChangeStepKind::Seal,
+         ChangeStepKind::Finalize,
+     ];
+@@ -557,8 +582,36 @@ fn change_step_kind十九值词汇互异无碰撞() {
+     sorted.dedup();
+     assert_eq!(
+         sorted.len(),
+-        19,
+-        "十九值词汇互异（无 camelCase 碰撞），实际: {wires:?}"
++        20,
++        "二十值词汇互异（无 camelCase 碰撞），实际: {wires:?}"
++    );
++}
++
++/// cleanup 专词（正向 / 边界，worktree-cleanup-and-active-cap）：`ChangeStepKind::
++/// Cleanup` 出线 `"cleanup"` 逐字（camel 与 snake 同形）、`"cleanup"` 序列化 /
++/// 反序列化双向派生往返等值（rename_all camelCase 线格式持衡）、与落库侧
++/// `workflow::state::RunStepKind::Cleanup` 的 `as_str()` 身份串词面逐字同源
++/// （边表端点跨两侧可比）。
++#[test]
++fn change_step_kind_cleanup专词出线往返与runstepkind同源() {
++    // as_str 身份串词面（snake_case 口径）
++    assert_eq!(ChangeStepKind::Cleanup.as_str(), "cleanup");
++    // serde 出线 = camelCase 线词（cleanup 同形逐字）
++    let wire = serde_json::to_value(ChangeStepKind::Cleanup).expect("词汇出线应成功");
++    assert_eq!(wire, json!("cleanup"), "camel 与 snake 同形逐字");
++    // 往返：出线词 → 反序列化 → 等值（双向派生可用）
++    let back: ChangeStepKind = serde_json::from_value(wire).expect("往返应成功");
++    assert_eq!(back, ChangeStepKind::Cleanup, "\"cleanup\" 双向往返等值");
++    // serde 串形态往返
++    let text = serde_json::to_string(&ChangeStepKind::Cleanup).expect("出线应成功");
++    assert_eq!(text, "\"cleanup\"", "线串逐字（零包装）");
++    let back: ChangeStepKind = serde_json::from_str(&text).expect("往返应成功");
++    assert_eq!(back, ChangeStepKind::Cleanup);
++    // 词面同源对拍（对拍表补行）：身份串词与落库侧 RunStepKind 逐字一致
++    assert_eq!(
++        ChangeStepKind::Cleanup.as_str(),
++        workflow::state::RunStepKind::Cleanup.as_str(),
++        "身份串词面跨侧逐字同源（落库零映射）"
+     );
+ }
+ 
+@@ -1359,11 +1412,11 @@ fn 快照archive出线两态与none留位() {
+     assert_eq!(back, with_archive, "携带归档载荷的快照往返无损");
+ }
+ 
+-/// 正向：`ChangeStepKind` ↔ `RunStepKind` 1:1 对拍（19 对全等，双射无两词映
++/// 正向：`ChangeStepKind` ↔ `RunStepKind` 1:1 对拍（20 对全等，双射无两词映
+ /// 一）——camelCase 活面词汇与 snake_case 落库词汇同源（`as_str()` 逐字可比，
+-/// AC-2 归一表在案：`mutation_test` ↔ `mutationTest`）。
++/// AC-2 归一表在案：`mutation_test` ↔ `mutationTest`、`cleanup` ↔ `cleanup`）。
+ #[test]
+-fn change_step_kind与run_step_kind十九对同源对拍() {
++fn change_step_kind与run_step_kind二十对同源对拍() {
+     use workflow::state::RunStepKind;
+ 
+     let pairs = [
+@@ -1384,10 +1437,11 @@ fn change_step_kind与run_step_kind十九对同源对拍() {
+         (ChangeStepKind::ResolveConflicts, RunStepKind::ResolveConflicts),
+         (ChangeStepKind::Merge, RunStepKind::Merge),
+         (ChangeStepKind::SpecSync, RunStepKind::SpecSync),
++        (ChangeStepKind::Cleanup, RunStepKind::Cleanup),
+         (ChangeStepKind::Seal, RunStepKind::Seal),
+         (ChangeStepKind::Finalize, RunStepKind::Finalize),
+     ];
+-    assert_eq!(pairs.len(), 19, "十九对全等对拍");
++    assert_eq!(pairs.len(), 20, "二十对全等对拍");
+ 
+     let mut snake_words: Vec<&str> = Vec::new();
+     for (kind, persisted) in pairs {
+@@ -1398,7 +1452,7 @@ fn change_step_kind与run_step_kind十九对同源对拍() {
+         );
+         snake_words.push(kind.as_str());
+     }
+-    // 双射：19 词互异（无两词映一——同源不漂移）
++    // 双射：20 词互异（无两词映一——同源不漂移）
+     let total = snake_words.len();
+     snake_words.sort_unstable();
+     snake_words.dedup();
+diff --git a/crates/core/orchestration/src/steps_test.rs b/crates/core/orchestration/src/steps_test.rs
+index e774d60a57c7..ace699caa637 100644
+--- a/crates/core/orchestration/src/steps_test.rs
++++ b/crates/core/orchestration/src/steps_test.rs
+@@ -797,6 +797,15 @@ impl ArchiveVcsPort for FakeVcs {
+             .clone();
+         Ok(patch)
+     }
++
++    fn remove_worktree(
++        &self,
++        _main_root: &std::path::Path,
++        _worktree: &std::path::Path,
++    ) -> Result<(), String> {
++        self.record("remove_worktree");
++        Ok(())
++    }
+ }
+ 
+ /// 可编程 MutationRunner 假件（记录四参 + 可编程产出 / Err——MutationTest 臂
+diff --git a/crates/core/orchestration/src/walker.rs b/crates/core/orchestration/src/walker.rs
+index 7f800e39a856..d47435ec298a 100644
+--- a/crates/core/orchestration/src/walker.rs
++++ b/crates/core/orchestration/src/walker.rs
+@@ -47,6 +47,7 @@ const TXT_SKIP_MERGED: &str = "已合入";
+ const TXT_SKIP_NO_DELTA: &str = "无 delta specs";
+ const TXT_SKIP_BY_USER: &str = "用户选择";
+ const TXT_SKIP_LEGACY: &str = "legacy 无 worktree";
++const TXT_SKIP_ABSENT: &str = "worktree 已不在场，跳过清理";
+ const TXT_SKIP_FINALIZED: &str = "已落盘";
+ const TXT_NO_CONFLICT: &str = "无冲突";
+ 
+@@ -579,7 +580,8 @@ async fn run_step(
+             step_phase_log(ctx, trace, cursor).await?;
+             Ok(StepFlow::Proceed)
+         }
+-        // ── 归档相位 8 步（步失败一律 Terminal：相位表 `on_fail = None`）──
++        // ── 归档相位 9 步（Cleanup 尽力步例外：失败仅 detail 警告恒 passed；
++        // 其余步失败一律 Terminal：相位表 `on_fail = None`）──
+         StepNode::Preflight => {
+             step_preflight(ctx, trace, cursor).await?;
+             Ok(StepFlow::Proceed)
+@@ -604,6 +606,10 @@ async fn run_step(
+             step_spec_sync(ctx, trace, cursor).await?;
+             Ok(StepFlow::Proceed)
+         }
++        StepNode::Cleanup => {
++            step_cleanup(ctx, trace, cursor).await?;
++            Ok(StepFlow::Proceed)
++        }
+         StepNode::Seal => {
+             step_seal(ctx, trace, cursor).await?;
+             Ok(StepFlow::Proceed)
+@@ -1728,8 +1734,9 @@ async fn step_verdict_gate_upgraded_phase_log(
+ }
+ 
+ // ---------------------------------------------------------------------------
+-// 归档相位 8 步执行体（walker 独立 vcs 缝 + 归档两 agent 步；步失败一律
+-// Terminal——相位表 `on_fail = None`，不唤决策、不进相位重试）
++// 归档相位 9 步执行体（walker 独立 vcs 缝 + 归档两 agent 步；Cleanup 为尽力
++// 步例外——失败仅 detail 警告、步恒 passed、链必收口，永不 Terminal；其余步
++// 失败一律 Terminal——相位表 `on_fail = None`，不唤决策、不进相位重试）
+ // ---------------------------------------------------------------------------
+ 
+ /// 归档步起点：分配实例号 + 落 incoming 边 + emit 运行中节点（git / 内联步与
+@@ -2482,6 +2489,55 @@ async fn step_spec_sync(
+     Ok(())
+ }
+ 
++/// 归档 Cleanup 步（vcs.remove_worktree 尽力步）：SpecSync 与 Seal 之间清场
++///——worktree 记录在案即移除（`--force` 带走 bootstrap 的 `node_modules` /
++/// `target`），legacy 与目录缺席（手动清 / 重试链）幂等跳过；移除失败吞为
++/// detail 警告——步恒 `passed`、链必收口（归档残留是警告不是回滚，永不
++/// `Terminal`）；branch `change/<name>` 全程零触碰。缺 preflight 载荷沿既有
++/// 计划漂移面 Terminal（非清理失败面）。
++async fn step_cleanup(
++    ctx: &StepContext<'_>,
++    trace: &mut EdgeTrace,
++    cursor: &mut PhaseCursor,
++) -> Result<(), Terminal> {
++    let kind = ChangeStepKind::Cleanup;
++    let instance_no = begin_archive_node(ctx, trace, cursor, kind);
++    let (_, worktree) = match archive_context(cursor) {
++        Ok(context) => context,
++        Err(terminal) => {
++            settle_archive_node(
++                ctx,
++                cursor,
++                kind,
++                instance_no,
++                StepSettle::failed(Some("缺归档前置载荷".to_owned())),
++            );
++            return Err(terminal);
++        }
++    };
++    let settle = match worktree {
++        None => StepSettle::passed(Some(TXT_SKIP_LEGACY.to_owned())),
++        Some(path) if !Path::new(&path).is_dir() => {
++            StepSettle::passed(Some(TXT_SKIP_ABSENT.to_owned()))
++        }
++        Some(path) => {
++            match ctx
++                .vcs
++                .remove_worktree(Path::new(&ctx.request.main_root), Path::new(&path))
++            {
++                Ok(()) => StepSettle::passed(Some(format!("已移除 worktree（{path}）"))),
++                // 尽力步：失败仅 detail 警告（err 已含路径与手动清理指引），
++                // 步恒 passed、Seal / Finalize / PhaseLog 照常续走
++                Err(error) => StepSettle::passed(Some(format!(
++                    "worktree 清理失败（尽力步，不影响归档收口）: {error}"
++                ))),
++            }
++        }
++    };
++    settle_archive_node(ctx, cursor, kind, instance_no, settle);
++    Ok(())
++}
++
+ /// 归档 Seal 步：写面 `archive` 双写单点复用（目录改名 + db 翻转；半完成重试走
+ /// 写面既有续半边）；产出交 `PhaseCursor.seal_outcome` 供 Finalize 派生归档目录
+ /// 路径。
+diff --git a/crates/core/orchestration/src/walker_test.rs b/crates/core/orchestration/src/walker_test.rs
+index a503ea3ba846..7a815274dd06 100644
+--- a/crates/core/orchestration/src/walker_test.rs
++++ b/crates/core/orchestration/src/walker_test.rs
+@@ -888,6 +888,13 @@ struct FakeVcs {
+     edit_patch: Mutex<String>,
+     /// 补丁取数 Err 注入位
+     edit_patch_error: Mutex<Option<String>>,
++    /// worktree 清理（remove_worktree 产出面——Cleanup 步尽力语义注入位）
++    remove_result: Mutex<Result<(), String>>,
++    /// remove_worktree 双参捕获（Cleanup 步参数透传断言观察面）
++    remove_calls: Mutex<Vec<(PathBuf, PathBuf)>>,
++    /// Ok 时是否真实移除磁盘目录（默认关——多段子用例共享 TempRoot 时防
++    /// fixture 交叉污染；成功移除观察面用例显式开启）
++    remove_removes_dir: Mutex<bool>,
+ }
+ 
+ impl FakeVcs {
+@@ -910,6 +917,9 @@ impl FakeVcs {
+             edit_set_error: Mutex::new(None),
+             edit_patch: Mutex::new(String::new()),
+             edit_patch_error: Mutex::new(None),
++            remove_result: Mutex::new(Ok(())),
++            remove_calls: Mutex::new(Vec::new()),
++            remove_removes_dir: Mutex::new(false),
+         }
+     }
+ 
+@@ -955,6 +965,30 @@ impl FakeVcs {
+         self
+     }
+ 
++    /// worktree 清理产出面编程（Cleanup 步失败警告注入——Ok / Err 可编程）。
++    fn with_remove_result(self, result: Result<(), String>) -> Self {
++        *self.remove_result.lock().expect("vcs 清理锁不可中毒") = result;
++        self
++    }
++
++    /// Ok 时真实移除磁盘目录（成功移除观察面用例显式开启——fs 不 mock 的
++    /// 「worktree 目录消失」断言面；默认关防共享 fixture 交叉污染）。
++    fn with_real_removal(self) -> Self {
++        *self
++            .remove_removes_dir
++            .lock()
++            .expect("vcs 清理开关锁不可中毒") = true;
++        self
++    }
++
++    /// remove_worktree 双参捕获快照（Cleanup 步参数透传断言入口）。
++    fn remove_calls(&self) -> Vec<(PathBuf, PathBuf)> {
++        self.remove_calls
++            .lock()
++            .expect("vcs 清理调用锁不可中毒")
++            .clone()
++    }
++
+     /// 解冲突后验用：B 快照 HEAD 与 rebase 半程标记可编程（后验四判据的注入面）。
+     fn with_snapshot_head(self, head: &str, rebase_head: Option<&str>) -> Self {
+         *self.snapshot_head.lock().expect("vcs 快照头锁不可中毒") = Some(head.to_owned());
+@@ -1108,6 +1142,35 @@ impl ArchiveVcsPort for FakeVcs {
+             .expect("vcs 补丁锁不可中毒")
+             .clone())
+     }
++
++    fn remove_worktree(
++        &self,
++        main_root: &std::path::Path,
++        worktree: &std::path::Path,
++    ) -> Result<(), String> {
++        self.record(format!("remove_worktree:{}", worktree.display()));
++        self.remove_calls
++            .lock()
++            .expect("vcs 清理调用锁不可中毒")
++            .push((main_root.to_owned(), worktree.to_owned()));
++        let result = self
++            .remove_result
++            .lock()
++            .expect("vcs 清理锁不可中毒")
++            .clone();
++        // Ok 且显式开启时真实移除磁盘目录（worktree 目录消失 = 归档 Cleanup
++        // 成功面的观察锚——fs 不 mock，在场探测为被测逻辑本体；默认关防多段
++        // 子用例共享 TempRoot 的 fixture 交叉污染）
++        if result.is_ok()
++            && *self
++                .remove_removes_dir
++                .lock()
++                .expect("vcs 清理开关锁不可中毒")
++        {
++            let _ = std::fs::remove_dir_all(worktree);
++        }
++        result
++    }
+ }
+ 
+ /// 固定 change **id** 字面量（注册表键 / `RunRequest.change_id` / provenance
+@@ -4323,9 +4386,9 @@ async fn 步状态词汇零新增_决策挂账全程无新步信封() {
+             .into_iter()
+             .map(|(_, _, kind, _)| kind)
+             .collect();
+-    // 落库十九值全词汇零过滤（词汇漂移防线：封闭集之外的词出现即破坏；
+-    // mutation_test 拆步新词在案——AC-1 / AC-2）
+-    const VOCAB: [&str; 11] = [
++    // 落库二十值全词汇零过滤（词汇漂移防线：封闭集之外的词出现即破坏；
++    // mutation_test 拆步新词与 cleanup 尽力步新臂在案——AC-1 / AC-2）
++    const VOCAB: [&str; 12] = [
+         "executor",
+         "evaluator",
+         "decision",
+@@ -4337,6 +4400,7 @@ async fn 步状态词汇零新增_决策挂账全程无新步信封() {
+         "verdict_gate",
+         "retry_gate",
+         "whitelist_gate",
++        "cleanup",
+     ];
+     for kind in &kinds {
+         assert!(
+@@ -5172,10 +5236,10 @@ async fn 真件组合_多相位run落库回验_emit序与终态逐字段一致()
+         "completed 收口记因"
+     );
+ 
+-    // 节点整包：node_seq 升序 = emit 序、十九值全词汇零过滤、整包同刻
++    // 节点整包：node_seq 升序 = emit 序、二十值全词汇零过滤、整包同刻
+     let nodes = store.list_run_nodes("run-1").expect("节点读史应成功");
+     assert!(!nodes.is_empty(), "多相位 run 节点整包非空");
+-    const FULL_WORDS: [workflow::state::RunStepKind; 19] = [
++    const FULL_WORDS: [workflow::state::RunStepKind; 20] = [
+         workflow::state::RunStepKind::Executor,
+         workflow::state::RunStepKind::Evaluator,
+         workflow::state::RunStepKind::Decision,
+@@ -5193,13 +5257,14 @@ async fn 真件组合_多相位run落库回验_emit序与终态逐字段一致()
+         workflow::state::RunStepKind::ResolveConflicts,
+         workflow::state::RunStepKind::Merge,
+         workflow::state::RunStepKind::SpecSync,
++        workflow::state::RunStepKind::Cleanup,
+         workflow::state::RunStepKind::Seal,
+         workflow::state::RunStepKind::Finalize,
+     ];
+     for row in &nodes {
+         assert!(
+             FULL_WORDS.contains(&row.step),
+-            "落库步词汇越十九值全词汇封闭集，实际: {:?}",
++            "落库步词汇越二十值全词汇封闭集，实际: {:?}",
+             row.step
+         );
+         assert_eq!(
+@@ -5233,7 +5298,7 @@ async fn 真件组合_多相位run落库回验_emit序与终态逐字段一致()
+         nodes.iter().any(|row| row.session_id.is_some()),
+         "WorkerAgent 步 session_id 透传落库"
+     );
+-    // 归档相位十步节点在案（全相位含 archive 走完的落库面）
++    // 归档相位十一步节点在案（全相位含 archive 走完的落库面）
+     let archive_words: Vec<&str> = nodes
+         .iter()
+         .filter(|row| row.phase == "archive")
+@@ -5249,11 +5314,12 @@ async fn 真件组合_多相位run落库回验_emit序与终态逐字段一致()
+             "resolve_conflicts",
+             "merge",
+             "spec_sync",
++            "cleanup",
+             "seal",
+             "finalize",
+             "phase_log"
+         ],
+-        "归档十步节点随整包落库"
++        "归档十一步节点随整包落库"
+     );
+ 
+     // 边整包：四 kind 词汇落库、端点身份串指向本 run 节点身份键
+@@ -5297,7 +5363,7 @@ async fn 真件组合_多相位run落库回验_emit序与终态逐字段一致()
+ }
+ 
+ #[tokio::test]
+-async fn 全词汇run十九值零过滤_流程面与三门在案() {
++async fn 全词汇run零过滤_流程面与三门在案() {
+     // 决策分叉输入取自 ChangeDetail 只读装配——真件库种子（快照读源真实组合）
+     let (root, _db) = decision_fixture("full-vocab");
+     let timeline = Arc::new(Mutex::new(Vec::new()));
+@@ -5336,7 +5402,7 @@ async fn 全词汇run十九值零过滤_流程面与三门在案() {
+         .collect();
+     // 全词汇在案（本 fixture 决策动作为 retry → retry_gate 不经手，其在场断言
+     // 由决策 backtrack 分支用例承载；决策分叉 + 门禁 + test-execution 相位全覆盖
+-    // ——含拆步后的 mutation_test（AC-1 / AC-2 十九值零过滤））
++    // ——含拆步后的 mutation_test（AC-1 / AC-2 非归档词零过滤））
+     for word in [
+         "executor",
+         "evaluator",
+@@ -6300,16 +6366,16 @@ fn new_run_id铸造定式与互异不panic() {
+ }
+ 
+ // ---------------------------------------------------------------------------
+-// 归档相位（AC-3 / AC-4 / AC-6 / AC-7 / AC-8）：十步执行序、git 步走 vcs 缝、
++// 归档相位（AC-3 / AC-4 / AC-6 / AC-7 / AC-8）：十一步执行序、git 步走 vcs 缝、
+ // 条件步短路、停等门、失败停链与组合链路落库
+ // ---------------------------------------------------------------------------
+ 
+-/// 归档相位十步执行序（正向）：假写面 + 假 vcs 驱动 archive 相位 →
++/// 归档相位十一步执行序（正向）：假写面 + 假 vcs 驱动 archive 相位 →
+ /// PhaseStart → Preflight → Commit → Rebase → ResolveConflicts → Merge →
+-/// SpecSync → Seal → Finalize → PhaseLog 按序落节点（emit 序即落包序），全步
+-/// `passed`（AC-3）。
++/// SpecSync → Cleanup → Seal → Finalize → PhaseLog 按序落节点（emit 序即落包序），全步
++/// `passed`（AC-3 / AC-4 11 步链序）。
+ #[tokio::test]
+-async fn 归档相位十步执行序按计划步序落包() {
++async fn 归档相位十一步执行序按计划步序落包() {
+     let timeline = Arc::new(Mutex::new(Vec::new()));
+     let (worker, _requests, _sessions) = FakeWorker::new(&timeline).assemble();
+     let (tools, commands) = FakeTools::new(&timeline)
+@@ -6347,11 +6413,12 @@ async fn 归档相位十步执行序按计划步序落包() {
+             "resolve_conflicts",
+             "merge",
+             "spec_sync",
++            "cleanup",
+             "seal",
+             "finalize",
+             "phase_log"
+         ],
+-        "归档十步序与设计表逐位一致"
++        "归档十一步序与设计表逐位一致（Cleanup 介于 SpecSync 与 Seal）"
+     );
+     assert!(
+         rows.iter().all(|row| row.0 == "archive"),
+@@ -6398,6 +6465,399 @@ async fn 归档相位十步执行序按计划步序落包() {
+     );
+ }
+ 
++/// 归档 Cleanup 成功清理（正向，AC-5）：worktree 记录在场且目录在盘 →
++/// `remove_worktree` 经 vcs 缝直调 → Cleanup 节点 `passed` + detail「已移除
++/// worktree（{path}）」；worktree 磁盘目录消失（假件 Ok 即真实移除——fs 不
++/// mock）；Seal / Finalize / PhaseLog 照常续走、run 收口 Completed。
++#[tokio::test]
++async fn 归档cleanup成功移除_worktree目录消失且链照常收口() {
++    let root = TempRoot::new("archive-cleanup-ok");
++    root.change(NAME);
++    let worktree = worktree_dir(&root);
++    assert!(
++        std::path::Path::new(&worktree).is_dir(),
++        "前置：worktree 目录在场（root.change 预置）"
++    );
++    let timeline = Arc::new(Mutex::new(Vec::new()));
++    let (worker, _requests, _sessions) = FakeWorker::new(&timeline).assemble();
++    let (tools, _commands) = FakeTools::new(&timeline)
++        .with_phase_next(vec![archive_route_outcome(), done_outcome()])
++        .with_archive_preflight(archive_preflight_twice(&worktree, Vec::new()))
++        .assemble();
++    let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
++    let control = Arc::new(ChangeFlowControl::new());
++
++    let vcs = Arc::new(FakeVcs::clean().with_real_removal());
++    let (task, _rx, history) = spawn_run_with_vcs(
++        worker,
++        tools,
++        Arc::clone(&vcs),
++        Arc::clone(&snapshot),
++        &control,
++        true,
++        &root.root_str(),
++        &root.root_str(),
++        Some("archive"),
++    );
++    let _confirmer = spawn_confirmer(&control, true);
++    let status = task.await.expect("run 任务正常结束");
++
++    assert_eq!(status, ChangeRunStatus::Completed, "清理成功链照常收口");
++    // 清理步参数面：remove_worktree 以 (main_root, worktree) 双参原样到达 port
++    let calls = vcs.remove_calls();
++    assert_eq!(calls.len(), 1, "remove_worktree 恰一次: {calls:?}");
++    assert_eq!(calls[0].0, root.0, "main_root 双参透传");
++    assert_eq!(
++        calls[0].1,
++        std::path::PathBuf::from(&worktree),
++        "worktree 路径双参透传（preflight.worktree 载荷零改写）"
++    );
++    // 磁盘面：worktree 目录消失（git worktree list 不再列出的等价观察面）
++    assert!(
++        !std::path::Path::new(&worktree).exists(),
++        "worktree 磁盘目录已移除"
++    );
++    // 节点面：Cleanup passed + detail 成功摘要；Seal / Finalize / PhaseLog 续走
++    let command = history.finish().expect("收口落包应在案");
++    assert_eq!(
++        node_detail(&command, workflow::state::RunStepKind::Cleanup).as_deref(),
++        Some(format!("已移除 worktree（{worktree}）").as_str()),
++        "Cleanup detail 携成功摘要（路径逐字）"
++    );
++    assert!(
++        node_detail(&command, workflow::state::RunStepKind::Seal)
++            .as_deref()
++            .is_some_and(|detail| detail.contains("已归档")),
++        "Seal 照常收口（ArchiveOutcome 消费面零变化）"
++    );
++    let rows = node_rows(&command);
++    for step in ["cleanup", "seal", "finalize", "phase_log"] {
++        assert!(
++            rows.iter()
++                .any(|row| row.1 == step && row.2 == "passed"),
++            "步 {step} passed（清理成功不断链）: {rows:?}"
++        );
++    }
++}
++
++/// 归档 Cleanup 失败尽力不断链（异常，AC-6）：remove_worktree 可编程 Err →
++/// 步恒 `passed`、detail 携警告（worktree 路径 + `git worktree remove --force`
++/// 手动指引——生产 Err 语境由 `ProcessArchiveVcs` 组装，假件 Err 注入同构文案）；
++/// Seal / Finalize / PhaseLog 照常收口、run 收口 Completed、`ArchiveOutcome`
++/// 消费面零变化（Seal detail 归档摘要与成功形态一致）。
++#[tokio::test]
++async fn 归档cleanup失败尽力_警告detail步恒passed且收口不断链() {
++    let root = TempRoot::new("archive-cleanup-err");
++    root.change(NAME);
++    let worktree = worktree_dir(&root);
++    let timeline = Arc::new(Mutex::new(Vec::new()));
++    let (worker, _requests, _sessions) = FakeWorker::new(&timeline).assemble();
++    let (tools, _commands) = FakeTools::new(&timeline)
++        .with_phase_next(vec![archive_route_outcome(), done_outcome()])
++        .with_archive_preflight(archive_preflight_twice(&worktree, Vec::new()))
++        .assemble();
++    let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
++    let control = Arc::new(ChangeFlowControl::new());
++
++    // Err 注入携真实 worktree 路径（与 ProcessArchiveVcs D6 Err 面同构——
++    // 路径 + `git worktree remove --force {path}` 手动指引）
++    let vcs = Arc::new(FakeVcs::clean().with_remove_result(Err(format!(
++        "worktree 移除失败（{worktree}）: \
++         请手动执行 git worktree remove --force {worktree} 清理"
++    ))));
++    let (task, _rx, history) = spawn_run_with_vcs(
++        worker,
++        tools,
++        Arc::clone(&vcs),
++        Arc::clone(&snapshot),
++        &control,
++        true,
++        &root.root_str(),
++        &root.root_str(),
++        Some("archive"),
++    );
++    let _confirmer = spawn_confirmer(&control, true);
++    let status = task.await.expect("run 任务正常结束");
++
++    assert_eq!(
++        status,
++        ChangeRunStatus::Completed,
++        "尽力步失败不回滚归档（链必收口、永不 Terminal）"
++    );
++    let command = history.finish().expect("收口落包应在案");
++    let cleanup_detail = node_detail(&command, workflow::state::RunStepKind::Cleanup)
++        .expect("Cleanup detail 应在案");
++    assert!(
++        cleanup_detail.contains("worktree 清理失败"),
++        "detail 携失败警告: {cleanup_detail}"
++    );
++    assert!(
++        cleanup_detail.contains(&worktree),
++        "警告携 worktree 路径: {cleanup_detail}"
++    );
++    assert!(
++        cleanup_detail.contains("git worktree remove --force"),
++        "警告携手动清理指引: {cleanup_detail}"
++    );
++    let rows = node_rows(&command);
++    assert_eq!(
++        rows.iter().find(|row| row.1 == "cleanup").map(|row| row.2.as_str()),
++        Some("passed"),
++        "步恒 passed（失败仅 detail 警告）: {rows:?}"
++    );
++    // 收口面：Seal / Finalize / PhaseLog 照常、ArchiveOutcome 消费面零变化
++    assert!(
++        node_detail(&command, workflow::state::RunStepKind::Seal)
++            .as_deref()
++            .is_some_and(|detail| detail.contains("已归档")),
++        "Seal 照常收口（ArchiveOutcome 字段零变化）"
++    );
++    for step in ["finalize", "phase_log"] {
++        assert!(
++            rows.iter().any(|row| row.1 == step && row.2 == "passed"),
++            "步 {step} 照常收口: {rows:?}"
++        );
++    }
++    // branch 零触碰（AC-7）：失败路径调用记录词汇白名单——无 delete_branch 面
++    let calls = vcs.calls();
++    assert!(
++        !calls.iter().any(|call| call.contains("delete_branch")),
++        "全程零 branch 删除触点（含 remove 失败路径）: {calls:?}"
++    );
++    assert_eq!(
++        vcs.call_count("remove_worktree:"),
++        1,
++        "remove_worktree 恰一次（失败也只试一次）: {calls:?}"
++    );
++}
++
++/// 归档 Cleanup 缺席幂等跳过（边界，AC-6）：worktree 记录在场但目录不在盘
++///（手动清 / 重试链形态；分支已合入 → Preflight 目录缺失分流照常）→ `passed`
++/// + detail「worktree 已不在场，跳过清理」、零失败面、零 remove 调用。
++#[tokio::test]
++async fn 归档cleanup缺席幂等跳过_零失败面() {
++    let root = TempRoot::new("archive-cleanup-absent");
++    root.change(NAME);
++    // 缺席 worktree 路径（落位根与主仓分置形态——目录从未建位，与真实
++    // worktrees/{身份段}/ 落位同构）
++    let worktree = root.0.join("worktrees-seg").join(NAME);
++    let worktree = worktree.to_string_lossy().into_owned();
++    assert!(
++        !std::path::Path::new(&worktree).exists(),
++        "前置：worktree 目录缺席"
++    );
++
++    let timeline = Arc::new(Mutex::new(Vec::new()));
++    let (worker, _requests, _sessions) = FakeWorker::new(&timeline).assemble();
++    let (tools, _commands) = FakeTools::new(&timeline)
++        .with_phase_next(vec![archive_route_outcome(), done_outcome()])
++        .with_archive_preflight(archive_preflight_twice(&worktree, Vec::new()))
++        .assemble();
++    let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
++    let control = Arc::new(ChangeFlowControl::new());
++
++    // 分支已合入（目录缺失分流 = 已合入照常；未合入会显式引导恢复目录——
++    // 那是 Preflight 失败面，非 Cleanup 缺席跳过面）
++    let vcs = Arc::new(FakeVcs::clean().with_merged(Ok(true)));
++    let (task, _rx, history) = spawn_run_with_vcs(
++        worker,
++        tools,
++        Arc::clone(&vcs),
++        Arc::clone(&snapshot),
++        &control,
++        true,
++        &root.root_str(),
++        &root.root_str(),
++        Some("archive"),
++    );
++    let _confirmer = spawn_confirmer(&control, true);
++    let status = task.await.expect("run 任务正常结束");
++
++    assert_eq!(status, ChangeRunStatus::Completed, "缺席跳过零失败面");
++    let command = history.finish().expect("收口落包应在案");
++    assert_eq!(
++        node_detail(&command, workflow::state::RunStepKind::Cleanup).as_deref(),
++        Some("worktree 已不在场，跳过清理"),
++        "TXT_SKIP_ABSENT 逐字注记"
++    );
++    let rows = node_rows(&command);
++    assert_eq!(
++        rows.iter().find(|row| row.1 == "cleanup").map(|row| row.2.as_str()),
++        Some("passed"),
++        "缺席跳过恒 passed"
++    );
++    assert!(
++        vcs.remove_calls().is_empty(),
++        "目录缺席零 remove 调用（在场探测驻调用方）: {:?}",
++        vcs.calls()
++    );
++}
++
++/// 归档 Cleanup 幂等重入（重试链，AC-6）：缺席跳过后链重入（重试链二次进入
++/// Cleanup）同样 `passed` + 同词注记，不自绊。
++#[tokio::test]
++async fn 归档cleanup缺席重试链重入同词注记不自绊() {
++    let root = TempRoot::new("archive-cleanup-retry");
++    root.change(NAME);
++    let worktree = root.0.join("worktrees-seg").join(NAME);
++    let worktree = worktree.to_string_lossy().into_owned();
++    assert!(
++        !std::path::Path::new(&worktree).exists(),
++        "前置：worktree 目录缺席"
++    );
++    let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
++
++    for round in ["first", "retry"] {
++        let timeline = Arc::new(Mutex::new(Vec::new()));
++        let (worker, _requests, _sessions) = FakeWorker::new(&timeline).assemble();
++        let (tools, _commands) = FakeTools::new(&timeline)
++            .with_phase_next(vec![archive_route_outcome(), done_outcome()])
++            .with_archive_preflight(archive_preflight_twice(&worktree, Vec::new()))
++            .assemble();
++        let control = Arc::new(ChangeFlowControl::new());
++        let vcs = Arc::new(FakeVcs::clean().with_merged(Ok(true)));
++        let (task, _rx, history) = spawn_run_with_vcs(
++            worker,
++            tools,
++            Arc::clone(&vcs),
++            Arc::clone(&snapshot),
++            &control,
++            true,
++            &root.root_str(),
++            &root.root_str(),
++            Some("archive"),
++        );
++        let _confirmer = spawn_confirmer(&control, true);
++        let status = task.await.expect("run 任务正常结束");
++
++        assert_eq!(status, ChangeRunStatus::Completed, "{round} 轮照常收口");
++        let command = history.finish().expect("收口落包应在案");
++        assert_eq!(
++            node_detail(&command, workflow::state::RunStepKind::Cleanup).as_deref(),
++            Some("worktree 已不在场，跳过清理"),
++            "{round} 轮同词注记（幂等重入不自绊）"
++        );
++        assert!(
++            vcs.remove_calls().is_empty(),
++            "{round} 轮零 remove 调用"
++        );
++    }
++}
++
++/// 归档 Cleanup legacy 零触碰（边界，AC-7）：`worktree=None` change 归档 →
++/// Cleanup `passed` + detail 记跳过因（TXT_SKIP_LEGACY 复用）、零 `git worktree`
++/// 触点（remove 零调用）；调用记录词汇白名单无 branch 删除面。
++#[tokio::test]
++async fn 归档cleanuplegacy跳过_零worktree触点与零branch触碰() {
++    let timeline = Arc::new(Mutex::new(Vec::new()));
++    let (worker, _requests, _sessions) = FakeWorker::new(&timeline).assemble();
++    let (tools, _commands) = FakeTools::new(&timeline)
++        .with_phase_next(vec![archive_route_outcome(), done_outcome()])
++        .assemble();
++    let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
++    let control = Arc::new(ChangeFlowControl::new());
++
++    let vcs = Arc::new(FakeVcs::clean());
++    let (task, _rx, history) = spawn_run_with_vcs(
++        worker,
++        tools,
++        Arc::clone(&vcs),
++        Arc::clone(&snapshot),
++        &control,
++        true,
++        "/tmp/root",
++        "/tmp/root",
++        Some("archive"),
++    );
++    let _confirmer = spawn_confirmer(&control, true);
++    let status = task.await.expect("run 任务正常结束");
++
++    assert_eq!(status, ChangeRunStatus::Completed);
++    let command = history.finish().expect("收口落包应在案");
++    assert_eq!(
++        node_detail(&command, workflow::state::RunStepKind::Cleanup).as_deref(),
++        Some("legacy 无 worktree"),
++        "TXT_SKIP_LEGACY 复用（跳过因逐字）"
++    );
++    let rows = node_rows(&command);
++    assert_eq!(
++        rows.iter().find(|row| row.1 == "cleanup").map(|row| row.2.as_str()),
++        Some("passed"),
++        "legacy 清理步 passed"
++    );
++    assert!(
++        vcs.remove_calls().is_empty(),
++        "legacy 零 git worktree 触点: {:?}",
++        vcs.calls()
++    );
++    // 词汇白名单（AC-7）：全程调用记录无 branch 删除面（dirty / commit_all /
++    // rebase_branch / ff_merge / worktree_snapshot / remove_worktree 在列形态）
++    let calls = vcs.calls();
++    assert!(
++        !calls.iter().any(|call| call.contains("delete_branch")),
++        "零 branch 删除触点: {calls:?}"
++    );
++}
++
++/// 归档 Cleanup 缺前置载荷（异常）：计划漂移面（计划步序列缺 Preflight、
++/// Cleanup 先行）→ Cleanup 节点 failed + Terminal——尽力语义不吞计划漂移
++///（非清理失败面，沿既有归档步漂移面）。
++#[tokio::test]
++async fn 归档cleanup缺前置载荷_计划漂移failed且terminal() {
++    let timeline = Arc::new(Mutex::new(Vec::new()));
++    let (worker, _requests, _sessions) = FakeWorker::new(&timeline).assemble();
++    // 计划漂移形态：计划步序列跳过 Preflight、以 Cleanup 起步（PhaseCursor 无
++    // 前置载荷——archive_context 缺位面）
++    let mut drift = archive_route_outcome();
++    drift.steps = vec![StepDefinition {
++        node: StepNode::Cleanup,
++        prompt_ref: None,
++        on_fail: None,
++    }];
++    let (tools, _commands) = FakeTools::new(&timeline)
++        .with_phase_next(vec![drift])
++        .assemble();
++    let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
++    let control = Arc::new(ChangeFlowControl::new());
++
++    let vcs = Arc::new(FakeVcs::clean());
++    let (task, _rx, history) = spawn_run_with_vcs(
++        worker,
++        tools,
++        Arc::clone(&vcs),
++        Arc::clone(&snapshot),
++        &control,
++        true,
++        "/tmp/root",
++        "/tmp/root",
++        Some("archive"),
++    );
++    let _confirmer = spawn_confirmer(&control, true);
++    let status = task.await.expect("run 任务正常结束");
++
++    assert_eq!(status, ChangeRunStatus::Failed, "计划漂移 → Terminal（非尽力面）");
++    let command = history.finish().expect("收口落包应在案");
++    let failed = command
++        .nodes
++        .iter()
++        .find(|node| node.status == RunStepStatus::Failed)
++        .expect("失败节点在案");
++    assert_eq!(
++        failed.step,
++        workflow::state::RunStepKind::Cleanup,
++        "失败节点恰为 Cleanup（漂移因记步上）"
++    );
++    assert_eq!(
++        failed.detail.as_deref(),
++        Some("缺归档前置载荷"),
++        "漂移记因逐字"
++    );
++    assert!(
++        vcs.remove_calls().is_empty(),
++        "漂移面零 remove 触点（先于清理逻辑拒绝）"
++    );
++}
++
+ /// git 步走 vcs 缝（正向）：worktree 形态 + 脏工作区 → Commit / Rebase /
+ /// Merge / Finalize 四步经 `vcs` 缝直调（`commit_all` / `rebase_branch` /
+ /// `ff_merge` / `commit_paths` 逐一捕获——core 零 spawn 的行为面锚，AC-3 / R2）。
+@@ -7023,7 +7483,7 @@ async fn auto模式归档前仍停等且归档后零确认() {
+ }
+ 
+ /// evaluator 检查移除（正向）：archive 相位产出 `executor=None` / `evaluator=None`
+-/// 仍可进入执行（`drive` 无 `next.evaluator.is_none()` 硬检查）——十步照常落包
++/// 仍可进入执行（`drive` 无 `next.evaluator.is_none()` 硬检查）——十一步照常落包
+ /// 并收口（AC-5）。
+ #[tokio::test]
+ async fn 归档相位零角色spec仍可进入执行() {
+@@ -7057,8 +7517,8 @@ async fn 归档相位零角色spec仍可进入执行() {
+     let command = history.finish().expect("收口落包应在案");
+     assert_eq!(
+         command.nodes.len(),
+-        10,
+-        "归档十步全落包（零 evaluator 检查无阻）: {:?}",
++        11,
++        "归档十一步全落包（零 evaluator 检查无阻）: {:?}",
+         node_rows(&command)
+     );
+     let labels: Vec<&str> = commands
+@@ -7207,7 +7667,7 @@ async fn 归档git步vcs失败即停链() {
+ 
+ /// 组合链路落库与空 checklist 落账（正向，AC-4 / AC-6）：真件 store + 真件
+ /// `LocalToolSteps`（假 vcs 缝）驱动归档相位收口 → archive 相位以 `report=""` +
+-/// 空 checklist 落 `verdict=pass` PhaseRecord；归档十步节点 + 串行 forward 边落
++/// 空 checklist 落 `verdict=pass` PhaseRecord；归档十一步节点 + 串行 forward 边落
+ /// 既有三表（零新表），身份键 `(phase, attempt, step, instance_no)` 稳定唯一。
+ #[tokio::test]
+ async fn 组合链路归档落库与空checklist落账() {
+@@ -7288,7 +7748,7 @@ async fn 组合链路归档落库与空checklist落账() {
+         "归档三会话槽位恒 None"
+     );
+ 
+-    // 执行图落库（AC-6）：十步节点 + 九条 forward 边（零新表）
++    // 执行图落库（AC-6 / AC-9）：十一步节点 + 十条 forward 边（零新表）
+     let nodes = db
+         .store
+         .list_run_nodes("run-archive")
+@@ -7307,11 +7767,12 @@ async fn 组合链路归档落库与空checklist落账() {
+             "resolve_conflicts",
+             "merge",
+             "spec_sync",
++            "cleanup",
+             "seal",
+             "finalize",
+             "phase_log"
+         ],
+-        "归档十步全落 RunNodeRecord（零过滤）"
++        "归档十一步全落 RunNodeRecord（零过滤）"
+     );
+     assert!(
+         nodes
+@@ -7340,7 +7801,7 @@ async fn 组合链路归档落库与空checklist落账() {
+         .store
+         .list_run_edges("run-archive")
+         .expect("读边史应成功");
+-    assert_eq!(edges.len(), 9, "串行推进边 = 节点数 - 1");
++    assert_eq!(edges.len(), 10, "串行推进边 = 节点数 - 1");
+     assert!(
+         edges
+             .iter()
+@@ -7348,7 +7809,16 @@ async fn 组合链路归档落库与空checklist落账() {
+         "归档串行边全 forward（零反馈 / 重试 / 回溯）"
+     );
+     assert_eq!(edges[0].from_node_key, "archive:1:phase_start:0");
+-    assert_eq!(edges[8].to_node_key, "archive:1:phase_log:0");
++    assert_eq!(edges[9].to_node_key, "archive:1:phase_log:0");
++    // cleanup 节点串行边序（AC-9 落库组合）：SpecSync → Cleanup → Seal 相邻边
++    assert_eq!(edges[6].from_node_key, "archive:1:spec_sync:0");
++    assert_eq!(
++        edges[6].from_node_key, edges[5].to_node_key,
++        "SpecSync → Cleanup 边序衔接（emit 序即边序）"
++    );
++    assert_eq!(edges[6].to_node_key, "archive:1:cleanup:0");
++    assert_eq!(edges[7].from_node_key, "archive:1:cleanup:0");
++    assert_eq!(edges[7].to_node_key, "archive:1:seal:0", "Cleanup → Seal 相邻边");
+ 
+     let runs = db
+         .store
+diff --git a/crates/core/workflow/src/queries/detail.rs b/crates/core/workflow/src/queries/detail.rs
+index 67379852cb93..57cf83062b3f 100644
+--- a/crates/core/workflow/src/queries/detail.rs
++++ b/crates/core/workflow/src/queries/detail.rs
+@@ -70,7 +70,7 @@ pub struct PhaseEntry {
+     pub attempts: Vec<AttemptRecord>,
+ }
+ 
+-/// run 执行图节点行线面（十九值全词汇封闭集直出，词汇 = `state::RunStepKind`
++/// run 执行图节点行线面（二十值全词汇封闭集直出，词汇 = `state::RunStepKind`
+ /// 单点；稳定身份键 `(phase, attempt, step, instanceNo)`，库读序 = node_seq 升序
+ /// = emit 序）。
+ #[derive(Debug, Clone, Serialize, Deserialize, Type)]
+diff --git a/crates/core/workflow/src/queries/detail_test.rs b/crates/core/workflow/src/queries/detail_test.rs
+index 25f812abd5c0..823f7781d5c3 100644
+--- a/crates/core/workflow/src/queries/detail_test.rs
++++ b/crates/core/workflow/src/queries/detail_test.rs
+@@ -1273,8 +1273,9 @@ fn run_edge_row(
+     }
+ }
+ 
+-/// 十九值全词汇（节点出线零过滤断言面；含归档 8 步词与拆步新词 mutation_test）。
+-const ALL_STEP_KINDS: [RunStepKind; 19] = [
++/// 二十值全词汇（节点出线零过滤断言面；含归档 9 步词（cleanup 尽力步新臂在
++/// 案）与拆步新词 mutation_test）。
++const ALL_STEP_KINDS: [RunStepKind; 20] = [
+     RunStepKind::Executor,
+     RunStepKind::Evaluator,
+     RunStepKind::Decision,
+@@ -1292,6 +1293,7 @@ const ALL_STEP_KINDS: [RunStepKind; 19] = [
+     RunStepKind::ResolveConflicts,
+     RunStepKind::Merge,
+     RunStepKind::SpecSync,
++    RunStepKind::Cleanup,
+     RunStepKind::Seal,
+     RunStepKind::Finalize,
+ ];
+@@ -1427,11 +1429,12 @@ fn 详情run史出线_两run全史投影与时间iso口径() {
+     );
+ }
+ 
+-/// 节点全词汇出线：一次覆盖十九值词汇的 run → 十九值全词汇在案（含
+-/// phaseStart / phaseLog / 三门与 mutation_test 拆步新词），零过滤（AC-3 /
+-/// AC-6 / AC-2 十九值零过滤）。
++/// 节点全词汇出线：一次覆盖二十值词汇的 run → 二十值全词汇在案（含
++/// phaseStart / phaseLog / 三门、mutation_test 拆步新词与 cleanup 尽力步新臂），
++/// 零过滤（AC-3 / AC-6 / AC-2 二十值零过滤——词汇扩展自动跟随、cleanup 无
++/// 静默丢弃）。
+ #[test]
+-fn 详情节点出线_十九值全词汇零过滤() {
++fn 详情节点出线_二十值全词汇零过滤() {
+     let env = Env::new("run-nodes-vocab");
+     env.seed(ID_RUNNED, "runned", T0, None);
+     env.store.push_run(RunStateRecord {
+@@ -1446,7 +1449,7 @@ fn 详情节点出线_十九值全词汇零过滤() {
+ 
+     let detail = env.detail(ID_RUNNED);
+     let nodes = &detail.runs[0].nodes;
+-    assert_eq!(nodes.len(), 19, "十九值全词汇零过滤（含归档 8 步词与 mutation_test）");
++    assert_eq!(nodes.len(), 20, "二十值全词汇零过滤（含归档 9 步词与 mutation_test）");
+     let projected: Vec<RunStepKind> = nodes.iter().map(|node| node.step).collect();
+     assert_eq!(projected, ALL_STEP_KINDS.to_vec());
+ 
+@@ -1478,12 +1481,59 @@ fn 详情节点出线_十九值全词汇零过滤() {
+             "resolve_conflicts",
+             "merge",
+             "spec_sync",
++            "cleanup",
+             "seal",
+             "finalize",
+         ]
+     );
+ }
+ 
++/// cleanup 节点投影形态（边界，worktree-cleanup-and-active-cap）：detail 出线
++/// 形态与归档 git 步族一致——`cleanup` snake 线词（serde wire 与 as_str 同源）、
++/// `phase=archive` 归档相位在案、字段形状（status / instanceNo / session null
++/// 面）与 commit 同构零特判（读面零过滤的形态锚）。
++#[test]
++fn 详情节点投影_cleanup词与归档git步族形态一致() {
++    let env = Env::new("run-nodes-cleanup");
++    env.seed(ID_RUNNED, "runned", T0, None);
++    env.store.push_run(RunStateRecord {
++        status: RunStatus::Completed,
++        finished_at: Some(t(19)),
++        ..run_row(ID_RUNNED, "run-archive", t(10), RunStatus::Completed)
++    });
++    // 归档 git 步族四节点（phase=archive；cleanup 与 commit 同构注入）
++    let mut commit = run_node_row("run-archive", ID_RUNNED, RunStepKind::Commit);
++    commit.phase = "archive".to_owned();
++    let mut cleanup = run_node_row("run-archive", ID_RUNNED, RunStepKind::Cleanup);
++    cleanup.phase = "archive".to_owned();
++    cleanup.detail = Some("已移除 worktree（/tmp/wt）".to_owned());
++    env.store.push_run_node(commit);
++    env.store.push_run_node(cleanup);
++
++    let detail = env.detail(ID_RUNNED);
++    let nodes = &detail.runs[0].nodes;
++    assert_eq!(nodes.len(), 2, "两节点全量出线（cleanup 零过滤）");
++    assert_eq!(nodes[1].step, RunStepKind::Cleanup, "cleanup 节点在案");
++    assert_eq!(nodes[1].phase, "archive", "归档相位在案");
++
++    // wire 形态与 commit 同构：step wire 词 `cleanup`（snake 线词）、camelCase
++    // 键、null 不省键——归档 git 步族一致、零特判
++    let value = serde_json::to_value(&detail).expect("序列化应成功");
++    let wire_nodes = value["runs"][0]["nodes"].as_array().expect("nodes 数组");
++    assert_eq!(wire_nodes[1]["step"], serde_json::json!("cleanup"));
++    assert_eq!(wire_nodes[1]["phase"], serde_json::json!("archive"));
++    assert_eq!(
++        wire_nodes[1]["detail"], serde_json::json!("已移除 worktree（/tmp/wt）"),
++        "detail 载荷透传（尽力步警告面）"
++    );
++    assert_eq!(
++        wire_nodes[1]["sessionId"],
++        serde_json::Value::Null,
++        "git 步族会话槽恒 null（与 commit 同构）"
++    );
++    assert_eq!(nodes[0].step, RunStepKind::Commit, "对拍锚：commit 同族在案");
++}
++
+ /// 稳定实例键出线：feedback 重跑两节点同 `(phase, attempt, step)` 而
+ /// `instanceNo` 递增可辨（AC-4 / AC-6）。
+ #[test]
+@@ -1994,9 +2044,9 @@ fn archive空checklist落账投影为pass尝试记录() {
+     assert_eq!(wire["decisionSessionId"], serde_json::Value::Null);
+ }
+ 
+-/// 归档节点会话与跳过因投影（正向）：归档十步节点全落库时，`session_id` 仅
++/// 归档节点会话与跳过因投影（正向）：归档十一步节点全落库时，`session_id` 仅
+ /// SpecSync / ResolveConflicts 在案、其余 None；`detail` 携跳过因（干净 / 已落盘 /
+-/// 无 delta / 用户选择 / 双写续半边）（AC-6 / 数据模型）。
++/// 无 delta / 用户选择 / 双写续半边 / 已移除）（AC-6 / 数据模型）。
+ #[test]
+ fn 归档节点会话面与跳过因投影() {
+     let env = Env::new("run-archive-nodes");
+@@ -2007,7 +2057,7 @@ fn 归档节点会话面与跳过因投影() {
+         ..run_row(ID_RUNNED, "run-archive", t(10), RunStatus::Completed)
+     });
+ 
+-    // 归档十步节点（phase = archive；仅两个 agent 会话步携 session_id）
++    // 归档十一步节点（phase = archive；仅两个 agent 会话步携 session_id）
+     let archive_nodes: &[(RunStepKind, Option<&str>, Option<&str>)] = &[
+         (RunStepKind::PhaseStart, None, None),
+         (RunStepKind::Preflight, None, None),
+@@ -2028,6 +2078,11 @@ fn 归档节点会话面与跳过因投影() {
+             Some("ses-spec-sync"),
+             Some("用户选择跳过 spec 同步（跳过）"),
+         ),
++        (
++            RunStepKind::Cleanup,
++            None,
++            Some("已移除 worktree（/tmp/wt/add-feature）"),
++        ),
+         (RunStepKind::Seal, None, Some("双写收口（落盘续半边）")),
+         (
+             RunStepKind::Finalize,
+@@ -2046,7 +2101,7 @@ fn 归档节点会话面与跳过因投影() {
+ 
+     let detail = env.detail(ID_RUNNED);
+     let nodes = &detail.runs[0].nodes;
+-    assert_eq!(nodes.len(), 10, "归档十步节点全量在案");
++    assert_eq!(nodes.len(), 11, "归档十一步节点全量在案");
+     let steps: Vec<RunStepKind> = nodes.iter().map(|node| node.step).collect();
+     assert_eq!(
+         steps,
+@@ -2058,11 +2113,12 @@ fn 归档节点会话面与跳过因投影() {
+             RunStepKind::ResolveConflicts,
+             RunStepKind::Merge,
+             RunStepKind::SpecSync,
++            RunStepKind::Cleanup,
+             RunStepKind::Seal,
+             RunStepKind::Finalize,
+             RunStepKind::PhaseLog,
+         ],
+-        "归档十步序逐位在案"
++        "归档十一步序逐位在案"
+     );
+     // 会话面：仅两个 agent 会话步携 session_id
+     let with_session: Vec<RunStepKind> = nodes
+diff --git a/crates/core/workflow/src/state.rs b/crates/core/workflow/src/state.rs
+index 589eff920b64..62d98863f389 100644
+--- a/crates/core/workflow/src/state.rs
++++ b/crates/core/workflow/src/state.rs
+@@ -222,7 +222,8 @@ pub enum StepGroup {
+     /// agent 会话步（executor / evaluator / decision / spec-sync /
+     /// resolve-conflicts）
+     Agent,
+-    /// vcs 步（commit / rebase / merge / finalize——独立 vcs 缝进程 spawn）
++    /// vcs 步（commit / rebase / merge / cleanup / finalize——独立 vcs 缝进程
++    /// spawn）
+     Git,
+     /// 纯 Rust 分支门（verdict / retry / whitelist 三门）
+     Gate,
+@@ -245,9 +246,9 @@ pub enum AgentRole {
+     ResolveConflicts,
+ }
+ 
+-/// 计划步节点全词汇（19 值封闭集，线格式 snake_case 词）：agent 阶段三角色、
++/// 计划步节点全词汇（20 值封闭集，线格式 snake_case 词）：agent 阶段三角色、
+ /// 脚本阶段三检查步（static-check / test-execution / mutation-test）、流程面两步、
+-/// 三门 gate 与归档 8 步。词汇本体单点——计划图声明（[`StepDefinition::node`]）
++/// 三门 gate 与归档 9 步。词汇本体单点——计划图声明（[`StepDefinition::node`]）
+ /// 与执行图落库（[`RunStepKind`]）同词面 1:1 全映射。
+ #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Type)]
+ #[serde(rename_all = "snake_case")]
+@@ -286,6 +287,8 @@ pub enum StepNode {
+     Merge,
+     /// 归档 delta specs 同步步（agent 会话）
+     SpecSync,
++    /// 归档 worktree 清理步（vcs.remove_worktree 尽力步）
++    Cleanup,
+     /// 归档双写收口步（写面 `archive`；内联步）
+     Seal,
+     /// 归档落盘提交步（vcs.commit_paths；已落盘则跳过）
+@@ -313,14 +316,15 @@ impl StepNode {
+             StepNode::ResolveConflicts => "resolve_conflicts",
+             StepNode::Merge => "merge",
+             StepNode::SpecSync => "spec_sync",
++            StepNode::Cleanup => "cleanup",
+             StepNode::Seal => "seal",
+             StepNode::Finalize => "finalize",
+         }
+     }
+ 
+     /// 四类节点分组（派生访问器；MUST NOT 落独立冗余字段）。归档步归组：git 步
+-    ///（commit / rebase / merge / finalize）→ Git、内联步（preflight / seal）→
+-    /// Exec、agent 步（spec_sync / resolve_conflicts）→ Agent。
++    ///（commit / rebase / merge / cleanup / finalize）→ Git、内联步（preflight /
++    /// seal）→ Exec、agent 步（spec_sync / resolve_conflicts）→ Agent。
+     pub fn group(self) -> StepGroup {
+         match self {
+             StepNode::Executor
+@@ -335,7 +339,11 @@ impl StepNode {
+             | StepNode::PhaseLog
+             | StepNode::Preflight
+             | StepNode::Seal => StepGroup::Exec,
+-            StepNode::Commit | StepNode::Rebase | StepNode::Merge | StepNode::Finalize => {
++            StepNode::Commit
++            | StepNode::Rebase
++            | StepNode::Merge
++            | StepNode::Cleanup
++            | StepNode::Finalize => {
+                 StepGroup::Git
+             }
+             StepNode::VerdictGate | StepNode::RetryGate | StepNode::WhitelistGate => {
+@@ -361,6 +369,7 @@ impl StepNode {
+             | StepNode::Commit
+             | StepNode::Rebase
+             | StepNode::Merge
++            | StepNode::Cleanup
+             | StepNode::Seal
+             | StepNode::Finalize
+             | StepNode::VerdictGate
+@@ -448,11 +457,11 @@ impl RunStatus {
+     }
+ }
+ 
+-/// run 步词汇封闭集（**十九值全词汇**，线格式 snake_case 词）：agent 阶段
++/// run 步词汇封闭集（**二十值全词汇**，线格式 snake_case 词）：agent 阶段
+ ///（executor / evaluator / decision）、脚本阶段（static_check / test_execution /
+ /// mutation_test）、流程面步骤（phase_start / phase_log）、三门 gate（verdict_gate、
+-/// retry_gate、whitelist_gate）与归档 8 步（preflight / commit / rebase /
+-/// resolve_conflicts / merge / spec_sync / seal / finalize）。词汇本体单点——落库命令
++/// retry_gate、whitelist_gate）与归档 9 步（preflight / commit / rebase /
++/// resolve_conflicts / merge / spec_sync / cleanup / seal / finalize）。词汇本体单点——落库命令
+ ///（`RunNodeEntry.step`）与查询投影（`detail.rs`）同本类型消费，落库零过滤
+ ///（旧 5 值词表的过滤谓词已退役）。
+ #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Type)]
+@@ -492,6 +501,8 @@ pub enum RunStepKind {
+     Merge,
+     /// 归档 delta specs 同步步（agent 会话）
+     SpecSync,
++    /// 归档 worktree 清理步（vcs.remove_worktree 尽力步）
++    Cleanup,
+     /// 归档双写收口步（内联步）
+     Seal,
+     /// 归档落盘提交步（vcs）
+@@ -519,6 +530,7 @@ impl RunStepKind {
+             RunStepKind::ResolveConflicts => "resolve_conflicts",
+             RunStepKind::Merge => "merge",
+             RunStepKind::SpecSync => "spec_sync",
++            RunStepKind::Cleanup => "cleanup",
+             RunStepKind::Seal => "seal",
+             RunStepKind::Finalize => "finalize",
+         }
+@@ -641,7 +653,7 @@ pub struct RunStartCommand {
+     pub started_at: i64,
+ }
+ 
+-/// run 节点整包条目（finish 载荷内联；词汇 = [`RunStepKind`] 十九值全词汇，零
++/// run 节点整包条目（finish 载荷内联；词汇 = [`RunStepKind`] 二十值全词汇，零
+ /// 过滤）。`node_seq` 由整包下标盖戳（store 侧组装打包主键）。
+ #[derive(Debug, Clone, PartialEq, Eq)]
+ pub struct RunNodeEntry {
+@@ -782,7 +794,7 @@ pub trait ChangeStateStore: Send + Sync {
+     /// 稳定序由实现保证）。
+     fn list_runs(&self, change_id: &str) -> Result<Vec<RunStateRecord>, StoreFault>;
+ 
+-    /// run 执行图节点行（`run_id` 圈定，node_seq 升序 = emit 序；十九值全词汇
++    /// run 执行图节点行（`run_id` 圈定，node_seq 升序 = emit 序；二十值全词汇
+     /// 零过滤——读面与写面同一份封闭集）。
+     fn list_run_nodes(&self, run_id: &str) -> Result<Vec<RunNodeStateRecord>, StoreFault>;
+ 
+diff --git a/crates/core/workflow/src/state_test.rs b/crates/core/workflow/src/state_test.rs
+index 9b87411e48de..67040338cb4d 100644
+--- a/crates/core/workflow/src/state_test.rs
++++ b/crates/core/workflow/src/state_test.rs
+@@ -1,7 +1,7 @@
+ //! `state.rs` 中性状态类型的单元测试（test-design「state.rs ->
+-//! state_test.rs」节）：计划图侧类型封闭集（StepNode 十九值全词汇 +
+-//! `group()` / `role()` 派生访问器（四分类含 Git）+ OnFail 两变体 + StepDefinition /
+-//! ArtifactSpec 声明面）+ 执行图侧词汇（RunStepKind 十九值零过滤 /
++//! state_test.rs」节）：计划图侧类型封闭集（StepNode 二十值全词汇 +
++//! `group()` / `role()` 派生访问器（四分类含 Git 五步）+ OnFail 两变体 + StepDefinition /
++//! ArtifactSpec 声明面）+ 执行图侧词汇（RunStepKind 二十值零过滤 /
+ //! RunEdgeKind 四值 snake_case）+ 节点与边中性类型序列化往返（身份键
+ //! `(run_id, phase, attempt, step, instance_no)`、session_id / detail /
+ //! output_ref 两态）+ ChangeStateRecord 身份面（`id` 首字段为身份锚、`name`
+@@ -55,11 +55,12 @@ fn run_status五值线面lowercase逐字() {
+     assert_eq!(RunStatus::Interrupted.as_str(), "interrupted");
+ }
+ 
+-/// RunStepKind **十九值全词汇**出线恰为 snake_case 词（AC-2 词汇单点前置——落库命
++/// RunStepKind **二十值全词汇**出线恰为 snake_case 词（AC-2 词汇单点前置——落库命
+ /// 令与查询投影同类型消费；流程面 phase_start / phase_log 与三门不再被过滤弃落，
+-/// 归档 8 步词同面在案；mutation_test 拆步新词在案，AC-1 / AC-2）。
++/// 归档 9 步词同面在案（cleanup 尽力步新臂在案）；mutation_test 拆步新词在案，
++/// AC-1 / AC-2）。
+ #[test]
+-fn run_step_kind十九值全词汇snake_case逐字() {
++fn run_step_kind二十值全词汇snake_case逐字() {
+     let wire = |kind: RunStepKind| serde_json::to_value(kind).expect("词汇出线应成功");
+     assert_eq!(wire(RunStepKind::Executor), json!("executor"));
+     assert_eq!(wire(RunStepKind::Evaluator), json!("evaluator"));
+@@ -80,7 +81,7 @@ fn run_step_kind十九值全词汇snake_case逐字() {
+     assert_eq!(wire(RunStepKind::VerdictGate), json!("verdict_gate"));
+     assert_eq!(wire(RunStepKind::RetryGate), json!("retry_gate"));
+     assert_eq!(wire(RunStepKind::WhitelistGate), json!("whitelist_gate"));
+-    // 归档 8 步词（AC-2 新增面）
++    // 归档 9 步词（AC-2 新增面；cleanup 尽力步新臂逐字在案）
+     assert_eq!(wire(RunStepKind::Preflight), json!("preflight"));
+     assert_eq!(wire(RunStepKind::Commit), json!("commit"));
+     assert_eq!(wire(RunStepKind::Rebase), json!("rebase"));
+@@ -91,6 +92,11 @@ fn run_step_kind十九值全词汇snake_case逐字() {
+     );
+     assert_eq!(wire(RunStepKind::Merge), json!("merge"));
+     assert_eq!(wire(RunStepKind::SpecSync), json!("spec_sync"));
++    assert_eq!(
++        wire(RunStepKind::Cleanup),
++        json!("cleanup"),
++        "cleanup 尽力步 snake 词（serde wire 出线与 as_str 一致）"
++    );
+     assert_eq!(wire(RunStepKind::Seal), json!("seal"));
+     assert_eq!(wire(RunStepKind::Finalize), json!("finalize"));
+ 
+@@ -111,9 +117,40 @@ fn run_step_kind十九值全词汇snake_case逐字() {
+     assert_eq!(RunStepKind::ResolveConflicts.as_str(), "resolve_conflicts");
+     assert_eq!(RunStepKind::Merge.as_str(), "merge");
+     assert_eq!(RunStepKind::SpecSync.as_str(), "spec_sync");
++    assert_eq!(RunStepKind::Cleanup.as_str(), "cleanup");
+     assert_eq!(RunStepKind::Seal.as_str(), "seal");
+     assert_eq!(RunStepKind::Finalize.as_str(), "finalize");
+ 
++    // 二十值封闭集：全枚举 len==20、wire 词面互异（无遗漏无重复——词汇漂移即断）
++    let all = [
++        RunStepKind::Executor,
++        RunStepKind::Evaluator,
++        RunStepKind::Decision,
++        RunStepKind::StaticCheck,
++        RunStepKind::TestExecution,
++        RunStepKind::MutationTest,
++        RunStepKind::PhaseStart,
++        RunStepKind::PhaseLog,
++        RunStepKind::VerdictGate,
++        RunStepKind::RetryGate,
++        RunStepKind::WhitelistGate,
++        RunStepKind::Preflight,
++        RunStepKind::Commit,
++        RunStepKind::Rebase,
++        RunStepKind::ResolveConflicts,
++        RunStepKind::Merge,
++        RunStepKind::SpecSync,
++        RunStepKind::Cleanup,
++        RunStepKind::Seal,
++        RunStepKind::Finalize,
++    ];
++    assert_eq!(all.len(), 20, "二十值穷举无遗漏");
++    let mut words: Vec<&str> = all.iter().map(|kind| kind.as_str()).collect();
++    let total = words.len();
++    words.sort_unstable();
++    words.dedup();
++    assert_eq!(words.len(), total, "二十值词面互异（无重复）: {words:?}");
++
+     // StepKind 命令包络八臂（线词面同源——mutation_test 在案，AC-1 审计线词面）
+     let wire_kind = |kind: StepKind| serde_json::to_value(kind).expect("包络词出线应成功");
+     assert_eq!(wire_kind(StepKind::PhaseNext), json!("phase_next"));
+@@ -150,7 +187,8 @@ fn 非法词反序列化拒绝_封闭集防线() {
+         let back: Result<RunStatus, _> = serde_json::from_value(json!(illegal));
+         assert!(back.is_err(), "RunStatus 越集词 {illegal:?} 应拒绝");
+     }
+-    // RunStepKind：camel 词 / 近似词 / 空串越集（十九值词汇之外的词形一律拒绝）
++    // RunStepKind：camel 词 / 近似词 / 空串越集（二十值词汇之外的词形一律拒绝；
++    // cleanup 扩词不松动防线——cleanUp / clean-up / cleanups 仍拒）
+     for illegal in [
+         "verdictGate",
+         "staticCheck",
+@@ -165,6 +203,10 @@ fn 非法词反序列化拒绝_封闭集防线() {
+         "spec-sync",
+         "phaseStart",
+         "mutation",
++        "cleanUp",
++        "clean-up",
++        "cleanups",
++        "Cleanup",
+         "",
+     ] {
+         let back: Result<RunStepKind, _> = serde_json::from_value(json!(illegal));
+@@ -846,18 +888,18 @@ fn change_state_store全方法id形参编译面() {
+ }
+ 
+ // ---------------------------------------------------------------------------
+-// 计划图侧类型（StepNode 十九值全词汇 + 派生访问器 + OnFail / StepDefinition /
++// 计划图侧类型（StepNode 二十值全词汇 + 派生访问器 + OnFail / StepDefinition /
+ // ArtifactSpec）
+ // ---------------------------------------------------------------------------
+ 
+-/// `StepNode` 十九值全词汇 snake_case 逐字出线（executor / evaluator / decision /
++/// `StepNode` 二十值全词汇 snake_case 逐字出线（executor / evaluator / decision /
+ /// phase_start / static_check / test_execution / mutation_test / phase_log /
+-/// verdict_gate / retry_gate / whitelist_gate + 归档八步 preflight / commit /
+-/// rebase / resolve_conflicts / merge / spec_sync / seal / finalize）——词汇本体
+-/// 单点（计划图声明与执行图落库同词面 1:1 全映射，AC-2 全词汇前置；mutation_test
+-/// 拆步新词在案，AC-1）。
++/// verdict_gate / retry_gate / whitelist_gate + 归档九步 preflight / commit /
++/// rebase / resolve_conflicts / merge / spec_sync / cleanup / seal / finalize）
++/// ——词汇本体单点（计划图声明与执行图落库同词面 1:1 全映射，AC-2 全词汇前置；
++/// mutation_test 拆步新词在案，AC-1；cleanup 尽力步新臂在案）。
+ #[test]
+-fn step_node十九值全词汇snake_case逐字() {
++fn step_node二十值全词汇snake_case逐字() {
+     let wire = |node: StepNode| serde_json::to_value(node).expect("词汇出线应成功");
+     assert_eq!(wire(StepNode::Executor), json!("executor"));
+     assert_eq!(wire(StepNode::Evaluator), json!("evaluator"));
+@@ -880,6 +922,11 @@ fn step_node十九值全词汇snake_case逐字() {
+     assert_eq!(wire(StepNode::ResolveConflicts), json!("resolve_conflicts"));
+     assert_eq!(wire(StepNode::Merge), json!("merge"));
+     assert_eq!(wire(StepNode::SpecSync), json!("spec_sync"));
++    assert_eq!(
++        wire(StepNode::Cleanup),
++        json!("cleanup"),
++        "cleanup 尽力步词面逐字（serde wire 与 as_str 一致）"
++    );
+     assert_eq!(wire(StepNode::Seal), json!("seal"));
+     assert_eq!(wire(StepNode::Finalize), json!("finalize"));
+ 
+@@ -901,14 +948,15 @@ fn step_node十九值全词汇snake_case逐字() {
+     assert_eq!(StepNode::ResolveConflicts.as_str(), "resolve_conflicts");
+     assert_eq!(StepNode::Merge.as_str(), "merge");
+     assert_eq!(StepNode::SpecSync.as_str(), "spec_sync");
++    assert_eq!(StepNode::Cleanup.as_str(), "cleanup");
+     assert_eq!(StepNode::Seal.as_str(), "seal");
+     assert_eq!(StepNode::Finalize.as_str(), "finalize");
+ }
+ 
+-/// `StepNode` 与 `RunStepKind` 逐字同源（19 值 1:1 全映射；线格式词一字不差，
+-/// AC-2 / AC-6 落库零过滤前置）。
++/// `StepNode` 与 `RunStepKind` 逐字同源（20 值 1:1 全映射；线格式词一字不差，
++/// AC-2 / AC-6 落库零过滤前置；cleanup 对拍行补齐——两域词面零错位）。
+ #[test]
+-fn step_node与run_step_kind逐字同源十九值() {
++fn step_node与run_step_kind逐字同源二十值() {
+     for (node, kind, word) in [
+         (StepNode::Executor, RunStepKind::Executor, "executor"),
+         (StepNode::Evaluator, RunStepKind::Evaluator, "evaluator"),
+@@ -947,6 +995,7 @@ fn step_node与run_step_kind逐字同源十九值() {
+         ),
+         (StepNode::Merge, RunStepKind::Merge, "merge"),
+         (StepNode::SpecSync, RunStepKind::SpecSync, "spec_sync"),
++        (StepNode::Cleanup, RunStepKind::Cleanup, "cleanup"),
+         (StepNode::Seal, RunStepKind::Seal, "seal"),
+         (StepNode::Finalize, RunStepKind::Finalize, "finalize"),
+     ] {
+@@ -962,7 +1011,8 @@ fn step_node与run_step_kind逐字同源十九值() {
+ 
+ /// `StepNode::group()` 四分类（Exec / Agent / Git / Gate）与 `role()`（Executor /
+ /// Evaluator / Decision / SpecSync / ResolveConflicts）派生访问器逐值一致——同类内
+-/// 与跨类皆可辨（AC-2 派生访问器零冗余字段；D4 分派前置）。
++/// 与跨类皆可辨（AC-2 派生访问器零冗余字段；D4 分派前置；cleanup 归 Git 步族、
++/// role 恒 None）。
+ #[test]
+ fn step_node分组与角色派生访问器一致() {
+     // Exec 组：相位机步 + 检查步（含拆步新词 mutation_test）+ 归档内联步
+@@ -990,16 +1040,23 @@ fn step_node分组与角色派生访问器一致() {
+         assert_eq!(node.group(), StepGroup::Agent, "{node:?} 属 Agent");
+         assert_eq!(node.role(), Some(role));
+     }
+-    // Git 组：四 vcs 步（独立 vcs 缝直调；role 恒 None）
++    // Git 组：五 vcs 步（cleanup 尽力步与 Commit / Rebase / Merge / Finalize
++    // 同组；role 恒 None——非 agent 步零 prompt 零角色）
+     for node in [
+         StepNode::Commit,
+         StepNode::Rebase,
+         StepNode::Merge,
++        StepNode::Cleanup,
+         StepNode::Finalize,
+     ] {
+         assert_eq!(node.group(), StepGroup::Git, "{node:?} 属 Git");
+         assert_eq!(node.role(), None, "git 步无 agent 角色");
+     }
++    assert_eq!(
++        StepNode::Cleanup.role(),
++        None,
++        "Cleanup 恒 None（非 agent 步）"
++    );
+     // Gate 组：三门
+     for node in [
+         StepNode::VerdictGate,
+@@ -1009,7 +1066,7 @@ fn step_node分组与角色派生访问器一致() {
+         assert_eq!(node.group(), StepGroup::Gate, "{node:?} 属 Gate");
+         assert_eq!(node.role(), None, "门步无角色");
+     }
+-    // 四分类互斥：Exec / Agent / Git / Gate 覆盖全词汇（19 值无遗漏无重叠）
++    // 四分类互斥：Exec / Agent / Git / Gate 覆盖全词汇（20 值无遗漏无重叠）
+     let groups: Vec<StepGroup> = [
+         StepNode::Executor,
+         StepNode::Evaluator,
+@@ -1028,16 +1085,17 @@ fn step_node分组与角色派生访问器一致() {
+         StepNode::ResolveConflicts,
+         StepNode::Merge,
+         StepNode::SpecSync,
++        StepNode::Cleanup,
+         StepNode::Seal,
+         StepNode::Finalize,
+     ]
+     .iter()
+     .map(|node| node.group())
+     .collect();
+-    assert_eq!(groups.len(), 19, "十九值穷举无遗漏");
++    assert_eq!(groups.len(), 20, "二十值穷举无遗漏");
+     assert_eq!(groups.iter().filter(|g| **g == StepGroup::Exec).count(), 7);
+     assert_eq!(groups.iter().filter(|g| **g == StepGroup::Agent).count(), 5);
+-    assert_eq!(groups.iter().filter(|g| **g == StepGroup::Git).count(), 4);
++    assert_eq!(groups.iter().filter(|g| **g == StepGroup::Git).count(), 5);
+     assert_eq!(groups.iter().filter(|g| **g == StepGroup::Gate).count(), 3);
+ }
+ 
+@@ -1092,6 +1150,8 @@ fn step_node与on_fail封闭集防线() {
+         "spec-sync",
+         "resolveConflicts",
+         "phaseLog",
++        "cleanUp",
++        "clean-up",
+         "",
+     ] {
+         let back: Result<StepNode, _> = serde_json::from_value(json!(illegal));
+@@ -1266,7 +1326,8 @@ fn run_node_state_record全字段往返可辨() {
+         }
+     }
+ 
+-    // 十九值全词汇 step 出线（节点行 zero filter 前置；mutation_test 拆步新词在案）
++    // 二十值全词汇 step 出线（节点行 zero filter 前置；mutation_test 拆步新词
++    // 与 cleanup 尽力步新臂在案）
+     for (kind, word) in [
+         (RunStepKind::Executor, "executor"),
+         (RunStepKind::Evaluator, "evaluator"),
+@@ -1285,6 +1346,7 @@ fn run_node_state_record全字段往返可辨() {
+         (RunStepKind::ResolveConflicts, "resolve_conflicts"),
+         (RunStepKind::Merge, "merge"),
+         (RunStepKind::SpecSync, "spec_sync"),
++        (RunStepKind::Cleanup, "cleanup"),
+         (RunStepKind::Seal, "seal"),
+         (RunStepKind::Finalize, "finalize"),
+     ] {
+diff --git a/crates/core/workflow/src/write/create.rs b/crates/core/workflow/src/write/create.rs
+index fec6707f3dc2..1079628bfcd2 100644
+--- a/crates/core/workflow/src/write/create.rs
++++ b/crates/core/workflow/src/write/create.rs
+@@ -1,8 +1,10 @@
+-//! change 创建写操作（建域四段组合，design D2/D3/D4/D5）：前置七道校验
++//! change 创建写操作（建域四段组合，design D2/D3/D4/D5）：前置九道校验
+ //!（名称 kebab-case + 长度 → goal 非空白 → 主仓 active 目录已存在 → db 同名
+-//! active 建档 → git 探测三态（不可发现 / 非 git 仓 / 空仓，MUST NOT 静默回退
+-//! 主 root 创建）→ branch `change/<name>` 冲突 → worktree 目录冲突——全部在
+-//! 任何 IO 之前，拒绝面零目录零记录零 vcs 调用）→ 铸出 uuid v7 形态 id →
++//! active 建档 → active 建档数上限（`ACTIVE_CHANGE_LIMIT` 硬编码）→ worktree
++//! 磁盘保底门槛（上限 + `WORKTREE_DIR_SLACK` 派生）→ git 探测三态（不可发现 /
++//! 非 git 仓 / 空仓，MUST NOT 静默回退主 root 创建）→ branch `change/<name>`
++//! 冲突 → worktree 目录冲突——全部在任何 IO 之前，拒绝面零目录零记录零 vcs
++//! 调用）→ 铸出 uuid v7 形态 id →
+ //! db 建档先行（携 id / `worktree` / `base_commit`）→ `git worktree add`
+ //!（HEAD 基线铸分支）→ worktree 内建
+ //! `openspec/changes/<n>/` 目录树与 explore.md → 脏仓警告 → 确定性 bootstrap
+@@ -34,6 +36,15 @@ const MAX_NAME_LENGTH: usize = 128;
+ /// worktree 建域分支前缀（branch = `change/<name>`）。
+ const CHANGE_BRANCH_PREFIX: &str = "change/";
+ 
++/// active change 建档数上限（前置⑧；源码常量不进 `config.json`，沿
++/// `FEEDBACK_LOOP_LIMIT` 先例——配置面先例是用户域配置非流程护栏）。
++const ACTIVE_CHANGE_LIMIT: usize = 5;
++
++/// worktree 磁盘保底门槛冗余量（前置⑨门槛 = [`ACTIVE_CHANGE_LIMIT`] + 本值
++/// 派生：db 与磁盘漂移防线——孤儿 worktree / 手动残留不占 active 额度但占磁
++/// 盘，+2 容忍既有在途漂移）。
++const WORKTREE_DIR_SLACK: usize = 2;
++
+ /// bootstrap 映射表（驻 create 私有常量，首匹配序，worktree 根探测；
+ /// design D4）：已知 lockfile → 冻结锁面安装命令（零 diff 污染——
+ /// `--frozen-lockfile` / `npm ci` / `--locked` 均不落新锁文件）。
+@@ -116,8 +127,8 @@ pub(crate) fn utc_date(millis: i64) -> String {
+     )
+ }
+ 
+-/// 创建 change（建域四段组合）：前置七道校验全 IO 前置（拒绝面零 worktree、
+-/// 零建档、零目录）→ db 建档先行（`worktree` / `base_commit` 入记录）→
++/// 创建 change（建域四段组合）：前置九道校验全 IO 前置（拒绝面零 worktree、
++/// 零建档、零目录、零 branch 触碰）→ db 建档先行（`worktree` / `base_commit` 入记录）→
+ /// worktree add（HEAD 基线铸 `change/<name>` 分支）→ worktree 内目录树 +
+ /// explore.md（goal 原文直写，UTF-8 零结构包装）→ 脏仓警告 → bootstrap。
+ /// 双根注入：`main_root` 主仓根（目录冲突检查 + git 命令 `-C` 锚）、
+@@ -185,6 +196,39 @@ pub fn create(
+             ChangeStatus::Active.as_str()
+         ));
+     }
++    // 前置⑧：active 建档数上限（worktree 生命周期护栏；archived 记录不计入。
++    // 全 IO 前置——位于 git 探测之前，拒绝面零 vcs 调用零建档零目录零 worktree）
++    let active_count = store
++        .list_change_records()
++        .map_err(|error| error.to_string())?
++        .iter()
++        .filter(|record| record.status == ChangeStatus::Active)
++        .count();
++    if active_count >= ACTIVE_CHANGE_LIMIT {
++        return Err(format!(
++            "active change 数已达上限（当前 {active_count}，上限 {ACTIVE_CHANGE_LIMIT}）：\
++             请先归档或手动清理后再创建"
++        ));
++    }
++    // 前置⑨：worktree 磁盘保底门槛（db 与磁盘漂移防线：孤儿 worktree / 手动
++    // 残留不占 active 额度但占磁盘。`worktree_root` 即 `worktrees/{身份段}/`
++    // 父锚，直属子目录逐目录计数；目录不存在（尚无 worktree 面）计 0，其余读
++    // 错误显式 Err——误扫成 0 会绕过门槛）
++    let worktree_dirs = match fs::read_dir(worktree_root) {
++        Ok(entries) => entries
++            .filter_map(|entry| entry.ok())
++            .filter(|entry| entry.file_type().map(|t| t.is_dir()).unwrap_or(false))
++            .count(),
++        Err(error) if error.kind() == std::io::ErrorKind::NotFound => 0,
++        Err(error) => return Err(format!("worktree 目录扫描失败: {error}")),
++    };
++    let worktree_threshold = ACTIVE_CHANGE_LIMIT + WORKTREE_DIR_SLACK;
++    if worktree_dirs > worktree_threshold {
++        return Err(format!(
++            "worktree 目录数已达保底门槛（当前 {worktree_dirs}，门槛 {worktree_threshold}）：\
++             请先以 git worktree list 对账并手动清理后再创建"
++        ));
++    }
+     // 前置⑤：git 探测三态（git 不可发现 / 非 git 仓 / 空仓无 HEAD 显式 Err
+     // 引导——MUST NOT 静默回退主 root 创建；probe 产出同时是基线与脏仓源）
+     let probe = vcs.probe(main_root)?;
+@@ -206,7 +250,7 @@ pub fn create(
+ 
+     // 执行段一：db 建档先行（fs / vcs 失败可补偿；反向则出现被禁破口
+     // 「worktree 在而记录缺」）——携 id / worktree / base_commit 执行锚。
+-    // id 铸出点（D1）：前置七道全过后、建档之前直铸 uuid v7（与 created_at
++    // id 铸出点（D1）：前置九道全过后、建档之前直铸 uuid v7（与 created_at
+     // 同段；纯 id 生成无 IO 无 vcs 调用，拒绝面零铸出）
+     let id = uuid::Uuid::now_v7().to_string();
+     let created_at = super::now_millis();
+diff --git a/crates/core/workflow/src/write/create_test.rs b/crates/core/workflow/src/write/create_test.rs
+index 97cd7550643e..7c731fbdb0a4 100644
+--- a/crates/core/workflow/src/write/create_test.rs
++++ b/crates/core/workflow/src/write/create_test.rs
+@@ -2,8 +2,11 @@
+ //! create 建域四段组合（D2/D3/D4/D5）——铸出 uuid v7 形态 id（D1）→ 建档（携
+ //! id / worktree / base_commit）+ worktree add（HEAD 基线铸 change/<name>
+ //! 分支）+ worktree 内目录树与 explore.md（goal 原文）+ bootstrap / 警告收集；
+-//! 前置七道全 IO 前置（拒绝面零 worktree、零建档、零目录、vcs 零调用），④ 为
+-//! 同名 **active** name 扫描查重（归档同名合法化——D11）；补偿链按 id 删本次
++//! 前置九道全 IO 前置（拒绝面零 worktree、零建档、零目录、vcs 零调用），④ 为
++//! 同名 **active** name 扫描查重（归档同名合法化——D11），⑧ 为 active 建档数
++//! 上限（`ACTIVE_CHANGE_LIMIT` 硬编码、归档记录不计入——worktree-cleanup-and-
++//! active-cap AC-1 / AC-3），⑨ 为 worktree 磁盘保底门槛（= 上限 + SLACK 派生
++//! 7，仅直属子目录计入——AC-2 db 与磁盘漂移防线）；补偿链按 id 删本次
+ //! 自插行（add 失败：删建档 + 尽力删分支；树写出失败：remove → 删分支 → 删
+ //! 建档；bootstrap 段失败不回收）；created 出线取 db created_at 日期；铸出
+ //! 路径断言 id 非空 / 同名单次重铸相异 / 与库内逐字一致（零固定值对拍）；成功
+@@ -1626,3 +1629,352 @@ fn create_outcome_serde线形状恰五键且id首字段() {
+         "id 为声明序首字段，实际: {debug}"
+     );
+ }
++
++// ---------------------------------------------------------------------------
++// 前置⑧：active 建档数上限（worktree-cleanup-and-active-cap / AC-1 / AC-3）：
++// 硬编码上限（源码常量单点）全 IO 前置——拒绝面零建档零目录零 worktree 零 vcs
++// 调用；归档记录不计入
++// ---------------------------------------------------------------------------
++
++/// 前置⑧ 拒绝（异常）：db 预置 5 条 `status=active` → 显式 `Err`；文案含
++/// 「当前 5」「上限 5」与「归档或手动清理」引导（D6 单点文案）；拒绝面零
++/// 副作用（store 零建档、vcs 零调用——上限道先于 git 探测）。
++#[test]
++fn active上限拒绝_5条active时err文案含计数与引导且零副作用() {
++    let env = Env::new("cap-reject");
++    for index in 0..5 {
++        env.store.seed(
++            &format!("0198f7a0-0000-7000-8000-0000000000c{index}"),
++            &format!("cap-filled-{index}"),
++            ChangeStatus::Active,
++        );
++    }
++
++    let error = env
++        .create("cap-sixth", "第 6 个 change goal")
++        .expect_err("5 条 active 已达上限应 Err");
++
++    assert!(
++        error.contains("active change 数已达上限"),
++        "错误归因 active 上限道，实际: {error}"
++    );
++    assert!(
++        error.contains("当前 5") && error.contains("上限 5"),
++        "文案含当前计数 5 与上限 5（D6 单点文案）: {error}"
++    );
++    assert!(
++        error.contains("归档或手动清理"),
++        "文案携「归档或手动清理」引导: {error}"
++    );
++    // 拒绝面零副作用（AC-1 / AC-3：全 IO 前置）
++    assert_eq!(env.store.create_call_count(), 0, "db 零建档调用");
++    assert_eq!(env.store.record_count(), 5, "库内仅种子五行零变动");
++    assert!(
++        env.active_dir_names().is_empty(),
++        "主仓 active 树零目录，实际: {:?}",
++        env.active_dir_names()
++    );
++    assert!(
++        dir_names(&env.worktree_root).is_empty(),
++        "worktree_root 零新目录"
++    );
++    assert!(
++        env.vcs.calls().is_empty(),
++        "vcs 零调用（上限道先于 git 探测），实际: {:?}",
++        env.vcs.calls()
++    );
++}
++
++/// 前置⑧ 边界（正向）：db 4 条 active → 第 5 个创建成功（`CreateOutcome` 正常
++/// 出线，建域四段照常；上限为「达到即拒」——4 < 5 仍可创建）。
++#[test]
++fn active上限下第5个创建成功_4条active时() {
++    let env = Env::new("cap-under");
++    for index in 0..4 {
++        env.store.seed(
++            &format!("0198f7a0-0000-7000-8000-0000000000d{index}"),
++            &format!("cap-under-{index}"),
++            ChangeStatus::Active,
++        );
++    }
++
++    let outcome = env
++        .create("cap-fifth", "第 5 个 change goal")
++        .expect("4 条 active 时第 5 个应创建成功");
++
++    assert!(!outcome.id.is_empty(), "CreateOutcome 正常出线（身份锚在案）");
++    assert_eq!(outcome.name, "cap-fifth");
++    assert_eq!(env.store.create_call_count(), 1, "db 恰一次建档");
++    assert_eq!(env.store.record_count(), 5, "库内 4 种子 + 1 新建档");
++    assert!(
++        env.change_dir("cap-fifth").join("explore.md").is_file(),
++        "建域四段照常（worktree 内目录树 + explore.md）"
++    );
++}
++
++/// 前置⑧ 边界：归档记录不计入——5 条 `status=archived` + 4 条 active → 创建
++/// 成功（计数仅 status=active 面）。
++#[test]
++fn 归档记录不计入_5条archived加4条active创建成功() {
++    let env = Env::new("cap-archived-free");
++    for index in 0..5 {
++        env.store.seed(
++            &format!("0198f7a0-0000-7000-8000-0000000000e{index}"),
++            &format!("cap-archived-{index}"),
++            ChangeStatus::Archived,
++        );
++    }
++    for index in 0..4 {
++        env.store.seed(
++            &format!("0198f7a0-0000-7000-8000-0000000000f{index}"),
++            &format!("cap-live-{index}"),
++            ChangeStatus::Active,
++        );
++    }
++
++    let outcome = env
++        .create("cap-archived-free-new", "归档不占额度 goal")
++        .expect("归档记录不计入，第 5 个 active 应创建成功");
++
++    assert!(!outcome.id.is_empty());
++    let records = env.store.records();
++    assert_eq!(records.len(), 10, "5 归档 + 4 active + 1 新建档");
++    assert_eq!(
++        records
++            .iter()
++            .filter(|record| record.status == ChangeStatus::Active)
++            .count(),
++        5,
++        "active 恰 5 条（上限道只在 create 时刻生效，创建后达上限合法）"
++    );
++}
++
++// ---------------------------------------------------------------------------
++// 前置⑨：worktree 磁盘保底门槛（AC-2）：门槛 = 上限 + SLACK = 7，fs 扫
++// `worktree_root` 直属子目录数（仅 `file_type().is_dir()` 计入）——db 与磁盘
++// 漂移防线（孤儿 / 手动残留不占 active 额度但占磁盘）
++// ---------------------------------------------------------------------------
++
++/// 前置⑨ 拒绝（异常）：`worktree_root` 直属子目录 8 个 → 显式 `Err`；文案含
++/// 目录数 8、门槛 7 与「git worktree list」对账引导；拒绝面零副作用。
++#[test]
++fn worktree门槛拒绝_8个直属子目录err文案含对账引导() {
++    let env = Env::new("threshold-reject");
++    fs::create_dir_all(&env.worktree_root).expect("建 worktree_root 失败");
++    for index in 0..8 {
++        fs::create_dir_all(env.worktree_root.join(format!("residual-{index}")))
++            .expect("预置残留目录失败");
++    }
++
++    let error = env
++        .create("threshold-next", "门槛道 goal")
++        .expect_err("8 个直属子目录越门槛应 Err");
++
++    assert!(
++        error.contains("worktree 目录数已达保底门槛"),
++        "错误归因磁盘保底门槛道，实际: {error}"
++    );
++    assert!(
++        error.contains("当前 8") && error.contains("门槛 7"),
++        "文案含目录数 8 与门槛 7（严格大于才拒的派生门槛）: {error}"
++    );
++    assert!(
++        error.contains("git worktree list"),
++        "文案携「git worktree list」对账引导: {error}"
++    );
++    // 拒绝面零副作用
++    assert_eq!(env.store.create_call_count(), 0, "db 零建档调用");
++    assert!(
++        env.vcs.calls().is_empty(),
++        "vcs 零调用（门槛道先于 git 探测），实际: {:?}",
++        env.vcs.calls()
++    );
++}
++
++/// 前置⑨ 正向：7 个直属子目录（恰为门槛值）→ 照常创建（严格大于才拒）。
++#[test]
++fn worktree门槛恰7个目录照常创建() {
++    let env = Env::new("threshold-at");
++    fs::create_dir_all(&env.worktree_root).expect("建 worktree_root 失败");
++    for index in 0..7 {
++        fs::create_dir_all(env.worktree_root.join(format!("kept-{index}")))
++            .expect("预置在途目录失败");
++    }
++
++    let outcome = env
++        .create("threshold-ok", "门槛值 goal")
++        .expect("恰 7 个目录（== 门槛）应照常创建");
++
++    assert!(!outcome.id.is_empty(), "CreateOutcome 正常出线");
++    assert_eq!(
++        dir_names(&env.worktree_root).len(),
++        8,
++        "创建后 worktree_root 共 8 目录（7 预置 + 1 新建域）"
++    );
++}
++
++/// 前置⑨ 边界：`worktree_root` 不存在（NotFound）→ 计 0 通过（尚无 worktree
++/// 面）；目录内普通文件条目不计入（仅 `file_type().is_dir()`——7 目录 + 3 文件
++/// 仍照常创建）。
++#[test]
++fn worktree门槛_目录缺席计零通过且普通文件不计入() {
++    // 形态一：worktree_root 不存在（Env::new 后即缺席）→ 计 0 → 创建成功
++    let absent = Env::new("threshold-absent");
++    assert!(
++        !absent.worktree_root.exists(),
++        "前置：worktree_root 尚不存在"
++    );
++    absent
++        .create("absent-threshold", "尚无 worktree 面 goal")
++        .expect("worktree_root 缺席应计 0 通过");
++
++    // 形态二：7 目录 + 3 普通文件 → 仅目录计入（7 == 门槛）→ 照常创建
++    let files = Env::new("threshold-files");
++    fs::create_dir_all(&files.worktree_root).expect("建 worktree_root 失败");
++    for index in 0..7 {
++        fs::create_dir_all(files.worktree_root.join(format!("kept-{index}")))
++            .expect("预置目录失败");
++    }
++    for index in 0..3 {
++        fs::write(files.worktree_root.join(format!("loose-{index}.txt")), "散落文件\n")
++            .expect("预置普通文件失败");
++    }
++
++    files
++        .create("files-not-counted", "文件不计入 goal")
++        .expect("普通文件条目不计入，7 目录应照常创建");
++}
++
++/// 前置⑨ 异常：`fs::read_dir` 非 NotFound 读错误（worktree_root 为普通文件
++/// 形态）→ 显式 `Err`「worktree 目录扫描失败」（不静默计 0、不伪装通过），
++/// vcs 零调用。
++#[test]
++fn worktree门槛_非notfound读错误显式err() {
++    let env = Env::new("threshold-io-err");
++    // worktree_root 位点为普通文件（父目录 temp_dir 已在）→ read_dir 产生
++    // 非 NotFound 读错误（ENOTDIR 面——误扫成 0 会绕过门槛，故显式 Err）
++    fs::write(&env.worktree_root, "not a directory\n").expect("预置普通文件失败");
++    assert!(
++        env.worktree_root.is_file(),
++        "前置：worktree_root 为普通文件形态"
++    );
++
++    let error = env
++        .create("threshold-io", "读错误 goal")
++        .expect_err("非 NotFound 读错误应显式 Err");
++
++    assert!(
++        error.contains("worktree 目录扫描失败"),
++        "错误归因扫描失败（不静默计 0），实际: {error}"
++    );
++    assert!(
++        env.vcs.calls().is_empty(),
++        "vcs 零调用（读错误道先于 git 探测），实际: {:?}",
++        env.vcs.calls()
++    );
++}
++
++/// 前置⑨ 边界：db 与磁盘漂移场景——3 条 active（各携在盘 worktree）+ 5 个
++/// 残留目录 = 磁盘 8 目录 > 门槛 7 → 前置⑨拦（孤儿 / 手动残留防线，AC-2）。
++#[test]
++fn db与磁盘漂移_3active加5残留合计8目录被门槛拦() {
++    let env = Env::new("threshold-drift");
++    // 3 条 active（在盘 worktree 目录在场——create 建域的正常残留形态）
++    for index in 0..3 {
++        env.store.seed(
++            &format!("0198f7a0-0000-7000-8000-00000000010{index}"),
++            &format!("drift-live-{index}"),
++            ChangeStatus::Active,
++        );
++        fs::create_dir_all(env.worktree_root.join(format!("drift-live-{index}")))
++            .expect("预置 active worktree 目录失败");
++    }
++    // 5 个孤儿 / 手动残留目录（不占 active 额度但占磁盘）
++    for index in 0..5 {
++        fs::create_dir_all(env.worktree_root.join(format!("orphan-{index}")))
++            .expect("预置残留目录失败");
++    }
++
++    let error = env
++        .create("drift-next", "漂移场景 goal")
++        .expect_err("3 active + 5 残留 = 磁盘 8 目录应被门槛拦");
++
++    assert!(
++        error.contains("worktree 目录数已达保底门槛")
++            && error.contains("当前 8")
++            && error.contains("门槛 7"),
++        "前置⑨拦（漂移防线——active 计数 3 < 上限 5 未拦）: {error}"
++    );
++    assert_eq!(env.store.create_call_count(), 0, "db 零建档调用");
++}
++
++// ---------------------------------------------------------------------------
++// 前置序：⑧⑨ 插在前置④（同名 active 查重）之后、前置⑤（git 探测）之前
++//（AC-1 / AC-3 全 IO 前置的可辨面）
++// ---------------------------------------------------------------------------
++
++/// 前置序（边界）：同名 active 场景仍先④拒——错误文案为同名建档道而非上限道
++///（即使 active 计数已达上限）。
++#[test]
++fn 前置序_同名active先于上限道拒绝() {
++    let env = Env::new("order-same-name");
++    for index in 0..5 {
++        let name = if index == 0 { "dupe" } else { &format!("order-fill-{index}") };
++        env.store.seed(
++            &format!("0198f7a0-0000-7000-8000-00000000011{index}"),
++            name,
++            ChangeStatus::Active,
++        );
++    }
++
++    let error = env.create("dupe", "同名 goal").expect_err("同名 active 应 Err");
++
++    assert!(
++        error.contains("已存在同名建档记录"),
++        "先④拒（同名建档道文案），实际: {error}"
++    );
++    assert!(
++        !error.contains("active change 数已达上限"),
++        "同名道先于上限道（错误可辨不串道），实际: {error}"
++    );
++    assert_eq!(env.store.create_call_count(), 0, "db 零建档调用");
++    assert!(env.vcs.calls().is_empty(), "vcs 零调用");
++}
++
++/// 前置序（边界）：active 计数 5 且磁盘目录超门槛 → 错误文案为 active 上限道
++///（先⑧后⑨可辨——两道同越时归因不混淆）；vcs 零调用（⑧⑨ 均先于 git 探测⑤）。
++#[test]
++fn 前置序_active上限道先于磁盘门槛道() {
++    let env = Env::new("order-cap-then-threshold");
++    for index in 0..5 {
++        env.store.seed(
++            &format!("0198f7a0-0000-7000-8000-00000000012{index}"),
++            &format!("order-cap-{index}"),
++            ChangeStatus::Active,
++        );
++    }
++    fs::create_dir_all(&env.worktree_root).expect("建 worktree_root 失败");
++    for index in 0..8 {
++        fs::create_dir_all(env.worktree_root.join(format!("residual-{index}")))
++            .expect("预置残留目录失败");
++    }
++
++    let error = env
++        .create("order-next", "双道同越 goal")
++        .expect_err("两道同越应 Err");
++
++    assert!(
++        error.contains("active change 数已达上限"),
++        "先⑧后⑨（active 上限道文案），实际: {error}"
++    );
++    assert!(
++        !error.contains("保底门槛"),
++        "⑨ 不可先于 ⑧（归因可辨），实际: {error}"
++    );
++    assert_eq!(env.store.create_call_count(), 0, "db 零建档调用");
++    assert!(
++        env.vcs.calls().is_empty(),
++        "⑧⑨ 均先于 git 探测⑤（vcs 零调用），实际: {:?}",
++        env.vcs.calls()
++    );
++}

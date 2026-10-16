@@ -39,8 +39,9 @@ const CODE_ANALYZE_STEP_ORDER: [StepNode; 5] = [
     StepNode::PhaseLog,
 ];
 
-/// 归档相位步序（design 数据模型表；AC-2）。
-const ARCHIVE_STEP_ORDER: [StepNode; 10] = [
+/// 归档相位步序（design 数据模型表；AC-2 / AC-4 十一步链序——Cleanup 介于
+/// SpecSync 与 Seal）。
+const ARCHIVE_STEP_ORDER: [StepNode; 11] = [
     StepNode::PhaseStart,
     StepNode::Preflight,
     StepNode::Commit,
@@ -48,6 +49,7 @@ const ARCHIVE_STEP_ORDER: [StepNode; 10] = [
     StepNode::ResolveConflicts,
     StepNode::Merge,
     StepNode::SpecSync,
+    StepNode::Cleanup,
     StepNode::Seal,
     StepNode::Finalize,
     StepNode::PhaseLog,
@@ -1292,12 +1294,12 @@ fn archive相位声明_末位确定性相位无角色spec零清单() {
     );
 }
 
-/// archive 步序（正向）：archive `steps` 恰 10 步且与 design 数据模型表逐位一致
+/// archive 步序（正向）：archive `steps` 恰 11 步且与 design 数据模型表逐位一致
 ///（PhaseStart → Preflight → Commit → Rebase → ResolveConflicts → Merge →
-/// SpecSync → Seal → Finalize → PhaseLog），首步 PhaseStart、末步 PhaseLog
-///（AC-2）。
+/// SpecSync → Cleanup → Seal → Finalize → PhaseLog），首步 PhaseStart、末步
+/// PhaseLog（AC-2 / AC-4 11 步链序）。
 #[test]
-fn archive相位十步序列与设计表一致() {
+fn archive相位十一步序列与设计表一致() {
     let table = phase_table("requirement").expect("requirement 应返回 Some");
     let archive = table
         .iter()
@@ -1305,8 +1307,8 @@ fn archive相位十步序列与设计表一致() {
         .expect("archive 相位应在表内");
 
     let actual: Vec<StepNode> = archive.steps.iter().map(|step| step.node).collect();
-    assert_eq!(actual, ARCHIVE_STEP_ORDER.to_vec(), "archive 十步序列逐位一致");
-    assert_eq!(actual.len(), 10, "archive 步数恰 10");
+    assert_eq!(actual, ARCHIVE_STEP_ORDER.to_vec(), "archive 十一步序列逐位一致");
+    assert_eq!(actual.len(), 11, "archive 步数恰 11（ARCHIVE_STEP_ORDER 10 → 11 扩位）");
     assert_eq!(
         archive.steps.first().map(|step| step.node),
         Some(StepNode::PhaseStart),
@@ -1317,7 +1319,23 @@ fn archive相位十步序列与设计表一致() {
         Some(StepNode::PhaseLog),
         "archive 末步恒 PhaseLog"
     );
-    // 十步逐位无重复（关键步各恰一次）
+    // Cleanup 位次锚：介于 SpecSync 与 Seal（… Merge → SpecSync → Cleanup →
+    // Seal → …）
+    let cleanup_pos = actual
+        .iter()
+        .position(|node| *node == StepNode::Cleanup)
+        .expect("Cleanup 步应在 archive 步序内");
+    assert_eq!(
+        actual.get(cleanup_pos - 1),
+        Some(&StepNode::SpecSync),
+        "Cleanup 紧随 SpecSync"
+    );
+    assert_eq!(
+        actual.get(cleanup_pos + 1),
+        Some(&StepNode::Seal),
+        "Cleanup 后继为 Seal"
+    );
+    // 十一步逐位无重复（关键步各恰一次）
     for node in [
         StepNode::Preflight,
         StepNode::Commit,
@@ -1325,6 +1343,7 @@ fn archive相位十步序列与设计表一致() {
         StepNode::ResolveConflicts,
         StepNode::Merge,
         StepNode::SpecSync,
+        StepNode::Cleanup,
         StepNode::Seal,
         StepNode::Finalize,
     ] {
@@ -1336,8 +1355,9 @@ fn archive相位十步序列与设计表一致() {
     }
 }
 
-/// archive 步 `on_fail` 语义（正向）：十步 `on_fail` 恒 `None`——步失败即
-/// Terminal 收口，不唤决策 agent、不进相位重试（AC-8 失败停链）。
+/// archive 步 `on_fail` 语义（正向）：十一步 `on_fail` 恒 `None`——步失败即
+/// Terminal 收口，不唤决策 agent、不进相位重试（AC-8 失败停链；Cleanup 尽力
+/// 语义驻 walker 执行体，声明面 `None` 与其余步一致）。
 #[test]
 fn archive步on_fail恒none_失败即终态() {
     let table = phase_table("requirement").expect("requirement 应返回 Some");
@@ -1346,7 +1366,7 @@ fn archive步on_fail恒none_失败即终态() {
         .find(|def| def.id == "archive")
         .expect("archive 相位应在表内");
 
-    assert_eq!(archive.steps.len(), 10);
+    assert_eq!(archive.steps.len(), 11);
     for step in archive.steps {
         assert_eq!(
             step.on_fail, None,
@@ -1366,9 +1386,10 @@ fn archive步on_fail恒none_失败即终态() {
     }
 }
 
-/// archive 步 `prompt_ref` 语义（边界）：十步 `prompt_ref` 恒 `None`——spec_sync /
+/// archive 步 `prompt_ref` 语义（边界）：十一步 `prompt_ref` 恒 `None`——spec_sync /
 /// resolve_conflicts 的 prompt 由 orchestration 运行时组装（workflow 零
-/// orchestration 依赖），其余步非 agent 面亦恒 None（AC-2 / 数据模型）。
+/// orchestration 依赖），其余步非 agent 面亦恒 None（AC-2 / 数据模型；cleanup
+/// 尽力步同面）。
 #[test]
 fn archive步prompt_ref恒none_运行时空组装() {
     let table = phase_table("requirement").expect("requirement 应返回 Some");
@@ -1401,9 +1422,10 @@ fn archive步prompt_ref恒none_运行时空组装() {
 }
 
 /// archive 步分组可派生（正向）：archive 步经 `StepNode::group()` 分派
-///（commit / rebase / merge / finalize→Git、preflight / seal→Exec、
+///（commit / rebase / merge / cleanup / finalize→Git、preflight / seal→Exec、
 /// spec_sync / resolve_conflicts→Agent、phase_start / phase_log→Exec），
-/// 与 orchestration 三分支执行缝分派前置一致（AC-2 / AC-3）。
+/// 与 orchestration 三分支执行缝分派前置一致（AC-2 / AC-3 / AC-4 cleanup 归
+/// Git 分组）。
 #[test]
 fn archive步分组可派生_三分支缝分派前置() {
     use crate::state::StepGroup;
@@ -1414,9 +1436,11 @@ fn archive步分组可派生_三分支缝分派前置() {
             | StepNode::Preflight
             | StepNode::Seal
             | StepNode::PhaseLog => StepGroup::Exec,
-            StepNode::Commit | StepNode::Rebase | StepNode::Merge | StepNode::Finalize => {
-                StepGroup::Git
-            }
+            StepNode::Commit
+            | StepNode::Rebase
+            | StepNode::Merge
+            | StepNode::Cleanup
+            | StepNode::Finalize => StepGroup::Git,
             StepNode::SpecSync | StepNode::ResolveConflicts => StepGroup::Agent,
             other => panic!("archive 步序含越集节点 {other:?}"),
         }
@@ -1425,10 +1449,10 @@ fn archive步分组可派生_三分支缝分派前置() {
     for node in ARCHIVE_STEP_ORDER {
         assert_eq!(node.group(), expect_group(node), "{node:?} 分组派生一致");
     }
-    // 四分类计数：Exec 4 / Git 4 / Agent 2（Gate 零——归档无门禁步）
+    // 四分类计数：Exec 4 / Git 5（含 cleanup）/ Agent 2（Gate 零——归档无门禁步）
     let groups: Vec<StepGroup> = ARCHIVE_STEP_ORDER.iter().map(|node| node.group()).collect();
     assert_eq!(groups.iter().filter(|g| **g == StepGroup::Exec).count(), 4);
-    assert_eq!(groups.iter().filter(|g| **g == StepGroup::Git).count(), 4);
+    assert_eq!(groups.iter().filter(|g| **g == StepGroup::Git).count(), 5);
     assert_eq!(groups.iter().filter(|g| **g == StepGroup::Agent).count(), 2);
     assert_eq!(
         groups.iter().filter(|g| **g == StepGroup::Gate).count(),
@@ -1437,20 +1461,20 @@ fn archive步分组可派生_三分支缝分派前置() {
     );
 }
 
-/// ARCHIVE_STEPS 类型收敛（异常）：archive 十步均为 `StepNode` 十九值封闭集
+/// ARCHIVE_STEPS 类型收敛（异常）：archive 十一步均为 `StepNode` 二十值封闭集
 /// 成员（线画 snake_case 词与执行图落库同源、不引用退役 `ArchiveStage` 词汇），
-/// 长度恰 10、无越集节点（AC-2）。
+/// 长度恰 11、无越集节点（AC-2 / AC-4）。
 #[test]
-fn archive_steps类型收敛_封闭集取值且长度十() {
+fn archive_steps类型收敛_封闭集取值且长度十一() {
     let table = phase_table("requirement").expect("requirement 应返回 Some");
     let archive = table
         .iter()
         .find(|def| def.id == "archive")
         .expect("archive 相位应在表内");
 
-    assert_eq!(archive.steps.len(), 10, "ARCHIVE_STEPS 长度恰 10");
+    assert_eq!(archive.steps.len(), 11, "ARCHIVE_STEPS 长度恰 11");
 
-    // 十步词面均在 StepNode 十九值封闭集内（逐词往返 = snake_case 线词）
+    // 十一步词面均在 StepNode 二十值封闭集内（逐词往返 = snake_case 线词）
     let closed_set: Vec<&'static str> = ARCHIVE_STEP_ORDER
         .iter()
         .map(|node| node.as_str())
@@ -1459,7 +1483,7 @@ fn archive_steps类型收敛_封闭集取值且长度十() {
         let word = step.node.as_str();
         assert!(
             closed_set.contains(&word),
-            "归档步词 {word:?} 应在归档十步闭集内"
+            "归档步词 {word:?} 应在归档十一步闭集内"
         );
         // 线面往返（封闭集编码→解码无失真，越集词即败）
         let back: StepNode = serde_json::from_value(serde_json::json!(word))
@@ -1487,6 +1511,101 @@ fn archive_steps类型收敛_封闭集取值且长度十() {
             ),
             "归档步 {:?} 不得为路由相位的角色 / 门禁步",
             step.node
+        );
+    }
+}
+
+// ---------------------------------------------------------------------------
+// 归档 Cleanup 步声明（worktree-cleanup-and-active-cap / AC-4）：尽力步形态 /
+// 两表同源 static / 词表与二十值封闭集对照
+// ---------------------------------------------------------------------------
+
+/// Cleanup 步 `StepDefinition` 声明形态（边界）：`node=StepNode::Cleanup`、
+/// `prompt_ref=None`、`on_fail=None`（尽力语义驻 walker 执行体，声明面与其余
+/// 步一致——非 agent 步零 prompt、无独立失败语义）；两表（requirement /
+/// test-only）archive 相位同面在案。
+#[test]
+fn archive_cleanup步声明形态_node与prompt_ref与on_fail() {
+    for workflow_type in ["requirement", "test-only"] {
+        let table = phase_table(workflow_type).expect("相位表应可达");
+        let archive = table
+            .iter()
+            .find(|def| def.id == "archive")
+            .expect("archive 相位应在表内");
+        let cleanup = archive
+            .steps
+            .iter()
+            .find(|step| step.node == StepNode::Cleanup)
+            .unwrap_or_else(|| panic!("{workflow_type} 表 archive 应含 Cleanup 步"));
+        assert_eq!(cleanup.node, StepNode::Cleanup, "{workflow_type} 表节点词");
+        assert_eq!(
+            cleanup.prompt_ref, None,
+            "{workflow_type} 表 Cleanup prompt_ref 恒 None（非 agent 步）"
+        );
+        assert_eq!(
+            cleanup.on_fail, None,
+            "{workflow_type} 表 Cleanup on_fail 恒 None（尽力语义驻 walker）"
+        );
+        // 分组派生：Git 组（与 commit / rebase / merge / finalize 同族）
+        assert_eq!(
+            cleanup.node.group(),
+            crate::state::StepGroup::Git,
+            "{workflow_type} 表 Cleanup 归 Git 分组"
+        );
+        assert_eq!(cleanup.node.role(), None, "Cleanup 恒非 agent 步");
+    }
+}
+
+/// 两 workflow_type 共用同一 static 单源（正向）：requirement 与 test-only 的
+/// archive 步序逐位一致且 steps 切片指针等值（复用即单源——`ARCHIVE_STEPS`
+/// 声明自然出线，零函数改动、零表复制）。
+#[test]
+fn archive两表共用同一static单源_步序逐位一致() {
+    let requirement = phase_table("requirement").expect("requirement 应返回 Some");
+    let test_only = phase_table("test-only").expect("test-only 应返回 Some");
+    let lhs = phase_of(requirement, "archive");
+    let rhs = phase_of(test_only, "archive");
+
+    assert_eq!(
+        lhs.steps, rhs.steps,
+        "两表 archive 步序逐位等值（同一 static 引用）"
+    );
+    assert!(
+        std::ptr::eq(lhs.steps.as_ptr(), rhs.steps.as_ptr()),
+        "两表 archive steps 共用同一 static（指针等值——扩步单源不漂移）"
+    );
+}
+
+/// 十一步词表与 `StepNode` 二十值封闭集对照（枚举遍历）：archive 步词无漂移、
+/// 无重复、全在封闭集内——十一词各恰出现一次且逐一经 serde 往返可辨（扩步不
+/// 引入退役词 / 越集词）。
+#[test]
+fn archive十一步词表与step_node二十值封闭集对照() {
+    let table = phase_table("requirement").expect("requirement 应返回 Some");
+    let archive = table
+        .iter()
+        .find(|def| def.id == "archive")
+        .expect("archive 相位应在表内");
+
+    // 步词无重复：十一词去重后仍 11（无重复插入）
+    let mut words: Vec<&str> = archive.steps.iter().map(|step| step.node.as_str()).collect();
+    assert_eq!(words.len(), 11, "十一步词表");
+    let total = words.len();
+    words.sort_unstable();
+    words.dedup();
+    assert_eq!(words.len(), total, "步词无重复: {words:?}");
+
+    // 全在 StepNode 二十值封闭集内：逐词 serde 往返可辨（越集词即败）+ 与
+    // RunStepKind 同词面（落库零映射）
+    for step in archive.steps {
+        let word = step.node.as_str();
+        let back: StepNode = serde_json::from_value(serde_json::json!(word))
+            .unwrap_or_else(|_| panic!("归档步词 {word:?} 应在二十值封闭集内"));
+        assert_eq!(back, step.node, "步词 {word:?} 往返逐词可辨");
+        assert_eq!(
+            serde_json::to_value(step.node).expect("出线应成功"),
+            serde_json::json!(word),
+            "wire 词面与 as_str 一致: {word}"
         );
     }
 }

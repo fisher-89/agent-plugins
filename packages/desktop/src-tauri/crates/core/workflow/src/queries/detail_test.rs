@@ -1273,8 +1273,9 @@ fn run_edge_row(
     }
 }
 
-/// 十九值全词汇（节点出线零过滤断言面；含归档 8 步词与拆步新词 mutation_test）。
-const ALL_STEP_KINDS: [RunStepKind; 19] = [
+/// 二十值全词汇（节点出线零过滤断言面；含归档 9 步词（cleanup 尽力步新臂在
+/// 案）与拆步新词 mutation_test）。
+const ALL_STEP_KINDS: [RunStepKind; 20] = [
     RunStepKind::Executor,
     RunStepKind::Evaluator,
     RunStepKind::Decision,
@@ -1292,6 +1293,7 @@ const ALL_STEP_KINDS: [RunStepKind; 19] = [
     RunStepKind::ResolveConflicts,
     RunStepKind::Merge,
     RunStepKind::SpecSync,
+    RunStepKind::Cleanup,
     RunStepKind::Seal,
     RunStepKind::Finalize,
 ];
@@ -1427,11 +1429,12 @@ fn 详情run史出线_两run全史投影与时间iso口径() {
     );
 }
 
-/// 节点全词汇出线：一次覆盖十九值词汇的 run → 十九值全词汇在案（含
-/// phaseStart / phaseLog / 三门与 mutation_test 拆步新词），零过滤（AC-3 /
-/// AC-6 / AC-2 十九值零过滤）。
+/// 节点全词汇出线：一次覆盖二十值词汇的 run → 二十值全词汇在案（含
+/// phaseStart / phaseLog / 三门、mutation_test 拆步新词与 cleanup 尽力步新臂），
+/// 零过滤（AC-3 / AC-6 / AC-2 二十值零过滤——词汇扩展自动跟随、cleanup 无
+/// 静默丢弃）。
 #[test]
-fn 详情节点出线_十九值全词汇零过滤() {
+fn 详情节点出线_二十值全词汇零过滤() {
     let env = Env::new("run-nodes-vocab");
     env.seed(ID_RUNNED, "runned", T0, None);
     env.store.push_run(RunStateRecord {
@@ -1446,7 +1449,7 @@ fn 详情节点出线_十九值全词汇零过滤() {
 
     let detail = env.detail(ID_RUNNED);
     let nodes = &detail.runs[0].nodes;
-    assert_eq!(nodes.len(), 19, "十九值全词汇零过滤（含归档 8 步词与 mutation_test）");
+    assert_eq!(nodes.len(), 20, "二十值全词汇零过滤（含归档 9 步词与 mutation_test）");
     let projected: Vec<RunStepKind> = nodes.iter().map(|node| node.step).collect();
     assert_eq!(projected, ALL_STEP_KINDS.to_vec());
 
@@ -1478,10 +1481,57 @@ fn 详情节点出线_十九值全词汇零过滤() {
             "resolve_conflicts",
             "merge",
             "spec_sync",
+            "cleanup",
             "seal",
             "finalize",
         ]
     );
+}
+
+/// cleanup 节点投影形态（边界，worktree-cleanup-and-active-cap）：detail 出线
+/// 形态与归档 git 步族一致——`cleanup` snake 线词（serde wire 与 as_str 同源）、
+/// `phase=archive` 归档相位在案、字段形状（status / instanceNo / session null
+/// 面）与 commit 同构零特判（读面零过滤的形态锚）。
+#[test]
+fn 详情节点投影_cleanup词与归档git步族形态一致() {
+    let env = Env::new("run-nodes-cleanup");
+    env.seed(ID_RUNNED, "runned", T0, None);
+    env.store.push_run(RunStateRecord {
+        status: RunStatus::Completed,
+        finished_at: Some(t(19)),
+        ..run_row(ID_RUNNED, "run-archive", t(10), RunStatus::Completed)
+    });
+    // 归档 git 步族四节点（phase=archive；cleanup 与 commit 同构注入）
+    let mut commit = run_node_row("run-archive", ID_RUNNED, RunStepKind::Commit);
+    commit.phase = "archive".to_owned();
+    let mut cleanup = run_node_row("run-archive", ID_RUNNED, RunStepKind::Cleanup);
+    cleanup.phase = "archive".to_owned();
+    cleanup.detail = Some("已移除 worktree（/tmp/wt）".to_owned());
+    env.store.push_run_node(commit);
+    env.store.push_run_node(cleanup);
+
+    let detail = env.detail(ID_RUNNED);
+    let nodes = &detail.runs[0].nodes;
+    assert_eq!(nodes.len(), 2, "两节点全量出线（cleanup 零过滤）");
+    assert_eq!(nodes[1].step, RunStepKind::Cleanup, "cleanup 节点在案");
+    assert_eq!(nodes[1].phase, "archive", "归档相位在案");
+
+    // wire 形态与 commit 同构：step wire 词 `cleanup`（snake 线词）、camelCase
+    // 键、null 不省键——归档 git 步族一致、零特判
+    let value = serde_json::to_value(&detail).expect("序列化应成功");
+    let wire_nodes = value["runs"][0]["nodes"].as_array().expect("nodes 数组");
+    assert_eq!(wire_nodes[1]["step"], serde_json::json!("cleanup"));
+    assert_eq!(wire_nodes[1]["phase"], serde_json::json!("archive"));
+    assert_eq!(
+        wire_nodes[1]["detail"], serde_json::json!("已移除 worktree（/tmp/wt）"),
+        "detail 载荷透传（尽力步警告面）"
+    );
+    assert_eq!(
+        wire_nodes[1]["sessionId"],
+        serde_json::Value::Null,
+        "git 步族会话槽恒 null（与 commit 同构）"
+    );
+    assert_eq!(nodes[0].step, RunStepKind::Commit, "对拍锚：commit 同族在案");
 }
 
 /// 稳定实例键出线：feedback 重跑两节点同 `(phase, attempt, step)` 而
@@ -1994,9 +2044,9 @@ fn archive空checklist落账投影为pass尝试记录() {
     assert_eq!(wire["decisionSessionId"], serde_json::Value::Null);
 }
 
-/// 归档节点会话与跳过因投影（正向）：归档十步节点全落库时，`session_id` 仅
+/// 归档节点会话与跳过因投影（正向）：归档十一步节点全落库时，`session_id` 仅
 /// SpecSync / ResolveConflicts 在案、其余 None；`detail` 携跳过因（干净 / 已落盘 /
-/// 无 delta / 用户选择 / 双写续半边）（AC-6 / 数据模型）。
+/// 无 delta / 用户选择 / 双写续半边 / 已移除）（AC-6 / 数据模型）。
 #[test]
 fn 归档节点会话面与跳过因投影() {
     let env = Env::new("run-archive-nodes");
@@ -2007,7 +2057,7 @@ fn 归档节点会话面与跳过因投影() {
         ..run_row(ID_RUNNED, "run-archive", t(10), RunStatus::Completed)
     });
 
-    // 归档十步节点（phase = archive；仅两个 agent 会话步携 session_id）
+    // 归档十一步节点（phase = archive；仅两个 agent 会话步携 session_id）
     let archive_nodes: &[(RunStepKind, Option<&str>, Option<&str>)] = &[
         (RunStepKind::PhaseStart, None, None),
         (RunStepKind::Preflight, None, None),
@@ -2028,6 +2078,11 @@ fn 归档节点会话面与跳过因投影() {
             Some("ses-spec-sync"),
             Some("用户选择跳过 spec 同步（跳过）"),
         ),
+        (
+            RunStepKind::Cleanup,
+            None,
+            Some("已移除 worktree（/tmp/wt/add-feature）"),
+        ),
         (RunStepKind::Seal, None, Some("双写收口（落盘续半边）")),
         (
             RunStepKind::Finalize,
@@ -2046,7 +2101,7 @@ fn 归档节点会话面与跳过因投影() {
 
     let detail = env.detail(ID_RUNNED);
     let nodes = &detail.runs[0].nodes;
-    assert_eq!(nodes.len(), 10, "归档十步节点全量在案");
+    assert_eq!(nodes.len(), 11, "归档十一步节点全量在案");
     let steps: Vec<RunStepKind> = nodes.iter().map(|node| node.step).collect();
     assert_eq!(
         steps,
@@ -2058,11 +2113,12 @@ fn 归档节点会话面与跳过因投影() {
             RunStepKind::ResolveConflicts,
             RunStepKind::Merge,
             RunStepKind::SpecSync,
+            RunStepKind::Cleanup,
             RunStepKind::Seal,
             RunStepKind::Finalize,
             RunStepKind::PhaseLog,
         ],
-        "归档十步序逐位在案"
+        "归档十一步序逐位在案"
     );
     // 会话面：仅两个 agent 会话步携 session_id
     let with_session: Vec<RunStepKind> = nodes

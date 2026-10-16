@@ -521,3 +521,90 @@ describe('RunControlPanel：error 呈现与终态记因（runs 尾行，D9）', 
     }
   });
 });
+
+// ---------------------------------------------------------------------------
+// ArchiveMergeNotice 清理告知（worktree-cleanup-and-active-cap / AC-8 / D8）：
+// worktree 记录在场才渲染「提交 + 合入 + 收口后自动移除 worktree（分支保留）」
+// 文案；legacy 零清理告知；inform + confirm 语义不变（警告不阻断）
+// ---------------------------------------------------------------------------
+
+describe('RunControlPanel：归档卡片清理告知（AC-8 / D8）', () => {
+  /** 归档前置只读载荷 fixture（八字段形；逐用例按需覆盖）。 */
+  function preflight(overrides: Partial<ArchivePreflight> = {}): ArchivePreflight {
+    return {
+      name: 'add-feature',
+      completed: true,
+      incompletePhases: [],
+      missingArtifacts: [],
+      deltaSpecs: [],
+      worktree: '/tmp/wt/add-feature',
+      branch: 'change/add-feature',
+      mergeTarget: 'main',
+      ...overrides,
+    };
+  }
+
+  it('worktree 记录在场：告知文案含「将执行提交 + 合入主仓当前分支：{mergeTarget}」与「收口后自动移除 worktree（分支 {branch} 保留）」', () => {
+    renderPanel(runStub(), {
+      activeRun: activeRun({
+        status: 'waitingConfirm',
+        phase: 'archive',
+        attempt: 1,
+        archive: preflight(),
+      }),
+      lastRun: null,
+    });
+
+    const notice = screen.getByTestId('run-archive-merge-target');
+    expect(notice.textContent).toContain('将执行提交 + 合入主仓当前分支：');
+    expect(notice.textContent).toContain('main');
+    expect(notice.textContent).toContain('收口后自动移除 worktree');
+    expect(notice.textContent).toContain('分支');
+    expect(notice.textContent).toContain('change/add-feature');
+    expect(notice.textContent).toContain('保留');
+  });
+
+  it('legacy（worktree === null）：零清理告知行——卡片不含「自动移除」文案与 merge-target 行，其余面照常', () => {
+    renderPanel(runStub(), {
+      activeRun: activeRun({
+        status: 'waitingConfirm',
+        phase: 'archive',
+        attempt: 1,
+        archive: preflight({ worktree: null, branch: null, mergeTarget: null }),
+      }),
+      lastRun: null,
+    });
+
+    const card = screen.getByTestId('run-archive-confirm-card');
+    expect(card).toBeDefined();
+    expect(screen.queryByTestId('run-archive-merge-target')).toBeNull();
+    expect(card.textContent).not.toContain('自动移除');
+    // 归档卡片其余面照常：警告不阻断语义不变（proceed / stop 两动作在场）
+    expect(screen.getByTestId('run-archive-confirm-proceed') !== null).toBe(true);
+    expect(screen.getByTestId('run-archive-confirm-stop') !== null).toBe(true);
+  });
+
+  it('卡片头动作清单句含「自动移除 worktree」（worktree 记录在场才缀入），inform + confirm 载荷回归不变', () => {
+    const confirm = vi.fn(async () => {});
+    renderPanel(runStub({ confirm }), {
+      activeRun: activeRun({
+        status: 'waitingConfirm',
+        phase: 'archive',
+        attempt: 1,
+        archive: preflight(),
+      }),
+      lastRun: null,
+    });
+
+    const card = screen.getByTestId('run-archive-confirm-card');
+    expect(card.textContent).toContain('提交 worktree / 合入主仓 / 同步 delta specs /');
+    expect(card.textContent).toContain('自动移除 worktree');
+    expect(card.textContent).toContain('双写收口');
+
+    // confirm 载荷回归不变：proceed 携 (true, true)、stop 携 (false, true)
+    fireEvent.click(screen.getByTestId('run-archive-confirm-proceed'));
+    expect(confirm).toHaveBeenLastCalledWith(true, true);
+    fireEvent.click(screen.getByTestId('run-archive-confirm-stop'));
+    expect(confirm).toHaveBeenLastCalledWith(false, true);
+  });
+});

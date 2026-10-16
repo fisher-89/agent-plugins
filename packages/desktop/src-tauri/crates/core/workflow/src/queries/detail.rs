@@ -70,7 +70,7 @@ pub struct PhaseEntry {
     pub attempts: Vec<AttemptRecord>,
 }
 
-/// run 执行图节点行线面（十九值全词汇封闭集直出，词汇 = `state::RunStepKind`
+/// run 执行图节点行线面（二十值全词汇封闭集直出，词汇 = `state::RunStepKind`
 /// 单点；稳定身份键 `(phase, attempt, step, instanceNo)`，库读序 = node_seq 升序
 /// = emit 序）。
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]

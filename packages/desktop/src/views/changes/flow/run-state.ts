@@ -9,7 +9,9 @@ import type {
 import type { FlowRoleLabel, RunStepGroup, RuntimeFlowNode } from './types';
 
 /** 步词汇归一单点：库读史 snake 词（RunStepKind）→ 活面 camel 词
- *（ChangeStepKind）——十九值全词汇逐词对应（落库零过滤后读面同词汇）。 */
+ *（ChangeStepKind）——二十值全词汇逐词对应（落库零过滤后读面同词汇；
+ * cleanup 为 identity 词，走 `default` 分支直返——commit / rebase / merge /
+ * finalize / preflight / seal 同先例）。 */
 function normalizeKind(step: RunStepKind): ChangeStepKind {
   switch (step) {
     case 'static_check':
@@ -142,7 +144,7 @@ export function unifiedRunEdges(
 }
 
 /** 步词汇 → 节点分组（四类节点可辨）：归档步归组与后端 `StepNode::group()`
- * 同判——commit / rebase / merge / finalize 归 git、preflight / seal 归
+ * 同判——commit / rebase / merge / cleanup / finalize 归 git、preflight / seal 归
  * toolStep、specSync / resolveConflicts 归 workerAgent。 */
 function groupOf(step: ChangeStepKind): RunStepGroup {
   if (
@@ -154,7 +156,13 @@ function groupOf(step: ChangeStepKind): RunStepGroup {
   ) {
     return 'workerAgent';
   }
-  if (step === 'commit' || step === 'rebase' || step === 'merge' || step === 'finalize') {
+  if (
+    step === 'commit' ||
+    step === 'rebase' ||
+    step === 'merge' ||
+    step === 'cleanup' ||
+    step === 'finalize'
+  ) {
     return 'git';
   }
   if (step === 'verdictGate' || step === 'retryGate' || step === 'whitelistGate') return 'gate';

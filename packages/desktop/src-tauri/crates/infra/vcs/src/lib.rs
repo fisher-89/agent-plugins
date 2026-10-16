@@ -158,4 +158,16 @@ impl ArchiveVcsPort for ProcessArchiveVcs {
     fn change_edit_patch(&self, root: &Path, base: &str) -> Result<String, String> {
         git::change_edit_patch(root, base)
     }
+
+    fn remove_worktree(&self, main_root: &Path, worktree: &Path) -> Result<(), String> {
+        let path = worktree.to_string_lossy().into_owned();
+        // 与 `ProcessWorktree`（create 补偿面）同一 `git::remove_worktree` 单点，
+        // 零新 spawn；`Err` 面附路径与手动清理指引（walker 吞为 detail 警告）
+        git::remove_worktree(main_root, worktree).map_err(|error| {
+            format!(
+                "worktree 移除失败（{path}）: {error}；\
+                 请手动执行 git worktree remove --force {path} 清理"
+            )
+        })
+    }
 }

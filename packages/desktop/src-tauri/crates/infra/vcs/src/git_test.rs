@@ -356,6 +356,58 @@ fn 补偿序组合_add后remove加delete全链主仓回初态() {
     assert!(!wt.exists(), "worktree 磁盘目录已回收");
 }
 
+/// remove_worktree 分支留存（边界，worktree-cleanup-and-active-cap / AC-7）：
+/// remove 后 branch `change/<name>` 仍在案——`worktree remove --force` 只回收
+/// 目录与登记、分支留存（既有注释语义断言面：清理步不触碰分支）。
+#[test]
+fn remove_worktree后分支留存_清理步零触碰() {
+    let _guard = lock_path();
+    let (_dir, root) = init_repo("remove-branch-kept");
+    let (_wt_dir, wt) = worktree_slot("remove-branch-kept");
+
+    git::add_worktree(&root, &wt, "change/fix-bug").expect("add 应成功");
+    assert_eq!(
+        git::branch_exists(&root, "change/fix-bug").expect("show-ref 应 Ok"),
+        true,
+        "前置：分支铸出在案"
+    );
+    git::remove_worktree(&root, &wt).expect("remove 应成功");
+
+    assert!(!wt.exists(), "worktree 目录回收");
+    assert_eq!(
+        git::branch_exists(&root, "change/fix-bug").expect("show-ref 应 Ok"),
+        true,
+        "branch change/<name> 留存（worktree remove 不动分支）"
+    );
+}
+
+/// remove_worktree 缺席路径（异常）：非 worktree 路径 / 不存在路径 → Err 原文
+/// 语义持衡（git 语境失败——Err 面行为不因 doc-only 改动漂移；语境组装归消费
+/// 侧 `ProcessArchiveVcs`）。
+#[test]
+fn remove_worktree缺席路径err原文语义持衡() {
+    let _guard = lock_path();
+    let (_dir, root) = init_repo("remove-absent");
+
+    // 形态一：从未存在的路径
+    let absent = root.join("no-such-worktree");
+    let error = git::remove_worktree(&root, &absent).expect_err("缺席路径应 Err");
+    assert!(
+        !error.contains("git 不可用"),
+        "Err 为 git 语境失败而非环境缺失: {error}"
+    );
+
+    // 形态二：存在但非 worktree 的普通目录
+    let (_plain_dir, plain) = plain_dir("remove-not-wt");
+    let error = git::remove_worktree(&root, &plain).expect_err("非 worktree 目录应 Err");
+    assert!(
+        !error.contains("git 不可用"),
+        "Err 为 git 语境失败: {error}"
+    );
+    // 普通目录零回收（失败面不吞目录）
+    assert!(plain.join("not-a-repo.txt").is_file(), "非 worktree 目录零触碰");
+}
+
 // ---------------------------------------------------------------------------
 // 归档子命令族 + ProcessArchiveVcs（test-design「git.rs -> git_test.rs」扩展节：
 // 真实 git tempdir 夹具——D9 实验定锚的测试形态同源。挂 AC-3 提交 / 合入 /

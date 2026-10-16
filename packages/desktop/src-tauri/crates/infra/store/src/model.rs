@@ -946,7 +946,7 @@ pub struct RunNodeRecord {
     pub change_id: String,
     pub phase: String,
     pub attempt: u32,
-    /// 步词汇（十九值全词汇封闭集，core 域枚举直用）
+    /// 步词汇（二十值全词汇封闭集，core 域枚举直用）
     pub step: RunStepKind,
     /// 同 `(phase, attempt, step)` 内的执行实例号（feedback 重跑为递增新节点）
     pub instance_no: u32,

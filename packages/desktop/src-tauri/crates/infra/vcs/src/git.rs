@@ -113,7 +113,9 @@ pub(crate) fn add_worktree(main_root: &Path, worktree: &Path, branch: &str) -> R
 }
 
 /// worktree 补偿移除：`git worktree remove --force <path>`（补偿面，尽力
-/// 回收；目录登记与磁盘目录一并清）。
+/// 回收；目录登记与磁盘目录一并清）。create 补偿面之外由归档相位 Cleanup 步
+/// 经 `ProcessArchiveVcs` 复用本单点（`--force` 带走 bootstrap 产物；零逻辑
+/// 改动，`Err` 面语境由消费侧组装）。
 pub(crate) fn remove_worktree(main_root: &Path, worktree: &Path) -> Result<(), String> {
     git(
         main_root,

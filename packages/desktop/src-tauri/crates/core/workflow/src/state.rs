@@ -222,7 +222,8 @@ pub enum StepGroup {
     /// agent 会话步（executor / evaluator / decision / spec-sync /
     /// resolve-conflicts）
     Agent,
-    /// vcs 步（commit / rebase / merge / finalize——独立 vcs 缝进程 spawn）
+    /// vcs 步（commit / rebase / merge / cleanup / finalize——独立 vcs 缝进程
+    /// spawn）
     Git,
     /// 纯 Rust 分支门（verdict / retry / whitelist 三门）
     Gate,
@@ -245,9 +246,9 @@ pub enum AgentRole {
     ResolveConflicts,
 }
 
-/// 计划步节点全词汇（19 值封闭集，线格式 snake_case 词）：agent 阶段三角色、
+/// 计划步节点全词汇（20 值封闭集，线格式 snake_case 词）：agent 阶段三角色、
 /// 脚本阶段三检查步（static-check / test-execution / mutation-test）、流程面两步、
-/// 三门 gate 与归档 8 步。词汇本体单点——计划图声明（[`StepDefinition::node`]）
+/// 三门 gate 与归档 9 步。词汇本体单点——计划图声明（[`StepDefinition::node`]）
 /// 与执行图落库（[`RunStepKind`]）同词面 1:1 全映射。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Type)]
 #[serde(rename_all = "snake_case")]
@@ -286,6 +287,8 @@ pub enum StepNode {
     Merge,
     /// 归档 delta specs 同步步（agent 会话）
     SpecSync,
+    /// 归档 worktree 清理步（vcs.remove_worktree 尽力步）
+    Cleanup,
     /// 归档双写收口步（写面 `archive`；内联步）
     Seal,
     /// 归档落盘提交步（vcs.commit_paths；已落盘则跳过）
@@ -313,14 +316,15 @@ impl StepNode {
             StepNode::ResolveConflicts => "resolve_conflicts",
             StepNode::Merge => "merge",
             StepNode::SpecSync => "spec_sync",
+            StepNode::Cleanup => "cleanup",
             StepNode::Seal => "seal",
             StepNode::Finalize => "finalize",
         }
     }
 
     /// 四类节点分组（派生访问器；MUST NOT 落独立冗余字段）。归档步归组：git 步
-    ///（commit / rebase / merge / finalize）→ Git、内联步（preflight / seal）→
-    /// Exec、agent 步（spec_sync / resolve_conflicts）→ Agent。
+    ///（commit / rebase / merge / cleanup / finalize）→ Git、内联步（preflight /
+    /// seal）→ Exec、agent 步（spec_sync / resolve_conflicts）→ Agent。
     pub fn group(self) -> StepGroup {
         match self {
             StepNode::Executor
@@ -335,7 +339,11 @@ impl StepNode {
             | StepNode::PhaseLog
             | StepNode::Preflight
             | StepNode::Seal => StepGroup::Exec,
-            StepNode::Commit | StepNode::Rebase | StepNode::Merge | StepNode::Finalize => {
+            StepNode::Commit
+            | StepNode::Rebase
+            | StepNode::Merge
+            | StepNode::Cleanup
+            | StepNode::Finalize => {
                 StepGroup::Git
             }
             StepNode::VerdictGate | StepNode::RetryGate | StepNode::WhitelistGate => {
@@ -361,6 +369,7 @@ impl StepNode {
             | StepNode::Commit
             | StepNode::Rebase
             | StepNode::Merge
+            | StepNode::Cleanup
             | StepNode::Seal
             | StepNode::Finalize
             | StepNode::VerdictGate
@@ -448,11 +457,11 @@ impl RunStatus {
     }
 }
 
-/// run 步词汇封闭集（**十九值全词汇**，线格式 snake_case 词）：agent 阶段
+/// run 步词汇封闭集（**二十值全词汇**，线格式 snake_case 词）：agent 阶段
 ///（executor / evaluator / decision）、脚本阶段（static_check / test_execution /
 /// mutation_test）、流程面步骤（phase_start / phase_log）、三门 gate（verdict_gate、
-/// retry_gate、whitelist_gate）与归档 8 步（preflight / commit / rebase /
-/// resolve_conflicts / merge / spec_sync / seal / finalize）。词汇本体单点——落库命令
+/// retry_gate、whitelist_gate）与归档 9 步（preflight / commit / rebase /
+/// resolve_conflicts / merge / spec_sync / cleanup / seal / finalize）。词汇本体单点——落库命令
 ///（`RunNodeEntry.step`）与查询投影（`detail.rs`）同本类型消费，落库零过滤
 ///（旧 5 值词表的过滤谓词已退役）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Type)]
@@ -492,6 +501,8 @@ pub enum RunStepKind {
     Merge,
     /// 归档 delta specs 同步步（agent 会话）
     SpecSync,
+    /// 归档 worktree 清理步（vcs.remove_worktree 尽力步）
+    Cleanup,
     /// 归档双写收口步（内联步）
     Seal,
     /// 归档落盘提交步（vcs）
@@ -519,6 +530,7 @@ impl RunStepKind {
             RunStepKind::ResolveConflicts => "resolve_conflicts",
             RunStepKind::Merge => "merge",
             RunStepKind::SpecSync => "spec_sync",
+            RunStepKind::Cleanup => "cleanup",
             RunStepKind::Seal => "seal",
             RunStepKind::Finalize => "finalize",
         }
@@ -641,7 +653,7 @@ pub struct RunStartCommand {
     pub started_at: i64,
 }
 
-/// run 节点整包条目（finish 载荷内联；词汇 = [`RunStepKind`] 十九值全词汇，零
+/// run 节点整包条目（finish 载荷内联；词汇 = [`RunStepKind`] 二十值全词汇，零
 /// 过滤）。`node_seq` 由整包下标盖戳（store 侧组装打包主键）。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RunNodeEntry {
@@ -782,7 +794,7 @@ pub trait ChangeStateStore: Send + Sync {
     /// 稳定序由实现保证）。
     fn list_runs(&self, change_id: &str) -> Result<Vec<RunStateRecord>, StoreFault>;
 
-    /// run 执行图节点行（`run_id` 圈定，node_seq 升序 = emit 序；十九值全词汇
+    /// run 执行图节点行（`run_id` 圈定，node_seq 升序 = emit 序；二十值全词汇
     /// 零过滤——读面与写面同一份封闭集）。
     fn list_run_nodes(&self, run_id: &str) -> Result<Vec<RunNodeStateRecord>, StoreFault>;
 

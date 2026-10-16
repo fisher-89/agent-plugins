@@ -1,8 +1,10 @@
-//! change 创建写操作（建域四段组合，design D2/D3/D4/D5）：前置七道校验
+//! change 创建写操作（建域四段组合，design D2/D3/D4/D5）：前置九道校验
 //!（名称 kebab-case + 长度 → goal 非空白 → 主仓 active 目录已存在 → db 同名
-//! active 建档 → git 探测三态（不可发现 / 非 git 仓 / 空仓，MUST NOT 静默回退
-//! 主 root 创建）→ branch `change/<name>` 冲突 → worktree 目录冲突——全部在
-//! 任何 IO 之前，拒绝面零目录零记录零 vcs 调用）→ 铸出 uuid v7 形态 id →
+//! active 建档 → active 建档数上限（`ACTIVE_CHANGE_LIMIT` 硬编码）→ worktree
+//! 磁盘保底门槛（上限 + `WORKTREE_DIR_SLACK` 派生）→ git 探测三态（不可发现 /
+//! 非 git 仓 / 空仓，MUST NOT 静默回退主 root 创建）→ branch `change/<name>`
+//! 冲突 → worktree 目录冲突——全部在任何 IO 之前，拒绝面零目录零记录零 vcs
+//! 调用）→ 铸出 uuid v7 形态 id →
 //! db 建档先行（携 id / `worktree` / `base_commit`）→ `git worktree add`
 //!（HEAD 基线铸分支）→ worktree 内建
 //! `openspec/changes/<n>/` 目录树与 explore.md → 脏仓警告 → 确定性 bootstrap
@@ -33,6 +35,15 @@ const MAX_NAME_LENGTH: usize = 128;
 
 /// worktree 建域分支前缀（branch = `change/<name>`）。
 const CHANGE_BRANCH_PREFIX: &str = "change/";
+
+/// active change 建档数上限（前置⑧；源码常量不进 `config.json`，沿
+/// `FEEDBACK_LOOP_LIMIT` 先例——配置面先例是用户域配置非流程护栏）。
+const ACTIVE_CHANGE_LIMIT: usize = 5;
+
+/// worktree 磁盘保底门槛冗余量（前置⑨门槛 = [`ACTIVE_CHANGE_LIMIT`] + 本值
+/// 派生：db 与磁盘漂移防线——孤儿 worktree / 手动残留不占 active 额度但占磁
+/// 盘，+2 容忍既有在途漂移）。
+const WORKTREE_DIR_SLACK: usize = 2;
 
 /// bootstrap 映射表（驻 create 私有常量，首匹配序，worktree 根探测；
 /// design D4）：已知 lockfile → 冻结锁面安装命令（零 diff 污染——
@@ -116,8 +127,8 @@ pub(crate) fn utc_date(millis: i64) -> String {
     )
 }
 
-/// 创建 change（建域四段组合）：前置七道校验全 IO 前置（拒绝面零 worktree、
-/// 零建档、零目录）→ db 建档先行（`worktree` / `base_commit` 入记录）→
+/// 创建 change（建域四段组合）：前置九道校验全 IO 前置（拒绝面零 worktree、
+/// 零建档、零目录、零 branch 触碰）→ db 建档先行（`worktree` / `base_commit` 入记录）→
 /// worktree add（HEAD 基线铸 `change/<name>` 分支）→ worktree 内目录树 +
 /// explore.md（goal 原文直写，UTF-8 零结构包装）→ 脏仓警告 → bootstrap。
 /// 双根注入：`main_root` 主仓根（目录冲突检查 + git 命令 `-C` 锚）、
@@ -185,6 +196,39 @@ pub fn create(
             ChangeStatus::Active.as_str()
         ));
     }
+    // 前置⑧：active 建档数上限（worktree 生命周期护栏；archived 记录不计入。
+    // 全 IO 前置——位于 git 探测之前，拒绝面零 vcs 调用零建档零目录零 worktree）
+    let active_count = store
+        .list_change_records()
+        .map_err(|error| error.to_string())?
+        .iter()
+        .filter(|record| record.status == ChangeStatus::Active)
+        .count();
+    if active_count >= ACTIVE_CHANGE_LIMIT {
+        return Err(format!(
+            "active change 数已达上限（当前 {active_count}，上限 {ACTIVE_CHANGE_LIMIT}）：\
+             请先归档或手动清理后再创建"
+        ));
+    }
+    // 前置⑨：worktree 磁盘保底门槛（db 与磁盘漂移防线：孤儿 worktree / 手动
+    // 残留不占 active 额度但占磁盘。`worktree_root` 即 `worktrees/{身份段}/`
+    // 父锚，直属子目录逐目录计数；目录不存在（尚无 worktree 面）计 0，其余读
+    // 错误显式 Err——误扫成 0 会绕过门槛）
+    let worktree_dirs = match fs::read_dir(worktree_root) {
+        Ok(entries) => entries
+            .filter_map(|entry| entry.ok())
+            .filter(|entry| entry.file_type().map(|t| t.is_dir()).unwrap_or(false))
+            .count(),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => 0,
+        Err(error) => return Err(format!("worktree 目录扫描失败: {error}")),
+    };
+    let worktree_threshold = ACTIVE_CHANGE_LIMIT + WORKTREE_DIR_SLACK;
+    if worktree_dirs > worktree_threshold {
+        return Err(format!(
+            "worktree 目录数已达保底门槛（当前 {worktree_dirs}，门槛 {worktree_threshold}）：\
+             请先以 git worktree list 对账并手动清理后再创建"
+        ));
+    }
     // 前置⑤：git 探测三态（git 不可发现 / 非 git 仓 / 空仓无 HEAD 显式 Err
     // 引导——MUST NOT 静默回退主 root 创建；probe 产出同时是基线与脏仓源）
     let probe = vcs.probe(main_root)?;
@@ -206,7 +250,7 @@ pub fn create(
 
     // 执行段一：db 建档先行（fs / vcs 失败可补偿；反向则出现被禁破口
     // 「worktree 在而记录缺」）——携 id / worktree / base_commit 执行锚。
-    // id 铸出点（D1）：前置七道全过后、建档之前直铸 uuid v7（与 created_at
+    // id 铸出点（D1）：前置九道全过后、建档之前直铸 uuid v7（与 created_at
     // 同段；纯 id 生成无 IO 无 vcs 调用，拒绝面零铸出）
     let id = uuid::Uuid::now_v7().to_string();
     let created_at = super::now_millis();

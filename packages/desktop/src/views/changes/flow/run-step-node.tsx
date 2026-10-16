@@ -37,6 +37,7 @@ const STEP_LABEL: Record<ChangeStepKind, string> = {
   resolveConflicts: '解冲突',
   merge: '主仓合入',
   specSync: 'spec 同步',
+  cleanup: 'worktree 清理',
   seal: '归档收口',
   finalize: '归档落盘',
 };

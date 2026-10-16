@@ -30,8 +30,8 @@ function runtimeNode(overrides: Partial<RuntimeFlowNode> = {}): RuntimeFlowNode 
   };
 }
 
-/** 十九步词汇 → 分组徽章 / 步文案 / role 三面期望表（与 run-state.ts 分组同源；
-   含归档 8 步词、git 四步的 Git 徽章面与拆步新词 mutationTest）。 */
+/** 二十步词汇 → 分组徽章 / 步文案 / role 三面期望表（与 run-state.ts 分组同源；
+   含归档 9 步词、git 五步（cleanup 尽力步）的 Git 徽章面与拆步新词 mutationTest）。 */
 const FAMILIES: Array<{
   runStepKind: ChangeStepKind;
   group: RuntimeFlowNode['group'];
@@ -112,6 +112,7 @@ const FAMILIES: Array<{
     label: 'spec 同步',
     role: 'spec_sync',
   },
+  { runStepKind: 'cleanup', group: 'git', badge: 'Git', label: 'worktree 清理', role: null },
   { runStepKind: 'seal', group: 'toolStep', badge: 'ToolStep', label: '归档收口', role: null },
   { runStepKind: 'finalize', group: 'git', badge: 'Git', label: '归档落盘', role: null },
 ];
@@ -127,8 +128,8 @@ function renderNode(node: RuntimeFlowNode) {
 }
 
 describe('RunStepNode：三分类徽章可辨（AC-5 可辨半边）', () => {
-  it('十九步词汇逐词渲染：WorkerAgent / ToolStep / Git / Gate 徽章文案、步文案、data-run-group 标记逐族对应', () => {
-    expect(FAMILIES).toHaveLength(19);
+  it('二十步词汇逐词渲染：WorkerAgent / ToolStep / Git / Gate 徽章文案、步文案、data-run-group 标记逐族对应', () => {
+    expect(FAMILIES).toHaveLength(20);
     for (const family of FAMILIES) {
       const rendered = renderNode(
         runtimeNode({
@@ -180,8 +181,8 @@ describe('RunStepNode：三分类徽章可辨（AC-5 可辨半边）', () => {
     gate.unmount();
   });
 
-  it('git 徽章变体：archive 相位 git 步（commit / rebase / merge / finalize）渲染 Git 徽章与 secondary 变体', () => {
-    for (const kind of ['commit', 'rebase', 'merge', 'finalize'] as ChangeStepKind[]) {
+  it('git 徽章变体：archive 相位 git 步（commit / rebase / merge / cleanup / finalize）渲染 Git 徽章与 secondary 变体', () => {
+    for (const kind of ['commit', 'rebase', 'merge', 'cleanup', 'finalize'] as ChangeStepKind[]) {
       const rendered = renderNode(
         runtimeNode({
           id: `run:archive:1:${kind}`,
@@ -200,7 +201,7 @@ describe('RunStepNode：三分类徽章可辨（AC-5 可辨半边）', () => {
     }
   });
 
-  it('归档步词文案逐词在案：STEP_LABEL 十九值穷举可查（8 归档步词各携人读文案）', () => {
+  it('归档步词文案逐词在案：STEP_LABEL 二十值穷举可查（9 归档步词各携人读文案）', () => {
     const expected: Array<[ChangeStepKind, string, RuntimeFlowNode['group']]> = [
       ['preflight', '归档前置', 'toolStep'],
       ['commit', 'worktree 提交', 'git'],
@@ -208,6 +209,7 @@ describe('RunStepNode：三分类徽章可辨（AC-5 可辨半边）', () => {
       ['resolveConflicts', '解冲突', 'workerAgent'],
       ['merge', '主仓合入', 'git'],
       ['specSync', 'spec 同步', 'workerAgent'],
+      ['cleanup', 'worktree 清理', 'git'],
       ['seal', '归档收口', 'toolStep'],
       ['finalize', '归档落盘', 'git'],
     ];
@@ -431,7 +433,7 @@ describe('RunStepNode：mutationTest 步节点（AC-2）', () => {
     }
   });
 
-  it('STEP_LABEL 键集恰等：十九词全词汇逐词渲染零缺键（编译期穷尽表的运行时兜底）', () => {
+  it('STEP_LABEL 键集恰等：二十词全词汇逐词渲染零缺键（编译期穷尽表的运行时兜底）', () => {
     const ALL_KINDS: ChangeStepKind[] = [
       'executor',
       'evaluator',
@@ -450,10 +452,11 @@ describe('RunStepNode：mutationTest 步节点（AC-2）', () => {
       'resolveConflicts',
       'merge',
       'specSync',
+      'cleanup',
       'seal',
       'finalize',
     ];
-    expect(ALL_KINDS).toHaveLength(19);
+    expect(ALL_KINDS).toHaveLength(20);
     for (const kind of ALL_KINDS) {
       const rendered = renderNode(
         runtimeNode({
@@ -518,5 +521,85 @@ describe('RunStepNode：mutationTest 渲染回归（异常载荷）', () => {
     const rendered = renderNode(broken);
     expect(screen.getByTestId('run-step-node')).toBeTruthy();
     rendered.unmount();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// cleanup 步节点（worktree-cleanup-and-active-cap / AC-9）：STEP_LABEL 新键 +
+// git 组徽章 + detail 载荷降级面持衡
+// ---------------------------------------------------------------------------
+
+describe('RunStepNode：cleanup 步节点（worktree-cleanup-and-active-cap）', () => {
+  it('STEP_LABEL 新键：cleanup 渲染「worktree 清理」词条（data-testid="run-step-kind" 出线断言）', () => {
+    const rendered = renderNode(
+      runtimeNode({
+        id: 'run:archive:1:cleanup',
+        phase: 'archive',
+        runStepKind: 'cleanup',
+        group: 'git',
+        role: null,
+      }),
+    );
+    const node = screen.getByTestId('run-step-node');
+    expect(within(node).getByTestId('run-step-kind').textContent).toBe('worktree 清理');
+    // git 组徽章与 commit / rebase / merge / finalize 同列可辨（AC-9 观测半边）
+    expect(node.getAttribute('data-run-group')).toBe('git');
+    const badge = within(node).getByTestId('run-step-group');
+    expect(badge.textContent).toBe('Git');
+    expect(badge.className).toContain('bg-secondary');
+    rendered.unmount();
+  });
+
+  it('cleanup 节点 detail 载荷两态：警告摘要随行可读、载荷缺省（detail=null / sessionId=null）降级渲染不炸', () => {
+    // detail 有值（清理失败警告形态——尽力步 detail 面）
+    const withDetail = renderNode(
+      runtimeNode({
+        id: 'run:archive:1:cleanup:warn',
+        phase: 'archive',
+        runStepKind: 'cleanup',
+        group: 'git',
+        role: null,
+        status: 'passed',
+        detail: 'worktree 清理失败（尽力步，不影响归档收口）: git worktree remove --force 清理',
+      }),
+    );
+    expect(screen.getByTestId('run-step-detail').textContent).toContain('worktree 清理失败');
+    withDetail.unmount();
+
+    // 载荷缺省形态（detail=null / sessionId=null）——扩键不改变缺省面
+    const withoutDetail = renderNode(
+      runtimeNode({
+        id: 'run:archive:1:cleanup:bare',
+        phase: 'archive',
+        runStepKind: 'cleanup',
+        group: 'git',
+        role: null,
+        status: 'passed',
+        detail: null,
+        sessionId: null,
+      }),
+    );
+    expect(screen.queryByTestId('run-step-detail')).toBeNull();
+    expect(
+      within(screen.getByTestId('run-step-node')).getByTestId('run-step-kind').textContent,
+    ).toBe('worktree 清理');
+    withoutDetail.unmount();
+  });
+
+  it('cleanup 四态视觉面持衡：running / passed / failed / stopped 渲染零崩溃（状态机照常吃）', () => {
+    for (const status of ['running', 'passed', 'failed', 'stopped'] as const) {
+      const rendered = renderNode(
+        runtimeNode({
+          id: `run:archive:1:cleanup:${status}`,
+          phase: 'archive',
+          runStepKind: 'cleanup',
+          group: 'git',
+          role: null,
+          status,
+        }),
+      );
+      expect(screen.getByTestId('run-step-node').getAttribute('data-run-status')).toBe(status);
+      rendered.unmount();
+    }
   });
 });

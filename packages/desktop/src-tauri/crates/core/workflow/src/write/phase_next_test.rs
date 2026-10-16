@@ -1357,9 +1357,9 @@ fn 错误响应不下发计划步与清单() {
 
 /// 归档前停等路由（正向）：前 8 路由相位（proposal…acceptance）全
 /// `verdict=pass` 落账后 → `phase_next` 返回 `next_phase=Some("archive")`（archive
-/// 未落账故 `all_passed` 为假），steps 随行十步序列、executor / evaluator 缺席
-///（archive `executor=None` / `evaluator=None`）、artifact_manifest 空
-///（AC-1 / AC-4 / AC-7 stop-before-archive 路由依据）。
+/// 未落账故 `all_passed` 为假），steps 随行十一步序列（Cleanup 尽力步随表自然
+/// 出线）、executor / evaluator 缺席（archive `executor=None` / `evaluator=None`）、
+/// artifact_manifest 空（AC-1 / AC-4 / AC-7 stop-before-archive 路由依据）。
 #[test]
 fn 八路由相位pass后路由至archive且零角色spec() {
     let entries = ROUTED_PHASES
@@ -1378,7 +1378,7 @@ fn 八路由相位pass后路由至archive且零角色spec() {
         "8 路由相位 pass 后下一相位即 archive"
     );
     assert!(outcome.error.is_none(), "归档路由非错误面");
-    assert_eq!(outcome.steps.len(), 10, "archive 十步序列随行下发");
+    assert_eq!(outcome.steps.len(), 11, "archive 十一步序列随行下发");
     assert_eq!(
         outcome.steps.first().map(|step| step.node),
         Some(crate::state::StepNode::PhaseStart)

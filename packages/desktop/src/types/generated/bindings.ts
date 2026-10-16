@@ -569,7 +569,7 @@ export type ChangeRunEntry = {
 };
 
 /**
- *  run 执行图节点行线面（十九值全词汇封闭集直出，词汇 = `state::RunStepKind`
+ *  run 执行图节点行线面（二十值全词汇封闭集直出，词汇 = `state::RunStepKind`
  *  单点；稳定身份键 `(phase, attempt, step, instanceNo)`，库读序 = node_seq 升序
  *  = emit 序）。
  */
@@ -627,7 +627,7 @@ export type ChangeStatus =
  *  步词汇（四类节点可辨）：WorkerAgent 步（executor / evaluator / decision /
  *  spec-sync / resolve-conflicts）+ 相位机 / 工具步（phase-start / phase-log /
  *  static-check / test-execution / mutation-test / preflight / seal）+ Git 步
- * （commit / rebase / merge / finalize）+ Gate 三门。
+ * （commit / rebase / merge / cleanup / finalize）+ Gate 三门。
  */
 export type ChangeStepKind = 
 /**  executor 会话 */
@@ -664,6 +664,8 @@ export type ChangeStepKind =
 "merge" | 
 /**  归档 delta specs 同步步（agent 会话） */
 "specSync" | 
+/**  归档 worktree 清理步（vcs，尽力步） */
+"cleanup" | 
 /**  归档双写收口步（内联步） */
 "seal" | 
 /**  归档落盘提交步（vcs） */
@@ -1069,11 +1071,11 @@ export type RunStatus =
 "interrupted";
 
 /**
- *  run 步词汇封闭集（**十九值全词汇**，线格式 snake_case 词）：agent 阶段
+ *  run 步词汇封闭集（**二十值全词汇**，线格式 snake_case 词）：agent 阶段
  * （executor / evaluator / decision）、脚本阶段（static_check / test_execution /
  *  mutation_test）、流程面步骤（phase_start / phase_log）、三门 gate（verdict_gate、
- *  retry_gate、whitelist_gate）与归档 8 步（preflight / commit / rebase /
- *  resolve_conflicts / merge / spec_sync / seal / finalize）。词汇本体单点——落库命令
+ *  retry_gate、whitelist_gate）与归档 9 步（preflight / commit / rebase /
+ *  resolve_conflicts / merge / spec_sync / cleanup / seal / finalize）。词汇本体单点——落库命令
  * （`RunNodeEntry.step`）与查询投影（`detail.rs`）同本类型消费，落库零过滤
  * （旧 5 值词表的过滤谓词已退役）。
  */
@@ -1112,6 +1114,8 @@ export type RunStepKind =
 "merge" | 
 /**  归档 delta specs 同步步（agent 会话） */
 "spec_sync" | 
+/**  归档 worktree 清理步（vcs.remove_worktree 尽力步） */
+"cleanup" | 
 /**  归档双写收口步（内联步） */
 "seal" | 
 /**  归档落盘提交步（vcs） */

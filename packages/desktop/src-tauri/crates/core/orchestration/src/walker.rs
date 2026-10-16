@@ -47,6 +47,7 @@ const TXT_SKIP_MERGED: &str = "已合入";
 const TXT_SKIP_NO_DELTA: &str = "无 delta specs";
 const TXT_SKIP_BY_USER: &str = "用户选择";
 const TXT_SKIP_LEGACY: &str = "legacy 无 worktree";
+const TXT_SKIP_ABSENT: &str = "worktree 已不在场，跳过清理";
 const TXT_SKIP_FINALIZED: &str = "已落盘";
 const TXT_NO_CONFLICT: &str = "无冲突";
 
@@ -579,7 +580,8 @@ async fn run_step(
             step_phase_log(ctx, trace, cursor).await?;
             Ok(StepFlow::Proceed)
         }
-        // ── 归档相位 8 步（步失败一律 Terminal：相位表 `on_fail = None`）──
+        // ── 归档相位 9 步（Cleanup 尽力步例外：失败仅 detail 警告恒 passed；
+        // 其余步失败一律 Terminal：相位表 `on_fail = None`）──
         StepNode::Preflight => {
             step_preflight(ctx, trace, cursor).await?;
             Ok(StepFlow::Proceed)
@@ -602,6 +604,10 @@ async fn run_step(
         }
         StepNode::SpecSync => {
             step_spec_sync(ctx, trace, cursor).await?;
+            Ok(StepFlow::Proceed)
+        }
+        StepNode::Cleanup => {
+            step_cleanup(ctx, trace, cursor).await?;
             Ok(StepFlow::Proceed)
         }
         StepNode::Seal => {
@@ -1728,8 +1734,9 @@ async fn step_verdict_gate_upgraded_phase_log(
 }
 
 // ---------------------------------------------------------------------------
-// 归档相位 8 步执行体（walker 独立 vcs 缝 + 归档两 agent 步；步失败一律
-// Terminal——相位表 `on_fail = None`，不唤决策、不进相位重试）
+// 归档相位 9 步执行体（walker 独立 vcs 缝 + 归档两 agent 步；Cleanup 为尽力
+// 步例外——失败仅 detail 警告、步恒 passed、链必收口，永不 Terminal；其余步
+// 失败一律 Terminal——相位表 `on_fail = None`，不唤决策、不进相位重试）
 // ---------------------------------------------------------------------------
 
 /// 归档步起点：分配实例号 + 落 incoming 边 + emit 运行中节点（git / 内联步与
@@ -2479,6 +2486,55 @@ async fn step_spec_sync(
         EdgeKind::Forward,
     )
     .await?;
+    Ok(())
+}
+
+/// 归档 Cleanup 步（vcs.remove_worktree 尽力步）：SpecSync 与 Seal 之间清场
+///——worktree 记录在案即移除（`--force` 带走 bootstrap 的 `node_modules` /
+/// `target`），legacy 与目录缺席（手动清 / 重试链）幂等跳过；移除失败吞为
+/// detail 警告——步恒 `passed`、链必收口（归档残留是警告不是回滚，永不
+/// `Terminal`）；branch `change/<name>` 全程零触碰。缺 preflight 载荷沿既有
+/// 计划漂移面 Terminal（非清理失败面）。
+async fn step_cleanup(
+    ctx: &StepContext<'_>,
+    trace: &mut EdgeTrace,
+    cursor: &mut PhaseCursor,
+) -> Result<(), Terminal> {
+    let kind = ChangeStepKind::Cleanup;
+    let instance_no = begin_archive_node(ctx, trace, cursor, kind);
+    let (_, worktree) = match archive_context(cursor) {
+        Ok(context) => context,
+        Err(terminal) => {
+            settle_archive_node(
+                ctx,
+                cursor,
+                kind,
+                instance_no,
+                StepSettle::failed(Some("缺归档前置载荷".to_owned())),
+            );
+            return Err(terminal);
+        }
+    };
+    let settle = match worktree {
+        None => StepSettle::passed(Some(TXT_SKIP_LEGACY.to_owned())),
+        Some(path) if !Path::new(&path).is_dir() => {
+            StepSettle::passed(Some(TXT_SKIP_ABSENT.to_owned()))
+        }
+        Some(path) => {
+            match ctx
+                .vcs
+                .remove_worktree(Path::new(&ctx.request.main_root), Path::new(&path))
+            {
+                Ok(()) => StepSettle::passed(Some(format!("已移除 worktree（{path}）"))),
+                // 尽力步：失败仅 detail 警告（err 已含路径与手动清理指引），
+                // 步恒 passed、Seal / Finalize / PhaseLog 照常续走
+                Err(error) => StepSettle::passed(Some(format!(
+                    "worktree 清理失败（尽力步，不影响归档收口）: {error}"
+                ))),
+            }
+        }
+    };
+    settle_archive_node(ctx, cursor, kind, instance_no, settle);
     Ok(())
 }
 

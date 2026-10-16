@@ -303,7 +303,9 @@ static TEST_EXECUTION_STEPS: &[StepDefinition] = &[
     },
 ];
 
-/// archive 相位步序列（10 步；确定性相位第二例）
+/// archive 相位步序列（11 步；确定性相位第二例；Cleanup 为尽力步——失败仅
+/// step detail 警告、步恒 passed，尽力语义驻 walker 执行体，`on_fail = None`
+/// 形态与其余步一致）
 static ARCHIVE_STEPS: &[StepDefinition] = &[
     StepDefinition {
         node: StepNode::PhaseStart,
@@ -337,6 +339,11 @@ static ARCHIVE_STEPS: &[StepDefinition] = &[
     },
     StepDefinition {
         node: StepNode::SpecSync,
+        prompt_ref: None,
+        on_fail: None,
+    },
+    StepDefinition {
+        node: StepNode::Cleanup,
         prompt_ref: None,
         on_fail: None,
     },

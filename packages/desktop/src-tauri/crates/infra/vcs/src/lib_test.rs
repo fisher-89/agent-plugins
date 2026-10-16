@@ -4,6 +4,13 @@
 //! 零清洗零截断（清洗权威在 create 前置，本函数零校验的负向锚）；目录名常
 //! 量与无状态装配入口。纯路径推导内存直驱（tempfile 仅取路径字符串，零 git
 //! 零 spawn）。
+//!
+//! `ProcessArchiveVcs.remove_worktree`（worktree-cleanup-and-active-cap / AC-5 /
+//! AC-7）：归档 Cleanup 步执行缝真件面——真实 git tempdir 驱动（`tempfile::
+//! TempDir` 隔离、worktree 落位与主仓分置；git 子进程为被测本体不 mock）：
+//! add 建位 → remove Ok 目录消失与 list 不再列出、转发对拍效果等值、Err 面
+//! 携路径与 `git worktree remove --force {path}` 手动指引、branch 零触碰、脏
+//! worktree 经 `--force` 仍可移除、无状态构造等值。
 
 use std::path::{Path, PathBuf};
 
@@ -340,4 +347,178 @@ async fn 组合链路_真实vcs取数注入fake_runner四参() {
             && runner_patch.contains("diff --git a/src/fresh.rs b/src/fresh.rs"),
         "多文件段头在案（段切片面原料）: {runner_patch}"
     );
+}
+
+// ---------------------------------------------------------------------------
+// ProcessArchiveVcs.remove_worktree（worktree-cleanup-and-active-cap / AC-5 /
+// AC-7）：归档 Cleanup 步执行缝真件面——委托既有 `git::remove_worktree` 单点
+//（与 ProcessWorktree 共点、零新 spawn），Err 面附路径与手动清理指引
+// ---------------------------------------------------------------------------
+
+/// worktree 落位目录（与主仓分置 tempdir——git_test `worktree_slot` 同式，
+/// 防仓内相对路径假绿）。
+fn archive_worktree_slot(tag: &str) -> (tempfile::TempDir, PathBuf) {
+    let dir = tempfile::Builder::new()
+        .prefix(&format!("vcs-lib-worktrees-{tag}-"))
+        .tempdir()
+        .expect("创建 worktree 临时目录失败");
+    let base = dir.path().join("wt");
+    (dir, base)
+}
+
+/// 正向：真实 git tempdir——`add_worktree` 建位 → `remove_worktree` Ok →
+/// worktree 目录移除、`git worktree list` 不再列出、主仓无损（AC-5 清理成功面）。
+#[test]
+fn process_archive_vcs_remove_worktree目录移除且list不再列出() {
+    let port = ProcessArchiveVcs::new();
+    let (_dir, root) = init_repo("remove-ok");
+    let (_wt_dir, wt) = archive_worktree_slot("remove-ok");
+
+    super::git::add_worktree(&root, &wt, "change/fix-bug")
+        .expect("add_worktree 应成功");
+    assert!(wt.is_dir(), "前置：worktree 目录在场");
+    // git 输出恒 POSIX 分隔符（Windows 路径对拍前归一化）
+    let wt_posix = wt.to_string_lossy().replace('\\', "/");
+    let list_before = git(&root, &["worktree", "list"]);
+    assert!(
+        list_before.contains(wt_posix.as_str()),
+        "前置：worktree list 列出该位: {list_before}"
+    );
+
+    port.remove_worktree(&root, &wt)
+        .expect("remove_worktree 应成功");
+
+    assert!(!wt.exists(), "worktree 磁盘目录已移除");
+    let list_after = git(&root, &["worktree", "list"]);
+    assert!(
+        !list_after.contains(wt.to_string_lossy().as_ref()),
+        "git worktree list 不再列出该位: {list_after}"
+    );
+    assert!(root.join("a.txt").is_file(), "主仓无损");
+}
+
+/// 正向（转发对拍）：经 `&dyn ArchiveVcsPort` 调用与 `git::remove_worktree`
+/// 自由函数**效果逐字等值**（两 worktree 同式建位、各自经两入口移除——移除
+/// 效果与登记回收一致，单点复用防漂移；沿既有清单 / 补丁转发测试形态）。
+#[test]
+fn process_archive_vcs_remove_worktree转发与自由函数效果等值() {
+    let port = ProcessArchiveVcs::new();
+    let dyn_port: &dyn ArchiveVcsPort = &port;
+    let (_dir, root) = init_repo("remove-forward");
+    let (_wt_dir_a, wt_a) = archive_worktree_slot("remove-forward-a");
+    let (_wt_dir_b, wt_b) = archive_worktree_slot("remove-forward-b");
+
+    super::git::add_worktree(&root, &wt_a, "change/via-port").expect("add A 应成功");
+    super::git::add_worktree(&root, &wt_b, "change/via-free").expect("add B 应成功");
+
+    // 各自经两入口移除
+    dyn_port
+        .remove_worktree(&root, &wt_a)
+        .expect("trait 面移除应成功");
+    super::git::remove_worktree(&root, &wt_b).expect("自由函数移除应成功");
+
+    // 效果逐字等值：两目录同归回收、登记同清（git 输出恒 POSIX 分隔符，
+    // Windows 路径对拍前归一化）
+    assert!(!wt_a.exists(), "trait 面移除效果：目录回收");
+    assert!(!wt_b.exists(), "自由函数移除效果：目录回收");
+    let wt_a_posix = wt_a.to_string_lossy().replace('\\', "/");
+    let wt_b_posix = wt_b.to_string_lossy().replace('\\', "/");
+    let list = git(&root, &["worktree", "list"]);
+    assert!(
+        !list.contains(wt_a_posix.as_str()) && !list.contains(wt_b_posix.as_str()),
+        "两入口登记回收一致（零漂移）: {list}"
+    );
+}
+
+/// 异常（D6 Err 面）：目标非 worktree 目录 / 缺席路径 → `Err` 含 worktree 路径
+/// 字面量与「git worktree remove --force {path}」手动指引（walker 吞为 detail
+/// 警告的文案源）。
+#[test]
+fn process_archive_vcs_remove_worktree_err携路径与手动指引() {
+    let port = ProcessArchiveVcs::new();
+    let (_dir, root) = init_repo("remove-err");
+
+    // 形态一：缺席路径
+    let absent = root.join("no-such-worktree");
+    let error = port
+        .remove_worktree(&root, &absent)
+        .expect_err("缺席路径应 Err");
+    let absent_str = absent.to_string_lossy().into_owned();
+    assert!(
+        error.contains(absent_str.as_str()),
+        "Err 含 worktree 路径字面量: {error}"
+    );
+    assert!(
+        error.contains(&format!("git worktree remove --force {absent_str}")),
+        "Err 携「git worktree remove --force <路径>」手动指引: {error}"
+    );
+
+    // 形态二：存在但非 worktree 的普通目录
+    let plain = tempfile::Builder::new()
+        .prefix("vcs-lib-plain-remove-")
+        .tempdir()
+        .expect("创建普通目录失败");
+    let error = port
+        .remove_worktree(&root, plain.path())
+        .expect_err("非 worktree 目录应 Err");
+    let plain_str = plain.path().to_string_lossy().into_owned();
+    assert!(
+        error.contains(plain_str.as_str())
+            && error.contains("git worktree remove --force"),
+        "非 worktree 目录同口径 Err 面: {error}"
+    );
+}
+
+/// 边界（AC-7 branch 零触碰）：remove 后 `git branch` 列表仍含 `change/<name>`
+///（`worktree remove --force` 不动分支——归档链 branch 保留语义的 vcs 半边）。
+#[test]
+fn process_archive_vcs_remove_worktree后分支留存() {
+    let port = ProcessArchiveVcs::new();
+    let (_dir, root) = init_repo("remove-branch");
+    let (_wt_dir, wt) = archive_worktree_slot("remove-branch");
+
+    super::git::add_worktree(&root, &wt, "change/fix-bug")
+        .expect("add 应成功");
+    port.remove_worktree(&root, &wt).expect("remove 应成功");
+
+    let branches = git(&root, &["branch", "--list", "change/fix-bug"]);
+    assert!(
+        branches.contains("change/fix-bug"),
+        "remove 后 branch change/<name> 留存: {branches:?}"
+    );
+}
+
+/// 边界（D1 --force 语义锚）：脏 worktree（未提交 `node_modules` 形态目录在
+/// 盘）经 `--force` 仍可移除——bootstrap 脏面不阻断清理（不带 force 恒失败的
+/// 语义锚：`--force` 带走未提交产物）。
+#[test]
+fn process_archive_vcs_remove_worktree脏worktree经force仍可移除() {
+    let port = ProcessArchiveVcs::new();
+    let (_dir, root) = init_repo("remove-dirty");
+    let (_wt_dir, wt) = archive_worktree_slot("remove-dirty");
+
+    super::git::add_worktree(&root, &wt, "change/dirty-wt")
+        .expect("add 应成功");
+    // bootstrap 形态脏面：未提交的 node_modules 目录 + 未跟踪文件
+    std::fs::create_dir_all(wt.join("node_modules").join("left-pad"))
+        .expect("预置 node_modules 形态目录失败");
+    std::fs::write(wt.join("node_modules").join("left-pad").join("index.js"), "module.exports = 1;\n")
+        .expect("预置脏文件失败");
+    std::fs::write(wt.join("scratch.md"), "未提交草稿\n").expect("预置未跟踪文件失败");
+
+    port.remove_worktree(&root, &wt)
+        .expect("脏 worktree 经 --force 仍应移除成功");
+
+    assert!(!wt.exists(), "脏面（node_modules 形态）随 --force 一并回收");
+    assert!(root.join("a.txt").is_file(), "主仓无损");
+}
+
+/// 构造面（正向）：`new()` / `default()` 等值可重复构造（无状态缝——组合根
+/// 按需铸，随新方法扩展构造面持衡）。
+#[test]
+fn process_archive_vcs构造_new与default等值() {
+    let _a = ProcessArchiveVcs::new();
+    let _b = ProcessArchiveVcs::default();
+    let _c = ProcessArchiveVcs::new();
+    // 无状态空类型：可重复构造即断言面（字段零个，等值由类型层承载）
 }

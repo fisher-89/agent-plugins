@@ -12,7 +12,7 @@ use crate::state::{
 };
 use crate::walker::RunRequest;
 
-/// 步词汇直映射（**十九值 1:1 全映射，零过滤**）：编排侧 `ChangeStepKind` 与落
+/// 步词汇直映射（**二十值 1:1 全映射，零过滤**）：编排侧 `ChangeStepKind` 与落
 /// 库侧 `RunStepKind` 同词面封闭集逐一对应——`step` 语义无弃落项。
 fn mapped_step(kind: ChangeStepKind) -> RunStepKind {
     match kind {
@@ -33,6 +33,7 @@ fn mapped_step(kind: ChangeStepKind) -> RunStepKind {
         ChangeStepKind::ResolveConflicts => RunStepKind::ResolveConflicts,
         ChangeStepKind::Merge => RunStepKind::Merge,
         ChangeStepKind::SpecSync => RunStepKind::SpecSync,
+        ChangeStepKind::Cleanup => RunStepKind::Cleanup,
         ChangeStepKind::Seal => RunStepKind::Seal,
         ChangeStepKind::Finalize => RunStepKind::Finalize,
     }

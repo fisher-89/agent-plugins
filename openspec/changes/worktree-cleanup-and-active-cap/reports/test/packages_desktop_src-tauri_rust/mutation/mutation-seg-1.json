@@ -1,0 +1,78 @@
+{
+  "outcomes": [
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/vcs/src/lib.rs:163:9: replace <impl ArchiveVcsPort for ProcessArchiveVcs>::remove_worktree -> Result<(), String> with Ok(())",
+          "package": "vcs-runtime",
+          "file": "crates/infra/vcs/src/lib.rs",
+          "function": {
+            "function_name": "<impl ArchiveVcsPort for ProcessArchiveVcs>::remove_worktree",
+            "return_type": "-> Result<(), String>",
+            "span": {
+              "start": {
+                "line": 162,
+                "column": 5
+              },
+              "end": {
+                "line": 172,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 163,
+              "column": 9
+            },
+            "end": {
+              "line": 171,
+              "column": 11
+            }
+          },
+          "replacement": "Ok(())",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__infra__vcs__src__lib.rs_line_163_col_9.log",
+      "diff_path": "diff/crates__infra__vcs__src__lib.rs_line_163_col_9.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 6.2095239,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=vcs-runtime@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 67.1354288,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--verbose",
+            "--package=vcs-runtime@0.1.0"
+          ]
+        }
+      ]
+    }
+  ],
+  "total_mutants": 1,
+  "missed": 0,
+  "caught": 1,
+  "timeout": 0,
+  "unviable": 0,
+  "success": 0,
+  "start_time": "2026-10-15T22:15:08.2151154Z",
+  "end_time": "2026-10-15T22:16:22.1616929Z",
+  "cargo_mutants_version": "27.1.0"
+}

@@ -2751,3 +2751,121 @@ fn get_change_detail未知workflow_type恒none() {
         "未建档 id → None"
     );
 }
+
+// ---------------------------------------------------------------------------
+// create → write::create 组合透传回归（worktree-cleanup-and-active-cap / AC-1）：
+// 链路方向命令面 → 写面前置⑧ active 上限——Err 串经既有 `Result<T, String>`
+// 面逐字透传（零包装零改写，三件事纪律不变）
+// ---------------------------------------------------------------------------
+
+/// 组合正向：真实 tempdir Store 预置 4 条 active + 真实 git 仓夹具 → 第 5 个经
+/// `create_change_with` 创建成功（上限道放行面——命令面参数校验 / 调写面 /
+/// 错误映射纪律不变）。
+#[tokio::test]
+async fn create_change组合_4条active第5个创建成功() {
+    let _path_guard = crate::commands::TEST_PATH_LOCK
+        .lock()
+        .expect("PATH 锁不可中毒");
+    let env = Env::new("create-cap-under");
+    env.as_git_repo();
+    let app = app_with(&env);
+    let root = env.root();
+    {
+        let store = store_of(&app, &root);
+        for index in 0..4 {
+            seed_active(&store, &format!("cap-filled-{index}"));
+        }
+    }
+
+    let outcome = create_change_with(
+        app.handle().clone(),
+        root.clone(),
+        "cap-fifth".to_owned(),
+        "第 5 个 change goal".to_owned(),
+        "cap-fifth".to_owned(),
+        "requirement".to_owned(),
+    )
+    .await
+    .expect("4 条 active 时第 5 个应创建成功");
+
+    let store = store_of(&app, &root);
+    let record = store
+        .find_change_record(&outcome.id)
+        .expect("查档应成功")
+        .expect("建档在案");
+    assert_eq!(record.status, ChangeStatus::Active, "新建档 active 在案");
+    assert_eq!(record.name, "cap-fifth", "建档裸名");
+    let actives = store
+        .list_change_records()
+        .expect("清单应成功")
+        .iter()
+        .filter(|record| record.status == ChangeStatus::Active)
+        .count();
+    assert_eq!(actives, 5, "active 恰 5 条（4 种子 + 1 新建档）");
+    assert!(
+        env.data_dir.path().join("worktrees").exists(),
+        "worktree 落位根建域（真实 git worktree add 在案）"
+    );
+    assert!(
+        !env.changes_dir().join("cap-fifth").exists(),
+        "主仓 active 树零目录（编辑落点囚于 worktree——建域不变量）"
+    );
+}
+
+/// 组合异常：db 预置 5 条 active → 第 6 个请求 → 上限 `Err` 串逐字透传（文案
+/// 含计数 5 与「归档或手动清理」引导）；零建档零 worktree 落位（拒绝面零
+/// 副作用经命令面原样呈现）。
+#[tokio::test]
+async fn create_change组合_第6个请求上限err逐字透传() {
+    let _path_guard = crate::commands::TEST_PATH_LOCK
+        .lock()
+        .expect("PATH 锁不可中毒");
+    let env = Env::new("create-cap-reject");
+    env.as_git_repo();
+    let app = app_with(&env);
+    let root = env.root();
+    {
+        let store = store_of(&app, &root);
+        for index in 0..5 {
+            seed_active(&store, &format!("cap-filled-{index}"));
+        }
+    }
+
+    let err = create_change_with(
+        app.handle().clone(),
+        root.clone(),
+        "cap-sixth".to_owned(),
+        "第 6 个 change goal".to_owned(),
+        "cap-sixth".to_owned(),
+        "requirement".to_owned(),
+    )
+    .await
+    .expect_err("5 条 active 已达上限应 Err");
+
+    assert!(
+        err.contains("active change 数已达上限")
+            && err.contains("当前 5")
+            && err.contains("上限 5")
+            && err.contains("归档或手动清理"),
+        "写面上限 Err 串逐字透传（零包装零改写），实际: {err}"
+    );
+    let store = store_of(&app, &root);
+    assert_eq!(
+        store
+            .list_change_records()
+            .expect("清单应成功")
+            .iter()
+            .filter(|record| record.name == "cap-sixth")
+            .count(),
+        0,
+        "零建档（拒绝面零副作用）"
+    );
+    assert!(
+        !env.data_dir
+            .path()
+            .join("worktrees")
+            .join("cap-sixth")
+            .exists(),
+        "零 worktree 落位"
+    );
+}

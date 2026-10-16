@@ -1189,6 +1189,9 @@ impl ArchiveVcsPort for FakeVcs {
     ) -> Result<(), String> {
         unimplemented!("组合根链路不触归档 git缝")
     }
+    fn remove_worktree(&self, _main_root: &Path, _worktree: &Path) -> Result<(), String> {
+        unimplemented!("组合根链路不触归档 git 缝")
+    }
 }
 
 /// 组合链路假 store（`ChangeStateStore` 进程内假件——MutationTest 分支只触

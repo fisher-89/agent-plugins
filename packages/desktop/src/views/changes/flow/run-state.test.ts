@@ -327,7 +327,7 @@ describe('runStepNodes：稳定身份键渲染（overlay 输入面）', () => {
     });
   });
 
-  it('四类可辨：十九步词汇 → WorkerAgent / ToolStep / Git / Gate 分组与 role 逐词对应', () => {
+  it('四类可辨：二十步词汇 → WorkerAgent / ToolStep / Git / Gate 分组与 role 逐词对应', () => {
     const GROUP_OF: Record<
       ChangeStepKind,
       {
@@ -352,6 +352,7 @@ describe('runStepNodes：稳定身份键渲染（overlay 输入面）', () => {
       resolveConflicts: { group: 'workerAgent', role: 'resolve_conflicts' },
       merge: { group: 'git', role: null },
       specSync: { group: 'workerAgent', role: 'spec_sync' },
+      cleanup: { group: 'git', role: null },
       seal: { group: 'toolStep', role: null },
       finalize: { group: 'git', role: null },
     };
@@ -361,7 +362,7 @@ describe('runStepNodes：稳定身份键渲染（overlay 输入面）', () => {
     );
 
     const nodes = runStepNodes(steps, REQUIREMENT_PHASES);
-    expect(nodes).toHaveLength(19);
+    expect(nodes).toHaveLength(20);
     for (const node of nodes) {
       const expected = GROUP_OF[node.runStepKind];
       expect(node.group).toBe(expected.group);
@@ -422,8 +423,8 @@ describe('run-state：缺省字段（推导不崩）', () => {
   });
 });
 
-// RunStepKind 词汇 import 面锚（十九值全词汇直测归一单点的输入域——mutation_test
-// 拆步新词在案，AC-1 / AC-2）
+// RunStepKind 词汇 import 面锚（二十值全词汇直测归一单点的输入域——mutation_test
+// 拆步新词与 cleanup 尽力步新臂在案，AC-1 / AC-2）
 const PERSISTED_WORDS: RunStepKind[] = [
   'executor',
   'evaluator',
@@ -442,11 +443,13 @@ const PERSISTED_WORDS: RunStepKind[] = [
   'resolve_conflicts',
   'merge',
   'spec_sync',
+  'cleanup',
   'seal',
   'finalize',
 ];
 
-/** 十九值 snake 词 → camel 词期望表（normalizeKind 逐词对拍——词汇漂移即断）。 */
+/** 二十值 snake 词 → camel 词期望表（normalizeKind 逐词对拍——词汇漂移即断；
+ * cleanup 为 identity 词、snake / camel 同形零显式 case）。 */
 const NORMALIZE_EXPECTED: Array<[RunStepKind, ChangeStepKind]> = [
   ['executor', 'executor'],
   ['evaluator', 'evaluator'],
@@ -465,18 +468,19 @@ const NORMALIZE_EXPECTED: Array<[RunStepKind, ChangeStepKind]> = [
   ['resolve_conflicts', 'resolveConflicts'],
   ['merge', 'merge'],
   ['spec_sync', 'specSync'],
+  ['cleanup', 'cleanup'],
   ['seal', 'seal'],
   ['finalize', 'finalize'],
 ];
 
-describe('unifiedRunNodes：十九值词汇全量归一', () => {
-  it('十九值 snake 词全量归一可达（normalizeKind 逐词对拍——词汇漂移即断）', () => {
+describe('unifiedRunNodes：二十值词汇全量归一', () => {
+  it('二十值 snake 词全量归一可达（normalizeKind 逐词对拍——词汇漂移即断）', () => {
     const steps = PERSISTED_WORDS.map((step, index) =>
       runStepRow({ instanceNo: index, step, sessionId: null }),
     );
     const unified = unifiedRunNodes([runEntry({ nodes: steps })], null);
     expect(unified.map((row) => row.step)).toEqual(NORMALIZE_EXPECTED.map(([, camel]) => camel));
-    // 逐词对拍（mutation_test → mutationTest 拆步新词在案）
+    // 逐词对拍（mutation_test → mutationTest 拆步新词在案；cleanup identity 在案）
     for (const [snake, camel] of NORMALIZE_EXPECTED) {
       const row = unified.find((_, index) => PERSISTED_WORDS[index] === snake);
       // normalizeKind(${snake}) → ${camel}
@@ -484,7 +488,7 @@ describe('unifiedRunNodes：十九值词汇全量归一', () => {
     }
   });
 
-  it('双向 round-trip：stepWord(normalizeKind(word)) 恒回 snake 词（十九值全词汇）', () => {
+  it('双向 round-trip：stepWord(normalizeKind(word)) 恒回 snake 词（二十值全词汇）', () => {
     const steps = PERSISTED_WORDS.map((step, index) =>
       runStepRow({ instanceNo: index, step, sessionId: null }),
     );
@@ -503,8 +507,48 @@ describe('unifiedRunNodes：十九值词汇全量归一', () => {
   });
 });
 
-describe('run-state：归档 8 步词归一与 Git 分类（AC-2 / AC-9）', () => {
-  it('归档 8 步词归一：库读史 snake 词 → 活面 camel 词（resolve_conflicts / spec_sync 多词步逐词对应）', () => {
+describe('run-state：cleanup 步词归一与身份键（worktree-cleanup-and-active-cap）', () => {
+  it("normalizeKind('cleanup') → 'cleanup'：identity 词走 default 分支直返（与 commit / rebase / merge / finalize / preflight / seal 先例一致）", () => {
+    const unified = unifiedRunNodes(
+      [runEntry({ nodes: [runStepRow({ phase: 'archive', step: 'cleanup', sessionId: null })] })],
+      null,
+    );
+    expect(unified.map((row) => row.step)).toEqual(['cleanup']);
+  });
+
+  it('cleanup 节点身份键含 stepWord 词面：{phase}:{attempt}:cleanup:{instanceNo}（与后端边表端点逐字可比）', () => {
+    const node = runStepNodes(
+      [stepRow({ phase: 'archive', step: 'cleanup', sessionId: null, instanceNo: 0 })],
+      REQUIREMENT_PHASES,
+    )[0];
+    expect(nodeIdentityKey(node)).toBe('archive:1:cleanup:0');
+  });
+
+  it("groupOf('cleanup') 归 git 分类：经 runStepNodes 分组出线（与 commit / rebase / merge / finalize 同组）", () => {
+    const node = runStepNodes(
+      [stepRow({ phase: 'archive', step: 'cleanup', sessionId: null })],
+      REQUIREMENT_PHASES,
+    )[0];
+    expect(node.group).toBe('git');
+    expect(node.role).toBeNull();
+  });
+
+  it('库读史行 step=cleanup（RunStepKind 线词）→ 统一视图节点归一出线（双源合成对新词透明）', () => {
+    const steps = [
+      runStepRow({ instanceNo: 0, phase: 'archive', step: 'spec_sync', sessionId: 'ses-arch' }),
+      runStepRow({ instanceNo: 0, phase: 'archive', step: 'cleanup', sessionId: null }),
+      runStepRow({ instanceNo: 0, phase: 'archive', step: 'seal', sessionId: null }),
+    ];
+    const unified = unifiedRunNodes([runEntry({ nodes: steps })], null);
+    expect(unified.map((row) => row.step)).toEqual(['specSync', 'cleanup', 'seal']);
+    expect(unified[1].sessionId).toBeNull();
+    const nodes = runStepNodes(unified, REQUIREMENT_PHASES);
+    expect(nodes.map((node) => node.group)).toEqual(['workerAgent', 'git', 'toolStep']);
+  });
+});
+
+describe('run-state：归档 9 步词归一与 Git 分类（AC-2 / AC-9）', () => {
+  it('归档 9 步词归一：库读史 snake 词 → 活面 camel 词（resolve_conflicts / spec_sync 多词步逐词对应、cleanup identity）', () => {
     const steps = [
       'preflight',
       'commit',
@@ -512,6 +556,7 @@ describe('run-state：归档 8 步词归一与 Git 分类（AC-2 / AC-9）', () 
       'resolve_conflicts',
       'merge',
       'spec_sync',
+      'cleanup',
       'seal',
       'finalize',
     ].map((step, index) => runStepRow({ instanceNo: index, step: step as RunStepKind }));
@@ -525,6 +570,7 @@ describe('run-state：归档 8 步词归一与 Git 分类（AC-2 / AC-9）', () 
       'resolveConflicts',
       'merge',
       'specSync',
+      'cleanup',
       'seal',
       'finalize',
     ]);
@@ -538,6 +584,7 @@ describe('run-state：归档 8 步词归一与 Git 分类（AC-2 / AC-9）', () 
       ['commit', 'commit'],
       ['rebase', 'rebase'],
       ['merge', 'merge'],
+      ['cleanup', 'cleanup'],
       ['seal', 'seal'],
       ['finalize', 'finalize'],
     ];
@@ -552,7 +599,7 @@ describe('run-state：归档 8 步词归一与 Git 分类（AC-2 / AC-9）', () 
     }
   });
 
-  it('归档节点渲染：十步按 (phase, attempt, step, instanceNo) 直渲染，group / runStepKind / instanceNo 逐字段在案', () => {
+  it('归档节点渲染：十一步按 (phase, attempt, step, instanceNo) 直渲染，group / runStepKind / instanceNo 逐字段在案', () => {
     const kinds: ChangeStepKind[] = [
       'phaseStart',
       'preflight',
@@ -561,6 +608,7 @@ describe('run-state：归档 8 步词归一与 Git 分类（AC-2 / AC-9）', () 
       'resolveConflicts',
       'merge',
       'specSync',
+      'cleanup',
       'seal',
       'finalize',
       'phaseLog',
@@ -586,12 +634,13 @@ describe('run-state：归档 8 步词归一与 Git 分类（AC-2 / AC-9）', () 
       'workerAgent',
       'git',
       'workerAgent',
+      'git',
       'toolStep',
       'git',
       'toolStep',
     ]);
     expect(nodes.every((node) => node.phase === 'archive')).toBe(true);
-    expect(nodes.map((node) => node.instanceNo)).toEqual([0, 1, 1, 1, 1, 1, 1, 1, 1, 1]);
+    expect(nodes.map((node) => node.instanceNo)).toEqual([0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]);
     // 会话面：仅两个 agent 会话步携 sessionId
     expect(nodes.filter((node) => node.sessionId !== null).map((node) => node.runStepKind)).toEqual(
       ['resolveConflicts', 'specSync'],
@@ -766,19 +815,20 @@ describe('mutationTest 步词汇归一与分组（AC-2）', () => {
     expect(nodes[0].role).toBeNull();
   });
 
-  it('零过滤丢步：十九词全词汇经 runStepNodes 全量出图（mutation_test 在案不被滤除）', () => {
+  it('零过滤丢步：二十词全词汇经 runStepNodes 全量出图（mutation_test / cleanup 在案不被滤除）', () => {
     const steps = PERSISTED_WORDS.map((step, index) =>
       stepRow({ instanceNo: index, step: normalizeWord(step), sessionId: null }),
     );
     const nodes = runStepNodes(steps, REQUIREMENT_PHASES);
-    // 十九词全量出图（零过滤）
-    expect(nodes).toHaveLength(19);
+    // 二十词全量出图（零过滤）
+    expect(nodes).toHaveLength(20);
     expect(nodes.some((node) => node.runStepKind === 'mutationTest')).toBe(true);
-    expect(new Set(nodes.map((node) => node.id)).size).toBe(19);
+    expect(nodes.some((node) => node.runStepKind === 'cleanup')).toBe(true);
+    expect(new Set(nodes.map((node) => node.id)).size).toBe(20);
   });
 });
 
-/** snake 词 → 活面 camel 词（测试内小表——19 词 round-trip 用）。 */
+/** snake 词 → 活面 camel 词（测试内小表——20 词 round-trip 用）。 */
 function normalizeWord(word: RunStepKind): ChangeStepKind {
   const entry = NORMALIZE_EXPECTED.find(([snake]) => snake === word);
   if (!entry) {

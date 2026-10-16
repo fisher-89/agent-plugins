@@ -797,6 +797,15 @@ impl ArchiveVcsPort for FakeVcs {
             .clone();
         Ok(patch)
     }
+
+    fn remove_worktree(
+        &self,
+        _main_root: &std::path::Path,
+        _worktree: &std::path::Path,
+    ) -> Result<(), String> {
+        self.record("remove_worktree");
+        Ok(())
+    }
 }
 
 /// 可编程 MutationRunner 假件（记录四参 + 可编程产出 / Err——MutationTest 臂

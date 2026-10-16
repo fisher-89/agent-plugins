@@ -377,6 +377,13 @@ pub trait ArchiveVcsPort: Send + Sync {
     /// E2）再 `git diff <base>` 输出 unified diff 文本；与 [`Self::change_edit_set`]
     /// 同居 vcs 单点，checks 侧零 git spawn。
     fn change_edit_patch(&self, root: &Path, base: &str) -> Result<String, String>;
+    /// worktree 清理：`git worktree remove --force <path>`（`-C main_root` 锚）
+    /// ——归档相位 Cleanup 步的尽力步执行缝，`--force` 带走 bootstrap 的
+    /// `node_modules` / `target` 磁盘大头；branch MUST NOT 触碰（`worktree
+    /// remove` 本就不动分支）；`Err` 面带路径与手动清理指引（`git worktree
+    /// remove --force <path>`）。worktree 在场探测驻调用方 fs 判定，port 零探
+    /// 测方法。
+    fn remove_worktree(&self, main_root: &Path, worktree: &Path) -> Result<(), String>;
 }
 
 /// rebase 结果：冲突语义 = 冲突态保留、不 abort——收口归调用方。

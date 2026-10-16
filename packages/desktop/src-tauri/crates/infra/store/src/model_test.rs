@@ -2687,3 +2687,118 @@ fn v2快照bincode布局锚_实例外键紧随engine之后() {
         "engine 换 Cli 后窗口不再命中（engine 字节确属紧邻组合）"
     );
 }
+
+// ---------------------------------------------------------------------------
+// RunNodeRecord.step 词汇随动（worktree-cleanup-and-active-cap / AC-9）：
+// RunStepKind 二十值封闭集白名单式扩展 + `cleanup`（零迁移——native_model serde
+// 编解码随枚举词面自然可用）
+// ---------------------------------------------------------------------------
+
+/// `RunStepKind::Cleanup` 节点构造 / 序列化 / 反序列化往返等值（正向）：serde
+/// 线词 `"cleanup"` 白名单式扩展可用——native_model encode/decode 回环逐字段
+/// 相等、serde_json 线面 step 词逐字（`node_id()` 身份串含 cleanup 词面）。
+#[test]
+fn run_node_record_cleanup词节点往返等值() {
+    let record = RunNodeRecord::new(
+        "run-1727000000000",
+        "chg-demo",
+        7,
+        &run_node_entry(RunStepKind::Cleanup, RunStepStatus::Passed, 0),
+        1_727_000_060_000,
+    );
+    assert_eq!(record.step, RunStepKind::Cleanup, "构造直入 cleanup 词");
+
+    // native_model encode/decode 回环（serde 词面承载——零迁移）
+    let bytes = native_model::encode(&record).expect("encode 应成功");
+    let (decoded, version) =
+        native_model::decode::<RunNodeRecord>(bytes).expect("decode 应成功");
+    assert_eq!(version, 1, "native_model id=16 版本封装 version 1 持衡");
+    assert_eq!(decoded, record, "cleanup 词节点回环逐字段相等");
+    assert_eq!(decoded.step, RunStepKind::Cleanup);
+
+    // serde_json 线面：step 词 `cleanup` 逐字 + node_id() 身份串含词面
+    let value = serde_json::to_value(&record).expect("serde_json 出线应成功");
+    assert_eq!(value["step"], serde_json::json!("cleanup"), "线词白名单扩展在案");
+    assert_eq!(
+        record.node_id(),
+        "implement:1:cleanup:0",
+        "身份串 = 边表端点口径（cleanup 词面在案）"
+    );
+
+    // serde_json 反序列化回环（同词面）
+    let back: RunNodeRecord = serde_json::from_value(value).expect("反序列化应成功");
+    assert_eq!(back, record, "serde_json 回环逐字段相等");
+}
+
+/// 二十值全词汇封闭集（边界）：既有十九值词汇断言扩为二十值——全枚举经
+/// native_model 回环逐值相等（len 与词面互异持衡；旧值 round-trip 兼容读不破
+/// ——零迁移面，cleanup 仅白名单式追加）。
+#[test]
+fn run_node_record_step二十值全词汇回环与词面互异() {
+    let all = [
+        RunStepKind::Executor,
+        RunStepKind::Evaluator,
+        RunStepKind::Decision,
+        RunStepKind::StaticCheck,
+        RunStepKind::TestExecution,
+        RunStepKind::MutationTest,
+        RunStepKind::PhaseStart,
+        RunStepKind::PhaseLog,
+        RunStepKind::VerdictGate,
+        RunStepKind::RetryGate,
+        RunStepKind::WhitelistGate,
+        RunStepKind::Preflight,
+        RunStepKind::Commit,
+        RunStepKind::Rebase,
+        RunStepKind::ResolveConflicts,
+        RunStepKind::Merge,
+        RunStepKind::SpecSync,
+        RunStepKind::Cleanup,
+        RunStepKind::Seal,
+        RunStepKind::Finalize,
+    ];
+    assert_eq!(all.len(), 20, "二十值封闭集全枚举（19 → 20 扩位）");
+
+    // 词面互异（封闭集防线：无两词同形）
+    let mut words: Vec<&str> = all.iter().map(|kind| kind.as_str()).collect();
+    let total = words.len();
+    words.sort_unstable();
+    words.dedup();
+    assert_eq!(words.len(), total, "二十值词面互异: {words:?}");
+
+    // 全枚举 native_model 回环逐值相等（旧十九值兼容读 + cleanup 新值在案）
+    for (sequence, kind) in all.iter().enumerate() {
+        let record = RunNodeRecord::new(
+            "run-1727000000000",
+            "chg-demo",
+            sequence as u64,
+            &run_node_entry(*kind, RunStepStatus::Passed, 0),
+            1_727_000_060_000,
+        );
+        let bytes = native_model::encode(&record).expect("encode 应成功");
+        let (decoded, _) = native_model::decode::<RunNodeRecord>(bytes).expect("decode 应成功");
+        assert_eq!(decoded, record, "{kind:?} 回环逐字段相等（零迁移）");
+        assert_eq!(decoded.step, *kind);
+    }
+}
+
+/// 越集词反序列化拒绝持衡（异常）：封闭集防线不松动——`RunStepKind` serde
+/// Deserialize 面对越集词形（camel 近似 / kebab / 空串 / cleanup 变体词）一律
+/// Err（扩词不改变拒绝面；native_model 编解码即经同型 serde 派生承载）。
+#[test]
+fn run_node_record_step越集词反序列化拒绝持衡() {
+    for illegal in [
+        "cleanUp",
+        "clean-up",
+        "cleanups",
+        "Cleanup",
+        "mutationTest",
+        "resolveConflicts",
+        "archive_stage",
+        "",
+    ] {
+        let back: Result<RunStepKind, _> =
+            serde_json::from_value(serde_json::json!(illegal));
+        assert!(back.is_err(), "RunStepKind 越集词 {illegal:?} 应拒绝");
+    }
+}

@@ -7067,6 +7067,77 @@ fn finish_change_run单事务整包_全词汇与四kind边同刻() {
     assert_eq!(node_identity, edge_rows[1].to_node_key);
 }
 
+/// run 节点读面 cleanup 词零过滤（worktree-cleanup-and-active-cap / AC-9）：写入
+/// 含 cleanup 词节点的 run → 读面原样出线（`cleanup` snake 词、phase=archive、
+/// detail / instance_no 透传——doc 注释二十值与行为一致）；既有 run 读面断言随
+/// 二十值全量持衡（词面扩位不改变行集完整性——归档 9 步词整包落读回环）。
+#[test]
+fn run节点读面_cleanup词零过滤原样出线() {
+    let env = Env::new("run-cleanup-read");
+    let store = open_workspace_ok(&env.db_path("ws"));
+    create_change_ok(&store, "flow-run", 1000);
+    store
+        .start_change_run(&run_start_cmd("run-clean", "flow-run", 2000))
+        .expect("发起应成功");
+
+    // 归档 9 步词整包（cleanup 在案）——emit 序即 node_seq 序
+    let archive_steps = [
+        RunStepKind::PhaseStart,
+        RunStepKind::Preflight,
+        RunStepKind::Commit,
+        RunStepKind::Rebase,
+        RunStepKind::ResolveConflicts,
+        RunStepKind::Merge,
+        RunStepKind::SpecSync,
+        RunStepKind::Cleanup,
+        RunStepKind::Seal,
+        RunStepKind::Finalize,
+        RunStepKind::PhaseLog,
+    ];
+    let nodes: Vec<RunNodeEntry> = archive_steps
+        .iter()
+        .map(|step| {
+            let mut entry = run_node_entry("archive", 1, *step, RunStepStatus::Passed, 0);
+            if *step == RunStepKind::Cleanup {
+                entry.detail = Some("已移除 worktree（/tmp/wt）".to_owned());
+            }
+            entry
+        })
+        .collect();
+    store
+        .finish_change_run(&run_finish_cmd(
+            "run-clean",
+            "flow-run",
+            RunStatus::Completed,
+            Some("All phases have passed."),
+            9000,
+            nodes,
+            Vec::new(),
+        ))
+        .expect("收口应成功");
+
+    // 读面原样出线：行集完整（11 行 = 归档 11 步）、cleanup 词零过滤、载荷透传
+    let rows: Vec<RunNodeStateRecord> = store.list_run_nodes("run-clean").expect("节点读应成功");
+    assert_eq!(rows.len(), 11, "归档十一步行集完整（零静默丢弃）");
+    assert_eq!(
+        rows.iter().map(|row| row.step).collect::<Vec<_>>(),
+        archive_steps.to_vec(),
+        "读序 = emit 序（cleanup 介于 spec_sync 与 seal）"
+    );
+    let cleanup = rows
+        .iter()
+        .find(|row| row.step == RunStepKind::Cleanup)
+        .expect("cleanup 节点读回在案");
+    assert_eq!(cleanup.step.as_str(), "cleanup", "snake 词面原样");
+    assert_eq!(cleanup.phase, "archive", "归档相位随行");
+    assert_eq!(
+        cleanup.detail.as_deref(),
+        Some("已移除 worktree（/tmp/wt）"),
+        "detail 载荷透传（读面零改写）"
+    );
+    assert_eq!(cleanup.instance_no, 0, "身份键实例号透传");
+}
+
 /// finish 同事务 active_phase 清位（D1 悬挂杀除库面，AC-5）：预置
 /// active_phase=Some 的 change 收口后读回 None。
 #[test]
