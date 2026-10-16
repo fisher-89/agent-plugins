@@ -1,0 +1,19 @@
+$ pnpm run server:check && pnpm run bindings:export && pnpm run client:check
+$ cargo fmt --manifest-path src-tauri/Cargo.toml && cargo clippy --manifest-path src-tauri/Cargo.toml
+    Checking dev-team v0.1.0 (C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\fix-flow-refresh-degradation\packages\desktop\src-tauri)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 5.15s
+$ cargo run --quiet -p export-bindings --manifest-path src-tauri/Cargo.toml
+$ vp check --fix && knip
+[1m[31merror:[39m[0m Lint or type issues found
+x typescript(non-nullable-type-assertion-style): Use a ! assertion to more succinctly remove null and undefined from the type.
+      ,-[src/views/changes/change-detail-view.test.tsx:1904:23]
+ 1903 |     await notifyAndFlush();
+ 1904 |     const container = screen.getByTestId('refresh-stale-note').parentElement as HTMLElement;
+      :                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+ 1905 |     const header = container.querySelector('[data-testid="detail-header"]');
+      `----
+
+Found 1 error and 0 warnings in 164 files (2.0s, 16 threads)
+[1m[94mpass:[39m[0m Formatting completed for checked files [2m(5.7s)[0m
+[ELIFECYCLE] Command failed with exit code 1.
+[ELIFECYCLE] Command failed with exit code 1.

@@ -328,6 +328,7 @@ impl Corpus {
     /// detail 全读链投影（id 寻址）。
     fn detail(&self, id: &str) -> ChangeDetail {
         change_detail(&resolve(&self.root), &self.store, id)
+            .expect("语料 detail 读面应 Ok")
             .unwrap_or_else(|| panic!("语料 {id} 应可定位"))
     }
 }
@@ -1377,17 +1378,24 @@ fn corpus文档形态零发现反例() {
         "workflow.json 惰性字节零进投影"
     );
 
-    // change_detail 任意寻址恒 None（裸名 / 前缀名寻址均不命中 db）
+    // change_detail 任意寻址恒 None（裸名 / 前缀名寻址均不命中 db；读面 Ok 由
+    // golden 全好语料保证——expect 收口）
     assert!(
-        change_detail(&layout, &corpus.store, "document-form").is_none(),
+        change_detail(&layout, &corpus.store, "document-form")
+            .expect("详情读面应 Ok")
+            .is_none(),
         "裸名寻址未建档 id → None（零磁盘回退）"
     );
     assert!(
-        change_detail(&layout, &corpus.store, "2026-01-01-document-form").is_none(),
+        change_detail(&layout, &corpus.store, "2026-01-01-document-form")
+            .expect("详情读面应 Ok")
+            .is_none(),
         "前缀名寻址未建档 id → None（零磁盘回退）"
     );
     assert!(
-        change_detail(&layout, &corpus.store, "id-document-form").is_none(),
+        change_detail(&layout, &corpus.store, "id-document-form")
+            .expect("详情读面应 Ok")
+            .is_none(),
         "任意 id 形态寻址恒 None"
     );
 
@@ -2416,7 +2424,9 @@ fn 真件create成功立即可见可发起() {
     assert_eq!(list.active[0].name, "visible-change");
     assert_eq!(list.active[0].status, Some(ChangeStatus::Active));
 
-    let detail = change_detail(&layout, &corpus.store, &outcome.id).expect("详情应可达");
+    let detail = change_detail(&layout, &corpus.store, &outcome.id)
+        .expect("详情读面应 Ok")
+        .expect("详情应可达");
     assert_eq!(detail.id, outcome.id, "detail id = 铸出 id");
     assert_eq!(detail.name, "visible-change");
     assert_eq!(detail.status, Some(ChangeStatus::Active));
@@ -2862,8 +2872,9 @@ fn 真件detail时间出线_epoch零口径() {
     );
     corpus.dir_with_files("openspec/changes/zero-ts", &[("proposal.md", "# 提案")]);
 
-    let detail =
-        change_detail(&resolve(&corpus.root), &corpus.store, "id-zero-ts").expect("详情应可达");
+    let detail = change_detail(&resolve(&corpus.root), &corpus.store, "id-zero-ts")
+        .expect("详情读面应 Ok")
+        .expect("详情应可达");
 
     assert_eq!(detail.created.as_deref(), Some("1970-01-01"));
     let record = &detail.pipeline[0].attempts[0];
@@ -2886,21 +2897,30 @@ fn 真件detail未找到与建档恒可达() {
     );
 
     assert!(
-        change_detail(&layout, &corpus.store, "不存在的change").is_none(),
+        change_detail(&layout, &corpus.store, "不存在的change")
+            .expect("详情读面应 Ok")
+            .is_none(),
         "未建档 id → None（磁盘裸名目录在场不命中）"
     );
-    assert!(change_detail(&layout, &corpus.store, "").is_none());
+    assert!(change_detail(&layout, &corpus.store, "")
+        .expect("详情读面应 Ok")
+        .is_none());
     assert!(
-        change_detail(&layout, &corpus.store, "a/b").is_none(),
+        change_detail(&layout, &corpus.store, "a/b")
+            .expect("详情读面应 Ok")
+            .is_none(),
         "未建档任意 id 形态 → None（id 为不透明串，恒由 db 记录定夺）"
     );
     assert!(
-        change_detail(&layout, &corpus.store, "2026-01-01-ghost").is_none(),
+        change_detail(&layout, &corpus.store, "2026-01-01-ghost")
+            .expect("详情读面应 Ok")
+            .is_none(),
         "前缀名寻址未建档 id → None（MUST NOT 回退目录解析）"
     );
 
     corpus.seed_record("id-ghost-with-record", "ghost-with-record");
     let detail = change_detail(&layout, &corpus.store, "id-ghost-with-record")
+        .expect("详情读面应 Ok")
         .expect("建档记录恒可达详情（定位 miss 不虚构 None）");
     assert_eq!(detail.id, "id-ghost-with-record", "detail id = 寻址 id");
     assert_eq!(detail.name, "ghost-with-record", "name 自记录直读");

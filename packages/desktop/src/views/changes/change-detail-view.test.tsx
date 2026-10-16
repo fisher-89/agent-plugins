@@ -1805,3 +1805,310 @@ describe('ChangeDetailView：configSnapshot fixture 携 agentInstanceId 键（AC
     expect(screen.getByTestId('run-control-panel').textContent).toContain('运行控制');
   });
 });
+
+// ---------------------------------------------------------------------------
+// 刷新失败降级与订阅粘性（fix-flow-refresh-degradation AC-1 / AC-2 / AC-6 /
+// AC-7 / AC-8 / AC-9）：detail 在手的刷新失败轮 → 内联「刷新失败」横幅
+// （refresh-stale-note，文案含后端错误串原样——观测面）+ 保 last-good（header /
+// 徽章 / 动作面板 / 图面不塌）+ 有界重试自愈（1s 退避、成功轮横幅出销）；
+// error 收敛为首载语义；真 None 清面兜底；失败轮 change_flow_watch 订阅不拆
+// （零重订零丢通知）、停止 / 确认 / 应答动作照常可发（独立 invoke）。
+// 计时面 vi.useFakeTimers + advanceTimersByTime（通知去抖 300ms / 重试退避 1s
+// 逐拍推进）；ChannelMock 直投 RunNotice（订阅链路通知面）。
+// ---------------------------------------------------------------------------
+
+/** get_change_detail 轮剧本（逐轮消费；'ok' 读当前 fixture——loadFixture 可
+ * 中途改写、'reject' 以错误串拒绝、'null' 真未找到）。 */
+interface DetailPlanStep {
+  kind: 'ok' | 'reject' | 'null';
+  message?: string;
+}
+
+let detailPlan: DetailPlanStep[] = [{ kind: 'ok' }];
+let detailPlanCalls = 0;
+
+function planDetailRounds(plan: DetailPlanStep[]): void {
+  detailPlan = [...plan];
+  detailPlanCalls = 0;
+}
+
+describe('ChangeDetailView：刷新失败降级与订阅粘性（AC-1 / AC-2 / AC-6 / AC-7 / AC-8 / AC-9）', () => {
+  /** 推进虚拟时间并冲刷微任务链（fake timers 下的轮拍推进单点）。 */
+  async function flush(ms: number): Promise<void> {
+    act(() => {
+      vi.advanceTimersByTime(ms);
+    });
+    await act(async () => {});
+  }
+
+  /** 通知触发的统一视图重查（kind-only step 通知 → 300ms 去抖 → 第 2 轮）。 */
+  async function notifyAndFlush(): Promise<void> {
+    await act(async () => {
+      lastChannel().push({ ipc: 'step' });
+    });
+    await flush(300);
+  }
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    planDetailRounds([{ kind: 'ok' }]);
+    invokeMock.mockImplementation((command: string, args?: Record<string, unknown>) => {
+      if (command === 'get_change_detail') {
+        const step = detailPlan[Math.min(detailPlanCalls, detailPlan.length - 1)];
+        detailPlanCalls += 1;
+        if (step.kind === 'reject') return Promise.reject(step.message ?? '注入失败');
+        if (step.kind === 'null') return Promise.resolve(null);
+        return detailIpc(command, args);
+      }
+      return detailIpc(command, args);
+    });
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('内联横幅呈现（AC-1 / AC-9）：detail 在手的刷新失败轮 → refresh-stale-note 横幅（文案含后端错误串原样与「刷新详情」引导），header / 停止入口 / 图面照常渲染 last-good', async () => {
+    loadActiveRun(activeRunView());
+    planDetailRounds([{ kind: 'ok' }, { kind: 'reject', message: 'db: 注入失败：读事务不可用' }]);
+    renderDetail({ detail: detail(), artifacts: PROPOSAL_ENVELOPES });
+    await act(async () => {});
+    expect(screen.queryByTestId('refresh-stale-note')).toBeNull();
+
+    await notifyAndFlush();
+
+    // 横幅呈现：data-testid 挂钩 + 文案含错误串原样与重试引导（D1）
+    const note = screen.getByTestId('refresh-stale-note');
+    expect(note.textContent).toContain('刷新失败');
+    expect(note.textContent).toContain('db: 注入失败：读事务不可用');
+    expect(note.textContent).toContain('刷新详情');
+
+    // 保 last-good：header / 停止入口 / 状态徽章 / 图面照常（MUST NOT 兜底页）
+    expect(screen.getByTestId('detail-header') !== null).toBe(true);
+    expect(screen.getByTestId('run-stop') !== null).toBe(true);
+    expect(screen.getByTestId('run-status').textContent).toBe('运行中');
+    expect(screen.getByTestId('flow-graph') !== null).toBe(true);
+    expect(screen.queryByTestId('error-note')).toBeNull();
+    expect(screen.queryByText('未找到该 change。')).toBeNull();
+  });
+
+  it('内联横幅消失（AC-2 视图半边）：失败（横幅在）→ 1s 重试成功 → 横幅出销、图面节点更新到最新轮 detail；横幅位于 header 与动作面板之间（页首整宽 D1）', async () => {
+    loadActiveRun(activeRunView());
+    planDetailRounds([{ kind: 'ok' }, { kind: 'reject', message: 'db: 注入失败' }, { kind: 'ok' }]);
+    renderDetail({ detail: detail(), artifacts: PROPOSAL_ENVELOPES });
+    await act(async () => {});
+    expect(screen.queryByTestId('run-step-node')).toBeNull();
+
+    // 横幅位于 header 与动作面板之间（页首整宽——DOM 序断言）
+    await notifyAndFlush();
+    const container = screen.getByTestId('refresh-stale-note').parentElement!;
+    const header = container.querySelector('[data-testid="detail-header"]');
+    const note = container.querySelector('[data-testid="refresh-stale-note"]');
+    const panel = container.querySelector('[data-testid="run-control-panel"]');
+    expect(
+      header !== null &&
+        note !== null &&
+        (header.compareDocumentPosition(note) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0,
+    ).toBe(true);
+    expect(
+      note !== null &&
+        panel !== null &&
+        (note.compareDocumentPosition(panel) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0,
+    ).toBe(true);
+
+    // 1s 重试成功（应答携活面步表）→ 横幅出销 + 图面更新到最新轮
+    loadActiveRun(
+      activeRunView({
+        nodes: [
+          {
+            phase: 'implement',
+            attempt: 1,
+            step: 'executor',
+            status: 'running',
+            sessionId: 'ses-exec',
+            detail: null,
+            instanceNo: 0,
+            outputRef: null,
+          },
+        ],
+      }),
+    );
+    await flush(1000);
+
+    expect(screen.queryByTestId('refresh-stale-note')).toBeNull();
+    expect(screen.getAllByTestId('run-step-node')).toHaveLength(1);
+    expect(screen.getByTestId('rf__node-run:run-1727:implement:1:executor:0') !== null).toBe(true);
+  });
+
+  it('error 收敛为首载语义（AC-6 异常半边）：detail 在手的刷新失败轮不渲染整页 DetailFallback（error-note / 「未找到该 change。」零出现、横幅在案）；对照首载失败整页错误兜底页（error-note 在案、横幅零出现）', async () => {
+    // 半边一：detail 在手的刷新失败轮 → 内联横幅（不再整页 DetailFallback）
+    loadActiveRun(activeRunView());
+    planDetailRounds([{ kind: 'ok' }, { kind: 'reject', message: 'db: 读失败' }]);
+    renderDetail({ detail: detail(), artifacts: PROPOSAL_ENVELOPES });
+    await act(async () => {});
+    await notifyAndFlush();
+    expect(screen.getByTestId('refresh-stale-note') !== null).toBe(true);
+    expect(screen.queryByTestId('error-note')).toBeNull();
+    expect(screen.queryByText('未找到该 change。')).toBeNull();
+    expect(screen.getByTestId('flow-graph') !== null).toBe(true);
+
+    // 半边二：首载失败（detail 不在手）→ 整页错误兜底页（既有语义不变）
+    planDetailRounds([{ kind: 'reject', message: 'IPC 断开' }]);
+    const firstLoad = renderDetail({ detail: null });
+    await act(async () => {});
+    const note = within(firstLoad.container).getByTestId('error-note');
+    expect(note.textContent).toContain('详情加载失败：IPC 断开');
+    expect(within(firstLoad.container).queryByTestId('refresh-stale-note')).toBeNull();
+    expect(within(firstLoad.container).queryByTestId('flow-graph')).toBeNull();
+  });
+
+  it('真 None 清面兜底（AC-6 边界半边）：失败轮后重试成功返回 null → 「未找到该 change。」兜底页（detail-note）、横幅同步消失（None 与 Err 分流不混同）', async () => {
+    loadActiveRun(activeRunView());
+    planDetailRounds([{ kind: 'ok' }, { kind: 'reject', message: 'db: 读失败' }, { kind: 'null' }]);
+    renderDetail({ detail: detail(), artifacts: PROPOSAL_ENVELOPES });
+    await act(async () => {});
+    await notifyAndFlush();
+    expect(screen.getByTestId('refresh-stale-note') !== null).toBe(true);
+
+    await flush(1000);
+
+    expect(screen.queryByTestId('refresh-stale-note')).toBeNull();
+    expect(screen.getByTestId('detail-note').textContent).toBe('未找到该 change。');
+    expect(screen.queryByTestId('flow-graph')).toBeNull();
+  });
+
+  it('订阅粘性（AC-7）：失败轮期间 change_flow_watch 零重订（Channel 实例数不增）；经既有 Channel 直投下一条通知 → 统一视图重查照常触发（零丢通知）', async () => {
+    loadActiveRun(activeRunView());
+    planDetailRounds([{ kind: 'ok' }, { kind: 'reject', message: 'db: 读失败' }, { kind: 'ok' }]);
+    renderDetail({ detail: detail(), artifacts: PROPOSAL_ENVELOPES });
+    await act(async () => {});
+    expect(ChannelMock.instances).toHaveLength(1);
+
+    // 失败轮：detail / activeRun 保持 → activeRunPresent 真值 → 订阅不被拆
+    await notifyAndFlush();
+    expect(screen.getByTestId('refresh-stale-note') !== null).toBe(true);
+    expect(ChannelMock.instances).toHaveLength(1);
+    const callsAfterFailedRound = detailCalls().length;
+    expect(callsAfterFailedRound).toBe(2);
+
+    // 下一条通知经既有 Channel 直投 → 重查照常触发（零丢通知、零重订）
+    loadFixture({ detail: detail({ title: '最新轮标题' }), artifacts: PROPOSAL_ENVELOPES });
+    await act(async () => {
+      lastChannel().push({ ipc: 'edge' });
+    });
+    await flush(300);
+
+    expect(detailCalls()).toHaveLength(callsAfterFailedRound + 1);
+    expect(ChannelMock.instances).toHaveLength(1);
+    expect(screen.getByTestId('detail-header').textContent).toContain('最新轮标题');
+    expect(screen.queryByTestId('refresh-stale-note')).toBeNull();
+  });
+
+  it('图面不塌（AC-1 / D3）：失败轮期间节点集合保持上一成功轮（零 nodes=0 空图）、运行徽章在案；重试轮挂起时 loading 仅作用于「刷新详情」禁用面（无整页加载占位）', async () => {
+    loadActiveRun(
+      activeRunView({
+        nodes: [
+          {
+            phase: 'implement',
+            attempt: 1,
+            step: 'executor',
+            status: 'running',
+            sessionId: 'ses-exec',
+            detail: null,
+            instanceNo: 0,
+            outputRef: null,
+          },
+        ],
+      }),
+    );
+    planDetailRounds([{ kind: 'ok' }, { kind: 'reject', message: 'db: 读失败' }, { kind: 'ok' }]);
+    renderDetail({ detail: detail(), artifacts: PROPOSAL_ENVELOPES });
+    await act(async () => {});
+    expect(screen.getAllByTestId('run-step-node')).toHaveLength(1);
+
+    await notifyAndFlush();
+
+    // 失败轮：图面节点不清零、徽章在案、零空图占位
+    expect(screen.getAllByTestId('run-step-node')).toHaveLength(1);
+    expect(screen.getByTestId('run-status').textContent).toBe('运行中');
+    expect(screen.queryByText('加载中…')).toBeNull();
+
+    // 重试轮挂起（门闩）：loading 置位仅作用刷新按钮禁用面
+    loadFixture({ detail: detail(), artifacts: PROPOSAL_ENVELOPES, hold: true });
+    await flush(1000);
+    expect(screen.queryByText('加载中…')).toBeNull();
+    expect(screen.getByTestId('flow-graph') !== null).toBe(true);
+    expect(screen.getAllByTestId('run-step-node')).toHaveLength(1);
+    expect(screen.getByRole('button', { name: '刷新详情' }).hasAttribute('disabled')).toBe(true);
+
+    // 门闩释放（成功轮）→ 横幅出销
+    await act(async () => {
+      releaseDetail?.();
+    });
+    expect(screen.queryByTestId('refresh-stale-note')).toBeNull();
+  });
+
+  it('降级窗口动作可用（AC-8）：保 last-good 窗口内停止入口照常可发（change_flow_stop 独立 invoke 不受降级态影响），控制入口状态与 last-good activeRun 一致', async () => {
+    loadActiveRun(activeRunView());
+    planDetailRounds([{ kind: 'ok' }, { kind: 'reject', message: 'db: 读失败' }]);
+    renderDetail({ detail: detail(), artifacts: PROPOSAL_ENVELOPES });
+    await act(async () => {});
+    await notifyAndFlush();
+    expect(screen.getByTestId('refresh-stale-note') !== null).toBe(true);
+    expect(screen.getByTestId('run-status').textContent).toBe('运行中');
+
+    fireEvent.click(screen.getByTestId('run-stop'));
+
+    expect(invokeMock).toHaveBeenCalledWith('change_flow_stop', {
+      root: ROOT,
+      id: CHANGE_ID,
+    });
+    expect(screen.getByTestId('refresh-stale-note') !== null).toBe(true);
+  });
+
+  it('降级窗口动作可用（AC-8）：phase 间确认卡片照常呈现与提交（change_flow_confirm 独立 invoke，proceed=true）', async () => {
+    loadActiveRun(activeRunView({ status: 'waitingConfirm', phase: 'test-design', attempt: 1 }));
+    planDetailRounds([{ kind: 'ok' }, { kind: 'reject', message: 'db: 读失败' }]);
+    renderDetail({ detail: detail(), artifacts: PROPOSAL_ENVELOPES });
+    await act(async () => {});
+    await notifyAndFlush();
+    expect(screen.getByTestId('refresh-stale-note') !== null).toBe(true);
+
+    // 控制入口状态与 last-good activeRun 一致：确认卡片携停等相位名
+    const card = screen.getByTestId('run-confirm-card');
+    expect(card.textContent).toContain('test-design');
+
+    fireEvent.click(screen.getByTestId('run-confirm-proceed'));
+
+    expect(invokeMock).toHaveBeenCalledWith('change_flow_confirm', {
+      root: ROOT,
+      id: CHANGE_ID,
+      proceed: true,
+      syncSpecs: true,
+    });
+  });
+
+  it('降级窗口动作可用（AC-8）：ask 应答通道照常可发（change_flow_answer 独立 invoke，自由文本）', async () => {
+    loadActiveRun(
+      activeRunView({
+        status: 'waitingAsk',
+        ask: { question: '继续还是停止？', options: [] },
+      }),
+    );
+    planDetailRounds([{ kind: 'ok' }, { kind: 'reject', message: 'db: 读失败' }]);
+    renderDetail({ detail: detail(), artifacts: PROPOSAL_ENVELOPES });
+    await act(async () => {});
+    await notifyAndFlush();
+    expect(screen.getByTestId('refresh-stale-note') !== null).toBe(true);
+    expect(screen.getByTestId('run-ask-question').textContent).toBe('继续还是停止？');
+
+    fireEvent.change(screen.getByTestId('run-ask-input'), { target: { value: '继续' } });
+    fireEvent.click(screen.getByTestId('run-ask-submit'));
+
+    expect(invokeMock).toHaveBeenCalledWith('change_flow_answer', {
+      root: ROOT,
+      id: CHANGE_ID,
+      answer: '继续',
+    });
+  });
+});

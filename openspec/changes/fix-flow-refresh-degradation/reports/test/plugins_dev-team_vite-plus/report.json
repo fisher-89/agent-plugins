@@ -1,0 +1,1123 @@
+{
+  "framework": "vite-plus",
+  "root": "plugins/dev-team",
+  "timestamp": "2026-10-16T08:14:14.6559877Z",
+  "exit_code": 0,
+  "duration_ms": 33426.0,
+  "summary": {
+    "total": 0,
+    "passed": 0,
+    "failed": 0,
+    "skipped": 0
+  },
+  "error_cases": [],
+  "test_files": [],
+  "source_files": [
+    {
+      "file": "C:\\Users\\wps\\.dev-team\\worktrees\\wps-claude-plugin-7166d8c61feeae705846d569251abee6\\fix-flow-refresh-degradation\\plugins\\dev-team\\bin\\src\\cli.ts",
+      "coverage": {
+        "lines": 88.88,
+        "branches": 83.33,
+        "functions": 100.0,
+        "total_lines": 18,
+        "covered_lines": 16,
+        "total_branches": 6,
+        "covered_branches": 5,
+        "total_functions": 4,
+        "covered_functions": 4
+      }
+    },
+    {
+      "file": "C:\\Users\\wps\\.dev-team\\worktrees\\wps-claude-plugin-7166d8c61feeae705846d569251abee6\\fix-flow-refresh-degradation\\plugins\\dev-team\\bin\\src\\commands\\backtrack.ts",
+      "coverage": {
+        "lines": 100.0,
+        "branches": 83.33,
+        "functions": 100.0,
+        "total_lines": 35,
+        "covered_lines": 35,
+        "total_branches": 12,
+        "covered_branches": 10,
+        "total_functions": 9,
+        "covered_functions": 9
+      }
+    },
+    {
+      "file": "C:\\Users\\wps\\.dev-team\\worktrees\\wps-claude-plugin-7166d8c61feeae705846d569251abee6\\fix-flow-refresh-degradation\\plugins\\dev-team\\bin\\src\\commands\\change-create.ts",
+      "coverage": {
+        "lines": 100.0,
+        "branches": 100.0,
+        "functions": 100.0,
+        "total_lines": 13,
+        "covered_lines": 13,
+        "total_branches": 6,
+        "covered_branches": 6,
+        "total_functions": 1,
+        "covered_functions": 1
+      }
+    },
+    {
+      "file": "C:\\Users\\wps\\.dev-team\\worktrees\\wps-claude-plugin-7166d8c61feeae705846d569251abee6\\fix-flow-refresh-degradation\\plugins\\dev-team\\bin\\src\\commands\\change-files.ts",
+      "coverage": {
+        "lines": 100.0,
+        "branches": 75.0,
+        "functions": 100.0,
+        "total_lines": 5,
+        "covered_lines": 5,
+        "total_branches": 4,
+        "covered_branches": 3,
+        "total_functions": 1,
+        "covered_functions": 1
+      }
+    },
+    {
+      "file": "C:\\Users\\wps\\.dev-team\\worktrees\\wps-claude-plugin-7166d8c61feeae705846d569251abee6\\fix-flow-refresh-degradation\\plugins\\dev-team\\bin\\src\\commands\\change-list.ts",
+      "coverage": {
+        "lines": 98.07,
+        "branches": 100.0,
+        "functions": 100.0,
+        "total_lines": 52,
+        "covered_lines": 51,
+        "total_branches": 24,
+        "covered_branches": 24,
+        "total_functions": 9,
+        "covered_functions": 9
+      }
+    },
+    {
+      "file": "C:\\Users\\wps\\.dev-team\\worktrees\\wps-claude-plugin-7166d8c61feeae705846d569251abee6\\fix-flow-refresh-degradation\\plugins\\dev-team\\bin\\src\\commands\\config-get.ts",
+      "coverage": {
+        "lines": 100.0,
+        "branches": 100.0,
+        "functions": 100.0,
+        "total_lines": 4,
+        "covered_lines": 4,
+        "total_branches": 2,
+        "covered_branches": 2,
+        "total_functions": 1,
+        "covered_functions": 1
+      }
+    },
+    {
+      "file": "C:\\Users\\wps\\.dev-team\\worktrees\\wps-claude-plugin-7166d8c61feeae705846d569251abee6\\fix-flow-refresh-degradation\\plugins\\dev-team\\bin\\src\\commands\\phase-log.ts",
+      "coverage": {
+        "lines": 100.0,
+        "branches": 81.25,
+        "functions": 100.0,
+        "total_lines": 25,
+        "covered_lines": 25,
+        "total_branches": 16,
+        "covered_branches": 13,
+        "total_functions": 6,
+        "covered_functions": 6
+      }
+    },
+    {
+      "file": "C:\\Users\\wps\\.dev-team\\worktrees\\wps-claude-plugin-7166d8c61feeae705846d569251abee6\\fix-flow-refresh-degradation\\plugins\\dev-team\\bin\\src\\commands\\phase-next.ts",
+      "coverage": {
+        "lines": 100.0,
+        "branches": 91.3,
+        "functions": 100.0,
+        "total_lines": 96,
+        "covered_lines": 96,
+        "total_branches": 69,
+        "covered_branches": 63,
+        "total_functions": 27,
+        "covered_functions": 27
+      }
+    },
+    {
+      "file": "C:\\Users\\wps\\.dev-team\\worktrees\\wps-claude-plugin-7166d8c61feeae705846d569251abee6\\fix-flow-refresh-degradation\\plugins\\dev-team\\bin\\src\\commands\\phase-start.ts",
+      "coverage": {
+        "lines": 100.0,
+        "branches": 100.0,
+        "functions": 100.0,
+        "total_lines": 9,
+        "covered_lines": 9,
+        "total_branches": 2,
+        "covered_branches": 2,
+        "total_functions": 2,
+        "covered_functions": 2
+      }
+    },
+    {
+      "file": "C:\\Users\\wps\\.dev-team\\worktrees\\wps-claude-plugin-7166d8c61feeae705846d569251abee6\\fix-flow-refresh-degradation\\plugins\\dev-team\\bin\\src\\commands\\protect-files.ts",
+      "coverage": {
+        "lines": 100.0,
+        "branches": 97.46,
+        "functions": 100.0,
+        "total_lines": 89,
+        "covered_lines": 89,
+        "total_branches": 79,
+        "covered_branches": 77,
+        "total_functions": 16,
+        "covered_functions": 16
+      }
+    },
+    {
+      "file": "C:\\Users\\wps\\.dev-team\\worktrees\\wps-claude-plugin-7166d8c61feeae705846d569251abee6\\fix-flow-refresh-degradation\\plugins\\dev-team\\bin\\src\\commands\\record-files.ts",
+      "coverage": {
+        "lines": 98.21,
+        "branches": 92.75,
+        "functions": 100.0,
+        "total_lines": 56,
+        "covered_lines": 55,
+        "total_branches": 69,
+        "covered_branches": 64,
+        "total_functions": 9,
+        "covered_functions": 9
+      }
+    },
+    {
+      "file": "C:\\Users\\wps\\.dev-team\\worktrees\\wps-claude-plugin-7166d8c61feeae705846d569251abee6\\fix-flow-refresh-degradation\\plugins\\dev-team\\bin\\src\\commands\\run-static-analysis.ts",
+      "coverage": {
+        "lines": 84.21,
+        "branches": 73.68,
+        "functions": 100.0,
+        "total_lines": 19,
+        "covered_lines": 16,
+        "total_branches": 19,
+        "covered_branches": 14,
+        "total_functions": 2,
+        "covered_functions": 2
+      }
+    },
+    {
+      "file": "C:\\Users\\wps\\.dev-team\\worktrees\\wps-claude-plugin-7166d8c61feeae705846d569251abee6\\fix-flow-refresh-degradation\\plugins\\dev-team\\bin\\src\\commands\\spec-list.ts",
+      "coverage": {
+        "lines": 93.33,
+        "branches": 100.0,
+        "functions": 100.0,
+        "total_lines": 30,
+        "covered_lines": 28,
+        "total_branches": 16,
+        "covered_branches": 16,
+        "total_functions": 3,
+        "covered_functions": 3
+      }
+    },
+    {
+      "file": "C:\\Users\\wps\\.dev-team\\worktrees\\wps-claude-plugin-7166d8c61feeae705846d569251abee6\\fix-flow-refresh-degradation\\plugins\\dev-team\\bin\\src\\commands\\static-check.ts",
+      "coverage": {
+        "lines": 100.0,
+        "branches": 100.0,
+        "functions": 100.0,
+        "total_lines": 28,
+        "covered_lines": 28,
+        "total_branches": 12,
+        "covered_branches": 12,
+        "total_functions": 6,
+        "covered_functions": 6
+      }
+    },
+    {
+      "file": "C:\\Users\\wps\\.dev-team\\worktrees\\wps-claude-plugin-7166d8c61feeae705846d569251abee6\\fix-flow-refresh-degradation\\plugins\\dev-team\\bin\\src\\commands\\sweep-phase.ts",
+      "coverage": {
+        "lines": 95.0,
+        "branches": 93.75,
+        "functions": 100.0,
+        "total_lines": 20,
+        "covered_lines": 19,
+        "total_branches": 16,
+        "covered_branches": 15,
+        "total_functions": 2,
+        "covered_functions": 2
+      }
+    },
+    {
+      "file": "C:\\Users\\wps\\.dev-team\\worktrees\\wps-claude-plugin-7166d8c61feeae705846d569251abee6\\fix-flow-refresh-degradation\\plugins\\dev-team\\bin\\src\\commands\\test-detect-frameworks.ts",
+      "coverage": {
+        "lines": 91.02,
+        "branches": 81.66,
+        "functions": 100.0,
+        "total_lines": 78,
+        "covered_lines": 71,
+        "total_branches": 60,
+        "covered_branches": 49,
+        "total_functions": 13,
+        "covered_functions": 13
+      }
+    },
+    {
+      "file": "C:\\Users\\wps\\.dev-team\\worktrees\\wps-claude-plugin-7166d8c61feeae705846d569251abee6\\fix-flow-refresh-degradation\\plugins\\dev-team\\bin\\src\\commands\\test-execution.ts",
+      "coverage": {
+        "lines": 98.85,
+        "branches": 93.26,
+        "functions": 100.0,
+        "total_lines": 174,
+        "covered_lines": 172,
+        "total_branches": 104,
+        "covered_branches": 97,
+        "total_functions": 35,
+        "covered_functions": 35
+      }
+    },
+    {
+      "file": "C:\\Users\\wps\\.dev-team\\worktrees\\wps-claude-plugin-7166d8c61feeae705846d569251abee6\\fix-flow-refresh-degradation\\plugins\\dev-team\\bin\\src\\commands\\test-resolve-paths.ts",
+      "coverage": {
+        "lines": 99.03,
+        "branches": 93.22,
+        "functions": 100.0,
+        "total_lines": 104,
+        "covered_lines": 103,
+        "total_branches": 59,
+        "covered_branches": 55,
+        "total_functions": 15,
+        "covered_functions": 15
+      }
+    },
+    {
+      "file": "C:\\Users\\wps\\.dev-team\\worktrees\\wps-claude-plugin-7166d8c61feeae705846d569251abee6\\fix-flow-refresh-degradation\\plugins\\dev-team\\bin\\src\\hooks.ts",
+      "coverage": {
+        "lines": 100.0,
+        "branches": 100.0,
+        "functions": 100.0,
+        "total_lines": 17,
+        "covered_lines": 17,
+        "total_branches": 7,
+        "covered_branches": 7,
+        "total_functions": 1,
+        "covered_functions": 1
+      }
+    },
+    {
+      "file": "C:\\Users\\wps\\.dev-team\\worktrees\\wps-claude-plugin-7166d8c61feeae705846d569251abee6\\fix-flow-refresh-degradation\\plugins\\dev-team\\bin\\src\\lib\\archi-decide.ts",
+      "coverage": {
+        "lines": 94.38,
+        "branches": 83.78,
+        "functions": 100.0,
+        "total_lines": 196,
+        "covered_lines": 185,
+        "total_branches": 111,
+        "covered_branches": 93,
+        "total_functions": 25,
+        "covered_functions": 25
+      }
+    },
+    {
+      "file": "C:\\Users\\wps\\.dev-team\\worktrees\\wps-claude-plugin-7166d8c61feeae705846d569251abee6\\fix-flow-refresh-degradation\\plugins\\dev-team\\bin\\src\\lib\\c4-cross-ref.ts",
+      "coverage": {
+        "lines": 99.39,
+        "branches": 92.45,
+        "functions": 100.0,
+        "total_lines": 164,
+        "covered_lines": 163,
+        "total_branches": 106,
+        "covered_branches": 98,
+        "total_functions": 22,
+        "covered_functions": 22
+      }
+    },
+    {
+      "file": "C:\\Users\\wps\\.dev-team\\worktrees\\wps-claude-plugin-7166d8c61feeae705846d569251abee6\\fix-flow-refresh-degradation\\plugins\\dev-team\\bin\\src\\lib\\c4-parser.ts",
+      "coverage": {
+        "lines": 90.21,
+        "branches": 58.92,
+        "functions": 100.0,
+        "total_lines": 92,
+        "covered_lines": 83,
+        "total_branches": 56,
+        "covered_branches": 33,
+        "total_functions": 18,
+        "covered_functions": 18
+      }
+    },
+    {
+      "file": "C:\\Users\\wps\\.dev-team\\worktrees\\wps-claude-plugin-7166d8c61feeae705846d569251abee6\\fix-flow-refresh-degradation\\plugins\\dev-team\\bin\\src\\lib\\change-config.ts",
+      "coverage": {
+        "lines": 94.73,
+        "branches": 87.5,
+        "functions": 100.0,
+        "total_lines": 19,
+        "covered_lines": 18,
+        "total_branches": 8,
+        "covered_branches": 7,
+        "total_functions": 5,
+        "covered_functions": 5
+      }
+    },
+    {
+      "file": "C:\\Users\\wps\\.dev-team\\worktrees\\wps-claude-plugin-7166d8c61feeae705846d569251abee6\\fix-flow-refresh-degradation\\plugins\\dev-team\\bin\\src\\lib\\change.ts",
+      "coverage": {
+        "lines": 100.0,
+        "branches": 100.0,
+        "functions": 100.0,
+        "total_lines": 1,
+        "covered_lines": 1,
+        "total_branches": 0,
+        "covered_branches": 0,
+        "total_functions": 1,
+        "covered_functions": 1
+      }
+    },
+    {
+      "file": "C:\\Users\\wps\\.dev-team\\worktrees\\wps-claude-plugin-7166d8c61feeae705846d569251abee6\\fix-flow-refresh-degradation\\plugins\\dev-team\\bin\\src\\lib\\config.ts",
+      "coverage": {
+        "lines": 92.3,
+        "branches": 92.85,
+        "functions": 100.0,
+        "total_lines": 26,
+        "covered_lines": 24,
+        "total_branches": 14,
+        "covered_branches": 13,
+        "total_functions": 3,
+        "covered_functions": 3
+      }
+    },
+    {
+      "file": "C:\\Users\\wps\\.dev-team\\worktrees\\wps-claude-plugin-7166d8c61feeae705846d569251abee6\\fix-flow-refresh-degradation\\plugins\\dev-team\\bin\\src\\lib\\eval-json.ts",
+      "coverage": {
+        "lines": 98.97,
+        "branches": 96.66,
+        "functions": 100.0,
+        "total_lines": 98,
+        "covered_lines": 97,
+        "total_branches": 60,
+        "covered_branches": 58,
+        "total_functions": 20,
+        "covered_functions": 20
+      }
+    },
+    {
+      "file": "C:\\Users\\wps\\.dev-team\\worktrees\\wps-claude-plugin-7166d8c61feeae705846d569251abee6\\fix-flow-refresh-degradation\\plugins\\dev-team\\bin\\src\\lib\\exec-command.ts",
+      "coverage": {
+        "lines": 100.0,
+        "branches": 100.0,
+        "functions": 100.0,
+        "total_lines": 1,
+        "covered_lines": 1,
+        "total_branches": 0,
+        "covered_branches": 0,
+        "total_functions": 1,
+        "covered_functions": 1
+      }
+    },
+    {
+      "file": "C:\\Users\\wps\\.dev-team\\worktrees\\wps-claude-plugin-7166d8c61feeae705846d569251abee6\\fix-flow-refresh-degradation\\plugins\\dev-team\\bin\\src\\lib\\glob.ts",
+      "coverage": {
+        "lines": 100.0,
+        "branches": 100.0,
+        "functions": 100.0,
+        "total_lines": 7,
+        "covered_lines": 7,
+        "total_branches": 4,
+        "covered_branches": 4,
+        "total_functions": 2,
+        "covered_functions": 2
+      }
+    },
+    {
+      "file": "C:\\Users\\wps\\.dev-team\\worktrees\\wps-claude-plugin-7166d8c61feeae705846d569251abee6\\fix-flow-refresh-degradation\\plugins\\dev-team\\bin\\src\\lib\\project-root.ts",
+      "coverage": {
+        "lines": 93.52,
+        "branches": 85.71,
+        "functions": 100.0,
+        "total_lines": 170,
+        "covered_lines": 159,
+        "total_branches": 98,
+        "covered_branches": 84,
+        "total_functions": 30,
+        "covered_functions": 30
+      }
+    },
+    {
+      "file": "C:\\Users\\wps\\.dev-team\\worktrees\\wps-claude-plugin-7166d8c61feeae705846d569251abee6\\fix-flow-refresh-degradation\\plugins\\dev-team\\bin\\src\\lib\\session-registry.ts",
+      "coverage": {
+        "lines": 96.87,
+        "branches": 100.0,
+        "functions": 100.0,
+        "total_lines": 32,
+        "covered_lines": 31,
+        "total_branches": 12,
+        "covered_branches": 12,
+        "total_functions": 6,
+        "covered_functions": 6
+      }
+    },
+    {
+      "file": "C:\\Users\\wps\\.dev-team\\worktrees\\wps-claude-plugin-7166d8c61feeae705846d569251abee6\\fix-flow-refresh-degradation\\plugins\\dev-team\\bin\\src\\lib\\shell-file-ops.ts",
+      "coverage": {
+        "lines": 100.0,
+        "branches": 91.89,
+        "functions": 100.0,
+        "total_lines": 143,
+        "covered_lines": 143,
+        "total_branches": 74,
+        "covered_branches": 68,
+        "total_functions": 26,
+        "covered_functions": 26
+      }
+    },
+    {
+      "file": "C:\\Users\\wps\\.dev-team\\worktrees\\wps-claude-plugin-7166d8c61feeae705846d569251abee6\\fix-flow-refresh-degradation\\plugins\\dev-team\\bin\\src\\lib\\test-exclude.ts",
+      "coverage": {
+        "lines": 95.23,
+        "branches": 86.66,
+        "functions": 100.0,
+        "total_lines": 42,
+        "covered_lines": 40,
+        "total_branches": 30,
+        "covered_branches": 26,
+        "total_functions": 8,
+        "covered_functions": 8
+      }
+    },
+    {
+      "file": "C:\\Users\\wps\\.dev-team\\worktrees\\wps-claude-plugin-7166d8c61feeae705846d569251abee6\\fix-flow-refresh-degradation\\plugins\\dev-team\\bin\\src\\lib\\test-framework.ts",
+      "coverage": {
+        "lines": 100.0,
+        "branches": 100.0,
+        "functions": 100.0,
+        "total_lines": 45,
+        "covered_lines": 45,
+        "total_branches": 24,
+        "covered_branches": 24,
+        "total_functions": 27,
+        "covered_functions": 27
+      }
+    },
+    {
+      "file": "C:\\Users\\wps\\.dev-team\\worktrees\\wps-claude-plugin-7166d8c61feeae705846d569251abee6\\fix-flow-refresh-degradation\\plugins\\dev-team\\bin\\src\\lib\\test-parser\\coverage-parser.ts",
+      "coverage": {
+        "lines": 93.39,
+        "branches": 77.23,
+        "functions": 93.33,
+        "total_lines": 106,
+        "covered_lines": 99,
+        "total_branches": 123,
+        "covered_branches": 95,
+        "total_functions": 15,
+        "covered_functions": 14
+      }
+    },
+    {
+      "file": "C:\\Users\\wps\\.dev-team\\worktrees\\wps-claude-plugin-7166d8c61feeae705846d569251abee6\\fix-flow-refresh-degradation\\plugins\\dev-team\\bin\\src\\lib\\test-parser\\go-parser.ts",
+      "coverage": {
+        "lines": 96.49,
+        "branches": 90.69,
+        "functions": 100.0,
+        "total_lines": 57,
+        "covered_lines": 55,
+        "total_branches": 43,
+        "covered_branches": 39,
+        "total_functions": 10,
+        "covered_functions": 10
+      }
+    },
+    {
+      "file": "C:\\Users\\wps\\.dev-team\\worktrees\\wps-claude-plugin-7166d8c61feeae705846d569251abee6\\fix-flow-refresh-degradation\\plugins\\dev-team\\bin\\src\\lib\\test-parser\\index.ts",
+      "coverage": {
+        "lines": 96.29,
+        "branches": 89.47,
+        "functions": 100.0,
+        "total_lines": 27,
+        "covered_lines": 26,
+        "total_branches": 19,
+        "covered_branches": 17,
+        "total_functions": 4,
+        "covered_functions": 4
+      }
+    },
+    {
+      "file": "C:\\Users\\wps\\.dev-team\\worktrees\\wps-claude-plugin-7166d8c61feeae705846d569251abee6\\fix-flow-refresh-degradation\\plugins\\dev-team\\bin\\src\\lib\\test-parser\\js-parser.ts",
+      "coverage": {
+        "lines": 96.29,
+        "branches": 87.09,
+        "functions": 100.0,
+        "total_lines": 54,
+        "covered_lines": 52,
+        "total_branches": 31,
+        "covered_branches": 27,
+        "total_functions": 8,
+        "covered_functions": 8
+      }
+    },
+    {
+      "file": "C:\\Users\\wps\\.dev-team\\worktrees\\wps-claude-plugin-7166d8c61feeae705846d569251abee6\\fix-flow-refresh-degradation\\plugins\\dev-team\\bin\\src\\lib\\test-parser\\mutation-parser.ts",
+      "coverage": {
+        "lines": 100.0,
+        "branches": 97.56,
+        "functions": 100.0,
+        "total_lines": 39,
+        "covered_lines": 39,
+        "total_branches": 41,
+        "covered_branches": 40,
+        "total_functions": 3,
+        "covered_functions": 3
+      }
+    },
+    {
+      "file": "C:\\Users\\wps\\.dev-team\\worktrees\\wps-claude-plugin-7166d8c61feeae705846d569251abee6\\fix-flow-refresh-degradation\\plugins\\dev-team\\bin\\src\\lib\\test-parser\\stryker-config.ts",
+      "coverage": {
+        "lines": 97.22,
+        "branches": 92.3,
+        "functions": 100.0,
+        "total_lines": 36,
+        "covered_lines": 35,
+        "total_branches": 26,
+        "covered_branches": 24,
+        "total_functions": 7,
+        "covered_functions": 7
+      }
+    },
+    {
+      "file": "C:\\Users\\wps\\.dev-team\\worktrees\\wps-claude-plugin-7166d8c61feeae705846d569251abee6\\fix-flow-refresh-degradation\\plugins\\dev-team\\bin\\src\\lib\\test-parser\\text-parser.ts",
+      "coverage": {
+        "lines": 99.16,
+        "branches": 97.33,
+        "functions": 100.0,
+        "total_lines": 120,
+        "covered_lines": 119,
+        "total_branches": 75,
+        "covered_branches": 73,
+        "total_functions": 15,
+        "covered_functions": 15
+      }
+    },
+    {
+      "file": "C:\\Users\\wps\\.dev-team\\worktrees\\wps-claude-plugin-7166d8c61feeae705846d569251abee6\\fix-flow-refresh-degradation\\plugins\\dev-team\\bin\\src\\lib\\test-path-naming.ts",
+      "coverage": {
+        "lines": 95.0,
+        "branches": 93.75,
+        "functions": 100.0,
+        "total_lines": 40,
+        "covered_lines": 38,
+        "total_branches": 32,
+        "covered_branches": 30,
+        "total_functions": 4,
+        "covered_functions": 4
+      }
+    },
+    {
+      "file": "C:\\Users\\wps\\.dev-team\\worktrees\\wps-claude-plugin-7166d8c61feeae705846d569251abee6\\fix-flow-refresh-degradation\\plugins\\dev-team\\bin\\src\\lib\\test-plan.ts",
+      "coverage": {
+        "lines": 98.64,
+        "branches": 96.55,
+        "functions": 100.0,
+        "total_lines": 74,
+        "covered_lines": 73,
+        "total_branches": 58,
+        "covered_branches": 56,
+        "total_functions": 22,
+        "covered_functions": 22
+      }
+    },
+    {
+      "file": "C:\\Users\\wps\\.dev-team\\worktrees\\wps-claude-plugin-7166d8c61feeae705846d569251abee6\\fix-flow-refresh-degradation\\plugins\\dev-team\\bin\\src\\lib\\test-report.ts",
+      "coverage": {
+        "lines": 98.71,
+        "branches": 89.11,
+        "functions": 100.0,
+        "total_lines": 233,
+        "covered_lines": 230,
+        "total_branches": 193,
+        "covered_branches": 172,
+        "total_functions": 45,
+        "covered_functions": 45
+      }
+    },
+    {
+      "file": "C:\\Users\\wps\\.dev-team\\worktrees\\wps-claude-plugin-7166d8c61feeae705846d569251abee6\\fix-flow-refresh-degradation\\plugins\\dev-team\\bin\\src\\lib\\test-runner.ts",
+      "coverage": {
+        "lines": 96.89,
+        "branches": 90.22,
+        "functions": 100.0,
+        "total_lines": 193,
+        "covered_lines": 187,
+        "total_branches": 133,
+        "covered_branches": 120,
+        "total_functions": 31,
+        "covered_functions": 31
+      }
+    },
+    {
+      "file": "C:\\Users\\wps\\.dev-team\\worktrees\\wps-claude-plugin-7166d8c61feeae705846d569251abee6\\fix-flow-refresh-degradation\\plugins\\dev-team\\bin\\src\\lib\\workflow.ts",
+      "coverage": {
+        "lines": 100.0,
+        "branches": 95.0,
+        "functions": 100.0,
+        "total_lines": 38,
+        "covered_lines": 38,
+        "total_branches": 20,
+        "covered_branches": 19,
+        "total_functions": 10,
+        "covered_functions": 10
+      }
+    },
+    {
+      "file": "C:\\Users\\wps\\.dev-team\\worktrees\\wps-claude-plugin-7166d8c61feeae705846d569251abee6\\fix-flow-refresh-degradation\\plugins\\dev-team\\bin\\src\\mcp.ts",
+      "coverage": {
+        "lines": 90.36,
+        "branches": 63.63,
+        "functions": 95.0,
+        "total_lines": 83,
+        "covered_lines": 75,
+        "total_branches": 11,
+        "covered_branches": 7,
+        "total_functions": 40,
+        "covered_functions": 38
+      }
+    },
+    {
+      "file": "C:\\Users\\wps\\.dev-team\\worktrees\\wps-claude-plugin-7166d8c61feeae705846d569251abee6\\fix-flow-refresh-degradation\\plugins\\dev-team\\bin\\src\\modules\\workflow\\doc-io.ts",
+      "coverage": {
+        "lines": 95.45,
+        "branches": 90.0,
+        "functions": 100.0,
+        "total_lines": 22,
+        "covered_lines": 21,
+        "total_branches": 10,
+        "covered_branches": 9,
+        "total_functions": 6,
+        "covered_functions": 6
+      }
+    },
+    {
+      "file": "C:\\Users\\wps\\.dev-team\\worktrees\\wps-claude-plugin-7166d8c61feeae705846d569251abee6\\fix-flow-refresh-degradation\\plugins\\dev-team\\bin\\src\\modules\\workflow\\files\\file-inventory.ts",
+      "coverage": {
+        "lines": 100.0,
+        "branches": 88.88,
+        "functions": 100.0,
+        "total_lines": 62,
+        "covered_lines": 62,
+        "total_branches": 27,
+        "covered_branches": 24,
+        "total_functions": 18,
+        "covered_functions": 18
+      }
+    },
+    {
+      "file": "C:\\Users\\wps\\.dev-team\\worktrees\\wps-claude-plugin-7166d8c61feeae705846d569251abee6\\fix-flow-refresh-degradation\\plugins\\dev-team\\bin\\src\\modules\\workflow\\files\\files-query.ts",
+      "coverage": {
+        "lines": 100.0,
+        "branches": 100.0,
+        "functions": 100.0,
+        "total_lines": 1,
+        "covered_lines": 1,
+        "total_branches": 0,
+        "covered_branches": 0,
+        "total_functions": 1,
+        "covered_functions": 1
+      }
+    },
+    {
+      "file": "C:\\Users\\wps\\.dev-team\\worktrees\\wps-claude-plugin-7166d8c61feeae705846d569251abee6\\fix-flow-refresh-degradation\\plugins\\dev-team\\bin\\src\\modules\\workflow\\files\\gitignore.ts",
+      "coverage": {
+        "lines": 100.0,
+        "branches": 91.66,
+        "functions": 100.0,
+        "total_lines": 42,
+        "covered_lines": 42,
+        "total_branches": 24,
+        "covered_branches": 22,
+        "total_functions": 8,
+        "covered_functions": 8
+      }
+    },
+    {
+      "file": "C:\\Users\\wps\\.dev-team\\worktrees\\wps-claude-plugin-7166d8c61feeae705846d569251abee6\\fix-flow-refresh-degradation\\plugins\\dev-team\\bin\\src\\modules\\workflow\\files\\record.ts",
+      "coverage": {
+        "lines": 100.0,
+        "branches": 96.29,
+        "functions": 100.0,
+        "total_lines": 23,
+        "covered_lines": 23,
+        "total_branches": 27,
+        "covered_branches": 26,
+        "total_functions": 5,
+        "covered_functions": 5
+      }
+    },
+    {
+      "file": "C:\\Users\\wps\\.dev-team\\worktrees\\wps-claude-plugin-7166d8c61feeae705846d569251abee6\\fix-flow-refresh-degradation\\plugins\\dev-team\\bin\\src\\modules\\workflow\\index.ts",
+      "coverage": {
+        "lines": 100.0,
+        "branches": 100.0,
+        "functions": 100.0,
+        "total_lines": 0,
+        "covered_lines": 0,
+        "total_branches": 0,
+        "covered_branches": 0,
+        "total_functions": 0,
+        "covered_functions": 0
+      }
+    },
+    {
+      "file": "C:\\Users\\wps\\.dev-team\\worktrees\\wps-claude-plugin-7166d8c61feeae705846d569251abee6\\fix-flow-refresh-degradation\\plugins\\dev-team\\bin\\src\\modules\\workflow\\phase\\phase-state.ts",
+      "coverage": {
+        "lines": 100.0,
+        "branches": 100.0,
+        "functions": 100.0,
+        "total_lines": 23,
+        "covered_lines": 23,
+        "total_branches": 12,
+        "covered_branches": 12,
+        "total_functions": 4,
+        "covered_functions": 4
+      }
+    },
+    {
+      "file": "C:\\Users\\wps\\.dev-team\\worktrees\\wps-claude-plugin-7166d8c61feeae705846d569251abee6\\fix-flow-refresh-degradation\\plugins\\dev-team\\bin\\src\\schemas\\archi-check.schema.ts",
+      "coverage": {
+        "lines": 100.0,
+        "branches": 100.0,
+        "functions": 100.0,
+        "total_lines": 2,
+        "covered_lines": 2,
+        "total_branches": 0,
+        "covered_branches": 0,
+        "total_functions": 0,
+        "covered_functions": 0
+      }
+    },
+    {
+      "file": "C:\\Users\\wps\\.dev-team\\worktrees\\wps-claude-plugin-7166d8c61feeae705846d569251abee6\\fix-flow-refresh-degradation\\plugins\\dev-team\\bin\\src\\schemas\\archi-decide.schema.ts",
+      "coverage": {
+        "lines": 100.0,
+        "branches": 100.0,
+        "functions": 100.0,
+        "total_lines": 11,
+        "covered_lines": 11,
+        "total_branches": 0,
+        "covered_branches": 0,
+        "total_functions": 0,
+        "covered_functions": 0
+      }
+    },
+    {
+      "file": "C:\\Users\\wps\\.dev-team\\worktrees\\wps-claude-plugin-7166d8c61feeae705846d569251abee6\\fix-flow-refresh-degradation\\plugins\\dev-team\\bin\\src\\schemas\\archi-query.schema.ts",
+      "coverage": {
+        "lines": 100.0,
+        "branches": 100.0,
+        "functions": 100.0,
+        "total_lines": 4,
+        "covered_lines": 4,
+        "total_branches": 0,
+        "covered_branches": 0,
+        "total_functions": 0,
+        "covered_functions": 0
+      }
+    },
+    {
+      "file": "C:\\Users\\wps\\.dev-team\\worktrees\\wps-claude-plugin-7166d8c61feeae705846d569251abee6\\fix-flow-refresh-degradation\\plugins\\dev-team\\bin\\src\\schemas\\archi-validate.schema.ts",
+      "coverage": {
+        "lines": 100.0,
+        "branches": 100.0,
+        "functions": 100.0,
+        "total_lines": 2,
+        "covered_lines": 2,
+        "total_branches": 0,
+        "covered_branches": 0,
+        "total_functions": 0,
+        "covered_functions": 0
+      }
+    },
+    {
+      "file": "C:\\Users\\wps\\.dev-team\\worktrees\\wps-claude-plugin-7166d8c61feeae705846d569251abee6\\fix-flow-refresh-degradation\\plugins\\dev-team\\bin\\src\\schemas\\archi-write.schema.ts",
+      "coverage": {
+        "lines": 100.0,
+        "branches": 100.0,
+        "functions": 100.0,
+        "total_lines": 2,
+        "covered_lines": 2,
+        "total_branches": 0,
+        "covered_branches": 0,
+        "total_functions": 0,
+        "covered_functions": 0
+      }
+    },
+    {
+      "file": "C:\\Users\\wps\\.dev-team\\worktrees\\wps-claude-plugin-7166d8c61feeae705846d569251abee6\\fix-flow-refresh-degradation\\plugins\\dev-team\\bin\\src\\schemas\\backtrack.schema.ts",
+      "coverage": {
+        "lines": 100.0,
+        "branches": 100.0,
+        "functions": 100.0,
+        "total_lines": 2,
+        "covered_lines": 2,
+        "total_branches": 0,
+        "covered_branches": 0,
+        "total_functions": 0,
+        "covered_functions": 0
+      }
+    },
+    {
+      "file": "C:\\Users\\wps\\.dev-team\\worktrees\\wps-claude-plugin-7166d8c61feeae705846d569251abee6\\fix-flow-refresh-degradation\\plugins\\dev-team\\bin\\src\\schemas\\change-create.schema.ts",
+      "coverage": {
+        "lines": 100.0,
+        "branches": 100.0,
+        "functions": 100.0,
+        "total_lines": 3,
+        "covered_lines": 3,
+        "total_branches": 0,
+        "covered_branches": 0,
+        "total_functions": 0,
+        "covered_functions": 0
+      }
+    },
+    {
+      "file": "C:\\Users\\wps\\.dev-team\\worktrees\\wps-claude-plugin-7166d8c61feeae705846d569251abee6\\fix-flow-refresh-degradation\\plugins\\dev-team\\bin\\src\\schemas\\change-files.schema.ts",
+      "coverage": {
+        "lines": 100.0,
+        "branches": 100.0,
+        "functions": 100.0,
+        "total_lines": 8,
+        "covered_lines": 8,
+        "total_branches": 6,
+        "covered_branches": 6,
+        "total_functions": 5,
+        "covered_functions": 5
+      }
+    },
+    {
+      "file": "C:\\Users\\wps\\.dev-team\\worktrees\\wps-claude-plugin-7166d8c61feeae705846d569251abee6\\fix-flow-refresh-degradation\\plugins\\dev-team\\bin\\src\\schemas\\change-list.schema.ts",
+      "coverage": {
+        "lines": 100.0,
+        "branches": 100.0,
+        "functions": 100.0,
+        "total_lines": 3,
+        "covered_lines": 3,
+        "total_branches": 0,
+        "covered_branches": 0,
+        "total_functions": 0,
+        "covered_functions": 0
+      }
+    },
+    {
+      "file": "C:\\Users\\wps\\.dev-team\\worktrees\\wps-claude-plugin-7166d8c61feeae705846d569251abee6\\fix-flow-refresh-degradation\\plugins\\dev-team\\bin\\src\\schemas\\config-get.schema.ts",
+      "coverage": {
+        "lines": 100.0,
+        "branches": 100.0,
+        "functions": 100.0,
+        "total_lines": 2,
+        "covered_lines": 2,
+        "total_branches": 0,
+        "covered_branches": 0,
+        "total_functions": 0,
+        "covered_functions": 0
+      }
+    },
+    {
+      "file": "C:\\Users\\wps\\.dev-team\\worktrees\\wps-claude-plugin-7166d8c61feeae705846d569251abee6\\fix-flow-refresh-degradation\\plugins\\dev-team\\bin\\src\\schemas\\config\\config.schema.ts",
+      "coverage": {
+        "lines": 100.0,
+        "branches": 100.0,
+        "functions": 100.0,
+        "total_lines": 10,
+        "covered_lines": 10,
+        "total_branches": 0,
+        "covered_branches": 0,
+        "total_functions": 1,
+        "covered_functions": 1
+      }
+    },
+    {
+      "file": "C:\\Users\\wps\\.dev-team\\worktrees\\wps-claude-plugin-7166d8c61feeae705846d569251abee6\\fix-flow-refresh-degradation\\plugins\\dev-team\\bin\\src\\schemas\\config\\defaults.ts",
+      "coverage": {
+        "lines": 100.0,
+        "branches": 100.0,
+        "functions": 100.0,
+        "total_lines": 4,
+        "covered_lines": 4,
+        "total_branches": 0,
+        "covered_branches": 0,
+        "total_functions": 0,
+        "covered_functions": 0
+      }
+    },
+    {
+      "file": "C:\\Users\\wps\\.dev-team\\worktrees\\wps-claude-plugin-7166d8c61feeae705846d569251abee6\\fix-flow-refresh-degradation\\plugins\\dev-team\\bin\\src\\schemas\\index.ts",
+      "coverage": {
+        "lines": 100.0,
+        "branches": 100.0,
+        "functions": 100.0,
+        "total_lines": 0,
+        "covered_lines": 0,
+        "total_branches": 0,
+        "covered_branches": 0,
+        "total_functions": 0,
+        "covered_functions": 0
+      }
+    },
+    {
+      "file": "C:\\Users\\wps\\.dev-team\\worktrees\\wps-claude-plugin-7166d8c61feeae705846d569251abee6\\fix-flow-refresh-degradation\\plugins\\dev-team\\bin\\src\\schemas\\phase-log.schema.ts",
+      "coverage": {
+        "lines": 100.0,
+        "branches": 100.0,
+        "functions": 100.0,
+        "total_lines": 5,
+        "covered_lines": 5,
+        "total_branches": 0,
+        "covered_branches": 0,
+        "total_functions": 1,
+        "covered_functions": 1
+      }
+    },
+    {
+      "file": "C:\\Users\\wps\\.dev-team\\worktrees\\wps-claude-plugin-7166d8c61feeae705846d569251abee6\\fix-flow-refresh-degradation\\plugins\\dev-team\\bin\\src\\schemas\\phase-next.schema.ts",
+      "coverage": {
+        "lines": 100.0,
+        "branches": 100.0,
+        "functions": 100.0,
+        "total_lines": 4,
+        "covered_lines": 4,
+        "total_branches": 0,
+        "covered_branches": 0,
+        "total_functions": 0,
+        "covered_functions": 0
+      }
+    },
+    {
+      "file": "C:\\Users\\wps\\.dev-team\\worktrees\\wps-claude-plugin-7166d8c61feeae705846d569251abee6\\fix-flow-refresh-degradation\\plugins\\dev-team\\bin\\src\\schemas\\phase-start.schema.ts",
+      "coverage": {
+        "lines": 100.0,
+        "branches": 100.0,
+        "functions": 100.0,
+        "total_lines": 2,
+        "covered_lines": 2,
+        "total_branches": 0,
+        "covered_branches": 0,
+        "total_functions": 0,
+        "covered_functions": 0
+      }
+    },
+    {
+      "file": "C:\\Users\\wps\\.dev-team\\worktrees\\wps-claude-plugin-7166d8c61feeae705846d569251abee6\\fix-flow-refresh-degradation\\plugins\\dev-team\\bin\\src\\schemas\\public\\project-root.schema.ts",
+      "coverage": {
+        "lines": 100.0,
+        "branches": 100.0,
+        "functions": 100.0,
+        "total_lines": 1,
+        "covered_lines": 1,
+        "total_branches": 0,
+        "covered_branches": 0,
+        "total_functions": 0,
+        "covered_functions": 0
+      }
+    },
+    {
+      "file": "C:\\Users\\wps\\.dev-team\\worktrees\\wps-claude-plugin-7166d8c61feeae705846d569251abee6\\fix-flow-refresh-degradation\\plugins\\dev-team\\bin\\src\\schemas\\spec-list.schema.ts",
+      "coverage": {
+        "lines": 100.0,
+        "branches": 100.0,
+        "functions": 100.0,
+        "total_lines": 2,
+        "covered_lines": 2,
+        "total_branches": 0,
+        "covered_branches": 0,
+        "total_functions": 0,
+        "covered_functions": 0
+      }
+    },
+    {
+      "file": "C:\\Users\\wps\\.dev-team\\worktrees\\wps-claude-plugin-7166d8c61feeae705846d569251abee6\\fix-flow-refresh-degradation\\plugins\\dev-team\\bin\\src\\schemas\\test-detect-frameworks.schema.ts",
+      "coverage": {
+        "lines": 100.0,
+        "branches": 100.0,
+        "functions": 100.0,
+        "total_lines": 3,
+        "covered_lines": 3,
+        "total_branches": 0,
+        "covered_branches": 0,
+        "total_functions": 0,
+        "covered_functions": 0
+      }
+    },
+    {
+      "file": "C:\\Users\\wps\\.dev-team\\worktrees\\wps-claude-plugin-7166d8c61feeae705846d569251abee6\\fix-flow-refresh-degradation\\plugins\\dev-team\\bin\\src\\schemas\\test-execution-output.schema.ts",
+      "coverage": {
+        "lines": 100.0,
+        "branches": 100.0,
+        "functions": 100.0,
+        "total_lines": 15,
+        "covered_lines": 15,
+        "total_branches": 0,
+        "covered_branches": 0,
+        "total_functions": 0,
+        "covered_functions": 0
+      }
+    },
+    {
+      "file": "C:\\Users\\wps\\.dev-team\\worktrees\\wps-claude-plugin-7166d8c61feeae705846d569251abee6\\fix-flow-refresh-degradation\\plugins\\dev-team\\bin\\src\\schemas\\test-resolve-paths.schema.ts",
+      "coverage": {
+        "lines": 100.0,
+        "branches": 100.0,
+        "functions": 100.0,
+        "total_lines": 4,
+        "covered_lines": 4,
+        "total_branches": 3,
+        "covered_branches": 3,
+        "total_functions": 1,
+        "covered_functions": 1
+      }
+    },
+    {
+      "file": "C:\\Users\\wps\\.dev-team\\worktrees\\wps-claude-plugin-7166d8c61feeae705846d569251abee6\\fix-flow-refresh-degradation\\plugins\\dev-team\\bin\\src\\schemas\\workflow-files.schema.ts",
+      "coverage": {
+        "lines": 100.0,
+        "branches": 100.0,
+        "functions": 100.0,
+        "total_lines": 2,
+        "covered_lines": 2,
+        "total_branches": 0,
+        "covered_branches": 0,
+        "total_functions": 0,
+        "covered_functions": 0
+      }
+    },
+    {
+      "file": "C:\\Users\\wps\\.dev-team\\worktrees\\wps-claude-plugin-7166d8c61feeae705846d569251abee6\\fix-flow-refresh-degradation\\plugins\\dev-team\\bin\\src\\schemas\\workflow.schema.ts",
+      "coverage": {
+        "lines": 100.0,
+        "branches": 100.0,
+        "functions": 100.0,
+        "total_lines": 6,
+        "covered_lines": 6,
+        "total_branches": 0,
+        "covered_branches": 0,
+        "total_functions": 0,
+        "covered_functions": 0
+      }
+    },
+    {
+      "file": "C:\\Users\\wps\\.dev-team\\worktrees\\wps-claude-plugin-7166d8c61feeae705846d569251abee6\\fix-flow-refresh-degradation\\plugins\\dev-team\\bin\\src\\utils\\index.ts",
+      "coverage": {
+        "lines": 100.0,
+        "branches": 100.0,
+        "functions": 100.0,
+        "total_lines": 0,
+        "covered_lines": 0,
+        "total_branches": 0,
+        "covered_branches": 0,
+        "total_functions": 0,
+        "covered_functions": 0
+      }
+    },
+    {
+      "file": "C:\\Users\\wps\\.dev-team\\worktrees\\wps-claude-plugin-7166d8c61feeae705846d569251abee6\\fix-flow-refresh-degradation\\plugins\\dev-team\\bin\\src\\utils\\type-check.ts",
+      "coverage": {
+        "lines": 100.0,
+        "branches": 100.0,
+        "functions": 100.0,
+        "total_lines": 1,
+        "covered_lines": 1,
+        "total_branches": 3,
+        "covered_branches": 3,
+        "total_functions": 1,
+        "covered_functions": 1
+      }
+    }
+  ],
+  "coverage": {
+    "pass": true,
+    "measured": {
+      "lines": 97.13,
+      "branches": 89.59,
+      "functions": 99.51
+    },
+    "thresholds": {
+      "lines": 90.0,
+      "branches": 85.0,
+      "functions": 90.0
+    }
+  },
+  "mutation": null
+}

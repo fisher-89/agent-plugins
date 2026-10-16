@@ -24,10 +24,17 @@ impl StoreSnapshot {
 }
 
 impl WorkflowSnapshotPort for StoreSnapshot {
+    /// 快照读面（`WorkflowSnapshotPort::detail` 契约签名不变）：`Ok(None)` 仍译
+    /// 「change 不存在」（真未找到语义）；store 读 `Err` 以错误串透传（错误保
+    /// 真度提升——不再误报「不存在」）；walker 消费面「快照读取失败: {message}」
+    /// 格式零改动。
     fn detail(&self, root: &str, id: &str) -> Result<ChangeDetail, String> {
         let layout_ = layout::resolve(Path::new(root));
-        change_detail(&layout_, self.store.as_ref(), id)
-            .ok_or_else(|| format!("change 不存在: {id}"))
+        match change_detail(&layout_, self.store.as_ref(), id) {
+            Ok(Some(detail)) => Ok(detail),
+            Ok(None) => Err(format!("change 不存在: {id}")),
+            Err(fault) => Err(fault.to_string()),
+        }
     }
 }
 

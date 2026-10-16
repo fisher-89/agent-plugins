@@ -68,10 +68,11 @@ pub fn list_changes(stores: State<'_, WorkspaceStores>, root: String) -> ChangeL
 
 /// 单 change 详情聚合（统一视图，unify-run-state-persistence D11；按 change
 /// **id** 寻址）：一次返回「库读史（`detail.runs[].nodes` / `runs[].edges`）∪
-/// 在飞 run 活面（activeRun.nodes / activeRun.edges）」——前端零双命令拼接。未知 id 返回 `None`（未建档——零磁盘
-/// 目录解析回退、零文档形态空面）。IPC 签名不变：blank root 与开库失败均
-/// `None`。worktree / name 感知在 core `change_detail` 内（record 先读后定位，
-/// 磁盘面恒自记录供给）。
+/// 在飞 run 活面（activeRun.nodes / activeRun.edges）」——前端零双命令拼接。
+/// IPC Result 面：`Ok(None)` = 真「未找到」（未知 id——零磁盘目录解析回退、
+/// 零文档形态空面）与 blank root / 开库失败（空结果语义维持）；`Err` = 读失
+/// 败（store 错误串经 reject 通道出线——TS 类型面零漂移）。worktree / name
+/// 感知在 core `change_detail` 内（record 先读后定位，磁盘面恒自记录供给）。
 #[tauri::command]
 #[specta::specta]
 pub fn get_change_detail(
@@ -79,15 +80,21 @@ pub fn get_change_detail(
     control: State<'_, Arc<ChangeFlowControl>>,
     root: String,
     id: String,
-) -> Option<ChangeDetailUnified> {
+) -> Result<Option<ChangeDetailUnified>, String> {
     if is_blank_root(&root) {
-        return None;
+        return Ok(None);
     }
     let Ok(store) = stores.for_root(&root) else {
-        return None;
+        return Ok(None); // 开库失败：空结果语义维持，不进入查询链路
     };
     let layout = resolve(Path::new(&root));
-    let detail = queries::change_detail(&layout, store.as_ref(), &id)?;
+    // StoreFault → 错误串映射收命令层单点（D4：kind 前缀已在 Display 单点）；
+    // None（未知 id，真「未找到」）→ 空结果语义
+    let Some(detail) =
+        queries::change_detail(&layout, store.as_ref(), &id).map_err(|fault| fault.to_string())?
+    else {
+        return Ok(None);
+    };
     // 活面投影：注册表快照（终态即除名 → None 语义不变；键 id 化同式）；
     // startedAt ISO 化收命令层单点（快照毫秒 → 线面 ISO 串）
     let active_run = control.snapshot(&root, &id).map(|snapshot| ActiveRunView {
@@ -111,7 +118,7 @@ pub fn get_change_detail(
             })
             .collect(),
     });
-    Some(ChangeDetailUnified { detail, active_run })
+    Ok(Some(ChangeDetailUnified { detail, active_run }))
 }
 
 /// 按信封读取单个产物（按 change **id** 寻址）；kind 未注册、source 非法、

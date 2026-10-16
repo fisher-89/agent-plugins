@@ -669,3 +669,501 @@ describe('useChangeDetail：统一视图取数与通知去抖（D8）', () => {
     expect(invokeMock.mock.calls.length, '卸载弃挂起计时器（零泄漏重查）').toBe(base);
   });
 });
+
+// ---------------------------------------------------------------------------
+// 失败轮降级与有界重试（fix-flow-refresh-degradation AC-1–AC-4 / AC-7）：
+// get_change_detail reject 且 detail 在手 → 保 last-good（detail / activeRun /
+// artifacts 不清）+ 内联失败态 refreshFailed + 退避 1s / 2s / 4s 至多 3 次自动
+// 补发；新意图（手动刷新 / 新通知 / 换 root / id / 卸载）取消挂起重试并重置退
+// 避序列；transcriptTick 不入取消通道；首载失败维持整页 error 兜底（不重试）。
+// 计时面经 vi.useFakeTimers + advanceTimersByTime 逐拍推进（Mock策略表）。
+// ---------------------------------------------------------------------------
+
+/** get_change_detail 单轮应答（轮脚本最小单元——按调用序逐轮消费）。 */
+type DetailRound = () => Promise<unknown>;
+
+/** 成功轮（统一视图应答；缺省空 runs / 空 activeRun）。 */
+function okRound(d: ChangeDetail = fakeDetail([]), run: ActiveRunView | null = null): DetailRound {
+  return () => Promise.resolve(unified(d, run));
+}
+
+/** 失败轮（错误串经 String(err) 落 refreshFailed——含后端串原样）。 */
+function rejectRound(message: string): DetailRound {
+  return () => Promise.reject(new Error(message));
+}
+
+/** 真 None 轮（未知 id——清面兜底语义）。 */
+function nullRound(): DetailRound {
+  return () => Promise.resolve(null);
+}
+
+/** 轮脚本装配（Mock策略表「按命令名 + 调用序可编程」）：get_change_detail 第
+ * N 轮逐轮消费（越界驻留末轮）；其余命令空态应答。返回轮计数观察面。 */
+function scriptDetailRounds(rounds: DetailRound[]): () => number {
+  let called = 0;
+  invokeMock.mockImplementation((command: string) => {
+    if (command !== 'get_change_detail') return Promise.resolve(null);
+    const round = rounds[Math.min(called, rounds.length - 1)];
+    called += 1;
+    return round();
+  });
+  return () => called;
+}
+
+/** 推进虚拟时间并冲刷微任务链（fake timers 下的轮拍推进单点）。 */
+async function flushTimers(ms: number): Promise<void> {
+  act(() => {
+    vi.advanceTimersByTime(ms);
+  });
+  await act(async () => {});
+}
+
+/** 携 run 全史行的详情（重试成功轮「迁移间更新不被吃掉」的步迁移新数据面）。 */
+function detailWithRuns(): ChangeDetail {
+  return {
+    ...fakeDetail([]),
+    runs: [
+      {
+        runId: 'run-migrate',
+        status: 'running',
+        reason: null,
+        startedAt: '2026-10-09T08:00:00Z',
+        finishedAt: null,
+        nodes: [],
+        edges: [],
+      },
+    ],
+  };
+}
+
+describe('useChangeDetail：失败轮降级保 last-good 与终态自愈（AC-1 / AC-4）', () => {
+  beforeEach(() => {
+    invokeMock.mockReset();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('失败轮保 last-good：第 2 轮 reject → detail / activeRun 维持上一成功轮值，refreshFailed 携后端错误串、loading 复位、error 保持 null', async () => {
+    vi.useFakeTimers();
+    const roundCalls = scriptDetailRounds([
+      okRound(fakeDetail([]), activeRun()),
+      rejectRound('db: 注入失败：读事务不可用'),
+    ]);
+    const { result } = renderHook(() => useChangeDetail('/repo', 'add-feature'));
+    await act(async () => {});
+
+    // 首轮成功：detail / activeRun 在手、内联失败态初始 null（既有回归保留面）
+    expect(result.current.detail).not.toBeNull();
+    expect(result.current.activeRun).not.toBeNull();
+    expect(result.current.refreshFailed).toBeNull();
+    const lastGoodDetail = result.current.detail;
+    const lastGoodRun = result.current.activeRun;
+
+    act(() => {
+      result.current.notifyRefresh();
+    });
+    await flushTimers(300);
+
+    expect(roundCalls()).toBe(2);
+    expect(result.current.refreshFailed).toContain('db: 注入失败：读事务不可用');
+    // 保 last-good：上一成功轮值引用不变（detail / activeRun 不清零）
+    expect(result.current.detail).toBe(lastGoodDetail);
+    expect(result.current.activeRun).toBe(lastGoodRun);
+    expect(result.current.artifacts).toEqual([]);
+    expect(result.current.loading).toBe(false);
+    expect(result.current.error).toBeNull();
+  });
+
+  it('失败后第 1 次重试成功（应答含步迁移新数据）→ refreshFailed 清 null、detail / runs 更新到最新轮值（迁移间更新不被吃掉）', async () => {
+    vi.useFakeTimers();
+    scriptDetailRounds([okRound(fakeDetail([])), rejectRound('首败'), okRound(detailWithRuns())]);
+    const { result } = renderHook(() => useChangeDetail('/repo', 'add-feature'));
+    await act(async () => {});
+    expect(result.current.detail?.runs).toHaveLength(0);
+
+    act(() => {
+      result.current.notifyRefresh();
+    });
+    await flushTimers(300);
+    expect(result.current.refreshFailed).not.toBeNull();
+
+    await flushTimers(1000); // 第 1 次退避重试（1s）
+
+    expect(result.current.refreshFailed).toBeNull();
+    expect(result.current.detail?.runs).toHaveLength(1);
+    expect(result.current.detail?.runs[0].runId).toBe('run-migrate');
+    expect(result.current.loading).toBe(false);
+  });
+
+  it('失败 → 重试发起（loading: true）挂起期间 refreshFailed 保持（轮启动 patch 不清提示——D3 防闪烁）；成功轮才清 null', async () => {
+    vi.useFakeTimers();
+    let release!: (value: unknown) => void;
+    scriptDetailRounds([
+      okRound(fakeDetail([])),
+      rejectRound('首败'),
+      () =>
+        new Promise((resolve) => {
+          release = resolve;
+        }),
+      okRound(detailWithRuns()),
+    ]);
+    const { result } = renderHook(() => useChangeDetail('/repo', 'add-feature'));
+    await act(async () => {});
+
+    act(() => {
+      result.current.notifyRefresh();
+    });
+    await flushTimers(300);
+    const stale = result.current.refreshFailed;
+    expect(stale).not.toBeNull();
+
+    // 1s 重试发起并挂起：loading 置位而提示保持（轮启动不清 refreshFailed）
+    await flushTimers(1000);
+    expect(result.current.loading).toBe(true);
+    expect(result.current.refreshFailed).toBe(stale);
+
+    // 挂起轮以成功落定：提示才消隐
+    await act(async () => {
+      release(unified(detailWithRuns()));
+    });
+    expect(result.current.loading).toBe(false);
+    expect(result.current.refreshFailed).toBeNull();
+    expect(result.current.detail?.runs).toHaveLength(1);
+  });
+
+  it('首载失败（detail 不在手）→ error 置位整页兜底态、refreshFailed 保持 null、推进 8s+ 零自动补发（首载失败不调度重试）', async () => {
+    vi.useFakeTimers();
+    const roundCalls = scriptDetailRounds([rejectRound('IPC 断开')]);
+    const { result } = renderHook(() => useChangeDetail('/repo', 'broken'));
+    await act(async () => {});
+
+    expect(result.current.error).toContain('IPC 断开');
+    expect(result.current.detail).toBeNull();
+    expect(result.current.refreshFailed).toBeNull();
+    expect(result.current.loading).toBe(false);
+
+    await flushTimers(8_000);
+    expect(roundCalls()).toBe(1);
+    expect(result.current.refreshFailed).toBeNull();
+    expect(result.current.error).toContain('IPC 断开');
+  });
+
+  it('连续失败（首败 + 3 次重试全败）→ 每轮 refreshFailed 更新为最新错误串；终轮后仍 last-good（detail 不清）', async () => {
+    vi.useFakeTimers();
+    scriptDetailRounds([
+      okRound(fakeDetail([])),
+      rejectRound('失败 A'),
+      rejectRound('失败 B'),
+      rejectRound('失败 C'),
+      rejectRound('失败 D'),
+    ]);
+    const { result } = renderHook(() => useChangeDetail('/repo', 'add-feature'));
+    await act(async () => {});
+    const lastGoodDetail = result.current.detail;
+
+    act(() => {
+      result.current.notifyRefresh();
+    });
+    await flushTimers(300);
+    expect(result.current.refreshFailed).toContain('失败 A');
+
+    await flushTimers(1000);
+    expect(result.current.refreshFailed).toContain('失败 B');
+    await flushTimers(2000);
+    expect(result.current.refreshFailed).toContain('失败 C');
+    await flushTimers(4000);
+    expect(result.current.refreshFailed).toContain('失败 D');
+
+    expect(result.current.detail).toBe(lastGoodDetail);
+    expect(result.current.error).toBeNull();
+  });
+
+  it('真 None：失败轮后重试成功返回 null → 清面（detail / activeRun / artifacts 置空）且 refreshFailed 清 null（None 与 Err 分流不混同）', async () => {
+    vi.useFakeTimers();
+    scriptDetailRounds([okRound(fakeDetail([]), activeRun()), rejectRound('首败'), nullRound()]);
+    const { result } = renderHook(() => useChangeDetail('/repo', 'add-feature'));
+    await act(async () => {});
+    expect(result.current.detail).not.toBeNull();
+    expect(result.current.activeRun).not.toBeNull();
+
+    act(() => {
+      result.current.notifyRefresh();
+    });
+    await flushTimers(300);
+    expect(result.current.refreshFailed).not.toBeNull();
+
+    await flushTimers(1000);
+
+    expect(result.current.detail).toBeNull();
+    expect(result.current.activeRun).toBeNull();
+    expect(result.current.artifacts).toEqual([]);
+    expect(result.current.refreshFailed).toBeNull();
+    expect(result.current.error).toBeNull();
+    expect(result.current.loading).toBe(false);
+  });
+
+  it('终态竞态洞自愈（AC-4）：首轮成功 → 通知重查 reject（Finished 后无下一条通知）→ 1s 重试成功返回终态数据 → 终局自愈不悬、全程 last-good 不塌', async () => {
+    vi.useFakeTimers();
+    scriptDetailRounds([
+      okRound(fakeDetail([]), activeRun()),
+      rejectRound('终态重查失败'),
+      okRound(detailWithRuns(), null),
+    ]);
+    const { result } = renderHook(() => useChangeDetail('/repo', 'add-feature'));
+    await act(async () => {});
+    expect(result.current.activeRun).not.toBeNull();
+
+    act(() => {
+      result.current.notifyRefresh();
+    });
+    await flushTimers(300);
+    // 终态重查失败：last-good 不塌（activeRun 运行中形态保持 + 横幅在）
+    expect(result.current.activeRun).not.toBeNull();
+    expect(result.current.refreshFailed).toContain('终态重查失败');
+
+    await flushTimers(1000);
+
+    // 终局自愈：终态数据就位（activeRun 除名 → null）、提示消隐、零悬置
+    expect(result.current.refreshFailed).toBeNull();
+    expect(result.current.activeRun).toBeNull();
+    expect(result.current.detail?.runs).toHaveLength(1);
+    expect(result.current.loading).toBe(false);
+  });
+});
+
+describe('useChangeDetail：有界重试节奏与取消通道（AC-2 / AC-3）', () => {
+  beforeEach(() => {
+    invokeMock.mockReset();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('退避节奏（fake timers）：首败后恰 1s / 2s / 4s 逐拍自动补发，任一退避点前零提前触发（自动补发至多 3 次）', async () => {
+    vi.useFakeTimers();
+    const roundCalls = scriptDetailRounds([
+      okRound(fakeDetail([])),
+      rejectRound('首败'),
+      rejectRound('补发 1'),
+      rejectRound('补发 2'),
+      rejectRound('补发 3'),
+    ]);
+    const { result } = renderHook(() => useChangeDetail('/repo', 'add-feature'));
+    await act(async () => {});
+    expect(roundCalls()).toBe(1);
+
+    // 通知轮（首败）：300ms 去抖后发起
+    act(() => {
+      result.current.notifyRefresh();
+    });
+    await flushTimers(299);
+    expect(roundCalls()).toBe(1);
+    await flushTimers(1);
+    expect(roundCalls()).toBe(2);
+
+    // 退避 1s：恰 1s 补发（999ms 处静默）
+    await flushTimers(999);
+    expect(roundCalls()).toBe(2);
+    await flushTimers(1);
+    expect(roundCalls()).toBe(3);
+
+    // 退避 2s：恰 2s 补发（1999ms 处静默）
+    await flushTimers(1999);
+    expect(roundCalls()).toBe(3);
+    await flushTimers(1);
+    expect(roundCalls()).toBe(4);
+
+    // 退避 4s：恰 4s 补发（3999ms 处静默）——自动补发累计 3 次
+    await flushTimers(3999);
+    expect(roundCalls()).toBe(4);
+    await flushTimers(1);
+    expect(roundCalls()).toBe(5);
+    expect(result.current.refreshFailed).toContain('补发 3');
+  });
+
+  it('穷尽静默：3 次重试穷尽后推进超长时间（> 4s）→ 无第 4 次自动查询、refreshFailed 保持（等待通知 / 显式刷新兜底）', async () => {
+    vi.useFakeTimers();
+    const roundCalls = scriptDetailRounds([
+      okRound(fakeDetail([])),
+      rejectRound('首败'),
+      rejectRound('补发 1'),
+      rejectRound('补发 2'),
+      rejectRound('补发 3'),
+    ]);
+    const { result } = renderHook(() => useChangeDetail('/repo', 'add-feature'));
+    await act(async () => {});
+    act(() => {
+      result.current.notifyRefresh();
+    });
+    await flushTimers(300);
+    await flushTimers(1000);
+    await flushTimers(2000);
+    await flushTimers(4000);
+    expect(roundCalls()).toBe(5);
+
+    await flushTimers(60_000);
+    expect(roundCalls()).toBe(5);
+    expect(result.current.refreshFailed).toContain('补发 3');
+    expect(result.current.detail).not.toBeNull();
+  });
+
+  it('手动刷新取消：1s 重试挂起期间 refresh() → 旧重试作废、以手动刷新轮为准；其后新失败从 1s 重新起算（退避序列重置）', async () => {
+    vi.useFakeTimers();
+    const roundCalls = scriptDetailRounds([
+      okRound(fakeDetail([])),
+      rejectRound('通知轮失败'),
+      rejectRound('手动轮失败'),
+      rejectRound('手动轮重试失败'),
+    ]);
+    const { result } = renderHook(() => useChangeDetail('/repo', 'add-feature'));
+    await act(async () => {});
+
+    act(() => {
+      result.current.notifyRefresh();
+    });
+    await flushTimers(300);
+    expect(roundCalls()).toBe(2);
+    expect(result.current.refreshFailed).toContain('通知轮失败');
+
+    // 手动刷新：作废挂起重试 + 立即发起新轮
+    act(() => {
+      result.current.refresh();
+    });
+    await act(async () => {});
+    expect(roundCalls()).toBe(3);
+    expect(result.current.refreshFailed).toContain('手动轮失败');
+
+    // 手动轮失败 +1s：退避序列重置后按 1s 补发（未取消的旧重试若残留将在此
+    // 双发——计数恰 4 即取消语义与零交错的复合证据）
+    await flushTimers(1000);
+    expect(roundCalls()).toBe(4);
+    expect(result.current.refreshFailed).toContain('手动轮重试失败');
+  });
+
+  it('新通知取消：重试挂起期间 notifyRefresh() → 旧重试作废、退避重置；旧重试点过境零补发（全程无交错重复查询）', async () => {
+    vi.useFakeTimers();
+    const roundCalls = scriptDetailRounds([
+      okRound(fakeDetail([])),
+      rejectRound('通知轮失败'),
+      rejectRound('新通知轮失败'),
+      rejectRound('新通知轮重试失败'),
+    ]);
+    const { result } = renderHook(() => useChangeDetail('/repo', 'add-feature'));
+    await act(async () => {});
+
+    act(() => {
+      result.current.notifyRefresh();
+    });
+    await flushTimers(300);
+    expect(roundCalls()).toBe(2);
+
+    // 重试挂起期间（旧退避点 = t0+1000 未到）新通知到达
+    act(() => {
+      result.current.notifyRefresh();
+    });
+    await flushTimers(300);
+    // 新通知轮经 300ms 去抖发起（call 3）
+    expect(roundCalls()).toBe(3);
+    expect(result.current.refreshFailed).toContain('新通知轮失败');
+
+    // 旧重试点（首败 +1s = t+1300）过境 → 零补发（旧重试已作废；若残留将在此
+    // 交错触发第 4 次查询）
+    await flushTimers(700);
+    expect(roundCalls()).toBe(3);
+
+    // 新通知轮失败 +1s（t+1600）：退避序列重置后按 1s 补发
+    await flushTimers(300);
+    expect(roundCalls()).toBe(4);
+    expect(result.current.refreshFailed).toContain('新通知轮重试失败');
+  });
+
+  it('换 id 作废挂起重试：rerender 变更 id → 新 id 轮照常发起、原退避时间推进零补发（零交错）', async () => {
+    vi.useFakeTimers();
+    const roundCalls = scriptDetailRounds([
+      okRound(fakeDetail([])),
+      rejectRound('id-a 通知轮失败'),
+      okRound(fakeDetail([])),
+    ]);
+    const { result, rerender } = renderHook<ChangeDetailState, { id: string }>(
+      (props) => useChangeDetail('/repo', props.id),
+      { initialProps: { id: 'change-a' } },
+    );
+    await act(async () => {});
+    expect(roundCalls()).toBe(1);
+
+    act(() => {
+      result.current.notifyRefresh();
+    });
+    await flushTimers(300);
+    expect(roundCalls()).toBe(2);
+    expect(result.current.refreshFailed).toContain('id-a 通知轮失败');
+
+    // 换 id：挂起重试作废 + 新 id 轮立即发起
+    rerender({ id: 'change-b' });
+    await act(async () => {});
+    expect(roundCalls()).toBe(3);
+    expect(invokeMock).toHaveBeenLastCalledWith('get_change_detail', {
+      root: '/repo',
+      id: 'change-b',
+    });
+
+    // 原退避时间窗（远超 1s）推进 → 零补发（零遗留计时器、零交错查询）
+    await flushTimers(10_000);
+    expect(roundCalls()).toBe(3);
+  });
+
+  it('卸载后推进时间 → 零自动补发（零遗留计时器）', async () => {
+    vi.useFakeTimers();
+    const roundCalls = scriptDetailRounds([
+      okRound(fakeDetail([])),
+      rejectRound('首败'),
+      okRound(fakeDetail([])),
+    ]);
+    const { result, unmount } = renderHook(() => useChangeDetail('/repo', 'add-feature'));
+    await act(async () => {});
+    act(() => {
+      result.current.notifyRefresh();
+    });
+    await flushTimers(300);
+    expect(roundCalls()).toBe(2);
+
+    unmount();
+    await flushTimers(10_000);
+    expect(roundCalls()).toBe(2);
+  });
+
+  it('transcriptTick 不入取消通道：重试挂起期间 notifyTranscript() → 重试链不被打断，仍按原退避点补发（长 agent 步期间重试不被转录刷新打断——D2）', async () => {
+    vi.useFakeTimers();
+    const roundCalls = scriptDetailRounds([
+      okRound(fakeDetail([])),
+      rejectRound('首败'),
+      okRound(detailWithRuns()),
+    ]);
+    const { result } = renderHook(() => useChangeDetail('/repo', 'add-feature'));
+    await act(async () => {});
+
+    act(() => {
+      result.current.notifyRefresh();
+    });
+    await flushTimers(300);
+    expect(roundCalls()).toBe(2);
+    expect(result.current.refreshFailed).not.toBeNull();
+
+    // 转录信号（sessionEvent → 150ms 去抖）不取消重试、不触发统一查询
+    act(() => {
+      result.current.notifyTranscript();
+    });
+    await flushTimers(150);
+    expect(result.current.transcriptTick).toBe(1);
+    expect(roundCalls()).toBe(2);
+
+    // 原退避点（首败 +1s）补发照常
+    await flushTimers(850);
+    expect(roundCalls()).toBe(3);
+    expect(result.current.refreshFailed).toBeNull();
+    expect(result.current.detail?.runs).toHaveLength(1);
+  });
+});

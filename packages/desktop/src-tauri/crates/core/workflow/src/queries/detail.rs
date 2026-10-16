@@ -7,7 +7,7 @@ use crate::artifacts::{discover_artifacts, ArtifactDescriptor};
 use crate::model::{ChecklistItem, Verdict};
 use crate::state::{
     ChangeStateStore, ChangeStatus, PhaseStateRecord, RunEdgeKind, RunEdgeStateRecord,
-    RunNodeStateRecord, RunStateRecord, RunStatus, RunStepKind, RunStepStatus,
+    RunNodeStateRecord, RunStateRecord, RunStatus, RunStepKind, RunStepStatus, StoreFault,
 };
 use crate::write::{phase_table, utc_date};
 use foundation::layout::Layout;
@@ -179,24 +179,33 @@ pub struct ChangeDetail {
     pub worktree: Option<String>,
 }
 
-/// 聚合单个 change 的详情（按 id 寻址）；db 无该 id 记录 → 恒 `None`
-///（未知 id 未找到——MUST NOT 回退磁盘目录解析、MUST NOT 返回文档形态空面、
-/// 零 workflow.json 读取）；`record.workflow_type` 不在相位表内（未知 / 空白
-/// 类型）→ 同样恒 `None`（读面严格：不静默按 requirement 出线）。纯读：
+/// 聚合单个 change 的详情（按 id 寻址）；错误语义分流（None / Err 不混同）：
+/// db 无该 id 记录 → `Ok(None)`（未知 id 未找到——MUST NOT 回退磁盘目录解析、
+/// MUST NOT 返回文档形态空面、零 workflow.json 读取）；`record.workflow_type`
+/// 不在相位表内（未知 / 空白类型）→ 同样 `Ok(None)`（读面严格：不静默按
+/// requirement 出线）；`get_change` 读 `Err` → `Err(StoreFault)` 原样透传
+///（读失败 MUST NOT 降级 `None` / 空面——读失败不得呈「未找到」假象）。纯读：
 /// record 先读后定位（design D12）——`name` / `worktree` 自记录直供
 /// `locate_change` 回退（merge 前主仓两树未命中仍可达）；**建档记录恒可达
 /// 详情**——定位全 miss（worktree 被手动删除、未 merge）→ dir 缺席、产物清单
-/// 空、状态面在（`source` 自 record.status 映射）。
+/// 空、状态面在（`source` 自 record.status 映射）。子表读（
+/// `list_phase_records` / `list_runs` / `list_run_nodes` / `list_run_edges`）
+/// 沿 `unwrap_or_default` 空面降级哲学（单区块读失败不升级整份 `Err`）。
 pub fn change_detail(
     layout: &Layout,
     store: &dyn ChangeStateStore,
     id: &str,
-) -> Option<ChangeDetail> {
-    // 未建档（未知 id）→ 恒 None（零磁盘回退零文档形态）
-    let record = store.get_change(id).ok().flatten()?;
-    // 相位表随 workflow_type 分派（未知类型 → 恒 None，与未知 id 同语义「详情
+) -> Result<Option<ChangeDetail>, StoreFault> {
+    // 未建档（未知 id）→ Ok(None)（零磁盘回退零文档形态）；读 Err 经 ? 透传
+    //（读失败 MUST NOT 降级「未找到」假象）
+    let Some(record) = store.get_change(id)? else {
+        return Ok(None);
+    };
+    // 相位表随 workflow_type 分派（未知类型 → Ok(None)，与未知 id 同语义「详情
     // 不可达」——读面 MUST NOT 静默按 requirement 出线）
-    let table = phase_table(&record.workflow_type)?;
+    let Some(table) = phase_table(&record.workflow_type) else {
+        return Ok(None);
+    };
     // 磁盘面 name / worktree 恒自记录供给（id → 记录 → name 分辨率单点）
     let location = locate_change(layout, record.worktree.as_deref(), record.name.as_str());
     let entries = store.list_phase_records(id).unwrap_or_default();
@@ -278,7 +287,7 @@ pub fn change_detail(
             ChangeStatus::Active => ChangeSource::Active,
         });
 
-    Some(ChangeDetail {
+    Ok(Some(ChangeDetail {
         id: record.id.clone(),
         name: record.name.clone(),
         title: record.title.clone(),
@@ -290,5 +299,5 @@ pub fn change_detail(
         runs,
         artifacts,
         worktree: record.worktree.clone(),
-    })
+    }))
 }

@@ -1,0 +1,1180 @@
+diff --git a/crates/core/orchestration/src/snapshot.rs b/crates/core/orchestration/src/snapshot.rs
+index f16b48d88d4c..4cec0329c5ab 100644
+--- a/crates/core/orchestration/src/snapshot.rs
++++ b/crates/core/orchestration/src/snapshot.rs
+@@ -24,10 +24,17 @@ impl StoreSnapshot {
+ }
+ 
+ impl WorkflowSnapshotPort for StoreSnapshot {
++    /// 快照读面（`WorkflowSnapshotPort::detail` 契约签名不变）：`Ok(None)` 仍译
++    /// 「change 不存在」（真未找到语义）；store 读 `Err` 以错误串透传（错误保
++    /// 真度提升——不再误报「不存在」）；walker 消费面「快照读取失败: {message}」
++    /// 格式零改动。
+     fn detail(&self, root: &str, id: &str) -> Result<ChangeDetail, String> {
+         let layout_ = layout::resolve(Path::new(root));
+-        change_detail(&layout_, self.store.as_ref(), id)
+-            .ok_or_else(|| format!("change 不存在: {id}"))
++        match change_detail(&layout_, self.store.as_ref(), id) {
++            Ok(Some(detail)) => Ok(detail),
++            Ok(None) => Err(format!("change 不存在: {id}")),
++            Err(fault) => Err(fault.to_string()),
++        }
+     }
+ }
+ 
+diff --git a/crates/core/orchestration/src/snapshot_test.rs b/crates/core/orchestration/src/snapshot_test.rs
+index 9c43bbe6c487..263768bb6732 100644
+--- a/crates/core/orchestration/src/snapshot_test.rs
++++ b/crates/core/orchestration/src/snapshot_test.rs
+@@ -1,12 +1,16 @@
+ use std::fs;
+ use std::path::PathBuf;
+-use std::sync::Arc;
++use std::sync::{Arc, Mutex};
+ 
+ use foundation::layout::resolve;
+ use store::Store;
+ use workflow::model::{ChecklistItem, Verdict};
+ use workflow::queries::{change_detail, ChangeSource};
+-use workflow::state::{ChangeStateRecord, ChangeStateStore, ChangeStatus, PhaseLogCommand};
++use workflow::state::{
++    BacktrackCommand, ChangeStateRecord, ChangeStateStore, ChangeStatus, PhaseLogCommand,
++    PhaseStartState, PhaseStateRecord, RunEdgeStateRecord, RunFinishCommand, RunNodeStateRecord,
++    RunStartCommand, RunStateRecord, StepCommand, StepStateRecord, StoreFault,
++};
+ 
+ use crate::port::WorkflowSnapshotPort;
+ use crate::snapshot::StoreSnapshot;
+@@ -202,8 +206,9 @@ fn db读源detail按id寻址_与queries直调serde等值() {
+     assert_eq!(detail.name, NAME, "name 自记录直读（展示属性）");
+ 
+     // 与 queries::change_detail 直调逐字节 serde 等值（换血不加工）
+-    let direct =
+-        change_detail(&resolve(&root.0), db.store.as_ref(), CHANGE_ID).expect("直调应命中同记录");
++    let direct = change_detail(&resolve(&root.0), db.store.as_ref(), CHANGE_ID)
++        .expect("直调应 Ok")
++        .expect("直调应命中同记录");
+     assert_eq!(
+         serde_json::to_value(&detail).expect("线面序列化应成功"),
+         serde_json::to_value(&direct).expect("直调序列化应成功"),
+@@ -335,3 +340,209 @@ fn port契约_traitobject装配且未知change与root失配显式err() {
+     // 在场 change 不受误伤（对照面）
+     assert!(port.detail(&root_str, CHANGE_ID).is_ok());
+ }
++
++// ---------------------------------------------------------------------------
++// store 读 Err → 错误串透传（取代误报「不存在」）与 None 分支回归（假件注入缝
++// ——test-design Mock 表双轨之②，沿 workflow detail_test DetailStore 先例）
++// ---------------------------------------------------------------------------
++
++/// 进程内假件 store（`get_change` 可编程应答——Err / None 面唯一可达注入缝）；
++/// 其余 unimplemented（越权触写即 panic）。
++struct FaultStore {
++    get_change_result: Mutex<Result<Option<ChangeStateRecord>, StoreFault>>,
++}
++
++impl FaultStore {
++    /// `Ok(None)` 形态（未知 id 与真实库未建档同语义的两形态之一）。
++    fn none() -> Self {
++        Self { get_change_result: Mutex::new(Ok(None)) }
++    }
++
++    /// `Err` 形态（三 kind 任意变体——错误串透传断言面）。
++    fn fault(fault: StoreFault) -> Self {
++        Self { get_change_result: Mutex::new(Err(fault)) }
++    }
++}
++
++impl ChangeStateStore for FaultStore {
++    fn get_change(&self, _id: &str) -> Result<Option<ChangeStateRecord>, StoreFault> {
++        self.get_change_result
++            .lock()
++            .expect("fault 锁不可中毒")
++            .clone()
++    }
++
++    fn list_change_records(&self) -> Result<Vec<ChangeStateRecord>, StoreFault> {
++        unimplemented!("本用例不可达")
++    }
++
++    fn list_phase_records(&self, _change_id: &str) -> Result<Vec<PhaseStateRecord>, StoreFault> {
++        unimplemented!("本用例不可达")
++    }
++
++    fn list_steps(
++        &self,
++        _change_id: &str,
++        _run_id: Option<&str>,
++    ) -> Result<Vec<StepStateRecord>, StoreFault> {
++        unimplemented!("本用例不可达")
++    }
++
++    fn create_change_record(&self, _record: ChangeStateRecord) -> Result<(), StoreFault> {
++        unimplemented!("本用例不可达")
++    }
++
++    fn delete_change_record(&self, _id: &str) -> Result<bool, StoreFault> {
++        unimplemented!("本用例不可达")
++    }
++
++    fn start_phase(
++        &self,
++        _change_id: &str,
++        _phase: &str,
++        _now: i64,
++    ) -> Result<PhaseStartState, StoreFault> {
++        unimplemented!("本用例不可达")
++    }
++
++    fn log_phase(&self, _command: &PhaseLogCommand) -> Result<u32, StoreFault> {
++        unimplemented!("本用例不可达")
++    }
++
++    fn apply_backtrack(&self, _command: &BacktrackCommand) -> Result<(), StoreFault> {
++        unimplemented!("本用例不可达")
++    }
++
++    fn amend_decision_session(
++        &self,
++        _change_id: &str,
++        _phase: &str,
++        _session_id: &str,
++    ) -> Result<(), StoreFault> {
++        unimplemented!("本用例不可达")
++    }
++
++    fn set_archived(&self, _id: &str, _archived_at: i64) -> Result<(), StoreFault> {
++        unimplemented!("本用例不可达")
++    }
++
++    fn append_step(&self, _command: &StepCommand) -> Result<(), StoreFault> {
++        unimplemented!("本用例不可达")
++    }
++
++    fn list_runs(&self, _change_id: &str) -> Result<Vec<RunStateRecord>, StoreFault> {
++        unimplemented!("本用例不可达")
++    }
++
++    fn list_run_nodes(&self, _run_id: &str) -> Result<Vec<RunNodeStateRecord>, StoreFault> {
++        unimplemented!("本用例不可达")
++    }
++
++    fn list_run_edges(&self, _run_id: &str) -> Result<Vec<RunEdgeStateRecord>, StoreFault> {
++        unimplemented!("本用例不可达")
++    }
++
++    fn run_start(&self, _command: &RunStartCommand) -> Result<(), StoreFault> {
++        unimplemented!("本用例不可达")
++    }
++
++    fn run_finish(&self, _command: &RunFinishCommand) -> Result<(), StoreFault> {
++        unimplemented!("本用例不可达")
++    }
++}
++
++/// 假件 `get_change` 返回 `Err(StoreFault::Db)` → `Err("db: …注入串")` 错误串
++/// 逐字透传（`fault.to_string()` 单点映射）；MUST NOT 含「change 不存在」误报
++/// 文案（Err 与 None 分流出线不混同——错误保真度提升回归）。
++#[test]
++fn store读err_错误串逐字透传不再误报不存在() {
++    let root = TempRoot::new("fault-err");
++    root.change(NAME);
++    let root_str = root.root_str();
++    let injected = StoreFault::Db("注入失败：读事务不可用".to_owned());
++    let snapshot = StoreSnapshot::new(root_str.clone(), Arc::new(FaultStore::fault(injected)));
++
++    let err = snapshot
++        .detail(&root_str, CHANGE_ID)
++        .expect_err("store 读 Err 应透传为 Err");
++
++    assert_eq!(
++        err, "db: 注入失败：读事务不可用",
++        "错误串逐字（Display 前缀 `db: ` 单点映射，零改写零包装）"
++    );
++    assert!(
++        !err.contains("change 不存在"),
++        "MUST NOT 误报「change 不存在」（Err 与 None 分流出线不混同）: {err}"
++    );
++}
++
++/// `StoreFault` 三 kind（`Db` / `Conflict` / `NotFound`）逐变体注入 → 各自
++/// Display 前缀（`db: ` / `conflict: ` / `not_found: `）逐字透传（D4 Display
++/// 单点回归——port 面零第二处前缀组装）。
++#[test]
++fn store_fault三kind_display前缀逐字透传() {
++    for (tag, fault) in [
++        ("db", StoreFault::Db("db 面注入".to_owned())),
++        ("conflict", StoreFault::Conflict("conflict 面注入".to_owned())),
++        ("not_found", StoreFault::NotFound("not_found 面注入".to_owned())),
++    ] {
++        let root = TempRoot::new(&format!("fault-kind-{tag}"));
++        root.change(NAME);
++        let root_str = root.root_str();
++        let snapshot = StoreSnapshot::new(root_str.clone(), Arc::new(FaultStore::fault(fault)));
++
++        let err = match snapshot.detail(&root_str, CHANGE_ID) {
++            Err(message) => message,
++            Ok(_) => panic!("{tag} 变体注入应 Err 透传"),
++        };
++        assert_eq!(
++            err,
++            format!("{tag}: {tag} 面注入"),
++            "Display 前缀 `{tag}: ` 逐字透传（错误串 = fault.to_string()）"
++        );
++    }
++}
++
++/// 未知 id（假件 `get_change` → `Ok(None)` 形态）→ 既有
++/// `Err("change 不存在: {id}")` 文案逐字不变（None 分支零改动回归——与真实库
++/// 未建档同语义的两形态对拍）。
++#[test]
++fn 假件ok_none未知id_不存在文案逐字不变() {
++    let root = TempRoot::new("fake-none");
++    root.change(NAME);
++    let root_str = root.root_str();
++    let snapshot = StoreSnapshot::new(root_str.clone(), Arc::new(FaultStore::none()));
++
++    let err = snapshot
++        .detail(&root_str, "fake-ghost-id")
++        .expect_err("未知 id 应显式 Err（真未找到语义）");
++
++    assert_eq!(
++        err, "change 不存在: fake-ghost-id",
++        "None 分支文案逐字不变（零 Err 混同、零改写）"
++    );
++}
++
++/// trait object 装配（`Arc<dyn WorkflowSnapshotPort>`）下 Err 分支同样成立
++///（port 契约持衡——walker 消费面同式调用）；Ok / None 两分支既有用例已锚，
++/// 此处补 Err 面的 `dyn` 调用等价性。
++#[test]
++fn port契约_traitobject装配下err分支同式成立() {
++    let root = TempRoot::new("port-fault");
++    root.change(NAME);
++    let root_str = root.root_str();
++    let injected = StoreFault::Conflict("注入失败：trait object 面".to_owned());
++    let port: Arc<dyn WorkflowSnapshotPort> = Arc::new(StoreSnapshot::new(
++        root_str.clone(),
++        Arc::new(FaultStore::fault(injected)),
++    ));
++
++    let err = port
++        .detail(&root_str, CHANGE_ID)
++        .expect_err("trait object 调用下 Err 透传同样可达");
++
++    assert_eq!(
++        err, "conflict: 注入失败：trait object 面",
++        "trait object 装配下错误串逐字透传（port 契约零特判）"
++    );
++}
+diff --git a/crates/core/workflow/src/queries/detail.rs b/crates/core/workflow/src/queries/detail.rs
+index 57cf83062b3f..cbaeeb4162a3 100644
+--- a/crates/core/workflow/src/queries/detail.rs
++++ b/crates/core/workflow/src/queries/detail.rs
+@@ -7,7 +7,7 @@ use crate::artifacts::{discover_artifacts, ArtifactDescriptor};
+ use crate::model::{ChecklistItem, Verdict};
+ use crate::state::{
+     ChangeStateStore, ChangeStatus, PhaseStateRecord, RunEdgeKind, RunEdgeStateRecord,
+-    RunNodeStateRecord, RunStateRecord, RunStatus, RunStepKind, RunStepStatus,
++    RunNodeStateRecord, RunStateRecord, RunStatus, RunStepKind, RunStepStatus, StoreFault,
+ };
+ use crate::write::{phase_table, utc_date};
+ use foundation::layout::Layout;
+@@ -179,24 +179,33 @@ pub struct ChangeDetail {
+     pub worktree: Option<String>,
+ }
+ 
+-/// 聚合单个 change 的详情（按 id 寻址）；db 无该 id 记录 → 恒 `None`
+-///（未知 id 未找到——MUST NOT 回退磁盘目录解析、MUST NOT 返回文档形态空面、
+-/// 零 workflow.json 读取）；`record.workflow_type` 不在相位表内（未知 / 空白
+-/// 类型）→ 同样恒 `None`（读面严格：不静默按 requirement 出线）。纯读：
++/// 聚合单个 change 的详情（按 id 寻址）；错误语义分流（None / Err 不混同）：
++/// db 无该 id 记录 → `Ok(None)`（未知 id 未找到——MUST NOT 回退磁盘目录解析、
++/// MUST NOT 返回文档形态空面、零 workflow.json 读取）；`record.workflow_type`
++/// 不在相位表内（未知 / 空白类型）→ 同样 `Ok(None)`（读面严格：不静默按
++/// requirement 出线）；`get_change` 读 `Err` → `Err(StoreFault)` 原样透传
++///（读失败 MUST NOT 降级 `None` / 空面——读失败不得呈「未找到」假象）。纯读：
+ /// record 先读后定位（design D12）——`name` / `worktree` 自记录直供
+ /// `locate_change` 回退（merge 前主仓两树未命中仍可达）；**建档记录恒可达
+ /// 详情**——定位全 miss（worktree 被手动删除、未 merge）→ dir 缺席、产物清单
+-/// 空、状态面在（`source` 自 record.status 映射）。
++/// 空、状态面在（`source` 自 record.status 映射）。子表读（
++/// `list_phase_records` / `list_runs` / `list_run_nodes` / `list_run_edges`）
++/// 沿 `unwrap_or_default` 空面降级哲学（单区块读失败不升级整份 `Err`）。
+ pub fn change_detail(
+     layout: &Layout,
+     store: &dyn ChangeStateStore,
+     id: &str,
+-) -> Option<ChangeDetail> {
+-    // 未建档（未知 id）→ 恒 None（零磁盘回退零文档形态）
+-    let record = store.get_change(id).ok().flatten()?;
+-    // 相位表随 workflow_type 分派（未知类型 → 恒 None，与未知 id 同语义「详情
++) -> Result<Option<ChangeDetail>, StoreFault> {
++    // 未建档（未知 id）→ Ok(None)（零磁盘回退零文档形态）；读 Err 经 ? 透传
++    //（读失败 MUST NOT 降级「未找到」假象）
++    let Some(record) = store.get_change(id)? else {
++        return Ok(None);
++    };
++    // 相位表随 workflow_type 分派（未知类型 → Ok(None)，与未知 id 同语义「详情
+     // 不可达」——读面 MUST NOT 静默按 requirement 出线）
+-    let table = phase_table(&record.workflow_type)?;
++    let Some(table) = phase_table(&record.workflow_type) else {
++        return Ok(None);
++    };
+     // 磁盘面 name / worktree 恒自记录供给（id → 记录 → name 分辨率单点）
+     let location = locate_change(layout, record.worktree.as_deref(), record.name.as_str());
+     let entries = store.list_phase_records(id).unwrap_or_default();
+@@ -278,7 +287,7 @@ pub fn change_detail(
+             ChangeStatus::Active => ChangeSource::Active,
+         });
+ 
+-    Some(ChangeDetail {
++    Ok(Some(ChangeDetail {
+         id: record.id.clone(),
+         name: record.name.clone(),
+         title: record.title.clone(),
+@@ -290,5 +299,5 @@ pub fn change_detail(
+         runs,
+         artifacts,
+         worktree: record.worktree.clone(),
+-    })
++    }))
+ }
+diff --git a/crates/core/workflow/src/queries/detail_test.rs b/crates/core/workflow/src/queries/detail_test.rs
+index 823f7781d5c3..ea166dc259ac 100644
+--- a/crates/core/workflow/src/queries/detail_test.rs
++++ b/crates/core/workflow/src/queries/detail_test.rs
+@@ -6,8 +6,16 @@
+ //!（attempt 升序、checklist 内联、槽位三列直读、stale / backtrack 字段透出）、
+ //! 时间出线单点（i64 millis → RFC3339 ISO 串 + null；epoch 0 →
+ //! `1970-01-01T00:00:00Z` 口径）、槽位全缺（三会话槽位 + start_at 全 null 面）、
+-//! worktree 出线与定位 miss 恒可达、run 史投影与并列稳定序。原文档形态 /
+-//! 磁盘前缀回退 / 空流水线断言随分支删除整体退役。
++//! worktree 出线与定位 miss 恒可达、run 史投影与并列稳定序、子表读 Err 单区块
++//! 空面降级（读失败不升级整份 `Err`）。原文档形态 / 磁盘前缀回退 / 空流水线断
++//! 言随分支删除整体退役。
++//!
++//! **错误语义分流**（fix-flow-refresh-degradation AC-5，`change_detail` 签名
++//! Result 化随动）：`get_change` 读 `Err` → `Err(StoreFault)` 原样透传（三 kind
++//! 逐变体、Display 前缀逐字、MUST NOT 降级 `Ok(None)` / 空面）；未知 id 与
++//! `workflow_type` 不在相位表 → `Ok(None)`（Ok 分支非 Err——与读失败分流不混
++//! 同）；`get_change` 先行短路（与子表 Err 同注 → 整份 `Err`，子表降级仅在记录
++//! 可达后生效）。
+ //!
+ //! Mock策略（test-design 本节 Mock 表）：种子恒为固定 id 字面量的真实
+ //! [`ChangeStateRecord`] / [`PhaseStateRecord`] / [`RunStateRecord`] 值；db 半边
+@@ -177,15 +185,23 @@ impl Env {
+         fs::write(dir.join(rel), content).expect("写文件失败");
+     }
+ 
+-    /// id 寻址取详情（未找到即 panic——正向断言面）。
++    /// id 寻址取详情（Ok(Some) 拆包——未找到 / Err 即 panic，正向断言面）。
+     fn detail(&self, id: &str) -> super::ChangeDetail {
+-        self.detail_opt(id)
+-            .unwrap_or_else(|| panic!("应能定位 change id={id}"))
++        match self.detail_result(id) {
++            Ok(Some(detail)) => detail,
++            other => panic!("应能定位 change id={id}，实际: {other:?}"),
++        }
+     }
+ 
+-    fn detail_opt(&self, id: &str) -> Option<super::ChangeDetail> {
++    /// id 寻址取详情原始 Result（Ok / Err 分流断言面——错误语义逐字）。
++    fn detail_result(&self, id: &str) -> Result<Option<super::ChangeDetail>, StoreFault> {
+         change_detail(&self.layout, &self.store, id)
+     }
++
++    /// id 寻址取详情 Option 面（Ok 拆包——Err 即 panic，非 None 语义面）。
++    fn detail_opt(&self, id: &str) -> Option<super::ChangeDetail> {
++        self.detail_result(id).expect("详情读面应 Ok（Err 即失败——非未找到语义）")
++    }
+ }
+ 
+ impl Drop for Env {
+@@ -213,6 +229,10 @@ struct DetailStore {
+     runs_fault: Mutex<bool>,
+     nodes_fault: Mutex<bool>,
+     edges_fault: Mutex<bool>,
++    /// `get_change` 可编程 Err 注入（三 kind——错误语义分流断言的输入面）。
++    get_change_fault: Mutex<Option<StoreFault>>,
++    /// `list_phase_records` 可编程 Err 注入（清单面单区块降级断言的输入面）。
++    phase_records_fault: Mutex<bool>,
+ }
+ 
+ impl DetailStore {
+@@ -226,6 +246,8 @@ impl DetailStore {
+             runs_fault: Mutex::new(false),
+             nodes_fault: Mutex::new(false),
+             edges_fault: Mutex::new(false),
++            get_change_fault: Mutex::new(None),
++            phase_records_fault: Mutex::new(false),
+         }
+     }
+ 
+@@ -270,10 +292,31 @@ impl DetailStore {
+     fn arm_edges_fault(&self) {
+         *self.edges_fault.lock().expect("fault 锁不可中毒") = true;
+     }
++
++    /// `get_change` 读面 Err 注入（三 kind 任意变体——命中即原样返回）。
++    fn arm_get_change_fault(&self, fault: StoreFault) {
++        *self
++            .get_change_fault
++            .lock()
++            .expect("fault 锁不可中毒") = Some(fault);
++    }
++
++    /// `list_phase_records` 读面 Err 注入（清单面单区块降级断言面）。
++    fn arm_phase_records_fault(&self) {
++        *self.phase_records_fault.lock().expect("fault 锁不可中毒") = true;
++    }
+ }
+ 
+ impl ChangeStateStore for DetailStore {
+     fn get_change(&self, id: &str) -> Result<Option<ChangeStateRecord>, StoreFault> {
++        if let Some(fault) = self
++            .get_change_fault
++            .lock()
++            .expect("fault 锁不可中毒")
++            .clone()
++        {
++            return Err(fault);
++        }
+         Ok(self
+             .records
+             .lock()
+@@ -288,6 +331,9 @@ impl ChangeStateStore for DetailStore {
+     }
+ 
+     fn list_phase_records(&self, change_id: &str) -> Result<Vec<PhaseStateRecord>, StoreFault> {
++        if *self.phase_records_fault.lock().expect("fault 锁不可中毒") {
++            return Err(StoreFault::Db("list_phase_records 注入失败".to_owned()));
++        }
+         Ok(self
+             .entries
+             .lock()
+@@ -456,6 +502,182 @@ fn pipeline_phases(detail: &super::ChangeDetail) -> Vec<&str> {
+         .collect()
+ }
+ 
++// ---------------------------------------------------------------------------
++// 错误语义分流（None / Err 不混同——AC-5）：get_change 读 Err 透传（零降级）、
++// 未知 id / 未知 workflow_type → Ok(None)、子表 Err 单区块降级、分流次序
++// ---------------------------------------------------------------------------
++
++/// Err 面逐字断言（`ChangeDetail` 无 PartialEq——match 拆包比对 fault；MUST NOT
++/// `Ok(None)` / `Ok(Some)` 两降级形态同断言面）。
++fn assert_err_is(outcome: &Result<Option<super::ChangeDetail>, StoreFault>, injected: &StoreFault) {
++    match outcome {
++        Err(fault) => assert_eq!(fault, injected, "fault 逐字相等（零改写零包装）"),
++        Ok(None) => panic!("应 Err 透传，实际 Ok(None)（读失败不得呈「未找到」假象）"),
++        Ok(Some(_)) => panic!("应 Err 透传，实际 Ok(Some)（读失败不得空面降级）"),
++    }
++}
++
++/// 假件 `get_change` 注入 `Err(StoreFault::Db)`（该 id 记录实际在库 + 磁盘同名
++/// 目录在场）→ `Err` 且与注入 fault 逐字相等（`StoreFault` `PartialEq`，Display
++/// 恒 `db: ` 前缀）；MUST NOT `Ok(None)`（未找到假象）、MUST NOT `Ok(Some)` 空面
++/// 降级（读失败 MUST NOT 呈「未找到」假象）。
++#[test]
++fn get_change读err_逐字透传零降级() {
++    let env = Env::new("get-change-err");
++    env.seed(ID_MULTI, "fault-change", T0, None);
++    env.push_entry(entry(
++        ID_MULTI,
++        "proposal",
++        1,
++        Verdict::Pass,
++        "提案通过",
++        Vec::new(),
++        None,
++        None,
++        Some(t(1)),
++        t(1),
++    ));
++    env.file("fault-change", "proposal.md", "# 提案");
++    let injected = StoreFault::Db("注入失败：读事务不可用".to_owned());
++    env.store.arm_get_change_fault(injected.clone());
++
++    let outcome = env.detail_result(ID_MULTI);
++
++    assert_err_is(&outcome, &injected);
++    match &outcome {
++        Err(fault) => assert!(
++            fault.to_string().starts_with("db: "),
++            "Display 恒 `db: ` 前缀（命令层错误串单点），实际: {fault}"
++        ),
++        Ok(_) => panic!("注入 fault 后应 Err 出线"),
++    }
++}
++
++/// `StoreFault` 三 kind（`Db` / `Conflict` / `NotFound`）逐变体注入 → 各自
++/// `Err` 原样透传（枚举全词汇零改写），Display 前缀（`db: ` / `conflict: ` /
++/// `not_found: `）逐字（D4 Display 单点回归）。
++#[test]
++fn store_fault三kind逐变体err原样透传() {
++    for (tag, fault) in [
++        ("db", StoreFault::Db("db 面注入".to_owned())),
++        ("conflict", StoreFault::Conflict("conflict 面注入".to_owned())),
++        ("not_found", StoreFault::NotFound("not_found 面注入".to_owned())),
++    ] {
++        let env = Env::new(&format!("fault-kind-{tag}"));
++        env.seed(ID_MULTI, "fault-change", T0, None);
++        env.store.arm_get_change_fault(fault.clone());
++
++        assert_err_is(&env.detail_result(ID_MULTI), &fault);
++        assert!(
++            fault.to_string().starts_with(&format!("{tag}: ")),
++            "Display 前缀 `{tag}: ` 逐字（单点回归），实际: {fault}"
++        );
++    }
++}
++
++/// `get_change` 读 `Err` 且磁盘同名 change 目录在场 → 仍 `Err`（读失败与未找到
++/// 不混同的磁盘半边——MUST NOT 回退磁盘目录解析成 `Ok` 面）。
++#[test]
++fn get_change读err_磁盘同名目录在场仍err零磁盘回退() {
++    let env = Env::new("get-change-err-disk");
++    env.seed(ID_MULTI, "fault-change", T0, None);
++    // 磁盘同名目录 + 产物文件齐备（目录名 = 记录 name——解析回退的全部供给面）
++    env.file("fault-change", "proposal.md", "# 提案");
++    let injected = StoreFault::Conflict("注入失败：磁盘在场亦不回退".to_owned());
++    env.store.arm_get_change_fault(injected.clone());
++
++    assert_err_is(
++        &env.detail_result(ID_MULTI),
++        &injected,
++    );
++    // 磁盘目录未被读取链路触碰（零回退零副作用面）
++    assert!(
++        env.layout.changes_root.join("fault-change/proposal.md").exists(),
++        "磁盘目录在场未被消费成 Ok 面（读失败与未找到不混同）"
++    );
++}
++
++/// 未知 id（db 无记录，磁盘同名目录在场）→ `Ok(None)`；`workflow_type` 不在
++/// 相位表（如 `bug-fix`）→ 同 `Ok(None)`（两分支皆 Ok 分支非 Err——真「未找到」
++/// 与读失败分流不混同；对照：在档 id 照常 `Ok(Some)` 可达）。
++#[test]
++fn 未知id与未知workflow_type_ok_none分支非err() {
++    let env = Env::new("ok-none-branch");
++    env.seed(ID_GHOST, "recorded-change", T0, None);
++    env.file("recorded-change", "proposal.md", "# 提案");
++    env.seed_typed(ID_RUNNED, "typed-change", WORKFLOW_TYPE_UNKNOWN);
++    env.file("typed-change", "proposal.md", "# 提案");
++
++    assert!(
++        matches!(env.detail_result(ID_UNKNOWN), Ok(None)),
++        "未知 id → Ok(None)（Ok 分支非 Err——真未找到语义）"
++    );
++    assert!(
++        matches!(env.detail_result(ID_RUNNED), Ok(None)),
++        "workflow_type 不在相位表 → Ok(None)（Ok 分支非 Err）"
++    );
++    assert!(
++        matches!(env.detail_result(ID_GHOST), Ok(Some(_))),
++        "对照：在档 id 照常 Ok(Some) 可达（分流面非全局空面）"
++    );
++}
++
++/// `get_change` `Ok(Some)` 而 `list_phase_records` 注入读 `Err` → 仍
++/// `Ok(Some(...))`、pipeline 各站 attempts 空（清单面单区块空面哲学保持——
++/// 单区块读失败不升级整份 `Err`）。
++#[test]
++fn list_phase_records读err_单区块降级整份仍ok() {
++    let env = Env::new("phase-records-err");
++    env.seed(ID_MULTI, "fault-change", T0, None);
++    env.push_entry(entry(
++        ID_MULTI,
++        "proposal",
++        1,
++        Verdict::Pass,
++        "提案通过",
++        Vec::new(),
++        None,
++        None,
++        Some(t(1)),
++        t(1),
++    ));
++    env.file("fault-change", "proposal.md", "# 提案");
++    env.store.arm_phase_records_fault();
++
++    let outcome = env.detail_result(ID_MULTI);
++
++    assert!(
++        matches!(outcome, Ok(Some(_))),
++        "清单读 Err 不升级整份 Err（单区块空面哲学），实际: {outcome:?}"
++    );
++    let detail = outcome.expect("应 Ok").expect("应 Some");
++    assert_eq!(detail.pipeline.len(), 9, "9 站流水线照常");
++    assert!(
++        detail.pipeline.iter().all(|station| station.attempts.is_empty()),
++        "list_phase_records Err → 各站 attempts 空（清单面降级）"
++    );
++    assert!(
++        !detail.artifacts.is_empty(),
++        "产物清单不受相位史读面失败影响"
++    );
++}
++
++/// `get_change` 读 `Err` 与子表读 `Err` 同时注入 → 整份 `Err`（`get_change`
++/// 先行短路——子表降级仅在记录可达后生效，分流次序锚定）。
++#[test]
++fn get_change先行短路_与子表err同注整份err() {
++    let env = Env::new("short-circuit");
++    env.seed(ID_MULTI, "fault-change", T0, None);
++    let injected = StoreFault::NotFound("注入失败：get_change 先行".to_owned());
++    env.store.arm_get_change_fault(injected.clone());
++    env.store.arm_runs_fault();
++    env.store.arm_nodes_fault();
++    env.store.arm_edges_fault();
++    env.store.arm_phase_records_fault();
++
++    assert_err_is(&env.detail_result(ID_MULTI), &injected);
++}
++
+ // ---------------------------------------------------------------------------
+ // 正向：归档 change 全状态面（id 寻址 → status / 9 站 / runs 全量出线）
+ // ---------------------------------------------------------------------------
+diff --git a/crates/core/workflow/tests/corpus_golden_test.rs b/crates/core/workflow/tests/corpus_golden_test.rs
+index a800b8193fb7..98a7e20fa6db 100644
+--- a/crates/core/workflow/tests/corpus_golden_test.rs
++++ b/crates/core/workflow/tests/corpus_golden_test.rs
+@@ -328,6 +328,7 @@ impl Corpus {
+     /// detail 全读链投影（id 寻址）。
+     fn detail(&self, id: &str) -> ChangeDetail {
+         change_detail(&resolve(&self.root), &self.store, id)
++            .expect("语料 detail 读面应 Ok")
+             .unwrap_or_else(|| panic!("语料 {id} 应可定位"))
+     }
+ }
+@@ -1377,17 +1378,24 @@ fn corpus文档形态零发现反例() {
+         "workflow.json 惰性字节零进投影"
+     );
+ 
+-    // change_detail 任意寻址恒 None（裸名 / 前缀名寻址均不命中 db）
++    // change_detail 任意寻址恒 None（裸名 / 前缀名寻址均不命中 db；读面 Ok 由
++    // golden 全好语料保证——expect 收口）
+     assert!(
+-        change_detail(&layout, &corpus.store, "document-form").is_none(),
++        change_detail(&layout, &corpus.store, "document-form")
++            .expect("详情读面应 Ok")
++            .is_none(),
+         "裸名寻址未建档 id → None（零磁盘回退）"
+     );
+     assert!(
+-        change_detail(&layout, &corpus.store, "2026-01-01-document-form").is_none(),
++        change_detail(&layout, &corpus.store, "2026-01-01-document-form")
++            .expect("详情读面应 Ok")
++            .is_none(),
+         "前缀名寻址未建档 id → None（零磁盘回退）"
+     );
+     assert!(
+-        change_detail(&layout, &corpus.store, "id-document-form").is_none(),
++        change_detail(&layout, &corpus.store, "id-document-form")
++            .expect("详情读面应 Ok")
++            .is_none(),
+         "任意 id 形态寻址恒 None"
+     );
+ 
+@@ -2416,7 +2424,9 @@ fn 真件create成功立即可见可发起() {
+     assert_eq!(list.active[0].name, "visible-change");
+     assert_eq!(list.active[0].status, Some(ChangeStatus::Active));
+ 
+-    let detail = change_detail(&layout, &corpus.store, &outcome.id).expect("详情应可达");
++    let detail = change_detail(&layout, &corpus.store, &outcome.id)
++        .expect("详情读面应 Ok")
++        .expect("详情应可达");
+     assert_eq!(detail.id, outcome.id, "detail id = 铸出 id");
+     assert_eq!(detail.name, "visible-change");
+     assert_eq!(detail.status, Some(ChangeStatus::Active));
+@@ -2862,8 +2872,9 @@ fn 真件detail时间出线_epoch零口径() {
+     );
+     corpus.dir_with_files("openspec/changes/zero-ts", &[("proposal.md", "# 提案")]);
+ 
+-    let detail =
+-        change_detail(&resolve(&corpus.root), &corpus.store, "id-zero-ts").expect("详情应可达");
++    let detail = change_detail(&resolve(&corpus.root), &corpus.store, "id-zero-ts")
++        .expect("详情读面应 Ok")
++        .expect("详情应可达");
+ 
+     assert_eq!(detail.created.as_deref(), Some("1970-01-01"));
+     let record = &detail.pipeline[0].attempts[0];
+@@ -2886,21 +2897,30 @@ fn 真件detail未找到与建档恒可达() {
+     );
+ 
+     assert!(
+-        change_detail(&layout, &corpus.store, "不存在的change").is_none(),
++        change_detail(&layout, &corpus.store, "不存在的change")
++            .expect("详情读面应 Ok")
++            .is_none(),
+         "未建档 id → None（磁盘裸名目录在场不命中）"
+     );
+-    assert!(change_detail(&layout, &corpus.store, "").is_none());
++    assert!(change_detail(&layout, &corpus.store, "")
++        .expect("详情读面应 Ok")
++        .is_none());
+     assert!(
+-        change_detail(&layout, &corpus.store, "a/b").is_none(),
++        change_detail(&layout, &corpus.store, "a/b")
++            .expect("详情读面应 Ok")
++            .is_none(),
+         "未建档任意 id 形态 → None（id 为不透明串，恒由 db 记录定夺）"
+     );
+     assert!(
+-        change_detail(&layout, &corpus.store, "2026-01-01-ghost").is_none(),
++        change_detail(&layout, &corpus.store, "2026-01-01-ghost")
++            .expect("详情读面应 Ok")
++            .is_none(),
+         "前缀名寻址未建档 id → None（MUST NOT 回退目录解析）"
+     );
+ 
+     corpus.seed_record("id-ghost-with-record", "ghost-with-record");
+     let detail = change_detail(&layout, &corpus.store, "id-ghost-with-record")
++        .expect("详情读面应 Ok")
+         .expect("建档记录恒可达详情（定位 miss 不虚构 None）");
+     assert_eq!(detail.id, "id-ghost-with-record", "detail id = 寻址 id");
+     assert_eq!(detail.name, "ghost-with-record", "name 自记录直读");
+diff --git a/src/commands/changes/mod.rs b/src/commands/changes/mod.rs
+index 50fd00564705..53e5be956f1f 100644
+--- a/src/commands/changes/mod.rs
++++ b/src/commands/changes/mod.rs
+@@ -68,10 +68,11 @@ pub fn list_changes(stores: State<'_, WorkspaceStores>, root: String) -> ChangeL
+ 
+ /// 单 change 详情聚合（统一视图，unify-run-state-persistence D11；按 change
+ /// **id** 寻址）：一次返回「库读史（`detail.runs[].nodes` / `runs[].edges`）∪
+-/// 在飞 run 活面（activeRun.nodes / activeRun.edges）」——前端零双命令拼接。未知 id 返回 `None`（未建档——零磁盘
+-/// 目录解析回退、零文档形态空面）。IPC 签名不变：blank root 与开库失败均
+-/// `None`。worktree / name 感知在 core `change_detail` 内（record 先读后定位，
+-/// 磁盘面恒自记录供给）。
++/// 在飞 run 活面（activeRun.nodes / activeRun.edges）」——前端零双命令拼接。
++/// IPC Result 面：`Ok(None)` = 真「未找到」（未知 id——零磁盘目录解析回退、
++/// 零文档形态空面）与 blank root / 开库失败（空结果语义维持）；`Err` = 读失
++/// 败（store 错误串经 reject 通道出线——TS 类型面零漂移）。worktree / name
++/// 感知在 core `change_detail` 内（record 先读后定位，磁盘面恒自记录供给）。
+ #[tauri::command]
+ #[specta::specta]
+ pub fn get_change_detail(
+@@ -79,15 +80,21 @@ pub fn get_change_detail(
+     control: State<'_, Arc<ChangeFlowControl>>,
+     root: String,
+     id: String,
+-) -> Option<ChangeDetailUnified> {
++) -> Result<Option<ChangeDetailUnified>, String> {
+     if is_blank_root(&root) {
+-        return None;
++        return Ok(None);
+     }
+     let Ok(store) = stores.for_root(&root) else {
+-        return None;
++        return Ok(None); // 开库失败：空结果语义维持，不进入查询链路
+     };
+     let layout = resolve(Path::new(&root));
+-    let detail = queries::change_detail(&layout, store.as_ref(), &id)?;
++    // StoreFault → 错误串映射收命令层单点（D4：kind 前缀已在 Display 单点）；
++    // None（未知 id，真「未找到」）→ 空结果语义
++    let Some(detail) =
++        queries::change_detail(&layout, store.as_ref(), &id).map_err(|fault| fault.to_string())?
++    else {
++        return Ok(None);
++    };
+     // 活面投影：注册表快照（终态即除名 → None 语义不变；键 id 化同式）；
+     // startedAt ISO 化收命令层单点（快照毫秒 → 线面 ISO 串）
+     let active_run = control.snapshot(&root, &id).map(|snapshot| ActiveRunView {
+@@ -111,7 +118,7 @@ pub fn get_change_detail(
+             })
+             .collect(),
+     });
+-    Some(ChangeDetailUnified { detail, active_run })
++    Ok(Some(ChangeDetailUnified { detail, active_run }))
+ }
+ 
+ /// 按信封读取单个产物（按 change **id** 寻址）；kind 未注册、source 非法、
+diff --git a/src/commands/changes/mod_test.rs b/src/commands/changes/mod_test.rs
+index c34b6c92bbaf..ceda6205209a 100644
+--- a/src/commands/changes/mod_test.rs
++++ b/src/commands/changes/mod_test.rs
+@@ -319,9 +319,11 @@ fn 读命令id透传_列表详情产物与core查询serde等值且归档条目
+         root.clone(),
+         "seeded-active".to_owned(),
+     )
++    .expect("命令应 Ok")
+     .expect("应 Some");
+-    let via_core_detail =
+-        core_queries::change_detail(&layout, store.as_ref(), "seeded-active").expect("应 Some");
++    let via_core_detail = core_queries::change_detail(&layout, store.as_ref(), "seeded-active")
++        .expect("直调应 Ok")
++        .expect("直调应 Some");
+     assert_eq!(
+         serde_json::to_value(&via_detail.detail).expect("命令结果序列化失败"),
+         serde_json::to_value(&via_core_detail).expect("core 结果序列化失败"),
+@@ -408,8 +410,29 @@ fn 磁盘only零呈现_命令面零入列不可达且目录字节零变化() {
+     // detail / read_artifact 命令按该 id → None（未建档；零磁盘目录解析回退）
+     let control = app.state::<Arc<orchestration::control::ChangeFlowControl>>();
+     assert!(
+-        get_change_detail(state.clone(), control, root.clone(), "docs-only".to_owned()).is_none(),
+-        "磁盘-only 详情 None（未建档）"
++        matches!(
++            get_change_detail(
++                state.clone(),
++                control.clone(),
++                root.clone(),
++                "docs-only".to_owned()
++            ),
++            Ok(None)
++        ),
++        "磁盘-only 详情 Ok(None)（未建档——真未找到语义，MUST NOT Err）"
++    );
++    // name 冒充 id：磁盘与 db 均无的 name 形态串 → 同 Ok(None)（不虚构活面）
++    assert!(
++        matches!(
++            get_change_detail(
++                state.clone(),
++                control,
++                root.clone(),
++                "never-seeded-name".to_owned()
++            ),
++            Ok(None)
++        ),
++        "name 冒充 id → Ok(None)（零磁盘回退、不虚构活面）"
+     );
+     assert!(
+         read_artifact(
+@@ -645,6 +668,7 @@ async fn create接线_建域落位_返回dto增id且按id立即可见可发起()
+         root.clone(),
+         outcome.id.clone(),
+     )
++    .expect("详情命令应 Ok")
+     .expect("详情即刻可见（按 id 寻址）");
+     assert_eq!(unified.detail.id, outcome.id, "详情身份锚与铸出同源");
+     assert_eq!(unified.detail.status, Some(ChangeStatus::Active));
+@@ -654,10 +678,14 @@ async fn create接线_建域落位_返回dto增id且按id立即可见可发起()
+         "空流水线 9 站全量（发起面就绪，末列 archive）"
+     );
+     assert!(unified.active_run.is_none());
+-    // name 非寻址键：按 name 查询不可达（一切寻址以 id 为准）
++    // name 非寻址键：按 name 查询不可达（一切寻址以 id 为准）——Ok(None) 空
++    // 结果语义（非 Err，读命令零错误出线）
+     assert!(
+-        get_change_detail(state, control, root, "fix-bug".to_owned()).is_none(),
+-        "name 非寻址键（未建档 id → None）"
++        matches!(
++            get_change_detail(state, control, root, "fix-bug".to_owned()),
++            Ok(None)
++        ),
++        "name 非寻址键（未建档 id → Ok(None)）"
+     );
+ }
+ 
+@@ -962,20 +990,22 @@ async fn blank_root双口径_读命令早退空结果_create显式err() {
+     let state = app.state::<WorkspaceStores>();
+     let control = app.state::<Arc<orchestration::control::ChangeFlowControl>>();
+ 
+-    for root in [String::new(), "   ".to_owned()] {
+-        // 读命令：空结果语义（不报错、不进入查询链路）
++    for root in [String::new(), "   ".to_owned(), "\t".to_owned()] {
++        // 读命令：空结果语义（不报错、不进入查询链路）——Ok(None)（MUST NOT Err）
+         let list = list_changes(state.clone(), root.clone());
+         assert!(list.active.is_empty(), "空 root 清单为空");
+         assert!(list.archive_groups.is_empty(), "空 root 月分组为空");
+         assert!(
+-            get_change_detail(
+-                state.clone(),
+-                control.clone(),
+-                root.clone(),
+-                "任意".to_owned()
+-            )
+-            .is_none(),
+-            "空 root 详情为 None"
++            matches!(
++                get_change_detail(
++                    state.clone(),
++                    control.clone(),
++                    root.clone(),
++                    "任意".to_owned()
++                ),
++                Ok(None)
++            ),
++            "空 root 详情 Ok(None)（空结果语义维持，MUST NOT Err 出线）"
+         );
+         assert!(
+             read_artifact(
+@@ -1012,6 +1042,35 @@ async fn blank_root双口径_读命令早退空结果_create显式err() {
+     );
+ }
+ 
++/// root 不可寻址（磁盘上不存在的路径——canonicalize 失败 → `for_root` Err）→
++/// `Ok(None)`（开库失败空结果语义维持，D4——MUST NOT Err 出线）。
++#[test]
++fn 不可寻址root开库失败_ok_none空结果语义维持() {
++    let env = Env::new("unreachable-root");
++    let app = app_with(&env);
++    let state = app.state::<WorkspaceStores>();
++    let control = app.state::<Arc<orchestration::control::ChangeFlowControl>>();
++    // 数据根内幽灵子目录（不存在 → canonicalize 失败 → for_root Err）
++    let ghost_root = env.ws_root.path().join("幽灵子目录/不存在");
++    assert!(
++        !ghost_root.exists(),
++        "夹具前置：不可寻址 root 路径确实不在磁盘"
++    );
++
++    assert!(
++        matches!(
++            get_change_detail(
++                state,
++                control,
++                ghost_root.to_string_lossy().into_owned(),
++                "seeded-active".to_owned()
++            ),
++            Ok(None)
++        ),
++        "不可寻址 root → Ok(None)（开库失败空结果语义维持，非 Err）"
++    );
++}
++
+ // ---------------------------------------------------------------------------
+ // worktree 维度（design D2/D12/D13）：create 拒绝映射 / detail 与 read_artifact
+ // worktree 感知 / list 归组随动 / 归档引导命令面
+@@ -1106,6 +1165,7 @@ async fn detail_worktree感知_出线且产物命中worktree内文件() {
+         env.root(),
+         "id-wt-detail".to_owned(),
+     )
++    .expect("worktree 详情命令应 Ok")
+     .expect("worktree 记录详情应 Some")
+     .detail;
+ 
+@@ -1314,6 +1374,7 @@ fn 统一查询装配_runs全史与active_run活面与终态退场() {
+         root.clone(),
+         "unified-change".to_owned(),
+     )
++    .expect("命令应 Ok")
+     .expect("应 Some");
+     assert!(idle.active_run.is_none(), "零注册表条目 → activeRun null");
+     assert_eq!(
+@@ -1399,6 +1460,7 @@ fn 统一查询装配_runs全史与active_run活面与终态退场() {
+         root.clone(),
+         "unified-change".to_owned(),
+     )
++    .expect("命令应 Ok")
+     .expect("应 Some");
+     let active = live.active_run.as_ref().expect("运行中 activeRun 在场");
+     assert_eq!(active.run_id, "run-3");
+@@ -1451,6 +1513,7 @@ fn 统一查询装配_runs全史与active_run活面与终态退场() {
+         root.clone(),
+         "unified-change".to_owned(),
+     )
++    .expect("命令应 Ok")
+     .expect("应 Some");
+     assert!(closed.active_run.is_none(), "终态除名 → activeRun 退 null");
+     assert_eq!(
+@@ -1633,6 +1696,7 @@ fn 统一查询装配_运行中run多边活面() {
+         root.clone(),
+         "edge-change".to_owned(),
+     )
++    .expect("命令应 Ok")
+     .expect("应 Some");
+     let active = unified.active_run.as_ref().expect("运行中 activeRun 在场");
+     assert_eq!(active.run_id, "run-5");
+@@ -1736,6 +1800,7 @@ fn 统一查询装配_运行中run多边活面() {
+         root.clone(),
+         "edge-change".to_owned(),
+     )
++    .expect("命令应 Ok")
+     .expect("应 Some");
+     assert!(closed.active_run.is_none(), "终态除名 → activeRun 退 null");
+ }
+@@ -1793,6 +1858,7 @@ fn 统一查询装配_waitingconfirm停等形态() {
+         root.clone(),
+         "confirm-change".to_owned(),
+     )
++    .expect("命令应 Ok")
+     .expect("应 Some");
+     let active = unified.active_run.as_ref().expect("停等中 activeRun 在场");
+     assert_eq!(
+@@ -1862,6 +1928,7 @@ fn 统一查询装配_active_run_archive面两态出线() {
+         root.clone(),
+         "archive-change".to_owned(),
+     )
++    .expect("命令应 Ok")
+     .expect("应 Some");
+     let active = running.active_run.as_ref().expect("运行中 activeRun 在场");
+     assert!(
+@@ -1891,6 +1958,7 @@ fn 统一查询装配_active_run_archive面两态出线() {
+         root.clone(),
+         "archive-change".to_owned(),
+     )
++    .expect("命令应 Ok")
+     .expect("应 Some");
+     let active = unified.active_run.as_ref().expect("停等中 activeRun 在场");
+     assert_eq!(
+@@ -1929,6 +1997,7 @@ fn 统一查询装配_active_run_archive面两态出线() {
+         root.clone(),
+         "archive-change".to_owned(),
+     )
++    .expect("命令应 Ok")
+     .expect("应 Some");
+     let active = unified.active_run.as_ref().expect("停等中 activeRun 在场");
+     assert!(
+@@ -1942,6 +2011,7 @@ fn 统一查询装配_active_run_archive面两态出线() {
+         root.clone(),
+         "archive-change".to_owned(),
+     )
++    .expect("命令应 Ok")
+     .expect("应 Some");
+     assert!(
+         closed.active_run.is_none(),
+@@ -1986,6 +2056,7 @@ fn 统一查询装配_active_run既有字段回归() {
+         root.clone(),
+         "legacy-change".to_owned(),
+     )
++    .expect("命令应 Ok")
+     .expect("应 Some");
+     let active = unified
+         .active_run
+@@ -2077,6 +2148,7 @@ fn archive_change写面异常err透传零阻断() {
+         root.clone(),
+         "pending-change".to_owned(),
+     )
++    .expect("详情命令应 Ok")
+     .expect("详情仍应可查");
+     assert_eq!(
+         unified.detail.status,
+@@ -2085,9 +2157,9 @@ fn archive_change写面异常err透传零阻断() {
+     );
+ }
+ 
+-/// 统一视图早退与未知 id 未找到（既有早退口径保留）：blank root → None；
+-/// 磁盘目录在场而 db 缺记录的 id → None（未找到降级——MUST NOT 回退磁盘目录
+-/// 解析、MUST NOT 虚构活面）；未知 id（record 与定位双缺）→ None。
++/// 统一视图早退与未知 id 未找到（既有早退口径保留）：blank root → `Ok(None)`；
++/// 磁盘目录在场而 db 缺记录的 id → `Ok(None)`（未找到降级——MUST NOT 回退磁盘
++/// 目录解析、MUST NOT 虚构活面）；未知 id（record 与定位双缺）→ `Ok(None)`。
+ #[test]
+ fn 统一查询装配_早退与未知id未找到() {
+     let env = Env::new("unified-edge");
+@@ -2096,36 +2168,43 @@ fn 统一查询装配_早退与未知id未找到() {
+     let root = env.root();
+     let control = app.state::<Arc<orchestration::control::ChangeFlowControl>>();
+ 
+-    // blank root → None（既有早退语义，零改写）
++    // blank root → Ok(None)（既有早退语义，零改写——MUST NOT Err）
+     assert!(
+-        get_change_detail(
+-            state.clone(),
+-            control.clone(),
+-            "   ".to_owned(),
+-            "any".to_owned()
+-        )
+-        .is_none(),
+-        "blank root → None"
++        matches!(
++            get_change_detail(
++                state.clone(),
++                control.clone(),
++                "   ".to_owned(),
++                "any".to_owned()
++            ),
++            Ok(None)
++        ),
++        "blank root → Ok(None)"
+     );
+ 
+-    // 未建档 id：磁盘目录在场（存量 CLI change 形态）→ None（未找到降级——
++    // 未建档 id：磁盘目录在场（存量 CLI change 形态）→ Ok(None)（未找到降级——
+     // 注册表即使有条目也按 id 寻址落空，不虚构活面）
+     env.change_dir("legacy-docs");
+     assert!(
+-        get_change_detail(
+-            state.clone(),
+-            control.clone(),
+-            root.clone(),
+-            "legacy-docs".to_owned(),
+-        )
+-        .is_none(),
+-        "磁盘目录在场而 db 缺记录 → None（零磁盘目录解析回退）"
++        matches!(
++            get_change_detail(
++                state.clone(),
++                control.clone(),
++                root.clone(),
++                "legacy-docs".to_owned(),
++            ),
++            Ok(None)
++        ),
++        "磁盘目录在场而 db 缺记录 → Ok(None)（零磁盘目录解析回退）"
+     );
+ 
+-    // 未知 id（record 与定位双缺）→ None（既有语义不变）
++    // 未知 id（record 与定位双缺）→ Ok(None)（既有语义不变）
+     assert!(
+-        get_change_detail(state, control, root, "不存在".to_owned()).is_none(),
+-        "未知 id → None"
++        matches!(
++            get_change_detail(state, control, root, "不存在".to_owned()),
++            Ok(None)
++        ),
++        "未知 id → Ok(None)"
+     );
+ }
+ 
+@@ -2668,6 +2747,7 @@ async fn get_change_detail列序随workflow_type出线() {
+         root.clone(),
+         test_only.id.clone(),
+     )
++    .expect("详情命令应 Ok")
+     .expect("test-only 详情应可达");
+     let phases: Vec<&str> = only
+         .detail
+@@ -2694,6 +2774,7 @@ async fn get_change_detail列序随workflow_type出线() {
+         root.clone(),
+         requirement.id.clone(),
+     )
++    .expect("详情命令应 Ok")
+     .expect("requirement 详情应可达");
+     let phases: Vec<&str> = full
+         .detail
+@@ -2710,7 +2791,8 @@ async fn get_change_detail列序随workflow_type出线() {
+ }
+ 
+ /// 跨模块组合（详情出线 / 异常）：`workflow_type="bug-fix"` 记录 →
+-/// `get_change_detail` 返回 `None`（读面不 fallback requirement）。
++/// `get_change_detail` 返回 `Ok(None)`（读面不 fallback requirement；Ok 分支
++/// 非 Err——真「详情不可达」与读失败分流不混同）。
+ #[test]
+ fn get_change_detail未知workflow_type恒none() {
+     let env = Env::new("detail-wf-unknown");
+@@ -2736,19 +2818,24 @@ fn get_change_detail未知workflow_type恒none() {
+         .expect("建档 fixture 应成功");
+ 
+     assert!(
+-        get_change_detail(
+-            state.clone(),
+-            control.clone(),
+-            root.clone(),
+-            "legacy-unknown".to_owned()
+-        )
+-        .is_none(),
+-        "未知 workflow_type → 详情 None（不 fallback requirement）"
++        matches!(
++            get_change_detail(
++                state.clone(),
++                control.clone(),
++                root.clone(),
++                "legacy-unknown".to_owned()
++            ),
++            Ok(None)
++        ),
++        "未知 workflow_type → 详情 Ok(None)（不 fallback requirement）"
+     );
+     // 对照：未知 id 同语义（既有持衡面）
+     assert!(
+-        get_change_detail(state, control, root, "ghost-id".to_owned()).is_none(),
+-        "未建档 id → None"
++        matches!(
++            get_change_detail(state, control, root, "ghost-id".to_owned()),
++            Ok(None)
++        ),
++        "未建档 id → Ok(None)"
+     );
+ }
+ 

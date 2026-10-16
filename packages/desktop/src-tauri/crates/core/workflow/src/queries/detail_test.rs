@@ -6,8 +6,16 @@
 //!（attempt 升序、checklist 内联、槽位三列直读、stale / backtrack 字段透出）、
 //! 时间出线单点（i64 millis → RFC3339 ISO 串 + null；epoch 0 →
 //! `1970-01-01T00:00:00Z` 口径）、槽位全缺（三会话槽位 + start_at 全 null 面）、
-//! worktree 出线与定位 miss 恒可达、run 史投影与并列稳定序。原文档形态 /
-//! 磁盘前缀回退 / 空流水线断言随分支删除整体退役。
+//! worktree 出线与定位 miss 恒可达、run 史投影与并列稳定序、子表读 Err 单区块
+//! 空面降级（读失败不升级整份 `Err`）。原文档形态 / 磁盘前缀回退 / 空流水线断
+//! 言随分支删除整体退役。
+//!
+//! **错误语义分流**（fix-flow-refresh-degradation AC-5，`change_detail` 签名
+//! Result 化随动）：`get_change` 读 `Err` → `Err(StoreFault)` 原样透传（三 kind
+//! 逐变体、Display 前缀逐字、MUST NOT 降级 `Ok(None)` / 空面）；未知 id 与
+//! `workflow_type` 不在相位表 → `Ok(None)`（Ok 分支非 Err——与读失败分流不混
+//! 同）；`get_change` 先行短路（与子表 Err 同注 → 整份 `Err`，子表降级仅在记录
+//! 可达后生效）。
 //!
 //! Mock策略（test-design 本节 Mock 表）：种子恒为固定 id 字面量的真实
 //! [`ChangeStateRecord`] / [`PhaseStateRecord`] / [`RunStateRecord`] 值；db 半边
@@ -177,14 +185,22 @@ impl Env {
         fs::write(dir.join(rel), content).expect("写文件失败");
     }
 
-    /// id 寻址取详情（未找到即 panic——正向断言面）。
+    /// id 寻址取详情（Ok(Some) 拆包——未找到 / Err 即 panic，正向断言面）。
     fn detail(&self, id: &str) -> super::ChangeDetail {
-        self.detail_opt(id)
-            .unwrap_or_else(|| panic!("应能定位 change id={id}"))
+        match self.detail_result(id) {
+            Ok(Some(detail)) => detail,
+            other => panic!("应能定位 change id={id}，实际: {other:?}"),
+        }
     }
 
-    fn detail_opt(&self, id: &str) -> Option<super::ChangeDetail> {
+    /// id 寻址取详情原始 Result（Ok / Err 分流断言面——错误语义逐字）。
+    fn detail_result(&self, id: &str) -> Result<Option<super::ChangeDetail>, StoreFault> {
         change_detail(&self.layout, &self.store, id)
+    }
+
+    /// id 寻址取详情 Option 面（Ok 拆包——Err 即 panic，非 None 语义面）。
+    fn detail_opt(&self, id: &str) -> Option<super::ChangeDetail> {
+        self.detail_result(id).expect("详情读面应 Ok（Err 即失败——非未找到语义）")
     }
 }
 
@@ -213,6 +229,10 @@ struct DetailStore {
     runs_fault: Mutex<bool>,
     nodes_fault: Mutex<bool>,
     edges_fault: Mutex<bool>,
+    /// `get_change` 可编程 Err 注入（三 kind——错误语义分流断言的输入面）。
+    get_change_fault: Mutex<Option<StoreFault>>,
+    /// `list_phase_records` 可编程 Err 注入（清单面单区块降级断言的输入面）。
+    phase_records_fault: Mutex<bool>,
 }
 
 impl DetailStore {
@@ -226,6 +246,8 @@ impl DetailStore {
             runs_fault: Mutex::new(false),
             nodes_fault: Mutex::new(false),
             edges_fault: Mutex::new(false),
+            get_change_fault: Mutex::new(None),
+            phase_records_fault: Mutex::new(false),
         }
     }
 
@@ -270,10 +292,31 @@ impl DetailStore {
     fn arm_edges_fault(&self) {
         *self.edges_fault.lock().expect("fault 锁不可中毒") = true;
     }
+
+    /// `get_change` 读面 Err 注入（三 kind 任意变体——命中即原样返回）。
+    fn arm_get_change_fault(&self, fault: StoreFault) {
+        *self
+            .get_change_fault
+            .lock()
+            .expect("fault 锁不可中毒") = Some(fault);
+    }
+
+    /// `list_phase_records` 读面 Err 注入（清单面单区块降级断言面）。
+    fn arm_phase_records_fault(&self) {
+        *self.phase_records_fault.lock().expect("fault 锁不可中毒") = true;
+    }
 }
 
 impl ChangeStateStore for DetailStore {
     fn get_change(&self, id: &str) -> Result<Option<ChangeStateRecord>, StoreFault> {
+        if let Some(fault) = self
+            .get_change_fault
+            .lock()
+            .expect("fault 锁不可中毒")
+            .clone()
+        {
+            return Err(fault);
+        }
         Ok(self
             .records
             .lock()
@@ -288,6 +331,9 @@ impl ChangeStateStore for DetailStore {
     }
 
     fn list_phase_records(&self, change_id: &str) -> Result<Vec<PhaseStateRecord>, StoreFault> {
+        if *self.phase_records_fault.lock().expect("fault 锁不可中毒") {
+            return Err(StoreFault::Db("list_phase_records 注入失败".to_owned()));
+        }
         Ok(self
             .entries
             .lock()
@@ -454,6 +500,182 @@ fn pipeline_phases(detail: &super::ChangeDetail) -> Vec<&str> {
         .iter()
         .map(|station| station.phase.as_str())
         .collect()
+}
+
+// ---------------------------------------------------------------------------
+// 错误语义分流（None / Err 不混同——AC-5）：get_change 读 Err 透传（零降级）、
+// 未知 id / 未知 workflow_type → Ok(None)、子表 Err 单区块降级、分流次序
+// ---------------------------------------------------------------------------
+
+/// Err 面逐字断言（`ChangeDetail` 无 PartialEq——match 拆包比对 fault；MUST NOT
+/// `Ok(None)` / `Ok(Some)` 两降级形态同断言面）。
+fn assert_err_is(outcome: &Result<Option<super::ChangeDetail>, StoreFault>, injected: &StoreFault) {
+    match outcome {
+        Err(fault) => assert_eq!(fault, injected, "fault 逐字相等（零改写零包装）"),
+        Ok(None) => panic!("应 Err 透传，实际 Ok(None)（读失败不得呈「未找到」假象）"),
+        Ok(Some(_)) => panic!("应 Err 透传，实际 Ok(Some)（读失败不得空面降级）"),
+    }
+}
+
+/// 假件 `get_change` 注入 `Err(StoreFault::Db)`（该 id 记录实际在库 + 磁盘同名
+/// 目录在场）→ `Err` 且与注入 fault 逐字相等（`StoreFault` `PartialEq`，Display
+/// 恒 `db: ` 前缀）；MUST NOT `Ok(None)`（未找到假象）、MUST NOT `Ok(Some)` 空面
+/// 降级（读失败 MUST NOT 呈「未找到」假象）。
+#[test]
+fn get_change读err_逐字透传零降级() {
+    let env = Env::new("get-change-err");
+    env.seed(ID_MULTI, "fault-change", T0, None);
+    env.push_entry(entry(
+        ID_MULTI,
+        "proposal",
+        1,
+        Verdict::Pass,
+        "提案通过",
+        Vec::new(),
+        None,
+        None,
+        Some(t(1)),
+        t(1),
+    ));
+    env.file("fault-change", "proposal.md", "# 提案");
+    let injected = StoreFault::Db("注入失败：读事务不可用".to_owned());
+    env.store.arm_get_change_fault(injected.clone());
+
+    let outcome = env.detail_result(ID_MULTI);
+
+    assert_err_is(&outcome, &injected);
+    match &outcome {
+        Err(fault) => assert!(
+            fault.to_string().starts_with("db: "),
+            "Display 恒 `db: ` 前缀（命令层错误串单点），实际: {fault}"
+        ),
+        Ok(_) => panic!("注入 fault 后应 Err 出线"),
+    }
+}
+
+/// `StoreFault` 三 kind（`Db` / `Conflict` / `NotFound`）逐变体注入 → 各自
+/// `Err` 原样透传（枚举全词汇零改写），Display 前缀（`db: ` / `conflict: ` /
+/// `not_found: `）逐字（D4 Display 单点回归）。
+#[test]
+fn store_fault三kind逐变体err原样透传() {
+    for (tag, fault) in [
+        ("db", StoreFault::Db("db 面注入".to_owned())),
+        ("conflict", StoreFault::Conflict("conflict 面注入".to_owned())),
+        ("not_found", StoreFault::NotFound("not_found 面注入".to_owned())),
+    ] {
+        let env = Env::new(&format!("fault-kind-{tag}"));
+        env.seed(ID_MULTI, "fault-change", T0, None);
+        env.store.arm_get_change_fault(fault.clone());
+
+        assert_err_is(&env.detail_result(ID_MULTI), &fault);
+        assert!(
+            fault.to_string().starts_with(&format!("{tag}: ")),
+            "Display 前缀 `{tag}: ` 逐字（单点回归），实际: {fault}"
+        );
+    }
+}
+
+/// `get_change` 读 `Err` 且磁盘同名 change 目录在场 → 仍 `Err`（读失败与未找到
+/// 不混同的磁盘半边——MUST NOT 回退磁盘目录解析成 `Ok` 面）。
+#[test]
+fn get_change读err_磁盘同名目录在场仍err零磁盘回退() {
+    let env = Env::new("get-change-err-disk");
+    env.seed(ID_MULTI, "fault-change", T0, None);
+    // 磁盘同名目录 + 产物文件齐备（目录名 = 记录 name——解析回退的全部供给面）
+    env.file("fault-change", "proposal.md", "# 提案");
+    let injected = StoreFault::Conflict("注入失败：磁盘在场亦不回退".to_owned());
+    env.store.arm_get_change_fault(injected.clone());
+
+    assert_err_is(
+        &env.detail_result(ID_MULTI),
+        &injected,
+    );
+    // 磁盘目录未被读取链路触碰（零回退零副作用面）
+    assert!(
+        env.layout.changes_root.join("fault-change/proposal.md").exists(),
+        "磁盘目录在场未被消费成 Ok 面（读失败与未找到不混同）"
+    );
+}
+
+/// 未知 id（db 无记录，磁盘同名目录在场）→ `Ok(None)`；`workflow_type` 不在
+/// 相位表（如 `bug-fix`）→ 同 `Ok(None)`（两分支皆 Ok 分支非 Err——真「未找到」
+/// 与读失败分流不混同；对照：在档 id 照常 `Ok(Some)` 可达）。
+#[test]
+fn 未知id与未知workflow_type_ok_none分支非err() {
+    let env = Env::new("ok-none-branch");
+    env.seed(ID_GHOST, "recorded-change", T0, None);
+    env.file("recorded-change", "proposal.md", "# 提案");
+    env.seed_typed(ID_RUNNED, "typed-change", WORKFLOW_TYPE_UNKNOWN);
+    env.file("typed-change", "proposal.md", "# 提案");
+
+    assert!(
+        matches!(env.detail_result(ID_UNKNOWN), Ok(None)),
+        "未知 id → Ok(None)（Ok 分支非 Err——真未找到语义）"
+    );
+    assert!(
+        matches!(env.detail_result(ID_RUNNED), Ok(None)),
+        "workflow_type 不在相位表 → Ok(None)（Ok 分支非 Err）"
+    );
+    assert!(
+        matches!(env.detail_result(ID_GHOST), Ok(Some(_))),
+        "对照：在档 id 照常 Ok(Some) 可达（分流面非全局空面）"
+    );
+}
+
+/// `get_change` `Ok(Some)` 而 `list_phase_records` 注入读 `Err` → 仍
+/// `Ok(Some(...))`、pipeline 各站 attempts 空（清单面单区块空面哲学保持——
+/// 单区块读失败不升级整份 `Err`）。
+#[test]
+fn list_phase_records读err_单区块降级整份仍ok() {
+    let env = Env::new("phase-records-err");
+    env.seed(ID_MULTI, "fault-change", T0, None);
+    env.push_entry(entry(
+        ID_MULTI,
+        "proposal",
+        1,
+        Verdict::Pass,
+        "提案通过",
+        Vec::new(),
+        None,
+        None,
+        Some(t(1)),
+        t(1),
+    ));
+    env.file("fault-change", "proposal.md", "# 提案");
+    env.store.arm_phase_records_fault();
+
+    let outcome = env.detail_result(ID_MULTI);
+
+    assert!(
+        matches!(outcome, Ok(Some(_))),
+        "清单读 Err 不升级整份 Err（单区块空面哲学），实际: {outcome:?}"
+    );
+    let detail = outcome.expect("应 Ok").expect("应 Some");
+    assert_eq!(detail.pipeline.len(), 9, "9 站流水线照常");
+    assert!(
+        detail.pipeline.iter().all(|station| station.attempts.is_empty()),
+        "list_phase_records Err → 各站 attempts 空（清单面降级）"
+    );
+    assert!(
+        !detail.artifacts.is_empty(),
+        "产物清单不受相位史读面失败影响"
+    );
+}
+
+/// `get_change` 读 `Err` 与子表读 `Err` 同时注入 → 整份 `Err`（`get_change`
+/// 先行短路——子表降级仅在记录可达后生效，分流次序锚定）。
+#[test]
+fn get_change先行短路_与子表err同注整份err() {
+    let env = Env::new("short-circuit");
+    env.seed(ID_MULTI, "fault-change", T0, None);
+    let injected = StoreFault::NotFound("注入失败：get_change 先行".to_owned());
+    env.store.arm_get_change_fault(injected.clone());
+    env.store.arm_runs_fault();
+    env.store.arm_nodes_fault();
+    env.store.arm_edges_fault();
+    env.store.arm_phase_records_fault();
+
+    assert_err_is(&env.detail_result(ID_MULTI), &injected);
 }
 
 // ---------------------------------------------------------------------------

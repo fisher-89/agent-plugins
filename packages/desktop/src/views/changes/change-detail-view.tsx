@@ -113,6 +113,21 @@ function DetailFallback({
   );
 }
 
+/** 内联「刷新失败」横幅（保 last-good 陈旧窗口标示，D1：页首整宽、失败面色
+ * 同 run-error / error-note 先例）：失败轮随 `refreshFailed` 呈现，成功轮 /
+ * 真 None 轮清 null 即消失；文案含后端错误串原样（层 2 观测面）与「刷新详情」
+ * 立即重试引导。 */
+function RefreshStaleNote({ message }: { message: string }): React.JSX.Element {
+  return (
+    <div
+      className="mb-3 break-all rounded-md bg-fail-bg px-3 py-2 text-[13px] text-fail"
+      data-testid="refresh-stale-note"
+    >
+      {`刷新失败：${message}——页面显示的是最近一次成功结果，将自动重试；也可点击「刷新详情」立即重试。`}
+    </div>
+  );
+}
+
 /**
  * 根切换抑制（原 ChangeView 语义迁入）：workspace 根变更（select / 移除当前根 /
  * 添加新根）且详情仍带旧选中时，过渡轮以 null 抑制取数（防「新根 + 旧 id」误发
@@ -186,6 +201,8 @@ interface DetailLoadedProps {
   artifacts: ArtifactEnvelope[];
   run: ReturnType<typeof useChangeFlowRun>;
   header: React.JSX.Element;
+  /** 内联「刷新失败」错误串（null = 无陈旧窗口；非 null = 保 last-good 中） */
+  staleError: string | null;
   transcriptRefreshKey: number;
 }
 
@@ -246,7 +263,9 @@ function useFlowGraphData(
   return { graph, materials, lastRun };
 }
 
-/** 详情已载入形态（图数据源经 [`useFlowGraphData`] 单点派生）。 */
+/** 详情已载入形态（图数据源经 [`useFlowGraphData`] 单点派生；保 last-good 陈
+ * 旧窗口内横幅位于页首 header 与动作面板之间——D1 页首整宽，动作面板随
+ * last-good `activeRun` 照常渲染，AC-8）。 */
 function DetailLoaded({
   detail,
   activeRun,
@@ -255,12 +274,14 @@ function DetailLoaded({
   artifacts,
   run,
   header,
+  staleError,
   transcriptRefreshKey,
 }: DetailLoadedProps): React.JSX.Element {
   const { graph, materials, lastRun } = useFlowGraphData(detail, activeRun, artifacts);
   return (
     <div className="flex flex-col h-full">
       {header}
+      {staleError !== null && <RefreshStaleNote message={staleError} />}
       <DetailActionPanels
         detail={detail}
         id={id}
@@ -301,6 +322,7 @@ function useDetailViewData(root: string | null, id: string | null) {
     artifacts,
     loading,
     error,
+    refreshFailed,
     refresh,
     notifyRefresh,
     notifyTranscript,
@@ -330,6 +352,7 @@ function useDetailViewData(root: string | null, id: string | null) {
     artifacts,
     loading,
     error,
+    refreshFailed,
     refresh,
     run,
     transcriptTick,
@@ -339,10 +362,21 @@ function useDetailViewData(root: string | null, id: string | null) {
 export function ChangeDetailView({ root }: { root: string | null }) {
   const params = useParams<'id'>();
   const id = useRootSwitchSuppress(root, params.id ?? null);
-  const { detail, activeRun, artifacts, loading, error, refresh, run, transcriptTick } =
-    useDetailViewData(root, id);
+  const {
+    detail,
+    activeRun,
+    artifacts,
+    loading,
+    error,
+    refreshFailed,
+    refresh,
+    run,
+    transcriptTick,
+  } = useDetailViewData(root, id);
   const backToList = useBackToList();
 
+  // error 已收敛为首载语义（detail 在手的刷新失败落 refreshFailed 走内联横
+  // 幅，不再触整页 DetailFallback）——本分支只承接首载失败（无可保）
   if (error !== null) {
     return <DetailFallback message={`详情加载失败：${error}`} error onBack={backToList} />;
   }
@@ -360,6 +394,7 @@ export function ChangeDetailView({ root }: { root: string | null }) {
       id={id}
       artifacts={artifacts}
       run={run}
+      staleError={refreshFailed}
       header={
         <DetailHeader detail={detail} loading={loading} onBack={backToList} refresh={refresh} />
       }

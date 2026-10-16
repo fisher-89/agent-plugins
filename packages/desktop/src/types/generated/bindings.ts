@@ -13,10 +13,11 @@ export const commands = {
 	/**
 	 *  单 change 详情聚合（统一视图，unify-run-state-persistence D11；按 change
 	 *  **id** 寻址）：一次返回「库读史（`detail.runs[].nodes` / `runs[].edges`）∪
-	 *  在飞 run 活面（activeRun.nodes / activeRun.edges）」——前端零双命令拼接。未知 id 返回 `None`（未建档——零磁盘
-	 *  目录解析回退、零文档形态空面）。IPC 签名不变：blank root 与开库失败均
-	 *  `None`。worktree / name 感知在 core `change_detail` 内（record 先读后定位，
-	 *  磁盘面恒自记录供给）。
+	 *  在飞 run 活面（activeRun.nodes / activeRun.edges）」——前端零双命令拼接。
+	 *  IPC Result 面：`Ok(None)` = 真「未找到」（未知 id——零磁盘目录解析回退、
+	 *  零文档形态空面）与 blank root / 开库失败（空结果语义维持）；`Err` = 读失
+	 *  败（store 错误串经 reject 通道出线——TS 类型面零漂移）。worktree / name
+	 *  感知在 core `change_detail` 内（record 先读后定位，磁盘面恒自记录供给）。
 	 */
 	getChangeDetail: (root: string, id: string) => __TAURI_INVOKE<{
 	detail: ChangeDetail,

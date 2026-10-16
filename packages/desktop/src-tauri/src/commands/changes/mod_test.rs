@@ -319,9 +319,11 @@ fn 读命令id透传_列表详情产物与core查询serde等值且归档条目�
         root.clone(),
         "seeded-active".to_owned(),
     )
+    .expect("命令应 Ok")
     .expect("应 Some");
-    let via_core_detail =
-        core_queries::change_detail(&layout, store.as_ref(), "seeded-active").expect("应 Some");
+    let via_core_detail = core_queries::change_detail(&layout, store.as_ref(), "seeded-active")
+        .expect("直调应 Ok")
+        .expect("直调应 Some");
     assert_eq!(
         serde_json::to_value(&via_detail.detail).expect("命令结果序列化失败"),
         serde_json::to_value(&via_core_detail).expect("core 结果序列化失败"),
@@ -408,8 +410,29 @@ fn 磁盘only零呈现_命令面零入列不可达且目录字节零变化() {
     // detail / read_artifact 命令按该 id → None（未建档；零磁盘目录解析回退）
     let control = app.state::<Arc<orchestration::control::ChangeFlowControl>>();
     assert!(
-        get_change_detail(state.clone(), control, root.clone(), "docs-only".to_owned()).is_none(),
-        "磁盘-only 详情 None（未建档）"
+        matches!(
+            get_change_detail(
+                state.clone(),
+                control.clone(),
+                root.clone(),
+                "docs-only".to_owned()
+            ),
+            Ok(None)
+        ),
+        "磁盘-only 详情 Ok(None)（未建档——真未找到语义，MUST NOT Err）"
+    );
+    // name 冒充 id：磁盘与 db 均无的 name 形态串 → 同 Ok(None)（不虚构活面）
+    assert!(
+        matches!(
+            get_change_detail(
+                state.clone(),
+                control,
+                root.clone(),
+                "never-seeded-name".to_owned()
+            ),
+            Ok(None)
+        ),
+        "name 冒充 id → Ok(None)（零磁盘回退、不虚构活面）"
     );
     assert!(
         read_artifact(
@@ -645,6 +668,7 @@ async fn create接线_建域落位_返回dto增id且按id立即可见可发起()
         root.clone(),
         outcome.id.clone(),
     )
+    .expect("详情命令应 Ok")
     .expect("详情即刻可见（按 id 寻址）");
     assert_eq!(unified.detail.id, outcome.id, "详情身份锚与铸出同源");
     assert_eq!(unified.detail.status, Some(ChangeStatus::Active));
@@ -654,10 +678,14 @@ async fn create接线_建域落位_返回dto增id且按id立即可见可发起()
         "空流水线 9 站全量（发起面就绪，末列 archive）"
     );
     assert!(unified.active_run.is_none());
-    // name 非寻址键：按 name 查询不可达（一切寻址以 id 为准）
+    // name 非寻址键：按 name 查询不可达（一切寻址以 id 为准）——Ok(None) 空
+    // 结果语义（非 Err，读命令零错误出线）
     assert!(
-        get_change_detail(state, control, root, "fix-bug".to_owned()).is_none(),
-        "name 非寻址键（未建档 id → None）"
+        matches!(
+            get_change_detail(state, control, root, "fix-bug".to_owned()),
+            Ok(None)
+        ),
+        "name 非寻址键（未建档 id → Ok(None)）"
     );
 }
 
@@ -962,20 +990,22 @@ async fn blank_root双口径_读命令早退空结果_create显式err() {
     let state = app.state::<WorkspaceStores>();
     let control = app.state::<Arc<orchestration::control::ChangeFlowControl>>();
 
-    for root in [String::new(), "   ".to_owned()] {
-        // 读命令：空结果语义（不报错、不进入查询链路）
+    for root in [String::new(), "   ".to_owned(), "\t".to_owned()] {
+        // 读命令：空结果语义（不报错、不进入查询链路）——Ok(None)（MUST NOT Err）
         let list = list_changes(state.clone(), root.clone());
         assert!(list.active.is_empty(), "空 root 清单为空");
         assert!(list.archive_groups.is_empty(), "空 root 月分组为空");
         assert!(
-            get_change_detail(
-                state.clone(),
-                control.clone(),
-                root.clone(),
-                "任意".to_owned()
-            )
-            .is_none(),
-            "空 root 详情为 None"
+            matches!(
+                get_change_detail(
+                    state.clone(),
+                    control.clone(),
+                    root.clone(),
+                    "任意".to_owned()
+                ),
+                Ok(None)
+            ),
+            "空 root 详情 Ok(None)（空结果语义维持，MUST NOT Err 出线）"
         );
         assert!(
             read_artifact(
@@ -1009,6 +1039,35 @@ async fn blank_root双口径_读命令早退空结果_create显式err() {
     assert!(
         !env.layout().changes_root.exists(),
         "零产生（拒绝面无目录无文件）"
+    );
+}
+
+/// root 不可寻址（磁盘上不存在的路径——canonicalize 失败 → `for_root` Err）→
+/// `Ok(None)`（开库失败空结果语义维持，D4——MUST NOT Err 出线）。
+#[test]
+fn 不可寻址root开库失败_ok_none空结果语义维持() {
+    let env = Env::new("unreachable-root");
+    let app = app_with(&env);
+    let state = app.state::<WorkspaceStores>();
+    let control = app.state::<Arc<orchestration::control::ChangeFlowControl>>();
+    // 数据根内幽灵子目录（不存在 → canonicalize 失败 → for_root Err）
+    let ghost_root = env.ws_root.path().join("幽灵子目录/不存在");
+    assert!(
+        !ghost_root.exists(),
+        "夹具前置：不可寻址 root 路径确实不在磁盘"
+    );
+
+    assert!(
+        matches!(
+            get_change_detail(
+                state,
+                control,
+                ghost_root.to_string_lossy().into_owned(),
+                "seeded-active".to_owned()
+            ),
+            Ok(None)
+        ),
+        "不可寻址 root → Ok(None)（开库失败空结果语义维持，非 Err）"
     );
 }
 
@@ -1106,6 +1165,7 @@ async fn detail_worktree感知_出线且产物命中worktree内文件() {
         env.root(),
         "id-wt-detail".to_owned(),
     )
+    .expect("worktree 详情命令应 Ok")
     .expect("worktree 记录详情应 Some")
     .detail;
 
@@ -1314,6 +1374,7 @@ fn 统一查询装配_runs全史与active_run活面与终态退场() {
         root.clone(),
         "unified-change".to_owned(),
     )
+    .expect("命令应 Ok")
     .expect("应 Some");
     assert!(idle.active_run.is_none(), "零注册表条目 → activeRun null");
     assert_eq!(
@@ -1399,6 +1460,7 @@ fn 统一查询装配_runs全史与active_run活面与终态退场() {
         root.clone(),
         "unified-change".to_owned(),
     )
+    .expect("命令应 Ok")
     .expect("应 Some");
     let active = live.active_run.as_ref().expect("运行中 activeRun 在场");
     assert_eq!(active.run_id, "run-3");
@@ -1451,6 +1513,7 @@ fn 统一查询装配_runs全史与active_run活面与终态退场() {
         root.clone(),
         "unified-change".to_owned(),
     )
+    .expect("命令应 Ok")
     .expect("应 Some");
     assert!(closed.active_run.is_none(), "终态除名 → activeRun 退 null");
     assert_eq!(
@@ -1633,6 +1696,7 @@ fn 统一查询装配_运行中run多边活面() {
         root.clone(),
         "edge-change".to_owned(),
     )
+    .expect("命令应 Ok")
     .expect("应 Some");
     let active = unified.active_run.as_ref().expect("运行中 activeRun 在场");
     assert_eq!(active.run_id, "run-5");
@@ -1736,6 +1800,7 @@ fn 统一查询装配_运行中run多边活面() {
         root.clone(),
         "edge-change".to_owned(),
     )
+    .expect("命令应 Ok")
     .expect("应 Some");
     assert!(closed.active_run.is_none(), "终态除名 → activeRun 退 null");
 }
@@ -1793,6 +1858,7 @@ fn 统一查询装配_waitingconfirm停等形态() {
         root.clone(),
         "confirm-change".to_owned(),
     )
+    .expect("命令应 Ok")
     .expect("应 Some");
     let active = unified.active_run.as_ref().expect("停等中 activeRun 在场");
     assert_eq!(
@@ -1862,6 +1928,7 @@ fn 统一查询装配_active_run_archive面两态出线() {
         root.clone(),
         "archive-change".to_owned(),
     )
+    .expect("命令应 Ok")
     .expect("应 Some");
     let active = running.active_run.as_ref().expect("运行中 activeRun 在场");
     assert!(
@@ -1891,6 +1958,7 @@ fn 统一查询装配_active_run_archive面两态出线() {
         root.clone(),
         "archive-change".to_owned(),
     )
+    .expect("命令应 Ok")
     .expect("应 Some");
     let active = unified.active_run.as_ref().expect("停等中 activeRun 在场");
     assert_eq!(
@@ -1929,6 +1997,7 @@ fn 统一查询装配_active_run_archive面两态出线() {
         root.clone(),
         "archive-change".to_owned(),
     )
+    .expect("命令应 Ok")
     .expect("应 Some");
     let active = unified.active_run.as_ref().expect("停等中 activeRun 在场");
     assert!(
@@ -1942,6 +2011,7 @@ fn 统一查询装配_active_run_archive面两态出线() {
         root.clone(),
         "archive-change".to_owned(),
     )
+    .expect("命令应 Ok")
     .expect("应 Some");
     assert!(
         closed.active_run.is_none(),
@@ -1986,6 +2056,7 @@ fn 统一查询装配_active_run既有字段回归() {
         root.clone(),
         "legacy-change".to_owned(),
     )
+    .expect("命令应 Ok")
     .expect("应 Some");
     let active = unified
         .active_run
@@ -2077,6 +2148,7 @@ fn archive_change写面异常err透传零阻断() {
         root.clone(),
         "pending-change".to_owned(),
     )
+    .expect("详情命令应 Ok")
     .expect("详情仍应可查");
     assert_eq!(
         unified.detail.status,
@@ -2085,9 +2157,9 @@ fn archive_change写面异常err透传零阻断() {
     );
 }
 
-/// 统一视图早退与未知 id 未找到（既有早退口径保留）：blank root → None；
-/// 磁盘目录在场而 db 缺记录的 id → None（未找到降级——MUST NOT 回退磁盘目录
-/// 解析、MUST NOT 虚构活面）；未知 id（record 与定位双缺）→ None。
+/// 统一视图早退与未知 id 未找到（既有早退口径保留）：blank root → `Ok(None)`；
+/// 磁盘目录在场而 db 缺记录的 id → `Ok(None)`（未找到降级——MUST NOT 回退磁盘
+/// 目录解析、MUST NOT 虚构活面）；未知 id（record 与定位双缺）→ `Ok(None)`。
 #[test]
 fn 统一查询装配_早退与未知id未找到() {
     let env = Env::new("unified-edge");
@@ -2096,36 +2168,43 @@ fn 统一查询装配_早退与未知id未找到() {
     let root = env.root();
     let control = app.state::<Arc<orchestration::control::ChangeFlowControl>>();
 
-    // blank root → None（既有早退语义，零改写）
+    // blank root → Ok(None)（既有早退语义，零改写——MUST NOT Err）
     assert!(
-        get_change_detail(
-            state.clone(),
-            control.clone(),
-            "   ".to_owned(),
-            "any".to_owned()
-        )
-        .is_none(),
-        "blank root → None"
+        matches!(
+            get_change_detail(
+                state.clone(),
+                control.clone(),
+                "   ".to_owned(),
+                "any".to_owned()
+            ),
+            Ok(None)
+        ),
+        "blank root → Ok(None)"
     );
 
-    // 未建档 id：磁盘目录在场（存量 CLI change 形态）→ None（未找到降级——
+    // 未建档 id：磁盘目录在场（存量 CLI change 形态）→ Ok(None)（未找到降级——
     // 注册表即使有条目也按 id 寻址落空，不虚构活面）
     env.change_dir("legacy-docs");
     assert!(
-        get_change_detail(
-            state.clone(),
-            control.clone(),
-            root.clone(),
-            "legacy-docs".to_owned(),
-        )
-        .is_none(),
-        "磁盘目录在场而 db 缺记录 → None（零磁盘目录解析回退）"
+        matches!(
+            get_change_detail(
+                state.clone(),
+                control.clone(),
+                root.clone(),
+                "legacy-docs".to_owned(),
+            ),
+            Ok(None)
+        ),
+        "磁盘目录在场而 db 缺记录 → Ok(None)（零磁盘目录解析回退）"
     );
 
-    // 未知 id（record 与定位双缺）→ None（既有语义不变）
+    // 未知 id（record 与定位双缺）→ Ok(None)（既有语义不变）
     assert!(
-        get_change_detail(state, control, root, "不存在".to_owned()).is_none(),
-        "未知 id → None"
+        matches!(
+            get_change_detail(state, control, root, "不存在".to_owned()),
+            Ok(None)
+        ),
+        "未知 id → Ok(None)"
     );
 }
 
@@ -2668,6 +2747,7 @@ async fn get_change_detail列序随workflow_type出线() {
         root.clone(),
         test_only.id.clone(),
     )
+    .expect("详情命令应 Ok")
     .expect("test-only 详情应可达");
     let phases: Vec<&str> = only
         .detail
@@ -2694,6 +2774,7 @@ async fn get_change_detail列序随workflow_type出线() {
         root.clone(),
         requirement.id.clone(),
     )
+    .expect("详情命令应 Ok")
     .expect("requirement 详情应可达");
     let phases: Vec<&str> = full
         .detail
@@ -2710,7 +2791,8 @@ async fn get_change_detail列序随workflow_type出线() {
 }
 
 /// 跨模块组合（详情出线 / 异常）：`workflow_type="bug-fix"` 记录 →
-/// `get_change_detail` 返回 `None`（读面不 fallback requirement）。
+/// `get_change_detail` 返回 `Ok(None)`（读面不 fallback requirement；Ok 分支
+/// 非 Err——真「详情不可达」与读失败分流不混同）。
 #[test]
 fn get_change_detail未知workflow_type恒none() {
     let env = Env::new("detail-wf-unknown");
@@ -2736,19 +2818,24 @@ fn get_change_detail未知workflow_type恒none() {
         .expect("建档 fixture 应成功");
 
     assert!(
-        get_change_detail(
-            state.clone(),
-            control.clone(),
-            root.clone(),
-            "legacy-unknown".to_owned()
-        )
-        .is_none(),
-        "未知 workflow_type → 详情 None（不 fallback requirement）"
+        matches!(
+            get_change_detail(
+                state.clone(),
+                control.clone(),
+                root.clone(),
+                "legacy-unknown".to_owned()
+            ),
+            Ok(None)
+        ),
+        "未知 workflow_type → 详情 Ok(None)（不 fallback requirement）"
     );
     // 对照：未知 id 同语义（既有持衡面）
     assert!(
-        get_change_detail(state, control, root, "ghost-id".to_owned()).is_none(),
-        "未建档 id → None"
+        matches!(
+            get_change_detail(state, control, root, "ghost-id".to_owned()),
+            Ok(None)
+        ),
+        "未建档 id → Ok(None)"
     );
 }
 

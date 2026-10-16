@@ -1,0 +1,294 @@
+{
+  "outcomes": [
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/commands/changes/mod.rs:84:5: replace get_change_detail -> Result<Option<ChangeDetailUnified>, String> with Ok(None)",
+          "package": "dev-team",
+          "file": "src/commands/changes/mod.rs",
+          "function": {
+            "function_name": "get_change_detail",
+            "return_type": "-> Result<Option<ChangeDetailUnified>, String>",
+            "span": {
+              "start": {
+                "line": 69,
+                "column": 1
+              },
+              "end": {
+                "line": 122,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 84,
+              "column": 5
+            },
+            "end": {
+              "line": 121,
+              "column": 57
+            }
+          },
+          "replacement": "Ok(None)",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Unviable",
+      "log_path": "log/src__commands__changes__mod.rs_line_84_col_5.log",
+      "diff_path": "diff/src__commands__changes__mod.rs_line_84_col_5.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 6.5644378,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=dev-team@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/core/orchestration/src/snapshot.rs:32:9: replace <impl WorkflowSnapshotPort for StoreSnapshot>::detail -> Result<ChangeDetail, String> with Ok(Default::default())",
+          "package": "orchestration",
+          "file": "crates/core/orchestration/src/snapshot.rs",
+          "function": {
+            "function_name": "<impl WorkflowSnapshotPort for StoreSnapshot>::detail",
+            "return_type": "-> Result<ChangeDetail, String>",
+            "span": {
+              "start": {
+                "line": 27,
+                "column": 5
+              },
+              "end": {
+                "line": 38,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 32,
+              "column": 9
+            },
+            "end": {
+              "line": 37,
+              "column": 10
+            }
+          },
+          "replacement": "Ok(Default::default())",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Unviable",
+      "log_path": "log/crates__core__orchestration__src__snapshot.rs_line_32_col_9.log",
+      "diff_path": "diff/crates__core__orchestration__src__snapshot.rs_line_32_col_9.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 26.5044045,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=orchestration@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/core/workflow/src/queries/detail.rs:201:5: replace change_detail -> Result<Option<ChangeDetail>, StoreFault> with Ok(Some(Default::default()))",
+          "package": "workflow",
+          "file": "crates/core/workflow/src/queries/detail.rs",
+          "function": {
+            "function_name": "change_detail",
+            "return_type": "-> Result<Option<ChangeDetail>, StoreFault>",
+            "span": {
+              "start": {
+                "line": 182,
+                "column": 1
+              },
+              "end": {
+                "line": 303,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 201,
+              "column": 5
+            },
+            "end": {
+              "line": 302,
+              "column": 8
+            }
+          },
+          "replacement": "Ok(Some(Default::default()))",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Unviable",
+      "log_path": "log/crates__core__workflow__src__queries__detail.rs_line_201_col_5_001.log",
+      "diff_path": "diff/crates__core__workflow__src__queries__detail.rs_line_201_col_5_001.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 30.5795826,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=workflow@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/commands/changes/mod.rs:84:5: replace get_change_detail -> Result<Option<ChangeDetailUnified>, String> with Ok(Some(Default::default()))",
+          "package": "dev-team",
+          "file": "src/commands/changes/mod.rs",
+          "function": {
+            "function_name": "get_change_detail",
+            "return_type": "-> Result<Option<ChangeDetailUnified>, String>",
+            "span": {
+              "start": {
+                "line": 69,
+                "column": 1
+              },
+              "end": {
+                "line": 122,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 84,
+              "column": 5
+            },
+            "end": {
+              "line": 121,
+              "column": 57
+            }
+          },
+          "replacement": "Ok(Some(Default::default()))",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Unviable",
+      "log_path": "log/src__commands__changes__mod.rs_line_84_col_5_001.log",
+      "diff_path": "diff/src__commands__changes__mod.rs_line_84_col_5_001.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 49.5881435,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=dev-team@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/core/workflow/src/queries/detail.rs:201:5: replace change_detail -> Result<Option<ChangeDetail>, StoreFault> with Ok(None)",
+          "package": "workflow",
+          "file": "crates/core/workflow/src/queries/detail.rs",
+          "function": {
+            "function_name": "change_detail",
+            "return_type": "-> Result<Option<ChangeDetail>, StoreFault>",
+            "span": {
+              "start": {
+                "line": 182,
+                "column": 1
+              },
+              "end": {
+                "line": 303,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 201,
+              "column": 5
+            },
+            "end": {
+              "line": 302,
+              "column": 8
+            }
+          },
+          "replacement": "Ok(None)",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__core__workflow__src__queries__detail.rs_line_201_col_5.log",
+      "diff_path": "diff/crates__core__workflow__src__queries__detail.rs_line_201_col_5.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 47.3193542,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=workflow@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 4.366129,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--verbose",
+            "--package=workflow@0.1.0"
+          ]
+        }
+      ]
+    }
+  ],
+  "total_mutants": 5,
+  "missed": 0,
+  "caught": 1,
+  "timeout": 0,
+  "unviable": 4,
+  "success": 0,
+  "start_time": "2026-10-16T08:30:39.0724928Z",
+  "end_time": "2026-10-16T08:31:31.9662301Z",
+  "cargo_mutants_version": "27.1.0"
+}
