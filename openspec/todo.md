@@ -64,8 +64,9 @@
 - [ ] 【Desktop】移除src/views/changes/flow/layout.ts PIPELINE_PHASES，改为读取接口返回phase
 - [ ] 【Desktop】step记录开始和结束时间；流程图中step显示耗时，agent step显示关联session的token消耗
 - [x] 【Desktop】修复问题：中断变更流程重启后，会多一个phase_start节点，前一轮节点丢失；新的agent step详情关联到上一轮同step的会话记录；
-- [ ] 【Desktop】修复问题（证据见change desktop-test-only-flow）：read_exec_output未返回脚本运行日志（返回null）
+- [x] 【Desktop】修复问题（证据见change desktop-test-only-flow）：read_exec_output未返回脚本运行日志（返回null）
 - [ ] 【Desktop】如果有运行中agent，关闭桌面端前提示二次确认
-- [ ] 【Desktop】归档完成后自动移除worktree，限制最多5个运行中change同时存在，避免worktree占用磁盘空间过大
+- [x] 【Desktop】归档完成后自动移除worktree，限制最多5个运行中change同时存在，避免worktree占用磁盘空间过大
 - [ ] 【Desktop】归一agent会话渲染，前端使用统一组件，参数是sessionId，调通用接口渲染session会话；组件内根据会话状态（进行中、完成）决定是否监听stream
 - [ ] 【Desktop】Agent会话显示system的warning/error消息
+- [ ] 【Desktop】流程启动前，检查static-check和test-execution（不含突变），如无法通过，停止流程并提示用户在基线上修复后重启

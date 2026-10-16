@@ -2,6 +2,7 @@ import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 
 import type { AgentToolOutput, AgentToolPart, AgentUIMessage } from '../../lib/agent-adapter';
+import { ScrollArea } from '../ui/scroll-area';
 
 /** 消息部件 → tool 部件收窄（`tool-<name>` 命名，dynamic-tool 不在信封内） */
 export function isToolPart(part: AgentUIMessage['parts'][number]): part is AgentToolPart {
@@ -25,9 +26,9 @@ export function ThinkingBlock({ text }: { text: string }): React.JSX.Element {
   return (
     <details className="my-1" data-testid="block-thinking">
       <summary className="cursor-pointer text-xs text-muted-foreground">思考</summary>
-      <div className="mt-1 whitespace-pre-wrap break-words border-l-2 border-border pl-2.5 text-sm text-muted-foreground">
+      <ScrollArea className="max-h-[200px] mt-1 whitespace-pre-wrap break-words border-l-2 border-border pl-2.5 text-sm text-muted-foreground">
         {text}
-      </div>
+      </ScrollArea>
     </details>
   );
 }
