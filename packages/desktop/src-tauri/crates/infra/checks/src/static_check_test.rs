@@ -7,10 +7,14 @@ use orchestration::port::{StaticCheckOutcome, StaticCheckRunner, ToolStepOutput}
 use crate::static_check::ProcessStaticCheck;
 
 /// 进程环境锁窗口（RAII）
-struct EnvWindow(std::sync::MutexGuard<'static, ()>);
+struct EnvWindow {
+    _guard: std::sync::MutexGuard<'static, ()>,
+}
 
 fn env_window() -> EnvWindow {
-    EnvWindow(crate::TEST_ENV_LOCK.lock().expect("crate 环境锁不可中毒"))
+    EnvWindow {
+        _guard: crate::TEST_ENV_LOCK.lock().expect("crate 环境锁不可中毒"),
+    }
 }
 
 /// 临时 workspace 根 RAII。

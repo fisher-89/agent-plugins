@@ -73,10 +73,14 @@ fn preset(dir: &Path, name: &str, content: &str) -> PathBuf {
 }
 
 /// 进程环境锁窗口（RAII）
-struct EnvWindow(std::sync::MutexGuard<'static, ()>);
+struct EnvWindow {
+    _guard: std::sync::MutexGuard<'static, ()>,
+}
 
 fn env_window() -> EnvWindow {
-    EnvWindow(crate::TEST_ENV_LOCK.lock().expect("crate 环境锁不可中毒"))
+    EnvWindow {
+        _guard: crate::TEST_ENV_LOCK.lock().expect("crate 环境锁不可中毒"),
+    }
 }
 
 /// 结果工件文本归一：CRLF → LF，并去除逐行尾随空白。rust 档 stdout 经注入的
