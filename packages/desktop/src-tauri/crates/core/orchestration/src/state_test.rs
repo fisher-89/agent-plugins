@@ -45,6 +45,10 @@ fn sample_step() -> ChangeStepState {
         session_id: None,
         detail: None,
         output_ref: None,
+        started_at: 1_726_000_000_000,
+        ended_at: None,
+        token_input: None,
+        token_output: None,
     }
 }
 
@@ -376,7 +380,10 @@ fn change_step_kind二十值词汇线格式逐字且四类可辨() {
 
     // 身份串词面与 workflow 落库侧 `RunStepKind::as_str()` 逐字同源
     for (kind, step_kind) in [
-        (ChangeStepKind::Preflight, workflow::state::RunStepKind::Preflight),
+        (
+            ChangeStepKind::Preflight,
+            workflow::state::RunStepKind::Preflight,
+        ),
         (ChangeStepKind::Commit, workflow::state::RunStepKind::Commit),
         (ChangeStepKind::Rebase, workflow::state::RunStepKind::Rebase),
         (
@@ -384,7 +391,10 @@ fn change_step_kind二十值词汇线格式逐字且四类可辨() {
             workflow::state::RunStepKind::ResolveConflicts,
         ),
         (ChangeStepKind::Merge, workflow::state::RunStepKind::Merge),
-        (ChangeStepKind::SpecSync, workflow::state::RunStepKind::SpecSync),
+        (
+            ChangeStepKind::SpecSync,
+            workflow::state::RunStepKind::SpecSync,
+        ),
         (
             ChangeStepKind::Cleanup,
             workflow::state::RunStepKind::Cleanup,
@@ -423,9 +433,13 @@ fn change_step_state四档状态与缺省字段往返无损() {
             "status": "running",
             "sessionId": null,
             "detail": null,
-            "outputRef": null
+            "outputRef": null,
+            "startedAt": 1_726_000_000_000_i64,
+            "endedAt": null,
+            "tokenInput": null,
+            "tokenOutput": null
         }),
-        "步状态行八字段 camelCase 线面（instanceNo / outputRef 增补）"
+        "步状态行十二字段 camelCase 线面（步级时间与 token 增补）"
     );
 
     // 有值形态 serde 往返无损
@@ -438,6 +452,10 @@ fn change_step_state四档状态与缺省字段往返无损() {
         session_id: Some("sess-9".to_owned()),
         detail: Some("会话失败收敛".to_owned()),
         output_ref: None,
+        started_at: 1_726_000_000_000,
+        ended_at: Some(1_726_000_005_000),
+        token_input: Some(1200),
+        token_output: Some(300),
     };
     let text = serde_json::to_string(&full).expect("出线应成功");
     let back: ChangeStepState = serde_json::from_str(&text).expect("往返应成功");
@@ -628,6 +646,10 @@ fn 步状态行携testexecution步经run_update出线() {
         session_id: None,
         detail: None,
         output_ref: None,
+        started_at: 1_726_000_000_000,
+        ended_at: None,
+        token_input: None,
+        token_output: None,
     };
     let value = serde_json::to_value(&RunUpdate::Step {
         step: running.clone(),
@@ -790,6 +812,10 @@ fn 快照扩面_startedat与nodes全词汇camelcase出线() {
             session_id: Some("ses-1".to_owned()),
             detail: Some("实现完成".to_owned()),
             output_ref: None,
+            started_at: 1_726_000_000_000,
+            ended_at: Some(1_726_000_060_000),
+            token_input: Some(12_000),
+            token_output: Some(3_000),
         },
         ChangeStepState {
             phase: "implement".to_owned(),
@@ -800,6 +826,10 @@ fn 快照扩面_startedat与nodes全词汇camelcase出线() {
             session_id: None,
             detail: None,
             output_ref: None,
+            started_at: 1_726_000_060_000,
+            ended_at: Some(1_726_000_062_000),
+            token_input: None,
+            token_output: None,
         },
         ChangeStepState {
             phase: "test-execution".to_owned(),
@@ -810,6 +840,10 @@ fn 快照扩面_startedat与nodes全词汇camelcase出线() {
             session_id: None,
             detail: None,
             output_ref: None,
+            started_at: 1_726_000_062_000,
+            ended_at: None,
+            token_input: None,
+            token_output: None,
         },
         ChangeStepState {
             phase: "dev-design".to_owned(),
@@ -820,6 +854,10 @@ fn 快照扩面_startedat与nodes全词汇camelcase出线() {
             session_id: None,
             detail: None,
             output_ref: None,
+            started_at: 1_726_000_062_000,
+            ended_at: Some(1_726_000_062_000),
+            token_input: None,
+            token_output: None,
         },
         ChangeStepState {
             phase: "dev-design".to_owned(),
@@ -830,6 +868,10 @@ fn 快照扩面_startedat与nodes全词汇camelcase出线() {
             session_id: None,
             detail: None,
             output_ref: None,
+            started_at: 1_726_000_062_000,
+            ended_at: Some(1_726_000_063_000),
+            token_input: None,
+            token_output: None,
         },
     ];
     let snapshot = ChangeRunSnapshot {
@@ -1235,7 +1277,10 @@ fn archive_preflight缺失必填字段拒绝() {
     );
 
     let mut no_completed = value.clone();
-    no_completed.as_object_mut().expect("对象").remove("completed");
+    no_completed
+        .as_object_mut()
+        .expect("对象")
+        .remove("completed");
     assert!(
         serde_json::from_value::<ArchivePreflight>(no_completed).is_err(),
         "缺 completed 必填字段应拒绝"
@@ -1252,8 +1297,7 @@ fn archive_preflight缺失必填字段拒绝() {
     // 多余字段被忽略（向前兼容消费）
     let mut extra = value.clone();
     extra["futureField"] = json!("ignored");
-    let back: ArchivePreflight =
-        serde_json::from_value(extra).expect("多余字段应忽略而不拒绝");
+    let back: ArchivePreflight = serde_json::from_value(extra).expect("多余字段应忽略而不拒绝");
     assert_eq!(back, sample_preflight());
 }
 
@@ -1434,7 +1478,10 @@ fn change_step_kind与run_step_kind二十对同源对拍() {
         (ChangeStepKind::Preflight, RunStepKind::Preflight),
         (ChangeStepKind::Commit, RunStepKind::Commit),
         (ChangeStepKind::Rebase, RunStepKind::Rebase),
-        (ChangeStepKind::ResolveConflicts, RunStepKind::ResolveConflicts),
+        (
+            ChangeStepKind::ResolveConflicts,
+            RunStepKind::ResolveConflicts,
+        ),
         (ChangeStepKind::Merge, RunStepKind::Merge),
         (ChangeStepKind::SpecSync, RunStepKind::SpecSync),
         (ChangeStepKind::Cleanup, RunStepKind::Cleanup),
@@ -1457,4 +1504,166 @@ fn change_step_kind与run_step_kind二十对同源对拍() {
     snake_words.sort_unstable();
     snake_words.dedup();
     assert_eq!(snake_words.len(), total, "双射无两词映一: {snake_words:?}");
+}
+
+// ---------------------------------------------------------------------------
+// desktop-step-running-snapshot（AC-1）：ChangeStepState 四字段（startedAt /
+// endedAt / tokenInput / tokenOutput）wire 出线——camelCase 四键逐键、Option
+// 缺席 null 不省键、0 值原样、极值保真、往返无损、旧形态拒绝
+// ---------------------------------------------------------------------------
+
+/// 正向：四字段全值步出线 → 线面四 camelCase 键逐键等值（数值口径，AC-1）。
+#[test]
+fn change_step_state四字段全值线面camelcase逐键等值() {
+    let step = ChangeStepState {
+        started_at: 1_727_000_000_000,
+        ended_at: Some(1_727_000_200_000),
+        token_input: Some(12_000),
+        token_output: Some(3_400),
+        ..sample_step()
+    };
+    let value = serde_json::to_value(&step).expect("出线应成功");
+    assert_eq!(
+        value["startedAt"],
+        json!(1_727_000_000_000_i64),
+        "startedAt camelCase 键数值口径"
+    );
+    assert_eq!(value["endedAt"], json!(1_727_000_200_000_i64));
+    assert_eq!(value["tokenInput"], json!(12_000));
+    assert_eq!(value["tokenOutput"], json!(3_400));
+}
+
+/// 正向：`RunUpdate::Step` 变体出线 → `step["step"]` 载荷四键在场（既有
+/// run_update 线面用例随动扩断言——载荷自动跟随）。
+#[test]
+fn run_update_step变体出线携四键载荷自动跟随() {
+    let step = ChangeStepState {
+        started_at: 1_727_000_000_000,
+        ended_at: Some(1_727_000_060_000),
+        token_input: Some(500),
+        token_output: Some(60),
+        ..sample_step()
+    };
+    let value = serde_json::to_value(&RunUpdate::Step { step }).expect("出线应成功");
+    assert_eq!(value["ipc"], json!("step"));
+    assert_eq!(value["step"]["startedAt"], json!(1_727_000_000_000_i64));
+    assert_eq!(value["step"]["endedAt"], json!(1_727_000_060_000_i64));
+    assert_eq!(value["step"]["tokenInput"], json!(500));
+    assert_eq!(value["step"]["tokenOutput"], json!(60));
+}
+
+/// 边界：running 形态（ended_at / token 两值全 None）→ 线面三键 `null` 不省键
+///（与既有 sessionId / detail 同式）。
+#[test]
+fn change_step_state_running形态三键null不省键() {
+    let step = ChangeStepState {
+        status: ChangeStepStatus::Running,
+        started_at: 1_727_000_000_000,
+        ended_at: None,
+        token_input: None,
+        token_output: None,
+        ..sample_step()
+    };
+    let value = serde_json::to_value(&step).expect("出线应成功");
+    assert_eq!(value["endedAt"], json!(null), "endedAt null 留位不省键");
+    assert_eq!(value["tokenInput"], json!(null));
+    assert_eq!(value["tokenOutput"], json!(null));
+    assert!(
+        value.as_object().expect("对象线面").contains_key("endedAt")
+            && value.as_object().unwrap().contains_key("tokenInput")
+            && value.as_object().unwrap().contains_key("tokenOutput"),
+        "三键在场（null 留位不省键）"
+    );
+}
+
+/// 边界：started_at = 0（缺省语义值）→ 线面 `0` 原样（i64 非可选零改写）。
+#[test]
+fn change_step_state_started_at零值线面原样() {
+    let step = ChangeStepState {
+        started_at: 0,
+        ..sample_step()
+    };
+    let value = serde_json::to_value(&step).expect("出线应成功");
+    assert_eq!(value["startedAt"], json!(0), "0 缺席语义值原样出线");
+}
+
+/// 边界：token u64::MAX 邻近值 → 线面数值保真（JSON number 面不截断不 panic）。
+#[test]
+fn change_step_state_token极值线面数值保真() {
+    let step = ChangeStepState {
+        token_input: Some(u64::MAX),
+        token_output: Some(u64::MAX - 1),
+        ..sample_step()
+    };
+    let value = serde_json::to_value(&step).expect("出线应成功");
+    assert_eq!(value["tokenInput"], json!(u64::MAX), "u64::MAX 数值保真");
+    assert_eq!(value["tokenOutput"], json!(u64::MAX - 1));
+}
+
+/// 异常：线面 JSON 回读（`from_value`）→ 四字段逐字段还原（Option `null` →
+/// None 还原无损）。
+#[test]
+fn change_step_state线面回读四字段还原无损() {
+    // 全值形态
+    let full = ChangeStepState {
+        started_at: 1_727_000_000_000,
+        ended_at: Some(1_727_000_200_000),
+        token_input: Some(12_000),
+        token_output: Some(3_400),
+        ..sample_step()
+    };
+    let value = serde_json::to_value(&full).expect("出线应成功");
+    let back: ChangeStepState = serde_json::from_value(value).expect("回读应成功");
+    assert_eq!(back, full, "全值形态往返无损");
+
+    // None 形态：线面 null → None 还原
+    let running = ChangeStepState {
+        status: ChangeStepStatus::Running,
+        started_at: 1_727_000_000_000,
+        ended_at: None,
+        token_input: None,
+        token_output: None,
+        ..sample_step()
+    };
+    let value = serde_json::to_value(&running).expect("出线应成功");
+    assert_eq!(value["endedAt"], json!(null));
+    let back: ChangeStepState = serde_json::from_value(value).expect("回读应成功");
+    assert_eq!(back, running, "None 形态往返无损");
+}
+
+/// 异常：缺四键旧形态 JSON 反序列化 → Err（活面契约无 `#[serde(default)]`——
+/// 旧行兼容仅落库 `RunNodeRecord` 面承载，两载体语义分立锚，AC-5）。
+#[test]
+fn change_step_state缺四键旧形态反序列化拒绝() {
+    let legacy = json!({
+        "phase": "implement",
+        "attempt": 1,
+        "step": "executor",
+        "instanceNo": 0,
+        "status": "passed",
+        "sessionId": null,
+        "detail": null,
+        "outputRef": null
+    });
+    let back: Result<ChangeStepState, _> = serde_json::from_value(legacy);
+    assert!(back.is_err(), "缺四键旧形态应 Err（活面契约无 default）");
+
+    // 拒绝锚 = 非 Option 的 `started_at`（i64 非可选）：仅缺 startedAt 的形态
+    // 亦 Err——活面契约的时间字段恒在场（Option 键缺省 None 由 serde 语义承
+    // 带，非 #[serde(default)] 声明面）
+    let missing_started = json!({
+        "phase": "implement",
+        "attempt": 1,
+        "step": "executor",
+        "instanceNo": 0,
+        "status": "passed",
+        "sessionId": null,
+        "detail": null,
+        "outputRef": null,
+        "endedAt": null,
+        "tokenInput": null,
+        "tokenOutput": null
+    });
+    let back: Result<ChangeStepState, _> = serde_json::from_value(missing_started);
+    assert!(back.is_err(), "缺 startedAt 形态应 Err（i64 非可选）");
 }

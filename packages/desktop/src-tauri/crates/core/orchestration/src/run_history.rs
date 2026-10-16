@@ -58,8 +58,8 @@ fn persisted_edge_kind(kind: EdgeKind) -> RunEdgeKind {
 /// run 收口写命令组装（walker 终态出口单点消费）：累积器节点快照（全词汇 emit
 /// 序，稳定身份键）直映射 `RunNodeEntry` 整包（**零过滤**），边快照直映射
 /// `RunEdgeEntry` 整包（端点身份串 = `"{phase}:{attempt}:{step}:{instance_no}"`）；
-/// session_id / detail / output_ref 透传；`finished_at` 命令携带（整包同刻，
-/// corpus 确定性）。
+/// session_id / detail / output_ref 与步级起止时间、token 四字段透传；
+/// `finished_at` 命令携带（整包同刻，corpus 确定性）。
 pub fn finish_command(
     request: &RunRequest,
     status: ChangeRunStatus,
@@ -79,6 +79,10 @@ pub fn finish_command(
             session_id: node.session_id.clone(),
             detail: node.detail.clone(),
             output_ref: node.output_ref.clone(),
+            started_at: node.started_at,
+            ended_at: node.ended_at,
+            token_input: node.token_input,
+            token_output: node.token_output,
         })
         .collect();
     let edge_entries: Vec<RunEdgeEntry> = edges

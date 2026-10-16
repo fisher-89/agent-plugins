@@ -1,7 +1,7 @@
-import { render, screen, within } from '@testing-library/react';
+import { act, render, screen, within } from '@testing-library/react';
 import { ReactFlowProvider } from '@xyflow/react';
 import type { ComponentProps } from 'react';
-import { describe, expect, it } from 'vite-plus/test';
+import { afterEach, describe, expect, it, vi } from 'vite-plus/test';
 
 import type { ChangeStepKind } from '../../../types/dto';
 import { RunStepNode, type RunStepFlowNode } from './run-step-node';
@@ -26,6 +26,11 @@ function runtimeNode(overrides: Partial<RuntimeFlowNode> = {}): RuntimeFlowNode 
     sessionId: 'ses-exec-1',
     detail: null,
     outputRef: null,
+    startedAt: 1_727_000_000_000,
+    endedAt: null,
+    tokenInput: null,
+    tokenOutput: null,
+    live: true,
     ...overrides,
   };
 }
@@ -601,5 +606,278 @@ describe('RunStepNode：cleanup 步节点（worktree-cleanup-and-active-cap）',
       expect(screen.getByTestId('run-step-node').getAttribute('data-run-status')).toBe(status);
       rendered.unmount();
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// desktop-step-running-snapshot（AC-7 / AC-8 / D10）：标题下常驻度量行
+//（静态耗时 + workerAgent token 段）+ 活面 running 走秒（组件内 interval
+// 仅 live && running 挂载，翻态 / 卸载即清）。metrics.ts 真件组合零 mock；
+// 时钟 / interval 以 vi.useFakeTimers() 伪造（含 Date，沿 use-change-detail
+// 既有先例）。
+// ---------------------------------------------------------------------------
+
+afterEach(() => {
+  vi.useRealTimers();
+});
+
+/** 已收口 executor 步载荷（起止与 token 定值——D10 词面断言的事实源）。 */
+function settledWorkerNode(overrides: Partial<RuntimeFlowNode> = {}): RuntimeFlowNode {
+  return runtimeNode({
+    status: 'passed',
+    startedAt: 1_727_000_000_000,
+    endedAt: 1_727_000_200_000,
+    tokenInput: 12_000,
+    tokenOutput: 3_400,
+    live: false,
+    ...overrides,
+  });
+}
+
+describe('RunStepNode：常驻度量行静态双段（AC-7 / D10 词面）', () => {
+  it('已收口 workerAgent 步 → run-step-metrics 行在场：⏱ 前缀 + 分级串、tokens 12k/3.4k、两段以 " ▸ " 分隔', () => {
+    renderNode(settledWorkerNode());
+    const metrics = within(screen.getByTestId('run-step-node')).getByTestId('run-step-metrics');
+    const duration = within(metrics).getByTestId('run-step-duration');
+    const tokens = within(metrics).getByTestId('run-step-tokens');
+    // 耗时段：⏱ 前缀 + 分级串（200_000ms → 3m20s）
+    expect(duration.textContent).toBe('⏱ 3m20s');
+    // token 段：k / 一位小数缩写
+    expect(tokens.textContent).toBe('tokens 12k/3.4k');
+    // 两段以 " ▸ " 分隔（D10 词面，整行文本逐字）
+    expect(metrics.textContent).toBe('⏱ 3m20s ▸ tokens 12k/3.4k');
+  });
+
+  it('已收口非 workerAgent 步（toolStep / gate / git）→ token 段不渲染、仅耗时段（无 " ▸ " 分隔符）', () => {
+    for (const overrides of [
+      {
+        id: 'run:implement:1:staticCheck',
+        runStepKind: 'staticCheck' as const,
+        group: 'toolStep' as const,
+        role: null,
+      },
+      {
+        id: 'run:implement:1:verdictGate',
+        runStepKind: 'verdictGate' as const,
+        group: 'gate' as const,
+        role: null,
+      },
+      {
+        id: 'run:archive:1:commit',
+        phase: 'archive',
+        runStepKind: 'commit' as const,
+        group: 'git' as const,
+        role: null,
+      },
+    ]) {
+      const rendered = renderNode(settledWorkerNode(overrides));
+      const metrics = within(screen.getByTestId('run-step-node')).getByTestId('run-step-metrics');
+      expect(within(metrics).getByTestId('run-step-duration').textContent).toBe('⏱ 3m20s');
+      expect(screen.queryByTestId('run-step-tokens')).toBeNull();
+      expect(metrics.textContent).not.toContain('▸');
+      rendered.unmount();
+    }
+  });
+
+  it('workerAgent 步 token 缺席（null）→ token 段 "tokens —/—" 渲染在场（em dash）', () => {
+    renderNode(settledWorkerNode({ tokenInput: null, tokenOutput: null }));
+    const tokens = within(screen.getByTestId('run-step-node')).getByTestId('run-step-tokens');
+    expect(tokens.textContent).toBe('tokens —/—');
+  });
+
+  it('workerAgent 步 token 单侧缺席 → 在场侧缩写、缺席侧 em dash（in/out 各自独立缩写）', () => {
+    const rendered = renderNode(settledWorkerNode({ tokenInput: 500, tokenOutput: null }));
+    expect(
+      within(screen.getByTestId('run-step-node')).getByTestId('run-step-tokens').textContent,
+    ).toBe('tokens 500/—');
+    rendered.unmount();
+    renderNode(settledWorkerNode({ tokenInput: null, tokenOutput: 1_500_000 }));
+    expect(
+      within(screen.getByTestId('run-step-node')).getByTestId('run-step-tokens').textContent,
+    ).toBe('tokens —/1.5M');
+  });
+});
+
+describe('RunStepNode：常驻度量行边界（0ms 瞬步 / 旧数据）', () => {
+  it('0ms 瞬步且非 workerAgent（startedAt==endedAt、无 token 段）→ 整行 run-step-metrics 省显（行条件 ≥ 1 段在场）', () => {
+    renderNode(
+      runtimeNode({
+        runStepKind: 'phaseStart',
+        group: 'toolStep',
+        role: null,
+        status: 'passed',
+        startedAt: 1_727_000_000_000,
+        endedAt: 1_727_000_000_000,
+        live: false,
+      }),
+    );
+    expect(screen.queryByTestId('run-step-metrics')).toBeNull();
+    expect(screen.queryByTestId('run-step-duration')).toBeNull();
+    expect(screen.queryByTestId('run-step-tokens')).toBeNull();
+    // 节点本体照常可辨（仅度量行省显，头行不缺）
+    expect(
+      within(screen.getByTestId('run-step-node')).getByTestId('run-step-kind').textContent,
+    ).toBe('开启阶段');
+  });
+
+  it('0ms 瞬步 workerAgent → 行在场、仅 token 段（耗时段 null 省显、无 " ▸ "）', () => {
+    renderNode(
+      settledWorkerNode({
+        startedAt: 1_727_000_000_000,
+        endedAt: 1_727_000_000_000,
+      }),
+    );
+    const metrics = within(screen.getByTestId('run-step-node')).getByTestId('run-step-metrics');
+    expect(screen.queryByTestId('run-step-duration')).toBeNull();
+    expect(within(metrics).getByTestId('run-step-tokens').textContent).toBe('tokens 12k/3.4k');
+    expect(metrics.textContent).toBe('tokens 12k/3.4k');
+  });
+
+  it('旧数据（startedAt=0 / endedAt=null、非活面 running）→ 耗时段 "-"（hyphen，AC-7 旧库读史形态）', () => {
+    renderNode(
+      settledWorkerNode({ startedAt: 0, endedAt: null, tokenInput: null, tokenOutput: null }),
+    );
+    const metrics = within(screen.getByTestId('run-step-node')).getByTestId('run-step-metrics');
+    expect(within(metrics).getByTestId('run-step-duration').textContent).toBe('⏱ -');
+    // token 缺席形态照常渲染（em dash——与耗时 "-" 词面分立）
+    expect(within(metrics).getByTestId('run-step-tokens').textContent).toBe('tokens —/—');
+  });
+});
+
+describe('RunStepNode：走秒仅活面 running 挂载（AC-8）', () => {
+  it('库读史 status=running 残留（live=false）→ 不挂 timer、耗时段静态 "-"', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(1_727_000_000_000);
+    renderNode(
+      runtimeNode({ status: 'running', startedAt: 1_727_000_000_000, endedAt: null, live: false }),
+    );
+    expect(
+      within(screen.getByTestId('run-step-node')).getByTestId('run-step-duration').textContent,
+    ).toBe('⏱ -');
+  });
+
+  it('live=false && status=running → 不挂 interval（推进 fake timers 文本不变）', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(1_727_000_000_000);
+    const rendered = renderNode(
+      runtimeNode({ status: 'running', startedAt: 1_727_000_000_000, endedAt: null, live: false }),
+    );
+    act(() => {
+      vi.advanceTimersByTime(5_000);
+    });
+    expect(
+      within(screen.getByTestId('run-step-node')).getByTestId('run-step-duration').textContent,
+    ).toBe('⏱ -');
+    rendered.unmount();
+  });
+
+  it('活面走秒：live=true && running，fake timers 逐秒推进 → duration 文本随 now-startedAt 更新', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(1_727_000_000_000);
+    renderNode(
+      runtimeNode({ status: 'running', startedAt: 1_727_000_000_000, endedAt: null, live: true }),
+    );
+    const duration = () =>
+      within(screen.getByTestId('run-step-node')).getByTestId('run-step-duration').textContent;
+    // 挂载即对齐当前 tick（0ms → "0.0s"——running 恒显无省显路径）
+    expect(duration()).toBe('⏱ 0.0s');
+    // 每秒 tick 局部重渲染
+    act(() => {
+      vi.advanceTimersByTime(1_000);
+    });
+    expect(duration()).toBe('⏱ 1.0s');
+    act(() => {
+      vi.advanceTimersByTime(59_000);
+    });
+    expect(duration()).toBe('⏱ 1m0s');
+    act(() => {
+      vi.advanceTimersByTime(3_600_000);
+    });
+    expect(duration()).toBe('⏱ 1h01m');
+  });
+
+  it('走秒收口回落：running → passed 翻态 rerender 后 timer 卸载、耗时段回落静态分级串', () => {
+    vi.useFakeTimers();
+    const started = 1_727_000_000_000;
+    vi.setSystemTime(started);
+    const rendered = renderNode(
+      runtimeNode({ status: 'running', startedAt: started, endedAt: null, live: true }),
+    );
+    act(() => {
+      vi.advanceTimersByTime(2_000);
+    });
+    expect(
+      within(screen.getByTestId('run-step-node')).getByTestId('run-step-duration').textContent,
+    ).toBe('⏱ 2.0s');
+
+    // 翻态：passed 收口（endedAt = started + 200_000 定值）→ ticking 条件失效
+    const settledProps = {
+      data: { node: settledWorkerNode({ startedAt: started, endedAt: started + 200_000 }) },
+    } as unknown as ComponentProps<typeof RunStepNode>;
+    rendered.rerender(
+      <ReactFlowProvider>
+        <RunStepNode {...settledProps} />
+      </ReactFlowProvider>,
+    );
+    const duration = () =>
+      within(screen.getByTestId('run-step-node')).getByTestId('run-step-duration').textContent;
+    expect(duration()).toBe('⏱ 3m20s');
+    // timer 已卸载：再推进 fake timers 文本钉死在静态分级串（R1 无泄漏）
+    act(() => {
+      vi.advanceTimersByTime(10_000);
+    });
+    expect(duration()).toBe('⏱ 3m20s');
+  });
+
+  it('走秒卸载清理：unmount 后推进 fake timers 不炸不泄漏（timer 生命周期绑定组件，R1）', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(1_727_000_000_000);
+    const rendered = renderNode(
+      runtimeNode({ status: 'running', startedAt: 1_727_000_000_000, endedAt: null, live: true }),
+    );
+    act(() => {
+      vi.advanceTimersByTime(1_000);
+    });
+    rendered.unmount();
+    // 卸载后 interval 已清：推进不触发任何已卸载组件状态更新（不炸即锚）
+    expect(() => {
+      act(() => {
+        vi.advanceTimersByTime(10_000);
+      });
+    }).not.toThrow();
+    expect(screen.queryByTestId('run-step-node')).toBeNull();
+  });
+});
+
+describe('RunStepNode：常驻行与既有锚并存（异常载荷 / D10 排布）', () => {
+  it('异常载荷与常驻行并存（超长 detail / 非法 status cast）→ 渲染不炸、既有锚与常驻行同屏可辨', () => {
+    const longDetail = `诊断：${'评估未过，反馈明细'.repeat(80)}`;
+    renderNode(
+      runtimeNode({
+        status: 'weirdStatus' as RuntimeFlowNode['status'],
+        detail: longDetail,
+        startedAt: 1_727_000_000_000,
+        endedAt: 1_727_000_200_000,
+        live: false,
+      }),
+    );
+    const node = screen.getByTestId('run-step-node');
+    // 既有锚四面在案
+    expect(within(node).getByTestId('run-step-group').textContent).toBe('WorkerAgent');
+    expect(within(node).getByTestId('run-step-kind').textContent).toBe('执行');
+    expect(within(node).getByTestId('run-step-detail').textContent).toBe(longDetail);
+    // 常驻行同屏（非法 status 走 settled 臂静态分级）
+    expect(within(node).getByTestId('run-step-metrics').textContent).toContain('⏱ 3m20s');
+  });
+
+  it('排布回归：常驻行插于标题头行与 detail 行之间（D10——头行 / 常驻行 / detail 依次相邻）', () => {
+    renderNode(settledWorkerNode({ detail: '评估通过：verdict pass' }));
+    const node = screen.getByTestId('run-step-node');
+    const header = within(node).getByTestId('run-step-kind').parentElement!;
+    const metrics = within(node).getByTestId('run-step-metrics');
+    const detail = within(node).getByTestId('run-step-detail');
+    // DOM 先后序：头行 < 常驻行 < detail（FOLLOWING 位恒成立即序稳定）
+    expect(header.compareDocumentPosition(metrics) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(metrics.compareDocumentPosition(detail) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 });

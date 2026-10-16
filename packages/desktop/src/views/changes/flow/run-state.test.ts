@@ -35,8 +35,8 @@ const REQUIREMENT_PHASES = [
 // run-state 纯函数直测（零 react / 零进程边界依赖）
 // ---------------------------------------------------------------------------
 
-/** 宽松默认值构造单条统一视图步行（ChangeStepState + 归属 run id——runStepNodes
- * 与 unifiedRunNodes 期望面的共同口径）。 */
+/** 宽松默认值构造单条统一视图步行（ChangeStepState + 归属 run id + 活面来源
+ * 标注——runStepNodes 与 unifiedRunNodes 期望面的共同口径）。 */
 function stepRow(overrides: Partial<UnifiedRunStep> = {}): UnifiedRunStep {
   return {
     phase: 'implement',
@@ -47,7 +47,12 @@ function stepRow(overrides: Partial<UnifiedRunStep> = {}): UnifiedRunStep {
     detail: null,
     instanceNo: 0,
     outputRef: null,
+    startedAt: 1_727_000_000_000,
+    endedAt: null,
+    tokenInput: null,
+    tokenOutput: null,
     runId: 'run-1727',
+    live: true,
     ...overrides,
   };
 }
@@ -68,6 +73,10 @@ function runStepRow(overrides: Partial<ChangeRunNodeRecord> = {}): ChangeRunNode
     sessionId: 'ses-exec-1',
     detail: null,
     outputRef: null,
+    startedAt: 1_727_000_000_000,
+    endedAt: null,
+    tokenInput: null,
+    tokenOutput: null,
     ...overrides,
   };
 }
@@ -98,10 +107,11 @@ describe('unifiedRunNodes：双源合成（库读史 ∪ 活面）', () => {
         ],
       }),
     ];
+    // 库读史源 → live=false（活面标注半边——liveRun=null 全库读史形态）
     expect(unifiedRunNodes(runs, null)).toEqual([
-      stepRow({ runId: 'run-1', step: 'executor' }),
-      stepRow({ runId: 'run-1', step: 'staticCheck', sessionId: null }),
-      stepRow({ runId: 'run-1', step: 'evaluator', sessionId: 'ses-eval-1' }),
+      stepRow({ runId: 'run-1', step: 'executor', live: false }),
+      stepRow({ runId: 'run-1', step: 'staticCheck', sessionId: null, live: false }),
+      stepRow({ runId: 'run-1', step: 'evaluator', sessionId: 'ses-eval-1', live: false }),
     ]);
   });
 
@@ -313,6 +323,11 @@ describe('runStepNodes：稳定身份键渲染（overlay 输入面）', () => {
       sessionId: 'ses-exec-1',
       detail: null,
       outputRef: null,
+      startedAt: 1_727_000_000_000,
+      endedAt: null,
+      tokenInput: null,
+      tokenOutput: null,
+      live: true,
     });
     expect(nodes[1]).toMatchObject({
       id: 'run:run-1727:implement:1:phaseLog:0',
@@ -836,3 +851,286 @@ function normalizeWord(word: RunStepKind): ChangeStepKind {
   }
   return entry[1];
 }
+
+// ---------------------------------------------------------------------------
+// desktop-step-running-snapshot：live 源标注与步级四字段透传（AC-1 / AC-8）
+// ---------------------------------------------------------------------------
+
+describe('unifiedRunNodes：live 源标注（AC-8 双源半边）', () => {
+  it('库读史 runs[].nodes 携四字段 → 步行四字段透传 + live=false（stepFromRecord 纯复制半程锚）', () => {
+    const runs = [
+      runEntry({
+        runId: 'run-his',
+        nodes: [
+          runStepRow({
+            step: 'executor',
+            sessionId: 'ses-his-1',
+            startedAt: 1_727_000_000_000,
+            endedAt: 1_727_000_060_000,
+            tokenInput: 12_000,
+            tokenOutput: 3_400,
+          }),
+        ],
+      }),
+    ];
+    const rows = unifiedRunNodes(runs, null);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      step: 'executor',
+      startedAt: 1_727_000_000_000,
+      endedAt: 1_727_000_060_000,
+      tokenInput: 12_000,
+      tokenOutput: 3_400,
+      runId: 'run-his',
+      live: false,
+    });
+  });
+
+  it('liveRun.nodes 携四字段 → 透传 + live=true（AC-8 活面标注半边）', () => {
+    const rows = unifiedRunNodes(
+      [],
+      liveFace({
+        runId: 'run-live',
+        nodes: [
+          stepRow({
+            runId: 'run-live',
+            status: 'running',
+            startedAt: 1_727_000_000_000,
+            endedAt: null,
+            tokenInput: 500,
+            tokenOutput: 60,
+          }),
+        ],
+      }),
+    );
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      startedAt: 1_727_000_000_000,
+      endedAt: null,
+      tokenInput: 500,
+      tokenOutput: 60,
+      runId: 'run-live',
+      live: true,
+    });
+  });
+
+  it('liveRun=null → 仅库读史步、全部 live=false（既有回归持衡）', () => {
+    const runs = [
+      runEntry({
+        nodes: [
+          runStepRow({ step: 'executor' }),
+          runStepRow({ step: 'static_check', sessionId: null }),
+        ],
+      }),
+    ];
+    const rows = unifiedRunNodes(runs, null);
+    expect(rows).toHaveLength(2);
+    expect(rows.every((row) => row.live === false)).toBe(true);
+  });
+
+  it('双源同 (phase, attempt, step, instanceNo)（跨 run 同名身份键）→ 两行并存、live 标注各随其源不串扰', () => {
+    const runs = [
+      runEntry({
+        runId: 'run-old',
+        nodes: [
+          runStepRow({ phase: 'test-gen', attempt: 1, step: 'phase_start', sessionId: null }),
+        ],
+      }),
+    ];
+    const rows = unifiedRunNodes(
+      runs,
+      liveFace({
+        runId: 'run-new',
+        nodes: [
+          stepRow({
+            runId: 'run-new',
+            phase: 'test-gen',
+            attempt: 1,
+            step: 'phaseStart',
+            sessionId: null,
+          }),
+        ],
+      }),
+    );
+    expect(rows).toHaveLength(2);
+    expect(rows.map((row) => row.live)).toEqual([false, true]);
+    expect(rows.map((row) => row.runId)).toEqual(['run-old', 'run-new']);
+    // 四字段各随其源（库读史行 vs 活面行默认四字段互不串写）
+    expect(rows[0].startedAt).toBe(runStepRow({}).startedAt);
+    expect(rows[1].live).toBe(true);
+  });
+
+  it('库读史旧行形态（startedAt=0 / endedAt=null / token null）→ 原样透传零改写', () => {
+    const runs = [
+      runEntry({
+        nodes: [
+          runStepRow({
+            step: 'static_check',
+            sessionId: null,
+            startedAt: 0,
+            endedAt: null,
+            tokenInput: null,
+            tokenOutput: null,
+          }),
+        ],
+      }),
+    ];
+    const rows = unifiedRunNodes(runs, null);
+    expect(rows[0]).toMatchObject({
+      startedAt: 0,
+      endedAt: null,
+      tokenInput: null,
+      tokenOutput: null,
+      live: false,
+    });
+  });
+
+  it('runs 空数组 + liveRun=null → 空数组（不产生幽灵步）', () => {
+    expect(unifiedRunNodes([], null)).toEqual([]);
+  });
+});
+
+describe('runStepNodes：四字段 + live 五字段透传（RuntimeFlowNode）', () => {
+  it('UnifiedRunStep 携四字段 + live → RuntimeFlowNode 五字段逐字段等值', () => {
+    const steps = [
+      stepRow({
+        step: 'executor',
+        status: 'passed',
+        startedAt: 1_727_000_000_000,
+        endedAt: 1_727_000_060_000,
+        tokenInput: 12_000,
+        tokenOutput: 3_400,
+        live: false,
+      }),
+    ];
+    const nodes = runStepNodes(steps, REQUIREMENT_PHASES);
+    expect(nodes[0]).toMatchObject({
+      startedAt: 1_727_000_000_000,
+      endedAt: 1_727_000_060_000,
+      tokenInput: 12_000,
+      tokenOutput: 3_400,
+      live: false,
+    });
+  });
+
+  it('多步混排（workerAgent / toolStep / gate）→ 各节点五字段各自透传、输出序保持输入序', () => {
+    const steps = [
+      stepRow({
+        step: 'executor',
+        tokenInput: 12_000,
+        tokenOutput: 3_400,
+        endedAt: 1_727_000_060_000,
+      }),
+      stepRow({
+        step: 'staticCheck',
+        sessionId: null,
+        tokenInput: null,
+        tokenOutput: null,
+        endedAt: 1_727_000_030_000,
+        live: false,
+      }),
+      stepRow({
+        step: 'verdictGate',
+        sessionId: null,
+        tokenInput: null,
+        tokenOutput: null,
+        endedAt: 1_727_000_090_000,
+        live: true,
+      }),
+    ];
+    const nodes = runStepNodes(steps, REQUIREMENT_PHASES);
+    expect(nodes.map((node) => node.runStepKind)).toEqual([
+      'executor',
+      'staticCheck',
+      'verdictGate',
+    ]);
+    expect(nodes.map((node) => node.tokenInput ?? 'null')).toEqual([12_000, 'null', 'null']);
+    expect(nodes.map((node) => node.live)).toEqual([true, false, true]);
+    expect(nodes.map((node) => node.endedAt)).toEqual([
+      1_727_000_060_000, 1_727_000_030_000, 1_727_000_090_000,
+    ]);
+  });
+
+  it('四字段 0 / null 边界值形态 → 原样进节点零转换零默认', () => {
+    const nodes = runStepNodes(
+      [
+        stepRow({
+          step: 'phaseStart',
+          sessionId: null,
+          status: 'passed',
+          startedAt: 0,
+          endedAt: 0,
+          tokenInput: null,
+          tokenOutput: null,
+          live: false,
+        }),
+      ],
+      REQUIREMENT_PHASES,
+    );
+    expect(nodes[0].startedAt).toBe(0);
+    expect(nodes[0].endedAt).toBe(0);
+    expect(nodes[0].tokenInput).toBeNull();
+    expect(nodes[0].tokenOutput).toBeNull();
+    expect(nodes[0].live).toBe(false);
+  });
+
+  it('phaseOrder 外相位步 → 不入图（坑位校验回归，四字段不改变出局判定）', () => {
+    const nodes = runStepNodes(
+      [
+        stepRow({
+          phase: 'bootstrap',
+          step: 'executor',
+          startedAt: 1_727_000_000_000,
+          endedAt: 1_727_000_060_000,
+          tokenInput: 1,
+          tokenOutput: 2,
+        }),
+        stepRow(),
+      ],
+      REQUIREMENT_PHASES,
+    );
+    expect(nodes).toHaveLength(1);
+    expect(nodes[0].id).toBe('run:run-1727:implement:1:executor:0');
+  });
+
+  it('载荷含非法 status cast（沿既有 weirdStatus 先例）→ 透传不炸（四字段随行原样）', () => {
+    const broken = {
+      ...stepRow({ startedAt: 1_727_000_000_000, tokenInput: 7, tokenOutput: 8 }),
+      status: 'weirdStatus' as unknown as UnifiedRunStep['status'],
+    };
+    const nodes = runStepNodes([broken], REQUIREMENT_PHASES);
+    expect(nodes).toHaveLength(1);
+    expect(nodes[0].status).toBe('weirdStatus' as unknown as UnifiedRunStep['status']);
+    expect(nodes[0].tokenInput).toBe(7);
+    expect(nodes[0].tokenOutput).toBe(8);
+  });
+});
+
+describe('stepFromRecord → unifiedRunNodes → runStepNodes 透传链（AC-1 / AC-8 全程锚）', () => {
+  it('库读史 ChangeRunNodeRecord 四字段 → 最终 RuntimeFlowNode 逐字段一致', () => {
+    const record = runStepRow({
+      step: 'executor',
+      sessionId: 'ses-chain-1',
+      status: 'passed',
+      detail: '实现完成',
+      startedAt: 1_727_000_000_000,
+      endedAt: 1_727_000_060_000,
+      tokenInput: 12_000,
+      tokenOutput: 3_400,
+    });
+    const runs = [runEntry({ runId: 'run-chain', nodes: [record] })];
+    const nodes = runStepNodes(unifiedRunNodes(runs, null), REQUIREMENT_PHASES);
+    expect(nodes).toHaveLength(1);
+    expect(nodes[0]).toMatchObject({
+      runId: 'run-chain',
+      runStepKind: 'executor',
+      status: 'passed',
+      sessionId: 'ses-chain-1',
+      startedAt: record.startedAt,
+      endedAt: record.endedAt,
+      tokenInput: record.tokenInput,
+      tokenOutput: record.tokenOutput,
+      live: false,
+    });
+  });
+});

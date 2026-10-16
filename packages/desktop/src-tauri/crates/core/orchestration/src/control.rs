@@ -398,8 +398,9 @@ impl RunGuard {
 }
 
 /// 节点累积单点：同稳定身份键 `(phase, attempt, step, instance_no)` 的后续 emit
-/// 就地合并（running → 终态 / 会话 id / 详情 / 输出引用覆写，位置保持首次 emit
-/// 序），否则按 emit 序追加——同键多实例不串扰，槽位配对语义随身份键上收后端。
+/// 就地合并（running → 终态 / 会话 id / 详情 / 输出引用覆写；起止与 token——
+/// `started_at` 保首见、`ended_at` / token some 才覆写，位置保持首次 emit 序），
+/// 否则按 emit 序追加——同键多实例不串扰，槽位配对语义随身份键上收后端。
 fn accumulate_node(entry: &mut RunEntry, step: ChangeStepState) {
     let hit = entry.nodes.iter_mut().find(|node| {
         node.phase == step.phase
@@ -410,6 +411,9 @@ fn accumulate_node(entry: &mut RunEntry, step: ChangeStepState) {
     match hit {
         Some(node) => {
             node.status = step.status;
+            // `started_at` 零赋值 = 无条件保首见：running emit 落值后不被终态
+            // emit 顶替（终态行携带的同刻 started 值被丢弃）；瞬步单 emit 首见
+            // 即真值（started == ended 自然成立）
             if step.session_id.is_some() {
                 node.session_id = step.session_id;
             }
@@ -418,6 +422,15 @@ fn accumulate_node(entry: &mut RunEntry, step: ChangeStepState) {
             }
             if step.output_ref.is_some() {
                 node.output_ref = step.output_ref;
+            }
+            if step.ended_at.is_some() {
+                node.ended_at = step.ended_at;
+            }
+            if step.token_input.is_some() {
+                node.token_input = step.token_input;
+            }
+            if step.token_output.is_some() {
+                node.token_output = step.token_output;
             }
         }
         None => entry.nodes.push(step),

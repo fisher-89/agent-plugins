@@ -149,6 +149,18 @@ function drawerTitle(): string | null {
   return document.querySelector('[data-slot="drawer-title"]')?.textContent ?? null;
 }
 
+/** 行点击开抽屉自愈重按：门禁高并行（覆盖度量 + rust llvm-cov 编译抢 CPU）
+ * 下 fireEvent.click 偶发整包被吞（行选中态与抽屉同时无响应，偶发且与用例
+ * 序相关）——点行后轮询抽屉 title，未开出即按现行行重按，直至呈现。断言语
+ * 义不变（点行 → title = 预期键 JSON）；重按幂等（同行再点 = 单实例受控），
+ * 行寻址恒按现行 `bodyRows()` 重查（捕获节点引用不耐列表重渲染换血）。 */
+async function openRowDrawer(index: number, expectedTitle: string): Promise<void> {
+  await waitFor(() => {
+    fireEvent.click(bodyRows()[index]);
+    expect(drawerTitle()).toBe(expectedTitle);
+  });
+}
+
 /** 分页控件行文案：「第 {page} / {totalPages} 页（共 {total} 条）」。 */
 function pageInfoText(): string {
   return screen.getByText(/第 \d+ \/ \d+ 页（共 \d+ 条）/).textContent ?? '';
@@ -514,13 +526,11 @@ describe('DbInspectorView：抽屉单条详情与换血收起', () => {
     );
     await renderWithModelSelected([record]);
 
-    // 行选中态（data-state="selected"）：点行后按现行首行重查断言——门禁高
-    // 并行下列表重渲染可能换行节点（捕获节点引用会在换血后指向游离节点，5s
-    // 等待预算内恒 null），断言用户可见结果而非节点身份
-    fireEvent.click(bodyRows()[0]);
-    await waitFor(() => expect(bodyRows()[0].getAttribute('data-state')).toBe('selected'));
-    // 抽屉右侧滑出：title = key JSON 文本
-    await waitFor(() => expect(drawerTitle()).toBe(JSON.stringify(record.key)));
+    // 行选中态（data-state="selected"）+ 抽屉右侧滑出：经自愈重按开抽屉
+    //（点行后按现行首行重查断言——门禁高并行下列表重渲染可能换行节点，
+    // 断言用户可见结果而非节点身份）
+    await openRowDrawer(0, JSON.stringify(record.key));
+    expect(bodyRows()[0].getAttribute('data-state')).toBe('selected');
     // content = key + value 信封 pretty JSON
     const detail = await screen.findByTestId('db-record-json');
     expect(detail.textContent).toBe(JSON.stringify(record, null, 2));
@@ -539,13 +549,10 @@ describe('DbInspectorView：抽屉单条详情与换血收起', () => {
     const second = envelope(2, { id: 2, name: '第二条' });
     await renderWithModelSelected([first, second]);
 
-    // 抽屉开合使页面 inert（base-ui Portal）：先取行引用再点开
-    const [firstRow, secondRow] = bodyRows();
-    fireEvent.click(firstRow);
-    await waitFor(() => expect(drawerTitle()).toBe(JSON.stringify(first.key)));
-
-    fireEvent.click(secondRow);
-    await waitFor(() => expect(drawerTitle()).toBe(JSON.stringify(second.key)));
+    // 抽屉开合使页面 inert（base-ui Portal）：经自愈重按依次开两行（行寻址
+    // 恒按现行 bodyRows() 重查，不捕获节点引用）
+    await openRowDrawer(0, JSON.stringify(first.key));
+    await openRowDrawer(1, JSON.stringify(second.key));
     expect(drawerTitle()).not.toBe(JSON.stringify(first.key));
     const detail = screen.getByTestId('db-record-json');
     expect(detail.textContent).toBe(JSON.stringify(second, null, 2));
@@ -554,20 +561,17 @@ describe('DbInspectorView：抽屉单条详情与换血收起', () => {
   it('异常：点「关闭」→ 抽屉退场、行选中清除', async () => {
     await renderWithModelSelected([envelope(1, { id: 1 })]);
 
-    const firstRow = bodyRows()[0];
-    fireEvent.click(firstRow);
-    await waitFor(() => expect(drawerTitle()).toBe('1'));
+    await openRowDrawer(0, '1');
 
     fireEvent.click(screen.getByRole('button', { name: '关闭' }));
     await waitFor(() => expect(drawerTitle()).toBeNull());
-    await waitFor(() => expect(firstRow.getAttribute('data-state')).toBeNull());
+    await waitFor(() => expect(bodyRows()[0].getAttribute('data-state')).toBeNull());
   });
 
   it('异常：刷新失败（recordsError）不换血 → 抽屉保留现状、详情不越出当前列表', async () => {
     await renderWithModelSelected(pagedInventory());
 
-    fireEvent.click(bodyRows()[0]);
-    await waitFor(() => expect(drawerTitle()).toBe('1'));
+    await openRowDrawer(0, '1');
     const detailBefore = screen.getByTestId('db-record-json').textContent;
 
     // 刷新失败：db_records reject（db_models 清单轨不受影响）
@@ -600,9 +604,7 @@ describe('DbInspectorView：抽屉单条详情与换血收起', () => {
   it('边界：翻页 / 刷新成功（列表换血）→ 抽屉收起，详情不残留（DD4）', async () => {
     await renderWithModelSelected(pagedInventory());
 
-    const firstRow = bodyRows()[0];
-    fireEvent.click(firstRow);
-    await waitFor(() => expect(drawerTitle()).toBe('1'));
+    await openRowDrawer(0, '1');
 
     // 翻页（offset 变化）：记录列表换血，抽屉收起不残留
     fireEvent.click(screen.getByTestId('db-page-next'));
@@ -610,9 +612,7 @@ describe('DbInspectorView：抽屉单条详情与换血收起', () => {
     await waitFor(() => expect(rowCells(bodyRows()[0])[0]).toBe('50'));
 
     // 重新开抽屉 → 刷新成功（records 引用变化）：抽屉同样收起
-    const page2FirstRow = bodyRows()[0];
-    fireEvent.click(page2FirstRow);
-    await waitFor(() => expect(drawerTitle()).toBe('50'));
+    await openRowDrawer(0, '50');
     fireEvent.click(screen.getByTestId('db-refresh'));
     await waitFor(() => expect(drawerTitle()).toBeNull());
   });
@@ -620,9 +620,7 @@ describe('DbInspectorView：抽屉单条详情与换血收起', () => {
   it('边界：换模型 / 切 scope → 抽屉收起；行内无 JSON 详情块（详情仅抽屉内）', async () => {
     await renderWithModelSelected(pagedInventory());
 
-    const firstRow = bodyRows()[0];
-    fireEvent.click(firstRow);
-    await waitFor(() => expect(drawerTitle()).toBe('1'));
+    await openRowDrawer(0, '1');
 
     // 换模型（selected 变化，agent_run 计数 0 → 空态）：抽屉收起
     fireEvent.click(screen.getAllByTestId('db-model-item')[1]);
@@ -804,9 +802,7 @@ describe('DbInspectorView：真实页界控件、空错态与只读边界', () =
     // 模型行点选已由装置点击承载：db_records 携所选模型名与 root
     expect(lastParamsOf('db_records')).toMatchObject({ model: 'workspace', root: ROOT });
     // 记录行点开抽屉详情
-    const firstRow = bodyRows()[0];
-    fireEvent.click(firstRow);
-    await waitFor(() => expect(drawerTitle()).toBe('1'));
+    await openRowDrawer(0, '1');
     expect(screen.getByTestId('db-record-json') !== null).toBe(true);
   });
 });

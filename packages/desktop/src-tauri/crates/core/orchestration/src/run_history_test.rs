@@ -60,6 +60,10 @@ fn step(
         session_id: session_id.map(str::to_owned),
         detail: None,
         output_ref: None,
+        started_at: STARTED_AT,
+        ended_at: None,
+        token_input: None,
+        token_output: None,
     }
 }
 
@@ -191,7 +195,11 @@ fn 全词汇直映射二十值零过滤() {
         &[],
     );
 
-    assert_eq!(command.nodes.len(), 20, "二十值全词汇零过滤（cleanup 节点在案）");
+    assert_eq!(
+        command.nodes.len(),
+        20,
+        "二十值全词汇零过滤（cleanup 节点在案）"
+    );
     for (index, (_, expect)) in all.iter().enumerate() {
         assert_eq!(command.nodes[index].step, *expect, "第 {index} 词汇直映射");
     }
@@ -655,4 +663,221 @@ fn store_run_history_port契约send_sync() {
     fn assert_send_sync<T: Send + Sync>() {}
     assert_send_sync::<StoreRunHistory>();
     assert_send_sync::<Arc<dyn RunHistoryPort>>();
+}
+
+// ---------------------------------------------------------------------------
+// desktop-step-running-snapshot（AC-1 / AC-2 / AC-4）：finish_command 节点四
+// 字段（started_at / ended_at / token_input / token_output）直复制——零过滤
+// 零改写零铸造（时间与 token 铸造归 walker emit_node 单点，组装面纯复制）
+// ---------------------------------------------------------------------------
+
+/// 全值节点 fixture（四字段全值形态——StartedAt 定值 / ended +200_000 /
+/// token 12_000 与 3_400，D10 词面断言同源定值）。
+fn full_metrics_step(kind: ChangeStepKind) -> ChangeStepState {
+    let mut node = step(kind, ChangeStepStatus::Passed, Some("ses-1"));
+    node.detail = Some("实现完成".to_owned());
+    node.started_at = STARTED_AT;
+    node.ended_at = Some(STARTED_AT + 200_000);
+    node.token_input = Some(12_000);
+    node.token_output = Some(3_400);
+    node
+}
+
+/// 正向：节点四字段全值 → `RunNodeEntry` 逐字段等值直复制（单节点）。
+#[test]
+fn finish_command节点四字段全值逐字段直复制() {
+    let worker = full_metrics_step(ChangeStepKind::Executor);
+    let command = finish_command(
+        &request(),
+        ChangeRunStatus::Completed,
+        None,
+        STARTED_AT + 400_000,
+        std::slice::from_ref(&worker),
+        &[],
+    );
+    assert_eq!(command.nodes.len(), 1);
+    let entry = &command.nodes[0];
+    assert_eq!(entry.started_at, STARTED_AT, "started_at 直复制");
+    assert_eq!(
+        entry.ended_at,
+        Some(STARTED_AT + 200_000),
+        "ended_at 直复制"
+    );
+    assert_eq!(entry.token_input, Some(12_000), "token_input 直复制");
+    assert_eq!(entry.token_output, Some(3_400), "token_output 直复制");
+    assert_eq!(entry.session_id.as_deref(), Some("ses-1"));
+    assert_eq!(entry.detail.as_deref(), Some("实现完成"));
+}
+
+/// 正向：多节点混排（WorkerAgent / 工具 / Gate / Git 步）→ 四字段各自直复制、
+/// 整包序 = 入参序。
+#[test]
+fn finish_command多节点混排四字段各自直复制整包序保持入参序() {
+    let worker = full_metrics_step(ChangeStepKind::Executor);
+    let tool = step(ChangeStepKind::StaticCheck, ChangeStepStatus::Passed, None);
+    let gate = step(ChangeStepKind::VerdictGate, ChangeStepStatus::Passed, None);
+    let mut git = step(ChangeStepKind::Commit, ChangeStepStatus::Passed, None);
+    git.started_at = STARTED_AT + 10;
+    git.ended_at = Some(STARTED_AT + 20);
+    let command = finish_command(
+        &request(),
+        ChangeRunStatus::Completed,
+        None,
+        STARTED_AT + 30,
+        &[worker, tool, gate, git],
+        &[],
+    );
+    assert_eq!(command.nodes.len(), 4, "整包序 = 入参序（零过滤零重排）");
+    assert_eq!(
+        command.nodes[0].step,
+        workflow::state::RunStepKind::Executor
+    );
+    assert_eq!(command.nodes[0].token_input, Some(12_000));
+    assert_eq!(
+        command.nodes[1].step,
+        workflow::state::RunStepKind::StaticCheck
+    );
+    assert_eq!(command.nodes[1].token_input, None, "工具步 token None 直透");
+    assert_eq!(
+        command.nodes[2].step,
+        workflow::state::RunStepKind::VerdictGate
+    );
+    assert_eq!(
+        command.nodes[2].token_output, None,
+        "Gate 步 token None 直透"
+    );
+    assert_eq!(command.nodes[3].step, workflow::state::RunStepKind::Commit);
+    assert_eq!(command.nodes[3].started_at, STARTED_AT + 10);
+    assert_eq!(command.nodes[3].ended_at, Some(STARTED_AT + 20));
+}
+
+/// 边界：token 两值与 ended_at 全 None（工具步 / Gate 形态）→ None 直透
+///（不铸造不默认——组装面零铸造单点锚）。
+#[test]
+fn finish_command全none字段直透不铸造不默认() {
+    let gate = step(
+        ChangeStepKind::WhitelistGate,
+        ChangeStepStatus::Stopped,
+        None,
+    );
+    assert_eq!(gate.ended_at, None, "fixture 形态：ended / token 全 None");
+    let command = finish_command(
+        &request(),
+        ChangeRunStatus::Stopped,
+        None,
+        STARTED_AT,
+        std::slice::from_ref(&gate),
+        &[],
+    );
+    assert_eq!(command.nodes[0].ended_at, None, "ended None 直透");
+    assert_eq!(command.nodes[0].token_input, None);
+    assert_eq!(command.nodes[0].token_output, None);
+}
+
+/// 边界：started_at = 0（缺席语义值）→ 原样复制零改写。
+#[test]
+fn finish_command_started_at零值原样复制零改写() {
+    let mut zero = step(ChangeStepKind::Executor, ChangeStepStatus::Running, None);
+    zero.started_at = 0;
+    let command = finish_command(
+        &request(),
+        ChangeRunStatus::Stopped,
+        None,
+        STARTED_AT,
+        std::slice::from_ref(&zero),
+        &[],
+    );
+    assert_eq!(command.nodes[0].started_at, 0, "0 缺席语义值原样直复制");
+}
+
+/// 异常：running 残留步入包（status=Running、ended_at=None）→ None 直透不补
+/// 值不报错（收口在途步合法形态——收口在途步可留 running）。
+#[test]
+fn finish_command_running残留步none直透不补值不报错() {
+    let running = step(
+        ChangeStepKind::Evaluator,
+        ChangeStepStatus::Running,
+        Some("ses-2"),
+    );
+    let command = finish_command(
+        &request(),
+        ChangeRunStatus::Stopped,
+        None,
+        STARTED_AT,
+        std::slice::from_ref(&running),
+        &[],
+    );
+    assert_eq!(
+        command.nodes[0].status,
+        workflow::state::RunStepStatus::Running,
+        "running 状态原样落包"
+    );
+    assert_eq!(command.nodes[0].ended_at, None, "在途步 ended None 不补值");
+    assert_eq!(command.nodes[0].token_input, None);
+}
+
+/// 异常：瞬步 started_at == ended_at 同刻值 → 两字段独立直复制（互不推导不
+/// 合并——单 emit 瞬步同刻形态）。
+#[test]
+fn finish_command瞬步同刻两字段独立直复制() {
+    let mut instant = step(ChangeStepKind::PhaseStart, ChangeStepStatus::Passed, None);
+    instant.started_at = STARTED_AT + 5_000;
+    instant.ended_at = Some(STARTED_AT + 5_000);
+    let command = finish_command(
+        &request(),
+        ChangeRunStatus::Completed,
+        None,
+        STARTED_AT + 6_000,
+        std::slice::from_ref(&instant),
+        &[],
+    );
+    assert_eq!(command.nodes[0].started_at, STARTED_AT + 5_000);
+    assert_eq!(
+        command.nodes[0].ended_at,
+        Some(STARTED_AT + 5_000),
+        "同刻值独立直复制（零推导零合并）"
+    );
+}
+
+/// 组合（透传链上半程锚，AC-1）：四字段经 finish_command 组装后喂 store 落库
+///（`finish_change_run` 内部即 `RunNodeRecord::new` 消费点——下半程见
+/// model_test.rs 节）→ `list_run_nodes` 读回与源 `ChangeStepState` 逐字段一致。
+#[test]
+fn finish_command四字段经落库读回与源步状态行逐字段一致() {
+    let db = TestDb::open("four-field-chain");
+    let history =
+        StoreRunHistory::new(Arc::clone(&db.store) as Arc<dyn workflow::state::ChangeStateStore>);
+    history
+        .run_started(&RunStartCommand {
+            run_id: RUN_ID.to_owned(),
+            change_id: CHANGE_ID.to_owned(),
+            started_at: STARTED_AT,
+        })
+        .expect("run_started 应成功");
+
+    let source = full_metrics_step(ChangeStepKind::Executor);
+    let command = finish_command(
+        &request(),
+        ChangeRunStatus::Completed,
+        None,
+        STARTED_AT + 300_000,
+        std::slice::from_ref(&source),
+        &[],
+    );
+    history.run_finished(&command).expect("run_finished 应成功");
+
+    let rows = db
+        .store
+        .list_run_nodes(RUN_ID)
+        .expect("list_run_nodes 应成功");
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].started_at, source.started_at);
+    assert_eq!(rows[0].ended_at, source.ended_at);
+    assert_eq!(rows[0].token_input, source.token_input);
+    assert_eq!(rows[0].token_output, source.token_output);
+    assert_eq!(
+        rows[0].timestamp,
+        STARTED_AT + 300_000,
+        "整包同刻 = finished_at"
+    );
 }

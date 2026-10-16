@@ -573,6 +573,12 @@ export type ChangeRunEntry = {
  *  run 执行图节点行线面（二十值全词汇封闭集直出，词汇 = `state::RunStepKind`
  *  单点；稳定身份键 `(phase, attempt, step, instanceNo)`，库读序 = node_seq 升序
  *  = emit 序）。
+ * 
+ *  时间出线两口径并存为有意裁定（desktop-step-running-snapshot D6）：节点级
+ *  `startedAt` / `endedAt` / token 四字段为**毫秒数**（与活面 `ChangeStepState`
+ *  同形——统一视图单一形状、走秒直减零 parse）；runs 级 `ChangeRunEntry.startedAt`
+ *  / `finishedAt` 仍为 ISO 串（聚合时刻口径）。纯 derive 零字段属性——旧库行
+ *  `0` / `null` 原样出线，查询层零改写零回填。
  */
 export type ChangeRunNodeRecord = {
 	phase: string,
@@ -585,6 +591,14 @@ export type ChangeRunNodeRecord = {
 	detail: string | null,
 	/**  全量输出引用（`ExecOutput::Recorded { exec_id }`；无记录恒 null） */
 	outputRef: string | null,
+	/**  步开始时刻（UTC unix 毫秒；旧库行 0 = 步级时间缺席） */
+	startedAt: number,
+	/**  步收口时刻（UTC unix 毫秒；running 收口在途步 null） */
+	endedAt: number | null,
+	/**  本步 turn token 增量（仅 WorkerAgent 步终态有值；缺席合法缺省） */
+	tokenInput: number | null,
+	/**  本步 turn token 增量（输出向；口径同 `tokenInput`） */
+	tokenOutput: number | null,
 };
 
 /**
@@ -694,6 +708,24 @@ export type ChangeStepState = {
 	detail: string | null,
 	/**  全量输出引用（`ExecOutput::Recorded { exec_id }`；Transient 恒 None） */
 	outputRef: string | null,
+	/**
+	 *  步开始时刻（UTC unix 毫秒，与域内 `now_millis()` 同源口径）——running
+	 *  emit 铸造；`accumulate_node` 合并无条件保首见（终态 emit 携带的同刻值
+	 *  被丢弃，瞬步单 emit 首见即真值）
+	 */
+	startedAt: number,
+	/**
+	 *  步收口时刻（UTC unix 毫秒；running 恒 None，崩溃残留步终态 emit 未达
+	 *  恒 None）——终态 emit 铸造；`accumulate_node` 合并 some 才覆写
+	 */
+	endedAt: number | null,
+	/**
+	 *  本步 turn token 增量（`TurnDone.usage` 求和；仅 WorkerAgent 步终态有值，
+	 *  缺席合法缺省）；`accumulate_node` 合并 some 才覆写
+	 */
+	tokenInput: number | null,
+	/**  本步 turn token 增量（输出向；口径同 [`ChangeStepState::token_input`]） */
+	tokenOutput: number | null,
 };
 
 /**  步状态四档。 */

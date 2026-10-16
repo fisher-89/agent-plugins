@@ -1,0 +1,3364 @@
+diff --git a/crates/core/agent/src/lib.rs b/crates/core/agent/src/lib.rs
+index e493cdc7dca8..ed8a6f08d57b 100644
+--- a/crates/core/agent/src/lib.rs
++++ b/crates/core/agent/src/lib.rs
+@@ -4,6 +4,7 @@ mod port;
+ mod runner;
+ mod session;
+ mod state;
++mod usage;
+ 
+ pub use event::{AgentBlock, AgentDelta, AgentEvent, AgentEventKind, AgentMessageRole};
+ pub use kernel::{KernelOutput, RunningTurn, SessionKernel, StopRegistry, TurnRequest};
+@@ -17,6 +18,7 @@ pub use session::{
+     SessionSummary, TurnSummary,
+ };
+ pub use state::{AgentRunState, RunStateMachine};
++pub use usage::sum_usage_tokens;
+ 
+ #[cfg(test)]
+ mod event_test;
+@@ -32,3 +34,5 @@ mod runner_test;
+ mod session_test;
+ #[cfg(test)]
+ mod state_test;
++#[cfg(test)]
++mod usage_test;
+diff --git a/crates/core/agent/src/lib_test.rs b/crates/core/agent/src/lib_test.rs
+index 3c9b8a2df9f0..0ad9150ea9ee 100644
+--- a/crates/core/agent/src/lib_test.rs
++++ b/crates/core/agent/src/lib_test.rs
+@@ -192,3 +192,67 @@ fn crate根trait导出可实现且退役协议类型不再出现在根面() {
+     fn assert_sink<S: SessionSink>(_: &S) {}
+     assert_sink(&NoopSink);
+ }
++
++// ---------------------------------------------------------------------------
++// desktop-step-running-snapshot（D3 / AC-10）：`pub use usage::sum_usage_tokens`
++// 根面锚——唯一实现的根路径可达（AC-10 唯一实现锚的根面半边；语义全量归
++// usage_test.rs 节）
++// ---------------------------------------------------------------------------
++
++/// 经根路径 `crate::sum_usage_tokens` 持有并调用 → 编译可达即锚；函数项签名
++/// 形态 = `fn(&[AgentEvent], &str) -> Option<u64>`（D3 声明）。
++#[test]
++fn crate根路径sum_usage_tokens可达与签名锚定() {
++    // 根路径 re-export 持有（签名形态断言——持有根路径函数项）
++    let root_fn: fn(&[AgentEvent], &str) -> Option<u64> = crate::sum_usage_tokens;
++    // 与 usage 模块路径同一实现（同一 fn item——函数项指针等值）
++    let module_fn: fn(&[AgentEvent], &str) -> Option<u64> = crate::usage::sum_usage_tokens;
++    assert_eq!(
++        root_fn as usize, module_fn as usize,
++        "根路径与 usage 模块路径为同一实现（re-export 零包装）"
++    );
++
++    // 行为面轻量锚：空转录 → None
++    assert_eq!(root_fn(&[], "input_tokens"), None);
++
++    // 单值转录：根路径调用语义与 usage_test 全量面同源
++    let events = vec![AgentEvent::stamp(
++        0,
++        AgentEventKind::TurnDone {
++            subtype: String::new(),
++            is_error: false,
++            num_turns: None,
++            duration_ms: None,
++            cost_usd: None,
++            usage: serde_json::json!({ "input_tokens": 7 }),
++            session_id: None,
++        },
++    )];
++    assert_eq!(root_fn(&events, "input_tokens"), Some(7));
++}
++
++/// 缺席 key（`""` / 未知键）经根路径调用 → None；同一转录重复调用两次结果
++/// 一致（re-export 零状态零副作用——防御锚）。
++#[test]
++fn crate根路径sum_usage_tokens缺席key与重复调用稳定() {
++    let root_fn: fn(&[AgentEvent], &str) -> Option<u64> = crate::sum_usage_tokens;
++    let events = vec![AgentEvent::stamp(
++        0,
++        AgentEventKind::TurnDone {
++            subtype: String::new(),
++            is_error: false,
++            num_turns: None,
++            duration_ms: None,
++            cost_usd: None,
++            usage: serde_json::json!({ "input_tokens": 7 }),
++            session_id: None,
++        },
++    )];
++    assert_eq!(root_fn(&events, ""), None, "空串 key 缺席 → None");
++    assert_eq!(root_fn(&events, "total_tokens"), None, "未知键缺席 → None");
++    assert_eq!(
++        root_fn(&events, "input_tokens"),
++        root_fn(&events, "input_tokens"),
++        "重复调用结果一致（零状态零副作用）"
++    );
++}
+diff --git a/crates/core/agent/src/usage.rs b/crates/core/agent/src/usage.rs
+new file mode 100644
+index 000000000000..ddd6aad69f9a
+--- /dev/null
++++ b/crates/core/agent/src/usage.rs
+@@ -0,0 +1,24 @@
++use serde_json::Value;
++
++use crate::event::{AgentEvent, AgentEventKind};
++
++/// token 求和单源：session 聚合面（会话统计）与编排步级 token 消耗同一实现。
++/// 上移自 infra/store（desktop-step-running-snapshot D3）——依赖方向 infra →
++/// core 不可反向，求和落 [`AgentEventKind::TurnDone`] 定义所在 crate；infra/store
++/// 与 orchestration 两消费方同源引用。
++///
++/// 转录 `TurnDone.usage` 求和：鸭子类型键取值（`"input_tokens"` /
++/// `"output_tokens"`），全缺席 → None（缺席合法缺省）、部分在场饱和求和。
++pub fn sum_usage_tokens(events: &[AgentEvent], key: &str) -> Option<u64> {
++    let mut total: u64 = 0;
++    let mut any = false;
++    for event in events {
++        if let AgentEventKind::TurnDone { usage, .. } = &event.kind {
++            if let Some(value) = usage.get(key).and_then(Value::as_u64) {
++                total = total.saturating_add(value);
++                any = true;
++            }
++        }
++    }
++    any.then_some(total)
++}
+diff --git a/crates/core/agent/src/usage_test.rs b/crates/core/agent/src/usage_test.rs
+new file mode 100644
+index 000000000000..0c9716d20a2d
+--- /dev/null
++++ b/crates/core/agent/src/usage_test.rs
+@@ -0,0 +1,252 @@
++//! `usage.rs`（token 求和单源）的单元测试（test-design「usage.rs ->
++//! usage_test.rs」节）：`sum_usage_tokens` 转录 `TurnDone.usage` 鸭子类型键
++//! 求和——多事件遍历 / 单事件 / 空转录 / 缺键 / 混合事件（any-then-some）/
++//! u64 饱和 / 超大转录 / 类型漂移 / 干扰事件 / 两键对照。
++//!
++//! Mock策略（test-design 本节 Mock 表）：零 mock——纯函数直测，`AgentEvent`
++//! 字面量直构（`AgentEvent::stamp(seq, AgentEventKind::TurnDone { usage, .. })`，
++//! 非 TurnDone 变体同式构造）。
++//!
++//! AC 锚注记：本函数自 infra/store 上移（desktop-step-running-snapshot D3 /
++//! AC-10）——求和语义与上移前逐行一致；store 侧消费半边（SessionStats）由
++//! infra/store 的 store_test.rs 节承载（依赖方向 infra → core，本 crate 不
++//! 反向引用 store）。
++
++use serde_json::{Value, json};
++
++use crate::event::{AgentBlock, AgentDelta, AgentEvent, AgentEventKind, AgentMessageRole};
++use crate::usage::sum_usage_tokens;
++
++/// TurnDone 事件 fixture（usage 显式注入；其余统计字段中性值——时间戳由
++/// `stamp` 取当前时钟，不参与等值断言）。
++fn turn_done(seq: u64, usage: Value) -> AgentEvent {
++    AgentEvent::stamp(
++        seq,
++        AgentEventKind::TurnDone {
++            subtype: "success".to_owned(),
++            is_error: false,
++            num_turns: Some(1),
++            duration_ms: Some(1_000),
++            cost_usd: Some(0.01),
++            usage,
++            session_id: None,
++        },
++    )
++}
++
++/// 多事件携指定 key → 逐值之和（`input_tokens` / `output_tokens` 两键各测一组）。
++#[test]
++fn 多事件携key逐值求和_两键各一组() {
++    let input_events = vec![
++        turn_done(0, json!({ "input_tokens": 100 })),
++        turn_done(1, json!({ "input_tokens": 250 })),
++        turn_done(2, json!({ "input_tokens": 47 })),
++    ];
++    assert_eq!(
++        sum_usage_tokens(&input_events, "input_tokens"),
++        Some(397),
++        "input_tokens 多事件求和"
++    );
++
++    let output_events = vec![
++        turn_done(0, json!({ "output_tokens": 5 })),
++        turn_done(1, json!({ "output_tokens": 1_200 })),
++    ];
++    assert_eq!(
++        sum_usage_tokens(&output_events, "output_tokens"),
++        Some(1_205),
++        "output_tokens 多事件求和"
++    );
++}
++
++/// 单事件携 key → Some(该值)。
++#[test]
++fn 单事件携key返回该值() {
++    let events = vec![turn_done(0, json!({ "input_tokens": 12_345 }))];
++    assert_eq!(sum_usage_tokens(&events, "input_tokens"), Some(12_345));
++}
++
++/// 空转录 `&[]` → None（零事件边界）。
++#[test]
++fn 空转录none() {
++    assert_eq!(sum_usage_tokens(&[], "input_tokens"), None);
++    assert_eq!(sum_usage_tokens(&[], "output_tokens"), None);
++}
++
++/// usage 在场但 key 缺席（`{}` / `Value::Null`）→ None。
++#[test]
++fn usage在场但key缺席none_空对象与null() {
++    let events = vec![turn_done(0, json!({})), turn_done(1, Value::Null)];
++    assert_eq!(sum_usage_tokens(&events, "input_tokens"), None);
++    assert_eq!(sum_usage_tokens(&events, "output_tokens"), None);
++    // 未知键同名缺席
++    let events = vec![turn_done(0, json!({ "input_tokens": 7 }))];
++    assert_eq!(sum_usage_tokens(&events, "cache_read_tokens"), None);
++}
++
++/// 部分事件携 key、部分缺席 → Some(在场值之和)（any-then-some 语义锚）。
++#[test]
++fn 部分事件携keyany_then_some语义() {
++    let events = vec![
++        turn_done(0, json!({ "input_tokens": 100 })),
++        turn_done(1, json!({})),
++        turn_done(2, json!({ "input_tokens": 30 })),
++        turn_done(3, Value::Null),
++    ];
++    assert_eq!(sum_usage_tokens(&events, "input_tokens"), Some(130));
++}
++
++/// 求和溢出 u64 → saturating_add 饱和不 panic。
++#[test]
++fn 求和溢出饱和不panic() {
++    // u64::MAX 邻近两值相加 → 恒等饱和于 u64::MAX
++    let events = vec![
++        turn_done(0, json!({ "input_tokens": u64::MAX })),
++        turn_done(1, json!({ "input_tokens": u64::MAX })),
++    ];
++    assert_eq!(sum_usage_tokens(&events, "input_tokens"), Some(u64::MAX));
++    // 邻近值 + 小值 → 部分求和后饱和（不回绕）
++    let events = vec![
++        turn_done(0, json!({ "input_tokens": u64::MAX - 1 })),
++        turn_done(1, json!({ "input_tokens": 10 })),
++    ];
++    assert_eq!(sum_usage_tokens(&events, "input_tokens"), Some(u64::MAX));
++}
++
++/// 超大转录（数千事件）→ 求和结果与逐值 fold 一致（遍历不截断）。
++#[test]
++fn 超大转录求和与逐值fold一致() {
++    let events: Vec<AgentEvent> = (0..5_000u64)
++        .map(|seq| turn_done(seq, json!({ "input_tokens": 3u64, "output_tokens": 2u64 })))
++        .collect();
++    let manual = |key: &str| -> u64 {
++        events
++            .iter()
++            .filter_map(|event| match &event.kind {
++                AgentEventKind::TurnDone { usage, .. } => {
++                    usage.get(key).and_then(Value::as_u64)
++                }
++                _ => None,
++            })
++            .fold(0u64, u64::saturating_add)
++    };
++    assert_eq!(
++        sum_usage_tokens(&events, "input_tokens"),
++        Some(manual("input_tokens")),
++        "input_tokens 超大转录遍历不截断"
++    );
++    assert_eq!(sum_usage_tokens(&events, "input_tokens"), Some(15_000));
++    assert_eq!(sum_usage_tokens(&events, "output_tokens"), Some(10_000));
++}
++
++/// key 对应值非 u64（字符串 / 浮点 / 负数 / null）→ 该事件不计入、不 panic
++/// （`as_u64` 判定锚）；全漂移 → None。
++#[test]
++fn 值类型漂移该事件不计入不panic() {
++    let events = vec![
++        turn_done(0, json!({ "input_tokens": "1200" })),
++        turn_done(1, json!({ "input_tokens": 12.5 })),
++        turn_done(2, json!({ "input_tokens": -7 })),
++        turn_done(3, json!({ "input_tokens": null })),
++        turn_done(4, json!({ "input_tokens": 42 })),
++    ];
++    assert_eq!(sum_usage_tokens(&events, "input_tokens"), Some(42));
++
++    let all_drift = vec![
++        turn_done(0, json!({ "input_tokens": "1200" })),
++        turn_done(1, json!({ "input_tokens": 12.5 })),
++    ];
++    assert_eq!(sum_usage_tokens(&all_drift, "input_tokens"), None);
++}
++
++/// 非 TurnDone 事件（RunStarted / Message / MessageDelta / SystemNotice / Raw）
++/// 混入 → 全部跳过，仅 TurnDone 参与求和。
++#[test]
++fn 非turndone事件全部跳过仅turndone参与求和() {
++    let noise = vec![
++        AgentEvent::stamp(
++            0,
++            AgentEventKind::RunStarted {
++                model: Some("claude-opus".to_owned()),
++                session_id: None,
++                tools: Vec::new(),
++                mcp_servers: Vec::new(),
++            },
++        ),
++        AgentEvent::stamp(
++            1,
++            AgentEventKind::MessageDelta {
++                parent_tool_use_id: None,
++                delta: AgentDelta::Text {
++                    text: "增量".to_owned(),
++                },
++            },
++        ),
++        AgentEvent::stamp(
++            2,
++            AgentEventKind::Message {
++                role: AgentMessageRole::Assistant,
++                blocks: vec![AgentBlock::Text {
++                    text: "正文".to_owned(),
++                }],
++                parent_tool_use_id: None,
++            },
++        ),
++        AgentEvent::stamp(
++            3,
++            AgentEventKind::SystemNotice {
++                subtype: "api_retry".to_owned(),
++                payload: json!({ "attempt": 2 }),
++            },
++        ),
++        AgentEvent::stamp(
++            4,
++            AgentEventKind::Raw {
++                event_type: "mystery".to_owned(),
++                raw_json: "{}".to_owned(),
++            },
++        ),
++    ];
++    assert_eq!(sum_usage_tokens(&noise, "input_tokens"), None);
++
++    let mut mixed = noise.clone();
++    mixed.push(turn_done(5, json!({ "input_tokens": 33 })));
++    mixed.push(turn_done(6, json!({ "input_tokens": 9 })));
++    assert_eq!(sum_usage_tokens(&mixed, "input_tokens"), Some(42));
++}
++
++/// 组合（AC-10 两键对照）：同一转录分别求 in / out 两键，与手工折叠同口径
++/// ——两消费方同源锚（store 会话统计 `SessionStats.input/output_tokens` 同
++/// 实现消费；store 侧半边见 infra/store store_test.rs 节）。
++#[test]
++fn 上移同源锚_同一转录两键分别求和与手工折叠一致() {
++    let events = vec![
++        turn_done(0, json!({ "input_tokens": 1_000, "output_tokens": 120 })),
++        turn_done(1, json!({ "input_tokens": 2_300 })),
++        turn_done(2, json!({ "output_tokens": 340 })),
++        turn_done(3, json!({})),
++    ];
++    let manual = |key: &str| -> Option<u64> {
++        events.iter().fold(None, |acc, event| match &event.kind {
++            AgentEventKind::TurnDone { usage, .. } => {
++                match usage.get(key).and_then(Value::as_u64) {
++                    Some(value) => Some(acc.unwrap_or(0).saturating_add(value)),
++                    None => acc,
++                }
++            }
++            _ => acc,
++        })
++    };
++    assert_eq!(
++        sum_usage_tokens(&events, "input_tokens"),
++        manual("input_tokens"),
++        "in 键与手工折叠同口径"
++    );
++    assert_eq!(sum_usage_tokens(&events, "input_tokens"), Some(3_300));
++    assert_eq!(
++        sum_usage_tokens(&events, "output_tokens"),
++        manual("output_tokens"),
++        "out 键与手工折叠同口径"
++    );
++    assert_eq!(sum_usage_tokens(&events, "output_tokens"), Some(460));
++}
+diff --git a/crates/core/orchestration/src/control.rs b/crates/core/orchestration/src/control.rs
+index 027391405b09..30dd9451c8c4 100644
+--- a/crates/core/orchestration/src/control.rs
++++ b/crates/core/orchestration/src/control.rs
+@@ -398,8 +398,9 @@ impl RunGuard {
+ }
+ 
+ /// 节点累积单点：同稳定身份键 `(phase, attempt, step, instance_no)` 的后续 emit
+-/// 就地合并（running → 终态 / 会话 id / 详情 / 输出引用覆写，位置保持首次 emit
+-/// 序），否则按 emit 序追加——同键多实例不串扰，槽位配对语义随身份键上收后端。
++/// 就地合并（running → 终态 / 会话 id / 详情 / 输出引用覆写；起止与 token——
++/// `started_at` 保首见、`ended_at` / token some 才覆写，位置保持首次 emit 序），
++/// 否则按 emit 序追加——同键多实例不串扰，槽位配对语义随身份键上收后端。
+ fn accumulate_node(entry: &mut RunEntry, step: ChangeStepState) {
+     let hit = entry.nodes.iter_mut().find(|node| {
+         node.phase == step.phase
+@@ -410,6 +411,9 @@ fn accumulate_node(entry: &mut RunEntry, step: ChangeStepState) {
+     match hit {
+         Some(node) => {
+             node.status = step.status;
++            // `started_at` 零赋值 = 无条件保首见：running emit 落值后不被终态
++            // emit 顶替（终态行携带的同刻 started 值被丢弃）；瞬步单 emit 首见
++            // 即真值（started == ended 自然成立）
+             if step.session_id.is_some() {
+                 node.session_id = step.session_id;
+             }
+@@ -419,6 +423,15 @@ fn accumulate_node(entry: &mut RunEntry, step: ChangeStepState) {
+             if step.output_ref.is_some() {
+                 node.output_ref = step.output_ref;
+             }
++            if step.ended_at.is_some() {
++                node.ended_at = step.ended_at;
++            }
++            if step.token_input.is_some() {
++                node.token_input = step.token_input;
++            }
++            if step.token_output.is_some() {
++                node.token_output = step.token_output;
++            }
+         }
+         None => entry.nodes.push(step),
+     }
+diff --git a/crates/core/orchestration/src/control_test.rs b/crates/core/orchestration/src/control_test.rs
+index 184ab0e63931..8c56258a4e17 100644
+--- a/crates/core/orchestration/src/control_test.rs
++++ b/crates/core/orchestration/src/control_test.rs
+@@ -42,6 +42,10 @@ fn sample_step() -> ChangeStepState {
+         session_id: Some("sess-1".to_owned()),
+         detail: None,
+         output_ref: None,
++        started_at: STARTED_AT,
++        ended_at: None,
++        token_input: None,
++        token_output: None,
+     }
+ }
+ 
+@@ -764,6 +768,10 @@ async fn publish_step快照面按到达序追加_广播run_notice_step() {
+         session_id: None,
+         detail: None,
+         output_ref: None,
++        started_at: STARTED_AT,
++        ended_at: None,
++        token_input: None,
++        token_output: None,
+     };
+     guard.emit(RunUpdate::Step {
+         step: first.clone(),
+@@ -777,6 +785,10 @@ async fn publish_step快照面按到达序追加_广播run_notice_step() {
+         session_id: None,
+         detail: Some("静态检查通过".to_owned()),
+         output_ref: None,
++        started_at: STARTED_AT,
++        ended_at: Some(STARTED_AT + 2_000),
++        token_input: None,
++        token_output: None,
+     };
+     guard.emit(RunUpdate::Step {
+         step: second.clone(),
+@@ -956,6 +968,10 @@ async fn snapshot_steps克隆语义_取后emit互不扰动() {
+         session_id: Some("sess-2".to_owned()),
+         detail: None,
+         output_ref: None,
++        started_at: STARTED_AT,
++        ended_at: Some(STARTED_AT + 1_000),
++        token_input: None,
++        token_output: None,
+     };
+     guard.emit(RunUpdate::Step { step: late.clone() });
+ 
+@@ -994,6 +1010,10 @@ async fn run_guard读面与快照等值() {
+         session_id: None,
+         detail: Some("诊断".to_owned()),
+         output_ref: None,
++        started_at: STARTED_AT,
++        ended_at: Some(STARTED_AT + 1_000),
++        token_input: None,
++        token_output: None,
+     };
+     guard.emit(RunUpdate::Step { step: late });
+ 
+@@ -1166,7 +1186,10 @@ async fn confirm异常面miss记因与取消收敛() {
+     let err = control
+         .confirm(ROOT, CHANGE_ID, true, true)
+         .expect_err("无 run 应 Err");
+-    assert!(err.contains(CHANGE_ID) && err.contains("无运行中的 run"), "{err}");
++    assert!(
++        err.contains(CHANGE_ID) && err.contains("无运行中的 run"),
++        "{err}"
++    );
+ 
+     // 有 run 无等待方 → Err（单次通道语义）
+     let run_control = Arc::new(ChangeFlowControl::new());
+@@ -1260,3 +1283,452 @@ async fn 归档停等广播零载荷kind_only() {
+         "通知单键零载荷（archive 载荷不出进程）"
+     );
+ }
++
++// ---------------------------------------------------------------------------
++// desktop-step-running-snapshot（D4 / AC-4）：accumulate_node 合并单点（经
++// begin_run → guard.emit → snapshot 真件读面承载）——`started_at` 无条件保
++// 首见、`ended_at` / token some 才覆写、None 臂首见落值；同键多 emit 快照与
++// 合并规则一致。零 mock——双 emit 序列 `ChangeStepState` 字面量直构。
++// ---------------------------------------------------------------------------
++
++/// 同键步状态行 fixture（稳定身份键 = (phase, attempt, step, instance_no)；
++/// 四字段逐参显式注入——running / 终态两态共用构造器）。
++#[allow(clippy::too_many_arguments)]
++fn metrics_step(
++    phase: &str,
++    attempt: u32,
++    step: ChangeStepKind,
++    instance_no: u32,
++    status: ChangeStepStatus,
++    started_at: i64,
++    ended_at: Option<i64>,
++    token_input: Option<u64>,
++    token_output: Option<u64>,
++) -> ChangeStepState {
++    ChangeStepState {
++        phase: phase.to_owned(),
++        attempt,
++        step,
++        instance_no,
++        status,
++        session_id: None,
++        detail: None,
++        output_ref: None,
++        started_at,
++        ended_at,
++        token_input,
++        token_output,
++    }
++}
++
++/// 正向：同键 running → 终态双 emit（终态行携相异 started 值）→ snapshot 节点
++/// started = running 首见值（终态同刻值被丢弃，AC-2 / AC-4）。
++#[tokio::test]
++async fn accumulate_node_started保首见终态同刻值被丢弃() {
++    let control = Arc::new(ChangeFlowControl::new());
++    let guard = control
++        .begin_run(ROOT, CHANGE_ID, "run-1".to_owned(), STARTED_AT)
++        .unwrap();
++    guard.emit(RunUpdate::Step {
++        step: metrics_step(
++            "implement",
++            2,
++            ChangeStepKind::Executor,
++            0,
++            ChangeStepStatus::Running,
++            STARTED_AT,
++            None,
++            None,
++            None,
++        ),
++    });
++    guard.emit(RunUpdate::Step {
++        step: metrics_step(
++            "implement",
++            2,
++            ChangeStepKind::Executor,
++            0,
++            ChangeStepStatus::Passed,
++            STARTED_AT + 9_999,
++            Some(STARTED_AT + 10_000),
++            Some(1_200),
++            Some(300),
++        ),
++    });
++    let snap = control.snapshot(ROOT, CHANGE_ID).unwrap();
++    assert_eq!(snap.nodes.len(), 1, "同键就地合并不追加");
++    assert_eq!(
++        snap.nodes[0].started_at, STARTED_AT,
++        "started = running 首见值（终态行相异 started 值被丢弃）"
++    );
++}
++
++/// 正向：双 emit 后 snapshot——ended_at / token 两值 = 终态行值（some 才覆写
++/// 正向半边）。
++#[tokio::test]
++async fn accumulate_node_ended与token终态行值覆写() {
++    let control = Arc::new(ChangeFlowControl::new());
++    let guard = control
++        .begin_run(ROOT, CHANGE_ID, "run-1".to_owned(), STARTED_AT)
++        .unwrap();
++    guard.emit(RunUpdate::Step {
++        step: metrics_step(
++            "implement",
++            2,
++            ChangeStepKind::Executor,
++            0,
++            ChangeStepStatus::Running,
++            STARTED_AT,
++            None,
++            None,
++            None,
++        ),
++    });
++    guard.emit(RunUpdate::Step {
++        step: metrics_step(
++            "implement",
++            2,
++            ChangeStepKind::Executor,
++            0,
++            ChangeStepStatus::Passed,
++            STARTED_AT,
++            Some(STARTED_AT + 5_000),
++            Some(12_000),
++            Some(3_400),
++        ),
++    });
++    let snap = control.snapshot(ROOT, CHANGE_ID).unwrap();
++    assert_eq!(snap.nodes[0].ended_at, Some(STARTED_AT + 5_000));
++    assert_eq!(snap.nodes[0].token_input, Some(12_000));
++    assert_eq!(snap.nodes[0].token_output, Some(3_400));
++    assert_eq!(snap.nodes[0].status, ChangeStepStatus::Passed);
++}
++
++/// 正向：瞬步单 emit（首见即终态行）→ 节点 started == ended 自然成立（无需
++/// 区分首 emit 是否终态，D4）。
++#[tokio::test]
++async fn accumulate_node_瞬步单emit首见即真值() {
++    let control = Arc::new(ChangeFlowControl::new());
++    let guard = control
++        .begin_run(ROOT, CHANGE_ID, "run-1".to_owned(), STARTED_AT)
++        .unwrap();
++    guard.emit(RunUpdate::Step {
++        step: metrics_step(
++            "implement",
++            2,
++            ChangeStepKind::PhaseStart,
++            0,
++            ChangeStepStatus::Passed,
++            STARTED_AT,
++            Some(STARTED_AT),
++            None,
++            None,
++        ),
++    });
++    let snap = control.snapshot(ROOT, CHANGE_ID).unwrap();
++    assert_eq!(snap.nodes.len(), 1);
++    assert_eq!(snap.nodes[0].started_at, STARTED_AT);
++    assert_eq!(snap.nodes[0].ended_at, Some(STARTED_AT), "瞬步同刻自然成立");
++}
++
++/// 正向：多键混排（phase / attempt / step / instanceNo 各异）→ 各键独立合并
++/// 不串扰。
++#[tokio::test]
++async fn accumulate_node_多键混排独立合并不串扰() {
++    let control = Arc::new(ChangeFlowControl::new());
++    let guard = control
++        .begin_run(ROOT, CHANGE_ID, "run-1".to_owned(), STARTED_AT)
++        .unwrap();
++    // 键甲（implement:1:executor:0）running → 终态；键乙（instance_no=1）
++    // running；键丙（test-gen:1:phaseStart:0）终态单 emit
++    guard.emit(RunUpdate::Step {
++        step: metrics_step(
++            "implement",
++            1,
++            ChangeStepKind::Executor,
++            0,
++            ChangeStepStatus::Running,
++            STARTED_AT,
++            None,
++            None,
++            None,
++        ),
++    });
++    guard.emit(RunUpdate::Step {
++        step: metrics_step(
++            "implement",
++            1,
++            ChangeStepKind::Executor,
++            1,
++            ChangeStepStatus::Running,
++            STARTED_AT + 100,
++            None,
++            None,
++            None,
++        ),
++    });
++    guard.emit(RunUpdate::Step {
++        step: metrics_step(
++            "implement",
++            1,
++            ChangeStepKind::Executor,
++            0,
++            ChangeStepStatus::Passed,
++            STARTED_AT,
++            Some(STARTED_AT + 500),
++            Some(10),
++            Some(20),
++        ),
++    });
++    guard.emit(RunUpdate::Step {
++        step: metrics_step(
++            "test-gen",
++            1,
++            ChangeStepKind::PhaseStart,
++            0,
++            ChangeStepStatus::Passed,
++            STARTED_AT + 900,
++            Some(STARTED_AT + 900),
++            None,
++            None,
++        ),
++    });
++    let snap = control.snapshot(ROOT, CHANGE_ID).unwrap();
++    assert_eq!(snap.nodes.len(), 3, "三键三节点（合并仅同键就地）");
++    assert_eq!(snap.nodes[0].started_at, STARTED_AT, "键甲 started 首见");
++    assert_eq!(snap.nodes[0].token_input, Some(10), "键甲终态 token 落值");
++    assert_eq!(
++        snap.nodes[1].started_at,
++        STARTED_AT + 100,
++        "键乙不受键甲终态行波及"
++    );
++    assert_eq!(snap.nodes[1].ended_at, None, "键乙仍在途");
++    assert_eq!(snap.nodes[2].started_at, STARTED_AT + 900, "键丙独立");
++    assert_eq!(snap.nodes[2].ended_at, Some(STARTED_AT + 900));
++}
++
++/// 边界：终态行 ended_at / token 全 None（running 残留收口形态）→ snapshot
++/// 保持首见 None（None 不覆写半边）。
++#[tokio::test]
++async fn accumulate_node_终态行全none不覆写首见() {
++    let control = Arc::new(ChangeFlowControl::new());
++    let guard = control
++        .begin_run(ROOT, CHANGE_ID, "run-1".to_owned(), STARTED_AT)
++        .unwrap();
++    guard.emit(RunUpdate::Step {
++        step: metrics_step(
++            "implement",
++            2,
++            ChangeStepKind::Executor,
++            0,
++            ChangeStepStatus::Running,
++            STARTED_AT,
++            None,
++            None,
++            None,
++        ),
++    });
++    // 终态行全 None（崩溃残留收口形态——终态 emit 时间字段缺席的防御形态）
++    guard.emit(RunUpdate::Step {
++        step: metrics_step(
++            "implement",
++            2,
++            ChangeStepKind::Executor,
++            0,
++            ChangeStepStatus::Passed,
++            STARTED_AT,
++            None,
++            None,
++            None,
++        ),
++    });
++    let snap = control.snapshot(ROOT, CHANGE_ID).unwrap();
++    assert_eq!(
++        snap.nodes[0].status,
++        ChangeStepStatus::Passed,
++        "状态覆写不受 None 门限"
++    );
++    assert_eq!(
++        snap.nodes[0].ended_at, None,
++        "ended None 不覆写（首见 None 保持）"
++    );
++    assert_eq!(snap.nodes[0].token_input, None);
++    assert_eq!(snap.nodes[0].token_output, None);
++}
++
++/// 边界：终态行 token 单侧在场（input Some / output None）→ 在场侧覆写、
++/// 缺席侧保首见。
++#[tokio::test]
++async fn accumulate_node_token单侧在场单侧覆写() {
++    let control = Arc::new(ChangeFlowControl::new());
++    let guard = control
++        .begin_run(ROOT, CHANGE_ID, "run-1".to_owned(), STARTED_AT)
++        .unwrap();
++    // 首见：input None / output Some(60)
++    guard.emit(RunUpdate::Step {
++        step: metrics_step(
++            "implement",
++            2,
++            ChangeStepKind::Executor,
++            0,
++            ChangeStepStatus::Running,
++            STARTED_AT,
++            None,
++            None,
++            Some(60),
++        ),
++    });
++    // 终态：input Some(12_000) / output None → input 覆写、output 保首见
++    guard.emit(RunUpdate::Step {
++        step: metrics_step(
++            "implement",
++            2,
++            ChangeStepKind::Executor,
++            0,
++            ChangeStepStatus::Passed,
++            STARTED_AT,
++            Some(STARTED_AT + 1_000),
++            Some(12_000),
++            None,
++        ),
++    });
++    let snap = control.snapshot(ROOT, CHANGE_ID).unwrap();
++    assert_eq!(snap.nodes[0].token_input, Some(12_000), "在场侧覆写");
++    assert_eq!(snap.nodes[0].token_output, Some(60), "缺席侧保首见");
++}
++
++/// 边界：同键三 emit 序列（running → running 重发 → 终态）→ started 仍首见、
++/// ended 取终态值（AC-4「同键多 emit 后快照与合并规则一致」）。
++#[tokio::test]
++async fn accumulate_node_三emit序列started仍首见ended取终态值() {
++    let control = Arc::new(ChangeFlowControl::new());
++    let guard = control
++        .begin_run(ROOT, CHANGE_ID, "run-1".to_owned(), STARTED_AT)
++        .unwrap();
++    guard.emit(RunUpdate::Step {
++        step: metrics_step(
++            "implement",
++            2,
++            ChangeStepKind::Executor,
++            0,
++            ChangeStepStatus::Running,
++            STARTED_AT,
++            None,
++            None,
++            None,
++        ),
++    });
++    guard.emit(RunUpdate::Step {
++        step: metrics_step(
++            "implement",
++            2,
++            ChangeStepKind::Executor,
++            0,
++            ChangeStepStatus::Running,
++            STARTED_AT + 7,
++            None,
++            None,
++            None,
++        ),
++    });
++    guard.emit(RunUpdate::Step {
++        step: metrics_step(
++            "implement",
++            2,
++            ChangeStepKind::Executor,
++            0,
++            ChangeStepStatus::Failed,
++            STARTED_AT + 8,
++            Some(STARTED_AT + 2_000),
++            None,
++            None,
++        ),
++    });
++    let snap = control.snapshot(ROOT, CHANGE_ID).unwrap();
++    assert_eq!(snap.nodes.len(), 1, "三 emit 一节点");
++    assert_eq!(snap.nodes[0].started_at, STARTED_AT, "started 仍首见");
++    assert_eq!(
++        snap.nodes[0].ended_at,
++        Some(STARTED_AT + 2_000),
++        "ended 取终态行值"
++    );
++    assert_eq!(snap.nodes[0].status, ChangeStepStatus::Failed);
++}
++
++/// 异常：终态行携逆序时间（ended < started）→ 原样覆写零改写（合并不做语义
++/// 校验——防御值直透）。
++#[tokio::test]
++async fn accumulate_node_逆序时间原样覆写零改写() {
++    let control = Arc::new(ChangeFlowControl::new());
++    let guard = control
++        .begin_run(ROOT, CHANGE_ID, "run-1".to_owned(), STARTED_AT)
++        .unwrap();
++    guard.emit(RunUpdate::Step {
++        step: metrics_step(
++            "implement",
++            2,
++            ChangeStepKind::Executor,
++            0,
++            ChangeStepStatus::Running,
++            STARTED_AT + 10_000,
++            None,
++            None,
++            None,
++        ),
++    });
++    guard.emit(RunUpdate::Step {
++        step: metrics_step(
++            "implement",
++            2,
++            ChangeStepKind::Executor,
++            0,
++            ChangeStepStatus::Passed,
++            STARTED_AT + 10_000,
++            Some(STARTED_AT),
++            None,
++            None,
++        ),
++    });
++    let snap = control.snapshot(ROOT, CHANGE_ID).unwrap();
++    assert_eq!(
++        snap.nodes[0].ended_at,
++        Some(STARTED_AT),
++        "逆序 ended 原样覆写（合并不校验不修正）"
++    );
++    assert_eq!(
++        snap.nodes[0].started_at,
++        STARTED_AT + 10_000,
++        "started 首见不被逆序行顶替"
++    );
++}
++
++/// 异常：首见行即终态且 ended None → started 落值、ended None（合并层不铸造
++/// 不补值——构造值直透）。
++#[tokio::test]
++async fn accumulate_node_首见终态无ended零补值() {
++    let control = Arc::new(ChangeFlowControl::new());
++    let guard = control
++        .begin_run(ROOT, CHANGE_ID, "run-1".to_owned(), STARTED_AT)
++        .unwrap();
++    guard.emit(RunUpdate::Step {
++        step: metrics_step(
++            "implement",
++            2,
++            ChangeStepKind::Executor,
++            0,
++            ChangeStepStatus::Stopped,
++            STARTED_AT + 42,
++            None,
++            None,
++            None,
++        ),
++    });
++    let snap = control.snapshot(ROOT, CHANGE_ID).unwrap();
++    assert_eq!(snap.nodes[0].status, ChangeStepStatus::Stopped);
++    assert_eq!(
++        snap.nodes[0].started_at,
++        STARTED_AT + 42,
++        "started 构造值直透落值"
++    );
++    assert_eq!(snap.nodes[0].ended_at, None, "ended 首见 None 零补值零铸造");
++}
+diff --git a/crates/core/orchestration/src/run_history.rs b/crates/core/orchestration/src/run_history.rs
+index 1255b8ef9f09..be17ba149297 100644
+--- a/crates/core/orchestration/src/run_history.rs
++++ b/crates/core/orchestration/src/run_history.rs
+@@ -58,8 +58,8 @@ fn persisted_edge_kind(kind: EdgeKind) -> RunEdgeKind {
+ /// run 收口写命令组装（walker 终态出口单点消费）：累积器节点快照（全词汇 emit
+ /// 序，稳定身份键）直映射 `RunNodeEntry` 整包（**零过滤**），边快照直映射
+ /// `RunEdgeEntry` 整包（端点身份串 = `"{phase}:{attempt}:{step}:{instance_no}"`）；
+-/// session_id / detail / output_ref 透传；`finished_at` 命令携带（整包同刻，
+-/// corpus 确定性）。
++/// session_id / detail / output_ref 与步级起止时间、token 四字段透传；
++/// `finished_at` 命令携带（整包同刻，corpus 确定性）。
+ pub fn finish_command(
+     request: &RunRequest,
+     status: ChangeRunStatus,
+@@ -79,6 +79,10 @@ pub fn finish_command(
+             session_id: node.session_id.clone(),
+             detail: node.detail.clone(),
+             output_ref: node.output_ref.clone(),
++            started_at: node.started_at,
++            ended_at: node.ended_at,
++            token_input: node.token_input,
++            token_output: node.token_output,
+         })
+         .collect();
+     let edge_entries: Vec<RunEdgeEntry> = edges
+diff --git a/crates/core/orchestration/src/run_history_test.rs b/crates/core/orchestration/src/run_history_test.rs
+index 205572ab383f..2adac376ac96 100644
+--- a/crates/core/orchestration/src/run_history_test.rs
++++ b/crates/core/orchestration/src/run_history_test.rs
+@@ -60,6 +60,10 @@ fn step(
+         session_id: session_id.map(str::to_owned),
+         detail: None,
+         output_ref: None,
++        started_at: STARTED_AT,
++        ended_at: None,
++        token_input: None,
++        token_output: None,
+     }
+ }
+ 
+@@ -191,7 +195,11 @@ fn 全词汇直映射二十值零过滤() {
+         &[],
+     );
+ 
+-    assert_eq!(command.nodes.len(), 20, "二十值全词汇零过滤（cleanup 节点在案）");
++    assert_eq!(
++        command.nodes.len(),
++        20,
++        "二十值全词汇零过滤（cleanup 节点在案）"
++    );
+     for (index, (_, expect)) in all.iter().enumerate() {
+         assert_eq!(command.nodes[index].step, *expect, "第 {index} 词汇直映射");
+     }
+@@ -656,3 +664,220 @@ fn store_run_history_port契约send_sync() {
+     assert_send_sync::<StoreRunHistory>();
+     assert_send_sync::<Arc<dyn RunHistoryPort>>();
+ }
++
++// ---------------------------------------------------------------------------
++// desktop-step-running-snapshot（AC-1 / AC-2 / AC-4）：finish_command 节点四
++// 字段（started_at / ended_at / token_input / token_output）直复制——零过滤
++// 零改写零铸造（时间与 token 铸造归 walker emit_node 单点，组装面纯复制）
++// ---------------------------------------------------------------------------
++
++/// 全值节点 fixture（四字段全值形态——StartedAt 定值 / ended +200_000 /
++/// token 12_000 与 3_400，D10 词面断言同源定值）。
++fn full_metrics_step(kind: ChangeStepKind) -> ChangeStepState {
++    let mut node = step(kind, ChangeStepStatus::Passed, Some("ses-1"));
++    node.detail = Some("实现完成".to_owned());
++    node.started_at = STARTED_AT;
++    node.ended_at = Some(STARTED_AT + 200_000);
++    node.token_input = Some(12_000);
++    node.token_output = Some(3_400);
++    node
++}
++
++/// 正向：节点四字段全值 → `RunNodeEntry` 逐字段等值直复制（单节点）。
++#[test]
++fn finish_command节点四字段全值逐字段直复制() {
++    let worker = full_metrics_step(ChangeStepKind::Executor);
++    let command = finish_command(
++        &request(),
++        ChangeRunStatus::Completed,
++        None,
++        STARTED_AT + 400_000,
++        std::slice::from_ref(&worker),
++        &[],
++    );
++    assert_eq!(command.nodes.len(), 1);
++    let entry = &command.nodes[0];
++    assert_eq!(entry.started_at, STARTED_AT, "started_at 直复制");
++    assert_eq!(
++        entry.ended_at,
++        Some(STARTED_AT + 200_000),
++        "ended_at 直复制"
++    );
++    assert_eq!(entry.token_input, Some(12_000), "token_input 直复制");
++    assert_eq!(entry.token_output, Some(3_400), "token_output 直复制");
++    assert_eq!(entry.session_id.as_deref(), Some("ses-1"));
++    assert_eq!(entry.detail.as_deref(), Some("实现完成"));
++}
++
++/// 正向：多节点混排（WorkerAgent / 工具 / Gate / Git 步）→ 四字段各自直复制、
++/// 整包序 = 入参序。
++#[test]
++fn finish_command多节点混排四字段各自直复制整包序保持入参序() {
++    let worker = full_metrics_step(ChangeStepKind::Executor);
++    let tool = step(ChangeStepKind::StaticCheck, ChangeStepStatus::Passed, None);
++    let gate = step(ChangeStepKind::VerdictGate, ChangeStepStatus::Passed, None);
++    let mut git = step(ChangeStepKind::Commit, ChangeStepStatus::Passed, None);
++    git.started_at = STARTED_AT + 10;
++    git.ended_at = Some(STARTED_AT + 20);
++    let command = finish_command(
++        &request(),
++        ChangeRunStatus::Completed,
++        None,
++        STARTED_AT + 30,
++        &[worker, tool, gate, git],
++        &[],
++    );
++    assert_eq!(command.nodes.len(), 4, "整包序 = 入参序（零过滤零重排）");
++    assert_eq!(
++        command.nodes[0].step,
++        workflow::state::RunStepKind::Executor
++    );
++    assert_eq!(command.nodes[0].token_input, Some(12_000));
++    assert_eq!(
++        command.nodes[1].step,
++        workflow::state::RunStepKind::StaticCheck
++    );
++    assert_eq!(command.nodes[1].token_input, None, "工具步 token None 直透");
++    assert_eq!(
++        command.nodes[2].step,
++        workflow::state::RunStepKind::VerdictGate
++    );
++    assert_eq!(
++        command.nodes[2].token_output, None,
++        "Gate 步 token None 直透"
++    );
++    assert_eq!(command.nodes[3].step, workflow::state::RunStepKind::Commit);
++    assert_eq!(command.nodes[3].started_at, STARTED_AT + 10);
++    assert_eq!(command.nodes[3].ended_at, Some(STARTED_AT + 20));
++}
++
++/// 边界：token 两值与 ended_at 全 None（工具步 / Gate 形态）→ None 直透
++///（不铸造不默认——组装面零铸造单点锚）。
++#[test]
++fn finish_command全none字段直透不铸造不默认() {
++    let gate = step(
++        ChangeStepKind::WhitelistGate,
++        ChangeStepStatus::Stopped,
++        None,
++    );
++    assert_eq!(gate.ended_at, None, "fixture 形态：ended / token 全 None");
++    let command = finish_command(
++        &request(),
++        ChangeRunStatus::Stopped,
++        None,
++        STARTED_AT,
++        std::slice::from_ref(&gate),
++        &[],
++    );
++    assert_eq!(command.nodes[0].ended_at, None, "ended None 直透");
++    assert_eq!(command.nodes[0].token_input, None);
++    assert_eq!(command.nodes[0].token_output, None);
++}
++
++/// 边界：started_at = 0（缺席语义值）→ 原样复制零改写。
++#[test]
++fn finish_command_started_at零值原样复制零改写() {
++    let mut zero = step(ChangeStepKind::Executor, ChangeStepStatus::Running, None);
++    zero.started_at = 0;
++    let command = finish_command(
++        &request(),
++        ChangeRunStatus::Stopped,
++        None,
++        STARTED_AT,
++        std::slice::from_ref(&zero),
++        &[],
++    );
++    assert_eq!(command.nodes[0].started_at, 0, "0 缺席语义值原样直复制");
++}
++
++/// 异常：running 残留步入包（status=Running、ended_at=None）→ None 直透不补
++/// 值不报错（收口在途步合法形态——收口在途步可留 running）。
++#[test]
++fn finish_command_running残留步none直透不补值不报错() {
++    let running = step(
++        ChangeStepKind::Evaluator,
++        ChangeStepStatus::Running,
++        Some("ses-2"),
++    );
++    let command = finish_command(
++        &request(),
++        ChangeRunStatus::Stopped,
++        None,
++        STARTED_AT,
++        std::slice::from_ref(&running),
++        &[],
++    );
++    assert_eq!(
++        command.nodes[0].status,
++        workflow::state::RunStepStatus::Running,
++        "running 状态原样落包"
++    );
++    assert_eq!(command.nodes[0].ended_at, None, "在途步 ended None 不补值");
++    assert_eq!(command.nodes[0].token_input, None);
++}
++
++/// 异常：瞬步 started_at == ended_at 同刻值 → 两字段独立直复制（互不推导不
++/// 合并——单 emit 瞬步同刻形态）。
++#[test]
++fn finish_command瞬步同刻两字段独立直复制() {
++    let mut instant = step(ChangeStepKind::PhaseStart, ChangeStepStatus::Passed, None);
++    instant.started_at = STARTED_AT + 5_000;
++    instant.ended_at = Some(STARTED_AT + 5_000);
++    let command = finish_command(
++        &request(),
++        ChangeRunStatus::Completed,
++        None,
++        STARTED_AT + 6_000,
++        std::slice::from_ref(&instant),
++        &[],
++    );
++    assert_eq!(command.nodes[0].started_at, STARTED_AT + 5_000);
++    assert_eq!(
++        command.nodes[0].ended_at,
++        Some(STARTED_AT + 5_000),
++        "同刻值独立直复制（零推导零合并）"
++    );
++}
++
++/// 组合（透传链上半程锚，AC-1）：四字段经 finish_command 组装后喂 store 落库
++///（`finish_change_run` 内部即 `RunNodeRecord::new` 消费点——下半程见
++/// model_test.rs 节）→ `list_run_nodes` 读回与源 `ChangeStepState` 逐字段一致。
++#[test]
++fn finish_command四字段经落库读回与源步状态行逐字段一致() {
++    let db = TestDb::open("four-field-chain");
++    let history =
++        StoreRunHistory::new(Arc::clone(&db.store) as Arc<dyn workflow::state::ChangeStateStore>);
++    history
++        .run_started(&RunStartCommand {
++            run_id: RUN_ID.to_owned(),
++            change_id: CHANGE_ID.to_owned(),
++            started_at: STARTED_AT,
++        })
++        .expect("run_started 应成功");
++
++    let source = full_metrics_step(ChangeStepKind::Executor);
++    let command = finish_command(
++        &request(),
++        ChangeRunStatus::Completed,
++        None,
++        STARTED_AT + 300_000,
++        std::slice::from_ref(&source),
++        &[],
++    );
++    history.run_finished(&command).expect("run_finished 应成功");
++
++    let rows = db
++        .store
++        .list_run_nodes(RUN_ID)
++        .expect("list_run_nodes 应成功");
++    assert_eq!(rows.len(), 1);
++    assert_eq!(rows[0].started_at, source.started_at);
++    assert_eq!(rows[0].ended_at, source.ended_at);
++    assert_eq!(rows[0].token_input, source.token_input);
++    assert_eq!(rows[0].token_output, source.token_output);
++    assert_eq!(
++        rows[0].timestamp,
++        STARTED_AT + 300_000,
++        "整包同刻 = finished_at"
++    );
++}
+diff --git a/crates/core/orchestration/src/state.rs b/crates/core/orchestration/src/state.rs
+index df98c6b407ef..b588632c8c1e 100644
+--- a/crates/core/orchestration/src/state.rs
++++ b/crates/core/orchestration/src/state.rs
+@@ -145,6 +145,18 @@ pub struct ChangeStepState {
+     pub detail: Option<String>,
+     /// 全量输出引用（`ExecOutput::Recorded { exec_id }`；Transient 恒 None）
+     pub output_ref: Option<String>,
++    /// 步开始时刻（UTC unix 毫秒，与域内 `now_millis()` 同源口径）——running
++    /// emit 铸造；`accumulate_node` 合并无条件保首见（终态 emit 携带的同刻值
++    /// 被丢弃，瞬步单 emit 首见即真值）
++    pub started_at: i64,
++    /// 步收口时刻（UTC unix 毫秒；running 恒 None，崩溃残留步终态 emit 未达
++    /// 恒 None）——终态 emit 铸造；`accumulate_node` 合并 some 才覆写
++    pub ended_at: Option<i64>,
++    /// 本步 turn token 增量（`TurnDone.usage` 求和；仅 WorkerAgent 步终态有值，
++    /// 缺席合法缺省）；`accumulate_node` 合并 some 才覆写
++    pub token_input: Option<u64>,
++    /// 本步 turn token 增量（输出向；口径同 [`ChangeStepState::token_input`]）
++    pub token_output: Option<u64>,
+ }
+ 
+ /// 执行图节点身份键：`(phase, attempt, step, instance_no)`。
+diff --git a/crates/core/orchestration/src/state_test.rs b/crates/core/orchestration/src/state_test.rs
+index a174fee886e1..3cbe40d9b2e9 100644
+--- a/crates/core/orchestration/src/state_test.rs
++++ b/crates/core/orchestration/src/state_test.rs
+@@ -45,6 +45,10 @@ fn sample_step() -> ChangeStepState {
+         session_id: None,
+         detail: None,
+         output_ref: None,
++        started_at: 1_726_000_000_000,
++        ended_at: None,
++        token_input: None,
++        token_output: None,
+     }
+ }
+ 
+@@ -376,7 +380,10 @@ fn change_step_kind二十值词汇线格式逐字且四类可辨() {
+ 
+     // 身份串词面与 workflow 落库侧 `RunStepKind::as_str()` 逐字同源
+     for (kind, step_kind) in [
+-        (ChangeStepKind::Preflight, workflow::state::RunStepKind::Preflight),
++        (
++            ChangeStepKind::Preflight,
++            workflow::state::RunStepKind::Preflight,
++        ),
+         (ChangeStepKind::Commit, workflow::state::RunStepKind::Commit),
+         (ChangeStepKind::Rebase, workflow::state::RunStepKind::Rebase),
+         (
+@@ -384,7 +391,10 @@ fn change_step_kind二十值词汇线格式逐字且四类可辨() {
+             workflow::state::RunStepKind::ResolveConflicts,
+         ),
+         (ChangeStepKind::Merge, workflow::state::RunStepKind::Merge),
+-        (ChangeStepKind::SpecSync, workflow::state::RunStepKind::SpecSync),
++        (
++            ChangeStepKind::SpecSync,
++            workflow::state::RunStepKind::SpecSync,
++        ),
+         (
+             ChangeStepKind::Cleanup,
+             workflow::state::RunStepKind::Cleanup,
+@@ -423,9 +433,13 @@ fn change_step_state四档状态与缺省字段往返无损() {
+             "status": "running",
+             "sessionId": null,
+             "detail": null,
+-            "outputRef": null
++            "outputRef": null,
++            "startedAt": 1_726_000_000_000_i64,
++            "endedAt": null,
++            "tokenInput": null,
++            "tokenOutput": null
+         }),
+-        "步状态行八字段 camelCase 线面（instanceNo / outputRef 增补）"
++        "步状态行十二字段 camelCase 线面（步级时间与 token 增补）"
+     );
+ 
+     // 有值形态 serde 往返无损
+@@ -438,6 +452,10 @@ fn change_step_state四档状态与缺省字段往返无损() {
+         session_id: Some("sess-9".to_owned()),
+         detail: Some("会话失败收敛".to_owned()),
+         output_ref: None,
++        started_at: 1_726_000_000_000,
++        ended_at: Some(1_726_000_005_000),
++        token_input: Some(1200),
++        token_output: Some(300),
+     };
+     let text = serde_json::to_string(&full).expect("出线应成功");
+     let back: ChangeStepState = serde_json::from_str(&text).expect("往返应成功");
+@@ -628,6 +646,10 @@ fn 步状态行携testexecution步经run_update出线() {
+         session_id: None,
+         detail: None,
+         output_ref: None,
++        started_at: 1_726_000_000_000,
++        ended_at: None,
++        token_input: None,
++        token_output: None,
+     };
+     let value = serde_json::to_value(&RunUpdate::Step {
+         step: running.clone(),
+@@ -790,6 +812,10 @@ fn 快照扩面_startedat与nodes全词汇camelcase出线() {
+             session_id: Some("ses-1".to_owned()),
+             detail: Some("实现完成".to_owned()),
+             output_ref: None,
++            started_at: 1_726_000_000_000,
++            ended_at: Some(1_726_000_060_000),
++            token_input: Some(12_000),
++            token_output: Some(3_000),
+         },
+         ChangeStepState {
+             phase: "implement".to_owned(),
+@@ -800,6 +826,10 @@ fn 快照扩面_startedat与nodes全词汇camelcase出线() {
+             session_id: None,
+             detail: None,
+             output_ref: None,
++            started_at: 1_726_000_060_000,
++            ended_at: Some(1_726_000_062_000),
++            token_input: None,
++            token_output: None,
+         },
+         ChangeStepState {
+             phase: "test-execution".to_owned(),
+@@ -810,6 +840,10 @@ fn 快照扩面_startedat与nodes全词汇camelcase出线() {
+             session_id: None,
+             detail: None,
+             output_ref: None,
++            started_at: 1_726_000_062_000,
++            ended_at: None,
++            token_input: None,
++            token_output: None,
+         },
+         ChangeStepState {
+             phase: "dev-design".to_owned(),
+@@ -820,6 +854,10 @@ fn 快照扩面_startedat与nodes全词汇camelcase出线() {
+             session_id: None,
+             detail: None,
+             output_ref: None,
++            started_at: 1_726_000_062_000,
++            ended_at: Some(1_726_000_062_000),
++            token_input: None,
++            token_output: None,
+         },
+         ChangeStepState {
+             phase: "dev-design".to_owned(),
+@@ -830,6 +868,10 @@ fn 快照扩面_startedat与nodes全词汇camelcase出线() {
+             session_id: None,
+             detail: None,
+             output_ref: None,
++            started_at: 1_726_000_062_000,
++            ended_at: Some(1_726_000_063_000),
++            token_input: None,
++            token_output: None,
+         },
+     ];
+     let snapshot = ChangeRunSnapshot {
+@@ -1235,7 +1277,10 @@ fn archive_preflight缺失必填字段拒绝() {
+     );
+ 
+     let mut no_completed = value.clone();
+-    no_completed.as_object_mut().expect("对象").remove("completed");
++    no_completed
++        .as_object_mut()
++        .expect("对象")
++        .remove("completed");
+     assert!(
+         serde_json::from_value::<ArchivePreflight>(no_completed).is_err(),
+         "缺 completed 必填字段应拒绝"
+@@ -1252,8 +1297,7 @@ fn archive_preflight缺失必填字段拒绝() {
+     // 多余字段被忽略（向前兼容消费）
+     let mut extra = value.clone();
+     extra["futureField"] = json!("ignored");
+-    let back: ArchivePreflight =
+-        serde_json::from_value(extra).expect("多余字段应忽略而不拒绝");
++    let back: ArchivePreflight = serde_json::from_value(extra).expect("多余字段应忽略而不拒绝");
+     assert_eq!(back, sample_preflight());
+ }
+ 
+@@ -1434,7 +1478,10 @@ fn change_step_kind与run_step_kind二十对同源对拍() {
+         (ChangeStepKind::Preflight, RunStepKind::Preflight),
+         (ChangeStepKind::Commit, RunStepKind::Commit),
+         (ChangeStepKind::Rebase, RunStepKind::Rebase),
+-        (ChangeStepKind::ResolveConflicts, RunStepKind::ResolveConflicts),
++        (
++            ChangeStepKind::ResolveConflicts,
++            RunStepKind::ResolveConflicts,
++        ),
+         (ChangeStepKind::Merge, RunStepKind::Merge),
+         (ChangeStepKind::SpecSync, RunStepKind::SpecSync),
+         (ChangeStepKind::Cleanup, RunStepKind::Cleanup),
+@@ -1458,3 +1505,165 @@ fn change_step_kind与run_step_kind二十对同源对拍() {
+     snake_words.dedup();
+     assert_eq!(snake_words.len(), total, "双射无两词映一: {snake_words:?}");
+ }
++
++// ---------------------------------------------------------------------------
++// desktop-step-running-snapshot（AC-1）：ChangeStepState 四字段（startedAt /
++// endedAt / tokenInput / tokenOutput）wire 出线——camelCase 四键逐键、Option
++// 缺席 null 不省键、0 值原样、极值保真、往返无损、旧形态拒绝
++// ---------------------------------------------------------------------------
++
++/// 正向：四字段全值步出线 → 线面四 camelCase 键逐键等值（数值口径，AC-1）。
++#[test]
++fn change_step_state四字段全值线面camelcase逐键等值() {
++    let step = ChangeStepState {
++        started_at: 1_727_000_000_000,
++        ended_at: Some(1_727_000_200_000),
++        token_input: Some(12_000),
++        token_output: Some(3_400),
++        ..sample_step()
++    };
++    let value = serde_json::to_value(&step).expect("出线应成功");
++    assert_eq!(
++        value["startedAt"],
++        json!(1_727_000_000_000_i64),
++        "startedAt camelCase 键数值口径"
++    );
++    assert_eq!(value["endedAt"], json!(1_727_000_200_000_i64));
++    assert_eq!(value["tokenInput"], json!(12_000));
++    assert_eq!(value["tokenOutput"], json!(3_400));
++}
++
++/// 正向：`RunUpdate::Step` 变体出线 → `step["step"]` 载荷四键在场（既有
++/// run_update 线面用例随动扩断言——载荷自动跟随）。
++#[test]
++fn run_update_step变体出线携四键载荷自动跟随() {
++    let step = ChangeStepState {
++        started_at: 1_727_000_000_000,
++        ended_at: Some(1_727_000_060_000),
++        token_input: Some(500),
++        token_output: Some(60),
++        ..sample_step()
++    };
++    let value = serde_json::to_value(&RunUpdate::Step { step }).expect("出线应成功");
++    assert_eq!(value["ipc"], json!("step"));
++    assert_eq!(value["step"]["startedAt"], json!(1_727_000_000_000_i64));
++    assert_eq!(value["step"]["endedAt"], json!(1_727_000_060_000_i64));
++    assert_eq!(value["step"]["tokenInput"], json!(500));
++    assert_eq!(value["step"]["tokenOutput"], json!(60));
++}
++
++/// 边界：running 形态（ended_at / token 两值全 None）→ 线面三键 `null` 不省键
++///（与既有 sessionId / detail 同式）。
++#[test]
++fn change_step_state_running形态三键null不省键() {
++    let step = ChangeStepState {
++        status: ChangeStepStatus::Running,
++        started_at: 1_727_000_000_000,
++        ended_at: None,
++        token_input: None,
++        token_output: None,
++        ..sample_step()
++    };
++    let value = serde_json::to_value(&step).expect("出线应成功");
++    assert_eq!(value["endedAt"], json!(null), "endedAt null 留位不省键");
++    assert_eq!(value["tokenInput"], json!(null));
++    assert_eq!(value["tokenOutput"], json!(null));
++    assert!(
++        value.as_object().expect("对象线面").contains_key("endedAt")
++            && value.as_object().unwrap().contains_key("tokenInput")
++            && value.as_object().unwrap().contains_key("tokenOutput"),
++        "三键在场（null 留位不省键）"
++    );
++}
++
++/// 边界：started_at = 0（缺省语义值）→ 线面 `0` 原样（i64 非可选零改写）。
++#[test]
++fn change_step_state_started_at零值线面原样() {
++    let step = ChangeStepState {
++        started_at: 0,
++        ..sample_step()
++    };
++    let value = serde_json::to_value(&step).expect("出线应成功");
++    assert_eq!(value["startedAt"], json!(0), "0 缺席语义值原样出线");
++}
++
++/// 边界：token u64::MAX 邻近值 → 线面数值保真（JSON number 面不截断不 panic）。
++#[test]
++fn change_step_state_token极值线面数值保真() {
++    let step = ChangeStepState {
++        token_input: Some(u64::MAX),
++        token_output: Some(u64::MAX - 1),
++        ..sample_step()
++    };
++    let value = serde_json::to_value(&step).expect("出线应成功");
++    assert_eq!(value["tokenInput"], json!(u64::MAX), "u64::MAX 数值保真");
++    assert_eq!(value["tokenOutput"], json!(u64::MAX - 1));
++}
++
++/// 异常：线面 JSON 回读（`from_value`）→ 四字段逐字段还原（Option `null` →
++/// None 还原无损）。
++#[test]
++fn change_step_state线面回读四字段还原无损() {
++    // 全值形态
++    let full = ChangeStepState {
++        started_at: 1_727_000_000_000,
++        ended_at: Some(1_727_000_200_000),
++        token_input: Some(12_000),
++        token_output: Some(3_400),
++        ..sample_step()
++    };
++    let value = serde_json::to_value(&full).expect("出线应成功");
++    let back: ChangeStepState = serde_json::from_value(value).expect("回读应成功");
++    assert_eq!(back, full, "全值形态往返无损");
++
++    // None 形态：线面 null → None 还原
++    let running = ChangeStepState {
++        status: ChangeStepStatus::Running,
++        started_at: 1_727_000_000_000,
++        ended_at: None,
++        token_input: None,
++        token_output: None,
++        ..sample_step()
++    };
++    let value = serde_json::to_value(&running).expect("出线应成功");
++    assert_eq!(value["endedAt"], json!(null));
++    let back: ChangeStepState = serde_json::from_value(value).expect("回读应成功");
++    assert_eq!(back, running, "None 形态往返无损");
++}
++
++/// 异常：缺四键旧形态 JSON 反序列化 → Err（活面契约无 `#[serde(default)]`——
++/// 旧行兼容仅落库 `RunNodeRecord` 面承载，两载体语义分立锚，AC-5）。
++#[test]
++fn change_step_state缺四键旧形态反序列化拒绝() {
++    let legacy = json!({
++        "phase": "implement",
++        "attempt": 1,
++        "step": "executor",
++        "instanceNo": 0,
++        "status": "passed",
++        "sessionId": null,
++        "detail": null,
++        "outputRef": null
++    });
++    let back: Result<ChangeStepState, _> = serde_json::from_value(legacy);
++    assert!(back.is_err(), "缺四键旧形态应 Err（活面契约无 default）");
++
++    // 拒绝锚 = 非 Option 的 `started_at`（i64 非可选）：仅缺 startedAt 的形态
++    // 亦 Err——活面契约的时间字段恒在场（Option 键缺省 None 由 serde 语义承
++    // 带，非 #[serde(default)] 声明面）
++    let missing_started = json!({
++        "phase": "implement",
++        "attempt": 1,
++        "step": "executor",
++        "instanceNo": 0,
++        "status": "passed",
++        "sessionId": null,
++        "detail": null,
++        "outputRef": null,
++        "endedAt": null,
++        "tokenInput": null,
++        "tokenOutput": null
++    });
++    let back: Result<ChangeStepState, _> = serde_json::from_value(missing_started);
++    assert!(back.is_err(), "缺 startedAt 形态应 Err（i64 非可选）");
++}
+diff --git a/crates/core/orchestration/src/walker.rs b/crates/core/orchestration/src/walker.rs
+index d47435ec298a..4071bd3fb4c4 100644
+--- a/crates/core/orchestration/src/walker.rs
++++ b/crates/core/orchestration/src/walker.rs
+@@ -1,7 +1,7 @@
+ use std::path::Path;
+ use std::sync::Arc;
+ 
+-use agent::{AgentPermissionMode, AgentRunStatus, ModelLevel, SessionProvenance};
++use agent::{sum_usage_tokens, AgentPermissionMode, AgentRunStatus, ModelLevel, SessionProvenance};
+ use foundation::layout::domain_dir_name;
+ use workflow::model::{ChecklistItem, Verdict};
+ use workflow::queries::ChangeDetail;
+@@ -15,10 +15,10 @@ use crate::decision::{
+     ensure_backtrack_allowed, parse_decision, CandidateReport, DecisionAction, DecisionInput,
+ };
+ use crate::port::{
+-    ArchiveVcsPort, MutationSkipReason, MutationTestConclusion, MutationTestOutcome,
+-    RebaseOutcome, RunHistoryPort, StaticCheckOutcome, TestExecutionConclusion,
+-    TestExecutionOutcome, ToolCommand, ToolStepOutput, ToolStepPort, WorkerAgentPort, WorkerRole,
+-    WorkerTurnOutcome, WorkerTurnRequest, WorkflowSnapshotPort, WorktreeSnapshot,
++    ArchiveVcsPort, MutationSkipReason, MutationTestConclusion, MutationTestOutcome, RebaseOutcome,
++    RunHistoryPort, StaticCheckOutcome, TestExecutionConclusion, TestExecutionOutcome, ToolCommand,
++    ToolStepOutput, ToolStepPort, WorkerAgentPort, WorkerRole, WorkerTurnOutcome,
++    WorkerTurnRequest, WorkflowSnapshotPort, WorktreeSnapshot,
+ };
+ use crate::prompt::{
+     decision_prompt, evaluator_prompt, merge_conflict_prompt, spec_sync_prompt, verdict_fix_prompt,
+@@ -377,22 +377,34 @@ fn emit_edge(guard: &RunGuard, from: NodeKey, to: NodeKey, kind: EdgeKind) {
+     });
+ }
+ 
+-/// 步状态行落值（emit 载荷收窄：状态 + 三可选面）。
++/// 步状态行落值（emit 载荷收窄：状态 + 三可选面 + 步级时间与 token 载荷镜像面）。
++/// token 两值为数据随行面（`run_worker` 经 [`StepSettle::with_tokens`] 落值、其余
++/// 步不设即 None）；`started_at` / `ended_at` 两时间字段由 `emit_node` 单点铸造
++/// 覆写——构造器恒中性值（0 / None），MUST NOT 由调用方携带时间。
+ struct StepSettle {
+     status: ChangeStepStatus,
+     session_id: Option<String>,
+     detail: Option<String>,
+     output_ref: Option<String>,
++    started_at: i64,
++    ended_at: Option<i64>,
++    token_input: Option<u64>,
++    token_output: Option<u64>,
+ }
+ 
+ impl StepSettle {
+-    /// 步进行中（无会话 / 详情 / 输出引用）。
++    /// 步进行中（无会话 / 详情 / 输出引用；时间与 token 恒中性——时间由
++    /// `emit_node` 铸造覆写）。
+     fn running() -> Self {
+         Self {
+             status: ChangeStepStatus::Running,
+             session_id: None,
+             detail: None,
+             output_ref: None,
++            started_at: 0,
++            ended_at: None,
++            token_input: None,
++            token_output: None,
+         }
+     }
+ 
+@@ -434,17 +446,34 @@ impl StepSettle {
+         self.output_ref = output_ref;
+         self
+     }
++
++    /// 随行本步 token 增量（in / out 两值；仅 WorkerAgent 步终态落值，缺席
++    /// None）——数据随行面，时间字段不在本 builder 语义内。
++    fn with_tokens(mut self, token_input: Option<u64>, token_output: Option<u64>) -> Self {
++        self.token_input = token_input;
++        self.token_output = token_output;
++        self
++    }
+ }
+ 
+ /// 步状态行 emit（节点累积 + Notice 广播；同稳定身份键的后续 emit 就地合并）。
++/// 步级时间铸造收本单点：全部 44 个调用点零触点覆盖——running emit 铸
++/// `(now, None)`、终态 emit 铸 `(now, Some(now))`（`phaseStart` 等单 emit 瞬步
++/// 自然 `started_at == ended_at` 同刻）；该 started 同刻值是否被采信由
++/// `accumulate_node` 合并侧裁定（started 保首见）。复用既有 `now_millis()` 零新
++/// 时钟缝——收口时刻铸造只在生产路径消费，corpus 确定性由测试直构
++/// `ChangeStepState` 注入定值承载（沿本文件 `now_millis` 既有注释口径）。
+ fn emit_node(
+     guard: &RunGuard,
+     phase: &str,
+     attempt: u32,
+     step: ChangeStepKind,
+     instance_no: u32,
+-    settle: StepSettle,
++    mut settle: StepSettle,
+ ) {
++    let now = now_millis();
++    settle.started_at = now;
++    settle.ended_at = (settle.status != ChangeStepStatus::Running).then_some(now);
+     guard.emit(RunUpdate::Step {
+         step: ChangeStepState {
+             phase: phase.to_owned(),
+@@ -455,6 +484,10 @@ fn emit_node(
+             session_id: settle.session_id,
+             detail: settle.detail,
+             output_ref: settle.output_ref,
++            started_at: settle.started_at,
++            ended_at: settle.ended_at,
++            token_input: settle.token_input,
++            token_output: settle.token_output,
+         },
+     });
+ }
+@@ -1289,7 +1322,10 @@ async fn step_phase_log(
+             cursor.attempt,
+             ChangeStepKind::PhaseLog,
+             instance_no,
+-            StepSettle::passed(Some(format!("attempt {} 已落账（空 checklist）", logged.attempt))),
++            StepSettle::passed(Some(format!(
++                "attempt {} 已落账（空 checklist）",
++                logged.attempt
++            ))),
+         );
+         cursor.failed = false;
+         return Ok(());
+@@ -1541,7 +1577,9 @@ fn mutation_evidence(mutation: Option<&MutationTestOutcome>) -> String {
+                 outcome.score, outcome.threshold
+             ),
+             Some(MutationSkipReason::EmptyDiff) => "diff 空跳过".to_owned(),
+-            Some(MutationSkipReason::NoExecutor) => "null（未跑）：全部 suite 无突变执行器".to_owned(),
++            Some(MutationSkipReason::NoExecutor) => {
++                "null（未跑）：全部 suite 无突变执行器".to_owned()
++            }
+         },
+         None => "null（未跑）".to_owned(),
+     }
+@@ -1775,7 +1813,14 @@ fn settle_archive_node(
+     instance_no: u32,
+     settle: StepSettle,
+ ) {
+-    emit_node(ctx.guard, ctx.phase, cursor.attempt, kind, instance_no, settle);
++    emit_node(
++        ctx.guard,
++        ctx.phase,
++        cursor.attempt,
++        kind,
++        instance_no,
++        settle,
++    );
+ }
+ 
+ /// 归档步前置载荷读取（`(name, worktree)`）：缺位即计划图漂移（Preflight 步未
+@@ -1862,7 +1907,13 @@ async fn step_preflight(
+         }
+     }
+     let brief = preflight_brief(&payload);
+-    settle_archive_node(ctx, cursor, kind, instance_no, StepSettle::passed(Some(brief)));
++    settle_archive_node(
++        ctx,
++        cursor,
++        kind,
++        instance_no,
++        StepSettle::passed(Some(brief)),
++    );
+     cursor.preflight = Some(payload);
+     Ok(())
+ }
+@@ -1890,7 +1941,10 @@ fn preflight_brief(payload: &ArchivePreflight) -> String {
+     if payload.worktree.is_some() {
+         notes.push(format!(
+             "合入目标：{}",
+-            payload.merge_target.as_deref().unwrap_or("（当前分支探测失败）")
++            payload
++                .merge_target
++                .as_deref()
++                .unwrap_or("（当前分支探测失败）")
+         ));
+     }
+     if notes.is_empty() {
+@@ -2016,13 +2070,7 @@ async fn step_rebase(
+                             )))
+                         }
+                         Err(error) => {
+-                            return Err(fail_archive_node(
+-                                ctx,
+-                                cursor,
+-                                kind,
+-                                instance_no,
+-                                error,
+-                            ))
++                            return Err(fail_archive_node(ctx, cursor, kind, instance_no, error))
+                         }
+                     }
+                 }
+@@ -2176,7 +2224,14 @@ async fn step_resolve_conflicts(
+                     trace,
+                     cursor,
+                     kind,
+-                    lean_converge(ctx, worktree_path, &branch, &pending, LEAN_PROBE_FAILED, false),
++                    lean_converge(
++                        ctx,
++                        worktree_path,
++                        &branch,
++                        &pending,
++                        LEAN_PROBE_FAILED,
++                        false,
++                    ),
+                 ))
+             }
+         };
+@@ -2208,14 +2263,7 @@ async fn step_resolve_conflicts(
+                 trace,
+                 cursor,
+                 kind,
+-                lean_converge(
+-                    ctx,
+-                    worktree_path,
+-                    &branch,
+-                    &pending,
+-                    reason,
+-                    stopped_note,
+-                ),
++                lean_converge(ctx, worktree_path, &branch, &pending, reason, stopped_note),
+             ));
+         }
+         // 后验序：残留标记 fs 扫描（locale 免疫）→ B 快照 → 状态面对比
+@@ -2236,7 +2284,14 @@ async fn step_resolve_conflicts(
+                     trace,
+                     cursor,
+                     kind,
+-                    lean_converge(ctx, worktree_path, &branch, &pending, LEAN_PROBE_FAILED, false),
++                    lean_converge(
++                        ctx,
++                        worktree_path,
++                        &branch,
++                        &pending,
++                        LEAN_PROBE_FAILED,
++                        false,
++                    ),
+                 ))
+             }
+         };
+@@ -2260,7 +2315,9 @@ async fn step_resolve_conflicts(
+                     trace,
+                     cursor,
+                     kind,
+-                    format!("{error}；冲突解算已验通过但 rebase 续走失败：{TXT_REBASE_CONTINUE_GUIDE}"),
++                    format!(
++                        "{error}；冲突解算已验通过但 rebase 续走失败：{TXT_REBASE_CONTINUE_GUIDE}"
++                    ),
+                 ))
+             }
+         }
+@@ -2696,8 +2753,12 @@ async fn resolve_deadlock(
+     trace: &mut EdgeTrace,
+ ) -> Deadlock {
+     let (fail_phase, eval_only) = match error {
+-        PhaseNextError::MaxRetriesExceeded { phase, eval_only, .. }
+-        | PhaseNextError::VerdictFail { phase, eval_only, .. } => (phase, *eval_only),
++        PhaseNextError::MaxRetriesExceeded {
++            phase, eval_only, ..
++        }
++        | PhaseNextError::VerdictFail {
++            phase, eval_only, ..
++        } => (phase, *eval_only),
+     };
+     if next.last_result.is_none() {
+         return Deadlock::Terminal(Terminal::failed(
+@@ -3032,6 +3093,13 @@ async fn run_worker(
+             return Err(Terminal::failed(format!("会话执行失败: {error}")));
+         }
+     };
++    // 本步 token 增量：终态 emit 前对 transcript 的 TurnDone.usage 单次求和落值
++    //——终态单次落值即「会话结束后累计结果」（await 收口后 transcript 已含
++    // TurnDone），无二次刷新通道；无论 outcome.status 为 Completed / Failed /
++    // Stopped / Running 漂移收敛（transcript 在手即求和），usage 缺席 → None。
++    // Err 路径（无 outcome / 无 transcript）failed emit 不落值恒 None。
++    let token_input = sum_usage_tokens(&outcome.transcript, "input_tokens");
++    let token_output = sum_usage_tokens(&outcome.transcript, "output_tokens");
+     let (settle, terminal) = match outcome.status {
+         AgentRunStatus::Completed => (StepSettle::passed(None), None),
+         AgentRunStatus::Failed => {
+@@ -3064,7 +3132,9 @@ async fn run_worker(
+         attempt,
+         kind,
+         instance_no,
+-        settle.with_session(Some(outcome.session_id.clone())),
++        settle
++            .with_session(Some(outcome.session_id.clone()))
++            .with_tokens(token_input, token_output),
+     );
+     match terminal {
+         None => Ok(outcome),
+diff --git a/crates/core/orchestration/src/walker_test.rs b/crates/core/orchestration/src/walker_test.rs
+index 7a815274dd06..2512336cf318 100644
+--- a/crates/core/orchestration/src/walker_test.rs
++++ b/crates/core/orchestration/src/walker_test.rs
+@@ -4,19 +4,20 @@ use std::sync::atomic::{AtomicUsize, Ordering};
+ use std::sync::{Arc, Mutex};
+ use std::time::{Duration, Instant};
+ 
+-use agent::{AgentRunStatus, ModelLevel};
++use agent::{AgentEventKind, AgentRunStatus, ModelLevel};
+ 
+ use crate::control::ChangeFlowControl;
+ use crate::port::{
+     ArchiveVcsPort, BoxToolFuture, BoxTurnFuture, MutationCounts, MutationSkipReason,
+-    MutationTestConclusion, MutationTestOutcome, RebaseOutcome, RunHistoryPort,
+-    StaticCheckOutcome, StaticCheckRunner, TestExecutionConclusion, TestExecutionOutcome,
+-    TestExecutionRunner, ToolCommand, ToolStepOutput, ToolStepPort, ToolStepRequest,
+-    WorkerAgentPort, WorkerRole, WorkerTurnOutcome, WorkerTurnRequest, WorkflowSnapshotPort,
+-    WorktreeSnapshot,
++    MutationTestConclusion, MutationTestOutcome, RebaseOutcome, RunHistoryPort, StaticCheckOutcome,
++    StaticCheckRunner, TestExecutionConclusion, TestExecutionOutcome, TestExecutionRunner,
++    ToolCommand, ToolStepOutput, ToolStepPort, ToolStepRequest, WorkerAgentPort, WorkerRole,
++    WorkerTurnOutcome, WorkerTurnRequest, WorkflowSnapshotPort, WorktreeSnapshot,
+ };
+ use crate::snapshot::StoreSnapshot;
+-use crate::state::{ArchivePreflight, ChangeRunStatus, RunNotice};
++use crate::state::{
++    ArchivePreflight, ChangeRunStatus, ChangeStepKind, ChangeStepStatus, RunNotice,
++};
+ use crate::steps::LocalToolSteps;
+ use crate::walker::{new_run_id, walk_run, RunRequest};
+ use store::Store;
+@@ -255,6 +256,15 @@ struct FakeWorker {
+     /// 载荷，`None` 为失败但无记因（`Failed` 收敛回落通用文案面）——两者均
+     /// 返回 `Failed` 收敛的密封转录
+     executor_failures: Mutex<VecDeque<Option<String>>>,
++    /// executor 会话 Stopped 收敛注入队列（AC-2 stopped 半边：run_worker
++    /// `AgentRunStatus::Stopped` 臂终态 emit 断言面——置位后下一次 executor
++    /// 会话产出 Stopped 收敛）
++    executor_stops: Mutex<VecDeque<()>>,
++    /// 转录注入队列（run_worker token 求和断言面）：每次 worker.run 弹出一组
++    /// 密封事件 kind，逐条 `AgentEvent::stamp` 进该会话转录（空组 / 耗尽 =
++    /// 零注入既有形态）；多 TurnDone.usage / 非 TurnDone 干扰 / usage 值类型
++    /// 漂移均经本注入口承载（walker 的注入端口依赖——最小 mock 合规）。
++    transcripts: Mutex<VecDeque<Vec<AgentEventKind>>>,
+     counter: AtomicUsize,
+     gate: Option<Arc<EvaluatorGate>>,
+ }
+@@ -269,11 +279,26 @@ impl FakeWorker {
+             decision_reports: Mutex::new(VecDeque::new()),
+             archive_reports: Mutex::new(VecDeque::new()),
+             executor_failures: Mutex::new(VecDeque::new()),
++            executor_stops: Mutex::new(VecDeque::new()),
++            transcripts: Mutex::new(VecDeque::new()),
+             counter: AtomicUsize::new(0),
+             gate: None,
+         }
+     }
+ 
++    /// executor 会话 Stopped 收敛预录（队列深度 = 注入次数）。
++    fn with_executor_stops(mut self, times: usize) -> Self {
++        self.executor_stops = Mutex::new(VecDeque::from(vec![(); times]));
++        self
++    }
++
++    /// 转录注入预录：每次 worker.run 按序弹出一组密封事件 kind 铸进转录
++    ///（多 TurnDone.usage / 干扰事件 / 类型漂移样本的注入面）。
++    fn with_transcripts(mut self, scripts: Vec<Vec<AgentEventKind>>) -> Self {
++        self.transcripts = Mutex::new(scripts.into());
++        self
++    }
++
+     /// 归档两会话角色产出预录（spec_sync / resolve_conflicts 共用队列）。
+     fn with_archive_reports(mut self, reports: Vec<Result<String, String>>) -> Self {
+         self.archive_reports = Mutex::new(reports.into());
+@@ -383,6 +408,22 @@ impl WorkerAgentPort for FakeWorker {
+             ),
+             _ => None,
+         };
++        // executor 会话 Stopped 收敛注入（耗尽回落 false = 正常 Completed 收口）
++        let executor_stop = match role {
++            WorkerRole::Executor => self
++                .executor_stops
++                .lock()
++                .expect("executor stopped 队列锁不可中毒")
++                .pop_front()
++                .is_some(),
++            _ => false,
++        };
++        // 转录注入脚本（耗尽回落 None = 零注入既有形态）
++        let injected_transcript = self
++            .transcripts
++            .lock()
++            .expect("转录注入队列锁不可中毒")
++            .pop_front();
+ 
+         Box::pin(async move {
+             // evaluator 停等门：armed 期间挂起（停止时序窗口；notify_one 带许可
+@@ -393,36 +434,52 @@ impl WorkerAgentPort for FakeWorker {
+                 }
+             }
+             let _ = &mut timeline;
++            // 转录注入：脚本组逐条 `AgentEvent::stamp`（空组 / 耗尽 = 零注入
++            // 既有形态）
++            let scripted: Option<Vec<agent::AgentEvent>> = injected_transcript.map(|kinds| {
++                kinds
++                    .into_iter()
++                    .enumerate()
++                    .map(|(seq, kind)| agent::AgentEvent::stamp(seq as u64, kind))
++                    .collect()
++            });
+             // executor 失败注入：Failed 收敛 + 携成因的密封转录（真实引擎
+             // api_error 记因 + 失败 TurnDone 的同形形态；无记因时 TurnDone
+-            // subtype 置空——成因提取显式缺席的形态）
++            // subtype 置空——成因提取显式缺席的形态）。转录脚本在场时以脚本
++            // 为转录（失败收敛 token 求和的注入面——D2 无论 outcome.status）。
+             if let Some(cause) = executor_failure.flatten() {
+-                let mut transcript = Vec::new();
+-                let subtype = match cause {
+-                    Some(cause) => {
++                let transcript = match scripted {
++                    Some(transcript) => transcript,
++                    None => {
++                        let mut transcript = Vec::new();
++                        let subtype = match cause {
++                            Some(cause) => {
++                                transcript.push(agent::AgentEvent::stamp(
++                                    0,
++                                    agent::AgentEventKind::SystemNotice {
++                                        subtype: "api_error".to_owned(),
++                                        payload: serde_json::json!({ "error": cause }),
++                                    },
++                                ));
++                                "api_error"
++                            }
++                            None => "",
++                        };
+                         transcript.push(agent::AgentEvent::stamp(
+-                            0,
+-                            agent::AgentEventKind::SystemNotice {
+-                                subtype: "api_error".to_owned(),
+-                                payload: serde_json::json!({ "error": cause }),
++                            1,
++                            agent::AgentEventKind::TurnDone {
++                                subtype: subtype.to_owned(),
++                                is_error: true,
++                                num_turns: None,
++                                duration_ms: None,
++                                cost_usd: None,
++                                usage: serde_json::Value::Null,
++                                session_id: None,
+                             },
+                         ));
+-                        "api_error"
++                        transcript
+                     }
+-                    None => "",
+                 };
+-                transcript.push(agent::AgentEvent::stamp(
+-                    1,
+-                    agent::AgentEventKind::TurnDone {
+-                        subtype: subtype.to_owned(),
+-                        is_error: true,
+-                        num_turns: None,
+-                        duration_ms: None,
+-                        cost_usd: None,
+-                        usage: serde_json::Value::Null,
+-                        session_id: None,
+-                    },
+-                ));
+                 return Ok(WorkerTurnOutcome {
+                     session_id,
+                     status: AgentRunStatus::Failed,
+@@ -430,6 +487,16 @@ impl WorkerAgentPort for FakeWorker {
+                     transcript,
+                 });
+             }
++            // executor Stopped 收敛注入（AC-2 stopped 半边：StepSettle::stopped
++            // 终态 emit 断言面）
++            if executor_stop {
++                return Ok(WorkerTurnOutcome {
++                    session_id,
++                    status: AgentRunStatus::Stopped,
++                    final_message: None,
++                    transcript: scripted.unwrap_or_default(),
++                });
++            }
+             let final_message = match role {
+                 WorkerRole::Executor => None,
+                 WorkerRole::Evaluator => match evaluator.flatten() {
+@@ -454,7 +521,7 @@ impl WorkerAgentPort for FakeWorker {
+                 session_id,
+                 status: AgentRunStatus::Completed,
+                 final_message,
+-                transcript: Vec::new(),
++                transcript: scripted.unwrap_or_default(),
+             })
+         })
+     }
+@@ -992,8 +1059,10 @@ impl FakeVcs {
+     /// 解冲突后验用：B 快照 HEAD 与 rebase 半程标记可编程（后验四判据的注入面）。
+     fn with_snapshot_head(self, head: &str, rebase_head: Option<&str>) -> Self {
+         *self.snapshot_head.lock().expect("vcs 快照头锁不可中毒") = Some(head.to_owned());
+-        *self.snapshot.lock().expect("vcs 快照锁不可中毒") =
+-            Ok(snapshot_of(rebase_head.map_or("head-a", |_| head), rebase_head));
++        *self.snapshot.lock().expect("vcs 快照锁不可中毒") = Ok(snapshot_of(
++            rebase_head.map_or("head-a", |_| head),
++            rebase_head,
++        ));
+         self
+     }
+ 
+@@ -1016,10 +1085,7 @@ impl FakeVcs {
+     }
+ 
+     fn record(&self, label: String) {
+-        self.calls
+-            .lock()
+-            .expect("vcs 调用锁不可中毒")
+-            .push(label);
++        self.calls.lock().expect("vcs 调用锁不可中毒").push(label);
+     }
+ }
+ 
+@@ -1119,11 +1185,7 @@ impl ArchiveVcsPort for FakeVcs {
+         {
+             return Err(error);
+         }
+-        Ok(self
+-            .edit_set
+-            .lock()
+-            .expect("vcs 清单锁不可中毒")
+-            .clone())
++        Ok(self.edit_set.lock().expect("vcs 清单锁不可中毒").clone())
+     }
+ 
+     fn change_edit_patch(&self, _root: &std::path::Path, base: &str) -> Result<String, String> {
+@@ -1136,11 +1198,7 @@ impl ArchiveVcsPort for FakeVcs {
+         {
+             return Err(error);
+         }
+-        Ok(self
+-            .edit_patch
+-            .lock()
+-            .expect("vcs 补丁锁不可中毒")
+-            .clone())
++        Ok(self.edit_patch.lock().expect("vcs 补丁锁不可中毒").clone())
+     }
+ 
+     fn remove_worktree(
+@@ -3381,7 +3439,10 @@ async fn verdict解析失败反馈边修复_续注同evaluator会话重解析()
+     let sessions = sessions.lock().expect("会话登记锁");
+     let evaluators = sessions_of(&sessions, WorkerRole::Evaluator);
+     assert_eq!(evaluators.len(), 2, "首发 + 一轮修复");
+-    assert_eq!(evaluators[0], evaluators[1], "修复轮续注同一 evaluator 会话");
++    assert_eq!(
++        evaluators[0], evaluators[1],
++        "修复轮续注同一 evaluator 会话"
++    );
+     drop(sessions);
+ 
+     // 请求面：修复轮 Continue 会话 id = 首发会话 id，prompt 携解析错误与协议
+@@ -3400,7 +3461,9 @@ async fn verdict解析失败反馈边修复_续注同evaluator会话重解析()
+     );
+     assert!(
+         eval_requests[1].prompt.contains("第 1/5 次反馈修复")
+-            && eval_requests[1].prompt.contains("未在最终消息中找到合法 JSON")
++            && eval_requests[1]
++                .prompt
++                .contains("未在最终消息中找到合法 JSON")
+             && eval_requests[1].prompt.contains("## 输出协议"),
+         "修复 prompt 携解析错误与协议重申: {}",
+         eval_requests[1].prompt
+@@ -3500,7 +3563,10 @@ async fn 真实写面组合_verdict解析失败反馈边超限_升格双槽位
+     );
+     let finish = history.finish().expect("finish 落包捕获");
+     assert!(
+-        finish.reason.as_deref().is_some_and(|reason| reason.contains("决策 stop")),
++        finish
++            .reason
++            .as_deref()
++            .is_some_and(|reason| reason.contains("决策 stop")),
+         "决策 stop 收敛记因: {:?}",
+         finish.reason
+     );
+@@ -3519,7 +3585,11 @@ async fn 真实写面组合_verdict解析失败反馈边超限_升格双槽位
+         );
+     }
+     let decisions = sessions_of(&sessions, WorkerRole::Decision);
+-    assert_eq!(decisions.len(), 5, "每轮 fail 各一轮决策（4 retry + 1 stop）");
++    assert_eq!(
++        decisions.len(),
++        5,
++        "每轮 fail 各一轮决策（4 retry + 1 stop）"
++    );
+     drop(sessions);
+ 
+     // fail 条目：五轮升格代写——report 携升格、item 为评估输出格式、双槽位
+@@ -3542,7 +3612,9 @@ async fn 真实写面组合_verdict解析失败反馈边超限_升格双槽位
+         assert_eq!(entry.checklist[0].item, "评估输出格式");
+         assert!(!entry.checklist[0].pass);
+         assert!(
+-            entry.checklist[0].evidence.contains("未在最终消息中找到合法 JSON"),
++            entry.checklist[0]
++                .evidence
++                .contains("未在最终消息中找到合法 JSON"),
+             "evidence 携解析错误全文: {}",
+             entry.checklist[0].evidence
+         );
+@@ -3998,7 +4070,11 @@ async fn 真实写面组合_决策挂账先于解析_parse失败同样留痕() {
+     // 留痕：最新 fail 条目已携决策会话 id（第 5 轮决策输出漂移文本）
+     let sessions = sessions.lock().expect("会话登记锁");
+     let decisions = sessions_of(&sessions, WorkerRole::Decision);
+-    assert_eq!(decisions.len(), 5, "每轮 fail 各一轮决策（末轮输出漂移文本）");
++    assert_eq!(
++        decisions.len(),
++        5,
++        "每轮 fail 各一轮决策（末轮输出漂移文本）"
++    );
+     drop(sessions);
+     let entries = db
+         .store
+@@ -4092,7 +4168,11 @@ async fn 真实写面组合_升格fail条目仅携executor槽位且修复轮续
+         "升格路径零 evaluator 会话（前置相位已预置 pass，本 run 仅 implement 站）"
+     );
+     let decisions = sessions_of(&sessions, WorkerRole::Decision);
+-    assert_eq!(decisions.len(), 5, "每轮升格 fail 各一轮决策（4 retry + 1 stop）");
++    assert_eq!(
++        decisions.len(),
++        5,
++        "每轮升格 fail 各一轮决策（4 retry + 1 stop）"
++    );
+     let executor_sessions = sessions_of(&sessions, WorkerRole::Executor);
+     assert_eq!(
+         executor_sessions.len(),
+@@ -6533,8 +6613,7 @@ async fn 归档cleanup成功移除_worktree目录消失且链照常收口() {
+     let rows = node_rows(&command);
+     for step in ["cleanup", "seal", "finalize", "phase_log"] {
+         assert!(
+-            rows.iter()
+-                .any(|row| row.1 == step && row.2 == "passed"),
++            rows.iter().any(|row| row.1 == step && row.2 == "passed"),
+             "步 {step} passed（清理成功不断链）: {rows:?}"
+         );
+     }
+@@ -6601,7 +6680,9 @@ async fn 归档cleanup失败尽力_警告detail步恒passed且收口不断链()
+     );
+     let rows = node_rows(&command);
+     assert_eq!(
+-        rows.iter().find(|row| row.1 == "cleanup").map(|row| row.2.as_str()),
++        rows.iter()
++            .find(|row| row.1 == "cleanup")
++            .map(|row| row.2.as_str()),
+         Some("passed"),
+         "步恒 passed（失败仅 detail 警告）: {rows:?}"
+     );
+@@ -6682,7 +6763,9 @@ async fn 归档cleanup缺席幂等跳过_零失败面() {
+     );
+     let rows = node_rows(&command);
+     assert_eq!(
+-        rows.iter().find(|row| row.1 == "cleanup").map(|row| row.2.as_str()),
++        rows.iter()
++            .find(|row| row.1 == "cleanup")
++            .map(|row| row.2.as_str()),
+         Some("passed"),
+         "缺席跳过恒 passed"
+     );
+@@ -6737,10 +6820,7 @@ async fn 归档cleanup缺席重试链重入同词注记不自绊() {
+             Some("worktree 已不在场，跳过清理"),
+             "{round} 轮同词注记（幂等重入不自绊）"
+         );
+-        assert!(
+-            vcs.remove_calls().is_empty(),
+-            "{round} 轮零 remove 调用"
+-        );
++        assert!(vcs.remove_calls().is_empty(), "{round} 轮零 remove 调用");
+     }
+ }
+ 
+@@ -6781,7 +6861,9 @@ async fn 归档cleanuplegacy跳过_零worktree触点与零branch触碰() {
+     );
+     let rows = node_rows(&command);
+     assert_eq!(
+-        rows.iter().find(|row| row.1 == "cleanup").map(|row| row.2.as_str()),
++        rows.iter()
++            .find(|row| row.1 == "cleanup")
++            .map(|row| row.2.as_str()),
+         Some("passed"),
+         "legacy 清理步 passed"
+     );
+@@ -6835,7 +6917,11 @@ async fn 归档cleanup缺前置载荷_计划漂移failed且terminal() {
+     let _confirmer = spawn_confirmer(&control, true);
+     let status = task.await.expect("run 任务正常结束");
+ 
+-    assert_eq!(status, ChangeRunStatus::Failed, "计划漂移 → Terminal（非尽力面）");
++    assert_eq!(
++        status,
++        ChangeRunStatus::Failed,
++        "计划漂移 → Terminal（非尽力面）"
++    );
+     let command = history.finish().expect("收口落包应在案");
+     let failed = command
+         .nodes
+@@ -6962,9 +7048,7 @@ async fn 归档冲突三段agent解算与独立快进() {
+ 
+     let vcs = Arc::new(
+         FakeVcs::clean()
+-            .with_rebase(Ok(RebaseOutcome::Conflicted(vec![
+-                "specs/a.md".to_owned()
+-            ])))
++            .with_rebase(Ok(RebaseOutcome::Conflicted(vec!["specs/a.md".to_owned()])))
+             .with_snapshot_head("head-b", Some("onto-commit")),
+     );
+     let (task, _rx, history) = spawn_run_with_vcs(
+@@ -7069,7 +7153,10 @@ async fn 归档无冲突时解算步passed且零会话() {
+         Some("无冲突"),
+         "跳过因单点词汇"
+     );
+-    assert!(resolve_node.session_id.is_none(), "零会话步节点无 session_id");
++    assert!(
++        resolve_node.session_id.is_none(),
++        "零会话步节点无 session_id"
++    );
+ }
+ 
+ /// SpecSync 条件执行（边界 / 正向）：delta specs 在场且用户未跳过 → agent 会话
+@@ -7117,7 +7204,11 @@ async fn 归档spec同步条件执行与用户跳过选择() {
+         .filter(|request| request.role == WorkerRole::SpecSync)
+         .cloned()
+         .collect();
+-    assert_eq!(spec_sync_requests.len(), 1, "delta specs 在场 → spec 同步会话");
++    assert_eq!(
++        spec_sync_requests.len(),
++        1,
++        "delta specs 在场 → spec 同步会话"
++    );
+     assert_eq!(
+         spec_sync_requests[0].root,
+         root.root_str(),
+@@ -7818,7 +7909,10 @@ async fn 组合链路归档落库与空checklist落账() {
+     );
+     assert_eq!(edges[6].to_node_key, "archive:1:cleanup:0");
+     assert_eq!(edges[7].from_node_key, "archive:1:cleanup:0");
+-    assert_eq!(edges[7].to_node_key, "archive:1:seal:0", "Cleanup → Seal 相邻边");
++    assert_eq!(
++        edges[7].to_node_key, "archive:1:seal:0",
++        "Cleanup → Seal 相邻边"
++    );
+ 
+     let runs = db
+         .store
+@@ -7848,10 +7942,7 @@ async fn 归档seal产出驱动finalize落盘pathspec() {
+     let (worker, _requests, _sessions) = FakeWorker::new(&timeline).assemble();
+     let (tools, commands) = FakeTools::new(&timeline)
+         .with_phase_next(vec![archive_route_outcome(), done_outcome()])
+-        .with_archive_preflight(archive_preflight_twice(
+-            &worktree_dir_str,
+-            Vec::new(),
+-        ))
++        .with_archive_preflight(archive_preflight_twice(&worktree_dir_str, Vec::new()))
+         .with_archive_seal(vec![workflow::write::ArchiveOutcome {
+             name: NAME.to_owned(),
+             archived_date: "2026-02-02".to_owned(),
+@@ -7979,9 +8070,7 @@ async fn 归档冲突解算续走失败携引导() {
+     let control = Arc::new(ChangeFlowControl::new());
+     let vcs = Arc::new(
+         FakeVcs::clean()
+-            .with_rebase(Ok(RebaseOutcome::Conflicted(vec![
+-                "specs/a.md".to_owned()
+-            ])))
++            .with_rebase(Ok(RebaseOutcome::Conflicted(vec!["specs/a.md".to_owned()])))
+             .with_rebase_continue(Err("rebase --continue 失败".to_owned()))
+             .with_snapshot_head("head-b", Some("onto-commit")),
+     );
+@@ -8104,7 +8193,11 @@ async fn 归档相位中途停止收敛stopped() {
+     );
+     assert!(control.request_stop(ROOT, CHANGE_ID), "停止置位");
+     let status = task.await.expect("run 任务正常结束");
+-    assert_eq!(status, ChangeRunStatus::Stopped, "停止 → 受控终止（非 failed）");
++    assert_eq!(
++        status,
++        ChangeRunStatus::Stopped,
++        "停止 → 受控终止（非 failed）"
++    );
+     let command = history.finish().expect("收口落包应在案");
+     assert!(
+         command
+@@ -8140,7 +8233,11 @@ fn mutation_outcome(
+         threshold,
+         counts: MutationCounts {
+             killed: 7,
+-            survived: if conclusion == MutationTestConclusion::Pass { 1 } else { 3 },
++            survived: if conclusion == MutationTestConclusion::Pass {
++                1
++            } else {
++                3
++            },
+             timeout: 0,
+             compile_error: 0,
+             runtime_error: 0,
+@@ -8195,7 +8292,11 @@ async fn 拆步时序_testexecution_fail不进mutation_绿后才续走() {
+         .iter()
+         .position(|label| label == "test-execution")
+         .expect("首检在时间线");
+-    assert_eq!(timeline[first_gate + 1], "executor", "fail → 反馈边修复会话");
++    assert_eq!(
++        timeline[first_gate + 1],
++        "executor",
++        "fail → 反馈边修复会话"
++    );
+     assert_eq!(timeline[first_gate + 2], "test-execution", "修复重入复检");
+     assert_eq!(
+         timeline[first_gate + 3],
+@@ -8219,7 +8320,11 @@ async fn 拆步时序_testexecution_fail不进mutation_绿后才续走() {
+         .into_iter()
+         .filter(|(_, _, kind, _)| kind == "mutation_test")
+         .collect();
+-    assert_eq!(rows.len(), 1, "mutation_test 单节点（running → passed 就地合并）");
++    assert_eq!(
++        rows.len(),
++        1,
++        "mutation_test 单节点（running → passed 就地合并）"
++    );
+     assert_eq!(rows[0].3, "passed");
+ }
+ 
+@@ -8260,7 +8365,9 @@ async fn mutation_pass零反馈收口_双槽evidence达标面() {
+     let detail = node_detail(&command, workflow::state::RunStepKind::MutationTest)
+         .expect("mutation_test 节点 detail 在场");
+     assert!(
+-        detail.contains("conclusion=pass") && detail.contains("score=95") && detail.contains("threshold=80"),
++        detail.contains("conclusion=pass")
++            && detail.contains("score=95")
++            && detail.contains("threshold=80"),
+         "detail 携结论摘要: {detail}"
+     );
+ 
+@@ -8283,7 +8390,12 @@ async fn phase_cursor双槽互不覆盖_机械checklist同时消费两槽() {
+         .with_test_execution(vec![execution_outcome(TestExecutionConclusion::Pass, 7)])
+         .with_mutation(vec![
+             // 首检未达标 → 反馈修复 → 复检达标（失败路径下 test 槽已消费）
+-            mutation_outcome(MutationTestConclusion::Fail, 55.0, 80.0, MUTATION_FAIL_FEEDBACK),
++            mutation_outcome(
++                MutationTestConclusion::Fail,
++                55.0,
++                80.0,
++                MUTATION_FAIL_FEEDBACK,
++            ),
+             mutation_outcome(MutationTestConclusion::Pass, 95.0, 80.0, ""),
+         ])
+         .assemble();
+@@ -8374,12 +8486,13 @@ async fn mutation_fail反馈prompt只嵌feedback_text注入executor会话() {
+     let requests = requests.lock().expect("请求锁");
+     assert_eq!(requests.len(), 2, "恰两次修复会话（fail→fail→pass）");
+     for (index, request) in requests.iter().enumerate() {
+-        assert_eq!(request.role, WorkerRole::Executor, "反馈边②注入 executor 会话");
++        assert_eq!(
++            request.role,
++            WorkerRole::Executor,
++            "反馈边②注入 executor 会话"
++        );
+         assert!(
+-            request
+-                .prompt
+-                .contains("突变测试未通过（第 ")
+-                && request.prompt.contains("次反馈修复"),
++            request.prompt.contains("突变测试未通过（第 ") && request.prompt.contains("次反馈修复"),
+             "修复 prompt 携反馈计数: {}",
+             request.prompt
+         );
+@@ -8412,7 +8525,9 @@ async fn mutation_fail反馈prompt只嵌feedback_text注入executor会话() {
+     // 会话登记：两轮修复会话 + 各自派发 id（首开新、次续注）
+     let sessions = sessions.lock().expect("会话锁");
+     assert_eq!(sessions.len(), 2, "两轮修复会话登记");
+-    assert!(sessions.iter().all(|(role, _)| *role == WorkerRole::Executor));
++    assert!(sessions
++        .iter()
++        .all(|(role, _)| *role == WorkerRole::Executor));
+ }
+ 
+ /// 正向：`step_mutation_test`（Error）——段执行 error / harness 崩 / 超时 →
+@@ -8488,14 +8603,21 @@ async fn mutation反馈独立计数_与test_execution分立() {
+     let timeline = Arc::new(Mutex::new(Vec::new()));
+     let (worker, _requests, _sessions) = FakeWorker::new(&timeline).assemble();
+     let mutation_fail = || {
+-        mutation_outcome(MutationTestConclusion::Fail, 55.0, 80.0, MUTATION_FAIL_FEEDBACK)
++        mutation_outcome(
++            MutationTestConclusion::Fail,
++            55.0,
++            80.0,
++            MUTATION_FAIL_FEEDBACK,
++        )
+     };
+     let (tools, commands) = FakeTools::new(&timeline)
+         .with_phase_next(vec![route_outcome("test-execution", &[]), done_outcome()])
+         .with_test_execution(vec![execution_outcome(TestExecutionConclusion::Pass, 5)])
+         .with_mutation(vec![
+             mutation_fail();
+-            feedback_limit_of("test-execution", StepNode::MutationTest) as usize + 1
++            feedback_limit_of("test-execution", StepNode::MutationTest)
++                as usize
++                + 1
+         ])
+         .assemble();
+ 
+@@ -8525,14 +8647,21 @@ async fn mutation反馈超限升格_代写failchecklist仅携executor槽位() {
+     let timeline = Arc::new(Mutex::new(Vec::new()));
+     let (worker, _requests, _sessions) = FakeWorker::new(&timeline).assemble();
+     let mutation_fail = || {
+-        mutation_outcome(MutationTestConclusion::Fail, 55.0, 80.0, MUTATION_FAIL_FEEDBACK)
++        mutation_outcome(
++            MutationTestConclusion::Fail,
++            55.0,
++            80.0,
++            MUTATION_FAIL_FEEDBACK,
++        )
+     };
+     let (tools, commands) = FakeTools::new(&timeline)
+         .with_phase_next(vec![route_outcome("test-execution", &[]), done_outcome()])
+         .with_test_execution(vec![execution_outcome(TestExecutionConclusion::Pass, 5)])
+         .with_mutation(vec![
+             mutation_fail();
+-            feedback_limit_of("test-execution", StepNode::MutationTest) as usize + 1
++            feedback_limit_of("test-execution", StepNode::MutationTest)
++                as usize
++                + 1
+         ])
+         .assemble();
+ 
+@@ -8574,7 +8703,9 @@ async fn mutation反馈超限升格_代写failchecklist仅携executor槽位() {
+     );
+     assert!(
+         upgrade.checklist[0].evidence.contains("突变测试未达标")
+-            || upgrade.checklist[0].evidence.contains("score 55 < threshold 80"),
++            || upgrade.checklist[0]
++                .evidence
++                .contains("score 55 < threshold 80"),
+         "evidence 携 feedback_text 摘要（报告指引式）: {}",
+         upgrade.checklist[0].evidence
+     );
+@@ -8600,7 +8731,9 @@ async fn mutation反馈超限升格_代写failchecklist仅携executor槽位() {
+         .filter(|(_, _, kind, _)| kind == "mutation_test")
+         .collect();
+     assert!(
+-        mutation_rows.iter().any(|(_, _, _, status)| status == "failed"),
++        mutation_rows
++            .iter()
++            .any(|(_, _, _, status)| status == "failed"),
+         "升格路径 mutation_test 节点呈失败态: {mutation_rows:?}"
+     );
+ }
+@@ -8622,8 +8755,7 @@ async fn 机械checklist第三条evidence三态映射() {
+             .assemble();
+         let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
+         let control = Arc::new(ChangeFlowControl::new());
+-        let (task, _rx, _history) =
+-            spawn_run(worker, tools, snapshot, &control, true, "/tmp/root");
++        let (task, _rx, _history) = spawn_run(worker, tools, snapshot, &control, true, "/tmp/root");
+         let status = task.await.expect("run 任务正常结束");
+         assert_eq!(status, ChangeRunStatus::Completed);
+         let commands = commands.lock().expect("命令锁");
+@@ -8652,7 +8784,9 @@ async fn 机械checklist第三条evidence三态映射() {
+     .await;
+     assert!(pass, "第 3 条判定恒 pass（D8 语义不改）");
+     assert!(
+-        evidence.contains("跑过且达标") && evidence.contains("score 95") && evidence.contains("threshold 80"),
++        evidence.contains("跑过且达标")
++            && evidence.contains("score 95")
++            && evidence.contains("threshold 80"),
+         "态① 跑过且达标: {evidence}"
+     );
+ 
+@@ -8687,3 +8821,556 @@ async fn 机械checklist第三条evidence三态映射() {
+         "态③ NoExecutor 并入 null 态附注: {evidence}"
+     );
+ }
++
++// ---------------------------------------------------------------------------
++// desktop-step-running-snapshot（D1 / AC-2）：emit_node 铸造单点——running
++// emit 铸 (now, None)、终态 emit 铸 (now, Some(now))、瞬步单 emit 同刻、
++// stopped 收口有 ended；wall-clock 不 mock 不注入（复用生产时钟零新缝），
++// 断言取关系式（started > 0、ended >= started、瞬步同刻、stopped ended 在场），
++// wall-clock 绝对值不入断言。落包捕获经 RecordingHistory（节点即 finish_command
++// 输入的累积器快照——emit → accumulate 全链读取面）。
++// ---------------------------------------------------------------------------
++
++/// 两相位直通路由（proposal → dev-design → done）：proposal 站五步
++///（phase_start / executor / evaluator / verdict_gate / phase_log）+
++/// dev-design 站至少前三步——双 emit 步与瞬步单 emit 步同 run 并存。
++fn two_phase_routes() -> Vec<PhaseNextOutcome> {
++    vec![
++        route_outcome("proposal", &[]),
++        route_outcome("dev-design", &["proposal", "dev-design"]),
++        done_outcome(),
++    ]
++}
++
++/// 落包节点摘取：按 (step, instance_no) 圈定。
++fn node_of<'a>(
++    command: &'a RunFinishCommand,
++    step: workflow::state::RunStepKind,
++    instance_no: u32,
++) -> &'a RunNodeEntry {
++    command
++        .nodes
++        .iter()
++        .find(|node| node.step == step && node.instance_no == instance_no)
++        .unwrap_or_else(|| panic!("落包应含 {step:?} 实例 {instance_no} 节点"))
++}
++
++/// 正向：FakeWorker 正常收口的 executor 双 emit 步 → 终态节点 `started_at > 0`
++/// 且 `ended_at >= started_at`（wall-clock 关系式断言，绝对值不入断言）。
++#[tokio::test]
++async fn emit铸造_executor双emit关系式_started正且ended不早于started() {
++    let timeline = Arc::new(Mutex::new(Vec::new()));
++    let (worker, _requests, _sessions) = FakeWorker::new(&timeline).assemble();
++    let (tools, _) = FakeTools::new(&timeline)
++        .with_phase_next(two_phase_routes())
++        .assemble();
++    let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
++    let control = Arc::new(ChangeFlowControl::new());
++    let (task, _rx, history) = spawn_run(worker, tools, snapshot, &control, false, "/tmp/root");
++    let _confirmer = spawn_confirmer(&control, true);
++    let status = task.await.expect("run 任务正常结束");
++    assert_eq!(status, ChangeRunStatus::Completed);
++
++    let finish = history.finish().expect("finish 落包捕获");
++    let executor = node_of(&finish, workflow::state::RunStepKind::Executor, 0);
++    assert_eq!(
++        executor.status,
++        RunStepStatus::Passed,
++        "正常收口 executor 终态 passed"
++    );
++    assert!(
++        executor.started_at > 0,
++        "running emit 铸 started（> 0 关系式）"
++    );
++    let ended = executor.ended_at.expect("终态 emit 铸 ended 在场");
++    assert!(
++        ended >= executor.started_at,
++        "ended >= started（同刻瞬收合法）"
++    );
++}
++
++/// 正向：`phaseStart` 瞬步单 emit passed → 节点 `started_at == ended_at` 同刻
++///（AC-2 瞬步半边——铸造单点对单 emit 步自然产出零耗时形态）。
++#[tokio::test]
++async fn emit铸造_phase_start瞬步单emit同刻() {
++    let timeline = Arc::new(Mutex::new(Vec::new()));
++    let (worker, _requests, _sessions) = FakeWorker::new(&timeline).assemble();
++    let (tools, _) = FakeTools::new(&timeline)
++        .with_phase_next(two_phase_routes())
++        .assemble();
++    let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
++    let control = Arc::new(ChangeFlowControl::new());
++    let (task, _rx, history) = spawn_run(worker, tools, snapshot, &control, false, "/tmp/root");
++    let _confirmer = spawn_confirmer(&control, true);
++    task.await.expect("run 任务正常结束");
++
++    let finish = history.finish().expect("finish 落包捕获");
++    let start = node_of(&finish, workflow::state::RunStepKind::PhaseStart, 0);
++    assert_eq!(start.status, RunStepStatus::Passed);
++    assert!(start.started_at > 0, "单 emit 亦铸 started");
++    assert_eq!(
++        start.ended_at,
++        Some(start.started_at),
++        "瞬步单 emit started == ended 同刻"
++    );
++}
++
++/// 正向：executor 会话 Stopped 收敛（用户停止的会话半边）→ 终态节点 status=
++/// stopped 且 `ended_at` 在场 `> 0`（AC-2 stopped 半边——StepSettle::stopped
++/// 随行终态 emit 同铸 ended）。
++#[tokio::test]
++async fn emit铸造_会话stopped收敛终态节点ended在场() {
++    let timeline = Arc::new(Mutex::new(Vec::new()));
++    let (worker, _requests, _sessions) =
++        FakeWorker::new(&timeline).with_executor_stops(1).assemble();
++    let (tools, _) = FakeTools::new(&timeline)
++        .with_phase_next(vec![route_outcome("proposal", &[]), done_outcome()])
++        .assemble();
++    let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
++    let control = Arc::new(ChangeFlowControl::new());
++    let (task, mut rx, history) = spawn_run(worker, tools, snapshot, &control, false, "/tmp/root");
++    let _confirmer = spawn_confirmer(&control, true);
++    let status = task.await.expect("run 任务正常结束");
++    assert_eq!(
++        status,
++        ChangeRunStatus::Stopped,
++        "会话 Stopped 收敛 → run stopped"
++    );
++    assert!(drain_notices(&mut rx)
++        .iter()
++        .any(|notice| *notice == RunNotice::Finished));
++
++    let finish = history.finish().expect("finish 落包捕获");
++    let executor = node_of(&finish, workflow::state::RunStepKind::Executor, 0);
++    assert_eq!(executor.status, RunStepStatus::Stopped);
++    assert!(executor.started_at > 0, "running emit 铸 started");
++    let ended = executor.ended_at.expect("stopped 终态 emit 铸 ended 在场");
++    assert!(ended > 0, "stopped 收口有 ended（ended > 0 关系式）");
++    assert!(ended >= executor.started_at);
++}
++
++/// 正向：工具步 / Gate / 相位机步终态 emit → token 两值 None（`with_tokens`
++/// 仅 run_worker 调用、构造器中性继承——AC-3 非工步半边；executor 注入
++/// token 有值作对照组）。
++#[tokio::test]
++async fn emit铸造_非工步终态emit_token恒none() {
++    let timeline = Arc::new(Mutex::new(Vec::new()));
++    let (worker, _requests, _sessions) = FakeWorker::new(&timeline)
++        .with_transcripts(vec![vec![AgentEventKind::TurnDone {
++            subtype: "success".to_owned(),
++            is_error: false,
++            num_turns: Some(1),
++            duration_ms: Some(1_000),
++            cost_usd: None,
++            usage: serde_json::json!({ "input_tokens": 500, "output_tokens": 60 }),
++            session_id: None,
++        }]])
++        .assemble();
++    let (tools, _) = FakeTools::new(&timeline)
++        .with_phase_next(two_phase_routes())
++        .assemble();
++    let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
++    let control = Arc::new(ChangeFlowControl::new());
++    let (task, _rx, history) = spawn_run(worker, tools, snapshot, &control, false, "/tmp/root");
++    let _confirmer = spawn_confirmer(&control, true);
++    task.await.expect("run 任务正常结束");
++
++    let finish = history.finish().expect("finish 落包捕获");
++    // 对照组：executor 工步 token 落值
++    let executor = node_of(&finish, workflow::state::RunStepKind::Executor, 0);
++    assert_eq!(executor.token_input, Some(500));
++    assert_eq!(executor.token_output, Some(60));
++    // 非工步全词汇遍历：相位机 / Gate / 落账步 token 恒 None（构造器中性继承）
++    for step in [
++        workflow::state::RunStepKind::PhaseStart,
++        workflow::state::RunStepKind::VerdictGate,
++        workflow::state::RunStepKind::PhaseLog,
++    ] {
++        let node = node_of(&finish, step, 0);
++        assert_eq!(node.token_input, None, "{step:?} token_input 恒 None");
++        assert_eq!(node.token_output, None, "{step:?} token_output 恒 None");
++    }
++}
++
++/// 边界：EvaluatorGate 既有挂起装置下中途 snapshot → running 在途节点
++/// `started_at > 0`、`ended_at = None`（running 恒 None——AC-2 走秒数据半边）。
++#[tokio::test]
++async fn emit铸造_running在途snapshot_started正ended_none() {
++    let timeline = Arc::new(Mutex::new(Vec::new()));
++    let gate = EvaluatorGate::armed();
++    let (worker, requests, _sessions) = FakeWorker::new(&timeline)
++        .with_gate(Arc::clone(&gate))
++        .assemble();
++    let (tools, _) = FakeTools::new(&timeline)
++        .with_phase_next(two_phase_routes())
++        .assemble();
++    let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
++    let control = Arc::new(ChangeFlowControl::new());
++    let (task, _rx, _history) = spawn_run(worker, tools, snapshot, &control, false, "/tmp/root");
++    let _confirmer = spawn_confirmer(&control, true);
++
++    // evaluator 会话挂起（gate armed）即运行中窗口：在途节点已入累积器
++    wait_for("evaluator 会话发起", || {
++        requests
++            .lock()
++            .expect("请求锁")
++            .iter()
++            .any(|request| request.role == WorkerRole::Evaluator)
++    })
++    .await;
++    let snap = control.snapshot(ROOT, CHANGE_ID).expect("运行中快照在场");
++    let in_flight = snap
++        .nodes
++        .iter()
++        .find(|node| node.step == ChangeStepKind::Evaluator)
++        .expect("在途 evaluator 节点已入快照");
++    assert_eq!(in_flight.status, ChangeStepStatus::Running);
++    assert!(in_flight.started_at > 0, "running emit 铸 started（> 0）");
++    assert_eq!(in_flight.ended_at, None, "running 恒 None");
++
++    // 放行收口（run 任务收敛，除名归位）
++    *gate.armed.lock().expect("门锁不可中毒") = false;
++    gate.notify.notify_one();
++    task.await.expect("run 任务正常结束");
++}
++
++/// 边界：StepSettle 构造器中性预填（started_at=0 / ended_at=None）经 emit_node
++/// 铸造覆写 → 出面无中性值残留（D1 单点覆写锚：落包全节点 started > 0、
++/// 终态节点 ended = Some(> 0)）。
++#[tokio::test]
++async fn emit铸造_出面无中性值残留() {
++    let timeline = Arc::new(Mutex::new(Vec::new()));
++    let (worker, _requests, _sessions) = FakeWorker::new(&timeline).assemble();
++    let (tools, _) = FakeTools::new(&timeline)
++        .with_phase_next(two_phase_routes())
++        .assemble();
++    let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
++    let control = Arc::new(ChangeFlowControl::new());
++    let (task, _rx, history) = spawn_run(worker, tools, snapshot, &control, false, "/tmp/root");
++    let _confirmer = spawn_confirmer(&control, true);
++    task.await.expect("run 任务正常结束");
++
++    let finish = history.finish().expect("finish 落包捕获");
++    assert!(!finish.nodes.is_empty());
++    for node in &finish.nodes {
++        assert!(
++            node.started_at > 0,
++            "{:?} started 无构造器 0 残留（铸造覆写）",
++            node.step
++        );
++        if node.status != RunStepStatus::Running {
++            let ended = node.ended_at.expect("终态节点 ended 在场");
++            assert!(ended > 0, "{:?} ended 无中性值残留", node.step);
++        }
++    }
++}
++
++/// 异常：调用方预填冲突值（running 态构造器预携中性 ended_at=None、终态
++/// builder 不携时间）→ 铸造按 status 覆写、线面以铸造值为准（铸造不信任
++/// 调用方预填值——防御锚：StepSettle::passed 系构造器继承中性 0/None，出面
++/// 时间仍为铸造新值——瞬步单 emit 步 phase_start 的 started/ended 即铸造对）。
++#[tokio::test]
++async fn emit铸造_构造器中性预填被按status覆写() {
++    let timeline = Arc::new(Mutex::new(Vec::new()));
++    let (worker, _requests, _sessions) = FakeWorker::new(&timeline).assemble();
++    let (tools, _) = FakeTools::new(&timeline)
++        .with_phase_next(two_phase_routes())
++        .assemble();
++    let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
++    let control = Arc::new(ChangeFlowControl::new());
++    let (task, _rx, history) = spawn_run(worker, tools, snapshot, &control, false, "/tmp/root");
++    let _confirmer = spawn_confirmer(&control, true);
++    task.await.expect("run 任务正常结束");
++
++    let finish = history.finish().expect("finish 落包捕获");
++    // phase_start 步：StepSettle::passed 中性预填（0 / None）→ 铸造按 passed
++    // 覆写 (now, Some(now))——出面绝无预填 0 / None 残留
++    let start = node_of(&finish, workflow::state::RunStepKind::PhaseStart, 0);
++    assert_ne!(start.started_at, 0, "铸造覆写预填 started=0");
++    assert_eq!(
++        start.ended_at,
++        Some(start.started_at),
++        "铸造按 passed status 覆写 ended=Some(now)（预填 None 被顶替）"
++    );
++    // executor 步：终态 builder（StepSettle::passed）同样零时间预填 → 出面
++    // ended 铸造新值（>= running emit 首见 started）
++    let executor = node_of(&finish, workflow::state::RunStepKind::Executor, 0);
++    let ended = executor.ended_at.expect("终态铸造 ended 在场");
++    assert!(ended >= executor.started_at && ended > 0, "铸造值权威");
++}
++
++/// 组合（AC-2 / AC-4 交界）：emit 铸造 → accumulate → snapshot / 落包出口——
++/// 同 run 多步双 emit 序列后，终态前捕获的 snapshot 与终态出口 nodes（finish
++/// 命令输入）同键节点四字段一致（已收口键的快照面即出口面；在途键翻态后
++/// 以出口面为准不再比对）。
++#[tokio::test]
++async fn emit铸造_快照与落包出口同键四字段一致() {
++    let timeline = Arc::new(Mutex::new(Vec::new()));
++    let gate = EvaluatorGate::armed();
++    let (worker, requests, _sessions) = FakeWorker::new(&timeline)
++        .with_gate(Arc::clone(&gate))
++        .assemble();
++    let (tools, _) = FakeTools::new(&timeline)
++        .with_phase_next(two_phase_routes())
++        .assemble();
++    let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
++    let control = Arc::new(ChangeFlowControl::new());
++    let (task, _rx, history) = spawn_run(worker, tools, snapshot, &control, false, "/tmp/root");
++    let _confirmer = spawn_confirmer(&control, true);
++
++    // evaluator 挂起窗口：phase_start / executor 已终态（快照面），evaluator
++    // 在途
++    wait_for("evaluator 会话发起", || {
++        requests
++            .lock()
++            .expect("请求锁")
++            .iter()
++            .any(|request| request.role == WorkerRole::Evaluator)
++    })
++    .await;
++    let mid = control.snapshot(ROOT, CHANGE_ID).expect("运行中快照在场");
++    *gate.armed.lock().expect("门锁不可中毒") = false;
++    gate.notify.notify_one();
++    task.await.expect("run 任务正常结束");
++
++    let finish = history.finish().expect("finish 落包捕获");
++    // 同键对拍：快照中已收口（ended 在场）的节点，出口面四字段逐字段一致
++    //（started 保首见 / ended·token some 覆写后钉死——合并层单调）
++    for snap_node in &mid.nodes {
++        let Some(snap_ended) = snap_node.ended_at else {
++            continue; // 在途键翻态后不再可比（出口面权威）
++        };
++        let exit_node = finish
++            .nodes
++            .iter()
++            .find(|node| {
++                node.phase == snap_node.phase
++                    && node.attempt == snap_node.attempt
++                    && node.step.as_str() == snap_node.step.as_str()
++                    && node.instance_no == snap_node.instance_no
++            })
++            .unwrap_or_else(|| panic!("出口应含同键节点 {:?}", snap_node.step));
++        assert_eq!(
++            exit_node.started_at, snap_node.started_at,
++            "started 快照=出口"
++        );
++        assert_eq!(exit_node.ended_at, Some(snap_ended), "ended 快照=出口");
++        assert_eq!(exit_node.token_input, snap_node.token_input);
++        assert_eq!(exit_node.token_output, snap_node.token_output);
++    }
++    // 出口面至少含一个已收口键（对拍非空——phase_start 瞬步恒先收口）
++    assert!(
++        mid.nodes.iter().any(|node| node.ended_at.is_some()),
++        "快照窗口内已有已收口键（对拍非空置）"
++    );
++}
++
++// ---------------------------------------------------------------------------
++// desktop-step-running-snapshot（D2 / AC-3 / AC-10）：run_worker token 求和
++// ——终态 emit 前对 outcome.transcript 的 TurnDone.usage 单次求和落值（无论
++// outcome.status）；Err 路径恒 None；求和语义 = `agent::sum_usage_tokens`
++// 消费面表现。
++// ---------------------------------------------------------------------------
++
++/// TurnDone kind 构造（usage 显式注入——脚本转录的最常用事件）。
++fn turn_done_kind(input: serde_json::Value, output: serde_json::Value) -> AgentEventKind {
++    AgentEventKind::TurnDone {
++        subtype: "success".to_owned(),
++        is_error: false,
++        num_turns: Some(1),
++        duration_ms: Some(1_000),
++        cost_usd: None,
++        usage: serde_json::json!({
++            "input_tokens": input,
++            "output_tokens": output
++        }),
++        session_id: None,
++    }
++}
++
++/// 正向：FakeWorker 转录注入多 TurnDone（usage 两键各值）→ 终态节点
++/// token_input / token_output = 逐值之和（AC-3 主断言）。
++#[tokio::test]
++async fn run_worker_transcript多turndone_usage求和落值() {
++    let timeline = Arc::new(Mutex::new(Vec::new()));
++    let (worker, _requests, _sessions) = FakeWorker::new(&timeline)
++        .with_transcripts(vec![vec![
++            turn_done_kind(json_usize(100), json_usize(20)),
++            turn_done_kind(json_usize(30), json_usize(0)),
++            turn_done_kind(json_usize(17), json_usize(7)),
++        ]])
++        .assemble();
++    let (tools, _) = FakeTools::new(&timeline)
++        .with_phase_next(vec![route_outcome("proposal", &[]), done_outcome()])
++        .assemble();
++    let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
++    let control = Arc::new(ChangeFlowControl::new());
++    let (task, _rx, history) = spawn_run(worker, tools, snapshot, &control, false, "/tmp/root");
++    let _confirmer = spawn_confirmer(&control, true);
++    task.await.expect("run 任务正常结束");
++
++    let finish = history.finish().expect("finish 落包捕获");
++    let executor = node_of(&finish, workflow::state::RunStepKind::Executor, 0);
++    assert_eq!(executor.token_input, Some(147), "in = 100 + 30 + 17");
++    assert_eq!(executor.token_output, Some(27), "out = 20 + 0 + 7");
++}
++
++/// 正向：会话失败收敛（Failed outcome 但 transcript 在手）→ token 仍按
++/// transcript 求和落值（D2 无论 outcome.status；executor 失败注入携转录
++/// 脚本——脚本组即失败会话转录）。
++#[tokio::test]
++async fn run_worker_会话失败收敛transcript在手token仍落值() {
++    let timeline = Arc::new(Mutex::new(Vec::new()));
++    let (worker, _requests, _sessions) = FakeWorker::new(&timeline)
++        .with_executor_failures(vec![Some("api_error: 配额耗尽".to_owned())])
++        .with_transcripts(vec![vec![
++            turn_done_kind(json_usize(11), json_usize(3)),
++            turn_done_kind(json_usize(22), json_usize(4)),
++        ]])
++        .assemble();
++    let (tools, _) = FakeTools::new(&timeline)
++        .with_phase_next(vec![route_outcome("proposal", &[])])
++        .assemble();
++    let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
++    let control = Arc::new(ChangeFlowControl::new());
++    let (task, _rx, history) = spawn_run(worker, tools, snapshot, &control, false, "/tmp/root");
++    let _confirmer = spawn_confirmer(&control, true);
++    let status = task.await.expect("run 任务正常结束");
++    assert_eq!(status, ChangeRunStatus::Failed, "会话失败收敛 → run failed");
++
++    let finish = history.finish().expect("finish 落包捕获");
++    let executor = node_of(&finish, workflow::state::RunStepKind::Executor, 0);
++    assert_eq!(executor.status, RunStepStatus::Failed);
++    assert_eq!(executor.token_input, Some(33), "失败收敛 in = 11 + 22");
++    assert_eq!(executor.token_output, Some(7), "失败收敛 out = 3 + 4");
++}
++
++/// 边界：转录零 TurnDone / usage 缺席（零注入既有形态）→ 终态节点 token 两值
++/// None（AC-3 缺席半边——usage 缺席合法缺省）。
++#[tokio::test]
++async fn run_worker_零turndone_token恒none() {
++    let timeline = Arc::new(Mutex::new(Vec::new()));
++    let (worker, _requests, _sessions) = FakeWorker::new(&timeline).assemble();
++    let (tools, _) = FakeTools::new(&timeline)
++        .with_phase_next(vec![route_outcome("proposal", &[]), done_outcome()])
++        .assemble();
++    let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
++    let control = Arc::new(ChangeFlowControl::new());
++    let (task, _rx, history) = spawn_run(worker, tools, snapshot, &control, false, "/tmp/root");
++    let _confirmer = spawn_confirmer(&control, true);
++    task.await.expect("run 任务正常结束");
++
++    let finish = history.finish().expect("finish 落包捕获");
++    let executor = node_of(&finish, workflow::state::RunStepKind::Executor, 0);
++    assert_eq!(executor.token_input, None, "零 TurnDone → None");
++    assert_eq!(executor.token_output, None);
++}
++
++/// 边界（with_tokens 单侧）：转录 usage 仅携 input_tokens 键 → 终态节点
++/// token_input 单侧落值、token_output 缺席侧 None（builder 单侧 Some 形态）。
++#[tokio::test]
++async fn run_worker_token单侧落值_缺席侧none() {
++    let timeline = Arc::new(Mutex::new(Vec::new()));
++    let (worker, _requests, _sessions) = FakeWorker::new(&timeline)
++        .with_transcripts(vec![vec![AgentEventKind::TurnDone {
++            subtype: "success".to_owned(),
++            is_error: false,
++            num_turns: Some(1),
++            duration_ms: Some(1_000),
++            cost_usd: None,
++            usage: serde_json::json!({ "input_tokens": 500 }),
++            session_id: None,
++        }]])
++        .assemble();
++    let (tools, _) = FakeTools::new(&timeline)
++        .with_phase_next(vec![route_outcome("proposal", &[]), done_outcome()])
++        .assemble();
++    let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
++    let control = Arc::new(ChangeFlowControl::new());
++    let (task, _rx, history) = spawn_run(worker, tools, snapshot, &control, false, "/tmp/root");
++    let _confirmer = spawn_confirmer(&control, true);
++    task.await.expect("run 任务正常结束");
++
++    let finish = history.finish().expect("finish 落包捕获");
++    let executor = node_of(&finish, workflow::state::RunStepKind::Executor, 0);
++    assert_eq!(executor.token_input, Some(500), "在场侧单侧落值");
++    assert_eq!(executor.token_output, None, "缺席侧 None");
++}
++
++/// 边界：`worker.run` 返回 Err（无 outcome / 无 transcript）→ failed emit 节点
++/// token 恒 None（D2 Err 半边——evaluator Err 注入路径）。
++#[tokio::test]
++async fn run_worker_err路径failed_emit_token恒none() {
++    let timeline = Arc::new(Mutex::new(Vec::new()));
++    let (worker, _requests, _sessions) = FakeWorker::new(&timeline)
++        .with_evaluator_reports(vec![Err("评估会话崩溃".to_owned())])
++        .assemble();
++    let (tools, _) = FakeTools::new(&timeline)
++        .with_phase_next(vec![route_outcome("proposal", &[])])
++        .assemble();
++    let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
++    let control = Arc::new(ChangeFlowControl::new());
++    let (task, _rx, history) = spawn_run(worker, tools, snapshot, &control, false, "/tmp/root");
++    let _confirmer = spawn_confirmer(&control, true);
++    let status = task.await.expect("run 任务正常结束");
++    assert_eq!(status, ChangeRunStatus::Failed, "会话 Err → run failed");
++
++    let finish = history.finish().expect("finish 落包捕获");
++    let evaluator = node_of(&finish, workflow::state::RunStepKind::Evaluator, 0);
++    assert_eq!(evaluator.status, RunStepStatus::Failed);
++    assert!(evaluator.started_at > 0, "failed emit 亦铸 started");
++    assert!(evaluator.ended_at.is_some(), "failed 终态 emit 铸 ended");
++    assert_eq!(evaluator.token_input, None, "Err 路径 token 恒 None");
++    assert_eq!(evaluator.token_output, None);
++}
++
++/// 异常：转录混入非 TurnDone 事件与 usage 值类型漂移（字符串 / 浮点）→ 求和
++/// 仅计合法 TurnDone 数值、不 panic（`agent::sum_usage_tokens` 语义在消费面的
++/// 表现，AC-3 / AC-10）。
++#[tokio::test]
++async fn run_worker_干扰载荷仅合法turndone计入不panic() {
++    let timeline = Arc::new(Mutex::new(Vec::new()));
++    let (worker, _requests, _sessions) = FakeWorker::new(&timeline)
++        .with_transcripts(vec![vec![
++            AgentEventKind::RunStarted {
++                model: None,
++                session_id: None,
++                tools: Vec::new(),
++                mcp_servers: Vec::new(),
++            },
++            turn_done_kind(json_usize(5), json_usize(1)),
++            AgentEventKind::MessageDelta {
++                parent_tool_use_id: None,
++                delta: agent::AgentDelta::Text {
++                    text: "增量".to_owned(),
++                },
++            },
++            // 类型漂移：字符串 / 浮点 usage 值 → as_u64 判定失败跳过
++            turn_done_kind(serde_json::json!("1200"), serde_json::json!(2.5)),
++            turn_done_kind(json_usize(6), serde_json::Value::Null),
++        ]])
++        .assemble();
++    let (tools, _) = FakeTools::new(&timeline)
++        .with_phase_next(vec![route_outcome("proposal", &[]), done_outcome()])
++        .assemble();
++    let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
++    let control = Arc::new(ChangeFlowControl::new());
++    let (task, _rx, history) = spawn_run(worker, tools, snapshot, &control, false, "/tmp/root");
++    let _confirmer = spawn_confirmer(&control, true);
++    let status = task.await.expect("run 任务正常结束");
++    assert_eq!(status, ChangeRunStatus::Completed, "干扰载荷不炸不翻转终态");
++
++    let finish = history.finish().expect("finish 落包捕获");
++    let executor = node_of(&finish, workflow::state::RunStepKind::Executor, 0);
++    assert_eq!(
++        executor.token_input,
++        Some(11),
++        "仅合法 TurnDone 数值计入（5 + 6）"
++    );
++    assert_eq!(executor.token_output, Some(1), "漂移值跳过（1 + 0）");
++}
++
++/// usize → JSON 数值（脚本可读性小助手）。
++fn json_usize(value: u64) -> serde_json::Value {
++    serde_json::json!(value)
++}
+diff --git a/crates/core/workflow/src/queries/detail.rs b/crates/core/workflow/src/queries/detail.rs
+index 57cf83062b3f..c726d643245f 100644
+--- a/crates/core/workflow/src/queries/detail.rs
++++ b/crates/core/workflow/src/queries/detail.rs
+@@ -73,6 +73,12 @@ pub struct PhaseEntry {
+ /// run 执行图节点行线面（二十值全词汇封闭集直出，词汇 = `state::RunStepKind`
+ /// 单点；稳定身份键 `(phase, attempt, step, instanceNo)`，库读序 = node_seq 升序
+ /// = emit 序）。
++///
++/// 时间出线两口径并存为有意裁定（desktop-step-running-snapshot D6）：节点级
++/// `startedAt` / `endedAt` / token 四字段为**毫秒数**（与活面 `ChangeStepState`
++/// 同形——统一视图单一形状、走秒直减零 parse）；runs 级 `ChangeRunEntry.startedAt`
++/// / `finishedAt` 仍为 ISO 串（聚合时刻口径）。纯 derive 零字段属性——旧库行
++/// `0` / `null` 原样出线，查询层零改写零回填。
+ #[derive(Debug, Clone, Serialize, Deserialize, Type)]
+ #[serde(rename_all = "camelCase")]
+ pub struct ChangeRunNodeRecord {
+@@ -86,6 +92,14 @@ pub struct ChangeRunNodeRecord {
+     pub detail: Option<String>,
+     /// 全量输出引用（`ExecOutput::Recorded { exec_id }`；无记录恒 null）
+     pub output_ref: Option<String>,
++    /// 步开始时刻（UTC unix 毫秒；旧库行 0 = 步级时间缺席）
++    pub started_at: i64,
++    /// 步收口时刻（UTC unix 毫秒；running 收口在途步 null）
++    pub ended_at: Option<i64>,
++    /// 本步 turn token 增量（仅 WorkerAgent 步终态有值；缺席合法缺省）
++    pub token_input: Option<u64>,
++    /// 本步 turn token 增量（输出向；口径同 `tokenInput`）
++    pub token_output: Option<u64>,
+ }
+ 
+ /// run 执行图边行线面（四 kind 封闭集直出；端点 = 节点身份串）。
+@@ -138,6 +152,10 @@ impl From<&RunNodeStateRecord> for ChangeRunNodeRecord {
+             session_id: record.session_id.clone(),
+             detail: record.detail.clone(),
+             output_ref: record.output_ref.clone(),
++            started_at: record.started_at,
++            ended_at: record.ended_at,
++            token_input: record.token_input,
++            token_output: record.token_output,
+         }
+     }
+ }
+diff --git a/crates/core/workflow/src/queries/detail_test.rs b/crates/core/workflow/src/queries/detail_test.rs
+index 823f7781d5c3..ce32ce0440b2 100644
+--- a/crates/core/workflow/src/queries/detail_test.rs
++++ b/crates/core/workflow/src/queries/detail_test.rs
+@@ -510,6 +510,10 @@ fn 归档change全状态面_十站流水线与runs全量出线() {
+         session_id: Some("ses-exec-1".to_owned()),
+         detail: None,
+         output_ref: None,
++        started_at: t(10),
++        ended_at: Some(t(19)),
++        token_input: None,
++        token_output: None,
+         timestamp: t(19),
+     });
+     env.store.push_run_edge(RunEdgeStateRecord {
+@@ -1251,6 +1255,10 @@ fn run_node_row(run_id: &str, change_id: &str, step: RunStepKind) -> RunNodeStat
+         session_id: None,
+         detail: None,
+         output_ref: None,
++        started_at: 1_727_000_000_000,
++        ended_at: Some(1_727_000_060_000),
++        token_input: None,
++        token_output: None,
+         timestamp: 1_727_000_060_000,
+     }
+ }
+@@ -2214,3 +2222,191 @@ fn 归档串行边全forward且端点身份串() {
+         "线面 edgeKind 全为 forward: {wire_kinds:?}"
+     );
+ }
++
++// ---------------------------------------------------------------------------
++// desktop-step-running-snapshot（D6 / AC-6 / AC-1）：ChangeRunNodeRecord 四字
++// 段毫秒数纯 derive 投影——`From<&RunNodeStateRecord>` 直读透出零回填零改写；
++// runs 级 ISO 口径与节点级毫秒数两口径并存；线面与活面 ChangeStepState 同形。
++// ---------------------------------------------------------------------------
++
++/// 正向（AC-6 主断言）：DetailStore 种子节点行四字段全值 →
++/// detail.runs[0].nodes[0] 四字段毫秒数逐字段等值。
++#[test]
++fn runs节点投影四字段毫秒数逐字段等值() {
++    let env = Env::new("run-node-projection-full");
++    env.seed(ID_RUNNED, "runned", T0, None);
++    env.store
++        .push_run(run_row(ID_RUNNED, "run-1", t(10), RunStatus::Completed));
++    let mut node = run_node_row("run-1", ID_RUNNED, RunStepKind::Executor);
++    node.started_at = 1_727_000_000_000;
++    node.ended_at = Some(1_727_000_200_000);
++    node.token_input = Some(12_000);
++    node.token_output = Some(3_400);
++    env.store.push_run_node(node);
++
++    let detail = env.detail(ID_RUNNED);
++    assert_eq!(detail.runs.len(), 1);
++    assert_eq!(detail.runs[0].nodes.len(), 1);
++    let projected = &detail.runs[0].nodes[0];
++    assert_eq!(projected.started_at, 1_727_000_000_000, "毫秒数直读");
++    assert_eq!(projected.ended_at, Some(1_727_000_200_000));
++    assert_eq!(projected.token_input, Some(12_000));
++    assert_eq!(projected.token_output, Some(3_400));
++}
++
++/// 正向：多节点 emit 序种子 → nodes 投影保序（库读序 = node_seq 序口径不变）。
++#[test]
++fn runs节点投影多节点emit序保序() {
++    let env = Env::new("run-node-projection-order");
++    env.seed(ID_RUNNED, "runned", T0, None);
++    env.store
++        .push_run(run_row(ID_RUNNED, "run-1", t(10), RunStatus::Completed));
++    for (index, step) in [
++        RunStepKind::PhaseStart,
++        RunStepKind::Executor,
++        RunStepKind::Evaluator,
++    ]
++    .into_iter()
++    .enumerate()
++    {
++        let mut node = run_node_row("run-1", ID_RUNNED, step);
++        node.instance_no = index as u32;
++        node.started_at = t(10 + index as u32);
++        env.store.push_run_node(node);
++    }
++    let detail = env.detail(ID_RUNNED);
++    assert_eq!(
++        detail.runs[0]
++            .nodes
++            .iter()
++            .map(|node| node.step)
++            .collect::<Vec<_>>(),
++        vec![RunStepKind::PhaseStart, RunStepKind::Executor, RunStepKind::Evaluator],
++        "nodes 投影保序（emit 序）"
++    );
++}
++
++/// 正向（两口径并存留痕）：同一 run 行 startedAt / finishedAt 仍 ISO 串
++///（RFC3339，`iso_from_millis` 单点）与节点级毫秒数并存。
++#[test]
++fn runs级iso与节点级毫秒数两口径并存() {
++    let env = Env::new("run-node-projection-dual-scale");
++    env.seed(ID_RUNNED, "runned", T0, None);
++    env.store.push_run(RunStateRecord {
++        run_id: "run-1".to_owned(),
++        change_id: ID_RUNNED.to_owned(),
++        status: RunStatus::Completed,
++        reason: None,
++        started_at: t(10),
++        finished_at: Some(t(19)),
++    });
++    let mut node = run_node_row("run-1", ID_RUNNED, RunStepKind::Executor);
++    node.started_at = t(11);
++    node.ended_at = Some(t(12));
++    env.store.push_run_node(node);
++    env.file("runned", "proposal.md", "# 提案");
++
++    let detail = env.detail(ID_RUNNED);
++    // runs 级 ISO 串口径不变
++    assert_eq!(
++        detail.runs[0].started_at.as_deref(),
++        Some("2024-09-22T10:13:30Z"),
++        "run 行 startedAt ISO RFC3339"
++    );
++    assert_eq!(
++        detail.runs[0].finished_at.as_deref(),
++        Some("2024-09-22T10:13:39Z"),
++        "run 行 finishedAt ISO RFC3339"
++    );
++    // 节点级毫秒数并存
++    assert_eq!(detail.runs[0].nodes[0].started_at, t(11), "节点级毫秒数口径");
++    assert_eq!(detail.runs[0].nodes[0].ended_at, Some(t(12)));
++}
++
++/// 边界（AC-6 旧数据半边）：旧行形态种子（started_at=0 / ended None / token
++/// None）→ 出线 `0` / `null` 原样零回填。
++#[test]
++fn runs节点投影旧行形态零回填原样出线() {
++    let env = Env::new("run-node-projection-legacy");
++    env.seed(ID_RUNNED, "runned", T0, None);
++    env.store
++        .push_run(run_row(ID_RUNNED, "run-1", t(10), RunStatus::Completed));
++    let mut node = run_node_row("run-1", ID_RUNNED, RunStepKind::StaticCheck);
++    node.started_at = 0;
++    node.ended_at = None;
++    node.token_input = None;
++    node.token_output = None;
++    env.store.push_run_node(node);
++
++    let detail = env.detail(ID_RUNNED);
++    let projected = &detail.runs[0].nodes[0];
++    assert_eq!(projected.started_at, 0, "旧行 0 原样（零回填）");
++    assert_eq!(projected.ended_at, None);
++    assert_eq!(projected.token_input, None);
++    assert_eq!(projected.token_output, None);
++}
++
++/// 边界：token 单侧在场（input Some / output None）→ 线面单键数值单键 null。
++#[test]
++fn runs节点投影token单侧在场单键null() {
++    let env = Env::new("run-node-projection-half-token");
++    env.seed(ID_RUNNED, "runned", T0, None);
++    env.store
++        .push_run(run_row(ID_RUNNED, "run-1", t(10), RunStatus::Completed));
++    let mut node = run_node_row("run-1", ID_RUNNED, RunStepKind::Executor);
++    node.token_input = Some(500);
++    node.token_output = None;
++    env.store.push_run_node(node);
++
++    let detail = env.detail(ID_RUNNED);
++    assert_eq!(detail.runs[0].nodes[0].token_input, Some(500));
++    assert_eq!(detail.runs[0].nodes[0].token_output, None);
++}
++
++/// 边界：空节点 run（nodes 空 vec 种子）→ runs[].nodes 空数组（零节点 run
++/// 合法形态）。
++#[test]
++fn runs节点投影空run空数组() {
++    let env = Env::new("run-node-projection-empty");
++    env.seed(ID_RUNNED, "runned", T0, None);
++    env.store
++        .push_run(run_row(ID_RUNNED, "run-1", t(10), RunStatus::Completed));
++
++    let detail = env.detail(ID_RUNNED);
++    assert_eq!(detail.runs.len(), 1);
++    assert!(
++        detail.runs[0].nodes.is_empty(),
++        "零节点 run → nodes 空数组"
++    );
++}
++
++/// 组合（AC-1 / AC-6 单一形状锚）：RunNodeStateRecord → ChangeRunNodeRecord →
++/// wire 线面——投影结果 `serde_json::to_value` camelCase 四键与活面
++/// ChangeStepState 线面同形（数值口径，键集与键序无关的可辨面：四键逐键在案）。
++#[test]
++fn runs节点投影线面与活面step_state同形() {
++    let env = Env::new("run-node-projection-wire-shape");
++    env.seed(ID_RUNNED, "runned", T0, None);
++    env.store
++        .push_run(run_row(ID_RUNNED, "run-1", t(10), RunStatus::Completed));
++    let mut node = run_node_row("run-1", ID_RUNNED, RunStepKind::Executor);
++    node.started_at = 1_727_000_000_000;
++    node.ended_at = None;
++    node.token_input = Some(12_000);
++    node.token_output = None;
++    env.store.push_run_node(node);
++
++    let detail = env.detail(ID_RUNNED);
++    let value = serde_json::to_value(&detail).expect("序列化应成功");
++    let node_wire = &value["runs"][0]["nodes"][0];
++    // camelCase 四键逐键在案且值与投影一致（null 不省键）
++    assert_eq!(node_wire["startedAt"], serde_json::json!(1_727_000_000_000_i64));
++    assert_eq!(node_wire["endedAt"], serde_json::Value::Null, "endedAt null 留位");
++    assert_eq!(node_wire["tokenInput"], serde_json::json!(12_000));
++    assert_eq!(node_wire["tokenOutput"], serde_json::Value::Null);
++    // 与活面 ChangeStepState 同形：键集恰含四键（camelCase 词面逐字）
++    let object = node_wire.as_object().expect("节点线面对象");
++    for key in ["startedAt", "endedAt", "tokenInput", "tokenOutput"] {
++        assert!(object.contains_key(key), "节点线面含 {key}（与活面 ChangeStepState 同形）");
++    }
++}

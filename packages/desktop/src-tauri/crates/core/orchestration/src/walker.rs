@@ -1,7 +1,7 @@
 use std::path::Path;
 use std::sync::Arc;
 
-use agent::{AgentPermissionMode, AgentRunStatus, ModelLevel, SessionProvenance};
+use agent::{sum_usage_tokens, AgentPermissionMode, AgentRunStatus, ModelLevel, SessionProvenance};
 use foundation::layout::domain_dir_name;
 use workflow::model::{ChecklistItem, Verdict};
 use workflow::queries::ChangeDetail;
@@ -15,10 +15,10 @@ use crate::decision::{
     ensure_backtrack_allowed, parse_decision, CandidateReport, DecisionAction, DecisionInput,
 };
 use crate::port::{
-    ArchiveVcsPort, MutationSkipReason, MutationTestConclusion, MutationTestOutcome,
-    RebaseOutcome, RunHistoryPort, StaticCheckOutcome, TestExecutionConclusion,
-    TestExecutionOutcome, ToolCommand, ToolStepOutput, ToolStepPort, WorkerAgentPort, WorkerRole,
-    WorkerTurnOutcome, WorkerTurnRequest, WorkflowSnapshotPort, WorktreeSnapshot,
+    ArchiveVcsPort, MutationSkipReason, MutationTestConclusion, MutationTestOutcome, RebaseOutcome,
+    RunHistoryPort, StaticCheckOutcome, TestExecutionConclusion, TestExecutionOutcome, ToolCommand,
+    ToolStepOutput, ToolStepPort, WorkerAgentPort, WorkerRole, WorkerTurnOutcome,
+    WorkerTurnRequest, WorkflowSnapshotPort, WorktreeSnapshot,
 };
 use crate::prompt::{
     decision_prompt, evaluator_prompt, merge_conflict_prompt, spec_sync_prompt, verdict_fix_prompt,
@@ -377,22 +377,34 @@ fn emit_edge(guard: &RunGuard, from: NodeKey, to: NodeKey, kind: EdgeKind) {
     });
 }
 
-/// 步状态行落值（emit 载荷收窄：状态 + 三可选面）。
+/// 步状态行落值（emit 载荷收窄：状态 + 三可选面 + 步级时间与 token 载荷镜像面）。
+/// token 两值为数据随行面（`run_worker` 经 [`StepSettle::with_tokens`] 落值、其余
+/// 步不设即 None）；`started_at` / `ended_at` 两时间字段由 `emit_node` 单点铸造
+/// 覆写——构造器恒中性值（0 / None），MUST NOT 由调用方携带时间。
 struct StepSettle {
     status: ChangeStepStatus,
     session_id: Option<String>,
     detail: Option<String>,
     output_ref: Option<String>,
+    started_at: i64,
+    ended_at: Option<i64>,
+    token_input: Option<u64>,
+    token_output: Option<u64>,
 }
 
 impl StepSettle {
-    /// 步进行中（无会话 / 详情 / 输出引用）。
+    /// 步进行中（无会话 / 详情 / 输出引用；时间与 token 恒中性——时间由
+    /// `emit_node` 铸造覆写）。
     fn running() -> Self {
         Self {
             status: ChangeStepStatus::Running,
             session_id: None,
             detail: None,
             output_ref: None,
+            started_at: 0,
+            ended_at: None,
+            token_input: None,
+            token_output: None,
         }
     }
 
@@ -434,17 +446,34 @@ impl StepSettle {
         self.output_ref = output_ref;
         self
     }
+
+    /// 随行本步 token 增量（in / out 两值；仅 WorkerAgent 步终态落值，缺席
+    /// None）——数据随行面，时间字段不在本 builder 语义内。
+    fn with_tokens(mut self, token_input: Option<u64>, token_output: Option<u64>) -> Self {
+        self.token_input = token_input;
+        self.token_output = token_output;
+        self
+    }
 }
 
 /// 步状态行 emit（节点累积 + Notice 广播；同稳定身份键的后续 emit 就地合并）。
+/// 步级时间铸造收本单点：全部 44 个调用点零触点覆盖——running emit 铸
+/// `(now, None)`、终态 emit 铸 `(now, Some(now))`（`phaseStart` 等单 emit 瞬步
+/// 自然 `started_at == ended_at` 同刻）；该 started 同刻值是否被采信由
+/// `accumulate_node` 合并侧裁定（started 保首见）。复用既有 `now_millis()` 零新
+/// 时钟缝——收口时刻铸造只在生产路径消费，corpus 确定性由测试直构
+/// `ChangeStepState` 注入定值承载（沿本文件 `now_millis` 既有注释口径）。
 fn emit_node(
     guard: &RunGuard,
     phase: &str,
     attempt: u32,
     step: ChangeStepKind,
     instance_no: u32,
-    settle: StepSettle,
+    mut settle: StepSettle,
 ) {
+    let now = now_millis();
+    settle.started_at = now;
+    settle.ended_at = (settle.status != ChangeStepStatus::Running).then_some(now);
     guard.emit(RunUpdate::Step {
         step: ChangeStepState {
             phase: phase.to_owned(),
@@ -455,6 +484,10 @@ fn emit_node(
             session_id: settle.session_id,
             detail: settle.detail,
             output_ref: settle.output_ref,
+            started_at: settle.started_at,
+            ended_at: settle.ended_at,
+            token_input: settle.token_input,
+            token_output: settle.token_output,
         },
     });
 }
@@ -1289,7 +1322,10 @@ async fn step_phase_log(
             cursor.attempt,
             ChangeStepKind::PhaseLog,
             instance_no,
-            StepSettle::passed(Some(format!("attempt {} 已落账（空 checklist）", logged.attempt))),
+            StepSettle::passed(Some(format!(
+                "attempt {} 已落账（空 checklist）",
+                logged.attempt
+            ))),
         );
         cursor.failed = false;
         return Ok(());
@@ -1541,7 +1577,9 @@ fn mutation_evidence(mutation: Option<&MutationTestOutcome>) -> String {
                 outcome.score, outcome.threshold
             ),
             Some(MutationSkipReason::EmptyDiff) => "diff 空跳过".to_owned(),
-            Some(MutationSkipReason::NoExecutor) => "null（未跑）：全部 suite 无突变执行器".to_owned(),
+            Some(MutationSkipReason::NoExecutor) => {
+                "null（未跑）：全部 suite 无突变执行器".to_owned()
+            }
         },
         None => "null（未跑）".to_owned(),
     }
@@ -1775,7 +1813,14 @@ fn settle_archive_node(
     instance_no: u32,
     settle: StepSettle,
 ) {
-    emit_node(ctx.guard, ctx.phase, cursor.attempt, kind, instance_no, settle);
+    emit_node(
+        ctx.guard,
+        ctx.phase,
+        cursor.attempt,
+        kind,
+        instance_no,
+        settle,
+    );
 }
 
 /// 归档步前置载荷读取（`(name, worktree)`）：缺位即计划图漂移（Preflight 步未
@@ -1862,7 +1907,13 @@ async fn step_preflight(
         }
     }
     let brief = preflight_brief(&payload);
-    settle_archive_node(ctx, cursor, kind, instance_no, StepSettle::passed(Some(brief)));
+    settle_archive_node(
+        ctx,
+        cursor,
+        kind,
+        instance_no,
+        StepSettle::passed(Some(brief)),
+    );
     cursor.preflight = Some(payload);
     Ok(())
 }
@@ -1890,7 +1941,10 @@ fn preflight_brief(payload: &ArchivePreflight) -> String {
     if payload.worktree.is_some() {
         notes.push(format!(
             "合入目标：{}",
-            payload.merge_target.as_deref().unwrap_or("（当前分支探测失败）")
+            payload
+                .merge_target
+                .as_deref()
+                .unwrap_or("（当前分支探测失败）")
         ));
     }
     if notes.is_empty() {
@@ -2016,13 +2070,7 @@ async fn step_rebase(
                             )))
                         }
                         Err(error) => {
-                            return Err(fail_archive_node(
-                                ctx,
-                                cursor,
-                                kind,
-                                instance_no,
-                                error,
-                            ))
+                            return Err(fail_archive_node(ctx, cursor, kind, instance_no, error))
                         }
                     }
                 }
@@ -2176,7 +2224,14 @@ async fn step_resolve_conflicts(
                     trace,
                     cursor,
                     kind,
-                    lean_converge(ctx, worktree_path, &branch, &pending, LEAN_PROBE_FAILED, false),
+                    lean_converge(
+                        ctx,
+                        worktree_path,
+                        &branch,
+                        &pending,
+                        LEAN_PROBE_FAILED,
+                        false,
+                    ),
                 ))
             }
         };
@@ -2208,14 +2263,7 @@ async fn step_resolve_conflicts(
                 trace,
                 cursor,
                 kind,
-                lean_converge(
-                    ctx,
-                    worktree_path,
-                    &branch,
-                    &pending,
-                    reason,
-                    stopped_note,
-                ),
+                lean_converge(ctx, worktree_path, &branch, &pending, reason, stopped_note),
             ));
         }
         // 后验序：残留标记 fs 扫描（locale 免疫）→ B 快照 → 状态面对比
@@ -2236,7 +2284,14 @@ async fn step_resolve_conflicts(
                     trace,
                     cursor,
                     kind,
-                    lean_converge(ctx, worktree_path, &branch, &pending, LEAN_PROBE_FAILED, false),
+                    lean_converge(
+                        ctx,
+                        worktree_path,
+                        &branch,
+                        &pending,
+                        LEAN_PROBE_FAILED,
+                        false,
+                    ),
                 ))
             }
         };
@@ -2260,7 +2315,9 @@ async fn step_resolve_conflicts(
                     trace,
                     cursor,
                     kind,
-                    format!("{error}；冲突解算已验通过但 rebase 续走失败：{TXT_REBASE_CONTINUE_GUIDE}"),
+                    format!(
+                        "{error}；冲突解算已验通过但 rebase 续走失败：{TXT_REBASE_CONTINUE_GUIDE}"
+                    ),
                 ))
             }
         }
@@ -2696,8 +2753,12 @@ async fn resolve_deadlock(
     trace: &mut EdgeTrace,
 ) -> Deadlock {
     let (fail_phase, eval_only) = match error {
-        PhaseNextError::MaxRetriesExceeded { phase, eval_only, .. }
-        | PhaseNextError::VerdictFail { phase, eval_only, .. } => (phase, *eval_only),
+        PhaseNextError::MaxRetriesExceeded {
+            phase, eval_only, ..
+        }
+        | PhaseNextError::VerdictFail {
+            phase, eval_only, ..
+        } => (phase, *eval_only),
     };
     if next.last_result.is_none() {
         return Deadlock::Terminal(Terminal::failed(
@@ -3032,6 +3093,13 @@ async fn run_worker(
             return Err(Terminal::failed(format!("会话执行失败: {error}")));
         }
     };
+    // 本步 token 增量：终态 emit 前对 transcript 的 TurnDone.usage 单次求和落值
+    //——终态单次落值即「会话结束后累计结果」（await 收口后 transcript 已含
+    // TurnDone），无二次刷新通道；无论 outcome.status 为 Completed / Failed /
+    // Stopped / Running 漂移收敛（transcript 在手即求和），usage 缺席 → None。
+    // Err 路径（无 outcome / 无 transcript）failed emit 不落值恒 None。
+    let token_input = sum_usage_tokens(&outcome.transcript, "input_tokens");
+    let token_output = sum_usage_tokens(&outcome.transcript, "output_tokens");
     let (settle, terminal) = match outcome.status {
         AgentRunStatus::Completed => (StepSettle::passed(None), None),
         AgentRunStatus::Failed => {
@@ -3064,7 +3132,9 @@ async fn run_worker(
         attempt,
         kind,
         instance_no,
-        settle.with_session(Some(outcome.session_id.clone())),
+        settle
+            .with_session(Some(outcome.session_id.clone()))
+            .with_tokens(token_input, token_output),
     );
     match terminal {
         None => Ok(outcome),

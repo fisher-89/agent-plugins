@@ -273,6 +273,10 @@ fn run记录两态构造与等值面() {
         session_id: None,
         detail: None,
         output_ref: None,
+        started_at: 1_727_000_000_000,
+        ended_at: Some(1_727_000_060_000),
+        token_input: None,
+        token_output: None,
         timestamp: 1_727_000_060_000,
     };
     assert_eq!(node_none.session_id, None);
@@ -355,6 +359,10 @@ fn run命令两态构造与等值面() {
         session_id: Some("ses-1".to_owned()),
         detail: None,
         output_ref: None,
+        started_at: 1_727_000_000_000,
+        ended_at: Some(1_727_000_060_000),
+        token_input: None,
+        token_output: None,
     };
     let edge = RunEdgeEntry {
         from_node_key: "implement:2:executor:1".to_owned(),
@@ -1289,6 +1297,10 @@ fn run_node_state_record全字段往返可辨() {
         session_id: None,
         detail: None,
         output_ref: None,
+        started_at: 1_727_000_000_000,
+        ended_at: Some(1_727_000_060_000),
+        token_input: None,
+        token_output: None,
         timestamp: 1_727_000_060_000,
     };
     assert_eq!(base.clone(), base, "PartialEq 自反");
@@ -1402,4 +1414,270 @@ fn run_edge_state_record全字段往返可辨() {
     value["edgeKind"] = json!("feed_back");
     let back: Result<RunEdgeStateRecord, _> = serde_json::from_value(value);
     assert!(back.is_err(), "边行非法 kind 词应拒绝");
+}
+
+// ---------------------------------------------------------------------------
+// desktop-step-running-snapshot（AC-1 / AC-5）：RunNodeStateRecord /
+// RunNodeEntry 四字段（startedAt / endedAt / tokenInput / tokenOutput）——
+// camelCase 线面 / 往返无损 / null 不省键 / 0 值原样 / 旧形态拒绝 / 写读同一
+// 份字段集 / 防御值直存零钳制
+// ---------------------------------------------------------------------------
+
+/// 正向：四字段全值 `serde_json::to_string` → camelCase 四键逐键等值（AC-1）。
+#[test]
+fn run_node_state_record四字段全值线面camelcase逐键() {
+    let record = RunNodeStateRecord {
+        run_id: "run-1727000000000".to_owned(),
+        change_id: "demo-change".to_owned(),
+        phase: "implement".to_owned(),
+        attempt: 1,
+        step: RunStepKind::Executor,
+        instance_no: 0,
+        status: RunStepStatus::Passed,
+        session_id: Some("ses-1".to_owned()),
+        detail: None,
+        output_ref: None,
+        started_at: 1_727_000_000_000,
+        ended_at: Some(1_727_000_200_000),
+        token_input: Some(12_000),
+        token_output: Some(3_400),
+        timestamp: 1_727_000_300_000,
+    };
+    let value = serde_json::to_value(&record).expect("出线应成功");
+    assert_eq!(
+        value["startedAt"],
+        json!(1_727_000_000_000_i64),
+        "startedAt camelCase 键数值口径"
+    );
+    assert_eq!(value["endedAt"], json!(1_727_000_200_000_i64));
+    assert_eq!(value["tokenInput"], json!(12_000));
+    assert_eq!(value["tokenOutput"], json!(3_400));
+}
+
+/// 正向：to_string → from_str 往返 → 四字段逐字段还原无损（既有往返用例
+/// 随动扩断言）。
+#[test]
+fn run_node_state_record四字段往返还原无损() {
+    let record = RunNodeStateRecord {
+        started_at: 1_727_000_000_000,
+        ended_at: Some(1_727_000_200_000),
+        token_input: Some(12_000),
+        token_output: Some(3_400),
+        ..RunNodeStateRecord {
+            run_id: "run-rt".to_owned(),
+            change_id: "demo-change".to_owned(),
+            phase: "implement".to_owned(),
+            attempt: 1,
+            step: RunStepKind::Evaluator,
+            instance_no: 1,
+            status: RunStepStatus::Failed,
+            session_id: None,
+            detail: None,
+            output_ref: None,
+            started_at: 0,
+            ended_at: None,
+            token_input: None,
+            token_output: None,
+            timestamp: 1,
+        }
+    };
+    let text = serde_json::to_string(&record).expect("出线应成功");
+    let back: RunNodeStateRecord = serde_json::from_str(&text).expect("往返应成功");
+    assert_eq!(back, record, "四字段往返无损");
+    assert_eq!(back.started_at, 1_727_000_000_000);
+    assert_eq!(back.ended_at, Some(1_727_000_200_000));
+    assert_eq!(back.token_input, Some(12_000));
+    assert_eq!(back.token_output, Some(3_400));
+}
+
+/// 边界：token / ended None 形态 → 线面三键 `null` 不省键（沿 node_none 两态
+/// 式样随动）。
+#[test]
+fn run_node_state_record_none形态三键null不省键() {
+    let record = RunNodeStateRecord {
+        ended_at: None,
+        token_input: None,
+        token_output: None,
+        ..RunNodeStateRecord {
+            run_id: "run-none".to_owned(),
+            change_id: "demo-change".to_owned(),
+            phase: "implement".to_owned(),
+            attempt: 1,
+            step: RunStepKind::StaticCheck,
+            instance_no: 0,
+            status: RunStepStatus::Running,
+            session_id: None,
+            detail: None,
+            output_ref: None,
+            started_at: 1_727_000_000_000,
+            ended_at: Some(1),
+            token_input: Some(1),
+            token_output: Some(1),
+            timestamp: 1,
+        }
+    };
+    let value = serde_json::to_value(&record).expect("出线应成功");
+    assert_eq!(value["endedAt"], json!(null));
+    assert_eq!(value["tokenInput"], json!(null));
+    assert_eq!(value["tokenOutput"], json!(null));
+    let object = value.as_object().expect("对象线面");
+    assert!(
+        object.contains_key("endedAt")
+            && object.contains_key("tokenInput")
+            && object.contains_key("tokenOutput"),
+        "三键在场（null 留位不省键）"
+    );
+}
+
+/// 边界：started_at = 0 → 线面 `0` 原样（port 读面缺省语义值零改写）。
+#[test]
+fn run_node_state_record_started_at零值线面原样() {
+    let record = RunNodeStateRecord {
+        started_at: 0,
+        ..RunNodeStateRecord {
+            run_id: "run-zero".to_owned(),
+            change_id: "demo-change".to_owned(),
+            phase: "implement".to_owned(),
+            attempt: 1,
+            step: RunStepKind::PhaseStart,
+            instance_no: 0,
+            status: RunStepStatus::Passed,
+            session_id: None,
+            detail: None,
+            output_ref: None,
+            started_at: 9,
+            ended_at: None,
+            token_input: None,
+            token_output: None,
+            timestamp: 1,
+        }
+    };
+    let value = serde_json::to_value(&record).expect("出线应成功");
+    assert_eq!(value["startedAt"], json!(0), "0 缺省语义值原样出线");
+}
+
+/// 异常：缺四键旧形态 JSON 反序列化 → Err（port 读面无 `#[serde(default)]`
+/// ——旧行兼容仅落库 `RunNodeRecord` 面承载，两载体语义分立锚，AC-5）。
+#[test]
+fn run_node_state_record缺四键旧形态反序列化拒绝() {
+    let legacy = json!({
+        "runId": "run-legacy",
+        "changeId": "demo-change",
+        "phase": "implement",
+        "attempt": 1,
+        "step": "executor",
+        "instanceNo": 0,
+        "status": "passed",
+        "sessionId": null,
+        "detail": null,
+        "outputRef": null,
+        "timestamp": 1_727_000_300_000_i64
+    });
+    let back: Result<RunNodeStateRecord, _> = serde_json::from_value(legacy);
+    assert!(
+        back.is_err(),
+        "缺四键旧形态应 Err（非 Option 的 startedAt 缺席即拒——port 读面无 default）"
+    );
+}
+
+/// 正向（写面 / 读面同一份字段集锚，AC-1）：RunNodeEntry 四字段构造 → 与
+/// RunNodeStateRecord 同名字段集逐字段可对齐。
+#[test]
+fn run_node_entry与state_record同名字段集逐字段可对齐() {
+    let entry = RunNodeEntry {
+        phase: "implement".to_owned(),
+        attempt: 1,
+        step: RunStepKind::Executor,
+        instance_no: 0,
+        status: RunStepStatus::Passed,
+        session_id: Some("ses-1".to_owned()),
+        detail: Some("实现完成".to_owned()),
+        output_ref: None,
+        started_at: 1_727_000_000_000,
+        ended_at: Some(1_727_000_200_000),
+        token_input: Some(12_000),
+        token_output: Some(3_400),
+    };
+    let record = RunNodeStateRecord {
+        run_id: "run-align".to_owned(),
+        change_id: "demo-change".to_owned(),
+        phase: entry.phase.clone(),
+        attempt: entry.attempt,
+        step: entry.step,
+        instance_no: entry.instance_no,
+        status: entry.status,
+        session_id: entry.session_id.clone(),
+        detail: entry.detail.clone(),
+        output_ref: entry.output_ref,
+        started_at: entry.started_at,
+        ended_at: entry.ended_at,
+        token_input: entry.token_input,
+        token_output: entry.token_output,
+        timestamp: 1_727_000_300_000,
+    };
+    // 四字段逐字段对齐（写面载荷 = 读面快照同名字段集）
+    assert_eq!(entry.started_at, record.started_at);
+    assert_eq!(entry.ended_at, record.ended_at);
+    assert_eq!(entry.token_input, record.token_input);
+    assert_eq!(entry.token_output, record.token_output);
+}
+
+/// 边界：四字段 0 / None 边界形态构造 → 直存零转换零默认（payload 面零逻辑
+/// 分支）。
+#[test]
+fn run_node_entry边界形态直存零转换零默认() {
+    let entry = RunNodeEntry {
+        started_at: 0,
+        ended_at: None,
+        token_input: None,
+        token_output: None,
+        ..RunNodeEntry {
+            phase: "implement".to_owned(),
+            attempt: 1,
+            step: RunStepKind::VerdictGate,
+            instance_no: 0,
+            status: RunStepStatus::Stopped,
+            session_id: None,
+            detail: None,
+            output_ref: None,
+            started_at: 9,
+            ended_at: Some(9),
+            token_input: Some(9),
+            token_output: Some(9),
+        }
+    };
+    assert_eq!(entry.started_at, 0, "0 直存（零转换）");
+    assert_eq!(entry.ended_at, None, "None 直存（零默认）");
+    assert_eq!(entry.token_input, None);
+    assert_eq!(entry.token_output, None);
+}
+
+/// 异常：防御值构造（started_at 负值 / token u64::MAX）→ 直存零钳制零 panic
+///（载荷面零校验——校验归铸造侧锚）。
+#[test]
+fn run_node_entry防御值直存零钳制零panic() {
+    let entry = RunNodeEntry {
+        started_at: -1,
+        ended_at: Some(-2),
+        token_input: Some(u64::MAX),
+        token_output: Some(u64::MAX - 1),
+        ..RunNodeEntry {
+            phase: "implement".to_owned(),
+            attempt: 1,
+            step: RunStepKind::Executor,
+            instance_no: 0,
+            status: RunStepStatus::Passed,
+            session_id: None,
+            detail: None,
+            output_ref: None,
+            started_at: 0,
+            ended_at: None,
+            token_input: None,
+            token_output: None,
+        }
+    };
+    assert_eq!(entry.started_at, -1, "负值直存零钳制");
+    assert_eq!(entry.ended_at, Some(-2));
+    assert_eq!(entry.token_input, Some(u64::MAX), "u64::MAX 直存零钳制");
+    assert_eq!(entry.token_output, Some(u64::MAX - 1));
 }

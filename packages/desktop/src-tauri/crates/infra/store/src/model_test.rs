@@ -2065,6 +2065,10 @@ fn run_node_entry(step: RunStepKind, status: RunStepStatus, instance_no: u32) ->
         session_id: None,
         detail: None,
         output_ref: None,
+        started_at: 1_727_000_000_000,
+        ended_at: Some(1_727_000_060_000),
+        token_input: None,
+        token_output: None,
     }
 }
 
@@ -2801,4 +2805,287 @@ fn run_node_record_step越集词反序列化拒绝持衡() {
             serde_json::from_value(serde_json::json!(illegal));
         assert!(back.is_err(), "RunStepKind 越集词 {illegal:?} 应拒绝");
     }
+}
+
+// ---------------------------------------------------------------------------
+// desktop-step-running-snapshot（AC-1 / AC-5）：RunNodeRecord::new 四字段直复制
+// ——旧行 serde(default) 兼容 / wire 面 / 防御值 / 写幂等 / 真件回环
+// ---------------------------------------------------------------------------
+
+/// 四字段全值节点条目 fixture（D10 词面同源定值：started 1_727_000_000_000 /
+/// ended +200_000 / token 12_000 与 3_400）。
+fn full_metrics_entry() -> RunNodeEntry {
+    RunNodeEntry {
+        started_at: 1_727_000_000_000,
+        ended_at: Some(1_727_000_200_000),
+        token_input: Some(12_000),
+        token_output: Some(3_400),
+        ..run_node_entry(RunStepKind::Executor, RunStepStatus::Passed, 0)
+    }
+}
+
+/// 正向：entry 四字段全值 → record 四列逐字段等值；timestamp 参数独立赋值
+///（与 started_at 不混淆——timestamp 语义保留锚）。
+#[test]
+fn run_node_record四字段全值直复制与timestamp独立() {
+    let record = RunNodeRecord::new(
+        "run-1727000000000",
+        "chg-demo",
+        3,
+        &full_metrics_entry(),
+        1_727_000_300_000,
+    );
+    assert_eq!(record.started_at, 1_727_000_000_000, "started_at 直复制");
+    assert_eq!(record.ended_at, Some(1_727_000_200_000), "ended_at 直复制");
+    assert_eq!(record.token_input, Some(12_000), "token_input 直复制");
+    assert_eq!(record.token_output, Some(3_400), "token_output 直复制");
+    // timestamp 独立赋值：与 started_at 语义分立（整包同刻 = finished_at）
+    assert_eq!(record.timestamp, 1_727_000_300_000);
+    assert_ne!(record.timestamp, record.started_at, "timestamp 与 started_at 不混淆");
+}
+
+/// 正向：native_model 编码 → decode 回环四列逐字段一致（id=16 version=1 编解码
+/// 回归——加列后 codec 面）。
+#[test]
+fn run_node_record四列编解码回环逐字段一致() {
+    let record = RunNodeRecord::new(
+        "run-1727000000000",
+        "chg-demo",
+        0,
+        &full_metrics_entry(),
+        1_727_000_300_000,
+    );
+    let bytes = native_model::encode(&record).expect("encode 应成功");
+    let (decoded, version) =
+        native_model::decode::<RunNodeRecord>(bytes).expect("decode 应成功");
+    assert_eq!(version, 1, "id=16 version=1 持衡");
+    assert_eq!(decoded.started_at, record.started_at);
+    assert_eq!(decoded.ended_at, record.ended_at);
+    assert_eq!(decoded.token_input, record.token_input);
+    assert_eq!(decoded.token_output, record.token_output);
+    assert_eq!(decoded, record, "回环全字段一致");
+}
+
+/// 边界：entry token 两值 / ended_at None → 列 None 直透（缺席合法缺省）。
+#[test]
+fn run_node_record_none列直透() {
+    let entry = run_node_entry(RunStepKind::StaticCheck, RunStepStatus::Passed, 0);
+    assert_eq!(entry.ended_at, Some(1_727_000_060_000));
+    let mut bare = entry.clone();
+    bare.ended_at = None;
+    bare.token_input = None;
+    bare.token_output = None;
+    let record = RunNodeRecord::new("run-1", "chg-demo", 0, &bare, 1_727_000_300_000);
+    assert_eq!(record.ended_at, None, "ended None 直透");
+    assert_eq!(record.token_input, None);
+    assert_eq!(record.token_output, None);
+}
+
+/// 边界：旧 JSON 形态（无四新键、仅既有键）反序列化 → started_at=0 /
+/// ended_at=None / token None，零报错零迁移（`#[serde(default)]` 锚，AC-5）。
+#[test]
+fn run_node_record旧json形态缺四新键解码零报错零迁移() {
+    let record = RunNodeRecord::new(
+        "run-legacy",
+        "chg-demo",
+        0,
+        &run_node_entry(RunStepKind::Executor, RunStepStatus::Passed, 0),
+        1_727_000_300_000,
+    );
+    let mut value = serde_json::to_value(&record).expect("出线应成功");
+    // 剥离四新键 → 旧形态 wire 面（既有键原样保留）
+    let object = value.as_object_mut().expect("对象线面");
+    for key in ["startedAt", "endedAt", "tokenInput", "tokenOutput"] {
+        assert!(object.remove(key).is_some(), "新键 {key} 在案可剥离");
+    }
+    let legacy: RunNodeRecord = serde_json::from_value(value).expect("旧形态解码应成功");
+    assert_eq!(legacy.started_at, 0, "旧行 started 缺省 0 = 步级时间缺席");
+    assert_eq!(legacy.ended_at, None);
+    assert_eq!(legacy.token_input, None);
+    assert_eq!(legacy.token_output, None);
+    // 既有列零迁移原样（身份面 / 载荷面持衡）
+    assert_eq!(legacy.run_id, record.run_id);
+    assert_eq!(legacy.node_key, record.node_key);
+    assert_eq!(legacy.step, record.step);
+    assert_eq!(legacy.status, record.status);
+    assert_eq!(legacy.timestamp, record.timestamp);
+}
+
+/// 边界：同 run 多行 node_seq 递增 → node_key 打包不撞键；node_id() /
+/// node_seq() 身份面不因新列漂移。
+#[test]
+fn run_node_record同run多行node_seq递增不撞键身份面持衡() {
+    let entry = full_metrics_entry();
+    let keys: Vec<u128> = (0..5u64)
+        .map(|seq| RunNodeRecord::new("run-same", "chg-demo", seq, &entry, 1).node_key)
+        .collect();
+    for pair in keys.windows(2) {
+        assert!(pair[0] < pair[1], "同 run node_seq 递增 → node_key 严格增大");
+    }
+    let record = RunNodeRecord::new("run-same", "chg-demo", 7, &entry, 1);
+    assert_eq!(record.node_seq(), 7, "node_seq() = 打包键低 64 位");
+    assert_eq!(
+        record.node_id(),
+        "implement:1:executor:0",
+        "身份串 = 边表端点口径（不因新列漂移）"
+    );
+}
+
+/// 边界：序列化 wire 面：camelCase 四新键 `startedAt` / `endedAt` /
+/// `tokenInput` / `tokenOutput` 在案。
+#[test]
+fn run_node_record_wire面camelcase四新键在案() {
+    let value = serde_json::to_value(RunNodeRecord::new(
+        "run-wire",
+        "chg-demo",
+        0,
+        &full_metrics_entry(),
+        1,
+    ))
+    .expect("出线应成功");
+    assert_eq!(value["startedAt"], serde_json::json!(1_727_000_000_000_i64));
+    assert_eq!(value["endedAt"], serde_json::json!(1_727_000_200_000_i64));
+    assert_eq!(value["tokenInput"], serde_json::json!(12_000));
+    assert_eq!(value["tokenOutput"], serde_json::json!(3_400));
+    // timestamp 既有键语义保留
+    assert_eq!(value["timestamp"], serde_json::json!(1));
+}
+
+/// 异常：entry 载荷防御形态值（started_at 负值 / token 接近 u64::MAX）→ 直复
+/// 制不 panic 不钳制。
+#[test]
+fn run_node_record防御形态值直复制不钳制() {
+    let mut defensive = full_metrics_entry();
+    defensive.started_at = -1;
+    defensive.token_input = Some(u64::MAX);
+    defensive.token_output = Some(u64::MAX - 1);
+    let record = RunNodeRecord::new("run-def", "chg-demo", 0, &defensive, 1);
+    assert_eq!(record.started_at, -1, "负值原样（载荷面零校验零钳制）");
+    assert_eq!(record.token_input, Some(u64::MAX));
+    assert_eq!(record.token_output, Some(u64::MAX - 1));
+}
+
+/// 边界（写幂等锚一）：同一 entry 连续两次 `new` → 两产物 `PartialEq` 全等
+///（纯构造可重复调用、零副作用累积——AC-5 加列后构造面稳定性）。
+#[test]
+fn run_node_record重复构造幂等两产物全等() {
+    let entry = full_metrics_entry();
+    let first = RunNodeRecord::new("run-idem", "chg-demo", 0, &entry, 1_727_000_300_000);
+    let second = RunNodeRecord::new("run-idem", "chg-demo", 0, &entry, 1_727_000_300_000);
+    assert_eq!(first, second, "连续两次 new 逐字段全等（零副作用累积）");
+}
+
+/// 边界（写幂等锚二）：native_model 编码 → 解码 → 再编码，两次编码字节形态
+/// 一致（version=1 additive 加列不引入重编码漂移，重复落读不累积改写）。
+#[test]
+fn run_node_record编解码再编码字节形态一致() {
+    let record = RunNodeRecord::new(
+        "run-encode-idem",
+        "chg-demo",
+        2,
+        &full_metrics_entry(),
+        1_727_000_300_000,
+    );
+    let first = native_model::encode(&record).expect("首次 encode 应成功");
+    let (decoded, version) =
+        native_model::decode::<RunNodeRecord>(first.clone()).expect("decode 应成功");
+    assert_eq!(version, 1);
+    let second = native_model::encode(&decoded).expect("再 encode 应成功");
+    assert_eq!(first, second, "两次编码字节形态一致（无重编码漂移）");
+}
+
+/// 组合（AC-5 写读同字段集）：真件 Store 经 finish_change_run 单事务落库后
+/// `list_run_nodes` 读回四列逐字段一致（写读同字段集锚；读面半边见
+/// store_test.rs 节）。
+#[test]
+fn run_node_record真件落库读回四列逐字段一致() {
+    use workflow::state::{
+        ChangeStateRecord, ChangeStatus, RunFinishCommand, RunNodeEntry as Entry,
+        RunStartCommand, RunStatus,
+    };
+
+    let db_dir = tempfile::Builder::new()
+        .prefix("store-test-run-node-record-roundtrip-")
+        .tempdir()
+        .expect("创建临时目录失败");
+    let store = Store::open_workspace(&db_dir.path().join("ws.redb"))
+        .unwrap_or_else(|e| panic!("open_workspace 应成功: {e}"));
+    store
+        .create_change_record(ChangeStateRecord {
+            id: "chg-roundtrip".to_owned(),
+            name: "roundtrip".to_owned(),
+            title: "roundtrip".to_owned(),
+            workflow_type: "requirement".to_owned(),
+            created_at: 1_000,
+            status: ChangeStatus::Active,
+            archived_at: None,
+            active_phase: None,
+            worktree: None,
+            base_commit: None,
+        })
+        .expect("建档种子应成功");
+    store
+        .start_change_run(&RunStartCommand {
+            run_id: "run-roundtrip".to_owned(),
+            change_id: "chg-roundtrip".to_owned(),
+            started_at: 1_727_000_000_000,
+        })
+        .expect("发起应成功");
+
+    let command = RunFinishCommand {
+        run_id: "run-roundtrip".to_owned(),
+        change_id: "chg-roundtrip".to_owned(),
+        status: RunStatus::Completed,
+        reason: None,
+        finished_at: 1_727_000_300_000,
+        nodes: vec![
+            Entry {
+                phase: "implement".to_owned(),
+                attempt: 1,
+                step: RunStepKind::Executor,
+                instance_no: 0,
+                status: RunStepStatus::Passed,
+                session_id: Some("ses-1".to_owned()),
+                detail: Some("实现完成".to_owned()),
+                output_ref: None,
+                started_at: 1_727_000_000_000,
+                ended_at: Some(1_727_000_200_000),
+                token_input: Some(12_000),
+                token_output: Some(3_400),
+            },
+            Entry {
+                phase: "implement".to_owned(),
+                attempt: 1,
+                step: RunStepKind::StaticCheck,
+                instance_no: 0,
+                status: RunStepStatus::Passed,
+                session_id: None,
+                detail: None,
+                output_ref: None,
+                started_at: 1_727_000_200_000,
+                ended_at: None,
+                token_input: None,
+                token_output: None,
+            },
+        ],
+        edges: Vec::new(),
+    };
+    store
+        .finish_change_run(&command)
+        .expect("finish_change_run 应成功");
+
+    let rows = store
+        .list_run_nodes("run-roundtrip")
+        .expect("list_run_nodes 应成功");
+    assert_eq!(rows.len(), 2);
+    // 四列逐字段与命令载荷一致（写读同字段集——node_key 主键防重不窜行）
+    assert_eq!(rows[0].started_at, 1_727_000_000_000);
+    assert_eq!(rows[0].ended_at, Some(1_727_000_200_000));
+    assert_eq!(rows[0].token_input, Some(12_000));
+    assert_eq!(rows[0].token_output, Some(3_400));
+    assert_eq!(rows[1].started_at, 1_727_000_200_000);
+    assert_eq!(rows[1].ended_at, None, "None 列读回原样");
+    assert_eq!(rows[1].token_input, None);
+    assert_eq!(rows[1].token_output, None);
+    assert_eq!(rows[0].timestamp, 1_727_000_300_000, "整包同刻读回");
 }

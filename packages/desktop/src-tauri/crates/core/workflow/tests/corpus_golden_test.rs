@@ -95,6 +95,15 @@ fn t(n: u32) -> i64 {
     T0 + i64::from(n) * 1000
 }
 
+/// 步级时间定值族基准槽位（`t(n)` 种子族内定值——`step_at` 默认形态的
+/// `started_at` 基准；步级时间零 wall-clock，desktop-step-running-snapshot
+/// D11 corpus 定值注入）。
+const STEP_T_BASE: u32 = 60;
+/// 步级默认派生耗时定值（正常起止双值样本口径：终态 `ended_at` =
+/// `started_at` + 本值，即时间族下一槽位；瞬步 / 在途样本经 `step_metrics`
+/// overrides 覆写）。
+const STEP_DUR_MS: i64 = 1_000;
+
 /// UTC 日界锚定的毫秒（`2026-MM-DD` 零点），归档分组断言的确定性来源。
 fn utc_millis(year: i32, month: time::Month, day: u8) -> i64 {
     time::Date::from_calendar_date(year, month, day)
@@ -757,10 +766,12 @@ merge 前主仓两树未命中的产物形态。",
 
 /// run 运行史全史语料（unify-run-state-persistence）：两次 run 全史留存——
 /// run-1 五词汇步整包（sessionId / detail 有无两态；attempt 1）+ run-2 续走
-/// 推进（attempt 跨 run 递增 = 2、executor 单步无会话缺省落账）。流程面步骤
+/// 推进（attempt 跨 run 递增 = 2、executor 单步无会话缺省落账）+ run-3 步级
+/// 时间与 token 两态样本（desktop-step-running-snapshot D11）。流程面步骤
 /// 与三门经全词汇序列喂 `finish_command`（语料纪律：缺席断言留测试相位）。
-fn build_run_history() -> Corpus {
-    let corpus = Corpus::new("run-history");
+/// `tag` 分域同理（见 [`build_archive_prefix`] 注）。
+fn build_run_history(tag: &str) -> Corpus {
+    let corpus = Corpus::new(tag);
     corpus.seed_record("id-run-history", "run-history");
     // 前置：proposal 已 pass（run-2 续走锚点推进的事实源）
     corpus.run_phase(
@@ -947,6 +958,72 @@ fn build_run_history() -> Corpus {
         )],
         &[],
     );
+    // run-3：步级时间与 token 两态样本（desktop-step-running-snapshot D11，
+    // stopped 收口样本，attempt 跨 run 递增 = 3）——瞬步 started == ended
+    //（同槽定值，时间两态之二）/ token 有值 WorkerAgent 步（时间正常起止
+    // 双值定值，token 两态之一）/ running 收口在途残留步（ended = None，
+    // 时间两态之三）；token None 两态之二 = 工具步（run-1 / run-2 既有步全
+    // 量默认形态）。定值全落 `t(n)` 种子时间族（零 wall-clock），经
+    // `finish_command` → store run 域操作面落库（禁裸表插桩）
+    corpus.run_start("id-run-history", "run-1727000030000", t(30));
+    corpus.run_finish(
+        "id-run-history",
+        "run-1727000030000",
+        RunStatus::Stopped,
+        "用户中止：dev-design attempt 3 evaluator 在途",
+        t(39),
+        &[
+            // 瞬步样本：gate 步零耗时（started == ended = t(60) 同槽定值；
+            // token None）
+            step_metrics(
+                "dev-design",
+                3,
+                0,
+                ChangeStepKind::VerdictGate,
+                ChangeStepStatus::Passed,
+                None,
+                Some("verdict=fail 预算内同相位重跑"),
+                None,
+                t(60),
+                Some(t(60)),
+                None,
+                None,
+            ),
+            // token 有值样本：WorkerAgent 步终态带本步 turn 增量两值（起止
+            // 双值定值 t(61) → t(62)）
+            step_metrics(
+                "dev-design",
+                3,
+                0,
+                ChangeStepKind::Executor,
+                ChangeStepStatus::Passed,
+                Some("ses-dd-exec-a3"),
+                Some("实现完成（token 增量样本）"),
+                None,
+                t(61),
+                Some(t(62)),
+                Some(12_345),
+                Some(6_789),
+            ),
+            // 收口在途样本：stopped 收口时终态 emit 未达的 running 残留步
+            //（ended = None，started 定值 t(63)）
+            step_metrics(
+                "dev-design",
+                3,
+                0,
+                ChangeStepKind::Evaluator,
+                ChangeStepStatus::Running,
+                Some("ses-dd-eval-a3"),
+                None,
+                None,
+                t(63),
+                None,
+                None,
+                None,
+            ),
+        ],
+        &[],
+    );
     corpus
 }
 
@@ -968,8 +1045,11 @@ fn build_run_interrupted() -> Corpus {
 /// `archived_at` 2026-02-02）+ 磁盘 `YYYY-MM-DD-` 前缀目录（产物树）+ 相位行
 /// 与 run 史种子 → detail 全状态面 golden（status=archived、9 站 pipeline 与
 /// runs 全量出线；错配链结构性退役——AC-2）。
-fn build_archive_prefix() -> Corpus {
-    let corpus = Corpus::new("archive-prefix");
+/// `tag` 分域临时目录（同 crate 测试线程并行跑，`Corpus::new` 以
+/// `temp/{pid}-{tag}` 为根且构造即清空——两测试共用 tag 会互删语料文件，
+/// golden 投影偶发缺 markdown 产物即此竞争）。
+fn build_archive_prefix(tag: &str) -> Corpus {
+    let corpus = Corpus::new(tag);
     corpus
         .store
         .create_change_record(ChangeStateRecord {
@@ -1194,7 +1274,11 @@ fn build_archive_prefix() -> Corpus {
 }
 
 /// 全词汇步状态行 fixture（run 维度种子构造器的 ChangeStepState 组装面；首次
-/// 执行实例 = 0、无输出记录）。
+/// 执行实例 = 0、无输出记录）。步级时间与 token 四字段定值注入（D11 corpus
+/// 定值注入，零 wall-clock——直构 `ChangeStepState`，不经 `emit_node` /
+/// `now_millis`）：`started_at` 取种子时间族基准槽位、`ended_at` 按状态派生
+/// 定值（running 收口在途恒 None / 终态 = started + 默认耗时定值）、token
+/// None（工具步两态之一）；瞬步 / token 有值样本经 [`step_metrics`] overrides。
 #[allow(clippy::too_many_arguments)]
 fn step(
     phase: &str,
@@ -1208,7 +1292,7 @@ fn step(
 }
 
 /// 携稳定身份键 + 输出引用的步状态行 fixture（feedback 重跑实例号递增 /
-/// `ExecOutput::Recorded` 引用面）。
+/// `ExecOutput::Recorded` 引用面）。四字段定值注入默认形态见 [`step`]。
 #[allow(clippy::too_many_arguments)]
 fn step_at(
     phase: &str,
@@ -1220,6 +1304,13 @@ fn step_at(
     detail: Option<&str>,
     output_ref: Option<&str>,
 ) -> ChangeStepState {
+    let started_at = t(STEP_T_BASE);
+    let ended_at = match status {
+        ChangeStepStatus::Running => None,
+        ChangeStepStatus::Passed | ChangeStepStatus::Failed | ChangeStepStatus::Stopped => {
+            Some(started_at + STEP_DUR_MS)
+        }
+    };
     ChangeStepState {
         phase: phase.to_owned(),
         attempt,
@@ -1229,7 +1320,46 @@ fn step_at(
         session_id: session_id.map(str::to_owned),
         detail: detail.map(str::to_owned),
         output_ref: output_ref.map(str::to_owned),
+        started_at,
+        ended_at,
+        token_input: None,
+        token_output: None,
     }
+}
+
+/// 两态样本定值 overrides（D11）：在 [`step_at`] 默认派生行上覆写时间 /
+/// token 四字段定值——瞬步（`started_at == ended_at` 同槽定值）/ token 有值
+/// WorkerAgent 步 / 收口在途 `started_at` 定值等样本的注入面。
+#[allow(clippy::too_many_arguments)]
+fn step_metrics(
+    phase: &str,
+    attempt: u32,
+    instance_no: u32,
+    kind: ChangeStepKind,
+    status: ChangeStepStatus,
+    session_id: Option<&str>,
+    detail: Option<&str>,
+    output_ref: Option<&str>,
+    started_at: i64,
+    ended_at: Option<i64>,
+    token_input: Option<u64>,
+    token_output: Option<u64>,
+) -> ChangeStepState {
+    let mut state = step_at(
+        phase,
+        attempt,
+        instance_no,
+        kind,
+        status,
+        session_id,
+        detail,
+        output_ref,
+    );
+    state.started_at = started_at;
+    state.ended_at = ended_at;
+    state.token_input = token_input;
+    state.token_output = token_output;
+    state
 }
 
 /// 节点身份键 fixture（边端点口径 `(phase, attempt, step, instance_no)`）。
@@ -1540,7 +1670,7 @@ fn corpus列表混合语料_golden对拍() {
 /// pipeline 与 runs 全量出线；id / 裸名出线——AC-2 golden 半边）。
 #[test]
 fn corpus归档前缀样本_golden对拍() {
-    let corpus = build_archive_prefix();
+    let corpus = build_archive_prefix("archive-prefix-golden");
     let projection = project_detail(&corpus, "id-seeded-archived");
 
     // 全状态面结构断言（golden 之外的语义锚）
@@ -1682,7 +1812,7 @@ fn corpusworktree建档语料_golden对拍() {
 /// 步骤与三门不再被过滤弃落）+ feedback 边与实例号递增在场断言。
 #[test]
 fn corpusrun全史语料_golden对拍() {
-    let corpus = build_run_history();
+    let corpus = build_run_history("run-history-golden");
     let projection = project_detail(&corpus, "id-run-history");
 
     // 全词汇断言：runs[].nodes[].step 非归档十九词在案（零过滤——flow 面步骤与三
@@ -1702,7 +1832,11 @@ fn corpusrun全史语料_golden对拍() {
         "whitelist_gate",
     ];
     let runs = projection["runs"].as_array().expect("runs 为数组");
-    assert_eq!(runs.len(), 2, "两 run 全史样本");
+    assert_eq!(
+        runs.len(),
+        3,
+        "三 run 全史样本（run-3 = 步级时间与 token 两态样本，desktop-step-running-snapshot D11）"
+    );
     let mut nodes_seen = 0usize;
     let mut seen_words: Vec<&str> = Vec::new();
     for run in runs {
@@ -1720,8 +1854,8 @@ fn corpusrun全史语料_golden对拍() {
         }
     }
     assert_eq!(
-        nodes_seen, 13,
-        "run-1 十二条（含 mutation_test 拆步新词样本）+ run-2 一条，实际: {nodes_seen}"
+        nodes_seen, 16,
+        "run-1 十二条（含 mutation_test 拆步新词样本）+ run-2 一条 + run-3 三条（两态样本），实际: {nodes_seen}"
     );
     for word in FULL_WORDS {
         assert!(seen_words.contains(&word), "词汇 {word} 应在案（零过滤）");
@@ -3004,6 +3138,10 @@ fn 真件run写面回环_running行与三终态整包() {
                 session_id: Some("ses-run-write".to_owned()),
                 detail: None,
                 output_ref: None,
+                started_at: t(STEP_T_BASE),
+                ended_at: Some(t(STEP_T_BASE) + STEP_DUR_MS),
+                token_input: None,
+                token_output: None,
             }],
             &[],
         );
@@ -3033,4 +3171,287 @@ fn 真件run写面回环_running行与三终态整包() {
             "零边 run 边整包空集合法"
         );
     }
+}
+
+// ---------------------------------------------------------------------------
+// desktop-step-running-snapshot（D11 / AC-9）：golden 断言面——步级时间与
+// token 两态样本在案、瞬步 / 在途形态入 golden、四 camelCase 键漂移守卫
+//（旧 golden 未重写时显式红、非静默通过）
+// ---------------------------------------------------------------------------
+
+/// 步级时间与 token 两态样本（时间三态：正常起止双值 / 瞬步同刻 / running
+/// 收口在途 ended=None；token 两态：WorkerAgent 带值 / 工具步 None）经
+/// run-3 语料与全语料 nodes 深查在案；漂移守卫对投影与入仓 golden 双面深查
+/// runs[].nodes[] 四 camelCase 键在场。
+#[test]
+fn corpusrun全史语料_步级时间与token两态golden在案与漂移守卫() {
+    let corpus = build_run_history("run-history-guard");
+    let projection = project_detail(&corpus, "id-run-history");
+    let runs = projection["runs"].as_array().expect("runs 数组");
+    assert_eq!(runs.len(), 3, "三 run 全史（run-3 两态样本）");
+    let run3_nodes = runs[2]["nodes"].as_array().expect("nodes 数组");
+    assert_eq!(run3_nodes.len(), 3, "run-3 三步：瞬步 / token 带值 / 在途");
+
+    let find_node = |step: &str| -> serde_json::Value {
+        run3_nodes
+            .iter()
+            .find(|node| node["step"] == step)
+            .unwrap_or_else(|| panic!("run-3 应含 {step} 节点"))
+            .clone()
+    };
+
+    // 瞬步样本（verdict_gate）：startedAt == endedAt 同刻定值（0ms 形态入
+    // golden——两键同值非省键）；token 两键在场 null
+    let instant = find_node("verdict_gate");
+    assert_eq!(instant["startedAt"], serde_json::json!(1727000060000_i64));
+    assert_eq!(
+        instant["startedAt"], instant["endedAt"],
+        "瞬步 started == ended 同刻定值"
+    );
+    assert!(instant["tokenInput"].is_null() && instant["tokenOutput"].is_null());
+
+    // 正常起止双值步（executor）+ token 两值（WorkerAgent 步带值两态之一）
+    let worker = find_node("executor");
+    let started = worker["startedAt"].as_i64().expect("startedAt 数值");
+    let ended = worker["endedAt"].as_i64().expect("endedAt 数值");
+    assert!(ended > started, "正常起止双值：ended > started");
+    assert_eq!(worker["tokenInput"], serde_json::json!(12345), "tokenInput 带值态");
+    assert_eq!(worker["tokenOutput"], serde_json::json!(6789), "tokenOutput 带值态");
+
+    // running 收口在途样本（evaluator）：endedAt null 出线不省键（键在场）
+    let in_flight = find_node("evaluator");
+    assert!(
+        in_flight
+            .as_object()
+            .expect("节点对象")
+            .contains_key("endedAt"),
+        "在途样本 endedAt 键在场"
+    );
+    assert!(in_flight["endedAt"].is_null(), "在途 endedAt null 原样（零回填）");
+    assert!(in_flight["tokenInput"].is_null());
+
+    // token 两态之二：工具步 None（run-1 任一 phase_start 行 tokenInput null）
+    let tool_node = runs[0]["nodes"]
+        .as_array()
+        .expect("run-1 nodes")
+        .iter()
+        .find(|node| node["step"] == "phase_start")
+        .expect("run-1 phase_start 在案");
+    assert!(tool_node["tokenInput"].is_null(), "工具步 tokenInput null 两态在案");
+    assert!(tool_node["tokenOutput"].is_null());
+
+    // 漂移守卫（投影面）：全语料 runs[].nodes[] 四 camelCase 键逐键在场
+    let four_keys = ["startedAt", "endedAt", "tokenInput", "tokenOutput"];
+    for run in runs {
+        for node in run["nodes"].as_array().expect("nodes 数组") {
+            let object = node.as_object().expect("节点对象");
+            for key in four_keys {
+                assert!(
+                    object.contains_key(key),
+                    "投影节点缺 {key} 键（线面漂移）: {node}"
+                );
+            }
+        }
+    }
+
+    // 漂移守卫（golden 面）：入仓 golden 同断言——旧 golden 未重写时显式红、
+    // 非静默通过
+    let golden_text =
+        fs::read_to_string(golden_dir().join("corpus-run-history.json")).expect("读 golden 失败");
+    let golden: serde_json::Value = serde_json::from_str(&golden_text).expect("golden 解析失败");
+    for run in golden["runs"].as_array().expect("golden runs") {
+        for node in run["nodes"].as_array().expect("golden nodes") {
+            let object = node.as_object().expect("golden 节点对象");
+            for key in four_keys {
+                assert!(
+                    object.contains_key(key),
+                    "golden 节点缺 {key} 键（golden 未随线面重写——漂移即红）"
+                );
+            }
+        }
+    }
+
+    // 全量序列化零 panic（既有规模语料 + 四字段注入可全量出线）
+    let full = serde_json::to_string(&projection).expect("全量序列化应成功");
+    assert!(full.contains("\"tokenInput\":12345"), "全量序列化含 token 带值行");
+    check_or_rewrite("corpus-run-history", &projection);
+}
+
+/// 归档前缀语料（多节点全词汇样本）同享漂移守卫：runs[].nodes[] 四 camelCase
+/// 键逐键在场（投影面 + golden 面双查——多语料覆盖不单点）。
+#[test]
+fn corpus归档前缀语料_节点四键漂移守卫() {
+    let corpus = build_archive_prefix("archive-prefix-guard");
+    let projection = project_detail(&corpus, "id-seeded-archived");
+    let four_keys = ["startedAt", "endedAt", "tokenInput", "tokenOutput"];
+    let runs = projection["runs"].as_array().expect("runs 数组");
+    assert!(!runs.is_empty(), "归档前缀语料含 run 全史");
+    let mut nodes_seen = 0usize;
+    for run in runs {
+        for node in run["nodes"].as_array().expect("nodes 数组") {
+            let object = node.as_object().expect("节点对象");
+            for key in four_keys {
+                assert!(object.contains_key(key), "投影节点缺 {key} 键: {node}");
+            }
+            nodes_seen += 1;
+        }
+    }
+    assert_eq!(nodes_seen, 12, "归档前缀语料 12 节点全查（多节点规模锚）");
+
+    let golden_text =
+        fs::read_to_string(golden_dir().join("corpus-archive-prefix.json")).expect("读 golden 失败");
+    let golden: serde_json::Value = serde_json::from_str(&golden_text).expect("golden 解析失败");
+    for run in golden["runs"].as_array().expect("golden runs") {
+        for node in run["nodes"].as_array().expect("golden nodes") {
+            let object = node.as_object().expect("golden 节点对象");
+            for key in four_keys {
+                assert!(object.contains_key(key), "golden 节点缺 {key} 键（漂移即红）");
+            }
+        }
+    }
+    check_or_rewrite("corpus-archive-prefix", &projection);
+}
+
+/// 防御值语料（D11 种子面零逻辑分支锚）：`step_metrics` overrides 混防御值
+/// ——`started_at` 负值 / 0（缺席语义值）、token 单侧（入侧有 / 出侧无 +
+/// 出侧有 / 入侧无）——经 `finish_command` → store 收口直落、golden 投影面
+///（`project_detail` 全量序列化）逐值直达零改写零 panic。该语料为专项
+/// ad-hoc 构造（不入 CORPORA 集合——零 golden 产出，入仓 golden 重写流程
+/// 归桌面端）；库读面半边同查（list_run_nodes 原值回读）。
+#[test]
+fn corpus防御值语料_overrides混防御值直达投影零改写零panic() {
+    let corpus = Corpus::new("step-defensive");
+    corpus.seed_record("id-step-defensive", "step-defensive");
+    corpus.run_start("id-step-defensive", "run-1727000040000", t(40));
+    corpus.run_finish(
+        "id-step-defensive",
+        "run-1727000040000",
+        RunStatus::Completed,
+        "All phases have passed evaluation. Ready for archiving.",
+        t(49),
+        &[
+            // 防御值样本一：started_at 负值（收口同为负）+ token 入侧单值
+            //（output None）——零钳制零补值
+            step_metrics(
+                "dev-design",
+                1,
+                0,
+                ChangeStepKind::Executor,
+                ChangeStepStatus::Passed,
+                Some("ses-dd-exec-def"),
+                None,
+                None,
+                -1_000,
+                Some(-500),
+                Some(111),
+                None,
+            ),
+            // 防御值样本二：started_at = 0（缺席语义值）同刻瞬步 + token 出侧
+            // 单值（input None）——零默认零改写
+            step_metrics(
+                "dev-design",
+                1,
+                0,
+                ChangeStepKind::VerdictGate,
+                ChangeStepStatus::Passed,
+                None,
+                None,
+                None,
+                0,
+                Some(0),
+                None,
+                Some(222),
+            ),
+        ],
+        &[],
+    );
+
+    // 库读面半边：防御值逐字段原值回读（零钳制零补值）
+    let db_nodes = corpus
+        .store
+        .list_run_nodes("run-1727000040000")
+        .expect("节点读应成功");
+    assert_eq!(db_nodes.len(), 2, "防御值两步全量落库");
+    let executor_row = db_nodes
+        .iter()
+        .find(|row| row.step == workflow::state::RunStepKind::Executor)
+        .expect("executor 行在案");
+    assert_eq!(
+        executor_row.started_at, -1_000,
+        "负值 started_at 原值落库（零钳制）"
+    );
+    assert_eq!(executor_row.ended_at, Some(-500), "负值 ended_at 原值落库");
+    assert_eq!(executor_row.token_input, Some(111), "入侧单值落库");
+    assert_eq!(executor_row.token_output, None, "出侧缺席 None 原样（零补值）");
+
+    // golden 投影面：project_detail 序列化防御值逐键逐值直达（零改写零回填）
+    let projection = project_detail(&corpus, "id-step-defensive");
+    let wire_nodes = projection["runs"][0]["nodes"]
+        .as_array()
+        .expect("nodes 数组");
+    assert_eq!(wire_nodes.len(), 2, "投影两节点（emit 序）");
+    let four_keys = ["startedAt", "endedAt", "tokenInput", "tokenOutput"];
+    for node in wire_nodes {
+        let object = node.as_object().expect("节点对象");
+        for key in four_keys {
+            assert!(object.contains_key(key), "防御值节点缺 {key} 键: {node}");
+        }
+    }
+    let negative = wire_nodes
+        .iter()
+        .find(|node| node["step"] == "executor")
+        .expect("executor 节点在案");
+    assert_eq!(
+        negative["startedAt"],
+        serde_json::json!(-1_000_i64),
+        "负值 startedAt 直达投影（零改写）"
+    );
+    assert_eq!(
+        negative["endedAt"],
+        serde_json::json!(-500_i64),
+        "负值 endedAt 直达投影"
+    );
+    assert_eq!(
+        negative["tokenInput"],
+        serde_json::json!(111_u64),
+        "入侧单值直达"
+    );
+    assert!(
+        negative["tokenOutput"].is_null(),
+        "出侧缺席 null（键在场零补值）"
+    );
+
+    let zero = wire_nodes
+        .iter()
+        .find(|node| node["step"] == "verdict_gate")
+        .expect("verdict_gate 节点在案");
+    assert_eq!(
+        zero["startedAt"],
+        serde_json::json!(0_i64),
+        "0 值 startedAt 原样出线（零钳制）"
+    );
+    assert_eq!(
+        zero["endedAt"],
+        serde_json::json!(0_i64),
+        "0 值 endedAt 同刻瞬步原样"
+    );
+    assert!(zero["tokenInput"].is_null(), "入侧缺席 null（键在场）");
+    assert_eq!(
+        zero["tokenOutput"],
+        serde_json::json!(222_u64),
+        "出侧单值直达"
+    );
+
+    // 零 panic：防御值载荷全量序列化成功（负值 / 0 / 单侧 token 原文在案）
+    let full = serde_json::to_string(&projection).expect("防御值投影全量序列化应成功");
+    assert!(full.contains("\"startedAt\":-1000"), "负值原文在案（零改写）");
+    assert!(full.contains("\"startedAt\":0"), "0 值原文在案（零改写）");
+    assert!(full.contains("\"tokenInput\":111"), "入侧单值原文在案");
+    assert!(full.contains("\"tokenOutput\":222"), "出侧单值原文在案");
+
+    // 专项语料不入 CORPORA 集合——零 golden 产出（入仓 golden 集合不变）
+    assert!(
+        !golden_dir().join("corpus-step-defensive.json").exists(),
+        "防御值专项语料零 golden 产出（语料完整性集合不变）"
+    );
 }

@@ -1,0 +1,2243 @@
+diff --git a/crates/core/workflow/src/state.rs b/crates/core/workflow/src/state.rs
+index 62d98863f389..12f568ba9977 100644
+--- a/crates/core/workflow/src/state.rs
++++ b/crates/core/workflow/src/state.rs
+@@ -622,6 +622,14 @@ pub struct RunNodeStateRecord {
+     pub detail: Option<String>,
+     /// 全量输出引用（`ExecOutput::Recorded { exec_id }`；无记录模式为 None）
+     pub output_ref: Option<String>,
++    /// 步开始时刻（UTC unix 毫秒；旧库行缺省 0 = 步级时间缺席）
++    pub started_at: i64,
++    /// 步收口时刻（UTC unix 毫秒；running 收口在途步 None）
++    pub ended_at: Option<i64>,
++    /// 本步 turn token 增量（`TurnDone.usage` 求和；仅 WorkerAgent 步终态有值）
++    pub token_input: Option<u64>,
++    /// 本步 turn token 增量（输出向；口径同 `token_input`）
++    pub token_output: Option<u64>,
+     /// 落包时刻（UTC unix 毫秒，= finish 的 finished_at）
+     pub timestamp: i64,
+ }
+@@ -667,6 +675,14 @@ pub struct RunNodeEntry {
+     pub detail: Option<String>,
+     /// 全量输出引用（`exec_id`）
+     pub output_ref: Option<String>,
++    /// 步开始时刻（UTC unix 毫秒）
++    pub started_at: i64,
++    /// 步收口时刻（UTC unix 毫秒；running 收口在途步 None）
++    pub ended_at: Option<i64>,
++    /// 本步 turn token 增量（`TurnDone.usage` 求和；仅 WorkerAgent 步终态有值）
++    pub token_input: Option<u64>,
++    /// 本步 turn token 增量（输出向；口径同 `token_input`）
++    pub token_output: Option<u64>,
+ }
+ 
+ /// run 边整包条目（finish 载荷内联）：端点恒为节点身份串。
+diff --git a/crates/core/workflow/src/state_test.rs b/crates/core/workflow/src/state_test.rs
+index 67040338cb4d..141be755e396 100644
+--- a/crates/core/workflow/src/state_test.rs
++++ b/crates/core/workflow/src/state_test.rs
+@@ -273,6 +273,10 @@ fn run记录两态构造与等值面() {
+         session_id: None,
+         detail: None,
+         output_ref: None,
++        started_at: 1_727_000_000_000,
++        ended_at: Some(1_727_000_060_000),
++        token_input: None,
++        token_output: None,
+         timestamp: 1_727_000_060_000,
+     };
+     assert_eq!(node_none.session_id, None);
+@@ -355,6 +359,10 @@ fn run命令两态构造与等值面() {
+         session_id: Some("ses-1".to_owned()),
+         detail: None,
+         output_ref: None,
++        started_at: 1_727_000_000_000,
++        ended_at: Some(1_727_000_060_000),
++        token_input: None,
++        token_output: None,
+     };
+     let edge = RunEdgeEntry {
+         from_node_key: "implement:2:executor:1".to_owned(),
+@@ -1289,6 +1297,10 @@ fn run_node_state_record全字段往返可辨() {
+         session_id: None,
+         detail: None,
+         output_ref: None,
++        started_at: 1_727_000_000_000,
++        ended_at: Some(1_727_000_060_000),
++        token_input: None,
++        token_output: None,
+         timestamp: 1_727_000_060_000,
+     };
+     assert_eq!(base.clone(), base, "PartialEq 自反");
+@@ -1403,3 +1415,269 @@ fn run_edge_state_record全字段往返可辨() {
+     let back: Result<RunEdgeStateRecord, _> = serde_json::from_value(value);
+     assert!(back.is_err(), "边行非法 kind 词应拒绝");
+ }
++
++// ---------------------------------------------------------------------------
++// desktop-step-running-snapshot（AC-1 / AC-5）：RunNodeStateRecord /
++// RunNodeEntry 四字段（startedAt / endedAt / tokenInput / tokenOutput）——
++// camelCase 线面 / 往返无损 / null 不省键 / 0 值原样 / 旧形态拒绝 / 写读同一
++// 份字段集 / 防御值直存零钳制
++// ---------------------------------------------------------------------------
++
++/// 正向：四字段全值 `serde_json::to_string` → camelCase 四键逐键等值（AC-1）。
++#[test]
++fn run_node_state_record四字段全值线面camelcase逐键() {
++    let record = RunNodeStateRecord {
++        run_id: "run-1727000000000".to_owned(),
++        change_id: "demo-change".to_owned(),
++        phase: "implement".to_owned(),
++        attempt: 1,
++        step: RunStepKind::Executor,
++        instance_no: 0,
++        status: RunStepStatus::Passed,
++        session_id: Some("ses-1".to_owned()),
++        detail: None,
++        output_ref: None,
++        started_at: 1_727_000_000_000,
++        ended_at: Some(1_727_000_200_000),
++        token_input: Some(12_000),
++        token_output: Some(3_400),
++        timestamp: 1_727_000_300_000,
++    };
++    let value = serde_json::to_value(&record).expect("出线应成功");
++    assert_eq!(
++        value["startedAt"],
++        json!(1_727_000_000_000_i64),
++        "startedAt camelCase 键数值口径"
++    );
++    assert_eq!(value["endedAt"], json!(1_727_000_200_000_i64));
++    assert_eq!(value["tokenInput"], json!(12_000));
++    assert_eq!(value["tokenOutput"], json!(3_400));
++}
++
++/// 正向：to_string → from_str 往返 → 四字段逐字段还原无损（既有往返用例
++/// 随动扩断言）。
++#[test]
++fn run_node_state_record四字段往返还原无损() {
++    let record = RunNodeStateRecord {
++        started_at: 1_727_000_000_000,
++        ended_at: Some(1_727_000_200_000),
++        token_input: Some(12_000),
++        token_output: Some(3_400),
++        ..RunNodeStateRecord {
++            run_id: "run-rt".to_owned(),
++            change_id: "demo-change".to_owned(),
++            phase: "implement".to_owned(),
++            attempt: 1,
++            step: RunStepKind::Evaluator,
++            instance_no: 1,
++            status: RunStepStatus::Failed,
++            session_id: None,
++            detail: None,
++            output_ref: None,
++            started_at: 0,
++            ended_at: None,
++            token_input: None,
++            token_output: None,
++            timestamp: 1,
++        }
++    };
++    let text = serde_json::to_string(&record).expect("出线应成功");
++    let back: RunNodeStateRecord = serde_json::from_str(&text).expect("往返应成功");
++    assert_eq!(back, record, "四字段往返无损");
++    assert_eq!(back.started_at, 1_727_000_000_000);
++    assert_eq!(back.ended_at, Some(1_727_000_200_000));
++    assert_eq!(back.token_input, Some(12_000));
++    assert_eq!(back.token_output, Some(3_400));
++}
++
++/// 边界：token / ended None 形态 → 线面三键 `null` 不省键（沿 node_none 两态
++/// 式样随动）。
++#[test]
++fn run_node_state_record_none形态三键null不省键() {
++    let record = RunNodeStateRecord {
++        ended_at: None,
++        token_input: None,
++        token_output: None,
++        ..RunNodeStateRecord {
++            run_id: "run-none".to_owned(),
++            change_id: "demo-change".to_owned(),
++            phase: "implement".to_owned(),
++            attempt: 1,
++            step: RunStepKind::StaticCheck,
++            instance_no: 0,
++            status: RunStepStatus::Running,
++            session_id: None,
++            detail: None,
++            output_ref: None,
++            started_at: 1_727_000_000_000,
++            ended_at: Some(1),
++            token_input: Some(1),
++            token_output: Some(1),
++            timestamp: 1,
++        }
++    };
++    let value = serde_json::to_value(&record).expect("出线应成功");
++    assert_eq!(value["endedAt"], json!(null));
++    assert_eq!(value["tokenInput"], json!(null));
++    assert_eq!(value["tokenOutput"], json!(null));
++    let object = value.as_object().expect("对象线面");
++    assert!(
++        object.contains_key("endedAt")
++            && object.contains_key("tokenInput")
++            && object.contains_key("tokenOutput"),
++        "三键在场（null 留位不省键）"
++    );
++}
++
++/// 边界：started_at = 0 → 线面 `0` 原样（port 读面缺省语义值零改写）。
++#[test]
++fn run_node_state_record_started_at零值线面原样() {
++    let record = RunNodeStateRecord {
++        started_at: 0,
++        ..RunNodeStateRecord {
++            run_id: "run-zero".to_owned(),
++            change_id: "demo-change".to_owned(),
++            phase: "implement".to_owned(),
++            attempt: 1,
++            step: RunStepKind::PhaseStart,
++            instance_no: 0,
++            status: RunStepStatus::Passed,
++            session_id: None,
++            detail: None,
++            output_ref: None,
++            started_at: 9,
++            ended_at: None,
++            token_input: None,
++            token_output: None,
++            timestamp: 1,
++        }
++    };
++    let value = serde_json::to_value(&record).expect("出线应成功");
++    assert_eq!(value["startedAt"], json!(0), "0 缺省语义值原样出线");
++}
++
++/// 异常：缺四键旧形态 JSON 反序列化 → Err（port 读面无 `#[serde(default)]`
++/// ——旧行兼容仅落库 `RunNodeRecord` 面承载，两载体语义分立锚，AC-5）。
++#[test]
++fn run_node_state_record缺四键旧形态反序列化拒绝() {
++    let legacy = json!({
++        "runId": "run-legacy",
++        "changeId": "demo-change",
++        "phase": "implement",
++        "attempt": 1,
++        "step": "executor",
++        "instanceNo": 0,
++        "status": "passed",
++        "sessionId": null,
++        "detail": null,
++        "outputRef": null,
++        "timestamp": 1_727_000_300_000_i64
++    });
++    let back: Result<RunNodeStateRecord, _> = serde_json::from_value(legacy);
++    assert!(
++        back.is_err(),
++        "缺四键旧形态应 Err（非 Option 的 startedAt 缺席即拒——port 读面无 default）"
++    );
++}
++
++/// 正向（写面 / 读面同一份字段集锚，AC-1）：RunNodeEntry 四字段构造 → 与
++/// RunNodeStateRecord 同名字段集逐字段可对齐。
++#[test]
++fn run_node_entry与state_record同名字段集逐字段可对齐() {
++    let entry = RunNodeEntry {
++        phase: "implement".to_owned(),
++        attempt: 1,
++        step: RunStepKind::Executor,
++        instance_no: 0,
++        status: RunStepStatus::Passed,
++        session_id: Some("ses-1".to_owned()),
++        detail: Some("实现完成".to_owned()),
++        output_ref: None,
++        started_at: 1_727_000_000_000,
++        ended_at: Some(1_727_000_200_000),
++        token_input: Some(12_000),
++        token_output: Some(3_400),
++    };
++    let record = RunNodeStateRecord {
++        run_id: "run-align".to_owned(),
++        change_id: "demo-change".to_owned(),
++        phase: entry.phase.clone(),
++        attempt: entry.attempt,
++        step: entry.step,
++        instance_no: entry.instance_no,
++        status: entry.status,
++        session_id: entry.session_id.clone(),
++        detail: entry.detail.clone(),
++        output_ref: entry.output_ref,
++        started_at: entry.started_at,
++        ended_at: entry.ended_at,
++        token_input: entry.token_input,
++        token_output: entry.token_output,
++        timestamp: 1_727_000_300_000,
++    };
++    // 四字段逐字段对齐（写面载荷 = 读面快照同名字段集）
++    assert_eq!(entry.started_at, record.started_at);
++    assert_eq!(entry.ended_at, record.ended_at);
++    assert_eq!(entry.token_input, record.token_input);
++    assert_eq!(entry.token_output, record.token_output);
++}
++
++/// 边界：四字段 0 / None 边界形态构造 → 直存零转换零默认（payload 面零逻辑
++/// 分支）。
++#[test]
++fn run_node_entry边界形态直存零转换零默认() {
++    let entry = RunNodeEntry {
++        started_at: 0,
++        ended_at: None,
++        token_input: None,
++        token_output: None,
++        ..RunNodeEntry {
++            phase: "implement".to_owned(),
++            attempt: 1,
++            step: RunStepKind::VerdictGate,
++            instance_no: 0,
++            status: RunStepStatus::Stopped,
++            session_id: None,
++            detail: None,
++            output_ref: None,
++            started_at: 9,
++            ended_at: Some(9),
++            token_input: Some(9),
++            token_output: Some(9),
++        }
++    };
++    assert_eq!(entry.started_at, 0, "0 直存（零转换）");
++    assert_eq!(entry.ended_at, None, "None 直存（零默认）");
++    assert_eq!(entry.token_input, None);
++    assert_eq!(entry.token_output, None);
++}
++
++/// 异常：防御值构造（started_at 负值 / token u64::MAX）→ 直存零钳制零 panic
++///（载荷面零校验——校验归铸造侧锚）。
++#[test]
++fn run_node_entry防御值直存零钳制零panic() {
++    let entry = RunNodeEntry {
++        started_at: -1,
++        ended_at: Some(-2),
++        token_input: Some(u64::MAX),
++        token_output: Some(u64::MAX - 1),
++        ..RunNodeEntry {
++            phase: "implement".to_owned(),
++            attempt: 1,
++            step: RunStepKind::Executor,
++            instance_no: 0,
++            status: RunStepStatus::Passed,
++            session_id: None,
++            detail: None,
++            output_ref: None,
++            started_at: 0,
++            ended_at: None,
++            token_input: None,
++            token_output: None,
++        }
++    };
++    assert_eq!(entry.started_at, -1, "负值直存零钳制");
++    assert_eq!(entry.ended_at, Some(-2));
++    assert_eq!(entry.token_input, Some(u64::MAX), "u64::MAX 直存零钳制");
++    assert_eq!(entry.token_output, Some(u64::MAX - 1));
++}
+diff --git a/crates/core/workflow/src/write/run_test.rs b/crates/core/workflow/src/write/run_test.rs
+index 7fc267a8aa6c..5a8b9330dfd4 100644
+--- a/crates/core/workflow/src/write/run_test.rs
++++ b/crates/core/workflow/src/write/run_test.rs
+@@ -267,6 +267,10 @@ fn node_entry(instance_no: u32) -> RunNodeEntry {
+         session_id: Some("ses-1".to_owned()),
+         detail: None,
+         output_ref: None,
++        started_at: STARTED_AT,
++        ended_at: Some(FINISHED_AT),
++        token_input: None,
++        token_output: None,
+     }
+ }
+ 
+diff --git a/crates/core/workflow/tests/corpus_golden_test.rs b/crates/core/workflow/tests/corpus_golden_test.rs
+index a800b8193fb7..06a7b3cc6f63 100644
+--- a/crates/core/workflow/tests/corpus_golden_test.rs
++++ b/crates/core/workflow/tests/corpus_golden_test.rs
+@@ -95,6 +95,15 @@ fn t(n: u32) -> i64 {
+     T0 + i64::from(n) * 1000
+ }
+ 
++/// 步级时间定值族基准槽位（`t(n)` 种子族内定值——`step_at` 默认形态的
++/// `started_at` 基准；步级时间零 wall-clock，desktop-step-running-snapshot
++/// D11 corpus 定值注入）。
++const STEP_T_BASE: u32 = 60;
++/// 步级默认派生耗时定值（正常起止双值样本口径：终态 `ended_at` =
++/// `started_at` + 本值，即时间族下一槽位；瞬步 / 在途样本经 `step_metrics`
++/// overrides 覆写）。
++const STEP_DUR_MS: i64 = 1_000;
++
+ /// UTC 日界锚定的毫秒（`2026-MM-DD` 零点），归档分组断言的确定性来源。
+ fn utc_millis(year: i32, month: time::Month, day: u8) -> i64 {
+     time::Date::from_calendar_date(year, month, day)
+@@ -756,10 +765,12 @@ merge 前主仓两树未命中的产物形态。",
+ 
+ /// run 运行史全史语料（unify-run-state-persistence）：两次 run 全史留存——
+ /// run-1 五词汇步整包（sessionId / detail 有无两态；attempt 1）+ run-2 续走
+-/// 推进（attempt 跨 run 递增 = 2、executor 单步无会话缺省落账）。流程面步骤
++/// 推进（attempt 跨 run 递增 = 2、executor 单步无会话缺省落账）+ run-3 步级
++/// 时间与 token 两态样本（desktop-step-running-snapshot D11）。流程面步骤
+ /// 与三门经全词汇序列喂 `finish_command`（语料纪律：缺席断言留测试相位）。
+-fn build_run_history() -> Corpus {
+-    let corpus = Corpus::new("run-history");
++/// `tag` 分域同理（见 [`build_archive_prefix`] 注）。
++fn build_run_history(tag: &str) -> Corpus {
++    let corpus = Corpus::new(tag);
+     corpus.seed_record("id-run-history", "run-history");
+     // 前置：proposal 已 pass（run-2 续走锚点推进的事实源）
+     corpus.run_phase(
+@@ -946,6 +957,72 @@ fn build_run_history() -> Corpus {
+         )],
+         &[],
+     );
++    // run-3：步级时间与 token 两态样本（desktop-step-running-snapshot D11，
++    // stopped 收口样本，attempt 跨 run 递增 = 3）——瞬步 started == ended
++    //（同槽定值，时间两态之二）/ token 有值 WorkerAgent 步（时间正常起止
++    // 双值定值，token 两态之一）/ running 收口在途残留步（ended = None，
++    // 时间两态之三）；token None 两态之二 = 工具步（run-1 / run-2 既有步全
++    // 量默认形态）。定值全落 `t(n)` 种子时间族（零 wall-clock），经
++    // `finish_command` → store run 域操作面落库（禁裸表插桩）
++    corpus.run_start("id-run-history", "run-1727000030000", t(30));
++    corpus.run_finish(
++        "id-run-history",
++        "run-1727000030000",
++        RunStatus::Stopped,
++        "用户中止：dev-design attempt 3 evaluator 在途",
++        t(39),
++        &[
++            // 瞬步样本：gate 步零耗时（started == ended = t(60) 同槽定值；
++            // token None）
++            step_metrics(
++                "dev-design",
++                3,
++                0,
++                ChangeStepKind::VerdictGate,
++                ChangeStepStatus::Passed,
++                None,
++                Some("verdict=fail 预算内同相位重跑"),
++                None,
++                t(60),
++                Some(t(60)),
++                None,
++                None,
++            ),
++            // token 有值样本：WorkerAgent 步终态带本步 turn 增量两值（起止
++            // 双值定值 t(61) → t(62)）
++            step_metrics(
++                "dev-design",
++                3,
++                0,
++                ChangeStepKind::Executor,
++                ChangeStepStatus::Passed,
++                Some("ses-dd-exec-a3"),
++                Some("实现完成（token 增量样本）"),
++                None,
++                t(61),
++                Some(t(62)),
++                Some(12_345),
++                Some(6_789),
++            ),
++            // 收口在途样本：stopped 收口时终态 emit 未达的 running 残留步
++            //（ended = None，started 定值 t(63)）
++            step_metrics(
++                "dev-design",
++                3,
++                0,
++                ChangeStepKind::Evaluator,
++                ChangeStepStatus::Running,
++                Some("ses-dd-eval-a3"),
++                None,
++                None,
++                t(63),
++                None,
++                None,
++                None,
++            ),
++        ],
++        &[],
++    );
+     corpus
+ }
+ 
+@@ -967,8 +1044,11 @@ fn build_run_interrupted() -> Corpus {
+ /// `archived_at` 2026-02-02）+ 磁盘 `YYYY-MM-DD-` 前缀目录（产物树）+ 相位行
+ /// 与 run 史种子 → detail 全状态面 golden（status=archived、9 站 pipeline 与
+ /// runs 全量出线；错配链结构性退役——AC-2）。
+-fn build_archive_prefix() -> Corpus {
+-    let corpus = Corpus::new("archive-prefix");
++/// `tag` 分域临时目录（同 crate 测试线程并行跑，`Corpus::new` 以
++/// `temp/{pid}-{tag}` 为根且构造即清空——两测试共用 tag 会互删语料文件，
++/// golden 投影偶发缺 markdown 产物即此竞争）。
++fn build_archive_prefix(tag: &str) -> Corpus {
++    let corpus = Corpus::new(tag);
+     corpus
+         .store
+         .create_change_record(ChangeStateRecord {
+@@ -1193,7 +1273,11 @@ fn build_archive_prefix() -> Corpus {
+ }
+ 
+ /// 全词汇步状态行 fixture（run 维度种子构造器的 ChangeStepState 组装面；首次
+-/// 执行实例 = 0、无输出记录）。
++/// 执行实例 = 0、无输出记录）。步级时间与 token 四字段定值注入（D11 corpus
++/// 定值注入，零 wall-clock——直构 `ChangeStepState`，不经 `emit_node` /
++/// `now_millis`）：`started_at` 取种子时间族基准槽位、`ended_at` 按状态派生
++/// 定值（running 收口在途恒 None / 终态 = started + 默认耗时定值）、token
++/// None（工具步两态之一）；瞬步 / token 有值样本经 [`step_metrics`] overrides。
+ #[allow(clippy::too_many_arguments)]
+ fn step(
+     phase: &str,
+@@ -1207,7 +1291,7 @@ fn step(
+ }
+ 
+ /// 携稳定身份键 + 输出引用的步状态行 fixture（feedback 重跑实例号递增 /
+-/// `ExecOutput::Recorded` 引用面）。
++/// `ExecOutput::Recorded` 引用面）。四字段定值注入默认形态见 [`step`]。
+ #[allow(clippy::too_many_arguments)]
+ fn step_at(
+     phase: &str,
+@@ -1219,6 +1303,13 @@ fn step_at(
+     detail: Option<&str>,
+     output_ref: Option<&str>,
+ ) -> ChangeStepState {
++    let started_at = t(STEP_T_BASE);
++    let ended_at = match status {
++        ChangeStepStatus::Running => None,
++        ChangeStepStatus::Passed | ChangeStepStatus::Failed | ChangeStepStatus::Stopped => {
++            Some(started_at + STEP_DUR_MS)
++        }
++    };
+     ChangeStepState {
+         phase: phase.to_owned(),
+         attempt,
+@@ -1228,9 +1319,48 @@ fn step_at(
+         session_id: session_id.map(str::to_owned),
+         detail: detail.map(str::to_owned),
+         output_ref: output_ref.map(str::to_owned),
++        started_at,
++        ended_at,
++        token_input: None,
++        token_output: None,
+     }
+ }
+ 
++/// 两态样本定值 overrides（D11）：在 [`step_at`] 默认派生行上覆写时间 /
++/// token 四字段定值——瞬步（`started_at == ended_at` 同槽定值）/ token 有值
++/// WorkerAgent 步 / 收口在途 `started_at` 定值等样本的注入面。
++#[allow(clippy::too_many_arguments)]
++fn step_metrics(
++    phase: &str,
++    attempt: u32,
++    instance_no: u32,
++    kind: ChangeStepKind,
++    status: ChangeStepStatus,
++    session_id: Option<&str>,
++    detail: Option<&str>,
++    output_ref: Option<&str>,
++    started_at: i64,
++    ended_at: Option<i64>,
++    token_input: Option<u64>,
++    token_output: Option<u64>,
++) -> ChangeStepState {
++    let mut state = step_at(
++        phase,
++        attempt,
++        instance_no,
++        kind,
++        status,
++        session_id,
++        detail,
++        output_ref,
++    );
++    state.started_at = started_at;
++    state.ended_at = ended_at;
++    state.token_input = token_input;
++    state.token_output = token_output;
++    state
++}
++
+ /// 节点身份键 fixture（边端点口径 `(phase, attempt, step, instance_no)`）。
+ fn key(phase: &str, attempt: u32, kind: ChangeStepKind, instance_no: u32) -> NodeKey {
+     (phase.to_owned(), attempt, kind, instance_no)
+@@ -1532,7 +1662,7 @@ fn corpus列表混合语料_golden对拍() {
+ /// pipeline 与 runs 全量出线；id / 裸名出线——AC-2 golden 半边）。
+ #[test]
+ fn corpus归档前缀样本_golden对拍() {
+-    let corpus = build_archive_prefix();
++    let corpus = build_archive_prefix("archive-prefix-golden");
+     let projection = project_detail(&corpus, "id-seeded-archived");
+ 
+     // 全状态面结构断言（golden 之外的语义锚）
+@@ -1674,7 +1804,7 @@ fn corpusworktree建档语料_golden对拍() {
+ /// 步骤与三门不再被过滤弃落）+ feedback 边与实例号递增在场断言。
+ #[test]
+ fn corpusrun全史语料_golden对拍() {
+-    let corpus = build_run_history();
++    let corpus = build_run_history("run-history-golden");
+     let projection = project_detail(&corpus, "id-run-history");
+ 
+     // 全词汇断言：runs[].nodes[].step 非归档十九词在案（零过滤——flow 面步骤与三
+@@ -1694,7 +1824,11 @@ fn corpusrun全史语料_golden对拍() {
+         "whitelist_gate",
+     ];
+     let runs = projection["runs"].as_array().expect("runs 为数组");
+-    assert_eq!(runs.len(), 2, "两 run 全史样本");
++    assert_eq!(
++        runs.len(),
++        3,
++        "三 run 全史样本（run-3 = 步级时间与 token 两态样本，desktop-step-running-snapshot D11）"
++    );
+     let mut nodes_seen = 0usize;
+     let mut seen_words: Vec<&str> = Vec::new();
+     for run in runs {
+@@ -1712,8 +1846,8 @@ fn corpusrun全史语料_golden对拍() {
+         }
+     }
+     assert_eq!(
+-        nodes_seen, 13,
+-        "run-1 十二条（含 mutation_test 拆步新词样本）+ run-2 一条，实际: {nodes_seen}"
++        nodes_seen, 16,
++        "run-1 十二条（含 mutation_test 拆步新词样本）+ run-2 一条 + run-3 三条（两态样本），实际: {nodes_seen}"
+     );
+     for word in FULL_WORDS {
+         assert!(seen_words.contains(&word), "词汇 {word} 应在案（零过滤）");
+@@ -2984,6 +3118,10 @@ fn 真件run写面回环_running行与三终态整包() {
+                 session_id: Some("ses-run-write".to_owned()),
+                 detail: None,
+                 output_ref: None,
++                started_at: t(STEP_T_BASE),
++                ended_at: Some(t(STEP_T_BASE) + STEP_DUR_MS),
++                token_input: None,
++                token_output: None,
+             }],
+             &[],
+         );
+@@ -3014,3 +3152,286 @@ fn 真件run写面回环_running行与三终态整包() {
+         );
+     }
+ }
++
++// ---------------------------------------------------------------------------
++// desktop-step-running-snapshot（D11 / AC-9）：golden 断言面——步级时间与
++// token 两态样本在案、瞬步 / 在途形态入 golden、四 camelCase 键漂移守卫
++//（旧 golden 未重写时显式红、非静默通过）
++// ---------------------------------------------------------------------------
++
++/// 步级时间与 token 两态样本（时间三态：正常起止双值 / 瞬步同刻 / running
++/// 收口在途 ended=None；token 两态：WorkerAgent 带值 / 工具步 None）经
++/// run-3 语料与全语料 nodes 深查在案；漂移守卫对投影与入仓 golden 双面深查
++/// runs[].nodes[] 四 camelCase 键在场。
++#[test]
++fn corpusrun全史语料_步级时间与token两态golden在案与漂移守卫() {
++    let corpus = build_run_history("run-history-guard");
++    let projection = project_detail(&corpus, "id-run-history");
++    let runs = projection["runs"].as_array().expect("runs 数组");
++    assert_eq!(runs.len(), 3, "三 run 全史（run-3 两态样本）");
++    let run3_nodes = runs[2]["nodes"].as_array().expect("nodes 数组");
++    assert_eq!(run3_nodes.len(), 3, "run-3 三步：瞬步 / token 带值 / 在途");
++
++    let find_node = |step: &str| -> serde_json::Value {
++        run3_nodes
++            .iter()
++            .find(|node| node["step"] == step)
++            .unwrap_or_else(|| panic!("run-3 应含 {step} 节点"))
++            .clone()
++    };
++
++    // 瞬步样本（verdict_gate）：startedAt == endedAt 同刻定值（0ms 形态入
++    // golden——两键同值非省键）；token 两键在场 null
++    let instant = find_node("verdict_gate");
++    assert_eq!(instant["startedAt"], serde_json::json!(1727000060000_i64));
++    assert_eq!(
++        instant["startedAt"], instant["endedAt"],
++        "瞬步 started == ended 同刻定值"
++    );
++    assert!(instant["tokenInput"].is_null() && instant["tokenOutput"].is_null());
++
++    // 正常起止双值步（executor）+ token 两值（WorkerAgent 步带值两态之一）
++    let worker = find_node("executor");
++    let started = worker["startedAt"].as_i64().expect("startedAt 数值");
++    let ended = worker["endedAt"].as_i64().expect("endedAt 数值");
++    assert!(ended > started, "正常起止双值：ended > started");
++    assert_eq!(worker["tokenInput"], serde_json::json!(12345), "tokenInput 带值态");
++    assert_eq!(worker["tokenOutput"], serde_json::json!(6789), "tokenOutput 带值态");
++
++    // running 收口在途样本（evaluator）：endedAt null 出线不省键（键在场）
++    let in_flight = find_node("evaluator");
++    assert!(
++        in_flight
++            .as_object()
++            .expect("节点对象")
++            .contains_key("endedAt"),
++        "在途样本 endedAt 键在场"
++    );
++    assert!(in_flight["endedAt"].is_null(), "在途 endedAt null 原样（零回填）");
++    assert!(in_flight["tokenInput"].is_null());
++
++    // token 两态之二：工具步 None（run-1 任一 phase_start 行 tokenInput null）
++    let tool_node = runs[0]["nodes"]
++        .as_array()
++        .expect("run-1 nodes")
++        .iter()
++        .find(|node| node["step"] == "phase_start")
++        .expect("run-1 phase_start 在案");
++    assert!(tool_node["tokenInput"].is_null(), "工具步 tokenInput null 两态在案");
++    assert!(tool_node["tokenOutput"].is_null());
++
++    // 漂移守卫（投影面）：全语料 runs[].nodes[] 四 camelCase 键逐键在场
++    let four_keys = ["startedAt", "endedAt", "tokenInput", "tokenOutput"];
++    for run in runs {
++        for node in run["nodes"].as_array().expect("nodes 数组") {
++            let object = node.as_object().expect("节点对象");
++            for key in four_keys {
++                assert!(
++                    object.contains_key(key),
++                    "投影节点缺 {key} 键（线面漂移）: {node}"
++                );
++            }
++        }
++    }
++
++    // 漂移守卫（golden 面）：入仓 golden 同断言——旧 golden 未重写时显式红、
++    // 非静默通过
++    let golden_text =
++        fs::read_to_string(golden_dir().join("corpus-run-history.json")).expect("读 golden 失败");
++    let golden: serde_json::Value = serde_json::from_str(&golden_text).expect("golden 解析失败");
++    for run in golden["runs"].as_array().expect("golden runs") {
++        for node in run["nodes"].as_array().expect("golden nodes") {
++            let object = node.as_object().expect("golden 节点对象");
++            for key in four_keys {
++                assert!(
++                    object.contains_key(key),
++                    "golden 节点缺 {key} 键（golden 未随线面重写——漂移即红）"
++                );
++            }
++        }
++    }
++
++    // 全量序列化零 panic（既有规模语料 + 四字段注入可全量出线）
++    let full = serde_json::to_string(&projection).expect("全量序列化应成功");
++    assert!(full.contains("\"tokenInput\":12345"), "全量序列化含 token 带值行");
++    check_or_rewrite("corpus-run-history", &projection);
++}
++
++/// 归档前缀语料（多节点全词汇样本）同享漂移守卫：runs[].nodes[] 四 camelCase
++/// 键逐键在场（投影面 + golden 面双查——多语料覆盖不单点）。
++#[test]
++fn corpus归档前缀语料_节点四键漂移守卫() {
++    let corpus = build_archive_prefix("archive-prefix-guard");
++    let projection = project_detail(&corpus, "id-seeded-archived");
++    let four_keys = ["startedAt", "endedAt", "tokenInput", "tokenOutput"];
++    let runs = projection["runs"].as_array().expect("runs 数组");
++    assert!(!runs.is_empty(), "归档前缀语料含 run 全史");
++    let mut nodes_seen = 0usize;
++    for run in runs {
++        for node in run["nodes"].as_array().expect("nodes 数组") {
++            let object = node.as_object().expect("节点对象");
++            for key in four_keys {
++                assert!(object.contains_key(key), "投影节点缺 {key} 键: {node}");
++            }
++            nodes_seen += 1;
++        }
++    }
++    assert_eq!(nodes_seen, 12, "归档前缀语料 12 节点全查（多节点规模锚）");
++
++    let golden_text =
++        fs::read_to_string(golden_dir().join("corpus-archive-prefix.json")).expect("读 golden 失败");
++    let golden: serde_json::Value = serde_json::from_str(&golden_text).expect("golden 解析失败");
++    for run in golden["runs"].as_array().expect("golden runs") {
++        for node in run["nodes"].as_array().expect("golden nodes") {
++            let object = node.as_object().expect("golden 节点对象");
++            for key in four_keys {
++                assert!(object.contains_key(key), "golden 节点缺 {key} 键（漂移即红）");
++            }
++        }
++    }
++    check_or_rewrite("corpus-archive-prefix", &projection);
++}
++
++/// 防御值语料（D11 种子面零逻辑分支锚）：`step_metrics` overrides 混防御值
++/// ——`started_at` 负值 / 0（缺席语义值）、token 单侧（入侧有 / 出侧无 +
++/// 出侧有 / 入侧无）——经 `finish_command` → store 收口直落、golden 投影面
++///（`project_detail` 全量序列化）逐值直达零改写零 panic。该语料为专项
++/// ad-hoc 构造（不入 CORPORA 集合——零 golden 产出，入仓 golden 重写流程
++/// 归桌面端）；库读面半边同查（list_run_nodes 原值回读）。
++#[test]
++fn corpus防御值语料_overrides混防御值直达投影零改写零panic() {
++    let corpus = Corpus::new("step-defensive");
++    corpus.seed_record("id-step-defensive", "step-defensive");
++    corpus.run_start("id-step-defensive", "run-1727000040000", t(40));
++    corpus.run_finish(
++        "id-step-defensive",
++        "run-1727000040000",
++        RunStatus::Completed,
++        "All phases have passed evaluation. Ready for archiving.",
++        t(49),
++        &[
++            // 防御值样本一：started_at 负值（收口同为负）+ token 入侧单值
++            //（output None）——零钳制零补值
++            step_metrics(
++                "dev-design",
++                1,
++                0,
++                ChangeStepKind::Executor,
++                ChangeStepStatus::Passed,
++                Some("ses-dd-exec-def"),
++                None,
++                None,
++                -1_000,
++                Some(-500),
++                Some(111),
++                None,
++            ),
++            // 防御值样本二：started_at = 0（缺席语义值）同刻瞬步 + token 出侧
++            // 单值（input None）——零默认零改写
++            step_metrics(
++                "dev-design",
++                1,
++                0,
++                ChangeStepKind::VerdictGate,
++                ChangeStepStatus::Passed,
++                None,
++                None,
++                None,
++                0,
++                Some(0),
++                None,
++                Some(222),
++            ),
++        ],
++        &[],
++    );
++
++    // 库读面半边：防御值逐字段原值回读（零钳制零补值）
++    let db_nodes = corpus
++        .store
++        .list_run_nodes("run-1727000040000")
++        .expect("节点读应成功");
++    assert_eq!(db_nodes.len(), 2, "防御值两步全量落库");
++    let executor_row = db_nodes
++        .iter()
++        .find(|row| row.step == workflow::state::RunStepKind::Executor)
++        .expect("executor 行在案");
++    assert_eq!(
++        executor_row.started_at, -1_000,
++        "负值 started_at 原值落库（零钳制）"
++    );
++    assert_eq!(executor_row.ended_at, Some(-500), "负值 ended_at 原值落库");
++    assert_eq!(executor_row.token_input, Some(111), "入侧单值落库");
++    assert_eq!(executor_row.token_output, None, "出侧缺席 None 原样（零补值）");
++
++    // golden 投影面：project_detail 序列化防御值逐键逐值直达（零改写零回填）
++    let projection = project_detail(&corpus, "id-step-defensive");
++    let wire_nodes = projection["runs"][0]["nodes"]
++        .as_array()
++        .expect("nodes 数组");
++    assert_eq!(wire_nodes.len(), 2, "投影两节点（emit 序）");
++    let four_keys = ["startedAt", "endedAt", "tokenInput", "tokenOutput"];
++    for node in wire_nodes {
++        let object = node.as_object().expect("节点对象");
++        for key in four_keys {
++            assert!(object.contains_key(key), "防御值节点缺 {key} 键: {node}");
++        }
++    }
++    let negative = wire_nodes
++        .iter()
++        .find(|node| node["step"] == "executor")
++        .expect("executor 节点在案");
++    assert_eq!(
++        negative["startedAt"],
++        serde_json::json!(-1_000_i64),
++        "负值 startedAt 直达投影（零改写）"
++    );
++    assert_eq!(
++        negative["endedAt"],
++        serde_json::json!(-500_i64),
++        "负值 endedAt 直达投影"
++    );
++    assert_eq!(
++        negative["tokenInput"],
++        serde_json::json!(111_u64),
++        "入侧单值直达"
++    );
++    assert!(
++        negative["tokenOutput"].is_null(),
++        "出侧缺席 null（键在场零补值）"
++    );
++
++    let zero = wire_nodes
++        .iter()
++        .find(|node| node["step"] == "verdict_gate")
++        .expect("verdict_gate 节点在案");
++    assert_eq!(
++        zero["startedAt"],
++        serde_json::json!(0_i64),
++        "0 值 startedAt 原样出线（零钳制）"
++    );
++    assert_eq!(
++        zero["endedAt"],
++        serde_json::json!(0_i64),
++        "0 值 endedAt 同刻瞬步原样"
++    );
++    assert!(zero["tokenInput"].is_null(), "入侧缺席 null（键在场）");
++    assert_eq!(
++        zero["tokenOutput"],
++        serde_json::json!(222_u64),
++        "出侧单值直达"
++    );
++
++    // 零 panic：防御值载荷全量序列化成功（负值 / 0 / 单侧 token 原文在案）
++    let full = serde_json::to_string(&projection).expect("防御值投影全量序列化应成功");
++    assert!(full.contains("\"startedAt\":-1000"), "负值原文在案（零改写）");
++    assert!(full.contains("\"startedAt\":0"), "0 值原文在案（零改写）");
++    assert!(full.contains("\"tokenInput\":111"), "入侧单值原文在案");
++    assert!(full.contains("\"tokenOutput\":222"), "出侧单值原文在案");
++
++    // 专项语料不入 CORPORA 集合——零 golden 产出（入仓 golden 集合不变）
++    assert!(
++        !golden_dir().join("corpus-step-defensive.json").exists(),
++        "防御值专项语料零 golden 产出（语料完整性集合不变）"
++    );
++}
+diff --git a/crates/core/workflow/tests/fixtures/README.md b/crates/core/workflow/tests/fixtures/README.md
+index 498ad269bc69..529dfb1e5747 100644
+--- a/crates/core/workflow/tests/fixtures/README.md
++++ b/crates/core/workflow/tests/fixtures/README.md
+@@ -26,6 +26,7 @@ fixture 先例）。
+ | run 全史 | 同 change 两次 run 全史留存（≥2 run，attempt 跨 run 递增不撞号）、五落词汇步整包（sessionId / detail 有无两态）、emit seq 稳定序、时间戳 ISO 出线（`corpus-run-history`） | `run_start` / `finish_change_run`（经 store run 域操作面，禁裸表插桩；步序列经 orchestration `finish_command` 全词汇喂入——落库过滤单点同真实写路径，unify-run-state-persistence） |
+ | 归档相位 run 史（merge-archive-steps-into-flow） | archive 列空 checklist 落账 pass（report 空串 + 空 checklist）；archive 相位十步节点整包（8 归档步词 + PhaseStart / PhaseLog，git 步分类可辨）+ 串行 forward 边 | `log_change_phase`（archive 空 checklist）+ `run_start` / `finish_change_run`（archive 十步 + 9 forward 边，`corpus-archive-prefix`） |
+ | run 中断标定 | run 发起后中途死亡残留（running 行 + active_phase 悬挂）→ 标定翻 interrupted（记因附中断语境、finished_at 标定时刻）+ active_phase 清位（`corpus-run-interrupted`） | `run_start` + `start_change_phase`（开相不落账）→ `calibrate_interrupted_runs` 直调（open_workspace 内嵌同路径，D12） |
++| 步级时间与 token（desktop-step-running-snapshot） | run 步节点四字段（started_at / ended_at / token_input / token_output）定值注入两态：时间（正常起止双值步 / 瞬步 `started == ended` 同槽定值 / running 收口在途残留 `ended = None`）+ token（WorkerAgent 步带增量两值 / 工具步 None）；毫秒数口径出线（`corpus-run-history` run-3 stopped 收口样本，run-1 / run-2 既有步为默认派生形态） | `step` / `step_at` fixture 默认派生定值（`t(n)` 种子时间族基准槽位，零 wall-clock——直构 `ChangeStepState`，不经 `emit_node` / `now_millis`）+ `step_metrics` overrides 两态样本 → `run_start` / `finish_change_run`（经 store run 域操作面，禁裸表插桩） |
+ 
+ golden 快照纪律与显式重写流程（`DESKTOP_GOLDEN_REWRITE=1` + diff 人工确认留
+ 痕）延续：detail / list golden 全量含 `id` 键（身份键入——desktop-change-db-
+diff --git a/crates/core/workflow/tests/golden/corpus-archive-prefix.json b/crates/core/workflow/tests/golden/corpus-archive-prefix.json
+index 069da5debf95..d23e1f330c43 100644
+--- a/crates/core/workflow/tests/golden/corpus-archive-prefix.json
++++ b/crates/core/workflow/tests/golden/corpus-archive-prefix.json
+@@ -107,12 +107,16 @@
+         {
+           "attempt": 1,
+           "detail": null,
++          "endedAt": 1727000061000,
+           "instanceNo": 0,
+           "outputRef": null,
+           "phase": "proposal",
+           "sessionId": "ses-arch-exec",
++          "startedAt": 1727000060000,
+           "status": "passed",
+-          "step": "executor"
++          "step": "executor",
++          "tokenInput": null,
++          "tokenOutput": null
+         }
+       ],
+       "reason": "All phases have passed evaluation. Ready for archiving.",
+@@ -178,112 +182,156 @@
+         {
+           "attempt": 1,
+           "detail": null,
++          "endedAt": 1727000061000,
+           "instanceNo": 0,
+           "outputRef": null,
+           "phase": "archive",
+           "sessionId": null,
++          "startedAt": 1727000060000,
+           "status": "passed",
+-          "step": "phase_start"
++          "step": "phase_start",
++          "tokenInput": null,
++          "tokenOutput": null
+         },
+         {
+           "attempt": 1,
+           "detail": "前置只读校验：8 相位已过 / 无缺产物",
++          "endedAt": 1727000061000,
+           "instanceNo": 0,
+           "outputRef": null,
+           "phase": "archive",
+           "sessionId": null,
++          "startedAt": 1727000060000,
+           "status": "passed",
+-          "step": "preflight"
++          "step": "preflight",
++          "tokenInput": null,
++          "tokenOutput": null
+         },
+         {
+           "attempt": 1,
+           "detail": "worktree 干净，无待提交变更（跳过）",
++          "endedAt": 1727000061000,
+           "instanceNo": 0,
+           "outputRef": null,
+           "phase": "archive",
+           "sessionId": null,
++          "startedAt": 1727000060000,
+           "status": "passed",
+-          "step": "commit"
++          "step": "commit",
++          "tokenInput": null,
++          "tokenOutput": null
+         },
+         {
+           "attempt": 1,
+           "detail": "已重放至主仓当前分支，无冲突",
++          "endedAt": 1727000061000,
+           "instanceNo": 0,
+           "outputRef": null,
+           "phase": "archive",
+           "sessionId": null,
++          "startedAt": 1727000060000,
+           "status": "passed",
+-          "step": "rebase"
++          "step": "rebase",
++          "tokenInput": null,
++          "tokenOutput": null
+         },
+         {
+           "attempt": 1,
+           "detail": "无冲突，无需解算（跳过）",
++          "endedAt": 1727000061000,
+           "instanceNo": 0,
+           "outputRef": null,
+           "phase": "archive",
+           "sessionId": "ses-arch-resolve",
++          "startedAt": 1727000060000,
+           "status": "passed",
+-          "step": "resolve_conflicts"
++          "step": "resolve_conflicts",
++          "tokenInput": null,
++          "tokenOutput": null
+         },
+         {
+           "attempt": 1,
+           "detail": "主仓 ff-only 快进完成",
++          "endedAt": 1727000061000,
+           "instanceNo": 0,
+           "outputRef": null,
+           "phase": "archive",
+           "sessionId": null,
++          "startedAt": 1727000060000,
+           "status": "passed",
+-          "step": "merge"
++          "step": "merge",
++          "tokenInput": null,
++          "tokenOutput": null
+         },
+         {
+           "attempt": 1,
+           "detail": "delta specs 已同步",
++          "endedAt": 1727000061000,
+           "instanceNo": 0,
+           "outputRef": null,
+           "phase": "archive",
+           "sessionId": "ses-arch-spec-sync",
++          "startedAt": 1727000060000,
+           "status": "passed",
+-          "step": "spec_sync"
++          "step": "spec_sync",
++          "tokenInput": null,
++          "tokenOutput": null
+         },
+         {
+           "attempt": 1,
+           "detail": "已移除 worktree（<WORKTREE_ROOT>/seeded-archived）",
++          "endedAt": 1727000061000,
+           "instanceNo": 0,
+           "outputRef": null,
+           "phase": "archive",
+           "sessionId": null,
++          "startedAt": 1727000060000,
+           "status": "passed",
+-          "step": "cleanup"
++          "step": "cleanup",
++          "tokenInput": null,
++          "tokenOutput": null
+         },
+         {
+           "attempt": 1,
+           "detail": "双写收口：目录改名 + status 翻转",
++          "endedAt": 1727000061000,
+           "instanceNo": 0,
+           "outputRef": null,
+           "phase": "archive",
+           "sessionId": null,
++          "startedAt": 1727000060000,
+           "status": "passed",
+-          "step": "seal"
++          "step": "seal",
++          "tokenInput": null,
++          "tokenOutput": null
+         },
+         {
+           "attempt": 1,
+           "detail": "归档产物已落盘，无待提交路径（跳过）",
++          "endedAt": 1727000061000,
+           "instanceNo": 0,
+           "outputRef": null,
+           "phase": "archive",
+           "sessionId": null,
++          "startedAt": 1727000060000,
+           "status": "passed",
+-          "step": "finalize"
++          "step": "finalize",
++          "tokenInput": null,
++          "tokenOutput": null
+         },
+         {
+           "attempt": 1,
+           "detail": "空 checklist 落账 verdict=pass",
++          "endedAt": 1727000061000,
+           "instanceNo": 0,
+           "outputRef": null,
+           "phase": "archive",
+           "sessionId": null,
++          "startedAt": 1727000060000,
+           "status": "passed",
+-          "step": "phase_log"
++          "step": "phase_log",
++          "tokenInput": null,
++          "tokenOutput": null
+         }
+       ],
+       "reason": "archive phase landed an empty checklist verdict=pass",
+diff --git a/crates/core/workflow/tests/golden/corpus-run-history.json b/crates/core/workflow/tests/golden/corpus-run-history.json
+index 77b74fbbc7f8..41c1d154e137 100644
+--- a/crates/core/workflow/tests/golden/corpus-run-history.json
++++ b/crates/core/workflow/tests/golden/corpus-run-history.json
+@@ -119,122 +119,170 @@
+         {
+           "attempt": 1,
+           "detail": null,
++          "endedAt": 1727000061000,
+           "instanceNo": 0,
+           "outputRef": null,
+           "phase": "implement",
+           "sessionId": null,
++          "startedAt": 1727000060000,
+           "status": "passed",
+-          "step": "phase_start"
++          "step": "phase_start",
++          "tokenInput": null,
++          "tokenOutput": null
+         },
+         {
+           "attempt": 1,
+           "detail": "实现完成",
++          "endedAt": 1727000061000,
+           "instanceNo": 0,
+           "outputRef": null,
+           "phase": "implement",
+           "sessionId": "ses-impl-1",
++          "startedAt": 1727000060000,
+           "status": "passed",
+-          "step": "executor"
++          "step": "executor",
++          "tokenInput": null,
++          "tokenOutput": null
+         },
+         {
+           "attempt": 1,
+           "detail": null,
++          "endedAt": 1727000061000,
+           "instanceNo": 0,
+           "outputRef": "exec-1727000019000",
+           "phase": "implement",
+           "sessionId": null,
++          "startedAt": 1727000060000,
+           "status": "failed",
+-          "step": "static_check"
++          "step": "static_check",
++          "tokenInput": null,
++          "tokenOutput": null
+         },
+         {
+           "attempt": 1,
+           "detail": "按 feedback 修复重跑",
++          "endedAt": 1727000061000,
+           "instanceNo": 1,
+           "outputRef": null,
+           "phase": "implement",
+           "sessionId": "ses-impl-1b",
++          "startedAt": 1727000060000,
+           "status": "passed",
+-          "step": "executor"
++          "step": "executor",
++          "tokenInput": null,
++          "tokenOutput": null
+         },
+         {
+           "attempt": 1,
+           "detail": "首轮评估 fail",
++          "endedAt": 1727000061000,
+           "instanceNo": 0,
+           "outputRef": null,
+           "phase": "implement",
+           "sessionId": "ses-eval-1",
++          "startedAt": 1727000060000,
+           "status": "failed",
+-          "step": "evaluator"
++          "step": "evaluator",
++          "tokenInput": null,
++          "tokenOutput": null
+         },
+         {
+           "attempt": 1,
+           "detail": "verdict=fail",
++          "endedAt": 1727000061000,
+           "instanceNo": 0,
+           "outputRef": null,
+           "phase": "implement",
+           "sessionId": null,
++          "startedAt": 1727000060000,
+           "status": "failed",
+-          "step": "verdict_gate"
++          "step": "verdict_gate",
++          "tokenInput": null,
++          "tokenOutput": null
+         },
+         {
+           "attempt": 1,
+           "detail": "预算内同相位重跑",
++          "endedAt": 1727000061000,
+           "instanceNo": 0,
+           "outputRef": null,
+           "phase": "implement",
+           "sessionId": null,
++          "startedAt": 1727000060000,
+           "status": "passed",
+-          "step": "retry_gate"
++          "step": "retry_gate",
++          "tokenInput": null,
++          "tokenOutput": null
+         },
+         {
+           "attempt": 1,
+           "detail": null,
++          "endedAt": 1727000061000,
+           "instanceNo": 0,
+           "outputRef": null,
+           "phase": "implement",
+           "sessionId": "ses-decision-1",
++          "startedAt": 1727000060000,
+           "status": "passed",
+-          "step": "decision"
++          "step": "decision",
++          "tokenInput": null,
++          "tokenOutput": null
+         },
+         {
+           "attempt": 1,
+           "detail": "回溯白名单内",
++          "endedAt": 1727000061000,
+           "instanceNo": 0,
+           "outputRef": null,
+           "phase": "implement",
+           "sessionId": null,
++          "startedAt": 1727000060000,
+           "status": "passed",
+-          "step": "whitelist_gate"
++          "step": "whitelist_gate",
++          "tokenInput": null,
++          "tokenOutput": null
+         },
+         {
+           "attempt": 1,
+           "detail": "conclusion=pass total=3",
++          "endedAt": 1727000061000,
+           "instanceNo": 0,
+           "outputRef": null,
+           "phase": "dev-design",
+           "sessionId": null,
++          "startedAt": 1727000060000,
+           "status": "passed",
+-          "step": "test_execution"
++          "step": "test_execution",
++          "tokenInput": null,
++          "tokenOutput": null
+         },
+         {
+           "attempt": 1,
+           "detail": "conclusion=pass score=95 threshold=80",
++          "endedAt": 1727000061000,
+           "instanceNo": 0,
+           "outputRef": null,
+           "phase": "dev-design",
+           "sessionId": null,
++          "startedAt": 1727000060000,
+           "status": "passed",
+-          "step": "mutation_test"
++          "step": "mutation_test",
++          "tokenInput": null,
++          "tokenOutput": null
+         },
+         {
+           "attempt": 1,
+           "detail": null,
++          "endedAt": 1727000061000,
+           "instanceNo": 0,
+           "outputRef": null,
+           "phase": "dev-design",
+           "sessionId": null,
++          "startedAt": 1727000060000,
+           "status": "passed",
+-          "step": "phase_log"
++          "step": "phase_log",
++          "tokenInput": null,
++          "tokenOutput": null
+         }
+       ],
+       "reason": "首轮 dev-design 未过（预算内 fail）",
+@@ -249,18 +297,74 @@
+         {
+           "attempt": 2,
+           "detail": null,
++          "endedAt": 1727000061000,
+           "instanceNo": 0,
+           "outputRef": null,
+           "phase": "dev-design",
+           "sessionId": "ses-dd-exec-a2",
++          "startedAt": 1727000060000,
+           "status": "passed",
+-          "step": "executor"
++          "step": "executor",
++          "tokenInput": null,
++          "tokenOutput": null
+         }
+       ],
+       "reason": "All phases have passed evaluation. Ready for archiving.",
+       "runId": "run-1727000020000",
+       "startedAt": "2024-09-22T10:13:40Z",
+       "status": "completed"
++    },
++    {
++      "edges": [],
++      "finishedAt": "2024-09-22T10:13:59Z",
++      "nodes": [
++        {
++          "attempt": 3,
++          "detail": "verdict=fail 预算内同相位重跑",
++          "endedAt": 1727000060000,
++          "instanceNo": 0,
++          "outputRef": null,
++          "phase": "dev-design",
++          "sessionId": null,
++          "startedAt": 1727000060000,
++          "status": "passed",
++          "step": "verdict_gate",
++          "tokenInput": null,
++          "tokenOutput": null
++        },
++        {
++          "attempt": 3,
++          "detail": "实现完成（token 增量样本）",
++          "endedAt": 1727000062000,
++          "instanceNo": 0,
++          "outputRef": null,
++          "phase": "dev-design",
++          "sessionId": "ses-dd-exec-a3",
++          "startedAt": 1727000061000,
++          "status": "passed",
++          "step": "executor",
++          "tokenInput": 12345,
++          "tokenOutput": 6789
++        },
++        {
++          "attempt": 3,
++          "detail": null,
++          "endedAt": null,
++          "instanceNo": 0,
++          "outputRef": null,
++          "phase": "dev-design",
++          "sessionId": "ses-dd-eval-a3",
++          "startedAt": 1727000063000,
++          "status": "running",
++          "step": "evaluator",
++          "tokenInput": null,
++          "tokenOutput": null
++        }
++      ],
++      "reason": "用户中止：dev-design attempt 3 evaluator 在途",
++      "runId": "run-1727000030000",
++      "startedAt": "2024-09-22T10:13:50Z",
++      "status": "stopped"
+     }
+   ],
+   "source": "active",
+diff --git a/crates/infra/store/src/change_port_test.rs b/crates/infra/store/src/change_port_test.rs
+index f1c708ec7ab0..5d7a4c17c59a 100644
+--- a/crates/infra/store/src/change_port_test.rs
++++ b/crates/infra/store/src/change_port_test.rs
+@@ -625,6 +625,10 @@ fn run_node_entry(step: RunStepKind, instance_no: u32) -> RunNodeEntry {
+         session_id: Some("ses-1".to_owned()),
+         detail: None,
+         output_ref: Some("exec-1".to_owned()),
++        started_at: 1_727_000_000_000,
++        ended_at: Some(1_727_000_060_000),
++        token_input: None,
++        token_output: None,
+     }
+ }
+ 
+diff --git a/crates/infra/store/src/model.rs b/crates/infra/store/src/model.rs
+index 189e972f07ba..829777275410 100644
+--- a/crates/infra/store/src/model.rs
++++ b/crates/infra/store/src/model.rs
+@@ -961,6 +961,19 @@ pub struct RunNodeRecord {
+     /// 全量输出引用（`ExecOutput::Recorded { exec_id }`；MUST NOT 全文进本行）
+     #[serde(default)]
+     pub output_ref: Option<String>,
++    /// 步开始时刻（UTC unix 毫秒）。旧库行缺省 0 = 步级时间缺席（前端判定收
++    /// 格式化模块单点）；步级时间独立成列，MUST NOT 顶替不复用 `timestamp`
++    #[serde(default)]
++    pub started_at: i64,
++    /// 步收口时刻（UTC unix 毫秒；running 收口在途步 None）
++    #[serde(default)]
++    pub ended_at: Option<i64>,
++    /// 本步 turn token 增量（`TurnDone.usage` 求和；仅 WorkerAgent 步终态有值）
++    #[serde(default)]
++    pub token_input: Option<u64>,
++    /// 本步 turn token 增量（输出向；口径同 `token_input`）
++    #[serde(default)]
++    pub token_output: Option<u64>,
+     /// 落包时刻（UTC unix 毫秒，= finished_at 整包同刻）
+     pub timestamp: i64,
+ }
+@@ -985,6 +998,10 @@ impl RunNodeRecord {
+             session_id: entry.session_id.clone(),
+             detail: entry.detail.clone(),
+             output_ref: entry.output_ref.clone(),
++            started_at: entry.started_at,
++            ended_at: entry.ended_at,
++            token_input: entry.token_input,
++            token_output: entry.token_output,
+             timestamp,
+         }
+     }
+diff --git a/crates/infra/store/src/model_test.rs b/crates/infra/store/src/model_test.rs
+index b14a51a58ecb..33574d34bf45 100644
+--- a/crates/infra/store/src/model_test.rs
++++ b/crates/infra/store/src/model_test.rs
+@@ -2065,6 +2065,10 @@ fn run_node_entry(step: RunStepKind, status: RunStepStatus, instance_no: u32) ->
+         session_id: None,
+         detail: None,
+         output_ref: None,
++        started_at: 1_727_000_000_000,
++        ended_at: Some(1_727_000_060_000),
++        token_input: None,
++        token_output: None,
+     }
+ }
+ 
+@@ -2802,3 +2806,286 @@ fn run_node_record_step越集词反序列化拒绝持衡() {
+         assert!(back.is_err(), "RunStepKind 越集词 {illegal:?} 应拒绝");
+     }
+ }
++
++// ---------------------------------------------------------------------------
++// desktop-step-running-snapshot（AC-1 / AC-5）：RunNodeRecord::new 四字段直复制
++// ——旧行 serde(default) 兼容 / wire 面 / 防御值 / 写幂等 / 真件回环
++// ---------------------------------------------------------------------------
++
++/// 四字段全值节点条目 fixture（D10 词面同源定值：started 1_727_000_000_000 /
++/// ended +200_000 / token 12_000 与 3_400）。
++fn full_metrics_entry() -> RunNodeEntry {
++    RunNodeEntry {
++        started_at: 1_727_000_000_000,
++        ended_at: Some(1_727_000_200_000),
++        token_input: Some(12_000),
++        token_output: Some(3_400),
++        ..run_node_entry(RunStepKind::Executor, RunStepStatus::Passed, 0)
++    }
++}
++
++/// 正向：entry 四字段全值 → record 四列逐字段等值；timestamp 参数独立赋值
++///（与 started_at 不混淆——timestamp 语义保留锚）。
++#[test]
++fn run_node_record四字段全值直复制与timestamp独立() {
++    let record = RunNodeRecord::new(
++        "run-1727000000000",
++        "chg-demo",
++        3,
++        &full_metrics_entry(),
++        1_727_000_300_000,
++    );
++    assert_eq!(record.started_at, 1_727_000_000_000, "started_at 直复制");
++    assert_eq!(record.ended_at, Some(1_727_000_200_000), "ended_at 直复制");
++    assert_eq!(record.token_input, Some(12_000), "token_input 直复制");
++    assert_eq!(record.token_output, Some(3_400), "token_output 直复制");
++    // timestamp 独立赋值：与 started_at 语义分立（整包同刻 = finished_at）
++    assert_eq!(record.timestamp, 1_727_000_300_000);
++    assert_ne!(record.timestamp, record.started_at, "timestamp 与 started_at 不混淆");
++}
++
++/// 正向：native_model 编码 → decode 回环四列逐字段一致（id=16 version=1 编解码
++/// 回归——加列后 codec 面）。
++#[test]
++fn run_node_record四列编解码回环逐字段一致() {
++    let record = RunNodeRecord::new(
++        "run-1727000000000",
++        "chg-demo",
++        0,
++        &full_metrics_entry(),
++        1_727_000_300_000,
++    );
++    let bytes = native_model::encode(&record).expect("encode 应成功");
++    let (decoded, version) =
++        native_model::decode::<RunNodeRecord>(bytes).expect("decode 应成功");
++    assert_eq!(version, 1, "id=16 version=1 持衡");
++    assert_eq!(decoded.started_at, record.started_at);
++    assert_eq!(decoded.ended_at, record.ended_at);
++    assert_eq!(decoded.token_input, record.token_input);
++    assert_eq!(decoded.token_output, record.token_output);
++    assert_eq!(decoded, record, "回环全字段一致");
++}
++
++/// 边界：entry token 两值 / ended_at None → 列 None 直透（缺席合法缺省）。
++#[test]
++fn run_node_record_none列直透() {
++    let entry = run_node_entry(RunStepKind::StaticCheck, RunStepStatus::Passed, 0);
++    assert_eq!(entry.ended_at, Some(1_727_000_060_000));
++    let mut bare = entry.clone();
++    bare.ended_at = None;
++    bare.token_input = None;
++    bare.token_output = None;
++    let record = RunNodeRecord::new("run-1", "chg-demo", 0, &bare, 1_727_000_300_000);
++    assert_eq!(record.ended_at, None, "ended None 直透");
++    assert_eq!(record.token_input, None);
++    assert_eq!(record.token_output, None);
++}
++
++/// 边界：旧 JSON 形态（无四新键、仅既有键）反序列化 → started_at=0 /
++/// ended_at=None / token None，零报错零迁移（`#[serde(default)]` 锚，AC-5）。
++#[test]
++fn run_node_record旧json形态缺四新键解码零报错零迁移() {
++    let record = RunNodeRecord::new(
++        "run-legacy",
++        "chg-demo",
++        0,
++        &run_node_entry(RunStepKind::Executor, RunStepStatus::Passed, 0),
++        1_727_000_300_000,
++    );
++    let mut value = serde_json::to_value(&record).expect("出线应成功");
++    // 剥离四新键 → 旧形态 wire 面（既有键原样保留）
++    let object = value.as_object_mut().expect("对象线面");
++    for key in ["startedAt", "endedAt", "tokenInput", "tokenOutput"] {
++        assert!(object.remove(key).is_some(), "新键 {key} 在案可剥离");
++    }
++    let legacy: RunNodeRecord = serde_json::from_value(value).expect("旧形态解码应成功");
++    assert_eq!(legacy.started_at, 0, "旧行 started 缺省 0 = 步级时间缺席");
++    assert_eq!(legacy.ended_at, None);
++    assert_eq!(legacy.token_input, None);
++    assert_eq!(legacy.token_output, None);
++    // 既有列零迁移原样（身份面 / 载荷面持衡）
++    assert_eq!(legacy.run_id, record.run_id);
++    assert_eq!(legacy.node_key, record.node_key);
++    assert_eq!(legacy.step, record.step);
++    assert_eq!(legacy.status, record.status);
++    assert_eq!(legacy.timestamp, record.timestamp);
++}
++
++/// 边界：同 run 多行 node_seq 递增 → node_key 打包不撞键；node_id() /
++/// node_seq() 身份面不因新列漂移。
++#[test]
++fn run_node_record同run多行node_seq递增不撞键身份面持衡() {
++    let entry = full_metrics_entry();
++    let keys: Vec<u128> = (0..5u64)
++        .map(|seq| RunNodeRecord::new("run-same", "chg-demo", seq, &entry, 1).node_key)
++        .collect();
++    for pair in keys.windows(2) {
++        assert!(pair[0] < pair[1], "同 run node_seq 递增 → node_key 严格增大");
++    }
++    let record = RunNodeRecord::new("run-same", "chg-demo", 7, &entry, 1);
++    assert_eq!(record.node_seq(), 7, "node_seq() = 打包键低 64 位");
++    assert_eq!(
++        record.node_id(),
++        "implement:1:executor:0",
++        "身份串 = 边表端点口径（不因新列漂移）"
++    );
++}
++
++/// 边界：序列化 wire 面：camelCase 四新键 `startedAt` / `endedAt` /
++/// `tokenInput` / `tokenOutput` 在案。
++#[test]
++fn run_node_record_wire面camelcase四新键在案() {
++    let value = serde_json::to_value(RunNodeRecord::new(
++        "run-wire",
++        "chg-demo",
++        0,
++        &full_metrics_entry(),
++        1,
++    ))
++    .expect("出线应成功");
++    assert_eq!(value["startedAt"], serde_json::json!(1_727_000_000_000_i64));
++    assert_eq!(value["endedAt"], serde_json::json!(1_727_000_200_000_i64));
++    assert_eq!(value["tokenInput"], serde_json::json!(12_000));
++    assert_eq!(value["tokenOutput"], serde_json::json!(3_400));
++    // timestamp 既有键语义保留
++    assert_eq!(value["timestamp"], serde_json::json!(1));
++}
++
++/// 异常：entry 载荷防御形态值（started_at 负值 / token 接近 u64::MAX）→ 直复
++/// 制不 panic 不钳制。
++#[test]
++fn run_node_record防御形态值直复制不钳制() {
++    let mut defensive = full_metrics_entry();
++    defensive.started_at = -1;
++    defensive.token_input = Some(u64::MAX);
++    defensive.token_output = Some(u64::MAX - 1);
++    let record = RunNodeRecord::new("run-def", "chg-demo", 0, &defensive, 1);
++    assert_eq!(record.started_at, -1, "负值原样（载荷面零校验零钳制）");
++    assert_eq!(record.token_input, Some(u64::MAX));
++    assert_eq!(record.token_output, Some(u64::MAX - 1));
++}
++
++/// 边界（写幂等锚一）：同一 entry 连续两次 `new` → 两产物 `PartialEq` 全等
++///（纯构造可重复调用、零副作用累积——AC-5 加列后构造面稳定性）。
++#[test]
++fn run_node_record重复构造幂等两产物全等() {
++    let entry = full_metrics_entry();
++    let first = RunNodeRecord::new("run-idem", "chg-demo", 0, &entry, 1_727_000_300_000);
++    let second = RunNodeRecord::new("run-idem", "chg-demo", 0, &entry, 1_727_000_300_000);
++    assert_eq!(first, second, "连续两次 new 逐字段全等（零副作用累积）");
++}
++
++/// 边界（写幂等锚二）：native_model 编码 → 解码 → 再编码，两次编码字节形态
++/// 一致（version=1 additive 加列不引入重编码漂移，重复落读不累积改写）。
++#[test]
++fn run_node_record编解码再编码字节形态一致() {
++    let record = RunNodeRecord::new(
++        "run-encode-idem",
++        "chg-demo",
++        2,
++        &full_metrics_entry(),
++        1_727_000_300_000,
++    );
++    let first = native_model::encode(&record).expect("首次 encode 应成功");
++    let (decoded, version) =
++        native_model::decode::<RunNodeRecord>(first.clone()).expect("decode 应成功");
++    assert_eq!(version, 1);
++    let second = native_model::encode(&decoded).expect("再 encode 应成功");
++    assert_eq!(first, second, "两次编码字节形态一致（无重编码漂移）");
++}
++
++/// 组合（AC-5 写读同字段集）：真件 Store 经 finish_change_run 单事务落库后
++/// `list_run_nodes` 读回四列逐字段一致（写读同字段集锚；读面半边见
++/// store_test.rs 节）。
++#[test]
++fn run_node_record真件落库读回四列逐字段一致() {
++    use workflow::state::{
++        ChangeStateRecord, ChangeStatus, RunFinishCommand, RunNodeEntry as Entry,
++        RunStartCommand, RunStatus,
++    };
++
++    let db_dir = tempfile::Builder::new()
++        .prefix("store-test-run-node-record-roundtrip-")
++        .tempdir()
++        .expect("创建临时目录失败");
++    let store = Store::open_workspace(&db_dir.path().join("ws.redb"))
++        .unwrap_or_else(|e| panic!("open_workspace 应成功: {e}"));
++    store
++        .create_change_record(ChangeStateRecord {
++            id: "chg-roundtrip".to_owned(),
++            name: "roundtrip".to_owned(),
++            title: "roundtrip".to_owned(),
++            workflow_type: "requirement".to_owned(),
++            created_at: 1_000,
++            status: ChangeStatus::Active,
++            archived_at: None,
++            active_phase: None,
++            worktree: None,
++            base_commit: None,
++        })
++        .expect("建档种子应成功");
++    store
++        .start_change_run(&RunStartCommand {
++            run_id: "run-roundtrip".to_owned(),
++            change_id: "chg-roundtrip".to_owned(),
++            started_at: 1_727_000_000_000,
++        })
++        .expect("发起应成功");
++
++    let command = RunFinishCommand {
++        run_id: "run-roundtrip".to_owned(),
++        change_id: "chg-roundtrip".to_owned(),
++        status: RunStatus::Completed,
++        reason: None,
++        finished_at: 1_727_000_300_000,
++        nodes: vec![
++            Entry {
++                phase: "implement".to_owned(),
++                attempt: 1,
++                step: RunStepKind::Executor,
++                instance_no: 0,
++                status: RunStepStatus::Passed,
++                session_id: Some("ses-1".to_owned()),
++                detail: Some("实现完成".to_owned()),
++                output_ref: None,
++                started_at: 1_727_000_000_000,
++                ended_at: Some(1_727_000_200_000),
++                token_input: Some(12_000),
++                token_output: Some(3_400),
++            },
++            Entry {
++                phase: "implement".to_owned(),
++                attempt: 1,
++                step: RunStepKind::StaticCheck,
++                instance_no: 0,
++                status: RunStepStatus::Passed,
++                session_id: None,
++                detail: None,
++                output_ref: None,
++                started_at: 1_727_000_200_000,
++                ended_at: None,
++                token_input: None,
++                token_output: None,
++            },
++        ],
++        edges: Vec::new(),
++    };
++    store
++        .finish_change_run(&command)
++        .expect("finish_change_run 应成功");
++
++    let rows = store
++        .list_run_nodes("run-roundtrip")
++        .expect("list_run_nodes 应成功");
++    assert_eq!(rows.len(), 2);
++    // 四列逐字段与命令载荷一致（写读同字段集——node_key 主键防重不窜行）
++    assert_eq!(rows[0].started_at, 1_727_000_000_000);
++    assert_eq!(rows[0].ended_at, Some(1_727_000_200_000));
++    assert_eq!(rows[0].token_input, Some(12_000));
++    assert_eq!(rows[0].token_output, Some(3_400));
++    assert_eq!(rows[1].started_at, 1_727_000_200_000);
++    assert_eq!(rows[1].ended_at, None, "None 列读回原样");
++    assert_eq!(rows[1].token_input, None);
++    assert_eq!(rows[1].token_output, None);
++    assert_eq!(rows[0].timestamp, 1_727_000_300_000, "整包同刻读回");
++}
+diff --git a/crates/infra/store/src/store.rs b/crates/infra/store/src/store.rs
+index 7d2318451ce2..a9aee473b607 100644
+--- a/crates/infra/store/src/store.rs
++++ b/crates/infra/store/src/store.rs
+@@ -5,11 +5,10 @@ use std::sync::{Arc, Mutex, OnceLock};
+ 
+ use agent::{
+     AgentEvent, AgentEventKind, AgentPermissionMode, SessionPage, SessionProvenance, SessionRow,
+-    SessionStats, SessionSummary, TurnSummary,
++    SessionStats, SessionSummary, TurnSummary, sum_usage_tokens,
+ };
+ use native_db::{Builder, Database, Models};
+ use serde::{Deserialize, Serialize};
+-use serde_json::Value;
+ use specta::Type;
+ 
+ use crate::canonical;
+@@ -195,21 +194,6 @@ fn sum_present(values: impl Iterator<Item = Option<u64>>) -> Option<u64> {
+     })
+ }
+ 
+-/// 转录 `TurnDone.usage` 求和
+-fn sum_usage_tokens(events: &[AgentEvent], key: &str) -> Option<u64> {
+-    let mut total: u64 = 0;
+-    let mut any = false;
+-    for event in events {
+-        if let AgentEventKind::TurnDone { usage, .. } = &event.kind {
+-            if let Some(value) = usage.get(key).and_then(Value::as_u64) {
+-                total = total.saturating_add(value);
+-                any = true;
+-            }
+-        }
+-    }
+-    any.then_some(total)
+-}
+-
+ /// 会话清单分页上限（IPC 滥用兜底，与 db 检视 `MAX_SCAN_LIMIT` 同层同理；
+ /// 前端恒传页宽 20，超上限截断）。
+ const MAX_SESSION_PAGE_LIMIT: u32 = 500;
+@@ -2054,6 +2038,10 @@ impl Store {
+                 session_id: record.session_id,
+                 detail: record.detail,
+                 output_ref: record.output_ref,
++                started_at: record.started_at,
++                ended_at: record.ended_at,
++                token_input: record.token_input,
++                token_output: record.token_output,
+                 timestamp: record.timestamp,
+             })
+             .collect())
+diff --git a/crates/infra/store/src/store_test.rs b/crates/infra/store/src/store_test.rs
+index eb9bb3780184..7eb367c5c3ef 100644
+--- a/crates/infra/store/src/store_test.rs
++++ b/crates/infra/store/src/store_test.rs
+@@ -6767,6 +6767,10 @@ fn run_node_entry(
+         session_id: None,
+         detail: None,
+         output_ref: None,
++        started_at: 1_727_000_000_000,
++        ended_at: Some(1_727_000_060_000),
++        token_input: None,
++        token_output: None,
+     }
+ }
+ 
+@@ -7958,3 +7962,382 @@ fn run域读面_节点身份键序与边后继查询同口径() {
+         .expect("后继查询应成功")
+         .is_empty());
+ }
++
++// ---------------------------------------------------------------------------
++// desktop-step-running-snapshot（AC-5 / AC-6 / AC-10）：list_run_nodes 四列
++// 透传（多行含 None 行 / 多 run 圈定 / 混合旧行 / 读幂等 / 二次收口守卫）+
++// 会话统计与 `agent::sum_usage_tokens` 同源锚（AC-10 两消费方一实现）
++// ---------------------------------------------------------------------------
++
++/// 正向：finish_change_run 落含四字段多节点整包 → 读回 `RunNodeStateRecord`
++/// 四字段逐字段等值（含 token 两值 / ended None 行原样——None 态直透半边）。
++#[test]
++fn list_run_nodes四字段逐字段透传_含none行原样() {
++    let env = Env::new("run-nodes-four-fields");
++    let store = open_workspace_ok(&env.db_path("ws"));
++    create_change_ok(&store, "flow-run", 1000);
++    store
++        .start_change_run(&run_start_cmd("run-4f", "flow-run", 2000))
++        .expect("发起应成功");
++
++    let mut worker = run_node_entry(
++        "implement",
++        1,
++        RunStepKind::Executor,
++        RunStepStatus::Passed,
++        0,
++    );
++    worker.session_id = Some("ses-exec-1".to_owned());
++    worker.started_at = 1_727_000_000_000;
++    worker.ended_at = Some(1_727_000_200_000);
++    worker.token_input = Some(12_000);
++    worker.token_output = Some(3_400);
++    let mut tool = run_node_entry(
++        "implement",
++        1,
++        RunStepKind::StaticCheck,
++        RunStepStatus::Passed,
++        0,
++    );
++    tool.started_at = 1_727_000_200_000;
++    tool.ended_at = None;
++    tool.token_input = None;
++    tool.token_output = None;
++    store
++        .finish_change_run(&run_finish_cmd(
++            "run-4f",
++            "flow-run",
++            RunStatus::Completed,
++            None,
++            1_727_000_300_000,
++            vec![worker, tool],
++            Vec::new(),
++        ))
++        .expect("收口应成功");
++
++    let rows = store.list_run_nodes("run-4f").expect("节点读应成功");
++    assert_eq!(rows.len(), 2, "多节点整包逐行读回");
++    // 行一：四字段全值逐字段等值
++    assert_eq!(rows[0].started_at, 1_727_000_000_000);
++    assert_eq!(rows[0].ended_at, Some(1_727_000_200_000));
++    assert_eq!(rows[0].token_input, Some(12_000));
++    assert_eq!(rows[0].token_output, Some(3_400));
++    assert_eq!(rows[0].session_id.as_deref(), Some("ses-exec-1"));
++    // 行二：token 两值 / ended None → None 原样（零补值零默认）
++    assert_eq!(rows[1].started_at, 1_727_000_200_000);
++    assert_eq!(rows[1].ended_at, None);
++    assert_eq!(rows[1].token_input, None);
++    assert_eq!(rows[1].token_output, None);
++}
++
++/// 正向：多 run 并存各携节点 → 按 run_id 圈定 + node_seq 升序（emit 序口径
++/// 不因新列漂移）。
++#[test]
++fn list_run_nodes多run并存按run圈定node_seq升序() {
++    let env = Env::new("run-nodes-multi-run");
++    let store = open_workspace_ok(&env.db_path("ws"));
++    create_change_ok(&store, "flow-run", 1000);
++    for run_id in ["run-a", "run-b"] {
++        store
++            .start_change_run(&run_start_cmd(run_id, "flow-run", 2000))
++            .expect("发起应成功");
++        let executor = run_node_entry(
++            "implement",
++            1,
++            RunStepKind::Executor,
++            RunStepStatus::Passed,
++            0,
++        );
++        let mut evaluator = run_node_entry(
++            "implement",
++            1,
++            RunStepKind::Evaluator,
++            RunStepStatus::Passed,
++            0,
++        );
++        evaluator.token_input = Some(7);
++        store
++            .finish_change_run(&run_finish_cmd(
++                run_id,
++                "flow-run",
++                RunStatus::Completed,
++                None,
++                3_000,
++                vec![executor, evaluator],
++                Vec::new(),
++            ))
++            .expect("收口应成功");
++    }
++
++    let rows_a = store.list_run_nodes("run-a").expect("run-a 读应成功");
++    let rows_b = store.list_run_nodes("run-b").expect("run-b 读应成功");
++    assert_eq!(rows_a.len(), 2);
++    assert_eq!(rows_b.len(), 2);
++    // 圈定：互不串台
++    assert!(rows_a.iter().all(|row| row.run_id == "run-a"));
++    assert!(rows_b.iter().all(|row| row.run_id == "run-b"));
++    // node_seq 升序 = emit 序（executor 先、evaluator 后）
++    for rows in [&rows_a, &rows_b] {
++        assert_eq!(
++            rows.iter().map(|row| row.step).collect::<Vec<_>>(),
++            vec![RunStepKind::Executor, RunStepKind::Evaluator],
++            "node_seq 升序（emit 序口径持衡）"
++        );
++    }
++    assert_eq!(rows_a[1].token_input, Some(7), "各 run 字段独立不串台");
++    assert_eq!(rows_b[1].token_input, Some(7));
++}
++
++/// 异常：旧行（缺省 0 / None 形态裸表直写注入——升级前存量行同形）与新行
++/// 混存同 run → 混合解码各自形态（旧行缺省 0 / None、新行原值）零报错。
++#[test]
++fn list_run_nodes旧行新行混存同run混合解码各自形态零报错() {
++    let env = Env::new("run-nodes-mixed-legacy");
++    let db_path = env.db_path("ws");
++    let store = open_workspace_ok(&db_path);
++    create_change_ok(&store, "flow-run", 1000);
++    store
++        .start_change_run(&run_start_cmd("run-mixed", "flow-run", 2000))
++        .expect("发起应成功");
++    let fresh = run_node_entry(
++        "implement",
++        1,
++        RunStepKind::Executor,
++        RunStepStatus::Passed,
++        0,
++    );
++    store
++        .finish_change_run(&run_finish_cmd(
++            "run-mixed",
++            "flow-run",
++            RunStatus::Completed,
++            None,
++            1_727_000_300_000,
++            vec![fresh],
++            Vec::new(),
++        ))
++        .expect("收口应成功");
++    drop(store); // 归还文件锁（裸 redb 直写前置）
++
++    // 旧行直写：legacy 形态 = 步级时间 / token 全缺省（升级前存量行值面）——
++    // native_model 编码后裸入 16_1_node_key 物表（node_key u128 be 字节键）
++    let legacy_key = crate::model::pack_run_seq_key("run-mixed", 9);
++    let legacy = crate::model::RunNodeRecord {
++        node_key: legacy_key,
++        run_id: "run-mixed".to_owned(),
++        change_id: "flow-run".to_owned(),
++        phase: "implement".to_owned(),
++        attempt: 1,
++        step: RunStepKind::StaticCheck,
++        instance_no: 0,
++        status: RunStepStatus::Passed,
++        session_id: None,
++        detail: None,
++        output_ref: None,
++        started_at: 0,
++        ended_at: None,
++        token_input: None,
++        token_output: None,
++        timestamp: 1_727_000_300_000,
++    };
++    let payload = native_model::encode(&legacy).expect("编码旧行失败");
++    {
++        let db = redb::Database::open(&db_path).expect("裸开 db 注入旧行应成功");
++        let rw = db.begin_write().expect("开启注入写事务失败");
++        {
++            let table_name = native_db_table_name(
++                <crate::model::RunNodeRecord as native_model::Model>::native_model_id(),
++                <crate::model::RunNodeRecord as native_model::Model>::native_model_version(),
++                "node_key",
++            );
++            let table: redb::TableDefinition<RawNativeDbKey, &[u8]> =
++                redb::TableDefinition::new(&table_name);
++            let mut rows = rw.open_table(table).expect("打开 run 节点物表应成功");
++            rows.insert(RawNativeDbKey(legacy_key.to_be_bytes().to_vec()), payload.as_slice())
++                .expect("注入旧行应成功");
++        }
++        rw.commit().expect("提交注入事务失败");
++    }
++
++    let store = open_workspace_ok(&db_path);
++    let rows = store.list_run_nodes("run-mixed").expect("混合读应成功");
++    assert_eq!(rows.len(), 2, "新行 + 注入旧行混合解码零报错");
++    // 旧行（node_seq 9 → 尾行）：缺省 0 / None 原样出线
++    let legacy_row = rows
++        .iter()
++        .find(|row| row.step == RunStepKind::StaticCheck)
++        .expect("旧行在案");
++    assert_eq!(legacy_row.started_at, 0, "旧行缺省 0（步级时间缺席语义）");
++    assert_eq!(legacy_row.ended_at, None);
++    assert_eq!(legacy_row.token_input, None);
++    assert_eq!(legacy_row.token_output, None);
++    // 新行：原值出线
++    let fresh_row = rows
++        .iter()
++        .find(|row| row.step == RunStepKind::Executor)
++        .expect("新行在案");
++    assert_eq!(fresh_row.started_at, 1_727_000_000_000);
++    assert_eq!(fresh_row.ended_at, Some(1_727_000_060_000));
++}
++
++/// 边界（读幂等）：落库后连续两次 `list_run_nodes` → 两次返回逐字段全等
++///（读面纯投影、重复调用零漂移零累积）。
++#[test]
++fn list_run_nodes读幂等_两次读全等() {
++    let env = Env::new("run-nodes-read-idempotent");
++    let store = open_workspace_ok(&env.db_path("ws"));
++    create_change_ok(&store, "flow-run", 1000);
++    store
++        .start_change_run(&run_start_cmd("run-idem", "flow-run", 2000))
++        .expect("发起应成功");
++    let mut worker = run_node_entry(
++        "implement",
++        1,
++        RunStepKind::Executor,
++        RunStepStatus::Passed,
++        0,
++    );
++    worker.token_input = Some(1);
++    store
++        .finish_change_run(&run_finish_cmd(
++            "run-idem",
++            "flow-run",
++            RunStatus::Completed,
++            None,
++            3_000,
++            vec![worker],
++            Vec::new(),
++        ))
++        .expect("收口应成功");
++
++    let first = store.list_run_nodes("run-idem").expect("首次读应成功");
++    let second = store.list_run_nodes("run-idem").expect("二次读应成功");
++    assert_eq!(first, second, "两次读逐字段全等（零漂移零累积）");
++}
++
++/// 异常（写幂等守卫，AC-5 单事务半边）：同一 RunFinishCommand 收口成功后二次
++/// `finish_change_run` → `StoreError::Conflict`（run 已终态拒重复收口）、
++/// `list_run_nodes` 行集不变（node_key 主键防重——无副作用累积）。
++#[test]
++fn finish_change_run二次收口conflict且行集不变() {
++    let env = Env::new("run-finish-twice");
++    let store = open_workspace_ok(&env.db_path("ws"));
++    create_change_ok(&store, "flow-run", 1000);
++    store
++        .start_change_run(&run_start_cmd("run-twice", "flow-run", 2000))
++        .expect("发起应成功");
++    let command = run_finish_cmd(
++        "run-twice",
++        "flow-run",
++        RunStatus::Completed,
++        None,
++        1_727_000_300_000,
++        vec![run_node_entry(
++            "implement",
++            1,
++            RunStepKind::Executor,
++            RunStepStatus::Passed,
++            0,
++        )],
++        Vec::new(),
++    );
++    store.finish_change_run(&command).expect("首次收口应成功");
++    let rows_after_first = store.list_run_nodes("run-twice").expect("读应成功");
++
++    let err = store
++        .finish_change_run(&command)
++        .expect_err("二次收口应 Err");
++    assert!(
++        matches!(err, StoreError::Conflict(_)),
++        "run 已终态拒重复收口 → Conflict，实际: {err:?}"
++    );
++    assert_eq!(
++        store.list_run_nodes("run-twice").expect("复读应成功"),
++        rows_after_first,
++        "二次收口被拒后行集不变（node_key 主键防重、零副作用累积）"
++    );
++}
++
++/// 组合（AC-10 同源锚）：经 store 既有会话 / 轮 / 事件操作面植入含
++/// TurnDone.usage 转录的会话 → 会话清单与单查统计（SessionStats.input /
++/// output_tokens）输出与 `agent::sum_usage_tokens` 同源逐字段一致——store 改
++/// 引 `agent::sum_usage_tokens` 后聚合行为零变化（两消费方一实现）。
++#[test]
++fn 会话统计输出与sum_usage_tokens同源_两消费方一实现() {
++    let env = Env::new("session-stats-same-source");
++    let store = open_workspace_ok(&env.db_path("ws"));
++    seed_session(&store, "ses-same-source");
++    let events = [
++        stamped(0, run_started_kind()),
++        stamped(1, message_kind(AgentMessageRole::User)),
++        // usage 定值：in 100 + 30 = 130、out 20 + 0 = 20（0 为在场值，非缺席）
++        stamped(2, AgentEventKind::TurnDone {
++            subtype: "success".to_owned(),
++            is_error: false,
++            num_turns: Some(1),
++            duration_ms: Some(1_000),
++            cost_usd: None,
++            usage: serde_json::json!({ "input_tokens": 100, "output_tokens": 20 }),
++            session_id: None,
++        }),
++        stamped(3, AgentEventKind::TurnDone {
++            subtype: "success".to_owned(),
++            is_error: false,
++            num_turns: Some(1),
++            duration_ms: Some(2_000),
++            cost_usd: None,
++            usage: serde_json::json!({ "input_tokens": 30, "output_tokens": 0 }),
++            session_id: None,
++        }),
++    ];
++    store
++        .append_session_events("ses-same-source", &events)
++        .expect("append 应成功");
++    let turn = store
++        .begin_agent_turn("ses-same-source", 1727000000000)
++        .expect("begin 应成功");
++    store
++        .finish_agent_turn(
++            turn.id,
++            &finish_shell(
++                turn.id,
++                AgentRunStatus::Completed,
++                Some(1727000004000),
++                Some(2),
++                Some(3000),
++                None,
++            ),
++        )
++        .expect("finish 应成功");
++
++    // 转录读回（库读面 = 统计现算输入面）
++    let transcript = store
++        .list_session_events("ses-same-source")
++        .expect("读转录应成功");
++    let listed = store
++        .list_sessions(None, None)
++        .expect("清单应成功")
++        .into_iter()
++        .find(|summary| summary.row.id == "ses-same-source")
++        .expect("清单面在场");
++    let found = store
++        .find_session_summary("ses-same-source")
++        .expect("单查应成功")
++        .expect("在场");
++
++    for stats in [listed.stats, found.stats] {
++        assert_eq!(
++            stats.input_tokens,
++            agent::sum_usage_tokens(&transcript, "input_tokens"),
++            "会话统计 input_tokens 与 sum_usage_tokens 同源"
++        );
++        assert_eq!(
++            stats.output_tokens,
++            agent::sum_usage_tokens(&transcript, "output_tokens"),
++            "会话统计 output_tokens 与 sum_usage_tokens 同源"
++        );
++        // 定值锚：in 130 / out 20（0 计入——as_u64 在场值）
++        assert_eq!(stats.input_tokens, Some(130));
++        assert_eq!(stats.output_tokens, Some(20));
++    }
++}
+diff --git a/src/commands/change_flow/mod_test.rs b/src/commands/change_flow/mod_test.rs
+index daad4d24ca72..b925c50d1c78 100644
+--- a/src/commands/change_flow/mod_test.rs
++++ b/src/commands/change_flow/mod_test.rs
+@@ -1509,6 +1509,10 @@ fn channel面五kind通知各自一拍且零载荷键() {
+             session_id: None,
+             detail: None,
+             output_ref: None,
++            started_at: STARTED_AT,
++            ended_at: None,
++            token_input: None,
++            token_output: None,
+         },
+     });
+     guard.emit(super::RunUpdate::Edge {
+diff --git a/src/commands/changes/mod_test.rs b/src/commands/changes/mod_test.rs
+index c34b6c92bbaf..1ae8133caf3f 100644
+--- a/src/commands/changes/mod_test.rs
++++ b/src/commands/changes/mod_test.rs
+@@ -1279,6 +1279,10 @@ fn 统一查询装配_runs全史与active_run活面与终态退场() {
+                         session_id: None,
+                         detail: None,
+                         output_ref: None,
++                        started_at: 1_727_000_000_000,
++                        ended_at: Some(1_727_000_060_000),
++                        token_input: None,
++                        token_output: None,
+                     },
+                     RunNodeEntry {
+                         phase: "proposal".to_owned(),
+@@ -1289,6 +1293,10 @@ fn 统一查询装配_runs全史与active_run活面与终态退场() {
+                         session_id: Some("ses-1".to_owned()),
+                         detail: None,
+                         output_ref: None,
++                        started_at: 1_727_000_000_000,
++                        ended_at: Some(1_727_000_060_000),
++                        token_input: None,
++                        token_output: None,
+                     },
+                 ],
+                 edges: vec![RunEdgeEntry {
+@@ -1385,6 +1393,10 @@ fn 统一查询装配_runs全史与active_run活面与终态退场() {
+                 session_id: None,
+                 detail: None,
+                 output_ref: None,
++                started_at: 1_727_000_000_000,
++                ended_at: None,
++                token_input: None,
++                token_output: None,
+             },
+         });
+     }
+@@ -1593,6 +1605,10 @@ fn 统一查询装配_运行中run多边活面() {
+                 session_id: None,
+                 detail: None,
+                 output_ref: None,
++                started_at: 1_727_000_100_000,
++                ended_at: None,
++                token_input: None,
++                token_output: None,
+             },
+         });
+     }
+@@ -1780,6 +1796,10 @@ fn 统一查询装配_waitingconfirm停等形态() {
+             session_id: Some("ses-eval".to_owned()),
+             detail: None,
+             output_ref: None,
++            started_at,
++            ended_at: Some(started_at + 5_000),
++            token_input: None,
++            token_output: None,
+         },
+     });
+     guard.emit(RunUpdate::ConfirmWait {

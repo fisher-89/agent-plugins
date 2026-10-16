@@ -107,12 +107,16 @@
         {
           "attempt": 1,
           "detail": null,
+          "endedAt": 1727000061000,
           "instanceNo": 0,
           "outputRef": null,
           "phase": "proposal",
           "sessionId": "ses-arch-exec",
+          "startedAt": 1727000060000,
           "status": "passed",
-          "step": "executor"
+          "step": "executor",
+          "tokenInput": null,
+          "tokenOutput": null
         }
       ],
       "reason": "All phases have passed evaluation. Ready for archiving.",
@@ -178,112 +182,156 @@
         {
           "attempt": 1,
           "detail": null,
+          "endedAt": 1727000061000,
           "instanceNo": 0,
           "outputRef": null,
           "phase": "archive",
           "sessionId": null,
+          "startedAt": 1727000060000,
           "status": "passed",
-          "step": "phase_start"
+          "step": "phase_start",
+          "tokenInput": null,
+          "tokenOutput": null
         },
         {
           "attempt": 1,
           "detail": "前置只读校验：8 相位已过 / 无缺产物",
+          "endedAt": 1727000061000,
           "instanceNo": 0,
           "outputRef": null,
           "phase": "archive",
           "sessionId": null,
+          "startedAt": 1727000060000,
           "status": "passed",
-          "step": "preflight"
+          "step": "preflight",
+          "tokenInput": null,
+          "tokenOutput": null
         },
         {
           "attempt": 1,
           "detail": "worktree 干净，无待提交变更（跳过）",
+          "endedAt": 1727000061000,
           "instanceNo": 0,
           "outputRef": null,
           "phase": "archive",
           "sessionId": null,
+          "startedAt": 1727000060000,
           "status": "passed",
-          "step": "commit"
+          "step": "commit",
+          "tokenInput": null,
+          "tokenOutput": null
         },
         {
           "attempt": 1,
           "detail": "已重放至主仓当前分支，无冲突",
+          "endedAt": 1727000061000,
           "instanceNo": 0,
           "outputRef": null,
           "phase": "archive",
           "sessionId": null,
+          "startedAt": 1727000060000,
           "status": "passed",
-          "step": "rebase"
+          "step": "rebase",
+          "tokenInput": null,
+          "tokenOutput": null
         },
         {
           "attempt": 1,
           "detail": "无冲突，无需解算（跳过）",
+          "endedAt": 1727000061000,
           "instanceNo": 0,
           "outputRef": null,
           "phase": "archive",
           "sessionId": "ses-arch-resolve",
+          "startedAt": 1727000060000,
           "status": "passed",
-          "step": "resolve_conflicts"
+          "step": "resolve_conflicts",
+          "tokenInput": null,
+          "tokenOutput": null
         },
         {
           "attempt": 1,
           "detail": "主仓 ff-only 快进完成",
+          "endedAt": 1727000061000,
           "instanceNo": 0,
           "outputRef": null,
           "phase": "archive",
           "sessionId": null,
+          "startedAt": 1727000060000,
           "status": "passed",
-          "step": "merge"
+          "step": "merge",
+          "tokenInput": null,
+          "tokenOutput": null
         },
         {
           "attempt": 1,
           "detail": "delta specs 已同步",
+          "endedAt": 1727000061000,
           "instanceNo": 0,
           "outputRef": null,
           "phase": "archive",
           "sessionId": "ses-arch-spec-sync",
+          "startedAt": 1727000060000,
           "status": "passed",
-          "step": "spec_sync"
+          "step": "spec_sync",
+          "tokenInput": null,
+          "tokenOutput": null
         },
         {
           "attempt": 1,
           "detail": "已移除 worktree（<WORKTREE_ROOT>/seeded-archived）",
+          "endedAt": 1727000061000,
           "instanceNo": 0,
           "outputRef": null,
           "phase": "archive",
           "sessionId": null,
+          "startedAt": 1727000060000,
           "status": "passed",
-          "step": "cleanup"
+          "step": "cleanup",
+          "tokenInput": null,
+          "tokenOutput": null
         },
         {
           "attempt": 1,
           "detail": "双写收口：目录改名 + status 翻转",
+          "endedAt": 1727000061000,
           "instanceNo": 0,
           "outputRef": null,
           "phase": "archive",
           "sessionId": null,
+          "startedAt": 1727000060000,
           "status": "passed",
-          "step": "seal"
+          "step": "seal",
+          "tokenInput": null,
+          "tokenOutput": null
         },
         {
           "attempt": 1,
           "detail": "归档产物已落盘，无待提交路径（跳过）",
+          "endedAt": 1727000061000,
           "instanceNo": 0,
           "outputRef": null,
           "phase": "archive",
           "sessionId": null,
+          "startedAt": 1727000060000,
           "status": "passed",
-          "step": "finalize"
+          "step": "finalize",
+          "tokenInput": null,
+          "tokenOutput": null
         },
         {
           "attempt": 1,
           "detail": "空 checklist 落账 verdict=pass",
+          "endedAt": 1727000061000,
           "instanceNo": 0,
           "outputRef": null,
           "phase": "archive",
           "sessionId": null,
+          "startedAt": 1727000060000,
           "status": "passed",
-          "step": "phase_log"
+          "step": "phase_log",
+          "tokenInput": null,
+          "tokenOutput": null
         }
       ],
       "reason": "archive phase landed an empty checklist verdict=pass",

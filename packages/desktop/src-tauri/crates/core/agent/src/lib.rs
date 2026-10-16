@@ -4,6 +4,7 @@ mod port;
 mod runner;
 mod session;
 mod state;
+mod usage;
 
 pub use event::{AgentBlock, AgentDelta, AgentEvent, AgentEventKind, AgentMessageRole};
 pub use kernel::{KernelOutput, RunningTurn, SessionKernel, StopRegistry, TurnRequest};
@@ -17,6 +18,7 @@ pub use session::{
     SessionSummary, TurnSummary,
 };
 pub use state::{AgentRunState, RunStateMachine};
+pub use usage::sum_usage_tokens;
 
 #[cfg(test)]
 mod event_test;
@@ -32,3 +34,5 @@ mod runner_test;
 mod session_test;
 #[cfg(test)]
 mod state_test;
+#[cfg(test)]
+mod usage_test;

@@ -625,6 +625,10 @@ fn run_node_entry(step: RunStepKind, instance_no: u32) -> RunNodeEntry {
         session_id: Some("ses-1".to_owned()),
         detail: None,
         output_ref: Some("exec-1".to_owned()),
+        started_at: 1_727_000_000_000,
+        ended_at: Some(1_727_000_060_000),
+        token_input: None,
+        token_output: None,
     }
 }
 

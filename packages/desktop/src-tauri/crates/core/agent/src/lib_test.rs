@@ -192,3 +192,67 @@ fn crate根trait导出可实现且退役协议类型不再出现在根面() {
     fn assert_sink<S: SessionSink>(_: &S) {}
     assert_sink(&NoopSink);
 }
+
+// ---------------------------------------------------------------------------
+// desktop-step-running-snapshot（D3 / AC-10）：`pub use usage::sum_usage_tokens`
+// 根面锚——唯一实现的根路径可达（AC-10 唯一实现锚的根面半边；语义全量归
+// usage_test.rs 节）
+// ---------------------------------------------------------------------------
+
+/// 经根路径 `crate::sum_usage_tokens` 持有并调用 → 编译可达即锚；函数项签名
+/// 形态 = `fn(&[AgentEvent], &str) -> Option<u64>`（D3 声明）。
+#[test]
+fn crate根路径sum_usage_tokens可达与签名锚定() {
+    // 根路径 re-export 持有（签名形态断言——持有根路径函数项）
+    let root_fn: fn(&[AgentEvent], &str) -> Option<u64> = crate::sum_usage_tokens;
+    // 与 usage 模块路径同一实现（同一 fn item——函数项指针等值）
+    let module_fn: fn(&[AgentEvent], &str) -> Option<u64> = crate::usage::sum_usage_tokens;
+    assert_eq!(
+        root_fn as usize, module_fn as usize,
+        "根路径与 usage 模块路径为同一实现（re-export 零包装）"
+    );
+
+    // 行为面轻量锚：空转录 → None
+    assert_eq!(root_fn(&[], "input_tokens"), None);
+
+    // 单值转录：根路径调用语义与 usage_test 全量面同源
+    let events = vec![AgentEvent::stamp(
+        0,
+        AgentEventKind::TurnDone {
+            subtype: String::new(),
+            is_error: false,
+            num_turns: None,
+            duration_ms: None,
+            cost_usd: None,
+            usage: serde_json::json!({ "input_tokens": 7 }),
+            session_id: None,
+        },
+    )];
+    assert_eq!(root_fn(&events, "input_tokens"), Some(7));
+}
+
+/// 缺席 key（`""` / 未知键）经根路径调用 → None；同一转录重复调用两次结果
+/// 一致（re-export 零状态零副作用——防御锚）。
+#[test]
+fn crate根路径sum_usage_tokens缺席key与重复调用稳定() {
+    let root_fn: fn(&[AgentEvent], &str) -> Option<u64> = crate::sum_usage_tokens;
+    let events = vec![AgentEvent::stamp(
+        0,
+        AgentEventKind::TurnDone {
+            subtype: String::new(),
+            is_error: false,
+            num_turns: None,
+            duration_ms: None,
+            cost_usd: None,
+            usage: serde_json::json!({ "input_tokens": 7 }),
+            session_id: None,
+        },
+    )];
+    assert_eq!(root_fn(&events, ""), None, "空串 key 缺席 → None");
+    assert_eq!(root_fn(&events, "total_tokens"), None, "未知键缺席 → None");
+    assert_eq!(
+        root_fn(&events, "input_tokens"),
+        root_fn(&events, "input_tokens"),
+        "重复调用结果一致（零状态零副作用）"
+    );
+}

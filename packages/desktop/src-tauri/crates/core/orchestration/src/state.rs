@@ -145,6 +145,18 @@ pub struct ChangeStepState {
     pub detail: Option<String>,
     /// 全量输出引用（`ExecOutput::Recorded { exec_id }`；Transient 恒 None）
     pub output_ref: Option<String>,
+    /// 步开始时刻（UTC unix 毫秒，与域内 `now_millis()` 同源口径）——running
+    /// emit 铸造；`accumulate_node` 合并无条件保首见（终态 emit 携带的同刻值
+    /// 被丢弃，瞬步单 emit 首见即真值）
+    pub started_at: i64,
+    /// 步收口时刻（UTC unix 毫秒；running 恒 None，崩溃残留步终态 emit 未达
+    /// 恒 None）——终态 emit 铸造；`accumulate_node` 合并 some 才覆写
+    pub ended_at: Option<i64>,
+    /// 本步 turn token 增量（`TurnDone.usage` 求和；仅 WorkerAgent 步终态有值，
+    /// 缺席合法缺省）；`accumulate_node` 合并 some 才覆写
+    pub token_input: Option<u64>,
+    /// 本步 turn token 增量（输出向；口径同 [`ChangeStepState::token_input`]）
+    pub token_output: Option<u64>,
 }
 
 /// 执行图节点身份键：`(phase, attempt, step, instance_no)`。

@@ -73,6 +73,12 @@ pub struct PhaseEntry {
 /// run 执行图节点行线面（二十值全词汇封闭集直出，词汇 = `state::RunStepKind`
 /// 单点；稳定身份键 `(phase, attempt, step, instanceNo)`，库读序 = node_seq 升序
 /// = emit 序）。
+///
+/// 时间出线两口径并存为有意裁定（desktop-step-running-snapshot D6）：节点级
+/// `startedAt` / `endedAt` / token 四字段为**毫秒数**（与活面 `ChangeStepState`
+/// 同形——统一视图单一形状、走秒直减零 parse）；runs 级 `ChangeRunEntry.startedAt`
+/// / `finishedAt` 仍为 ISO 串（聚合时刻口径）。纯 derive 零字段属性——旧库行
+/// `0` / `null` 原样出线，查询层零改写零回填。
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct ChangeRunNodeRecord {
@@ -86,6 +92,14 @@ pub struct ChangeRunNodeRecord {
     pub detail: Option<String>,
     /// 全量输出引用（`ExecOutput::Recorded { exec_id }`；无记录恒 null）
     pub output_ref: Option<String>,
+    /// 步开始时刻（UTC unix 毫秒；旧库行 0 = 步级时间缺席）
+    pub started_at: i64,
+    /// 步收口时刻（UTC unix 毫秒；running 收口在途步 null）
+    pub ended_at: Option<i64>,
+    /// 本步 turn token 增量（仅 WorkerAgent 步终态有值；缺席合法缺省）
+    pub token_input: Option<u64>,
+    /// 本步 turn token 增量（输出向；口径同 `tokenInput`）
+    pub token_output: Option<u64>,
 }
 
 /// run 执行图边行线面（四 kind 封闭集直出；端点 = 节点身份串）。
@@ -138,6 +152,10 @@ impl From<&RunNodeStateRecord> for ChangeRunNodeRecord {
             session_id: record.session_id.clone(),
             detail: record.detail.clone(),
             output_ref: record.output_ref.clone(),
+            started_at: record.started_at,
+            ended_at: record.ended_at,
+            token_input: record.token_input,
+            token_output: record.token_output,
         }
     }
 }

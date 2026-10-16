@@ -42,6 +42,10 @@ fn sample_step() -> ChangeStepState {
         session_id: Some("sess-1".to_owned()),
         detail: None,
         output_ref: None,
+        started_at: STARTED_AT,
+        ended_at: None,
+        token_input: None,
+        token_output: None,
     }
 }
 
@@ -764,6 +768,10 @@ async fn publish_step快照面按到达序追加_广播run_notice_step() {
         session_id: None,
         detail: None,
         output_ref: None,
+        started_at: STARTED_AT,
+        ended_at: None,
+        token_input: None,
+        token_output: None,
     };
     guard.emit(RunUpdate::Step {
         step: first.clone(),
@@ -777,6 +785,10 @@ async fn publish_step快照面按到达序追加_广播run_notice_step() {
         session_id: None,
         detail: Some("静态检查通过".to_owned()),
         output_ref: None,
+        started_at: STARTED_AT,
+        ended_at: Some(STARTED_AT + 2_000),
+        token_input: None,
+        token_output: None,
     };
     guard.emit(RunUpdate::Step {
         step: second.clone(),
@@ -956,6 +968,10 @@ async fn snapshot_steps克隆语义_取后emit互不扰动() {
         session_id: Some("sess-2".to_owned()),
         detail: None,
         output_ref: None,
+        started_at: STARTED_AT,
+        ended_at: Some(STARTED_AT + 1_000),
+        token_input: None,
+        token_output: None,
     };
     guard.emit(RunUpdate::Step { step: late.clone() });
 
@@ -994,6 +1010,10 @@ async fn run_guard读面与快照等值() {
         session_id: None,
         detail: Some("诊断".to_owned()),
         output_ref: None,
+        started_at: STARTED_AT,
+        ended_at: Some(STARTED_AT + 1_000),
+        token_input: None,
+        token_output: None,
     };
     guard.emit(RunUpdate::Step { step: late });
 
@@ -1166,7 +1186,10 @@ async fn confirm异常面miss记因与取消收敛() {
     let err = control
         .confirm(ROOT, CHANGE_ID, true, true)
         .expect_err("无 run 应 Err");
-    assert!(err.contains(CHANGE_ID) && err.contains("无运行中的 run"), "{err}");
+    assert!(
+        err.contains(CHANGE_ID) && err.contains("无运行中的 run"),
+        "{err}"
+    );
 
     // 有 run 无等待方 → Err（单次通道语义）
     let run_control = Arc::new(ChangeFlowControl::new());
@@ -1259,4 +1282,453 @@ async fn 归档停等广播零载荷kind_only() {
         serde_json::json!({"ipc": "confirmWait"}),
         "通知单键零载荷（archive 载荷不出进程）"
     );
+}
+
+// ---------------------------------------------------------------------------
+// desktop-step-running-snapshot（D4 / AC-4）：accumulate_node 合并单点（经
+// begin_run → guard.emit → snapshot 真件读面承载）——`started_at` 无条件保
+// 首见、`ended_at` / token some 才覆写、None 臂首见落值；同键多 emit 快照与
+// 合并规则一致。零 mock——双 emit 序列 `ChangeStepState` 字面量直构。
+// ---------------------------------------------------------------------------
+
+/// 同键步状态行 fixture（稳定身份键 = (phase, attempt, step, instance_no)；
+/// 四字段逐参显式注入——running / 终态两态共用构造器）。
+#[allow(clippy::too_many_arguments)]
+fn metrics_step(
+    phase: &str,
+    attempt: u32,
+    step: ChangeStepKind,
+    instance_no: u32,
+    status: ChangeStepStatus,
+    started_at: i64,
+    ended_at: Option<i64>,
+    token_input: Option<u64>,
+    token_output: Option<u64>,
+) -> ChangeStepState {
+    ChangeStepState {
+        phase: phase.to_owned(),
+        attempt,
+        step,
+        instance_no,
+        status,
+        session_id: None,
+        detail: None,
+        output_ref: None,
+        started_at,
+        ended_at,
+        token_input,
+        token_output,
+    }
+}
+
+/// 正向：同键 running → 终态双 emit（终态行携相异 started 值）→ snapshot 节点
+/// started = running 首见值（终态同刻值被丢弃，AC-2 / AC-4）。
+#[tokio::test]
+async fn accumulate_node_started保首见终态同刻值被丢弃() {
+    let control = Arc::new(ChangeFlowControl::new());
+    let guard = control
+        .begin_run(ROOT, CHANGE_ID, "run-1".to_owned(), STARTED_AT)
+        .unwrap();
+    guard.emit(RunUpdate::Step {
+        step: metrics_step(
+            "implement",
+            2,
+            ChangeStepKind::Executor,
+            0,
+            ChangeStepStatus::Running,
+            STARTED_AT,
+            None,
+            None,
+            None,
+        ),
+    });
+    guard.emit(RunUpdate::Step {
+        step: metrics_step(
+            "implement",
+            2,
+            ChangeStepKind::Executor,
+            0,
+            ChangeStepStatus::Passed,
+            STARTED_AT + 9_999,
+            Some(STARTED_AT + 10_000),
+            Some(1_200),
+            Some(300),
+        ),
+    });
+    let snap = control.snapshot(ROOT, CHANGE_ID).unwrap();
+    assert_eq!(snap.nodes.len(), 1, "同键就地合并不追加");
+    assert_eq!(
+        snap.nodes[0].started_at, STARTED_AT,
+        "started = running 首见值（终态行相异 started 值被丢弃）"
+    );
+}
+
+/// 正向：双 emit 后 snapshot——ended_at / token 两值 = 终态行值（some 才覆写
+/// 正向半边）。
+#[tokio::test]
+async fn accumulate_node_ended与token终态行值覆写() {
+    let control = Arc::new(ChangeFlowControl::new());
+    let guard = control
+        .begin_run(ROOT, CHANGE_ID, "run-1".to_owned(), STARTED_AT)
+        .unwrap();
+    guard.emit(RunUpdate::Step {
+        step: metrics_step(
+            "implement",
+            2,
+            ChangeStepKind::Executor,
+            0,
+            ChangeStepStatus::Running,
+            STARTED_AT,
+            None,
+            None,
+            None,
+        ),
+    });
+    guard.emit(RunUpdate::Step {
+        step: metrics_step(
+            "implement",
+            2,
+            ChangeStepKind::Executor,
+            0,
+            ChangeStepStatus::Passed,
+            STARTED_AT,
+            Some(STARTED_AT + 5_000),
+            Some(12_000),
+            Some(3_400),
+        ),
+    });
+    let snap = control.snapshot(ROOT, CHANGE_ID).unwrap();
+    assert_eq!(snap.nodes[0].ended_at, Some(STARTED_AT + 5_000));
+    assert_eq!(snap.nodes[0].token_input, Some(12_000));
+    assert_eq!(snap.nodes[0].token_output, Some(3_400));
+    assert_eq!(snap.nodes[0].status, ChangeStepStatus::Passed);
+}
+
+/// 正向：瞬步单 emit（首见即终态行）→ 节点 started == ended 自然成立（无需
+/// 区分首 emit 是否终态，D4）。
+#[tokio::test]
+async fn accumulate_node_瞬步单emit首见即真值() {
+    let control = Arc::new(ChangeFlowControl::new());
+    let guard = control
+        .begin_run(ROOT, CHANGE_ID, "run-1".to_owned(), STARTED_AT)
+        .unwrap();
+    guard.emit(RunUpdate::Step {
+        step: metrics_step(
+            "implement",
+            2,
+            ChangeStepKind::PhaseStart,
+            0,
+            ChangeStepStatus::Passed,
+            STARTED_AT,
+            Some(STARTED_AT),
+            None,
+            None,
+        ),
+    });
+    let snap = control.snapshot(ROOT, CHANGE_ID).unwrap();
+    assert_eq!(snap.nodes.len(), 1);
+    assert_eq!(snap.nodes[0].started_at, STARTED_AT);
+    assert_eq!(snap.nodes[0].ended_at, Some(STARTED_AT), "瞬步同刻自然成立");
+}
+
+/// 正向：多键混排（phase / attempt / step / instanceNo 各异）→ 各键独立合并
+/// 不串扰。
+#[tokio::test]
+async fn accumulate_node_多键混排独立合并不串扰() {
+    let control = Arc::new(ChangeFlowControl::new());
+    let guard = control
+        .begin_run(ROOT, CHANGE_ID, "run-1".to_owned(), STARTED_AT)
+        .unwrap();
+    // 键甲（implement:1:executor:0）running → 终态；键乙（instance_no=1）
+    // running；键丙（test-gen:1:phaseStart:0）终态单 emit
+    guard.emit(RunUpdate::Step {
+        step: metrics_step(
+            "implement",
+            1,
+            ChangeStepKind::Executor,
+            0,
+            ChangeStepStatus::Running,
+            STARTED_AT,
+            None,
+            None,
+            None,
+        ),
+    });
+    guard.emit(RunUpdate::Step {
+        step: metrics_step(
+            "implement",
+            1,
+            ChangeStepKind::Executor,
+            1,
+            ChangeStepStatus::Running,
+            STARTED_AT + 100,
+            None,
+            None,
+            None,
+        ),
+    });
+    guard.emit(RunUpdate::Step {
+        step: metrics_step(
+            "implement",
+            1,
+            ChangeStepKind::Executor,
+            0,
+            ChangeStepStatus::Passed,
+            STARTED_AT,
+            Some(STARTED_AT + 500),
+            Some(10),
+            Some(20),
+        ),
+    });
+    guard.emit(RunUpdate::Step {
+        step: metrics_step(
+            "test-gen",
+            1,
+            ChangeStepKind::PhaseStart,
+            0,
+            ChangeStepStatus::Passed,
+            STARTED_AT + 900,
+            Some(STARTED_AT + 900),
+            None,
+            None,
+        ),
+    });
+    let snap = control.snapshot(ROOT, CHANGE_ID).unwrap();
+    assert_eq!(snap.nodes.len(), 3, "三键三节点（合并仅同键就地）");
+    assert_eq!(snap.nodes[0].started_at, STARTED_AT, "键甲 started 首见");
+    assert_eq!(snap.nodes[0].token_input, Some(10), "键甲终态 token 落值");
+    assert_eq!(
+        snap.nodes[1].started_at,
+        STARTED_AT + 100,
+        "键乙不受键甲终态行波及"
+    );
+    assert_eq!(snap.nodes[1].ended_at, None, "键乙仍在途");
+    assert_eq!(snap.nodes[2].started_at, STARTED_AT + 900, "键丙独立");
+    assert_eq!(snap.nodes[2].ended_at, Some(STARTED_AT + 900));
+}
+
+/// 边界：终态行 ended_at / token 全 None（running 残留收口形态）→ snapshot
+/// 保持首见 None（None 不覆写半边）。
+#[tokio::test]
+async fn accumulate_node_终态行全none不覆写首见() {
+    let control = Arc::new(ChangeFlowControl::new());
+    let guard = control
+        .begin_run(ROOT, CHANGE_ID, "run-1".to_owned(), STARTED_AT)
+        .unwrap();
+    guard.emit(RunUpdate::Step {
+        step: metrics_step(
+            "implement",
+            2,
+            ChangeStepKind::Executor,
+            0,
+            ChangeStepStatus::Running,
+            STARTED_AT,
+            None,
+            None,
+            None,
+        ),
+    });
+    // 终态行全 None（崩溃残留收口形态——终态 emit 时间字段缺席的防御形态）
+    guard.emit(RunUpdate::Step {
+        step: metrics_step(
+            "implement",
+            2,
+            ChangeStepKind::Executor,
+            0,
+            ChangeStepStatus::Passed,
+            STARTED_AT,
+            None,
+            None,
+            None,
+        ),
+    });
+    let snap = control.snapshot(ROOT, CHANGE_ID).unwrap();
+    assert_eq!(
+        snap.nodes[0].status,
+        ChangeStepStatus::Passed,
+        "状态覆写不受 None 门限"
+    );
+    assert_eq!(
+        snap.nodes[0].ended_at, None,
+        "ended None 不覆写（首见 None 保持）"
+    );
+    assert_eq!(snap.nodes[0].token_input, None);
+    assert_eq!(snap.nodes[0].token_output, None);
+}
+
+/// 边界：终态行 token 单侧在场（input Some / output None）→ 在场侧覆写、
+/// 缺席侧保首见。
+#[tokio::test]
+async fn accumulate_node_token单侧在场单侧覆写() {
+    let control = Arc::new(ChangeFlowControl::new());
+    let guard = control
+        .begin_run(ROOT, CHANGE_ID, "run-1".to_owned(), STARTED_AT)
+        .unwrap();
+    // 首见：input None / output Some(60)
+    guard.emit(RunUpdate::Step {
+        step: metrics_step(
+            "implement",
+            2,
+            ChangeStepKind::Executor,
+            0,
+            ChangeStepStatus::Running,
+            STARTED_AT,
+            None,
+            None,
+            Some(60),
+        ),
+    });
+    // 终态：input Some(12_000) / output None → input 覆写、output 保首见
+    guard.emit(RunUpdate::Step {
+        step: metrics_step(
+            "implement",
+            2,
+            ChangeStepKind::Executor,
+            0,
+            ChangeStepStatus::Passed,
+            STARTED_AT,
+            Some(STARTED_AT + 1_000),
+            Some(12_000),
+            None,
+        ),
+    });
+    let snap = control.snapshot(ROOT, CHANGE_ID).unwrap();
+    assert_eq!(snap.nodes[0].token_input, Some(12_000), "在场侧覆写");
+    assert_eq!(snap.nodes[0].token_output, Some(60), "缺席侧保首见");
+}
+
+/// 边界：同键三 emit 序列（running → running 重发 → 终态）→ started 仍首见、
+/// ended 取终态值（AC-4「同键多 emit 后快照与合并规则一致」）。
+#[tokio::test]
+async fn accumulate_node_三emit序列started仍首见ended取终态值() {
+    let control = Arc::new(ChangeFlowControl::new());
+    let guard = control
+        .begin_run(ROOT, CHANGE_ID, "run-1".to_owned(), STARTED_AT)
+        .unwrap();
+    guard.emit(RunUpdate::Step {
+        step: metrics_step(
+            "implement",
+            2,
+            ChangeStepKind::Executor,
+            0,
+            ChangeStepStatus::Running,
+            STARTED_AT,
+            None,
+            None,
+            None,
+        ),
+    });
+    guard.emit(RunUpdate::Step {
+        step: metrics_step(
+            "implement",
+            2,
+            ChangeStepKind::Executor,
+            0,
+            ChangeStepStatus::Running,
+            STARTED_AT + 7,
+            None,
+            None,
+            None,
+        ),
+    });
+    guard.emit(RunUpdate::Step {
+        step: metrics_step(
+            "implement",
+            2,
+            ChangeStepKind::Executor,
+            0,
+            ChangeStepStatus::Failed,
+            STARTED_AT + 8,
+            Some(STARTED_AT + 2_000),
+            None,
+            None,
+        ),
+    });
+    let snap = control.snapshot(ROOT, CHANGE_ID).unwrap();
+    assert_eq!(snap.nodes.len(), 1, "三 emit 一节点");
+    assert_eq!(snap.nodes[0].started_at, STARTED_AT, "started 仍首见");
+    assert_eq!(
+        snap.nodes[0].ended_at,
+        Some(STARTED_AT + 2_000),
+        "ended 取终态行值"
+    );
+    assert_eq!(snap.nodes[0].status, ChangeStepStatus::Failed);
+}
+
+/// 异常：终态行携逆序时间（ended < started）→ 原样覆写零改写（合并不做语义
+/// 校验——防御值直透）。
+#[tokio::test]
+async fn accumulate_node_逆序时间原样覆写零改写() {
+    let control = Arc::new(ChangeFlowControl::new());
+    let guard = control
+        .begin_run(ROOT, CHANGE_ID, "run-1".to_owned(), STARTED_AT)
+        .unwrap();
+    guard.emit(RunUpdate::Step {
+        step: metrics_step(
+            "implement",
+            2,
+            ChangeStepKind::Executor,
+            0,
+            ChangeStepStatus::Running,
+            STARTED_AT + 10_000,
+            None,
+            None,
+            None,
+        ),
+    });
+    guard.emit(RunUpdate::Step {
+        step: metrics_step(
+            "implement",
+            2,
+            ChangeStepKind::Executor,
+            0,
+            ChangeStepStatus::Passed,
+            STARTED_AT + 10_000,
+            Some(STARTED_AT),
+            None,
+            None,
+        ),
+    });
+    let snap = control.snapshot(ROOT, CHANGE_ID).unwrap();
+    assert_eq!(
+        snap.nodes[0].ended_at,
+        Some(STARTED_AT),
+        "逆序 ended 原样覆写（合并不校验不修正）"
+    );
+    assert_eq!(
+        snap.nodes[0].started_at,
+        STARTED_AT + 10_000,
+        "started 首见不被逆序行顶替"
+    );
+}
+
+/// 异常：首见行即终态且 ended None → started 落值、ended None（合并层不铸造
+/// 不补值——构造值直透）。
+#[tokio::test]
+async fn accumulate_node_首见终态无ended零补值() {
+    let control = Arc::new(ChangeFlowControl::new());
+    let guard = control
+        .begin_run(ROOT, CHANGE_ID, "run-1".to_owned(), STARTED_AT)
+        .unwrap();
+    guard.emit(RunUpdate::Step {
+        step: metrics_step(
+            "implement",
+            2,
+            ChangeStepKind::Executor,
+            0,
+            ChangeStepStatus::Stopped,
+            STARTED_AT + 42,
+            None,
+            None,
+            None,
+        ),
+    });
+    let snap = control.snapshot(ROOT, CHANGE_ID).unwrap();
+    assert_eq!(snap.nodes[0].status, ChangeStepStatus::Stopped);
+    assert_eq!(
+        snap.nodes[0].started_at,
+        STARTED_AT + 42,
+        "started 构造值直透落值"
+    );
+    assert_eq!(snap.nodes[0].ended_at, None, "ended 首见 None 零补值零铸造");
 }

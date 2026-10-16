@@ -1,0 +1,42 @@
+$ pnpm run server:check && pnpm run bindings:export && pnpm run client:check
+$ cargo fmt --manifest-path src-tauri/Cargo.toml && cargo clippy --manifest-path src-tauri/Cargo.toml
+    Checking agent v0.1.0 (C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\desktop-step-running-snapshot\packages\desktop\src-tauri\crates\core\agent)
+    Checking workflow v0.1.0 (C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\desktop-step-running-snapshot\packages\desktop\src-tauri\crates\core\workflow)
+    Checking orchestration v0.1.0 (C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\desktop-step-running-snapshot\packages\desktop\src-tauri\crates\core\orchestration)
+    Checking store v0.1.0 (C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\desktop-step-running-snapshot\packages\desktop\src-tauri\crates\infra\store)
+    Checking checks-runtime v0.1.0 (C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\desktop-step-running-snapshot\packages\desktop\src-tauri\crates\infra\checks)
+    Checking vcs-runtime v0.1.0 (C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\desktop-step-running-snapshot\packages\desktop\src-tauri\crates\infra\vcs)
+    Checking agent-runtime v0.1.0 (C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\desktop-step-running-snapshot\packages\desktop\src-tauri\crates\infra\agent)
+    Checking dev-team v0.1.0 (C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\desktop-step-running-snapshot\packages\desktop\src-tauri)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 10.15s
+$ cargo run --quiet -p export-bindings --manifest-path src-tauri/Cargo.toml
+$ vp check --fix && knip
+[1m[31merror:[39m[0m Lint or type issues found
+x typescript(non-nullable-type-assertion-style): Use a ! assertion to more succinctly remove null and undefined from the type.
+    ,-[src/views/changes/flow/metrics.test.ts:59:13]
+ 58 |     expect(typeof label).toBe('string');
+ 59 |     expect((label as string).length).toBeGreaterThan(0);
+    :             ^^^^^^^^^^^^^^^
+ 60 |   });
+    `----
+
+  x typescript(non-nullable-type-assertion-style): Use a ! assertion to more succinctly remove null and undefined from the type.
+     ,-[src/views/changes/flow/metrics.test.ts:137:13]
+ 136 |     expect(typeof label).toBe('string');
+ 137 |     expect((label as string).length).toBeGreaterThan(0);
+     :             ^^^^^^^^^^^^^^^
+ 138 |   });
+     `----
+
+  x typescript(non-nullable-type-assertion-style): Use a ! assertion to more succinctly remove null and undefined from the type.
+     ,-[src/views/changes/flow/run-step-node.test.tsx:876:20]
+ 875 |     const node = screen.getByTestId('run-step-node');
+ 876 |     const header = within(node).getByTestId('run-step-kind').parentElement as HTMLElement;
+     :                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+ 877 |     const metrics = within(node).getByTestId('run-step-metrics');
+     `----
+
+Found 3 errors and 0 warnings in 166 files (2.0s, 16 threads)
+[1m[94mpass:[39m[0m Formatting completed for checked files [2m(5.4s)[0m
+[ELIFECYCLE] Command failed with exit code 1.
+[ELIFECYCLE] Command failed with exit code 1.

@@ -622,6 +622,14 @@ pub struct RunNodeStateRecord {
     pub detail: Option<String>,
     /// 全量输出引用（`ExecOutput::Recorded { exec_id }`；无记录模式为 None）
     pub output_ref: Option<String>,
+    /// 步开始时刻（UTC unix 毫秒；旧库行缺省 0 = 步级时间缺席）
+    pub started_at: i64,
+    /// 步收口时刻（UTC unix 毫秒；running 收口在途步 None）
+    pub ended_at: Option<i64>,
+    /// 本步 turn token 增量（`TurnDone.usage` 求和；仅 WorkerAgent 步终态有值）
+    pub token_input: Option<u64>,
+    /// 本步 turn token 增量（输出向；口径同 `token_input`）
+    pub token_output: Option<u64>,
     /// 落包时刻（UTC unix 毫秒，= finish 的 finished_at）
     pub timestamp: i64,
 }
@@ -667,6 +675,14 @@ pub struct RunNodeEntry {
     pub detail: Option<String>,
     /// 全量输出引用（`exec_id`）
     pub output_ref: Option<String>,
+    /// 步开始时刻（UTC unix 毫秒）
+    pub started_at: i64,
+    /// 步收口时刻（UTC unix 毫秒；running 收口在途步 None）
+    pub ended_at: Option<i64>,
+    /// 本步 turn token 增量（`TurnDone.usage` 求和；仅 WorkerAgent 步终态有值）
+    pub token_input: Option<u64>,
+    /// 本步 turn token 增量（输出向；口径同 `token_input`）
+    pub token_output: Option<u64>,
 }
 
 /// run 边整包条目（finish 载荷内联）：端点恒为节点身份串。

@@ -223,6 +223,11 @@ function runNode(overrides: Partial<RuntimeFlowNode> = {}): RuntimeFlowNode {
     sessionId: 'ses-exec-1',
     detail: null,
     outputRef: null,
+    startedAt: 1_727_000_000_000,
+    endedAt: null,
+    tokenInput: null,
+    tokenOutput: null,
+    live: true,
     ...overrides,
   };
 }

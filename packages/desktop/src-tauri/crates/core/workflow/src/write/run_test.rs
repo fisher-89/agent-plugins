@@ -267,6 +267,10 @@ fn node_entry(instance_no: u32) -> RunNodeEntry {
         session_id: Some("ses-1".to_owned()),
         detail: None,
         output_ref: None,
+        started_at: STARTED_AT,
+        ended_at: Some(FINISHED_AT),
+        token_input: None,
+        token_output: None,
     }
 }
 

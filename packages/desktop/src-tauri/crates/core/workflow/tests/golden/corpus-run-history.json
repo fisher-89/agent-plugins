@@ -119,122 +119,170 @@
         {
           "attempt": 1,
           "detail": null,
+          "endedAt": 1727000061000,
           "instanceNo": 0,
           "outputRef": null,
           "phase": "implement",
           "sessionId": null,
+          "startedAt": 1727000060000,
           "status": "passed",
-          "step": "phase_start"
+          "step": "phase_start",
+          "tokenInput": null,
+          "tokenOutput": null
         },
         {
           "attempt": 1,
           "detail": "实现完成",
+          "endedAt": 1727000061000,
           "instanceNo": 0,
           "outputRef": null,
           "phase": "implement",
           "sessionId": "ses-impl-1",
+          "startedAt": 1727000060000,
           "status": "passed",
-          "step": "executor"
+          "step": "executor",
+          "tokenInput": null,
+          "tokenOutput": null
         },
         {
           "attempt": 1,
           "detail": null,
+          "endedAt": 1727000061000,
           "instanceNo": 0,
           "outputRef": "exec-1727000019000",
           "phase": "implement",
           "sessionId": null,
+          "startedAt": 1727000060000,
           "status": "failed",
-          "step": "static_check"
+          "step": "static_check",
+          "tokenInput": null,
+          "tokenOutput": null
         },
         {
           "attempt": 1,
           "detail": "按 feedback 修复重跑",
+          "endedAt": 1727000061000,
           "instanceNo": 1,
           "outputRef": null,
           "phase": "implement",
           "sessionId": "ses-impl-1b",
+          "startedAt": 1727000060000,
           "status": "passed",
-          "step": "executor"
+          "step": "executor",
+          "tokenInput": null,
+          "tokenOutput": null
         },
         {
           "attempt": 1,
           "detail": "首轮评估 fail",
+          "endedAt": 1727000061000,
           "instanceNo": 0,
           "outputRef": null,
           "phase": "implement",
           "sessionId": "ses-eval-1",
+          "startedAt": 1727000060000,
           "status": "failed",
-          "step": "evaluator"
+          "step": "evaluator",
+          "tokenInput": null,
+          "tokenOutput": null
         },
         {
           "attempt": 1,
           "detail": "verdict=fail",
+          "endedAt": 1727000061000,
           "instanceNo": 0,
           "outputRef": null,
           "phase": "implement",
           "sessionId": null,
+          "startedAt": 1727000060000,
           "status": "failed",
-          "step": "verdict_gate"
+          "step": "verdict_gate",
+          "tokenInput": null,
+          "tokenOutput": null
         },
         {
           "attempt": 1,
           "detail": "预算内同相位重跑",
+          "endedAt": 1727000061000,
           "instanceNo": 0,
           "outputRef": null,
           "phase": "implement",
           "sessionId": null,
+          "startedAt": 1727000060000,
           "status": "passed",
-          "step": "retry_gate"
+          "step": "retry_gate",
+          "tokenInput": null,
+          "tokenOutput": null
         },
         {
           "attempt": 1,
           "detail": null,
+          "endedAt": 1727000061000,
           "instanceNo": 0,
           "outputRef": null,
           "phase": "implement",
           "sessionId": "ses-decision-1",
+          "startedAt": 1727000060000,
           "status": "passed",
-          "step": "decision"
+          "step": "decision",
+          "tokenInput": null,
+          "tokenOutput": null
         },
         {
           "attempt": 1,
           "detail": "回溯白名单内",
+          "endedAt": 1727000061000,
           "instanceNo": 0,
           "outputRef": null,
           "phase": "implement",
           "sessionId": null,
+          "startedAt": 1727000060000,
           "status": "passed",
-          "step": "whitelist_gate"
+          "step": "whitelist_gate",
+          "tokenInput": null,
+          "tokenOutput": null
         },
         {
           "attempt": 1,
           "detail": "conclusion=pass total=3",
+          "endedAt": 1727000061000,
           "instanceNo": 0,
           "outputRef": null,
           "phase": "dev-design",
           "sessionId": null,
+          "startedAt": 1727000060000,
           "status": "passed",
-          "step": "test_execution"
+          "step": "test_execution",
+          "tokenInput": null,
+          "tokenOutput": null
         },
         {
           "attempt": 1,
           "detail": "conclusion=pass score=95 threshold=80",
+          "endedAt": 1727000061000,
           "instanceNo": 0,
           "outputRef": null,
           "phase": "dev-design",
           "sessionId": null,
+          "startedAt": 1727000060000,
           "status": "passed",
-          "step": "mutation_test"
+          "step": "mutation_test",
+          "tokenInput": null,
+          "tokenOutput": null
         },
         {
           "attempt": 1,
           "detail": null,
+          "endedAt": 1727000061000,
           "instanceNo": 0,
           "outputRef": null,
           "phase": "dev-design",
           "sessionId": null,
+          "startedAt": 1727000060000,
           "status": "passed",
-          "step": "phase_log"
+          "step": "phase_log",
+          "tokenInput": null,
+          "tokenOutput": null
         }
       ],
       "reason": "首轮 dev-design 未过（预算内 fail）",
@@ -249,18 +297,74 @@
         {
           "attempt": 2,
           "detail": null,
+          "endedAt": 1727000061000,
           "instanceNo": 0,
           "outputRef": null,
           "phase": "dev-design",
           "sessionId": "ses-dd-exec-a2",
+          "startedAt": 1727000060000,
           "status": "passed",
-          "step": "executor"
+          "step": "executor",
+          "tokenInput": null,
+          "tokenOutput": null
         }
       ],
       "reason": "All phases have passed evaluation. Ready for archiving.",
       "runId": "run-1727000020000",
       "startedAt": "2024-09-22T10:13:40Z",
       "status": "completed"
+    },
+    {
+      "edges": [],
+      "finishedAt": "2024-09-22T10:13:59Z",
+      "nodes": [
+        {
+          "attempt": 3,
+          "detail": "verdict=fail 预算内同相位重跑",
+          "endedAt": 1727000060000,
+          "instanceNo": 0,
+          "outputRef": null,
+          "phase": "dev-design",
+          "sessionId": null,
+          "startedAt": 1727000060000,
+          "status": "passed",
+          "step": "verdict_gate",
+          "tokenInput": null,
+          "tokenOutput": null
+        },
+        {
+          "attempt": 3,
+          "detail": "实现完成（token 增量样本）",
+          "endedAt": 1727000062000,
+          "instanceNo": 0,
+          "outputRef": null,
+          "phase": "dev-design",
+          "sessionId": "ses-dd-exec-a3",
+          "startedAt": 1727000061000,
+          "status": "passed",
+          "step": "executor",
+          "tokenInput": 12345,
+          "tokenOutput": 6789
+        },
+        {
+          "attempt": 3,
+          "detail": null,
+          "endedAt": null,
+          "instanceNo": 0,
+          "outputRef": null,
+          "phase": "dev-design",
+          "sessionId": "ses-dd-eval-a3",
+          "startedAt": 1727000063000,
+          "status": "running",
+          "step": "evaluator",
+          "tokenInput": null,
+          "tokenOutput": null
+        }
+      ],
+      "reason": "用户中止：dev-design attempt 3 evaluator 在途",
+      "runId": "run-1727000030000",
+      "startedAt": "2024-09-22T10:13:50Z",
+      "status": "stopped"
     }
   ],
   "source": "active",

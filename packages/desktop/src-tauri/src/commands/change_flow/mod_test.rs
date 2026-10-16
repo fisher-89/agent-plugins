@@ -1509,6 +1509,10 @@ fn channel面五kind通知各自一拍且零载荷键() {
             session_id: None,
             detail: None,
             output_ref: None,
+            started_at: STARTED_AT,
+            ended_at: None,
+            token_input: None,
+            token_output: None,
         },
     });
     guard.emit(super::RunUpdate::Edge {

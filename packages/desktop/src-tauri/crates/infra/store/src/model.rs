@@ -961,6 +961,19 @@ pub struct RunNodeRecord {
     /// 全量输出引用（`ExecOutput::Recorded { exec_id }`；MUST NOT 全文进本行）
     #[serde(default)]
     pub output_ref: Option<String>,
+    /// 步开始时刻（UTC unix 毫秒）。旧库行缺省 0 = 步级时间缺席（前端判定收
+    /// 格式化模块单点）；步级时间独立成列，MUST NOT 顶替不复用 `timestamp`
+    #[serde(default)]
+    pub started_at: i64,
+    /// 步收口时刻（UTC unix 毫秒；running 收口在途步 None）
+    #[serde(default)]
+    pub ended_at: Option<i64>,
+    /// 本步 turn token 增量（`TurnDone.usage` 求和；仅 WorkerAgent 步终态有值）
+    #[serde(default)]
+    pub token_input: Option<u64>,
+    /// 本步 turn token 增量（输出向；口径同 `token_input`）
+    #[serde(default)]
+    pub token_output: Option<u64>,
     /// 落包时刻（UTC unix 毫秒，= finished_at 整包同刻）
     pub timestamp: i64,
 }
@@ -985,6 +998,10 @@ impl RunNodeRecord {
             session_id: entry.session_id.clone(),
             detail: entry.detail.clone(),
             output_ref: entry.output_ref.clone(),
+            started_at: entry.started_at,
+            ended_at: entry.ended_at,
+            token_input: entry.token_input,
+            token_output: entry.token_output,
             timestamp,
         }
     }

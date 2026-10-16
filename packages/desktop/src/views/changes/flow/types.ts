@@ -60,6 +60,17 @@ export interface RuntimeFlowNode extends FlowNodeBase {
   detail: string | null;
   /** 全量输出引用（ExecOutput::Recorded 的 exec_id；无记录恒 null） */
   outputRef: string | null;
+  /** 步开始时刻（UTC unix 毫秒；旧库行 0 = 缺席，判定收 metrics 模块单点） */
+  startedAt: number;
+  /** 步收口时刻（UTC unix 毫秒；running 收口在途步 null） */
+  endedAt: number | null;
+  /** 本步 turn token 增量（仅 WorkerAgent 步终态有值；缺席 null） */
+  tokenInput: number | null;
+  /** 本步 turn token 增量（输出向；口径同 tokenInput） */
+  tokenOutput: number | null;
+  /** 活面来源标注（D7）：统一视图合成时按源落面——活面（在飞 run）节点 true、
+   * 库读史节点 false；走秒仅 live && running 挂载（库读史 running 残留不走秒） */
+  live: boolean;
 }
 
 /** 图节点单分类：仅 runtime step 节点 */

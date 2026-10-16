@@ -26,6 +26,7 @@ fixture 先例）。
 | run 全史 | 同 change 两次 run 全史留存（≥2 run，attempt 跨 run 递增不撞号）、五落词汇步整包（sessionId / detail 有无两态）、emit seq 稳定序、时间戳 ISO 出线（`corpus-run-history`） | `run_start` / `finish_change_run`（经 store run 域操作面，禁裸表插桩；步序列经 orchestration `finish_command` 全词汇喂入——落库过滤单点同真实写路径，unify-run-state-persistence） |
 | 归档相位 run 史（merge-archive-steps-into-flow） | archive 列空 checklist 落账 pass（report 空串 + 空 checklist）；archive 相位十步节点整包（8 归档步词 + PhaseStart / PhaseLog，git 步分类可辨）+ 串行 forward 边 | `log_change_phase`（archive 空 checklist）+ `run_start` / `finish_change_run`（archive 十步 + 9 forward 边，`corpus-archive-prefix`） |
 | run 中断标定 | run 发起后中途死亡残留（running 行 + active_phase 悬挂）→ 标定翻 interrupted（记因附中断语境、finished_at 标定时刻）+ active_phase 清位（`corpus-run-interrupted`） | `run_start` + `start_change_phase`（开相不落账）→ `calibrate_interrupted_runs` 直调（open_workspace 内嵌同路径，D12） |
+| 步级时间与 token（desktop-step-running-snapshot） | run 步节点四字段（started_at / ended_at / token_input / token_output）定值注入两态：时间（正常起止双值步 / 瞬步 `started == ended` 同槽定值 / running 收口在途残留 `ended = None`）+ token（WorkerAgent 步带增量两值 / 工具步 None）；毫秒数口径出线（`corpus-run-history` run-3 stopped 收口样本，run-1 / run-2 既有步为默认派生形态） | `step` / `step_at` fixture 默认派生定值（`t(n)` 种子时间族基准槽位，零 wall-clock——直构 `ChangeStepState`，不经 `emit_node` / `now_millis`）+ `step_metrics` overrides 两态样本 → `run_start` / `finish_change_run`（经 store run 域操作面，禁裸表插桩） |
 
 golden 快照纪律与显式重写流程（`DESKTOP_GOLDEN_REWRITE=1` + diff 人工确认留
 痕）延续：detail / list golden 全量含 `id` 键（身份键入——desktop-change-db-

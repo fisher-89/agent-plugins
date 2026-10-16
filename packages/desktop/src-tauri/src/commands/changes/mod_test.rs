@@ -1339,6 +1339,10 @@ fn 统一查询装配_runs全史与active_run活面与终态退场() {
                         session_id: None,
                         detail: None,
                         output_ref: None,
+                        started_at: 1_727_000_000_000,
+                        ended_at: Some(1_727_000_060_000),
+                        token_input: None,
+                        token_output: None,
                     },
                     RunNodeEntry {
                         phase: "proposal".to_owned(),
@@ -1349,6 +1353,10 @@ fn 统一查询装配_runs全史与active_run活面与终态退场() {
                         session_id: Some("ses-1".to_owned()),
                         detail: None,
                         output_ref: None,
+                        started_at: 1_727_000_000_000,
+                        ended_at: Some(1_727_000_060_000),
+                        token_input: None,
+                        token_output: None,
                     },
                 ],
                 edges: vec![RunEdgeEntry {
@@ -1446,6 +1454,10 @@ fn 统一查询装配_runs全史与active_run活面与终态退场() {
                 session_id: None,
                 detail: None,
                 output_ref: None,
+                started_at: 1_727_000_000_000,
+                ended_at: None,
+                token_input: None,
+                token_output: None,
             },
         });
     }
@@ -1656,6 +1668,10 @@ fn 统一查询装配_运行中run多边活面() {
                 session_id: None,
                 detail: None,
                 output_ref: None,
+                started_at: 1_727_000_100_000,
+                ended_at: None,
+                token_input: None,
+                token_output: None,
             },
         });
     }
@@ -1845,6 +1861,10 @@ fn 统一查询装配_waitingconfirm停等形态() {
             session_id: Some("ses-eval".to_owned()),
             detail: None,
             output_ref: None,
+            started_at,
+            ended_at: Some(started_at + 5_000),
+            token_input: None,
+            token_output: None,
         },
     });
     guard.emit(RunUpdate::ConfirmWait {

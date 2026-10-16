@@ -5,11 +5,10 @@ use std::sync::{Arc, Mutex, OnceLock};
 
 use agent::{
     AgentEvent, AgentEventKind, AgentPermissionMode, SessionPage, SessionProvenance, SessionRow,
-    SessionStats, SessionSummary, TurnSummary,
+    SessionStats, SessionSummary, TurnSummary, sum_usage_tokens,
 };
 use native_db::{Builder, Database, Models};
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 use specta::Type;
 
 use crate::canonical;
@@ -193,21 +192,6 @@ fn sum_present(values: impl Iterator<Item = Option<u64>>) -> Option<u64> {
         (None, None) => None,
         (acc, value) => Some(acc.unwrap_or(0).saturating_add(value.unwrap_or(0))),
     })
-}
-
-/// 转录 `TurnDone.usage` 求和
-fn sum_usage_tokens(events: &[AgentEvent], key: &str) -> Option<u64> {
-    let mut total: u64 = 0;
-    let mut any = false;
-    for event in events {
-        if let AgentEventKind::TurnDone { usage, .. } = &event.kind {
-            if let Some(value) = usage.get(key).and_then(Value::as_u64) {
-                total = total.saturating_add(value);
-                any = true;
-            }
-        }
-    }
-    any.then_some(total)
 }
 
 /// 会话清单分页上限（IPC 滥用兜底，与 db 检视 `MAX_SCAN_LIMIT` 同层同理；
@@ -2054,6 +2038,10 @@ impl Store {
                 session_id: record.session_id,
                 detail: record.detail,
                 output_ref: record.output_ref,
+                started_at: record.started_at,
+                ended_at: record.ended_at,
+                token_input: record.token_input,
+                token_output: record.token_output,
                 timestamp: record.timestamp,
             })
             .collect())

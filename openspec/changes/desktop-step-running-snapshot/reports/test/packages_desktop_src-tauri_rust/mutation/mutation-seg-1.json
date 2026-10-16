@@ -1,0 +1,143 @@
+{
+  "outcomes": [
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/store/src/store.rs:2022:9: replace Store::list_run_nodes -> Result<Vec<RunNodeStateRecord>, StoreError> with Ok(vec![])",
+          "package": "store",
+          "file": "crates/infra/store/src/store.rs",
+          "function": {
+            "function_name": "Store::list_run_nodes",
+            "return_type": "-> Result<Vec<RunNodeStateRecord>, StoreError>",
+            "span": {
+              "start": {
+                "line": 2018,
+                "column": 5
+              },
+              "end": {
+                "line": 2048,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 2022,
+              "column": 9
+            },
+            "end": {
+              "line": 2047,
+              "column": 24
+            }
+          },
+          "replacement": "Ok(vec![])",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__infra__store__src__store.rs_line_2022_col_9.log",
+      "diff_path": "diff/crates__infra__store__src__store.rs_line_2022_col_9.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 10.943673,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=store@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 12.3722774,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--verbose",
+            "--package=store@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/store/src/store.rs:2022:9: replace Store::list_run_nodes -> Result<Vec<RunNodeStateRecord>, StoreError> with Ok(vec![Default::default()])",
+          "package": "store",
+          "file": "crates/infra/store/src/store.rs",
+          "function": {
+            "function_name": "Store::list_run_nodes",
+            "return_type": "-> Result<Vec<RunNodeStateRecord>, StoreError>",
+            "span": {
+              "start": {
+                "line": 2018,
+                "column": 5
+              },
+              "end": {
+                "line": 2048,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 2022,
+              "column": 9
+            },
+            "end": {
+              "line": 2047,
+              "column": 24
+            }
+          },
+          "replacement": "Ok(vec![Default::default()])",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__infra__store__src__store.rs_line_2022_col_9_001.log",
+      "diff_path": "diff/crates__infra__store__src__store.rs_line_2022_col_9_001.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 10.8903701,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=store@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 12.0377618,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--verbose",
+            "--package=store@0.1.0"
+          ]
+        }
+      ]
+    }
+  ],
+  "total_mutants": 2,
+  "missed": 0,
+  "caught": 2,
+  "timeout": 0,
+  "unviable": 0,
+  "success": 0,
+  "start_time": "2026-10-16T12:35:34.3131072Z",
+  "end_time": "2026-10-16T12:35:58.3318229Z",
+  "cargo_mutants_version": "27.1.0"
+}

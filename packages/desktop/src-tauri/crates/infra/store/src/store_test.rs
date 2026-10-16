@@ -6767,6 +6767,10 @@ fn run_node_entry(
         session_id: None,
         detail: None,
         output_ref: None,
+        started_at: 1_727_000_000_000,
+        ended_at: Some(1_727_000_060_000),
+        token_input: None,
+        token_output: None,
     }
 }
 
@@ -7957,4 +7961,383 @@ fn run域读面_节点身份键序与边后继查询同口径() {
         .list_run_edges_from("ghost:1:executor:0")
         .expect("后继查询应成功")
         .is_empty());
+}
+
+// ---------------------------------------------------------------------------
+// desktop-step-running-snapshot（AC-5 / AC-6 / AC-10）：list_run_nodes 四列
+// 透传（多行含 None 行 / 多 run 圈定 / 混合旧行 / 读幂等 / 二次收口守卫）+
+// 会话统计与 `agent::sum_usage_tokens` 同源锚（AC-10 两消费方一实现）
+// ---------------------------------------------------------------------------
+
+/// 正向：finish_change_run 落含四字段多节点整包 → 读回 `RunNodeStateRecord`
+/// 四字段逐字段等值（含 token 两值 / ended None 行原样——None 态直透半边）。
+#[test]
+fn list_run_nodes四字段逐字段透传_含none行原样() {
+    let env = Env::new("run-nodes-four-fields");
+    let store = open_workspace_ok(&env.db_path("ws"));
+    create_change_ok(&store, "flow-run", 1000);
+    store
+        .start_change_run(&run_start_cmd("run-4f", "flow-run", 2000))
+        .expect("发起应成功");
+
+    let mut worker = run_node_entry(
+        "implement",
+        1,
+        RunStepKind::Executor,
+        RunStepStatus::Passed,
+        0,
+    );
+    worker.session_id = Some("ses-exec-1".to_owned());
+    worker.started_at = 1_727_000_000_000;
+    worker.ended_at = Some(1_727_000_200_000);
+    worker.token_input = Some(12_000);
+    worker.token_output = Some(3_400);
+    let mut tool = run_node_entry(
+        "implement",
+        1,
+        RunStepKind::StaticCheck,
+        RunStepStatus::Passed,
+        0,
+    );
+    tool.started_at = 1_727_000_200_000;
+    tool.ended_at = None;
+    tool.token_input = None;
+    tool.token_output = None;
+    store
+        .finish_change_run(&run_finish_cmd(
+            "run-4f",
+            "flow-run",
+            RunStatus::Completed,
+            None,
+            1_727_000_300_000,
+            vec![worker, tool],
+            Vec::new(),
+        ))
+        .expect("收口应成功");
+
+    let rows = store.list_run_nodes("run-4f").expect("节点读应成功");
+    assert_eq!(rows.len(), 2, "多节点整包逐行读回");
+    // 行一：四字段全值逐字段等值
+    assert_eq!(rows[0].started_at, 1_727_000_000_000);
+    assert_eq!(rows[0].ended_at, Some(1_727_000_200_000));
+    assert_eq!(rows[0].token_input, Some(12_000));
+    assert_eq!(rows[0].token_output, Some(3_400));
+    assert_eq!(rows[0].session_id.as_deref(), Some("ses-exec-1"));
+    // 行二：token 两值 / ended None → None 原样（零补值零默认）
+    assert_eq!(rows[1].started_at, 1_727_000_200_000);
+    assert_eq!(rows[1].ended_at, None);
+    assert_eq!(rows[1].token_input, None);
+    assert_eq!(rows[1].token_output, None);
+}
+
+/// 正向：多 run 并存各携节点 → 按 run_id 圈定 + node_seq 升序（emit 序口径
+/// 不因新列漂移）。
+#[test]
+fn list_run_nodes多run并存按run圈定node_seq升序() {
+    let env = Env::new("run-nodes-multi-run");
+    let store = open_workspace_ok(&env.db_path("ws"));
+    create_change_ok(&store, "flow-run", 1000);
+    for run_id in ["run-a", "run-b"] {
+        store
+            .start_change_run(&run_start_cmd(run_id, "flow-run", 2000))
+            .expect("发起应成功");
+        let executor = run_node_entry(
+            "implement",
+            1,
+            RunStepKind::Executor,
+            RunStepStatus::Passed,
+            0,
+        );
+        let mut evaluator = run_node_entry(
+            "implement",
+            1,
+            RunStepKind::Evaluator,
+            RunStepStatus::Passed,
+            0,
+        );
+        evaluator.token_input = Some(7);
+        store
+            .finish_change_run(&run_finish_cmd(
+                run_id,
+                "flow-run",
+                RunStatus::Completed,
+                None,
+                3_000,
+                vec![executor, evaluator],
+                Vec::new(),
+            ))
+            .expect("收口应成功");
+    }
+
+    let rows_a = store.list_run_nodes("run-a").expect("run-a 读应成功");
+    let rows_b = store.list_run_nodes("run-b").expect("run-b 读应成功");
+    assert_eq!(rows_a.len(), 2);
+    assert_eq!(rows_b.len(), 2);
+    // 圈定：互不串台
+    assert!(rows_a.iter().all(|row| row.run_id == "run-a"));
+    assert!(rows_b.iter().all(|row| row.run_id == "run-b"));
+    // node_seq 升序 = emit 序（executor 先、evaluator 后）
+    for rows in [&rows_a, &rows_b] {
+        assert_eq!(
+            rows.iter().map(|row| row.step).collect::<Vec<_>>(),
+            vec![RunStepKind::Executor, RunStepKind::Evaluator],
+            "node_seq 升序（emit 序口径持衡）"
+        );
+    }
+    assert_eq!(rows_a[1].token_input, Some(7), "各 run 字段独立不串台");
+    assert_eq!(rows_b[1].token_input, Some(7));
+}
+
+/// 异常：旧行（缺省 0 / None 形态裸表直写注入——升级前存量行同形）与新行
+/// 混存同 run → 混合解码各自形态（旧行缺省 0 / None、新行原值）零报错。
+#[test]
+fn list_run_nodes旧行新行混存同run混合解码各自形态零报错() {
+    let env = Env::new("run-nodes-mixed-legacy");
+    let db_path = env.db_path("ws");
+    let store = open_workspace_ok(&db_path);
+    create_change_ok(&store, "flow-run", 1000);
+    store
+        .start_change_run(&run_start_cmd("run-mixed", "flow-run", 2000))
+        .expect("发起应成功");
+    let fresh = run_node_entry(
+        "implement",
+        1,
+        RunStepKind::Executor,
+        RunStepStatus::Passed,
+        0,
+    );
+    store
+        .finish_change_run(&run_finish_cmd(
+            "run-mixed",
+            "flow-run",
+            RunStatus::Completed,
+            None,
+            1_727_000_300_000,
+            vec![fresh],
+            Vec::new(),
+        ))
+        .expect("收口应成功");
+    drop(store); // 归还文件锁（裸 redb 直写前置）
+
+    // 旧行直写：legacy 形态 = 步级时间 / token 全缺省（升级前存量行值面）——
+    // native_model 编码后裸入 16_1_node_key 物表（node_key u128 be 字节键）
+    let legacy_key = crate::model::pack_run_seq_key("run-mixed", 9);
+    let legacy = crate::model::RunNodeRecord {
+        node_key: legacy_key,
+        run_id: "run-mixed".to_owned(),
+        change_id: "flow-run".to_owned(),
+        phase: "implement".to_owned(),
+        attempt: 1,
+        step: RunStepKind::StaticCheck,
+        instance_no: 0,
+        status: RunStepStatus::Passed,
+        session_id: None,
+        detail: None,
+        output_ref: None,
+        started_at: 0,
+        ended_at: None,
+        token_input: None,
+        token_output: None,
+        timestamp: 1_727_000_300_000,
+    };
+    let payload = native_model::encode(&legacy).expect("编码旧行失败");
+    {
+        let db = redb::Database::open(&db_path).expect("裸开 db 注入旧行应成功");
+        let rw = db.begin_write().expect("开启注入写事务失败");
+        {
+            let table_name = native_db_table_name(
+                <crate::model::RunNodeRecord as native_model::Model>::native_model_id(),
+                <crate::model::RunNodeRecord as native_model::Model>::native_model_version(),
+                "node_key",
+            );
+            let table: redb::TableDefinition<RawNativeDbKey, &[u8]> =
+                redb::TableDefinition::new(&table_name);
+            let mut rows = rw.open_table(table).expect("打开 run 节点物表应成功");
+            rows.insert(RawNativeDbKey(legacy_key.to_be_bytes().to_vec()), payload.as_slice())
+                .expect("注入旧行应成功");
+        }
+        rw.commit().expect("提交注入事务失败");
+    }
+
+    let store = open_workspace_ok(&db_path);
+    let rows = store.list_run_nodes("run-mixed").expect("混合读应成功");
+    assert_eq!(rows.len(), 2, "新行 + 注入旧行混合解码零报错");
+    // 旧行（node_seq 9 → 尾行）：缺省 0 / None 原样出线
+    let legacy_row = rows
+        .iter()
+        .find(|row| row.step == RunStepKind::StaticCheck)
+        .expect("旧行在案");
+    assert_eq!(legacy_row.started_at, 0, "旧行缺省 0（步级时间缺席语义）");
+    assert_eq!(legacy_row.ended_at, None);
+    assert_eq!(legacy_row.token_input, None);
+    assert_eq!(legacy_row.token_output, None);
+    // 新行：原值出线
+    let fresh_row = rows
+        .iter()
+        .find(|row| row.step == RunStepKind::Executor)
+        .expect("新行在案");
+    assert_eq!(fresh_row.started_at, 1_727_000_000_000);
+    assert_eq!(fresh_row.ended_at, Some(1_727_000_060_000));
+}
+
+/// 边界（读幂等）：落库后连续两次 `list_run_nodes` → 两次返回逐字段全等
+///（读面纯投影、重复调用零漂移零累积）。
+#[test]
+fn list_run_nodes读幂等_两次读全等() {
+    let env = Env::new("run-nodes-read-idempotent");
+    let store = open_workspace_ok(&env.db_path("ws"));
+    create_change_ok(&store, "flow-run", 1000);
+    store
+        .start_change_run(&run_start_cmd("run-idem", "flow-run", 2000))
+        .expect("发起应成功");
+    let mut worker = run_node_entry(
+        "implement",
+        1,
+        RunStepKind::Executor,
+        RunStepStatus::Passed,
+        0,
+    );
+    worker.token_input = Some(1);
+    store
+        .finish_change_run(&run_finish_cmd(
+            "run-idem",
+            "flow-run",
+            RunStatus::Completed,
+            None,
+            3_000,
+            vec![worker],
+            Vec::new(),
+        ))
+        .expect("收口应成功");
+
+    let first = store.list_run_nodes("run-idem").expect("首次读应成功");
+    let second = store.list_run_nodes("run-idem").expect("二次读应成功");
+    assert_eq!(first, second, "两次读逐字段全等（零漂移零累积）");
+}
+
+/// 异常（写幂等守卫，AC-5 单事务半边）：同一 RunFinishCommand 收口成功后二次
+/// `finish_change_run` → `StoreError::Conflict`（run 已终态拒重复收口）、
+/// `list_run_nodes` 行集不变（node_key 主键防重——无副作用累积）。
+#[test]
+fn finish_change_run二次收口conflict且行集不变() {
+    let env = Env::new("run-finish-twice");
+    let store = open_workspace_ok(&env.db_path("ws"));
+    create_change_ok(&store, "flow-run", 1000);
+    store
+        .start_change_run(&run_start_cmd("run-twice", "flow-run", 2000))
+        .expect("发起应成功");
+    let command = run_finish_cmd(
+        "run-twice",
+        "flow-run",
+        RunStatus::Completed,
+        None,
+        1_727_000_300_000,
+        vec![run_node_entry(
+            "implement",
+            1,
+            RunStepKind::Executor,
+            RunStepStatus::Passed,
+            0,
+        )],
+        Vec::new(),
+    );
+    store.finish_change_run(&command).expect("首次收口应成功");
+    let rows_after_first = store.list_run_nodes("run-twice").expect("读应成功");
+
+    let err = store
+        .finish_change_run(&command)
+        .expect_err("二次收口应 Err");
+    assert!(
+        matches!(err, StoreError::Conflict(_)),
+        "run 已终态拒重复收口 → Conflict，实际: {err:?}"
+    );
+    assert_eq!(
+        store.list_run_nodes("run-twice").expect("复读应成功"),
+        rows_after_first,
+        "二次收口被拒后行集不变（node_key 主键防重、零副作用累积）"
+    );
+}
+
+/// 组合（AC-10 同源锚）：经 store 既有会话 / 轮 / 事件操作面植入含
+/// TurnDone.usage 转录的会话 → 会话清单与单查统计（SessionStats.input /
+/// output_tokens）输出与 `agent::sum_usage_tokens` 同源逐字段一致——store 改
+/// 引 `agent::sum_usage_tokens` 后聚合行为零变化（两消费方一实现）。
+#[test]
+fn 会话统计输出与sum_usage_tokens同源_两消费方一实现() {
+    let env = Env::new("session-stats-same-source");
+    let store = open_workspace_ok(&env.db_path("ws"));
+    seed_session(&store, "ses-same-source");
+    let events = [
+        stamped(0, run_started_kind()),
+        stamped(1, message_kind(AgentMessageRole::User)),
+        // usage 定值：in 100 + 30 = 130、out 20 + 0 = 20（0 为在场值，非缺席）
+        stamped(2, AgentEventKind::TurnDone {
+            subtype: "success".to_owned(),
+            is_error: false,
+            num_turns: Some(1),
+            duration_ms: Some(1_000),
+            cost_usd: None,
+            usage: serde_json::json!({ "input_tokens": 100, "output_tokens": 20 }),
+            session_id: None,
+        }),
+        stamped(3, AgentEventKind::TurnDone {
+            subtype: "success".to_owned(),
+            is_error: false,
+            num_turns: Some(1),
+            duration_ms: Some(2_000),
+            cost_usd: None,
+            usage: serde_json::json!({ "input_tokens": 30, "output_tokens": 0 }),
+            session_id: None,
+        }),
+    ];
+    store
+        .append_session_events("ses-same-source", &events)
+        .expect("append 应成功");
+    let turn = store
+        .begin_agent_turn("ses-same-source", 1727000000000)
+        .expect("begin 应成功");
+    store
+        .finish_agent_turn(
+            turn.id,
+            &finish_shell(
+                turn.id,
+                AgentRunStatus::Completed,
+                Some(1727000004000),
+                Some(2),
+                Some(3000),
+                None,
+            ),
+        )
+        .expect("finish 应成功");
+
+    // 转录读回（库读面 = 统计现算输入面）
+    let transcript = store
+        .list_session_events("ses-same-source")
+        .expect("读转录应成功");
+    let listed = store
+        .list_sessions(None, None)
+        .expect("清单应成功")
+        .into_iter()
+        .find(|summary| summary.row.id == "ses-same-source")
+        .expect("清单面在场");
+    let found = store
+        .find_session_summary("ses-same-source")
+        .expect("单查应成功")
+        .expect("在场");
+
+    for stats in [listed.stats, found.stats] {
+        assert_eq!(
+            stats.input_tokens,
+            agent::sum_usage_tokens(&transcript, "input_tokens"),
+            "会话统计 input_tokens 与 sum_usage_tokens 同源"
+        );
+        assert_eq!(
+            stats.output_tokens,
+            agent::sum_usage_tokens(&transcript, "output_tokens"),
+            "会话统计 output_tokens 与 sum_usage_tokens 同源"
+        );
+        // 定值锚：in 130 / out 20（0 计入——as_u64 在场值）
+        assert_eq!(stats.input_tokens, Some(130));
+        assert_eq!(stats.output_tokens, Some(20));
+    }
 }

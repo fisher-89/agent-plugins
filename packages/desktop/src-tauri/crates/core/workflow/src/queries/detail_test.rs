@@ -732,6 +732,10 @@ fn 归档change全状态面_十站流水线与runs全量出线() {
         session_id: Some("ses-exec-1".to_owned()),
         detail: None,
         output_ref: None,
+        started_at: t(10),
+        ended_at: Some(t(19)),
+        token_input: None,
+        token_output: None,
         timestamp: t(19),
     });
     env.store.push_run_edge(RunEdgeStateRecord {
@@ -1473,6 +1477,10 @@ fn run_node_row(run_id: &str, change_id: &str, step: RunStepKind) -> RunNodeStat
         session_id: None,
         detail: None,
         output_ref: None,
+        started_at: 1_727_000_000_000,
+        ended_at: Some(1_727_000_060_000),
+        token_input: None,
+        token_output: None,
         timestamp: 1_727_000_060_000,
     }
 }
@@ -2435,4 +2443,192 @@ fn 归档串行边全forward且端点身份串() {
         wire_kinds.iter().all(|kind| *kind == "forward"),
         "线面 edgeKind 全为 forward: {wire_kinds:?}"
     );
+}
+
+// ---------------------------------------------------------------------------
+// desktop-step-running-snapshot（D6 / AC-6 / AC-1）：ChangeRunNodeRecord 四字
+// 段毫秒数纯 derive 投影——`From<&RunNodeStateRecord>` 直读透出零回填零改写；
+// runs 级 ISO 口径与节点级毫秒数两口径并存；线面与活面 ChangeStepState 同形。
+// ---------------------------------------------------------------------------
+
+/// 正向（AC-6 主断言）：DetailStore 种子节点行四字段全值 →
+/// detail.runs[0].nodes[0] 四字段毫秒数逐字段等值。
+#[test]
+fn runs节点投影四字段毫秒数逐字段等值() {
+    let env = Env::new("run-node-projection-full");
+    env.seed(ID_RUNNED, "runned", T0, None);
+    env.store
+        .push_run(run_row(ID_RUNNED, "run-1", t(10), RunStatus::Completed));
+    let mut node = run_node_row("run-1", ID_RUNNED, RunStepKind::Executor);
+    node.started_at = 1_727_000_000_000;
+    node.ended_at = Some(1_727_000_200_000);
+    node.token_input = Some(12_000);
+    node.token_output = Some(3_400);
+    env.store.push_run_node(node);
+
+    let detail = env.detail(ID_RUNNED);
+    assert_eq!(detail.runs.len(), 1);
+    assert_eq!(detail.runs[0].nodes.len(), 1);
+    let projected = &detail.runs[0].nodes[0];
+    assert_eq!(projected.started_at, 1_727_000_000_000, "毫秒数直读");
+    assert_eq!(projected.ended_at, Some(1_727_000_200_000));
+    assert_eq!(projected.token_input, Some(12_000));
+    assert_eq!(projected.token_output, Some(3_400));
+}
+
+/// 正向：多节点 emit 序种子 → nodes 投影保序（库读序 = node_seq 序口径不变）。
+#[test]
+fn runs节点投影多节点emit序保序() {
+    let env = Env::new("run-node-projection-order");
+    env.seed(ID_RUNNED, "runned", T0, None);
+    env.store
+        .push_run(run_row(ID_RUNNED, "run-1", t(10), RunStatus::Completed));
+    for (index, step) in [
+        RunStepKind::PhaseStart,
+        RunStepKind::Executor,
+        RunStepKind::Evaluator,
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let mut node = run_node_row("run-1", ID_RUNNED, step);
+        node.instance_no = index as u32;
+        node.started_at = t(10 + index as u32);
+        env.store.push_run_node(node);
+    }
+    let detail = env.detail(ID_RUNNED);
+    assert_eq!(
+        detail.runs[0]
+            .nodes
+            .iter()
+            .map(|node| node.step)
+            .collect::<Vec<_>>(),
+        vec![RunStepKind::PhaseStart, RunStepKind::Executor, RunStepKind::Evaluator],
+        "nodes 投影保序（emit 序）"
+    );
+}
+
+/// 正向（两口径并存留痕）：同一 run 行 startedAt / finishedAt 仍 ISO 串
+///（RFC3339，`iso_from_millis` 单点）与节点级毫秒数并存。
+#[test]
+fn runs级iso与节点级毫秒数两口径并存() {
+    let env = Env::new("run-node-projection-dual-scale");
+    env.seed(ID_RUNNED, "runned", T0, None);
+    env.store.push_run(RunStateRecord {
+        run_id: "run-1".to_owned(),
+        change_id: ID_RUNNED.to_owned(),
+        status: RunStatus::Completed,
+        reason: None,
+        started_at: t(10),
+        finished_at: Some(t(19)),
+    });
+    let mut node = run_node_row("run-1", ID_RUNNED, RunStepKind::Executor);
+    node.started_at = t(11);
+    node.ended_at = Some(t(12));
+    env.store.push_run_node(node);
+    env.file("runned", "proposal.md", "# 提案");
+
+    let detail = env.detail(ID_RUNNED);
+    // runs 级 ISO 串口径不变
+    assert_eq!(
+        detail.runs[0].started_at.as_deref(),
+        Some("2024-09-22T10:13:30Z"),
+        "run 行 startedAt ISO RFC3339"
+    );
+    assert_eq!(
+        detail.runs[0].finished_at.as_deref(),
+        Some("2024-09-22T10:13:39Z"),
+        "run 行 finishedAt ISO RFC3339"
+    );
+    // 节点级毫秒数并存
+    assert_eq!(detail.runs[0].nodes[0].started_at, t(11), "节点级毫秒数口径");
+    assert_eq!(detail.runs[0].nodes[0].ended_at, Some(t(12)));
+}
+
+/// 边界（AC-6 旧数据半边）：旧行形态种子（started_at=0 / ended None / token
+/// None）→ 出线 `0` / `null` 原样零回填。
+#[test]
+fn runs节点投影旧行形态零回填原样出线() {
+    let env = Env::new("run-node-projection-legacy");
+    env.seed(ID_RUNNED, "runned", T0, None);
+    env.store
+        .push_run(run_row(ID_RUNNED, "run-1", t(10), RunStatus::Completed));
+    let mut node = run_node_row("run-1", ID_RUNNED, RunStepKind::StaticCheck);
+    node.started_at = 0;
+    node.ended_at = None;
+    node.token_input = None;
+    node.token_output = None;
+    env.store.push_run_node(node);
+
+    let detail = env.detail(ID_RUNNED);
+    let projected = &detail.runs[0].nodes[0];
+    assert_eq!(projected.started_at, 0, "旧行 0 原样（零回填）");
+    assert_eq!(projected.ended_at, None);
+    assert_eq!(projected.token_input, None);
+    assert_eq!(projected.token_output, None);
+}
+
+/// 边界：token 单侧在场（input Some / output None）→ 线面单键数值单键 null。
+#[test]
+fn runs节点投影token单侧在场单键null() {
+    let env = Env::new("run-node-projection-half-token");
+    env.seed(ID_RUNNED, "runned", T0, None);
+    env.store
+        .push_run(run_row(ID_RUNNED, "run-1", t(10), RunStatus::Completed));
+    let mut node = run_node_row("run-1", ID_RUNNED, RunStepKind::Executor);
+    node.token_input = Some(500);
+    node.token_output = None;
+    env.store.push_run_node(node);
+
+    let detail = env.detail(ID_RUNNED);
+    assert_eq!(detail.runs[0].nodes[0].token_input, Some(500));
+    assert_eq!(detail.runs[0].nodes[0].token_output, None);
+}
+
+/// 边界：空节点 run（nodes 空 vec 种子）→ runs[].nodes 空数组（零节点 run
+/// 合法形态）。
+#[test]
+fn runs节点投影空run空数组() {
+    let env = Env::new("run-node-projection-empty");
+    env.seed(ID_RUNNED, "runned", T0, None);
+    env.store
+        .push_run(run_row(ID_RUNNED, "run-1", t(10), RunStatus::Completed));
+
+    let detail = env.detail(ID_RUNNED);
+    assert_eq!(detail.runs.len(), 1);
+    assert!(
+        detail.runs[0].nodes.is_empty(),
+        "零节点 run → nodes 空数组"
+    );
+}
+
+/// 组合（AC-1 / AC-6 单一形状锚）：RunNodeStateRecord → ChangeRunNodeRecord →
+/// wire 线面——投影结果 `serde_json::to_value` camelCase 四键与活面
+/// ChangeStepState 线面同形（数值口径，键集与键序无关的可辨面：四键逐键在案）。
+#[test]
+fn runs节点投影线面与活面step_state同形() {
+    let env = Env::new("run-node-projection-wire-shape");
+    env.seed(ID_RUNNED, "runned", T0, None);
+    env.store
+        .push_run(run_row(ID_RUNNED, "run-1", t(10), RunStatus::Completed));
+    let mut node = run_node_row("run-1", ID_RUNNED, RunStepKind::Executor);
+    node.started_at = 1_727_000_000_000;
+    node.ended_at = None;
+    node.token_input = Some(12_000);
+    node.token_output = None;
+    env.store.push_run_node(node);
+
+    let detail = env.detail(ID_RUNNED);
+    let value = serde_json::to_value(&detail).expect("序列化应成功");
+    let node_wire = &value["runs"][0]["nodes"][0];
+    // camelCase 四键逐键在案且值与投影一致（null 不省键）
+    assert_eq!(node_wire["startedAt"], serde_json::json!(1_727_000_000_000_i64));
+    assert_eq!(node_wire["endedAt"], serde_json::Value::Null, "endedAt null 留位");
+    assert_eq!(node_wire["tokenInput"], serde_json::json!(12_000));
+    assert_eq!(node_wire["tokenOutput"], serde_json::Value::Null);
+    // 与活面 ChangeStepState 同形：键集恰含四键（camelCase 词面逐字）
+    let object = node_wire.as_object().expect("节点线面对象");
+    for key in ["startedAt", "endedAt", "tokenInput", "tokenOutput"] {
+        assert!(object.contains_key(key), "节点线面含 {key}（与活面 ChangeStepState 同形）");
+    }
 }

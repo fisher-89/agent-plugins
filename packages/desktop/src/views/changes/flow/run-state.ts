@@ -80,7 +80,8 @@ export function runNodeKey(node: RuntimeFlowNode): string {
   return `${node.runId}:${nodeIdentityKey(node)}`;
 }
 
-/** 库读史节点行 → 活面步状态行（词汇归一收本文件单点）。 */
+/** 库读史节点行 → 活面步状态行（词汇归一收本文件单点；四字段单一形状纯复制
+ * 零转换——节点级毫秒数与活面 `ChangeStepState` 同形）。 */
 function stepFromRecord(record: ChangeRunNodeRecord): ChangeStepState {
   return {
     phase: record.phase,
@@ -91,13 +92,20 @@ function stepFromRecord(record: ChangeRunNodeRecord): ChangeStepState {
     sessionId: record.sessionId,
     detail: record.detail,
     outputRef: record.outputRef,
+    startedAt: record.startedAt,
+    endedAt: record.endedAt,
+    tokenInput: record.tokenInput,
+    tokenOutput: record.tokenOutput,
   };
 }
 
 /** 统一视图步行：`ChangeStepState` + 归属 run id（重启 / 中断重跑同
- * `(phase, attempt, step, instanceNo)` 的跨 run 同名身份键以 run 归属段区分）。 */
+ * `(phase, attempt, step, instanceNo)` 的跨 run 同名身份键以 run 归属段区分）
+ * + 活面来源标注 `live`（走秒仅活面 running 节点挂载，D7）。 */
 export interface UnifiedRunStep extends ChangeStepState {
   runId: string;
+  /** 活面（在飞 run）来源 true / 库读史来源 false */
+  live: boolean;
 }
 
 /** 统一视图边行：`ChangeRunEdgeRecord` + 归属 run id（端点身份串按归属 run 内
@@ -117,16 +125,19 @@ export interface LiveRunFace {
 /** 统一视图节点源合成（同一转换函数的输入面）：`runs[].nodes`（全词汇库读史，
  * runs 序 = startedAt 序即稳定分层序）∪ liveRun.nodes（在飞 run 活节点）——
  * 收口后活节点褪去、库读史常驻；两源皆携归属 run id（节点 id 与边锚定的 run
- * 维度同源）。 */
+ * 维度同源）；`live` 按源标注（persisted false / live true——在飞 run 的库
+ * start 行 nodes 恒空，两源无同键重复、标注无歧义）。 */
 export function unifiedRunNodes(
   runs: ChangeRunEntry[],
   liveRun: LiveRunFace | null,
 ): UnifiedRunStep[] {
   const persisted = runs.flatMap((run) =>
-    run.nodes.map((record) => ({ ...stepFromRecord(record), runId: run.runId })),
+    run.nodes.map((record) => ({ ...stepFromRecord(record), runId: run.runId, live: false })),
   );
   const live =
-    liveRun === null ? [] : liveRun.nodes.map((step) => ({ ...step, runId: liveRun.runId }));
+    liveRun === null
+      ? []
+      : liveRun.nodes.map((step) => ({ ...step, runId: liveRun.runId, live: true }));
   return [...persisted, ...live];
 }
 
@@ -208,6 +219,11 @@ export function runStepNodes(steps: UnifiedRunStep[], phaseOrder: string[]): Run
       sessionId: step.sessionId,
       detail: step.detail,
       outputRef: step.outputRef,
+      startedAt: step.startedAt,
+      endedAt: step.endedAt,
+      tokenInput: step.tokenInput,
+      tokenOutput: step.tokenOutput,
+      live: step.live,
     });
   }
   return nodes;

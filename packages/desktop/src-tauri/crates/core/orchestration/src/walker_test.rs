@@ -4,19 +4,20 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use agent::{AgentRunStatus, ModelLevel};
+use agent::{AgentEventKind, AgentRunStatus, ModelLevel};
 
 use crate::control::ChangeFlowControl;
 use crate::port::{
     ArchiveVcsPort, BoxToolFuture, BoxTurnFuture, MutationCounts, MutationSkipReason,
-    MutationTestConclusion, MutationTestOutcome, RebaseOutcome, RunHistoryPort,
-    StaticCheckOutcome, StaticCheckRunner, TestExecutionConclusion, TestExecutionOutcome,
-    TestExecutionRunner, ToolCommand, ToolStepOutput, ToolStepPort, ToolStepRequest,
-    WorkerAgentPort, WorkerRole, WorkerTurnOutcome, WorkerTurnRequest, WorkflowSnapshotPort,
-    WorktreeSnapshot,
+    MutationTestConclusion, MutationTestOutcome, RebaseOutcome, RunHistoryPort, StaticCheckOutcome,
+    StaticCheckRunner, TestExecutionConclusion, TestExecutionOutcome, TestExecutionRunner,
+    ToolCommand, ToolStepOutput, ToolStepPort, ToolStepRequest, WorkerAgentPort, WorkerRole,
+    WorkerTurnOutcome, WorkerTurnRequest, WorkflowSnapshotPort, WorktreeSnapshot,
 };
 use crate::snapshot::StoreSnapshot;
-use crate::state::{ArchivePreflight, ChangeRunStatus, RunNotice};
+use crate::state::{
+    ArchivePreflight, ChangeRunStatus, ChangeStepKind, ChangeStepStatus, RunNotice,
+};
 use crate::steps::LocalToolSteps;
 use crate::walker::{new_run_id, walk_run, RunRequest};
 use store::Store;
@@ -255,6 +256,15 @@ struct FakeWorker {
     /// 载荷，`None` 为失败但无记因（`Failed` 收敛回落通用文案面）——两者均
     /// 返回 `Failed` 收敛的密封转录
     executor_failures: Mutex<VecDeque<Option<String>>>,
+    /// executor 会话 Stopped 收敛注入队列（AC-2 stopped 半边：run_worker
+    /// `AgentRunStatus::Stopped` 臂终态 emit 断言面——置位后下一次 executor
+    /// 会话产出 Stopped 收敛）
+    executor_stops: Mutex<VecDeque<()>>,
+    /// 转录注入队列（run_worker token 求和断言面）：每次 worker.run 弹出一组
+    /// 密封事件 kind，逐条 `AgentEvent::stamp` 进该会话转录（空组 / 耗尽 =
+    /// 零注入既有形态）；多 TurnDone.usage / 非 TurnDone 干扰 / usage 值类型
+    /// 漂移均经本注入口承载（walker 的注入端口依赖——最小 mock 合规）。
+    transcripts: Mutex<VecDeque<Vec<AgentEventKind>>>,
     counter: AtomicUsize,
     gate: Option<Arc<EvaluatorGate>>,
 }
@@ -269,9 +279,24 @@ impl FakeWorker {
             decision_reports: Mutex::new(VecDeque::new()),
             archive_reports: Mutex::new(VecDeque::new()),
             executor_failures: Mutex::new(VecDeque::new()),
+            executor_stops: Mutex::new(VecDeque::new()),
+            transcripts: Mutex::new(VecDeque::new()),
             counter: AtomicUsize::new(0),
             gate: None,
         }
+    }
+
+    /// executor 会话 Stopped 收敛预录（队列深度 = 注入次数）。
+    fn with_executor_stops(mut self, times: usize) -> Self {
+        self.executor_stops = Mutex::new(VecDeque::from(vec![(); times]));
+        self
+    }
+
+    /// 转录注入预录：每次 worker.run 按序弹出一组密封事件 kind 铸进转录
+    ///（多 TurnDone.usage / 干扰事件 / 类型漂移样本的注入面）。
+    fn with_transcripts(mut self, scripts: Vec<Vec<AgentEventKind>>) -> Self {
+        self.transcripts = Mutex::new(scripts.into());
+        self
     }
 
     /// 归档两会话角色产出预录（spec_sync / resolve_conflicts 共用队列）。
@@ -383,6 +408,22 @@ impl WorkerAgentPort for FakeWorker {
             ),
             _ => None,
         };
+        // executor 会话 Stopped 收敛注入（耗尽回落 false = 正常 Completed 收口）
+        let executor_stop = match role {
+            WorkerRole::Executor => self
+                .executor_stops
+                .lock()
+                .expect("executor stopped 队列锁不可中毒")
+                .pop_front()
+                .is_some(),
+            _ => false,
+        };
+        // 转录注入脚本（耗尽回落 None = 零注入既有形态）
+        let injected_transcript = self
+            .transcripts
+            .lock()
+            .expect("转录注入队列锁不可中毒")
+            .pop_front();
 
         Box::pin(async move {
             // evaluator 停等门：armed 期间挂起（停止时序窗口；notify_one 带许可
@@ -393,41 +434,67 @@ impl WorkerAgentPort for FakeWorker {
                 }
             }
             let _ = &mut timeline;
+            // 转录注入：脚本组逐条 `AgentEvent::stamp`（空组 / 耗尽 = 零注入
+            // 既有形态）
+            let scripted: Option<Vec<agent::AgentEvent>> = injected_transcript.map(|kinds| {
+                kinds
+                    .into_iter()
+                    .enumerate()
+                    .map(|(seq, kind)| agent::AgentEvent::stamp(seq as u64, kind))
+                    .collect()
+            });
             // executor 失败注入：Failed 收敛 + 携成因的密封转录（真实引擎
             // api_error 记因 + 失败 TurnDone 的同形形态；无记因时 TurnDone
-            // subtype 置空——成因提取显式缺席的形态）
+            // subtype 置空——成因提取显式缺席的形态）。转录脚本在场时以脚本
+            // 为转录（失败收敛 token 求和的注入面——D2 无论 outcome.status）。
             if let Some(cause) = executor_failure.flatten() {
-                let mut transcript = Vec::new();
-                let subtype = match cause {
-                    Some(cause) => {
+                let transcript = match scripted {
+                    Some(transcript) => transcript,
+                    None => {
+                        let mut transcript = Vec::new();
+                        let subtype = match cause {
+                            Some(cause) => {
+                                transcript.push(agent::AgentEvent::stamp(
+                                    0,
+                                    agent::AgentEventKind::SystemNotice {
+                                        subtype: "api_error".to_owned(),
+                                        payload: serde_json::json!({ "error": cause }),
+                                    },
+                                ));
+                                "api_error"
+                            }
+                            None => "",
+                        };
                         transcript.push(agent::AgentEvent::stamp(
-                            0,
-                            agent::AgentEventKind::SystemNotice {
-                                subtype: "api_error".to_owned(),
-                                payload: serde_json::json!({ "error": cause }),
+                            1,
+                            agent::AgentEventKind::TurnDone {
+                                subtype: subtype.to_owned(),
+                                is_error: true,
+                                num_turns: None,
+                                duration_ms: None,
+                                cost_usd: None,
+                                usage: serde_json::Value::Null,
+                                session_id: None,
                             },
                         ));
-                        "api_error"
+                        transcript
                     }
-                    None => "",
                 };
-                transcript.push(agent::AgentEvent::stamp(
-                    1,
-                    agent::AgentEventKind::TurnDone {
-                        subtype: subtype.to_owned(),
-                        is_error: true,
-                        num_turns: None,
-                        duration_ms: None,
-                        cost_usd: None,
-                        usage: serde_json::Value::Null,
-                        session_id: None,
-                    },
-                ));
                 return Ok(WorkerTurnOutcome {
                     session_id,
                     status: AgentRunStatus::Failed,
                     final_message: None,
                     transcript,
+                });
+            }
+            // executor Stopped 收敛注入（AC-2 stopped 半边：StepSettle::stopped
+            // 终态 emit 断言面）
+            if executor_stop {
+                return Ok(WorkerTurnOutcome {
+                    session_id,
+                    status: AgentRunStatus::Stopped,
+                    final_message: None,
+                    transcript: scripted.unwrap_or_default(),
                 });
             }
             let final_message = match role {
@@ -454,7 +521,7 @@ impl WorkerAgentPort for FakeWorker {
                 session_id,
                 status: AgentRunStatus::Completed,
                 final_message,
-                transcript: Vec::new(),
+                transcript: scripted.unwrap_or_default(),
             })
         })
     }
@@ -992,8 +1059,10 @@ impl FakeVcs {
     /// 解冲突后验用：B 快照 HEAD 与 rebase 半程标记可编程（后验四判据的注入面）。
     fn with_snapshot_head(self, head: &str, rebase_head: Option<&str>) -> Self {
         *self.snapshot_head.lock().expect("vcs 快照头锁不可中毒") = Some(head.to_owned());
-        *self.snapshot.lock().expect("vcs 快照锁不可中毒") =
-            Ok(snapshot_of(rebase_head.map_or("head-a", |_| head), rebase_head));
+        *self.snapshot.lock().expect("vcs 快照锁不可中毒") = Ok(snapshot_of(
+            rebase_head.map_or("head-a", |_| head),
+            rebase_head,
+        ));
         self
     }
 
@@ -1016,10 +1085,7 @@ impl FakeVcs {
     }
 
     fn record(&self, label: String) {
-        self.calls
-            .lock()
-            .expect("vcs 调用锁不可中毒")
-            .push(label);
+        self.calls.lock().expect("vcs 调用锁不可中毒").push(label);
     }
 }
 
@@ -1119,11 +1185,7 @@ impl ArchiveVcsPort for FakeVcs {
         {
             return Err(error);
         }
-        Ok(self
-            .edit_set
-            .lock()
-            .expect("vcs 清单锁不可中毒")
-            .clone())
+        Ok(self.edit_set.lock().expect("vcs 清单锁不可中毒").clone())
     }
 
     fn change_edit_patch(&self, _root: &std::path::Path, base: &str) -> Result<String, String> {
@@ -1136,11 +1198,7 @@ impl ArchiveVcsPort for FakeVcs {
         {
             return Err(error);
         }
-        Ok(self
-            .edit_patch
-            .lock()
-            .expect("vcs 补丁锁不可中毒")
-            .clone())
+        Ok(self.edit_patch.lock().expect("vcs 补丁锁不可中毒").clone())
     }
 
     fn remove_worktree(
@@ -3381,7 +3439,10 @@ async fn verdict解析失败反馈边修复_续注同evaluator会话重解析() 
     let sessions = sessions.lock().expect("会话登记锁");
     let evaluators = sessions_of(&sessions, WorkerRole::Evaluator);
     assert_eq!(evaluators.len(), 2, "首发 + 一轮修复");
-    assert_eq!(evaluators[0], evaluators[1], "修复轮续注同一 evaluator 会话");
+    assert_eq!(
+        evaluators[0], evaluators[1],
+        "修复轮续注同一 evaluator 会话"
+    );
     drop(sessions);
 
     // 请求面：修复轮 Continue 会话 id = 首发会话 id，prompt 携解析错误与协议
@@ -3400,7 +3461,9 @@ async fn verdict解析失败反馈边修复_续注同evaluator会话重解析() 
     );
     assert!(
         eval_requests[1].prompt.contains("第 1/5 次反馈修复")
-            && eval_requests[1].prompt.contains("未在最终消息中找到合法 JSON")
+            && eval_requests[1]
+                .prompt
+                .contains("未在最终消息中找到合法 JSON")
             && eval_requests[1].prompt.contains("## 输出协议"),
         "修复 prompt 携解析错误与协议重申: {}",
         eval_requests[1].prompt
@@ -3500,7 +3563,10 @@ async fn 真实写面组合_verdict解析失败反馈边超限_升格双槽位�
     );
     let finish = history.finish().expect("finish 落包捕获");
     assert!(
-        finish.reason.as_deref().is_some_and(|reason| reason.contains("决策 stop")),
+        finish
+            .reason
+            .as_deref()
+            .is_some_and(|reason| reason.contains("决策 stop")),
         "决策 stop 收敛记因: {:?}",
         finish.reason
     );
@@ -3519,7 +3585,11 @@ async fn 真实写面组合_verdict解析失败反馈边超限_升格双槽位�
         );
     }
     let decisions = sessions_of(&sessions, WorkerRole::Decision);
-    assert_eq!(decisions.len(), 5, "每轮 fail 各一轮决策（4 retry + 1 stop）");
+    assert_eq!(
+        decisions.len(),
+        5,
+        "每轮 fail 各一轮决策（4 retry + 1 stop）"
+    );
     drop(sessions);
 
     // fail 条目：五轮升格代写——report 携升格、item 为评估输出格式、双槽位
@@ -3542,7 +3612,9 @@ async fn 真实写面组合_verdict解析失败反馈边超限_升格双槽位�
         assert_eq!(entry.checklist[0].item, "评估输出格式");
         assert!(!entry.checklist[0].pass);
         assert!(
-            entry.checklist[0].evidence.contains("未在最终消息中找到合法 JSON"),
+            entry.checklist[0]
+                .evidence
+                .contains("未在最终消息中找到合法 JSON"),
             "evidence 携解析错误全文: {}",
             entry.checklist[0].evidence
         );
@@ -3998,7 +4070,11 @@ async fn 真实写面组合_决策挂账先于解析_parse失败同样留痕() {
     // 留痕：最新 fail 条目已携决策会话 id（第 5 轮决策输出漂移文本）
     let sessions = sessions.lock().expect("会话登记锁");
     let decisions = sessions_of(&sessions, WorkerRole::Decision);
-    assert_eq!(decisions.len(), 5, "每轮 fail 各一轮决策（末轮输出漂移文本）");
+    assert_eq!(
+        decisions.len(),
+        5,
+        "每轮 fail 各一轮决策（末轮输出漂移文本）"
+    );
     drop(sessions);
     let entries = db
         .store
@@ -4092,7 +4168,11 @@ async fn 真实写面组合_升格fail条目仅携executor槽位且修复轮续�
         "升格路径零 evaluator 会话（前置相位已预置 pass，本 run 仅 implement 站）"
     );
     let decisions = sessions_of(&sessions, WorkerRole::Decision);
-    assert_eq!(decisions.len(), 5, "每轮升格 fail 各一轮决策（4 retry + 1 stop）");
+    assert_eq!(
+        decisions.len(),
+        5,
+        "每轮升格 fail 各一轮决策（4 retry + 1 stop）"
+    );
     let executor_sessions = sessions_of(&sessions, WorkerRole::Executor);
     assert_eq!(
         executor_sessions.len(),
@@ -6533,8 +6613,7 @@ async fn 归档cleanup成功移除_worktree目录消失且链照常收口() {
     let rows = node_rows(&command);
     for step in ["cleanup", "seal", "finalize", "phase_log"] {
         assert!(
-            rows.iter()
-                .any(|row| row.1 == step && row.2 == "passed"),
+            rows.iter().any(|row| row.1 == step && row.2 == "passed"),
             "步 {step} passed（清理成功不断链）: {rows:?}"
         );
     }
@@ -6601,7 +6680,9 @@ async fn 归档cleanup失败尽力_警告detail步恒passed且收口不断链() 
     );
     let rows = node_rows(&command);
     assert_eq!(
-        rows.iter().find(|row| row.1 == "cleanup").map(|row| row.2.as_str()),
+        rows.iter()
+            .find(|row| row.1 == "cleanup")
+            .map(|row| row.2.as_str()),
         Some("passed"),
         "步恒 passed（失败仅 detail 警告）: {rows:?}"
     );
@@ -6682,7 +6763,9 @@ async fn 归档cleanup缺席幂等跳过_零失败面() {
     );
     let rows = node_rows(&command);
     assert_eq!(
-        rows.iter().find(|row| row.1 == "cleanup").map(|row| row.2.as_str()),
+        rows.iter()
+            .find(|row| row.1 == "cleanup")
+            .map(|row| row.2.as_str()),
         Some("passed"),
         "缺席跳过恒 passed"
     );
@@ -6737,10 +6820,7 @@ async fn 归档cleanup缺席重试链重入同词注记不自绊() {
             Some("worktree 已不在场，跳过清理"),
             "{round} 轮同词注记（幂等重入不自绊）"
         );
-        assert!(
-            vcs.remove_calls().is_empty(),
-            "{round} 轮零 remove 调用"
-        );
+        assert!(vcs.remove_calls().is_empty(), "{round} 轮零 remove 调用");
     }
 }
 
@@ -6781,7 +6861,9 @@ async fn 归档cleanuplegacy跳过_零worktree触点与零branch触碰() {
     );
     let rows = node_rows(&command);
     assert_eq!(
-        rows.iter().find(|row| row.1 == "cleanup").map(|row| row.2.as_str()),
+        rows.iter()
+            .find(|row| row.1 == "cleanup")
+            .map(|row| row.2.as_str()),
         Some("passed"),
         "legacy 清理步 passed"
     );
@@ -6835,7 +6917,11 @@ async fn 归档cleanup缺前置载荷_计划漂移failed且terminal() {
     let _confirmer = spawn_confirmer(&control, true);
     let status = task.await.expect("run 任务正常结束");
 
-    assert_eq!(status, ChangeRunStatus::Failed, "计划漂移 → Terminal（非尽力面）");
+    assert_eq!(
+        status,
+        ChangeRunStatus::Failed,
+        "计划漂移 → Terminal（非尽力面）"
+    );
     let command = history.finish().expect("收口落包应在案");
     let failed = command
         .nodes
@@ -6962,9 +7048,7 @@ async fn 归档冲突三段agent解算与独立快进() {
 
     let vcs = Arc::new(
         FakeVcs::clean()
-            .with_rebase(Ok(RebaseOutcome::Conflicted(vec![
-                "specs/a.md".to_owned()
-            ])))
+            .with_rebase(Ok(RebaseOutcome::Conflicted(vec!["specs/a.md".to_owned()])))
             .with_snapshot_head("head-b", Some("onto-commit")),
     );
     let (task, _rx, history) = spawn_run_with_vcs(
@@ -7069,7 +7153,10 @@ async fn 归档无冲突时解算步passed且零会话() {
         Some("无冲突"),
         "跳过因单点词汇"
     );
-    assert!(resolve_node.session_id.is_none(), "零会话步节点无 session_id");
+    assert!(
+        resolve_node.session_id.is_none(),
+        "零会话步节点无 session_id"
+    );
 }
 
 /// SpecSync 条件执行（边界 / 正向）：delta specs 在场且用户未跳过 → agent 会话
@@ -7117,7 +7204,11 @@ async fn 归档spec同步条件执行与用户跳过选择() {
         .filter(|request| request.role == WorkerRole::SpecSync)
         .cloned()
         .collect();
-    assert_eq!(spec_sync_requests.len(), 1, "delta specs 在场 → spec 同步会话");
+    assert_eq!(
+        spec_sync_requests.len(),
+        1,
+        "delta specs 在场 → spec 同步会话"
+    );
     assert_eq!(
         spec_sync_requests[0].root,
         root.root_str(),
@@ -7818,7 +7909,10 @@ async fn 组合链路归档落库与空checklist落账() {
     );
     assert_eq!(edges[6].to_node_key, "archive:1:cleanup:0");
     assert_eq!(edges[7].from_node_key, "archive:1:cleanup:0");
-    assert_eq!(edges[7].to_node_key, "archive:1:seal:0", "Cleanup → Seal 相邻边");
+    assert_eq!(
+        edges[7].to_node_key, "archive:1:seal:0",
+        "Cleanup → Seal 相邻边"
+    );
 
     let runs = db
         .store
@@ -7848,10 +7942,7 @@ async fn 归档seal产出驱动finalize落盘pathspec() {
     let (worker, _requests, _sessions) = FakeWorker::new(&timeline).assemble();
     let (tools, commands) = FakeTools::new(&timeline)
         .with_phase_next(vec![archive_route_outcome(), done_outcome()])
-        .with_archive_preflight(archive_preflight_twice(
-            &worktree_dir_str,
-            Vec::new(),
-        ))
+        .with_archive_preflight(archive_preflight_twice(&worktree_dir_str, Vec::new()))
         .with_archive_seal(vec![workflow::write::ArchiveOutcome {
             name: NAME.to_owned(),
             archived_date: "2026-02-02".to_owned(),
@@ -7979,9 +8070,7 @@ async fn 归档冲突解算续走失败携引导() {
     let control = Arc::new(ChangeFlowControl::new());
     let vcs = Arc::new(
         FakeVcs::clean()
-            .with_rebase(Ok(RebaseOutcome::Conflicted(vec![
-                "specs/a.md".to_owned()
-            ])))
+            .with_rebase(Ok(RebaseOutcome::Conflicted(vec!["specs/a.md".to_owned()])))
             .with_rebase_continue(Err("rebase --continue 失败".to_owned()))
             .with_snapshot_head("head-b", Some("onto-commit")),
     );
@@ -8104,7 +8193,11 @@ async fn 归档相位中途停止收敛stopped() {
     );
     assert!(control.request_stop(ROOT, CHANGE_ID), "停止置位");
     let status = task.await.expect("run 任务正常结束");
-    assert_eq!(status, ChangeRunStatus::Stopped, "停止 → 受控终止（非 failed）");
+    assert_eq!(
+        status,
+        ChangeRunStatus::Stopped,
+        "停止 → 受控终止（非 failed）"
+    );
     let command = history.finish().expect("收口落包应在案");
     assert!(
         command
@@ -8140,7 +8233,11 @@ fn mutation_outcome(
         threshold,
         counts: MutationCounts {
             killed: 7,
-            survived: if conclusion == MutationTestConclusion::Pass { 1 } else { 3 },
+            survived: if conclusion == MutationTestConclusion::Pass {
+                1
+            } else {
+                3
+            },
             timeout: 0,
             compile_error: 0,
             runtime_error: 0,
@@ -8195,7 +8292,11 @@ async fn 拆步时序_testexecution_fail不进mutation_绿后才续走() {
         .iter()
         .position(|label| label == "test-execution")
         .expect("首检在时间线");
-    assert_eq!(timeline[first_gate + 1], "executor", "fail → 反馈边修复会话");
+    assert_eq!(
+        timeline[first_gate + 1],
+        "executor",
+        "fail → 反馈边修复会话"
+    );
     assert_eq!(timeline[first_gate + 2], "test-execution", "修复重入复检");
     assert_eq!(
         timeline[first_gate + 3],
@@ -8219,7 +8320,11 @@ async fn 拆步时序_testexecution_fail不进mutation_绿后才续走() {
         .into_iter()
         .filter(|(_, _, kind, _)| kind == "mutation_test")
         .collect();
-    assert_eq!(rows.len(), 1, "mutation_test 单节点（running → passed 就地合并）");
+    assert_eq!(
+        rows.len(),
+        1,
+        "mutation_test 单节点（running → passed 就地合并）"
+    );
     assert_eq!(rows[0].3, "passed");
 }
 
@@ -8260,7 +8365,9 @@ async fn mutation_pass零反馈收口_双槽evidence达标面() {
     let detail = node_detail(&command, workflow::state::RunStepKind::MutationTest)
         .expect("mutation_test 节点 detail 在场");
     assert!(
-        detail.contains("conclusion=pass") && detail.contains("score=95") && detail.contains("threshold=80"),
+        detail.contains("conclusion=pass")
+            && detail.contains("score=95")
+            && detail.contains("threshold=80"),
         "detail 携结论摘要: {detail}"
     );
 
@@ -8283,7 +8390,12 @@ async fn phase_cursor双槽互不覆盖_机械checklist同时消费两槽() {
         .with_test_execution(vec![execution_outcome(TestExecutionConclusion::Pass, 7)])
         .with_mutation(vec![
             // 首检未达标 → 反馈修复 → 复检达标（失败路径下 test 槽已消费）
-            mutation_outcome(MutationTestConclusion::Fail, 55.0, 80.0, MUTATION_FAIL_FEEDBACK),
+            mutation_outcome(
+                MutationTestConclusion::Fail,
+                55.0,
+                80.0,
+                MUTATION_FAIL_FEEDBACK,
+            ),
             mutation_outcome(MutationTestConclusion::Pass, 95.0, 80.0, ""),
         ])
         .assemble();
@@ -8374,12 +8486,13 @@ async fn mutation_fail反馈prompt只嵌feedback_text注入executor会话() {
     let requests = requests.lock().expect("请求锁");
     assert_eq!(requests.len(), 2, "恰两次修复会话（fail→fail→pass）");
     for (index, request) in requests.iter().enumerate() {
-        assert_eq!(request.role, WorkerRole::Executor, "反馈边②注入 executor 会话");
+        assert_eq!(
+            request.role,
+            WorkerRole::Executor,
+            "反馈边②注入 executor 会话"
+        );
         assert!(
-            request
-                .prompt
-                .contains("突变测试未通过（第 ")
-                && request.prompt.contains("次反馈修复"),
+            request.prompt.contains("突变测试未通过（第 ") && request.prompt.contains("次反馈修复"),
             "修复 prompt 携反馈计数: {}",
             request.prompt
         );
@@ -8412,7 +8525,9 @@ async fn mutation_fail反馈prompt只嵌feedback_text注入executor会话() {
     // 会话登记：两轮修复会话 + 各自派发 id（首开新、次续注）
     let sessions = sessions.lock().expect("会话锁");
     assert_eq!(sessions.len(), 2, "两轮修复会话登记");
-    assert!(sessions.iter().all(|(role, _)| *role == WorkerRole::Executor));
+    assert!(sessions
+        .iter()
+        .all(|(role, _)| *role == WorkerRole::Executor));
 }
 
 /// 正向：`step_mutation_test`（Error）——段执行 error / harness 崩 / 超时 →
@@ -8488,14 +8603,21 @@ async fn mutation反馈独立计数_与test_execution分立() {
     let timeline = Arc::new(Mutex::new(Vec::new()));
     let (worker, _requests, _sessions) = FakeWorker::new(&timeline).assemble();
     let mutation_fail = || {
-        mutation_outcome(MutationTestConclusion::Fail, 55.0, 80.0, MUTATION_FAIL_FEEDBACK)
+        mutation_outcome(
+            MutationTestConclusion::Fail,
+            55.0,
+            80.0,
+            MUTATION_FAIL_FEEDBACK,
+        )
     };
     let (tools, commands) = FakeTools::new(&timeline)
         .with_phase_next(vec![route_outcome("test-execution", &[]), done_outcome()])
         .with_test_execution(vec![execution_outcome(TestExecutionConclusion::Pass, 5)])
         .with_mutation(vec![
             mutation_fail();
-            feedback_limit_of("test-execution", StepNode::MutationTest) as usize + 1
+            feedback_limit_of("test-execution", StepNode::MutationTest)
+                as usize
+                + 1
         ])
         .assemble();
 
@@ -8525,14 +8647,21 @@ async fn mutation反馈超限升格_代写failchecklist仅携executor槽位() {
     let timeline = Arc::new(Mutex::new(Vec::new()));
     let (worker, _requests, _sessions) = FakeWorker::new(&timeline).assemble();
     let mutation_fail = || {
-        mutation_outcome(MutationTestConclusion::Fail, 55.0, 80.0, MUTATION_FAIL_FEEDBACK)
+        mutation_outcome(
+            MutationTestConclusion::Fail,
+            55.0,
+            80.0,
+            MUTATION_FAIL_FEEDBACK,
+        )
     };
     let (tools, commands) = FakeTools::new(&timeline)
         .with_phase_next(vec![route_outcome("test-execution", &[]), done_outcome()])
         .with_test_execution(vec![execution_outcome(TestExecutionConclusion::Pass, 5)])
         .with_mutation(vec![
             mutation_fail();
-            feedback_limit_of("test-execution", StepNode::MutationTest) as usize + 1
+            feedback_limit_of("test-execution", StepNode::MutationTest)
+                as usize
+                + 1
         ])
         .assemble();
 
@@ -8574,7 +8703,9 @@ async fn mutation反馈超限升格_代写failchecklist仅携executor槽位() {
     );
     assert!(
         upgrade.checklist[0].evidence.contains("突变测试未达标")
-            || upgrade.checklist[0].evidence.contains("score 55 < threshold 80"),
+            || upgrade.checklist[0]
+                .evidence
+                .contains("score 55 < threshold 80"),
         "evidence 携 feedback_text 摘要（报告指引式）: {}",
         upgrade.checklist[0].evidence
     );
@@ -8600,7 +8731,9 @@ async fn mutation反馈超限升格_代写failchecklist仅携executor槽位() {
         .filter(|(_, _, kind, _)| kind == "mutation_test")
         .collect();
     assert!(
-        mutation_rows.iter().any(|(_, _, _, status)| status == "failed"),
+        mutation_rows
+            .iter()
+            .any(|(_, _, _, status)| status == "failed"),
         "升格路径 mutation_test 节点呈失败态: {mutation_rows:?}"
     );
 }
@@ -8622,8 +8755,7 @@ async fn 机械checklist第三条evidence三态映射() {
             .assemble();
         let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
         let control = Arc::new(ChangeFlowControl::new());
-        let (task, _rx, _history) =
-            spawn_run(worker, tools, snapshot, &control, true, "/tmp/root");
+        let (task, _rx, _history) = spawn_run(worker, tools, snapshot, &control, true, "/tmp/root");
         let status = task.await.expect("run 任务正常结束");
         assert_eq!(status, ChangeRunStatus::Completed);
         let commands = commands.lock().expect("命令锁");
@@ -8652,7 +8784,9 @@ async fn 机械checklist第三条evidence三态映射() {
     .await;
     assert!(pass, "第 3 条判定恒 pass（D8 语义不改）");
     assert!(
-        evidence.contains("跑过且达标") && evidence.contains("score 95") && evidence.contains("threshold 80"),
+        evidence.contains("跑过且达标")
+            && evidence.contains("score 95")
+            && evidence.contains("threshold 80"),
         "态① 跑过且达标: {evidence}"
     );
 
@@ -8686,4 +8820,557 @@ async fn 机械checklist第三条evidence三态映射() {
         evidence.contains("null（未跑）") && evidence.contains("无突变执行器"),
         "态③ NoExecutor 并入 null 态附注: {evidence}"
     );
+}
+
+// ---------------------------------------------------------------------------
+// desktop-step-running-snapshot（D1 / AC-2）：emit_node 铸造单点——running
+// emit 铸 (now, None)、终态 emit 铸 (now, Some(now))、瞬步单 emit 同刻、
+// stopped 收口有 ended；wall-clock 不 mock 不注入（复用生产时钟零新缝），
+// 断言取关系式（started > 0、ended >= started、瞬步同刻、stopped ended 在场），
+// wall-clock 绝对值不入断言。落包捕获经 RecordingHistory（节点即 finish_command
+// 输入的累积器快照——emit → accumulate 全链读取面）。
+// ---------------------------------------------------------------------------
+
+/// 两相位直通路由（proposal → dev-design → done）：proposal 站五步
+///（phase_start / executor / evaluator / verdict_gate / phase_log）+
+/// dev-design 站至少前三步——双 emit 步与瞬步单 emit 步同 run 并存。
+fn two_phase_routes() -> Vec<PhaseNextOutcome> {
+    vec![
+        route_outcome("proposal", &[]),
+        route_outcome("dev-design", &["proposal", "dev-design"]),
+        done_outcome(),
+    ]
+}
+
+/// 落包节点摘取：按 (step, instance_no) 圈定。
+fn node_of<'a>(
+    command: &'a RunFinishCommand,
+    step: workflow::state::RunStepKind,
+    instance_no: u32,
+) -> &'a RunNodeEntry {
+    command
+        .nodes
+        .iter()
+        .find(|node| node.step == step && node.instance_no == instance_no)
+        .unwrap_or_else(|| panic!("落包应含 {step:?} 实例 {instance_no} 节点"))
+}
+
+/// 正向：FakeWorker 正常收口的 executor 双 emit 步 → 终态节点 `started_at > 0`
+/// 且 `ended_at >= started_at`（wall-clock 关系式断言，绝对值不入断言）。
+#[tokio::test]
+async fn emit铸造_executor双emit关系式_started正且ended不早于started() {
+    let timeline = Arc::new(Mutex::new(Vec::new()));
+    let (worker, _requests, _sessions) = FakeWorker::new(&timeline).assemble();
+    let (tools, _) = FakeTools::new(&timeline)
+        .with_phase_next(two_phase_routes())
+        .assemble();
+    let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
+    let control = Arc::new(ChangeFlowControl::new());
+    let (task, _rx, history) = spawn_run(worker, tools, snapshot, &control, false, "/tmp/root");
+    let _confirmer = spawn_confirmer(&control, true);
+    let status = task.await.expect("run 任务正常结束");
+    assert_eq!(status, ChangeRunStatus::Completed);
+
+    let finish = history.finish().expect("finish 落包捕获");
+    let executor = node_of(&finish, workflow::state::RunStepKind::Executor, 0);
+    assert_eq!(
+        executor.status,
+        RunStepStatus::Passed,
+        "正常收口 executor 终态 passed"
+    );
+    assert!(
+        executor.started_at > 0,
+        "running emit 铸 started（> 0 关系式）"
+    );
+    let ended = executor.ended_at.expect("终态 emit 铸 ended 在场");
+    assert!(
+        ended >= executor.started_at,
+        "ended >= started（同刻瞬收合法）"
+    );
+}
+
+/// 正向：`phaseStart` 瞬步单 emit passed → 节点 `started_at == ended_at` 同刻
+///（AC-2 瞬步半边——铸造单点对单 emit 步自然产出零耗时形态）。
+#[tokio::test]
+async fn emit铸造_phase_start瞬步单emit同刻() {
+    let timeline = Arc::new(Mutex::new(Vec::new()));
+    let (worker, _requests, _sessions) = FakeWorker::new(&timeline).assemble();
+    let (tools, _) = FakeTools::new(&timeline)
+        .with_phase_next(two_phase_routes())
+        .assemble();
+    let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
+    let control = Arc::new(ChangeFlowControl::new());
+    let (task, _rx, history) = spawn_run(worker, tools, snapshot, &control, false, "/tmp/root");
+    let _confirmer = spawn_confirmer(&control, true);
+    task.await.expect("run 任务正常结束");
+
+    let finish = history.finish().expect("finish 落包捕获");
+    let start = node_of(&finish, workflow::state::RunStepKind::PhaseStart, 0);
+    assert_eq!(start.status, RunStepStatus::Passed);
+    assert!(start.started_at > 0, "单 emit 亦铸 started");
+    assert_eq!(
+        start.ended_at,
+        Some(start.started_at),
+        "瞬步单 emit started == ended 同刻"
+    );
+}
+
+/// 正向：executor 会话 Stopped 收敛（用户停止的会话半边）→ 终态节点 status=
+/// stopped 且 `ended_at` 在场 `> 0`（AC-2 stopped 半边——StepSettle::stopped
+/// 随行终态 emit 同铸 ended）。
+#[tokio::test]
+async fn emit铸造_会话stopped收敛终态节点ended在场() {
+    let timeline = Arc::new(Mutex::new(Vec::new()));
+    let (worker, _requests, _sessions) =
+        FakeWorker::new(&timeline).with_executor_stops(1).assemble();
+    let (tools, _) = FakeTools::new(&timeline)
+        .with_phase_next(vec![route_outcome("proposal", &[]), done_outcome()])
+        .assemble();
+    let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
+    let control = Arc::new(ChangeFlowControl::new());
+    let (task, mut rx, history) = spawn_run(worker, tools, snapshot, &control, false, "/tmp/root");
+    let _confirmer = spawn_confirmer(&control, true);
+    let status = task.await.expect("run 任务正常结束");
+    assert_eq!(
+        status,
+        ChangeRunStatus::Stopped,
+        "会话 Stopped 收敛 → run stopped"
+    );
+    assert!(drain_notices(&mut rx)
+        .iter()
+        .any(|notice| *notice == RunNotice::Finished));
+
+    let finish = history.finish().expect("finish 落包捕获");
+    let executor = node_of(&finish, workflow::state::RunStepKind::Executor, 0);
+    assert_eq!(executor.status, RunStepStatus::Stopped);
+    assert!(executor.started_at > 0, "running emit 铸 started");
+    let ended = executor.ended_at.expect("stopped 终态 emit 铸 ended 在场");
+    assert!(ended > 0, "stopped 收口有 ended（ended > 0 关系式）");
+    assert!(ended >= executor.started_at);
+}
+
+/// 正向：工具步 / Gate / 相位机步终态 emit → token 两值 None（`with_tokens`
+/// 仅 run_worker 调用、构造器中性继承——AC-3 非工步半边；executor 注入
+/// token 有值作对照组）。
+#[tokio::test]
+async fn emit铸造_非工步终态emit_token恒none() {
+    let timeline = Arc::new(Mutex::new(Vec::new()));
+    let (worker, _requests, _sessions) = FakeWorker::new(&timeline)
+        .with_transcripts(vec![vec![AgentEventKind::TurnDone {
+            subtype: "success".to_owned(),
+            is_error: false,
+            num_turns: Some(1),
+            duration_ms: Some(1_000),
+            cost_usd: None,
+            usage: serde_json::json!({ "input_tokens": 500, "output_tokens": 60 }),
+            session_id: None,
+        }]])
+        .assemble();
+    let (tools, _) = FakeTools::new(&timeline)
+        .with_phase_next(two_phase_routes())
+        .assemble();
+    let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
+    let control = Arc::new(ChangeFlowControl::new());
+    let (task, _rx, history) = spawn_run(worker, tools, snapshot, &control, false, "/tmp/root");
+    let _confirmer = spawn_confirmer(&control, true);
+    task.await.expect("run 任务正常结束");
+
+    let finish = history.finish().expect("finish 落包捕获");
+    // 对照组：executor 工步 token 落值
+    let executor = node_of(&finish, workflow::state::RunStepKind::Executor, 0);
+    assert_eq!(executor.token_input, Some(500));
+    assert_eq!(executor.token_output, Some(60));
+    // 非工步全词汇遍历：相位机 / Gate / 落账步 token 恒 None（构造器中性继承）
+    for step in [
+        workflow::state::RunStepKind::PhaseStart,
+        workflow::state::RunStepKind::VerdictGate,
+        workflow::state::RunStepKind::PhaseLog,
+    ] {
+        let node = node_of(&finish, step, 0);
+        assert_eq!(node.token_input, None, "{step:?} token_input 恒 None");
+        assert_eq!(node.token_output, None, "{step:?} token_output 恒 None");
+    }
+}
+
+/// 边界：EvaluatorGate 既有挂起装置下中途 snapshot → running 在途节点
+/// `started_at > 0`、`ended_at = None`（running 恒 None——AC-2 走秒数据半边）。
+#[tokio::test]
+async fn emit铸造_running在途snapshot_started正ended_none() {
+    let timeline = Arc::new(Mutex::new(Vec::new()));
+    let gate = EvaluatorGate::armed();
+    let (worker, requests, _sessions) = FakeWorker::new(&timeline)
+        .with_gate(Arc::clone(&gate))
+        .assemble();
+    let (tools, _) = FakeTools::new(&timeline)
+        .with_phase_next(two_phase_routes())
+        .assemble();
+    let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
+    let control = Arc::new(ChangeFlowControl::new());
+    let (task, _rx, _history) = spawn_run(worker, tools, snapshot, &control, false, "/tmp/root");
+    let _confirmer = spawn_confirmer(&control, true);
+
+    // evaluator 会话挂起（gate armed）即运行中窗口：在途节点已入累积器
+    wait_for("evaluator 会话发起", || {
+        requests
+            .lock()
+            .expect("请求锁")
+            .iter()
+            .any(|request| request.role == WorkerRole::Evaluator)
+    })
+    .await;
+    let snap = control.snapshot(ROOT, CHANGE_ID).expect("运行中快照在场");
+    let in_flight = snap
+        .nodes
+        .iter()
+        .find(|node| node.step == ChangeStepKind::Evaluator)
+        .expect("在途 evaluator 节点已入快照");
+    assert_eq!(in_flight.status, ChangeStepStatus::Running);
+    assert!(in_flight.started_at > 0, "running emit 铸 started（> 0）");
+    assert_eq!(in_flight.ended_at, None, "running 恒 None");
+
+    // 放行收口（run 任务收敛，除名归位）
+    *gate.armed.lock().expect("门锁不可中毒") = false;
+    gate.notify.notify_one();
+    task.await.expect("run 任务正常结束");
+}
+
+/// 边界：StepSettle 构造器中性预填（started_at=0 / ended_at=None）经 emit_node
+/// 铸造覆写 → 出面无中性值残留（D1 单点覆写锚：落包全节点 started > 0、
+/// 终态节点 ended = Some(> 0)）。
+#[tokio::test]
+async fn emit铸造_出面无中性值残留() {
+    let timeline = Arc::new(Mutex::new(Vec::new()));
+    let (worker, _requests, _sessions) = FakeWorker::new(&timeline).assemble();
+    let (tools, _) = FakeTools::new(&timeline)
+        .with_phase_next(two_phase_routes())
+        .assemble();
+    let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
+    let control = Arc::new(ChangeFlowControl::new());
+    let (task, _rx, history) = spawn_run(worker, tools, snapshot, &control, false, "/tmp/root");
+    let _confirmer = spawn_confirmer(&control, true);
+    task.await.expect("run 任务正常结束");
+
+    let finish = history.finish().expect("finish 落包捕获");
+    assert!(!finish.nodes.is_empty());
+    for node in &finish.nodes {
+        assert!(
+            node.started_at > 0,
+            "{:?} started 无构造器 0 残留（铸造覆写）",
+            node.step
+        );
+        if node.status != RunStepStatus::Running {
+            let ended = node.ended_at.expect("终态节点 ended 在场");
+            assert!(ended > 0, "{:?} ended 无中性值残留", node.step);
+        }
+    }
+}
+
+/// 异常：调用方预填冲突值（running 态构造器预携中性 ended_at=None、终态
+/// builder 不携时间）→ 铸造按 status 覆写、线面以铸造值为准（铸造不信任
+/// 调用方预填值——防御锚：StepSettle::passed 系构造器继承中性 0/None，出面
+/// 时间仍为铸造新值——瞬步单 emit 步 phase_start 的 started/ended 即铸造对）。
+#[tokio::test]
+async fn emit铸造_构造器中性预填被按status覆写() {
+    let timeline = Arc::new(Mutex::new(Vec::new()));
+    let (worker, _requests, _sessions) = FakeWorker::new(&timeline).assemble();
+    let (tools, _) = FakeTools::new(&timeline)
+        .with_phase_next(two_phase_routes())
+        .assemble();
+    let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
+    let control = Arc::new(ChangeFlowControl::new());
+    let (task, _rx, history) = spawn_run(worker, tools, snapshot, &control, false, "/tmp/root");
+    let _confirmer = spawn_confirmer(&control, true);
+    task.await.expect("run 任务正常结束");
+
+    let finish = history.finish().expect("finish 落包捕获");
+    // phase_start 步：StepSettle::passed 中性预填（0 / None）→ 铸造按 passed
+    // 覆写 (now, Some(now))——出面绝无预填 0 / None 残留
+    let start = node_of(&finish, workflow::state::RunStepKind::PhaseStart, 0);
+    assert_ne!(start.started_at, 0, "铸造覆写预填 started=0");
+    assert_eq!(
+        start.ended_at,
+        Some(start.started_at),
+        "铸造按 passed status 覆写 ended=Some(now)（预填 None 被顶替）"
+    );
+    // executor 步：终态 builder（StepSettle::passed）同样零时间预填 → 出面
+    // ended 铸造新值（>= running emit 首见 started）
+    let executor = node_of(&finish, workflow::state::RunStepKind::Executor, 0);
+    let ended = executor.ended_at.expect("终态铸造 ended 在场");
+    assert!(ended >= executor.started_at && ended > 0, "铸造值权威");
+}
+
+/// 组合（AC-2 / AC-4 交界）：emit 铸造 → accumulate → snapshot / 落包出口——
+/// 同 run 多步双 emit 序列后，终态前捕获的 snapshot 与终态出口 nodes（finish
+/// 命令输入）同键节点四字段一致（已收口键的快照面即出口面；在途键翻态后
+/// 以出口面为准不再比对）。
+#[tokio::test]
+async fn emit铸造_快照与落包出口同键四字段一致() {
+    let timeline = Arc::new(Mutex::new(Vec::new()));
+    let gate = EvaluatorGate::armed();
+    let (worker, requests, _sessions) = FakeWorker::new(&timeline)
+        .with_gate(Arc::clone(&gate))
+        .assemble();
+    let (tools, _) = FakeTools::new(&timeline)
+        .with_phase_next(two_phase_routes())
+        .assemble();
+    let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
+    let control = Arc::new(ChangeFlowControl::new());
+    let (task, _rx, history) = spawn_run(worker, tools, snapshot, &control, false, "/tmp/root");
+    let _confirmer = spawn_confirmer(&control, true);
+
+    // evaluator 挂起窗口：phase_start / executor 已终态（快照面），evaluator
+    // 在途
+    wait_for("evaluator 会话发起", || {
+        requests
+            .lock()
+            .expect("请求锁")
+            .iter()
+            .any(|request| request.role == WorkerRole::Evaluator)
+    })
+    .await;
+    let mid = control.snapshot(ROOT, CHANGE_ID).expect("运行中快照在场");
+    *gate.armed.lock().expect("门锁不可中毒") = false;
+    gate.notify.notify_one();
+    task.await.expect("run 任务正常结束");
+
+    let finish = history.finish().expect("finish 落包捕获");
+    // 同键对拍：快照中已收口（ended 在场）的节点，出口面四字段逐字段一致
+    //（started 保首见 / ended·token some 覆写后钉死——合并层单调）
+    for snap_node in &mid.nodes {
+        let Some(snap_ended) = snap_node.ended_at else {
+            continue; // 在途键翻态后不再可比（出口面权威）
+        };
+        let exit_node = finish
+            .nodes
+            .iter()
+            .find(|node| {
+                node.phase == snap_node.phase
+                    && node.attempt == snap_node.attempt
+                    && node.step.as_str() == snap_node.step.as_str()
+                    && node.instance_no == snap_node.instance_no
+            })
+            .unwrap_or_else(|| panic!("出口应含同键节点 {:?}", snap_node.step));
+        assert_eq!(
+            exit_node.started_at, snap_node.started_at,
+            "started 快照=出口"
+        );
+        assert_eq!(exit_node.ended_at, Some(snap_ended), "ended 快照=出口");
+        assert_eq!(exit_node.token_input, snap_node.token_input);
+        assert_eq!(exit_node.token_output, snap_node.token_output);
+    }
+    // 出口面至少含一个已收口键（对拍非空——phase_start 瞬步恒先收口）
+    assert!(
+        mid.nodes.iter().any(|node| node.ended_at.is_some()),
+        "快照窗口内已有已收口键（对拍非空置）"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// desktop-step-running-snapshot（D2 / AC-3 / AC-10）：run_worker token 求和
+// ——终态 emit 前对 outcome.transcript 的 TurnDone.usage 单次求和落值（无论
+// outcome.status）；Err 路径恒 None；求和语义 = `agent::sum_usage_tokens`
+// 消费面表现。
+// ---------------------------------------------------------------------------
+
+/// TurnDone kind 构造（usage 显式注入——脚本转录的最常用事件）。
+fn turn_done_kind(input: serde_json::Value, output: serde_json::Value) -> AgentEventKind {
+    AgentEventKind::TurnDone {
+        subtype: "success".to_owned(),
+        is_error: false,
+        num_turns: Some(1),
+        duration_ms: Some(1_000),
+        cost_usd: None,
+        usage: serde_json::json!({
+            "input_tokens": input,
+            "output_tokens": output
+        }),
+        session_id: None,
+    }
+}
+
+/// 正向：FakeWorker 转录注入多 TurnDone（usage 两键各值）→ 终态节点
+/// token_input / token_output = 逐值之和（AC-3 主断言）。
+#[tokio::test]
+async fn run_worker_transcript多turndone_usage求和落值() {
+    let timeline = Arc::new(Mutex::new(Vec::new()));
+    let (worker, _requests, _sessions) = FakeWorker::new(&timeline)
+        .with_transcripts(vec![vec![
+            turn_done_kind(json_usize(100), json_usize(20)),
+            turn_done_kind(json_usize(30), json_usize(0)),
+            turn_done_kind(json_usize(17), json_usize(7)),
+        ]])
+        .assemble();
+    let (tools, _) = FakeTools::new(&timeline)
+        .with_phase_next(vec![route_outcome("proposal", &[]), done_outcome()])
+        .assemble();
+    let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
+    let control = Arc::new(ChangeFlowControl::new());
+    let (task, _rx, history) = spawn_run(worker, tools, snapshot, &control, false, "/tmp/root");
+    let _confirmer = spawn_confirmer(&control, true);
+    task.await.expect("run 任务正常结束");
+
+    let finish = history.finish().expect("finish 落包捕获");
+    let executor = node_of(&finish, workflow::state::RunStepKind::Executor, 0);
+    assert_eq!(executor.token_input, Some(147), "in = 100 + 30 + 17");
+    assert_eq!(executor.token_output, Some(27), "out = 20 + 0 + 7");
+}
+
+/// 正向：会话失败收敛（Failed outcome 但 transcript 在手）→ token 仍按
+/// transcript 求和落值（D2 无论 outcome.status；executor 失败注入携转录
+/// 脚本——脚本组即失败会话转录）。
+#[tokio::test]
+async fn run_worker_会话失败收敛transcript在手token仍落值() {
+    let timeline = Arc::new(Mutex::new(Vec::new()));
+    let (worker, _requests, _sessions) = FakeWorker::new(&timeline)
+        .with_executor_failures(vec![Some("api_error: 配额耗尽".to_owned())])
+        .with_transcripts(vec![vec![
+            turn_done_kind(json_usize(11), json_usize(3)),
+            turn_done_kind(json_usize(22), json_usize(4)),
+        ]])
+        .assemble();
+    let (tools, _) = FakeTools::new(&timeline)
+        .with_phase_next(vec![route_outcome("proposal", &[])])
+        .assemble();
+    let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
+    let control = Arc::new(ChangeFlowControl::new());
+    let (task, _rx, history) = spawn_run(worker, tools, snapshot, &control, false, "/tmp/root");
+    let _confirmer = spawn_confirmer(&control, true);
+    let status = task.await.expect("run 任务正常结束");
+    assert_eq!(status, ChangeRunStatus::Failed, "会话失败收敛 → run failed");
+
+    let finish = history.finish().expect("finish 落包捕获");
+    let executor = node_of(&finish, workflow::state::RunStepKind::Executor, 0);
+    assert_eq!(executor.status, RunStepStatus::Failed);
+    assert_eq!(executor.token_input, Some(33), "失败收敛 in = 11 + 22");
+    assert_eq!(executor.token_output, Some(7), "失败收敛 out = 3 + 4");
+}
+
+/// 边界：转录零 TurnDone / usage 缺席（零注入既有形态）→ 终态节点 token 两值
+/// None（AC-3 缺席半边——usage 缺席合法缺省）。
+#[tokio::test]
+async fn run_worker_零turndone_token恒none() {
+    let timeline = Arc::new(Mutex::new(Vec::new()));
+    let (worker, _requests, _sessions) = FakeWorker::new(&timeline).assemble();
+    let (tools, _) = FakeTools::new(&timeline)
+        .with_phase_next(vec![route_outcome("proposal", &[]), done_outcome()])
+        .assemble();
+    let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
+    let control = Arc::new(ChangeFlowControl::new());
+    let (task, _rx, history) = spawn_run(worker, tools, snapshot, &control, false, "/tmp/root");
+    let _confirmer = spawn_confirmer(&control, true);
+    task.await.expect("run 任务正常结束");
+
+    let finish = history.finish().expect("finish 落包捕获");
+    let executor = node_of(&finish, workflow::state::RunStepKind::Executor, 0);
+    assert_eq!(executor.token_input, None, "零 TurnDone → None");
+    assert_eq!(executor.token_output, None);
+}
+
+/// 边界（with_tokens 单侧）：转录 usage 仅携 input_tokens 键 → 终态节点
+/// token_input 单侧落值、token_output 缺席侧 None（builder 单侧 Some 形态）。
+#[tokio::test]
+async fn run_worker_token单侧落值_缺席侧none() {
+    let timeline = Arc::new(Mutex::new(Vec::new()));
+    let (worker, _requests, _sessions) = FakeWorker::new(&timeline)
+        .with_transcripts(vec![vec![AgentEventKind::TurnDone {
+            subtype: "success".to_owned(),
+            is_error: false,
+            num_turns: Some(1),
+            duration_ms: Some(1_000),
+            cost_usd: None,
+            usage: serde_json::json!({ "input_tokens": 500 }),
+            session_id: None,
+        }]])
+        .assemble();
+    let (tools, _) = FakeTools::new(&timeline)
+        .with_phase_next(vec![route_outcome("proposal", &[]), done_outcome()])
+        .assemble();
+    let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
+    let control = Arc::new(ChangeFlowControl::new());
+    let (task, _rx, history) = spawn_run(worker, tools, snapshot, &control, false, "/tmp/root");
+    let _confirmer = spawn_confirmer(&control, true);
+    task.await.expect("run 任务正常结束");
+
+    let finish = history.finish().expect("finish 落包捕获");
+    let executor = node_of(&finish, workflow::state::RunStepKind::Executor, 0);
+    assert_eq!(executor.token_input, Some(500), "在场侧单侧落值");
+    assert_eq!(executor.token_output, None, "缺席侧 None");
+}
+
+/// 边界：`worker.run` 返回 Err（无 outcome / 无 transcript）→ failed emit 节点
+/// token 恒 None（D2 Err 半边——evaluator Err 注入路径）。
+#[tokio::test]
+async fn run_worker_err路径failed_emit_token恒none() {
+    let timeline = Arc::new(Mutex::new(Vec::new()));
+    let (worker, _requests, _sessions) = FakeWorker::new(&timeline)
+        .with_evaluator_reports(vec![Err("评估会话崩溃".to_owned())])
+        .assemble();
+    let (tools, _) = FakeTools::new(&timeline)
+        .with_phase_next(vec![route_outcome("proposal", &[])])
+        .assemble();
+    let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
+    let control = Arc::new(ChangeFlowControl::new());
+    let (task, _rx, history) = spawn_run(worker, tools, snapshot, &control, false, "/tmp/root");
+    let _confirmer = spawn_confirmer(&control, true);
+    let status = task.await.expect("run 任务正常结束");
+    assert_eq!(status, ChangeRunStatus::Failed, "会话 Err → run failed");
+
+    let finish = history.finish().expect("finish 落包捕获");
+    let evaluator = node_of(&finish, workflow::state::RunStepKind::Evaluator, 0);
+    assert_eq!(evaluator.status, RunStepStatus::Failed);
+    assert!(evaluator.started_at > 0, "failed emit 亦铸 started");
+    assert!(evaluator.ended_at.is_some(), "failed 终态 emit 铸 ended");
+    assert_eq!(evaluator.token_input, None, "Err 路径 token 恒 None");
+    assert_eq!(evaluator.token_output, None);
+}
+
+/// 异常：转录混入非 TurnDone 事件与 usage 值类型漂移（字符串 / 浮点）→ 求和
+/// 仅计合法 TurnDone 数值、不 panic（`agent::sum_usage_tokens` 语义在消费面的
+/// 表现，AC-3 / AC-10）。
+#[tokio::test]
+async fn run_worker_干扰载荷仅合法turndone计入不panic() {
+    let timeline = Arc::new(Mutex::new(Vec::new()));
+    let (worker, _requests, _sessions) = FakeWorker::new(&timeline)
+        .with_transcripts(vec![vec![
+            AgentEventKind::RunStarted {
+                model: None,
+                session_id: None,
+                tools: Vec::new(),
+                mcp_servers: Vec::new(),
+            },
+            turn_done_kind(json_usize(5), json_usize(1)),
+            AgentEventKind::MessageDelta {
+                parent_tool_use_id: None,
+                delta: agent::AgentDelta::Text {
+                    text: "增量".to_owned(),
+                },
+            },
+            // 类型漂移：字符串 / 浮点 usage 值 → as_u64 判定失败跳过
+            turn_done_kind(serde_json::json!("1200"), serde_json::json!(2.5)),
+            turn_done_kind(json_usize(6), serde_json::Value::Null),
+        ]])
+        .assemble();
+    let (tools, _) = FakeTools::new(&timeline)
+        .with_phase_next(vec![route_outcome("proposal", &[]), done_outcome()])
+        .assemble();
+    let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
+    let control = Arc::new(ChangeFlowControl::new());
+    let (task, _rx, history) = spawn_run(worker, tools, snapshot, &control, false, "/tmp/root");
+    let _confirmer = spawn_confirmer(&control, true);
+    let status = task.await.expect("run 任务正常结束");
+    assert_eq!(status, ChangeRunStatus::Completed, "干扰载荷不炸不翻转终态");
+
+    let finish = history.finish().expect("finish 落包捕获");
+    let executor = node_of(&finish, workflow::state::RunStepKind::Executor, 0);
+    assert_eq!(
+        executor.token_input,
+        Some(11),
+        "仅合法 TurnDone 数值计入（5 + 6）"
+    );
+    assert_eq!(executor.token_output, Some(1), "漂移值跳过（1 + 0）");
+}
+
+/// usize → JSON 数值（脚本可读性小助手）。
+fn json_usize(value: u64) -> serde_json::Value {
+    serde_json::json!(value)
 }
