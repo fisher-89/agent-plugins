@@ -74,12 +74,13 @@ queries SHALL 新增目录扫描（`scan_explores(layout)` 或等价 API）：�
 
 ### Requirement: promote_explore 命令与笔记搬运
 
-命令层 SHALL 提供 `promote_explore(root, name, workflow_type)`（落 `commands/explores/`）：blank root / 非 kebab name → 显式 `Err`；`workflow_type` 非法值（`phase_table` 不命中）→ 显式 `Err`。语义 SHALL 为 **move**：
+命令层 SHALL 提供 `promote_explore(root, name, workflow_type)`（落 `commands/explores/`）：blank root / 非 kebab name / 非法 workflow_type 显式 `Err`。语义 SHALL 为 **move**：
 
-1. 读主仓笔记全文（`read_explore` 命中且内容非空白，否则显式 `Err` 引导先完成探索）；
-2. 读 `ExploreRecord`（存在且 `promoted_to` 为空，否则显式 `Err`）；
-3. 调 workflow 写面 `promote_explore`（复用 change `create`：`name = explore.name`、`goal = 笔记全文`、`title = explore.title`、`workflow_type = 入参`，成功后删主仓 `explores/<name>.md`）；
-4. 写面成功后调 store `mark_explore_promoted(root, name, change_id)` 打标（会话链保留，MUST NOT 删 explore 记录）。
+1. **占位前缀门禁**：记录名以 `draft-` 前缀（免命名建档的未定名态，见 desktop-workspace-store「ExploreRecord 模型与 explore 清单操作面」）→ 显式 `Err`（引导先在会话中完成定名再启动变更）；该校验 SHALL 先于笔记读取——占位名从未落盘，「笔记未落盘」错误形态对该态不足以引导；
+2. 读主仓笔记全文（`read_explore` 命中且内容非空白，否则显式 `Err` 引导先完成探索）；
+3. 读 `ExploreRecord`（存在且 `promoted_to` 为空，否则显式 `Err`）；
+4. 调 workflow 写面 `promote_explore`（复用 change `create`：`name = explore.name`、`goal = 笔记全文`、`title = explore.title`、`workflow_type = 入参`，成功后删主仓 `explores/<name>.md`）；
+5. 写面成功后调 store `mark_explore_promoted(root, name, change_id)` 打标（会话链保留，MUST NOT 删 explore 记录）。
 
 命令 SHALL 返回 `PromoteOutcome`（`change_id` / `change_name`）。磁盘笔记删除 SHALL 仅经 workflow 写面完成，命令层 MUST NOT 直接 `remove_file`。写面 `promote_explore` SHALL 为 sync、零 Tauri、零 tokio（沿写面纪律），经 `Layout` 取全部磁盘路径（MUST NOT 自拼 `openspec` 字面量），并把 `workflow_type` 透传 `create`。
 
@@ -102,6 +103,11 @@ queries SHALL 新增目录扫描（`scan_explores(layout)` 或等价 API）：�
 
 - **WHEN** 分别以未落盘 / 空白内容 / 非 kebab name / 已 promoted / 同名 active change 冲突调用 `promote_explore`
 - **THEN** 均返回显式 `Err`，explore 记录与笔记零改动、change 侧零建档（冲突拒绝发生在 create 前置，create 失败补偿链由既有语义承担）
+
+#### Scenario: 占位名门禁先于笔记读取
+
+- **WHEN** 对 `draft-` 前缀的未定名记录调用 `promote_explore`
+- **THEN** 显式 `Err`（文案引导先在会话中完成定名），零磁盘 IO、零 store 写、change 侧零建档；报错先于「笔记未落盘」形态出现
 
 #### Scenario: 命令层零直接磁盘删除
 
@@ -129,3 +135,5 @@ queries SHALL 新增目录扫描（`scan_explores(layout)` 或等价 API）：�
 | `crates/core/workflow/src/queries/explore.rs`（新） | explore 读面 | `read_explore(layout, name)`（stem 校验防穿越，缺失 → None）；`scan_explores(layout)`（顶层 `*.md` stem，缺失目录空）；纯读、零 Tauri |
 | `crates/core/workflow/src/queries/mod.rs` | 模块注册与导出 | explore 读面挂入 queries，既有 change 查询不动 |
 | `src-tauri/src/commands/explores/`（新轨道） | 薄命令 | `read_explore` / 扫描 / 记录 CRUD；无状态三件事；blank root 空结果；纯文本 DTO 不套信封 |
+| `src-tauri/src/commands/explores/mod.rs`（`promote_explore_with`） | promote 步序 | 步序前置占位前缀门禁（`draft-` 前缀 → 显式 `Err` 引导定名，先于笔记读取）；其余步序与语义零变化 |
+| `src-tauri/src/commands/explores/mod.rs`（`create_explore_record`） | 建档命令 | `name: Option<String>` 透传 store（`None` = 占位建档；`Some` = 导入绑定显式名）；薄包装三件事纪律不变 |
