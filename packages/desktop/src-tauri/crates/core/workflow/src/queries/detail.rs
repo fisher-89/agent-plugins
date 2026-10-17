@@ -12,6 +12,19 @@ use crate::state::{
 use crate::write::{phase_table, utc_date};
 use foundation::layout::Layout;
 
+/// 相位清单读空面降级（单区块降级哲学）但不再静默：读 `Err` 记 stderr 后
+/// 回落默认值。此前 `unwrap_or_default` 无痕，bincode 旧 schema 毒化故障
+/// 排查只能靠库取证；run 史读面已改 `?` 透传（见 [`change_detail`] 文档）。
+fn degraded_or_default<T: Default>(
+    context: impl FnOnce() -> String,
+    result: Result<T, StoreFault>,
+) -> T {
+    result.unwrap_or_else(|error| {
+        eprintln!("[change_detail] {} 读失败，降级空面: {error}", context());
+        T::default()
+    })
+}
+
 /// 运行中 phase 状态（线面）。
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
@@ -206,9 +219,11 @@ pub struct ChangeDetail {
 /// record 先读后定位（design D12）——`name` / `worktree` 自记录直供
 /// `locate_change` 回退（merge 前主仓两树未命中仍可达）；**建档记录恒可达
 /// 详情**——定位全 miss（worktree 被手动删除、未 merge）→ dir 缺席、产物清单
-/// 空、状态面在（`source` 自 record.status 映射）。子表读（
-/// `list_phase_records` / `list_runs` / `list_run_nodes` / `list_run_edges`）
-/// 沿 `unwrap_or_default` 空面降级哲学（单区块读失败不升级整份 `Err`）。
+/// 空、状态面在（`source` 自 record.status 映射）。子表读分流：
+/// `list_phase_records` 沿单区块空面降级（读 `Err` 记 stderr 留痕后空数组）；
+/// **run 执行图三读面（`list_runs` / `list_run_nodes` / `list_run_edges`）
+/// `Err` 显式透传**——节点读失败 MUST NOT 降级空数组（否则与「该 run 无
+/// step」不可辨，历史步史塌空无错误面）。
 pub fn change_detail(
     layout: &Layout,
     store: &dyn ChangeStateStore,
@@ -226,14 +241,16 @@ pub fn change_detail(
     };
     // 磁盘面 name / worktree 恒自记录供给（id → 记录 → name 分辨率单点）
     let location = locate_change(layout, record.worktree.as_deref(), record.name.as_str());
-    let entries = store.list_phase_records(id).unwrap_or_default();
+    let entries = degraded_or_default(
+        || "list_phase_records".to_owned(),
+        store.list_phase_records(id),
+    );
 
     // run 执行图全量读面：runs 按 started_at 升序（并列按 run_id 稳定序）、
-    // nodes / edges 按库读序（node_seq / edge_seq 升序 = emit 序）；读失败降级空
-    // runs（与清单读面 unwrap_or_default 同哲学）。
+    // nodes / edges 按库读序（node_seq / edge_seq 升序 = emit 序）；run 史读
+    // 面 Err 显式透传（MUST NOT 降级空面——空图与「无 step」不可辨）。
     let mut runs: Vec<ChangeRunEntry> = store
-        .list_runs(id)
-        .unwrap_or_default()
+        .list_runs(id)?
         .iter()
         .map(ChangeRunEntry::from)
         .collect();
@@ -244,15 +261,15 @@ pub fn change_detail(
             .then_with(|| a.run_id.cmp(&b.run_id))
     });
     for run_entry in &mut runs {
+        // run 史读面 Err 显式透传（MUST NOT 降级空面）：节点读失败曾因
+        // `unwrap_or_default` 呈「零 step 图」假象，与「该 run 无步」不可辨。
         run_entry.nodes = store
-            .list_run_nodes(&run_entry.run_id)
-            .unwrap_or_default()
+            .list_run_nodes(&run_entry.run_id)?
             .iter()
             .map(ChangeRunNodeRecord::from)
             .collect();
         run_entry.edges = store
-            .list_run_edges(&run_entry.run_id)
-            .unwrap_or_default()
+            .list_run_edges(&run_entry.run_id)?
             .iter()
             .map(ChangeRunEdgeRecord::from)
             .collect();

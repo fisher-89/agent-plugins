@@ -927,6 +927,12 @@ impl RunRecord {
 }
 
 /// run 执行图节点行
+///
+/// **落库编码 = native_model 默认 bincode（非自描述：按字段顺序 / 枚举下标
+/// 编码）**。字段集演进 MUST 同时 bump `native_model` version（配 `from` 升级
+/// 链或显式迁移）——`#[serde(default)]` 不足以兼容更短的旧行（bincode 读到
+/// EOF 即报错）；枚举字段（`step` / `status`）新增变体 MUST 仅尾部追加，
+/// 中插 / 重排会令存量行整体错位。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 #[native_model(id = 16, version = 1)]

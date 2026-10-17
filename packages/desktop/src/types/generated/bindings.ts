@@ -1117,6 +1117,9 @@ export type RunStatus =
  *  seal / finalize）。词汇本体单点——落库命令
  * （`RunNodeEntry.step`）与查询投影（`detail.rs`）同本类型消费，落库零过滤
  * （旧 5 值词表的过滤谓词已退役）。
+ * 
+ *  **落库编码为 bincode 枚举下标**（`RunNodeRecord.step`）：新增变体 MUST 仅
+ *  尾部追加，MUST NOT 中间插入 / 重排（会令存量节点行步词整体错位）。
  */
 export type RunStepKind = 
 /**  executor 会话 */

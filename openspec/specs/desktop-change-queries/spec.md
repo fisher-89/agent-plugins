@@ -158,7 +158,7 @@ queries SHALL 为纯读操作：只读 workspace 文件与 workspace 库（经�
 - **None = 真「未找到」**：db 无该 id 记录（含 `workflow_type` 不在相位表内的既有 `None` 语义，见「change 详情聚合」）→ `Ok(None)`；前端「未找到」兜底页语义不变。
 - **Err = 读失败**：workspace 库读 `Err`（`get_change` 返回 `StoreFault`）SHALL 以 `Err` 原样传播出线（错误串透传到命令层与前端），MUST NOT 经 `.ok()` / `unwrap_or_default` 降级为 `None` 或空面——读失败 MUST NOT 呈「未找到」假象（运行中的 change 因 store 瞬时读错被前端整页塌兜底的竞态由此封堵）。
 
-core `change_detail` 签名 SHALL 由 `Option<ChangeDetail>` 改为 `Result<Option<ChangeDetail>, StoreFault>`；既有其余子表读（`list_phase_records` / `list_runs` / `list_run_nodes` / `list_run_edges`）的 `unwrap_or_default` 单区块空面降级哲学 SHALL 保持不变（单区块读失败不升级为整份 `Err`）。命令面 `get_change_detail` SHALL 随动为 `Result<Option<ChangeDetailUnified>, String>`：blank root 维持空结果 `Ok(None)` 语义；`StoreFault` → 错误串映射收命令层单点。DTO 线面形状零演进：`Result<Option<T>, String>` 经 bindings 出线仍为 `Promise<T | null>`（Err 走 reject 通道），前端类型面零漂移、golden 零重写。前端失败轮的保 last-good 降级行为由 desktop-change-flow-view「通知重查失败降级与有界重试」承载。
+core `change_detail` 签名 SHALL 由 `Option<ChangeDetail>` 改为 `Result<Option<ChangeDetail>, StoreFault>`；相位清单读（`list_phase_records`）SHALL 维持单区块空面降级（读 `Err` 记 stderr 留痕后空数组），**run 执行图三读面（`list_runs` / `list_run_nodes` / `list_run_edges`）SHALL 以 `Err` 整份透传**（MUST NOT 降级空数组——节点读失败与「该 run 无 step」不可辨，历史步史曾因 `unwrap_or_default` 静默塌空）。命令面 `get_change_detail` SHALL 随动为 `Result<Option<ChangeDetailUnified>, String>`：blank root 维持空结果 `Ok(None)` 语义；`StoreFault` → 错误串映射收命令层单点。DTO 线面形状零演进：`Result<Option<T>, String>` 经 bindings 出线仍为 `Promise<T | null>`（Err 走 reject 通道），前端类型面零漂移、golden 零重写。前端失败轮的保 last-good 降级行为由 desktop-change-flow-view「通知重查失败降级与有界重试」承载。
 
 #### Scenario: store 读 Err 传播不降级
 
@@ -175,10 +175,15 @@ core `change_detail` 签名 SHALL 由 `Option<ChangeDetail>` 改为 `Result<Opti
 - **WHEN** core `change_detail` 返回 `Err`
 - **THEN** IPC `get_change_detail` 以 store 错误串 reject（前端 invoke catch 面可承接），非 `null` 应答、非 panic；blank root 仍 `Ok(None)`（空结果语义不变）
 
-#### Scenario: 子表读降级哲学不变
+#### Scenario: 相位清单读降级留痕
 
-- **WHEN** `get_change` 读 `Ok(Some)` 而 `list_runs` 读 `Err`
-- **THEN** 详情照常 `Ok(Some)` 出线（runs 为空数组），单区块缺失不升级为整份 `Err`——既有 `unwrap_or_default` 哲学保持
+- **WHEN** `get_change` 读 `Ok(Some)` 而 `list_phase_records` 读 `Err`
+- **THEN** 详情照常 `Ok(Some)` 出线（各站 attempts 空数组），读 `Err` 记 stderr 留痕——单区块缺失不升级为整份 `Err`
+
+#### Scenario: run 史读面 Err 透传
+
+- **WHEN** `get_change` 读 `Ok(Some)` 而 `list_runs` / `list_run_nodes` / `list_run_edges` 任一读 `Err`
+- **THEN** `change_detail` 返回 `Err`（fault 原样透传），MUST NOT 出零 step / 零边空面——节点读失败不得与「该 run 无步」混同
 
 #### Scenario: bindings 零漂移
 
@@ -223,7 +228,7 @@ detail 线面 `ChangeRunNodeRecord` SHALL 增四字段出线：`startedAt: numbe
 | `packages/desktop/src/types/generated/bindings.ts` | 类型跟随 | `ChangeSummary.id` / `ChangeDetail.id` 经 export-bindings 再生成；一致性守卫拦截漂移 |
 | `crates/core/workflow/src/queries/`（detail DTO stepKind 投影） | 二十一值出线 | `RunStepKind` 词面扩展自动跟随（纯 derive 零字段属性）；pipeline 出线随 `phase_table`（requirement 10 列 / test-only 7 列，initialize 首列）；golden 覆盖 initialize 相位与 clean 步词样本经显式重写 |
 | `packages/desktop/src/types/generated/bindings.ts` | 类型跟随 | `RunStepKind` 词面再生成；`bindings:check` 守卫拦截漂移 |
-| `crates/core/workflow/src/queries/detail.rs` | 错误语义分流单点 | `change_detail` 签名 `Option<ChangeDetail>` → `Result<Option<ChangeDetail>, StoreFault>`：`get_change` 读 `Err` 传播（`.ok()` 吞错消除）；子表读 `unwrap_or_default` 哲学不变；DTO 线面形状零演进 |
+| `crates/core/workflow/src/queries/detail.rs` | 错误语义分流单点 | `change_detail` 签名 `Option<ChangeDetail>` → `Result<Option<ChangeDetail>, StoreFault>`：`get_change` 读 `Err` 传播（`.ok()` 吞错消除）；相位清单读降级留痕、run 史三读面 `Err` 透传；DTO 线面形状零演进 |
 | `src/commands/changes/mod.rs`（`get_change_detail`） | IPC 面分流 | 返回 `Result<Option<ChangeDetailUnified>, String>`：blank root 仍 `Ok(None)`；`StoreFault` → 错误串映射收命令层单点 |
 | `crates/core/orchestration/src/snapshot.rs`（机械随动） | 唯一 orchestration 调用点适配 | `Err` 透传 store 错误串（取代误报「change 不存在」）；`None` 仍「change 不存在: {id}」；`WorkflowSnapshotPort::detail` 契约与 walker 消费面不变 |
 | `packages/desktop/src/types/generated/bindings.ts` | 类型零漂移 | `Result<Option<T>, String>` 出线 `Promise<T \| null>`（Err 走 reject 通道）；再生成预期零 diff、一致性守卫绿 |

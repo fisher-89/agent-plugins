@@ -1,6 +1,7 @@
 use agent::{
     AgentBlock, AgentEvent, AgentEventKind, AgentMessageRole, AgentPermissionMode, AgentRunStatus,
 };
+use native_model::native_model;
 
 use workflow::model::{ChecklistItem, Verdict};
 
@@ -3133,4 +3134,138 @@ fn run_node_record真件落库读回四列逐字段一致() {
     assert_eq!(rows[1].token_input, None);
     assert_eq!(rows[1].token_output, None);
     assert_eq!(rows[0].timestamp, 1_727_000_300_000, "整包同刻读回");
+}
+
+// ---------------------------------------------------------------------------
+// run 节点行 v1 线格式冻结守卫（bincode 非自描述：字段顺序 / 枚举下标即协议）
+// ---------------------------------------------------------------------------
+
+mod frozen_run_node_key_serde {
+    use serde::{Deserialize, Deserializer, Serializer};
+
+    pub fn serialize<S: Serializer>(value: &u128, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(&format!("{value:#034x}"))
+    }
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(deserializer: D) -> Result<u128, D::Error> {
+        let text = String::deserialize(deserializer)?;
+        u128::from_str_radix(text.trim_start_matches("0x"), 16).map_err(serde::de::Error::custom)
+    }
+}
+
+/// 冻结的 v1 步词汇（与 `RunStepKind` 当前 21 值顺序逐位一致）。新增变体只能
+/// 追加在本枚举尾部；中插 / 重排会令 `run_node_record_v1线格式冻结守卫` 失败。
+#[derive(Debug, Clone, Copy, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+enum FrozenRunStepKind {
+    Executor,
+    Evaluator,
+    Decision,
+    StaticCheck,
+    TestExecution,
+    MutationTest,
+    Clean,
+    PhaseStart,
+    PhaseLog,
+    VerdictGate,
+    RetryGate,
+    WhitelistGate,
+    Preflight,
+    Commit,
+    Rebase,
+    ResolveConflicts,
+    Merge,
+    SpecSync,
+    Cleanup,
+    Seal,
+    Finalize,
+}
+
+/// 冻结的 v1 步状态（四值顺序）。
+#[derive(Debug, Clone, Copy, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+enum FrozenRunStepStatus {
+    Running,
+    Passed,
+    Failed,
+    Stopped,
+}
+
+/// 冻结的 v1 `RunNodeRecord` 字段面：与当前结构逐字段同序（含 `node_key`
+/// serde 定制）。本副本刻意不复用 `RunNodeRecord`，否则扩字段 / 改枚举时
+/// 「新旧两侧一起漂移」，守卫即失效。
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[native_model(id = 16, version = 1)]
+struct RunNodeRecordV1Frozen {
+    #[serde(with = "frozen_run_node_key_serde")]
+    node_key: u128,
+    run_id: String,
+    change_id: String,
+    phase: String,
+    attempt: u32,
+    step: FrozenRunStepKind,
+    instance_no: u32,
+    status: FrozenRunStepStatus,
+    session_id: Option<String>,
+    detail: Option<String>,
+    output_ref: Option<String>,
+    started_at: i64,
+    ended_at: Option<i64>,
+    token_input: Option<u64>,
+    token_output: Option<u64>,
+    timestamp: i64,
+}
+
+/// v1 线格式冻结守卫：以冻结副本编码，按现模型解码须逐字段还原。
+///
+/// 该用例失败即代表 bincode 线格式发生了**未版本化**的原地变更：
+/// 字段中插 / 枚举中插 → 存量行整体错位或 EOF 解码失败。修复范式：
+/// bump `RunNodeRecord` 的 `native_model` version 并配 `from` 升级链（或显式
+/// 迁移），MUST NOT 只加 `#[serde(default)]`（bincode 不兜底缺字段）。
+#[test]
+fn run_node_record_v1线格式冻结守卫_未版本化字段或枚举中插即失败() {
+    let node_key = pack_run_seq_key("run-frozen", 7);
+    let frozen = RunNodeRecordV1Frozen {
+        node_key,
+        run_id: "run-frozen".to_owned(),
+        change_id: "change-frozen".to_owned(),
+        phase: "implement".to_owned(),
+        attempt: 2,
+        step: FrozenRunStepKind::PhaseLog,
+        instance_no: 3,
+        status: FrozenRunStepStatus::Passed,
+        session_id: Some("session-frozen".to_owned()),
+        detail: Some("详情".to_owned()),
+        output_ref: Some("exec-frozen".to_owned()),
+        started_at: 1_727_000_000_000,
+        ended_at: Some(1_727_000_060_000),
+        token_input: Some(12_000),
+        token_output: Some(3_400),
+        timestamp: 1_727_000_300_000,
+    };
+    let bytes = native_model::encode(&frozen).expect("冻结 v1 编码应成功");
+    let (decoded, version) =
+        native_model::decode::<RunNodeRecord>(bytes).expect("现模型必须可解码 v1 行");
+    assert_eq!(version, 1);
+    assert_eq!(decoded.node_key, node_key);
+    assert_eq!(decoded.run_id, "run-frozen");
+    assert_eq!(decoded.change_id, "change-frozen");
+    assert_eq!(decoded.phase, "implement");
+    assert_eq!(decoded.attempt, 2);
+    assert_eq!(
+        decoded.step,
+        RunStepKind::PhaseLog,
+        "步词汇枚举顺序漂移（中插 / 重排）——bincode 按下标编码，存量行会错位"
+    );
+    assert_eq!(decoded.instance_no, 3);
+    assert_eq!(decoded.status, RunStepStatus::Passed);
+    assert_eq!(decoded.session_id.as_deref(), Some("session-frozen"));
+    assert_eq!(decoded.detail.as_deref(), Some("详情"));
+    assert_eq!(decoded.output_ref.as_deref(), Some("exec-frozen"));
+    assert_eq!(decoded.started_at, 1_727_000_000_000);
+    assert_eq!(decoded.ended_at, Some(1_727_000_060_000));
+    assert_eq!(decoded.token_input, Some(12_000));
+    assert_eq!(decoded.token_output, Some(3_400));
+    assert_eq!(decoded.timestamp, 1_727_000_300_000);
 }

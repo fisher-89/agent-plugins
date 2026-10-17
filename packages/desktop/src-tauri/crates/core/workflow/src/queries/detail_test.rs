@@ -6,9 +6,10 @@
 //!（attempt 升序、checklist 内联、槽位三列直读、stale / backtrack 字段透出）、
 //! 时间出线单点（i64 millis → RFC3339 ISO 串 + null；epoch 0 →
 //! `1970-01-01T00:00:00Z` 口径）、槽位全缺（三会话槽位 + start_at 全 null 面）、
-//! worktree 出线与定位 miss 恒可达、run 史投影与并列稳定序、子表读 Err 单区块
-//! 空面降级（读失败不升级整份 `Err`）。原文档形态 / 磁盘前缀回退 / 空流水线断
-//! 言随分支删除整体退役。
+//! worktree 出线与定位 miss 恒可达、run 史投影与并列稳定序、相位清单读 Err
+//! 单区块空面降级、run 史三读面（runs / nodes / edges）Err 整份透传（读失败
+//! MUST NOT 降级成「零 step 图」）。原文档形态 / 磁盘前缀回退 / 空流水线断言
+//! 随分支删除整体退役。
 //!
 //! **错误语义分流**（fix-flow-refresh-degradation AC-5，`change_detail` 签名
 //! Result 化随动）：`get_change` 读 `Err` → `Err(StoreFault)` 原样透传（三 kind
@@ -1895,10 +1896,11 @@ fn 详情run史出线_零run空数组与单节点零边() {
 }
 
 /// 同 started_at 并列两 run → run_id 稳定并列序（排序全确定性，AC-9 叠加层
-/// 稳定序的前置）；list 读面 Err（runs / nodes / edges 三面各自）→ 对应面降
-/// 级空数组、详情其余面不受阻断。
+/// 稳定序的前置）；run 史三读面（runs / nodes / edges）Err → 详情整体 Err 透
+/// 传（读失败 MUST NOT 降级空面：节点读失败曾呈「零 step 图」假象，与「该
+/// run 无步」不可辨）。
 #[test]
-fn 详情run史出线_并列稳定序与读err降级() {
+fn 详情run史出线_并列稳定序与读err透传() {
     let env = Env::new("run-history-tie");
     env.seed(ID_RUNNED, "runned", T0, None);
     // 同 started_at 并列 + 乱序插入（聚合排序兜底 run_id 稳定序）
@@ -1916,7 +1918,7 @@ fn 详情run史出线_并列稳定序与读err降级() {
         "并列 started_at → run_id 稳定并列序"
     );
 
-    // store.list_runs Err → runs 降级空数组、流水线/产物面不受阻断
+    // list_runs Err → 详情整体 Err（runs 不得降级空数组）
     let env_err = Env::new("run-history-err");
     env_err.seed(ID_RUNNED, "runned", T0, None);
     env_err
@@ -1924,15 +1926,12 @@ fn 详情run史出线_并列稳定序与读err降级() {
         .push_run(run_row(ID_RUNNED, "run-1", t(10), RunStatus::Completed));
     env_err.store.arm_runs_fault();
     env_err.file("runned", "proposal.md", "# 提案");
-    let detail = env_err.detail(ID_RUNNED);
-    assert!(detail.runs.is_empty(), "list_runs Err → runs 降级空数组");
-    assert_eq!(detail.pipeline.len(), 10, "详情其余面不受阻断");
-    assert!(
-        !detail.artifacts.is_empty(),
-        "产物清单不受 runs 读面失败影响"
+    assert_err_is(
+        &env_err.detail_result(ID_RUNNED),
+        &StoreFault::Db("list_runs 注入失败".to_owned()),
     );
 
-    // list_run_nodes Err → 该 run nodes 空数组（edges 降级面独立）
+    // list_run_nodes Err → 详情整体 Err（nodes 不得降级空数组）
     let env_nodes_err = Env::new("run-history-nodes-err");
     env_nodes_err.seed(ID_RUNNED, "runned", T0, None);
     env_nodes_err
@@ -1942,14 +1941,12 @@ fn 详情run史出线_并列稳定序与读err降级() {
         .store
         .push_run_node(run_node_row("run-1", ID_RUNNED, RunStepKind::Executor));
     env_nodes_err.store.arm_nodes_fault();
-    let detail = env_nodes_err.detail(ID_RUNNED);
-    assert_eq!(detail.runs.len(), 1, "runs 行仍在");
-    assert!(
-        detail.runs[0].nodes.is_empty(),
-        "list_run_nodes Err → nodes 降级空数组"
+    assert_err_is(
+        &env_nodes_err.detail_result(ID_RUNNED),
+        &StoreFault::Db("list_run_nodes 注入失败".to_owned()),
     );
 
-    // list_run_edges Err → 该 run edges 空数组
+    // list_run_edges Err → 详情整体 Err（edges 不得降级空数组）
     let env_edges_err = Env::new("run-history-edges-err");
     env_edges_err.seed(ID_RUNNED, "runned", T0, None);
     env_edges_err
@@ -1963,11 +1960,9 @@ fn 详情run史出线_并列稳定序与读err降级() {
         RunEdgeKind::Forward,
     ));
     env_edges_err.store.arm_edges_fault();
-    let detail = env_edges_err.detail(ID_RUNNED);
-    assert_eq!(detail.runs.len(), 1, "runs 行仍在");
-    assert!(
-        detail.runs[0].edges.is_empty(),
-        "list_run_edges Err → edges 降级空数组"
+    assert_err_is(
+        &env_edges_err.detail_result(ID_RUNNED),
+        &StoreFault::Db("list_run_edges 注入失败".to_owned()),
     );
 }
 

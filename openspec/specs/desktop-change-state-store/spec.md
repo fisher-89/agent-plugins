@@ -20,7 +20,7 @@ desktop 的 change 流程状态 SHALL 以 workspace 库（app-data `workspaces/`
 
 `ChangeRecord` 的身份换锚（name 主键 → id 主键 + name 属性）SHALL 经 native_model 版本段演进（表名含模型版本与主键段，旧形态表对新读面不可见），旧形态库由 store 格式版本机制整体作废重建；MUST NOT 保留 name → id 的迁移链、解码链或手工迁移步骤。`title` 字段 SHALL 经 native_model 版本升级（v3→v4 decode-only）原地演进。`worktree` 字段为执行锚引用，MUST NOT 反向影响库身份锚定。
 
-**执行图 model 重设计（不计历史兼容）**：`RunStepRecord`（`seq` + 五词汇 + 10→5 过滤）整体退役，`RunNodeRecord` / `RunEdgeRecord` 取代之；其后 step_kind 全词汇由十值扩为十八值（新增 8 个归档步词），再扩为十九值（新增 `mutation_test` 突变门禁步词），worktree 清理变更再扩为二十值（新增 `cleanup` 归档清理步词，白名单式扩展），基线检查变更再扩为二十一值（新增 `clean` initialize 基线恢复步词，白名单式扩展），归档节点复用 `RunNodeRecord`（零新表），MUST NOT 保留归档独立落库表。
+**执行图 model 重设计（不计历史兼容）**：`RunStepRecord`（`seq` + 五词汇 + 10→5 过滤）整体退役，`RunNodeRecord` / `RunEdgeRecord` 取代之；其后 step_kind 全词汇由十值扩为十八值（新增 8 个归档步词），再扩为十九值（新增 `mutation_test` 突变门禁步词），worktree 清理变更再扩为二十值（新增 `cleanup` 归档清理步词，白名单式扩展），基线检查变更再扩为二十一值（新增 `clean` initialize 基线恢复步词，白名单式扩展），归档节点复用 `RunNodeRecord`（零新表），MUST NOT 保留归档独立落库表。**枚举变体 SHALL 仅尾部追加**——`RunNodeRecord.step` 经 bincode 按下标编码，中途插入 / 重排会令存量节点行步词整体错位（`clean` 中插事故已由一次性数据修复纠正）。
 
 **双向墙**：desktop 全链（写面 / 查询 / 编排 / 命令 / 前端）MUST NOT 读或写任何 `workflow.json`；磁盘 change 目录只承载 markdown 产物与报告工件。存量 CLI change（有 workflow.json 无 db 记录）SHALL 零迁移零触碰。
 
@@ -215,7 +215,7 @@ run 收口的 finish 落包 SHALL 在同一事务内处置 `ChangeRecord.active_
 
 ### Requirement: RunNodeRecord 步级时间与 token 列
 
-`RunNodeRecord` SHALL 增四列随行落库：`started_at: i64`（步开始时刻，UTC unix 毫秒）、`ended_at: Option<i64>`（步收口时刻；running 收口在途步 None）、`token_input: Option<u64>` / `token_output: Option<u64>`（本步 turn 增量；仅 WorkerAgent 步有值）。四列 SHALL 均带 `#[serde(default)]`（先例：`session_id` 列）——存量库旧行（无新列编码）解码为 `started_at=0` / `ended_at=None` / token None，零迁移零报错（旧 run 步级时间缺席，前端呈现语义见 desktop-change-flow-view「步级耗时与 token 节点呈现」）。`RunNodeEntry`（finish 载荷内联条目）SHALL 同步增四字段，`RunNodeRecord::new` 直复制；落库时序（每 run 两写、收口整包单事务）与零写放大口径 MUST NOT 改变。既有 `timestamp` 列（落包时刻 = `finished_at` 整包同刻）语义 SHALL 原样保留——步级时间为独立维度，MUST NOT 顶替或复用该列。`list_run_nodes` 读面 SHALL 逐字段透传四列进 `RunNodeStateRecord`（读面与写面同一份字段集）。
+`RunNodeRecord` SHALL 增四列随行落库：`started_at: i64`（步开始时刻，UTC unix 毫秒）、`ended_at: Option<i64>`（步收口时刻；running 收口在途步 None）、`token_input: Option<u64>` / `token_output: Option<u64>`（本步 turn 增量；仅 WorkerAgent 步有值）。四列 SHALL 均带 `#[serde(default)]`（先例：`session_id` 列）——但 native_db 编码为 bincode（非自描述），`#[serde(default)]` **不足以兼容更短的旧行**（读到 EOF 即解码失败）：字段集演进 SHALL 同时 bump `native_model` version（配 `from` 升级链或显式迁移）。本四列事故的存量行已由一次性数据修复转写为当前 v1 形状（旧行四列取缺省 `started_at=0` / `ended_at=None` / token None，前端呈现语义见 desktop-change-flow-view「步级耗时与 token 节点呈现」）；代码层 MUST NOT 保留旧形状解码 / 迁移层。`RunNodeEntry`（finish 载荷内联条目）SHALL 同步增四字段，`RunNodeRecord::new` 直复制；落库时序（每 run 两写、收口整包单事务）与零写放大口径 MUST NOT 改变。既有 `timestamp` 列（落包时刻 = `finished_at` 整包同刻）语义 SHALL 原样保留——步级时间为独立维度，MUST NOT 顶替或复用该列。`list_run_nodes` 读面 SHALL 逐字段透传四列进 `RunNodeStateRecord`（读面与写面同一份字段集）。线格式兼容守卫 SHALL 以冻结 v1 结构 + 枚举顺序的编解码用例在案（`model_test.rs`），未版本化字段 / 枚举中插即测试失败。
 
 #### Scenario: 新行四列随行
 

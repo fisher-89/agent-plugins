@@ -2152,7 +2152,10 @@ impl Store {
         envelope::scan(&self.db, self.dimension, model, offset, limit)
     }
 
-    /// 主键自然序全表读出（workspace / run 清单共用）。
+    /// 主键自然序全表读出（workspace / run 清单共用）。坏行解码失败显式
+    /// `Err`（`collect::<Result<Vec<_>>>()` 首错即止）——读面 MUST NOT 静默
+    /// 跳过坏行；调用方按各读面哲学处置（详情聚合侧见 `detail.rs` 的
+    /// run 史读面 `?` 透传 / 相位记录降级留痕）。
     fn read_all<T: native_db::ToInput + serde::de::DeserializeOwned>(
         &self,
         context: &'static str,

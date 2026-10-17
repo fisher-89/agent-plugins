@@ -69,4 +69,5 @@
 - [x] 【Desktop】归档完成后自动移除worktree，限制最多5个运行中change同时存在，避免worktree占用磁盘空间过大
 - [ ] 【Desktop】归一agent会话渲染，前端使用统一组件，参数是sessionId，调通用接口渲染session会话；组件内根据会话状态（进行中、完成）决定是否监听stream
 - [ ] 【Desktop】Agent会话显示system的warning/error消息
-- [ ] 【Desktop】流程启动前，检查static-check和test-execution（不含突变），如无法通过，停止流程并提示用户在基线上修复后重启
+- [x] 【Desktop】流程启动前，检查static-check和test-execution（不含突变），如无法通过，停止流程并提示用户在基线上修复后重启
+- [ ] 【Desktop】移除test-execution阶段的agent执行，测试不通过时，走决策回溯
