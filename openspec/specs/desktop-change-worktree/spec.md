@@ -115,7 +115,7 @@ change run SHALL 以双 root 组合执行：
 
 带 worktree 记录的 change 归档 SHALL 以主仓目录在场为前置：主仓 active / archive 两树均未命中该 change 目录时，直接归档 SHALL 显式拒绝并引导「先 merge worktree 分支（change/<name>）回主仓再归档」（MUST NOT 泛化「目录未找到」了事）；主仓出现 `changes/<n>/` 后，既有归档双写（db status 翻转 + 主仓目录改名）SHALL 零改动可用。
 
-满足前置的两条等价路径：**archive 相位自动段**（desktop-change-archive：run 的 archive 相位在 Seal 双写收口前经 Commit / Rebase / ResolveConflicts / Merge 步自动执行 worktree 提交 + 主仓合入，为用户确认进入 archive 相位后的缺省路径）与**用户手动 merge**（既有路径维持，archive 相位的 step 内判断将其视为已完成段）。merge SHALL NOT 被强制：用户可不 merge 弃置 change（V1 弃置 = 手动清 worktree / branch，db 记录保留，见「V1 范围与边界留痕」）。自动合入的冲突处置（worktree 内 rebase 冲突态保留 + 解冲突 agent 裁决，agent 无法裁决时 lean 档停链咨询用户）与主仓状态约束（不吞并无关改动、不改写主仓历史）由 desktop-change-archive 约束。run 收口语义改写：全相位 pass 后停等 archive 前（「等待确认进入归档」），MUST NOT 自动归档、MUST NOT 自动 merge（archive 相位由用户确认进入，非 run 收口的自动动作）；worktree 清理由 archive 相位 Cleanup 步在双写收口前自动执行（尽力步，见 desktop-change-archive「Cleanup 步与 worktree 自动清理」——V1 手动边界就此偿还），branch `change/<name>` 保留（删除仍为用户手动边界）。
+满足前置的两条等价路径：**archive 相位自动段**（desktop-change-archive：run 的 archive 相位在 Seal 双写收口前经 Commit / Rebase / ResolveConflicts / Merge 步自动执行 worktree 提交 + 主仓合入，为用户确认进入 archive 相位后的缺省路径）与**用户手动 merge**（既有路径维持，archive 相位的 step 内判断将其视为已完成段）。merge SHALL NOT 被强制：用户可不 merge 弃置 change（V1 弃置 = 手动清 worktree / branch，db 记录保留，见「V1 范围与边界留痕」）。自动合入的冲突处置（worktree 内 rebase 冲突态保留 + 解冲突 agent 裁决，agent 无法裁决时 lean 档停链咨询用户）与主仓状态约束（不吞并无关改动、不改写主仓历史）由 desktop-change-archive 约束。run 收口语义改写：全前序路由相位（一次性 initialize + 内容相位）pass 后停等 archive 前（「等待确认进入归档」），MUST NOT 自动归档、MUST NOT 自动 merge（archive 相位由用户确认进入，非 run 收口的自动动作）；worktree 清理由 archive 相位 Cleanup 步在双写收口前自动执行（尽力步，见 desktop-change-archive「Cleanup 步与 worktree 自动清理」——V1 手动边界就此偿还），branch `change/<name>` 保留（删除仍为用户手动边界）。
 
 #### Scenario: archive 相位自动提交合入满足前置
 
@@ -134,7 +134,7 @@ change run SHALL 以双 root 组合执行：
 
 #### Scenario: run 收口不自动合入
 
-- **WHEN** 带 worktree 记录的 change run 走完 8 个路由相位
+- **WHEN** 带 worktree 记录的 change run 走完全部前序路由相位（含一次性 initialize）
 - **THEN** run 停在 archive 前（零自动 merge、零自动归档、零 archive 相位触发），用户显式确认进入 archive 相位是唯一发起源
 
 ### Requirement: worktree 路径 UI 可见性
@@ -193,3 +193,5 @@ create 产出与 change 详情 SHALL 暴露 worktree 绝对路径（记录带 wo
 | `crates/core/workflow/src/queries/` | 读面 worktree 感知 | db status 权威归组；detail 出线 worktree 路径（None → null）；产物发现经 exec root |
 | `packages/desktop/src/views/changes/` | 前端可见性 | create 对话框路径与警告呈现；详情 worktree 信息行（legacy 不渲染） |
 | （零实现触点——本能力清理条款由 desktop-change-archive Cleanup 步承载） | 边界改写 | worktree 清理自动化偿还归属 archive 相位；branch 生命周期仍手动；`worktrees/{身份段}/` 落位与身份段派生单点零改动（目录数扫描由 desktop-change-create 前置⑨消费） |
+| `crates/core/workflow/src/write/create.rs`（零改动面） | worktree 建域 | 基线恒 HEAD、目录树与 bootstrap 语义零改动；initialize 的 clean 步在既有 worktree 面上恢复基线（不新增建域语义） |
+| `crates/infra/vcs`（restore_baseline，新） | 基线恢复 | 经 `ArchiveVcsPort::restore_baseline` 缝执行 `reset --hard` + `clean -fd` 排除面（foundation 名单 + `openspec/`）；仅 worktree 在场时被调用（walker 保证），主仓零重置 |

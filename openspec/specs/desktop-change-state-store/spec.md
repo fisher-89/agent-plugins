@@ -15,19 +15,19 @@ desktop 的 change 流程状态 SHALL 以 workspace 库（app-data `workspaces/`
 - `ChecklistItemRecord`：打包主键 `(phase_id as u128) << 64 | item_index`、`phase_id` 二级索引、`item` / `pass` / `evidence`；
 - `StepRecord`：`run_id`、`change_id`、`step_kind`（封闭集：`phase_next` | `phase_start` | `phase_log` | `backtrack` | `decision_log` | `static_check` | `test_execution` | `mutation_test`）、`status`、时间戳、有界输出摘要；
 - `RunRecord`：`run_id`（String 主键）、`change_id`（二级索引）、`status`（`running` | `completed` | `stopped` | `failed` | `interrupted`）、`reason`（Option）、`started_at` / `finished_at`（Option）；
-- `RunNodeRecord`：`run_id`（二级索引）、`change_id`、稳定身份键 `(phase, attempt, step, instance_no)`、`step_kind`（**全词汇封闭集二十值**：`executor` | `evaluator` | `decision` | `static_check` | `test_execution` | `mutation_test` | `phase_start` | `phase_log` | `verdict_gate` | `retry_gate` | `whitelist_gate` | `preflight` | `commit` | `rebase` | `resolve_conflicts` | `merge` | `spec_sync` | `cleanup` | `seal` | `finalize`）、`status`、`session_id`（Option，WorkerAgent 步）、`detail`（Option，有界）、`output_ref`（Option，`ExecOutput::Recorded { exec_id }` 引用）、时间戳；
+- `RunNodeRecord`：`run_id`（二级索引）、`change_id`、稳定身份键 `(phase, attempt, step, instance_no)`、`step_kind`（**全词汇封闭集二十一值**：`executor` | `evaluator` | `decision` | `static_check` | `test_execution` | `mutation_test` | `clean` | `phase_start` | `phase_log` | `verdict_gate` | `retry_gate` | `whitelist_gate` | `preflight` | `commit` | `rebase` | `resolve_conflicts` | `merge` | `spec_sync` | `cleanup` | `seal` | `finalize`）、`status`、`session_id`（Option，WorkerAgent 步）、`detail`（Option，有界）、`output_ref`（Option，`ExecOutput::Recorded { exec_id }` 引用）、时间戳；
 - `RunEdgeRecord`：`run_id`（二级索引）、`from_node_key`（二级索引）、`to_node_key`、`edge_kind`（封闭集：`forward` | `feedback` | `retry` | `backtrack`）、时间戳。
 
 `ChangeRecord` 的身份换锚（name 主键 → id 主键 + name 属性）SHALL 经 native_model 版本段演进（表名含模型版本与主键段，旧形态表对新读面不可见），旧形态库由 store 格式版本机制整体作废重建；MUST NOT 保留 name → id 的迁移链、解码链或手工迁移步骤。`title` 字段 SHALL 经 native_model 版本升级（v3→v4 decode-only）原地演进。`worktree` 字段为执行锚引用，MUST NOT 反向影响库身份锚定。
 
-**执行图 model 重设计（不计历史兼容）**：`RunStepRecord`（`seq` + 五词汇 + 10→5 过滤）整体退役，`RunNodeRecord` / `RunEdgeRecord` 取代之；其后 step_kind 全词汇由十值扩为十八值（新增 8 个归档步词），再扩为十九值（新增 `mutation_test` 突变门禁步词），worktree 清理变更再扩为二十值（新增 `cleanup` 归档清理步词，白名单式扩展），归档节点复用 `RunNodeRecord`（零新表），MUST NOT 保留归档独立落库表。
+**执行图 model 重设计（不计历史兼容）**：`RunStepRecord`（`seq` + 五词汇 + 10→5 过滤）整体退役，`RunNodeRecord` / `RunEdgeRecord` 取代之；其后 step_kind 全词汇由十值扩为十八值（新增 8 个归档步词），再扩为十九值（新增 `mutation_test` 突变门禁步词），worktree 清理变更再扩为二十值（新增 `cleanup` 归档清理步词，白名单式扩展），基线检查变更再扩为二十一值（新增 `clean` initialize 基线恢复步词，白名单式扩展），归档节点复用 `RunNodeRecord`（零新表），MUST NOT 保留归档独立落库表。
 
-**双向墙**：desktop 全链（写面 / 查询 / 编排 / 命令 / 前端）MUST NOT 读或写任何 `workflow.json`；磁盘 change 目录只承载 markdown 产物。存量 CLI change（有 workflow.json 无 db 记录）SHALL 零迁移零触碰。
+**双向墙**：desktop 全链（写面 / 查询 / 编排 / 命令 / 前端）MUST NOT 读或写任何 `workflow.json`；磁盘 change 目录只承载 markdown 产物与报告工件。存量 CLI change（有 workflow.json 无 db 记录）SHALL 零迁移零触碰。
 
 #### Scenario: 状态回环读写
 
-- **WHEN** 对某 workspace 建档 change 并推进若干相位（含 archive 相位空 checklist 落账）后关闭并重开同一 db 文件查询
-- **THEN** ChangeRecord / PhaseRecord / ChecklistItemRecord / StepRecord / RunRecord / RunNodeRecord / RunEdgeRecord 逐字段与写入一致（含 title、三会话槽位、worktree 与 base_commit、归档 9 个步词（含 cleanup）与 mutation_test、时间戳原值），状态查询不依赖任何磁盘 workflow.json
+- **WHEN** 对某 workspace 建档 change 并推进若干相位（含 initialize 基线检查相位与 archive 相位空 checklist 落账）后关闭并重开同一 db 文件查询
+- **THEN** ChangeRecord / PhaseRecord / ChecklistItemRecord / StepRecord / RunRecord / RunNodeRecord / RunEdgeRecord 逐字段与写入一致（含 title、三会话槽位、worktree 与 base_commit、initialize 基线步词 clean、归档 9 个步词（含 cleanup）与 mutation_test、时间戳原值），状态查询不依赖任何磁盘 workflow.json
 
 #### Scenario: 双向墙机械可验
 
@@ -245,8 +245,8 @@ run 收口的 finish 落包 SHALL 在同一事务内处置 `ChangeRecord.active_
 | 归档路径（写面 `archive` + 命令薄包装） | 双写语义 + worktree 前置引导 | id → 记录 → name 后执行目录改名；id / name 均不随改名变；无建档 id 显式拒绝；双写本体零 worktree / branch 触碰不变 |
 | 时间口径 | db / 出线两段 | db i64 unix millis；出线 ISO 串 + null，转换收 queries 层单点 |
 | StepRecord 审计查询（新） | 步骤历史面 | 按 change id / run 枚举；审计 only 不做恢复；摘要有界 + 引用出全量 |
-| `crates/infra/store/src/model.rs`（RunNodeRecord step_kind） | 二十值封闭集 | `cleanup` 步词白名单式入封闭集（十九 → 二十）；表结构零变化（step_kind 词面扩展）、零迁移 |
-| `crates/core/workflow/src/state.rs`（RunStepKind） | 词面单点 | `RunStepKind::Cleanup`（`as_str` = `cleanup`）与 `StepNode` / `ChangeStepKind` 同词面 1:1 |
+| `crates/infra/store/src/model.rs`（RunNodeRecord step_kind） | 二十一值封闭集 | `clean` 步词白名单式入封闭集（二十 → 二十一）；表结构零变化（step_kind 词面扩展）、零迁移 |
+| `crates/core/workflow/src/state.rs`（RunStepKind） | 词面单点 | `RunStepKind::Clean`（`as_str` = `clean`）与 `StepNode` / `ChangeStepKind` 同词面 1:1 |
 | `crates/infra/store/src/model.rs`（`RunNodeRecord`） | 加列 | 四列 `#[serde(default)]`（旧行解码 `0` / `None` / `None` / `None`）；`RunNodeRecord::new` 直复制 `RunNodeEntry` 四字段；`timestamp` 列语义不动 |
 | `crates/core/workflow/src/state.rs`（`RunNodeEntry` / `RunNodeStateRecord`） | 载荷与读面随行 | 两结构增四字段；finish 命令内联条目与 port 读面同一份字段集 |
 | `crates/infra/store/src/store.rs`（`list_run_nodes`） | 读面投影 | 四列逐字段透传 `RunNodeStateRecord`（node_seq 升序 = emit 序口径不变） |
