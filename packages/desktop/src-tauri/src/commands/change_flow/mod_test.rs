@@ -14,7 +14,9 @@ use store::{
 use workflow::state::{ChangeStateRecord, ChangeStatus};
 
 use ::agent::{AgentEvent, AgentEventKind};
-use orchestration::state::{RunNotice, RunUpdate};
+use orchestration::state::{
+    ChangeStepKind, ChangeStepState, ChangeStepStatus, RunNotice, RunUpdate,
+};
 use orchestration::RunEventSink;
 
 use super::{
@@ -1276,19 +1278,42 @@ async fn 并行冲突键id_同名异id各自受理且异root同id互不误拒() 
 }
 
 /// sink 事件桥接半边（ChangeFlowSink::emit）：`SessionEvent` 记 run 级会话锚
-///（`current_session` 可查）且原样 `publish`（订阅端收到同 session_id 载荷
-/// ——worker 内核 → 控制注册表的唯一桥，直调锚定转发不改写）。
+///（`current_session` 可查）且原样 `publish`（订阅端收到 SessionEvent 通知
+/// ——worker 内核 → 控制注册表的唯一桥，直调锚定转发不改写）；首拍另经
+/// `publish` 把会话 id 提前挂到在途会话型步节点并补发 Step 通知（运行中
+/// 节点直查实时转录的寻址面）。
 #[test]
-fn sink事件桥接_session_event记会话锚且publish透传() {
+fn sink事件桥接_session_event记会话锚且首拍挂载在途节点() {
     let env = Env::new("sink-bridge");
     let app = app_with(&env);
     let root = env.root();
     let change = "sink-change";
     let control = Arc::clone(app.state::<Arc<ChangeFlowControl>>().inner());
-    let _guard = control
+    let guard = control
         .begin_run(&root, change, "run-sink-1".to_owned(), STARTED_AT)
         .expect("发起应成功");
     let mut updates = control.subscribe(&root, change).expect("订阅应成功");
+    // 在途 executor 节点（running emit 不携会话 id——首拍挂载的落点）
+    guard.emit(RunUpdate::Step {
+        step: ChangeStepState {
+            phase: "implement".to_owned(),
+            attempt: 1,
+            step: ChangeStepKind::Executor,
+            instance_no: 0,
+            status: ChangeStepStatus::Running,
+            session_id: None,
+            detail: None,
+            output_ref: None,
+            started_at: STARTED_AT,
+            ended_at: None,
+            token_input: None,
+            token_output: None,
+        },
+    });
+    assert!(
+        matches!(updates.try_recv(), Ok(RunNotice::Step)),
+        "running emit 通知先排空"
+    );
 
     let sink = ChangeFlowSink {
         root: root.clone(),
@@ -1311,6 +1336,18 @@ fn sink事件桥接_session_event记会话锚且publish透传() {
         Some("ses-sink"),
         "SessionEvent 记 run 级会话锚"
     );
+    let snap = control.snapshot(&root, change).expect("运行中快照可达");
+    assert_eq!(
+        snap.nodes[0].session_id.as_deref(),
+        Some("ses-sink"),
+        "首拍把会话 id 提前挂到在途节点（运行中转录直查寻址）"
+    );
+    match updates.try_recv() {
+        Ok(RunNotice::Step) => {
+            // 首挂补发 Step（统一视图重查触发；kind-only 载荷剥离）
+        }
+        other => panic!("订阅端应先收到 Step 补发通知，实际: {other:?}"),
+    }
     match updates.try_recv() {
         Ok(RunNotice::SessionEvent) => {
             // kind-only 通知（载荷剥离单点）：会话锚由 current_session 断言承载
@@ -1554,9 +1591,11 @@ fn confirm校验blank与无运行run双面err() {
     assert!(err.contains("无运行中的 run"), "miss 记因: {err}");
 }
 
-/// Channel 面五 kind 通知各自一拍出线且零载荷键（AC-8 kind 位 + 信封降位线
-/// 面）：运行中 run 经 watch 补订，guard 逐一 publish 五类 RunUpdate——每帧
-/// 捕获恰单键 `ipc`（kind-only，载荷剥离单点在 publish 广播侧）。
+/// Channel 面各 kind 通知出线且零载荷键（AC-8 kind 位 + 信封降位线面）：运行
+/// 中 run 经 watch 补订，guard 逐一 publish 各类 RunUpdate——每帧捕获恰单键
+/// `ipc`（kind-only，载荷剥离单点在 publish 广播侧）；SessionEvent 首拍另把
+/// 会话 id 挂到在途 executor 节点并补发一拍 step（运行中转录直查寻址），故
+/// step kind 共两拍。
 #[test]
 fn channel面五kind通知各自一拍且零载荷键() {
     let env = Env::new("notice-wire");
@@ -1626,9 +1665,10 @@ fn channel面五kind通知各自一拍且零载荷键() {
     });
     guard.finish(super::ChangeRunStatus::Completed, None);
 
-    wait_for("六 kind 通知到齐（含 edge 变体）", || {
-        captured.lock().expect("捕获锁不可中毒").len() >= 6
-    });
+    wait_for(
+        "各 kind 通知到齐（含首拍 attach 补发的 step）",
+        || captured.lock().expect("捕获锁不可中毒").len() >= 7,
+    );
     let frames = captured.lock().expect("捕获锁不可中毒");
     let ipcs: Vec<&str> = frames
         .iter()
@@ -1639,12 +1679,13 @@ fn channel面五kind通知各自一拍且零载荷键() {
         vec![
             "step",
             "edge",
+            "step",
             "sessionEvent",
             "ask",
             "confirmWait",
             "finished"
         ],
-        "六 kind 各自一拍（publish 序即广播序；edge kind-only 信封随 shape 演进）"
+        "publish 序即广播序（第二拍 step = SessionEvent 首挂补发；edge kind-only 信封随 shape 演进）"
     );
     for frame in frames.iter() {
         assert_eq!(

@@ -134,12 +134,17 @@ Walker MUST NOT 经任何 CLI 子进程变更 change 流程状态（dev-team CLI
 
 ### Requirement: 会话挂靠 provenance 与转录 session id 直查
 
-Walker 发起的 executor / evaluator / decision / spec_sync / resolve_conflicts 会话 SHALL 携带 provenance：`source="change"`、`source_ref=<id>/<phase>/<role>/<attempt>`（身份段为 change id——单一身份锚贯穿，name 可变不入寻址键；归档步两会话的 source_ref 定式由 design 定稿，MUST 在同 phase 同 attempt 内唯一，避免 spec_sync 与 resolve_conflicts 撞号）。该 `source_ref` SHALL 由 walker 在会话创建时写入并随会话记录持久化（`SessionProvenance` 字段面保持），作为来源归属留痕。节点运行态与转录寻址 SHALL 经 run 节点行的 `session_id` 直查（run 节点行携该步会话 id，见 desktop-change-state-store「run 执行图落库」；前端不再按 provenance 反查会话集）。会话转录 SHALL 可观测：运行中实时流、结束后重放一致。会话停止 SHALL 复用 StopRegistry 既有终止面，对已终态目标幂等忽略。
+Walker 发起的 executor / evaluator / decision / spec_sync / resolve_conflicts 会话 SHALL 携带 provenance：`source="change"`、`source_ref=<id>/<phase>/<role>/<attempt>`（身份段为 change id——单一身份锚贯穿，name 可变不入寻址键；归档步两会话的 source_ref 定式由 design 定稿，MUST 在同 phase 同 attempt 内唯一，避免 spec_sync 与 resolve_conflicts 撞号）。该 `source_ref` SHALL 由 walker 在会话创建时写入并随会话记录持久化（`SessionProvenance` 字段面保持），作为来源归属留痕。节点运行态与转录寻址 SHALL 经 run 节点行的 `session_id` 直查（run 节点行携该步会话 id，见 desktop-change-state-store「run 执行图落库」；前端不再按 provenance 反查会话集）。节点 `session_id` SHALL 在会话首个事件到达时提前挂到运行中的会话型步节点（running emit 不携 id、终态 emit 才回写；首挂补发一拍 `step` 通知触发统一视图重查），确保运行中节点按 id 直查实时转录；后续会话事件 MUST NOT 重复挂载 / 重复补发 `step` 通知。会话转录 SHALL 可观测：运行中实时流、结束后重放一致。会话停止 SHALL 复用 StopRegistry 既有终止面，对已终态目标幂等忽略。
 
 #### Scenario: provenance 留痕与 session id 直查
 
 - **WHEN** 某 change 的 implement#2 相位已发起 executor 与 evaluator 会话（或 archive 相位已发起 spec_sync 会话）
 - **THEN** 两会话记录各自 `SessionProvenance.source="change"` 且 `source_ref="<id>/<phase>/<role>/<attempt>"` 逐字在案（归档步两会话 source_ref 同 phase 同 attempt 内唯一）；节点转录经其 run 节点行 `session_id` 直查（无需 `agentSessions` 按 source / sourceRef 反查）
+
+#### Scenario: 运行中节点 session id 提前挂载
+
+- **WHEN** executor 会话的 running 节点已在图上（running emit 未携 session id），该会话首个事件经 run 事件出口到达
+- **THEN** 该节点快照的 `session_id` 即刻落值并补发一拍 `step` 通知（前端重查统一视图后按 id 直查实时转录）；后续会话事件仅广播 `sessionEvent`，不重复挂载、不重复补发 `step` 通知
 
 #### Scenario: 转录可观测与停止
 

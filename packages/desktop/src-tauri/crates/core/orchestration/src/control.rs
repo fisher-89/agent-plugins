@@ -5,7 +5,7 @@ use tokio::sync::{broadcast, oneshot, watch};
 
 use crate::state::{
     ArchivePreflight, AskPayload, ChangeRunSnapshot, ChangeRunStatus, ChangeStepEdge,
-    ChangeStepKind, ChangeStepState, RunNotice, RunUpdate,
+    ChangeStepKind, ChangeStepState, ChangeStepStatus, RunNotice, RunUpdate,
 };
 
 /// broadcast 通道容量（步状态 + 会话事件窗口；溢出即滞后，由订阅侧重挂
@@ -144,8 +144,14 @@ impl ChangeFlowControl {
     ///（同稳定身份键就地合并）与 phase/attempt 同步、边累积、停等态迁移、终态
     /// 落值）；广播侧只发 kind-only 的 [`RunNotice`]（`From<&RunUpdate>` 投影，
     /// 载荷剥离单点，D3）。
+    ///
+    /// 会话事件首拍另将 session id 提前挂到当前运行中的会话型步节点并补发一
+    /// 拍 `Step` 通知——running emit 不携 id、终态 emit 才回写，提前挂载后运行
+    /// 中节点即可按 id 直查实时转录（desktop-change-flow-view「运行中节点实时
+    /// 转录经转录库」）。
     pub fn publish(&self, root: &str, change_id: &str, update: RunUpdate) {
         let notice = RunNotice::from(&update);
+        let mut attached = false;
         {
             let mut runs = self.runs.lock().expect("run 注册表锁不可中毒");
             if let Some(entry) = runs.get_mut(&(root.to_owned(), change_id.to_owned())) {
@@ -169,12 +175,19 @@ impl ChangeFlowControl {
                         entry.archive = archive.clone();
                     }
                     RunUpdate::Finished { status, .. } => entry.status = *status,
-                    RunUpdate::SessionEvent { .. } => {}
+                    RunUpdate::SessionEvent { session_id, .. } => {
+                        attached = attach_session(entry, session_id);
+                    }
                 }
             }
         }
         let runs = self.runs.lock().expect("run 注册表锁不可中毒");
         if let Some(entry) = runs.get(&(root.to_owned(), change_id.to_owned())) {
+            // 首挂补发 Step（统一视图重查触发——前端拿到 session id）；后续
+            // 会话事件仅按原 kind（SessionEvent）广播
+            if attached {
+                let _ = entry.updates.send(RunNotice::Step);
+            }
             let _ = entry.updates.send(notice);
         }
     }
@@ -395,6 +408,35 @@ impl RunGuard {
         *slot(entry).lock().expect("应答通道锁不可中毒") = Some(tx);
         true
     }
+}
+
+/// 会话事件首拍把 session id 提前挂到「最近一个运行中的会话型步节点」：
+/// running emit 不携会话 id（worker 收口后终态 emit 才回写），不提前挂载则
+/// 运行中节点无法按 id 直查实时转录。返回是否首次挂载（调用方据此补发一拍
+/// `Step` 通知触发统一视图重查；后续会话事件不重复挂载 / 不重复通知）。
+fn attach_session(entry: &mut RunEntry, session_id: &str) -> bool {
+    let target = entry.nodes.iter_mut().rev().find(|node| {
+        node.status == ChangeStepStatus::Running
+            && node.session_id.is_none()
+            && is_session_step(node.step)
+    });
+    let Some(node) = target else {
+        return false;
+    };
+    node.session_id = Some(session_id.to_owned());
+    true
+}
+
+/// 会话型步词汇判定（WorkerAgent 五类，与 `roleOf` / `worker` 通道同集）。
+fn is_session_step(step: ChangeStepKind) -> bool {
+    matches!(
+        step,
+        ChangeStepKind::Executor
+            | ChangeStepKind::Evaluator
+            | ChangeStepKind::Decision
+            | ChangeStepKind::SpecSync
+            | ChangeStepKind::ResolveConflicts
+    )
 }
 
 /// 节点累积单点：同稳定身份键 `(phase, attempt, step, instance_no)` 的后续 emit

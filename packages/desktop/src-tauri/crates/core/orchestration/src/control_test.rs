@@ -49,6 +49,44 @@ fn sample_step() -> ChangeStepState {
     }
 }
 
+/// 运行中步状态行 fixture（指定步词汇 / 实例号 / 会话槽——会话 id 提前挂载
+/// 用例输入面）。
+fn running_step(
+    kind: ChangeStepKind,
+    instance_no: u32,
+    session_id: Option<&str>,
+) -> ChangeStepState {
+    ChangeStepState {
+        phase: "implement".to_owned(),
+        attempt: 2,
+        step: kind,
+        instance_no,
+        status: ChangeStepStatus::Running,
+        session_id: session_id.map(str::to_owned),
+        detail: None,
+        output_ref: None,
+        started_at: STARTED_AT,
+        ended_at: None,
+        token_input: None,
+        token_output: None,
+    }
+}
+
+/// 会话事件载荷 fixture（seq 区分拍次；载荷内容不参与 attach 判定）。
+fn session_event(session_id: &str, seq: u64) -> RunUpdate {
+    RunUpdate::SessionEvent {
+        session_id: session_id.to_owned(),
+        event: agent::AgentEvent {
+            seq,
+            timestamp_ms: 1_726_000_000_000,
+            kind: agent::AgentEventKind::Raw {
+                event_type: "system".to_owned(),
+                raw_json: "{}".to_owned(),
+            },
+        },
+    }
+}
+
 /// 轮询至单次应答通道登记完成：`Ok` 即登记证明；上限内未成返回 false
 /// （当前线程运行时以 yield_now 让位 spawned waiter 起跑）。
 async fn until_ok(mut attempt: impl FnMut() -> Result<(), String>) -> bool {
@@ -811,10 +849,10 @@ async fn publish_step快照面按到达序追加_广播run_notice_step() {
     );
 }
 
-/// publish(SessionEvent) → 快照面零变化（steps / status / phase 不动）+ 广播
-/// RunNotice::SessionEvent（转录重查分流键，D8）。
+/// publish(SessionEvent) → 已挂载节点的会话事件零快照面突变（steps / status /
+/// phase 不动）+ 广播 RunNotice::SessionEvent（转录重查分流键，D8）。
 #[tokio::test]
-async fn publish_session_event快照面零变化_广播notice() {
+async fn publish_session_event已挂载节点零快照面突变_广播notice() {
     let control = Arc::new(ChangeFlowControl::new());
     let guard = control
         .begin_run(ROOT, CHANGE_ID, "run-1".to_owned(), STARTED_AT)
@@ -848,6 +886,82 @@ async fn publish_session_event快照面零变化_广播notice() {
         matches!(rx.try_recv(), Ok(RunNotice::SessionEvent)),
         "会话事件广播 SessionEvent kind（转录重查分流键）"
     );
+}
+
+/// publish(SessionEvent) 首拍：把 session id 提前挂到运行中的会话型步节点，
+/// 并补发一拍 Step 通知（统一视图重查触发——运行中节点由此按 id 直查实时
+/// 转录）；后续事件不重复挂载 / 不重复通知。
+#[tokio::test]
+async fn publish_session_event首拍提前挂载会话id_补发step通知() {
+    let control = Arc::new(ChangeFlowControl::new());
+    let guard = control
+        .begin_run(ROOT, CHANGE_ID, "run-1".to_owned(), STARTED_AT)
+        .unwrap();
+    let mut rx = control.subscribe(ROOT, CHANGE_ID).unwrap();
+    guard.emit(RunUpdate::Step {
+        step: running_step(ChangeStepKind::Executor, 0, None),
+    });
+    assert!(
+        matches!(rx.try_recv(), Ok(RunNotice::Step)),
+        "running emit 通知先排空"
+    );
+
+    guard.emit(session_event("sess-live", 0));
+
+    let attached = control.snapshot(ROOT, CHANGE_ID).unwrap();
+    assert_eq!(
+        attached.nodes[0].session_id.as_deref(),
+        Some("sess-live"),
+        "首拍把会话 id 提前挂到运行中节点"
+    );
+    assert!(
+        matches!(rx.try_recv(), Ok(RunNotice::Step)),
+        "首挂补发 Step 通知（前端据此重查统一视图）"
+    );
+    assert!(
+        matches!(rx.try_recv(), Ok(RunNotice::SessionEvent)),
+        "原 SessionEvent kind 照常广播"
+    );
+
+    guard.emit(session_event("sess-live", 1));
+    assert_eq!(
+        control.snapshot(ROOT, CHANGE_ID).unwrap().nodes,
+        attached.nodes,
+        "后续会话事件不再改快照面"
+    );
+    assert!(
+        matches!(rx.try_recv(), Ok(RunNotice::SessionEvent)),
+        "后续会话事件仅 SessionEvent kind"
+    );
+    assert!(rx.try_recv().is_err(), "后续会话事件零 Step 补发");
+}
+
+/// publish(SessionEvent) 边界：无运行中的会话型步节点（工具步在途 / 会话步
+/// 已收口）→ 零挂载、零 Step 补发，仅原 kind 广播。
+#[tokio::test]
+async fn publish_session_event无运行中会话节点_零挂载仅session通知() {
+    let control = Arc::new(ChangeFlowControl::new());
+    let guard = control
+        .begin_run(ROOT, CHANGE_ID, "run-1".to_owned(), STARTED_AT)
+        .unwrap();
+    let mut rx = control.subscribe(ROOT, CHANGE_ID).unwrap();
+    guard.emit(RunUpdate::Step {
+        step: running_step(ChangeStepKind::StaticCheck, 0, None),
+    });
+    assert!(
+        matches!(rx.try_recv(), Ok(RunNotice::Step)),
+        "工具步 running emit 通知先排空"
+    );
+
+    guard.emit(session_event("sess-live", 0));
+
+    let snap = control.snapshot(ROOT, CHANGE_ID).unwrap();
+    assert_eq!(snap.nodes[0].session_id, None, "工具步节点不挂会话 id");
+    assert!(
+        matches!(rx.try_recv(), Ok(RunNotice::SessionEvent)),
+        "仅原 SessionEvent kind"
+    );
+    assert!(rx.try_recv().is_err(), "零 Step 补发");
 }
 
 /// publish(Ask) / publish(ConfirmWait) / publish(Finished) → 状态迁移与 ask
