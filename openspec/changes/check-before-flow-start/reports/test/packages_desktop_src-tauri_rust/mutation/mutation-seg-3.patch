@@ -1,0 +1,1718 @@
+diff --git a/crates/infra/exec/src/lib_test.rs b/crates/infra/exec/src/lib_test.rs
+index fbc93e3e72aa..85a1c7c908f0 100644
+--- a/crates/infra/exec/src/lib_test.rs
++++ b/crates/infra/exec/src/lib_test.rs
+@@ -99,6 +99,8 @@ fn bare逐参直传零壳包装() {
+ // 退役；AC-6）
+ // ---------------------------------------------------------------------------
+ 
++use foundation::layout::ReportSlot;
++
+ use crate::{read_exec_output, read_exec_output_in, record_exec_output};
+ 
+ /// 临时 workspace 根 RAII（报告目录树落盘 + 回查真实往返）。
+@@ -138,7 +140,7 @@ fn record_exec_output落盘并回查逐字节一致() {
+     // 同型：单一字节流保真，分离快照不再存在
+     let output = b"clippy: warning: unused import\nerror[E0308]: mismatched types\n".to_vec();
+ 
+-    let exec_id = record_exec_output(root.path(), "demo-change", &output).expect("落盘应成功");
++    let exec_id = record_exec_output(root.path(), "demo-change", ReportSlot::Test, &output).expect("落盘应成功");
+     assert!(!exec_id.is_empty(), "exec_id 非空");
+     assert!(
+         exec_id.starts_with("exec-"),
+@@ -174,11 +176,11 @@ fn record_exec_output落盘并回查逐字节一致() {
+ #[test]
+ fn record_exec_output两次铸造互异且change隔离() {
+     let root = TempRoot::new("unique");
+-    let first = record_exec_output(root.path(), "change-a", b"one").expect("落盘应成功");
+-    let second = record_exec_output(root.path(), "change-a", b"two").expect("落盘应成功");
++    let first = record_exec_output(root.path(), "change-a", ReportSlot::Test, b"one").expect("落盘应成功");
++    let second = record_exec_output(root.path(), "change-a", ReportSlot::Test, b"two").expect("落盘应成功");
+     assert_ne!(first, second, "两次铸造 exec_id 互异");
+ 
+-    let third = record_exec_output(root.path(), "change-b", b"three").expect("落盘应成功");
++    let third = record_exec_output(root.path(), "change-b", ReportSlot::Test, b"three").expect("落盘应成功");
+     assert_eq!(
+         read_exec_output(root.path(), "change-a", &first).expect("回查应命中"),
+         b"one".to_vec()
+@@ -197,7 +199,7 @@ fn record_exec_output两次铸造互异且change隔离() {
+ fn read_exec_output已知引用回读同一log() {
+     let root = TempRoot::new("same-log");
+     let output = "首个 suite 输出\n第二个 suite 输出\n".as_bytes().to_vec();
+-    let exec_id = record_exec_output(root.path(), "demo", &output).expect("落盘应成功");
++    let exec_id = record_exec_output(root.path(), "demo", ReportSlot::Test, &output).expect("落盘应成功");
+ 
+     let read_back = read_exec_output(root.path(), "demo", &exec_id).expect("回查应命中");
+     assert_eq!(read_back, output);
+@@ -216,7 +218,7 @@ fn read_exec_output_in_change目录定位与root变体同构() {
+     // 异锚落盘：模拟 worktree 锚（与 root 非同根）
+     let anchor = TempRoot::new("in-anchor");
+     let output = "worktree suite 输出\n".as_bytes().to_vec();
+-    let exec_id = record_exec_output(anchor.path(), "demo", &output).expect("落盘应成功");
++    let exec_id = record_exec_output(anchor.path(), "demo", ReportSlot::Test, &output).expect("落盘应成功");
+     let change_dir = foundation::layout::resolve(anchor.path())
+         .changes_root
+         .join("demo");
+@@ -247,7 +249,7 @@ fn read_exec_output_in_change目录定位与root变体同构() {
+ #[test]
+ fn read_exec_output未知与非法exec_id返回none() {
+     let root = TempRoot::new("miss");
+-    let exec_id = record_exec_output(root.path(), "demo", b"payload").expect("落盘应成功");
++    let exec_id = record_exec_output(root.path(), "demo", ReportSlot::Test, b"payload").expect("落盘应成功");
+ 
+     assert!(read_exec_output(root.path(), "demo", "exec-unknown").is_none());
+     for hostile in ["", "..", "../secret", "a/b", r"a\b", "C:evil", "exec-1.log"] {
+@@ -266,7 +268,7 @@ fn read_exec_output未知与非法exec_id返回none() {
+ #[test]
+ fn record_exec_output空与超长特殊字节保真() {
+     let root = TempRoot::new("bytes");
+-    let empty = record_exec_output(root.path(), "demo", b"").expect("空输出落盘应成功");
++    let empty = record_exec_output(root.path(), "demo", ReportSlot::Test, b"").expect("空输出落盘应成功");
+     assert_eq!(
+         read_exec_output(root.path(), "demo", &empty).expect("空输出应可回查"),
+         Vec::<u8>::new(),
+@@ -278,7 +280,7 @@ fn record_exec_output空与超长特殊字节保真() {
+         long.extend_from_slice(format!("行 {index} 🚀\n").as_bytes());
+     }
+     long.push(0);
+-    let exec_id = record_exec_output(root.path(), "demo", &long).expect("超长落盘应成功");
++    let exec_id = record_exec_output(root.path(), "demo", ReportSlot::Test, &long).expect("超长落盘应成功");
+     let read_back = read_exec_output(root.path(), "demo", &exec_id).expect("回查应命中");
+     assert_eq!(read_back.len(), long.len(), "超长全量保真（不截断）");
+     assert_eq!(read_back, long, "含 \0 与 emoji 字节逐字保真");
+@@ -293,7 +295,7 @@ fn record_exec_output目录不可写时err串语义() {
+     std::fs::create_dir_all(reports.parent().expect("父目录")).expect("创建父目录失败");
+     std::fs::write(&reports, "占位文件").expect("占位写失败");
+ 
+-    let err = record_exec_output(root.path(), "demo", b"stdout").expect_err("应 Err");
++    let err = record_exec_output(root.path(), "demo", ReportSlot::Test, b"stdout").expect_err("应 Err");
+     assert!(
+         err.contains("exec") || err.contains("目录") || err.contains("落盘"),
+         "Err 串语境保留: {err}"
+@@ -310,7 +312,7 @@ fn record_exec_output重复落盘互不覆写且零err残留() {
+     let mut contents: Vec<Vec<u8>> = Vec::new();
+     for index in 0..3 {
+         let output = format!("第 {index} 次执行输出\n").into_bytes();
+-        let exec_id = record_exec_output(root.path(), "demo", &output).expect("落盘应成功");
++        let exec_id = record_exec_output(root.path(), "demo", ReportSlot::Test, &output).expect("落盘应成功");
+         ids.push(exec_id);
+         contents.push(output);
+     }
+@@ -343,3 +345,135 @@ fn record_exec_output重复落盘互不覆写且零err残留() {
+     expected.sort();
+     assert_eq!(names, expected, "仅 .log 落盘（零 .err 残留、零覆写）");
+ }
++
++// ---------------------------------------------------------------------------
++// slot 槽位与双锚回查（check-before-flow-start / AC-1 / AC-8）：输出记录按槽位
++// 锚定 + `read_exec_output_in` 双锚探测（Mock策略：无——真实 tempdir 报告树落
++// 盘 + 回查往返，fs 为被测组合面）
++// ---------------------------------------------------------------------------
++
++/// record slot=Baseline 正向：输出落 `<change>/reports/baseline/exec-outputs/
++/// <exec_id>.log`（单一 `.log` 零 `.err` 残留）；exec_id 非空且重复调用互异
++///（铸造零改动锚）；test 树零混居。
++#[test]
++fn record_exec_output_slot_baseline落baseline树且零err残留() {
++    let root = TempRoot::new("baseline-record");
++    let first = record_exec_output(root.path(), "demo", ReportSlot::Baseline, b"one").expect("落盘应成功");
++    let second = record_exec_output(root.path(), "demo", ReportSlot::Baseline, b"two").expect("落盘应成功");
++    assert_ne!(first, second, "重复铸造互异");
++
++    let baseline_dir =
++        foundation::layout::change_reports(root.path(), "demo", ReportSlot::Baseline)
++            .join("exec-outputs");
++    let mut names: Vec<String> = std::fs::read_dir(&baseline_dir)
++        .expect("读 baseline 输出目录")
++        .flatten()
++        .map(|entry| entry.file_name().to_string_lossy().into_owned())
++        .collect();
++    names.sort();
++    let mut expected: Vec<String> = [first.clone(), second.clone()]
++        .iter()
++        .map(|id| format!("{id}.log"))
++        .collect();
++    expected.sort();
++    assert_eq!(names, expected, "恰两份 .log（零 .err 残留）: {names:?}");
++
++    // test 树零混居
++    assert!(
++        !root.exec_dir("demo").exists(),
++        "test 树零混居（slot=Baseline 不落 reports/test）"
++    );
++}
++
++/// read_exec_output_in 双锚（正向）：baseline 树 exec_id → 首锚 test miss →
++/// 次锚 baseline 命中（内容逐字节）；test 树 exec_id → 首锚命中即返；同一
++/// change 两树并存输出各自回查可达。
++#[test]
++fn read_exec_output_in双锚_baseline与test两树各自可达() {
++    let root = TempRoot::new("dual-anchor");
++    let baseline_id =
++        record_exec_output(root.path(), "demo", ReportSlot::Baseline, b"baseline output").expect("落盘应成功");
++    let test_id = record_exec_output(root.path(), "demo", ReportSlot::Test, b"test output").expect("落盘应成功");
++    let change_dir = foundation::layout::resolve(root.path()).changes_root.join("demo");
++
++    // baseline 树 id：首锚 miss → 次锚命中
++    assert_eq!(
++        read_exec_output_in(&change_dir, &baseline_id).expect("baseline id 应命中"),
++        b"baseline output".to_vec(),
++        "次锚 baseline 命中且内容逐字节"
++    );
++    // test 树 id：首锚命中即返
++    assert_eq!(
++        read_exec_output_in(&change_dir, &test_id).expect("test id 应命中"),
++        b"test output".to_vec(),
++        "首锚 test 命中且内容逐字节"
++    );
++}
++
++/// read_exec_output_in 跨树唯一（边界）：两树各落一份输出 → 各自 id 回查得各
++/// 自内容、无串树（exec_id 跨树唯一——首中即返不歧义）；两树均 miss 的未知 id
++/// → None。
++#[test]
++fn read_exec_output_in跨树唯一无串树() {
++    let root = TempRoot::new("cross-tree");
++    let baseline_id =
++        record_exec_output(root.path(), "demo", ReportSlot::Baseline, b"from-baseline-tree").expect("落盘应成功");
++    let test_id = record_exec_output(root.path(), "demo", ReportSlot::Test, b"from-test-tree").expect("落盘应成功");
++    let change_dir = foundation::layout::resolve(root.path()).changes_root.join("demo");
++
++    // 各自 id 回查各自内容（零串树）
++    assert_ne!(
++        read_exec_output_in(&change_dir, &baseline_id).expect("baseline 命中"),
++        read_exec_output_in(&change_dir, &test_id).expect("test 命中"),
++        "两树内容可辨（零串树）"
++    );
++    assert_eq!(
++        read_exec_output_in(&change_dir, &baseline_id).expect("baseline 命中"),
++        b"from-baseline-tree".to_vec()
++    );
++    // 两树均 miss 的未知 id → None
++    assert!(read_exec_output_in(&change_dir, "exec-999-none").is_none());
++}
++
++/// read_exec_output 顶层组合（组合，AC-1 / AC-8）：顶层函数签名零改动——经
++/// root 变体回查两树 id 均可达（委托 `read_in` 天然双锚——IPC `read_exec_output`
++/// 命令零改动回查覆盖面的组合半边）。
++#[test]
++fn read_exec_output顶层组合_经root变体两树id均可达() {
++    let root = TempRoot::new("top-combo");
++    let baseline_id =
++        record_exec_output(root.path(), "demo", ReportSlot::Baseline, b"top baseline").expect("落盘应成功");
++    let test_id = record_exec_output(root.path(), "demo", ReportSlot::Test, b"top test").expect("落盘应成功");
++
++    assert_eq!(
++        read_exec_output(root.path(), "demo", &baseline_id).expect("顶层回查 baseline 应命中"),
++        b"top baseline".to_vec(),
++        "root 变体双锚覆盖 baseline 树"
++    );
++    assert_eq!(
++        read_exec_output(root.path(), "demo", &test_id).expect("顶层回查 test 应命中"),
++        b"top test".to_vec(),
++        "root 变体双锚覆盖 test 树"
++    );
++}
++
++/// exec_output_dir 槽位版对拍（正向，枚举遍历）：slot 两值目录与
++/// `foundation::layout::change_reports_in(change_dir, slot)` 等值（锚点单点委托
++/// ——`exec_output_dir_in` 无第二份后缀拼接）。
++#[test]
++fn exec_output_dir槽位版与layout单点等值() {
++    let root = TempRoot::new("dir-derive");
++    let change_dir = foundation::layout::resolve(root.path()).changes_root.join("demo");
++    for slot in [ReportSlot::Test, ReportSlot::Baseline] {
++        assert_eq!(
++            super::exec_output_dir(root.path(), "demo", slot),
++            foundation::layout::change_reports_in(&change_dir, slot).join("exec-outputs"),
++            "slot={slot:?} 目录派生与 layout 单点等值（exec-outputs 后缀单点）"
++        );
++        assert_eq!(
++            super::exec_output_dir_in(&change_dir, slot),
++            super::exec_output_dir(root.path(), "demo", slot),
++            "slot={slot:?} 两变体同构（仅前缀差异）"
++        );
++    }
++}
+diff --git a/crates/infra/store/src/model.rs b/crates/infra/store/src/model.rs
+index 829777275410..3d93837e7a03 100644
+--- a/crates/infra/store/src/model.rs
++++ b/crates/infra/store/src/model.rs
+@@ -946,7 +946,7 @@ pub struct RunNodeRecord {
+     pub change_id: String,
+     pub phase: String,
+     pub attempt: u32,
+-    /// 步词汇（二十值全词汇封闭集，core 域枚举直用）
++    /// 步词汇（二十一值全词汇封闭集，core 域枚举直用）
+     pub step: RunStepKind,
+     /// 同 `(phase, attempt, step)` 内的执行实例号（feedback 重跑为递增新节点）
+     pub instance_no: u32,
+diff --git a/crates/infra/store/src/model_test.rs b/crates/infra/store/src/model_test.rs
+index 33574d34bf45..ec5ea6e4464c 100644
+--- a/crates/infra/store/src/model_test.rs
++++ b/crates/infra/store/src/model_test.rs
+@@ -2693,11 +2693,48 @@ fn v2快照bincode布局锚_实例外键紧随engine之后() {
+ }
+ 
+ // ---------------------------------------------------------------------------
+-// RunNodeRecord.step 词汇随动（worktree-cleanup-and-active-cap / AC-9）：
+-// RunStepKind 二十值封闭集白名单式扩展 + `cleanup`（零迁移——native_model serde
+-// 编解码随枚举词面自然可用）
++// RunNodeRecord.step 词汇随动（worktree-cleanup-and-active-cap / AC-9 +
++// check-before-flow-start）：RunStepKind 二十一值封闭集白名单式扩展 + `cleanup`
++// 与 `clean`（零迁移——native_model serde 编解码随枚举词面自然可用）
+ // ---------------------------------------------------------------------------
+ 
++/// `RunStepKind::Clean` 节点构造 / 序列化 / 反序列化往返等值（正向，
++/// check-before-flow-start）：serde 线词 `"clean"` 白名单式扩展可用——native_model
++/// encode/decode 回环逐字段相等、serde_json 线面 step 词逐字、`node_id()` 身份串
++/// 含 clean 词面（initialize 基线恢复步落库面）。
++#[test]
++fn run_node_record_clean词节点往返等值() {
++    let record = RunNodeRecord::new(
++        "run-1727000000000",
++        "chg-demo",
++        7,
++        &run_node_entry(RunStepKind::Clean, RunStepStatus::Passed, 0),
++        1_727_000_060_000,
++    );
++    assert_eq!(record.step, RunStepKind::Clean, "构造直入 clean 词");
++
++    // native_model encode/decode 回环（serde 词面承载——零迁移）
++    let bytes = native_model::encode(&record).expect("encode 应成功");
++    let (decoded, version) =
++        native_model::decode::<RunNodeRecord>(bytes).expect("decode 应成功");
++    assert_eq!(version, 1, "native_model id=16 版本封装 version 1 持衡");
++    assert_eq!(decoded, record, "clean 词节点回环逐字段相等");
++    assert_eq!(decoded.step, RunStepKind::Clean);
++
++    // serde_json 线面：step 词 `clean` 逐字（与 cleanup 词面可辨）+ node_id()
++    let value = serde_json::to_value(&record).expect("serde_json 出线应成功");
++    assert_eq!(value["step"], serde_json::json!("clean"), "线词白名单扩展在案");
++    assert_eq!(
++        record.node_id(),
++        "implement:1:clean:0",
++        "身份串 = 边表端点口径（clean 词面在案——fixture 相位随行）"
++    );
++
++    // serde_json 反序列化回环（同词面）
++    let back: RunNodeRecord = serde_json::from_value(value).expect("反序列化应成功");
++    assert_eq!(back, record, "serde_json 回环逐字段相等");
++}
++
+ /// `RunStepKind::Cleanup` 节点构造 / 序列化 / 反序列化往返等值（正向）：serde
+ /// 线词 `"cleanup"` 白名单式扩展可用——native_model encode/decode 回环逐字段
+ /// 相等、serde_json 线面 step 词逐字（`node_id()` 身份串含 cleanup 词面）。
+@@ -2734,11 +2771,11 @@ fn run_node_record_cleanup词节点往返等值() {
+     assert_eq!(back, record, "serde_json 回环逐字段相等");
+ }
+ 
+-/// 二十值全词汇封闭集（边界）：既有十九值词汇断言扩为二十值——全枚举经
++/// 二十一值全词汇封闭集（边界）：既有二十值词汇断言扩为二十一值——全枚举经
+ /// native_model 回环逐值相等（len 与词面互异持衡；旧值 round-trip 兼容读不破
+-/// ——零迁移面，cleanup 仅白名单式追加）。
++/// ——零迁移面，cleanup / clean 仅白名单式追加，行内词面扩展旧库可读）。
+ #[test]
+-fn run_node_record_step二十值全词汇回环与词面互异() {
++fn run_node_record_step二十一值全词汇回环与词面互异() {
+     let all = [
+         RunStepKind::Executor,
+         RunStepKind::Evaluator,
+@@ -2746,6 +2783,7 @@ fn run_node_record_step二十值全词汇回环与词面互异() {
+         RunStepKind::StaticCheck,
+         RunStepKind::TestExecution,
+         RunStepKind::MutationTest,
++        RunStepKind::Clean,
+         RunStepKind::PhaseStart,
+         RunStepKind::PhaseLog,
+         RunStepKind::VerdictGate,
+@@ -2761,16 +2799,20 @@ fn run_node_record_step二十值全词汇回环与词面互异() {
+         RunStepKind::Seal,
+         RunStepKind::Finalize,
+     ];
+-    assert_eq!(all.len(), 20, "二十值封闭集全枚举（19 → 20 扩位）");
++    assert_eq!(all.len(), 21, "二十一值封闭集全枚举（20 → 21 扩位）");
+ 
+     // 词面互异（封闭集防线：无两词同形）
+     let mut words: Vec<&str> = all.iter().map(|kind| kind.as_str()).collect();
+     let total = words.len();
+     words.sort_unstable();
+     words.dedup();
+-    assert_eq!(words.len(), total, "二十值词面互异: {words:?}");
++    assert_eq!(words.len(), total, "二十一值词面互异: {words:?}");
++    assert!(
++        words.contains(&"clean") && words.contains(&"cleanup"),
++        "clean 与 cleanup 两词面同集可辨"
++    );
+ 
+-    // 全枚举 native_model 回环逐值相等（旧十九值兼容读 + cleanup 新值在案）
++    // 全枚举 native_model 回环逐值相等（旧二十值兼容读 + clean 新值在案）
+     for (sequence, kind) in all.iter().enumerate() {
+         let record = RunNodeRecord::new(
+             "run-1727000000000",
+@@ -2787,8 +2829,8 @@ fn run_node_record_step二十值全词汇回环与词面互异() {
+ }
+ 
+ /// 越集词反序列化拒绝持衡（异常）：封闭集防线不松动——`RunStepKind` serde
+-/// Deserialize 面对越集词形（camel 近似 / kebab / 空串 / cleanup 变体词）一律
+-/// Err（扩词不改变拒绝面；native_model 编解码即经同型 serde 派生承载）。
++/// Deserialize 面对越集词形（camel 近似 / kebab / 空串 / cleanup 变体词 / clean
++/// 近似词与大写词形）一律 Err（扩词不改变拒绝面——"clean" 本词已合法入集）。
+ #[test]
+ fn run_node_record_step越集词反序列化拒绝持衡() {
+     for illegal in [
+@@ -2796,6 +2838,9 @@ fn run_node_record_step越集词反序列化拒绝持衡() {
+         "clean-up",
+         "cleanups",
+         "Cleanup",
++        "clear",
++        "clean step",
++        "Clean",
+         "mutationTest",
+         "resolveConflicts",
+         "archive_stage",
+diff --git a/crates/infra/store/src/store.rs b/crates/infra/store/src/store.rs
+index a9aee473b607..bf3d664ff355 100644
+--- a/crates/infra/store/src/store.rs
++++ b/crates/infra/store/src/store.rs
+@@ -2017,7 +2017,7 @@ impl Store {
+ 
+     /// run 执行图节点行：按 run 圈定（`run_id` 二级索引语义），`node_seq` 升序
+     /// （= emit 序——同 run 打包键高 64 位恒一致，主键自然序即 node_seq 序）。
+-    /// 二十值全词汇零过滤（读面与写面同一份封闭集）。
++    /// 二十一值全词汇零过滤（读面与写面同一份封闭集）。
+     pub fn list_run_nodes(&self, run_id: &str) -> Result<Vec<RunNodeStateRecord>, StoreError> {
+         let mut records: Vec<RunNodeRecord> = self
+             .read_all::<RunNodeRecord>("遍历 run 节点整包")?
+diff --git a/crates/infra/store/src/store_test.rs b/crates/infra/store/src/store_test.rs
+index 7eb367c5c3ef..3ae59b6ddd74 100644
+--- a/crates/infra/store/src/store_test.rs
++++ b/crates/infra/store/src/store_test.rs
+@@ -7073,8 +7073,8 @@ fn finish_change_run单事务整包_全词汇与四kind边同刻() {
+ 
+ /// run 节点读面 cleanup 词零过滤（worktree-cleanup-and-active-cap / AC-9）：写入
+ /// 含 cleanup 词节点的 run → 读面原样出线（`cleanup` snake 词、phase=archive、
+-/// detail / instance_no 透传——doc 注释二十值与行为一致）；既有 run 读面断言随
+-/// 二十值全量持衡（词面扩位不改变行集完整性——归档 9 步词整包落读回环）。
++/// detail / instance_no 透传——doc 注释二十一值与行为一致）；既有 run 读面断言随
++/// 二十一值全量持衡（词面扩位不改变行集完整性——归档 9 步词整包落读回环）。
+ #[test]
+ fn run节点读面_cleanup词零过滤原样出线() {
+     let env = Env::new("run-cleanup-read");
+@@ -7142,6 +7142,123 @@ fn run节点读面_cleanup词零过滤原样出线() {
+     assert_eq!(cleanup.instance_no, 0, "身份键实例号透传");
+ }
+ 
++/// run 节点读面 clean 词零过滤（check-before-flow-start / AC-1 / AC-8）：写入
++/// 含 clean 词节点的 initialize run → 读面原样出线（`clean` snake 词、五节点
++/// 行集完整、detail / instance_no 透传——二十一值词汇扩位零过滤的行为回归锚）；
++/// 二十一值穷举写入 / 读回往返在案。
++#[test]
++fn run节点读面_clean词零过滤原样出线() {
++    let env = Env::new("run-clean-read");
++    let store = open_workspace_ok(&env.db_path("ws"));
++    create_change_ok(&store, "flow-run", 1000);
++    store
++        .start_change_run(&run_start_cmd("run-init", "flow-run", 2000))
++        .expect("发起应成功");
++
++    // initialize 五步序整包——emit 序即 node_seq 序
++    let initialize_steps = [
++        RunStepKind::PhaseStart,
++        RunStepKind::Clean,
++        RunStepKind::StaticCheck,
++        RunStepKind::TestExecution,
++        RunStepKind::PhaseLog,
++    ];
++    let nodes: Vec<RunNodeEntry> = initialize_steps
++        .iter()
++        .map(|step| {
++            let mut entry = run_node_entry("initialize", 1, *step, RunStepStatus::Passed, 0);
++            if *step == RunStepKind::Clean {
++                entry.detail = Some("已恢复基线（reset --hard + clean -fd）".to_owned());
++            }
++            entry
++        })
++        .collect();
++    store
++        .finish_change_run(&run_finish_cmd(
++            "run-init",
++            "flow-run",
++            RunStatus::Completed,
++            Some("All phases have passed."),
++            9000,
++            nodes,
++            Vec::new(),
++        ))
++        .expect("收口应成功");
++
++    // 读面原样出线：行集完整（5 行）、clean 词零过滤、载荷透传
++    let rows: Vec<RunNodeStateRecord> = store.list_run_nodes("run-init").expect("节点读应成功");
++    assert_eq!(rows.len(), 5, "initialize 五节点行集完整（零静默丢弃）");
++    assert_eq!(
++        rows.iter().map(|row| row.step).collect::<Vec<_>>(),
++        initialize_steps.to_vec(),
++        "读序 = emit 序（clean 介于 phase_start 与 static_check）"
++    );
++    let clean = rows
++        .iter()
++        .find(|row| row.step == RunStepKind::Clean)
++        .expect("clean 节点读回在案");
++    assert_eq!(clean.step.as_str(), "clean", "snake 词面原样");
++    assert_eq!(clean.phase, "initialize", "initialize 相位随行");
++    assert_eq!(
++        clean.detail.as_deref(),
++        Some("已恢复基线（reset --hard + clean -fd）"),
++        "detail 载荷透传（读面零改写）"
++    );
++    assert_eq!(clean.instance_no, 0, "身份键实例号透传");
++
++    // 二十一值穷举写入 / 读回往返（既有断言 20 → 21 扩位——旧库可读零迁移）
++    let all = [
++        RunStepKind::Executor,
++        RunStepKind::Evaluator,
++        RunStepKind::Decision,
++        RunStepKind::StaticCheck,
++        RunStepKind::TestExecution,
++        RunStepKind::MutationTest,
++        RunStepKind::Clean,
++        RunStepKind::PhaseStart,
++        RunStepKind::PhaseLog,
++        RunStepKind::VerdictGate,
++        RunStepKind::RetryGate,
++        RunStepKind::WhitelistGate,
++        RunStepKind::Preflight,
++        RunStepKind::Commit,
++        RunStepKind::Rebase,
++        RunStepKind::ResolveConflicts,
++        RunStepKind::Merge,
++        RunStepKind::SpecSync,
++        RunStepKind::Cleanup,
++        RunStepKind::Seal,
++        RunStepKind::Finalize,
++    ];
++    assert_eq!(all.len(), 21, "二十一值封闭集全枚举（20 → 21 扩位）");
++    let nodes: Vec<RunNodeEntry> = all
++        .iter()
++        .enumerate()
++        .map(|(index, step)| run_node_entry("initialize", 1, *step, RunStepStatus::Passed, index as u32))
++        .collect();
++    store
++        .start_change_run(&run_start_cmd("run-21", "flow-run", 10_000))
++        .expect("发起应成功");
++    store
++        .finish_change_run(&run_finish_cmd(
++            "run-21",
++            "flow-run",
++            RunStatus::Completed,
++            Some("All phases have passed."),
++            11_000,
++            nodes,
++            Vec::new(),
++        ))
++        .expect("收口应成功");
++    let rows: Vec<RunNodeStateRecord> = store.list_run_nodes("run-21").expect("节点读应成功");
++    assert_eq!(rows.len(), 21, "二十一节点行集完整（零过滤零迁移）");
++    assert_eq!(
++        rows.iter().map(|row| row.step).collect::<Vec<_>>(),
++        all.to_vec(),
++        "二十一值写入 / 读回往返零漂移"
++    );
++}
++
+ /// finish 同事务 active_phase 清位（D1 悬挂杀除库面，AC-5）：预置
+ /// active_phase=Some 的 change 收口后读回 None。
+ #[test]
+diff --git a/crates/infra/vcs/src/git.rs b/crates/infra/vcs/src/git.rs
+index 19c4b5fa0234..6aac7dc8ddfe 100644
+--- a/crates/infra/vcs/src/git.rs
++++ b/crates/infra/vcs/src/git.rs
+@@ -366,6 +366,30 @@ pub(crate) fn commit_paths(main_root: &Path, paths: &[&str], message: &str) -> R
+     git(main_root, &commit_args).map(|_| ())
+ }
+ 
++// ---------------------------------------------------------------------------
++// 基线恢复（initialize 相位 Clean 步 spawn 单点；经 ArchiveVcsPort 缝消费——
++// 排除面组装驻 walker 调用方，infra 无状态）
++// ---------------------------------------------------------------------------
++
++/// worktree 基线恢复：`reset --hard` → `clean -fd` + 逐项 `-e <pattern>` 排除
++///（**不带 `-x`**——尊重 .gitignore，依赖树常态已免疫；`-e` 双保险覆盖无 ignore
++/// 规则仓；`openspec/` 工件树未跟踪面显式保护）。先 reset 后 clean = tracked
++/// 恢复 + untracked 清除的规范序。成功返回恢复摘要串；失败 `Err` 沿既有
++/// `git()` 语境（命令串 + 退出码 + stderr）。
++pub(crate) fn restore_baseline(worktree: &Path, exclusions: &[&str]) -> Result<String, String> {
++    git(worktree, &["reset", "--hard"])?;
++    let mut clean_args: Vec<&str> = vec!["clean", "-fd"];
++    for pattern in exclusions {
++        clean_args.push("-e");
++        clean_args.push(pattern);
++    }
++    git(worktree, &clean_args)?;
++    Ok(format!(
++        "已恢复基线（reset --hard + clean -fd，排除面 {0} 项）",
++        exclusions.len()
++    ))
++}
++
+ // ---------------------------------------------------------------------------
+ // 变更文件清单 / 补丁（突变范围唯一入口——`change_edit_set` 是全仓取 diff /
+ // 列清单的单点封装，`change_edit_patch` 与其同居；checks-runtime 依赖面零 vcs，
+diff --git a/crates/infra/vcs/src/git_test.rs b/crates/infra/vcs/src/git_test.rs
+index bf6a9cfe2d2e..733ed5b9ca86 100644
+--- a/crates/infra/vcs/src/git_test.rs
++++ b/crates/infra/vcs/src/git_test.rs
+@@ -1964,3 +1964,243 @@ fn ensure_worktree写主仓共享exclude() {
+         "worktree 产物被共享 exclude 剔除: {untracked}"
+     );
+ }
++
++// ---------------------------------------------------------------------------
++// restore_baseline（initialize 相位 Clean 步 spawn 单点，check-before-flow-start
++// / AC-5 / AC-6）：reset --hard + clean -fd 逐项 -e 排除（不带 -x）——零 mock
++// 真件直驱（Mock策略：无）
++// ---------------------------------------------------------------------------
++
++/// git 语境错误串（`git()` Err 组装形态：命令串 + 退出码 + stderr 三段在案）。
++fn assert_git_context(error: &str) {
++    assert!(error.contains("git"), "错误串携命令语境: {error}");
++    assert!(error.contains("exit") || error.contains("退出"), "错误串携退出码: {error}");
++}
++
++/// tracked 重置（正向 / AC-5 reset 半边）：已跟踪文件改动 + staged 改动 → 恢复
++/// 后 `status --porcelain` 干净、内容回 HEAD 版本。
++#[test]
++fn restore_baseline_tracked重置_改动与staged回head() {
++    let _guard = lock_path();
++    let (_dir, root) = init_repo("restore-tracked");
++
++    // 工作区改动 + staged 改动各一
++    fs_write(&root, "a.txt", "工作区改动\n");
++    fs_write(&root, "staged.txt", "已暂存改动\n");
++    git(&root, &["add", "staged.txt"]);
++    let dirty = git(&root, &["status", "--porcelain"]);
++    assert!(!dirty.trim().is_empty(), "前置：改动在案");
++
++    let summary =
++        git::restore_baseline(&root, &[".*", "openspec"]).expect("恢复应 Ok");
++    assert!(!summary.is_empty(), "恢复摘要串非空（step detail 消费面）");
++
++    let status = git(&root, &["status", "--porcelain"]);
++    assert!(
++        status.trim().is_empty(),
++        "恢复后工作区干净（tracked reset + staged 弃置）: {status:?}"
++    );
++    assert_eq!(
++        std::fs::read_to_string(root.join("a.txt")).expect("读回 a.txt"),
++        "initial\n",
++        "内容回 HEAD 版本（reset --hard 语义）"
++    );
++}
++
++/// untracked 清除 + 排除面六目录保留（正向，枚举遍历 / AC-5 clean 半边）：未
++/// 跟踪新文件被清除；node_modules / dist / build / target / coverage /
++/// .nyc_output 逐目录夹具原样保留。
++#[test]
++fn restore_baseline_untracked清除且排除面六目录保留() {
++    let _guard = lock_path();
++    let (_dir, root) = init_repo("restore-untracked");
++
++    // 未跟踪普通文件 + 排除面六目录各一（目录内带文件——目录非空不因空目录
++    // 语义假绿）
++    fs_write(&root, "fresh.txt", "未跟踪新文件\n");
++    for name in [
++        "node_modules",
++        "dist",
++        "build",
++        "target",
++        "coverage",
++        ".nyc_output",
++    ] {
++        let dir = root.join(name);
++        std::fs::create_dir_all(&dir).expect("建排除目录");
++        std::fs::write(dir.join("artifact.bin"), b"payload").expect("写产物");
++    }
++
++    git::restore_baseline(
++        &root,
++        &[
++            "node_modules",
++            "dist",
++            "build",
++            "target",
++            "coverage",
++            ".nyc_output",
++            ".*",
++            "openspec",
++        ],
++    )
++    .expect("恢复应 Ok");
++
++    let status = git(&root, &["status", "--porcelain"]);
++    assert!(
++        !status.contains("fresh.txt"),
++        "未跟踪新文件被清除（clean -fd）: {status:?}"
++    );
++    for name in [
++        "node_modules",
++        "dist",
++        "build",
++        "target",
++        "coverage",
++        ".nyc_output",
++    ] {
++        assert!(
++            root.join(name).join("artifact.bin").is_file(),
++            "排除目录 {name} 原样保留（-e 逐项排除）"
++        );
++    }
++}
++
++/// dot 与工件树（正向 / AC-5）：未跟踪 dot 目录（`.idea` 等）经 `-e ".*"`
++/// 保留；未跟踪 `openspec/` 工件树经显式 `-e` 保留（bootstrap 依赖与过程文档
++/// 不丢）。
++#[test]
++fn restore_baseline_dot目录与openspec工件树保留() {
++    let _guard = lock_path();
++    let (_dir, root) = init_repo("restore-dot");
++
++    let idea = root.join(".idea");
++    std::fs::create_dir_all(&idea).expect("建 dot 目录");
++    std::fs::write(idea.join("workspace.xml"), "<ide/>").expect("写 dot 文件");
++    let specs = root.join("openspec").join("changes").join("demo");
++    std::fs::create_dir_all(&specs).expect("建工件树");
++    std::fs::write(specs.join("proposal.md"), "# 提案\n").expect("写工件");
++
++    git::restore_baseline(&root, &[".*", "openspec"]).expect("恢复应 Ok");
++
++    assert!(
++        idea.join("workspace.xml").is_file(),
++        "dot 目录经 -e \".*\" 保留（dot 剪枝语义）"
++    );
++    assert!(
++        specs.join("proposal.md").is_file(),
++        "openspec 工件树经显式 -e 保留（bootstrap / 过程文档不丢）"
++    );
++    let status = git(&root, &["status", "--porcelain"]);
++    // clean -e 只是不删除（保护语义），未跟踪排除目录仍出现在 status 面——
++    // 保护断言 = 目录内容逐字在案 + status 仅含排除面两行（零额外清除面）
++    assert!(
++        status.contains(".idea/") && status.contains("openspec/"),
++        "排除目录在 status 面在案（未删除即保护）: {status:?}"
++    );
++    for line in status.lines() {
++        assert!(
++            line.contains(".idea") || line.contains("openspec"),
++            "status 面零额外条目（排除面外零清除零残留）: {line:?}"
++        );
++    }
++}
++
++/// gitignore 免疫层（边界 / `-x` 缺席语义锚）：带 .gitignore 规则仓的被忽略
++/// 目录保留（clean 无 -x 不碰 ignored）；无 ignore 规则仓的同名目录经 `-e`
++/// 双保险保留（两种仓形态各一）。
++#[test]
++fn restore_baseline_不带x_gitignore免疫与排除面双保险() {
++    let _guard = lock_path();
++
++    // 形态一：.gitignore 覆盖 node_modules（依赖树常态）——clean 无 -x 不碰
++    {
++        let (_dir, root) = init_repo("restore-ignore");
++        fs_write(&root, ".gitignore", "node_modules/\n");
++        git(&root, &["add", ".gitignore"]);
++        git(
++            &root,
++            &["-c", "user.name=fixture", "-c", "user.email=fixture@example.com", "commit", "-q", "-m", "ignore"],
++        );
++        let modules = root.join("node_modules").join("lib");
++        std::fs::create_dir_all(&modules).expect("建依赖树");
++        std::fs::write(modules.join("index.js"), "module.exports={};").expect("写依赖");
++
++        git::restore_baseline(&root, &[".*", "openspec"]).expect("恢复应 Ok");
++        assert!(
++            modules.join("index.js").is_file(),
++            "被 .gitignore 覆盖的依赖树保留（不带 -x——尊重 ignore 规则）"
++        );
++    }
++
++    // 形态二：无 ignore 规则仓的同名目录——显式 -e 双保险保留
++    {
++        let (_dir, root) = init_repo("restore-no-ignore");
++        let modules = root.join("node_modules").join("lib");
++        std::fs::create_dir_all(&modules).expect("建依赖树");
++        std::fs::write(modules.join("index.js"), "module.exports={};").expect("写依赖");
++
++        git::restore_baseline(&root, &["node_modules", ".*", "openspec"]).expect("恢复应 Ok");
++        assert!(
++            modules.join("index.js").is_file(),
++            "无 ignore 规则仓的同名目录经 -e 双保险保留"
++        );
++    }
++}
++
++/// 幂等安全（边界，重试链 / AC-5 幂等半边）：干净仓（零改动零 untracked）二
++/// 次调用 Ok 且仓态不变；exclusions 空切片 → 纯 reset + clean -fd 照常 Ok。
++#[test]
++fn restore_baseline_幂等二次调用与空排除面() {
++    let _guard = lock_path();
++    let (_dir, root) = init_repo("restore-idempotent");
++
++    let first = git::restore_baseline(&root, &[".*", "openspec"]).expect("首次恢复应 Ok");
++    assert!(!first.is_empty());
++    let second = git::restore_baseline(&root, &[".*", "openspec"]).expect("二次恢复应 Ok");
++    assert!(!second.is_empty(), "干净仓二次调用 Ok（幂等安全）");
++    let status = git(&root, &["status", "--porcelain"]);
++    assert!(status.trim().is_empty(), "仓态不变: {status:?}");
++    assert_eq!(head_sha(&root), head_sha(&root), "HEAD 不移位");
++
++    // 空排除面：纯 reset + clean -fd 照常 Ok
++    let (_dir2, root2) = init_repo("restore-empty-exclusions");
++    fs_write(&root2, "junk.txt", "未跟踪\n");
++    git::restore_baseline(&root2, &[]).expect("空排除面恢复应 Ok");
++    let status2 = git(&root2, &["status", "--porcelain"]);
++    assert!(
++        status2.trim().is_empty(),
++        "空排除面 = 纯 reset + clean -fd: {status2:?}"
++    );
++}
++
++/// 非 git 目录（异常）：`Err` 沿既有 `git()` 语境（命令串 + 退出码 + stderr
++/// ——不吞不静默）。
++#[test]
++fn restore_baseline_非git目录err沿git语境() {
++    let _guard = lock_path();
++    let (_dir, root) = plain_dir("restore-plain");
++
++    let error = git::restore_baseline(&root, &[".*"])
++        .expect_err("非 git 目录应 Err");
++    assert_git_context(&error);
++}
++
++/// 嵌套排除名（边界 / design 待决注记真件护栏面）：排除目录内再建同名子目录
++///（`node_modules/node_modules`）——`-e` 形态匹配下两层同保（git clean -e 按
++/// 路径段匹配，嵌套同名不漏清不误清）。
++#[test]
++fn restore_baseline_嵌套排除名两层同保() {
++    let _guard = lock_path();
++    let (_dir, root) = init_repo("restore-nested");
++
++    let nested = root.join("node_modules").join("node_modules");
++    std::fs::create_dir_all(&nested).expect("建嵌套目录");
++    std::fs::write(nested.join("deep.bin"), b"deep").expect("写深位产物");
++
++    git::restore_baseline(&root, &["node_modules", ".*", "openspec"]).expect("恢复应 Ok");
++    assert!(
++        nested.join("deep.bin").is_file(),
++        "嵌套同名排除目录两层同保（-e 路径段匹配）"
++    );
++}
+diff --git a/crates/infra/vcs/src/lib.rs b/crates/infra/vcs/src/lib.rs
+index d98c95680dc0..8b6c5a267db9 100644
+--- a/crates/infra/vcs/src/lib.rs
++++ b/crates/infra/vcs/src/lib.rs
+@@ -170,4 +170,16 @@ impl ArchiveVcsPort for ProcessArchiveVcs {
+             )
+         })
+     }
++
++    fn restore_baseline(&self, worktree: &Path, exclusions: &[&str]) -> Result<String, String> {
++        let path = worktree.to_string_lossy().into_owned();
++        // 委托 `git::restore_baseline` 单点；`Err` 附 worktree 路径与主仓未受
++        // 影响注记（initialize 检查恒在 worktree / exec root 内执行）
++        git::restore_baseline(worktree, exclusions).map_err(|error| {
++            format!(
++                "基线恢复失败（{path}）: {error}；主仓未受影响，\
++                 请核验 worktree git 状态后重试发起"
++            )
++        })
++    }
+ }
+diff --git a/crates/infra/vcs/src/lib_test.rs b/crates/infra/vcs/src/lib_test.rs
+index 7fb4ebf893f9..2b08796097fe 100644
+--- a/crates/infra/vcs/src/lib_test.rs
++++ b/crates/infra/vcs/src/lib_test.rs
+@@ -522,3 +522,145 @@ fn process_archive_vcs构造_new与default等值() {
+     let _c = ProcessArchiveVcs::new();
+     // 无状态空类型：可重复构造即断言面（字段零个，等值由类型层承载）
+ }
++
++// ---------------------------------------------------------------------------
++// ProcessArchiveVcs.restore_baseline（check-before-flow-start / AC-5 / AC-6）：
++// 委托 `git::restore_baseline` 单点；`Err` 经 map_err 附 worktree 路径与「主仓
++// 未受影响」注记——真实 git tempdir + worktree 分置（零 mock）
++// ---------------------------------------------------------------------------
++
++use crate::test_path_lock as lock_path;
++
++/// 正向（转发对拍）：经 `&dyn ArchiveVcsPort` 调用与 `git::restore_baseline`
++/// 自由函数同仓同排除面双跑效果逐字等值（单点复用防漂移——同仓同排除面双跑
++/// 后 status / 摘要形态一致）。
++#[test]
++fn process_archive_vcs_restore_baseline转发对拍与自由函数等值() {
++    let _guard = lock_path();
++    let port = ProcessArchiveVcs::new();
++
++    // 双仓同构改动：tracked 编辑 + untracked + 排除目录，双跑后仓态等值
++    let (_dir_a, root_a) = init_repo("restore-fwd-a");
++    let (_dir_b, root_b) = init_repo("restore-fwd-b");
++    for root in [&root_a, &root_b] {
++        std::fs::write(root.join("a.txt"), "编辑\n").expect("写改动");
++        std::fs::write(root.join("fresh.txt"), "未跟踪\n").expect("写新文件");
++        let modules = root.join("node_modules").join("lib");
++        std::fs::create_dir_all(&modules).expect("建排除目录");
++        std::fs::write(modules.join("index.js"), "x").expect("写依赖");
++    }
++
++    let summary_a = port
++        .restore_baseline(&root_a, &["node_modules", ".*", "openspec"])
++        .expect("port 侧恢复应 Ok");
++    let summary_b = super::git::restore_baseline(&root_b, &["node_modules", ".*", "openspec"])
++        .expect("自由函数侧恢复应 Ok");
++
++    // 摘要同形（排除面计数一致）、仓态等值（双跑后 status 同空）
++    assert_eq!(summary_a, summary_b, "恢复摘要串逐字等值（单点委托）");
++    let status_a = git(&root_a, &["status", "--porcelain"]);
++    let status_b = git(&root_b, &["status", "--porcelain"]);
++    assert_eq!(status_a, status_b, "双跑后仓态等值");
++    // 排除面（node_modules）为未跟踪保留面——status 仅含该行（fresh.txt 已清、
++    // a.txt 已回 HEAD）
++    for line in status_a.lines() {
++        assert!(
++            line.contains("node_modules"),
++            "status 面仅排除目录保留行: {line:?}"
++        );
++    }
++    assert!(
++        root_a.join("node_modules").join("lib").join("index.js").is_file(),
++        "排除面保留（port 侧）"
++    );
++    assert!(
++        !root_a.join("fresh.txt").exists(),
++        "未跟踪新文件被清除（port 侧 clean 半边）"
++    );
++    assert_eq!(
++        std::fs::read_to_string(root_a.join("a.txt")).expect("读 a.txt"),
++        "initial
++",
++        "tracked 回 HEAD（port 侧 reset 半边）"
++    );
++}
++
++/// 异常（map_err 语境面）：非 git 目录 → `Err` 含 worktree 路径字面量与「主仓
++/// 未受影响」注记（与 git 侧原文可辨）。
++#[test]
++fn process_archive_vcs_restore_baseline_err携路径与主仓注记() {
++    let _guard = lock_path();
++    let port = ProcessArchiveVcs::new();
++    let plain = tempfile::Builder::new()
++        .prefix("vcs-lib-restore-plain-")
++        .tempdir()
++        .expect("建普通目录失败");
++
++    let error = port
++        .restore_baseline(plain.path(), &[".*"])
++        .expect_err("非 git 目录应 Err");
++    let rendered = plain.path().to_string_lossy().into_owned();
++    assert!(
++        error.contains(&rendered),
++        "Err 携 worktree 路径字面量: {error}"
++    );
++    assert!(
++        error.contains("主仓未受影响"),
++        "Err 携主仓未受影响注记: {error}"
++    );
++}
++
++/// 边界（主仓双保险真件锚 / AC-6 灾难面护栏）：真实主仓 + worktree 分置
++/// tempdir，主仓预置未提交改动 → restore 调用后主仓未提交改动原样在案
++///（restore 仅作用于 worktree）。
++#[test]
++fn process_archive_vcs_restore_baseline_主仓双保险真件锚() {
++    let _guard = lock_path();
++    let port = ProcessArchiveVcs::new();
++    let (_main_dir, main_root) = init_repo("restore-main-guard");
++    let (_wt_dir, wt_base) = archive_worktree_slot("restore-main-guard");
++    let wt = wt_base.clone();
++    git(
++        &main_root,
++        &["worktree", "add", &wt.to_string_lossy(), "-b", "change/wt"],
++    );
++
++    // 主仓预置未提交改动（tracked 编辑 + untracked 新文件）
++    std::fs::write(main_root.join("a.txt"), "主仓未提交编辑\n").expect("写主仓改动");
++    std::fs::write(main_root.join("main-local.txt"), "主仓本地文件\n").expect("写主仓新文件");
++
++    // worktree 内也放改动（restore 作用面）
++    std::fs::write(wt.join("a.txt"), "worktree 编辑\n").expect("写 wt 改动");
++
++    port.restore_baseline(&wt, &[".*", "openspec"]).expect("恢复应 Ok");
++
++    // 主仓未提交改动原样在案（灾难面护栏——restore 仅作用 worktree）
++    assert_eq!(
++        std::fs::read_to_string(main_root.join("a.txt")).expect("读主仓 a.txt"),
++        "主仓未提交编辑\n",
++        "主仓 tracked 改动原样（零重置）"
++    );
++    assert!(
++        main_root.join("main-local.txt").is_file(),
++        "主仓 untracked 原样（零 clean）"
++    );
++    let main_status = git(&main_root, &["status", "--porcelain"]);
++    assert!(
++        main_status.contains("a.txt") && main_status.contains("main-local.txt"),
++        "主仓改动在 status 面在案: {main_status:?}"
++    );
++    // worktree 侧已恢复（对照面）
++    assert_eq!(
++        std::fs::read_to_string(wt.join("a.txt")).expect("读 wt a.txt"),
++        "initial\n",
++        "worktree 内容回 HEAD（对照面）"
++    );
++}
++
++/// 正向（构造持衡）：`new()` / `Default::default()` 等值构造既有断言随新方法
++/// 持衡（无状态装配回归锚）。
++#[test]
++fn process_archive_vcs_restore_baseline构造持衡() {
++    let _new = ProcessArchiveVcs::new();
++    let _default = ProcessArchiveVcs::default();
++}
+diff --git a/src/commands/change_flow/mod.rs b/src/commands/change_flow/mod.rs
+index 44518e8f03a6..d2f70e90dbf6 100644
+--- a/src/commands/change_flow/mod.rs
++++ b/src/commands/change_flow/mod.rs
+@@ -25,8 +25,9 @@ use vcs_runtime::ProcessArchiveVcs;
+ use workflow::state::ChangeStateStore;
+ use workflow::write::{phase_table, SessionAnchors};
+ 
+-/// 归档停止点相位名（归档为独立手动执行门：run 走完 8 个路由相位后必停等确认
+-/// 一次才进入本相位——「按指定 phase 停止」的固定停止点）。
++/// 归档停止点相位名（归档为独立手动执行门：run 走完全部前序路由相位（requirement
++/// 9 个 = initialize + 8、test-only 6 个 = initialize + 5）后必停等确认一次才进
++/// 入本相位——「按指定 phase 停止」的固定停止点）。
+ const STOP_BEFORE_ARCHIVE: &str = "archive";
+ 
+ /// 当前 UTC unix 毫秒（run 发起时刻铸造点；时钟早于 epoch 取 0，不 panic——
+diff --git a/src/commands/change_flow/mod_test.rs b/src/commands/change_flow/mod_test.rs
+index b925c50d1c78..36edc2f5e993 100644
+--- a/src/commands/change_flow/mod_test.rs
++++ b/src/commands/change_flow/mod_test.rs
+@@ -179,13 +179,69 @@ fn capturing_channel() -> (
+ 
+ /// 轮询至谓词成立（后台 walker 驱动的观测窗口；30s 上限防挂死）。
+ fn wait_for(what: &str, mut probe: impl FnMut() -> bool) {
+-    let deadline = Instant::now() + Duration::from_secs(30);
++    wait_for_up_to(what, Duration::from_secs(30), probe);
++}
++
++/// 显式超时版（真件 spawn 组合用例的收敛窗口——sdk 缺席失败链路耗时更长）。
++fn wait_for_up_to(what: &str, timeout: Duration, mut probe: impl FnMut() -> bool) {
++    let deadline = Instant::now() + timeout;
+     while !probe() {
+-        assert!(Instant::now() < deadline, "等待{what}超时（30s）");
++        assert!(
++            Instant::now() < deadline,
++            "等待{what}超时（{}s）",
++            timeout.as_secs()
++        );
+         std::thread::sleep(Duration::from_millis(10));
+     }
+ }
+ 
++/// initialize 表头 pass 条目种子（命令面真件用例：路由跳过表头——与既有
++/// executor 链路行为对齐，表头自身的路由 / 停等形态由其余专测承载）。
++fn seed_initialize_passed(app: &App<tauri::test::MockRuntime>, root: &str, id: &str) {
++    let store = app
++        .state::<WorkspaceStores>()
++        .for_root(root)
++        .expect("for_root 应成功");
++    let started = store
++        .start_change_phase(id, "initialize", STARTED_AT)
++        .expect("initialize 开相种子应成功");
++    store
++        .log_change_phase(&workflow::state::PhaseLogCommand {
++            change_id: id.to_owned(),
++            phase: "initialize".to_owned(),
++            verdict: workflow::model::Verdict::Pass,
++            report: "基线检查通过".to_owned(),
++            skipped: false,
++            checklist: Vec::new(),
++            executor_session_id: None,
++            evaluator_session_id: None,
++            decision_session_id: None,
++            start_at: Some(started.start_at),
++            timestamp: STARTED_AT + 30_000,
++        })
++        .expect("initialize 落账种子应成功");
++}
++
++/** 手动档停等应答回路（命令面真件用例：表头 initialize 收口后停等照常——
++ * auto=false 用例需应答 Confirm 方可继续路由；无等待方时 confirm Err 忽略重试）。 */
++fn spawn_command_confirmer(
++    app: tauri::AppHandle<tauri::test::MockRuntime>,
++    control: Arc<ChangeFlowControl>,
++    root: String,
++    id: &'static str,
++) {
++    std::thread::spawn(move || {
++        let deadline = Instant::now() + Duration::from_secs(60);
++        while Instant::now() < deadline {
++            std::thread::sleep(Duration::from_millis(50));
++            if control.snapshot(&root, id).is_none() {
++                break;
++            }
++            let _ = change_flow_confirm_with(app.clone(), root.clone(), id.to_owned(), true, true);
++        }
++    });
++}
++
+ const CHANGE: &str = "flow-change";
+ 
+ /// 发起时刻（UTC unix 毫秒，`begin_run` 加参后的机械随动固定值）。
+@@ -308,6 +364,7 @@ async fn start提前resolve返回running摘要且channel首事件到达后台驱
+ 
+     // sdk 默认实例 fixture（组合根缺省解析可走通）
+     seed_sdk_default_instance(&app);
++    seed_initialize_passed(&app, &root, CHANGE);
+ 
+     let (channel, captured) = capturing_channel();
+     let result = change_flow_start_with(
+@@ -414,7 +471,7 @@ async fn start提前resolve返回running摘要且channel首事件到达后台驱
+             .filter(|node| node.step == workflow::state::RunStepKind::PhaseStart)
+             .count(),
+         1,
+-        "phase_start 词汇零过滤落库（流程面步骤在案）"
++        "phase_start 词汇零过滤落库（表头 initialize 预置 pass 零开相——proposal 单枚开相）"
+     );
+ }
+ 
+@@ -556,6 +613,13 @@ async fn auto_next_phase_false默认档受理面回归() {
+     let root = env.root();
+     seed_change(&app, &root, CHANGE, "requirement");
+     seed_sdk_default_instance(&app);
++    seed_initialize_passed(&app, &root, CHANGE);
++    spawn_command_confirmer(
++        app.handle().clone(),
++        Arc::clone(app.state::<Arc<ChangeFlowControl>>().inner()),
++        root.clone(),
++        CHANGE,
++    );
+ 
+     let (channel, captured) = capturing_channel();
+     let result = change_flow_start_with(
+@@ -1092,6 +1156,14 @@ async fn 并行冲突键id_同名异id各自受理且异root同id互不误拒()
+     seed_change_full(&app, &root_a, "id-a2", CHANGE, "requirement");
+     seed_change(&app, &root_b, CHANGE, "requirement");
+     seed_sdk_default_instance(&app);
++    {
++        let control = Arc::clone(app.state::<Arc<ChangeFlowControl>>().inner());
++        spawn_command_confirmer(app.handle().clone(), control, root_a.clone(), "id-a2");
++    }
++    {
++        let control = Arc::clone(app.state::<Arc<ChangeFlowControl>>().inner());
++        spawn_command_confirmer(app.handle().clone(), control, root_b.clone(), CHANGE);
++    }
+ 
+     // rootA 预登记运行中 run（guard 在手不收敛——确定性冲突锚；注记：
+     // `run-<millis>` 同毫秒可同号，run_id 不作唯一性断言面）
+@@ -1263,6 +1335,7 @@ async fn start归档互斥面摘除_无归档注册表照常受理() {
+     let root = env.root();
+     seed_change(&app, &root, CHANGE, "requirement");
+     seed_sdk_default_instance(&app);
++    seed_initialize_passed(&app, &root, CHANGE);
+ 
+     let (channel, captured) = capturing_channel();
+     let summary = change_flow_start_with(
+@@ -1670,6 +1743,7 @@ async fn 组合根装配_staticcheck步默认recorded落单一log并回填引用
+             root: root.clone(),
+             command: ToolCommand::StaticCheck {
+                 change_id: CHANGE.to_owned(),
++                slot: foundation::layout::ReportSlot::Test,
+             },
+         })
+         .await;
+@@ -1734,6 +1808,13 @@ async fn start_test_only记录放行且提前resolve返回running摘要() {
+     let root = env.root();
+     seed_change(&app, &root, CHANGE, "test-only");
+     seed_sdk_default_instance(&app);
++    seed_initialize_passed(&app, &root, CHANGE);
++    spawn_command_confirmer(
++        app.handle().clone(),
++        Arc::clone(app.state::<Arc<ChangeFlowControl>>().inner()),
++        root.clone(),
++        CHANGE,
++    );
+ 
+     let (channel, captured) = capturing_channel();
+     let result = change_flow_start_with(
+@@ -1791,6 +1872,7 @@ async fn start_test_only记录放行且提前resolve返回running摘要() {
+         .collect();
+     assert!(
+         phases.iter().all(|phase| [
++            "initialize",
+             "proposal",
+             "code-analyze",
+             "test-design",
+@@ -1799,6 +1881,446 @@ async fn start_test_only记录放行且提前resolve返回running摘要() {
+             "archive"
+         ]
+         .contains(&phase.as_str())),
+-        "落账相位均在 test-only 表内，实际: {phases:?}"
++        "落账相位均在 test-only 表内（initialize 表头种子在案），实际: {phases:?}"
++    );
++}
++
++// ---------------------------------------------------------------------------
++// initialize 基线真件组合（check-before-flow-start / AC-1 / AC-2）：真实 git
++// 主仓 + git worktree 夹具 + 平台 shim 真件 spawn（`write_static_shim` + config
++// 登记 + `prefix_path` PATH 注入 + commands 级 PATH 锁串行化——Mock策略：无）
++// ---------------------------------------------------------------------------
++
++/// 建真实 git 主仓（单提交在案）+ worktree 落位（`git worktree add`）——返回
++/// worktree 绝对路径。直驱 git 子命令（真件夹具，零 mock）。
++fn git_main_with_worktree(main_root: &Path, worktree: &Path, branch: &str) {
++    let run_git = |args: &[&str], cwd: &Path| {
++        let output = std::process::Command::new("git")
++            .arg("-C")
++            .arg(cwd)
++            .args(args)
++            .output()
++            .unwrap_or_else(|error| panic!("夹具 git 拉起失败: {error}"));
++        assert!(
++            output.status.success(),
++            "夹具 git {} 失败: {}",
++            args.join(" "),
++            String::from_utf8_lossy(&output.stderr)
++        );
++    };
++    run_git(&["init", "-q"], main_root);
++    run_git(&["config", "user.name", "fixture"], main_root);
++    run_git(&["config", "user.email", "fixture@example.com"], main_root);
++    fs::write(main_root.join("seed.txt"), "seed\n").expect("写种子文件失败");
++    fs::write(main_root.join("cwd-probe.txt"), "worktree probe").expect("写探针失败");
++    #[cfg(windows)]
++    {
++        fs::write(
++            main_root.join("static-shim.cmd"),
++            "@echo off\r\ntype cwd-probe.txt\r\nif exist coverage\\exit-code.txt exit /b 1\r\n",
++        )
++        .expect("写 shim 失败");
++        run_git(
++            &["add", "seed.txt", "cwd-probe.txt", "static-shim.cmd"],
++            main_root,
++        );
++    }
++    #[cfg(not(windows))]
++    {
++        {
++            use std::os::unix::fs::PermissionsExt;
++            let script = main_root.join("static-shim");
++            fs::write(
++                &script,
++                "#!/bin/sh\ncat cwd-probe.txt\nif [ -f coverage/exit-code.txt ]; then exit 1; fi\nexit 0\n",
++            )
++            .expect("写 shim 失败");
++            fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).expect("补执行位");
++        }
++        run_git(
++            &["add", "seed.txt", "cwd-probe.txt", "static-shim"],
++            main_root,
++        );
++    }
++    run_git(
++        &[
++            "-c",
++            "user.name=fixture",
++            "-c",
++            "user.email=fixture@example.com",
++            "commit",
++            "-q",
++            "-m",
++            "init",
++        ],
++        main_root,
++    );
++    run_git(
++        &["worktree", "add", &worktree.to_string_lossy(), "-b", branch],
++        main_root,
++    );
++}
++
++/// 基线绿走真件全链（组合，AC-1）：真实 git 主仓 + worktree 夹具（exec root ≠
++/// 主 root）+ 绿 static shim（退出 0）→ initialize 相位先于 proposal 路由、
++/// Clean / StaticCheck / TestExecution / PhaseLog 节点齐备、检查在 worktree 内
++/// 执行（cwd 断言：shim 相对路径读到 worktree 内探针文件）、报告与 exec-outputs
++/// 落 `openspec/changes/<name>/reports/baseline/`（AC-1 真件全链）。
++#[tokio::test]
++async fn 基线绿走_initialize先于proposal_报告落baseline树() {
++    let env = Env::new("baseline-green");
++    let app = app_with(&env);
++    let root = env.root();
++    let worktree = env.data_dir.path().join("wt").join(CHANGE);
++    fs::create_dir_all(env.data_dir.path().join("wt")).expect("建 wt 父目录失败");
++    git_main_with_worktree(env.ws_root.path(), &worktree, &format!("change/{CHANGE}"));
++
++    // worktree 内预置 openspec 树（config 在排除面——clean 保留）；探针与 shim
++    // 已随主仓提交（tracked——clean `reset --hard` 后仍在场；shim 相对路径读
++    // cwd-probe.txt 即 spawn cwd = worktree 的内嵌断言）
++    fs::create_dir_all(worktree.join("openspec/changes").join(CHANGE))
++        .expect("预置 worktree openspec 树失败");
++    seed_change_with_worktree(&app, &root, CHANGE, &worktree);
++
++    // shim 裸名（tracked 夹具供给；零 coverage/exit-code.txt → 退出 0 绿态）
++    #[cfg(windows)]
++    let shim = "static-shim.cmd".to_owned();
++    #[cfg(not(windows))]
++    let shim = "static-shim".to_owned();
++    fs::write(
++        worktree.join("openspec/config.json"),
++        format!("{{ \"static_analysis\": \"{shim}\" }}"),
++    )
++    .expect("写 config 失败");
++    seed_sdk_default_instance(&app);
++
++    // commands 级 PATH 锁串行化 + PATH 前置 worktree（guard 持有至后台收敛）
++    let (guard, original) = prefix_path(&worktree);
++    let (diag_channel, diag_captured) = capturing_channel();
++    let summary = change_flow_start_with(
++        app.handle().clone(),
++        diag_channel,
++        root.clone(),
++        CHANGE.to_owned(),
++        false,
++    )
++    .await
++    .expect("基线绿走发起应成功");
++    assert_eq!(summary.status, super::ChangeRunStatus::Running);
++    eprintln!("DBG-绿走 summary={summary:?}");
++
++    let control = app.state::<Arc<ChangeFlowControl>>();
++    // confirmer 回路：手动档逐相位 ConfirmWait 应答（auto=false——initialize 收口
++    // 后停等照常，确认后继续路由 proposal；无等待方时 confirm Err 忽略重试）
++    {
++        let handle_confirm = app.handle().clone();
++        let control_confirm = Arc::clone(&control);
++        let root_confirm = root.clone();
++        std::thread::spawn(move || {
++            let deadline = Instant::now() + Duration::from_secs(120);
++            while Instant::now() < deadline {
++                std::thread::sleep(Duration::from_millis(100));
++                if control_confirm.snapshot(&root_confirm, CHANGE).is_none() {
++                    break;
++                }
++                let _ = change_flow_confirm_with(
++                    handle_confirm.clone(),
++                    root_confirm.clone(),
++                    CHANGE.to_owned(),
++                    true,
++                    true,
++                );
++            }
++        });
++    }
++    {
++        let store_dbg = app
++            .state::<WorkspaceStores>()
++            .for_root(&root)
++            .expect("for_root");
++        let deadline = Instant::now() + Duration::from_secs(120);
++        let mut last_dbg = Instant::now();
++        loop {
++            if control.snapshot(&root, CHANGE).is_none() {
++                break;
++            }
++            if last_dbg.elapsed() >= Duration::from_secs(5) {
++                last_dbg = Instant::now();
++                if let Some(snap) = control.snapshot(&root, CHANGE) {
++                    eprintln!(
++                        "DBG-绿走 snapshot: run={:?} phase={:?}",
++                        snap.run_id, snap.phase
++                    );
++                }
++                let captured_dbg = diag_captured.lock().expect("捕获锁");
++                eprintln!(
++                    "DBG-绿走 updates: {:?}",
++                    captured_dbg
++                        .iter()
++                        .map(|value| {
++                            (
++                                value["ipc"].as_str().unwrap_or("?").to_owned(),
++                                value["step"].as_str().map(str::to_owned),
++                                value["phase"].as_str().map(str::to_owned),
++                            )
++                        })
++                        .collect::<Vec<_>>()
++                );
++            }
++            if Instant::now() >= deadline {
++                if let Ok(runs) = store_dbg.list_change_runs(CHANGE) {
++                    for run in &runs {
++                        eprintln!(
++                            "DBG-绿走 run={} status={:?} reason={:?}",
++                            run.run_id, run.status, run.reason
++                        );
++                        if let Ok(nodes) = store_dbg.list_run_nodes(&run.run_id) {
++                            eprintln!(
++                                "DBG-绿走 nodes: {:?}",
++                                nodes
++                                    .iter()
++                                    .map(|n| {
++                                        (
++                                            n.phase.as_str(),
++                                            n.step.as_str(),
++                                            format!("{:?}", n.status),
++                                        )
++                                    })
++                                    .collect::<Vec<_>>()
++                            );
++                        }
++                    }
++                }
++                panic!("等待run 终态除名超时（120s）");
++            }
++            std::thread::sleep(Duration::from_millis(50));
++        }
++    }
++    restore_path(guard, original);
++
++    // 节点整包：initialize 五节点先于 proposal（相位序逐位——AC-1）
++    let store = app
++        .state::<WorkspaceStores>()
++        .for_root(&root)
++        .expect("for_root 应成功");
++    let runs = store.list_change_runs(CHANGE).expect("run 史应成功");
++    eprintln!(
++        "DBG 绿走终态: {:?} reason={:?}",
++        runs[0].status, runs[0].reason
++    );
++    assert_eq!(runs.len(), 1);
++    let nodes = store
++        .list_run_nodes(&runs[0].run_id)
++        .expect("节点清单应成功");
++    let initialize_words: Vec<&str> = nodes
++        .iter()
++        .filter(|node| node.phase == "initialize")
++        .map(|node| node.step.as_str())
++        .collect();
++    assert_eq!(
++        initialize_words,
++        [
++            "phase_start",
++            "clean",
++            "static_check",
++            "test_execution",
++            "phase_log"
++        ],
++        "initialize 五节点齐备且词面逐位"
++    );
++    let first_phase = nodes
++        .first()
++        .map(|node| node.phase.as_str())
++        .expect("首节点应在案");
++    assert_eq!(
++        first_phase, "initialize",
++        "initialize 先于 proposal 路由（表头先行）"
++    );
++    assert!(
++        nodes.iter().any(|node| node.phase == "proposal"),
++        "initialize 后续路由 proposal（表头一次性——proposal 站开跑）"
++    );
++
++    // 检查在 worktree 内执行 + 报告与 exec-outputs 落 worktree baseline 树
++    let baseline = worktree
++        .join("openspec/changes")
++        .join(CHANGE)
++        .join("reports/baseline");
++    assert!(
++        baseline.join("summary.json").is_file() || baseline.exists(),
++        "baseline 报告树在 worktree 内: {}",
++        baseline.display()
++    );
++    let exec_outputs = baseline.join("exec-outputs");
++    assert!(
++        exec_outputs.exists()
++            && fs::read_dir(&exec_outputs)
++                .expect("读 exec-outputs")
++                .count()
++                > 0,
++        "exec-outputs 落 baseline 树（static-check 输出记录）"
++    );
++
++    // PhaseRecord：initialize pass 在案（先于 proposal）
++    let entries = store.list_phase_records(CHANGE).expect("读相位条目应成功");
++    let initialize = entries
++        .iter()
++        .find(|entry| entry.phase == "initialize")
++        .expect("initialize 条目应在案");
++    assert_eq!(
++        initialize.verdict,
++        workflow::model::Verdict::Pass,
++        "基线绿 → initialize pass 落账"
++    );
++    assert!(!initialize.skipped, "worktree 分支非跳过语义");
++    assert_eq!(
++        entries.first().map(|entry| entry.phase.as_str()),
++        Some("initialize"),
++        "initialize 条目先于 proposal（表序落账）"
++    );
++}
++
++/// 基线红停真件全链（组合，重试链 / AC-2）：shim 非零退出 → run 以 Terminal
++/// 收敛 failed、终态文案引导在基线上修复后重新发起；PhaseRecord 零 initialize
++/// 条目；shim 转绿后重新发起 → clean 恢复基线后干净重试（initialize pass 落账
++/// ——AC-2 真件全链）。
++#[tokio::test]
++async fn 基线红停_terminal收敛文案引导且转绿后干净重试() {
++    let env = Env::new("baseline-red");
++    let app = app_with(&env);
++    let root = env.root();
++    let worktree = env.data_dir.path().join("wt").join(CHANGE);
++    fs::create_dir_all(env.data_dir.path().join("wt")).expect("建 wt 父目录失败");
++    git_main_with_worktree(env.ws_root.path(), &worktree, &format!("change/{CHANGE}"));
++    fs::create_dir_all(worktree.join("openspec/changes").join(CHANGE))
++        .expect("预置 worktree openspec 树失败");
++    seed_change_with_worktree(&app, &root, CHANGE, &worktree);
++
++    // shim 红形态经排除面控制文件编程（coverage/exit-code.txt 在 clean 排除面
++    // ——未跟踪控制文件跨 clean 存活；tracked shim 读它切非零退出）。「转绿」=
++    // 删除控制文件（零文件改写——tracked shim 全程不被 clean 触碰）
++    let arm_red = |red: bool| {
++        let dir = worktree.join("coverage");
++        if red {
++            fs::create_dir_all(&dir).expect("建 coverage 控制目录失败");
++            fs::write(dir.join("exit-code.txt"), "1").expect("写控制文件失败");
++        } else {
++            let _ = fs::remove_file(dir.join("exit-code.txt"));
++        }
++    };
++    arm_red(true);
++    fs::write(
++        worktree.join("openspec/config.json"),
++        "{ \"static_analysis\": \"static-shim\" }",
++    )
++    .expect("写 config 失败");
++    seed_sdk_default_instance(&app);
++
++    // 首 run：基线红 → Terminal failed
++    let (guard, original) = prefix_path(&worktree);
++    change_flow_start_with(
++        app.handle().clone(),
++        discarding_channel(),
++        root.clone(),
++        CHANGE.to_owned(),
++        false,
++    )
++    .await
++    .expect("红发起仍受理成功（失败在后台收敛）");
++    let control = app.state::<Arc<ChangeFlowControl>>();
++    wait_for_up_to("首 run 终态除名", Duration::from_secs(120), || {
++        control.snapshot(&root, CHANGE).is_none()
++    });
++
++    let store = app
++        .state::<WorkspaceStores>()
++        .for_root(&root)
++        .expect("for_root 应成功");
++    let runs = store.list_change_runs(CHANGE).expect("run 史应成功");
++    assert_eq!(runs.len(), 1);
++    assert_eq!(
++        runs[0].status,
++        workflow::state::RunStatus::Failed,
++        "基线红 → run failed（Terminal 收敛）"
++    );
++    assert!(
++        runs[0]
++            .reason
++            .as_deref()
++            .is_some_and(|reason| reason.contains("基线静态检查未通过")),
++        "终态文案引导基线修复后重新发起: {:?}",
++        runs[0].reason
++    );
++    let entries = store.list_phase_records(CHANGE).expect("读相位条目应成功");
++    assert!(
++        !entries.iter().any(|entry| entry.phase == "initialize"),
++        "红停零 initialize 条目"
++    );
++    // 预置未跟踪残留（下轮 clean 恢复面的真件锚）
++    fs::write(worktree.join("leftover.txt"), "leftover\n").expect("write leftover");
++
++    // shim 转绿：摘除控制文件 → 重新发起（clean 恢复基线后干净重试）
++    arm_red(false);
++    let second = change_flow_start_with(
++        app.handle().clone(),
++        discarding_channel(),
++        root.clone(),
++        CHANGE.to_owned(),
++        false,
++    )
++    .await
++    .expect("二次发起应受理成功");
++
++    // 二次 run：initialize pass 落账后主动 stop（测试聚焦 initialize 表头——
++    // 后续 proposal 相位的 agent 收敛不属本用例面）
++    let store_dbg = app
++        .state::<WorkspaceStores>()
++        .for_root(&root)
++        .expect("for_root");
++    let deadline = Instant::now() + Duration::from_secs(120);
++    loop {
++        let entries = store_dbg
++            .list_phase_records(CHANGE)
++            .expect("读相位条目应成功");
++        if entries.iter().any(|entry| {
++            entry.phase == "initialize" && entry.verdict == workflow::model::Verdict::Pass
++        }) {
++            break;
++        }
++        assert!(
++            Instant::now() < deadline,
++            "等待二次 run initialize pass 超时（120s）"
++        );
++        std::thread::sleep(Duration::from_millis(50));
++    }
++    let _ = change_flow_stop_with(app.handle().clone(), root.clone(), CHANGE.to_owned());
++    wait_for_up_to("二次 run 终态除名", Duration::from_secs(120), || {
++        control.snapshot(&root, CHANGE).is_none()
++    });
++    restore_path(guard, original);
++
++    // 二次 run：clean 恢复基线后干净重试（initialize pass + clean 节点在案）
++    let runs = store.list_change_runs(CHANGE).expect("run 史应成功");
++    assert_eq!(runs.len(), 2, "两轮 run 全史");
++    let entries = store.list_phase_records(CHANGE).expect("读相位条目应成功");
++    let initialize = entries
++        .iter()
++        .find(|entry| entry.phase == "initialize")
++        .expect("二次 run initialize pass 应在案");
++    assert_eq!(initialize.verdict, workflow::model::Verdict::Pass);
++    assert!(!initialize.skipped, "worktree 分支正常落账");
++    let nodes = store
++        .list_run_nodes(&second.run_id)
++        .expect("二次 run 节点应成功");
++    assert!(
++        nodes
++            .iter()
++            .any(|node| node.phase == "initialize"
++                && node.step == workflow::state::RunStepKind::Clean),
++        "二次 run clean 节点在案（基线恢复面）"
++    );
++    assert!(
++        !worktree.join("leftover.txt").exists(),
++        "clean 恢复基线：残留未跟踪文件被清除（AC-5 真件半边）"
+     );
+ }
+diff --git a/src/commands/changes/mod_test.rs b/src/commands/changes/mod_test.rs
+index 6559b030be79..5b8b35f28eb1 100644
+--- a/src/commands/changes/mod_test.rs
++++ b/src/commands/changes/mod_test.rs
+@@ -339,8 +339,8 @@ fn 读命令id透传_列表详情产物与core查询serde等值且归档条目
+     assert_eq!(via_detail.status, Some(ChangeStatus::Active));
+     assert_eq!(
+         via_detail.pipeline.len(),
+-        9,
+-        "固定 9 站全量输出（末列 archive）"
++        10,
++        "固定 10 站全量输出（initialize 表头 + 末列 archive）"
+     );
+     let proposal = via_detail
+         .pipeline
+@@ -674,8 +674,8 @@ async fn create接线_建域落位_返回dto增id且按id立即可见可发起()
+     assert_eq!(unified.detail.status, Some(ChangeStatus::Active));
+     assert_eq!(
+         unified.detail.pipeline.len(),
+-        9,
+-        "空流水线 9 站全量（发起面就绪，末列 archive）"
++        10,
++        "空流水线 10 站全量（initialize 表头 + 发起面就绪，末列 archive）"
+     );
+     assert!(unified.active_run.is_none());
+     // name 非寻址键：按 name 查询不可达（一切寻址以 id 为准）——Ok(None) 空
+@@ -2240,7 +2240,13 @@ fn 统一查询装配_早退与未知id未找到() {
+ 
+ /// 落一条输出记录（真实 infra/exec 落盘——命令面取数直调 State 直测）。
+ fn record(root: &str, change_name: &str, bytes: &[u8]) -> String {
+-    exec::record_exec_output(Path::new(root), change_name, bytes).expect("落盘应成功")
++    exec::record_exec_output(
++        Path::new(root),
++        change_name,
++        foundation::layout::ReportSlot::Test,
++        bytes,
++    )
++    .expect("落盘应成功")
+ }
+ 
+ #[test]
+@@ -2423,8 +2429,13 @@ fn read_exec_output_worktree记录经name定位回读命中() {
+     let worktree = env.data_dir.path().join("worktrees").join("add-feature");
+     seed_active_with_worktree(&store_of(&app, &root), "add-feature", &worktree);
+     // 落盘以 worktree 为锚（record_exec_output 同式——exec root 口径）
+-    let exec_id = exec::record_exec_output(&worktree, "add-feature", b"worktree stdout\n")
+-        .expect("worktree 落盘应成功");
++    let exec_id = exec::record_exec_output(
++        &worktree,
++        "add-feature",
++        foundation::layout::ReportSlot::Test,
++        b"worktree stdout\n",
++    )
++    .expect("worktree 落盘应成功");
+     // 主仓 active 树无该 change 目录（worktree-backed change 主仓零目录）
+     assert!(!env.changes_dir().join("add-feature").exists());
+ 
+@@ -2500,10 +2511,20 @@ fn read_exec_output_同名共存候选探测两change各自可回读() {
+     // active 同名记录（id 相异、worktree 在场）
+     let live = env.data_dir.path().join("worktrees").join("live");
+     seed_active_with_worktree(&store, "add-feature", &live);
+-    let stale_exec =
+-        exec::record_exec_output(&stale, "add-feature", b"stale\n").expect("stale 落盘应成功");
+-    let live_exec =
+-        exec::record_exec_output(&live, "add-feature", b"live\n").expect("live 落盘应成功");
++    let stale_exec = exec::record_exec_output(
++        &stale,
++        "add-feature",
++        foundation::layout::ReportSlot::Test,
++        b"stale\n",
++    )
++    .expect("stale 落盘应成功");
++    let live_exec = exec::record_exec_output(
++        &live,
++        "add-feature",
++        foundation::layout::ReportSlot::Test,
++        b"live\n",
++    )
++    .expect("live 落盘应成功");
+ 
+     // active 记录 worktree 先探命中
+     let text = read_exec_output(
+@@ -2778,6 +2799,7 @@ async fn get_change_detail列序随workflow_type出线() {
+     assert_eq!(
+         phases,
+         vec![
++            "initialize",
+             "proposal",
+             "code-analyze",
+             "test-design",
+@@ -2785,7 +2807,7 @@ async fn get_change_detail列序随workflow_type出线() {
+             "test-execution",
+             "archive"
+         ],
+-        "test-only 六列出线（code-analyze 第 2 列 / archive 第 6 列）"
++        "test-only 七列出线（initialize 表头第 1 列 / code-analyze 第 3 列 / archive 第 7 列）"
+     );
+ 
+     let full = get_change_detail(
+@@ -2802,8 +2824,13 @@ async fn get_change_detail列序随workflow_type出线() {
+         .iter()
+         .map(|station| station.phase.as_str())
+         .collect();
+-    assert_eq!(phases.len(), 9, "requirement 九列出线");
+-    assert_eq!(phases[8], "archive", "archive 为末列");
++    assert_eq!(
++        phases.len(),
++        10,
++        "requirement 十列出线（initialize 表头扩位）"
++    );
++    assert_eq!(phases[0], "initialize", "initialize 为表头第 1 列");
++    assert_eq!(phases[9], "archive", "archive 为末列");
+     assert!(
+         !phases.iter().any(|phase| *phase == "code-analyze"),
+         "requirement 列序零 code-analyze 占位"

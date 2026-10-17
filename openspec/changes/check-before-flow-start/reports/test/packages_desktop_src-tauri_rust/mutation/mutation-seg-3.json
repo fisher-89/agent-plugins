@@ -1,0 +1,273 @@
+{
+  "outcomes": [
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/vcs/src/git.rs:380:5: replace restore_baseline -> Result<String, String> with Ok(String::new())",
+          "package": "vcs-runtime",
+          "file": "crates/infra/vcs/src/git.rs",
+          "function": {
+            "function_name": "restore_baseline",
+            "return_type": "-> Result<String, String>",
+            "span": {
+              "start": {
+                "line": 374,
+                "column": 1
+              },
+              "end": {
+                "line": 391,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 380,
+              "column": 5
+            },
+            "end": {
+              "line": 390,
+              "column": 7
+            }
+          },
+          "replacement": "Ok(String::new())",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__infra__vcs__src__git.rs_line_380_col_5.log",
+      "diff_path": "diff/crates__infra__vcs__src__git.rs_line_380_col_5.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 9.2584326,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=vcs-runtime@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 110.3560373,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--verbose",
+            "--package=vcs-runtime@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/vcs/src/lib.rs:175:9: replace <impl ArchiveVcsPort for ProcessArchiveVcs>::restore_baseline -> Result<String, String> with Ok(String::new())",
+          "package": "vcs-runtime",
+          "file": "crates/infra/vcs/src/lib.rs",
+          "function": {
+            "function_name": "<impl ArchiveVcsPort for ProcessArchiveVcs>::restore_baseline",
+            "return_type": "-> Result<String, String>",
+            "span": {
+              "start": {
+                "line": 174,
+                "column": 5
+              },
+              "end": {
+                "line": 184,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 175,
+              "column": 9
+            },
+            "end": {
+              "line": 183,
+              "column": 11
+            }
+          },
+          "replacement": "Ok(String::new())",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__infra__vcs__src__lib.rs_line_175_col_9.log",
+      "diff_path": "diff/crates__infra__vcs__src__lib.rs_line_175_col_9.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 9.2797001,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=vcs-runtime@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 110.8672887,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--verbose",
+            "--package=vcs-runtime@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/vcs/src/git.rs:380:5: replace restore_baseline -> Result<String, String> with Ok(\"xyzzy\".into())",
+          "package": "vcs-runtime",
+          "file": "crates/infra/vcs/src/git.rs",
+          "function": {
+            "function_name": "restore_baseline",
+            "return_type": "-> Result<String, String>",
+            "span": {
+              "start": {
+                "line": 374,
+                "column": 1
+              },
+              "end": {
+                "line": 391,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 380,
+              "column": 5
+            },
+            "end": {
+              "line": 390,
+              "column": 7
+            }
+          },
+          "replacement": "Ok(\"xyzzy\".into())",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__infra__vcs__src__git.rs_line_380_col_5_001.log",
+      "diff_path": "diff/crates__infra__vcs__src__git.rs_line_380_col_5_001.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 9.4811615,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=vcs-runtime@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 112.0263858,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--verbose",
+            "--package=vcs-runtime@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/vcs/src/lib.rs:175:9: replace <impl ArchiveVcsPort for ProcessArchiveVcs>::restore_baseline -> Result<String, String> with Ok(\"xyzzy\".into())",
+          "package": "vcs-runtime",
+          "file": "crates/infra/vcs/src/lib.rs",
+          "function": {
+            "function_name": "<impl ArchiveVcsPort for ProcessArchiveVcs>::restore_baseline",
+            "return_type": "-> Result<String, String>",
+            "span": {
+              "start": {
+                "line": 174,
+                "column": 5
+              },
+              "end": {
+                "line": 184,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 175,
+              "column": 9
+            },
+            "end": {
+              "line": 183,
+              "column": 11
+            }
+          },
+          "replacement": "Ok(\"xyzzy\".into())",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__infra__vcs__src__lib.rs_line_175_col_9_001.log",
+      "diff_path": "diff/crates__infra__vcs__src__lib.rs_line_175_col_9_001.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 8.9800991,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=vcs-runtime@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 112.5290956,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--verbose",
+            "--package=vcs-runtime@0.1.0"
+          ]
+        }
+      ]
+    }
+  ],
+  "total_mutants": 4,
+  "missed": 0,
+  "caught": 4,
+  "timeout": 0,
+  "unviable": 0,
+  "success": 0,
+  "start_time": "2026-10-16T19:58:20.2740441Z",
+  "end_time": "2026-10-16T20:00:23.0093182Z",
+  "cargo_mutants_version": "27.1.0"
+}

@@ -32,6 +32,7 @@ use crate::port::{
     TestExecutionConclusion, TestExecutionOutcome, TestExecutionRunner, ToolCommand,
     ToolStepOutput, ToolStepPort, ToolStepRequest, WorktreeSnapshot,
 };
+use foundation::layout::ReportSlot;
 use crate::steps::LocalToolSteps;
 
 /// 固定 change **id** 字面量（命令载荷定位键 / 审计行归键 / store 寻址入参
@@ -426,10 +427,11 @@ impl ChangeStateStore for FakeStore {
 // 装置：假 runner（StaticCheckRunner / TestExecutionRunner 既有假件沿用）
 // ---------------------------------------------------------------------------
 
-/// 假 StaticCheckRunner：记录 `(root, name)` 双参调用、可编程产出 / Err(String)
-///（磁盘面 port 收 name——id → 记录 → name 的解析在 steps 消费点）。
+/// 假 StaticCheckRunner：记录 `(root, name, slot)` 三元组调用、可编程产出 /
+/// Err(String)（磁盘面 port 收 name——id → 记录 → name 的解析在 steps 消费点；
+/// slot 报告槽位透传——check-before-flow-start）。
 struct FakeRunner {
-    calls: Mutex<Vec<(String, String)>>,
+    calls: Mutex<Vec<(String, String, ReportSlot)>>,
     result: Result<StaticCheckOutcome, String>,
 }
 
@@ -440,6 +442,7 @@ impl FakeRunner {
             diagnostics: String::new(),
             // 默认 recorded：引用随产出回填（落盘失败 / 零 spawn 才 None）
             output_ref: Some("exec-1727000000000-1".to_owned()),
+            report_dir: String::new(),
         }))
     }
 
@@ -448,6 +451,7 @@ impl FakeRunner {
             passed: false,
             diagnostics: diagnostics.to_owned(),
             output_ref: Some("exec-1727000000000-2".to_owned()),
+            report_dir: String::new(),
         }))
     }
 
@@ -463,27 +467,27 @@ impl FakeRunner {
         Self::with_result(Err(message.to_owned()))
     }
 
-    /// 调用记录快照（root / name 透传断言面）。
-    fn calls(&self) -> Vec<(String, String)> {
+    /// 调用记录快照（root / name / slot 透传断言面）。
+    fn calls(&self) -> Vec<(String, String, ReportSlot)> {
         self.calls.lock().expect("calls 锁不可中毒").clone()
     }
 }
 
 impl StaticCheckRunner for FakeRunner {
-    fn run(&self, root: &str, name: &str) -> BoxToolFuture {
+    fn run(&self, root: &str, name: &str, slot: ReportSlot) -> BoxToolFuture {
         self.calls
             .lock()
             .expect("calls 锁不可中毒")
-            .push((root.to_owned(), name.to_owned()));
+            .push((root.to_owned(), name.to_owned(), slot));
         let result = self.result.clone();
         Box::pin(async move { result.map(ToolStepOutput::StaticCheck) })
     }
 }
 
-/// 可编程 TestExecutionRunner：记录 root / name 调用、可编程产出 / Err
-///（磁盘面 port 收 name——解析在 steps 消费点）。
+/// 可编程 TestExecutionRunner：记录 root / name / slot 三元组调用、可编程产出 /
+/// Err（磁盘面 port 收 name——解析在 steps 消费点；slot 报告槽位透传）。
 struct FakeTestExecutionRunner {
-    calls: Arc<Mutex<Vec<(String, String)>>>,
+    calls: Arc<Mutex<Vec<(String, String, ReportSlot)>>>,
     result: Result<TestExecutionOutcome, String>,
 }
 
@@ -513,18 +517,18 @@ impl FakeTestExecutionRunner {
         Self::with_result(Err(message.to_owned()))
     }
 
-    /// 调用记录快照（root / name 透传断言面）。
-    fn calls(&self) -> Vec<(String, String)> {
+    /// 调用记录快照（root / name / slot 透传断言面）。
+    fn calls(&self) -> Vec<(String, String, ReportSlot)> {
         self.calls.lock().expect("calls 锁不可中毒").clone()
     }
 }
 
 impl TestExecutionRunner for FakeTestExecutionRunner {
-    fn run(&self, root: &str, name: &str) -> BoxToolFuture {
+    fn run(&self, root: &str, name: &str, slot: ReportSlot) -> BoxToolFuture {
         self.calls
             .lock()
             .expect("calls 锁不可中毒")
-            .push((root.to_owned(), name.to_owned()));
+            .push((root.to_owned(), name.to_owned(), slot));
         let result = self.result.clone();
         Box::pin(async move { result.map(ToolStepOutput::TestExecution) })
     }
@@ -806,6 +810,15 @@ impl ArchiveVcsPort for FakeVcs {
         self.record("remove_worktree");
         Ok(())
     }
+
+    fn restore_baseline(
+        &self,
+        _worktree: &std::path::Path,
+        _exclusions: &[&str],
+    ) -> Result<String, String> {
+        self.record("restore_baseline");
+        Ok("基线已恢复".to_owned())
+    }
 }
 
 /// 可编程 MutationRunner 假件（记录四参 + 可编程产出 / Err——MutationTest 臂
@@ -1028,6 +1041,7 @@ async fn drive_seven_arms(db: &TestDb, run_id: &str) -> Vec<StepStateRecord> {
         &assembled.steps,
         ToolCommand::StaticCheck {
             change_id: CHANGE_ID.to_owned(),
+            slot: ReportSlot::Test,
         },
     )
     .await;
@@ -1035,6 +1049,7 @@ async fn drive_seven_arms(db: &TestDb, run_id: &str) -> Vec<StepStateRecord> {
         &assembled.steps,
         ToolCommand::TestExecution {
             change_id: CHANGE_ID.to_owned(),
+            slot: ReportSlot::Test,
         },
     )
     .await;
@@ -1182,6 +1197,7 @@ async fn 成功臂与失败臂皆落行_error行携记因() {
             root: ROOT.to_owned(),
             command: ToolCommand::StaticCheck {
                 change_id: CHANGE_ID.to_owned(),
+                slot: ReportSlot::Test,
             },
         })
         .await
@@ -1251,6 +1267,7 @@ async fn test_execution臂经记录解析name_未建档零发起() {
         &assembled.steps,
         ToolCommand::TestExecution {
             change_id: CHANGE_ID.to_owned(),
+            slot: ReportSlot::Test,
         },
     )
     .await;
@@ -1260,8 +1277,8 @@ async fn test_execution臂经记录解析name_未建档零发起() {
     );
     assert_eq!(
         assembled.execution.calls(),
-        [(ROOT.to_owned(), NAME.to_owned())],
-        "runner 入参为解析后的 record.name（非寻址 id）"
+        [(ROOT.to_owned(), NAME.to_owned(), ReportSlot::Test)],
+        "runner 入参为解析后的 record.name 与缺省槽位（非寻址 id）"
     );
 
     // 未建档 id：显式 Err 且 runner 零调用（调用数不增）
@@ -1271,6 +1288,7 @@ async fn test_execution臂经记录解析name_未建档零发起() {
             root: ROOT.to_owned(),
             command: ToolCommand::TestExecution {
                 change_id: "unregistered-id".to_owned(),
+                slot: ReportSlot::Test,
             },
         })
         .await
@@ -1504,6 +1522,7 @@ async fn 摘要截断_超五百字符截断留痕且恰五百不截断() {
             root: ROOT.to_owned(),
             command: ToolCommand::TestExecution {
                 change_id: CHANGE_ID.to_owned(),
+                slot: ReportSlot::Test,
             },
         })
         .await
@@ -1515,6 +1534,7 @@ async fn 摘要截断_超五百字符截断留痕且恰五百不截断() {
             root: ROOT.to_owned(),
             command: ToolCommand::StaticCheck {
                 change_id: CHANGE_ID.to_owned(),
+                slot: ReportSlot::Test,
             },
         })
         .await
@@ -1640,6 +1660,24 @@ async fn store故障_审计落行失败不阻断臂业务结果() {
         base_commit: None,
     })
     .expect("建档种子应成功");
+    // initialize 表头 pass 条目预置（路由跳过表头——本用例聚焦 proposal 站臂）
+    let started = fake
+        .start_phase(CHANGE_ID, "initialize", TS_BASE)
+        .expect("开相种子应成功");
+    fake.log_phase(&PhaseLogCommand {
+        change_id: CHANGE_ID.to_owned(),
+        phase: "initialize".to_owned(),
+        verdict: workflow::model::Verdict::Pass,
+        report: "基线检查通过".to_owned(),
+        skipped: false,
+        checklist: Vec::new(),
+        executor_session_id: None,
+        evaluator_session_id: None,
+        decision_session_id: None,
+        start_at: Some(started.start_at),
+        timestamp: TS_BASE + 30_000,
+    })
+    .expect("落账种子应成功");
     let assembled = assemble(
         Arc::clone(&fake) as Arc<dyn ChangeStateStore>,
         "run-audit-fault",
@@ -1665,6 +1703,7 @@ async fn store故障_审计落行失败不阻断臂业务结果() {
         &assembled.steps,
         ToolCommand::StaticCheck {
             change_id: CHANGE_ID.to_owned(),
+            slot: ReportSlot::Test,
         },
     )
     .await;
@@ -1713,6 +1752,28 @@ async fn store故障_读路径fault经臂err上抛() {
 async fn phase_next步链路直调写面产出与直调一致() {
     let db = TestDb::open("direct-next");
     seed_change(db.store.as_ref(), CHANGE_ID, NAME, "requirement");
+    // initialize 表头 pass 条目预置（路由跳过表头——与直调写面对拍同态）
+    {
+        let started = db
+            .store
+            .start_change_phase(CHANGE_ID, "initialize", TS_BASE)
+            .expect("开相种子应成功");
+        db.store
+            .log_change_phase(&PhaseLogCommand {
+                change_id: CHANGE_ID.to_owned(),
+                phase: "initialize".to_owned(),
+                verdict: workflow::model::Verdict::Pass,
+                report: "基线检查通过".to_owned(),
+                skipped: false,
+                checklist: Vec::new(),
+                executor_session_id: None,
+                evaluator_session_id: None,
+                decision_session_id: None,
+                start_at: Some(started.start_at),
+                timestamp: TS_BASE + 30_000,
+            })
+            .expect("落账种子应成功");
+    }
     let assembled = assemble(
         db.store_arc(),
         "run-1",
@@ -1975,6 +2036,7 @@ async fn static_check步委托注入runner且root与name透传() {
         &assembled.steps,
         ToolCommand::StaticCheck {
             change_id: CHANGE_ID.to_owned(),
+            slot: ReportSlot::Test,
         },
     )
     .await;
@@ -1995,8 +2057,8 @@ async fn static_check步委托注入runner且root与name透传() {
     }
     assert_eq!(
         assembled.static_check.calls(),
-        [(ROOT.to_owned(), NAME.to_owned())],
-        "root / name 双参透传注入 runner（spawn cwd 与记录目录派生语义；name 非寻址 id）"
+        [(ROOT.to_owned(), NAME.to_owned(), ReportSlot::Test)],
+        "root / name / slot 三元组透传注入 runner（spawn cwd、记录目录派生与报告槽位语义；name 非寻址 id）"
     );
     // 审计行：StepKind::StaticCheck 落库（id 归键 + 摘要）
     let rows = db
@@ -2026,6 +2088,7 @@ async fn static_check两分支产出均携输出引用() {
         &passing.steps,
         ToolCommand::StaticCheck {
             change_id: CHANGE_ID.to_owned(),
+            slot: ReportSlot::Test,
         },
     )
     .await;
@@ -2051,6 +2114,7 @@ async fn static_check两分支产出均携输出引用() {
         &failing.steps,
         ToolCommand::StaticCheck {
             change_id: CHANGE_ID.to_owned(),
+            slot: ReportSlot::Test,
         },
     )
     .await;
@@ -2096,6 +2160,7 @@ async fn static_check未建档显式err且零发起() {
             root: ROOT.to_owned(),
             command: ToolCommand::StaticCheck {
                 change_id: "unregistered-id".to_owned(),
+                slot: ReportSlot::Test,
             },
         })
         .await
@@ -2132,6 +2197,7 @@ async fn static_check读故障err传播且零发起() {
             root: ROOT.to_owned(),
             command: ToolCommand::StaticCheck {
                 change_id: CHANGE_ID.to_owned(),
+                slot: ReportSlot::Test,
             },
         })
         .await
@@ -2167,6 +2233,7 @@ async fn static_check同名形态与重复调用各自解析() {
             &assembled.steps,
             ToolCommand::StaticCheck {
                 change_id: "same-name".to_owned(),
+                slot: ReportSlot::Test,
             },
         )
         .await;
@@ -2174,9 +2241,10 @@ async fn static_check同名形态与重复调用各自解析() {
 
     let calls = assembled.static_check.calls();
     assert_eq!(calls.len(), 2, "重复调用各自解析、每次一发（无副作用）");
-    for (root, name) in &calls {
+    for (root, name, slot) in &calls {
         assert_eq!(root, ROOT, "root 逐次透传");
         assert_eq!(name, "same-name", "id == name 形态解析逐字等于 id（零漂移）");
+        assert_eq!(slot, &ReportSlot::Test, "slot 缺省槽位透传（零语义漂移）");
     }
     let rows = db
         .store
@@ -2275,6 +2343,7 @@ async fn runner_err原样透传() {
             root: ROOT.to_owned(),
             command: ToolCommand::StaticCheck {
                 change_id: CHANGE_ID.to_owned(),
+                slot: ReportSlot::Test,
             },
         })
         .await
@@ -2388,6 +2457,7 @@ async fn 七缝构造三runner注入_分发臂委托() {
         &assembled.steps,
         ToolCommand::TestExecution {
             change_id: CHANGE_ID.to_owned(),
+            slot: ReportSlot::Test,
         },
     )
     .await;
@@ -2410,8 +2480,8 @@ async fn 七缝构造三runner注入_分发臂委托() {
     }
     assert_eq!(
         assembled.execution.calls(),
-        [(ROOT.to_owned(), NAME.to_owned())],
-        "root / name 透传注入 runner（解析后的 record.name，与 StaticCheck 臂同型）"
+        [(ROOT.to_owned(), NAME.to_owned(), ReportSlot::Test)],
+        "root / name / slot 透传注入 runner（解析后的 record.name，与 StaticCheck 臂同型）"
     );
 }
 
@@ -2434,6 +2504,7 @@ async fn test_execution_runner_err原样上抛() {
             root: ROOT.to_owned(),
             command: ToolCommand::TestExecution {
                 change_id: CHANGE_ID.to_owned(),
+                slot: ReportSlot::Test,
             },
         })
         .await
@@ -2558,8 +2629,9 @@ async fn archive_preflight分支完成度与探测载荷自store与vcs() {
         vcs.calls()
     );
 
-    // 开相落账全表 → completed=true、未过清单清空
+    // 开相落账全表（initialize 表头先行）→ completed=true、未过清单清空
     for (index, phase) in [
+        "initialize",
         "proposal",
         "dev-design",
         "test-design",
@@ -3335,5 +3407,200 @@ async fn mutation_test臂同名形态与空清单透传与重复调用() {
         assembled.mutation.calls().len(),
         2,
         "重复调用 runner 计数递增（每次独立取数注入）"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// slot 槽位透传（check-before-flow-start）：StaticCheck / TestExecution 两分支
+// slot 三元组透传 + 缺省槽位回归 + baseline 审计行（Mock策略：FakeRunner /
+// FakeTestExecutionRunner 沿既有假件扩展 slot 记录——runner trait 为注入依赖）
+// ---------------------------------------------------------------------------
+
+/// execute slot 透传（正向，枚举遍历）：`ToolCommand::StaticCheck { slot }` →
+/// FakeRunner 收 `(root, name, slot)` 三元组原样——slot=Baseline 基线槽位 /
+/// slot=Test 缺省槽位两值枚举遍历；TestExecution 分支同式经
+/// FakeTestExecutionRunner 断言（id → 记录 → name 解析单点照常）。
+#[tokio::test]
+async fn execute_slot透传_static与execution两分支三元组原样() {
+    let fake = Arc::new(FakeStore::new());
+    fake.seed_change(CHANGE_ID, NAME);
+
+    for slot in [ReportSlot::Test, ReportSlot::Baseline] {
+        // StaticCheck 分支：slot 原样到达注入 runner
+        let assembled = assemble(
+            Arc::clone(&fake) as Arc<dyn ChangeStateStore>,
+            "run-slot-static",
+            FakeRunner::passing(),
+            FakeTestExecutionRunner::passing(),
+        );
+        let output = run_step(
+            &assembled.steps,
+            ToolCommand::StaticCheck {
+                change_id: CHANGE_ID.to_owned(),
+                slot,
+            },
+        )
+        .await;
+        assert!(
+            matches!(output, ToolStepOutput::StaticCheck(_)),
+            "slot={slot:?} StaticCheck 产出可达"
+        );
+        assert_eq!(
+            assembled.static_check.calls(),
+            [(ROOT.to_owned(), NAME.to_owned(), slot)],
+            "slot={slot:?} 三元组原样到达 FakeRunner（零改写零换序）"
+        );
+
+        // TestExecution 分支：同式透传
+        let assembled = assemble(
+            Arc::clone(&fake) as Arc<dyn ChangeStateStore>,
+            "run-slot-execution",
+            FakeRunner::passing(),
+            FakeTestExecutionRunner::passing(),
+        );
+        let output = run_step(
+            &assembled.steps,
+            ToolCommand::TestExecution {
+                change_id: CHANGE_ID.to_owned(),
+                slot,
+            },
+        )
+        .await;
+        assert!(
+            matches!(output, ToolStepOutput::TestExecution(_)),
+            "slot={slot:?} TestExecution 产出可达"
+        );
+        assert_eq!(
+            assembled.execution.calls(),
+            [(ROOT.to_owned(), NAME.to_owned(), slot)],
+            "slot={slot:?} 三元组原样到达 FakeTestExecutionRunner"
+        );
+    }
+}
+
+/// execute slot 透传（边界，回归锚）：slot=Test 缺省槽位行为与本变更前逐字节
+/// 一致（签名扩展零语义漂移——产出与审计行回归持衡）；id ≠ name 形态下 name
+/// 解析单点照常（解析面零改动锚）；解析 miss 既有 Err 语义持衡（slot 透传不
+/// 改变解析失败面）。
+#[tokio::test]
+async fn execute_slot缺省回归与解析miss语义持衡() {
+    let fake = Arc::new(FakeStore::new());
+    fake.seed_change(CHANGE_ID, NAME);
+    let assembled = assemble(
+        Arc::clone(&fake) as Arc<dyn ChangeStateStore>,
+        "run-default-slot",
+        FakeRunner::passing(),
+        FakeTestExecutionRunner::passing(),
+    );
+
+    // slot=Test：产出与既有形态一致（StaticCheck 变体 + passed 载荷）
+    let output = run_step(
+        &assembled.steps,
+        ToolCommand::StaticCheck {
+            change_id: CHANGE_ID.to_owned(),
+            slot: ReportSlot::Test,
+        },
+    )
+    .await;
+    match output {
+        ToolStepOutput::StaticCheck(outcome) => {
+            assert!(outcome.passed, "passed 载荷零漂移");
+            assert_eq!(
+                outcome.output_ref.as_deref(),
+                Some("exec-1727000000000-1"),
+                "output_ref 透传零漂移"
+            );
+        }
+        other => panic!("产出漂移: {other:?}"),
+    }
+    // id ≠ name 解析单点：runner 收 name 非寻址 id
+    let calls = assembled.static_check.calls();
+    let (root, name, slot) = &calls[0];
+    assert_eq!(root, ROOT);
+    assert_eq!(name, NAME, "id → 记录 → name 解析单点照常");
+    assert_ne!(name, CHANGE_ID, "name ≠ id 形态（解析面零改动锚）");
+    assert_eq!(slot, &ReportSlot::Test);
+
+    // 解析 miss：既有 Err 语义持衡（记因含未建档语汇、runner 零调用）
+    let err = assembled
+        .steps
+        .run(ToolStepRequest {
+            root: ROOT.to_owned(),
+            command: ToolCommand::StaticCheck {
+                change_id: "ghost-id".to_owned(),
+                slot: ReportSlot::Baseline,
+            },
+        })
+        .await
+        .expect_err("未建档 id 应 Err");
+    assert!(
+        err.contains("ghost-id") && err.contains("未建档"),
+        "解析 miss 记因显式: {err}"
+    );
+    assert_eq!(
+        assembled.static_check.calls().len(),
+        1,
+        "解析 miss 零发起（调用数不增）"
+    );
+}
+
+/// execute 审计行（正向）：baseline 槽位 static_check / test_execution 步照常落
+/// `StepRecord` 审计行——test_execution 行 reference 携 baseline report_dir（产出
+/// 载荷 report_dir 直透——审计面零改动回归）。
+#[tokio::test]
+async fn execute_baseline槽位审计行照常落库() {
+    let db = TestDb::open("baseline-audit");
+    seed_change(db.store.as_ref(), CHANGE_ID, NAME, "requirement");
+    let baseline_report_dir = "C:/ws/openspec/changes/demo/openspec/changes/demo/reports/baseline";
+    // 可编程产出携 baseline report_dir（reference 供给面）
+    let execution = FakeTestExecutionRunner::with_result(Ok(TestExecutionOutcome {
+        conclusion: TestExecutionConclusion::Pass,
+        total: 5,
+        passed: 5,
+        failed: 0,
+        skipped: 0,
+        findings_brief: "全绿".to_owned(),
+        findings_detail: String::new(),
+        report_dir: baseline_report_dir.to_owned(),
+        exec_id: String::new(),
+    }));
+    let assembled = assemble(
+        db.store_arc(),
+        "run-baseline",
+        FakeRunner::passing(),
+        execution,
+    );
+
+    // baseline 槽位两检查步照常执行 + 审计行落库
+    run_step(
+        &assembled.steps,
+        ToolCommand::StaticCheck {
+            change_id: CHANGE_ID.to_owned(),
+            slot: ReportSlot::Baseline,
+        },
+    )
+    .await;
+    run_step(
+        &assembled.steps,
+        ToolCommand::TestExecution {
+            change_id: CHANGE_ID.to_owned(),
+            slot: ReportSlot::Baseline,
+        },
+    )
+    .await;
+
+    let rows = db
+        .store
+        .list_change_steps(CHANGE_ID, Some("run-baseline"))
+        .expect("读审计行应成功");
+    assert_eq!(rows.len(), 2, "baseline 槽位两步各落一条审计行（审计面零改动）");
+    assert_eq!(rows[0].step_kind, StepKind::StaticCheck);
+    assert_eq!(rows[0].status, "ok");
+    assert_eq!(rows[1].step_kind, StepKind::TestExecution);
+    assert_eq!(rows[1].status, "ok");
+    assert_eq!(
+        rows[1].reference.as_deref(),
+        Some(baseline_report_dir),
+        "test_execution 审计行 reference 携 baseline report_dir（直透零改写）"
     );
 }

@@ -67,6 +67,7 @@ static EMPTY_MANIFEST: &[PhaseDefinition] = &[PhaseDefinition {
     steps: &[],
     artifact_manifest: &[],
     prerequisites: &[],
+            backtrackable: true,
     executor: None,
     evaluator: None,
 }];
@@ -83,6 +84,7 @@ static DUAL_HIT_MANIFEST: &[PhaseDefinition] = &[
             title: "精确规格",
         }],
         prerequisites: &[],
+        backtrackable: true,
         executor: None,
         evaluator: None,
     },
@@ -96,6 +98,7 @@ static DUAL_HIT_MANIFEST: &[PhaseDefinition] = &[
             title: "规格目录",
         }],
         prerequisites: &[],
+        backtrackable: true,
         executor: None,
         evaluator: None,
     },

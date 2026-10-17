@@ -67,6 +67,7 @@ const REWRITE_ENV: &str = "DESKTOP_GOLDEN_REWRITE";
 /// 全读链投影的混合形态语料；归档前缀样本 = 归档全状态面 detail）。
 /// 「文档形态」语料以零发现反例承载（无 golden——出局删除）。
 const CORPORA: &[&str] = &[
+    "corpus-initialize",
     "corpus-multi-attempt",
     "corpus-backtrack-stale",
     "corpus-slots-null",
@@ -1690,13 +1691,17 @@ fn corpus归档前缀样本_golden对拍() {
         "归档状态面在场（非文档形态空面）"
     );
     let pipeline = projection["pipeline"].as_array().expect("pipeline 为数组");
-    assert_eq!(pipeline.len(), 9, "9 站 pipeline 全量出线（含 archive 末列，无 code-analyze 占位列）");
+    assert_eq!(
+        pipeline.len(),
+        10,
+        "10 站 pipeline 全量出线（initialize 表头 + 含 archive 末列，无 code-analyze 占位列）"
+    );
     assert!(
-        !pipeline[0]["attempts"]
+        !pipeline[1]["attempts"]
             .as_array()
             .expect("attempts 为数组")
             .is_empty(),
-        "proposal 站 attempt 出线（错配链结构性退役）"
+        "proposal 站 attempt 出线（表头 initialize 空站——错配链结构性退役）"
     );
     let runs = projection["runs"].as_array().expect("runs 为数组");
     assert_eq!(runs.len(), 2, "run 史全量出线（proposal 史 + archive 相位史）");
@@ -2231,7 +2236,7 @@ fn corpusgolden重写后_diff范围键集断言() {
         "归档前缀样本状态面 archived 在案"
     );
     let pipeline = value["pipeline"].as_array().expect("pipeline 为数组");
-    assert_eq!(pipeline.len(), 9, "归档前缀样本 9 站 pipeline 全量出线");
+    assert_eq!(pipeline.len(), 10, "归档前缀样本 10 站 pipeline 全量出线");
     assert_eq!(
         pipeline.last().and_then(|station| station["phase"].as_str()),
         Some("archive"),
@@ -2574,8 +2579,8 @@ fn 真件create成功立即可见可发起() {
     .expect("建档后路由应可达");
     assert_eq!(
         route.next_phase.as_deref(),
-        Some("proposal"),
-        "建档立即可发起（首相位路由）"
+        Some("initialize"),
+        "建档立即可发起（表头相位路由——零条目落 initialize）"
     );
 }
 
@@ -2738,6 +2743,16 @@ fn 真件phase_next读源db_零workflow_json读取() {
     corpus.seed_record("id-demo-change", "demo-change");
     corpus.run_phase(
         "id-demo-change",
+        "initialize",
+        Verdict::Pass,
+        "基线检查通过",
+        Vec::new(),
+        None,
+        None,
+        t(0),
+    );
+    corpus.run_phase(
+        "id-demo-change",
         "proposal",
         Verdict::Pass,
         "提案通过",
@@ -2770,6 +2785,16 @@ fn 真件phase_next读源db_零workflow_json读取() {
 fn 真件phase_next锚点基线平移_首见与复见与run隔离() {
     let corpus = Corpus::new("route-anchor");
     corpus.seed_record("id-demo-change", "demo-change");
+    corpus.run_phase(
+        "id-demo-change",
+        "initialize",
+        Verdict::Pass,
+        "基线检查通过",
+        Vec::new(),
+        None,
+        None,
+        t(0),
+    );
     corpus.run_phase(
         "id-demo-change",
         "proposal",
@@ -2815,7 +2840,7 @@ fn 真件phase_next锚点基线平移_首见与复见与run隔离() {
     let first = phase_next(&corpus.store, "id-demo-change", "run-a", &anchors).expect("路由应成功");
     assert_eq!(
         first.round, 1,
-        "首见锚点 = PhaseRecord 行数 3，round 自 1 起"
+        "首见锚点 = PhaseRecord 行数 4（initialize 表头 + 三条目），round 自 1 起"
     );
     assert_eq!(first.next_phase.as_deref(), Some("dev-design"));
     assert!(first.error.is_none(), "窗口外历史 fail 不虚触上限");
@@ -2846,6 +2871,16 @@ fn 真件phase_next锚点基线平移_首见与复见与run隔离() {
 fn 真件phase_next重启续走_直接推进不重头() {
     let corpus = Corpus::new("route-restart");
     corpus.seed_record("id-demo-change", "demo-change");
+    corpus.run_phase(
+        "id-demo-change",
+        "initialize",
+        Verdict::Pass,
+        "基线检查通过",
+        Vec::new(),
+        None,
+        None,
+        t(0),
+    );
     corpus.run_phase(
         "id-demo-change",
         "proposal",
@@ -3011,7 +3046,7 @@ fn 真件detail时间出线_epoch零口径() {
         .expect("详情应可达");
 
     assert_eq!(detail.created.as_deref(), Some("1970-01-01"));
-    let record = &detail.pipeline[0].attempts[0];
+    let record = &detail.pipeline[1].attempts[0];
     assert_eq!(record.timestamp.as_deref(), Some("1970-01-01T00:00:00Z"));
     assert_eq!(record.start_at.as_deref(), Some("1970-01-01T00:00:00Z"));
 }
@@ -3454,4 +3489,178 @@ fn corpus防御值语料_overrides混防御值直达投影零改写零panic() {
         !golden_dir().join("corpus-step-defensive.json").exists(),
         "防御值专项语料零 golden 产出（语料完整性集合不变）"
     );
+}
+
+// ---------------------------------------------------------------------------
+// initialize 语料（check-before-flow-start / AC-8 语料半边）：initialize 相位
+// 样本（正常 pass 条目 + legacy skipped 条目两形态）与 clean 步词节点样本 →
+// golden 全量对比随动
+// ---------------------------------------------------------------------------
+
+/// initialize 语料：pass 条目（机械 checklist 面）+ legacy skipped 条目（跳过因
+/// 面两形态）+ initialize run 五节点（clean 词样本、串行 forward 边）。
+fn build_initialize(tag: &str) -> Corpus {
+    let corpus = Corpus::new(tag);
+    corpus.seed_record("id-initialize", "initialize-corpus");
+
+    // pass 条目（attempt 1——worktree 分支机械 checklist 落账形态）
+    corpus.run_phase(
+        "id-initialize",
+        "initialize",
+        Verdict::Pass,
+        "conclusion=pass total=12 passed=10 failed=0 skipped=2；报告目录 /ws/openspec/changes/initialize-corpus/reports/baseline",
+        vec![
+            ChecklistItem {
+                item: "静态检查通过".to_owned(),
+                pass: true,
+                evidence: "diagnostics 空".to_owned(),
+            },
+            ChecklistItem {
+                item: "测试执行通过".to_owned(),
+                pass: true,
+                evidence: "四计数在场".to_owned(),
+            },
+            ChecklistItem {
+                item: "突变测试".to_owned(),
+                pass: false,
+                evidence: "null（未跑）".to_owned(),
+            },
+        ],
+        None,
+        None,
+        t(1),
+    );
+
+    // legacy skipped 条目（attempt 2——root == main_root 短路落账形态；skipped
+    // 同 pass 一次性持久语义）
+    corpus
+        .store
+        .start_change_phase("id-initialize", "initialize", t(2))
+        .expect("开相失败");
+    corpus
+        .store
+        .log_change_phase(&PhaseLogCommand {
+            change_id: "id-initialize".to_owned(),
+            phase: "initialize".to_owned(),
+            verdict: Verdict::Pass,
+            report: "legacy 主仓执行无 worktree 基线，跳过基线检查".to_owned(),
+            skipped: true,
+            checklist: Vec::new(),
+            executor_session_id: None,
+            evaluator_session_id: None,
+            decision_session_id: None,
+            start_at: Some(t(2)),
+            timestamp: t(3),
+        })
+        .expect("落账失败");
+
+    // initialize run 五节点整包（clean 词样本 + 串行 forward 边）
+    let nodes = [
+        step("initialize", 1, ChangeStepKind::PhaseStart, ChangeStepStatus::Passed, None, None),
+        step(
+            "initialize",
+            1,
+            ChangeStepKind::Clean,
+            ChangeStepStatus::Passed,
+            None,
+            Some("已恢复基线（reset --hard + clean -fd，排除面 8 项）"),
+        ),
+        step(
+            "initialize",
+            1,
+            ChangeStepKind::StaticCheck,
+            ChangeStepStatus::Passed,
+            None,
+            Some("静态检查通过"),
+        ),
+        step(
+            "initialize",
+            1,
+            ChangeStepKind::TestExecution,
+            ChangeStepStatus::Passed,
+            None,
+            Some("conclusion=pass total=12 passed=10 failed=0 skipped=2"),
+        ),
+        step("initialize", 1, ChangeStepKind::PhaseLog, ChangeStepStatus::Passed, None, None),
+    ];
+    let edges: Vec<ChangeStepEdge> = nodes
+        .windows(2)
+        .map(|pair| ChangeStepEdge {
+            from: (
+                pair[0].phase.clone(),
+                pair[0].attempt,
+                pair[0].step,
+                pair[0].instance_no,
+            ),
+            to: (
+                pair[1].phase.clone(),
+                pair[1].attempt,
+                pair[1].step,
+                pair[1].instance_no,
+            ),
+            kind: EdgeKind::Forward,
+        })
+        .collect();
+    corpus.run_start("id-initialize", "run-1727000010000", t(10));
+    corpus.run_finish(
+        "id-initialize",
+        "run-1727000010000",
+        RunStatus::Completed,
+        "initialize 全绿后冻结样本（后续路由由续走语料承载）",
+        t(19),
+        &nodes,
+        &edges,
+    );
+    corpus
+}
+
+/// initialize 语料 golden 对拍：pass + skipped 两形态条目出线（skipped 读侧
+/// 透出——呈现面零结构改动前提）、clean 步词节点样本在案（二十一值词汇随动、
+/// 串行 forward 边序逐位）。
+#[test]
+fn corpusinitialize语料_golden对拍() {
+    let corpus = build_initialize("initialize-golden");
+    let projection = project_detail(&corpus, "id-initialize");
+
+    // pipeline：10 站、initialize 站两 attempts（pass + skipped）
+    let pipeline = projection["pipeline"].as_array().expect("pipeline 为数组");
+    assert_eq!(pipeline.len(), 10, "requirement 十站（initialize 表头）");
+    assert_eq!(pipeline[0]["phase"], "initialize", "表头第 1 列");
+    let attempts = pipeline[0]["attempts"].as_array().expect("attempts 数组");
+    assert_eq!(attempts.len(), 2, "pass + skipped 两形态条目");
+    assert_eq!(attempts[0]["skipped"], false, "attempt 1 pass 形态");
+    assert_eq!(
+        attempts[0]["checklist"].as_array().map(Vec::len),
+        Some(3),
+        "机械 checklist 三条目"
+    );
+    assert!(
+        attempts[0]["report"].as_str().expect("report").contains("reports/baseline"),
+        "report 携 baseline 报告目录"
+    );
+    assert_eq!(attempts[1]["skipped"], true, "attempt 2 legacy skipped 形态");
+    assert!(
+        attempts[1]["report"].as_str().expect("report").contains("legacy"),
+        "跳过因落账可见"
+    );
+
+    // runs：clean 词节点样本在案 + 串行 forward 边序逐位
+    let runs = projection["runs"].as_array().expect("runs 为数组");
+    assert_eq!(runs.len(), 1);
+    let nodes = runs[0]["nodes"].as_array().expect("nodes 数组");
+    let words: Vec<&str> = nodes
+        .iter()
+        .map(|node| node["step"].as_str().expect("step 出线词"))
+        .collect();
+    assert_eq!(
+        words,
+        ["phase_start", "clean", "static_check", "test_execution", "phase_log"],
+        "initialize 五节点词面逐位（clean 新词样本在案）"
+    );
+    let edges = runs[0]["edges"].as_array().expect("edges 数组");
+    assert_eq!(edges.len(), 4, "串行 forward 边四条");
+    assert_eq!(edges[0]["fromNodeKey"], "initialize:1:phase_start:0");
+    assert_eq!(edges[3]["toNodeKey"], "initialize:1:phase_log:0");
+
+    check_or_rewrite("corpus-initialize", &projection);
 }

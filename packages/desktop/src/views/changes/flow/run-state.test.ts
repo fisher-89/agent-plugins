@@ -17,9 +17,11 @@ import {
 
 /**
  * requirement 相位序夹具（D12：前端 `PIPELINE_PHASES` 常量退役，`runStepNodes`
- * 改显式传序，测试各自内联 fixture）：9 列，archive 为第 9 列（colIndex=8）。
+ * 改显式传序，测试各自内联 fixture）：10 列（check-before-flow-start 表头
+ * initialize 一次性相位），archive 为第 10 列（colIndex=9）。
  */
 const REQUIREMENT_PHASES = [
+  'initialize',
   'proposal',
   'dev-design',
   'test-design',
@@ -311,7 +313,7 @@ describe('runStepNodes：稳定身份键渲染（overlay 输入面）', () => {
       kind: 'runtime',
       phase: 'implement',
       attempt: 1,
-      colIndex: 3,
+      colIndex: 4,
       order: 0,
       parentId: 'col:implement',
       runId: 'run-1727',
@@ -342,7 +344,7 @@ describe('runStepNodes：稳定身份键渲染（overlay 输入面）', () => {
     });
   });
 
-  it('四类可辨：二十步词汇 → WorkerAgent / ToolStep / Git / Gate 分组与 role 逐词对应', () => {
+  it('四类可辨：二十一步词汇 → WorkerAgent / ToolStep / Git / Gate 分组与 role 逐词对应', () => {
     const GROUP_OF: Record<
       ChangeStepKind,
       {
@@ -357,6 +359,7 @@ describe('runStepNodes：稳定身份键渲染（overlay 输入面）', () => {
       staticCheck: { group: 'toolStep', role: null },
       testExecution: { group: 'toolStep', role: null },
       mutationTest: { group: 'toolStep', role: null },
+      clean: { group: 'git', role: null },
       phaseLog: { group: 'toolStep', role: null },
       verdictGate: { group: 'gate', role: null },
       retryGate: { group: 'gate', role: null },
@@ -377,7 +380,7 @@ describe('runStepNodes：稳定身份键渲染（overlay 输入面）', () => {
     );
 
     const nodes = runStepNodes(steps, REQUIREMENT_PHASES);
-    expect(nodes).toHaveLength(20);
+    expect(nodes).toHaveLength(21);
     for (const node of nodes) {
       const expected = GROUP_OF[node.runStepKind];
       expect(node.group).toBe(expected.group);
@@ -400,7 +403,7 @@ describe('runStepNodes：稳定身份键渲染（overlay 输入面）', () => {
     ];
 
     const nodes = runStepNodes(steps, REQUIREMENT_PHASES);
-    expect(nodes.every((node) => node.colIndex === 3 && node.parentId === 'col:implement')).toBe(
+    expect(nodes.every((node) => node.colIndex === 4 && node.parentId === 'col:implement')).toBe(
       true,
     );
     expect(nodes.map((node) => node.order)).toEqual([0, 1, 2]);
@@ -438,8 +441,8 @@ describe('run-state：缺省字段（推导不崩）', () => {
   });
 });
 
-// RunStepKind 词汇 import 面锚（二十值全词汇直测归一单点的输入域——mutation_test
-// 拆步新词与 cleanup 尽力步新臂在案，AC-1 / AC-2）
+// RunStepKind 词汇 import 面锚（二十一值全词汇直测归一单点的输入域——mutation_test
+// 拆步新词、cleanup 尽力步与 clean 基线恢复步新臂在案，AC-1 / AC-2）
 const PERSISTED_WORDS: RunStepKind[] = [
   'executor',
   'evaluator',
@@ -447,6 +450,7 @@ const PERSISTED_WORDS: RunStepKind[] = [
   'static_check',
   'test_execution',
   'mutation_test',
+  'clean',
   'phase_start',
   'phase_log',
   'verdict_gate',
@@ -463,7 +467,7 @@ const PERSISTED_WORDS: RunStepKind[] = [
   'finalize',
 ];
 
-/** 二十值 snake 词 → camel 词期望表（normalizeKind 逐词对拍——词汇漂移即断；
+/** 二十一值 snake 词 → camel 词期望表（normalizeKind 逐词对拍——词汇漂移即断；
  * cleanup 为 identity 词、snake / camel 同形零显式 case）。 */
 const NORMALIZE_EXPECTED: Array<[RunStepKind, ChangeStepKind]> = [
   ['executor', 'executor'],
@@ -472,6 +476,7 @@ const NORMALIZE_EXPECTED: Array<[RunStepKind, ChangeStepKind]> = [
   ['static_check', 'staticCheck'],
   ['test_execution', 'testExecution'],
   ['mutation_test', 'mutationTest'],
+  ['clean', 'clean'],
   ['phase_start', 'phaseStart'],
   ['phase_log', 'phaseLog'],
   ['verdict_gate', 'verdictGate'],
@@ -488,14 +493,14 @@ const NORMALIZE_EXPECTED: Array<[RunStepKind, ChangeStepKind]> = [
   ['finalize', 'finalize'],
 ];
 
-describe('unifiedRunNodes：二十值词汇全量归一', () => {
-  it('二十值 snake 词全量归一可达（normalizeKind 逐词对拍——词汇漂移即断）', () => {
+describe('unifiedRunNodes：二十一值词汇全量归一', () => {
+  it('二十一值 snake 词全量归一可达（normalizeKind 逐词对拍——词汇漂移即断）', () => {
     const steps = PERSISTED_WORDS.map((step, index) =>
       runStepRow({ instanceNo: index, step, sessionId: null }),
     );
     const unified = unifiedRunNodes([runEntry({ nodes: steps })], null);
     expect(unified.map((row) => row.step)).toEqual(NORMALIZE_EXPECTED.map(([, camel]) => camel));
-    // 逐词对拍（mutation_test → mutationTest 拆步新词在案；cleanup identity 在案）
+    // 逐词对拍（mutation_test → mutationTest 拆步新词在案；cleanup / clean identity 在案）
     for (const [snake, camel] of NORMALIZE_EXPECTED) {
       const row = unified.find((_, index) => PERSISTED_WORDS[index] === snake);
       // normalizeKind(${snake}) → ${camel}
@@ -503,7 +508,7 @@ describe('unifiedRunNodes：二十值词汇全量归一', () => {
     }
   });
 
-  it('双向 round-trip：stepWord(normalizeKind(word)) 恒回 snake 词（二十值全词汇）', () => {
+  it('双向 round-trip：stepWord(normalizeKind(word)) 恒回 snake 词（二十一值全词汇）', () => {
     const steps = PERSISTED_WORDS.map((step, index) =>
       runStepRow({ instanceNo: index, step, sessionId: null }),
     );
@@ -660,8 +665,8 @@ describe('run-state：归档 9 步词归一与 Git 分类（AC-2 / AC-9）', () 
     expect(nodes.filter((node) => node.sessionId !== null).map((node) => node.runStepKind)).toEqual(
       ['resolveConflicts', 'specSync'],
     );
-    // 列归属：archive 为第 9 列（colIndex=8）
-    expect(nodes.every((node) => node.colIndex === 8)).toBe(true);
+    // 列归属：archive 为第 10 列（colIndex=9）
+    expect(nodes.every((node) => node.colIndex === 9)).toBe(true);
   });
 
   it('归档列零步：零节点 → 空数组（archive 列空列不报错，miss 非错误）', () => {
@@ -672,7 +677,7 @@ describe('run-state：归档 9 步词归一与 Git 分类（AC-2 / AC-9）', () 
       REQUIREMENT_PHASES,
     );
     expect(nodes).toHaveLength(1);
-    expect(nodes[0].colIndex).not.toBe(8);
+    expect(nodes[0].colIndex).not.toBe(9);
   });
 
   it('未知步词降级：越集步词经 groupOf 缺省分组回落不崩（稳健面）', () => {
@@ -691,8 +696,10 @@ describe('run-state：归档 9 步词归一与 Git 分类（AC-2 / AC-9）', () 
 // 推导（前端零静态相位序常量），两表各自成立
 // ---------------------------------------------------------------------------
 
-/** test-only 相位序夹具：6 列，code-analyze 下标 1、archive 下标 5。 */
+/** test-only 相位序夹具：7 列（check-before-flow-start 表头 initialize 一次性相位），
+ * code-analyze 下标 2、archive 下标 6。 */
 const TEST_ONLY_PHASES = [
+  'initialize',
   'proposal',
   'code-analyze',
   'test-design',
@@ -702,7 +709,7 @@ const TEST_ONLY_PHASES = [
 ];
 
 describe('runStepNodes：phaseOrder 显式传序（AC-5 / AC-6）', () => {
-  it('test-only phaseOrder：code-analyze 下标 1、test-gen 下标 3、archive 下标 5（列序随出线序）', () => {
+  it('test-only phaseOrder：code-analyze 下标 2、test-gen 下标 4、archive 下标 6（列序随出线序）', () => {
     const steps = [
       stepRow({ phase: 'code-analyze', step: 'executor' }),
       stepRow({ phase: 'test-gen', step: 'staticCheck', sessionId: null }),
@@ -711,7 +718,7 @@ describe('runStepNodes：phaseOrder 显式传序（AC-5 / AC-6）', () => {
 
     const nodes = runStepNodes(steps, TEST_ONLY_PHASES);
 
-    expect(nodes.map((node) => node.colIndex)).toEqual([1, 3, 5]);
+    expect(nodes.map((node) => node.colIndex)).toEqual([2, 4, 6]);
     expect(nodes.map((node) => node.parentId)).toEqual([
       'col:code-analyze',
       'col:test-gen',
@@ -719,11 +726,11 @@ describe('runStepNodes：phaseOrder 显式传序（AC-5 / AC-6）', () => {
     ]);
   });
 
-  it('同一相位在 requirement 9 列与 test-only 6 列下 colIndex 各自为真（列序即语义坐标）', () => {
+  it('同一相位在 requirement 10 列与 test-only 7 列下 colIndex 各自为真（列序即语义坐标）', () => {
     const steps = [stepRow({ phase: 'archive', step: 'commit', sessionId: null })];
 
-    expect(runStepNodes(steps, REQUIREMENT_PHASES)[0].colIndex).toBe(8);
-    expect(runStepNodes(steps, TEST_ONLY_PHASES)[0].colIndex).toBe(5);
+    expect(runStepNodes(steps, REQUIREMENT_PHASES)[0].colIndex).toBe(9);
+    expect(runStepNodes(steps, TEST_ONLY_PHASES)[0].colIndex).toBe(6);
   });
 
   it('异常：phaseOrder 为空数组 → 全部步不入图（零臆造列位）', () => {
@@ -745,11 +752,11 @@ describe('runStepNodes：phaseOrder 显式传序（AC-5 / AC-6）', () => {
 
     const requirementNodes = runStepNodes(steps, REQUIREMENT_PHASES);
     expect(requirementNodes.map((node) => node.phase)).toEqual(['implement', 'proposal']);
-    expect(requirementNodes.map((node) => node.colIndex)).toEqual([3, 0]);
+    expect(requirementNodes.map((node) => node.colIndex)).toEqual([4, 1]);
 
     const testOnlyNodes = runStepNodes(steps, TEST_ONLY_PHASES);
     expect(testOnlyNodes.map((node) => node.phase)).toEqual(['code-analyze', 'proposal']);
-    expect(testOnlyNodes.map((node) => node.colIndex)).toEqual([1, 0]);
+    expect(testOnlyNodes.map((node) => node.colIndex)).toEqual([2, 1]);
   });
 
   it('边界：列内归并序随传入 phaseOrder 独立成立（不跨表串扰）', () => {
@@ -762,7 +769,7 @@ describe('runStepNodes：phaseOrder 显式传序（AC-5 / AC-6）', () => {
     const nodes = runStepNodes(steps, TEST_ONLY_PHASES);
 
     expect(nodes.map((node) => node.order)).toEqual([0, 1, 2]);
-    expect(nodes.every((node) => node.colIndex === 2)).toBe(true);
+    expect(nodes.every((node) => node.colIndex === 3)).toBe(true);
     expect(nodes.map((node) => node.runStepKind)).toEqual(['executor', 'evaluator', 'verdictGate']);
   });
 
@@ -830,20 +837,21 @@ describe('mutationTest 步词汇归一与分组（AC-2）', () => {
     expect(nodes[0].role).toBeNull();
   });
 
-  it('零过滤丢步：二十词全词汇经 runStepNodes 全量出图（mutation_test / cleanup 在案不被滤除）', () => {
+  it('零过滤丢步：二十一词全词汇经 runStepNodes 全量出图（mutation_test / cleanup / clean 在案不被滤除）', () => {
     const steps = PERSISTED_WORDS.map((step, index) =>
       stepRow({ instanceNo: index, step: normalizeWord(step), sessionId: null }),
     );
     const nodes = runStepNodes(steps, REQUIREMENT_PHASES);
-    // 二十词全量出图（零过滤）
-    expect(nodes).toHaveLength(20);
+    // 二十一词全量出图（零过滤）
+    expect(nodes).toHaveLength(21);
     expect(nodes.some((node) => node.runStepKind === 'mutationTest')).toBe(true);
     expect(nodes.some((node) => node.runStepKind === 'cleanup')).toBe(true);
-    expect(new Set(nodes.map((node) => node.id)).size).toBe(20);
+    expect(nodes.some((node) => node.runStepKind === 'clean')).toBe(true);
+    expect(new Set(nodes.map((node) => node.id)).size).toBe(21);
   });
 });
 
-/** snake 词 → 活面 camel 词（测试内小表——20 词 round-trip 用）。 */
+/** snake 词 → 活面 camel 词（测试内小表——21 词 round-trip 用）。 */
 function normalizeWord(word: RunStepKind): ChangeStepKind {
   const entry = NORMALIZE_EXPECTED.find(([snake]) => snake === word);
   if (!entry) {
@@ -1132,5 +1140,61 @@ describe('stepFromRecord → unifiedRunNodes → runStepNodes 透传链（AC-1 /
       tokenOutput: record.tokenOutput,
       live: false,
     });
+  });
+});
+
+describe('run-state：clean 基线恢复步归一与身份键（check-before-flow-start）', () => {
+  it("normalizeKind('clean') → 'clean'：identity 词走 default 分支直返（snake / camel 同形零显式 case——与 commit / rebase / merge / finalize / preflight / seal / cleanup 先例一致）", () => {
+    const unified = unifiedRunNodes(
+      [runEntry({ nodes: [runStepRow({ phase: 'initialize', step: 'clean', sessionId: null })] })],
+      null,
+    );
+    expect(unified.map((row) => row.step)).toEqual(['clean']);
+  });
+
+  it('clean 节点身份键含 stepWord 词面：{phase}:{attempt}:clean:{instanceNo}（与后端边表端点逐字可比）', () => {
+    const node = runStepNodes(
+      [stepRow({ phase: 'initialize', step: 'clean', sessionId: null, instanceNo: 0 })],
+      REQUIREMENT_PHASES,
+    )[0];
+    expect(nodeIdentityKey(node)).toBe('initialize:1:clean:0');
+  });
+
+  it("groupOf('clean') 归 git 分类：经 runStepNodes 分组出线（与 commit / rebase / merge / finalize / cleanup 同组——AC-8 观测半边）", () => {
+    const node = runStepNodes(
+      [stepRow({ phase: 'initialize', step: 'clean', sessionId: null })],
+      REQUIREMENT_PHASES,
+    )[0];
+    expect(node.group).toBe('git');
+    expect(node.role).toBeNull();
+  });
+
+  it('库读史行 step=clean（RunStepKind 线词）→ 统一视图节点归一出线（双源合成对新词透明）', () => {
+    const steps = [
+      runStepRow({ instanceNo: 0, phase: 'initialize', step: 'phase_start', sessionId: null }),
+      runStepRow({ instanceNo: 0, phase: 'initialize', step: 'clean', sessionId: null }),
+      runStepRow({ instanceNo: 0, phase: 'initialize', step: 'static_check', sessionId: null }),
+    ];
+    const unified = unifiedRunNodes([runEntry({ nodes: steps })], null);
+    expect(unified.map((row) => row.step)).toEqual(['phaseStart', 'clean', 'staticCheck']);
+    expect(unified[1].sessionId).toBeNull();
+    const nodes = runStepNodes(unified, REQUIREMENT_PHASES);
+    expect(nodes.map((node) => node.group)).toEqual(['toolStep', 'git', 'toolStep']);
+  });
+
+  it('未知步词 default 回落不崩持衡（归一面不因扩词松动——回归锚）', () => {
+    // clean 扩词后未知词仍走 default 分支（越集词不入 CHANGE_STEP_KINDS 联合——
+    // 类型面拒绝；运行时未知串与既有越集词同样落 default 归一）
+    const unified = unifiedRunNodes(
+      [
+        runEntry({
+          nodes: [
+            runStepRow({ phase: 'x', step: 'clear' as unknown as RunStepKind, sessionId: null }),
+          ],
+        }),
+      ],
+      null,
+    );
+    expect(unified.map((row) => row.step)).toEqual(['clear']);
   });
 });

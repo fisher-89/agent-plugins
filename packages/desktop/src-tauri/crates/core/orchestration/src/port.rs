@@ -3,6 +3,7 @@ use std::path::Path;
 use std::pin::Pin;
 
 use agent::{AgentEvent, AgentPermissionMode, AgentRunStatus, ModelLevel, SessionProvenance};
+use foundation::layout::ReportSlot;
 use workflow::state::{RunFinishCommand, RunStartCommand};
 use workflow::write::{BacktrackInput, PhaseLogInput, PhaseNextOutcome, PhaseStartOutcome};
 
@@ -109,11 +110,18 @@ pub enum ToolCommand {
         phase: String,
         session_id: String,
     },
-    /// static-check 门禁（`change_id` 归键：审计行按 change 可枚举）
-    StaticCheck { change_id: String },
+    /// static-check 门禁（`change_id` 归键：审计行按 change 可枚举；`slot` 报告
+    /// 槽位——test 缺省 / baseline 基线检查，报告落点经 layout 槽位单点派生）
+    StaticCheck {
+        change_id: String,
+        slot: ReportSlot,
+    },
     /// test-execution 门禁（确定性测试执行链；id 定位写面与记录，报告目录
-    /// 派生经记录 name 解析）
-    TestExecution { change_id: String },
+    /// 派生经记录 name 解析；`slot` 报告槽位——test 缺省 / baseline 基线检查）
+    TestExecution {
+        change_id: String,
+        slot: ReportSlot,
+    },
     /// mutation-test 门禁（确定性突变执行链；清单 / 补丁经 vcs 缝取数注入，
     /// 报告目录派生经记录 name 解析）
     MutationTest { change_id: String },
@@ -159,6 +167,10 @@ pub struct StaticCheckOutcome {
     /// `Some(exec_id)`，落盘失败降级 `None`——不阻断检查主流程；反馈边仍只消费
     /// `diagnostics`，全量经本引用回查）
     pub output_ref: Option<String>,
+    /// 报告目录（按槽位经 layout 单点派生，pass / fail / 无配置直过三分支均携
+    /// ——baseline Terminal 文案供给面，与 `TestExecutionOutcome.report_dir`
+    /// 对称）
+    pub report_dir: String,
 }
 
 /// test-execution 门禁结论三值（checks 域聚合 `Conclusion` 的 port 映射像；
@@ -297,21 +309,24 @@ pub trait ToolStepPort: Send + Sync {
 
 /// static-check spawn 缝（infra 实现；W4——static-check 非 agent 会话，独立
 /// port 不并入 [`WorkerAgentPort`]）。产出契约与 [`ToolStepPort`] 同封闭集
-///（`ToolStepOutput::StaticCheck`）。**磁盘面 port 收 name**（输出记录
-/// `change_test_reports(root, name)` 为 name 化磁盘面，infra 侧零 store 依赖）；
-/// id → 记录 → name 的解析在 `steps.rs` 消费点（与 [`TestExecutionRunner`] 同式）。
+///（`ToolStepOutput::StaticCheck`）。**磁盘面 port 收 name**（报告目录
+/// `change_reports(root, name, slot)` 为 name 化磁盘面、按槽位派生，infra 侧零
+/// store 依赖）；id → 记录 → name 的解析在 `steps.rs` 消费点（与
+/// [`TestExecutionRunner`] 同式）。`slot` 报告槽位：test 缺省 / baseline 基线
+/// 检查——报告锚点与 exec-outputs 记录同锚派生，执行语义零分叉。
 pub trait StaticCheckRunner: Send + Sync {
-    fn run(&self, root: &str, name: &str) -> BoxToolFuture;
+    fn run(&self, root: &str, name: &str, slot: ReportSlot) -> BoxToolFuture;
 }
 
 /// test-execution spawn 缝（checks 边界 infra 实现；W4 红线与
 /// [`StaticCheckRunner`] 同型——检查域家族第二成员，spawn 不进 core）。产出
 /// 契约同 `ToolStepOutput` 封闭集（`ToolStepOutput::TestExecution`）。**磁盘面
-/// port 收 name**（报告目录派生 `change_test_reports(root, name)` 为 name 化
-/// 磁盘面，infra 侧零 store 依赖）；id → 记录 → name 的解析在 `steps.rs` 消费
-/// 点（D7）。
+/// port 收 name**（报告目录 `change_reports(root, name, slot)` 为 name 化磁盘面、
+/// 按槽位派生，infra 侧零 store 依赖）；id → 记录 → name 的解析在 `steps.rs`
+/// 消费点（D7）。`slot` 报告槽位：test 缺省（既有 `reports/test` 语义零改动）/
+/// baseline 基线检查（`reports/baseline` 分树隔离）——复用门按本槽位报告树判定。
 pub trait TestExecutionRunner: Send + Sync {
-    fn run(&self, root: &str, name: &str) -> BoxToolFuture;
+    fn run(&self, root: &str, name: &str, slot: ReportSlot) -> BoxToolFuture;
 }
 
 /// mutation-test spawn 缝（checks 边界 infra 实现；检查域家族第三成员，W4 红线
@@ -384,6 +399,12 @@ pub trait ArchiveVcsPort: Send + Sync {
     /// remove --force <path>`）。worktree 在场探测驻调用方 fs 判定，port 零探
     /// 测方法。
     fn remove_worktree(&self, main_root: &Path, worktree: &Path) -> Result<(), String>;
+    /// 基线恢复（initialize 相位 Clean 步执行缝）：`reset --hard` + `clean -fd`
+    /// 逐项 `-e` 排除（不带 `-x`——尊重 .gitignore，依赖树常态已免疫）。返回
+    /// 恢复摘要（步 detail 消费）；`Err` 带 git 语境。worktree 在场判定驻调用
+    /// 方（walker），port 零探测方法；主仓 MUST NOT 传入（legacy 整相位短路
+    /// 先行）。
+    fn restore_baseline(&self, worktree: &Path, exclusions: &[&str]) -> Result<String, String>;
 }
 
 /// rebase 结果：冲突语义 = 冲突态保留、不 abort——收口归调用方。

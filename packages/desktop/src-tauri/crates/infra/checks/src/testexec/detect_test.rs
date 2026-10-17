@@ -647,3 +647,94 @@ async fn jest版本探测_randomize追加与失败基础模板() {
         "占位符完整保留"
     );
 }
+
+// ---------------------------------------------------------------------------
+// 剪枝单源化（check-before-flow-start）：is_pruned_path 组件判定委托
+// foundation::prune::is_pruned_dir_name（私有名单退役零行为漂移）；两名单边界
+// 锚（Mock策略：无——纯函数 + fixture 树直测）
+// ---------------------------------------------------------------------------
+
+/// 单源对拍（边界）：同一批路径组件两侧对拍——detect 剪枝结果与
+/// `foundation::prune::is_pruned_dir_name` 逐组件等值（无第二份名单的结构证明；
+/// 路径组件迭代语义驻 detect 消费点——嵌套路径逐组件 any 语义在案）。
+#[test]
+fn is_pruned_path单源对拍_与foundation名单逐组件等值() {
+    // 逐组件对拍：名单六员 + dot 形态 + 普通名 + 形态近邻
+    for component in [
+        "node_modules",
+        "dist",
+        "build",
+        "target",
+        "coverage",
+        ".nyc_output",
+        ".git",
+        ".cache",
+        "src",
+        "app",
+        "openspec",
+        "node_module",
+        "Build",
+    ] {
+        let foundation_verdict = foundation::prune::is_pruned_dir_name(component);
+        let detect_verdict = super::is_pruned_path(Path::new(component));
+        assert_eq!(
+            foundation_verdict, detect_verdict,
+            "组件 {component:?} 两面判定等值（单源对拍）"
+        );
+    }
+
+    // 路径形态对拍：嵌套组件迭代语义（`app/node_modules/x.ts` → node_modules
+    // 组件命中 → 整路径剪枝）
+    assert!(
+        super::is_pruned_path(Path::new("app/node_modules/pkg/z.ts")),
+        "嵌套路径组件迭代命中（依赖目录不入探测面）"
+    );
+    assert!(
+        !super::is_pruned_path(Path::new("app/src/z.test.ts")),
+        "普通路径零剪枝"
+    );
+
+    // 封闭集等值：foundation 名单即 detect 全部非 dot 剪枝词（六员逐员经
+    // detect 面同判 true）
+    for name in foundation::prune::PRUNED_DIR_NAMES {
+        assert!(
+            super::is_pruned_path(Path::new(name)),
+            "foundation 名单成员 {name} 经 detect 面同判剪枝"
+        );
+    }
+}
+
+/// 两名单不串味（边界）：复用门扫描 `EXCLUDED_DIR_NAMES`（mod.rs 私有 const——
+/// CLI `REUSE_SCAN_EXCLUDED_DIRS` 同源独立声明）与 foundation `PRUNED_DIR_NAMES`
+/// 单源名单**独立集**：交集五员（依赖树目录双面排除语义一致）、各有独有成员
+///（复用门独有 `_stryker-tmp` 突变临时目录、foundation 独有 `.nyc_output` dot
+/// 形态成员）——两名单各自封闭、零共享引用（detect 内两名单边界锚）。
+#[test]
+fn 复用门扫描名单与foundation名单独立集() {
+    // 复用门名单（mod.rs 私有 const——同 crate 后代子模块可读）
+    let reuse_scan: [&str; 6] = super::super::EXCLUDED_DIR_NAMES;
+    let pruned = foundation::prune::PRUNED_DIR_NAMES;
+
+    // 交集五员（依赖树目录双面排除语义一致）
+    let shared = ["node_modules", "dist", "build", "target", "coverage"];
+    for name in shared {
+        assert!(
+            reuse_scan.contains(&name) && pruned.contains(&name),
+            "交集成员 {name:?} 双名单同在（依赖目录双面排除）"
+        );
+    }
+
+    // 各有独有成员（互异边界——集合不等值）
+    assert!(
+        reuse_scan.contains(&"_stryker-tmp") && !pruned.contains(&"_stryker-tmp"),
+        "复用门独有 _stryker-tmp（突变临时目录不入剪枝名单）"
+    );
+    assert!(
+        pruned.contains(&".nyc_output") && !reuse_scan.contains(&".nyc_output"),
+        "foundation 独有 .nyc_output（dot 形态成员——dot 判定外显式收录）"
+    );
+
+    // foundation 集完整在案（六员锚随单源化持衡）
+    assert_eq!(pruned.len(), 6);
+    assert_eq!(reuse_scan.len(), 6);
+}

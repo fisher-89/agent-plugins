@@ -1,7 +1,7 @@
 //! `state.rs`（run 状态与步状态类型）的单元测试（test-design「state.rs ->
 //! state_test.rs」节）：RunUpdate 五变体 `ipc` 信封线格式、SessionEvent /
-//! Finished 载荷、ChangeRunStatus 终态矩阵、ChangeStepKind 二十值词汇（cleanup
-//! 归 Git 组——camel 与 snake 同形词面）、ArchivePreflight 八字段停等载荷、
+//! Finished 载荷、ChangeRunStatus 终态矩阵、ChangeStepKind 二十一值词汇（cleanup
+//! 归 Git 组——camel 与 snake 同形词面；clean 基线恢复步新臂——camel 与 snake 同形）、ArchivePreflight 八字段停等载荷、
 //! ConfirmWait 双态（archive 随行）、ChangeStepState 步状态行、
 //! ChangeRunSnapshot / ChangeRunSummary 往返、specta Type 可达。无进程边界
 //! 依赖：serde_json / specta 内存构造与出线断言，AgentEvent 载荷以
@@ -214,8 +214,37 @@ fn 终态判别矩阵is_terminal互补() {
 }
 
 // ---------------------------------------------------------------------------
-// ChangeStepKind 二十值词汇（四类可辨，含归档 9 步词与拆步新词 mutationTest）
+// ChangeStepKind 二十一值词汇（四类可辨，含归档 9 步词、拆步新词 mutationTest
+// 与 initialize 基线恢复步 clean）
 // ---------------------------------------------------------------------------
+
+/// `ChangeStepKind::Clean` 新臂正向：camelCase 线词 `clean` 与 snake 身份串词同形
+/// 逐字；`"clean"` 双向派生往返等值；与 workflow 落库侧 `RunStepKind::Clean`
+/// 身份串词面逐字同源（对拍表补行——AC-2 跨侧零映射）。
+#[test]
+fn change_step_kind_clean基线恢复步新臂camel同形与同源() {
+    let wire = serde_json::to_value(ChangeStepKind::Clean).expect("词汇出线应成功");
+    assert_eq!(
+        wire,
+        json!("clean"),
+        "clean camelCase 线词与 snake 身份串词同形逐字（identity 词）"
+    );
+    assert_eq!(ChangeStepKind::Clean.as_str(), "clean");
+
+    // 双向派生往返等值（rename_all camelCase 线格式持衡）
+    let back: ChangeStepKind =
+        serde_json::from_value(json!("clean")).expect("clean 往返应成功");
+    assert_eq!(back, ChangeStepKind::Clean);
+    let round_trip = serde_json::to_value(back).expect("再出线应成功");
+    assert_eq!(round_trip, json!("clean"), "往返出线词面恒定");
+
+    // 与 workflow 落库侧同词面（身份串跨侧逐字可比——对拍表补行）
+    assert_eq!(
+        ChangeStepKind::Clean.as_str(),
+        workflow::state::RunStepKind::Clean.as_str(),
+        "ChangeStepKind::Clean 与 RunStepKind::Clean 身份串词面逐字同源"
+    );
+}
 
 /// 归档 9 步词的 `camelCase` 线面（与 snake_case `as_str()` 逐字对应；
 /// 词面单点与 workflow `RunStepKind::as_str()` 同源，AC-2）。
@@ -270,10 +299,11 @@ fn change_step_kind归档九步词camelcase与snake同源() {
     }
 }
 
-/// 非法词反序列化拒绝（异常）：二十值封闭集之外的词形（snake 词 / kebab 词 /
+/// 非法词反序列化拒绝（异常）：二十一值封闭集之外的词形（snake 词 / kebab 词 /
 /// 近似词 / 空串 / 超长串 / 含换行与 emoji 的词）一律 `Err`（AC-2 线面契约守卫
 /// ——camelCase 封闭集不吞词；cleanup 扩词不松动防线：clean-up / cleanUp 等
-/// 近似词仍拒）。
+/// 近似词仍拒；clean 扩词同不松动——clear / clean step / 大写 Clean 仍拒，
+/// "clean" 本词已合法入集）。
 #[test]
 fn change_step_kind非法词反序列化拒绝() {
     let long_word = "mutation".repeat(200);
@@ -291,6 +321,9 @@ fn change_step_kind非法词反序列化拒绝() {
         "MutationTest",
         "clean-up",
         "cleanUp",
+        "clear",
+        "clean step",
+        "Clean",
         "cleanupStep",
         "Cleanup",
         "",
@@ -305,7 +338,7 @@ fn change_step_kind非法词反序列化拒绝() {
 }
 
 #[test]
-fn change_step_kind二十值词汇线格式逐字且四类可辨() {
+fn change_step_kind二十一值词汇线格式逐字且四类可辨() {
     let wire = |kind: ChangeStepKind| serde_json::to_value(kind).expect("词汇出线应成功");
 
     // WorkerAgent 五角色（含归档两会话步）
@@ -327,10 +360,17 @@ fn change_step_kind二十值词汇线格式逐字且四类可辨() {
         "突变门禁步 camelCase 线词（拆步新词——mutationTest ↔ mutation_test 归一在案）"
     );
     assert_eq!(ChangeStepKind::MutationTest.as_str(), "mutation_test");
+    // clean 基线恢复步（camel 与 snake 同形——identity 词）
+    assert_eq!(
+        wire(ChangeStepKind::Clean),
+        json!("clean"),
+        "clean 基线恢复步词面（camel 与 snake 同形逐字）"
+    );
+    assert_eq!(ChangeStepKind::Clean.as_str(), "clean");
     assert_eq!(wire(ChangeStepKind::PhaseLog), json!("phaseLog"));
     assert_eq!(wire(ChangeStepKind::Preflight), json!("preflight"));
     assert_eq!(wire(ChangeStepKind::Seal), json!("seal"));
-    // Git 五步（cleanup 尽力步入组——cleanup camel 与 snake 同形）
+    // Git 六步（cleanup 尽力步与 clean 基线恢复步入组——两词 camel 与 snake 同形）
     assert_eq!(wire(ChangeStepKind::Commit), json!("commit"));
     assert_eq!(wire(ChangeStepKind::Rebase), json!("rebase"));
     assert_eq!(wire(ChangeStepKind::Merge), json!("merge"));
@@ -346,7 +386,7 @@ fn change_step_kind二十值词汇线格式逐字且四类可辨() {
     assert_eq!(wire(ChangeStepKind::RetryGate), json!("retryGate"));
     assert_eq!(wire(ChangeStepKind::WhitelistGate), json!("whitelistGate"));
 
-    // 四类可辨（二十值互异）
+    // 四类可辨（二十一值互异）
     let all = [
         ChangeStepKind::Executor,
         ChangeStepKind::Evaluator,
@@ -355,6 +395,7 @@ fn change_step_kind二十值词汇线格式逐字且四类可辨() {
         ChangeStepKind::StaticCheck,
         ChangeStepKind::TestExecution,
         ChangeStepKind::MutationTest,
+        ChangeStepKind::Clean,
         ChangeStepKind::PhaseLog,
         ChangeStepKind::VerdictGate,
         ChangeStepKind::RetryGate,
@@ -369,14 +410,14 @@ fn change_step_kind二十值词汇线格式逐字且四类可辨() {
         ChangeStepKind::Seal,
         ChangeStepKind::Finalize,
     ];
-    assert_eq!(all.len(), 20, "二十值穷举无遗漏");
+    assert_eq!(all.len(), 21, "二十一值穷举无遗漏");
     let mut wires: Vec<String> = all
         .iter()
         .map(|kind| wire(*kind).as_str().expect("串值").to_owned())
         .collect();
     wires.sort();
     wires.dedup();
-    assert_eq!(wires.len(), 20, "二十值词汇互异（四类节点可辨）");
+    assert_eq!(wires.len(), 21, "二十一值词汇互异（四类节点可辨）");
 
     // 身份串词面与 workflow 落库侧 `RunStepKind::as_str()` 逐字同源
     for (kind, step_kind) in [
@@ -399,6 +440,7 @@ fn change_step_kind二十值词汇线格式逐字且四类可辨() {
             ChangeStepKind::Cleanup,
             workflow::state::RunStepKind::Cleanup,
         ),
+        (ChangeStepKind::Clean, workflow::state::RunStepKind::Clean),
         (ChangeStepKind::Seal, workflow::state::RunStepKind::Seal),
         (
             ChangeStepKind::Finalize,
@@ -542,7 +584,7 @@ fn specta_type可达编译期锚定() {
 // ---------------------------------------------------------------------------
 
 /// 正向：TestExecution 出线 `testExecution` camelCase 逐字断言（serde
-/// rename_all camelCase 线格式；二十值封闭集下专词断言持衡）。
+/// rename_all camelCase 线格式；二十一值封闭集下专词断言持衡）。
 #[test]
 fn change_step_kind专词_testexecution出线逐字() {
     let wire = serde_json::to_value(ChangeStepKind::TestExecution).expect("词汇出线应成功");
@@ -558,11 +600,11 @@ fn change_step_kind专词_testexecution出线逐字() {
     assert_eq!(back, ChangeStepKind::TestExecution, "新变体双向派生可用");
 }
 
-/// 边界：二十值词汇互异（camelCase 判别值集合无碰撞——四类节点可辨不变量
-/// 保持：WorkerAgent 五角色 + ToolStep 六步（含 mutationTest）+ Git 五步（含
-/// cleanup）+ Gate 三门）。
+/// 边界：二十一值词汇互异（camelCase 判别值集合无碰撞——四类节点可辨不变量
+/// 保持：WorkerAgent 五角色 + ToolStep 六步（含 mutationTest）+ Git 六步（含
+/// cleanup 与 clean）+ Gate 三门）。
 #[test]
-fn change_step_kind二十值词汇互异无碰撞() {
+fn change_step_kind二十一值词汇互异无碰撞() {
     let all = [
         ChangeStepKind::Executor,
         ChangeStepKind::Evaluator,
@@ -571,6 +613,7 @@ fn change_step_kind二十值词汇互异无碰撞() {
         ChangeStepKind::StaticCheck,
         ChangeStepKind::TestExecution,
         ChangeStepKind::MutationTest,
+        ChangeStepKind::Clean,
         ChangeStepKind::PhaseLog,
         ChangeStepKind::VerdictGate,
         ChangeStepKind::RetryGate,
@@ -600,8 +643,8 @@ fn change_step_kind二十值词汇互异无碰撞() {
     sorted.dedup();
     assert_eq!(
         sorted.len(),
-        20,
-        "二十值词汇互异（无 camelCase 碰撞），实际: {wires:?}"
+        21,
+        "二十一值词汇互异（无 camelCase 碰撞），实际: {wires:?}"
     );
 }
 

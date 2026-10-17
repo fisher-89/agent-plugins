@@ -131,6 +131,26 @@ fn seed_change(store: &Store, id: &str, name: &str) {
         .expect("建档种子应成功");
 }
 
+/// 建档种子（worktree 形态，check-before-flow-start）：`worktree = Some(执行锚)`
+/// ——initialize worktree 分支驱动用例的记录面（exec root ≠ 主 root，相位级
+/// 短路不触发）。
+fn seed_change_with_worktree(store: &Store, worktree: &std::path::Path) {
+    store
+        .create_change_record(ChangeStateRecord {
+            id: CHANGE_ID.to_owned(),
+            name: NAME.to_owned(),
+            title: NAME.to_owned(),
+            workflow_type: "requirement".to_owned(),
+            created_at: TS_BASE,
+            status: ChangeStatus::Active,
+            archived_at: None,
+            active_phase: None,
+            worktree: Some(worktree.to_string_lossy().into_owned()),
+            base_commit: None,
+        })
+        .expect("建档种子应成功");
+}
+
 /// 评估条目种子：开相 + 落账一条（store change 域操作面种子路径，active_phase
 /// 随落账清位——链路末态与真实 run 一致）。
 fn seed_entry(
@@ -720,6 +740,7 @@ impl ToolStepPort for FakeTools {
                         passed: true,
                         diagnostics: String::new(),
                         output_ref: None,
+                        report_dir: String::new(),
                     });
                 Box::pin(async move { Ok(ToolStepOutput::StaticCheck(outcome)) })
             }
@@ -914,6 +935,7 @@ fn passing_check() -> StaticCheckOutcome {
         passed: true,
         diagnostics: String::new(),
         output_ref: None,
+        report_dir: String::new(),
     }
 }
 
@@ -922,6 +944,7 @@ fn failing_check(diagnostics: &str) -> StaticCheckOutcome {
         passed: false,
         diagnostics: diagnostics.to_owned(),
         output_ref: None,
+        report_dir: String::new(),
     }
 }
 
@@ -962,6 +985,11 @@ struct FakeVcs {
     /// Ok 时是否真实移除磁盘目录（默认关——多段子用例共享 TempRoot 时防
     /// fixture 交叉污染；成功移除观察面用例显式开启）
     remove_removes_dir: Mutex<bool>,
+    /// 基线恢复（restore_baseline 产出面——initialize Clean 步 Err 注入位）
+    restore_result: Mutex<Result<String, String>>,
+    /// restore_baseline 载荷捕获（worktree 与 exclusions——D6 排除面组装断言
+    /// 观察面，check-before-flow-start）
+    restore_calls: Mutex<Vec<(PathBuf, Vec<String>)>>,
 }
 
 impl FakeVcs {
@@ -987,6 +1015,8 @@ impl FakeVcs {
             remove_result: Mutex::new(Ok(())),
             remove_calls: Mutex::new(Vec::new()),
             remove_removes_dir: Mutex::new(false),
+            restore_result: Mutex::new(Ok("已重置 0 个路径、清除 0 个未跟踪文件".to_owned())),
+            restore_calls: Mutex::new(Vec::new()),
         }
     }
 
@@ -1053,6 +1083,22 @@ impl FakeVcs {
         self.remove_calls
             .lock()
             .expect("vcs 清理调用锁不可中毒")
+            .clone()
+    }
+
+    /// 基线恢复产出面编程（initialize Clean 步 Err 注入——Ok 摘要 / Err 可编程，
+    /// check-before-flow-start）。
+    fn with_restore_result(self, result: Result<String, String>) -> Self {
+        *self.restore_result.lock().expect("vcs 恢复锁不可中毒") = result;
+        self
+    }
+
+    /// restore_baseline 载荷捕获快照（(worktree, exclusions)——D6 排除面组装
+    /// 断言入口）。
+    fn restore_calls(&self) -> Vec<(PathBuf, Vec<String>)> {
+        self.restore_calls
+            .lock()
+            .expect("vcs 恢复调用锁不可中毒")
             .clone()
     }
 
@@ -1228,6 +1274,25 @@ impl ArchiveVcsPort for FakeVcs {
             let _ = std::fs::remove_dir_all(worktree);
         }
         result
+    }
+
+    fn restore_baseline(
+        &self,
+        worktree: &std::path::Path,
+        exclusions: &[&str],
+    ) -> Result<String, String> {
+        self.record("restore_baseline".to_owned());
+        self.restore_calls
+            .lock()
+            .expect("vcs 恢复调用锁不可中毒")
+            .push((
+                worktree.to_owned(),
+                exclusions.iter().map(|s| (*s).to_owned()).collect(),
+            ));
+        self.restore_result
+            .lock()
+            .expect("vcs 恢复锁不可中毒")
+            .clone()
     }
 }
 
@@ -2014,17 +2079,19 @@ async fn 真实写面组合全程演进对照一致() {
         "全相位 pass 收敛 completed"
     );
 
-    // 落库演进与插件直跑形态对照一致：9 相位各 1 条 pass（attempt 1、表序；
-    // 末位 archive 以空 report + 空 checklist 落 pass）
+    // 落库演进与插件直跑形态对照一致：10 相位各 1 条（initialize 表头 legacy
+    // 短路 skipped 条目 + 8 agent 相位 pass + archive 空 checklist pass；
+    // attempt 1、表序）
     let entries = db
         .store
         .list_phase_records(CHANGE_ID)
         .expect("读相位条目应成功");
-    assert_eq!(entries.len(), 9, "九相位各落账一条（含 archive）");
+    assert_eq!(entries.len(), 10, "十相位各落账一条（initialize 表头 + 含 archive）");
     let phases: Vec<&str> = entries.iter().map(|entry| entry.phase.as_str()).collect();
     assert_eq!(
         phases,
         [
+            "initialize",
             "proposal",
             "dev-design",
             "test-design",
@@ -2043,16 +2110,27 @@ async fn 真实写面组合全程演进对照一致() {
         if entry.phase == "archive" {
             // 归档确定性相位：空 checklist 落账（`derive_verdict([]) = Pass`）
             assert!(entry.report.is_empty() && entry.checklist.is_empty());
+        } else if entry.phase == "initialize" {
+            // initialize 表头（root == main_root legacy 短路）：skipped=true 落账
+            //（跳过因可见——一次性持久同 pass 语义；空 checklist 零会话槽位）
+            assert!(entry.skipped, "legacy 短路 initialize 条目 skipped=true");
+            assert!(!entry.stale, "干净 run 无 stale 标记");
+            assert!(
+                !entry.report.is_empty() && entry.checklist.is_empty(),
+                "initialize skipped 条目携跳过因 report + 空 checklist: {entry:?}"
+            );
         } else {
             assert!(
                 !entry.report.is_empty() && !entry.checklist.is_empty(),
                 "条目形状与插件 buildEntry 同形: {entry:?}"
             );
         }
-        assert!(
-            !entry.skipped && !entry.stale,
-            "干净 run 无 skipped / stale 标记"
-        );
+        if entry.phase != "initialize" {
+            assert!(
+                !entry.skipped && !entry.stale,
+                "干净 run 无 skipped / stale 标记"
+            );
+        }
     }
 
     // active_phase 演进：逐相位开跑、落账清除 → 终态清位
@@ -2073,6 +2151,15 @@ async fn 重入自active_phase续走不重跑已pass相位() {
     root.change(NAME);
     let db = TestDb::open("resume");
     seed_change(db.store.as_ref(), CHANGE_ID, NAME);
+    seed_entry(
+        db.store.as_ref(),
+        CHANGE_ID,
+        "initialize",
+        Verdict::Pass,
+        "基线检查通过",
+        Vec::new(),
+        TS_BASE,
+    );
     seed_entry(
         db.store.as_ref(),
         CHANGE_ID,
@@ -2206,13 +2293,14 @@ async fn 重入自active_phase续走不重跑已pass相位() {
         .expect("读相位条目应成功");
     assert_eq!(
         entries.len(),
-        10,
-        "dev-design 重评条目纯追加（既有 8 + dev-design 重评 + archive 收口）"
+        11,
+        "dev-design 重评条目纯追加（initialize 表头 + 既有 8 + dev-design 重评 + archive 收口）"
     );
-    assert_eq!(entries[8].phase, "dev-design");
-    assert_eq!(entries[8].attempt, 2);
-    assert_eq!(entries[8].verdict, Verdict::Pass);
-    assert_eq!(entries[9].phase, "archive", "归档相位随后收口");
+    assert_eq!(entries[0].phase, "initialize", "initialize 表头条目在案");
+    assert_eq!(entries[9].phase, "dev-design");
+    assert_eq!(entries[9].attempt, 2);
+    assert_eq!(entries[9].verdict, Verdict::Pass);
+    assert_eq!(entries[10].phase, "archive", "归档相位随后收口");
     let record = db
         .store
         .find_change_record(CHANGE_ID)
@@ -3525,6 +3613,17 @@ async fn 真实写面组合_verdict解析失败反馈边超限_升格双槽位�
     root.change(NAME);
     let db = TestDb::open("verdict-upgrade");
     seed_change(db.store.as_ref(), CHANGE_ID, NAME);
+    // initialize 表头条目预置 pass（phase_next 跳过表头——本 run 只验 proposal
+    // 站升格链）
+    seed_entry(
+        db.store.as_ref(),
+        CHANGE_ID,
+        "initialize",
+        Verdict::Pass,
+        "基线检查通过",
+        Vec::new(),
+        TS_BASE,
+    );
 
     let garbage = "评估结论正文，无 JSON".to_owned();
     let timeline = Arc::new(Mutex::new(Vec::new()));
@@ -3595,12 +3694,14 @@ async fn 真实写面组合_verdict解析失败反馈边超限_升格双槽位�
     // fail 条目：五轮升格代写——report 携升格、item 为评估输出格式、双槽位
     // 在场（区别于 static-check 升格仅 executor 单槽）；每轮决策收口后其条目
     // 定点挂账（verdict 落账时 decision 槽位恒缺省，挂账经 decision_log 单点）
+    // （entries[0] 为 initialize 表头预置条目——proposal fail 条目自 entries[1] 起）
     let entries = db
         .store
         .list_phase_records(CHANGE_ID)
         .expect("读相位条目应成功");
-    assert_eq!(entries.len(), 5, "五轮升格 fail 纯追加");
-    for (idx, entry) in entries.iter().enumerate() {
+    assert_eq!(entries.len(), 6, "initialize 表头 + 五轮升格 fail 纯追加");
+    assert_eq!(entries[0].phase, "initialize");
+    for (idx, entry) in entries.iter().skip(1).enumerate() {
         assert_eq!(entry.phase, "proposal");
         assert_eq!(entry.verdict, Verdict::Fail);
         assert!(
@@ -3629,7 +3730,7 @@ async fn 真实写面组合_verdict解析失败反馈边超限_升格双槽位�
             "fail 条目携 evaluator 槽位、值续注该 attempt 首发会话"
         );
     }
-    for (idx, entry) in entries.iter().enumerate() {
+    for (idx, entry) in entries.iter().skip(1).enumerate() {
         assert_eq!(
             entry.decision_session_id.as_deref(),
             Some(decisions[idx].as_str()),
@@ -3899,7 +4000,11 @@ async fn 空白名单backtrack决议被拒() {
 #[test]
 fn 步门控声明锚定() {
     assert_eq!(static_check_feedback_limit(), 5);
-    assert_eq!(static_check_phases(), vec!["implement", "test-gen"]);
+    assert_eq!(
+        static_check_phases(),
+        vec!["initialize", "implement", "test-gen"],
+        "initialize 表头检查步为 Terminal 分派（非 FeedbackLoop——声明面锚随表头扩位）"
+    );
     // run_id 铸造定式（每 run 一个会话窗口标识）
     let run_id = new_run_id();
     assert!(run_id.starts_with("run-"), "run-<millis> 定式: {run_id}");
@@ -3919,6 +4024,17 @@ async fn 真实写面组合_会话槽位落账与决策挂账全链对应() {
     root.change(NAME);
     let db = TestDb::open("slots-real-compose");
     seed_change(db.store.as_ref(), CHANGE_ID, NAME);
+    // initialize 表头条目预置 pass（phase_next 跳过表头——本 run 只验 proposal
+    // 站五轮 fail 链的槽位面）
+    seed_entry(
+        db.store.as_ref(),
+        CHANGE_ID,
+        "initialize",
+        Verdict::Pass,
+        "基线检查通过",
+        Vec::new(),
+        TS_BASE,
+    );
 
     let timeline = Arc::new(Mutex::new(Vec::new()));
     let (worker, _requests, sessions) = FakeWorker::new(&timeline)
@@ -3973,13 +4089,14 @@ async fn 真实写面组合_会话槽位落账与决策挂账全链对应() {
     drop(sessions);
 
     // verdict 条目落库：executor / evaluator 槽位与会话序逐一对应（取值自
-    // WorkerTurnOutcome.session_id——AC-5）
+    // WorkerTurnOutcome.session_id——AC-5；entries[0] 为 initialize 表头预置条目）
     let entries = db
         .store
         .list_phase_records(CHANGE_ID)
         .expect("读相位条目应成功");
-    assert_eq!(entries.len(), 5, "五条 fail 条目纯追加");
-    for (idx, entry) in entries.iter().enumerate() {
+    assert_eq!(entries.len(), 6, "initialize 表头 + 五条 fail 条目纯追加");
+    assert_eq!(entries[0].phase, "initialize");
+    for (idx, entry) in entries.iter().skip(1).enumerate() {
         assert_eq!(entry.phase, "proposal");
         assert_eq!(entry.verdict, Verdict::Fail);
         assert_eq!(
@@ -3995,7 +4112,7 @@ async fn 真实写面组合_会话槽位落账与决策挂账全链对应() {
     }
     // verdict 落账时 decision 槽位恒缺省（D5）；每轮决策收口后其条目经
     // decision_log 写面单点定点挂账
-    for (idx, entry) in entries.iter().enumerate() {
+    for (idx, entry) in entries.iter().skip(1).enumerate() {
         assert_eq!(
             entry.decision_session_id.as_deref(),
             Some(decisions[idx].as_str()),
@@ -4013,6 +4130,17 @@ async fn 真实写面组合_决策挂账先于解析_parse失败同样留痕() {
     root.change(NAME);
     let db = TestDb::open("relog-before-parse");
     seed_change(db.store.as_ref(), CHANGE_ID, NAME);
+    // initialize 表头条目预置 pass（phase_next 跳过表头——本 run 只验 proposal
+    // 站决策挂账链）
+    seed_entry(
+        db.store.as_ref(),
+        CHANGE_ID,
+        "initialize",
+        Verdict::Pass,
+        "基线检查通过",
+        Vec::new(),
+        TS_BASE,
+    );
 
     let timeline = Arc::new(Mutex::new(Vec::new()));
     let (worker, _requests, sessions) = FakeWorker::new(&timeline)
@@ -4080,9 +4208,9 @@ async fn 真实写面组合_决策挂账先于解析_parse失败同样留痕() {
         .store
         .list_phase_records(CHANGE_ID)
         .expect("读相位条目应成功");
-    assert_eq!(entries.len(), 5);
+    assert_eq!(entries.len(), 6, "initialize 表头 + 五条 fail 条目");
     assert_eq!(
-        entries[4].decision_session_id.as_deref(),
+        entries[5].decision_session_id.as_deref(),
         Some(decisions[4].as_str()),
         "parse 失败路径同样留痕"
     );
@@ -4098,6 +4226,15 @@ async fn 真实写面组合_升格fail条目仅携executor槽位且修复轮续�
     root.change(NAME);
     let db = TestDb::open("upgrade-slots");
     seed_change(db.store.as_ref(), CHANGE_ID, NAME);
+    seed_entry(
+        db.store.as_ref(),
+        CHANGE_ID,
+        "initialize",
+        Verdict::Pass,
+        "基线检查通过",
+        Vec::new(),
+        TS_BASE,
+    );
     seed_entry(
         db.store.as_ref(),
         CHANGE_ID,
@@ -4214,8 +4351,12 @@ async fn 真实写面组合_升格fail条目仅携executor槽位且修复轮续�
         .store
         .list_phase_records(CHANGE_ID)
         .expect("读相位条目应成功");
-    assert_eq!(entries.len(), 8, "预置三条 pass + 五轮升格 fail 纯追加");
-    let upgrades = &entries[3..];
+    assert_eq!(
+        entries.len(),
+        9,
+        "initialize 表头 + 预置三条 pass + 五轮升格 fail 纯追加"
+    );
+    let upgrades = &entries[4..];
     for (idx, entry) in upgrades.iter().enumerate() {
         assert_eq!(entry.phase, "implement");
         assert_eq!(entry.verdict, Verdict::Fail);
@@ -4514,8 +4655,8 @@ impl WorkflowSnapshotPort for StubSnapshot {
 struct NullRunner;
 
 impl StaticCheckRunner for NullRunner {
-    // 磁盘面 port 收 (root, name)：假件零记录逻辑，双参原样吞下
-    fn run(&self, _root: &str, _name: &str) -> BoxToolFuture {
+    // 磁盘面 port 收 (root, name, slot)：假件零记录逻辑，三参原样吞下
+    fn run(&self, _root: &str, _name: &str, _slot: foundation::layout::ReportSlot) -> BoxToolFuture {
         Box::pin(async move { Ok(ToolStepOutput::StaticCheck(passing_check())) })
     }
 }
@@ -4524,12 +4665,13 @@ impl StaticCheckRunner for NullRunner {
 struct FailingRunner;
 
 impl StaticCheckRunner for FailingRunner {
-    fn run(&self, _root: &str, _name: &str) -> BoxToolFuture {
+    fn run(&self, _root: &str, _name: &str, _slot: foundation::layout::ReportSlot) -> BoxToolFuture {
         Box::pin(async move {
             Ok(ToolStepOutput::StaticCheck(StaticCheckOutcome {
                 passed: false,
                 diagnostics: "clippy 未过: E0308".to_owned(),
                 output_ref: None,
+                report_dir: String::new(),
             }))
         })
     }
@@ -4541,7 +4683,7 @@ impl StaticCheckRunner for FailingRunner {
 struct NullTestExecutionRunner;
 
 impl TestExecutionRunner for NullTestExecutionRunner {
-    fn run(&self, _root: &str, _name: &str) -> BoxToolFuture {
+    fn run(&self, _root: &str, _name: &str, _slot: foundation::layout::ReportSlot) -> BoxToolFuture {
         Box::pin(async move {
             Ok(ToolStepOutput::TestExecution(TestExecutionOutcome {
                 conclusion: TestExecutionConclusion::Pass,
@@ -5127,7 +5269,11 @@ fn test_execution窄化tryfrom逐字段与非匹配面() {
 #[test]
 fn test_execution门控声明锚定() {
     assert_eq!(test_execution_feedback_limit(), 5);
-    assert_eq!(test_execution_phases(), vec!["test-execution"]);
+    assert_eq!(
+        test_execution_phases(),
+        vec!["initialize", "test-execution"],
+        "initialize 表头检查步为 Terminal 分派（声明面锚随表头扩位）"
+    );
     // 双门禁步声明分立：反馈上限同值但彼此独立计数（各自计满各自升格）
     assert_eq!(
         static_check_feedback_limit(),
@@ -5316,16 +5462,17 @@ async fn 真件组合_多相位run落库回验_emit序与终态逐字段一致()
         "completed 收口记因"
     );
 
-    // 节点整包：node_seq 升序 = emit 序、二十值全词汇零过滤、整包同刻
+    // 节点整包：node_seq 升序 = emit 序、二十一值全词汇零过滤、整包同刻
     let nodes = store.list_run_nodes("run-1").expect("节点读史应成功");
     assert!(!nodes.is_empty(), "多相位 run 节点整包非空");
-    const FULL_WORDS: [workflow::state::RunStepKind; 20] = [
+    const FULL_WORDS: [workflow::state::RunStepKind; 21] = [
         workflow::state::RunStepKind::Executor,
         workflow::state::RunStepKind::Evaluator,
         workflow::state::RunStepKind::Decision,
         workflow::state::RunStepKind::StaticCheck,
         workflow::state::RunStepKind::TestExecution,
         workflow::state::RunStepKind::MutationTest,
+        workflow::state::RunStepKind::Clean,
         workflow::state::RunStepKind::PhaseStart,
         workflow::state::RunStepKind::PhaseLog,
         workflow::state::RunStepKind::VerdictGate,
@@ -5344,7 +5491,7 @@ async fn 真件组合_多相位run落库回验_emit序与终态逐字段一致()
     for row in &nodes {
         assert!(
             FULL_WORDS.contains(&row.step),
-            "落库步词汇越二十值全词汇封闭集，实际: {:?}",
+            "落库步词汇越二十一值全词汇封闭集，实际: {:?}",
             row.step
         );
         assert_eq!(
@@ -5711,14 +5858,24 @@ async fn 续走不重头_第二轮run已pass相位零重执行attempt延续() {
         );
         let _confirmer = spawn_confirmer(&control, false);
         let status = task.await.expect("run 任务正常结束");
-        assert_eq!(status, ChangeRunStatus::Stopped, "首轮 fail 后停等拒绝收口");
-        let attempts: Vec<u32> = store
+        assert_eq!(
+            status,
+            ChangeRunStatus::Stopped,
+            "首轮 initialize 表头 legacy 短路落账后停等拒绝收口（手动档零豁免特判——表头先行语义）"
+        );
+        let all = store
             .list_phase_records(CHANGE_ID)
-            .expect("读相位条目应成功")
+            .expect("读相位条目应成功");
+        let initialize_attempts: Vec<u32> = all
             .iter()
+            .filter(|entry| entry.phase == "initialize")
             .map(|entry| entry.attempt)
             .collect();
-        assert_eq!(attempts, vec![1], "首轮 proposal attempt 1（fail 落账）");
+        assert_eq!(
+            initialize_attempts,
+            vec![1],
+            "首轮 initialize 表头 skipped 落账 attempt 1（跳过因可见——一次性持久语义）"
+        );
     }
 
     // 第二轮：proposal 承接 attempt 2（跨 run max+1）→ pass 后自后续相位推进
@@ -5763,14 +5920,14 @@ async fn 续走不重头_第二轮run已pass相位零重执行attempt延续() {
             .collect();
         assert_eq!(
             proposal,
-            vec![1, 2],
-            "proposal attempt 2 承接自 run-2（跨 run max+1 递增不撞号）"
+            vec![1],
+            "proposal attempt 1 承接自 run-2（首轮 initialize 停等拒绝零 proposal 条目——表头后 attempt 自 1 重计）"
         );
         let phases: Vec<&str> = entries.iter().map(|entry| entry.phase.as_str()).collect();
         assert_eq!(
             phases,
             vec![
-                "proposal",
+                "initialize",
                 "proposal",
                 "dev-design",
                 "test-design",
@@ -5781,7 +5938,7 @@ async fn 续走不重头_第二轮run已pass相位零重执行attempt延续() {
                 "acceptance",
                 "archive",
             ],
-            "落账序列严格前向（续走锚点推进——已 pass 相位零重执行，末位归档收口）"
+            "落账序列严格前向（首轮 initialize 表头 skipped 条目 + 第二轮续走自 proposal 推进——已 pass 相位零重执行，末位归档收口）"
         );
         // 两轮 run 全史：库面恰两行、run-1 stopped / run-2 completed
         let runs = store.list_change_runs(CHANGE_ID).expect("库读史应成功");
@@ -7767,6 +7924,7 @@ async fn 组合链路归档落库与空checklist落账() {
     let db = TestDb::open("archive-compose");
     seed_change(db.store.as_ref(), CHANGE_ID, NAME);
     for (index, phase) in [
+        "initialize",
         "proposal",
         "dev-design",
         "test-design",
@@ -9373,4 +9531,634 @@ async fn run_worker_干扰载荷仅合法turndone计入不panic() {
 /// usize → JSON 数值（脚本可读性小助手）。
 fn json_usize(value: u64) -> serde_json::Value {
     serde_json::json!(value)
+}
+
+// ---------------------------------------------------------------------------
+// initialize 一次性表头全链（check-before-flow-start / AC-1 ~ AC-7）：worktree
+// 分支五步序全绿 / step_clean 排除面与 Err 收敛 / 两检查步 Terminal 三态文案 /
+// 一次性重试链 / legacy 整相位短路 / 持久跳过（Mock策略：FakeVcs 扩
+// restore_baseline 捕获 + FakeTools 预录产出 + RecordingHistory 落包捕获 +
+// StubSnapshot——db 真件组合断言沿既有 TestDb 装置）
+// ---------------------------------------------------------------------------
+
+/// baseline 槽位产出 fixture（terminal 执行体载荷供给——report_dir 携 baseline
+/// 报告树锚点，与 walker Terminal 文案 {dir} 供给面同形）。
+fn baseline_check(passed: bool) -> StaticCheckOutcome {
+    StaticCheckOutcome {
+        passed,
+        diagnostics: if passed {
+            String::new()
+        } else {
+            "error[E0308]: baseline 类型错误".to_owned()
+        },
+        output_ref: Some("exec-baseline-static".to_owned()),
+        report_dir: format!("/ws/openspec/changes/{NAME}/reports/baseline"),
+    }
+}
+
+fn baseline_execution(conclusion: TestExecutionConclusion) -> TestExecutionOutcome {
+    TestExecutionOutcome {
+        conclusion,
+        total: 12,
+        passed: 10,
+        failed: u64::from(conclusion == TestExecutionConclusion::Fail),
+        skipped: 0,
+        findings_brief: match conclusion {
+            TestExecutionConclusion::Pass => "全部测试通过".to_owned(),
+            TestExecutionConclusion::Error => "测试框架拉起失败（环境错误）".to_owned(),
+            TestExecutionConclusion::Fail => "2 项测试失败——聚类失败".to_owned(),
+        },
+        findings_detail: String::new(),
+        report_dir: format!("/ws/openspec/changes/{NAME}/reports/baseline"),
+        exec_id: "exec-baseline-test".to_owned(),
+    }
+}
+
+/// worktree 分支 initialize 全绿链（正向，AC-1 / AC-4 / AC-5 Ok 半边）：五步序
+/// emit 逐位一致（phase_start → clean → static_check → test_execution →
+/// phase_log，串行 forward 边）；restore 排除面 = 名单六名 + `".*"` + openspec
+/// （D6 组装面）；两检查步 ToolCommand 携 `slot=Baseline`（构造点分派单源）；
+/// 检查步 root 恒 exec root（worktree）；PhaseLog 机械 checklist 三条目落账
+///（mutation 恒 None 第 3 条如实留痕、report 携 conclusion 计数 + baseline
+/// 报告目录、三会话槽位恒 None）；PhaseRecord 落 pass（skipped=false）。
+#[tokio::test]
+async fn initialize五步序全绿链_排除面与baseline槽位与机械checklist() {
+    let root = TempRoot::new("init-green");
+    root.change(NAME);
+    let worktree = root.0.join("openspec/changes").join(NAME);
+    let db = TestDb::open("init-green");
+    seed_change_with_worktree(db.store.as_ref(), &worktree);
+
+    let timeline = Arc::new(Mutex::new(Vec::new()));
+    let (worker, _requests, sessions) = FakeWorker::new(&timeline).assemble();
+    let (tools, commands) = FakeTools::new(&timeline)
+        .with_phase_next(vec![route_outcome("initialize", &[]), done_outcome()])
+        .with_static_check(vec![baseline_check(true)])
+        .with_test_execution(vec![baseline_execution(TestExecutionConclusion::Pass)])
+        .assemble();
+    let vcs = Arc::new(FakeVcs::clean());
+    let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
+    let control = Arc::new(ChangeFlowControl::new());
+
+    let (task, _rx, history) = spawn_run_with_vcs(
+        worker,
+        tools,
+        vcs.clone(),
+        snapshot,
+        &control,
+        false,
+        &worktree.to_string_lossy(),
+        &root.root_str(),
+        None,
+    );
+    let _confirmer = spawn_confirmer(&control, true);
+    let status = task.await.expect("run 任务正常结束");
+    assert_eq!(status, ChangeRunStatus::Completed, "initialize 全绿 → done 收敛");
+
+    // 零 agent 会话（确定性相位——executor / evaluator / decision 缺席）
+    assert!(
+        sessions.lock().expect("会话登记锁").is_empty(),
+        "initialize 零 agent 会话注入"
+    );
+
+    // 五步序 emit 逐位（落包节点序 = emit 序；词面 + forward 边逐位）
+    let finish = history.finish().expect("收口落包捕获");
+    let words: Vec<&str> = finish
+        .nodes
+        .iter()
+        .map(|node| node.step.as_str())
+        .collect();
+    assert_eq!(
+        words,
+        ["phase_start", "clean", "static_check", "test_execution", "phase_log"],
+        "initialize 五节点 emit 序逐位（五步序）"
+    );
+    assert!(
+        finish.nodes.iter().all(|node| node.phase == "initialize"),
+        "五节点 phase 恒 initialize"
+    );
+    assert_eq!(finish.edges.len(), 4, "串行 forward 边四条");
+    for (index, edge) in finish.edges.iter().enumerate() {
+        assert_eq!(
+            edge.edge_kind,
+            workflow::state::RunEdgeKind::Forward,
+            "第 {index} 边 forward"
+        );
+        assert_eq!(edge.from_node_key, format!("initialize:1:{}:0", words[index]));
+        assert_eq!(edge.to_node_key, format!("initialize:1:{}:0", words[index + 1]));
+    }
+    // clean / static_check / test_execution / phase_log 节点恒 passed
+    for word in ["clean", "static_check", "test_execution", "phase_log"] {
+        let node = finish
+            .nodes
+            .iter()
+            .find(|node| node.step.as_str() == word)
+            .expect("节点应在案");
+        assert_eq!(node.status, RunStepStatus::Passed, "{word} passed");
+    }
+
+    // 排除面组装（D6）：restore 载荷 = 名单六名 + ".*" + openspec（worktree 锚）
+    let restores = vcs.restore_calls();
+    assert_eq!(restores.len(), 1, "restore_baseline 恰一次");
+    let (restore_root, exclusions) = &restores[0];
+    assert_eq!(
+        restore_root.to_string_lossy(),
+        worktree.to_string_lossy(),
+        "restore 作用锚 = worktree（exec root）"
+    );
+    assert_eq!(
+        exclusions
+            .iter()
+            .map(String::as_str)
+            .collect::<Vec<_>>(),
+        [
+            "node_modules",
+            "dist",
+            "build",
+            "target",
+            "coverage",
+            ".nyc_output",
+            ".*",
+            "openspec",
+        ],
+        "排除面 = PRUNED_DIR_NAMES 六名 + dot 语义 + openspec 工件树（foundation 名单单源组装）"
+    );
+    assert!(
+        vcs.calls()
+            .iter()
+            .all(|call| call == "restore_baseline"),
+        "initialize 零归档 git 步触点（仅 restore_baseline）: {:?}",
+        vcs.calls()
+    );
+
+    // ToolCommand 构造点：两检查步 slot=Baseline + root 恒 exec root
+    let slots: Vec<(&str, foundation::layout::ReportSlot)> = {
+        let commands = commands.lock().expect("命令捕获锁");
+        commands
+            .iter()
+            .filter_map(|command| match command {
+                ToolCommand::StaticCheck { slot, .. } => Some(("static-check", *slot)),
+                ToolCommand::TestExecution { slot, .. } => Some(("test-execution", *slot)),
+                _ => None,
+            })
+            .collect()
+    };
+    assert_eq!(
+        slots,
+        [
+            ("static-check", foundation::layout::ReportSlot::Baseline),
+            ("test-execution", foundation::layout::ReportSlot::Baseline),
+        ],
+        "initialize 两检查步构造 slot=Baseline（构造点分派单源）"
+    );
+
+    // PhaseLog 机械 checklist 落账载荷（FakeTools 命令捕获——写面载荷直检）
+    let log_input = {
+        let commands = commands.lock().expect("命令捕获锁");
+        commands
+            .iter()
+            .find_map(|command| match command {
+                ToolCommand::PhaseLog { input, .. } => Some(input.clone()),
+                _ => None,
+            })
+            .expect("phase-log 落账在场")
+    };
+    assert_eq!(log_input.phase, "initialize");
+    assert!(!log_input.skipped, "全绿链落账非 skipped");
+    assert_eq!(log_input.checklist.len(), 3, "机械 checklist 三条目");
+    assert!(
+        log_input.checklist.iter().all(|item| item.pass),
+        "三机械条目全 pass（第 3 条 mutation null 自动通过——基线检查明确不含突变）"
+    );
+    assert_eq!(
+        log_input.checklist[2].evidence, "null（未跑）",
+        "第 3 条目 evidence 如实留痕（mutation 恒 None——零突变语义）"
+    );
+    assert!(
+        log_input.report.contains("pass") && log_input.report.contains("12"),
+        "report 携 conclusion + 计数: {}",
+        log_input.report
+    );
+    assert!(
+        log_input.report.contains("reports/baseline"),
+        "report 携 baseline 报告目录: {}",
+        log_input.report
+    );
+    assert!(
+        log_input.executor_session_id.is_none()
+            && log_input.evaluator_session_id.is_none()
+            && log_input.decision_session_id.is_none(),
+        "三会话槽位恒 None（零 agent 面）"
+    );
+    drop(commands);
+
+    // PhaseLog 机械 checklist 载荷断言已承载落账面（PhaseLog 命令直检——本用例
+    // FakeTools 零落库；PhaseRecord pass 条目与三会话槽位恒 None 的读侧断言由
+    // change_flow 基线绿走真件测试承载）
+}
+
+/// step_clean Err 收敛（异常，AC-5 Err 半边）：restore Err → clean 节点 failed
+///（Err 串附 git 语境）→ run `Terminal::failed` 收敛；PhaseRecord 零 initialize
+/// 条目、后续 StaticCheck / TestExecution 步零执行（步序短路——Err 串原样透传）。
+#[tokio::test]
+async fn step_clean_err收敛_failed节点与terminal且检查步零执行() {
+    let root = TempRoot::new("init-clean-err");
+    root.change(NAME);
+    let worktree = root.0.join("openspec/changes").join(NAME);
+    let db = TestDb::open("init-clean-err");
+    seed_change_with_worktree(db.store.as_ref(), &worktree);
+
+    let timeline = Arc::new(Mutex::new(Vec::new()));
+    let (worker, _requests, _sessions) = FakeWorker::new(&timeline).assemble();
+    let (tools, commands) = FakeTools::new(&timeline)
+        .with_phase_next(vec![route_outcome("initialize", &[])])
+        .assemble();
+    let vcs = Arc::new(
+        FakeVcs::clean().with_restore_result(Err("git -C wt clean 失败（退出码 128）".to_owned())),
+    );
+    let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
+    let control = Arc::new(ChangeFlowControl::new());
+
+    let (task, _rx, history) = spawn_run_with_vcs(
+        worker,
+        tools,
+        vcs.clone(),
+        snapshot,
+        &control,
+        false,
+        &worktree.to_string_lossy(),
+        &root.root_str(),
+        None,
+    );
+    let _confirmer = spawn_confirmer(&control, true);
+    let status = task.await.expect("run 任务正常结束");
+    assert_eq!(status, ChangeRunStatus::Failed, "restore Err → Terminal failed");
+
+    let finish = history.finish().expect("收口落包捕获");
+    assert_eq!(finish.status, RunStatus::Failed, "落包终态 failed");
+    let clean = finish
+        .nodes
+        .iter()
+        .find(|node| node.step.as_str() == "clean")
+        .expect("clean 节点应在案");
+    assert_eq!(clean.status, RunStepStatus::Failed, "clean 节点 failed");
+    assert!(
+        clean
+            .detail
+            .as_deref()
+            .is_some_and(|detail| detail.contains("git -C wt clean 失败")),
+        "clean detail 携 git 语境 Err 串: {clean:?}"
+    );
+    assert!(
+        !finish
+            .nodes
+            .iter()
+            .any(|node| matches!(node.step.as_str(), "static_check" | "test_execution" | "phase_log")),
+        "Err 后检查步零执行（Terminal 停链）"
+    );
+    assert!(
+        commands
+            .lock()
+            .expect("命令锁")
+            .iter()
+            .all(|command| !matches!(
+                command,
+                ToolCommand::StaticCheck { .. } | ToolCommand::TestExecution { .. }
+            )),
+        "检查步零 spawn"
+    );
+    let entries = db
+        .store
+        .list_phase_records(CHANGE_ID)
+        .expect("读相位条目应成功");
+    assert!(
+        !entries.iter().any(|entry| entry.phase == "initialize"),
+        "Terminal 收敛零 initialize 条目"
+    );
+}
+
+/// step_static_check_terminal static 红（异常，AC-2）：static_check 节点 failed
+/// 携 output_ref + run `Terminal::failed` + 终态文案「基线静态检查未通过」携
+/// baseline report_dir；TestExecution 步零执行（Terminal 收敛与一次性半边）。
+#[tokio::test]
+async fn step_static_check_terminal_红文案携baseline报告目录() {
+    let root = TempRoot::new("init-static-red");
+    root.change(NAME);
+    let worktree = root.0.join("openspec/changes").join(NAME);
+    let db = TestDb::open("init-static-red");
+    seed_change_with_worktree(db.store.as_ref(), &worktree);
+
+    let timeline = Arc::new(Mutex::new(Vec::new()));
+    let (worker, _requests, _sessions) = FakeWorker::new(&timeline).assemble();
+    let (tools, commands) = FakeTools::new(&timeline)
+        .with_phase_next(vec![route_outcome("initialize", &[])])
+        .with_static_check(vec![baseline_check(false)])
+        .assemble();
+    let vcs = Arc::new(FakeVcs::clean());
+    let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
+    let control = Arc::new(ChangeFlowControl::new());
+
+    let (task, _rx, history) = spawn_run_with_vcs(
+        worker,
+        tools,
+        vcs.clone(),
+        snapshot,
+        &control,
+        false,
+        &worktree.to_string_lossy(),
+        &root.root_str(),
+        None,
+    );
+    let _confirmer = spawn_confirmer(&control, true);
+    let status = task.await.expect("run 任务正常结束");
+    assert_eq!(status, ChangeRunStatus::Failed, "static 红 → Terminal failed");
+
+    let finish = history.finish().expect("收口落包捕获");
+    let static_node = finish
+        .nodes
+        .iter()
+        .find(|node| node.step.as_str() == "static_check")
+        .expect("static_check 节点应在案");
+    assert_eq!(static_node.status, RunStepStatus::Failed);
+    assert_eq!(
+        static_node.output_ref.as_deref(),
+        Some("exec-baseline-static"),
+        "failed 节点携 output_ref（回查面）"
+    );
+    let reason = finish.reason.expect("Terminal 记因应在案");
+    assert!(
+        reason.contains("基线静态检查未通过"),
+        "终态文案 = static 红文案: {reason}"
+    );
+    assert!(
+        reason.contains("reports/baseline"),
+        "文案携 baseline report_dir（dir 占位供给面）: {reason}"
+    );
+    assert!(
+        !finish
+            .nodes
+            .iter()
+            .any(|node| node.step.as_str() == "test_execution"),
+        "static 红后 TestExecution 步零执行"
+    );
+    assert!(
+        commands
+            .lock()
+            .expect("命令锁")
+            .iter()
+            .all(|command| !matches!(command, ToolCommand::TestExecution { .. })),
+        "test-execution 零 spawn"
+    );
+}
+
+/// step_test_execution_terminal 三态分文案（异常，AC-3）：`conclusion=Error` →
+/// 环境文案（「基线测试执行出错」+ 报告目录）；`conclusion=Fail` → 测试红文案
+///（「基线测试未通过」+ 报告目录）——与 static 红文案互异可辨（三态文案不共用）。
+#[tokio::test]
+async fn step_test_execution_terminal_error与fail分文案() {
+    for (conclusion, expect_word) in [
+        (TestExecutionConclusion::Error, "基线测试执行出错"),
+        (TestExecutionConclusion::Fail, "基线测试未通过"),
+    ] {
+        let tag = format!("init-test-{}", conclusion.as_str());
+        let root = TempRoot::new(&tag);
+        root.change(NAME);
+        let worktree = root.0.join("openspec/changes").join(NAME);
+        let db = TestDb::open(&tag);
+        seed_change_with_worktree(db.store.as_ref(), &worktree);
+
+        let timeline = Arc::new(Mutex::new(Vec::new()));
+        let (worker, _requests, _sessions) = FakeWorker::new(&timeline).assemble();
+        let (tools, _commands) = FakeTools::new(&timeline)
+            .with_phase_next(vec![route_outcome("initialize", &[])])
+            .with_static_check(vec![baseline_check(true)])
+            .with_test_execution(vec![baseline_execution(conclusion)])
+            .assemble();
+        let vcs = Arc::new(FakeVcs::clean());
+        let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
+        let control = Arc::new(ChangeFlowControl::new());
+
+        let (task, _rx, history) = spawn_run_with_vcs(
+            worker,
+            tools,
+            Arc::clone(&vcs),
+            snapshot,
+            &control,
+            false,
+            &worktree.to_string_lossy(),
+            &root.root_str(),
+            None,
+        );
+        let _confirmer = spawn_confirmer(&control, true);
+        let status = task.await.expect("run 任务正常结束");
+        assert_eq!(status, ChangeRunStatus::Failed, "{expect_word} → Terminal");
+
+        let finish = history.finish().expect("收口落包捕获");
+        let reason = finish.reason.expect("Terminal 记因应在案");
+        assert!(
+            reason.contains(expect_word),
+            "conclusion={:?} 终态文案 = {expect_word}: {reason}",
+            conclusion
+        );
+        assert!(
+            reason.contains("reports/baseline"),
+            "文案携 baseline 报告目录: {reason}"
+        );
+        if conclusion == TestExecutionConclusion::Error {
+            assert!(!reason.contains("基线测试未通过"), "Error 不出测试红文案");
+        } else {
+            assert!(!reason.contains("基线测试执行出错"), "Fail 不出环境文案");
+        }
+    }
+}
+
+/// Terminal 收敛与一次性重试链（边界，重试链 / AC-2）：首 run static 红收敛
+/// failed 后，二次 walk_run → phase_next 仍路由 initialize（零条目重发起）、
+/// shim 转绿后全链干净重试收敛 completed（clean 清残留 + 全链重走）。
+#[tokio::test]
+async fn terminal收敛后二次发起_仍路由initialize且干净重试() {
+    let root = TempRoot::new("init-retry");
+    root.change(NAME);
+    let worktree = root.0.join("openspec/changes").join(NAME);
+
+    // 首 run：static 红 → Terminal failed（PhaseRecord 零 initialize 条目）
+    let db = TestDb::open("init-retry");
+    seed_change_with_worktree(db.store.as_ref(), &worktree);
+    {
+        let timeline = Arc::new(Mutex::new(Vec::new()));
+        let (worker, _requests, _sessions) = FakeWorker::new(&timeline).assemble();
+        let (tools, _commands) = FakeTools::new(&timeline)
+            .with_phase_next(vec![route_outcome("initialize", &[])])
+            .with_static_check(vec![baseline_check(false)])
+            .assemble();
+        let vcs = Arc::new(FakeVcs::clean());
+        let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
+        let control = Arc::new(ChangeFlowControl::new());
+        let (task, _rx, _history) = spawn_run_with_vcs(
+            worker,
+            tools,
+            vcs,
+            snapshot,
+            &control,
+            false,
+            &worktree.to_string_lossy(),
+            &root.root_str(),
+            None,
+        );
+        let _confirmer = spawn_confirmer(&control, true);
+        assert_eq!(
+            task.await.expect("run 任务正常结束"),
+            ChangeRunStatus::Failed,
+            "首 run static 红 Terminal"
+        );
+    }
+    assert!(
+        !db
+            .store
+            .list_phase_records(CHANGE_ID)
+            .expect("读相位条目应成功")
+            .iter()
+            .any(|entry| entry.phase == "initialize"),
+        "首 run 零 initialize 条目（Terminal 零落账）"
+    );
+
+    // 二次发起：shim 转绿 → phase_next 仍路由 initialize → 全链干净重试收敛
+    {
+        let timeline = Arc::new(Mutex::new(Vec::new()));
+        let (worker, _requests, _sessions) = FakeWorker::new(&timeline).assemble();
+        let (tools, _commands) = FakeTools::new(&timeline)
+            .with_phase_next(vec![
+                route_outcome("initialize", &[]),
+                done_outcome(),
+            ])
+            .with_static_check(vec![baseline_check(true)])
+            .with_test_execution(vec![baseline_execution(TestExecutionConclusion::Pass)])
+            .assemble();
+        let vcs = Arc::new(FakeVcs::clean());
+        let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
+        let control = Arc::new(ChangeFlowControl::new());
+        let (task, _rx, history) = spawn_run_with_vcs(
+            worker,
+            tools,
+            vcs.clone(),
+            snapshot,
+            &control,
+            false,
+            &worktree.to_string_lossy(),
+            &root.root_str(),
+            None,
+        );
+        let _confirmer = spawn_confirmer(&control, true);
+        assert_eq!(
+            task.await.expect("run 任务正常结束"),
+            ChangeRunStatus::Completed,
+            "二次发起干净重试收敛 completed"
+        );
+        assert_eq!(
+            vcs.restore_calls().len(),
+            1,
+            "二次 run restore 恰一次（clean 清残留后干净重试）"
+        );
+        let finish = history.finish().expect("收口落包捕获");
+        assert_eq!(finish.status, RunStatus::Completed, "二次 run 收敛 completed");
+    }
+}
+
+/// drive() legacy 短路（正向，AC-6）：`worktree=None` 形态（root == main_root）
+/// 的 initialize → phase_start + phase_log 两枚节点留痕、PhaseLog 以
+/// skipped=true + 空 checklist + 跳过因落账；Clean / StaticCheck / TestExecution
+/// 三步零执行（零 vcs / 零检查 spawn、主仓零重置）；skipped 条目一次性持久同
+/// pass 语义在案。
+#[tokio::test]
+async fn legacy短路_两枚节点留痕与零检查spawn() {
+    let root = TempRoot::new("init-legacy");
+    root.change(NAME);
+    // 路由面为 FakeTools 预录（phase_next 不查 store——建档记录零依赖）
+
+    let timeline = Arc::new(Mutex::new(Vec::new()));
+    let (worker, _requests, _sessions) = FakeWorker::new(&timeline).assemble();
+    let (tools, commands) = FakeTools::new(&timeline)
+        .with_phase_next(vec![route_outcome("initialize", &[]), done_outcome()])
+        .assemble();
+    let vcs = Arc::new(FakeVcs::clean());
+    let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
+    let control = Arc::new(ChangeFlowControl::new());
+
+    // root == main_root（legacy 主仓形态——worktree=None 存量记录）
+    let (task, _rx, history) = spawn_run_with_vcs(
+        worker,
+        tools,
+        vcs.clone(),
+        snapshot,
+        &control,
+        false,
+        &root.root_str(),
+        &root.root_str(),
+        None,
+    );
+    let _confirmer = spawn_confirmer(&control, true);
+    let status = task.await.expect("run 任务正常结束");
+    assert_eq!(status, ChangeRunStatus::Completed, "legacy 短路后 done 收敛");
+
+    let finish = history.finish().expect("收口落包捕获");
+    let words: Vec<&str> = finish
+        .nodes
+        .iter()
+        .map(|node| node.step.as_str())
+        .collect();
+    assert_eq!(
+        words,
+        ["phase_start", "phase_log"],
+        "legacy 短路恰两枚节点（PhaseStart 开相 + PhaseLog skipped 落账）"
+    );
+    assert!(
+        finish.nodes.iter().all(|node| node.phase == "initialize"),
+        "两节点 phase 恒 initialize"
+    );
+
+    // 三步零执行：零 vcs restore、零检查 spawn（主仓零重置零 clean）
+    assert!(
+        vcs.calls().is_empty(),
+        "零 vcs 调用（restore_baseline 缺席——主仓红线）: {:?}",
+        vcs.calls()
+    );
+    assert!(
+        commands
+            .lock()
+            .expect("命令锁")
+            .iter()
+            .all(|command| !matches!(
+                command,
+                ToolCommand::StaticCheck { .. } | ToolCommand::TestExecution { .. }
+            )),
+        "Clean / StaticCheck / TestExecution 三步零 spawn"
+    );
+
+    // PhaseLog skipped 落账载荷：skipped=true + 空 checklist + 跳过因
+    let commands = commands.lock().expect("命令捕获锁");
+    let log_input = commands
+        .iter()
+        .find_map(|command| match command {
+            ToolCommand::PhaseLog { input, .. } => Some(input.clone()),
+            _ => None,
+        })
+        .expect("phase-log 落账在场");
+    assert!(log_input.skipped, "PhaseLog skipped=true");
+    assert!(log_input.checklist.is_empty(), "空 checklist");
+    assert!(
+        log_input.report.contains("legacy"),
+        "跳过因落账（report 携 legacy 语汇）: {}",
+        log_input.report
+    );
+    assert!(
+        log_input.executor_session_id.is_none()
+            && log_input.evaluator_session_id.is_none()
+            && log_input.decision_session_id.is_none(),
+        "三会话槽位恒 None"
+    );
+    drop(commands);
+
+    // skipped 落账载荷断言已承载跳过因可见面（PhaseLog 命令载荷直检——本用例
+    // FakeTools 零落库，skipped 条目持久同 pass 语义的读侧断言由真实写面组合
+    // 用例「真实写面组合全程演进对照一致」承载）
 }

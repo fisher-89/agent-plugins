@@ -66,6 +66,7 @@ static TASKS_ONLY_MANIFEST: &[PhaseDefinition] = &[PhaseDefinition {
     steps: &[],
     artifact_manifest: &[TASKS_SPEC],
     prerequisites: &[],
+            backtrackable: true,
     executor: None,
     evaluator: None,
 }];
@@ -77,6 +78,7 @@ static EMPTY_MANIFEST: &[PhaseDefinition] = &[PhaseDefinition {
     steps: &[],
     artifact_manifest: &[],
     prerequisites: &[],
+            backtrackable: true,
     executor: None,
     evaluator: None,
 }];

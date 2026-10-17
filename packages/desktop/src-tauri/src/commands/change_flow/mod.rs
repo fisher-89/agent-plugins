@@ -25,8 +25,9 @@ use vcs_runtime::ProcessArchiveVcs;
 use workflow::state::ChangeStateStore;
 use workflow::write::{phase_table, SessionAnchors};
 
-/// 归档停止点相位名（归档为独立手动执行门：run 走完 8 个路由相位后必停等确认
-/// 一次才进入本相位——「按指定 phase 停止」的固定停止点）。
+/// 归档停止点相位名（归档为独立手动执行门：run 走完全部前序路由相位（requirement
+/// 9 个 = initialize + 8、test-only 6 个 = initialize + 5）后必停等确认一次才进
+/// 入本相位——「按指定 phase 停止」的固定停止点）。
 const STOP_BEFORE_ARCHIVE: &str = "archive";
 
 /// 当前 UTC unix 毫秒（run 发起时刻铸造点；时钟早于 epoch 取 0，不 panic——

@@ -70,7 +70,7 @@ pub struct PhaseEntry {
     pub attempts: Vec<AttemptRecord>,
 }
 
-/// run 执行图节点行线面（二十值全词汇封闭集直出，词汇 = `state::RunStepKind`
+/// run 执行图节点行线面（二十一值全词汇封闭集直出，词汇 = `state::RunStepKind`
 /// 单点；稳定身份键 `(phase, attempt, step, instanceNo)`，库读序 = node_seq 升序
 /// = emit 序）。
 ///
@@ -262,8 +262,8 @@ pub fn change_detail(
     // 记录恒在，name 恒裸名不带前缀）
     let created = Some(utc_date(record.created_at));
 
-    // 流水线相位序 = `phase_table(workflow_type)` 相位序（requirement 9 列 /
-    // test-only 6 列，archive 列位置随表；无 attempt 记录的站为空序列）
+    // 流水线相位序 = `phase_table(workflow_type)` 相位序（requirement 10 列 /
+    // test-only 7 列（initialize 首列），archive 列位置随表；无 attempt 记录的站为空序列）
     let mut pipeline: Vec<PhaseEntry> = table
         .iter()
         .map(|definition| PhaseEntry { phase: definition.id.to_string(), attempts: Vec::new() })

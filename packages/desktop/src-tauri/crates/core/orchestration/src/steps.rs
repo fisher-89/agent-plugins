@@ -192,11 +192,12 @@ async fn execute(
             );
             Ok(ToolStepOutput::DecisionLog(outcome?))
         }
-        ToolCommand::StaticCheck { change_id } => {
+        ToolCommand::StaticCheck { change_id, slot } => {
             // 审计行 change_id 归键（命令载荷携 id——空串占位退役，逐条
             // change id 可枚举），run_id 仍串链本 run 步骤序列
-            // 磁盘面 port 收 name（输出记录目录派生为 name 化）：消费点经
-            // id → 记录 → name 解析（未建档显式 Err，与 TestExecution 分支同式）
+            // 磁盘面 port 收 name（输出记录目录派生为 name 化、报告槽位随命令
+            // 载荷透传）：消费点经 id → 记录 → name 解析（未建档显式 Err，与
+            // TestExecution 分支同式）
             let name = store
                 .get_change(&change_id)
                 .map_err(|error| error.to_string())?
@@ -204,7 +205,7 @@ async fn execute(
                 .ok_or_else(|| {
                     format!("change \"{change_id}\" 未建档（无 ChangeRecord），无从执行静态检查")
                 })?;
-            let output = static_check.run(&step.root, &name).await;
+            let output = static_check.run(&step.root, &name, slot).await;
             audit_outcome(
                 store.as_ref(),
                 &run_id,
@@ -220,9 +221,9 @@ async fn execute(
             );
             output
         }
-        ToolCommand::TestExecution { change_id } => {
-            // 磁盘面 port 收 name（报告目录派生为 name 化）：消费点经
-            // id → 记录 → name 解析（未建档显式 Err）
+        ToolCommand::TestExecution { change_id, slot } => {
+            // 磁盘面 port 收 name（报告目录派生为 name 化、报告槽位随命令载荷
+            // 透传）：消费点经 id → 记录 → name 解析（未建档显式 Err）
             let name = store
                 .get_change(&change_id)
                 .map_err(|error| error.to_string())?
@@ -230,7 +231,7 @@ async fn execute(
                 .ok_or_else(|| {
                     format!("change \"{change_id}\" 未建档（无 ChangeRecord），无从执行测试门禁")
                 })?;
-            let output = test_execution.run(&step.root, &name).await;
+            let output = test_execution.run(&step.root, &name, slot).await;
             audit_outcome(
                 store.as_ref(),
                 &run_id,

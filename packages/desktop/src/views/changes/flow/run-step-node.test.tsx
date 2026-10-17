@@ -35,8 +35,8 @@ function runtimeNode(overrides: Partial<RuntimeFlowNode> = {}): RuntimeFlowNode 
   };
 }
 
-/** 二十步词汇 → 分组徽章 / 步文案 / role 三面期望表（与 run-state.ts 分组同源；
-   含归档 9 步词、git 五步（cleanup 尽力步）的 Git 徽章面与拆步新词 mutationTest）。 */
+/** 二十一步词汇 → 分组徽章 / 步文案 / role 三面期望表（与 run-state.ts 分组同源；
+   含归档 9 步词、git 六步（cleanup 尽力步与 clean 基线恢复步）的 Git 徽章面与拆步新词 mutationTest）。 */
 const FAMILIES: Array<{
   runStepKind: ChangeStepKind;
   group: RuntimeFlowNode['group'];
@@ -97,8 +97,8 @@ const FAMILIES: Array<{
   { runStepKind: 'verdictGate', group: 'gate', badge: 'Gate', label: 'verdict 门', role: null },
   { runStepKind: 'retryGate', group: 'gate', badge: 'Gate', label: '重试门', role: null },
   { runStepKind: 'whitelistGate', group: 'gate', badge: 'Gate', label: '白名单门', role: null },
-  // 归档 8 步词（AC-2 / AC-9）：git 四步走 Git 徽章、内联两步 ToolStep、两会话步
-  // WorkerAgent（group 与 run-state 分组同源，非 git）
+  // 归档 9 步词（AC-2 / AC-9）：git 五步走 Git 徽章、内联两步 ToolStep、两会话步
+  // WorkerAgent（group 与 run-state 分组同源，非 git）；clean（基线恢复）单列其后
   { runStepKind: 'preflight', group: 'toolStep', badge: 'ToolStep', label: '归档前置', role: null },
   { runStepKind: 'commit', group: 'git', badge: 'Git', label: 'worktree 提交', role: null },
   { runStepKind: 'rebase', group: 'git', badge: 'Git', label: '分支重放', role: null },
@@ -118,6 +118,7 @@ const FAMILIES: Array<{
     role: 'spec_sync',
   },
   { runStepKind: 'cleanup', group: 'git', badge: 'Git', label: 'worktree 清理', role: null },
+  { runStepKind: 'clean', group: 'git', badge: 'Git', label: '基线恢复', role: null },
   { runStepKind: 'seal', group: 'toolStep', badge: 'ToolStep', label: '归档收口', role: null },
   { runStepKind: 'finalize', group: 'git', badge: 'Git', label: '归档落盘', role: null },
 ];
@@ -133,8 +134,8 @@ function renderNode(node: RuntimeFlowNode) {
 }
 
 describe('RunStepNode：三分类徽章可辨（AC-5 可辨半边）', () => {
-  it('二十步词汇逐词渲染：WorkerAgent / ToolStep / Git / Gate 徽章文案、步文案、data-run-group 标记逐族对应', () => {
-    expect(FAMILIES).toHaveLength(20);
+  it('二十一步词汇逐词渲染：WorkerAgent / ToolStep / Git / Gate 徽章文案、步文案、data-run-group 标记逐族对应', () => {
+    expect(FAMILIES).toHaveLength(21);
     for (const family of FAMILIES) {
       const rendered = renderNode(
         runtimeNode({
@@ -186,8 +187,15 @@ describe('RunStepNode：三分类徽章可辨（AC-5 可辨半边）', () => {
     gate.unmount();
   });
 
-  it('git 徽章变体：archive 相位 git 步（commit / rebase / merge / cleanup / finalize）渲染 Git 徽章与 secondary 变体', () => {
-    for (const kind of ['commit', 'rebase', 'merge', 'cleanup', 'finalize'] as ChangeStepKind[]) {
+  it('git 徽章变体：archive 相位 git 步（commit / rebase / merge / cleanup / finalize）与 initialize 基线恢复步（clean）渲染 Git 徽章与 secondary 变体', () => {
+    for (const kind of [
+      'commit',
+      'rebase',
+      'merge',
+      'cleanup',
+      'finalize',
+      'clean',
+    ] as ChangeStepKind[]) {
       const rendered = renderNode(
         runtimeNode({
           id: `run:archive:1:${kind}`,
@@ -206,7 +214,63 @@ describe('RunStepNode：三分类徽章可辨（AC-5 可辨半边）', () => {
     }
   });
 
-  it('归档步词文案逐词在案：STEP_LABEL 二十值穷举可查（9 归档步词各携人读文案）', () => {
+  it('STEP_LABEL 封闭联合穷举：Record<ChangeStepKind, string> 键集恰等二十一词零缺键（20 → 21 扩位——运行时穷举兜底断言）', () => {
+    // 二十一值全词汇键集（bindings RunStepKind 联合——缺键即编译期 Record 报错、
+    // 运行期穷举兜底防词面漂移）
+    const allKinds: ChangeStepKind[] = [
+      'executor',
+      'evaluator',
+      'decision',
+      'phaseStart',
+      'staticCheck',
+      'testExecution',
+      'mutationTest',
+      'clean',
+      'phaseLog',
+      'verdictGate',
+      'retryGate',
+      'whitelistGate',
+      'preflight',
+      'commit',
+      'rebase',
+      'resolveConflicts',
+      'merge',
+      'specSync',
+      'cleanup',
+      'seal',
+      'finalize',
+    ];
+    for (const kind of allKinds) {
+      const rendered = renderNode(
+        runtimeNode({
+          id: `run:p:1:${kind}`,
+          phase: 'initialize',
+          runStepKind: kind,
+          group: 'toolStep',
+          role: null,
+        }),
+      );
+      const label = screen.getByTestId('run-step-kind').textContent;
+      expect(label?.length ?? 0).toBeGreaterThan(0);
+      rendered.unmount();
+    }
+  });
+
+  it('clean 基线恢复词条出线（正向）：STEP_LABEL 新键值对拍——「基线恢复」渲染（run-step-kind 锚）', () => {
+    const rendered = renderNode(
+      runtimeNode({
+        id: 'run:init:1:clean',
+        phase: 'initialize',
+        runStepKind: 'clean',
+        group: 'git',
+        role: null,
+      }),
+    );
+    expect(screen.getByTestId('run-step-kind').textContent).toBe('基线恢复');
+    rendered.unmount();
+  });
+
+  it('归档步词文案逐词在案：STEP_LABEL 二十一值穷举可查（9 归档步词各携人读文案）', () => {
     const expected: Array<[ChangeStepKind, string, RuntimeFlowNode['group']]> = [
       ['preflight', '归档前置', 'toolStep'],
       ['commit', 'worktree 提交', 'git'],
@@ -438,7 +502,7 @@ describe('RunStepNode：mutationTest 步节点（AC-2）', () => {
     }
   });
 
-  it('STEP_LABEL 键集恰等：二十词全词汇逐词渲染零缺键（编译期穷尽表的运行时兜底）', () => {
+  it('STEP_LABEL 键集恰等：二十一词全词汇逐词渲染零缺键（编译期穷尽表的运行时兜底）', () => {
     const ALL_KINDS: ChangeStepKind[] = [
       'executor',
       'evaluator',
@@ -447,6 +511,7 @@ describe('RunStepNode：mutationTest 步节点（AC-2）', () => {
       'staticCheck',
       'testExecution',
       'mutationTest',
+      'clean',
       'phaseLog',
       'verdictGate',
       'retryGate',
@@ -461,7 +526,7 @@ describe('RunStepNode：mutationTest 步节点（AC-2）', () => {
       'seal',
       'finalize',
     ];
-    expect(ALL_KINDS).toHaveLength(20);
+    expect(ALL_KINDS).toHaveLength(21);
     for (const kind of ALL_KINDS) {
       const rendered = renderNode(
         runtimeNode({

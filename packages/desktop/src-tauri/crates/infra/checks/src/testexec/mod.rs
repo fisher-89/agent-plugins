@@ -17,6 +17,7 @@ use checks::model::{
 };
 use checks::{check_integrity, diagnose_findings, is_reusable};
 use config::TestSuite;
+use foundation::layout::ReportSlot;
 use orchestration::port::{
     BoxToolFuture, TestExecutionConclusion, TestExecutionOutcome, TestExecutionRunner,
     ToolStepOutput,
@@ -65,15 +66,17 @@ impl Default for ProcessTestExecution {
 }
 
 impl TestExecutionRunner for ProcessTestExecution {
-    fn run(&self, root: &str, change: &str) -> BoxToolFuture {
+    fn run(&self, root: &str, change: &str, slot: ReportSlot) -> BoxToolFuture {
         let root = root.to_owned();
         let change = change.to_owned();
-        Box::pin(async move { execute(&root, &change).await })
+        Box::pin(async move { execute(&root, &change, slot).await })
     }
 }
 
-/// 一次 test-execution 执行全链。
-async fn execute(root: &str, change: &str) -> Result<ToolStepOutput, String> {
+/// 一次 test-execution 执行全链。报告目录按槽位经 layout 单点派生（复用门
+/// `read_existing_summary` / `load_disk_sub_reports` / `prune_roots` 消费本槽位
+/// dir——跨树零复用与 baseline 树内 mtime 复用天然成立，判定逻辑零改动）。
+async fn execute(root: &str, change: &str, slot: ReportSlot) -> Result<ToolStepOutput, String> {
     let started_at = OffsetDateTime::now_utc();
     let root_path = Path::new(root);
     let report = config::load(root_path);
@@ -81,7 +84,7 @@ async fn execute(root: &str, change: &str) -> Result<ToolStepOutput, String> {
 
     // ① detect（不支持框架显式 Err——不静默跳过不产部分结论）
     let plans = detect::detect_plans(root_path, suites)?;
-    let reports_dir = foundation::layout::change_test_reports(root_path, change);
+    let reports_dir = foundation::layout::change_reports(root_path, change, slot);
 
     // ② 完整性校验 + 复用门（既有 summary 在场且齐整且输入未变 → 复用零
     // spawn；反馈边修复重入后 mtime 推进自动失效重跑）
@@ -101,6 +104,7 @@ async fn execute(root: &str, change: &str) -> Result<ToolStepOutput, String> {
             return Ok(outcome(
                 root_path,
                 change,
+                slot,
                 &existing,
                 &disk_reports,
                 &reports_dir,
@@ -132,6 +136,7 @@ async fn execute(root: &str, change: &str) -> Result<ToolStepOutput, String> {
     Ok(outcome(
         root_path,
         change,
+        slot,
         &summary,
         &sub_reports,
         &reports_dir,
@@ -142,13 +147,15 @@ async fn execute(root: &str, change: &str) -> Result<ToolStepOutput, String> {
 /// checks 结论 → port 载荷映射（checks-runtime 装配点唯一映射面：摘要面
 /// 服务步状态 detail，明细面服务反馈边修复 prompt——双面同源装配）。产出装配
 /// 同时完成**输出记录单点**：各 suite 脚本真实输出（合并流）经
-/// `exec::record_exec_output` 落 change 报告目录树（`<report_dir>/exec-outputs/`）
+/// `exec::record_exec_output` 落 change 报告目录树（`<report_dir>/exec-outputs/`，
+/// 按槽位同锚派生）
 /// 并携 `exec_id` 回查引用——与 `report_dir` 同锚同口径（无私有捕获 / 落盘分支；
 /// 落盘失败降级空串，`report_dir` 报告仍为全量权威）。record 内容为**脚本真实
 /// 输出**（非 summary JSON 重序列化——后者非脚本输出、人工回查无价值）。
 fn outcome(
     root: &Path,
     change: &str,
+    slot: ReportSlot,
     summary: &SummaryReport,
     sub_reports: &[SubReport],
     reports_dir: &Path,
@@ -168,7 +175,7 @@ fn outcome(
         findings_brief: findings_brief(summary),
         findings_detail: findings_detail(summary, sub_reports),
         report_dir: detect::to_posix(reports_dir),
-        exec_id: exec::record_exec_output(root, change, merged_output).unwrap_or_default(),
+        exec_id: exec::record_exec_output(root, change, slot, merged_output).unwrap_or_default(),
     })
 }
 

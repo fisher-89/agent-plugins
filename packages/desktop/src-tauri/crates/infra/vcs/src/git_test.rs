@@ -1964,3 +1964,243 @@ fn ensure_worktree写主仓共享exclude() {
         "worktree 产物被共享 exclude 剔除: {untracked}"
     );
 }
+
+// ---------------------------------------------------------------------------
+// restore_baseline（initialize 相位 Clean 步 spawn 单点，check-before-flow-start
+// / AC-5 / AC-6）：reset --hard + clean -fd 逐项 -e 排除（不带 -x）——零 mock
+// 真件直驱（Mock策略：无）
+// ---------------------------------------------------------------------------
+
+/// git 语境错误串（`git()` Err 组装形态：命令串 + 退出码 + stderr 三段在案）。
+fn assert_git_context(error: &str) {
+    assert!(error.contains("git"), "错误串携命令语境: {error}");
+    assert!(error.contains("exit") || error.contains("退出"), "错误串携退出码: {error}");
+}
+
+/// tracked 重置（正向 / AC-5 reset 半边）：已跟踪文件改动 + staged 改动 → 恢复
+/// 后 `status --porcelain` 干净、内容回 HEAD 版本。
+#[test]
+fn restore_baseline_tracked重置_改动与staged回head() {
+    let _guard = lock_path();
+    let (_dir, root) = init_repo("restore-tracked");
+
+    // 工作区改动 + staged 改动各一
+    fs_write(&root, "a.txt", "工作区改动\n");
+    fs_write(&root, "staged.txt", "已暂存改动\n");
+    git(&root, &["add", "staged.txt"]);
+    let dirty = git(&root, &["status", "--porcelain"]);
+    assert!(!dirty.trim().is_empty(), "前置：改动在案");
+
+    let summary =
+        git::restore_baseline(&root, &[".*", "openspec"]).expect("恢复应 Ok");
+    assert!(!summary.is_empty(), "恢复摘要串非空（step detail 消费面）");
+
+    let status = git(&root, &["status", "--porcelain"]);
+    assert!(
+        status.trim().is_empty(),
+        "恢复后工作区干净（tracked reset + staged 弃置）: {status:?}"
+    );
+    assert_eq!(
+        std::fs::read_to_string(root.join("a.txt")).expect("读回 a.txt"),
+        "initial\n",
+        "内容回 HEAD 版本（reset --hard 语义）"
+    );
+}
+
+/// untracked 清除 + 排除面六目录保留（正向，枚举遍历 / AC-5 clean 半边）：未
+/// 跟踪新文件被清除；node_modules / dist / build / target / coverage /
+/// .nyc_output 逐目录夹具原样保留。
+#[test]
+fn restore_baseline_untracked清除且排除面六目录保留() {
+    let _guard = lock_path();
+    let (_dir, root) = init_repo("restore-untracked");
+
+    // 未跟踪普通文件 + 排除面六目录各一（目录内带文件——目录非空不因空目录
+    // 语义假绿）
+    fs_write(&root, "fresh.txt", "未跟踪新文件\n");
+    for name in [
+        "node_modules",
+        "dist",
+        "build",
+        "target",
+        "coverage",
+        ".nyc_output",
+    ] {
+        let dir = root.join(name);
+        std::fs::create_dir_all(&dir).expect("建排除目录");
+        std::fs::write(dir.join("artifact.bin"), b"payload").expect("写产物");
+    }
+
+    git::restore_baseline(
+        &root,
+        &[
+            "node_modules",
+            "dist",
+            "build",
+            "target",
+            "coverage",
+            ".nyc_output",
+            ".*",
+            "openspec",
+        ],
+    )
+    .expect("恢复应 Ok");
+
+    let status = git(&root, &["status", "--porcelain"]);
+    assert!(
+        !status.contains("fresh.txt"),
+        "未跟踪新文件被清除（clean -fd）: {status:?}"
+    );
+    for name in [
+        "node_modules",
+        "dist",
+        "build",
+        "target",
+        "coverage",
+        ".nyc_output",
+    ] {
+        assert!(
+            root.join(name).join("artifact.bin").is_file(),
+            "排除目录 {name} 原样保留（-e 逐项排除）"
+        );
+    }
+}
+
+/// dot 与工件树（正向 / AC-5）：未跟踪 dot 目录（`.idea` 等）经 `-e ".*"`
+/// 保留；未跟踪 `openspec/` 工件树经显式 `-e` 保留（bootstrap 依赖与过程文档
+/// 不丢）。
+#[test]
+fn restore_baseline_dot目录与openspec工件树保留() {
+    let _guard = lock_path();
+    let (_dir, root) = init_repo("restore-dot");
+
+    let idea = root.join(".idea");
+    std::fs::create_dir_all(&idea).expect("建 dot 目录");
+    std::fs::write(idea.join("workspace.xml"), "<ide/>").expect("写 dot 文件");
+    let specs = root.join("openspec").join("changes").join("demo");
+    std::fs::create_dir_all(&specs).expect("建工件树");
+    std::fs::write(specs.join("proposal.md"), "# 提案\n").expect("写工件");
+
+    git::restore_baseline(&root, &[".*", "openspec"]).expect("恢复应 Ok");
+
+    assert!(
+        idea.join("workspace.xml").is_file(),
+        "dot 目录经 -e \".*\" 保留（dot 剪枝语义）"
+    );
+    assert!(
+        specs.join("proposal.md").is_file(),
+        "openspec 工件树经显式 -e 保留（bootstrap / 过程文档不丢）"
+    );
+    let status = git(&root, &["status", "--porcelain"]);
+    // clean -e 只是不删除（保护语义），未跟踪排除目录仍出现在 status 面——
+    // 保护断言 = 目录内容逐字在案 + status 仅含排除面两行（零额外清除面）
+    assert!(
+        status.contains(".idea/") && status.contains("openspec/"),
+        "排除目录在 status 面在案（未删除即保护）: {status:?}"
+    );
+    for line in status.lines() {
+        assert!(
+            line.contains(".idea") || line.contains("openspec"),
+            "status 面零额外条目（排除面外零清除零残留）: {line:?}"
+        );
+    }
+}
+
+/// gitignore 免疫层（边界 / `-x` 缺席语义锚）：带 .gitignore 规则仓的被忽略
+/// 目录保留（clean 无 -x 不碰 ignored）；无 ignore 规则仓的同名目录经 `-e`
+/// 双保险保留（两种仓形态各一）。
+#[test]
+fn restore_baseline_不带x_gitignore免疫与排除面双保险() {
+    let _guard = lock_path();
+
+    // 形态一：.gitignore 覆盖 node_modules（依赖树常态）——clean 无 -x 不碰
+    {
+        let (_dir, root) = init_repo("restore-ignore");
+        fs_write(&root, ".gitignore", "node_modules/\n");
+        git(&root, &["add", ".gitignore"]);
+        git(
+            &root,
+            &["-c", "user.name=fixture", "-c", "user.email=fixture@example.com", "commit", "-q", "-m", "ignore"],
+        );
+        let modules = root.join("node_modules").join("lib");
+        std::fs::create_dir_all(&modules).expect("建依赖树");
+        std::fs::write(modules.join("index.js"), "module.exports={};").expect("写依赖");
+
+        git::restore_baseline(&root, &[".*", "openspec"]).expect("恢复应 Ok");
+        assert!(
+            modules.join("index.js").is_file(),
+            "被 .gitignore 覆盖的依赖树保留（不带 -x——尊重 ignore 规则）"
+        );
+    }
+
+    // 形态二：无 ignore 规则仓的同名目录——显式 -e 双保险保留
+    {
+        let (_dir, root) = init_repo("restore-no-ignore");
+        let modules = root.join("node_modules").join("lib");
+        std::fs::create_dir_all(&modules).expect("建依赖树");
+        std::fs::write(modules.join("index.js"), "module.exports={};").expect("写依赖");
+
+        git::restore_baseline(&root, &["node_modules", ".*", "openspec"]).expect("恢复应 Ok");
+        assert!(
+            modules.join("index.js").is_file(),
+            "无 ignore 规则仓的同名目录经 -e 双保险保留"
+        );
+    }
+}
+
+/// 幂等安全（边界，重试链 / AC-5 幂等半边）：干净仓（零改动零 untracked）二
+/// 次调用 Ok 且仓态不变；exclusions 空切片 → 纯 reset + clean -fd 照常 Ok。
+#[test]
+fn restore_baseline_幂等二次调用与空排除面() {
+    let _guard = lock_path();
+    let (_dir, root) = init_repo("restore-idempotent");
+
+    let first = git::restore_baseline(&root, &[".*", "openspec"]).expect("首次恢复应 Ok");
+    assert!(!first.is_empty());
+    let second = git::restore_baseline(&root, &[".*", "openspec"]).expect("二次恢复应 Ok");
+    assert!(!second.is_empty(), "干净仓二次调用 Ok（幂等安全）");
+    let status = git(&root, &["status", "--porcelain"]);
+    assert!(status.trim().is_empty(), "仓态不变: {status:?}");
+    assert_eq!(head_sha(&root), head_sha(&root), "HEAD 不移位");
+
+    // 空排除面：纯 reset + clean -fd 照常 Ok
+    let (_dir2, root2) = init_repo("restore-empty-exclusions");
+    fs_write(&root2, "junk.txt", "未跟踪\n");
+    git::restore_baseline(&root2, &[]).expect("空排除面恢复应 Ok");
+    let status2 = git(&root2, &["status", "--porcelain"]);
+    assert!(
+        status2.trim().is_empty(),
+        "空排除面 = 纯 reset + clean -fd: {status2:?}"
+    );
+}
+
+/// 非 git 目录（异常）：`Err` 沿既有 `git()` 语境（命令串 + 退出码 + stderr
+/// ——不吞不静默）。
+#[test]
+fn restore_baseline_非git目录err沿git语境() {
+    let _guard = lock_path();
+    let (_dir, root) = plain_dir("restore-plain");
+
+    let error = git::restore_baseline(&root, &[".*"])
+        .expect_err("非 git 目录应 Err");
+    assert_git_context(&error);
+}
+
+/// 嵌套排除名（边界 / design 待决注记真件护栏面）：排除目录内再建同名子目录
+///（`node_modules/node_modules`）——`-e` 形态匹配下两层同保（git clean -e 按
+/// 路径段匹配，嵌套同名不漏清不误清）。
+#[test]
+fn restore_baseline_嵌套排除名两层同保() {
+    let _guard = lock_path();
+    let (_dir, root) = init_repo("restore-nested");
+
+    let nested = root.join("node_modules").join("node_modules");
+    std::fs::create_dir_all(&nested).expect("建嵌套目录");
+    std::fs::write(nested.join("deep.bin"), b"deep").expect("写深位产物");
+
+    git::restore_baseline(&root, &["node_modules", ".*", "openspec"]).expect("恢复应 Ok");
+    assert!(
+        nested.join("deep.bin").is_file(),
+        "嵌套同名排除目录两层同保（-e 路径段匹配）"
+    );
+}

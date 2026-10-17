@@ -21,6 +21,8 @@ use std::ffi::{OsStr, OsString};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
+use foundation::layout::ReportSlot;
+
 /// spawn 命令规格：程序 + 逐参 argv。`raw` 为 Windows 命令串原样入线标记
 /// （作用于末参，`raw_arg` 保真——仅 tokio 侧可表达；std 调用点不使用
 /// `script_raw`）。
@@ -166,12 +168,17 @@ pub enum ExecOutput {
 const EXEC_OUTPUT_DIR: &str = "exec-outputs";
 
 /// `ExecOutput::Recorded` 落盘半边（输出记录单点）：铸造 `exec_id` 并把**单一输出
-/// 流**全量落盘到 change 报告目录树（`<report_dir>/exec-outputs/<exec_id>.log`），
-/// 返回 `exec_id` 引用。单一流即完整还原终端——static-check 的 `2>&1` 交错流、
-/// test-execution 的 stdout + stderr 合并流；stdout / stderr 分文件（`.err`）已
-/// 退役（分离快照会丢失交错顺序、与终端不一致）。零截断零改写。
-pub fn record_exec_output(root: &Path, change: &str, output: &[u8]) -> Result<String, String> {
-    let dir = exec_output_dir(root, change);
+/// 流**全量落盘到 change 报告目录树（`<report_dir>/exec-outputs/<exec_id>.log`，
+/// 按槽位同锚派生），返回 `exec_id` 引用。单一流即完整还原终端——static-check
+/// 的 `2>&1` 交错流、test-execution 的 stdout + stderr 合并流；stdout / stderr
+/// 分文件（`.err`）已退役（分离快照会丢失交错顺序、与终端不一致）。零截断零改写。
+pub fn record_exec_output(
+    root: &Path,
+    change: &str,
+    slot: ReportSlot,
+    output: &[u8],
+) -> Result<String, String> {
+    let dir = exec_output_dir(root, change, slot);
     std::fs::create_dir_all(&dir).map_err(|e| format!("创建 exec 输出目录失败: {e}"))?;
     let exec_id = mint_exec_id();
     std::fs::write(dir.join(format!("{exec_id}.log")), output)
@@ -183,23 +190,30 @@ pub fn read_exec_output(root: &Path, change: &str, exec_id: &str) -> Option<Vec<
     read_exec_output_in(&foundation::layout::resolve(root).changes_root.join(change), exec_id)
 }
 
+/// 同 change 目录双锚探测回查（test 槽先 / baseline 槽后）：`exec_id` 进程内
+/// 铸造跨树唯一，首中即返、miss 仍 `None`——IPC `read_exec_output` 命令与前端
+/// stdout 面板零改动即覆盖两报告树。
 pub fn read_exec_output_in(change_dir: &Path, exec_id: &str) -> Option<Vec<u8>> {
     if !is_valid_exec_id(exec_id) {
         return None;
     }
-    let dir = exec_output_dir_in(change_dir);
-    std::fs::read(dir.join(format!("{exec_id}.log"))).ok()
+    [ReportSlot::Test, ReportSlot::Baseline].iter().find_map(|slot| {
+        let dir = exec_output_dir_in(change_dir, *slot);
+        std::fs::read(dir.join(format!("{exec_id}.log"))).ok()
+    })
 }
 
-/// 输出记录目录派生（与 test-execution 报告树同锚：`change_test_reports/<name>/`
-/// ——`report_dir` 与 `exec_id` 同口径，见 desktop-checks-domain）。
-fn exec_output_dir(root: &Path, change: &str) -> PathBuf {
-    exec_output_dir_in(&foundation::layout::resolve(root).changes_root.join(change))
+/// 输出记录目录派生（与 test-execution 报告树同锚：`change_reports(root, change,
+/// slot)/`——`report_dir` 与 `exec_id` 同口径、按槽位派生，见
+/// desktop-checks-domain）。
+fn exec_output_dir(root: &Path, change: &str, slot: ReportSlot) -> PathBuf {
+    exec_output_dir_in(&foundation::layout::resolve(root).changes_root.join(change), slot)
 }
 
-/// [`exec_output_dir`] 的 change 目录变体（`reports/test` 后缀经 layout 单点）。
-fn exec_output_dir_in(change_dir: &Path) -> PathBuf {
-    foundation::layout::change_test_reports_in(change_dir).join(EXEC_OUTPUT_DIR)
+/// [`exec_output_dir`] 的 change 目录变体（`reports/<test|baseline>` 后缀经
+/// layout 槽位单点）。
+fn exec_output_dir_in(change_dir: &Path, slot: ReportSlot) -> PathBuf {
+    foundation::layout::change_reports_in(change_dir, slot).join(EXEC_OUTPUT_DIR)
 }
 
 /// `exec_id` 形态校验（路径分量安全：非空且仅 ASCII 字母数字与 `-`——防

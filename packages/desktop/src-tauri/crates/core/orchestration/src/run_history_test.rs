@@ -1,5 +1,5 @@
 //! `run_history.rs` 的单元测试（test-design「run_history.rs ->
-//! run_history_test.rs」节）：词汇直映射二十值零过滤（`persisted_step` 过滤谓词整
+//! run_history_test.rs」节）：词汇直映射二十一值零过滤（`persisted_step` 过滤谓词整
 //! 体退役——编译面锚 + 全词汇在案行为锚，AC-3；cleanup 尽力步新臂直映射在案）、
 //! `finish_command` 组装（节点整包
 //! 全词汇 + 边整包四 kind 端点身份串 + 实例号递增直透 + 终态三值映射 +
@@ -68,8 +68,117 @@ fn step(
 }
 
 // ---------------------------------------------------------------------------
-// 词汇直映射：二十值零过滤（`persisted_step` 过滤谓词整体退役）
+// 词汇直映射：二十一值零过滤（`persisted_step` 过滤谓词整体退役）
 // ---------------------------------------------------------------------------
+
+/// mapped_step 新臂直映射（正向，check-before-flow-start）：`ChangeStepKind::Clean`
+/// → `RunStepKind::Clean` 1:1 直映射——`as_str()` 同词面 `"clean"` 逐字（initialize
+/// 基线恢复步落库零过滤单点）。
+#[test]
+fn mapped_step_clean直映射_同词面逐字() {
+    let nodes = [step(ChangeStepKind::Clean, ChangeStepStatus::Passed, None)];
+    let command = finish_command(
+        &request(),
+        ChangeRunStatus::Completed,
+        None,
+        STARTED_AT,
+        &nodes,
+        &[],
+    );
+    assert_eq!(command.nodes.len(), 1);
+    assert_eq!(
+        command.nodes[0].step,
+        workflow::state::RunStepKind::Clean,
+        "clean 直映射零过滤"
+    );
+    assert_eq!(
+        command.nodes[0].step.as_str(),
+        ChangeStepKind::Clean.as_str(),
+        "两域 as_str 同词面逐字（clean）"
+    );
+    assert_eq!(command.nodes[0].step.as_str(), "clean");
+}
+
+/// initialize run 五节点落包（边界，check-before-flow-start）：phase_start / clean /
+/// static_check / test_execution / phase_log 五节点零过滤入 `command.nodes`（无静默
+/// 丢弃）且串行 forward 边逐位连接——initialize 步族全词汇经落包入口入史（AC-1 /
+/// AC-8 落库半边）。
+#[test]
+fn finish_command_initialize五节点零过滤入包且串行forward边逐位() {
+    let initialize_phase = "initialize";
+    let kinds = [
+        ChangeStepKind::PhaseStart,
+        ChangeStepKind::Clean,
+        ChangeStepKind::StaticCheck,
+        ChangeStepKind::TestExecution,
+        ChangeStepKind::PhaseLog,
+    ];
+    let nodes: Vec<ChangeStepState> = kinds
+        .iter()
+        .map(|kind| {
+            let mut node = step(*kind, ChangeStepStatus::Passed, None);
+            node.phase = initialize_phase.to_owned();
+            node
+        })
+        .collect();
+    // 串行 forward 边：相邻两节点逐位连接（0→1→2→3→4）
+    let edges: Vec<ChangeStepEdge> = nodes
+        .windows(2)
+        .map(|pair| ChangeStepEdge {
+            from: (
+                pair[0].phase.clone(),
+                pair[0].attempt,
+                pair[0].step,
+                pair[0].instance_no,
+            ),
+            to: (
+                pair[1].phase.clone(),
+                pair[1].attempt,
+                pair[1].step,
+                pair[1].instance_no,
+            ),
+            kind: EdgeKind::Forward,
+        })
+        .collect();
+
+    let command = finish_command(
+        &request(),
+        ChangeRunStatus::Completed,
+        None,
+        STARTED_AT,
+        &nodes,
+        &edges,
+    );
+
+    // 五节点零过滤（顺序 = 入参序、词面逐字）
+    assert_eq!(command.nodes.len(), 5, "五节点无静默丢弃");
+    let expect_words = ["phase_start", "clean", "static_check", "test_execution", "phase_log"];
+    for (index, word) in expect_words.iter().enumerate() {
+        assert_eq!(
+            command.nodes[index].step.as_str(),
+            *word,
+            "第 {index} 节点词面逐字（{word}）"
+        );
+        assert_eq!(command.nodes[index].phase, initialize_phase);
+    }
+    assert_eq!(command.nodes[1].step, workflow::state::RunStepKind::Clean);
+
+    // 串行 forward 边四条、端点逐位对齐
+    assert_eq!(command.edges.len(), 4, "串行 forward 边四条");
+    for (index, edge) in command.edges.iter().enumerate() {
+        assert_eq!(edge.edge_kind, workflow::state::RunEdgeKind::Forward);
+        assert_eq!(
+            edge.from_node_key,
+            format!("{initialize_phase}:1:{}:0", expect_words[index]),
+            "第 {index} 边 from 端点身份串"
+        );
+        assert_eq!(
+            edge.to_node_key,
+            format!("{initialize_phase}:1:{}:0", expect_words[index + 1]),
+            "第 {index} 边 to 端点身份串"
+        );
+    }
+}
 
 /// mapped_step 新臂直映射（正向，worktree-cleanup-and-active-cap）：
 /// `ChangeStepKind::Cleanup` → `RunStepKind::Cleanup` 1:1 直映射——`as_str()`
@@ -103,13 +212,13 @@ fn mapped_step_cleanup直映射_同词面逐字() {
     assert_eq!(command.nodes[0].step.as_str(), "cleanup");
 }
 
-/// 二十值全词汇直映射：`ChangeStepKind` 与 `RunStepKind` 1:1 同词面全映射——流程
+/// 二十一值全词汇直映射：`ChangeStepKind` 与 `RunStepKind` 1:1 同词面全映射——流程
 /// 面三步（phase_start / phase_log / 三门）不再被弃落，mutation_test 拆步新词
-/// 在案、cleanup 尽力步新臂在案（编译面锚：`persisted_step` 符号缺席，引用即不
-/// 编译，AC-3 退役面；AC-1 / AC-2 二十值零过滤——finish_command 落包
-/// `nodes.len()==20` 零过滤，cleanup 节点在案、无静默丢弃）。
+/// 在案、cleanup 尽力步新臂在案、clean 基线恢复步新臂在案（编译面锚：`persisted_step`
+/// 符号缺席，引用即不编译，AC-3 退役面；AC-1 / AC-2 二十一值零过滤——finish_command
+/// 落包 `nodes.len()==21` 零过滤，cleanup / clean 节点在案、无静默丢弃）。
 #[test]
-fn 全词汇直映射二十值零过滤() {
+fn 全词汇直映射二十一值零过滤() {
     let all = [
         (
             ChangeStepKind::Executor,
@@ -135,6 +244,7 @@ fn 全词汇直映射二十值零过滤() {
             ChangeStepKind::MutationTest,
             workflow::state::RunStepKind::MutationTest,
         ),
+        (ChangeStepKind::Clean, workflow::state::RunStepKind::Clean),
         (
             ChangeStepKind::PhaseStart,
             workflow::state::RunStepKind::PhaseStart,
@@ -180,7 +290,7 @@ fn 全词汇直映射二十值零过滤() {
             workflow::state::RunStepKind::Finalize,
         ),
     ];
-    assert_eq!(all.len(), 20, "二十值封闭集全枚举");
+    assert_eq!(all.len(), 21, "二十一值封闭集全枚举");
 
     let nodes: Vec<ChangeStepState> = all
         .iter()
@@ -197,8 +307,8 @@ fn 全词汇直映射二十值零过滤() {
 
     assert_eq!(
         command.nodes.len(),
-        20,
-        "二十值全词汇零过滤（cleanup 节点在案）"
+        21,
+        "二十一值全词汇零过滤（cleanup / clean 节点在案）"
     );
     for (index, (_, expect)) in all.iter().enumerate() {
         assert_eq!(command.nodes[index].step, *expect, "第 {index} 词汇直映射");
@@ -221,6 +331,13 @@ fn 全词汇直映射二十值零过滤() {
         command
             .nodes
             .iter()
+            .any(|node| node.step == workflow::state::RunStepKind::Clean),
+        "clean 基线恢复步新臂直映射在案（零静默丢弃）"
+    );
+    assert!(
+        command
+            .nodes
+            .iter()
             .any(|node| node.step == workflow::state::RunStepKind::PhaseStart),
         "phase_start 不再被弃落"
     );
@@ -233,7 +350,7 @@ fn 全词汇直映射二十值零过滤() {
     );
 
     // 双射校验（异常面 / 词汇同源不漂移）：无两个 ChangeStepKind 映到同一
-    // RunStepKind（20 对互异即双射——两侧封闭集同势）
+    // RunStepKind（21 对互异即双射——两侧封闭集同势）
     let mut mapped: Vec<&'static str> = command
         .nodes
         .iter()

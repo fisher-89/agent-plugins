@@ -8,7 +8,7 @@ use checks::model::{
     CaseSummary, Conclusion, CoverageBlock, CoverageMeasured, CoverageThresholds, Problem,
     ProblemType, SubReport, SummaryReport, TestCaseResult, TestCaseStatus,
 };
-use foundation::layout::change_test_reports;
+use foundation::layout::{change_reports, change_test_reports, ReportSlot};
 use orchestration::port::{
     TestExecutionConclusion, TestExecutionOutcome, TestExecutionRunner, ToolStepOutput,
 };
@@ -20,6 +20,26 @@ use super::{
 
 /// 设置 shim 环境面（预置工件源 / 目的工件路径 / marker 路径 / 退出码；
 /// None 侧摘除键）。dest 用 POSIX 形态（Copy-Item / cp 双侧可读）。
+/// 缺省槽位（`ReportSlot::Test`）outcome 装配包装——既有用例零改动。
+fn outcome_test(
+    root: &Path,
+    change: &str,
+    summary: &SummaryReport,
+    sub_reports: &[SubReport],
+    reports_dir: &Path,
+    merged_output: &[u8],
+) -> ToolStepOutput {
+    outcome(
+        root,
+        change,
+        ReportSlot::Test,
+        summary,
+        sub_reports,
+        reports_dir,
+        merged_output,
+    )
+}
+
 fn set_shim_env(results_src: &Path, dest: &Path, marker: Option<&Path>, exit: Option<i32>) {
     std::env::set_var("SHIM_RESULTS_SRC", results_src);
     std::env::set_var("SHIM_DEST", dest.to_string_lossy().replace('\\', "/"));
@@ -157,9 +177,35 @@ impl ChainWs {
         change_test_reports(self.root(), CHANGE)
     }
 
+    /// 槽位版报告树（baseline 分树断言面——check-before-flow-start）。
+    fn reports_dir_slot(&self, slot: ReportSlot) -> PathBuf {
+        change_reports(self.root(), CHANGE, slot)
+    }
+
+    /// 槽位参数版执行（PATH 前置窗口 + 指定槽位 spawn——baseline 树断言面）。
+    async fn run_slot(&self, slot: ReportSlot) -> Result<ToolStepOutput, String> {
+        std::env::set_var(
+            "PATH",
+            std::env::join_paths(std::iter::once(self.root().join("app")).chain(
+                std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default()),
+            ))
+            .expect("join PATH"),
+        );
+        ProcessTestExecution::new()
+            .run(&self.root_str(), CHANGE, slot)
+            .await
+    }
+
     /// 执行臂的结果工件目的路径（planId 子目录 results.txt——SHIM_DEST 注入面）。
     fn results_dest(&self) -> PathBuf {
         self.reports_dir().join("app_node-test").join("results.txt")
+    }
+
+    /// 槽位版结果工件目的路径（runner 按槽位树读工件——SHIM_DEST 须同锚）。
+    fn results_dest_slot(&self, slot: ReportSlot) -> PathBuf {
+        self.reports_dir_slot(slot)
+            .join("app_node-test")
+            .join("results.txt")
     }
 
     fn marker_count(&self) -> usize {
@@ -188,7 +234,7 @@ impl ChainWs {
             .expect("join PATH"),
         );
         ProcessTestExecution::new()
-            .run(&self.root_str(), CHANGE)
+            .run(&self.root_str(), CHANGE, ReportSlot::Test)
             .await
     }
 }
@@ -501,7 +547,9 @@ async fn 测试程序不可达_run_err() {
         let _window = path_window();
         std::env::set_var("PATH", "");
         // await 须在窗口块内（窗口 guard 持有至执行收口——块尾即恢复原 PATH）
-        ProcessTestExecution::new().run(&root_str, CHANGE).await
+        ProcessTestExecution::new()
+            .run(&root_str, CHANGE, ReportSlot::Test)
+            .await
     };
 
     let err = result.expect_err("程序不可达应 Err（基础设施失败显式停给用户）");
@@ -814,7 +862,7 @@ fn conclusion三值映射逐字() {
         (Conclusion::Error, "error"),
     ] {
         let dir = TempDir::new().expect("临时目录");
-        let output = outcome(
+        let output = outcome_test(
             dir.path(),
             "demo-change",
             &hand_summary(checks_conclusion, Vec::new()),
@@ -969,7 +1017,7 @@ fn 门禁exec_id落脚本输出且与report_dir同口径() {
     // 按传入序落盘保序）
     let merged = b"suite-a stdout\nsuite-a stderr\nsuite-b stdout\n".to_vec();
 
-    let output = outcome(
+    let output = outcome_test(
         dir.path(),
         "demo-change",
         &summary,
@@ -1025,7 +1073,7 @@ fn 空合并流落空log可回查且非summary序列化() {
     let reports_dir = dir.path().join("openspec/changes/demo-change/reports/test");
     let summary = hand_summary(Conclusion::Error, vec!["执行错误归因".to_owned()]);
 
-    let output = outcome(dir.path(), "demo-change", &summary, &[], &reports_dir, &[]);
+    let output = outcome_test(dir.path(), "demo-change", &summary, &[], &reports_dir, &[]);
     let ToolStepOutput::TestExecution(mapped) = output else {
         panic!("产出应为 TestExecution 变体");
     };
@@ -1052,7 +1100,7 @@ fn 重复装配各自log互不覆写且零summary残留() {
     std::fs::write(&structured, "{\"phase\":\"test-execution\"}").expect("写结构化报告占位");
     let summary = hand_summary(Conclusion::Pass, vec!["找不到问题".to_owned()]);
 
-    let first = outcome(
+    let first = outcome_test(
         dir.path(),
         "demo-change",
         &summary,
@@ -1060,7 +1108,7 @@ fn 重复装配各自log互不覆写且零summary残留() {
         &reports_dir,
         b"first-run-output\n",
     );
-    let second = outcome(
+    let second = outcome_test(
         dir.path(),
         "demo-change",
         &summary,
@@ -1117,7 +1165,7 @@ fn 记录失败降级空串不阻断门禁结论() {
     std::fs::create_dir_all(reports_dir.parent().expect("父目录")).expect("创建父目录失败");
     std::fs::write(&reports_dir, "占位文件").expect("占位写失败");
 
-    let output = outcome(
+    let output = outcome_test(
         dir.path(),
         "demo-change",
         &hand_summary(Conclusion::Fail, vec!["用例失败".to_owned()]),
@@ -1138,5 +1186,266 @@ fn 记录失败降级空串不阻断门禁结论() {
         mapped.report_dir,
         to_posix(&reports_dir),
         "report_dir 面不受记录失败影响"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// slot 槽位（check-before-flow-start / AC-1 / AC-3）：报告树按槽位分树隔离、
+// 复用门树内 / 跨树语义、三态载荷 slot 透传（Mock策略：真件 shim + PATH 窗口
+// 沿既有装置——spawn 为被测本体不 mock；mtime 经文件系统直驱）
+// ---------------------------------------------------------------------------
+
+/// slot=Baseline 正向：报告落 baseline 树——`summary.json` + 逐 suite 子报告 +
+/// `exec-outputs/<exec_id>.log` 落 `reports/baseline`（与 `reports/test` 零混居
+/// ——目录树逐文件断言，AC-1）。
+#[tokio::test]
+async fn run_slot_baseline_报告落baseline树与test树零混居() {
+    let ws = ChainWs::new("baseline-tree");
+    let spec_src = ws.root().join("preset-results.txt");
+    fs::write(&spec_src, SPEC_OUTPUT).expect("写预置工件");
+
+    let output = {
+        let _window = path_window();
+        set_shim_env(
+            &spec_src,
+            &ws.results_dest_slot(ReportSlot::Baseline),
+            Some(&ws.root().join("shim-marker.log")),
+            None,
+        );
+        ws.run_slot(ReportSlot::Baseline).await
+    }
+    .expect("baseline run 应 Ok");
+
+    let outcome = match output {
+        ToolStepOutput::TestExecution(outcome) => outcome,
+        other => panic!("产出应为 TestExecution 变体，实际: {other:?}"),
+    };
+    assert_eq!(
+        outcome.conclusion,
+        TestExecutionConclusion::Pass,
+        "同 fixture 结论与槽位无关（SHIM_DEST 同锚 baseline 树）"
+    );
+    assert!(
+        outcome.report_dir.ends_with("reports/baseline")
+            || outcome.report_dir.ends_with(&format!("reports{}", std::path::MAIN_SEPARATOR))
+            == false && outcome.report_dir.contains("reports/baseline"),
+        "载荷 report_dir = baseline 树锚: {}",
+        outcome.report_dir
+    );
+
+    // baseline 树逐文件：summary.json + 逐 suite 子报告 + exec-outputs log
+    let baseline = ws.reports_dir_slot(ReportSlot::Baseline);
+    assert!(baseline.join("summary.json").is_file(), "summary.json 落 baseline 树");
+    assert!(
+        baseline.join("app_node-test").join("report.json").is_file(),
+        "planId 子报告落 baseline 树"
+    );
+    assert!(
+        !outcome.exec_id.is_empty(),
+        "exec_id 回填（record 亦按槽位同锚）"
+    );
+    let baseline_log = baseline
+        .join("exec-outputs")
+        .join(format!("{}.log", outcome.exec_id));
+    assert!(baseline_log.is_file(), "输出记录落 baseline exec-outputs");
+
+    // test 树零混居：同 run 零 reports/test 文件
+    let test_tree = ws.reports_dir_slot(ReportSlot::Test);
+    assert!(
+        !test_tree.exists() || fs::read_dir(&test_tree).expect("读 test 树").next().is_none(),
+        "reports/test 树零混居（分树隔离）"
+    );
+}
+
+/// run slot=Test 缺省槽位回归（正向）：`reports/test` 路径与本变更前逐字节一致
+///（既有 reports_dir 断言面持衡——绿跑全链用例同 fixture 双验）。
+#[tokio::test]
+async fn run_slot_test_缺省槽位reports_test路径持衡() {
+    let ws = ChainWs::new("test-tree");
+    let spec_src = ws.root().join("preset-results.txt");
+    fs::write(&spec_src, SPEC_OUTPUT).expect("写预置工件");
+
+    let output = {
+        let _window = path_window();
+        set_shim_env(
+            &spec_src,
+            &ws.results_dest(),
+            Some(&ws.root().join("shim-marker.log")),
+            None,
+        );
+        ws.run().await
+    }
+    .expect("test run 应 Ok");
+
+    let outcome = match output {
+        ToolStepOutput::TestExecution(outcome) => outcome,
+        other => panic!("产出应为 TestExecution 变体，实际: {other:?}"),
+    };
+    assert_eq!(
+        outcome.report_dir,
+        to_posix(&change_test_reports(ws.root(), CHANGE)),
+        "slot=Test 报告树与既有 change_test_reports 推导逐字节一致"
+    );
+    assert!(
+        change_test_reports(ws.root(), CHANGE)
+            .join("summary.json")
+            .is_file(),
+        "summary.json 落 reports/test（既有路径）"
+    );
+}
+
+/// 复用门跨树隔离（异常）：`reports/test` 树存在可复用 summary 时 slot=Baseline
+/// run 不复用（跨树零复用——reports_dir 槽位隔离天然成立）；反向同构：
+/// baseline 树 summary 不被 slot=Test 相位步复用。
+#[tokio::test]
+async fn 复用门跨树零复用_test树summary不被baseline相位步复用() {
+    // 正向半边：test 树预置可复用 summary → baseline run 不复用（重 spawn 留新
+    // marker 记录）
+    let ws = ChainWs::new("reuse-cross-tree");
+    let spec_src = ws.root().join("preset-results.txt");
+    fs::write(&spec_src, SPEC_OUTPUT).expect("写预置工件");
+
+    // 预置 test 树可复用 summary（本变更前形态的落点——mtime 未变）
+    let test_tree = change_test_reports(ws.root(), CHANGE);
+    fs::create_dir_all(&test_tree).expect("建 test 树");
+    fs::write(
+        test_tree.join("summary.json"),
+        r#"{ "conclusion": "pass", "total": 5, "passed": 4, "failed": 0, "skipped": 1, "coverage": null, "plans": [] }"#,
+    )
+    .expect("预置 test 树 summary");
+
+    let marker = ws.root().join("shim-marker.log");
+    let output = {
+        let _window = path_window();
+        set_shim_env(&spec_src, &ws.results_dest(), Some(&marker), None);
+        ws.run_slot(ReportSlot::Baseline).await
+    }
+    .expect("baseline run 应 Ok");
+    let baseline_outcome = match output {
+        ToolStepOutput::TestExecution(outcome) => outcome,
+        other => panic!("产出应为 TestExecution 变体，实际: {other:?}"),
+    };
+    assert!(
+        marker.is_file(),
+        "baseline run 真实 spawn（test 树 summary 未被跨树复用）"
+    );
+    assert!(
+        baseline_outcome
+            .report_dir
+            .contains("reports/baseline"),
+        "载荷锚 baseline 树: {}",
+        baseline_outcome.report_dir
+    );
+    assert!(
+        ws.reports_dir_slot(ReportSlot::Baseline)
+            .join("summary.json")
+            .is_file(),
+        "baseline 树自产 summary（跨树零复用）"
+    );
+
+    // 反向半边：baseline 树已有 summary → slot=Test run 不复用（各跑各树）
+    let ws2 = ChainWs::new("reuse-cross-tree-rev");
+    let spec_src2 = ws2.root().join("preset-results.txt");
+    fs::write(&spec_src2, SPEC_OUTPUT).expect("写预置工件");
+    let baseline_tree = ws2.reports_dir_slot(ReportSlot::Baseline);
+    fs::create_dir_all(&baseline_tree).expect("建 baseline 树");
+    fs::write(
+        baseline_tree.join("summary.json"),
+        r#"{ "conclusion": "pass", "total": 5, "passed": 4, "failed": 0, "skipped": 1, "coverage": null, "plans": [] }"#,
+    )
+    .expect("预置 baseline 树 summary");
+
+    let marker2 = ws2.root().join("shim-marker.log");
+    let output2 = {
+        let _window = path_window();
+        set_shim_env(&spec_src2, &ws2.results_dest(), Some(&marker2), None);
+        ws2.run().await
+    }
+    .expect("test run 应 Ok");
+    let test_outcome = match output2 {
+        ToolStepOutput::TestExecution(outcome) => outcome,
+        other => panic!("产出应为 TestExecution 变体，实际: {other:?}"),
+    };
+    assert!(
+        marker2.is_file(),
+        "slot=Test run 真实 spawn（baseline 树 summary 未被跨树复用）"
+    );
+    assert!(
+        test_outcome.report_dir.contains("reports/test"),
+        "载荷锚 test 树: {}",
+        test_outcome.report_dir
+    );
+}
+
+/// run 三态载荷 slot 透传（异常 / AC-3 半边）：`conclusion=Error`（shim 环境坏
+/// ——SHIM_EXIT 非 0 且工件不可解析）→ outcome conclusion=Error + report_dir
+/// baseline 锚；`conclusion=Fail` → 测试红 + baseline 锚（walker 分文案消费的
+/// 载荷供给面——字段级断言）。
+#[tokio::test]
+async fn run三态载荷_slot透传_baseline锚与fail载荷() {
+    // Fail 态：spec 计数行携失败 → conclusion=Fail + baseline 锚
+    let ws = ChainWs::new("baseline-fail");
+    let fail_spec = SPEC_OUTPUT.replacen("✔", "✖", 1);
+    let spec_src = ws.root().join("preset-results.txt");
+    fs::write(&spec_src, fail_spec).expect("写失败 spec 工件");
+
+    let output = {
+        let _window = path_window();
+        set_shim_env(
+            &spec_src,
+            &ws.results_dest_slot(ReportSlot::Baseline),
+            Some(&ws.root().join("shim-marker.log")),
+            None,
+        );
+        ws.run_slot(ReportSlot::Baseline).await
+    }
+    .expect("fail run 应 Ok");
+    let outcome = match output {
+        ToolStepOutput::TestExecution(outcome) => outcome,
+        other => panic!("产出应为 TestExecution 变体，实际: {other:?}"),
+    };
+    assert_eq!(
+        outcome.conclusion,
+        TestExecutionConclusion::Fail,
+        "spec 失败面 → Fail 结论"
+    );
+    assert!(
+        outcome.failed >= 1,
+        "失败计数在案（walker 测试红文案的计数供给面）"
+    );
+    assert!(
+        outcome.report_dir.contains("reports/baseline"),
+        "Fail 态 report_dir = baseline 锚: {}",
+        outcome.report_dir
+    );
+    let baseline = ws.reports_dir_slot(ReportSlot::Baseline);
+    assert!(
+        baseline.join("summary.json").is_file(),
+        "Fail 态 summary.json 落 baseline 树"
+    );
+
+    // Error 态：工件不可解析（坏输出 + 非零退出）→ conclusion=Error + baseline 锚
+    let ws_err = ChainWs::new("baseline-error");
+    let bad_src = ws_err.root().join("bad-results.txt");
+    fs::write(&bad_src, "完全不可解析的输出").expect("写坏工件");
+    let output = {
+        let _window = path_window();
+        set_shim_env(&bad_src, &ws_err.results_dest(), None, Some(3));
+        ws_err.run_slot(ReportSlot::Baseline).await
+    }
+    .expect("error run 应 Ok");
+    let outcome = match output {
+        ToolStepOutput::TestExecution(outcome) => outcome,
+        other => panic!("产出应为 TestExecution 变体，实际: {other:?}"),
+    };
+    assert_eq!(
+        outcome.conclusion,
+        TestExecutionConclusion::Error,
+        "不可解析 → Error 结论"
+    );
+    assert!(
+        outcome.report_dir.contains("reports/baseline"),
+        "Error 态 report_dir = baseline 锚: {}",
+        outcome.report_dir
     );
 }

@@ -75,6 +75,7 @@ static PROPOSAL_ONLY_MANIFEST: &[PhaseDefinition] = &[PhaseDefinition {
     steps: &[],
     artifact_manifest: &[PROPOSAL_DOC],
     prerequisites: &[],
+            backtrackable: true,
     executor: None,
     evaluator: None,
 }];
@@ -86,6 +87,7 @@ static TWO_DOC_MANIFEST: &[PhaseDefinition] = &[PhaseDefinition {
     steps: &[],
     artifact_manifest: &[PROPOSAL_DOC, LEGACY_DESIGN_DOC],
     prerequisites: &[],
+            backtrackable: true,
     executor: None,
     evaluator: None,
 }];
@@ -490,6 +492,7 @@ fn 文件名特殊字符时source为相对posix路径() {
             },
         ],
         prerequisites: &[],
+        backtrackable: true,
         executor: None,
         evaluator: None,
     }];

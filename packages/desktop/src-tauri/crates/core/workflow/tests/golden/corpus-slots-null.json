@@ -19,6 +19,10 @@
   "name": "slots-null",
   "pipeline": [
     {
+      "attempts": [],
+      "phase": "initialize"
+    },
+    {
       "attempts": [
         {
           "attempt": 1,

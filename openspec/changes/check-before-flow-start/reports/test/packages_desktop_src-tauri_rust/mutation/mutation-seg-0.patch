@@ -1,0 +1,3008 @@
+diff --git a/crates/core/foundation/src/layout/mod.rs b/crates/core/foundation/src/layout/mod.rs
+index 7f6a8c3f2baf..85ce963d15fe 100644
+--- a/crates/core/foundation/src/layout/mod.rs
++++ b/crates/core/foundation/src/layout/mod.rs
+@@ -21,6 +21,21 @@ const REPORTS_DIR_NAME: &str = "reports";
+ /// 测试报告子目录名（相对 reports 子目录锚定）
+ const TEST_REPORTS_DIR_NAME: &str = "test";
+ 
++/// 基线报告子目录名（相对 reports 子目录锚定）
++const BASELINE_REPORTS_DIR_NAME: &str = "baseline";
++
++/// 报告槽位（封闭二值，纯进程内枚举——零 serde / specta，不进 IPC）：`Test`
++/// 为缺省槽位（`reports/test`——run 内门禁与 test-execution 相位语义零改动），
++/// `Baseline` 为 initialize 基线检查槽位（`reports/baseline`——两报告树分树
++/// 隔离，零混居）。
++#[derive(Debug, Clone, Copy, PartialEq, Eq)]
++pub enum ReportSlot {
++    /// 缺省槽位：`reports/test`（既有语义）
++    Test,
++    /// 基线检查槽位：`reports/baseline`（initialize 相位两检查步）
++    Baseline,
++}
++
+ /// workspace 磁盘布局：进行中 / 已归档 / 探索笔记三棵目录树。
+ #[derive(Debug, Clone, PartialEq, Eq)]
+ pub struct Layout {
+@@ -52,18 +67,47 @@ pub fn config_path(root: &Path) -> PathBuf {
+     root.join(DOMAIN_DIR_NAME).join(CONFIG_FILE_NAME)
+ }
+ 
+-/// 把 workspace 根目录与 change 名解析为 change 测试报告目录
++/// 槽位 → reports 子目录名映射（两树后缀单点——消费方零路径字面量扩散）。
++fn report_dir_name(slot: ReportSlot) -> &'static str {
++    match slot {
++        ReportSlot::Test => TEST_REPORTS_DIR_NAME,
++        ReportSlot::Baseline => BASELINE_REPORTS_DIR_NAME,
++    }
++}
++
++/// 槽位驱动的 change 报告目录单点（`reports/<test|baseline>` 后缀同源派生；
++/// 两命名变体委托本函数）。
++pub fn change_reports(root: &Path, change: &str, slot: ReportSlot) -> PathBuf {
++    change_reports_in(&resolve(root).changes_root.join(change), slot)
++}
++
++/// [`change_reports`] 的 change 目录变体（exec-outputs 锚定消费）。
++pub fn change_reports_in(change_dir: &Path, slot: ReportSlot) -> PathBuf {
++    change_dir.join(REPORTS_DIR_NAME).join(report_dir_name(slot))
++}
++
++/// 把 workspace 根目录与 change 名解析为 change 测试报告目录（缺省槽位命名
++/// 变体——既有调用点零感知）。
+ pub fn change_test_reports(root: &Path, change: &str) -> PathBuf {
+-    change_test_reports_in(&resolve(root).changes_root.join(change))
++    change_reports(root, change, ReportSlot::Test)
+ }
+ 
+-/// 把 change 目录解析为该 change 的测试报告目录（`reports/test` 后缀单点——
+-/// change 目录由 `locate_change` 类三态定位面供给，worktree / active / archive
+-/// 各态目录同后缀派生）。
++/// 把 change 目录解析为该 change 的测试报告目录（缺省槽位命名变体；`reports/test`
++/// 后缀单点——change 目录由 `locate_change` 类三态定位面供给，worktree / active /
++/// archive 各态目录同后缀派生）。
+ pub fn change_test_reports_in(change_dir: &Path) -> PathBuf {
+-    change_dir
+-        .join(REPORTS_DIR_NAME)
+-        .join(TEST_REPORTS_DIR_NAME)
++    change_reports_in(change_dir, ReportSlot::Test)
++}
++
++/// 把 workspace 根目录与 change 名解析为 change 基线报告目录（baseline 槽位
++/// 命名变体）。
++pub fn change_baseline_reports(root: &Path, change: &str) -> PathBuf {
++    change_reports(root, change, ReportSlot::Baseline)
++}
++
++/// [`change_baseline_reports`] 的 change 目录形态（baseline 槽位命名变体）。
++pub fn change_baseline_reports_in(change_dir: &Path) -> PathBuf {
++    change_reports_in(change_dir, ReportSlot::Baseline)
+ }
+ 
+ #[cfg(test)]
+diff --git a/crates/core/foundation/src/layout/mod_test.rs b/crates/core/foundation/src/layout/mod_test.rs
+index 5a5a37567426..71bdf108cc8d 100644
+--- a/crates/core/foundation/src/layout/mod_test.rs
++++ b/crates/core/foundation/src/layout/mod_test.rs
+@@ -355,7 +355,7 @@ fn config_path对同一输入结果稳定且父目录恰为resolve的域目录()
+ // change_test_reports 扩展节（desktop-checks-domain）
+ // ---------------------------------------------------------------------------
+ 
+-use super::{change_test_reports, REPORTS_DIR_NAME, TEST_REPORTS_DIR_NAME};
++use super::{change_test_reports, change_test_reports_in, REPORTS_DIR_NAME, TEST_REPORTS_DIR_NAME};
+ 
+ /// 正向：root + change → change 目录树下 reports / test 两级拼接逐字相等
+ ///（常量组同源引用的结构证明——resolve 的 changes 产物锚定）。
+@@ -510,3 +510,261 @@ fn change_test_reports_in_change目录后缀与root变体同构() {
+     );
+     assert_eq!(via_root, via_dir, "root 变体与 change 目录变体同构");
+ }
++
++// ---------------------------------------------------------------------------
++// 报告槽位与槽位驱动报告目录（check-before-flow-start）：ReportSlot 封闭二值 +
++// change_reports 单点 + baseline / test 命名变体委托等值（Mock策略：无——纯
++// 路径推导直测，零 IO 断言面沿既有 layout 测试形态）
++// ---------------------------------------------------------------------------
++
++use super::{
++    change_baseline_reports, change_baseline_reports_in, change_reports, change_reports_in,
++    ReportSlot, BASELINE_REPORTS_DIR_NAME,
++};
++
++/// 正向（枚举遍历）：`ReportSlot` 二值封闭构造互异——`Test != Baseline`；
++/// `Debug` / `Clone` / `Copy` / `PartialEq` / `Eq` 派生可用（纯进程内枚举零
++/// serde / specta——不进 IPC）。
++#[test]
++fn report_slot二值封闭构造互异且派生可用() {
++    // 二值封闭 + 互异
++    assert_ne!(ReportSlot::Test, ReportSlot::Baseline, "两槽位可辨");
++    assert_eq!(ReportSlot::Test, ReportSlot::Test, "PartialEq 自反");
++
++    // Copy 语义（槽位值语义传递——消费后原值不耗损）
++    let slot = ReportSlot::Baseline;
++    let copied = slot;
++    assert_eq!(copied, slot, "Copy 后等值");
++    let _use_twice = (slot, slot);
++
++    // Clone / Debug 派生可用
++    let cloned = slot.clone();
++    assert_eq!(cloned, ReportSlot::Baseline);
++    assert!(!format!("{slot:?}").is_empty(), "Debug 出线非空");
++}
++
++/// 正向（枚举遍历）：`change_reports()` 槽位驱动派生——slot=Test →
++/// `<root>/openspec/changes/<change>/reports/test`、slot=Baseline →
++/// `…/reports/baseline`（两值逐字对拍——槽位单点派生，后缀经
++/// `report_dir_name(slot)` 单点映射）。
++#[test]
++fn change_reports两槽位路径逐字对拍() {
++    let temp = TempDir::new("slot-derive");
++    let layout = resolve(&temp.0);
++
++    let test_dir = change_reports(&temp.0, "demo-change", ReportSlot::Test);
++    let baseline_dir = change_reports(&temp.0, "demo-change", ReportSlot::Baseline);
++
++    assert_eq!(
++        test_dir,
++        layout
++            .changes_root
++            .join("demo-change")
++            .join(REPORTS_DIR_NAME)
++            .join(TEST_REPORTS_DIR_NAME),
++        "slot=Test → reports/test（常量组同源拼接）"
++    );
++    assert_eq!(
++        baseline_dir,
++        layout
++            .changes_root
++            .join("demo-change")
++            .join(REPORTS_DIR_NAME)
++            .join(BASELINE_REPORTS_DIR_NAME),
++        "slot=Baseline → reports/baseline（常量组同源拼接）"
++    );
++    assert_ne!(test_dir, baseline_dir, "两槽位报告树分树隔离（零混居）");
++
++    // 字面量再锚（防常量误改后测试随之失效）
++    assert!(
++        test_dir.ends_with("reports/test"),
++        "test 槽位后缀逐字 reports/test（组件语义）: {}",
++        test_dir.display()
++    );
++    assert!(
++        baseline_dir.ends_with("reports/baseline"),
++        "baseline 槽位后缀逐字 reports/baseline（组件语义）: {}",
++        baseline_dir.display()
++    );
++}
++
++/// 正向（枚举遍历）：`change_reports_in()` change 目录形态同构——
++/// `<change_dir>/reports/test` / `<change_dir>/reports/baseline`，且与 root 变体
++/// 后缀同源（同 slot 两变体仅前缀差异断言）。
++#[test]
++fn change_reports_in_change目录形态与root变体同构() {
++    let temp = TempDir::new("slot-in-derive");
++    let change_dir = resolve(&temp.0).changes_root.join("demo");
++
++    for slot in [ReportSlot::Test, ReportSlot::Baseline] {
++        let via_root = change_reports(&temp.0, "demo", slot);
++        let via_dir = change_reports_in(&change_dir, slot);
++        assert_eq!(via_root, via_dir, "slot={slot:?} 两变体同构（仅前缀差异）");
++        assert!(
++            via_dir.starts_with(&change_dir),
++            "change 目录变体锚定 change_dir 之下（slot={slot:?}）"
++        );
++    }
++
++    // 后缀逐字（目录直拼形态）
++    assert_eq!(
++        change_reports_in(&change_dir, ReportSlot::Baseline),
++        change_dir
++            .join(REPORTS_DIR_NAME)
++            .join(BASELINE_REPORTS_DIR_NAME),
++        "change 目录形态 = 目录直拼 reports/baseline 后缀"
++    );
++}
++
++/// 正向（单次）：命名变体委托等值——`change_baseline_reports()` /
++/// `change_baseline_reports_in()` 与 `change_reports(.., Baseline)` /
++/// `change_reports_in(.., Baseline)` 逐字节相等（委托单点防漂移）。
++#[test]
++fn change_baseline_reports命名变体委托等值() {
++    let temp = TempDir::new("baseline-derive");
++    let change_dir = resolve(&temp.0).changes_root.join("demo");
++
++    assert_eq!(
++        change_baseline_reports(&temp.0, "demo"),
++        change_reports(&temp.0, "demo", ReportSlot::Baseline),
++        "baseline 命名变体与槽位版逐字节相等（root 形态）"
++    );
++    assert_eq!(
++        change_baseline_reports_in(&change_dir),
++        change_reports_in(&change_dir, ReportSlot::Baseline),
++        "baseline 命名变体与槽位版逐字节相等（change 目录形态）"
++    );
++    assert!(
++        change_baseline_reports(&temp.0, "demo").ends_with("reports/baseline"),
++        "baseline 变体后缀逐字（组件语义）"
++    );
++}
++
++/// 正向（单次）：既有签名回归持衡——`change_test_reports()` /
++/// `change_test_reports_in()` 返回值与本变更前 `reports/test` 路径逐字节一致
++///（改委托零路径漂移——既有断言面更新而非退役）；与 `change_reports(.., Test)`
++/// 等值。
++#[test]
++fn change_test_reports改委托零路径漂移() {
++    let temp = TempDir::new("test-derive");
++    let change_dir = resolve(&temp.0).changes_root.join("demo");
++
++    assert_eq!(
++        change_test_reports(&temp.0, "demo"),
++        change_reports(&temp.0, "demo", ReportSlot::Test),
++        "test 命名变体与槽位版逐字节相等（root 形态）"
++    );
++    assert_eq!(
++        change_test_reports_in(&change_dir),
++        change_reports_in(&change_dir, ReportSlot::Test),
++        "test 命名变体与槽位版逐字节相等（change 目录形态）"
++    );
++    // 本变更前逐字节路径（字面量拼接锚——改委托零漂移）
++    assert_eq!(
++        change_test_reports(&temp.0, "demo"),
++        temp.0
++            .join(DOMAIN_DIR_NAME)
++            .join(CHANGES_DIR_NAME)
++            .join("demo")
++            .join("reports")
++            .join("test"),
++        "reports/test 字面量拼接逐字节一致（既有调用点零感知）"
++    );
++}
++
++/// 边界（单次）：`change_reports()` 纯推导无 IO 不 panic（沿 `config_path` /
++/// `change_test_reports` 先例形态）——不存在 root / root 指向文件 / 空 root；
++/// 同输入重复调用等值（确定性）；尾分隔符 root 不产双分隔符。
++#[test]
++fn change_reports边界_纯推导无io不panic且确定性() {
++    // 不存在 root：纯推导照常返回
++    let ghost = std::env::temp_dir().join("foundation-layout-test-不存在的目录-change_reports");
++    let _ = fs::remove_dir_all(&ghost);
++    assert!(!ghost.exists(), "前置：root 不存在");
++    let derived = change_reports(&ghost, "demo", ReportSlot::Baseline);
++    assert_eq!(
++        derived,
++        ghost
++            .join(DOMAIN_DIR_NAME)
++            .join(CHANGES_DIR_NAME)
++            .join("demo")
++            .join(REPORTS_DIR_NAME)
++            .join(BASELINE_REPORTS_DIR_NAME)
++    );
++
++    // 指向普通文件的 root：无目录类型校验，仍按路径拼接返回
++    let temp = TempDir::new("slot-file-root");
++    let file_root = temp.0.join("一个普通文件.txt");
++    fs::write(&file_root, "内容").expect("写文件失败");
++    let derived = change_reports(&file_root, "demo", ReportSlot::Baseline);
++    assert!(derived.starts_with(&file_root), "文件 root 纯拼接返回");
++
++    // 空 root → 纯相对形式
++    let derived = change_reports(Path::new(""), "demo", ReportSlot::Baseline);
++    assert_eq!(
++        derived,
++        PathBuf::from(DOMAIN_DIR_NAME)
++            .join(CHANGES_DIR_NAME)
++            .join("demo")
++            .join(REPORTS_DIR_NAME)
++            .join(BASELINE_REPORTS_DIR_NAME)
++    );
++
++    // 确定性：同输入重复调用等值
++    let temp = TempDir::new("slot-deterministic");
++    let first = change_reports(&temp.0, "demo", ReportSlot::Baseline);
++    let second = change_reports(&temp.0, "demo", ReportSlot::Baseline);
++    assert_eq!(first, second, "同输入重复调用等值");
++
++    // 尾分隔符 root：join 语义保持、不产生双分隔符
++    let base = if cfg!(windows) { r"C:\tmp" } else { "/tmp" };
++    let trailing = format!("{base}/");
++    let derived = change_reports(Path::new(&trailing), "demo", ReportSlot::Baseline);
++    let joined = derived.to_string_lossy();
++    assert!(
++        !joined.contains("//") && !joined.contains(r"\\"),
++        "尾分隔符不应产生双分隔符: {joined}"
++    );
++}
++
++/// 边界（单次）：超长 change 名（>1000 字符）与特殊字符名（emoji / `\n`）原样
++/// 拼接零清洗零 panic（清洗权威在 create 前置——纯拼接负向锚）。
++#[test]
++fn change_reports超长与特殊字符change名零清洗零panic() {
++    let temp = TempDir::new("slot-exotic-name");
++
++    // 超长名原样拼接
++    let long_name = "c".repeat(1200);
++    let derived = change_reports(&temp.0, &long_name, ReportSlot::Baseline);
++    let rendered = derived.to_string_lossy();
++    assert!(rendered.contains(&long_name), "超长 change 名原样拼接零截断");
++    assert!(derived.ends_with("reports/baseline"), "超长名不破坏后缀拼接");
++
++    // 特殊字符名原样拼接
++    let exotic = "突🚀变\n名";
++    let derived = change_reports(&temp.0, exotic, ReportSlot::Baseline);
++    let rendered = derived.to_string_lossy();
++    assert!(rendered.contains(exotic), "特殊字符名原样拼接零清洗: {rendered}");
++    assert!(derived.ends_with("reports/baseline"));
++}
++
++/// 边界（枚举遍历）：报告目录常量锚——`BASELINE_REPORTS_DIR_NAME == "baseline"`
++/// 逐字锚定 + 既有 `reports` / `test` 常量组锚随动；`report_dir_name(slot)` 两臂
++/// 穷尽映射（Test→test / Baseline→baseline 无第三后缀——私有单点函数同 crate
++/// 子模块直读）。
++#[test]
++fn 报告目录常量锚与report_dir_name两臂穷尽映射() {
++    use super::report_dir_name;
++
++    assert_eq!(BASELINE_REPORTS_DIR_NAME, "baseline", "baseline 后缀逐字");
++    assert_eq!(REPORTS_DIR_NAME, "reports", "reports 后缀逐字（既有组锚随动）");
++    assert_eq!(TEST_REPORTS_DIR_NAME, "test", "test 后缀逐字（既有组锚随动）");
++    assert_ne!(
++        TEST_REPORTS_DIR_NAME, BASELINE_REPORTS_DIR_NAME,
++        "两槽位后缀互异（分树隔离的常量前提）"
++    );
++
++    // 两臂穷尽映射（无第三后缀——封闭二值枚举 match 穷尽）
++    assert_eq!(report_dir_name(ReportSlot::Test), TEST_REPORTS_DIR_NAME);
++    assert_eq!(report_dir_name(ReportSlot::Baseline), BASELINE_REPORTS_DIR_NAME);
++}
+diff --git a/crates/core/foundation/src/lib.rs b/crates/core/foundation/src/lib.rs
+index 18a6084648e6..6d7fe8f16055 100644
+--- a/crates/core/foundation/src/lib.rs
++++ b/crates/core/foundation/src/lib.rs
+@@ -1,10 +1,15 @@
+-//! 共享地基 crate：磁盘布局解析 + workspace 身份段派生两能力。
++//! 共享地基 crate：磁盘布局解析 + workspace 身份段派生 + 依赖与工具产物树
++//! 名单三能力。
+ //!
+ //! 刻意保持极小——不预铺 fs 助手 / 错误类型等尚无第二个消费者的通用工具
+-//!（身份段派生自 store 下沉，属「第二消费者出现才下沉」的正触发）。
++//!（身份段派生自 store 下沉、产物树名单自 checks 下沉，均属「第二消费者
++//! 出现才下沉」的正触发）。
+ 
+ pub mod identity;
+ pub mod layout;
++pub mod prune;
+ 
+ #[cfg(test)]
+ mod identity_test;
++#[cfg(test)]
++mod prune_test;
+diff --git a/crates/core/foundation/src/prune.rs b/crates/core/foundation/src/prune.rs
+new file mode 100644
+index 000000000000..32577e81e797
+--- /dev/null
++++ b/crates/core/foundation/src/prune.rs
+@@ -0,0 +1,22 @@
++//! 依赖与工具产物树名单共享单点：目录名封闭集 + dot 剪枝判定纯函数。
++//!
++//! 语义为「依赖与工具产物树，探测与清理均应跳过」——两消费点同源消费：
++//! testexec detect 剪枝（探测不入清单）与 vcs `restore_baseline` 排除面
++//!（clean 不删依赖）。名单扩展一处修改双点生效；`openspec/` 工件树增补属
++//! vcs 消费点语义，不入名单本体。
++
++/// 依赖与工具产物树目录名封闭集（CLI `collectFiles` excludedDirs 非 dot
++/// 成员同集；dot 成员 `.nyc_output` 在案——dot 剪枝判定之外显式收录）。
++pub const PRUNED_DIR_NAMES: [&str; 6] = [
++    "node_modules",
++    "dist",
++    "build",
++    "target",
++    "coverage",
++    ".nyc_output",
++];
++
++/// 目录名剪枝判定（dot 前缀或名单命中；路径组件迭代语义驻各消费点）。
++pub fn is_pruned_dir_name(name: &str) -> bool {
++    name.starts_with('.') || PRUNED_DIR_NAMES.contains(&name)
++}
+diff --git a/crates/core/foundation/src/prune_test.rs b/crates/core/foundation/src/prune_test.rs
+new file mode 100644
+index 000000000000..04f11672a8e8
+--- /dev/null
++++ b/crates/core/foundation/src/prune_test.rs
+@@ -0,0 +1,164 @@
++//! `prune.rs` 的单元测试（test-design「prune.rs -> prune_test.rs」节）：
++//! `PRUNED_DIR_NAMES` 六员封闭集逐字锚定 + 封闭集属性（len / 互异 / 非空 / 不含
++//! `openspec` 与 dot 项）+ `is_pruned_dir_name()` 名单命中 / dot 前缀 / 空串 /
++//! 普通名 / 形态近邻 / 超长与特殊字符零 panic 直返 bool（纯常量 + 纯函数直测，
++//! Mock策略：无——零进程边界依赖）。
++
++use crate::prune::{is_pruned_dir_name, PRUNED_DIR_NAMES};
++
++// ---------------------------------------------------------------------------
++// PRUNED_DIR_NAMES：封闭集常量锚
++// ---------------------------------------------------------------------------
++
++/// 正向（枚举遍历）：六员逐字锚定——名单与 explore 决议逐字一致（常量组锚：
++/// 名单扩展一处修改双点生效的前提面——testexec detect 剪枝与 vcs
++/// restore_baseline 排除面两消费点同源）。
++#[test]
++fn pruned_dir_names六员逐字锚定与explore决议一致() {
++    assert_eq!(
++        PRUNED_DIR_NAMES,
++        ["node_modules", "dist", "build", "target", "coverage", ".nyc_output"],
++        "六员逐字锚定（依赖与工具产物树封闭集——名单扩展一处修改双点生效）"
++    );
++    // 逐员断言（enum 遍历——单员改名即断，不依赖整组比较的定位能力）
++    assert_eq!(PRUNED_DIR_NAMES[0], "node_modules");
++    assert_eq!(PRUNED_DIR_NAMES[1], "dist");
++    assert_eq!(PRUNED_DIR_NAMES[2], "build");
++    assert_eq!(PRUNED_DIR_NAMES[3], "target");
++    assert_eq!(PRUNED_DIR_NAMES[4], "coverage");
++    assert_eq!(PRUNED_DIR_NAMES[5], ".nyc_output");
++}
++
++/// 边界（单次）：封闭集属性——`len() == 6`、互异无重复、逐员非空串；名单本体
++/// 不含 `openspec` / 纯 dot 项（dot 判定与工件增补驻消费点——单源边界锚）。
++#[test]
++fn pruned_dir_names封闭集属性_len互异非空且不含openspec() {
++    assert_eq!(PRUNED_DIR_NAMES.len(), 6, "封闭集六员（扩员即显式改锚）");
++
++    // 互异无重复（O(n²) 直比——六元小集不引 HashSet）
++    for (i, a) in PRUNED_DIR_NAMES.iter().enumerate() {
++        for (j, b) in PRUNED_DIR_NAMES.iter().enumerate() {
++            if i != j {
++                assert_ne!(a, b, "名单互异：第 {i} 项 {a:?} 与第 {j} 项 {b:?} 重复");
++            }
++        }
++    }
++
++    // 逐员非空串
++    for name in PRUNED_DIR_NAMES.iter() {
++        assert!(!name.is_empty(), "名单成员非空串: {name:?}");
++    }
++
++    // 名单本体不含 openspec（工件树增补属 vcs 消费点语义，不入名单——单源锚）
++    assert!(
++        !PRUNED_DIR_NAMES.contains(&"openspec"),
++        "openspec 工件树不入名单本体（排除面组装驻 vcs 消费点）"
++    );
++    // 名单本体不含纯 dot 项（dot 剪枝判定驻 is_pruned_dir_name 前缀语义）
++    assert!(
++        PRUNED_DIR_NAMES.iter().all(|name| *name != "."),
++        "名单本体不含纯 dot 项（dot 前缀判定驻函数语义）"
++    );
++    // `.nyc_output` 为 dot 前缀形态成员（dot 判定之外显式收录——名单与判定双
++    // 通道重叠面逐字锚定）
++    assert!(
++        PRUNED_DIR_NAMES.contains(&".nyc_output"),
++        ".nyc_output 显式收录（CLI excludedDirs 非 dot 成员同集 + dot 成员在案）"
++    );
++}
++
++// ---------------------------------------------------------------------------
++// is_pruned_dir_name()：名单命中 / dot 前缀 / 负面形态
++// ---------------------------------------------------------------------------
++
++/// 正向（枚举遍历）：名单逐名命中——六员各一 → `true`。
++#[test]
++fn is_pruned_dir_name名单六员逐名命中() {
++    for name in PRUNED_DIR_NAMES.iter() {
++        assert!(
++            is_pruned_dir_name(name),
++            "名单成员 {name:?} 应命中（依赖与工具产物树剪枝）"
++        );
++    }
++    // 独立于名单引用的字面量再锚一遍（防止常量被误改后逐名测试随之失效）
++    for name in ["node_modules", "dist", "build", "target", "coverage", ".nyc_output"] {
++        assert!(is_pruned_dir_name(name), "字面量 {name:?} 应命中");
++    }
++}
++
++/// 正向（单次）：dot 前缀命中——`.git` / `.idea` / `.vscode` / 单字符 `.` →
++/// `true`（dot 剪枝语义：任意 dot 起首目录名不依赖名单）。
++#[test]
++fn is_pruned_dir_name_dot前缀命中() {
++    for name in [".git", ".idea", ".vscode", ".", ".github", ".hidden"] {
++        assert!(
++            is_pruned_dir_name(name),
++            "dot 前缀目录名 {name:?} 应命中（dot 剪枝语义）"
++        );
++    }
++}
++
++/// 边界（单次）：空串 → `false`（无前缀无命中）；普通目录名（`src` / `crates` /
++/// `openspec`）→ `false`（工件树不进名单本体——openspec 排除归消费点组装）。
++#[test]
++fn is_pruned_dir_name_空串与普通目录名不命中() {
++    assert!(!is_pruned_dir_name(""), "空串无前缀无命中 → false");
++    for name in ["src", "crates", "openspec", "packages", "changes", "reports"] {
++        assert!(
++            !is_pruned_dir_name(name),
++            "普通目录名 {name:?} 不应命中（工件树 / 源码树不剪枝）"
++        );
++    }
++}
++
++/// 边界（单次）：形态近邻不误伤——`node_module`（少 s）/ `dist-x` /
++/// `Build`（大小写折叠）/ 带 `/` 分隔符形态 → `false`（逐字比对零归一；路径
++/// 切分归消费点）。
++#[test]
++fn is_pruned_dir_name_形态近邻不误伤() {
++    for name in [
++        "node_module",   // 少 s
++        "node_modulesx", // 带尾缀
++        "dist-x",        // 带连字符尾缀
++        "distx",
++        "Build", // 大写折叠
++        "DIST",
++        "Target",
++        "COVERAGE",
++        "dist/",       // 带分隔符形态（路径切分归消费点）
++        "/dist",       // 前导分隔符
++        "src/dist",    // 嵌套形态（逐字比对不递归）
++        "node_modules/", // 带尾分隔符
++        " dist",       // 前导空白
++        "dist ",       // 尾随空白
++    ] {
++        assert!(
++            !is_pruned_dir_name(name),
++            "形态近邻 {name:?} 不应命中（逐字比对零归一零清洗）"
++        );
++    }
++}
++
++/// 边界（单次）：超长名（>1000 字符）与特殊字符名（emoji / `\n` 字节串）零
++/// panic 直返 `bool`（纯函数稳健面——starts_with / contains 零清洗零校验）。
++#[test]
++fn is_pruned_dir_name_超长与特殊字符零panic直返bool() {
++    // 超长普通名 → false（不 panic）
++    let long_plain = "a".repeat(1500);
++    assert!(!is_pruned_dir_name(&long_plain), "超长普通名不命中且不 panic");
++
++    // 超长名单近邻名 → false（前缀命中即断的形态：名单命中需逐字全等）
++    let long_near = format!("node_modules{}", "x".repeat(1000));
++    assert!(!is_pruned_dir_name(&long_near), "超长近邻名不命中（逐字全等）");
++
++    // 超长 dot 名 → true（dot 前缀语义对超长名同样成立）
++    let long_dot = format!(".{}", "b".repeat(1000));
++    assert!(is_pruned_dir_name(&long_dot), "超长 dot 名命中（前缀语义）");
++
++    // 特殊字符名 → 依语义直返 bool、零 panic
++    assert!(!is_pruned_dir_name("🚀"), "emoji 名不命中且不 panic");
++    assert!(is_pruned_dir_name(".🚀"), "dot + emoji 命中（dot 前缀）");
++    assert!(!is_pruned_dir_name("突\n变"), "含换行名不命中且不 panic");
++    assert!(!is_pruned_dir_name("\n"), "换行字符自身非 dot 非名单 → false 不 panic");
++    assert!(!is_pruned_dir_name("line\nbreak"), "内嵌换行名不命中且不 panic");
++}
+diff --git a/crates/core/orchestration/src/port.rs b/crates/core/orchestration/src/port.rs
+index 1f50e4a39dd6..78d81ecdc964 100644
+--- a/crates/core/orchestration/src/port.rs
++++ b/crates/core/orchestration/src/port.rs
+@@ -3,6 +3,7 @@ use std::path::Path;
+ use std::pin::Pin;
+ 
+ use agent::{AgentEvent, AgentPermissionMode, AgentRunStatus, ModelLevel, SessionProvenance};
++use foundation::layout::ReportSlot;
+ use workflow::state::{RunFinishCommand, RunStartCommand};
+ use workflow::write::{BacktrackInput, PhaseLogInput, PhaseNextOutcome, PhaseStartOutcome};
+ 
+@@ -109,11 +110,18 @@ pub enum ToolCommand {
+         phase: String,
+         session_id: String,
+     },
+-    /// static-check 门禁（`change_id` 归键：审计行按 change 可枚举）
+-    StaticCheck { change_id: String },
++    /// static-check 门禁（`change_id` 归键：审计行按 change 可枚举；`slot` 报告
++    /// 槽位——test 缺省 / baseline 基线检查，报告落点经 layout 槽位单点派生）
++    StaticCheck {
++        change_id: String,
++        slot: ReportSlot,
++    },
+     /// test-execution 门禁（确定性测试执行链；id 定位写面与记录，报告目录
+-    /// 派生经记录 name 解析）
+-    TestExecution { change_id: String },
++    /// 派生经记录 name 解析；`slot` 报告槽位——test 缺省 / baseline 基线检查）
++    TestExecution {
++        change_id: String,
++        slot: ReportSlot,
++    },
+     /// mutation-test 门禁（确定性突变执行链；清单 / 补丁经 vcs 缝取数注入，
+     /// 报告目录派生经记录 name 解析）
+     MutationTest { change_id: String },
+@@ -159,6 +167,10 @@ pub struct StaticCheckOutcome {
+     /// `Some(exec_id)`，落盘失败降级 `None`——不阻断检查主流程；反馈边仍只消费
+     /// `diagnostics`，全量经本引用回查）
+     pub output_ref: Option<String>,
++    /// 报告目录（按槽位经 layout 单点派生，pass / fail / 无配置直过三分支均携
++    /// ——baseline Terminal 文案供给面，与 `TestExecutionOutcome.report_dir`
++    /// 对称）
++    pub report_dir: String,
+ }
+ 
+ /// test-execution 门禁结论三值（checks 域聚合 `Conclusion` 的 port 映射像；
+@@ -297,21 +309,24 @@ pub trait ToolStepPort: Send + Sync {
+ 
+ /// static-check spawn 缝（infra 实现；W4——static-check 非 agent 会话，独立
+ /// port 不并入 [`WorkerAgentPort`]）。产出契约与 [`ToolStepPort`] 同封闭集
+-///（`ToolStepOutput::StaticCheck`）。**磁盘面 port 收 name**（输出记录
+-/// `change_test_reports(root, name)` 为 name 化磁盘面，infra 侧零 store 依赖）；
+-/// id → 记录 → name 的解析在 `steps.rs` 消费点（与 [`TestExecutionRunner`] 同式）。
++///（`ToolStepOutput::StaticCheck`）。**磁盘面 port 收 name**（报告目录
++/// `change_reports(root, name, slot)` 为 name 化磁盘面、按槽位派生，infra 侧零
++/// store 依赖）；id → 记录 → name 的解析在 `steps.rs` 消费点（与
++/// [`TestExecutionRunner`] 同式）。`slot` 报告槽位：test 缺省 / baseline 基线
++/// 检查——报告锚点与 exec-outputs 记录同锚派生，执行语义零分叉。
+ pub trait StaticCheckRunner: Send + Sync {
+-    fn run(&self, root: &str, name: &str) -> BoxToolFuture;
++    fn run(&self, root: &str, name: &str, slot: ReportSlot) -> BoxToolFuture;
+ }
+ 
+ /// test-execution spawn 缝（checks 边界 infra 实现；W4 红线与
+ /// [`StaticCheckRunner`] 同型——检查域家族第二成员，spawn 不进 core）。产出
+ /// 契约同 `ToolStepOutput` 封闭集（`ToolStepOutput::TestExecution`）。**磁盘面
+-/// port 收 name**（报告目录派生 `change_test_reports(root, name)` 为 name 化
+-/// 磁盘面，infra 侧零 store 依赖）；id → 记录 → name 的解析在 `steps.rs` 消费
+-/// 点（D7）。
++/// port 收 name**（报告目录 `change_reports(root, name, slot)` 为 name 化磁盘面、
++/// 按槽位派生，infra 侧零 store 依赖）；id → 记录 → name 的解析在 `steps.rs`
++/// 消费点（D7）。`slot` 报告槽位：test 缺省（既有 `reports/test` 语义零改动）/
++/// baseline 基线检查（`reports/baseline` 分树隔离）——复用门按本槽位报告树判定。
+ pub trait TestExecutionRunner: Send + Sync {
+-    fn run(&self, root: &str, name: &str) -> BoxToolFuture;
++    fn run(&self, root: &str, name: &str, slot: ReportSlot) -> BoxToolFuture;
+ }
+ 
+ /// mutation-test spawn 缝（checks 边界 infra 实现；检查域家族第三成员，W4 红线
+@@ -384,6 +399,12 @@ pub trait ArchiveVcsPort: Send + Sync {
+     /// remove --force <path>`）。worktree 在场探测驻调用方 fs 判定，port 零探
+     /// 测方法。
+     fn remove_worktree(&self, main_root: &Path, worktree: &Path) -> Result<(), String>;
++    /// 基线恢复（initialize 相位 Clean 步执行缝）：`reset --hard` + `clean -fd`
++    /// 逐项 `-e` 排除（不带 `-x`——尊重 .gitignore，依赖树常态已免疫）。返回
++    /// 恢复摘要（步 detail 消费）；`Err` 带 git 语境。worktree 在场判定驻调用
++    /// 方（walker），port 零探测方法；主仓 MUST NOT 传入（legacy 整相位短路
++    /// 先行）。
++    fn restore_baseline(&self, worktree: &Path, exclusions: &[&str]) -> Result<String, String>;
+ }
+ 
+ /// rebase 结果：冲突语义 = 冲突态保留、不 abort——收口归调用方。
+diff --git a/crates/core/orchestration/src/port_test.rs b/crates/core/orchestration/src/port_test.rs
+index 03776a9528f6..eedb0959e4a6 100644
+--- a/crates/core/orchestration/src/port_test.rs
++++ b/crates/core/orchestration/src/port_test.rs
+@@ -1,6 +1,7 @@
+ use std::sync::{Arc, Mutex};
+ 
+ use agent::{AgentPermissionMode, AgentRunStatus, ModelLevel, SessionProvenance};
++use foundation::layout::ReportSlot;
+ 
+ use crate::port::{
+     BoxDiffFuture, DiffContextPort, RunEventSink, StaticCheckOutcome, StaticCheckRunner,
+@@ -87,20 +88,24 @@ impl ToolStepPort for RecordingSteps {
+                 passed: true,
+                 diagnostics: String::new(),
+                 output_ref: None,
++                report_dir: String::new(),
+             }))
+         })
+     }
+ }
+ 
+-/// 可编程产出 / Err 的假 StaticCheckRunner（`(root, name)` 双参透传断言面
+-/// ——磁盘面 port 收 name，解析在 steps 消费点；calls 经 Arc 共享供测试侧读）。
++/// 可编程产出 / Err 的假 StaticCheckRunner（`(root, name, slot)` 三元组透传断言面
++/// ——磁盘面 port 收 name，解析在 steps 消费点；slot 报告槽位透传；calls 经 Arc
++/// 共享供测试侧读）。
+ struct ProgrammableRunner {
+-    calls: Arc<Mutex<Vec<(String, String)>>>,
++    calls: Arc<Mutex<Vec<(String, String, ReportSlot)>>>,
+     outcome: StaticCheckOutcome,
+ }
+ 
+ impl ProgrammableRunner {
+-    fn with_outcome(outcome: StaticCheckOutcome) -> (Self, Arc<Mutex<Vec<(String, String)>>>) {
++    fn with_outcome(
++        outcome: StaticCheckOutcome,
++    ) -> (Self, Arc<Mutex<Vec<(String, String, ReportSlot)>>>) {
+         let calls = Arc::new(Mutex::new(Vec::new()));
+         (
+             Self {
+@@ -113,11 +118,11 @@ impl ProgrammableRunner {
+ }
+ 
+ impl StaticCheckRunner for ProgrammableRunner {
+-    fn run(&self, root: &str, name: &str) -> crate::port::BoxToolFuture {
++    fn run(&self, root: &str, name: &str, slot: ReportSlot) -> crate::port::BoxToolFuture {
+         self.calls
+             .lock()
+             .expect("calls 锁不可中毒")
+-            .push((root.to_owned(), name.to_owned()));
++            .push((root.to_owned(), name.to_owned(), slot));
+         let outcome = self.outcome.clone();
+         Box::pin(async move { Ok(ToolStepOutput::StaticCheck(outcome)) })
+     }
+@@ -158,7 +163,9 @@ impl RunEventSink for RecordingSink {
+ 
+ /// ToolCommand 十变体封闭集：十变体构造 + match 穷尽分发编译期锚定；各变体定
+ /// 位载荷 `change_id` 原样承接（id 归键——字段改名置换）；载荷直载写面输入类
+-/// 型（PhaseLogInput / BacktrackInput 原样承接——AC-6 进程内缝命令面）。
++/// 型（PhaseLogInput / BacktrackInput 原样承接——AC-6 进程内缝命令面）；
++/// StaticCheck / TestExecution 两变体携 `slot: ReportSlot` 报告槽位载荷（
++/// slot=Test / Baseline 两值原样承载——check-before-flow-start）。
+ #[tokio::test]
+ async fn tool_command十变体封闭集且match穷尽分发() {
+     // match 穷尽：缺任一变体即编译失败（封闭集收缩形态的编译期锚）
+@@ -186,8 +193,8 @@ async fn tool_command十变体封闭集且match穷尽分发() {
+             | ToolCommand::PhaseLog { change_id, .. }
+             | ToolCommand::Backtrack { change_id, .. }
+             | ToolCommand::DecisionLog { change_id, .. }
+-            | ToolCommand::StaticCheck { change_id }
+-            | ToolCommand::TestExecution { change_id }
++            | ToolCommand::StaticCheck { change_id, .. }
++            | ToolCommand::TestExecution { change_id, .. }
+             | ToolCommand::MutationTest { change_id }
+             | ToolCommand::ArchivePreflight { change_id }
+             | ToolCommand::ArchiveSeal { change_id } => change_id,
+@@ -236,6 +243,7 @@ async fn tool_command十变体封闭集且match穷尽分发() {
+         (
+             ToolCommand::StaticCheck {
+                 change_id: CHANGE_ID.to_owned(),
++                slot: ReportSlot::Test,
+             },
+             "static-check",
+         ),
+@@ -310,16 +318,19 @@ async fn tool_command十变体封闭集且match穷尽分发() {
+ 
+ /// StaticCheck 命令 change_id 归键（D12 载荷锚）：携真实 change id 构造 → 定
+ /// 位载荷逐字承接且非空（空串占位退役——static_check 审计行按 change 可枚举的
+-/// 前提；行为断言归 steps_test 审计行）。
++/// 前提；行为断言归 steps_test 审计行）；slot 槽位载荷原样承载（Test 缺省 /
++/// Baseline 基线两值可辨）。
+ #[test]
+ fn static_check命令change_id归键构造面() {
+     let check = ToolCommand::StaticCheck {
+         change_id: CHANGE_ID.to_owned(),
++        slot: ReportSlot::Test,
+     };
+     match &check {
+-        ToolCommand::StaticCheck { change_id } => {
++        ToolCommand::StaticCheck { change_id, slot } => {
+             assert_eq!(change_id, CHANGE_ID, "定位载荷逐字承接");
+             assert!(!change_id.is_empty(), "非空串占位（D12 归键前提）");
++            assert_eq!(slot, &ReportSlot::Test, "slot 槽位载荷原样承载");
+         }
+         other => panic!("变体漂移: {other:?}"),
+     }
+@@ -356,17 +367,107 @@ fn static_check命令change_id归键构造面() {
+     assert_ne!(
+         check,
+         ToolCommand::StaticCheck {
+-            change_id: "other-id".to_owned()
++            change_id: "other-id".to_owned(),
++            slot: ReportSlot::Test,
+         }
+     );
+     assert_eq!(
+         check,
+         ToolCommand::StaticCheck {
+-            change_id: CHANGE_ID.to_owned()
++            change_id: CHANGE_ID.to_owned(),
++            slot: ReportSlot::Test,
+         }
+     );
+ }
+ 
++/// ToolCommand slot 载荷封闭面（正向，check-before-flow-start）：StaticCheck /
++/// TestExecution 两变体 slot=Test / Baseline 两值构造原样承载 + change_id 归键
++/// 承接；`MutationTest` 变体零 slot 字段（编译面——基线检查明确不含 mutation：
++/// 构造面无 slot 入参、match 解构无 slot 绑定）；slot 参与变体等值（同 id 异
++/// slot 可辨）。
++#[test]
++fn tool_command_slot载荷两值承载且mutation变体零slot() {
++    // slot=Test / Baseline 两值原样承载（枚举遍历）
++    for slot in [ReportSlot::Test, ReportSlot::Baseline] {
++        let check = ToolCommand::StaticCheck {
++            change_id: CHANGE_ID.to_owned(),
++            slot,
++        };
++        match &check {
++            ToolCommand::StaticCheck { change_id, slot: s } => {
++                assert_eq!(change_id, CHANGE_ID, "change_id 归键承接（slot={slot:?}）");
++                assert_eq!(s, &slot, "slot 两值原样承载（slot={slot:?}）");
++            }
++            other => panic!("变体漂移: {other:?}"),
++        }
++        let execution = ToolCommand::TestExecution {
++            change_id: CHANGE_ID.to_owned(),
++            slot,
++        };
++        match &execution {
++            ToolCommand::TestExecution { change_id, slot: s } => {
++                assert_eq!(change_id, CHANGE_ID, "change_id 归键承接（slot={slot:?}）");
++                assert_eq!(s, &slot, "slot 两值原样承载（slot={slot:?}）");
++            }
++            other => panic!("变体漂移: {other:?}"),
++        }
++    }
++
++    // slot 参与等值：同 id 异 slot 两命令可辨（Payload 等值面）
++    assert_ne!(
++        ToolCommand::StaticCheck {
++            change_id: CHANGE_ID.to_owned(),
++            slot: ReportSlot::Test,
++        },
++        ToolCommand::StaticCheck {
++            change_id: CHANGE_ID.to_owned(),
++            slot: ReportSlot::Baseline,
++        },
++        "slot 参与变体等值（Test / Baseline 可辨）"
++    );
++    assert_ne!(
++        ToolCommand::TestExecution {
++            change_id: CHANGE_ID.to_owned(),
++            slot: ReportSlot::Test,
++        },
++        ToolCommand::TestExecution {
++            change_id: CHANGE_ID.to_owned(),
++            slot: ReportSlot::Baseline,
++        },
++        "TestExecution slot 参与变体等值"
++    );
++
++    // MutationTest 变体零 slot 字段（编译面锚）：构造面仅 change_id、match 解构
++    // 无 slot 绑定——基线检查明确不含 mutation
++    let mutation = ToolCommand::MutationTest {
++        change_id: CHANGE_ID.to_owned(),
++    };
++    match &mutation {
++        ToolCommand::MutationTest { change_id } => {
++            assert_eq!(change_id, CHANGE_ID, "MutationTest 仅归键载荷（零 slot）");
++        }
++        other => panic!("变体漂移: {other:?}"),
++    }
++
++    // slot 经 Copy 传递不耗损（ReportSlot 纯进程内枚举——Clone + Copy 派生可用，
++    // 同值传递后原值仍可用）
++    let slot = ReportSlot::Baseline;
++    let _first = ToolCommand::StaticCheck {
++        change_id: CHANGE_ID.to_owned(),
++        slot,
++    };
++    let _second = ToolCommand::StaticCheck {
++        change_id: CHANGE_ID.to_owned(),
++        slot,
++    };
++    assert_eq!(slot, ReportSlot::Baseline, "Copy 语义：传递后原值不耗损");
++    // ReportSlot 零 serde（不进 IPC 线面的类型锚）：无 Serialize 约束的消费面
++    fn consume_in_process(slot: ReportSlot) -> ReportSlot {
++        slot
++    }
++    assert_eq!(consume_in_process(ReportSlot::Test), ReportSlot::Test);
++}
++
+ /// ToolStepOutput 载荷换血：各变体载荷（写面原生 PhaseNextOutcome /
+ /// PhaseStartOutcome / PhaseLogOutcome / BacktrackOutcome / DecisionLogOutcome /
+ /// StaticCheckOutcome）构造与提取逐字段相等；PhaseNext 大变体 Box 收敛尺寸差。
+@@ -394,6 +495,7 @@ fn tool_step_output各变体载荷写面原生类型逐字段相等() {
+         passed: false,
+         diagnostics: "error[E0308]: mismatched".to_owned(),
+         output_ref: None,
++        report_dir: String::new(),
+     };
+ 
+     let outputs = vec![
+@@ -453,13 +555,17 @@ fn tool_step_output各变体载荷写面原生类型逐字段相等() {
+ 
+ /// StaticCheckOutcome 字段面：passed true/false × diagnostics 空串 / 多行诊断 ×
+ /// `output_ref` Some（默认 recorded 回填）/ None（零 spawn 直过 / 落盘失败降级）
+-/// 两态构造与读取（passed=false 走定向反馈边的载荷面——AC-4 / AC-8）。
++/// 两态构造与读取（passed=false 走定向反馈边的载荷面——AC-4 / AC-8）；`report_dir`
++/// 字段 pass / fail 两态均携非空串（与 `TestExecutionOutcome.report_dir` 字段
++/// 对称——baseline Terminal 文案供给面，check-before-flow-start）；空串构造不
++/// panic（回填语义由 infra 真件节断言——port 面只锚字段在场可构造可读取）。
+ #[test]
+ fn static_check_outcome字段面双值双诊断形态() {
+     let passed_clean = StaticCheckOutcome {
+         passed: true,
+         diagnostics: String::new(),
+         output_ref: None,
++        report_dir: String::new(),
+     };
+     assert!(passed_clean.passed);
+     assert!(passed_clean.diagnostics.is_empty());
+@@ -469,6 +575,7 @@ fn static_check_outcome字段面双值双诊断形态() {
+         diagnostics: "error[E0308]: mismatched types\n  --> src/lib.rs:1:1\nwarning: unused"
+             .to_owned(),
+         output_ref: None,
++        report_dir: String::new(),
+     };
+     assert!(!failed_loud.passed, "passed=false 走定向反馈边");
+     assert!(
+@@ -483,6 +590,7 @@ fn static_check_outcome字段面双值双诊断形态() {
+         passed: false,
+         diagnostics: "lint 失败".to_owned(),
+         output_ref: Some("exec-1727000000000".to_owned()),
++        report_dir: String::new(),
+     };
+     assert_eq!(
+         recorded.output_ref.as_deref(),
+@@ -497,6 +605,54 @@ fn static_check_outcome字段面双值双诊断形态() {
+         recorded, failed_loud,
+         "output_ref 参与载荷等值（反馈边载荷可辨）"
+     );
++
++    // report_dir 字段对称面（check-before-flow-start）：pass / fail 两态各携非空
++    // 报告目录串（与 TestExecutionOutcome.report_dir 对称——infra 按槽位派生回填）
++    let passed_with_dir = StaticCheckOutcome {
++        passed: true,
++        diagnostics: String::new(),
++        output_ref: Some("exec-1".to_owned()),
++        report_dir: "C:/ws/openspec/changes/c/reports/baseline".to_owned(),
++    };
++    let failed_with_dir = StaticCheckOutcome {
++        passed: false,
++        diagnostics: "lint 红了".to_owned(),
++        output_ref: Some("exec-2".to_owned()),
++        report_dir: "C:/ws/openspec/changes/c/reports/baseline".to_owned(),
++    };
++    assert!(
++        !passed_with_dir.report_dir.is_empty() && !failed_with_dir.report_dir.is_empty(),
++        "pass / fail 两态 report_dir 均携非空串"
++    );
++    assert!(
++        passed_with_dir.report_dir.ends_with("reports/baseline"),
++        "baseline 槽位报告锚点（Terminal 文案 dir 占位供给面）"
++    );
++    // 对称面对拍：TestExecutionOutcome.report_dir 同为 String 字段、可同式构造读取
++    let execution = TestExecutionOutcome {
++        conclusion: TestExecutionConclusion::Pass,
++        total: 1,
++        passed: 1,
++        failed: 0,
++        skipped: 0,
++        findings_brief: String::new(),
++        findings_detail: String::new(),
++        report_dir: passed_with_dir.report_dir.clone(),
++        exec_id: String::new(),
++    };
++    assert_eq!(
++        execution.report_dir, passed_with_dir.report_dir,
++        "两 Outcome.report_dir 字段对称（同锚同口径）"
++    );
++
++    // 空串 / 缺省构造面不 panic（回填语义归 infra 真件节——port 面只锚字段在场）
++    let empty_dir = StaticCheckOutcome {
++        passed: true,
++        diagnostics: String::new(),
++        output_ref: None,
++        report_dir: String::new(),
++    };
++    assert_eq!(empty_dir.report_dir, "", "空串构造不 panic（字段恒可读）");
+ }
+ 
+ // ---------------------------------------------------------------------------
+@@ -504,11 +660,12 @@ fn static_check_outcome字段面双值双诊断形态() {
+ // ---------------------------------------------------------------------------
+ 
+ /// StaticCheckRunner trait 面：假实现经 Arc<dyn …> 注入、BoxToolFuture 返回
+-/// 可用、`(root, name)` 双参透传（object safety + Send+Sync 编译锚——W4 缝
+-/// 成立前提；`run(root, name)` 与 [`TestExecutionRunner`] 同型：spawn cwd 与
+-/// 磁盘面 name 定位双参）。
++/// 可用、`(root, name, slot)` 三元组透传（object safety + Send+Sync 编译锚——
++/// W4 缝成立前提；`run(root, name, slot)` 与 [`TestExecutionRunner`] 同型：spawn
++/// cwd 与磁盘面 name 定位双参 + slot 报告槽位——check-before-flow-start；
++/// slot=Test / Baseline 两值原样到达）。
+ #[tokio::test]
+-async fn static_check_runner假实现经arc注入且root与name双参透传() {
++async fn static_check_runner假实现经arc注入且root_name_slot三元组透传() {
+     fn assert_send_sync<T: Send + Sync>() {}
+     assert_send_sync::<Arc<dyn StaticCheckRunner>>();
+ 
+@@ -517,12 +674,13 @@ async fn static_check_runner假实现经arc注入且root与name双参透传() {
+         passed: false,
+         diagnostics: "lint 失败".to_owned(),
+         output_ref: Some("exec-1727000000000-1".to_owned()),
++        report_dir: "C:/ws/openspec/changes/demo-change/reports/test".to_owned(),
+     });
+     let runner: Arc<dyn StaticCheckRunner> = Arc::new(inner);
+ 
+-    // 双参透传 + BoxToolFuture resolve 可用（W4 缝）
++    // 三参透传 + BoxToolFuture resolve 可用（W4 缝；slot=Test 缺省槽位）
+     let output = runner
+-        .run("/tmp/workspace-root", "demo-change")
++        .run("/tmp/workspace-root", "demo-change", ReportSlot::Test)
+         .await
+         .expect("产出应可用");
+     match output {
+@@ -534,13 +692,47 @@ async fn static_check_runner假实现经arc注入且root与name双参透传() {
+                 Some("exec-1727000000000-1"),
+                 "默认 recorded 引用透传（caller 侧零改写）"
+             );
++            assert_eq!(
++                outcome.report_dir, "C:/ws/openspec/changes/demo-change/reports/test",
++                "report_dir 载荷透传（槽位派生回填面）"
++            );
+         }
+         _ => panic!("产出变体漂移"),
+     }
+     assert_eq!(
+         calls.lock().expect("锁").as_slice(),
+-        [("/tmp/workspace-root".to_owned(), "demo-change".to_owned())],
+-        "root / name 双参透传（spawn cwd 与记录目录派生语义）"
++        [(
++            "/tmp/workspace-root".to_owned(),
++            "demo-change".to_owned(),
++            ReportSlot::Test
++        )],
++        "root / name / slot 三元组透传（spawn cwd、记录目录派生与报告槽位语义）"
++    );
++
++    // slot=Baseline 基线槽位同构透传（枚举遍历——两值原样到达假件）
++    let (inner, calls) = ProgrammableRunner::with_outcome(StaticCheckOutcome {
++        passed: true,
++        diagnostics: String::new(),
++        output_ref: Some("exec-1727000000000-2".to_owned()),
++        report_dir: "C:/ws/openspec/changes/demo-change/reports/baseline".to_owned(),
++    });
++    let runner: Arc<dyn StaticCheckRunner> = Arc::new(inner);
++    let output = runner
++        .run("/tmp/workspace-root", "demo-change", ReportSlot::Baseline)
++        .await
++        .expect("产出应可用");
++    assert!(
++        matches!(output, ToolStepOutput::StaticCheck(ref outcome) if outcome.report_dir.ends_with("reports/baseline")),
++        "baseline 槽位产出透传"
++    );
++    assert_eq!(
++        calls.lock().expect("锁").as_slice(),
++        [(
++            "/tmp/workspace-root".to_owned(),
++            "demo-change".to_owned(),
++            ReportSlot::Baseline
++        )],
++        "slot=Baseline 原样到达（initialize 基线检查槽位）"
+     );
+ }
+ 
+@@ -594,6 +786,7 @@ async fn box_diff_future别名跨await持有可用() {
+                 passed: true,
+                 diagnostics: String::new(),
+                 output_ref: None,
++                report_dir: String::new(),
+             }))
+         })
+     }
+@@ -676,17 +869,18 @@ fn 既有三契约与中性类型保持() {
+ 
+ use crate::port::{TestExecutionConclusion, TestExecutionOutcome, TestExecutionRunner};
+ 
+-/// 可编程产出 / Err 的假 TestExecutionRunner（root / name 双参透传断言面
+-/// ——磁盘面 port 收 name；calls 经 Arc 共享——测试侧持句柄读记录）。
++/// 可编程产出 / Err 的假 TestExecutionRunner（root / name / slot 三元组透传断言面
++/// ——磁盘面 port 收 name；slot 报告槽位透传；calls 经 Arc 共享——测试侧持句柄
++/// 读记录）。
+ struct ProgrammableTestExecutionRunner {
+-    calls: Arc<Mutex<Vec<(String, String)>>>,
++    calls: Arc<Mutex<Vec<(String, String, ReportSlot)>>>,
+     result: Result<TestExecutionOutcome, String>,
+ }
+ 
+ impl ProgrammableTestExecutionRunner {
+     fn with_result(
+         result: Result<TestExecutionOutcome, String>,
+-    ) -> (Self, Arc<Mutex<Vec<(String, String)>>>) {
++    ) -> (Self, Arc<Mutex<Vec<(String, String, ReportSlot)>>>) {
+         let calls = Arc::new(Mutex::new(Vec::new()));
+         (
+             Self {
+@@ -699,11 +893,11 @@ impl ProgrammableTestExecutionRunner {
+ }
+ 
+ impl TestExecutionRunner for ProgrammableTestExecutionRunner {
+-    fn run(&self, root: &str, name: &str) -> crate::port::BoxToolFuture {
++    fn run(&self, root: &str, name: &str, slot: ReportSlot) -> crate::port::BoxToolFuture {
+         self.calls
+             .lock()
+             .expect("calls 锁不可中毒")
+-            .push((root.to_owned(), name.to_owned()));
++            .push((root.to_owned(), name.to_owned(), slot));
+         let result = self.result.clone();
+         Box::pin(async move { result.map(ToolStepOutput::TestExecution) })
+     }
+@@ -728,8 +922,8 @@ fn sample_execution_outcome(conclusion: TestExecutionConclusion) -> TestExecutio
+ }
+ 
+ /// 正向：ToolCommand 第七变体封闭集——TestExecution 构造 + match 穷尽编译锚
+-/// + change_id 载荷与 name 入参透传 + 门禁双命令互异（十变体封闭集下 TestExecution
+-/// 专行，零改动持衡）。
++/// + change_id 载荷与 name 入参透传 + slot 槽位载荷承载 + 门禁双命令互异（十变体
++/// 封闭集下 TestExecution 专行，零改动持衡——slot 随 check-before-flow-start 扩载）。
+ #[tokio::test]
+ async fn test_execution命令第七变体封闭集且change载荷透传() {
+     // match 穷尽：缺 TestExecution 臂即编译失败（封闭集扩臂的编译期锚）
+@@ -749,7 +943,8 @@ async fn test_execution命令第七变体封闭集且change载荷透传() {
+     }
+     assert_eq!(
+         describe(&ToolCommand::TestExecution {
+-            change_id: CHANGE_ID.to_owned()
++            change_id: CHANGE_ID.to_owned(),
++            slot: ReportSlot::Test,
+         }),
+         "test-execution"
+     );
+@@ -757,9 +952,10 @@ async fn test_execution命令第七变体封闭集且change载荷透传() {
+     // change_id 载荷透传：命令定位键原样承接（磁盘面 name 由消费点解析）
+     let execution = ToolCommand::TestExecution {
+         change_id: CHANGE_ID.to_owned(),
++        slot: ReportSlot::Test,
+     };
+     match &execution {
+-        ToolCommand::TestExecution { change_id } => {
++        ToolCommand::TestExecution { change_id, .. } => {
+             assert_eq!(change_id, CHANGE_ID, "change_id 定位载荷逐字承接");
+         }
+         other => panic!("变体漂移: {other:?}"),
+@@ -767,7 +963,8 @@ async fn test_execution命令第七变体封闭集且change载荷透传() {
+     assert_ne!(
+         execution,
+         ToolCommand::TestExecution {
+-            change_id: "other-id".to_owned()
++            change_id: "other-id".to_owned(),
++            slot: ReportSlot::Test,
+         },
+         "定位载荷参与变体等值（归桶可辨）"
+     );
+@@ -777,7 +974,7 @@ async fn test_execution命令第七变体封闭集且change载荷透传() {
+     ));
+     let runner: Arc<dyn TestExecutionRunner> = Arc::new(inner);
+     let output = runner
+-        .run("/tmp/workspace-root", "demo-change")
++        .run("/tmp/workspace-root", "demo-change", ReportSlot::Test)
+         .await
+         .expect("产出应可用");
+     assert!(
+@@ -786,18 +983,24 @@ async fn test_execution命令第七变体封闭集且change载荷透传() {
+     );
+     assert_eq!(
+         calls.lock().expect("锁").as_slice(),
+-        [("/tmp/workspace-root".to_owned(), "demo-change".to_owned())],
+-        "root / name 原样到达注入 port（磁盘面报告树定位语义）"
++        [(
++            "/tmp/workspace-root".to_owned(),
++            "demo-change".to_owned(),
++            ReportSlot::Test
++        )],
++        "root / name / slot 原样到达注入 port（磁盘面报告树定位 + 槽位语义）"
+     );
+ 
+     // 七变体互异（封闭集封闭性——第八臂不存在）
+     let seventh = ToolCommand::TestExecution {
+         change_id: CHANGE_ID.to_owned(),
++        slot: ReportSlot::Test,
+     };
+     assert_ne!(
+         describe(&seventh),
+         describe(&ToolCommand::StaticCheck {
+-            change_id: CHANGE_ID.to_owned()
++            change_id: CHANGE_ID.to_owned(),
++            slot: ReportSlot::Test,
+         }),
+         "门禁双命令可辨（检查域家族两成员不混淆）"
+     );
+@@ -822,46 +1025,57 @@ fn tool_step_output_test_execution载荷构造与提取逐字段相等() {
+ }
+ 
+ /// 正向：TestExecutionRunner trait 面——假实现经 Arc<dyn …> 注入、root /
+-/// name 双参透传、BoxToolFuture resolve 出 ToolStepOutput::TestExecution
++/// name / slot 三参透传、BoxToolFuture resolve 出 ToolStepOutput::TestExecution
+ ///（object safety + Send + Sync 编译锚——StaticCheckRunner 同型；磁盘面 port
+-/// 恒收 name，解析在 steps 消费点）。
++/// 恒收 name，解析在 steps 消费点；slot=Test / Baseline 两值枚举遍历）。
+ #[tokio::test]
+ async fn test_execution_runner假实现经arc注入且root_change透传() {
+     fn assert_send_sync<T: Send + Sync>() {}
+     assert_send_sync::<Arc<dyn TestExecutionRunner>>();
+ 
+-    let (inner, calls) = ProgrammableTestExecutionRunner::with_result(Ok(
+-        sample_execution_outcome(TestExecutionConclusion::Pass),
+-    ));
+-    let runner: Arc<dyn TestExecutionRunner> = Arc::new(inner);
++    for slot in [ReportSlot::Test, ReportSlot::Baseline] {
++        let (inner, calls) = ProgrammableTestExecutionRunner::with_result(Ok(
++            sample_execution_outcome(TestExecutionConclusion::Pass),
++        ));
++        let runner: Arc<dyn TestExecutionRunner> = Arc::new(inner);
+ 
+-    let output = runner
+-        .run("/tmp/workspace-root", "walker-change")
+-        .await
+-        .expect("产出应可用");
+-    assert!(
+-        matches!(output, ToolStepOutput::TestExecution(outcome) if outcome.total == 12),
+-        "BoxToolFuture resolve 出 TestExecution 变体"
+-    );
+-    assert_eq!(
+-        calls.lock().expect("锁").as_slice(),
+-        [("/tmp/workspace-root".to_owned(), "walker-change".to_owned())],
+-        "root / name 双参透传（spawn cwd 与报告树定位语义）"
+-    );
++        let output = runner
++            .run("/tmp/workspace-root", "walker-change", slot)
++            .await
++            .expect("产出应可用");
++        assert!(
++            matches!(output, ToolStepOutput::TestExecution(outcome) if outcome.total == 12),
++            "BoxToolFuture resolve 出 TestExecution 变体（slot={slot:?}）"
++        );
++        assert_eq!(
++            calls.lock().expect("锁").as_slice(),
++            [(
++                "/tmp/workspace-root".to_owned(),
++                "walker-change".to_owned(),
++                slot
++            )],
++            "root / name / slot 三参透传（spawn cwd、报告树定位与槽位语义）"
++        );
++    }
+ }
+ 
+ /// 异常：TestExecutionRunner Err(String) 臂经 BoxToolFuture resolve 上抛
+-///（写盘失败类基础设施错误面——run_tool 映射输入）。
++///（写盘失败类基础设施错误面——run_tool 映射输入；三参签名扩展不吞错误面）。
+ #[tokio::test]
+ async fn test_execution_runner_err臂上抛() {
+-    let (inner, _calls) =
++    let (inner, calls) =
+         ProgrammableTestExecutionRunner::with_result(Err("报告目录创建失败".to_owned()));
+     let runner: Arc<dyn TestExecutionRunner> = Arc::new(inner);
+     let err = runner
+-        .run("/tmp/root", "c")
++        .run("/tmp/root", "c", ReportSlot::Baseline)
+         .await
+         .expect_err("Err 臂应上抛");
+     assert_eq!(err, "报告目录创建失败", "Err(String) 原样（无再包装）");
++    assert_eq!(
++        calls.lock().expect("锁").as_slice(),
++        [("/tmp/root".to_owned(), "c".to_owned(), ReportSlot::Baseline)],
++        "Err 臂调用载荷同样捕获（透传不吞错误面）"
++    );
+ }
+ 
+ /// 边界：TestExecutionOutcome 载荷字段面——conclusion + 四计数 +
+@@ -1198,8 +1412,10 @@ fn tool_step_output归档变体窄化提取类型守卫() {
+ /// `ArchiveVcsPort` 面（边界 / 回归）：归档第三缝 trait 全方法签名编译面在位
+ ///（dirty / commit_all / branch_merged / rebase_branch / ff_merge /
+ /// worktree_snapshot / rebase_continue / rebase_abort / current_branch /
+-/// commit_paths / remove_worktree），实现可经 `Arc<dyn ArchiveVcsPort>` 作为
+-/// walker 显式入参注入（AC-3 / R2 core 零 spawn 的结构前提；trait 面零改动锚）。
++/// commit_paths / remove_worktree / restore_baseline），实现可经
++/// `Arc<dyn ArchiveVcsPort>` 作为 walker 显式入参注入（AC-3 / R2 core 零 spawn
++/// 的结构前提；trait 面扩 restore_baseline 零探测方法锚——worktree 在场判定驻
++/// 调用方）。
+ #[test]
+ fn archive_vcs_port面全方法签名编译锚() {
+     use std::path::Path;
+@@ -1261,6 +1477,9 @@ fn archive_vcs_port面全方法签名编译锚() {
+         fn remove_worktree(&self, _main_root: &Path, _worktree: &Path) -> Result<(), String> {
+             Ok(())
+         }
++        fn restore_baseline(&self, _worktree: &Path, _exclusions: &[&str]) -> Result<String, String> {
++            Ok("已恢复基线".to_owned())
++        }
+     }
+ 
+     fn assert_send_sync<T: Send + Sync>() {}
+@@ -1341,6 +1560,9 @@ fn archive_vcs_port面全方法签名编译锚() {
+         fn remove_worktree(&self, _main_root: &Path, _worktree: &Path) -> Result<(), String> {
+             Err("worktree 移除失败".to_owned())
+         }
++        fn restore_baseline(&self, _worktree: &Path, _exclusions: &[&str]) -> Result<String, String> {
++            Err("git 语境失败".to_owned())
++        }
+     }
+     let detached: Arc<dyn ArchiveVcsPort> = Arc::new(DetachedVcs);
+     let error = detached
+@@ -1845,6 +2067,9 @@ async fn archive_vcs_port清单与补丁两方法trait面() {
+         fn remove_worktree(&self, _main_root: &Path, _worktree: &Path) -> Result<(), String> {
+             Ok(())
+         }
++        fn restore_baseline(&self, _worktree: &Path, _exclusions: &[&str]) -> Result<String, String> {
++            Ok(String::new())
++        }
+     }
+ 
+     fn assert_send_sync<T: Send + Sync>() {}
+@@ -1924,12 +2149,14 @@ fn archive_vcs_port_remove_worktree可注入且双参捕获与err契约() {
+ 
+     use crate::port::{ArchiveVcsPort, RebaseOutcome, WorktreeSnapshot};
+ 
+-    /// 清理面假件：remove_worktree Ok / Err 可编程 + 双参捕获（git 子进程边界
+-    /// 以注入 port 假件替代——本节只锚签名与透传，生产实现的路径 + 手动指引
+-    /// 组装内容由 infra/vcs 真件节断言）。
++    /// 清理面假件：remove_worktree / restore_baseline Ok / Err 可编程 + 双参捕获
++    ///（git 子进程边界以注入 port 假件替代——本节只锚签名与透传，生产实现的路径
++    /// + 手动指引组装内容由 infra/vcs 真件节断言）。
+     struct CleanupVcs {
+         result: Result<(), String>,
+         calls: std::sync::Mutex<Vec<(PathBuf, PathBuf)>>,
++        restore: Option<Result<String, String>>,
++        restore_calls: std::sync::Mutex<Vec<(PathBuf, Vec<String>)>>,
+     }
+     impl ArchiveVcsPort for CleanupVcs {
+         fn dirty(&self, _root: &Path, _paths: &[&str]) -> bool {
+@@ -1985,6 +2212,13 @@ fn archive_vcs_port_remove_worktree可注入且双参捕获与err契约() {
+                 .push((main_root.to_owned(), worktree.to_owned()));
+             self.result.clone()
+         }
++        fn restore_baseline(&self, worktree: &Path, exclusions: &[&str]) -> Result<String, String> {
++            self.restore_calls
++                .lock()
++                .expect("restore 调用锁")
++                .push((worktree.to_owned(), exclusions.iter().map(|s| (*s).to_owned()).collect()));
++            self.restore.clone().expect("restore 可编程面应在场")
++        }
+     }
+ 
+     // Send + Sync 契约持衡（跨线程经 Arc<dyn ArchiveVcsPort> 注入 walker 的
+@@ -1999,6 +2233,8 @@ fn archive_vcs_port_remove_worktree可注入且双参捕获与err契约() {
+     let ok_port: Arc<dyn ArchiveVcsPort> = Arc::new(CleanupVcs {
+         result: Ok(()),
+         calls: std::sync::Mutex::new(Vec::new()),
++        restore: Some(Ok(String::new())),
++        restore_calls: std::sync::Mutex::new(Vec::new()),
+     });
+     ok_port
+         .remove_worktree(&main_root, &worktree)
+@@ -2007,6 +2243,8 @@ fn archive_vcs_port_remove_worktree可注入且双参捕获与err契约() {
+     let probe = CleanupVcs {
+         result: Ok(()),
+         calls: std::sync::Mutex::new(Vec::new()),
++        restore: Some(Ok(String::new())),
++        restore_calls: std::sync::Mutex::new(Vec::new()),
+     };
+     probe.remove_worktree(&main_root, &worktree).expect("Ok 面");
+     assert_eq!(
+@@ -2019,6 +2257,8 @@ fn archive_vcs_port_remove_worktree可注入且双参捕获与err契约() {
+     let err_port: Arc<dyn ArchiveVcsPort> = Arc::new(CleanupVcs {
+         result: Err("git worktree remove 失败（退出码 128）".to_owned()),
+         calls: std::sync::Mutex::new(Vec::new()),
++        restore: Some(Ok(String::new())),
++        restore_calls: std::sync::Mutex::new(Vec::new()),
+     });
+     let error = err_port
+         .remove_worktree(&main_root, &worktree)
+@@ -2028,3 +2268,154 @@ fn archive_vcs_port_remove_worktree可注入且双参捕获与err契约() {
+         "Err(String) 串契约原样透传（组装内容由 infra/vcs 真件节断言）"
+     );
+ }
++
++/// `ArchiveVcsPort.restore_baseline` trait 面（正向 / 异常 / 边界，
++/// check-before-flow-start）：测试假件实现「既有方法族 + restore_baseline」即
++/// 编译通过（port 面零探测方法——worktree 在场判定驻调用方，trait 无 probe /
++/// exists 方法，编译面锚定）；Ok 恢复摘要串 / Err 可编程 + `(worktree,
++/// exclusions)` 载荷捕获——多元素切片（D6 排除面：名单 + `".*"` + 域目录名形态）
++/// 与空切片两态原样到达假件；经 `Arc<dyn ArchiveVcsPort>` 注入后按可编程结果
++/// 分派（walker 消费面契约）；`Send + Sync` trait 对象契约随新方法持衡。
++#[test]
++fn archive_vcs_port_restore_baseline可注入且载荷捕获与err契约() {
++    use std::path::{Path, PathBuf};
++
++    use crate::port::{ArchiveVcsPort, RebaseOutcome, WorktreeSnapshot};
++
++    /// restore 面假件：可编程 Ok 摘要 / Err + `(worktree, exclusions)` 载荷捕获。
++    struct RestoreVcs {
++        result: Result<String, String>,
++        calls: std::sync::Mutex<Vec<(PathBuf, Vec<String>)>>,
++    }
++    impl ArchiveVcsPort for RestoreVcs {
++        fn dirty(&self, _root: &Path, _paths: &[&str]) -> bool {
++            false
++        }
++        fn commit_all(&self, _worktree: &Path, _message: &str) -> Result<(), String> {
++            Ok(())
++        }
++        fn branch_merged(&self, _main_root: &Path, _branch: &str) -> Result<bool, String> {
++            Ok(false)
++        }
++        fn rebase_branch(&self, _worktree: &Path, _onto: &str) -> Result<RebaseOutcome, String> {
++            Ok(RebaseOutcome::Rebased)
++        }
++        fn ff_merge(&self, _main_root: &Path, _branch: &str) -> Result<(), String> {
++            Ok(())
++        }
++        fn worktree_snapshot(&self, _root: &Path) -> Result<WorktreeSnapshot, String> {
++            Ok(WorktreeSnapshot {
++                head: "abc".to_owned(),
++                rebase_head: None,
++                status: Vec::new(),
++                index: Vec::new(),
++            })
++        }
++        fn rebase_continue(&self, _worktree: &Path) -> Result<RebaseOutcome, String> {
++            Ok(RebaseOutcome::Rebased)
++        }
++        fn rebase_abort(&self, _worktree: &Path) -> Result<(), String> {
++            Ok(())
++        }
++        fn current_branch(&self, _main_root: &Path) -> Result<String, String> {
++            Ok("main".to_owned())
++        }
++        fn commit_paths(
++            &self,
++            _main_root: &Path,
++            _paths: &[&str],
++            _message: &str,
++        ) -> Result<(), String> {
++            Ok(())
++        }
++        fn change_edit_set(&self, _root: &Path, _base: &str) -> Result<Vec<String>, String> {
++            Ok(Vec::new())
++        }
++        fn change_edit_patch(&self, _root: &Path, _base: &str) -> Result<String, String> {
++            Ok(String::new())
++        }
++        fn remove_worktree(&self, _main_root: &Path, _worktree: &Path) -> Result<(), String> {
++            Ok(())
++        }
++        fn restore_baseline(&self, worktree: &Path, exclusions: &[&str]) -> Result<String, String> {
++            self.calls
++                .lock()
++                .expect("restore 调用锁")
++                .push((
++                    worktree.to_owned(),
++                    exclusions.iter().map(|s| (*s).to_owned()).collect(),
++                ));
++            self.result.clone()
++        }
++    }
++
++    fn assert_send_sync<T: Send + Sync>() {}
++    assert_send_sync::<RestoreVcs>();
++
++    let worktree = PathBuf::from("/tmp/ws/worktrees/seg/fix-bug");
++
++    // Ok 面：恢复摘要串原样出线（step detail 消费面）；D6 排除面多元素切片
++    //（名单六名 + ".*" + 域目录名）原样捕获零改写零换序
++    let summary = "已重置 3 个路径、清除 2 个未跟踪文件";
++    let exclusions = [
++        "node_modules",
++        "dist",
++        "build",
++        "target",
++        "coverage",
++        ".nyc_output",
++        ".*",
++        "openspec",
++    ];
++    let ok_port: Arc<dyn ArchiveVcsPort> = Arc::new(RestoreVcs {
++        result: Ok(summary.to_owned()),
++        calls: std::sync::Mutex::new(Vec::new()),
++    });
++    let got = ok_port
++        .restore_baseline(&worktree, &exclusions)
++        .expect("Ok 面应可用");
++    assert_eq!(got, summary, "恢复摘要串随 trait object 动态分发出线");
++
++    // 载荷捕获（另铸同形假件直查——Arc<dyn> 不可 downcast）
++    let probe = RestoreVcs {
++        result: Ok(String::new()),
++        calls: std::sync::Mutex::new(Vec::new()),
++    };
++    probe
++        .restore_baseline(&worktree, &exclusions)
++        .expect("捕获面应可用");
++    assert_eq!(
++        probe.calls.lock().expect("restore 调用锁").as_slice(),
++        [(
++            worktree.clone(),
++            exclusions.iter().map(|s| (*s).to_owned()).collect::<Vec<_>>()
++        )],
++        "(worktree, exclusions) 载荷原样捕获（D6 排除面透传契约——零改写零换序）"
++    );
++
++    // 空切片形态：纯载荷透传（调用方组装面空集合法形态）
++    let probe = RestoreVcs {
++        result: Ok(String::new()),
++        calls: std::sync::Mutex::new(Vec::new()),
++    };
++    probe.restore_baseline(&worktree, &[]).expect("空切片应可用");
++    assert_eq!(
++        probe.calls.lock().expect("restore 调用锁")[0].1,
++        Vec::<String>::new(),
++        "空切片原样到达（零元素排除面）"
++    );
++
++    // Err 面契约：Result<String, String> 错误串原样透传（错误串组装内容归
++    // infra/vcs 真件节——port 面锚签名与透传，不重复断言文案）
++    let err_port: Arc<dyn ArchiveVcsPort> = Arc::new(RestoreVcs {
++        result: Err("git -C /tmp/ws/worktrees/seg/fix-bug clean 失败（退出码 128）".to_owned()),
++        calls: std::sync::Mutex::new(Vec::new()),
++    });
++    let error = err_port
++        .restore_baseline(&worktree, &exclusions)
++        .expect_err("Err 面应上抛");
++    assert!(
++        error.contains("clean"),
++        "Err(String) 串契约原样透传（git 语境不吞不静默）: {error}"
++    );
++}
+diff --git a/crates/core/orchestration/src/run_history.rs b/crates/core/orchestration/src/run_history.rs
+index be17ba149297..d53e0b7b8e96 100644
+--- a/crates/core/orchestration/src/run_history.rs
++++ b/crates/core/orchestration/src/run_history.rs
+@@ -12,7 +12,7 @@ use crate::state::{
+ };
+ use crate::walker::RunRequest;
+ 
+-/// 步词汇直映射（**二十值 1:1 全映射，零过滤**）：编排侧 `ChangeStepKind` 与落
++/// 步词汇直映射（**二十一值 1:1 全映射，零过滤**）：编排侧 `ChangeStepKind` 与落
+ /// 库侧 `RunStepKind` 同词面封闭集逐一对应——`step` 语义无弃落项。
+ fn mapped_step(kind: ChangeStepKind) -> RunStepKind {
+     match kind {
+@@ -22,6 +22,7 @@ fn mapped_step(kind: ChangeStepKind) -> RunStepKind {
+         ChangeStepKind::StaticCheck => RunStepKind::StaticCheck,
+         ChangeStepKind::TestExecution => RunStepKind::TestExecution,
+         ChangeStepKind::MutationTest => RunStepKind::MutationTest,
++        ChangeStepKind::Clean => RunStepKind::Clean,
+         ChangeStepKind::PhaseStart => RunStepKind::PhaseStart,
+         ChangeStepKind::PhaseLog => RunStepKind::PhaseLog,
+         ChangeStepKind::VerdictGate => RunStepKind::VerdictGate,
+diff --git a/crates/core/orchestration/src/run_history_test.rs b/crates/core/orchestration/src/run_history_test.rs
+index 2adac376ac96..cfb32fecfb9e 100644
+--- a/crates/core/orchestration/src/run_history_test.rs
++++ b/crates/core/orchestration/src/run_history_test.rs
+@@ -1,5 +1,5 @@
+ //! `run_history.rs` 的单元测试（test-design「run_history.rs ->
+-//! run_history_test.rs」节）：词汇直映射二十值零过滤（`persisted_step` 过滤谓词整
++//! run_history_test.rs」节）：词汇直映射二十一值零过滤（`persisted_step` 过滤谓词整
+ //! 体退役——编译面锚 + 全词汇在案行为锚，AC-3；cleanup 尽力步新臂直映射在案）、
+ //! `finish_command` 组装（节点整包
+ //! 全词汇 + 边整包四 kind 端点身份串 + 实例号递增直透 + 终态三值映射 +
+@@ -68,9 +68,118 @@ fn step(
+ }
+ 
+ // ---------------------------------------------------------------------------
+-// 词汇直映射：二十值零过滤（`persisted_step` 过滤谓词整体退役）
++// 词汇直映射：二十一值零过滤（`persisted_step` 过滤谓词整体退役）
+ // ---------------------------------------------------------------------------
+ 
++/// mapped_step 新臂直映射（正向，check-before-flow-start）：`ChangeStepKind::Clean`
++/// → `RunStepKind::Clean` 1:1 直映射——`as_str()` 同词面 `"clean"` 逐字（initialize
++/// 基线恢复步落库零过滤单点）。
++#[test]
++fn mapped_step_clean直映射_同词面逐字() {
++    let nodes = [step(ChangeStepKind::Clean, ChangeStepStatus::Passed, None)];
++    let command = finish_command(
++        &request(),
++        ChangeRunStatus::Completed,
++        None,
++        STARTED_AT,
++        &nodes,
++        &[],
++    );
++    assert_eq!(command.nodes.len(), 1);
++    assert_eq!(
++        command.nodes[0].step,
++        workflow::state::RunStepKind::Clean,
++        "clean 直映射零过滤"
++    );
++    assert_eq!(
++        command.nodes[0].step.as_str(),
++        ChangeStepKind::Clean.as_str(),
++        "两域 as_str 同词面逐字（clean）"
++    );
++    assert_eq!(command.nodes[0].step.as_str(), "clean");
++}
++
++/// initialize run 五节点落包（边界，check-before-flow-start）：phase_start / clean /
++/// static_check / test_execution / phase_log 五节点零过滤入 `command.nodes`（无静默
++/// 丢弃）且串行 forward 边逐位连接——initialize 步族全词汇经落包入口入史（AC-1 /
++/// AC-8 落库半边）。
++#[test]
++fn finish_command_initialize五节点零过滤入包且串行forward边逐位() {
++    let initialize_phase = "initialize";
++    let kinds = [
++        ChangeStepKind::PhaseStart,
++        ChangeStepKind::Clean,
++        ChangeStepKind::StaticCheck,
++        ChangeStepKind::TestExecution,
++        ChangeStepKind::PhaseLog,
++    ];
++    let nodes: Vec<ChangeStepState> = kinds
++        .iter()
++        .map(|kind| {
++            let mut node = step(*kind, ChangeStepStatus::Passed, None);
++            node.phase = initialize_phase.to_owned();
++            node
++        })
++        .collect();
++    // 串行 forward 边：相邻两节点逐位连接（0→1→2→3→4）
++    let edges: Vec<ChangeStepEdge> = nodes
++        .windows(2)
++        .map(|pair| ChangeStepEdge {
++            from: (
++                pair[0].phase.clone(),
++                pair[0].attempt,
++                pair[0].step,
++                pair[0].instance_no,
++            ),
++            to: (
++                pair[1].phase.clone(),
++                pair[1].attempt,
++                pair[1].step,
++                pair[1].instance_no,
++            ),
++            kind: EdgeKind::Forward,
++        })
++        .collect();
++
++    let command = finish_command(
++        &request(),
++        ChangeRunStatus::Completed,
++        None,
++        STARTED_AT,
++        &nodes,
++        &edges,
++    );
++
++    // 五节点零过滤（顺序 = 入参序、词面逐字）
++    assert_eq!(command.nodes.len(), 5, "五节点无静默丢弃");
++    let expect_words = ["phase_start", "clean", "static_check", "test_execution", "phase_log"];
++    for (index, word) in expect_words.iter().enumerate() {
++        assert_eq!(
++            command.nodes[index].step.as_str(),
++            *word,
++            "第 {index} 节点词面逐字（{word}）"
++        );
++        assert_eq!(command.nodes[index].phase, initialize_phase);
++    }
++    assert_eq!(command.nodes[1].step, workflow::state::RunStepKind::Clean);
++
++    // 串行 forward 边四条、端点逐位对齐
++    assert_eq!(command.edges.len(), 4, "串行 forward 边四条");
++    for (index, edge) in command.edges.iter().enumerate() {
++        assert_eq!(edge.edge_kind, workflow::state::RunEdgeKind::Forward);
++        assert_eq!(
++            edge.from_node_key,
++            format!("{initialize_phase}:1:{}:0", expect_words[index]),
++            "第 {index} 边 from 端点身份串"
++        );
++        assert_eq!(
++            edge.to_node_key,
++            format!("{initialize_phase}:1:{}:0", expect_words[index + 1]),
++            "第 {index} 边 to 端点身份串"
++        );
++    }
++}
++
+ /// mapped_step 新臂直映射（正向，worktree-cleanup-and-active-cap）：
+ /// `ChangeStepKind::Cleanup` → `RunStepKind::Cleanup` 1:1 直映射——`as_str()`
+ /// 同词面 `"cleanup"` 逐字（归档尽力步落库零过滤单点）。
+@@ -103,13 +212,13 @@ fn mapped_step_cleanup直映射_同词面逐字() {
+     assert_eq!(command.nodes[0].step.as_str(), "cleanup");
+ }
+ 
+-/// 二十值全词汇直映射：`ChangeStepKind` 与 `RunStepKind` 1:1 同词面全映射——流程
++/// 二十一值全词汇直映射：`ChangeStepKind` 与 `RunStepKind` 1:1 同词面全映射——流程
+ /// 面三步（phase_start / phase_log / 三门）不再被弃落，mutation_test 拆步新词
+-/// 在案、cleanup 尽力步新臂在案（编译面锚：`persisted_step` 符号缺席，引用即不
+-/// 编译，AC-3 退役面；AC-1 / AC-2 二十值零过滤——finish_command 落包
+-/// `nodes.len()==20` 零过滤，cleanup 节点在案、无静默丢弃）。
++/// 在案、cleanup 尽力步新臂在案、clean 基线恢复步新臂在案（编译面锚：`persisted_step`
++/// 符号缺席，引用即不编译，AC-3 退役面；AC-1 / AC-2 二十一值零过滤——finish_command
++/// 落包 `nodes.len()==21` 零过滤，cleanup / clean 节点在案、无静默丢弃）。
+ #[test]
+-fn 全词汇直映射二十值零过滤() {
++fn 全词汇直映射二十一值零过滤() {
+     let all = [
+         (
+             ChangeStepKind::Executor,
+@@ -135,6 +244,7 @@ fn 全词汇直映射二十值零过滤() {
+             ChangeStepKind::MutationTest,
+             workflow::state::RunStepKind::MutationTest,
+         ),
++        (ChangeStepKind::Clean, workflow::state::RunStepKind::Clean),
+         (
+             ChangeStepKind::PhaseStart,
+             workflow::state::RunStepKind::PhaseStart,
+@@ -180,7 +290,7 @@ fn 全词汇直映射二十值零过滤() {
+             workflow::state::RunStepKind::Finalize,
+         ),
+     ];
+-    assert_eq!(all.len(), 20, "二十值封闭集全枚举");
++    assert_eq!(all.len(), 21, "二十一值封闭集全枚举");
+ 
+     let nodes: Vec<ChangeStepState> = all
+         .iter()
+@@ -197,8 +307,8 @@ fn 全词汇直映射二十值零过滤() {
+ 
+     assert_eq!(
+         command.nodes.len(),
+-        20,
+-        "二十值全词汇零过滤（cleanup 节点在案）"
++        21,
++        "二十一值全词汇零过滤（cleanup / clean 节点在案）"
+     );
+     for (index, (_, expect)) in all.iter().enumerate() {
+         assert_eq!(command.nodes[index].step, *expect, "第 {index} 词汇直映射");
+@@ -217,6 +327,13 @@ fn 全词汇直映射二十值零过滤() {
+             .any(|node| node.step == workflow::state::RunStepKind::Cleanup),
+         "cleanup 尽力步新臂直映射在案（零静默丢弃）"
+     );
++    assert!(
++        command
++            .nodes
++            .iter()
++            .any(|node| node.step == workflow::state::RunStepKind::Clean),
++        "clean 基线恢复步新臂直映射在案（零静默丢弃）"
++    );
+     assert!(
+         command
+             .nodes
+@@ -233,7 +350,7 @@ fn 全词汇直映射二十值零过滤() {
+     );
+ 
+     // 双射校验（异常面 / 词汇同源不漂移）：无两个 ChangeStepKind 映到同一
+-    // RunStepKind（20 对互异即双射——两侧封闭集同势）
++    // RunStepKind（21 对互异即双射——两侧封闭集同势）
+     let mut mapped: Vec<&'static str> = command
+         .nodes
+         .iter()
+diff --git a/crates/core/orchestration/src/snapshot_test.rs b/crates/core/orchestration/src/snapshot_test.rs
+index 263768bb6732..1941ae6675b1 100644
+--- a/crates/core/orchestration/src/snapshot_test.rs
++++ b/crates/core/orchestration/src/snapshot_test.rs
+@@ -225,10 +225,10 @@ fn db读源detail按id寻址_与queries直调serde等值() {
+     );
+     assert_eq!(
+         detail.pipeline.len(),
+-        9,
+-        "requirement 9 站全量流水线（末列 archive；列序自 phase_table 出线）"
++        10,
++        "requirement 10 站全量流水线（initialize 表头 + 末列 archive；列序自 phase_table 出线）"
+     );
+-    let proposal = &detail.pipeline[0];
++    let proposal = &detail.pipeline[1];
+     assert_eq!(proposal.attempts.len(), 1);
+     assert_eq!(proposal.attempts[0].verdict, Verdict::Pass);
+     assert_eq!(proposal.attempts[0].checklist.len(), 1);
+@@ -238,7 +238,7 @@ fn db读源detail按id寻址_与queries直调serde等值() {
+         Some("sess-exec-proposal"),
+         "会话槽位三列自 PhaseRecord 直读透出"
+     );
+-    let implement = &detail.pipeline[3];
++    let implement = &detail.pipeline[4];
+     assert_eq!(implement.attempts[0].verdict, Verdict::Fail);
+     let active = detail
+         .active_phase
+diff --git a/crates/core/orchestration/src/state.rs b/crates/core/orchestration/src/state.rs
+index b588632c8c1e..39acbd014823 100644
+--- a/crates/core/orchestration/src/state.rs
++++ b/crates/core/orchestration/src/state.rs
+@@ -34,7 +34,8 @@ impl ChangeRunStatus {
+ /// 步词汇（四类节点可辨）：WorkerAgent 步（executor / evaluator / decision /
+ /// spec-sync / resolve-conflicts）+ 相位机 / 工具步（phase-start / phase-log /
+ /// static-check / test-execution / mutation-test / preflight / seal）+ Git 步
+-///（commit / rebase / merge / cleanup / finalize）+ Gate 三门。
++///（clean / commit / rebase / merge / cleanup / finalize——clean 为 initialize
++/// 基线恢复步）+ Gate 三门。
+ #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Type)]
+ #[serde(rename_all = "camelCase")]
+ pub enum ChangeStepKind {
+@@ -52,6 +53,8 @@ pub enum ChangeStepKind {
+     TestExecution,
+     /// mutation-test 门禁工具步（确定性突变执行链，独立反馈边②）
+     MutationTest,
++    /// initialize 基线恢复步（vcs）
++    Clean,
+     /// phase-log 相位机步
+     PhaseLog,
+     /// verdict 解析门
+@@ -92,6 +95,7 @@ impl ChangeStepKind {
+             ChangeStepKind::StaticCheck => "static_check",
+             ChangeStepKind::TestExecution => "test_execution",
+             ChangeStepKind::MutationTest => "mutation_test",
++            ChangeStepKind::Clean => "clean",
+             ChangeStepKind::PhaseLog => "phase_log",
+             ChangeStepKind::VerdictGate => "verdict_gate",
+             ChangeStepKind::RetryGate => "retry_gate",
+diff --git a/crates/core/orchestration/src/state_test.rs b/crates/core/orchestration/src/state_test.rs
+index 3cbe40d9b2e9..3b0bb5a758b3 100644
+--- a/crates/core/orchestration/src/state_test.rs
++++ b/crates/core/orchestration/src/state_test.rs
+@@ -1,7 +1,7 @@
+ //! `state.rs`（run 状态与步状态类型）的单元测试（test-design「state.rs ->
+ //! state_test.rs」节）：RunUpdate 五变体 `ipc` 信封线格式、SessionEvent /
+-//! Finished 载荷、ChangeRunStatus 终态矩阵、ChangeStepKind 二十值词汇（cleanup
+-//! 归 Git 组——camel 与 snake 同形词面）、ArchivePreflight 八字段停等载荷、
++//! Finished 载荷、ChangeRunStatus 终态矩阵、ChangeStepKind 二十一值词汇（cleanup
++//! 归 Git 组——camel 与 snake 同形词面；clean 基线恢复步新臂——camel 与 snake 同形）、ArchivePreflight 八字段停等载荷、
+ //! ConfirmWait 双态（archive 随行）、ChangeStepState 步状态行、
+ //! ChangeRunSnapshot / ChangeRunSummary 往返、specta Type 可达。无进程边界
+ //! 依赖：serde_json / specta 内存构造与出线断言，AgentEvent 载荷以
+@@ -214,9 +214,38 @@ fn 终态判别矩阵is_terminal互补() {
+ }
+ 
+ // ---------------------------------------------------------------------------
+-// ChangeStepKind 二十值词汇（四类可辨，含归档 9 步词与拆步新词 mutationTest）
++// ChangeStepKind 二十一值词汇（四类可辨，含归档 9 步词、拆步新词 mutationTest
++// 与 initialize 基线恢复步 clean）
+ // ---------------------------------------------------------------------------
+ 
++/// `ChangeStepKind::Clean` 新臂正向：camelCase 线词 `clean` 与 snake 身份串词同形
++/// 逐字；`"clean"` 双向派生往返等值；与 workflow 落库侧 `RunStepKind::Clean`
++/// 身份串词面逐字同源（对拍表补行——AC-2 跨侧零映射）。
++#[test]
++fn change_step_kind_clean基线恢复步新臂camel同形与同源() {
++    let wire = serde_json::to_value(ChangeStepKind::Clean).expect("词汇出线应成功");
++    assert_eq!(
++        wire,
++        json!("clean"),
++        "clean camelCase 线词与 snake 身份串词同形逐字（identity 词）"
++    );
++    assert_eq!(ChangeStepKind::Clean.as_str(), "clean");
++
++    // 双向派生往返等值（rename_all camelCase 线格式持衡）
++    let back: ChangeStepKind =
++        serde_json::from_value(json!("clean")).expect("clean 往返应成功");
++    assert_eq!(back, ChangeStepKind::Clean);
++    let round_trip = serde_json::to_value(back).expect("再出线应成功");
++    assert_eq!(round_trip, json!("clean"), "往返出线词面恒定");
++
++    // 与 workflow 落库侧同词面（身份串跨侧逐字可比——对拍表补行）
++    assert_eq!(
++        ChangeStepKind::Clean.as_str(),
++        workflow::state::RunStepKind::Clean.as_str(),
++        "ChangeStepKind::Clean 与 RunStepKind::Clean 身份串词面逐字同源"
++    );
++}
++
+ /// 归档 9 步词的 `camelCase` 线面（与 snake_case `as_str()` 逐字对应；
+ /// 词面单点与 workflow `RunStepKind::as_str()` 同源，AC-2）。
+ #[test]
+@@ -270,10 +299,11 @@ fn change_step_kind归档九步词camelcase与snake同源() {
+     }
+ }
+ 
+-/// 非法词反序列化拒绝（异常）：二十值封闭集之外的词形（snake 词 / kebab 词 /
++/// 非法词反序列化拒绝（异常）：二十一值封闭集之外的词形（snake 词 / kebab 词 /
+ /// 近似词 / 空串 / 超长串 / 含换行与 emoji 的词）一律 `Err`（AC-2 线面契约守卫
+ /// ——camelCase 封闭集不吞词；cleanup 扩词不松动防线：clean-up / cleanUp 等
+-/// 近似词仍拒）。
++/// 近似词仍拒；clean 扩词同不松动——clear / clean step / 大写 Clean 仍拒，
++/// "clean" 本词已合法入集）。
+ #[test]
+ fn change_step_kind非法词反序列化拒绝() {
+     let long_word = "mutation".repeat(200);
+@@ -291,6 +321,9 @@ fn change_step_kind非法词反序列化拒绝() {
+         "MutationTest",
+         "clean-up",
+         "cleanUp",
++        "clear",
++        "clean step",
++        "Clean",
+         "cleanupStep",
+         "Cleanup",
+         "",
+@@ -305,7 +338,7 @@ fn change_step_kind非法词反序列化拒绝() {
+ }
+ 
+ #[test]
+-fn change_step_kind二十值词汇线格式逐字且四类可辨() {
++fn change_step_kind二十一值词汇线格式逐字且四类可辨() {
+     let wire = |kind: ChangeStepKind| serde_json::to_value(kind).expect("词汇出线应成功");
+ 
+     // WorkerAgent 五角色（含归档两会话步）
+@@ -327,10 +360,17 @@ fn change_step_kind二十值词汇线格式逐字且四类可辨() {
+         "突变门禁步 camelCase 线词（拆步新词——mutationTest ↔ mutation_test 归一在案）"
+     );
+     assert_eq!(ChangeStepKind::MutationTest.as_str(), "mutation_test");
++    // clean 基线恢复步（camel 与 snake 同形——identity 词）
++    assert_eq!(
++        wire(ChangeStepKind::Clean),
++        json!("clean"),
++        "clean 基线恢复步词面（camel 与 snake 同形逐字）"
++    );
++    assert_eq!(ChangeStepKind::Clean.as_str(), "clean");
+     assert_eq!(wire(ChangeStepKind::PhaseLog), json!("phaseLog"));
+     assert_eq!(wire(ChangeStepKind::Preflight), json!("preflight"));
+     assert_eq!(wire(ChangeStepKind::Seal), json!("seal"));
+-    // Git 五步（cleanup 尽力步入组——cleanup camel 与 snake 同形）
++    // Git 六步（cleanup 尽力步与 clean 基线恢复步入组——两词 camel 与 snake 同形）
+     assert_eq!(wire(ChangeStepKind::Commit), json!("commit"));
+     assert_eq!(wire(ChangeStepKind::Rebase), json!("rebase"));
+     assert_eq!(wire(ChangeStepKind::Merge), json!("merge"));
+@@ -346,7 +386,7 @@ fn change_step_kind二十值词汇线格式逐字且四类可辨() {
+     assert_eq!(wire(ChangeStepKind::RetryGate), json!("retryGate"));
+     assert_eq!(wire(ChangeStepKind::WhitelistGate), json!("whitelistGate"));
+ 
+-    // 四类可辨（二十值互异）
++    // 四类可辨（二十一值互异）
+     let all = [
+         ChangeStepKind::Executor,
+         ChangeStepKind::Evaluator,
+@@ -355,6 +395,7 @@ fn change_step_kind二十值词汇线格式逐字且四类可辨() {
+         ChangeStepKind::StaticCheck,
+         ChangeStepKind::TestExecution,
+         ChangeStepKind::MutationTest,
++        ChangeStepKind::Clean,
+         ChangeStepKind::PhaseLog,
+         ChangeStepKind::VerdictGate,
+         ChangeStepKind::RetryGate,
+@@ -369,14 +410,14 @@ fn change_step_kind二十值词汇线格式逐字且四类可辨() {
+         ChangeStepKind::Seal,
+         ChangeStepKind::Finalize,
+     ];
+-    assert_eq!(all.len(), 20, "二十值穷举无遗漏");
++    assert_eq!(all.len(), 21, "二十一值穷举无遗漏");
+     let mut wires: Vec<String> = all
+         .iter()
+         .map(|kind| wire(*kind).as_str().expect("串值").to_owned())
+         .collect();
+     wires.sort();
+     wires.dedup();
+-    assert_eq!(wires.len(), 20, "二十值词汇互异（四类节点可辨）");
++    assert_eq!(wires.len(), 21, "二十一值词汇互异（四类节点可辨）");
+ 
+     // 身份串词面与 workflow 落库侧 `RunStepKind::as_str()` 逐字同源
+     for (kind, step_kind) in [
+@@ -399,6 +440,7 @@ fn change_step_kind二十值词汇线格式逐字且四类可辨() {
+             ChangeStepKind::Cleanup,
+             workflow::state::RunStepKind::Cleanup,
+         ),
++        (ChangeStepKind::Clean, workflow::state::RunStepKind::Clean),
+         (ChangeStepKind::Seal, workflow::state::RunStepKind::Seal),
+         (
+             ChangeStepKind::Finalize,
+@@ -542,7 +584,7 @@ fn specta_type可达编译期锚定() {
+ // ---------------------------------------------------------------------------
+ 
+ /// 正向：TestExecution 出线 `testExecution` camelCase 逐字断言（serde
+-/// rename_all camelCase 线格式；二十值封闭集下专词断言持衡）。
++/// rename_all camelCase 线格式；二十一值封闭集下专词断言持衡）。
+ #[test]
+ fn change_step_kind专词_testexecution出线逐字() {
+     let wire = serde_json::to_value(ChangeStepKind::TestExecution).expect("词汇出线应成功");
+@@ -558,11 +600,11 @@ fn change_step_kind专词_testexecution出线逐字() {
+     assert_eq!(back, ChangeStepKind::TestExecution, "新变体双向派生可用");
+ }
+ 
+-/// 边界：二十值词汇互异（camelCase 判别值集合无碰撞——四类节点可辨不变量
+-/// 保持：WorkerAgent 五角色 + ToolStep 六步（含 mutationTest）+ Git 五步（含
+-/// cleanup）+ Gate 三门）。
++/// 边界：二十一值词汇互异（camelCase 判别值集合无碰撞——四类节点可辨不变量
++/// 保持：WorkerAgent 五角色 + ToolStep 六步（含 mutationTest）+ Git 六步（含
++/// cleanup 与 clean）+ Gate 三门）。
+ #[test]
+-fn change_step_kind二十值词汇互异无碰撞() {
++fn change_step_kind二十一值词汇互异无碰撞() {
+     let all = [
+         ChangeStepKind::Executor,
+         ChangeStepKind::Evaluator,
+@@ -571,6 +613,7 @@ fn change_step_kind二十值词汇互异无碰撞() {
+         ChangeStepKind::StaticCheck,
+         ChangeStepKind::TestExecution,
+         ChangeStepKind::MutationTest,
++        ChangeStepKind::Clean,
+         ChangeStepKind::PhaseLog,
+         ChangeStepKind::VerdictGate,
+         ChangeStepKind::RetryGate,
+@@ -600,8 +643,8 @@ fn change_step_kind二十值词汇互异无碰撞() {
+     sorted.dedup();
+     assert_eq!(
+         sorted.len(),
+-        20,
+-        "二十值词汇互异（无 camelCase 碰撞），实际: {wires:?}"
++        21,
++        "二十一值词汇互异（无 camelCase 碰撞），实际: {wires:?}"
+     );
+ }
+ 
+diff --git a/crates/core/orchestration/src/steps.rs b/crates/core/orchestration/src/steps.rs
+index 17aef57caa30..610267d06c3b 100644
+--- a/crates/core/orchestration/src/steps.rs
++++ b/crates/core/orchestration/src/steps.rs
+@@ -192,11 +192,12 @@ async fn execute(
+             );
+             Ok(ToolStepOutput::DecisionLog(outcome?))
+         }
+-        ToolCommand::StaticCheck { change_id } => {
++        ToolCommand::StaticCheck { change_id, slot } => {
+             // 审计行 change_id 归键（命令载荷携 id——空串占位退役，逐条
+             // change id 可枚举），run_id 仍串链本 run 步骤序列
+-            // 磁盘面 port 收 name（输出记录目录派生为 name 化）：消费点经
+-            // id → 记录 → name 解析（未建档显式 Err，与 TestExecution 分支同式）
++            // 磁盘面 port 收 name（输出记录目录派生为 name 化、报告槽位随命令
++            // 载荷透传）：消费点经 id → 记录 → name 解析（未建档显式 Err，与
++            // TestExecution 分支同式）
+             let name = store
+                 .get_change(&change_id)
+                 .map_err(|error| error.to_string())?
+@@ -204,7 +205,7 @@ async fn execute(
+                 .ok_or_else(|| {
+                     format!("change \"{change_id}\" 未建档（无 ChangeRecord），无从执行静态检查")
+                 })?;
+-            let output = static_check.run(&step.root, &name).await;
++            let output = static_check.run(&step.root, &name, slot).await;
+             audit_outcome(
+                 store.as_ref(),
+                 &run_id,
+@@ -220,9 +221,9 @@ async fn execute(
+             );
+             output
+         }
+-        ToolCommand::TestExecution { change_id } => {
+-            // 磁盘面 port 收 name（报告目录派生为 name 化）：消费点经
+-            // id → 记录 → name 解析（未建档显式 Err）
++        ToolCommand::TestExecution { change_id, slot } => {
++            // 磁盘面 port 收 name（报告目录派生为 name 化、报告槽位随命令载荷
++            // 透传）：消费点经 id → 记录 → name 解析（未建档显式 Err）
+             let name = store
+                 .get_change(&change_id)
+                 .map_err(|error| error.to_string())?
+@@ -230,7 +231,7 @@ async fn execute(
+                 .ok_or_else(|| {
+                     format!("change \"{change_id}\" 未建档（无 ChangeRecord），无从执行测试门禁")
+                 })?;
+-            let output = test_execution.run(&step.root, &name).await;
++            let output = test_execution.run(&step.root, &name, slot).await;
+             audit_outcome(
+                 store.as_ref(),
+                 &run_id,
+diff --git a/crates/core/orchestration/src/steps_test.rs b/crates/core/orchestration/src/steps_test.rs
+index ace699caa637..1c86f02b6868 100644
+--- a/crates/core/orchestration/src/steps_test.rs
++++ b/crates/core/orchestration/src/steps_test.rs
+@@ -32,6 +32,7 @@ use crate::port::{
+     TestExecutionConclusion, TestExecutionOutcome, TestExecutionRunner, ToolCommand,
+     ToolStepOutput, ToolStepPort, ToolStepRequest, WorktreeSnapshot,
+ };
++use foundation::layout::ReportSlot;
+ use crate::steps::LocalToolSteps;
+ 
+ /// 固定 change **id** 字面量（命令载荷定位键 / 审计行归键 / store 寻址入参
+@@ -426,10 +427,11 @@ impl ChangeStateStore for FakeStore {
+ // 装置：假 runner（StaticCheckRunner / TestExecutionRunner 既有假件沿用）
+ // ---------------------------------------------------------------------------
+ 
+-/// 假 StaticCheckRunner：记录 `(root, name)` 双参调用、可编程产出 / Err(String)
+-///（磁盘面 port 收 name——id → 记录 → name 的解析在 steps 消费点）。
++/// 假 StaticCheckRunner：记录 `(root, name, slot)` 三元组调用、可编程产出 /
++/// Err(String)（磁盘面 port 收 name——id → 记录 → name 的解析在 steps 消费点；
++/// slot 报告槽位透传——check-before-flow-start）。
+ struct FakeRunner {
+-    calls: Mutex<Vec<(String, String)>>,
++    calls: Mutex<Vec<(String, String, ReportSlot)>>,
+     result: Result<StaticCheckOutcome, String>,
+ }
+ 
+@@ -440,6 +442,7 @@ impl FakeRunner {
+             diagnostics: String::new(),
+             // 默认 recorded：引用随产出回填（落盘失败 / 零 spawn 才 None）
+             output_ref: Some("exec-1727000000000-1".to_owned()),
++            report_dir: String::new(),
+         }))
+     }
+ 
+@@ -448,6 +451,7 @@ impl FakeRunner {
+             passed: false,
+             diagnostics: diagnostics.to_owned(),
+             output_ref: Some("exec-1727000000000-2".to_owned()),
++            report_dir: String::new(),
+         }))
+     }
+ 
+@@ -463,27 +467,27 @@ impl FakeRunner {
+         Self::with_result(Err(message.to_owned()))
+     }
+ 
+-    /// 调用记录快照（root / name 透传断言面）。
+-    fn calls(&self) -> Vec<(String, String)> {
++    /// 调用记录快照（root / name / slot 透传断言面）。
++    fn calls(&self) -> Vec<(String, String, ReportSlot)> {
+         self.calls.lock().expect("calls 锁不可中毒").clone()
+     }
+ }
+ 
+ impl StaticCheckRunner for FakeRunner {
+-    fn run(&self, root: &str, name: &str) -> BoxToolFuture {
++    fn run(&self, root: &str, name: &str, slot: ReportSlot) -> BoxToolFuture {
+         self.calls
+             .lock()
+             .expect("calls 锁不可中毒")
+-            .push((root.to_owned(), name.to_owned()));
++            .push((root.to_owned(), name.to_owned(), slot));
+         let result = self.result.clone();
+         Box::pin(async move { result.map(ToolStepOutput::StaticCheck) })
+     }
+ }
+ 
+-/// 可编程 TestExecutionRunner：记录 root / name 调用、可编程产出 / Err
+-///（磁盘面 port 收 name——解析在 steps 消费点）。
++/// 可编程 TestExecutionRunner：记录 root / name / slot 三元组调用、可编程产出 /
++/// Err（磁盘面 port 收 name——解析在 steps 消费点；slot 报告槽位透传）。
+ struct FakeTestExecutionRunner {
+-    calls: Arc<Mutex<Vec<(String, String)>>>,
++    calls: Arc<Mutex<Vec<(String, String, ReportSlot)>>>,
+     result: Result<TestExecutionOutcome, String>,
+ }
+ 
+@@ -513,18 +517,18 @@ impl FakeTestExecutionRunner {
+         Self::with_result(Err(message.to_owned()))
+     }
+ 
+-    /// 调用记录快照（root / name 透传断言面）。
+-    fn calls(&self) -> Vec<(String, String)> {
++    /// 调用记录快照（root / name / slot 透传断言面）。
++    fn calls(&self) -> Vec<(String, String, ReportSlot)> {
+         self.calls.lock().expect("calls 锁不可中毒").clone()
+     }
+ }
+ 
+ impl TestExecutionRunner for FakeTestExecutionRunner {
+-    fn run(&self, root: &str, name: &str) -> BoxToolFuture {
++    fn run(&self, root: &str, name: &str, slot: ReportSlot) -> BoxToolFuture {
+         self.calls
+             .lock()
+             .expect("calls 锁不可中毒")
+-            .push((root.to_owned(), name.to_owned()));
++            .push((root.to_owned(), name.to_owned(), slot));
+         let result = self.result.clone();
+         Box::pin(async move { result.map(ToolStepOutput::TestExecution) })
+     }
+@@ -806,6 +810,15 @@ impl ArchiveVcsPort for FakeVcs {
+         self.record("remove_worktree");
+         Ok(())
+     }
++
++    fn restore_baseline(
++        &self,
++        _worktree: &std::path::Path,
++        _exclusions: &[&str],
++    ) -> Result<String, String> {
++        self.record("restore_baseline");
++        Ok("基线已恢复".to_owned())
++    }
+ }
+ 
+ /// 可编程 MutationRunner 假件（记录四参 + 可编程产出 / Err——MutationTest 臂
+@@ -1028,6 +1041,7 @@ async fn drive_seven_arms(db: &TestDb, run_id: &str) -> Vec<StepStateRecord> {
+         &assembled.steps,
+         ToolCommand::StaticCheck {
+             change_id: CHANGE_ID.to_owned(),
++            slot: ReportSlot::Test,
+         },
+     )
+     .await;
+@@ -1035,6 +1049,7 @@ async fn drive_seven_arms(db: &TestDb, run_id: &str) -> Vec<StepStateRecord> {
+         &assembled.steps,
+         ToolCommand::TestExecution {
+             change_id: CHANGE_ID.to_owned(),
++            slot: ReportSlot::Test,
+         },
+     )
+     .await;
+@@ -1182,6 +1197,7 @@ async fn 成功臂与失败臂皆落行_error行携记因() {
+             root: ROOT.to_owned(),
+             command: ToolCommand::StaticCheck {
+                 change_id: CHANGE_ID.to_owned(),
++                slot: ReportSlot::Test,
+             },
+         })
+         .await
+@@ -1251,6 +1267,7 @@ async fn test_execution臂经记录解析name_未建档零发起() {
+         &assembled.steps,
+         ToolCommand::TestExecution {
+             change_id: CHANGE_ID.to_owned(),
++            slot: ReportSlot::Test,
+         },
+     )
+     .await;
+@@ -1260,8 +1277,8 @@ async fn test_execution臂经记录解析name_未建档零发起() {
+     );
+     assert_eq!(
+         assembled.execution.calls(),
+-        [(ROOT.to_owned(), NAME.to_owned())],
+-        "runner 入参为解析后的 record.name（非寻址 id）"
++        [(ROOT.to_owned(), NAME.to_owned(), ReportSlot::Test)],
++        "runner 入参为解析后的 record.name 与缺省槽位（非寻址 id）"
+     );
+ 
+     // 未建档 id：显式 Err 且 runner 零调用（调用数不增）
+@@ -1271,6 +1288,7 @@ async fn test_execution臂经记录解析name_未建档零发起() {
+             root: ROOT.to_owned(),
+             command: ToolCommand::TestExecution {
+                 change_id: "unregistered-id".to_owned(),
++                slot: ReportSlot::Test,
+             },
+         })
+         .await
+@@ -1504,6 +1522,7 @@ async fn 摘要截断_超五百字符截断留痕且恰五百不截断() {
+             root: ROOT.to_owned(),
+             command: ToolCommand::TestExecution {
+                 change_id: CHANGE_ID.to_owned(),
++                slot: ReportSlot::Test,
+             },
+         })
+         .await
+@@ -1515,6 +1534,7 @@ async fn 摘要截断_超五百字符截断留痕且恰五百不截断() {
+             root: ROOT.to_owned(),
+             command: ToolCommand::StaticCheck {
+                 change_id: CHANGE_ID.to_owned(),
++                slot: ReportSlot::Test,
+             },
+         })
+         .await
+@@ -1640,6 +1660,24 @@ async fn store故障_审计落行失败不阻断臂业务结果() {
+         base_commit: None,
+     })
+     .expect("建档种子应成功");
++    // initialize 表头 pass 条目预置（路由跳过表头——本用例聚焦 proposal 站臂）
++    let started = fake
++        .start_phase(CHANGE_ID, "initialize", TS_BASE)
++        .expect("开相种子应成功");
++    fake.log_phase(&PhaseLogCommand {
++        change_id: CHANGE_ID.to_owned(),
++        phase: "initialize".to_owned(),
++        verdict: workflow::model::Verdict::Pass,
++        report: "基线检查通过".to_owned(),
++        skipped: false,
++        checklist: Vec::new(),
++        executor_session_id: None,
++        evaluator_session_id: None,
++        decision_session_id: None,
++        start_at: Some(started.start_at),
++        timestamp: TS_BASE + 30_000,
++    })
++    .expect("落账种子应成功");
+     let assembled = assemble(
+         Arc::clone(&fake) as Arc<dyn ChangeStateStore>,
+         "run-audit-fault",
+@@ -1665,6 +1703,7 @@ async fn store故障_审计落行失败不阻断臂业务结果() {
+         &assembled.steps,
+         ToolCommand::StaticCheck {
+             change_id: CHANGE_ID.to_owned(),
++            slot: ReportSlot::Test,
+         },
+     )
+     .await;
+@@ -1713,6 +1752,28 @@ async fn store故障_读路径fault经臂err上抛() {
+ async fn phase_next步链路直调写面产出与直调一致() {
+     let db = TestDb::open("direct-next");
+     seed_change(db.store.as_ref(), CHANGE_ID, NAME, "requirement");
++    // initialize 表头 pass 条目预置（路由跳过表头——与直调写面对拍同态）
++    {
++        let started = db
++            .store
++            .start_change_phase(CHANGE_ID, "initialize", TS_BASE)
++            .expect("开相种子应成功");
++        db.store
++            .log_change_phase(&PhaseLogCommand {
++                change_id: CHANGE_ID.to_owned(),
++                phase: "initialize".to_owned(),
++                verdict: workflow::model::Verdict::Pass,
++                report: "基线检查通过".to_owned(),
++                skipped: false,
++                checklist: Vec::new(),
++                executor_session_id: None,
++                evaluator_session_id: None,
++                decision_session_id: None,
++                start_at: Some(started.start_at),
++                timestamp: TS_BASE + 30_000,
++            })
++            .expect("落账种子应成功");
++    }
+     let assembled = assemble(
+         db.store_arc(),
+         "run-1",
+@@ -1975,6 +2036,7 @@ async fn static_check步委托注入runner且root与name透传() {
+         &assembled.steps,
+         ToolCommand::StaticCheck {
+             change_id: CHANGE_ID.to_owned(),
++            slot: ReportSlot::Test,
+         },
+     )
+     .await;
+@@ -1995,8 +2057,8 @@ async fn static_check步委托注入runner且root与name透传() {
+     }
+     assert_eq!(
+         assembled.static_check.calls(),
+-        [(ROOT.to_owned(), NAME.to_owned())],
+-        "root / name 双参透传注入 runner（spawn cwd 与记录目录派生语义；name 非寻址 id）"
++        [(ROOT.to_owned(), NAME.to_owned(), ReportSlot::Test)],
++        "root / name / slot 三元组透传注入 runner（spawn cwd、记录目录派生与报告槽位语义；name 非寻址 id）"
+     );
+     // 审计行：StepKind::StaticCheck 落库（id 归键 + 摘要）
+     let rows = db
+@@ -2026,6 +2088,7 @@ async fn static_check两分支产出均携输出引用() {
+         &passing.steps,
+         ToolCommand::StaticCheck {
+             change_id: CHANGE_ID.to_owned(),
++            slot: ReportSlot::Test,
+         },
+     )
+     .await;
+@@ -2051,6 +2114,7 @@ async fn static_check两分支产出均携输出引用() {
+         &failing.steps,
+         ToolCommand::StaticCheck {
+             change_id: CHANGE_ID.to_owned(),
++            slot: ReportSlot::Test,
+         },
+     )
+     .await;
+@@ -2096,6 +2160,7 @@ async fn static_check未建档显式err且零发起() {
+             root: ROOT.to_owned(),
+             command: ToolCommand::StaticCheck {
+                 change_id: "unregistered-id".to_owned(),
++                slot: ReportSlot::Test,
+             },
+         })
+         .await
+@@ -2132,6 +2197,7 @@ async fn static_check读故障err传播且零发起() {
+             root: ROOT.to_owned(),
+             command: ToolCommand::StaticCheck {
+                 change_id: CHANGE_ID.to_owned(),
++                slot: ReportSlot::Test,
+             },
+         })
+         .await
+@@ -2167,6 +2233,7 @@ async fn static_check同名形态与重复调用各自解析() {
+             &assembled.steps,
+             ToolCommand::StaticCheck {
+                 change_id: "same-name".to_owned(),
++                slot: ReportSlot::Test,
+             },
+         )
+         .await;
+@@ -2174,9 +2241,10 @@ async fn static_check同名形态与重复调用各自解析() {
+ 
+     let calls = assembled.static_check.calls();
+     assert_eq!(calls.len(), 2, "重复调用各自解析、每次一发（无副作用）");
+-    for (root, name) in &calls {
++    for (root, name, slot) in &calls {
+         assert_eq!(root, ROOT, "root 逐次透传");
+         assert_eq!(name, "same-name", "id == name 形态解析逐字等于 id（零漂移）");
++        assert_eq!(slot, &ReportSlot::Test, "slot 缺省槽位透传（零语义漂移）");
+     }
+     let rows = db
+         .store
+@@ -2275,6 +2343,7 @@ async fn runner_err原样透传() {
+             root: ROOT.to_owned(),
+             command: ToolCommand::StaticCheck {
+                 change_id: CHANGE_ID.to_owned(),
++                slot: ReportSlot::Test,
+             },
+         })
+         .await
+@@ -2388,6 +2457,7 @@ async fn 七缝构造三runner注入_分发臂委托() {
+         &assembled.steps,
+         ToolCommand::TestExecution {
+             change_id: CHANGE_ID.to_owned(),
++            slot: ReportSlot::Test,
+         },
+     )
+     .await;
+@@ -2410,8 +2480,8 @@ async fn 七缝构造三runner注入_分发臂委托() {
+     }
+     assert_eq!(
+         assembled.execution.calls(),
+-        [(ROOT.to_owned(), NAME.to_owned())],
+-        "root / name 透传注入 runner（解析后的 record.name，与 StaticCheck 臂同型）"
++        [(ROOT.to_owned(), NAME.to_owned(), ReportSlot::Test)],
++        "root / name / slot 透传注入 runner（解析后的 record.name，与 StaticCheck 臂同型）"
+     );
+ }
+ 
+@@ -2434,6 +2504,7 @@ async fn test_execution_runner_err原样上抛() {
+             root: ROOT.to_owned(),
+             command: ToolCommand::TestExecution {
+                 change_id: CHANGE_ID.to_owned(),
++                slot: ReportSlot::Test,
+             },
+         })
+         .await
+@@ -2558,8 +2629,9 @@ async fn archive_preflight分支完成度与探测载荷自store与vcs() {
+         vcs.calls()
+     );
+ 
+-    // 开相落账全表 → completed=true、未过清单清空
++    // 开相落账全表（initialize 表头先行）→ completed=true、未过清单清空
+     for (index, phase) in [
++        "initialize",
+         "proposal",
+         "dev-design",
+         "test-design",
+@@ -3337,3 +3409,198 @@ async fn mutation_test臂同名形态与空清单透传与重复调用() {
+         "重复调用 runner 计数递增（每次独立取数注入）"
+     );
+ }
++
++// ---------------------------------------------------------------------------
++// slot 槽位透传（check-before-flow-start）：StaticCheck / TestExecution 两分支
++// slot 三元组透传 + 缺省槽位回归 + baseline 审计行（Mock策略：FakeRunner /
++// FakeTestExecutionRunner 沿既有假件扩展 slot 记录——runner trait 为注入依赖）
++// ---------------------------------------------------------------------------
++
++/// execute slot 透传（正向，枚举遍历）：`ToolCommand::StaticCheck { slot }` →
++/// FakeRunner 收 `(root, name, slot)` 三元组原样——slot=Baseline 基线槽位 /
++/// slot=Test 缺省槽位两值枚举遍历；TestExecution 分支同式经
++/// FakeTestExecutionRunner 断言（id → 记录 → name 解析单点照常）。
++#[tokio::test]
++async fn execute_slot透传_static与execution两分支三元组原样() {
++    let fake = Arc::new(FakeStore::new());
++    fake.seed_change(CHANGE_ID, NAME);
++
++    for slot in [ReportSlot::Test, ReportSlot::Baseline] {
++        // StaticCheck 分支：slot 原样到达注入 runner
++        let assembled = assemble(
++            Arc::clone(&fake) as Arc<dyn ChangeStateStore>,
++            "run-slot-static",
++            FakeRunner::passing(),
++            FakeTestExecutionRunner::passing(),
++        );
++        let output = run_step(
++            &assembled.steps,
++            ToolCommand::StaticCheck {
++                change_id: CHANGE_ID.to_owned(),
++                slot,
++            },
++        )
++        .await;
++        assert!(
++            matches!(output, ToolStepOutput::StaticCheck(_)),
++            "slot={slot:?} StaticCheck 产出可达"
++        );
++        assert_eq!(
++            assembled.static_check.calls(),
++            [(ROOT.to_owned(), NAME.to_owned(), slot)],
++            "slot={slot:?} 三元组原样到达 FakeRunner（零改写零换序）"
++        );
++
++        // TestExecution 分支：同式透传
++        let assembled = assemble(
++            Arc::clone(&fake) as Arc<dyn ChangeStateStore>,
++            "run-slot-execution",
++            FakeRunner::passing(),
++            FakeTestExecutionRunner::passing(),
++        );
++        let output = run_step(
++            &assembled.steps,
++            ToolCommand::TestExecution {
++                change_id: CHANGE_ID.to_owned(),
++                slot,
++            },
++        )
++        .await;
++        assert!(
++            matches!(output, ToolStepOutput::TestExecution(_)),
++            "slot={slot:?} TestExecution 产出可达"
++        );
++        assert_eq!(
++            assembled.execution.calls(),
++            [(ROOT.to_owned(), NAME.to_owned(), slot)],
++            "slot={slot:?} 三元组原样到达 FakeTestExecutionRunner"
++        );
++    }
++}
++
++/// execute slot 透传（边界，回归锚）：slot=Test 缺省槽位行为与本变更前逐字节
++/// 一致（签名扩展零语义漂移——产出与审计行回归持衡）；id ≠ name 形态下 name
++/// 解析单点照常（解析面零改动锚）；解析 miss 既有 Err 语义持衡（slot 透传不
++/// 改变解析失败面）。
++#[tokio::test]
++async fn execute_slot缺省回归与解析miss语义持衡() {
++    let fake = Arc::new(FakeStore::new());
++    fake.seed_change(CHANGE_ID, NAME);
++    let assembled = assemble(
++        Arc::clone(&fake) as Arc<dyn ChangeStateStore>,
++        "run-default-slot",
++        FakeRunner::passing(),
++        FakeTestExecutionRunner::passing(),
++    );
++
++    // slot=Test：产出与既有形态一致（StaticCheck 变体 + passed 载荷）
++    let output = run_step(
++        &assembled.steps,
++        ToolCommand::StaticCheck {
++            change_id: CHANGE_ID.to_owned(),
++            slot: ReportSlot::Test,
++        },
++    )
++    .await;
++    match output {
++        ToolStepOutput::StaticCheck(outcome) => {
++            assert!(outcome.passed, "passed 载荷零漂移");
++            assert_eq!(
++                outcome.output_ref.as_deref(),
++                Some("exec-1727000000000-1"),
++                "output_ref 透传零漂移"
++            );
++        }
++        other => panic!("产出漂移: {other:?}"),
++    }
++    // id ≠ name 解析单点：runner 收 name 非寻址 id
++    let calls = assembled.static_check.calls();
++    let (root, name, slot) = &calls[0];
++    assert_eq!(root, ROOT);
++    assert_eq!(name, NAME, "id → 记录 → name 解析单点照常");
++    assert_ne!(name, CHANGE_ID, "name ≠ id 形态（解析面零改动锚）");
++    assert_eq!(slot, &ReportSlot::Test);
++
++    // 解析 miss：既有 Err 语义持衡（记因含未建档语汇、runner 零调用）
++    let err = assembled
++        .steps
++        .run(ToolStepRequest {
++            root: ROOT.to_owned(),
++            command: ToolCommand::StaticCheck {
++                change_id: "ghost-id".to_owned(),
++                slot: ReportSlot::Baseline,
++            },
++        })
++        .await
++        .expect_err("未建档 id 应 Err");
++    assert!(
++        err.contains("ghost-id") && err.contains("未建档"),
++        "解析 miss 记因显式: {err}"
++    );
++    assert_eq!(
++        assembled.static_check.calls().len(),
++        1,
++        "解析 miss 零发起（调用数不增）"
++    );
++}
++
++/// execute 审计行（正向）：baseline 槽位 static_check / test_execution 步照常落
++/// `StepRecord` 审计行——test_execution 行 reference 携 baseline report_dir（产出
++/// 载荷 report_dir 直透——审计面零改动回归）。
++#[tokio::test]
++async fn execute_baseline槽位审计行照常落库() {
++    let db = TestDb::open("baseline-audit");
++    seed_change(db.store.as_ref(), CHANGE_ID, NAME, "requirement");
++    let baseline_report_dir = "C:/ws/openspec/changes/demo/openspec/changes/demo/reports/baseline";
++    // 可编程产出携 baseline report_dir（reference 供给面）
++    let execution = FakeTestExecutionRunner::with_result(Ok(TestExecutionOutcome {
++        conclusion: TestExecutionConclusion::Pass,
++        total: 5,
++        passed: 5,
++        failed: 0,
++        skipped: 0,
++        findings_brief: "全绿".to_owned(),
++        findings_detail: String::new(),
++        report_dir: baseline_report_dir.to_owned(),
++        exec_id: String::new(),
++    }));
++    let assembled = assemble(
++        db.store_arc(),
++        "run-baseline",
++        FakeRunner::passing(),
++        execution,
++    );
++
++    // baseline 槽位两检查步照常执行 + 审计行落库
++    run_step(
++        &assembled.steps,
++        ToolCommand::StaticCheck {
++            change_id: CHANGE_ID.to_owned(),
++            slot: ReportSlot::Baseline,
++        },
++    )
++    .await;
++    run_step(
++        &assembled.steps,
++        ToolCommand::TestExecution {
++            change_id: CHANGE_ID.to_owned(),
++            slot: ReportSlot::Baseline,
++        },
++    )
++    .await;
++
++    let rows = db
++        .store
++        .list_change_steps(CHANGE_ID, Some("run-baseline"))
++        .expect("读审计行应成功");
++    assert_eq!(rows.len(), 2, "baseline 槽位两步各落一条审计行（审计面零改动）");
++    assert_eq!(rows[0].step_kind, StepKind::StaticCheck);
++    assert_eq!(rows[0].status, "ok");
++    assert_eq!(rows[1].step_kind, StepKind::TestExecution);
++    assert_eq!(rows[1].status, "ok");
++    assert_eq!(
++        rows[1].reference.as_deref(),
++        Some(baseline_report_dir),
++        "test_execution 审计行 reference 携 baseline report_dir（直透零改写）"
++    );
++}
+diff --git a/crates/core/orchestration/src/walker.rs b/crates/core/orchestration/src/walker.rs
+index 4071bd3fb4c4..9e38f08075f6 100644
+--- a/crates/core/orchestration/src/walker.rs
++++ b/crates/core/orchestration/src/walker.rs
+@@ -2,12 +2,13 @@ use std::path::Path;
+ use std::sync::Arc;
+ 
+ use agent::{sum_usage_tokens, AgentPermissionMode, AgentRunStatus, ModelLevel, SessionProvenance};
+-use foundation::layout::domain_dir_name;
++use foundation::layout::{domain_dir_name, ReportSlot};
+ use workflow::model::{ChecklistItem, Verdict};
+ use workflow::queries::ChangeDetail;
+ use workflow::write::{
+-    ArchiveOutcome, BacktrackInput, BacktrackOutcome, DecisionLogOutcome, OnFail, PhaseLogInput,
+-    PhaseLogOutcome, PhaseNextError, PhaseNextOutcome, PhaseStartOutcome, StepDefinition, StepNode,
++    ArchiveOutcome, BacktrackInput, BacktrackOutcome, DecisionLogOutcome, INITIALIZE_PHASE_ID,
++    OnFail, PhaseLogInput, PhaseLogOutcome, PhaseNextError, PhaseNextOutcome, PhaseStartOutcome,
++    StepDefinition, StepNode,
+ };
+ 
+ use crate::control::{ChangeFlowControl, RunGuard};
+@@ -51,6 +52,16 @@ const TXT_SKIP_ABSENT: &str = "worktree 已不在场，跳过清理";
+ const TXT_SKIP_FINALIZED: &str = "已落盘";
+ const TXT_NO_CONFLICT: &str = "无冲突";
+ 
++/// initialize 相位词汇（legacy 跳过因 + baseline 三态失败文案——三态不共用文
++/// 案，均 Terminal 停给用户；`{dir}` 为 baseline 报告目录占位）。
++const TXT_SKIP_LEGACY_INITIALIZE: &str = "legacy 主仓执行无 worktree 基线，跳过基线检查";
++const TXT_BASELINE_STATIC_FAILED: &str =
++    "基线静态检查未通过，请在基线上修复后重新发起（基线的债不属于本次变更）；报告目录 {dir}";
++const TXT_BASELINE_TEST_ERROR: &str =
++    "基线测试执行出错（环境 / 配置问题），请检查配置与环境后重新发起；报告目录 {dir}";
++const TXT_BASELINE_TEST_FAILED: &str =
++    "基线测试未通过，请在基线上修复测试后重新发起；报告目录 {dir}";
++
+ /// lean 档无法裁决收敛的原因词族（解冲突后验不通过的收敛原因，词汇单点驻本
+ /// 文件）。
+ const LEAN_AGENT_FAILED: &str = "agent 会话失败";
+@@ -292,16 +303,34 @@ async fn drive(
+         };
+         let mut cursor = PhaseCursor::new(&next, entry_kind, sync_specs);
+         let mut upgraded = false;
+-        // ②–⑥ 相位主体：按计划步序列迭代（exec / agent / git / gate 由 `StepNode`
+-        //       声明，walker 按 `group()` 语义分派执行体）
+-        for step in &next.steps {
+-            match run_step(&ctx, &mut cursor, &mut trace, step).await {
+-                Ok(StepFlow::Proceed) => {}
+-                Ok(StepFlow::Upgraded) => {
+-                    upgraded = true;
+-                    break;
+-                }
++        // legacy 整相位短路（initialize 表头一次性基线检查相位）：`worktree=None`
++        // 的存量记录 exec root = 主仓（root == main_root ⟺ worktree 缺席——发起
++        // 前置校验保证 worktree 在场时 exec root ≠ 主仓）——restore / 检查 spawn
++        // 在主仓执行会 reset 用户未提交改动（灾难），故步序列零执行（零 vcs /
++        // 零检查 spawn、主仓零重置零 clean），仅 PhaseStart 开相 + PhaseLog 以
++        // skipped 落账（跳过因可见，一次性持久同 pass 语义）
++        if phase == INITIALIZE_PHASE_ID && request.root == request.main_root {
++            cursor.attempt = match step_phase_start(&ctx, &mut trace, &cursor).await {
++                Ok(attempt) => attempt,
+                 Err(terminal) => return terminal.into_pair(),
++            };
++            if let Err(terminal) =
++                step_initialize_skipped_phase_log(&ctx, &mut trace, &cursor).await
++            {
++                return terminal.into_pair();
++            }
++        } else {
++            // ②–⑥ 相位主体：按计划步序列迭代（exec / agent / git / gate 由
++            //       `StepNode` 声明，walker 按 `group()` 语义分派执行体）
++            for step in &next.steps {
++                match run_step(&ctx, &mut cursor, &mut trace, step).await {
++                    Ok(StepFlow::Proceed) => {}
++                    Ok(StepFlow::Upgraded) => {
++                        upgraded = true;
++                        break;
++                    }
++                    Err(terminal) => return terminal.into_pair(),
++                }
+             }
+         }
+         trace.failed_phase = cursor.failed.then(|| phase.clone());
+@@ -493,7 +522,10 @@ fn emit_node(
+ }
+ 
+ // ---------------------------------------------------------------------------
+-// 相位内计划步执行体
++// 相位内计划步执行体（initialize 表头一次性基线检查相位步序：PhaseStart →
++// Clean → StaticCheck → TestExecution → PhaseLog——Clean 为 vcs 直调基线恢复
++// 步，两检查步 `on_fail=Terminal` 无反馈边例外、失败即停给用户；其余相位沿各
++// 表 steps 声明执行，PhaseLog 机械 checklist 零改动复用）
+ // ---------------------------------------------------------------------------
+ 
+ /// 计划步执行携出物。
+@@ -597,6 +629,11 @@ async fn run_step(
+             cursor.attempt = step_phase_start(ctx, trace, cursor).await?;
+             Ok(StepFlow::Proceed)
+         }
++        // initialize 基线恢复步（vcs 直调，git 步族区段先例同归档步）
++        StepNode::Clean => {
++            step_clean(ctx, trace, cursor).await?;
++            Ok(StepFlow::Proceed)
++        }
+         StepNode::Executor => {
+             step_executor(ctx, trace, cursor).await?;
+             Ok(StepFlow::Proceed)
+@@ -732,6 +769,107 @@ async fn step_phase_start(
+     }
+ }
+ 
++/// initialize Clean 步（vcs 直调先例同归档 git 步，不经 ToolCommand 枚举）：
++/// 主仓双保险（`root == main_root` → `passed` + legacy 跳过因，正常不可达——
++/// 相位级短路先行）→ 排除面组装（依赖与工具产物树名单 + dot 目录 + `openspec/`
++/// 工件树增补——增补驻调用方，不入名单本体）→ `restore_baseline` 恢复 worktree
++/// 基线态（tracked reset、untracked 清除、排除面原样保留）。失败即 Terminal
++///（`on_fail=None`：步失败即步终态，不唤决策、不进相位重试）。
++async fn step_clean(
++    ctx: &StepContext<'_>,
++    trace: &mut EdgeTrace,
++    cursor: &mut PhaseCursor,
++) -> Result<(), Terminal> {
++    let kind = ChangeStepKind::Clean;
++    let instance_no = begin_archive_node(ctx, trace, cursor, kind);
++    if ctx.request.root == ctx.request.main_root {
++        settle_archive_node(
++            ctx,
++            cursor,
++            kind,
++            instance_no,
++            StepSettle::passed(Some(TXT_SKIP_LEGACY_INITIALIZE.to_owned())),
++        );
++        return Ok(());
++    }
++    let mut exclusions: Vec<String> = foundation::prune::PRUNED_DIR_NAMES
++        .iter()
++        .map(|name| (*name).to_owned())
++        .collect();
++    exclusions.push(".*".to_owned());
++    exclusions.push(domain_dir_name().to_owned());
++    let exclusion_refs: Vec<&str> = exclusions.iter().map(String::as_str).collect();
++    match ctx
++        .vcs
++        .restore_baseline(Path::new(&ctx.request.root), &exclusion_refs)
++    {
++        Ok(summary) => {
++            settle_archive_node(ctx, cursor, kind, instance_no, StepSettle::passed(Some(summary)));
++            Ok(())
++        }
++        Err(error) => Err(fail_archive_node(
++            ctx,
++            cursor,
++            kind,
++            instance_no,
++            format!("基线恢复失败: {error}"),
++        )),
++    }
++}
++
++/// initialize legacy 短路落账（skipped=true + 空 checklist + 跳过因）：PhaseLog
++/// 节点 emit + 写面落账——skipped 条目与 pass 一次性持久同语义（写面
++/// `has_phase_passed` 谓词两者皆认），后续 run 持久跳过；三会话槽位恒 `None`
++///（零 agent 会话）。Clean / StaticCheck / TestExecution 三步零执行。
++async fn step_initialize_skipped_phase_log(
++    ctx: &StepContext<'_>,
++    trace: &mut EdgeTrace,
++    cursor: &PhaseCursor,
++) -> Result<(), Terminal> {
++    let instance_no = begin_node(
++        ctx.guard,
++        trace,
++        ctx.phase,
++        cursor.attempt,
++        ChangeStepKind::PhaseLog,
++        EdgeKind::Forward,
++    );
++    emit_node(
++        ctx.guard,
++        ctx.phase,
++        cursor.attempt,
++        ChangeStepKind::PhaseLog,
++        instance_no,
++        StepSettle::running(),
++    );
++    let logged = run_phase_log(
++        ctx.tools,
++        ctx.request,
++        PhaseLogInput {
++            phase: ctx.phase.to_owned(),
++            report: TXT_SKIP_LEGACY_INITIALIZE.to_owned(),
++            checklist: Vec::new(),
++            skipped: true,
++            executor_session_id: None,
++            evaluator_session_id: None,
++            decision_session_id: None,
++        },
++    )
++    .await?;
++    emit_node(
++        ctx.guard,
++        ctx.phase,
++        cursor.attempt,
++        ChangeStepKind::PhaseLog,
++        instance_no,
++        StepSettle::passed(Some(format!(
++            "attempt {} 已落账（skipped：{TXT_SKIP_LEGACY_INITIALIZE}）",
++            logged.attempt
++        ))),
++    );
++    Ok(())
++}
++
+ /// ③ executor 步：本相位 executor 会话（prompt 由写面 phase-next 单点组装——
+ /// 上下文头 + 失败反馈段 + 回溯原因后缀全在写面）。
+ async fn step_executor(
+@@ -775,6 +913,12 @@ async fn step_static_check(
+     cursor: &mut PhaseCursor,
+     step: &StepDefinition,
+ ) -> Result<StepFlow, Terminal> {
++    // initialize 相位声明 `on_fail=Terminal`（基线绿门：失败即停——无反馈边、
++    // 零 agent 会话可注入，重试基线无意义）→ 单发执行体（verdict-gate Terminal
++    // 前置分支同式先例）；缺省相位走反馈边路径不受影响
++    if step.on_fail == Some(OnFail::Terminal) {
++        return step_static_check_terminal(ctx, trace, cursor).await;
++    }
+     let limit = feedback_limit(step, "static-check")?;
+     let mut feedback: u32 = 0;
+     loop {
+@@ -799,6 +943,7 @@ async fn step_static_check(
+             &ctx.request.root,
+             ToolCommand::StaticCheck {
+                 change_id: ctx.request.change_id.clone(),
++                slot: ReportSlot::Test,
+             },
+             "static-check",
+         )
+@@ -873,6 +1018,11 @@ async fn step_test_execution(
+     cursor: &mut PhaseCursor,
+     step: &StepDefinition,
+ ) -> Result<StepFlow, Terminal> {
++    // initialize 相位声明 `on_fail=Terminal`（基线绿门：Error / Fail 分文案
++    // Terminal 停给用户——无反馈边）→ 单发执行体；缺省相位走反馈边路径不受影响
++    if step.on_fail == Some(OnFail::Terminal) {
++        return step_test_execution_terminal(ctx, trace, cursor).await;
++    }
+     let limit = feedback_limit(step, "test-execution")?;
+     let mut feedback: u32 = 0;
+     let mut fix_session: Option<String> = None;
+@@ -898,6 +1048,7 @@ async fn step_test_execution(
+             &ctx.request.root,
+             ToolCommand::TestExecution {
+                 change_id: ctx.request.change_id.clone(),
++                slot: ReportSlot::Test,
+             },
+             "test-execution",
+         )
+@@ -970,6 +1121,138 @@ async fn step_test_execution(
+     }
+ }
+ 
++/// initialize 相位 static-check 单发执行体（`on_fail=Terminal` 前置分支分派）：
++/// 单节点 running → spawn（baseline 槽位）→ pass / fail 收口。pass：`passed` +
++/// `output_ref` 回填后 Proceed；fail：failed 节点（detail = 诊断摘要、
++/// `output_ref` 回填）+ `Terminal::failed`（static 红文案携 baseline 报告目录
++/// ——`outcome.report_dir` 供给 `{dir}` 占位）。
++async fn step_static_check_terminal(
++    ctx: &StepContext<'_>,
++    trace: &mut EdgeTrace,
++    cursor: &mut PhaseCursor,
++) -> Result<StepFlow, Terminal> {
++    let instance_no = begin_node(
++        ctx.guard,
++        trace,
++        ctx.phase,
++        cursor.attempt,
++        ChangeStepKind::StaticCheck,
++        EdgeKind::Forward,
++    );
++    emit_node(
++        ctx.guard,
++        ctx.phase,
++        cursor.attempt,
++        ChangeStepKind::StaticCheck,
++        instance_no,
++        StepSettle::running(),
++    );
++    let outcome: StaticCheckOutcome = run_tool(
++        ctx.tools,
++        &ctx.request.root,
++        ToolCommand::StaticCheck {
++            change_id: ctx.request.change_id.clone(),
++            slot: ReportSlot::Baseline,
++        },
++        "static-check",
++    )
++    .await?;
++    if outcome.passed {
++        emit_node(
++            ctx.guard,
++            ctx.phase,
++            cursor.attempt,
++            ChangeStepKind::StaticCheck,
++            instance_no,
++            StepSettle::passed(Some("静态检查通过".to_owned()))
++                .with_output_ref(outcome.output_ref.clone()),
++        );
++        return Ok(StepFlow::Proceed);
++    }
++    emit_node(
++        ctx.guard,
++        ctx.phase,
++        cursor.attempt,
++        ChangeStepKind::StaticCheck,
++        instance_no,
++        StepSettle::failed(Some(diagnose_brief(&outcome.diagnostics)))
++            .with_output_ref(outcome.output_ref.clone()),
++    );
++    Err(Terminal::failed(
++        TXT_BASELINE_STATIC_FAILED.replace("{dir}", &outcome.report_dir),
++    ))
++}
++
++/// initialize 相位 test-execution 单发执行体（`on_fail=Terminal` 前置分支分派）：
++/// 单节点 running → spawn（baseline 槽位）→ pass / Error / Fail 三态收口。
++/// pass：`passed` + 计数 detail + `output_ref` 回填，`cursor.test_outcome` 挂载
++///（PhaseLog 机械 checklist 分支天然分派）后 Proceed；Error / Fail：failed 节点
++/// + `Terminal::failed` 分文案（环境 / 测试红可辨，携 baseline 报告目录）。
++async fn step_test_execution_terminal(
++    ctx: &StepContext<'_>,
++    trace: &mut EdgeTrace,
++    cursor: &mut PhaseCursor,
++) -> Result<StepFlow, Terminal> {
++    let instance_no = begin_node(
++        ctx.guard,
++        trace,
++        ctx.phase,
++        cursor.attempt,
++        ChangeStepKind::TestExecution,
++        EdgeKind::Forward,
++    );
++    emit_node(
++        ctx.guard,
++        ctx.phase,
++        cursor.attempt,
++        ChangeStepKind::TestExecution,
++        instance_no,
++        StepSettle::running(),
++    );
++    let outcome: TestExecutionOutcome = run_tool(
++        ctx.tools,
++        &ctx.request.root,
++        ToolCommand::TestExecution {
++            change_id: ctx.request.change_id.clone(),
++            slot: ReportSlot::Baseline,
++        },
++        "test-execution",
++    )
++    .await?;
++    if outcome.conclusion == TestExecutionConclusion::Pass {
++        emit_node(
++            ctx.guard,
++            ctx.phase,
++            cursor.attempt,
++            ChangeStepKind::TestExecution,
++            instance_no,
++            StepSettle::passed(Some(format!(
++                "conclusion=pass total={} passed={} failed={} skipped={}",
++                outcome.total, outcome.passed, outcome.failed, outcome.skipped
++            )))
++            .with_output_ref(Some(outcome.exec_id.clone())),
++        );
++        cursor.test_outcome = Some(outcome);
++        return Ok(StepFlow::Proceed);
++    }
++    emit_node(
++        ctx.guard,
++        ctx.phase,
++        cursor.attempt,
++        ChangeStepKind::TestExecution,
++        instance_no,
++        StepSettle::failed(Some(diagnose_brief(&outcome.findings_brief)))
++            .with_output_ref(Some(outcome.exec_id.clone())),
++    );
++    let template = match outcome.conclusion {
++        TestExecutionConclusion::Error => TXT_BASELINE_TEST_ERROR,
++        _ => TXT_BASELINE_TEST_FAILED,
++    };
++    Err(Terminal::failed(
++        template.replace("{dir}", &outcome.report_dir),
++    ))
++}
++
+ /// ④′ mutation-test 步：确定性突变门禁 + 独立反馈边②（报告指引式口径，与
+ /// test-execution 反馈边①「有界内联自足」反向并存——系用户明确决策，MUST NOT
+ /// 统一）。双时点：全部段跑完仅未达标反馈（score / threshold 结论摘要 + 报告路

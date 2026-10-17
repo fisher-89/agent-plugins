@@ -339,8 +339,8 @@ fn 读命令id透传_列表详情产物与core查询serde等值且归档条目�
     assert_eq!(via_detail.status, Some(ChangeStatus::Active));
     assert_eq!(
         via_detail.pipeline.len(),
-        9,
-        "固定 9 站全量输出（末列 archive）"
+        10,
+        "固定 10 站全量输出（initialize 表头 + 末列 archive）"
     );
     let proposal = via_detail
         .pipeline
@@ -674,8 +674,8 @@ async fn create接线_建域落位_返回dto增id且按id立即可见可发起()
     assert_eq!(unified.detail.status, Some(ChangeStatus::Active));
     assert_eq!(
         unified.detail.pipeline.len(),
-        9,
-        "空流水线 9 站全量（发起面就绪，末列 archive）"
+        10,
+        "空流水线 10 站全量（initialize 表头 + 发起面就绪，末列 archive）"
     );
     assert!(unified.active_run.is_none());
     // name 非寻址键：按 name 查询不可达（一切寻址以 id 为准）——Ok(None) 空
@@ -2240,7 +2240,13 @@ fn 统一查询装配_早退与未知id未找到() {
 
 /// 落一条输出记录（真实 infra/exec 落盘——命令面取数直调 State 直测）。
 fn record(root: &str, change_name: &str, bytes: &[u8]) -> String {
-    exec::record_exec_output(Path::new(root), change_name, bytes).expect("落盘应成功")
+    exec::record_exec_output(
+        Path::new(root),
+        change_name,
+        foundation::layout::ReportSlot::Test,
+        bytes,
+    )
+    .expect("落盘应成功")
 }
 
 #[test]
@@ -2423,8 +2429,13 @@ fn read_exec_output_worktree记录经name定位回读命中() {
     let worktree = env.data_dir.path().join("worktrees").join("add-feature");
     seed_active_with_worktree(&store_of(&app, &root), "add-feature", &worktree);
     // 落盘以 worktree 为锚（record_exec_output 同式——exec root 口径）
-    let exec_id = exec::record_exec_output(&worktree, "add-feature", b"worktree stdout\n")
-        .expect("worktree 落盘应成功");
+    let exec_id = exec::record_exec_output(
+        &worktree,
+        "add-feature",
+        foundation::layout::ReportSlot::Test,
+        b"worktree stdout\n",
+    )
+    .expect("worktree 落盘应成功");
     // 主仓 active 树无该 change 目录（worktree-backed change 主仓零目录）
     assert!(!env.changes_dir().join("add-feature").exists());
 
@@ -2500,10 +2511,20 @@ fn read_exec_output_同名共存候选探测两change各自可回读() {
     // active 同名记录（id 相异、worktree 在场）
     let live = env.data_dir.path().join("worktrees").join("live");
     seed_active_with_worktree(&store, "add-feature", &live);
-    let stale_exec =
-        exec::record_exec_output(&stale, "add-feature", b"stale\n").expect("stale 落盘应成功");
-    let live_exec =
-        exec::record_exec_output(&live, "add-feature", b"live\n").expect("live 落盘应成功");
+    let stale_exec = exec::record_exec_output(
+        &stale,
+        "add-feature",
+        foundation::layout::ReportSlot::Test,
+        b"stale\n",
+    )
+    .expect("stale 落盘应成功");
+    let live_exec = exec::record_exec_output(
+        &live,
+        "add-feature",
+        foundation::layout::ReportSlot::Test,
+        b"live\n",
+    )
+    .expect("live 落盘应成功");
 
     // active 记录 worktree 先探命中
     let text = read_exec_output(
@@ -2778,6 +2799,7 @@ async fn get_change_detail列序随workflow_type出线() {
     assert_eq!(
         phases,
         vec![
+            "initialize",
             "proposal",
             "code-analyze",
             "test-design",
@@ -2785,7 +2807,7 @@ async fn get_change_detail列序随workflow_type出线() {
             "test-execution",
             "archive"
         ],
-        "test-only 六列出线（code-analyze 第 2 列 / archive 第 6 列）"
+        "test-only 七列出线（initialize 表头第 1 列 / code-analyze 第 3 列 / archive 第 7 列）"
     );
 
     let full = get_change_detail(
@@ -2802,8 +2824,13 @@ async fn get_change_detail列序随workflow_type出线() {
         .iter()
         .map(|station| station.phase.as_str())
         .collect();
-    assert_eq!(phases.len(), 9, "requirement 九列出线");
-    assert_eq!(phases[8], "archive", "archive 为末列");
+    assert_eq!(
+        phases.len(),
+        10,
+        "requirement 十列出线（initialize 表头扩位）"
+    );
+    assert_eq!(phases[0], "initialize", "initialize 为表头第 1 列");
+    assert_eq!(phases[9], "archive", "archive 为末列");
     assert!(
         !phases.iter().any(|phase| *phase == "code-analyze"),
         "requirement 列序零 code-analyze 占位"

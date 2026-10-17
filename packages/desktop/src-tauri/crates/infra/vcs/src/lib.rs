@@ -170,4 +170,16 @@ impl ArchiveVcsPort for ProcessArchiveVcs {
             )
         })
     }
+
+    fn restore_baseline(&self, worktree: &Path, exclusions: &[&str]) -> Result<String, String> {
+        let path = worktree.to_string_lossy().into_owned();
+        // 委托 `git::restore_baseline` 单点；`Err` 附 worktree 路径与主仓未受
+        // 影响注记（initialize 检查恒在 worktree / exec root 内执行）
+        git::restore_baseline(worktree, exclusions).map_err(|error| {
+            format!(
+                "基线恢复失败（{path}）: {error}；主仓未受影响，\
+                 请核验 worktree git 状态后重试发起"
+            )
+        })
+    }
 }

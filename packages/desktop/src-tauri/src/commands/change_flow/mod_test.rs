@@ -179,11 +179,67 @@ fn capturing_channel() -> (
 
 /// 轮询至谓词成立（后台 walker 驱动的观测窗口；30s 上限防挂死）。
 fn wait_for(what: &str, mut probe: impl FnMut() -> bool) {
-    let deadline = Instant::now() + Duration::from_secs(30);
+    wait_for_up_to(what, Duration::from_secs(30), probe);
+}
+
+/// 显式超时版（真件 spawn 组合用例的收敛窗口——sdk 缺席失败链路耗时更长）。
+fn wait_for_up_to(what: &str, timeout: Duration, mut probe: impl FnMut() -> bool) {
+    let deadline = Instant::now() + timeout;
     while !probe() {
-        assert!(Instant::now() < deadline, "等待{what}超时（30s）");
+        assert!(
+            Instant::now() < deadline,
+            "等待{what}超时（{}s）",
+            timeout.as_secs()
+        );
         std::thread::sleep(Duration::from_millis(10));
     }
+}
+
+/// initialize 表头 pass 条目种子（命令面真件用例：路由跳过表头——与既有
+/// executor 链路行为对齐，表头自身的路由 / 停等形态由其余专测承载）。
+fn seed_initialize_passed(app: &App<tauri::test::MockRuntime>, root: &str, id: &str) {
+    let store = app
+        .state::<WorkspaceStores>()
+        .for_root(root)
+        .expect("for_root 应成功");
+    let started = store
+        .start_change_phase(id, "initialize", STARTED_AT)
+        .expect("initialize 开相种子应成功");
+    store
+        .log_change_phase(&workflow::state::PhaseLogCommand {
+            change_id: id.to_owned(),
+            phase: "initialize".to_owned(),
+            verdict: workflow::model::Verdict::Pass,
+            report: "基线检查通过".to_owned(),
+            skipped: false,
+            checklist: Vec::new(),
+            executor_session_id: None,
+            evaluator_session_id: None,
+            decision_session_id: None,
+            start_at: Some(started.start_at),
+            timestamp: STARTED_AT + 30_000,
+        })
+        .expect("initialize 落账种子应成功");
+}
+
+/** 手动档停等应答回路（命令面真件用例：表头 initialize 收口后停等照常——
+ * auto=false 用例需应答 Confirm 方可继续路由；无等待方时 confirm Err 忽略重试）。 */
+fn spawn_command_confirmer(
+    app: tauri::AppHandle<tauri::test::MockRuntime>,
+    control: Arc<ChangeFlowControl>,
+    root: String,
+    id: &'static str,
+) {
+    std::thread::spawn(move || {
+        let deadline = Instant::now() + Duration::from_secs(60);
+        while Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(50));
+            if control.snapshot(&root, id).is_none() {
+                break;
+            }
+            let _ = change_flow_confirm_with(app.clone(), root.clone(), id.to_owned(), true, true);
+        }
+    });
 }
 
 const CHANGE: &str = "flow-change";
@@ -308,6 +364,7 @@ async fn start提前resolve返回running摘要且channel首事件到达后台驱
 
     // sdk 默认实例 fixture（组合根缺省解析可走通）
     seed_sdk_default_instance(&app);
+    seed_initialize_passed(&app, &root, CHANGE);
 
     let (channel, captured) = capturing_channel();
     let result = change_flow_start_with(
@@ -414,7 +471,7 @@ async fn start提前resolve返回running摘要且channel首事件到达后台驱
             .filter(|node| node.step == workflow::state::RunStepKind::PhaseStart)
             .count(),
         1,
-        "phase_start 词汇零过滤落库（流程面步骤在案）"
+        "phase_start 词汇零过滤落库（表头 initialize 预置 pass 零开相——proposal 单枚开相）"
     );
 }
 
@@ -556,6 +613,13 @@ async fn auto_next_phase_false默认档受理面回归() {
     let root = env.root();
     seed_change(&app, &root, CHANGE, "requirement");
     seed_sdk_default_instance(&app);
+    seed_initialize_passed(&app, &root, CHANGE);
+    spawn_command_confirmer(
+        app.handle().clone(),
+        Arc::clone(app.state::<Arc<ChangeFlowControl>>().inner()),
+        root.clone(),
+        CHANGE,
+    );
 
     let (channel, captured) = capturing_channel();
     let result = change_flow_start_with(
@@ -1092,6 +1156,14 @@ async fn 并行冲突键id_同名异id各自受理且异root同id互不误拒() 
     seed_change_full(&app, &root_a, "id-a2", CHANGE, "requirement");
     seed_change(&app, &root_b, CHANGE, "requirement");
     seed_sdk_default_instance(&app);
+    {
+        let control = Arc::clone(app.state::<Arc<ChangeFlowControl>>().inner());
+        spawn_command_confirmer(app.handle().clone(), control, root_a.clone(), "id-a2");
+    }
+    {
+        let control = Arc::clone(app.state::<Arc<ChangeFlowControl>>().inner());
+        spawn_command_confirmer(app.handle().clone(), control, root_b.clone(), CHANGE);
+    }
 
     // rootA 预登记运行中 run（guard 在手不收敛——确定性冲突锚；注记：
     // `run-<millis>` 同毫秒可同号，run_id 不作唯一性断言面）
@@ -1263,6 +1335,7 @@ async fn start归档互斥面摘除_无归档注册表照常受理() {
     let root = env.root();
     seed_change(&app, &root, CHANGE, "requirement");
     seed_sdk_default_instance(&app);
+    seed_initialize_passed(&app, &root, CHANGE);
 
     let (channel, captured) = capturing_channel();
     let summary = change_flow_start_with(
@@ -1670,6 +1743,7 @@ async fn 组合根装配_staticcheck步默认recorded落单一log并回填引用
             root: root.clone(),
             command: ToolCommand::StaticCheck {
                 change_id: CHANGE.to_owned(),
+                slot: foundation::layout::ReportSlot::Test,
             },
         })
         .await;
@@ -1734,6 +1808,13 @@ async fn start_test_only记录放行且提前resolve返回running摘要() {
     let root = env.root();
     seed_change(&app, &root, CHANGE, "test-only");
     seed_sdk_default_instance(&app);
+    seed_initialize_passed(&app, &root, CHANGE);
+    spawn_command_confirmer(
+        app.handle().clone(),
+        Arc::clone(app.state::<Arc<ChangeFlowControl>>().inner()),
+        root.clone(),
+        CHANGE,
+    );
 
     let (channel, captured) = capturing_channel();
     let result = change_flow_start_with(
@@ -1791,6 +1872,7 @@ async fn start_test_only记录放行且提前resolve返回running摘要() {
         .collect();
     assert!(
         phases.iter().all(|phase| [
+            "initialize",
             "proposal",
             "code-analyze",
             "test-design",
@@ -1799,6 +1881,446 @@ async fn start_test_only记录放行且提前resolve返回running摘要() {
             "archive"
         ]
         .contains(&phase.as_str())),
-        "落账相位均在 test-only 表内，实际: {phases:?}"
+        "落账相位均在 test-only 表内（initialize 表头种子在案），实际: {phases:?}"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// initialize 基线真件组合（check-before-flow-start / AC-1 / AC-2）：真实 git
+// 主仓 + git worktree 夹具 + 平台 shim 真件 spawn（`write_static_shim` + config
+// 登记 + `prefix_path` PATH 注入 + commands 级 PATH 锁串行化——Mock策略：无）
+// ---------------------------------------------------------------------------
+
+/// 建真实 git 主仓（单提交在案）+ worktree 落位（`git worktree add`）——返回
+/// worktree 绝对路径。直驱 git 子命令（真件夹具，零 mock）。
+fn git_main_with_worktree(main_root: &Path, worktree: &Path, branch: &str) {
+    let run_git = |args: &[&str], cwd: &Path| {
+        let output = std::process::Command::new("git")
+            .arg("-C")
+            .arg(cwd)
+            .args(args)
+            .output()
+            .unwrap_or_else(|error| panic!("夹具 git 拉起失败: {error}"));
+        assert!(
+            output.status.success(),
+            "夹具 git {} 失败: {}",
+            args.join(" "),
+            String::from_utf8_lossy(&output.stderr)
+        );
+    };
+    run_git(&["init", "-q"], main_root);
+    run_git(&["config", "user.name", "fixture"], main_root);
+    run_git(&["config", "user.email", "fixture@example.com"], main_root);
+    fs::write(main_root.join("seed.txt"), "seed\n").expect("写种子文件失败");
+    fs::write(main_root.join("cwd-probe.txt"), "worktree probe").expect("写探针失败");
+    #[cfg(windows)]
+    {
+        fs::write(
+            main_root.join("static-shim.cmd"),
+            "@echo off\r\ntype cwd-probe.txt\r\nif exist coverage\\exit-code.txt exit /b 1\r\n",
+        )
+        .expect("写 shim 失败");
+        run_git(
+            &["add", "seed.txt", "cwd-probe.txt", "static-shim.cmd"],
+            main_root,
+        );
+    }
+    #[cfg(not(windows))]
+    {
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let script = main_root.join("static-shim");
+            fs::write(
+                &script,
+                "#!/bin/sh\ncat cwd-probe.txt\nif [ -f coverage/exit-code.txt ]; then exit 1; fi\nexit 0\n",
+            )
+            .expect("写 shim 失败");
+            fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).expect("补执行位");
+        }
+        run_git(
+            &["add", "seed.txt", "cwd-probe.txt", "static-shim"],
+            main_root,
+        );
+    }
+    run_git(
+        &[
+            "-c",
+            "user.name=fixture",
+            "-c",
+            "user.email=fixture@example.com",
+            "commit",
+            "-q",
+            "-m",
+            "init",
+        ],
+        main_root,
+    );
+    run_git(
+        &["worktree", "add", &worktree.to_string_lossy(), "-b", branch],
+        main_root,
+    );
+}
+
+/// 基线绿走真件全链（组合，AC-1）：真实 git 主仓 + worktree 夹具（exec root ≠
+/// 主 root）+ 绿 static shim（退出 0）→ initialize 相位先于 proposal 路由、
+/// Clean / StaticCheck / TestExecution / PhaseLog 节点齐备、检查在 worktree 内
+/// 执行（cwd 断言：shim 相对路径读到 worktree 内探针文件）、报告与 exec-outputs
+/// 落 `openspec/changes/<name>/reports/baseline/`（AC-1 真件全链）。
+#[tokio::test]
+async fn 基线绿走_initialize先于proposal_报告落baseline树() {
+    let env = Env::new("baseline-green");
+    let app = app_with(&env);
+    let root = env.root();
+    let worktree = env.data_dir.path().join("wt").join(CHANGE);
+    fs::create_dir_all(env.data_dir.path().join("wt")).expect("建 wt 父目录失败");
+    git_main_with_worktree(env.ws_root.path(), &worktree, &format!("change/{CHANGE}"));
+
+    // worktree 内预置 openspec 树（config 在排除面——clean 保留）；探针与 shim
+    // 已随主仓提交（tracked——clean `reset --hard` 后仍在场；shim 相对路径读
+    // cwd-probe.txt 即 spawn cwd = worktree 的内嵌断言）
+    fs::create_dir_all(worktree.join("openspec/changes").join(CHANGE))
+        .expect("预置 worktree openspec 树失败");
+    seed_change_with_worktree(&app, &root, CHANGE, &worktree);
+
+    // shim 裸名（tracked 夹具供给；零 coverage/exit-code.txt → 退出 0 绿态）
+    #[cfg(windows)]
+    let shim = "static-shim.cmd".to_owned();
+    #[cfg(not(windows))]
+    let shim = "static-shim".to_owned();
+    fs::write(
+        worktree.join("openspec/config.json"),
+        format!("{{ \"static_analysis\": \"{shim}\" }}"),
+    )
+    .expect("写 config 失败");
+    seed_sdk_default_instance(&app);
+
+    // commands 级 PATH 锁串行化 + PATH 前置 worktree（guard 持有至后台收敛）
+    let (guard, original) = prefix_path(&worktree);
+    let (diag_channel, diag_captured) = capturing_channel();
+    let summary = change_flow_start_with(
+        app.handle().clone(),
+        diag_channel,
+        root.clone(),
+        CHANGE.to_owned(),
+        false,
+    )
+    .await
+    .expect("基线绿走发起应成功");
+    assert_eq!(summary.status, super::ChangeRunStatus::Running);
+    eprintln!("DBG-绿走 summary={summary:?}");
+
+    let control = app.state::<Arc<ChangeFlowControl>>();
+    // confirmer 回路：手动档逐相位 ConfirmWait 应答（auto=false——initialize 收口
+    // 后停等照常，确认后继续路由 proposal；无等待方时 confirm Err 忽略重试）
+    {
+        let handle_confirm = app.handle().clone();
+        let control_confirm = Arc::clone(&control);
+        let root_confirm = root.clone();
+        std::thread::spawn(move || {
+            let deadline = Instant::now() + Duration::from_secs(120);
+            while Instant::now() < deadline {
+                std::thread::sleep(Duration::from_millis(100));
+                if control_confirm.snapshot(&root_confirm, CHANGE).is_none() {
+                    break;
+                }
+                let _ = change_flow_confirm_with(
+                    handle_confirm.clone(),
+                    root_confirm.clone(),
+                    CHANGE.to_owned(),
+                    true,
+                    true,
+                );
+            }
+        });
+    }
+    {
+        let store_dbg = app
+            .state::<WorkspaceStores>()
+            .for_root(&root)
+            .expect("for_root");
+        let deadline = Instant::now() + Duration::from_secs(120);
+        let mut last_dbg = Instant::now();
+        loop {
+            if control.snapshot(&root, CHANGE).is_none() {
+                break;
+            }
+            if last_dbg.elapsed() >= Duration::from_secs(5) {
+                last_dbg = Instant::now();
+                if let Some(snap) = control.snapshot(&root, CHANGE) {
+                    eprintln!(
+                        "DBG-绿走 snapshot: run={:?} phase={:?}",
+                        snap.run_id, snap.phase
+                    );
+                }
+                let captured_dbg = diag_captured.lock().expect("捕获锁");
+                eprintln!(
+                    "DBG-绿走 updates: {:?}",
+                    captured_dbg
+                        .iter()
+                        .map(|value| {
+                            (
+                                value["ipc"].as_str().unwrap_or("?").to_owned(),
+                                value["step"].as_str().map(str::to_owned),
+                                value["phase"].as_str().map(str::to_owned),
+                            )
+                        })
+                        .collect::<Vec<_>>()
+                );
+            }
+            if Instant::now() >= deadline {
+                if let Ok(runs) = store_dbg.list_change_runs(CHANGE) {
+                    for run in &runs {
+                        eprintln!(
+                            "DBG-绿走 run={} status={:?} reason={:?}",
+                            run.run_id, run.status, run.reason
+                        );
+                        if let Ok(nodes) = store_dbg.list_run_nodes(&run.run_id) {
+                            eprintln!(
+                                "DBG-绿走 nodes: {:?}",
+                                nodes
+                                    .iter()
+                                    .map(|n| {
+                                        (
+                                            n.phase.as_str(),
+                                            n.step.as_str(),
+                                            format!("{:?}", n.status),
+                                        )
+                                    })
+                                    .collect::<Vec<_>>()
+                            );
+                        }
+                    }
+                }
+                panic!("等待run 终态除名超时（120s）");
+            }
+            std::thread::sleep(Duration::from_millis(50));
+        }
+    }
+    restore_path(guard, original);
+
+    // 节点整包：initialize 五节点先于 proposal（相位序逐位——AC-1）
+    let store = app
+        .state::<WorkspaceStores>()
+        .for_root(&root)
+        .expect("for_root 应成功");
+    let runs = store.list_change_runs(CHANGE).expect("run 史应成功");
+    eprintln!(
+        "DBG 绿走终态: {:?} reason={:?}",
+        runs[0].status, runs[0].reason
+    );
+    assert_eq!(runs.len(), 1);
+    let nodes = store
+        .list_run_nodes(&runs[0].run_id)
+        .expect("节点清单应成功");
+    let initialize_words: Vec<&str> = nodes
+        .iter()
+        .filter(|node| node.phase == "initialize")
+        .map(|node| node.step.as_str())
+        .collect();
+    assert_eq!(
+        initialize_words,
+        [
+            "phase_start",
+            "clean",
+            "static_check",
+            "test_execution",
+            "phase_log"
+        ],
+        "initialize 五节点齐备且词面逐位"
+    );
+    let first_phase = nodes
+        .first()
+        .map(|node| node.phase.as_str())
+        .expect("首节点应在案");
+    assert_eq!(
+        first_phase, "initialize",
+        "initialize 先于 proposal 路由（表头先行）"
+    );
+    assert!(
+        nodes.iter().any(|node| node.phase == "proposal"),
+        "initialize 后续路由 proposal（表头一次性——proposal 站开跑）"
+    );
+
+    // 检查在 worktree 内执行 + 报告与 exec-outputs 落 worktree baseline 树
+    let baseline = worktree
+        .join("openspec/changes")
+        .join(CHANGE)
+        .join("reports/baseline");
+    assert!(
+        baseline.join("summary.json").is_file() || baseline.exists(),
+        "baseline 报告树在 worktree 内: {}",
+        baseline.display()
+    );
+    let exec_outputs = baseline.join("exec-outputs");
+    assert!(
+        exec_outputs.exists()
+            && fs::read_dir(&exec_outputs)
+                .expect("读 exec-outputs")
+                .count()
+                > 0,
+        "exec-outputs 落 baseline 树（static-check 输出记录）"
+    );
+
+    // PhaseRecord：initialize pass 在案（先于 proposal）
+    let entries = store.list_phase_records(CHANGE).expect("读相位条目应成功");
+    let initialize = entries
+        .iter()
+        .find(|entry| entry.phase == "initialize")
+        .expect("initialize 条目应在案");
+    assert_eq!(
+        initialize.verdict,
+        workflow::model::Verdict::Pass,
+        "基线绿 → initialize pass 落账"
+    );
+    assert!(!initialize.skipped, "worktree 分支非跳过语义");
+    assert_eq!(
+        entries.first().map(|entry| entry.phase.as_str()),
+        Some("initialize"),
+        "initialize 条目先于 proposal（表序落账）"
+    );
+}
+
+/// 基线红停真件全链（组合，重试链 / AC-2）：shim 非零退出 → run 以 Terminal
+/// 收敛 failed、终态文案引导在基线上修复后重新发起；PhaseRecord 零 initialize
+/// 条目；shim 转绿后重新发起 → clean 恢复基线后干净重试（initialize pass 落账
+/// ——AC-2 真件全链）。
+#[tokio::test]
+async fn 基线红停_terminal收敛文案引导且转绿后干净重试() {
+    let env = Env::new("baseline-red");
+    let app = app_with(&env);
+    let root = env.root();
+    let worktree = env.data_dir.path().join("wt").join(CHANGE);
+    fs::create_dir_all(env.data_dir.path().join("wt")).expect("建 wt 父目录失败");
+    git_main_with_worktree(env.ws_root.path(), &worktree, &format!("change/{CHANGE}"));
+    fs::create_dir_all(worktree.join("openspec/changes").join(CHANGE))
+        .expect("预置 worktree openspec 树失败");
+    seed_change_with_worktree(&app, &root, CHANGE, &worktree);
+
+    // shim 红形态经排除面控制文件编程（coverage/exit-code.txt 在 clean 排除面
+    // ——未跟踪控制文件跨 clean 存活；tracked shim 读它切非零退出）。「转绿」=
+    // 删除控制文件（零文件改写——tracked shim 全程不被 clean 触碰）
+    let arm_red = |red: bool| {
+        let dir = worktree.join("coverage");
+        if red {
+            fs::create_dir_all(&dir).expect("建 coverage 控制目录失败");
+            fs::write(dir.join("exit-code.txt"), "1").expect("写控制文件失败");
+        } else {
+            let _ = fs::remove_file(dir.join("exit-code.txt"));
+        }
+    };
+    arm_red(true);
+    fs::write(
+        worktree.join("openspec/config.json"),
+        "{ \"static_analysis\": \"static-shim\" }",
+    )
+    .expect("写 config 失败");
+    seed_sdk_default_instance(&app);
+
+    // 首 run：基线红 → Terminal failed
+    let (guard, original) = prefix_path(&worktree);
+    change_flow_start_with(
+        app.handle().clone(),
+        discarding_channel(),
+        root.clone(),
+        CHANGE.to_owned(),
+        false,
+    )
+    .await
+    .expect("红发起仍受理成功（失败在后台收敛）");
+    let control = app.state::<Arc<ChangeFlowControl>>();
+    wait_for_up_to("首 run 终态除名", Duration::from_secs(120), || {
+        control.snapshot(&root, CHANGE).is_none()
+    });
+
+    let store = app
+        .state::<WorkspaceStores>()
+        .for_root(&root)
+        .expect("for_root 应成功");
+    let runs = store.list_change_runs(CHANGE).expect("run 史应成功");
+    assert_eq!(runs.len(), 1);
+    assert_eq!(
+        runs[0].status,
+        workflow::state::RunStatus::Failed,
+        "基线红 → run failed（Terminal 收敛）"
+    );
+    assert!(
+        runs[0]
+            .reason
+            .as_deref()
+            .is_some_and(|reason| reason.contains("基线静态检查未通过")),
+        "终态文案引导基线修复后重新发起: {:?}",
+        runs[0].reason
+    );
+    let entries = store.list_phase_records(CHANGE).expect("读相位条目应成功");
+    assert!(
+        !entries.iter().any(|entry| entry.phase == "initialize"),
+        "红停零 initialize 条目"
+    );
+    // 预置未跟踪残留（下轮 clean 恢复面的真件锚）
+    fs::write(worktree.join("leftover.txt"), "leftover\n").expect("write leftover");
+
+    // shim 转绿：摘除控制文件 → 重新发起（clean 恢复基线后干净重试）
+    arm_red(false);
+    let second = change_flow_start_with(
+        app.handle().clone(),
+        discarding_channel(),
+        root.clone(),
+        CHANGE.to_owned(),
+        false,
+    )
+    .await
+    .expect("二次发起应受理成功");
+
+    // 二次 run：initialize pass 落账后主动 stop（测试聚焦 initialize 表头——
+    // 后续 proposal 相位的 agent 收敛不属本用例面）
+    let store_dbg = app
+        .state::<WorkspaceStores>()
+        .for_root(&root)
+        .expect("for_root");
+    let deadline = Instant::now() + Duration::from_secs(120);
+    loop {
+        let entries = store_dbg
+            .list_phase_records(CHANGE)
+            .expect("读相位条目应成功");
+        if entries.iter().any(|entry| {
+            entry.phase == "initialize" && entry.verdict == workflow::model::Verdict::Pass
+        }) {
+            break;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "等待二次 run initialize pass 超时（120s）"
+        );
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    let _ = change_flow_stop_with(app.handle().clone(), root.clone(), CHANGE.to_owned());
+    wait_for_up_to("二次 run 终态除名", Duration::from_secs(120), || {
+        control.snapshot(&root, CHANGE).is_none()
+    });
+    restore_path(guard, original);
+
+    // 二次 run：clean 恢复基线后干净重试（initialize pass + clean 节点在案）
+    let runs = store.list_change_runs(CHANGE).expect("run 史应成功");
+    assert_eq!(runs.len(), 2, "两轮 run 全史");
+    let entries = store.list_phase_records(CHANGE).expect("读相位条目应成功");
+    let initialize = entries
+        .iter()
+        .find(|entry| entry.phase == "initialize")
+        .expect("二次 run initialize pass 应在案");
+    assert_eq!(initialize.verdict, workflow::model::Verdict::Pass);
+    assert!(!initialize.skipped, "worktree 分支正常落账");
+    let nodes = store
+        .list_run_nodes(&second.run_id)
+        .expect("二次 run 节点应成功");
+    assert!(
+        nodes
+            .iter()
+            .any(|node| node.phase == "initialize"
+                && node.step == workflow::state::RunStepKind::Clean),
+        "二次 run clean 节点在案（基线恢复面）"
+    );
+    assert!(
+        !worktree.join("leftover.txt").exists(),
+        "clean 恢复基线：残留未跟踪文件被清除（AC-5 真件半边）"
     );
 }

@@ -290,23 +290,12 @@ fn detect_files(
     Ok(detected.into_iter().collect())
 }
 
-/// 探测剪枝目录名（CLI `collectFiles` excludedDirs 非 dot 成员同集；dot
-/// 成员 `.git` / `.claude` / `.vp` 由 dot 剪枝覆盖）——依赖与工具产物树
-/// 永不入清单。
-const PRUNED_DIR_NAMES: [&str; 6] = [
-    "node_modules",
-    "dist",
-    "build",
-    "target",
-    "coverage",
-    ".nyc_output",
-];
-
-/// 探测剪枝（项目相对路径面）
+/// 探测剪枝（项目相对路径面）：组件名判定委托 foundation 名单单点（dot 剪枝
+/// 与依赖 / 工具产物目录名封闭集两消费点同源——detect 剪枝与 vcs
+/// `restore_baseline` 排除面）；路径组件迭代语义驻本消费点。
 fn is_pruned_path(path: &Path) -> bool {
     path.components().any(|component| {
-        let name = component.as_os_str().to_string_lossy();
-        name.starts_with('.') || PRUNED_DIR_NAMES.iter().any(|pruned| name == *pruned)
+        foundation::prune::is_pruned_dir_name(&component.as_os_str().to_string_lossy())
     })
 }
 

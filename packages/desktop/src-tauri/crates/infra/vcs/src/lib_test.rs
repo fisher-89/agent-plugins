@@ -522,3 +522,145 @@ fn process_archive_vcs构造_new与default等值() {
     let _c = ProcessArchiveVcs::new();
     // 无状态空类型：可重复构造即断言面（字段零个，等值由类型层承载）
 }
+
+// ---------------------------------------------------------------------------
+// ProcessArchiveVcs.restore_baseline（check-before-flow-start / AC-5 / AC-6）：
+// 委托 `git::restore_baseline` 单点；`Err` 经 map_err 附 worktree 路径与「主仓
+// 未受影响」注记——真实 git tempdir + worktree 分置（零 mock）
+// ---------------------------------------------------------------------------
+
+use crate::test_path_lock as lock_path;
+
+/// 正向（转发对拍）：经 `&dyn ArchiveVcsPort` 调用与 `git::restore_baseline`
+/// 自由函数同仓同排除面双跑效果逐字等值（单点复用防漂移——同仓同排除面双跑
+/// 后 status / 摘要形态一致）。
+#[test]
+fn process_archive_vcs_restore_baseline转发对拍与自由函数等值() {
+    let _guard = lock_path();
+    let port = ProcessArchiveVcs::new();
+
+    // 双仓同构改动：tracked 编辑 + untracked + 排除目录，双跑后仓态等值
+    let (_dir_a, root_a) = init_repo("restore-fwd-a");
+    let (_dir_b, root_b) = init_repo("restore-fwd-b");
+    for root in [&root_a, &root_b] {
+        std::fs::write(root.join("a.txt"), "编辑\n").expect("写改动");
+        std::fs::write(root.join("fresh.txt"), "未跟踪\n").expect("写新文件");
+        let modules = root.join("node_modules").join("lib");
+        std::fs::create_dir_all(&modules).expect("建排除目录");
+        std::fs::write(modules.join("index.js"), "x").expect("写依赖");
+    }
+
+    let summary_a = port
+        .restore_baseline(&root_a, &["node_modules", ".*", "openspec"])
+        .expect("port 侧恢复应 Ok");
+    let summary_b = super::git::restore_baseline(&root_b, &["node_modules", ".*", "openspec"])
+        .expect("自由函数侧恢复应 Ok");
+
+    // 摘要同形（排除面计数一致）、仓态等值（双跑后 status 同空）
+    assert_eq!(summary_a, summary_b, "恢复摘要串逐字等值（单点委托）");
+    let status_a = git(&root_a, &["status", "--porcelain"]);
+    let status_b = git(&root_b, &["status", "--porcelain"]);
+    assert_eq!(status_a, status_b, "双跑后仓态等值");
+    // 排除面（node_modules）为未跟踪保留面——status 仅含该行（fresh.txt 已清、
+    // a.txt 已回 HEAD）
+    for line in status_a.lines() {
+        assert!(
+            line.contains("node_modules"),
+            "status 面仅排除目录保留行: {line:?}"
+        );
+    }
+    assert!(
+        root_a.join("node_modules").join("lib").join("index.js").is_file(),
+        "排除面保留（port 侧）"
+    );
+    assert!(
+        !root_a.join("fresh.txt").exists(),
+        "未跟踪新文件被清除（port 侧 clean 半边）"
+    );
+    assert_eq!(
+        std::fs::read_to_string(root_a.join("a.txt")).expect("读 a.txt"),
+        "initial
+",
+        "tracked 回 HEAD（port 侧 reset 半边）"
+    );
+}
+
+/// 异常（map_err 语境面）：非 git 目录 → `Err` 含 worktree 路径字面量与「主仓
+/// 未受影响」注记（与 git 侧原文可辨）。
+#[test]
+fn process_archive_vcs_restore_baseline_err携路径与主仓注记() {
+    let _guard = lock_path();
+    let port = ProcessArchiveVcs::new();
+    let plain = tempfile::Builder::new()
+        .prefix("vcs-lib-restore-plain-")
+        .tempdir()
+        .expect("建普通目录失败");
+
+    let error = port
+        .restore_baseline(plain.path(), &[".*"])
+        .expect_err("非 git 目录应 Err");
+    let rendered = plain.path().to_string_lossy().into_owned();
+    assert!(
+        error.contains(&rendered),
+        "Err 携 worktree 路径字面量: {error}"
+    );
+    assert!(
+        error.contains("主仓未受影响"),
+        "Err 携主仓未受影响注记: {error}"
+    );
+}
+
+/// 边界（主仓双保险真件锚 / AC-6 灾难面护栏）：真实主仓 + worktree 分置
+/// tempdir，主仓预置未提交改动 → restore 调用后主仓未提交改动原样在案
+///（restore 仅作用于 worktree）。
+#[test]
+fn process_archive_vcs_restore_baseline_主仓双保险真件锚() {
+    let _guard = lock_path();
+    let port = ProcessArchiveVcs::new();
+    let (_main_dir, main_root) = init_repo("restore-main-guard");
+    let (_wt_dir, wt_base) = archive_worktree_slot("restore-main-guard");
+    let wt = wt_base.clone();
+    git(
+        &main_root,
+        &["worktree", "add", &wt.to_string_lossy(), "-b", "change/wt"],
+    );
+
+    // 主仓预置未提交改动（tracked 编辑 + untracked 新文件）
+    std::fs::write(main_root.join("a.txt"), "主仓未提交编辑\n").expect("写主仓改动");
+    std::fs::write(main_root.join("main-local.txt"), "主仓本地文件\n").expect("写主仓新文件");
+
+    // worktree 内也放改动（restore 作用面）
+    std::fs::write(wt.join("a.txt"), "worktree 编辑\n").expect("写 wt 改动");
+
+    port.restore_baseline(&wt, &[".*", "openspec"]).expect("恢复应 Ok");
+
+    // 主仓未提交改动原样在案（灾难面护栏——restore 仅作用 worktree）
+    assert_eq!(
+        std::fs::read_to_string(main_root.join("a.txt")).expect("读主仓 a.txt"),
+        "主仓未提交编辑\n",
+        "主仓 tracked 改动原样（零重置）"
+    );
+    assert!(
+        main_root.join("main-local.txt").is_file(),
+        "主仓 untracked 原样（零 clean）"
+    );
+    let main_status = git(&main_root, &["status", "--porcelain"]);
+    assert!(
+        main_status.contains("a.txt") && main_status.contains("main-local.txt"),
+        "主仓改动在 status 面在案: {main_status:?}"
+    );
+    // worktree 侧已恢复（对照面）
+    assert_eq!(
+        std::fs::read_to_string(wt.join("a.txt")).expect("读 wt a.txt"),
+        "initial\n",
+        "worktree 内容回 HEAD（对照面）"
+    );
+}
+
+/// 正向（构造持衡）：`new()` / `Default::default()` 等值构造既有断言随新方法
+/// 持衡（无状态装配回归锚）。
+#[test]
+fn process_archive_vcs_restore_baseline构造持衡() {
+    let _new = ProcessArchiveVcs::new();
+    let _default = ProcessArchiveVcs::default();
+}

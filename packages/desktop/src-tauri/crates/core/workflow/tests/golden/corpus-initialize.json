@@ -1,0 +1,203 @@
+{
+  "activePhase": null,
+  "artifacts": [],
+  "created": "2024-09-22",
+  "id": "id-initialize",
+  "name": "initialize-corpus",
+  "pipeline": [
+    {
+      "attempts": [
+        {
+          "attempt": 1,
+          "backtrackReason": null,
+          "backtrackTo": null,
+          "checklist": [
+            {
+              "evidence": "diagnostics 空",
+              "item": "静态检查通过",
+              "pass": true
+            },
+            {
+              "evidence": "四计数在场",
+              "item": "测试执行通过",
+              "pass": true
+            },
+            {
+              "evidence": "null（未跑）",
+              "item": "突变测试",
+              "pass": false
+            }
+          ],
+          "decisionSessionId": null,
+          "evaluatorSessionId": null,
+          "executorSessionId": null,
+          "report": "conclusion=pass total=12 passed=10 failed=0 skipped=2；报告目录 /ws/openspec/changes/initialize-corpus/reports/baseline",
+          "skipped": false,
+          "stale": false,
+          "startAt": "2024-09-22T10:13:21Z",
+          "timestamp": "2024-09-22T10:13:21Z",
+          "verdict": "pass"
+        },
+        {
+          "attempt": 2,
+          "backtrackReason": null,
+          "backtrackTo": null,
+          "checklist": [],
+          "decisionSessionId": null,
+          "evaluatorSessionId": null,
+          "executorSessionId": null,
+          "report": "legacy 主仓执行无 worktree 基线，跳过基线检查",
+          "skipped": true,
+          "stale": false,
+          "startAt": "2024-09-22T10:13:22Z",
+          "timestamp": "2024-09-22T10:13:23Z",
+          "verdict": "pass"
+        }
+      ],
+      "phase": "initialize"
+    },
+    {
+      "attempts": [],
+      "phase": "proposal"
+    },
+    {
+      "attempts": [],
+      "phase": "dev-design"
+    },
+    {
+      "attempts": [],
+      "phase": "test-design"
+    },
+    {
+      "attempts": [],
+      "phase": "implement"
+    },
+    {
+      "attempts": [],
+      "phase": "test-gen"
+    },
+    {
+      "attempts": [],
+      "phase": "test-execution"
+    },
+    {
+      "attempts": [],
+      "phase": "code-review"
+    },
+    {
+      "attempts": [],
+      "phase": "acceptance"
+    },
+    {
+      "attempts": [],
+      "phase": "archive"
+    }
+  ],
+  "runs": [
+    {
+      "edges": [
+        {
+          "edgeKind": "forward",
+          "fromNodeKey": "initialize:1:phase_start:0",
+          "toNodeKey": "initialize:1:clean:0"
+        },
+        {
+          "edgeKind": "forward",
+          "fromNodeKey": "initialize:1:clean:0",
+          "toNodeKey": "initialize:1:static_check:0"
+        },
+        {
+          "edgeKind": "forward",
+          "fromNodeKey": "initialize:1:static_check:0",
+          "toNodeKey": "initialize:1:test_execution:0"
+        },
+        {
+          "edgeKind": "forward",
+          "fromNodeKey": "initialize:1:test_execution:0",
+          "toNodeKey": "initialize:1:phase_log:0"
+        }
+      ],
+      "finishedAt": "2024-09-22T10:13:39Z",
+      "nodes": [
+        {
+          "attempt": 1,
+          "detail": null,
+          "endedAt": 1727000061000,
+          "instanceNo": 0,
+          "outputRef": null,
+          "phase": "initialize",
+          "sessionId": null,
+          "startedAt": 1727000060000,
+          "status": "passed",
+          "step": "phase_start",
+          "tokenInput": null,
+          "tokenOutput": null
+        },
+        {
+          "attempt": 1,
+          "detail": "已恢复基线（reset --hard + clean -fd，排除面 8 项）",
+          "endedAt": 1727000061000,
+          "instanceNo": 0,
+          "outputRef": null,
+          "phase": "initialize",
+          "sessionId": null,
+          "startedAt": 1727000060000,
+          "status": "passed",
+          "step": "clean",
+          "tokenInput": null,
+          "tokenOutput": null
+        },
+        {
+          "attempt": 1,
+          "detail": "静态检查通过",
+          "endedAt": 1727000061000,
+          "instanceNo": 0,
+          "outputRef": null,
+          "phase": "initialize",
+          "sessionId": null,
+          "startedAt": 1727000060000,
+          "status": "passed",
+          "step": "static_check",
+          "tokenInput": null,
+          "tokenOutput": null
+        },
+        {
+          "attempt": 1,
+          "detail": "conclusion=pass total=12 passed=10 failed=0 skipped=2",
+          "endedAt": 1727000061000,
+          "instanceNo": 0,
+          "outputRef": null,
+          "phase": "initialize",
+          "sessionId": null,
+          "startedAt": 1727000060000,
+          "status": "passed",
+          "step": "test_execution",
+          "tokenInput": null,
+          "tokenOutput": null
+        },
+        {
+          "attempt": 1,
+          "detail": null,
+          "endedAt": 1727000061000,
+          "instanceNo": 0,
+          "outputRef": null,
+          "phase": "initialize",
+          "sessionId": null,
+          "startedAt": 1727000060000,
+          "status": "passed",
+          "step": "phase_log",
+          "tokenInput": null,
+          "tokenOutput": null
+        }
+      ],
+      "reason": "initialize 全绿后冻结样本（后续路由由续走语料承载）",
+      "runId": "run-1727000010000",
+      "startedAt": "2024-09-22T10:13:30Z",
+      "status": "completed"
+    }
+  ],
+  "source": "active",
+  "status": "active",
+  "title": "initialize-corpus",
+  "worktree": null
+}

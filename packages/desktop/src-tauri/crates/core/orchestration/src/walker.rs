@@ -2,12 +2,13 @@ use std::path::Path;
 use std::sync::Arc;
 
 use agent::{sum_usage_tokens, AgentPermissionMode, AgentRunStatus, ModelLevel, SessionProvenance};
-use foundation::layout::domain_dir_name;
+use foundation::layout::{domain_dir_name, ReportSlot};
 use workflow::model::{ChecklistItem, Verdict};
 use workflow::queries::ChangeDetail;
 use workflow::write::{
-    ArchiveOutcome, BacktrackInput, BacktrackOutcome, DecisionLogOutcome, OnFail, PhaseLogInput,
-    PhaseLogOutcome, PhaseNextError, PhaseNextOutcome, PhaseStartOutcome, StepDefinition, StepNode,
+    ArchiveOutcome, BacktrackInput, BacktrackOutcome, DecisionLogOutcome, INITIALIZE_PHASE_ID,
+    OnFail, PhaseLogInput, PhaseLogOutcome, PhaseNextError, PhaseNextOutcome, PhaseStartOutcome,
+    StepDefinition, StepNode,
 };
 
 use crate::control::{ChangeFlowControl, RunGuard};
@@ -50,6 +51,16 @@ const TXT_SKIP_LEGACY: &str = "legacy 无 worktree";
 const TXT_SKIP_ABSENT: &str = "worktree 已不在场，跳过清理";
 const TXT_SKIP_FINALIZED: &str = "已落盘";
 const TXT_NO_CONFLICT: &str = "无冲突";
+
+/// initialize 相位词汇（legacy 跳过因 + baseline 三态失败文案——三态不共用文
+/// 案，均 Terminal 停给用户；`{dir}` 为 baseline 报告目录占位）。
+const TXT_SKIP_LEGACY_INITIALIZE: &str = "legacy 主仓执行无 worktree 基线，跳过基线检查";
+const TXT_BASELINE_STATIC_FAILED: &str =
+    "基线静态检查未通过，请在基线上修复后重新发起（基线的债不属于本次变更）；报告目录 {dir}";
+const TXT_BASELINE_TEST_ERROR: &str =
+    "基线测试执行出错（环境 / 配置问题），请检查配置与环境后重新发起；报告目录 {dir}";
+const TXT_BASELINE_TEST_FAILED: &str =
+    "基线测试未通过，请在基线上修复测试后重新发起；报告目录 {dir}";
 
 /// lean 档无法裁决收敛的原因词族（解冲突后验不通过的收敛原因，词汇单点驻本
 /// 文件）。
@@ -292,16 +303,34 @@ async fn drive(
         };
         let mut cursor = PhaseCursor::new(&next, entry_kind, sync_specs);
         let mut upgraded = false;
-        // ②–⑥ 相位主体：按计划步序列迭代（exec / agent / git / gate 由 `StepNode`
-        //       声明，walker 按 `group()` 语义分派执行体）
-        for step in &next.steps {
-            match run_step(&ctx, &mut cursor, &mut trace, step).await {
-                Ok(StepFlow::Proceed) => {}
-                Ok(StepFlow::Upgraded) => {
-                    upgraded = true;
-                    break;
-                }
+        // legacy 整相位短路（initialize 表头一次性基线检查相位）：`worktree=None`
+        // 的存量记录 exec root = 主仓（root == main_root ⟺ worktree 缺席——发起
+        // 前置校验保证 worktree 在场时 exec root ≠ 主仓）——restore / 检查 spawn
+        // 在主仓执行会 reset 用户未提交改动（灾难），故步序列零执行（零 vcs /
+        // 零检查 spawn、主仓零重置零 clean），仅 PhaseStart 开相 + PhaseLog 以
+        // skipped 落账（跳过因可见，一次性持久同 pass 语义）
+        if phase == INITIALIZE_PHASE_ID && request.root == request.main_root {
+            cursor.attempt = match step_phase_start(&ctx, &mut trace, &cursor).await {
+                Ok(attempt) => attempt,
                 Err(terminal) => return terminal.into_pair(),
+            };
+            if let Err(terminal) =
+                step_initialize_skipped_phase_log(&ctx, &mut trace, &cursor).await
+            {
+                return terminal.into_pair();
+            }
+        } else {
+            // ②–⑥ 相位主体：按计划步序列迭代（exec / agent / git / gate 由
+            //       `StepNode` 声明，walker 按 `group()` 语义分派执行体）
+            for step in &next.steps {
+                match run_step(&ctx, &mut cursor, &mut trace, step).await {
+                    Ok(StepFlow::Proceed) => {}
+                    Ok(StepFlow::Upgraded) => {
+                        upgraded = true;
+                        break;
+                    }
+                    Err(terminal) => return terminal.into_pair(),
+                }
             }
         }
         trace.failed_phase = cursor.failed.then(|| phase.clone());
@@ -493,7 +522,10 @@ fn emit_node(
 }
 
 // ---------------------------------------------------------------------------
-// 相位内计划步执行体
+// 相位内计划步执行体（initialize 表头一次性基线检查相位步序：PhaseStart →
+// Clean → StaticCheck → TestExecution → PhaseLog——Clean 为 vcs 直调基线恢复
+// 步，两检查步 `on_fail=Terminal` 无反馈边例外、失败即停给用户；其余相位沿各
+// 表 steps 声明执行，PhaseLog 机械 checklist 零改动复用）
 // ---------------------------------------------------------------------------
 
 /// 计划步执行携出物。
@@ -595,6 +627,11 @@ async fn run_step(
     match step.node {
         StepNode::PhaseStart => {
             cursor.attempt = step_phase_start(ctx, trace, cursor).await?;
+            Ok(StepFlow::Proceed)
+        }
+        // initialize 基线恢复步（vcs 直调，git 步族区段先例同归档步）
+        StepNode::Clean => {
+            step_clean(ctx, trace, cursor).await?;
             Ok(StepFlow::Proceed)
         }
         StepNode::Executor => {
@@ -732,6 +769,107 @@ async fn step_phase_start(
     }
 }
 
+/// initialize Clean 步（vcs 直调先例同归档 git 步，不经 ToolCommand 枚举）：
+/// 主仓双保险（`root == main_root` → `passed` + legacy 跳过因，正常不可达——
+/// 相位级短路先行）→ 排除面组装（依赖与工具产物树名单 + dot 目录 + `openspec/`
+/// 工件树增补——增补驻调用方，不入名单本体）→ `restore_baseline` 恢复 worktree
+/// 基线态（tracked reset、untracked 清除、排除面原样保留）。失败即 Terminal
+///（`on_fail=None`：步失败即步终态，不唤决策、不进相位重试）。
+async fn step_clean(
+    ctx: &StepContext<'_>,
+    trace: &mut EdgeTrace,
+    cursor: &mut PhaseCursor,
+) -> Result<(), Terminal> {
+    let kind = ChangeStepKind::Clean;
+    let instance_no = begin_archive_node(ctx, trace, cursor, kind);
+    if ctx.request.root == ctx.request.main_root {
+        settle_archive_node(
+            ctx,
+            cursor,
+            kind,
+            instance_no,
+            StepSettle::passed(Some(TXT_SKIP_LEGACY_INITIALIZE.to_owned())),
+        );
+        return Ok(());
+    }
+    let mut exclusions: Vec<String> = foundation::prune::PRUNED_DIR_NAMES
+        .iter()
+        .map(|name| (*name).to_owned())
+        .collect();
+    exclusions.push(".*".to_owned());
+    exclusions.push(domain_dir_name().to_owned());
+    let exclusion_refs: Vec<&str> = exclusions.iter().map(String::as_str).collect();
+    match ctx
+        .vcs
+        .restore_baseline(Path::new(&ctx.request.root), &exclusion_refs)
+    {
+        Ok(summary) => {
+            settle_archive_node(ctx, cursor, kind, instance_no, StepSettle::passed(Some(summary)));
+            Ok(())
+        }
+        Err(error) => Err(fail_archive_node(
+            ctx,
+            cursor,
+            kind,
+            instance_no,
+            format!("基线恢复失败: {error}"),
+        )),
+    }
+}
+
+/// initialize legacy 短路落账（skipped=true + 空 checklist + 跳过因）：PhaseLog
+/// 节点 emit + 写面落账——skipped 条目与 pass 一次性持久同语义（写面
+/// `has_phase_passed` 谓词两者皆认），后续 run 持久跳过；三会话槽位恒 `None`
+///（零 agent 会话）。Clean / StaticCheck / TestExecution 三步零执行。
+async fn step_initialize_skipped_phase_log(
+    ctx: &StepContext<'_>,
+    trace: &mut EdgeTrace,
+    cursor: &PhaseCursor,
+) -> Result<(), Terminal> {
+    let instance_no = begin_node(
+        ctx.guard,
+        trace,
+        ctx.phase,
+        cursor.attempt,
+        ChangeStepKind::PhaseLog,
+        EdgeKind::Forward,
+    );
+    emit_node(
+        ctx.guard,
+        ctx.phase,
+        cursor.attempt,
+        ChangeStepKind::PhaseLog,
+        instance_no,
+        StepSettle::running(),
+    );
+    let logged = run_phase_log(
+        ctx.tools,
+        ctx.request,
+        PhaseLogInput {
+            phase: ctx.phase.to_owned(),
+            report: TXT_SKIP_LEGACY_INITIALIZE.to_owned(),
+            checklist: Vec::new(),
+            skipped: true,
+            executor_session_id: None,
+            evaluator_session_id: None,
+            decision_session_id: None,
+        },
+    )
+    .await?;
+    emit_node(
+        ctx.guard,
+        ctx.phase,
+        cursor.attempt,
+        ChangeStepKind::PhaseLog,
+        instance_no,
+        StepSettle::passed(Some(format!(
+            "attempt {} 已落账（skipped：{TXT_SKIP_LEGACY_INITIALIZE}）",
+            logged.attempt
+        ))),
+    );
+    Ok(())
+}
+
 /// ③ executor 步：本相位 executor 会话（prompt 由写面 phase-next 单点组装——
 /// 上下文头 + 失败反馈段 + 回溯原因后缀全在写面）。
 async fn step_executor(
@@ -775,6 +913,12 @@ async fn step_static_check(
     cursor: &mut PhaseCursor,
     step: &StepDefinition,
 ) -> Result<StepFlow, Terminal> {
+    // initialize 相位声明 `on_fail=Terminal`（基线绿门：失败即停——无反馈边、
+    // 零 agent 会话可注入，重试基线无意义）→ 单发执行体（verdict-gate Terminal
+    // 前置分支同式先例）；缺省相位走反馈边路径不受影响
+    if step.on_fail == Some(OnFail::Terminal) {
+        return step_static_check_terminal(ctx, trace, cursor).await;
+    }
     let limit = feedback_limit(step, "static-check")?;
     let mut feedback: u32 = 0;
     loop {
@@ -799,6 +943,7 @@ async fn step_static_check(
             &ctx.request.root,
             ToolCommand::StaticCheck {
                 change_id: ctx.request.change_id.clone(),
+                slot: ReportSlot::Test,
             },
             "static-check",
         )
@@ -873,6 +1018,11 @@ async fn step_test_execution(
     cursor: &mut PhaseCursor,
     step: &StepDefinition,
 ) -> Result<StepFlow, Terminal> {
+    // initialize 相位声明 `on_fail=Terminal`（基线绿门：Error / Fail 分文案
+    // Terminal 停给用户——无反馈边）→ 单发执行体；缺省相位走反馈边路径不受影响
+    if step.on_fail == Some(OnFail::Terminal) {
+        return step_test_execution_terminal(ctx, trace, cursor).await;
+    }
     let limit = feedback_limit(step, "test-execution")?;
     let mut feedback: u32 = 0;
     let mut fix_session: Option<String> = None;
@@ -898,6 +1048,7 @@ async fn step_test_execution(
             &ctx.request.root,
             ToolCommand::TestExecution {
                 change_id: ctx.request.change_id.clone(),
+                slot: ReportSlot::Test,
             },
             "test-execution",
         )
@@ -968,6 +1119,138 @@ async fn step_test_execution(
         fix_session = Some(turn.session_id.clone());
         cursor.executor_session = Some(turn.session_id);
     }
+}
+
+/// initialize 相位 static-check 单发执行体（`on_fail=Terminal` 前置分支分派）：
+/// 单节点 running → spawn（baseline 槽位）→ pass / fail 收口。pass：`passed` +
+/// `output_ref` 回填后 Proceed；fail：failed 节点（detail = 诊断摘要、
+/// `output_ref` 回填）+ `Terminal::failed`（static 红文案携 baseline 报告目录
+/// ——`outcome.report_dir` 供给 `{dir}` 占位）。
+async fn step_static_check_terminal(
+    ctx: &StepContext<'_>,
+    trace: &mut EdgeTrace,
+    cursor: &mut PhaseCursor,
+) -> Result<StepFlow, Terminal> {
+    let instance_no = begin_node(
+        ctx.guard,
+        trace,
+        ctx.phase,
+        cursor.attempt,
+        ChangeStepKind::StaticCheck,
+        EdgeKind::Forward,
+    );
+    emit_node(
+        ctx.guard,
+        ctx.phase,
+        cursor.attempt,
+        ChangeStepKind::StaticCheck,
+        instance_no,
+        StepSettle::running(),
+    );
+    let outcome: StaticCheckOutcome = run_tool(
+        ctx.tools,
+        &ctx.request.root,
+        ToolCommand::StaticCheck {
+            change_id: ctx.request.change_id.clone(),
+            slot: ReportSlot::Baseline,
+        },
+        "static-check",
+    )
+    .await?;
+    if outcome.passed {
+        emit_node(
+            ctx.guard,
+            ctx.phase,
+            cursor.attempt,
+            ChangeStepKind::StaticCheck,
+            instance_no,
+            StepSettle::passed(Some("静态检查通过".to_owned()))
+                .with_output_ref(outcome.output_ref.clone()),
+        );
+        return Ok(StepFlow::Proceed);
+    }
+    emit_node(
+        ctx.guard,
+        ctx.phase,
+        cursor.attempt,
+        ChangeStepKind::StaticCheck,
+        instance_no,
+        StepSettle::failed(Some(diagnose_brief(&outcome.diagnostics)))
+            .with_output_ref(outcome.output_ref.clone()),
+    );
+    Err(Terminal::failed(
+        TXT_BASELINE_STATIC_FAILED.replace("{dir}", &outcome.report_dir),
+    ))
+}
+
+/// initialize 相位 test-execution 单发执行体（`on_fail=Terminal` 前置分支分派）：
+/// 单节点 running → spawn（baseline 槽位）→ pass / Error / Fail 三态收口。
+/// pass：`passed` + 计数 detail + `output_ref` 回填，`cursor.test_outcome` 挂载
+///（PhaseLog 机械 checklist 分支天然分派）后 Proceed；Error / Fail：failed 节点
+/// + `Terminal::failed` 分文案（环境 / 测试红可辨，携 baseline 报告目录）。
+async fn step_test_execution_terminal(
+    ctx: &StepContext<'_>,
+    trace: &mut EdgeTrace,
+    cursor: &mut PhaseCursor,
+) -> Result<StepFlow, Terminal> {
+    let instance_no = begin_node(
+        ctx.guard,
+        trace,
+        ctx.phase,
+        cursor.attempt,
+        ChangeStepKind::TestExecution,
+        EdgeKind::Forward,
+    );
+    emit_node(
+        ctx.guard,
+        ctx.phase,
+        cursor.attempt,
+        ChangeStepKind::TestExecution,
+        instance_no,
+        StepSettle::running(),
+    );
+    let outcome: TestExecutionOutcome = run_tool(
+        ctx.tools,
+        &ctx.request.root,
+        ToolCommand::TestExecution {
+            change_id: ctx.request.change_id.clone(),
+            slot: ReportSlot::Baseline,
+        },
+        "test-execution",
+    )
+    .await?;
+    if outcome.conclusion == TestExecutionConclusion::Pass {
+        emit_node(
+            ctx.guard,
+            ctx.phase,
+            cursor.attempt,
+            ChangeStepKind::TestExecution,
+            instance_no,
+            StepSettle::passed(Some(format!(
+                "conclusion=pass total={} passed={} failed={} skipped={}",
+                outcome.total, outcome.passed, outcome.failed, outcome.skipped
+            )))
+            .with_output_ref(Some(outcome.exec_id.clone())),
+        );
+        cursor.test_outcome = Some(outcome);
+        return Ok(StepFlow::Proceed);
+    }
+    emit_node(
+        ctx.guard,
+        ctx.phase,
+        cursor.attempt,
+        ChangeStepKind::TestExecution,
+        instance_no,
+        StepSettle::failed(Some(diagnose_brief(&outcome.findings_brief)))
+            .with_output_ref(Some(outcome.exec_id.clone())),
+    );
+    let template = match outcome.conclusion {
+        TestExecutionConclusion::Error => TXT_BASELINE_TEST_ERROR,
+        _ => TXT_BASELINE_TEST_FAILED,
+    };
+    Err(Terminal::failed(
+        template.replace("{dir}", &outcome.report_dir),
+    ))
 }
 
 /// ④′ mutation-test 步：确定性突变门禁 + 独立反馈边②（报告指引式口径，与

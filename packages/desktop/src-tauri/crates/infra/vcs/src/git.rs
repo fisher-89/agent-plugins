@@ -367,6 +367,30 @@ pub(crate) fn commit_paths(main_root: &Path, paths: &[&str], message: &str) -> R
 }
 
 // ---------------------------------------------------------------------------
+// 基线恢复（initialize 相位 Clean 步 spawn 单点；经 ArchiveVcsPort 缝消费——
+// 排除面组装驻 walker 调用方，infra 无状态）
+// ---------------------------------------------------------------------------
+
+/// worktree 基线恢复：`reset --hard` → `clean -fd` + 逐项 `-e <pattern>` 排除
+///（**不带 `-x`**——尊重 .gitignore，依赖树常态已免疫；`-e` 双保险覆盖无 ignore
+/// 规则仓；`openspec/` 工件树未跟踪面显式保护）。先 reset 后 clean = tracked
+/// 恢复 + untracked 清除的规范序。成功返回恢复摘要串；失败 `Err` 沿既有
+/// `git()` 语境（命令串 + 退出码 + stderr）。
+pub(crate) fn restore_baseline(worktree: &Path, exclusions: &[&str]) -> Result<String, String> {
+    git(worktree, &["reset", "--hard"])?;
+    let mut clean_args: Vec<&str> = vec!["clean", "-fd"];
+    for pattern in exclusions {
+        clean_args.push("-e");
+        clean_args.push(pattern);
+    }
+    git(worktree, &clean_args)?;
+    Ok(format!(
+        "已恢复基线（reset --hard + clean -fd，排除面 {0} 项）",
+        exclusions.len()
+    ))
+}
+
+// ---------------------------------------------------------------------------
 // 变更文件清单 / 补丁（突变范围唯一入口——`change_edit_set` 是全仓取 diff /
 // 列清单的单点封装，`change_edit_patch` 与其同居；checks-runtime 依赖面零 vcs，
 // 清单与补丁经 `ArchiveVcsPort` 缝注入 MutationRunner）

@@ -7073,8 +7073,8 @@ fn finish_change_run单事务整包_全词汇与四kind边同刻() {
 
 /// run 节点读面 cleanup 词零过滤（worktree-cleanup-and-active-cap / AC-9）：写入
 /// 含 cleanup 词节点的 run → 读面原样出线（`cleanup` snake 词、phase=archive、
-/// detail / instance_no 透传——doc 注释二十值与行为一致）；既有 run 读面断言随
-/// 二十值全量持衡（词面扩位不改变行集完整性——归档 9 步词整包落读回环）。
+/// detail / instance_no 透传——doc 注释二十一值与行为一致）；既有 run 读面断言随
+/// 二十一值全量持衡（词面扩位不改变行集完整性——归档 9 步词整包落读回环）。
 #[test]
 fn run节点读面_cleanup词零过滤原样出线() {
     let env = Env::new("run-cleanup-read");
@@ -7140,6 +7140,123 @@ fn run节点读面_cleanup词零过滤原样出线() {
         "detail 载荷透传（读面零改写）"
     );
     assert_eq!(cleanup.instance_no, 0, "身份键实例号透传");
+}
+
+/// run 节点读面 clean 词零过滤（check-before-flow-start / AC-1 / AC-8）：写入
+/// 含 clean 词节点的 initialize run → 读面原样出线（`clean` snake 词、五节点
+/// 行集完整、detail / instance_no 透传——二十一值词汇扩位零过滤的行为回归锚）；
+/// 二十一值穷举写入 / 读回往返在案。
+#[test]
+fn run节点读面_clean词零过滤原样出线() {
+    let env = Env::new("run-clean-read");
+    let store = open_workspace_ok(&env.db_path("ws"));
+    create_change_ok(&store, "flow-run", 1000);
+    store
+        .start_change_run(&run_start_cmd("run-init", "flow-run", 2000))
+        .expect("发起应成功");
+
+    // initialize 五步序整包——emit 序即 node_seq 序
+    let initialize_steps = [
+        RunStepKind::PhaseStart,
+        RunStepKind::Clean,
+        RunStepKind::StaticCheck,
+        RunStepKind::TestExecution,
+        RunStepKind::PhaseLog,
+    ];
+    let nodes: Vec<RunNodeEntry> = initialize_steps
+        .iter()
+        .map(|step| {
+            let mut entry = run_node_entry("initialize", 1, *step, RunStepStatus::Passed, 0);
+            if *step == RunStepKind::Clean {
+                entry.detail = Some("已恢复基线（reset --hard + clean -fd）".to_owned());
+            }
+            entry
+        })
+        .collect();
+    store
+        .finish_change_run(&run_finish_cmd(
+            "run-init",
+            "flow-run",
+            RunStatus::Completed,
+            Some("All phases have passed."),
+            9000,
+            nodes,
+            Vec::new(),
+        ))
+        .expect("收口应成功");
+
+    // 读面原样出线：行集完整（5 行）、clean 词零过滤、载荷透传
+    let rows: Vec<RunNodeStateRecord> = store.list_run_nodes("run-init").expect("节点读应成功");
+    assert_eq!(rows.len(), 5, "initialize 五节点行集完整（零静默丢弃）");
+    assert_eq!(
+        rows.iter().map(|row| row.step).collect::<Vec<_>>(),
+        initialize_steps.to_vec(),
+        "读序 = emit 序（clean 介于 phase_start 与 static_check）"
+    );
+    let clean = rows
+        .iter()
+        .find(|row| row.step == RunStepKind::Clean)
+        .expect("clean 节点读回在案");
+    assert_eq!(clean.step.as_str(), "clean", "snake 词面原样");
+    assert_eq!(clean.phase, "initialize", "initialize 相位随行");
+    assert_eq!(
+        clean.detail.as_deref(),
+        Some("已恢复基线（reset --hard + clean -fd）"),
+        "detail 载荷透传（读面零改写）"
+    );
+    assert_eq!(clean.instance_no, 0, "身份键实例号透传");
+
+    // 二十一值穷举写入 / 读回往返（既有断言 20 → 21 扩位——旧库可读零迁移）
+    let all = [
+        RunStepKind::Executor,
+        RunStepKind::Evaluator,
+        RunStepKind::Decision,
+        RunStepKind::StaticCheck,
+        RunStepKind::TestExecution,
+        RunStepKind::MutationTest,
+        RunStepKind::Clean,
+        RunStepKind::PhaseStart,
+        RunStepKind::PhaseLog,
+        RunStepKind::VerdictGate,
+        RunStepKind::RetryGate,
+        RunStepKind::WhitelistGate,
+        RunStepKind::Preflight,
+        RunStepKind::Commit,
+        RunStepKind::Rebase,
+        RunStepKind::ResolveConflicts,
+        RunStepKind::Merge,
+        RunStepKind::SpecSync,
+        RunStepKind::Cleanup,
+        RunStepKind::Seal,
+        RunStepKind::Finalize,
+    ];
+    assert_eq!(all.len(), 21, "二十一值封闭集全枚举（20 → 21 扩位）");
+    let nodes: Vec<RunNodeEntry> = all
+        .iter()
+        .enumerate()
+        .map(|(index, step)| run_node_entry("initialize", 1, *step, RunStepStatus::Passed, index as u32))
+        .collect();
+    store
+        .start_change_run(&run_start_cmd("run-21", "flow-run", 10_000))
+        .expect("发起应成功");
+    store
+        .finish_change_run(&run_finish_cmd(
+            "run-21",
+            "flow-run",
+            RunStatus::Completed,
+            Some("All phases have passed."),
+            11_000,
+            nodes,
+            Vec::new(),
+        ))
+        .expect("收口应成功");
+    let rows: Vec<RunNodeStateRecord> = store.list_run_nodes("run-21").expect("节点读应成功");
+    assert_eq!(rows.len(), 21, "二十一节点行集完整（零过滤零迁移）");
+    assert_eq!(
+        rows.iter().map(|row| row.step).collect::<Vec<_>>(),
+        all.to_vec(),
+        "二十一值写入 / 读回往返零漂移"
+    );
 }
 
 /// finish 同事务 active_phase 清位（D1 悬挂杀除库面，AC-5）：预置

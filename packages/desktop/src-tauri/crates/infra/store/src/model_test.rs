@@ -2693,10 +2693,47 @@ fn v2快照bincode布局锚_实例外键紧随engine之后() {
 }
 
 // ---------------------------------------------------------------------------
-// RunNodeRecord.step 词汇随动（worktree-cleanup-and-active-cap / AC-9）：
-// RunStepKind 二十值封闭集白名单式扩展 + `cleanup`（零迁移——native_model serde
-// 编解码随枚举词面自然可用）
+// RunNodeRecord.step 词汇随动（worktree-cleanup-and-active-cap / AC-9 +
+// check-before-flow-start）：RunStepKind 二十一值封闭集白名单式扩展 + `cleanup`
+// 与 `clean`（零迁移——native_model serde 编解码随枚举词面自然可用）
 // ---------------------------------------------------------------------------
+
+/// `RunStepKind::Clean` 节点构造 / 序列化 / 反序列化往返等值（正向，
+/// check-before-flow-start）：serde 线词 `"clean"` 白名单式扩展可用——native_model
+/// encode/decode 回环逐字段相等、serde_json 线面 step 词逐字、`node_id()` 身份串
+/// 含 clean 词面（initialize 基线恢复步落库面）。
+#[test]
+fn run_node_record_clean词节点往返等值() {
+    let record = RunNodeRecord::new(
+        "run-1727000000000",
+        "chg-demo",
+        7,
+        &run_node_entry(RunStepKind::Clean, RunStepStatus::Passed, 0),
+        1_727_000_060_000,
+    );
+    assert_eq!(record.step, RunStepKind::Clean, "构造直入 clean 词");
+
+    // native_model encode/decode 回环（serde 词面承载——零迁移）
+    let bytes = native_model::encode(&record).expect("encode 应成功");
+    let (decoded, version) =
+        native_model::decode::<RunNodeRecord>(bytes).expect("decode 应成功");
+    assert_eq!(version, 1, "native_model id=16 版本封装 version 1 持衡");
+    assert_eq!(decoded, record, "clean 词节点回环逐字段相等");
+    assert_eq!(decoded.step, RunStepKind::Clean);
+
+    // serde_json 线面：step 词 `clean` 逐字（与 cleanup 词面可辨）+ node_id()
+    let value = serde_json::to_value(&record).expect("serde_json 出线应成功");
+    assert_eq!(value["step"], serde_json::json!("clean"), "线词白名单扩展在案");
+    assert_eq!(
+        record.node_id(),
+        "implement:1:clean:0",
+        "身份串 = 边表端点口径（clean 词面在案——fixture 相位随行）"
+    );
+
+    // serde_json 反序列化回环（同词面）
+    let back: RunNodeRecord = serde_json::from_value(value).expect("反序列化应成功");
+    assert_eq!(back, record, "serde_json 回环逐字段相等");
+}
 
 /// `RunStepKind::Cleanup` 节点构造 / 序列化 / 反序列化往返等值（正向）：serde
 /// 线词 `"cleanup"` 白名单式扩展可用——native_model encode/decode 回环逐字段
@@ -2734,11 +2771,11 @@ fn run_node_record_cleanup词节点往返等值() {
     assert_eq!(back, record, "serde_json 回环逐字段相等");
 }
 
-/// 二十值全词汇封闭集（边界）：既有十九值词汇断言扩为二十值——全枚举经
+/// 二十一值全词汇封闭集（边界）：既有二十值词汇断言扩为二十一值——全枚举经
 /// native_model 回环逐值相等（len 与词面互异持衡；旧值 round-trip 兼容读不破
-/// ——零迁移面，cleanup 仅白名单式追加）。
+/// ——零迁移面，cleanup / clean 仅白名单式追加，行内词面扩展旧库可读）。
 #[test]
-fn run_node_record_step二十值全词汇回环与词面互异() {
+fn run_node_record_step二十一值全词汇回环与词面互异() {
     let all = [
         RunStepKind::Executor,
         RunStepKind::Evaluator,
@@ -2746,6 +2783,7 @@ fn run_node_record_step二十值全词汇回环与词面互异() {
         RunStepKind::StaticCheck,
         RunStepKind::TestExecution,
         RunStepKind::MutationTest,
+        RunStepKind::Clean,
         RunStepKind::PhaseStart,
         RunStepKind::PhaseLog,
         RunStepKind::VerdictGate,
@@ -2761,16 +2799,20 @@ fn run_node_record_step二十值全词汇回环与词面互异() {
         RunStepKind::Seal,
         RunStepKind::Finalize,
     ];
-    assert_eq!(all.len(), 20, "二十值封闭集全枚举（19 → 20 扩位）");
+    assert_eq!(all.len(), 21, "二十一值封闭集全枚举（20 → 21 扩位）");
 
     // 词面互异（封闭集防线：无两词同形）
     let mut words: Vec<&str> = all.iter().map(|kind| kind.as_str()).collect();
     let total = words.len();
     words.sort_unstable();
     words.dedup();
-    assert_eq!(words.len(), total, "二十值词面互异: {words:?}");
+    assert_eq!(words.len(), total, "二十一值词面互异: {words:?}");
+    assert!(
+        words.contains(&"clean") && words.contains(&"cleanup"),
+        "clean 与 cleanup 两词面同集可辨"
+    );
 
-    // 全枚举 native_model 回环逐值相等（旧十九值兼容读 + cleanup 新值在案）
+    // 全枚举 native_model 回环逐值相等（旧二十值兼容读 + clean 新值在案）
     for (sequence, kind) in all.iter().enumerate() {
         let record = RunNodeRecord::new(
             "run-1727000000000",
@@ -2787,8 +2829,8 @@ fn run_node_record_step二十值全词汇回环与词面互异() {
 }
 
 /// 越集词反序列化拒绝持衡（异常）：封闭集防线不松动——`RunStepKind` serde
-/// Deserialize 面对越集词形（camel 近似 / kebab / 空串 / cleanup 变体词）一律
-/// Err（扩词不改变拒绝面；native_model 编解码即经同型 serde 派生承载）。
+/// Deserialize 面对越集词形（camel 近似 / kebab / 空串 / cleanup 变体词 / clean
+/// 近似词与大写词形）一律 Err（扩词不改变拒绝面——"clean" 本词已合法入集）。
 #[test]
 fn run_node_record_step越集词反序列化拒绝持衡() {
     for illegal in [
@@ -2796,6 +2838,9 @@ fn run_node_record_step越集词反序列化拒绝持衡() {
         "clean-up",
         "cleanups",
         "Cleanup",
+        "clear",
+        "clean step",
+        "Clean",
         "mutationTest",
         "resolveConflicts",
         "archive_stage",

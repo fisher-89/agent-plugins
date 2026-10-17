@@ -99,6 +99,8 @@ fn bare逐参直传零壳包装() {
 // 退役；AC-6）
 // ---------------------------------------------------------------------------
 
+use foundation::layout::ReportSlot;
+
 use crate::{read_exec_output, read_exec_output_in, record_exec_output};
 
 /// 临时 workspace 根 RAII（报告目录树落盘 + 回查真实往返）。
@@ -138,7 +140,7 @@ fn record_exec_output落盘并回查逐字节一致() {
     // 同型：单一字节流保真，分离快照不再存在
     let output = b"clippy: warning: unused import\nerror[E0308]: mismatched types\n".to_vec();
 
-    let exec_id = record_exec_output(root.path(), "demo-change", &output).expect("落盘应成功");
+    let exec_id = record_exec_output(root.path(), "demo-change", ReportSlot::Test, &output).expect("落盘应成功");
     assert!(!exec_id.is_empty(), "exec_id 非空");
     assert!(
         exec_id.starts_with("exec-"),
@@ -174,11 +176,11 @@ fn record_exec_output落盘并回查逐字节一致() {
 #[test]
 fn record_exec_output两次铸造互异且change隔离() {
     let root = TempRoot::new("unique");
-    let first = record_exec_output(root.path(), "change-a", b"one").expect("落盘应成功");
-    let second = record_exec_output(root.path(), "change-a", b"two").expect("落盘应成功");
+    let first = record_exec_output(root.path(), "change-a", ReportSlot::Test, b"one").expect("落盘应成功");
+    let second = record_exec_output(root.path(), "change-a", ReportSlot::Test, b"two").expect("落盘应成功");
     assert_ne!(first, second, "两次铸造 exec_id 互异");
 
-    let third = record_exec_output(root.path(), "change-b", b"three").expect("落盘应成功");
+    let third = record_exec_output(root.path(), "change-b", ReportSlot::Test, b"three").expect("落盘应成功");
     assert_eq!(
         read_exec_output(root.path(), "change-a", &first).expect("回查应命中"),
         b"one".to_vec()
@@ -197,7 +199,7 @@ fn record_exec_output两次铸造互异且change隔离() {
 fn read_exec_output已知引用回读同一log() {
     let root = TempRoot::new("same-log");
     let output = "首个 suite 输出\n第二个 suite 输出\n".as_bytes().to_vec();
-    let exec_id = record_exec_output(root.path(), "demo", &output).expect("落盘应成功");
+    let exec_id = record_exec_output(root.path(), "demo", ReportSlot::Test, &output).expect("落盘应成功");
 
     let read_back = read_exec_output(root.path(), "demo", &exec_id).expect("回查应命中");
     assert_eq!(read_back, output);
@@ -216,7 +218,7 @@ fn read_exec_output_in_change目录定位与root变体同构() {
     // 异锚落盘：模拟 worktree 锚（与 root 非同根）
     let anchor = TempRoot::new("in-anchor");
     let output = "worktree suite 输出\n".as_bytes().to_vec();
-    let exec_id = record_exec_output(anchor.path(), "demo", &output).expect("落盘应成功");
+    let exec_id = record_exec_output(anchor.path(), "demo", ReportSlot::Test, &output).expect("落盘应成功");
     let change_dir = foundation::layout::resolve(anchor.path())
         .changes_root
         .join("demo");
@@ -247,7 +249,7 @@ fn read_exec_output_in_change目录定位与root变体同构() {
 #[test]
 fn read_exec_output未知与非法exec_id返回none() {
     let root = TempRoot::new("miss");
-    let exec_id = record_exec_output(root.path(), "demo", b"payload").expect("落盘应成功");
+    let exec_id = record_exec_output(root.path(), "demo", ReportSlot::Test, b"payload").expect("落盘应成功");
 
     assert!(read_exec_output(root.path(), "demo", "exec-unknown").is_none());
     for hostile in ["", "..", "../secret", "a/b", r"a\b", "C:evil", "exec-1.log"] {
@@ -266,7 +268,7 @@ fn read_exec_output未知与非法exec_id返回none() {
 #[test]
 fn record_exec_output空与超长特殊字节保真() {
     let root = TempRoot::new("bytes");
-    let empty = record_exec_output(root.path(), "demo", b"").expect("空输出落盘应成功");
+    let empty = record_exec_output(root.path(), "demo", ReportSlot::Test, b"").expect("空输出落盘应成功");
     assert_eq!(
         read_exec_output(root.path(), "demo", &empty).expect("空输出应可回查"),
         Vec::<u8>::new(),
@@ -278,7 +280,7 @@ fn record_exec_output空与超长特殊字节保真() {
         long.extend_from_slice(format!("行 {index} 🚀\n").as_bytes());
     }
     long.push(0);
-    let exec_id = record_exec_output(root.path(), "demo", &long).expect("超长落盘应成功");
+    let exec_id = record_exec_output(root.path(), "demo", ReportSlot::Test, &long).expect("超长落盘应成功");
     let read_back = read_exec_output(root.path(), "demo", &exec_id).expect("回查应命中");
     assert_eq!(read_back.len(), long.len(), "超长全量保真（不截断）");
     assert_eq!(read_back, long, "含 \0 与 emoji 字节逐字保真");
@@ -293,7 +295,7 @@ fn record_exec_output目录不可写时err串语义() {
     std::fs::create_dir_all(reports.parent().expect("父目录")).expect("创建父目录失败");
     std::fs::write(&reports, "占位文件").expect("占位写失败");
 
-    let err = record_exec_output(root.path(), "demo", b"stdout").expect_err("应 Err");
+    let err = record_exec_output(root.path(), "demo", ReportSlot::Test, b"stdout").expect_err("应 Err");
     assert!(
         err.contains("exec") || err.contains("目录") || err.contains("落盘"),
         "Err 串语境保留: {err}"
@@ -310,7 +312,7 @@ fn record_exec_output重复落盘互不覆写且零err残留() {
     let mut contents: Vec<Vec<u8>> = Vec::new();
     for index in 0..3 {
         let output = format!("第 {index} 次执行输出\n").into_bytes();
-        let exec_id = record_exec_output(root.path(), "demo", &output).expect("落盘应成功");
+        let exec_id = record_exec_output(root.path(), "demo", ReportSlot::Test, &output).expect("落盘应成功");
         ids.push(exec_id);
         contents.push(output);
     }
@@ -342,4 +344,136 @@ fn record_exec_output重复落盘互不覆写且零err残留() {
     let mut expected: Vec<String> = ids.iter().map(|id| format!("{id}.log")).collect();
     expected.sort();
     assert_eq!(names, expected, "仅 .log 落盘（零 .err 残留、零覆写）");
+}
+
+// ---------------------------------------------------------------------------
+// slot 槽位与双锚回查（check-before-flow-start / AC-1 / AC-8）：输出记录按槽位
+// 锚定 + `read_exec_output_in` 双锚探测（Mock策略：无——真实 tempdir 报告树落
+// 盘 + 回查往返，fs 为被测组合面）
+// ---------------------------------------------------------------------------
+
+/// record slot=Baseline 正向：输出落 `<change>/reports/baseline/exec-outputs/
+/// <exec_id>.log`（单一 `.log` 零 `.err` 残留）；exec_id 非空且重复调用互异
+///（铸造零改动锚）；test 树零混居。
+#[test]
+fn record_exec_output_slot_baseline落baseline树且零err残留() {
+    let root = TempRoot::new("baseline-record");
+    let first = record_exec_output(root.path(), "demo", ReportSlot::Baseline, b"one").expect("落盘应成功");
+    let second = record_exec_output(root.path(), "demo", ReportSlot::Baseline, b"two").expect("落盘应成功");
+    assert_ne!(first, second, "重复铸造互异");
+
+    let baseline_dir =
+        foundation::layout::change_reports(root.path(), "demo", ReportSlot::Baseline)
+            .join("exec-outputs");
+    let mut names: Vec<String> = std::fs::read_dir(&baseline_dir)
+        .expect("读 baseline 输出目录")
+        .flatten()
+        .map(|entry| entry.file_name().to_string_lossy().into_owned())
+        .collect();
+    names.sort();
+    let mut expected: Vec<String> = [first.clone(), second.clone()]
+        .iter()
+        .map(|id| format!("{id}.log"))
+        .collect();
+    expected.sort();
+    assert_eq!(names, expected, "恰两份 .log（零 .err 残留）: {names:?}");
+
+    // test 树零混居
+    assert!(
+        !root.exec_dir("demo").exists(),
+        "test 树零混居（slot=Baseline 不落 reports/test）"
+    );
+}
+
+/// read_exec_output_in 双锚（正向）：baseline 树 exec_id → 首锚 test miss →
+/// 次锚 baseline 命中（内容逐字节）；test 树 exec_id → 首锚命中即返；同一
+/// change 两树并存输出各自回查可达。
+#[test]
+fn read_exec_output_in双锚_baseline与test两树各自可达() {
+    let root = TempRoot::new("dual-anchor");
+    let baseline_id =
+        record_exec_output(root.path(), "demo", ReportSlot::Baseline, b"baseline output").expect("落盘应成功");
+    let test_id = record_exec_output(root.path(), "demo", ReportSlot::Test, b"test output").expect("落盘应成功");
+    let change_dir = foundation::layout::resolve(root.path()).changes_root.join("demo");
+
+    // baseline 树 id：首锚 miss → 次锚命中
+    assert_eq!(
+        read_exec_output_in(&change_dir, &baseline_id).expect("baseline id 应命中"),
+        b"baseline output".to_vec(),
+        "次锚 baseline 命中且内容逐字节"
+    );
+    // test 树 id：首锚命中即返
+    assert_eq!(
+        read_exec_output_in(&change_dir, &test_id).expect("test id 应命中"),
+        b"test output".to_vec(),
+        "首锚 test 命中且内容逐字节"
+    );
+}
+
+/// read_exec_output_in 跨树唯一（边界）：两树各落一份输出 → 各自 id 回查得各
+/// 自内容、无串树（exec_id 跨树唯一——首中即返不歧义）；两树均 miss 的未知 id
+/// → None。
+#[test]
+fn read_exec_output_in跨树唯一无串树() {
+    let root = TempRoot::new("cross-tree");
+    let baseline_id =
+        record_exec_output(root.path(), "demo", ReportSlot::Baseline, b"from-baseline-tree").expect("落盘应成功");
+    let test_id = record_exec_output(root.path(), "demo", ReportSlot::Test, b"from-test-tree").expect("落盘应成功");
+    let change_dir = foundation::layout::resolve(root.path()).changes_root.join("demo");
+
+    // 各自 id 回查各自内容（零串树）
+    assert_ne!(
+        read_exec_output_in(&change_dir, &baseline_id).expect("baseline 命中"),
+        read_exec_output_in(&change_dir, &test_id).expect("test 命中"),
+        "两树内容可辨（零串树）"
+    );
+    assert_eq!(
+        read_exec_output_in(&change_dir, &baseline_id).expect("baseline 命中"),
+        b"from-baseline-tree".to_vec()
+    );
+    // 两树均 miss 的未知 id → None
+    assert!(read_exec_output_in(&change_dir, "exec-999-none").is_none());
+}
+
+/// read_exec_output 顶层组合（组合，AC-1 / AC-8）：顶层函数签名零改动——经
+/// root 变体回查两树 id 均可达（委托 `read_in` 天然双锚——IPC `read_exec_output`
+/// 命令零改动回查覆盖面的组合半边）。
+#[test]
+fn read_exec_output顶层组合_经root变体两树id均可达() {
+    let root = TempRoot::new("top-combo");
+    let baseline_id =
+        record_exec_output(root.path(), "demo", ReportSlot::Baseline, b"top baseline").expect("落盘应成功");
+    let test_id = record_exec_output(root.path(), "demo", ReportSlot::Test, b"top test").expect("落盘应成功");
+
+    assert_eq!(
+        read_exec_output(root.path(), "demo", &baseline_id).expect("顶层回查 baseline 应命中"),
+        b"top baseline".to_vec(),
+        "root 变体双锚覆盖 baseline 树"
+    );
+    assert_eq!(
+        read_exec_output(root.path(), "demo", &test_id).expect("顶层回查 test 应命中"),
+        b"top test".to_vec(),
+        "root 变体双锚覆盖 test 树"
+    );
+}
+
+/// exec_output_dir 槽位版对拍（正向，枚举遍历）：slot 两值目录与
+/// `foundation::layout::change_reports_in(change_dir, slot)` 等值（锚点单点委托
+/// ——`exec_output_dir_in` 无第二份后缀拼接）。
+#[test]
+fn exec_output_dir槽位版与layout单点等值() {
+    let root = TempRoot::new("dir-derive");
+    let change_dir = foundation::layout::resolve(root.path()).changes_root.join("demo");
+    for slot in [ReportSlot::Test, ReportSlot::Baseline] {
+        assert_eq!(
+            super::exec_output_dir(root.path(), "demo", slot),
+            foundation::layout::change_reports_in(&change_dir, slot).join("exec-outputs"),
+            "slot={slot:?} 目录派生与 layout 单点等值（exec-outputs 后缀单点）"
+        );
+        assert_eq!(
+            super::exec_output_dir_in(&change_dir, slot),
+            super::exec_output_dir(root.path(), "demo", slot),
+            "slot={slot:?} 两变体同构（仅前缀差异）"
+        );
+    }
 }

@@ -1192,6 +1192,9 @@ impl ArchiveVcsPort for FakeVcs {
     fn remove_worktree(&self, _main_root: &Path, _worktree: &Path) -> Result<(), String> {
         unimplemented!("组合根链路不触归档 git 缝")
     }
+    fn restore_baseline(&self, _worktree: &Path, _exclusions: &[&str]) -> Result<String, String> {
+        unimplemented!("组合根链路不触基线恢复缝")
+    }
 }
 
 /// 组合链路假 store（`ChangeStateStore` 进程内假件——MutationTest 分支只触
@@ -1324,14 +1327,14 @@ impl ChangeStateStore for FakeStore {
 struct UnusedSeamRunner;
 
 impl StaticCheckRunner for UnusedSeamRunner {
-    fn run(&self, _root: &str, _name: &str) -> BoxToolFuture {
+    fn run(&self, _root: &str, _name: &str, _slot: foundation::layout::ReportSlot) -> BoxToolFuture {
         let error = "组合根链路不触静态检查缝".to_owned();
         Box::pin(async move { Err::<ToolStepOutput, String>(error) })
     }
 }
 
 impl TestExecutionRunner for UnusedSeamRunner {
-    fn run(&self, _root: &str, _name: &str) -> BoxToolFuture {
+    fn run(&self, _root: &str, _name: &str, _slot: foundation::layout::ReportSlot) -> BoxToolFuture {
         let error = "组合根链路不触测试执行缝".to_owned();
         Box::pin(async move { Err::<ToolStepOutput, String>(error) })
     }

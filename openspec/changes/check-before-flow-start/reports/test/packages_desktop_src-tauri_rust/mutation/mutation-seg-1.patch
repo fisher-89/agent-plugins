@@ -1,0 +1,3655 @@
+diff --git a/crates/core/orchestration/src/walker_test.rs b/crates/core/orchestration/src/walker_test.rs
+index 2512336cf318..fa9142d882da 100644
+--- a/crates/core/orchestration/src/walker_test.rs
++++ b/crates/core/orchestration/src/walker_test.rs
+@@ -131,6 +131,26 @@ fn seed_change(store: &Store, id: &str, name: &str) {
+         .expect("建档种子应成功");
+ }
+ 
++/// 建档种子（worktree 形态，check-before-flow-start）：`worktree = Some(执行锚)`
++/// ——initialize worktree 分支驱动用例的记录面（exec root ≠ 主 root，相位级
++/// 短路不触发）。
++fn seed_change_with_worktree(store: &Store, worktree: &std::path::Path) {
++    store
++        .create_change_record(ChangeStateRecord {
++            id: CHANGE_ID.to_owned(),
++            name: NAME.to_owned(),
++            title: NAME.to_owned(),
++            workflow_type: "requirement".to_owned(),
++            created_at: TS_BASE,
++            status: ChangeStatus::Active,
++            archived_at: None,
++            active_phase: None,
++            worktree: Some(worktree.to_string_lossy().into_owned()),
++            base_commit: None,
++        })
++        .expect("建档种子应成功");
++}
++
+ /// 评估条目种子：开相 + 落账一条（store change 域操作面种子路径，active_phase
+ /// 随落账清位——链路末态与真实 run 一致）。
+ fn seed_entry(
+@@ -720,6 +740,7 @@ impl ToolStepPort for FakeTools {
+                         passed: true,
+                         diagnostics: String::new(),
+                         output_ref: None,
++                        report_dir: String::new(),
+                     });
+                 Box::pin(async move { Ok(ToolStepOutput::StaticCheck(outcome)) })
+             }
+@@ -914,6 +935,7 @@ fn passing_check() -> StaticCheckOutcome {
+         passed: true,
+         diagnostics: String::new(),
+         output_ref: None,
++        report_dir: String::new(),
+     }
+ }
+ 
+@@ -922,6 +944,7 @@ fn failing_check(diagnostics: &str) -> StaticCheckOutcome {
+         passed: false,
+         diagnostics: diagnostics.to_owned(),
+         output_ref: None,
++        report_dir: String::new(),
+     }
+ }
+ 
+@@ -962,6 +985,11 @@ struct FakeVcs {
+     /// Ok 时是否真实移除磁盘目录（默认关——多段子用例共享 TempRoot 时防
+     /// fixture 交叉污染；成功移除观察面用例显式开启）
+     remove_removes_dir: Mutex<bool>,
++    /// 基线恢复（restore_baseline 产出面——initialize Clean 步 Err 注入位）
++    restore_result: Mutex<Result<String, String>>,
++    /// restore_baseline 载荷捕获（worktree 与 exclusions——D6 排除面组装断言
++    /// 观察面，check-before-flow-start）
++    restore_calls: Mutex<Vec<(PathBuf, Vec<String>)>>,
+ }
+ 
+ impl FakeVcs {
+@@ -987,6 +1015,8 @@ impl FakeVcs {
+             remove_result: Mutex::new(Ok(())),
+             remove_calls: Mutex::new(Vec::new()),
+             remove_removes_dir: Mutex::new(false),
++            restore_result: Mutex::new(Ok("已重置 0 个路径、清除 0 个未跟踪文件".to_owned())),
++            restore_calls: Mutex::new(Vec::new()),
+         }
+     }
+ 
+@@ -1056,6 +1086,22 @@ impl FakeVcs {
+             .clone()
+     }
+ 
++    /// 基线恢复产出面编程（initialize Clean 步 Err 注入——Ok 摘要 / Err 可编程，
++    /// check-before-flow-start）。
++    fn with_restore_result(self, result: Result<String, String>) -> Self {
++        *self.restore_result.lock().expect("vcs 恢复锁不可中毒") = result;
++        self
++    }
++
++    /// restore_baseline 载荷捕获快照（(worktree, exclusions)——D6 排除面组装
++    /// 断言入口）。
++    fn restore_calls(&self) -> Vec<(PathBuf, Vec<String>)> {
++        self.restore_calls
++            .lock()
++            .expect("vcs 恢复调用锁不可中毒")
++            .clone()
++    }
++
+     /// 解冲突后验用：B 快照 HEAD 与 rebase 半程标记可编程（后验四判据的注入面）。
+     fn with_snapshot_head(self, head: &str, rebase_head: Option<&str>) -> Self {
+         *self.snapshot_head.lock().expect("vcs 快照头锁不可中毒") = Some(head.to_owned());
+@@ -1229,6 +1275,25 @@ impl ArchiveVcsPort for FakeVcs {
+         }
+         result
+     }
++
++    fn restore_baseline(
++        &self,
++        worktree: &std::path::Path,
++        exclusions: &[&str],
++    ) -> Result<String, String> {
++        self.record("restore_baseline".to_owned());
++        self.restore_calls
++            .lock()
++            .expect("vcs 恢复调用锁不可中毒")
++            .push((
++                worktree.to_owned(),
++                exclusions.iter().map(|s| (*s).to_owned()).collect(),
++            ));
++        self.restore_result
++            .lock()
++            .expect("vcs 恢复锁不可中毒")
++            .clone()
++    }
+ }
+ 
+ /// 固定 change **id** 字面量（注册表键 / `RunRequest.change_id` / provenance
+@@ -2014,17 +2079,19 @@ async fn 真实写面组合全程演进对照一致() {
+         "全相位 pass 收敛 completed"
+     );
+ 
+-    // 落库演进与插件直跑形态对照一致：9 相位各 1 条 pass（attempt 1、表序；
+-    // 末位 archive 以空 report + 空 checklist 落 pass）
++    // 落库演进与插件直跑形态对照一致：10 相位各 1 条（initialize 表头 legacy
++    // 短路 skipped 条目 + 8 agent 相位 pass + archive 空 checklist pass；
++    // attempt 1、表序）
+     let entries = db
+         .store
+         .list_phase_records(CHANGE_ID)
+         .expect("读相位条目应成功");
+-    assert_eq!(entries.len(), 9, "九相位各落账一条（含 archive）");
++    assert_eq!(entries.len(), 10, "十相位各落账一条（initialize 表头 + 含 archive）");
+     let phases: Vec<&str> = entries.iter().map(|entry| entry.phase.as_str()).collect();
+     assert_eq!(
+         phases,
+         [
++            "initialize",
+             "proposal",
+             "dev-design",
+             "test-design",
+@@ -2043,16 +2110,27 @@ async fn 真实写面组合全程演进对照一致() {
+         if entry.phase == "archive" {
+             // 归档确定性相位：空 checklist 落账（`derive_verdict([]) = Pass`）
+             assert!(entry.report.is_empty() && entry.checklist.is_empty());
++        } else if entry.phase == "initialize" {
++            // initialize 表头（root == main_root legacy 短路）：skipped=true 落账
++            //（跳过因可见——一次性持久同 pass 语义；空 checklist 零会话槽位）
++            assert!(entry.skipped, "legacy 短路 initialize 条目 skipped=true");
++            assert!(!entry.stale, "干净 run 无 stale 标记");
++            assert!(
++                !entry.report.is_empty() && entry.checklist.is_empty(),
++                "initialize skipped 条目携跳过因 report + 空 checklist: {entry:?}"
++            );
+         } else {
+             assert!(
+                 !entry.report.is_empty() && !entry.checklist.is_empty(),
+                 "条目形状与插件 buildEntry 同形: {entry:?}"
+             );
+         }
+-        assert!(
+-            !entry.skipped && !entry.stale,
+-            "干净 run 无 skipped / stale 标记"
+-        );
++        if entry.phase != "initialize" {
++            assert!(
++                !entry.skipped && !entry.stale,
++                "干净 run 无 skipped / stale 标记"
++            );
++        }
+     }
+ 
+     // active_phase 演进：逐相位开跑、落账清除 → 终态清位
+@@ -2073,6 +2151,15 @@ async fn 重入自active_phase续走不重跑已pass相位() {
+     root.change(NAME);
+     let db = TestDb::open("resume");
+     seed_change(db.store.as_ref(), CHANGE_ID, NAME);
++    seed_entry(
++        db.store.as_ref(),
++        CHANGE_ID,
++        "initialize",
++        Verdict::Pass,
++        "基线检查通过",
++        Vec::new(),
++        TS_BASE,
++    );
+     seed_entry(
+         db.store.as_ref(),
+         CHANGE_ID,
+@@ -2206,13 +2293,14 @@ async fn 重入自active_phase续走不重跑已pass相位() {
+         .expect("读相位条目应成功");
+     assert_eq!(
+         entries.len(),
+-        10,
+-        "dev-design 重评条目纯追加（既有 8 + dev-design 重评 + archive 收口）"
++        11,
++        "dev-design 重评条目纯追加（initialize 表头 + 既有 8 + dev-design 重评 + archive 收口）"
+     );
+-    assert_eq!(entries[8].phase, "dev-design");
+-    assert_eq!(entries[8].attempt, 2);
+-    assert_eq!(entries[8].verdict, Verdict::Pass);
+-    assert_eq!(entries[9].phase, "archive", "归档相位随后收口");
++    assert_eq!(entries[0].phase, "initialize", "initialize 表头条目在案");
++    assert_eq!(entries[9].phase, "dev-design");
++    assert_eq!(entries[9].attempt, 2);
++    assert_eq!(entries[9].verdict, Verdict::Pass);
++    assert_eq!(entries[10].phase, "archive", "归档相位随后收口");
+     let record = db
+         .store
+         .find_change_record(CHANGE_ID)
+@@ -3525,6 +3613,17 @@ async fn 真实写面组合_verdict解析失败反馈边超限_升格双槽位
+     root.change(NAME);
+     let db = TestDb::open("verdict-upgrade");
+     seed_change(db.store.as_ref(), CHANGE_ID, NAME);
++    // initialize 表头条目预置 pass（phase_next 跳过表头——本 run 只验 proposal
++    // 站升格链）
++    seed_entry(
++        db.store.as_ref(),
++        CHANGE_ID,
++        "initialize",
++        Verdict::Pass,
++        "基线检查通过",
++        Vec::new(),
++        TS_BASE,
++    );
+ 
+     let garbage = "评估结论正文，无 JSON".to_owned();
+     let timeline = Arc::new(Mutex::new(Vec::new()));
+@@ -3595,12 +3694,14 @@ async fn 真实写面组合_verdict解析失败反馈边超限_升格双槽位
+     // fail 条目：五轮升格代写——report 携升格、item 为评估输出格式、双槽位
+     // 在场（区别于 static-check 升格仅 executor 单槽）；每轮决策收口后其条目
+     // 定点挂账（verdict 落账时 decision 槽位恒缺省，挂账经 decision_log 单点）
++    // （entries[0] 为 initialize 表头预置条目——proposal fail 条目自 entries[1] 起）
+     let entries = db
+         .store
+         .list_phase_records(CHANGE_ID)
+         .expect("读相位条目应成功");
+-    assert_eq!(entries.len(), 5, "五轮升格 fail 纯追加");
+-    for (idx, entry) in entries.iter().enumerate() {
++    assert_eq!(entries.len(), 6, "initialize 表头 + 五轮升格 fail 纯追加");
++    assert_eq!(entries[0].phase, "initialize");
++    for (idx, entry) in entries.iter().skip(1).enumerate() {
+         assert_eq!(entry.phase, "proposal");
+         assert_eq!(entry.verdict, Verdict::Fail);
+         assert!(
+@@ -3629,7 +3730,7 @@ async fn 真实写面组合_verdict解析失败反馈边超限_升格双槽位
+             "fail 条目携 evaluator 槽位、值续注该 attempt 首发会话"
+         );
+     }
+-    for (idx, entry) in entries.iter().enumerate() {
++    for (idx, entry) in entries.iter().skip(1).enumerate() {
+         assert_eq!(
+             entry.decision_session_id.as_deref(),
+             Some(decisions[idx].as_str()),
+@@ -3899,7 +4000,11 @@ async fn 空白名单backtrack决议被拒() {
+ #[test]
+ fn 步门控声明锚定() {
+     assert_eq!(static_check_feedback_limit(), 5);
+-    assert_eq!(static_check_phases(), vec!["implement", "test-gen"]);
++    assert_eq!(
++        static_check_phases(),
++        vec!["initialize", "implement", "test-gen"],
++        "initialize 表头检查步为 Terminal 分派（非 FeedbackLoop——声明面锚随表头扩位）"
++    );
+     // run_id 铸造定式（每 run 一个会话窗口标识）
+     let run_id = new_run_id();
+     assert!(run_id.starts_with("run-"), "run-<millis> 定式: {run_id}");
+@@ -3919,6 +4024,17 @@ async fn 真实写面组合_会话槽位落账与决策挂账全链对应() {
+     root.change(NAME);
+     let db = TestDb::open("slots-real-compose");
+     seed_change(db.store.as_ref(), CHANGE_ID, NAME);
++    // initialize 表头条目预置 pass（phase_next 跳过表头——本 run 只验 proposal
++    // 站五轮 fail 链的槽位面）
++    seed_entry(
++        db.store.as_ref(),
++        CHANGE_ID,
++        "initialize",
++        Verdict::Pass,
++        "基线检查通过",
++        Vec::new(),
++        TS_BASE,
++    );
+ 
+     let timeline = Arc::new(Mutex::new(Vec::new()));
+     let (worker, _requests, sessions) = FakeWorker::new(&timeline)
+@@ -3973,13 +4089,14 @@ async fn 真实写面组合_会话槽位落账与决策挂账全链对应() {
+     drop(sessions);
+ 
+     // verdict 条目落库：executor / evaluator 槽位与会话序逐一对应（取值自
+-    // WorkerTurnOutcome.session_id——AC-5）
++    // WorkerTurnOutcome.session_id——AC-5；entries[0] 为 initialize 表头预置条目）
+     let entries = db
+         .store
+         .list_phase_records(CHANGE_ID)
+         .expect("读相位条目应成功");
+-    assert_eq!(entries.len(), 5, "五条 fail 条目纯追加");
+-    for (idx, entry) in entries.iter().enumerate() {
++    assert_eq!(entries.len(), 6, "initialize 表头 + 五条 fail 条目纯追加");
++    assert_eq!(entries[0].phase, "initialize");
++    for (idx, entry) in entries.iter().skip(1).enumerate() {
+         assert_eq!(entry.phase, "proposal");
+         assert_eq!(entry.verdict, Verdict::Fail);
+         assert_eq!(
+@@ -3995,7 +4112,7 @@ async fn 真实写面组合_会话槽位落账与决策挂账全链对应() {
+     }
+     // verdict 落账时 decision 槽位恒缺省（D5）；每轮决策收口后其条目经
+     // decision_log 写面单点定点挂账
+-    for (idx, entry) in entries.iter().enumerate() {
++    for (idx, entry) in entries.iter().skip(1).enumerate() {
+         assert_eq!(
+             entry.decision_session_id.as_deref(),
+             Some(decisions[idx].as_str()),
+@@ -4013,6 +4130,17 @@ async fn 真实写面组合_决策挂账先于解析_parse失败同样留痕() {
+     root.change(NAME);
+     let db = TestDb::open("relog-before-parse");
+     seed_change(db.store.as_ref(), CHANGE_ID, NAME);
++    // initialize 表头条目预置 pass（phase_next 跳过表头——本 run 只验 proposal
++    // 站决策挂账链）
++    seed_entry(
++        db.store.as_ref(),
++        CHANGE_ID,
++        "initialize",
++        Verdict::Pass,
++        "基线检查通过",
++        Vec::new(),
++        TS_BASE,
++    );
+ 
+     let timeline = Arc::new(Mutex::new(Vec::new()));
+     let (worker, _requests, sessions) = FakeWorker::new(&timeline)
+@@ -4080,9 +4208,9 @@ async fn 真实写面组合_决策挂账先于解析_parse失败同样留痕() {
+         .store
+         .list_phase_records(CHANGE_ID)
+         .expect("读相位条目应成功");
+-    assert_eq!(entries.len(), 5);
++    assert_eq!(entries.len(), 6, "initialize 表头 + 五条 fail 条目");
+     assert_eq!(
+-        entries[4].decision_session_id.as_deref(),
++        entries[5].decision_session_id.as_deref(),
+         Some(decisions[4].as_str()),
+         "parse 失败路径同样留痕"
+     );
+@@ -4098,6 +4226,15 @@ async fn 真实写面组合_升格fail条目仅携executor槽位且修复轮续
+     root.change(NAME);
+     let db = TestDb::open("upgrade-slots");
+     seed_change(db.store.as_ref(), CHANGE_ID, NAME);
++    seed_entry(
++        db.store.as_ref(),
++        CHANGE_ID,
++        "initialize",
++        Verdict::Pass,
++        "基线检查通过",
++        Vec::new(),
++        TS_BASE,
++    );
+     seed_entry(
+         db.store.as_ref(),
+         CHANGE_ID,
+@@ -4214,8 +4351,12 @@ async fn 真实写面组合_升格fail条目仅携executor槽位且修复轮续
+         .store
+         .list_phase_records(CHANGE_ID)
+         .expect("读相位条目应成功");
+-    assert_eq!(entries.len(), 8, "预置三条 pass + 五轮升格 fail 纯追加");
+-    let upgrades = &entries[3..];
++    assert_eq!(
++        entries.len(),
++        9,
++        "initialize 表头 + 预置三条 pass + 五轮升格 fail 纯追加"
++    );
++    let upgrades = &entries[4..];
+     for (idx, entry) in upgrades.iter().enumerate() {
+         assert_eq!(entry.phase, "implement");
+         assert_eq!(entry.verdict, Verdict::Fail);
+@@ -4514,8 +4655,8 @@ impl WorkflowSnapshotPort for StubSnapshot {
+ struct NullRunner;
+ 
+ impl StaticCheckRunner for NullRunner {
+-    // 磁盘面 port 收 (root, name)：假件零记录逻辑，双参原样吞下
+-    fn run(&self, _root: &str, _name: &str) -> BoxToolFuture {
++    // 磁盘面 port 收 (root, name, slot)：假件零记录逻辑，三参原样吞下
++    fn run(&self, _root: &str, _name: &str, _slot: foundation::layout::ReportSlot) -> BoxToolFuture {
+         Box::pin(async move { Ok(ToolStepOutput::StaticCheck(passing_check())) })
+     }
+ }
+@@ -4524,12 +4665,13 @@ impl StaticCheckRunner for NullRunner {
+ struct FailingRunner;
+ 
+ impl StaticCheckRunner for FailingRunner {
+-    fn run(&self, _root: &str, _name: &str) -> BoxToolFuture {
++    fn run(&self, _root: &str, _name: &str, _slot: foundation::layout::ReportSlot) -> BoxToolFuture {
+         Box::pin(async move {
+             Ok(ToolStepOutput::StaticCheck(StaticCheckOutcome {
+                 passed: false,
+                 diagnostics: "clippy 未过: E0308".to_owned(),
+                 output_ref: None,
++                report_dir: String::new(),
+             }))
+         })
+     }
+@@ -4541,7 +4683,7 @@ impl StaticCheckRunner for FailingRunner {
+ struct NullTestExecutionRunner;
+ 
+ impl TestExecutionRunner for NullTestExecutionRunner {
+-    fn run(&self, _root: &str, _name: &str) -> BoxToolFuture {
++    fn run(&self, _root: &str, _name: &str, _slot: foundation::layout::ReportSlot) -> BoxToolFuture {
+         Box::pin(async move {
+             Ok(ToolStepOutput::TestExecution(TestExecutionOutcome {
+                 conclusion: TestExecutionConclusion::Pass,
+@@ -5127,7 +5269,11 @@ fn test_execution窄化tryfrom逐字段与非匹配面() {
+ #[test]
+ fn test_execution门控声明锚定() {
+     assert_eq!(test_execution_feedback_limit(), 5);
+-    assert_eq!(test_execution_phases(), vec!["test-execution"]);
++    assert_eq!(
++        test_execution_phases(),
++        vec!["initialize", "test-execution"],
++        "initialize 表头检查步为 Terminal 分派（声明面锚随表头扩位）"
++    );
+     // 双门禁步声明分立：反馈上限同值但彼此独立计数（各自计满各自升格）
+     assert_eq!(
+         static_check_feedback_limit(),
+@@ -5316,16 +5462,17 @@ async fn 真件组合_多相位run落库回验_emit序与终态逐字段一致()
+         "completed 收口记因"
+     );
+ 
+-    // 节点整包：node_seq 升序 = emit 序、二十值全词汇零过滤、整包同刻
++    // 节点整包：node_seq 升序 = emit 序、二十一值全词汇零过滤、整包同刻
+     let nodes = store.list_run_nodes("run-1").expect("节点读史应成功");
+     assert!(!nodes.is_empty(), "多相位 run 节点整包非空");
+-    const FULL_WORDS: [workflow::state::RunStepKind; 20] = [
++    const FULL_WORDS: [workflow::state::RunStepKind; 21] = [
+         workflow::state::RunStepKind::Executor,
+         workflow::state::RunStepKind::Evaluator,
+         workflow::state::RunStepKind::Decision,
+         workflow::state::RunStepKind::StaticCheck,
+         workflow::state::RunStepKind::TestExecution,
+         workflow::state::RunStepKind::MutationTest,
++        workflow::state::RunStepKind::Clean,
+         workflow::state::RunStepKind::PhaseStart,
+         workflow::state::RunStepKind::PhaseLog,
+         workflow::state::RunStepKind::VerdictGate,
+@@ -5344,7 +5491,7 @@ async fn 真件组合_多相位run落库回验_emit序与终态逐字段一致()
+     for row in &nodes {
+         assert!(
+             FULL_WORDS.contains(&row.step),
+-            "落库步词汇越二十值全词汇封闭集，实际: {:?}",
++            "落库步词汇越二十一值全词汇封闭集，实际: {:?}",
+             row.step
+         );
+         assert_eq!(
+@@ -5711,14 +5858,24 @@ async fn 续走不重头_第二轮run已pass相位零重执行attempt延续() {
+         );
+         let _confirmer = spawn_confirmer(&control, false);
+         let status = task.await.expect("run 任务正常结束");
+-        assert_eq!(status, ChangeRunStatus::Stopped, "首轮 fail 后停等拒绝收口");
+-        let attempts: Vec<u32> = store
++        assert_eq!(
++            status,
++            ChangeRunStatus::Stopped,
++            "首轮 initialize 表头 legacy 短路落账后停等拒绝收口（手动档零豁免特判——表头先行语义）"
++        );
++        let all = store
+             .list_phase_records(CHANGE_ID)
+-            .expect("读相位条目应成功")
++            .expect("读相位条目应成功");
++        let initialize_attempts: Vec<u32> = all
+             .iter()
++            .filter(|entry| entry.phase == "initialize")
+             .map(|entry| entry.attempt)
+             .collect();
+-        assert_eq!(attempts, vec![1], "首轮 proposal attempt 1（fail 落账）");
++        assert_eq!(
++            initialize_attempts,
++            vec![1],
++            "首轮 initialize 表头 skipped 落账 attempt 1（跳过因可见——一次性持久语义）"
++        );
+     }
+ 
+     // 第二轮：proposal 承接 attempt 2（跨 run max+1）→ pass 后自后续相位推进
+@@ -5763,14 +5920,14 @@ async fn 续走不重头_第二轮run已pass相位零重执行attempt延续() {
+             .collect();
+         assert_eq!(
+             proposal,
+-            vec![1, 2],
+-            "proposal attempt 2 承接自 run-2（跨 run max+1 递增不撞号）"
++            vec![1],
++            "proposal attempt 1 承接自 run-2（首轮 initialize 停等拒绝零 proposal 条目——表头后 attempt 自 1 重计）"
+         );
+         let phases: Vec<&str> = entries.iter().map(|entry| entry.phase.as_str()).collect();
+         assert_eq!(
+             phases,
+             vec![
+-                "proposal",
++                "initialize",
+                 "proposal",
+                 "dev-design",
+                 "test-design",
+@@ -5781,7 +5938,7 @@ async fn 续走不重头_第二轮run已pass相位零重执行attempt延续() {
+                 "acceptance",
+                 "archive",
+             ],
+-            "落账序列严格前向（续走锚点推进——已 pass 相位零重执行，末位归档收口）"
++            "落账序列严格前向（首轮 initialize 表头 skipped 条目 + 第二轮续走自 proposal 推进——已 pass 相位零重执行，末位归档收口）"
+         );
+         // 两轮 run 全史：库面恰两行、run-1 stopped / run-2 completed
+         let runs = store.list_change_runs(CHANGE_ID).expect("库读史应成功");
+@@ -7767,6 +7924,7 @@ async fn 组合链路归档落库与空checklist落账() {
+     let db = TestDb::open("archive-compose");
+     seed_change(db.store.as_ref(), CHANGE_ID, NAME);
+     for (index, phase) in [
++        "initialize",
+         "proposal",
+         "dev-design",
+         "test-design",
+@@ -9374,3 +9532,633 @@ async fn run_worker_干扰载荷仅合法turndone计入不panic() {
+ fn json_usize(value: u64) -> serde_json::Value {
+     serde_json::json!(value)
+ }
++
++// ---------------------------------------------------------------------------
++// initialize 一次性表头全链（check-before-flow-start / AC-1 ~ AC-7）：worktree
++// 分支五步序全绿 / step_clean 排除面与 Err 收敛 / 两检查步 Terminal 三态文案 /
++// 一次性重试链 / legacy 整相位短路 / 持久跳过（Mock策略：FakeVcs 扩
++// restore_baseline 捕获 + FakeTools 预录产出 + RecordingHistory 落包捕获 +
++// StubSnapshot——db 真件组合断言沿既有 TestDb 装置）
++// ---------------------------------------------------------------------------
++
++/// baseline 槽位产出 fixture（terminal 执行体载荷供给——report_dir 携 baseline
++/// 报告树锚点，与 walker Terminal 文案 {dir} 供给面同形）。
++fn baseline_check(passed: bool) -> StaticCheckOutcome {
++    StaticCheckOutcome {
++        passed,
++        diagnostics: if passed {
++            String::new()
++        } else {
++            "error[E0308]: baseline 类型错误".to_owned()
++        },
++        output_ref: Some("exec-baseline-static".to_owned()),
++        report_dir: format!("/ws/openspec/changes/{NAME}/reports/baseline"),
++    }
++}
++
++fn baseline_execution(conclusion: TestExecutionConclusion) -> TestExecutionOutcome {
++    TestExecutionOutcome {
++        conclusion,
++        total: 12,
++        passed: 10,
++        failed: u64::from(conclusion == TestExecutionConclusion::Fail),
++        skipped: 0,
++        findings_brief: match conclusion {
++            TestExecutionConclusion::Pass => "全部测试通过".to_owned(),
++            TestExecutionConclusion::Error => "测试框架拉起失败（环境错误）".to_owned(),
++            TestExecutionConclusion::Fail => "2 项测试失败——聚类失败".to_owned(),
++        },
++        findings_detail: String::new(),
++        report_dir: format!("/ws/openspec/changes/{NAME}/reports/baseline"),
++        exec_id: "exec-baseline-test".to_owned(),
++    }
++}
++
++/// worktree 分支 initialize 全绿链（正向，AC-1 / AC-4 / AC-5 Ok 半边）：五步序
++/// emit 逐位一致（phase_start → clean → static_check → test_execution →
++/// phase_log，串行 forward 边）；restore 排除面 = 名单六名 + `".*"` + openspec
++/// （D6 组装面）；两检查步 ToolCommand 携 `slot=Baseline`（构造点分派单源）；
++/// 检查步 root 恒 exec root（worktree）；PhaseLog 机械 checklist 三条目落账
++///（mutation 恒 None 第 3 条如实留痕、report 携 conclusion 计数 + baseline
++/// 报告目录、三会话槽位恒 None）；PhaseRecord 落 pass（skipped=false）。
++#[tokio::test]
++async fn initialize五步序全绿链_排除面与baseline槽位与机械checklist() {
++    let root = TempRoot::new("init-green");
++    root.change(NAME);
++    let worktree = root.0.join("openspec/changes").join(NAME);
++    let db = TestDb::open("init-green");
++    seed_change_with_worktree(db.store.as_ref(), &worktree);
++
++    let timeline = Arc::new(Mutex::new(Vec::new()));
++    let (worker, _requests, sessions) = FakeWorker::new(&timeline).assemble();
++    let (tools, commands) = FakeTools::new(&timeline)
++        .with_phase_next(vec![route_outcome("initialize", &[]), done_outcome()])
++        .with_static_check(vec![baseline_check(true)])
++        .with_test_execution(vec![baseline_execution(TestExecutionConclusion::Pass)])
++        .assemble();
++    let vcs = Arc::new(FakeVcs::clean());
++    let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
++    let control = Arc::new(ChangeFlowControl::new());
++
++    let (task, _rx, history) = spawn_run_with_vcs(
++        worker,
++        tools,
++        vcs.clone(),
++        snapshot,
++        &control,
++        false,
++        &worktree.to_string_lossy(),
++        &root.root_str(),
++        None,
++    );
++    let _confirmer = spawn_confirmer(&control, true);
++    let status = task.await.expect("run 任务正常结束");
++    assert_eq!(status, ChangeRunStatus::Completed, "initialize 全绿 → done 收敛");
++
++    // 零 agent 会话（确定性相位——executor / evaluator / decision 缺席）
++    assert!(
++        sessions.lock().expect("会话登记锁").is_empty(),
++        "initialize 零 agent 会话注入"
++    );
++
++    // 五步序 emit 逐位（落包节点序 = emit 序；词面 + forward 边逐位）
++    let finish = history.finish().expect("收口落包捕获");
++    let words: Vec<&str> = finish
++        .nodes
++        .iter()
++        .map(|node| node.step.as_str())
++        .collect();
++    assert_eq!(
++        words,
++        ["phase_start", "clean", "static_check", "test_execution", "phase_log"],
++        "initialize 五节点 emit 序逐位（五步序）"
++    );
++    assert!(
++        finish.nodes.iter().all(|node| node.phase == "initialize"),
++        "五节点 phase 恒 initialize"
++    );
++    assert_eq!(finish.edges.len(), 4, "串行 forward 边四条");
++    for (index, edge) in finish.edges.iter().enumerate() {
++        assert_eq!(
++            edge.edge_kind,
++            workflow::state::RunEdgeKind::Forward,
++            "第 {index} 边 forward"
++        );
++        assert_eq!(edge.from_node_key, format!("initialize:1:{}:0", words[index]));
++        assert_eq!(edge.to_node_key, format!("initialize:1:{}:0", words[index + 1]));
++    }
++    // clean / static_check / test_execution / phase_log 节点恒 passed
++    for word in ["clean", "static_check", "test_execution", "phase_log"] {
++        let node = finish
++            .nodes
++            .iter()
++            .find(|node| node.step.as_str() == word)
++            .expect("节点应在案");
++        assert_eq!(node.status, RunStepStatus::Passed, "{word} passed");
++    }
++
++    // 排除面组装（D6）：restore 载荷 = 名单六名 + ".*" + openspec（worktree 锚）
++    let restores = vcs.restore_calls();
++    assert_eq!(restores.len(), 1, "restore_baseline 恰一次");
++    let (restore_root, exclusions) = &restores[0];
++    assert_eq!(
++        restore_root.to_string_lossy(),
++        worktree.to_string_lossy(),
++        "restore 作用锚 = worktree（exec root）"
++    );
++    assert_eq!(
++        exclusions
++            .iter()
++            .map(String::as_str)
++            .collect::<Vec<_>>(),
++        [
++            "node_modules",
++            "dist",
++            "build",
++            "target",
++            "coverage",
++            ".nyc_output",
++            ".*",
++            "openspec",
++        ],
++        "排除面 = PRUNED_DIR_NAMES 六名 + dot 语义 + openspec 工件树（foundation 名单单源组装）"
++    );
++    assert!(
++        vcs.calls()
++            .iter()
++            .all(|call| call == "restore_baseline"),
++        "initialize 零归档 git 步触点（仅 restore_baseline）: {:?}",
++        vcs.calls()
++    );
++
++    // ToolCommand 构造点：两检查步 slot=Baseline + root 恒 exec root
++    let slots: Vec<(&str, foundation::layout::ReportSlot)> = {
++        let commands = commands.lock().expect("命令捕获锁");
++        commands
++            .iter()
++            .filter_map(|command| match command {
++                ToolCommand::StaticCheck { slot, .. } => Some(("static-check", *slot)),
++                ToolCommand::TestExecution { slot, .. } => Some(("test-execution", *slot)),
++                _ => None,
++            })
++            .collect()
++    };
++    assert_eq!(
++        slots,
++        [
++            ("static-check", foundation::layout::ReportSlot::Baseline),
++            ("test-execution", foundation::layout::ReportSlot::Baseline),
++        ],
++        "initialize 两检查步构造 slot=Baseline（构造点分派单源）"
++    );
++
++    // PhaseLog 机械 checklist 落账载荷（FakeTools 命令捕获——写面载荷直检）
++    let log_input = {
++        let commands = commands.lock().expect("命令捕获锁");
++        commands
++            .iter()
++            .find_map(|command| match command {
++                ToolCommand::PhaseLog { input, .. } => Some(input.clone()),
++                _ => None,
++            })
++            .expect("phase-log 落账在场")
++    };
++    assert_eq!(log_input.phase, "initialize");
++    assert!(!log_input.skipped, "全绿链落账非 skipped");
++    assert_eq!(log_input.checklist.len(), 3, "机械 checklist 三条目");
++    assert!(
++        log_input.checklist.iter().all(|item| item.pass),
++        "三机械条目全 pass（第 3 条 mutation null 自动通过——基线检查明确不含突变）"
++    );
++    assert_eq!(
++        log_input.checklist[2].evidence, "null（未跑）",
++        "第 3 条目 evidence 如实留痕（mutation 恒 None——零突变语义）"
++    );
++    assert!(
++        log_input.report.contains("pass") && log_input.report.contains("12"),
++        "report 携 conclusion + 计数: {}",
++        log_input.report
++    );
++    assert!(
++        log_input.report.contains("reports/baseline"),
++        "report 携 baseline 报告目录: {}",
++        log_input.report
++    );
++    assert!(
++        log_input.executor_session_id.is_none()
++            && log_input.evaluator_session_id.is_none()
++            && log_input.decision_session_id.is_none(),
++        "三会话槽位恒 None（零 agent 面）"
++    );
++    drop(commands);
++
++    // PhaseLog 机械 checklist 载荷断言已承载落账面（PhaseLog 命令直检——本用例
++    // FakeTools 零落库；PhaseRecord pass 条目与三会话槽位恒 None 的读侧断言由
++    // change_flow 基线绿走真件测试承载）
++}
++
++/// step_clean Err 收敛（异常，AC-5 Err 半边）：restore Err → clean 节点 failed
++///（Err 串附 git 语境）→ run `Terminal::failed` 收敛；PhaseRecord 零 initialize
++/// 条目、后续 StaticCheck / TestExecution 步零执行（步序短路——Err 串原样透传）。
++#[tokio::test]
++async fn step_clean_err收敛_failed节点与terminal且检查步零执行() {
++    let root = TempRoot::new("init-clean-err");
++    root.change(NAME);
++    let worktree = root.0.join("openspec/changes").join(NAME);
++    let db = TestDb::open("init-clean-err");
++    seed_change_with_worktree(db.store.as_ref(), &worktree);
++
++    let timeline = Arc::new(Mutex::new(Vec::new()));
++    let (worker, _requests, _sessions) = FakeWorker::new(&timeline).assemble();
++    let (tools, commands) = FakeTools::new(&timeline)
++        .with_phase_next(vec![route_outcome("initialize", &[])])
++        .assemble();
++    let vcs = Arc::new(
++        FakeVcs::clean().with_restore_result(Err("git -C wt clean 失败（退出码 128）".to_owned())),
++    );
++    let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
++    let control = Arc::new(ChangeFlowControl::new());
++
++    let (task, _rx, history) = spawn_run_with_vcs(
++        worker,
++        tools,
++        vcs.clone(),
++        snapshot,
++        &control,
++        false,
++        &worktree.to_string_lossy(),
++        &root.root_str(),
++        None,
++    );
++    let _confirmer = spawn_confirmer(&control, true);
++    let status = task.await.expect("run 任务正常结束");
++    assert_eq!(status, ChangeRunStatus::Failed, "restore Err → Terminal failed");
++
++    let finish = history.finish().expect("收口落包捕获");
++    assert_eq!(finish.status, RunStatus::Failed, "落包终态 failed");
++    let clean = finish
++        .nodes
++        .iter()
++        .find(|node| node.step.as_str() == "clean")
++        .expect("clean 节点应在案");
++    assert_eq!(clean.status, RunStepStatus::Failed, "clean 节点 failed");
++    assert!(
++        clean
++            .detail
++            .as_deref()
++            .is_some_and(|detail| detail.contains("git -C wt clean 失败")),
++        "clean detail 携 git 语境 Err 串: {clean:?}"
++    );
++    assert!(
++        !finish
++            .nodes
++            .iter()
++            .any(|node| matches!(node.step.as_str(), "static_check" | "test_execution" | "phase_log")),
++        "Err 后检查步零执行（Terminal 停链）"
++    );
++    assert!(
++        commands
++            .lock()
++            .expect("命令锁")
++            .iter()
++            .all(|command| !matches!(
++                command,
++                ToolCommand::StaticCheck { .. } | ToolCommand::TestExecution { .. }
++            )),
++        "检查步零 spawn"
++    );
++    let entries = db
++        .store
++        .list_phase_records(CHANGE_ID)
++        .expect("读相位条目应成功");
++    assert!(
++        !entries.iter().any(|entry| entry.phase == "initialize"),
++        "Terminal 收敛零 initialize 条目"
++    );
++}
++
++/// step_static_check_terminal static 红（异常，AC-2）：static_check 节点 failed
++/// 携 output_ref + run `Terminal::failed` + 终态文案「基线静态检查未通过」携
++/// baseline report_dir；TestExecution 步零执行（Terminal 收敛与一次性半边）。
++#[tokio::test]
++async fn step_static_check_terminal_红文案携baseline报告目录() {
++    let root = TempRoot::new("init-static-red");
++    root.change(NAME);
++    let worktree = root.0.join("openspec/changes").join(NAME);
++    let db = TestDb::open("init-static-red");
++    seed_change_with_worktree(db.store.as_ref(), &worktree);
++
++    let timeline = Arc::new(Mutex::new(Vec::new()));
++    let (worker, _requests, _sessions) = FakeWorker::new(&timeline).assemble();
++    let (tools, commands) = FakeTools::new(&timeline)
++        .with_phase_next(vec![route_outcome("initialize", &[])])
++        .with_static_check(vec![baseline_check(false)])
++        .assemble();
++    let vcs = Arc::new(FakeVcs::clean());
++    let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
++    let control = Arc::new(ChangeFlowControl::new());
++
++    let (task, _rx, history) = spawn_run_with_vcs(
++        worker,
++        tools,
++        vcs.clone(),
++        snapshot,
++        &control,
++        false,
++        &worktree.to_string_lossy(),
++        &root.root_str(),
++        None,
++    );
++    let _confirmer = spawn_confirmer(&control, true);
++    let status = task.await.expect("run 任务正常结束");
++    assert_eq!(status, ChangeRunStatus::Failed, "static 红 → Terminal failed");
++
++    let finish = history.finish().expect("收口落包捕获");
++    let static_node = finish
++        .nodes
++        .iter()
++        .find(|node| node.step.as_str() == "static_check")
++        .expect("static_check 节点应在案");
++    assert_eq!(static_node.status, RunStepStatus::Failed);
++    assert_eq!(
++        static_node.output_ref.as_deref(),
++        Some("exec-baseline-static"),
++        "failed 节点携 output_ref（回查面）"
++    );
++    let reason = finish.reason.expect("Terminal 记因应在案");
++    assert!(
++        reason.contains("基线静态检查未通过"),
++        "终态文案 = static 红文案: {reason}"
++    );
++    assert!(
++        reason.contains("reports/baseline"),
++        "文案携 baseline report_dir（dir 占位供给面）: {reason}"
++    );
++    assert!(
++        !finish
++            .nodes
++            .iter()
++            .any(|node| node.step.as_str() == "test_execution"),
++        "static 红后 TestExecution 步零执行"
++    );
++    assert!(
++        commands
++            .lock()
++            .expect("命令锁")
++            .iter()
++            .all(|command| !matches!(command, ToolCommand::TestExecution { .. })),
++        "test-execution 零 spawn"
++    );
++}
++
++/// step_test_execution_terminal 三态分文案（异常，AC-3）：`conclusion=Error` →
++/// 环境文案（「基线测试执行出错」+ 报告目录）；`conclusion=Fail` → 测试红文案
++///（「基线测试未通过」+ 报告目录）——与 static 红文案互异可辨（三态文案不共用）。
++#[tokio::test]
++async fn step_test_execution_terminal_error与fail分文案() {
++    for (conclusion, expect_word) in [
++        (TestExecutionConclusion::Error, "基线测试执行出错"),
++        (TestExecutionConclusion::Fail, "基线测试未通过"),
++    ] {
++        let tag = format!("init-test-{}", conclusion.as_str());
++        let root = TempRoot::new(&tag);
++        root.change(NAME);
++        let worktree = root.0.join("openspec/changes").join(NAME);
++        let db = TestDb::open(&tag);
++        seed_change_with_worktree(db.store.as_ref(), &worktree);
++
++        let timeline = Arc::new(Mutex::new(Vec::new()));
++        let (worker, _requests, _sessions) = FakeWorker::new(&timeline).assemble();
++        let (tools, _commands) = FakeTools::new(&timeline)
++            .with_phase_next(vec![route_outcome("initialize", &[])])
++            .with_static_check(vec![baseline_check(true)])
++            .with_test_execution(vec![baseline_execution(conclusion)])
++            .assemble();
++        let vcs = Arc::new(FakeVcs::clean());
++        let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
++        let control = Arc::new(ChangeFlowControl::new());
++
++        let (task, _rx, history) = spawn_run_with_vcs(
++            worker,
++            tools,
++            Arc::clone(&vcs),
++            snapshot,
++            &control,
++            false,
++            &worktree.to_string_lossy(),
++            &root.root_str(),
++            None,
++        );
++        let _confirmer = spawn_confirmer(&control, true);
++        let status = task.await.expect("run 任务正常结束");
++        assert_eq!(status, ChangeRunStatus::Failed, "{expect_word} → Terminal");
++
++        let finish = history.finish().expect("收口落包捕获");
++        let reason = finish.reason.expect("Terminal 记因应在案");
++        assert!(
++            reason.contains(expect_word),
++            "conclusion={:?} 终态文案 = {expect_word}: {reason}",
++            conclusion
++        );
++        assert!(
++            reason.contains("reports/baseline"),
++            "文案携 baseline 报告目录: {reason}"
++        );
++        if conclusion == TestExecutionConclusion::Error {
++            assert!(!reason.contains("基线测试未通过"), "Error 不出测试红文案");
++        } else {
++            assert!(!reason.contains("基线测试执行出错"), "Fail 不出环境文案");
++        }
++    }
++}
++
++/// Terminal 收敛与一次性重试链（边界，重试链 / AC-2）：首 run static 红收敛
++/// failed 后，二次 walk_run → phase_next 仍路由 initialize（零条目重发起）、
++/// shim 转绿后全链干净重试收敛 completed（clean 清残留 + 全链重走）。
++#[tokio::test]
++async fn terminal收敛后二次发起_仍路由initialize且干净重试() {
++    let root = TempRoot::new("init-retry");
++    root.change(NAME);
++    let worktree = root.0.join("openspec/changes").join(NAME);
++
++    // 首 run：static 红 → Terminal failed（PhaseRecord 零 initialize 条目）
++    let db = TestDb::open("init-retry");
++    seed_change_with_worktree(db.store.as_ref(), &worktree);
++    {
++        let timeline = Arc::new(Mutex::new(Vec::new()));
++        let (worker, _requests, _sessions) = FakeWorker::new(&timeline).assemble();
++        let (tools, _commands) = FakeTools::new(&timeline)
++            .with_phase_next(vec![route_outcome("initialize", &[])])
++            .with_static_check(vec![baseline_check(false)])
++            .assemble();
++        let vcs = Arc::new(FakeVcs::clean());
++        let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
++        let control = Arc::new(ChangeFlowControl::new());
++        let (task, _rx, _history) = spawn_run_with_vcs(
++            worker,
++            tools,
++            vcs,
++            snapshot,
++            &control,
++            false,
++            &worktree.to_string_lossy(),
++            &root.root_str(),
++            None,
++        );
++        let _confirmer = spawn_confirmer(&control, true);
++        assert_eq!(
++            task.await.expect("run 任务正常结束"),
++            ChangeRunStatus::Failed,
++            "首 run static 红 Terminal"
++        );
++    }
++    assert!(
++        !db
++            .store
++            .list_phase_records(CHANGE_ID)
++            .expect("读相位条目应成功")
++            .iter()
++            .any(|entry| entry.phase == "initialize"),
++        "首 run 零 initialize 条目（Terminal 零落账）"
++    );
++
++    // 二次发起：shim 转绿 → phase_next 仍路由 initialize → 全链干净重试收敛
++    {
++        let timeline = Arc::new(Mutex::new(Vec::new()));
++        let (worker, _requests, _sessions) = FakeWorker::new(&timeline).assemble();
++        let (tools, _commands) = FakeTools::new(&timeline)
++            .with_phase_next(vec![
++                route_outcome("initialize", &[]),
++                done_outcome(),
++            ])
++            .with_static_check(vec![baseline_check(true)])
++            .with_test_execution(vec![baseline_execution(TestExecutionConclusion::Pass)])
++            .assemble();
++        let vcs = Arc::new(FakeVcs::clean());
++        let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
++        let control = Arc::new(ChangeFlowControl::new());
++        let (task, _rx, history) = spawn_run_with_vcs(
++            worker,
++            tools,
++            vcs.clone(),
++            snapshot,
++            &control,
++            false,
++            &worktree.to_string_lossy(),
++            &root.root_str(),
++            None,
++        );
++        let _confirmer = spawn_confirmer(&control, true);
++        assert_eq!(
++            task.await.expect("run 任务正常结束"),
++            ChangeRunStatus::Completed,
++            "二次发起干净重试收敛 completed"
++        );
++        assert_eq!(
++            vcs.restore_calls().len(),
++            1,
++            "二次 run restore 恰一次（clean 清残留后干净重试）"
++        );
++        let finish = history.finish().expect("收口落包捕获");
++        assert_eq!(finish.status, RunStatus::Completed, "二次 run 收敛 completed");
++    }
++}
++
++/// drive() legacy 短路（正向，AC-6）：`worktree=None` 形态（root == main_root）
++/// 的 initialize → phase_start + phase_log 两枚节点留痕、PhaseLog 以
++/// skipped=true + 空 checklist + 跳过因落账；Clean / StaticCheck / TestExecution
++/// 三步零执行（零 vcs / 零检查 spawn、主仓零重置）；skipped 条目一次性持久同
++/// pass 语义在案。
++#[tokio::test]
++async fn legacy短路_两枚节点留痕与零检查spawn() {
++    let root = TempRoot::new("init-legacy");
++    root.change(NAME);
++    // 路由面为 FakeTools 预录（phase_next 不查 store——建档记录零依赖）
++
++    let timeline = Arc::new(Mutex::new(Vec::new()));
++    let (worker, _requests, _sessions) = FakeWorker::new(&timeline).assemble();
++    let (tools, commands) = FakeTools::new(&timeline)
++        .with_phase_next(vec![route_outcome("initialize", &[]), done_outcome()])
++        .assemble();
++    let vcs = Arc::new(FakeVcs::clean());
++    let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
++    let control = Arc::new(ChangeFlowControl::new());
++
++    // root == main_root（legacy 主仓形态——worktree=None 存量记录）
++    let (task, _rx, history) = spawn_run_with_vcs(
++        worker,
++        tools,
++        vcs.clone(),
++        snapshot,
++        &control,
++        false,
++        &root.root_str(),
++        &root.root_str(),
++        None,
++    );
++    let _confirmer = spawn_confirmer(&control, true);
++    let status = task.await.expect("run 任务正常结束");
++    assert_eq!(status, ChangeRunStatus::Completed, "legacy 短路后 done 收敛");
++
++    let finish = history.finish().expect("收口落包捕获");
++    let words: Vec<&str> = finish
++        .nodes
++        .iter()
++        .map(|node| node.step.as_str())
++        .collect();
++    assert_eq!(
++        words,
++        ["phase_start", "phase_log"],
++        "legacy 短路恰两枚节点（PhaseStart 开相 + PhaseLog skipped 落账）"
++    );
++    assert!(
++        finish.nodes.iter().all(|node| node.phase == "initialize"),
++        "两节点 phase 恒 initialize"
++    );
++
++    // 三步零执行：零 vcs restore、零检查 spawn（主仓零重置零 clean）
++    assert!(
++        vcs.calls().is_empty(),
++        "零 vcs 调用（restore_baseline 缺席——主仓红线）: {:?}",
++        vcs.calls()
++    );
++    assert!(
++        commands
++            .lock()
++            .expect("命令锁")
++            .iter()
++            .all(|command| !matches!(
++                command,
++                ToolCommand::StaticCheck { .. } | ToolCommand::TestExecution { .. }
++            )),
++        "Clean / StaticCheck / TestExecution 三步零 spawn"
++    );
++
++    // PhaseLog skipped 落账载荷：skipped=true + 空 checklist + 跳过因
++    let commands = commands.lock().expect("命令捕获锁");
++    let log_input = commands
++        .iter()
++        .find_map(|command| match command {
++            ToolCommand::PhaseLog { input, .. } => Some(input.clone()),
++            _ => None,
++        })
++        .expect("phase-log 落账在场");
++    assert!(log_input.skipped, "PhaseLog skipped=true");
++    assert!(log_input.checklist.is_empty(), "空 checklist");
++    assert!(
++        log_input.report.contains("legacy"),
++        "跳过因落账（report 携 legacy 语汇）: {}",
++        log_input.report
++    );
++    assert!(
++        log_input.executor_session_id.is_none()
++            && log_input.evaluator_session_id.is_none()
++            && log_input.decision_session_id.is_none(),
++        "三会话槽位恒 None"
++    );
++    drop(commands);
++
++    // skipped 落账载荷断言已承载跳过因可见面（PhaseLog 命令载荷直检——本用例
++    // FakeTools 零落库，skipped 条目持久同 pass 语义的读侧断言由真实写面组合
++    // 用例「真实写面组合全程演进对照一致」承载）
++}
+diff --git a/crates/core/workflow/src/artifacts/eval_checklist_test.rs b/crates/core/workflow/src/artifacts/eval_checklist_test.rs
+index d166b31384d6..47a3395f3f0a 100644
+--- a/crates/core/workflow/src/artifacts/eval_checklist_test.rs
++++ b/crates/core/workflow/src/artifacts/eval_checklist_test.rs
+@@ -21,6 +21,7 @@ static EMPTY_MANIFEST: &[PhaseDefinition] = &[PhaseDefinition {
+     steps: &[],
+     artifact_manifest: &[],
+     prerequisites: &[],
++            backtrackable: true,
+     executor: None,
+     evaluator: None,
+ }];
+diff --git a/crates/core/workflow/src/artifacts/markdown_doc_test.rs b/crates/core/workflow/src/artifacts/markdown_doc_test.rs
+index 1df9c41c6845..4bc9d784bfee 100644
+--- a/crates/core/workflow/src/artifacts/markdown_doc_test.rs
++++ b/crates/core/workflow/src/artifacts/markdown_doc_test.rs
+@@ -75,6 +75,7 @@ static PROPOSAL_ONLY_MANIFEST: &[PhaseDefinition] = &[PhaseDefinition {
+     steps: &[],
+     artifact_manifest: &[PROPOSAL_DOC],
+     prerequisites: &[],
++            backtrackable: true,
+     executor: None,
+     evaluator: None,
+ }];
+@@ -86,6 +87,7 @@ static TWO_DOC_MANIFEST: &[PhaseDefinition] = &[PhaseDefinition {
+     steps: &[],
+     artifact_manifest: &[PROPOSAL_DOC, LEGACY_DESIGN_DOC],
+     prerequisites: &[],
++            backtrackable: true,
+     executor: None,
+     evaluator: None,
+ }];
+@@ -490,6 +492,7 @@ fn 文件名特殊字符时source为相对posix路径() {
+             },
+         ],
+         prerequisites: &[],
++        backtrackable: true,
+         executor: None,
+         evaluator: None,
+     }];
+diff --git a/crates/core/workflow/src/artifacts/registry_test.rs b/crates/core/workflow/src/artifacts/registry_test.rs
+index 548c9a660a68..b6db50d5eb08 100644
+--- a/crates/core/workflow/src/artifacts/registry_test.rs
++++ b/crates/core/workflow/src/artifacts/registry_test.rs
+@@ -67,6 +67,7 @@ static EMPTY_MANIFEST: &[PhaseDefinition] = &[PhaseDefinition {
+     steps: &[],
+     artifact_manifest: &[],
+     prerequisites: &[],
++            backtrackable: true,
+     executor: None,
+     evaluator: None,
+ }];
+@@ -83,6 +84,7 @@ static DUAL_HIT_MANIFEST: &[PhaseDefinition] = &[
+             title: "精确规格",
+         }],
+         prerequisites: &[],
++        backtrackable: true,
+         executor: None,
+         evaluator: None,
+     },
+@@ -96,6 +98,7 @@ static DUAL_HIT_MANIFEST: &[PhaseDefinition] = &[
+             title: "规格目录",
+         }],
+         prerequisites: &[],
++        backtrackable: true,
+         executor: None,
+         evaluator: None,
+     },
+diff --git a/crates/core/workflow/src/artifacts/tasks_progress_test.rs b/crates/core/workflow/src/artifacts/tasks_progress_test.rs
+index 7fb294625e4a..7c62e294e443 100644
+--- a/crates/core/workflow/src/artifacts/tasks_progress_test.rs
++++ b/crates/core/workflow/src/artifacts/tasks_progress_test.rs
+@@ -66,6 +66,7 @@ static TASKS_ONLY_MANIFEST: &[PhaseDefinition] = &[PhaseDefinition {
+     steps: &[],
+     artifact_manifest: &[TASKS_SPEC],
+     prerequisites: &[],
++            backtrackable: true,
+     executor: None,
+     evaluator: None,
+ }];
+@@ -77,6 +78,7 @@ static EMPTY_MANIFEST: &[PhaseDefinition] = &[PhaseDefinition {
+     steps: &[],
+     artifact_manifest: &[],
+     prerequisites: &[],
++            backtrackable: true,
+     executor: None,
+     evaluator: None,
+ }];
+diff --git a/crates/core/workflow/src/queries/detail.rs b/crates/core/workflow/src/queries/detail.rs
+index e5cfb430411b..90a04e8dbd27 100644
+--- a/crates/core/workflow/src/queries/detail.rs
++++ b/crates/core/workflow/src/queries/detail.rs
+@@ -70,7 +70,7 @@ pub struct PhaseEntry {
+     pub attempts: Vec<AttemptRecord>,
+ }
+ 
+-/// run 执行图节点行线面（二十值全词汇封闭集直出，词汇 = `state::RunStepKind`
++/// run 执行图节点行线面（二十一值全词汇封闭集直出，词汇 = `state::RunStepKind`
+ /// 单点；稳定身份键 `(phase, attempt, step, instanceNo)`，库读序 = node_seq 升序
+ /// = emit 序）。
+ ///
+@@ -262,8 +262,8 @@ pub fn change_detail(
+     // 记录恒在，name 恒裸名不带前缀）
+     let created = Some(utc_date(record.created_at));
+ 
+-    // 流水线相位序 = `phase_table(workflow_type)` 相位序（requirement 9 列 /
+-    // test-only 6 列，archive 列位置随表；无 attempt 记录的站为空序列）
++    // 流水线相位序 = `phase_table(workflow_type)` 相位序（requirement 10 列 /
++    // test-only 7 列（initialize 首列），archive 列位置随表；无 attempt 记录的站为空序列）
+     let mut pipeline: Vec<PhaseEntry> = table
+         .iter()
+         .map(|definition| PhaseEntry { phase: definition.id.to_string(), attempts: Vec::new() })
+diff --git a/crates/core/workflow/src/queries/detail_test.rs b/crates/core/workflow/src/queries/detail_test.rs
+index 7a5caeb43365..26576e9aa883 100644
+--- a/crates/core/workflow/src/queries/detail_test.rs
++++ b/crates/core/workflow/src/queries/detail_test.rs
+@@ -1,8 +1,8 @@
+ //! `queries::change_detail` 的单元测试（test-design「queries/detail.rs ->
+ //! detail_test.rs」节，重写主体）：id 寻址（db 无该 id 记录 → 恒 `None`——零
+ //! 磁盘目录解析回退、零空流水线文档形态）、归档 change 全状态面（status=
+-//! archived、9 站 pipeline、runs 全量出线）、`ChangeDetail.id` 首字段与裸名
+-//!（归档日期前缀零入名）、created 恒自 `created_at` 单源、db 重组 9 站流水线
++//! archived、10 站 pipeline、runs 全量出线）、`ChangeDetail.id` 首字段与裸名
++//!（归档日期前缀零入名）、created 恒自 `created_at` 单源、db 重组 10 站流水线
+ //!（attempt 升序、checklist 内联、槽位三列直读、stale / backtrack 字段透出）、
+ //! 时间出线单点（i64 millis → RFC3339 ISO 串 + null；epoch 0 →
+ //! `1970-01-01T00:00:00Z` 口径）、槽位全缺（三会话槽位 + start_at 全 null 面）、
+@@ -60,9 +60,11 @@ const ID_ARCH_GONE: &str = "0192a1b2-c3d4-7e5f-8a9b-0c1d2e3f4c11";
+ const ID_UNKNOWN: &str = "0192a1b2-c3d4-7e5f-8a9b-0c1d2e3f4cff";
+ 
+ /// requirement 相位序夹具（D12：`detail.rs` 的 `PIPELINE_PHASES` 常量退役——
+-/// 列序改由 `phase_table(record.workflow_type)` 出线，测试自备 fixture）：9 列，
+-/// archive 为第 9 列、无 code-analyze 占位列。
+-const REQUIREMENT_PHASES: [&str; 9] = [
++/// 列序改由 `phase_table(record.workflow_type)` 出线，测试自备 fixture）：10 列，
++/// initialize 为表头第 1 列（check-before-flow-start）、archive 为第 10 列、
++/// 无 code-analyze 占位列。
++const REQUIREMENT_PHASES: [&str; 10] = [
++    "initialize",
+     "proposal",
+     "dev-design",
+     "test-design",
+@@ -74,8 +76,10 @@ const REQUIREMENT_PHASES: [&str; 9] = [
+     "archive",
+ ];
+ 
+-/// test-only 相位序夹具：6 列，code-analyze 为第 2 列、archive 为第 6 列。
+-const TEST_ONLY_PHASES: [&str; 6] = [
++/// test-only 相位序夹具：7 列，initialize 为表头第 1 列、code-analyze 为第 3 列、
++/// archive 为第 7 列（check-before-flow-start 扩位）。
++const TEST_ONLY_PHASES: [&str; 7] = [
++    "initialize",
+     "proposal",
+     "code-analyze",
+     "test-design",
+@@ -493,7 +497,7 @@ fn entry(
+     }
+ }
+ 
+-/// 固定 9 站相位名序列（流水线站序断言直读；archive 为末列）。
++/// 固定 10 站相位名序列（流水线站序断言直读；initialize 表头首列、archive 为末列）。
+ fn pipeline_phases(detail: &super::ChangeDetail) -> Vec<&str> {
+     detail
+         .pipeline
+@@ -651,7 +655,7 @@ fn list_phase_records读err_单区块降级整份仍ok() {
+         "清单读 Err 不升级整份 Err（单区块空面哲学），实际: {outcome:?}"
+     );
+     let detail = outcome.expect("应 Ok").expect("应 Some");
+-    assert_eq!(detail.pipeline.len(), 9, "9 站流水线照常");
++    assert_eq!(detail.pipeline.len(), 10, "10 站流水线照常（initialize 表头扩位）");
+     assert!(
+         detail.pipeline.iter().all(|station| station.attempts.is_empty()),
+         "list_phase_records Err → 各站 attempts 空（清单面降级）"
+@@ -679,11 +683,11 @@ fn get_change先行短路_与子表err同注整份err() {
+ }
+ 
+ // ---------------------------------------------------------------------------
+-// 正向：归档 change 全状态面（id 寻址 → status / 9 站 / runs 全量出线）
++// 正向：归档 change 全状态面（id 寻址 → status / 10 站 / runs 全量出线）
+ // ---------------------------------------------------------------------------
+ 
+ /// 建档 archived（记录 id 与裸名）+ 磁盘目录带 `YYYY-MM-DD-` 前缀 →
+-/// change_detail(layout, store, id) → status=archived、9 站 pipeline、runs 全
++/// change_detail(layout, store, id) → status=archived、10 站 pipeline、runs 全
+ /// 量出线（AC-2 主锚——记录恒可达、文档形态错配链结构性退役）。
+ #[test]
+ fn 归档change全状态面_十站流水线与runs全量出线() {
+@@ -765,10 +769,10 @@ fn 归档change全状态面_十站流水线与runs全量出线() {
+     assert_eq!(
+         pipeline_phases(&detail),
+         REQUIREMENT_PHASES.to_vec(),
+-        "9 站 pipeline 全量出线（MUST NOT 落文档形态空面）"
++        "10 站 pipeline 全量出线（MUST NOT 落文档形态空面）"
+     );
+-    assert_eq!(detail.pipeline[0].attempts.len(), 1, "proposal 站条目在案");
+-    assert_eq!(detail.pipeline[3].attempts[0].report, "实现完成");
++    assert_eq!(detail.pipeline[1].attempts.len(), 1, "proposal 站条目在案（表头 initialize 后移一位）");
++    assert_eq!(detail.pipeline[4].attempts[0].report, "实现完成");
+     assert_eq!(detail.runs.len(), 1, "runs 全量出线（非空面）");
+     assert_eq!(detail.runs[0].run_id, "run-arch-1");
+     assert_eq!(detail.runs[0].nodes.len(), 1, "run 节点随行投影");
+@@ -926,11 +930,11 @@ fn created单源_恒取created_at() {
+ }
+ 
+ // ---------------------------------------------------------------------------
+-// 正向：db 重组流水线（9 站 / attempt 升序 / checklist 内联 / 槽位与
++// 正向：db 重组流水线（10 站 / attempt 升序 / checklist 内联 / 槽位与
+ // stale / backtrack 字段透出）
+ // ---------------------------------------------------------------------------
+ 
+-/// 记录序列（多相位多 attempt + checklist + 回跳 stale 标记）→ 9 站流水线
++/// 记录序列（多相位多 attempt + checklist + 回跳 stale 标记）→ 10 站流水线
+ /// 重组：站序固定、attempt 升序、checklist 随行、槽位三列直读、stale /
+ /// backtrack_to / backtrack_reason 字段透出（id 寻址——记录供给语义重证）。
+ #[test]
+@@ -1006,11 +1010,11 @@ fn db重组流水线_十站与attempt升序与checklist内联() {
+ 
+     let detail = env.detail(ID_MULTI);
+ 
+-    // 9 站全量输出，顺序固定
++    // 10 站全量输出，顺序固定
+     assert_eq!(pipeline_phases(&detail), REQUIREMENT_PHASES.to_vec());
+ 
+     // dev-design 单站折叠两条 attempt，按 attempt 升序、checklist 随行
+-    let dev_design = &detail.pipeline[1];
++    let dev_design = &detail.pipeline[2];
+     assert_eq!(dev_design.phase, "dev-design");
+     let attempts: Vec<Option<u32>> = dev_design
+         .attempts
+@@ -1045,7 +1049,7 @@ fn db重组流水线_十站与attempt升序与checklist内联() {
+     assert_eq!(dev_design.attempts[1].decision_session_id, None);
+ 
+     // implement 站：backtrack 字段随条目透出
+-    let implement = &detail.pipeline[3];
++    let implement = &detail.pipeline[4];
+     assert_eq!(implement.attempts.len(), 1);
+     assert_eq!(
+         implement.attempts[0].backtrack_to.as_deref(),
+@@ -1056,9 +1060,9 @@ fn db重组流水线_十站与attempt升序与checklist内联() {
+         Some("设计返工：缺产物区组件")
+     );
+ 
+-    // proposal 站零标记
+-    assert!(!detail.pipeline[0].attempts[0].stale);
+-    assert!(detail.pipeline[0].attempts[0].backtrack_to.is_none());
++    // proposal 站零标记（initialize 表头插入后移一位）
++    assert!(!detail.pipeline[1].attempts[0].stale);
++    assert!(detail.pipeline[1].attempts[0].backtrack_to.is_none());
+ 
+     // 运行态 / 状态面
+     let active = detail.active_phase.as_ref().expect("active_phase 应在场");
+@@ -1077,7 +1081,7 @@ fn db重组流水线_十站与attempt升序与checklist内联() {
+     );
+ }
+ 
+-/// 未覆盖相位站点仍在且 attempts 为空（9 站全量输出，顺序不依赖落行排列）。
++/// 未覆盖相位站点仍在且 attempts 为空（10 站全量输出，顺序不依赖落行排列）。
+ #[test]
+ fn 未覆盖相位站点仍在且attempts为空() {
+     let env = Env::new("partial");
+@@ -1103,11 +1107,11 @@ fn 未覆盖相位站点仍在且attempts为空() {
+         REQUIREMENT_PHASES.to_vec(),
+         "顺序固定，不依赖条目排列"
+     );
+-    let test_gen = &detail.pipeline[4]; // "test-gen"
++    let test_gen = &detail.pipeline[5]; // "test-gen"
+     assert_eq!(test_gen.phase, "test-gen");
+     assert!(test_gen.attempts.is_empty(), "未覆盖站 attempts 为空序列");
+     assert_eq!(
+-        detail.pipeline[0].attempts.len(),
++        detail.pipeline[1].attempts.len(),
+         1,
+         "有记录的站不受空站影响"
+     );
+@@ -1145,7 +1149,7 @@ fn 时间出线iso串_epoch零口径与null留位() {
+         "created = epoch 日"
+     );
+ 
+-    let record = &detail.pipeline[0].attempts[0];
++    let record = &detail.pipeline[1].attempts[0];
+     assert_eq!(record.timestamp.as_deref(), Some("1970-01-01T00:00:00Z"));
+     assert_eq!(record.start_at.as_deref(), Some("1970-01-01T00:00:00Z"));
+ 
+@@ -1153,7 +1157,7 @@ fn 时间出线iso串_epoch零口径与null留位() {
+     assert_eq!(value["activePhase"], serde_json::Value::Null);
+     assert_eq!(value["status"], "active", "状态面小写线值直出");
+     assert_eq!(
+-        value["pipeline"][0]["attempts"][0]["timestamp"], "1970-01-01T00:00:00Z",
++        value["pipeline"][1]["attempts"][0]["timestamp"], "1970-01-01T00:00:00Z",
+         "时间戳恒 ISO 串（timestamp 恒在位）"
+     );
+ }
+@@ -1185,14 +1189,14 @@ fn 槽位与start_at全缺_wire四键null恒在场() {
+     env.file("bare", "proposal.md", "# 提案");
+ 
+     let detail = env.detail(ID_BARE);
+-    let record = &detail.pipeline[0].attempts[0];
++    let record = &detail.pipeline[1].attempts[0];
+     assert_eq!(record.executor_session_id, None);
+     assert_eq!(record.evaluator_session_id, None);
+     assert_eq!(record.decision_session_id, None);
+     assert_eq!(record.start_at, None, "start_at=None → null 不报错");
+ 
+     let value = serde_json::to_value(&detail).expect("线面序列化应成功");
+-    let wire = &value["pipeline"][0]["attempts"][0];
++    let wire = &value["pipeline"][1]["attempts"][0];
+     for key in [
+         "executorSessionId",
+         "evaluatorSessionId",
+@@ -1243,11 +1247,11 @@ fn skipped与stale标记随条目透出() {
+     env.file("flags", "proposal.md", "# 提案");
+ 
+     let detail = env.detail(ID_FLAGS);
+-    // test-gen = 第 5 站（下标 4），test-execution = 第 6 站（下标 5）
+-    assert!(detail.pipeline[4].attempts[0].skipped);
+-    assert!(!detail.pipeline[4].attempts[0].stale);
+-    assert!(detail.pipeline[5].attempts[0].stale);
+-    assert!(!detail.pipeline[5].attempts[0].skipped);
++    // test-gen = 第 6 站（下标 5），test-execution = 第 7 站（下标 6）——initialize 表头插入后移一位
++    assert!(detail.pipeline[5].attempts[0].skipped);
++    assert!(!detail.pipeline[5].attempts[0].stale);
++    assert!(detail.pipeline[6].attempts[0].stale);
++    assert!(!detail.pipeline[6].attempts[0].skipped);
+ }
+ 
+ // ---------------------------------------------------------------------------
+@@ -1272,7 +1276,7 @@ fn 建档记录恒可达_定位miss状态面在() {
+         "source 自记录映射"
+     );
+     assert!(detail.artifacts.is_empty(), "定位 miss 产物清单空");
+-    assert_eq!(detail.pipeline.len(), 9, "建档 9 站流水线照常");
++    assert_eq!(detail.pipeline.len(), 10, "建档 10 站流水线照常");
+ }
+ 
+ // ---------------------------------------------------------------------------
+@@ -1357,7 +1361,7 @@ fn worktree路径出线_与库内记录逐字一致且产物自worktree发现()
+ }
+ 
+ /// worktree 手动删恒可达：记录在场（worktree=Some）+ 定位全 miss（worktree
+-/// 目录被删、未 merge）→ 仍 `Some`：流水线 9 站、产物清单空、状态面在、
++/// 目录被删、未 merge）→ 仍 `Some`：流水线 10 站、产物清单空、状态面在、
+ /// `source` 自 record.status 映射（active → Active）——「建档记录恒可达详情」
+ /// 字面（worktree=Some 形态）。
+ #[test]
+@@ -1376,7 +1380,7 @@ fn worktree手动删_建档记录恒可达source自status映射() {
+     assert_eq!(
+         detail.pipeline.len(),
+         REQUIREMENT_PHASES.len(),
+-        "建档 9 站流水线照常"
++        "建档 10 站流水线照常"
+     );
+     assert!(detail.artifacts.is_empty(), "定位 miss 产物清单空");
+     assert_eq!(
+@@ -1503,15 +1507,16 @@ fn run_edge_row(
+     }
+ }
+ 
+-/// 二十值全词汇（节点出线零过滤断言面；含归档 9 步词（cleanup 尽力步新臂在
+-/// 案）与拆步新词 mutation_test）。
+-const ALL_STEP_KINDS: [RunStepKind; 20] = [
++/// 二十一值全词汇（节点出线零过滤断言面；含归档 9 步词（cleanup 尽力步新臂在
++/// 案）、拆步新词 mutation_test 与 initialize 基线恢复步 clean）。
++const ALL_STEP_KINDS: [RunStepKind; 21] = [
+     RunStepKind::Executor,
+     RunStepKind::Evaluator,
+     RunStepKind::Decision,
+     RunStepKind::StaticCheck,
+     RunStepKind::TestExecution,
+     RunStepKind::MutationTest,
++    RunStepKind::Clean,
+     RunStepKind::PhaseStart,
+     RunStepKind::PhaseLog,
+     RunStepKind::VerdictGate,
+@@ -1659,12 +1664,12 @@ fn 详情run史出线_两run全史投影与时间iso口径() {
+     );
+ }
+ 
+-/// 节点全词汇出线：一次覆盖二十值词汇的 run → 二十值全词汇在案（含
+-/// phaseStart / phaseLog / 三门、mutation_test 拆步新词与 cleanup 尽力步新臂），
+-/// 零过滤（AC-3 / AC-6 / AC-2 二十值零过滤——词汇扩展自动跟随、cleanup 无
+-/// 静默丢弃）。
++/// 节点全词汇出线：一次覆盖二十一值词汇的 run → 二十一值全词汇在案（含
++/// phaseStart / phaseLog / 三门、mutation_test 拆步新词、cleanup 尽力步与 clean
++/// 基线恢复步新臂），零过滤（AC-3 / AC-6 / AC-2 二十一值零过滤——词汇扩展自动
++/// 跟随、clean / cleanup 无静默丢弃）。
+ #[test]
+-fn 详情节点出线_二十值全词汇零过滤() {
++fn 详情节点出线_二十一值全词汇零过滤() {
+     let env = Env::new("run-nodes-vocab");
+     env.seed(ID_RUNNED, "runned", T0, None);
+     env.store.push_run(RunStateRecord {
+@@ -1679,7 +1684,7 @@ fn 详情节点出线_二十值全词汇零过滤() {
+ 
+     let detail = env.detail(ID_RUNNED);
+     let nodes = &detail.runs[0].nodes;
+-    assert_eq!(nodes.len(), 20, "二十值全词汇零过滤（含归档 9 步词与 mutation_test）");
++    assert_eq!(nodes.len(), 21, "二十一值全词汇零过滤（含归档 9 步词、mutation_test 与 clean）");
+     let projected: Vec<RunStepKind> = nodes.iter().map(|node| node.step).collect();
+     assert_eq!(projected, ALL_STEP_KINDS.to_vec());
+ 
+@@ -1700,6 +1705,7 @@ fn 详情节点出线_二十值全词汇零过滤() {
+             "static_check",
+             "test_execution",
+             "mutation_test",
++            "clean",
+             "phase_start",
+             "phase_log",
+             "verdict_gate",
+@@ -1854,7 +1860,7 @@ fn 详情run史出线_零run空数组与单节点零边() {
+     assert_eq!(
+         detail.pipeline.len(),
+         REQUIREMENT_PHASES.len(),
+-        "记录在档：9 站流水线照常（非文档形态空面）"
++        "记录在档：10 站流水线照常（非文档形态空面）"
+     );
+     let value = serde_json::to_value(&detail).expect("序列化应成功");
+     assert!(
+@@ -1920,7 +1926,7 @@ fn 详情run史出线_并列稳定序与读err降级() {
+     env_err.file("runned", "proposal.md", "# 提案");
+     let detail = env_err.detail(ID_RUNNED);
+     assert!(detail.runs.is_empty(), "list_runs Err → runs 降级空数组");
+-    assert_eq!(detail.pipeline.len(), 9, "详情其余面不受阻断");
++    assert_eq!(detail.pipeline.len(), 10, "详情其余面不受阻断");
+     assert!(
+         !detail.artifacts.is_empty(),
+         "产物清单不受 runs 读面失败影响"
+@@ -1969,18 +1975,19 @@ fn 详情run史出线_并列稳定序与读err降级() {
+ // 归档列与归档节点投影（AC-1 / AC-4 / AC-6）
+ // ---------------------------------------------------------------------------
+ 
+-/// 九列 pipeline（正向 / 改写）：requirement 记录 → `phase_table("requirement")`
+-/// 恰 9 列且末列为 `archive`（第 9 列）；`detail.rs` 不再持有 `PIPELINE_PHASES`
+-/// 常量（列序唯一来源 = 相位表）；无 attempt 的 archive 站为空序列（miss 非错误）。
++/// 十列 pipeline（正向 / 改写）：requirement 记录 → `phase_table("requirement")`
++/// 恰 10 列、initialize 表头第 1 列且末列为 `archive`（第 10 列）；`detail.rs`
++/// 不再持有 `PIPELINE_PHASES` 常量（列序唯一来源 = 相位表）；无 attempt 的
++/// archive 站为空序列（miss 非错误）。
+ #[test]
+-fn pipeline九列含archive且空站序列() {
+-    let env = Env::new("pipeline-nine-columns");
++fn pipeline十列含initialize表头且archive空站序列() {
++    let env = Env::new("pipeline-ten-columns");
+     env.seed(ID_RUNNED, "runned", T0, None);
+     env.file("runned", "proposal.md", "# 提案");
+ 
+     let detail = env.detail(ID_RUNNED);
+     let phases = pipeline_phases(&detail);
+-    assert_eq!(phases.len(), 9, "requirement 九列布局");
++    assert_eq!(phases.len(), 10, "requirement 十列布局（initialize 表头扩位）");
+     assert_eq!(
+         phases,
+         REQUIREMENT_PHASES.to_vec(),
+@@ -1990,7 +1997,7 @@ fn pipeline九列含archive且空站序列() {
+         !phases.iter().any(|phase| *phase == "code-analyze"),
+         "requirement 表无 code-analyze（零占位列）"
+     );
+-    assert_eq!(phases[8], "archive", "archive 恒为末列（第 9 列）");
++    assert_eq!(phases[9], "archive", "archive 恒为末列（第 10 列）");
+     assert_eq!(
+         phases.iter().filter(|phase| **phase == "archive").count(),
+         1,
+@@ -2008,39 +2015,40 @@ fn pipeline九列含archive且空站序列() {
+     );
+     let value = serde_json::to_value(&detail).expect("序列化应成功");
+     assert!(
+-        value["pipeline"][8]["attempts"]
++        value["pipeline"][9]["attempts"]
+             .as_array()
+             .is_some_and(Vec::is_empty),
+         "空站 attempts 恒为空数组（不省键）"
+     );
+-    assert_eq!(value["pipeline"][8]["phase"], "archive");
++    assert_eq!(value["pipeline"][9]["phase"], "archive");
+     assert_eq!(
+         value["pipeline"].as_array().map(Vec::len),
+-        Some(9),
+-        "线形 pipeline 恰 9 列"
++        Some(10),
++        "线形 pipeline 恰 10 列"
+     );
+ }
+ 
+-/// test-only 六列 pipeline（正向 / 新增）：`workflow_type="test-only"` 记录 →
+-/// `phase_table("test-only")` 恰 6 列（`proposal / code-analyze / test-design /
+-/// test-gen / test-execution / archive`），code-analyze 第 2 列（`colIndex=1`）、
+-/// archive 第 6 列（`colIndex=5`）。
++/// test-only 七列 pipeline（正向）：`workflow_type="test-only"` 记录 →
++/// `phase_table("test-only")` 恰 7 列（`initialize / proposal / code-analyze /
++/// test-design / test-gen / test-execution / archive`），initialize 表头第 1 列、
++/// code-analyze 第 3 列（`colIndex=2`）、archive 第 7 列（`colIndex=6`）。
+ #[test]
+-fn pipeline_test_only六列含code_analyze与archive末列() {
++fn pipeline_test_only七列含code_analyze与archive末列() {
+     let env = Env::new("pipeline-test-only");
+     env.seed_typed(ID_RUNNED, "runned", "test-only");
+     env.file("runned", "proposal.md", "# 测试向提案");
+ 
+     let detail = env.detail(ID_RUNNED);
+     let phases = pipeline_phases(&detail);
+-    assert_eq!(phases.len(), 6, "test-only 六列布局");
++    assert_eq!(phases.len(), 7, "test-only 七列布局（initialize 表头扩位）");
+     assert_eq!(
+         phases,
+         TEST_ONLY_PHASES.to_vec(),
+         "站序与 test-only 相位表逐位一致"
+     );
+-    assert_eq!(phases[1], "code-analyze", "code-analyze 为第 2 列");
+-    assert_eq!(phases[5], "archive", "archive 为第 6 列（末列）");
++    assert_eq!(phases[0], "initialize", "initialize 为表头第 1 列");
++    assert_eq!(phases[2], "code-analyze", "code-analyze 为第 3 列");
++    assert_eq!(phases[6], "archive", "archive 为第 7 列（末列）");
+     // requirement 独有相位不在 test-only 列序内（零占位）
+     for absent in ["dev-design", "implement", "code-review", "acceptance"] {
+         assert!(
+@@ -2051,26 +2059,28 @@ fn pipeline_test_only六列含code_analyze与archive末列() {
+     // 全列 attempts 空序列（零 attempt 列恒空数组，不报错）
+     assert!(
+         detail.pipeline.iter().all(|station| station.attempts.is_empty()),
+-        "未落账六列 attempts 全空"
++        "未落账七列 attempts 全空"
+     );
+ 
+     let value = serde_json::to_value(&detail).expect("序列化应成功");
+     assert_eq!(
+         value["pipeline"].as_array().map(Vec::len),
+-        Some(6),
+-        "线形 pipeline 恰 6 列"
++        Some(7),
++        "线形 pipeline 恰 7 列"
+     );
+-    assert_eq!(value["pipeline"][1]["phase"], "code-analyze");
+-    assert_eq!(value["pipeline"][5]["phase"], "archive");
++    assert_eq!(value["pipeline"][0]["phase"], "initialize");
++    assert_eq!(value["pipeline"][2]["phase"], "code-analyze");
++    assert_eq!(value["pipeline"][6]["phase"], "archive");
+ }
+ 
+-/// 两表 archive 列位置边界（边界 / 新增）：requirement（9）与 test-only（6）两
+-/// 表 `archive` 恒为 `pipeline` 末列（`len - 1`，archive 第 9 / 第 6 列）。
++/// 两表 archive 列位置边界（边界）：requirement（10）与 test-only（7）两表
++/// `archive` 恒为 `pipeline` 末列（`len - 1`，archive 第 10 / 第 7 列——initialize
++/// 表头插入不改末列）。
+ #[test]
+ fn pipeline两表archive恒为末列() {
+     for (tag, workflow_type, expected_len) in [
+-        ("archive-pos-req", "requirement", 9usize),
+-        ("archive-pos-test", "test-only", 6usize),
++        ("archive-pos-req", "requirement", 10usize),
++        ("archive-pos-test", "test-only", 7usize),
+     ] {
+         let env = Env::new(tag);
+         env.seed_typed(ID_RUNNED, "runned", workflow_type);
+@@ -2262,7 +2272,7 @@ fn archive空checklist落账投影为pass尝试记录() {
+     assert!(attempt.backtrack_to.is_none() && attempt.backtrack_reason.is_none());
+ 
+     let value = serde_json::to_value(&detail).expect("序列化应成功");
+-    let wire = &value["pipeline"][8]["attempts"][0];
++    let wire = &value["pipeline"][9]["attempts"][0];
+     assert_eq!(wire["verdict"], "pass");
+     assert_eq!(wire["report"], "");
+     assert!(
+@@ -2632,3 +2642,126 @@ fn runs节点投影线面与活面step_state同形() {
+         assert!(object.contains_key(key), "节点线面含 {key}（与活面 ChangeStepState 同形）");
+     }
+ }
++
++// ---------------------------------------------------------------------------
++// initialize 表头与 clean 节点投影（check-before-flow-start / AC-8）：pipeline
++// initialize 站 pass / skipped 两形态条目出线 + clean 节点投影形态（Mock策略：
++// detail_test 沿既有进程内假件 store——注入依赖假件）
++// ---------------------------------------------------------------------------
++
++/// initialize 站 attempts 两形态出线（边界）：pass 条目（正常 worktree 分支
++/// 机械 checklist 落账）与 skipped 条目（legacy 短路落账）同站透出——
++/// skipped 条目读侧透出即呈现面零结构改动前提（列头 / attempts 面零特判）。
++#[test]
++fn initialize站attempts_pass与skipped两形态出线() {
++    let env = Env::new("pipeline-init-attempts");
++    env.seed_typed(ID_RUNNED, "runned", "requirement");
++    env.file("runned", "proposal.md", "# 提案");
++
++    // pass 条目（attempt 1，机械 checklist 三条目面）
++    let passed = entry(
++        ID_RUNNED,
++        "initialize",
++        1,
++        Verdict::Pass,
++        "conclusion=pass total=12 passed=10 failed=0 skipped=2；报告目录 …/reports/baseline",
++        vec![
++            item("静态检查", true, "diagnostics 空"),
++            item("测试执行", true, "四计数在场"),
++            item("突变测试", false, "null（未跑）"),
++        ],
++        None,
++        None,
++        Some(t(11)),
++        t(19),
++    );
++    env.push_entry(passed);
++    // skipped 条目（attempt 2 形态——legacy 短路落账语义独立可辨）
++    let mut skipped = entry(
++        ID_RUNNED,
++        "initialize",
++        2,
++        Verdict::Pass,
++        "legacy 主仓执行无 worktree 基线，跳过基线检查",
++        Vec::new(),
++        None,
++        None,
++        Some(t(21)),
++        t(29),
++    );
++    skipped.skipped = true;
++    env.push_entry(skipped);
++
++    let detail = env.detail(ID_RUNNED);
++    let initialize = detail
++        .pipeline
++        .iter()
++        .find(|station| station.phase == "initialize")
++        .expect("initialize 站在案（表头第 1 列）");
++    assert_eq!(initialize.attempts.len(), 2, "两形态条目全量出线");
++    assert!(!initialize.attempts[0].skipped, "attempt 1 非跳过（pass 形态）");
++    assert_eq!(initialize.attempts[0].attempt, Some(1));
++    assert!(
++        initialize.attempts[0].checklist.len() == 3,
++        "pass 条目机械 checklist 三条目随行"
++    );
++    assert!(
++        initialize.attempts[0]
++            .report
++            .contains("reports/baseline"),
++        "report 携 baseline 报告目录（呈现面回查锚）"
++    );
++    assert!(initialize.attempts[1].skipped, "attempt 2 skipped 形态透出");
++    assert_eq!(initialize.attempts[1].verdict, Verdict::Pass, "skipped 同 pass 语义");
++    // 三会话槽位恒 None（零 agent 面）
++    for attempt in &initialize.attempts {
++        assert!(
++            attempt.executor_session_id.is_none()
++                && attempt.evaluator_session_id.is_none()
++                && attempt.decision_session_id.is_none(),
++            "initialize 三会话槽位恒 None"
++        );
++    }
++}
++
++/// clean 节点投影形态（边界）：detail 出线形态与归档 git 步族一致——`clean`
++/// snake 线词、`phase=initialize` 表头相位在案、字段形状（status / instanceNo /
++/// session null 面）与 cleanup 同构零特判（二十一值词汇零过滤的形态锚）。
++#[test]
++fn 详情节点投影_clean词与initialize相位形态一致() {
++    let env = Env::new("run-nodes-clean");
++    env.seed(ID_RUNNED, "runned", T0, None);
++    env.store.push_run(RunStateRecord {
++        status: RunStatus::Completed,
++        finished_at: Some(t(19)),
++        ..run_row(ID_RUNNED, "run-init", t(10), RunStatus::Completed)
++    });
++    // initialize 步族三节点（phase=initialize；clean 与 cleanup 同构注入）
++    let mut phase_start = run_node_row("run-init", ID_RUNNED, RunStepKind::PhaseStart);
++    phase_start.phase = "initialize".to_owned();
++    let mut clean = run_node_row("run-init", ID_RUNNED, RunStepKind::Clean);
++    clean.phase = "initialize".to_owned();
++    clean.detail = Some("已恢复基线（reset --hard + clean -fd，排除面 8 项）".to_owned());
++    let mut phase_log = run_node_row("run-init", ID_RUNNED, RunStepKind::PhaseLog);
++    phase_log.phase = "initialize".to_owned();
++    env.store.push_run_node(phase_start);
++    env.store.push_run_node(clean);
++    env.store.push_run_node(phase_log);
++
++    let detail = env.detail(ID_RUNNED);
++    let nodes = &detail.runs[0].nodes;
++    assert_eq!(nodes.len(), 3, "三节点全量出线（clean 零过滤）");
++    assert_eq!(nodes[1].step, RunStepKind::Clean, "clean 节点在案");
++    assert_eq!(nodes[1].phase, "initialize", "表头相位在案");
++
++    let value = serde_json::to_value(&detail).expect("序列化应成功");
++    let wire_nodes = value["runs"][0]["nodes"].as_array().expect("nodes 数组");
++    assert_eq!(wire_nodes[1]["step"], serde_json::json!("clean"));
++    assert_eq!(wire_nodes[1]["phase"], serde_json::json!("initialize"));
++    assert!(wire_nodes[1]["detail"].as_str().expect("detail 串").contains("已恢复基线"));
++    assert_eq!(
++        wire_nodes[1]["sessionId"],
++        serde_json::Value::Null,
++        "git 步族会话槽恒 null（与 cleanup 同构）"
++    );
++}
+diff --git a/crates/core/workflow/src/state.rs b/crates/core/workflow/src/state.rs
+index 12f568ba9977..4e67c783796a 100644
+--- a/crates/core/workflow/src/state.rs
++++ b/crates/core/workflow/src/state.rs
+@@ -222,8 +222,8 @@ pub enum StepGroup {
+     /// agent 会话步（executor / evaluator / decision / spec-sync /
+     /// resolve-conflicts）
+     Agent,
+-    /// vcs 步（commit / rebase / merge / cleanup / finalize——独立 vcs 缝进程
+-    /// spawn）
++    /// vcs 步（clean / commit / rebase / merge / cleanup / finalize——独立 vcs
++    /// 缝进程 spawn；clean 为 initialize 基线恢复步）
+     Git,
+     /// 纯 Rust 分支门（verdict / retry / whitelist 三门）
+     Gate,
+@@ -246,10 +246,11 @@ pub enum AgentRole {
+     ResolveConflicts,
+ }
+ 
+-/// 计划步节点全词汇（20 值封闭集，线格式 snake_case 词）：agent 阶段三角色、
+-/// 脚本阶段三检查步（static-check / test-execution / mutation-test）、流程面两步、
+-/// 三门 gate 与归档 9 步。词汇本体单点——计划图声明（[`StepDefinition::node`]）
+-/// 与执行图落库（[`RunStepKind`]）同词面 1:1 全映射。
++/// 计划步节点全词汇（21 值封闭集，线格式 snake_case 词）：agent 阶段三角色、
++/// 脚本阶段三检查步（static-check / test-execution / mutation-test）、
++/// initialize 基线恢复步（clean）、流程面两步、三门 gate 与归档 9 步。词汇
++/// 本体单点——计划图声明（[`StepDefinition::node`]）与执行图落库
++///（[`RunStepKind`]）同词面 1:1 全映射。
+ #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Type)]
+ #[serde(rename_all = "snake_case")]
+ pub enum StepNode {
+@@ -267,6 +268,8 @@ pub enum StepNode {
+     TestExecution,
+     /// mutation-test 门禁工具步（确定性突变执行链，独立反馈边②）
+     MutationTest,
++    /// initialize 基线恢复步（vcs.restore_baseline）
++    Clean,
+     /// phase-log 相位机步
+     PhaseLog,
+     /// verdict 解析门
+@@ -306,6 +309,7 @@ impl StepNode {
+             StepNode::StaticCheck => "static_check",
+             StepNode::TestExecution => "test_execution",
+             StepNode::MutationTest => "mutation_test",
++            StepNode::Clean => "clean",
+             StepNode::PhaseLog => "phase_log",
+             StepNode::VerdictGate => "verdict_gate",
+             StepNode::RetryGate => "retry_gate",
+@@ -323,8 +327,9 @@ impl StepNode {
+     }
+ 
+     /// 四类节点分组（派生访问器；MUST NOT 落独立冗余字段）。归档步归组：git 步
+-    ///（commit / rebase / merge / cleanup / finalize）→ Git、内联步（preflight /
+-    /// seal）→ Exec、agent 步（spec_sync / resolve_conflicts）→ Agent。
++    ///（clean / commit / rebase / merge / cleanup / finalize）→ Git、内联步
++    ///（preflight / seal）→ Exec、agent 步（spec_sync / resolve_conflicts）→
++    /// Agent。
+     pub fn group(self) -> StepGroup {
+         match self {
+             StepNode::Executor
+@@ -339,7 +344,8 @@ impl StepNode {
+             | StepNode::PhaseLog
+             | StepNode::Preflight
+             | StepNode::Seal => StepGroup::Exec,
+-            StepNode::Commit
++            StepNode::Clean
++            | StepNode::Commit
+             | StepNode::Rebase
+             | StepNode::Merge
+             | StepNode::Cleanup
+@@ -364,6 +370,7 @@ impl StepNode {
+             | StepNode::StaticCheck
+             | StepNode::TestExecution
+             | StepNode::MutationTest
++            | StepNode::Clean
+             | StepNode::PhaseLog
+             | StepNode::Preflight
+             | StepNode::Commit
+@@ -388,9 +395,11 @@ pub enum OnFail {
+         /// 反馈边独立计数上限
+         limit: u32,
+     },
+-    /// 终态失败停给用户。现仅 code-analyze 相位 VerdictGate 声明（spec 定稿：
+-    /// 分析相位 verdict 失败即终态）；其余 verdict 解析失败自 feedback 边改造后
+-    /// 不再走终态。语义与缺省 `None` 等价。
++    /// 终态失败停给用户。消费点：code-analyze 相位 VerdictGate（分析相位
++    /// verdict 失败即终态——spec 定稿）与 initialize 相位两检查步 StaticCheck /
++    /// TestExecution（基线绿门——失败即停，无反馈边、零 agent 会话可注入，重试
++    /// 基线无意义）；其余 verdict 解析失败自 feedback 边改造后不再走终态。语义
++    /// 与缺省 `None` 等价。
+     Terminal,
+ }
+ 
+@@ -457,11 +466,12 @@ impl RunStatus {
+     }
+ }
+ 
+-/// run 步词汇封闭集（**二十值全词汇**，线格式 snake_case 词）：agent 阶段
++/// run 步词汇封闭集（**二十一值全词汇**，线格式 snake_case 词）：agent 阶段
+ ///（executor / evaluator / decision）、脚本阶段（static_check / test_execution /
+-/// mutation_test）、流程面步骤（phase_start / phase_log）、三门 gate（verdict_gate、
+-/// retry_gate、whitelist_gate）与归档 9 步（preflight / commit / rebase /
+-/// resolve_conflicts / merge / spec_sync / cleanup / seal / finalize）。词汇本体单点——落库命令
++/// mutation_test）、initialize 基线步（clean）、流程面步骤（phase_start /
++/// phase_log）、三门 gate（verdict_gate、retry_gate、whitelist_gate）与归档 9 步
++///（preflight / commit / rebase / resolve_conflicts / merge / spec_sync / cleanup /
++/// seal / finalize）。词汇本体单点——落库命令
+ ///（`RunNodeEntry.step`）与查询投影（`detail.rs`）同本类型消费，落库零过滤
+ ///（旧 5 值词表的过滤谓词已退役）。
+ #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Type)]
+@@ -479,6 +489,8 @@ pub enum RunStepKind {
+     TestExecution,
+     /// mutation-test 门禁工具步
+     MutationTest,
++    /// initialize 基线恢复步（vcs.restore_baseline）
++    Clean,
+     /// phase-start 相位机步
+     PhaseStart,
+     /// phase-log 相位机步
+@@ -519,6 +531,7 @@ impl RunStepKind {
+             RunStepKind::StaticCheck => "static_check",
+             RunStepKind::TestExecution => "test_execution",
+             RunStepKind::MutationTest => "mutation_test",
++            RunStepKind::Clean => "clean",
+             RunStepKind::PhaseStart => "phase_start",
+             RunStepKind::PhaseLog => "phase_log",
+             RunStepKind::VerdictGate => "verdict_gate",
+@@ -661,7 +674,7 @@ pub struct RunStartCommand {
+     pub started_at: i64,
+ }
+ 
+-/// run 节点整包条目（finish 载荷内联；词汇 = [`RunStepKind`] 二十值全词汇，零
++/// run 节点整包条目（finish 载荷内联；词汇 = [`RunStepKind`] 二十一值全词汇，零
+ /// 过滤）。`node_seq` 由整包下标盖戳（store 侧组装打包主键）。
+ #[derive(Debug, Clone, PartialEq, Eq)]
+ pub struct RunNodeEntry {
+@@ -810,7 +823,7 @@ pub trait ChangeStateStore: Send + Sync {
+     /// 稳定序由实现保证）。
+     fn list_runs(&self, change_id: &str) -> Result<Vec<RunStateRecord>, StoreFault>;
+ 
+-    /// run 执行图节点行（`run_id` 圈定，node_seq 升序 = emit 序；二十值全词汇
++    /// run 执行图节点行（`run_id` 圈定，node_seq 升序 = emit 序；二十一值全词汇
+     /// 零过滤——读面与写面同一份封闭集）。
+     fn list_run_nodes(&self, run_id: &str) -> Result<Vec<RunNodeStateRecord>, StoreFault>;
+ 
+diff --git a/crates/core/workflow/src/state_test.rs b/crates/core/workflow/src/state_test.rs
+index 141be755e396..8d253788710b 100644
+--- a/crates/core/workflow/src/state_test.rs
++++ b/crates/core/workflow/src/state_test.rs
+@@ -1,7 +1,7 @@
+ //! `state.rs` 中性状态类型的单元测试（test-design「state.rs ->
+-//! state_test.rs」节）：计划图侧类型封闭集（StepNode 二十值全词汇 +
+-//! `group()` / `role()` 派生访问器（四分类含 Git 五步）+ OnFail 两变体 + StepDefinition /
+-//! ArtifactSpec 声明面）+ 执行图侧词汇（RunStepKind 二十值零过滤 /
++//! state_test.rs」节）：计划图侧类型封闭集（StepNode 二十一值全词汇 +
++//! `group()` / `role()` 派生访问器（四分类含 Git 六步——clean 基线恢复步入族）+ OnFail 两变体 + StepDefinition /
++//! ArtifactSpec 声明面）+ 执行图侧词汇（RunStepKind 二十一值零过滤 /
+ //! RunEdgeKind 四值 snake_case）+ 节点与边中性类型序列化往返（身份键
+ //! `(run_id, phase, attempt, step, instance_no)`、session_id / detail /
+ //! output_ref 两态）+ ChangeStateRecord 身份面（`id` 首字段为身份锚、`name`
+@@ -55,12 +55,12 @@ fn run_status五值线面lowercase逐字() {
+     assert_eq!(RunStatus::Interrupted.as_str(), "interrupted");
+ }
+ 
+-/// RunStepKind **二十值全词汇**出线恰为 snake_case 词（AC-2 词汇单点前置——落库命
++/// RunStepKind **二十一值全词汇**出线恰为 snake_case 词（AC-2 词汇单点前置——落库命
+ /// 令与查询投影同类型消费；流程面 phase_start / phase_log 与三门不再被过滤弃落，
+ /// 归档 9 步词同面在案（cleanup 尽力步新臂在案）；mutation_test 拆步新词在案，
+-/// AC-1 / AC-2）。
++/// AC-1 / AC-2；initialize 基线恢复步 clean 新臂在案——位序 MutationTest 后）。
+ #[test]
+-fn run_step_kind二十值全词汇snake_case逐字() {
++fn run_step_kind二十一值全词汇snake_case逐字() {
+     let wire = |kind: RunStepKind| serde_json::to_value(kind).expect("词汇出线应成功");
+     assert_eq!(wire(RunStepKind::Executor), json!("executor"));
+     assert_eq!(wire(RunStepKind::Evaluator), json!("evaluator"));
+@@ -76,6 +76,11 @@ fn run_step_kind二十值全词汇snake_case逐字() {
+         json!("mutation_test"),
+         "突变门禁步 snake 词（拆步新词——mutation_test ↔ mutationTest 归一在案）"
+     );
++    assert_eq!(
++        wire(RunStepKind::Clean),
++        json!("clean"),
++        "initialize 基线恢复步 snake 词（serde wire 出线与 as_str 一致；与 cleanup 词面可辨）"
++    );
+     assert_eq!(wire(RunStepKind::PhaseStart), json!("phase_start"));
+     assert_eq!(wire(RunStepKind::PhaseLog), json!("phase_log"));
+     assert_eq!(wire(RunStepKind::VerdictGate), json!("verdict_gate"));
+@@ -105,7 +110,8 @@ fn run_step_kind二十值全词汇snake_case逐字() {
+     assert_eq!(RunStepKind::Decision.as_str(), "decision");
+     assert_eq!(RunStepKind::StaticCheck.as_str(), "static_check");
+     assert_eq!(RunStepKind::TestExecution.as_str(), "test_execution");
+-    assert_eq!(RunStepKind::MutationTest.as_str(), "mutation_test");
++    assert_eq!(wire(RunStepKind::MutationTest), json!("mutation_test"));
++    assert_eq!(RunStepKind::Clean.as_str(), "clean");
+     assert_eq!(RunStepKind::PhaseStart.as_str(), "phase_start");
+     assert_eq!(RunStepKind::PhaseLog.as_str(), "phase_log");
+     assert_eq!(RunStepKind::VerdictGate.as_str(), "verdict_gate");
+@@ -121,7 +127,7 @@ fn run_step_kind二十值全词汇snake_case逐字() {
+     assert_eq!(RunStepKind::Seal.as_str(), "seal");
+     assert_eq!(RunStepKind::Finalize.as_str(), "finalize");
+ 
+-    // 二十值封闭集：全枚举 len==20、wire 词面互异（无遗漏无重复——词汇漂移即断）
++    // 二十一值封闭集：全枚举 len==21、wire 词面互异（无遗漏无重复——词汇漂移即断）
+     let all = [
+         RunStepKind::Executor,
+         RunStepKind::Evaluator,
+@@ -129,6 +135,7 @@ fn run_step_kind二十值全词汇snake_case逐字() {
+         RunStepKind::StaticCheck,
+         RunStepKind::TestExecution,
+         RunStepKind::MutationTest,
++        RunStepKind::Clean,
+         RunStepKind::PhaseStart,
+         RunStepKind::PhaseLog,
+         RunStepKind::VerdictGate,
+@@ -144,12 +151,21 @@ fn run_step_kind二十值全词汇snake_case逐字() {
+         RunStepKind::Seal,
+         RunStepKind::Finalize,
+     ];
+-    assert_eq!(all.len(), 20, "二十值穷举无遗漏");
++    assert_eq!(all.len(), 21, "二十一值穷举无遗漏");
++    assert_eq!(
++        all.iter().position(|k| *k == RunStepKind::Clean),
++        Some(6),
++        "Clean 位序在 MutationTest 后（六号位——与 as_str 出线断言同序锚定）"
++    );
+     let mut words: Vec<&str> = all.iter().map(|kind| kind.as_str()).collect();
+     let total = words.len();
+     words.sort_unstable();
+     words.dedup();
+-    assert_eq!(words.len(), total, "二十值词面互异（无重复）: {words:?}");
++    assert_eq!(words.len(), total, "二十一值词面互异（无重复）: {words:?}");
++    assert!(
++        words.contains(&"clean") && words.contains(&"cleanup"),
++        "clean 与 cleanup 两词面同集可辨"
++    );
+ 
+     // StepKind 命令包络八臂（线词面同源——mutation_test 在案，AC-1 审计线词面）
+     let wire_kind = |kind: StepKind| serde_json::to_value(kind).expect("包络词出线应成功");
+@@ -187,8 +203,9 @@ fn 非法词反序列化拒绝_封闭集防线() {
+         let back: Result<RunStatus, _> = serde_json::from_value(json!(illegal));
+         assert!(back.is_err(), "RunStatus 越集词 {illegal:?} 应拒绝");
+     }
+-    // RunStepKind：camel 词 / 近似词 / 空串越集（二十值词汇之外的词形一律拒绝；
+-    // cleanup 扩词不松动防线——cleanUp / clean-up / cleanups 仍拒）
++    // RunStepKind：camel 词 / 近似词 / 空串越集（二十一值词汇之外的词形一律拒绝；
++    // cleanup 扩词不松动防线——cleanUp / clean-up / cleanups 仍拒；clean 拆步扩词
++    // 同不松动——clear / clean step / Clean 大写词形仍拒，"clean" 本词已合法入集）
+     for illegal in [
+         "verdictGate",
+         "staticCheck",
+@@ -207,6 +224,9 @@ fn 非法词反序列化拒绝_封闭集防线() {
+         "clean-up",
+         "cleanups",
+         "Cleanup",
++        "clear",
++        "clean step",
++        "Clean",
+         "",
+     ] {
+         let back: Result<RunStepKind, _> = serde_json::from_value(json!(illegal));
+@@ -896,18 +916,19 @@ fn change_state_store全方法id形参编译面() {
+ }
+ 
+ // ---------------------------------------------------------------------------
+-// 计划图侧类型（StepNode 二十值全词汇 + 派生访问器 + OnFail / StepDefinition /
++// 计划图侧类型（StepNode 二十一值全词汇 + 派生访问器 + OnFail / StepDefinition /
+ // ArtifactSpec）
+ // ---------------------------------------------------------------------------
+ 
+-/// `StepNode` 二十值全词汇 snake_case 逐字出线（executor / evaluator / decision /
+-/// phase_start / static_check / test_execution / mutation_test / phase_log /
++/// `StepNode` 二十一值全词汇 snake_case 逐字出线（executor / evaluator / decision /
++/// phase_start / static_check / test_execution / mutation_test / clean / phase_log /
+ /// verdict_gate / retry_gate / whitelist_gate + 归档九步 preflight / commit /
+ /// rebase / resolve_conflicts / merge / spec_sync / cleanup / seal / finalize）
+ /// ——词汇本体单点（计划图声明与执行图落库同词面 1:1 全映射，AC-2 全词汇前置；
+-/// mutation_test 拆步新词在案，AC-1；cleanup 尽力步新臂在案）。
++/// mutation_test 拆步新词在案，AC-1；cleanup 尽力步新臂在案；initialize 基线
++/// 恢复步 clean 新臂在案——位序 MutationTest 后）。
+ #[test]
+-fn step_node二十值全词汇snake_case逐字() {
++fn step_node二十一值全词汇snake_case逐字() {
+     let wire = |node: StepNode| serde_json::to_value(node).expect("词汇出线应成功");
+     assert_eq!(wire(StepNode::Executor), json!("executor"));
+     assert_eq!(wire(StepNode::Evaluator), json!("evaluator"));
+@@ -920,6 +941,11 @@ fn step_node二十值全词汇snake_case逐字() {
+         json!("mutation_test"),
+         "突变门禁步拆步新词（AC-1 / AC-2）"
+     );
++    assert_eq!(
++        wire(StepNode::Clean),
++        json!("clean"),
++        "initialize 基线恢复步词面逐字（serde wire 与 as_str 一致）"
++    );
+     assert_eq!(wire(StepNode::PhaseLog), json!("phase_log"));
+     assert_eq!(wire(StepNode::VerdictGate), json!("verdict_gate"));
+     assert_eq!(wire(StepNode::RetryGate), json!("retry_gate"));
+@@ -946,6 +972,7 @@ fn step_node二十值全词汇snake_case逐字() {
+     assert_eq!(StepNode::StaticCheck.as_str(), "static_check");
+     assert_eq!(StepNode::TestExecution.as_str(), "test_execution");
+     assert_eq!(StepNode::MutationTest.as_str(), "mutation_test");
++    assert_eq!(StepNode::Clean.as_str(), "clean");
+     assert_eq!(StepNode::PhaseLog.as_str(), "phase_log");
+     assert_eq!(StepNode::VerdictGate.as_str(), "verdict_gate");
+     assert_eq!(StepNode::RetryGate.as_str(), "retry_gate");
+@@ -961,10 +988,11 @@ fn step_node二十值全词汇snake_case逐字() {
+     assert_eq!(StepNode::Finalize.as_str(), "finalize");
+ }
+ 
+-/// `StepNode` 与 `RunStepKind` 逐字同源（20 值 1:1 全映射；线格式词一字不差，
+-/// AC-2 / AC-6 落库零过滤前置；cleanup 对拍行补齐——两域词面零错位）。
++/// `StepNode` 与 `RunStepKind` 逐字同源（21 值 1:1 全映射；线格式词一字不差，
++/// AC-2 / AC-6 落库零过滤前置；cleanup 对拍行补齐——两域词面零错位；clean 基线
++/// 恢复步对拍行补齐）。
+ #[test]
+-fn step_node与run_step_kind逐字同源二十值() {
++fn step_node与run_step_kind逐字同源二十一值() {
+     for (node, kind, word) in [
+         (StepNode::Executor, RunStepKind::Executor, "executor"),
+         (StepNode::Evaluator, RunStepKind::Evaluator, "evaluator"),
+@@ -981,6 +1009,7 @@ fn step_node与run_step_kind逐字同源二十值() {
+             RunStepKind::MutationTest,
+             "mutation_test",
+         ),
++        (StepNode::Clean, RunStepKind::Clean, "clean"),
+         (StepNode::PhaseLog, RunStepKind::PhaseLog, "phase_log"),
+         (
+             StepNode::VerdictGate,
+@@ -1020,7 +1049,7 @@ fn step_node与run_step_kind逐字同源二十值() {
+ /// `StepNode::group()` 四分类（Exec / Agent / Git / Gate）与 `role()`（Executor /
+ /// Evaluator / Decision / SpecSync / ResolveConflicts）派生访问器逐值一致——同类内
+ /// 与跨类皆可辨（AC-2 派生访问器零冗余字段；D4 分派前置；cleanup 归 Git 步族、
+-/// role 恒 None）。
++/// role 恒 None；clean 基线恢复步归 Git 步族、role 恒 None）。
+ #[test]
+ fn step_node分组与角色派生访问器一致() {
+     // Exec 组：相位机步 + 检查步（含拆步新词 mutation_test）+ 归档内联步
+@@ -1048,9 +1077,10 @@ fn step_node分组与角色派生访问器一致() {
+         assert_eq!(node.group(), StepGroup::Agent, "{node:?} 属 Agent");
+         assert_eq!(node.role(), Some(role));
+     }
+-    // Git 组：五 vcs 步（cleanup 尽力步与 Commit / Rebase / Merge / Finalize
+-    // 同组；role 恒 None——非 agent 步零 prompt 零角色）
++    // Git 组：六 vcs 步（clean 基线恢复步与 cleanup 尽力步和 Commit / Rebase /
++    // Merge / Finalize 同组；role 恒 None——非 agent 步零 prompt 零角色）
+     for node in [
++        StepNode::Clean,
+         StepNode::Commit,
+         StepNode::Rebase,
+         StepNode::Merge,
+@@ -1060,6 +1090,7 @@ fn step_node分组与角色派生访问器一致() {
+         assert_eq!(node.group(), StepGroup::Git, "{node:?} 属 Git");
+         assert_eq!(node.role(), None, "git 步无 agent 角色");
+     }
++    assert_eq!(StepNode::Clean.role(), None, "Clean 恒 None（非 agent 步）");
+     assert_eq!(
+         StepNode::Cleanup.role(),
+         None,
+@@ -1074,7 +1105,7 @@ fn step_node分组与角色派生访问器一致() {
+         assert_eq!(node.group(), StepGroup::Gate, "{node:?} 属 Gate");
+         assert_eq!(node.role(), None, "门步无角色");
+     }
+-    // 四分类互斥：Exec / Agent / Git / Gate 覆盖全词汇（20 值无遗漏无重叠）
++    // 四分类互斥：Exec / Agent / Git / Gate 覆盖全词汇（21 值无遗漏无重叠）
+     let groups: Vec<StepGroup> = [
+         StepNode::Executor,
+         StepNode::Evaluator,
+@@ -1083,6 +1114,7 @@ fn step_node分组与角色派生访问器一致() {
+         StepNode::StaticCheck,
+         StepNode::TestExecution,
+         StepNode::MutationTest,
++        StepNode::Clean,
+         StepNode::PhaseLog,
+         StepNode::VerdictGate,
+         StepNode::RetryGate,
+@@ -1100,10 +1132,10 @@ fn step_node分组与角色派生访问器一致() {
+     .iter()
+     .map(|node| node.group())
+     .collect();
+-    assert_eq!(groups.len(), 20, "二十值穷举无遗漏");
++    assert_eq!(groups.len(), 21, "二十一值穷举无遗漏");
+     assert_eq!(groups.iter().filter(|g| **g == StepGroup::Exec).count(), 7);
+     assert_eq!(groups.iter().filter(|g| **g == StepGroup::Agent).count(), 5);
+-    assert_eq!(groups.iter().filter(|g| **g == StepGroup::Git).count(), 5);
++    assert_eq!(groups.iter().filter(|g| **g == StepGroup::Git).count(), 6);
+     assert_eq!(groups.iter().filter(|g| **g == StepGroup::Gate).count(), 3);
+ }
+ 
+@@ -1160,6 +1192,9 @@ fn step_node与on_fail封闭集防线() {
+         "phaseLog",
+         "cleanUp",
+         "clean-up",
++        "clear",
++        "clean step",
++        "Clean",
+         "",
+     ] {
+         let back: Result<StepNode, _> = serde_json::from_value(json!(illegal));
+@@ -1338,8 +1373,8 @@ fn run_node_state_record全字段往返可辨() {
+         }
+     }
+ 
+-    // 二十值全词汇 step 出线（节点行 zero filter 前置；mutation_test 拆步新词
+-    // 与 cleanup 尽力步新臂在案）
++    // 二十一值全词汇 step 出线（节点行 zero filter 前置；mutation_test 拆步新词、
++    // cleanup 尽力步新臂与 clean 基线恢复步新臂在案）
+     for (kind, word) in [
+         (RunStepKind::Executor, "executor"),
+         (RunStepKind::Evaluator, "evaluator"),
+@@ -1347,6 +1382,7 @@ fn run_node_state_record全字段往返可辨() {
+         (RunStepKind::StaticCheck, "static_check"),
+         (RunStepKind::TestExecution, "test_execution"),
+         (RunStepKind::MutationTest, "mutation_test"),
++        (RunStepKind::Clean, "clean"),
+         (RunStepKind::PhaseStart, "phase_start"),
+         (RunStepKind::PhaseLog, "phase_log"),
+         (RunStepKind::VerdictGate, "verdict_gate"),
+diff --git a/crates/core/workflow/src/write/mod.rs b/crates/core/workflow/src/write/mod.rs
+index e3a1b2b81d11..5e55a08f1e62 100644
+--- a/crates/core/workflow/src/write/mod.rs
++++ b/crates/core/workflow/src/write/mod.rs
+@@ -21,7 +21,8 @@ pub use phase_next::{
+ };
+ pub use phase_start::{phase_start, PhaseStartOutcome};
+ pub use phase_table::{
+-    allowed_backtrack_phases, phase_table, PhaseAgentSpec, PhaseDefinition, MAX_RETRY_TIMES,
++    allowed_backtrack_phases, phase_table, PhaseAgentSpec, PhaseDefinition, INITIALIZE_PHASE_ID,
++    MAX_RETRY_TIMES,
+ };
+ pub use promote::{promote_explore, PromoteOutcome};
+ pub use run::{run_finish, run_start};
+diff --git a/crates/core/workflow/src/write/phase_next_test.rs b/crates/core/workflow/src/write/phase_next_test.rs
+index 676a70020a83..13072d8ea7c9 100644
+--- a/crates/core/workflow/src/write/phase_next_test.rs
++++ b/crates/core/workflow/src/write/phase_next_test.rs
+@@ -20,9 +20,10 @@ const CHANGE_NAME_B: &str = "other-change";
+ const UNKNOWN_ID: &str = "0198f7a0-0000-7000-8000-0000000000fa";
+ const RUN: &str = "run-1";
+ 
+-/// requirement 全表相位序（9 相位 = 8 路由相位 + archive 确定性相位；路由
+-/// 全 pass 判定须表内全项在位）。
+-const ALL_PHASES: [&str; 9] = [
++/// requirement 全表相位序（10 相位 = initialize 表头 + 8 路由相位 + archive
++/// 确定性相位；路由全 pass 判定须表内全项在位）。
++const ALL_PHASES: [&str; 10] = [
++    "initialize",
+     "proposal",
+     "dev-design",
+     "test-design",
+@@ -34,8 +35,10 @@ const ALL_PHASES: [&str; 9] = [
+     "archive",
+ ];
+ 
+-/// 归档相位之前的 8 路由相位（archive 前停等路由用例的种子相位集）。
+-const ROUTED_PHASES: [&str; 8] = [
++/// 归档相位之前的 9 路由相位（archive 前停等路由用例的种子相位集——initialize
++/// 表头先行入集）。
++const ROUTED_PHASES: [&str; 9] = [
++    "initialize",
+     "proposal",
+     "dev-design",
+     "test-design",
+@@ -122,15 +125,27 @@ struct RouteStore {
+ }
+ 
+ impl RouteStore {
++    /// 种子装置统一预置 initialize 表头 pass 条目（check-before-flow-start：表头
++    /// 先行已落账——各用例种子语义「已过表头」与既有行为等价；表头自身的路由
++    /// 形态由 `初始路由落首相位` 专测承载零条目形态）。
++    fn with_header(id: &str, entries: Vec<PhaseStateRecord>) -> Vec<PhaseStateRecord> {
++        let mut all = vec![entry_of(id, "initialize", 1, Verdict::Pass, t(0))];
++        all.extend(entries);
++        all
++    }
++
+     fn seeded(entries: Vec<PhaseStateRecord>) -> Self {
+-        Self::with_record(Some(requirement_record(CHANGE_ID, CHANGE_NAME)), entries)
++        Self::with_record(
++            Some(requirement_record(CHANGE_ID, CHANGE_NAME)),
++            Self::with_header(CHANGE_ID, entries),
++        )
+     }
+ 
+     /// 第二 change 建档（锚点键 id 隔离用例：同 run_id 异 id 两份条目序列）。
+     fn seeded_b(entries: Vec<PhaseStateRecord>) -> Self {
+         Self::with_record(
+             Some(requirement_record(CHANGE_ID_B, CHANGE_NAME_B)),
+-            entries,
++            Self::with_header(CHANGE_ID_B, entries),
+         )
+     }
+ 
+@@ -275,23 +290,44 @@ fn route(
+ // backtrack 路由
+ // ---------------------------------------------------------------------------
+ 
+-/// 初始路由：建档零相位行（id 与 name 双值可辨）→ 首相位 proposal、
+-/// round=1、executor / evaluator prompt 首部上下文头 `change:` 取 `record.name`
+-///（id 串不误入 prompt——分辨率单点行为锚）、白名单为空（首相位无前置）。
++/// 初始路由：建档零相位行（id 与 name 双值可辨）→ 表头相位 initialize、
++/// round=1、零角色 spec（确定性表头）、白名单为空（idx==0 早退——表首自身无
++/// 前置）；表头 pass 条目在场 → 次相位 proposal、executor / evaluator prompt
++/// 首部上下文头 `change:` 取 `record.name`（id 串不误入 prompt——分辨率单点
++/// 行为锚）。
+ #[test]
+ fn 初始路由落首相位且prompt携上下文头change名() {
+-    let fake = RouteStore::seeded(Vec::new());
++    // 零条目形态：路由落 initialize 表头
++    let record = requirement_record(CHANGE_ID, CHANGE_NAME);
++    let fake = RouteStore::with_record(Some(record), Vec::new());
+ 
+     let outcome = route(&fake, RUN, &SessionAnchors::new());
+ 
+     assert!(!outcome.done);
+     assert_eq!(
+         outcome.next_phase.as_deref(),
+-        Some("proposal"),
+-        "首相位路由"
++        Some("initialize"),
++        "表头相位路由（零条目——check-before-flow-start）"
+     );
+     assert_eq!(outcome.round, 1, "零相位行窗口首轮");
+     assert!(outcome.error.is_none());
++    assert!(
++        outcome.executor.is_none() && outcome.evaluator.is_none(),
++        "initialize 表头零角色 spec（确定性相位）"
++    );
++    assert!(
++        outcome.allowed_backtrack_phases.is_empty(),
++        "表头白名单为空（idx==0 早退）"
++    );
++
++    // 表头条目在场（seeded 预置）→ 次相位 proposal 路由（prompt 断言面）
++    let fake = RouteStore::seeded(Vec::new());
++    let outcome = route(&fake, RUN, &SessionAnchors::new());
++    assert_eq!(
++        outcome.next_phase.as_deref(),
++        Some("proposal"),
++        "表头已过 → 次相位路由"
++    );
+ 
+     let executor = outcome.executor.expect("proposal 应有 executor");
+     let evaluator = outcome.evaluator.expect("proposal 应有 evaluator");
+@@ -327,11 +363,14 @@ fn 初始路由落首相位且prompt携上下文头change名() {
+         executor.prompt.contains("## 角色自述"),
+         "executor prompt 主体为静态角色知识文本"
+     );
+-    assert!(
+-        outcome.allowed_backtrack_phases.is_empty(),
+-        "首相位白名单为空"
++    assert_eq!(
++        outcome.allowed_backtrack_phases,
++        vec!["proposal".to_owned()],
++        "proposal 白名单 = 恰自身（含自身语义；initialize 表头被 backtrackable 过滤排除——非位置排除）"
+     );
+-    assert!(outcome.last_result.is_none(), "零相位行无 last_result");
++    let last = outcome.last_result.expect("表头 pass 条目随行 last_result");
++    assert_eq!(last.phase, "initialize", "last_result = 表头条目（最近落账）");
++    assert_eq!(last.verdict, Verdict::Pass);
+ }
+ 
+ /// 无建档 id → 显式 `Err`（不静默空产出）：库空与库内有建档但 id 未登记
+@@ -403,6 +442,7 @@ fn workflow_type未知时err显式分层出口文案通吃两值() {
+ #[test]
+ fn workflow_type_test_only可推进且白名单随test_only表() {
+     let fake = RouteStore::with_workflow_type("test-only");
++    fake.push(entry("initialize", 1, Verdict::Pass, t(0)));
+     fake.push(entry("proposal", 1, Verdict::Pass, t(1)));
+ 
+     let outcome = route(&fake, RUN, &SessionAnchors::new());
+@@ -423,6 +463,7 @@ fn workflow_type_test_only可推进且白名单随test_only表() {
+ 
+     // 末相位（archive）推进 → 无下一相位（内容面收口）
+     let fake_done = RouteStore::with_workflow_type("test-only");
++    fake_done.push(entry("initialize", 1, Verdict::Pass, t(0)));
+     for (phase, attempt) in [
+         ("proposal", 1),
+         ("code-analyze", 1),
+@@ -457,6 +498,7 @@ fn workflow_type_test_only可推进且白名单随test_only表() {
+ #[test]
+ fn workflow_type_test_only表外条目不参与推进判定() {
+     let fake = RouteStore::with_workflow_type("test-only");
++    fake.push(entry("initialize", 1, Verdict::Pass, t(0)));
+     for (phase, attempt) in [
+         ("proposal", 1),
+         ("code-analyze", 1),
+@@ -1202,13 +1244,14 @@ fn 只读路由_零写面触达() {
+     }
+ 
+     assert_eq!(fake.entry_count(), before, "只读路由：条目序列零变更");
+-    // 复核条目内容未被改写（stale / backtrack 位不被动）
++    // 复核条目内容未被改写（stale / backtrack 位不被动；initialize 表头条目
++    // 预置在案 + proposal 种子 = 两行）
+     let entries = fake
+         .list_phase_records(CHANGE_ID)
+         .expect("假件读半边应可用");
+-    assert_eq!(entries.len(), 1);
+-    assert!(!entries[0].stale);
+-    assert!(entries[0].backtrack_to.is_none());
++    assert_eq!(entries.len(), 2, "initialize 表头预置 + proposal 种子");
++    assert!(!entries[0].stale && !entries[1].stale);
++    assert!(entries[0].backtrack_to.is_none() && entries[1].backtrack_to.is_none());
+ }
+ 
+ // ---------------------------------------------------------------------------
+@@ -1397,11 +1440,11 @@ fn 八路由相位pass后路由至archive且零角色spec() {
+     );
+     assert_eq!(
+         outcome.allowed_backtrack_phases,
+-        ALL_PHASES
++        ALL_PHASES[1..]
+             .iter()
+             .map(|phase| (*phase).to_owned())
+             .collect::<Vec<_>>(),
+-        "archive 白名单 = 表序 9 相位（含自身、不含未来相位）"
++        "archive 白名单 = 除 initialize 外表序 9 相位（含自身、不含未来相位——表头被 backtrackable 过滤）"
+     );
+ }
+ 
+@@ -1519,9 +1562,10 @@ fn archive不在任何相位回溯白名单内() {
+     let outcome = route(&fake, RUN, &SessionAnchors::new());
+     assert!(outcome.done && outcome.allowed_backtrack_phases.is_empty());
+ 
+-    // acceptance 为下一相位（archive 未落账）：白名单 = 表序前 8 相位，不含 archive
++    // acceptance 为下一相位（archive 未落账）：白名单 = 除 initialize 外表序
++    // 前 9 相位，不含 archive
+     let fake = RouteStore::seeded(
+-        ROUTED_PHASES[..7]
++        ROUTED_PHASES[..8]
+             .iter()
+             .enumerate()
+             .map(|(idx, phase)| entry(phase, 1, Verdict::Pass, t(idx as u32 + 1)))
+@@ -1532,7 +1576,7 @@ fn archive不在任何相位回溯白名单内() {
+     assert_eq!(
+         outcome.allowed_backtrack_phases.len(),
+         8,
+-        "acceptance 白名单 = 表序前 8 相位"
++        "acceptance 白名单 = proposal … acceptance 八相位（含自身；initialize 表头被属性过滤——排除非位置推导）"
+     );
+     assert!(
+         !outcome
+diff --git a/crates/core/workflow/src/write/phase_table.rs b/crates/core/workflow/src/write/phase_table.rs
+index a2d96e046a84..586849f3e15b 100644
+--- a/crates/core/workflow/src/write/phase_table.rs
++++ b/crates/core/workflow/src/write/phase_table.rs
+@@ -25,6 +25,11 @@ pub struct PhaseDefinition {
+     /// 相位直接前置依赖（表内自描述；stale 传播与下游推导的唯一事实源，
+     /// MUST NOT 存在第二份独立 match）
+     pub prerequisites: &'static [&'static str],
++    /// 相位回溯资格（表内自描述，沿 `prerequisites` 先例；`allowed_backtrack_phases`
++    /// 的唯一过滤依据——`false` 者不得出现在任何相位的回溯白名单；表头
++    /// initialize 恒 `false`——基线检查不可回溯重做，过滤 MUST NOT 以「跳过
++    /// idx==0」类位置推导实现——表结构变化即漂移）
++    pub backtrackable: bool,
+     pub executor: Option<PhaseAgentSpec>,
+     pub evaluator: Option<PhaseAgentSpec>,
+ }
+@@ -46,6 +51,10 @@ const REQUIREMENT_WORKFLOW_TYPE: &str = "requirement";
+ /// test-only 工作流类型键（相位表键之二）。
+ const TEST_ONLY_WORKFLOW_TYPE: &str = "test-only";
+ 
++/// initialize 相位名单点（两表表头一次性基线检查相位；walker legacy 短路判定
++/// 消费——经 `write/mod.rs` 再导出）。
++pub const INITIALIZE_PHASE_ID: &str = "initialize";
++
+ /// 会话窗口轮次上限（与插件 `checkRoundLimit` 同源；超限显式 `Err`）。
+ pub(crate) const MAX_ROUNDS: u32 = 20;
+ 
+@@ -76,6 +85,38 @@ const CODE_ANALYZE_EVALUATOR_PROMPT: &str = include_str!("../prompts/code-analyz
+ // --- 相位计划步序列（编译期 const 有序序列；kind / role 由 `StepNode` 派生，
+ // 门禁步由 step 声明而非 walker 常量注入）---------------------------------
+ 
++/// initialize 相位步序列（两表表头共用同一 static；一次性基线检查相位——
++/// `PhaseStart → Clean → StaticCheck → TestExecution → PhaseLog`：Clean 为 vcs
++/// 直调基线恢复步，两检查步 `on_fail=Terminal`（失败即停——无反馈边、零 agent
++/// 会话注入，基线的债不属于本次变更），PhaseLog 机械 checklist 纯桌面代写）。
++static INITIALIZE_STEPS: &[StepDefinition] = &[
++    StepDefinition {
++        node: StepNode::PhaseStart,
++        prompt_ref: None,
++        on_fail: None,
++    },
++    StepDefinition {
++        node: StepNode::Clean,
++        prompt_ref: None,
++        on_fail: None,
++    },
++    StepDefinition {
++        node: StepNode::StaticCheck,
++        prompt_ref: None,
++        on_fail: Some(OnFail::Terminal),
++    },
++    StepDefinition {
++        node: StepNode::TestExecution,
++        prompt_ref: None,
++        on_fail: Some(OnFail::Terminal),
++    },
++    StepDefinition {
++        node: StepNode::PhaseLog,
++        prompt_ref: None,
++        on_fail: None,
++    },
++];
++
+ static PROPOSAL_STEPS: &[StepDefinition] = &[
+     StepDefinition {
+         node: StepNode::PhaseStart,
+@@ -469,18 +510,34 @@ static TEST_EXECUTION_MANIFEST: &[ArtifactSpec] = &[ArtifactSpec {
+     title: "测试报告",
+ }];
+ 
+-/// requirement 相位表（9 个路由相位 = 8 个 agent 相位 + archive 确定性相位；
+-/// 编译期静态装配：14 个角色知识 md 逐条 `include_str!` 显式字面路径；全静态零
++/// requirement 相位表（10 个路由相位 = initialize 一次性表头（确定性基线检查
++/// 相位）+ 8 个 agent 相位 + archive 确定性相位；表头一次性语义由落账机制天然
++/// 成立——pass 持久跳过、Terminal 失败零条目再发起照常路由表头；编译期静态装
++/// 配：14 个角色知识 md 逐条 `include_str!` 显式字面路径；全静态零
+ /// 占位故全表 const 化，驻留 `'static` 只读共享）。每相位同时声明计划步序列
+ ///（steps）与产物清单（artifact_manifest）——计划图单源，walker 不自持步序、
+ /// 产物发现不落第二份归属表。
+ static REQUIREMENT_TABLE: &[PhaseDefinition] = &[
++    // initialize：两表表头一次性基线检查相位（确定性相位——executor /
++    // evaluator 双缺席、零 artifact_manifest；`INITIALIZE_STEPS` 五步两表共享；
++    // backtrackable=false——基线检查不可回溯重做）。
++    PhaseDefinition {
++        id: INITIALIZE_PHASE_ID,
++        description: "基线检查",
++        steps: INITIALIZE_STEPS,
++        artifact_manifest: &[],
++        prerequisites: &[],
++        backtrackable: false,
++        executor: None,
++        evaluator: None,
++    },
+     PhaseDefinition {
+         id: "proposal",
+         description: "需求提案与规格说明",
+         steps: PROPOSAL_STEPS,
+         artifact_manifest: PROPOSAL_MANIFEST,
+         prerequisites: &[],
++        backtrackable: true,
+         executor: Some(PhaseAgentSpec {
+             prompt: PROPOSAL_EXECUTOR_PROMPT,
+             model_level: ModelLevel::High,
+@@ -496,6 +553,7 @@ static REQUIREMENT_TABLE: &[PhaseDefinition] = &[
+         steps: DEV_DESIGN_STEPS,
+         artifact_manifest: DEV_DESIGN_MANIFEST,
+         prerequisites: &["proposal"],
++        backtrackable: true,
+         executor: Some(PhaseAgentSpec {
+             prompt: DEV_DESIGN_EXECUTOR_PROMPT,
+             model_level: ModelLevel::High,
+@@ -511,6 +569,7 @@ static REQUIREMENT_TABLE: &[PhaseDefinition] = &[
+         steps: TEST_DESIGN_STEPS,
+         artifact_manifest: TEST_DESIGN_MANIFEST,
+         prerequisites: &["proposal", "dev-design"],
++        backtrackable: true,
+         executor: Some(PhaseAgentSpec {
+             prompt: TEST_DESIGN_EXECUTOR_PROMPT,
+             model_level: ModelLevel::High,
+@@ -526,6 +585,7 @@ static REQUIREMENT_TABLE: &[PhaseDefinition] = &[
+         steps: IMPLEMENT_STEPS,
+         artifact_manifest: IMPLEMENT_MANIFEST,
+         prerequisites: &["dev-design"],
++        backtrackable: true,
+         executor: Some(PhaseAgentSpec {
+             prompt: IMPLEMENT_EXECUTOR_PROMPT,
+             model_level: ModelLevel::Low,
+@@ -541,6 +601,7 @@ static REQUIREMENT_TABLE: &[PhaseDefinition] = &[
+         steps: TEST_GEN_STEPS,
+         artifact_manifest: &[],
+         prerequisites: &["test-design", "implement"],
++        backtrackable: true,
+         executor: Some(PhaseAgentSpec {
+             prompt: TEST_GEN_EXECUTOR_PROMPT,
+             model_level: ModelLevel::Low,
+@@ -556,6 +617,7 @@ static REQUIREMENT_TABLE: &[PhaseDefinition] = &[
+         steps: TEST_EXECUTION_STEPS,
+         artifact_manifest: TEST_EXECUTION_MANIFEST,
+         prerequisites: &["test-gen", "implement"],
++        backtrackable: true,
+         executor: Some(PhaseAgentSpec {
+             prompt: TEST_EXECUTION_EXECUTOR_PROMPT,
+             model_level: ModelLevel::Low,
+@@ -571,6 +633,7 @@ static REQUIREMENT_TABLE: &[PhaseDefinition] = &[
+         steps: CODE_REVIEW_STEPS,
+         artifact_manifest: &[],
+         prerequisites: &["test-gen", "implement"],
++        backtrackable: true,
+         executor: None,
+         evaluator: Some(PhaseAgentSpec {
+             prompt: CODE_REVIEW_EVALUATOR_PROMPT,
+@@ -583,6 +646,7 @@ static REQUIREMENT_TABLE: &[PhaseDefinition] = &[
+         steps: ACCEPTANCE_STEPS,
+         artifact_manifest: &[],
+         prerequisites: &["proposal", "dev-design", "implement"],
++        backtrackable: true,
+         executor: None,
+         evaluator: Some(PhaseAgentSpec {
+             prompt: ACCEPTANCE_EVALUATOR_PROMPT,
+@@ -599,12 +663,15 @@ static REQUIREMENT_TABLE: &[PhaseDefinition] = &[
+         steps: ARCHIVE_STEPS,
+         artifact_manifest: &[],
+         prerequisites: &[],
++        backtrackable: true,
+         executor: None,
+         evaluator: None,
+     },
+ ];
+ 
+-/// test-only 相位表（6 个路由相位 = 5 个 agent 相位 + archive 确定性相位）：
++/// test-only 相位表（7 个路由相位 = initialize 一次性表头（确定性基线检查
++/// 相位）+ 5 个 agent 相位 + archive 确定性相位；表头一次性语义由落账机制
++/// 天然成立——pass 持久跳过、Terminal 失败零条目再发起照常路由表头）：
+ /// proposal 复用 requirement 同名 step 静态与 prompt（描述改「测试向提案」，
+ /// 是否拆独立 prompt 留待看效果）；code-analyze 为新增 P→E 分析相位
+ /// （`CODE_ANALYZE_STEPS` + 两个新增角色 md，零产物清单）；test-design /
+@@ -612,12 +679,25 @@ static REQUIREMENT_TABLE: &[PhaseDefinition] = &[
+ /// （`[PhaseStart, TestExecution, MutationTest, PhaseLog]` 拆步，零 agent，不照搬
+ /// 插件侧 Executor→E）；archive 复用 `ARCHIVE_STEPS`。
+ static TEST_ONLY_TABLE: &[PhaseDefinition] = &[
++    // initialize：两表表头一次性基线检查相位（与 requirement 表头同表项形态，
++    // `INITIALIZE_STEPS` 两表共享同一 static）。
++    PhaseDefinition {
++        id: INITIALIZE_PHASE_ID,
++        description: "基线检查",
++        steps: INITIALIZE_STEPS,
++        artifact_manifest: &[],
++        prerequisites: &[],
++        backtrackable: false,
++        executor: None,
++        evaluator: None,
++    },
+     PhaseDefinition {
+         id: "proposal",
+         description: "测试向提案",
+         steps: PROPOSAL_STEPS,
+         artifact_manifest: PROPOSAL_MANIFEST,
+         prerequisites: &[],
++        backtrackable: true,
+         executor: Some(PhaseAgentSpec {
+             prompt: PROPOSAL_EXECUTOR_PROMPT,
+             model_level: ModelLevel::High,
+@@ -633,6 +713,7 @@ static TEST_ONLY_TABLE: &[PhaseDefinition] = &[
+         steps: CODE_ANALYZE_STEPS,
+         artifact_manifest: CODE_ANALYZE_MANIFEST,
+         prerequisites: &["proposal"],
++        backtrackable: true,
+         executor: Some(PhaseAgentSpec {
+             prompt: CODE_ANALYZE_EXECUTOR_PROMPT,
+             model_level: ModelLevel::High,
+@@ -648,6 +729,7 @@ static TEST_ONLY_TABLE: &[PhaseDefinition] = &[
+         steps: TEST_DESIGN_STEPS,
+         artifact_manifest: TEST_DESIGN_MANIFEST,
+         prerequisites: &["proposal", "code-analyze"],
++        backtrackable: true,
+         executor: Some(PhaseAgentSpec {
+             prompt: TEST_DESIGN_EXECUTOR_PROMPT,
+             model_level: ModelLevel::High,
+@@ -663,6 +745,7 @@ static TEST_ONLY_TABLE: &[PhaseDefinition] = &[
+         steps: TEST_GEN_STEPS,
+         artifact_manifest: &[],
+         prerequisites: &["test-design"],
++        backtrackable: true,
+         executor: Some(PhaseAgentSpec {
+             prompt: TEST_GEN_EXECUTOR_PROMPT,
+             model_level: ModelLevel::Low,
+@@ -678,6 +761,7 @@ static TEST_ONLY_TABLE: &[PhaseDefinition] = &[
+         steps: TEST_EXECUTION_STEPS,
+         artifact_manifest: TEST_EXECUTION_MANIFEST,
+         prerequisites: &["test-gen"],
++        backtrackable: true,
+         executor: Some(PhaseAgentSpec {
+             prompt: TEST_EXECUTION_EXECUTOR_PROMPT,
+             model_level: ModelLevel::Low,
+@@ -695,13 +779,15 @@ static TEST_ONLY_TABLE: &[PhaseDefinition] = &[
+         steps: ARCHIVE_STEPS,
+         artifact_manifest: &[],
+         prerequisites: &[],
++        backtrackable: true,
+         executor: None,
+         evaluator: None,
+     },
+ ];
+ 
+-/// 按工作流类型取相位表：`requirement` → `REQUIREMENT_TABLE`（9 相位）、
+-/// `test-only` → `TEST_ONLY_TABLE`（6 相位），其余（含空白 / 未知 / bug-fix）
++/// 按工作流类型取相位表：`requirement` → `REQUIREMENT_TABLE`（10 相位，initialize
++/// 表头）、`test-only` → `TEST_ONLY_TABLE`（7 相位，initialize 表头），其余（含
++/// 空白 / 未知 / bug-fix）
+ /// → `None`（不退化——写面 / 发起前置校验依据，显式拒绝优于相位机半途报错）。
+ pub fn phase_table(workflow_type: &str) -> Option<&'static [PhaseDefinition]> {
+     let workflow_type = workflow_type.trim();
+@@ -715,7 +801,10 @@ pub fn phase_table(workflow_type: &str) -> Option<&'static [PhaseDefinition]> {
+ }
+ 
+ /// 当前相位在表中的全部前置相位（含自身；与插件 `computeAllowedBacktrackPhases`
+-/// 同语义）。相位不在表内 → 空集。
++/// 同语义）。相位不在表内 → 空集。`idx == 0` 早退保留（表头自身无前序语义，非
++/// initialize 排除机制——排除仅由表内 `backtrackable` 属性承载）；迭代按
++/// `backtrackable` 过滤——`false` 者（表头 initialize）恒不入任何相位的回溯
++/// 白名单。
+ pub fn allowed_backtrack_phases(table: &[PhaseDefinition], current_phase: &str) -> Vec<String> {
+     let Some(idx) = table.iter().position(|phase| phase.id == current_phase) else {
+         return Vec::new();
+@@ -725,6 +814,7 @@ pub fn allowed_backtrack_phases(table: &[PhaseDefinition], current_phase: &str)
+     }
+     table[..=idx]
+         .iter()
++        .filter(|phase| phase.backtrackable)
+         .map(|phase| phase.id.to_owned())
+         .collect()
+ }
+diff --git a/crates/core/workflow/src/write/phase_table_test.rs b/crates/core/workflow/src/write/phase_table_test.rs
+index 871b2f8c1be3..127bd515d76c 100644
+--- a/crates/core/workflow/src/write/phase_table_test.rs
++++ b/crates/core/workflow/src/write/phase_table_test.rs
+@@ -1,14 +1,17 @@
+ use agent::ModelLevel;
+ use serde::{Deserialize, Serialize};
+ 
++use crate::write::INITIALIZE_PHASE_ID;
+ use super::phase_table::{
+     allowed_backtrack_phases, dependents, phase_table, PhaseAgentSpec, PhaseDefinition,
+     MAX_RETRY_TIMES,
+ };
+ use crate::state::{OnFail, StepDefinition, StepNode};
+ 
+-/// requirement 相位表表序（相位机语义锚；prompt 静态化不触动相位序）。
+-const REQUIREMENT_PHASE_ORDER: [&str; 9] = [
++/// requirement 相位表表序（相位机语义锚；prompt 静态化不触动相位序；initialize
++/// 一次性表头——check-before-flow-start 10 相位扩位）。
++const REQUIREMENT_PHASE_ORDER: [&str; 10] = [
++    "initialize",
+     "proposal",
+     "dev-design",
+     "test-design",
+@@ -20,8 +23,10 @@ const REQUIREMENT_PHASE_ORDER: [&str; 9] = [
+     "archive",
+ ];
+ 
+-/// test-only 相位表表序（6 相位：5 个 agent 相位 + archive 确定性相位）。
+-const TEST_ONLY_PHASE_ORDER: [&str; 6] = [
++/// test-only 相位表表序（7 相位：initialize 一次性表头 + 5 个 agent 相位 +
++/// archive 确定性相位——check-before-flow-start 扩位）。
++const TEST_ONLY_PHASE_ORDER: [&str; 7] = [
++    "initialize",
+     "proposal",
+     "code-analyze",
+     "test-design",
+@@ -30,6 +35,17 @@ const TEST_ONLY_PHASE_ORDER: [&str; 6] = [
+     "archive",
+ ];
+ 
++/// initialize 相位步序（两表表头共用同一 static；一次性基线检查相位——
++/// `PhaseStart → Clean → StaticCheck → TestExecution → PhaseLog` 五步序，两检查
++/// 步 `on_fail=Terminal`——check-before-flow-start D5/D7）。
++const INITIALIZE_STEP_ORDER: [StepNode; 5] = [
++    StepNode::PhaseStart,
++    StepNode::Clean,
++    StepNode::StaticCheck,
++    StepNode::TestExecution,
++    StepNode::PhaseLog,
++];
++
+ /// code-analyze 相位步序（P→E 分析相位；AC-2）。
+ const CODE_ANALYZE_STEP_ORDER: [StepNode; 5] = [
+     StepNode::PhaseStart,
+@@ -189,16 +205,23 @@ fn phase_table超长与特殊字符类型值不命中() {
+ }
+ 
+ #[test]
+-fn phase_table_test_only返回六相位且序稳定() {
++fn phase_table_test_only返回七相位且序稳定() {
+     let table = phase_table("test-only").expect("test-only 应返回 Some");
+ 
+-    assert_eq!(table.len(), 6, "test-only 六相位（含 archive）");
++    assert_eq!(table.len(), 7, "test-only 七相位（initialize 表头 + 含 archive）");
+     let ids: Vec<&str> = table.iter().map(|def| def.id).collect();
+     assert_eq!(ids, TEST_ONLY_PHASE_ORDER.to_vec(), "test-only 相位序稳定");
+ 
++    // 首位 initialize 表头（一次性基线检查相位——check-before-flow-start）
++    assert_eq!(
++        table.first().expect("首位相位应在场").id,
++        "initialize",
++        "initialize 为表头（第 1）相位"
++    );
++
+     // 末位 archive 确定性相位（无 executor / evaluator、零清单）
+     let archive = table.last().expect("末位相位应在场");
+-    assert_eq!(archive.id, "archive", "archive 为末位（第 6）相位");
++    assert_eq!(archive.id, "archive", "archive 为末位（第 7）相位");
+     assert!(archive.executor.is_none(), "test-only archive executor 恒 None");
+     assert!(archive.evaluator.is_none(), "test-only archive evaluator 恒 None");
+     assert!(archive.artifact_manifest.is_empty(), "test-only archive 零清单");
+@@ -368,13 +391,15 @@ fn phase_table_空白与大小写规范化命中() {
+ }
+ 
+ /// 表内自描述前置依赖（边界）：test-only 表 `prerequisites` 逐相位照表声明
+-///（proposal=[]、code-analyze=[proposal]、test-design=[proposal, code-analyze]、
+-/// test-gen=[test-design]、test-execution=[test-gen]、archive=[]）；requirement
+-/// 表前置与既有 match 语义一致（集合语义对照，不依赖声明序）。
++///（initialize=[]、proposal=[]、code-analyze=[proposal]、test-design=[proposal,
++/// code-analyze]、test-gen=[test-design]、test-execution=[test-gen]、archive=[]）；
++/// requirement 表前置与既有 match 语义一致（集合语义对照，不依赖声明序）；任何
++/// 相位前置不含 initialize（表头零入边——stale 传播 BFS 零波及的结构前提，AC-7）。
+ #[test]
+ fn 表内自描述prerequisites逐相位声明() {
+     let test_only = phase_table("test-only").expect("test-only 应返回 Some");
+     let expect_test_only: &[(&str, &[&str])] = &[
++        ("initialize", &[]),
+         ("proposal", &[]),
+         ("code-analyze", &["proposal"]),
+         ("test-design", &["proposal", "code-analyze"]),
+@@ -392,6 +417,7 @@ fn 表内自描述prerequisites逐相位声明() {
+ 
+     let requirement = phase_table("requirement").expect("requirement 应返回 Some");
+     let expect_requirement: &[(&str, &[&str])] = &[
++        ("initialize", &[]),
+         ("proposal", &[]),
+         ("dev-design", &["proposal"]),
+         ("test-design", &["proposal", "dev-design"]),
+@@ -424,6 +450,38 @@ fn 表内自描述prerequisites逐相位声明() {
+     }
+ }
+ 
++/// initialize 零入边（边界，枚举遍历两表）：两表 initialize `prerequisites == []`
++/// 且任何相位 `prerequisites` 不含 initialize——`dependents("initialize")` 空集
++///（stale 传播 BFS 零波及的结构前提，AC-7 半边）。
++#[test]
++fn initialize_prerequisites空且零入边_dependents空集() {
++    for workflow_type in ["requirement", "test-only"] {
++        let table = phase_table(workflow_type).expect("相位表应可达");
++
++        // initialize 自身前置空
++        let initialize = phase_of(table, "initialize");
++        assert!(
++            initialize.prerequisites.is_empty(),
++            "{workflow_type} initialize 无依赖前置（零入边）"
++        );
++
++        // 任何相位前置不含 initialize（枚举遍历）
++        for def in table {
++            assert!(
++                !def.prerequisites.contains(&"initialize"),
++                "{workflow_type} 相位 {} 前置不含 initialize（表头零入边）",
++                def.id
++            );
++        }
++
++        // dependents("initialize") 空集（stale 传播零波及）
++        assert!(
++            dependents(table, "initialize").is_empty(),
++            "{workflow_type} initialize 无下游依赖（stale 传播零波及）"
++        );
++    }
++}
++
+ /// `dependents` 表内遍历（正向）：下游 = 表内 `prerequisites` 含本相位者，两表
+ /// 各自类型感知（test-only 不多推 dev-design 等表外相位）。
+ #[test]
+@@ -508,22 +566,29 @@ fn 回溯白名单随表分派两表各按本表序() {
+     );
+     assert_eq!(
+         allowed_backtrack_phases(test_only, "archive"),
+-        expect(&TEST_ONLY_PHASE_ORDER),
+-        "test-only archive 覆盖全表（6 相位）"
++        expect(&TEST_ONLY_PHASE_ORDER[1..]),
++        "test-only archive 白名单 = 除 initialize 外全表按表序（表头被 backtrackable 过滤）"
+     );
+-    assert!(
+-        allowed_backtrack_phases(test_only, "proposal").is_empty(),
+-        "test-only 首相位无前置可回溯"
++    assert_eq!(
++        allowed_backtrack_phases(test_only, "initialize"),
++        Vec::<String>::new(),
++        "test-only 表头 initialize 白名单为空（idx==0 早退）"
++    );
++    assert_eq!(
++        allowed_backtrack_phases(test_only, "proposal"),
++        vec!["proposal".to_owned()],
++        "test-only proposal 白名单 = 恰自身（表头被属性过滤排除）"
+     );
+     assert!(
+         !allowed_backtrack_phases(test_only, "test-gen").iter().any(|phase| phase == "implement"),
+         "test-only 白名单不含表外相位 implement"
+     );
+ 
+-    // requirement 表同语义（对照锚，防两表串味）
++    // requirement 表同语义（对照锚，防两表串味）：acceptance 白名单 = proposal …
++    // acceptance 八相位（表头 initialize 被 backtrackable 过滤——非位置排除）
+     assert_eq!(
+         allowed_backtrack_phases(requirement, "acceptance"),
+-        expect(&REQUIREMENT_PHASE_ORDER[..8]),
++        expect(&REQUIREMENT_PHASE_ORDER[1..9]),
+     );
+ }
+ 
+@@ -531,6 +596,7 @@ fn 回溯白名单随表分派两表各按本表序() {
+ fn phase_table各相位模型档位分派对照() {
+     let table = phase_table("requirement").expect("requirement 应返回 Some");
+     let expected: &[(&str, Option<ModelLevel>, Option<ModelLevel>)] = &[
++        ("initialize", None, None),
+         ("proposal", Some(ModelLevel::High), Some(ModelLevel::High)),
+         ("dev-design", Some(ModelLevel::High), Some(ModelLevel::High)),
+         (
+@@ -568,10 +634,11 @@ fn phase_table各相位模型档位分派对照() {
+         );
+     }
+     // PhaseAgentSpec 档位字段随 Clone 派生保持（相位表驻留 'static 只读共享）
+-    let spec = table[0]
++    let proposal = phase_of(table, "proposal");
++    let spec = proposal
+         .executor
+         .clone()
+-        .unwrap_or_else(|| panic!("首相位有 executor"));
++        .unwrap_or_else(|| panic!("proposal 有 executor"));
+     let PhaseAgentSpec {
+         prompt: _,
+         model_level,
+@@ -630,21 +697,28 @@ fn 重试上限常量锚定为5与插件一致() {
+ }
+ 
+ #[test]
+-fn 白名单首相位为空集无前置可回溯() {
++fn 白名单表头相位为空集无前置可回溯() {
+     let table = phase_table("requirement").expect("requirement 应返回 Some");
+ 
+-    // 表首相位 → 空白名单（无前置可回溯——空白名单出口的相位表面）
++    // 表头 initialize → 空白名单（idx==0 早退——表首自身无前序语义，非排除机制）
++    assert!(
++        allowed_backtrack_phases(table, "initialize").is_empty(),
++        "表头 initialize 白名单应为空（idx==0 早退）"
++    );
++    // 两表表头同构：test-only 的 initialize 亦空白名单
++    let test_only = phase_table("test-only").expect("test-only 应返回 Some");
+     assert!(
+-        allowed_backtrack_phases(table, "proposal").is_empty(),
+-        "首相位白名单应为空"
++        allowed_backtrack_phases(test_only, "initialize").is_empty(),
++        "test-only 表头 initialize 白名单应为空"
+     );
+ }
+ 
+ #[test]
+-fn 白名单返回表序前置集含自身() {
++fn 白名单返回表序前置集含自身且initialize恒排除() {
+     let table = phase_table("requirement").expect("requirement 应返回 Some");
+ 
+-    // 表中段相位 → 全部前置相位按表序返回（含自身——白名单下发的内容面）
++    // 表中段相位 → 全部前置相位按表序返回（含自身——白名单下发的内容面；
++    // initialize 表头不入任何相位的白名单——backtrackable 属性过滤）
+     assert_eq!(
+         allowed_backtrack_phases(table, "test-gen"),
+         vec![
+@@ -654,23 +728,27 @@ fn 白名单返回表序前置集含自身() {
+             "implement".to_owned(),
+             "test-gen".to_owned(),
+         ],
+-        "中段相位白名单 = 表序前置集（含自身）"
++        "中段相位白名单 = 表序前置集（含自身；零 initialize 入选）"
+     );
+-    // 末相位（archive）覆盖全表；acceptance 覆盖其前 8 相位（archive 不为前置）
++    // 末相位（archive）白名单 = 除 initialize 外全部前序相位按表序（全表覆盖
++    // 场景——表头被 backtrackable 过滤，位置排除不参与）
+     assert_eq!(
+         allowed_backtrack_phases(table, "archive"),
+-        REQUIREMENT_PHASE_ORDER
++        REQUIREMENT_PHASE_ORDER[1..]
+             .iter()
+             .map(|id| id.to_string())
+             .collect::<Vec<_>>(),
++        "archive 白名单 = 除 initialize 外全表按表序"
+     );
++    // acceptance 白名单 = proposal … acceptance 八相位（表序前置集语义不因表头
++    // 插入漂移——archive 不为前置）
+     assert_eq!(
+         allowed_backtrack_phases(table, "acceptance"),
+-        REQUIREMENT_PHASE_ORDER[..8]
++        REQUIREMENT_PHASE_ORDER[1..9]
+             .iter()
+             .map(|id| id.to_string())
+             .collect::<Vec<_>>(),
+-        "acceptance 前置集不含 archive（末相位不在任何相位前置集内）"
++        "acceptance 前置集不含 archive（末相位不在任何相位前置集内）且零 initialize"
+     );
+     assert!(
+         !allowed_backtrack_phases(table, "acceptance")
+@@ -678,6 +756,31 @@ fn 白名单返回表序前置集含自身() {
+             .any(|phase| phase == "archive"),
+         "archive 仅前向：不在 acceptance 回溯白名单"
+     );
++
++    // proposal 白名单 = 恰含自身（第二位含自身语义；initialize 被 backtrackable
++    // 过滤排除——排除由表内属性承载非位置推导的证明面）
++    assert_eq!(
++        allowed_backtrack_phases(table, "proposal"),
++        vec!["proposal".to_owned()],
++        "proposal 白名单 = 恰自身（initialize 被属性过滤排除）"
++    );
++}
++
++#[test]
++fn 白名单任意后续相位均不含initialize两表枚举遍历() {
++    // 任意后续相位白名单不含 initialize（枚举遍历两表——AC-7 半边）
++    for workflow_type in ["requirement", "test-only"] {
++        let table = phase_table(workflow_type).expect("相位表应可达");
++        for def in table.iter().skip(1) {
++            assert!(
++                !allowed_backtrack_phases(table, def.id)
++                    .iter()
++                    .any(|phase| phase == "initialize"),
++                "{workflow_type} 相位 {} 白名单不含 initialize",
++                def.id
++            );
++        }
++    }
+ }
+ 
+ #[test]
+@@ -687,15 +790,22 @@ fn 白名单未知相位返回空vec不臆测() {
+     // current_phase 不在表中 → 空 Vec（不崩、不臆测）
+     assert!(allowed_backtrack_phases(table, "不存在的相位").is_empty());
+     assert!(allowed_backtrack_phases(table, "").is_empty());
++    // 空表 → 空 Vec（既有边界持衡）
++    assert!(allowed_backtrack_phases(&[], "initialize").is_empty());
++    // 超长 / 特殊字符相位名 → 空 Vec（扩表不改变分派拒绝面）
++    assert!(allowed_backtrack_phases(table, &"x".repeat(1200)).is_empty());
++    assert!(allowed_backtrack_phases(table, "🚀\n").is_empty());
+ }
+ 
+ // ---------------------------------------------------------------------------
+ // 计划图单源：steps / artifact_manifest 声明（AC-1 / AC-2 / AC-7）
+ // ---------------------------------------------------------------------------
+ 
+-/// 计划步序列期望表（design 数据模型表逐相位声明；`OnFail` 三态按步绑定）。
++/// 计划步序列期望表（design 数据模型表逐相位声明；`OnFail` 三态按步绑定；
++/// initialize 表头五步序——`Clean` 基线恢复步 + 两检查步 Terminal）。
+ fn expected_steps(phase: &str) -> Vec<StepNode> {
+     match phase {
++        "initialize" => INITIALIZE_STEP_ORDER.to_vec(),
+         "proposal" | "dev-design" | "test-design" | "code-analyze" => vec![
+             StepNode::PhaseStart,
+             StepNode::Executor,
+@@ -730,9 +840,14 @@ fn expected_steps(phase: &str) -> Vec<StepNode> {
+ 
+ /// 相位 → `on_fail` 声明期望（四门禁步 FeedbackLoop{5}——static-check /
+ /// test-execution / mutation-test / verdict-gate；code-analyze 的 VerdictGate
+-/// 例外为 Terminal——spec 定稿「分析相位 verdict 失败即终态」；其余 None）。
++/// 例外为 Terminal——spec 定稿「分析相位 verdict 失败即终态」；initialize 表头
++/// 两检查步（StaticCheck / TestExecution）为例 Terminal——基线绿门失败即停零
++/// 反馈边（check-before-flow-start D7）；其余 None）。
+ fn expected_on_fail(phase_id: &str, node: StepNode) -> Option<OnFail> {
+     match node {
++        StepNode::StaticCheck | StepNode::TestExecution if phase_id == "initialize" => {
++            Some(OnFail::Terminal)
++        }
+         StepNode::StaticCheck
+         | StepNode::TestExecution
+         | StepNode::MutationTest => Some(OnFail::FeedbackLoop { limit: 5 }),
+@@ -742,13 +857,14 @@ fn expected_on_fail(phase_id: &str, node: StepNode) -> Option<OnFail> {
+     }
+ }
+ 
+-/// 计划图单源 steps 声明：`phase_table("requirement")` 返回 9 相位（8 路由相位 +
+-/// archive 确定性相位），逐相位 `steps` 序列与设计数据模型表一致（门禁步由 step
+-/// 声明、相位限定，AC-1 / AC-2）。
++/// 计划图单源 steps 声明：`phase_table("requirement")` 返回 10 相位（initialize
++/// 一次性表头 + 8 路由相位 + archive 确定性相位），逐相位 `steps` 序列与设计数据
++/// 模型表一致（门禁步由 step 声明、相位限定，AC-1 / AC-2；initialize 表头五步序
++/// 含 Clean——check-before-flow-start）。
+ #[test]
+ fn 计划图steps声明逐相位与设计表一致() {
+     let table = phase_table("requirement").expect("requirement 应返回 Some");
+-    assert_eq!(table.len(), 9, "requirement 九相位（含 archive）");
++    assert_eq!(table.len(), 10, "requirement 十相位（initialize 表头 + 含 archive）");
+ 
+     for def in table {
+         let actual: Vec<StepNode> = def.steps.iter().map(|step| step.node).collect();
+@@ -796,13 +912,16 @@ fn 计划图steps边界_门禁相位限定() {
+             "相位 {} 的 VerdictGate 与 evaluator 步同进退",
+             def.id
+         );
+-        // 检查步与 executor / 评估面角色的绑定：仅 implement / test-gen /
+-        // test-execution 含门禁检查步
++        // 检查步与 executor / 评估面角色的绑定：initialize 表头（基线检查）与
++        // implement / test-gen / test-execution 含门禁检查步
+         let has_check = def
+             .steps
+             .iter()
+             .any(|step| matches!(step.node, StepNode::StaticCheck | StepNode::TestExecution));
+-        let expect_check = matches!(def.id, "implement" | "test-gen" | "test-execution");
++        let expect_check = matches!(
++            def.id,
++            "initialize" | "implement" | "test-gen" | "test-execution"
++        );
+         assert_eq!(has_check, expect_check, "相位 {} 门禁步声明面", def.id);
+     }
+ 
+@@ -1071,10 +1190,15 @@ fn 计划图类型收敛与const表逐项等值() {
+             steps,
+             artifact_manifest,
+             prerequisites,
++            backtrackable,
+             executor,
+             evaluator,
+         } = def;
+         assert_eq!(*id, def.id, "id 字段解构等值");
++        assert!(
++            *backtrackable == (*id != "initialize"),
++            "相位 {id} backtrackable 自描述（仅 initialize false）"
++        );
+         assert!(!description.is_empty(), "相位 {id} description 非空");
+         // 前置依赖表内自描述（字段类型 `&'static [&'static str]`；无独立 match 兜底）
+         let _: &&'static [&'static str] = prerequisites;
+@@ -1623,6 +1747,7 @@ fn test_only表产物清单复用与code_analyze清单声明() {
+     let table = phase_table("test-only").expect("test-only 应返回 Some");
+ 
+     let expect: &[(&str, &[(&str, &str)])] = &[
++        ("initialize", &[]),
+         (
+             "proposal",
+             &[("markdown-doc", "proposal.md"), ("markdown-doc", "specs/**")],
+@@ -1731,7 +1856,7 @@ fn test_only表prompt静态非空且步spec同源() {
+ #[test]
+ fn test_only表steps与on_fail全表扫描() {
+     let table = phase_table("test-only").expect("test-only 应返回 Some");
+-    assert_eq!(table.len(), 6);
++    assert_eq!(table.len(), 7, "test-only 七相位（initialize 表头扩位）");
+ 
+     for def in table {
+         let actual: Vec<StepNode> = def.steps.iter().map(|step| step.node).collect();
+@@ -1911,3 +2036,163 @@ fn test_execution拆步序列边界_phaselog末位且mutation恰一次() {
+         );
+     }
+ }
++
++// ---------------------------------------------------------------------------
++// initialize 一次性表头（check-before-flow-start / AC-1 / AC-4 / AC-6 / AC-7）：
++// 表头确定性相位全字段锚 + 两表同源 static + backtrackable 属性过滤 + 常量 /
++// 再导出编译锚（Mock策略：无——编译期 const static 表直读断言，零 IO）
++// ---------------------------------------------------------------------------
++
++/// initialize 表项确定性声明全字段锚（正向，单次）：`description == "基线检查"`、
++/// steps 五步序（PhaseStart → Clean → StaticCheck → TestExecution → PhaseLog；
++/// PhaseStart / Clean / PhaseLog 均 `on_fail=None`，StaticCheck / TestExecution
++/// 均 `on_fail=Some(OnFail::Terminal)`，全 `prompt_ref=None`）、artifact_manifest
++/// 空、prerequisites=[]、executor=None、evaluator=None、backtrackable=false。
++#[test]
++fn initialize表项确定性声明全字段锚() {
++    for workflow_type in ["requirement", "test-only"] {
++        let table = phase_table(workflow_type).expect("相位表应可达");
++        let initialize = phase_of(table, "initialize");
++
++        assert_eq!(initialize.id, "initialize", "{workflow_type} 表头 id 逐字");
++        assert_eq!(
++            initialize.description, "基线检查",
++            "{workflow_type} initialize description 逐字（人读标签源）"
++        );
++
++        // steps 五步序逐位
++        let nodes: Vec<StepNode> = initialize.steps.iter().map(|step| step.node).collect();
++        assert_eq!(
++            nodes,
++            INITIALIZE_STEP_ORDER.to_vec(),
++            "{workflow_type} initialize 五步序逐位（PhaseStart → Clean → StaticCheck → TestExecution → PhaseLog）"
++        );
++        assert_eq!(initialize.steps.len(), 5, "{workflow_type} initialize 步数恰五");
++
++        // 步声明逐字段（on_fail 三态按步绑定、prompt_ref 恒 None）
++        for step in initialize.steps {
++            assert_eq!(
++                step.prompt_ref, None,
++                "{workflow_type} initialize 步 {:?} prompt_ref 恒 None（零 agent 面非 agent 步）",
++                step.node
++            );
++            let expect_on_fail = match step.node {
++                StepNode::StaticCheck | StepNode::TestExecution => Some(OnFail::Terminal),
++                StepNode::PhaseStart | StepNode::Clean | StepNode::PhaseLog => None,
++                other => panic!("initialize 不含步 {other:?}"),
++            };
++            assert_eq!(
++                step.on_fail, expect_on_fail,
++                "{workflow_type} initialize 步 {:?} on_fail 声明（两检查步 Terminal——基线绿门失败即停）",
++                step.node
++            );
++        }
++
++        // 确定性相位其余字段：零清单、零前置、双角色缺席、不可回溯
++        assert!(
++            initialize.artifact_manifest.is_empty(),
++            "{workflow_type} initialize artifact_manifest 空"
++        );
++        assert!(initialize.prerequisites.is_empty(), "{workflow_type} initialize 零前置");
++        assert!(
++            initialize.executor.is_none(),
++            "{workflow_type} initialize executor None（确定性相位零 agent）"
++        );
++        assert!(
++            initialize.evaluator.is_none(),
++            "{workflow_type} initialize evaluator None"
++        );
++        assert!(
++            !initialize.backtrackable,
++            "{workflow_type} initialize backtrackable=false（基线检查不可回溯重做）"
++        );
++    }
++}
++
++/// 两表 initialize 同源（边界，单次）：requirement 与 test-only 的 initialize
++/// steps 逐位等值且共用同一 static（`INITIALIZE_STEPS` 两表共享——沿
++/// `PROPOSAL_STEPS` 复用先例断言形态：指针等值 + 逐元素等值双锚）；步序首
++/// PhaseStart / 末 PhaseLog / Clean 相位内独占（initialize 之外相位零 Clean 步）。
++#[test]
++fn 两表initialize共用同一static单源且clean步独占() {
++    let requirement = phase_table("requirement").expect("requirement 应返回 Some");
++    let test_only = phase_table("test-only").expect("test-only 应返回 Some");
++    let lhs = phase_of(requirement, "initialize");
++    let rhs = phase_of(test_only, "initialize");
++
++    // 同一 static（指针等值）+ 逐元素等值双断言
++    assert!(
++        std::ptr::eq(lhs.steps.as_ptr(), rhs.steps.as_ptr()),
++        "两表 initialize steps 共用同一 static（INITIALIZE_STEPS 单源）"
++    );
++    assert_eq!(lhs.steps, rhs.steps, "逐元素等值（Copy 面）");
++
++    // Clean 相位内独占：initialize 之外任何相位零 Clean 步（枚举遍历两表）
++    for table in [requirement, test_only] {
++        for def in table.iter().filter(|def| def.id != "initialize") {
++            assert!(
++                !def.steps.iter().any(|step| step.node == StepNode::Clean),
++                "相位 {} 不含 Clean 步（基线恢复步 initialize 独占）",
++                def.id
++            );
++        }
++    }
++}
++
++/// backtrackable 属性全表对拍（边界，枚举遍历）：既有 15 条目全部
++/// `backtrackable: true`（两表逐条断言——requirement 8 路由 + archive、
++/// test-only 5 agent + archive）；initialize 为唯一 `false` 条目（表内自描述
++/// 属性全量对拍——两表合计 15 true + 2 false）。
++#[test]
++fn backtrackable全表对拍_initialize唯一false() {
++    for (workflow_type, expect_true_count) in [("requirement", 9usize), ("test-only", 6usize)] {
++        let table = phase_table(workflow_type).expect("相位表应可达");
++        let true_count = table.iter().filter(|def| def.backtrackable).count();
++        let false_count = table.iter().filter(|def| !def.backtrackable).count();
++        assert_eq!(
++            true_count, expect_true_count,
++            "{workflow_type} backtrackable=true 条目数（既有条目全补 true）"
++        );
++        assert_eq!(
++            false_count, 1,
++            "{workflow_type} backtrackable=false 恰一条（initialize 唯一）"
++        );
++        for def in table {
++            assert_eq!(
++                def.backtrackable,
++                def.id != "initialize",
++                "{workflow_type} 相位 {} backtrackable 属性（仅 initialize false）",
++                def.id
++            );
++        }
++    }
++}
++
++/// INITIALIZE_PHASE_ID 常量锚（正向，单次）：逐字 `"initialize"` 且与两表表头
++/// 相位 id 相等（单源同值断言）；write/mod.rs 再导出面编译锚——
++/// `workflow::write::INITIALIZE_PHASE_ID` 路径引用与 `phase_table::INITIALIZE_
++/// PHASE_ID` 同值（再导出零漂移——walker import 面出口存在性证明）。
++#[test]
++fn initialize_phase_id常量逐字且再导出同值() {
++    use super::phase_table::INITIALIZE_PHASE_ID as TABLE_CONST;
++
++    // 常量逐字
++    assert_eq!(TABLE_CONST, "initialize", "phase_table 常量逐字");
++    assert_eq!(INITIALIZE_PHASE_ID, "initialize", "write 再导出逐字");
++
++    // 单源同值（再导出零漂移）
++    assert_eq!(
++        INITIALIZE_PHASE_ID, TABLE_CONST,
++        "write::INITIALIZE_PHASE_ID 与 phase_table::INITIALIZE_PHASE_ID 同值"
++    );
++
++    // 与两表表头相位 id 相等
++    for workflow_type in ["requirement", "test-only"] {
++        let table = phase_table(workflow_type).expect("相位表应可达");
++        assert_eq!(
++            table.first().expect("表头应在场").id,
++            INITIALIZE_PHASE_ID,
++            "{workflow_type} 表头相位 id 与常量同值"
++        );
++    }
++}
+diff --git a/crates/core/workflow/tests/corpus_golden_test.rs b/crates/core/workflow/tests/corpus_golden_test.rs
+index c2b58dd52e30..b56fc26a5ddb 100644
+--- a/crates/core/workflow/tests/corpus_golden_test.rs
++++ b/crates/core/workflow/tests/corpus_golden_test.rs
+@@ -67,6 +67,7 @@ const REWRITE_ENV: &str = "DESKTOP_GOLDEN_REWRITE";
+ /// 全读链投影的混合形态语料；归档前缀样本 = 归档全状态面 detail）。
+ /// 「文档形态」语料以零发现反例承载（无 golden——出局删除）。
+ const CORPORA: &[&str] = &[
++    "corpus-initialize",
+     "corpus-multi-attempt",
+     "corpus-backtrack-stale",
+     "corpus-slots-null",
+@@ -1690,13 +1691,17 @@ fn corpus归档前缀样本_golden对拍() {
+         "归档状态面在场（非文档形态空面）"
+     );
+     let pipeline = projection["pipeline"].as_array().expect("pipeline 为数组");
+-    assert_eq!(pipeline.len(), 9, "9 站 pipeline 全量出线（含 archive 末列，无 code-analyze 占位列）");
++    assert_eq!(
++        pipeline.len(),
++        10,
++        "10 站 pipeline 全量出线（initialize 表头 + 含 archive 末列，无 code-analyze 占位列）"
++    );
+     assert!(
+-        !pipeline[0]["attempts"]
++        !pipeline[1]["attempts"]
+             .as_array()
+             .expect("attempts 为数组")
+             .is_empty(),
+-        "proposal 站 attempt 出线（错配链结构性退役）"
++        "proposal 站 attempt 出线（表头 initialize 空站——错配链结构性退役）"
+     );
+     let runs = projection["runs"].as_array().expect("runs 为数组");
+     assert_eq!(runs.len(), 2, "run 史全量出线（proposal 史 + archive 相位史）");
+@@ -2231,7 +2236,7 @@ fn corpusgolden重写后_diff范围键集断言() {
+         "归档前缀样本状态面 archived 在案"
+     );
+     let pipeline = value["pipeline"].as_array().expect("pipeline 为数组");
+-    assert_eq!(pipeline.len(), 9, "归档前缀样本 9 站 pipeline 全量出线");
++    assert_eq!(pipeline.len(), 10, "归档前缀样本 10 站 pipeline 全量出线");
+     assert_eq!(
+         pipeline.last().and_then(|station| station["phase"].as_str()),
+         Some("archive"),
+@@ -2574,8 +2579,8 @@ fn 真件create成功立即可见可发起() {
+     .expect("建档后路由应可达");
+     assert_eq!(
+         route.next_phase.as_deref(),
+-        Some("proposal"),
+-        "建档立即可发起（首相位路由）"
++        Some("initialize"),
++        "建档立即可发起（表头相位路由——零条目落 initialize）"
+     );
+ }
+ 
+@@ -2736,6 +2741,16 @@ fn 真件archive目标冲突_db零变更() {
+ fn 真件phase_next读源db_零workflow_json读取() {
+     let corpus = Corpus::new("route-read-db");
+     corpus.seed_record("id-demo-change", "demo-change");
++    corpus.run_phase(
++        "id-demo-change",
++        "initialize",
++        Verdict::Pass,
++        "基线检查通过",
++        Vec::new(),
++        None,
++        None,
++        t(0),
++    );
+     corpus.run_phase(
+         "id-demo-change",
+         "proposal",
+@@ -2770,6 +2785,16 @@ fn 真件phase_next读源db_零workflow_json读取() {
+ fn 真件phase_next锚点基线平移_首见与复见与run隔离() {
+     let corpus = Corpus::new("route-anchor");
+     corpus.seed_record("id-demo-change", "demo-change");
++    corpus.run_phase(
++        "id-demo-change",
++        "initialize",
++        Verdict::Pass,
++        "基线检查通过",
++        Vec::new(),
++        None,
++        None,
++        t(0),
++    );
+     corpus.run_phase(
+         "id-demo-change",
+         "proposal",
+@@ -2815,7 +2840,7 @@ fn 真件phase_next锚点基线平移_首见与复见与run隔离() {
+     let first = phase_next(&corpus.store, "id-demo-change", "run-a", &anchors).expect("路由应成功");
+     assert_eq!(
+         first.round, 1,
+-        "首见锚点 = PhaseRecord 行数 3，round 自 1 起"
++        "首见锚点 = PhaseRecord 行数 4（initialize 表头 + 三条目），round 自 1 起"
+     );
+     assert_eq!(first.next_phase.as_deref(), Some("dev-design"));
+     assert!(first.error.is_none(), "窗口外历史 fail 不虚触上限");
+@@ -2846,6 +2871,16 @@ fn 真件phase_next锚点基线平移_首见与复见与run隔离() {
+ fn 真件phase_next重启续走_直接推进不重头() {
+     let corpus = Corpus::new("route-restart");
+     corpus.seed_record("id-demo-change", "demo-change");
++    corpus.run_phase(
++        "id-demo-change",
++        "initialize",
++        Verdict::Pass,
++        "基线检查通过",
++        Vec::new(),
++        None,
++        None,
++        t(0),
++    );
+     corpus.run_phase(
+         "id-demo-change",
+         "proposal",
+@@ -3011,7 +3046,7 @@ fn 真件detail时间出线_epoch零口径() {
+         .expect("详情应可达");
+ 
+     assert_eq!(detail.created.as_deref(), Some("1970-01-01"));
+-    let record = &detail.pipeline[0].attempts[0];
++    let record = &detail.pipeline[1].attempts[0];
+     assert_eq!(record.timestamp.as_deref(), Some("1970-01-01T00:00:00Z"));
+     assert_eq!(record.start_at.as_deref(), Some("1970-01-01T00:00:00Z"));
+ }
+@@ -3455,3 +3490,177 @@ fn corpus防御值语料_overrides混防御值直达投影零改写零panic() {
+         "防御值专项语料零 golden 产出（语料完整性集合不变）"
+     );
+ }
++
++// ---------------------------------------------------------------------------
++// initialize 语料（check-before-flow-start / AC-8 语料半边）：initialize 相位
++// 样本（正常 pass 条目 + legacy skipped 条目两形态）与 clean 步词节点样本 →
++// golden 全量对比随动
++// ---------------------------------------------------------------------------
++
++/// initialize 语料：pass 条目（机械 checklist 面）+ legacy skipped 条目（跳过因
++/// 面两形态）+ initialize run 五节点（clean 词样本、串行 forward 边）。
++fn build_initialize(tag: &str) -> Corpus {
++    let corpus = Corpus::new(tag);
++    corpus.seed_record("id-initialize", "initialize-corpus");
++
++    // pass 条目（attempt 1——worktree 分支机械 checklist 落账形态）
++    corpus.run_phase(
++        "id-initialize",
++        "initialize",
++        Verdict::Pass,
++        "conclusion=pass total=12 passed=10 failed=0 skipped=2；报告目录 /ws/openspec/changes/initialize-corpus/reports/baseline",
++        vec![
++            ChecklistItem {
++                item: "静态检查通过".to_owned(),
++                pass: true,
++                evidence: "diagnostics 空".to_owned(),
++            },
++            ChecklistItem {
++                item: "测试执行通过".to_owned(),
++                pass: true,
++                evidence: "四计数在场".to_owned(),
++            },
++            ChecklistItem {
++                item: "突变测试".to_owned(),
++                pass: false,
++                evidence: "null（未跑）".to_owned(),
++            },
++        ],
++        None,
++        None,
++        t(1),
++    );
++
++    // legacy skipped 条目（attempt 2——root == main_root 短路落账形态；skipped
++    // 同 pass 一次性持久语义）
++    corpus
++        .store
++        .start_change_phase("id-initialize", "initialize", t(2))
++        .expect("开相失败");
++    corpus
++        .store
++        .log_change_phase(&PhaseLogCommand {
++            change_id: "id-initialize".to_owned(),
++            phase: "initialize".to_owned(),
++            verdict: Verdict::Pass,
++            report: "legacy 主仓执行无 worktree 基线，跳过基线检查".to_owned(),
++            skipped: true,
++            checklist: Vec::new(),
++            executor_session_id: None,
++            evaluator_session_id: None,
++            decision_session_id: None,
++            start_at: Some(t(2)),
++            timestamp: t(3),
++        })
++        .expect("落账失败");
++
++    // initialize run 五节点整包（clean 词样本 + 串行 forward 边）
++    let nodes = [
++        step("initialize", 1, ChangeStepKind::PhaseStart, ChangeStepStatus::Passed, None, None),
++        step(
++            "initialize",
++            1,
++            ChangeStepKind::Clean,
++            ChangeStepStatus::Passed,
++            None,
++            Some("已恢复基线（reset --hard + clean -fd，排除面 8 项）"),
++        ),
++        step(
++            "initialize",
++            1,
++            ChangeStepKind::StaticCheck,
++            ChangeStepStatus::Passed,
++            None,
++            Some("静态检查通过"),
++        ),
++        step(
++            "initialize",
++            1,
++            ChangeStepKind::TestExecution,
++            ChangeStepStatus::Passed,
++            None,
++            Some("conclusion=pass total=12 passed=10 failed=0 skipped=2"),
++        ),
++        step("initialize", 1, ChangeStepKind::PhaseLog, ChangeStepStatus::Passed, None, None),
++    ];
++    let edges: Vec<ChangeStepEdge> = nodes
++        .windows(2)
++        .map(|pair| ChangeStepEdge {
++            from: (
++                pair[0].phase.clone(),
++                pair[0].attempt,
++                pair[0].step,
++                pair[0].instance_no,
++            ),
++            to: (
++                pair[1].phase.clone(),
++                pair[1].attempt,
++                pair[1].step,
++                pair[1].instance_no,
++            ),
++            kind: EdgeKind::Forward,
++        })
++        .collect();
++    corpus.run_start("id-initialize", "run-1727000010000", t(10));
++    corpus.run_finish(
++        "id-initialize",
++        "run-1727000010000",
++        RunStatus::Completed,
++        "initialize 全绿后冻结样本（后续路由由续走语料承载）",
++        t(19),
++        &nodes,
++        &edges,
++    );
++    corpus
++}
++
++/// initialize 语料 golden 对拍：pass + skipped 两形态条目出线（skipped 读侧
++/// 透出——呈现面零结构改动前提）、clean 步词节点样本在案（二十一值词汇随动、
++/// 串行 forward 边序逐位）。
++#[test]
++fn corpusinitialize语料_golden对拍() {
++    let corpus = build_initialize("initialize-golden");
++    let projection = project_detail(&corpus, "id-initialize");
++
++    // pipeline：10 站、initialize 站两 attempts（pass + skipped）
++    let pipeline = projection["pipeline"].as_array().expect("pipeline 为数组");
++    assert_eq!(pipeline.len(), 10, "requirement 十站（initialize 表头）");
++    assert_eq!(pipeline[0]["phase"], "initialize", "表头第 1 列");
++    let attempts = pipeline[0]["attempts"].as_array().expect("attempts 数组");
++    assert_eq!(attempts.len(), 2, "pass + skipped 两形态条目");
++    assert_eq!(attempts[0]["skipped"], false, "attempt 1 pass 形态");
++    assert_eq!(
++        attempts[0]["checklist"].as_array().map(Vec::len),
++        Some(3),
++        "机械 checklist 三条目"
++    );
++    assert!(
++        attempts[0]["report"].as_str().expect("report").contains("reports/baseline"),
++        "report 携 baseline 报告目录"
++    );
++    assert_eq!(attempts[1]["skipped"], true, "attempt 2 legacy skipped 形态");
++    assert!(
++        attempts[1]["report"].as_str().expect("report").contains("legacy"),
++        "跳过因落账可见"
++    );
++
++    // runs：clean 词节点样本在案 + 串行 forward 边序逐位
++    let runs = projection["runs"].as_array().expect("runs 为数组");
++    assert_eq!(runs.len(), 1);
++    let nodes = runs[0]["nodes"].as_array().expect("nodes 数组");
++    let words: Vec<&str> = nodes
++        .iter()
++        .map(|node| node["step"].as_str().expect("step 出线词"))
++        .collect();
++    assert_eq!(
++        words,
++        ["phase_start", "clean", "static_check", "test_execution", "phase_log"],
++        "initialize 五节点词面逐位（clean 新词样本在案）"
++    );
++    let edges = runs[0]["edges"].as_array().expect("edges 数组");
++    assert_eq!(edges.len(), 4, "串行 forward 边四条");
++    assert_eq!(edges[0]["fromNodeKey"], "initialize:1:phase_start:0");
++    assert_eq!(edges[3]["toNodeKey"], "initialize:1:phase_log:0");
++
++    check_or_rewrite("corpus-initialize", &projection);
++}
+diff --git a/crates/core/workflow/tests/golden/corpus-archive-prefix.json b/crates/core/workflow/tests/golden/corpus-archive-prefix.json
+index d23e1f330c43..ea9a4705bb68 100644
+--- a/crates/core/workflow/tests/golden/corpus-archive-prefix.json
++++ b/crates/core/workflow/tests/golden/corpus-archive-prefix.json
+@@ -24,6 +24,10 @@
+   "id": "id-seeded-archived",
+   "name": "seeded-archived",
+   "pipeline": [
++    {
++      "attempts": [],
++      "phase": "initialize"
++    },
+     {
+       "attempts": [
+         {

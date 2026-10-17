@@ -20,9 +20,10 @@ const CHANGE_NAME_B: &str = "other-change";
 const UNKNOWN_ID: &str = "0198f7a0-0000-7000-8000-0000000000fa";
 const RUN: &str = "run-1";
 
-/// requirement 全表相位序（9 相位 = 8 路由相位 + archive 确定性相位；路由
-/// 全 pass 判定须表内全项在位）。
-const ALL_PHASES: [&str; 9] = [
+/// requirement 全表相位序（10 相位 = initialize 表头 + 8 路由相位 + archive
+/// 确定性相位；路由全 pass 判定须表内全项在位）。
+const ALL_PHASES: [&str; 10] = [
+    "initialize",
     "proposal",
     "dev-design",
     "test-design",
@@ -34,8 +35,10 @@ const ALL_PHASES: [&str; 9] = [
     "archive",
 ];
 
-/// 归档相位之前的 8 路由相位（archive 前停等路由用例的种子相位集）。
-const ROUTED_PHASES: [&str; 8] = [
+/// 归档相位之前的 9 路由相位（archive 前停等路由用例的种子相位集——initialize
+/// 表头先行入集）。
+const ROUTED_PHASES: [&str; 9] = [
+    "initialize",
     "proposal",
     "dev-design",
     "test-design",
@@ -122,15 +125,27 @@ struct RouteStore {
 }
 
 impl RouteStore {
+    /// 种子装置统一预置 initialize 表头 pass 条目（check-before-flow-start：表头
+    /// 先行已落账——各用例种子语义「已过表头」与既有行为等价；表头自身的路由
+    /// 形态由 `初始路由落首相位` 专测承载零条目形态）。
+    fn with_header(id: &str, entries: Vec<PhaseStateRecord>) -> Vec<PhaseStateRecord> {
+        let mut all = vec![entry_of(id, "initialize", 1, Verdict::Pass, t(0))];
+        all.extend(entries);
+        all
+    }
+
     fn seeded(entries: Vec<PhaseStateRecord>) -> Self {
-        Self::with_record(Some(requirement_record(CHANGE_ID, CHANGE_NAME)), entries)
+        Self::with_record(
+            Some(requirement_record(CHANGE_ID, CHANGE_NAME)),
+            Self::with_header(CHANGE_ID, entries),
+        )
     }
 
     /// 第二 change 建档（锚点键 id 隔离用例：同 run_id 异 id 两份条目序列）。
     fn seeded_b(entries: Vec<PhaseStateRecord>) -> Self {
         Self::with_record(
             Some(requirement_record(CHANGE_ID_B, CHANGE_NAME_B)),
-            entries,
+            Self::with_header(CHANGE_ID_B, entries),
         )
     }
 
@@ -275,23 +290,44 @@ fn route(
 // backtrack 路由
 // ---------------------------------------------------------------------------
 
-/// 初始路由：建档零相位行（id 与 name 双值可辨）→ 首相位 proposal、
-/// round=1、executor / evaluator prompt 首部上下文头 `change:` 取 `record.name`
-///（id 串不误入 prompt——分辨率单点行为锚）、白名单为空（首相位无前置）。
+/// 初始路由：建档零相位行（id 与 name 双值可辨）→ 表头相位 initialize、
+/// round=1、零角色 spec（确定性表头）、白名单为空（idx==0 早退——表首自身无
+/// 前置）；表头 pass 条目在场 → 次相位 proposal、executor / evaluator prompt
+/// 首部上下文头 `change:` 取 `record.name`（id 串不误入 prompt——分辨率单点
+/// 行为锚）。
 #[test]
 fn 初始路由落首相位且prompt携上下文头change名() {
-    let fake = RouteStore::seeded(Vec::new());
+    // 零条目形态：路由落 initialize 表头
+    let record = requirement_record(CHANGE_ID, CHANGE_NAME);
+    let fake = RouteStore::with_record(Some(record), Vec::new());
 
     let outcome = route(&fake, RUN, &SessionAnchors::new());
 
     assert!(!outcome.done);
     assert_eq!(
         outcome.next_phase.as_deref(),
-        Some("proposal"),
-        "首相位路由"
+        Some("initialize"),
+        "表头相位路由（零条目——check-before-flow-start）"
     );
     assert_eq!(outcome.round, 1, "零相位行窗口首轮");
     assert!(outcome.error.is_none());
+    assert!(
+        outcome.executor.is_none() && outcome.evaluator.is_none(),
+        "initialize 表头零角色 spec（确定性相位）"
+    );
+    assert!(
+        outcome.allowed_backtrack_phases.is_empty(),
+        "表头白名单为空（idx==0 早退）"
+    );
+
+    // 表头条目在场（seeded 预置）→ 次相位 proposal 路由（prompt 断言面）
+    let fake = RouteStore::seeded(Vec::new());
+    let outcome = route(&fake, RUN, &SessionAnchors::new());
+    assert_eq!(
+        outcome.next_phase.as_deref(),
+        Some("proposal"),
+        "表头已过 → 次相位路由"
+    );
 
     let executor = outcome.executor.expect("proposal 应有 executor");
     let evaluator = outcome.evaluator.expect("proposal 应有 evaluator");
@@ -327,11 +363,14 @@ fn 初始路由落首相位且prompt携上下文头change名() {
         executor.prompt.contains("## 角色自述"),
         "executor prompt 主体为静态角色知识文本"
     );
-    assert!(
-        outcome.allowed_backtrack_phases.is_empty(),
-        "首相位白名单为空"
+    assert_eq!(
+        outcome.allowed_backtrack_phases,
+        vec!["proposal".to_owned()],
+        "proposal 白名单 = 恰自身（含自身语义；initialize 表头被 backtrackable 过滤排除——非位置排除）"
     );
-    assert!(outcome.last_result.is_none(), "零相位行无 last_result");
+    let last = outcome.last_result.expect("表头 pass 条目随行 last_result");
+    assert_eq!(last.phase, "initialize", "last_result = 表头条目（最近落账）");
+    assert_eq!(last.verdict, Verdict::Pass);
 }
 
 /// 无建档 id → 显式 `Err`（不静默空产出）：库空与库内有建档但 id 未登记
@@ -403,6 +442,7 @@ fn workflow_type未知时err显式分层出口文案通吃两值() {
 #[test]
 fn workflow_type_test_only可推进且白名单随test_only表() {
     let fake = RouteStore::with_workflow_type("test-only");
+    fake.push(entry("initialize", 1, Verdict::Pass, t(0)));
     fake.push(entry("proposal", 1, Verdict::Pass, t(1)));
 
     let outcome = route(&fake, RUN, &SessionAnchors::new());
@@ -423,6 +463,7 @@ fn workflow_type_test_only可推进且白名单随test_only表() {
 
     // 末相位（archive）推进 → 无下一相位（内容面收口）
     let fake_done = RouteStore::with_workflow_type("test-only");
+    fake_done.push(entry("initialize", 1, Verdict::Pass, t(0)));
     for (phase, attempt) in [
         ("proposal", 1),
         ("code-analyze", 1),
@@ -457,6 +498,7 @@ fn workflow_type_test_only可推进且白名单随test_only表() {
 #[test]
 fn workflow_type_test_only表外条目不参与推进判定() {
     let fake = RouteStore::with_workflow_type("test-only");
+    fake.push(entry("initialize", 1, Verdict::Pass, t(0)));
     for (phase, attempt) in [
         ("proposal", 1),
         ("code-analyze", 1),
@@ -1202,13 +1244,14 @@ fn 只读路由_零写面触达() {
     }
 
     assert_eq!(fake.entry_count(), before, "只读路由：条目序列零变更");
-    // 复核条目内容未被改写（stale / backtrack 位不被动）
+    // 复核条目内容未被改写（stale / backtrack 位不被动；initialize 表头条目
+    // 预置在案 + proposal 种子 = 两行）
     let entries = fake
         .list_phase_records(CHANGE_ID)
         .expect("假件读半边应可用");
-    assert_eq!(entries.len(), 1);
-    assert!(!entries[0].stale);
-    assert!(entries[0].backtrack_to.is_none());
+    assert_eq!(entries.len(), 2, "initialize 表头预置 + proposal 种子");
+    assert!(!entries[0].stale && !entries[1].stale);
+    assert!(entries[0].backtrack_to.is_none() && entries[1].backtrack_to.is_none());
 }
 
 // ---------------------------------------------------------------------------
@@ -1397,11 +1440,11 @@ fn 八路由相位pass后路由至archive且零角色spec() {
     );
     assert_eq!(
         outcome.allowed_backtrack_phases,
-        ALL_PHASES
+        ALL_PHASES[1..]
             .iter()
             .map(|phase| (*phase).to_owned())
             .collect::<Vec<_>>(),
-        "archive 白名单 = 表序 9 相位（含自身、不含未来相位）"
+        "archive 白名单 = 除 initialize 外表序 9 相位（含自身、不含未来相位——表头被 backtrackable 过滤）"
     );
 }
 
@@ -1519,9 +1562,10 @@ fn archive不在任何相位回溯白名单内() {
     let outcome = route(&fake, RUN, &SessionAnchors::new());
     assert!(outcome.done && outcome.allowed_backtrack_phases.is_empty());
 
-    // acceptance 为下一相位（archive 未落账）：白名单 = 表序前 8 相位，不含 archive
+    // acceptance 为下一相位（archive 未落账）：白名单 = 除 initialize 外表序
+    // 前 9 相位，不含 archive
     let fake = RouteStore::seeded(
-        ROUTED_PHASES[..7]
+        ROUTED_PHASES[..8]
             .iter()
             .enumerate()
             .map(|(idx, phase)| entry(phase, 1, Verdict::Pass, t(idx as u32 + 1)))
@@ -1532,7 +1576,7 @@ fn archive不在任何相位回溯白名单内() {
     assert_eq!(
         outcome.allowed_backtrack_phases.len(),
         8,
-        "acceptance 白名单 = 表序前 8 相位"
+        "acceptance 白名单 = proposal … acceptance 八相位（含自身；initialize 表头被属性过滤——排除非位置推导）"
     );
     assert!(
         !outcome

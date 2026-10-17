@@ -25,6 +25,10 @@
   "name": "corpus-worktree",
   "pipeline": [
     {
+      "attempts": [],
+      "phase": "initialize"
+    },
+    {
       "attempts": [
         {
           "attempt": 1,

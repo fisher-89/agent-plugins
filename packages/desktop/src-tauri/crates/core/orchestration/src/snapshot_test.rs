@@ -225,10 +225,10 @@ fn db读源detail按id寻址_与queries直调serde等值() {
     );
     assert_eq!(
         detail.pipeline.len(),
-        9,
-        "requirement 9 站全量流水线（末列 archive；列序自 phase_table 出线）"
+        10,
+        "requirement 10 站全量流水线（initialize 表头 + 末列 archive；列序自 phase_table 出线）"
     );
-    let proposal = &detail.pipeline[0];
+    let proposal = &detail.pipeline[1];
     assert_eq!(proposal.attempts.len(), 1);
     assert_eq!(proposal.attempts[0].verdict, Verdict::Pass);
     assert_eq!(proposal.attempts[0].checklist.len(), 1);
@@ -238,7 +238,7 @@ fn db读源detail按id寻址_与queries直调serde等值() {
         Some("sess-exec-proposal"),
         "会话槽位三列自 PhaseRecord 直读透出"
     );
-    let implement = &detail.pipeline[3];
+    let implement = &detail.pipeline[4];
     assert_eq!(implement.attempts[0].verdict, Verdict::Fail);
     let active = detail
         .active_phase

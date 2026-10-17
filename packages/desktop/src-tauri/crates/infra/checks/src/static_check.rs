@@ -1,12 +1,13 @@
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 
+use foundation::layout::ReportSlot;
 use orchestration::port::{BoxToolFuture, StaticCheckOutcome, StaticCheckRunner, ToolStepOutput};
 
 /// static-check 进程执行器（组合根按需构造）：输出记录模式恒
-/// [`exec::ExecOutput::Recorded`]（`run(root, name)` 收 change name，单一交错
-/// `.log` 落盘并回填 `output_ref` 引用，审计 / 回查面）。**输出记录单点驻
-/// infra/exec**——本层零私有落盘分支。
+/// [`exec::ExecOutput::Recorded`]（`run(root, name, slot)` 收 change name 与
+/// 报告槽位，单一交错 `.log` 落盘并回填 `output_ref` 引用，审计 / 回查面）。
+/// **输出记录单点驻 infra/exec**——本层零私有落盘分支。
 pub struct ProcessStaticCheck;
 
 impl ProcessStaticCheck {
@@ -23,16 +24,21 @@ impl Default for ProcessStaticCheck {
 }
 
 impl StaticCheckRunner for ProcessStaticCheck {
-    fn run(&self, root: &str, name: &str) -> BoxToolFuture {
+    fn run(&self, root: &str, name: &str, slot: ReportSlot) -> BoxToolFuture {
         let root = root.to_owned();
         let name = name.to_owned();
-        Box::pin(async move { execute(&root, &name).await })
+        Box::pin(async move { execute(&root, &name, slot).await })
     }
 }
 
 /// 一次 static-check 执行全流程：配置读取 → spawn（`2>&1` 交错）→ 诊断拼接 →
-/// 退出码映射 → 单一 `.log` 输出记录。
-async fn execute(root: &str, name: &str) -> Result<ToolStepOutput, String> {
+/// 退出码映射 → 单一 `.log` 输出记录。报告目录 / 输出记录按槽位经 layout 单点
+/// 派生（`report_dir` 三分支均回填——无配置分支语义为「本槽位报告树锚点」）；
+/// 执行语义零分叉。
+async fn execute(root: &str, name: &str, slot: ReportSlot) -> Result<ToolStepOutput, String> {
+    let report_dir = foundation::layout::change_reports(Path::new(root), name, slot)
+        .to_string_lossy()
+        .into_owned();
     let report = config::load(Path::new(root));
     let Some(command) = report
         .config
@@ -40,11 +46,13 @@ async fn execute(root: &str, name: &str) -> Result<ToolStepOutput, String> {
         .map(|command| command.trim().to_owned())
         .filter(|command| !command.is_empty())
     else {
-        // 无配置 / 空命令 = passed 直接过（不拉子进程）
+        // 无配置 / 空命令 = passed 直接过（不拉子进程）；report_dir 回填本槽位
+        // 报告树锚点
         return Ok(ToolStepOutput::StaticCheck(StaticCheckOutcome {
             passed: true,
             diagnostics: String::new(),
             output_ref: None,
+            report_dir,
         }));
     };
 
@@ -69,13 +77,14 @@ async fn execute(root: &str, name: &str) -> Result<ToolStepOutput, String> {
     // 定向注入
     let diagnostics = String::from_utf8_lossy(&output.stdout).into_owned();
     let passed = output.status.success();
-    // 输出记录：默认 recorded——经 infra/exec 单点落单一 `.log` 并回填引用
-    //（落盘失败降级 None，不因记录失败阻断检查主流程）
-    let output_ref = exec::record_exec_output(Path::new(root), name, &output.stdout).ok();
+    // 输出记录：默认 recorded——经 infra/exec 单点落单一 `.log`（同锚本槽位报告
+    // 树）并回填引用（落盘失败降级 None，不因记录失败阻断检查主流程）
+    let output_ref = exec::record_exec_output(Path::new(root), name, slot, &output.stdout).ok();
     Ok(ToolStepOutput::StaticCheck(StaticCheckOutcome {
         passed,
         diagnostics: diagnostics.trim_end().to_owned(),
         output_ref,
+        report_dir,
     }))
 }
 

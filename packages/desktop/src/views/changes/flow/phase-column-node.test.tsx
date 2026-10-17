@@ -53,3 +53,28 @@ describe('PhaseColumnNode：phase 列容器节点', () => {
     expect(() => fireEvent.click(screen.getByTestId('flow-column'))).not.toThrow();
   });
 });
+
+describe('PhaseColumnNode：initialize 表头人读标签（check-before-flow-start）', () => {
+  it("phase='initialize' 列头渲染「基线检查」（PHASE_LABEL 部分映射单键出线——data-testid 锚）", () => {
+    renderColumn({ phase: 'initialize', docs: [], onSelect: vi.fn() });
+    expect(screen.getByTestId('flow-column').textContent).toContain('基线检查');
+  });
+
+  it('phaseLabel 未命中回落原词：proposal / dev-design / archive 等其余相位列头渲染 raw id（既有相位 id 原词呈现先例保持——零全相位标签新约定）', () => {
+    for (const phase of ['proposal', 'dev-design', 'code-analyze', 'archive']) {
+      const { unmount } = renderColumn({ phase, docs: [] });
+      expect(screen.getByTestId('flow-column').textContent).toContain(phase);
+      expect(screen.getByTestId('flow-column').textContent).not.toContain('基线检查');
+      unmount();
+    }
+  });
+
+  it('回落稳健面：空串 / 未知相位串 / 超长串（>1000 字符）/ 特殊字符（emoji）→ 原样返回不 panic 不截断', () => {
+    const longUnknown = 'x'.repeat(1200);
+    for (const phase of ['', 'unknown-phase', longUnknown, '🚀\n相位']) {
+      const { unmount } = renderColumn({ phase, docs: [] });
+      expect(screen.getByTestId('flow-column').textContent).toContain(phase);
+      unmount();
+    }
+  });
+});

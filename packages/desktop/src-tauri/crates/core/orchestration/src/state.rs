@@ -34,7 +34,8 @@ impl ChangeRunStatus {
 /// 步词汇（四类节点可辨）：WorkerAgent 步（executor / evaluator / decision /
 /// spec-sync / resolve-conflicts）+ 相位机 / 工具步（phase-start / phase-log /
 /// static-check / test-execution / mutation-test / preflight / seal）+ Git 步
-///（commit / rebase / merge / cleanup / finalize）+ Gate 三门。
+///（clean / commit / rebase / merge / cleanup / finalize——clean 为 initialize
+/// 基线恢复步）+ Gate 三门。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub enum ChangeStepKind {
@@ -52,6 +53,8 @@ pub enum ChangeStepKind {
     TestExecution,
     /// mutation-test 门禁工具步（确定性突变执行链，独立反馈边②）
     MutationTest,
+    /// initialize 基线恢复步（vcs）
+    Clean,
     /// phase-log 相位机步
     PhaseLog,
     /// verdict 解析门
@@ -92,6 +95,7 @@ impl ChangeStepKind {
             ChangeStepKind::StaticCheck => "static_check",
             ChangeStepKind::TestExecution => "test_execution",
             ChangeStepKind::MutationTest => "mutation_test",
+            ChangeStepKind::Clean => "clean",
             ChangeStepKind::PhaseLog => "phase_log",
             ChangeStepKind::VerdictGate => "verdict_gate",
             ChangeStepKind::RetryGate => "retry_gate",

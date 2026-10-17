@@ -25,6 +25,10 @@
   "name": "seeded-archived",
   "pipeline": [
     {
+      "attempts": [],
+      "phase": "initialize"
+    },
+    {
       "attempts": [
         {
           "attempt": 1,

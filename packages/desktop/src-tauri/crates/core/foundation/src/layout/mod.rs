@@ -21,6 +21,21 @@ const REPORTS_DIR_NAME: &str = "reports";
 /// 测试报告子目录名（相对 reports 子目录锚定）
 const TEST_REPORTS_DIR_NAME: &str = "test";
 
+/// 基线报告子目录名（相对 reports 子目录锚定）
+const BASELINE_REPORTS_DIR_NAME: &str = "baseline";
+
+/// 报告槽位（封闭二值，纯进程内枚举——零 serde / specta，不进 IPC）：`Test`
+/// 为缺省槽位（`reports/test`——run 内门禁与 test-execution 相位语义零改动），
+/// `Baseline` 为 initialize 基线检查槽位（`reports/baseline`——两报告树分树
+/// 隔离，零混居）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ReportSlot {
+    /// 缺省槽位：`reports/test`（既有语义）
+    Test,
+    /// 基线检查槽位：`reports/baseline`（initialize 相位两检查步）
+    Baseline,
+}
+
 /// workspace 磁盘布局：进行中 / 已归档 / 探索笔记三棵目录树。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Layout {
@@ -52,18 +67,47 @@ pub fn config_path(root: &Path) -> PathBuf {
     root.join(DOMAIN_DIR_NAME).join(CONFIG_FILE_NAME)
 }
 
-/// 把 workspace 根目录与 change 名解析为 change 测试报告目录
-pub fn change_test_reports(root: &Path, change: &str) -> PathBuf {
-    change_test_reports_in(&resolve(root).changes_root.join(change))
+/// 槽位 → reports 子目录名映射（两树后缀单点——消费方零路径字面量扩散）。
+fn report_dir_name(slot: ReportSlot) -> &'static str {
+    match slot {
+        ReportSlot::Test => TEST_REPORTS_DIR_NAME,
+        ReportSlot::Baseline => BASELINE_REPORTS_DIR_NAME,
+    }
 }
 
-/// 把 change 目录解析为该 change 的测试报告目录（`reports/test` 后缀单点——
-/// change 目录由 `locate_change` 类三态定位面供给，worktree / active / archive
-/// 各态目录同后缀派生）。
+/// 槽位驱动的 change 报告目录单点（`reports/<test|baseline>` 后缀同源派生；
+/// 两命名变体委托本函数）。
+pub fn change_reports(root: &Path, change: &str, slot: ReportSlot) -> PathBuf {
+    change_reports_in(&resolve(root).changes_root.join(change), slot)
+}
+
+/// [`change_reports`] 的 change 目录变体（exec-outputs 锚定消费）。
+pub fn change_reports_in(change_dir: &Path, slot: ReportSlot) -> PathBuf {
+    change_dir.join(REPORTS_DIR_NAME).join(report_dir_name(slot))
+}
+
+/// 把 workspace 根目录与 change 名解析为 change 测试报告目录（缺省槽位命名
+/// 变体——既有调用点零感知）。
+pub fn change_test_reports(root: &Path, change: &str) -> PathBuf {
+    change_reports(root, change, ReportSlot::Test)
+}
+
+/// 把 change 目录解析为该 change 的测试报告目录（缺省槽位命名变体；`reports/test`
+/// 后缀单点——change 目录由 `locate_change` 类三态定位面供给，worktree / active /
+/// archive 各态目录同后缀派生）。
 pub fn change_test_reports_in(change_dir: &Path) -> PathBuf {
-    change_dir
-        .join(REPORTS_DIR_NAME)
-        .join(TEST_REPORTS_DIR_NAME)
+    change_reports_in(change_dir, ReportSlot::Test)
+}
+
+/// 把 workspace 根目录与 change 名解析为 change 基线报告目录（baseline 槽位
+/// 命名变体）。
+pub fn change_baseline_reports(root: &Path, change: &str) -> PathBuf {
+    change_reports(root, change, ReportSlot::Baseline)
+}
+
+/// [`change_baseline_reports`] 的 change 目录形态（baseline 槽位命名变体）。
+pub fn change_baseline_reports_in(change_dir: &Path) -> PathBuf {
+    change_reports_in(change_dir, ReportSlot::Baseline)
 }
 
 #[cfg(test)]

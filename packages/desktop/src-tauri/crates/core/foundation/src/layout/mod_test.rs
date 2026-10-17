@@ -355,7 +355,7 @@ fn config_path对同一输入结果稳定且父目录恰为resolve的域目录()
 // change_test_reports 扩展节（desktop-checks-domain）
 // ---------------------------------------------------------------------------
 
-use super::{change_test_reports, REPORTS_DIR_NAME, TEST_REPORTS_DIR_NAME};
+use super::{change_test_reports, change_test_reports_in, REPORTS_DIR_NAME, TEST_REPORTS_DIR_NAME};
 
 /// 正向：root + change → change 目录树下 reports / test 两级拼接逐字相等
 ///（常量组同源引用的结构证明——resolve 的 changes 产物锚定）。
@@ -509,4 +509,262 @@ fn change_test_reports_in_change目录后缀与root变体同构() {
         &resolve(&temp.0).changes_root.join("demo"),
     );
     assert_eq!(via_root, via_dir, "root 变体与 change 目录变体同构");
+}
+
+// ---------------------------------------------------------------------------
+// 报告槽位与槽位驱动报告目录（check-before-flow-start）：ReportSlot 封闭二值 +
+// change_reports 单点 + baseline / test 命名变体委托等值（Mock策略：无——纯
+// 路径推导直测，零 IO 断言面沿既有 layout 测试形态）
+// ---------------------------------------------------------------------------
+
+use super::{
+    change_baseline_reports, change_baseline_reports_in, change_reports, change_reports_in,
+    ReportSlot, BASELINE_REPORTS_DIR_NAME,
+};
+
+/// 正向（枚举遍历）：`ReportSlot` 二值封闭构造互异——`Test != Baseline`；
+/// `Debug` / `Clone` / `Copy` / `PartialEq` / `Eq` 派生可用（纯进程内枚举零
+/// serde / specta——不进 IPC）。
+#[test]
+fn report_slot二值封闭构造互异且派生可用() {
+    // 二值封闭 + 互异
+    assert_ne!(ReportSlot::Test, ReportSlot::Baseline, "两槽位可辨");
+    assert_eq!(ReportSlot::Test, ReportSlot::Test, "PartialEq 自反");
+
+    // Copy 语义（槽位值语义传递——消费后原值不耗损）
+    let slot = ReportSlot::Baseline;
+    let copied = slot;
+    assert_eq!(copied, slot, "Copy 后等值");
+    let _use_twice = (slot, slot);
+
+    // Clone / Debug 派生可用
+    let cloned = slot.clone();
+    assert_eq!(cloned, ReportSlot::Baseline);
+    assert!(!format!("{slot:?}").is_empty(), "Debug 出线非空");
+}
+
+/// 正向（枚举遍历）：`change_reports()` 槽位驱动派生——slot=Test →
+/// `<root>/openspec/changes/<change>/reports/test`、slot=Baseline →
+/// `…/reports/baseline`（两值逐字对拍——槽位单点派生，后缀经
+/// `report_dir_name(slot)` 单点映射）。
+#[test]
+fn change_reports两槽位路径逐字对拍() {
+    let temp = TempDir::new("slot-derive");
+    let layout = resolve(&temp.0);
+
+    let test_dir = change_reports(&temp.0, "demo-change", ReportSlot::Test);
+    let baseline_dir = change_reports(&temp.0, "demo-change", ReportSlot::Baseline);
+
+    assert_eq!(
+        test_dir,
+        layout
+            .changes_root
+            .join("demo-change")
+            .join(REPORTS_DIR_NAME)
+            .join(TEST_REPORTS_DIR_NAME),
+        "slot=Test → reports/test（常量组同源拼接）"
+    );
+    assert_eq!(
+        baseline_dir,
+        layout
+            .changes_root
+            .join("demo-change")
+            .join(REPORTS_DIR_NAME)
+            .join(BASELINE_REPORTS_DIR_NAME),
+        "slot=Baseline → reports/baseline（常量组同源拼接）"
+    );
+    assert_ne!(test_dir, baseline_dir, "两槽位报告树分树隔离（零混居）");
+
+    // 字面量再锚（防常量误改后测试随之失效）
+    assert!(
+        test_dir.ends_with("reports/test"),
+        "test 槽位后缀逐字 reports/test（组件语义）: {}",
+        test_dir.display()
+    );
+    assert!(
+        baseline_dir.ends_with("reports/baseline"),
+        "baseline 槽位后缀逐字 reports/baseline（组件语义）: {}",
+        baseline_dir.display()
+    );
+}
+
+/// 正向（枚举遍历）：`change_reports_in()` change 目录形态同构——
+/// `<change_dir>/reports/test` / `<change_dir>/reports/baseline`，且与 root 变体
+/// 后缀同源（同 slot 两变体仅前缀差异断言）。
+#[test]
+fn change_reports_in_change目录形态与root变体同构() {
+    let temp = TempDir::new("slot-in-derive");
+    let change_dir = resolve(&temp.0).changes_root.join("demo");
+
+    for slot in [ReportSlot::Test, ReportSlot::Baseline] {
+        let via_root = change_reports(&temp.0, "demo", slot);
+        let via_dir = change_reports_in(&change_dir, slot);
+        assert_eq!(via_root, via_dir, "slot={slot:?} 两变体同构（仅前缀差异）");
+        assert!(
+            via_dir.starts_with(&change_dir),
+            "change 目录变体锚定 change_dir 之下（slot={slot:?}）"
+        );
+    }
+
+    // 后缀逐字（目录直拼形态）
+    assert_eq!(
+        change_reports_in(&change_dir, ReportSlot::Baseline),
+        change_dir
+            .join(REPORTS_DIR_NAME)
+            .join(BASELINE_REPORTS_DIR_NAME),
+        "change 目录形态 = 目录直拼 reports/baseline 后缀"
+    );
+}
+
+/// 正向（单次）：命名变体委托等值——`change_baseline_reports()` /
+/// `change_baseline_reports_in()` 与 `change_reports(.., Baseline)` /
+/// `change_reports_in(.., Baseline)` 逐字节相等（委托单点防漂移）。
+#[test]
+fn change_baseline_reports命名变体委托等值() {
+    let temp = TempDir::new("baseline-derive");
+    let change_dir = resolve(&temp.0).changes_root.join("demo");
+
+    assert_eq!(
+        change_baseline_reports(&temp.0, "demo"),
+        change_reports(&temp.0, "demo", ReportSlot::Baseline),
+        "baseline 命名变体与槽位版逐字节相等（root 形态）"
+    );
+    assert_eq!(
+        change_baseline_reports_in(&change_dir),
+        change_reports_in(&change_dir, ReportSlot::Baseline),
+        "baseline 命名变体与槽位版逐字节相等（change 目录形态）"
+    );
+    assert!(
+        change_baseline_reports(&temp.0, "demo").ends_with("reports/baseline"),
+        "baseline 变体后缀逐字（组件语义）"
+    );
+}
+
+/// 正向（单次）：既有签名回归持衡——`change_test_reports()` /
+/// `change_test_reports_in()` 返回值与本变更前 `reports/test` 路径逐字节一致
+///（改委托零路径漂移——既有断言面更新而非退役）；与 `change_reports(.., Test)`
+/// 等值。
+#[test]
+fn change_test_reports改委托零路径漂移() {
+    let temp = TempDir::new("test-derive");
+    let change_dir = resolve(&temp.0).changes_root.join("demo");
+
+    assert_eq!(
+        change_test_reports(&temp.0, "demo"),
+        change_reports(&temp.0, "demo", ReportSlot::Test),
+        "test 命名变体与槽位版逐字节相等（root 形态）"
+    );
+    assert_eq!(
+        change_test_reports_in(&change_dir),
+        change_reports_in(&change_dir, ReportSlot::Test),
+        "test 命名变体与槽位版逐字节相等（change 目录形态）"
+    );
+    // 本变更前逐字节路径（字面量拼接锚——改委托零漂移）
+    assert_eq!(
+        change_test_reports(&temp.0, "demo"),
+        temp.0
+            .join(DOMAIN_DIR_NAME)
+            .join(CHANGES_DIR_NAME)
+            .join("demo")
+            .join("reports")
+            .join("test"),
+        "reports/test 字面量拼接逐字节一致（既有调用点零感知）"
+    );
+}
+
+/// 边界（单次）：`change_reports()` 纯推导无 IO 不 panic（沿 `config_path` /
+/// `change_test_reports` 先例形态）——不存在 root / root 指向文件 / 空 root；
+/// 同输入重复调用等值（确定性）；尾分隔符 root 不产双分隔符。
+#[test]
+fn change_reports边界_纯推导无io不panic且确定性() {
+    // 不存在 root：纯推导照常返回
+    let ghost = std::env::temp_dir().join("foundation-layout-test-不存在的目录-change_reports");
+    let _ = fs::remove_dir_all(&ghost);
+    assert!(!ghost.exists(), "前置：root 不存在");
+    let derived = change_reports(&ghost, "demo", ReportSlot::Baseline);
+    assert_eq!(
+        derived,
+        ghost
+            .join(DOMAIN_DIR_NAME)
+            .join(CHANGES_DIR_NAME)
+            .join("demo")
+            .join(REPORTS_DIR_NAME)
+            .join(BASELINE_REPORTS_DIR_NAME)
+    );
+
+    // 指向普通文件的 root：无目录类型校验，仍按路径拼接返回
+    let temp = TempDir::new("slot-file-root");
+    let file_root = temp.0.join("一个普通文件.txt");
+    fs::write(&file_root, "内容").expect("写文件失败");
+    let derived = change_reports(&file_root, "demo", ReportSlot::Baseline);
+    assert!(derived.starts_with(&file_root), "文件 root 纯拼接返回");
+
+    // 空 root → 纯相对形式
+    let derived = change_reports(Path::new(""), "demo", ReportSlot::Baseline);
+    assert_eq!(
+        derived,
+        PathBuf::from(DOMAIN_DIR_NAME)
+            .join(CHANGES_DIR_NAME)
+            .join("demo")
+            .join(REPORTS_DIR_NAME)
+            .join(BASELINE_REPORTS_DIR_NAME)
+    );
+
+    // 确定性：同输入重复调用等值
+    let temp = TempDir::new("slot-deterministic");
+    let first = change_reports(&temp.0, "demo", ReportSlot::Baseline);
+    let second = change_reports(&temp.0, "demo", ReportSlot::Baseline);
+    assert_eq!(first, second, "同输入重复调用等值");
+
+    // 尾分隔符 root：join 语义保持、不产生双分隔符
+    let base = if cfg!(windows) { r"C:\tmp" } else { "/tmp" };
+    let trailing = format!("{base}/");
+    let derived = change_reports(Path::new(&trailing), "demo", ReportSlot::Baseline);
+    let joined = derived.to_string_lossy();
+    assert!(
+        !joined.contains("//") && !joined.contains(r"\\"),
+        "尾分隔符不应产生双分隔符: {joined}"
+    );
+}
+
+/// 边界（单次）：超长 change 名（>1000 字符）与特殊字符名（emoji / `\n`）原样
+/// 拼接零清洗零 panic（清洗权威在 create 前置——纯拼接负向锚）。
+#[test]
+fn change_reports超长与特殊字符change名零清洗零panic() {
+    let temp = TempDir::new("slot-exotic-name");
+
+    // 超长名原样拼接
+    let long_name = "c".repeat(1200);
+    let derived = change_reports(&temp.0, &long_name, ReportSlot::Baseline);
+    let rendered = derived.to_string_lossy();
+    assert!(rendered.contains(&long_name), "超长 change 名原样拼接零截断");
+    assert!(derived.ends_with("reports/baseline"), "超长名不破坏后缀拼接");
+
+    // 特殊字符名原样拼接
+    let exotic = "突🚀变\n名";
+    let derived = change_reports(&temp.0, exotic, ReportSlot::Baseline);
+    let rendered = derived.to_string_lossy();
+    assert!(rendered.contains(exotic), "特殊字符名原样拼接零清洗: {rendered}");
+    assert!(derived.ends_with("reports/baseline"));
+}
+
+/// 边界（枚举遍历）：报告目录常量锚——`BASELINE_REPORTS_DIR_NAME == "baseline"`
+/// 逐字锚定 + 既有 `reports` / `test` 常量组锚随动；`report_dir_name(slot)` 两臂
+/// 穷尽映射（Test→test / Baseline→baseline 无第三后缀——私有单点函数同 crate
+/// 子模块直读）。
+#[test]
+fn 报告目录常量锚与report_dir_name两臂穷尽映射() {
+    use super::report_dir_name;
+
+    assert_eq!(BASELINE_REPORTS_DIR_NAME, "baseline", "baseline 后缀逐字");
+    assert_eq!(REPORTS_DIR_NAME, "reports", "reports 后缀逐字（既有组锚随动）");
+    assert_eq!(TEST_REPORTS_DIR_NAME, "test", "test 后缀逐字（既有组锚随动）");
+    assert_ne!(
+        TEST_REPORTS_DIR_NAME, BASELINE_REPORTS_DIR_NAME,
+        "两槽位后缀互异（分树隔离的常量前提）"
+    );
+
+    // 两臂穷尽映射（无第三后缀——封闭二值枚举 match 穷尽）
+    assert_eq!(report_dir_name(ReportSlot::Test), TEST_REPORTS_DIR_NAME);
+    assert_eq!(report_dir_name(ReportSlot::Baseline), BASELINE_REPORTS_DIR_NAME);
 }

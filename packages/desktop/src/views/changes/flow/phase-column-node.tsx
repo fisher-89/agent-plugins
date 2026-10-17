@@ -20,6 +20,17 @@ type ColumnNodeData = {
 
 export type ColumnFlowNode = Node<ColumnNodeData, 'column'>;
 
+/** 相位列头人读标签（部分映射单键）：initialize 表头一次性基线检查相位——
+ * 其余相位沿用 id 原词呈现先例，不自造全相位标签新约定。 */
+const PHASE_LABEL: Partial<Record<string, string>> = {
+  initialize: '基线检查',
+};
+
+/** 列头相位名呈现（未命中回落 raw id）。 */
+function phaseLabel(phase: string): string {
+  return PHASE_LABEL[phase] ?? phase;
+}
+
 /** 列容器节点：容器宽高由 ChangeFlowGraph 映射层给定，本体铺满父尺寸 */
 export function PhaseColumnNode({ data }: NodeProps<ColumnFlowNode>): React.JSX.Element {
   const open = () => data.onSelect?.({ scope: 'column', phase: data.phase });
@@ -33,7 +44,7 @@ export function PhaseColumnNode({ data }: NodeProps<ColumnFlowNode>): React.JSX.
         className="flex items-center gap-1.5 overflow-hidden border-b border-border px-2.5"
         style={{ height: COLUMN_HEADER_H }}
       >
-        <span className="shrink-0 text-[13px] font-semibold">{data.phase}</span>
+        <span className="shrink-0 text-[13px] font-semibold">{phaseLabel(data.phase)}</span>
         {data.docs.length > 0 && (
           <Badge variant="outline" className="shrink-0" data-testid="column-docs">
             {data.docs.length} 份文档
