@@ -969,22 +969,33 @@ async fn 注入实例消费_会话行轮行落注入库且异根库零行() {
 // 真库实例（Continue 校验寻址）。
 // ---------------------------------------------------------------------------
 
-/// 记录型假 runner：捕获 `open_session` 的 `prior_handle` 载荷，返回最小
-/// `AgentSession`（观测 / 提问通道即弃——本节用例只走 begin 同步段）。
+/// 记录型假 runner：捕获 `open_session` 的 `prior_handle` 与 `injections` 载荷
+/// （注入面装配断言缝），返回最小 `AgentSession`（观测 / 提问通道即弃——本节
+/// 用例只走 begin 同步段）。
 struct RecordingRunner {
     prior_handles: Mutex<Vec<Option<String>>>,
+    injections_captured: Mutex<Vec<agent::SessionInjections>>,
 }
 
 impl RecordingRunner {
     fn new() -> Arc<Self> {
         Arc::new(Self {
             prior_handles: Mutex::new(Vec::new()),
+            injections_captured: Mutex::new(Vec::new()),
         })
     }
 
     /// 已捕获的 prior_handle 序列（按调用序）。
     fn captured(&self) -> Vec<Option<String>> {
         self.prior_handles.lock().expect("捕获锁不可中毒").clone()
+    }
+
+    /// 已捕获的 injections 序列（按调用序）。
+    fn captured_injections(&self) -> Vec<agent::SessionInjections> {
+        self.injections_captured
+            .lock()
+            .expect("捕获锁不可中毒")
+            .clone()
     }
 }
 
@@ -994,6 +1005,10 @@ impl AgentRunner for RecordingRunner {
             .lock()
             .expect("捕获锁不可中毒")
             .push(open.prior_handle);
+        self.injections_captured
+            .lock()
+            .expect("捕获锁不可中毒")
+            .push(open.injections.clone());
         let (observation_tx, observation_rx) = mpsc::channel(4);
         let (question_tx, question_rx) = mpsc::channel(4);
         drop(observation_tx);
@@ -1474,4 +1489,358 @@ async fn 新会话快照携实例id_缺省与显式路径同填some() {
         "缺省路径同填 Some（同经 resolve 单点取实例）"
     );
     drop(running);
+}
+
+// ---------------------------------------------------------------------------
+// auto-named-explore：begin 按 provenance.source 装配注入（explore 六工具 +
+// Explore 枚举，其余 default）
+// ---------------------------------------------------------------------------
+
+use crate::sdk::tools::{EXPLORE_NOTE_TOOL, TOOL_NAMES};
+use agent::SessionToolset;
+
+/// explore 来源装配（正向）：`begin(source = "explore")` → 捕获的
+/// `TurnRequest.injections.tools` = 六名（无 `write`、序同 `TOOL_NAMES`）+
+/// `toolset = Explore`（生产路径首次非 default 注入）。
+#[tokio::test]
+async fn explore来源begin装配六工具收窄加explore枚举() {
+    let env = DualEnv::new("explore-assemble");
+    let stores = env.stores();
+    let store = stores.for_root(&env.root()).expect("for_root 应成功");
+
+    let runner = RecordingRunner::new();
+    let sink = RecordingSink::new();
+    let composed = composed_with_fakes(
+        store,
+        Arc::clone(&runner),
+        Arc::clone(&sink),
+        Some(("m-high".to_owned(), "m-low".to_owned())),
+        81,
+    );
+
+    composed
+        .begin(
+            SessionRef::New,
+            "explore 装配一轮".to_owned(),
+            ctx(&env.root()),
+            SessionProvenance {
+                source: "explore".to_owned(),
+                source_ref: None,
+            },
+        )
+        .expect("explore 来源 begin 应成功");
+
+    let captured = runner.captured_injections();
+    assert_eq!(captured.len(), 1, "恰一轮捕获");
+    let injections = &captured[0];
+    assert_eq!(
+        injections.tools.as_ref().expect("tools 在场").as_slice(),
+        &[
+            "read".to_owned(),
+            "grep".to_owned(),
+            "glob".to_owned(),
+            "ls".to_owned(),
+            "edit".to_owned(),
+            "bash".to_owned(),
+        ],
+        "六名收窄子集（无 write，序同 TOOL_NAMES 保序）"
+    );
+    assert!(
+        !injections
+            .tools
+            .as_ref()
+            .expect("tools 在场")
+            .iter()
+            .any(|name| name == "write"),
+        "explore 装配面不含 write（AC-5）"
+    );
+    assert_eq!(
+        injections.toolset,
+        Some(SessionToolset::Explore),
+        "toolset = Explore（受控枚举位激活）"
+    );
+    assert_eq!(injections.preamble, None, "preamble 维持不消费");
+}
+
+/// 六名子集校验等价断言：explore 装配产物逐名 ∈ `sdk::tools::TOOL_NAMES`
+/// （装配层校验的可达面收窄断言——非法名 `Err` 臂生产不可达的等价收窄）。
+#[tokio::test]
+async fn explore装配产物逐名都在七通用封闭清单内() {
+    let env = DualEnv::new("explore-subset");
+    let stores = env.stores();
+    let store = stores.for_root(&env.root()).expect("for_root 应成功");
+    let runner = RecordingRunner::new();
+    let sink = RecordingSink::new();
+    let composed = composed_with_fakes(
+        store,
+        Arc::clone(&runner),
+        Arc::clone(&sink),
+        Some(("m-high".to_owned(), "m-low".to_owned())),
+        82,
+    );
+
+    composed
+        .begin(
+            SessionRef::New,
+            "子集校验一轮".to_owned(),
+            ctx(&env.root()),
+            SessionProvenance {
+                source: "explore".to_owned(),
+                source_ref: None,
+            },
+        )
+        .expect("begin 应成功");
+
+    let captured = runner.captured_injections();
+    let tools = captured[0].tools.as_ref().expect("tools 在场");
+    assert_eq!(tools.len(), 6, "恰六名子集");
+    for name in tools {
+        assert!(
+            TOOL_NAMES.contains(&name.as_str()),
+            "装配名 {name} ∈ TOOL_NAMES 封闭集（装配层校验可达面收窄）"
+        );
+    }
+}
+
+/// 非 explore 来源零变化（AC-7，参数化）：debug / change 系字面量 / 空串 /
+/// 未知来源 → injections 恒 default（`None` / `None`）。
+#[tokio::test]
+async fn 非explore来源begin恒default注入() {
+    let env = DualEnv::new("default-sources");
+    let stores = env.stores();
+    let store = stores.for_root(&env.root()).expect("for_root 应成功");
+    let runner = RecordingRunner::new();
+    let sink = RecordingSink::new();
+    let composed = composed_with_fakes(
+        store,
+        Arc::clone(&runner),
+        Arc::clone(&sink),
+        Some(("m-high".to_owned(), "m-low".to_owned())),
+        83,
+    );
+
+    for source in [
+        "debug",
+        "change-flow",
+        "change",
+        "apply-change",
+        "",
+        "unknown-source",
+    ] {
+        composed
+            .begin(
+                SessionRef::New,
+                format!("default 来源一轮: {source}"),
+                ctx(&env.root()),
+                SessionProvenance {
+                    source: source.to_owned(),
+                    source_ref: None,
+                },
+            )
+            .unwrap_or_else(|e| panic!("来源 {source:?} begin 应成功: {e}"));
+        let captured = runner.captured_injections();
+        let last = captured.last().expect("本轮捕获");
+        assert_eq!(
+            last.tools, None,
+            "来源 {source:?} tools = None（引擎默认七工具面）"
+        );
+        assert_eq!(last.toolset, None, "来源 {source:?} toolset = None");
+        assert_eq!(last.preamble, None);
+    }
+    assert_eq!(runner.captured_injections().len(), 6, "六来源各捕获一次");
+}
+
+/// 三处字面量同源（compose 与 store 跨 crate 双源断言）：以 store 侧探索
+/// 记录会话行的 `source` 字段（`EXPLORE_RUN_SOURCE` 私有字面量的可读投影）
+/// 发起 → 命中 explore 装配臂。
+#[tokio::test]
+async fn store侧explore来源字面量发起命中装配臂() {
+    let env = DualEnv::new("dual-source");
+    let stores = env.stores();
+    let store = stores.for_root(&env.root()).expect("for_root 应成功");
+
+    // store 侧铸造：占位建档预建的会话行 source 即 EXPLORE_RUN_SOURCE 投影
+    let record = store
+        .create_explore_record(&env.root(), None)
+        .expect("占位建档应成功");
+    let session_id = record.session_id.clone().expect("建档回写会话指针");
+    let explore_source = store
+        .find_session(&session_id)
+        .expect("find_session 应成功")
+        .expect("会话行在库")
+        .source;
+    assert_eq!(
+        explore_source, "explore",
+        "store 侧同源字面量（双源互链锚点）"
+    );
+
+    let runner = RecordingRunner::new();
+    let sink = RecordingSink::new();
+    let composed = composed_with_fakes(
+        store,
+        Arc::clone(&runner),
+        Arc::clone(&sink),
+        Some(("m-high".to_owned(), "m-low".to_owned())),
+        84,
+    );
+
+    // 以 store 投影字面量发起 → 命中 explore 装配臂（六名 + Explore）
+    composed
+        .begin(
+            SessionRef::Continue { id: session_id },
+            "同源字面量一轮".to_owned(),
+            ctx(&env.root()),
+            SessionProvenance {
+                source: explore_source,
+                source_ref: None,
+            },
+        )
+        .expect("同源字面量 begin 应成功");
+
+    let captured = runner.captured_injections();
+    assert_eq!(captured.len(), 1);
+    assert_eq!(
+        captured[0].tools.as_ref().expect("tools 在场").len(),
+        6,
+        "命中 explore 装配臂（六名收窄）"
+    );
+    assert_eq!(captured[0].toolset, Some(SessionToolset::Explore));
+}
+
+/// 装配产物真实驱动 explore（组合：compose → pump → loop 下发面，AC-5 端到
+/// 端）：compose_turn 带 store 句柄 + explore 来源 + Continue 预建空会话 →
+/// 转录首事件 RunStarted.tools 报六工具 + `create_explore_note`。
+#[tokio::test(start_paused = true)]
+async fn 装配产物真实驱动_explore来源runstarted报六工具加专用工具() {
+    let env = DualEnv::new("drive-explore");
+    let stores = env.stores();
+    let provider_id = seed_provider(&stores, "驱动供应explore");
+    seed_sdk_instance(&stores, "驱动实例explore", Some(provider_id));
+    let store = stores.for_root(&env.root()).expect("for_root 应成功");
+
+    // 预建空会话（占位建档同事务回写）→ Continue 首轮
+    let record = store
+        .create_explore_record(&env.root(), None)
+        .expect("占位建档应成功");
+    let session_id = record.session_id.clone().expect("建档回写会话指针");
+
+    let composed = compose_turn(&stores, Arc::new(StopRegistry::new()), env.store(), None)
+        .expect("解析应成功");
+    let running = composed
+        .begin(
+            SessionRef::Continue { id: session_id.clone() },
+            "explore 首轮".to_owned(),
+            ctx(&env.root()),
+            SessionProvenance {
+                source: "explore".to_owned(),
+                source_ref: None,
+            },
+        )
+        .expect("begin 应成功");
+    drop(running.drive(|_output| {}).await);
+
+    // 转录首事件 RunStarted.tools = 六工具保序 + 专用工具（下发面单源）
+    let transcript = store.list_session_events(&session_id).expect("转录应成功");
+    let agent::AgentEventKind::RunStarted { tools, .. } =
+        &transcript.first().expect("非空").kind
+    else {
+        panic!("转录首事件应为 RunStarted，实际: {:?}", transcript.first());
+    };
+    assert_eq!(
+        tools,
+        &[
+            "read".to_owned(),
+            "grep".to_owned(),
+            "glob".to_owned(),
+            "ls".to_owned(),
+            "edit".to_owned(),
+            "bash".to_owned(),
+            EXPLORE_NOTE_TOOL.to_owned(),
+        ],
+        "注入经泵铸造与下发链端到端（AC-5）"
+    );
+    assert!(!tools.contains(&"write".to_owned()), "explore 面不含 write");
+}
+
+/// 装配产物真实驱动 default（组合端到端）：debug 来源 → RunStarted.tools 报
+/// 七名（AC-7 端到端）。
+#[tokio::test(start_paused = true)]
+async fn 装配产物真实驱动_debug来源runstarted报七名() {
+    let env = DualEnv::new("drive-debug");
+    let stores = env.stores();
+    let provider_id = seed_provider(&stores, "驱动供应debug");
+    seed_sdk_instance(&stores, "驱动实例debug", Some(provider_id));
+    let store = stores.for_root(&env.root()).expect("for_root 应成功");
+
+    let composed = compose_turn(&stores, Arc::new(StopRegistry::new()), env.store(), None)
+        .expect("解析应成功");
+    let running = composed
+        .begin(
+            SessionRef::New,
+            "debug 驱动一轮".to_owned(),
+            ctx(&env.root()),
+            debug_provenance(),
+        )
+        .expect("begin 应成功");
+    let session_id = running.session_id.clone();
+    drop(running.drive(|_output| {}).await);
+
+    let transcript = store.list_session_events(&session_id).expect("转录应成功");
+    let agent::AgentEventKind::RunStarted { tools, .. } =
+        &transcript.first().expect("非空").kind
+    else {
+        panic!("转录首事件应为 RunStarted，实际: {:?}", transcript.first());
+    };
+    assert_eq!(
+        tools.as_slice(),
+        TOOL_NAMES.as_slice(),
+        "debug 轮七名与 TOOL_NAMES 逐名一致（AC-7 端到端）"
+    );
+}
+
+/// 注入面不破坏失败语义：explore 装配 + discard 端点（模型 IO 恒拒连）→
+/// `api_error` 失败收敛形态与既有一致（回归）。
+#[tokio::test(start_paused = true)]
+async fn explore装配不破坏失败收敛语义() {
+    let env = DualEnv::new("explore-failure");
+    let stores = env.stores();
+    let provider_id = seed_provider(&stores, "驱动供应失败面");
+    seed_sdk_instance(&stores, "驱动实例失败面", Some(provider_id));
+    let store = stores.for_root(&env.root()).expect("for_root 应成功");
+
+    let record = store
+        .create_explore_record(&env.root(), None)
+        .expect("占位建档应成功");
+    let session_id = record.session_id.clone().expect("建档回写会话指针");
+
+    let composed = compose_turn(&stores, Arc::new(StopRegistry::new()), env.store(), None)
+        .expect("解析应成功");
+    let running = composed
+        .begin(
+            SessionRef::Continue { id: session_id.clone() },
+            "explore 失败面一轮".to_owned(),
+            ctx(&env.root()),
+            SessionProvenance {
+                source: "explore".to_owned(),
+                source_ref: None,
+            },
+        )
+        .expect("begin 应成功");
+    let outcome = running.drive(|_output| {}).await;
+
+    // 失败收敛形态与既有 debug 轮一致：Failed + 转录末条 TurnDone api_error
+    assert_eq!(
+        outcome.status,
+        agent::AgentRunStatus::Failed,
+        "explore 装配轮拒连端点同以 api_error 失败收敛"
+    );
+    let transcript = store.list_session_events(&session_id).expect("转录应成功");
+    assert!(
+        matches!(
+            &transcript.last().expect("非空").kind,
+            agent::AgentEventKind::TurnDone { subtype, is_error: true, .. } if subtype == "api_error"
+        ),
+        "失败收敛形态零漂移，实际: {:?}",
+        transcript.last()
+    );
 }

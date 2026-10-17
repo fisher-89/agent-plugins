@@ -91,7 +91,10 @@ This tells you:
 
 ### Explore draft inbox (`openspec/explores/`)
 
-Explore owns note-taking. Free-form Markdown, **no template / no required sections**.
+Explore owns note-taking. Free-form Markdown, **no template / no required sections** — plus two convention lines (dual-source with the desktop explore session stance preamble; keep both sides in sync):
+
+- First line: `# <标题>` (human-readable title, shown in the desktop explore list)
+- Second line: `workflow_type: <requirement|test-only>` (推算变更类型：补测试 / 生成测试用例 → test-only，否则 requirement)
 
 | 状态 | 落盘路径 |
 |------|----------|
@@ -103,6 +106,7 @@ Explore owns note-taking. Free-form Markdown, **no template / no required sectio
 - **Append by default**; whole-file rewrite only if the user asks.
 - Create `openspec/explores/` as needed. One topic → one file; new topic → new file.
 - Do **not** invent a change directory solely to dump notes.
+- Desktop 探索会话的笔记创建经专用工具 `create_explore_note(name, content)` 原子定名（文件创建 + 记录改名一次完成）；插件 CLI 会话无该工具，本技能仅同步上述结构约定与命名叙事。
 - When the user starts `dev-team_phase-proposal` or a workflow, that skill **promotes** the matching draft into `openspec/changes/<name>/explore.md` (move). You do not need to copy it yourself.
 
 ### When no change exists

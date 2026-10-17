@@ -6,7 +6,7 @@ use serde_json::json;
 use crate::event::AgentEventKind;
 use crate::runner::{
     AgentPermissionMode, AgentRunner, AgentSession, AgentStartError, ModelLevel, RunHandle,
-    SessionCtx, SessionInjections, SessionOpen, SessionRef,
+    SessionCtx, SessionInjections, SessionOpen, SessionRef, SessionToolset,
 };
 
 /// 假 runner：捕获 SessionOpen 入参（参数转换断言缝）、预录未盖戳事件经
@@ -81,6 +81,7 @@ fn new_open() -> SessionOpen {
         injections: SessionInjections {
             preamble: Some("会话前导".to_owned()),
             tools: Some(vec!["read".to_owned(), "grep".to_owned()]),
+            toolset: None,
         },
         ctx: SessionCtx {
             workspace_root: PathBuf::from("D:\\工作区\\demo 🎉"),
@@ -328,6 +329,7 @@ fn session_injections默认形态tools与preamble均为none() {
     let narrowed = SessionInjections {
         preamble: None,
         tools: Some(vec!["read".to_owned()]),
+        toolset: None,
     };
     assert_ne!(default_injections, narrowed);
 }
@@ -496,4 +498,127 @@ fn start_error三变体display文案携带原因串() {
         AgentStartError::ConfigMissing("同一载荷".to_owned()),
         AgentStartError::ConfigMissing("同一载荷".to_owned())
     );
+}
+
+// ---------------------------------------------------------------------------
+// auto-named-explore：SessionToolset 受控枚举 serde 线值 + SessionInjections
+// toolset 位（additive 挂起激活）
+// ---------------------------------------------------------------------------
+
+/// SessionToolset 序列化线值：`Explore` → `"explore"`（camelCase 口径），且
+/// round-trip 等值。
+#[test]
+fn session_toolset_explore序列化为explore线值且roundtrip等值() {
+    let value = serde_json::to_value(SessionToolset::Explore).expect("序列化成功");
+    assert_eq!(value, json!("explore"), "线值逐字 explore");
+
+    let roundtrip: SessionToolset = serde_json::from_value(value).expect("反序列化成功");
+    assert_eq!(roundtrip, SessionToolset::Explore, "round-trip 等值");
+}
+
+/// SessionToolset 反序列化：线值 `"explore"` → `SessionToolset::Explore`。
+#[test]
+fn session_toolset_explore线值反序列化为explore变体() {
+    let parsed: SessionToolset =
+        serde_json::from_value(json!("explore")).expect("合法线值应反序列化成功");
+    assert_eq!(parsed, SessionToolset::Explore);
+}
+
+/// SessionToolset 非法线值：大小写敏感的 `"Explore"` / 未知 `"unknown"` / 空串
+/// 反序列化一律 `Err`（受控枚举封闭集，不静默兜底）。
+#[test]
+fn session_toolset非法线值反序列化err_大小写敏感与未知与空串() {
+    for line in ["Explore", "EXPLORE", "unknown", ""] {
+        let result = serde_json::from_value::<SessionToolset>(json!(line));
+        assert!(
+            result.is_err(),
+            "非法线值 {line:?} 应反序列化 Err（大小写敏感封闭集）"
+        );
+    }
+}
+
+/// SessionInjections 全字段序列化：preamble / tools / toolset 三位齐备 →
+/// `toolset` 线值为 `"explore"`（位名逐字 toolset）。
+#[test]
+fn session_injections全字段序列化_toolset线值为explore() {
+    let injections = SessionInjections {
+        preamble: Some("前导".to_owned()),
+        tools: Some(vec!["read".to_owned(), "grep".to_owned(), "glob".to_owned(), "ls".to_owned(), "edit".to_owned(), "bash".to_owned()]),
+        toolset: Some(SessionToolset::Explore),
+    };
+
+    let value = serde_json::to_value(&injections).expect("序列化成功");
+    assert!(value.is_object(), "序列化为对象");
+    assert_eq!(value["preamble"], json!("前导"), "preamble 位在场");
+    assert!(value["tools"].is_array(), "tools 位为数组");
+    assert_eq!(value["toolset"], json!("explore"), "toolset 线值 explore");
+
+    let roundtrip: SessionInjections = serde_json::from_value(value).expect("round-trip 成功");
+    assert_eq!(roundtrip, injections, "三位齐备 round-trip 逐字段等值");
+}
+
+/// SessionInjections 旧线 JSON additive：无 `toolset` 字段 → 反序列化成功且
+/// `toolset == None`（serde default 缺省读兼容——旧线不破）。
+#[test]
+fn session_injections旧线json无toolset字段读出none() {
+    let legacy = json!({
+        "preamble": "会话前导",
+        "tools": ["read", "grep"],
+    });
+    let parsed: SessionInjections = serde_json::from_value(legacy).expect("旧线应可读");
+    assert_eq!(parsed.preamble.as_deref(), Some("会话前导"));
+    assert_eq!(
+        parsed.tools,
+        Some(vec!["read".to_owned(), "grep".to_owned()]),
+        "旧线 tools 位照常承接"
+    );
+    assert_eq!(parsed.toolset, None, "缺席 toolset 位 → None（additive 兼容）");
+}
+
+/// SessionInjections 空对象 `{}` → 三位全 `None`，与 `default()` 等价。
+#[test]
+fn session_injections空对象反序列化三位全none且与default等价() {
+    let parsed: SessionInjections = serde_json::from_value(json!({})).expect("空对象应可读");
+    assert_eq!(parsed, SessionInjections::default(), "空对象 == default()");
+    assert_eq!(parsed.preamble, None);
+    assert_eq!(parsed.tools, None);
+    assert_eq!(parsed.toolset, None);
+}
+
+/// SessionInjections `toolset: null` → 读出 `None`（显式 null 与缺席同语义）。
+#[test]
+fn session_injections_toolset显式null读出none() {
+    let parsed: SessionInjections =
+        serde_json::from_value(json!({ "toolset": null })).expect("null 位应可读");
+    assert_eq!(parsed.toolset, None, "显式 null → None");
+    assert_eq!(parsed.preamble, None);
+    assert_eq!(parsed.tools, None);
+}
+
+/// SessionInjections 子集组合 round-trip：`tools` = 探索六名子集 + `toolset` =
+/// Explore → 序列化后反序列化逐字段等值（下发面载荷的线格式保真）。
+#[test]
+fn session_injections六名子集加explore组合roundtrip逐字段等值() {
+    let injections = SessionInjections {
+        preamble: None,
+        tools: Some(vec![
+            "read".to_owned(),
+            "grep".to_owned(),
+            "glob".to_owned(),
+            "ls".to_owned(),
+            "edit".to_owned(),
+            "bash".to_owned(),
+        ]),
+        toolset: Some(SessionToolset::Explore),
+    };
+
+    let line = serde_json::to_string(&injections).expect("序列化成功");
+    let parsed: SessionInjections = serde_json::from_str(&line).expect("反序列化成功");
+    assert_eq!(parsed, injections, "round-trip 逐字段等值");
+    assert_eq!(parsed.tools.as_ref().expect("六名在场").len(), 6);
+    assert!(
+        !parsed.tools.expect("六名在场").contains(&"write".to_owned()),
+        "探索子集不含 write"
+    );
+    assert_eq!(parsed.toolset, Some(SessionToolset::Explore));
 }

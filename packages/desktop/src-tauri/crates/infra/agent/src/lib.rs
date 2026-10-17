@@ -3,6 +3,8 @@ mod sdk;
 mod store_port;
 mod worker;
 
+use std::sync::Arc;
+
 use agent::AgentRunner;
 
 pub use compose::{compose_turn, ComposedTurn};
@@ -31,12 +33,16 @@ pub type ResumeTranscript =
     std::sync::Arc<dyn Fn(&str) -> Result<Option<Vec<agent::AgentEvent>>, String> + Send + Sync>;
 
 /// 引擎门面：`runner_for` 为引擎构造唯一 match 点（编排层零引擎分支）。
-/// `resume` 装载缝与 sdk 引擎窗长载荷随门面持有，按引擎分发。
+/// `resume` 装载缝、sdk 引擎窗长载荷与 explore 专用工具 store 句柄随门面
+/// 持有，按引擎分发。
 pub struct EngineFacade {
     resume: Option<ResumeTranscript>,
     /// sdk 引擎上下文窗长（组合根旁路载荷，不经 `EngineConfig` 三字段；
     /// `None` = 128K 缺省启发式）
     context_window: Option<u64>,
+    /// workspace 库句柄（组合根注入缝）：per-turn 铸造 `create_explore_note`
+    /// 专用工具执行上下文的原料（`None` = 未注入——专用工具上下文缺席）
+    explore_note_store: Option<Arc<store::Store>>,
 }
 
 impl EngineFacade {
@@ -45,6 +51,7 @@ impl EngineFacade {
         Self {
             resume: None,
             context_window: None,
+            explore_note_store: None,
         }
     }
 
@@ -53,6 +60,7 @@ impl EngineFacade {
         Self {
             resume: Some(loader),
             context_window: None,
+            explore_note_store: None,
         }
     }
 
@@ -63,6 +71,19 @@ impl EngineFacade {
         Self {
             resume: self.resume,
             context_window,
+            explore_note_store: self.explore_note_store,
+        }
+    }
+
+    /// 携 workspace 库句柄的门面（builder 缝，与 `with_resume_transcript` /
+    /// `with_context_window` 同型）：组合根 store 句柄注入缝——per-turn 铸造
+    /// `create_explore_note` 专用工具执行上下文的铸造原料（pump 侧仅
+    /// `toolset == Explore` 且句柄在场时铸造）。
+    pub fn with_explore_note_store(self, store: Arc<store::Store>) -> Self {
+        Self {
+            resume: self.resume,
+            context_window: self.context_window,
+            explore_note_store: Some(store),
         }
     }
 
@@ -82,6 +103,7 @@ impl EngineFacade {
                 engine_cfg,
                 self.resume.clone(),
                 self.context_window,
+                self.explore_note_store.clone(),
             ))),
         }
     }

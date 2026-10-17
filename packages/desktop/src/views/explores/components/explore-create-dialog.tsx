@@ -5,20 +5,12 @@ import { commands, type ExploreScanEntry } from '../../../types/generated/bindin
 export interface ExploreCreateDialogProps {
   /** 当前 workspace root（扫描与建档入参） */
   root: string;
-  /** 成功建档后回调（父层 refresh 清单并导航进详情） */
-  onCreated: (name: string) => void;
+  /** 成功建档后回调（父层 refresh 清单并导航进详情）：`autoPrompt` = 新话题
+   * 需求原文（导入路径恒 null） */
+  onCreated: (name: string, autoPrompt: string | null) => void;
 }
 
 type TabKey = 'import' | 'topic';
-
-/**
- * 新话题名 kebab-case 判定（等价 `^[a-z][a-z0-9]*(-[a-z0-9]+)*$`）：与后端
- * (`store::create_explore_record` / 写面 `create`) 同口径，非法时本地禁用提交
- * （避免「点击后报错」）。
- */
-function isKebabCase(name: string): boolean {
-  return /^[a-z][a-z0-9]*(-[a-z0-9]+)*$/.test(name);
-}
 
 /** 单条导入项：stem + 修改时间，点击即建档绑定 */
 function ImportItem({
@@ -29,7 +21,7 @@ function ImportItem({
 }: {
   entry: ExploreScanEntry;
   root: string;
-  onCreated: (name: string) => void;
+  onCreated: (name: string, autoPrompt: string | null) => void;
   onError: (message: string) => void;
 }): React.JSX.Element {
   return (
@@ -40,7 +32,7 @@ function ImportItem({
       onClick={() => {
         commands
           .createExploreRecord(root, entry.name)
-          .then(() => onCreated(entry.name))
+          .then(() => onCreated(entry.name, null))
           .catch((err: unknown) => onError(String(err)));
       }}
     >
@@ -142,45 +134,46 @@ function EntryError({
   );
 }
 
-/** 「新话题」入口：仅建档不落盘文件（内容唯一真源在磁盘，agent 会话流程懒创建） */
+/**
+ * 「新话题」入口：仅输需求自然语言建档（`name = null` invoke——后端同事务
+ * 生成占位名与临时标题，占位名随返回记录上抛）；空白输入禁用提交。笔记文件
+ * 由 agent 会话经专用工具定名落盘（内容唯一真源在磁盘，此处零落盘）。
+ */
 function TopicEntry({ root, onCreated }: ExploreCreateDialogProps): React.JSX.Element {
-  const [topic, setTopic] = useState('');
+  const [requirement, setRequirement] = useState('');
   const [error, setError] = useState<string | null>(null);
-  const name = topic.trim();
-  const valid = isKebabCase(name);
 
   const create = () => {
     setError(null);
     commands
-      .createExploreRecord(root, name)
-      .then(() => onCreated(name))
+      .createExploreRecord(root, null)
+      .then((record) => onCreated(record.name, requirement.trim()))
       .catch((err: unknown) => setError(String(err)));
   };
 
   return (
     <div data-testid="explore-topic-entry">
-      <label className="mb-1 block text-xs text-muted-foreground" htmlFor="explore-topic-name">
-        主题名（kebab-case；仅建档，笔记文件由 agent 会话按需落盘）
+      <label
+        className="mb-1 block text-xs text-muted-foreground"
+        htmlFor="explore-topic-requirement"
+      >
+        探索需求（自然语言描述要调研的问题）
       </label>
-      <input
-        id="explore-topic-name"
+      <textarea
+        id="explore-topic-requirement"
         className="mb-2 block w-full rounded-md border border-border bg-transparent px-2.5 py-1.5 text-sm outline-none focus:ring-1 focus:ring-ring"
-        data-testid="explore-topic-name"
-        value={topic}
-        onChange={(e) => setTopic(e.target.value)}
-        placeholder="例如 api-retry-strategy"
+        data-testid="explore-topic-requirement"
+        rows={3}
+        value={requirement}
+        onChange={(e) => setRequirement(e.target.value)}
+        placeholder="例如：调研 API 重试策略——现有超时与重试逻辑在哪些边界会失效？"
       />
-      {name.length > 0 && !valid && (
-        <EntryError testid="explore-topic-invalid">
-          主题名须为 kebab-case（小写字母/数字，可用 `-` 连接）
-        </EntryError>
-      )}
       {error !== null && <EntryError testid="explore-create-error">{error}</EntryError>}
       <button
         type="button"
         className="cursor-pointer rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground outline-none transition-colors hover:bg-primary/90 disabled:pointer-events-none disabled:opacity-50"
         data-testid="explore-topic-create"
-        disabled={!valid}
+        disabled={requirement.trim().length === 0}
         onClick={create}
       >
         建档
@@ -221,8 +214,9 @@ function EntryTabs({
 
 /**
  * 新建对话框（两入口）：「从已有文档创建」经 scan_explores 列未绑定文件
- * （已绑定以 store 清单求差滤除），选中即建档；「新话题」输入主题名建档
- * （不落盘文件）。成功后 refresh 清单并导航进详情由父层 onCreated 承担。
+ * （已绑定以 store 清单求差滤除），选中即建档；「新话题」输入需求自然语言
+ * 以 `name = null` 建档（后端占位名 + 临时标题，零落盘文件）。成功后 refresh
+ * 清单并导航进详情由父层 onCreated 承担（携占位名 + 需求原文供 auto-send）。
  */
 export function ExploreCreateDialog({
   root,

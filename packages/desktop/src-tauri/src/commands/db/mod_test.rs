@@ -181,7 +181,7 @@ fn db_models_scope_workspace返回八行且与直连serde一致() {
     let ws = state.for_root(&root).expect("for_root 应成功");
     let session_id = seed_session(&ws, "ses-cmd-review");
     append_events(&ws, &session_id, &[0, 1]);
-    ws.create_explore_record(&root, "topic")
+    ws.create_explore_record(&root, Some("topic"))
         .expect("建档应成功");
 
     let via_command =

@@ -6,7 +6,7 @@ mod mod_test;
 use tauri::{AppHandle, Manager, State};
 
 use foundation::layout::resolve;
-use store::{ExploreRecord, WorkspaceStores};
+use store::{ExploreRecord, WorkspaceStores, EXPLORE_PLACEHOLDER_PREFIX};
 use vcs_runtime::{worktree_dir, ProcessWorktree};
 use workflow::queries::{self, ExploreDoc, ExploreScanEntry};
 use workflow::write::{self, phase_table, PromoteOutcome};
@@ -127,14 +127,16 @@ pub fn list_explore_records(
         .map_err(|e| e.to_string())
 }
 
-/// 新建 explore 记录（导入绑定 / 新话题建档共用）：只写 DB，不触磁盘文件；
-/// blank root → `Err`（写无空结果语义）。
+/// 新建 explore 记录：`None` = 占位建档（新话题需求直入——后端同事务生成
+/// `draft-*` 占位名与临时标题，见 store `create_explore_record`）；`Some` =
+/// 导入绑定显式名（建档行为零变化）。只写 DB，不触磁盘文件；blank root →
+/// `Err`（写无空结果语义）。
 #[tauri::command]
 #[specta::specta]
 pub fn create_explore_record(
     stores: State<'_, WorkspaceStores>,
     root: String,
-    name: String,
+    name: Option<String>,
 ) -> Result<ExploreRecord, String> {
     if is_blank_root(&root) {
         return Err("非法 root: 不得为空白".to_owned());
@@ -142,7 +144,7 @@ pub fn create_explore_record(
     stores
         .for_root(&root)
         .map_err(|e| e.to_string())?
-        .create_explore_record(&root, &name)
+        .create_explore_record(&root, name.as_deref())
         .map_err(|e| e.to_string())
 }
 
@@ -275,12 +277,15 @@ pub async fn promote_explore(
 }
 
 /// [`promote_explore`] 的泛型测试缝（生产注入 Wry 句柄、测试注入 MockRuntime
-/// 句柄）：① 读主仓笔记全文（未落盘 / 空白 → 显式 `Err` 引导先完成探索）；
-/// ② 读 `ExploreRecord`（不存在 / 已 promoted → 显式 `Err`）；③ 经 vcs 落位
-/// 派生父锚后 `spawn_blocking` 调写面 `workflow::write::promote_explore`
-///（复用 create 建 change + 删主仓笔记——move 半边，workflow_type 透传写面）；
-/// ④ 成功后 store `mark_explore_promoted` 打标（失败 → `Err` 携 change id 与
-/// 手动恢复指引；会话链保留、MUST NOT 删记录）。
+/// 句柄）：① 占位前缀门禁（`draft-` 前缀记录显式 `Err`——引导先在会话中经
+/// `create_explore_note` 完成定名再启动变更，先于笔记读取——占位名从未落盘，
+/// 「笔记未落盘」错误不足以引导）；② 读主仓笔记全文（未落盘 / 空白 → 显式
+/// `Err` 引导先完成探索）；③ 读 `ExploreRecord`（不存在 / 已 promoted → 显式
+/// `Err`）；④ 经 vcs 落位派生父锚后 `spawn_blocking` 调写面
+/// `workflow::write::promote_explore`（复用 create 建 change + 删主仓笔记
+/// ——move 半边，workflow_type 透传写面）；⑤ 成功后 store
+/// `mark_explore_promoted` 打标（失败 → `Err` 携 change id 与手动恢复指引；
+/// 会话链保留、MUST NOT 删记录）。
 pub(crate) async fn promote_explore_with<R: tauri::Runtime>(
     app: AppHandle<R>,
     root: String,
@@ -300,18 +305,26 @@ pub(crate) async fn promote_explore_with<R: tauri::Runtime>(
             "workflow_type \"{workflow_type}\" 不受支持（支持 requirement / test-only）"
         ));
     }
+    // ① 占位前缀门禁：`draft-` 前缀记录从未落盘（占位名仅存在于 store 记录
+    // 名）——先于笔记读取拦下并引导先完成会话定名
+    if name.starts_with(EXPLORE_PLACEHOLDER_PREFIX) {
+        return Err(format!(
+            "探索 {name:?} 尚未定名（占位记录）：请先在会话中由 agent 经 create_explore_note \
+             完成定名，再启动变更"
+        ));
+    }
     let stores = app.state::<WorkspaceStores>();
     let data_root = app.state::<PathBuf>();
     let store = stores.for_root(&root).map_err(|e| e.to_string())?;
 
-    // ① 主仓笔记全文（命中且非空白）
+    // ② 主仓笔记全文（命中且非空白）
     let layout = resolve(Path::new(&root));
     let note = queries::read_explore(&layout, &name)
         .filter(|doc| !doc.content.trim().is_empty())
         .ok_or_else(|| {
             format!("探索笔记 {name:?} 尚未落盘或内容为空白：请先在会话中完成探索再启动变更")
         })?;
-    // ② 探索记录（存在且未 promote）
+    // ③ 探索记录（存在且未 promote）
     let record = store
         .find_explore_record(&root, &name)
         .map_err(|e| e.to_string())?
@@ -322,7 +335,7 @@ pub(crate) async fn promote_explore_with<R: tauri::Runtime>(
         ));
     }
 
-    // ③ 写面：复用 create 建 change（goal = 笔记全文、title = explore.title）
+    // ④ 写面：复用 create 建 change（goal = 笔记全文、title = explore.title）
     // 成功后删主仓笔记（move 半边）
     let placement = worktree_dir(data_root.inner(), &root, &name);
     let Some(worktree_root) = placement.parent() else {
@@ -353,7 +366,7 @@ pub(crate) async fn promote_explore_with<R: tauri::Runtime>(
     .await
     .map_err(|e| format!("promote 任务失败: {e}"))??;
 
-    // ④ 打标（记录保留，仅补 promoted_to；失败显式呈现残留对象与恢复指引）
+    // ⑤ 打标（记录保留，仅补 promoted_to；失败显式呈现残留对象与恢复指引）
     store
         .mark_explore_promoted(&root, &name, &outcome.change_id)
         .map_err(|e| {

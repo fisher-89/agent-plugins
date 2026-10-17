@@ -1,0 +1,60 @@
+diff --git a/crates/target/llvm-cov-target/debug/deps/libserde-2655566511483901.rlib b/crates/target/llvm-cov-target/debug/deps/libserde-2655566511483901.rlib
+new file mode 100644
+index 000000000000..ee89f8f005e0
+Binary files /dev/null and b/packages/desktop/src-tauri/crates/target/llvm-cov-target/debug/deps/libserde-2655566511483901.rlib differ
+diff --git a/crates/target/llvm-cov-target/debug/deps/libserde-2655566511483901.rmeta b/crates/target/llvm-cov-target/debug/deps/libserde-2655566511483901.rmeta
+new file mode 100644
+index 000000000000..6d7a46651a48
+Binary files /dev/null and b/packages/desktop/src-tauri/crates/target/llvm-cov-target/debug/deps/libserde-2655566511483901.rmeta differ
+diff --git a/crates/target/llvm-cov-target/debug/deps/libserde_core-4bee13a9cd518e92.rlib b/crates/target/llvm-cov-target/debug/deps/libserde_core-4bee13a9cd518e92.rlib
+new file mode 100644
+index 000000000000..58ed855c52df
+Binary files /dev/null and b/packages/desktop/src-tauri/crates/target/llvm-cov-target/debug/deps/libserde_core-4bee13a9cd518e92.rlib differ
+diff --git a/crates/target/llvm-cov-target/debug/deps/libserde_core-4bee13a9cd518e92.rmeta b/crates/target/llvm-cov-target/debug/deps/libserde_core-4bee13a9cd518e92.rmeta
+new file mode 100644
+index 000000000000..4facbaa34a41
+Binary files /dev/null and b/packages/desktop/src-tauri/crates/target/llvm-cov-target/debug/deps/libserde_core-4bee13a9cd518e92.rmeta differ
+diff --git a/crates/target/llvm-cov-target/debug/deps/libserde_json-c243626af514ec1f.rlib b/crates/target/llvm-cov-target/debug/deps/libserde_json-c243626af514ec1f.rlib
+new file mode 100644
+index 000000000000..fa590477bcc0
+Binary files /dev/null and b/packages/desktop/src-tauri/crates/target/llvm-cov-target/debug/deps/libserde_json-c243626af514ec1f.rlib differ
+diff --git a/crates/target/llvm-cov-target/debug/deps/libserde_json-c243626af514ec1f.rmeta b/crates/target/llvm-cov-target/debug/deps/libserde_json-c243626af514ec1f.rmeta
+new file mode 100644
+index 000000000000..2f8b3ef03c13
+Binary files /dev/null and b/packages/desktop/src-tauri/crates/target/llvm-cov-target/debug/deps/libserde_json-c243626af514ec1f.rmeta differ
+diff --git a/crates/target/llvm-cov-target/debug/deps/libspecta-e3d3ccb6a39f76ed.rlib b/crates/target/llvm-cov-target/debug/deps/libspecta-e3d3ccb6a39f76ed.rlib
+new file mode 100644
+index 000000000000..b01126a82db7
+Binary files /dev/null and b/packages/desktop/src-tauri/crates/target/llvm-cov-target/debug/deps/libspecta-e3d3ccb6a39f76ed.rlib differ
+diff --git a/crates/target/llvm-cov-target/debug/deps/libspecta-e3d3ccb6a39f76ed.rmeta b/crates/target/llvm-cov-target/debug/deps/libspecta-e3d3ccb6a39f76ed.rmeta
+new file mode 100644
+index 000000000000..325b0492912a
+Binary files /dev/null and b/packages/desktop/src-tauri/crates/target/llvm-cov-target/debug/deps/libspecta-e3d3ccb6a39f76ed.rmeta differ
+diff --git a/crates/target/llvm-cov-target/debug/deps/libsyn-2468339f487ce861.rlib b/crates/target/llvm-cov-target/debug/deps/libsyn-2468339f487ce861.rlib
+new file mode 100644
+index 000000000000..18dfc7b41c89
+Binary files /dev/null and b/packages/desktop/src-tauri/crates/target/llvm-cov-target/debug/deps/libsyn-2468339f487ce861.rlib differ
+diff --git a/crates/target/llvm-cov-target/debug/deps/libsyn-2468339f487ce861.rmeta b/crates/target/llvm-cov-target/debug/deps/libsyn-2468339f487ce861.rmeta
+new file mode 100644
+index 000000000000..110415d04476
+Binary files /dev/null and b/packages/desktop/src-tauri/crates/target/llvm-cov-target/debug/deps/libsyn-2468339f487ce861.rmeta differ
+diff --git a/crates/target/llvm-cov-target/debug/deps/libsyn-3ad84d19371ac863.rlib b/crates/target/llvm-cov-target/debug/deps/libsyn-3ad84d19371ac863.rlib
+new file mode 100644
+index 000000000000..9faa0b85e0f2
+Binary files /dev/null and b/packages/desktop/src-tauri/crates/target/llvm-cov-target/debug/deps/libsyn-3ad84d19371ac863.rlib differ
+diff --git a/crates/target/llvm-cov-target/debug/deps/libsyn-3ad84d19371ac863.rmeta b/crates/target/llvm-cov-target/debug/deps/libsyn-3ad84d19371ac863.rmeta
+new file mode 100644
+index 000000000000..cc0ea38a30d3
+Binary files /dev/null and b/packages/desktop/src-tauri/crates/target/llvm-cov-target/debug/deps/libsyn-3ad84d19371ac863.rmeta differ
+diff --git a/crates/target/llvm-cov-target/debug/deps/libtime-e839cf57a1b41578.rlib b/crates/target/llvm-cov-target/debug/deps/libtime-e839cf57a1b41578.rlib
+new file mode 100644
+index 000000000000..49f4dfecf4bb
+Binary files /dev/null and b/packages/desktop/src-tauri/crates/target/llvm-cov-target/debug/deps/libtime-e839cf57a1b41578.rlib differ
+diff --git a/crates/target/llvm-cov-target/debug/deps/libtime-e839cf57a1b41578.rmeta b/crates/target/llvm-cov-target/debug/deps/libtime-e839cf57a1b41578.rmeta
+new file mode 100644
+index 000000000000..bc9b8c2ae0a4
+Binary files /dev/null and b/packages/desktop/src-tauri/crates/target/llvm-cov-target/debug/deps/libtime-e839cf57a1b41578.rmeta differ
+diff --git a/crates/target/llvm-cov-target/debug/deps/libtime_core-089f464278787487.rlib b/crates/target/llvm-cov-target/debug/deps/libtime_core-089f464278787487.rlib
+new file mode 100644
+index 000000000000..2ba5d28d6789
+Binary files /dev/null and b/packages/desktop/src-tauri/crates/target/llvm-cov-target/debug/deps/libtime_core-089f464278787487.rlib differ

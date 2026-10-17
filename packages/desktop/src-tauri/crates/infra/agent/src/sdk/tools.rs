@@ -20,9 +20,15 @@ const MAX_READ_LINES: usize = 2000;
 /// 超限截断留痕；bash 输出同归此层。
 const MAX_RESULT_BYTES: usize = 30_000;
 
-/// 七工具名（loop 的 RunStarted.tools 与 policy 决策表同源口径，见
-/// [`crate::sdk::policy`]）。
+/// 七通用工具封闭集基准面：policy 决策表与 compose 注入子集校验的基准；
+/// `RunStarted.tools` 与 loop 成员校验自 [`definitions`] 本体派生（下发面
+/// 单源——零第二份名单）。
 pub const TOOL_NAMES: [&str; 7] = ["read", "grep", "glob", "ls", "write", "edit", "bash"];
+
+/// `create_explore_note` 专用工具名（`toolset == Explore` 会话受控追加；执行
+/// 体在 [`crate::sdk::explore_note`]，经 `LoopTurn` 上下文路由——不经
+/// `tools::execute` 纯函数）。
+pub(crate) const EXPLORE_NOTE_TOOL: &str = "create_explore_note";
 
 /// 模型入参字符串字段提取（缺失或非字符串 → Err）。
 fn string_field(input: &Value, field: &str) -> Result<String, String> {
@@ -33,11 +39,49 @@ fn string_field(input: &Value, field: &str) -> Result<String, String> {
         .ok_or_else(|| format!("入参缺失或非字符串字段: {field}"))
 }
 
-/// 工具定义面：六工具的 rig `ToolDefinition`（loop 逐轮组装
-/// `CompletionRequest.tools` 用）。
-pub fn definitions() -> Vec<ToolDefinition> {
-    vec![
-        ToolDefinition {
+/// 工具定义面（按会话注入面组装）：七通用工具按 `injections.tools` 保序过滤
+/// （`None` = 全七——默认会话与上线前行为一致；`Some` = 子集，按
+/// [`TOOL_NAMES`] 序过滤），`toolset == Explore` 时追加 `create_explore_note`
+/// 专用工具定义。`RunStarted.tools` 与成员校验自本函数返回值派生（下发面
+/// 单源）。
+pub fn definitions(injections: &agent::SessionInjections) -> Vec<ToolDefinition> {
+    let selected: Vec<&str> = match &injections.tools {
+        None => TOOL_NAMES.to_vec(),
+        Some(names) => TOOL_NAMES
+            .iter()
+            .filter(|name| names.iter().any(|n| n == *name))
+            .copied()
+            .collect(),
+    };
+    let mut definitions: Vec<ToolDefinition> =
+        selected.into_iter().map(generic_definition).collect();
+    if injections.toolset == Some(agent::SessionToolset::Explore) {
+        definitions.push(ToolDefinition {
+            name: EXPLORE_NOTE_TOOL.to_owned(),
+            description:
+                "为当前探索会话的笔记落盘并定名。无路径参数——服务端按当前会话解析目标：\
+                 占位会话（未定名）原子完成文件创建与记录定名（一次调用即最终名，勿先用 bash 造\
+                 文件）；已定名会话仅接受与记录同名且文件缺失的补建。返回笔记路径（repo 相对、\
+                 `/` 分隔），供 edit 续用"
+                    .to_owned(),
+            parameters: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "name": { "type": "string", "description": "本次探索的 kebab-case 最终名（小写字母/数字，可用 `-` 连接；已定名会话必须与记录同名）" },
+                    "content": { "type": "string", "description": "笔记初稿全文（原样落盘）" }
+                },
+                "required": ["name", "content"]
+            }),
+        });
+    }
+    definitions
+}
+
+/// 七通用工具定义（[`TOOL_NAMES`] 逐名 match；内容与参数化前的字面量逐字
+/// 一致）。
+fn generic_definition(name: &str) -> ToolDefinition {
+    match name {
+        "read" => ToolDefinition {
             name: "read".to_owned(),
             description:
                 "读取文件内容（行号前缀输出）。可选 offset（1 起始行号）与 limit（行数）；\
@@ -53,7 +97,7 @@ pub fn definitions() -> Vec<ToolDefinition> {
                 "required": ["path"]
             }),
         },
-        ToolDefinition {
+        "grep" => ToolDefinition {
             name: "grep".to_owned(),
             description:
                 "行级正则匹配：返回命中行（文件路径:行号: 内容）；path 传目录时递归扫描其下文件；\
@@ -69,7 +113,7 @@ pub fn definitions() -> Vec<ToolDefinition> {
                 "required": ["path", "pattern"]
             }),
         },
-        ToolDefinition {
+        "glob" => ToolDefinition {
             name: "glob".to_owned(),
             description: "按 glob 模式列出 workspace 内匹配文件（root 相对模式，上限 200 条）"
                 .to_owned(),
@@ -81,7 +125,7 @@ pub fn definitions() -> Vec<ToolDefinition> {
                 "required": ["pattern"]
             }),
         },
-        ToolDefinition {
+        "ls" => ToolDefinition {
             name: "ls".to_owned(),
             description: "列目录：一级条目（目录带 / 后缀），字母序".to_owned(),
             parameters: serde_json::json!({
@@ -92,7 +136,7 @@ pub fn definitions() -> Vec<ToolDefinition> {
                 "required": ["path"]
             }),
         },
-        ToolDefinition {
+        "write" => ToolDefinition {
             name: "write".to_owned(),
             description: "覆写文件（全量覆盖；缺失父目录自动创建）".to_owned(),
             parameters: serde_json::json!({
@@ -104,7 +148,7 @@ pub fn definitions() -> Vec<ToolDefinition> {
                 "required": ["path", "content"]
             }),
         },
-        ToolDefinition {
+        "edit" => ToolDefinition {
             name: "edit".to_owned(),
             description: "精确串替换：old_string 在文件中必须唯一命中（多处需 replace_all）"
                 .to_owned(),
@@ -119,7 +163,7 @@ pub fn definitions() -> Vec<ToolDefinition> {
                 "required": ["path", "old_string", "new_string"]
             }),
         },
-        ToolDefinition {
+        "bash" => ToolDefinition {
             name: "bash".to_owned(),
             description: "执行 shell 命令并返回合并输出（stdout 段在前、stderr 段带 [stderr] \
                           标记在后）；cwd 为 workspace root，非零退出码报错并携带输出。超时为活性\
@@ -134,7 +178,8 @@ pub fn definitions() -> Vec<ToolDefinition> {
                 "required": ["command"]
             }),
         },
-    ]
+        other => unreachable!("generic_definition 仅承接 TOOL_NAMES 封闭集: {other}"),
+    }
 }
 
 /// 沙箱校验对象提取：工具名 → 入参中的路径类字段值（glob 为 pattern，

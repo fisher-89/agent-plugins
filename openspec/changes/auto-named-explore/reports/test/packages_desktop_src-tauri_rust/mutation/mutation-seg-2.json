@@ -1,0 +1,580 @@
+{
+  "outcomes": [
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/store/src/store.rs:262:5: replace format_utc_seconds -> String with String::new()",
+          "package": "store",
+          "file": "crates/infra/store/src/store.rs",
+          "function": {
+            "function_name": "format_utc_seconds",
+            "return_type": "-> String",
+            "span": {
+              "start": {
+                "line": 258,
+                "column": 1
+              },
+              "end": {
+                "line": 274,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 262,
+              "column": 5
+            },
+            "end": {
+              "line": 273,
+              "column": 48
+            }
+          },
+          "replacement": "String::new()",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "MissedMutant",
+      "log_path": "log/crates__infra__store__src__store.rs_line_262_col_5.log",
+      "diff_path": "diff/crates__infra__store__src__store.rs_line_262_col_5.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 12.506123,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=store@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 46.3751204,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--verbose",
+            "--package=store@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/store/src/store.rs:262:5: replace format_utc_seconds -> String with \"xyzzy\".into()",
+          "package": "store",
+          "file": "crates/infra/store/src/store.rs",
+          "function": {
+            "function_name": "format_utc_seconds",
+            "return_type": "-> String",
+            "span": {
+              "start": {
+                "line": 258,
+                "column": 1
+              },
+              "end": {
+                "line": 274,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 262,
+              "column": 5
+            },
+            "end": {
+              "line": 273,
+              "column": 48
+            }
+          },
+          "replacement": "\"xyzzy\".into()",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "MissedMutant",
+      "log_path": "log/crates__infra__store__src__store.rs_line_262_col_5_001.log",
+      "diff_path": "diff/crates__infra__store__src__store.rs_line_262_col_5_001.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 21.8225298,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=store@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 35.2272402,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--verbose",
+            "--package=store@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/store/src/store.rs:267:88: replace * with / in format_utc_seconds",
+          "package": "store",
+          "file": "crates/infra/store/src/store.rs",
+          "function": {
+            "function_name": "format_utc_seconds",
+            "return_type": "-> String",
+            "span": {
+              "start": {
+                "line": 258,
+                "column": 1
+              },
+              "end": {
+                "line": 274,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 267,
+              "column": 88
+            },
+            "end": {
+              "line": 267,
+              "column": 89
+            }
+          },
+          "replacement": "/",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "MissedMutant",
+      "log_path": "log/crates__infra__store__src__store.rs_line_267_col_88.log",
+      "diff_path": "diff/crates__infra__store__src__store.rs_line_267_col_88.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 21.3128256,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=store@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 35.9264016,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--verbose",
+            "--package=store@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/store/src/store.rs:922:9: replace Store::create_explore_record -> Result<ExploreRecord, StoreError> with Ok(Default::default())",
+          "package": "store",
+          "file": "crates/infra/store/src/store.rs",
+          "function": {
+            "function_name": "Store::create_explore_record",
+            "return_type": "-> Result<ExploreRecord, StoreError>",
+            "span": {
+              "start": {
+                "line": 906,
+                "column": 5
+              },
+              "end": {
+                "line": 983,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 922,
+              "column": 9
+            },
+            "end": {
+              "line": 982,
+              "column": 19
+            }
+          },
+          "replacement": "Ok(Default::default())",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "MissedMutant",
+      "log_path": "log/crates__infra__store__src__store.rs_line_922_col_9.log",
+      "diff_path": "diff/crates__infra__store__src__store.rs_line_922_col_9.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 22.2665415,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=store@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 35.6438976,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--verbose",
+            "--package=store@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/store/src/store.rs:267:88: replace * with + in format_utc_seconds",
+          "package": "store",
+          "file": "crates/infra/store/src/store.rs",
+          "function": {
+            "function_name": "format_utc_seconds",
+            "return_type": "-> String",
+            "span": {
+              "start": {
+                "line": 258,
+                "column": 1
+              },
+              "end": {
+                "line": 274,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 267,
+              "column": 88
+            },
+            "end": {
+              "line": 267,
+              "column": 89
+            }
+          },
+          "replacement": "+",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "MissedMutant",
+      "log_path": "log/crates__infra__store__src__store.rs_line_267_col_88_001.log",
+      "diff_path": "diff/crates__infra__store__src__store.rs_line_267_col_88_001.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 22.7482503,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=store@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 36.7429993,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--verbose",
+            "--package=store@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/store/src/store.rs:965:24: delete ! in Store::create_explore_record",
+          "package": "store",
+          "file": "crates/infra/store/src/store.rs",
+          "function": {
+            "function_name": "Store::create_explore_record",
+            "return_type": "-> Result<ExploreRecord, StoreError>",
+            "span": {
+              "start": {
+                "line": 906,
+                "column": 5
+              },
+              "end": {
+                "line": 983,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 965,
+              "column": 24
+            },
+            "end": {
+              "line": 965,
+              "column": 25
+            }
+          },
+          "replacement": "",
+          "genre": "UnaryOperator"
+        }
+      },
+      "summary": "MissedMutant",
+      "log_path": "log/crates__infra__store__src__store.rs_line_965_col_24.log",
+      "diff_path": "diff/crates__infra__store__src__store.rs_line_965_col_24.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 23.2200151,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=store@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 36.8076569,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--verbose",
+            "--package=store@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/store/src/store.rs:968:31: replace += with -= in Store::create_explore_record",
+          "package": "store",
+          "file": "crates/infra/store/src/store.rs",
+          "function": {
+            "function_name": "Store::create_explore_record",
+            "return_type": "-> Result<ExploreRecord, StoreError>",
+            "span": {
+              "start": {
+                "line": 906,
+                "column": 5
+              },
+              "end": {
+                "line": 983,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 968,
+              "column": 31
+            },
+            "end": {
+              "line": 968,
+              "column": 33
+            }
+          },
+          "replacement": "-=",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "MissedMutant",
+      "log_path": "log/crates__infra__store__src__store.rs_line_968_col_31.log",
+      "diff_path": "diff/crates__infra__store__src__store.rs_line_968_col_31.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 23.6526791,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=store@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 36.8923259,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--verbose",
+            "--package=store@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/store/src/store.rs:959:50: replace == with != in Store::create_explore_record",
+          "package": "store",
+          "file": "crates/infra/store/src/store.rs",
+          "function": {
+            "function_name": "Store::create_explore_record",
+            "return_type": "-> Result<ExploreRecord, StoreError>",
+            "span": {
+              "start": {
+                "line": 906,
+                "column": 5
+              },
+              "end": {
+                "line": 983,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 959,
+              "column": 50
+            },
+            "end": {
+              "line": 959,
+              "column": 52
+            }
+          },
+          "replacement": "!=",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "MissedMutant",
+      "log_path": "log/crates__infra__store__src__store.rs_line_959_col_50.log",
+      "diff_path": "diff/crates__infra__store__src__store.rs_line_959_col_50.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 24.1547437,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=store@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 37.1377706,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--verbose",
+            "--package=store@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/store/src/store.rs:968:31: replace += with *= in Store::create_explore_record",
+          "package": "store",
+          "file": "crates/infra/store/src/store.rs",
+          "function": {
+            "function_name": "Store::create_explore_record",
+            "return_type": "-> Result<ExploreRecord, StoreError>",
+            "span": {
+              "start": {
+                "line": 906,
+                "column": 5
+              },
+              "end": {
+                "line": 983,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 968,
+              "column": 31
+            },
+            "end": {
+              "line": 968,
+              "column": 33
+            }
+          },
+          "replacement": "*=",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "MissedMutant",
+      "log_path": "log/crates__infra__store__src__store.rs_line_968_col_31_001.log",
+      "diff_path": "diff/crates__infra__store__src__store.rs_line_968_col_31_001.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 14.4479541,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=store@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 10.0417618,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--verbose",
+            "--package=store@0.1.0"
+          ]
+        }
+      ]
+    }
+  ],
+  "total_mutants": 9,
+  "missed": 9,
+  "caught": 0,
+  "timeout": 0,
+  "unviable": 0,
+  "success": 0,
+  "start_time": "2026-10-17T08:25:58.0997399Z",
+  "end_time": "2026-10-17T08:27:23.9712703Z",
+  "cargo_mutants_version": "27.1.0"
+}

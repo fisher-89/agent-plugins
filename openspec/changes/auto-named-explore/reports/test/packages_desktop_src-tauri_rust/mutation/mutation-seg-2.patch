@@ -1,0 +1,466 @@
+diff --git a/crates/infra/store/Cargo.toml b/crates/infra/store/Cargo.toml
+index 0b56c1419a7d..e2ca3b89ea0b 100644
+--- a/crates/infra/store/Cargo.toml
++++ b/crates/infra/store/Cargo.toml
+@@ -13,6 +13,7 @@ serde = { workspace = true }
+ serde_json = { workspace = true }
+ sha2 = { workspace = true }
+ specta = { workspace = true }
++time = { workspace = true }
+ workflow = { workspace = true }
+ 
+ [dev-dependencies]
+diff --git a/crates/infra/store/default_8600235590732251713_0_4768.profraw b/crates/infra/store/default_8600235590732251713_0_4768.profraw
+new file mode 100644
+index 000000000000..608362ef1fca
+Binary files /dev/null and b/packages/desktop/src-tauri/crates/infra/store/default_8600235590732251713_0_4768.profraw differ
+diff --git a/crates/infra/store/src/lib.rs b/crates/infra/store/src/lib.rs
+index b85edd2a13cb..8fcf5adf81ad 100644
+--- a/crates/infra/store/src/lib.rs
++++ b/crates/infra/store/src/lib.rs
+@@ -11,7 +11,7 @@ pub use model::{
+     SessionConfigSnapshot, SessionEventRecord, SessionRecord, StepRecord, WorkspaceRecord,
+     CLI_TENANT_RETIRED,
+ };
+-pub use store::{DbDimension, Store, StoreError, WorkspaceStores};
++pub use store::{DbDimension, Store, StoreError, WorkspaceStores, EXPLORE_PLACEHOLDER_PREFIX};
+ 
+ #[cfg(test)]
+ mod change_port_test;
+diff --git a/crates/infra/store/src/store.rs b/crates/infra/store/src/store.rs
+index bf3d664ff355..75371b63434d 100644
+--- a/crates/infra/store/src/store.rs
++++ b/crates/infra/store/src/store.rs
+@@ -249,6 +249,30 @@ fn check_explore_name(name: &str) -> Result<(), StoreError> {
+ /// 改动需同步）。`delete_explore_record` 据此圈定级联删除的归属会话。
+ const EXPLORE_RUN_SOURCE: &str = "explore";
+ 
++/// 占位名前缀「未定名」判别口径单点：store 生成侧（`create_explore_record`
++/// 的 `None` 分支）、promote 门禁（命令层）、引擎执行体占位判别（agent-runtime
++/// 私有复制消费本导出）、前端 stance 分形（前端侧字面量双源互链——不引后端
++/// 常量，改动需同步）。
++pub const EXPLORE_PLACEHOLDER_PREFIX: &str = "draft-";
++
++/// epoch 毫秒 → `yyyy-MM-dd HH:mm:ss`（UTC 口径——与 store 时间戳纪律同源，
++/// 本地化归展示层；占位临时标题纯装饰字段）。格式化 / 时间域任一步失败退化
++/// 为毫秒串，不 panic。
++fn format_utc_seconds(millis: i64) -> String {
++    let Ok(format) = time::format_description::parse_borrowed::<2>(
++        "[year]-[month]-[day] [hour]:[minute]:[second]",
++    ) else {
++        return millis.to_string();
++    };
++    let Ok(timestamp) = time::OffsetDateTime::from_unix_timestamp_nanos(millis as i128 * 1_000_000)
++    else {
++        return millis.to_string();
++    };
++    timestamp
++        .format(&format)
++        .unwrap_or_else(|_| millis.to_string())
++}
++
+ /// explore 预建空会话
+ fn empty_explore_session(record: &ExploreRecord) -> SessionRecord {
+     let now = now_millis();
+@@ -879,20 +903,29 @@ impl Store {
+             .find(|record| record.name == name))
+     }
+ 
+-    /// 新建 explore 记录：同事务预建**空会话**（无轮、无引擎句柄）并把其 id
+-    /// 回写进 `session_id`——记录建档即有会话归属，详情页打开即可重放/续发，
+-    /// 首条提问以 `Continue` 开启该会话的首轮（见 `compose::begin` 未开轮
+-    /// 分支）。两行同事务：失败不留半边（记录与会话要么都在、要么都不在）。
++    /// 新建 explore 记录：`Some(name)` = 既有显式名建档（导入绑定路径——校验
++    /// / 查重 / `title = name` 建档逐行为零变化）；`None` = 占位建档——写事务
++    /// 内铸造占位名 `draft-<epoch-millis>`（kebab 合法：首段字母、次段数字；
++    /// 基值 `now_millis()` 一次调用，撞名以事务内同 root 同名扫描判重、命中
++    /// 单调 +1 重试——不依赖事务外时钟推进）与临时标题
++    /// `<yyyy-MM-dd HH:mm:ss>-分析中`（UTC，同一基值派生，纯展示装饰，后续经
++    /// `set_explore_title` 回填覆盖）。占位名从未落盘——store 层零磁盘操作
++    /// 不变。两种建档同事务预建**空会话**（无轮、无引擎句柄）并把其 id 回写
++    /// 进 `session_id`——记录建档即有会话归属，详情页打开即可重放/续发，首条
++    /// 提问以 `Continue` 开启该会话的首轮（见 `compose::begin` 未开轮分支）。
++    /// 两行同事务：失败不留半边（记录与会话要么都在、要么都不在）。
+     pub fn create_explore_record(
+         &self,
+         root: &str,
+-        name: &str,
++        name: Option<&str>,
+     ) -> Result<ExploreRecord, StoreError> {
+-        check_explore_name(name)?;
+-        if self.find_explore_record(root, name)?.is_some() {
+-            return Err(StoreError::Db(format!(
+-                "记录已存在: root={root:?} name={name:?}"
+-            )));
++        if let Some(name) = name {
++            check_explore_name(name)?;
++            if self.find_explore_record(root, name)?.is_some() {
++                return Err(StoreError::Db(format!(
++                    "记录已存在: root={root:?} name={name:?}"
++                )));
++            }
+         }
+         let rw = self.db.rw_transaction().map_err(db_err("开启写事务"))?;
+         let next_id = match rw
+@@ -907,7 +940,38 @@ impl Store {
+             Some(Err(e)) => return Err(StoreError::Db(format!("读取最大 id: {e}"))),
+             None => 1,
+         };
+-        let mut record = ExploreRecord::new(root, name, now_millis());
++        let now = now_millis();
++        let mut record = match name {
++            Some(name) => ExploreRecord::new(root, name, now),
++            None => {
++                // 占位建档：写事务内铸造占位名（同 root 同名扫描判重 + 单调
++                // +1 兜底）+ 临时标题（同基值派生，覆盖 `ExploreRecord::new`
++                // 的 `title = name` 缺省）
++                let taken: HashSet<String> = rw
++                    .scan()
++                    .primary::<ExploreRecord>()
++                    .map_err(db_err("扫描探索记录"))?
++                    .all()
++                    .map_err(db_err("扫描探索记录"))?
++                    .collect::<native_db::db_type::Result<Vec<_>>>()
++                    .map_err(db_err("扫描探索记录"))?
++                    .into_iter()
++                    .filter(|record| record.root == root)
++                    .map(|record| record.name)
++                    .collect();
++                let mut candidate = now;
++                let placeholder = loop {
++                    let name = format!("{EXPLORE_PLACEHOLDER_PREFIX}{candidate}");
++                    if !taken.contains(&name) {
++                        break name;
++                    }
++                    candidate += 1;
++                };
++                let mut record = ExploreRecord::new(root, &placeholder, now);
++                record.title = format!("{}-分析中", format_utc_seconds(now));
++                record
++            }
++        };
+         record.id = next_id;
+         let session = empty_explore_session(&record);
+         record.session_id = Some(session.id.clone());
+diff --git a/crates/infra/store/src/store_test.rs b/crates/infra/store/src/store_test.rs
+index 3ae59b6ddd74..a65de7d431d9 100644
+--- a/crates/infra/store/src/store_test.rs
++++ b/crates/infra/store/src/store_test.rs
+@@ -2231,7 +2231,7 @@ fn scan未知模型名与模型名str边界返回err不panic且错误串可读()
+ 
+ fn create_ok(store: &Store, root: &str, name: &str) -> ExploreRecord {
+     store
+-        .create_explore_record(root, name)
++        .create_explore_record(root, Some(name))
+         .unwrap_or_else(|e| panic!("create_explore_record({name}) 应成功: {e}"))
+ }
+ 
+@@ -2263,7 +2263,7 @@ fn 同root同name重复建档返回err() {
+     let store = open_workspace_ok(&env.db_path("ws"));
+     let first = create_ok(&store, "C:\\ws\\alpha", "api-retry");
+ 
+-    let result = store.create_explore_record("C:\\ws\\alpha", "api-retry");
++    let result = store.create_explore_record("C:\\ws\\alpha", Some("api-retry"));
+ 
+     let err = result.expect_err("同 (root, name) 重复建档应 Err");
+     assert!(
+@@ -2283,7 +2283,7 @@ fn 非法记录名建档返回err() {
+     let store = open_workspace_ok(&env.db_path("ws"));
+ 
+     for name in ["", ".", "..", "a/b", "a\\b", "a:b", "../x"] {
+-        let result = store.create_explore_record("C:\\ws\\alpha", name);
++        let result = store.create_explore_record("C:\\ws\\alpha", Some(name));
+         assert!(
+             matches!(&result, Err(StoreError::Db(_))),
+             "非法名 {name:?} 应 Err（单分量校验），实际: {result:?}"
+@@ -2691,6 +2691,197 @@ fn delete_miss幂等返回false() {
+     );
+ }
+ 
++// ---------------------------------------------------------------------------
++// auto-named-explore：占位建档 create(None)（draft- 前缀铸造 / 临时标题 /
++// 空会话预建回写 / 同毫秒单调兜底）与 rename 同名幂等臂
++// ---------------------------------------------------------------------------
++
++/// `EXPLORE_PLACEHOLDER_PREFIX` 常量锚定：值为 `"draft-"`（与前端
++/// `DRAFT_NAME_PREFIX` 双源互链——两处任一漂移即由此断言拦截）。
++#[test]
++fn explore_placeholder_prefix常量值为draft前缀() {
++    assert_eq!(crate::EXPLORE_PLACEHOLDER_PREFIX, "draft-");
++}
++
++/// 占位名形态校验：`draft-` 前缀 + 纯数字尾段（`^draft-\d+$`），且尾段无前导
++/// 零损失地可解析（kebab 天然合法：首段字母、次段数字）。
++fn assert_placeholder_shape(name: &str) {
++    assert!(
++        name.starts_with(crate::EXPLORE_PLACEHOLDER_PREFIX),
++        "占位名应以 draft- 前缀起头，实际: {name:?}"
++    );
++    let tail = &name[crate::EXPLORE_PLACEHOLDER_PREFIX.len()..];
++    assert!(!tail.is_empty(), "前缀后应有毫秒数字尾段，实际: {name:?}");
++    assert!(
++        tail.bytes().all(|b| b.is_ascii_digit()),
++        "尾段应为纯数字（draft-<毫秒>），实际: {name:?}"
++    );
++}
++
++/// 临时标题形态校验：`yyyy-MM-dd HH:mm:ss-分析中`（UTC 秒级派生，`-` 前后
++/// 皆定长数字段）。
++fn assert_placeholder_title_shape(title: &str) {
++    let suffix = "-分析中";
++    assert!(
++        title.ends_with(suffix),
++        "临时标题应以 -分析中 收尾，实际: {title:?}"
++    );
++    let stamp = &title[..title.len() - suffix.len()];
++    let bytes = stamp.as_bytes();
++    assert_eq!(bytes.len(), 19, "时间戳段恰 19 字符（yyyy-MM-dd HH:mm:ss）");
++    for (index, byte) in bytes.iter().enumerate() {
++        let separator: Option<u8> = match index {
++            4 | 7 => Some(b'-'),
++            10 => Some(b' '),
++            13 | 16 => Some(b':'),
++            _ => None,
++        };
++        match separator {
++            Some(expected) => assert_eq!(*byte, expected, "分隔位字符不符: {title:?}"),
++            None => assert!(byte.is_ascii_digit(), "数字位应为 ASCII 数字: {title:?}"),
++        }
++    }
++}
++
++/// 占位建档（`create_explore_record(root, None)`）：占位名 `draft-<毫秒>` 形态
++/// 合法 kebab（免二次校验口径）、`title` 为 UTC 秒级 `-分析中` 临时标题、其余
++/// 建档不变量（id 正值、created_at = updated_at、promoted_to None）照常。
++#[test]
++fn create_none占位建档_draft前缀名与临时标题形态() {
++    let env = Env::new("explore-placeholder-shape");
++    let store = open_workspace_ok(&env.db_path("ws"));
++
++    let record = store
++        .create_explore_record("C:\\ws\\alpha", None)
++        .expect("None 占位建档应成功");
++
++    assert_placeholder_shape(&record.name);
++    assert_placeholder_title_shape(&record.title);
++    assert!(
++        record.name.len() <= 128,
++        "占位名 kebab 天然合法（长度亦在天花板内），实际: {name}",
++        name = record.name
++    );
++    assert_eq!(
++        record.created_at, record.updated_at,
++        "新建语义 created_at = updated_at 照常"
++    );
++    assert!(record.created_at > 0, "入库时刻为正毫秒值");
++    assert_eq!(record.promoted_to, None, "草稿态默认 promoted_to = None");
++    assert_eq!(record.workflow_type, "requirement", "默认 workflow_type 照常");
++}
++
++/// 占位建档同事务预建空会话并回写 `session_id`（与显式名建档同口径）。
++#[test]
++fn create_none占位建档_session_id预建回写且会话行同事务在库() {
++    let env = Env::new("explore-placeholder-session");
++    let store = open_workspace_ok(&env.db_path("ws"));
++
++    let record = store
++        .create_explore_record("C:\\ws\\alpha", None)
++        .expect("None 占位建档应成功");
++
++    let session_id = record
++        .session_id
++        .clone()
++        .expect("占位建档同样回写 session_id（非 None）");
++    let session = store
++        .find_session(&session_id)
++        .unwrap()
++        .expect("预建空会话已落库");
++    assert_eq!(session.source, "explore", "来源归属 explore");
++    assert_eq!(
++        session.source_ref.as_deref(),
++        Some(record.id.to_string().as_str()),
++        "source_ref 指向占位记录 id"
++    );
++    assert!(
++        session.engine_session_id.is_none(),
++        "空会话无引擎句柄（首轮以 Continue 开启）"
++    );
++    let summary = store.find_session_summary(&session_id).unwrap().unwrap();
++    assert!(summary.turns.is_empty(), "空会话无轮行");
++}
++
++/// 同毫秒撞名单调兜底：同 root 连续两次 `create(None)` → 两名互异且均为
++/// `draft-` 前缀（事务内 +1 重试，不依赖时钟推进）。
++#[test]
++fn create_none同毫秒撞名经事务内单调兜底获得互异名() {
++    let env = Env::new("explore-placeholder-collision");
++    let store = open_workspace_ok(&env.db_path("ws"));
++
++    let first = store
++        .create_explore_record("C:\\ws\\alpha", None)
++        .expect("第一次占位建档应成功");
++    let second = store
++        .create_explore_record("C:\\ws\\alpha", None)
++        .expect("第二次占位建档应成功");
++
++    assert_ne!(first.name, second.name, "撞名经单调兜底获得互异名");
++    assert_placeholder_shape(&first.name);
++    assert_placeholder_shape(&second.name);
++    assert_eq!(
++        store.list_explore_records("C:\\ws\\alpha").unwrap().len(),
++        2,
++        "两条占位记录均已落库"
++    );
++}
++
++/// 占位建档后记录可寻址：`list_explore_records` 含该记录、`find_explore_record`
++/// 按占位名命中。
++#[test]
++fn create_none占位记录可经list与find寻址() {
++    let env = Env::new("explore-placeholder-addressable");
++    let store = open_workspace_ok(&env.db_path("ws"));
++
++    let record = store
++        .create_explore_record("C:\\ws\\alpha", None)
++        .expect("None 占位建档应成功");
++
++    let list = store.list_explore_records("C:\\ws\\alpha").unwrap();
++    assert_eq!(list, vec![record.clone()], "清单恰含占位记录");
++    assert_eq!(
++        store
++            .find_explore_record("C:\\ws\\alpha", &record.name)
++            .unwrap(),
++        Some(record),
++        "按占位名寻址命中"
++    );
++}
++
++/// rename 同名幂等臂：`new_name == name` → `Ok` 且记录逐字段不变（不刷
++/// updated_at 之外零漂移——幂等重入不破链）。
++#[test]
++fn rename同名幂等返回ok且记录不变() {
++    let env = Env::new("explore-rename-idempotent");
++    let store = open_workspace_ok(&env.db_path("ws"));
++    let original = create_ok(&store, "C:\\ws\\alpha", "keeper-name");
++
++    let again = store
++        .rename_explore_record("C:\\ws\\alpha", "keeper-name", "keeper-name")
++        .expect("同名 rename 应幂等成功");
++
++    assert_eq!(again.id, original.id, "主键不变");
++    assert_eq!(again.name, original.name, "name 不变");
++    assert_eq!(again.title, original.title, "title 不变");
++    assert_eq!(again.session_id, original.session_id, "会话指针不变");
++    assert_eq!(
++        again.created_at, original.created_at,
++        "created_at 不变"
++    );
++    assert!(
++        again.updated_at >= original.updated_at,
++        "updated_at 至少不早于原值"
++    );
++    assert_eq!(
++        store
++            .find_explore_record("C:\\ws\\alpha", "keeper-name")
++            .unwrap(),
++        Some(again),
++        "落库可寻址"
++    );
++}
++
+ // ---------------------------------------------------------------------------
+ // explore-name-file-binding：kebab 名称口径 + title / promoted_to 操作面
+ //（AC-1 / AC-3 / AC-5 / AC-6；title 默认 = name、promoted_to 默认 None）
+@@ -2751,6 +2942,8 @@ fn create_explore_record非法kebab拒绝且零写入() {
+     let env = Env::new("explore-kebab-bad");
+     let store = open_workspace_ok(&env.db_path("ws"));
+     let too_long = format!("a-{}", "b".repeat(128));
++    // 恰超限一字节的 129 字符合法 kebab 形态（长度上限 128 的边界半边）
++    let just_over = format!("a-{}", "b".repeat(127));
+ 
+     for name in [
+         "Api-Retry",  // 大写
+@@ -2762,8 +2955,9 @@ fn create_explore_record非法kebab拒绝且零写入() {
+         "-api",       // 前导连字符 / 空首段
+         "api-中",     // 非 ASCII 段
+         too_long.as_str(),
++        just_over.as_str(),
+     ] {
+-        let result = store.create_explore_record("C:\\ws\\alpha", name);
++        let result = store.create_explore_record("C:\\ws\\alpha", Some(name));
+         assert!(
+             matches!(&result, Err(StoreError::Db(_))),
+             "非法名 {name:?} 应 Err（kebab + 长度校验），实际: {result:?}"
+@@ -2776,6 +2970,13 @@ fn create_explore_record非法kebab拒绝且零写入() {
+             .is_empty(),
+         "全部拒绝：零写入零残留"
+     );
++    // 恰 128 字符（上限值）合法 kebab 建档成功——上下界夹逼
++    let at_limit = format!("a-{}", "b".repeat(126));
++    assert_eq!(at_limit.chars().count(), 128, "边界构造恰为上限 128");
++    let at_limit_record = store
++        .create_explore_record("C:\\ws\\alpha", Some(at_limit.as_str()))
++        .unwrap_or_else(|e| panic!("恰 128 字符合法 kebab 应建档成功: {e}"));
++    assert_eq!(at_limit_record.name, at_limit);
+ }
+ 
+ /// rename 非法 kebab 拒绝（异常）：目标名非 kebab → `Err` 且原记录 name 零改动
+diff --git a/crates/infra/vcs/default_8600235590732251713_0_4992.profraw b/crates/infra/vcs/default_8600235590732251713_0_4992.profraw
+new file mode 100644
+index 000000000000..a6174c1c7236
+Binary files /dev/null and b/packages/desktop/src-tauri/crates/infra/vcs/default_8600235590732251713_0_4992.profraw differ
+diff --git a/crates/target/llvm-cov-target/.rustc_info.json b/crates/target/llvm-cov-target/.rustc_info.json
+new file mode 100644
+index 000000000000..ef57e3e387a7
+--- /dev/null
++++ b/crates/target/llvm-cov-target/.rustc_info.json
+@@ -0,0 +1 @@
++{"rustc_fingerprint":8111101701024938970,"outputs":{"17747080675513052775":{"success":true,"status":"","code":0,"stdout":"rustc 1.95.0 (59807616e 2026-04-14)\nbinary: rustc\ncommit-hash: 59807616e1fa2540724bfbac14d7976d7e4a3860\ncommit-date: 2026-04-14\nhost: x86_64-pc-windows-msvc\nrelease: 1.95.0\nLLVM version: 22.1.2\n","stderr":""},"7971740275564407648":{"success":true,"status":"","code":0,"stdout":"___.exe\nlib___.rlib\n___.dll\n___.dll\n___.lib\n___.dll\nC:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\npacked\n___\ndebug_assertions\npanic=\"unwind\"\nproc_macro\ntarget_abi=\"\"\ntarget_arch=\"x86_64\"\ntarget_endian=\"little\"\ntarget_env=\"msvc\"\ntarget_family=\"windows\"\ntarget_feature=\"cmpxchg16b\"\ntarget_feature=\"fxsr\"\ntarget_feature=\"sse\"\ntarget_feature=\"sse2\"\ntarget_feature=\"sse3\"\ntarget_has_atomic=\"128\"\ntarget_has_atomic=\"16\"\ntarget_has_atomic=\"32\"\ntarget_has_atomic=\"64\"\ntarget_has_atomic=\"8\"\ntarget_has_atomic=\"ptr\"\ntarget_os=\"windows\"\ntarget_pointer_width=\"64\"\ntarget_vendor=\"pc\"\nwindows\n","stderr":""}},"successes":{}}
+\ No newline at end of file
+diff --git a/crates/target/llvm-cov-target/CACHEDIR.TAG b/crates/target/llvm-cov-target/CACHEDIR.TAG
+new file mode 100644
+index 000000000000..20d7c319cda9
+--- /dev/null
++++ b/crates/target/llvm-cov-target/CACHEDIR.TAG
+@@ -0,0 +1,3 @@
++Signature: 8a477f597d28d172789f06886806bc55
++# This file is a cache directory tag created by cargo.
++# For information about cache directory tags see https://bford.info/cachedir/
+diff --git a/crates/target/llvm-cov-target/debug/.cargo-lock b/crates/target/llvm-cov-target/debug/.cargo-lock
+new file mode 100644
+index 000000000000..e69de29bb2d1
+diff --git a/crates/target/llvm-cov-target/debug/build/proc-macro2-1ee42b6c742a59e7/build-script-build.exe b/crates/target/llvm-cov-target/debug/build/proc-macro2-1ee42b6c742a59e7/build-script-build.exe
+new file mode 100644
+index 000000000000..dff468e5dc3a
+Binary files /dev/null and b/packages/desktop/src-tauri/crates/target/llvm-cov-target/debug/build/proc-macro2-1ee42b6c742a59e7/build-script-build.exe differ
+diff --git a/crates/target/llvm-cov-target/debug/build/proc-macro2-1ee42b6c742a59e7/build_script_build-1ee42b6c742a59e7.d b/crates/target/llvm-cov-target/debug/build/proc-macro2-1ee42b6c742a59e7/build_script_build-1ee42b6c742a59e7.d
+new file mode 100644
+index 000000000000..173e946dee4f
+--- /dev/null
++++ b/crates/target/llvm-cov-target/debug/build/proc-macro2-1ee42b6c742a59e7/build_script_build-1ee42b6c742a59e7.d
+@@ -0,0 +1,5 @@
++C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\auto-named-explore\packages\desktop\src-tauri\crates\core\agent\../../target/llvm-cov-target\debug\build\proc-macro2-1ee42b6c742a59e7\build_script_build-1ee42b6c742a59e7.d: C:\Users\wps\.cargo\registry\src\rsproxy.cn-e3de039b2554c837\proc-macro2-1.0.107\build.rs
++
++C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\auto-named-explore\packages\desktop\src-tauri\crates\core\agent\../../target/llvm-cov-target\debug\build\proc-macro2-1ee42b6c742a59e7\build_script_build-1ee42b6c742a59e7.exe: C:\Users\wps\.cargo\registry\src\rsproxy.cn-e3de039b2554c837\proc-macro2-1.0.107\build.rs
++
++C:\Users\wps\.cargo\registry\src\rsproxy.cn-e3de039b2554c837\proc-macro2-1.0.107\build.rs:
+diff --git a/crates/target/llvm-cov-target/debug/build/proc-macro2-1ee42b6c742a59e7/build_script_build-1ee42b6c742a59e7.exe b/crates/target/llvm-cov-target/debug/build/proc-macro2-1ee42b6c742a59e7/build_script_build-1ee42b6c742a59e7.exe
+new file mode 100644
+index 000000000000..dff468e5dc3a
+Binary files /dev/null and b/packages/desktop/src-tauri/crates/target/llvm-cov-target/debug/build/proc-macro2-1ee42b6c742a59e7/build_script_build-1ee42b6c742a59e7.exe differ
+diff --git a/crates/target/llvm-cov-target/debug/build/proc-macro2-1ee42b6c742a59e7/build_script_build-1ee42b6c742a59e7.pdb b/crates/target/llvm-cov-target/debug/build/proc-macro2-1ee42b6c742a59e7/build_script_build-1ee42b6c742a59e7.pdb
+new file mode 100644
+index 000000000000..a78a44dd4a41
+Binary files /dev/null and b/packages/desktop/src-tauri/crates/target/llvm-cov-target/debug/build/proc-macro2-1ee42b6c742a59e7/build_script_build-1ee42b6c742a59e7.pdb differ
+diff --git a/crates/target/llvm-cov-target/debug/build/proc-macro2-1ee42b6c742a59e7/build_script_build.pdb b/crates/target/llvm-cov-target/debug/build/proc-macro2-1ee42b6c742a59e7/build_script_build.pdb
+new file mode 100644
+index 000000000000..a78a44dd4a41
+Binary files /dev/null and b/packages/desktop/src-tauri/crates/target/llvm-cov-target/debug/build/proc-macro2-1ee42b6c742a59e7/build_script_build.pdb differ
+diff --git a/crates/target/llvm-cov-target/debug/build/proc-macro2-f9487b91b7e570b0/invoked.timestamp b/crates/target/llvm-cov-target/debug/build/proc-macro2-f9487b91b7e570b0/invoked.timestamp
+new file mode 100644
+index 000000000000..e00328da5aa8
+--- /dev/null
++++ b/crates/target/llvm-cov-target/debug/build/proc-macro2-f9487b91b7e570b0/invoked.timestamp
+@@ -0,0 +1 @@
++This file has an mtime of when this was started.
+\ No newline at end of file

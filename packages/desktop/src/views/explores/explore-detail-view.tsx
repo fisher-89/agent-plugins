@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { useNavigate } from 'react-router';
+import { useLocation, useNavigate, useParams } from 'react-router';
 
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/components/ui/resizable';
 
@@ -16,10 +16,23 @@ import { useExploreSession } from './hooks/use-explore-session';
 export interface ExploreDetailViewProps {
   /** 当前 workspace root（cwd 与读面入参） */
   root: string;
-  /** 当前记录（父层按 URL name 从清单派生；清单未就绪时为 null） */
+  /** 当前记录（父层按 URL name 从清单派生——id 桥三级链，旧名 miss 以快照
+   * 兜底；清单未就绪且无快照时为 null） */
   record: ExploreRecord | null;
   /** 清单状态（promote / updateTitle / refresh 动作来源；与清单同源） */
   list: ExploreListState;
+}
+
+/**
+ * location.state 宽容解析 autoPrompt（非 string 一律 null——路由 state 无
+ * schema 保证，back/forward 复现形态不可信）。
+ */
+function readAutoPrompt(state: unknown): string | null {
+  if (state !== null && typeof state === 'object' && 'autoPrompt' in state) {
+    const value = state.autoPrompt;
+    if (typeof value === 'string') return value;
+  }
+  return null;
 }
 
 /**
@@ -322,8 +335,11 @@ function MissingRecord(): React.JSX.Element {
 /**
  * 探索详情页（双栏）：左对话区、右文档预览，resizable 可拖分界。文档取数与
  * watch 订阅收口 useExploreDoc（订阅生命周期即页面生命周期，卸载即退订）；
- * 会话链还原 / 续话收口 useExploreSession；run 终态（running true→false）定点
- * 重读文档，预览即随落盘更新；title 与 workflow_type 回填见 useRecordBackfill。
+ * 会话链还原 / 续话 / auto-send 收口 useExploreSession；run 终态（running
+ * true→false）定点重读文档并刷新清单（id 桥数据半边——记录可能已 in-place
+ * 改名），随后名变收敛 effect 把 URL replace 至新名（id 桥导航半边，
+ * `useExploreDoc` 以 name 依赖自动重订阅）；title 与 workflow_type 回填见
+ * useRecordBackfill。
  */
 export function ExploreDetailView({
   root,
@@ -331,22 +347,38 @@ export function ExploreDetailView({
   list,
 }: ExploreDetailViewProps): React.JSX.Element {
   const navigate = useNavigate();
+  const location = useLocation();
+  const { name: routeName } = useParams<'name'>();
   const promotedTo = record?.promotedTo ?? null;
   // 已 promote：笔记已搬入 change 目录，停读 / 停 watch（name=null 早退）
   const name = record !== null && promotedTo === null ? record.name : null;
   const doc = useExploreDoc(root, name);
-  const session = useExploreSession(root, record);
+  const autoPrompt = readAutoPrompt(location.state);
+  const session = useExploreSession(root, record, autoPrompt);
   const wasRunning = useRef(false);
   const { promoting, promoteError, workflowType, onWorkflowTypeChange, onPromote } =
     usePromoteAction(record, list.promote, list.updateWorkflowType);
 
   useRecordBackfill(record, promotedTo, doc.doc?.content ?? null, list);
 
-  // run 终态定点重读文档（含本轮 agent 落盘 / 更新笔记的情形）；挂载不触发
+  // run 终态定点重读文档（含本轮 agent 落盘 / 更新笔记的情形）+ 刷新清单
+  // （id 桥数据半边）；挂载不触发
   useEffect(() => {
-    if (wasRunning.current && !session.running) doc.refresh();
+    if (wasRunning.current && !session.running) {
+      doc.refresh();
+      list.refresh();
+    }
     wasRunning.current = session.running;
-  }, [session.running, doc.refresh]);
+  }, [session.running, doc.refresh, list.refresh]);
+
+  // 名变收敛（id 桥导航半边）：派生记录名与 URL 名分叉（create_explore_note
+  // in-place 改名后按 id 重寻得新名）→ replace 至新名路径（不携带 state——
+  // autoPrompt 已消费或被 chain 闸门拦截）
+  useEffect(() => {
+    if (record !== null && routeName !== undefined && record.name !== routeName) {
+      void navigate(`/explores/${record.name}`, { replace: true });
+    }
+  }, [record, routeName, navigate]);
 
   if (record === null) return <MissingRecord />;
 

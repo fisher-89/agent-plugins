@@ -1,0 +1,65 @@
+$ pnpm run server:check && pnpm run bindings:export && pnpm run client:check
+$ cargo fmt --manifest-path src-tauri/Cargo.toml && cargo clippy --manifest-path src-tauri/Cargo.toml
+    Checking agent-runtime v0.1.0 (C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\auto-named-explore\packages\desktop\src-tauri\crates\infra\agent)
+    Checking dev-team v0.1.0 (C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\auto-named-explore\packages\desktop\src-tauri)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 7.68s
+$ cargo run --quiet -p export-bindings --manifest-path src-tauri/Cargo.toml
+$ vp check --fix && knip
+[1m[31merror:[39m[0m Lint or type issues found
+! eslint(no-unsafe-optional-chaining): Unsafe usage of optional chaining
+     ,-[src/views/explores/explore-view.test.tsx:213:28]
+ 212 |     const startCall = invokeMock.mock.calls.find(([name]) => name === 'agent_start');
+ 213 |     const prompt = String((startCall?.[1] as Record<string, unknown>).prompt);
+     :                            ^^^^^^^^^^^^^^
+ 214 |     expect(prompt).toContain('调研重试策略的失效边界');
+     `----
+  help: If this short-circuits with 'undefined' the evaluation will throw TypeError
+
+  x eslint(no-unused-vars): Variable 'result' is declared but never used. Unused variables should start with a '_'.
+     ,-[src/views/explores/hooks/use-explore-session.test.ts:996:13]
+ 995 |     const draft = { ...exploreRecord(), name: DRAFT_NAME };
+ 996 |     const { result } = await mountedWithAutoPrompt(draft);
+     :             ^^^|^^
+     :                `-- 'result' is declared here
+ 997 | 
+     `----
+  help: Consider removing this declaration.
+
+  x eslint(no-unused-vars): Variable 'result' is declared but never used. Unused variables should start with a '_'.
+      ,-[src/views/explores/hooks/use-explore-session.test.ts:1007:13]
+ 1006 |     mockEmptySession();
+ 1007 |     const { result } = await mountedWithAutoPrompt();
+      :             ^^^|^^
+      :                `-- 'result' is declared here
+ 1008 | 
+      `----
+  help: Consider removing this declaration.
+
+  x typescript(TS2339): Property 'mock' does not exist on type 'OnCreated'.
+     ,-[src/views/explores/components/explore-create-dialog.test.tsx:109:22]
+ 108 |     expect(onCreated).toHaveBeenCalledWith(PLACEHOLDER_NAME, requirement.trim());
+ 109 |     expect(onCreated.mock.calls[0]?.[1]?.length).toBe(requirement.trim().length);
+     :                      ^^^^
+ 110 |   });
+     `----
+
+  x typescript(TS6133): 'result' is declared but its value is never read.
+     ,-[src/views/explores/hooks/use-explore-session.test.ts:996:13]
+ 995 |     const draft = { ...exploreRecord(), name: DRAFT_NAME };
+ 996 |     const { result } = await mountedWithAutoPrompt(draft);
+     :             ^^^^^^
+ 997 | 
+     `----
+
+  x typescript(TS6133): 'result' is declared but its value is never read.
+      ,-[src/views/explores/hooks/use-explore-session.test.ts:1007:13]
+ 1006 |     mockEmptySession();
+ 1007 |     const { result } = await mountedWithAutoPrompt();
+      :             ^^^^^^
+ 1008 | 
+      `----
+
+Found 5 errors and 1 warning in 166 files (1.9s, 16 threads)
+[1m[94mpass:[39m[0m Formatting completed for checked files [2m(5.6s)[0m
+[ELIFECYCLE] Command failed with exit code 1.
+[ELIFECYCLE] Command failed with exit code 1.

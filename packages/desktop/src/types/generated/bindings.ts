@@ -137,10 +137,12 @@ export const commands = {
 	/**  explore 记录清单 */
 	listExploreRecords: (root: string) => __TAURI_INVOKE<ExploreRecord[]>("list_explore_records", { root }),
 	/**
-	 *  新建 explore 记录（导入绑定 / 新话题建档共用）：只写 DB，不触磁盘文件；
-	 *  blank root → `Err`（写无空结果语义）。
+	 *  新建 explore 记录：`None` = 占位建档（新话题需求直入——后端同事务生成
+	 *  `draft-*` 占位名与临时标题，见 store `create_explore_record`）；`Some` =
+	 *  导入绑定显式名（建档行为零变化）。只写 DB，不触磁盘文件；blank root →
+	 *  `Err`（写无空结果语义）。
 	 */
-	createExploreRecord: (root: string, name: string) => __TAURI_INVOKE<ExploreRecord>("create_explore_record", { root, name }),
+	createExploreRecord: (root: string, name: string | null) => __TAURI_INVOKE<ExploreRecord>("create_explore_record", { root, name }),
 	/**
 	 *  in-place 改名（保主键 → 保会话链绑定）：文件改名后的记录重关联入口；
 	 *  blank root → `Err`。

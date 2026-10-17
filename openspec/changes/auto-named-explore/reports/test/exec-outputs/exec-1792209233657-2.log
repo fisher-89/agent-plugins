@@ -1,0 +1,139 @@
+$ pnpm run server:check && pnpm run bindings:export && pnpm run client:check
+$ cargo fmt --manifest-path src-tauri/Cargo.toml && cargo clippy --manifest-path src-tauri/Cargo.toml
+    Checking agent v0.1.0 (C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\auto-named-explore\packages\desktop\src-tauri\crates\core\agent)
+    Checking workflow v0.1.0 (C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\auto-named-explore\packages\desktop\src-tauri\crates\core\workflow)
+    Checking orchestration v0.1.0 (C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\auto-named-explore\packages\desktop\src-tauri\crates\core\orchestration)
+    Checking store v0.1.0 (C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\auto-named-explore\packages\desktop\src-tauri\crates\infra\store)
+    Checking checks-runtime v0.1.0 (C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\auto-named-explore\packages\desktop\src-tauri\crates\infra\checks)
+    Checking vcs-runtime v0.1.0 (C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\auto-named-explore\packages\desktop\src-tauri\crates\infra\vcs)
+    Checking agent-runtime v0.1.0 (C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\auto-named-explore\packages\desktop\src-tauri\crates\infra\agent)
+warning: using `contains()` instead of `iter().any()` is more efficient
+   --> crates\infra\agent\src\sdk\loop.rs:373:17
+    |
+373 |               if !dispatched
+    |  _________________^
+374 | |                 .iter()
+375 | |                 .any(|dispatched_name| *dispatched_name == name)
+    | |________________________________________________________________^ help: try: `dispatched.contains(&name)`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#manual_contains
+    = note: `#[warn(clippy::manual_contains)]` on by default
+
+warning: this function has too many arguments (8/7)
+   --> crates\infra\agent\src\sdk\runner.rs:181:1
+    |
+181 | / async fn session_pump(
+182 | |     model: DynModel<Completion>,
+183 | |     model_name: String,
+184 | |     open: SessionOpen,
+...   |
+189 | |     handle: RunHandle,
+190 | | ) {
+    | |_^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#too_many_arguments
+    = note: `#[warn(clippy::too_many_arguments)]` on by default
+
+warning: `agent-runtime` (lib) generated 2 warnings (run `cargo clippy --fix --lib -p agent-runtime -- ` to apply 1 suggestion)
+    Checking dev-team v0.1.0 (C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\auto-named-explore\packages\desktop\src-tauri)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 13.48s
+$ cargo run --quiet -p export-bindings --manifest-path src-tauri/Cargo.toml
+$ vp check --fix && knip
+[1m[31merror:[39m[0m Lint or type issues found
+x eslint(max-lines-per-function): The function `useExploreSession` has too many lines (68). Maximum allowed is 50.
+     ,-[src/views/explores/hooks/use-explore-session.ts:21:8]
+  20 |     
+  21 | ,-> export function useExploreSession(
+  22 | |     root: string | null,
+  23 | |     record: ExploreRecord | null,
+  24 | |     autoPrompt: string | null = null,
+  25 | |   ) {
+  26 | |     // 存量记录（session_id 空缺——v3 升级行）经 ensure 补齐归属会话后承接其 id：
+  27 | |     // 建档新记录恒带预建空会话 id，本路只补历史缺口
+  28 | |     const [ensuredId, setEnsuredId] = useState<string | null>(null);
+  29 | |     const recordName = record?.name ?? null;
+  30 | |     const recordedSessionId = record?.sessionId ?? null;
+  31 | |   
+  32 | |     useEffect(() => {
+  33 | |       if (root === null || recordName === null || recordedSessionId !== null) {
+  34 | |         setEnsuredId(null);
+  35 | |         return;
+  36 | |       }
+  37 | |       let cancelled = false;
+  38 | |       commands
+  39 | |         .ensureExploreSession(root, recordName)
+  40 | |         .then((updated) => {
+  41 | |           if (!cancelled) setEnsuredId(updated.sessionId);
+  42 | |         })
+  43 | |         .catch(() => {
+  44 | |           // 静默：会话未就绪，send 按未就绪不发（下次挂载再试）
+  45 | |         });
+  46 | |       return () => {
+  47 | |         cancelled = true;
+  48 | |       };
+  49 | |     }, [root, recordName, recordedSessionId]);
+  50 | |   
+  51 | |     const sessionId = recordedSessionId ?? ensuredId;
+  52 | |     const session = useAgentChat({
+  53 | |       source: EXPLORE_SOURCE,
+  54 | |       sessionId,
+  55 | |       root,
+  56 | |     });
+  57 | |   
+  58 | |     const send = useCallback(
+  59 | |       (input: ExploreSendInput) => {
+  60 | |         // 未就绪不发：记录缺席 / 会话 id 尚未落位 / 重放在途（stance 判定需
+  61 | |         // 轮数真相，装载完成前不发起）
+  62 | |         if (record === null || sessionId === null || session.loading) return;
+  63 | |         // 首轮（会话无任何轮统计行）拼 stance 前导（占位 / 已定名两形由 stance
+  64 | |         // 模块内按记录名前缀判别）；续话裸发送
+  65 | |         const prompt =
+  66 | |           session.chain.length === 0 ? buildExplorePrompt(input.prompt, record.name) : input.prompt;
+  67 | |         session.sendMessage({
+  68 | |           prompt,
+  69 | |           permissionMode: input.permissionMode,
+  70 | |         });
+  71 | |       },
+  72 | |       [session, record, sessionId],
+  73 | |     );
+  74 | |   
+  75 | |     // auto-send 闸门：建档导航携带的 autoPrompt 在「重放装载完成（!loading）&&
+  76 | |     // 会话链为空 && 记录 / 会话 id 就绪」且未消费时自动发出首轮（stance 前导 +
+  77 | |     // 需求）。per-mount 一次性消费 ref——back/forward 复现 location state 时新
+  78 | |     // mount 重新武装，首轮失败 chain 仍 0 即构成免费重试；发出后 chain > 0 闸门
+  79 | |     // 自然拒发（send 内建 loading / 未就绪守卫同样生效）
+  80 | |     const autoSentRef = useRef(false);
+  81 | |     useEffect(() => {
+  82 | |       if (
+  83 | |         autoPrompt !== null &&
+  84 | |         !autoSentRef.current &&
+  85 | |         !session.loading &&
+  86 | |         session.chain.length === 0 &&
+  87 | |         record !== null &&
+  88 | |         sessionId !== null
+  89 | |       ) {
+  90 | |         autoSentRef.current = true;
+  91 | |         send({ prompt: autoPrompt, permissionMode: AUTO_SEND_PERMISSION_MODE });
+  92 | |       }
+  93 | |     }, [autoPrompt, session, record, sessionId, send]);
+  94 | |   
+  95 | |     return {
+  96 | |       messages: session.messages,
+  97 | |       /** 轮统计行镜像（发起序轮行；迁移基线沿用，供既有断言与调试） */
+  98 | |       chain: session.chain,
+  99 | |       /** 密封事件扁平镜像（delta 仅实时流可见不入镜像；迁移基线沿用） */
+ 100 | |       events: session.events,
+ 101 | |       loading: session.loading,
+ 102 | |       running: session.running,
+ 103 | |       error: session.error,
+ 104 | |       send,
+ 105 | |       stop: session.stop,
+ 106 | |     };
+ 107 | `-> }
+     `----
+  help: Consider splitting it into smaller functions.
+
+Found 1 error and 0 warnings in 166 files (2.0s, 16 threads)
+[1m[94mpass:[39m[0m Formatting completed for checked files [2m(5.7s)[0m
+[ELIFECYCLE] Command failed with exit code 1.
+[ELIFECYCLE] Command failed with exit code 1.

@@ -2231,7 +2231,7 @@ fn scan未知模型名与模型名str边界返回err不panic且错误串可读()
 
 fn create_ok(store: &Store, root: &str, name: &str) -> ExploreRecord {
     store
-        .create_explore_record(root, name)
+        .create_explore_record(root, Some(name))
         .unwrap_or_else(|e| panic!("create_explore_record({name}) 应成功: {e}"))
 }
 
@@ -2263,7 +2263,7 @@ fn 同root同name重复建档返回err() {
     let store = open_workspace_ok(&env.db_path("ws"));
     let first = create_ok(&store, "C:\\ws\\alpha", "api-retry");
 
-    let result = store.create_explore_record("C:\\ws\\alpha", "api-retry");
+    let result = store.create_explore_record("C:\\ws\\alpha", Some("api-retry"));
 
     let err = result.expect_err("同 (root, name) 重复建档应 Err");
     assert!(
@@ -2283,7 +2283,7 @@ fn 非法记录名建档返回err() {
     let store = open_workspace_ok(&env.db_path("ws"));
 
     for name in ["", ".", "..", "a/b", "a\\b", "a:b", "../x"] {
-        let result = store.create_explore_record("C:\\ws\\alpha", name);
+        let result = store.create_explore_record("C:\\ws\\alpha", Some(name));
         assert!(
             matches!(&result, Err(StoreError::Db(_))),
             "非法名 {name:?} 应 Err（单分量校验），实际: {result:?}"
@@ -2692,6 +2692,197 @@ fn delete_miss幂等返回false() {
 }
 
 // ---------------------------------------------------------------------------
+// auto-named-explore：占位建档 create(None)（draft- 前缀铸造 / 临时标题 /
+// 空会话预建回写 / 同毫秒单调兜底）与 rename 同名幂等臂
+// ---------------------------------------------------------------------------
+
+/// `EXPLORE_PLACEHOLDER_PREFIX` 常量锚定：值为 `"draft-"`（与前端
+/// `DRAFT_NAME_PREFIX` 双源互链——两处任一漂移即由此断言拦截）。
+#[test]
+fn explore_placeholder_prefix常量值为draft前缀() {
+    assert_eq!(crate::EXPLORE_PLACEHOLDER_PREFIX, "draft-");
+}
+
+/// 占位名形态校验：`draft-` 前缀 + 纯数字尾段（`^draft-\d+$`），且尾段无前导
+/// 零损失地可解析（kebab 天然合法：首段字母、次段数字）。
+fn assert_placeholder_shape(name: &str) {
+    assert!(
+        name.starts_with(crate::EXPLORE_PLACEHOLDER_PREFIX),
+        "占位名应以 draft- 前缀起头，实际: {name:?}"
+    );
+    let tail = &name[crate::EXPLORE_PLACEHOLDER_PREFIX.len()..];
+    assert!(!tail.is_empty(), "前缀后应有毫秒数字尾段，实际: {name:?}");
+    assert!(
+        tail.bytes().all(|b| b.is_ascii_digit()),
+        "尾段应为纯数字（draft-<毫秒>），实际: {name:?}"
+    );
+}
+
+/// 临时标题形态校验：`yyyy-MM-dd HH:mm:ss-分析中`（UTC 秒级派生，`-` 前后
+/// 皆定长数字段）。
+fn assert_placeholder_title_shape(title: &str) {
+    let suffix = "-分析中";
+    assert!(
+        title.ends_with(suffix),
+        "临时标题应以 -分析中 收尾，实际: {title:?}"
+    );
+    let stamp = &title[..title.len() - suffix.len()];
+    let bytes = stamp.as_bytes();
+    assert_eq!(bytes.len(), 19, "时间戳段恰 19 字符（yyyy-MM-dd HH:mm:ss）");
+    for (index, byte) in bytes.iter().enumerate() {
+        let separator: Option<u8> = match index {
+            4 | 7 => Some(b'-'),
+            10 => Some(b' '),
+            13 | 16 => Some(b':'),
+            _ => None,
+        };
+        match separator {
+            Some(expected) => assert_eq!(*byte, expected, "分隔位字符不符: {title:?}"),
+            None => assert!(byte.is_ascii_digit(), "数字位应为 ASCII 数字: {title:?}"),
+        }
+    }
+}
+
+/// 占位建档（`create_explore_record(root, None)`）：占位名 `draft-<毫秒>` 形态
+/// 合法 kebab（免二次校验口径）、`title` 为 UTC 秒级 `-分析中` 临时标题、其余
+/// 建档不变量（id 正值、created_at = updated_at、promoted_to None）照常。
+#[test]
+fn create_none占位建档_draft前缀名与临时标题形态() {
+    let env = Env::new("explore-placeholder-shape");
+    let store = open_workspace_ok(&env.db_path("ws"));
+
+    let record = store
+        .create_explore_record("C:\\ws\\alpha", None)
+        .expect("None 占位建档应成功");
+
+    assert_placeholder_shape(&record.name);
+    assert_placeholder_title_shape(&record.title);
+    assert!(
+        record.name.len() <= 128,
+        "占位名 kebab 天然合法（长度亦在天花板内），实际: {name}",
+        name = record.name
+    );
+    assert_eq!(
+        record.created_at, record.updated_at,
+        "新建语义 created_at = updated_at 照常"
+    );
+    assert!(record.created_at > 0, "入库时刻为正毫秒值");
+    assert_eq!(record.promoted_to, None, "草稿态默认 promoted_to = None");
+    assert_eq!(record.workflow_type, "requirement", "默认 workflow_type 照常");
+}
+
+/// 占位建档同事务预建空会话并回写 `session_id`（与显式名建档同口径）。
+#[test]
+fn create_none占位建档_session_id预建回写且会话行同事务在库() {
+    let env = Env::new("explore-placeholder-session");
+    let store = open_workspace_ok(&env.db_path("ws"));
+
+    let record = store
+        .create_explore_record("C:\\ws\\alpha", None)
+        .expect("None 占位建档应成功");
+
+    let session_id = record
+        .session_id
+        .clone()
+        .expect("占位建档同样回写 session_id（非 None）");
+    let session = store
+        .find_session(&session_id)
+        .unwrap()
+        .expect("预建空会话已落库");
+    assert_eq!(session.source, "explore", "来源归属 explore");
+    assert_eq!(
+        session.source_ref.as_deref(),
+        Some(record.id.to_string().as_str()),
+        "source_ref 指向占位记录 id"
+    );
+    assert!(
+        session.engine_session_id.is_none(),
+        "空会话无引擎句柄（首轮以 Continue 开启）"
+    );
+    let summary = store.find_session_summary(&session_id).unwrap().unwrap();
+    assert!(summary.turns.is_empty(), "空会话无轮行");
+}
+
+/// 同毫秒撞名单调兜底：同 root 连续两次 `create(None)` → 两名互异且均为
+/// `draft-` 前缀（事务内 +1 重试，不依赖时钟推进）。
+#[test]
+fn create_none同毫秒撞名经事务内单调兜底获得互异名() {
+    let env = Env::new("explore-placeholder-collision");
+    let store = open_workspace_ok(&env.db_path("ws"));
+
+    let first = store
+        .create_explore_record("C:\\ws\\alpha", None)
+        .expect("第一次占位建档应成功");
+    let second = store
+        .create_explore_record("C:\\ws\\alpha", None)
+        .expect("第二次占位建档应成功");
+
+    assert_ne!(first.name, second.name, "撞名经单调兜底获得互异名");
+    assert_placeholder_shape(&first.name);
+    assert_placeholder_shape(&second.name);
+    assert_eq!(
+        store.list_explore_records("C:\\ws\\alpha").unwrap().len(),
+        2,
+        "两条占位记录均已落库"
+    );
+}
+
+/// 占位建档后记录可寻址：`list_explore_records` 含该记录、`find_explore_record`
+/// 按占位名命中。
+#[test]
+fn create_none占位记录可经list与find寻址() {
+    let env = Env::new("explore-placeholder-addressable");
+    let store = open_workspace_ok(&env.db_path("ws"));
+
+    let record = store
+        .create_explore_record("C:\\ws\\alpha", None)
+        .expect("None 占位建档应成功");
+
+    let list = store.list_explore_records("C:\\ws\\alpha").unwrap();
+    assert_eq!(list, vec![record.clone()], "清单恰含占位记录");
+    assert_eq!(
+        store
+            .find_explore_record("C:\\ws\\alpha", &record.name)
+            .unwrap(),
+        Some(record),
+        "按占位名寻址命中"
+    );
+}
+
+/// rename 同名幂等臂：`new_name == name` → `Ok` 且记录逐字段不变（不刷
+/// updated_at 之外零漂移——幂等重入不破链）。
+#[test]
+fn rename同名幂等返回ok且记录不变() {
+    let env = Env::new("explore-rename-idempotent");
+    let store = open_workspace_ok(&env.db_path("ws"));
+    let original = create_ok(&store, "C:\\ws\\alpha", "keeper-name");
+
+    let again = store
+        .rename_explore_record("C:\\ws\\alpha", "keeper-name", "keeper-name")
+        .expect("同名 rename 应幂等成功");
+
+    assert_eq!(again.id, original.id, "主键不变");
+    assert_eq!(again.name, original.name, "name 不变");
+    assert_eq!(again.title, original.title, "title 不变");
+    assert_eq!(again.session_id, original.session_id, "会话指针不变");
+    assert_eq!(
+        again.created_at, original.created_at,
+        "created_at 不变"
+    );
+    assert!(
+        again.updated_at >= original.updated_at,
+        "updated_at 至少不早于原值"
+    );
+    assert_eq!(
+        store
+            .find_explore_record("C:\\ws\\alpha", "keeper-name")
+            .unwrap(),
+        Some(again),
+        "落库可寻址"
+    );
+}
+
+// ---------------------------------------------------------------------------
 // explore-name-file-binding：kebab 名称口径 + title / promoted_to 操作面
 //（AC-1 / AC-3 / AC-5 / AC-6；title 默认 = name、promoted_to 默认 None）
 // ---------------------------------------------------------------------------
@@ -2751,6 +2942,8 @@ fn create_explore_record非法kebab拒绝且零写入() {
     let env = Env::new("explore-kebab-bad");
     let store = open_workspace_ok(&env.db_path("ws"));
     let too_long = format!("a-{}", "b".repeat(128));
+    // 恰超限一字节的 129 字符合法 kebab 形态（长度上限 128 的边界半边）
+    let just_over = format!("a-{}", "b".repeat(127));
 
     for name in [
         "Api-Retry",  // 大写
@@ -2762,8 +2955,9 @@ fn create_explore_record非法kebab拒绝且零写入() {
         "-api",       // 前导连字符 / 空首段
         "api-中",     // 非 ASCII 段
         too_long.as_str(),
+        just_over.as_str(),
     ] {
-        let result = store.create_explore_record("C:\\ws\\alpha", name);
+        let result = store.create_explore_record("C:\\ws\\alpha", Some(name));
         assert!(
             matches!(&result, Err(StoreError::Db(_))),
             "非法名 {name:?} 应 Err（kebab + 长度校验），实际: {result:?}"
@@ -2776,6 +2970,13 @@ fn create_explore_record非法kebab拒绝且零写入() {
             .is_empty(),
         "全部拒绝：零写入零残留"
     );
+    // 恰 128 字符（上限值）合法 kebab 建档成功——上下界夹逼
+    let at_limit = format!("a-{}", "b".repeat(126));
+    assert_eq!(at_limit.chars().count(), 128, "边界构造恰为上限 128");
+    let at_limit_record = store
+        .create_explore_record("C:\\ws\\alpha", Some(at_limit.as_str()))
+        .unwrap_or_else(|e| panic!("恰 128 字符合法 kebab 应建档成功: {e}"));
+    assert_eq!(at_limit_record.name, at_limit);
 }
 
 /// rename 非法 kebab 拒绝（异常）：目标名非 kebab → `Err` 且原记录 name 零改动

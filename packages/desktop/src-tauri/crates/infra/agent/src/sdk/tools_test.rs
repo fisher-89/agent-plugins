@@ -1,9 +1,10 @@
 use std::path::{Path, PathBuf};
 
+use agent::{SessionInjections, SessionToolset};
 use serde_json::{json, Value};
 
 use crate::sdk::sandbox::check;
-use crate::sdk::tools::{definitions, execute, input_path, TOOL_NAMES};
+use crate::sdk::tools::{definitions, execute, input_path, EXPLORE_NOTE_TOOL, TOOL_NAMES};
 
 fn tempdir(tag: &str) -> tempfile::TempDir {
     tempfile::Builder::new()
@@ -30,7 +31,7 @@ fn write_rel(root: &Path, rel: &str, content: &str) -> PathBuf {
 
 #[test]
 fn 定义清单恰为七工具且名称_描述_schema齐全() {
-    let defs = definitions();
+    let defs = definitions(&SessionInjections::default());
     assert_eq!(defs.len(), 7, "恰为七工具（bash 入册后的封闭清单）");
     let names: Vec<&str> = defs.iter().map(|def| def.name.as_str()).collect();
     assert_eq!(names, TOOL_NAMES.to_vec(), "定义面与 TOOL_NAMES 同源同序");
@@ -933,4 +934,222 @@ async fn 未知工具名执行分发显式拒绝() {
         !TOOL_NAMES.contains(&"rm_rf"),
         "前置：反例名确在封闭清单之外"
     );
+}
+
+// ---------------------------------------------------------------------------
+// auto-named-explore：定义面参数化组装（definitions(injections)）与
+// create_explore_note 专用工具定义
+// ---------------------------------------------------------------------------
+
+/// `EXPLORE_NOTE_TOOL` 常量锚定：专用工具名逐字为 `create_explore_note`。
+#[test]
+fn explore_note_tool常量值为create_explore_note() {
+    assert_eq!(EXPLORE_NOTE_TOOL, "create_explore_note");
+}
+
+/// explore 收窄：`tools` = 六名（无 `write`）+ `toolset` = Explore → 定义不
+/// 含 `write`、序同 `TOOL_NAMES` 保序过滤、末位追加 `create_explore_note`。
+#[test]
+fn definitions_explore收窄_不含write_保序追加专用工具() {
+    let six: Vec<String> = TOOL_NAMES
+        .iter()
+        .copied()
+        .filter(|name| *name != "write")
+        .map(str::to_owned)
+        .collect();
+    let injections = SessionInjections {
+        preamble: None,
+        tools: Some(six),
+        toolset: Some(SessionToolset::Explore),
+    };
+
+    let defs = definitions(&injections);
+    let names: Vec<&str> = defs.iter().map(|def| def.name.as_str()).collect();
+
+    assert_eq!(
+        names,
+        vec!["read", "grep", "glob", "ls", "edit", "bash", "create_explore_note"],
+        "六名按 TOOL_NAMES 保序 + 末位追加专用工具，实际: {names:?}"
+    );
+    assert!(
+        !names.contains(&"write"),
+        "explore 工具面不含 write（AC-5 硬约束）"
+    );
+    assert_eq!(
+        defs.last().expect("追加的专用定义").name,
+        EXPLORE_NOTE_TOOL,
+        "专用工具以 EXPLORE_NOTE_TOOL 常量命名"
+    );
+}
+
+/// 空 `tools` 边界：`tools = Some([])` + `toolset` None → 零通用定义；
+/// `toolset` = Explore → 仅 `create_explore_note` 一条。
+#[test]
+fn definitions空tools子集_零通用定义_追加面仅剩专用工具() {
+    let empty_tools = SessionInjections {
+        preamble: None,
+        tools: Some(Vec::new()),
+        toolset: None,
+    };
+    assert!(
+        definitions(&empty_tools).is_empty(),
+        "Some([]) = 空子集：零通用定义（None 才是全七默认面）"
+    );
+
+    let empty_with_explore = SessionInjections {
+        preamble: None,
+        tools: Some(Vec::new()),
+        toolset: Some(SessionToolset::Explore),
+    };
+    let only_note = definitions(&empty_with_explore);
+    assert_eq!(
+        only_note.iter().map(|def| def.name.as_str()).collect::<Vec<_>>(),
+        vec![EXPLORE_NOTE_TOOL],
+        "空子集 + Explore → 仅 create_explore_note"
+    );
+}
+
+/// 单工具子集：`tools = Some(["read"])` → 恰单条 `read` 定义。
+#[test]
+fn definitions单工具子集恰产出对应单定义() {
+    let injections = SessionInjections {
+        preamble: None,
+        tools: Some(vec!["read".to_owned()]),
+        toolset: None,
+    };
+    let defs = definitions(&injections);
+    assert_eq!(defs.len(), 1, "恰单定义，实际: {}", defs.len());
+    assert_eq!(defs[0].name, "read");
+}
+
+/// 非法名与重复名过滤：`tools` 含 `"hacker"` / 重复名 → 定义面仅保留
+/// `TOOL_NAMES` 内成员（按封闭清单保序滤非法，幻觉名零定义产出）。
+#[test]
+fn definitions非法名与重复名经封闭清单保序滤除() {
+    let injections = SessionInjections {
+        preamble: None,
+        tools: Some(vec![
+            "hacker".to_owned(),
+            "grep".to_owned(),
+            "grep".to_owned(),
+            "read".to_owned(),
+            "Bash".to_owned(),
+        ]),
+        toolset: None,
+    };
+    let defs = definitions(&injections);
+    let names: Vec<&str> = defs.iter().map(|def| def.name.as_str()).collect();
+    assert_eq!(
+        names,
+        vec!["read", "grep"],
+        "hacker / Bash 被滤除、重复名去重且保 TOOL_NAMES 序，实际: {names:?}"
+    );
+    assert!(
+        names.iter().all(|name| TOOL_NAMES.contains(name)),
+        "产出面逐名 ∈ TOOL_NAMES 封闭集"
+    );
+}
+
+/// `create_explore_note` 定义形状：入参仅 `name` / `content`（无 `path` 字段）、
+/// description 非空且注明无路径参数、required 齐备（服务端按会话解析、返回
+/// repo 相对路径的语义以描述文案承载）。
+#[test]
+fn create_explore_note定义形状_name_content双参且无path字段() {
+    let injections = SessionInjections {
+        preamble: None,
+        tools: None,
+        toolset: Some(SessionToolset::Explore),
+    };
+    let defs = definitions(&injections);
+    let note = defs
+        .iter()
+        .find(|def| def.name == EXPLORE_NOTE_TOOL)
+        .expect("Explore 注入下专用定义在场");
+
+    assert!(!note.description.is_empty(), "description 非空");
+    assert!(
+        note.description.contains("无路径参数"),
+        "description 注明无路径参数（服务端按会话解析）: {}",
+        note.description
+    );
+    assert!(
+        note.description.contains("repo 相对"),
+        "description 注明返回 repo 相对路径: {}",
+        note.description
+    );
+    assert!(
+        note.description.contains("edit"),
+        "description 注明路径供 edit 续用: {}",
+        note.description
+    );
+
+    let properties = &note.parameters["properties"];
+    assert!(
+        properties.get("name").is_some_and(|v| v.is_object()),
+        "name 属性在场: {properties}"
+    );
+    assert!(
+        properties.get("content").is_some_and(|v| v.is_object()),
+        "content 属性在场: {properties}"
+    );
+    assert!(
+        properties.get("path").is_none(),
+        "无 path 字段（与六通用工具的关键形态区分）"
+    );
+    let required = note.parameters["required"]
+        .as_array()
+        .expect("required 数组");
+    assert!(
+        required.iter().any(|v| v == "name") && required.iter().any(|v| v == "content"),
+        "name / content 均必填: {required:?}"
+    );
+}
+
+/// 七通用定义体逐字回归快照：各定义 name / description / required 与参数化
+/// 前字面量逐字一致（`generic_definition` 重构零内容漂移——描述串逐字锚定）。
+#[test]
+fn 七通用定义体逐字快照_描述与required面零漂移() {
+    let defs = definitions(&SessionInjections::default());
+    let by_name = |name: &str| {
+        defs.iter()
+            .find(|def| def.name == name)
+            .unwrap_or_else(|| panic!("{name} 定义应在场"))
+    };
+
+    // (name, required, description 逐字前缀锚)
+    let expected: [(&str, &[&str], &str); 7] = [
+        ("read", &["path"], "读取文件内容（行号前缀输出）"),
+        ("grep", &["path", "pattern"], "行级正则匹配"),
+        ("glob", &["pattern"], "按 glob 模式列出 workspace 内匹配文件（root 相对模式，上限 200 条）"),
+        ("ls", &["path"], "列目录：一级条目（目录带 / 后缀），字母序"),
+        ("write", &["path", "content"], "覆写文件（全量覆盖；缺失父目录自动创建）"),
+        ("edit", &["path", "old_string", "new_string"], "精确串替换：old_string 在文件中必须唯一命中（多处需 replace_all）"),
+        ("bash", &["command"], "执行 shell 命令并返回合并输出"),
+    ];
+    assert_eq!(expected.len(), TOOL_NAMES.len(), "快照面与封闭清单同宽");
+    for (name, required, description_head) in expected {
+        let def = by_name(name);
+        assert_eq!(def.name, name, "定义名逐字");
+        // 描述逐字锚（read / grep / bash 描述更长，锚定前缀段；glob / ls /
+        // write / edit 的锚即全串——starts_with 判定下两者等价成立）
+        assert!(
+            def.description.starts_with(description_head),
+            "{name} 描述须与既有字面量逐字一致，实际: {}",
+            def.description
+        );
+        let actual_required = def.parameters["required"]
+            .as_array()
+            .unwrap_or_else(|| panic!("{name} required 数组"));
+        let actual: Vec<&str> = actual_required.iter().map(|v| v.as_str().expect("字符串")).collect();
+        assert_eq!(actual, required, "{name} required 面逐字一致");
+        assert_eq!(
+            def.parameters["type"], json!("object"),
+            "{name} schema object 类型锚"
+        );
+    }
+
+    // glob 无 path 属性（快照半边）；read 的 offset/limit 属性仍在
+    assert!(by_name("glob").parameters["properties"].get("path").is_none());
+    assert!(by_name("read").parameters["properties"]["offset"].is_object());
+    assert!(by_name("read").parameters["properties"]["limit"].is_object());
 }

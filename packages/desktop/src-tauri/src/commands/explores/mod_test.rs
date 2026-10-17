@@ -262,7 +262,7 @@ fn scan_explores求差结果与workflow扫描减workspace库绑定手工求差�
     state
         .for_root(&env.root())
         .expect("for_root 应成功")
-        .create_explore_record(&env.root(), "b")
+        .create_explore_record(&env.root(), Some("b"))
         .expect("建档应成功");
 
     let via_command = scan_explores(env.root(), state.clone()).expect("scan 应成功");
@@ -303,7 +303,7 @@ fn 三文件一经绑定b后导入候选恰为未绑定的a与c() {
     state
         .for_root(&env.root())
         .expect("for_root 应成功")
-        .create_explore_record(&env.root(), "b")
+        .create_explore_record(&env.root(), Some("b"))
         .expect("建档应成功");
 
     let scanned = scan_explores(env.root(), state).expect("scan 应成功");
@@ -320,9 +320,9 @@ fn 全部文件已绑定时导入候选为空数组() {
     env.note("a", "# a");
     env.note("b", "# b");
     let ws = state.for_root(&env.root()).expect("for_root 应成功");
-    ws.create_explore_record(&env.root(), "a")
+    ws.create_explore_record(&env.root(), Some("a"))
         .expect("建档应成功");
-    ws.create_explore_record(&env.root(), "b")
+    ws.create_explore_record(&env.root(), Some("b"))
         .expect("建档应成功");
 
     let scanned = scan_explores(env.root(), state).expect("scan 应成功");
@@ -355,7 +355,7 @@ fn 绑定记录的文件已删孤儿仍被滤除不回入候选() {
     state
         .for_root(&env.root())
         .expect("for_root 应成功")
-        .create_explore_record(&env.root(), "b")
+        .create_explore_record(&env.root(), Some("b"))
         .expect("建档应成功");
     fs::remove_file(&orphan_note).expect("删除磁盘文件失败（模拟孤儿）");
 
@@ -380,7 +380,7 @@ fn 大小写差异文件按记录name精确求差不引入文件系统折叠() {
     state
         .for_root(&env.root())
         .expect("for_root 应成功")
-        .create_explore_record(&env.root(), "casedoc")
+        .create_explore_record(&env.root(), Some("casedoc"))
         .expect("建档应成功");
 
     let scanned = scan_explores(env.root(), state).expect("scan 应成功");
@@ -413,7 +413,7 @@ fn scan_explores过滤非kebab_stem与已绑定过滤并存() {
     state
         .for_root(&env.root())
         .expect("for_root 应成功")
-        .create_explore_record(&env.root(), "also-valid")
+        .create_explore_record(&env.root(), Some("also-valid"))
         .expect("建档应成功");
 
     let scanned = scan_explores(env.root(), state).expect("scan 应成功");
@@ -436,7 +436,7 @@ fn create_explore_record携root经for_root落该workspace库() {
     let app = app_with_stores(&env);
     let state = app.state::<WorkspaceStores>();
 
-    let record = create_explore_record(state.clone(), env.root(), "new-topic".to_owned())
+    let record = create_explore_record(state.clone(), env.root(), Some("new-topic".to_owned()))
         .expect("建档应成功");
 
     assert_eq!(record.root, env.root(), "归属 root 以入参落库");
@@ -459,8 +459,8 @@ fn rename保主键且delete级联名下runs与events在同一workspace库内收�
     let app = app_with_stores(&env);
     let state = app.state::<WorkspaceStores>();
 
-    let original =
-        create_explore_record(state.clone(), env.root(), "topic".to_owned()).expect("建档应成功");
+    let original = create_explore_record(state.clone(), env.root(), Some("topic".to_owned()))
+        .expect("建档应成功");
     // 名下归属会话（source=explore，source_ref=记录 id 十进制串）落同一 workspace 库
     {
         let ws = state.for_root(&env.root()).expect("for_root 应成功");
@@ -511,7 +511,7 @@ fn 两workspace同名建档各自独立_甲库建档后乙库清单为空() {
     let root_a = env.root();
     let root_b = env.other_root();
 
-    let a = create_explore_record(state.clone(), root_a.clone(), "same-topic".to_owned())
+    let a = create_explore_record(state.clone(), root_a.clone(), Some("same-topic".to_owned()))
         .expect("A 库建档应成功");
     assert_eq!(
         list_explore_records(state.clone(), root_b.clone()).expect("B 库清单应成功"),
@@ -519,7 +519,7 @@ fn 两workspace同名建档各自独立_甲库建档后乙库清单为空() {
         "A 库建档后 B 库清单为空（分库天然隔离）"
     );
 
-    let b = create_explore_record(state.clone(), root_b.clone(), "same-topic".to_owned())
+    let b = create_explore_record(state.clone(), root_b.clone(), Some("same-topic".to_owned()))
         .expect("B 库同名建档不冲突");
     assert_eq!(a.id, b.id, "两库同 id 并行（库域内自增）");
     let list_a = list_explore_records(state.clone(), root_a).expect("A 库清单应成功");
@@ -539,10 +539,10 @@ fn list_explore_records有两条记录返回与for_root直连serde等值的两�
     let state = app.state::<WorkspaceStores>();
     let ws = state.for_root(&env.root()).expect("for_root 应成功");
     let first = ws
-        .create_explore_record(&env.root(), "alpha")
+        .create_explore_record(&env.root(), Some("alpha"))
         .expect("建档应成功");
     let second = ws
-        .create_explore_record(&env.root(), "beta")
+        .create_explore_record(&env.root(), Some("beta"))
         .expect("建档应成功");
 
     let via_command = list_explore_records(state.clone(), env.root()).expect("list 应成功");
@@ -569,7 +569,7 @@ fn list_explore_records_blank_root返回空数组() {
     state
         .for_root(&env.root())
         .expect("for_root 应成功")
-        .create_explore_record(&env.root(), "alpha")
+        .create_explore_record(&env.root(), Some("alpha"))
         .expect("建档应成功");
 
     assert_eq!(
@@ -585,7 +585,7 @@ fn create_explore_record建档返回记录dto且list可见() {
     let app = app_with_stores(&env);
     let state = app.state::<WorkspaceStores>();
 
-    let record = create_explore_record(state.clone(), env.root(), "new-topic".to_owned())
+    let record = create_explore_record(state.clone(), env.root(), Some("new-topic".to_owned()))
         .expect("建档应成功");
 
     assert_eq!(record.name, "new-topic");
@@ -603,9 +603,10 @@ fn create_explore_record重复名store错误透传为命令err字符串() {
     let env = Env::new("create-dup");
     let app = app_with_stores(&env);
     let state = app.state::<WorkspaceStores>();
-    create_explore_record(state.clone(), env.root(), "dup".to_owned()).expect("首次建档应成功");
+    create_explore_record(state.clone(), env.root(), Some("dup".to_owned()))
+        .expect("首次建档应成功");
 
-    let err = create_explore_record(state, env.root(), "dup".to_owned())
+    let err = create_explore_record(state, env.root(), Some("dup".to_owned()))
         .expect_err("重复建档应 Err(String)");
 
     assert!(
@@ -622,7 +623,7 @@ fn 非法记录名建档在命令边界返回err() {
 
     for name in ["", "a/b", "a\\b"] {
         assert!(
-            create_explore_record(state.clone(), env.root(), name.to_owned()).is_err(),
+            create_explore_record(state.clone(), env.root(), Some(name.to_owned())).is_err(),
             "非法名 {name:?} 应 Err（单分量校验）"
         );
     }
@@ -650,7 +651,7 @@ fn blank_root纪律矩阵_list与scan空结果_create与rename与delete为err() 
         Vec::new()
     );
     // 写命令 Err 语义（写无空结果语义，无 panic 无错误弹窗）
-    assert!(create_explore_record(state.clone(), String::new(), "x".to_owned()).is_err());
+    assert!(create_explore_record(state.clone(), String::new(), Some("x".to_owned())).is_err());
     assert!(
         rename_explore_record(
             state.clone(),
@@ -672,8 +673,8 @@ fn rename_explore_record改名后返回更新记录且新名可寻址() {
     let env = Env::new("rename-hit");
     let app = app_with_stores(&env);
     let state = app.state::<WorkspaceStores>();
-    let original =
-        create_explore_record(state.clone(), env.root(), "old".to_owned()).expect("建档应成功");
+    let original = create_explore_record(state.clone(), env.root(), Some("old".to_owned()))
+        .expect("建档应成功");
 
     let renamed = rename_explore_record(
         state.clone(),
@@ -702,7 +703,7 @@ fn delete_explore_record删除已绑定记录返回true再删返回false幂等()
     let app = app_with_stores(&env);
     let state = app.state::<WorkspaceStores>();
     let note = env.note("gone", "# 内容");
-    create_explore_record(state.clone(), env.root(), "gone".to_owned()).expect("建档应成功");
+    create_explore_record(state.clone(), env.root(), Some("gone".to_owned())).expect("建档应成功");
 
     let first =
         delete_explore_record(state.clone(), env.root(), "gone".to_owned()).expect("删除应成功");
@@ -733,7 +734,7 @@ fn root不可寻址_五命令err透传不panic() {
     for err in [
         scan_explores(missing.clone(), state.clone()).expect_err("scan 应 Err"),
         list_explore_records(state.clone(), missing.clone()).expect_err("清单应 Err"),
-        create_explore_record(state.clone(), missing.clone(), "topic".to_owned())
+        create_explore_record(state.clone(), missing.clone(), Some("topic".to_owned()))
             .expect_err("建档应 Err"),
         rename_explore_record(
             state.clone(),
@@ -764,8 +765,8 @@ fn update_explore_title正向回填并返回更新记录() {
     let env = Env::new("update-title-ok");
     let app = app_with_stores(&env);
     let state = app.state::<WorkspaceStores>();
-    let original =
-        create_explore_record(state.clone(), env.root(), "topic-a".to_owned()).expect("建档应成功");
+    let original = create_explore_record(state.clone(), env.root(), Some("topic-a".to_owned()))
+        .expect("建档应成功");
 
     let updated = update_explore_title(
         state.clone(),
@@ -797,8 +798,8 @@ fn update_explore_title空白root与空白title显式err() {
     let env = Env::new("update-title-blank");
     let app = app_with_stores(&env);
     let state = app.state::<WorkspaceStores>();
-    let original =
-        create_explore_record(state.clone(), env.root(), "topic-a".to_owned()).expect("建档应成功");
+    let original = create_explore_record(state.clone(), env.root(), Some("topic-a".to_owned()))
+        .expect("建档应成功");
 
     for root in [String::new(), "   ".to_owned()] {
         let err =
@@ -839,8 +840,8 @@ fn ensure_explore_session正向幂等与err面() {
     let env = Env::new("ensure-session-ok");
     let app = app_with_stores(&env);
     let state = app.state::<WorkspaceStores>();
-    let created =
-        create_explore_record(state.clone(), env.root(), "topic-a".to_owned()).expect("建档应成功");
+    let created = create_explore_record(state.clone(), env.root(), Some("topic-a".to_owned()))
+        .expect("建档应成功");
     let pinned = created
         .session_id
         .clone()
@@ -900,7 +901,8 @@ async fn promote_explore四步成功_笔记移走记录保留打标() {
     let root = env.root();
     let note = "# 重试策略\n\n- 线索一\n- 线索二";
     let note_path = env.note("api-retry", note);
-    create_explore_record(state.clone(), root.clone(), "api-retry".to_owned()).expect("建档应成功");
+    create_explore_record(state.clone(), root.clone(), Some("api-retry".to_owned()))
+        .expect("建档应成功");
 
     let outcome = promote_explore_with(
         app.handle().clone(),
@@ -965,7 +967,7 @@ async fn promote_explore_blank_root与非kebab显式err零读写() {
     let state = app.state::<WorkspaceStores>();
     let root = env.root();
     let note_path = env.note("valid-topic", "# 标题\n正文");
-    create_explore_record(state.clone(), root.clone(), "valid-topic".to_owned())
+    create_explore_record(state.clone(), root.clone(), Some("valid-topic".to_owned()))
         .expect("建档应成功");
 
     for root_arg in [String::new(), "   ".to_owned()] {
@@ -1013,7 +1015,8 @@ async fn promote_explore笔记未落盘或空白拒绝() {
     let app = app_with_data(&env);
     let state = app.state::<WorkspaceStores>();
     let root = env.root();
-    create_explore_record(state.clone(), root.clone(), "no-note".to_owned()).expect("建档应成功");
+    create_explore_record(state.clone(), root.clone(), Some("no-note".to_owned()))
+        .expect("建档应成功");
 
     // 未落盘
     let err = promote_explore_with(
@@ -1068,7 +1071,7 @@ async fn promote_explore已promoted拒绝() {
     let state = app.state::<WorkspaceStores>();
     let root = env.root();
     let note_path = env.note("done-topic", "# 标题\n正文");
-    create_explore_record(state.clone(), root.clone(), "done-topic".to_owned())
+    create_explore_record(state.clone(), root.clone(), Some("done-topic".to_owned()))
         .expect("建档应成功");
     state
         .for_root(&root)
@@ -1121,7 +1124,7 @@ async fn promote_explore透传test_only且move照常() {
     let root = env.root();
     let note = "# 补测试\n\n目标是给既有模块补测试用例";
     let note_path = env.note("only-tests", note);
-    create_explore_record(state.clone(), root.clone(), "only-tests".to_owned())
+    create_explore_record(state.clone(), root.clone(), Some("only-tests".to_owned()))
         .expect("建档应成功");
 
     let outcome = promote_explore_with(
@@ -1171,7 +1174,7 @@ async fn promote_explore非法workflow_type拒绝零铸出() {
     let state = app.state::<WorkspaceStores>();
     let root = env.root();
     let note_path = env.note("valid-topic", "# 标题\n正文");
-    create_explore_record(state.clone(), root.clone(), "valid-topic".to_owned())
+    create_explore_record(state.clone(), root.clone(), Some("valid-topic".to_owned()))
         .expect("建档应成功");
 
     for workflow_type in ["bug-fix", "", " ", "refactor", "test_only"] {
@@ -1227,8 +1230,12 @@ async fn promote_explore_workflow_type大小写空白canonical() {
     let root = env.root();
     let note = "# 规范化\n正文";
     env.note("canonical-topic", note);
-    create_explore_record(state.clone(), root.clone(), "canonical-topic".to_owned())
-        .expect("建档应成功");
+    create_explore_record(
+        state.clone(),
+        root.clone(),
+        Some("canonical-topic".to_owned()),
+    )
+    .expect("建档应成功");
 
     let outcome = promote_explore_with(
         app.handle().clone(),
@@ -1260,8 +1267,8 @@ fn update_explore_workflow_type正向回填与刷新updated_at() {
     let env = Env::new("update-wf-ok");
     let app = app_with_stores(&env);
     let state = app.state::<WorkspaceStores>();
-    let original =
-        create_explore_record(state.clone(), env.root(), "topic-a".to_owned()).expect("建档应成功");
+    let original = create_explore_record(state.clone(), env.root(), Some("topic-a".to_owned()))
+        .expect("建档应成功");
     assert_eq!(
         original.workflow_type, "requirement",
         "建档默认 requirement"
@@ -1305,7 +1312,8 @@ fn update_explore_workflow_type大小写空白canonical() {
     let env = Env::new("update-wf-canonical");
     let app = app_with_stores(&env);
     let state = app.state::<WorkspaceStores>();
-    create_explore_record(state.clone(), env.root(), "topic-a".to_owned()).expect("建档应成功");
+    create_explore_record(state.clone(), env.root(), Some("topic-a".to_owned()))
+        .expect("建档应成功");
 
     for (value, expected) in [
         ("Test-Only", "test-only"),
@@ -1334,8 +1342,8 @@ fn update_explore_workflow_type_blank_root与非法值拒绝零改动() {
     let env = Env::new("update-wf-reject");
     let app = app_with_stores(&env);
     let state = app.state::<WorkspaceStores>();
-    let original =
-        create_explore_record(state.clone(), env.root(), "topic-a".to_owned()).expect("建档应成功");
+    let original = create_explore_record(state.clone(), env.root(), Some("topic-a".to_owned()))
+        .expect("建档应成功");
 
     for root in [String::new(), "   ".to_owned()] {
         let err = update_explore_workflow_type(
@@ -1424,7 +1432,8 @@ fn update_explore_workflow_type_miss透传err() {
     );
 
     // 异 root 归属寻址同 miss
-    create_explore_record(state.clone(), env.root(), "topic-a".to_owned()).expect("建档应成功");
+    create_explore_record(state.clone(), env.root(), Some("topic-a".to_owned()))
+        .expect("建档应成功");
     assert!(
         update_explore_workflow_type(
             state.clone(),
@@ -1444,8 +1453,8 @@ fn read_explore读路径零写入不触回填() {
     let env = Env::new("read-wf-pure");
     let app = app_with_stores(&env);
     let state = app.state::<WorkspaceStores>();
-    let original =
-        create_explore_record(state.clone(), env.root(), "topic-a".to_owned()).expect("建档应成功");
+    let original = create_explore_record(state.clone(), env.root(), Some("topic-a".to_owned()))
+        .expect("建档应成功");
     env.note("topic-a", "# 标题\nworkflow_type: test-only\n");
 
     let doc = read_explore(env.root(), "topic-a".to_owned());
@@ -1463,5 +1472,208 @@ fn read_explore读路径零写入不触回填() {
     assert_eq!(
         original.workflow_type, "requirement",
         "读路径不推断类型（回填归命令层显式调用）"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// auto-named-explore：create(None) 占位建档（IPC 透传）与 promote 占位门禁
+// ---------------------------------------------------------------------------
+
+/// 占位名形态校验（命令层断言半边）：`draft-` 前缀 + 纯数字尾段。
+fn assert_command_placeholder_shape(name: &str) {
+    assert!(
+        name.starts_with(store::EXPLORE_PLACEHOLDER_PREFIX),
+        "占位名以 draft- 前缀起头，实际: {name:?}"
+    );
+    let tail = &name[store::EXPLORE_PLACEHOLDER_PREFIX.len()..];
+    assert!(
+        !tail.is_empty() && tail.bytes().all(|b| b.is_ascii_digit()),
+        "尾段为纯数字毫秒值，实际: {name:?}"
+    );
+}
+
+/// create(None) 占位建档（正向，AC-2）：返回 `name` 匹配 `draft-<毫秒>`、
+/// `title` 为 `<yyyy-MM-dd HH:mm:ss>-分析中`、`session_id` 回写；
+/// `openspec/explores/`（layout 真实派生）下无占位名文件——占位名从未落盘。
+#[test]
+fn create_none占位建档_draft名与临时标题且零文件落盘() {
+    let env = Env::new("create-none");
+    let app = app_with_stores(&env);
+    let state = app.state::<WorkspaceStores>();
+
+    let record = create_explore_record(state.clone(), env.root(), None).expect("占位建档应成功");
+
+    assert_command_placeholder_shape(&record.name);
+    // title：<yyyy-MM-dd HH:mm:ss>-分析中（UTC 秒级派生临时标题）
+    let suffix = "-分析中";
+    assert!(
+        record.title.ends_with(suffix),
+        "临时标题以 -分析中 收尾，实际: {:?}",
+        record.title
+    );
+    let stamp = &record.title[..record.title.len() - suffix.len()];
+    assert_eq!(stamp.len(), 19, "时间戳段恰 19 字符");
+    assert!(
+        stamp.bytes().enumerate().all(|(index, byte)| match index {
+            4 | 7 => byte == b'-',
+            10 => byte == b' ',
+            13 | 16 => byte == b':',
+            _ => byte.is_ascii_digit(),
+        }),
+        "时间戳段为 yyyy-MM-dd HH:mm:ss 形态: {stamp}"
+    );
+    // session_id 回写（预建空会话）
+    let session_id = record.session_id.clone().expect("建档回写 session_id");
+    assert!(
+        state
+            .for_root(&env.root())
+            .expect("for_root 应成功")
+            .find_session(&session_id)
+            .expect("find_session 应成功")
+            .is_some(),
+        "预建空会话同事务在库"
+    );
+    // openspec/explores/（layout 真实派生）下无占位名文件
+    let explores_root = foundation::layout::resolve(env.ws_root.path()).explores_root;
+    let leftovers: Vec<_> = match fs::read_dir(&explores_root) {
+        Ok(entries) => entries
+            .filter_map(|entry| entry.ok())
+            .map(|entry| entry.file_name().to_string_lossy().into_owned())
+            .filter(|name| name.starts_with(store::EXPLORE_PLACEHOLDER_PREFIX))
+            .collect(),
+        Err(_) => Vec::new(),
+    };
+    assert!(
+        leftovers.is_empty(),
+        "占位名从未落盘（explores 目录无 draft- 文件），实际: {leftovers:?}"
+    );
+}
+
+/// create(None) 重复建档互异（边界，AC-2）：连续两次 `create(None)` → 互异名
+///（透传 store 事务内单调兜底）。
+#[test]
+fn create_none连续两次建档获得互异占位名() {
+    let env = Env::new("create-none-twice");
+    let app = app_with_stores(&env);
+    let state = app.state::<WorkspaceStores>();
+
+    let first = create_explore_record(state.clone(), env.root(), None).expect("首次应成功");
+    let second = create_explore_record(state.clone(), env.root(), None).expect("二次应成功");
+
+    assert_ne!(first.name, second.name, "同毫秒撞名经单调兜底互异");
+    assert_command_placeholder_shape(&first.name);
+    assert_command_placeholder_shape(&second.name);
+    assert_eq!(
+        list_explore_records(state, env.root())
+            .expect("清单应成功")
+            .len(),
+        2,
+        "两条占位记录均在库"
+    );
+}
+
+/// promote 占位门禁（异常，AC-9）：`draft-` 前缀记录 promote → 显式 `Err`
+/// 引导先在会话中完成定名。
+#[tokio::test]
+async fn promote占位记录被门禁显式拒绝引导先定名() {
+    let env = Env::new("promote-draft");
+    let app = app_with_data(&env);
+    let state = app.state::<WorkspaceStores>();
+    let root = env.root();
+    let record = create_explore_record(state.clone(), root.clone(), None).expect("占位建档应成功");
+
+    let err = promote_explore_with(
+        app.handle().clone(),
+        root.clone(),
+        record.name.clone(),
+        "requirement".to_owned(),
+    )
+    .await
+    .expect_err("占位记录 promote 应被门禁拒绝");
+
+    assert!(
+        err.contains("尚未定名") && err.contains("create_explore_note"),
+        "门禁文案引导先经 create_explore_note 定名，实际: {err}"
+    );
+    assert!(
+        !err.contains("尚未落盘"),
+        "门禁先于笔记读取（不落入「笔记未落盘」分支）"
+    );
+    // 零副作用：无 change 建档、记录未打标
+    assert!(
+        state
+            .for_root(&root)
+            .expect("for_root 应成功")
+            .list_change_records()
+            .expect("清单应成功")
+            .is_empty(),
+        "门禁拒绝零 change 建档"
+    );
+}
+
+/// 门禁先于笔记读取（边界步序断言）：占位记录且笔记文件不存在 → 命中占位
+/// 门禁 `Err` 而非「笔记未落盘」`Err`（workflow_type 校验 → 占位门禁 → 读笔记）。
+#[tokio::test]
+async fn promote占位门禁先于笔记读取步序() {
+    let env = Env::new("promote-draft-order");
+    let app = app_with_data(&env);
+    let state = app.state::<WorkspaceStores>();
+    let root = env.root();
+    let record = create_explore_record(state.clone(), root.clone(), None).expect("占位建档应成功");
+    // 前置：占位名笔记文件确实不存在（占位名从未落盘）
+    let explores_root = foundation::layout::resolve(env.ws_root.path()).explores_root;
+    assert!(
+        !explores_root.join(format!("{}.md", record.name)).exists(),
+        "前置：占位笔记未落盘"
+    );
+
+    let err = promote_explore_with(
+        app.handle().clone(),
+        root,
+        record.name.clone(),
+        "requirement".to_owned(),
+    )
+    .await
+    .expect_err("占位 + 无笔记应命中门禁");
+
+    assert!(
+        err.contains("尚未定名"),
+        "步序断言：命中占位门禁（先于读笔记），实际: {err}"
+    );
+    assert!(
+        !err.contains("尚未落盘或内容为空白"),
+        "不落入「笔记未落盘」分支，实际: {err}"
+    );
+}
+
+/// 用户自建 draft- 前缀名（边界，proposal 风险 7 留痕口径）：显式导入
+/// `draft-<毫秒>` 名记录 → promote 同被门禁拦截（前缀判别不看建档来源）。
+#[tokio::test]
+async fn 用户自建draft前缀名promote同被门禁拦截() {
+    let env = Env::new("promote-user-draft");
+    let app = app_with_data(&env);
+    let state = app.state::<WorkspaceStores>();
+    let root = env.root();
+    // draft-<数字> 为合法 kebab（首段字母、次段数字）——显式名建档可达
+    let imported = create_explore_record(
+        state.clone(),
+        root.clone(),
+        Some("draft-20260101000000".to_owned()),
+    )
+    .expect("显式导入 draft- 前缀名建档应成功");
+    env.note("draft-20260101000000", "# 用户自建笔记\n内容");
+
+    let err = promote_explore_with(
+        app.handle().clone(),
+        root,
+        imported.name.clone(),
+        "requirement".to_owned(),
+    )
+    .await
+    .expect_err("用户自建 draft- 名 promote 应同被门禁拦截");
+
+    assert!(
+        err.contains("尚未定名"),
+        "前缀判别单点：不分建档来源一律拦截，实际: {err}"
     );
 }

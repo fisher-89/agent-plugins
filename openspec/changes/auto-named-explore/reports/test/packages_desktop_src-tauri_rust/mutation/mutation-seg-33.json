@@ -1,0 +1,121 @@
+{
+  "outcomes": [
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/commands/explores/mod.rs:141:5: replace create_explore_record -> Result<ExploreRecord, String> with Ok(Default::default())",
+          "package": "dev-team",
+          "file": "src/commands/explores/mod.rs",
+          "function": {
+            "function_name": "create_explore_record",
+            "return_type": "-> Result<ExploreRecord, String>",
+            "span": {
+              "start": {
+                "line": 130,
+                "column": 1
+              },
+              "end": {
+                "line": 149,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 141,
+              "column": 5
+            },
+            "end": {
+              "line": 148,
+              "column": 36
+            }
+          },
+          "replacement": "Ok(Default::default())",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Unviable",
+      "log_path": "log/src__commands__explores__mod.rs_line_141_col_5.log",
+      "diff_path": "diff/src__commands__explores__mod.rs_line_141_col_5.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 19.4944007,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=dev-team@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/commands/explores/mod.rs:295:5: replace promote_explore_with -> Result<PromoteOutcome, String> with Ok(Default::default())",
+          "package": "dev-team",
+          "file": "src/commands/explores/mod.rs",
+          "function": {
+            "function_name": "promote_explore_with",
+            "return_type": "-> Result<PromoteOutcome, String>",
+            "span": {
+              "start": {
+                "line": 279,
+                "column": 1
+              },
+              "end": {
+                "line": 380,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 295,
+              "column": 5
+            },
+            "end": {
+              "line": 379,
+              "column": 16
+            }
+          },
+          "replacement": "Ok(Default::default())",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Unviable",
+      "log_path": "log/src__commands__explores__mod.rs_line_295_col_5.log",
+      "diff_path": "diff/src__commands__explores__mod.rs_line_295_col_5.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 22.9753115,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=dev-team@0.1.0"
+          ]
+        }
+      ]
+    }
+  ],
+  "total_mutants": 2,
+  "missed": 0,
+  "caught": 0,
+  "timeout": 0,
+  "unviable": 2,
+  "success": 0,
+  "start_time": "2026-10-17T07:39:05.8275164Z",
+  "end_time": "2026-10-17T07:39:33.8496049Z",
+  "cargo_mutants_version": "27.1.0"
+}

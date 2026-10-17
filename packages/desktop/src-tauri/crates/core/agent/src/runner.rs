@@ -38,15 +38,30 @@ pub enum AgentRunStatus {
     Stopped,
 }
 
-/// 会话级注入：preamble（系统前导）与 tools（工具面）为切片③预留接口位，
-/// MVP 引擎忽略（整合方式——preamble / flag / 忽略——引擎自选，协议形状
-/// 不因整合方式改变）。
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+/// 会话级专用工具面受控枚举：core 只承载词汇（首值 `Explore` = explore 笔记
+/// 工具面），解释归 infra（compose 装配 / sdk definitions 组装）。serde
+/// camelCase 线值 `"explore"`，与 `AgentPermissionMode` / `ModelLevel` 同款。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum SessionToolset {
+    /// explore 笔记工具面（`create_explore_note` 专用工具追加）
+    Explore,
+}
+
+/// 会话级注入：`tools`（工具面收窄子集）/ `toolset`（受控专用工具追加）位自
+/// 本 change 起按来源装配消费（见 infra compose——explore 来源六工具 + Explore
+/// 枚举，其余恒 default）；`preamble` 位维持不消费（系统提示词唯一来源仍为
+/// `AGENT.md`）。serde additive：旧线 JSON 无 `toolset` 字段读出 `None`。
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SessionInjections {
-    /// 会话级系统前导（None 即不注入）
+    /// 会话级系统前导（None 即不注入；维持不消费）
     pub preamble: Option<String>,
-    /// 会话级工具面收窄（None 即引擎默认工具面）
+    /// 会话级工具面收窄（None 即引擎默认工具面；Some = 七工具子集）
     pub tools: Option<Vec<String>>,
+    /// 受控枚举位：`tools` 收窄子集 / `toolset` 追加专用工具 / `preamble` 维持
+    /// 不消费（None = 无专用工具追加）
+    #[serde(default)]
+    pub toolset: Option<SessionToolset>,
 }
 
 /// 模型等级（轮级选型档位）：引擎侧按档取 provider 双档模型（High = 高能力

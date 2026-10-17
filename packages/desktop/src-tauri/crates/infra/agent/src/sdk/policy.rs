@@ -12,16 +12,19 @@
 //! 边界**：命令执行不在路径沙箱射程内——bypassPermissions 默认档下 bash 即
 //! 模型可执行任意命令、安全护栏为零（超时 + 进程树清理仅为活性护栏）；命令
 //! 级白/黑名单、真沙箱、交互审批留后续 change（spec 边界条款留痕，非安全
-//! 缺口遗漏）。拒绝不中断 run：由 loop 侧合成
-//! `SystemNotice{permission_denied}` + is_error ToolResult 回灌续轮。
+//! 缺口遗漏）。`create_explore_note` 归写面档位（Default 拒绝、AcceptEdits /
+//! BypassPermissions 放行——拒绝形态与 write/edit 同构）。拒绝不中断 run：
+//! 由 loop 侧合成 `SystemNotice{permission_denied}` + is_error ToolResult
+//! 回灌续轮。
 
 use agent::AgentPermissionMode;
 
 /// 只读工具（default 档放行面）。
 const READONLY_TOOLS: [&str; 4] = ["read", "grep", "glob", "ls"];
 
-/// 写面工具（acceptEdits 档追加放行）。
-const WRITE_TOOLS: [&str; 2] = ["write", "edit"];
+/// 写面工具（acceptEdits 档追加放行；`create_explore_note` 归写面档位——
+/// Default 拒绝、AcceptEdits / BypassPermissions 放行）。
+const WRITE_TOOLS: [&str; 3] = ["write", "edit", "create_explore_note"];
 
 /// 执行面工具（acceptEdits / bypassPermissions 档追加放行；default 档拒绝）。
 const EXECUTE_TOOLS: [&str; 1] = ["bash"];

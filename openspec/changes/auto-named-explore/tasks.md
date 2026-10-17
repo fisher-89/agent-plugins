@@ -1,0 +1,59 @@
+# 任务: auto-named-explore
+
+> 测试文件的编写与执行由 test-design / test-gen / test-execution 阶段承接（含 `core/agent/src/runner_test.rs` toolset 序列化 additive、`infra/agent/src/sdk/` 各测试（注入面组装 / 成员校验拒绝 / `create_explore_note` 执行体各失败臂 / facade 句柄透传）、`infra/store/src/store_test.rs`（占位建档 / 撞名单调兜底 / `Some` 路径回归）、`src-tauri/src/commands/explores/mod_test.rs`（create `Option` / promote 占位门禁）、前端 `explore-create-dialog.test.tsx` / `use-explore-session.test.ts` / `explore-detail-view.test.tsx` / `lib/explore-stance.test.ts` / `explore-view.test.tsx` 随迁——`loop_test.rs` 既有七工具断言按默认面语义保持、未知工具拒绝形态 `permission_denied → tool_unavailable` 随迁），本列表只覆盖实现文件。
+>
+> 依赖序要点：core 契约词汇（阶段一）被 store 无关、但被 compose 装配与 sdk definitions 消费，先行；store 占位建档与前缀常量（阶段二）被命令层与引擎执行体依赖；引擎门面 / 泵装配缝（阶段三）与工具面四件（阶段四：tools / policy / 执行体 / loop）须同批落地编译才绿（`LoopTurn` 字段与 `definitions` 新签互相咬合）；compose 装配（阶段五）依赖阶段一词汇与阶段三句柄缝；bindings 再生（阶段六）依赖命令签名定稿并先于前端（阶段七——`createExploreRecord` 的 `string | null` 参数面被 dialog 消费）；SKILL.md 双源同步（阶段八）与 stance 两形（阶段七）同批审阅；版本与自查（阶段九）殿后。
+
+## 阶段一：core 契约词汇（SessionToolset）
+
+- [x] 修改 `packages/desktop/src-tauri/crates/core/agent/src/runner.rs`：新增 `pub enum SessionToolset { Explore }`（derive `Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize` + `#[serde(rename_all = "camelCase")]`，doc：会话级专用工具面受控枚举——core 只承载词汇、解释归 infra）；`SessionInjections` 增 `pub toolset: Option<SessionToolset>`（`#[serde(default)]`，doc：受控枚举位——`tools` 收窄子集 / `toolset` 追加专用工具 / `preamble` 维持不消费）并补挂 `Serialize, Deserialize` derive；结构体 doc 由「切片③预留接口位，MVP 引擎忽略」改注「tools / toolset 位按来源装配消费（见 infra compose）」
+- [x] 修改 `packages/desktop/src-tauri/crates/core/agent/src/lib.rs`：`pub use runner::{…}` 再导出清单增 `SessionToolset`
+
+## 阶段二：store 占位建档与前缀常量
+
+- [x] 修改 `packages/desktop/src-tauri/crates/infra/store/Cargo.toml`：`[dependencies]` 增 `time = { workspace = true }`
+- [x] 修改 `packages/desktop/src-tauri/crates/infra/store/src/store.rs`：新增 `pub const EXPLORE_PLACEHOLDER_PREFIX: &str = "draft-"`（doc：占位名前缀「未定名」判别口径——promote 门禁 / 引擎占位判别 / 前端 stance 分形消费，前端侧字面量双源互链）；新增私有 `fn format_utc_seconds(millis: i64) -> String`（`time::format_description::parse("[year]-[month]-[day] [hour]:[minute]:[second]")` + `OffsetDateTime::from_unix_timestamp_millis`，UTC 口径 doc 注记；任一步失败退化为毫秒串，不 panic）
+- [x] 修改 `packages/desktop/src-tauri/crates/infra/store/src/store.rs`：`create_explore_record` 签名改 `name: Option<&str>`——`Some` 分支既有校验（`check_explore_name` + 查重）与建档行为逐条零变化；`None` 分支在写事务内铸造：基值 `now_millis()` 一次调用，占位名 `format!("{EXPLORE_PLACEHOLDER_PREFIX}{candidate}")`（candidate 自基值起，事务内扫描同 root 同名判重、命中 `candidate += 1` 单调重试——不依赖事务外时钟推进），临时标题 `format!("{}-分析中", format_utc_seconds(基值))` 覆盖 `ExploreRecord::new` 的 `title` 缺省；id 分配 / 预建空会话 / 双 insert / commit 既有结构照旧；函数 doc 注释随动（`None` = 占位建档、占位名从未落盘、store 层零磁盘操作不变）
+- [x] 修改 `packages/desktop/src-tauri/crates/infra/store/src/lib.rs`：`pub use store::{…}` 再导出清单增 `EXPLORE_PLACEHOLDER_PREFIX`
+
+## 阶段三：引擎门面与泵装配缝
+
+- [x] 修改 `packages/desktop/src-tauri/crates/infra/agent/src/lib.rs`：`EngineFacade` 增私有字段 `explore_note_store: Option<Arc<Store>>` 与 builder `pub fn with_explore_note_store(self, store: Arc<Store>) -> Self`（doc：组合根 workspace 库句柄注入缝——per-turn 专用工具执行上下文的铸造原料；与 `with_resume_transcript` / `with_context_window` 同型）；`runner_for` Sdk 臂把句柄传入 `SdkRunner::new`（签名增第四参）
+- [x] 修改 `packages/desktop/src-tauri/crates/infra/agent/src/sdk/runner.rs`：`SdkRunner` 增私有字段 `explore_store: Option<Arc<Store>>`（`new` 增参透传）；`open_session` 把句柄随 `session_pump` 传参；pump 内 `LoopTurn` 字面量增 `injections: open.injections.clone()` 与 `explore_note`——`open.injections.toolset == Some(SessionToolset::Explore)` 时以 `explore_store.clone().zip(continue_session_id(&open)).map(|(store, id)| ExploreNoteContext::new(store, open.ctx.workspace_root.clone(), id))` 铸造（句柄或 Continue id 缺席则 None，生产不可达——explore 会话恒 Continue；doc 注记 per-turn 铸造语义）
+
+## 阶段四：sdk 工具面四件（tools / policy / 执行体 / loop，同批编译）
+
+- [x] 新增 `packages/desktop/src-tauri/crates/infra/agent/src/sdk/explore_note.rs`：`pub(crate) struct ExploreNoteContext { store: Arc<Store>, root: PathBuf, session_id: String }` + `pub(crate) fn new(...)` + `pub(crate) async fn execute(&self, input: &Value) -> Result<String, String>`——① 会话指针圈定记录（`store.list_explore_records(&self.root.to_string_lossy())` 过滤 `record.session_id.as_deref() == Some(&self.session_id)`；miss 显式 `Err` 附会话 id）；② 占位分支（记录名 `draft-` 前缀判别——本地 `const DRAFT_PREFIX` 消费 store 导出口径注释互链）：前置校验（本地 kebab 校验 + 长度 ≤128 / 目标名无既有记录 / 目标文件不存在——非法 kebab 错误文案面向 agent 换名）→ `tokio::fs::create_dir_all(explores_root)` + `OpenOptions::create_new(true)` 落盘 → `store.rename_explore_record(&record.root, &record.name, name)` → Ok 返回 repo 相对路径（落盘路径 `strip_prefix(&self.root)` + `\`→`/` 归一）；①后②失败 `Err` 附已落盘路径与恢复指引；③ 已定名分支：`name == record.name` 且文件缺失 → 同 create-only 补建返回路径；否则 `Err` 附现有记录名与笔记路径（文案即恢复通道——引导转用 edit）
+- [x] 修改 `packages/desktop/src-tauri/crates/infra/agent/src/sdk/mod.rs`：增 `pub(crate) mod explore_note;`（测试模块声明随测试相位补）
+- [x] 修改 `packages/desktop/src-tauri/crates/infra/agent/src/sdk/tools.rs`：新增 `pub(crate) const EXPLORE_NOTE_TOOL: &str = "create_explore_note"`；`definitions` 改签 `pub fn definitions(injections: &agent::SessionInjections) -> Vec<ToolDefinition>`——七通用工具定义体重构为私有 `fn generic_definition(name: &str) -> ToolDefinition` match 臂（内容逐字不变），按 `injections.tools` 保序过滤（`None` = 全七）后、`toolset == Some(SessionToolset::Explore)` 时追加 `create_explore_note` 定义（入参 `name`（kebab 最终名）/ `content`（笔记初稿全文，原样落盘）；description：无路径参数、服务端按当前会话解析目标、占位会话原子定名（文件创建 + 记录改名一次完成）、返回 repo 相对路径供 edit 续用）；`TOOL_NAMES` 与 `definitions` 的 doc 口径随动（七通用工具基准面；RunStarted 与成员校验自 definitions 派生）
+- [x] 修改 `packages/desktop/src-tauri/crates/infra/agent/src/sdk/policy.rs`：`WRITE_TOOLS` 扩 `["write", "edit", "create_explore_note"]`；模块 doc 增注 create_explore_note 归写面档位（Default 拒绝、AcceptEdits / BypassPermissions 放行——拒绝形态与 write/edit 同构）
+- [x] 修改 `packages/desktop/src-tauri/crates/infra/agent/src/sdk/loop.rs`：`LoopTurn` 增 `pub injections: agent::SessionInjections` 与 `pub explore_note: Option<crate::sdk::explore_note::ExploreNoteContext>`；`run` 顶部 `definitions = tools::definitions(&turn.injections)` + `dispatched: Vec<String>` 自 definitions 派生，`RunStarted.tools` 改报 `dispatched.clone()`（doc：本轮实际下发面）；工具分发循环顶部（先于 policy）增成员校验——`!dispatched.iter().any(|n| n == &name)` → `deny(&sender, "tool_unavailable", &name, &reason, &id)` + `history.push(Message::tool_result(...))` + `continue`（run 不中断、不触执行体）；执行臂增路由——`name == tools::EXPLORE_NOTE_TOOL` → `turn.explore_note` 上下文执行（`ctx.execute(&input).await`，Ok/Err 映射 is_error；上下文缺席 is_error 回灌「执行上下文未装配」，生产不可达），其余七通用工具走 `tools::execute(&turn.cwd, &name, &sandboxed)` 纯函数（签名零改动）
+
+## 阶段五：compose 注入装配
+
+- [x] 修改 `packages/desktop/src-tauri/crates/infra/agent/src/compose.rs`：新增 `const EXPLORE_SOURCE: &str = "explore"`（与 store `EXPLORE_RUN_SOURCE` / 前端 `EXPLORE_SOURCE` 三处同字面量注释互链）与私有 `fn assemble_injections(source: &str) -> Result<agent::SessionInjections, String>`——explore 来源注入 `tools = Some([read, grep, glob, ls, edit, bash])`（write 移除；六名逐个校验 ∈ `crate::sdk::tools::TOOL_NAMES`，非法名显式 `Err`）+ `toolset = Some(agent::SessionToolset::Explore)`，其余来源 `SessionInjections::default()`；`begin` 的 `TurnRequest.injections` 改 `assemble_injections(&provenance.source)?`
+- [x] 修改 `packages/desktop/src-tauri/crates/infra/agent/src/compose.rs`：`compose_turn` 门面构造链增 `.with_explore_note_store(Arc::clone(&store))`（explore 会话专用工具执行上下文的句柄半边；doc 注记：组合根铸造、`tools::execute` 纯函数不动）
+
+## 阶段六：命令层与 bindings 再生
+
+- [x] 修改 `packages/desktop/src-tauri/src/commands/explores/mod.rs`：`create_explore_record` 命令签名 `name: Option<String>`（`name.as_deref()` 透传 store；blank root `Err` 照旧；doc：`None` = 占位建档（新话题需求直入）/ `Some` = 导入绑定显式名）
+- [x] 修改 `packages/desktop/src-tauri/src/commands/explores/mod.rs`：`promote_explore_with` 增占位前缀门禁——workflow_type 校验后、笔记读取前，`name.starts_with(store::EXPLORE_PLACEHOLDER_PREFIX)` → 显式 `Err`（文案引导先在会话中完成定名（`create_explore_note`）再启动变更）；函数 doc 步序注释重编号（① 占位门禁 → ② 读笔记 → ③ 记录 → ④ 写面 → ⑤ 打标）
+- [x] 执行 `pnpm -C packages/desktop run bindings:export` 再生成 `packages/desktop/src/types/generated/bindings.ts`（`createExploreRecord: (root: string, name: string | null)`；非手改）——先于阶段七（dialog 消费新参数面）
+
+## 阶段七：前端（stance 两形 + 免命名建档 + auto-send + id 桥）
+
+- [x] 修改 `packages/desktop/src/lib/explore-stance.ts`：`stancePreamble` 退役；新增 `const DRAFT_NAME_PREFIX = 'draft-'`（与 store `EXPLORE_PLACEHOLDER_PREFIX` 双源互链注释）与私有片段 `modeAndStance()`（模式说明 + 立场五条）/ `commonNoteRules()`（两行约定 + 追加纪律）/ `namingStance()`（占位形「笔记定名与落盘」段：kebab 最终名 + `create_explore_note(name, content)` 原子定名 + 返回路径供 edit 续用 + 优先专用工具而非 bash 造文件——零路径插值）/ `locatingStance(recordName)`（定位形「笔记定位」段：插值 `record.name` 与 `openspec/explores/<name>.md` + edit 指引 + 缺失同名补建）；`buildExplorePrompt(userInput, recordName)` 按 `recordName.startsWith(DRAFT_NAME_PREFIX)` 分形组装（全文按 design D11 定稿文案）；文件头双源互链注释更新（与 SKILL.md 双源面随两形扩大）
+- [x] 修改 `packages/desktop/src/views/explores/components/explore-create-dialog.tsx`：`ExploreCreateDialogProps.onCreated` 改 `(name: string, autoPrompt: string | null) => void`；`TopicEntry` 改需求 textarea（`data-testid="explore-topic-requirement"`、label「探索需求（自然语言描述要调研的问题）」、placeholder 示例文案；`createExploreRecord(root, null)` 成功后 `onCreated(record.name, requirement.trim())`——占位名取 invoke 返回记录；`disabled={requirement.trim().length === 0}` 空白禁提交）；`isKebabCase` 函数与 `explore-topic-invalid` 错误分支删除；`ImportItem` 成功回调改 `onCreated(entry.name, null)`
+- [x] 修改 `packages/desktop/src/views/explores/explore-view.tsx`：`onCreated(created, autoPrompt)` 改为 `list.refresh()` 后 `void navigate(\`/explores/${created}\`, autoPrompt === null ? undefined : { state: { autoPrompt } })`；记录派生改三级链——URL 名 find → miss 时以 `lastRecordRef`（`useRef<ExploreRecord | null>`，派生非空时渲染期刷新维护）快照的 `id` 在 `list.records` 重寻 → 仍 miss 以快照本体兜底（MUST NOT 闪现 MissingRecord；doc 注记 id 桥语义——in-place 改名保 id）
+- [x] 修改 `packages/desktop/src/views/explores/explore-detail-view.tsx`：`useLocation().state` 宽容解析 `autoPrompt`（非 string 一律 null）传入 `useExploreSession(root, record, autoPrompt)`；run 终态 effect（`wasRunning` true→false）在 `doc.refresh()` 外增 `list.refresh()`（清单随终态刷新——id 桥数据半边）；新增名变收敛 effect——`record !== null && record.name !== routeName`（`useParams<'name'>()`）→ `void navigate(\`/explores/${record.name}\`, { replace: true })`（doc：id 桥导航半边；`useExploreDoc` 以 name 依赖自动重订阅）
+- [x] 修改 `packages/desktop/src/views/explores/hooks/use-explore-session.ts`：签名增第三参 `autoPrompt: string | null = null`；新增 `const AUTO_SEND_PERMISSION_MODE: AgentPermissionMode = 'bypassPermissions'`（与 composer 缺省档同源注释）与 per-mount `autoSentRef`；auto-send effect——`autoPrompt !== null && !autoSentRef.current && !session.loading && session.chain.length === 0 && record !== null && sessionId !== null` 六条件齐备时置 `autoSentRef.current = true` 并 `send({ prompt: autoPrompt, permissionMode: AUTO_SEND_PERMISSION_MODE })`（doc：per-mount 一次性消费——back/forward 复现 state 时新 mount 重新武装，首轮失败 chain 仍 0 即免费重试；发出后 chain > 0 闸门自然拒发）
+
+## 阶段八：双源同步与插件产物
+
+- [x] 修改 `plugins/dev-team/skills/openspec-explore/SKILL.md`：「Explore draft inbox」段笔记落盘约定随工具化改写——自由格式叙述调整为「自由格式 + 两条约定行」（首行 `# <标题>`、次行 `workflow_type: <requirement|test-only>`，注明与 desktop 探索会话 stance 前导双源同步；desktop 会话笔记创建经专用工具 `create_explore_note` 原子定名，插件 CLI 会话无该工具仅同步结构约定与命名叙事）
+- [x] 修改 `plugins/dev-team/package.json`：`version` 2.10.44 → 2.10.45；执行 `pnpm -C plugins/dev-team run build` 重建三面产物（`dist/claude-plugins/` / `dist/cursor-plugins/` / `dist/cursor-home-image/`）
+
+## 阶段九：版本交付与静态自查
+
+- [x] 修改 `packages/desktop/package.json`：`version` 0.5.13 → 0.5.14（`tauri.conf.json` 经 `../package.json` 自动跟随；`src-tauri/Cargo.toml` 不随动）
+- [x] 静态自查：`tools::execute` 签名未变（`(root, name, input)` 纯函数，store 句柄零侵入）；explore 注入面无 `write`（compose 六工具字面量 + definitions 过滤双确认）；`RunStarted.tools` 与成员校验同源自 definitions（grep 确认无第二份名单残留）；`rename_explore_record` 命令面与前端零接线（维持休眠）；`SessionInjections.preamble` 零消费；事件信封 schema 零改动；`draft-` 字面量四处同步（store 常量 / 命令门禁 / agent-runtime 判别 / 前端 stance 常量，注释互链在场）；`Some(name)` 建档路径零变化（title = name）；`openspec/explores/auto-named-explore.md` 只读未触；静态检查与三测试根由桌面端执行（不在本列表内重复）

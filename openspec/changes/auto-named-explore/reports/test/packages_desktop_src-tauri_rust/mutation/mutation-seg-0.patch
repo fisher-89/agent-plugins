@@ -1,0 +1,850 @@
+diff --git a/Cargo.lock b/Cargo.lock
+index 7dea1164e778..d6832bd1c791 100644
+--- a/Cargo.lock
++++ b/Cargo.lock
+@@ -8675,6 +8675,7 @@ dependencies = [
+  "sha2",
+  "specta",
+  "tempfile",
++ "time",
+  "workflow",
+ ]
+ 
+diff --git a/crates/core/agent/src/kernel_test.rs b/crates/core/agent/src/kernel_test.rs
+index 4977d128967e..f7186656ccd8 100644
+--- a/crates/core/agent/src/kernel_test.rs
++++ b/crates/core/agent/src/kernel_test.rs
+@@ -240,6 +240,7 @@ fn request(session: SessionRef) -> TurnRequest {
+         injections: SessionInjections {
+             preamble: Some("前导".to_owned()),
+             tools: None,
++            toolset: None,
+         },
+         ctx: SessionCtx {
+             workspace_root: std::path::PathBuf::from("D:\\工作区"),
+diff --git a/crates/core/agent/src/lib.rs b/crates/core/agent/src/lib.rs
+index ed8a6f08d57b..841b2eff4184 100644
+--- a/crates/core/agent/src/lib.rs
++++ b/crates/core/agent/src/lib.rs
+@@ -11,7 +11,8 @@ pub use kernel::{KernelOutput, RunningTurn, SessionKernel, StopRegistry, TurnReq
+ pub use port::{SessionQuery, SessionSink, TurnOutcome};
+ pub use runner::{
+     AgentPermissionMode, AgentRunStatus, AgentRunner, AgentSession, AgentStartError, ModelLevel,
+-    RunHandle, SessionCtx, SessionInjections, SessionOpen, SessionRef, TurnQuestion,
++    RunHandle, SessionCtx, SessionInjections, SessionOpen, SessionRef, SessionToolset,
++    TurnQuestion,
+ };
+ pub use session::{
+     new_session_id, NewSessionRow, SessionPage, SessionProvenance, SessionRow, SessionStats,
+diff --git a/crates/core/agent/src/lib_test.rs b/crates/core/agent/src/lib_test.rs
+index 0ad9150ea9ee..7a1ddab95009 100644
+--- a/crates/core/agent/src/lib_test.rs
++++ b/crates/core/agent/src/lib_test.rs
+@@ -1,11 +1,12 @@
+ use std::sync::Arc;
+ 
+-use crate::event::{AgentBlock, AgentDelta, AgentEvent, AgentEventKind};
++use crate::event::{AgentBlock, AgentDelta, AgentEvent, AgentEventKind, AgentMessageRole};
+ use crate::kernel::{KernelOutput, RunningTurn, SessionKernel, StopRegistry, TurnRequest};
+ use crate::port::{SessionQuery, SessionSink, TurnOutcome};
+ use crate::runner::{
+     AgentPermissionMode, AgentRunStatus, AgentRunner, AgentSession, AgentStartError, ModelLevel,
+-    RunHandle, SessionCtx, SessionInjections, SessionOpen, SessionRef, TurnQuestion,
++    RunHandle, SessionCtx, SessionInjections, SessionOpen, SessionRef, SessionToolset,
++    TurnQuestion,
+ };
+ use crate::session::{
+     new_session_id, NewSessionRow, SessionPage, SessionProvenance, SessionRow, SessionStats,
+@@ -256,3 +257,89 @@ fn crate根路径sum_usage_tokens缺席key与重复调用稳定() {
+         "重复调用结果一致（零状态零副作用）"
+     );
+ }
++
++// ---------------------------------------------------------------------------
++// auto-named-explore：SessionToolset 再导出与 SessionInjections 出口回归
++// ---------------------------------------------------------------------------
++
++/// `SessionToolset` 再导出可达：经 crate 根路径构造 `Explore` 变体并
++/// `PartialEq` 等值锚定（再导出清单增补的词汇出口——破坏即编译失败）。
++#[test]
++fn crate根路径session_toolset可达且explore变体等值() {
++    // 根路径构造 + 等值（词汇本体驻 runner.rs，出口侧仅锚定可达与语义）
++    let toolset = crate::SessionToolset::Explore;
++    assert_eq!(toolset, SessionToolset::Explore, "根路径与模块路径同词汇");
++    // serde 可用性经出口侧复验（derive 随词汇出口可达）
++    let line = serde_json::to_string(&toolset).expect("序列化可达");
++    assert_eq!(line, r#""explore""#, "线值经出口侧不变");
++}
++
++/// 既有再导出面零回归：runner / session / port / kernel / state / event /
++/// usage 各域再导出词汇快照逐项可达（增补 `SessionToolset` 不挤掉既有出口
++/// ——清单丢失即编译失败，构造形态防「仅被 use」假锚）。
++#[test]
++fn 既有再导出面快照逐名可达_增补不挤掉既有词汇() {
++    // runner 域（含增补的 SessionToolset 与既有词汇；trait 面以指针形态锚定）
++    let _runner_word_shapes: Option<(
++        AgentPermissionMode,
++        AgentRunStatus,
++        Box<dyn AgentRunner>,
++        AgentSession,
++        AgentStartError,
++        ModelLevel,
++        RunHandle,
++        SessionCtx,
++        SessionInjections,
++        SessionOpen,
++        SessionRef,
++        SessionToolset,
++        TurnQuestion,
++    )> = None;
++    let _ = SessionToolset::Explore;
++    // session / port / kernel / state / event / usage 域既有快照（与文件顶部
++    // use 清单一一对应，任一名丢失即编译失败）
++    let _session_word_shapes: Option<(
++        NewSessionRow,
++        SessionPage,
++        SessionProvenance,
++        SessionRow,
++        SessionStats,
++        SessionSummary,
++        TurnSummary,
++    )> = None;
++    let _port_word_shapes: Option<(Box<dyn SessionQuery>, Box<dyn SessionSink>, TurnOutcome)> =
++        None;
++    let _kernel_word_shapes: Option<(KernelOutput, RunningTurn, SessionKernel, StopRegistry, TurnRequest)> =
++        None;
++    let _state_word_shapes: Option<(AgentRunState, RunStateMachine)> = None;
++    let _event_word_shapes: Option<(AgentBlock, AgentDelta, AgentEvent, AgentEventKind, AgentMessageRole)> =
++        None;
++    let _usage_fn: fn(&[AgentEvent], &str) -> Option<u64> = crate::sum_usage_tokens;
++
++    // 构造形态断言（防「仅被 use」假锚）：增补词汇真实可用
++    let default_injections = SessionInjections::default();
++    assert_eq!(default_injections.toolset, None, "增补位缺省 None");
++}
++
++/// toolset 非法线值经出口反序列化：crate 根路径 `SessionInjections` 喂
++/// `{"toolset":"unknown"}` → serde `Err`（再导出面承载的失败语义不吞改，与
++/// runner_test 非法线值臂同口径、不同进口）。
++#[test]
++fn toolset非法线值经出口反序列化err() {
++    let result: Result<SessionInjections, _> =
++        serde_json::from_str(r#"{"toolset":"unknown"}"#);
++    assert!(
++        result.is_err(),
++        "出口侧非法 toolset 线值应 serde Err，实际: {result:?}"
++    );
++}
++
++/// SessionInjections 缺省出口锚定：经 crate 根路径 `SessionInjections::default()`
++/// → 三位全 `None`（additive 缺省读兼容的出口侧锚定）。
++#[test]
++fn crate根路径session_injections_default三位全none() {
++    let default_injections = SessionInjections::default();
++    assert_eq!(default_injections.preamble, None, "preamble None");
++    assert_eq!(default_injections.tools, None, "tools None");
++    assert_eq!(default_injections.toolset, None, "toolset None（增补位缺省）");
++}
+diff --git a/crates/core/agent/src/runner.rs b/crates/core/agent/src/runner.rs
+index 6a2d6b06fede..8af4c72dd2c7 100644
+--- a/crates/core/agent/src/runner.rs
++++ b/crates/core/agent/src/runner.rs
+@@ -38,15 +38,30 @@ pub enum AgentRunStatus {
+     Stopped,
+ }
+ 
+-/// 会话级注入：preamble（系统前导）与 tools（工具面）为切片③预留接口位，
+-/// MVP 引擎忽略（整合方式——preamble / flag / 忽略——引擎自选，协议形状
+-/// 不因整合方式改变）。
+-#[derive(Debug, Clone, Default, PartialEq, Eq)]
++/// 会话级专用工具面受控枚举：core 只承载词汇（首值 `Explore` = explore 笔记
++/// 工具面），解释归 infra（compose 装配 / sdk definitions 组装）。serde
++/// camelCase 线值 `"explore"`，与 `AgentPermissionMode` / `ModelLevel` 同款。
++#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
++#[serde(rename_all = "camelCase")]
++pub enum SessionToolset {
++    /// explore 笔记工具面（`create_explore_note` 专用工具追加）
++    Explore,
++}
++
++/// 会话级注入：`tools`（工具面收窄子集）/ `toolset`（受控专用工具追加）位自
++/// 本 change 起按来源装配消费（见 infra compose——explore 来源六工具 + Explore
++/// 枚举，其余恒 default）；`preamble` 位维持不消费（系统提示词唯一来源仍为
++/// `AGENT.md`）。serde additive：旧线 JSON 无 `toolset` 字段读出 `None`。
++#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+ pub struct SessionInjections {
+-    /// 会话级系统前导（None 即不注入）
++    /// 会话级系统前导（None 即不注入；维持不消费）
+     pub preamble: Option<String>,
+-    /// 会话级工具面收窄（None 即引擎默认工具面）
++    /// 会话级工具面收窄（None 即引擎默认工具面；Some = 七工具子集）
+     pub tools: Option<Vec<String>>,
++    /// 受控枚举位：`tools` 收窄子集 / `toolset` 追加专用工具 / `preamble` 维持
++    /// 不消费（None = 无专用工具追加）
++    #[serde(default)]
++    pub toolset: Option<SessionToolset>,
+ }
+ 
+ /// 模型等级（轮级选型档位）：引擎侧按档取 provider 双档模型（High = 高能力
+diff --git a/crates/core/agent/src/runner_test.rs b/crates/core/agent/src/runner_test.rs
+index 30d7d5c2f285..4f36fc2c09be 100644
+--- a/crates/core/agent/src/runner_test.rs
++++ b/crates/core/agent/src/runner_test.rs
+@@ -6,7 +6,7 @@ use serde_json::json;
+ use crate::event::AgentEventKind;
+ use crate::runner::{
+     AgentPermissionMode, AgentRunner, AgentSession, AgentStartError, ModelLevel, RunHandle,
+-    SessionCtx, SessionInjections, SessionOpen, SessionRef,
++    SessionCtx, SessionInjections, SessionOpen, SessionRef, SessionToolset,
+ };
+ 
+ /// 假 runner：捕获 SessionOpen 入参（参数转换断言缝）、预录未盖戳事件经
+@@ -81,6 +81,7 @@ fn new_open() -> SessionOpen {
+         injections: SessionInjections {
+             preamble: Some("会话前导".to_owned()),
+             tools: Some(vec!["read".to_owned(), "grep".to_owned()]),
++            toolset: None,
+         },
+         ctx: SessionCtx {
+             workspace_root: PathBuf::from("D:\\工作区\\demo 🎉"),
+@@ -328,6 +329,7 @@ fn session_injections默认形态tools与preamble均为none() {
+     let narrowed = SessionInjections {
+         preamble: None,
+         tools: Some(vec!["read".to_owned()]),
++        toolset: None,
+     };
+     assert_ne!(default_injections, narrowed);
+ }
+@@ -497,3 +499,126 @@ fn start_error三变体display文案携带原因串() {
+         AgentStartError::ConfigMissing("同一载荷".to_owned())
+     );
+ }
++
++// ---------------------------------------------------------------------------
++// auto-named-explore：SessionToolset 受控枚举 serde 线值 + SessionInjections
++// toolset 位（additive 挂起激活）
++// ---------------------------------------------------------------------------
++
++/// SessionToolset 序列化线值：`Explore` → `"explore"`（camelCase 口径），且
++/// round-trip 等值。
++#[test]
++fn session_toolset_explore序列化为explore线值且roundtrip等值() {
++    let value = serde_json::to_value(SessionToolset::Explore).expect("序列化成功");
++    assert_eq!(value, json!("explore"), "线值逐字 explore");
++
++    let roundtrip: SessionToolset = serde_json::from_value(value).expect("反序列化成功");
++    assert_eq!(roundtrip, SessionToolset::Explore, "round-trip 等值");
++}
++
++/// SessionToolset 反序列化：线值 `"explore"` → `SessionToolset::Explore`。
++#[test]
++fn session_toolset_explore线值反序列化为explore变体() {
++    let parsed: SessionToolset =
++        serde_json::from_value(json!("explore")).expect("合法线值应反序列化成功");
++    assert_eq!(parsed, SessionToolset::Explore);
++}
++
++/// SessionToolset 非法线值：大小写敏感的 `"Explore"` / 未知 `"unknown"` / 空串
++/// 反序列化一律 `Err`（受控枚举封闭集，不静默兜底）。
++#[test]
++fn session_toolset非法线值反序列化err_大小写敏感与未知与空串() {
++    for line in ["Explore", "EXPLORE", "unknown", ""] {
++        let result = serde_json::from_value::<SessionToolset>(json!(line));
++        assert!(
++            result.is_err(),
++            "非法线值 {line:?} 应反序列化 Err（大小写敏感封闭集）"
++        );
++    }
++}
++
++/// SessionInjections 全字段序列化：preamble / tools / toolset 三位齐备 →
++/// `toolset` 线值为 `"explore"`（位名逐字 toolset）。
++#[test]
++fn session_injections全字段序列化_toolset线值为explore() {
++    let injections = SessionInjections {
++        preamble: Some("前导".to_owned()),
++        tools: Some(vec!["read".to_owned(), "grep".to_owned(), "glob".to_owned(), "ls".to_owned(), "edit".to_owned(), "bash".to_owned()]),
++        toolset: Some(SessionToolset::Explore),
++    };
++
++    let value = serde_json::to_value(&injections).expect("序列化成功");
++    assert!(value.is_object(), "序列化为对象");
++    assert_eq!(value["preamble"], json!("前导"), "preamble 位在场");
++    assert!(value["tools"].is_array(), "tools 位为数组");
++    assert_eq!(value["toolset"], json!("explore"), "toolset 线值 explore");
++
++    let roundtrip: SessionInjections = serde_json::from_value(value).expect("round-trip 成功");
++    assert_eq!(roundtrip, injections, "三位齐备 round-trip 逐字段等值");
++}
++
++/// SessionInjections 旧线 JSON additive：无 `toolset` 字段 → 反序列化成功且
++/// `toolset == None`（serde default 缺省读兼容——旧线不破）。
++#[test]
++fn session_injections旧线json无toolset字段读出none() {
++    let legacy = json!({
++        "preamble": "会话前导",
++        "tools": ["read", "grep"],
++    });
++    let parsed: SessionInjections = serde_json::from_value(legacy).expect("旧线应可读");
++    assert_eq!(parsed.preamble.as_deref(), Some("会话前导"));
++    assert_eq!(
++        parsed.tools,
++        Some(vec!["read".to_owned(), "grep".to_owned()]),
++        "旧线 tools 位照常承接"
++    );
++    assert_eq!(parsed.toolset, None, "缺席 toolset 位 → None（additive 兼容）");
++}
++
++/// SessionInjections 空对象 `{}` → 三位全 `None`，与 `default()` 等价。
++#[test]
++fn session_injections空对象反序列化三位全none且与default等价() {
++    let parsed: SessionInjections = serde_json::from_value(json!({})).expect("空对象应可读");
++    assert_eq!(parsed, SessionInjections::default(), "空对象 == default()");
++    assert_eq!(parsed.preamble, None);
++    assert_eq!(parsed.tools, None);
++    assert_eq!(parsed.toolset, None);
++}
++
++/// SessionInjections `toolset: null` → 读出 `None`（显式 null 与缺席同语义）。
++#[test]
++fn session_injections_toolset显式null读出none() {
++    let parsed: SessionInjections =
++        serde_json::from_value(json!({ "toolset": null })).expect("null 位应可读");
++    assert_eq!(parsed.toolset, None, "显式 null → None");
++    assert_eq!(parsed.preamble, None);
++    assert_eq!(parsed.tools, None);
++}
++
++/// SessionInjections 子集组合 round-trip：`tools` = 探索六名子集 + `toolset` =
++/// Explore → 序列化后反序列化逐字段等值（下发面载荷的线格式保真）。
++#[test]
++fn session_injections六名子集加explore组合roundtrip逐字段等值() {
++    let injections = SessionInjections {
++        preamble: None,
++        tools: Some(vec![
++            "read".to_owned(),
++            "grep".to_owned(),
++            "glob".to_owned(),
++            "ls".to_owned(),
++            "edit".to_owned(),
++            "bash".to_owned(),
++        ]),
++        toolset: Some(SessionToolset::Explore),
++    };
++
++    let line = serde_json::to_string(&injections).expect("序列化成功");
++    let parsed: SessionInjections = serde_json::from_str(&line).expect("反序列化成功");
++    assert_eq!(parsed, injections, "round-trip 逐字段等值");
++    assert_eq!(parsed.tools.as_ref().expect("六名在场").len(), 6);
++    assert!(
++        !parsed.tools.expect("六名在场").contains(&"write".to_owned()),
++        "探索子集不含 write"
++    );
++    assert_eq!(parsed.toolset, Some(SessionToolset::Explore));
++}
+diff --git a/crates/core/checks/default_13661290704540574461_0_30140.profraw b/crates/core/checks/default_13661290704540574461_0_30140.profraw
+new file mode 100644
+index 000000000000..914e8b554468
+Binary files /dev/null and b/packages/desktop/src-tauri/crates/core/checks/default_13661290704540574461_0_30140.profraw differ
+diff --git a/crates/core/checks/default_3298524018088573072_0_24704.profraw b/crates/core/checks/default_3298524018088573072_0_24704.profraw
+new file mode 100644
+index 000000000000..071da9d8c430
+Binary files /dev/null and b/packages/desktop/src-tauri/crates/core/checks/default_3298524018088573072_0_24704.profraw differ
+diff --git a/crates/core/config/default_11067818446001108108_0_25476.profraw b/crates/core/config/default_11067818446001108108_0_25476.profraw
+new file mode 100644
+index 000000000000..727a22fcce01
+Binary files /dev/null and b/packages/desktop/src-tauri/crates/core/config/default_11067818446001108108_0_25476.profraw differ
+diff --git a/crates/core/orchestration/default_11067818446001108108_0_23756.profraw b/crates/core/orchestration/default_11067818446001108108_0_23756.profraw
+new file mode 100644
+index 000000000000..ef02e78e61b8
+Binary files /dev/null and b/packages/desktop/src-tauri/crates/core/orchestration/default_11067818446001108108_0_23756.profraw differ
+diff --git a/crates/core/workflow/default_11067818446001108108_0_22652.profraw b/crates/core/workflow/default_11067818446001108108_0_22652.profraw
+new file mode 100644
+index 000000000000..bd1262624b79
+Binary files /dev/null and b/packages/desktop/src-tauri/crates/core/workflow/default_11067818446001108108_0_22652.profraw differ
+diff --git a/crates/core/workflow/default_11067818446001108108_0_4524.profraw b/crates/core/workflow/default_11067818446001108108_0_4524.profraw
+new file mode 100644
+index 000000000000..339743087e1c
+Binary files /dev/null and b/packages/desktop/src-tauri/crates/core/workflow/default_11067818446001108108_0_4524.profraw differ
+diff --git a/crates/infra/agent/default_11067818446001108108_0_26912.profraw b/crates/infra/agent/default_11067818446001108108_0_26912.profraw
+new file mode 100644
+index 000000000000..f88d89ab36b2
+Binary files /dev/null and b/packages/desktop/src-tauri/crates/infra/agent/default_11067818446001108108_0_26912.profraw differ
+diff --git a/crates/infra/agent/src/compose.rs b/crates/infra/agent/src/compose.rs
+index 64a460f65109..82b943f4831e 100644
+--- a/crates/infra/agent/src/compose.rs
++++ b/crates/infra/agent/src/compose.rs
+@@ -9,6 +9,36 @@ use store::{AgentEngineKind, Store, WorkspaceStores, CLI_TENANT_RETIRED};
+ use crate::store_port::{StoreQuery, StoreSink};
+ use crate::{EngineConfig, EngineFacade, EngineKind};
+ 
++/// explore 来源受控字符串（与 store `EXPLORE_RUN_SOURCE` / 前端 `EXPLORE_SOURCE`
++/// 三处同字面量，改动需同步）——`begin` 据此装配 explore 会话注入面。
++const EXPLORE_SOURCE: &str = "explore";
++
++/// explore 会话注入面装配（生产路径首次非 default）：六工具收窄子集（write
++/// 移除，序同 `TOOL_NAMES`）+ `Explore` 枚举；六名逐个校验 ∈ 七通用工具封闭集
++/// （非法名显式 `Err`——装配层校验）。其余来源（debug / change 等）恒
++/// `SessionInjections::default()`（七工具面，零变化）。
++fn assemble_injections(source: &str) -> Result<agent::SessionInjections, String> {
++    if source != EXPLORE_SOURCE {
++        return Ok(agent::SessionInjections::default());
++    }
++    const EXPLORE_TOOLS: [&str; 6] = ["read", "grep", "glob", "ls", "edit", "bash"];
++    for name in EXPLORE_TOOLS {
++        if !crate::sdk::tools::TOOL_NAMES.contains(&name) {
++            return Err(format!("注入面非法工具名: {name}（七通用工具封闭集外）"));
++        }
++    }
++    Ok(agent::SessionInjections {
++        preamble: None,
++        tools: Some(
++            EXPLORE_TOOLS
++                .iter()
++                .map(|name| (*name).to_owned())
++                .collect(),
++        ),
++        toolset: Some(agent::SessionToolset::Explore),
++    })
++}
++
+ /// 解析产物（组合根内聚）：引擎 kind + 组装好的连接配置 + 快照定型双面 +
+ /// 实例外键。引擎具体类型不出本结构（门面 `runner_for` 签名与编排层零改动
+ /// 承诺的参数传递面）。
+@@ -57,6 +87,9 @@ pub fn compose_turn(
+     // 无默认 Err 引导管理页）
+     let resolved = resolve_agent_engine(stores, agent)?;
+     let query = Arc::new(StoreQuery::new(Arc::clone(&store)));
++    // explore 专用工具执行上下文的句柄半边（组合根铸造、`tools::execute` 纯
++    // 函数不动——句柄经门面 builder 下行至 pump per-turn 铸造）
++    let explore_note_store = Arc::clone(&store);
+     let kernel = SessionKernel::new(Arc::new(StoreSink::new(store)), registry);
+     // resume 装载缝以会话全史转录闭合（引擎中立数据：session_id → 密封事件
+     // 全史）
+@@ -81,6 +114,7 @@ pub fn compose_turn(
+     let runner: Arc<dyn AgentRunner> = Arc::from(
+         EngineFacade::with_resume_transcript(resume)
+             .with_context_window(resolved.context_window)
++            .with_explore_note_store(explore_note_store)
+             .runner_for(resolved.kind, resolved.config)?,
+     );
+     Ok(ComposedTurn {
+@@ -154,7 +188,7 @@ impl ComposedTurn {
+                 TurnRequest {
+                     session,
+                     question,
+-                    injections: agent::SessionInjections::default(),
++                    injections: assemble_injections(&provenance.source)?,
+                     ctx,
+                     provenance,
+                     config_snapshot,
+diff --git a/crates/infra/agent/src/compose_test.rs b/crates/infra/agent/src/compose_test.rs
+index 8d4480c47c9d..8c446e9e502a 100644
+--- a/crates/infra/agent/src/compose_test.rs
++++ b/crates/infra/agent/src/compose_test.rs
+@@ -969,16 +969,19 @@ async fn 注入实例消费_会话行轮行落注入库且异根库零行() {
+ // 真库实例（Continue 校验寻址）。
+ // ---------------------------------------------------------------------------
+ 
+-/// 记录型假 runner：捕获 `open_session` 的 `prior_handle` 载荷，返回最小
+-/// `AgentSession`（观测 / 提问通道即弃——本节用例只走 begin 同步段）。
++/// 记录型假 runner：捕获 `open_session` 的 `prior_handle` 与 `injections` 载荷
++/// （注入面装配断言缝），返回最小 `AgentSession`（观测 / 提问通道即弃——本节
++/// 用例只走 begin 同步段）。
+ struct RecordingRunner {
+     prior_handles: Mutex<Vec<Option<String>>>,
++    injections_captured: Mutex<Vec<agent::SessionInjections>>,
+ }
+ 
+ impl RecordingRunner {
+     fn new() -> Arc<Self> {
+         Arc::new(Self {
+             prior_handles: Mutex::new(Vec::new()),
++            injections_captured: Mutex::new(Vec::new()),
+         })
+     }
+ 
+@@ -986,6 +989,14 @@ impl RecordingRunner {
+     fn captured(&self) -> Vec<Option<String>> {
+         self.prior_handles.lock().expect("捕获锁不可中毒").clone()
+     }
++
++    /// 已捕获的 injections 序列（按调用序）。
++    fn captured_injections(&self) -> Vec<agent::SessionInjections> {
++        self.injections_captured
++            .lock()
++            .expect("捕获锁不可中毒")
++            .clone()
++    }
+ }
+ 
+ impl AgentRunner for RecordingRunner {
+@@ -994,6 +1005,10 @@ impl AgentRunner for RecordingRunner {
+             .lock()
+             .expect("捕获锁不可中毒")
+             .push(open.prior_handle);
++        self.injections_captured
++            .lock()
++            .expect("捕获锁不可中毒")
++            .push(open.injections.clone());
+         let (observation_tx, observation_rx) = mpsc::channel(4);
+         let (question_tx, question_rx) = mpsc::channel(4);
+         drop(observation_tx);
+@@ -1475,3 +1490,357 @@ async fn 新会话快照携实例id_缺省与显式路径同填some() {
+     );
+     drop(running);
+ }
++
++// ---------------------------------------------------------------------------
++// auto-named-explore：begin 按 provenance.source 装配注入（explore 六工具 +
++// Explore 枚举，其余 default）
++// ---------------------------------------------------------------------------
++
++use crate::sdk::tools::{EXPLORE_NOTE_TOOL, TOOL_NAMES};
++use agent::SessionToolset;
++
++/// explore 来源装配（正向）：`begin(source = "explore")` → 捕获的
++/// `TurnRequest.injections.tools` = 六名（无 `write`、序同 `TOOL_NAMES`）+
++/// `toolset = Explore`（生产路径首次非 default 注入）。
++#[tokio::test]
++async fn explore来源begin装配六工具收窄加explore枚举() {
++    let env = DualEnv::new("explore-assemble");
++    let stores = env.stores();
++    let store = stores.for_root(&env.root()).expect("for_root 应成功");
++
++    let runner = RecordingRunner::new();
++    let sink = RecordingSink::new();
++    let composed = composed_with_fakes(
++        store,
++        Arc::clone(&runner),
++        Arc::clone(&sink),
++        Some(("m-high".to_owned(), "m-low".to_owned())),
++        81,
++    );
++
++    composed
++        .begin(
++            SessionRef::New,
++            "explore 装配一轮".to_owned(),
++            ctx(&env.root()),
++            SessionProvenance {
++                source: "explore".to_owned(),
++                source_ref: None,
++            },
++        )
++        .expect("explore 来源 begin 应成功");
++
++    let captured = runner.captured_injections();
++    assert_eq!(captured.len(), 1, "恰一轮捕获");
++    let injections = &captured[0];
++    assert_eq!(
++        injections.tools.as_ref().expect("tools 在场").as_slice(),
++        &[
++            "read".to_owned(),
++            "grep".to_owned(),
++            "glob".to_owned(),
++            "ls".to_owned(),
++            "edit".to_owned(),
++            "bash".to_owned(),
++        ],
++        "六名收窄子集（无 write，序同 TOOL_NAMES 保序）"
++    );
++    assert!(
++        !injections
++            .tools
++            .as_ref()
++            .expect("tools 在场")
++            .iter()
++            .any(|name| name == "write"),
++        "explore 装配面不含 write（AC-5）"
++    );
++    assert_eq!(
++        injections.toolset,
++        Some(SessionToolset::Explore),
++        "toolset = Explore（受控枚举位激活）"
++    );
++    assert_eq!(injections.preamble, None, "preamble 维持不消费");
++}
++
++/// 六名子集校验等价断言：explore 装配产物逐名 ∈ `sdk::tools::TOOL_NAMES`
++/// （装配层校验的可达面收窄断言——非法名 `Err` 臂生产不可达的等价收窄）。
++#[tokio::test]
++async fn explore装配产物逐名都在七通用封闭清单内() {
++    let env = DualEnv::new("explore-subset");
++    let stores = env.stores();
++    let store = stores.for_root(&env.root()).expect("for_root 应成功");
++    let runner = RecordingRunner::new();
++    let sink = RecordingSink::new();
++    let composed = composed_with_fakes(
++        store,
++        Arc::clone(&runner),
++        Arc::clone(&sink),
++        Some(("m-high".to_owned(), "m-low".to_owned())),
++        82,
++    );
++
++    composed
++        .begin(
++            SessionRef::New,
++            "子集校验一轮".to_owned(),
++            ctx(&env.root()),
++            SessionProvenance {
++                source: "explore".to_owned(),
++                source_ref: None,
++            },
++        )
++        .expect("begin 应成功");
++
++    let captured = runner.captured_injections();
++    let tools = captured[0].tools.as_ref().expect("tools 在场");
++    assert_eq!(tools.len(), 6, "恰六名子集");
++    for name in tools {
++        assert!(
++            TOOL_NAMES.contains(&name.as_str()),
++            "装配名 {name} ∈ TOOL_NAMES 封闭集（装配层校验可达面收窄）"
++        );
++    }
++}
++
++/// 非 explore 来源零变化（AC-7，参数化）：debug / change 系字面量 / 空串 /
++/// 未知来源 → injections 恒 default（`None` / `None`）。
++#[tokio::test]
++async fn 非explore来源begin恒default注入() {
++    let env = DualEnv::new("default-sources");
++    let stores = env.stores();
++    let store = stores.for_root(&env.root()).expect("for_root 应成功");
++    let runner = RecordingRunner::new();
++    let sink = RecordingSink::new();
++    let composed = composed_with_fakes(
++        store,
++        Arc::clone(&runner),
++        Arc::clone(&sink),
++        Some(("m-high".to_owned(), "m-low".to_owned())),
++        83,
++    );
++
++    for source in [
++        "debug",
++        "change-flow",
++        "change",
++        "apply-change",
++        "",
++        "unknown-source",
++    ] {
++        composed
++            .begin(
++                SessionRef::New,
++                format!("default 来源一轮: {source}"),
++                ctx(&env.root()),
++                SessionProvenance {
++                    source: source.to_owned(),
++                    source_ref: None,
++                },
++            )
++            .unwrap_or_else(|e| panic!("来源 {source:?} begin 应成功: {e}"));
++        let captured = runner.captured_injections();
++        let last = captured.last().expect("本轮捕获");
++        assert_eq!(
++            last.tools, None,
++            "来源 {source:?} tools = None（引擎默认七工具面）"
++        );
++        assert_eq!(last.toolset, None, "来源 {source:?} toolset = None");
++        assert_eq!(last.preamble, None);
++    }
++    assert_eq!(runner.captured_injections().len(), 6, "六来源各捕获一次");
++}
++
++/// 三处字面量同源（compose 与 store 跨 crate 双源断言）：以 store 侧探索
++/// 记录会话行的 `source` 字段（`EXPLORE_RUN_SOURCE` 私有字面量的可读投影）
++/// 发起 → 命中 explore 装配臂。
++#[tokio::test]
++async fn store侧explore来源字面量发起命中装配臂() {
++    let env = DualEnv::new("dual-source");
++    let stores = env.stores();
++    let store = stores.for_root(&env.root()).expect("for_root 应成功");
++
++    // store 侧铸造：占位建档预建的会话行 source 即 EXPLORE_RUN_SOURCE 投影
++    let record = store
++        .create_explore_record(&env.root(), None)
++        .expect("占位建档应成功");
++    let session_id = record.session_id.clone().expect("建档回写会话指针");
++    let explore_source = store
++        .find_session(&session_id)
++        .expect("find_session 应成功")
++        .expect("会话行在库")
++        .source;
++    assert_eq!(
++        explore_source, "explore",
++        "store 侧同源字面量（双源互链锚点）"
++    );
++
++    let runner = RecordingRunner::new();
++    let sink = RecordingSink::new();
++    let composed = composed_with_fakes(
++        store,
++        Arc::clone(&runner),
++        Arc::clone(&sink),
++        Some(("m-high".to_owned(), "m-low".to_owned())),
++        84,
++    );
++
++    // 以 store 投影字面量发起 → 命中 explore 装配臂（六名 + Explore）
++    composed
++        .begin(
++            SessionRef::Continue { id: session_id },
++            "同源字面量一轮".to_owned(),
++            ctx(&env.root()),
++            SessionProvenance {
++                source: explore_source,
++                source_ref: None,
++            },
++        )
++        .expect("同源字面量 begin 应成功");
++
++    let captured = runner.captured_injections();
++    assert_eq!(captured.len(), 1);
++    assert_eq!(
++        captured[0].tools.as_ref().expect("tools 在场").len(),
++        6,
++        "命中 explore 装配臂（六名收窄）"
++    );
++    assert_eq!(captured[0].toolset, Some(SessionToolset::Explore));
++}
++
++/// 装配产物真实驱动 explore（组合：compose → pump → loop 下发面，AC-5 端到
++/// 端）：compose_turn 带 store 句柄 + explore 来源 + Continue 预建空会话 →
++/// 转录首事件 RunStarted.tools 报六工具 + `create_explore_note`。
++#[tokio::test(start_paused = true)]
++async fn 装配产物真实驱动_explore来源runstarted报六工具加专用工具() {
++    let env = DualEnv::new("drive-explore");
++    let stores = env.stores();
++    let provider_id = seed_provider(&stores, "驱动供应explore");
++    seed_sdk_instance(&stores, "驱动实例explore", Some(provider_id));
++    let store = stores.for_root(&env.root()).expect("for_root 应成功");
++
++    // 预建空会话（占位建档同事务回写）→ Continue 首轮
++    let record = store
++        .create_explore_record(&env.root(), None)
++        .expect("占位建档应成功");
++    let session_id = record.session_id.clone().expect("建档回写会话指针");
++
++    let composed = compose_turn(&stores, Arc::new(StopRegistry::new()), env.store(), None)
++        .expect("解析应成功");
++    let running = composed
++        .begin(
++            SessionRef::Continue { id: session_id.clone() },
++            "explore 首轮".to_owned(),
++            ctx(&env.root()),
++            SessionProvenance {
++                source: "explore".to_owned(),
++                source_ref: None,
++            },
++        )
++        .expect("begin 应成功");
++    drop(running.drive(|_output| {}).await);
++
++    // 转录首事件 RunStarted.tools = 六工具保序 + 专用工具（下发面单源）
++    let transcript = store.list_session_events(&session_id).expect("转录应成功");
++    let agent::AgentEventKind::RunStarted { tools, .. } =
++        &transcript.first().expect("非空").kind
++    else {
++        panic!("转录首事件应为 RunStarted，实际: {:?}", transcript.first());
++    };
++    assert_eq!(
++        tools,
++        &[
++            "read".to_owned(),
++            "grep".to_owned(),
++            "glob".to_owned(),
++            "ls".to_owned(),
++            "edit".to_owned(),
++            "bash".to_owned(),
++            EXPLORE_NOTE_TOOL.to_owned(),
++        ],
++        "注入经泵铸造与下发链端到端（AC-5）"
++    );
++    assert!(!tools.contains(&"write".to_owned()), "explore 面不含 write");
++}
++
++/// 装配产物真实驱动 default（组合端到端）：debug 来源 → RunStarted.tools 报
++/// 七名（AC-7 端到端）。
++#[tokio::test(start_paused = true)]
++async fn 装配产物真实驱动_debug来源runstarted报七名() {
++    let env = DualEnv::new("drive-debug");
++    let stores = env.stores();
++    let provider_id = seed_provider(&stores, "驱动供应debug");
++    seed_sdk_instance(&stores, "驱动实例debug", Some(provider_id));
++    let store = stores.for_root(&env.root()).expect("for_root 应成功");
++
++    let composed = compose_turn(&stores, Arc::new(StopRegistry::new()), env.store(), None)
++        .expect("解析应成功");
++    let running = composed
++        .begin(
++            SessionRef::New,
++            "debug 驱动一轮".to_owned(),
++            ctx(&env.root()),
++            debug_provenance(),
++        )
++        .expect("begin 应成功");
++    let session_id = running.session_id.clone();
++    drop(running.drive(|_output| {}).await);
++
++    let transcript = store.list_session_events(&session_id).expect("转录应成功");
++    let agent::AgentEventKind::RunStarted { tools, .. } =
++        &transcript.first().expect("非空").kind
++    else {
++        panic!("转录首事件应为 RunStarted，实际: {:?}", transcript.first());
++    };
++    assert_eq!(
++        tools.as_slice(),
++        TOOL_NAMES.as_slice(),
++        "debug 轮七名与 TOOL_NAMES 逐名一致（AC-7 端到端）"
++    );
++}
++
++/// 注入面不破坏失败语义：explore 装配 + discard 端点（模型 IO 恒拒连）→
++/// `api_error` 失败收敛形态与既有一致（回归）。
++#[tokio::test(start_paused = true)]
++async fn explore装配不破坏失败收敛语义() {
++    let env = DualEnv::new("explore-failure");
++    let stores = env.stores();
++    let provider_id = seed_provider(&stores, "驱动供应失败面");
++    seed_sdk_instance(&stores, "驱动实例失败面", Some(provider_id));
++    let store = stores.for_root(&env.root()).expect("for_root 应成功");
++
++    let record = store
++        .create_explore_record(&env.root(), None)
++        .expect("占位建档应成功");
++    let session_id = record.session_id.clone().expect("建档回写会话指针");
++
++    let composed = compose_turn(&stores, Arc::new(StopRegistry::new()), env.store(), None)
++        .expect("解析应成功");
++    let running = composed
++        .begin(
++            SessionRef::Continue { id: session_id.clone() },
++            "explore 失败面一轮".to_owned(),
++            ctx(&env.root()),
++            SessionProvenance {
++                source: "explore".to_owned(),
++                source_ref: None,
++            },
++        )
++        .expect("begin 应成功");
++    let outcome = running.drive(|_output| {}).await;
++
++    // 失败收敛形态与既有 debug 轮一致：Failed + 转录末条 TurnDone api_error
++    assert_eq!(
++        outcome.status,
++        agent::AgentRunStatus::Failed,
++        "explore 装配轮拒连端点同以 api_error 失败收敛"
++    );
++    let transcript = store.list_session_events(&session_id).expect("转录应成功");
++    assert!(
++        matches!(
++            &transcript.last().expect("非空").kind,
++            agent::AgentEventKind::TurnDone { subtype, is_error: true, .. } if subtype == "api_error"
++        ),
++        "失败收敛形态零漂移，实际: {:?}",
++        transcript.last()
++    );
++}

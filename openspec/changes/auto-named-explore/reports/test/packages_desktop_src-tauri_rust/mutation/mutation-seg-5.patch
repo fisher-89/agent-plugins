@@ -1,0 +1,86 @@
+diff --git a/crates/target/llvm-cov-target/debug/build/serde_core-6d72a86fbc029849/build_script_build-6d72a86fbc029849.pdb b/crates/target/llvm-cov-target/debug/build/serde_core-6d72a86fbc029849/build_script_build-6d72a86fbc029849.pdb
+new file mode 100644
+index 000000000000..9ac4beff2ec6
+Binary files /dev/null and b/packages/desktop/src-tauri/crates/target/llvm-cov-target/debug/build/serde_core-6d72a86fbc029849/build_script_build-6d72a86fbc029849.pdb differ
+diff --git a/crates/target/llvm-cov-target/debug/build/serde_core-6d72a86fbc029849/build_script_build.pdb b/crates/target/llvm-cov-target/debug/build/serde_core-6d72a86fbc029849/build_script_build.pdb
+new file mode 100644
+index 000000000000..9ac4beff2ec6
+Binary files /dev/null and b/packages/desktop/src-tauri/crates/target/llvm-cov-target/debug/build/serde_core-6d72a86fbc029849/build_script_build.pdb differ
+diff --git a/crates/target/llvm-cov-target/debug/build/serde_json-263474a6bf72c81a/build-script-build.exe b/crates/target/llvm-cov-target/debug/build/serde_json-263474a6bf72c81a/build-script-build.exe
+new file mode 100644
+index 000000000000..0ee85a2d172e
+Binary files /dev/null and b/packages/desktop/src-tauri/crates/target/llvm-cov-target/debug/build/serde_json-263474a6bf72c81a/build-script-build.exe differ
+diff --git a/crates/target/llvm-cov-target/debug/build/serde_json-263474a6bf72c81a/build_script_build-263474a6bf72c81a.d b/crates/target/llvm-cov-target/debug/build/serde_json-263474a6bf72c81a/build_script_build-263474a6bf72c81a.d
+new file mode 100644
+index 000000000000..f0d5cd3ab342
+--- /dev/null
++++ b/crates/target/llvm-cov-target/debug/build/serde_json-263474a6bf72c81a/build_script_build-263474a6bf72c81a.d
+@@ -0,0 +1,5 @@
++C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\auto-named-explore\packages\desktop\src-tauri\crates\core\agent\../../target/llvm-cov-target\debug\build\serde_json-263474a6bf72c81a\build_script_build-263474a6bf72c81a.d: C:\Users\wps\.cargo\registry\src\rsproxy.cn-e3de039b2554c837\serde_json-1.0.151\build.rs
++
++C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\auto-named-explore\packages\desktop\src-tauri\crates\core\agent\../../target/llvm-cov-target\debug\build\serde_json-263474a6bf72c81a\build_script_build-263474a6bf72c81a.exe: C:\Users\wps\.cargo\registry\src\rsproxy.cn-e3de039b2554c837\serde_json-1.0.151\build.rs
++
++C:\Users\wps\.cargo\registry\src\rsproxy.cn-e3de039b2554c837\serde_json-1.0.151\build.rs:
+diff --git a/crates/target/llvm-cov-target/debug/build/serde_json-263474a6bf72c81a/build_script_build-263474a6bf72c81a.exe b/crates/target/llvm-cov-target/debug/build/serde_json-263474a6bf72c81a/build_script_build-263474a6bf72c81a.exe
+new file mode 100644
+index 000000000000..0ee85a2d172e
+Binary files /dev/null and b/packages/desktop/src-tauri/crates/target/llvm-cov-target/debug/build/serde_json-263474a6bf72c81a/build_script_build-263474a6bf72c81a.exe differ
+diff --git a/crates/target/llvm-cov-target/debug/build/serde_json-263474a6bf72c81a/build_script_build-263474a6bf72c81a.pdb b/crates/target/llvm-cov-target/debug/build/serde_json-263474a6bf72c81a/build_script_build-263474a6bf72c81a.pdb
+new file mode 100644
+index 000000000000..e33524c99866
+Binary files /dev/null and b/packages/desktop/src-tauri/crates/target/llvm-cov-target/debug/build/serde_json-263474a6bf72c81a/build_script_build-263474a6bf72c81a.pdb differ
+diff --git a/crates/target/llvm-cov-target/debug/build/serde_json-263474a6bf72c81a/build_script_build.pdb b/crates/target/llvm-cov-target/debug/build/serde_json-263474a6bf72c81a/build_script_build.pdb
+new file mode 100644
+index 000000000000..e33524c99866
+Binary files /dev/null and b/packages/desktop/src-tauri/crates/target/llvm-cov-target/debug/build/serde_json-263474a6bf72c81a/build_script_build.pdb differ
+diff --git a/crates/target/llvm-cov-target/debug/build/serde_json-fed635937294a5b9/invoked.timestamp b/crates/target/llvm-cov-target/debug/build/serde_json-fed635937294a5b9/invoked.timestamp
+new file mode 100644
+index 000000000000..e00328da5aa8
+--- /dev/null
++++ b/crates/target/llvm-cov-target/debug/build/serde_json-fed635937294a5b9/invoked.timestamp
+@@ -0,0 +1 @@
++This file has an mtime of when this was started.
+\ No newline at end of file
+diff --git a/crates/target/llvm-cov-target/debug/build/serde_json-fed635937294a5b9/output b/crates/target/llvm-cov-target/debug/build/serde_json-fed635937294a5b9/output
+new file mode 100644
+index 000000000000..32010770d541
+--- /dev/null
++++ b/crates/target/llvm-cov-target/debug/build/serde_json-fed635937294a5b9/output
+@@ -0,0 +1,3 @@
++cargo:rerun-if-changed=build.rs
++cargo:rustc-check-cfg=cfg(fast_arithmetic, values("32", "64"))
++cargo:rustc-cfg=fast_arithmetic="64"
+diff --git a/crates/target/llvm-cov-target/debug/build/serde_json-fed635937294a5b9/root-output b/crates/target/llvm-cov-target/debug/build/serde_json-fed635937294a5b9/root-output
+new file mode 100644
+index 000000000000..31382d1f5e84
+--- /dev/null
++++ b/crates/target/llvm-cov-target/debug/build/serde_json-fed635937294a5b9/root-output
+@@ -0,0 +1 @@
++C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\auto-named-explore\packages\desktop\src-tauri\crates\core\agent\../../target/llvm-cov-target\debug\build\serde_json-fed635937294a5b9\out
+\ No newline at end of file
+diff --git a/crates/target/llvm-cov-target/debug/build/serde_json-fed635937294a5b9/stderr b/crates/target/llvm-cov-target/debug/build/serde_json-fed635937294a5b9/stderr
+new file mode 100644
+index 000000000000..e69de29bb2d1
+diff --git a/crates/target/llvm-cov-target/debug/build/specta-03c049b3e85298c6/build-script-build.exe b/crates/target/llvm-cov-target/debug/build/specta-03c049b3e85298c6/build-script-build.exe
+new file mode 100644
+index 000000000000..61498c05b946
+Binary files /dev/null and b/packages/desktop/src-tauri/crates/target/llvm-cov-target/debug/build/specta-03c049b3e85298c6/build-script-build.exe differ
+diff --git a/crates/target/llvm-cov-target/debug/build/specta-03c049b3e85298c6/build_script_build-03c049b3e85298c6.d b/crates/target/llvm-cov-target/debug/build/specta-03c049b3e85298c6/build_script_build-03c049b3e85298c6.d
+new file mode 100644
+index 000000000000..bd9afa79285e
+--- /dev/null
++++ b/crates/target/llvm-cov-target/debug/build/specta-03c049b3e85298c6/build_script_build-03c049b3e85298c6.d
+@@ -0,0 +1,5 @@
++C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\auto-named-explore\packages\desktop\src-tauri\crates\core\agent\../../target/llvm-cov-target\debug\build\specta-03c049b3e85298c6\build_script_build-03c049b3e85298c6.d: C:\Users\wps\.cargo\registry\src\rsproxy.cn-e3de039b2554c837\specta-2.0.0-rc.25\build.rs
++
++C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\auto-named-explore\packages\desktop\src-tauri\crates\core\agent\../../target/llvm-cov-target\debug\build\specta-03c049b3e85298c6\build_script_build-03c049b3e85298c6.exe: C:\Users\wps\.cargo\registry\src\rsproxy.cn-e3de039b2554c837\specta-2.0.0-rc.25\build.rs
++
++C:\Users\wps\.cargo\registry\src\rsproxy.cn-e3de039b2554c837\specta-2.0.0-rc.25\build.rs:
+diff --git a/crates/target/llvm-cov-target/debug/build/specta-03c049b3e85298c6/build_script_build-03c049b3e85298c6.exe b/crates/target/llvm-cov-target/debug/build/specta-03c049b3e85298c6/build_script_build-03c049b3e85298c6.exe
+new file mode 100644
+index 000000000000..61498c05b946
+Binary files /dev/null and b/packages/desktop/src-tauri/crates/target/llvm-cov-target/debug/build/specta-03c049b3e85298c6/build_script_build-03c049b3e85298c6.exe differ
+diff --git a/crates/target/llvm-cov-target/debug/build/specta-03c049b3e85298c6/build_script_build-03c049b3e85298c6.pdb b/crates/target/llvm-cov-target/debug/build/specta-03c049b3e85298c6/build_script_build-03c049b3e85298c6.pdb
+new file mode 100644
+index 000000000000..8e2df246e2c4
+Binary files /dev/null and b/packages/desktop/src-tauri/crates/target/llvm-cov-target/debug/build/specta-03c049b3e85298c6/build_script_build-03c049b3e85298c6.pdb differ

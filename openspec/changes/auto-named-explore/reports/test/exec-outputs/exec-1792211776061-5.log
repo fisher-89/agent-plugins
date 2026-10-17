@@ -1,0 +1,27 @@
+$ pnpm run server:check && pnpm run bindings:export && pnpm run client:check
+$ cargo fmt --manifest-path src-tauri/Cargo.toml && cargo clippy --manifest-path src-tauri/Cargo.toml
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 3.69s
+$ cargo run --quiet -p export-bindings --manifest-path src-tauri/Cargo.toml
+$ vp check --fix && knip
+[1m[31merror:[39m[0m Lint or type issues found
+x typescript(TS2339): Property 'prompt' does not exist on type 'string'.
+     ,-[src/views/explores/explore-view.test.tsx:214:87]
+ 213 |     expect(startCalls).toHaveLength(1);
+ 214 |     const prompt = String((startCalls[0] as unknown[])[1] as Record<string, unknown>).prompt;
+     :                                                                                       ^^^^^^
+ 215 |     expect(prompt).toContain('调研重试策略的失效边界');
+     `----
+
+  ! typescript(no-base-to-string): '(startCalls[0] as unknown[])[1] as Record<string, unknown>' will use Object's default stringification format ('[object Object]') when stringified.
+     ,-[src/views/explores/explore-view.test.tsx:214:27]
+ 213 |     expect(startCalls).toHaveLength(1);
+ 214 |     const prompt = String((startCalls[0] as unknown[])[1] as Record<string, unknown>).prompt;
+     :                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+ 215 |     expect(prompt).toContain('调研重试策略的失效边界');
+     `----
+  help: Consider picking a property (e.g. `user.name`), using a formatter (or `JSON.stringify`), or implementing a custom `toString()`/`toLocaleString()` on the type.
+
+Found 1 error and 1 warning in 166 files (1.8s, 16 threads)
+[1m[94mpass:[39m[0m Formatting completed for checked files [2m(5.5s)[0m
+[ELIFECYCLE] Command failed with exit code 1.
+[ELIFECYCLE] Command failed with exit code 1.

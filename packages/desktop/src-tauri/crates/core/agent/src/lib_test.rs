@@ -1,11 +1,12 @@
 use std::sync::Arc;
 
-use crate::event::{AgentBlock, AgentDelta, AgentEvent, AgentEventKind};
+use crate::event::{AgentBlock, AgentDelta, AgentEvent, AgentEventKind, AgentMessageRole};
 use crate::kernel::{KernelOutput, RunningTurn, SessionKernel, StopRegistry, TurnRequest};
 use crate::port::{SessionQuery, SessionSink, TurnOutcome};
 use crate::runner::{
     AgentPermissionMode, AgentRunStatus, AgentRunner, AgentSession, AgentStartError, ModelLevel,
-    RunHandle, SessionCtx, SessionInjections, SessionOpen, SessionRef, TurnQuestion,
+    RunHandle, SessionCtx, SessionInjections, SessionOpen, SessionRef, SessionToolset,
+    TurnQuestion,
 };
 use crate::session::{
     new_session_id, NewSessionRow, SessionPage, SessionProvenance, SessionRow, SessionStats,
@@ -255,4 +256,90 @@ fn crate根路径sum_usage_tokens缺席key与重复调用稳定() {
         root_fn(&events, "input_tokens"),
         "重复调用结果一致（零状态零副作用）"
     );
+}
+
+// ---------------------------------------------------------------------------
+// auto-named-explore：SessionToolset 再导出与 SessionInjections 出口回归
+// ---------------------------------------------------------------------------
+
+/// `SessionToolset` 再导出可达：经 crate 根路径构造 `Explore` 变体并
+/// `PartialEq` 等值锚定（再导出清单增补的词汇出口——破坏即编译失败）。
+#[test]
+fn crate根路径session_toolset可达且explore变体等值() {
+    // 根路径构造 + 等值（词汇本体驻 runner.rs，出口侧仅锚定可达与语义）
+    let toolset = crate::SessionToolset::Explore;
+    assert_eq!(toolset, SessionToolset::Explore, "根路径与模块路径同词汇");
+    // serde 可用性经出口侧复验（derive 随词汇出口可达）
+    let line = serde_json::to_string(&toolset).expect("序列化可达");
+    assert_eq!(line, r#""explore""#, "线值经出口侧不变");
+}
+
+/// 既有再导出面零回归：runner / session / port / kernel / state / event /
+/// usage 各域再导出词汇快照逐项可达（增补 `SessionToolset` 不挤掉既有出口
+/// ——清单丢失即编译失败，构造形态防「仅被 use」假锚）。
+#[test]
+fn 既有再导出面快照逐名可达_增补不挤掉既有词汇() {
+    // runner 域（含增补的 SessionToolset 与既有词汇；trait 面以指针形态锚定）
+    let _runner_word_shapes: Option<(
+        AgentPermissionMode,
+        AgentRunStatus,
+        Box<dyn AgentRunner>,
+        AgentSession,
+        AgentStartError,
+        ModelLevel,
+        RunHandle,
+        SessionCtx,
+        SessionInjections,
+        SessionOpen,
+        SessionRef,
+        SessionToolset,
+        TurnQuestion,
+    )> = None;
+    let _ = SessionToolset::Explore;
+    // session / port / kernel / state / event / usage 域既有快照（与文件顶部
+    // use 清单一一对应，任一名丢失即编译失败）
+    let _session_word_shapes: Option<(
+        NewSessionRow,
+        SessionPage,
+        SessionProvenance,
+        SessionRow,
+        SessionStats,
+        SessionSummary,
+        TurnSummary,
+    )> = None;
+    let _port_word_shapes: Option<(Box<dyn SessionQuery>, Box<dyn SessionSink>, TurnOutcome)> =
+        None;
+    let _kernel_word_shapes: Option<(KernelOutput, RunningTurn, SessionKernel, StopRegistry, TurnRequest)> =
+        None;
+    let _state_word_shapes: Option<(AgentRunState, RunStateMachine)> = None;
+    let _event_word_shapes: Option<(AgentBlock, AgentDelta, AgentEvent, AgentEventKind, AgentMessageRole)> =
+        None;
+    let _usage_fn: fn(&[AgentEvent], &str) -> Option<u64> = crate::sum_usage_tokens;
+
+    // 构造形态断言（防「仅被 use」假锚）：增补词汇真实可用
+    let default_injections = SessionInjections::default();
+    assert_eq!(default_injections.toolset, None, "增补位缺省 None");
+}
+
+/// toolset 非法线值经出口反序列化：crate 根路径 `SessionInjections` 喂
+/// `{"toolset":"unknown"}` → serde `Err`（再导出面承载的失败语义不吞改，与
+/// runner_test 非法线值臂同口径、不同进口）。
+#[test]
+fn toolset非法线值经出口反序列化err() {
+    let result: Result<SessionInjections, _> =
+        serde_json::from_str(r#"{"toolset":"unknown"}"#);
+    assert!(
+        result.is_err(),
+        "出口侧非法 toolset 线值应 serde Err，实际: {result:?}"
+    );
+}
+
+/// SessionInjections 缺省出口锚定：经 crate 根路径 `SessionInjections::default()`
+/// → 三位全 `None`（additive 缺省读兼容的出口侧锚定）。
+#[test]
+fn crate根路径session_injections_default三位全none() {
+    let default_injections = SessionInjections::default();
+    assert_eq!(default_injections.preamble, None, "preamble None");
+    assert_eq!(default_injections.tools, None, "tools None");
+    assert_eq!(default_injections.toolset, None, "toolset None（增补位缺省）");
 }

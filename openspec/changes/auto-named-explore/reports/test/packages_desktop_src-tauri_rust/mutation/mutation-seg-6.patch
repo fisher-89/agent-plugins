@@ -1,0 +1,102 @@
+diff --git a/crates/target/llvm-cov-target/debug/build/specta-03c049b3e85298c6/build_script_build.pdb b/crates/target/llvm-cov-target/debug/build/specta-03c049b3e85298c6/build_script_build.pdb
+new file mode 100644
+index 000000000000..8e2df246e2c4
+Binary files /dev/null and b/packages/desktop/src-tauri/crates/target/llvm-cov-target/debug/build/specta-03c049b3e85298c6/build_script_build.pdb differ
+diff --git a/crates/target/llvm-cov-target/debug/build/specta-c42cd40a8ce2c19a/invoked.timestamp b/crates/target/llvm-cov-target/debug/build/specta-c42cd40a8ce2c19a/invoked.timestamp
+new file mode 100644
+index 000000000000..e00328da5aa8
+--- /dev/null
++++ b/crates/target/llvm-cov-target/debug/build/specta-c42cd40a8ce2c19a/invoked.timestamp
+@@ -0,0 +1 @@
++This file has an mtime of when this was started.
+\ No newline at end of file
+diff --git a/crates/target/llvm-cov-target/debug/build/specta-c42cd40a8ce2c19a/output b/crates/target/llvm-cov-target/debug/build/specta-c42cd40a8ce2c19a/output
+new file mode 100644
+index 000000000000..e69de29bb2d1
+diff --git a/crates/target/llvm-cov-target/debug/build/specta-c42cd40a8ce2c19a/root-output b/crates/target/llvm-cov-target/debug/build/specta-c42cd40a8ce2c19a/root-output
+new file mode 100644
+index 000000000000..aad9ba7eaa93
+--- /dev/null
++++ b/crates/target/llvm-cov-target/debug/build/specta-c42cd40a8ce2c19a/root-output
+@@ -0,0 +1 @@
++C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\auto-named-explore\packages\desktop\src-tauri\crates\core\agent\../../target/llvm-cov-target\debug\build\specta-c42cd40a8ce2c19a\out
+\ No newline at end of file
+diff --git a/crates/target/llvm-cov-target/debug/build/specta-c42cd40a8ce2c19a/stderr b/crates/target/llvm-cov-target/debug/build/specta-c42cd40a8ce2c19a/stderr
+new file mode 100644
+index 000000000000..e69de29bb2d1
+diff --git a/crates/target/llvm-cov-target/debug/build/zmij-23e62730429d0958/invoked.timestamp b/crates/target/llvm-cov-target/debug/build/zmij-23e62730429d0958/invoked.timestamp
+new file mode 100644
+index 000000000000..e00328da5aa8
+--- /dev/null
++++ b/crates/target/llvm-cov-target/debug/build/zmij-23e62730429d0958/invoked.timestamp
+@@ -0,0 +1 @@
++This file has an mtime of when this was started.
+\ No newline at end of file
+diff --git a/crates/target/llvm-cov-target/debug/build/zmij-23e62730429d0958/output b/crates/target/llvm-cov-target/debug/build/zmij-23e62730429d0958/output
+new file mode 100644
+index 000000000000..726e62782655
+--- /dev/null
++++ b/crates/target/llvm-cov-target/debug/build/zmij-23e62730429d0958/output
+@@ -0,0 +1,4 @@
++cargo:rerun-if-changed=build.rs
++cargo:rustc-check-cfg=cfg(exhaustive)
++cargo:rustc-check-cfg=cfg(opt_level, values("s"))
++cargo:rustc-check-cfg=cfg(zmij_no_select_unpredictable)
+diff --git a/crates/target/llvm-cov-target/debug/build/zmij-23e62730429d0958/root-output b/crates/target/llvm-cov-target/debug/build/zmij-23e62730429d0958/root-output
+new file mode 100644
+index 000000000000..7d0dccf2c251
+--- /dev/null
++++ b/crates/target/llvm-cov-target/debug/build/zmij-23e62730429d0958/root-output
+@@ -0,0 +1 @@
++C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\auto-named-explore\packages\desktop\src-tauri\crates\core\agent\../../target/llvm-cov-target\debug\build\zmij-23e62730429d0958\out
+\ No newline at end of file
+diff --git a/crates/target/llvm-cov-target/debug/build/zmij-23e62730429d0958/stderr b/crates/target/llvm-cov-target/debug/build/zmij-23e62730429d0958/stderr
+new file mode 100644
+index 000000000000..e69de29bb2d1
+diff --git a/crates/target/llvm-cov-target/debug/build/zmij-728d2819a489644a/build-script-build.exe b/crates/target/llvm-cov-target/debug/build/zmij-728d2819a489644a/build-script-build.exe
+new file mode 100644
+index 000000000000..087d5d14f947
+Binary files /dev/null and b/packages/desktop/src-tauri/crates/target/llvm-cov-target/debug/build/zmij-728d2819a489644a/build-script-build.exe differ
+diff --git a/crates/target/llvm-cov-target/debug/build/zmij-728d2819a489644a/build_script_build-728d2819a489644a.d b/crates/target/llvm-cov-target/debug/build/zmij-728d2819a489644a/build_script_build-728d2819a489644a.d
+new file mode 100644
+index 000000000000..5f357641ff74
+--- /dev/null
++++ b/crates/target/llvm-cov-target/debug/build/zmij-728d2819a489644a/build_script_build-728d2819a489644a.d
+@@ -0,0 +1,5 @@
++C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\auto-named-explore\packages\desktop\src-tauri\crates\core\agent\../../target/llvm-cov-target\debug\build\zmij-728d2819a489644a\build_script_build-728d2819a489644a.d: C:\Users\wps\.cargo\registry\src\rsproxy.cn-e3de039b2554c837\zmij-1.0.23\build.rs
++
++C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\auto-named-explore\packages\desktop\src-tauri\crates\core\agent\../../target/llvm-cov-target\debug\build\zmij-728d2819a489644a\build_script_build-728d2819a489644a.exe: C:\Users\wps\.cargo\registry\src\rsproxy.cn-e3de039b2554c837\zmij-1.0.23\build.rs
++
++C:\Users\wps\.cargo\registry\src\rsproxy.cn-e3de039b2554c837\zmij-1.0.23\build.rs:
+diff --git a/crates/target/llvm-cov-target/debug/build/zmij-728d2819a489644a/build_script_build-728d2819a489644a.exe b/crates/target/llvm-cov-target/debug/build/zmij-728d2819a489644a/build_script_build-728d2819a489644a.exe
+new file mode 100644
+index 000000000000..087d5d14f947
+Binary files /dev/null and b/packages/desktop/src-tauri/crates/target/llvm-cov-target/debug/build/zmij-728d2819a489644a/build_script_build-728d2819a489644a.exe differ
+diff --git a/crates/target/llvm-cov-target/debug/build/zmij-728d2819a489644a/build_script_build-728d2819a489644a.pdb b/crates/target/llvm-cov-target/debug/build/zmij-728d2819a489644a/build_script_build-728d2819a489644a.pdb
+new file mode 100644
+index 000000000000..d69d638f0140
+Binary files /dev/null and b/packages/desktop/src-tauri/crates/target/llvm-cov-target/debug/build/zmij-728d2819a489644a/build_script_build-728d2819a489644a.pdb differ
+diff --git a/crates/target/llvm-cov-target/debug/build/zmij-728d2819a489644a/build_script_build.pdb b/crates/target/llvm-cov-target/debug/build/zmij-728d2819a489644a/build_script_build.pdb
+new file mode 100644
+index 000000000000..d69d638f0140
+Binary files /dev/null and b/packages/desktop/src-tauri/crates/target/llvm-cov-target/debug/build/zmij-728d2819a489644a/build_script_build.pdb differ
+diff --git a/crates/target/llvm-cov-target/debug/deps/agent-06110134452162f1.d b/crates/target/llvm-cov-target/debug/deps/agent-06110134452162f1.d
+new file mode 100644
+index 000000000000..56d3117f330d
+--- /dev/null
++++ b/crates/target/llvm-cov-target/debug/deps/agent-06110134452162f1.d
+@@ -0,0 +1,14 @@
++C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\auto-named-explore\packages\desktop\src-tauri\crates\core\agent\../../target/llvm-cov-target\debug\deps\agent-06110134452162f1.d: crates\core\agent\src\lib.rs crates\core\agent\src\event.rs crates\core\agent\src\kernel.rs crates\core\agent\src\port.rs crates\core\agent\src\runner.rs crates\core\agent\src\session.rs crates\core\agent\src\state.rs crates\core\agent\src\usage.rs
++
++C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\auto-named-explore\packages\desktop\src-tauri\crates\core\agent\../../target/llvm-cov-target\debug\deps\libagent-06110134452162f1.rlib: crates\core\agent\src\lib.rs crates\core\agent\src\event.rs crates\core\agent\src\kernel.rs crates\core\agent\src\port.rs crates\core\agent\src\runner.rs crates\core\agent\src\session.rs crates\core\agent\src\state.rs crates\core\agent\src\usage.rs
++
++C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\auto-named-explore\packages\desktop\src-tauri\crates\core\agent\../../target/llvm-cov-target\debug\deps\libagent-06110134452162f1.rmeta: crates\core\agent\src\lib.rs crates\core\agent\src\event.rs crates\core\agent\src\kernel.rs crates\core\agent\src\port.rs crates\core\agent\src\runner.rs crates\core\agent\src\session.rs crates\core\agent\src\state.rs crates\core\agent\src\usage.rs
++
++crates\core\agent\src\lib.rs:
++crates\core\agent\src\event.rs:
++crates\core\agent\src\kernel.rs:
++crates\core\agent\src\port.rs:
++crates\core\agent\src\runner.rs:
++crates\core\agent\src\session.rs:
++crates\core\agent\src\state.rs:
++crates\core\agent\src\usage.rs:

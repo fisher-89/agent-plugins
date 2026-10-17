@@ -1,16 +1,20 @@
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
 
 use agent::{
-    AgentRunner, AgentSession, AgentStartError, ModelLevel, RunHandle, SessionOpen, TurnQuestion,
+    AgentRunner, AgentSession, AgentStartError, ModelLevel, RunHandle, SessionOpen, SessionToolset,
+    TurnQuestion,
 };
 use rig::driver::DynModel;
 use rig::message::Message;
 use rig::operation::Completion;
 use rig::providers::openai::OpenAIConfig;
+use store::Store;
 use tokio::sync::mpsc;
 
 use crate::sdk::config::EngineConfig;
 use crate::sdk::context::{ContextDefense, DefenseNotice};
+use crate::sdk::explore_note::ExploreNoteContext;
 use crate::sdk::{context, r#loop, resume};
 use crate::ResumeTranscript;
 
@@ -23,26 +27,33 @@ const QUESTION_CHANNEL_CAPACITY: usize = 4;
 /// sdk 会话 id 进程内原子计数（配合毫秒时戳保证同毫秒不重号）。
 static SESSION_COUNTER: AtomicU64 = AtomicU64::new(0);
 
-/// sdk 引擎 runner：持有连接配置、窗长载荷与会话全史转录装载缝；无跨会话
-/// 共享运行态（全部运行态在 `open_session` 产出的泵任务内）。
+/// sdk 引擎 runner：持有连接配置、窗长载荷、会话全史转录装载缝与 explore
+/// 专用工具 store 句柄；无跨会话共享运行态（全部运行态在 `open_session` 产出
+/// 的泵任务内）。
 pub struct SdkRunner {
     config: EngineConfig,
     resume: Option<ResumeTranscript>,
     /// provider 上下文窗长（组合根旁路载荷；None = 128K 缺省启发式）
     context_window: Option<u64>,
+    /// workspace 库句柄（组合根注入缝）：`toolset == Explore` 会话 per-turn
+    /// 铸造 `create_explore_note` 执行上下文的原料（None = 未注入）
+    explore_store: Option<Arc<Store>>,
 }
 
 impl SdkRunner {
-    /// runner 构造（配置、窗长与装载缝由门面注入，引擎细节不出门面）。
+    /// runner 构造（配置、窗长、装载缝与 store 句柄由门面注入，引擎细节不出
+    /// 门面）。
     pub fn new(
         config: EngineConfig,
         resume: Option<ResumeTranscript>,
         context_window: Option<u64>,
+        explore_store: Option<Arc<Store>>,
     ) -> Self {
         Self {
             config,
             resume,
             context_window,
+            explore_store,
         }
     }
 
@@ -124,6 +135,7 @@ impl AgentRunner for SdkRunner {
                 history,
                 defense,
                 resume_notices,
+                explore_store: self.explore_store.clone(),
             },
             question_rx,
             observation_tx,
@@ -155,7 +167,7 @@ fn build_model(config: &EngineConfig, model_name: &str) -> DynModel<Completion> 
 }
 
 /// 泵任务的防线与史载荷（参数面收敛分组：重建史 + 防线配置 + 重建剪裁的
-/// notice 留痕）。
+/// notice 留痕 + explore 专用工具句柄）。
 struct PumpPayload {
     /// resume 重建史（已经第一调用点 L2 先行剪裁）
     history: Vec<Message>,
@@ -163,6 +175,9 @@ struct PumpPayload {
     defense: ContextDefense,
     /// 重建剪裁产出的 notice（泵内先于 RunStarted 转发）
     resume_notices: Vec<DefenseNotice>,
+    /// workspace 库句柄（组合根注入缝）——`toolset == Explore` 会话 per-turn
+    /// 铸造 `create_explore_note` 执行上下文的原料（None = 未注入）
+    explore_store: Option<Arc<Store>>,
 }
 
 /// 会话泵任务（ask 段）
@@ -187,6 +202,17 @@ async fn session_pump(
             })
             .await;
     }
+    // `create_explore_note` 专用工具执行上下文 per-turn 铸造：toolset == Explore
+    // 且 store 句柄在场才铸（Continue id 缺席则 None——生产不可达，explore 会话
+    // 恒 Continue）；上下文随 LoopTurn 携带、loop 侧路由，不经 `tools::execute`
+    let explore_note = if open.injections.toolset == Some(SessionToolset::Explore) {
+        payload
+            .explore_store
+            .zip(continue_session_id(&open))
+            .map(|(store, id)| ExploreNoteContext::new(store, open.ctx.workspace_root.clone(), id))
+    } else {
+        None
+    };
     let turn = r#loop::LoopTurn {
         question: question.prompt,
         cwd: open.ctx.workspace_root.clone(),
@@ -196,6 +222,8 @@ async fn session_pump(
         defense: payload.defense,
         liveness: Default::default(),
         retry: Default::default(),
+        injections: open.injections.clone(),
+        explore_note,
     };
     crate::sdk::log::append_engine_log(&format!(
         "泵启动 session={} model={model_name}",

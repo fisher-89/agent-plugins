@@ -1,5 +1,5 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { MemoryRouter, Route, Routes } from 'react-router';
+import { MemoryRouter, Route, Routes, useLocation, useNavigationType } from 'react-router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 
 import type { ExploreRecord } from '../../types/dto';
@@ -22,6 +22,7 @@ const { ChannelMock, invokeMock } = vi.hoisted(() => {
 vi.mock('@tauri-apps/api/core', () => ({ invoke: invokeMock, Channel: ChannelMock }));
 
 const ROOT = 'C:\\demo\\alpha';
+const PLACEHOLDER_NAME = 'draft-1758123456789';
 
 /** 清单 fixture（title ≠ name：展示面必须取 title）。 */
 function record(id: number, name: string, title: string): ExploreRecord {
@@ -38,6 +39,14 @@ function record(id: number, name: string, title: string): ExploreRecord {
   };
 }
 
+/** 占位记录 fixture（sessionId 在场——详情页重放与 auto-send 就绪形态）。 */
+function placeholderRecord(): ExploreRecord {
+  return {
+    ...record(3, PLACEHOLDER_NAME, '2026-10-17 08:30:45-分析中'),
+    sessionId: 'ses-draft-1727000001000',
+  };
+}
+
 let records: ExploreRecord[] = [];
 
 /** 进程边界应答面：清单 + 详情页 hooks 所需命令的空态应答。 */
@@ -48,26 +57,69 @@ function ipc(command: string): Promise<unknown> {
     return Promise.resolve('C:\\demo\\alpha\\openspec\\explores\\x.md');
   if (command === 'watch_subscribe') return Promise.resolve(1);
   if (command === 'watch_unsubscribe') return Promise.resolve(null);
-  if (command === 'agent_sessions') return Promise.resolve([]);
+  if (command === 'session_detail') return Promise.resolve(null);
   if (command === 'agent_session_transcript') return Promise.resolve([]);
+  if (command === 'agent_start') {
+    // early-resolve running 轮行形态（handleRecord 可安全消费）
+    return Promise.resolve({
+      turnId: 13,
+      sessionId: 'ses-draft-1727000001000',
+      status: 'running',
+      startedAt: 1727000001000,
+      finishedAt: null,
+      numTurns: null,
+      costUsd: null,
+      durationMs: null,
+      error: null,
+    });
+  }
   if (command === 'promote_explore') {
     return Promise.resolve({ changeId: 'chg-1', changeName: 'api-retry' });
   }
+  if (command === 'create_explore_record') return Promise.resolve(placeholderRecord());
+  if (command === 'update_explore_title') return Promise.resolve(placeholderRecord());
   return Promise.resolve(null);
 }
 
-/** 路由装置：/explores（清单）与 /explores/:name（详情）两形态。 */
-function renderAt(path: string) {
-  return render(
+/** 视图树装置（root 可换：workspace 切换用例经 rerender 复用同一实例）。 */
+function viewTree(path: string, root: string = ROOT) {
+  return (
     <MemoryRouter initialEntries={[path]}>
       <Routes>
-        <Route path="/explores" element={<ExploreView root={ROOT} />} />
-        <Route path="/explores/:name" element={<ExploreView root={ROOT} />} />
+        <Route path="/explores" element={<ExploreView root={root} />} />
+        <Route path="/explores/:name" element={<ExploreView root={root} />} />
         <Route path="/changes/:id" element={<span data-testid="change-detail-stub" />} />
       </Routes>
-    </MemoryRouter>,
+      <LocationProbe />
+    </MemoryRouter>
   );
 }
+
+/** 路由装置：/explores（清单）与 /explores/:name（详情）两形态 + 位置探针。 */
+function renderAt(path: string) {
+  return render(viewTree(path));
+}
+
+/** 路由装置（显式 root）：workspace 根切换用例的起点。 */
+function renderAtRoot(path: string, root: string) {
+  return render(viewTree(path, root));
+}
+
+/** URL 探针：把当前 pathname 投影到 DOM 供 navigate 断言；导航类型探针
+ * （POP / PUSH / REPLACE）供 replace 语义断言。 */
+function LocationProbe() {
+  const { pathname } = useLocation();
+  const navigationType = useNavigationType();
+  return (
+    <>
+      <span data-testid="location-probe">{pathname}</span>
+      <span data-testid="nav-type-probe">{navigationType}</span>
+    </>
+  );
+}
+
+const startCallCount = () =>
+  invokeMock.mock.calls.filter(([name]) => name === 'agent_start').length;
 
 beforeEach(() => {
   invokeMock.mockReset();
@@ -78,6 +130,10 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
 });
+
+// ---------------------------------------------------------------------------
+// 清单页渲染（既有回归）
+// ---------------------------------------------------------------------------
 
 describe('ExploreView 清单页：条目渲染 record.title（AC-8 清单半边）', () => {
   it('正向：条目标题显示 title（title ≠ name 时显示 title 而非 name）', async () => {
@@ -128,10 +184,317 @@ describe('ExploreView 详情页：list 透传与缺记录态（AC-8 / AC-5 动�
     );
   });
 
-  it('边界：未选中 / 缺失记录（清单无该 name）→ 详情缺失态占位（既有语义零改动）', async () => {
+  it('边界：未选中 / 缺失记录（清单无该 name 且无快照）→ 详情缺失态占位（既有语义零改动）', async () => {
     renderAt('/explores/ghost-topic');
 
     expect(await screen.findByTestId('explore-detail-missing')).toBeTruthy();
     expect(screen.queryByTestId('explore-detail-title')).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// auto-named-explore：onCreated → 导航携 autoPrompt（AC-1 前半链）
+// ---------------------------------------------------------------------------
+
+describe('ExploreView：onCreated 导航链（清单页 → 详情页首轮，AC-1 / AC-8）', () => {
+  it('正向：新话题建档 → list.refresh 后 navigate /explores/<占位名> 携 state.autoPrompt；详情页 auto-send 以 stance + 需求原文发起首轮', async () => {
+    // 刷新后清单含建档记录（refresh 由 onCreated 触发 → 第二次取数返回占位记录）
+    const listQueue: ExploreRecord[][] = [[], [placeholderRecord()]];
+    invokeMock.mockImplementation((command: string) => {
+      if (command === 'list_explore_records') return Promise.resolve(listQueue.shift() ?? []);
+      return ipc(command);
+    });
+
+    renderAt('/explores');
+    fireEvent.click(await screen.findByTestId('explore-create-toggle'));
+    fireEvent.change(screen.getByTestId('explore-topic-requirement'), {
+      target: { value: '调研重试策略的失效边界' },
+    });
+    fireEvent.click(screen.getByTestId('explore-topic-create'));
+
+    // 导航至占位名详情（navigate 携 state → 详情页 autoPrompt 读数）
+    await waitFor(() =>
+      expect(screen.getByTestId('location-probe').textContent).toBe(
+        `/explores/${PLACEHOLDER_NAME}`,
+      ),
+    );
+    // 清单显式刷新发生（onCreated → list.refresh）
+    await waitFor(() =>
+      expect(invokeMock.mock.calls.filter(([name]) => name === 'list_explore_records').length).toBe(
+        2,
+      ),
+    );
+    // 详情页 auto-send：占位记录 → 命名指令形 stance + 需求原文
+    await waitFor(() => expect(startCallCount()).toBe(1));
+    const startCalls = invokeMock.mock.calls.filter(([name]) => name === 'agent_start');
+    expect(startCalls).toHaveLength(1);
+    const params = startCalls[0][1] as Record<string, unknown>;
+    const prompt = String(params.prompt);
+    expect(prompt).toContain('调研重试策略的失效边界');
+    expect(prompt).toContain('## 笔记定名与落盘');
+    expect(prompt).not.toContain('openspec/explores');
+    // 无 MissingRecord 闪现
+    expect(screen.queryByTestId('explore-detail-missing')).toBeNull();
+  });
+
+  it('边界：导入路径（autoPrompt = null）→ navigate 不携带 state、详情页零自动发送（AC-8 回归）', async () => {
+    const imported = record(4, 'imported-topic', '导入主题');
+    const listQueue: ExploreRecord[][] = [
+      [{ ...record(1, 'api-retry', '接口重试策略') }],
+      [imported],
+    ];
+    invokeMock.mockImplementation((command: string) => {
+      if (command === 'list_explore_records') return Promise.resolve(listQueue.shift() ?? []);
+      if (command === 'create_explore_record') return Promise.resolve(imported);
+      if (command === 'scan_explores') {
+        return Promise.resolve([{ name: 'imported-topic', modifiedAt: null }]);
+      }
+      return ipc(command);
+    });
+
+    renderAt('/explores');
+    fireEvent.click(await screen.findByTestId('explore-create-toggle'));
+    fireEvent.click(screen.getByTestId('explore-tab-import'));
+    fireEvent.click(await screen.findByTestId('explore-import-item'));
+
+    // 导航至导入名详情（无 state → 零 auto-send）
+    await waitFor(() =>
+      expect(screen.getByTestId('location-probe').textContent).toBe('/explores/imported-topic'),
+    );
+    await act_dummy();
+    expect(startCallCount()).toBe(0);
+    expect(screen.queryByTestId('explore-detail-missing')).toBeNull();
+  });
+});
+
+/** 事件循环排空（等待零断言窗口）。 */
+async function act_dummy() {
+  await waitFor(() => expect(invokeMock).toHaveBeenCalled());
+}
+
+// ---------------------------------------------------------------------------
+// auto-named-explore：三级链（id 桥）——旧名 URL 的派生与收敛（AC-4）
+// ---------------------------------------------------------------------------
+
+/** 改名流清单队列（模块级，按调用序出队；每用例经 mockRenamedFlow 重置）。 */
+const renamedQueue: ExploreRecord[][] = [];
+
+function listShift(): ExploreRecord[] {
+  const next = renamedQueue.shift();
+  return next ?? [];
+}
+
+/** 改名流 mock：首次取数旧名记录；title 回填 refresh 后第二次取数入参清单。 */
+function mockRenamedFlow(secondList: ExploreRecord[]) {
+  const oldRecord = {
+    ...record(1, 'draft-old-name', '旧标题'),
+    sessionId: 'ses-old-1727000001000',
+  };
+  renamedQueue.length = 0;
+  renamedQueue.push([oldRecord], secondList);
+  invokeMock.mockImplementation((command: string) => {
+    if (command === 'list_explore_records') return Promise.resolve(listShift());
+    if (command === 'read_explore') {
+      return Promise.resolve({ name: 'draft-old-name', content: '# 回填触发的标题\n正文' });
+    }
+    return ipc(command);
+  });
+}
+
+describe('ExploreView：三级链 id 桥（记录改名后旧名 URL 的派生与收敛，AC-4）', () => {
+  it('正向：URL 旧名 miss（记录已改名）→ 按快照 id 在清单重寻命中、渲染新名详情并 replace 收敛', async () => {
+    mockRenamedFlow([
+      { ...record(1, 'new-final-name', '旧标题'), sessionId: 'ses-old-1727000001000' },
+    ]);
+    renderAt('/explores/draft-old-name');
+
+    // 三级链：旧名 miss → 快照 id 重寻命中 → 新名详情渲染（无 MissingRecord）
+    await waitFor(() =>
+      expect(screen.getByTestId('explore-detail-title').textContent).toBe('旧标题'),
+    );
+    // 名变收敛导航：URL replace 至新名（详情页名变收敛 effect）
+    await waitFor(() =>
+      expect(screen.getByTestId('location-probe').textContent).toBe('/explores/new-final-name'),
+    );
+    expect(screen.queryByTestId('explore-detail-missing')).toBeNull();
+  });
+
+  it('边界：URL 名与清单双 miss → 以快照本体兜底渲染、不闪现 MissingRecord（MUST NOT 断言）', async () => {
+    // 清单刷新后为空（双 miss 形态）：快照本体兜底渲染
+    mockRenamedFlow([]);
+    renderAt('/explores/draft-old-name');
+
+    await waitFor(() =>
+      expect(screen.getByTestId('explore-detail-title').textContent).toBe('旧标题'),
+    );
+    await waitFor(() =>
+      expect(invokeMock.mock.calls.filter(([name]) => name === 'list_explore_records').length).toBe(
+        2,
+      ),
+    );
+    await act_dummy();
+    expect(screen.queryByTestId('explore-detail-missing')).toBeNull();
+    expect(screen.getByTestId('explore-detail-title').textContent).toBe('旧标题');
+  });
+
+  it('异常：刷新间隙旧名 miss → 快照兜底维持渲染、全程无 MissingRecord 闪现', async () => {
+    // 改名流：清单含新名记录（id 相同）——旧名 miss 窗口以快照 id 重寻兜底
+    mockRenamedFlow([
+      { ...record(1, 'new-final-name', '旧标题'), sessionId: 'ses-old-1727000001000' },
+    ]);
+    renderAt('/explores/draft-old-name');
+
+    await waitFor(() =>
+      expect(screen.getByTestId('location-probe').textContent).toBe('/explores/new-final-name'),
+    );
+    // 全程断言：缺失态占位零出现（闪现即失败）
+    expect(screen.queryByTestId('explore-detail-missing')).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 清单页条目动作面：进入详情 / 删除（动作回调接线，两入口各验一次）
+// ---------------------------------------------------------------------------
+
+describe('ExploreView 清单页：条目动作接线（AC-8）', () => {
+  it('正向：条目点击 → navigate 至 /explores/<record.name> 并渲染该记录详情', async () => {
+    renderAt('/explores');
+    await screen.findByTestId('explore-items');
+
+    fireEvent.click(screen.getAllByTestId('explore-item')[1]);
+
+    await waitFor(() =>
+      expect(screen.getByTestId('location-probe').textContent).toBe('/explores/layout-design'),
+    );
+    expect(screen.getByTestId('explore-detail-title').textContent).toBe('布局设计');
+    expect(screen.queryByTestId('explore-detail-missing')).toBeNull();
+  });
+
+  it('正向：条目删除 → invoke delete_explore_record（携 root + name）并刷新清单', async () => {
+    renderAt('/explores');
+    await screen.findByTestId('explore-items');
+    const before = invokeMock.mock.calls.filter(([name]) => name === 'list_explore_records').length;
+
+    fireEvent.click(screen.getAllByTestId('explore-item-delete')[0]);
+
+    await waitFor(() =>
+      expect(invokeMock).toHaveBeenCalledWith('delete_explore_record', {
+        root: ROOT,
+        name: 'api-retry',
+      }),
+    );
+    // 删除后清单显式刷新（动作薄封装 invoke 后 refresh）
+    await waitFor(() =>
+      expect(invokeMock.mock.calls.filter(([name]) => name === 'list_explore_records').length).toBe(
+        before + 1,
+      ),
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 清单三态呈现：错误 / 加载中 / 空态 / 有记录（四分支互斥，各自只在对应态在场）
+// ---------------------------------------------------------------------------
+
+describe('ExploreView 清单页：错误 / 加载中 / 空态三态互斥呈现（AC-8）', () => {
+  it('空态：清单为空且非加载非错误 → 空态提示在场、加载中与错误块均不在场', async () => {
+    records = [];
+    renderAt('/explores');
+
+    const empty = await screen.findByTestId('explore-list-empty');
+    expect(empty.textContent).toContain('暂无探索记录');
+    expect(screen.queryByTestId('explore-list-loading')).toBeNull();
+    expect(screen.queryByTestId('explore-list-error')).toBeNull();
+  });
+
+  it('有记录态：清单非空 → 空态提示不在场（三态互斥）、条目照常渲染', async () => {
+    renderAt('/explores');
+
+    await screen.findByTestId('explore-items');
+    await waitFor(() => expect(screen.getAllByTestId('explore-item')).toHaveLength(2));
+    expect(screen.queryByTestId('explore-list-empty')).toBeNull();
+    expect(screen.queryByTestId('explore-list-loading')).toBeNull();
+    expect(screen.queryByTestId('explore-list-error')).toBeNull();
+  });
+
+  it('加载中：挂载取数未返回 → 「加载中…」在场、空态与错误块不在场（不抢跑空态）', async () => {
+    invokeMock.mockImplementation((command: string) => {
+      if (command === 'list_explore_records') return new Promise<ExploreRecord[]>(() => {});
+      return ipc(command);
+    });
+    renderAt('/explores');
+
+    const loading = await screen.findByTestId('explore-list-loading');
+    expect(loading.textContent).toBe('加载中…');
+    expect(screen.queryByTestId('explore-list-empty')).toBeNull();
+    expect(screen.queryByTestId('explore-list-error')).toBeNull();
+  });
+
+  it('错误态：清单取数 reject → 错误块呈现原始错误、空态与加载中不在场', async () => {
+    invokeMock.mockImplementation((command: string) => {
+      if (command === 'list_explore_records') return Promise.reject('清单查询失败');
+      return ipc(command);
+    });
+    renderAt('/explores');
+
+    const error = await screen.findByTestId('explore-list-error');
+    expect(error.textContent).toContain('清单加载失败');
+    expect(error.textContent).toContain('清单查询失败');
+    expect(screen.queryByTestId('explore-list-empty')).toBeNull();
+    expect(screen.queryByTestId('explore-list-loading')).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// workspace 根切换：resetPending 收敛链（带旧选中即落清单，且不锁死清单页）
+// ---------------------------------------------------------------------------
+
+describe('ExploreView：workspace 根切换 resetPending 收敛（AC-4 相邻面）', () => {
+  const ROOT2 = 'C:demo\beta';
+
+  /** 按 root 分流清单应答（新根清单含独立记录）。 */
+  function mockPerRoot() {
+    invokeMock.mockImplementation((command: string, params?: { root?: string }) => {
+      if (command === 'list_explore_records') {
+        return Promise.resolve(
+          params?.root === ROOT2 ? [record(5, 'beta-topic', '乙主题')] : records,
+        );
+      }
+      return ipc(command);
+    });
+  }
+
+  it('正向：带旧选中时根切换 → navigate 落 /explores（旧记录详情卸载，新根清单在场）', async () => {
+    mockPerRoot();
+    const { rerender } = renderAtRoot('/explores/api-retry', ROOT);
+    await waitFor(() =>
+      expect(screen.getByTestId('explore-detail-title').textContent).toBe('接口重试策略'),
+    );
+
+    rerender(viewTree('/explores/api-retry', ROOT2));
+
+    await waitFor(() => expect(screen.getByTestId('location-probe').textContent).toBe('/explores'));
+    expect(screen.queryByTestId('explore-detail-title')).toBeNull();
+    // 收敛导航为 replace（不留旧根的可回退历史条目）
+    expect(screen.getByTestId('nav-type-probe').textContent).toBe('REPLACE');
+    await waitFor(() => expect(screen.getByText('乙主题')).toBeTruthy());
+  });
+
+  it('边界：落清单后条目点击仍进详情（resetPending 已复位，清单页不被残留态锁死）', async () => {
+    mockPerRoot();
+    const { rerender } = renderAtRoot('/explores/api-retry', ROOT);
+    await waitFor(() =>
+      expect(screen.getByTestId('explore-detail-title').textContent).toBe('接口重试策略'),
+    );
+
+    rerender(viewTree('/explores/api-retry', ROOT2));
+    await waitFor(() => expect(screen.getByTestId('location-probe').textContent).toBe('/explores'));
+
+    fireEvent.click(await screen.findByTestId('explore-item'));
+
+    await waitFor(() =>
+      expect(screen.getByTestId('location-probe').textContent).toBe('/explores/beta-topic'),
+    );
+    expect(screen.getByTestId('explore-detail-title').textContent).toBe('乙主题');
   });
 });

@@ -625,7 +625,8 @@ describe('useExploreSession：send 注入 record.name（AC-4 组装半边）', (
     const args = startCallArgs();
     expect(args.prompt).toBe(buildExplorePrompt(SEND_INPUT.prompt, 'api-retry'));
     expect(String(args.prompt)).toContain('api-retry');
-    expect(String(args.prompt)).toContain('文件名 MUST 等于 api-retry');
+    // 已定名记录 → 笔记定位形（插值笔记路径，AC-8 stance 分形）
+    expect(String(args.prompt)).toContain('openspec/explores/api-retry.md');
   });
 
   it('正向：既有会话续话裸发送（不携带 stance / name）；换记录（sessionId 空缺）经 ensure 归位后首轮随新 name 注入', async () => {
@@ -800,5 +801,301 @@ describe('useExploreSession：configSnapshot fixture 携 agentInstanceId 键（A
       model: 'glm-high',
       permissionMode: 'bypassPermissions',
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// auto-named-explore：auto-send 闸门（第三参 autoPrompt；四条件 + per-mount
+// 一次性 ref）——既有返回面零变化
+// ---------------------------------------------------------------------------
+
+const AUTO_PROMPT = '调研 API 重试策略在超时边界的失效形态';
+const DRAFT_NAME = 'draft-1758123456789';
+
+/** 携 autoPrompt 第三参的挂载底座（空会话形态：建档预建空会话首轮）。 */
+async function mountedWithAutoPrompt(
+  record: ExploreRecord | null = exploreRecord(),
+  autoPrompt: string | null = AUTO_PROMPT,
+) {
+  const rendered = renderHook(
+    (props: { record: ExploreRecord | null; autoPrompt: string | null }) =>
+      useExploreSession(ROOT, props.record, props.autoPrompt),
+    { initialProps: { record, autoPrompt } },
+  );
+  await act(async () => {});
+  return rendered;
+}
+
+/** 空会话基线（零轮零转录——auto-send 闸门的 chain === 0 前提）。 */
+function mockEmptySession() {
+  sessionsResult = [];
+  transcript = [];
+  startResult = turn(13, 'running', 'ses-13-1727000001000');
+}
+
+const startCallCount = () =>
+  invokeMock.mock.calls.filter(([name]) => name === 'agent_start').length;
+
+describe('useExploreSession：auto-send 闸门（AC-1）', () => {
+  it('正向：闸门齐备（autoPrompt 在场 + 装载完成 + 链空 + 记录/会话就绪）→ agent_start 恰一次、prompt = stance 前导 + 需求原文', async () => {
+    mockEmptySession();
+    const { result } = await mountedWithAutoPrompt();
+
+    await waitFor(() => expect(startCallCount()).toBe(1));
+    const args = startCallArgs();
+    expect(args.prompt).toBe(buildExplorePrompt(AUTO_PROMPT, 'api-retry'));
+    expect(String(args.prompt)).toContain(AUTO_PROMPT);
+    expect(String(args.prompt).startsWith('你在探索模式下工作')).toBe(true);
+    // early-resolve running 轮行入链（恰一次发送的链路面佐证）
+    await waitFor(() => expect(result.current.chain).toHaveLength(1));
+  });
+
+  it('档位口径：auto-send 的 agent_start 入参 permissionMode = bypassPermissions（与 composer 缺省档同源）', async () => {
+    mockEmptySession();
+    await mountedWithAutoPrompt();
+
+    await waitFor(() => expect(startCallCount()).toBe(1));
+    expect(startCallArgs().permissionMode).toBe('bypassPermissions');
+    expect(startCallArgs().source).toBe('explore');
+  });
+
+  it('正向：autoPrompt 为 null（未传 / 显式传 null）→ 零自动发送（既有行为回归）', async () => {
+    mockEmptySession();
+    await mountedWithAutoPrompt(exploreRecord(), null);
+    await act(async () => {});
+    expect(startCallCount()).toBe(0);
+
+    // 二参形态（缺省第三参）同口径
+    const rendered = renderHook(
+      (props: { record: ExploreRecord | null }) => useExploreSession(ROOT, props.record),
+      { initialProps: { record: exploreRecord() } },
+    );
+    await act(async () => {});
+    expect(rendered.result.current.chain).toEqual([]);
+    expect(startCallCount()).toBe(0);
+  });
+
+  it('边界：chain > 0（既有会话重放完成）→ 不重发（back/forward 闸门）', async () => {
+    // 缺省 fixture：两轮既有会话 → 装载完成后 chain 非空
+    const { result } = await mountedWithAutoPrompt();
+
+    await waitFor(() => expect(result.current.chain).toHaveLength(2));
+    await act(async () => {});
+    expect(startCallCount()).toBe(0);
+  });
+
+  it('边界：loading 在途 → 装载完成后才触发（不早发、不漏发、恰一次）', async () => {
+    mockEmptySession();
+    let resolveDetail: ((value: SessionSummary | null) => void) | null = null;
+    invokeMock.mockImplementation((command: string) => {
+      if (command === 'session_detail') {
+        return new Promise<SessionSummary | null>((resolve) => {
+          resolveDetail = resolve;
+        });
+      }
+      if (command === 'agent_session_transcript') return Promise.resolve([]);
+      if (command === 'agent_start') {
+        return typeof startResult === 'string'
+          ? Promise.reject(startResult)
+          : Promise.resolve(startResult);
+      }
+      return Promise.resolve(null);
+    });
+
+    const { result } = renderHook(
+      (props: { record: ExploreRecord | null; autoPrompt: string | null }) =>
+        useExploreSession(ROOT, props.record, props.autoPrompt),
+      { initialProps: { record: exploreRecord(), autoPrompt: AUTO_PROMPT } },
+    );
+    await act(async () => {});
+
+    // 装载在途：不早发
+    expect(result.current.loading).toBe(true);
+    expect(startCallCount()).toBe(0);
+
+    await act(async () => {
+      resolveDetail?.(null);
+    });
+    // 装载完成：不漏发、恰一次
+    await waitFor(() => expect(startCallCount()).toBe(1));
+    expect(result.current.loading).toBe(false);
+  });
+
+  it('边界：record 为 null / sessionId 空缺且归位失败 → 不自动发送', async () => {
+    mockEmptySession();
+    // record = null
+    await mountedWithAutoPrompt(null);
+    await act(async () => {});
+    expect(startCallCount()).toBe(0);
+
+    // sessionId 空缺 + ensure reject（会话未就绪）
+    invokeMock.mockImplementation((command: string) => {
+      if (command === 'ensure_explore_session') return Promise.reject('归位失败');
+      if (command === 'session_detail') return Promise.resolve(null);
+      if (command === 'agent_session_transcript') return Promise.resolve([]);
+      return Promise.resolve(null);
+    });
+    await mountedWithAutoPrompt({ ...exploreRecord(), sessionId: null });
+    await act(async () => {});
+    expect(startCallCount()).toBe(0);
+  });
+
+  it('边界：同 mount 内 effect 重复执行（StrictMode 双调用形态）→ send 恰一次（一次性消费 ref）', async () => {
+    mockEmptySession();
+    const { result, rerender } = await mountedWithAutoPrompt();
+
+    await waitFor(() => expect(startCallCount()).toBe(1));
+    // 重渲染（同记录同 autoPrompt）：effect 重跑但 ref 已消费
+    rerender({ record: exploreRecord(), autoPrompt: AUTO_PROMPT });
+    await act(async () => {});
+    expect(startCallCount()).toBe(1);
+    expect(result.current.chain).toHaveLength(1);
+  });
+
+  it('边界：unmount 后携带 state 重挂载 → ref 重新武装、可再次 auto-send（免费重试语义）', async () => {
+    mockEmptySession();
+    const first = await mountedWithAutoPrompt();
+    await waitFor(() => expect(startCallCount()).toBe(1));
+    first.unmount();
+
+    const second = await mountedWithAutoPrompt();
+    await waitFor(() => expect(startCallCount()).toBe(2));
+    await waitFor(() => expect(second.result.current.chain).toHaveLength(1));
+  });
+
+  it('边界：首轮 send 失败（chain 仍 0）+ 重挂载复现 state → 恰构成一次重发（proposal 风险 6 留痕口径）', async () => {
+    mockEmptySession();
+    startResult = '启动失败';
+    const failed = await mountedWithAutoPrompt();
+    await waitFor(() => expect(failed.result.current.error).toContain('启动失败'));
+    expect(startCallCount()).toBe(1);
+    expect(failed.result.current.chain).toHaveLength(0);
+    failed.unmount();
+
+    // 重挂载（back/forward 复现 location state 的生产形态）：ref 重武装 → 重发
+    startResult = turn(13, 'running', 'ses-13-1727000001000');
+    const retried = await mountedWithAutoPrompt();
+    await waitFor(() => expect(startCallCount()).toBe(2));
+    await waitFor(() => expect(retried.result.current.chain).toHaveLength(1));
+  });
+
+  it('边界：autoPrompt 空串（非 null）→ 按在场口径发首轮（与 null 的区分断言）', async () => {
+    mockEmptySession();
+    const { result } = await mountedWithAutoPrompt(exploreRecord(), '');
+
+    await waitFor(() => expect(startCallCount()).toBe(1));
+    expect(startCallArgs().prompt).toBe(buildExplorePrompt('', 'api-retry'));
+    await waitFor(() => expect(result.current.chain).toHaveLength(1));
+  });
+});
+
+describe('useExploreSession：auto-send stance 分形（AC-1 / AC-8）', () => {
+  it('占位记录（draft- 前缀）：send prompt 为命名指令形（不含任何文件路径插值）', async () => {
+    mockEmptySession();
+    const draft = { ...exploreRecord(), name: DRAFT_NAME };
+    await mountedWithAutoPrompt(draft);
+
+    await waitFor(() => expect(startCallCount()).toBe(1));
+    const prompt = String(startCallArgs().prompt);
+    expect(prompt).toBe(buildExplorePrompt(AUTO_PROMPT, DRAFT_NAME));
+    expect(prompt).toContain('## 笔记定名与落盘');
+    expect(prompt).not.toContain('openspec/explores');
+  });
+
+  it('已定名记录：send prompt 为笔记定位形（插值 record.name 与 openspec/explores/<name>.md）', async () => {
+    mockEmptySession();
+    await mountedWithAutoPrompt();
+
+    await waitFor(() => expect(startCallCount()).toBe(1));
+    const prompt = String(startCallArgs().prompt);
+    expect(prompt).toBe(buildExplorePrompt(AUTO_PROMPT, 'api-retry'));
+    expect(prompt).toContain('## 笔记定位');
+    expect(prompt).toContain('openspec/explores/api-retry.md');
+  });
+});
+
+describe('useExploreSession：auto-send 失败语义', () => {
+  it('agent_start reject：既有 error 面承接、链路可续（失败不破坏 hook 状态）', async () => {
+    mockEmptySession();
+    startResult = '首轮启动失败';
+    const { result } = await mountedWithAutoPrompt();
+
+    await waitFor(() => expect(result.current.error).toContain('首轮启动失败'));
+    expect(result.current.running).toBe(false);
+    expect(result.current.chain).toHaveLength(0);
+
+    // 链路可续：手动 send 可再次发起（不因失败卡死）
+    act(() => {
+      result.current.send({ prompt: '重试首轮', permissionMode: 'bypassPermissions' });
+    });
+    await act(async () => {});
+    expect(startCallCount()).toBe(2);
+    expect(String(startCallArgs().prompt)).toContain('重试首轮');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 补杀：ensure 归位守卫与取消抑制（root 缺失 / 记录切换竞态）
+// ---------------------------------------------------------------------------
+
+describe('useExploreSession：ensure 归位守卫与取消抑制（AC-9）', () => {
+  it('root 为 null 且记录会话空缺：ensure 早退零 invoke（send 未就绪态）', async () => {
+    const noSession: ExploreRecord = { ...exploreRecord(), sessionId: null };
+
+    renderHook(() => useExploreSession(null, noSession));
+    await act(async () => {});
+
+    expect(invokeMock).not.toHaveBeenCalled();
+  });
+
+  it('记录切换：旧记录迟到的 ensure resolve 不落到新记录会话（取消抑制），新记录归位照常生效', async () => {
+    const recordA: ExploreRecord = { ...exploreRecord(), sessionId: null };
+    const recordB: ExploreRecord = {
+      ...exploreRecord(),
+      id: 8,
+      name: 'other-topic',
+      sessionId: null,
+    };
+    const pending = new Map<string, (value: ExploreRecord) => void>();
+    invokeMock.mockImplementation((command: string, params: Record<string, string> = {}) => {
+      if (command === 'ensure_explore_session') {
+        return new Promise<ExploreRecord>((resolve) => {
+          pending.set(String(params.name), resolve);
+        });
+      }
+      if (command === 'session_detail') return Promise.resolve(null);
+      if (command === 'agent_session_transcript') return Promise.resolve([]);
+      return Promise.resolve(null);
+    });
+
+    const { result, rerender } = renderHook(
+      (props: { record: ExploreRecord | null }) => useExploreSession(ROOT, props.record),
+      { initialProps: { record: recordA } },
+    );
+    await act(async () => {});
+    expect(pending.has('api-retry')).toBe(true);
+
+    rerender({ record: recordB });
+    await act(async () => {});
+    expect(pending.has('other-topic')).toBe(true);
+
+    // 旧记录迟到应答：会话 id 不得落到当前记录（否则以旧会话重放）
+    await act(async () => {
+      pending.get('api-retry')?.({ ...recordA, sessionId: 'ses-stale-1727000009000' });
+    });
+    await act(async () => {});
+
+    const sessionDetailIds = () =>
+      invokeMock.mock.calls
+        .filter(([name]) => name === 'session_detail')
+        .map(([, params]) => (params as { sessionId?: string }).sessionId);
+    expect(sessionDetailIds()).not.toContain('ses-stale-1727000009000');
+    expect(result.current.chain).toEqual([]);
+
+    // 正面对照：当前记录的 ensure 归位照常生效（以新会话发起重放）
+    await act(async () => {
+      pending.get('other-topic')?.({ ...recordB, sessionId: 'ses-b-1727000002000' });
+    });
+    await waitFor(() => expect(sessionDetailIds()).toContain('ses-b-1727000002000'));
   });
 });

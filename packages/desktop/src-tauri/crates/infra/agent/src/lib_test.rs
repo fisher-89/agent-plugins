@@ -167,7 +167,7 @@ fn with_context_window_builder链式构造且分发行为与直构一致() {
         .with_context_window(Some(200_000))
         .runner_for(EngineKind::Sdk, EngineConfig::empty())
         .expect("Sdk 臂构造成功");
-    let via_direct = SdkRunner::new(EngineConfig::empty(), None, Some(200_000));
+    let via_direct = SdkRunner::new(EngineConfig::empty(), None, Some(200_000), None);
 
     // 门面分发行为与直构一致（open 校验错误面等价断言，沿既有门面分发一致性口径）
     let facade_error = via_facade
@@ -186,7 +186,7 @@ fn with_context_window_builder链式构造且分发行为与直构一致() {
         .with_context_window(None)
         .runner_for(EngineKind::Sdk, EngineConfig::empty())
         .expect("Sdk 臂构造成功");
-    let none_direct = SdkRunner::new(EngineConfig::empty(), None, None);
+    let none_direct = SdkRunner::new(EngineConfig::empty(), None, None, None);
     assert_eq!(
         none_facade
             .open_session(open_continue("ses-window-none"))
@@ -209,7 +209,7 @@ fn 既有构造路径缺省none不变_续会话校验行为与现状一致() {
         .runner_for(EngineKind::Sdk, complete_cfg())
         .expect("Sdk 臂构造成功");
     let (direct_loader, _direct_calls) = counting_loader(Ok(None));
-    let via_direct = SdkRunner::new(complete_cfg(), Some(direct_loader), None);
+    let via_direct = SdkRunner::new(complete_cfg(), Some(direct_loader), None, None);
 
     let facade_error = via_facade
         .open_session(open_continue("ses-facade-default"))
@@ -315,7 +315,7 @@ fn sdk臂窗长边界零与u64max均ok且行为与直构一致() {
             .with_context_window(window)
             .runner_for(EngineKind::Sdk, complete_cfg())
             .expect("Sdk 臂构造成功");
-        let via_direct = SdkRunner::new(complete_cfg(), None, window);
+        let via_direct = SdkRunner::new(complete_cfg(), None, window, None);
         assert_eq!(
             via_facade
                 .open_session(open_continue("ses-window-boundary"))
@@ -386,4 +386,133 @@ async fn sdk臂字段str边界怪值原样构造且空串仍逐字段判缺() {
             prior_handle: None,
         })
         .expect("超长 / 特殊字符 / 纯空白怪值 open 应成功（原样携带）");
+}
+
+// ---------------------------------------------------------------------------
+// auto-named-explore：with_explore_note_store builder 缝（组合根 store 句柄
+// 注入 builder）
+// ---------------------------------------------------------------------------
+
+/// 真实临时 workspace 库句柄装置（store_port_test 同款：tempdir + open_workspace）。
+fn temp_store(tag: &str) -> (tempfile::TempDir, Arc<store::Store>) {
+    let dir = tempfile::Builder::new()
+        .prefix(&format!("facade-explore-store-{tag}-"))
+        .tempdir()
+        .expect("创建临时目录失败");
+    let db_path = dir.path().join("ws.redb");
+    let store = Arc::new(
+        store::Store::open_workspace(&db_path)
+            .unwrap_or_else(|e| panic!("打开临时 workspace 库失败: {e}")),
+    );
+    (dir, store)
+}
+
+/// builder 链式：`with_explore_note_store(store)` 返回 `Self`，与
+/// `with_context_window` 双向续链（两序均编译可达且构造成功——builder 缝
+/// 与 `with_resume_transcript` / `with_context_window` 同型）。
+#[test]
+fn with_explore_note_store链式构造且与with_context_window双向续链() {
+    let (_dir, store) = temp_store("chain");
+
+    // store → window 序
+    let chained = EngineFacade::new()
+        .with_explore_note_store(Arc::clone(&store))
+        .with_context_window(Some(200_000))
+        .runner_for(EngineKind::Sdk, EngineConfig::empty())
+        .expect("续链后 Sdk 臂构造成功");
+    let _ = chained;
+
+    // window → store 序（builder 全序可换）
+    let chained_other_order = EngineFacade::new()
+        .with_context_window(None)
+        .with_explore_note_store(Arc::clone(&store))
+        .runner_for(EngineKind::Sdk, EngineConfig::empty())
+        .expect("换序续链后 Sdk 臂构造成功");
+    let _ = chained_other_order;
+}
+
+/// 句柄注入后引擎选择回归：带 store 句柄的 facade `runner_for(Sdk)` 仍产出
+/// Sdk 引擎（builder 不破坏既有选择面——open_session 失败面与直构四参
+/// SdkRunner 同口径）。
+#[test]
+fn 携store句柄facade的runner_for_sdk仍产出sdk引擎() {
+    let (_dir, store) = temp_store("engine-choice");
+    let via_facade = EngineFacade::new()
+        .with_explore_note_store(Arc::clone(&store))
+        .runner_for(EngineKind::Sdk, EngineConfig::empty())
+        .expect("Sdk 臂构造成功（仍选 Sdk 臂）");
+    let via_direct = SdkRunner::new(EngineConfig::empty(), None, None, Some(Arc::clone(&store)));
+
+    let facade_error = via_facade
+        .open_session(open_continue("ses-with-store"))
+        .expect_err("空配置必须 Err");
+    let direct_error = via_direct
+        .open_session(open_continue("ses-with-store"))
+        .expect_err("直构同口径 Err");
+    assert_eq!(
+        facade_error, direct_error,
+        "携句柄门面与直构四参 SdkRunner 失败面一致（引擎选择零漂移）"
+    );
+}
+
+/// 默认构造零句柄回归：`new()` / `with_resume_transcript` 路径行为不随新
+/// 字段变化（缺省 `explore_note_store == None` 的行为面等价于既有三参直构）。
+#[test]
+fn 默认构造零句柄行为不随新字段变化() {
+    // new() 路径：与三参 None 直构行为一致
+    let via_new = EngineFacade::new()
+        .runner_for(EngineKind::Sdk, EngineConfig::empty())
+        .expect("Sdk 臂构造成功");
+    let direct_none = SdkRunner::new(EngineConfig::empty(), None, None, None);
+    assert_eq!(
+        via_new
+            .open_session(open_continue("ses-default-no-handle"))
+            .expect_err("必须 Err")
+            .to_string(),
+        direct_none
+            .open_session(open_continue("ses-default-no-handle"))
+            .expect_err("直构必须 Err")
+            .to_string(),
+        "new() 门面（零句柄）与 None 直构失败面一致"
+    );
+
+    // with_resume_transcript 路径：不携句柄，行为照旧
+    let (loader, calls) = counting_loader(Ok(None));
+    let via_loader = EngineFacade::with_resume_transcript(loader)
+        .runner_for(EngineKind::Sdk, complete_cfg())
+        .expect("Sdk 臂构造成功");
+    assert!(
+        via_loader
+            .open_session(open_continue("ses-loader-no-handle"))
+            .is_err(),
+        "无句柄续会话照旧显式失败（会话不存在臂）"
+    );
+    // 句柄缺席不改变装载缝消费时点：失败前 loader 被消费一次（既有时点回归）
+    assert_eq!(
+        calls.load(Ordering::Relaxed),
+        1,
+        "装载缝照常消费（新字段不改变既有路径）"
+    );
+}
+
+/// 空配置启动失败面回归：携 store 句柄的 facade + `EngineConfig::empty()` →
+/// `open_session` 仍以 `ConfigMissing`（配置三件套逐项在册）显式失败——新
+/// 字段与 builder 不吞改既有失败语义。
+#[test]
+fn 携store句柄的空配置open仍config_missing显式失败() {
+    let (_dir, store) = temp_store("empty-cfg");
+    let runner = EngineFacade::new()
+        .with_explore_note_store(Arc::clone(&store))
+        .with_context_window(None)
+        .runner_for(EngineKind::Sdk, EngineConfig::empty())
+        .expect("Sdk 臂构造成功");
+
+    let error = runner
+        .open_session(open_continue("ses-empty-cfg-with-store"))
+        .expect_err("空配置必须显式失败");
+    assert!(
+        matches!(error, agent::AgentStartError::ConfigMissing(ref message)
+            if message.contains("api_key") && message.contains("base_url") && message.contains("model")),
+        "配置三件套校验先于句柄消费，实际: {error:?}"
+    );
 }

@@ -249,6 +249,30 @@ fn check_explore_name(name: &str) -> Result<(), StoreError> {
 /// 改动需同步）。`delete_explore_record` 据此圈定级联删除的归属会话。
 const EXPLORE_RUN_SOURCE: &str = "explore";
 
+/// 占位名前缀「未定名」判别口径单点：store 生成侧（`create_explore_record`
+/// 的 `None` 分支）、promote 门禁（命令层）、引擎执行体占位判别（agent-runtime
+/// 私有复制消费本导出）、前端 stance 分形（前端侧字面量双源互链——不引后端
+/// 常量，改动需同步）。
+pub const EXPLORE_PLACEHOLDER_PREFIX: &str = "draft-";
+
+/// epoch 毫秒 → `yyyy-MM-dd HH:mm:ss`（UTC 口径——与 store 时间戳纪律同源，
+/// 本地化归展示层；占位临时标题纯装饰字段）。格式化 / 时间域任一步失败退化
+/// 为毫秒串，不 panic。
+fn format_utc_seconds(millis: i64) -> String {
+    let Ok(format) = time::format_description::parse_borrowed::<2>(
+        "[year]-[month]-[day] [hour]:[minute]:[second]",
+    ) else {
+        return millis.to_string();
+    };
+    let Ok(timestamp) = time::OffsetDateTime::from_unix_timestamp_nanos(millis as i128 * 1_000_000)
+    else {
+        return millis.to_string();
+    };
+    timestamp
+        .format(&format)
+        .unwrap_or_else(|_| millis.to_string())
+}
+
 /// explore 预建空会话
 fn empty_explore_session(record: &ExploreRecord) -> SessionRecord {
     let now = now_millis();
@@ -879,20 +903,29 @@ impl Store {
             .find(|record| record.name == name))
     }
 
-    /// 新建 explore 记录：同事务预建**空会话**（无轮、无引擎句柄）并把其 id
-    /// 回写进 `session_id`——记录建档即有会话归属，详情页打开即可重放/续发，
-    /// 首条提问以 `Continue` 开启该会话的首轮（见 `compose::begin` 未开轮
-    /// 分支）。两行同事务：失败不留半边（记录与会话要么都在、要么都不在）。
+    /// 新建 explore 记录：`Some(name)` = 既有显式名建档（导入绑定路径——校验
+    /// / 查重 / `title = name` 建档逐行为零变化）；`None` = 占位建档——写事务
+    /// 内铸造占位名 `draft-<epoch-millis>`（kebab 合法：首段字母、次段数字；
+    /// 基值 `now_millis()` 一次调用，撞名以事务内同 root 同名扫描判重、命中
+    /// 单调 +1 重试——不依赖事务外时钟推进）与临时标题
+    /// `<yyyy-MM-dd HH:mm:ss>-分析中`（UTC，同一基值派生，纯展示装饰，后续经
+    /// `set_explore_title` 回填覆盖）。占位名从未落盘——store 层零磁盘操作
+    /// 不变。两种建档同事务预建**空会话**（无轮、无引擎句柄）并把其 id 回写
+    /// 进 `session_id`——记录建档即有会话归属，详情页打开即可重放/续发，首条
+    /// 提问以 `Continue` 开启该会话的首轮（见 `compose::begin` 未开轮分支）。
+    /// 两行同事务：失败不留半边（记录与会话要么都在、要么都不在）。
     pub fn create_explore_record(
         &self,
         root: &str,
-        name: &str,
+        name: Option<&str>,
     ) -> Result<ExploreRecord, StoreError> {
-        check_explore_name(name)?;
-        if self.find_explore_record(root, name)?.is_some() {
-            return Err(StoreError::Db(format!(
-                "记录已存在: root={root:?} name={name:?}"
-            )));
+        if let Some(name) = name {
+            check_explore_name(name)?;
+            if self.find_explore_record(root, name)?.is_some() {
+                return Err(StoreError::Db(format!(
+                    "记录已存在: root={root:?} name={name:?}"
+                )));
+            }
         }
         let rw = self.db.rw_transaction().map_err(db_err("开启写事务"))?;
         let next_id = match rw
@@ -907,7 +940,38 @@ impl Store {
             Some(Err(e)) => return Err(StoreError::Db(format!("读取最大 id: {e}"))),
             None => 1,
         };
-        let mut record = ExploreRecord::new(root, name, now_millis());
+        let now = now_millis();
+        let mut record = match name {
+            Some(name) => ExploreRecord::new(root, name, now),
+            None => {
+                // 占位建档：写事务内铸造占位名（同 root 同名扫描判重 + 单调
+                // +1 兜底）+ 临时标题（同基值派生，覆盖 `ExploreRecord::new`
+                // 的 `title = name` 缺省）
+                let taken: HashSet<String> = rw
+                    .scan()
+                    .primary::<ExploreRecord>()
+                    .map_err(db_err("扫描探索记录"))?
+                    .all()
+                    .map_err(db_err("扫描探索记录"))?
+                    .collect::<native_db::db_type::Result<Vec<_>>>()
+                    .map_err(db_err("扫描探索记录"))?
+                    .into_iter()
+                    .filter(|record| record.root == root)
+                    .map(|record| record.name)
+                    .collect();
+                let mut candidate = now;
+                let placeholder = loop {
+                    let name = format!("{EXPLORE_PLACEHOLDER_PREFIX}{candidate}");
+                    if !taken.contains(&name) {
+                        break name;
+                    }
+                    candidate += 1;
+                };
+                let mut record = ExploreRecord::new(root, &placeholder, now);
+                record.title = format!("{}-分析中", format_utc_seconds(now));
+                record
+            }
+        };
         record.id = next_id;
         let session = empty_explore_session(&record);
         record.session_id = Some(session.id.clone());

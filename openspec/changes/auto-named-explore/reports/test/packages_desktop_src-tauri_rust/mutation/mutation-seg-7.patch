@@ -1,0 +1,128 @@
+diff --git a/crates/target/llvm-cov-target/debug/deps/agent-f7a43c8dc458b50a.d b/crates/target/llvm-cov-target/debug/deps/agent-f7a43c8dc458b50a.d
+new file mode 100644
+index 000000000000..2cbfa45c2954
+--- /dev/null
++++ b/crates/target/llvm-cov-target/debug/deps/agent-f7a43c8dc458b50a.d
+@@ -0,0 +1,20 @@
++C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\auto-named-explore\packages\desktop\src-tauri\crates\core\agent\../../target/llvm-cov-target\debug\deps\agent-f7a43c8dc458b50a.d: crates\core\agent\src\lib.rs crates\core\agent\src\event.rs crates\core\agent\src\kernel.rs crates\core\agent\src\port.rs crates\core\agent\src\runner.rs crates\core\agent\src\session.rs crates\core\agent\src\state.rs crates\core\agent\src\usage.rs crates\core\agent\src\event_test.rs crates\core\agent\src\kernel_test.rs crates\core\agent\src\lib_test.rs crates\core\agent\src\port_test.rs crates\core\agent\src\runner_test.rs crates\core\agent\src\session_test.rs crates\core\agent\src\state_test.rs crates\core\agent\src\usage_test.rs
++
++C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\auto-named-explore\packages\desktop\src-tauri\crates\core\agent\../../target/llvm-cov-target\debug\deps\agent-f7a43c8dc458b50a.exe: crates\core\agent\src\lib.rs crates\core\agent\src\event.rs crates\core\agent\src\kernel.rs crates\core\agent\src\port.rs crates\core\agent\src\runner.rs crates\core\agent\src\session.rs crates\core\agent\src\state.rs crates\core\agent\src\usage.rs crates\core\agent\src\event_test.rs crates\core\agent\src\kernel_test.rs crates\core\agent\src\lib_test.rs crates\core\agent\src\port_test.rs crates\core\agent\src\runner_test.rs crates\core\agent\src\session_test.rs crates\core\agent\src\state_test.rs crates\core\agent\src\usage_test.rs
++
++crates\core\agent\src\lib.rs:
++crates\core\agent\src\event.rs:
++crates\core\agent\src\kernel.rs:
++crates\core\agent\src\port.rs:
++crates\core\agent\src\runner.rs:
++crates\core\agent\src\session.rs:
++crates\core\agent\src\state.rs:
++crates\core\agent\src\usage.rs:
++crates\core\agent\src\event_test.rs:
++crates\core\agent\src\kernel_test.rs:
++crates\core\agent\src\lib_test.rs:
++crates\core\agent\src\port_test.rs:
++crates\core\agent\src\runner_test.rs:
++crates\core\agent\src\session_test.rs:
++crates\core\agent\src\state_test.rs:
++crates\core\agent\src\usage_test.rs:
+diff --git a/crates/target/llvm-cov-target/debug/deps/agent-f7a43c8dc458b50a.exe b/crates/target/llvm-cov-target/debug/deps/agent-f7a43c8dc458b50a.exe
+new file mode 100644
+index 000000000000..fd2b84633b09
+Binary files /dev/null and b/packages/desktop/src-tauri/crates/target/llvm-cov-target/debug/deps/agent-f7a43c8dc458b50a.exe differ
+diff --git a/crates/target/llvm-cov-target/debug/deps/agent-f7a43c8dc458b50a.pdb b/crates/target/llvm-cov-target/debug/deps/agent-f7a43c8dc458b50a.pdb
+new file mode 100644
+index 000000000000..424fd7c7caaf
+Binary files /dev/null and b/packages/desktop/src-tauri/crates/target/llvm-cov-target/debug/deps/agent-f7a43c8dc458b50a.pdb differ
+diff --git a/crates/target/llvm-cov-target/debug/deps/deranged-839147eca6e5c7a5.d b/crates/target/llvm-cov-target/debug/deps/deranged-839147eca6e5c7a5.d
+new file mode 100644
+index 000000000000..20c3c71512f8
+--- /dev/null
++++ b/crates/target/llvm-cov-target/debug/deps/deranged-839147eca6e5c7a5.d
+@@ -0,0 +1,8 @@
++C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\auto-named-explore\packages\desktop\src-tauri\crates\core\agent\../../target/llvm-cov-target\debug\deps\deranged-839147eca6e5c7a5.d: C:\Users\wps\.cargo\registry\src\rsproxy.cn-e3de039b2554c837\deranged-0.5.8\src\lib.rs C:\Users\wps\.cargo\registry\src\rsproxy.cn-e3de039b2554c837\deranged-0.5.8\src\unsafe_wrapper.rs
++
++C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\auto-named-explore\packages\desktop\src-tauri\crates\core\agent\../../target/llvm-cov-target\debug\deps\libderanged-839147eca6e5c7a5.rlib: C:\Users\wps\.cargo\registry\src\rsproxy.cn-e3de039b2554c837\deranged-0.5.8\src\lib.rs C:\Users\wps\.cargo\registry\src\rsproxy.cn-e3de039b2554c837\deranged-0.5.8\src\unsafe_wrapper.rs
++
++C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\auto-named-explore\packages\desktop\src-tauri\crates\core\agent\../../target/llvm-cov-target\debug\deps\libderanged-839147eca6e5c7a5.rmeta: C:\Users\wps\.cargo\registry\src\rsproxy.cn-e3de039b2554c837\deranged-0.5.8\src\lib.rs C:\Users\wps\.cargo\registry\src\rsproxy.cn-e3de039b2554c837\deranged-0.5.8\src\unsafe_wrapper.rs
++
++C:\Users\wps\.cargo\registry\src\rsproxy.cn-e3de039b2554c837\deranged-0.5.8\src\lib.rs:
++C:\Users\wps\.cargo\registry\src\rsproxy.cn-e3de039b2554c837\deranged-0.5.8\src\unsafe_wrapper.rs:
+diff --git a/crates/target/llvm-cov-target/debug/deps/inflector-b2a75ea53e891e9b.d b/crates/target/llvm-cov-target/debug/deps/inflector-b2a75ea53e891e9b.d
+new file mode 100644
+index 000000000000..0449ca4f8c99
+--- /dev/null
++++ b/crates/target/llvm-cov-target/debug/deps/inflector-b2a75ea53e891e9b.d
+@@ -0,0 +1,24 @@
++C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\auto-named-explore\packages\desktop\src-tauri\crates\core\agent\../../target/llvm-cov-target\debug\deps\inflector-b2a75ea53e891e9b.d: C:\Users\wps\.cargo\registry\src\rsproxy.cn-e3de039b2554c837\Inflector-0.11.4\src\lib.rs C:\Users\wps\.cargo\registry\src\rsproxy.cn-e3de039b2554c837\Inflector-0.11.4\src\cases\mod.rs C:\Users\wps\.cargo\registry\src\rsproxy.cn-e3de039b2554c837\Inflector-0.11.4\src\cases\case\mod.rs C:\Users\wps\.cargo\registry\src\rsproxy.cn-e3de039b2554c837\Inflector-0.11.4\src\cases\classcase\mod.rs C:\Users\wps\.cargo\registry\src\rsproxy.cn-e3de039b2554c837\Inflector-0.11.4\src\cases\camelcase\mod.rs C:\Users\wps\.cargo\registry\src\rsproxy.cn-e3de039b2554c837\Inflector-0.11.4\src\cases\snakecase\mod.rs C:\Users\wps\.cargo\registry\src\rsproxy.cn-e3de039b2554c837\Inflector-0.11.4\src\cases\screamingsnakecase\mod.rs C:\Users\wps\.cargo\registry\src\rsproxy.cn-e3de039b2554c837\Inflector-0.11.4\src\cases\kebabcase\mod.rs C:\Users\wps\.cargo\registry\src\rsproxy.cn-e3de039b2554c837\Inflector-0.11.4\src\cases\traincase\mod.rs C:\Users\wps\.cargo\registry\src\rsproxy.cn-e3de039b2554c837\Inflector-0.11.4\src\cases\sentencecase\mod.rs C:\Users\wps\.cargo\registry\src\rsproxy.cn-e3de039b2554c837\Inflector-0.11.4\src\cases\titlecase\mod.rs C:\Users\wps\.cargo\registry\src\rsproxy.cn-e3de039b2554c837\Inflector-0.11.4\src\cases\tablecase\mod.rs C:\Users\wps\.cargo\registry\src\rsproxy.cn-e3de039b2554c837\Inflector-0.11.4\src\cases\pascalcase\mod.rs C:\Users\wps\.cargo\registry\src\rsproxy.cn-e3de039b2554c837\Inflector-0.11.4\src\numbers\mod.rs C:\Users\wps\.cargo\registry\src\rsproxy.cn-e3de039b2554c837\Inflector-0.11.4\src\numbers\ordinalize\mod.rs C:\Users\wps\.cargo\registry\src\rsproxy.cn-e3de039b2554c837\Inflector-0.11.4\src\numbers\deordinalize\mod.rs C:\Users\wps\.cargo\registry\src\rsproxy.cn-e3de039b2554c837\Inflector-0.11.4\src\suffix\mod.rs C:\Users\wps\.cargo\registry\src\rsproxy.cn-e3de039b2554c837\Inflector-0.11.4\src\suffix\foreignkey\mod.rs
++
++C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\auto-named-explore\packages\desktop\src-tauri\crates\core\agent\../../target/llvm-cov-target\debug\deps\libinflector-b2a75ea53e891e9b.rlib: C:\Users\wps\.cargo\registry\src\rsproxy.cn-e3de039b2554c837\Inflector-0.11.4\src\lib.rs C:\Users\wps\.cargo\registry\src\rsproxy.cn-e3de039b2554c837\Inflector-0.11.4\src\cases\mod.rs C:\Users\wps\.cargo\registry\src\rsproxy.cn-e3de039b2554c837\Inflector-0.11.4\src\cases\case\mod.rs C:\Users\wps\.cargo\registry\src\rsproxy.cn-e3de039b2554c837\Inflector-0.11.4\src\cases\classcase\mod.rs C:\Users\wps\.cargo\registry\src\rsproxy.cn-e3de039b2554c837\Inflector-0.11.4\src\cases\camelcase\mod.rs C:\Users\wps\.cargo\registry\src\rsproxy.cn-e3de039b2554c837\Inflector-0.11.4\src\cases\snakecase\mod.rs C:\Users\wps\.cargo\registry\src\rsproxy.cn-e3de039b2554c837\Inflector-0.11.4\src\cases\screamingsnakecase\mod.rs C:\Users\wps\.cargo\registry\src\rsproxy.cn-e3de039b2554c837\Inflector-0.11.4\src\cases\kebabcase\mod.rs C:\Users\wps\.cargo\registry\src\rsproxy.cn-e3de039b2554c837\Inflector-0.11.4\src\cases\traincase\mod.rs C:\Users\wps\.cargo\registry\src\rsproxy.cn-e3de039b2554c837\Inflector-0.11.4\src\cases\sentencecase\mod.rs C:\Users\wps\.cargo\registry\src\rsproxy.cn-e3de039b2554c837\Inflector-0.11.4\src\cases\titlecase\mod.rs C:\Users\wps\.cargo\registry\src\rsproxy.cn-e3de039b2554c837\Inflector-0.11.4\src\cases\tablecase\mod.rs C:\Users\wps\.cargo\registry\src\rsproxy.cn-e3de039b2554c837\Inflector-0.11.4\src\cases\pascalcase\mod.rs C:\Users\wps\.cargo\registry\src\rsproxy.cn-e3de039b2554c837\Inflector-0.11.4\src\numbers\mod.rs C:\Users\wps\.cargo\registry\src\rsproxy.cn-e3de039b2554c837\Inflector-0.11.4\src\numbers\ordinalize\mod.rs C:\Users\wps\.cargo\registry\src\rsproxy.cn-e3de039b2554c837\Inflector-0.11.4\src\numbers\deordinalize\mod.rs C:\Users\wps\.cargo\registry\src\rsproxy.cn-e3de039b2554c837\Inflector-0.11.4\src\suffix\mod.rs C:\Users\wps\.cargo\registry\src\rsproxy.cn-e3de039b2554c837\Inflector-0.11.4\src\suffix\foreignkey\mod.rs
++
++C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\auto-named-explore\packages\desktop\src-tauri\crates\core\agent\../../target/llvm-cov-target\debug\deps\libinflector-b2a75ea53e891e9b.rmeta: C:\Users\wps\.cargo\registry\src\rsproxy.cn-e3de039b2554c837\Inflector-0.11.4\src\lib.rs C:\Users\wps\.cargo\registry\src\rsproxy.cn-e3de039b2554c837\Inflector-0.11.4\src\cases\mod.rs C:\Users\wps\.cargo\registry\src\rsproxy.cn-e3de039b2554c837\Inflector-0.11.4\src\cases\case\mod.rs C:\Users\wps\.cargo\registry\src\rsproxy.cn-e3de039b2554c837\Inflector-0.11.4\src\cases\classcase\mod.rs C:\Users\wps\.cargo\registry\src\rsproxy.cn-e3de039b2554c837\Inflector-0.11.4\src\cases\camelcase\mod.rs C:\Users\wps\.cargo\registry\src\rsproxy.cn-e3de039b2554c837\Inflector-0.11.4\src\cases\snakecase\mod.rs C:\Users\wps\.cargo\registry\src\rsproxy.cn-e3de039b2554c837\Inflector-0.11.4\src\cases\screamingsnakecase\mod.rs C:\Users\wps\.cargo\registry\src\rsproxy.cn-e3de039b2554c837\Inflector-0.11.4\src\cases\kebabcase\mod.rs C:\Users\wps\.cargo\registry\src\rsproxy.cn-e3de039b2554c837\Inflector-0.11.4\src\cases\traincase\mod.rs C:\Users\wps\.cargo\registry\src\rsproxy.cn-e3de039b2554c837\Inflector-0.11.4\src\cases\sentencecase\mod.rs C:\Users\wps\.cargo\registry\src\rsproxy.cn-e3de039b2554c837\Inflector-0.11.4\src\cases\titlecase\mod.rs C:\Users\wps\.cargo\registry\src\rsproxy.cn-e3de039b2554c837\Inflector-0.11.4\src\cases\tablecase\mod.rs C:\Users\wps\.cargo\registry\src\rsproxy.cn-e3de039b2554c837\Inflector-0.11.4\src\cases\pascalcase\mod.rs C:\Users\wps\.cargo\registry\src\rsproxy.cn-e3de039b2554c837\Inflector-0.11.4\src\numbers\mod.rs C:\Users\wps\.cargo\registry\src\rsproxy.cn-e3de039b2554c837\Inflector-0.11.4\src\numbers\ordinalize\mod.rs C:\Users\wps\.cargo\registry\src\rsproxy.cn-e3de039b2554c837\Inflector-0.11.4\src\numbers\deordinalize\mod.rs C:\Users\wps\.cargo\registry\src\rsproxy.cn-e3de039b2554c837\Inflector-0.11.4\src\suffix\mod.rs C:\Users\wps\.cargo\registry\src\rsproxy.cn-e3de039b2554c837\Inflector-0.11.4\src\suffix\foreignkey\mod.rs
++
++C:\Users\wps\.cargo\registry\src\rsproxy.cn-e3de039b2554c837\Inflector-0.11.4\src\lib.rs:
++C:\Users\wps\.cargo\registry\src\rsproxy.cn-e3de039b2554c837\Inflector-0.11.4\src\cases\mod.rs:
++C:\Users\wps\.cargo\registry\src\rsproxy.cn-e3de039b2554c837\Inflector-0.11.4\src\cases\case\mod.rs:
++C:\Users\wps\.cargo\registry\src\rsproxy.cn-e3de039b2554c837\Inflector-0.11.4\src\cases\classcase\mod.rs:
++C:\Users\wps\.cargo\registry\src\rsproxy.cn-e3de039b2554c837\Inflector-0.11.4\src\cases\camelcase\mod.rs:
++C:\Users\wps\.cargo\registry\src\rsproxy.cn-e3de039b2554c837\Inflector-0.11.4\src\cases\snakecase\mod.rs:
++C:\Users\wps\.cargo\registry\src\rsproxy.cn-e3de039b2554c837\Inflector-0.11.4\src\cases\screamingsnakecase\mod.rs:
++C:\Users\wps\.cargo\registry\src\rsproxy.cn-e3de039b2554c837\Inflector-0.11.4\src\cases\kebabcase\mod.rs:
++C:\Users\wps\.cargo\registry\src\rsproxy.cn-e3de039b2554c837\Inflector-0.11.4\src\cases\traincase\mod.rs:
++C:\Users\wps\.cargo\registry\src\rsproxy.cn-e3de039b2554c837\Inflector-0.11.4\src\cases\sentencecase\mod.rs:
++C:\Users\wps\.cargo\registry\src\rsproxy.cn-e3de039b2554c837\Inflector-0.11.4\src\cases\titlecase\mod.rs:
++C:\Users\wps\.cargo\registry\src\rsproxy.cn-e3de039b2554c837\Inflector-0.11.4\src\cases\tablecase\mod.rs:
++C:\Users\wps\.cargo\registry\src\rsproxy.cn-e3de039b2554c837\Inflector-0.11.4\src\cases\pascalcase\mod.rs:
++C:\Users\wps\.cargo\registry\src\rsproxy.cn-e3de039b2554c837\Inflector-0.11.4\src\numbers\mod.rs:
++C:\Users\wps\.cargo\registry\src\rsproxy.cn-e3de039b2554c837\Inflector-0.11.4\src\numbers\ordinalize\mod.rs:
++C:\Users\wps\.cargo\registry\src\rsproxy.cn-e3de039b2554c837\Inflector-0.11.4\src\numbers\deordinalize\mod.rs:
++C:\Users\wps\.cargo\registry\src\rsproxy.cn-e3de039b2554c837\Inflector-0.11.4\src\suffix\mod.rs:
++C:\Users\wps\.cargo\registry\src\rsproxy.cn-e3de039b2554c837\Inflector-0.11.4\src\suffix\foreignkey\mod.rs:
+diff --git a/crates/target/llvm-cov-target/debug/deps/itoa-2671aa452abccd39.d b/crates/target/llvm-cov-target/debug/deps/itoa-2671aa452abccd39.d
+new file mode 100644
+index 000000000000..be19bb63b0c4
+--- /dev/null
++++ b/crates/target/llvm-cov-target/debug/deps/itoa-2671aa452abccd39.d
+@@ -0,0 +1,8 @@
++C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\auto-named-explore\packages\desktop\src-tauri\crates\core\agent\../../target/llvm-cov-target\debug\deps\itoa-2671aa452abccd39.d: C:\Users\wps\.cargo\registry\src\rsproxy.cn-e3de039b2554c837\itoa-1.0.18\src\lib.rs C:\Users\wps\.cargo\registry\src\rsproxy.cn-e3de039b2554c837\itoa-1.0.18\src\u128_ext.rs
++
++C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\auto-named-explore\packages\desktop\src-tauri\crates\core\agent\../../target/llvm-cov-target\debug\deps\libitoa-2671aa452abccd39.rlib: C:\Users\wps\.cargo\registry\src\rsproxy.cn-e3de039b2554c837\itoa-1.0.18\src\lib.rs C:\Users\wps\.cargo\registry\src\rsproxy.cn-e3de039b2554c837\itoa-1.0.18\src\u128_ext.rs
++
++C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\auto-named-explore\packages\desktop\src-tauri\crates\core\agent\../../target/llvm-cov-target\debug\deps\libitoa-2671aa452abccd39.rmeta: C:\Users\wps\.cargo\registry\src\rsproxy.cn-e3de039b2554c837\itoa-1.0.18\src\lib.rs C:\Users\wps\.cargo\registry\src\rsproxy.cn-e3de039b2554c837\itoa-1.0.18\src\u128_ext.rs
++
++C:\Users\wps\.cargo\registry\src\rsproxy.cn-e3de039b2554c837\itoa-1.0.18\src\lib.rs:
++C:\Users\wps\.cargo\registry\src\rsproxy.cn-e3de039b2554c837\itoa-1.0.18\src\u128_ext.rs:
+diff --git a/crates/target/llvm-cov-target/debug/deps/libagent-06110134452162f1.rlib b/crates/target/llvm-cov-target/debug/deps/libagent-06110134452162f1.rlib
+new file mode 100644
+index 000000000000..b88573811bb9
+Binary files /dev/null and b/packages/desktop/src-tauri/crates/target/llvm-cov-target/debug/deps/libagent-06110134452162f1.rlib differ
+diff --git a/crates/target/llvm-cov-target/debug/deps/libagent-06110134452162f1.rmeta b/crates/target/llvm-cov-target/debug/deps/libagent-06110134452162f1.rmeta
+new file mode 100644
+index 000000000000..fad5a28bd23f
+Binary files /dev/null and b/packages/desktop/src-tauri/crates/target/llvm-cov-target/debug/deps/libagent-06110134452162f1.rmeta differ
+diff --git a/crates/target/llvm-cov-target/debug/deps/libderanged-839147eca6e5c7a5.rlib b/crates/target/llvm-cov-target/debug/deps/libderanged-839147eca6e5c7a5.rlib
+new file mode 100644
+index 000000000000..f06839f4199b
+Binary files /dev/null and b/packages/desktop/src-tauri/crates/target/llvm-cov-target/debug/deps/libderanged-839147eca6e5c7a5.rlib differ
+diff --git a/crates/target/llvm-cov-target/debug/deps/libderanged-839147eca6e5c7a5.rmeta b/crates/target/llvm-cov-target/debug/deps/libderanged-839147eca6e5c7a5.rmeta
+new file mode 100644
+index 000000000000..1ce7f5eeeedd
+Binary files /dev/null and b/packages/desktop/src-tauri/crates/target/llvm-cov-target/debug/deps/libderanged-839147eca6e5c7a5.rmeta differ
+diff --git a/crates/target/llvm-cov-target/debug/deps/libinflector-b2a75ea53e891e9b.rlib b/crates/target/llvm-cov-target/debug/deps/libinflector-b2a75ea53e891e9b.rlib
+new file mode 100644
+index 000000000000..af522a9e891b
+Binary files /dev/null and b/packages/desktop/src-tauri/crates/target/llvm-cov-target/debug/deps/libinflector-b2a75ea53e891e9b.rlib differ
+diff --git a/crates/target/llvm-cov-target/debug/deps/libinflector-b2a75ea53e891e9b.rmeta b/crates/target/llvm-cov-target/debug/deps/libinflector-b2a75ea53e891e9b.rmeta
+new file mode 100644
+index 000000000000..ce6a090762cf
+Binary files /dev/null and b/packages/desktop/src-tauri/crates/target/llvm-cov-target/debug/deps/libinflector-b2a75ea53e891e9b.rmeta differ
+diff --git a/crates/target/llvm-cov-target/debug/deps/libitoa-2671aa452abccd39.rlib b/crates/target/llvm-cov-target/debug/deps/libitoa-2671aa452abccd39.rlib
+new file mode 100644
+index 000000000000..f79f8068a099
+Binary files /dev/null and b/packages/desktop/src-tauri/crates/target/llvm-cov-target/debug/deps/libitoa-2671aa452abccd39.rlib differ
+diff --git a/crates/target/llvm-cov-target/debug/deps/libitoa-2671aa452abccd39.rmeta b/crates/target/llvm-cov-target/debug/deps/libitoa-2671aa452abccd39.rmeta
+new file mode 100644
+index 000000000000..7deeb0870e2d
+Binary files /dev/null and b/packages/desktop/src-tauri/crates/target/llvm-cov-target/debug/deps/libitoa-2671aa452abccd39.rmeta differ
+diff --git a/crates/target/llvm-cov-target/debug/deps/libmemchr-3307b706fd845c51.rlib b/crates/target/llvm-cov-target/debug/deps/libmemchr-3307b706fd845c51.rlib
+new file mode 100644
+index 000000000000..2b1844e90fd8
+Binary files /dev/null and b/packages/desktop/src-tauri/crates/target/llvm-cov-target/debug/deps/libmemchr-3307b706fd845c51.rlib differ

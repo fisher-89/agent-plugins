@@ -310,6 +310,8 @@ async fn drive_loop(model: &FakeModel, turn: &LoopTurn, handle: &RunHandle) -> V
             defense: ContextDefense::resolve(None),
             liveness: turn.liveness,
             retry: turn.retry,
+            injections: turn.injections.clone(),
+            explore_note: None,
         };
         let handle = handle.clone();
         async move { r#loop::run(&dyn_model, &turn, Vec::new(), sender, handle).await }
@@ -332,6 +334,8 @@ fn loop_turn(cwd: &Path, mode: AgentPermissionMode) -> LoopTurn {
         defense: ContextDefense::resolve(None),
         liveness: crate::sdk::r#loop::StreamLiveness::default(),
         retry: crate::sdk::r#loop::StreamRetry::default(),
+        injections: agent::SessionInjections::default(),
+        explore_note: None,
     }
 }
 
@@ -1315,6 +1319,8 @@ fn loop_turn字段面完整构造锚定() {
         defense: ContextDefense::resolve(None),
         liveness: crate::sdk::r#loop::StreamLiveness::default(),
         retry: crate::sdk::r#loop::StreamRetry::default(),
+        injections: agent::SessionInjections::default(),
+        explore_note: None,
     };
     assert_eq!(turn.question, "q");
     assert_eq!(turn.session_id, "sdk-0-1");
@@ -1728,4 +1734,517 @@ async fn 未触水位时请求史原样且零防线notice() {
         Message::User { content }
             if matches!(&content[0], UserContent::Text(text) if text.text == "帮我看下这个 workspace 🎉")
     ));
+}
+
+// ---------------------------------------------------------------------------
+// auto-named-explore：LoopTurn 注入面（definitions 单源装配 + 专用工具路由）
+// ---------------------------------------------------------------------------
+
+use crate::sdk::explore_note::ExploreNoteContext;
+use crate::sdk::tools::{EXPLORE_NOTE_TOOL, TOOL_NAMES};
+use agent::SessionToolset;
+use store::Store;
+
+/// explore 来源注入底座（六名收窄 + Explore toolset）。
+fn explore_injections() -> agent::SessionInjections {
+    agent::SessionInjections {
+        preamble: None,
+        tools: Some(TOOL_NAMES.iter().filter(|n| **n != "write").map(|n| n.to_string()).collect()),
+        toolset: Some(SessionToolset::Explore),
+    }
+}
+
+/// loop 直驱（携完整 LoopTurn 所有权——explore_note 上下文不可 Clone，注入
+/// 面用例专用通道；事件回收与 `drive_loop` 同口径）。
+async fn drive_loop_turn(model: &FakeModel, turn: LoopTurn) -> Vec<AgentEventKind> {
+    let (sender, mut receiver) = mpsc::channel::<AgentEventKind>(256);
+    let handle = RunHandle::default();
+    let dyn_model = model.erased();
+    let task =
+        tokio::spawn(
+            async move { r#loop::run(&dyn_model, &turn, Vec::new(), sender, handle).await },
+        );
+    let mut events = Vec::new();
+    while let Some(event) = receiver.recv().await {
+        events.push(event);
+    }
+    task.await.expect("loop 任务正常结束");
+    events
+}
+
+/// 摘 tool role 密封消息内的 ToolResult 块。
+fn tool_results_of(events: &[AgentEventKind]) -> Vec<(&str, &str, bool)> {
+    events
+        .iter()
+        .filter_map(|event| match event {
+            AgentEventKind::Message {
+                role,
+                blocks,
+                parent_tool_use_id: _,
+            } if role == &AgentMessageRole::Tool => match &blocks[0] {
+                agent::AgentBlock::ToolResult {
+                    id,
+                    content,
+                    is_error,
+                } => Some((id.as_str(), content.as_str(), *is_error)),
+                _ => None,
+            },
+            _ => None,
+        })
+        .collect()
+}
+
+/// explore 轮 RunStarted.tools：注入在场 → run 顶部 definitions 按其组装，
+/// `dispatched` 自 definitions 派生（单源口径）→ 下发面 = 六工具保序 +
+/// `create_explore_note`。
+#[tokio::test]
+async fn explore轮runstarted_tools报六工具加专用工具() {
+    let dir = tempdir("explore-runstarted");
+    let model = FakeModel::with_turns(vec![vec![raw_text("完成"), raw_final(usage(1, 1))]]);
+    let turn = LoopTurn {
+        injections: explore_injections(),
+        ..loop_turn(dir.path(), AgentPermissionMode::BypassPermissions)
+    };
+
+    let events = drive_loop_turn(&model, turn).await;
+
+    let AgentEventKind::RunStarted { tools, .. } = &events[0] else {
+        panic!("首事件应为 RunStarted，实际: {:?}", events[0]);
+    };
+    assert_eq!(
+        tools,
+        &[
+            "read".to_owned(),
+            "grep".to_owned(),
+            "glob".to_owned(),
+            "ls".to_owned(),
+            "edit".to_owned(),
+            "bash".to_owned(),
+            EXPLORE_NOTE_TOOL.to_owned(),
+        ],
+        "explore 轮下发面：TOOL_NAMES 保序过滤 + 专用工具追加"
+    );
+    let AgentEventKind::TurnDone { is_error, .. } = turn_done_of(&events) else {
+        panic!("应为 TurnDone");
+    };
+    assert!(!*is_error, "explore 轮正常收敛");
+}
+
+/// default 轮 RunStarted.tools：七名与 `TOOL_NAMES` 逐名一致（与上线前一致，
+/// AC-7——注入缺省零变化）。
+#[tokio::test]
+async fn default轮runstarted_tools报七名与清单逐名一致() {
+    let dir = tempdir("default-runstarted");
+    let model = FakeModel::with_turns(vec![vec![raw_text("完成"), raw_final(usage(1, 1))]]);
+    let turn = loop_turn(dir.path(), AgentPermissionMode::BypassPermissions);
+
+    let events = drive_loop_turn(&model, turn).await;
+
+    let AgentEventKind::RunStarted { tools, .. } = &events[0] else {
+        panic!("首事件应为 RunStarted，实际: {:?}", events[0]);
+    };
+    assert_eq!(
+        tools.as_slice(),
+        TOOL_NAMES.as_slice(),
+        "default 轮下发面与七通用清单同源同序（含 write）"
+    );
+}
+
+/// 幻觉 write 成员校验拒绝：explore 注入轮发起 `write` 调用（bypass 档也拦
+/// ——成员校验先于 policy）→ `SystemNotice{tool_unavailable}` + is_error
+/// ToolResult 同 id 回灌、history 收对、run 不中断续轮正常、不触执行体（零
+/// 文件残留）。
+#[tokio::test]
+async fn explore轮幻觉write调用被成员校验拒绝且run不中断() {
+    let dir = tempdir("explore-hallucinated-write");
+    let model = FakeModel::with_turns(vec![
+        vec![raw_tool_call(
+            "tu_ghost",
+            "write",
+            serde_json::json!({ "path": "ghost.txt", "content": "幻觉写入" }),
+        )],
+        vec![raw_text("已按拒绝继续")],
+    ]);
+    let turn = LoopTurn {
+        injections: explore_injections(),
+        ..loop_turn(dir.path(), AgentPermissionMode::BypassPermissions)
+    };
+
+    let events = drive_loop_turn(&model, turn).await;
+
+    // 成员校验拒绝形态：tool_unavailable（非 permission_denied——先于 policy）
+    let notices = notices_of(&events);
+    assert_eq!(notices.len(), 1, "恰一次拒绝记因");
+    assert_eq!(notices[0].0, "tool_unavailable");
+    let payload = serde_json::to_value(notices[0].1).expect("payload 序列化");
+    assert_eq!(payload["tool"], serde_json::json!("write"));
+    assert!(
+        payload["reason"].as_str().is_some_and(|r| r.contains("下发面")),
+        "拒绝记因注明不在本轮下发面，实际: {payload}"
+    );
+
+    // is_error ToolResult 同 id 回灌
+    let results = tool_results_of(&events);
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].0, "tu_ghost", "与 tool_use 同 id 成对");
+    assert!(results[0].2, "拒绝结果 is_error");
+
+    // 不触执行体：write 若被执行将落盘 ghost.txt——零残留
+    assert!(
+        !dir.path().join("ghost.txt").exists(),
+        "幻觉调用不触执行体（零文件残留）"
+    );
+
+    // run 不中断：第二请求续轮 + 正常收敛；ToolUse/ToolResult 成对入史
+    let sealed = sealed_messages(&events);
+    assert_eq!(sealed.len(), 2, "拒绝后续轮不中断");
+    let AgentEventKind::TurnDone { is_error, .. } = turn_done_of(&events) else {
+        panic!("应为 TurnDone");
+    };
+    assert!(!*is_error);
+    let requests = model.captured_requests();
+    assert_eq!(requests.len(), 2, "两轮流请求");
+    let history = &requests[1].chat_history;
+    assert!(
+        history_tool_result_text(history, "tu_ghost").is_some(),
+        "tool_result 已入史（history 收对）"
+    );
+}
+
+/// 未知名拒绝形态迁移：default 轮未知名调用 → `tool_unavailable`（自
+/// `permission_denied` 形态迁移的回归断言——成员校验自 definitions 派生）。
+#[tokio::test]
+async fn default轮未知名调用以tool_unavailable拒绝() {
+    let dir = tempdir("unknown-name-migrated");
+    let model = FakeModel::with_turns(vec![
+        vec![raw_tool_call("tu_unknown", "rm_rf", serde_json::json!({}))],
+        vec![raw_text("已按拒绝继续")],
+    ]);
+    let turn = loop_turn(dir.path(), AgentPermissionMode::BypassPermissions);
+
+    let events = drive_loop_turn(&model, turn).await;
+
+    let notices = notices_of(&events);
+    assert_eq!(notices.len(), 1);
+    assert_eq!(
+        notices[0].0, "tool_unavailable",
+        "未知名以成员校验形态拒绝（迁移自 permission_denied）"
+    );
+    assert!(
+        !notices.iter().any(|(subtype, _)| *subtype == "permission_denied"),
+        "未知名不再走 policy 拒绝形态"
+    );
+    turn_done_of(&events);
+}
+
+/// 成员校验先于 policy：未知名 + Default 档 → `tool_unavailable` 而非
+/// `permission_denied`（分发循环顶部次序断言）。
+#[tokio::test]
+async fn 未知名加default档命中成员校验而非policy() {
+    let dir = tempdir("member-before-policy");
+    let model = FakeModel::with_turns(vec![
+        vec![raw_tool_call("tu_order", "phantom_tool", serde_json::json!({}))],
+        vec![raw_text("继续")],
+    ]);
+    // Default 档：policy 面该名亦会被拒——但成员校验在先，记因必为
+    // tool_unavailable
+    let turn = loop_turn(dir.path(), AgentPermissionMode::Default);
+
+    let events = drive_loop_turn(&model, turn).await;
+
+    let notices = notices_of(&events);
+    assert_eq!(notices.len(), 1);
+    assert_eq!(
+        notices[0].0, "tool_unavailable",
+        "分发循环顶部成员校验先于 policy 档位判定"
+    );
+    let payload = serde_json::to_value(notices[0].1).expect("payload 序列化");
+    assert_eq!(payload["tool"], serde_json::json!("phantom_tool"));
+}
+
+/// 真实临时 explore 装置：workspace 库 + 占位建档（会话指针回写）。
+fn explore_fixture(tag: &str) -> (tempfile::TempDir, tempfile::TempDir, Arc<Store>, store::ExploreRecord) {
+    let dir = tempdir(tag);
+    let db_dir = tempdir(&format!("{tag}-db"));
+    let store = Arc::new(
+        Store::open_workspace(&db_dir.path().join("ws.redb"))
+            .unwrap_or_else(|e| panic!("打开临时 workspace 库失败: {e}")),
+    );
+    let root = dir.path().to_string_lossy().into_owned();
+    let record = store
+        .create_explore_record(&root, None)
+        .expect("占位建档应成功");
+    (dir, db_dir, store, record)
+}
+
+/// create 工具路由：explore 轮 `create_explore_note` 调用 + `explore_note`
+/// 上下文在场（真实临时库 + 占位记录）+ AcceptEdits → 路由
+/// `ExploreNoteContext::execute`，ToolResult 承接返回路径（repo 相对）、
+/// ToolUse/ToolResult 成对入史（AC-3 链路收口——落盘与改名真实发生）。
+#[tokio::test]
+async fn explore轮create工具路由执行体_落盘改名真实发生且结果成对入史() {
+    let (dir, _db_dir, store, record) = explore_fixture("create-route");
+    let session_id = record.session_id.clone().expect("占位建档回写会话指针");
+    let context = ExploreNoteContext::new(Arc::clone(&store), dir.path().to_path_buf(), session_id);
+    let model = FakeModel::with_turns(vec![
+        vec![raw_tool_call(
+            "tu_note",
+            EXPLORE_NOTE_TOOL,
+            serde_json::json!({ "name": "api-retry", "content": "# 探索笔记\n重试策略结论" }),
+        )],
+        vec![raw_text("已定名")],
+    ]);
+    let turn = LoopTurn {
+        injections: explore_injections(),
+        explore_note: Some(context),
+        ..loop_turn(dir.path(), AgentPermissionMode::AcceptEdits)
+    };
+
+    let events = drive_loop_turn(&model, turn).await;
+
+    // 执行体承接：ToolResult 非错误、内容为返回的 repo 相对路径
+    let results = tool_results_of(&events);
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].0, "tu_note");
+    assert!(!results[0].2, "执行成功非 is_error");
+    assert_eq!(
+        results[0].1, "openspec/explores/api-retry.md",
+        "ToolResult 承接返回路径（repo 相对 / 分隔）"
+    );
+
+    // 落盘与改名真实发生（真实组合不 mock）
+    let note = dir.path().join("openspec").join("explores").join("api-retry.md");
+    assert!(note.exists(), "笔记文件已落盘");
+    assert_eq!(
+        std::fs::read_to_string(&note).unwrap(),
+        "# 探索笔记\n重试策略结论",
+        "content 原样落盘"
+    );
+    let renamed = store
+        .find_explore_record(&dir.path().to_string_lossy(), "api-retry")
+        .unwrap()
+        .expect("记录已定名");
+    assert_eq!(renamed.id, record.id, "in-place 改名保主键");
+    assert_eq!(renamed.session_id, record.session_id, "会话指针不变");
+    assert!(
+        store
+            .find_explore_record(&dir.path().to_string_lossy(), &record.name)
+            .unwrap()
+            .is_none(),
+        "占位名不再命中（世上无占位名记录）"
+    );
+
+    // ToolUse/ToolResult 成对入史（次轮请求史内以同 id 配对）
+    let requests = model.captured_requests();
+    assert_eq!(requests.len(), 2);
+    let history = &requests[1].chat_history;
+    assert!(
+        history_tool_result_text(history, "tu_note").is_some(),
+        "tool_result 已入史"
+    );
+
+    let AgentEventKind::TurnDone { is_error, .. } = turn_done_of(&events) else {
+        panic!("应为 TurnDone");
+    };
+    assert!(!*is_error, "路由成功轮正常收敛");
+}
+
+/// create 上下文缺席：上下文 `None`（生产不可达臂——explore 会话恒装配）→
+/// is_error 回灌「执行上下文未装配」，run 不中断。
+#[tokio::test]
+async fn explore轮create工具上下文缺席_is_error回灌且run不中断() {
+    let dir = tempdir("create-no-ctx");
+    let model = FakeModel::with_turns(vec![
+        vec![raw_tool_call(
+            "tu_noctx",
+            EXPLORE_NOTE_TOOL,
+            serde_json::json!({ "name": "any-name", "content": "x" }),
+        )],
+        vec![raw_text("已按缺席继续")],
+    ]);
+    let turn = LoopTurn {
+        injections: explore_injections(),
+        explore_note: None,
+        ..loop_turn(dir.path(), AgentPermissionMode::BypassPermissions)
+    };
+
+    let events = drive_loop_turn(&model, turn).await;
+
+    let results = tool_results_of(&events);
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].0, "tu_noctx");
+    assert!(results[0].2, "上下文缺席以 is_error 回灌");
+    assert!(
+        results[0].1.contains("执行上下文未装配"),
+        "记因即恢复指引，实际: {}",
+        results[0].1
+    );
+    // run 不中断
+    let sealed = sealed_messages(&events);
+    assert_eq!(sealed.len(), 2, "缺席回灌后续轮不中断");
+    let AgentEventKind::TurnDone { is_error, .. } = turn_done_of(&events) else {
+        panic!("应为 TurnDone");
+    };
+    assert!(!*is_error);
+}
+
+/// create + Default 档：`create_explore_note` 调用 + Default 档 →
+/// `permission_denied`（policy 写面归属组合用例，链路方向 loop → policy，
+/// AC-6）；执行体未被触达（零落盘、记录名不变）。
+#[tokio::test]
+async fn explore轮create工具default档被policy拒绝且不触执行体() {
+    let (dir, _db_dir, store, record) = explore_fixture("create-default-deny");
+    let session_id = record.session_id.clone().expect("占位建档回写会话指针");
+    let context = ExploreNoteContext::new(Arc::clone(&store), dir.path().to_path_buf(), session_id);
+    let model = FakeModel::with_turns(vec![
+        vec![raw_tool_call(
+            "tu_deny",
+            EXPLORE_NOTE_TOOL,
+            serde_json::json!({ "name": "api-retry", "content": "x" }),
+        )],
+        vec![raw_text("已按拒绝继续")],
+    ]);
+    let turn = LoopTurn {
+        injections: explore_injections(),
+        explore_note: Some(context),
+        ..loop_turn(dir.path(), AgentPermissionMode::Default)
+    };
+
+    let events = drive_loop_turn(&model, turn).await;
+
+    let notices = notices_of(&events);
+    assert_eq!(notices.len(), 1);
+    assert_eq!(
+        notices[0].0, "permission_denied",
+        "Default 档以 policy 写面形态拒绝（AC-6）"
+    );
+    // 不触执行体：零落盘、记录名不变
+    assert!(
+        !dir.path().join("openspec").join("explores").join("api-retry.md").exists(),
+        "拒绝不落盘"
+    );
+    let still_draft = store
+        .find_explore_record(&dir.path().to_string_lossy(), &record.name)
+        .unwrap()
+        .expect("记录仍在");
+    assert_eq!(still_draft.name, record.name, "记录名未变（未定名）");
+    turn_done_of(&events);
+}
+
+/// create + BypassPermissions：放行且执行体承接（与 AcceptEdits 两写档对照）。
+#[tokio::test]
+async fn explore轮create工具bypass档放行且执行体承接() {
+    let (dir, _db_dir, store, record) = explore_fixture("create-bypass");
+    let session_id = record.session_id.clone().expect("占位建档回写会话指针");
+    let context = ExploreNoteContext::new(Arc::clone(&store), dir.path().to_path_buf(), session_id);
+    let model = FakeModel::with_turns(vec![
+        vec![raw_tool_call(
+            "tu_bypass",
+            EXPLORE_NOTE_TOOL,
+            serde_json::json!({ "name": "layout-design", "content": "布局结论" }),
+        )],
+        vec![raw_text("已定名")],
+    ]);
+    let turn = LoopTurn {
+        injections: explore_injections(),
+        explore_note: Some(context),
+        ..loop_turn(dir.path(), AgentPermissionMode::BypassPermissions)
+    };
+
+    let events = drive_loop_turn(&model, turn).await;
+
+    let results = tool_results_of(&events);
+    assert_eq!(results.len(), 1);
+    assert!(!results[0].2, "放行且执行成功");
+    assert_eq!(results[0].1, "openspec/explores/layout-design.md");
+    assert!(
+        dir.path().join("openspec").join("explores").join("layout-design.md").exists(),
+        "执行体真实落盘"
+    );
+    assert!(
+        store
+            .find_explore_record(&dir.path().to_string_lossy(), "layout-design")
+            .unwrap()
+            .is_some(),
+        "记录已定名"
+    );
+    turn_done_of(&events);
+}
+
+/// 探索面六工具收窄不误伤：explore 轮 `read` / `grep` / `glob` / `ls` / `edit`
+/// / `bash` 下发面内调用 → 正常执行（逐工具直驱，零拒绝记因）。
+#[tokio::test]
+async fn explore轮六工具下发面内调用逐一正常执行() {
+    struct Case {
+        tool: &'static str,
+        setup: fn(&Path),
+        input: serde_json::Value,
+    }
+    let cases = [
+        Case {
+            tool: "read",
+            setup: |root: &Path| write_file(&root.join("note.txt"), "第一行\n线索行\n第三行"),
+            input: serde_json::json!({ "path": "note.txt" }),
+        },
+        Case {
+            tool: "grep",
+            setup: |root: &Path| write_file(&root.join("note.txt"), "无关\n线索 here"),
+            input: serde_json::json!({ "path": "note.txt", "pattern": "线索" }),
+        },
+        Case {
+            tool: "glob",
+            setup: |root: &Path| write_file(&root.join("hit.rs"), "fn m() {}"),
+            input: serde_json::json!({ "pattern": "*.rs" }),
+        },
+        Case {
+            tool: "ls",
+            setup: |root: &Path| write_file(&root.join("entry.txt"), "x"),
+            input: serde_json::json!({ "path": "." }),
+        },
+        Case {
+            tool: "edit",
+            setup: |root: &Path| write_file(&root.join("note.txt"), "旧串待替换"),
+            input: serde_json::json!({
+                "path": "note.txt",
+                "old_string": "旧串",
+                "new_string": "新串"
+            }),
+        },
+        Case {
+            tool: "bash",
+            setup: |_root: &Path| {},
+            input: serde_json::json!({ "command": "echo loop-six-ok" }),
+        },
+    ];
+
+    for case in cases {
+        let tag = format!("six-{}", case.tool);
+        let dir = tempdir(&tag);
+        (case.setup)(dir.path());
+        let model = FakeModel::with_turns(vec![
+            vec![raw_tool_call("tu_six", case.tool, case.input.clone())],
+            vec![raw_text("继续")],
+        ]);
+        let turn = LoopTurn {
+            injections: explore_injections(),
+            ..loop_turn(dir.path(), AgentPermissionMode::BypassPermissions)
+        };
+
+        let events = drive_loop_turn(&model, turn).await;
+
+        let notices = notices_of(&events);
+        assert!(
+            notices.is_empty(),
+            "{} 不误伤（零拒绝记因），实际: {notices:?}",
+            case.tool
+        );
+        let results = tool_results_of(&events);
+        assert_eq!(results.len(), 1, "{} 恰一次结果回灌", case.tool);
+        assert_eq!(results[0].0, "tu_six");
+        assert!(!results[0].2, "{} 执行成功非 is_error", case.tool);
+        let AgentEventKind::TurnDone { is_error, .. } = turn_done_of(&events) else {
+            panic!("应为 TurnDone");
+        };
+        assert!(!*is_error, "{} 轮正常收敛", case.tool);
+    }
 }

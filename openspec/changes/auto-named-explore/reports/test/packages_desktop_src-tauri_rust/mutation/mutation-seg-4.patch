@@ -1,0 +1,124 @@
+diff --git a/crates/target/llvm-cov-target/debug/build/serde-357d3b5b4b9ed41c/build_script_build-357d3b5b4b9ed41c.pdb b/crates/target/llvm-cov-target/debug/build/serde-357d3b5b4b9ed41c/build_script_build-357d3b5b4b9ed41c.pdb
+new file mode 100644
+index 000000000000..48382862e6a1
+Binary files /dev/null and b/packages/desktop/src-tauri/crates/target/llvm-cov-target/debug/build/serde-357d3b5b4b9ed41c/build_script_build-357d3b5b4b9ed41c.pdb differ
+diff --git a/crates/target/llvm-cov-target/debug/build/serde-357d3b5b4b9ed41c/build_script_build.pdb b/crates/target/llvm-cov-target/debug/build/serde-357d3b5b4b9ed41c/build_script_build.pdb
+new file mode 100644
+index 000000000000..48382862e6a1
+Binary files /dev/null and b/packages/desktop/src-tauri/crates/target/llvm-cov-target/debug/build/serde-357d3b5b4b9ed41c/build_script_build.pdb differ
+diff --git a/crates/target/llvm-cov-target/debug/build/serde-3d9793cf71552ad4/invoked.timestamp b/crates/target/llvm-cov-target/debug/build/serde-3d9793cf71552ad4/invoked.timestamp
+new file mode 100644
+index 000000000000..e00328da5aa8
+--- /dev/null
++++ b/crates/target/llvm-cov-target/debug/build/serde-3d9793cf71552ad4/invoked.timestamp
+@@ -0,0 +1 @@
++This file has an mtime of when this was started.
+\ No newline at end of file
+diff --git a/crates/target/llvm-cov-target/debug/build/serde-3d9793cf71552ad4/out/private.rs b/crates/target/llvm-cov-target/debug/build/serde-3d9793cf71552ad4/out/private.rs
+new file mode 100644
+index 000000000000..92008466a16d
+--- /dev/null
++++ b/crates/target/llvm-cov-target/debug/build/serde-3d9793cf71552ad4/out/private.rs
+@@ -0,0 +1,6 @@
++#[doc(hidden)]
++pub mod __private229 {
++    #[doc(hidden)]
++    pub use crate::private::*;
++}
++use serde_core::__private229 as serde_core_private;
+diff --git a/crates/target/llvm-cov-target/debug/build/serde-3d9793cf71552ad4/output b/crates/target/llvm-cov-target/debug/build/serde-3d9793cf71552ad4/output
+new file mode 100644
+index 000000000000..854cb5387b69
+--- /dev/null
++++ b/crates/target/llvm-cov-target/debug/build/serde-3d9793cf71552ad4/output
+@@ -0,0 +1,13 @@
++cargo:rerun-if-changed=build.rs
++cargo:rustc-cfg=if_docsrs_then_no_serde_core
++cargo:rustc-check-cfg=cfg(feature, values("result"))
++cargo:rustc-check-cfg=cfg(if_docsrs_then_no_serde_core)
++cargo:rustc-check-cfg=cfg(no_core_cstr)
++cargo:rustc-check-cfg=cfg(no_core_error)
++cargo:rustc-check-cfg=cfg(no_core_net)
++cargo:rustc-check-cfg=cfg(no_core_num_saturating)
++cargo:rustc-check-cfg=cfg(no_diagnostic_namespace)
++cargo:rustc-check-cfg=cfg(no_serde_derive)
++cargo:rustc-check-cfg=cfg(no_std_atomic)
++cargo:rustc-check-cfg=cfg(no_std_atomic64)
++cargo:rustc-check-cfg=cfg(no_target_has_atomic)
+diff --git a/crates/target/llvm-cov-target/debug/build/serde-3d9793cf71552ad4/root-output b/crates/target/llvm-cov-target/debug/build/serde-3d9793cf71552ad4/root-output
+new file mode 100644
+index 000000000000..10c97549d794
+--- /dev/null
++++ b/crates/target/llvm-cov-target/debug/build/serde-3d9793cf71552ad4/root-output
+@@ -0,0 +1 @@
++C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\auto-named-explore\packages\desktop\src-tauri\crates\core\agent\../../target/llvm-cov-target\debug\build\serde-3d9793cf71552ad4\out
+\ No newline at end of file
+diff --git a/crates/target/llvm-cov-target/debug/build/serde-3d9793cf71552ad4/stderr b/crates/target/llvm-cov-target/debug/build/serde-3d9793cf71552ad4/stderr
+new file mode 100644
+index 000000000000..e69de29bb2d1
+diff --git a/crates/target/llvm-cov-target/debug/build/serde_core-39f4109a74a177d2/invoked.timestamp b/crates/target/llvm-cov-target/debug/build/serde_core-39f4109a74a177d2/invoked.timestamp
+new file mode 100644
+index 000000000000..e00328da5aa8
+--- /dev/null
++++ b/crates/target/llvm-cov-target/debug/build/serde_core-39f4109a74a177d2/invoked.timestamp
+@@ -0,0 +1 @@
++This file has an mtime of when this was started.
+\ No newline at end of file
+diff --git a/crates/target/llvm-cov-target/debug/build/serde_core-39f4109a74a177d2/out/private.rs b/crates/target/llvm-cov-target/debug/build/serde_core-39f4109a74a177d2/out/private.rs
+new file mode 100644
+index 000000000000..2da7a58d64f0
+--- /dev/null
++++ b/crates/target/llvm-cov-target/debug/build/serde_core-39f4109a74a177d2/out/private.rs
+@@ -0,0 +1,5 @@
++#[doc(hidden)]
++pub mod __private229 {
++    #[doc(hidden)]
++    pub use crate::private::*;
++}
+diff --git a/crates/target/llvm-cov-target/debug/build/serde_core-39f4109a74a177d2/output b/crates/target/llvm-cov-target/debug/build/serde_core-39f4109a74a177d2/output
+new file mode 100644
+index 000000000000..98a6653d1a6d
+--- /dev/null
++++ b/crates/target/llvm-cov-target/debug/build/serde_core-39f4109a74a177d2/output
+@@ -0,0 +1,11 @@
++cargo:rerun-if-changed=build.rs
++cargo:rustc-check-cfg=cfg(if_docsrs_then_no_serde_core)
++cargo:rustc-check-cfg=cfg(no_core_cstr)
++cargo:rustc-check-cfg=cfg(no_core_error)
++cargo:rustc-check-cfg=cfg(no_core_net)
++cargo:rustc-check-cfg=cfg(no_core_num_saturating)
++cargo:rustc-check-cfg=cfg(no_diagnostic_namespace)
++cargo:rustc-check-cfg=cfg(no_serde_derive)
++cargo:rustc-check-cfg=cfg(no_std_atomic)
++cargo:rustc-check-cfg=cfg(no_std_atomic64)
++cargo:rustc-check-cfg=cfg(no_target_has_atomic)
+diff --git a/crates/target/llvm-cov-target/debug/build/serde_core-39f4109a74a177d2/root-output b/crates/target/llvm-cov-target/debug/build/serde_core-39f4109a74a177d2/root-output
+new file mode 100644
+index 000000000000..5555040a49e9
+--- /dev/null
++++ b/crates/target/llvm-cov-target/debug/build/serde_core-39f4109a74a177d2/root-output
+@@ -0,0 +1 @@
++C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\auto-named-explore\packages\desktop\src-tauri\crates\core\agent\../../target/llvm-cov-target\debug\build\serde_core-39f4109a74a177d2\out
+\ No newline at end of file
+diff --git a/crates/target/llvm-cov-target/debug/build/serde_core-39f4109a74a177d2/stderr b/crates/target/llvm-cov-target/debug/build/serde_core-39f4109a74a177d2/stderr
+new file mode 100644
+index 000000000000..e69de29bb2d1
+diff --git a/crates/target/llvm-cov-target/debug/build/serde_core-6d72a86fbc029849/build-script-build.exe b/crates/target/llvm-cov-target/debug/build/serde_core-6d72a86fbc029849/build-script-build.exe
+new file mode 100644
+index 000000000000..5a0d83714607
+Binary files /dev/null and b/packages/desktop/src-tauri/crates/target/llvm-cov-target/debug/build/serde_core-6d72a86fbc029849/build-script-build.exe differ
+diff --git a/crates/target/llvm-cov-target/debug/build/serde_core-6d72a86fbc029849/build_script_build-6d72a86fbc029849.d b/crates/target/llvm-cov-target/debug/build/serde_core-6d72a86fbc029849/build_script_build-6d72a86fbc029849.d
+new file mode 100644
+index 000000000000..f9e57ddbc9fd
+--- /dev/null
++++ b/crates/target/llvm-cov-target/debug/build/serde_core-6d72a86fbc029849/build_script_build-6d72a86fbc029849.d
+@@ -0,0 +1,5 @@
++C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\auto-named-explore\packages\desktop\src-tauri\crates\core\agent\../../target/llvm-cov-target\debug\build\serde_core-6d72a86fbc029849\build_script_build-6d72a86fbc029849.d: C:\Users\wps\.cargo\registry\src\rsproxy.cn-e3de039b2554c837\serde_core-1.0.229\build.rs
++
++C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\auto-named-explore\packages\desktop\src-tauri\crates\core\agent\../../target/llvm-cov-target\debug\build\serde_core-6d72a86fbc029849\build_script_build-6d72a86fbc029849.exe: C:\Users\wps\.cargo\registry\src\rsproxy.cn-e3de039b2554c837\serde_core-1.0.229\build.rs
++
++C:\Users\wps\.cargo\registry\src\rsproxy.cn-e3de039b2554c837\serde_core-1.0.229\build.rs:
+diff --git a/crates/target/llvm-cov-target/debug/build/serde_core-6d72a86fbc029849/build_script_build-6d72a86fbc029849.exe b/crates/target/llvm-cov-target/debug/build/serde_core-6d72a86fbc029849/build_script_build-6d72a86fbc029849.exe
+new file mode 100644
+index 000000000000..5a0d83714607
+Binary files /dev/null and b/packages/desktop/src-tauri/crates/target/llvm-cov-target/debug/build/serde_core-6d72a86fbc029849/build_script_build-6d72a86fbc029849.exe differ

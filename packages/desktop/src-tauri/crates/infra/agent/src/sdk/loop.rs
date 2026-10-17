@@ -11,6 +11,7 @@ use serde_json::Value;
 use tokio::sync::mpsc;
 
 use crate::sdk::context::{ContextDefense, DefenseNotice};
+use crate::sdk::explore_note::ExploreNoteContext;
 use crate::sdk::log::append_engine_log;
 use crate::sdk::{compact, context, normalize, policy, preamble, sandbox, tools};
 
@@ -89,6 +90,12 @@ pub(crate) struct LoopTurn {
     pub liveness: StreamLiveness,
     /// 提供者 IO 失败重试预算（泵装配缺省，测试注小值）
     pub retry: StreamRetry,
+    /// 会话级注入（definitions 组装唯一源：收窄子集 + Explore 枚举追加专用
+    /// 工具；非 explore 来源恒 default）
+    pub injections: agent::SessionInjections,
+    /// `create_explore_note` 专用工具执行上下文（per-turn 铸造随轮携带；
+    /// `None` = 未装配——非 explore 会话恒 None，专用工具调用以 is_error 回灌）
+    pub explore_note: Option<ExploreNoteContext>,
 }
 
 /// loop 主体
@@ -101,17 +108,17 @@ pub(crate) async fn run(
 ) -> Vec<Message> {
     let started = Instant::now();
     let mut usage = Usage::default();
-    let definitions = tools::definitions();
+    // 下发面单源：definitions 按会话注入面组装，RunStarted.tools 与成员校验
+    // 自 definitions 本体派生（零第二份名单——定义 / 上报 / 校验三者天然一致）
+    let definitions = tools::definitions(&turn.injections);
+    let dispatched: Vec<String> = definitions.iter().map(|d| d.name.clone()).collect();
 
     // run 启动事件（core 协议 RunStarted 的 model / session / tools 口径；MCP 恒空）
     let started_ok = sender
         .send(AgentEventKind::RunStarted {
             model: Some(turn.model_name.clone()),
             session_id: Some(turn.session_id.clone()),
-            tools: tools::TOOL_NAMES
-                .iter()
-                .map(|name| (*name).to_owned())
-                .collect(),
+            tools: dispatched.clone(),
             mcp_servers: Vec::new(),
         })
         .await
@@ -354,12 +361,25 @@ pub(crate) async fn run(
             finish_success(&sender, turn_index, started, &usage, turn).await;
             return history;
         }
-        // 工具调用逐个：policy → sandbox → 执行 → 回灌（run 不中断）；0.43 起
-        // tool_result 以 CallId / ToolName 构造（与 tool_use 同源配对）
+        // 工具调用逐个：成员校验 → policy → sandbox → 执行 → 回灌（run 不中
+        // 断）；0.43 起 tool_result 以 CallId / ToolName 构造（与 tool_use 同
+        // 源配对）
         for tool_call in tool_calls {
             let id = tool_call.id.to_string();
             let name = tool_call.function.name.as_str().to_owned();
             let input = tool_call.function.arguments.clone();
+            // 成员校验（先于 policy）：调用名 ∉ 本轮实际下发面即拒绝——「从
+            // definitions 移除」自此等于硬禁用，幻觉调用不直通执行、不触执行体
+            if !dispatched.contains(&name) {
+                let reason = format!("工具不在本轮下发面: {name}");
+                deny(&sender, "tool_unavailable", &name, &reason, &id).await;
+                history.push(Message::tool_result(
+                    tool_call.id,
+                    tool_call.function.name,
+                    reason,
+                ));
+                continue;
+            }
             if !policy::allows(turn.permission_mode, &name) {
                 let reason = format!("权限档位不允许该工具: {name}");
                 deny(&sender, "permission_denied", &name, &reason, &id).await;
@@ -382,9 +402,23 @@ pub(crate) async fn run(
                     continue;
                 }
             };
-            let (content, is_error) = match tools::execute(&turn.cwd, &name, &sandboxed).await {
-                Ok(text) => (text, false),
-                Err(error) => (error, true),
+            // 执行臂路由：专用工具走 `LoopTurn` 携带的执行上下文（per-turn 铸
+            // 造——store 句柄 + root + 会话指针，`tools::execute` 纯函数签名
+            // 零侵入）；七通用工具走纯函数分发。上下文缺席以 is_error 回灌
+            // （生产不可达——explore 会话恒装配）
+            let (content, is_error) = if name == tools::EXPLORE_NOTE_TOOL {
+                match &turn.explore_note {
+                    Some(ctx) => match ctx.execute(&input).await {
+                        Ok(text) => (text, false),
+                        Err(error) => (error, true),
+                    },
+                    None => ("专用工具执行上下文未装配".to_owned(), true),
+                }
+            } else {
+                match tools::execute(&turn.cwd, &name, &sandboxed).await {
+                    Ok(text) => (text, false),
+                    Err(error) => (error, true),
+                }
             };
             if sender
                 .send(AgentEventKind::Message {
@@ -521,8 +555,8 @@ async fn forward_notice(sender: &mpsc::Sender<AgentEventKind>, notice: &DefenseN
 
 /// sandbox 校验与入参改写：路径类工具（path 字段）经 [`sandbox::check`]
 /// 解析后回写 `path`；glob 无 path 字段，以 [`sandbox::check_pattern`] 预检
-/// pattern（执行体以 root 为基座拼接）。未知工具无路径面，原样放行（policy
-/// 已先行拒绝封闭清单外的工具名）。
+/// pattern（执行体以 root 为基座拼接）。其余工具无路径面，原样放行（成员
+/// 校验已先行拒绝下发面外的调用名）。
 fn sandbox_rewrite(root: &std::path::Path, name: &str, input: &Value) -> Result<Value, String> {
     let Some(raw) = tools::input_path(name, input) else {
         return Ok(input.clone());

@@ -1,0 +1,135 @@
+JSON report written to C:/Users/wps/.dev-team/worktrees/wps-claude-plugin-7166d8c61feeae705846d569251abee6/auto-named-explore/openspec/changes/auto-named-explore/reports/test/plugins_dev-team_vite-plus/results.json
+lint failed
+JSON report written to C:/Users/wps/.dev-team/worktrees/wps-claude-plugin-7166d8c61feeae705846d569251abee6/auto-named-explore/openspec/changes/auto-named-explore/reports/test/packages_desktop_vite-plus/results.json
+[1m[2mnote:[0m[0m You are running [94m`vp test`[39m as a Vite+ built-in command. If you meant to run the test npm script, use [94m`vpr test`[39m instead.
+info: cargo-llvm-cov currently setting cfg(coverage); you can opt-out it by passing --no-cfg-coverage
+   Compiling agent v0.1.0 (C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\auto-named-explore\packages\desktop\src-tauri\crates\core\agent)
+   Compiling dev-team v0.1.0 (C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\auto-named-explore\packages\desktop\src-tauri)
+   Compiling workflow v0.1.0 (C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\auto-named-explore\packages\desktop\src-tauri\crates\core\workflow)
+   Compiling orchestration v0.1.0 (C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\auto-named-explore\packages\desktop\src-tauri\crates\core\orchestration)
+   Compiling store v0.1.0 (C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\auto-named-explore\packages\desktop\src-tauri\crates\infra\store)
+   Compiling checks-runtime v0.1.0 (C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\auto-named-explore\packages\desktop\src-tauri\crates\infra\checks)
+   Compiling vcs-runtime v0.1.0 (C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\auto-named-explore\packages\desktop\src-tauri\crates\infra\vcs)
+   Compiling agent-runtime v0.1.0 (C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\auto-named-explore\packages\desktop\src-tauri\crates\infra\agent)
+error[E0308]: mismatched types
+   --> src\commands\db\mod_test.rs:184:37
+    |
+184 |     ws.create_explore_record(&root, "topic")
+    |        ---------------------        ^^^^^^^ expected `Option<&str>`, found `&str`
+    |        |
+    |        arguments to this method are incorrect
+    |
+    = note:   expected enum `std::option::Option<&str>`
+            found reference `&'static str`
+note: method defined here
+   --> crates\infra\store\src\store.rs:917:12
+    |
+917 |     pub fn create_explore_record(
+    |            ^^^^^^^^^^^^^^^^^^^^^
+help: try wrapping the expression in `Some`
+    |
+184 |     ws.create_explore_record(&root, Some("topic"))
+    |                                     +++++       +
+
+error[E0308]: mismatched types
+   --> src\commands\workspaces\mod_test.rs:427:50
+    |
+427 |             .create_explore_record(&record.root, "history-topic")
+    |              ---------------------               ^^^^^^^^^^^^^^^ expected `Option<&str>`, found `&str`
+    |              |
+    |              arguments to this method are incorrect
+    |
+    = note:   expected enum `std::option::Option<&str>`
+            found reference `&'static str`
+note: method defined here
+   --> crates\infra\store\src\store.rs:917:12
+    |
+917 |     pub fn create_explore_record(
+    |            ^^^^^^^^^^^^^^^^^^^^^
+help: try wrapping the expression in `Some`
+    |
+427 |             .create_explore_record(&record.root, Some("history-topic"))
+    |                                                  +++++               +
+
+warning: variable does not need to be mutable
+   --> src\commands\change_flow\mod_test.rs:181:25
+    |
+181 | fn wait_for(what: &str, mut probe: impl FnMut() -> bool) {
+    |                         ----^^^^^
+    |                         |
+    |                         help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+For more information about this error, try `rustc --explain E0308`.
+error: process didn't exit successfully: `C:\Users\wps\.rustup\toolchains\stable-x86_64-pc-windows-msvc\bin\rustc.exe --crate-name dev_team --edition=2021 src\lib.rs --error-format=json --json=diagnostic-rendered-ansi,artifacts,future-incompat --emit=dep-info,link -C embed-bitcode=no -C debuginfo=2 --test --check-cfg cfg(docsrs,test) --check-cfg "cfg(feature, values(\"custom-protocol\"))" -C metadata=2f4a94994ff84cff -C extra-filename=-c3b68bb185b2bcaa --out-dir C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\auto-named-explore\packages\desktop\src-tauri\target\llvm-cov-target\debug\deps -C incremental=C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\auto-named-explore\packages\desktop\src-tauri\target\llvm-cov-target\debug\incremental -L dependency=C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\auto-named-explore\packages\desktop\src-tauri\target\llvm-cov-target\debug\deps --extern agent=C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\auto-named-explore\packages\desktop\src-tauri\target\llvm-cov-target\debug\deps\libagent-7ea27134e83bbd11.rlib --extern agent_runtime=C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\auto-named-explore\packages\desktop\src-tauri\target\llvm-cov-target\debug\deps\libagent_runtime-9c559d5cb8691608.rlib --extern checks_runtime=C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\auto-named-explore\packages\desktop\src-tauri\target\llvm-cov-target\debug\deps\libchecks_runtime-01c1e81797bbe64b.rlib --extern config=C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\auto-named-explore\packages\desktop\src-tauri\target\llvm-cov-target\debug\deps\libconfig-eca229a06044fba0.rlib --extern exec=C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\auto-named-explore\packages\desktop\src-tauri\target\llvm-cov-target\debug\deps\libexec-e1e914e411dee510.rlib --extern foundation=C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\auto-named-explore\packages\desktop\src-tauri\target\llvm-cov-target\debug\deps\libfoundation-d9572b33e62e3a89.rlib --extern native_db=C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\auto-named-explore\packages\desktop\src-tauri\target\llvm-cov-target\debug\deps\libnative_db-d392f5d875618820.rlib --extern orchestration=C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\auto-named-explore\packages\desktop\src-tauri\target\llvm-cov-target\debug\deps\liborchestration-f03ef1206ee0e2a8.rlib --extern serde=C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\auto-named-explore\packages\desktop\src-tauri\target\llvm-cov-target\debug\deps\libserde-5fe1f48ab8f60e52.rlib --extern serde_json=C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\auto-named-explore\packages\desktop\src-tauri\target\llvm-cov-target\debug\deps\libserde_json-40a392f876a11d6d.rlib --extern specta=C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\auto-named-explore\packages\desktop\src-tauri\target\llvm-cov-target\debug\deps\libspecta-d9115214cc9c4e13.rlib --extern specta_typescript=C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\auto-named-explore\packages\desktop\src-tauri\target\llvm-cov-target\debug\deps\libspecta_typescript-d35aa4047fa70255.rlib --extern store=C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\auto-named-explore\packages\desktop\src-tauri\target\llvm-cov-target\debug\deps\libstore-3397efdaf351359e.rlib --extern tauri=C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\auto-named-explore\packages\desktop\src-tauri\target\llvm-cov-target\debug\deps\libtauri-3a791480bd42248d.rlib --extern tauri_plugin_devtools=C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\auto-named-explore\packages\desktop\src-tauri\target\llvm-cov-target\debug\deps\libtauri_plugin_devtools-f66994fd3e9ad0b5.rlib --extern tauri_plugin_dialog=C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\auto-named-explore\packages\desktop\src-tauri\target\llvm-cov-target\debug\deps\libtauri_plugin_dialog-e4f636d27a172b6d.rlib --extern tauri_plugin_single_instance=C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\auto-named-explore\packages\desktop\src-tauri\target\llvm-cov-target\debug\deps\libtauri_plugin_single_instance-4eb384c172b911a0.rlib --extern tauri_plugin_updater=C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\auto-named-explore\packages\desktop\src-tauri\target\llvm-cov-target\debug\deps\libtauri_plugin_updater-ee969a160b6ad1af.rlib --extern tauri_specta=C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\auto-named-explore\packages\desktop\src-tauri\target\llvm-cov-target\debug\deps\libtauri_specta-831847c2923bfd3f.rlib --extern tempfile=C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\auto-named-explore\packages\desktop\src-tauri\target\llvm-cov-target\debug\deps\libtempfile-f7f206950a84c14e.rlib --extern tokei=C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\auto-named-explore\packages\desktop\src-tauri\target\llvm-cov-target\debug\deps\libtokei-e4a5c20c0024a889.rlib --extern tokio=C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\auto-named-explore\packages\desktop\src-tauri\target\llvm-cov-target\debug\deps\libtokio-5ba3126d528b53e4.rlib --extern vcs_runtime=C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\auto-named-explore\packages\desktop\src-tauri\target\llvm-cov-target\debug\deps\libvcs_runtime-bc0cd8af5601de38.rlib --extern watch=C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\auto-named-explore\packages\desktop\src-tauri\target\llvm-cov-target\debug\deps\libwatch-652425a0f22409cb.rlib --extern workflow=C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\auto-named-explore\packages\desktop\src-tauri\target\llvm-cov-target\debug\deps\libworkflow-dea3854afa4d56a7.rlib -L native=C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\auto-named-explore\packages\desktop\src-tauri\target\llvm-cov-target\debug\build\ring-79c04b41528d3936\out -L native=C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\auto-named-explore\packages\desktop\src-tauri\target\llvm-cov-target\debug\build\webview2-com-sys-8a8fc1eaef317217\out\x64 -L native=C:\Users\wps\.cargo\registry\src\rsproxy.cn-e3de039b2554c837\windows_x86_64_msvc-0.52.6\lib -L native=C:\Users\wps\.cargo\registry\src\rsproxy.cn-e3de039b2554c837\windows_x86_64_msvc-0.48.5\lib -L native=C:\Users\wps\.cargo\registry\src\rsproxy.cn-e3de039b2554c837\windows_x86_64_msvc-0.53.1\lib -C link-arg=C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\auto-named-explore\packages\desktop\src-tauri\target\llvm-cov-target\debug\build\dev-team-f8e944a69e082e32\out\app-manifest.lib --cfg desktop --cfg dev --check-cfg cfg(desktop) --check-cfg cfg(mobile) --check-cfg cfg(dev) -C instrument-coverage --cfg=coverage` (exit code: 1)
+warning: `dev-team` (lib test) generated 1 warning
+error: could not compile `dev-team` (lib test) due to 2 previous errors; 1 warning emitted
+warning: build failed, waiting for other jobs to finish...
+error: process didn't exit successfully: `C:\Users\wps\.rustup\toolchains\stable-x86_64-pc-windows-msvc\bin\cargo.exe test --tests --manifest-path C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\auto-named-explore\packages\desktop\src-tauri\Cargo.toml --target-dir C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\auto-named-explore\packages\desktop\src-tauri\target\llvm-cov-target` (exit code: 101)
+   Compiling agent v0.1.0 (C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\auto-named-explore\packages\desktop\src-tauri\crates\core\agent)
+warning: function `段级未知outcome样本runtimeError留痕` should have a snake case name
+   --> crates\core\checks\tests\corpus_golden_test.rs:561:4
+    |
+561 | fn 段级未知outcome样本runtimeError留痕() {
+    |    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: convert the identifier to snake case: `段级未知outcome样本runtime_error留痕`
+    |
+    = note: `#[warn(non_snake_case)]` (part of `#[warn(nonstandard_style)]`) on by default
+
+warning: `checks` (test "corpus_golden_test") generated 1 warning
+warning: function `build_mutation_block分母零与NaN与Inf阈值` should have a snake case name
+   --> crates\core\checks\src\aggregate_test.rs:772:4
+    |
+772 | fn build_mutation_block分母零与NaN与Inf阈值() {
+    |    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: convert the identifier to snake case: `build_mutation_block分母零与_na_n与_inf阈值`
+    |
+    = note: `#[warn(non_snake_case)]` (part of `#[warn(nonstandard_style)]`) on by default
+
+warning: `checks` (lib test) generated 1 warning
+   Compiling workflow v0.1.0 (C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\auto-named-explore\packages\desktop\src-tauri\crates\core\workflow)
+error[E0425]: cannot find type `AgentMessageRole` in this scope
+   --> crates\core\agent\src\lib_test.rs:314:89
+    |
+314 |     let _event_word_shapes: Option<(AgentBlock, AgentDelta, AgentEvent, AgentEventKind, AgentMessageRole)> =
+    |                                                                                         ^^^^^^^^^^^^^^^^ not found in this scope
+    |
+help: consider importing this enum through its public re-export
+    |
+  1 + use crate::AgentMessageRole;
+    |
+
+warning: unused import: `TurnQuestion`
+ --> crates\core\agent\src\runner_test.rs:9:77
+  |
+9 |     SessionCtx, SessionInjections, SessionOpen, SessionRef, SessionToolset, TurnQuestion,
+  |                                                                             ^^^^^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+error[E0782]: expected a type, found a trait
+   --> crates\core\agent\src\lib_test.rs:310:36
+    |
+310 |     let _port_word_shapes: Option<(SessionQuery, SessionSink, TurnOutcome)> = None;
+    |                                    ^^^^^^^^^^^^
+    |
+help: you can add the `dyn` keyword if you want a trait object
+    |
+310 |     let _port_word_shapes: Option<(dyn SessionQuery, SessionSink, TurnOutcome)> = None;
+    |                                    +++
+
+error[E0782]: expected a type, found a trait
+   --> crates\core\agent\src\lib_test.rs:310:50
+    |
+310 |     let _port_word_shapes: Option<(SessionQuery, SessionSink, TurnOutcome)> = None;
+    |                                                  ^^^^^^^^^^^
+    |
+help: you can add the `dyn` keyword if you want a trait object
+    |
+310 |     let _port_word_shapes: Option<(SessionQuery, dyn SessionSink, TurnOutcome)> = None;
+    |                                                  +++
+
+Some errors have detailed explanations: E0425, E0782.
+For more information about an error, try `rustc --explain E0425`.
+warning: `agent` (lib test) generated 1 warning
+error: could not compile `agent` (lib test) due to 3 previous errors; 1 warning emitted
+warning: build failed, waiting for other jobs to finish...

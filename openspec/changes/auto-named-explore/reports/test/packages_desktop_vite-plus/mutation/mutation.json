@@ -1,0 +1,17 @@
+{
+  "pass": true,
+  "score": 91.89,
+  "threshold": 80.0,
+  "measured": {
+    "killed": 483,
+    "survived": 41,
+    "timeout": 4,
+    "noCoverage": 2,
+    "compileError": 0,
+    "runtimeError": 1,
+    "ignored": 47,
+    "total": 578,
+    "detected": 487,
+    "undetected": 43
+  }
+}

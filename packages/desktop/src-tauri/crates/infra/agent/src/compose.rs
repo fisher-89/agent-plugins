@@ -9,6 +9,36 @@ use store::{AgentEngineKind, Store, WorkspaceStores, CLI_TENANT_RETIRED};
 use crate::store_port::{StoreQuery, StoreSink};
 use crate::{EngineConfig, EngineFacade, EngineKind};
 
+/// explore 来源受控字符串（与 store `EXPLORE_RUN_SOURCE` / 前端 `EXPLORE_SOURCE`
+/// 三处同字面量，改动需同步）——`begin` 据此装配 explore 会话注入面。
+const EXPLORE_SOURCE: &str = "explore";
+
+/// explore 会话注入面装配（生产路径首次非 default）：六工具收窄子集（write
+/// 移除，序同 `TOOL_NAMES`）+ `Explore` 枚举；六名逐个校验 ∈ 七通用工具封闭集
+/// （非法名显式 `Err`——装配层校验）。其余来源（debug / change 等）恒
+/// `SessionInjections::default()`（七工具面，零变化）。
+fn assemble_injections(source: &str) -> Result<agent::SessionInjections, String> {
+    if source != EXPLORE_SOURCE {
+        return Ok(agent::SessionInjections::default());
+    }
+    const EXPLORE_TOOLS: [&str; 6] = ["read", "grep", "glob", "ls", "edit", "bash"];
+    for name in EXPLORE_TOOLS {
+        if !crate::sdk::tools::TOOL_NAMES.contains(&name) {
+            return Err(format!("注入面非法工具名: {name}（七通用工具封闭集外）"));
+        }
+    }
+    Ok(agent::SessionInjections {
+        preamble: None,
+        tools: Some(
+            EXPLORE_TOOLS
+                .iter()
+                .map(|name| (*name).to_owned())
+                .collect(),
+        ),
+        toolset: Some(agent::SessionToolset::Explore),
+    })
+}
+
 /// 解析产物（组合根内聚）：引擎 kind + 组装好的连接配置 + 快照定型双面 +
 /// 实例外键。引擎具体类型不出本结构（门面 `runner_for` 签名与编排层零改动
 /// 承诺的参数传递面）。
@@ -57,6 +87,9 @@ pub fn compose_turn(
     // 无默认 Err 引导管理页）
     let resolved = resolve_agent_engine(stores, agent)?;
     let query = Arc::new(StoreQuery::new(Arc::clone(&store)));
+    // explore 专用工具执行上下文的句柄半边（组合根铸造、`tools::execute` 纯
+    // 函数不动——句柄经门面 builder 下行至 pump per-turn 铸造）
+    let explore_note_store = Arc::clone(&store);
     let kernel = SessionKernel::new(Arc::new(StoreSink::new(store)), registry);
     // resume 装载缝以会话全史转录闭合（引擎中立数据：session_id → 密封事件
     // 全史）
@@ -81,6 +114,7 @@ pub fn compose_turn(
     let runner: Arc<dyn AgentRunner> = Arc::from(
         EngineFacade::with_resume_transcript(resume)
             .with_context_window(resolved.context_window)
+            .with_explore_note_store(explore_note_store)
             .runner_for(resolved.kind, resolved.config)?,
     );
     Ok(ComposedTurn {
@@ -154,7 +188,7 @@ impl ComposedTurn {
                 TurnRequest {
                     session,
                     question,
-                    injections: agent::SessionInjections::default(),
+                    injections: assemble_injections(&provenance.source)?,
                     ctx,
                     provenance,
                     config_snapshot,

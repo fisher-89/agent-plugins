@@ -1,0 +1,59 @@
+diff --git a/crates/target/llvm-cov-target/debug/incremental/agent-2ltv8ekymk7yr/s-hnabepifyf-08ahhnm-5fqnmkwncbihqsesvizunnhgx/ea4g7tjwknvbpagdmv5n2iyh3.o b/crates/target/llvm-cov-target/debug/incremental/agent-2ltv8ekymk7yr/s-hnabepifyf-08ahhnm-5fqnmkwncbihqsesvizunnhgx/ea4g7tjwknvbpagdmv5n2iyh3.o
+new file mode 100644
+index 000000000000..1add8659eb63
+Binary files /dev/null and b/packages/desktop/src-tauri/crates/target/llvm-cov-target/debug/incremental/agent-2ltv8ekymk7yr/s-hnabepifyf-08ahhnm-5fqnmkwncbihqsesvizunnhgx/ea4g7tjwknvbpagdmv5n2iyh3.o differ
+diff --git a/crates/target/llvm-cov-target/debug/incremental/agent-2ltv8ekymk7yr/s-hnabepifyf-08ahhnm-5fqnmkwncbihqsesvizunnhgx/eabyhnnzxrg8eecvb5di7ln49.o b/crates/target/llvm-cov-target/debug/incremental/agent-2ltv8ekymk7yr/s-hnabepifyf-08ahhnm-5fqnmkwncbihqsesvizunnhgx/eabyhnnzxrg8eecvb5di7ln49.o
+new file mode 100644
+index 000000000000..c24493717245
+Binary files /dev/null and b/packages/desktop/src-tauri/crates/target/llvm-cov-target/debug/incremental/agent-2ltv8ekymk7yr/s-hnabepifyf-08ahhnm-5fqnmkwncbihqsesvizunnhgx/eabyhnnzxrg8eecvb5di7ln49.o differ
+diff --git a/crates/target/llvm-cov-target/debug/incremental/agent-2ltv8ekymk7yr/s-hnabepifyf-08ahhnm-5fqnmkwncbihqsesvizunnhgx/editl96lq12xdnvd3fep8nplp.o b/crates/target/llvm-cov-target/debug/incremental/agent-2ltv8ekymk7yr/s-hnabepifyf-08ahhnm-5fqnmkwncbihqsesvizunnhgx/editl96lq12xdnvd3fep8nplp.o
+new file mode 100644
+index 000000000000..7eb4d8c13b8c
+Binary files /dev/null and b/packages/desktop/src-tauri/crates/target/llvm-cov-target/debug/incremental/agent-2ltv8ekymk7yr/s-hnabepifyf-08ahhnm-5fqnmkwncbihqsesvizunnhgx/editl96lq12xdnvd3fep8nplp.o differ
+diff --git a/crates/target/llvm-cov-target/debug/incremental/agent-2ltv8ekymk7yr/s-hnabepifyf-08ahhnm-5fqnmkwncbihqsesvizunnhgx/ekrzo44aeca4mb1adxut0r4id.o b/crates/target/llvm-cov-target/debug/incremental/agent-2ltv8ekymk7yr/s-hnabepifyf-08ahhnm-5fqnmkwncbihqsesvizunnhgx/ekrzo44aeca4mb1adxut0r4id.o
+new file mode 100644
+index 000000000000..87376279e8f9
+Binary files /dev/null and b/packages/desktop/src-tauri/crates/target/llvm-cov-target/debug/incremental/agent-2ltv8ekymk7yr/s-hnabepifyf-08ahhnm-5fqnmkwncbihqsesvizunnhgx/ekrzo44aeca4mb1adxut0r4id.o differ
+diff --git a/crates/target/llvm-cov-target/debug/incremental/agent-2ltv8ekymk7yr/s-hnabepifyf-08ahhnm-5fqnmkwncbihqsesvizunnhgx/em0lsxxctqt01z1n1hge30flp.o b/crates/target/llvm-cov-target/debug/incremental/agent-2ltv8ekymk7yr/s-hnabepifyf-08ahhnm-5fqnmkwncbihqsesvizunnhgx/em0lsxxctqt01z1n1hge30flp.o
+new file mode 100644
+index 000000000000..3372c761b25b
+Binary files /dev/null and b/packages/desktop/src-tauri/crates/target/llvm-cov-target/debug/incremental/agent-2ltv8ekymk7yr/s-hnabepifyf-08ahhnm-5fqnmkwncbihqsesvizunnhgx/em0lsxxctqt01z1n1hge30flp.o differ
+diff --git a/crates/target/llvm-cov-target/debug/incremental/agent-2ltv8ekymk7yr/s-hnabepifyf-08ahhnm-5fqnmkwncbihqsesvizunnhgx/en4fjrsby0hc5w9nqt5rl9l53.o b/crates/target/llvm-cov-target/debug/incremental/agent-2ltv8ekymk7yr/s-hnabepifyf-08ahhnm-5fqnmkwncbihqsesvizunnhgx/en4fjrsby0hc5w9nqt5rl9l53.o
+new file mode 100644
+index 000000000000..6cae38109027
+Binary files /dev/null and b/packages/desktop/src-tauri/crates/target/llvm-cov-target/debug/incremental/agent-2ltv8ekymk7yr/s-hnabepifyf-08ahhnm-5fqnmkwncbihqsesvizunnhgx/en4fjrsby0hc5w9nqt5rl9l53.o differ
+diff --git a/crates/target/llvm-cov-target/debug/incremental/agent-2ltv8ekymk7yr/s-hnabepifyf-08ahhnm-5fqnmkwncbihqsesvizunnhgx/erf3mucwsmauon64u8l5f7wcd.o b/crates/target/llvm-cov-target/debug/incremental/agent-2ltv8ekymk7yr/s-hnabepifyf-08ahhnm-5fqnmkwncbihqsesvizunnhgx/erf3mucwsmauon64u8l5f7wcd.o
+new file mode 100644
+index 000000000000..c148aea3735f
+Binary files /dev/null and b/packages/desktop/src-tauri/crates/target/llvm-cov-target/debug/incremental/agent-2ltv8ekymk7yr/s-hnabepifyf-08ahhnm-5fqnmkwncbihqsesvizunnhgx/erf3mucwsmauon64u8l5f7wcd.o differ
+diff --git a/crates/target/llvm-cov-target/debug/incremental/agent-2ltv8ekymk7yr/s-hnabepifyf-08ahhnm-5fqnmkwncbihqsesvizunnhgx/erm7rj0vmvlqmp3sc7gz4qqja.o b/crates/target/llvm-cov-target/debug/incremental/agent-2ltv8ekymk7yr/s-hnabepifyf-08ahhnm-5fqnmkwncbihqsesvizunnhgx/erm7rj0vmvlqmp3sc7gz4qqja.o
+new file mode 100644
+index 000000000000..7d18521c4a30
+Binary files /dev/null and b/packages/desktop/src-tauri/crates/target/llvm-cov-target/debug/incremental/agent-2ltv8ekymk7yr/s-hnabepifyf-08ahhnm-5fqnmkwncbihqsesvizunnhgx/erm7rj0vmvlqmp3sc7gz4qqja.o differ
+diff --git a/crates/target/llvm-cov-target/debug/incremental/agent-2ltv8ekymk7yr/s-hnabepifyf-08ahhnm-5fqnmkwncbihqsesvizunnhgx/etsmyc2l56vjva7kg1ya2ofo3.o b/crates/target/llvm-cov-target/debug/incremental/agent-2ltv8ekymk7yr/s-hnabepifyf-08ahhnm-5fqnmkwncbihqsesvizunnhgx/etsmyc2l56vjva7kg1ya2ofo3.o
+new file mode 100644
+index 000000000000..62803cb28b62
+Binary files /dev/null and b/packages/desktop/src-tauri/crates/target/llvm-cov-target/debug/incremental/agent-2ltv8ekymk7yr/s-hnabepifyf-08ahhnm-5fqnmkwncbihqsesvizunnhgx/etsmyc2l56vjva7kg1ya2ofo3.o differ
+diff --git a/crates/target/llvm-cov-target/debug/incremental/agent-2ltv8ekymk7yr/s-hnabepifyf-08ahhnm-5fqnmkwncbihqsesvizunnhgx/exm9keqmi3drs7wdlyosd5lz4.o b/crates/target/llvm-cov-target/debug/incremental/agent-2ltv8ekymk7yr/s-hnabepifyf-08ahhnm-5fqnmkwncbihqsesvizunnhgx/exm9keqmi3drs7wdlyosd5lz4.o
+new file mode 100644
+index 000000000000..9d9c7819b054
+Binary files /dev/null and b/packages/desktop/src-tauri/crates/target/llvm-cov-target/debug/incremental/agent-2ltv8ekymk7yr/s-hnabepifyf-08ahhnm-5fqnmkwncbihqsesvizunnhgx/exm9keqmi3drs7wdlyosd5lz4.o differ
+diff --git a/crates/target/llvm-cov-target/debug/incremental/agent-2ltv8ekymk7yr/s-hnabepifyf-08ahhnm-5fqnmkwncbihqsesvizunnhgx/ey2tvfb3u2yl8qy236y7f1fa3.o b/crates/target/llvm-cov-target/debug/incremental/agent-2ltv8ekymk7yr/s-hnabepifyf-08ahhnm-5fqnmkwncbihqsesvizunnhgx/ey2tvfb3u2yl8qy236y7f1fa3.o
+new file mode 100644
+index 000000000000..99924de2df7d
+Binary files /dev/null and b/packages/desktop/src-tauri/crates/target/llvm-cov-target/debug/incremental/agent-2ltv8ekymk7yr/s-hnabepifyf-08ahhnm-5fqnmkwncbihqsesvizunnhgx/ey2tvfb3u2yl8qy236y7f1fa3.o differ
+diff --git a/crates/target/llvm-cov-target/debug/incremental/agent-2ltv8ekymk7yr/s-hnabepifyf-08ahhnm-5fqnmkwncbihqsesvizunnhgx/eyfg4re459jdrlwzumcklnabh.o b/crates/target/llvm-cov-target/debug/incremental/agent-2ltv8ekymk7yr/s-hnabepifyf-08ahhnm-5fqnmkwncbihqsesvizunnhgx/eyfg4re459jdrlwzumcklnabh.o
+new file mode 100644
+index 000000000000..e2f7e2d0b92c
+Binary files /dev/null and b/packages/desktop/src-tauri/crates/target/llvm-cov-target/debug/incremental/agent-2ltv8ekymk7yr/s-hnabepifyf-08ahhnm-5fqnmkwncbihqsesvizunnhgx/eyfg4re459jdrlwzumcklnabh.o differ
+diff --git a/crates/target/llvm-cov-target/debug/incremental/agent-2ltv8ekymk7yr/s-hnabepifyf-08ahhnm-5fqnmkwncbihqsesvizunnhgx/query-cache.bin b/crates/target/llvm-cov-target/debug/incremental/agent-2ltv8ekymk7yr/s-hnabepifyf-08ahhnm-5fqnmkwncbihqsesvizunnhgx/query-cache.bin
+new file mode 100644
+index 000000000000..35f04e7a4361
+Binary files /dev/null and b/packages/desktop/src-tauri/crates/target/llvm-cov-target/debug/incremental/agent-2ltv8ekymk7yr/s-hnabepifyf-08ahhnm-5fqnmkwncbihqsesvizunnhgx/query-cache.bin differ
+diff --git a/crates/target/llvm-cov-target/debug/incremental/agent-2ltv8ekymk7yr/s-hnabepifyf-08ahhnm-5fqnmkwncbihqsesvizunnhgx/work-products.bin b/crates/target/llvm-cov-target/debug/incremental/agent-2ltv8ekymk7yr/s-hnabepifyf-08ahhnm-5fqnmkwncbihqsesvizunnhgx/work-products.bin
+new file mode 100644
+index 000000000000..595ff83b2bbe
+Binary files /dev/null and b/packages/desktop/src-tauri/crates/target/llvm-cov-target/debug/incremental/agent-2ltv8ekymk7yr/s-hnabepifyf-08ahhnm-5fqnmkwncbihqsesvizunnhgx/work-products.bin differ
+diff --git a/crates/target/llvm-cov-target/debug/incremental/agent-2ltv8ekymk7yr/s-hnabepifyf-08ahhnm.lock b/crates/target/llvm-cov-target/debug/incremental/agent-2ltv8ekymk7yr/s-hnabepifyf-08ahhnm.lock
+new file mode 100644
+index 000000000000..e69de29bb2d1

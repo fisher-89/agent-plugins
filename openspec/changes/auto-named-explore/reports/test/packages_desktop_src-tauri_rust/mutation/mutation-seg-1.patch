@@ -1,0 +1,2931 @@
+diff --git a/crates/infra/agent/src/lib.rs b/crates/infra/agent/src/lib.rs
+index 2ffb47fc58a8..a24f13fca5c2 100644
+--- a/crates/infra/agent/src/lib.rs
++++ b/crates/infra/agent/src/lib.rs
+@@ -3,6 +3,8 @@ mod sdk;
+ mod store_port;
+ mod worker;
+ 
++use std::sync::Arc;
++
+ use agent::AgentRunner;
+ 
+ pub use compose::{compose_turn, ComposedTurn};
+@@ -31,12 +33,16 @@ pub type ResumeTranscript =
+     std::sync::Arc<dyn Fn(&str) -> Result<Option<Vec<agent::AgentEvent>>, String> + Send + Sync>;
+ 
+ /// 引擎门面：`runner_for` 为引擎构造唯一 match 点（编排层零引擎分支）。
+-/// `resume` 装载缝与 sdk 引擎窗长载荷随门面持有，按引擎分发。
++/// `resume` 装载缝、sdk 引擎窗长载荷与 explore 专用工具 store 句柄随门面
++/// 持有，按引擎分发。
+ pub struct EngineFacade {
+     resume: Option<ResumeTranscript>,
+     /// sdk 引擎上下文窗长（组合根旁路载荷，不经 `EngineConfig` 三字段；
+     /// `None` = 128K 缺省启发式）
+     context_window: Option<u64>,
++    /// workspace 库句柄（组合根注入缝）：per-turn 铸造 `create_explore_note`
++    /// 专用工具执行上下文的原料（`None` = 未注入——专用工具上下文缺席）
++    explore_note_store: Option<Arc<store::Store>>,
+ }
+ 
+ impl EngineFacade {
+@@ -45,6 +51,7 @@ impl EngineFacade {
+         Self {
+             resume: None,
+             context_window: None,
++            explore_note_store: None,
+         }
+     }
+ 
+@@ -53,6 +60,7 @@ impl EngineFacade {
+         Self {
+             resume: Some(loader),
+             context_window: None,
++            explore_note_store: None,
+         }
+     }
+ 
+@@ -63,6 +71,19 @@ impl EngineFacade {
+         Self {
+             resume: self.resume,
+             context_window,
++            explore_note_store: self.explore_note_store,
++        }
++    }
++
++    /// 携 workspace 库句柄的门面（builder 缝，与 `with_resume_transcript` /
++    /// `with_context_window` 同型）：组合根 store 句柄注入缝——per-turn 铸造
++    /// `create_explore_note` 专用工具执行上下文的铸造原料（pump 侧仅
++    /// `toolset == Explore` 且句柄在场时铸造）。
++    pub fn with_explore_note_store(self, store: Arc<store::Store>) -> Self {
++        Self {
++            resume: self.resume,
++            context_window: self.context_window,
++            explore_note_store: Some(store),
+         }
+     }
+ 
+@@ -82,6 +103,7 @@ impl EngineFacade {
+                 engine_cfg,
+                 self.resume.clone(),
+                 self.context_window,
++                self.explore_note_store.clone(),
+             ))),
+         }
+     }
+diff --git a/crates/infra/agent/src/lib_test.rs b/crates/infra/agent/src/lib_test.rs
+index fc11a0b9b270..ccd552fc3e1f 100644
+--- a/crates/infra/agent/src/lib_test.rs
++++ b/crates/infra/agent/src/lib_test.rs
+@@ -167,7 +167,7 @@ fn with_context_window_builder链式构造且分发行为与直构一致() {
+         .with_context_window(Some(200_000))
+         .runner_for(EngineKind::Sdk, EngineConfig::empty())
+         .expect("Sdk 臂构造成功");
+-    let via_direct = SdkRunner::new(EngineConfig::empty(), None, Some(200_000));
++    let via_direct = SdkRunner::new(EngineConfig::empty(), None, Some(200_000), None);
+ 
+     // 门面分发行为与直构一致（open 校验错误面等价断言，沿既有门面分发一致性口径）
+     let facade_error = via_facade
+@@ -186,7 +186,7 @@ fn with_context_window_builder链式构造且分发行为与直构一致() {
+         .with_context_window(None)
+         .runner_for(EngineKind::Sdk, EngineConfig::empty())
+         .expect("Sdk 臂构造成功");
+-    let none_direct = SdkRunner::new(EngineConfig::empty(), None, None);
++    let none_direct = SdkRunner::new(EngineConfig::empty(), None, None, None);
+     assert_eq!(
+         none_facade
+             .open_session(open_continue("ses-window-none"))
+@@ -209,7 +209,7 @@ fn 既有构造路径缺省none不变_续会话校验行为与现状一致() {
+         .runner_for(EngineKind::Sdk, complete_cfg())
+         .expect("Sdk 臂构造成功");
+     let (direct_loader, _direct_calls) = counting_loader(Ok(None));
+-    let via_direct = SdkRunner::new(complete_cfg(), Some(direct_loader), None);
++    let via_direct = SdkRunner::new(complete_cfg(), Some(direct_loader), None, None);
+ 
+     let facade_error = via_facade
+         .open_session(open_continue("ses-facade-default"))
+@@ -315,7 +315,7 @@ fn sdk臂窗长边界零与u64max均ok且行为与直构一致() {
+             .with_context_window(window)
+             .runner_for(EngineKind::Sdk, complete_cfg())
+             .expect("Sdk 臂构造成功");
+-        let via_direct = SdkRunner::new(complete_cfg(), None, window);
++        let via_direct = SdkRunner::new(complete_cfg(), None, window, None);
+         assert_eq!(
+             via_facade
+                 .open_session(open_continue("ses-window-boundary"))
+@@ -387,3 +387,132 @@ async fn sdk臂字段str边界怪值原样构造且空串仍逐字段判缺() {
+         })
+         .expect("超长 / 特殊字符 / 纯空白怪值 open 应成功（原样携带）");
+ }
++
++// ---------------------------------------------------------------------------
++// auto-named-explore：with_explore_note_store builder 缝（组合根 store 句柄
++// 注入 builder）
++// ---------------------------------------------------------------------------
++
++/// 真实临时 workspace 库句柄装置（store_port_test 同款：tempdir + open_workspace）。
++fn temp_store(tag: &str) -> (tempfile::TempDir, Arc<store::Store>) {
++    let dir = tempfile::Builder::new()
++        .prefix(&format!("facade-explore-store-{tag}-"))
++        .tempdir()
++        .expect("创建临时目录失败");
++    let db_path = dir.path().join("ws.redb");
++    let store = Arc::new(
++        store::Store::open_workspace(&db_path)
++            .unwrap_or_else(|e| panic!("打开临时 workspace 库失败: {e}")),
++    );
++    (dir, store)
++}
++
++/// builder 链式：`with_explore_note_store(store)` 返回 `Self`，与
++/// `with_context_window` 双向续链（两序均编译可达且构造成功——builder 缝
++/// 与 `with_resume_transcript` / `with_context_window` 同型）。
++#[test]
++fn with_explore_note_store链式构造且与with_context_window双向续链() {
++    let (_dir, store) = temp_store("chain");
++
++    // store → window 序
++    let chained = EngineFacade::new()
++        .with_explore_note_store(Arc::clone(&store))
++        .with_context_window(Some(200_000))
++        .runner_for(EngineKind::Sdk, EngineConfig::empty())
++        .expect("续链后 Sdk 臂构造成功");
++    let _ = chained;
++
++    // window → store 序（builder 全序可换）
++    let chained_other_order = EngineFacade::new()
++        .with_context_window(None)
++        .with_explore_note_store(Arc::clone(&store))
++        .runner_for(EngineKind::Sdk, EngineConfig::empty())
++        .expect("换序续链后 Sdk 臂构造成功");
++    let _ = chained_other_order;
++}
++
++/// 句柄注入后引擎选择回归：带 store 句柄的 facade `runner_for(Sdk)` 仍产出
++/// Sdk 引擎（builder 不破坏既有选择面——open_session 失败面与直构四参
++/// SdkRunner 同口径）。
++#[test]
++fn 携store句柄facade的runner_for_sdk仍产出sdk引擎() {
++    let (_dir, store) = temp_store("engine-choice");
++    let via_facade = EngineFacade::new()
++        .with_explore_note_store(Arc::clone(&store))
++        .runner_for(EngineKind::Sdk, EngineConfig::empty())
++        .expect("Sdk 臂构造成功（仍选 Sdk 臂）");
++    let via_direct = SdkRunner::new(EngineConfig::empty(), None, None, Some(Arc::clone(&store)));
++
++    let facade_error = via_facade
++        .open_session(open_continue("ses-with-store"))
++        .expect_err("空配置必须 Err");
++    let direct_error = via_direct
++        .open_session(open_continue("ses-with-store"))
++        .expect_err("直构同口径 Err");
++    assert_eq!(
++        facade_error, direct_error,
++        "携句柄门面与直构四参 SdkRunner 失败面一致（引擎选择零漂移）"
++    );
++}
++
++/// 默认构造零句柄回归：`new()` / `with_resume_transcript` 路径行为不随新
++/// 字段变化（缺省 `explore_note_store == None` 的行为面等价于既有三参直构）。
++#[test]
++fn 默认构造零句柄行为不随新字段变化() {
++    // new() 路径：与三参 None 直构行为一致
++    let via_new = EngineFacade::new()
++        .runner_for(EngineKind::Sdk, EngineConfig::empty())
++        .expect("Sdk 臂构造成功");
++    let direct_none = SdkRunner::new(EngineConfig::empty(), None, None, None);
++    assert_eq!(
++        via_new
++            .open_session(open_continue("ses-default-no-handle"))
++            .expect_err("必须 Err")
++            .to_string(),
++        direct_none
++            .open_session(open_continue("ses-default-no-handle"))
++            .expect_err("直构必须 Err")
++            .to_string(),
++        "new() 门面（零句柄）与 None 直构失败面一致"
++    );
++
++    // with_resume_transcript 路径：不携句柄，行为照旧
++    let (loader, calls) = counting_loader(Ok(None));
++    let via_loader = EngineFacade::with_resume_transcript(loader)
++        .runner_for(EngineKind::Sdk, complete_cfg())
++        .expect("Sdk 臂构造成功");
++    assert!(
++        via_loader
++            .open_session(open_continue("ses-loader-no-handle"))
++            .is_err(),
++        "无句柄续会话照旧显式失败（会话不存在臂）"
++    );
++    // 句柄缺席不改变装载缝消费时点：失败前 loader 被消费一次（既有时点回归）
++    assert_eq!(
++        calls.load(Ordering::Relaxed),
++        1,
++        "装载缝照常消费（新字段不改变既有路径）"
++    );
++}
++
++/// 空配置启动失败面回归：携 store 句柄的 facade + `EngineConfig::empty()` →
++/// `open_session` 仍以 `ConfigMissing`（配置三件套逐项在册）显式失败——新
++/// 字段与 builder 不吞改既有失败语义。
++#[test]
++fn 携store句柄的空配置open仍config_missing显式失败() {
++    let (_dir, store) = temp_store("empty-cfg");
++    let runner = EngineFacade::new()
++        .with_explore_note_store(Arc::clone(&store))
++        .with_context_window(None)
++        .runner_for(EngineKind::Sdk, EngineConfig::empty())
++        .expect("Sdk 臂构造成功");
++
++    let error = runner
++        .open_session(open_continue("ses-empty-cfg-with-store"))
++        .expect_err("空配置必须显式失败");
++    assert!(
++        matches!(error, agent::AgentStartError::ConfigMissing(ref message)
++            if message.contains("api_key") && message.contains("base_url") && message.contains("model")),
++        "配置三件套校验先于句柄消费，实际: {error:?}"
++    );
++}
+diff --git a/crates/infra/agent/src/sdk/explore_note.rs b/crates/infra/agent/src/sdk/explore_note.rs
+new file mode 100644
+index 000000000000..f424251c6d04
+--- /dev/null
++++ b/crates/infra/agent/src/sdk/explore_note.rs
+@@ -0,0 +1,226 @@
++//! `create_explore_note` 专用工具执行体：占位记录两步原子定名 / 已定名记录
++//! 同名补建与异名拦截。无路径参数——服务端按**调用时**（非轮建立快照）以
++//! 会话指针（记录 `session_id` == 本会话 id）圈定当前 explore 记录（per-call
++//! 现查，改名后续轮零漂移）；文件与记录自诞生即最终名，agent 手里不存在旧
++//! 路径。执行上下文由组合根 per-turn 铸造（store 句柄 + 轮 root + 会话指针，
++//! 经 `LoopTurn` 携带），`tools::execute` 纯函数签名零侵入。
++//!
++//! 前置校验必须先于落盘（fs + db 跨存储非真原子，校验收窄残留窗口——promote
++//! 先例）：非法 kebab / 目标名已存在 / 文件已存在均显式 `Err` 零半边残留；
++//! ①落盘②改名两步间失败以 `Err` 附残留与恢复指引收口。
++
++use std::path::PathBuf;
++use std::sync::Arc;
++
++use foundation::layout::resolve;
++use serde_json::Value;
++use store::{ExploreRecord, Store, EXPLORE_PLACEHOLDER_PREFIX};
++
++/// explore 名称长度上限（与 store `check_explore_name` 同宽）。
++const MAX_NOTE_NAME_LENGTH: usize = 128;
++
++/// 占位名前缀（消费 store 导出 [`EXPLORE_PLACEHOLDER_PREFIX`]——同口径单点
++/// 本地复制，promote 门禁 / 前端 stance 分形与此前缀判别互链）。
++const DRAFT_PREFIX: &str = EXPLORE_PLACEHOLDER_PREFIX;
++
++/// explore 名称 kebab-case 判定（等价 `^[a-z][a-z0-9]*(-[a-z0-9]+)*$`，不引
++/// regex）：与 store `is_kebab_case` / 命令层 `is_kebab_case` 同口径三处互链
++/// ——前置校验先于落盘，防半边残留。
++fn is_kebab_case(name: &str) -> bool {
++    let segment_ok = |first: bool, segment: &str| {
++        let mut chars = segment.chars();
++        match chars.next() {
++            // 首段必须字母开头；后续段可数字开头
++            Some(c) if c.is_ascii_lowercase() || (!first && c.is_ascii_digit()) => {}
++            _ => return false,
++        }
++        chars.all(|c| c.is_ascii_lowercase() || c.is_ascii_digit())
++    };
++    let mut segments = name.split('-');
++    match segments.next() {
++        Some(first) => {
++            if !segment_ok(true, first) {
++                return false;
++            }
++        }
++        // split 至少返回一段，防御式拒绝
++        None => return false,
++    }
++    segments.all(|segment| segment_ok(false, segment))
++}
++
++/// `create_explore_note` 专用工具执行上下文（per-turn 铸造：组合根 store 句柄
++/// + 轮 root + 会话指针）。
++pub(crate) struct ExploreNoteContext {
++    store: Arc<Store>,
++    root: PathBuf,
++    session_id: String,
++}
++
++impl ExploreNoteContext {
++    /// 上下文构造（pump 侧 `toolset == Explore` 且句柄与 Continue id 在场时铸造）。
++    pub(crate) fn new(store: Arc<Store>, root: PathBuf, session_id: String) -> Self {
++        Self {
++            store,
++            root,
++            session_id,
++        }
++    }
++
++    /// 执行体：① 会话指针圈定当前 explore 记录（miss 显式 `Err`）；② 占位
++    /// 记录 → 前置校验 + create-only 落盘 + in-place 改名（原子两步，返回
++    /// repo 相对路径）；③ 已定名记录 → 同名且文件缺失时补建（孤儿重建），
++    /// 否则 `Err` 附现有名与笔记路径（文案即恢复通道——agent 转用 edit）。
++    pub(crate) async fn execute(&self, input: &Value) -> Result<String, String> {
++        let name = input
++            .get("name")
++            .and_then(Value::as_str)
++            .ok_or_else(|| "入参缺失或非字符串字段: name".to_owned())?;
++        let content = input
++            .get("content")
++            .and_then(Value::as_str)
++            .ok_or_else(|| "入参缺失或非字符串字段: content".to_owned())?;
++        let record = self.locate_record()?;
++        if record.name.starts_with(DRAFT_PREFIX) {
++            self.finalize_placeholder(&record, name, content).await
++        } else {
++            self.ensure_named(&record, name, content).await
++        }
++    }
++
++    /// ① 会话指针圈定记录：记录 `session_id` == 本会话 id（explore 建档预建
++    /// 回写，改名 in-place 保指针）；miss 显式 `Err` 附会话 id。
++    fn locate_record(&self) -> Result<ExploreRecord, String> {
++        let root = self.root.to_string_lossy();
++        self.store
++            .list_explore_records(&root)
++            .map_err(|e| format!("探索记录读取失败: {e}"))?
++            .into_iter()
++            .find(|record| record.session_id.as_deref() == Some(self.session_id.as_str()))
++            .ok_or_else(|| {
++                format!(
++                    "未找到归属当前会话的探索记录: session_id={:?}",
++                    self.session_id
++                )
++            })
++    }
++
++    /// ② 占位记录定名臂：前置校验（本地 kebab 校验 + 长度 ≤128 / 目标名无既
++    /// 有记录 / 目标文件不存在）→ ① `create_new(true)` 落盘（create-only 硬
++    /// 语义，缺失父目录补建）→ ② store in-place 改名（用记录自身 `root` 寻
++    /// 址）→ 返回 repo 相对路径。①后②失败 `Err` 附已落盘路径与恢复指引。
++    async fn finalize_placeholder(
++        &self,
++        record: &ExploreRecord,
++        name: &str,
++        content: &str,
++    ) -> Result<String, String> {
++        // 前置校验（先于任何写动作——零半边残留）
++        if !is_kebab_case(name) {
++            return Err(format!(
++                "非法笔记名: {name:?}（须为 kebab-case（小写字母/数字，可用 `-` 连接））——请换一个最终名重试"
++            ));
++        }
++        if name.len() > MAX_NOTE_NAME_LENGTH {
++            return Err(format!(
++                "非法笔记名: {name:?}（长度超过 {MAX_NOTE_NAME_LENGTH} 字符限制）——请换一个更短的最终名重试"
++            ));
++        }
++        let record_root = record.root.clone();
++        if self
++            .store
++            .find_explore_record(&record_root, name)
++            .map_err(|e| format!("探索记录读取失败: {e}"))?
++            .is_some()
++        {
++            return Err(format!(
++                "目标名已被其他探索记录占用: {name:?}——请换一个最终名重试"
++            ));
++        }
++        let path = resolve(&self.root).explores_root.join(format!("{name}.md"));
++        if tokio::fs::metadata(&path).await.is_ok() {
++            return Err(format!(
++                "笔记文件已存在: {}——请换一个最终名重试，或删除该残留文件后再试",
++                display_path(&self.root, &path)
++            ));
++        }
++        // ① create-only 落盘（并发窗口归零——`create_new` 缺席即失败）
++        if let Some(parent) = path.parent() {
++            tokio::fs::create_dir_all(parent)
++                .await
++                .map_err(|e| format!("创建目录失败: {e}"))?;
++        }
++        tokio::fs::OpenOptions::new()
++            .write(true)
++            .create_new(true)
++            .open(&path)
++            .await
++            .map_err(|e| format!("创建笔记文件失败: {e}"))?;
++        tokio::fs::write(&path, content)
++            .await
++            .map_err(|e| format!("写入笔记失败: {e}"))?;
++        // ② store in-place 改名（保主键保会话链）；失败残留窗口收口：
++        // 文件在而记录未改——附残留路径与恢复指引
++        self.store
++            .rename_explore_record(&record_root, &record.name, name)
++            .map_err(|e| {
++                format!(
++                    "笔记文件已落盘（{}）但记录定名失败: {e}；请重跑 create_explore_note（将命中\
++                     「文件已存在」附路径），按指引在会话外对齐记录或删除残留文件后重试",
++                    display_path(&self.root, &path)
++                )
++            })?;
++        Ok(display_path(&self.root, &path))
++    }
++
++    /// ③ 已定名记录臂：`name` == 记录名且文件缺失时同名补建（会话外删除的
++    /// 孤儿重建）；否则 `Err` 附现有记录名与笔记路径（错误文案即恢复通道）。
++    async fn ensure_named(
++        &self,
++        record: &ExploreRecord,
++        name: &str,
++        content: &str,
++    ) -> Result<String, String> {
++        let path = resolve(&self.root)
++            .explores_root
++            .join(format!("{}.md", record.name));
++        if name == record.name {
++            if tokio::fs::metadata(&path).await.is_err() {
++                if let Some(parent) = path.parent() {
++                    tokio::fs::create_dir_all(parent)
++                        .await
++                        .map_err(|e| format!("创建目录失败: {e}"))?;
++                }
++                tokio::fs::OpenOptions::new()
++                    .write(true)
++                    .create_new(true)
++                    .open(&path)
++                    .await
++                    .map_err(|e| format!("创建笔记文件失败: {e}"))?;
++                tokio::fs::write(&path, content)
++                    .await
++                    .map_err(|e| format!("写入笔记失败: {e}"))?;
++                return Ok(display_path(&self.root, &path));
++            }
++            return Err(format!(
++                "本次探索已定名且笔记在盘: {name:?} → {}（请转用 edit 修改笔记）",
++                display_path(&self.root, &path)
++            ));
++        }
++        Err(format!(
++            "本次探索已定名为 {:?}（笔记路径 {}），create_explore_note 不接受异名 {name:?}——修改笔记请转用 edit",
++            record.name,
++            display_path(&self.root, &path)
++        ))
++    }
++}
++
++/// repo 相对路径（`strip_prefix` root + `\`→`/` 归一；strip 失败退全路径）。
++fn display_path(root: &std::path::Path, path: &std::path::Path) -> String {
++    let relative = path
++        .strip_prefix(root)
++        .unwrap_or(path)
++        .to_string_lossy()
++        .replace('\\', "/");
++    relative
++}
+diff --git a/crates/infra/agent/src/sdk/explore_note_test.rs b/crates/infra/agent/src/sdk/explore_note_test.rs
+new file mode 100644
+index 000000000000..5dcfe1eac42a
+--- /dev/null
++++ b/crates/infra/agent/src/sdk/explore_note_test.rs
+@@ -0,0 +1,611 @@
++//! `explore_note`（`create_explore_note` 专用工具执行体）的单元测试
++//!（auto-named-explore AC-3 / AC-6）：占位记录两步原子定名、已定名补建与异
++//! 名拦截、前置校验零残留、失败面恢复指引。真实组合不 mock——native_db
++//! workspace 库 + 文件系统 + `foundation::layout` 探索目录派生均为 tempfile
++//! RAII 临时环境；`ExploreNoteContext` 为被测 API 显式构造入参。
++
++use std::path::PathBuf;
++use std::sync::Arc;
++
++use serde_json::{json, Value};
++use store::{ExploreRecord, Store};
++
++use crate::sdk::explore_note::ExploreNoteContext;
++
++// ---------------------------------------------------------------------------
++// 装置：tempfile 双环境（workspace 树 + 库文件）+ 占位 / 已定名记录底座
++// ---------------------------------------------------------------------------
++
++struct NoteEnv {
++    /// workspace 文件树根（RAII 清理）
++    _ws: tempfile::TempDir,
++    /// 库文件目录（RAII 清理）
++    _db: tempfile::TempDir,
++    store: Arc<Store>,
++    root: PathBuf,
++}
++
++impl NoteEnv {
++    fn new(tag: &str) -> Self {
++        let ws = tempfile::Builder::new()
++            .prefix(&format!("explore-note-test-{tag}-ws-"))
++            .tempdir()
++            .expect("创建 workspace 临时目录失败");
++        let db = tempfile::Builder::new()
++            .prefix(&format!("explore-note-test-{tag}-db-"))
++            .tempdir()
++            .expect("创建库目录临时目录失败");
++        let store = Arc::new(
++            Store::open_workspace(&db.path().join("ws.redb"))
++                .unwrap_or_else(|e| panic!("打开临时 workspace 库失败: {e}")),
++        );
++        let root = ws.path().to_path_buf();
++        Self {
++            _ws: ws,
++            _db: db,
++            store,
++            root,
++        }
++    }
++
++    fn root_str(&self) -> String {
++        self.root.to_string_lossy().into_owned()
++    }
++
++    /// 探索笔记目录树（layout 真实派生）。
++    fn explores_root(&self) -> PathBuf {
++        foundation::layout::resolve(&self.root).explores_root
++    }
++
++    /// 占位建档（`None`）+ 以其会话指针铸造执行上下文。
++    fn draft_context(&self) -> (ExploreRecord, ExploreNoteContext) {
++        let record = self
++            .store
++            .create_explore_record(&self.root_str(), None)
++            .expect("占位建档应成功");
++        let context = self.context_for(&record);
++        (record, context)
++    }
++
++    /// 显式名建档（导入路径）+ 以其会话指针铸造执行上下文。
++    fn named_context(&self, name: &str) -> (ExploreRecord, ExploreNoteContext) {
++        let record = self
++            .store
++            .create_explore_record(&self.root_str(), Some(name))
++            .unwrap_or_else(|e| panic!("显式名 {name} 建档应成功: {e}"));
++        let context = self.context_for(&record);
++        (record, context)
++    }
++
++    /// 以记录会话指针铸造上下文（被测 API 显式构造入参）。
++    fn context_for(&self, record: &ExploreRecord) -> ExploreNoteContext {
++        ExploreNoteContext::new(
++            Arc::clone(&self.store),
++            self.root.clone(),
++            record.session_id.clone().expect("建档回写会话指针"),
++        )
++    }
++
++    /// 断言记录名仍为 `expected_name`（拒绝面零残留的记录半边）。
++    fn assert_record_unchanged(&self, record: &ExploreRecord) {
++        let current = self
++            .store
++            .find_explore_record(&self.root_str(), &record.name)
++            .expect("find 应成功");
++        assert_eq!(
++            current.as_ref(),
++            Some(record),
++            "记录零改动（name / title / updated_at 均未变）"
++        );
++    }
++}
++
++/// 恰 129 字符的合法 kebab 名（长度上限 128 的越界一字节形态）。
++fn name_129() -> String {
++    format!("a-{}", "b".repeat(127))
++}
++
++// ---------------------------------------------------------------------------
++// 构造与占位两步定名（正向，AC-3）
++// ---------------------------------------------------------------------------
++
++/// `ExploreNoteContext::new` 构造即用：三元组构造后 `execute` 可调用（入参
++/// 形态校验臂先于记录圈定——构造完备性的行为面证明）。
++#[tokio::test]
++async fn new三元组构造即用_入参校验臂可达() {
++    let env = NoteEnv::new("ctor");
++    let (_record, context) = env.draft_context();
++
++    let error = context
++        .execute(&json!({}))
++        .await
++        .expect_err("空入参应命中入参校验臂");
++    assert!(
++        error.contains("name"),
++        "构造即用（错误面自入参校验臂发出），实际: {error}"
++    );
++}
++
++/// 占位记录两步定名（正向，AC-3）：`draft-` 记录 + 合法 `name="api-retry"` →
++/// ① `explores_root/api-retry.md` 落盘（content 原样）② 记录 in-place 改名
++///（`id` / `session_id` 不变）、返回 repo 相对 `/` 分隔路径。
++#[tokio::test]
++async fn 占位记录两步定名_落盘与inplace改名_返回repo相对路径() {
++    let env = NoteEnv::new("finalize");
++    let (record, context) = env.draft_context();
++
++    let returned = context
++        .execute(&json!({ "name": "api-retry", "content": "# 探索笔记\n重试策略结论" }))
++        .await
++        .expect("定名应成功");
++
++    // 返回 repo 相对路径（`/` 分隔，供 Edit 续用）
++    assert_eq!(
++        returned, "openspec/explores/api-retry.md",
++        "返回 repo 相对 / 分隔路径，实际: {returned}"
++    );
++    // ① 落盘：content 原样
++    let note = env.explores_root().join("api-retry.md");
++    assert!(note.exists(), "笔记文件已落盘");
++    assert_eq!(
++        std::fs::read_to_string(&note).unwrap(),
++        "# 探索笔记\n重试策略结论",
++        "content 原样落盘不改写"
++    );
++    // ② 记录 in-place 改名：id / session_id 不变
++    let renamed = env
++        .store
++        .find_explore_record(&env.root_str(), "api-retry")
++        .expect("find 应成功")
++        .expect("新名命中");
++    assert_eq!(renamed.id, record.id, "in-place 改名保主键");
++    assert_eq!(renamed.session_id, record.session_id, "会话指针不变");
++    assert_eq!(renamed.root, record.root, "归属键不变");
++    // 旧名 miss
++    assert!(
++        env.store
++            .find_explore_record(&env.root_str(), &record.name)
++            .expect("find 应成功")
++            .is_none(),
++        "占位名不再命中"
++    );
++}
++
++/// 零占位名残留（正向）：定名成功后磁盘不存在任何 `draft-*` 笔记文件、
++/// `find_explore_record` 旧名 miss（世上无占位名文件）。
++#[tokio::test]
++async fn 定名成功后零占位名残留() {
++    let env = NoteEnv::new("no-leftover");
++    let (record, context) = env.draft_context();
++
++    context
++        .execute(&json!({ "name": "clean-name", "content": "内容" }))
++        .await
++        .expect("定名应成功");
++
++    let explores_root = env.explores_root();
++    let leftovers: Vec<String> = match std::fs::read_dir(&explores_root) {
++        Ok(entries) => entries
++            .filter_map(|entry| entry.ok())
++            .map(|entry| entry.file_name().to_string_lossy().into_owned())
++            .filter(|name| name.starts_with("draft-"))
++            .collect(),
++        Err(_) => Vec::new(),
++    };
++    assert!(
++        leftovers.is_empty(),
++        "磁盘不存在任何 draft-* 笔记文件，实际: {leftovers:?}"
++    );
++    assert!(
++        env.store
++            .find_explore_record(&env.root_str(), &record.name)
++            .expect("find 应成功")
++            .is_none(),
++        "旧占位名记录 miss"
++    );
++}
++
++/// 路径分隔符归一（边界）：root 为反斜杠绝对路径（Windows 形态 tempdir）→
++/// 返回值 `/` 分隔（`strip_prefix` + 归一，供 Edit 续用）。
++#[tokio::test]
++async fn 返回路径分隔符归一为正斜杠() {
++    let env = NoteEnv::new("slash");
++    let (_record, context) = env.draft_context();
++
++    let returned = context
++        .execute(&json!({ "name": "slash-name", "content": "x" }))
++        .await
++        .expect("定名应成功");
++
++    assert!(
++        !returned.contains('\\'),
++        "返回值不含反斜杠（归一 `/` 分隔），实际: {returned}"
++    );
++    assert_eq!(
++        returned, "openspec/explores/slash-name.md",
++        "root 前缀已剥离（repo 相对）"
++    );
++}
++
++/// 父目录缺失补建（边界）：`openspec/explores/` 目录不存在 → 补建父目录后
++/// 落盘成功。
++#[tokio::test]
++async fn explores目录缺失时补建父目录落盘() {
++    let env = NoteEnv::new("mkdir-parents");
++    assert!(!env.explores_root().exists(), "前置：explores 目录不存在");
++    let (_record, context) = env.draft_context();
++
++    let returned = context
++        .execute(&json!({ "name": "fresh-name", "content": "首篇" }))
++        .await
++        .expect("父目录缺失应补建后落盘");
++
++    assert_eq!(returned, "openspec/explores/fresh-name.md");
++    assert_eq!(
++        std::fs::read_to_string(env.explores_root().join("fresh-name.md")).unwrap(),
++        "首篇"
++    );
++}
++
++/// content 边界落盘（参数化）：空串 / 超长（>1000 字符）/ 特殊字符（换行、
++/// 引号、emoji、中文）→ 原样落盘不改写。
++#[tokio::test]
++async fn content边界形态原样落盘() {
++    let cases: Vec<(&str, String)> = vec![
++        ("空串", String::new()),
++        ("超长", "长".repeat(1500)),
++        (
++            "特殊字符",
++            "换行\n引号\"双'单`反引${插值}🎉中文收尾".to_owned(),
++        ),
++    ];
++    for (label, content) in cases {
++        let env = NoteEnv::new("content-edge");
++        let (_record, context) = env.draft_context();
++
++        let returned = context
++            .execute(&json!({ "name": "edge-note", "content": content }))
++            .await
++            .unwrap_or_else(|e| panic!("[{label}] 定名应成功: {e}"));
++
++        assert_eq!(returned, "openspec/explores/edge-note.md", "[{label}]");
++        let on_disk = std::fs::read_to_string(env.explores_root().join("edge-note.md"))
++            .unwrap_or_else(|e| panic!("[{label}] 读取落盘文件失败: {e}"));
++        assert_eq!(on_disk, content, "[{label}] content 原样不改写");
++    }
++}
++
++// ---------------------------------------------------------------------------
++// 前置校验拒绝面（异常，AC-6：零半边残留）
++// ---------------------------------------------------------------------------
++
++/// 非法 kebab name（参数化）：大写 / 下划线 / 前导数字 / 空串 → 显式 `Err`
++/// 零残留（文件与记录均无变化——前置校验先于落盘）。
++#[tokio::test]
++async fn 非法kebab名前置拒绝且零残留() {
++    for name in ["Api-Retry", "api_retry", "1api", ""] {
++        let env = NoteEnv::new("bad-kebab");
++        let (record, context) = env.draft_context();
++
++        let error = context
++            .execute(&json!({ "name": name, "content": "x" }))
++            .await;
++        let error = match error {
++            Err(error) => error,
++            Ok(returned) => panic!("非法名 {name:?} 应 Err，实际 Ok({returned})"),
++        };
++        assert!(
++            error.contains("非法笔记名") && error.contains("kebab"),
++            "拒绝记因携 kebab 口径与恢复指引，实际: {error}"
++        );
++        // 零残留：目标名文件不存在（非法名本身不落盘）、记录名不变
++        assert!(
++            !env.explores_root().join("api-retry.md").exists(),
++            "零残留：目标名文件不存在"
++        );
++        env.assert_record_unchanged(&record);
++    }
++}
++
++/// name 超长（异常）：129 字符合法 kebab → `Err`（长度 ≤128 三处同口径），
++/// 零残留。
++#[tokio::test]
++async fn name超长129字符拒绝且零残留() {
++    let env = NoteEnv::new("name-too-long");
++    let (record, context) = env.draft_context();
++    let name = name_129();
++    assert_eq!(name.len(), 129, "边界构造恰 129 字节");
++
++    let error = context
++        .execute(&json!({ "name": name, "content": "x" }))
++        .await
++        .expect_err("129 字符应 Err（上限 128）");
++    assert!(
++        error.contains("长度超过 128"),
++        "拒绝记因携长度口径，实际: {error}"
++    );
++    assert!(
++        !env.explores_root().exists()
++            || env
++                .explores_root()
++                .read_dir()
++                .map(|entries| entries.count() == 0)
++                .unwrap_or(true),
++        "零文件落盘"
++    );
++    env.assert_record_unchanged(&record);
++}
++
++/// 目标名已有记录（异常）：预置同名记录 → `Err` 零残留（两记录均不变）。
++#[tokio::test]
++async fn 目标名已有记录拒绝且两记录零残留() {
++    let env = NoteEnv::new("name-taken");
++    // 预置目标名记录（另一会话的既有探索）
++    let (taken, _taken_context) = env.named_context("api-retry");
++    let (record, context) = env.draft_context();
++
++    let error = context
++        .execute(&json!({ "name": "api-retry", "content": "x" }))
++        .await
++        .expect_err("目标名已被占用应 Err");
++    assert!(
++        error.contains("目标名已被其他探索记录占用"),
++        "拒绝记因点名占用，实际: {error}"
++    );
++    assert!(
++        !env.explores_root().join("api-retry.md").exists(),
++        "零落盘（既有记录的文件不被新建）"
++    );
++    env.assert_record_unchanged(&taken);
++    env.assert_record_unchanged(&record);
++}
++
++/// 目标文件已存在（异常）：预置 `explores_root/<name>.md`（会话外文件 / 残留
++/// 态复现）→ `Err` 文案附路径（恢复通道）。
++#[tokio::test]
++async fn 目标文件已存在拒绝且错误附路径() {
++    let env = NoteEnv::new("file-exists");
++    let (record, context) = env.draft_context();
++    // 残留态复现：目标文件已在盘
++    let existing = env.explores_root().join("api-retry.md");
++    std::fs::create_dir_all(env.explores_root()).expect("创建 explores 目录失败");
++    std::fs::write(&existing, "会话外先在内容").expect("预置目标文件失败");
++
++    let error = context
++        .execute(&json!({ "name": "api-retry", "content": "新内容" }))
++        .await
++        .expect_err("目标文件已存在应 Err");
++    assert!(
++        error.contains("笔记文件已存在") && error.contains("openspec/explores/api-retry.md"),
++        "错误文案附路径（恢复通道），实际: {error}"
++    );
++    // 文件内容不被覆盖、记录零改动
++    assert_eq!(
++        std::fs::read_to_string(&existing).unwrap(),
++        "会话外先在内容",
++        "既有文件不被改写"
++    );
++    env.assert_record_unchanged(&record);
++}
++
++// ---------------------------------------------------------------------------
++// 已定名记录臂（同名补建 / 异名拦截）
++// ---------------------------------------------------------------------------
++
++/// 已定名同名补建（正向）：已定名记录 + `name == record.name` + 文件缺失
++///（孤儿）→ 补建文件、记录不变。
++#[tokio::test]
++async fn 已定名同名孤儿补建_记录不变() {
++    let env = NoteEnv::new("orphan-rebuild");
++    let (record, context) = env.named_context("named-topic");
++    assert!(
++        !env.explores_root().join("named-topic.md").exists(),
++        "前置：孤儿形态（文件缺失）"
++    );
++
++    let returned = context
++        .execute(&json!({ "name": "named-topic", "content": "补建内容" }))
++        .await
++        .expect("同名补建应成功");
++
++    assert_eq!(returned, "openspec/explores/named-topic.md");
++    assert_eq!(
++        std::fs::read_to_string(env.explores_root().join("named-topic.md")).unwrap(),
++        "补建内容"
++    );
++    env.assert_record_unchanged(&record);
++}
++
++/// 已定名同名且文件在盘（异常半边）：→ `Err` 引导转用 edit（不重写不覆盖）。
++#[tokio::test]
++async fn 已定名同名且文件在盘引导转用edit() {
++    let env = NoteEnv::new("named-on-disk");
++    let (record, context) = env.named_context("named-topic");
++    std::fs::create_dir_all(env.explores_root()).expect("创建 explores 目录失败");
++    std::fs::write(env.explores_root().join("named-topic.md"), "在盘原文")
++        .expect("预置笔记失败");
++
++    let error = context
++        .execute(&json!({ "name": "named-topic", "content": "新内容" }))
++        .await
++        .expect_err("同名且在盘应 Err");
++    assert!(
++        error.contains("已定名且笔记在盘") && error.contains("edit"),
++        "错误文案即恢复通道（转用 edit），实际: {error}"
++    );
++    assert_eq!(
++        std::fs::read_to_string(env.explores_root().join("named-topic.md")).unwrap(),
++        "在盘原文",
++        "在盘内容不被覆盖"
++    );
++    env.assert_record_unchanged(&record);
++}
++
++/// 已定名异名拦截（异常）：已定名记录 + 异名 → `Err` 附现有名与笔记路径
++///（错误文案即恢复通道，导入场景常态命中）。
++#[tokio::test]
++async fn 已定名异名拦截且错误附现有名与路径() {
++    let env = NoteEnv::new("name-mismatch");
++    let (record, context) = env.named_context("existing-name");
++
++    let error = context
++        .execute(&json!({ "name": "other-name", "content": "x" }))
++        .await
++        .expect_err("异名应被拦截");
++    assert!(
++        error.contains("existing-name")
++            && error.contains("other-name")
++            && error.contains("openspec/explores/existing-name.md"),
++        "错误附现有名与笔记路径（恢复通道），实际: {error}"
++    );
++    env.assert_record_unchanged(&record);
++}
++
++/// 会话指针 miss（异常）：`session_id` 无对应 explore 记录 → 显式 `Err`
++///（按调用时圈定失败）。
++#[tokio::test]
++async fn 会话指针miss显式拒绝() {
++    let env = NoteEnv::new("session-miss");
++    let context = ExploreNoteContext::new(
++        Arc::clone(&env.store),
++        env.root.clone(),
++        "ses-no-such-pointer".to_owned(),
++    );
++
++    let error = context
++        .execute(&json!({ "name": "any-name", "content": "x" }))
++        .await
++        .expect_err("无归属记录应显式 Err");
++    assert!(
++        error.contains("未找到归属当前会话的探索记录") && error.contains("ses-no-such-pointer"),
++        "失败按调用时圈定（携会话 id 记因），实际: {error}"
++    );
++}
++
++// ---------------------------------------------------------------------------
++// 入参形态（test-design 两行逐行：拒绝面 / 多余字段宽容面）与目标名前缀边界
++// ---------------------------------------------------------------------------
++
++/// input 形态拒绝面（异常，参数化——test-design「input 形态拒绝面」行）：
++/// 缺 `name` / 缺 `content` / 字段非字符串（`name` / `content` 为数字等）/
++/// 非 object Value（string / array / null）→ 显式 `Err`（入参抽取失败文案）。
++#[tokio::test]
++async fn input形态拒绝面_缺字段非字符串与非object显式err() {
++    // 缺 name
++    let env = NoteEnv::new("input-missing-name");
++    let (_record, context) = env.draft_context();
++    let error = context
++        .execute(&json!({ "content": "x" }))
++        .await
++        .expect_err("缺 name 应 Err");
++    assert!(error.contains("name"), "实际: {error}");
++
++    // 缺 content
++    let env = NoteEnv::new("input-missing-content");
++    let (_record, context) = env.draft_context();
++    let error = context
++        .execute(&json!({ "name": "some-name" }))
++        .await
++        .expect_err("缺 content 应 Err");
++    assert!(error.contains("content"), "实际: {error}");
++
++    // 字段非字符串：name 为数字
++    let env = NoteEnv::new("input-non-string-name");
++    let (_record, context) = env.draft_context();
++    let error = context
++        .execute(&json!({ "name": 7, "content": "x" }))
++        .await
++        .expect_err("name 非字符串应 Err");
++    assert!(error.contains("name"), "实际: {error}");
++
++    // 字段非字符串：content 为数字（同一拒绝臂的字段对偶形态）
++    let env = NoteEnv::new("input-non-string-content");
++    let (_record, context) = env.draft_context();
++    let error = context
++        .execute(&json!({ "name": "some-name", "content": 9 }))
++        .await
++        .expect_err("content 非字符串应 Err");
++    assert!(error.contains("content"), "实际: {error}");
++
++    // 非 object Value（string / array / null）
++    let env = NoteEnv::new("input-non-object");
++    let (_record, context) = env.draft_context();
++    for input in [Value::String("不是对象".to_owned()), json!([1, 2]), Value::Null] {
++        let error = context
++            .execute(&input)
++            .await
++            .expect_err("非 object 入参应 Err");
++        assert!(
++            error.contains("name"),
++            "非 object 形态 {input} 应自入参校验臂拒绝，实际: {error}"
++        );
++    }
++}
++
++/// input 多余字段宽容面（边界——test-design「input 多余字段宽容面」行）：
++/// 入参携多余字段（幻觉 `path` 参数 + 嵌套对象字段）→ additive 宽容：仅取
++/// `name` / `content` 两字段、不消费不报错、定名流程照常完成（与
++/// `sdk/tools.rs` `string_field` 七通用工具同款 additive 口径，执行体为
++/// `input.get` 式 Value 抽取——多余字段不进任何消费面）。
++#[tokio::test]
++async fn input多余字段宽容面_幻觉path与嵌套字段不消费照常定名() {
++    let env = NoteEnv::new("input-extra-field");
++    let (record, context) = env.draft_context();
++
++    let returned = context
++        .execute(&json!({
++            "name": "tolerant-name",
++            "content": "内容",
++            "path": "幻觉路径参数不消费",
++            "future_field": { "any": true }
++        }))
++        .await
++        .expect("多余字段 additive 宽容不应 Err（仅取 name / content 两字段）");
++
++    assert_eq!(returned, "openspec/explores/tolerant-name.md");
++    assert!(
++        !env.explores_root().join("幻觉路径参数不消费").exists(),
++        "path 字段不消费（无路径参数面，幻觉路径零落盘）"
++    );
++    // 定名流程照常完成：文件落盘于最终名、记录 in-place 改名
++    assert!(
++        env.explores_root().join("tolerant-name.md").exists(),
++        "定名流程照常完成（文件落盘于最终名）"
++    );
++    let renamed = env
++        .store
++        .find_explore_record(&env.root_str(), "tolerant-name")
++        .expect("find 应成功")
++        .expect("定名后新名可寻址");
++    assert_eq!(renamed.id, record.id, "in-place 保主键");
++    assert_eq!(renamed.session_id, record.session_id, "会话指针不变");
++}
++
++/// 目标名为 draft- 前缀（边界）：合法 kebab 且 `draft-` 前缀目标名 → 按普通
++/// 定名处理（改名后仍占位前缀，promote 门禁延续拦截——风险 7 同形留痕）。
++#[tokio::test]
++async fn 目标名draft前缀按普通定名处理() {
++    let env = NoteEnv::new("draft-prefix-target");
++    let (record, context) = env.draft_context();
++
++    let returned = context
++        .execute(&json!({ "name": "draft-999", "content": "仍占位形态" }))
++        .await
++        .expect("draft- 前缀合法 kebab 应按普通定名成功");
++
++    assert_eq!(returned, "openspec/explores/draft-999.md");
++    assert!(
++        env.explores_root().join("draft-999.md").exists(),
++        "落盘于最终名"
++    );
++    let renamed = env
++        .store
++        .find_explore_record(&env.root_str(), "draft-999")
++        .expect("find 应成功")
++        .expect("改名后可寻址");
++    assert_eq!(renamed.id, record.id, "in-place 保主键");
++    assert!(
++        renamed.name.starts_with("draft-"),
++        "改名后仍占位前缀（promote 门禁延续拦截的同形留痕）"
++    );
++}
+diff --git a/crates/infra/agent/src/sdk/loop.rs b/crates/infra/agent/src/sdk/loop.rs
+index f412e3edc6b0..1034083e3775 100644
+--- a/crates/infra/agent/src/sdk/loop.rs
++++ b/crates/infra/agent/src/sdk/loop.rs
+@@ -11,6 +11,7 @@ use serde_json::Value;
+ use tokio::sync::mpsc;
+ 
+ use crate::sdk::context::{ContextDefense, DefenseNotice};
++use crate::sdk::explore_note::ExploreNoteContext;
+ use crate::sdk::log::append_engine_log;
+ use crate::sdk::{compact, context, normalize, policy, preamble, sandbox, tools};
+ 
+@@ -89,6 +90,12 @@ pub(crate) struct LoopTurn {
+     pub liveness: StreamLiveness,
+     /// 提供者 IO 失败重试预算（泵装配缺省，测试注小值）
+     pub retry: StreamRetry,
++    /// 会话级注入（definitions 组装唯一源：收窄子集 + Explore 枚举追加专用
++    /// 工具；非 explore 来源恒 default）
++    pub injections: agent::SessionInjections,
++    /// `create_explore_note` 专用工具执行上下文（per-turn 铸造随轮携带；
++    /// `None` = 未装配——非 explore 会话恒 None，专用工具调用以 is_error 回灌）
++    pub explore_note: Option<ExploreNoteContext>,
+ }
+ 
+ /// loop 主体
+@@ -101,17 +108,17 @@ pub(crate) async fn run(
+ ) -> Vec<Message> {
+     let started = Instant::now();
+     let mut usage = Usage::default();
+-    let definitions = tools::definitions();
++    // 下发面单源：definitions 按会话注入面组装，RunStarted.tools 与成员校验
++    // 自 definitions 本体派生（零第二份名单——定义 / 上报 / 校验三者天然一致）
++    let definitions = tools::definitions(&turn.injections);
++    let dispatched: Vec<String> = definitions.iter().map(|d| d.name.clone()).collect();
+ 
+     // run 启动事件（core 协议 RunStarted 的 model / session / tools 口径；MCP 恒空）
+     let started_ok = sender
+         .send(AgentEventKind::RunStarted {
+             model: Some(turn.model_name.clone()),
+             session_id: Some(turn.session_id.clone()),
+-            tools: tools::TOOL_NAMES
+-                .iter()
+-                .map(|name| (*name).to_owned())
+-                .collect(),
++            tools: dispatched.clone(),
+             mcp_servers: Vec::new(),
+         })
+         .await
+@@ -354,12 +361,25 @@ pub(crate) async fn run(
+             finish_success(&sender, turn_index, started, &usage, turn).await;
+             return history;
+         }
+-        // 工具调用逐个：policy → sandbox → 执行 → 回灌（run 不中断）；0.43 起
+-        // tool_result 以 CallId / ToolName 构造（与 tool_use 同源配对）
++        // 工具调用逐个：成员校验 → policy → sandbox → 执行 → 回灌（run 不中
++        // 断）；0.43 起 tool_result 以 CallId / ToolName 构造（与 tool_use 同
++        // 源配对）
+         for tool_call in tool_calls {
+             let id = tool_call.id.to_string();
+             let name = tool_call.function.name.as_str().to_owned();
+             let input = tool_call.function.arguments.clone();
++            // 成员校验（先于 policy）：调用名 ∉ 本轮实际下发面即拒绝——「从
++            // definitions 移除」自此等于硬禁用，幻觉调用不直通执行、不触执行体
++            if !dispatched.contains(&name) {
++                let reason = format!("工具不在本轮下发面: {name}");
++                deny(&sender, "tool_unavailable", &name, &reason, &id).await;
++                history.push(Message::tool_result(
++                    tool_call.id,
++                    tool_call.function.name,
++                    reason,
++                ));
++                continue;
++            }
+             if !policy::allows(turn.permission_mode, &name) {
+                 let reason = format!("权限档位不允许该工具: {name}");
+                 deny(&sender, "permission_denied", &name, &reason, &id).await;
+@@ -382,9 +402,23 @@ pub(crate) async fn run(
+                     continue;
+                 }
+             };
+-            let (content, is_error) = match tools::execute(&turn.cwd, &name, &sandboxed).await {
+-                Ok(text) => (text, false),
+-                Err(error) => (error, true),
++            // 执行臂路由：专用工具走 `LoopTurn` 携带的执行上下文（per-turn 铸
++            // 造——store 句柄 + root + 会话指针，`tools::execute` 纯函数签名
++            // 零侵入）；七通用工具走纯函数分发。上下文缺席以 is_error 回灌
++            // （生产不可达——explore 会话恒装配）
++            let (content, is_error) = if name == tools::EXPLORE_NOTE_TOOL {
++                match &turn.explore_note {
++                    Some(ctx) => match ctx.execute(&input).await {
++                        Ok(text) => (text, false),
++                        Err(error) => (error, true),
++                    },
++                    None => ("专用工具执行上下文未装配".to_owned(), true),
++                }
++            } else {
++                match tools::execute(&turn.cwd, &name, &sandboxed).await {
++                    Ok(text) => (text, false),
++                    Err(error) => (error, true),
++                }
+             };
+             if sender
+                 .send(AgentEventKind::Message {
+@@ -521,8 +555,8 @@ async fn forward_notice(sender: &mpsc::Sender<AgentEventKind>, notice: &DefenseN
+ 
+ /// sandbox 校验与入参改写：路径类工具（path 字段）经 [`sandbox::check`]
+ /// 解析后回写 `path`；glob 无 path 字段，以 [`sandbox::check_pattern`] 预检
+-/// pattern（执行体以 root 为基座拼接）。未知工具无路径面，原样放行（policy
+-/// 已先行拒绝封闭清单外的工具名）。
++/// pattern（执行体以 root 为基座拼接）。其余工具无路径面，原样放行（成员
++/// 校验已先行拒绝下发面外的调用名）。
+ fn sandbox_rewrite(root: &std::path::Path, name: &str, input: &Value) -> Result<Value, String> {
+     let Some(raw) = tools::input_path(name, input) else {
+         return Ok(input.clone());
+diff --git a/crates/infra/agent/src/sdk/loop_test.rs b/crates/infra/agent/src/sdk/loop_test.rs
+index 4941379112b4..cdd2ce371bd6 100644
+--- a/crates/infra/agent/src/sdk/loop_test.rs
++++ b/crates/infra/agent/src/sdk/loop_test.rs
+@@ -310,6 +310,8 @@ async fn drive_loop(model: &FakeModel, turn: &LoopTurn, handle: &RunHandle) -> V
+             defense: ContextDefense::resolve(None),
+             liveness: turn.liveness,
+             retry: turn.retry,
++            injections: turn.injections.clone(),
++            explore_note: None,
+         };
+         let handle = handle.clone();
+         async move { r#loop::run(&dyn_model, &turn, Vec::new(), sender, handle).await }
+@@ -332,6 +334,8 @@ fn loop_turn(cwd: &Path, mode: AgentPermissionMode) -> LoopTurn {
+         defense: ContextDefense::resolve(None),
+         liveness: crate::sdk::r#loop::StreamLiveness::default(),
+         retry: crate::sdk::r#loop::StreamRetry::default(),
++        injections: agent::SessionInjections::default(),
++        explore_note: None,
+     }
+ }
+ 
+@@ -1315,6 +1319,8 @@ fn loop_turn字段面完整构造锚定() {
+         defense: ContextDefense::resolve(None),
+         liveness: crate::sdk::r#loop::StreamLiveness::default(),
+         retry: crate::sdk::r#loop::StreamRetry::default(),
++        injections: agent::SessionInjections::default(),
++        explore_note: None,
+     };
+     assert_eq!(turn.question, "q");
+     assert_eq!(turn.session_id, "sdk-0-1");
+@@ -1729,3 +1735,516 @@ async fn 未触水位时请求史原样且零防线notice() {
+             if matches!(&content[0], UserContent::Text(text) if text.text == "帮我看下这个 workspace 🎉")
+     ));
+ }
++
++// ---------------------------------------------------------------------------
++// auto-named-explore：LoopTurn 注入面（definitions 单源装配 + 专用工具路由）
++// ---------------------------------------------------------------------------
++
++use crate::sdk::explore_note::ExploreNoteContext;
++use crate::sdk::tools::{EXPLORE_NOTE_TOOL, TOOL_NAMES};
++use agent::SessionToolset;
++use store::Store;
++
++/// explore 来源注入底座（六名收窄 + Explore toolset）。
++fn explore_injections() -> agent::SessionInjections {
++    agent::SessionInjections {
++        preamble: None,
++        tools: Some(TOOL_NAMES.iter().filter(|n| **n != "write").map(|n| n.to_string()).collect()),
++        toolset: Some(SessionToolset::Explore),
++    }
++}
++
++/// loop 直驱（携完整 LoopTurn 所有权——explore_note 上下文不可 Clone，注入
++/// 面用例专用通道；事件回收与 `drive_loop` 同口径）。
++async fn drive_loop_turn(model: &FakeModel, turn: LoopTurn) -> Vec<AgentEventKind> {
++    let (sender, mut receiver) = mpsc::channel::<AgentEventKind>(256);
++    let handle = RunHandle::default();
++    let dyn_model = model.erased();
++    let task =
++        tokio::spawn(
++            async move { r#loop::run(&dyn_model, &turn, Vec::new(), sender, handle).await },
++        );
++    let mut events = Vec::new();
++    while let Some(event) = receiver.recv().await {
++        events.push(event);
++    }
++    task.await.expect("loop 任务正常结束");
++    events
++}
++
++/// 摘 tool role 密封消息内的 ToolResult 块。
++fn tool_results_of(events: &[AgentEventKind]) -> Vec<(&str, &str, bool)> {
++    events
++        .iter()
++        .filter_map(|event| match event {
++            AgentEventKind::Message {
++                role,
++                blocks,
++                parent_tool_use_id: _,
++            } if role == &AgentMessageRole::Tool => match &blocks[0] {
++                agent::AgentBlock::ToolResult {
++                    id,
++                    content,
++                    is_error,
++                } => Some((id.as_str(), content.as_str(), *is_error)),
++                _ => None,
++            },
++            _ => None,
++        })
++        .collect()
++}
++
++/// explore 轮 RunStarted.tools：注入在场 → run 顶部 definitions 按其组装，
++/// `dispatched` 自 definitions 派生（单源口径）→ 下发面 = 六工具保序 +
++/// `create_explore_note`。
++#[tokio::test]
++async fn explore轮runstarted_tools报六工具加专用工具() {
++    let dir = tempdir("explore-runstarted");
++    let model = FakeModel::with_turns(vec![vec![raw_text("完成"), raw_final(usage(1, 1))]]);
++    let turn = LoopTurn {
++        injections: explore_injections(),
++        ..loop_turn(dir.path(), AgentPermissionMode::BypassPermissions)
++    };
++
++    let events = drive_loop_turn(&model, turn).await;
++
++    let AgentEventKind::RunStarted { tools, .. } = &events[0] else {
++        panic!("首事件应为 RunStarted，实际: {:?}", events[0]);
++    };
++    assert_eq!(
++        tools,
++        &[
++            "read".to_owned(),
++            "grep".to_owned(),
++            "glob".to_owned(),
++            "ls".to_owned(),
++            "edit".to_owned(),
++            "bash".to_owned(),
++            EXPLORE_NOTE_TOOL.to_owned(),
++        ],
++        "explore 轮下发面：TOOL_NAMES 保序过滤 + 专用工具追加"
++    );
++    let AgentEventKind::TurnDone { is_error, .. } = turn_done_of(&events) else {
++        panic!("应为 TurnDone");
++    };
++    assert!(!*is_error, "explore 轮正常收敛");
++}
++
++/// default 轮 RunStarted.tools：七名与 `TOOL_NAMES` 逐名一致（与上线前一致，
++/// AC-7——注入缺省零变化）。
++#[tokio::test]
++async fn default轮runstarted_tools报七名与清单逐名一致() {
++    let dir = tempdir("default-runstarted");
++    let model = FakeModel::with_turns(vec![vec![raw_text("完成"), raw_final(usage(1, 1))]]);
++    let turn = loop_turn(dir.path(), AgentPermissionMode::BypassPermissions);
++
++    let events = drive_loop_turn(&model, turn).await;
++
++    let AgentEventKind::RunStarted { tools, .. } = &events[0] else {
++        panic!("首事件应为 RunStarted，实际: {:?}", events[0]);
++    };
++    assert_eq!(
++        tools.as_slice(),
++        TOOL_NAMES.as_slice(),
++        "default 轮下发面与七通用清单同源同序（含 write）"
++    );
++}
++
++/// 幻觉 write 成员校验拒绝：explore 注入轮发起 `write` 调用（bypass 档也拦
++/// ——成员校验先于 policy）→ `SystemNotice{tool_unavailable}` + is_error
++/// ToolResult 同 id 回灌、history 收对、run 不中断续轮正常、不触执行体（零
++/// 文件残留）。
++#[tokio::test]
++async fn explore轮幻觉write调用被成员校验拒绝且run不中断() {
++    let dir = tempdir("explore-hallucinated-write");
++    let model = FakeModel::with_turns(vec![
++        vec![raw_tool_call(
++            "tu_ghost",
++            "write",
++            serde_json::json!({ "path": "ghost.txt", "content": "幻觉写入" }),
++        )],
++        vec![raw_text("已按拒绝继续")],
++    ]);
++    let turn = LoopTurn {
++        injections: explore_injections(),
++        ..loop_turn(dir.path(), AgentPermissionMode::BypassPermissions)
++    };
++
++    let events = drive_loop_turn(&model, turn).await;
++
++    // 成员校验拒绝形态：tool_unavailable（非 permission_denied——先于 policy）
++    let notices = notices_of(&events);
++    assert_eq!(notices.len(), 1, "恰一次拒绝记因");
++    assert_eq!(notices[0].0, "tool_unavailable");
++    let payload = serde_json::to_value(notices[0].1).expect("payload 序列化");
++    assert_eq!(payload["tool"], serde_json::json!("write"));
++    assert!(
++        payload["reason"].as_str().is_some_and(|r| r.contains("下发面")),
++        "拒绝记因注明不在本轮下发面，实际: {payload}"
++    );
++
++    // is_error ToolResult 同 id 回灌
++    let results = tool_results_of(&events);
++    assert_eq!(results.len(), 1);
++    assert_eq!(results[0].0, "tu_ghost", "与 tool_use 同 id 成对");
++    assert!(results[0].2, "拒绝结果 is_error");
++
++    // 不触执行体：write 若被执行将落盘 ghost.txt——零残留
++    assert!(
++        !dir.path().join("ghost.txt").exists(),
++        "幻觉调用不触执行体（零文件残留）"
++    );
++
++    // run 不中断：第二请求续轮 + 正常收敛；ToolUse/ToolResult 成对入史
++    let sealed = sealed_messages(&events);
++    assert_eq!(sealed.len(), 2, "拒绝后续轮不中断");
++    let AgentEventKind::TurnDone { is_error, .. } = turn_done_of(&events) else {
++        panic!("应为 TurnDone");
++    };
++    assert!(!*is_error);
++    let requests = model.captured_requests();
++    assert_eq!(requests.len(), 2, "两轮流请求");
++    let history = &requests[1].chat_history;
++    assert!(
++        history_tool_result_text(history, "tu_ghost").is_some(),
++        "tool_result 已入史（history 收对）"
++    );
++}
++
++/// 未知名拒绝形态迁移：default 轮未知名调用 → `tool_unavailable`（自
++/// `permission_denied` 形态迁移的回归断言——成员校验自 definitions 派生）。
++#[tokio::test]
++async fn default轮未知名调用以tool_unavailable拒绝() {
++    let dir = tempdir("unknown-name-migrated");
++    let model = FakeModel::with_turns(vec![
++        vec![raw_tool_call("tu_unknown", "rm_rf", serde_json::json!({}))],
++        vec![raw_text("已按拒绝继续")],
++    ]);
++    let turn = loop_turn(dir.path(), AgentPermissionMode::BypassPermissions);
++
++    let events = drive_loop_turn(&model, turn).await;
++
++    let notices = notices_of(&events);
++    assert_eq!(notices.len(), 1);
++    assert_eq!(
++        notices[0].0, "tool_unavailable",
++        "未知名以成员校验形态拒绝（迁移自 permission_denied）"
++    );
++    assert!(
++        !notices.iter().any(|(subtype, _)| *subtype == "permission_denied"),
++        "未知名不再走 policy 拒绝形态"
++    );
++    turn_done_of(&events);
++}
++
++/// 成员校验先于 policy：未知名 + Default 档 → `tool_unavailable` 而非
++/// `permission_denied`（分发循环顶部次序断言）。
++#[tokio::test]
++async fn 未知名加default档命中成员校验而非policy() {
++    let dir = tempdir("member-before-policy");
++    let model = FakeModel::with_turns(vec![
++        vec![raw_tool_call("tu_order", "phantom_tool", serde_json::json!({}))],
++        vec![raw_text("继续")],
++    ]);
++    // Default 档：policy 面该名亦会被拒——但成员校验在先，记因必为
++    // tool_unavailable
++    let turn = loop_turn(dir.path(), AgentPermissionMode::Default);
++
++    let events = drive_loop_turn(&model, turn).await;
++
++    let notices = notices_of(&events);
++    assert_eq!(notices.len(), 1);
++    assert_eq!(
++        notices[0].0, "tool_unavailable",
++        "分发循环顶部成员校验先于 policy 档位判定"
++    );
++    let payload = serde_json::to_value(notices[0].1).expect("payload 序列化");
++    assert_eq!(payload["tool"], serde_json::json!("phantom_tool"));
++}
++
++/// 真实临时 explore 装置：workspace 库 + 占位建档（会话指针回写）。
++fn explore_fixture(tag: &str) -> (tempfile::TempDir, tempfile::TempDir, Arc<Store>, store::ExploreRecord) {
++    let dir = tempdir(tag);
++    let db_dir = tempdir(&format!("{tag}-db"));
++    let store = Arc::new(
++        Store::open_workspace(&db_dir.path().join("ws.redb"))
++            .unwrap_or_else(|e| panic!("打开临时 workspace 库失败: {e}")),
++    );
++    let root = dir.path().to_string_lossy().into_owned();
++    let record = store
++        .create_explore_record(&root, None)
++        .expect("占位建档应成功");
++    (dir, db_dir, store, record)
++}
++
++/// create 工具路由：explore 轮 `create_explore_note` 调用 + `explore_note`
++/// 上下文在场（真实临时库 + 占位记录）+ AcceptEdits → 路由
++/// `ExploreNoteContext::execute`，ToolResult 承接返回路径（repo 相对）、
++/// ToolUse/ToolResult 成对入史（AC-3 链路收口——落盘与改名真实发生）。
++#[tokio::test]
++async fn explore轮create工具路由执行体_落盘改名真实发生且结果成对入史() {
++    let (dir, _db_dir, store, record) = explore_fixture("create-route");
++    let session_id = record.session_id.clone().expect("占位建档回写会话指针");
++    let context = ExploreNoteContext::new(Arc::clone(&store), dir.path().to_path_buf(), session_id);
++    let model = FakeModel::with_turns(vec![
++        vec![raw_tool_call(
++            "tu_note",
++            EXPLORE_NOTE_TOOL,
++            serde_json::json!({ "name": "api-retry", "content": "# 探索笔记\n重试策略结论" }),
++        )],
++        vec![raw_text("已定名")],
++    ]);
++    let turn = LoopTurn {
++        injections: explore_injections(),
++        explore_note: Some(context),
++        ..loop_turn(dir.path(), AgentPermissionMode::AcceptEdits)
++    };
++
++    let events = drive_loop_turn(&model, turn).await;
++
++    // 执行体承接：ToolResult 非错误、内容为返回的 repo 相对路径
++    let results = tool_results_of(&events);
++    assert_eq!(results.len(), 1);
++    assert_eq!(results[0].0, "tu_note");
++    assert!(!results[0].2, "执行成功非 is_error");
++    assert_eq!(
++        results[0].1, "openspec/explores/api-retry.md",
++        "ToolResult 承接返回路径（repo 相对 / 分隔）"
++    );
++
++    // 落盘与改名真实发生（真实组合不 mock）
++    let note = dir.path().join("openspec").join("explores").join("api-retry.md");
++    assert!(note.exists(), "笔记文件已落盘");
++    assert_eq!(
++        std::fs::read_to_string(&note).unwrap(),
++        "# 探索笔记\n重试策略结论",
++        "content 原样落盘"
++    );
++    let renamed = store
++        .find_explore_record(&dir.path().to_string_lossy(), "api-retry")
++        .unwrap()
++        .expect("记录已定名");
++    assert_eq!(renamed.id, record.id, "in-place 改名保主键");
++    assert_eq!(renamed.session_id, record.session_id, "会话指针不变");
++    assert!(
++        store
++            .find_explore_record(&dir.path().to_string_lossy(), &record.name)
++            .unwrap()
++            .is_none(),
++        "占位名不再命中（世上无占位名记录）"
++    );
++
++    // ToolUse/ToolResult 成对入史（次轮请求史内以同 id 配对）
++    let requests = model.captured_requests();
++    assert_eq!(requests.len(), 2);
++    let history = &requests[1].chat_history;
++    assert!(
++        history_tool_result_text(history, "tu_note").is_some(),
++        "tool_result 已入史"
++    );
++
++    let AgentEventKind::TurnDone { is_error, .. } = turn_done_of(&events) else {
++        panic!("应为 TurnDone");
++    };
++    assert!(!*is_error, "路由成功轮正常收敛");
++}
++
++/// create 上下文缺席：上下文 `None`（生产不可达臂——explore 会话恒装配）→
++/// is_error 回灌「执行上下文未装配」，run 不中断。
++#[tokio::test]
++async fn explore轮create工具上下文缺席_is_error回灌且run不中断() {
++    let dir = tempdir("create-no-ctx");
++    let model = FakeModel::with_turns(vec![
++        vec![raw_tool_call(
++            "tu_noctx",
++            EXPLORE_NOTE_TOOL,
++            serde_json::json!({ "name": "any-name", "content": "x" }),
++        )],
++        vec![raw_text("已按缺席继续")],
++    ]);
++    let turn = LoopTurn {
++        injections: explore_injections(),
++        explore_note: None,
++        ..loop_turn(dir.path(), AgentPermissionMode::BypassPermissions)
++    };
++
++    let events = drive_loop_turn(&model, turn).await;
++
++    let results = tool_results_of(&events);
++    assert_eq!(results.len(), 1);
++    assert_eq!(results[0].0, "tu_noctx");
++    assert!(results[0].2, "上下文缺席以 is_error 回灌");
++    assert!(
++        results[0].1.contains("执行上下文未装配"),
++        "记因即恢复指引，实际: {}",
++        results[0].1
++    );
++    // run 不中断
++    let sealed = sealed_messages(&events);
++    assert_eq!(sealed.len(), 2, "缺席回灌后续轮不中断");
++    let AgentEventKind::TurnDone { is_error, .. } = turn_done_of(&events) else {
++        panic!("应为 TurnDone");
++    };
++    assert!(!*is_error);
++}
++
++/// create + Default 档：`create_explore_note` 调用 + Default 档 →
++/// `permission_denied`（policy 写面归属组合用例，链路方向 loop → policy，
++/// AC-6）；执行体未被触达（零落盘、记录名不变）。
++#[tokio::test]
++async fn explore轮create工具default档被policy拒绝且不触执行体() {
++    let (dir, _db_dir, store, record) = explore_fixture("create-default-deny");
++    let session_id = record.session_id.clone().expect("占位建档回写会话指针");
++    let context = ExploreNoteContext::new(Arc::clone(&store), dir.path().to_path_buf(), session_id);
++    let model = FakeModel::with_turns(vec![
++        vec![raw_tool_call(
++            "tu_deny",
++            EXPLORE_NOTE_TOOL,
++            serde_json::json!({ "name": "api-retry", "content": "x" }),
++        )],
++        vec![raw_text("已按拒绝继续")],
++    ]);
++    let turn = LoopTurn {
++        injections: explore_injections(),
++        explore_note: Some(context),
++        ..loop_turn(dir.path(), AgentPermissionMode::Default)
++    };
++
++    let events = drive_loop_turn(&model, turn).await;
++
++    let notices = notices_of(&events);
++    assert_eq!(notices.len(), 1);
++    assert_eq!(
++        notices[0].0, "permission_denied",
++        "Default 档以 policy 写面形态拒绝（AC-6）"
++    );
++    // 不触执行体：零落盘、记录名不变
++    assert!(
++        !dir.path().join("openspec").join("explores").join("api-retry.md").exists(),
++        "拒绝不落盘"
++    );
++    let still_draft = store
++        .find_explore_record(&dir.path().to_string_lossy(), &record.name)
++        .unwrap()
++        .expect("记录仍在");
++    assert_eq!(still_draft.name, record.name, "记录名未变（未定名）");
++    turn_done_of(&events);
++}
++
++/// create + BypassPermissions：放行且执行体承接（与 AcceptEdits 两写档对照）。
++#[tokio::test]
++async fn explore轮create工具bypass档放行且执行体承接() {
++    let (dir, _db_dir, store, record) = explore_fixture("create-bypass");
++    let session_id = record.session_id.clone().expect("占位建档回写会话指针");
++    let context = ExploreNoteContext::new(Arc::clone(&store), dir.path().to_path_buf(), session_id);
++    let model = FakeModel::with_turns(vec![
++        vec![raw_tool_call(
++            "tu_bypass",
++            EXPLORE_NOTE_TOOL,
++            serde_json::json!({ "name": "layout-design", "content": "布局结论" }),
++        )],
++        vec![raw_text("已定名")],
++    ]);
++    let turn = LoopTurn {
++        injections: explore_injections(),
++        explore_note: Some(context),
++        ..loop_turn(dir.path(), AgentPermissionMode::BypassPermissions)
++    };
++
++    let events = drive_loop_turn(&model, turn).await;
++
++    let results = tool_results_of(&events);
++    assert_eq!(results.len(), 1);
++    assert!(!results[0].2, "放行且执行成功");
++    assert_eq!(results[0].1, "openspec/explores/layout-design.md");
++    assert!(
++        dir.path().join("openspec").join("explores").join("layout-design.md").exists(),
++        "执行体真实落盘"
++    );
++    assert!(
++        store
++            .find_explore_record(&dir.path().to_string_lossy(), "layout-design")
++            .unwrap()
++            .is_some(),
++        "记录已定名"
++    );
++    turn_done_of(&events);
++}
++
++/// 探索面六工具收窄不误伤：explore 轮 `read` / `grep` / `glob` / `ls` / `edit`
++/// / `bash` 下发面内调用 → 正常执行（逐工具直驱，零拒绝记因）。
++#[tokio::test]
++async fn explore轮六工具下发面内调用逐一正常执行() {
++    struct Case {
++        tool: &'static str,
++        setup: fn(&Path),
++        input: serde_json::Value,
++    }
++    let cases = [
++        Case {
++            tool: "read",
++            setup: |root: &Path| write_file(&root.join("note.txt"), "第一行\n线索行\n第三行"),
++            input: serde_json::json!({ "path": "note.txt" }),
++        },
++        Case {
++            tool: "grep",
++            setup: |root: &Path| write_file(&root.join("note.txt"), "无关\n线索 here"),
++            input: serde_json::json!({ "path": "note.txt", "pattern": "线索" }),
++        },
++        Case {
++            tool: "glob",
++            setup: |root: &Path| write_file(&root.join("hit.rs"), "fn m() {}"),
++            input: serde_json::json!({ "pattern": "*.rs" }),
++        },
++        Case {
++            tool: "ls",
++            setup: |root: &Path| write_file(&root.join("entry.txt"), "x"),
++            input: serde_json::json!({ "path": "." }),
++        },
++        Case {
++            tool: "edit",
++            setup: |root: &Path| write_file(&root.join("note.txt"), "旧串待替换"),
++            input: serde_json::json!({
++                "path": "note.txt",
++                "old_string": "旧串",
++                "new_string": "新串"
++            }),
++        },
++        Case {
++            tool: "bash",
++            setup: |_root: &Path| {},
++            input: serde_json::json!({ "command": "echo loop-six-ok" }),
++        },
++    ];
++
++    for case in cases {
++        let tag = format!("six-{}", case.tool);
++        let dir = tempdir(&tag);
++        (case.setup)(dir.path());
++        let model = FakeModel::with_turns(vec![
++            vec![raw_tool_call("tu_six", case.tool, case.input.clone())],
++            vec![raw_text("继续")],
++        ]);
++        let turn = LoopTurn {
++            injections: explore_injections(),
++            ..loop_turn(dir.path(), AgentPermissionMode::BypassPermissions)
++        };
++
++        let events = drive_loop_turn(&model, turn).await;
++
++        let notices = notices_of(&events);
++        assert!(
++            notices.is_empty(),
++            "{} 不误伤（零拒绝记因），实际: {notices:?}",
++            case.tool
++        );
++        let results = tool_results_of(&events);
++        assert_eq!(results.len(), 1, "{} 恰一次结果回灌", case.tool);
++        assert_eq!(results[0].0, "tu_six");
++        assert!(!results[0].2, "{} 执行成功非 is_error", case.tool);
++        let AgentEventKind::TurnDone { is_error, .. } = turn_done_of(&events) else {
++            panic!("应为 TurnDone");
++        };
++        assert!(!*is_error, "{} 轮正常收敛", case.tool);
++    }
++}
+diff --git a/crates/infra/agent/src/sdk/mod.rs b/crates/infra/agent/src/sdk/mod.rs
+index 93a0fc2351e5..c5fe7055f3ee 100644
+--- a/crates/infra/agent/src/sdk/mod.rs
++++ b/crates/infra/agent/src/sdk/mod.rs
+@@ -2,6 +2,7 @@ pub(crate) mod bash;
+ pub(crate) mod compact;
+ pub(crate) mod config;
+ pub(crate) mod context;
++pub(crate) mod explore_note;
+ pub(crate) mod log;
+ // `loop` 为 Rust 关键字：文件名按 design 定为 `loop.rs`，模块名以 raw
+ // identifier 挂载（`r#loop`）
+@@ -23,6 +24,8 @@ mod config_test;
+ #[cfg(test)]
+ mod context_test;
+ #[cfg(test)]
++mod explore_note_test;
++#[cfg(test)]
+ mod log_test;
+ #[cfg(test)]
+ mod loop_test;
+diff --git a/crates/infra/agent/src/sdk/policy.rs b/crates/infra/agent/src/sdk/policy.rs
+index cf170e753898..83f83cf73b28 100644
+--- a/crates/infra/agent/src/sdk/policy.rs
++++ b/crates/infra/agent/src/sdk/policy.rs
+@@ -12,16 +12,19 @@
+ //! 边界**：命令执行不在路径沙箱射程内——bypassPermissions 默认档下 bash 即
+ //! 模型可执行任意命令、安全护栏为零（超时 + 进程树清理仅为活性护栏）；命令
+ //! 级白/黑名单、真沙箱、交互审批留后续 change（spec 边界条款留痕，非安全
+-//! 缺口遗漏）。拒绝不中断 run：由 loop 侧合成
+-//! `SystemNotice{permission_denied}` + is_error ToolResult 回灌续轮。
++//! 缺口遗漏）。`create_explore_note` 归写面档位（Default 拒绝、AcceptEdits /
++//! BypassPermissions 放行——拒绝形态与 write/edit 同构）。拒绝不中断 run：
++//! 由 loop 侧合成 `SystemNotice{permission_denied}` + is_error ToolResult
++//! 回灌续轮。
+ 
+ use agent::AgentPermissionMode;
+ 
+ /// 只读工具（default 档放行面）。
+ const READONLY_TOOLS: [&str; 4] = ["read", "grep", "glob", "ls"];
+ 
+-/// 写面工具（acceptEdits 档追加放行）。
+-const WRITE_TOOLS: [&str; 2] = ["write", "edit"];
++/// 写面工具（acceptEdits 档追加放行；`create_explore_note` 归写面档位——
++/// Default 拒绝、AcceptEdits / BypassPermissions 放行）。
++const WRITE_TOOLS: [&str; 3] = ["write", "edit", "create_explore_note"];
+ 
+ /// 执行面工具（acceptEdits / bypassPermissions 档追加放行；default 档拒绝）。
+ const EXECUTE_TOOLS: [&str; 1] = ["bash"];
+diff --git a/crates/infra/agent/src/sdk/policy_test.rs b/crates/infra/agent/src/sdk/policy_test.rs
+index c3407ac7b57c..e24385b29dca 100644
+--- a/crates/infra/agent/src/sdk/policy_test.rs
++++ b/crates/infra/agent/src/sdk/policy_test.rs
+@@ -1,19 +1,23 @@
+-//! `policy` 的单元测试（AC-4 / AC-10）：权限三档纯决策表逐格断言（档位 ×
+-//! 工具名 → 允许/拒绝；bash 行为三档首次真实分化）+ 拒绝流出形态
++//! `policy` 的单元测试（AC-4 / AC-10 / auto-named-explore AC-6）：权限三档纯
++//! 决策表逐格断言（档位 × 工具名 → 允许/拒绝；bash 行为三档首次真实分化；
++//! `create_explore_note` 归写面档位）+ 拒绝流出形态
+ //! （`SystemNotice{permission_denied}` + is_error ToolResult）合成形状。
+ //! 纯决策表无进程边界依赖，不需要 Mock。
+ 
+ use agent::{AgentBlock, AgentEventKind, AgentMessageRole, AgentPermissionMode};
+ 
+ use crate::sdk::policy::allows;
+-use crate::sdk::tools::TOOL_NAMES;
++use crate::sdk::tools::{EXPLORE_NOTE_TOOL, TOOL_NAMES};
+ 
+ /// 只读四工具（default 档放行面，与 policy 模块清单同源口径）。
+ const READONLY: [&str; 4] = ["read", "grep", "glob", "ls"];
+-/// 写面两工具（acceptEdits 档追加放行）。
++/// 写面两通用工具（acceptEdits 档追加放行）。
+ const WRITE: [&str; 2] = ["write", "edit"];
+ /// 执行面 bash（acceptEdits / bypassPermissions 档追加放行、default 档拒绝）。
+ const EXECUTE: [&str; 1] = ["bash"];
++/// explore 专用工具（写面档位归属——Default 拒绝、两写档放行；不在七通用
++/// 封闭清单内，definitions 参数化时受控追加）。
++const EXPLORE_NOTE: [&str; 1] = [EXPLORE_NOTE_TOOL];
+ 
+ // ---------------------------------------------------------------------------
+ // 三档决策表（正向逐格）
+@@ -33,6 +37,12 @@ fn default档只读四工具允许且write_edit拒绝() {
+             "default 档应拒绝写面工具 {tool}"
+         );
+     }
++    for tool in EXPLORE_NOTE {
++        assert!(
++            !allows(AgentPermissionMode::Default, tool),
++            "default 档应拒绝 explore 专用工具 {tool}（写面档位归属，AC-6）"
++        );
++    }
+ }
+ 
+ #[test]
+@@ -49,15 +59,26 @@ fn accept_edits档只读加写面全允许() {
+             "acceptEdits 档应放行写面工具 {tool}"
+         );
+     }
++    for tool in EXPLORE_NOTE {
++        assert!(
++            allows(AgentPermissionMode::AcceptEdits, tool),
++            "acceptEdits 档应放行 explore 专用工具 {tool}（与 write/edit 同构写面语义）"
++        );
++    }
+ }
+ 
+ #[test]
+ fn bypass_permissions档七工具全放行且与工具面清单逐一命中() {
+-    // 与七工具定义面同源口径：只读 + 写面 + 执行面 == 工具清单（清单长度等价断言）
++    // 与七工具定义面同源口径：只读 + 写面 + 执行面 == 通用工具清单（清单长度
++    // 等价断言；explore 专用工具为受控追加位，不在通用封闭清单内）
+     assert_eq!(
+         READONLY.len() + WRITE.len() + EXECUTE.len(),
+         TOOL_NAMES.len(),
+-        "决策表三清单与工具面清单同源（bash 入册后的封闭口径）"
++        "决策表三清单与通用工具面清单同源（bash 入册后的封闭口径）"
++    );
++    assert!(
++        !TOOL_NAMES.contains(&EXPLORE_NOTE_TOOL),
++        "explore 专用工具不在通用封闭清单内（受控追加位）"
+     );
+     for tool in TOOL_NAMES {
+         assert!(
+@@ -65,6 +86,12 @@ fn bypass_permissions档七工具全放行且与工具面清单逐一命中() {
+             "bypassPermissions 档应全放行 {tool}"
+         );
+     }
++    for tool in EXPLORE_NOTE {
++        assert!(
++            allows(AgentPermissionMode::BypassPermissions, tool),
++            "bypassPermissions 档应放行 explore 专用工具 {tool}"
++        );
++    }
+     // 调试页既有默认档：permission-mode 默认即 BypassPermissions（决策表语义
+     // 与调试页默认一致——serde 线格式缺省档为 default，调试页 UI 恒显式传
+     // bypassPermissions，见 agent-run-form 断言；此处锁定档位枚举值存在且可匹配）
+@@ -95,6 +122,81 @@ fn allows_bash三档矩阵逐格_default拒accept与bypass放() {
+     );
+ }
+ 
++// ---------------------------------------------------------------------------
++// create_explore_note 写面档位归属（auto-named-explore AC-6）
++// ---------------------------------------------------------------------------
++
++#[test]
++fn allows_create_explore_note三档矩阵_default拒两写档放() {
++    // Default 拒（写面归属——policy 写面拒绝形态与 write/edit 同构）
++    assert!(
++        !allows(AgentPermissionMode::Default, "create_explore_note"),
++        "default 档必须拒绝 create_explore_note（AC-6：policy 写面归属）"
++    );
++    // AcceptEdits 放
++    assert!(
++        allows(AgentPermissionMode::AcceptEdits, "create_explore_note"),
++        "acceptEdits 档必须放行 create_explore_note（与 write/edit 同构）"
++    );
++    // BypassPermissions 放
++    assert!(
++        allows(AgentPermissionMode::BypassPermissions, "create_explore_note"),
++        "bypassPermissions 档必须放行 create_explore_note"
++    );
++}
++
++// ---------------------------------------------------------------------------
++// 决策表封闭集逐格回归（三档 ×（七通用 + create_explore_note）扩展后矩阵）
++// ---------------------------------------------------------------------------
++
++#[test]
++fn 决策表封闭集逐格_三档乘八工具矩阵与档位语义一致() {
++    let tools: Vec<&str> = TOOL_NAMES
++        .iter()
++        .copied()
++        .chain(EXPLORE_NOTE)
++        .collect();
++    assert_eq!(tools.len(), 8, "矩阵列 = 七通用 + 一专用");
++
++    for tool in tools {
++        let expected = match tool {
++            // 只读四工具：三档全放
++            "read" | "grep" | "glob" | "ls" => [true, true, true],
++            // 写面（write / edit / create_explore_note）：仅两写档放
++            "write" | "edit" | "create_explore_note" => [false, true, true],
++            // 执行面 bash：仅两写档放
++            "bash" => [false, true, true],
++            other => unreachable!("封闭集外名 {other} 不应出现在矩阵列"),
++        };
++        let actual = [
++            allows(AgentPermissionMode::Default, tool),
++            allows(AgentPermissionMode::AcceptEdits, tool),
++            allows(AgentPermissionMode::BypassPermissions, tool),
++        ];
++        assert_eq!(
++            actual, expected,
++            "工具 {tool} 三档行为漂移：期望 {expected:?} 实际 {actual:?}"
++        );
++    }
++}
++
++#[test]
++fn 未知名空串大写变体带空白变体三档一律拒绝() {
++    let unknowns = ["", "Write", "write ", " write", "create_Explore_Note"];
++    for unknown in unknowns {
++        for (label, mode) in [
++            ("default", AgentPermissionMode::Default),
++            ("acceptEdits", AgentPermissionMode::AcceptEdits),
++            ("bypassPermissions", AgentPermissionMode::BypassPermissions),
++        ] {
++            assert!(
++                !allows(mode, unknown),
++                "未知名 {unknown:?} 在 {label} 档必须拒绝（封闭清单精确匹配）"
++            );
++        }
++    }
++}
++
+ // ---------------------------------------------------------------------------
+ // 缺席与清单外（边界）
+ // ---------------------------------------------------------------------------
+diff --git a/crates/infra/agent/src/sdk/runner.rs b/crates/infra/agent/src/sdk/runner.rs
+index 7d2d9d0e5720..b21916fcacef 100644
+--- a/crates/infra/agent/src/sdk/runner.rs
++++ b/crates/infra/agent/src/sdk/runner.rs
+@@ -1,16 +1,20 @@
+ use std::sync::atomic::{AtomicU64, Ordering};
++use std::sync::Arc;
+ 
+ use agent::{
+-    AgentRunner, AgentSession, AgentStartError, ModelLevel, RunHandle, SessionOpen, TurnQuestion,
++    AgentRunner, AgentSession, AgentStartError, ModelLevel, RunHandle, SessionOpen, SessionToolset,
++    TurnQuestion,
+ };
+ use rig::driver::DynModel;
+ use rig::message::Message;
+ use rig::operation::Completion;
+ use rig::providers::openai::OpenAIConfig;
++use store::Store;
+ use tokio::sync::mpsc;
+ 
+ use crate::sdk::config::EngineConfig;
+ use crate::sdk::context::{ContextDefense, DefenseNotice};
++use crate::sdk::explore_note::ExploreNoteContext;
+ use crate::sdk::{context, r#loop, resume};
+ use crate::ResumeTranscript;
+ 
+@@ -23,26 +27,33 @@ const QUESTION_CHANNEL_CAPACITY: usize = 4;
+ /// sdk 会话 id 进程内原子计数（配合毫秒时戳保证同毫秒不重号）。
+ static SESSION_COUNTER: AtomicU64 = AtomicU64::new(0);
+ 
+-/// sdk 引擎 runner：持有连接配置、窗长载荷与会话全史转录装载缝；无跨会话
+-/// 共享运行态（全部运行态在 `open_session` 产出的泵任务内）。
++/// sdk 引擎 runner：持有连接配置、窗长载荷、会话全史转录装载缝与 explore
++/// 专用工具 store 句柄；无跨会话共享运行态（全部运行态在 `open_session` 产出
++/// 的泵任务内）。
+ pub struct SdkRunner {
+     config: EngineConfig,
+     resume: Option<ResumeTranscript>,
+     /// provider 上下文窗长（组合根旁路载荷；None = 128K 缺省启发式）
+     context_window: Option<u64>,
++    /// workspace 库句柄（组合根注入缝）：`toolset == Explore` 会话 per-turn
++    /// 铸造 `create_explore_note` 执行上下文的原料（None = 未注入）
++    explore_store: Option<Arc<Store>>,
+ }
+ 
+ impl SdkRunner {
+-    /// runner 构造（配置、窗长与装载缝由门面注入，引擎细节不出门面）。
++    /// runner 构造（配置、窗长、装载缝与 store 句柄由门面注入，引擎细节不出
++    /// 门面）。
+     pub fn new(
+         config: EngineConfig,
+         resume: Option<ResumeTranscript>,
+         context_window: Option<u64>,
++        explore_store: Option<Arc<Store>>,
+     ) -> Self {
+         Self {
+             config,
+             resume,
+             context_window,
++            explore_store,
+         }
+     }
+ 
+@@ -124,6 +135,7 @@ impl AgentRunner for SdkRunner {
+                 history,
+                 defense,
+                 resume_notices,
++                explore_store: self.explore_store.clone(),
+             },
+             question_rx,
+             observation_tx,
+@@ -155,7 +167,7 @@ fn build_model(config: &EngineConfig, model_name: &str) -> DynModel<Completion>
+ }
+ 
+ /// 泵任务的防线与史载荷（参数面收敛分组：重建史 + 防线配置 + 重建剪裁的
+-/// notice 留痕）。
++/// notice 留痕 + explore 专用工具句柄）。
+ struct PumpPayload {
+     /// resume 重建史（已经第一调用点 L2 先行剪裁）
+     history: Vec<Message>,
+@@ -163,6 +175,9 @@ struct PumpPayload {
+     defense: ContextDefense,
+     /// 重建剪裁产出的 notice（泵内先于 RunStarted 转发）
+     resume_notices: Vec<DefenseNotice>,
++    /// workspace 库句柄（组合根注入缝）——`toolset == Explore` 会话 per-turn
++    /// 铸造 `create_explore_note` 执行上下文的原料（None = 未注入）
++    explore_store: Option<Arc<Store>>,
+ }
+ 
+ /// 会话泵任务（ask 段）
+@@ -187,6 +202,17 @@ async fn session_pump(
+             })
+             .await;
+     }
++    // `create_explore_note` 专用工具执行上下文 per-turn 铸造：toolset == Explore
++    // 且 store 句柄在场才铸（Continue id 缺席则 None——生产不可达，explore 会话
++    // 恒 Continue）；上下文随 LoopTurn 携带、loop 侧路由，不经 `tools::execute`
++    let explore_note = if open.injections.toolset == Some(SessionToolset::Explore) {
++        payload
++            .explore_store
++            .zip(continue_session_id(&open))
++            .map(|(store, id)| ExploreNoteContext::new(store, open.ctx.workspace_root.clone(), id))
++    } else {
++        None
++    };
+     let turn = r#loop::LoopTurn {
+         question: question.prompt,
+         cwd: open.ctx.workspace_root.clone(),
+@@ -196,6 +222,8 @@ async fn session_pump(
+         defense: payload.defense,
+         liveness: Default::default(),
+         retry: Default::default(),
++        injections: open.injections.clone(),
++        explore_note,
+     };
+     crate::sdk::log::append_engine_log(&format!(
+         "泵启动 session={} model={model_name}",
+diff --git a/crates/infra/agent/src/sdk/runner_test.rs b/crates/infra/agent/src/sdk/runner_test.rs
+index acdbad433986..bb48be41333d 100644
+--- a/crates/infra/agent/src/sdk/runner_test.rs
++++ b/crates/infra/agent/src/sdk/runner_test.rs
+@@ -161,7 +161,7 @@ fn oversized_transcript() -> Vec<agent::AgentEvent> {
+ 
+ #[test]
+ fn 空缺省配置open返回config_missing且三成因逐字可辨() {
+-    let runner = SdkRunner::new(EngineConfig::empty(), None, None);
++    let runner = SdkRunner::new(EngineConfig::empty(), None, None, None);
+ 
+     let error = runner.open_session(open_new()).expect_err("空配置必须 Err");
+     let AgentStartError::ConfigMissing(message) = &error else {
+@@ -218,7 +218,7 @@ fn 单字段缺失open消息区分api_key_base_url双档model成因() {
+         ),
+     ];
+     for (field, config, level) in cases {
+-        let runner = SdkRunner::new(config, None, None);
++        let runner = SdkRunner::new(config, None, None, None);
+         let error = runner
+             .open_session(open_new_at_level(level))
+             .expect_err("缺项必须 Err");
+@@ -246,7 +246,7 @@ async fn 低档缺配仅低档轮失败_高档轮open照常() {
+         model_low: String::new(),
+         ..complete_config()
+     };
+-    let error = SdkRunner::new(half(), None, None)
++    let error = SdkRunner::new(half(), None, None, None)
+         .open_session(open_new_at_level(ModelLevel::Low))
+         .expect_err("低档轮缺 model_low 必须 Err");
+     let AgentStartError::ConfigMissing(message) = &error else {
+@@ -256,7 +256,7 @@ async fn 低档缺配仅低档轮失败_高档轮open照常() {
+         message.contains("model_low") && !message.contains("model_high"),
+         "缺档文案点名低档不误列高档，实际: {message}"
+     );
+-    let _session = SdkRunner::new(half(), None, None)
++    let _session = SdkRunner::new(half(), None, None, None)
+         .open_session(open_new_at_level(ModelLevel::High))
+         .expect("High 档轮照常 open（半配 provider 高档可用）");
+ }
+@@ -268,7 +268,7 @@ async fn 低档缺配仅低档轮失败_高档轮open照常() {
+ #[test]
+ fn continue装载缝none形态报会话不存在且成因可区分() {
+     let (resume, calls) = loader(Ok(None));
+-    let runner = SdkRunner::new(complete_config(), Some(resume), None);
++    let runner = SdkRunner::new(complete_config(), Some(resume), None, None);
+ 
+     let error = runner
+         .open_session(open_continue("ses-404"))
+@@ -290,7 +290,7 @@ fn continue装载缝none形态报会话不存在且成因可区分() {
+ #[test]
+ fn continue装载缝err形态报转录读取失败并记因() {
+     let (resume, _calls) = loader(Err("库读取失败".to_owned()));
+-    let runner = SdkRunner::new(complete_config(), Some(resume), None);
++    let runner = SdkRunner::new(complete_config(), Some(resume), None, None);
+ 
+     let error = runner
+         .open_session(open_continue("ses-err"))
+@@ -309,7 +309,7 @@ fn continue装载缝err形态报转录读取失败并记因() {
+ #[tokio::test]
+ async fn continue空转录按空史首轮开跑_缺失与装载失败仍显式失败() {
+     let (resume, _calls) = loader(Ok(Some(Vec::new())));
+-    let runner = SdkRunner::new(complete_config(), Some(resume), None);
++    let runner = SdkRunner::new(complete_config(), Some(resume), None, None);
+ 
+     let session = runner
+         .open_session(open_continue("ses-empty"))
+@@ -318,12 +318,12 @@ async fn continue空转录按空史首轮开跑_缺失与装载失败仍显式
+ 
+     // 两形态成因互不重合（可区分）
+     let (none_loader, _) = loader(Ok(None));
+-    let none_message = SdkRunner::new(complete_config(), Some(none_loader), None)
++    let none_message = SdkRunner::new(complete_config(), Some(none_loader), None, None)
+         .open_session(open_continue("ses-a"))
+         .expect_err("会话不存在必须 Err")
+         .to_string();
+     let (err_loader, _) = loader(Err("读取失败".to_owned()));
+-    let err_message = SdkRunner::new(complete_config(), Some(err_loader), None)
++    let err_message = SdkRunner::new(complete_config(), Some(err_loader), None, None)
+         .open_session(open_continue("ses-b"))
+         .expect_err("装载失败必须 Err")
+         .to_string();
+@@ -341,7 +341,7 @@ async fn continue空转录按空史首轮开跑_缺失与装载失败仍显式
+ #[test]
+ fn continue装载器未注入时显式失败不静默空史() {
+     // resume 缝未注入（直构 runner 无 loader）的 Continue：显式 ConfigMissing
+-    let runner = SdkRunner::new(complete_config(), None, None);
++    let runner = SdkRunner::new(complete_config(), None, None, None);
+     let error = runner
+         .open_session(open_continue("ses-noloader"))
+         .expect_err("装载器未注入必须 Err");
+@@ -357,7 +357,7 @@ fn continue装载器未注入时显式失败不静默空史() {
+ #[tokio::test]
+ async fn continue全史装载重建后open成功且new会话零装载调用() {
+     let (resume, calls) = loader(Ok(Some(minimal_transcript())));
+-    let runner = SdkRunner::new(complete_config(), Some(resume), None);
++    let runner = SdkRunner::new(complete_config(), Some(resume), None, None);
+ 
+     // Continue：全史转录重建非空 → open 成功（全史装载半边；重建史注入首轮
+     // 请求由 loop_test 捕获缝承载）
+@@ -368,7 +368,7 @@ async fn continue全史装载重建后open成功且new会话零装载调用() {
+ 
+     // New：全新运行空史，装载缝零调用
+     let (new_resume, new_calls) = loader(Ok(Some(minimal_transcript())));
+-    let new_runner = SdkRunner::new(complete_config(), Some(new_resume), None);
++    let new_runner = SdkRunner::new(complete_config(), Some(new_resume), None, None);
+     new_runner.open_session(open_new()).expect("New 会话应成功");
+     assert_eq!(
+         new_calls.load(std::sync::atomic::Ordering::Relaxed),
+@@ -389,7 +389,7 @@ async fn continue全史装载重建后open成功且new会话零装载调用() {
+ async fn continue携超门槛工具结果的小窗runner_防线notice先于runstarted() {
+     let (resume, _calls) = loader(Ok(Some(oversized_transcript())));
+     // 显式小窗：window = 64 → L2 水位 48 tokens，重建史必然越线
+-    let runner = SdkRunner::new(complete_config(), Some(resume), Some(64));
++    let runner = SdkRunner::new(complete_config(), Some(resume), Some(64), None);
+ 
+     let mut session = runner
+         .open_session(open_continue("ses-defense"))
+@@ -431,7 +431,7 @@ async fn continue携超门槛工具结果的小窗runner_防线notice先于runst
+ async fn 防线continue时全史事件仍全量进入重建_装载缝无写通道零反写() {
+     let transcript = oversized_transcript();
+     let (resume, calls) = loader(Ok(Some(transcript.clone())));
+-    let runner = SdkRunner::new(complete_config(), Some(resume), Some(64));
++    let runner = SdkRunner::new(complete_config(), Some(resume), Some(64), None);
+ 
+     let mut session = runner
+         .open_session(open_continue("ses-full"))
+@@ -474,7 +474,7 @@ async fn 防线continue时全史事件仍全量进入重建_装载缝无写通
+ async fn runstarted_tools恰七工具清单() {
+     use crate::sdk::tools::TOOL_NAMES;
+ 
+-    let runner = SdkRunner::new(complete_config(), None, None);
++    let runner = SdkRunner::new(complete_config(), None, None, None);
+     let mut session = runner.open_session(open_new()).expect("open 应成功");
+     session
+         .questions
+@@ -504,7 +504,7 @@ async fn runstarted_tools恰七工具清单() {
+ 
+ #[tokio::test(start_paused = true)]
+ async fn ask泵观察回流未盖戳词汇_变体序以收敛收尾且remote_id_sdk前缀上报() {
+-    let runner = SdkRunner::new(complete_config(), None, None);
++    let runner = SdkRunner::new(complete_config(), None, None, None);
+     let mut session = runner.open_session(open_new()).expect("open 应成功");
+ 
+     session
+@@ -591,7 +591,7 @@ async fn ask泵观察回流未盖戳词汇_变体序以收敛收尾且remote_id_
+ 
+ #[tokio::test]
+ async fn 停止先置位时泵select停止臂命中_future_drop不合成收敛() {
+-    let runner = SdkRunner::new(complete_config(), None, None);
++    let runner = SdkRunner::new(complete_config(), None, None, None);
+     let mut session = runner.open_session(open_new()).expect("open 应成功");
+     session.handle.request_stop(); // 停止先置位
+ 
+@@ -631,7 +631,7 @@ async fn 停止先置位时泵select停止臂命中_future_drop不合成收敛()
+ 
+ #[tokio::test(start_paused = true)]
+ async fn 停止晚于eof时泵已收敛无二次收敛事件() {
+-    let runner = SdkRunner::new(complete_config(), None, None);
++    let runner = SdkRunner::new(complete_config(), None, None, None);
+     let mut session = runner.open_session(open_new()).expect("open 应成功");
+ 
+     session
+@@ -673,7 +673,7 @@ fn 门面sdk分发的启动校验行为与直构runner一致() {
+     let via_facade = EngineFacade::new()
+         .runner_for(EngineKind::Sdk, EngineConfig::empty())
+         .expect("Sdk 臂构造成功");
+-    let via_direct = SdkRunner::new(EngineConfig::empty(), None, None);
++    let via_direct = SdkRunner::new(EngineConfig::empty(), None, None, None);
+ 
+     let facade_error = via_facade
+         .open_session(open_new())
+@@ -696,3 +696,267 @@ fn 门面sdk分发的启动校验行为与直构runner一致() {
+         .expect_err("门面 Continue 校验必须 Err");
+     assert!(matches!(error, AgentStartError::ConfigMissing(_)));
+ }
++
++// ---------------------------------------------------------------------------
++// auto-named-explore：第四参 store 句柄构造 + explore 注入经 open_session
++// 端到端（泵铸造 → loop 下发面）
++// ---------------------------------------------------------------------------
++
++use agent::SessionToolset;
++use store::Store;
++
++/// 真实临时 workspace 库句柄装置（tempfile + open_workspace，不 mock）。
++fn temp_store(tag: &str) -> (tempfile::TempDir, Arc<Store>) {
++    let dir = tempfile::Builder::new()
++        .prefix(&format!("sdk-runner-explore-{tag}-"))
++        .tempdir()
++        .expect("创建临时目录失败");
++    let db_path = dir.path().join("ws.redb");
++    let store = Arc::new(
++        Store::open_workspace(&db_path)
++            .unwrap_or_else(|e| panic!("打开临时 workspace 库失败: {e}")),
++    );
++    (dir, store)
++}
++
++/// explore 来源注入底座（六名收窄 + Explore toolset）。
++fn explore_injections() -> SessionInjections {
++    SessionInjections {
++        preamble: None,
++        tools: Some(vec![
++            "read".to_owned(),
++            "grep".to_owned(),
++            "glob".to_owned(),
++            "ls".to_owned(),
++            "edit".to_owned(),
++            "bash".to_owned(),
++        ]),
++        toolset: Some(SessionToolset::Explore),
++    }
++}
++
++/// 第四参构造（`Option<Arc<Store>>`）：`Some(句柄)` 构造成功且既有三参调用面
++/// 以 `None` 兼容（构造 + 引擎选择面编译期锚定——本文件既有用例即三参 None
++/// 形态的编译锚）。
++#[test]
++fn sdk_runner第四参构造_some句柄与none缺省均编译可达() {
++    let (_dir, store) = temp_store("ctor");
++    // Some(句柄)：构造成功
++    let with_store = SdkRunner::new(complete_config(), None, None, Some(Arc::clone(&store)));
++    let _ = with_store;
++    // None 缺省：既有三参语义面（构造 + open 失败面同旧口径）
++    let without_store = SdkRunner::new(complete_config(), None, None, None);
++    let error = without_store
++        .open_session(open_continue("ses-ctor-none"))
++        .expect_err("无装载缝 Continue 必须显式失败");
++    assert!(
++        matches!(error, AgentStartError::ConfigMissing(_)),
++        "None 句柄不改变既有失败面，实际: {error:?}"
++    );
++}
++
++/// explore 注入经 open_session 端到端（链路：open_session → 泵铸造 → loop 下
++/// 发面）：Continue 预建空会话 + `injections.toolset = Explore` + 句柄在场 →
++/// `RunStarted.tools` 报六工具 + `create_explore_note`（泵内 LoopTurn 铸造贯
++/// 通的行为面证明；模型 IO 走 discard 端点，RunStarted 先于 IO 可观察）。
++#[tokio::test]
++async fn explore注入open_session端到端_runstarted报六工具加专用工具() {
++    use crate::sdk::tools::EXPLORE_NOTE_TOOL;
++
++    let (dir, store) = temp_store("e2e");
++    let (resume, _calls) = loader(Ok(Some(Vec::new()))); // 预建空会话：空史开跑
++    let runner = SdkRunner::new(complete_config(), Some(resume), None, Some(Arc::clone(&store)));
++
++    let mut open = open_continue("ses-explore-e2e");
++    open.injections = explore_injections();
++    let mut session = runner
++        .open_session(open)
++        .expect("explore 注入 open 应成功");
++    session
++        .questions
++        .send(agent::TurnQuestion {
++            prompt: "探索首轮".to_owned(),
++        })
++        .await
++        .expect("问题送达");
++
++    let started = session.observations.recv().await.expect("RunStarted");
++    let AgentEventKind::RunStarted {
++        tools, mcp_servers, ..
++    } = &started
++    else {
++        panic!("首事件应为 RunStarted，实际: {started:?}");
++    };
++    assert_eq!(
++        tools,
++        &[
++            "read".to_owned(),
++            "grep".to_owned(),
++            "glob".to_owned(),
++            "ls".to_owned(),
++            "edit".to_owned(),
++            "bash".to_owned(),
++            EXPLORE_NOTE_TOOL.to_owned(),
++        ],
++        "explore 轮实际下发面：六工具保序 + 末位 create_explore_note"
++    );
++    assert!(
++        !tools.contains(&"write".to_owned()),
++        "explore 工具面不含 write（AC-5 硬约束的接线半边）"
++    );
++    assert!(mcp_servers.is_empty(), "MCP 恒空");
++    drop(session);
++    drop(dir);
++    drop(store);
++}
++
++/// default 注入零专用上下文：`toolset = None`（debug 来源装配缺省）→ 轮内不
++/// 铸专用上下文、`RunStarted.tools` 报七名（非 explore 会话零变化，AC-7 接线
++/// 半边）。
++#[tokio::test]
++async fn default注入零专用上下文_runstarted报七名() {
++    let (_dir, store) = temp_store("default");
++    let runner = SdkRunner::new(complete_config(), None, None, Some(Arc::clone(&store)));
++
++    let mut session = runner.open_session(open_new()).expect("open 应成功");
++    session
++        .questions
++        .send(agent::TurnQuestion {
++            prompt: "debug 一轮".to_owned(),
++        })
++        .await
++        .expect("问题送达");
++
++    let started = session.observations.recv().await.expect("RunStarted");
++    let AgentEventKind::RunStarted { tools, .. } = &started else {
++        panic!("首事件应为 RunStarted，实际: {started:?}");
++    };
++    assert_eq!(
++        tools.as_slice(),
++        crate::sdk::tools::TOOL_NAMES.as_slice(),
++        "default 轮工具面与七通用清单同源同序（含 write，AC-7）"
++    );
++    assert!(
++        !tools.contains(&"create_explore_note".to_owned()),
++        "default 轮不追加专用工具"
++    );
++    drop(session);
++}
++
++/// 空配置失败面回归：`EngineConfig::empty()` + 句柄在场 → `open_session` 仍
++/// `Err(ConfigMissing)`（配置三件套校验先于泵铸造，新字段不破坏既有失败面）。
++#[test]
++fn 空配置加句柄open仍config_missing_校验先于泵铸造() {
++    let (_dir, store) = temp_store("empty-cfg");
++    let runner = SdkRunner::new(EngineConfig::empty(), None, None, Some(Arc::clone(&store)));
++    let error = runner
++        .open_session(explore_continue_open("ses-empty-cfg"))
++        .expect_err("空配置必须 Err");
++    let AgentStartError::ConfigMissing(message) = &error else {
++        panic!("应为 ConfigMissing，实际: {error:?}");
++    };
++    assert!(
++        message.contains("api_key") && message.contains("base_url") && message.contains("model"),
++        "配置三件套校验照旧先行，实际: {message}"
++    );
++}
++
++/// explore 注入形态的 Continue open 底座（空会话 id 装载缝 + explore 注入）。
++fn explore_continue_open(session_id: &str) -> SessionOpen {
++    SessionOpen {
++        injections: explore_injections(),
++        ..open_continue(session_id)
++    }
++}
++
++/// 转录装载失败回归（参数化）：句柄在场 + resume loader `Err`（库读取失败）/
++/// `None`（会话不存在）→ `ConfigMissing`，失败语义不随新字段漂移
++///（counting_loader 替身驱动）。
++#[test]
++fn 转录装载失败回归_句柄在场loader两形态仍config_missing() {
++    let (_dir, store) = temp_store("loader-fail");
++
++    // Err 形态：库读取失败
++    let (err_loader, err_calls) = loader(Err("库读取失败".to_owned()));
++    let err_runner =
++        SdkRunner::new(complete_config(), Some(err_loader), None, Some(Arc::clone(&store)));
++    let err_error = err_runner
++        .open_session(explore_continue_open("ses-loader-err"))
++        .expect_err("loader Err 必须 Err");
++    let AgentStartError::ConfigMissing(err_message) = &err_error else {
++        panic!("应为 ConfigMissing，实际: {err_error:?}");
++    };
++    assert!(
++        err_message.contains("转录读取失败") && err_message.contains("库读取失败"),
++        "Err 成因携原错误记因，实际: {err_message}"
++    );
++
++    // None 形态：会话不存在
++    let (none_loader, none_calls) = loader(Ok(None));
++    let none_runner =
++        SdkRunner::new(complete_config(), Some(none_loader), None, Some(Arc::clone(&store)));
++    let none_error = none_runner
++        .open_session(explore_continue_open("ses-loader-none"))
++        .expect_err("loader None 必须 Err");
++    let AgentStartError::ConfigMissing(none_message) = &none_error else {
++        panic!("应为 ConfigMissing，实际: {none_error:?}");
++    };
++    assert!(
++        none_message.contains("会话不存在"),
++        "None 成因（会话缺失）记因，实际: {none_message}"
++    );
++
++    assert_eq!(
++        err_calls.load(std::sync::atomic::Ordering::Relaxed),
++        1,
++        "Err 形态装载缝恰调用一次"
++    );
++    assert_eq!(
++        none_calls.load(std::sync::atomic::Ordering::Relaxed),
++        1,
++        "None 形态装载缝恰调用一次"
++    );
++}
++
++/// Explore 会话 Continue id 缺席（New 会话形态，生产不可达）：上下文铸
++/// `None`、run 照常开跑不 panic（loop 侧「执行上下文未装配」臂的前置半边
++/// ——下发面不受影响：definitions 仍按 injections 组装六工具 + 专用工具）。
++#[tokio::test]
++async fn explore注入new会话continue缺席_上下文none_run照常开跑() {
++    let (_dir, store) = temp_store("new-explore");
++    let runner = SdkRunner::new(complete_config(), None, None, Some(Arc::clone(&store)));
++
++    // New 会话 + explore 注入 + 句柄在场：生产不可达形态（explore 恒 Continue），
++    // 泵 zip(Continue id 缺席) → explore_note = None，run 不 panic
++    let mut open = open_new();
++    open.injections = explore_injections();
++    let mut session = runner
++        .open_session(open)
++        .expect("New 会话 + explore 注入 open 应成功（不 panic）");
++    session
++        .questions
++        .send(agent::TurnQuestion {
++            prompt: "不可达形态的一轮".to_owned(),
++        })
++        .await
++        .expect("问题送达");
++
++    // 下发面照常：RunStarted.tools 仍为六工具 + create_explore_note（definitions
++    // 自 injections 组装，与 explore_note 上下文有无无关）
++    let started = session.observations.recv().await.expect("RunStarted");
++    let AgentEventKind::RunStarted { tools, .. } = &started else {
++        panic!("首事件应为 RunStarted，实际: {started:?}");
++    };
++    assert!(
++        tools.contains(&"create_explore_note".to_owned())
++            && !tools.contains(&"write".to_owned()),
++        "下发面按注入组装（与上下文铸造解耦），实际: {tools:?}"
++    );
++    // user 密封提示词照常产出（泵链路未因上下文 None 中断）
++    let user = session.observations.recv().await.expect("user 密封");
++    assert!(
++        matches!(&user, AgentEventKind::Message { role, .. } if role == &AgentMessageRole::User),
++        "run 照常开跑，实际: {user:?}"
++    );
++    drop(session);
++}
+diff --git a/crates/infra/agent/src/sdk/tools.rs b/crates/infra/agent/src/sdk/tools.rs
+index de84d7024c8d..c5489a46b297 100644
+--- a/crates/infra/agent/src/sdk/tools.rs
++++ b/crates/infra/agent/src/sdk/tools.rs
+@@ -20,10 +20,16 @@ const MAX_READ_LINES: usize = 2000;
+ /// 超限截断留痕；bash 输出同归此层。
+ const MAX_RESULT_BYTES: usize = 30_000;
+ 
+-/// 七工具名（loop 的 RunStarted.tools 与 policy 决策表同源口径，见
+-/// [`crate::sdk::policy`]）。
++/// 七通用工具封闭集基准面：policy 决策表与 compose 注入子集校验的基准；
++/// `RunStarted.tools` 与 loop 成员校验自 [`definitions`] 本体派生（下发面
++/// 单源——零第二份名单）。
+ pub const TOOL_NAMES: [&str; 7] = ["read", "grep", "glob", "ls", "write", "edit", "bash"];
+ 
++/// `create_explore_note` 专用工具名（`toolset == Explore` 会话受控追加；执行
++/// 体在 [`crate::sdk::explore_note`]，经 `LoopTurn` 上下文路由——不经
++/// `tools::execute` 纯函数）。
++pub(crate) const EXPLORE_NOTE_TOOL: &str = "create_explore_note";
++
+ /// 模型入参字符串字段提取（缺失或非字符串 → Err）。
+ fn string_field(input: &Value, field: &str) -> Result<String, String> {
+     input
+@@ -33,11 +39,49 @@ fn string_field(input: &Value, field: &str) -> Result<String, String> {
+         .ok_or_else(|| format!("入参缺失或非字符串字段: {field}"))
+ }
+ 
+-/// 工具定义面：六工具的 rig `ToolDefinition`（loop 逐轮组装
+-/// `CompletionRequest.tools` 用）。
+-pub fn definitions() -> Vec<ToolDefinition> {
+-    vec![
+-        ToolDefinition {
++/// 工具定义面（按会话注入面组装）：七通用工具按 `injections.tools` 保序过滤
++/// （`None` = 全七——默认会话与上线前行为一致；`Some` = 子集，按
++/// [`TOOL_NAMES`] 序过滤），`toolset == Explore` 时追加 `create_explore_note`
++/// 专用工具定义。`RunStarted.tools` 与成员校验自本函数返回值派生（下发面
++/// 单源）。
++pub fn definitions(injections: &agent::SessionInjections) -> Vec<ToolDefinition> {
++    let selected: Vec<&str> = match &injections.tools {
++        None => TOOL_NAMES.to_vec(),
++        Some(names) => TOOL_NAMES
++            .iter()
++            .filter(|name| names.iter().any(|n| n == *name))
++            .copied()
++            .collect(),
++    };
++    let mut definitions: Vec<ToolDefinition> =
++        selected.into_iter().map(generic_definition).collect();
++    if injections.toolset == Some(agent::SessionToolset::Explore) {
++        definitions.push(ToolDefinition {
++            name: EXPLORE_NOTE_TOOL.to_owned(),
++            description:
++                "为当前探索会话的笔记落盘并定名。无路径参数——服务端按当前会话解析目标：\
++                 占位会话（未定名）原子完成文件创建与记录定名（一次调用即最终名，勿先用 bash 造\
++                 文件）；已定名会话仅接受与记录同名且文件缺失的补建。返回笔记路径（repo 相对、\
++                 `/` 分隔），供 edit 续用"
++                    .to_owned(),
++            parameters: serde_json::json!({
++                "type": "object",
++                "properties": {
++                    "name": { "type": "string", "description": "本次探索的 kebab-case 最终名（小写字母/数字，可用 `-` 连接；已定名会话必须与记录同名）" },
++                    "content": { "type": "string", "description": "笔记初稿全文（原样落盘）" }
++                },
++                "required": ["name", "content"]
++            }),
++        });
++    }
++    definitions
++}
++
++/// 七通用工具定义（[`TOOL_NAMES`] 逐名 match；内容与参数化前的字面量逐字
++/// 一致）。
++fn generic_definition(name: &str) -> ToolDefinition {
++    match name {
++        "read" => ToolDefinition {
+             name: "read".to_owned(),
+             description:
+                 "读取文件内容（行号前缀输出）。可选 offset（1 起始行号）与 limit（行数）；\
+@@ -53,7 +97,7 @@ pub fn definitions() -> Vec<ToolDefinition> {
+                 "required": ["path"]
+             }),
+         },
+-        ToolDefinition {
++        "grep" => ToolDefinition {
+             name: "grep".to_owned(),
+             description:
+                 "行级正则匹配：返回命中行（文件路径:行号: 内容）；path 传目录时递归扫描其下文件；\
+@@ -69,7 +113,7 @@ pub fn definitions() -> Vec<ToolDefinition> {
+                 "required": ["path", "pattern"]
+             }),
+         },
+-        ToolDefinition {
++        "glob" => ToolDefinition {
+             name: "glob".to_owned(),
+             description: "按 glob 模式列出 workspace 内匹配文件（root 相对模式，上限 200 条）"
+                 .to_owned(),
+@@ -81,7 +125,7 @@ pub fn definitions() -> Vec<ToolDefinition> {
+                 "required": ["pattern"]
+             }),
+         },
+-        ToolDefinition {
++        "ls" => ToolDefinition {
+             name: "ls".to_owned(),
+             description: "列目录：一级条目（目录带 / 后缀），字母序".to_owned(),
+             parameters: serde_json::json!({
+@@ -92,7 +136,7 @@ pub fn definitions() -> Vec<ToolDefinition> {
+                 "required": ["path"]
+             }),
+         },
+-        ToolDefinition {
++        "write" => ToolDefinition {
+             name: "write".to_owned(),
+             description: "覆写文件（全量覆盖；缺失父目录自动创建）".to_owned(),
+             parameters: serde_json::json!({
+@@ -104,7 +148,7 @@ pub fn definitions() -> Vec<ToolDefinition> {
+                 "required": ["path", "content"]
+             }),
+         },
+-        ToolDefinition {
++        "edit" => ToolDefinition {
+             name: "edit".to_owned(),
+             description: "精确串替换：old_string 在文件中必须唯一命中（多处需 replace_all）"
+                 .to_owned(),
+@@ -119,7 +163,7 @@ pub fn definitions() -> Vec<ToolDefinition> {
+                 "required": ["path", "old_string", "new_string"]
+             }),
+         },
+-        ToolDefinition {
++        "bash" => ToolDefinition {
+             name: "bash".to_owned(),
+             description: "执行 shell 命令并返回合并输出（stdout 段在前、stderr 段带 [stderr] \
+                           标记在后）；cwd 为 workspace root，非零退出码报错并携带输出。超时为活性\
+@@ -134,7 +178,8 @@ pub fn definitions() -> Vec<ToolDefinition> {
+                 "required": ["command"]
+             }),
+         },
+-    ]
++        other => unreachable!("generic_definition 仅承接 TOOL_NAMES 封闭集: {other}"),
++    }
+ }
+ 
+ /// 沙箱校验对象提取：工具名 → 入参中的路径类字段值（glob 为 pattern，
+diff --git a/crates/infra/agent/src/sdk/tools_test.rs b/crates/infra/agent/src/sdk/tools_test.rs
+index 21b558280ec2..02f9987c52d1 100644
+--- a/crates/infra/agent/src/sdk/tools_test.rs
++++ b/crates/infra/agent/src/sdk/tools_test.rs
+@@ -1,9 +1,10 @@
+ use std::path::{Path, PathBuf};
+ 
++use agent::{SessionInjections, SessionToolset};
+ use serde_json::{json, Value};
+ 
+ use crate::sdk::sandbox::check;
+-use crate::sdk::tools::{definitions, execute, input_path, TOOL_NAMES};
++use crate::sdk::tools::{definitions, execute, input_path, EXPLORE_NOTE_TOOL, TOOL_NAMES};
+ 
+ fn tempdir(tag: &str) -> tempfile::TempDir {
+     tempfile::Builder::new()
+@@ -30,7 +31,7 @@ fn write_rel(root: &Path, rel: &str, content: &str) -> PathBuf {
+ 
+ #[test]
+ fn 定义清单恰为七工具且名称_描述_schema齐全() {
+-    let defs = definitions();
++    let defs = definitions(&SessionInjections::default());
+     assert_eq!(defs.len(), 7, "恰为七工具（bash 入册后的封闭清单）");
+     let names: Vec<&str> = defs.iter().map(|def| def.name.as_str()).collect();
+     assert_eq!(names, TOOL_NAMES.to_vec(), "定义面与 TOOL_NAMES 同源同序");
+@@ -934,3 +935,221 @@ async fn 未知工具名执行分发显式拒绝() {
+         "前置：反例名确在封闭清单之外"
+     );
+ }
++
++// ---------------------------------------------------------------------------
++// auto-named-explore：定义面参数化组装（definitions(injections)）与
++// create_explore_note 专用工具定义
++// ---------------------------------------------------------------------------
++
++/// `EXPLORE_NOTE_TOOL` 常量锚定：专用工具名逐字为 `create_explore_note`。
++#[test]
++fn explore_note_tool常量值为create_explore_note() {
++    assert_eq!(EXPLORE_NOTE_TOOL, "create_explore_note");
++}
++
++/// explore 收窄：`tools` = 六名（无 `write`）+ `toolset` = Explore → 定义不
++/// 含 `write`、序同 `TOOL_NAMES` 保序过滤、末位追加 `create_explore_note`。
++#[test]
++fn definitions_explore收窄_不含write_保序追加专用工具() {
++    let six: Vec<String> = TOOL_NAMES
++        .iter()
++        .copied()
++        .filter(|name| *name != "write")
++        .map(str::to_owned)
++        .collect();
++    let injections = SessionInjections {
++        preamble: None,
++        tools: Some(six),
++        toolset: Some(SessionToolset::Explore),
++    };
++
++    let defs = definitions(&injections);
++    let names: Vec<&str> = defs.iter().map(|def| def.name.as_str()).collect();
++
++    assert_eq!(
++        names,
++        vec!["read", "grep", "glob", "ls", "edit", "bash", "create_explore_note"],
++        "六名按 TOOL_NAMES 保序 + 末位追加专用工具，实际: {names:?}"
++    );
++    assert!(
++        !names.contains(&"write"),
++        "explore 工具面不含 write（AC-5 硬约束）"
++    );
++    assert_eq!(
++        defs.last().expect("追加的专用定义").name,
++        EXPLORE_NOTE_TOOL,
++        "专用工具以 EXPLORE_NOTE_TOOL 常量命名"
++    );
++}
++
++/// 空 `tools` 边界：`tools = Some([])` + `toolset` None → 零通用定义；
++/// `toolset` = Explore → 仅 `create_explore_note` 一条。
++#[test]
++fn definitions空tools子集_零通用定义_追加面仅剩专用工具() {
++    let empty_tools = SessionInjections {
++        preamble: None,
++        tools: Some(Vec::new()),
++        toolset: None,
++    };
++    assert!(
++        definitions(&empty_tools).is_empty(),
++        "Some([]) = 空子集：零通用定义（None 才是全七默认面）"
++    );
++
++    let empty_with_explore = SessionInjections {
++        preamble: None,
++        tools: Some(Vec::new()),
++        toolset: Some(SessionToolset::Explore),
++    };
++    let only_note = definitions(&empty_with_explore);
++    assert_eq!(
++        only_note.iter().map(|def| def.name.as_str()).collect::<Vec<_>>(),
++        vec![EXPLORE_NOTE_TOOL],
++        "空子集 + Explore → 仅 create_explore_note"
++    );
++}
++
++/// 单工具子集：`tools = Some(["read"])` → 恰单条 `read` 定义。
++#[test]
++fn definitions单工具子集恰产出对应单定义() {
++    let injections = SessionInjections {
++        preamble: None,
++        tools: Some(vec!["read".to_owned()]),
++        toolset: None,
++    };
++    let defs = definitions(&injections);
++    assert_eq!(defs.len(), 1, "恰单定义，实际: {}", defs.len());
++    assert_eq!(defs[0].name, "read");
++}
++
++/// 非法名与重复名过滤：`tools` 含 `"hacker"` / 重复名 → 定义面仅保留
++/// `TOOL_NAMES` 内成员（按封闭清单保序滤非法，幻觉名零定义产出）。
++#[test]
++fn definitions非法名与重复名经封闭清单保序滤除() {
++    let injections = SessionInjections {
++        preamble: None,
++        tools: Some(vec![
++            "hacker".to_owned(),
++            "grep".to_owned(),
++            "grep".to_owned(),
++            "read".to_owned(),
++            "Bash".to_owned(),
++        ]),
++        toolset: None,
++    };
++    let defs = definitions(&injections);
++    let names: Vec<&str> = defs.iter().map(|def| def.name.as_str()).collect();
++    assert_eq!(
++        names,
++        vec!["read", "grep"],
++        "hacker / Bash 被滤除、重复名去重且保 TOOL_NAMES 序，实际: {names:?}"
++    );
++    assert!(
++        names.iter().all(|name| TOOL_NAMES.contains(name)),
++        "产出面逐名 ∈ TOOL_NAMES 封闭集"
++    );
++}
++
++/// `create_explore_note` 定义形状：入参仅 `name` / `content`（无 `path` 字段）、
++/// description 非空且注明无路径参数、required 齐备（服务端按会话解析、返回
++/// repo 相对路径的语义以描述文案承载）。
++#[test]
++fn create_explore_note定义形状_name_content双参且无path字段() {
++    let injections = SessionInjections {
++        preamble: None,
++        tools: None,
++        toolset: Some(SessionToolset::Explore),
++    };
++    let defs = definitions(&injections);
++    let note = defs
++        .iter()
++        .find(|def| def.name == EXPLORE_NOTE_TOOL)
++        .expect("Explore 注入下专用定义在场");
++
++    assert!(!note.description.is_empty(), "description 非空");
++    assert!(
++        note.description.contains("无路径参数"),
++        "description 注明无路径参数（服务端按会话解析）: {}",
++        note.description
++    );
++    assert!(
++        note.description.contains("repo 相对"),
++        "description 注明返回 repo 相对路径: {}",
++        note.description
++    );
++    assert!(
++        note.description.contains("edit"),
++        "description 注明路径供 edit 续用: {}",
++        note.description
++    );
++
++    let properties = &note.parameters["properties"];
++    assert!(
++        properties.get("name").is_some_and(|v| v.is_object()),
++        "name 属性在场: {properties}"
++    );
++    assert!(
++        properties.get("content").is_some_and(|v| v.is_object()),
++        "content 属性在场: {properties}"
++    );
++    assert!(
++        properties.get("path").is_none(),
++        "无 path 字段（与六通用工具的关键形态区分）"
++    );
++    let required = note.parameters["required"]
++        .as_array()
++        .expect("required 数组");
++    assert!(
++        required.iter().any(|v| v == "name") && required.iter().any(|v| v == "content"),
++        "name / content 均必填: {required:?}"
++    );
++}
++
++/// 七通用定义体逐字回归快照：各定义 name / description / required 与参数化
++/// 前字面量逐字一致（`generic_definition` 重构零内容漂移——描述串逐字锚定）。
++#[test]
++fn 七通用定义体逐字快照_描述与required面零漂移() {
++    let defs = definitions(&SessionInjections::default());
++    let by_name = |name: &str| {
++        defs.iter()
++            .find(|def| def.name == name)
++            .unwrap_or_else(|| panic!("{name} 定义应在场"))
++    };
++
++    // (name, required, description 逐字前缀锚)
++    let expected: [(&str, &[&str], &str); 7] = [
++        ("read", &["path"], "读取文件内容（行号前缀输出）"),
++        ("grep", &["path", "pattern"], "行级正则匹配"),
++        ("glob", &["pattern"], "按 glob 模式列出 workspace 内匹配文件（root 相对模式，上限 200 条）"),
++        ("ls", &["path"], "列目录：一级条目（目录带 / 后缀），字母序"),
++        ("write", &["path", "content"], "覆写文件（全量覆盖；缺失父目录自动创建）"),
++        ("edit", &["path", "old_string", "new_string"], "精确串替换：old_string 在文件中必须唯一命中（多处需 replace_all）"),
++        ("bash", &["command"], "执行 shell 命令并返回合并输出"),
++    ];
++    assert_eq!(expected.len(), TOOL_NAMES.len(), "快照面与封闭清单同宽");
++    for (name, required, description_head) in expected {
++        let def = by_name(name);
++        assert_eq!(def.name, name, "定义名逐字");
++        // 描述逐字锚（read / grep / bash 描述更长，锚定前缀段；glob / ls /
++        // write / edit 的锚即全串——starts_with 判定下两者等价成立）
++        assert!(
++            def.description.starts_with(description_head),
++            "{name} 描述须与既有字面量逐字一致，实际: {}",
++            def.description
++        );
++        let actual_required = def.parameters["required"]
++            .as_array()
++            .unwrap_or_else(|| panic!("{name} required 数组"));
++        let actual: Vec<&str> = actual_required.iter().map(|v| v.as_str().expect("字符串")).collect();
++        assert_eq!(actual, required, "{name} required 面逐字一致");
++        assert_eq!(
++            def.parameters["type"], json!("object"),
++            "{name} schema object 类型锚"
++        );
++    }
++
++    // glob 无 path 属性（快照半边）；read 的 offset/limit 属性仍在
++    assert!(by_name("glob").parameters["properties"].get("path").is_none());
++    assert!(by_name("read").parameters["properties"]["offset"].is_object());
++    assert!(by_name("read").parameters["properties"]["limit"].is_object());
++}
+diff --git a/crates/infra/checks/default_728550654169596690_0_19048.profraw b/crates/infra/checks/default_728550654169596690_0_19048.profraw
+new file mode 100644
+index 000000000000..b6c52f0c644d
+Binary files /dev/null and b/packages/desktop/src-tauri/crates/infra/checks/default_728550654169596690_0_19048.profraw differ
+diff --git a/crates/infra/exec/default_11067818446001108108_0_21768.profraw b/crates/infra/exec/default_11067818446001108108_0_21768.profraw
+new file mode 100644
+index 000000000000..7f178cee2e9b
+Binary files /dev/null and b/packages/desktop/src-tauri/crates/infra/exec/default_11067818446001108108_0_21768.profraw differ

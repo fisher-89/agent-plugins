@@ -178,7 +178,7 @@ fn capturing_channel() -> (
 }
 
 /// 轮询至谓词成立（后台 walker 驱动的观测窗口；30s 上限防挂死）。
-fn wait_for(what: &str, mut probe: impl FnMut() -> bool) {
+fn wait_for(what: &str, probe: impl FnMut() -> bool) {
     wait_for_up_to(what, Duration::from_secs(30), probe);
 }
 

@@ -1,0 +1,113 @@
+diff --git a/crates/target/llvm-cov-target/debug/build/proc-macro2-f9487b91b7e570b0/output b/crates/target/llvm-cov-target/debug/build/proc-macro2-f9487b91b7e570b0/output
+new file mode 100644
+index 000000000000..d3d235a541cd
+--- /dev/null
++++ b/crates/target/llvm-cov-target/debug/build/proc-macro2-f9487b91b7e570b0/output
+@@ -0,0 +1,23 @@
++cargo:rustc-check-cfg=cfg(fuzzing)
++cargo:rustc-check-cfg=cfg(no_is_available)
++cargo:rustc-check-cfg=cfg(no_literal_byte_character)
++cargo:rustc-check-cfg=cfg(no_literal_c_string)
++cargo:rustc-check-cfg=cfg(no_source_text)
++cargo:rustc-check-cfg=cfg(proc_macro_span)
++cargo:rustc-check-cfg=cfg(proc_macro_span_file)
++cargo:rustc-check-cfg=cfg(proc_macro_span_location)
++cargo:rustc-check-cfg=cfg(procmacro2_backtrace)
++cargo:rustc-check-cfg=cfg(procmacro2_build_probe)
++cargo:rustc-check-cfg=cfg(procmacro2_nightly_testing)
++cargo:rustc-check-cfg=cfg(procmacro2_semver_exempt)
++cargo:rustc-check-cfg=cfg(randomize_layout)
++cargo:rustc-check-cfg=cfg(span_locations)
++cargo:rustc-check-cfg=cfg(super_unstable)
++cargo:rustc-check-cfg=cfg(wrap_proc_macro)
++cargo:rerun-if-changed=src/probe/proc_macro_span.rs
++cargo:rustc-cfg=wrap_proc_macro
++cargo:rerun-if-changed=src/probe/proc_macro_span_location.rs
++cargo:rustc-cfg=proc_macro_span_location
++cargo:rerun-if-changed=src/probe/proc_macro_span_file.rs
++cargo:rustc-cfg=proc_macro_span_file
++cargo:rerun-if-env-changed=RUSTC_BOOTSTRAP
+diff --git a/crates/target/llvm-cov-target/debug/build/proc-macro2-f9487b91b7e570b0/root-output b/crates/target/llvm-cov-target/debug/build/proc-macro2-f9487b91b7e570b0/root-output
+new file mode 100644
+index 000000000000..86bef176a84a
+--- /dev/null
++++ b/crates/target/llvm-cov-target/debug/build/proc-macro2-f9487b91b7e570b0/root-output
+@@ -0,0 +1 @@
++C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\auto-named-explore\packages\desktop\src-tauri\crates\core\agent\../../target/llvm-cov-target\debug\build\proc-macro2-f9487b91b7e570b0\out
+\ No newline at end of file
+diff --git a/crates/target/llvm-cov-target/debug/build/proc-macro2-f9487b91b7e570b0/stderr b/crates/target/llvm-cov-target/debug/build/proc-macro2-f9487b91b7e570b0/stderr
+new file mode 100644
+index 000000000000..e69de29bb2d1
+diff --git a/crates/target/llvm-cov-target/debug/build/quote-665e78b465b28693/build-script-build.exe b/crates/target/llvm-cov-target/debug/build/quote-665e78b465b28693/build-script-build.exe
+new file mode 100644
+index 000000000000..772f7f67566a
+Binary files /dev/null and b/packages/desktop/src-tauri/crates/target/llvm-cov-target/debug/build/quote-665e78b465b28693/build-script-build.exe differ
+diff --git a/crates/target/llvm-cov-target/debug/build/quote-665e78b465b28693/build_script_build-665e78b465b28693.d b/crates/target/llvm-cov-target/debug/build/quote-665e78b465b28693/build_script_build-665e78b465b28693.d
+new file mode 100644
+index 000000000000..4b973f93fad4
+--- /dev/null
++++ b/crates/target/llvm-cov-target/debug/build/quote-665e78b465b28693/build_script_build-665e78b465b28693.d
+@@ -0,0 +1,5 @@
++C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\auto-named-explore\packages\desktop\src-tauri\crates\core\agent\../../target/llvm-cov-target\debug\build\quote-665e78b465b28693\build_script_build-665e78b465b28693.d: C:\Users\wps\.cargo\registry\src\rsproxy.cn-e3de039b2554c837\quote-1.0.47\build.rs
++
++C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\auto-named-explore\packages\desktop\src-tauri\crates\core\agent\../../target/llvm-cov-target\debug\build\quote-665e78b465b28693\build_script_build-665e78b465b28693.exe: C:\Users\wps\.cargo\registry\src\rsproxy.cn-e3de039b2554c837\quote-1.0.47\build.rs
++
++C:\Users\wps\.cargo\registry\src\rsproxy.cn-e3de039b2554c837\quote-1.0.47\build.rs:
+diff --git a/crates/target/llvm-cov-target/debug/build/quote-665e78b465b28693/build_script_build-665e78b465b28693.exe b/crates/target/llvm-cov-target/debug/build/quote-665e78b465b28693/build_script_build-665e78b465b28693.exe
+new file mode 100644
+index 000000000000..772f7f67566a
+Binary files /dev/null and b/packages/desktop/src-tauri/crates/target/llvm-cov-target/debug/build/quote-665e78b465b28693/build_script_build-665e78b465b28693.exe differ
+diff --git a/crates/target/llvm-cov-target/debug/build/quote-665e78b465b28693/build_script_build-665e78b465b28693.pdb b/crates/target/llvm-cov-target/debug/build/quote-665e78b465b28693/build_script_build-665e78b465b28693.pdb
+new file mode 100644
+index 000000000000..632a2857047b
+Binary files /dev/null and b/packages/desktop/src-tauri/crates/target/llvm-cov-target/debug/build/quote-665e78b465b28693/build_script_build-665e78b465b28693.pdb differ
+diff --git a/crates/target/llvm-cov-target/debug/build/quote-665e78b465b28693/build_script_build.pdb b/crates/target/llvm-cov-target/debug/build/quote-665e78b465b28693/build_script_build.pdb
+new file mode 100644
+index 000000000000..632a2857047b
+Binary files /dev/null and b/packages/desktop/src-tauri/crates/target/llvm-cov-target/debug/build/quote-665e78b465b28693/build_script_build.pdb differ
+diff --git a/crates/target/llvm-cov-target/debug/build/quote-954c5d7ad37e79b1/invoked.timestamp b/crates/target/llvm-cov-target/debug/build/quote-954c5d7ad37e79b1/invoked.timestamp
+new file mode 100644
+index 000000000000..e00328da5aa8
+--- /dev/null
++++ b/crates/target/llvm-cov-target/debug/build/quote-954c5d7ad37e79b1/invoked.timestamp
+@@ -0,0 +1 @@
++This file has an mtime of when this was started.
+\ No newline at end of file
+diff --git a/crates/target/llvm-cov-target/debug/build/quote-954c5d7ad37e79b1/output b/crates/target/llvm-cov-target/debug/build/quote-954c5d7ad37e79b1/output
+new file mode 100644
+index 000000000000..6d81eca24629
+--- /dev/null
++++ b/crates/target/llvm-cov-target/debug/build/quote-954c5d7ad37e79b1/output
+@@ -0,0 +1,2 @@
++cargo:rerun-if-changed=build.rs
++cargo:rustc-check-cfg=cfg(no_diagnostic_namespace)
+diff --git a/crates/target/llvm-cov-target/debug/build/quote-954c5d7ad37e79b1/root-output b/crates/target/llvm-cov-target/debug/build/quote-954c5d7ad37e79b1/root-output
+new file mode 100644
+index 000000000000..5ec885b5a88c
+--- /dev/null
++++ b/crates/target/llvm-cov-target/debug/build/quote-954c5d7ad37e79b1/root-output
+@@ -0,0 +1 @@
++C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\auto-named-explore\packages\desktop\src-tauri\crates\core\agent\../../target/llvm-cov-target\debug\build\quote-954c5d7ad37e79b1\out
+\ No newline at end of file
+diff --git a/crates/target/llvm-cov-target/debug/build/quote-954c5d7ad37e79b1/stderr b/crates/target/llvm-cov-target/debug/build/quote-954c5d7ad37e79b1/stderr
+new file mode 100644
+index 000000000000..e69de29bb2d1
+diff --git a/crates/target/llvm-cov-target/debug/build/serde-357d3b5b4b9ed41c/build-script-build.exe b/crates/target/llvm-cov-target/debug/build/serde-357d3b5b4b9ed41c/build-script-build.exe
+new file mode 100644
+index 000000000000..7a1bb6ec1422
+Binary files /dev/null and b/packages/desktop/src-tauri/crates/target/llvm-cov-target/debug/build/serde-357d3b5b4b9ed41c/build-script-build.exe differ
+diff --git a/crates/target/llvm-cov-target/debug/build/serde-357d3b5b4b9ed41c/build_script_build-357d3b5b4b9ed41c.d b/crates/target/llvm-cov-target/debug/build/serde-357d3b5b4b9ed41c/build_script_build-357d3b5b4b9ed41c.d
+new file mode 100644
+index 000000000000..6be361001dbd
+--- /dev/null
++++ b/crates/target/llvm-cov-target/debug/build/serde-357d3b5b4b9ed41c/build_script_build-357d3b5b4b9ed41c.d
+@@ -0,0 +1,5 @@
++C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\auto-named-explore\packages\desktop\src-tauri\crates\core\agent\../../target/llvm-cov-target\debug\build\serde-357d3b5b4b9ed41c\build_script_build-357d3b5b4b9ed41c.d: C:\Users\wps\.cargo\registry\src\rsproxy.cn-e3de039b2554c837\serde-1.0.229\build.rs
++
++C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\auto-named-explore\packages\desktop\src-tauri\crates\core\agent\../../target/llvm-cov-target\debug\build\serde-357d3b5b4b9ed41c\build_script_build-357d3b5b4b9ed41c.exe: C:\Users\wps\.cargo\registry\src\rsproxy.cn-e3de039b2554c837\serde-1.0.229\build.rs
++
++C:\Users\wps\.cargo\registry\src\rsproxy.cn-e3de039b2554c837\serde-1.0.229\build.rs:
+diff --git a/crates/target/llvm-cov-target/debug/build/serde-357d3b5b4b9ed41c/build_script_build-357d3b5b4b9ed41c.exe b/crates/target/llvm-cov-target/debug/build/serde-357d3b5b4b9ed41c/build_script_build-357d3b5b4b9ed41c.exe
+new file mode 100644
+index 000000000000..7a1bb6ec1422
+Binary files /dev/null and b/packages/desktop/src-tauri/crates/target/llvm-cov-target/debug/build/serde-357d3b5b4b9ed41c/build_script_build-357d3b5b4b9ed41c.exe differ

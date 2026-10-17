@@ -11,7 +11,8 @@ pub use kernel::{KernelOutput, RunningTurn, SessionKernel, StopRegistry, TurnReq
 pub use port::{SessionQuery, SessionSink, TurnOutcome};
 pub use runner::{
     AgentPermissionMode, AgentRunStatus, AgentRunner, AgentSession, AgentStartError, ModelLevel,
-    RunHandle, SessionCtx, SessionInjections, SessionOpen, SessionRef, TurnQuestion,
+    RunHandle, SessionCtx, SessionInjections, SessionOpen, SessionRef, SessionToolset,
+    TurnQuestion,
 };
 pub use session::{
     new_session_id, NewSessionRow, SessionPage, SessionProvenance, SessionRow, SessionStats,
