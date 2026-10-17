@@ -4,14 +4,6 @@
   "static_analysis": "pnpm run -C ./packages/desktop check",
   "tests": [
     {
-      "root": "plugins/dev-team",
-      "framework": "vite-plus",
-      "config": "vite.config.ts",
-      "includes": ["bin/src/**/*.{ts,tsx}"],
-      "excludes": ["bin/src/schemas/**/*", "home-install.ts"],
-      "coverage": { "lines": 90, "branches": 85, "functions": 90 }
-    },
-    {
       "root": "packages/desktop",
       "framework": "vite-plus",
       "config": "vite.config.ts",

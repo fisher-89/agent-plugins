@@ -62,7 +62,7 @@
 - [x] 【Desktop】会话中途继续提问时，无需携带角色prompt，当前explore会反复发送角色信息
 - [ ] 【Desktop】优化各阶段prompt，补全模板概念
 - [ ] 【Desktop】移除src/views/changes/flow/layout.ts PIPELINE_PHASES，改为读取接口返回phase
-- [ ] 【Desktop】step记录开始和结束时间；流程图中step显示耗时，agent step显示关联session的token消耗
+- [x] 【Desktop】step记录开始和结束时间；流程图中step显示耗时，agent step显示关联session的token消耗
 - [x] 【Desktop】修复问题：中断变更流程重启后，会多一个phase_start节点，前一轮节点丢失；新的agent step详情关联到上一轮同step的会话记录；
 - [x] 【Desktop】修复问题（证据见change desktop-test-only-flow）：read_exec_output未返回脚本运行日志（返回null）
 - [ ] 【Desktop】如果有运行中agent，关闭桌面端前提示二次确认

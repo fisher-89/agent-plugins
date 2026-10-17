@@ -1771,6 +1771,35 @@ fn change_edit_patch_幂等_重复调用结果一致() {
     assert!(!first.is_empty(), "补丁非空（双源在场）");
 }
 
+/// 回归（os error 206）：海量 untracked 清单（argv 展开面超 Windows
+/// CreateProcess 命令行 32767 上限的量级——test-execution 遗留 llvm-cov
+/// 产物 500+ 路径现场 ≈ 70KB）经 `--pathspec-from-file=-` stdin 入线不炸：
+/// 补丁取数成功且含新文件段头（argv 展开旧径此装置下 spawn 直接失败）。
+#[test]
+fn change_edit_patch_海量untracked清单经stdin入线不超命令行上限() {
+    let vcs = archive_vcs();
+    let (_dir, root) = init_repo("edit-patch-flood");
+    // 600 × ~131 字符路径 ≈ 78KB，稳超 32767；单层平铺（装置面勿嵌套目录拖慢）
+    let mut total = 0usize;
+    for i in 0..600 {
+        let name = format!("f-{i:03}-{}", "x".repeat(124));
+        fs_write(&root, &name, "fn mutated() {}\n");
+        total += name.len() + 1;
+    }
+    assert!(
+        total > 32_767,
+        "装置面须超 Windows 命令行上限（实际 {total}）"
+    );
+
+    let patch = vcs
+        .change_edit_patch(&root, "HEAD")
+        .expect("海量 untracked 补丁取数应成功（stdin 入线）");
+    assert!(
+        patch.contains("diff --git a/f-000-") && patch.contains("diff --git a/f-599-"),
+        "补丁含首尾新文件段头（intent-to-add 全量生效）"
+    );
+}
+
 // ---------------------------------------------------------------------------
 // ensure_mutation_artifact_exclude（.git/info/exclude 幂等追加 + staged 残留
 // 撤出）——失败段调试产物留盘复现但 MUST NOT 进归档提交

@@ -1,3 +1,4 @@
+use std::io::Write as _;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 
@@ -6,22 +7,57 @@ use workflow::write::RepoProbe;
 
 /// 一次 git 子命令执行（stdout 捕获；stdin 关闭）
 pub(crate) fn git(main_root: &Path, args: &[&str]) -> Result<String, String> {
-    let output = exec::SystemCommand::bare("git")
-        .into_std()
+    git_impl(main_root, args, None)
+}
+
+/// stdin 载荷版 git 子命令执行：海量 pathspec 清单经
+/// `--pathspec-from-file=- --pathspec-file-nul` 入线（git ≥ 2.25），规避
+/// argv 展开——Windows CreateProcess 命令行 32767 上限在海量 untracked
+/// 清单（test-execution 遗留 llvm-cov 产物 500+ 路径 ≈ 70KB）下 spawn 直接
+/// os error 206（「文件名或扩展名太长」）。
+pub(crate) fn git_stdin(
+    main_root: &Path,
+    args: &[&str],
+    stdin_payload: &[u8],
+) -> Result<String, String> {
+    git_impl(main_root, args, Some(stdin_payload))
+}
+
+fn git_impl(
+    main_root: &Path,
+    args: &[&str],
+    stdin_payload: Option<&[u8]>,
+) -> Result<String, String> {
+    let mut command = exec::SystemCommand::bare("git").into_std();
+    command
         .arg("-C")
         .arg(main_root)
         .args(args)
         .env("GIT_EDITOR", "true")
-        .stdin(Stdio::null())
+        .stdin(if stdin_payload.is_some() {
+            Stdio::piped()
+        } else {
+            Stdio::null()
+        })
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .output()
-        .map_err(|error| {
-            format!(
-                "git 不可用（PATH 未发现 git）: {error}；change worktree 建域依赖 git，\
-                 请安装 git 并确认 PATH 可达后重试"
-            )
-        })?;
+        .stderr(Stdio::piped());
+    let mut child = command.spawn().map_err(|error| {
+        format!(
+            "git 不可用（PATH 未发现 git）: {error}；change worktree 建域依赖 git，\
+             请安装 git 并确认 PATH 可达后重试"
+        )
+    })?;
+    if let Some(payload) = stdin_payload {
+        // 尽力写 + drop 关管道（EOF 信号）。写错吞——git 提前退出（非法
+        // pathspec 等）时管道断，退出码 / stderr 面已足；add 读 stdin 期间
+        // stdout / stderr 输出近零，无管道互锁
+        if let Some(mut stdin) = child.stdin.take() {
+            let _ = stdin.write_all(payload);
+        }
+    }
+    let output = child
+        .wait_with_output()
+        .map_err(|error| format!("git {} 收敛失败: {error}", args.join(" ")))?;
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
         return Err(format!(
@@ -538,14 +574,15 @@ pub(crate) fn change_edit_patch(root: &Path, base: &str) -> Result<String, Strin
     // 仅对 untracked 清单面做 intent-to-add（与 change_edit_set 的 untracked 口径
     // 同源同集——gitignore 面不入）
     let untracked = git(root, &["ls-files", "--others", "--exclude-standard", "-z"])?;
-    let paths: Vec<&str> = untracked
-        .split('\0')
-        .filter(|entry| !entry.is_empty())
-        .collect();
-    if !paths.is_empty() {
-        let mut add_args: Vec<&str> = vec!["add", "-N", "--"];
-        add_args.extend_from_slice(&paths);
-        git(root, &add_args)?;
+    if untracked.split('\0').any(|entry| !entry.is_empty()) {
+        // 清单经 stdin NUL 入线（ls-files -z 产物原样回喂）：argv 展开面在
+        // 海量 untracked（llvm-cov 产物等 500+ 路径）下超 Windows
+        // CreateProcess 命令行 32767 上限——spawn 直接 os error 206
+        git_stdin(
+            root,
+            &["add", "-N", "--pathspec-from-file=-", "--pathspec-file-nul"],
+            untracked.as_bytes(),
+        )?;
     }
     git(root, &["diff", base])
 }
