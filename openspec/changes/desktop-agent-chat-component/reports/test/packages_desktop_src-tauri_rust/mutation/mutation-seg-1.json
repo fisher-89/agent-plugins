@@ -1,0 +1,337 @@
+{
+  "outcomes": [
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/main.rs:24:5: replace main with ()",
+          "package": "dev-team",
+          "file": "src/main.rs",
+          "function": {
+            "function_name": "main",
+            "return_type": "",
+            "span": {
+              "start": {
+                "line": 23,
+                "column": 1
+              },
+              "end": {
+                "line": 79,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 24,
+              "column": 5
+            },
+            "end": {
+              "line": 78,
+              "column": 35
+            }
+          },
+          "replacement": "()",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Unviable",
+      "log_path": "log/src__main.rs_line_24_col_5.log",
+      "diff_path": "diff/src__main.rs_line_24_col_5.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 6.7717264,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=dev-team@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/commands/exec/mod.rs:170:5: replace agent_session_watch_with -> Result<(), String> with Ok(())",
+          "package": "dev-team",
+          "file": "src/commands/exec/mod.rs",
+          "function": {
+            "function_name": "agent_session_watch_with",
+            "return_type": "-> Result<(), String>",
+            "span": {
+              "start": {
+                "line": 161,
+                "column": 1
+              },
+              "end": {
+                "line": 200,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 170,
+              "column": 5
+            },
+            "end": {
+              "line": 199,
+              "column": 11
+            }
+          },
+          "replacement": "Ok(())",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Unviable",
+      "log_path": "log/src__commands__exec__mod.rs_line_170_col_5.log",
+      "diff_path": "diff/src__commands__exec__mod.rs_line_170_col_5.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 10.7756819,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=dev-team@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/commands/exec/mod.rs:158:5: replace agent_session_watch -> Result<(), String> with Ok(())",
+          "package": "dev-team",
+          "file": "src/commands/exec/mod.rs",
+          "function": {
+            "function_name": "agent_session_watch",
+            "return_type": "-> Result<(), String>",
+            "span": {
+              "start": {
+                "line": 144,
+                "column": 1
+              },
+              "end": {
+                "line": 159,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 158,
+              "column": 5
+            },
+            "end": {
+              "line": 158,
+              "column": 79
+            }
+          },
+          "replacement": "Ok(())",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Unviable",
+      "log_path": "log/src__commands__exec__mod.rs_line_158_col_5.log",
+      "diff_path": "diff/src__commands__exec__mod.rs_line_158_col_5.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 12.9770765,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=dev-team@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/commands/exec/mod.rs:72:5: replace agent_start_with -> Result<TurnSummary, String> with Ok(Default::default())",
+          "package": "dev-team",
+          "file": "src/commands/exec/mod.rs",
+          "function": {
+            "function_name": "agent_start_with",
+            "return_type": "-> Result<TurnSummary, String>",
+            "span": {
+              "start": {
+                "line": 57,
+                "column": 1
+              },
+              "end": {
+                "line": 126,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 72,
+              "column": 5
+            },
+            "end": {
+              "line": 125,
+              "column": 16
+            }
+          },
+          "replacement": "Ok(Default::default())",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Unviable",
+      "log_path": "log/src__commands__exec__mod.rs_line_72_col_5.log",
+      "diff_path": "diff/src__commands__exec__mod.rs_line_72_col_5.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 15.1294471,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=dev-team@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/commands/change_flow/mod.rs:88:5: replace change_flow_start_with -> Result<ChangeRunSummary, String> with Ok(Default::default())",
+          "package": "dev-team",
+          "file": "src/commands/change_flow/mod.rs",
+          "function": {
+            "function_name": "change_flow_start_with",
+            "return_type": "-> Result<ChangeRunSummary, String>",
+            "span": {
+              "start": {
+                "line": 79,
+                "column": 1
+              },
+              "end": {
+                "line": 209,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 88,
+              "column": 5
+            },
+            "end": {
+              "line": 208,
+              "column": 7
+            }
+          },
+          "replacement": "Ok(Default::default())",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Unviable",
+      "log_path": "log/src__commands__change_flow__mod.rs_line_88_col_5.log",
+      "diff_path": "diff/src__commands__change_flow__mod.rs_line_88_col_5.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 17.3853604,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=dev-team@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/commands/exec/agent.rs:36:5: replace outcome_summary -> TurnSummary with Default::default()",
+          "package": "dev-team",
+          "file": "src/commands/exec/agent.rs",
+          "function": {
+            "function_name": "outcome_summary",
+            "return_type": "-> TurnSummary",
+            "span": {
+              "start": {
+                "line": 33,
+                "column": 1
+              },
+              "end": {
+                "line": 47,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 36,
+              "column": 5
+            },
+            "end": {
+              "line": 46,
+              "column": 6
+            }
+          },
+          "replacement": "Default::default()",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Unviable",
+      "log_path": "log/src__commands__exec__agent.rs_line_36_col_5.log",
+      "diff_path": "diff/src__commands__exec__agent.rs_line_36_col_5.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 19.460273,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=dev-team@0.1.0"
+          ]
+        }
+      ]
+    }
+  ],
+  "total_mutants": 6,
+  "missed": 0,
+  "caught": 0,
+  "timeout": 0,
+  "unviable": 6,
+  "success": 0,
+  "start_time": "2026-10-17T15:38:52.9644295Z",
+  "end_time": "2026-10-17T15:39:15.6645134Z",
+  "cargo_mutants_version": "27.1.0"
+}

@@ -6,7 +6,7 @@ use tauri::{generate_handler, Manager};
 
 use store::WorkspaceStores;
 
-use agent::StopRegistry;
+use agent::{SessionStreamRegistry, StopRegistry};
 use dev_team::commands::all_commands;
 use dev_team::commands::watch::WatchRegistry;
 use orchestration::control::ChangeFlowControl;
@@ -61,6 +61,10 @@ fn main() {
             // 内核 begin_turn 登记 / drive 终态除名 / agent_stop 查询，此处
             // 只挂空表（Arc 承载跨内核实例共享，与 WatchRegistry 同型托管）
             app.manage(Arc::new(StopRegistry::default()));
+            // agent 会话实时流注册表（键 = core session id，与 StopRegistry 同
+            // 型托管）：内核 begin_turn 登记 / converge 投终态除名 /
+            // agent_session_watch 订阅，进程内存态重启即清空（delta 永不落库）
+            app.manage(Arc::new(SessionStreamRegistry::default()));
             // change-flow run 控制注册表（进程内，键 = (workspace root, change)
             // 复合）：change_flow_* 命令面读写 / walker 持 RunGuard 写，此处只
             // 挂空表（Arc 承载跨 sink 桥共享，与 StopRegistry 同型托管）。归档

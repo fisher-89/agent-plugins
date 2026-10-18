@@ -1,8 +1,8 @@
 import { useState } from 'react';
 
-import { AgentMessages } from '@/components/agent';
+import { AgentSessionView } from '@/components/agent';
 import { Button } from '@/components/ui/button';
-import { useAgentChat } from '@/hooks/use-agent-chat';
+import { useAgentSession } from '@/hooks/use-agent-session';
 
 import { AgentRawStream } from './components/agent-raw-stream';
 import { AgentRunForm, type AgentStartInput } from './components/agent-run-form';
@@ -75,7 +75,9 @@ export function AgentDebugView({ root }: AgentDebugViewProps): React.JSX.Element
   const history = useAgentRunHistory(root, source);
   const agentOptions = useAgentOptions();
   const [showRaw, setShowRaw] = useState(false);
-  const session = useAgentChat({ source: 'debug', sessionId: null, root });
+  // 交互形态：会话状态面由页面持有（原始转录切换 / 表单禁发 / 停止共用），
+  // 渲染经组件注入形态（不另建第二条流）
+  const session = useAgentSession({ source: 'debug', sessionId: null, root });
 
   // 每跑重置（每跑 New 会话）：上一跑 messages / events / chain / 会话镜像
   // 清空，不串场
@@ -105,9 +107,9 @@ export function AgentDebugView({ root }: AgentDebugViewProps): React.JSX.Element
       {showRaw ? (
         <AgentRawStream events={session.events} />
       ) : (
-        <AgentMessages messages={session.messages} running={session.running} />
+        <AgentSessionView session={session} data-testid="agent-timeline" />
       )}
-      <AgentRunHistory state={history} source={source} onSourceChange={setSource} />
+      <AgentRunHistory root={root} state={history} source={source} onSourceChange={setSource} />
     </div>
   );
 }

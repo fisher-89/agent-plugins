@@ -13,6 +13,9 @@ use crate::session::{
     SessionSummary, TurnSummary,
 };
 use crate::state::{AgentRunState, RunStateMachine};
+use crate::stream::{
+    SessionStreamItem, SessionStreamRecvError, SessionStreamRegistry, SessionStreamSubscription,
+};
 
 /// crate 根 use 可达性锚定：上列导入任一破坏即编译失败。构造形态断言确保
 /// 导入非仅「被 use」而确可用。
@@ -55,7 +58,11 @@ fn crate根导出面锚定_session_port_kernel新模块类型可达() {
 
     // port / kernel 类型构造形态
     let registry = StopRegistry::new();
-    let _kernel = SessionKernel::new(Arc::new(NoopSink), Arc::new(StopRegistry::new()));
+    let _kernel = SessionKernel::new(
+        Arc::new(NoopSink),
+        Arc::new(StopRegistry::new()),
+        Arc::new(SessionStreamRegistry::new()),
+    );
     let request = TurnRequest {
         session: SessionRef::New,
         question: String::new(),
@@ -342,4 +349,117 @@ fn crate根路径session_injections_default三位全none() {
     assert_eq!(default_injections.preamble, None, "preamble None");
     assert_eq!(default_injections.tools, None, "tools None");
     assert_eq!(default_injections.toolset, None, "toolset None（增补位缺省）");
+}
+
+// ---------------------------------------------------------------------------
+// 会话实时流注册表 re-export（`mod stream` 私有，crate 根为唯一可达路径）：
+// 类型出口与行为面同一（出口不引入分支，语义仍由 stream 模块单点决定）
+// ---------------------------------------------------------------------------
+
+fn stream_outcome() -> TurnOutcome {
+    TurnOutcome {
+        turn_id: 1,
+        status: AgentRunStatus::Completed,
+        started_at: 1_727_000_000_000,
+        finished_at: 1_727_000_005_000,
+        num_turns: None,
+        duration_ms: None,
+        cost_usd: None,
+        usage: serde_json::Value::Null,
+        error: None,
+        remote_session_id: None,
+    }
+}
+
+/// 根路径全链路可用性锚定：构造 → `begin` → `publish` → `subscribe` →
+/// `recv` → `finish` 经 `crate::SessionStreamRegistry` 一路走通。
+#[tokio::test]
+async fn crate根路径会话流注册表全链路可用() {
+    let registry: SessionStreamRegistry = crate::SessionStreamRegistry::new();
+    registry.begin("ses-root");
+    let mut subscription: SessionStreamSubscription = registry
+        .subscribe("ses-root", 0)
+        .expect("根路径注册后应可订阅");
+
+    registry.publish(
+        "ses-root",
+        AgentEvent::stamp(
+            1,
+            AgentEventKind::MessageDelta {
+                parent_tool_use_id: None,
+                delta: AgentDelta::Text {
+                    text: "根路径增量".to_owned(),
+                },
+            },
+        ),
+    );
+    let first: SessionStreamItem = subscription.recv().await.expect("增量可得");
+    assert!(
+        matches!(first, SessionStreamItem::Event(ref event) if event.seq == 1),
+        "根路径出口的行为面与 stream 模块同一实现"
+    );
+
+    registry.finish("ses-root", stream_outcome());
+    let terminal = subscription.recv().await.expect("终态可得");
+    assert!(
+        matches!(terminal, SessionStreamItem::Finished(ref outcome) if outcome.turn_id == 1),
+        "终态变体经根路径 match"
+    );
+    assert!(
+        registry.subscribe("ses-root", 0).is_none(),
+        "投终态即除名（根路径语义不另立分支）"
+    );
+}
+
+/// 两变体与收尾错误经根路径比较：`Finished` 载荷可读、`Closed` / `Lagged`
+/// 可 `PartialEq` 断言。
+#[tokio::test]
+async fn crate根路径会话流条目与收尾错误变体可match与比较() {
+    let registry = SessionStreamRegistry::new();
+    registry.begin("ses-variants");
+    let mut subscription = registry.subscribe("ses-variants", 0).expect("可订阅");
+    registry.finish("ses-variants", stream_outcome());
+
+    match subscription.recv().await {
+        Ok(SessionStreamItem::Finished(outcome)) => {
+            assert_eq!(outcome.status, AgentRunStatus::Completed)
+        }
+        other => panic!("应为 Finished，实际: {other:?}"),
+    }
+    let closed: SessionStreamRecvError = subscription
+        .recv()
+        .await
+        .err()
+        .expect("排空后 Closed");
+    assert_eq!(closed, crate::SessionStreamRecvError::Closed);
+    assert_ne!(closed, crate::SessionStreamRecvError::Lagged(1));
+}
+
+/// `Default` 与 `new()` 等价空表且两实例互不共享条目。
+#[test]
+fn crate根路径default与new等价空表且两实例互不共享() {
+    let first = crate::SessionStreamRegistry::default();
+    let second = crate::SessionStreamRegistry::new();
+
+    first.begin("ses-shared");
+    assert!(
+        first.subscribe("ses-shared", 0).is_some(),
+        "登记处可订阅"
+    );
+    assert!(
+        second.subscribe("ses-shared", 0).is_none(),
+        "另一实例零条目（空表互不共享）"
+    );
+    assert!(
+        second.subscribe("", 0).is_none(),
+        "空表对空白键同样 None"
+    );
+}
+
+/// 未登记 id 经根路径订阅 → `None`（re-export 不引入行为分支）。
+#[test]
+fn crate根路径未登记id订阅为none() {
+    let registry = crate::SessionStreamRegistry::new();
+    assert!(registry.subscribe("ses-404", 0).is_none());
+    assert!(registry.subscribe("", 0).is_none());
 }

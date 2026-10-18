@@ -7,7 +7,7 @@ mod mod_test;
 use tauri::ipc::Channel;
 use tauri::{AppHandle, Manager};
 
-use ::agent::StopRegistry;
+use ::agent::{SessionStreamRegistry, StopRegistry};
 use agent_runtime::{compose_turn, ComposedTurn, KernelWorkerPort};
 use checks_runtime::{ProcessMutation, ProcessStaticCheck, ProcessTestExecution};
 use orchestration::control::ChangeFlowControl;
@@ -139,9 +139,11 @@ pub(crate) async fn change_flow_start_with<R: tauri::Runtime>(
     // 半边经 turn 通道携带 exec root）+ run 落库缝（每 run 两写：
     // walk_run 起点第一写 running 行 / 终态出口第二写整包，D5）
     let registry = Arc::clone(app.state::<Arc<StopRegistry>>().inner());
+    let streams = Arc::clone(app.state::<Arc<SessionStreamRegistry>>().inner());
     let composed: ComposedTurn = compose_turn(
         stores.inner(),
         Arc::clone(&registry),
+        streams,
         Arc::clone(&store),
         None,
     )?;

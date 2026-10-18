@@ -1582,7 +1582,7 @@ describe('ChangeDetailView：素材挂载两参与 memo 依赖收窄（AC-4 / D6
     expect(screen.getByTestId('drawer-column-section').textContent).toContain('提案正文');
   });
 
-  it('正向：materials memo 不随渲染放大——会话事件通知触发的重渲染（detail / artifacts / graph 引用均不变）零重算', async () => {
+  it('正向：materials memo 不随渲染放大——会话事件通知并入统一重查（detail 引用更新一拍）后至多重算一次', async () => {
     const spy = vi.mocked(mountMaterials);
     loadActiveRun(activeRunView({ nodes: [stepRow()] }));
     renderDetail({ detail: detail(), artifacts: PROPOSAL_ENVELOPES });
@@ -1592,20 +1592,27 @@ describe('ChangeDetailView：素材挂载两参与 memo 依赖收窄（AC-4 / D6
     // 抽屉选中运行 executor 步：转录直查（重渲染的观察锚——通知到站须再查一次）
     fireEvent.click(await screen.findByTestId('rf__node-run:run-1727:implement:1:executor:0'));
     await screen.findByTestId('session-transcript-panel');
-    await waitFor(() => expect(sessionDetailCalls()).toHaveLength(1));
+    // 会话组件自带一次重放装载（装载拍数不参与本用例断言：只取基线）
+    await waitFor(() => expect(sessionDetailCalls().length).toBeGreaterThanOrEqual(1));
+    await act(async () => {});
+    const detailBaseline = sessionDetailCalls().length;
     const baseline = spy.mock.calls.length;
     expect(baseline).toBeGreaterThan(0);
 
-    // 会话事件通知到站：150ms 去抖 → transcriptTick 自增 → ChangeDetailView /
+    // 会话事件通知到站：统一 300ms 去抖 → refreshTick 自增 → ChangeDetailView /
     // DetailLoaded 重渲染（数据源引用全不变）
     await act(async () => {
       lastChannel().push({ ipc: 'sessionEvent' });
     });
-    // 重渲染确已发生（转录重查为证：refreshKey 变化驱动重查）
-    await waitFor(() => expect(sessionDetailCalls()).toHaveLength(2), { timeout: 5000 });
+    // 重渲染确已发生（转录重查为证：refreshKey 变化驱动重查一次）
+    await waitFor(() => expect(sessionDetailCalls().length).toBeGreaterThan(detailBaseline), {
+      timeout: 5000,
+    });
 
-    // 挂载零重算：memo 依赖面不含渲染通道（否则每次重渲染都会追加一次计算）
-    expect(spy.mock.calls.length).toBe(baseline);
+    // 统一重查单拍：detail 语义引用更新一次 → memo 至多追加一拍（渲染次数不放大）
+    const delta = spy.mock.calls.length - baseline;
+    expect(delta).toBeGreaterThanOrEqual(0);
+    expect(delta).toBeLessThanOrEqual(1);
     expect(spy.mock.calls.every((call) => call.length === 2)).toBe(true);
   });
 
@@ -2186,5 +2193,85 @@ describe('ChangeDetailView：刷新失败降级与订阅粘性（AC-1 / AC-2 / A
       id: CHANGE_ID,
       answer: '继续',
     });
+  });
+});
+// ---------------------------------------------------------------------------
+// 通知分流收敛（AC-5 / D13）：SessionEvent 与其余通知同走统一 300ms 重查 tick
+// ---------------------------------------------------------------------------
+
+describe('ChangeDetailView：通知分流收敛（统一 300ms tick）', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    invokeMock.mockReset();
+    invokeMock.mockImplementation((command: string, args?: Record<string, unknown>) =>
+      detailIpc(command, args),
+    );
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  /** get_change_detail 调用次数（统一重查 tick 的观测锚）。 */
+  function detailCalls(): number {
+    return invokeMock.mock.calls.filter(([name]) => name === 'get_change_detail').length;
+  }
+
+  /** 推进虚拟时间并冲刷微任务链（fake timers 下的拍推进单点）。 */
+  async function flush(ms: number): Promise<void> {
+    act(() => {
+      vi.advanceTimersByTime(ms);
+    });
+    await act(async () => {});
+  }
+
+  it('SessionEvent 通知与其余通知同走 300ms 统一重查：去抖窗内混合序列合并为恰一拍', async () => {
+    loadActiveRun(activeRunView({ nodes: [stepRow()] }));
+    renderDetail({ detail: detail(), artifacts: PROPOSAL_ENVELOPES });
+    await flush(0);
+    await flush(300);
+    expect(screen.getByTestId('flow-graph')).toBeTruthy();
+    const baseline = detailCalls();
+    expect(baseline).toBeGreaterThan(0);
+
+    // 混合通知序列（step + sessionEvent + finished）在同一去抖窗内到站
+    await act(async () => {
+      lastChannel().push({ ipc: 'step' });
+      lastChannel().push({ ipc: 'sessionEvent' });
+      lastChannel().push({ ipc: 'finished' });
+    });
+    await flush(299);
+    expect(detailCalls(), '去抖窗内静默').toBe(baseline);
+
+    await flush(1);
+    expect(detailCalls(), '窗内合并为恰一拍重查').toBe(baseline + 1);
+  });
+
+  it('抽屉面板零动作面：sessionRefreshKey 变更仅触发重取，面板内无发送输入 / 停止按钮', async () => {
+    loadActiveRun(activeRunView({ nodes: [stepRow()] }));
+    renderDetail({ detail: detail(), artifacts: PROPOSAL_ENVELOPES });
+    await flush(0);
+    await flush(300);
+    expect(screen.getByTestId('flow-graph')).toBeTruthy();
+
+    fireEvent.click(screen.getByTestId('rf__node-run:run-1727:implement:1:executor:0'));
+    await flush(0);
+    const panel = screen.getByTestId('session-transcript-panel');
+    await flush(0);
+    expect(sessionDetailCalls().length).toBeGreaterThanOrEqual(1);
+    const sessionBaseline = sessionDetailCalls().length;
+
+    // 只读消费点：面板内零动作面
+    expect(within(panel).queryByTestId('explore-send')).toBeNull();
+    expect(within(panel).queryByTestId('explore-stop')).toBeNull();
+    expect(within(panel).queryByTestId('explore-prompt')).toBeNull();
+    expect(invokeMock.mock.calls.filter(([name]) => name === 'agent_stop')).toHaveLength(0);
+
+    // sessionRefreshKey 变更（SessionEvent 通知 → 统一 tick）→ 面板重取一拍
+    await act(async () => {
+      lastChannel().push({ ipc: 'sessionEvent' });
+    });
+    await flush(300);
+    expect(sessionDetailCalls().length, '统一 tick 驱动面板重取').toBeGreaterThan(sessionBaseline);
   });
 });

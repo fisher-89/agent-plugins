@@ -9,9 +9,9 @@ import {
 } from '../../../types/generated/bindings';
 
 /** 通知去抖常量单点（D8：客户端尾随去抖，通知侧零 coalesce）——统一视图重
- * 查 300ms / 转录重查 150ms；去抖窗内到达即重置计时，最后一拍必达。 */
+ * 查 300ms，去抖窗内到达即重置计时，最后一拍必达。会话事件通知并入同一
+ * tick（会话状态重评估信号），转录专用 150ms 去抖链已退役。 */
 const DETAIL_REFRESH_DEBOUNCE_MS = 300;
-const TRANSCRIPT_REFRESH_DEBOUNCE_MS = 150;
 
 /** 刷新失败有界重试常量单点（D2）：上限 3 次——穷尽后静默回落「靠下一条通知
  * 兜底」；退避 1s / 2s / 4s。终态竞态洞理由：walker 写序 `run_finished`（整包
@@ -32,12 +32,12 @@ export interface ChangeDetailState {
   refreshFailed: string | null;
   /** 显式刷新（即时语义，不经去抖） */
   refresh: () => void;
-  /** 通知触发重查（300ms 尾随去抖——变更通知仅失效信号） */
+  /** 通知触发重查（300ms 尾随去抖——变更与会话事件通知同走，仅失效 / 状态
+   * 重评估信号） */
   notifyRefresh: () => void;
-  /** 通知触发转录重查（150ms 尾随去抖——转录库唯一数据源） */
-  notifyTranscript: () => void;
-  /** 转录刷新键（通知到达自增；视图下传 useSessionTranscript.refreshKey） */
-  transcriptTick: number;
+  /** 统一刷新键（通知到达自增；视图下传会话组件的 `refreshKey`——会话据其
+   * 重评估是否挂流，不作增量数据源） */
+  refreshTick: number;
 }
 
 function fallbackEnvelope(
@@ -69,14 +69,6 @@ async function readArtifactSafe(
   } catch {
     return fallbackEnvelope(descriptor.kind, descriptor.source, descriptor.title, '产物读取失败');
   }
-}
-
-/** 尾随去抖自增键（通知触发重查的计时面）：窗内到达即重置计时，最后一拍
- * 必达；卸载清计时器。 */
-function useDebouncedTick(delayMs: number): [number, () => void] {
-  const [tick, bump] = useReducer((count: number) => count + 1, 0);
-  const notify = useDebouncedBump(bump, delayMs);
-  return [tick, notify];
 }
 
 /** 尾随去抖 bump（计时器面单点）。 */
@@ -259,10 +251,11 @@ function runUnifiedViewEffect(ctx: {
  * 详情取数 hook（统一视图承接，unify-run-state-persistence 两钩并一；参数
  * **id 化**——取数 / 产物逐读全链按 change id 寻址）：
  * `getChangeDetail` 一次返回「库读史 ∪ 在飞 run」统一视图；显式 refresh（或
- * 选定 change）即时触发，变更通知经 `notifyRefresh`（300ms 尾随去抖）触发
- * 重查、会话事件通知经 `notifyTranscript`（150ms）触发转录库重查。并在同一
- * 刷新周期内按产物清单逐个 invoke("read_artifact") 组装信封数组；单个产物
- * 读取失败以 Fallback 形态保留、不阻断其余。无轮询、无文件 watch。
+ * 选定 change）即时触发，变更通知与会话事件通知经同一 `notifyRefresh`
+ * （300ms 尾随去抖）触发重查——`SessionEvent` 仅作会话状态重评估信号，实时面
+ * 走会话订阅（delta 不落库，重查只能见密封粒度）。并在同一刷新周期内按产物
+ * 清单逐个 invoke("read_artifact") 组装信封数组；单个产物读取失败以 Fallback
+ * 形态保留、不阻断其余。无轮询、无文件 watch。
  */
 export function useChangeDetail(root: string | null, id: string | null): ChangeDetailState {
   const [detail, setDetail] = useState<ChangeDetail | null>(null);
@@ -274,9 +267,8 @@ export function useChangeDetail(root: string | null, id: string | null): ChangeD
   const [tick, bumpTick] = useReducer((count: number) => count + 1, 0);
   const retry = useRefreshRetry(bumpTick);
   // 通知触发重查：尾随去抖（窗内到达即重置计时，最后一拍必达）——统一视图
-  // 300ms / 转录 150ms（D8 常量单点）；新意图取代旧重试：手动刷新与通知到
-  // 达（去抖拍前）先作废挂起重试并重置退避序列
-  const [transcriptTick, notifyTranscript] = useDebouncedTick(TRANSCRIPT_REFRESH_DEBOUNCE_MS);
+  // 300ms（D8 常量单点）；新意图取代旧重试：手动刷新与通知到达（去抖拍前）
+  // 先作废挂起重试并重置退避序列
   const debouncedNotifyRefresh = useDebouncedBump(bumpTick, DETAIL_REFRESH_DEBOUNCE_MS);
   const refresh = useCallback(() => {
     retry.cancel();
@@ -313,7 +305,6 @@ export function useChangeDetail(root: string | null, id: string | null): ChangeD
     refreshFailed,
     refresh,
     notifyRefresh,
-    notifyTranscript,
-    transcriptTick,
+    refreshTick: tick,
   };
 }

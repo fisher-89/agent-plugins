@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use agent::{
     AgentRunner, RunningTurn, SessionCtx, SessionKernel, SessionProvenance, SessionQuery,
-    SessionRef, StopRegistry, TurnRequest,
+    SessionRef, SessionStreamRegistry, StopRegistry, TurnRequest,
 };
 use store::{AgentEngineKind, Store, WorkspaceStores, CLI_TENANT_RETIRED};
 
@@ -74,12 +74,15 @@ pub struct ComposedTurn {
 }
 
 /// 运行发起解析 + 装配（解析单点）：`registry` 为壳层托管的停止注册表（内核
-/// 治理面的挂载注入）；`store` 为命令层预解析注入的 workspace root 库实例
-///（design D8 拆参——store 身份锚恒 workspace root，worktree 路径在类型上
-/// 不可能进 `for_root`；cwd 半边经既有 `SessionCtx` 通道不经 compose）。
+/// 治理面的挂载注入）；`streams` 为壳层托管的会话实时流注册表（沿 `registry`
+/// 注入先例：壳层 `Arc` 单例经组合根下行内核，exec / change 双轨同源进入同一
+/// 注册表）；`store` 为命令层预解析注入的 workspace root 库实例（design D8 拆参
+/// ——store 身份锚恒 workspace root，worktree 路径在类型上不可能进 `for_root`；
+/// cwd 半边经既有 `SessionCtx` 通道不经 compose）。
 pub fn compose_turn(
     stores: &WorkspaceStores,
     registry: Arc<StopRegistry>,
+    streams: Arc<SessionStreamRegistry>,
     store: Arc<Store>,
     agent: Option<i64>,
 ) -> Result<ComposedTurn, String> {
@@ -90,7 +93,7 @@ pub fn compose_turn(
     // explore 专用工具执行上下文的句柄半边（组合根铸造、`tools::execute` 纯
     // 函数不动——句柄经门面 builder 下行至 pump per-turn 铸造）
     let explore_note_store = Arc::clone(&store);
-    let kernel = SessionKernel::new(Arc::new(StoreSink::new(store)), registry);
+    let kernel = SessionKernel::new(Arc::new(StoreSink::new(store)), registry, streams);
     // resume 装载缝以会话全史转录闭合（引擎中立数据：session_id → 密封事件
     // 全史）
     let resume: crate::ResumeTranscript = {

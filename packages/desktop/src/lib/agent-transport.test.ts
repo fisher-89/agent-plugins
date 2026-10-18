@@ -469,12 +469,115 @@ describe('TauriAgentTransport：边界', () => {
       'finish',
     ]);
   });
+});
 
-  it('reconnectToStream：任意 chatId 调用恒返回 null（重连由重放承担）', async () => {
+// ---------------------------------------------------------------------------
+// reconnectToStream：订阅流第二起点（body 校验 / 状态门 / 同一簿记单点）
+// ---------------------------------------------------------------------------
+
+/** 会话单查信封（`session_detail` 出线形态）。 */
+function sessionDetail(status: TurnSummary['status']) {
+  return {
+    row: {
+      id: 'ses-1-1727000000000',
+      remoteSessionId: null,
+      configSnapshot: null,
+      provenance: { source: 'debug', sourceRef: null },
+      createdAt: 1727000000000,
+      updatedAt: 1727000000000,
+    },
+    stats: { turnCount: 1, totalDurationMs: null, inputTokens: null, outputTokens: null },
+    turns: [recordRow(1, status)],
+  };
+}
+
+const STREAM_BODY = { root: ROOT, sessionId: 'ses-1-1727000000000', sinceSeq: 12 };
+
+function reconnect(transport: TauriAgentTransport, body: object | undefined = STREAM_BODY) {
+  return transport.reconnectToStream({ chatId: 'chat-1', body });
+}
+
+function watchCallArgs(): Record<string, unknown> {
+  const call = invokeMock.mock.calls.filter(([name]) => name === 'agent_session_watch').at(-1);
+  if (!call) throw new Error('agent_session_watch 未被调用');
+  return call[1] as Record<string, unknown>;
+}
+
+/** 订阅命令挂起应答（测试直投信封驱动流；命令落定即关流的用例另写内联实现）。 */
+function hangingWatch(command: string): Promise<unknown> {
+  if (command === 'session_detail') return Promise.resolve(sessionDetail('running'));
+  if (command === 'agent_session_watch') return new Promise<null>(() => {});
+  return Promise.resolve(null);
+}
+
+describe('TauriAgentTransport：reconnectToStream', () => {
+  it('body 非法或缺席 → null，且零 invoke（无运行轮可续即不建流）', async () => {
     const transport = new TauriAgentTransport();
 
-    const reconnected = await transport.reconnectToStream();
-    expect(reconnected).toBeNull();
+    // body 缺席（不传）与非法形态一律 null
+    expect(await transport.reconnectToStream({ chatId: 'chat-1' })).toBeNull();
+    expect(await reconnect(transport, { root: ROOT, sessionId: 'ses-1' })).toBeNull();
+    expect(await reconnect(transport, { ...STREAM_BODY, sinceSeq: '12' })).toBeNull();
+    expect(invokeMock).not.toHaveBeenCalled();
+  });
+
+  it('状态门：库态无 running 轮行 → null（已完成会话零订阅）', async () => {
+    invokeMock.mockResolvedValue(sessionDetail('completed'));
+    const transport = new TauriAgentTransport();
+
+    expect(await reconnect(transport)).toBeNull();
+    expect(invokeMock).toHaveBeenCalledWith('session_detail', {
+      root: ROOT,
+      sessionId: STREAM_BODY.sessionId,
+    });
+    expect(invokeMock.mock.calls.filter(([name]) => name === 'agent_session_watch')).toHaveLength(
+      0,
+    );
+  });
+
+  it('running 轮行 → agent_session_watch 携 Channel / root / sessionId / sinceSeq，事件经同一簿记转 chunk、Record 收口关流', async () => {
+    invokeMock.mockImplementation(hangingWatch);
+    const transport = new TauriAgentTransport();
+
+    const stream = await reconnect(transport);
+    expect(stream).not.toBeNull();
+    const pumping = drain(stream!);
+    lastChannel().onmessage?.({ ipc: 'event', event: textEvent(13, '旁观增量正文') });
+    lastChannel().onmessage?.({ ipc: 'record', record: recordRow(1, 'completed') });
+    const collected = await pumping;
+
+    expect(watchCallArgs()).toEqual({
+      onEvent: expect.any(ChannelMock),
+      root: ROOT,
+      sessionId: STREAM_BODY.sessionId,
+      sinceSeq: 12,
+    });
+    // 与发起流同一簿记：start + reset-step + part-start（密封文本块）+ record 收尾
+    expect(collected.map((chunk) => chunk.type)).toEqual([
+      'start',
+      'reset-step',
+      'text-start',
+      'text-delta',
+      'text-end',
+      'start',
+      'reset-step',
+      'data-run-record',
+      'finish',
+    ]);
+  });
+
+  it('invoke 解析而流未收尾 → 关流（订阅结束即释放，不投伪终态）', async () => {
+    invokeMock.mockImplementation((command: string) =>
+      command === 'session_detail'
+        ? Promise.resolve(sessionDetail('running'))
+        : Promise.resolve(null),
+    );
+    const transport = new TauriAgentTransport();
+
+    const stream = await reconnect(transport);
+    const collected = await drain(stream!);
+
+    expect(collected).toEqual([]);
   });
 });
 
@@ -763,5 +866,368 @@ describe('TauriAgentTransport：流内簿记语义', () => {
     // 两流对同输入的转换行为一致（收尾 Record 组逐块相同，无跨流泄漏）
     expect(second.slice(-4)).toEqual(first.slice(-4));
     expect(second[second.length - 1]).toEqual({ type: 'finish' });
+  });
+});
+// ---------------------------------------------------------------------------
+// reconnectToStream：簿记单点 / 收口 / abort / 边界（AC-2 / AC-3 / AC-4 / AC-6）
+// ---------------------------------------------------------------------------
+
+describe('TauriAgentTransport：reconnectToStream 簿记与收口', () => {
+  it('首条 delta 无 provisional start → 流补 start + reset-step + part-start，同 kind 后续直发累积 chunk', async () => {
+    invokeMock.mockImplementation(hangingWatch);
+    const transport = new TauriAgentTransport();
+
+    const stream = await reconnect(transport);
+    const pumping = drain(stream!);
+    const channel = lastChannel();
+    channel.onmessage?.({ ipc: 'event', event: textDelta(13, '第一片') });
+    channel.onmessage?.({ ipc: 'event', event: textDelta(14, '第二片') });
+    channel.onmessage?.({ ipc: 'record', record: recordRow(1, 'completed') });
+    const collected = await pumping;
+
+    expect(collected).toEqual([
+      {
+        type: 'start',
+        messageId: 'delta-none',
+        messageMetadata: { seq: 13, parentToolUseId: null },
+      },
+      { type: 'reset-step' },
+      { type: 'text-start', id: 't-delta-' },
+      { type: 'text-delta', id: 't-delta-', delta: '第一片' },
+      { type: 'text-delta', id: 't-delta-', delta: '第二片' },
+      {
+        type: 'start',
+        messageId: 'turn-1',
+        messageMetadata: { seq: null, parentToolUseId: null },
+      },
+      { type: 'reset-step' },
+      { type: 'data-run-record', data: recordRow(1, 'completed') },
+      { type: 'finish' },
+    ]);
+  });
+
+  it('Record 收口后关流：onRecord 观测点被调用，后续迟到信封零 chunk，第二个 Record 不重复收口', async () => {
+    invokeMock.mockImplementation(hangingWatch);
+    const onRecord = vi.fn();
+    const transport = new TauriAgentTransport({ onRecord });
+
+    const stream = await reconnect(transport);
+    const pumping = drain(stream!);
+    const channel = lastChannel();
+    channel.onmessage?.({ ipc: 'record', record: recordRow(1, 'completed') });
+    channel.onmessage?.({ ipc: 'event', event: textEvent(20, '迟到的密封事件') });
+    channel.onmessage?.({ ipc: 'record', record: recordRow(2, 'completed') });
+    const collected = await pumping;
+
+    expect(onRecord).toHaveBeenCalledTimes(1);
+    expect(onRecord).toHaveBeenCalledWith(recordRow(1, 'completed'));
+    expect(collected.map((chunk) => chunk.type)).toEqual([
+      'start',
+      'reset-step',
+      'data-run-record',
+      'finish',
+    ]);
+  });
+
+  it('未知 ipc 判别值 → 忽略单条消息、流不断开（后续事件照常转 chunk）', async () => {
+    invokeMock.mockImplementation(hangingWatch);
+    const transport = new TauriAgentTransport();
+
+    const stream = await reconnect(transport);
+    const pumping = drain(stream!);
+    const channel = lastChannel();
+    channel.onmessage?.({ ipc: 'futureEnvelope', payload: 1 });
+    channel.onmessage?.({ ipc: 'event', event: textEvent(21, '判别值之后的事件') });
+    channel.onmessage?.({ ipc: 'record', record: recordRow(1, 'completed') });
+    const collected = await pumping;
+
+    expect(collected.map((chunk) => chunk.type)).toContain('text-delta');
+    expect(collected.at(-1)).toEqual({ type: 'finish' });
+  });
+
+  it('sinceSeq 边界：0 / 已观测最大 / Number.MAX_SAFE_INTEGER 原样透传（不做本地裁剪）', async () => {
+    for (const sinceSeq of [0, 12, Number.MAX_SAFE_INTEGER]) {
+      invokeMock.mockImplementation((command: string) =>
+        command === 'session_detail'
+          ? Promise.resolve(sessionDetail('running'))
+          : Promise.resolve(null),
+      );
+      const transport = new TauriAgentTransport();
+      const stream = await reconnect(transport, { ...STREAM_BODY, sinceSeq });
+      void stream?.cancel();
+      expect(watchCallArgs().sinceSeq).toBe(sinceSeq);
+    }
+  });
+});
+
+describe('TauriAgentTransport：reconnectToStream 异常与 abort', () => {
+  it('session_detail reject → 状态门查询失败即拒绝（零订阅；错误面由 hook 承担）', async () => {
+    invokeMock.mockImplementation((command: string) =>
+      command === 'session_detail'
+        ? Promise.reject(new Error('db: 会话查询失败'))
+        : Promise.resolve(null),
+    );
+    const transport = new TauriAgentTransport();
+
+    await expect(reconnect(transport)).rejects.toThrow('db: 会话查询失败');
+    expect(invokeMock.mock.calls.filter(([name]) => name === 'agent_session_watch')).toHaveLength(
+      0,
+    );
+  });
+
+  it('agent_session_watch reject → 流以错误收尾（不投伪终态、不悬挂）', async () => {
+    invokeMock.mockImplementation((command: string) => {
+      if (command === 'session_detail') return Promise.resolve(sessionDetail('running'));
+      if (command === 'agent_session_watch') return Promise.reject(new Error('watch 命令失败'));
+      return Promise.resolve(null);
+    });
+    const transport = new TauriAgentTransport();
+
+    const stream = await reconnect(transport);
+    await expect(drain(stream!)).rejects.toThrow('watch 命令失败');
+  });
+
+  it('abortSignal 已 abort（调用前）→ 流立即关闭、后续信封零 chunk', async () => {
+    invokeMock.mockImplementation(hangingWatch);
+    const transport = new TauriAgentTransport();
+    const controller = new AbortController();
+    controller.abort();
+
+    const stream = await transport.reconnectToStream({
+      chatId: 'chat-1',
+      body: STREAM_BODY,
+      abortSignal: controller.signal,
+    });
+    const collected = await drain(stream!);
+    lastChannel().onmessage?.({ ipc: 'event', event: textEvent(30, 'abort 后事件') });
+
+    expect(collected).toEqual([]);
+  });
+
+  it('订阅中 abort → 流关闭且后续信封零 chunk；命令 resolve 迟到不重复关闭（幂等）', async () => {
+    invokeMock.mockImplementation(hangingWatch);
+    const transport = new TauriAgentTransport();
+    const controller = new AbortController();
+
+    const stream = await transport.reconnectToStream({
+      chatId: 'chat-1',
+      body: STREAM_BODY,
+      abortSignal: controller.signal,
+    });
+    const pumping = drain(stream!);
+    const channel = lastChannel();
+    channel.onmessage?.({ ipc: 'event', event: textEvent(31, 'abort 前事件') });
+    controller.abort();
+    channel.onmessage?.({ ipc: 'event', event: textEvent(32, 'abort 后事件') });
+    const collected = await pumping;
+
+    expect(collected.some((chunk) => chunk.type === 'text-delta')).toBe(true);
+    expect(
+      collected.filter((chunk) => chunk.type === 'text-delta'),
+      'abort 后零 chunk',
+    ).toHaveLength(1);
+  });
+});
+
+describe('TauriAgentTransport：两出口共用收口单点（AC-3 / AC-4）', () => {
+  it('发起流与订阅流的 Record 收口 chunk 组逐条相等；发起流在挂期间不另建订阅流', async () => {
+    invokeMock.mockImplementation((command: string) => {
+      if (command === 'session_detail') return Promise.resolve(sessionDetail('running'));
+      if (command === 'agent_start') return Promise.resolve(recordRow(9, 'running'));
+      if (command === 'agent_session_watch') return new Promise<null>(() => {});
+      return Promise.resolve(null);
+    });
+    const transport = new TauriAgentTransport();
+
+    // 发起流
+    const sent = await send(transport);
+    const sending = drain(sent);
+    const sendChannel = lastChannel();
+    sendChannel.onmessage?.({ ipc: 'record', record: recordRow(9, 'completed') });
+    const sentChunks = await sending;
+    expect(invokeMock.mock.calls.filter(([name]) => name === 'agent_session_watch')).toHaveLength(
+      0,
+    );
+
+    // 订阅流
+    const stream = await reconnect(transport);
+    const pumping = drain(stream!);
+    lastChannel().onmessage?.({ ipc: 'record', record: recordRow(9, 'completed') });
+    const watchedChunks = await pumping;
+
+    expect(watchedChunks).toEqual(sentChunks);
+    expect(sentChunks.map((chunk) => chunk.type)).toEqual([
+      'start',
+      'reset-step',
+      'data-run-record',
+      'finish',
+    ]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 参数校验穷尽面与订阅边界（三值 permissionMode / 逐字段类型守卫 / cancel 语义）
+// ---------------------------------------------------------------------------
+
+describe('TauriAgentTransport：会话参数校验穷尽面', () => {
+  it('permissionMode 三值（default / acceptEdits / bypassPermissions）原样透传，transport 不改写', async () => {
+    invokeMock.mockResolvedValue(recordRow(13, 'running'));
+    const transport = new TauriAgentTransport();
+
+    for (const permissionMode of ['default', 'acceptEdits', 'bypassPermissions'] as const) {
+      const stream = await send(transport, { ...SESSION_BODY, permissionMode });
+      void stream.cancel();
+      expect(startCallArgs().permissionMode).toBe(permissionMode);
+    }
+  });
+
+  it('清单外 permissionMode → 参数校验拒绝（错误串携非法值）且零 invoke', async () => {
+    const transport = new TauriAgentTransport();
+
+    await expect(send(transport, { ...SESSION_BODY, permissionMode: 'yolo' })).rejects.toThrow(
+      '非法 permissionMode: "yolo"',
+    );
+    expect(invokeMock).not.toHaveBeenCalled();
+  });
+
+  it('sessionId 非串（数字 / 布尔）→ 「非法 sessionId」拒绝且零 invoke（null 与缺席合法）', async () => {
+    const transport = new TauriAgentTransport();
+
+    await expect(send(transport, { ...SESSION_BODY, sessionId: 5 })).rejects.toThrow(
+      '非法 sessionId: 5',
+    );
+    await expect(send(transport, { ...SESSION_BODY, sessionId: true })).rejects.toThrow(
+      '非法 sessionId: true',
+    );
+    expect(invokeMock).not.toHaveBeenCalled();
+  });
+
+  it('root / prompt / source 任一非串 → 缺参拒绝且零 invoke（逐字段守卫不留缺口）', async () => {
+    const transport = new TauriAgentTransport();
+
+    await expect(send(transport, { ...SESSION_BODY, prompt: 42 })).rejects.toThrow(
+      '缺少 agent_start 会话参数（root / prompt / source）',
+    );
+    await expect(send(transport, { ...SESSION_BODY, source: null })).rejects.toThrow(
+      '缺少 agent_start 会话参数（root / prompt / source）',
+    );
+    expect(invokeMock).not.toHaveBeenCalled();
+  });
+
+  it('trigger 非 submit-message（regenerate-message）→ 显式拒绝：错误串逐字、零 invoke', async () => {
+    const transport = new TauriAgentTransport();
+
+    await expect(
+      transport.sendMessages({
+        trigger: 'regenerate-message',
+        chatId: 'chat-1',
+        messageId: undefined,
+        messages: [],
+        abortSignal: undefined,
+        body: SESSION_BODY,
+      }),
+    ).rejects.toThrow('TauriAgentTransport 仅支持 submit-message 触发');
+    expect(invokeMock).not.toHaveBeenCalled();
+  });
+});
+
+describe('TauriAgentTransport：delta 部件种类与 id 派生', () => {
+  it('text / thinking 两类增量各开对应 part：text-start(id=t-delta-…) 与 reasoning-start(id=r-delta-…)', async () => {
+    invokeMock.mockResolvedValue(recordRow(13, 'running'));
+    const transport = new TauriAgentTransport();
+
+    const stream = await send(transport);
+    const pumping = drain(stream);
+    lastChannel().onmessage?.({ ipc: 'event', event: textDelta(14, '正文增量') });
+    lastChannel().onmessage?.({ ipc: 'event', event: thinkingDelta(15, '推理增量') });
+    lastChannel().onmessage?.({ ipc: 'record', record: recordRow(13, 'completed') });
+    const collected = await pumping;
+
+    // 首 delta 补开件组（start + reset-step + text-start），同键跨 kind 仅补
+    // reasoning-start（不再发 start + reset-step 剪除已累积的 text part）；
+    // 末拍 Record 自开新消息（start + reset-step + record + finish）
+    expect(collected.map((chunk) => chunk.type)).toEqual([
+      'start',
+      'reset-step',
+      'text-start',
+      'text-delta',
+      'reasoning-start',
+      'reasoning-delta',
+      'start',
+      'reset-step',
+      'data-run-record',
+      'finish',
+    ]);
+    expect(collected).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ type: 'text-start', id: 't-delta-' }),
+        expect.objectContaining({ type: 'reasoning-start', id: 'r-delta-' }),
+      ]),
+    );
+  });
+});
+
+describe('TauriAgentTransport：订阅参数守卫与状态门穷尽面', () => {
+  it('部分字段非法（root 非串 / sessionId 非串 / sinceSeq 非数字）→ 一律 null 且零 invoke', async () => {
+    const transport = new TauriAgentTransport();
+
+    expect(await reconnect(transport, { ...STREAM_BODY, root: 7 })).toBeNull();
+    expect(await reconnect(transport, { ...STREAM_BODY, sessionId: 7 })).toBeNull();
+    expect(await reconnect(transport, { ...STREAM_BODY, sinceSeq: '12' })).toBeNull();
+    expect(invokeMock).not.toHaveBeenCalled();
+  });
+
+  it('多轮行含 running（非全 running）→ 状态门放行订阅（some 而非 every 判据）', async () => {
+    invokeMock.mockImplementation((command: string) =>
+      command === 'session_detail'
+        ? Promise.resolve({
+            ...sessionDetail('completed'),
+            turns: [recordRow(1, 'completed'), recordRow(2, 'running')],
+          })
+        : new Promise<null>(() => {}),
+    );
+    const transport = new TauriAgentTransport();
+
+    const stream = await reconnect(transport);
+
+    expect(stream).not.toBeNull();
+    expect(watchCallArgs()).toEqual({
+      onEvent: expect.any(ChannelMock),
+      root: ROOT,
+      sessionId: STREAM_BODY.sessionId,
+      sinceSeq: 12,
+    });
+  });
+
+  it('session_detail 返回 null（未知会话）→ null 且零订阅（不因解引用空会话崩溃）', async () => {
+    invokeMock.mockResolvedValue(null);
+    const transport = new TauriAgentTransport();
+
+    expect(await reconnect(transport)).toBeNull();
+    expect(invokeMock.mock.calls.filter(([name]) => name === 'agent_session_watch')).toHaveLength(
+      0,
+    );
+  });
+});
+
+describe('TauriAgentTransport：消费侧取消后的信封处置', () => {
+  it('消费侧 cancel 后迟到信封一律丢弃：onEvent / onRecord 零调用、流不再产出 chunk', async () => {
+    // 发起命令挂起（无 early-resolve 轮行），观测点只可能被信封触发
+    invokeMock.mockImplementation((command: string) =>
+      command === 'agent_start' ? new Promise<null>(() => {}) : Promise.resolve(null),
+    );
+    const onEvent = vi.fn();
+    const onRecord = vi.fn();
+    const transport = new TauriAgentTransport({ onEvent, onRecord });
+
+    const stream = await send(transport);
+    await stream.cancel();
+    const channel = lastChannel();
+    channel.onmessage?.({ ipc: 'event', event: textDelta(14, '取消后增量') });
+    channel.onmessage?.({ ipc: 'event', event: textEvent(15, '取消后密封') });
+    channel.onmessage?.({ ipc: 'record', record: recordRow(13, 'completed') });
+
+    expect(onEvent).not.toHaveBeenCalled();
+    expect(onRecord, 'cancel 即终局：不投伪终态').not.toHaveBeenCalled();
   });
 });

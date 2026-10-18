@@ -31,17 +31,13 @@ pub(crate) fn running_summary(running: &RunningTurn) -> TurnSummary {
 }
 
 /// 终态轮行装配（Channel `Record` 信封；自内核中性数据 `TurnOutcome` 装配，
-/// 会话 id 与 `started_at` 自轮发起时刻回填——终态收口不携带起点）。
-pub(crate) fn outcome_summary(
-    outcome: &TurnOutcome,
-    session_id: &str,
-    started_at: i64,
-) -> TurnSummary {
+/// 会话 id 与 `started_at` 均由终态自足携带——收口形状已含轮起点）。
+pub(crate) fn outcome_summary(outcome: &TurnOutcome, session_id: &str) -> TurnSummary {
     TurnSummary {
         turn_id: outcome.turn_id,
         session_id: session_id.to_owned(),
         status: outcome.status,
-        started_at,
+        started_at: outcome.started_at,
         finished_at: Some(outcome.finished_at),
         num_turns: outcome.num_turns,
         cost_usd: outcome.cost_usd,

@@ -90,6 +90,14 @@ export const commands = {
 	setDefaultAgentInstance: (id: number) => __TAURI_INVOKE<AgentInstanceRecord>("set_default_agent_instance", { id }),
 	agentStart: (onEvent: Channel<AgentRunMessage>, root: string, prompt: string, permissionMode: AgentPermissionMode, sessionId: string | null, source: string | null, sourceRef: string | null, agent: number | null) => __TAURI_INVOKE<TurnSummary>("agent_start", { onEvent, root, prompt, permissionMode, sessionId, source, sourceRef, agent }),
 	agentStop: (root: string, sessionId: string) => __TAURI_INVOKE<null>("agent_stop", { root, sessionId }),
+	/**
+	 *  会话级实时流订阅（薄包装三段：参数转换 → 注册表订阅 → `Channel` 前向，
+	 *  无编排无落库）：按轮收流，轮终态以 `Record` 收尾后命令返回（订阅流按轮划
+	 *  分，不长连接跨轮）；blank root / 无运行轮（会话未运行 / 已终态 / 未知 id）
+	 *  幂等立即 `Ok(())`；广播溢出（lagged）与条目除名（closed）均以断流收尾，
+	 *  MUST NOT 投递伪终态。
+	 */
+	agentSessionWatch: (onEvent: Channel<AgentRunMessage>, root: string, sessionId: string, sinceSeq: number) => __TAURI_INVOKE<null>("agent_session_watch", { onEvent, root, sessionId, sinceSeq }),
 	/**  会话清单分页 + 聚合统计 */
 	agentSessions: (root: string, source: string | null, sourceRef: string | null, offset: number, limit: number) => __TAURI_INVOKE<SessionPage>("agent_sessions", { root, source, sourceRef, offset, limit }),
 	/**

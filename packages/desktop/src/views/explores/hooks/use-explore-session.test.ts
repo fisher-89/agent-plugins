@@ -228,7 +228,7 @@ describe('useExploreSession：会话还原与全史转录重放（AC-9/AC-5）',
   it('record 有既有会话：挂载发起 session_detail 恰一次（携 root + sessionId）+ agent_session_transcript 全史重放，events 承接转录', async () => {
     const { result } = await mounted();
 
-    expect(result.current.loading).toBe(false);
+    expect(result.current.session.loading).toBe(false);
     expect(invokeMock).toHaveBeenCalledWith('session_detail', {
       root: ROOT,
       sessionId: SESSION_ID,
@@ -237,41 +237,41 @@ describe('useExploreSession：会话还原与全史转录重放（AC-9/AC-5）',
       root: ROOT,
       sessionId: SESSION_ID,
     });
-    expect(result.current.chain).toEqual(sessionFixture.turns);
-    expect(result.current.events).toEqual(transcript as AgentEvent[]);
-    expect(result.current.error).toBeNull();
+    expect(result.current.session.chain).toEqual(sessionFixture.turns);
+    expect(result.current.session.events).toEqual(transcript as AgentEvent[]);
+    expect(result.current.session.error).toBeNull();
   });
 
   it('record 为 null：不还原会话（events 空态、loading 复位），send 为 no-op', async () => {
     const { result } = await mounted(null);
 
     expect(invokeMock).not.toHaveBeenCalled();
-    expect(result.current.chain).toEqual([]);
-    expect(result.current.events).toEqual([]);
-    expect(result.current.loading).toBe(false);
+    expect(result.current.session.chain).toEqual([]);
+    expect(result.current.session.events).toEqual([]);
+    expect(result.current.session.loading).toBe(false);
 
     act(() => {
       result.current.send(SEND_INPUT);
     });
     await act(async () => {});
     expect(invokeMock).not.toHaveBeenCalled();
-    expect(result.current.running).toBe(false);
+    expect(result.current.session.running).toBe(false);
   });
 
   it('agent_session_transcript reject：错误可见不崩（error 置位）', async () => {
     transcript = '转录查询失败';
 
     const { result } = await mounted();
-    await waitFor(() => expect(result.current.error).toContain('转录查询失败'));
+    await waitFor(() => expect(result.current.session.error).toContain('转录查询失败'));
 
-    expect(result.current.loading).toBe(false);
+    expect(result.current.session.loading).toBe(false);
   });
 });
 
 describe('useExploreSession：send 拼接 stance 与当前会话续话（AC-9，D4/D7）', () => {
   it('有会话时 send（续话）：prompt 裸发送（不重复携带 stance 前导）、sessionId 为当前会话、三元组齐全', async () => {
     const { result } = await mounted();
-    expect(result.current.chain).toHaveLength(2);
+    expect(result.current.session.chain).toHaveLength(2);
 
     act(() => {
       result.current.send(SEND_INPUT);
@@ -308,20 +308,23 @@ describe('useExploreSession：send 拼接 stance 与当前会话续话（AC-9，
 
   it('轮终态后：轮序列增长、终态轮行回流复位，二次 send 的 sessionId 更新为新轮行会话、prompt 裸发送', async () => {
     const { result } = await mounted();
-    expect(result.current.chain).toHaveLength(2);
+    expect(result.current.session.chain).toHaveLength(2);
 
     act(() => {
       result.current.send(SEND_INPUT);
     });
     await act(async () => {});
     // 提前 resolve：running 轮行入链（轮 id 立即可用，会话镜像回写）
-    expect(result.current.chain).toHaveLength(3);
-    expect(result.current.chain[2]).toEqual(turn(13, 'running', 'ses-13-1727000001000'));
+    expect(result.current.session.chain).toHaveLength(3);
+    expect(result.current.session.chain[2]).toEqual(turn(13, 'running', 'ses-13-1727000001000'));
 
-    // 终态轮行经 Channel 信封回流（后端闭流收尾）：链尾推进为终态行
+    // 终态轮行经 Channel 信封回流（后端闭流收尾）：收口以库内重放收敛
+    sessionsResult = [
+      sessionSummary([turn(11), turn(12), turn(13, 'completed', 'ses-13-1727000001000')]),
+    ];
     deliverRecord(turn(13, 'completed', 'ses-13-1727000001000'));
-    await waitFor(() => expect(result.current.running).toBe(false));
-    expect(result.current.chain[2]).toEqual(turn(13, 'completed', 'ses-13-1727000001000'));
+    await waitFor(() => expect(result.current.session.running).toBe(false));
+    expect(result.current.session.chain[2]).toEqual(turn(13, 'completed', 'ses-13-1727000001000'));
 
     act(() => {
       result.current.send({ ...SEND_INPUT, prompt: '再来一轮' });
@@ -329,7 +332,8 @@ describe('useExploreSession：send 拼接 stance 与当前会话续话（AC-9，
     await act(async () => {});
 
     expect(invokeMock.mock.calls.filter(([name]) => name === 'agent_start')).toHaveLength(2);
-    expect(startCallArgs().sessionId).toBe('ses-13-1727000001000');
+    // 收口重放后镜像归一会话行 id（库为准）：续话寻址取重放行而非运行期轮行
+    expect(startCallArgs().sessionId).toBe(SESSION_ID);
     expect(startCallArgs().prompt).toBe('再来一轮');
   });
 
@@ -346,30 +350,14 @@ describe('useExploreSession：send 拼接 stance 与当前会话续话（AC-9，
   });
 
   it('运行中重复 send：被抑制（running 门闩），不并发发起第二条轮', async () => {
-    let resolveStart: ((value: TurnSummary) => void) | null = null;
-    startResult = null;
-    invokeMock.mockImplementation((command: string) => {
-      if (command === 'agent_start') {
-        return new Promise<TurnSummary>((resolve) => {
-          resolveStart = resolve;
-        });
-      }
-      if (command === 'session_detail') {
-        return Promise.resolve(sessionSummary([turn(11), turn(12)]));
-      }
-      if (command === 'agent_session_transcript') {
-        return Promise.resolve([]);
-      }
-      return Promise.resolve(null);
-    });
-
+    // 提前 resolve 的 running 轮行即库态 running 来源（在挂流门闩的旁证）
     const { result } = await mounted();
-    expect(result.current.chain).toHaveLength(2);
+    expect(result.current.session.chain).toHaveLength(2);
 
     act(() => {
       result.current.send(SEND_INPUT);
     });
-    await waitFor(() => expect(result.current.running).toBe(true));
+    await waitFor(() => expect(result.current.session.running).toBe(true));
 
     act(() => {
       result.current.send(SEND_INPUT);
@@ -377,13 +365,12 @@ describe('useExploreSession：send 拼接 stance 与当前会话续话（AC-9，
     await act(async () => {});
     expect(invokeMock.mock.calls.filter(([name]) => name === 'agent_start')).toHaveLength(1);
 
-    // 启动 resolve（early resolve running）+ 终态轮行信封回流 → running 复位
-    act(() => {
-      resolveStart?.(turn(13, 'running', 'ses-13-1727000001000'));
-    });
-    await act(async () => {});
+    // 终态轮行信封回流 → running 复位（收口以库内重放收敛）
+    sessionsResult = [
+      sessionSummary([turn(11), turn(12), turn(13, 'stopped', 'ses-13-1727000001000')]),
+    ];
     deliverRecord(turn(13, 'stopped', 'ses-13-1727000001000'));
-    await waitFor(() => expect(result.current.running).toBe(false));
+    await waitFor(() => expect(result.current.session.running).toBe(false));
     expect(invokeMock.mock.calls.filter(([name]) => name === 'agent_start')).toHaveLength(1);
   });
 
@@ -397,7 +384,7 @@ describe('useExploreSession：send 拼接 stance 与当前会话续话（AC-9，
     deliverEvent(textEvent(0, '实时片段'));
     await act(async () => {});
 
-    expect(result.current.events).toContainEqual(textEvent(0, '实时片段'));
+    expect(result.current.session.events).toContainEqual(textEvent(0, '实时片段'));
   });
 });
 
@@ -413,7 +400,7 @@ describe('useExploreSession → 基建接线：stop 透传', () => {
     act(() => {
       result.current.send(SEND_INPUT);
     });
-    await waitFor(() => expect(result.current.running).toBe(true));
+    await waitFor(() => expect(result.current.session.running).toBe(true));
 
     act(() => {
       result.current.stop();
@@ -427,19 +414,22 @@ describe('useExploreSession → 基建接线：stop 透传', () => {
     // 前端流不截断：stop 后事件信封照常入镜像
     deliverEvent(textEvent(0, '停止前已产出'));
     await act(async () => {});
-    expect(result.current.events).toContainEqual(textEvent(0, '停止前已产出'));
+    expect(result.current.session.events).toContainEqual(textEvent(0, '停止前已产出'));
 
-    // 终态轮行回流：running 经 Record 复位
+    // 终态轮行回流：running 经 Record 复位（收口按库内重放行呈现）
+    sessionsResult = [
+      sessionSummary([turn(11), turn(12), turn(13, 'stopped', 'ses-13-1727000001000')]),
+    ];
     deliverRecord(turn(13, 'stopped', 'ses-13-1727000001000'));
-    await waitFor(() => expect(result.current.running).toBe(false));
-    expect(result.current.chain.at(-1)?.status).toBe('stopped');
+    await waitFor(() => expect(result.current.session.running).toBe(false));
+    expect(result.current.session.chain.at(-1)?.status).toBe('stopped');
   });
 });
 
 describe('useExploreSession：失败语义（AC-9）', () => {
   it('agent_start reject：error 置位、running 复位、既有事件不丢', async () => {
     const { result } = await mounted();
-    const eventsBefore = [...result.current.events];
+    const eventsBefore = [...result.current.session.events];
     expect(eventsBefore.length).toBeGreaterThan(0);
 
     startResult = '启动失败';
@@ -447,10 +437,10 @@ describe('useExploreSession：失败语义（AC-9）', () => {
       result.current.send(SEND_INPUT);
     });
 
-    await waitFor(() => expect(result.current.running).toBe(false));
-    expect(result.current.error).toContain('启动失败');
-    expect(result.current.events).toEqual(eventsBefore);
-    expect(result.current.chain).toEqual(sessionFixture.turns);
+    await waitFor(() => expect(result.current.session.running).toBe(false));
+    expect(result.current.session.error).toContain('启动失败');
+    expect(result.current.session.events).toEqual(eventsBefore);
+    expect(result.current.session.chain).toEqual(sessionFixture.turns);
   });
 });
 
@@ -471,10 +461,10 @@ describe('useExploreSession：加载在途态与守卫（AC-9）', () => {
     );
     await act(async () => {});
 
-    expect(result.current.loading).toBe(true);
-    expect(result.current.chain).toEqual([]);
-    expect(result.current.events).toEqual([]);
-    expect(result.current.error).toBeNull();
+    expect(result.current.session.loading).toBe(true);
+    expect(result.current.session.chain).toEqual([]);
+    expect(result.current.session.events).toEqual([]);
+    expect(result.current.session.error).toBeNull();
   });
 
   it('root 为 null：send 为 no-op（不发起 agent_start、running 不置位）', async () => {
@@ -490,7 +480,7 @@ describe('useExploreSession：加载在途态与守卫（AC-9）', () => {
     await act(async () => {});
 
     expect(invokeMock).not.toHaveBeenCalled();
-    expect(result.current.running).toBe(false);
+    expect(result.current.session.running).toBe(false);
   });
 });
 
@@ -528,12 +518,12 @@ describe('useExploreSession：记录切换竞态（取消抑制，AC-9）', () =
 
     rerender({ record: recordB });
     await act(async () => {});
-    expect(result.current.chain).toEqual(sessionB.turns);
+    expect(result.current.session.chain).toEqual(sessionB.turns);
 
     await act(async () => {
       resolveA(sessionFixture);
     });
-    expect(result.current.chain).toEqual(sessionB.turns);
+    expect(result.current.session.chain).toEqual(sessionB.turns);
   });
 
   it('旧记录迟到的会话 reject 不置错误、不污染新会话', async () => {
@@ -563,8 +553,8 @@ describe('useExploreSession：记录切换竞态（取消抑制，AC-9）', () =
     await act(async () => {
       rejectA(new Error('迟到的会话查询失败'));
     });
-    expect(result.current.error).toBeNull();
-    expect(result.current.chain).toEqual(sessionB.turns);
+    expect(result.current.session.error).toBeNull();
+    expect(result.current.session.chain).toEqual(sessionB.turns);
   });
 });
 
@@ -573,32 +563,34 @@ describe('useExploreSession：记录切换竞态（取消抑制，AC-9）', () =
 // ---------------------------------------------------------------------------
 
 describe('useExploreSession：返回形状语义等价（AC-11 契约面）', () => {
-  it('renderHook 断言对外返回键集恰为八键且形状不回退（messages/chain/events/loading/running/error/send/stop）', async () => {
+  it('renderHook 断言对外返回键集恰为四键且形状不回退（session/sessionId/send/stop）', async () => {
     const { result } = await mounted();
 
-    // 键集整体断言：恰为契约八键、无缺漏无多余（任一键被移除或更名即失败）
+    // 键集整体断言：恰为契约四键、无缺漏无多余（会话状态面经 `session` 承载）
     expect(Object.keys(result.current).sort()).toEqual(
-      ['chain', 'error', 'events', 'loading', 'messages', 'running', 'send', 'stop'].sort(),
+      ['session', 'sessionId', 'send', 'stop'].sort(),
     );
 
     // 形状逐键断言：数据键为数组（messages 为 UIMessage 序列、chain 为轮统计行
     // 列表、events 为密封事件扁平镜像）、状态键为 boolean / string | null、
     // 行为键为函数（send / stop）
-    expect(Array.isArray(result.current.messages)).toBe(true);
-    expect(Array.isArray(result.current.chain)).toBe(true);
-    expect(Array.isArray(result.current.events)).toBe(true);
-    expect(typeof result.current.loading).toBe('boolean');
-    expect(typeof result.current.running).toBe('boolean');
-    expect(result.current.error === null || typeof result.current.error === 'string').toBe(true);
+    expect(Array.isArray(result.current.session.messages)).toBe(true);
+    expect(Array.isArray(result.current.session.chain)).toBe(true);
+    expect(Array.isArray(result.current.session.events)).toBe(true);
+    expect(typeof result.current.session.loading).toBe('boolean');
+    expect(typeof result.current.session.running).toBe('boolean');
+    expect(
+      result.current.session.error === null || typeof result.current.session.error === 'string',
+    ).toBe(true);
     expect(typeof result.current.send).toBe('function');
     expect(typeof result.current.stop).toBe('function');
 
     // 装载完成后的初值形状（既有会话全史转录重放落地；内容面由重放/续话
     // 专项用例承载，此处仅锚定非空与行为键可调用）
-    expect(result.current.loading).toBe(false);
-    expect(result.current.error).toBeNull();
-    expect(result.current.chain.length).toBeGreaterThan(0);
-    expect(result.current.messages.length).toBeGreaterThan(0);
+    expect(result.current.session.loading).toBe(false);
+    expect(result.current.session.error).toBeNull();
+    expect(result.current.session.chain.length).toBeGreaterThan(0);
+    expect(result.current.session.messages.length).toBeGreaterThan(0);
     expect(result.current.send).toBeInstanceOf(Function);
     expect(result.current.stop).toBeInstanceOf(Function);
   });
@@ -657,7 +649,7 @@ describe('useExploreSession：send 注入 record.name（AC-4 组装半边）', (
       { initialProps: { record: exploreRecord() } },
     );
     await act(async () => {});
-    expect(result.current.chain).toHaveLength(2);
+    expect(result.current.session.chain).toHaveLength(2);
 
     // 既有会话（api-retry 全史）续话：裸发送
     act(() => {
@@ -668,13 +660,13 @@ describe('useExploreSession：send 注入 record.name（AC-4 组装半边）', (
 
     // 轮终态回流闭流，解除 running 门闩
     deliverRecord(turn(13, 'completed', 'ses-13-1727000001000'));
-    await waitFor(() => expect(result.current.running).toBe(false));
+    await waitFor(() => expect(result.current.session.running).toBe(false));
 
     // 换记录（sessionId 空缺 → ensure 归位出空会话）：镜像重放清空 → 首轮
     // stance 随新 name 注入，sessionId 沿用归位会话（不新铸）
     rerender({ record: { ...exploreRecord(), id: 8, name: 'other-topic', sessionId: null } });
     await act(async () => {});
-    await waitFor(() => expect(result.current.chain).toEqual([]));
+    await waitFor(() => expect(result.current.session.chain).toEqual([]));
 
     act(() => {
       result.current.send(SEND_INPUT);
@@ -725,7 +717,7 @@ describe('useExploreSession：会话归位 ensure 承接（session_id 空缺修�
 
     const { result } = await mounted(missingSession);
 
-    await waitFor(() => expect(result.current.chain).toEqual(sessionFixture.turns));
+    await waitFor(() => expect(result.current.session.chain).toEqual(sessionFixture.turns));
     expect(invokeMock).toHaveBeenCalledWith('ensure_explore_session', {
       root: ROOT,
       name: 'api-retry',
@@ -741,7 +733,7 @@ describe('useExploreSession：会话归位 ensure 承接（session_id 空缺修�
 
     const { result } = await mounted();
 
-    await waitFor(() => expect(result.current.chain).toHaveLength(2));
+    await waitFor(() => expect(result.current.session.chain).toHaveLength(2));
     expect(
       invokeMock.mock.calls.filter(([name]) => name === 'ensure_explore_session'),
     ).toHaveLength(0);
@@ -753,7 +745,7 @@ describe('useExploreSession：会话归位 ensure 承接（session_id 空缺修�
     const { result } = await mounted(missingSession);
     await act(async () => {});
 
-    expect(result.current.chain).toEqual([]);
+    expect(result.current.session.chain).toEqual([]);
     act(() => {
       result.current.send(SEND_INPUT);
     });
@@ -770,9 +762,9 @@ describe('useExploreSession：configSnapshot fixture 携 agentInstanceId 键（A
   it('补键后重放装载既有断言保绿（agentInstanceId null 存量缺列语义）', async () => {
     const { result } = await mounted();
 
-    expect(result.current.loading).toBe(false);
-    expect(result.current.error).toBeNull();
-    expect(result.current.events).toHaveLength(3);
+    expect(result.current.session.loading).toBe(false);
+    expect(result.current.session.error).toBeNull();
+    expect(result.current.session.events).toHaveLength(3);
 
     const snapshot = sessionFixture.row.configSnapshot as ConfigSnapshotFixture;
     expect(snapshot).toHaveProperty('agentInstanceId', null);
@@ -793,8 +785,8 @@ describe('useExploreSession：configSnapshot fixture 携 agentInstanceId 键（A
 
     const { result } = await mounted(exploreRecord());
 
-    await waitFor(() => expect(result.current.loading).toBe(false));
-    expect(result.current.error).toBeNull();
+    await waitFor(() => expect(result.current.session.loading).toBe(false));
+    expect(result.current.session.error).toBeNull();
     expect(sdkSession.row.configSnapshot).toEqual({
       engine: 'sdk',
       agentInstanceId: 9,
@@ -847,7 +839,7 @@ describe('useExploreSession：auto-send 闸门（AC-1）', () => {
     expect(String(args.prompt)).toContain(AUTO_PROMPT);
     expect(String(args.prompt).startsWith('你在探索模式下工作')).toBe(true);
     // early-resolve running 轮行入链（恰一次发送的链路面佐证）
-    await waitFor(() => expect(result.current.chain).toHaveLength(1));
+    await waitFor(() => expect(result.current.session.chain).toHaveLength(1));
   });
 
   it('档位口径：auto-send 的 agent_start 入参 permissionMode = bypassPermissions（与 composer 缺省档同源）', async () => {
@@ -871,7 +863,7 @@ describe('useExploreSession：auto-send 闸门（AC-1）', () => {
       { initialProps: { record: exploreRecord() } },
     );
     await act(async () => {});
-    expect(rendered.result.current.chain).toEqual([]);
+    expect(rendered.result.current.session.chain).toEqual([]);
     expect(startCallCount()).toBe(0);
   });
 
@@ -879,7 +871,7 @@ describe('useExploreSession：auto-send 闸门（AC-1）', () => {
     // 缺省 fixture：两轮既有会话 → 装载完成后 chain 非空
     const { result } = await mountedWithAutoPrompt();
 
-    await waitFor(() => expect(result.current.chain).toHaveLength(2));
+    await waitFor(() => expect(result.current.session.chain).toHaveLength(2));
     await act(async () => {});
     expect(startCallCount()).toBe(0);
   });
@@ -910,7 +902,7 @@ describe('useExploreSession：auto-send 闸门（AC-1）', () => {
     await act(async () => {});
 
     // 装载在途：不早发
-    expect(result.current.loading).toBe(true);
+    expect(result.current.session.loading).toBe(true);
     expect(startCallCount()).toBe(0);
 
     await act(async () => {
@@ -918,7 +910,7 @@ describe('useExploreSession：auto-send 闸门（AC-1）', () => {
     });
     // 装载完成：不漏发、恰一次
     await waitFor(() => expect(startCallCount()).toBe(1));
-    expect(result.current.loading).toBe(false);
+    expect(result.current.session.loading).toBe(false);
   });
 
   it('边界：record 为 null / sessionId 空缺且归位失败 → 不自动发送', async () => {
@@ -949,7 +941,7 @@ describe('useExploreSession：auto-send 闸门（AC-1）', () => {
     rerender({ record: exploreRecord(), autoPrompt: AUTO_PROMPT });
     await act(async () => {});
     expect(startCallCount()).toBe(1);
-    expect(result.current.chain).toHaveLength(1);
+    expect(result.current.session.chain).toHaveLength(1);
   });
 
   it('边界：unmount 后携带 state 重挂载 → ref 重新武装、可再次 auto-send（免费重试语义）', async () => {
@@ -960,23 +952,23 @@ describe('useExploreSession：auto-send 闸门（AC-1）', () => {
 
     const second = await mountedWithAutoPrompt();
     await waitFor(() => expect(startCallCount()).toBe(2));
-    await waitFor(() => expect(second.result.current.chain).toHaveLength(1));
+    await waitFor(() => expect(second.result.current.session.chain).toHaveLength(1));
   });
 
   it('边界：首轮 send 失败（chain 仍 0）+ 重挂载复现 state → 恰构成一次重发（proposal 风险 6 留痕口径）', async () => {
     mockEmptySession();
     startResult = '启动失败';
     const failed = await mountedWithAutoPrompt();
-    await waitFor(() => expect(failed.result.current.error).toContain('启动失败'));
+    await waitFor(() => expect(failed.result.current.session.error).toContain('启动失败'));
     expect(startCallCount()).toBe(1);
-    expect(failed.result.current.chain).toHaveLength(0);
+    expect(failed.result.current.session.chain).toHaveLength(0);
     failed.unmount();
 
     // 重挂载（back/forward 复现 location state 的生产形态）：ref 重武装 → 重发
     startResult = turn(13, 'running', 'ses-13-1727000001000');
     const retried = await mountedWithAutoPrompt();
     await waitFor(() => expect(startCallCount()).toBe(2));
-    await waitFor(() => expect(retried.result.current.chain).toHaveLength(1));
+    await waitFor(() => expect(retried.result.current.session.chain).toHaveLength(1));
   });
 
   it('边界：autoPrompt 空串（非 null）→ 按在场口径发首轮（与 null 的区分断言）', async () => {
@@ -985,7 +977,7 @@ describe('useExploreSession：auto-send 闸门（AC-1）', () => {
 
     await waitFor(() => expect(startCallCount()).toBe(1));
     expect(startCallArgs().prompt).toBe(buildExplorePrompt('', 'api-retry'));
-    await waitFor(() => expect(result.current.chain).toHaveLength(1));
+    await waitFor(() => expect(result.current.session.chain).toHaveLength(1));
   });
 });
 
@@ -1020,9 +1012,9 @@ describe('useExploreSession：auto-send 失败语义', () => {
     startResult = '首轮启动失败';
     const { result } = await mountedWithAutoPrompt();
 
-    await waitFor(() => expect(result.current.error).toContain('首轮启动失败'));
-    expect(result.current.running).toBe(false);
-    expect(result.current.chain).toHaveLength(0);
+    await waitFor(() => expect(result.current.session.error).toContain('首轮启动失败'));
+    expect(result.current.session.running).toBe(false);
+    expect(result.current.session.chain).toHaveLength(0);
 
     // 链路可续：手动 send 可再次发起（不因失败卡死）
     act(() => {
@@ -1090,7 +1082,7 @@ describe('useExploreSession：ensure 归位守卫与取消抑制（AC-9）', () 
         .filter(([name]) => name === 'session_detail')
         .map(([, params]) => (params as { sessionId?: string }).sessionId);
     expect(sessionDetailIds()).not.toContain('ses-stale-1727000009000');
-    expect(result.current.chain).toEqual([]);
+    expect(result.current.session.chain).toEqual([]);
 
     // 正面对照：当前记录的 ensure 归位照常生效（以新会话发起重放）
     await act(async () => {

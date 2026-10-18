@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
-import { useAgentChat } from '../../../hooks/use-agent-chat';
+import { useAgentSession, type UseAgentSessionState } from '../../../hooks/use-agent-session';
 import { buildExplorePrompt } from '../../../lib/explore-stance';
 import type { AgentPermissionMode, ExploreRecord } from '../../../types/dto';
 import { commands } from '../../../types/generated/bindings';
@@ -64,7 +64,7 @@ function useEnsuredSessionId(
  * 变更（record 切换）重新武装，逐会话走完整观测序列。
  */
 function useAutoSend(
-  session: ReturnType<typeof useAgentChat>,
+  session: UseAgentSessionState,
   record: ExploreRecord | null,
   sessionId: string | null,
   autoPrompt: string | null,
@@ -96,15 +96,24 @@ function useAutoSend(
   }, [autoPrompt, session, record, sessionId, send]);
 }
 
+/** explore 会话状态面（来源侧组装：消息 / 轮行 / 库态运行标记经 `session` 透出） */
+export interface ExploreSessionState {
+  session: UseAgentSessionState;
+  /** 记录回写的会话 id（会话寻址键；null = 尚未落位） */
+  sessionId: string | null;
+  send: (input: ExploreSendInput) => void;
+  stop: () => void;
+}
+
 export function useExploreSession(
   root: string | null,
   record: ExploreRecord | null,
   autoPrompt: string | null = null,
-) {
+): ExploreSessionState {
   const recordName = record?.name ?? null;
   const recordedSessionId = record?.sessionId ?? null;
   const sessionId = useEnsuredSessionId(root, recordName, recordedSessionId);
-  const session = useAgentChat({
+  const session = useAgentSession({
     source: EXPLORE_SOURCE,
     sessionId,
     root,
@@ -129,16 +138,5 @@ export function useExploreSession(
 
   useAutoSend(session, record, sessionId, autoPrompt, send);
 
-  return {
-    messages: session.messages,
-    /** 轮统计行镜像（发起序轮行；迁移基线沿用，供既有断言与调试） */
-    chain: session.chain,
-    /** 密封事件扁平镜像（delta 仅实时流可见不入镜像；迁移基线沿用） */
-    events: session.events,
-    loading: session.loading,
-    running: session.running,
-    error: session.error,
-    send,
-    stop: session.stop,
-  };
+  return { session, sessionId, send, stop: session.stop };
 }

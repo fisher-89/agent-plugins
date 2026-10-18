@@ -625,38 +625,29 @@ describe('useChangeDetail：统一视图取数与通知去抖（D8）', () => {
     ).toBe(base + 1);
   });
 
-  it('notifyTranscript 独立 150ms 节流：不触发统一视图重查；notifyRefresh 不动 transcriptTick（kind 分流互不串台）', async () => {
+  it('通知归一：会话事件与其余同走 notifyRefresh（300ms 尾随去抖），refreshTick 一拍照常自增', async () => {
     vi.useFakeTimers();
     invokeMock.mockResolvedValue(unified(fakeDetail([])));
     const { result } = renderHook(() => useChangeDetail('/repo', 'add-feature'));
     await act(async () => {});
     const base = invokeMock.mock.calls.length;
-
-    act(() => {
-      result.current.notifyTranscript();
-    });
-    act(() => {
-      vi.advanceTimersByTime(149);
-    });
-    await act(async () => {});
-    expect(result.current.transcriptTick, '150ms 窗内零转录信号').toBe(0);
-
-    act(() => {
-      vi.advanceTimersByTime(1);
-    });
-    await act(async () => {});
-    expect(result.current.transcriptTick, '150ms 到点转录信号一拍').toBe(1);
-    expect(invokeMock.mock.calls.length, '转录信号不触发统一视图重查').toBe(base);
+    const tickBase = result.current.refreshTick;
 
     act(() => {
       result.current.notifyRefresh();
     });
     act(() => {
-      vi.advanceTimersByTime(300);
+      vi.advanceTimersByTime(299);
     });
     await act(async () => {});
-    expect(invokeMock.mock.calls.length, '统一视图重查一拍').toBe(base + 1);
-    expect(result.current.transcriptTick, '统一视图信号不动转录 tick').toBe(1);
+    expect(invokeMock.mock.calls.length, '去抖窗内静默（尾随最后一拍必达）').toBe(base);
+
+    act(() => {
+      vi.advanceTimersByTime(1);
+    });
+    await act(async () => {});
+    expect(invokeMock.mock.calls.length, '通知到点重查一拍').toBe(base + 1);
+    expect(result.current.refreshTick, '统一 tick 自增（会话组件据此重评估）').toBe(tickBase + 1);
   });
 
   it('卸载弃挂起计时器：notifyRefresh 后卸载 → 去抖窗过点零泄漏重查', async () => {
@@ -1143,7 +1134,7 @@ describe('useChangeDetail：有界重试节奏与取消通道（AC-2 / AC-3）',
     expect(roundCalls()).toBe(2);
   });
 
-  it('transcriptTick 不入取消通道：重试挂起期间 notifyTranscript() → 重试链不被打断，仍按原退避点补发（长 agent 步期间重试不被转录刷新打断——D2）', async () => {
+  it('通知去抖拍不打断重试链：重试挂起期间 notifyRefresh() → 重试按原退避点补发（去抖拍前作废旧重试）', async () => {
     vi.useFakeTimers();
     const roundCalls = scriptDetailRounds([
       okRound(fakeDetail([])),
@@ -1154,23 +1145,21 @@ describe('useChangeDetail：有界重试节奏与取消通道（AC-2 / AC-3）',
     await act(async () => {});
 
     act(() => {
-      result.current.notifyRefresh();
+      result.current.refresh();
     });
     await flushTimers(300);
     expect(roundCalls()).toBe(2);
     expect(result.current.refreshFailed).not.toBeNull();
 
-    // 转录信号（sessionEvent → 150ms 去抖）不取消重试、不触发统一查询
+    // 通知到达：300ms 去抖窗内到达即重置计时，最后一拍补发重查
     act(() => {
-      result.current.notifyTranscript();
+      result.current.notifyRefresh();
     });
     await flushTimers(150);
-    expect(result.current.transcriptTick).toBe(1);
-    expect(roundCalls()).toBe(2);
+    expect(roundCalls(), '去抖窗内零重查').toBe(2);
 
-    // 原退避点（首败 +1s）补发照常
-    await flushTimers(850);
-    expect(roundCalls()).toBe(3);
+    await flushTimers(150);
+    expect(roundCalls(), '通知到点补发重查一拍').toBe(3);
     expect(result.current.refreshFailed).toBeNull();
     expect(result.current.detail?.runs).toHaveLength(1);
   });

@@ -4,6 +4,7 @@ mod port;
 mod runner;
 mod session;
 mod state;
+mod stream;
 mod usage;
 
 pub use event::{AgentBlock, AgentDelta, AgentEvent, AgentEventKind, AgentMessageRole};
@@ -19,6 +20,9 @@ pub use session::{
     SessionSummary, TurnSummary,
 };
 pub use state::{AgentRunState, RunStateMachine};
+pub use stream::{
+    SessionStreamItem, SessionStreamRecvError, SessionStreamRegistry, SessionStreamSubscription,
+};
 pub use usage::sum_usage_tokens;
 
 #[cfg(test)]
@@ -35,5 +39,7 @@ mod runner_test;
 mod session_test;
 #[cfg(test)]
 mod state_test;
+#[cfg(test)]
+mod stream_test;
 #[cfg(test)]
 mod usage_test;

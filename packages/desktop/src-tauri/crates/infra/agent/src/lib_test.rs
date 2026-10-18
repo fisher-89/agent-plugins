@@ -37,6 +37,7 @@ fn crate根导出面锚定_组合根与查询面与既有门面re_export可达()
     let compose_signature: fn(
         &WorkspaceStores,
         Arc<agent::StopRegistry>,
+        Arc<agent::SessionStreamRegistry>,
         Arc<store::Store>,
         Option<i64>,
     ) -> Result<ComposedTurn, String> = compose_turn;

@@ -4,6 +4,7 @@ import type { ChatTransport } from 'ai';
 import { describe, expect, it } from 'vite-plus/test';
 
 import type { AgentBlock, AgentEvent, TurnSummary } from '../types/dto';
+import * as adapterModule from './agent-adapter';
 import {
   deltaPartId,
   eventToChunk,
@@ -728,5 +729,340 @@ describe('runRecordToUIMessage running 形态', () => {
     expect(part?.type === 'data-run-record' && part.data.numTurns).toBeNull();
     expect(part?.type === 'data-run-record' && part.data.durationMs).toBeNull();
     expect(part?.type === 'data-run-record' && part.data.error).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// IR 三层（AC-7）：计划层对拍 / 视野差异快照 / 混合配对 / 规模与字符边界 /
+// 私有性（公共面仍为 eventsToUIMessages / eventToChunk 两入口）
+// ---------------------------------------------------------------------------
+
+/** 同消息场景的四类块形态（计划层对拍矩阵的 fixture 半边）。 */
+const SAME_MESSAGE_CASES: Record<string, AgentBlock[]> = {
+  'text + thinking': [
+    { kind: 'text', text: '结论正文' },
+    { kind: 'thinking', thinking: '想一想 🎉' },
+  ],
+  'toolUse + 同消息 result': [
+    { kind: 'toolUse', id: 'tu_1', name: 'Bash', input: { command: 'ls' } },
+    { kind: 'toolResult', id: 'tu_1', content: '目录内容', isError: false },
+  ],
+  '无主 toolResult': [{ kind: 'toolResult', id: 'tu_orphan', content: '孤儿结果', isError: true }],
+};
+
+describe('eventsToUIMessages：计划层对拍（同消息场景两路同形）', () => {
+  it.each(Object.entries(SAME_MESSAGE_CASES))(
+    '%s：折叠路 parts 与实时路 reducer 归约形状相等',
+    async (_label, blocks) => {
+      const events = [message(7, blocks)];
+      const reduced = await reducedMessages(events);
+
+      expect(reduced.map((entry) => entry.id)).toEqual(['evt-7']);
+      expect(shapeOf(reduced)).toEqual(shapeOf(eventsToUIMessages(events)));
+    },
+  );
+
+  it('aux 事件（非 message 密封）两路同形：单 data 部件 / 单 data chunk', async () => {
+    const events = [runStarted(0), systemNotice(1), turnDone(2), raw(3)];
+    const reduced = await reducedMessages(events);
+
+    expect(shapeOf(reduced)).toEqual(shapeOf(eventsToUIMessages(events)));
+  });
+});
+
+describe('视野快照：同消息相等（PairingScope 差异不显形）', () => {
+  it('单消息内 toolUse + toolResult → 两路均折叠为单卡 output-available（input / output / isError 逐字段）', async () => {
+    const events = [
+      message(4, [
+        { kind: 'toolUse', id: 'tu_9', name: 'Read', input: { path: 'a.ts' } },
+        { kind: 'toolResult', id: 'tu_9', content: '文件内容', isError: true },
+      ]),
+    ];
+
+    const folded = eventsToUIMessages(events);
+    expect(folded[0].parts).toHaveLength(1);
+    expect(folded[0].parts[0]).toMatchObject({
+      type: 'tool-Read',
+      toolCallId: 'tu_9',
+      state: 'output-available',
+      input: { path: 'a.ts' },
+      output: { content: '文件内容', isError: true },
+    });
+
+    const reduced = await reducedMessages(events);
+    expect(shapeOf(reduced)).toEqual(shapeOf(folded));
+  });
+});
+
+describe('视野快照：跨消息差异锁定（MUST NOT 用单一路径 fixture 掩饰）', () => {
+  const crossMessage = (): AgentEvent[] => [
+    message(0, [{ kind: 'toolUse', id: 'tu_1', name: 'Bash', input: { command: 'ls' } }]),
+    message(1, [{ kind: 'toolResult', id: 'tu_1', content: '目录内容', isError: false }]),
+  ];
+
+  it('折叠路（global 视野）：跨消息配对收敛为单卡 output-available，result 消息零部件', () => {
+    const folded = eventsToUIMessages(crossMessage());
+
+    expect(folded[0].parts).toHaveLength(1);
+    expect(folded[0].parts[0]).toMatchObject({
+      type: 'tool-Bash',
+      toolCallId: 'tu_1',
+      state: 'output-available',
+      output: { content: '目录内容', isError: false },
+    });
+    expect(folded[1].parts).toEqual([]);
+  });
+
+  it('实时路（local 视野）：孤儿占位卡 + 后续 result 卡的具体 chunk 序列（能力差异显式锁定）', () => {
+    const chunks = crossMessage().flatMap((event) => eventToChunk(event));
+    const toolChunks = chunks.filter((chunk) => chunk.type.startsWith('tool-'));
+
+    expect(toolChunks).toEqual([
+      {
+        type: 'tool-input-available',
+        toolCallId: 'tu_1',
+        toolName: 'Bash',
+        input: { command: 'ls' },
+      },
+      {
+        type: 'tool-input-available',
+        toolCallId: 'tu_1',
+        toolName: '工具调用',
+        input: null,
+      },
+      {
+        type: 'tool-output-available',
+        toolCallId: 'tu_1',
+        output: { content: '目录内容', isError: false },
+      },
+    ]);
+  });
+
+  it('两路差异显式可辨：result 消息在折叠路零部件、在实时路 reducer 侧仍有 tool 部件', async () => {
+    const events = crossMessage();
+    const folded = eventsToUIMessages(events);
+    const reduced = await reducedMessages(events);
+
+    expect(folded[1].parts).toEqual([]);
+    const localSecond = reduced.find((entry) => entry.id === 'evt-1');
+    expect(localSecond?.parts.length ?? 0).toBeGreaterThan(0);
+  });
+});
+
+describe('eventsToUIMessages：多 toolUse / result 混合配对', () => {
+  it('同 id 重复 result 取首个；result 在 use 之前的同消息仍配对收敛单卡', () => {
+    const events = [
+      message(0, [
+        { kind: 'toolResult', id: 'tu_a', content: '首个结果', isError: false },
+        { kind: 'toolUse', id: 'tu_a', name: 'Bash', input: { command: 'pwd' } },
+        { kind: 'toolUse', id: 'tu_b', name: 'Read', input: { path: 'b.ts' } },
+      ]),
+      message(1, [
+        { kind: 'toolResult', id: 'tu_a', content: '重复结果被丢弃', isError: true },
+        { kind: 'toolResult', id: 'tu_b', content: 'b 的结果', isError: false },
+      ]),
+    ];
+
+    const folded = eventsToUIMessages(events);
+    const parts = folded[0].parts;
+    expect(parts).toHaveLength(2);
+    expect(parts[0]).toMatchObject({
+      type: 'tool-Bash',
+      toolCallId: 'tu_a',
+      state: 'output-available',
+      output: { content: '首个结果', isError: false },
+    });
+    expect(parts[1]).toMatchObject({
+      type: 'tool-Read',
+      state: 'output-available',
+      output: { content: 'b 的结果', isError: false },
+    });
+    // 两个 result 均已被消费：第二消息零部件（无双卡 / 无孤儿）
+    expect(folded[1].parts).toEqual([]);
+  });
+});
+
+describe('eventsToUIMessages：规模与字符边界', () => {
+  it('1000 条密封事件不抛错、输出保序且 metadata.seq 单调', () => {
+    const events: AgentEvent[] = [];
+    for (let seq = 0; seq < 1000; seq += 1) {
+      events.push(message(seq, [{ kind: 'text', text: `第 ${seq} 段` }]));
+    }
+
+    const folded = eventsToUIMessages(events);
+
+    expect(folded).toHaveLength(1000);
+    expect(folded.map((entry) => entry.id)).toEqual(events.map((event) => `evt-${event.seq}`));
+    const seqs = folded.map((entry) => entry.metadata?.seq ?? -1);
+    expect(seqs).toEqual(Array.from({ length: 1000 }, (_unused, index) => index));
+  });
+
+  it('超长文本（> 1000 chars）与特殊字符（换行 / NUL / emoji）逐字保留', () => {
+    const longText = '超'.repeat(1200);
+    const specialText = '第一行\n第二行\u{0}结束😀🎉';
+    const folded = eventsToUIMessages([
+      message(0, [{ kind: 'text', text: longText }]),
+      message(1, [{ kind: 'text', text: specialText }]),
+    ]);
+
+    expect(folded[0].parts[0]).toMatchObject({ type: 'text', text: longText });
+    expect(folded[1].parts[0]).toMatchObject({ type: 'text', text: specialText });
+  });
+});
+
+describe('eventToChunk：密封路发射形（IR 化后）', () => {
+  it('部件 id 为计划下标形（t-<seq>-<i> / r-<seq>-<i>），工具走 tool-input-available / tool-output-available', () => {
+    const chunks = eventToChunk(
+      message(5, [
+        { kind: 'thinking', thinking: '先想' },
+        { kind: 'text', text: '再答' },
+        { kind: 'toolUse', id: 'tu_x', name: 'Glob', input: { pattern: '*.ts' } },
+        { kind: 'toolResult', id: 'tu_x', content: '命中 2 个', isError: false },
+      ]),
+    );
+
+    expect(chunks.map((chunk) => chunk.type)).toEqual([
+      'start',
+      'reset-step',
+      'reasoning-start',
+      'reasoning-delta',
+      'reasoning-end',
+      'text-start',
+      'text-delta',
+      'text-end',
+      'tool-input-available',
+      'tool-output-available',
+    ]);
+    expect(chunks[2]).toMatchObject({ type: 'reasoning-start', id: 'r-5-0' });
+    expect(chunks[5]).toMatchObject({ type: 'text-start', id: 't-5-1' });
+    expect(chunks[8]).toMatchObject({
+      type: 'tool-input-available',
+      toolCallId: 'tu_x',
+      toolName: 'Glob',
+      input: { pattern: '*.ts' },
+    });
+    expect(chunks[9]).toMatchObject({
+      type: 'tool-output-available',
+      toolCallId: 'tu_x',
+      output: { content: '命中 2 个', isError: false },
+    });
+  });
+
+  it('aux 路：start + reset-step + 单 data 部件（载荷与折叠路同事件逐字段相等）', () => {
+    const event = turnDone(9);
+    const chunks = eventToChunk(event);
+    const folded = eventsToUIMessages([event]);
+
+    expect(chunks.map((chunk) => chunk.type)).toEqual(['start', 'reset-step', 'data-run-result']);
+    expect(chunks[2]).toEqual(folded[0].parts[0]);
+  });
+
+  it('未知 aux 事件（未来变体）→ start + reset-step + data-raw，chunk 流不中断', () => {
+    const future = {
+      seq: 3,
+      timestampMs: TS,
+      kind: 'futureVariant',
+      note: '未来字段',
+    } as unknown as AgentEvent;
+
+    const chunks = eventToChunk(future);
+
+    expect(chunks.map((chunk) => chunk.type)).toEqual(['start', 'reset-step', 'data-raw']);
+    expect(chunks[2]).toMatchObject({
+      type: 'data-raw',
+      data: { seq: 3, eventType: 'unknown' },
+    });
+  });
+});
+
+describe('runRecordToUIMessage：异常与边界', () => {
+  it('未来 / 非法 status 与未知多余字段原样透传（不解释、不丢字段）', () => {
+    const future = {
+      ...record(5, 'completed'),
+      status: 'futureStatus',
+      futureColumn: '未来列',
+      error: '第一行\n第二行😀',
+    } as unknown as TurnSummary;
+
+    const message = runRecordToUIMessage(future);
+    const part = message.parts[0] as { type: string; data: Record<string, unknown> };
+
+    expect(part.type).toBe('data-run-record');
+    expect(part.data.status).toBe('futureStatus');
+    expect(part.data.futureColumn).toBe('未来列');
+    expect(part.data.error).toBe('第一行\n第二行😀');
+  });
+
+  it('turnId 两极（0 / -1 / 超大整数）→ 消息 id `turn-<id>` 稳定且互异', () => {
+    const ids = [0, -1, Number.MAX_SAFE_INTEGER].map(
+      (turnId) => runRecordToUIMessage(record(turnId, 'completed')).id,
+    );
+    expect(ids).toEqual(['turn-0', 'turn--1', `turn-${Number.MAX_SAFE_INTEGER}`]);
+    expect(new Set(ids).size).toBe(3);
+  });
+
+  it('统计字段全 null 形态可折叠（metadata.seq 恒 null）', () => {
+    const message = runRecordToUIMessage({
+      turnId: 6,
+      sessionId: 'ses-x',
+      status: 'running',
+      startedAt: TS,
+      finishedAt: null,
+      numTurns: null,
+      costUsd: null,
+      durationMs: null,
+      error: null,
+    });
+
+    expect(message.metadata?.seq).toBeNull();
+    expect(message.parts[0]).toMatchObject({
+      type: 'data-run-record',
+      data: {
+        turnId: 6,
+        status: 'running',
+        finishedAt: null,
+        costUsd: null,
+        error: null,
+      },
+    });
+  });
+});
+
+describe('provisionalMessageId / deltaPartId：线格式与互不碰撞', () => {
+  it('空串键与 null 键可区分（delta- ≠ delta-none），特殊字符键稳定不抛错', () => {
+    expect(provisionalMessageId(null)).toBe('delta-none');
+    expect(provisionalMessageId('')).toBe('delta-');
+    expect(provisionalMessageId('')).not.toBe(provisionalMessageId(null));
+    expect(provisionalMessageId('tu\n😀\u{0}')).toBe('delta-tu\n😀\u{0}');
+  });
+
+  it('超长键与确定性：多次调用恒等且 text / thinking 两族互异', () => {
+    const longKey = 'k'.repeat(2000);
+    expect(deltaPartId(longKey, 'text')).toBe(deltaPartId(longKey, 'text'));
+    expect(deltaPartId(longKey, 'text')).not.toBe(deltaPartId(longKey, 'thinking'));
+    expect(deltaPartId('', 'text')).toBe('t-delta-');
+    expect(deltaPartId('', 'thinking')).toBe('r-delta-');
+  });
+});
+
+describe('IR 三层私有性（D11）：公共面仍为两入口', () => {
+  it('模块运行时导出键集合锁定（BlockPlan / planBlock / plansToParts / plansToChunks / PairingScope 不外露）', () => {
+    expect(Object.keys(adapterModule).sort()).toEqual([
+      'deltaPartId',
+      'eventToChunk',
+      'eventsToUIMessages',
+      'provisionalMessageId',
+      'runRecordToUIMessage',
+    ]);
+    for (const internal of [
+      'BlockPlan',
+      'planBlock',
+      'plansToParts',
+      'plansToChunks',
+      'PairingScope',
+      'auxEventData',
+    ]) {
+      expect(adapterModule).not.toHaveProperty(internal);
+    }
   });
 });

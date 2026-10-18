@@ -1,3 +1,18 @@
+/**
+ * 事件适配层（纯函数，三层结构）：
+ *
+ * 1. **视野层** `PairingScope`：隔离配对视野差异——`global`（折叠路：跨消息
+ *    预扫全部 toolUse 的配对 result）与 `local`（实时路：仅当前 message 内配对）
+ *    产出同一类型 `PairedResults`。
+ * 2. **语义层** `planBlock`：块语义的**唯一判定点**（四 block 变体 + 无主
+ *    toolResult 合成为 `tool` 变体；`null` = 已配对 result 不重复呈现）。
+ * 3. **发射层** `plansToParts` / `plansToChunks`：纯机械映射（无判定、无视野），
+ *    两路的块呈现由同一份 `BlockPlan[]` 驱动。
+ *
+ * 两层发射目标形态的等价依赖 ai-sdk 的 data part 与 data chunk **碰巧同形**
+ * （辅助载体事件两路共用 `AuxData`）：ai-sdk 主版本升级须复核该前提。
+ * 三层均为模块私有（公共面仍为 `eventsToUIMessages` / `eventToChunk` 两个入口）。
+ */
 import type { UIMessage, UIMessageChunk } from 'ai';
 
 import type { AgentBlock, AgentEvent, AgentMessageRole, TurnSummary } from '../types/dto';
@@ -92,8 +107,60 @@ type AuxData =
   | { type: 'data-run-result'; data: AgentRunResultData }
   | { type: 'data-raw'; data: AgentRawData };
 
-type ToolUseBlock = Extract<AgentBlock, { kind: 'toolUse' }>;
 type ToolResultBlock = Extract<AgentBlock, { kind: 'toolResult' }>;
+
+/** 块语义唯一表达（不含发射格式 / id / 视野）：`output: null` 即未配对 */
+type BlockPlan =
+  | { kind: 'text'; text: string }
+  | { kind: 'reasoning'; text: string }
+  | {
+      kind: 'tool';
+      toolCallId: string;
+      toolName: string;
+      input: unknown;
+      output: AgentToolOutput | null;
+    };
+
+/** 配对产物（两视野同形态，差异只在产出方式） */
+type PairedResults = Map<string, ToolResultBlock>;
+
+/** 视野层：配对视野差异的唯一隔离点（差异 MUST NOT 渗入语义层与发射层） */
+const PairingScope = {
+  /** 折叠路视野：跨消息预扫全部 toolUse，再收其配对 result（重复取首个） */
+  global: (events: SealedAgentEvent[]): PairedResults => {
+    const useIds = new Set<string>();
+    for (const event of events) {
+      if (event.kind !== 'message') continue;
+      for (const block of event.blocks) {
+        if (block.kind === 'toolUse') useIds.add(block.id);
+      }
+    }
+    const paired: PairedResults = new Map();
+    for (const event of events) {
+      if (event.kind !== 'message') continue;
+      for (const block of event.blocks) {
+        if (block.kind === 'toolResult' && useIds.has(block.id) && !paired.has(block.id)) {
+          paired.set(block.id, block);
+        }
+      }
+    }
+    return paired;
+  },
+  /** 实时路视野：仅当前 message 内 `toolUse` ↔ `toolResult` 配对（跨消息不可见） */
+  local: (blocks: AgentBlock[]): PairedResults => {
+    const useIds = new Set<string>();
+    for (const block of blocks) {
+      if (block.kind === 'toolUse') useIds.add(block.id);
+    }
+    const paired: PairedResults = new Map();
+    for (const block of blocks) {
+      if (block.kind === 'toolResult' && useIds.has(block.id) && !paired.has(block.id)) {
+        paired.set(block.id, block);
+      }
+    }
+    return paired;
+  },
+} as const;
 
 /** 无主 toolResult 就地合成时的占位工具名 */
 const ORPHAN_TOOL_NAME = '工具调用';
@@ -117,27 +184,6 @@ export function provisionalMessageId(parentToolUseId: string | null): string {
  */
 export function deltaPartId(key: string, part: 'text' | 'thinking'): string {
   return part === 'text' ? `t-delta-${key}` : `r-delta-${key}`;
-}
-
-/** 同 id toolResult 收集（含跨消息；仅收 toolUse 已配对的 id，重复取首个） */
-function collectToolResults(events: SealedAgentEvent[]): Map<string, ToolResultBlock> {
-  const useIds = new Set<string>();
-  for (const event of events) {
-    if (event.kind !== 'message') continue;
-    for (const block of event.blocks) {
-      if (block.kind === 'toolUse') useIds.add(block.id);
-    }
-  }
-  const paired = new Map<string, ToolResultBlock>();
-  for (const event of events) {
-    if (event.kind !== 'message') continue;
-    for (const block of event.blocks) {
-      if (block.kind === 'toolResult' && useIds.has(block.id) && !paired.has(block.id)) {
-        paired.set(block.id, block);
-      }
-    }
-  }
-  return paired;
 }
 
 /** 非 message 事件 → 单个 data 部件载荷（未知事件 `data-raw` 原文透传） */
@@ -179,57 +225,97 @@ function auxEventData(event: Exclude<SealedAgentEvent, { kind: 'message' }>): Au
         type: 'data-raw',
         data: { ...base, eventType: event.eventType, rawJson: event.rawJson },
       };
-    default:
-      // 运行时未知事件（未来引擎新增）：整事件 JSON 透传，不解释不丢失
+    default: {
+      // 双层收口：编译期穷尽（新增 AgentEvent 变体即报错）+ runtime 未知变体
+      // `data-raw` 原文兜底（未来引擎新增事件不解释不丢失）
+      const _exhaustive: never = event;
       return {
         type: 'data-raw',
-        data: { ...base, eventType: 'unknown', rawJson: JSON.stringify(event) },
+        data: { ...base, eventType: 'unknown', rawJson: JSON.stringify(_exhaustive) },
       };
+    }
   }
 }
 
-/** toolUse 块 → tool 部件（有主结果并入 output，成单部件呈现） */
-function toolUsePart(block: ToolUseBlock, results: Map<string, ToolResultBlock>): AgentToolPart {
-  const result = results.get(block.id);
-  if (result === undefined) {
+/**
+ * 语义层唯一判定点：块 → 计划（四变体 + 无主 result 合成；`null` = 已配对的
+ * result 不重复呈现，其载荷已并入对应 toolUse 计划）。
+ */
+function planBlock(block: AgentBlock, paired: PairedResults): BlockPlan | null {
+  switch (block.kind) {
+    case 'text':
+      return { kind: 'text', text: block.text };
+    case 'thinking':
+      return { kind: 'reasoning', text: block.thinking };
+    case 'toolUse': {
+      const result = paired.get(block.id);
+      return {
+        kind: 'tool',
+        toolCallId: block.id,
+        toolName: block.name,
+        input: block.input,
+        output: result === undefined ? null : { content: result.content, isError: result.isError },
+      };
+    }
+    case 'toolResult':
+      if (paired.has(block.id)) return null;
+      // 无主 result：合成占位工具计划（跨消息实时路的既有形态）
+      return {
+        kind: 'tool',
+        toolCallId: block.id,
+        toolName: ORPHAN_TOOL_NAME,
+        input: null,
+        output: { content: block.content, isError: block.isError },
+      };
+    default: {
+      // 双层收口：编译期穷尽（新增 AgentBlock 变体而漏改即在此报错）+ runtime
+      // 未知块变体跳过呈现（事件级未知仍由 `data-raw` 原文透传，不在此重复兜底）
+      const _exhaustive: never = block;
+      void _exhaustive;
+      return null;
+    }
+  }
+}
+
+/** 块序列 → 计划序列（已配对 result 落空，不作占位） */
+function planBlocks(blocks: AgentBlock[], paired: PairedResults): BlockPlan[] {
+  const plans: BlockPlan[] = [];
+  for (const block of blocks) {
+    const plan = planBlock(block, paired);
+    if (plan !== null) plans.push(plan);
+  }
+  return plans;
+}
+
+/** 工具计划 → tool 部件（未配对 = `input-available`，已配对 = `output-available`） */
+function planToolPart(plan: Extract<BlockPlan, { kind: 'tool' }>): AgentToolPart {
+  if (plan.output === null) {
     return {
-      type: `tool-${block.name}`,
-      toolCallId: block.id,
+      type: `tool-${plan.toolName}`,
+      toolCallId: plan.toolCallId,
       state: 'input-available',
-      input: block.input,
+      input: plan.input,
     };
   }
   return {
-    type: `tool-${block.name}`,
-    toolCallId: block.id,
+    type: `tool-${plan.toolName}`,
+    toolCallId: plan.toolCallId,
     state: 'output-available',
-    input: block.input,
-    output: { content: result.content, isError: result.isError },
+    input: plan.input,
+    output: plan.output,
   };
 }
 
-/** message 事件块 → UIMessage 部件（四变体映射，已配对 result 不重复呈现） */
-function blocksToParts(
-  blocks: AgentBlock[],
-  results: Map<string, ToolResultBlock>,
-): AgentUIMessage['parts'] {
+/** 发射层（折叠路）：计划序列 → UIMessage 部件（纯机械，无判定无视野） */
+function plansToParts(plans: BlockPlan[]): AgentUIMessage['parts'] {
   const parts: AgentUIMessage['parts'] = [];
-  for (const block of blocks) {
-    if (block.kind === 'text') {
-      parts.push({ type: 'text', text: block.text, state: 'done' });
-    } else if (block.kind === 'thinking') {
-      parts.push({ type: 'reasoning', text: block.thinking, state: 'done' });
-    } else if (block.kind === 'toolUse') {
-      parts.push(toolUsePart(block, results));
-    } else if (!results.has(block.id)) {
-      // 无主 toolResult：就地合成占位部件（有主已在 toolUse 侧并入）
-      parts.push({
-        type: `tool-${ORPHAN_TOOL_NAME}`,
-        toolCallId: block.id,
-        state: 'output-available',
-        input: null,
-        output: { content: block.content, isError: block.isError },
-      });
+  for (const plan of plans) {
+    if (plan.kind === 'text') {
+      parts.push({ type: 'text', text: plan.text, state: 'done' });
+    } else if (plan.kind === 'reasoning') {
+      parts.push({ type: 'reasoning', text: plan.text, state: 'done' });
+    } else {
+      parts.push(planToolPart(plan));
     }
   }
   return parts;
@@ -244,10 +330,7 @@ function uiRole(role: AgentMessageRole): AgentUIMessage['role'] {
 }
 
 /** 单事件 → UIMessage（message 事件按 role 收窄；其余 system 角色单 data 部件） */
-function eventToUIMessage(
-  event: SealedAgentEvent,
-  results: Map<string, ToolResultBlock>,
-): AgentUIMessage {
+function eventToUIMessage(event: SealedAgentEvent, results: PairedResults): AgentUIMessage {
   const metadata: AgentMessageMetadata = {
     seq: event.seq,
     parentToolUseId: event.kind === 'message' ? event.parentToolUseId : null,
@@ -257,7 +340,7 @@ function eventToUIMessage(
       id: messageId(event.seq),
       role: uiRole(event.role),
       metadata,
-      parts: blocksToParts(event.blocks, results),
+      parts: plansToParts(planBlocks(event.blocks, results)),
     };
   }
   return { id: messageId(event.seq), role: 'system', metadata, parts: [auxEventData(event)] };
@@ -265,7 +348,8 @@ function eventToUIMessage(
 
 export function eventsToUIMessages(events: AgentEvent[]): AgentUIMessage[] {
   const sealed = events.filter((event): event is SealedAgentEvent => event.kind !== 'messageDelta');
-  const results = collectToolResults(sealed);
+  // 折叠路视野：跨消息配对（重放 / 收口同一入口）
+  const results = PairingScope.global(sealed);
   return sealed.map((event) => eventToUIMessage(event, results));
 }
 
@@ -305,39 +389,24 @@ function outputChunk(toolCallId: string, output: AgentToolOutput): AgentUIMessag
   return { type: 'tool-output-available', toolCallId, output };
 }
 
-/** message 事件块 → chunk 组（同事件配对在 toolUse 位就地续 output） */
-function blocksToChunks(seq: number, blocks: AgentBlock[]): AgentUIMessageChunk[] {
-  const useBlocks = blocks.filter((b): b is ToolUseBlock => b.kind === 'toolUse');
-  const resultBlocks = blocks.filter((b): b is ToolResultBlock => b.kind === 'toolResult');
-  const useIds = new Set(useBlocks.map((b) => b.id));
+/** message 事件块 → chunk 组（发射层实时路：纯机械，part id 取计划下标） */
+function plansToChunks(plans: BlockPlan[], seq: number): AgentUIMessageChunk[] {
   const chunks: AgentUIMessageChunk[] = [];
-  blocks.forEach((block, index) => {
-    const key = `${seq}-${index}`;
-    if (block.kind === 'text') {
-      chunks.push(...textChunks(`t-${key}`, block.text));
-    } else if (block.kind === 'thinking') {
-      chunks.push(...reasoningChunks(`r-${key}`, block.thinking));
-    } else if (block.kind === 'toolUse') {
+  plans.forEach((plan, index) => {
+    if (plan.kind === 'text') {
+      chunks.push(...textChunks(`t-${seq}-${index}`, plan.text));
+    } else if (plan.kind === 'reasoning') {
+      chunks.push(...reasoningChunks(`r-${seq}-${index}`, plan.text));
+    } else {
       chunks.push({
         type: 'tool-input-available',
-        toolCallId: block.id,
-        toolName: block.name,
-        input: block.input,
+        toolCallId: plan.toolCallId,
+        toolName: plan.toolName,
+        input: plan.input,
       });
-      const result = resultBlocks.find((b) => b.id === block.id);
-      if (result !== undefined) {
-        chunks.push(outputChunk(block.id, { content: result.content, isError: result.isError }));
+      if (plan.output !== null) {
+        chunks.push(outputChunk(plan.toolCallId, plan.output));
       }
-    } else if (!useIds.has(block.id)) {
-      // 无主 / 跨消息 toolResult：就地合成占位部件的 chunk 组（reducer 只能
-      // 更新当前消息部件，跨消息并入由轮收口归一承载）
-      chunks.push({
-        type: 'tool-input-available',
-        toolCallId: block.id,
-        toolName: ORPHAN_TOOL_NAME,
-        input: null,
-      });
-      chunks.push(outputChunk(block.id, { content: block.content, isError: block.isError }));
     }
   });
   return chunks;
@@ -369,7 +438,9 @@ export function eventToChunk(event: AgentEvent): AgentUIMessageChunk[] {
     { type: 'reset-step' },
   ];
   if (event.kind === 'message') {
-    return [...header, ...blocksToChunks(event.seq, event.blocks)];
+    // 实时路视野：仅当前 message 内配对（跨消息差异由轮收口重放折叠纠正）
+    const plans = planBlocks(event.blocks, PairingScope.local(event.blocks));
+    return [...header, ...plansToChunks(plans, event.seq)];
   }
   return [...header, auxEventData(event)];
 }

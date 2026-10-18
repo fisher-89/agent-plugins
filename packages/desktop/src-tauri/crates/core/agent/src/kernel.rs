@@ -9,6 +9,7 @@ use crate::runner::{
 };
 use crate::session::{new_session_id, NewSessionRow, SessionProvenance};
 use crate::state::{AgentRunState, RunStateMachine};
+use crate::stream::SessionStreamRegistry;
 
 /// 停止注册表（内存态，进程生命周期，应用重启即清空）：运行中会话的停止
 /// 句柄登记，键 = core session id（core 铸 id 进程内全局唯一，免复合键）。
@@ -108,6 +109,8 @@ pub struct RunningTurn {
     sink: Arc<dyn SessionSink>,
     /// 停止注册表（终态除名）
     registry: Arc<StopRegistry>,
+    /// 会话实时流注册表（观察单点发布 + 终态投递除名）
+    streams: Arc<SessionStreamRegistry>,
     /// 轮提问
     question: String,
     /// 本轮盖戳续排基点（会话级单调空间的开轮询定值，轮内自基点递增）
@@ -119,12 +122,22 @@ pub struct RunningTurn {
 pub struct SessionKernel {
     sink: Arc<dyn SessionSink>,
     registry: Arc<StopRegistry>,
+    /// 会话实时流注册表（壳层 `Arc` 单例经组合根下行，exec / change 双轨同源）
+    streams: Arc<SessionStreamRegistry>,
 }
 
 impl SessionKernel {
-    /// 内核构造：持久面 port + 停止注册（组合根装配）。
-    pub fn new(sink: Arc<dyn SessionSink>, registry: Arc<StopRegistry>) -> Self {
-        Self { sink, registry }
+    /// 内核构造：持久面 port + 停止注册 + 会话实时流注册（组合根装配）。
+    pub fn new(
+        sink: Arc<dyn SessionSink>,
+        registry: Arc<StopRegistry>,
+        streams: Arc<SessionStreamRegistry>,
+    ) -> Self {
+        Self {
+            sink,
+            registry,
+            streams,
+        }
     }
 
     /// 会话建立与轮注册的同步段（提前 resolve 契约）：open（失败不落库）→
@@ -174,6 +187,8 @@ impl SessionKernel {
         // 停止登记（键 = core session id）
         self.registry
             .register(&session_id, agent_session.handle.clone());
+        // 流登记：先于驱动，订阅方可即刻接入（条目生命周期 = 本轮）
+        self.streams.begin(&session_id);
         Ok(RunningTurn {
             session_id,
             turn_id,
@@ -181,6 +196,7 @@ impl SessionKernel {
             agent_session,
             sink: Arc::clone(&self.sink),
             registry: Arc::clone(&self.registry),
+            streams: Arc::clone(&self.streams),
             question: request.question,
             seq_base,
         })
@@ -195,12 +211,13 @@ impl RunningTurn {
         let RunningTurn {
             session_id,
             turn_id,
+            started_at,
             agent_session: mut session,
             sink,
             registry,
+            streams,
             question,
             seq_base,
-            ..
         } = self;
         // ask：轮提问送达（接收端已关即引擎侧异常终止，failed 收敛记因）
         if session
@@ -212,11 +229,13 @@ impl RunningTurn {
             return Self::converge(
                 &session_id,
                 turn_id,
+                started_at,
                 AgentRunStatus::Failed,
                 Some("轮提问送达失败（引擎侧已终止）".to_owned()),
                 TurnStats::default(),
                 &*sink,
                 &registry,
+                &streams,
                 &mut on_output,
             )
             .await;
@@ -229,7 +248,9 @@ impl RunningTurn {
             let event = AgentEvent::stamp(seq, kind);
             seq += 1;
             if event.kind.is_delta() {
-                // 增量只上传输面（store 永不见；盖戳治理单点的传输半边）
+                // 增量只上传输面（store 永不见；盖戳治理单点的传输半边）：
+                // 注册表发布先于出流（两出口同源）
+                streams.publish(&session_id, event.clone());
                 on_output(KernelOutput::Observation(event));
                 continue;
             }
@@ -262,15 +283,19 @@ impl RunningTurn {
                 return Self::converge(
                     &session_id,
                     turn_id,
+                    started_at,
                     AgentRunStatus::Failed,
                     Some(format!("事件落库失败: {store_error}")),
                     stats,
                     &*sink,
                     &registry,
+                    &streams,
                     &mut on_output,
                 )
                 .await;
             }
+            // 密封同源发布（落库 → 发布 → 出流三序固定，与发起流同戳）
+            streams.publish(&session_id, event.clone());
             on_output(KernelOutput::Observation(event));
         }
 
@@ -292,28 +317,32 @@ impl RunningTurn {
         Self::converge(
             &session_id,
             turn_id,
+            started_at,
             status,
             error,
             stats,
             &*sink,
             &registry,
+            &streams,
             &mut on_output,
         )
         .await
     }
 
-    /// 轮收口：组装终态 → 轮行落库（失败记因仍尽力流出）→ 注册表除名 →
-    /// `TurnFinished` 流出。收口路径唯一（ask 失败 / 落库失败 / 正常 EOF
-    /// 三臂共用），终态幂等。
+    /// 轮收口：组装终态 → 轮行落库（失败记因仍尽力流出）→ 实时面投终态并除名
+    /// → 停止注册表除名 → `TurnFinished` 流出。收口路径唯一（ask 失败 / 落库
+    /// 失败 / 正常 EOF 三臂共用），终态幂等。
     #[allow(clippy::too_many_arguments)]
     async fn converge<F>(
         session_id: &str,
         turn_id: i64,
+        started_at: i64,
         status: AgentRunStatus,
         error: Option<String>,
         stats: TurnStats,
         sink: &dyn SessionSink,
         registry: &StopRegistry,
+        streams: &SessionStreamRegistry,
         on_output: &mut F,
     ) -> TurnOutcome
     where
@@ -322,6 +351,7 @@ impl RunningTurn {
         let mut outcome = TurnOutcome {
             turn_id,
             status,
+            started_at,
             finished_at: now_millis(),
             num_turns: stats.num_turns,
             duration_ms: stats.duration_ms,
@@ -334,6 +364,8 @@ impl RunningTurn {
             // 终态落库失败同样不可静默：error 记因后仍尽力流出终态
             outcome.error = Some(format!("终态落库失败: {store_error}"));
         }
+        // 实时面投终态即除名（订阅端以 `Record` 收尾，其后 `Closed`）
+        streams.finish(session_id, outcome.clone());
         registry.remove(session_id);
         on_output(KernelOutput::TurnFinished(outcome.clone()));
         outcome

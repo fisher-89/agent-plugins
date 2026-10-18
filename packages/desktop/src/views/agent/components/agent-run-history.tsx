@@ -1,15 +1,16 @@
 import { useEffect, useState } from 'react';
 
-import { AgentMessages } from '@/components/agent';
+import { AgentSessionView } from '@/components/agent';
 import { StandardDrawer } from '@/components/standard/drawer';
 import { StandardPagination } from '@/components/standard/pagination';
 import { Button } from '@/components/ui/button';
-import { eventsToUIMessages } from '@/lib/agent-adapter';
-import type { AgentEvent, AgentRunStatus, SessionSummary } from '@/types/dto';
+import type { AgentRunStatus, SessionSummary } from '@/types/dto';
 
 import type { AgentHistorySource, AgentRunHistoryState } from '../hooks/use-agent-run-history';
 
 export interface AgentRunHistoryProps {
+  /** workspace root（重放会话取数 / 订阅寻址） */
+  root: string | null;
   state: AgentRunHistoryState;
   /** 来源筛选当前值（状态由页面持有） */
   source: AgentHistorySource;
@@ -110,14 +111,14 @@ function SessionRow({
   );
 }
 
-/** 重放区：点开会话的全史密封转录（限高内部滚动，不撑高页面）。 */
+/** 重放区：点开会话的全史转录（只读形态自持建流，限高内部滚动，不撑高页面）。 */
 function ReplayArea({
+  root,
   sessionId,
-  events,
   onClose,
 }: {
+  root: string | null;
   sessionId: string | null;
-  events: AgentEvent[];
   onClose?: () => void;
 }): React.JSX.Element {
   const [open, setOpen] = useState(sessionId !== null);
@@ -128,7 +129,9 @@ function ReplayArea({
     <StandardDrawer
       title="重放会话"
       data-testid="replay-area"
-      content={<AgentMessages messages={eventsToUIMessages(events)} />}
+      content={
+        <AgentSessionView root={root} sessionId={sessionId} data-testid="replay-area-session" />
+      }
       open={open}
       onOpenChange={(value) => {
         if (open !== value) {
@@ -146,6 +149,7 @@ function ReplayArea({
  * 历史会话区
  */
 export function AgentRunHistory({
+  root,
   state,
   source,
   onSourceChange,
@@ -197,7 +201,7 @@ export function AgentRunHistory({
           onPageChange={state.setPage}
         />
       )}
-      <ReplayArea sessionId={state.selectedSessionId} events={state.events} />
+      <ReplayArea root={root} sessionId={state.selectedSessionId} onClose={state.closeSession} />
     </section>
   );
 }

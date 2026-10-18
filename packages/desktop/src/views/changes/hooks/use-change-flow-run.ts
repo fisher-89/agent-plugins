@@ -43,8 +43,8 @@ export function useChangeFlowRun(params: {
     const existing = channelRef.current;
     if (existing !== null) return existing;
     const channel = new Channel<RunNotice>();
-    // 分流回调单点：发起直连与重挂补订共用（sessionEvent → 转录重查，其余
-    // → 统一视图重查；分流面归调用方 onNotice）
+    // 通知回调单点：发起直连与重挂补订共用（kind 解释归调用方 onNotice——
+    // 会话事件与其余同走统一视图重查，通知仅失效 / 状态重评估信号）
     channel.onmessage = (notice) => noticeRef.current(notice.ipc);
     channelRef.current = channel;
     return channel;

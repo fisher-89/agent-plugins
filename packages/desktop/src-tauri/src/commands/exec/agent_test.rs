@@ -37,6 +37,7 @@ fn outcome() -> TurnOutcome {
     TurnOutcome {
         turn_id: 3,
         status: AgentRunStatus::Completed,
+        started_at: 1727000000000,
         finished_at: 1727000005000,
         num_turns: Some(2),
         duration_ms: Some(5000),
@@ -133,7 +134,7 @@ fn running_summary签名锚定_自中性数据装配running形态轮行() {
 
 #[test]
 fn outcome_summary装配逐字段承接_status与统计与finished_at() {
-    let summary = outcome_summary(&outcome(), "ses-outcome-1", 1727000000000);
+    let summary = outcome_summary(&outcome(), "ses-outcome-1");
 
     assert_eq!(summary.turn_id, 3);
     assert_eq!(summary.session_id, "ses-outcome-1", "会话 id 自轮发起回填");
@@ -155,7 +156,7 @@ fn outcome_summary装配逐字段承接_status与统计与finished_at() {
         error: Some("事件落库失败: db: x".to_owned()),
         ..outcome()
     };
-    let summary = outcome_summary(&failed, "ses-outcome-1", 1);
+    let summary = outcome_summary(&failed, "ses-outcome-1");
     assert_eq!(summary.status, AgentRunStatus::Failed);
     assert_eq!(summary.error.as_deref(), Some("事件落库失败: db: x"));
 }
@@ -164,7 +165,7 @@ fn outcome_summary装配逐字段承接_status与统计与finished_at() {
 fn outcome_summary与turn_summary同构_终态部件与重放同形状() {
     // Channel 终态部件（outcome_summary）与重放轮行（TurnSummary serde 形态）
     // 同构：同字段面、同 serde 线格式
-    let assembled = outcome_summary(&outcome(), "ses-iso", 100);
+    let assembled = outcome_summary(&outcome(), "ses-iso");
     let value = serde_json::to_value(&assembled).expect("序列化成功");
 
     let mirrored: TurnSummary =
@@ -190,4 +191,89 @@ fn outcome_summary与turn_summary同构_终态部件与重放同形状() {
     ] {
         assert!(keys.contains(&key), "IPC 轮行字段 {key} 在场");
     }
+}
+
+// ---------------------------------------------------------------------------
+// outcome_summary：started_at 取自终态（D4 收口形状自足化——签名去入参）
+// ---------------------------------------------------------------------------
+
+#[test]
+fn outcome_summary_started_at取自终态不因缺省回填() {
+    for started_at in [0_i64, -1, i64::MAX] {
+        let payload = TurnOutcome {
+            started_at,
+            ..outcome()
+        };
+        let summary = outcome_summary(&payload, "ses-started-at");
+        assert_eq!(
+            summary.started_at, started_at,
+            "started_at 逐字取自终态（{started_at}），不回填 finishedAt / 当前时刻"
+        );
+        assert_eq!(
+            summary.finished_at,
+            Some(payload.finished_at),
+            "finished_at 仍为 Some（running 形态才为 None）"
+        );
+    }
+}
+
+#[test]
+fn outcome_summary统计字段全none与四status变体逐变体透传() {
+    let bare = TurnOutcome {
+        num_turns: None,
+        duration_ms: None,
+        cost_usd: None,
+        usage: serde_json::Value::Null,
+        error: None,
+        remote_session_id: None,
+        ..outcome()
+    };
+    let summary = outcome_summary(&bare, "ses-bare");
+    assert_eq!(summary.num_turns, None, "统计字段缺席合法（None 保持）");
+    assert_eq!(summary.duration_ms, None);
+    assert_eq!(summary.cost_usd, None);
+    assert_eq!(summary.error, None);
+
+    for status in [
+        AgentRunStatus::Running,
+        AgentRunStatus::Completed,
+        AgentRunStatus::Failed,
+        AgentRunStatus::Stopped,
+    ] {
+        let summary = outcome_summary(
+            &TurnOutcome {
+                status,
+                ..outcome()
+            },
+            "ses-status",
+        );
+        assert_eq!(summary.status, status, "status 逐变体透传（{status:?}）");
+    }
+}
+
+#[test]
+fn outcome_summary_error原样拷贝不截断且stopped形态保持none() {
+    let long_error = format!("事件落库失败: {}", "db: ".repeat(600));
+    let failed = TurnOutcome {
+        status: AgentRunStatus::Failed,
+        error: Some(long_error.clone()),
+        ..outcome()
+    };
+    let summary = outcome_summary(&failed, "ses-error");
+    assert_eq!(
+        summary.error.as_deref(),
+        Some(long_error.as_str()),
+        "错误串原样拷贝（非空、非截断）"
+    );
+
+    let stopped = TurnOutcome {
+        status: AgentRunStatus::Stopped,
+        error: None,
+        ..outcome()
+    };
+    assert_eq!(
+        outcome_summary(&stopped, "ses-stopped").error,
+        None,
+        "Stopped 形态 error 保持 None（不记因）"
+    );
 }

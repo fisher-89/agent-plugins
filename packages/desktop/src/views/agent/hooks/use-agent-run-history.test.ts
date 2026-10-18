@@ -1,16 +1,22 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
-import { beforeEach, describe, expect, it, vi } from 'vite-plus/test';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 
-import type { AgentEvent, SessionPage, SessionSummary } from '../../../types/dto';
+import type { SessionPage, SessionSummary } from '../../../types/dto';
 import { useAgentRunHistory } from './use-agent-run-history';
 
 // ---------------------------------------------------------------------------
 // 进程边界 Mock：invoke 按命令名分发（agent_sessions / agent_session_transcript）。
+// 计时面：零轮询用例经 `vi.useFakeTimers` + `advanceTimersByTime` 推进（afterEach
+// 复位真计时器）。
 // ---------------------------------------------------------------------------
 
 const { invokeMock } = vi.hoisted(() => ({ invokeMock: vi.fn() }));
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: invokeMock }));
+
+afterEach(() => {
+  vi.useRealTimers();
+});
 
 // ---------------------------------------------------------------------------
 // fixture
@@ -45,28 +51,6 @@ function summary(id: string, updatedAt: number): SessionSummary {
     },
     stats: { turnCount: 2, totalDurationMs: 500, inputTokens: null, outputTokens: null },
     turns: [],
-  };
-}
-
-function runStarted(seq: number): AgentEvent {
-  return {
-    seq,
-    timestampMs: 1727000000000,
-    kind: 'runStarted',
-    model: 'claude-opus',
-    sessionId: 'ses-9-1727000000000',
-    tools: ['Bash'],
-    mcpServers: [],
-  };
-}
-
-function raw(seq: number): AgentEvent {
-  return {
-    seq,
-    timestampMs: 1727000000001,
-    kind: 'raw',
-    eventType: 'mystery',
-    rawJson: '{"type":"mystery"}',
   };
 }
 
@@ -128,27 +112,19 @@ describe('useAgentRunHistory：显式刷新与点开重放', () => {
     });
   });
 
-  it('openSession(id) → invoke("agent_session_transcript", { root, sessionId }) → events 更新、selectedSessionId 跟随', async () => {
+  it('openSession(id) → 只置 selectedSessionId、零转录查询（取数与重放折叠交会话级组件）', async () => {
     invokeMock.mockResolvedValue(pageOf([]));
-    const events = [runStarted(0), raw(1)];
-    invokeMock.mockImplementation((command: string, params?: { sessionId?: string }) => {
-      if (command === 'agent_session_transcript') {
-        return Promise.resolve(params?.sessionId === ID_LATEST ? events : []);
-      }
-      return Promise.resolve([]);
-    });
     const { result } = renderHook(() => useAgentRunHistory(ROOT, 'debug'));
 
     act(() => {
       result.current.openSession(ID_LATEST);
     });
-    await waitFor(() => expect(result.current.events).toEqual(events));
 
-    expect(invokeMock).toHaveBeenCalledWith('agent_session_transcript', {
-      root: ROOT,
-      sessionId: ID_LATEST,
-    });
     expect(result.current.selectedSessionId).toBe(ID_LATEST);
+    expect(
+      invokeMock.mock.calls.filter(([name]) => name === 'agent_session_transcript'),
+      '自有转录查询退役（组件直查）',
+    ).toHaveLength(0);
   });
 
   it('refresh reject：error 置串、loading 复位（显式触发失败不静默）', async () => {
@@ -180,19 +156,13 @@ describe('useAgentRunHistory：显式刷新与点开重放', () => {
     });
   });
 
-  it('refresh 仅重查清单轨道：已点开的重放 events 与 selectedSessionId 不被波及', async () => {
-    const events = [runStarted(0)];
-    invokeMock.mockImplementation((command: string, params?: { sessionId?: string }) =>
-      command === 'agent_session_transcript' && params?.sessionId === ID_LATEST
-        ? Promise.resolve(events)
-        : Promise.resolve(pageOf(SESSIONS_DESC)),
-    );
+  it('refresh 仅重查清单轨道：已点开的 selectedSessionId 不被波及', async () => {
+    invokeMock.mockImplementation(() => Promise.resolve(pageOf(SESSIONS_DESC)));
     const { result } = renderHook(() => useAgentRunHistory(ROOT, 'debug'));
     act(() => {
       result.current.openSession(ID_LATEST);
     });
-    await waitFor(() => expect(result.current.selectedSessionId).toBe(ID_LATEST));
-    await waitFor(() => expect(result.current.events).toEqual(events));
+    expect(result.current.selectedSessionId).toBe(ID_LATEST);
 
     act(() => {
       result.current.refresh();
@@ -203,56 +173,48 @@ describe('useAgentRunHistory：显式刷新与点开重放', () => {
       expect(result.current.loading).toBe(false);
     });
 
-    // 重放轨道状态保持：refresh 不清空 events / selectedSessionId
+    // 重放目标保持：refresh 不清空 selectedSessionId
     expect(result.current.selectedSessionId).toBe(ID_LATEST);
-    expect(result.current.events).toEqual(events);
     expect(result.current.loading).toBe(false);
   });
 
-  it('重放轨道取数中单独置 loading：点开会话未返回时 loading=true，返回后复位', async () => {
-    invokeMock.mockResolvedValue(pageOf([]));
-    let resolveTranscript: (events: AgentEvent[]) => void = () => {};
-    invokeMock.mockImplementation((command: string) =>
-      command === 'agent_session_transcript'
-        ? new Promise<AgentEvent[]>((resolve) => {
-            resolveTranscript = resolve;
-          })
-        : Promise.resolve(pageOf(SESSIONS_DESC)),
-    );
-    const { result } = renderHook(() => useAgentRunHistory(ROOT, 'debug'));
-    await waitFor(() => expect(result.current.sessions).toEqual(SESSIONS_DESC));
-
-    act(() => {
-      result.current.openSession(ID_LATEST);
-    });
-    await waitFor(() => expect(result.current.loading).toBe(true));
-
-    await act(async () => {
-      resolveTranscript([runStarted(0)]);
-    });
-    await waitFor(() => expect(result.current.loading).toBe(false));
-    expect(result.current.selectedSessionId).toBe(ID_LATEST);
-  });
-
-  it('openSession reject：error 置串、loading 复位、sessions 清单不受影响', async () => {
+  it('closeSession()：清重放目标（抽屉关闭即复位，不触碰清单轨道）', async () => {
     invokeMock.mockResolvedValue(pageOf(SESSIONS_DESC));
     const { result } = renderHook(() => useAgentRunHistory(ROOT, 'debug'));
-    act(() => {
-      result.current.refresh();
-    });
     await waitFor(() => expect(result.current.sessions).toEqual(SESSIONS_DESC));
 
-    invokeMock.mockRejectedValue('db: 转录读取失败');
     act(() => {
       result.current.openSession(ID_LATEST);
     });
-    await waitFor(() => expect(result.current.error).toBe('db: 转录读取失败'));
+    expect(result.current.selectedSessionId).toBe(ID_LATEST);
 
-    expect(result.current.loading).toBe(false);
+    act(() => {
+      result.current.closeSession();
+    });
+    expect(result.current.selectedSessionId).toBeNull();
     expect(result.current.sessions).toEqual(SESSIONS_DESC);
   });
 
-  it('取数进行中 loading=true、返回后复位；两轨道任一取数中即 loading', async () => {
+  it('边界：未开选中时 closeSession() 幂等（零副作用、零额外 invoke）', async () => {
+    invokeMock.mockResolvedValue(pageOf(SESSIONS_DESC));
+    const { result } = renderHook(() => useAgentRunHistory(ROOT, 'debug'));
+    await waitFor(() => expect(result.current.sessions).toEqual(SESSIONS_DESC));
+    expect(result.current.selectedSessionId).toBeNull();
+    const before = invokeMock.mock.calls.length;
+
+    act(() => {
+      result.current.closeSession();
+      result.current.closeSession();
+    });
+
+    expect(result.current.selectedSessionId).toBeNull();
+    expect(result.current.sessions).toEqual(SESSIONS_DESC);
+    expect(result.current.page).toBe(1);
+    expect(result.current.loading).toBe(false);
+    expect(invokeMock.mock.calls.length, 'closeSession 零额外 invoke').toBe(before);
+  });
+
+  it('清单取数进行中 loading=true、返回后复位（loading 只取清单查询）', async () => {
     let resolveSessions: (page: SessionPage) => void = () => {};
     invokeMock.mockImplementation(
       () =>
@@ -307,43 +269,6 @@ describe('useAgentRunHistory：显式刷新与点开重放', () => {
     expect(result.current.error).toBeNull();
   });
 
-  it('重放轨道竞态守卫：连续点开后旧转录后到不回写 events 与 selectedSessionId', async () => {
-    const transcriptResolvers: Array<(events: AgentEvent[]) => void> = [];
-    invokeMock.mockImplementation((command: string) =>
-      command === 'agent_session_transcript'
-        ? new Promise<AgentEvent[]>((resolve) => {
-            transcriptResolvers.push(resolve);
-          })
-        : Promise.resolve([]),
-    );
-    const { result } = renderHook(() => useAgentRunHistory(ROOT, 'debug'));
-
-    act(() => {
-      result.current.openSession(ID_OLDER);
-    });
-    act(() => {
-      result.current.openSession(ID_LATEST);
-    });
-    expect(transcriptResolvers).toHaveLength(2);
-
-    const latestEvents = [raw(0)];
-    await act(async () => {
-      transcriptResolvers[1]?.(latestEvents);
-    });
-    await waitFor(() => expect(result.current.events).toEqual(latestEvents));
-    expect(result.current.selectedSessionId).toBe(ID_LATEST);
-
-    // 旧会话转录后到：不回写（cleanup 置 cancelled）
-    const staleEvents = [runStarted(0)];
-    await act(async () => {
-      transcriptResolvers[0]?.(staleEvents);
-    });
-    await act(async () => {});
-    expect(result.current.events).toEqual(latestEvents);
-    expect(result.current.selectedSessionId).toBe(ID_LATEST);
-    expect(result.current.error).toBeNull();
-  });
-
   it('root 为 null（未选定 workspace）：不发起任何 invoke，sessions 保持空态（跳过取数分支）', async () => {
     invokeMock.mockResolvedValue(pageOf(SESSIONS_DESC));
     const { result } = renderHook(() => useAgentRunHistory(null, 'debug'));
@@ -357,7 +282,7 @@ describe('useAgentRunHistory：显式刷新与点开重放', () => {
     expect(result.current.loading).toBe(false);
     expect(result.current.error).toBeNull();
 
-    // 重放轨道同样跳过：null root 下 openSession 不触发 invoke、events 保持空态
+    // 重放目标只是选中态：null root 下 openSession 仍零 invoke（取数交组件）
     act(() => {
       result.current.openSession(ID_LATEST);
     });
@@ -365,8 +290,7 @@ describe('useAgentRunHistory：显式刷新与点开重放', () => {
       await new Promise((resolve) => setTimeout(resolve, 20));
     });
     expect(invokeMock).not.toHaveBeenCalled();
-    expect(result.current.events).toEqual([]);
-    expect(result.current.selectedSessionId).toBeNull();
+    expect(result.current.selectedSessionId).toBe(ID_LATEST);
   });
 
   it('agent_sessions 返回 []：sessions 为空数组不崩', async () => {
@@ -384,27 +308,19 @@ describe('useAgentRunHistory：显式刷新与点开重放', () => {
     });
   });
 
-  it('连续 openSession 不同会话：events 以最后一次为准、selectedSessionId 跟随', async () => {
-    const eventsFirst = [runStarted(0)];
-    const eventsSecond = [raw(0)];
-    invokeMock.mockImplementation((command: string, params?: { sessionId?: string }) => {
-      if (command === 'agent_session_transcript') {
-        return Promise.resolve(params?.sessionId === ID_OLDER ? eventsFirst : eventsSecond);
-      }
-      return Promise.resolve([]);
-    });
+  it('连续 openSession 不同会话：selectedSessionId 跟随最后一次（零转录查询）', async () => {
+    invokeMock.mockResolvedValue(pageOf([]));
     const { result } = renderHook(() => useAgentRunHistory(ROOT, 'debug'));
 
     act(() => {
       result.current.openSession(ID_OLDER);
     });
-    await waitFor(() => expect(result.current.selectedSessionId).toBe(ID_OLDER));
+    expect(result.current.selectedSessionId).toBe(ID_OLDER);
 
     act(() => {
       result.current.openSession(ID_LATEST);
     });
-    await waitFor(() => expect(result.current.selectedSessionId).toBe(ID_LATEST));
-    await waitFor(() => expect(result.current.events).toEqual(eventsSecond));
+    expect(result.current.selectedSessionId).toBe(ID_LATEST);
   });
 });
 
@@ -419,21 +335,14 @@ describe('useAgentRunHistory：生成绑定调用面', () => {
     invokeMock.mockReset();
   });
 
-  it('经生成绑定入口后 invoke 收到 "agent_sessions" + { root, source, sourceRef }（挂载恰一次）与 "agent_session_transcript" + { root, sessionId }，清单降序承接与事件透传不变', async () => {
+  it('经生成绑定入口后 invoke 收到 "agent_sessions" + { root, source, sourceRef }（挂载恰一次），清单降序承接不变', async () => {
     invokeMock.mockResolvedValue(pageOf(SESSIONS_DESC));
     const { result } = renderHook(() => useAgentRunHistory(ROOT, 'debug'));
     await waitFor(() => expect(result.current.sessions).toEqual(SESSIONS_DESC));
 
-    const events = [runStarted(0)];
-    invokeMock.mockImplementation((command: string, params?: { sessionId?: string }) =>
-      command === 'agent_session_transcript' && params?.sessionId === ID_LATEST
-        ? Promise.resolve(events)
-        : Promise.resolve([]),
-    );
     act(() => {
       result.current.openSession(ID_LATEST);
     });
-    await waitFor(() => expect(result.current.events).toEqual(events));
 
     expect(invokeMock).toHaveBeenCalledWith('agent_sessions', {
       root: ROOT,
@@ -442,11 +351,11 @@ describe('useAgentRunHistory：生成绑定调用面', () => {
       offset: 0,
       limit: 20,
     });
-    expect(invokeMock).toHaveBeenCalledWith('agent_session_transcript', {
-      root: ROOT,
-      sessionId: ID_LATEST,
-    });
     expect(invokeMock.mock.calls.filter(([name]) => name === 'agent_sessions')).toHaveLength(1);
+    expect(
+      invokeMock.mock.calls.filter(([name]) => name === 'agent_session_transcript'),
+      '重放取数不再由本 hook 发起',
+    ).toHaveLength(0);
     expect(result.current.selectedSessionId).toBe(ID_LATEST);
   });
 
@@ -461,18 +370,19 @@ describe('useAgentRunHistory：生成绑定调用面', () => {
     });
   });
 
-  it('refresh / openSession reject → error 置串、loading 复位、sessions 清单不受影响（错误路径不变）', async () => {
+  it('refresh reject → error 置串、loading 复位、sessions 清单不受影响（错误路径不变）', async () => {
     invokeMock.mockResolvedValue(pageOf(SESSIONS_DESC));
     const { result } = renderHook(() => useAgentRunHistory(ROOT, 'debug'));
     await waitFor(() => expect(result.current.sessions).toEqual(SESSIONS_DESC));
 
-    invokeMock.mockRejectedValue('db: 转录读取失败');
+    invokeMock.mockRejectedValue('db: 清单读取失败');
     act(() => {
-      result.current.openSession(ID_LATEST);
+      result.current.refresh();
     });
-    await waitFor(() => expect(result.current.error).toBe('db: 转录读取失败'));
+    await waitFor(() => expect(result.current.error).toBe('db: 清单读取失败'));
 
     expect(result.current.loading).toBe(false);
+    // 已有清单不被失败轮清空（保 last-good）
     expect(result.current.sessions).toEqual(SESSIONS_DESC);
   });
 });
@@ -553,7 +463,7 @@ describe('useAgentRunHistory：来源筛选参数化（AC-3）', () => {
     });
   });
 
-  it('refresh() 重取携当前 source（显式刷新模式不变）；取数稳定后静置无新增调用（无轮询无订阅回归）', async () => {
+  it('refresh() 重取携当前 source（显式刷新模式不变）；空闲零轮询（推进假计时 5min 计数不增）', async () => {
     invokeMock.mockResolvedValue(pageOf(SESSIONS_DESC));
     const { result } = renderHook(() => useAgentRunHistory(ROOT, 'change'));
     await waitFor(() => expect(result.current.sessions).toEqual(SESSIONS_DESC));
@@ -571,11 +481,15 @@ describe('useAgentRunHistory：来源筛选参数化（AC-3）', () => {
       limit: 20,
     });
 
-    // 静置窗口：挂载取数稳定后无轮询无订阅（零新增 agent_sessions 调用）
+    // 空闲零轮询：推进假计时 5 分钟 → 清单 invoke 计数不增（无轮询无订阅）
+    vi.useFakeTimers();
+    const settled = sessionsCalls().length;
     await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 50));
+      vi.advanceTimersByTime(5 * 60 * 1000);
     });
-    expect(sessionsCalls()).toHaveLength(2);
+    expect(sessionsCalls(), '空闲零轮询').toHaveLength(settled);
+    expect(result.current.page).toBe(1);
+    vi.useRealTimers();
   });
 });
 

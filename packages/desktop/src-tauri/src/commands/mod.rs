@@ -38,6 +38,7 @@ macro_rules! all_commands {
             $crate::commands::agents::set_default_agent_instance,
             $crate::commands::exec::agent_start,
             $crate::commands::exec::agent_stop,
+            $crate::commands::exec::agent_session_watch,
             $crate::commands::exec::agent_sessions,
             $crate::commands::exec::agent_session_transcript,
             $crate::commands::exec::session_detail,

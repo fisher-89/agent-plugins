@@ -107,6 +107,7 @@ fn finish_turn_ok(sink: &StoreSink, turn_id: i64, status: agent::AgentRunStatus)
     let outcome = agent::TurnOutcome {
         turn_id,
         status,
+        started_at: 1727000000000,
         finished_at: 1727000005000,
         num_turns: Some(3),
         duration_ms: Some(4000),
@@ -296,6 +297,7 @@ fn append与begin不校验会话存在而bind与finish的err面传播() {
     let outcome = agent::TurnOutcome {
         turn_id: turn + 100, // 不存在的轮 id
         status: agent::AgentRunStatus::Completed,
+        started_at: 0,
         finished_at: 1,
         num_turns: None,
         duration_ms: None,

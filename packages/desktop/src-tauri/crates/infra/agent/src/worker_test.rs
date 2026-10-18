@@ -8,7 +8,7 @@ use std::sync::{Arc, Mutex};
 
 use agent::{
     AgentBlock, AgentEventKind, AgentMessageRole, AgentPermissionMode, AgentRunStatus, ModelLevel,
-    SessionProvenance, StopRegistry,
+    SessionProvenance, SessionStreamRegistry, StopRegistry,
 };
 use orchestration::port::{RunEventSink, WorkerAgentPort, WorkerRole, WorkerTurnRequest};
 use orchestration::state::RunUpdate;
@@ -299,7 +299,13 @@ async fn change来源与permission装配入会话行_engine恒sdk携实例id() {
     let registry = Arc::new(StopRegistry::new());
     let (sink, mut captured) = CapturingSink::capturing();
     let composed: ComposedTurn =
-        compose_turn(&stores, Arc::clone(&registry), env.store(), None).expect("解析应成功");
+        compose_turn(
+            &stores,
+            Arc::clone(&registry),
+            Arc::new(SessionStreamRegistry::new()),
+            env.store(),
+            None,
+        ).expect("解析应成功");
     let port = KernelWorkerPort::new(composed, sink);
     let root = env.root();
     let request = turn_request(&root, "chg-flow/implement/executor/1", WorkerRole::Executor);
@@ -369,7 +375,13 @@ async fn continue会话复用既有行不重复建() {
     seed_transcript(&store, "ses-flow-continue");
     let (sink, mut captured) = CapturingSink::capturing();
     let composed: ComposedTurn =
-        compose_turn(&stores, Arc::clone(&registry), env.store(), None).expect("解析应成功");
+        compose_turn(
+            &stores,
+            Arc::clone(&registry),
+            Arc::new(SessionStreamRegistry::new()),
+            env.store(),
+            None,
+        ).expect("解析应成功");
     let port = KernelWorkerPort::new(composed, sink);
     let root = env.root();
 
@@ -407,7 +419,13 @@ fn 空库缺省解析err引导管理页且零落库() {
     let env = DualEnv::new("no-default");
     let stores = env.stores();
 
-    let error = match compose_turn(&stores, Arc::new(StopRegistry::new()), env.store(), None) {
+    let error = match compose_turn(
+        &stores,
+        Arc::new(StopRegistry::new()),
+        Arc::new(SessionStreamRegistry::new()),
+        env.store(),
+        None,
+    ) {
         Err(error) => error,
         Ok(_) => panic!("空库缺省解析必须 Err"),
     };
@@ -435,7 +453,13 @@ async fn open段配置缺失显式err传播且零半成品记录() {
     seed_sdk_default_with_blank_provider(&stores);
     let (sink, _captured) = CapturingSink::capturing();
     let composed: ComposedTurn =
-        compose_turn(&stores, Arc::new(StopRegistry::new()), env.store(), None)
+        compose_turn(
+        &stores,
+        Arc::new(StopRegistry::new()),
+        Arc::new(SessionStreamRegistry::new()),
+        env.store(),
+        None,
+    )
             .expect("解析应成功");
     let port = KernelWorkerPort::new(composed, sink);
 
@@ -479,7 +503,13 @@ async fn 泵收集密封转录并透传会话事件_拒连一轮一命收敛() {
     let (sink, captured) = CapturingSink::capturing();
     let registry = Arc::new(StopRegistry::new());
     let composed: ComposedTurn =
-        compose_turn(&stores, Arc::clone(&registry), env.store(), None).expect("解析应成功");
+        compose_turn(
+            &stores,
+            Arc::clone(&registry),
+            Arc::new(SessionStreamRegistry::new()),
+            env.store(),
+            None,
+        ).expect("解析应成功");
     let port = KernelWorkerPort::new(composed, sink);
     let root = env.root();
     let request = turn_request(&root, "chg-flow/implement/executor/1", WorkerRole::Executor);
@@ -574,7 +604,13 @@ async fn 中途停止收敛stopped并保留已收集事件() {
     let registry = Arc::new(StopRegistry::new());
     let (sink, mut captured) = CapturingSink::capturing();
     let composed: ComposedTurn =
-        compose_turn(&stores, Arc::clone(&registry), env.store(), None).expect("解析应成功");
+        compose_turn(
+            &stores,
+            Arc::clone(&registry),
+            Arc::new(SessionStreamRegistry::new()),
+            env.store(),
+            None,
+        ).expect("解析应成功");
     let port = KernelWorkerPort::new(composed, sink);
     let root = env.root();
     let request = turn_request(&root, "chg-flow/implement/executor/1", WorkerRole::Executor);
@@ -628,7 +664,13 @@ async fn 三角色provenance定式逐段落库且精确反查命中() {
     let registry = Arc::new(StopRegistry::new());
     let (sink, mut captured) = CapturingSink::capturing();
     let composed: ComposedTurn =
-        compose_turn(&stores, Arc::clone(&registry), env.store(), None).expect("解析应成功");
+        compose_turn(
+            &stores,
+            Arc::clone(&registry),
+            Arc::new(SessionStreamRegistry::new()),
+            env.store(),
+            None,
+        ).expect("解析应成功");
     let port = Arc::new(KernelWorkerPort::new(composed, sink));
     let root = env.root();
 

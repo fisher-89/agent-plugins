@@ -6,7 +6,8 @@ use tauri::ipc::{Channel, InvokeResponseBody};
 use tauri::{App, Manager};
 
 use ::agent::{
-    AgentEventKind, AgentMessageRole, AgentPermissionMode, AgentRunStatus, StopRegistry,
+    AgentEventKind, AgentMessageRole, AgentPermissionMode, AgentRunStatus, SessionStreamRegistry,
+    StopRegistry,
 };
 use store::{
     AgentEngineKind, AgentInstanceRecord, AgentModelTiers, AgentProviderRecord, AgentRunRecord,
@@ -14,7 +15,8 @@ use store::{
 };
 
 use super::{
-    agent_session_transcript, agent_sessions, agent_start_with, agent_stop, session_detail,
+    agent_session_transcript, agent_session_watch_with, agent_sessions, agent_start_with,
+    agent_stop, session_detail,
 };
 
 // ---------------------------------------------------------------------------
@@ -60,6 +62,8 @@ fn app_with_stores(env: &Env) -> App<tauri::test::MockRuntime> {
     let stores = WorkspaceStores::open(env.data_dir.path()).expect("打开测试全局库失败");
     app.manage(stores);
     app.manage(Arc::new(StopRegistry::new()));
+    // 会话实时流注册表：与 `src/main.rs` 同型空表托管（watch 命令取用面）
+    app.manage(Arc::new(SessionStreamRegistry::new()));
     app
 }
 
@@ -935,5 +939,567 @@ fn root不可寻址_三查询命令err透传不panic() {
             err.contains("canonicalize") && err.contains("absent-ws"),
             "Err 记因 canonicalize 失败与 root 线索，实际: {err}"
         );
+    }
+}
+// ---------------------------------------------------------------------------
+// agent_session_watch：会话实时流订阅命令（薄包装三段：blank root / 无运行轮
+// 幂等立即结束 / `Event` 前向与末拍 `Record` 后返回；断流不投伪终态）。
+// 广播订阅只收订阅后 live 事件（tokio broadcast 语义），故发布拍与命令并发
+// 推进（join! 轮询序：命令先完成订阅并挂起，发布随后落拍）。
+// ---------------------------------------------------------------------------
+
+/// 发送即失败的 Channel（前向断流臂：命令仍 `Ok` 结束，不 panic 不悬挂）。
+fn failing_channel() -> Channel<super::agent::AgentRunMessage> {
+    Channel::new(|_: InvokeResponseBody| {
+        Err(tauri::Error::AssetNotFound("注入发送失败".to_owned()))
+    })
+}
+
+/// 注册表句柄（mock app 托管态取出）。
+fn streams_of(app: &App<tauri::test::MockRuntime>) -> Arc<SessionStreamRegistry> {
+    Arc::clone(app.state::<Arc<SessionStreamRegistry>>().inner())
+}
+
+fn sealed_watch_event(seq: u64) -> ::agent::AgentEvent {
+    stamped(
+        seq,
+        AgentEventKind::Message {
+            role: AgentMessageRole::Assistant,
+            blocks: vec![::agent::AgentBlock::Text {
+                text: format!("第 {seq} 段正文"),
+            }],
+            parent_tool_use_id: None,
+        },
+    )
+}
+
+fn delta_watch_event(seq: u64, text: &str) -> ::agent::AgentEvent {
+    stamped(
+        seq,
+        AgentEventKind::MessageDelta {
+            parent_tool_use_id: None,
+            delta: ::agent::AgentDelta::Text {
+                text: text.to_owned(),
+            },
+        },
+    )
+}
+
+fn watch_outcome(turn_id: i64, status: AgentRunStatus, started_at: i64) -> ::agent::TurnOutcome {
+    ::agent::TurnOutcome {
+        turn_id,
+        status,
+        started_at,
+        finished_at: 1_727_000_005_000,
+        num_turns: Some(2),
+        duration_ms: Some(5_000),
+        cost_usd: Some(0.25),
+        usage: serde_json::json!({ "inputTokens": 10 }),
+        error: None,
+        remote_session_id: Some("sdk-9-1727000000009".to_owned()),
+    }
+}
+
+fn snapshot_of(captured: &Arc<Mutex<Vec<serde_json::Value>>>) -> Vec<serde_json::Value> {
+    captured.lock().expect("捕获锁不可中毒").clone()
+}
+
+#[tokio::test]
+async fn watch前向事件与末拍record后返回ok() {
+    let env = Env::new("watch-forward");
+    let app = app_with_stores(&env);
+    let session_id = "ses-watch-1".to_owned();
+    let streams = streams_of(&app);
+    streams.begin(&session_id);
+    let (channel, captured) = capturing_channel();
+
+    let watch = agent_session_watch_with(
+        app.handle().clone(),
+        channel,
+        env.root_of("alpha"),
+        session_id.clone(),
+        1,
+    );
+    let publish = async {
+        tokio::task::yield_now().await;
+        for seq in 1..=3 {
+            streams.publish(&session_id, sealed_watch_event(seq));
+        }
+        tokio::task::yield_now().await;
+        streams.publish(&session_id, sealed_watch_event(4));
+        streams.finish(
+            &session_id,
+            watch_outcome(7, AgentRunStatus::Completed, 1_727_000_000_000),
+        );
+    };
+    let (result, ()) = tokio::join!(watch, publish);
+    result.expect("watch 应 Ok 结束");
+
+    let envelopes = snapshot_of(&captured);
+    let kinds: Vec<&serde_json::Value> = envelopes.iter().map(|value| &value["ipc"]).collect();
+    assert_eq!(
+        kinds,
+        vec![
+            &serde_json::json!("event"),
+            &serde_json::json!("event"),
+            &serde_json::json!("event"),
+            &serde_json::json!("record"),
+        ],
+        "since_seq=1 过滤 seq 1，其后 2 / 3 / 4 与末拍 record，实际: {envelopes:?}"
+    );
+    assert_eq!(
+        envelopes[0]["event"]["seq"],
+        serde_json::json!(2),
+        "事件载荷直投（seq 2 起）"
+    );
+    assert_eq!(envelopes[1]["event"]["seq"], serde_json::json!(3));
+    assert_eq!(envelopes[2]["event"]["seq"], serde_json::json!(4));
+    // 末拍 record：TurnSummary 字段与 outcome_summary 投影一致（含 startedAt）
+    let record = &envelopes[3]["record"];
+    assert_eq!(record["turnId"], serde_json::json!(7));
+    assert_eq!(record["sessionId"], serde_json::json!(session_id));
+    assert_eq!(record["status"], serde_json::json!("completed"));
+    assert_eq!(
+        record["startedAt"],
+        serde_json::json!(1_727_000_000_000_i64),
+        "startedAt 取自终态（D4 收口形状自足）"
+    );
+    assert_eq!(
+        record["finishedAt"],
+        serde_json::json!(1_727_000_005_000_i64)
+    );
+    assert_eq!(record["numTurns"], serde_json::json!(2));
+    assert_eq!(record["costUsd"], serde_json::json!(0.25));
+    assert_eq!(record["durationMs"], serde_json::json!(5_000));
+    assert_eq!(record["error"], serde_json::Value::Null);
+}
+
+#[tokio::test]
+async fn watch结束即订阅释放_同会话再invoke立即ok零事件() {
+    let env = Env::new("watch-release");
+    let app = app_with_stores(&env);
+    let session_id = "ses-watch-release".to_owned();
+    let streams = streams_of(&app);
+    streams.begin(&session_id);
+    let (channel, captured) = capturing_channel();
+
+    let watch = agent_session_watch_with(
+        app.handle().clone(),
+        channel,
+        env.root_of("alpha"),
+        session_id.clone(),
+        0,
+    );
+    let publish = async {
+        tokio::task::yield_now().await;
+        streams.finish(
+            &session_id,
+            watch_outcome(1, AgentRunStatus::Completed, 1_727_000_000_000),
+        );
+    };
+    let (result, ()) = tokio::join!(watch, publish);
+    result.expect("watch 应 Ok");
+    assert_eq!(snapshot_of(&captured).len(), 1, "仅末拍 record");
+
+    // 命令结束即订阅释放；条目已除名 → 再 invoke 立即 Ok 零事件
+    let (again, captured_again) = capturing_channel();
+    agent_session_watch_with(
+        app.handle().clone(),
+        again,
+        env.root_of("alpha"),
+        session_id,
+        0,
+    )
+    .await
+    .expect("已收口会话立即 Ok（幂等）");
+    assert!(
+        snapshot_of(&captured_again).is_empty(),
+        "再 invoke 零事件（条目已除名，AC-4 / AC-6）"
+    );
+}
+
+#[tokio::test]
+async fn watch_since_seq取已发最大时零事件只投末拍record() {
+    let env = Env::new("watch-filter-max");
+    let app = app_with_stores(&env);
+    let session_id = "ses-watch-max".to_owned();
+    let streams = streams_of(&app);
+    streams.begin(&session_id);
+    let (channel, captured) = capturing_channel();
+
+    let watch = agent_session_watch_with(
+        app.handle().clone(),
+        channel,
+        env.root_of("alpha"),
+        session_id.clone(),
+        3,
+    );
+    let publish = async {
+        tokio::task::yield_now().await;
+        for seq in 1..=3 {
+            streams.publish(&session_id, sealed_watch_event(seq));
+        }
+        tokio::task::yield_now().await;
+        streams.finish(&session_id, watch_outcome(2, AgentRunStatus::Completed, 5));
+    };
+    let (result, ()) = tokio::join!(watch, publish);
+    result.expect("watch 应 Ok");
+
+    let envelopes = snapshot_of(&captured);
+    assert_eq!(envelopes.len(), 1, "零事件、只投末拍 record");
+    assert_eq!(envelopes[0]["ipc"], serde_json::json!("record"));
+}
+
+#[tokio::test]
+async fn watch_since_seq零时全量实时事件直投() {
+    let env = Env::new("watch-filter-zero");
+    let app = app_with_stores(&env);
+    let session_id = "ses-watch-zero".to_owned();
+    let streams = streams_of(&app);
+    streams.begin(&session_id);
+    let (channel, captured) = capturing_channel();
+
+    let watch = agent_session_watch_with(
+        app.handle().clone(),
+        channel,
+        env.root_of("alpha"),
+        session_id.clone(),
+        0,
+    );
+    let publish = async {
+        tokio::task::yield_now().await;
+        for seq in 1..=3 {
+            streams.publish(&session_id, sealed_watch_event(seq));
+        }
+        tokio::task::yield_now().await;
+        streams.finish(&session_id, watch_outcome(3, AgentRunStatus::Completed, 5));
+    };
+    let (result, ()) = tokio::join!(watch, publish);
+    result.expect("watch 应 Ok");
+
+    let envelopes = snapshot_of(&captured);
+    let seqs: Vec<serde_json::Value> = envelopes
+        .iter()
+        .filter(|value| value["ipc"] == serde_json::json!("event"))
+        .map(|value| value["event"]["seq"].clone())
+        .collect();
+    assert_eq!(
+        seqs,
+        vec![
+            serde_json::json!(1),
+            serde_json::json!(2),
+            serde_json::json!(3)
+        ],
+        "since_seq=0 全量实时事件（不重投语义单点在后端）"
+    );
+    assert_eq!(
+        envelopes.last().map(|value| value["ipc"].clone()),
+        Some(serde_json::json!("record"))
+    );
+}
+
+#[tokio::test]
+async fn watch_blank_root立即ok零事件零订阅副作用() {
+    let env = Env::new("watch-blank-root");
+    let app = app_with_stores(&env);
+    let session_id = "ses-watch-blank".to_owned();
+    let streams = streams_of(&app);
+    streams.begin(&session_id);
+
+    for blank in ["", "   ", "\t"] {
+        let (channel, captured) = capturing_channel();
+        agent_session_watch_with(
+            app.handle().clone(),
+            channel,
+            blank.to_owned(),
+            session_id.clone(),
+            0,
+        )
+        .await
+        .expect("blank root 立即 Ok");
+        assert!(
+            snapshot_of(&captured).is_empty(),
+            "blank root 零事件（{blank:?}）"
+        );
+    }
+
+    // 零订阅副作用：条目仍在，事件照常可发布并被后续订阅收取
+    assert!(
+        streams.subscribe(&session_id, 0).is_some(),
+        "blank root 不消耗条目"
+    );
+}
+
+#[tokio::test]
+async fn watch未知session_id立即ok零事件不err() {
+    let env = Env::new("watch-unknown");
+    let app = app_with_stores(&env);
+    let (channel, captured) = capturing_channel();
+
+    agent_session_watch_with(
+        app.handle().clone(),
+        channel,
+        env.root_of("alpha"),
+        "ses-404".to_owned(),
+        0,
+    )
+    .await
+    .expect("未知会话立即 Ok（与 agent_stop miss 幂等同口径）");
+    assert!(snapshot_of(&captured).is_empty(), "零事件");
+}
+
+#[tokio::test]
+async fn watch已收口会话立即ok零副作用() {
+    let env = Env::new("watch-closed");
+    let app = app_with_stores(&env);
+    let session_id = "ses-watch-closed".to_owned();
+    let streams = streams_of(&app);
+    streams.begin(&session_id);
+    streams.finish(&session_id, watch_outcome(1, AgentRunStatus::Completed, 5));
+
+    let (channel, captured) = capturing_channel();
+    agent_session_watch_with(
+        app.handle().clone(),
+        channel,
+        env.root_of("alpha"),
+        session_id,
+        0,
+    )
+    .await
+    .expect("已收口会话立即 Ok（幂等）");
+    assert!(snapshot_of(&captured).is_empty(), "零事件零副作用");
+}
+
+#[tokio::test]
+async fn watch_channel发送失败时前向断流且命令ok结束() {
+    let env = Env::new("watch-channel-fail");
+    let app = app_with_stores(&env);
+    let session_id = "ses-watch-fail".to_owned();
+    let streams = streams_of(&app);
+    streams.begin(&session_id);
+
+    // 首条事件即发送失败 → 前向断流返回（不 panic 不悬挂）
+    let watch = agent_session_watch_with(
+        app.handle().clone(),
+        failing_channel(),
+        env.root_of("alpha"),
+        session_id.clone(),
+        0,
+    );
+    let publish = async {
+        tokio::task::yield_now().await;
+        streams.publish(&session_id, sealed_watch_event(1));
+    };
+    let (result, ()) = tokio::join!(watch, publish);
+    result.expect("发送失败仍 Ok 结束（不 panic）");
+}
+
+#[tokio::test]
+async fn watch_lagged断流结束时零伪record() {
+    let env = Env::new("watch-lagged");
+    let app = app_with_stores(&env);
+    let session_id = "ses-watch-lagged".to_owned();
+    let streams = streams_of(&app);
+    streams.begin(&session_id);
+    let (channel, captured) = capturing_channel();
+
+    // 订阅后一次性涌入超容量事件（生产快于消费）→ lagged 断流收尾
+    let watch = agent_session_watch_with(
+        app.handle().clone(),
+        channel,
+        env.root_of("alpha"),
+        session_id.clone(),
+        0,
+    );
+    let publish = async {
+        tokio::task::yield_now().await;
+        for seq in 0..4097 {
+            streams.publish(&session_id, delta_watch_event(seq, "溢出增量"));
+        }
+    };
+    let (result, ()) = tokio::join!(watch, publish);
+    result.expect("lagged 断流同样 Ok 结束");
+
+    let envelopes = snapshot_of(&captured);
+    assert!(
+        envelopes
+            .iter()
+            .all(|value| value["ipc"] != serde_json::json!("record")),
+        "断流不投伪终态（AC-6），实际: {envelopes:?}"
+    );
+}
+
+#[tokio::test]
+async fn watch信封线格式与since_seq极值承接() {
+    let env = Env::new("watch-wire");
+    let app = app_with_stores(&env);
+    let session_id = "ses-watch-wire".to_owned();
+    let streams = streams_of(&app);
+    streams.begin(&session_id);
+    let (channel, captured) = capturing_channel();
+
+    // sinceSeq = Number.MAX_SAFE_INTEGER（JS 安全整数上界）逐字承接：事件全滤
+    let watch = agent_session_watch_with(
+        app.handle().clone(),
+        channel,
+        env.root_of("alpha"),
+        session_id.clone(),
+        9_007_199_254_740_991,
+    );
+    let publish = async {
+        tokio::task::yield_now().await;
+        streams.publish(&session_id, sealed_watch_event(1));
+        tokio::task::yield_now().await;
+        streams.finish(
+            &session_id,
+            watch_outcome(4, AgentRunStatus::Failed, 1_727_000_000_000),
+        );
+    };
+    let (result, ()) = tokio::join!(watch, publish);
+    result.expect("watch 应 Ok");
+
+    let envelopes = snapshot_of(&captured);
+    assert_eq!(envelopes.len(), 1, "极值 sinceSeq 下事件全滤、终态恒投");
+    assert_eq!(envelopes[0]["ipc"], serde_json::json!("record"));
+    // 线格式：camelCase 字段 + 判别键
+    let record = &envelopes[0]["record"];
+    assert!(record.get("turnId").is_some(), "record.turnId 在场");
+    assert!(record.get("startedAt").is_some(), "record.startedAt 在场");
+    assert!(record.get("finishedAt").is_some(), "record.finishedAt 在场");
+    assert_eq!(record["status"], serde_json::json!("failed"));
+}
+
+#[tokio::test]
+async fn watch期间delta直投而转录查询面零delta行() {
+    let env = Env::new("watch-delta");
+    let app = app_with_stores(&env);
+    let root = env.root_of("alpha");
+    let session_id = "ses-watch-delta".to_owned();
+    // 真库种子：会话行在位（转录空）
+    let store = app
+        .state::<WorkspaceStores>()
+        .for_root(&root)
+        .expect("for_root 应成功");
+    seed_sdk_session(&store, &session_id, None, "debug", None);
+
+    let streams = streams_of(&app);
+    streams.begin(&session_id);
+    let (channel, captured) = capturing_channel();
+
+    let watch = agent_session_watch_with(
+        app.handle().clone(),
+        channel,
+        root.clone(),
+        session_id.clone(),
+        0,
+    );
+    let publish = async {
+        tokio::task::yield_now().await;
+        // since_seq = 0 为「已观测最大 seq」上界：事件自 seq 1 起可投
+        streams.publish(&session_id, delta_watch_event(1, "实时增量正文"));
+        tokio::task::yield_now().await;
+        streams.finish(
+            &session_id,
+            watch_outcome(1, AgentRunStatus::Completed, 1_727_000_000_000),
+        );
+    };
+    let (result, ()) = tokio::join!(watch, publish);
+    result.expect("watch 应 Ok");
+
+    let envelopes = snapshot_of(&captured);
+    assert_eq!(
+        envelopes[0]["event"]["kind"],
+        serde_json::json!("messageDelta"),
+        "实时面可见 delta"
+    );
+
+    // 持久面零新增：转录查询面不含 delta 行
+    let transcript = agent_session_transcript(app.state::<WorkspaceStores>(), root, session_id)
+        .expect("转录查询应成功");
+    assert!(
+        transcript.is_empty(),
+        "delta 零落库（实时面与持久面分流），实际: {transcript:?}"
+    );
+}
+
+#[tokio::test]
+async fn watch与agent_start终态同源_started_at逐字承接() {
+    let env = Env::new("watch-vs-start");
+    let app = app_with_stores(&env);
+    let stores = app.state::<WorkspaceStores>();
+    let root = env.root_of("alpha");
+    // 非法 base_url：请求编码段同步 Err → 泵以 api_error 即时收敛（不落网络）
+    let provider = seed_provider(
+        stores.inner(),
+        "同源供应",
+        "sk-test",
+        "http://bad host/v1",
+        "m-high",
+    );
+    seed_sdk_default(stores.inner(), "同源实例", provider);
+
+    let (start_channel, start_captured) = capturing_channel();
+    let summary = agent_start_with(
+        app.handle().clone(),
+        start_channel,
+        root.clone(),
+        "同源一轮".to_owned(),
+        AgentPermissionMode::BypassPermissions,
+        None,
+        None,
+        None,
+        None,
+    )
+    .await
+    .expect("提前 resolve");
+
+    // 发起流末拍 record（后台驱动任务）与 running 轮行同源同起点
+    let start_terminal = wait_for_record(&start_captured).await;
+    assert_eq!(
+        start_terminal["record"]["status"],
+        serde_json::json!("failed"),
+        "拒连端点失败收敛"
+    );
+    assert_eq!(
+        start_terminal["record"]["turnId"],
+        serde_json::json!(summary.turn_id),
+        "发起流终态即本轮轮行"
+    );
+    assert_eq!(
+        start_terminal["record"]["startedAt"],
+        serde_json::json!(summary.started_at),
+        "终态 startedAt 与 running 轮行同一起点（D4 单一来源）"
+    );
+
+    // 收口后订阅面幂等（条目已除名，AC-4 / AC-6 命令面）
+    let (watch_channel, watch_captured) = capturing_channel();
+    agent_session_watch_with(
+        app.handle().clone(),
+        watch_channel,
+        root,
+        summary.session_id.clone(),
+        0,
+    )
+    .await
+    .expect("已收口会话 watch 立即 Ok");
+    assert!(snapshot_of(&watch_captured).is_empty(), "收口后订阅零事件");
+}
+
+/// 轮询捕获直至末拍 `record` 信封（后台驱动任务；不新增计时依赖）。
+async fn wait_for_record(captured: &Arc<Mutex<Vec<serde_json::Value>>>) -> serde_json::Value {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+    loop {
+        let found = captured
+            .lock()
+            .expect("捕获锁不可中毒")
+            .iter()
+            .find(|value| value["ipc"] == serde_json::json!("record"))
+            .cloned();
+        if let Some(record) = found {
+            return record;
+        }
+        assert!(std::time::Instant::now() < deadline, "等待终态 Record 超时");
+        tokio::task::yield_now().await;
+        std::thread::sleep(std::time::Duration::from_millis(5));
     }
 }

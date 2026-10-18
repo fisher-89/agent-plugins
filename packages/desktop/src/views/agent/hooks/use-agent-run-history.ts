@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 
-import { commands, type AgentEvent, type SessionSummary } from '../../../types/generated/bindings';
+import { commands, type SessionSummary } from '../../../types/generated/bindings';
 
 /** 历史区来源筛选三态：'all' 在取数层映射 null（不过滤）。 */
 export type AgentHistorySource = 'debug' | 'change' | 'all';
@@ -11,9 +11,7 @@ const PAGE_SIZE = 20;
 export interface AgentRunHistoryState {
   /** 当前页会话清单（后端 `updated_at` 降序）；挂载自动取数，refresh() 重取 */
   sessions: SessionSummary[];
-  /** 点开重放的密封事件流（seq 升序） */
-  events: AgentEvent[];
-  /** 当前重放的会话 id；null 即未点开 */
+  /** 当前重放的会话 id；null 即未点开（转录重放交会话级组件自持） */
   selectedSessionId: string | null;
   loading: boolean;
   error: string | null;
@@ -31,8 +29,10 @@ export interface AgentRunHistoryState {
   nextPage: () => void;
   /** 上一页（首页时不动） */
   prevPage: () => void;
-  /** 点开一条会话：invoke("agent_session_transcript") 重放全史密封转录 */
+  /** 点开一条会话：置重放目标（转录取数与重放折叠由会话级组件承担） */
   openSession: (sessionId: string) => void;
+  /** 关闭重放抽屉（清重放目标） */
+  closeSession: () => void;
 }
 
 interface QueryState {
@@ -136,60 +136,37 @@ function useSessions(root: string | null, source: AgentHistorySource): SessionsV
   return { sessions, total, page, totalPages, query, refresh, setPage: paging.gotoPage };
 }
 
-function useReplay(root: string | null): {
-  events: AgentEvent[];
+/** 重放目标（选中即开抽屉；转录取数 / 重放折叠由会话级组件承担，本 hook 零查询） */
+function useReplayTarget(): {
   selectedSessionId: string | null;
-  query: QueryState;
   openSession: (sessionId: string) => void;
+  closeSession: () => void;
 } {
-  const [events, setEvents] = useState<AgentEvent[]>([]);
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
-  const [query, setQuery] = useState<QueryState>(IDLE);
-  const [target, setTarget] = useState<string | null>(null);
 
-  const openSession = useCallback((sessionId: string) => setTarget(sessionId), []);
+  const openSession = useCallback((sessionId: string) => setSelectedSessionId(sessionId), []);
+  const closeSession = useCallback(() => setSelectedSessionId(null), []);
 
-  useEffect(() => {
-    if (target === null || root === null) return;
-    let cancelled = false;
-    setQuery({ loading: true, error: null });
-    commands
-      .agentSessionTranscript(root, target)
-      .then((result) => {
-        if (cancelled) return;
-        setEvents(result);
-        setSelectedSessionId(target);
-        setQuery(IDLE);
-      })
-      .catch((err: unknown) => {
-        if (cancelled) return;
-        setQuery({ loading: false, error: String(err) });
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [root, target]);
-
-  return { events, selectedSessionId, query, openSession };
+  return { selectedSessionId, openSession, closeSession };
 }
 
 /**
  * 历史会话 hook：`source` 筛选会话来源（默认由调用方持 'debug'），切换即重查
  * 并回第 1 页；清单按 `PAGE_SIZE` 分页（`total` 为过滤集全量计数，页界由其导
- * 出）；显式刷新（tick 重取）停留当前页，无轮询无订阅。
+ * 出）；显式刷新（tick 重取）停留当前页，无轮询无订阅。点开会话只置重放目标
+ * （自有转录查询已退役——取数与折叠归 `AgentSessionView` 自持形态）。
  */
 export function useAgentRunHistory(
   root: string | null,
   source: AgentHistorySource,
 ): AgentRunHistoryState {
   const sessionsState = useSessions(root, source);
-  const replayState = useReplay(root);
+  const replayState = useReplayTarget();
   return {
     sessions: sessionsState.sessions,
-    events: replayState.events,
     selectedSessionId: replayState.selectedSessionId,
-    loading: sessionsState.query.loading || replayState.query.loading,
-    error: sessionsState.query.error ?? replayState.query.error,
+    loading: sessionsState.query.loading,
+    error: sessionsState.query.error,
     total: sessionsState.total,
     page: sessionsState.page,
     totalPages: sessionsState.totalPages,
@@ -198,5 +175,6 @@ export function useAgentRunHistory(
     nextPage: () => sessionsState.setPage(sessionsState.page + 1),
     prevPage: () => sessionsState.setPage(sessionsState.page - 1),
     openSession: replayState.openSession,
+    closeSession: replayState.closeSession,
   };
 }

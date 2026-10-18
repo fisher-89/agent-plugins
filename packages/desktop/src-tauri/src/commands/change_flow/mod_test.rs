@@ -6,7 +6,7 @@ use std::time::{Duration, Instant};
 use tauri::ipc::{Channel, InvokeResponseBody};
 use tauri::{App, Manager};
 
-use ::agent::StopRegistry;
+use ::agent::{SessionStreamRegistry, StopRegistry};
 use orchestration::control::ChangeFlowControl;
 use store::{
     AgentEngineKind, AgentInstanceRecord, AgentModelTiers, AgentProviderRecord, WorkspaceStores,
@@ -73,6 +73,8 @@ fn app_with(env: &Env) -> App<tauri::test::MockRuntime> {
     app.manage(stores);
     app.manage(Arc::new(ChangeFlowControl::new()));
     app.manage(Arc::new(StopRegistry::new()));
+    // 会话实时流注册表：与 `src/main.rs` 同型空表托管（两轨同源注入面）
+    app.manage(Arc::new(SessionStreamRegistry::new()));
     app
 }
 
@@ -2363,5 +2365,68 @@ async fn 基线红停_terminal收敛文案引导且转绿后干净重试() {
     assert!(
         !worktree.join("leftover.txt").exists(),
         "clean 恢复基线：残留未跟踪文件被清除（AC-5 真件半边）"
+    );
+}
+// ---------------------------------------------------------------------------
+// 会话实时流注册表托管注入缝（compose_turn 第三参）：空表托管零 panic 零注册表
+// 条目；未托管形态的取用错误与 `StopRegistry` 同口径（托管契约由 src/main.rs
+// 与各命令测试装置共同锚定）
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn 空表streams托管下受理前置拒绝零panic且注册表零条目() {
+    let env = Env::new("streams-hosted");
+    let app = app_with(&env);
+    let root = env.root();
+    let streams = Arc::clone(app.state::<Arc<SessionStreamRegistry>>().inner());
+
+    // 托管的是空表（与 `src/main.rs` 同型 `SessionStreamRegistry::default()`）
+    for session_id in ["", "ses-any", "特殊\u{0}😀"] {
+        assert!(
+            streams.subscribe(session_id, 0).is_none(),
+            "空表托管：任意 id 订阅为 None（{session_id:?}）"
+        );
+    }
+
+    // 受理前置拒绝路径：注入缝不改受理语义（Err 文案既有逐字）
+    let (channel, captured) = capturing_channel();
+    let error = change_flow_start_with(
+        app.handle().clone(),
+        channel,
+        root.clone(),
+        String::new(),
+        false,
+    )
+    .await
+    .expect_err("blank id 必须 Err");
+    assert!(error.contains("id"), "拒绝文案携 id 线索，实际: {error}");
+    assert!(
+        captured.lock().expect("捕获锁不可中毒").is_empty(),
+        "拒绝路径零通知"
+    );
+    assert!(
+        streams.subscribe("ses-any", 0).is_none(),
+        "未驱动的受理路径不产生注册表条目"
+    );
+}
+
+#[tokio::test]
+async fn 未托管streams形态取用错误与stopregistry同口径() {
+    // 未托管：显式构造 mock app 而两者皆不 manage → state 取用即 panic（同一
+    // 托管契约口径；正托管形态由上面用例与既有受理 / 控制 / 通知面用例承载）
+    let app = tauri::test::mock_app();
+    let streams_missing = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let _ = app.state::<Arc<SessionStreamRegistry>>();
+    }))
+    .is_err();
+    let stop_missing = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let _ = app.state::<Arc<StopRegistry>>();
+    }))
+    .is_err();
+    assert!(streams_missing, "未托管 streams 取用失败");
+    assert!(stop_missing, "未托管 stop 取用失败");
+    assert!(
+        streams_missing == stop_missing,
+        "两表托管契约同口径（缺一即同型失败）"
     );
 }

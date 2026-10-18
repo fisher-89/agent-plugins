@@ -18,8 +18,8 @@ interface DetailDrawerProps {
   /** change name（`read_exec_output` 磁盘面寻址键——与 `record_exec_output`
    * 同口径取 `detail.name`，非 id） */
   name: string;
-  /** 变更通知触发的转录重查键（实时面统一转录库重查——liveEvents 退役） */
-  transcriptRefreshKey?: number;
+  /** 会话状态重评估键（组件据其重评估是否挂流；会话事件通知并入统一重查） */
+  sessionRefreshKey?: number;
   onClose: () => void;
 }
 
@@ -97,7 +97,7 @@ function DrawerContent({
   materials,
   root,
   name,
-  transcriptRefreshKey,
+  sessionRefreshKey,
 }: {
   selection: DrawerSelection;
   node: FlowNode | null;
@@ -106,7 +106,7 @@ function DrawerContent({
   root: string | null;
   changeId: string;
   name: string;
-  transcriptRefreshKey?: number;
+  sessionRefreshKey?: number;
 }): React.JSX.Element {
   if (selection.scope === 'column') {
     return <ColumnMaterialsSection materials={materials.columnDocs[columnId] ?? []} />;
@@ -118,7 +118,7 @@ function DrawerContent({
       <SessionTranscriptPanel
         root={root}
         roleRef={selectionRoleRef(selection, node)}
-        refreshKey={transcriptRefreshKey}
+        refreshKey={sessionRefreshKey}
       />
     );
   }
@@ -136,7 +136,7 @@ export function DetailDrawer({
   root,
   changeId,
   name,
-  transcriptRefreshKey,
+  sessionRefreshKey,
   onClose,
 }: DetailDrawerProps): React.JSX.Element | null {
   if (selection === null) return null;
@@ -164,7 +164,7 @@ export function DetailDrawer({
             root={root}
             changeId={changeId}
             name={name}
-            transcriptRefreshKey={transcriptRefreshKey}
+            sessionRefreshKey={sessionRefreshKey}
           />
         </div>
       }

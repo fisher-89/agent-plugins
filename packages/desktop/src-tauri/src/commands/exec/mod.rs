@@ -13,7 +13,8 @@ use tauri::{AppHandle, Manager, State};
 // 以 `::agent::` 显式消歧
 use ::agent::{
     KernelOutput, ModelLevel, SessionCtx, SessionPage, SessionProvenance, SessionRef,
-    SessionSummary, StopRegistry, TurnSummary,
+    SessionStreamItem, SessionStreamRecvError, SessionStreamRegistry, SessionSummary, StopRegistry,
+    TurnSummary,
 };
 use agent_runtime::compose_turn;
 use store::WorkspaceStores;
@@ -92,14 +93,21 @@ pub(crate) async fn agent_start_with<R: tauri::Runtime>(
     // 主 root——exec / explore 轨道与 change 域工作面分离，D7 拍板）
     let stores = app.state::<WorkspaceStores>();
     let registry = app.state::<Arc<StopRegistry>>();
+    let streams = app.state::<Arc<SessionStreamRegistry>>();
     let store = stores.for_root(&root).map_err(|e| e.to_string())?;
-    let composed = compose_turn(stores.inner(), Arc::clone(registry.inner()), store, agent)?;
+    // 注册表 `Arc` 先取出再进入组合根（不跨 await 持 `State` 句柄）
+    let composed = compose_turn(
+        stores.inner(),
+        Arc::clone(registry.inner()),
+        Arc::clone(streams.inner()),
+        store,
+        agent,
+    )?;
     let running = composed.begin(session, prompt, ctx, provenance)?;
     // 后台转发任务：内核泵输出 → Channel（事件与终态同构流出）；提前 resolve
     // 返回 running 态轮行（id 立即可知），终态 MUST NOT 依赖 invoke 返回
     let summary = agent::running_summary(&running);
     let session_id = running.session_id.clone();
-    let started_at = running.started_at;
     tauri::async_runtime::spawn(async move {
         let _ = running
             .drive(move |output| match output {
@@ -108,7 +116,7 @@ pub(crate) async fn agent_start_with<R: tauri::Runtime>(
                 }
                 KernelOutput::TurnFinished(outcome) => {
                     let _ = on_event.send(AgentRunMessage::Record {
-                        record: agent::outcome_summary(&outcome, &session_id, started_at),
+                        record: agent::outcome_summary(&outcome, &session_id),
                     });
                 }
             })
@@ -130,6 +138,64 @@ pub fn agent_stop(
         return Ok(());
     }
     registry.request_stop(&session_id);
+    Ok(())
+}
+
+/// 会话级实时流订阅（薄包装三段：参数转换 → 注册表订阅 → `Channel` 前向，
+/// 无编排无落库）：按轮收流，轮终态以 `Record` 收尾后命令返回（订阅流按轮划
+/// 分，不长连接跨轮）；blank root / 无运行轮（会话未运行 / 已终态 / 未知 id）
+/// 幂等立即 `Ok(())`；广播溢出（lagged）与条目除名（closed）均以断流收尾，
+/// MUST NOT 投递伪终态。
+#[tauri::command]
+#[specta::specta]
+pub async fn agent_session_watch(
+    app: AppHandle,
+    on_event: Channel<AgentRunMessage>,
+    root: String,
+    session_id: String,
+    since_seq: u64,
+) -> Result<(), String> {
+    agent_session_watch_with(app, on_event, root, session_id, since_seq).await
+}
+
+/// [`agent_session_watch`] 的泛型测试缝（生产注入 Wry 句柄、测试注入
+/// MockRuntime 句柄，沿 `agent_start_with` 先例）。
+pub(crate) async fn agent_session_watch_with<R: tauri::Runtime>(
+    app: AppHandle<R>,
+    on_event: Channel<AgentRunMessage>,
+    root: String,
+    session_id: String,
+    since_seq: u64,
+) -> Result<(), String> {
+    if is_blank_root(&root) {
+        return Ok(());
+    }
+    // 注册表 `Arc` 先取出（不跨 await 持 `State` 句柄）；无条目即无运行轮
+    let streams = {
+        let state = app.state::<Arc<SessionStreamRegistry>>();
+        Arc::clone(state.inner())
+    };
+    let Some(mut subscription) = streams.subscribe(&session_id, since_seq) else {
+        return Ok(());
+    };
+    loop {
+        match subscription.recv().await {
+            Ok(SessionStreamItem::Event(event)) => {
+                if on_event.send(AgentRunMessage::Event { event }).is_err() {
+                    break;
+                }
+            }
+            Ok(SessionStreamItem::Finished(outcome)) => {
+                // 末拍轮终态：投递失败不影响订阅释放（尽力语义）
+                let _ = on_event.send(AgentRunMessage::Record {
+                    record: agent::outcome_summary(&outcome, &session_id),
+                });
+                break;
+            }
+            // 断流兜底：滞后溢出与条目除名均结束命令（客户端据断流重放重订）
+            Err(SessionStreamRecvError::Lagged(_) | SessionStreamRecvError::Closed) => break,
+        }
+    }
     Ok(())
 }
 

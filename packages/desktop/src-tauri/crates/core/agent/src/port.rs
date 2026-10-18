@@ -15,6 +15,9 @@ pub struct TurnOutcome {
     pub turn_id: i64,
     /// 收敛状态
     pub status: AgentRunStatus,
+    /// 轮起点（UTC unix 毫秒）：终态轮行装配与订阅面 `Record` 投影共用（store
+    /// 侧 `finish_turn` 按 `turn_id` 更新、沿用存量行的 `started_at`，不写该列）
+    pub started_at: i64,
     /// 收敛时刻（UTC unix 毫秒）
     pub finished_at: i64,
     /// 收敛轮数（TurnDone 字段面；缺席合法）

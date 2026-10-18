@@ -1,8 +1,8 @@
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter, Route, Routes, useLocation, useNavigationType } from 'react-router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 
-import type { ExploreDoc, ExploreRecord } from '../../types/dto';
+import type { AgentEvent, ExploreDoc, ExploreRecord, SessionSummary } from '../../types/dto';
 import { ExploreDetailView } from './explore-detail-view';
 import type { ExploreListState } from './hooks/use-explore-list';
 
@@ -86,8 +86,9 @@ function LocationProbe() {
   );
 }
 
-function renderDetail(recordValue: ExploreRecord | null, list: ExploreListState) {
-  return render(
+/** 详情页挂载树（可 rerender 换 record props——记录切换用例复用同一 router）。 */
+function detailTree(recordValue: ExploreRecord | null, list: ExploreListState) {
+  return (
     <MemoryRouter initialEntries={['/explores/api-retry']}>
       <Routes>
         <Route
@@ -97,8 +98,12 @@ function renderDetail(recordValue: ExploreRecord | null, list: ExploreListState)
         <Route path="/changes/:id" element={<span data-testid="change-detail-stub" />} />
       </Routes>
       <LocationProbe />
-    </MemoryRouter>,
+    </MemoryRouter>
   );
+}
+
+function renderDetail(recordValue: ExploreRecord | null, list: ExploreListState) {
+  return render(detailTree(recordValue, list));
 }
 
 beforeEach(() => {
@@ -561,9 +566,19 @@ function completedTurn(sessionId: string): TurnSummaryLike {
 describe('ExploreDetailView：run 终态刷新与名变收敛（AC-4 收敛链）', () => {
   it('正向：running true→false → list.refresh 与 doc 定点重读同点触发（read_explore 二次拉取）', async () => {
     mockEmptySessionIpc();
-    // agent_start 挂起：运行在途；终态经 Channel record 信封回流
+    // agent_start 提前 resolve running 轮行（库态 running 来源）；终态经 Channel
+    // record 信封回流，收口按库内重放收敛
     invokeMock.mockImplementation((command: string) => {
-      if (command === 'agent_start') return new Promise<TurnSummaryLike>(() => {});
+      if (command === 'agent_start') {
+        return Promise.resolve({
+          ...completedTurn('ses-draft-1727000001000'),
+          status: 'running',
+          finishedAt: null,
+          numTurns: null,
+          costUsd: null,
+          durationMs: null,
+        });
+      }
       return mockEmptySessionAnswer(command);
     });
     const list = makeList();
@@ -767,5 +782,478 @@ describe('ExploreDetailView：promote 在飞标记（防重复提交态）', () 
 
     await screen.findByTestId('explore-promote-error');
     expect(screen.getByTestId<HTMLButtonElement>('explore-promote-trigger').disabled).toBe(false);
+  });
+});
+// ---------------------------------------------------------------------------
+// ChatPane 接线（D9 / D10）：注入形态 AgentSessionView + composer 插槽
+// ---------------------------------------------------------------------------
+
+/** 会话 fixture（record.sessionId 在场 + agent_start 提前 resolve）。 */
+function seedChatSession(): void {
+  invokeMock.mockImplementation((command: string) => {
+    if (command === 'read_explore') return Promise.resolve(docResult);
+    if (command === 'explore_doc_path') {
+      return Promise.resolve('C:\\demo\\alpha\\openspec\\explores\\api-retry.md');
+    }
+    if (command === 'watch_subscribe') return Promise.resolve(1);
+    if (command === 'watch_unsubscribe') return Promise.resolve(null);
+    if (command === 'agent_sessions') return Promise.resolve([]);
+    if (command === 'session_detail') {
+      return Promise.resolve({
+        row: {
+          id: 'ses-explore-1',
+          remoteSessionId: null,
+          configSnapshot: {
+            engine: 'sdk',
+            agentInstanceId: null,
+            model: null,
+            permissionMode: 'bypassPermissions',
+          },
+          provenance: { source: 'explore', sourceRef: '7' },
+          createdAt: 1727000000000,
+          updatedAt: 1727000000001,
+        },
+        stats: { turnCount: 1, totalDurationMs: null, inputTokens: null, outputTokens: null },
+        turns: [
+          {
+            turnId: 1,
+            sessionId: 'ses-explore-1',
+            status: 'completed',
+            startedAt: 1727000000000,
+            finishedAt: 1727000000900,
+            numTurns: 1,
+            costUsd: null,
+            durationMs: 900,
+            error: null,
+          },
+        ],
+      });
+    }
+    if (command === 'agent_session_transcript') {
+      return Promise.resolve([
+        {
+          seq: 0,
+          timestampMs: 1727000000000,
+          kind: 'message',
+          role: 'assistant',
+          blocks: [{ kind: 'text', text: '探索会话正文' }],
+          parentToolUseId: null,
+        },
+      ]);
+    }
+    if (command === 'agent_start') {
+      return Promise.resolve({
+        turnId: 2,
+        sessionId: 'ses-explore-1',
+        status: 'running',
+        startedAt: 1727000001000,
+        finishedAt: null,
+        numTurns: null,
+        costUsd: null,
+        durationMs: null,
+        error: null,
+      });
+    }
+    return Promise.resolve(null);
+  });
+}
+
+describe('ExploreDetailView：ChatPane 注入形态与 composer 插槽', () => {
+  it('正向：explore-chat 注入形态挂载，ExploreComposer 由插槽渲染（running 取自会话库态）', async () => {
+    seedChatSession();
+    renderDetail(record({ sessionId: 'ses-explore-1' }), makeList());
+
+    const chat = await screen.findByTestId('explore-chat');
+    await waitFor(() => expect(within(chat).getAllByTestId('block-text')).toHaveLength(1));
+
+    // 插槽内容渲染在消息区下方（同一 chat 容器内）
+    const composer = within(chat).getByTestId('explore-composer');
+    expect(composer).toBeTruthy();
+    // 插槽 running 取自会话库态：已收口 → 输入非空即可发、停止入口隐藏
+    fireEvent.change(within(chat).getByTestId('explore-prompt'), {
+      target: { value: '收口态可发' },
+    });
+    expect(within(chat).getByTestId<HTMLButtonElement>('explore-send').disabled).toBe(false);
+    expect(within(chat).queryByTestId('explore-stop')).toBeNull();
+  });
+
+  it('正向：插槽发送 → agent_start（stance 前导 + source=explore）', async () => {
+    seedChatSession();
+    renderDetail(record({ sessionId: 'ses-explore-1' }), makeList());
+    const chat = await screen.findByTestId('explore-chat');
+    await waitFor(() => expect(within(chat).getAllByTestId('block-text')).toHaveLength(1));
+
+    fireEvent.change(within(chat).getByTestId('explore-prompt'), {
+      target: { value: '继续追这条线索' },
+    });
+    fireEvent.click(within(chat).getByTestId('explore-send'));
+    await act(async () => {});
+
+    const startCall = invokeMock.mock.calls.filter(([name]) => name === 'agent_start').at(-1);
+    expect(startCall).toBeTruthy();
+    const args = startCall?.[1] as Record<string, unknown>;
+    expect(args.source).toBe('explore');
+    expect(String(args.prompt)).toContain('继续追这条线索');
+    expect(args.sessionId).toBe('ses-explore-1');
+  });
+
+  it('边界：有记录无转录 → 组件空态提示（不虚构气泡）', async () => {
+    seedChatSession();
+    invokeMock.mockImplementation((command: string) => {
+      if (command === 'agent_session_transcript') return Promise.resolve([]);
+      if (command === 'read_explore') return Promise.resolve(docResult);
+      if (command === 'explore_doc_path') return Promise.resolve('C:\\a.md');
+      if (command === 'watch_subscribe') return Promise.resolve(1);
+      if (command === 'session_detail') {
+        return Promise.resolve({
+          row: {
+            id: 'ses-explore-1',
+            remoteSessionId: null,
+            configSnapshot: null,
+            provenance: { source: 'explore', sourceRef: '7' },
+            createdAt: 1,
+            updatedAt: 1,
+          },
+          stats: { turnCount: 0, totalDurationMs: null, inputTokens: null, outputTokens: null },
+          turns: [],
+        });
+      }
+      return Promise.resolve(null);
+    });
+    renderDetail(record({ sessionId: 'ses-explore-1' }), makeList());
+
+    const chat = await screen.findByTestId('explore-chat');
+    await waitFor(() => expect(within(chat).getByTestId('conversation-empty')).toBeTruthy());
+    expect(within(chat).queryAllByTestId('chat-bubble')).toHaveLength(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 记录切换（D9 / D10 边界）：新会话重放重取一次、旧会话流拆除（并行流 ≤ 1）
+// ---------------------------------------------------------------------------
+
+/** 运行中会话 summary（订阅状态门判据：轮行含 running）。 */
+function runningSession(sessionId: string): SessionSummary {
+  return {
+    row: {
+      id: sessionId,
+      remoteSessionId: null,
+      configSnapshot: null,
+      provenance: { source: 'explore', sourceRef: '7' },
+      createdAt: 1727000000000,
+      updatedAt: 1727000000001,
+    },
+    stats: { turnCount: 1, totalDurationMs: null, inputTokens: null, outputTokens: null },
+    turns: [
+      {
+        turnId: 1,
+        sessionId,
+        status: 'running',
+        startedAt: 1727000000000,
+        finishedAt: null,
+        numTurns: null,
+        costUsd: null,
+        durationMs: null,
+        error: null,
+      },
+    ],
+  };
+}
+
+/** 订阅流 token 级增量信封载荷。 */
+function deltaEvent(seq: number, text: string): AgentEvent {
+  return {
+    seq,
+    timestampMs: 1727000000000,
+    kind: 'messageDelta',
+    parentToolUseId: null,
+    delta: { kind: 'text', text },
+  };
+}
+
+/** 订阅 Channel 缝（onmessage 直投信封）。 */
+interface WatchChannel {
+  onmessage: ((message: unknown) => void) | null;
+}
+
+function bubbleTexts(): string[] {
+  return screen.queryAllByTestId('block-text').map((node) => node.textContent ?? '');
+}
+
+/** invoke 参数读取（字符串字段；非法 / 缺席回落空串）。 */
+function stringArg(args: Record<string, unknown> | undefined, key: string): string {
+  const value = args?.[key];
+  return typeof value === 'string' ? value : '';
+}
+
+describe('ExploreDetailView：记录切换（并行流 ≤ 1）', () => {
+  it('切换 explore 记录 → 新会话重放重取一次、旧会话流拆除（agent_session_watch 并行 ≤ 1）', async () => {
+    const watched: string[] = [];
+    const channels = new Map<string, WatchChannel>();
+    const pending = new Map<string, (value: null) => void>();
+
+    invokeMock.mockImplementation((command: string, args?: Record<string, unknown>) => {
+      if (command === 'read_explore') return Promise.resolve(docResult);
+      if (command === 'explore_doc_path') return Promise.resolve('C:\\demo\\alpha\\note.md');
+      if (command === 'watch_subscribe') return Promise.resolve(1);
+      if (command === 'watch_unsubscribe') return Promise.resolve(null);
+      if (command === 'session_detail') {
+        return Promise.resolve(runningSession(stringArg(args, 'sessionId')));
+      }
+      if (command === 'agent_session_transcript') return Promise.resolve([]);
+      if (command === 'agent_session_watch') {
+        const sessionId = stringArg(args, 'sessionId');
+        watched.push(sessionId);
+        channels.set(sessionId, args?.onEvent as WatchChannel);
+        return new Promise<null>((resolve) => {
+          pending.set(sessionId, resolve);
+        });
+      }
+      return Promise.resolve(null);
+    });
+
+    const list = makeList();
+    const { rerender } = render(detailTree(record({ sessionId: 'ses-a' }), list));
+
+    // A 记录装载：库态运行中 → 恰一条订阅（并行计数起点 1）
+    await waitFor(() => expect(watched).toEqual(['ses-a']));
+    act(() => {
+      channels.get('ses-a')?.onmessage?.({ ipc: 'event', event: deltaEvent(1, 'A 会话增量') });
+    });
+    await waitFor(() => expect(bubbleTexts()).toContain('A 会话增量'));
+
+    // 切到另一条记录（记录回写的会话 id 变化）→ 旧订阅流由后端收尾（拆除）
+    rerender(detailTree(record({ sessionId: 'ses-b', name: 'retry-doc' }), list));
+    await act(async () => {
+      pending.get('ses-a')?.(null);
+    });
+
+    // 新会话：重放重取一次（转录查询携新 id）+ 一次新订阅
+    await waitFor(() => expect(watched).toContain('ses-b'));
+    const transcriptOf = (sessionId: string) =>
+      invokeMock.mock.calls.filter(
+        ([name, callArgs]) =>
+          name === 'agent_session_transcript' &&
+          (callArgs as Record<string, unknown> | undefined)?.sessionId === sessionId,
+      );
+    await waitFor(() => expect(transcriptOf('ses-b')).toHaveLength(1));
+    expect(invokeMock).toHaveBeenCalledWith('session_detail', {
+      root: ROOT,
+      sessionId: 'ses-b',
+    });
+    // 旧会话零重订、新会话恰一次 → 并行流 ≤ 1（两条各一条，逐会话单流）
+    expect(watched.filter((id) => id === 'ses-a')).toHaveLength(1);
+    expect(watched.filter((id) => id === 'ses-b')).toHaveLength(1);
+    expect(watched, 'agent_session_watch 并行 ≤ 1').toHaveLength(2);
+
+    // 旧会话流已拆除：迟到增量不落对话区；新会话增量照常呈现
+    act(() => {
+      channels.get('ses-a')?.onmessage?.({ ipc: 'event', event: deltaEvent(2, '旧会话迟到增量') });
+    });
+    expect(bubbleTexts()).not.toContain('旧会话迟到增量');
+
+    act(() => {
+      channels.get('ses-b')?.onmessage?.({ ipc: 'event', event: deltaEvent(3, 'B 会话增量') });
+    });
+    await waitFor(() => expect(bubbleTexts()).toContain('B 会话增量'));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// ChatPane 运行态边界与错误面（D9 / D10 插槽语义）：库态 running → 发送禁用 +
+// 停止接线（agent_stop）、收口后恢复可发；会话查询 reject → 对话区错误提示
+// 而页面其余区域不塌
+// ---------------------------------------------------------------------------
+
+const stopCalls = () => invokeMock.mock.calls.filter(([name]) => name === 'agent_stop');
+
+const watchCalls = () => invokeMock.mock.calls.filter(([name]) => name === 'agent_session_watch');
+
+/** 已收口会话 summary（同会话 id、轮行 completed——收口后的库态形状）。 */
+function completedSession(sessionId: string): SessionSummary {
+  return {
+    row: {
+      id: sessionId,
+      remoteSessionId: null,
+      configSnapshot: null,
+      provenance: { source: 'explore', sourceRef: '7' },
+      createdAt: 1727000000000,
+      updatedAt: 1727000002000,
+    },
+    stats: { turnCount: 1, totalDurationMs: null, inputTokens: null, outputTokens: null },
+    turns: [
+      {
+        turnId: 1,
+        sessionId,
+        status: 'completed',
+        startedAt: 1727000000000,
+        finishedAt: 1727000002000,
+        numTurns: 1,
+        costUsd: null,
+        durationMs: 900,
+        error: null,
+      },
+    ],
+  };
+}
+
+/** 终态轮行信封载荷（与库内 running 行同 turnId——upsert 原位替换，不叠加行）。 */
+function completedTurnRecord(sessionId: string): TurnSummaryLike {
+  return {
+    turnId: 1,
+    sessionId,
+    status: 'completed',
+    startedAt: 1727000000000,
+    finishedAt: 1727000002000,
+    numTurns: 1,
+    costUsd: null,
+    durationMs: 900,
+    error: null,
+  };
+}
+
+describe('ExploreDetailView：ChatPane 运行态边界（库态 running 禁发与停止接线）', () => {
+  it('边界：库态 running → 发送禁用、停止可点（agent_stop）；收口后恢复可发（终态定点重读重评估）', async () => {
+    // 收口闸门：false 期间 session_detail 返运行中（重放 + 订阅状态门两次取数），
+    // 投终态信封后转已收口（收口重放读已收口库态）
+    const gate = { settled: false };
+    const watched: string[] = [];
+    const watchChannels: WatchChannel[] = [];
+
+    invokeMock.mockImplementation((command: string, args?: Record<string, unknown>) => {
+      if (command === 'read_explore') return Promise.resolve(docResult);
+      if (command === 'explore_doc_path') return Promise.resolve('C:\\demo\\alpha\\note.md');
+      if (command === 'watch_subscribe') return Promise.resolve(1);
+      if (command === 'watch_unsubscribe') return Promise.resolve(null);
+      if (command === 'session_detail') {
+        const sessionId = stringArg(args, 'sessionId');
+        return Promise.resolve(
+          gate.settled ? completedSession(sessionId) : runningSession(sessionId),
+        );
+      }
+      if (command === 'agent_session_transcript') return Promise.resolve([]);
+      if (command === 'agent_session_watch') {
+        watched.push(stringArg(args, 'sessionId'));
+        watchChannels.push(args?.onEvent as WatchChannel);
+        // 订阅挂起：收口前流不关闭（单流在挂），终态信封由测试侧直投
+        return new Promise<null>(() => {});
+      }
+      if (command === 'agent_stop') return Promise.resolve(null);
+      if (command === 'agent_start') {
+        return Promise.resolve({
+          turnId: 2,
+          sessionId: 'ses-explore-1',
+          status: 'running',
+          startedAt: 1727000003000,
+          finishedAt: null,
+          numTurns: null,
+          costUsd: null,
+          durationMs: null,
+          error: null,
+        });
+      }
+      return Promise.resolve(null);
+    });
+
+    renderDetail(record({ sessionId: 'ses-explore-1' }), makeList());
+
+    const chat = await screen.findByTestId('explore-chat');
+    // 库态 running：元信息徽标「运行中」+ 流式状态行，且已建立恰一条订阅
+    await waitFor(() =>
+      expect(within(chat).getByTestId('session-meta-status').textContent).toBe('运行中'),
+    );
+    expect(within(chat).getByTestId('agent-messages-running')).toBeTruthy();
+    await waitFor(() => expect(watched).toEqual(['ses-explore-1']));
+
+    // 发送禁用：输入非空（排除「空 prompt 禁用」干扰面）仍禁用，点击零 agent_start
+    fireEvent.change(within(chat).getByTestId('explore-prompt'), {
+      target: { value: '运行中不该发' },
+    });
+    const sendButton = within(chat).getByTestId<HTMLButtonElement>('explore-send');
+    expect(sendButton.disabled).toBe(true);
+    fireEvent.click(sendButton);
+    await act(async () => {});
+    expect(startCalls()).toHaveLength(0);
+
+    // 停止可点 → 插槽 onStop 接来源侧 session.stop → agent_stop（root + 会话 id 逐字）
+    const stopButton = within(chat).getByTestId<HTMLButtonElement>('explore-stop');
+    expect(stopButton.disabled).toBe(false);
+    fireEvent.click(stopButton);
+    await waitFor(() => expect(stopCalls()).toHaveLength(1));
+    expect(stopCalls()[0]?.[1]).toEqual({ root: ROOT, sessionId: 'ses-explore-1' });
+
+    // 收口：终态轮行信封回流（同 turnId 原位替换）→ 库态转「已收口」
+    gate.settled = true;
+    act(() => {
+      watchChannels[0]?.onmessage?.({
+        ipc: 'record',
+        record: completedTurnRecord('ses-explore-1'),
+      });
+    });
+
+    await waitFor(() =>
+      expect(within(chat).getByTestId('session-meta-status').textContent).toBe('已收口'),
+    );
+    // 终态定点重读触发重评估：文档重读一次（read_explore 第二次）
+    await waitFor(() => {
+      const reads = invokeMock.mock.calls.filter(([name]) => name === 'read_explore');
+      expect(reads.length).toBeGreaterThanOrEqual(2);
+    });
+
+    // 收口后恢复可发：停止入口消失、发送可点 → agent_start（source=explore、同会话续话）
+    expect(within(chat).queryByTestId('explore-stop')).toBeNull();
+    await waitFor(() =>
+      expect(within(chat).getByTestId<HTMLButtonElement>('explore-send').disabled).toBe(false),
+    );
+    // 重放完成拍落位（loading 复位，发送守卫让位）
+    await act(async () => {});
+    fireEvent.change(within(chat).getByTestId('explore-prompt'), {
+      target: { value: '收口后再发一条' },
+    });
+    fireEvent.click(within(chat).getByTestId('explore-send'));
+    await waitFor(() => expect(startCalls()).toHaveLength(1));
+    const startArgs = startCalls()[0]?.[1] as Record<string, unknown>;
+    expect(startArgs.source).toBe('explore');
+    expect(startArgs.sessionId).toBe('ses-explore-1');
+    expect(String(startArgs.prompt)).toContain('收口后再发一条');
+
+    // 收口不重订：订阅流恰一条（并行流 ≤ 1）
+    expect(watched).toEqual(['ses-explore-1']);
+  });
+});
+
+describe('ExploreDetailView：ChatPane 错误面（会话查询失败不塌页面）', () => {
+  it('异常：会话查询 reject → 对话区错误提示呈现，记录头 / 右栏面板不塌、零伪气泡、零订阅', async () => {
+    invokeMock.mockImplementation((command: string) => {
+      if (command === 'session_detail') return Promise.reject(new Error('会话查询失败：注入'));
+      if (command === 'read_explore') return Promise.resolve(docResult);
+      if (command === 'explore_doc_path') return Promise.resolve('C:\\demo\\alpha\\note.md');
+      if (command === 'watch_subscribe') return Promise.resolve(1);
+      if (command === 'watch_unsubscribe') return Promise.resolve(null);
+      if (command === 'agent_session_transcript') return Promise.resolve([]);
+      return Promise.resolve(null);
+    });
+
+    renderDetail(record({ sessionId: 'ses-explore-1' }), makeList());
+
+    const chat = await screen.findByTestId('explore-chat');
+    // 对话区错误提示（不抛错、不崩）
+    const error = await within(chat).findByTestId('agent-session-error');
+    expect(error.textContent).toContain('会话查询失败：注入');
+
+    // 页面其余区域不塌：记录头（标题 + 草稿态动作面）与右栏笔记预览仍在位
+    expect(screen.getByTestId('explore-detail-title').textContent).toBe('接口重试策略');
+    expect(screen.getByTestId('explore-workflow-type-select')).toBeTruthy();
+    expect(screen.getByTestId('explore-promote-trigger')).toBeTruthy();
+    expect(screen.getByTestId('explore-preview')).toBeTruthy();
+
+    // 对话区：空态提示、零伪气泡、不虚构会话元信息
+    expect(within(chat).getByTestId('conversation-empty')).toBeTruthy();
+    expect(within(chat).queryAllByTestId('chat-bubble')).toHaveLength(0);
+    expect(within(chat).queryByTestId('session-meta')).toBeNull();
+
+    // 错误态不误挂流（库态未确立 → 零订阅）
+    await act(async () => {});
+    expect(watchCalls()).toHaveLength(0);
   });
 });

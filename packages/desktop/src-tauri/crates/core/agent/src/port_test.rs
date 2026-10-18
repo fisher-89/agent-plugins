@@ -184,6 +184,7 @@ fn outcome() -> TurnOutcome {
     TurnOutcome {
         turn_id: 2,
         status: AgentRunStatus::Completed,
+        started_at: 1727000000000,
         finished_at: 1727000005000,
         num_turns: Some(4),
         duration_ms: Some(5000),
@@ -376,6 +377,11 @@ fn turn_outcome全字段驼峰线格式往返逐字段相等() {
     let value = serde_json::to_value(outcome()).expect("序列化成功");
     assert_eq!(value["turnId"], serde_json::json!(2));
     assert_eq!(value["status"], serde_json::json!("completed"));
+    assert_eq!(
+        value["startedAt"],
+        serde_json::json!(1727000000000_i64),
+        "轮起点随收口形状出线（camelCase 与 finishedAt 同口径）"
+    );
     assert_eq!(value["finishedAt"], serde_json::json!(1727000005000_i64));
     assert_eq!(value["numTurns"], serde_json::json!(4));
     assert_eq!(value["durationMs"], serde_json::json!(5000));
@@ -401,6 +407,7 @@ fn turn_outcome缺席两极与status四值线格式往返() {
     let bare = TurnOutcome {
         turn_id: 1,
         status: AgentRunStatus::Stopped,
+        started_at: 0,
         finished_at: 1727000001000,
         num_turns: None,
         duration_ms: None,
@@ -441,6 +448,68 @@ fn turn_outcome缺席两极与status四值线格式往返() {
         .expect("序列化成功");
         assert_eq!(value["status"], serde_json::json!(expected));
     }
+}
+
+/// `started_at` 两极（0 / -1 / i64::MAX / i64::MIN）线格式往返不变（不归一、
+/// 不回填——收口形状自足，store 侧沿用存量行不写该列）。
+#[test]
+fn turn_outcome_started_at极值往返不归一() {
+    for started_at in [0_i64, -1, i64::MAX, i64::MIN] {
+        let extreme = TurnOutcome {
+            started_at,
+            ..outcome()
+        };
+        let value = serde_json::to_value(&extreme).expect("序列化成功");
+        assert_eq!(
+            value["startedAt"],
+            serde_json::json!(started_at),
+            "startedAt 逐字透传（{started_at}）"
+        );
+        let roundtrip: TurnOutcome = serde_json::from_value(value).expect("反序列化成功");
+        assert_eq!(roundtrip.started_at, started_at, "往返不归一");
+    }
+}
+
+/// 线格式缺 `startedAt` → 反序列化 `Err`（MUST NOT 静默补 0——与统计字段
+/// `Option` 缺席合法逐条区分）。
+#[test]
+fn turn_outcome缺started_at键反序列化err() {
+    let value = serde_json::to_value(outcome()).expect("序列化成功");
+    let mut object = value.as_object().expect("对象形态").clone();
+    object.remove("startedAt");
+    let missing = serde_json::Value::Object(object);
+
+    let result: Result<TurnOutcome, _> = serde_json::from_value(missing);
+    assert!(
+        result.is_err(),
+        "缺 startedAt 必须 Err（不静默补 0），实际: {result:?}"
+    );
+
+    // 对照组：统计字段缺席合法（同为 Option 的 numTurns 缺失仍可反序列化）
+    let value = serde_json::to_value(outcome()).expect("序列化成功");
+    let mut object = value.as_object().expect("对象形态").clone();
+    object.remove("numTurns");
+    object.remove("durationMs");
+    object.remove("costUsd");
+    let legal: TurnOutcome =
+        serde_json::from_value(serde_json::Value::Object(object)).expect("统计字段缺席合法");
+    assert_eq!(legal.num_turns, None);
+    assert_eq!(legal.duration_ms, None);
+    assert_eq!(legal.cost_usd, None);
+    assert_eq!(legal.started_at, 1727000000000, "startedAt 仍在场");
+}
+
+/// 未知多余字段忽略行为回归（前向兼容：后端新增列不破旧读面）。
+#[test]
+fn turn_outcome多余未知字段忽略且既有字段保真() {
+    let value = serde_json::to_value(outcome()).expect("序列化成功");
+    let mut object = value.as_object().expect("对象形态").clone();
+    object.insert("futureColumn".to_owned(), serde_json::json!("未来列"));
+    object.insert("startedAtAlias".to_owned(), serde_json::Value::Null);
+
+    let roundtrip: TurnOutcome =
+        serde_json::from_value(serde_json::Value::Object(object)).expect("多余字段忽略");
+    assert_eq!(roundtrip, outcome(), "既有字段逐字段保真（未知字段不入结构）");
 }
 
 // ---------------------------------------------------------------------------

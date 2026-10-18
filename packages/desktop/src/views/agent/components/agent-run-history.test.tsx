@@ -1,12 +1,32 @@
 // @vitest-environment jsdom
-import { fireEvent, render, screen, within } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vite-plus/test';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 
 import type { AgentEvent, SessionSummary, TurnSummary } from '../../../types/dto';
 import type { AgentRunHistoryState } from '../hooks/use-agent-run-history';
 import { AgentRunHistory } from './agent-run-history';
 
-// state 对象（AgentRunHistoryState）以 fixture 直传，无进程边界，不需要 Mock。
+// ---------------------------------------------------------------------------
+// 进程边界 Mock（Mock策略表）：invoke 按命令名分发（agent_sessions 分页应答、
+// session_detail / agent_session_transcript 可编程含 reject 并计数、
+// agent_session_watch resolve / 挂起），Channel mock 捕获 onmessage 供重放区
+// 自持形态直投信封。清单态由 `state` fixture 直传；重放区（会话级组件自持
+// 形态）经真实 IPC 取数与订阅——`useAgentRunHistory` / `AgentSessionView` /
+// `AgentMessages` 全部真实组合。
+// ---------------------------------------------------------------------------
+
+const { ChannelMock, invokeMock } = vi.hoisted(() => {
+  class ChannelMock {
+    onmessage: ((message: unknown) => void) | null = null;
+    static instances: ChannelMock[] = [];
+    constructor() {
+      ChannelMock.instances.push(this);
+    }
+  }
+  return { ChannelMock, invokeMock: vi.fn() };
+});
+
+vi.mock('@tauri-apps/api/core', () => ({ invoke: invokeMock, Channel: ChannelMock }));
 
 const TS = 1727000000000;
 
@@ -58,34 +78,9 @@ function session(
   };
 }
 
-function event(seq: number): AgentEvent {
-  return {
-    seq,
-    timestampMs: TS,
-    kind: 'runStarted',
-    model: 'claude-opus',
-    sessionId: 'ses-0-1727000000000',
-    tools: [],
-    mcpServers: [],
-  };
-}
-
-/** 密封文本消息事件（对话透镜可见体；runStarted 为辅助载体不进对话呈现）。 */
-function chatEvent(seq: number, text: string): AgentEvent {
-  return {
-    seq,
-    timestampMs: TS,
-    kind: 'message',
-    role: 'assistant',
-    blocks: [{ kind: 'text', text }],
-    parentToolUseId: null,
-  };
-}
-
 function historyState(overrides: Partial<AgentRunHistoryState> = {}): AgentRunHistoryState {
   const sessions = overrides.sessions ?? [];
   return {
-    events: [],
     selectedSessionId: null,
     loading: false,
     error: null,
@@ -98,13 +93,147 @@ function historyState(overrides: Partial<AgentRunHistoryState> = {}): AgentRunHi
     nextPage: vi.fn(),
     prevPage: vi.fn(),
     openSession: vi.fn(),
+    closeSession: vi.fn(),
     ...overrides,
     sessions,
   };
 }
 
+/** workspace root（重放会话取数 / 订阅寻址） */
+const ROOT = 'C:demo\beta';
+
 function mount(state: AgentRunHistoryState) {
-  return render(<AgentRunHistory state={state} source="debug" onSourceChange={() => {}} />);
+  return render(
+    <AgentRunHistory root={ROOT} state={state} source="debug" onSourceChange={() => {}} />,
+  );
+}
+
+// ---------------------------------------------------------------------------
+// 可编程 IPC（重放区自持形态的取数 / 订阅面）
+// ---------------------------------------------------------------------------
+
+/** 重放目标会话 id（点开即重放的全史转录寻址键） */
+const REPLAY_ID = 'ses-replay-1-1727000000000';
+
+interface IpcState {
+  detail: SessionSummary | null | Error;
+  transcript: AgentEvent[] | Error;
+  /** 订阅命令应答：pending = 挂起（测试直投信封驱动）/ reject */
+  watch: 'pending' | 'reject';
+}
+
+let ipc: IpcState;
+
+function resetIpc(overrides: Partial<IpcState> = {}): void {
+  ipc = {
+    detail: session(REPLAY_ID, 'completed', TS + 1),
+    transcript: [userEvent(0, '重放提问'), textEvent(1, '重放结论'), turnDoneEvent(2)],
+    watch: 'pending',
+    ...overrides,
+  };
+  ChannelMock.instances.length = 0;
+  invokeMock.mockReset();
+  invokeMock.mockImplementation((command: string) => {
+    if (command === 'agent_sessions') return Promise.resolve({ sessions: [], total: 0 });
+    if (command === 'session_detail') {
+      return ipc.detail instanceof Error ? Promise.reject(ipc.detail) : Promise.resolve(ipc.detail);
+    }
+    if (command === 'agent_session_transcript') {
+      return ipc.transcript instanceof Error
+        ? Promise.reject(ipc.transcript)
+        : Promise.resolve(ipc.transcript);
+    }
+    if (command === 'agent_session_watch') {
+      if (ipc.watch === 'reject') return Promise.reject(new Error('watch 命令失败'));
+      return new Promise<null>(() => {});
+    }
+    return Promise.resolve(null);
+  });
+}
+
+beforeEach(() => {
+  resetIpc();
+});
+
+afterEach(() => {
+  vi.useRealTimers();
+});
+
+function callsOf(name: string): unknown[][] {
+  return invokeMock.mock.calls.filter(([command]) => command === name);
+}
+
+interface ChannelLike {
+  onmessage: ((message: unknown) => void) | null;
+}
+
+function lastChannel(): ChannelLike {
+  const instance = ChannelMock.instances.at(-1);
+  if (!instance) throw new Error('尚未建立流（无 Channel 实例）');
+  return instance;
+}
+
+function deliverEvent(event: AgentEvent): void {
+  act(() => {
+    lastChannel().onmessage?.({ ipc: 'event', event });
+  });
+}
+
+function deliverRecord(record: TurnSummary): void {
+  act(() => {
+    lastChannel().onmessage?.({ ipc: 'record', record });
+  });
+}
+
+function bubbleTexts(): string[] {
+  return screen.queryAllByTestId('block-text').map((node) => node.textContent ?? '');
+}
+
+function textEvent(seq: number, text: string): AgentEvent {
+  return {
+    seq,
+    timestampMs: TS,
+    kind: 'message',
+    role: 'assistant',
+    blocks: [{ kind: 'text', text }],
+    parentToolUseId: null,
+  };
+}
+
+function userEvent(seq: number, text: string): AgentEvent {
+  return {
+    seq,
+    timestampMs: TS,
+    kind: 'message',
+    role: 'user',
+    blocks: [{ kind: 'text', text }],
+    parentToolUseId: null,
+  };
+}
+
+function turnDoneEvent(seq: number): AgentEvent {
+  return {
+    seq,
+    timestampMs: TS,
+    kind: 'turnDone',
+    subtype: 'success',
+    isError: false,
+    numTurns: 1,
+    durationMs: 400,
+    costUsd: 0.1,
+    usage: {},
+    sessionId: 'sdk-1',
+  };
+}
+
+function deltaEvent(seq: number, text: string): AgentEvent {
+  return {
+    seq,
+    timestampMs: TS,
+    kind: 'messageDelta',
+    parentToolUseId: null,
+    delta: { kind: 'text', text },
+  };
 }
 
 describe('AgentRunHistory：会话列表与触发（AC-5 / D13）', () => {
@@ -214,22 +343,28 @@ describe('AgentRunHistory：会话列表与触发（AC-5 / D13）', () => {
     expect(refresh).toHaveBeenCalledTimes(1);
   });
 
-  it('selectedSessionId 匹配时呈现重放区并还原全史对话（与实时流同组件）', () => {
+  it('selectedSessionId 匹配时呈现重放区（会话级组件自持形态，取数与折叠归组件）', async () => {
     const sessionId = 'ses-7-1727000000000';
+    resetIpc({
+      detail: session(sessionId, 'completed', TS + 7),
+      transcript: [userEvent(0, '重放提问'), textEvent(1, '重放结论'), turnDoneEvent(2)],
+    });
     mount(
       historyState({
         sessions: [session(sessionId, 'completed', TS + 7)],
-        events: [event(0), chatEvent(1, '重放转录正文')],
         selectedSessionId: sessionId,
       }),
     );
 
     const replay = screen.getByTestId('replay-area');
-    expect(within(replay).getByTestId('agent-messages') !== null).toBe(true);
-    // 密封转录经同一对话透镜还原（runStarted 等辅助载体不进对话呈现）
-    expect(within(replay).getByTestId('block-text').textContent).toContain('重放转录正文');
-    // 密封重放无流式尾态：running 恒 false（无 agent-messages-running 标记）
-    expect(within(replay).queryByTestId('agent-messages-running')).toBeNull();
+    expect(within(replay).getByTestId('replay-area-session') !== null).toBe(true);
+    // 自持形态装配：session_detail + agent_session_transcript 各一次
+    await waitFor(() => expect(screen.getByTestId('session-meta-id').textContent).toBe(sessionId));
+    expect(callsOf('session_detail')).toHaveLength(1);
+    expect(callsOf('agent_session_transcript')).toHaveLength(1);
+    expect(bubbleTexts()).toEqual(['重放提问', '重放结论']);
+    // 完成态零订阅（点开即重放，不带流）
+    expect(callsOf('agent_session_watch')).toHaveLength(0);
   });
 });
 
@@ -319,7 +454,12 @@ describe('AgentRunHistory：来源筛选三态按钮组（AC-3）', () => {
   it("点击 change 枚 → onSourceChange('change') 恰调用一次（组件无状态——状态提升断言面）", () => {
     const onSourceChange = vi.fn();
     render(
-      <AgentRunHistory state={historyState()} source="debug" onSourceChange={onSourceChange} />,
+      <AgentRunHistory
+        root={ROOT}
+        state={historyState()}
+        source="debug"
+        onSourceChange={onSourceChange}
+      />,
     );
 
     const buttons = within(screen.getByTestId('history-source-filter')).getAllByRole('button');
@@ -330,7 +470,9 @@ describe('AgentRunHistory：来源筛选三态按钮组（AC-3）', () => {
   });
 
   it("source='all' 挂载：all 枚 aria-pressed 高亮（高亮随 props 切换，组件不自持状态）", () => {
-    render(<AgentRunHistory state={historyState()} source="all" onSourceChange={() => {}} />);
+    render(
+      <AgentRunHistory root={ROOT} state={historyState()} source="all" onSourceChange={() => {}} />,
+    );
 
     const pressed = within(screen.getByTestId('history-source-filter'))
       .getAllByRole('button')
@@ -471,5 +613,91 @@ describe('AgentRunHistory：configSnapshot fixture 携 agentInstanceId 键（AC-
       '已完成',
     ]);
     expect(screen.getByTestId('agent-run-history').textContent).toContain('历史会话 (3)');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 只读重放（自持形态）的实时面与异常面（D14）：订阅流 token 级增量 / 查询失败
+// 落组件内错误提示 / root 缺席时重放区不越权渲染。
+// ---------------------------------------------------------------------------
+
+describe('AgentRunHistory：重放区订阅流与查询失败面（D14）', () => {
+  it('运行中会话重放 → 订阅流可见 token 级增量（只读旁观、无动作面）；收口后零重订', async () => {
+    resetIpc({
+      detail: session(REPLAY_ID, 'running', TS + 1),
+      transcript: [userEvent(0, '重放提问')],
+    });
+    mount(
+      historyState({
+        sessions: [session(REPLAY_ID, 'running', TS + 1)],
+        selectedSessionId: REPLAY_ID,
+      }),
+    );
+
+    // 运行中库态 → 恰一条订阅在挂
+    await waitFor(() => expect(callsOf('agent_session_watch')).toHaveLength(1));
+    const replay = screen.getByTestId('replay-area');
+    // 只读旁观：重放区没有任何动作面（发送 / 停止 / 输入）
+    expect(within(replay).queryByTestId('explore-composer')).toBeNull();
+    expect(within(replay).queryByTestId('explore-send')).toBeNull();
+    expect(within(replay).queryByTestId('explore-stop')).toBeNull();
+    expect(within(replay).queryByTestId('explore-prompt')).toBeNull();
+    expect(callsOf('agent_stop')).toHaveLength(0);
+
+    // token 级增量直投 → 只读重放区呈现累积文本
+    deliverEvent(deltaEvent(3, '重放流增量正文'));
+    await waitFor(() => expect(bubbleTexts()).toContain('重放流增量正文'));
+
+    // 收口：库内转录补齐 + 终态轮行回流 → 元信息转「已收口」，订阅不重订
+    ipc.detail = session(REPLAY_ID, 'completed', TS + 2, [turn(1, 'completed')]);
+    ipc.transcript = [userEvent(0, '重放提问'), textEvent(1, '重放结论'), turnDoneEvent(2)];
+    deliverRecord({ ...turn(1, 'completed'), sessionId: REPLAY_ID });
+
+    await waitFor(() =>
+      expect(screen.getByTestId('session-meta-status').textContent).toBe('已收口'),
+    );
+    expect(callsOf('agent_session_watch'), '收口后零重订').toHaveLength(1);
+  });
+
+  it('重放区查询 reject → 重放区内错误提示呈现，清单不塌、不抛错（无伪气泡、零订阅）', async () => {
+    resetIpc({ detail: new Error('db: 会话查询失败') });
+    mount(
+      historyState({
+        sessions: [session(REPLAY_ID, 'completed', TS + 1)],
+        selectedSessionId: REPLAY_ID,
+      }),
+    );
+
+    await waitFor(() =>
+      expect(screen.getByTestId('agent-session-error').textContent).toContain('会话查询失败'),
+    );
+    // 错误提示落在重放区内（会话级组件错误面），不虚构会话元信息与气泡
+    const replay = screen.getByTestId('replay-area');
+    expect(within(replay).getByTestId('agent-session-error')).toBeTruthy();
+    expect(screen.queryByTestId('session-meta')).toBeNull();
+    expect(bubbleTexts()).toEqual([]);
+    // 清单不塌：行与头行计数仍在，且无清单级错误条（错误面不越权上抛）
+    expect(screen.getAllByTestId('agent-run-row')).toHaveLength(1);
+    expect(screen.getByTestId('agent-run-history').textContent).toContain('历史会话 (1)');
+    expect(screen.queryByTestId('history-error')).toBeNull();
+    expect(callsOf('agent_session_watch')).toHaveLength(0);
+  });
+
+  it('边界：root 为 null → 清单空态 + 重放区缺席（零会话查询，不越权订阅）', async () => {
+    render(
+      <AgentRunHistory
+        root={null}
+        state={historyState()}
+        source="debug"
+        onSourceChange={() => {}}
+      />,
+    );
+    await act(async () => {});
+
+    expect(screen.getByTestId('history-empty')).toBeTruthy();
+    expect(screen.queryAllByTestId('agent-run-row')).toHaveLength(0);
+    expect(screen.queryByTestId('replay-area')).toBeNull();
+    expect(screen.queryByTestId('replay-area-session')).toBeNull();
+    expect(invokeMock, 'root 缺席 → 零会话查询').not.toHaveBeenCalled();
   });
 });

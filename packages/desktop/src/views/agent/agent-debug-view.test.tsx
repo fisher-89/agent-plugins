@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 
 import type { AgentEvent, AgentInstanceRecord, SessionSummary, TurnSummary } from '../../types/dto';
@@ -115,6 +115,12 @@ let instancesFixture: AgentInstanceRecord[] = [];
 /** 会话清单 fixture（agent_sessions 应答 `SessionPage` 信封；默认空清单，来源筛选用例按需注入）。 */
 let historySessionsFixture: SessionSummary[] = [];
 
+/** 会话单查 fixture（session_detail 应答；默认 null = 库内无该会话行）。 */
+let sessionDetailFixture: SessionSummary | null = null;
+
+/** 会话转录 fixture（agent_session_transcript 应答；库内密封事件全史）。 */
+let sessionTranscriptFixture: AgentEvent[] = [];
+
 /** agent_sessions 应答信封（total 缺省由清单推导）。 */
 function historyPage() {
   return { sessions: historySessionsFixture, total: historySessionsFixture.length };
@@ -125,6 +131,8 @@ function mockIpc() {
   startBehavior = { mode: 'resolve', value: run(1, 'running') };
   instancesFixture = [];
   historySessionsFixture = [];
+  sessionDetailFixture = null;
+  sessionTranscriptFixture = [];
   invokeMock.mockReset();
   invokeMock.mockImplementation((command: string) => {
     if (command === 'agent_start') {
@@ -135,7 +143,8 @@ function mockIpc() {
     }
     if (command === 'agent_stop') return Promise.resolve(null);
     if (command === 'agent_sessions') return Promise.resolve(historyPage());
-    if (command === 'agent_session_transcript') return Promise.resolve([]);
+    if (command === 'session_detail') return Promise.resolve(sessionDetailFixture);
+    if (command === 'agent_session_transcript') return Promise.resolve(sessionTranscriptFixture);
     if (command === 'list_agent_instances') return Promise.resolve(instancesFixture);
     return Promise.resolve(null);
   });
@@ -445,6 +454,25 @@ describe('AgentDebugView：调试页 agent 选择（缺省 / 显式）', () => {
     deliverEvent(toolUseEvent(0));
     deliverEvent(toolResultEvent(1));
     deliverEvent(turnDone(2));
+    // 收口以重放收敛（库为准）：库内会话行 + 密封转录即本次投递的三枚事件
+    sessionDetailFixture = {
+      row: {
+        id: SESSION_ID,
+        remoteSessionId: null,
+        configSnapshot: {
+          engine: 'sdk',
+          agentInstanceId: null,
+          model: null,
+          permissionMode: 'bypassPermissions',
+        },
+        provenance: { source: 'debug', sourceRef: null },
+        createdAt: 1727000000000,
+        updatedAt: 1727000001000,
+      },
+      stats: { turnCount: 1, totalDurationMs: null, inputTokens: null, outputTokens: null },
+      turns: [run(1, 'completed')],
+    };
+    sessionTranscriptFixture = [toolUseEvent(0), toolResultEvent(1), turnDone(2)];
     deliverRecord(run(1, 'completed'));
     // 终态 record 回流（辅助载体不进对话）：以 running 复位为回流锚点
     await waitFor(() =>
@@ -635,9 +663,26 @@ describe('AgentDebugView：流式呈现（AC-1 UI 半边）', () => {
     deliverEvent(sealedTextEvent(2, '你好工作区'));
     await act(async () => {});
 
-    // 终态收尾：流结束触发收口归一（events 镜像密封-only 重建）——
-    // provisional 同键让位不残留：对话仍恰一条气泡（record 载体不进对话），
-    // 文本块恰一处且以密封为准（无 provisional 碎行残留）
+    // 终态收尾：流结束触发收口归一 + 重放收敛——provisional 同键让位不残留：
+    // 对话仍恰一条气泡（record 载体不进对话），文本块恰一处且以库内密封为准
+    sessionDetailFixture = {
+      row: {
+        id: SESSION_ID,
+        remoteSessionId: null,
+        configSnapshot: {
+          engine: 'sdk',
+          agentInstanceId: null,
+          model: null,
+          permissionMode: 'bypassPermissions',
+        },
+        provenance: { source: 'debug', sourceRef: null },
+        createdAt: 1727000000000,
+        updatedAt: 1727000001000,
+      },
+      stats: { turnCount: 1, totalDurationMs: null, inputTokens: null, outputTokens: null },
+      turns: [run(1, 'completed')],
+    };
+    sessionTranscriptFixture = [sealedTextEvent(2, '你好工作区'), turnDone(2)];
     deliverRecord(run(1, 'completed'));
     await waitFor(() =>
       expect(screen.getByTestId('agent-start').hasAttribute('disabled')).toBe(false),
@@ -715,5 +760,51 @@ describe('AgentDebugView：configSnapshot fixture 携 agentInstanceId 键（AC-7
       'ses-a-1727000000000',
       'ses-b-1727000000000',
     ]);
+  });
+});
+// ---------------------------------------------------------------------------
+// 时间线位（注入形态 AgentSessionView）与历史区 root 透传
+// ---------------------------------------------------------------------------
+
+describe('AgentDebugView：时间线位与历史区', () => {
+  it('时间线位为注入形态 AgentSessionView（data-testid="agent-timeline"），对话由组件承载', async () => {
+    render(<AgentDebugView root={ROOT} />);
+    await act(async () => {});
+
+    const timeline = screen.getByTestId('agent-timeline');
+    expect(timeline).toBeTruthy();
+    expect(within(timeline).getByTestId('agent-messages')).toBeTruthy();
+    // 注入形态：会话 id 由 early-resolve 轮行回写 → 未发起时零会话查询
+    expect(invokeMock.mock.calls.filter(([name]) => name === 'session_detail')).toHaveLength(0);
+  });
+
+  it('切到原始 JSONL → 时间线位退场、原始转录面在场（密封事件镜像，delta 不入镜像）', async () => {
+    render(<AgentDebugView root={ROOT} />);
+    await startRun('raw 一轮');
+
+    deliverEvent(textDeltaEvent(2, '仅实时可见'));
+    deliverEvent(sealedTextEvent(3, '密封正文'));
+    await act(async () => {});
+
+    fireEvent.click(screen.getByTestId('toggle-raw'));
+    expect(screen.queryByTestId('agent-timeline')).toBeNull();
+    expect(screen.getByTestId('agent-raw-stream')).toBeTruthy();
+    const raw = screen.getByTestId('agent-raw-stream');
+    expect(raw.textContent).toContain('密封正文');
+    expect(raw.textContent).not.toContain('仅实时可见');
+  });
+
+  it('历史区透传当前 root（自持形态可寻址）；root null 时页面整替不渲染时间线', async () => {
+    render(<AgentDebugView root={ROOT} />);
+    await act(async () => {});
+
+    const listCall = invokeMock.mock.calls.filter(([name]) => name === 'agent_sessions').at(-1);
+    expect(listCall?.[1]).toMatchObject({ root: ROOT, source: 'debug' });
+
+    cleanup();
+    render(<AgentDebugView root={null} />);
+    expect(screen.getByTestId('agent-no-root')).toBeTruthy();
+    expect(screen.queryByTestId('agent-timeline')).toBeNull();
+    expect(screen.queryByTestId('agent-run-history')).toBeNull();
   });
 });

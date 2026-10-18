@@ -10,7 +10,6 @@ import type {
   ChangeDetail,
   ChangeRunEntry,
 } from '../../types/dto';
-import type { RunNotice } from '../../types/generated/bindings';
 import { mountMaterials } from './flow/attachments';
 import { ChangeFlowGraph } from './flow/change-flow-graph';
 import { DetailDrawer } from './flow/detail-drawer';
@@ -163,7 +162,7 @@ function DetailContent({
   name,
   graph,
   materials,
-  transcriptRefreshKey,
+  sessionRefreshKey,
 }: {
   root: string | null;
   id: string;
@@ -171,7 +170,7 @@ function DetailContent({
   name: string;
   graph: FlowGraph;
   materials: FlowMaterials;
-  transcriptRefreshKey: number;
+  sessionRefreshKey: number;
 }): React.JSX.Element {
   const [selection, setSelection] = useState<DrawerSelection | null>(null);
   return (
@@ -184,7 +183,7 @@ function DetailContent({
         root={root}
         changeId={id}
         name={name}
-        transcriptRefreshKey={transcriptRefreshKey}
+        sessionRefreshKey={sessionRefreshKey}
         onClose={() => setSelection(null)}
       />
     </>
@@ -203,7 +202,7 @@ interface DetailLoadedProps {
   header: React.JSX.Element;
   /** 内联「刷新失败」错误串（null = 无陈旧窗口；非 null = 保 last-good 中） */
   staleError: string | null;
-  transcriptRefreshKey: number;
+  sessionRefreshKey: number;
 }
 
 /** 页内动作面板组（运行控制面承载发起 / 停止 / 停等确认 / ask 应答——归档确认
@@ -275,7 +274,7 @@ function DetailLoaded({
   run,
   header,
   staleError,
-  transcriptRefreshKey,
+  sessionRefreshKey,
 }: DetailLoadedProps): React.JSX.Element {
   const { graph, materials, lastRun } = useFlowGraphData(detail, activeRun, artifacts);
   return (
@@ -296,7 +295,7 @@ function DetailLoaded({
           name={detail.name}
           graph={graph}
           materials={materials}
-          transcriptRefreshKey={transcriptRefreshKey}
+          sessionRefreshKey={sessionRefreshKey}
         />
       </div>
     </div>
@@ -312,9 +311,10 @@ function useBackToList(): () => void {
   return useCallback(() => navigate('/changes'), [navigate]);
 }
 
-/** 详情页数据面（取数 + 通知分流 + run 控制；参数 id 化）——视图组件薄装配
- *（max-lines 纪律；通知分流单点：D8 kind 位）。归档面已并入 run 流程
- *（archive 相位 + stop-before-archive 停等面），无独立归档链状态源）。 */
+/** 详情页数据面（取数 + 通知归一 + run 控制；参数 id 化）——视图组件薄装配
+ *（max-lines 纪律；通知不分流：会话事件与其余同走统一重查 tick）。归档面已
+ * 并入 run 流程（archive 相位 + stop-before-archive 停等面），无独立归档链
+ * 状态源）。 */
 function useDetailViewData(root: string | null, id: string | null) {
   const {
     detail,
@@ -325,21 +325,14 @@ function useDetailViewData(root: string | null, id: string | null) {
     refreshFailed,
     refresh,
     notifyRefresh,
-    notifyTranscript,
-    transcriptTick,
+    refreshTick,
   } = useChangeDetail(root, id);
-  // 通知分流单点（D8 kind 位）：会话事件 → 转录重查（150ms 去抖），其余 →
-  // 统一视图重查（300ms 去抖）；通知仅失效信号、查询结果权威
-  const onNotice = useCallback(
-    (kind: RunNotice['ipc']) => {
-      if (kind === 'sessionEvent') {
-        notifyTranscript();
-      } else {
-        notifyRefresh();
-      }
-    },
-    [notifyTranscript, notifyRefresh],
-  );
+  // 通知不分流（D8）：会话事件（SessionEvent）与其余 kind 同走统一视图重查
+  // （300ms 去抖）——通知仅失效 / 状态重评估信号、查询结果权威；实时面走会话
+  // 订阅（delta 不落库，重查只能见密封粒度）
+  const onNotice = useCallback(() => {
+    notifyRefresh();
+  }, [notifyRefresh]);
   const run = useChangeFlowRun({
     root,
     id,
@@ -355,24 +348,15 @@ function useDetailViewData(root: string | null, id: string | null) {
     refreshFailed,
     refresh,
     run,
-    transcriptTick,
+    refreshTick,
   };
 }
 
 export function ChangeDetailView({ root }: { root: string | null }) {
   const params = useParams<'id'>();
   const id = useRootSwitchSuppress(root, params.id ?? null);
-  const {
-    detail,
-    activeRun,
-    artifacts,
-    loading,
-    error,
-    refreshFailed,
-    refresh,
-    run,
-    transcriptTick,
-  } = useDetailViewData(root, id);
+  const { detail, activeRun, artifacts, loading, error, refreshFailed, refresh, run, refreshTick } =
+    useDetailViewData(root, id);
   const backToList = useBackToList();
 
   // error 已收敛为首载语义（detail 在手的刷新失败落 refreshFailed 走内联横
@@ -398,7 +382,7 @@ export function ChangeDetailView({ root }: { root: string | null }) {
       header={
         <DetailHeader detail={detail} loading={loading} onBack={backToList} refresh={refresh} />
       }
-      transcriptRefreshKey={transcriptTick}
+      sessionRefreshKey={refreshTick}
     />
   );
 }

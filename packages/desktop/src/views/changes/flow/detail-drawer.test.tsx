@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 
 import type {
@@ -494,5 +494,111 @@ describe('DetailDrawer：configSnapshot fixture 携 agentInstanceId 键（AC-7 �
     } satisfies ConfigSnapshotFixture;
     expect((fresh.row.configSnapshot as ConfigSnapshotFixture).agentInstanceId).toBe(7);
     detailFixture = { 'ses-exec-2': fresh };
+  });
+});
+// ---------------------------------------------------------------------------
+// sessionRefreshKey 透传（会话状态重评估信号）：自增 → 面板重取一次；缺省
+// undefined 挂载零意外重取；面板内零动作面（只读消费点）
+// ---------------------------------------------------------------------------
+
+const REFRESH_SESSION = 'ses-exec-2';
+
+/** 抽屉选择（executor 运行步节点，sessionId = REFRESH_SESSION）。 */
+function refreshSelection(): DrawerSelection {
+  return { scope: 'node', nodeId: 'run:implement:2:executor:0' };
+}
+
+function sessionDetailCalls(): number {
+  return invokeMock.mock.calls.filter(([name]) => name === 'session_detail').length;
+}
+
+function renderWithRefreshKey(worldState: World, refreshKey?: number) {
+  return (
+    <DetailDrawer
+      selection={refreshSelection()}
+      graph={worldState.graph}
+      materials={worldState.materials}
+      root={ROOT}
+      changeId={CHANGE_ID}
+      name={NAME}
+      sessionRefreshKey={refreshKey}
+      onClose={() => {}}
+    />
+  );
+}
+
+describe('DetailDrawer：sessionRefreshKey 透传与只读面板', () => {
+  it('sessionRefreshKey 自增 → 面板同步重取一次；缺省 undefined 挂载零意外重取', async () => {
+    detailFixture = {
+      [REFRESH_SESSION]: transcriptSession(REFRESH_SESSION, `${CHANGE_ID}/implement/executor/2`),
+    };
+    transcriptFixture = { [REFRESH_SESSION]: [textEvent(0, 'assistant', '实现就绪')] };
+
+    const worldState = world([runtimeNode()]);
+    const { rerender } = render(renderWithRefreshKey(worldState));
+    await waitFor(() => expect(screen.getByTestId('session-transcript-panel')).toBeTruthy());
+    await waitFor(() => expect(sessionDetailCalls()).toBe(1));
+
+    // 缺省 refreshKey（undefined）→ 零意外重取
+    await act(async () => {});
+    expect(sessionDetailCalls()).toBe(1);
+
+    // 自增 → 面板 refreshKey 同步，重取一次
+    rerender(renderWithRefreshKey(worldState, 1));
+    await waitFor(() => expect(sessionDetailCalls()).toBe(2));
+
+    // 面板内零动作面（只读消费点，无 composer 插槽）
+    expect(screen.queryByTestId('explore-send')).toBeNull();
+    expect(screen.queryByTestId('explore-stop')).toBeNull();
+    expect(screen.queryByTestId('explore-prompt')).toBeNull();
+  });
+
+  it('角色会话切换（不同 nodeId → 不同 sessionId）→ 面板以新会话 key 重挂（旧订阅拆除、并行流 ≤ 1）', async () => {
+    detailFixture = {
+      [REFRESH_SESSION]: transcriptSession(REFRESH_SESSION, `${CHANGE_ID}/implement/executor/2`),
+      'ses-spec-sync': transcriptSession('ses-spec-sync', `${CHANGE_ID}/spec_sync/executor/2`),
+    };
+    transcriptFixture = {
+      [REFRESH_SESSION]: [textEvent(0, 'assistant', '执行正文')],
+      'ses-spec-sync': [textEvent(0, 'assistant', '同步正文')],
+    };
+
+    const nodes = [
+      runtimeNode(),
+      runtimeNode({
+        id: 'run:implement:2:spec_sync:0',
+        runStepKind: 'specSync',
+        role: 'spec_sync',
+        sessionId: 'ses-spec-sync',
+      }),
+    ];
+    const worldState = world(nodes);
+    const { rerender } = render(renderWithRefreshKey(worldState, 0));
+    await waitFor(() =>
+      expect(screen.getAllByTestId('block-text').map((node) => node.textContent)).toEqual([
+        '执行正文',
+      ]),
+    );
+
+    rerender(
+      <DetailDrawer
+        selection={{ scope: 'node', nodeId: 'run:implement:2:spec_sync:0' }}
+        graph={worldState.graph}
+        materials={worldState.materials}
+        root={ROOT}
+        changeId={CHANGE_ID}
+        name={NAME}
+        sessionRefreshKey={0}
+        onClose={() => {}}
+      />,
+    );
+    await waitFor(() =>
+      expect(screen.getAllByTestId('block-text').map((node) => node.textContent)).toEqual([
+        '同步正文',
+      ]),
+    );
+    expect(
+      invokeMock.mock.calls.filter(([name]) => name === 'agent_session_watch').length,
+    ).toBeLessThanOrEqual(1);
   });
 });

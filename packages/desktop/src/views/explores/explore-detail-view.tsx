@@ -3,7 +3,7 @@ import { useLocation, useNavigate, useParams } from 'react-router';
 
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/components/ui/resizable';
 
-import { AgentMessages } from '../../components/agent';
+import { AgentSessionView, type AgentSessionActions } from '../../components/agent';
 import { extractMarkdownTitle } from '../../lib/explore-title';
 import { extractWorkflowType } from '../../lib/explore-workflow-type';
 import type { ExploreRecord } from '../../types/dto';
@@ -286,7 +286,7 @@ function PromotedPreview(): React.JSX.Element {
   );
 }
 
-/** 左栏：对话区（对话 + composer） */
+/** 左栏：对话区（会话级组件注入形态 + composer 插槽） */
 function ChatPane({
   session,
 }: {
@@ -294,12 +294,13 @@ function ChatPane({
 }): React.JSX.Element {
   return (
     <div className="flex h-full min-h-0 flex-col gap-3 pr-1.5">
-      <AgentMessages
-        messages={session.messages}
-        loading={session.loading}
-        running={session.running}
+      <AgentSessionView
+        session={session.session}
+        composer={({ running }: AgentSessionActions) => (
+          <ExploreComposer running={running} onSend={session.send} onStop={session.stop} />
+        )}
+        data-testid="explore-chat"
       />
-      <ExploreComposer running={session.running} onSend={session.send} onStop={session.stop} />
     </div>
   );
 }
@@ -362,14 +363,15 @@ export function ExploreDetailView({
   useRecordBackfill(record, promotedTo, doc.doc?.content ?? null, list);
 
   // run 终态定点重读文档（含本轮 agent 落盘 / 更新笔记的情形）+ 刷新清单
-  // （id 桥数据半边）；挂载不触发
+  // （id 桥数据半边）；挂载不触发。运行标记取库态（轮行含 running）
+  const running = session.session.running;
   useEffect(() => {
-    if (wasRunning.current && !session.running) {
+    if (wasRunning.current && !running) {
       doc.refresh();
       list.refresh();
     }
-    wasRunning.current = session.running;
-  }, [session.running, doc.refresh, list.refresh]);
+    wasRunning.current = running;
+  }, [running, doc.refresh, list.refresh]);
 
   // 名变收敛（id 桥导航半边）：派生记录名与 URL 名分叉（create_explore_note
   // in-place 改名后按 id 重寻得新名）→ replace 至新名路径（不携带 state——

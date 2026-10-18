@@ -1,0 +1,32 @@
+$ pnpm run server:check && pnpm run bindings:check && pnpm run client:check
+$ cargo fmt --manifest-path src-tauri/Cargo.toml && cargo clippy --manifest-path src-tauri/Cargo.toml
+    Checking agent v0.1.0 (C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\desktop-agent-chat-component\packages\desktop\src-tauri\crates\core\agent)
+    Checking workflow v0.1.0 (C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\desktop-agent-chat-component\packages\desktop\src-tauri\crates\core\workflow)
+    Checking orchestration v0.1.0 (C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\desktop-agent-chat-component\packages\desktop\src-tauri\crates\core\orchestration)
+    Checking store v0.1.0 (C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\desktop-agent-chat-component\packages\desktop\src-tauri\crates\infra\store)
+    Checking checks-runtime v0.1.0 (C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\desktop-agent-chat-component\packages\desktop\src-tauri\crates\infra\checks)
+    Checking vcs-runtime v0.1.0 (C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\desktop-agent-chat-component\packages\desktop\src-tauri\crates\infra\vcs)
+    Checking agent-runtime v0.1.0 (C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\desktop-agent-chat-component\packages\desktop\src-tauri\crates\infra\agent)
+    Checking dev-team v0.1.0 (C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\desktop-agent-chat-component\packages\desktop\src-tauri)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 11.57s
+$ pnpm run bindings:export && git diff --exit-code -- src/types/generated
+$ cargo run --quiet -p export-bindings --manifest-path src-tauri/Cargo.toml
+$ vp check --fix && knip
+[1m[31merror:[39m[0m Lint or type issues found
+x eslint(no-duplicate-imports): './agent-session-view' import is duplicated
+   ,-[src/components/agent/index.test.tsx:5:34]
+ 4 | 
+ 5 | import { AgentSessionView } from './agent-session-view';
+   :                                  ^^^^^^^^^^^|^^^^^^^^^^
+   :                                             `-- Can be merged with this import
+ 6 | import type { AgentSessionActions, AgentSessionViewProps } from './agent-session-view';
+   :                                                                 ^^^^^^^^^^^|^^^^^^^^^^
+   :                                                                            `-- This import is duplicated
+ 7 | import * as barrel from './index';
+   `----
+  help: Merge the duplicated import into a single import statement
+
+Found 1 error and 0 warnings in 168 files (2.0s, 16 threads)
+[1m[94mpass:[39m[0m Formatting completed for checked files [2m(5.9s)[0m
+[ELIFECYCLE] Command failed with exit code 1.
+[ELIFECYCLE] Command failed with exit code 1.

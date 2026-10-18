@@ -1,7 +1,8 @@
 /**
  * explore composer：AgentInput 薄适配——渲染、档位逻辑、发送/停止收口在
  * 组件族（components/agent），本文件只保留探索页文案（label / placeholder）
- * 与 explore-* testid 前缀。stance 拼接在会话 hook（来源侧）。
+ * 与 explore-* testid 前缀。`running` / `onStop` 由 `AgentSessionView` 的
+ * composer 插槽（`AgentSessionActions`）注入，`onSend` 为来源侧 stance 包装。
  */
 
 import { AgentInput } from '../../../components/agent';
