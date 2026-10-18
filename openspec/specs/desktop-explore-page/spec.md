@@ -62,7 +62,7 @@ agent 会话中**经专用工具 `create_explore_note` 定名落盘**的笔记 S
 
 ### Requirement: 对话区呈现
 
-对话区 SHALL 以共享 agent 会话组件族（`components/agent/`，见 desktop-agent-chat-infra）呈现，MUST NOT 保留视图层私有的事件渲染实现：状态面经统一会话基建（`use-agent-chat` + `TauriAgentTransport`），实时流经 transport 走 `agent_start` 的 Channel（执行流通道），历史经 `session_detail(root, sessionId)` 单查 + `agent_session_transcript` 重放装载进 UIMessage 状态（实时与重放同一状态形状）。呈现面 SHALL 以 `AgentMessages` 对话透镜渲染：user / assistant 消息各成气泡；文本块渲染 markdown、思考块折叠呈现、工具调用渲染为可读卡片并与同 id 工具结果成对呈现（配对收口于适配层）；`AskUserQuestion` 的 ToolUse SHALL 呈现为静态卡片（问题与选项原样可读），答案经 composer 文本输入（questionnaire 接线为二期）。composer SHALL 采用 `AgentInput`：prompt 输入与 permission-mode 档位选择（沿用调试页档位语义与默认值，env 不设参数——运行恒为完整环境），运行中忽略重复发送并提供停止入口。滚动 SHALL 沿用 shadcn `message-scroller` 组合（滚动行为由组件负责，消息状态留在应用层）。
+对话区 SHALL 以会话级统一组件 `AgentSessionView`（`components/agent/`，见 desktop-agent-chat-infra）呈现，MUST NOT 保留视图层私有的事件渲染实现、自有转录查询 hook 或自有消息拼装：状态面经统一会话基建（`use-agent-session` + `TauriAgentTransport`），实时流双起点——发送期走 `agent_start` 的 Channel（执行流通道）、旁观 / 重挂期走会话订阅面 `agent_session_watch`（按会话状态决定是否挂流），历史经 `session_detail(root, sessionId)` 单查 + `agent_session_transcript` 重放装载进 UIMessage 状态（收口以重放收敛，终态同构）。呈现面 SHALL 以 `AgentMessages` 对话透镜渲染：user / assistant 消息各成气泡；文本块渲染 markdown、思考块折叠呈现、工具调用渲染为可读卡片并与同 id 工具结果成对呈现（配对收口于适配层）；`AskUserQuestion` 的 ToolUse SHALL 呈现为静态卡片（问题与选项原样可读），答案经 composer 文本输入（questionnaire 接线为二期）。composer SHALL 采用 `AgentInput`：prompt 输入与 permission-mode 档位选择（沿用调试页档位语义与默认值，env 不设参数——运行恒为完整环境），运行中忽略重复发送并提供停止入口。滚动 SHALL 沿用 shadcn `message-scroller` 组合（滚动行为由组件负责，消息状态留在应用层）。
 
 #### Scenario: 四变体气泡映射
 
@@ -82,7 +82,12 @@ agent 会话中**经专用工具 `create_explore_note` 定名落盘**的笔记 S
 #### Scenario: 重开重放形状一致
 
 - **WHEN** 用户离开后重新打开该 explore 详情页
-- **THEN** 经重放装载重建的对话区呈现与离开前实时呈现形状一致（同一 `AgentMessages` 透镜渲染）
+- **THEN** 经重放装载重建的对话区呈现与离开前实时呈现形状一致（同一 `AgentSessionView` / `AgentMessages` 透镜渲染）
+
+#### Scenario: 重开时会话仍在运行
+
+- **WHEN** 用户离开后重新打开该 explore 详情页，而该记录会话仍有 running 轮行
+- **THEN** 组件先重放已落库转录、再以 `since_seq` 订阅会话实时流续接（token 级增量不缺失于订阅点之后），收口后以重放收敛；MUST NOT 出现重复气泡或缺轮
 
 ### Requirement: 会话链与 stance 前导
 
@@ -203,10 +208,10 @@ agent 会话中**经专用工具 `create_explore_note` 定名落盘**的笔记 S
 | 模块 | 职责 | 关键契约 |
 |------|------|----------|
 | `packages/desktop/src/views/explores/explore-view.tsx`（新） | 清单页 + 新建流程 | store 清单按 root 过滤；导入扫描绑定 / 新话题免命名建档（`name = null` invoke）；删除入口（不动文件，对话随记录级联清）；onCreated 导航携 `state.autoPrompt`；详情记录派生支持 id 桥重寻（刷新后按 `record.id` 对齐，旧名 miss 以既有快照兜底） |
-| `packages/desktop/src/views/explores/explore-detail-view.tsx`（新） | 双栏详情 | resizable 分栏；左对话区右预览；对话区 / composer 换共享组件族（`AgentMessages` / `AgentInput`）；watch 生命周期 = 页面生命周期；run 终态 id 桥（refresh → 按 id 重寻 → 名变 `navigate replace`）；promote 错误行内呈现照旧 |
-| `views/explores/components/`（新：composer / 预览 / 新建对话框；`explore-conversation.tsx` 已删） | 呈现件 | 对话区由 `components/agent/AgentMessages` 承载（私有渲染实现收编，用例随迁组件族测试）；composer 改用 `AgentInput`；AskUserQuestion 静态卡片；预览复用 `MarkdownDocRenderer` |
+| `packages/desktop/src/views/explores/explore-detail-view.tsx`（新） | 双栏详情 | resizable 分栏；左对话区右预览；对话区唯一呈现入口为 `AgentSessionView`（`root` + 记录回写的 `sessionId` + `composer` = `<ExploreComposer />`，实时流双起点、滚动与消息状态归组件）；run 终态 id 桥（refresh → 按 id 重寻 → 名变 `navigate replace`）；promote 错误行内呈现照旧 |
+| `views/explores/components/`（新：composer / 预览 / 新建对话框；`explore-conversation.tsx` 已删） | 呈现件 | 对话区由 `components/agent/AgentSessionView` 承载（私有渲染实现收编，用例随迁组件族测试）；`ExploreComposer`（`running` / `onSend` / `onStop`，testid 前缀 `explore-*`）为 `AgentInput` 薄适配，经 composer 插槽注入；AskUserQuestion 静态卡片；预览复用 `MarkdownDocRenderer` |
 | `views/explores/components/explore-create-dialog.tsx`（改） | 新建对话框 | TopicEntry 改需求 textarea（`name = null` invoke；空白禁提交；`isKebabCase` 校验退役）；ImportEntry 显式名 invoke；onCreated 携占位名 + 需求回调 |
-| `views/explores/hooks/use-explore-session.ts`（改） | 会话链与刷新编排 | 改走 `use-agent-chat`（重放装载 + 链参数经 body 穿透）；stance 文本组装留本 hook（来源侧）；auto-send effect（三条件闸门 + 一次性消费 ref）；首轮 stance 分形调用（占位 → 命名指令形 / 已定名 → 定位形）；续话语义不变；watch 信号防抖 → `read_explore` 显式刷新 |
+| `views/explores/hooks/use-explore-session.ts`（改） | 会话链与刷新编排 | `useExploreSession(root, record, autoPrompt?) => { sessionId, session, send, stop, ... }`；改走 `useAgentSession`（重放装载 + 链参数经 body 穿透）；stance 文本组装与 auto-send 闸门留本 hook（来源侧），首轮 stance 分形调用（占位 → 命名指令形 / 已定名 → 定位形）与三条件 auto-send effect 语义不变；会话 id 经记录回写 / `ensureExploreSession` 补齐后交组件挂流；watch 信号防抖 → `read_explore` 显式刷新 |
 | `packages/desktop/src/lib/explore-stance.ts`（新） | stance 前导模板 | `buildExplorePrompt` 两形（占位命名指令形 / 已定名笔记定位形）拼接进 explore run prompt 头部；与 SKILL.md 双源注释互链 |
 | `plugins/dev-team/skills/openspec-explore/SKILL.md` | 笔记落盘约定文档 | 约定随工具化改写（`create_explore_note` 定名 + Edit 维护；双源同步；插件源变更走版本 bump + 重建） |
 | `routes.tsx` + `components/app-sidebar.tsx` | 路由与导航 | `/explores`、`/explores/:name`；`nav-explores` 入口（active 由 URL 派生） |

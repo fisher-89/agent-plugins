@@ -275,7 +275,7 @@ change 详情流程图 SHALL 升级为实时执行视图：运行期间，当前
 
 ### Requirement: 节点会话转录联动
 
-WorkerAgent 节点（executor / evaluator / decision / spec_sync / resolve_conflicts）SHALL 提供到对应会话转录的联动：点击运行中的 WorkerAgent 节点 SHALL 打开该会话的实时时间线，点击已收口的 WorkerAgent 节点 SHALL 打开转录重放。会话寻址 SHALL 为节点 `sessionId` 直查：节点记录暴露的会话槽位 id（`sessionId`）经会话查询面精确寻址（`sessionDetail` + `agentSessionTranscript`），前端 MUST NOT 再以 `agentSessions` 按 `source_ref` 过滤反查会话（sourceRef 反查路径整体退役）。槽位缺席（`role !== null` 而 `sessionId === null`）时 SHALL 呈「此步无会话记录」步面空态占位，MUST NOT 回退反查、MUST NOT 虚构会话。归档步节点（spec_sync / resolve_conflicts）SHALL 同样经其节点 `sessionId` 直查转录（无 attempt 三槽位概念）。后端 provenance `source_ref` 定式（`<id>/<phase>/<role>/<attempt>`）仍由 walker 在会话创建时写入并持久化于会话记录（见 desktop-change-orchestration「会话挂靠 provenance 与转录 session id 直查」），但前端转录面板不再以其作反向寻址依据。
+WorkerAgent 节点（executor / evaluator / decision / spec_sync / resolve_conflicts）SHALL 提供到对应会话转录的联动：点击运行中的 WorkerAgent 节点 SHALL 打开该会话的实时时间线，点击已收口的 WorkerAgent 节点 SHALL 打开转录重放。会话寻址 SHALL 为节点 `sessionId` 直查：节点记录暴露的会话槽位 id（`sessionId`）经会话查询面精确寻址（`sessionDetail` + `agentSessionTranscript`），前端 MUST NOT 再以 `agentSessions` 按 `source_ref` 过滤反查会话（sourceRef 反查路径整体退役）。呈现 SHALL 经会话级统一组件 `AgentSessionView`（desktop-agent-chat-infra，只读消费点：不接 composer 插槽、不呈现发送 / 停止）：运行中会话的事件增量 SHALL 经会话订阅面 `agent_session_watch`（载荷直投，含 delta）呈现 token 级流式，MUST NOT 以「通知 → 时间去抖重查转录库」作为实时面（delta 不落库，重查只能见密封粒度）；轮收口 SHALL 以转录库重放收敛（收口后形状与重开一致）。变更通知中的会话事件（`SessionEvent`）SHALL 仅作会话状态重评估信号（触发详情重查 → 组件重评估是否挂流），MUST NOT 作为增量数据源。槽位缺席（`role !== null` 而 `sessionId === null`）时 SHALL 呈「此步无会话记录」步面空态占位，MUST NOT 回退反查、MUST NOT 虚构会话、MUST NOT 建立任何订阅。归档步节点（spec_sync / resolve_conflicts）SHALL 同样经其节点 `sessionId` 直查转录（无 attempt 三槽位概念）。后端 provenance `source_ref` 定式（`<id>/<phase>/<role>/<attempt>`）仍由 walker 在会话创建时写入并持久化于会话记录（见 desktop-change-orchestration「会话挂靠 provenance 与转录 session id 直查」），但前端转录面板不再以其作反向寻址依据。
 
 eval 节点与 active 节点的三会话联动（executor / evaluator / decision 三 tab）SHALL 整体退役（eval / active 节点已移除）；ToolStep / Git / Gate 节点 SHALL 沿用右侧抽屉单交互入口呈现步骤结果——无 role 且无 `outputRef` 的 ToolStep / Git / Gate 节点不可点击（`detail` 短文本已在节点内显示）；带 `outputRef` 的 static-check / test-execution 节点经 stdout 面板呈现输出（见「节点点击判据与 stdout 输出面板」）。
 
@@ -289,10 +289,15 @@ eval 节点与 active 节点的三会话联动（executor / evaluator / decision
 - **WHEN** 打开 WorkerAgent step 节点且其 `sessionId` 缺席（缺省落账）
 - **THEN** 转录面板呈「此步无会话记录」空态占位（react 面零取数），MUST NOT 回退 sourceRef 定式反查、MUST NOT 发起 `agent_sessions` 反向查询
 
-#### Scenario: 运行中节点实时转录经转录库
+#### Scenario: 运行中节点实时转录经会话订阅面
 
 - **WHEN** executor 会话运行中点击其 WorkerAgent 节点
-- **THEN** 打开该会话实时时间线（token 级流式、tool_use / tool_result 成对、可停止），数据经转录库重查呈现（通知触发重查，非内存 liveEvents 累积），与 Agent 调试页同款组件
+- **THEN** 打开该会话实时时间线（token 级流式、tool_use / tool_result 成对、可停止），数据经会话订阅面 `agent_session_watch` 载荷直投呈现（含 `messageDelta`），与 Agent 调试页同款组件；收口后以转录库重放收敛
+
+#### Scenario: 通知仅作状态重评估
+
+- **WHEN** 运行中收到会话事件通知（`SessionEvent`）而该会话订阅流已在挂
+- **THEN** 通知只触发会话状态重评估（详情重查 / 是否重挂判断），MUST NOT 触发转录库重查以「追增量」、MUST NOT 重建第二条订阅流
 
 #### Scenario: 收口节点重放一致
 
@@ -554,7 +559,7 @@ initialize 相位（表头一次性基线检查相位，见 desktop-change-orche
 | `packages/desktop/src/views/changes/flow/detail-drawer.tsx` | 右列三分节 → 二分节 | 文件表节删除；左列会话区、滚动与单一交互入口不变 |
 | `packages/desktop/src/views/changes/flow/file-log-table.tsx` | **（删除）** | file_log 文件表组件及测试随载体退役删除 |
 | `packages/desktop/src/views/changes/flow/attachments.ts` | 挂载分支收缩 | file_log 挂节点与 scope='workflow' 分支删除；文档挂列 + checklist 挂节点保持 |
-| 会话转录联动 | 节点 ↔ 转录 | 复用 `AgentMessages` / 会话重放基建（desktop-agent-chat-infra），无第二套对话渲染组件；运行中实时流、收口重放一致 |
+| 会话转录联动 | 节点 ↔ 转录 | 复用 `AgentSessionView`（desktop-agent-chat-infra，只读消费点：不接 composer、不呈发送 / 停止），无第二套对话渲染组件与第二套转录查询 hook；运行中实时流（会话订阅面载荷直投）、收口后转录库重放一致 |
 | 运行状态 Channel 订阅 | 实时刷新例外 | 执行流通道例外（沿 agent 执行先例）；增量并入不触发 `get_change_detail` 全量重取；收口释放订阅 |
 | `src/commands/` change-flow 命令组（desktop-change-orchestration） | IPC 面 | 发起 / 停止 / 应答 / 确认契约见 desktop-change-orchestration「运行控制命令面」 |
 | `packages/desktop/package.json` | 新依赖与版本交付 | `@xyflow/react` v12（React 19 + Tailwind 4 兼容）；无第二图布局库（无 dagre / elk）；`version` 0.3.2 → 0.3.3（`tauri.conf.json` 经 `../package.json` 自动跟随，`src-tauri/Cargo.toml` 不随动） |
@@ -565,9 +570,10 @@ initialize 相位（表头一次性基线检查相位，见 desktop-change-orche
 | `packages/desktop/src/views/changes/flow/`（graph.ts / attachments.ts / run-state.ts） | 零触点 | 转换层纯函数、挂载规则、reducer 不涉 change 身份；`PIPELINE_PHASES` 布局与边推导不变 |
 | `packages/desktop/src/views/changes/flow/run-state.ts`（不改） | 零触点 | 无新事件词汇，纯 reducer 与 `ChangeFlowRunState` 模型不动 |
 | `packages/desktop/src/types/generated/bindings.ts` | 类型再生跟随 | `ChangeDetail.interrupted` / `InterruptedEntry` / `inventory` / `fileLog` / `unparsable` 再生后消失；tsc 全量类型检查拦截前端消费漂移 |
-| `packages/desktop/src/views/changes/hooks/use-session-transcript.ts` | 会话直查 | `sessionId` 单参直查（`sessionDetail` + `agentSessionTranscript`），`sessionId === null` 时不发起 IPC；`sourceRef` 入参与 `loadBySourceRef` 反查整体退役；summary 面（transcript / running 之外返回 `SessionSummary`：row + stats + turns）不变 |
+| `packages/desktop/src/views/changes/hooks/use-session-transcript.ts` | **（退役：删）** | `useSessionTranscript` 收编进 `AgentSessionView` / `useAgentSession`；会话直查与重放装配由统一组件承担，`liveEvents` 死参数与 `sourceRef` 退役叙述随之删除，MUST NOT 保留第二套转录查询 hook |
 | `packages/desktop/src/views/changes/flow/detail-drawer.tsx` | 单列布局与槽位缺席空态 | 单列宽度约 960px + `max-w-[85vw]`；`selectionRoleRef` 收敛为 `{ role, sessionId }`（active 三 role 反查随 active 节点退役一并删除）；`role !== null` 而 `sessionId === null` 呈「此步无会话记录」空态占位（零反查） |
-| `packages/desktop/src/views/changes/flow/session-transcript-panel.tsx` | 左列转录 tab 与元信息 | executor / evaluator / decision 三 tab 不变；新增会话元信息呈现（清单 design 定夺）；复用 `AgentMessages` 无第二套对话渲染 |
+| `packages/desktop/src/views/changes/flow/session-transcript-panel.tsx` | 抽屉单列会话面 | `SessionTranscriptPanel` 入参 `root` / `roleRef` / `refreshKey?`（会话状态重评估信号）：`roleRef.sessionId` 直查 + `AgentSessionView` 只读渲染（无 composer）；槽位缺席呈空态占位且零订阅；`SessionMeta`（`summary` / `running`）自组件状态读取，不再自带查询 |
+| `packages/desktop/src/views/changes/hooks/use-change-detail.ts`（通知键） | 转录专用去抖退役 | `notifyTranscript` / `transcriptTick`（150ms 去抖重查键）删除；会话事件通知改走统一视图重查 tick（组件据 `refreshKey` 重评估会话状态）；`notifyRefresh`（300ms 尾随去抖 + 有界重试）语义不动 |
 | `packages/desktop/src/views/changes/flow/run-step-node.tsx` + `change-flow-graph.tsx` | 查看会话入口下线 | `onOpenSession` prop 与按钮删除；节点点击即抽屉联动，无独立会话 route |
 | `packages/desktop/src/views/changes/flow/types.ts` + `graph.ts` + `flow-event-node.tsx` + `attachments.ts` | interrupted 前端词汇清除 | `FlowNodeKind` 收敛 `'eval' | 'active'`；`collectInterrupted` / `InterruptedBody` / dashed 分支删；`NODE_PRECEDENCE` 收敛 `['eval', 'active']` |
 | `packages/desktop/src-tauri/crates/core/workflow/src/model/workflow.rs` + `parse/workflow_file.rs` | 磁盘读模型停解析（parse 模块已整体退役删除） | `InterruptedEntry` 等磁盘读模型随 parse 退役删除（见 desktop-change-orchestration 与 desktop-change-state-store）；存量 workflow.json 原样留档零触碰 |
