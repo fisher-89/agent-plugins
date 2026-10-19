@@ -1,0 +1,18 @@
+{
+  "framework": "rust",
+  "root": "packages/desktop/src-tauri",
+  "timestamp": "2026-10-19T04:17:34.6868714Z",
+  "exit_code": 0,
+  "duration_ms": 418741.0,
+  "summary": {
+    "total": 2198,
+    "passed": 2198,
+    "failed": 0,
+    "skipped": 0
+  },
+  "error_cases": [],
+  "test_files": [],
+  "source_files": [],
+  "coverage": null,
+  "mutation": null
+}

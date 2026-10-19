@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router';
 
+import { groupExploreRecords } from '../../lib/explore-groups';
 import type { ExploreRecord } from '../../types/dto';
 import { ExploreCreateDialog } from './components/explore-create-dialog';
 import { ExploreDetailView } from './explore-detail-view';
@@ -44,6 +45,41 @@ function ExploreListItem({
   );
 }
 
+/** 清单分组：组标题（组名 + 计数，层级较外层「探索清单」`<h2>` 降一级）+ 条目列表；
+ * 组内为空呈现占位文案（不以组缺席表达空集） */
+function ExploreGroup({
+  groupTestId,
+  label,
+  records,
+  emptyText,
+  onOpen,
+  onRemove,
+}: {
+  groupTestId: string;
+  label: string;
+  records: ExploreRecord[];
+  emptyText: string;
+  onOpen: (name: string) => void;
+  onRemove: (name: string) => void;
+}): React.JSX.Element {
+  return (
+    <section className="mb-3 last:mb-0" data-testid={groupTestId}>
+      <h3 className="m-0 mb-2 text-[13px]">
+        {label} <span className="text-muted-foreground">({records.length})</span>
+      </h3>
+      {records.length === 0 ? (
+        <div className="text-muted-foreground">{emptyText}</div>
+      ) : (
+        <ul className="m-0 list-none p-0">
+          {records.map((record) => (
+            <ExploreListItem key={record.id} onOpen={onOpen} onRemove={onRemove} record={record} />
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+
 /** 清单页：store 清单（按当前 workspace 过滤）+ 新建入口，非实时扫目录 */
 function ExploreListView({
   list,
@@ -56,6 +92,8 @@ function ExploreListView({
   onOpen: (name: string) => void;
   onCreated: (name: string, autoPrompt: string | null) => void;
 }): React.JSX.Element {
+  // 渲染期纯派生：分组 + 组内按建档时间倒序（零 useMemo / 不进 hook）
+  const groups = groupExploreRecords(list.records);
   return (
     <div data-testid="explore-list">
       <ExploreCreateDialog root={root} onCreated={onCreated} />
@@ -79,16 +117,26 @@ function ExploreListView({
             当前 workspace 暂无探索记录。新建一个话题，或从已有文档导入。
           </div>
         )}
-        <ul className="m-0 list-none p-0" data-testid="explore-items">
-          {list.records.map((record) => (
-            <ExploreListItem
-              key={record.id}
+        {list.records.length > 0 && (
+          <div data-testid="explore-items">
+            <ExploreGroup
+              emptyText="无进行中的探索。"
+              groupTestId="explore-group-active"
+              label="进行中"
               onOpen={onOpen}
               onRemove={list.remove}
-              record={record}
+              records={groups.active}
             />
-          ))}
-        </ul>
+            <ExploreGroup
+              emptyText="暂无已转变更。"
+              groupTestId="explore-group-promoted"
+              label="已转变更"
+              onOpen={onOpen}
+              onRemove={list.remove}
+              records={groups.promoted}
+            />
+          </div>
+        )}
       </section>
     </div>
   );
