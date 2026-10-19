@@ -1176,7 +1176,7 @@ fn agent_role五值线面snake_case逐字() {
 }
 
 /// 非法词反序列化拒绝：越集词反序列化为 `StepNode` / `StepGroup` /
-/// `AgentRole` 均 Err（封闭集防线）；`OnFail` 两变体往返可辨、缺字段拒绝。
+/// `AgentRole` 均 Err（封闭集防线）；`OnFail` 三变体往返可辨、缺字段拒绝。
 #[test]
 fn step_node与on_fail封闭集防线() {
     for illegal in [
@@ -1209,7 +1209,8 @@ fn step_node与on_fail封闭集防线() {
         assert!(back.is_err(), "AgentRole 越集词 {illegal:?} 应拒绝");
     }
 
-    // OnFail 两变体往返可辨：FeedbackLoop { limit }（camelCase 载荷）与 Terminal
+    // OnFail 三变体往返可辨：FeedbackLoop { limit }（camelCase 载荷）/ Terminal /
+    // Escalate（单元变体，失败升格交决策）
     let feedback = OnFail::FeedbackLoop { limit: 5 };
     let wire = serde_json::to_value(feedback).expect("出线应成功");
     assert_eq!(wire, json!({ "feedbackLoop": { "limit": 5 } }));
@@ -1223,10 +1224,87 @@ fn step_node与on_fail封闭集防线() {
     assert_eq!(back, terminal);
     assert_ne!(feedback, terminal, "两变体可辨");
 
-    for illegal in ["feedbackloop", "FeedbackLoop", "terminal_fail", ""] {
+    let escalate = OnFail::Escalate;
+    let wire = serde_json::to_value(escalate).expect("出线应成功");
+    assert_eq!(
+        wire,
+        json!("escalate"),
+        "单元变体线词逐字（rename_all = camelCase 派生零手写）"
+    );
+    let back: OnFail = serde_json::from_value(wire).expect("往返应成功");
+    assert_eq!(back, escalate, "escalate 往返等值还原");
+    assert_ne!(escalate, terminal, "Escalate / Terminal 两单元变体可辨");
+    assert_ne!(escalate, feedback, "Escalate / FeedbackLoop 可辨");
+
+    for illegal in [
+        "feedbackloop",
+        "FeedbackLoop",
+        "terminal_fail",
+        "escalateLoop",
+        "ESCALATE",
+        "Escalate",
+        "",
+    ] {
         let back: Result<OnFail, _> = serde_json::from_value(json!(illegal));
         assert!(back.is_err(), "OnFail 越集词 {illegal:?} 应拒绝");
     }
+    // null 亦拒绝（缺省语义由 Option 承载，封闭集本身不接受 null）
+    let back: Result<OnFail, _> = serde_json::from_value(serde_json::Value::Null);
+    assert!(back.is_err(), "OnFail 不接受 null（缺省由 Option 表达）");
+}
+
+/// `OnFail` 三变体表驱动往返（正向）：`Escalate` / `Terminal` /
+/// `FeedbackLoop { limit: 5 }` 逐变体 serialize → deserialize 等值还原，且三变体
+/// 两两可辨（封闭集值域恰三态 + 缺省 None）。
+#[test]
+fn on_fail三变体表驱动往返() {
+    let cases: [OnFail; 3] = [
+        OnFail::Escalate,
+        OnFail::Terminal,
+        OnFail::FeedbackLoop { limit: 5 },
+    ];
+    let mut wires: Vec<serde_json::Value> = Vec::new();
+    for on_fail in cases {
+        let wire = serde_json::to_value(on_fail).expect("出线应成功");
+        let back: OnFail = serde_json::from_value(wire.clone()).expect("往返应成功");
+        assert_eq!(back, on_fail, "变体 {on_fail:?} 往返等值还原");
+        wires.push(wire);
+    }
+    assert_eq!(wires.len(), 3);
+    for (idx, wire) in wires.iter().enumerate() {
+        for other in wires.iter().skip(idx + 1) {
+            assert_ne!(wire, other, "三变体线面两两可辨");
+        }
+    }
+    // 缺省形态：None 与三变体互不可辨——Option::None 不参与封闭集
+    let default: Option<OnFail> = None;
+    assert!(default.is_none(), "缺省 on_fail = None");
+    assert_ne!(Some(OnFail::Escalate), default, "Some(Escalate) 与 None 可辨");
+}
+
+/// `StepDefinition.on_fail` 缺省形态（边界）：`None` 与 `Some(OnFail::Escalate)`
+/// 可辨；`Copy` / `PartialEq` 派生保留（既有结构体字面量零改动可构造）。
+#[test]
+fn step_definition_on_fail缺省形态与copy语义() {
+    let default = StepDefinition {
+        node: StepNode::PhaseStart,
+        prompt_ref: None,
+        on_fail: None,
+    };
+    let escalate = StepDefinition {
+        node: StepNode::TestExecution,
+        prompt_ref: None,
+        on_fail: Some(OnFail::Escalate),
+    };
+    assert!(default.on_fail.is_none(), "缺省步零失败语义声明");
+    assert_eq!(escalate.on_fail, Some(OnFail::Escalate), "升格声明逐字段");
+    assert_ne!(default.on_fail, escalate.on_fail, "None / Some 可辨");
+    // Copy：结构体字面量零改动可复制（const 表内联前提）
+    let copied = escalate;
+    let again = escalate;
+    assert_eq!(copied, again, "Copy 后等值");
+    assert_eq!(copied.on_fail, Some(OnFail::Escalate), "Copy 保真");
+    assert_ne!(default, escalate, "两态构造可辨");
 }
 
 /// `FeedbackLoop` 计数上限为 u32 边界：limit=0 / 1 / u32::MAX 可构造不 panic
@@ -1305,6 +1383,20 @@ fn run_edge_kind四值线面snake_case逐字() {
     assert_eq!(RunEdgeKind::Feedback.as_str(), "feedback");
     assert_eq!(RunEdgeKind::Retry.as_str(), "retry");
     assert_eq!(RunEdgeKind::Backtrack.as_str(), "backtrack");
+
+    // 四值逐值 serialize → deserialize 往返无损（值域仍四值；`retry` 变体存在性
+    // 即存量解码契约——旧行信封走 serde_json，删变体将使历史 run 打不开）
+    for kind in [
+        RunEdgeKind::Forward,
+        RunEdgeKind::Feedback,
+        RunEdgeKind::Retry,
+        RunEdgeKind::Backtrack,
+    ] {
+        let wire = serde_json::to_value(kind).expect("出线应成功");
+        let back: RunEdgeKind = serde_json::from_value(wire.clone()).expect("往返应成功");
+        assert_eq!(back, kind, "四值逐值往返无损");
+        assert_eq!(kind.as_str(), wire.as_str().expect("线词为字符串"));
+    }
 
     for illegal in ["feed_back", "Feedback", "back_track", "unknown", ""] {
         let back: Result<RunEdgeKind, _> = serde_json::from_value(json!(illegal));

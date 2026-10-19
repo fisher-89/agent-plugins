@@ -38,15 +38,15 @@ impl SessionAnchors {
 /// 唤起触发点（其余失败路径一律 `Err` 串走显式失败）。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PhaseNextError {
+    /// 本相位已连续失败 N 次（窗口 fail 数达 `MAX_RETRY_TIMES`）——决策分叉
+    /// 标注变体之一（与 `VerdictFail` 同一路径，仅标注不同）
     MaxRetriesExceeded {
         phase: String,
         round: u32,
-        eval_only: bool,
     },
     VerdictFail {
         phase: String,
         round: u32,
-        eval_only: bool,
     },
 }
 
@@ -181,16 +181,14 @@ pub fn phase_next(
         .iter()
         .filter(|entry| entry.phase == next.id && entry.verdict == Verdict::Fail)
         .count() as u32;
-    // 决策已决防重触发：本相位最新 fail 条目已挂决策会话（决策分叉后决策
-    // agent 选了 retry）→ 同一条目不再重复触发决策，放行恰一次同相位重跑
-    //——否则 retry 决议会陷入 phase-next ↔ 决策空转，相位永不重执行。新
-    // 落账的 fail 条目无决策标记，触发点对新条目照常生效。
+    // 决策已决防重触发：该 fail 条目已进入过决策（`decision_session_id` 在案）
+    // → 同一条目不再重复分叉。唯一合法重入路径为决策 backtrack 改写
+    // `backtrack_to`，目标相位真执行后新落账的 fail 条目照常分叉。删掉本幂等闸
+    // 后任何 fail 过的相位都无法再被执行（重做 pass 后最新 fail 条目仍会再次
+    // 触发决策），直烧到 `MAX_ROUNDS` 硬失败。
     let latest_fail =
         latest_phase_entry(&entries, next.id).filter(|entry| entry.verdict == Verdict::Fail);
     let fail_decided = latest_fail.is_some_and(|entry| entry.decision_session_id.is_some());
-    // 失败相位是否评估-only（executor 缺席而 evaluator 在场）：决策 prompt
-    // 指引段的分派键——retry 的真实语义（仅重评 vs 携失败清单重跑修复）。
-    let eval_only = next.executor.is_none() && next.evaluator.is_some();
     if window_fails >= MAX_RETRY_TIMES && !fail_decided {
         return Ok(error_outcome(
             round,
@@ -198,7 +196,6 @@ pub fn phase_next(
             PhaseNextError::MaxRetriesExceeded {
                 phase: next.id.to_owned(),
                 round,
-                eval_only,
             },
         ));
     }
@@ -206,7 +203,7 @@ pub fn phase_next(
     // 低于盲目同相位重跑（executor / evaluator 会话重复执行），重试修复或
     // 回退由决策 agent 裁决。确定性相位（archive：executor / evaluator 双
     // 缺席）不触发——重跑确定性步序列有效。已决条目（fail_decided）放行
-    // 一次重跑 = retry 决议的兑现面（携失败反馈段）。
+    // 一次重跑；决策 backtrack 重入为唯一合法重入路径。
     if next.evaluator.is_some() && latest_fail.is_some() && !fail_decided {
         return Ok(error_outcome(
             round,
@@ -214,7 +211,6 @@ pub fn phase_next(
             PhaseNextError::VerdictFail {
                 phase: next.id.to_owned(),
                 round,
-                eval_only,
             },
         ));
     }

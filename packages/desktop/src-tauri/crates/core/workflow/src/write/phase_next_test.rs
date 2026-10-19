@@ -560,9 +560,9 @@ fn pass推进到下一相位且白名单随行() {
     assert_eq!(last.verdict, Verdict::Pass);
 }
 
-/// 已决 fail 放行同相位重跑（带 executor 相位）：决策 retry 挂账后（fail 条目
-/// decision_session_id 在位）→ 同相位重入、round 递增、失败反馈段进 executor
-/// prompt（重试修复面）；再落的已决 fail 同式递增。
+/// 已决 fail 放行同相位重跑（带 executor 相位）：决策已消费该 fail 条目后
+///（`decision_session_id` 在位）→ 同相位重入、round 递增、失败反馈段进 executor
+/// prompt（决策 backtrack 兑现的重做面）；再落的已决 fail 同式递增。
 #[test]
 fn 已决fail放行同相位重跑且round递增() {
     let fake = RouteStore::seeded(vec![entry("proposal", 1, Verdict::Pass, t(1))]);
@@ -572,7 +572,7 @@ fn 已决fail放行同相位重跑且round递增() {
     assert_eq!(first.next_phase.as_deref(), Some("dev-design"));
     assert_eq!(first.round, 1);
 
-    // run 期间逐条落账两条已决 fail（决策 retry 各兑现一次重跑）
+    // run 期间逐条落账两条已决 fail（决策 backtrack 各兑现一次重跑）
     let mut decided = entry("dev-design", 1, Verdict::Fail, t(2));
     decided.decision_session_id = Some("sess-decision-1".to_owned());
     fake.push(decided);
@@ -651,7 +651,7 @@ fn 失败项随已决fail重跑prompt注入且首轮零注入() {
         "首轮无失败条目零注入"
     );
 
-    // 已决 fail（决策 retry 兑现的重跑面）：decision_session_id 在位故放行
+    // 已决 fail（决策 backtrack 兑现的重跑面）：decision_session_id 在位故放行
     // 正常路由——失败反馈段随 executor prompt 下发
     let mut failed = entry("dev-design", 1, Verdict::Fail, t(2));
     failed.decision_session_id = Some("sess-decision-1".to_owned());
@@ -719,7 +719,6 @@ fn 重试上限恰达返回max_retries_exceeded() {
                 Some(PhaseNextError::VerdictFail {
                     phase: "dev-design".to_owned(),
                     round: attempt + 1,
-                    eval_only: false,
                 }),
                 "第 {attempt} 条未决 fail 走 VerdictFail（决策分叉同语义）"
             );
@@ -729,7 +728,6 @@ fn 重试上限恰达返回max_retries_exceeded() {
                 Some(PhaseNextError::MaxRetriesExceeded {
                     phase: "dev-design".to_owned(),
                     round: u32::from(MAX_RETRY_TIMES) + 1,
-                    eval_only: false,
                 }),
                 "第 {MAX_RETRY_TIMES} 条 fail 恰达上限（标注变体）"
             );
@@ -753,9 +751,8 @@ fn verdict_fail立即决策分叉不自走重试() {
         Some(PhaseNextError::VerdictFail {
             phase: "dev-design".to_owned(),
             round: 2,
-            eval_only: false,
         }),
-        "带 executor 相位第 1 条 fail 即决策分叉（eval_only=false）"
+        "带 executor 相位第 1 条 fail 即决策分叉（任意带 evaluator 相位同式）"
     );
     assert_eq!(outcome.next_phase, None, "分叉响应不下发相位");
     assert!(!outcome.done, "分叉非终态（决策待定）");
@@ -773,7 +770,7 @@ fn verdict_fail立即决策分叉不自走重试() {
     );
 
     // 评估-only 相位（code-review）：前 6 相位 pass → code-review#1 fail →
-    // 立即分叉（eval_only=true——决策 prompt 指引段分派键）
+    // 立即分叉（评估-only 与双角色相位同一分叉路径）
     let base: Vec<PhaseStateRecord> = [
         ("proposal", 1u32),
         ("dev-design", 1),
@@ -796,9 +793,8 @@ fn verdict_fail立即决策分叉不自走重试() {
         Some(PhaseNextError::VerdictFail {
             phase: "code-review".to_owned(),
             round: 2,
-            eval_only: true,
         }),
-        "评估-only 相位同式立即分叉（eval_only=true）"
+        "评估-only 相位同式立即分叉"
     );
 
     // acceptance（同为评估-only）同式
@@ -816,13 +812,12 @@ fn verdict_fail立即决策分叉不自走重试() {
         Some(PhaseNextError::VerdictFail {
             phase: "acceptance".to_owned(),
             round: 2,
-            eval_only: true,
         }),
         "acceptance 同式立即分叉"
     );
 }
 
-/// 已决 fail 放行恰一次重跑：决策 agent 选 retry 后（决策会话挂账最新 fail
+/// 已决 fail 放行恰一次重跑：决策已消费该 fail 条目后（决策会话挂账最新 fail
 /// 条目 decision_session_id），同一条目不再重触发分叉——正常路由回同相位
 ///（评估-only 相位 evaluator 携失败反馈段重评）。
 #[test]
@@ -850,7 +845,7 @@ fn 评估only相位已决fail放行恰一次重跑() {
     let outcome = route(&fake, RUN, &anchors);
     assert!(
         outcome.error.is_none(),
-        "已决条目不再重触发决策分叉（retry 决议兑现）"
+        "已决条目不再重触发决策分叉（决策已消费）"
     );
     assert_eq!(
         outcome.next_phase.as_deref(),
@@ -875,16 +870,15 @@ fn 评估only相位已决fail放行恰一次重跑() {
         Some(PhaseNextError::VerdictFail {
             phase: "code-review".to_owned(),
             round: 3,
-            eval_only: true,
         }),
         "新 fail 条目（无决策标记）分叉照常生效"
     );
 }
 
-/// 重试上限已决 fail 放行重跑（决策 retry 不空转的回归锚）：窗口 fail 数达
-/// 上限但最新 fail 条目已挂决策会话 → 不再返回 MaxRetriesExceeded，正常路由
-/// 回同相位——否则决策 retry 决议会陷入 phase-next ↔ 决策无限空转（相位永不
-/// 重执行、决策会话无限唤起）。
+/// 重试上限已决 fail 放行重跑（决策不空转的回归锚）：窗口 fail 数达上限但最新
+/// fail 条目已挂决策会话 → 不再返回 MaxRetriesExceeded，正常路由回同相位——
+/// 否则决策 backtrack 重入会陷入 phase-next ↔ 决策无限空转（相位永不重执行、
+/// 决策会话无限唤起）。
 #[test]
 fn 重试上限已决fail放行重跑不空转() {
     let fake = RouteStore::seeded(vec![entry("proposal", 1, Verdict::Pass, t(1))]);
@@ -901,7 +895,7 @@ fn 重试上限已决fail放行重跑不空转() {
     let outcome = route(&fake, RUN, &anchors);
     assert!(
         outcome.error.is_none(),
-        "上限已决条目不再重触发分叉（retry 决议放行一次重跑）"
+        "上限已决条目不再重触发分叉（fail_decided 放行一次重跑）"
     );
     assert_eq!(
         outcome.next_phase.as_deref(),
@@ -1866,5 +1860,229 @@ fn archive空checklist落账推导pass并随后done() {
             .active_phase
             .is_none(),
         "落账后 active_phase 清位"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// fail_decided 幂等闸边界（test-execution-zero-agent-decision AC-7）
+// ---------------------------------------------------------------------------
+
+/// 无 fail 条目（边界，表驱动 2 形态）：entries 为空 / entries 全 pass →
+/// `error = None`，直接出可执步序列（决策分叉零触发）。
+#[test]
+fn 无fail条目出可执步序列零分叉() {
+    // 形态一：零条目（表头未落账形态 → 落 initialize 表头）
+    let fake = RouteStore::with_record(
+        Some(requirement_record(CHANGE_ID, CHANGE_NAME)),
+        Vec::new(),
+    );
+    let outcome = route(&fake, RUN, &SessionAnchors::new());
+    assert!(outcome.error.is_none(), "零条目零分叉");
+    assert_eq!(outcome.next_phase.as_deref(), Some("initialize"));
+
+    // 形态二：全 pass（表头 + 前四相位 pass → 落 implement，可执步序列在场）
+    let fake = RouteStore::seeded(vec![
+        entry("proposal", 1, Verdict::Pass, t(1)),
+        entry("dev-design", 1, Verdict::Pass, t(2)),
+        entry("test-design", 1, Verdict::Pass, t(3)),
+    ]);
+    let outcome = route(&fake, RUN, &SessionAnchors::new());
+    assert!(outcome.error.is_none(), "全 pass 零分叉");
+    assert_eq!(outcome.next_phase.as_deref(), Some("implement"));
+    assert!(!outcome.steps.is_empty(), "可执步序列随行");
+    assert!(outcome.executor.is_some() && outcome.evaluator.is_some());
+}
+
+/// 最新条目为 pass（边界）：最新条目 `verdict = Pass`（即便携
+/// `decision_session_id`）→ 不算 `fail_decided`，判据只看最新 fail 条目——
+/// 放行推进而非停在同相位重跑。
+#[test]
+fn 最新条目为pass不算fail_decided() {
+    let fake = RouteStore::seeded(vec![entry("proposal", 1, Verdict::Pass, t(1))]);
+    let anchors = SessionAnchors::new();
+    let _ = route(&fake, RUN, &anchors);
+
+    // dev-design#1 fail 后重做 pass（携决策挂账键——历史痕迹）
+    fake.push(entry("dev-design", 1, Verdict::Fail, t(2)));
+    let _ = route(&fake, RUN, &anchors);
+    let mut redone = entry("dev-design", 2, Verdict::Pass, t(3));
+    redone.decision_session_id = Some("sess-decision-1".to_owned());
+    fake.push(redone);
+
+    let outcome = route(&fake, RUN, &anchors);
+    assert!(
+        outcome.error.is_none(),
+        "最新条目 pass → 零分叉（fail_decided 判据只看最新条目）"
+    );
+    assert_eq!(
+        outcome.next_phase.as_deref(),
+        Some("test-design"),
+        "放行推进至下一相位（非停在 dev-design 重跑）"
+    );
+}
+
+/// fail 条目非最新（边界）：早先 fail、其后 pass 条目 → 不触发决策分叉
+/// （latest 过滤语义：早先 fail 不复活）。
+#[test]
+fn fail条目非最新不触发分叉() {
+    let fake = RouteStore::seeded(vec![
+        entry("proposal", 1, Verdict::Pass, t(1)),
+        entry("dev-design", 1, Verdict::Fail, t(2)),
+        entry("dev-design", 2, Verdict::Pass, t(3)),
+    ]);
+    let outcome = route(&fake, RUN, &SessionAnchors::new());
+    assert!(
+        outcome.error.is_none(),
+        "早先 fail 非最新 → 零分叉（历史 fail 不复活）"
+    );
+    assert_eq!(outcome.next_phase.as_deref(), Some("test-design"));
+}
+
+/// 回溯重入后新 fail 条目照常分叉（正向）：已决 fail（backtrack 重入的第一
+/// 次尝试）→ 目标相位真执行后新 attempt 落 fail（`decision_session_id = None`）
+/// → 再次 `VerdictFail` 分叉（幂等闸只认「该条目」不认「该相位」）。
+#[test]
+fn 回溯重入新fail条目照常分叉() {
+    let fake = RouteStore::seeded(vec![entry("proposal", 1, Verdict::Pass, t(1))]);
+    let anchors = SessionAnchors::new();
+    let _ = route(&fake, RUN, &anchors);
+
+    // 首次 fail → 分叉 → 决策挂账（backtrack 已落账，重入 dev-design）
+    fake.push(entry("dev-design", 1, Verdict::Fail, t(2)));
+    let first = route(&fake, RUN, &anchors);
+    assert_eq!(
+        first.error,
+        Some(PhaseNextError::VerdictFail {
+            phase: "dev-design".to_owned(),
+            round: 2,
+        })
+    );
+    let mut decided = entry("dev-design", 1, Verdict::Fail, t(3));
+    decided.decision_session_id = Some("sess-decision-1".to_owned());
+    // 以最新条目替换语义等价：直接追加已决条目（同 attempt 重挂，时间戳更新）
+    fake.push(decided);
+    let allowed = route(&fake, RUN, &anchors);
+    assert!(allowed.error.is_none(), "同一条目已决不重复分叉");
+
+    // 重入后真执行再落新 attempt fail → 照常分叉
+    fake.push(entry("dev-design", 2, Verdict::Fail, t(5)));
+    let again = route(&fake, RUN, &anchors);
+    assert_eq!(
+        again.error,
+        Some(PhaseNextError::VerdictFail {
+            phase: "dev-design".to_owned(),
+            round: 4,
+        }),
+        "新 fail 条目（无决策标记）照常分叉"
+    );
+}
+
+/// backtrack 分支先手接管（边界）：已决 fail 条目之后落 backtrack 条目 →
+/// 路由直取回跳目标、`error = None`（回溯分支先于 fail_decided 判定，不二次
+/// 分叉决策）；目标相位重执行后再落新 fail 才照常分叉。
+#[test]
+fn backtrack条目先手接管不二次分叉() {
+    let fake = RouteStore::seeded(vec![
+        entry("proposal", 1, Verdict::Pass, t(1)),
+        entry("dev-design", 1, Verdict::Pass, t(2)),
+        entry("test-design", 1, Verdict::Pass, t(3)),
+    ]);
+    let anchors = SessionAnchors::new();
+    let _ = route(&fake, RUN, &anchors);
+
+    // implement 首轮 fail → 决策已消费（挂账）
+    fake.push(entry("implement", 1, Verdict::Fail, t(4)));
+    let forked = route(&fake, RUN, &anchors);
+    assert_eq!(
+        forked.error,
+        Some(PhaseNextError::VerdictFail {
+            phase: "implement".to_owned(),
+            round: 2,
+        })
+    );
+    let mut decided = entry("implement", 1, Verdict::Fail, t(5));
+    decided.decision_session_id = Some("sess-decision-1".to_owned());
+    fake.push(decided);
+
+    // 决策 backtrack 落账（backtrack_to 标记条目为最新）→ 路由直取目标
+    fake.push(backtrack_entry(
+        "implement",
+        1,
+        t(6),
+        "dev-design",
+        "设计返工",
+    ));
+    let targeted = route(&fake, RUN, &anchors);
+    assert!(
+        targeted.error.is_none(),
+        "回溯分支先手接管——已决条目不再二次分叉"
+    );
+    assert_eq!(
+        targeted.next_phase.as_deref(),
+        Some("dev-design"),
+        "路由直取回跳目标相位"
+    );
+    assert!(
+        targeted
+            .executor
+            .expect("目标相位 executor 在场")
+            .prompt
+            .contains("⚠️ 回溯原因: 设计返工"),
+        "回溯原因行独立注入（零失败反馈段）"
+    );
+}
+
+/// `PhaseNextError` 字段面边界（边界，参数化 4 值）：`phase` 为空串 / 8 字符、
+/// `round` = 0 与 `u32::MAX` 均可构造且 `PartialEq` 可辨（字段收缩后两变体零
+/// 冗余载荷；标注差异不吞相位 / 轮次）。
+#[test]
+fn phase_next_error字段面边界() {
+    let empty_phase = PhaseNextError::VerdictFail {
+        phase: String::new(),
+        round: 0,
+    };
+    let named_phase = PhaseNextError::VerdictFail {
+        phase: "dev-desi".to_owned(),
+        round: u32::MAX,
+    };
+    assert_ne!(empty_phase, named_phase, "phase / round 逐字段可辨");
+    assert_eq!(empty_phase.clone(), empty_phase, "PartialEq 自反");
+
+    let max_retries = PhaseNextError::MaxRetriesExceeded {
+        phase: String::new(),
+        round: 0,
+    };
+    assert_ne!(
+        max_retries,
+        PhaseNextError::MaxRetriesExceeded {
+            phase: "dev-desi".to_owned(),
+            round: 0,
+        },
+        "空串 / 8 字符相位名可辨"
+    );
+    assert_ne!(
+        max_retries,
+        PhaseNextError::MaxRetriesExceeded {
+            phase: String::new(),
+            round: u32::MAX,
+        },
+        "round 0 / u32::MAX 可辨"
+    );
+    // 同变体同载荷等值（PartialEq 按字段），两变体同载荷仍可辨（标注语义独立）
+    assert_eq!(
+        empty_phase,
+        PhaseNextError::VerdictFail {
+            phase: String::new(),
+            round: 0,
+        },
+        "同值不同实例等值（PartialEq 按字段）"
+    );
+    assert_ne!(
+        empty_phase,
+        PhaseNextError::MaxRetriesExceeded {
+            phase: String::new(),
+            round: 0,
+        },
+        "VerdictFail / MaxRetriesExceeded 同载荷仍可辨"
     );
 }

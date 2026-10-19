@@ -1,6 +1,7 @@
 use crate::decision::{CandidateReport, DecisionInput};
 use crate::prompt::{
-    decision_prompt, evaluator_prompt, merge_conflict_prompt, spec_sync_prompt, verdict_fix_prompt,
+    decision_fix_prompt, decision_prompt, evaluator_prompt, merge_conflict_prompt,
+    spec_sync_prompt, verdict_fix_prompt,
 };
 use workflow::model::{ChecklistItem, Verdict};
 
@@ -67,9 +68,13 @@ fn verdict_fix_prompt解析错误与协议重申在场() {
     );
 }
 
-#[test]
-fn decision_prompt有界组装五段在场() {
-    let input = DecisionInput {
+/// 决策输入 fixture 构造器（逐用例按需覆写字段）。
+fn decision_input(overrides: DecisionInput) -> DecisionInput {
+    overrides
+}
+
+fn base_input() -> DecisionInput {
+    DecisionInput {
         phase: "test-gen".to_owned(),
         attempt: 3,
         fail_checklist: vec![ChecklistItem {
@@ -77,104 +82,381 @@ fn decision_prompt有界组装五段在场() {
             pass: false,
             evidence: "缺失废弃行承接".to_owned(),
         }],
+        fail_report: "## 失败用例明细\n\nexpected '[]' to equal '[a]'".to_owned(),
         allowed: vec!["proposal".to_owned(), "dev-design".to_owned()],
         candidates: vec![CandidateReport {
             phase: "dev-design".to_owned(),
             verdict: Some(Verdict::Pass),
             report: Some("设计与任务拆解齐备".to_owned()),
         }],
-        eval_only: false,
-    };
+    }
+}
 
-    let prompt = decision_prompt(&input);
+/// `decision_prompt` 段落结构（正向，单值）：失败清单 / 可回溯白名单 / 候选
+/// 报告 / 失败相位报告 / 报告文件五段在场；协议段恰列 backtrack / stop / ask
+/// 三动作，且不含 `{"action": "retry"}` 行（退役动作零泄漏）。
+#[test]
+fn decision_prompt五段在场与三动作协议() {
+    let prompt = decision_prompt(&base_input());
 
-    // 五段逐段在场：失败相位信封 + fail checklist 行 + 白名单行 + 候选 eval
-    // report + 四动作封闭集说明（有界输入半边）；评估-only 指引段缺席（非
-    // 评估-only 相位不注入重试语义注记）
+    for section in [
+        "## 失败清单",
+        "## 可回溯白名单",
+        "## 候选相位最近一次评估报告",
+        "## 失败相位报告",
+        "## 报告文件",
+    ] {
+        assert!(prompt.contains(section), "段 {section} 在场");
+    }
+    // 相位信封 + fail checklist 行 + 候选行
     assert!(
         prompt.contains("test-gen") && prompt.contains("3"),
-        "失败相位信封"
+        "失败相位信封（相位 id 与 attempt）在场"
     );
     assert!(
-        prompt.contains("覆盖 test-design 全行") && prompt.contains("缺失废弃行承接"),
-        "fail checklist 行（item + evidence）"
-    );
-    assert!(
-        prompt.contains("proposal") && prompt.contains("dev-design"),
-        "白名单行"
+        prompt.contains("- 覆盖 test-design 全行：缺失废弃行承接"),
+        "fail checklist 行（item + evidence）在场"
     );
     assert!(
         prompt.contains("设计与任务拆解齐备") && prompt.contains("pass"),
-        "候选相位最近一次评估报告（verdict + report）"
+        "候选相位最近一次评估报告（verdict + report）在场"
     );
-    for action in ["backtrack", "retry", "stop", "ask"] {
-        assert!(prompt.contains(action), "四动作封闭集说明含 {action}");
+    // 三动作协议：逐动作在案，退役 retry 行零残留
+    for action in ["backtrack", "stop", "ask"] {
+        assert!(
+            prompt.contains(&format!("{{\"action\": \"{action}\"")),
+            "协议行含动作 {action}"
+        );
     }
+    assert!(
+        !prompt.contains("\"action\": \"retry\""),
+        "退役 retry 动作行零残留"
+    );
     assert!(prompt.contains("500"), "reason ≤500 约定在场");
     assert!(
-        prompt.contains("白名单") && prompt.contains("拒绝"),
+        prompt.contains("红线") && prompt.contains("拒绝"),
         "越权红线说明在场"
-    );
-    // 带 executor 相位指引段：retry 携失败清单重跑修复（根因上游仍应回退）
-    assert!(
-        prompt.contains("该相位带 executor：retry 将携失败清单重新执行本相位修复"),
-        "带 executor 指引段在场（重试修复 vs 回退的真实语义）"
-    );
-    assert!(
-        !prompt.contains("评估-only 相位"),
-        "带 executor 相位不出评估-only 指引形态"
-    );
-
-    // 评估-only 相位（executor 缺席，如 code-review / acceptance fail）：指引段
-    // 换形——retry 仅重评不修复、修复须回退前置相位（决策 agent 的语义锚）
-    let eval_only_input = DecisionInput {
-        eval_only: true,
-        ..input
-    };
-    let eval_only_prompt = decision_prompt(&eval_only_input);
-    assert!(
-        eval_only_prompt.contains("评估-only 相位（无 executor）")
-            && eval_only_prompt.contains("retry 仅会重新评估同一份产物、不会修复"),
-        "评估-only 指引段在场（重试重评 vs 回退修复的真实语义）"
-    );
-    assert!(
-        !eval_only_prompt.contains("该相位带 executor"),
-        "评估-only 相位不出带 executor 指引形态"
     );
 }
 
+/// `decision_prompt` 失败报告段（正向，单值）：「失败相位报告」段渲染
+/// `input.fail_report` 原文（500 字符长文逐字在内）；「报告文件」段含 `read`
+/// 与 `reports/test/summary.json`、突变段级 / 归并报告指引。
 #[test]
-fn decision_prompt空集三态组装不崩段落缺席稳定() {
-    // fail_checklist 空 / 白名单空 / candidates 空三态
-    let input = DecisionInput {
+fn decision_prompt失败报告段原文与读报告指引() {
+    let fail_report = format!("## 失败明细\n\n{}", "明细行 abcdefghij\n".repeat(60));
+    assert!(fail_report.chars().count() > 500);
+    let prompt = decision_prompt(&decision_input(DecisionInput {
+        fail_report: fail_report.clone(),
+        ..base_input()
+    }));
+
+    assert!(prompt.contains(&fail_report), "fail_report 原文逐字渲染（不二次拼装）");
+    let section = prompt
+        .split("## 失败相位报告")
+        .nth(1)
+        .expect("失败相位报告段在场");
+    assert!(
+        section.contains("明细行 abcdefghij"),
+        "报告正文落在「失败相位报告」段内"
+    );
+
+    assert!(prompt.contains("`read`"), "读报告工具指引在场（read）");
+    assert!(
+        prompt.contains("reports/test/summary.json"),
+        "test-execution 报告路径指引在场"
+    );
+    assert!(
+        prompt.contains("段级") && prompt.contains("归并报告"),
+        "突变段级 / 归并报告指引在场"
+    );
+    assert!(
+        prompt.contains("有界") && prompt.contains("不得要求内联"),
+        "决策输入有界声明在场"
+    );
+}
+
+/// `decision_prompt` 白名单自注记（正向，表驱动两形态）：`allowed` 含 `phase`
+/// 自身时该条目追加「（= 重做本相位）」，其余条目零注记（两两对照）。
+#[test]
+fn decision_prompt白名单自注记两形态() {
+    // 形态一：白名单自含（可重做相位 → 重做本相位注记）
+    let self_included = decision_prompt(&decision_input(DecisionInput {
         phase: "implement".to_owned(),
-        attempt: 1,
-        fail_checklist: Vec::new(),
+        allowed: vec![
+            "proposal".to_owned(),
+            "dev-design".to_owned(),
+            "implement".to_owned(),
+        ],
+        ..base_input()
+    }));
+    assert!(
+        self_included.contains("- implement（= 重做本相位）"),
+        "自含条目追加注记: {self_included}"
+    );
+    assert!(
+        self_included.contains("- proposal\n") && self_included.contains("- dev-design\n"),
+        "其余条目零注记"
+    );
+    assert!(
+        !self_included.contains("- proposal（= 重做本相位）"),
+        "非自身条目不得误注记"
+    );
+
+    // 形态二：白名单不含自身（零 agent 步相位）→ 零注记
+    let not_included = decision_prompt(&decision_input(DecisionInput {
+        phase: "test-execution".to_owned(),
+        allowed: vec!["test-gen".to_owned()],
+        ..base_input()
+    }));
+    assert!(
+        !not_included.contains("（= 重做本相位）"),
+        "白名单不含自身 → 零注记"
+    );
+}
+
+/// `decision_prompt` 空 / 超长报告（边界，参数化 3 形态）：`fail_report` 空串
+/// → 「（无报告文本）」；恰 2000 字符原样；直构 3000 字符异常输入 → 原样插值
+/// 不 panic（截断在 walker 侧单点）。
+#[test]
+fn decision_prompt空与超长报告三形态() {
+    let empty = decision_prompt(&decision_input(DecisionInput {
+        fail_report: String::new(),
+        ..base_input()
+    }));
+    assert!(empty.contains("（无报告文本）"), "空报告占位形态");
+    let section = empty
+        .split("## 失败相位报告")
+        .nth(1)
+        .expect("失败相位报告段在场");
+    assert!(
+        section.contains("（无报告文本）"),
+        "占位落在报告段内"
+    );
+
+    let exact = "报".repeat(2000);
+    let prompt = decision_prompt(&decision_input(DecisionInput {
+        fail_report: exact.clone(),
+        ..base_input()
+    }));
+    assert!(prompt.contains(&exact), "恰 2000 字符原样");
+
+    let overlong = "超".repeat(3000);
+    let prompt = decision_prompt(&decision_input(DecisionInput {
+        fail_report: overlong.clone(),
+        ..base_input()
+    }));
+    assert!(prompt.contains(&overlong), "3000 字符原样插值不 panic（截断在 walker）");
+    assert!(prompt.contains("## 报告文件"), "段结构不因超长报告破坏");
+}
+
+/// `decision_prompt` 集合面边界（边界，表驱动 5 形态）：`allowed` 空 / 单元素
+/// / 50 项；`candidates` 空 / verdict 全 `None` → 段落结构稳定、占位形态一致。
+#[test]
+fn decision_prompt集合面边界五形态() {
+    // allowed 空 + candidates 空
+    let empty = decision_prompt(&decision_input(DecisionInput {
         allowed: Vec::new(),
         candidates: Vec::new(),
-        eval_only: false,
-    };
-    let prompt = decision_prompt(&input);
-    assert!(prompt.contains("implement"), "相位信封在场");
-    assert!(prompt.contains("backtrack"), "封闭集说明不因空集缺席");
-    assert!(!prompt.contains("覆盖"), "空 fail checklist 不虚增行");
-    // 未评估候选形态：verdict 缺省降级文案
-    let with_none = DecisionInput {
-        phase: "implement".to_owned(),
-        attempt: 1,
-        fail_checklist: Vec::new(),
+        ..base_input()
+    }));
+    for section in ["## 失败相位报告", "## 失败清单", "## 报告文件", "## 决策协议"] {
+        assert!(empty.contains(section), "空集形态段 {section} 仍在场");
+    }
+
+    // allowed 单元素
+    let single = decision_prompt(&decision_input(DecisionInput {
         allowed: vec!["proposal".to_owned()],
-        candidates: vec![CandidateReport {
-            phase: "proposal".to_owned(),
-            verdict: None,
-            report: None,
-        }],
-        eval_only: false,
-    };
-    let prompt = decision_prompt(&with_none);
+        candidates: Vec::new(),
+        ..base_input()
+    }));
+    assert!(single.contains("- proposal"), "单元素白名单行在场");
+
+    // allowed 50 项（逐条出线）
+    let many: Vec<String> = (0..50).map(|index| format!("phase-{index}")).collect();
+    let prompt = decision_prompt(&decision_input(DecisionInput {
+        allowed: many.clone(),
+        ..base_input()
+    }));
+    for phase in &many {
+        assert!(prompt.contains(&format!("- {phase}")), "50 项逐条出线: {phase}");
+    }
+
+    // candidates verdict 全 None（占位形态稳定）
+    let none_candidates = decision_prompt(&decision_input(DecisionInput {
+        candidates: vec![
+            CandidateReport {
+                phase: "proposal".to_owned(),
+                verdict: None,
+                report: None,
+            },
+            CandidateReport {
+                phase: "dev-design".to_owned(),
+                verdict: None,
+                report: Some("报告正文".to_owned()),
+            },
+        ],
+        ..base_input()
+    }));
     assert!(
-        prompt.contains("无记录") && prompt.contains("（无 eval report）"),
-        "候选 verdict / report 双 None 降级文案稳定"
+        none_candidates.contains("无记录") && none_candidates.contains("（无 eval report）"),
+        "候选 verdict / report 缺省占位形态稳定"
+    );
+    assert!(
+        none_candidates.contains("报告正文"),
+        "单侧缺省（report 在场）逐条可辨"
+    );
+}
+
+/// `decision_prompt` checklist 边界（边界，参数化 3 形态）：`fail_checklist`
+/// 空 / 单条 / 含换行、emoji、`\0` 的 evidence → 段落不被破坏、条目逐条出线。
+#[test]
+fn decision_prompt_checklist边界三形态() {
+    let empty = decision_prompt(&decision_input(DecisionInput {
+        fail_checklist: Vec::new(),
+        ..base_input()
+    }));
+    assert!(empty.contains("## 失败清单"), "空 checklist 段仍在场");
+    assert!(!empty.contains("- 覆盖 test-design 全行"), "空 checklist 不虚增行");
+
+    let single = decision_prompt(&decision_input(DecisionInput {
+        fail_checklist: vec![ChecklistItem {
+            item: "单条".to_owned(),
+            pass: false,
+            evidence: "依据".to_owned(),
+        }],
+        ..base_input()
+    }));
+    assert!(single.contains("- 单条：依据"), "单条逐条出线");
+
+    let special = decision_prompt(&decision_input(DecisionInput {
+        fail_checklist: vec![
+            ChecklistItem {
+                item: "换行项".to_owned(),
+                pass: false,
+                evidence: "第一行\n第二行".to_owned(),
+            },
+            ChecklistItem {
+                item: "emoji 项".to_owned(),
+                pass: false,
+                evidence: "🚀 findings: a\0b".to_owned(),
+            },
+        ],
+        ..base_input()
+    }));
+    assert!(
+        special.contains("第一行\n第二行") && special.contains("🚀 findings: a\0b"),
+        "特殊字符 evidence 原样出线"
+    );
+    assert!(
+        special.contains("## 可回溯白名单"),
+        "后续段结构不被特殊字符破坏"
+    );
+}
+
+/// `decision_prompt` 静态与确定性（异常）：组装结果零模板占位残留（`{phase}`
+/// 等花括号不泄漏）；同输入重复组装逐字节一致。
+#[test]
+fn decision_prompt零占位残留与确定性() {
+    let input = base_input();
+    let prompt = decision_prompt(&input);
+
+    for placeholder in ["{phase}", "{attempt}", "{fail_report}", "{allowed}", "{{"] {
+        assert!(!prompt.contains(placeholder), "零模板占位残留: {placeholder}");
+    }
+    assert_eq!(prompt, decision_prompt(&input), "同输入逐字节一致");
+}
+
+/// `decision_fix_prompt` 组装（正向）：含驳回原因原文 + 三动作重申 + 白名单一行
+///（`a / b` 形式）。
+#[test]
+fn decision_fix_prompt组装含驳回原因三动作与白名单行() {
+    let input = decision_input(DecisionInput {
+        allowed: vec![
+            "proposal".to_owned(),
+            "dev-design".to_owned(),
+            "implement".to_owned(),
+        ],
+        ..base_input()
+    });
+    let prompt = decision_fix_prompt(&input, "越权 backtrack：目标 \"test-gen\" 不在白名单内");
+
+    assert!(
+        prompt.contains("上一轮决策输出被驳回：") && prompt.contains("目标 \"test-gen\" 不在白名单内"),
+        "驳回原因原文在场"
+    );
+    assert!(
+        prompt.contains("三动作封闭集：backtrack / stop / ask"),
+        "三动作重申在场"
+    );
+    assert!(
+        prompt.contains("可回溯白名单：proposal / dev-design / implement"),
+        "白名单一行（a / b 形式）在场"
+    );
+    assert!(
+        prompt.contains("回跳目标须在白名单内") && prompt.contains("ask"),
+        "回跳纪律与 ask 出路在场"
+    );
+    // 纠正面不含全量失败明细（单点：只重申协议与可选目标）
+    assert!(
+        !prompt.contains("覆盖 test-design 全行") && !prompt.contains("## 失败清单"),
+        "纠正文案不含全量失败明细"
+    );
+}
+
+/// `decision_fix_prompt` 边界（边界，参数化 4 形态）：`error` 空串 / 500 字符 /
+/// 含换行；`allowed` 空（白名单行空占位）→ 组装不 panic 且段结构稳定。
+#[test]
+fn decision_fix_prompt边界四形态() {
+    let cases = [
+        String::new(),
+        "错".repeat(500),
+        "第一行错误\n第二行细节".to_owned(),
+        "a\0b🚀".to_owned(),
+    ];
+    for error in cases {
+        let prompt = decision_fix_prompt(&base_input(), &error);
+        assert!(
+            prompt.contains(&format!("上一轮决策输出被驳回：{error}")),
+            "error 原样插值: {error:?}"
+        );
+        assert!(prompt.contains("三动作封闭集"), "段结构稳定");
+    }
+
+    // allowed 空：白名单行空占位、不 panic
+    let prompt = decision_fix_prompt(
+        &decision_input(DecisionInput {
+            allowed: Vec::new(),
+            ..base_input()
+        }),
+        "任意错误",
+    );
+    assert!(
+        prompt.contains("可回溯白名单：\n") || prompt.contains("可回溯白名单："),
+        "空白名单行在场（空占位）"
+    );
+    assert!(prompt.contains("ask"), "空白名单仍给 ask 出路");
+}
+
+/// `decision_fix_prompt` 协议一致（异常）：三动作清单与红线句与
+/// `decision_prompt` 同源，不含退役 `retry` 动作。
+#[test]
+fn decision_fix_prompt协议一致无退役动作() {
+    let input = base_input();
+    let fix = decision_fix_prompt(&input, "任意错误");
+    let full = decision_prompt(&input);
+
+    for action in ["backtrack", "stop", "ask"] {
+        assert!(fix.contains(action), "纠正文案重申动作 {action}");
+        assert!(full.contains(action), "完整 prompt 三动作在案 {action}");
+    }
+    assert!(
+        !fix.contains("retry"),
+        "纠正文案零退役 retry 动作: {fix}"
+    );
+    assert!(
+        full.contains("红线") && fix.contains("回跳目标须在白名单内"),
+        "红线语义同源（完整 prompt 红线句 ↔ 纠正文案回跳纪律）"
     );
 }
 
@@ -189,9 +471,9 @@ fn prompt确定性_同输入重复组装逐字节一致() {
             pass: false,
             evidence: "据".to_owned(),
         }],
+        fail_report: "失败明细".to_owned(),
         allowed: vec!["proposal".to_owned()],
         candidates: Vec::new(),
-        eval_only: false,
     };
 
     assert_eq!(
@@ -203,6 +485,11 @@ fn prompt确定性_同输入重复组装逐字节一致() {
         decision_prompt(&input),
         decision_prompt(&input),
         "决策 prompt 确定性"
+    );
+    assert_eq!(
+        decision_fix_prompt(&input, "错误"),
+        decision_fix_prompt(&input, "错误"),
+        "决策纠正文案确定性"
     );
 }
 
@@ -352,11 +639,7 @@ fn merge_conflict_prompt边界空列表单元素超大列表与特殊路径() {
 
     // 超长单条路径（>1000 chars）与特殊字符：原样保留
     let long_path = format!("{}/a.md", "d".repeat(1200));
-    let special = vec![
-        long_path.clone(),
-        "a\nb.md".to_owned(),
-        "🚀.md".to_owned(),
-    ];
+    let special = vec![long_path.clone(), "a\nb.md".to_owned(), "🚀.md".to_owned()];
     let prompt = merge_conflict_prompt("demo-change", &special);
     assert!(prompt.contains(&long_path), "超长冲突路径原样保留");
     assert!(prompt.contains("a\nb.md"), "换行字符原样保留（逐条可辨）");

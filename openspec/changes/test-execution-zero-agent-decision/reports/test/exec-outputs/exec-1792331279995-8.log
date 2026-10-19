@@ -1,0 +1,65 @@
+$ pnpm run server:check && pnpm run bindings:check && pnpm run client:check
+$ cargo fmt --manifest-path src-tauri/Cargo.toml && cargo clippy --manifest-path src-tauri/Cargo.toml
+    Checking workflow v0.1.0 (C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\test-execution-zero-agent-decision\packages\desktop\src-tauri\crates\core\workflow)
+    Checking orchestration v0.1.0 (C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\test-execution-zero-agent-decision\packages\desktop\src-tauri\crates\core\orchestration)
+    Checking store v0.1.0 (C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\test-execution-zero-agent-decision\packages\desktop\src-tauri\crates\infra\store)
+    Checking checks-runtime v0.1.0 (C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\test-execution-zero-agent-decision\packages\desktop\src-tauri\crates\infra\checks)
+    Checking vcs-runtime v0.1.0 (C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\test-execution-zero-agent-decision\packages\desktop\src-tauri\crates\infra\vcs)
+    Checking agent-runtime v0.1.0 (C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\test-execution-zero-agent-decision\packages\desktop\src-tauri\crates\infra\agent)
+    Checking dev-team v0.1.0 (C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\test-execution-zero-agent-decision\packages\desktop\src-tauri)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 19.31s
+$ pnpm run bindings:export && git diff --exit-code -- src/types/generated
+$ cargo run --quiet -p export-bindings --manifest-path src-tauri/Cargo.toml
+diff --git a/packages/desktop/src/types/generated/bindings.ts b/packages/desktop/src/types/generated/bindings.ts
+index 7488b757a035..f7c1a55a1886 100644
+--- a/packages/desktop/src/types/generated/bindings.ts
++++ b/packages/desktop/src/types/generated/bindings.ts
+@@ -668,7 +668,7 @@ export type ChangeStepKind =
+ "staticCheck" | 
+ /**  test-execution 门禁工具步（确定性测试执行链，绿跑零 agent） */
+ "testExecution" | 
+-/**  mutation-test 门禁工具步（确定性突变执行链，独立反馈边②） */
++/**  mutation-test 门禁工具步（确定性突变执行链，失败升格交决策、零会话） */
+ "mutationTest" | 
+ /**  initialize 基线恢复步（vcs） */
+ "clean" | 
+@@ -676,7 +676,10 @@ export type ChangeStepKind =
+ "phaseLog" | 
+ /**  verdict 解析门 */
+ "verdictGate" | 
+-/**  retry 预算门（phase-next 重试 / 上限分叉） */
++/**
++ *  决策动作兑现门（决策 backtrack 落账后的兑现节点；`retry_gate` 为历史
++ *  命名，IPC 词面冻结，变体名与 `as_str` 线词不变）
++ */
+ "retryGate" | 
+ /**  backtrack 白名单门（决策越权预校验） */
+ "whitelistGate" | 
+@@ -1066,16 +1069,21 @@ export type RulesConfig = {
+ 
+ /**
+  *  run 执行图边词汇封闭集（四值，线格式小写词）：`forward` 计划序推进 /
+- *  `feedback` gate 失败回同 phase agent 步（phase 内回边）/ `retry` phase fail
+- *  后同相位重跑 / `backtrack` 跨相位回跳。词汇本体单点——编排侧 `ChangeStepEdge`
+- *  与落库命令（`RunEdgeEntry.edge_kind`）同本类型消费（零映射）。
++ *  `feedback` gate 失败回同 phase agent 步（phase 内回边）/ `retry` 存量解码
++ *  专用（新写面零产出，投影前屏蔽）/ `backtrack` 跨相位回跳。词汇本体单点——
++ *  编排侧 `ChangeStepEdge` 与落库命令（`RunEdgeEntry.edge_kind`）同本类型消费
++ *  （零映射）。
+  */
+ export type RunEdgeKind = 
+ /**  计划序推进（相位内按 steps 序推进、相位间推进） */
+ "forward" | 
+ /**  gate 失败回到同 phase agent 步（phase 内回边） */
+ "feedback" | 
+-/**  phase fail 后同相位重跑 */
++/**
++ *  存量解码专用：新写面零产出（`DecisionAction::Retry` 已退役），查询面
++ *  投影前屏蔽（`queries/detail.rs` 唯一屏蔽点）；变体保留因记录信封走
++ *  serde_json，删变体将使旧行 decode 失败（历史 run 流程图整份打不开）
++ */
+ "retry" | 
+ /**  跨相位回跳 */
+ "backtrack";
+[ELIFECYCLE] Command failed with exit code 1.
+[ELIFECYCLE] Command failed with exit code 1.

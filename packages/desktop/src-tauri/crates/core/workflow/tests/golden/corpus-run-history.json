@@ -108,11 +108,6 @@
           "toNodeKey": "implement:1:evaluator:0"
         },
         {
-          "edgeKind": "retry",
-          "fromNodeKey": "implement:1:evaluator:0",
-          "toNodeKey": "implement:1:decision:0"
-        },
-        {
           "edgeKind": "backtrack",
           "fromNodeKey": "implement:1:whitelist_gate:0",
           "toNodeKey": "dev-design:1:test_execution:0"

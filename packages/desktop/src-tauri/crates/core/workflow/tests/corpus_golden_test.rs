@@ -1873,7 +1873,8 @@ fn corpusrun全史语料_golden对拍() {
         "steps 键退役（nodes / edges 取代）"
     );
 
-    // 四 kind 边齐备 + feedback 边端点指回同相位 agent 步 + 实例号递增
+    // 存量 `retry` 行投影前屏蔽（读面唯一屏蔽点）+ 其余三 kind 边齐备 +
+    // feedback 边端点指回同相位 agent 步 + 实例号递增
     let edges = projection["runs"][0]["edges"]
         .as_array()
         .expect("edges 为数组");
@@ -1881,9 +1882,13 @@ fn corpusrun全史语料_golden对拍() {
         .iter()
         .map(|row| row["edgeKind"].as_str().expect("edgeKind 出线词"))
         .collect();
-    for kind in ["forward", "feedback", "retry", "backtrack"] {
-        assert!(kinds.contains(&kind), "四 kind 边 {kind} 应在案：{kinds:?}");
+    for kind in ["forward", "feedback", "backtrack"] {
+        assert!(kinds.contains(&kind), "边 kind {kind} 应在案：{kinds:?}");
     }
+    assert!(
+        !kinds.contains(&"retry"),
+        "存量 retry 边投影后缺席（AC-8 读面屏蔽）：{kinds:?}"
+    );
     let feedback = edges
         .iter()
         .find(|row| row["edgeKind"] == "feedback")

@@ -1,0 +1,49 @@
+$ pnpm run server:check && pnpm run bindings:check && pnpm run client:check
+$ cargo fmt --manifest-path src-tauri/Cargo.toml && cargo clippy --manifest-path src-tauri/Cargo.toml
+   Compiling tokei v13.0.0
+    Checking native_db v0.8.2
+    Checking rig-memory v0.43.0
+    Checking home v0.5.12
+    Checking term_size v0.3.2
+    Checking rfd v0.16.0
+    Checking toml v0.8.23
+    Checking notify v8.2.0
+    Checking devtools-core v0.4.0
+    Checking grep-searcher v0.1.17
+    Checking arbitrary v1.4.2
+    Checking zip v4.6.1
+    Checking dashmap v6.2.1
+    Checking rayon v1.12.0
+    Checking table_formatter v0.6.1
+    Checking ignore v0.4.33
+    Checking clap-cargo v0.13.0
+    Checking etcetera v0.8.0
+    Checking checks v0.1.0 (C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\test-execution-zero-agent-decision\packages\desktop\src-tauri\crates\core\checks)
+    Checking local-ip-address v0.5.7
+    Checking tauri-plugin-fs v2.5.2
+    Checking rig v0.43.0
+    Checking tempfile v3.27.0
+   Compiling dev-team v0.1.0 (C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\test-execution-zero-agent-decision\packages\desktop\src-tauri)
+    Checking specta-serde v0.0.12
+    Checking specta-util v0.0.12
+    Checking specta-typescript v0.0.12
+    Checking minisign-verify v0.2.5
+    Checking watch v0.1.0 (C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\test-execution-zero-agent-decision\packages\desktop\src-tauri\crates\infra\watch)
+    Checking store v0.1.0 (C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\test-execution-zero-agent-decision\packages\desktop\src-tauri\crates\infra\store)
+    Checking vcs-runtime v0.1.0 (C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\test-execution-zero-agent-decision\packages\desktop\src-tauri\crates\infra\vcs)
+    Checking tauri-plugin-devtools v2.2.1
+    Checking tauri-plugin-single-instance v2.4.5
+    Checking tauri-plugin-updater v2.12.0
+    Checking tauri-specta v2.0.0-rc.25
+    Checking checks-runtime v0.1.0 (C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\test-execution-zero-agent-decision\packages\desktop\src-tauri\crates\infra\checks)
+    Checking tauri-plugin-dialog v2.7.3
+    Checking agent-runtime v0.1.0 (C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\test-execution-zero-agent-decision\packages\desktop\src-tauri\crates\infra\agent)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 26.52s
+$ pnpm run bindings:export && git diff --exit-code -- src/types/generated
+$ cargo run --quiet -p export-bindings --manifest-path src-tauri/Cargo.toml
+error: failed to write C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\test-execution-zero-agent-decision\packages\desktop\src-tauri\target\debug\deps\libtauri_plugin_single_instance-0961b82406381edc.rmeta: 另一个程序正在使用此文件，进程无法访问。 (os error 32)
+
+error: could not compile `tauri-plugin-single-instance` (lib) due to 1 previous error
+[ELIFECYCLE] Command failed with exit code 101.
+[ELIFECYCLE] Command failed with exit code 101.
+[ELIFECYCLE] Command failed with exit code 101.

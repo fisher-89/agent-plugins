@@ -271,7 +271,7 @@ describe('buildFlowGraph：边表直读（runEdges）', () => {
     expect(buildFlowGraph(base, [runNode()], []).edges).toEqual([]);
   });
 
-  it('四 kind 逐值出线：端点按节点 id 寻址、id 定式 `edge:<idx>:<source>-><target>`', () => {
+  it('图边投影锚：输入含 retry 边（存量库行）→ 输出图零 retry，其余三类按输入序出线', () => {
     const graph = buildFlowGraph(
       detail(),
       [
@@ -305,9 +305,10 @@ describe('buildFlowGraph：边表直读（runEdges）', () => {
           toNodeKey: 'implement:1:executor:0',
           edgeKind: 'feedback',
         }),
+        // 存量 `retry` 行（读面投影前的旧库行）：端点不在节点集 → 跳过
         edgeRow({
           fromNodeKey: 'implement:1:verdict_gate:0',
-          toNodeKey: 'implement:1:evaluator:0',
+          toNodeKey: 'ghost:1:executor:0',
           edgeKind: 'retry',
         }),
         edgeRow({
@@ -317,19 +318,19 @@ describe('buildFlowGraph：边表直读（runEdges）', () => {
         }),
       ],
     );
-    expect(graph.edges.map((edge) => edge.kind)).toEqual([
-      'forward',
-      'feedback',
-      'retry',
-      'backtrack',
-    ]);
+    expect(graph.edges.map((edge) => edge.kind)).toEqual(['forward', 'feedback', 'backtrack']);
+    expect(graph.edges.some((edge) => edge.kind === 'retry')).toBe(false);
     expect(graph.edges[0]).toMatchObject({
       id: 'edge:0:run:implement:1:phaseStart:0->run:implement:1:executor:0',
       source: 'run:implement:1:phaseStart:0',
       target: 'run:implement:1:executor:0',
     });
+    // 序号驻输入序：跳边不使后续边序号前移（backtrack 原输入下标 3）
+    expect(graph.edges[2].id).toBe(
+      'edge:3:run:implement:1:verdictGate:0->run:implement:1:executor:0',
+    );
     // 非回跳边恒无标签（label 词汇仅回跳边承载）
-    expect(graph.edges.slice(0, 3).map((edge) => edge.label)).toEqual([null, null, null]);
+    expect(graph.edges.slice(0, 2).map((edge) => edge.label)).toEqual([null, null]);
   });
 
   it('backtrack 边 label 取发起相位最近一次条目记因（pipeline 参数保留生效）', () => {
@@ -593,5 +594,139 @@ describe('buildFlowGraph：两表列骨架（requirement 9 / test-only 6）', ()
 
   it('边界：test-only pipeline 空数组 → 空图（与 requirement 同款空态语义）', () => {
     expect(buildFlowGraph(detail({ pipeline: [] }))).toEqual({ columns: [], nodes: [], edges: [] });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 图边投影锚（test-execution-zero-agent-decision AC-8 前端侧）：读面投影前
+// 的存量库行（含 `retry`）进图后零 `retry` 出线——`graph.ts` 零改动，只锚
+// 「悬空端点降级跳过」的既有结果契约。
+// ---------------------------------------------------------------------------
+
+describe('buildFlowGraph：retry 边投影锚', () => {
+  const edgeNodes = () => [
+    runNode({ id: 'run:implement:1:executor:0' }),
+    runNode({
+      id: 'run:implement:1:evaluator:0',
+      runStepKind: 'evaluator',
+      role: 'evaluator',
+    }),
+    runNode({
+      id: 'run:implement:1:phaseLog:0',
+      runStepKind: 'phaseLog',
+      group: 'toolStep',
+      role: null,
+    }),
+  ];
+
+  it('retry 行位于输入首 / 中 / 尾三位置 → 输出仍零 retry，其余边相对序与输入序一致', () => {
+    const shapes: UnifiedRunEdge[][] = [
+      // 首
+      [
+        edgeRow({
+          fromNodeKey: 'implement:1:evaluator:0',
+          toNodeKey: 'ghost:1:executor:0',
+          edgeKind: 'retry',
+        }),
+        edgeRow({
+          fromNodeKey: 'implement:1:executor:0',
+          toNodeKey: 'implement:1:evaluator:0',
+          edgeKind: 'forward',
+        }),
+        edgeRow({
+          fromNodeKey: 'implement:1:evaluator:0',
+          toNodeKey: 'implement:1:phase_log:0',
+          edgeKind: 'feedback',
+        }),
+      ],
+      // 中
+      [
+        edgeRow({
+          fromNodeKey: 'implement:1:executor:0',
+          toNodeKey: 'implement:1:evaluator:0',
+          edgeKind: 'forward',
+        }),
+        edgeRow({
+          fromNodeKey: 'implement:1:evaluator:0',
+          toNodeKey: 'ghost:1:executor:0',
+          edgeKind: 'retry',
+        }),
+        edgeRow({
+          fromNodeKey: 'implement:1:evaluator:0',
+          toNodeKey: 'implement:1:phase_log:0',
+          edgeKind: 'feedback',
+        }),
+      ],
+      // 尾
+      [
+        edgeRow({
+          fromNodeKey: 'implement:1:executor:0',
+          toNodeKey: 'implement:1:evaluator:0',
+          edgeKind: 'forward',
+        }),
+        edgeRow({
+          fromNodeKey: 'implement:1:evaluator:0',
+          toNodeKey: 'implement:1:phase_log:0',
+          edgeKind: 'feedback',
+        }),
+        edgeRow({
+          fromNodeKey: 'implement:1:evaluator:0',
+          toNodeKey: 'ghost:1:executor:0',
+          edgeKind: 'retry',
+        }),
+      ],
+    ];
+    const expectedKinds = [
+      ['forward', 'feedback'],
+      ['forward', 'feedback'],
+      ['forward', 'feedback'],
+    ];
+    shapes.forEach((edges, position) => {
+      const graph = buildFlowGraph(detail(), edgeNodes(), edges);
+      expect(graph.edges.map((edge) => edge.kind)).toEqual(expectedKinds[position]);
+      expect(graph.edges.some((edge) => edge.kind === 'retry')).toBe(false);
+      // 序号驻输入序：跳边不使其余边序号错位到别的 kind 上
+      const expectedIndices = edges
+        .map((edge, index) => ({ edge, index }))
+        .filter(({ edge }) => edge.edgeKind !== 'retry')
+        .map(({ index }) => index);
+      expect(graph.edges.map((edge) => Number(edge.id.split(':')[1]))).toEqual(expectedIndices);
+    });
+  });
+
+  it('输入边表仅 retry 行（端点全悬空）→ edges 空数组不抛错；输入空边表 → 空数组', () => {
+    const onlyRetry = buildFlowGraph(detail(), edgeNodes(), [
+      edgeRow({
+        fromNodeKey: 'ghost:1:executor:0',
+        toNodeKey: 'ghost:1:evaluator:0',
+        edgeKind: 'retry',
+      }),
+    ]);
+    expect(onlyRetry.edges).toEqual([]);
+
+    const emptyTable = buildFlowGraph(detail(), edgeNodes(), []);
+    expect(emptyTable.edges).toEqual([]);
+  });
+
+  it('retry 行一端悬空（ghost 身份串）→ 该边跳过不炸图，同批 feedback / forward 边照常出线', () => {
+    const graph = buildFlowGraph(detail(), edgeNodes(), [
+      edgeRow({
+        fromNodeKey: 'ghost:9:executor:7',
+        toNodeKey: 'implement:1:executor:0',
+        edgeKind: 'feedback',
+      }),
+      edgeRow({
+        fromNodeKey: 'implement:1:executor:0',
+        toNodeKey: 'ghost:9:phase_log:0',
+        edgeKind: 'retry',
+      }),
+      edgeRow({
+        fromNodeKey: 'implement:1:executor:0',
+        toNodeKey: 'implement:1:evaluator:0',
+        edgeKind: 'forward',
+      }),
+    ]);
+    expect(graph.edges).toHaveLength(1);
+    expect(graph.edges[0].kind).toBe('forward');
   });
 });

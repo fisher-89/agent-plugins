@@ -38,6 +38,13 @@ impl ChangeRunStatus {
 /// 基线恢复步）+ Gate 三门。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
+// 词面冻结说明：本枚举的 `///` 文本经 specta 出线到
+// `src/types/generated/bindings.ts`（`bindings:check` 要求零 diff），故下列两处
+// 已失效的 `///` 表述就地保留、现语义驻本注释：
+// - `MutationTest`：确定性突变执行链、失败升格交决策（零会话）——原「独立
+//   反馈边②」表述随反馈边退役失效；
+// - `RetryGate`：决策动作兑现门（决策 backtrack 落账后的兑现节点；`retry_gate`
+//   为历史命名，IPC 词面冻结，变体名 / `as_str` 线词不变）。
 pub enum ChangeStepKind {
     /// executor 会话
     Executor,

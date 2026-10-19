@@ -1804,10 +1804,11 @@ fn 详情节点出线_feedback重跑实例号递增() {
     assert_eq!(value["runs"][0]["nodes"][1]["instanceNo"], 1);
 }
 
-/// 边整包出线：四 kind（forward / feedback / retry / backtrack）齐备，
-/// `fromNodeKey` / `toNodeKey` 指向节点身份串（AC-3 / AC-6）。
+/// edges 四 kind 混合投影（正向）：库内 run 含 forward / feedback / retry /
+/// backtrack 四边 → 投影后恰 3 条，`retry` 缺席，其余按库读序（edge_seq 升序）
+/// 出线——读面唯一屏蔽点，其余边序不变。
 #[test]
-fn 详情边出线_四kind齐备与端点身份串() {
+fn 详情边出线_四kind混合屏蔽retry与端点身份串() {
     let env = Env::new("run-edges");
     env.seed(ID_RUNNED, "runned", T0, None);
     env.store.push_run(RunStateRecord {
@@ -1827,12 +1828,35 @@ fn 详情边出线_四kind齐备与端点身份串() {
 
     let detail = env.detail(ID_RUNNED);
     let edges = &detail.runs[0].edges;
-    assert_eq!(edges.len(), 4, "四 kind 齐备");
+    assert_eq!(edges.len(), 3, "retry 边投影前屏蔽（四减一）");
     let kinds: Vec<RunEdgeKind> = edges.iter().map(|edge| edge.edge_kind).collect();
-    assert_eq!(kinds, ALL_EDGE_KINDS.to_vec());
+    assert_eq!(
+        kinds,
+        vec![
+            RunEdgeKind::Forward,
+            RunEdgeKind::Feedback,
+            RunEdgeKind::Backtrack,
+        ],
+        "其余边按库读序出线（edge_seq 升序，retry 缺席）"
+    );
+    assert!(
+        edges.iter().all(|edge| edge.edge_kind != RunEdgeKind::Retry),
+        "投影后零 retry 边"
+    );
     assert_eq!(
         edges[0].from_node_key, "proposal:1:executor:0",
         "端点 = 节点身份串（phase:attempt:step:instance_no）"
+    );
+    // 边序不因跳边错位：to 端点逐条对应库内非 retry 行的原序号
+    let to_keys: Vec<&str> = edges.iter().map(|edge| edge.to_node_key.as_str()).collect();
+    assert_eq!(
+        to_keys,
+        vec![
+            "proposal:1:static_check:0",
+            "proposal:1:static_check:1",
+            "proposal:1:static_check:3",
+        ],
+        "跳边后其余边相对序与输入序一致"
     );
 
     let value = serde_json::to_value(&detail).expect("序列化应成功");
@@ -1842,10 +1866,7 @@ fn 详情边出线_四kind齐备与端点身份串() {
         .iter()
         .map(|edge| edge["edgeKind"].as_str().expect("edgeKind 为串"))
         .collect();
-    assert_eq!(
-        wire_kinds,
-        vec!["forward", "feedback", "retry", "backtrack"]
-    );
+    assert_eq!(wire_kinds, vec!["forward", "feedback", "backtrack"]);
 }
 
 /// 在档记录无 run 行 → runs 空数组且 wire 键恒在场；单节点零边 run → edges 空
@@ -2759,4 +2780,231 @@ fn 详情节点投影_clean词与initialize相位形态一致() {
         serde_json::Value::Null,
         "git 步族会话槽恒 null（与 cleanup 同构）"
     );
+}
+
+/// edges 全 retry（正向）：库内 run 边全为 `retry` → 投影后 `edges` 为空
+/// `Vec`，查询 `Ok` 不报错（零降级为 Err）。
+#[test]
+fn 详情边投影_全retry出空数组查询ok() {
+    let env = Env::new("run-edges-all-retry");
+    env.seed(ID_RUNNED, "runned", T0, None);
+    env.store.push_run(RunStateRecord {
+        status: RunStatus::Completed,
+        finished_at: Some(t(19)),
+        ..run_row(ID_RUNNED, "run-all-retry", t(10), RunStatus::Completed)
+    });
+    for index in 0..3 {
+        env.store.push_run_edge(run_edge_row(
+            "run-all-retry",
+            ID_RUNNED,
+            "proposal:1:executor:0",
+            &format!("proposal:1:executor:{index}"),
+            RunEdgeKind::Retry,
+        ));
+    }
+
+    let detail = env
+        .detail_result(ID_RUNNED)
+        .expect("全 retry 边查询应 Ok")
+        .expect("在档记录应得详情");
+    assert!(
+        detail.runs[0].edges.is_empty(),
+        "全 retry → 投影后空 Vec（存量库行整份屏蔽）"
+    );
+    let value = serde_json::to_value(&detail).expect("序列化应成功");
+    assert!(
+        value["runs"][0]["edges"].as_array().is_some_and(Vec::is_empty),
+        "edges 键恒在场（空数组不省键）"
+    );
+}
+
+/// edges 集形态边界（边界，表驱动 6 形态）：空边集 / 单条 retry / 单条
+/// forward / retry 位于首、中、尾三种位置 → 屏蔽生效且其余边相对序不变。
+#[test]
+fn 详情边投影_集形态六种边界() {
+    // 形态一：空边集
+    let env = Env::new("edges-empty");
+    env.seed(ID_RUNNED, "runned", T0, None);
+    env.store.push_run(RunStateRecord {
+        status: RunStatus::Completed,
+        finished_at: Some(t(19)),
+        ..run_row(ID_RUNNED, "run-empty", t(10), RunStatus::Completed)
+    });
+    assert!(env.detail(ID_RUNNED).runs[0].edges.is_empty(), "空边集仍空");
+
+    // 形态二 / 三：单条 retry / 单条 forward
+    let env = Env::new("edges-single");
+    env.seed(ID_RUNNED, "runned", T0, None);
+    env.store.push_run(RunStateRecord {
+        status: RunStatus::Completed,
+        finished_at: Some(t(19)),
+        ..run_row(ID_RUNNED, "run-single", t(10), RunStatus::Completed)
+    });
+    env.store.push_run_edge(run_edge_row(
+        "run-single",
+        ID_RUNNED,
+        "a:1:executor:0",
+        "a:1:evaluator:0",
+        RunEdgeKind::Retry,
+    ));
+    env.store.push_run_edge(run_edge_row(
+        "run-single",
+        ID_RUNNED,
+        "a:1:evaluator:0",
+        "a:1:verdict_gate:0",
+        RunEdgeKind::Forward,
+    ));
+    let edges = &env.detail(ID_RUNNED).runs[0].edges;
+    assert_eq!(edges.len(), 1, "单 retry + 单 forward → 留 forward");
+    assert_eq!(edges[0].edge_kind, RunEdgeKind::Forward);
+}
+
+/// edges 集形态边界（续）：`retry` 位于输入边表首 / 中 / 尾三位置各一例 →
+/// 输出仍零 `retry`，其余边相对序与输入序一致。
+#[test]
+fn 详情边投影_retry位于首中尾三种位置() {
+    let shapes: [[RunEdgeKind; 3]; 3] = [
+        [
+            RunEdgeKind::Retry,
+            RunEdgeKind::Forward,
+            RunEdgeKind::Feedback,
+        ],
+        [
+            RunEdgeKind::Forward,
+            RunEdgeKind::Retry,
+            RunEdgeKind::Feedback,
+        ],
+        [
+            RunEdgeKind::Forward,
+            RunEdgeKind::Feedback,
+            RunEdgeKind::Retry,
+        ],
+    ];
+    for (retry_pos, kinds) in shapes.into_iter().enumerate() {
+        let env = Env::new("edges-position");
+        env.seed(ID_RUNNED, "runned", T0, None);
+        env.store.push_run(RunStateRecord {
+            status: RunStatus::Completed,
+            finished_at: Some(t(19)),
+            ..run_row(ID_RUNNED, "run-position", t(10), RunStatus::Completed)
+        });
+        for (index, kind) in kinds.iter().enumerate() {
+            env.store.push_run_edge(run_edge_row(
+                "run-position",
+                ID_RUNNED,
+                "a:1:executor:0",
+                &format!("n:{index}"),
+                *kind,
+            ));
+        }
+        let edges = &env.detail(ID_RUNNED).runs[0].edges;
+        assert_eq!(edges.len(), 2, "retry 位于第 {retry_pos} 位：屏蔽后恰两条");
+        let expected: Vec<RunEdgeKind> = kinds
+            .iter()
+            .enumerate()
+            .filter(|(index, _)| *index != retry_pos)
+            .map(|(_, kind)| *kind)
+            .collect();
+        let actual: Vec<RunEdgeKind> = edges.iter().map(|edge| edge.edge_kind).collect();
+        assert_eq!(actual, expected, "其余边相对序不变（retry 位置 {retry_pos}）");
+        assert!(
+            edges
+                .iter()
+                .all(|edge| edge.edge_kind != RunEdgeKind::Retry),
+            "输出零 retry（位置 {retry_pos}）"
+        );
+    }
+}
+
+/// 多 run 混合投影（边界）：run A 含 retry、run B 不含 → 各 run 独立投影，
+/// `runs` 数不变（屏蔽作用域单 run，不串味）。
+#[test]
+fn 详情边投影_多run独立投影runs数不变() {
+    let env = Env::new("edges-multi-run");
+    env.seed(ID_RUNNED, "runned", T0, None);
+    env.store
+        .push_run(run_row(ID_RUNNED, "run-a", t(10), RunStatus::Completed));
+    env.store
+        .push_run(run_row(ID_RUNNED, "run-b", t(20), RunStatus::Completed));
+    env.store.push_run_edge(run_edge_row(
+        "run-a",
+        ID_RUNNED,
+        "a:1:executor:0",
+        "a:1:evaluator:0",
+        RunEdgeKind::Retry,
+    ));
+    env.store.push_run_edge(run_edge_row(
+        "run-a",
+        ID_RUNNED,
+        "a:1:evaluator:0",
+        "a:1:phase_log:0",
+        RunEdgeKind::Forward,
+    ));
+    env.store.push_run_edge(run_edge_row(
+        "run-b",
+        ID_RUNNED,
+        "b:1:executor:0",
+        "b:1:evaluator:0",
+        RunEdgeKind::Backtrack,
+    ));
+
+    let detail = env.detail(ID_RUNNED);
+    assert_eq!(detail.runs.len(), 2, "runs 数不变");
+    let run_a = detail
+        .runs
+        .iter()
+        .find(|run| run.run_id == "run-a")
+        .expect("run-a 在场");
+    let run_b = detail
+        .runs
+        .iter()
+        .find(|run| run.run_id == "run-b")
+        .expect("run-b 在场");
+    assert_eq!(run_a.edges.len(), 1, "run A：retry 屏蔽后一条");
+    assert_eq!(run_a.edges[0].edge_kind, RunEdgeKind::Forward);
+    assert_eq!(run_b.edges.len(), 1, "run B：无边序扰动");
+    assert_eq!(run_b.edges[0].edge_kind, RunEdgeKind::Backtrack);
+}
+
+/// nodes / runs 面零扰动（边界）：同一 run 的 nodes 集与 runs 集数量、内容与
+/// 库内一致（过滤只作用于 edges）。
+#[test]
+fn 详情边投影_nodes与runs面零扰动() {
+    let env = Env::new("edges-no-disturb");
+    env.seed(ID_RUNNED, "runned", T0, None);
+    env.store.push_run(RunStateRecord {
+        reason: Some("All phases have passed.".to_owned()),
+        status: RunStatus::Completed,
+        finished_at: Some(t(19)),
+        ..run_row(ID_RUNNED, "run-disturb", t(10), RunStatus::Completed)
+    });
+    let steps = [
+        RunStepKind::Executor,
+        RunStepKind::Evaluator,
+        RunStepKind::PhaseLog,
+    ];
+    for step in steps {
+        env.store
+            .push_run_node(run_node_row("run-disturb", ID_RUNNED, step));
+    }
+    env.store.push_run_edge(run_edge_row(
+        "run-disturb",
+        ID_RUNNED,
+        "implement:1:executor:0",
+        "implement:1:evaluator:0",
+        RunEdgeKind::Retry,
+    ));
+
+    let detail = env.detail(ID_RUNNED);
+    let run = &detail.runs[0];
+    assert_eq!(run.run_id, "run-disturb");
+    assert_eq!(
+        run.reason.as_deref(),
+        Some("All phases have passed."),
+        "runs 记因面零扰动"
+    );
+    assert_eq!(run.nodes.len(), 3, "nodes 集数量与库内一致");
+    let node_steps: Vec<RunStepKind> = run.nodes.iter().map(|node| node.step).collect();
+    assert_eq!(node_steps, steps.to_vec(), "nodes 内容 / 顺序零扰动");
+    assert!(run.edges.is_empty(), "过滤只作用于 edges");
 }

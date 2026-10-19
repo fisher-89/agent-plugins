@@ -1,0 +1,29 @@
+$ pnpm run server:check && pnpm run bindings:check && pnpm run client:check
+$ cargo fmt --manifest-path src-tauri/Cargo.toml && cargo clippy --manifest-path src-tauri/Cargo.toml
+    Checking webview2-com v0.38.2
+   Compiling tauri-plugin-fs v2.5.2
+   Compiling tauri-plugin-devtools v2.2.1
+   Compiling tauri-plugin-updater v2.12.0
+    Checking rig-memory v0.43.0
+    Checking specta-typescript v0.0.12
+    Checking checks-runtime v0.1.0 (C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\test-execution-zero-agent-decision\packages\desktop\src-tauri\crates\infra\checks)
+    Checking tokei v13.0.0
+    Checking wry v0.55.1
+    Checking tauri-runtime v2.11.3
+   Compiling tauri-plugin-dialog v2.7.3
+    Checking rig v0.43.0
+   Compiling dev-team v0.1.0 (C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\test-execution-zero-agent-decision\packages\desktop\src-tauri)
+    Checking tauri-runtime-wry v2.11.4
+    Checking agent-runtime v0.1.0 (C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\test-execution-zero-agent-decision\packages\desktop\src-tauri\crates\infra\agent)
+    Checking tauri v2.11.6
+    Checking tauri-specta v2.0.0-rc.25
+    Checking tauri-plugin-single-instance v2.4.5
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 24.93s
+$ pnpm run bindings:export && git diff --exit-code -- src/types/generated
+$ cargo run --quiet -p export-bindings --manifest-path src-tauri/Cargo.toml
+error: failed to write C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\test-execution-zero-agent-decision\packages\desktop\src-tauri\target\debug\deps\libtower_service-8ad1156dbdf492ec.rmeta: 另一个程序正在使用此文件，进程无法访问。 (os error 32)
+
+error: could not compile `tower-service` (lib) due to 1 previous error
+[ELIFECYCLE] Command failed with exit code 101.
+[ELIFECYCLE] Command failed with exit code 101.
+[ELIFECYCLE] Command failed with exit code 101.

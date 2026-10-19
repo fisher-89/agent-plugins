@@ -1,0 +1,115 @@
+$ pnpm run server:check && pnpm run bindings:check && pnpm run client:check
+$ cargo fmt --manifest-path src-tauri/Cargo.toml && cargo clippy --manifest-path src-tauri/Cargo.toml
+    Checking axum v0.8.9
+error[E0514]: found crate `axum_core` compiled by an incompatible version of rustc
+  --> C:\Users\wps\.cargo\registry\src\rsproxy.cn-e3de039b2554c837\axum-0.8.9\src\body\mod.rs:10:9
+   |
+10 | pub use axum_core::body::{Body, BodyDataStream};
+   |         ^^^^^^^^^
+   |
+   = note: the following crate versions were found:
+           crate `axum_core` compiled by <unknown rustc version>: \\?\C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\test-execution-zero-agent-decision\packages\desktop\src-tauri\target\debug\deps\libaxum_core-9467e51e9f7dca8d.rmeta
+   = help: please recompile that crate using this compiler (rustc 1.95.0 (59807616e 2026-04-14)) (consider running `cargo clean` first)
+
+error[E0432]: unresolved import `super::rejection::NestedPathRejection`
+  --> C:\Users\wps\.cargo\registry\src\rsproxy.cn-e3de039b2554c837\axum-0.8.9\src\extract\nested_path.rs:12:5
+   |
+12 | use super::rejection::NestedPathRejection;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ no `NestedPathRejection` in `extract::rejection`
+
+error[E0432]: unresolved imports `super::rejection::InvalidFormContentType`, `super::rejection::RawFormRejection`
+ --> C:\Users\wps\.cargo\registry\src\rsproxy.cn-e3de039b2554c837\axum-0.8.9\src\extract\raw_form.rs:7:17
+  |
+7 |     rejection::{InvalidFormContentType, RawFormRejection},
+  |                 ^^^^^^^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^ no `RawFormRejection` in `extract::rejection`
+  |                 |
+  |                 no `InvalidFormContentType` in `extract::rejection`
+
+error[E0425]: cannot find type `ExtensionRejection` in this scope
+  --> C:\Users\wps\.cargo\registry\src\rsproxy.cn-e3de039b2554c837\axum-0.8.9\src\extension.rs:88:22
+   |
+88 |     type Rejection = ExtensionRejection;
+   |                      ^^^^^^^^^^^^^^^^^^ not found in this scope
+
+error[E0425]: cannot find type `PathRejection` in this scope
+   --> C:\Users\wps\.cargo\registry\src\rsproxy.cn-e3de039b2554c837\axum-0.8.9\src\extract\path\mod.rs:162:22
+    |
+162 |     type Rejection = PathRejection;
+    |                      ^^^^^^^^^^^^^ not found in this scope
+
+error[E0425]: cannot find type `PathRejection` in this scope
+   --> C:\Users\wps\.cargo\registry\src\rsproxy.cn-e3de039b2554c837\axum-0.8.9\src\extract\path\mod.rs:166:82
+    |
+166 |         fn get_params(parts: &Parts) -> Result<&[(Arc<str>, PercentDecodedStr)], PathRejection> {
+    |                                                                                  ^^^^^^^^^^^^^ not found in this scope
+    |
+help: you might be missing a type parameter
+    |
+166 |         fn get_params<PathRejection>(parts: &Parts) -> Result<&[(Arc<str>, PercentDecodedStr)], PathRejection> {
+    |                      +++++++++++++++
+
+error[E0425]: cannot find value `MissingPathParams` in this scope
+   --> C:\Users\wps\.cargo\registry\src\rsproxy.cn-e3de039b2554c837\axum-0.8.9\src\extract\path\mod.rs:177:29
+    |
+177 |                 None => Err(MissingPathParams.into()),
+    |                             ^^^^^^^^^^^^^^^^^ not found in this scope
+
+error[E0425]: cannot find type `PathRejection` in this scope
+   --> C:\Users\wps\.cargo\registry\src\rsproxy.cn-e3de039b2554c837\axum-0.8.9\src\extract\path\mod.rs:181:80
+    |
+181 |         fn failed_to_deserialize_path_params(err: PathDeserializationError) -> PathRejection {
+    |                                                                                ^^^^^^^^^^^^^ not found in this scope
+
+error[E0425]: cannot find type `PathRejection` in this scope
+   --> C:\Users\wps\.cargo\registry\src\rsproxy.cn-e3de039b2554c837\axum-0.8.9\src\extract\path\mod.rs:197:22
+    |
+197 |     type Rejection = PathRejection;
+    |                      ^^^^^^^^^^^^^ not found in this scope
+
+error[E0425]: cannot find type `RawPathParamsRejection` in this scope
+   --> C:\Users\wps\.cargo\registry\src\rsproxy.cn-e3de039b2554c837\axum-0.8.9\src\extract\path\mod.rs:507:22
+    |
+507 |     type Rejection = RawPathParamsRejection;
+    |                      ^^^^^^^^^^^^^^^^^^^^^^ not found in this scope
+
+error[E0425]: cannot find value `MissingPathParams` in this scope
+   --> C:\Users\wps\.cargo\registry\src\rsproxy.cn-e3de039b2554c837\axum-0.8.9\src\extract\path\mod.rs:519:28
+    |
+519 |                 return Err(MissingPathParams.into());
+    |                            ^^^^^^^^^^^^^^^^^ not found in this scope
+
+error[E0207]: the type parameter `ResBody` is not constrained by the impl trait, self type, or predicates
+  --> C:\Users\wps\.cargo\registry\src\rsproxy.cn-e3de039b2554c837\axum-0.8.9\src\middleware\response_axum_body.rs:32:18
+   |
+32 | impl<S, Request, ResBody> Service<Request> for ResponseAxumBody<S>
+   |                  ^^^^^^^ unconstrained type parameter
+
+error[E0207]: the type parameter `ResBody` is not constrained by the impl trait, self type, or predicates
+  --> C:\Users\wps\.cargo\registry\src\rsproxy.cn-e3de039b2554c837\axum-0.8.9\src\middleware\response_axum_body.rs:63:11
+   |
+63 | impl<Fut, ResBody, E> Future for ResponseAxumBodyFuture<Fut>
+   |           ^^^^^^^ unconstrained type parameter
+
+error[E0433]: cannot find type `MissingExtension` in this scope
+  --> C:\Users\wps\.cargo\registry\src\rsproxy.cn-e3de039b2554c837\axum-0.8.9\src\extension.rs:92:13
+   |
+92 |             MissingExtension::from_err(format!(
+   |             ^^^^^^^^^^^^^^^^ use of undeclared type `MissingExtension`
+
+error[E0433]: cannot find type `PathRejection` in this scope
+   --> C:\Users\wps\.cargo\registry\src\rsproxy.cn-e3de039b2554c837\axum-0.8.9\src\extract\path\mod.rs:182:13
+    |
+182 |             PathRejection::FailedToDeserializePathParams(FailedToDeserializePathParams(err))
+    |             ^^^^^^^^^^^^^ use of undeclared type `PathRejection`
+
+error[E0433]: cannot find type `PathRejection` in this scope
+   --> C:\Users\wps\.cargo\registry\src\rsproxy.cn-e3de039b2554c837\axum-0.8.9\src\extract\path\mod.rs:205:17
+    |
+205 |             Err(PathRejection::FailedToDeserializePathParams(e))
+    |                 ^^^^^^^^^^^^^ use of undeclared type `PathRejection`
+
+Some errors have detailed explanations: E0207, E0425, E0432, E0433, E0514.
+For more information about an error, try `rustc --explain E0207`.
+error: could not compile `axum` (lib) due to 16 previous errors
+[ELIFECYCLE] Command failed with exit code 101.
+[ELIFECYCLE] Command failed with exit code 101.

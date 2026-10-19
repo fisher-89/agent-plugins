@@ -1,0 +1,1262 @@
+diff --git a/crates/core/workflow/src/state.rs b/crates/core/workflow/src/state.rs
+index c6d5cc2330b2..b6ae61bc4b75 100644
+--- a/crates/core/workflow/src/state.rs
++++ b/crates/core/workflow/src/state.rs
+@@ -266,7 +266,7 @@ pub enum StepNode {
+     StaticCheck,
+     /// test-execution 门禁工具步（确定性测试执行链）
+     TestExecution,
+-    /// mutation-test 门禁工具步（确定性突变执行链，独立反馈边②）
++    /// mutation-test 门禁工具步（确定性突变执行链，失败升格交决策、零会话）
+     MutationTest,
+     /// initialize 基线恢复步（vcs.restore_baseline）
+     Clean,
+@@ -386,7 +386,8 @@ impl StepNode {
+     }
+ }
+ 
+-/// 步失败语义（`StepDefinition.on_fail`）
++/// 步失败语义（`StepDefinition.on_fail`）：三变体 + 缺省 `None`（= 按步失败
++/// 收场，沿 `StepDefinition.on_fail` doc）。
+ #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Type)]
+ #[serde(rename_all = "camelCase")]
+ pub enum OnFail {
+@@ -401,6 +402,14 @@ pub enum OnFail {
+     /// 基线无意义）；其余 verdict 解析失败自 feedback 边改造后不再走终态。语义
+     /// 与缺省 `None` 等价。
+     Terminal,
++    /// 失败升格交决策：零 WorkerAgent 会话、代写一条 fail checklist 落账、
++    /// 截断本相位余下步（`StepFlow::Upgraded`）回 `phase_next` 进决策分叉；
++    /// 升格动作固定三段（代写 fail 落账 → 回 `phase_next` → 决策 backtrack /
++    /// stop / ask 裁决），无载荷无可调项。消费点仅 TestExecution / MutationTest
++    /// 步（归属守卫归表测试，四个执行体只按 `on_fail` 分派——误声明会静默
++    /// 失效）；同一步词在 initialize 表项仍为 `Terminal`（语义由表项声明承载，
++    /// MUST NOT 按相位名判断）。
++    Escalate,
+ }
+ 
+ /// 计划步定义（相位内有序序列项；全静态 const 表内联）。
+@@ -559,6 +568,12 @@ impl RunStepKind {
+ /// 与落库命令（`RunEdgeEntry.edge_kind`）同本类型消费（零映射）。
+ #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Type)]
+ #[serde(rename_all = "snake_case")]
++// 词面冻结说明：本枚举的 `///` 文本经 specta 出线到
++// `src/types/generated/bindings.ts`（`bindings:check` 要求零 diff），故 `Retry`
++// 的失效表述就地保留、现语义驻本注释：`retry` 为**存量解码专用**——新写面零
++// 产出（`DecisionAction::Retry` 已退役），查询面投影前屏蔽（`queries/detail.rs`
++// 唯一屏蔽点）；变体保留因记录信封走 serde_json，删变体将使旧行 decode 失败
++//（历史 run 流程图整份打不开）。值域仍四值（零 IPC 演进）。
+ pub enum RunEdgeKind {
+     /// 计划序推进（相位内按 steps 序推进、相位间推进）
+     Forward,
+diff --git a/crates/core/workflow/src/state_test.rs b/crates/core/workflow/src/state_test.rs
+index 8d253788710b..276898ea8954 100644
+--- a/crates/core/workflow/src/state_test.rs
++++ b/crates/core/workflow/src/state_test.rs
+@@ -1176,7 +1176,7 @@ fn agent_role五值线面snake_case逐字() {
+ }
+ 
+ /// 非法词反序列化拒绝：越集词反序列化为 `StepNode` / `StepGroup` /
+-/// `AgentRole` 均 Err（封闭集防线）；`OnFail` 两变体往返可辨、缺字段拒绝。
++/// `AgentRole` 均 Err（封闭集防线）；`OnFail` 三变体往返可辨、缺字段拒绝。
+ #[test]
+ fn step_node与on_fail封闭集防线() {
+     for illegal in [
+@@ -1209,7 +1209,8 @@ fn step_node与on_fail封闭集防线() {
+         assert!(back.is_err(), "AgentRole 越集词 {illegal:?} 应拒绝");
+     }
+ 
+-    // OnFail 两变体往返可辨：FeedbackLoop { limit }（camelCase 载荷）与 Terminal
++    // OnFail 三变体往返可辨：FeedbackLoop { limit }（camelCase 载荷）/ Terminal /
++    // Escalate（单元变体，失败升格交决策）
+     let feedback = OnFail::FeedbackLoop { limit: 5 };
+     let wire = serde_json::to_value(feedback).expect("出线应成功");
+     assert_eq!(wire, json!({ "feedbackLoop": { "limit": 5 } }));
+@@ -1223,10 +1224,87 @@ fn step_node与on_fail封闭集防线() {
+     assert_eq!(back, terminal);
+     assert_ne!(feedback, terminal, "两变体可辨");
+ 
+-    for illegal in ["feedbackloop", "FeedbackLoop", "terminal_fail", ""] {
++    let escalate = OnFail::Escalate;
++    let wire = serde_json::to_value(escalate).expect("出线应成功");
++    assert_eq!(
++        wire,
++        json!("escalate"),
++        "单元变体线词逐字（rename_all = camelCase 派生零手写）"
++    );
++    let back: OnFail = serde_json::from_value(wire).expect("往返应成功");
++    assert_eq!(back, escalate, "escalate 往返等值还原");
++    assert_ne!(escalate, terminal, "Escalate / Terminal 两单元变体可辨");
++    assert_ne!(escalate, feedback, "Escalate / FeedbackLoop 可辨");
++
++    for illegal in [
++        "feedbackloop",
++        "FeedbackLoop",
++        "terminal_fail",
++        "escalateLoop",
++        "ESCALATE",
++        "Escalate",
++        "",
++    ] {
+         let back: Result<OnFail, _> = serde_json::from_value(json!(illegal));
+         assert!(back.is_err(), "OnFail 越集词 {illegal:?} 应拒绝");
+     }
++    // null 亦拒绝（缺省语义由 Option 承载，封闭集本身不接受 null）
++    let back: Result<OnFail, _> = serde_json::from_value(serde_json::Value::Null);
++    assert!(back.is_err(), "OnFail 不接受 null（缺省由 Option 表达）");
++}
++
++/// `OnFail` 三变体表驱动往返（正向）：`Escalate` / `Terminal` /
++/// `FeedbackLoop { limit: 5 }` 逐变体 serialize → deserialize 等值还原，且三变体
++/// 两两可辨（封闭集值域恰三态 + 缺省 None）。
++#[test]
++fn on_fail三变体表驱动往返() {
++    let cases: [OnFail; 3] = [
++        OnFail::Escalate,
++        OnFail::Terminal,
++        OnFail::FeedbackLoop { limit: 5 },
++    ];
++    let mut wires: Vec<serde_json::Value> = Vec::new();
++    for on_fail in cases {
++        let wire = serde_json::to_value(on_fail).expect("出线应成功");
++        let back: OnFail = serde_json::from_value(wire.clone()).expect("往返应成功");
++        assert_eq!(back, on_fail, "变体 {on_fail:?} 往返等值还原");
++        wires.push(wire);
++    }
++    assert_eq!(wires.len(), 3);
++    for (idx, wire) in wires.iter().enumerate() {
++        for other in wires.iter().skip(idx + 1) {
++            assert_ne!(wire, other, "三变体线面两两可辨");
++        }
++    }
++    // 缺省形态：None 与三变体互不可辨——Option::None 不参与封闭集
++    let default: Option<OnFail> = None;
++    assert!(default.is_none(), "缺省 on_fail = None");
++    assert_ne!(Some(OnFail::Escalate), default, "Some(Escalate) 与 None 可辨");
++}
++
++/// `StepDefinition.on_fail` 缺省形态（边界）：`None` 与 `Some(OnFail::Escalate)`
++/// 可辨；`Copy` / `PartialEq` 派生保留（既有结构体字面量零改动可构造）。
++#[test]
++fn step_definition_on_fail缺省形态与copy语义() {
++    let default = StepDefinition {
++        node: StepNode::PhaseStart,
++        prompt_ref: None,
++        on_fail: None,
++    };
++    let escalate = StepDefinition {
++        node: StepNode::TestExecution,
++        prompt_ref: None,
++        on_fail: Some(OnFail::Escalate),
++    };
++    assert!(default.on_fail.is_none(), "缺省步零失败语义声明");
++    assert_eq!(escalate.on_fail, Some(OnFail::Escalate), "升格声明逐字段");
++    assert_ne!(default.on_fail, escalate.on_fail, "None / Some 可辨");
++    // Copy：结构体字面量零改动可复制（const 表内联前提）
++    let copied = escalate;
++    let again = escalate;
++    assert_eq!(copied, again, "Copy 后等值");
++    assert_eq!(copied.on_fail, Some(OnFail::Escalate), "Copy 保真");
++    assert_ne!(default, escalate, "两态构造可辨");
+ }
+ 
+ /// `FeedbackLoop` 计数上限为 u32 边界：limit=0 / 1 / u32::MAX 可构造不 panic
+@@ -1306,6 +1384,20 @@ fn run_edge_kind四值线面snake_case逐字() {
+     assert_eq!(RunEdgeKind::Retry.as_str(), "retry");
+     assert_eq!(RunEdgeKind::Backtrack.as_str(), "backtrack");
+ 
++    // 四值逐值 serialize → deserialize 往返无损（值域仍四值；`retry` 变体存在性
++    // 即存量解码契约——旧行信封走 serde_json，删变体将使历史 run 打不开）
++    for kind in [
++        RunEdgeKind::Forward,
++        RunEdgeKind::Feedback,
++        RunEdgeKind::Retry,
++        RunEdgeKind::Backtrack,
++    ] {
++        let wire = serde_json::to_value(kind).expect("出线应成功");
++        let back: RunEdgeKind = serde_json::from_value(wire.clone()).expect("往返应成功");
++        assert_eq!(back, kind, "四值逐值往返无损");
++        assert_eq!(kind.as_str(), wire.as_str().expect("线词为字符串"));
++    }
++
+     for illegal in ["feed_back", "Feedback", "back_track", "unknown", ""] {
+         let back: Result<RunEdgeKind, _> = serde_json::from_value(json!(illegal));
+         assert!(back.is_err(), "RunEdgeKind 越集词 {illegal:?} 应拒绝");
+diff --git a/crates/core/workflow/src/write/phase_next.rs b/crates/core/workflow/src/write/phase_next.rs
+index 1506b6e4b99c..969d59fe7980 100644
+--- a/crates/core/workflow/src/write/phase_next.rs
++++ b/crates/core/workflow/src/write/phase_next.rs
+@@ -38,15 +38,15 @@ impl SessionAnchors {
+ /// 唤起触发点（其余失败路径一律 `Err` 串走显式失败）。
+ #[derive(Debug, Clone, PartialEq, Eq)]
+ pub enum PhaseNextError {
++    /// 本相位已连续失败 N 次（窗口 fail 数达 `MAX_RETRY_TIMES`）——决策分叉
++    /// 标注变体之一（与 `VerdictFail` 同一路径，仅标注不同）
+     MaxRetriesExceeded {
+         phase: String,
+         round: u32,
+-        eval_only: bool,
+     },
+     VerdictFail {
+         phase: String,
+         round: u32,
+-        eval_only: bool,
+     },
+ }
+ 
+@@ -181,16 +181,14 @@ pub fn phase_next(
+         .iter()
+         .filter(|entry| entry.phase == next.id && entry.verdict == Verdict::Fail)
+         .count() as u32;
+-    // 决策已决防重触发：本相位最新 fail 条目已挂决策会话（决策分叉后决策
+-    // agent 选了 retry）→ 同一条目不再重复触发决策，放行恰一次同相位重跑
+-    //——否则 retry 决议会陷入 phase-next ↔ 决策空转，相位永不重执行。新
+-    // 落账的 fail 条目无决策标记，触发点对新条目照常生效。
++    // 决策已决防重触发：该 fail 条目已进入过决策（`decision_session_id` 在案）
++    // → 同一条目不再重复分叉。唯一合法重入路径为决策 backtrack 改写
++    // `backtrack_to`，目标相位真执行后新落账的 fail 条目照常分叉。删掉本幂等闸
++    // 后任何 fail 过的相位都无法再被执行（重做 pass 后最新 fail 条目仍会再次
++    // 触发决策），直烧到 `MAX_ROUNDS` 硬失败。
+     let latest_fail =
+         latest_phase_entry(&entries, next.id).filter(|entry| entry.verdict == Verdict::Fail);
+     let fail_decided = latest_fail.is_some_and(|entry| entry.decision_session_id.is_some());
+-    // 失败相位是否评估-only（executor 缺席而 evaluator 在场）：决策 prompt
+-    // 指引段的分派键——retry 的真实语义（仅重评 vs 携失败清单重跑修复）。
+-    let eval_only = next.executor.is_none() && next.evaluator.is_some();
+     if window_fails >= MAX_RETRY_TIMES && !fail_decided {
+         return Ok(error_outcome(
+             round,
+@@ -198,7 +196,6 @@ pub fn phase_next(
+             PhaseNextError::MaxRetriesExceeded {
+                 phase: next.id.to_owned(),
+                 round,
+-                eval_only,
+             },
+         ));
+     }
+@@ -206,7 +203,7 @@ pub fn phase_next(
+     // 低于盲目同相位重跑（executor / evaluator 会话重复执行），重试修复或
+     // 回退由决策 agent 裁决。确定性相位（archive：executor / evaluator 双
+     // 缺席）不触发——重跑确定性步序列有效。已决条目（fail_decided）放行
+-    // 一次重跑 = retry 决议的兑现面（携失败反馈段）。
++    // 一次重跑；决策 backtrack 重入为唯一合法重入路径。
+     if next.evaluator.is_some() && latest_fail.is_some() && !fail_decided {
+         return Ok(error_outcome(
+             round,
+@@ -214,7 +211,6 @@ pub fn phase_next(
+             PhaseNextError::VerdictFail {
+                 phase: next.id.to_owned(),
+                 round,
+-                eval_only,
+             },
+         ));
+     }
+diff --git a/crates/core/workflow/src/write/phase_next_test.rs b/crates/core/workflow/src/write/phase_next_test.rs
+index 13072d8ea7c9..38c68a6cc2a7 100644
+--- a/crates/core/workflow/src/write/phase_next_test.rs
++++ b/crates/core/workflow/src/write/phase_next_test.rs
+@@ -560,9 +560,9 @@ fn pass推进到下一相位且白名单随行() {
+     assert_eq!(last.verdict, Verdict::Pass);
+ }
+ 
+-/// 已决 fail 放行同相位重跑（带 executor 相位）：决策 retry 挂账后（fail 条目
+-/// decision_session_id 在位）→ 同相位重入、round 递增、失败反馈段进 executor
+-/// prompt（重试修复面）；再落的已决 fail 同式递增。
++/// 已决 fail 放行同相位重跑（带 executor 相位）：决策已消费该 fail 条目后
++///（`decision_session_id` 在位）→ 同相位重入、round 递增、失败反馈段进 executor
++/// prompt（决策 backtrack 兑现的重做面）；再落的已决 fail 同式递增。
+ #[test]
+ fn 已决fail放行同相位重跑且round递增() {
+     let fake = RouteStore::seeded(vec![entry("proposal", 1, Verdict::Pass, t(1))]);
+@@ -572,7 +572,7 @@ fn 已决fail放行同相位重跑且round递增() {
+     assert_eq!(first.next_phase.as_deref(), Some("dev-design"));
+     assert_eq!(first.round, 1);
+ 
+-    // run 期间逐条落账两条已决 fail（决策 retry 各兑现一次重跑）
++    // run 期间逐条落账两条已决 fail（决策 backtrack 各兑现一次重跑）
+     let mut decided = entry("dev-design", 1, Verdict::Fail, t(2));
+     decided.decision_session_id = Some("sess-decision-1".to_owned());
+     fake.push(decided);
+@@ -651,7 +651,7 @@ fn 失败项随已决fail重跑prompt注入且首轮零注入() {
+         "首轮无失败条目零注入"
+     );
+ 
+-    // 已决 fail（决策 retry 兑现的重跑面）：decision_session_id 在位故放行
++    // 已决 fail（决策 backtrack 兑现的重跑面）：decision_session_id 在位故放行
+     // 正常路由——失败反馈段随 executor prompt 下发
+     let mut failed = entry("dev-design", 1, Verdict::Fail, t(2));
+     failed.decision_session_id = Some("sess-decision-1".to_owned());
+@@ -719,7 +719,6 @@ fn 重试上限恰达返回max_retries_exceeded() {
+                 Some(PhaseNextError::VerdictFail {
+                     phase: "dev-design".to_owned(),
+                     round: attempt + 1,
+-                    eval_only: false,
+                 }),
+                 "第 {attempt} 条未决 fail 走 VerdictFail（决策分叉同语义）"
+             );
+@@ -729,7 +728,6 @@ fn 重试上限恰达返回max_retries_exceeded() {
+                 Some(PhaseNextError::MaxRetriesExceeded {
+                     phase: "dev-design".to_owned(),
+                     round: u32::from(MAX_RETRY_TIMES) + 1,
+-                    eval_only: false,
+                 }),
+                 "第 {MAX_RETRY_TIMES} 条 fail 恰达上限（标注变体）"
+             );
+@@ -753,9 +751,8 @@ fn verdict_fail立即决策分叉不自走重试() {
+         Some(PhaseNextError::VerdictFail {
+             phase: "dev-design".to_owned(),
+             round: 2,
+-            eval_only: false,
+         }),
+-        "带 executor 相位第 1 条 fail 即决策分叉（eval_only=false）"
++        "带 executor 相位第 1 条 fail 即决策分叉（任意带 evaluator 相位同式）"
+     );
+     assert_eq!(outcome.next_phase, None, "分叉响应不下发相位");
+     assert!(!outcome.done, "分叉非终态（决策待定）");
+@@ -773,7 +770,7 @@ fn verdict_fail立即决策分叉不自走重试() {
+     );
+ 
+     // 评估-only 相位（code-review）：前 6 相位 pass → code-review#1 fail →
+-    // 立即分叉（eval_only=true——决策 prompt 指引段分派键）
++    // 立即分叉（评估-only 与双角色相位同一分叉路径）
+     let base: Vec<PhaseStateRecord> = [
+         ("proposal", 1u32),
+         ("dev-design", 1),
+@@ -796,9 +793,8 @@ fn verdict_fail立即决策分叉不自走重试() {
+         Some(PhaseNextError::VerdictFail {
+             phase: "code-review".to_owned(),
+             round: 2,
+-            eval_only: true,
+         }),
+-        "评估-only 相位同式立即分叉（eval_only=true）"
++        "评估-only 相位同式立即分叉"
+     );
+ 
+     // acceptance（同为评估-only）同式
+@@ -816,13 +812,12 @@ fn verdict_fail立即决策分叉不自走重试() {
+         Some(PhaseNextError::VerdictFail {
+             phase: "acceptance".to_owned(),
+             round: 2,
+-            eval_only: true,
+         }),
+         "acceptance 同式立即分叉"
+     );
+ }
+ 
+-/// 已决 fail 放行恰一次重跑：决策 agent 选 retry 后（决策会话挂账最新 fail
++/// 已决 fail 放行恰一次重跑：决策已消费该 fail 条目后（决策会话挂账最新 fail
+ /// 条目 decision_session_id），同一条目不再重触发分叉——正常路由回同相位
+ ///（评估-only 相位 evaluator 携失败反馈段重评）。
+ #[test]
+@@ -850,7 +845,7 @@ fn 评估only相位已决fail放行恰一次重跑() {
+     let outcome = route(&fake, RUN, &anchors);
+     assert!(
+         outcome.error.is_none(),
+-        "已决条目不再重触发决策分叉（retry 决议兑现）"
++        "已决条目不再重触发决策分叉（决策已消费）"
+     );
+     assert_eq!(
+         outcome.next_phase.as_deref(),
+@@ -875,16 +870,15 @@ fn 评估only相位已决fail放行恰一次重跑() {
+         Some(PhaseNextError::VerdictFail {
+             phase: "code-review".to_owned(),
+             round: 3,
+-            eval_only: true,
+         }),
+         "新 fail 条目（无决策标记）分叉照常生效"
+     );
+ }
+ 
+-/// 重试上限已决 fail 放行重跑（决策 retry 不空转的回归锚）：窗口 fail 数达
+-/// 上限但最新 fail 条目已挂决策会话 → 不再返回 MaxRetriesExceeded，正常路由
+-/// 回同相位——否则决策 retry 决议会陷入 phase-next ↔ 决策无限空转（相位永不
+-/// 重执行、决策会话无限唤起）。
++/// 重试上限已决 fail 放行重跑（决策不空转的回归锚）：窗口 fail 数达上限但最新
++/// fail 条目已挂决策会话 → 不再返回 MaxRetriesExceeded，正常路由回同相位——
++/// 否则决策 backtrack 重入会陷入 phase-next ↔ 决策无限空转（相位永不重执行、
++/// 决策会话无限唤起）。
+ #[test]
+ fn 重试上限已决fail放行重跑不空转() {
+     let fake = RouteStore::seeded(vec![entry("proposal", 1, Verdict::Pass, t(1))]);
+@@ -901,7 +895,7 @@ fn 重试上限已决fail放行重跑不空转() {
+     let outcome = route(&fake, RUN, &anchors);
+     assert!(
+         outcome.error.is_none(),
+-        "上限已决条目不再重触发分叉（retry 决议放行一次重跑）"
++        "上限已决条目不再重触发分叉（fail_decided 放行一次重跑）"
+     );
+     assert_eq!(
+         outcome.next_phase.as_deref(),
+@@ -1868,3 +1862,227 @@ fn archive空checklist落账推导pass并随后done() {
+         "落账后 active_phase 清位"
+     );
+ }
++
++// ---------------------------------------------------------------------------
++// fail_decided 幂等闸边界（test-execution-zero-agent-decision AC-7）
++// ---------------------------------------------------------------------------
++
++/// 无 fail 条目（边界，表驱动 2 形态）：entries 为空 / entries 全 pass →
++/// `error = None`，直接出可执步序列（决策分叉零触发）。
++#[test]
++fn 无fail条目出可执步序列零分叉() {
++    // 形态一：零条目（表头未落账形态 → 落 initialize 表头）
++    let fake = RouteStore::with_record(
++        Some(requirement_record(CHANGE_ID, CHANGE_NAME)),
++        Vec::new(),
++    );
++    let outcome = route(&fake, RUN, &SessionAnchors::new());
++    assert!(outcome.error.is_none(), "零条目零分叉");
++    assert_eq!(outcome.next_phase.as_deref(), Some("initialize"));
++
++    // 形态二：全 pass（表头 + 前四相位 pass → 落 implement，可执步序列在场）
++    let fake = RouteStore::seeded(vec![
++        entry("proposal", 1, Verdict::Pass, t(1)),
++        entry("dev-design", 1, Verdict::Pass, t(2)),
++        entry("test-design", 1, Verdict::Pass, t(3)),
++    ]);
++    let outcome = route(&fake, RUN, &SessionAnchors::new());
++    assert!(outcome.error.is_none(), "全 pass 零分叉");
++    assert_eq!(outcome.next_phase.as_deref(), Some("implement"));
++    assert!(!outcome.steps.is_empty(), "可执步序列随行");
++    assert!(outcome.executor.is_some() && outcome.evaluator.is_some());
++}
++
++/// 最新条目为 pass（边界）：最新条目 `verdict = Pass`（即便携
++/// `decision_session_id`）→ 不算 `fail_decided`，判据只看最新 fail 条目——
++/// 放行推进而非停在同相位重跑。
++#[test]
++fn 最新条目为pass不算fail_decided() {
++    let fake = RouteStore::seeded(vec![entry("proposal", 1, Verdict::Pass, t(1))]);
++    let anchors = SessionAnchors::new();
++    let _ = route(&fake, RUN, &anchors);
++
++    // dev-design#1 fail 后重做 pass（携决策挂账键——历史痕迹）
++    fake.push(entry("dev-design", 1, Verdict::Fail, t(2)));
++    let _ = route(&fake, RUN, &anchors);
++    let mut redone = entry("dev-design", 2, Verdict::Pass, t(3));
++    redone.decision_session_id = Some("sess-decision-1".to_owned());
++    fake.push(redone);
++
++    let outcome = route(&fake, RUN, &anchors);
++    assert!(
++        outcome.error.is_none(),
++        "最新条目 pass → 零分叉（fail_decided 判据只看最新条目）"
++    );
++    assert_eq!(
++        outcome.next_phase.as_deref(),
++        Some("test-design"),
++        "放行推进至下一相位（非停在 dev-design 重跑）"
++    );
++}
++
++/// fail 条目非最新（边界）：早先 fail、其后 pass 条目 → 不触发决策分叉
++/// （latest 过滤语义：早先 fail 不复活）。
++#[test]
++fn fail条目非最新不触发分叉() {
++    let fake = RouteStore::seeded(vec![
++        entry("proposal", 1, Verdict::Pass, t(1)),
++        entry("dev-design", 1, Verdict::Fail, t(2)),
++        entry("dev-design", 2, Verdict::Pass, t(3)),
++    ]);
++    let outcome = route(&fake, RUN, &SessionAnchors::new());
++    assert!(
++        outcome.error.is_none(),
++        "早先 fail 非最新 → 零分叉（历史 fail 不复活）"
++    );
++    assert_eq!(outcome.next_phase.as_deref(), Some("test-design"));
++}
++
++/// 回溯重入后新 fail 条目照常分叉（正向）：已决 fail（backtrack 重入的第一
++/// 次尝试）→ 目标相位真执行后新 attempt 落 fail（`decision_session_id = None`）
++/// → 再次 `VerdictFail` 分叉（幂等闸只认「该条目」不认「该相位」）。
++#[test]
++fn 回溯重入新fail条目照常分叉() {
++    let fake = RouteStore::seeded(vec![entry("proposal", 1, Verdict::Pass, t(1))]);
++    let anchors = SessionAnchors::new();
++    let _ = route(&fake, RUN, &anchors);
++
++    // 首次 fail → 分叉 → 决策挂账（backtrack 已落账，重入 dev-design）
++    fake.push(entry("dev-design", 1, Verdict::Fail, t(2)));
++    let first = route(&fake, RUN, &anchors);
++    assert_eq!(
++        first.error,
++        Some(PhaseNextError::VerdictFail {
++            phase: "dev-design".to_owned(),
++            round: 2,
++        })
++    );
++    let mut decided = entry("dev-design", 1, Verdict::Fail, t(3));
++    decided.decision_session_id = Some("sess-decision-1".to_owned());
++    // 以最新条目替换语义等价：直接追加已决条目（同 attempt 重挂，时间戳更新）
++    fake.push(decided);
++    let allowed = route(&fake, RUN, &anchors);
++    assert!(allowed.error.is_none(), "同一条目已决不重复分叉");
++
++    // 重入后真执行再落新 attempt fail → 照常分叉
++    fake.push(entry("dev-design", 2, Verdict::Fail, t(5)));
++    let again = route(&fake, RUN, &anchors);
++    assert_eq!(
++        again.error,
++        Some(PhaseNextError::VerdictFail {
++            phase: "dev-design".to_owned(),
++            round: 4,
++        }),
++        "新 fail 条目（无决策标记）照常分叉"
++    );
++}
++
++/// backtrack 分支先手接管（边界）：已决 fail 条目之后落 backtrack 条目 →
++/// 路由直取回跳目标、`error = None`（回溯分支先于 fail_decided 判定，不二次
++/// 分叉决策）；目标相位重执行后再落新 fail 才照常分叉。
++#[test]
++fn backtrack条目先手接管不二次分叉() {
++    let fake = RouteStore::seeded(vec![
++        entry("proposal", 1, Verdict::Pass, t(1)),
++        entry("dev-design", 1, Verdict::Pass, t(2)),
++        entry("test-design", 1, Verdict::Pass, t(3)),
++    ]);
++    let anchors = SessionAnchors::new();
++    let _ = route(&fake, RUN, &anchors);
++
++    // implement 首轮 fail → 决策已消费（挂账）
++    fake.push(entry("implement", 1, Verdict::Fail, t(4)));
++    let forked = route(&fake, RUN, &anchors);
++    assert_eq!(
++        forked.error,
++        Some(PhaseNextError::VerdictFail {
++            phase: "implement".to_owned(),
++            round: 2,
++        })
++    );
++    let mut decided = entry("implement", 1, Verdict::Fail, t(5));
++    decided.decision_session_id = Some("sess-decision-1".to_owned());
++    fake.push(decided);
++
++    // 决策 backtrack 落账（backtrack_to 标记条目为最新）→ 路由直取目标
++    fake.push(backtrack_entry(
++        "implement",
++        1,
++        t(6),
++        "dev-design",
++        "设计返工",
++    ));
++    let targeted = route(&fake, RUN, &anchors);
++    assert!(
++        targeted.error.is_none(),
++        "回溯分支先手接管——已决条目不再二次分叉"
++    );
++    assert_eq!(
++        targeted.next_phase.as_deref(),
++        Some("dev-design"),
++        "路由直取回跳目标相位"
++    );
++    assert!(
++        targeted
++            .executor
++            .expect("目标相位 executor 在场")
++            .prompt
++            .contains("⚠️ 回溯原因: 设计返工"),
++        "回溯原因行独立注入（零失败反馈段）"
++    );
++}
++
++/// `PhaseNextError` 字段面边界（边界，参数化 4 值）：`phase` 为空串 / 8 字符、
++/// `round` = 0 与 `u32::MAX` 均可构造且 `PartialEq` 可辨（字段收缩后两变体零
++/// 冗余载荷；标注差异不吞相位 / 轮次）。
++#[test]
++fn phase_next_error字段面边界() {
++    let empty_phase = PhaseNextError::VerdictFail {
++        phase: String::new(),
++        round: 0,
++    };
++    let named_phase = PhaseNextError::VerdictFail {
++        phase: "dev-desi".to_owned(),
++        round: u32::MAX,
++    };
++    assert_ne!(empty_phase, named_phase, "phase / round 逐字段可辨");
++    assert_eq!(empty_phase.clone(), empty_phase, "PartialEq 自反");
++
++    let max_retries = PhaseNextError::MaxRetriesExceeded {
++        phase: String::new(),
++        round: 0,
++    };
++    assert_ne!(
++        max_retries,
++        PhaseNextError::MaxRetriesExceeded {
++            phase: "dev-desi".to_owned(),
++            round: 0,
++        },
++        "空串 / 8 字符相位名可辨"
++    );
++    assert_ne!(
++        max_retries,
++        PhaseNextError::MaxRetriesExceeded {
++            phase: String::new(),
++            round: u32::MAX,
++        },
++        "round 0 / u32::MAX 可辨"
++    );
++    // 同变体同载荷等值（PartialEq 按字段），两变体同载荷仍可辨（标注语义独立）
++    assert_eq!(
++        empty_phase,
++        PhaseNextError::VerdictFail {
++            phase: String::new(),
++            round: 0,
++        },
++        "同值不同实例等值（PartialEq 按字段）"
++    );
++    assert_ne!(
++        empty_phase,
++        PhaseNextError::MaxRetriesExceeded {
++            phase: String::new(),
++            round: 0,
++        },
++        "VerdictFail / MaxRetriesExceeded 同载荷仍可辨"
++    );
++}
+diff --git a/crates/core/workflow/src/write/phase_table.rs b/crates/core/workflow/src/write/phase_table.rs
+index 586849f3e15b..e3a84158e4c1 100644
+--- a/crates/core/workflow/src/write/phase_table.rs
++++ b/crates/core/workflow/src/write/phase_table.rs
+@@ -315,27 +315,25 @@ static TEST_GEN_STEPS: &[StepDefinition] = &[
+ /// test-execution 相位步序列：确定性门禁步承接（绿跑零 agent——无 Executor /
+ /// Evaluator / VerdictGate 步），pass 后 PhaseLog 步携机械 checklist 落账。拆步
+ /// 语义：`PhaseStart → TestExecution → MutationTest → PhaseLog`——测试 / 覆盖率
+-/// 修绿后才跑突变（walker 顺序执行天然保证），MutationTest `on_fail` 走独立
+-/// 反馈边②；requirement / test-only 两表共用同一 static 天然同式。
++/// 修绿后才跑突变（walker 顺序执行天然保证），两步失败即升格交决策（零修复
++/// 会话）；requirement / test-only 两表共用同一 static 天然同式。
+ static TEST_EXECUTION_STEPS: &[StepDefinition] = &[
+     StepDefinition {
+         node: StepNode::PhaseStart,
+         prompt_ref: None,
+         on_fail: None,
+     },
++    // 确定性门禁步：首败即升格交决策，零 agent 修复
+     StepDefinition {
+         node: StepNode::TestExecution,
+         prompt_ref: None,
+-        on_fail: Some(OnFail::FeedbackLoop {
+-            limit: FEEDBACK_LOOP_LIMIT,
+-        }),
++        on_fail: Some(OnFail::Escalate),
+     },
++    // 确定性门禁步：首败即升格交决策，零 agent 修复
+     StepDefinition {
+         node: StepNode::MutationTest,
+         prompt_ref: None,
+-        on_fail: Some(OnFail::FeedbackLoop {
+-            limit: FEEDBACK_LOOP_LIMIT,
+-        }),
++        on_fail: Some(OnFail::Escalate),
+     },
+     StepDefinition {
+         node: StepNode::PhaseLog,
+@@ -805,6 +803,11 @@ pub fn phase_table(workflow_type: &str) -> Option<&'static [PhaseDefinition]> {
+ /// initialize 排除机制——排除仅由表内 `backtrackable` 属性承载）；迭代按
+ /// `backtrackable` 过滤——`false` 者（表头 initialize）恒不入任何相位的回溯
+ /// 白名单。
++///
++/// 「可重做」自排除：`allowed` 含当前相位自身 ⟺ 该相位可重做（`steps` 含
++/// agent 步，`StepNode::role().is_some()`）；零 agent 步相位（test-execution /
++/// archive）自身不入白名单——决策上下文里不存在「重做本相位」选项。判断 MUST
++/// NOT 以相位名硬编码（可重做自步序列派生，零 `PhaseDefinition` 新字段）。
+ pub fn allowed_backtrack_phases(table: &[PhaseDefinition], current_phase: &str) -> Vec<String> {
+     let Some(idx) = table.iter().position(|phase| phase.id == current_phase) else {
+         return Vec::new();
+@@ -812,9 +815,14 @@ pub fn allowed_backtrack_phases(table: &[PhaseDefinition], current_phase: &str)
+     if idx == 0 {
+         return Vec::new();
+     }
++    let redoable = table[idx]
++        .steps
++        .iter()
++        .any(|step| step.node.role().is_some());
+     table[..=idx]
+         .iter()
+         .filter(|phase| phase.backtrackable)
++        .filter(|phase| redoable || phase.id != current_phase)
+         .map(|phase| phase.id.to_owned())
+         .collect()
+ }
+diff --git a/crates/core/workflow/src/write/phase_table_test.rs b/crates/core/workflow/src/write/phase_table_test.rs
+index 127bd515d76c..d17ce26b23b2 100644
+--- a/crates/core/workflow/src/write/phase_table_test.rs
++++ b/crates/core/workflow/src/write/phase_table_test.rs
+@@ -567,7 +567,7 @@ fn 回溯白名单随表分派两表各按本表序() {
+     assert_eq!(
+         allowed_backtrack_phases(test_only, "archive"),
+         expect(&TEST_ONLY_PHASE_ORDER[1..]),
+-        "test-only archive 白名单 = 除 initialize 外全表按表序（表头被 backtrackable 过滤）"
++        "test-only archive 白名单 = 除 initialize 外全表按表序（archive 含 agent 步 → 可重做自含）"
+     );
+     assert_eq!(
+         allowed_backtrack_phases(test_only, "initialize"),
+@@ -730,15 +730,15 @@ fn 白名单返回表序前置集含自身且initialize恒排除() {
+         ],
+         "中段相位白名单 = 表序前置集（含自身；零 initialize 入选）"
+     );
+-    // 末相位（archive）白名单 = 除 initialize 外全部前序相位按表序（全表覆盖
+-    // 场景——表头被 backtrackable 过滤，位置排除不参与）
++    // 末相位（archive）白名单 = 除 initialize 外全部前序相位按表序（archive 含
++    // SpecSync / ResolveConflicts agent 步 → 可重做自含；表头被 backtrackable 过滤）
+     assert_eq!(
+         allowed_backtrack_phases(table, "archive"),
+         REQUIREMENT_PHASE_ORDER[1..]
+             .iter()
+             .map(|id| id.to_string())
+             .collect::<Vec<_>>(),
+-        "archive 白名单 = 除 initialize 外全表按表序"
++        "archive 白名单 = 除 initialize 外全表按表序（自含可重做）"
+     );
+     // acceptance 白名单 = proposal … acceptance 八相位（表序前置集语义不因表头
+     // 插入漂移——archive 不为前置）
+@@ -838,19 +838,21 @@ fn expected_steps(phase: &str) -> Vec<StepNode> {
+     }
+ }
+ 
+-/// 相位 → `on_fail` 声明期望（四门禁步 FeedbackLoop{5}——static-check /
+-/// test-execution / mutation-test / verdict-gate；code-analyze 的 VerdictGate
+-/// 例外为 Terminal——spec 定稿「分析相位 verdict 失败即终态」；initialize 表头
+-/// 两检查步（StaticCheck / TestExecution）为例 Terminal——基线绿门失败即停零
+-/// 反馈边（check-before-flow-start D7）；其余 None）。
++/// 相位 → `on_fail` 声明期望（static-check 步 FeedbackLoop{5}——implement /
++/// test-gen；verdict-gate 步 FeedbackLoop{5}（code-analyze 例外 Terminal）；
++/// test-execution 相位两确定性门禁步（TestExecution / MutationTest）为 Escalate
++/// ——首败升格交决策、零 agent 修复；initialize 表头两检查步（StaticCheck /
++/// TestExecution）为 Terminal——基线绿门失败即停零反馈边（check-before-flow-start
++/// D7）；其余 None）。
+ fn expected_on_fail(phase_id: &str, node: StepNode) -> Option<OnFail> {
+     match node {
+         StepNode::StaticCheck | StepNode::TestExecution if phase_id == "initialize" => {
+             Some(OnFail::Terminal)
+         }
+-        StepNode::StaticCheck
+-        | StepNode::TestExecution
+-        | StepNode::MutationTest => Some(OnFail::FeedbackLoop { limit: 5 }),
++        StepNode::TestExecution | StepNode::MutationTest if phase_id == "test-execution" => {
++            Some(OnFail::Escalate)
++        }
++        StepNode::StaticCheck => Some(OnFail::FeedbackLoop { limit: 5 }),
+         StepNode::VerdictGate if phase_id == "code-analyze" => Some(OnFail::Terminal),
+         StepNode::VerdictGate => Some(OnFail::FeedbackLoop { limit: 5 }),
+         _ => None,
+@@ -1144,8 +1146,6 @@ fn 计划图on_fail语义与步绑定() {
+             if matches!(step.on_fail, Some(OnFail::FeedbackLoop { .. })) {
+                 let allowed = (matches!(def.id, "implement" | "test-gen")
+                     && step.node == StepNode::StaticCheck)
+-                    || (def.id == "test-execution"
+-                        && matches!(step.node, StepNode::TestExecution | StepNode::MutationTest))
+                     || step.node == StepNode::VerdictGate;
+                 assert!(
+                     allowed,
+@@ -1162,6 +1162,16 @@ fn 计划图on_fail语义与步绑定() {
+                     step.node
+                 );
+             }
++            // 负向面：Escalate 不得落到 agent 步（升格截断余下步依赖步序，agent
++            // 步误声明会静默吞掉本相位评估链）
++            if step.node.role().is_some() {
++                assert!(
++                    !matches!(step.on_fail, Some(OnFail::Escalate)),
++                    "相位 {} agent 步 {:?} 不得携 Escalate",
++                    def.id,
++                    step.node
++                );
++            }
+         }
+     }
+ 
+@@ -1888,8 +1898,6 @@ fn test_only表steps与on_fail全表扫描() {
+             );
+             if matches!(step.on_fail, Some(OnFail::FeedbackLoop { .. })) {
+                 let allowed = (def.id == "test-gen" && step.node == StepNode::StaticCheck)
+-                    || (def.id == "test-execution"
+-                        && matches!(step.node, StepNode::TestExecution | StepNode::MutationTest))
+                     || step.node == StepNode::VerdictGate;
+                 assert!(
+                     allowed,
+@@ -1966,10 +1974,10 @@ fn test_execution拆步四步序且两表同式() {
+ /// 与 test-execution 反馈边①分立计数）；`prompt_ref = None`（确定性工具步零
+ /// agent prompt）。
+ #[test]
+-fn mutation_test步on_fail反馈边与prompt_ref恒none() {
++fn mutation_test步on_fail升格与prompt_ref恒none() {
+     use super::phase_table::FEEDBACK_LOOP_LIMIT;
+ 
+-    assert_eq!(FEEDBACK_LOOP_LIMIT, 5, "反馈边独立计数上限常量锚定");
++    assert_eq!(FEEDBACK_LOOP_LIMIT, 5, "static-check / verdict-gate 反馈上限常量保留");
+ 
+     for workflow_type in ["requirement", "test-only"] {
+         let table = phase_table(workflow_type).expect("相位表应可达");
+@@ -1981,10 +1989,8 @@ fn mutation_test步on_fail反馈边与prompt_ref恒none() {
+             .unwrap_or_else(|| panic!("{workflow_type} 表应含 MutationTest 步"));
+         assert_eq!(
+             mutation.on_fail,
+-            Some(OnFail::FeedbackLoop {
+-                limit: FEEDBACK_LOOP_LIMIT
+-            }),
+-            "{workflow_type} 表 MutationTest on_fail = FeedbackLoop{{5}}"
++            Some(OnFail::Escalate),
++            "{workflow_type} 表 MutationTest on_fail = Escalate（首败升格交决策）"
+         );
+         assert_eq!(mutation.prompt_ref, None, "确定性工具步 prompt_ref 恒 None");
+     }
+@@ -2196,3 +2202,410 @@ fn initialize_phase_id常量逐字且再导出同值() {
+         );
+     }
+ }
++
++// ---------------------------------------------------------------------------
++// 回溯白名单「可重做自排除」（test-execution-zero-agent-decision AC-1）
++// ---------------------------------------------------------------------------
++
++/// `allowed_backtrack_phases` 自排除（正向）：零 agent 步相位（test-execution）
++/// 自身不入白名单——决策上下文里不存在「重做本相位」选项；可重做相位（步序列
++/// 含 agent 步：implement / test-gen）自含。两表同式（表驱动两表）。「自含 ⟺
++/// 可重做」由步序列 `role()` 派生，零相位名硬编码。
++#[test]
++fn 白名单零agent步相位自排除_可重做相位自含() {
++    for workflow_type in ["requirement", "test-only"] {
++        let table = phase_table(workflow_type).expect("相位表应可达");
++
++        let allowed = allowed_backtrack_phases(table, "test-execution");
++        assert!(
++            !allowed.iter().any(|phase| phase == "test-execution"),
++            "{workflow_type} test-execution 白名单不含自身（零 agent 步不可重做）: {allowed:?}"
++        );
++        assert!(
++            allowed.iter().any(|phase| phase == "test-gen"),
++            "{workflow_type} test-execution 白名单含前序 test-gen（对照行）"
++        );
++
++        // archive：「自含 ⟺ 可重做」由步序列派生（零相位名硬编码）——含 agent 步
++        // 则自含、零 agent 步则自排除；其白名单仍含前序 test-execution（零 agent 步
++        // 相位可作为目标，只是不可重做自身——自排除只作用于 current_phase）
++        let archive = phase_of(table, "archive");
++        let archive_redoable = archive
++            .steps
++            .iter()
++            .any(|step| step.node.role().is_some());
++        let allowed = allowed_backtrack_phases(table, "archive");
++        assert_eq!(
++            allowed.iter().any(|phase| phase == "archive"),
++            archive_redoable,
++            "{workflow_type} archive 白名单自含 ⟺ 步序列含 agent 步: {allowed:?}"
++        );
++        assert!(
++            allowed.iter().any(|phase| phase == "test-execution"),
++            "{workflow_type} archive 白名单含前序 test-execution（目标可选）: {allowed:?}"
++        );
++
++        // 可重做 agent 步相位自含（test-only 无 implement，按其表内相位对照）
++        for phase in ["proposal", "test-design", "test-gen"] {
++            let allowed = allowed_backtrack_phases(table, phase);
++            assert!(
++                allowed.iter().any(|id| id == phase),
++                "{workflow_type} 相位 {phase} 白名单含自身（agent 步相位可重做）: {allowed:?}"
++            );
++        }
++    }
++}
++
++/// 边界：`archive` 零 agent 步形态自排除（白名单自含 ⟺ 可重做，两表同式，3 例
++/// 对照）——把真实表内 `archive` 的步序列替换为确定性门禁序列（`PhaseStart` /
++/// `TestExecution` / `PhaseLog`，`role()` 全 `None`）后 `backtrackable` 仍为真，
++/// 自身照旧不入白名单（决策上下文里不存在「重做本相位」选项）；同表 `test-gen`
++/// （含 `Executor` 步）自含、`test-execution`（零 agent 步）自排除形成对照。
++///
++/// 口径说明：判定按步序列 `role()` 派生、不认相位名——真实相位表的 archive 复用
++/// `ARCHIVE_STEPS`（含 SpecSync / ResolveConflicts agent 步）故落「可重做 → 自含」
++/// 一侧；本用例以两表各自的 archive 表项零 agent 步化锁定「零 agent 步 → 自排除」
++/// 一侧的边界，防按相位名硬编码回潮（spec「白名单自含即重做、零 agent 步自排除」
++/// 的判定面本身）。
++#[test]
++fn 白名单archive零agent步自排除边界() {
++    // archive 零 agent 步形态：两表同式——真实表项仅替换步序列，`backtrackable`
++    // 仍 `true`（自排除不得靠资格位实现，只能由步序列派生）
++    static ZERO_AGENT_ARCHIVE_STEPS: &[StepDefinition] = &[
++        StepDefinition {
++            node: StepNode::PhaseStart,
++            prompt_ref: None,
++            on_fail: None,
++        },
++        StepDefinition {
++            node: StepNode::TestExecution,
++            prompt_ref: None,
++            on_fail: None,
++        },
++        StepDefinition {
++            node: StepNode::PhaseLog,
++            prompt_ref: None,
++            on_fail: None,
++        },
++    ];
++
++    for workflow_type in ["requirement", "test-only"] {
++        let table: Vec<PhaseDefinition> = phase_table(workflow_type)
++            .expect("相位表应可达")
++            .iter()
++            .map(|def| {
++                if def.id == "archive" {
++                    PhaseDefinition {
++                        steps: ZERO_AGENT_ARCHIVE_STEPS,
++                        ..def.clone()
++                    }
++                } else {
++                    def.clone()
++                }
++            })
++            .collect();
++
++        // 例一：archive（零 agent 步）白名单不含自身
++        let allowed = allowed_backtrack_phases(&table, "archive");
++        assert!(
++            !allowed.iter().any(|phase| phase == "archive"),
++            "{workflow_type} archive（零 agent 步）白名单不含自身（不可重做本相位）: {allowed:?}"
++        );
++        // 例二：可重做相位仍作为回溯目标在列（自排除只作用于 current_phase）
++        assert!(
++            allowed.iter().any(|phase| phase == "test-gen"),
++            "{workflow_type} archive 白名单含前序 test-gen（可重做相位作为目标）: {allowed:?}"
++        );
++        // 例三：同表 test-execution（零 agent 步）同样不含自身
++        assert!(
++            !allowed_backtrack_phases(&table, "test-execution")
++                .iter()
++                .any(|phase| phase == "test-execution"),
++            "{workflow_type} test-execution 白名单不含自身（零 agent 步）"
++        );
++
++        // 对照：同表 test-gen 含 Executor 步 → 自含（自含 ⟺ 可重做）
++        let allowed = allowed_backtrack_phases(&table, "test-gen");
++        assert!(
++            allowed.iter().any(|phase| phase == "test-gen"),
++            "{workflow_type} test-gen 白名单含自身（可重做本相位）: {allowed:?}"
++        );
++    }
++}
++
++/// 可重做相位全枚举（正向，遍历枚举）：agent 步相位在各自表中均含自身——
++/// 自含 ⟺ 可重做（自步序列派生，零相位名硬编码）；同式全表全枚举：零 agent 步
++/// 相位（test-execution）落自排除侧。
++#[test]
++fn 白名单可重做相位全枚举自含() {
++    let cases: [(&str, &[&str]); 2] = [
++        (
++            "requirement",
++            &[
++                "proposal",
++                "dev-design",
++                "test-design",
++                "implement",
++                "test-gen",
++            ],
++        ),
++        ("test-only", &["proposal", "code-analyze", "test-design", "test-gen"]),
++    ];
++    for (workflow_type, phases) in cases {
++        let table = phase_table(workflow_type).expect("相位表应可达");
++        for phase in phases {
++            let def = phase_of(table, phase);
++            let redoable = def.steps.iter().any(|step| step.node.role().is_some());
++            assert!(redoable, "{workflow_type} 相位 {phase} 应为可重做（含 agent 步）");
++            let allowed = allowed_backtrack_phases(table, phase);
++            assert!(
++                allowed.iter().any(|id| id == phase),
++                "{workflow_type} 可重做相位 {phase} 白名单自含: {allowed:?}"
++            );
++        }
++    }
++    // 全表属性（遍历枚举）：白名单自含 ⟺ 该相位可重做（步序列含 agent 步）——
++    // 评估-only 相位（code-review / acceptance）与 archive（含 SpecSync /
++    // ResolveConflicts agent 步）同属可重做侧，零 agent 步相位（test-execution）
++    // 落自排除侧；判定零相位名硬编码
++    for workflow_type in ["requirement", "test-only"] {
++        let table = phase_table(workflow_type).expect("相位表应可达");
++        for def in table.iter().skip(1) {
++            let redoable = def.steps.iter().any(|step| step.node.role().is_some());
++            let allowed = allowed_backtrack_phases(table, def.id);
++            assert_eq!(
++                allowed.iter().any(|id| id == def.id),
++                redoable,
++                "{workflow_type} 相位 {} 白名单自含 ⟺ 可重做: {allowed:?}",
++                def.id
++            );
++        }
++    }
++}
++
++/// 未知 / 非法 `current_phase`（异常，参数化 5 值）：空 Vec 不臆测——不自相位
++/// 表推导近似匹配、不做 trim / 大小写折叠。
++#[test]
++fn 白名单非法current_phase五形态空vec() {
++    let table = phase_table("requirement").expect("相位表应可达");
++    for illegal in [
++        "不存在的相位",
++        "",
++        &"x".repeat(1200),
++        "🚀\n",
++        " implement ",
++    ] {
++        assert!(
++            allowed_backtrack_phases(table, illegal).is_empty(),
++            "非法 current_phase {illegal:?} 应得空 Vec 不臆测"
++        );
++    }
++    // 大小写差异不折叠（"Implement" ≠ "implement"）
++    assert!(allowed_backtrack_phases(table, "Implement").is_empty());
++}
++
++/// 表形态边界（边界，表驱动 3 形态）：空表 → 空 Vec；单元素表（仅 initialize）
++/// 任意相位 → 空；`backtrackable = false` 的相位不进任何白名单。
++#[test]
++fn 白名单表形态边界三态() {
++    // 形态一：空表
++    assert!(allowed_backtrack_phases(&[], "initialize").is_empty());
++    assert!(allowed_backtrack_phases(&[], "implement").is_empty());
++
++    // 形态二：单元素表（仅 initialize）——表头早退
++    let single: &[PhaseDefinition] = &[PhaseDefinition {
++        id: "initialize",
++        description: "表头",
++        steps: &[],
++        artifact_manifest: &[],
++        prerequisites: &[],
++        backtrackable: false,
++        executor: None,
++        evaluator: None,
++    }];
++    assert!(allowed_backtrack_phases(single, "initialize").is_empty());
++    assert!(allowed_backtrack_phases(single, "implement").is_empty());
++
++    // 形态三：backtrackable = false 的相位不进任何白名单（属性承载而非位置）
++    let non_backtrackable: &[PhaseDefinition] = &[
++        PhaseDefinition {
++            id: "initialize",
++            description: "表头",
++            steps: &[],
++            artifact_manifest: &[],
++            prerequisites: &[],
++            backtrackable: false,
++            executor: None,
++            evaluator: None,
++        },
++        PhaseDefinition {
++            id: "frozen",
++            description: "不可回溯相位",
++            steps: &[],
++            artifact_manifest: &[],
++            prerequisites: &[],
++            backtrackable: false,
++            executor: None,
++            evaluator: None,
++        },
++        PhaseDefinition {
++            id: "tail",
++            description: "表尾（含 agent 步 → 可重做）",
++            steps: &[StepDefinition {
++                node: StepNode::Executor,
++                prompt_ref: None,
++                on_fail: None,
++            }],
++            artifact_manifest: &[],
++            prerequisites: &[],
++            backtrackable: true,
++            executor: None,
++            evaluator: None,
++        },
++    ];
++    assert!(
++        !allowed_backtrack_phases(non_backtrackable, "tail")
++            .iter()
++            .any(|phase| phase == "frozen"),
++        "backtrackable=false 相位不进白名单"
++    );
++    assert_eq!(
++        allowed_backtrack_phases(non_backtrackable, "tail"),
++        vec!["tail".to_owned()],
++        "可重做且 == 自身项留存（frozen / initialize 被过滤）"
++    );
++
++    // 零 agent 步的 current_phase 自排除（表内最后一格只余自身时 → 空 Vec）
++    let tool_only: &[PhaseDefinition] = &[
++        PhaseDefinition {
++            id: "initialize",
++            description: "表头",
++            steps: &[],
++            artifact_manifest: &[],
++            prerequisites: &[],
++            backtrackable: false,
++            executor: None,
++            evaluator: None,
++        },
++        PhaseDefinition {
++            id: "gate-only",
++            description: "零 agent 步相位",
++            steps: &[StepDefinition {
++                node: StepNode::TestExecution,
++                prompt_ref: None,
++                on_fail: Some(OnFail::Escalate),
++            }],
++            artifact_manifest: &[],
++            prerequisites: &[],
++            backtrackable: true,
++            executor: None,
++            evaluator: None,
++        },
++    ];
++    assert!(
++        allowed_backtrack_phases(tool_only, "gate-only").is_empty(),
++        "零 agent 步 current_phase 自排除后无剩余项"
++    );
++}
++
++/// `TEST_EXECUTION_STEPS` 两步声明（正向，表驱动四步）：TestExecution /
++/// MutationTest 两步 `on_fail == Some(OnFail::Escalate)`；PhaseStart / PhaseLog
++/// 为 `None`（首败升格交决策的声明面单点，零会话修复）。
++#[test]
++fn test_execution步序列四步on_fail声明() {
++    let table = phase_table("requirement").expect("相位表应可达");
++    let def = phase_of(table, "test-execution");
++    let steps: Vec<(StepNode, Option<OnFail>)> =
++        def.steps.iter().map(|step| (step.node, step.on_fail)).collect();
++    assert_eq!(
++        steps,
++        vec![
++            (StepNode::PhaseStart, None),
++            (StepNode::TestExecution, Some(OnFail::Escalate)),
++            (StepNode::MutationTest, Some(OnFail::Escalate)),
++            (StepNode::PhaseLog, None),
++        ],
++        "test-execution 四步序与 on_fail 声明"
++    );
++}
++
++/// `Escalate` 归属守卫（正向，遍历枚举全表所有步）：`Escalate` 仅允许出现在
++/// test-execution 相位的 TestExecution / MutationTest 步——四个执行体只按
++/// `on_fail` 分派，误声明会静默失效（断言即守卫）。
++#[test]
++fn escalate归属守卫全表遍历() {
++    for workflow_type in ["requirement", "test-only"] {
++        let table = phase_table(workflow_type).expect("相位表应可达");
++        for def in table {
++            for step in def.steps {
++                if step.on_fail == Some(OnFail::Escalate) {
++                    assert_eq!(
++                        def.id, "test-execution",
++                        "{workflow_type} Escalate 仅允许 test-execution 相位，实际相位 {}",
++                        def.id
++                    );
++                    assert!(
++                        matches!(step.node, StepNode::TestExecution | StepNode::MutationTest),
++                        "{workflow_type} Escalate 仅允许 TestExecution / MutationTest 步，实际 {:?}",
++                        step.node
++                    );
++                }
++            }
++        }
++    }
++}
++
++/// `on_fail` 回归锚（AC-10，边界，表驱动 4 组）：initialize 两检查步仍
++/// `Terminal`；implement / test-gen 的 StaticCheck 仍 `FeedbackLoop { 5 }`；
++/// archive 11 步全 `None`；`FEEDBACK_LOOP_LIMIT == 5`。
++#[test]
++fn on_fail回归锚_ac10() {
++    use super::phase_table::FEEDBACK_LOOP_LIMIT;
++
++    let table = phase_table("requirement").expect("相位表应可达");
++
++    // 组一：initialize 基线两检查步仍 Terminal
++    let initialize = phase_of(table, "initialize");
++    for node in [StepNode::StaticCheck, StepNode::TestExecution] {
++        let step = initialize
++            .steps
++            .iter()
++            .find(|step| step.node == node)
++            .unwrap_or_else(|| panic!("initialize 应有 {node:?} 步"));
++        assert_eq!(
++            step.on_fail,
++            Some(OnFail::Terminal),
++            "initialize {node:?} 仍 Terminal（基线绿门失败即停）"
++        );
++    }
++
++    // 组二 / 组三：implement / test-gen 的 static-check 反馈边仍 5 次循环
++    for phase in ["implement", "test-gen"] {
++        let def = phase_of(table, phase);
++        let step = def
++            .steps
++            .iter()
++            .find(|step| step.node == StepNode::StaticCheck)
++            .unwrap_or_else(|| panic!("{phase} 应有 StaticCheck 步"));
++        assert_eq!(
++            step.on_fail,
++            Some(OnFail::FeedbackLoop {
++                limit: FEEDBACK_LOOP_LIMIT
++            }),
++            "{phase} static-check 反馈边上限 5 不变"
++        );
++    }
++
++    // 组四：archive 11 步 on_fail 全 None
++    let archive = phase_of(table, "archive");
++    assert_eq!(archive.steps.len(), 11, "archive 11 步");
++    for step in archive.steps {
++        assert_eq!(
++            step.on_fail, None,
++            "archive 步 {:?} 零升格 / 零反馈声明",
++            step.node
++        );
++    }
++
++    assert_eq!(FEEDBACK_LOOP_LIMIT, 5, "反馈循环常量锚定 5");
++}
+diff --git a/crates/core/workflow/tests/corpus_golden_test.rs b/crates/core/workflow/tests/corpus_golden_test.rs
+index b56fc26a5ddb..abcd4e1281ac 100644
+--- a/crates/core/workflow/tests/corpus_golden_test.rs
++++ b/crates/core/workflow/tests/corpus_golden_test.rs
+@@ -1873,7 +1873,8 @@ fn corpusrun全史语料_golden对拍() {
+         "steps 键退役（nodes / edges 取代）"
+     );
+ 
+-    // 四 kind 边齐备 + feedback 边端点指回同相位 agent 步 + 实例号递增
++    // 存量 `retry` 行投影前屏蔽（读面唯一屏蔽点）+ 其余三 kind 边齐备 +
++    // feedback 边端点指回同相位 agent 步 + 实例号递增
+     let edges = projection["runs"][0]["edges"]
+         .as_array()
+         .expect("edges 为数组");
+@@ -1881,9 +1882,13 @@ fn corpusrun全史语料_golden对拍() {
+         .iter()
+         .map(|row| row["edgeKind"].as_str().expect("edgeKind 出线词"))
+         .collect();
+-    for kind in ["forward", "feedback", "retry", "backtrack"] {
+-        assert!(kinds.contains(&kind), "四 kind 边 {kind} 应在案：{kinds:?}");
++    for kind in ["forward", "feedback", "backtrack"] {
++        assert!(kinds.contains(&kind), "边 kind {kind} 应在案：{kinds:?}");
+     }
++    assert!(
++        !kinds.contains(&"retry"),
++        "存量 retry 边投影后缺席（AC-8 读面屏蔽）：{kinds:?}"
++    );
+     let feedback = edges
+         .iter()
+         .find(|row| row["edgeKind"] == "feedback")
+diff --git a/crates/core/workflow/tests/golden/corpus-run-history.json b/crates/core/workflow/tests/golden/corpus-run-history.json
+index 71822f23513c..ca712fd01a31 100644
+--- a/crates/core/workflow/tests/golden/corpus-run-history.json
++++ b/crates/core/workflow/tests/golden/corpus-run-history.json
+@@ -107,11 +107,6 @@
+           "fromNodeKey": "implement:1:executor:1",
+           "toNodeKey": "implement:1:evaluator:0"
+         },
+-        {
+-          "edgeKind": "retry",
+-          "fromNodeKey": "implement:1:evaluator:0",
+-          "toNodeKey": "implement:1:decision:0"
+-        },
+         {
+           "edgeKind": "backtrack",
+           "fromNodeKey": "implement:1:whitelist_gate:0",

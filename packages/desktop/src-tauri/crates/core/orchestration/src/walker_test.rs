@@ -527,7 +527,11 @@ impl WorkerAgentPort for FakeWorker {
                 WorkerRole::Decision => Some(
                     decision
                         .flatten()
-                        .unwrap_or_else(|| r#"{ "action": "retry" }"#.to_owned()),
+                        .unwrap_or_else(|| {
+                            // 缺省决策：受控终止（未预录决策产出的用例不空转；
+                            // 触发决策的用例恒显式预录产出）
+                            r#"{ "action": "stop", "reason": "（默认）决策受控终止" }"#.to_owned()
+                        }),
                 ),
                 WorkerRole::SpecSync | WorkerRole::ResolveConflicts => {
                     match archive_message.flatten() {
@@ -893,19 +897,16 @@ fn max_retries_outcome(phase: &str, allowed: &[&str], last_report: &str) -> Phas
         error: Some(PhaseNextError::MaxRetriesExceeded {
             phase: phase.to_owned(),
             round: 6,
-            eval_only: false,
         }),
     }
 }
 
 /// 预录 verdict fail 决策分叉产出（第 1 条 fail 即分叉的形态：round=2 =
-/// 首条 fail 落账后的次轮；eval_only 按 phase 形态给定——决策 prompt 指引段
-/// 分派键；其余面与 max_retries_outcome 同形）。
+/// 首条 fail 落账后的次轮；其余面与 max_retries_outcome 同形）。
 fn verdict_fail_outcome(
     phase: &str,
     allowed: &[&str],
     last_report: &str,
-    eval_only: bool,
 ) -> PhaseNextOutcome {
     PhaseNextOutcome {
         done: false,
@@ -925,7 +926,6 @@ fn verdict_fail_outcome(
         error: Some(PhaseNextError::VerdictFail {
             phase: phase.to_owned(),
             round: 2,
-            eval_only,
         }),
     }
 }
@@ -1756,7 +1756,7 @@ fn feedback_limit_of(phase: &str, node: StepNode) -> u32 {
         .and_then(|step| step.on_fail)
         .and_then(|on_fail| match on_fail {
             OnFail::FeedbackLoop { limit } => Some(limit),
-            OnFail::Terminal => None,
+            OnFail::Terminal | OnFail::Escalate => None,
         })
         .unwrap_or_else(|| panic!("相位 {phase} 的 {node:?} 步应声明 FeedbackLoop"))
 }
@@ -1764,11 +1764,6 @@ fn feedback_limit_of(phase: &str, node: StepNode) -> u32 {
 /// static-check 门禁反馈上限（implement / test-gen 声明同值）。
 fn static_check_feedback_limit() -> u32 {
     feedback_limit_of("implement", StepNode::StaticCheck)
-}
-
-/// test-execution 门禁反馈上限（test-execution 相位声明）。
-fn test_execution_feedback_limit() -> u32 {
-    feedback_limit_of("test-execution", StepNode::TestExecution)
 }
 
 /// 声明 static-check 步的相位（布局身份常量退役——相位限定由 step 声明承载）。
@@ -1822,6 +1817,18 @@ fn step_rows(steps: &[RunNodeEntry]) -> Vec<(String, u32, String, String)> {
             )
         })
         .collect()
+}
+
+/// 摘取决策会话请求的 prompt（首个 Decision 角色；锁作用域收在同步函数内，
+/// 不跨 await 持锁）。
+fn decision_prompt_of(requests: &Arc<Mutex<Vec<WorkerTurnRequest>>>) -> String {
+    requests
+        .lock()
+        .expect("请求锁")
+        .iter()
+        .find(|request| request.role == WorkerRole::Decision)
+        .map(|request| request.prompt.clone())
+        .expect("决策会话请求应在场")
 }
 
 /// 通知流非阻塞排空（kind-only 通知的在场性断言入口）。
@@ -2362,16 +2369,21 @@ async fn fail预算内重试attempt递增重跑() {
     );
 }
 
-/// walk_run 决策分叉唤起有界输入：phase-next 返回 MaxRetriesExceeded → 决策
-/// agent 恰被唤起一次，WorkerTurnRequest 捕获断言输入有界（fail checklist +
-/// 写面下发白名单 + 候选相位 eval report 取自 snapshot detail——AC-2 唤起半边）。
+/// walk_run 决策会话（正向）：phase-next 返回 MaxRetriesExceeded → 决策 agent
+/// 恰唤起一次（`ModelLevel::High`）、输入有界（fail checklist + 白名单 + 候选
+/// eval report + 失败相位报告原文）、白名单门节点恰一个且 passed（决策前零门
+/// 节点——门已迁入会话）；首轮合法 backtrack 落账后重路由收敛。
 #[tokio::test]
 async fn 决策分叉唤起恰一次且输入有界() {
     let (root, db) = decision_fixture("decision-input");
 
     let timeline = Arc::new(Mutex::new(Vec::new()));
-    let (worker, requests, sessions) = FakeWorker::new(&timeline).assemble();
-    let (tools, commands) = FakeTools::new(&timeline)
+    let (worker, requests, _sessions) = FakeWorker::new(&timeline)
+        .with_decision_reports(vec![
+            r#"{ "action": "backtrack", "to": "dev-design", "reason": "设计返工" }"#.to_owned(),
+        ])
+        .assemble();
+    let (tools, _commands) = FakeTools::new(&timeline)
         .with_phase_next(vec![
             // 首轮正常路由：白名单缓存随行（决策分叉的 allowed 来自上一站
             // phase-next 缓存——walker 的缓存语义面）
@@ -2381,37 +2393,40 @@ async fn 决策分叉唤起恰一次且输入有界() {
                 &["proposal", "dev-design", "implement"],
                 "首轮未过",
             ),
+            // 回跳目标相位自该处重跑 → 收敛
+            route_outcome("dev-design", &["proposal", "dev-design"]),
             done_outcome(),
         ])
         .assemble();
 
-    // 真实快照源：决策输入取自 ChangeDetail 只读装配（db 读源——AC-2 有界输入
+    // 真实快照源：决策输入取自 ChangeDetail 只读装配（db 读源——决策有界输入
     // 来源）；查得即 detail(root, **id**) 形参随动证明（磁盘目录名恒 name，
     // id ≠ name 形态下 name 入参必 miss）
     let snapshot: Arc<dyn WorkflowSnapshotPort> =
         Arc::new(StoreSnapshot::new(root.root_str(), db.store_arc()));
     let control = Arc::new(ChangeFlowControl::new());
 
-    let (task, _rx, _history) =
+    let (task, _rx, history) =
         spawn_run(worker, tools, snapshot, &control, false, &root.root_str());
     let _confirmer = spawn_confirmer(&control, true);
     let status = task.await.expect("run 任务正常结束");
-    assert_eq!(
-        status,
-        ChangeRunStatus::Completed,
-        "决策 retry → 重路由 done"
-    );
+    assert_eq!(status, ChangeRunStatus::Completed, "决策 backtrack → 重路由 done");
 
-    // 决策 agent 恰被唤起一次（预算内路径零决策——对照行见「retry 预算内自走」）
     let requests = requests.lock().expect("请求锁");
     let decision_requests: Vec<&WorkerTurnRequest> = requests
         .iter()
         .filter(|request| request.role == WorkerRole::Decision)
         .collect();
     assert_eq!(decision_requests.len(), 1, "决策 agent 恰唤起一次");
+    assert_eq!(
+        decision_requests[0].model_level,
+        ModelLevel::High,
+        "决策会话恒 High 档"
+    );
     let prompt = &decision_requests[0].prompt;
 
-    // 输入有界三面：fail checklist + 写面下发白名单 + 候选相位 eval report
+    // 输入有界四面：fail checklist + 写面下发白名单 + 候选相位 eval report +
+    // 失败相位报告原文
     assert!(
         prompt.contains("写面保形") && prompt.contains("custom_note 丢失"),
         "fail checklist 行（item + evidence）在场"
@@ -2428,26 +2443,31 @@ async fn 决策分叉唤起恰一次且输入有界() {
         !prompt.contains("test-design"),
         "候选面限于白名单（表序后续相位不入场）"
     );
+    assert!(
+        prompt.contains("## 失败相位报告") && prompt.contains("首轮未过"),
+        "失败相位报告段渲染失败条目 report 原文: {prompt}"
+    );
     drop(requests);
 
-    // 零 backtrack（决策 retry）且白名单门放行后直接重路由
-    assert!(
-        commands
-            .lock()
-            .expect("命令锁")
-            .iter()
-            .all(|command| !matches!(command, ToolCommand::Backtrack { .. })),
-        "retry 决议零 backtrack 步"
-    );
-    let _ = sessions;
+    // 门节点：决策会话内恰一个实例且 passed（决策前零 WhitelistGate——门已迁
+    // 入会话，resolve_deadlock 不再 emit 门节点）
+    let finish = history.finish().expect("finish 落包捕获");
+    let gates: Vec<&RunNodeEntry> = finish
+        .nodes
+        .iter()
+        .filter(|node| node.step == workflow::state::RunStepKind::WhitelistGate)
+        .collect();
+    assert_eq!(gates.len(), 1, "每轮决策恰 emit 一个门实例");
+    assert_eq!(gates[0].status, RunStepStatus::Passed, "合法 backtrack 门 passed");
+    assert_eq!(gates[0].phase, "implement", "门节点归属失败相位");
 }
 
-/// walk_run verdict fail 决策分叉：phase-next 返回 VerdictFail（任意相位第
-/// 1 条未决 verdict fail——本用例为 code-review，评估-only 形态）→ 立即唤起
-/// 决策 agent（不自走同相位重跑），prompt 携评估-only 指引段（retry 仅重评
-/// 不修复）；决策 retry → 同相位重跑恰一次（evaluator attempt 1 → 2）。
+/// walk_run verdict fail 决策分叉（正向）：phase-next 返回 VerdictFail（任意
+/// 相位第 1 条未决 verdict fail——本用例评估-only 的 code-review）→ 立即唤起
+/// 决策 agent（不自走同相位重跑）；决策 backtrack 到自身（评估-only 相位可重做，
+/// 白名单自含）经门 passed 落账 → 同相位重跑恰一次（evaluator attempt 1 → 2）。
 #[tokio::test]
-async fn verdict_fail分叉立即唤起决策_retry决议重跑同相位() {
+async fn verdict_fail分叉立即唤起决策_backtrack自身重跑同相位() {
     // db 种子：proposal / implement pass + code-review fail（决策输入读源）
     let root = TempRoot::new("eval-only-decision");
     root.change(NAME);
@@ -2491,19 +2511,21 @@ async fn verdict_fail分叉立即唤起决策_retry决议重跑同相位() {
         "test-design",
         "implement",
         "test-gen",
-        "test-execution",
         "code-review",
     ];
     let timeline = Arc::new(Mutex::new(Vec::new()));
     let (worker, requests, _) = FakeWorker::new(&timeline)
-        .with_decision_reports(vec![r#"{ "action": "retry" }"#.to_owned()])
+        .with_decision_reports(vec![
+            r#"{ "action": "backtrack", "to": "code-review", "reason": "重做本相位" }"#
+                .to_owned(),
+        ])
         .assemble();
     let (tools, commands) = FakeTools::new(&timeline)
         .with_phase_next(vec![
             // 首轮正常路由（白名单缓存面）→ 相位 pass 落账 → 次轮分叉错误 →
-            // 决策 retry → 重路由同相位 → 重跑 pass → done
+            // 决策 backtrack 到自身 → 重路由同相位 → 重跑 pass → done
             route_outcome("code-review", &allowed),
-            verdict_fail_outcome("code-review", &allowed, "审查未过", true),
+            verdict_fail_outcome("code-review", &allowed, "审查未过"),
             route_outcome("code-review", &allowed),
             done_outcome(),
         ])
@@ -2520,12 +2542,12 @@ async fn verdict_fail分叉立即唤起决策_retry决议重跑同相位() {
     assert_eq!(
         status,
         ChangeRunStatus::Completed,
-        "评估-only fail → 决策 retry → 重跑 pass → done"
+        "评估-only fail → 决策 backtrack 自身 → 重跑 pass → done"
     );
 
     let requests = requests.lock().expect("请求锁");
 
-    // 决策 agent 恰唤起一次：prompt 携评估-only 指引段 + db fail checklist
+    // 决策 agent 恰唤起一次：prompt 携失败相位报告段 + db fail checklist
     let decision_requests: Vec<&WorkerTurnRequest> = requests
         .iter()
         .filter(|request| request.role == WorkerRole::Decision)
@@ -2533,16 +2555,23 @@ async fn verdict_fail分叉立即唤起决策_retry决议重跑同相位() {
     assert_eq!(decision_requests.len(), 1, "决策 agent 恰唤起一次");
     let prompt = &decision_requests[0].prompt;
     assert!(
-        prompt.contains("评估-only 相位（无 executor）")
-            && prompt.contains("retry 仅会重新评估同一份产物、不会修复"),
-        "评估-only 指引段在场（重试重评 vs 回退修复的语义锚）: {prompt}"
+        prompt.contains("## 失败相位报告") && prompt.contains("审查未过"),
+        "失败相位报告段渲染失败条目 report 原文: {prompt}"
+    );
+    assert!(
+        prompt.contains("- code-review（= 重做本相位）"),
+        "白名单自含（评估-only 相位可重做）注记在场: {prompt}"
+    );
+    assert!(
+        !prompt.contains("eval_only") && !prompt.contains("评估-only 相位（无 executor）"),
+        "eval_only 指引段已退役（三动作 + 报告面组装）"
     );
     assert!(
         prompt.contains("错误处理") && prompt.contains("unwrap 裸用 3 处"),
         "fail checklist（item + evidence）自 db 快照随行: {prompt}"
     );
 
-    // 决策 retry → 同相位重跑恰一次：code-review evaluator attempt 1 → 2
+    // 决策 backtrack 到自身 → 同相位重跑恰一次：evaluator attempt 1 → 2
     let evaluator_attempts: Vec<String> = requests
         .iter()
         .filter(|request| request.role == WorkerRole::Evaluator)
@@ -2556,19 +2585,17 @@ async fn verdict_fail分叉立即唤起决策_retry决议重跑同相位() {
             format!("{CHANGE_ID}/code-review/evaluator/1"),
             format!("{CHANGE_ID}/code-review/evaluator/2"),
         ],
-        "evaluator 两轮（首轮 pass 落账后次轮分叉为装置预录，决策 retry 重跑一轮）"
+        "evaluator 两轮（首轮 pass 落账后次轮分叉为装置预录，backtrack 重跑一轮）"
     );
     drop(requests);
 
-    // retry 决议零 backtrack 步
-    assert!(
-        commands
-            .lock()
-            .expect("命令锁")
-            .iter()
-            .all(|command| !matches!(command, ToolCommand::Backtrack { .. })),
-        "retry 决议零 backtrack 步"
-    );
+    // backtrack 决议落账恰一次（白名单自含 = 重做本相位）
+    let commands = commands.lock().expect("命令锁");
+    let backtracks: Vec<&ToolCommand> = commands
+        .iter()
+        .filter(|command| matches!(command, ToolCommand::Backtrack { .. }))
+        .collect();
+    assert_eq!(backtracks.len(), 1, "backtrack 落账恰一次");
 }
 
 /// walk_run backtrack 决议执行：决议 backtrack（to ∈ 白名单）→ ToolCommand::
@@ -2697,17 +2724,18 @@ async fn 路由无error全程决策agent零调用() {
     );
 }
 
-/// walk_run 越权 backtrack 预校验拒绝（异常）：决议 backtrack 越白名单 →
-/// ensure_backtrack_allowed 预校验 Err → Backtrack 步零发起（写面二次校验
-/// 兜底见 backtrack_test——AC-2）。
+/// walk_run 越权 backtrack 软拒（异常）：决议 backtrack 越白名单 → 门 failed
+/// 节点（detail 携 allowed 列表）→ 漂移 1、同会话续注纠正；第二轮合法 stop 经
+/// 门 passed 正常收敛（不一次打死 run，零 Backtrack 落账）。
 #[tokio::test]
-async fn 越权backtrack预校验拒绝零发起() {
+async fn 越权backtrack软拒一次后续注纠正并stop收敛() {
     let (root, db) = decision_fixture("overreach-decision");
 
     let timeline = Arc::new(Mutex::new(Vec::new()));
-    let (worker, _requests, _) = FakeWorker::new(&timeline)
+    let (worker, requests, sessions) = FakeWorker::new(&timeline)
         .with_decision_reports(vec![
             r#"{ "action": "backtrack", "to": "test-gen", "reason": "越权目标" }"#.to_owned(),
+            r#"{ "action": "stop", "reason": "无合法回溯目标，人工介入" }"#.to_owned(),
         ])
         .assemble();
     let (tools, commands) = FakeTools::new(&timeline)
@@ -2722,7 +2750,8 @@ async fn 越权backtrack预校验拒绝零发起() {
         ])
         .assemble();
 
-    // 真实快照源：决策会话的 detail 读取（db 读源；越权决议走完快照面后由白名单门拦下）
+    // 真实快照源：决策会话的 detail 读取（db 读源；越权决议走完快照面后由
+    // 会话内白名单门驳回）
     let snapshot: Arc<dyn WorkflowSnapshotPort> =
         Arc::new(StoreSnapshot::new(root.root_str(), db.store_arc()));
     let control = Arc::new(ChangeFlowControl::new());
@@ -2732,30 +2761,75 @@ async fn 越权backtrack预校验拒绝零发起() {
     let _confirmer = spawn_confirmer(&control, true);
     let status = task.await.expect("run 任务正常结束");
 
-    assert_eq!(status, ChangeRunStatus::Failed, "越权决议显式失败停给用户");
+    assert_eq!(
+        status,
+        ChangeRunStatus::Stopped,
+        "越权驳回后第二轮 stop 受控收敛"
+    );
     assert!(
         commands
             .lock()
             .expect("命令锁")
             .iter()
             .all(|command| !matches!(command, ToolCommand::Backtrack { .. })),
-        "Backtrack 步零发起（walker 第一道闸拦下）"
+        "Backtrack 步零发起（越权被门拦下）"
     );
 
-    // 失败原因经 Finished 通知 + 落包捕获面流出（kind-only 降位后记因随整包）
+    // 失败原因经 Finished 通知 + 落包捕获面流出
     assert!(drain_notices(&mut rx)
         .iter()
         .any(|notice| *notice == RunNotice::Finished));
     let finish = history.finish().expect("finish 落包捕获");
-    assert_eq!(finish.status, RunStatus::Failed);
+    assert_eq!(finish.status, RunStatus::Stopped);
     assert!(
         finish
             .reason
             .as_deref()
             .unwrap_or_default()
-            .contains("越权"),
-        "失败记因落包: {:?}",
+            .contains("决策 stop"),
+        "stop 记因落包: {:?}",
         finish.reason
+    );
+
+    // 门节点：两轮各一个实例——首轮 failed（detail 携 allowed 列表原文）、
+    // 第二轮 stop 经门 passed
+    let gates: Vec<&RunNodeEntry> = finish
+        .nodes
+        .iter()
+        .filter(|node| node.step == workflow::state::RunStepKind::WhitelistGate)
+        .collect();
+    assert_eq!(gates.len(), 2, "两轮决策各 emit 一个门实例");
+    assert_eq!(gates[0].status, RunStepStatus::Failed, "越权门 failed");
+    assert_eq!(gates[1].status, RunStepStatus::Passed, "合法 stop 门 passed");
+    let detail = gates[0].detail.clone().unwrap_or_default();
+    assert!(
+        detail.contains("越权") && detail.contains("proposal"),
+        "门 detail 携 allowed 列表原文: {detail}"
+    );
+
+    // 漂移 1 后同会话续注：第二轮 continue_session == 第一轮
+    let requests = requests.lock().expect("请求锁");
+    let decision_requests: Vec<&WorkerTurnRequest> = requests
+        .iter()
+        .filter(|request| request.role == WorkerRole::Decision)
+        .collect();
+    assert_eq!(decision_requests.len(), 2, "驳回后同会话续注一轮");
+    let first_session = sessions
+        .lock()
+        .expect("会话登记锁")
+        .iter()
+        .find(|(role, _)| *role == WorkerRole::Decision)
+        .map(|(_, session)| session.clone())
+        .expect("首轮决策会话 id");
+    assert_eq!(
+        decision_requests[1].continue_session.as_deref(),
+        Some(first_session.as_str()),
+        "同会话续注（非新会话）"
+    );
+    assert!(
+        decision_requests[1].prompt.contains("上一轮决策输出被驳回"),
+        "第二轮 prompt 为纠正文案: {}",
+        decision_requests[1].prompt
     );
 }
 
@@ -2770,7 +2844,7 @@ async fn ask中断与应答回流continue决策会话() {
     let (worker, requests, sessions) = FakeWorker::new(&timeline)
         .with_decision_reports(vec![
             r#"{ "action": "ask", "question": "回溯目标选哪个?", "options": ["proposal", "dev-design"] }"#.to_owned(),
-            r#"{ "action": "retry" }"#.to_owned(),
+            r#"{ "action": "stop", "reason": "用户裁决终止" }"#.to_owned(),
         ])
         .assemble();
     let (tools, commands) = FakeTools::new(&timeline)
@@ -2783,7 +2857,6 @@ async fn ask中断与应答回流continue决策会话() {
                 &["proposal", "dev-design", "implement"],
                 "首轮未过",
             ),
-            done_outcome(),
         ])
         .assemble();
 
@@ -2814,7 +2887,7 @@ async fn ask中断与应答回流continue决策会话() {
         .answer(ROOT, CHANGE_ID, "采用方案 A".to_owned())
         .expect("应答回传应成功");
     let status = task.await.expect("run 任务正常结束");
-    assert_eq!(status, ChangeRunStatus::Completed);
+    assert_eq!(status, ChangeRunStatus::Stopped, "应答后 stop 受控收敛");
 
     let requests = requests.lock().expect("请求锁");
     let decision_requests: Vec<&WorkerTurnRequest> = requests
@@ -2842,7 +2915,7 @@ async fn ask中断与应答回流continue决策会话() {
         decision_requests[1].prompt.contains("用户应答：采用方案 A"),
         "应答文本注入续会话 prompt"
     );
-    // 零 backtrack（retry 决议）
+    // 零 backtrack（stop 决议）
     assert!(commands
         .lock()
         .expect("命令锁")
@@ -3184,7 +3257,7 @@ async fn auto确认ask照常停等应答回流后收敛全程零confirmwait() {
     let (worker, requests, sessions) = FakeWorker::new(&timeline)
         .with_decision_reports(vec![
             r#"{ "action": "ask", "question": "回溯目标选哪个?", "options": ["proposal", "dev-design"] }"#.to_owned(),
-            r#"{ "action": "retry" }"#.to_owned(),
+            r#"{ "action": "stop", "reason": "用户裁决终止" }"#.to_owned(),
         ])
         .assemble();
     let (tools, _) = FakeTools::new(&timeline)
@@ -3242,8 +3315,8 @@ async fn auto确认ask照常停等应答回流后收敛全程零confirmwait() {
     let status = task.await.expect("run 任务正常结束");
     assert_eq!(
         status,
-        ChangeRunStatus::Completed,
-        "ask 应答后收敛 completed"
+        ChangeRunStatus::Stopped,
+        "ask 应答后 stop 受控收敛"
     );
     while let Ok(update) = rx.try_recv() {
         updates.push(update);
@@ -3604,7 +3677,8 @@ async fn verdict解析失败反馈边修复_续注同evaluator会话重解析() 
 
 /// verdict 解析失败反馈边超限升格（真实写面组合）：5 attempt ×（首发 + 5 修复）
 /// 连续解析失败 → 每 attempt 超限代写 fail phase-log（executor + evaluator 双
-/// 槽位）→ 每轮 fail 决策分叉（retry ×4 兑现重跑）→ 第 5 轮决策 stop 收敛。
+/// 槽位）→ 每轮 fail 决策分叉（backtrack 到自身 ×4 兑现重跑）→ 第 5 轮决策
+/// stop 收敛。
 /// evaluator 队列恰 30 垃圾（精确值——假件耗尽回落 PASS_JSON，多给掩盖
 /// off-by-one）。
 #[tokio::test]
@@ -3630,10 +3704,10 @@ async fn 真实写面组合_verdict解析失败反馈边超限_升格双槽位�
     let (worker, _requests, sessions) = FakeWorker::new(&timeline)
         .with_evaluator_reports(vec![Ok(garbage.clone()); 30])
         .with_decision_reports(vec![
-            r#"{ "action": "retry" }"#.to_owned(),
-            r#"{ "action": "retry" }"#.to_owned(),
-            r#"{ "action": "retry" }"#.to_owned(),
-            r#"{ "action": "retry" }"#.to_owned(),
+            r#"{ "action": "backtrack", "to": "proposal", "reason": "重做本相位" }"#.to_owned(),
+            r#"{ "action": "backtrack", "to": "proposal", "reason": "重做本相位" }"#.to_owned(),
+            r#"{ "action": "backtrack", "to": "proposal", "reason": "重做本相位" }"#.to_owned(),
+            r#"{ "action": "backtrack", "to": "proposal", "reason": "重做本相位" }"#.to_owned(),
             r#"{ "action": "stop", "reason": "评估输出修复与重试预算均耗尽" }"#.to_owned(),
         ])
         .assemble();
@@ -3687,7 +3761,7 @@ async fn 真实写面组合_verdict解析失败反馈边超限_升格双槽位�
     assert_eq!(
         decisions.len(),
         5,
-        "每轮 fail 各一轮决策（4 retry + 1 stop）"
+        "每轮 fail 各一轮决策（4 backtrack + 1 stop）"
     );
     drop(sessions);
 
@@ -3937,8 +4011,8 @@ async fn 会话失败收敛成因缺席回落通用文案() {
 }
 
 /// walk_run 空白名单 backtrack 出口（边界）：phase-next 白名单为空 +
-/// MaxRetriesExceeded → 决策输入白名单段为空，backtrack 决议必被预校验拒绝
-///（仅剩 retry / stop / ask 出口——AC-2）。
+/// MaxRetriesExceeded → 决策输入白名单段为空，backtrack 决议被门驳回（软拒
+/// 一次、同会话续注），stop 经门 passed 受控收敛——仅剩 stop / ask 出口。
 #[tokio::test]
 async fn 空白名单backtrack决议被拒() {
     let (root, db) = decision_fixture("empty-whitelist-decision");
@@ -3947,6 +4021,7 @@ async fn 空白名单backtrack决议被拒() {
     let (worker, requests, _) = FakeWorker::new(&timeline)
         .with_decision_reports(vec![
             r#"{ "action": "backtrack", "to": "proposal", "reason": "空名单越权" }"#.to_owned(),
+            r#"{ "action": "stop", "reason": "无回溯目标，人工介入" }"#.to_owned(),
         ])
         .assemble();
     let (tools, commands) = FakeTools::new(&timeline)
@@ -3969,8 +4044,8 @@ async fn 空白名单backtrack决议被拒() {
 
     assert_eq!(
         status,
-        ChangeRunStatus::Failed,
-        "空白名单 backtrack 出口封死"
+        ChangeRunStatus::Stopped,
+        "空白名单 backtrack 出口封死后 stop 受控收敛"
     );
     assert!(
         commands
@@ -3983,14 +4058,20 @@ async fn 空白名单backtrack决议被拒() {
 
     // 决策输入白名单段为空（无任何白名单相位行）
     let requests = requests.lock().expect("请求锁");
-    let decision_prompt = requests
+    let decision_requests: Vec<&WorkerTurnRequest> = requests
         .iter()
-        .find(|request| request.role == WorkerRole::Decision)
-        .map(|request| request.prompt.clone())
-        .expect("决策会话在场");
+        .filter(|request| request.role == WorkerRole::Decision)
+        .collect();
+    assert_eq!(decision_requests.len(), 2, "驳回后同会话续注一轮");
+    let decision_prompt = &decision_requests[0].prompt;
     assert!(
         !decision_prompt.contains("- proposal"),
         "白名单段为空（无候选相位行）"
+    );
+    assert!(
+        decision_requests[1].prompt.contains("上一轮决策输出被驳回"),
+        "第二轮为纠正文案: {}",
+        decision_requests[1].prompt
     );
 }
 
@@ -4046,10 +4127,10 @@ async fn 真实写面组合_会话槽位落账与决策挂账全链对应() {
             Ok(fail_json("五")),
         ])
         .with_decision_reports(vec![
-            r#"{ "action": "retry" }"#.to_owned(),
-            r#"{ "action": "retry" }"#.to_owned(),
-            r#"{ "action": "retry" }"#.to_owned(),
-            r#"{ "action": "retry" }"#.to_owned(),
+            r#"{ "action": "backtrack", "to": "proposal", "reason": "重做本相位" }"#.to_owned(),
+            r#"{ "action": "backtrack", "to": "proposal", "reason": "重做本相位" }"#.to_owned(),
+            r#"{ "action": "backtrack", "to": "proposal", "reason": "重做本相位" }"#.to_owned(),
+            r#"{ "action": "backtrack", "to": "proposal", "reason": "重做本相位" }"#.to_owned(),
             r#"{ "action": "stop", "reason": "预算耗尽人工介入" }"#.to_owned(),
         ])
         .assemble();
@@ -4074,7 +4155,7 @@ async fn 真实写面组合_会话槽位落账与决策挂账全链对应() {
     assert_eq!(status, ChangeRunStatus::Stopped, "决策 stop 收敛受控停止");
 
     // 假引擎会话序（槽位值对应断言的事实源）：executor / evaluator 交替五轮；
-    // 每轮 fail 各一轮决策（前 4 retry 兑现重跑 + 末轮 stop）
+    // 每轮 fail 各一轮决策（前 4 backtrack 兑现重跑 + 末轮 stop）
     let sessions = sessions.lock().expect("会话登记锁");
     let executors = sessions_of(&sessions, WorkerRole::Executor);
     let evaluators = sessions_of(&sessions, WorkerRole::Evaluator);
@@ -4084,7 +4165,7 @@ async fn 真实写面组合_会话槽位落账与决策挂账全链对应() {
     assert_eq!(
         decisions.len(),
         5,
-        "每轮 fail 各一轮决策（4 retry + 1 stop）"
+        "每轮 fail 各一轮决策（4 backtrack + 1 stop）"
     );
     drop(sessions);
 
@@ -4121,9 +4202,10 @@ async fn 真实写面组合_会话槽位落账与决策挂账全链对应() {
     }
 }
 
-/// 挂账先于决策解析（真实组合链留痕）：决策会话产出漂移文本 → parse 失败路
-/// 径 run 显式 failed，但 db 最新条目已携 decision_session_id——写挂时机在
-/// parse 之前，parse 失败同样留痕。
+/// 挂账先于决策解析（真实组合链留痕）：决策会话连续产出漂移文本 → parse
+/// 失败路径软拒环（漂移 3 > `DECISION_DRIFT_LIMIT`）→ run 显式 failed；db
+/// 最新条目已携 decision_session_id——写挂时机在 parse 之前，parse 失败同样
+/// 留痕（每轮挂账幂等覆写）。
 #[tokio::test]
 async fn 真实写面组合_决策挂账先于解析_parse失败同样留痕() {
     let root = TempRoot::new("relog-before-parse");
@@ -4144,19 +4226,11 @@ async fn 真实写面组合_决策挂账先于解析_parse失败同样留痕() {
 
     let timeline = Arc::new(Mutex::new(Vec::new()));
     let (worker, _requests, sessions) = FakeWorker::new(&timeline)
-        .with_evaluator_reports(vec![
-            Ok(fail_json("一")),
-            Ok(fail_json("二")),
-            Ok(fail_json("三")),
-            Ok(fail_json("四")),
-            Ok(fail_json("五")),
-        ])
+        .with_evaluator_reports(vec![Ok(fail_json("一"))])
         .with_decision_reports(vec![
-            r#"{ "action": "retry" }"#.to_owned(),
-            r#"{ "action": "retry" }"#.to_owned(),
-            r#"{ "action": "retry" }"#.to_owned(),
-            r#"{ "action": "retry" }"#.to_owned(),
             "不是决策 JSON".to_owned(),
+            "仍不是决策 JSON".to_owned(),
+            "第三次仍不是决策 JSON".to_owned(),
         ])
         .assemble();
     let steps: Arc<dyn ToolStepPort> = Arc::new(LocalToolSteps::new(
@@ -4177,42 +4251,39 @@ async fn 真实写面组合_决策挂账先于解析_parse失败同样留痕() {
         spawn_run(worker, steps, snapshot, &control, false, &root.root_str());
     let _confirmer = spawn_confirmer(&control, true);
     let status = task.await.expect("run 任务正常结束");
-    assert_eq!(status, ChangeRunStatus::Failed, "决策解析失败显式 failed");
+    assert_eq!(
+        status,
+        ChangeRunStatus::Failed,
+        "解析漂移超限显式 failed（第 3 次驳回）"
+    );
 
-    // 终态记因为解析失败（非挂账失败——挂账已成功先于 parse）
+    // 终态记因为决策漂移（非挂账失败——挂账已成功先于 parse）
     assert!(drain_notices(&mut rx)
         .iter()
         .any(|notice| *notice == RunNotice::Finished));
     let finish = history.finish().expect("finish 落包捕获");
     assert_eq!(finish.status, RunStatus::Failed);
+    let reason = finish.reason.as_deref().unwrap_or_default();
     assert!(
-        finish
-            .reason
-            .as_deref()
-            .unwrap_or_default()
-            .contains("决策解析失败"),
-        "记因为解析失败（挂账不在失败路径）: {:?}",
+        reason.contains("决策漂移") && reason.contains("无法解析"),
+        "记因为解析漂移（挂账不在失败路径）: {:?}",
         finish.reason
     );
 
-    // 留痕：最新 fail 条目已携决策会话 id（第 5 轮决策输出漂移文本）
+    // 留痕：三轮解析失败均挂账，最新 fail 条目携最后决策会话 id
     let sessions = sessions.lock().expect("会话登记锁");
     let decisions = sessions_of(&sessions, WorkerRole::Decision);
-    assert_eq!(
-        decisions.len(),
-        5,
-        "每轮 fail 各一轮决策（末轮输出漂移文本）"
-    );
+    assert_eq!(decisions.len(), 3, "漂移上限前恰三轮决策（同会话续注）");
     drop(sessions);
     let entries = db
         .store
         .list_phase_records(CHANGE_ID)
         .expect("读相位条目应成功");
-    assert_eq!(entries.len(), 6, "initialize 表头 + 五条 fail 条目");
+    assert_eq!(entries.len(), 2, "initialize 表头 + 一条 fail 条目（不重复落账）");
     assert_eq!(
-        entries[5].decision_session_id.as_deref(),
-        Some(decisions[4].as_str()),
-        "parse 失败路径同样留痕"
+        entries[1].decision_session_id.as_deref(),
+        Some(decisions[2].as_str()),
+        "parse 失败路径同样留痕（末轮挂账覆盖）"
     );
 }
 
@@ -4266,10 +4337,10 @@ async fn 真实写面组合_升格fail条目仅携executor槽位且修复轮续�
     let timeline = Arc::new(Mutex::new(Vec::new()));
     let (worker, requests, sessions) = FakeWorker::new(&timeline)
         .with_decision_reports(vec![
-            r#"{ "action": "retry" }"#.to_owned(),
-            r#"{ "action": "retry" }"#.to_owned(),
-            r#"{ "action": "retry" }"#.to_owned(),
-            r#"{ "action": "retry" }"#.to_owned(),
+            r#"{ "action": "backtrack", "to": "implement", "reason": "重做本相位" }"#.to_owned(),
+            r#"{ "action": "backtrack", "to": "implement", "reason": "重做本相位" }"#.to_owned(),
+            r#"{ "action": "backtrack", "to": "implement", "reason": "重做本相位" }"#.to_owned(),
+            r#"{ "action": "backtrack", "to": "implement", "reason": "重做本相位" }"#.to_owned(),
             r#"{ "action": "stop", "reason": "反馈边与重试预算均耗尽" }"#.to_owned(),
         ])
         .assemble();
@@ -4308,7 +4379,7 @@ async fn 真实写面组合_升格fail条目仅携executor槽位且修复轮续�
     assert_eq!(
         decisions.len(),
         5,
-        "每轮升格 fail 各一轮决策（4 retry + 1 stop）"
+        "每轮升格 fail 各一轮决策（4 backtrack + 1 stop）"
     );
     let executor_sessions = sessions_of(&sessions, WorkerRole::Executor);
     assert_eq!(
@@ -4384,7 +4455,11 @@ async fn 决策会话收口即挂账_decisionlog载荷逐字段捕获() {
     let (root, db) = decision_fixture("decisionlog-capture");
 
     let timeline = Arc::new(Mutex::new(Vec::new()));
-    let (worker, _requests, sessions) = FakeWorker::new(&timeline).assemble();
+    let (worker, _requests, sessions) = FakeWorker::new(&timeline)
+        .with_decision_reports(vec![
+            r#"{ "action": "backtrack", "to": "implement", "reason": "重做本相位" }"#.to_owned(),
+        ])
+        .assemble();
     let (tools, commands) = FakeTools::new(&timeline)
         .with_phase_next(vec![
             route_outcome("implement", &["proposal", "dev-design", "implement"]),
@@ -4393,6 +4468,7 @@ async fn 决策会话收口即挂账_decisionlog载荷逐字段捕获() {
                 &["proposal", "dev-design", "implement"],
                 "首轮未过",
             ),
+            route_outcome("implement", &["proposal", "dev-design", "implement"]),
             done_outcome(),
         ])
         .assemble();
@@ -4408,7 +4484,7 @@ async fn 决策会话收口即挂账_decisionlog载荷逐字段捕获() {
     assert_eq!(
         status,
         ChangeRunStatus::Completed,
-        "决策 retry 重路由 done 收敛"
+        "决策 backtrack 重路由 done 收敛"
     );
 
     let commands = commands.lock().expect("命令锁");
@@ -4438,7 +4514,12 @@ async fn 决策会话收口即挂账_decisionlog载荷逐字段捕获() {
         "decision-log",
         "收口即挂账（先于决策解析与重路由）"
     );
-    assert_eq!(timeline[decision_pos + 2], "phase-next", "挂账后回路由");
+    assert_eq!(
+        timeline[decision_pos + 2],
+        "backtrack",
+        "挂账后决策动作兑现（Backtrack 落账）"
+    );
+    assert_eq!(timeline[decision_pos + 3], "phase-next", "兑现后回路由");
 }
 
 /// 挂账失败显式收敛 failed（假写面 fail_on 注入 Err）：决策动作未达
@@ -4581,7 +4662,11 @@ async fn 步状态词汇零新增_决策挂账全程无新步信封() {
     let (root, db) = decision_fixture("vocab-closed");
 
     let timeline = Arc::new(Mutex::new(Vec::new()));
-    let (worker, _, _) = FakeWorker::new(&timeline).assemble();
+    let (worker, _, _) = FakeWorker::new(&timeline)
+        .with_decision_reports(vec![
+            r#"{ "action": "backtrack", "to": "implement", "reason": "重做本相位" }"#.to_owned(),
+        ])
+        .assemble();
     let (tools, _) = FakeTools::new(&timeline)
         .with_phase_next(vec![
             route_outcome("implement", &["proposal", "dev-design", "implement"]),
@@ -4590,6 +4675,7 @@ async fn 步状态词汇零新增_决策挂账全程无新步信封() {
                 &["proposal", "dev-design", "implement"],
                 "首轮未过",
             ),
+            route_outcome("implement", &["proposal", "dev-design", "implement"]),
             done_outcome(),
         ])
         .assemble();
@@ -4900,354 +4986,385 @@ async fn 绿跑零agent_机械checklist代写落账() {
     );
 }
 
-/// 正向：fail 结论反馈边——findings 摘要 + 报告路径 prompt 注入修复会话：
-/// 首个 fail 新会话（continue_session=None）、provenance 沿
-/// `<id>/test-execution/executor/<attempt>` 定式、修复后复跑 pass 机械
-/// 落账收敛。
-#[tokio::test]
-async fn 反馈边fail_新会话与provenance定式() {
-    let timeline = Arc::new(Mutex::new(Vec::new()));
-    let (worker, requests, sessions) = FakeWorker::new(&timeline).assemble();
-    let (tools, _) = FakeTools::new(&timeline)
-        .with_phase_next(vec![route_outcome("test-execution", &[]), done_outcome()])
-        .with_test_execution(vec![
-            execution_outcome(TestExecutionConclusion::Fail, 5),
-            execution_outcome(TestExecutionConclusion::Pass, 5),
-        ])
-        .assemble();
+/// 决策输入最小快照假件：pipeline 空的 `ChangeDetail`（升格 / 分派用例只走
+/// 决策骨架，不断言输入内容——内容断言见「决策分叉唤起有界输入」用例）。
+struct MinimalSnapshot;
 
-    let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
-    let control = Arc::new(ChangeFlowControl::new());
-
-    let (task, _rx, _history) = spawn_run(worker, tools, snapshot, &control, true, "/tmp/root");
-    let status = task.await.expect("run 任务正常结束");
-    assert_eq!(status, ChangeRunStatus::Completed);
-
-    let requests = requests.lock().expect("请求锁");
-    assert_eq!(
-        requests.len(),
-        1,
-        "恰一次修复会话（fail→fix→pass→机械落账）"
-    );
-    let fix = &requests[0];
-    assert_eq!(fix.role, WorkerRole::Executor, "反馈边注入 executor 会话");
-    assert!(
-        fix.continue_session.is_none(),
-        "首个 fail 新会话（continue_session=None）"
-    );
-    assert_eq!(
-        fix.provenance.source_ref.as_deref(),
-        Some(format!("{CHANGE_ID}/test-execution/executor/1").as_str()),
-        "provenance 沿 <id>/test-execution/executor/<attempt> 定式"
-    );
-    let prompt = &fix.prompt;
-    assert!(
-        prompt.contains("测试执行未通过（第 1/5 次反馈修复，conclusion=fail）"),
-        "修复 prompt 携反馈计数与结论: {prompt}"
-    );
-    assert!(
-        prompt.contains("## 失败用例明细")
-            && prompt.contains("汇总导出_空清单回落（src/export.test.mjs:23）")
-            && prompt.contains("expected '[]' to equal '[a]'"),
-        "结果明细直嵌修复 prompt（用例名 / 文件行号 / 错误消息——agent 免自读报告）: {prompt}"
-    );
-    assert!(
-        prompt.contains("## 诊断") && prompt.contains("单点失败"),
-        "诊断面随明细文本注入: {prompt}"
-    );
-    assert!(
-        prompt.contains("全量报告见目录") && prompt.contains("reports/test"),
-        "全量报告路径兜底注入: {prompt}"
-    );
-    drop(requests);
-
-    // 同会话续注：修复会话 id 与首会话回声一致（FakeWorker continue 回声）
-    let sessions = sessions.lock().expect("会话锁");
-    assert_eq!(
-        sessions.len(),
-        1,
-        "反馈边恰一次会话（修复后 pass 即机械落账）"
-    );
-}
-
-/// 正向：error 结论同 fail 通路走反馈边（不升 Err、不静默——报告级 error
-/// 是反馈边原料面，基础设施失败才 Err）。
-#[tokio::test]
-async fn error结论同fail通路走反馈边() {
-    let timeline = Arc::new(Mutex::new(Vec::new()));
-    let (worker, requests, _) = FakeWorker::new(&timeline).assemble();
-    let (tools, commands) = FakeTools::new(&timeline)
-        .with_phase_next(vec![route_outcome("test-execution", &[]), done_outcome()])
-        .with_test_execution(vec![
-            execution_outcome(TestExecutionConclusion::Error, 5),
-            execution_outcome(TestExecutionConclusion::Pass, 5),
-        ])
-        .assemble();
-
-    let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
-    let control = Arc::new(ChangeFlowControl::new());
-
-    let (task, _rx, _history) = spawn_run(worker, tools, snapshot, &control, true, "/tmp/root");
-    let status = task.await.expect("run 任务正常结束");
-    assert_eq!(
-        status,
-        ChangeRunStatus::Completed,
-        "error 结论不升 Err（run 正常收敛）"
-    );
-
-    let requests = requests.lock().expect("请求锁");
-    assert_eq!(requests.len(), 1, "error 结论走反馈边（恰一次修复会话）");
-    assert!(
-        requests[0].prompt.contains("conclusion=error"),
-        "error 结论随修复 prompt 注入: {}",
-        requests[0].prompt
-    );
-    drop(requests);
-
-    let gate_calls = commands
-        .lock()
-        .expect("命令锁")
-        .iter()
-        .filter(|command| matches!(command, ToolCommand::TestExecution { .. }))
-        .count();
-    assert_eq!(gate_calls, 2, "error 不静默：修复后门禁复跑");
-}
-
-/// 异常：反馈边独立计数恰 ≤ test_execution_feedback_limit() 且不消耗相位
-/// retry 预算；第 5 次仍失败 → 升格相位 fail（单条 pass=false item +
-/// findings 摘要 evidence、executor 槽位携反馈会话 id、evaluator /
-/// decision 恒 None、不跑 evaluator——static-check 超限用例同型）。
-#[tokio::test]
-async fn 反馈边恰五次且超限升格相位fail() {
-    let timeline = Arc::new(Mutex::new(Vec::new()));
-    let (worker, requests, _) = FakeWorker::new(&timeline).assemble();
-    let (tools, commands) = FakeTools::new(&timeline)
-        .with_phase_next(vec![route_outcome("test-execution", &[]), done_outcome()])
-        .with_test_execution(vec![
-            execution_outcome(TestExecutionConclusion::Fail, 5);
-            (test_execution_feedback_limit() + 1) as usize
-        ])
-        .assemble();
-
-    let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
-    let control = Arc::new(ChangeFlowControl::new());
-
-    let (task, _rx, _history) = spawn_run(worker, tools, snapshot, &control, true, "/tmp/root");
-    let status = task.await.expect("run 任务正常结束");
-    assert_eq!(
-        status,
-        ChangeRunStatus::Completed,
-        "升格 fail 落账后 phase-next 分叉收敛"
-    );
-
-    // 门禁恰 6 次（首检 + 5 次反馈复查）
-    let gate_calls = commands
-        .lock()
-        .expect("命令锁")
-        .iter()
-        .filter(|command| matches!(command, ToolCommand::TestExecution { .. }))
-        .count();
-    assert_eq!(
-        gate_calls,
-        test_execution_feedback_limit() as usize + 1,
-        "反馈边独立计数恰 ≤5（第 5 次仍失败即升格）"
-    );
-
-    // 升格代写 fail phase-log：单条 fail item + evidence 摘要 + executor 槽位
-    let upgrade = commands
-        .lock()
-        .expect("命令锁")
-        .iter()
-        .find_map(|command| match command {
-            ToolCommand::PhaseLog { input, phase, .. } if phase == "test-execution" => {
-                Some(input.clone())
-            }
-            _ => None,
+impl WorkflowSnapshotPort for MinimalSnapshot {
+    fn detail(&self, _root: &str, _id: &str) -> Result<workflow::queries::ChangeDetail, String> {
+        Ok(workflow::queries::ChangeDetail {
+            id: CHANGE_ID.to_owned(),
+            name: NAME.to_owned(),
+            title: NAME.to_owned(),
+            source: workflow::queries::ChangeSource::Active,
+            status: None,
+            created: None,
+            pipeline: Vec::new(),
+            active_phase: None,
+            runs: Vec::new(),
+            artifacts: Vec::new(),
+            worktree: None,
         })
-        .expect("升格代写 fail phase-log 在场");
-    assert_eq!(upgrade.checklist.len(), 1, "单条 fail item");
-    assert!(!upgrade.checklist[0].pass, "升格落账为 fail checklist");
-    assert_eq!(upgrade.checklist[0].item, "测试执行");
-    assert!(
-        !upgrade.checklist[0].evidence.is_empty(),
-        "evidence 携 findings 摘要"
-    );
-    assert!(
-        upgrade.report.contains("反馈边超限"),
-        "report 记因升格: {}",
-        upgrade.report
-    );
-    assert!(
-        upgrade.executor_session_id.is_some(),
-        "executor 槽位携反馈会话 id"
-    );
-    assert!(
-        upgrade.evaluator_session_id.is_none() && upgrade.decision_session_id.is_none(),
-        "evaluator / decision 恒 None（evaluator 未跑无会话可记）"
-    );
-
-    // 零 evaluator 会话；修复会话恰 5 次、计数递进；attempt 恒 1（反馈边不
-    // 消耗相位 retry 预算——无 phase-start 重开）
-    let requests = requests.lock().expect("请求锁");
-    assert!(
-        requests
-            .iter()
-            .all(|request| request.role == WorkerRole::Executor),
-        "升格路径零 evaluator 会话"
-    );
-    assert_eq!(requests.len(), 5, "修复会话恰 5 次（反馈边独立预算）");
-    for (idx, request) in requests.iter().enumerate() {
-        assert!(
-            request.prompt.contains(&format!(
-                "第 {}/{}",
-                idx + 1,
-                test_execution_feedback_limit()
-            )),
-            "修复 prompt 反馈计数递进: {}",
-            request.prompt
-        );
-        assert_eq!(
-            request.provenance.source_ref.as_deref(),
-            Some(format!("{CHANGE_ID}/test-execution/executor/1").as_str()),
-            "反馈边不消耗相位 retry 预算（attempt 恒 1）"
-        );
     }
 }
 
-/// 边界：独立计数与 static-check 计数分立——同 run 双门禁各自计满各自升格
-/// 互不挤占（static-check 失败反馈与 test-execution fail 反馈并存不串账）。
-#[tokio::test]
-async fn 双门禁独立计数互不挤占() {
+/// test-execution 门禁产出 fixture（结论 + 明细文本可编程；计数固定 5 例）。
+fn escalate_test_outcome(
+    conclusion: TestExecutionConclusion,
+    findings_detail: &str,
+) -> TestExecutionOutcome {
+    TestExecutionOutcome {
+        conclusion,
+        total: 5,
+        passed: 4,
+        failed: u64::from(conclusion != TestExecutionConclusion::Pass),
+        skipped: 0,
+        findings_brief: "「node-test」1 项测试失败——单点失败".to_owned(),
+        findings_detail: findings_detail.to_owned(),
+        report_dir: format!("C:/ws/openspec/changes/{NAME}/reports/test"),
+        exec_id: "exec-test-1".to_owned(),
+    }
+}
+
+/// 落包中某类步的 `(instance_no, status)` 序列（升格实例面断言入口）。
+fn step_instances(
+    nodes: &[RunNodeEntry],
+    step: workflow::state::RunStepKind,
+) -> Vec<(u32, RunStepStatus)> {
+    nodes
+        .iter()
+        .filter(|node| node.step == step)
+        .map(|node| (node.instance_no, node.status))
+        .collect()
+}
+
+/// 某相位首次 phase-log 载荷（升格落账断言入口）。
+fn phase_log_input(commands: &[ToolCommand], phase: &str) -> workflow::write::PhaseLogInput {
+    commands
+        .iter()
+        .find_map(|command| match command {
+            ToolCommand::PhaseLog {
+                phase: logged_phase,
+                input,
+                ..
+            } if logged_phase == phase => Some(input.clone()),
+            _ => None,
+        })
+        .expect("phase-log 载荷应在场")
+}
+
+/// 驱动一次 test-execution 相位首败升格（fail 明细可编程）：FakeTools 预录
+/// [TestExecution 产出 → phase-next 分叉 → 决策 stop]，返回（终态 / 命令序 /
+/// 会话请求序 / 落包）。
+async fn drive_test_execution_escalate(
+    detail: &str,
+) -> (
+    ChangeRunStatus,
+    Vec<ToolCommand>,
+    Vec<WorkerTurnRequest>,
+    RunFinishCommand,
+) {
     let timeline = Arc::new(Mutex::new(Vec::new()));
-    let (worker, _, sessions) = FakeWorker::new(&timeline).assemble();
-    let (tools, commands) = FakeTools::new(&timeline)
-        .with_phase_next(vec![
-            route_outcome("implement", &["implement"]),
-            route_outcome("test-execution", &[]),
-            done_outcome(),
-        ])
-        .with_static_check(vec![
-            failing_check("clippy 未过");
-            (static_check_feedback_limit() + 1) as usize
-        ])
-        .with_test_execution(vec![
-            execution_outcome(TestExecutionConclusion::Fail, 5);
-            (test_execution_feedback_limit() + 1) as usize
+    let (worker, requests, _sessions) = FakeWorker::new(&timeline)
+        .with_decision_reports(vec![
+            r#"{ "action": "stop", "reason": "测试执行失败交人工" }"#.to_owned(),
         ])
         .assemble();
-
-    let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
+    let (tools, commands) = FakeTools::new(&timeline)
+        .with_phase_next(vec![
+            route_outcome("test-execution", &[]),
+            max_retries_outcome("test-execution", &[], "测试执行失败"),
+        ])
+        .with_test_execution(vec![escalate_test_outcome(
+            TestExecutionConclusion::Fail,
+            detail,
+        )])
+        .assemble();
+    let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(MinimalSnapshot);
     let control = Arc::new(ChangeFlowControl::new());
-
-    let (task, _rx, _history) = spawn_run(worker, tools, snapshot, &control, true, "/tmp/root");
+    let (task, _rx, history) = spawn_run(worker, tools, snapshot, &control, true, "/tmp/root");
     let status = task.await.expect("run 任务正常结束");
-    assert_eq!(status, ChangeRunStatus::Completed);
+    let commands = commands.lock().expect("命令锁").clone();
+    let requests = requests.lock().expect("请求锁").clone();
+    let finish = history.finish().expect("finish 落包捕获");
+    (status, commands, requests, finish)
+}
 
-    let commands = commands.lock().expect("命令锁");
-    let static_calls = commands
-        .iter()
-        .filter(|command| matches!(command, ToolCommand::StaticCheck { .. }))
-        .count();
-    let gate_calls = commands
+/// 正向：test-execution 首败升格（`on_fail=Escalate`）——恰 1 条 fail
+/// PhaseRecord（三会话槽位恒 None）、TestExecution 节点 failed、零
+/// `WorkerRole::Executor` / `Evaluator` 请求、MutationTest 与常规 PhaseLog 步未
+/// 执行、升格 PhaseLog 恰一个（实例面）；随后回 phase-next 进决策分叉。
+#[tokio::test]
+async fn test_execution首败升格_零会话单条fail落账与实例面() {
+    let detail = format!("## 失败用例明细\n\n{}", "失败行 abcdefghij\n".repeat(30));
+    let (status, commands, requests, finish) = drive_test_execution_escalate(&detail).await;
+
+    assert_eq!(
+        status,
+        ChangeRunStatus::Stopped,
+        "升格后决策 stop 受控收敛（已回 phase-next 进决策分叉）"
+    );
+
+    // 零 agent 会话：Executor / Evaluator / Decision 之外无请求，前两者恒零
+    assert!(
+        requests
+            .iter()
+            .all(|request| !matches!(request.role, WorkerRole::Executor | WorkerRole::Evaluator)),
+        "首败升格零 Executor / Evaluator 请求，实际: {:?}",
+        requests.iter().map(|request| request.role).collect::<Vec<_>>()
+    );
+
+    // 步执行面：TestExecution 恰一次、MutationTest 零次（升格截断余下步）
+    let test_calls = commands
         .iter()
         .filter(|command| matches!(command, ToolCommand::TestExecution { .. }))
         .count();
-    assert_eq!(
-        static_calls,
-        static_check_feedback_limit() as usize + 1,
-        "static-check 门禁独立计满（6 检）"
-    );
-    assert_eq!(
-        gate_calls,
-        test_execution_feedback_limit() as usize + 1,
-        "test-execution 门禁独立计满（6 检）——互不挤占"
-    );
-
-    // 双升格各自落账、各自相位
-    let upgrades: Vec<(&str, &str)> = commands
+    let mutation_calls = commands
         .iter()
-        .filter_map(|command| match command {
-            ToolCommand::PhaseLog { input, phase, .. } if input.report.contains("反馈边超限") =>
-            {
-                let kind = if input.report.contains("静态检查") {
-                    "static"
-                } else {
-                    "execution"
-                };
-                Some((kind, phase.as_str()))
-            }
-            _ => None,
-        })
-        .collect();
-    assert_eq!(upgrades.len(), 2, "双门禁各一次升格落账");
-    assert!(
-        upgrades.contains(&("static", "implement"))
-            && upgrades.contains(&("execution", "test-execution")),
-        "双升格各自相位归属（不串账），实际: {upgrades:?}"
-    );
-    drop(commands);
+        .filter(|command| matches!(command, ToolCommand::MutationTest { .. }))
+        .count();
+    assert_eq!(test_calls, 1, "TestExecution 门禁恰执行一次（零重跑）");
+    assert_eq!(mutation_calls, 0, "MutationTest 步未执行（Upgraded 截断余下步）");
 
-    // 全程零 evaluator（双门禁均走升格，evaluator 未跑）
-    let sessions = sessions.lock().expect("会话锁");
+    // 升格落账：恰一条 fail checklist、report 携完整明细、三会话槽位恒 None
+    let payload = phase_log_input(&commands, "test-execution");
+    assert_eq!(payload.checklist.len(), 1, "升格落账恰一条 fail item");
+    assert_eq!(payload.checklist[0].item, "测试执行");
+    assert!(!payload.checklist[0].pass, "落账为 fail checklist");
     assert!(
-        sessions
-            .iter()
-            .all(|(role, _)| *role != WorkerRole::Evaluator),
-        "双门禁升格路径零 evaluator 会话"
+        payload.checklist[0].evidence.contains("单点失败")
+            && payload.checklist[0].evidence.contains("reports/test"),
+        "evidence 携诊断摘要 + 报告目录: {}",
+        payload.checklist[0].evidence
+    );
+    assert_eq!(payload.report, detail, "report 携完整明细原文（≤2000 不截断）");
+    assert!(
+        payload.executor_session_id.is_none()
+            && payload.evaluator_session_id.is_none()
+            && payload.decision_session_id.is_none(),
+        "三会话槽位恒 None（本相位零 agent 会话）"
+    );
+
+    // 实例面：TestExecution 节点 instance_no 恰 1（零重跑）、升格 PhaseLog 节点
+    // 恰 1 个
+    let test_nodes = step_instances(&finish.nodes, workflow::state::RunStepKind::TestExecution);
+    assert_eq!(test_nodes.len(), 1, "TestExecution 节点单实例");
+    assert_eq!(test_nodes[0].0, 0, "instance_no 从 0 起（零重跑）");
+    assert_eq!(test_nodes[0].1, RunStepStatus::Failed, "首败节点 failed");
+    let log_nodes = step_instances(&finish.nodes, workflow::state::RunStepKind::PhaseLog);
+    assert_eq!(log_nodes.len(), 1, "升格 PhaseLog 节点恰 1 个（常规步未达）");
+    assert_eq!(log_nodes[0].1, RunStepStatus::Passed, "升格落账节点 passed");
+}
+
+/// 边界：升格 report 截断（参数化 6 值）——明细 0 / 1 / 1999 / 2000 / 2001 /
+/// 2500 字符：≤2000 原样、2001 取前 1999 + `…`（总长恰 2000）、2500 同式；
+/// 空明细兜底 `conclusion=…；报告目录 …`。
+#[tokio::test]
+async fn test_execution升格报告截断六形态() {
+    for len in [0usize, 1, 1999, 2000, 2001, 2500] {
+        let detail = "明".repeat(len);
+        let (_, commands, _, _) = drive_test_execution_escalate(&detail).await;
+        let report = phase_log_input(&commands, "test-execution").report;
+        let report_len = report.chars().count();
+        if len == 0 {
+            assert!(
+                report.starts_with("conclusion=fail") && report.contains("报告目录"),
+                "空明细兜底结论行 + 报告目录: {report}"
+            );
+        } else if len <= 2000 {
+            assert_eq!(report, detail, "明细 {len} 字符原样落账（无省略号）");
+            assert_eq!(report_len, len);
+        } else {
+            assert_eq!(report_len, 2000, "超长截断后总长恰 2000（写面不拒）");
+            assert!(report.ends_with('…'), "截断留省略号: {report}");
+            assert!(
+                report.starts_with(&"明".repeat(1999)),
+                "取前 1999 字符 + 省略号（不截 2000 再加）"
+            );
+        }
+    }
+
+    // 多字节内容（emoji / 换行 / NUL）：按 chars() 计数截断，不 panic、不切坏
+    // 字符边界（Rust String 保证 UTF-8 完整）
+    let mixed = format!("{}{}", "🚀\n\0".repeat(800), "尾");
+    let (_, commands, _, _) = drive_test_execution_escalate(&mixed).await;
+    let report = phase_log_input(&commands, "test-execution").report;
+    assert_eq!(report.chars().count(), 2000, "多字节内容按字符数截断");
+    assert!(report.ends_with('…'), "多字节截断留省略号");
+    assert!(
+        report
+            .chars()
+            .all(|ch| ch == '🚀' || ch == '\n' || ch == '\0' || ch == '…'),
+        "不切坏字符边界（逐字符仍在原字符集内）"
     );
 }
 
-/// 边界：反馈边修复重入门禁步产出随 runner 刷新（runner 链内复用门随输入
-/// mtime 推进自动失效重跑——装配语义直测在 mod_test，本节断言 walker 重入
-/// 步以第二产出落机械 checklist，不复用首产出）。
+/// 异常：`conclusion=Error` 同式升格——零会话、恰 1 条 fail 条目、余下步不
+/// 执行（error 与 fail 两时点同一升格面）。
 #[tokio::test]
-async fn 反馈边修复重入_门禁步产出随runner刷新() {
+async fn test_execution_error结论同式升格() {
     let timeline = Arc::new(Mutex::new(Vec::new()));
-    let (worker, _, _) = FakeWorker::new(&timeline).assemble();
-    let (tools, commands) = FakeTools::new(&timeline)
-        .with_phase_next(vec![route_outcome("test-execution", &[]), done_outcome()])
-        .with_test_execution(vec![
-            execution_outcome(TestExecutionConclusion::Fail, 5),
-            execution_outcome(TestExecutionConclusion::Pass, 9),
+    let (worker, requests, _sessions) = FakeWorker::new(&timeline)
+        .with_decision_reports(vec![
+            r#"{ "action": "stop", "reason": "测试环境错误交人工" }"#.to_owned(),
         ])
         .assemble();
-
-    let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
+    let (tools, commands) = FakeTools::new(&timeline)
+        .with_phase_next(vec![
+            route_outcome("test-execution", &[]),
+            max_retries_outcome("test-execution", &[], "测试执行出错"),
+        ])
+        .with_test_execution(vec![escalate_test_outcome(
+            TestExecutionConclusion::Error,
+            "suite 执行中断：进程退出码 2",
+        )])
+        .assemble();
+    let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(MinimalSnapshot);
     let control = Arc::new(ChangeFlowControl::new());
-
     let (task, _rx, _history) = spawn_run(worker, tools, snapshot, &control, true, "/tmp/root");
     let status = task.await.expect("run 任务正常结束");
-    assert_eq!(status, ChangeRunStatus::Completed);
+    assert_eq!(status, ChangeRunStatus::Stopped, "error 结论同式升格后决策 stop");
 
-    // 门禁恰两入（fail → 修复 → 重入 pass）
-    let gate_calls = commands
-        .lock()
-        .expect("命令锁")
-        .iter()
-        .filter(|command| matches!(command, ToolCommand::TestExecution { .. }))
-        .count();
-    assert_eq!(gate_calls, 2, "修复重入门禁复跑");
-
-    // 机械 checklist report 以第二产出刷新（total=9 非 5——runner 产出随重入刷新）
+    assert!(
+        requests
+            .lock()
+            .expect("请求锁")
+            .iter()
+            .all(|request| !matches!(request.role, WorkerRole::Executor | WorkerRole::Evaluator)),
+        "error 结论零 agent 修复会话"
+    );
     let commands = commands.lock().expect("命令锁");
-    let mechanical = commands
-        .iter()
-        .find_map(|command| match command {
-            ToolCommand::PhaseLog { input, phase, .. } if phase == "test-execution" => {
-                Some(input.clone())
-            }
-            _ => None,
-        })
-        .expect("机械 phase-log 在场");
+    assert_eq!(
+        commands
+            .iter()
+            .filter(|command| matches!(command, ToolCommand::MutationTest { .. }))
+            .count(),
+        0,
+        "MutationTest 步未执行"
+    );
+    let payload = phase_log_input(&commands, "test-execution");
+    assert_eq!(payload.checklist.len(), 1, "恰一条 fail 条目");
+    assert_eq!(payload.report, "suite 执行中断：进程退出码 2");
+}
+
+/// 异常：`run_tool(TestExecution)` 返回 `Err`（`fail_on("test-execution")`）→
+/// `Terminal` 收敛——零 fail 条目、零升格 PhaseLog 节点、零决策请求（环境问题
+/// 不进决策）。
+#[tokio::test]
+async fn test_execution_run_tool_err_terminal零落账零决策() {
+    let timeline = Arc::new(Mutex::new(Vec::new()));
+    let (worker, requests, _sessions) = FakeWorker::new(&timeline).assemble();
+    let (tools, commands) = FakeTools::new(&timeline)
+        .with_phase_next(vec![route_outcome("test-execution", &[])])
+        .fail_on("test-execution")
+        .assemble();
+    let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
+    let control = Arc::new(ChangeFlowControl::new());
+    let (task, _rx, history) = spawn_run(worker, tools, snapshot, &control, true, "/tmp/root");
+    let status = task.await.expect("run 任务正常结束");
+    assert_eq!(status, ChangeRunStatus::Failed, "runner Err 显式 failed 停给用户");
+    let finish = history.finish().expect("finish 落包捕获");
     assert!(
-        mechanical.report.contains("total=9"),
-        "机械 checklist 以重入产出刷新（total=9），实际: {}",
-        mechanical.report
+        finish
+            .reason
+            .as_deref()
+            .unwrap_or_default()
+            .contains("test-execution 假写面注入失败"),
+        "记因为 runner 显式失败: {:?}",
+        finish.reason
+    );
+
+    let commands = commands.lock().expect("命令锁");
+    assert!(
+        commands
+            .iter()
+            .all(|command| !matches!(command, ToolCommand::PhaseLog { .. })),
+        "零 fail 条目落账（环境问题不进决策）"
     );
     assert!(
-        !mechanical.report.contains("total=5"),
-        "首产出未残留（复用门失效语义的 walker 侧对偶）"
+        requests.lock().expect("请求锁").is_empty(),
+        "零决策请求（不进决策分叉）"
     );
+    // 节点留 running（与 terminal 分支同式）
+    let test_nodes = step_instances(&finish.nodes, workflow::state::RunStepKind::TestExecution);
+    assert_eq!(test_nodes.len(), 1);
+    assert_eq!(test_nodes[0].1, RunStepStatus::Running, "节点留 running");
+}
+
+/// 边界：test-execution 步 `on_fail` 分派——`Some(OnFail::Terminal)`（initialize
+/// 基线绿门语义）走既有 terminal 执行体且零决策请求；`None` 与
+/// `FeedbackLoop { 5 }` 误声明 → 计划图漂移 `Err`、零 `run_worker`、零门禁 spawn
+///（不得静默退化）。
+#[tokio::test]
+async fn test_execution分派漂移与terminal形态() {
+    // 形态一：Terminal 声明 → 既有 terminal 执行体（基线绿门），失败即停零决策
+    let timeline = Arc::new(Mutex::new(Vec::new()));
+    let (worker, requests, _sessions) = FakeWorker::new(&timeline).assemble();
+    let mut terminal_route = route_outcome("test-execution", &[]);
+    terminal_route.steps = vec![StepDefinition {
+        node: StepNode::TestExecution,
+        prompt_ref: None,
+        on_fail: Some(OnFail::Terminal),
+    }];
+    let (tools, commands) = FakeTools::new(&timeline)
+        .with_phase_next(vec![terminal_route])
+        .with_test_execution(vec![escalate_test_outcome(
+            TestExecutionConclusion::Fail,
+            "基线失败明细",
+        )])
+        .assemble();
+    let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
+    let control = Arc::new(ChangeFlowControl::new());
+    let (task, _rx, _history) = spawn_run(worker, tools, snapshot, &control, true, "/tmp/root");
+    let status = task.await.expect("run 任务正常结束");
+    assert_eq!(status, ChangeRunStatus::Failed, "Terminal 声明失败即停给用户");
+    assert!(
+        requests.lock().expect("请求锁").is_empty(),
+        "Terminal 形态零决策请求"
+    );
+    drop(commands);
+
+    // 形态二 / 三：None 与 FeedbackLoop 误声明 → 计划图漂移 Err（零门禁 spawn）
+    for on_fail in [None, Some(OnFail::FeedbackLoop { limit: 5 })] {
+        let timeline = Arc::new(Mutex::new(Vec::new()));
+        let (worker, requests, _sessions) = FakeWorker::new(&timeline).assemble();
+        let mut drifted_route = route_outcome("test-execution", &[]);
+        drifted_route.steps = vec![StepDefinition {
+            node: StepNode::TestExecution,
+            prompt_ref: None,
+            on_fail,
+        }];
+        let (tools, commands) = FakeTools::new(&timeline)
+            .with_phase_next(vec![drifted_route])
+            .assemble();
+        let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
+        let control = Arc::new(ChangeFlowControl::new());
+        let (task, _rx, history) = spawn_run(worker, tools, snapshot, &control, true, "/tmp/root");
+        let status = task.await.expect("run 任务正常结束");
+        assert_eq!(
+            status,
+            ChangeRunStatus::Failed,
+            "on_fail={on_fail:?} 误声明显式漂移失败"
+        );
+        let finish = history.finish().expect("finish 落包捕获");
+        let reason = finish.reason.as_deref().unwrap_or_default();
+        assert!(
+            reason.contains("计划图漂移") && reason.contains("test-execution"),
+            "漂移记因: {reason}"
+        );
+        assert!(
+            requests.lock().expect("请求锁").is_empty(),
+            "漂移路径零 run_worker"
+        );
+        assert!(
+            commands
+                .lock()
+                .expect("命令锁")
+                .iter()
+                .all(|command| !matches!(command, ToolCommand::TestExecution { .. })),
+            "漂移路径零门禁 spawn（不静默退化为禁用）"
+        );
+    }
 }
 
 /// 边界：TryFrom<ToolStepOutput> for TestExecutionOutcome——TestExecution
@@ -5266,20 +5383,42 @@ fn test_execution窄化tryfrom逐字段与非匹配面() {
     );
 }
 
+/// 门控步声明锚定：test-execution 相位两确定性门禁步（TestExecution /
+/// MutationTest）声明 `OnFail::Escalate`（首败升格交决策、零会话）；initialize
+/// 表头同名 TestExecution 步仍 `Terminal`（语义由表项声明承载，MUST NOT 按相位
+/// 名判断）；static-check 反馈边上限仍 5。
 #[test]
 fn test_execution门控声明锚定() {
-    assert_eq!(test_execution_feedback_limit(), 5);
+    let def = phase_def("test-execution");
+    for node in [StepNode::TestExecution, StepNode::MutationTest] {
+        let step = def
+            .steps
+            .iter()
+            .find(|step| step.node == node)
+            .unwrap_or_else(|| panic!("test-execution 相位应有 {node:?} 步"));
+        assert_eq!(
+            step.on_fail,
+            Some(OnFail::Escalate),
+            "test-execution {node:?} 步声明 Escalate（零 agent 修复）"
+        );
+    }
     assert_eq!(
         test_execution_phases(),
         vec!["initialize", "test-execution"],
-        "initialize 表头检查步为 Terminal 分派（声明面锚随表头扩位）"
+        "声明 TestExecution 步的相位（声明面锚随表头扩位）"
     );
-    // 双门禁步声明分立：反馈上限同值但彼此独立计数（各自计满各自升格）
+    let initialize = phase_def("initialize");
+    let baseline = initialize
+        .steps
+        .iter()
+        .find(|step| step.node == StepNode::TestExecution)
+        .expect("initialize 应有 TestExecution 步");
     assert_eq!(
-        static_check_feedback_limit(),
-        test_execution_feedback_limit(),
-        "取值对齐（计数分立）"
+        baseline.on_fail,
+        Some(OnFail::Terminal),
+        "同一 step 词在 initialize 表项仍 Terminal（语义随表项声明）"
     );
+    assert_eq!(static_check_feedback_limit(), 5, "static-check 反馈边上限仍 5");
 }
 
 // ---------------------------------------------------------------------------
@@ -5327,10 +5466,15 @@ async fn exec_root透传锚_四缝root恒等于request_root() {
     const EXEC_ROOT: &str = r"C:\app-data\worktrees\demo-segment\walker-change";
 
     let timeline = Arc::new(Mutex::new(Vec::new()));
-    let (worker, requests, _sessions) = FakeWorker::new(&timeline).assemble();
+    let (worker, requests, _sessions) = FakeWorker::new(&timeline)
+        .with_decision_reports(vec![
+            r#"{ "action": "backtrack", "to": "implement", "reason": "重做本相位" }"#.to_owned(),
+        ])
+        .assemble();
     let tools_device = FakeTools::new(&timeline).with_phase_next(vec![
-        // 首轮正常路由 → 预算内 fail（evaluator 缺省 PASS_JSON，改注入 fail 报
-        // 告走 max_retries 分叉触快照）用 max_retries 直驱
+        // 首轮正常路由（白名单缓存随行）→ 次轮预算耗尽分叉触快照 → 决策回跳
+        // 重跑 → 收敛
+        route_outcome("implement", &["proposal", "implement"]),
         max_retries_outcome("implement", &["proposal", "implement"], "首轮未过"),
         route_outcome("implement", &["proposal", "implement"]),
         done_outcome(),
@@ -5348,7 +5492,7 @@ async fn exec_root透传锚_四缝root恒等于request_root() {
     assert_eq!(
         status,
         ChangeRunStatus::Completed,
-        "max_retries → 决策 retry → 重路由 done"
+        "max_retries → 决策 backtrack → 重路由 done"
     );
 
     // 四缝捕获的 root 恒等于 exec root（worker turn / 工具步 / 快照源）
@@ -5595,15 +5739,22 @@ async fn 全词汇run零过滤_流程面与三门在案() {
     let (root, _db) = decision_fixture("full-vocab");
     let timeline = Arc::new(Mutex::new(Vec::new()));
     let (worker, _requests, _sessions) = FakeWorker::new(&timeline)
-        .with_decision_reports(vec![r#"{ "action": "retry" }"#.to_owned()])
+        .with_decision_reports(vec![
+            r#"{ "action": "backtrack", "to": "dev-design", "reason": "设计返工" }"#.to_owned(),
+        ])
         .assemble();
     let (tools, _commands) = FakeTools::new(&timeline)
         .with_phase_next(vec![
             // implement：executor + static-check 反馈边（fail→pass）+ evaluator
-            // + verdict 门 + phase-log + phase-start
-            route_outcome("implement", &["proposal", "implement"]),
+            // + verdict 门 + phase-log + phase-start（白名单缓存随行）
+            route_outcome("implement", &["proposal", "dev-design", "implement"]),
             // 决策分叉：whitelist 门 + retry 门 + decision 会话
-            max_retries_outcome("dev-design", &["proposal", "dev-design"], "首轮未过"),
+            max_retries_outcome(
+                "dev-design",
+                &["proposal", "dev-design", "implement"],
+                "首轮未过",
+            ),
+            route_outcome("dev-design", &["proposal", "dev-design"]),
             // test-execution 相位：确定性门禁步（零 agent）
             route_outcome("test-execution", &["test-execution"]),
             done_outcome(),
@@ -5627,9 +5778,8 @@ async fn 全词汇run零过滤_流程面与三门在案() {
         .iter()
         .map(|entry| entry.step.as_str().to_owned())
         .collect();
-    // 全词汇在案（本 fixture 决策动作为 retry → retry_gate 不经手，其在场断言
-    // 由决策 backtrack 分支用例承载；决策分叉 + 门禁 + test-execution 相位全覆盖
-    // ——含拆步后的 mutation_test（AC-1 / AC-2 非归档词零过滤））
+    // 全词汇在案（决策 backtrack 分支兑现 → retry_gate 门节点在场；决策分叉 +
+    // 门禁 + test-execution 相位全覆盖——含拆步后的 mutation_test）
     for word in [
         "executor",
         "evaluator",
@@ -5641,6 +5791,7 @@ async fn 全词汇run零过滤_流程面与三门在案() {
         "phase_log",
         "verdict_gate",
         "whitelist_gate",
+        "retry_gate",
     ] {
         assert!(
             kinds.iter().any(|kind| kind == word),
@@ -5666,16 +5817,16 @@ async fn 全词汇run零过滤_流程面与三门在案() {
             "mutation_test".to_owned(),
             "phase_log".to_owned(),
             "phase_start".to_owned(),
+            "retry_gate".to_owned(),
             "static_check".to_owned(),
             "test_execution".to_owned(),
             "verdict_gate".to_owned(),
             "whitelist_gate".to_owned(),
         ],
-        "emit 词汇零过滤（流程面步骤与三门在案；retry_gate 归 backtrack 分支）"
+        "emit 词汇零过滤（流程面步骤与三门在案；retry_gate 词面冻结不改）"
     );
-    // 边整包：本 fixture 经计划序推进 + 门禁反馈回边（forward / feedback 在案），
-    // 词汇限于四 kind 封闭集；retry / backtrack 仅经相位 fail 重跑与决策 backtrack
-    // 分支 emit（各自专用用例承载，四 kind 组装面由 run_history_test 断言）
+    // 边整包：计划序推进 + 门禁反馈回边 + 决策回跳（forward / feedback /
+    // backtrack 在案），词汇限于四 kind 封闭集；新写面零 retry
     let edge_kinds: Vec<String> = finish
         .edges
         .iter()
@@ -5688,12 +5839,16 @@ async fn 全词汇run零过滤_流程面与三门在案() {
             "边 kind 漂移（越四值封闭集）: {edge_kinds:?}"
         );
     }
-    for word in ["forward", "feedback"] {
+    for word in ["forward", "feedback", "backtrack"] {
         assert!(
             edge_kinds.iter().any(|kind| kind == word),
             "边 {word} 应在场，实际: {edge_kinds:?}"
         );
     }
+    assert!(
+        !edge_kinds.iter().any(|kind| kind == "retry"),
+        "新写面零 retry 边（存量解码契约）: {edge_kinds:?}"
+    );
 }
 
 #[tokio::test]
@@ -6191,16 +6346,16 @@ fn assert_edges_closed(
     keys
 }
 
-/// 四边 kind 正向（一次 run 覆盖四边 emit）：计划序推进落 `forward`、静态检查
-/// 失败回同名 agent 步落 `feedback`、相位 fail 同相重跑落 `retry`、决策 backtrack
-/// 跨相位回跳落 `backtrack`——同一 run 的四类边各自可辨（AC-3 / AC-4）。
+/// 边 kind 正向（AC-3 / AC-4）：一次 run 覆盖 forward / feedback / backtrack
+/// 三 kind 各自落边——`retry` 为存量解码契约（新写面零产出）：相位 fail 一律
+/// 经决策 backtrack 重入，落 `backtrack` 而非 `retry` 边。
 #[tokio::test]
-async fn 四边kind正向_一次run覆盖四边kind各自落边() {
+async fn 三边kind正向_一次run覆盖forward与feedback与backtrack() {
     let (root, db) = decision_fixture("edge-all-kinds");
 
     let timeline = Arc::new(Mutex::new(Vec::new()));
     let (worker, _requests, _sessions) = FakeWorker::new(&timeline)
-        .with_evaluator_reports(vec![Ok(fail_json("首轮未过")), Ok(fail_json("次轮仍未过"))])
+        .with_evaluator_reports(vec![Ok(fail_json("首轮未过"))])
         .with_decision_reports(vec![
             r#"{ "action": "backtrack", "to": "dev-design", "reason": "设计返工" }"#.to_owned(),
         ])
@@ -6209,25 +6364,13 @@ async fn 四边kind正向_一次run覆盖四边kind各自落边() {
         .with_phase_next(vec![
             // ① implement 首轮：静态检查失败 → feedback 回边；evaluator fail → 相位 fail
             route_outcome("implement", &["proposal", "dev-design", "implement"]),
-            // ② implement 同相重跑（上一轮 fail 记因在案）→ retry 入边
-            route_with_round(
-                "implement",
-                &["proposal", "dev-design", "implement"],
-                2,
-                Some(LastResult {
-                    phase: "implement".to_owned(),
-                    verdict: Verdict::Fail,
-                    report: "首轮未过".to_owned(),
-                    timestamp: None,
-                }),
-            ),
-            // ③ 预算耗尽 → 决策分叉决议 backtrack（to ∈ 白名单）→ 跨相位回跳
+            // ② 相位 fail 未决 → 决策分叉决议 backtrack（to ∈ 白名单）→ 跨相位回跳
             max_retries_outcome(
                 "implement",
                 &["proposal", "dev-design", "implement"],
-                "次轮仍未过",
+                "首轮未过",
             ),
-            // ④ 回跳目标相位自该处重跑 → 绿跑收口
+            // ③ 回跳目标相位自该处重跑 → 绿跑收口
             route_outcome("dev-design", &["proposal", "dev-design"]),
             done_outcome(),
         ])
@@ -6254,8 +6397,8 @@ async fn 四边kind正向_一次run覆盖四边kind各自落边() {
     // forward：计划序推进（相位内步序 + 相位间推进）
     assert!(
         row(
-            "implement:2:phase_start:0",
-            "implement:2:executor:0",
+            "implement:1:phase_start:0",
+            "implement:1:executor:0",
             RunEdgeKind::Forward
         ),
         "forward 落边（计划序推进），实际边集: {:?}",
@@ -6278,42 +6421,40 @@ async fn 四边kind正向_一次run覆盖四边kind各自落边() {
         ),
         "feedback 落边（相位内回边）"
     );
-    // retry：相位 fail 后同相位重跑（attempt 递增）
-    assert!(
-        row(
-            "implement:1:phase_log:0",
-            "implement:2:phase_start:0",
-            RunEdgeKind::Retry
-        ),
-        "retry 落边（同相重跑）"
-    );
-    // backtrack：决策回跳跨相位（源 = 失败相位末节点、目标 = 回跳相位首节点；
+    // backtrack：决策回跳跨相位（源 = 失败相位末门节点、目标 = 回跳相位首节点；
     // 决策门节点 attempt 取决策输入（库内该相位最近 attempt））
     assert!(
         row(
             "implement:1:retry_gate:0",
-            "dev-design:3:phase_start:0",
+            "dev-design:2:phase_start:0",
             RunEdgeKind::Backtrack
         ),
         "backtrack 落边（跨相位回跳）"
     );
 
-    // 四 kind 各自齐备且三条特殊边各恰一条（forward 计划序多条）
+    // 三 kind 各自齐备、零 retry（存量解码契约不新产出）
     let kinds: Vec<&str> = finish
         .edges
         .iter()
         .map(|edge| edge.edge_kind.as_str())
         .collect();
-    for word in ["forward", "feedback", "retry", "backtrack"] {
-        assert!(kinds.contains(&word), "四 kind 边 {word} 应在场: {kinds:?}");
+    for word in ["forward", "feedback", "backtrack"] {
+        assert!(kinds.contains(&word), "边 kind {word} 应在场: {kinds:?}");
     }
-    for word in ["feedback", "retry", "backtrack"] {
-        assert_eq!(
-            kinds.iter().filter(|kind| **kind == word).count(),
-            1,
-            "特殊边 {word} 恰一条: {kinds:?}"
-        );
-    }
+    assert_eq!(
+        kinds.iter().filter(|kind| **kind == "feedback").count(),
+        1,
+        "feedback 回边恰一条: {kinds:?}"
+    );
+    assert_eq!(
+        kinds.iter().filter(|kind| **kind == "backtrack").count(),
+        1,
+        "backtrack 回跳恰一条: {kinds:?}"
+    );
+    assert!(
+        !kinds.contains(&"retry"),
+        "新写面零 retry 产出（决策 backtrack 取代同相重跑）: {kinds:?}"
+    );
     assert!(
         !kinds
             .iter()
@@ -6321,42 +6462,39 @@ async fn 四边kind正向_一次run覆盖四边kind各自落边() {
         "边 kind 零越四值封闭集: {kinds:?}"
     );
     assert!(
-        keys.contains(&"dev-design:3:phase_start:0".to_owned()),
+        keys.contains(&"dev-design:2:phase_start:0".to_owned()),
         "回跳目标节点在案: {keys:?}"
     );
 }
 
-/// 四边 kind 正向（retry）：相位 evaluator fail → 同相位重跑（attempt 递增）
-/// 落 `retry` 边（源 = 上一轮相位末节点、目标 = 重跑相位首节点）；计划序推进
-/// 落 `forward` 边，相位内回边（feedback）与跨相位回跳（backtrack）零误记
-///（AC-3 / AC-4）。
+/// 边 kind 正向（fail → 决策 backtrack 自身）：相位 evaluator fail → 决策
+/// backtrack 到本相位（白名单自含）→ 重跑（attempt 递增）——重入边 kind 为
+/// `backtrack` 而非 `retry`；新写面零 `retry` 边（存量解码契约）。
 #[tokio::test]
-async fn 四边kind正向_相位fail同相重跑落retry边() {
+async fn 边kind正向_相位fail经决策backtrack重入落backtrack边() {
+    let (root, db) = decision_fixture("edge-backtrack-self");
+    let allowed = ["proposal", "dev-design", "implement"];
     let timeline = Arc::new(Mutex::new(Vec::new()));
     let (worker, _requests, _sessions) = FakeWorker::new(&timeline)
         .with_evaluator_reports(vec![Ok(fail_json("首轮未过")), Ok(PASS_JSON.to_owned())])
+        .with_decision_reports(vec![
+            r#"{ "action": "backtrack", "to": "implement", "reason": "重做本相位" }"#.to_owned(),
+        ])
         .assemble();
     let (tools, _commands) = FakeTools::new(&timeline)
         .with_phase_next(vec![
-            route_with_round("implement", &["implement"], 1, None),
-            route_with_round(
-                "implement",
-                &["implement"],
-                2,
-                Some(LastResult {
-                    phase: "implement".to_owned(),
-                    verdict: Verdict::Fail,
-                    report: "首轮未过".to_owned(),
-                    timestamp: None,
-                }),
-            ),
+            route_outcome("implement", &allowed),
+            verdict_fail_outcome("implement", &allowed, "首轮未过"),
+            route_outcome("implement", &allowed),
             done_outcome(),
         ])
         .assemble();
 
-    let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
+    let snapshot: Arc<dyn WorkflowSnapshotPort> =
+        Arc::new(StoreSnapshot::new(root.root_str(), db.store_arc()));
     let control = Arc::new(ChangeFlowControl::new());
-    let (task, _rx, history) = spawn_run(worker, tools, snapshot, &control, false, "/tmp/root");
+    let (task, _rx, history) =
+        spawn_run(worker, tools, snapshot, &control, false, &root.root_str());
     let _confirmer = spawn_confirmer(&control, true);
     let status = task.await.expect("run 任务正常结束");
     assert_eq!(status, ChangeRunStatus::Completed, "重跑通过后走完收口");
@@ -6367,14 +6505,23 @@ async fn 四边kind正向_相位fail同相重跑落retry边() {
         .iter()
         .filter(|edge| edge.edge_kind == workflow::state::RunEdgeKind::Retry)
         .collect();
-    assert_eq!(retry.len(), 1, "相位 fail 同相重跑恰落一条 retry 边");
+    assert!(
+        retry.is_empty(),
+        "新写面零 retry 边（同相重入经决策 backtrack）: {retry:?}"
+    );
+    let backtrack: Vec<&workflow::state::RunEdgeEntry> = finish
+        .edges
+        .iter()
+        .filter(|edge| edge.edge_kind == workflow::state::RunEdgeKind::Backtrack)
+        .collect();
+    assert_eq!(backtrack.len(), 1, "同相重入恰落一条 backtrack 边");
     assert_eq!(
-        retry[0].from_node_key, "implement:1:phase_log:0",
-        "retry 源 = 上一轮相位末节点（fail 收口处）"
+        backtrack[0].from_node_key, "implement:1:retry_gate:0",
+        "backtrack 源 = 失败相位末门节点"
     );
     assert_eq!(
-        retry[0].to_node_key, "implement:2:phase_start:0",
-        "retry 目标 = 重跑相位首节点（attempt 递增）"
+        backtrack[0].to_node_key, "implement:2:phase_start:0",
+        "backtrack 目标 = 重跑相位首节点（attempt 递增）"
     );
 
     let kinds: Vec<&str> = finish
@@ -6388,17 +6535,13 @@ async fn 四边kind正向_相位fail同相重跑落retry边() {
     );
     assert!(
         !kinds.contains(&"feedback"),
-        "相位 fail 重跑不误记 feedback（相位内回边另有其边）: {kinds:?}"
-    );
-    assert!(
-        !kinds.contains(&"backtrack"),
-        "同相重跑不误记 backtrack（跨相位回跳另有其边）: {kinds:?}"
+        "相位 fail 重跑不误记 feedback: {kinds:?}"
     );
 
     let keys = assert_edges_closed(&finish.nodes, &finish.edges);
     assert!(
-        keys.contains(&retry[0].from_node_key) && keys.contains(&retry[0].to_node_key),
-        "retry 两端节点在案（图面闭合）"
+        keys.contains(&backtrack[0].from_node_key) && keys.contains(&backtrack[0].to_node_key),
+        "backtrack 两端节点在案（图面闭合）"
     );
 }
 
@@ -8410,80 +8553,385 @@ fn mutation_outcome(
     }
 }
 
-/// 未达标反馈文本 fixture（score / threshold 结论摘要 + 报告路径清单——零
-/// 存活突变体内联，反馈边②报告指引式口径）。
-const MUTATION_FAIL_FEEDBACK: &str = "突变测试未达标（逐 suite 判定未全过）：归并 score 55 < threshold 80\n\
-                                      未达标 suite：\n- app_rust: score 55 < threshold 80\n\
-                                      原始报告路径：\n- reports/test/app_rust/mutation/mutation-seg-0.json";
+/// mutation 门禁产出 fixture（结论 + 反馈文本 + 报告路径清单可编程）。
+fn escalate_mutation_outcome(
+    conclusion: MutationTestConclusion,
+    feedback_text: &str,
+    report_paths: Vec<String>,
+) -> MutationTestOutcome {
+    MutationTestOutcome {
+        conclusion,
+        skip: None,
+        score: 55.0,
+        threshold: 80.0,
+        counts: MutationCounts::default(),
+        report_paths,
+        feedback_text: feedback_text.to_owned(),
+    }
+}
 
-/// 拆步时序异常（AC-1）：TestExecution fail → 走既有反馈边修复重入，**不进**
-/// MutationTest；修复重入绿后才续走 MutationTest（walker 顺序执行天然保证）。
-#[tokio::test]
-async fn 拆步时序_testexecution_fail不进mutation_绿后才续走() {
+/// 驱动一次 test-execution 相位内 MutationTest 首败升格（TestExecution 先绿）：
+/// 返回（终态 / 命令序 / 会话请求序 / 落包）。
+async fn drive_mutation_escalate(
+    feedback: &str,
+    report_paths: Vec<String>,
+) -> (
+    ChangeRunStatus,
+    Vec<ToolCommand>,
+    Vec<WorkerTurnRequest>,
+    RunFinishCommand,
+) {
     let timeline = Arc::new(Mutex::new(Vec::new()));
-    let (worker, _requests, _sessions) = FakeWorker::new(&timeline).assemble();
-    let (tools, commands) = FakeTools::new(&timeline)
-        .with_phase_next(vec![route_outcome("test-execution", &[]), done_outcome()])
-        .with_test_execution(vec![
-            execution_outcome(TestExecutionConclusion::Fail, 5),
-            execution_outcome(TestExecutionConclusion::Pass, 5),
+    let (worker, requests, _sessions) = FakeWorker::new(&timeline)
+        .with_decision_reports(vec![
+            r#"{ "action": "stop", "reason": "突变未达标交人工" }"#.to_owned(),
         ])
-        .with_mutation(vec![mutation_outcome(
-            MutationTestConclusion::Pass,
-            95.0,
-            80.0,
-            "",
+        .assemble();
+    let (tools, commands) = FakeTools::new(&timeline)
+        .with_phase_next(vec![
+            route_outcome("test-execution", &[]),
+            max_retries_outcome("test-execution", &[], "突变未达标"),
+        ])
+        .with_test_execution(vec![escalate_test_outcome(TestExecutionConclusion::Pass, "")])
+        .with_mutation(vec![escalate_mutation_outcome(
+            MutationTestConclusion::Fail,
+            feedback,
+            report_paths,
         )])
         .assemble();
-
-    let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
+    let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(MinimalSnapshot);
     let control = Arc::new(ChangeFlowControl::new());
-
     let (task, _rx, history) = spawn_run(worker, tools, snapshot, &control, true, "/tmp/root");
     let status = task.await.expect("run 任务正常结束");
-    assert_eq!(status, ChangeRunStatus::Completed);
+    let commands = commands.lock().expect("命令锁").clone();
+    let requests = requests.lock().expect("请求锁").clone();
+    let finish = history.finish().expect("finish 落包捕获");
+    (status, commands, requests, finish)
+}
 
-    // 时间线：首检 fail → executor 反馈修复 → 复检绿 → mutation-test → phase-log
-    //（MutationTest 不得先于 TestExecution 绿出现）
-    let timeline = timeline.lock().expect("时间线锁");
-    let first_gate = timeline
-        .iter()
-        .position(|label| label == "test-execution")
-        .expect("首检在时间线");
-    assert_eq!(
-        timeline[first_gate + 1],
-        "executor",
-        "fail → 反馈边修复会话"
-    );
-    assert_eq!(timeline[first_gate + 2], "test-execution", "修复重入复检");
-    assert_eq!(
-        timeline[first_gate + 3],
-        "mutation-test",
-        "复检绿后才续走 MutationTest（拆步顺序）"
-    );
-    assert_eq!(timeline[first_gate + 4], "phase-log");
-    drop(timeline);
+/// 边界（拆步时序）：TestExecution 首败升格 → **不进** MutationTest（walker
+/// 顺序执行天然保证 + `StepFlow::Upgraded` 截断余下步）；回 phase-next 进决策
+/// 分叉（决策 stop 受控收敛）。
+#[tokio::test]
+async fn 拆步时序_testexecution首败升格不进mutation() {
+    let (status, commands, requests, finish) = drive_test_execution_escalate("首检失败").await;
 
-    // MutationTest 恰一次（修复重入不重跑突变门禁）
+    assert_eq!(status, ChangeRunStatus::Stopped, "升格后决策 stop 收敛");
+    assert_eq!(
+        commands
+            .iter()
+            .filter(|command| matches!(command, ToolCommand::MutationTest { .. }))
+            .count(),
+        0,
+        "TestExecution 失败即截断，MutationTest 步未执行"
+    );
+    assert!(
+        requests
+            .iter()
+            .all(|request| !matches!(request.role, WorkerRole::Executor | WorkerRole::Evaluator)),
+        "升格零 agent 修复会话"
+    );
+    let test_nodes = step_instances(&finish.nodes, workflow::state::RunStepKind::TestExecution);
+    assert_eq!(test_nodes, vec![(0, RunStepStatus::Failed)], "TestExecution 首败节点");
+    let mutation_nodes = step_instances(&finish.nodes, workflow::state::RunStepKind::MutationTest);
+    assert!(mutation_nodes.is_empty(), "MutationTest 零节点（余下步不执行）");
+}
+
+/// 正向：`step_mutation_test`（`on_fail=Escalate`）首败升格——恰 1 条 fail
+/// PhaseRecord（条目「突变测试」、evidence 携诊断摘要 + 报告路径清单、三会话
+/// 槽位恒 None）、MutationTest 节点 failed、下游常规 PhaseLog 不执行、
+/// `StepFlow::Upgraded` 回 phase-next 进决策分叉。
+#[tokio::test]
+async fn mutation_test首败升格_零会话单条fail与报告路径清单() {
+    let feedback = format!("突变测试未达标：归并 score 55 < threshold 80\n{}", "存活清单行\n".repeat(40));
+    let paths = vec![
+        "reports/test/app_rust/mutation/mutation-seg-0.json".to_owned(),
+        "reports/test/app_rust/mutation/mutation.json".to_owned(),
+    ];
+    let (status, commands, requests, finish) =
+        drive_mutation_escalate(&feedback, paths.clone()).await;
+
+    assert_eq!(status, ChangeRunStatus::Stopped, "升格后决策 stop 收敛");
+    assert!(
+        requests
+            .iter()
+            .all(|request| !matches!(request.role, WorkerRole::Executor | WorkerRole::Evaluator)),
+        "首败升格零 Executor / Evaluator 请求"
+    );
+
     let mutation_calls = commands
-        .lock()
-        .expect("命令锁")
         .iter()
         .filter(|command| matches!(command, ToolCommand::MutationTest { .. }))
         .count();
-    assert_eq!(mutation_calls, 1, "绿后突变门禁恰经一次");
+    assert_eq!(mutation_calls, 1, "MutationTest 门禁恰执行一次（零重跑）");
 
-    // 步整包：mutation_test 词汇在案且终态 passed（零过滤上图半边）
-    let rows: Vec<_> = step_rows(&history.finish().expect("finish 落包捕获").nodes)
-        .into_iter()
-        .filter(|(_, _, kind, _)| kind == "mutation_test")
-        .collect();
-    assert_eq!(
-        rows.len(),
-        1,
-        "mutation_test 单节点（running → passed 就地合并）"
+    let payload = phase_log_input(&commands, "test-execution");
+    assert_eq!(payload.checklist.len(), 1, "升格落账恰一条 fail item");
+    assert_eq!(payload.checklist[0].item, "突变测试");
+    assert!(!payload.checklist[0].pass);
+    assert!(
+        payload.checklist[0]
+            .evidence
+            .contains(&paths.join("、")),
+        "evidence 携报告路径清单（零改写原文）: {}",
+        payload.checklist[0].evidence
     );
-    assert_eq!(rows[0].3, "passed");
+    assert!(
+        payload.checklist[0].evidence.contains("突变测试未达标"),
+        "evidence 携诊断摘要: {}",
+        payload.checklist[0].evidence
+    );
+    assert_eq!(payload.report, feedback, "report 携 feedback_text 完整原文");
+    assert!(
+        payload.executor_session_id.is_none()
+            && payload.evaluator_session_id.is_none()
+            && payload.decision_session_id.is_none(),
+        "三会话槽位恒 None"
+    );
+
+    let mutation_nodes = step_instances(&finish.nodes, workflow::state::RunStepKind::MutationTest);
+    assert_eq!(mutation_nodes.len(), 1, "MutationTest 节点单实例");
+    assert_eq!(mutation_nodes[0].1, RunStepStatus::Failed, "未达标节点 failed");
+    let log_nodes = step_instances(&finish.nodes, workflow::state::RunStepKind::PhaseLog);
+    assert_eq!(log_nodes.len(), 1, "升格 PhaseLog 恰一个（下游常规 PhaseLog 未执行）");
+}
+
+/// 异常：`conclusion=Error` 同式升格——report 取自 `feedback_text`（段中断错误
+/// 不升 Err、进决策分叉）。
+#[tokio::test]
+async fn mutation_test_error结论同式升格_report取feedback_text() {
+    let timeline = Arc::new(Mutex::new(Vec::new()));
+    let (worker, requests, _sessions) = FakeWorker::new(&timeline)
+        .with_decision_reports(vec![
+            r#"{ "action": "stop", "reason": "突变执行错误交人工" }"#.to_owned(),
+        ])
+        .assemble();
+    let (tools, commands) = FakeTools::new(&timeline)
+        .with_phase_next(vec![
+            route_outcome("test-execution", &[]),
+            max_retries_outcome("test-execution", &[], "突变执行错误"),
+        ])
+        .with_test_execution(vec![escalate_test_outcome(TestExecutionConclusion::Pass, "")])
+        .with_mutation(vec![escalate_mutation_outcome(
+            MutationTestConclusion::Error,
+            "段 2 执行中断：harness 崩溃（exit 137）",
+            vec!["reports/test/mutation-seg-2.json".to_owned()],
+        )])
+        .assemble();
+    let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(MinimalSnapshot);
+    let control = Arc::new(ChangeFlowControl::new());
+    let (task, _rx, _history) = spawn_run(worker, tools, snapshot, &control, true, "/tmp/root");
+    let status = task.await.expect("run 任务正常结束");
+    assert_eq!(status, ChangeRunStatus::Stopped, "error 结论同式升格后决策 stop");
+
+    let commands = commands.lock().expect("命令锁");
+    let payload = phase_log_input(&commands, "test-execution");
+    assert_eq!(
+        payload.report, "段 2 执行中断：harness 崩溃（exit 137）",
+        "error 时点 report 取自 feedback_text"
+    );
+    assert_eq!(payload.checklist.len(), 1);
+    assert_eq!(payload.checklist[0].item, "突变测试");
+    assert!(
+        requests
+            .lock()
+            .expect("请求锁")
+            .iter()
+            .all(|request| !matches!(request.role, WorkerRole::Executor | WorkerRole::Evaluator)),
+        "error 时点零 agent 修复会话"
+    );
+}
+
+/// 异常：`run_tool(MutationTest)` 返回 `Err`（`fail_on("mutation-test")`）→
+/// MutationTest 节点 failed + `Terminal` 收敛（runner `Err → Terminal` 分支
+/// 原样保留）——零升格条目、零决策请求。
+#[tokio::test]
+async fn mutation_test_run_tool_err_terminal零升格零决策() {
+    let timeline = Arc::new(Mutex::new(Vec::new()));
+    let (worker, requests, _sessions) = FakeWorker::new(&timeline).assemble();
+    let (tools, commands) = FakeTools::new(&timeline)
+        .with_phase_next(vec![route_outcome("test-execution", &[])])
+        .with_test_execution(vec![escalate_test_outcome(TestExecutionConclusion::Pass, "")])
+        .fail_on("mutation-test")
+        .assemble();
+    let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
+    let control = Arc::new(ChangeFlowControl::new());
+    let (task, _rx, history) = spawn_run(worker, tools, snapshot, &control, true, "/tmp/root");
+    let status = task.await.expect("run 任务正常结束");
+    assert_eq!(status, ChangeRunStatus::Failed, "runner Err 停给用户");
+    let finish = history.finish().expect("finish 落包捕获");
+    assert!(
+        finish
+            .reason
+            .as_deref()
+            .unwrap_or_default()
+            .contains("mutation-test 假写面注入失败"),
+        "记因为 runner 显式失败: {:?}",
+        finish.reason
+    );
+    let mutation_nodes = step_instances(&finish.nodes, workflow::state::RunStepKind::MutationTest);
+    assert_eq!(
+        mutation_nodes,
+        vec![(0, RunStepStatus::Failed)],
+        "节点呈失败态（不静默越过）"
+    );
+    let commands = commands.lock().expect("命令锁");
+    assert!(
+        commands
+            .iter()
+            .all(|command| !matches!(command, ToolCommand::PhaseLog { .. })),
+        "零升格条目（环境问题不进决策）"
+    );
+    assert!(
+        requests.lock().expect("请求锁").is_empty(),
+        "零决策请求"
+    );
+}
+
+/// 边界：MutationTest 步 `on_fail` 分派（参数化 3 值）——`None` / `Terminal` /
+/// `FeedbackLoop` 落在 MutationTest 步均计划图漂移 `Err`（该步无语义合法
+/// `Terminal`），零 agent 会话、零门禁 spawn。
+#[tokio::test]
+async fn mutation_test分派漂移三值() {
+    for on_fail in [
+        None,
+        Some(OnFail::Terminal),
+        Some(OnFail::FeedbackLoop { limit: 5 }),
+    ] {
+        let timeline = Arc::new(Mutex::new(Vec::new()));
+        let (worker, requests, _sessions) = FakeWorker::new(&timeline).assemble();
+        let mut drifted_route = route_outcome("test-execution", &[]);
+        drifted_route.steps = vec![StepDefinition {
+            node: StepNode::MutationTest,
+            prompt_ref: None,
+            on_fail,
+        }];
+        let (tools, commands) = FakeTools::new(&timeline)
+            .with_phase_next(vec![drifted_route])
+            .assemble();
+        let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
+        let control = Arc::new(ChangeFlowControl::new());
+        let (task, _rx, history) = spawn_run(worker, tools, snapshot, &control, true, "/tmp/root");
+        let status = task.await.expect("run 任务正常结束");
+        assert_eq!(
+            status,
+            ChangeRunStatus::Failed,
+            "on_fail={on_fail:?} 误声明显式漂移失败"
+        );
+        let finish = history.finish().expect("finish 落包捕获");
+        let reason = finish.reason.as_deref().unwrap_or_default();
+        assert!(
+            reason.contains("计划图漂移") && reason.contains("mutation-test"),
+            "漂移记因: {reason}"
+        );
+        assert!(
+            requests.lock().expect("请求锁").is_empty(),
+            "漂移路径零 run_worker"
+        );
+        assert!(
+            commands
+                .lock()
+                .expect("命令锁")
+                .iter()
+                .all(|command| !matches!(command, ToolCommand::MutationTest { .. })),
+            "漂移路径零门禁 spawn"
+        );
+    }
+}
+
+/// 边界：`mutation_report_refs` 报告面（参数化 4 形态 + 超长折叠）——两元素
+/// 原文拼接；空清单占位「（无报告产物）」；超大列表（64 条）全量拼接；单路径
+/// 超长（1200 字符）与超长明细（1200 字符）同批：evidence 的**诊断摘要段**由
+/// `diagnose_brief` 折叠截断（200 字上限 + 省略号），报告面段携路径原文（决策
+/// agent 可直接 read——折叠只作用于摘要段，design D3）。
+#[tokio::test]
+async fn mutation报告路径拼接与超长折叠() {
+    // 形态一：两元素原文拼接
+    let (_, commands, _, _) = drive_mutation_escalate(
+        "未达标",
+        vec!["a".to_owned(), "b".to_owned()],
+    )
+    .await;
+    let payload = phase_log_input(&commands, "test-execution");
+    assert!(
+        payload.checklist[0].evidence.contains("；a、b"),
+        "两元素 report_paths 原文拼接: {}",
+        payload.checklist[0].evidence
+    );
+
+    // 形态二：空清单 → 占位
+    let (_, commands, _, _) = drive_mutation_escalate("未达标", Vec::new()).await;
+    let payload = phase_log_input(&commands, "test-execution");
+    assert!(
+        payload.checklist[0].evidence.contains("（无报告产物）"),
+        "空清单占位: {}",
+        payload.checklist[0].evidence
+    );
+
+    // 形态三：超大列表（64 条）全量拼接不 panic，诊断摘要段仍受 200 字折叠约束
+    let many: Vec<String> = (0..64).map(|index| format!("reports/m-{index:02}.json")).collect();
+    let (_, commands, _, _) = drive_mutation_escalate(&"突".repeat(400), many.clone()).await;
+    let payload = phase_log_input(&commands, "test-execution");
+    let evidence = &payload.checklist[0].evidence;
+    let (brief_segment, refs_segment) = evidence
+        .split_once('；')
+        .expect("evidence 形态 = 诊断摘要；报告面");
+    assert!(
+        brief_segment.chars().count() <= 201,
+        "诊断摘要段折叠截断至 200 字上限（+省略号）: {}",
+        brief_segment.chars().count()
+    );
+    assert!(brief_segment.ends_with('…'), "折叠留省略号: {brief_segment}");
+    assert!(
+        refs_segment.contains("reports/m-00.json") && refs_segment.contains("reports/m-63.json"),
+        "64 条清单首末项全量在场（报告面原文）: {refs_segment}"
+    );
+
+    // 形态四：超长单路径（1200 字符）+ 超长明细（1200 字符）——摘要段折叠至
+    // 200 字（evidence 摘要 200 字上限），报告面段携路径原文（可直接 read）
+    let long_path = format!("reports/{}.json", "p".repeat(1200));
+    let (_, commands, _, _) =
+        drive_mutation_escalate(&"突".repeat(1200), vec![long_path.clone()]).await;
+    let payload = phase_log_input(&commands, "test-execution");
+    let evidence = &payload.checklist[0].evidence;
+    let (brief_segment, refs_segment) = evidence
+        .split_once('；')
+        .expect("evidence 形态 = 诊断摘要；报告面");
+    assert_eq!(
+        brief_segment.chars().count(),
+        201,
+        "diagnose_brief 折叠至 200 字 + 省略号（evidence 摘要 200 字上限）"
+    );
+    assert!(brief_segment.ends_with('…'), "折叠留省略号");
+    assert!(
+        refs_segment.contains(&long_path),
+        "报告面路径原文在案（决策 agent 可直读，路径不因摘要折叠受损）: {}",
+        refs_segment.chars().count()
+    );
+    assert_eq!(
+        payload.report.chars().count(),
+        1200,
+        "report 携完整明细（1200 ≤ 2000 原样，折叠只作用于 evidence 摘要段）"
+    );
+}
+
+/// 边界：突变报告截断与空反馈兜底——feedback_text 2500 字符 → report 截断至
+/// 2000（末位省略号）；feedback_text 空串 → 兜底 `conclusion=fail；报告路径 …`。
+#[tokio::test]
+async fn mutation报告截断与空反馈兜底() {
+    let long = "突".repeat(2500);
+    let (_, commands, _, _) = drive_mutation_escalate(&long, vec!["a".to_owned()]).await;
+    let report = phase_log_input(&commands, "test-execution").report;
+    assert_eq!(report.chars().count(), 2000, "超长反馈截断至 2000");
+    assert!(report.ends_with('…'), "截断留省略号");
+    assert!(report.starts_with(&"突".repeat(1999)), "取前 1999 + 省略号");
+
+    let (_, commands, _, _) = drive_mutation_escalate("", vec!["a".to_owned(), "b".to_owned()]).await;
+    let report = phase_log_input(&commands, "test-execution").report;
+    assert!(
+        report.starts_with("conclusion=fail") && report.contains("报告路径 a、b"),
+        "空反馈兜底结论行 + 报告路径清单: {report}"
+    );
 }
 
 /// 正向：`step_mutation_test`（Pass）——达标（逐 suite 全过）→ 节点 passed
@@ -8537,8 +8985,8 @@ async fn mutation_pass零反馈收口_双槽evidence达标面() {
 
 /// 边界：`PhaseCursor` 双槽互不覆盖——test-execution 相位全链下机械
 /// phase-log 同时消费 `test_outcome`（report 携计数）与 `mutation_outcome`
-/// （checklist 第 3 条 evidence 携 score / threshold）；MutationTest 失败路径
-/// 下 test 槽已消费状态不回滚（修复后 pass 收口，第 2 条仍携 test 计数）。
+/// （checklist 第 3 条 evidence 携 score / threshold）；两步均 pass 收口（首败
+/// 即升格，无修复重入——`Upgraded` 截断余下步）。
 #[tokio::test]
 async fn phase_cursor双槽互不覆盖_机械checklist同时消费两槽() {
     let timeline = Arc::new(Mutex::new(Vec::new()));
@@ -8546,16 +8994,12 @@ async fn phase_cursor双槽互不覆盖_机械checklist同时消费两槽() {
     let (tools, _commands) = FakeTools::new(&timeline)
         .with_phase_next(vec![route_outcome("test-execution", &[]), done_outcome()])
         .with_test_execution(vec![execution_outcome(TestExecutionConclusion::Pass, 7)])
-        .with_mutation(vec![
-            // 首检未达标 → 反馈修复 → 复检达标（失败路径下 test 槽已消费）
-            mutation_outcome(
-                MutationTestConclusion::Fail,
-                55.0,
-                80.0,
-                MUTATION_FAIL_FEEDBACK,
-            ),
-            mutation_outcome(MutationTestConclusion::Pass, 95.0, 80.0, ""),
-        ])
+        .with_mutation(vec![mutation_outcome(
+            MutationTestConclusion::Pass,
+            95.0,
+            80.0,
+            "",
+        )])
         .assemble();
 
     let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
@@ -8603,296 +9047,6 @@ async fn phase_cursor双槽互不覆盖_机械checklist同时消费两槽() {
     assert!(
         mechanical.checklist.iter().all(|item| item.pass),
         "三条目全 pass（双槽语义下第 3 条恒真——D8）"
-    );
-}
-
-/// 正向：`step_mutation_test`（Fail）——全段跑完但未达标 → 反馈 prompt 只嵌
-/// `outcome.feedback_text`（score / threshold + 报告路径清单），注入 executor
-/// 会话（`EdgeKind::Feedback` 续注同会话：第二次 fail 续注首会话）；修复后
-/// pass 收口。
-#[tokio::test]
-async fn mutation_fail反馈prompt只嵌feedback_text注入executor会话() {
-    let timeline = Arc::new(Mutex::new(Vec::new()));
-    let (worker, requests, sessions) = FakeWorker::new(&timeline).assemble();
-    let (tools, _commands) = FakeTools::new(&timeline)
-        .with_phase_next(vec![route_outcome("test-execution", &[]), done_outcome()])
-        .with_test_execution(vec![execution_outcome(TestExecutionConclusion::Pass, 5)])
-        .with_mutation(vec![
-            mutation_outcome(
-                MutationTestConclusion::Fail,
-                55.0,
-                80.0,
-                MUTATION_FAIL_FEEDBACK,
-            ),
-            mutation_outcome(
-                MutationTestConclusion::Fail,
-                60.0,
-                80.0,
-                MUTATION_FAIL_FEEDBACK,
-            ),
-            mutation_outcome(MutationTestConclusion::Pass, 85.0, 80.0, ""),
-        ])
-        .assemble();
-
-    let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
-    let control = Arc::new(ChangeFlowControl::new());
-
-    let (task, _rx, _history) = spawn_run(worker, tools, snapshot, &control, true, "/tmp/root");
-    let status = task.await.expect("run 任务正常结束");
-    assert_eq!(status, ChangeRunStatus::Completed, "修复后 pass 收口");
-
-    let requests = requests.lock().expect("请求锁");
-    assert_eq!(requests.len(), 2, "恰两次修复会话（fail→fail→pass）");
-    for (index, request) in requests.iter().enumerate() {
-        assert_eq!(
-            request.role,
-            WorkerRole::Executor,
-            "反馈边②注入 executor 会话"
-        );
-        assert!(
-            request.prompt.contains("突变测试未通过（第 ") && request.prompt.contains("次反馈修复"),
-            "修复 prompt 携反馈计数: {}",
-            request.prompt
-        );
-        // 反馈 prompt 只嵌 feedback_text（结论摘要 + 报告路径清单）
-        assert!(
-            request.prompt.contains(MUTATION_FAIL_FEEDBACK),
-            "feedback_text 原样内嵌（第 {index} 次）: {}",
-            request.prompt
-        );
-        assert!(
-            request.prompt.contains("score 55 < threshold 80")
-                || request.prompt.contains("score 60 < threshold 80"),
-            "score / threshold 结论摘要在场: {}",
-            request.prompt
-        );
-        // MUST NOT 内联存活突变体清单——feedback_text 之外零 mutant 明细
-        assert!(
-            !request.prompt.contains("src/lib.rs") && !request.prompt.contains("mutant #"),
-            "反馈 prompt 零存活突变体内联（报告指引式）: {}",
-            request.prompt
-        );
-    }
-    // 同会话续注：第二次反馈续注首会话 id（EdgeKind::Feedback 续注同会话）
-    assert!(
-        requests[1].continue_session.is_some(),
-        "第二次反馈续注同会话（不新开）"
-    );
-    drop(requests);
-
-    // 会话登记：两轮修复会话 + 各自派发 id（首开新、次续注）
-    let sessions = sessions.lock().expect("会话锁");
-    assert_eq!(sessions.len(), 2, "两轮修复会话登记");
-    assert!(sessions
-        .iter()
-        .all(|(role, _)| *role == WorkerRole::Executor));
-}
-
-/// 正向：`step_mutation_test`（Error）——段执行 error / harness 崩 / 超时 →
-/// **立即反馈**（错误摘要 + 报告路径清单），不等汇总（双时点②的中断面）；
-/// 不升 Err（run 正常收敛）。
-#[tokio::test]
-async fn mutation_error即时反馈_不等汇总不升err() {
-    let timeline = Arc::new(Mutex::new(Vec::new()));
-    let (worker, requests, _sessions) = FakeWorker::new(&timeline).assemble();
-    let (tools, _commands) = FakeTools::new(&timeline)
-        .with_phase_next(vec![route_outcome("test-execution", &[]), done_outcome()])
-        .with_test_execution(vec![execution_outcome(TestExecutionConclusion::Pass, 5)])
-        .with_mutation(vec![
-            mutation_outcome(
-                MutationTestConclusion::Error,
-                30.0,
-                80.0,
-                "突变执行中断：cargo-mutants 段执行超时（1800 秒）强制终止\n已产报告路径：\n- reports/test/app_rust/mutation/mutation-seg-0.json",
-            ),
-            mutation_outcome(MutationTestConclusion::Pass, 95.0, 80.0, ""),
-        ])
-        .assemble();
-
-    let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
-    let control = Arc::new(ChangeFlowControl::new());
-
-    let (task, _rx, _history) = spawn_run(worker, tools, snapshot, &control, true, "/tmp/root");
-    let status = task.await.expect("run 任务正常结束");
-    assert_eq!(
-        status,
-        ChangeRunStatus::Completed,
-        "段中断错误面走反馈边②（不升 Err——错误摘要即时反馈，修复后收口）"
-    );
-
-    let requests = requests.lock().expect("请求锁");
-    assert_eq!(requests.len(), 1, "中断错误即时反馈（恰一次修复会话）");
-    assert!(
-        requests[0]
-            .prompt
-            .contains("突变执行中断：cargo-mutants 段执行超时"),
-        "错误摘要随 feedback_text 即时内嵌（不等汇总）: {}",
-        requests[0].prompt
-    );
-    assert!(
-        requests[0].prompt.contains("mutation-seg-0.json"),
-        "已产报告路径清单随行: {}",
-        requests[0].prompt
-    );
-    assert!(
-        requests[0].prompt.contains("conclusion=error"),
-        "结论词随修复 prompt 注入: {}",
-        requests[0].prompt
-    );
-}
-
-/// 正向：独立计数预算（AC-6）——`feedback_limit_of("test-execution",
-/// StepNode::MutationTest)` == 5，与 static-check / test-execution 反馈计数器
-/// 分立（三者互不影响：mutation 反馈耗尽不消耗 test-execution 预算）。
-#[tokio::test]
-async fn mutation反馈独立计数_与test_execution分立() {
-    // 步声明单源：test-execution 相位 MutationTest 步 FeedbackLoop limit == 5
-    assert_eq!(
-        feedback_limit_of("test-execution", StepNode::MutationTest),
-        5,
-        "MutationTest 反馈边独立计数上限为 5"
-    );
-    // 与 test-execution / static-check 计数器分立（三者各由自身 step 声明承载）
-    assert_eq!(test_execution_feedback_limit(), 5);
-    assert_eq!(static_check_feedback_limit(), 5);
-
-    // 行为面分立：mutation 连 fail 耗尽独立预算（6 次）升格期间 test-execution
-    // 门禁恰一次（其预算零消耗——修复会话只重跑突变门禁）
-    let timeline = Arc::new(Mutex::new(Vec::new()));
-    let (worker, _requests, _sessions) = FakeWorker::new(&timeline).assemble();
-    let mutation_fail = || {
-        mutation_outcome(
-            MutationTestConclusion::Fail,
-            55.0,
-            80.0,
-            MUTATION_FAIL_FEEDBACK,
-        )
-    };
-    let (tools, commands) = FakeTools::new(&timeline)
-        .with_phase_next(vec![route_outcome("test-execution", &[]), done_outcome()])
-        .with_test_execution(vec![execution_outcome(TestExecutionConclusion::Pass, 5)])
-        .with_mutation(vec![
-            mutation_fail();
-            feedback_limit_of("test-execution", StepNode::MutationTest)
-                as usize
-                + 1
-        ])
-        .assemble();
-
-    let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
-    let control = Arc::new(ChangeFlowControl::new());
-
-    let (task, _rx, _history) = spawn_run(worker, tools, snapshot, &control, true, "/tmp/root");
-    let status = task.await.expect("run 任务正常结束");
-    assert_eq!(status, ChangeRunStatus::Completed, "升格 fail 落账后收敛");
-
-    let commands = commands.lock().expect("命令锁");
-    let test_calls = commands
-        .iter()
-        .filter(|command| matches!(command, ToolCommand::TestExecution { .. }))
-        .count();
-    assert_eq!(
-        test_calls, 1,
-        "mutation 反馈不消耗 test-execution 预算（其门禁恰一次）"
-    );
-}
-
-/// 异常：超限升格（AC-6）——第 6 次反馈仍 fail → `step_mutation_test_
-/// upgraded_phase_log` 代写 fail checklist（条目「突变测试」+ 仅携 executor
-/// 槽位——evaluator 未跑无会话可记），升格相位 fail。
-#[tokio::test]
-async fn mutation反馈超限升格_代写failchecklist仅携executor槽位() {
-    let timeline = Arc::new(Mutex::new(Vec::new()));
-    let (worker, _requests, _sessions) = FakeWorker::new(&timeline).assemble();
-    let mutation_fail = || {
-        mutation_outcome(
-            MutationTestConclusion::Fail,
-            55.0,
-            80.0,
-            MUTATION_FAIL_FEEDBACK,
-        )
-    };
-    let (tools, commands) = FakeTools::new(&timeline)
-        .with_phase_next(vec![route_outcome("test-execution", &[]), done_outcome()])
-        .with_test_execution(vec![execution_outcome(TestExecutionConclusion::Pass, 5)])
-        .with_mutation(vec![
-            mutation_fail();
-            feedback_limit_of("test-execution", StepNode::MutationTest)
-                as usize
-                + 1
-        ])
-        .assemble();
-
-    let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
-    let control = Arc::new(ChangeFlowControl::new());
-
-    let (task, _rx, history) = spawn_run(worker, tools, snapshot, &control, true, "/tmp/root");
-    let status = task.await.expect("run 任务正常结束");
-    assert_eq!(status, ChangeRunStatus::Completed);
-
-    // 门禁恰 limit+1 次（首检 + 5 次反馈复查——独立计数上限）
-    let commands = commands.lock().expect("命令锁");
-    let gate_calls = commands
-        .iter()
-        .filter(|command| matches!(command, ToolCommand::MutationTest { .. }))
-        .count();
-    assert_eq!(
-        gate_calls,
-        feedback_limit_of("test-execution", StepNode::MutationTest) as usize + 1,
-        "独立计数恰 ≤5（第 5 次仍失败即升格）"
-    );
-
-    // 升格代写 fail phase-log：单条「突变测试」fail item + evidence 摘要 +
-    // 仅携 executor 槽位（evaluator / decision 恒 None）
-    let upgrade = commands
-        .iter()
-        .find_map(|command| match command {
-            ToolCommand::PhaseLog { input, phase, .. } if phase == "test-execution" => {
-                Some(input.clone())
-            }
-            _ => None,
-        })
-        .expect("升格代写 fail phase-log 在场");
-    assert_eq!(upgrade.checklist.len(), 1, "单条 fail item");
-    assert!(!upgrade.checklist[0].pass, "升格落账为 fail checklist");
-    assert_eq!(
-        upgrade.checklist[0].item, "突变测试",
-        "fail 条目为「突变测试」（test_mutation_test_upgraded_phase_log 同式）"
-    );
-    assert!(
-        upgrade.checklist[0].evidence.contains("突变测试未达标")
-            || upgrade.checklist[0]
-                .evidence
-                .contains("score 55 < threshold 80"),
-        "evidence 携 feedback_text 摘要（报告指引式）: {}",
-        upgrade.checklist[0].evidence
-    );
-    assert!(
-        upgrade.report.contains("反馈边超限") && upgrade.report.contains("conclusion=fail"),
-        "report 记因升格: {}",
-        upgrade.report
-    );
-    assert!(
-        upgrade.executor_session_id.is_some(),
-        "executor 槽位携反馈会话 id"
-    );
-    assert!(
-        upgrade.evaluator_session_id.is_none() && upgrade.decision_session_id.is_none(),
-        "evaluator / decision 恒 None（未跑无会话可记）"
-    );
-    drop(commands);
-
-    // 步整包：mutation_test 节点 failed（升格前末检失败态在案）
-    let command = history.finish().expect("finish 落包捕获");
-    let mutation_rows: Vec<_> = step_rows(&command.nodes)
-        .into_iter()
-        .filter(|(_, _, kind, _)| kind == "mutation_test")
-        .collect();
-    assert!(
-        mutation_rows
-            .iter()
-            .any(|(_, _, _, status)| status == "failed"),
-        "升格路径 mutation_test 节点呈失败态: {mutation_rows:?}"
     );
 }
 
@@ -10161,4 +10315,1044 @@ async fn legacy短路_两枚节点留痕与零检查spawn() {
     // skipped 落账载荷断言已承载跳过因可见面（PhaseLog 命令载荷直检——本用例
     // FakeTools 零落库，skipped 条目持久同 pass 语义的读侧断言由真实写面组合
     // 用例「真实写面组合全程演进对照一致」承载）
+}
+
+// ---------------------------------------------------------------------------
+// 决策软拒环 / 漂移上限 / 决策输入面（test-execution-zero-agent-decision
+// AC-3 / AC-4 / AC-5 / AC-9）
+// ---------------------------------------------------------------------------
+
+/// 决策软拒（异常）：第一轮输出已退役 `{"action":"retry"}` → 解析 `Err` → 漂移
+/// 1、**零** WhitelistGate 节点、同会话续注纠正文案；第二轮合法 backtrack 经门
+/// passed 后落账重路由收敛。
+#[tokio::test]
+async fn 决策软拒_退役retry一次纠正后合法backtrack() {
+    let (root, db) = decision_fixture("decision-soft-reject-retry");
+    let allowed = ["proposal", "dev-design", "implement"];
+    let timeline = Arc::new(Mutex::new(Vec::new()));
+    let (worker, requests, sessions) = FakeWorker::new(&timeline)
+        .with_decision_reports(vec![
+            r#"{ "action": "retry" }"#.to_owned(),
+            r#"{ "action": "backtrack", "to": "dev-design", "reason": "设计返工" }"#.to_owned(),
+        ])
+        .assemble();
+    let (tools, commands) = FakeTools::new(&timeline)
+        .with_phase_next(vec![
+            route_outcome("implement", &allowed),
+            max_retries_outcome("implement", &allowed, "首轮未过"),
+            route_outcome("dev-design", &["proposal", "dev-design"]),
+            done_outcome(),
+        ])
+        .assemble();
+    let snapshot: Arc<dyn WorkflowSnapshotPort> =
+        Arc::new(StoreSnapshot::new(root.root_str(), db.store_arc()));
+    let control = Arc::new(ChangeFlowControl::new());
+    let (task, _rx, history) =
+        spawn_run(worker, tools, snapshot, &control, false, &root.root_str());
+    let _confirmer = spawn_confirmer(&control, true);
+    let status = task.await.expect("run 任务正常结束");
+    assert_eq!(status, ChangeRunStatus::Completed, "纠正后 backtrack 收敛");
+
+    // 同会话续注 + 纠正文案（parse 失败不 emit 门节点）
+    let requests = requests.lock().expect("请求锁");
+    let decision_requests: Vec<&WorkerTurnRequest> = requests
+        .iter()
+        .filter(|request| request.role == WorkerRole::Decision)
+        .collect();
+    assert_eq!(decision_requests.len(), 2, "软拒一次后续注一轮");
+    assert!(
+        decision_requests[0].continue_session.is_none(),
+        "首轮新会话"
+    );
+    let first_session = sessions_of(&sessions.lock().expect("会话锁"), WorkerRole::Decision)[0].clone();
+    assert_eq!(
+        decision_requests[1].continue_session.as_deref(),
+        Some(first_session.as_str()),
+        "第二轮同会话续注"
+    );
+    assert!(
+        decision_requests[1]
+            .prompt
+            .contains("上一轮决策输出被驳回：决策 JSON 结构漂移")
+            && decision_requests[1].prompt.contains("三动作封闭集"),
+        "纠正文案携解析错误与三动作重申: {}",
+        decision_requests[1].prompt
+    );
+    drop(requests);
+
+    // 门节点：解析失败轮零门节点，合法轮恰一个 passed
+    let finish = history.finish().expect("finish 落包捕获");
+    let gates: Vec<&RunNodeEntry> = finish
+        .nodes
+        .iter()
+        .filter(|node| node.step == workflow::state::RunStepKind::WhitelistGate)
+        .collect();
+    assert_eq!(gates.len(), 1, "解析失败零门节点（仅合法轮 emit）");
+    assert_eq!(gates[0].status, RunStepStatus::Passed, "合法 backtrack 门 passed");
+
+    // 两轮各挂账一次（同会话）
+    let payloads = decision_log_payloads(&commands.lock().expect("命令锁"));
+    assert_eq!(payloads.len(), 2, "每轮决策-log 各一次");
+    assert_eq!(payloads[0].2, first_session);
+    assert_eq!(payloads[1].2, first_session);
+}
+
+/// 决策漂移（异常）：连续 3 次自环（`to == 失败相位` 且不在白名单）——前两次
+/// 各 emit 1 个 failed WhitelistGate（detail 含自环文案）并同会话续注纠正；
+/// 第 3 次漂移 3 > `DECISION_DRIFT_LIMIT = 2` → `Terminal::failed("决策漂移")`。
+#[tokio::test]
+async fn 决策漂移_三次自环超限failed() {
+    let (root, db) = decision_fixture("decision-drift-self-loop");
+    // 白名单不含 implement → backtrack 到自身即自环（零 agent 步不可重做语义）
+    let allowed = ["proposal"];
+    let timeline = Arc::new(Mutex::new(Vec::new()));
+    let self_loop = r#"{ "action": "backtrack", "to": "implement", "reason": "重做" }"#.to_owned();
+    let (worker, requests, sessions) = FakeWorker::new(&timeline)
+        .with_decision_reports(vec![self_loop.clone(), self_loop.clone(), self_loop])
+        .assemble();
+    let (tools, commands) = FakeTools::new(&timeline)
+        .with_phase_next(vec![
+            route_outcome("implement", &allowed),
+            max_retries_outcome("implement", &allowed, "首轮未过"),
+        ])
+        .assemble();
+    let snapshot: Arc<dyn WorkflowSnapshotPort> =
+        Arc::new(StoreSnapshot::new(root.root_str(), db.store_arc()));
+    let control = Arc::new(ChangeFlowControl::new());
+    let (task, _rx, history) =
+        spawn_run(worker, tools, snapshot, &control, false, &root.root_str());
+    let _confirmer = spawn_confirmer(&control, true);
+    let status = task.await.expect("run 任务正常结束");
+    assert_eq!(status, ChangeRunStatus::Failed, "漂移超限显式失败");
+    let finish = history.finish().expect("finish 落包捕获");
+    let reason = finish.reason.as_deref().unwrap_or_default();
+    assert!(
+        reason.contains("决策漂移") && reason.contains("驳回"),
+        "记因决策漂移: {reason}"
+    );
+
+    // 三轮同会话续注、零 Backtrack 落账
+    let requests = requests.lock().expect("请求锁");
+    let decision_requests: Vec<&WorkerTurnRequest> = requests
+        .iter()
+        .filter(|request| request.role == WorkerRole::Decision)
+        .collect();
+    assert_eq!(decision_requests.len(), 3, "前两次驳回 + 第三次超限");
+    let first_session = sessions_of(&sessions.lock().expect("会话锁"), WorkerRole::Decision)[0].clone();
+    for request in decision_requests.iter().skip(1) {
+        assert_eq!(
+            request.continue_session.as_deref(),
+            Some(first_session.as_str()),
+            "驳回后同会话续注"
+        );
+    }
+    drop(requests);
+    assert!(
+        commands
+            .lock()
+            .expect("命令锁")
+            .iter()
+            .all(|command| !matches!(command, ToolCommand::Backtrack { .. })),
+        "自环决议零 Backtrack 落账"
+    );
+
+    // 前两轮各一个 failed 门节点（detail 含自环文案），无 passed 门
+    let gates: Vec<&RunNodeEntry> = finish
+        .nodes
+        .iter()
+        .filter(|node| node.step == workflow::state::RunStepKind::WhitelistGate)
+        .collect();
+    assert_eq!(
+        gates.len(),
+        3,
+        "三次自环各 emit 一个门实例（第三次 emit 后超限收敛）"
+    );
+    for gate in &gates {
+        assert_eq!(gate.status, RunStepStatus::Failed, "自环门 failed");
+        let detail = gate.detail.clone().unwrap_or_default();
+        assert!(
+            detail.contains("确定性门禁相位") && detail.contains("stop / ask"),
+            "自环文案含不可重做说明与出路: {detail}"
+        );
+    }
+}
+
+/// 决策漂移（异常，表驱动两非法词）：未知名动作 `explode` / 拼写漂移 `Retry`
+/// 各一次软拒（零门节点、同会话续注），第三轮合法 stop 经门 passed 正常收敛。
+#[tokio::test]
+async fn 决策软拒_未知名动作两次后续stop收敛() {
+    let (root, db) = decision_fixture("decision-unknown-actions");
+    let allowed = ["proposal", "dev-design", "implement"];
+    let timeline = Arc::new(Mutex::new(Vec::new()));
+    let (worker, requests, sessions) = FakeWorker::new(&timeline)
+        .with_decision_reports(vec![
+            r#"{ "action": "explode" }"#.to_owned(),
+            r#"{ "action": "Retry" }"#.to_owned(),
+            r#"{ "action": "stop", "reason": "无法裁决" }"#.to_owned(),
+        ])
+        .assemble();
+    let (tools, _commands) = FakeTools::new(&timeline)
+        .with_phase_next(vec![
+            route_outcome("implement", &allowed),
+            max_retries_outcome("implement", &allowed, "首轮未过"),
+        ])
+        .assemble();
+    let snapshot: Arc<dyn WorkflowSnapshotPort> =
+        Arc::new(StoreSnapshot::new(root.root_str(), db.store_arc()));
+    let control = Arc::new(ChangeFlowControl::new());
+    let (task, _rx, history) =
+        spawn_run(worker, tools, snapshot, &control, false, &root.root_str());
+    let _confirmer = spawn_confirmer(&control, true);
+    let status = task.await.expect("run 任务正常结束");
+    assert_eq!(status, ChangeRunStatus::Stopped, "两次软拒后合法 stop 收敛");
+
+    let requests = requests.lock().expect("请求锁");
+    let decision_requests: Vec<&WorkerTurnRequest> = requests
+        .iter()
+        .filter(|request| request.role == WorkerRole::Decision)
+        .collect();
+    assert_eq!(decision_requests.len(), 3, "两次软拒 + 一次合法动作");
+    let first_session = sessions_of(&sessions.lock().expect("会话锁"), WorkerRole::Decision)[0].clone();
+    for request in decision_requests.iter().skip(1) {
+        assert_eq!(
+            request.continue_session.as_deref(),
+            Some(first_session.as_str()),
+            "软拒同会话续注"
+        );
+        assert!(
+            request.prompt.contains("上一轮决策输出被驳回"),
+            "续注为纠正文案: {}",
+            request.prompt
+        );
+    }
+    drop(requests);
+
+    let finish = history.finish().expect("finish 落包捕获");
+    let gates: Vec<&RunNodeEntry> = finish
+        .nodes
+        .iter()
+        .filter(|node| node.step == workflow::state::RunStepKind::WhitelistGate)
+        .collect();
+    assert_eq!(gates.len(), 1, "两次解析失败零门节点，仅合法 stop emit 一个");
+    assert_eq!(gates[0].status, RunStepStatus::Passed);
+}
+
+/// 决策输入面（正向 / 边界）：`fail_checklist` 仅携失败项（pass 项不随行）；
+/// 全 pass 清单配 fail verdict → 全量随行不虚减；失败相位站缺席 → `attempt = 0`
+/// 且 checklist 空、报告段占位「（无报告文本）」。
+#[tokio::test]
+async fn 决策输入_fail清单过滤与全pass随行与station缺席() {
+    // 子用例一：fail 项 + pass 项 → 仅失败项随行
+    let root = TempRoot::new("decision-input-filter");
+    root.change(NAME);
+    let db = TestDb::open("decision-input-filter");
+    seed_change(db.store.as_ref(), CHANGE_ID, NAME);
+    seed_entry(
+        db.store.as_ref(),
+        CHANGE_ID,
+        "initialize",
+        Verdict::Pass,
+        "基线通过",
+        Vec::new(),
+        TS_BASE,
+    );
+    seed_entry(
+        db.store.as_ref(),
+        CHANGE_ID,
+        "proposal",
+        Verdict::Fail,
+        "提案未过",
+        vec![
+            ChecklistItem {
+                item: "失败项".to_owned(),
+                pass: false,
+                evidence: "缺失目标段".to_owned(),
+            },
+            ChecklistItem {
+                item: "通过项".to_owned(),
+                pass: true,
+                evidence: "结构齐备".to_owned(),
+            },
+        ],
+        TS_BASE + 60_000,
+    );
+    let allowed = ["proposal"];
+    let timeline = Arc::new(Mutex::new(Vec::new()));
+    let (worker, requests, _sessions) = FakeWorker::new(&timeline)
+        .with_decision_reports(vec![
+            r#"{ "action": "stop", "reason": "人工介入" }"#.to_owned(),
+        ])
+        .assemble();
+    let (tools, _commands) = FakeTools::new(&timeline)
+        .with_phase_next(vec![
+            route_outcome("proposal", &allowed),
+            max_retries_outcome("proposal", &allowed, "提案未过"),
+        ])
+        .assemble();
+    let snapshot: Arc<dyn WorkflowSnapshotPort> =
+        Arc::new(StoreSnapshot::new(root.root_str(), db.store_arc()));
+    let control = Arc::new(ChangeFlowControl::new());
+    let (task, _rx, _history) =
+        spawn_run(worker, tools, snapshot, &control, false, &root.root_str());
+    let _confirmer = spawn_confirmer(&control, true);
+    let _ = task.await.expect("run 任务正常结束");
+    let prompt = decision_prompt_of(&requests);
+    assert!(
+        prompt.contains("- 失败项：缺失目标段") && !prompt.contains("- 通过项"),
+        "fail_checklist 仅失败项随行: {prompt}"
+    );
+    assert!(
+        prompt.contains("## 失败相位报告") && prompt.contains("提案未过"),
+        "fail_report 取失败条目 report 原文"
+    );
+
+    // 子用例二：全 pass 清单配 fail verdict → 全量随行不虚减
+    let root = TempRoot::new("decision-input-all-pass");
+    root.change(NAME);
+    let db = TestDb::open("decision-input-all-pass");
+    seed_change(db.store.as_ref(), CHANGE_ID, NAME);
+    seed_entry(
+        db.store.as_ref(),
+        CHANGE_ID,
+        "initialize",
+        Verdict::Pass,
+        "基线通过",
+        Vec::new(),
+        TS_BASE,
+    );
+    seed_entry(
+        db.store.as_ref(),
+        CHANGE_ID,
+        "proposal",
+        Verdict::Fail,
+        "提案未过",
+        vec![
+            ChecklistItem {
+                item: "清单项一".to_owned(),
+                pass: true,
+                evidence: "证据一".to_owned(),
+            },
+            ChecklistItem {
+                item: "清单项二".to_owned(),
+                pass: true,
+                evidence: "证据二".to_owned(),
+            },
+        ],
+        TS_BASE + 60_000,
+    );
+    let timeline = Arc::new(Mutex::new(Vec::new()));
+    let (worker, requests, _sessions) = FakeWorker::new(&timeline)
+        .with_decision_reports(vec![
+            r#"{ "action": "stop", "reason": "人工介入" }"#.to_owned(),
+        ])
+        .assemble();
+    let (tools, _commands) = FakeTools::new(&timeline)
+        .with_phase_next(vec![
+            route_outcome("proposal", &allowed),
+            max_retries_outcome("proposal", &allowed, "提案未过"),
+        ])
+        .assemble();
+    let snapshot: Arc<dyn WorkflowSnapshotPort> =
+        Arc::new(StoreSnapshot::new(root.root_str(), db.store_arc()));
+    let control = Arc::new(ChangeFlowControl::new());
+    let (task, _rx, _history) =
+        spawn_run(worker, tools, snapshot, &control, false, &root.root_str());
+    let _confirmer = spawn_confirmer(&control, true);
+    let _ = task.await.expect("run 任务正常结束");
+    let prompt = decision_prompt_of(&requests);
+    assert!(
+        prompt.contains("- 清单项一：证据一") && prompt.contains("- 清单项二：证据二"),
+        "全 pass 清单配 fail verdict → 全量随行不虚减: {prompt}"
+    );
+
+    // 子用例三：失败相位站缺席（detail 无 code-review 站）→ attempt 0 + 空清单
+    // + 报告段占位
+    let (root, db) = decision_fixture("decision-input-missing-station");
+    let allowed = ["proposal", "dev-design", "implement"];
+    let timeline = Arc::new(Mutex::new(Vec::new()));
+    let (worker, requests, _sessions) = FakeWorker::new(&timeline)
+        .with_decision_reports(vec![
+            r#"{ "action": "stop", "reason": "人工介入" }"#.to_owned(),
+        ])
+        .assemble();
+    let (tools, _commands) = FakeTools::new(&timeline)
+        .with_phase_next(vec![
+            route_outcome("code-review", &allowed),
+            max_retries_outcome("code-review", &allowed, "缺席快照"),
+        ])
+        .assemble();
+    let snapshot: Arc<dyn WorkflowSnapshotPort> =
+        Arc::new(StoreSnapshot::new(root.root_str(), db.store_arc()));
+    let control = Arc::new(ChangeFlowControl::new());
+    let (task, _rx, _history) =
+        spawn_run(worker, tools, snapshot, &control, false, &root.root_str());
+    let _confirmer = spawn_confirmer(&control, true);
+    let _ = task.await.expect("run 任务正常结束");
+    let prompt = decision_prompt_of(&requests);
+    assert!(
+        prompt.contains("第 0 次 attempt"),
+        "station 缺席 → attempt = 0: {prompt}"
+    );
+    assert!(
+        prompt.contains("（无报告文本）"),
+        "station 缺席 → 报告段占位: {prompt}"
+    );
+}
+
+/// 决策输入（异常）：快照 `detail` 读取 `Err` → `Terminal::failed("快照读取
+/// 失败…")`、零决策请求；`last_result` 缺席 → `Terminal`（无法组装决策输入）。
+#[tokio::test]
+async fn 决策输入_快照失败与last_result缺席均terminal() {
+    // 子用例一：快照读取 Err
+    let timeline = Arc::new(Mutex::new(Vec::new()));
+    let (worker, requests, _sessions) = FakeWorker::new(&timeline).assemble();
+    let (tools, _commands) = FakeTools::new(&timeline)
+        .with_phase_next(vec![max_retries_outcome(
+            "implement",
+            &["proposal", "implement"],
+            "首轮未过",
+        )])
+        .assemble();
+    let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
+    let control = Arc::new(ChangeFlowControl::new());
+    let (task, _rx, history) = spawn_run(worker, tools, snapshot, &control, false, "/tmp/root");
+    let status = task.await.expect("run 任务正常结束");
+    assert_eq!(status, ChangeRunStatus::Failed, "快照读取失败显式 failed");
+    let finish = history.finish().expect("finish 落包捕获");
+    assert!(
+        finish
+            .reason
+            .as_deref()
+            .unwrap_or_default()
+            .contains("快照读取失败"),
+        "记因快照读取失败: {:?}",
+        finish.reason
+    );
+    assert!(
+        requests.lock().expect("请求锁").is_empty(),
+        "零决策请求（组装输入前失败）"
+    );
+
+    // 子用例二：last_result 缺席
+    let timeline = Arc::new(Mutex::new(Vec::new()));
+    let (worker, requests, _sessions) = FakeWorker::new(&timeline).assemble();
+    let mut no_last_result = max_retries_outcome("implement", &["proposal", "implement"], "未过");
+    no_last_result.last_result = None;
+    let (tools, _commands) = FakeTools::new(&timeline)
+        .with_phase_next(vec![no_last_result])
+        .assemble();
+    let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(MinimalSnapshot);
+    let control = Arc::new(ChangeFlowControl::new());
+    let (task, _rx, history) = spawn_run(worker, tools, snapshot, &control, false, "/tmp/root");
+    let status = task.await.expect("run 任务正常结束");
+    assert_eq!(status, ChangeRunStatus::Failed, "缺 last_result 显式 failed");
+    let finish = history.finish().expect("finish 落包捕获");
+    assert!(
+        finish
+            .reason
+            .as_deref()
+            .unwrap_or_default()
+            .contains("缺 last_result"),
+        "记因无法组装决策输入: {:?}",
+        finish.reason
+    );
+    assert!(
+        requests.lock().expect("请求锁").is_empty(),
+        "零决策请求"
+    );
+}
+
+/// `feedback_limit` 的 `Escalate` arm（异常）：static-check 步误声明
+/// `OnFail::Escalate` → 显式漂移 `Err`（`不得声明 OnFail::Escalate`），零门禁
+/// spawn、零 agent 会话（不得静默退化为禁用）。
+#[tokio::test]
+async fn feedback_limit_escalate误声明显式漂移err() {
+    let timeline = Arc::new(Mutex::new(Vec::new()));
+    let (worker, requests, _sessions) = FakeWorker::new(&timeline).assemble();
+    let mut drifted_route = route_outcome("implement", &["proposal", "implement"]);
+    drifted_route.steps = vec![
+        StepDefinition {
+            node: StepNode::PhaseStart,
+            prompt_ref: None,
+            on_fail: None,
+        },
+        StepDefinition {
+            node: StepNode::StaticCheck,
+            prompt_ref: None,
+            on_fail: Some(OnFail::Escalate),
+        },
+    ];
+    let (tools, commands) = FakeTools::new(&timeline)
+        .with_phase_next(vec![drifted_route])
+        .assemble();
+    let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
+    let control = Arc::new(ChangeFlowControl::new());
+    let (task, _rx, history) = spawn_run(worker, tools, snapshot, &control, true, "/tmp/root");
+    let status = task.await.expect("run 任务正常结束");
+    assert_eq!(status, ChangeRunStatus::Failed, "误声明显式漂移失败");
+    let finish = history.finish().expect("finish 落包捕获");
+    assert!(
+        finish
+            .reason
+            .as_deref()
+            .unwrap_or_default()
+            .contains("不得声明 OnFail::Escalate"),
+        "记因: {:?}",
+        finish.reason
+    );
+    assert!(
+        commands
+            .lock()
+            .expect("命令锁")
+            .iter()
+            .all(|command| !matches!(command, ToolCommand::StaticCheck { .. })),
+        "漂移路径零门禁 spawn"
+    );
+    assert!(
+        requests.lock().expect("请求锁").is_empty(),
+        "零 agent 会话"
+    );
+}
+
+/// ask 停等终止（边界）：决策 ask 流出后取消置位 → `wait_answer` 返回 `None`
+/// → `Terminal::stopped("ask 停等被终止")`（漂移不增、零 Backtrack）。
+#[tokio::test]
+async fn 决策ask停等被终止收敛stopped() {
+    let (root, db) = decision_fixture("decision-ask-abort");
+    let allowed = ["proposal", "implement"];
+    let timeline = Arc::new(Mutex::new(Vec::new()));
+    let (worker, _requests, _sessions) = FakeWorker::new(&timeline)
+        .with_decision_reports(vec![
+            r#"{ "action": "ask", "question": "回溯目标?", "options": ["proposal"] }"#.to_owned(),
+        ])
+        .assemble();
+    let (tools, commands) = FakeTools::new(&timeline)
+        .with_phase_next(vec![
+            route_outcome("implement", &allowed),
+            max_retries_outcome("implement", &allowed, "首轮未过"),
+        ])
+        .assemble();
+    let snapshot: Arc<dyn WorkflowSnapshotPort> =
+        Arc::new(StoreSnapshot::new(root.root_str(), db.store_arc()));
+    let control = Arc::new(ChangeFlowControl::new());
+    let (task, mut rx, history) =
+        spawn_run(worker, tools, snapshot, &control, false, &root.root_str());
+    let _confirmer = spawn_confirmer(&control, true);
+
+    // 等 Ask 通知后置取消（wait_answer 取消半边返回 None）
+    let deadline = Instant::now() + Duration::from_secs(30);
+    loop {
+        if futures_poll(&mut rx).is_some() {
+            break;
+        }
+        assert!(Instant::now() < deadline, "等待 Ask 通知超时（30s）");
+        tokio::task::yield_now().await;
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    assert!(control.request_stop(ROOT, CHANGE_ID), "取消置位");
+    let status = task.await.expect("run 任务正常结束");
+    assert_eq!(status, ChangeRunStatus::Stopped, "ask 停等被终止 → stopped");
+    let finish = history.finish().expect("finish 落包捕获");
+    assert!(
+        finish
+            .reason
+            .as_deref()
+            .unwrap_or_default()
+            .contains("ask 停等被终止"),
+        "记因: {:?}",
+        finish.reason
+    );
+    assert!(
+        commands
+            .lock()
+            .expect("命令锁")
+            .iter()
+            .all(|command| !matches!(command, ToolCommand::Backtrack { .. })),
+        "零 Backtrack 落账"
+    );
+}
+
+/// 决策 ask 多轮（边界）：连续 3 轮 ask 应答后续问——漂移恒 0（ask 不计漂移）、
+/// 同会话续注、每轮 DecisionLog 各一次；第 4 轮合法 stop 经门 passed 收敛。
+#[tokio::test]
+async fn 决策ask连续三轮不计漂移后续stop() {
+    let (root, db) = decision_fixture("decision-ask-three-rounds");
+    let allowed = ["proposal", "implement"];
+    let ask = r#"{ "action": "ask", "question": "回溯目标?", "options": ["proposal"] }"#.to_owned();
+    let timeline = Arc::new(Mutex::new(Vec::new()));
+    let (worker, requests, sessions) = FakeWorker::new(&timeline)
+        .with_decision_reports(vec![
+            ask.clone(),
+            ask.clone(),
+            ask,
+            r#"{ "action": "stop", "reason": "用户裁决终止" }"#.to_owned(),
+        ])
+        .assemble();
+    let (tools, commands) = FakeTools::new(&timeline)
+        .with_phase_next(vec![
+            route_outcome("implement", &allowed),
+            max_retries_outcome("implement", &allowed, "首轮未过"),
+        ])
+        .assemble();
+    let snapshot: Arc<dyn WorkflowSnapshotPort> =
+        Arc::new(StoreSnapshot::new(root.root_str(), db.store_arc()));
+    let control = Arc::new(ChangeFlowControl::new());
+    let (task, mut rx, history) =
+        spawn_run(worker, tools, snapshot, &control, false, &root.root_str());
+    let _confirmer = spawn_confirmer(&control, true);
+
+    // 逐轮应答（每轮 Ask 通知流出后回传应答）
+    for round in 1..=3 {
+        let deadline = Instant::now() + Duration::from_secs(30);
+        loop {
+            if futures_poll(&mut rx).is_some() {
+                break;
+            }
+            assert!(Instant::now() < deadline, "等待第 {round} 轮 Ask 超时（30s）");
+            tokio::task::yield_now().await;
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        control
+            .answer(ROOT, CHANGE_ID, format!("采用方案 {round}"))
+            .expect("应答回传应成功");
+    }
+    let status = task.await.expect("run 任务正常结束");
+    assert_eq!(status, ChangeRunStatus::Stopped, "四轮后 stop 受控收敛");
+
+    let requests = requests.lock().expect("请求锁");
+    let decision_requests: Vec<&WorkerTurnRequest> = requests
+        .iter()
+        .filter(|request| request.role == WorkerRole::Decision)
+        .collect();
+    assert_eq!(decision_requests.len(), 4, "3 轮 ask + 1 轮 stop");
+    let first_session = sessions_of(&sessions.lock().expect("会话锁"), WorkerRole::Decision)[0].clone();
+    for request in decision_requests.iter().skip(1) {
+        assert_eq!(
+            request.continue_session.as_deref(),
+            Some(first_session.as_str()),
+            "ask 应答续问同会话（漂移不变）"
+        );
+    }
+    drop(requests);
+
+    // 漂移恒 0：ask 轮零门节点，仅合法 stop emit 一个 passed 门
+    let finish = history.finish().expect("finish 落包捕获");
+    let gates: Vec<&RunNodeEntry> = finish
+        .nodes
+        .iter()
+        .filter(|node| node.step == workflow::state::RunStepKind::WhitelistGate)
+        .collect();
+    assert_eq!(gates.len(), 1, "ask 轮不计漂移、不 emit 门节点");
+    assert_eq!(gates[0].status, RunStepStatus::Passed);
+
+    // 每轮（含 ask 轮）DecisionLog 恰一次且 phase / session 一致
+    let payloads = decision_log_payloads(&commands.lock().expect("命令锁"));
+    assert_eq!(payloads.len(), 4, "每轮决策-log 各一次");
+    for payload in &payloads {
+        assert_eq!(payload.0, CHANGE_ID);
+        assert_eq!(payload.1, "implement");
+        assert_eq!(payload.2, first_session);
+    }
+}
+
+/// 组合链（正向，AC-6）：test-execution 首败升格 → 决策 backtrack 到 implement
+/// → implement 执行 → test-execution 重入 → 真重跑 pass → 收敛；重入的
+/// implement 入口边为 `backtrack`（非 `retry`），全程零 `retry` 边。
+#[tokio::test]
+async fn 组合链_fail决策backtrack重跑test_execution与入口边kind() {
+    let (root, db) = decision_fixture("combo-backtrack-rerun");
+    let allowed = ["proposal", "dev-design", "implement", "test-gen"];
+    let timeline = Arc::new(Mutex::new(Vec::new()));
+    let (worker, requests, _sessions) = FakeWorker::new(&timeline)
+        .with_decision_reports(vec![
+            r#"{ "action": "backtrack", "to": "implement", "reason": "修绿测试" }"#.to_owned(),
+        ])
+        .assemble();
+    let (tools, _commands) = FakeTools::new(&timeline)
+        .with_phase_next(vec![
+            // ① test-execution 首败升格 → 回 phase-next
+            route_outcome("test-execution", &allowed),
+            // ② 决策分叉（fail 条目未决）→ backtrack 到 implement
+            max_retries_outcome("test-execution", &allowed, "测试未过"),
+            // ③ implement 执行（入口边 kind = backtrack）
+            route_outcome("implement", &allowed),
+            // ④ test-execution 重入 → 真重跑（复用门失效由 runner 侧 mtime 承载，
+            //    walker 侧以第二产出刷新证明真重跑）
+            route_outcome("test-execution", &allowed),
+            done_outcome(),
+        ])
+        .with_test_execution(vec![
+            escalate_test_outcome(TestExecutionConclusion::Fail, "首轮未过"),
+            escalate_test_outcome(TestExecutionConclusion::Pass, ""),
+        ])
+        .assemble();
+    let snapshot: Arc<dyn WorkflowSnapshotPort> =
+        Arc::new(StoreSnapshot::new(root.root_str(), db.store_arc()));
+    let control = Arc::new(ChangeFlowControl::new());
+    let (task, _rx, history) =
+        spawn_run(worker, tools, snapshot, &control, false, &root.root_str());
+    let _confirmer = spawn_confirmer(&control, true);
+    let status = task.await.expect("run 任务正常结束");
+    assert_eq!(status, ChangeRunStatus::Completed, "重跑 pass 后收敛");
+
+    let finish = history.finish().expect("finish 落包捕获");
+    // implement 入口节点在案：其入边 kind = backtrack（非 retry）
+    let implement_entry = finish
+        .nodes
+        .iter()
+        .find(|node| node.phase == "implement" && node.step == workflow::state::RunStepKind::PhaseStart)
+        .expect("implement 入口节点在案");
+    let entry_key = format!(
+        "{}:{}:{}:{}",
+        implement_entry.phase,
+        implement_entry.attempt,
+        implement_entry.step.as_str(),
+        implement_entry.instance_no
+    );
+    let incoming: Vec<&workflow::state::RunEdgeEntry> = finish
+        .edges
+        .iter()
+        .filter(|edge| edge.to_node_key == entry_key)
+        .collect();
+    assert_eq!(incoming.len(), 1, "入口节点恰一条入边");
+    assert_eq!(
+        incoming[0].edge_kind,
+        workflow::state::RunEdgeKind::Backtrack,
+        "重入入口边 kind = backtrack（非 retry）"
+    );
+    assert_eq!(
+        incoming[0].from_node_key, "test-execution:0:retry_gate:0",
+        "回跳源 = 失败相位门节点（attempt 取库内该相位最新 attempt）"
+    );
+    // 全程零 retry 边
+    assert!(
+        finish
+            .edges
+            .iter()
+            .all(|edge| edge.edge_kind != workflow::state::RunEdgeKind::Retry),
+        "全程零 retry 边（存量解码契约不新产出）"
+    );
+    // test-execution 真重跑：两轮 TestExecution 产出（Node 两实例跨两 attempt）
+    let test_runs = step_instances(&finish.nodes, workflow::state::RunStepKind::TestExecution);
+    assert_eq!(test_runs.len(), 2, "test-execution 真重跑两轮（非复用）");
+    // 决策会话恰一次（implement 重跑 pass 后不再分叉）
+    let requests = requests.lock().expect("请求锁");
+    assert_eq!(
+        requests
+            .iter()
+            .filter(|request| request.role == WorkerRole::Decision)
+            .count(),
+        1,
+        "决策会话恰一次"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// feedback_limit 五值边界（test-execution-zero-agent-decision 用例表
+// 「`feedback_limit` 计数边界」逐行承载）
+// ---------------------------------------------------------------------------
+
+/// `feedback_limit`（边界，参数化 5 值）：`FeedbackLoop { 0 }` / `{ 1 }` /
+/// `{ u32::MAX }` → `Ok(limit)` 原值透传——0 = 首败即升格（零反馈修复会话）、
+/// 1 = 恰一轮反馈修复后升格、`u32::MAX` 不饱和为 0 / 5（连续六次失败仍在反馈
+/// 期内，第七次通过收口）；`Terminal` 走基线绿门单发执行体（既有回归形态，失败
+/// 即停，不落漂移分支）；`None` 缺声明 → 既有漂移 `Err`（「缺
+/// OnFail::FeedbackLoop 声明」），零门禁 spawn（不静默退化为禁用）。
+#[tokio::test]
+async fn feedback_limit五值边界透传与漂移err() {
+    struct Case {
+        label: &'static str,
+        on_fail: Option<OnFail>,
+        failing_checks: usize,
+        expect_status: ChangeRunStatus,
+        expect_static_checks: usize,
+        expect_fix_sessions: usize,
+        expect_upgrade: bool,
+        expect_reason: Option<&'static str>,
+    }
+
+    let cases = [
+        // 值一：limit = 0 → 首败即升格（零反馈修复会话）
+        Case {
+            label: "FeedbackLoop{0}",
+            on_fail: Some(OnFail::FeedbackLoop { limit: 0 }),
+            failing_checks: 3,
+            expect_status: ChangeRunStatus::Completed,
+            expect_static_checks: 1,
+            expect_fix_sessions: 0,
+            expect_upgrade: true,
+            expect_reason: None,
+        },
+        // 值二：limit = 1 → 恰一轮反馈修复后升格
+        Case {
+            label: "FeedbackLoop{1}",
+            on_fail: Some(OnFail::FeedbackLoop { limit: 1 }),
+            failing_checks: 3,
+            expect_status: ChangeRunStatus::Completed,
+            expect_static_checks: 2,
+            expect_fix_sessions: 1,
+            expect_upgrade: true,
+            expect_reason: None,
+        },
+        // 值三：limit = u32::MAX → 原值透传（六次失败仍在反馈期，第七次通过）
+        Case {
+            label: "FeedbackLoop{u32::MAX}",
+            on_fail: Some(OnFail::FeedbackLoop { limit: u32::MAX }),
+            failing_checks: 6,
+            expect_status: ChangeRunStatus::Completed,
+            expect_static_checks: 7,
+            expect_fix_sessions: 6,
+            expect_upgrade: false,
+            expect_reason: None,
+        },
+        // 值四：Terminal → 基线绿门单发执行体（既有回归形态）
+        Case {
+            label: "Terminal",
+            on_fail: Some(OnFail::Terminal),
+            failing_checks: 1,
+            expect_status: ChangeRunStatus::Failed,
+            expect_static_checks: 1,
+            expect_fix_sessions: 0,
+            expect_upgrade: false,
+            expect_reason: Some("基线静态检查未通过"),
+        },
+        // 值五：None（缺声明）→ 漂移 Err（不臆造缺省上限、零门禁 spawn）
+        Case {
+            label: "None",
+            on_fail: None,
+            failing_checks: 1,
+            expect_status: ChangeRunStatus::Failed,
+            expect_static_checks: 0,
+            expect_fix_sessions: 0,
+            expect_upgrade: false,
+            expect_reason: Some("缺 OnFail::FeedbackLoop 声明"),
+        },
+    ];
+
+    for case in cases {
+        let timeline = Arc::new(Mutex::new(Vec::new()));
+        let (worker, requests, _sessions) = FakeWorker::new(&timeline).assemble();
+        let mut route = route_outcome("implement", &["proposal", "implement"]);
+        route.steps = vec![
+            StepDefinition {
+                node: StepNode::PhaseStart,
+                prompt_ref: None,
+                on_fail: None,
+            },
+            StepDefinition {
+                node: StepNode::StaticCheck,
+                prompt_ref: None,
+                on_fail: case.on_fail,
+            },
+        ];
+        let (tools, commands) = FakeTools::new(&timeline)
+            .with_phase_next(vec![route, done_outcome()])
+            .with_static_check(vec![failing_check("类型错误"); case.failing_checks])
+            .assemble();
+        let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
+        let control = Arc::new(ChangeFlowControl::new());
+        let (task, _rx, history) =
+            spawn_run(worker, tools, snapshot, &control, false, "/tmp/root");
+        let _confirmer = spawn_confirmer(&control, true);
+        let status = task.await.expect("run 任务正常结束");
+        assert_eq!(status, case.expect_status, "{} 终态", case.label);
+
+        let finish = history.finish().expect("finish 落包捕获");
+        if let Some(expected) = case.expect_reason {
+            let reason = finish.reason.as_deref().unwrap_or_default();
+            assert!(
+                reason.contains(expected),
+                "{} 收敛记因应含「{expected}」: {reason}",
+                case.label
+            );
+        }
+
+        let commands = commands.lock().expect("命令锁");
+        let static_checks = commands
+            .iter()
+            .filter(|command| matches!(command, ToolCommand::StaticCheck { .. }))
+            .count();
+        assert_eq!(
+            static_checks, case.expect_static_checks,
+            "{} 门禁 spawn 次数（limit 原值透传）",
+            case.label
+        );
+        let upgrade = commands.iter().any(|command| {
+            matches!(command, ToolCommand::PhaseLog { input, .. } if input.report.contains("升格"))
+        });
+        assert_eq!(upgrade, case.expect_upgrade, "{} 超限升格落账面", case.label);
+        drop(commands);
+
+        let fix_sessions = requests
+            .lock()
+            .expect("请求锁")
+            .iter()
+            .filter(|request| request.role == WorkerRole::Executor)
+            .count();
+        assert_eq!(
+            fix_sessions, case.expect_fix_sessions,
+            "{} 反馈修复会话数（同会话续注、不换档）",
+            case.label
+        );
+    }
+}
+
+// ---------------------------------------------------------------------------
+// 决策漂移混合序列（test-execution-zero-agent-decision 用例表
+// 「`decision_session` 漂移计数边界」逐行承载）
+// ---------------------------------------------------------------------------
+
+/// 决策漂移计数边界（边界，表驱动 3 序列）：漂移 1 / 2 仍同会话续注纠正、漂移
+/// 3（> `DECISION_DRIFT_LIMIT = 2`）才 `Terminal::failed("决策漂移…")`；解析
+/// `Err` 与门驳回两类软拒落在**同一条**漂移计数器上连续累加、不分流——序列一
+/// 纯解析失败 ×3（零门节点）、序列二纯门驳回（自环）×3（每轮一个 failed 门
+/// 实例）、序列三混合「解析 `Err` → 门 failed → 解析 `Err`」（仅解析成功那一轮
+/// emit 门实例；漂移 1 / 2 / 3 跨类累加至收口）。
+#[tokio::test]
+async fn 决策漂移混合序列三序列累加不分流() {
+    const SELF_LOOP: &str = r#"{ "action": "backtrack", "to": "implement", "reason": "重做" }"#;
+
+    struct Case {
+        tag: &'static str,
+        reports: [&'static str; 3],
+        expect_gate_nodes: usize,
+        expect_reason: &'static str,
+    }
+
+    let cases = [
+        // 序列一：纯解析失败（无动作可校验 → 零门节点）
+        Case {
+            tag: "drift-seq-parse",
+            reports: ["不是决策 JSON", "仍不是决策 JSON", "第三次仍不是决策 JSON"],
+            expect_gate_nodes: 0,
+            expect_reason: "无法解析",
+        },
+        // 序列二：纯门驳回（自环 → 每轮一个 failed 门实例）
+        Case {
+            tag: "drift-seq-gate",
+            reports: [SELF_LOOP, SELF_LOOP, SELF_LOOP],
+            expect_gate_nodes: 3,
+            expect_reason: "被驳回",
+        },
+        // 序列三：混合序列（漂移 1 解析 Err / 漂移 2 门 failed / 漂移 3 解析 Err）
+        Case {
+            tag: "drift-seq-mixed",
+            reports: ["不是决策 JSON", SELF_LOOP, "仍不是决策 JSON"],
+            expect_gate_nodes: 1,
+            expect_reason: "无法解析",
+        },
+    ];
+
+    for case in cases {
+        let (root, db) = decision_fixture(case.tag);
+        // 白名单不含 implement → backtrack 到自身即自环（零 agent 步不可重做）
+        let allowed = ["proposal"];
+        let timeline = Arc::new(Mutex::new(Vec::new()));
+        let (worker, requests, sessions) = FakeWorker::new(&timeline)
+            .with_decision_reports(
+                case.reports
+                    .iter()
+                    .map(|report| (*report).to_owned())
+                    .collect(),
+            )
+            .assemble();
+        let (tools, commands) = FakeTools::new(&timeline)
+            .with_phase_next(vec![
+                route_outcome("implement", &allowed),
+                max_retries_outcome("implement", &allowed, "首轮未过"),
+            ])
+            .assemble();
+        let snapshot: Arc<dyn WorkflowSnapshotPort> =
+            Arc::new(StoreSnapshot::new(root.root_str(), db.store_arc()));
+        let control = Arc::new(ChangeFlowControl::new());
+        let (task, _rx, history) =
+            spawn_run(worker, tools, snapshot, &control, false, &root.root_str());
+        let _confirmer = spawn_confirmer(&control, true);
+        let status = task.await.expect("run 任务正常结束");
+        assert_eq!(
+            status,
+            ChangeRunStatus::Failed,
+            "{} 漂移 3 超限显式失败",
+            case.tag
+        );
+
+        let finish = history.finish().expect("finish 落包捕获");
+        let reason = finish.reason.clone().unwrap_or_default();
+        assert!(
+            reason.contains("决策漂移") && reason.contains(case.expect_reason),
+            "{} 记因为第 3 次驳回（前两次仍在纠正期）: {reason}",
+            case.tag
+        );
+
+        // 决策请求恰 3 次：漂移 1 / 2 后同会话续注，第 3 次才收口
+        let requests = requests.lock().expect("请求锁");
+        let decision_requests: Vec<&WorkerTurnRequest> = requests
+            .iter()
+            .filter(|request| request.role == WorkerRole::Decision)
+            .collect();
+        assert_eq!(
+            decision_requests.len(),
+            3,
+            "{} 漂移 1 / 2 仍续注（不分流），第 3 次才 Terminal",
+            case.tag
+        );
+        assert!(
+            decision_requests[0].continue_session.is_none(),
+            "{} 首轮新会话",
+            case.tag
+        );
+        let first_session =
+            sessions_of(&sessions.lock().expect("会话锁"), WorkerRole::Decision)[0].clone();
+        for request in decision_requests.iter().skip(1) {
+            assert_eq!(
+                request.continue_session.as_deref(),
+                Some(first_session.as_str()),
+                "{} 每次驳回后同会话续注纠正",
+                case.tag
+            );
+        }
+        assert!(
+            decision_requests
+                .iter()
+                .skip(1)
+                .all(|request| request.prompt.contains("上一轮决策输出被驳回")),
+            "{} 续注轮为纠正文案（非首轮决策 prompt）",
+            case.tag
+        );
+        drop(requests);
+
+        // 门节点实例数：仅解析成功轮 emit（parse Err 轮零门节点）
+        let gates: Vec<&RunNodeEntry> = finish
+            .nodes
+            .iter()
+            .filter(|node| node.step == workflow::state::RunStepKind::WhitelistGate)
+            .collect();
+        assert_eq!(
+            gates.len(),
+            case.expect_gate_nodes,
+            "{} 门实例数（解析 Err 轮不计门节点）",
+            case.tag
+        );
+        assert!(
+            gates.iter().all(|gate| gate.status == RunStepStatus::Failed),
+            "{} 驳回轮门恒 failed（无 passed 门）",
+            case.tag
+        );
+
+        // 零 Backtrack 落账（三类漂移均未兑现动作）；每轮 DecisionLog 各一次
+        let commands = commands.lock().expect("命令锁");
+        assert!(
+            commands
+                .iter()
+                .all(|command| !matches!(command, ToolCommand::Backtrack { .. })),
+            "{} 漂移路径零 Backtrack 落账",
+            case.tag
+        );
+        assert_eq!(
+            decision_log_payloads(&commands).len(),
+            3,
+            "{} 每轮决策-log 各一次（parse 失败同样留痕）",
+            case.tag
+        );
+    }
 }

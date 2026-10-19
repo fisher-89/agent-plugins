@@ -271,6 +271,9 @@ pub fn change_detail(
         run_entry.edges = store
             .list_run_edges(&run_entry.run_id)?
             .iter()
+            // `retry` 为存量解码契约（旧行仍在库），读面唯一屏蔽点——其余边按
+            // `edge_seq` 库读序原样出线、边序不变
+            .filter(|record| record.edge_kind != RunEdgeKind::Retry)
             .map(ChangeRunEdgeRecord::from)
             .collect();
     }

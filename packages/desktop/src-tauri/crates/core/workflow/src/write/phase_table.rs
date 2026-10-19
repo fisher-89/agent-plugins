@@ -315,27 +315,25 @@ static TEST_GEN_STEPS: &[StepDefinition] = &[
 /// test-execution 相位步序列：确定性门禁步承接（绿跑零 agent——无 Executor /
 /// Evaluator / VerdictGate 步），pass 后 PhaseLog 步携机械 checklist 落账。拆步
 /// 语义：`PhaseStart → TestExecution → MutationTest → PhaseLog`——测试 / 覆盖率
-/// 修绿后才跑突变（walker 顺序执行天然保证），MutationTest `on_fail` 走独立
-/// 反馈边②；requirement / test-only 两表共用同一 static 天然同式。
+/// 修绿后才跑突变（walker 顺序执行天然保证），两步失败即升格交决策（零修复
+/// 会话）；requirement / test-only 两表共用同一 static 天然同式。
 static TEST_EXECUTION_STEPS: &[StepDefinition] = &[
     StepDefinition {
         node: StepNode::PhaseStart,
         prompt_ref: None,
         on_fail: None,
     },
+    // 确定性门禁步：首败即升格交决策，零 agent 修复
     StepDefinition {
         node: StepNode::TestExecution,
         prompt_ref: None,
-        on_fail: Some(OnFail::FeedbackLoop {
-            limit: FEEDBACK_LOOP_LIMIT,
-        }),
+        on_fail: Some(OnFail::Escalate),
     },
+    // 确定性门禁步：首败即升格交决策，零 agent 修复
     StepDefinition {
         node: StepNode::MutationTest,
         prompt_ref: None,
-        on_fail: Some(OnFail::FeedbackLoop {
-            limit: FEEDBACK_LOOP_LIMIT,
-        }),
+        on_fail: Some(OnFail::Escalate),
     },
     StepDefinition {
         node: StepNode::PhaseLog,
@@ -805,6 +803,11 @@ pub fn phase_table(workflow_type: &str) -> Option<&'static [PhaseDefinition]> {
 /// initialize 排除机制——排除仅由表内 `backtrackable` 属性承载）；迭代按
 /// `backtrackable` 过滤——`false` 者（表头 initialize）恒不入任何相位的回溯
 /// 白名单。
+///
+/// 「可重做」自排除：`allowed` 含当前相位自身 ⟺ 该相位可重做（`steps` 含
+/// agent 步，`StepNode::role().is_some()`）；零 agent 步相位（test-execution /
+/// archive）自身不入白名单——决策上下文里不存在「重做本相位」选项。判断 MUST
+/// NOT 以相位名硬编码（可重做自步序列派生，零 `PhaseDefinition` 新字段）。
 pub fn allowed_backtrack_phases(table: &[PhaseDefinition], current_phase: &str) -> Vec<String> {
     let Some(idx) = table.iter().position(|phase| phase.id == current_phase) else {
         return Vec::new();
@@ -812,9 +815,14 @@ pub fn allowed_backtrack_phases(table: &[PhaseDefinition], current_phase: &str) 
     if idx == 0 {
         return Vec::new();
     }
+    let redoable = table[idx]
+        .steps
+        .iter()
+        .any(|step| step.node.role().is_some());
     table[..=idx]
         .iter()
         .filter(|phase| phase.backtrackable)
+        .filter(|phase| redoable || phase.id != current_phase)
         .map(|phase| phase.id.to_owned())
         .collect()
 }

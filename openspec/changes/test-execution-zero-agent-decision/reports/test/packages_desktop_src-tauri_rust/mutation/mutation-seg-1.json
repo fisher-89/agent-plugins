@@ -1,0 +1,587 @@
+{
+  "outcomes": [
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/core/workflow/src/write/phase_next.rs:102:5: replace phase_next -> Result<PhaseNextOutcome, String> with Ok(Default::default())",
+          "package": "workflow",
+          "file": "crates/core/workflow/src/write/phase_next.rs",
+          "function": {
+            "function_name": "phase_next",
+            "return_type": "-> Result<PhaseNextOutcome, String>",
+            "span": {
+              "start": {
+                "line": 93,
+                "column": 1
+              },
+              "end": {
+                "line": 228,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 102,
+              "column": 5
+            },
+            "end": {
+              "line": 227,
+              "column": 7
+            }
+          },
+          "replacement": "Ok(Default::default())",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Unviable",
+      "log_path": "log/crates__core__workflow__src__write__phase_next.rs_line_102_col_5.log",
+      "diff_path": "diff/crates__core__workflow__src__write__phase_next.rs_line_102_col_5.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 3.5512151,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=workflow@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/core/workflow/src/write/phase_next.rs:192:40: replace && with || in phase_next",
+          "package": "workflow",
+          "file": "crates/core/workflow/src/write/phase_next.rs",
+          "function": {
+            "function_name": "phase_next",
+            "return_type": "-> Result<PhaseNextOutcome, String>",
+            "span": {
+              "start": {
+                "line": 93,
+                "column": 1
+              },
+              "end": {
+                "line": 228,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 192,
+              "column": 40
+            },
+            "end": {
+              "line": 192,
+              "column": 42
+            }
+          },
+          "replacement": "||",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__core__workflow__src__write__phase_next.rs_line_192_col_40.log",
+      "diff_path": "diff/crates__core__workflow__src__write__phase_next.rs_line_192_col_40.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 19.8082406,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=workflow@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 4.2014462,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--verbose",
+            "--package=workflow@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/core/workflow/src/write/phase_next.rs:192:21: replace >= with < in phase_next",
+          "package": "workflow",
+          "file": "crates/core/workflow/src/write/phase_next.rs",
+          "function": {
+            "function_name": "phase_next",
+            "return_type": "-> Result<PhaseNextOutcome, String>",
+            "span": {
+              "start": {
+                "line": 93,
+                "column": 1
+              },
+              "end": {
+                "line": 228,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 192,
+              "column": 21
+            },
+            "end": {
+              "line": 192,
+              "column": 23
+            }
+          },
+          "replacement": "<",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__core__workflow__src__write__phase_next.rs_line_192_col_21.log",
+      "diff_path": "diff/crates__core__workflow__src__write__phase_next.rs_line_192_col_21.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 20.1717339,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=workflow@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 3.9992062,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--verbose",
+            "--package=workflow@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/core/workflow/src/write/phase_table.rs:812:5: replace allowed_backtrack_phases -> Vec<String> with vec![\"xyzzy\".into()]",
+          "package": "workflow",
+          "file": "crates/core/workflow/src/write/phase_table.rs",
+          "function": {
+            "function_name": "allowed_backtrack_phases",
+            "return_type": "-> Vec<String>",
+            "span": {
+              "start": {
+                "line": 801,
+                "column": 1
+              },
+              "end": {
+                "line": 828,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 812,
+              "column": 5
+            },
+            "end": {
+              "line": 827,
+              "column": 19
+            }
+          },
+          "replacement": "vec![\"xyzzy\".into()]",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__core__workflow__src__write__phase_table.rs_line_812_col_5_002.log",
+      "diff_path": "diff/crates__core__workflow__src__write__phase_table.rs_line_812_col_5_002.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 20.5802329,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=workflow@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 4.2492231,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--verbose",
+            "--package=workflow@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/core/workflow/src/write/phase_next.rs:192:43: delete ! in phase_next",
+          "package": "workflow",
+          "file": "crates/core/workflow/src/write/phase_next.rs",
+          "function": {
+            "function_name": "phase_next",
+            "return_type": "-> Result<PhaseNextOutcome, String>",
+            "span": {
+              "start": {
+                "line": 93,
+                "column": 1
+              },
+              "end": {
+                "line": 228,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 192,
+              "column": 43
+            },
+            "end": {
+              "line": 192,
+              "column": 44
+            }
+          },
+          "replacement": "",
+          "genre": "UnaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__core__workflow__src__write__phase_next.rs_line_192_col_43.log",
+      "diff_path": "diff/crates__core__workflow__src__write__phase_next.rs_line_192_col_43.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 21.0004158,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=workflow@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 4.6074778,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--verbose",
+            "--package=workflow@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/core/workflow/src/write/phase_table.rs:812:5: replace allowed_backtrack_phases -> Vec<String> with vec![String::new()]",
+          "package": "workflow",
+          "file": "crates/core/workflow/src/write/phase_table.rs",
+          "function": {
+            "function_name": "allowed_backtrack_phases",
+            "return_type": "-> Vec<String>",
+            "span": {
+              "start": {
+                "line": 801,
+                "column": 1
+              },
+              "end": {
+                "line": 828,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 812,
+              "column": 5
+            },
+            "end": {
+              "line": 827,
+              "column": 19
+            }
+          },
+          "replacement": "vec![String::new()]",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__core__workflow__src__write__phase_table.rs_line_812_col_5_001.log",
+      "diff_path": "diff/crates__core__workflow__src__write__phase_table.rs_line_812_col_5_001.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 21.399903899999998,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=workflow@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 4.8578808,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--verbose",
+            "--package=workflow@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/core/workflow/src/write/phase_table.rs:812:5: replace allowed_backtrack_phases -> Vec<String> with vec![]",
+          "package": "workflow",
+          "file": "crates/core/workflow/src/write/phase_table.rs",
+          "function": {
+            "function_name": "allowed_backtrack_phases",
+            "return_type": "-> Vec<String>",
+            "span": {
+              "start": {
+                "line": 801,
+                "column": 1
+              },
+              "end": {
+                "line": 828,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 812,
+              "column": 5
+            },
+            "end": {
+              "line": 827,
+              "column": 19
+            }
+          },
+          "replacement": "vec![]",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__core__workflow__src__write__phase_table.rs_line_812_col_5.log",
+      "diff_path": "diff/crates__core__workflow__src__write__phase_table.rs_line_812_col_5.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 21.8295281,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=workflow@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 5.1152935,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--verbose",
+            "--package=workflow@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/core/workflow/src/write/phase_table.rs:825:46: replace != with == in allowed_backtrack_phases",
+          "package": "workflow",
+          "file": "crates/core/workflow/src/write/phase_table.rs",
+          "function": {
+            "function_name": "allowed_backtrack_phases",
+            "return_type": "-> Vec<String>",
+            "span": {
+              "start": {
+                "line": 801,
+                "column": 1
+              },
+              "end": {
+                "line": 828,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 825,
+              "column": 46
+            },
+            "end": {
+              "line": 825,
+              "column": 48
+            }
+          },
+          "replacement": "==",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__core__workflow__src__write__phase_table.rs_line_825_col_46.log",
+      "diff_path": "diff/crates__core__workflow__src__write__phase_table.rs_line_825_col_46.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 20.354961,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=workflow@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 5.3698046,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--verbose",
+            "--package=workflow@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/core/workflow/src/write/phase_table.rs:825:34: replace || with && in allowed_backtrack_phases",
+          "package": "workflow",
+          "file": "crates/core/workflow/src/write/phase_table.rs",
+          "function": {
+            "function_name": "allowed_backtrack_phases",
+            "return_type": "-> Vec<String>",
+            "span": {
+              "start": {
+                "line": 801,
+                "column": 1
+              },
+              "end": {
+                "line": 828,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 825,
+              "column": 34
+            },
+            "end": {
+              "line": 825,
+              "column": 36
+            }
+          },
+          "replacement": "&&",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__core__workflow__src__write__phase_table.rs_line_825_col_34.log",
+      "diff_path": "diff/crates__core__workflow__src__write__phase_table.rs_line_825_col_34.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 22.6263605,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=workflow@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 5.6582241,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--verbose",
+            "--package=workflow@0.1.0"
+          ]
+        }
+      ]
+    }
+  ],
+  "total_mutants": 9,
+  "missed": 0,
+  "caught": 8,
+  "timeout": 0,
+  "unviable": 1,
+  "success": 0,
+  "start_time": "2026-10-18T14:48:49.4575535Z",
+  "end_time": "2026-10-18T14:49:21.1647681Z",
+  "cargo_mutants_version": "27.1.0"
+}

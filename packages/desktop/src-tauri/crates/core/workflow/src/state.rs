@@ -266,7 +266,7 @@ pub enum StepNode {
     StaticCheck,
     /// test-execution 门禁工具步（确定性测试执行链）
     TestExecution,
-    /// mutation-test 门禁工具步（确定性突变执行链，独立反馈边②）
+    /// mutation-test 门禁工具步（确定性突变执行链，失败升格交决策、零会话）
     MutationTest,
     /// initialize 基线恢复步（vcs.restore_baseline）
     Clean,
@@ -386,7 +386,8 @@ impl StepNode {
     }
 }
 
-/// 步失败语义（`StepDefinition.on_fail`）
+/// 步失败语义（`StepDefinition.on_fail`）：三变体 + 缺省 `None`（= 按步失败
+/// 收场，沿 `StepDefinition.on_fail` doc）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub enum OnFail {
@@ -401,6 +402,14 @@ pub enum OnFail {
     /// 基线无意义）；其余 verdict 解析失败自 feedback 边改造后不再走终态。语义
     /// 与缺省 `None` 等价。
     Terminal,
+    /// 失败升格交决策：零 WorkerAgent 会话、代写一条 fail checklist 落账、
+    /// 截断本相位余下步（`StepFlow::Upgraded`）回 `phase_next` 进决策分叉；
+    /// 升格动作固定三段（代写 fail 落账 → 回 `phase_next` → 决策 backtrack /
+    /// stop / ask 裁决），无载荷无可调项。消费点仅 TestExecution / MutationTest
+    /// 步（归属守卫归表测试，四个执行体只按 `on_fail` 分派——误声明会静默
+    /// 失效）；同一步词在 initialize 表项仍为 `Terminal`（语义由表项声明承载，
+    /// MUST NOT 按相位名判断）。
+    Escalate,
 }
 
 /// 计划步定义（相位内有序序列项；全静态 const 表内联）。
@@ -559,6 +568,12 @@ impl RunStepKind {
 /// 与落库命令（`RunEdgeEntry.edge_kind`）同本类型消费（零映射）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Type)]
 #[serde(rename_all = "snake_case")]
+// 词面冻结说明：本枚举的 `///` 文本经 specta 出线到
+// `src/types/generated/bindings.ts`（`bindings:check` 要求零 diff），故 `Retry`
+// 的失效表述就地保留、现语义驻本注释：`retry` 为**存量解码专用**——新写面零
+// 产出（`DecisionAction::Retry` 已退役），查询面投影前屏蔽（`queries/detail.rs`
+// 唯一屏蔽点）；变体保留因记录信封走 serde_json，删变体将使旧行 decode 失败
+//（历史 run 流程图整份打不开）。值域仍四值（零 IPC 演进）。
 pub enum RunEdgeKind {
     /// 计划序推进（相位内按 steps 序推进、相位间推进）
     Forward,

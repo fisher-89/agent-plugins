@@ -22,7 +22,8 @@ use crate::port::{
     WorkerTurnRequest, WorkflowSnapshotPort, WorktreeSnapshot,
 };
 use crate::prompt::{
-    decision_prompt, evaluator_prompt, merge_conflict_prompt, spec_sync_prompt, verdict_fix_prompt,
+    decision_fix_prompt, decision_prompt, evaluator_prompt, merge_conflict_prompt,
+    spec_sync_prompt, verdict_fix_prompt,
 };
 use crate::run_history;
 use crate::state::{
@@ -31,7 +32,7 @@ use crate::state::{
 };
 use crate::steps::change_branch;
 use crate::transcript::{failure_reason, final_assistant_text};
-use crate::verdict::{parse_verdict, EvaluatorChecklist};
+use crate::verdict::{parse_verdict, EvaluatorChecklist, MAX_REPORT_CHARS};
 
 /// 会话 provenance 来源（sourceRef = change id / 相位 / 角色 / attempt 四段——
 /// 身份段恒 change id）。
@@ -114,6 +115,11 @@ pub fn new_run_id() -> String {
         .unwrap_or(0);
     format!("run-{millis}")
 }
+
+/// 决策软拒环漂移上限：`drift > LIMIT`（第 3 次驳回）才 `Terminal::failed`——
+/// 前两次驳回均可同会话续注纠正；ask 轮次不计（用户驱动的停等，非模型漂移）。
+/// 与 `MAX_ROUNDS` / `MAX_RETRY_TIMES` 同类编译期常量（非运行期可调配置）。
+const DECISION_DRIFT_LIMIT: usize = 2;
 
 /// 内部终态：helper 层失败路径的携带物（guard 未动，finish 由主入口单点）。
 struct Terminal {
@@ -286,7 +292,9 @@ async fn drive(
         }
 
         // 相位入口 incoming 边：决策 backtrack 待决值 > 同相位上一轮 fail 重跑
-        //（retry）> 计划序推进（forward）
+        //（retry）> 计划序推进（forward）。`retry` 边为存量解码契约（`Retry`
+        // 动作已退役、新写面零产出）——本分支零改动保留，新写面不可达（失败
+        // 相位只经决策 backtrack 重入，backtrack 优先级更高）；清理需另立变更
         let entry_kind = match trace.incoming.take() {
             Some(EdgeKind::Backtrack) => EdgeKind::Backtrack,
             _ if trace.failed_phase.as_deref() == Some(phase.as_str()) => EdgeKind::Retry,
@@ -335,7 +343,7 @@ async fn drive(
         }
         trace.failed_phase = cursor.failed.then(|| phase.clone());
         if upgraded {
-            // 门禁反馈边超限升格（fail 已落账）：回 phase-next 进重试 / 决策分叉
+            // 门禁步失败升格（fail 已落账、零会话）：回 phase-next 进决策分叉
             continue;
         }
 
@@ -353,8 +361,8 @@ async fn drive(
             }
         }
 
-        // ⑦ 回 phase-next：pass 推进 / fail 重试（预算内 walker 自走）/
-        //    上限 → 决策分叉
+        // ⑦ 回 phase-next：pass 推进 / fail 条目未决 → 决策分叉（重做本相位经
+        //    决策 backtrack 到自身表达）
     }
 }
 
@@ -1012,113 +1020,100 @@ async fn step_static_check(
     }
 }
 
+/// test-execution 相位 TestExecution 步分派（步声明单点）：`on_fail` 三分派——
+/// `Terminal`（initialize 基线绿门）→ 单发 terminal 执行体；`Escalate`（本相位
+/// 确定性门禁）→ 单发升格执行体（首败落账交决策、零会话）；其余声明 → 计划图
+/// 漂移 Err（`FeedbackLoop` 误落到本步立即显式失败，不静默跑反馈边）。
 async fn step_test_execution(
     ctx: &StepContext<'_>,
     trace: &mut EdgeTrace,
     cursor: &mut PhaseCursor,
     step: &StepDefinition,
 ) -> Result<StepFlow, Terminal> {
-    // initialize 相位声明 `on_fail=Terminal`（基线绿门：Error / Fail 分文案
-    // Terminal 停给用户——无反馈边）→ 单发执行体；缺省相位走反馈边路径不受影响
-    if step.on_fail == Some(OnFail::Terminal) {
-        return step_test_execution_terminal(ctx, trace, cursor).await;
+    match step.on_fail {
+        Some(OnFail::Terminal) => step_test_execution_terminal(ctx, trace, cursor).await,
+        Some(OnFail::Escalate) => step_test_execution_escalate(ctx, trace, cursor).await,
+        Some(OnFail::FeedbackLoop { .. }) | None => Err(Terminal::failed(format!(
+            "计划图漂移：phase \"{}\" 的 test-execution 步缺 OnFail::Terminal / Escalate 声明",
+            ctx.phase
+        ))),
     }
-    let limit = feedback_limit(step, "test-execution")?;
-    let mut feedback: u32 = 0;
-    let mut fix_session: Option<String> = None;
-    loop {
-        let instance_no = begin_node(
-            ctx.guard,
-            trace,
-            ctx.phase,
-            cursor.attempt,
-            ChangeStepKind::TestExecution,
-            EdgeKind::Forward,
-        );
+}
+
+/// test-execution 相位 TestExecution 单发升格执行体（`on_fail=Escalate`）：
+/// 单节点 running → spawn（test 槽位）→ pass 收口（挂 `test_outcome` 后
+/// Proceed）/ fail 或 error 升格（failed 节点 + 代写 fail 落账 + `Upgraded`
+/// 截断余下步回 `phase_next` 进决策分叉，零 WorkerAgent 会话）。runner `Err`
+/// 经 `?` 直达 `Terminal`（环境问题不该由决策 agent 裁决，节点留 running 与
+/// terminal 分支同式）。
+async fn step_test_execution_escalate(
+    ctx: &StepContext<'_>,
+    trace: &mut EdgeTrace,
+    cursor: &mut PhaseCursor,
+) -> Result<StepFlow, Terminal> {
+    let instance_no = begin_node(
+        ctx.guard,
+        trace,
+        ctx.phase,
+        cursor.attempt,
+        ChangeStepKind::TestExecution,
+        EdgeKind::Forward,
+    );
+    emit_node(
+        ctx.guard,
+        ctx.phase,
+        cursor.attempt,
+        ChangeStepKind::TestExecution,
+        instance_no,
+        StepSettle::running(),
+    );
+    let outcome: TestExecutionOutcome = run_tool(
+        ctx.tools,
+        &ctx.request.root,
+        ToolCommand::TestExecution {
+            change_id: ctx.request.change_id.clone(),
+            slot: ReportSlot::Test,
+        },
+        "test-execution",
+    )
+    .await?;
+    if outcome.conclusion == TestExecutionConclusion::Pass {
         emit_node(
             ctx.guard,
             ctx.phase,
             cursor.attempt,
             ChangeStepKind::TestExecution,
             instance_no,
-            StepSettle::running(),
+            StepSettle::passed(Some(format!(
+                "conclusion=pass total={} passed={} failed={} skipped={}",
+                outcome.total, outcome.passed, outcome.failed, outcome.skipped
+            )))
+            .with_output_ref(Some(outcome.exec_id.clone())),
         );
-        let outcome: TestExecutionOutcome = run_tool(
-            ctx.tools,
-            &ctx.request.root,
-            ToolCommand::TestExecution {
-                change_id: ctx.request.change_id.clone(),
-                slot: ReportSlot::Test,
-            },
-            "test-execution",
-        )
-        .await?;
-        if outcome.conclusion == TestExecutionConclusion::Pass {
-            emit_node(
-                ctx.guard,
-                ctx.phase,
-                cursor.attempt,
-                ChangeStepKind::TestExecution,
-                instance_no,
-                StepSettle::passed(Some(format!(
-                    "conclusion=pass total={} passed={} failed={} skipped={}",
-                    outcome.total, outcome.passed, outcome.failed, outcome.skipped
-                )))
-                .with_output_ref(Some(outcome.exec_id.clone())),
-            );
-            cursor.test_outcome = Some(outcome);
-            return Ok(StepFlow::Proceed);
-        }
-        emit_node(
-            ctx.guard,
-            ctx.phase,
-            cursor.attempt,
-            ChangeStepKind::TestExecution,
-            instance_no,
-            StepSettle::failed(Some(diagnose_brief(&outcome.findings_brief)))
-                .with_output_ref(Some(outcome.exec_id.clone())),
-        );
-        if feedback >= limit {
-            step_test_execution_upgraded_phase_log(
-                ctx.tools,
-                ctx.guard,
-                trace,
-                ctx.request,
-                ctx.phase,
-                cursor.attempt,
-                &outcome,
-                fix_session.as_deref(),
-            )
-            .await?;
-            cursor.failed = true;
-            return Ok(StepFlow::Upgraded);
-        }
-        feedback += 1;
-        let fix_prompt = format!(
-            "测试执行未通过（第 {feedback}/{limit} 次反馈修复，conclusion={}），\
-             请根据以下结果明细修复后重新提交：\n\n{}\n\n全量报告见目录：{}",
-            outcome.conclusion.as_str(),
-            outcome.findings_detail,
-            outcome.report_dir
-        );
-        let turn = run_worker(
-            ctx.worker,
-            ctx.guard,
-            ctx.request,
-            &ctx.request.root,
-            ctx.phase,
-            cursor.attempt,
-            WorkerRole::Executor,
-            fix_prompt,
-            cursor.executor_level,
-            fix_session.clone(),
-            trace,
-            EdgeKind::Feedback,
-        )
-        .await?;
-        fix_session = Some(turn.session_id.clone());
-        cursor.executor_session = Some(turn.session_id);
+        cursor.test_outcome = Some(outcome);
+        return Ok(StepFlow::Proceed);
     }
+    emit_node(
+        ctx.guard,
+        ctx.phase,
+        cursor.attempt,
+        ChangeStepKind::TestExecution,
+        instance_no,
+        StepSettle::failed(Some(diagnose_brief(&outcome.findings_brief)))
+            .with_output_ref(Some(outcome.exec_id.clone())),
+    );
+    step_test_execution_upgraded_phase_log(
+        ctx.tools,
+        ctx.guard,
+        trace,
+        ctx.request,
+        ctx.phase,
+        cursor.attempt,
+        &outcome,
+    )
+    .await?;
+    cursor.failed = true;
+    Ok(StepFlow::Upgraded)
 }
 
 /// initialize 相位 static-check 单发执行体（`on_fail=Terminal` 前置分支分派）：
@@ -1253,133 +1248,113 @@ async fn step_test_execution_terminal(
     ))
 }
 
-/// ④′ mutation-test 步：确定性突变门禁 + 独立反馈边②（报告指引式口径，与
-/// test-execution 反馈边①「有界内联自足」反向并存——系用户明确决策，MUST NOT
-/// 统一）。双时点：全部段跑完仅未达标反馈（score / threshold 结论摘要 + 报告路
-/// 径清单），段中断错误随载荷即时反馈（反馈边②在 walker 侧同走 fail 面）；达标
-/// pass 直接收口（零反馈）。独立计数（label `"mutation-test"`，与 static-check /
-/// test-execution 反馈计数器分立），超限升格相位 fail。
+/// ④′ mutation-test 步分派（步声明单点）：`Escalate`（本相位确定性门禁）→ 单发
+/// 升格执行体（fail / error 两时点同式升格交决策、零会话）；其余声明 → 计划图
+/// 漂移 Err（该步无语义上合法的 `Terminal` / `FeedbackLoop` 声明）。
 async fn step_mutation_test(
     ctx: &StepContext<'_>,
     trace: &mut EdgeTrace,
     cursor: &mut PhaseCursor,
     step: &StepDefinition,
 ) -> Result<StepFlow, Terminal> {
-    let limit = feedback_limit(step, "mutation-test")?;
-    let mut feedback: u32 = 0;
-    let mut fix_session: Option<String> = None;
-    loop {
-        let instance_no = begin_node(
-            ctx.guard,
-            trace,
-            ctx.phase,
-            cursor.attempt,
-            ChangeStepKind::MutationTest,
-            EdgeKind::Forward,
-        );
-        emit_node(
-            ctx.guard,
-            ctx.phase,
-            cursor.attempt,
-            ChangeStepKind::MutationTest,
-            instance_no,
-            StepSettle::running(),
-        );
-        let outcome: MutationTestOutcome = match run_tool::<MutationTestOutcome>(
-            ctx.tools,
-            &ctx.request.root,
-            ToolCommand::MutationTest {
-                change_id: ctx.request.change_id.clone(),
-            },
-            "mutation-test",
-        )
-        .await
-        {
-            Ok(outcome) => outcome,
-            Err(terminal) => {
-                // runner 显式 Err（工具不可达 / 配置不支持 / 写盘失败）停给用户：
-                // 节点呈失败态、run 不静默越过、不产出部分结论
-                emit_node(
-                    ctx.guard,
-                    ctx.phase,
-                    cursor.attempt,
-                    ChangeStepKind::MutationTest,
-                    instance_no,
-                    StepSettle::failed(Some("突变执行显式失败（停给用户）".to_owned())),
-                );
-                return Err(terminal);
-            }
-        };
-        if outcome.conclusion == MutationTestConclusion::Pass {
-            // 达标 / 跳过面（null 观察期不判 fail）：零反馈收口，结论落双槽
+    match step.on_fail {
+        Some(OnFail::Escalate) => step_mutation_test_escalate(ctx, trace, cursor).await,
+        Some(OnFail::FeedbackLoop { .. }) | Some(OnFail::Terminal) | None => Err(Terminal::failed(
+            "计划图漂移：mutation-test 步缺 OnFail::Escalate 声明".to_owned(),
+        )),
+    }
+}
+
+/// mutation-test 单发升格执行体（`on_fail=Escalate`）：确定性突变门禁步——fail /
+/// error 两时点同式升格交决策（零会话），达标 pass 直接收口。双时点：全部段跑完
+/// 仅未达标、段中断错误随载荷即时收场（两时点在 walker 侧同走 fail 面）。runner
+/// 显式 `Err` 停给用户（环境问题不进决策）。
+async fn step_mutation_test_escalate(
+    ctx: &StepContext<'_>,
+    trace: &mut EdgeTrace,
+    cursor: &mut PhaseCursor,
+) -> Result<StepFlow, Terminal> {
+    let instance_no = begin_node(
+        ctx.guard,
+        trace,
+        ctx.phase,
+        cursor.attempt,
+        ChangeStepKind::MutationTest,
+        EdgeKind::Forward,
+    );
+    emit_node(
+        ctx.guard,
+        ctx.phase,
+        cursor.attempt,
+        ChangeStepKind::MutationTest,
+        instance_no,
+        StepSettle::running(),
+    );
+    let outcome: MutationTestOutcome = match run_tool::<MutationTestOutcome>(
+        ctx.tools,
+        &ctx.request.root,
+        ToolCommand::MutationTest {
+            change_id: ctx.request.change_id.clone(),
+        },
+        "mutation-test",
+    )
+    .await
+    {
+        Ok(outcome) => outcome,
+        Err(terminal) => {
+            // runner 显式 Err（工具不可达 / 配置不支持 / 写盘失败）停给用户：
+            // 节点呈失败态、run 不静默越过、不产出部分结论
             emit_node(
                 ctx.guard,
                 ctx.phase,
                 cursor.attempt,
                 ChangeStepKind::MutationTest,
                 instance_no,
-                StepSettle::passed(Some(format!(
-                    "conclusion={} score={} threshold={}",
-                    outcome.conclusion.as_str(),
-                    outcome.score,
-                    outcome.threshold
-                ))),
+                StepSettle::failed(Some("突变执行显式失败（停给用户）".to_owned())),
             );
-            cursor.mutation_outcome = Some(outcome);
-            return Ok(StepFlow::Proceed);
+            return Err(terminal);
         }
+    };
+    if outcome.conclusion == MutationTestConclusion::Pass {
+        // 达标 / 跳过面（null 观察期不判 fail）：零反馈收口，结论落双槽
         emit_node(
             ctx.guard,
             ctx.phase,
             cursor.attempt,
             ChangeStepKind::MutationTest,
             instance_no,
-            StepSettle::failed(Some(diagnose_brief(&outcome.feedback_text))),
+            StepSettle::passed(Some(format!(
+                "conclusion={} score={} threshold={}",
+                outcome.conclusion.as_str(),
+                outcome.score,
+                outcome.threshold
+            ))),
         );
-        if feedback >= limit {
-            // 超限升格相位 fail（桌面代写，不跑 evaluator；消耗相位 retry 预算；仅
-            // 携 executor 槽位——evaluator 未跑无会话可记）
-            step_mutation_test_upgraded_phase_log(
-                ctx.tools,
-                ctx.guard,
-                trace,
-                ctx.request,
-                ctx.phase,
-                cursor.attempt,
-                &outcome,
-                fix_session.as_deref(),
-            )
-            .await?;
-            cursor.failed = true;
-            return Ok(StepFlow::Upgraded);
-        }
-        feedback += 1;
-        // 反馈边②报告指引式：prompt 只嵌载荷 feedback_text（结论摘要 + 报告路径
-        // 清单），MUST NOT 内联存活突变体清单——明细由 executor 自行读报告
-        let fix_prompt = format!(
-            "突变测试未通过（第 {feedback}/{limit} 次反馈修复，conclusion={}），\
-             请根据以下指引补测试杀突变后重新提交：\n\n{}",
-            outcome.conclusion.as_str(),
-            outcome.feedback_text
-        );
-        let turn = run_worker(
-            ctx.worker,
-            ctx.guard,
-            ctx.request,
-            &ctx.request.root,
-            ctx.phase,
-            cursor.attempt,
-            WorkerRole::Executor,
-            fix_prompt,
-            cursor.executor_level,
-            fix_session.clone(),
-            trace,
-            EdgeKind::Feedback,
-        )
-        .await?;
-        fix_session = Some(turn.session_id.clone());
-        cursor.executor_session = Some(turn.session_id);
+        cursor.mutation_outcome = Some(outcome);
+        return Ok(StepFlow::Proceed);
     }
+    emit_node(
+        ctx.guard,
+        ctx.phase,
+        cursor.attempt,
+        ChangeStepKind::MutationTest,
+        instance_no,
+        StepSettle::failed(Some(diagnose_brief(&outcome.feedback_text))),
+    );
+    // 首败升格（桌面代写 fail 落账，不跑 evaluator、零修复会话；三会话槽位恒
+    // None），随后回 phase-next 进决策分叉
+    step_mutation_test_upgraded_phase_log(
+        ctx.tools,
+        ctx.guard,
+        trace,
+        ctx.request,
+        ctx.phase,
+        cursor.attempt,
+        &outcome,
+    )
+    .await?;
+    cursor.failed = true;
+    Ok(StepFlow::Upgraded)
 }
 
 async fn step_evaluator(
@@ -1647,9 +1622,16 @@ async fn step_phase_log(
 /// 门禁步反馈边上限读取（**步声明单点**）：缺声明 / 误声明即计划图漂移——
 /// MUST NOT 由 walker 侧常量兜底（反馈边计数上限随门禁 step 声明退役，三门禁
 /// 步各自的独立预算不再驻 walker）。
+///
+/// 本函数只服务 static-check / verdict-gate 两门禁步；TestExecution /
+/// MutationTest 走 `on_fail=Escalate` 的单发执行体，不经反馈计数（Escalate 声明
+/// 落在此处即漂移，显式失败）。
 fn feedback_limit(step: &StepDefinition, label: &str) -> Result<u32, Terminal> {
     match step.on_fail {
         Some(OnFail::FeedbackLoop { limit }) => Ok(limit),
+        Some(OnFail::Escalate) => Err(Terminal::failed(format!(
+            "计划图漂移：{label} 步不得声明 OnFail::Escalate"
+        ))),
         Some(OnFail::Terminal) | None => Err(Terminal::failed(format!(
             "计划图漂移：{label} 步缺 OnFail::FeedbackLoop 声明"
         ))),
@@ -1868,10 +1850,32 @@ fn mutation_evidence(mutation: Option<&MutationTestOutcome>) -> String {
     }
 }
 
-/// 超限升格落账：桌面代写 fail checklist（测试执行反馈边超限），随后回
-/// phase-next 进重试 / 决策分叉。fail 条目仅携 executor 槽位（携反馈会话 id；
-/// evaluator 未跑无会话可记）。
-#[allow(clippy::too_many_arguments)]
+/// 升格 report 截断（写面 `phase_log` 硬校验 `report` ≤
+/// [`MAX_REPORT_CHARS`]）：不超长原样返回；超长取前 `MAX_REPORT_CHARS - 1` 字符
+/// + `…`（总长恰 ≤2000——禁止截 2000 再加省略号，否则 2001 被写面拒绝）。
+fn truncate_report(text: &str) -> String {
+    if text.chars().count() <= MAX_REPORT_CHARS {
+        return text.to_owned();
+    }
+    let mut truncated: String = text.chars().take(MAX_REPORT_CHARS - 1).collect();
+    truncated.push('…');
+    truncated
+}
+
+/// 突变报告面原文（evidence 的报告目录面）：`report_paths` 为空 → 「（无报告
+/// 产物）」，否则逐条路径 `、` 连接、零改写——全路径比「推导共同父目录」更精确
+/// 且可直接 `read`。
+fn mutation_report_refs(outcome: &MutationTestOutcome) -> String {
+    if outcome.report_paths.is_empty() {
+        return "（无报告产物）".to_owned();
+    }
+    outcome.report_paths.join("、")
+}
+
+/// 首败升格落账（零会话）：report 携完整明细（≤2000，供决策 prompt 的失败
+/// 报告段），evidence 携诊断摘要 + 报告目录；三会话槽位恒 `None`（本相位零
+/// agent 会话，决策会话槽位由 `decision-log` 另行挂账）。随后回 phase-next 进
+/// 决策分叉。
 async fn step_test_execution_upgraded_phase_log(
     tools: &Arc<dyn ToolStepPort>,
     guard: &RunGuard,
@@ -1880,7 +1884,6 @@ async fn step_test_execution_upgraded_phase_log(
     phase: &str,
     attempt: u32,
     outcome: &TestExecutionOutcome,
-    fix_session: Option<&str>,
 ) -> Result<(), Terminal> {
     let instance_no = begin_node(
         guard,
@@ -1898,23 +1901,33 @@ async fn step_test_execution_upgraded_phase_log(
         instance_no,
         StepSettle::running(),
     );
+    // report 携完整明细（空兜底结论行）+ 报告目录；evidence 携诊断摘要 + 报告目录
+    let detail = if outcome.findings_detail.trim().is_empty() {
+        format!(
+            "conclusion={}；报告目录 {}",
+            outcome.conclusion.as_str(),
+            outcome.report_dir
+        )
+    } else {
+        outcome.findings_detail.clone()
+    };
     let logged = run_phase_log(
         tools,
         request,
         PhaseLogInput {
             phase: phase.to_owned(),
-            report: format!(
-                "测试执行反馈边超限（连续修复未通过，conclusion={}），相位升格 fail；报告目录 {}",
-                outcome.conclusion.as_str(),
-                outcome.report_dir
-            ),
+            report: truncate_report(&detail),
             checklist: vec![ChecklistItem {
                 item: "测试执行".to_owned(),
                 pass: false,
-                evidence: diagnose_brief(&outcome.findings_brief),
+                evidence: format!(
+                    "{}；报告目录 {}",
+                    diagnose_brief(&outcome.findings_brief),
+                    outcome.report_dir
+                ),
             }],
             skipped: false,
-            executor_session_id: fix_session.map(ToOwned::to_owned),
+            executor_session_id: None,
             evaluator_session_id: None,
             decision_session_id: None,
         },
@@ -1931,10 +1944,9 @@ async fn step_test_execution_upgraded_phase_log(
     Ok(())
 }
 
-/// 超限升格落账：桌面代写 fail checklist（突变测试反馈边②超限），随后回
-/// phase-next 进重试 / 决策分叉。fail 条目仅携 executor 槽位（携反馈会话 id；
-/// evaluator 未跑无会话可记）；evidence 携反馈文本（结论摘要 + 报告路径清单）。
-#[allow(clippy::too_many_arguments)]
+/// 首败升格落账（零会话，两时点同式）：report 携完整反馈文本（≤2000，供决策
+/// prompt 的失败报告段），evidence 携诊断摘要 + 报告路径清单；三会话槽位恒
+/// `None`。随后回 phase-next 进决策分叉。
 async fn step_mutation_test_upgraded_phase_log(
     tools: &Arc<dyn ToolStepPort>,
     guard: &RunGuard,
@@ -1943,7 +1955,6 @@ async fn step_mutation_test_upgraded_phase_log(
     phase: &str,
     attempt: u32,
     outcome: &MutationTestOutcome,
-    fix_session: Option<&str>,
 ) -> Result<(), Terminal> {
     let instance_no = begin_node(
         guard,
@@ -1961,22 +1972,35 @@ async fn step_mutation_test_upgraded_phase_log(
         instance_no,
         StepSettle::running(),
     );
+    // report 携完整反馈文本（空兜底结论行）+ 报告路径清单；evidence 携诊断摘要 +
+    // 报告路径清单（零改写原文，供决策 agent 直读）
+    let mutation_refs = mutation_report_refs(outcome);
+    let detail = if outcome.feedback_text.trim().is_empty() {
+        format!(
+            "conclusion={}；报告路径 {}",
+            outcome.conclusion.as_str(),
+            mutation_refs
+        )
+    } else {
+        outcome.feedback_text.clone()
+    };
     let logged = run_phase_log(
         tools,
         request,
         PhaseLogInput {
             phase: phase.to_owned(),
-            report: format!(
-                "突变测试反馈边超限（连续修复未达标，conclusion={}），相位升格 fail",
-                outcome.conclusion.as_str()
-            ),
+            report: truncate_report(&detail),
             checklist: vec![ChecklistItem {
                 item: "突变测试".to_owned(),
                 pass: false,
-                evidence: diagnose_brief(&outcome.feedback_text),
+                evidence: format!(
+                    "{}；{}",
+                    diagnose_brief(&outcome.feedback_text),
+                    mutation_refs
+                ),
             }],
             skipped: false,
-            executor_session_id: fix_session.map(ToOwned::to_owned),
+            executor_session_id: None,
             evaluator_session_id: None,
             decision_session_id: None,
         },
@@ -3016,13 +3040,15 @@ impl TryFrom<ToolStepOutput> for ArchiveOutcome {
 // ---------------------------------------------------------------------------
 
 enum Deadlock {
-    /// backtrack / retry 已执行（或无需执行），回外层 phase-next。
+    /// backtrack 已执行（或无需执行），回外层 phase-next。
     Continue,
     Terminal(Terminal),
 }
 
-/// phase-next 决策分叉（两触发点：verdict fail 未决 / 重试上限标注——任意
-/// 相位 verdict fail 均直达决策，自走同相位重跑退役）
+/// phase-next 决策分叉（两触发点：verdict fail 未决 / 重试上限标注——任意带
+/// evaluator 相位 fail 均直达决策，自走同相位重跑退役）：决策会话产出三动作，
+/// backtrack 经写面落账后回外层 phase-next 重路由（白名单门与解析软拒环在
+/// `decision_session` 内闭环）。
 #[allow(clippy::too_many_arguments)]
 async fn resolve_deadlock(
     worker: &Arc<dyn WorkerAgentPort>,
@@ -3035,13 +3061,9 @@ async fn resolve_deadlock(
     allowed: &[String],
     trace: &mut EdgeTrace,
 ) -> Deadlock {
-    let (fail_phase, eval_only) = match error {
-        PhaseNextError::MaxRetriesExceeded {
-            phase, eval_only, ..
-        }
-        | PhaseNextError::VerdictFail {
-            phase, eval_only, ..
-        } => (phase, *eval_only),
+    let fail_phase = match error {
+        PhaseNextError::MaxRetriesExceeded { phase, .. }
+        | PhaseNextError::VerdictFail { phase, .. } => phase,
     };
     if next.last_result.is_none() {
         return Deadlock::Terminal(Terminal::failed(
@@ -3054,48 +3076,11 @@ async fn resolve_deadlock(
             return Deadlock::Terminal(Terminal::failed(format!("快照读取失败: {message}")))
         }
     };
-    let input = build_decision_input(&detail, fail_phase, allowed, eval_only);
+    let input = build_decision_input(&detail, fail_phase, allowed);
     let action = match decision_session(worker, tools, guard, request, &input, trace).await {
         Ok(action) => action,
         Err(terminal) => return Deadlock::Terminal(terminal),
     };
-
-    // 白名单预校验（walker 侧第一道；写面 backtrack 二次校验兜底）
-    let gate_instance = begin_node(
-        guard,
-        trace,
-        fail_phase,
-        input.attempt,
-        ChangeStepKind::WhitelistGate,
-        EdgeKind::Forward,
-    );
-    emit_node(
-        guard,
-        fail_phase,
-        input.attempt,
-        ChangeStepKind::WhitelistGate,
-        gate_instance,
-        StepSettle::running(),
-    );
-    if let Err(message) = ensure_backtrack_allowed(&action, allowed) {
-        emit_node(
-            guard,
-            fail_phase,
-            input.attempt,
-            ChangeStepKind::WhitelistGate,
-            gate_instance,
-            StepSettle::failed(Some(diagnose_brief(&message))),
-        );
-        return Deadlock::Terminal(Terminal::failed(format!("决策越权被拒: {message}")));
-    }
-    emit_node(
-        guard,
-        fail_phase,
-        input.attempt,
-        ChangeStepKind::WhitelistGate,
-        gate_instance,
-        StepSettle::passed(None),
-    );
 
     match action {
         DecisionAction::Backtrack { to, reason } => {
@@ -3150,16 +3135,13 @@ async fn resolve_deadlock(
                         StepSettle::passed(Some("回溯已落账，回 phase-next 重路由".to_owned())),
                     );
                     // 目标相位首节点 incoming 边 kind = backtrack（跨相位回跳，区
-                    // 别于计划序与 retry）
+                    // 别于计划序推进）
                     trace.incoming = Some(EdgeKind::Backtrack);
                     Deadlock::Continue
                 }
                 Err(terminal) => Deadlock::Terminal(terminal),
             }
         }
-        // retry 决议的兑现依赖写面已决 latch：决策会话已挂账最新 fail 条目，
-        // phase_next 对同一条目不再重触发决策分叉、放行恰一次同相位重跑。
-        DecisionAction::Retry => Deadlock::Continue,
         DecisionAction::Stop { reason } => Deadlock::Terminal(Terminal {
             status: ChangeRunStatus::Stopped,
             reason: Some(format!("决策 stop: {reason}")),
@@ -3174,11 +3156,12 @@ async fn resolve_deadlock(
     }
 }
 
-/// 决策会话：ask 动作 → UI 中断（`wait_answer`）→ 应答文本 Continue 同会话
-/// 重出封闭集；取消信号置位 → 受控 stopped。每轮收口即 `decision-log` 挂账
-///（置于 parse 之前——parse 失败路径同样留痕；ask 续轮同会话同值幂等重挂；
-/// 失败 / 停止收口的 decision 会话不挂账，转录仍在库内可经调试页 change 筛
-/// 选回查）。
+/// 决策会话：白名单门与输出解析的软拒环内闭环（漂移 ≤ `DECISION_DRIFT_LIMIT`
+/// 可同会话续注纠正、超限 `Terminal::failed`「决策漂移」）、ask 停等不计漂移、
+/// 每轮 parsed 动作 emit 一个 `WhitelistGate` 实例（通过 passed / 驳回 failed 携
+/// 拒绝文案）、每轮 `decision-log` 幂等挂账（置于 parse 之前——parse 失败路径
+/// 同样留痕；失败 / 停止收口的 decision 会话不挂账，转录仍在库内可经调试页
+/// change 筛选回查）。取消信号置位 → 受控 stopped。
 async fn decision_session(
     worker: &Arc<dyn WorkerAgentPort>,
     tools: &Arc<dyn ToolStepPort>,
@@ -3189,6 +3172,7 @@ async fn decision_session(
 ) -> Result<DecisionAction, Terminal> {
     let mut prompt = decision_prompt(input);
     let mut continue_session: Option<String> = None;
+    let mut drift: usize = 0;
     loop {
         let outcome = run_worker(
             worker,
@@ -3206,6 +3190,7 @@ async fn decision_session(
             EdgeKind::Forward,
         )
         .await?;
+        let session_id = outcome.session_id.clone();
         // 决策会话槽位挂账（写面单点：最新 eval 条目定点改写，幂等覆写）
         let _: DecisionLogOutcome = run_tool(
             tools,
@@ -3213,7 +3198,7 @@ async fn decision_session(
             ToolCommand::DecisionLog {
                 change_id: request.change_id.clone(),
                 phase: input.phase.clone(),
-                session_id: outcome.session_id.clone(),
+                session_id: session_id.clone(),
             },
             "decision-log",
         )
@@ -3223,7 +3208,7 @@ async fn decision_session(
             .clone()
             .or_else(|| final_assistant_text(&outcome.transcript))
             .unwrap_or_default();
-        match parse_decision(&text) {
+        let action = match parse_decision(&text) {
             Ok(DecisionAction::Ask { question, options }) => {
                 guard.emit(RunUpdate::Ask {
                     question: question.clone(),
@@ -3232,25 +3217,87 @@ async fn decision_session(
                 match guard.wait_answer().await {
                     None => return Err(Terminal::stopped("ask 停等被终止")),
                     Some(answer) => {
+                        // ask 停在 WaitingAsk 属用户驱动停等，不计漂移
                         prompt = format!(
-                            "用户应答：{answer}\n\n请基于应答重新输出决策 JSON（四选一封闭集）。"
+                            "用户应答：{answer}\n\n请基于应答重新输出决策 JSON（三选一封闭集）。"
                         );
-                        continue_session = Some(outcome.session_id);
+                        continue_session = Some(session_id);
+                        continue;
                     }
                 }
             }
-            Ok(action) => return Ok(action),
-            Err(error) => return Err(Terminal::failed(format!("决策解析失败: {error}"))),
+            Ok(action) => action,
+            Err(error) => {
+                // 解析失败（含已退役的 retry / 未知名）：软拒一次、同会话续注纠正
+                drift += 1;
+                if drift > DECISION_DRIFT_LIMIT {
+                    return Err(Terminal::failed(format!(
+                        "决策漂移：连续 {drift} 次决策输出无法解析（{error}）"
+                    )));
+                }
+                prompt = decision_fix_prompt(input, &error);
+                continue_session = Some(session_id);
+                continue;
+            }
+        };
+        // 每轮 parsed 动作 emit 一个门节点实例（驳回在图面可见）
+        let gate_instance = begin_node(
+            guard,
+            trace,
+            &input.phase,
+            input.attempt,
+            ChangeStepKind::WhitelistGate,
+            EdgeKind::Forward,
+        );
+        emit_node(
+            guard,
+            &input.phase,
+            input.attempt,
+            ChangeStepKind::WhitelistGate,
+            gate_instance,
+            StepSettle::running(),
+        );
+        match ensure_backtrack_allowed(&action, &input.phase, &input.allowed) {
+            Ok(()) => {
+                emit_node(
+                    guard,
+                    &input.phase,
+                    input.attempt,
+                    ChangeStepKind::WhitelistGate,
+                    gate_instance,
+                    StepSettle::passed(None),
+                );
+                return Ok(action);
+            }
+            Err(message) => {
+                emit_node(
+                    guard,
+                    &input.phase,
+                    input.attempt,
+                    ChangeStepKind::WhitelistGate,
+                    gate_instance,
+                    StepSettle::failed(Some(diagnose_brief(&message))),
+                );
+                drift += 1;
+                if drift > DECISION_DRIFT_LIMIT {
+                    return Err(Terminal::failed(format!(
+                        "决策漂移：连续 {drift} 次决策输出被驳回（{message}）"
+                    )));
+                }
+                prompt = decision_fix_prompt(input, &message);
+                continue_session = Some(session_id);
+            }
         }
     }
 }
 
-/// 决策有界输入组装（eval_only：失败相位是否评估-only——决策 prompt 的指引面）
+/// 决策有界输入组装（fail checklist + 白名单 + 候选 eval report + 失败条目
+/// report 原文）：`fail_report` 取失败相位最新 attempt 的 `report`（升格落账写入
+/// 的完整明细，空则空串——prompt 侧渲染「（无报告文本）」）。
 fn build_decision_input(
     detail: &ChangeDetail,
     fail_phase: &str,
     allowed: &[String],
-    eval_only: bool,
 ) -> DecisionInput {
     let station = detail
         .pipeline
@@ -3258,6 +3305,9 @@ fn build_decision_input(
         .find(|station| station.phase == fail_phase);
     let latest = station.and_then(|station| station.attempts.last());
     let attempt = latest.and_then(|record| record.attempt).unwrap_or(0);
+    let fail_report = latest
+        .map(|record| record.report.clone())
+        .unwrap_or_default();
     let fail_checklist = latest
         .map(|record| {
             let failing: Vec<ChecklistItem> = record
@@ -3297,9 +3347,9 @@ fn build_decision_input(
         phase: fail_phase.to_owned(),
         attempt,
         fail_checklist,
+        fail_report,
         allowed: allowed.to_vec(),
         candidates,
-        eval_only,
     }
 }
 

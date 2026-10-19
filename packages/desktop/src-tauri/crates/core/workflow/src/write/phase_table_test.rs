@@ -567,7 +567,7 @@ fn 回溯白名单随表分派两表各按本表序() {
     assert_eq!(
         allowed_backtrack_phases(test_only, "archive"),
         expect(&TEST_ONLY_PHASE_ORDER[1..]),
-        "test-only archive 白名单 = 除 initialize 外全表按表序（表头被 backtrackable 过滤）"
+        "test-only archive 白名单 = 除 initialize 外全表按表序（archive 含 agent 步 → 可重做自含）"
     );
     assert_eq!(
         allowed_backtrack_phases(test_only, "initialize"),
@@ -730,15 +730,15 @@ fn 白名单返回表序前置集含自身且initialize恒排除() {
         ],
         "中段相位白名单 = 表序前置集（含自身；零 initialize 入选）"
     );
-    // 末相位（archive）白名单 = 除 initialize 外全部前序相位按表序（全表覆盖
-    // 场景——表头被 backtrackable 过滤，位置排除不参与）
+    // 末相位（archive）白名单 = 除 initialize 外全部前序相位按表序（archive 含
+    // SpecSync / ResolveConflicts agent 步 → 可重做自含；表头被 backtrackable 过滤）
     assert_eq!(
         allowed_backtrack_phases(table, "archive"),
         REQUIREMENT_PHASE_ORDER[1..]
             .iter()
             .map(|id| id.to_string())
             .collect::<Vec<_>>(),
-        "archive 白名单 = 除 initialize 外全表按表序"
+        "archive 白名单 = 除 initialize 外全表按表序（自含可重做）"
     );
     // acceptance 白名单 = proposal … acceptance 八相位（表序前置集语义不因表头
     // 插入漂移——archive 不为前置）
@@ -838,19 +838,21 @@ fn expected_steps(phase: &str) -> Vec<StepNode> {
     }
 }
 
-/// 相位 → `on_fail` 声明期望（四门禁步 FeedbackLoop{5}——static-check /
-/// test-execution / mutation-test / verdict-gate；code-analyze 的 VerdictGate
-/// 例外为 Terminal——spec 定稿「分析相位 verdict 失败即终态」；initialize 表头
-/// 两检查步（StaticCheck / TestExecution）为例 Terminal——基线绿门失败即停零
-/// 反馈边（check-before-flow-start D7）；其余 None）。
+/// 相位 → `on_fail` 声明期望（static-check 步 FeedbackLoop{5}——implement /
+/// test-gen；verdict-gate 步 FeedbackLoop{5}（code-analyze 例外 Terminal）；
+/// test-execution 相位两确定性门禁步（TestExecution / MutationTest）为 Escalate
+/// ——首败升格交决策、零 agent 修复；initialize 表头两检查步（StaticCheck /
+/// TestExecution）为 Terminal——基线绿门失败即停零反馈边（check-before-flow-start
+/// D7）；其余 None）。
 fn expected_on_fail(phase_id: &str, node: StepNode) -> Option<OnFail> {
     match node {
         StepNode::StaticCheck | StepNode::TestExecution if phase_id == "initialize" => {
             Some(OnFail::Terminal)
         }
-        StepNode::StaticCheck
-        | StepNode::TestExecution
-        | StepNode::MutationTest => Some(OnFail::FeedbackLoop { limit: 5 }),
+        StepNode::TestExecution | StepNode::MutationTest if phase_id == "test-execution" => {
+            Some(OnFail::Escalate)
+        }
+        StepNode::StaticCheck => Some(OnFail::FeedbackLoop { limit: 5 }),
         StepNode::VerdictGate if phase_id == "code-analyze" => Some(OnFail::Terminal),
         StepNode::VerdictGate => Some(OnFail::FeedbackLoop { limit: 5 }),
         _ => None,
@@ -1144,8 +1146,6 @@ fn 计划图on_fail语义与步绑定() {
             if matches!(step.on_fail, Some(OnFail::FeedbackLoop { .. })) {
                 let allowed = (matches!(def.id, "implement" | "test-gen")
                     && step.node == StepNode::StaticCheck)
-                    || (def.id == "test-execution"
-                        && matches!(step.node, StepNode::TestExecution | StepNode::MutationTest))
                     || step.node == StepNode::VerdictGate;
                 assert!(
                     allowed,
@@ -1158,6 +1158,16 @@ fn 计划图on_fail语义与步绑定() {
                 assert!(
                     !matches!(step.on_fail, Some(OnFail::Terminal)),
                     "相位 {} agent 步 {:?} 不得携 Terminal",
+                    def.id,
+                    step.node
+                );
+            }
+            // 负向面：Escalate 不得落到 agent 步（升格截断余下步依赖步序，agent
+            // 步误声明会静默吞掉本相位评估链）
+            if step.node.role().is_some() {
+                assert!(
+                    !matches!(step.on_fail, Some(OnFail::Escalate)),
+                    "相位 {} agent 步 {:?} 不得携 Escalate",
                     def.id,
                     step.node
                 );
@@ -1888,8 +1898,6 @@ fn test_only表steps与on_fail全表扫描() {
             );
             if matches!(step.on_fail, Some(OnFail::FeedbackLoop { .. })) {
                 let allowed = (def.id == "test-gen" && step.node == StepNode::StaticCheck)
-                    || (def.id == "test-execution"
-                        && matches!(step.node, StepNode::TestExecution | StepNode::MutationTest))
                     || step.node == StepNode::VerdictGate;
                 assert!(
                     allowed,
@@ -1966,10 +1974,10 @@ fn test_execution拆步四步序且两表同式() {
 /// 与 test-execution 反馈边①分立计数）；`prompt_ref = None`（确定性工具步零
 /// agent prompt）。
 #[test]
-fn mutation_test步on_fail反馈边与prompt_ref恒none() {
+fn mutation_test步on_fail升格与prompt_ref恒none() {
     use super::phase_table::FEEDBACK_LOOP_LIMIT;
 
-    assert_eq!(FEEDBACK_LOOP_LIMIT, 5, "反馈边独立计数上限常量锚定");
+    assert_eq!(FEEDBACK_LOOP_LIMIT, 5, "static-check / verdict-gate 反馈上限常量保留");
 
     for workflow_type in ["requirement", "test-only"] {
         let table = phase_table(workflow_type).expect("相位表应可达");
@@ -1981,10 +1989,8 @@ fn mutation_test步on_fail反馈边与prompt_ref恒none() {
             .unwrap_or_else(|| panic!("{workflow_type} 表应含 MutationTest 步"));
         assert_eq!(
             mutation.on_fail,
-            Some(OnFail::FeedbackLoop {
-                limit: FEEDBACK_LOOP_LIMIT
-            }),
-            "{workflow_type} 表 MutationTest on_fail = FeedbackLoop{{5}}"
+            Some(OnFail::Escalate),
+            "{workflow_type} 表 MutationTest on_fail = Escalate（首败升格交决策）"
         );
         assert_eq!(mutation.prompt_ref, None, "确定性工具步 prompt_ref 恒 None");
     }
@@ -2195,4 +2201,411 @@ fn initialize_phase_id常量逐字且再导出同值() {
             "{workflow_type} 表头相位 id 与常量同值"
         );
     }
+}
+
+// ---------------------------------------------------------------------------
+// 回溯白名单「可重做自排除」（test-execution-zero-agent-decision AC-1）
+// ---------------------------------------------------------------------------
+
+/// `allowed_backtrack_phases` 自排除（正向）：零 agent 步相位（test-execution）
+/// 自身不入白名单——决策上下文里不存在「重做本相位」选项；可重做相位（步序列
+/// 含 agent 步：implement / test-gen）自含。两表同式（表驱动两表）。「自含 ⟺
+/// 可重做」由步序列 `role()` 派生，零相位名硬编码。
+#[test]
+fn 白名单零agent步相位自排除_可重做相位自含() {
+    for workflow_type in ["requirement", "test-only"] {
+        let table = phase_table(workflow_type).expect("相位表应可达");
+
+        let allowed = allowed_backtrack_phases(table, "test-execution");
+        assert!(
+            !allowed.iter().any(|phase| phase == "test-execution"),
+            "{workflow_type} test-execution 白名单不含自身（零 agent 步不可重做）: {allowed:?}"
+        );
+        assert!(
+            allowed.iter().any(|phase| phase == "test-gen"),
+            "{workflow_type} test-execution 白名单含前序 test-gen（对照行）"
+        );
+
+        // archive：「自含 ⟺ 可重做」由步序列派生（零相位名硬编码）——含 agent 步
+        // 则自含、零 agent 步则自排除；其白名单仍含前序 test-execution（零 agent 步
+        // 相位可作为目标，只是不可重做自身——自排除只作用于 current_phase）
+        let archive = phase_of(table, "archive");
+        let archive_redoable = archive
+            .steps
+            .iter()
+            .any(|step| step.node.role().is_some());
+        let allowed = allowed_backtrack_phases(table, "archive");
+        assert_eq!(
+            allowed.iter().any(|phase| phase == "archive"),
+            archive_redoable,
+            "{workflow_type} archive 白名单自含 ⟺ 步序列含 agent 步: {allowed:?}"
+        );
+        assert!(
+            allowed.iter().any(|phase| phase == "test-execution"),
+            "{workflow_type} archive 白名单含前序 test-execution（目标可选）: {allowed:?}"
+        );
+
+        // 可重做 agent 步相位自含（test-only 无 implement，按其表内相位对照）
+        for phase in ["proposal", "test-design", "test-gen"] {
+            let allowed = allowed_backtrack_phases(table, phase);
+            assert!(
+                allowed.iter().any(|id| id == phase),
+                "{workflow_type} 相位 {phase} 白名单含自身（agent 步相位可重做）: {allowed:?}"
+            );
+        }
+    }
+}
+
+/// 边界：`archive` 零 agent 步形态自排除（白名单自含 ⟺ 可重做，两表同式，3 例
+/// 对照）——把真实表内 `archive` 的步序列替换为确定性门禁序列（`PhaseStart` /
+/// `TestExecution` / `PhaseLog`，`role()` 全 `None`）后 `backtrackable` 仍为真，
+/// 自身照旧不入白名单（决策上下文里不存在「重做本相位」选项）；同表 `test-gen`
+/// （含 `Executor` 步）自含、`test-execution`（零 agent 步）自排除形成对照。
+///
+/// 口径说明：判定按步序列 `role()` 派生、不认相位名——真实相位表的 archive 复用
+/// `ARCHIVE_STEPS`（含 SpecSync / ResolveConflicts agent 步）故落「可重做 → 自含」
+/// 一侧；本用例以两表各自的 archive 表项零 agent 步化锁定「零 agent 步 → 自排除」
+/// 一侧的边界，防按相位名硬编码回潮（spec「白名单自含即重做、零 agent 步自排除」
+/// 的判定面本身）。
+#[test]
+fn 白名单archive零agent步自排除边界() {
+    // archive 零 agent 步形态：两表同式——真实表项仅替换步序列，`backtrackable`
+    // 仍 `true`（自排除不得靠资格位实现，只能由步序列派生）
+    static ZERO_AGENT_ARCHIVE_STEPS: &[StepDefinition] = &[
+        StepDefinition {
+            node: StepNode::PhaseStart,
+            prompt_ref: None,
+            on_fail: None,
+        },
+        StepDefinition {
+            node: StepNode::TestExecution,
+            prompt_ref: None,
+            on_fail: None,
+        },
+        StepDefinition {
+            node: StepNode::PhaseLog,
+            prompt_ref: None,
+            on_fail: None,
+        },
+    ];
+
+    for workflow_type in ["requirement", "test-only"] {
+        let table: Vec<PhaseDefinition> = phase_table(workflow_type)
+            .expect("相位表应可达")
+            .iter()
+            .map(|def| {
+                if def.id == "archive" {
+                    PhaseDefinition {
+                        steps: ZERO_AGENT_ARCHIVE_STEPS,
+                        ..def.clone()
+                    }
+                } else {
+                    def.clone()
+                }
+            })
+            .collect();
+
+        // 例一：archive（零 agent 步）白名单不含自身
+        let allowed = allowed_backtrack_phases(&table, "archive");
+        assert!(
+            !allowed.iter().any(|phase| phase == "archive"),
+            "{workflow_type} archive（零 agent 步）白名单不含自身（不可重做本相位）: {allowed:?}"
+        );
+        // 例二：可重做相位仍作为回溯目标在列（自排除只作用于 current_phase）
+        assert!(
+            allowed.iter().any(|phase| phase == "test-gen"),
+            "{workflow_type} archive 白名单含前序 test-gen（可重做相位作为目标）: {allowed:?}"
+        );
+        // 例三：同表 test-execution（零 agent 步）同样不含自身
+        assert!(
+            !allowed_backtrack_phases(&table, "test-execution")
+                .iter()
+                .any(|phase| phase == "test-execution"),
+            "{workflow_type} test-execution 白名单不含自身（零 agent 步）"
+        );
+
+        // 对照：同表 test-gen 含 Executor 步 → 自含（自含 ⟺ 可重做）
+        let allowed = allowed_backtrack_phases(&table, "test-gen");
+        assert!(
+            allowed.iter().any(|phase| phase == "test-gen"),
+            "{workflow_type} test-gen 白名单含自身（可重做本相位）: {allowed:?}"
+        );
+    }
+}
+
+/// 可重做相位全枚举（正向，遍历枚举）：agent 步相位在各自表中均含自身——
+/// 自含 ⟺ 可重做（自步序列派生，零相位名硬编码）；同式全表全枚举：零 agent 步
+/// 相位（test-execution）落自排除侧。
+#[test]
+fn 白名单可重做相位全枚举自含() {
+    let cases: [(&str, &[&str]); 2] = [
+        (
+            "requirement",
+            &[
+                "proposal",
+                "dev-design",
+                "test-design",
+                "implement",
+                "test-gen",
+            ],
+        ),
+        ("test-only", &["proposal", "code-analyze", "test-design", "test-gen"]),
+    ];
+    for (workflow_type, phases) in cases {
+        let table = phase_table(workflow_type).expect("相位表应可达");
+        for phase in phases {
+            let def = phase_of(table, phase);
+            let redoable = def.steps.iter().any(|step| step.node.role().is_some());
+            assert!(redoable, "{workflow_type} 相位 {phase} 应为可重做（含 agent 步）");
+            let allowed = allowed_backtrack_phases(table, phase);
+            assert!(
+                allowed.iter().any(|id| id == phase),
+                "{workflow_type} 可重做相位 {phase} 白名单自含: {allowed:?}"
+            );
+        }
+    }
+    // 全表属性（遍历枚举）：白名单自含 ⟺ 该相位可重做（步序列含 agent 步）——
+    // 评估-only 相位（code-review / acceptance）与 archive（含 SpecSync /
+    // ResolveConflicts agent 步）同属可重做侧，零 agent 步相位（test-execution）
+    // 落自排除侧；判定零相位名硬编码
+    for workflow_type in ["requirement", "test-only"] {
+        let table = phase_table(workflow_type).expect("相位表应可达");
+        for def in table.iter().skip(1) {
+            let redoable = def.steps.iter().any(|step| step.node.role().is_some());
+            let allowed = allowed_backtrack_phases(table, def.id);
+            assert_eq!(
+                allowed.iter().any(|id| id == def.id),
+                redoable,
+                "{workflow_type} 相位 {} 白名单自含 ⟺ 可重做: {allowed:?}",
+                def.id
+            );
+        }
+    }
+}
+
+/// 未知 / 非法 `current_phase`（异常，参数化 5 值）：空 Vec 不臆测——不自相位
+/// 表推导近似匹配、不做 trim / 大小写折叠。
+#[test]
+fn 白名单非法current_phase五形态空vec() {
+    let table = phase_table("requirement").expect("相位表应可达");
+    for illegal in [
+        "不存在的相位",
+        "",
+        &"x".repeat(1200),
+        "🚀\n",
+        " implement ",
+    ] {
+        assert!(
+            allowed_backtrack_phases(table, illegal).is_empty(),
+            "非法 current_phase {illegal:?} 应得空 Vec 不臆测"
+        );
+    }
+    // 大小写差异不折叠（"Implement" ≠ "implement"）
+    assert!(allowed_backtrack_phases(table, "Implement").is_empty());
+}
+
+/// 表形态边界（边界，表驱动 3 形态）：空表 → 空 Vec；单元素表（仅 initialize）
+/// 任意相位 → 空；`backtrackable = false` 的相位不进任何白名单。
+#[test]
+fn 白名单表形态边界三态() {
+    // 形态一：空表
+    assert!(allowed_backtrack_phases(&[], "initialize").is_empty());
+    assert!(allowed_backtrack_phases(&[], "implement").is_empty());
+
+    // 形态二：单元素表（仅 initialize）——表头早退
+    let single: &[PhaseDefinition] = &[PhaseDefinition {
+        id: "initialize",
+        description: "表头",
+        steps: &[],
+        artifact_manifest: &[],
+        prerequisites: &[],
+        backtrackable: false,
+        executor: None,
+        evaluator: None,
+    }];
+    assert!(allowed_backtrack_phases(single, "initialize").is_empty());
+    assert!(allowed_backtrack_phases(single, "implement").is_empty());
+
+    // 形态三：backtrackable = false 的相位不进任何白名单（属性承载而非位置）
+    let non_backtrackable: &[PhaseDefinition] = &[
+        PhaseDefinition {
+            id: "initialize",
+            description: "表头",
+            steps: &[],
+            artifact_manifest: &[],
+            prerequisites: &[],
+            backtrackable: false,
+            executor: None,
+            evaluator: None,
+        },
+        PhaseDefinition {
+            id: "frozen",
+            description: "不可回溯相位",
+            steps: &[],
+            artifact_manifest: &[],
+            prerequisites: &[],
+            backtrackable: false,
+            executor: None,
+            evaluator: None,
+        },
+        PhaseDefinition {
+            id: "tail",
+            description: "表尾（含 agent 步 → 可重做）",
+            steps: &[StepDefinition {
+                node: StepNode::Executor,
+                prompt_ref: None,
+                on_fail: None,
+            }],
+            artifact_manifest: &[],
+            prerequisites: &[],
+            backtrackable: true,
+            executor: None,
+            evaluator: None,
+        },
+    ];
+    assert!(
+        !allowed_backtrack_phases(non_backtrackable, "tail")
+            .iter()
+            .any(|phase| phase == "frozen"),
+        "backtrackable=false 相位不进白名单"
+    );
+    assert_eq!(
+        allowed_backtrack_phases(non_backtrackable, "tail"),
+        vec!["tail".to_owned()],
+        "可重做且 == 自身项留存（frozen / initialize 被过滤）"
+    );
+
+    // 零 agent 步的 current_phase 自排除（表内最后一格只余自身时 → 空 Vec）
+    let tool_only: &[PhaseDefinition] = &[
+        PhaseDefinition {
+            id: "initialize",
+            description: "表头",
+            steps: &[],
+            artifact_manifest: &[],
+            prerequisites: &[],
+            backtrackable: false,
+            executor: None,
+            evaluator: None,
+        },
+        PhaseDefinition {
+            id: "gate-only",
+            description: "零 agent 步相位",
+            steps: &[StepDefinition {
+                node: StepNode::TestExecution,
+                prompt_ref: None,
+                on_fail: Some(OnFail::Escalate),
+            }],
+            artifact_manifest: &[],
+            prerequisites: &[],
+            backtrackable: true,
+            executor: None,
+            evaluator: None,
+        },
+    ];
+    assert!(
+        allowed_backtrack_phases(tool_only, "gate-only").is_empty(),
+        "零 agent 步 current_phase 自排除后无剩余项"
+    );
+}
+
+/// `TEST_EXECUTION_STEPS` 两步声明（正向，表驱动四步）：TestExecution /
+/// MutationTest 两步 `on_fail == Some(OnFail::Escalate)`；PhaseStart / PhaseLog
+/// 为 `None`（首败升格交决策的声明面单点，零会话修复）。
+#[test]
+fn test_execution步序列四步on_fail声明() {
+    let table = phase_table("requirement").expect("相位表应可达");
+    let def = phase_of(table, "test-execution");
+    let steps: Vec<(StepNode, Option<OnFail>)> =
+        def.steps.iter().map(|step| (step.node, step.on_fail)).collect();
+    assert_eq!(
+        steps,
+        vec![
+            (StepNode::PhaseStart, None),
+            (StepNode::TestExecution, Some(OnFail::Escalate)),
+            (StepNode::MutationTest, Some(OnFail::Escalate)),
+            (StepNode::PhaseLog, None),
+        ],
+        "test-execution 四步序与 on_fail 声明"
+    );
+}
+
+/// `Escalate` 归属守卫（正向，遍历枚举全表所有步）：`Escalate` 仅允许出现在
+/// test-execution 相位的 TestExecution / MutationTest 步——四个执行体只按
+/// `on_fail` 分派，误声明会静默失效（断言即守卫）。
+#[test]
+fn escalate归属守卫全表遍历() {
+    for workflow_type in ["requirement", "test-only"] {
+        let table = phase_table(workflow_type).expect("相位表应可达");
+        for def in table {
+            for step in def.steps {
+                if step.on_fail == Some(OnFail::Escalate) {
+                    assert_eq!(
+                        def.id, "test-execution",
+                        "{workflow_type} Escalate 仅允许 test-execution 相位，实际相位 {}",
+                        def.id
+                    );
+                    assert!(
+                        matches!(step.node, StepNode::TestExecution | StepNode::MutationTest),
+                        "{workflow_type} Escalate 仅允许 TestExecution / MutationTest 步，实际 {:?}",
+                        step.node
+                    );
+                }
+            }
+        }
+    }
+}
+
+/// `on_fail` 回归锚（AC-10，边界，表驱动 4 组）：initialize 两检查步仍
+/// `Terminal`；implement / test-gen 的 StaticCheck 仍 `FeedbackLoop { 5 }`；
+/// archive 11 步全 `None`；`FEEDBACK_LOOP_LIMIT == 5`。
+#[test]
+fn on_fail回归锚_ac10() {
+    use super::phase_table::FEEDBACK_LOOP_LIMIT;
+
+    let table = phase_table("requirement").expect("相位表应可达");
+
+    // 组一：initialize 基线两检查步仍 Terminal
+    let initialize = phase_of(table, "initialize");
+    for node in [StepNode::StaticCheck, StepNode::TestExecution] {
+        let step = initialize
+            .steps
+            .iter()
+            .find(|step| step.node == node)
+            .unwrap_or_else(|| panic!("initialize 应有 {node:?} 步"));
+        assert_eq!(
+            step.on_fail,
+            Some(OnFail::Terminal),
+            "initialize {node:?} 仍 Terminal（基线绿门失败即停）"
+        );
+    }
+
+    // 组二 / 组三：implement / test-gen 的 static-check 反馈边仍 5 次循环
+    for phase in ["implement", "test-gen"] {
+        let def = phase_of(table, phase);
+        let step = def
+            .steps
+            .iter()
+            .find(|step| step.node == StepNode::StaticCheck)
+            .unwrap_or_else(|| panic!("{phase} 应有 StaticCheck 步"));
+        assert_eq!(
+            step.on_fail,
+            Some(OnFail::FeedbackLoop {
+                limit: FEEDBACK_LOOP_LIMIT
+            }),
+            "{phase} static-check 反馈边上限 5 不变"
+        );
+    }
+
+    // 组四：archive 11 步 on_fail 全 None
+    let archive = phase_of(table, "archive");
+    assert_eq!(archive.steps.len(), 11, "archive 11 步");
+    for step in archive.steps {
+        assert_eq!(
+            step.on_fail, None,
+            "archive 步 {:?} 零升格 / 零反馈声明",
+            step.node
+        );
+    }
+
+    assert_eq!(FEEDBACK_LOOP_LIMIT, 5, "反馈循环常量锚定 5");
 }
