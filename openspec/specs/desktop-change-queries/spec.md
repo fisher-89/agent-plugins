@@ -49,13 +49,13 @@ workflow crate 的 queries SHALL 返回全量 change 列表，条目集合 SHALL
 
 queries SHALL 聚合单个 change 的详情（**按 id 寻址**），状态面单源自 workspace 库：流水线相位序 SHALL 随 `record.workflow_type` 出线（`phase_table(workflow_type)` 的相位序——requirement 10 列、test-only 7 列，initialize 为首列；MUST NOT 使用固定 10 站 `PIPELINE_PHASES` 常量）逐站展开 PhaseRecord 的 attempt 序列（attempt 序号、verdict、report、checklist 的 item / pass / evidence、timestamp），并暴露 `active_phase`（自 ChangeRecord）与 backtrack 字段（backtrack_to / backtrack_reason）；checklist 自 ChecklistItemRecord 子表按打包键序重组，线面聚合形状不变。详情 SHALL 出线 `id`（身份锚）、`name`（恒裸名）与 `title`（恒非空）。详情 SHALL 出线 `worktree` 路径（自 ChangeRecord.worktree 直读透出；None → null；归档清理后字段原样保留——历史锚，见 desktop-change-archive「Cleanup 步与 worktree 自动清理」）。产物发现与信封读取的路径解析 SHALL 经 **id → 记录 → name / worktree** 分辨率；`worktree=None` 的 change 维持主仓两树解析既有语义。**文档形态分支整体退役**：db 无该 id 记录时详情 SHALL 返回「未找到」（`None`），MUST NOT 回退磁盘目录解析、MUST NOT 读取任何 workflow.json。`id` / `title` 字段为 detail 线面字段演进，SHALL 走 golden 显式重写流程。
 
-详情 SHALL 同时出线 **run 执行图全量读面**：`runs` 数组（自 RunRecord 全史投影），每 run 的 `nodes`（自 RunNodeRecord 投影：phase / attempt / step / instanceNo / stepKind / status / sessionId / detail / outputRef）与 `edges`（自 RunEdgeRecord 投影：fromNodeKey / toNodeKey / edgeKind ∈ forward / feedback / retry / backtrack）。节点身份键 `(phase, attempt, step, instanceNo)` SHALL 为稳定出线键；边 SHALL 显式出线。节点 `stepKind` SHALL 为二十一值全词汇（含 `mutation_test`、initialize 基线步词 `clean` 与 9 个归档步词——`cleanup` 在案）。时间戳 SHALL 维持既有口径（db i64 毫秒落库、出线 ISO 串 + null）；DTO SHALL 纯 derive 零字段属性，流水线相位序 / 二十一值 nodes / edges 字段演进 SHALL 走 golden 显式重写流程，bindings 再生成同步前端类型。详情标示「运行中」SHALL 与实际在飞 run 一致；archive 相位完成落账后 `phase_next` 路由 done，详情 MUST NOT 呈运行中假象（有界降级例外——通知重查失败轮保 last-good 的过渡态由 desktop-change-flow-view「通知重查失败降级与有界重试」承载：有界重试、带「刷新失败」内联提示、收敛保证；本条款禁杀的是无界、静默的假态，强度不变）。
+详情 SHALL 同时出线 **run 执行图全量读面**：`runs` 数组（自 RunRecord 全史投影），每 run 的 `nodes`（自 RunNodeRecord 投影：phase / attempt / step / instanceNo / stepKind / status / sessionId / detail / outputRef）与 `edges`（自 RunEdgeRecord 投影：fromNodeKey / toNodeKey / edgeKind ∈ forward / feedback / retry / backtrack）。`edge_kind = retry` 的存量行 SHALL 在投影前被**单点屏蔽**（`RunEdgeKind::Retry` 保留为库解码契约——删变体会让旧行 decode 失败、`list_run_edges` 整份 Err；新写面零产出，读面即唯一屏蔽点），其余边按库读序原样出线、边序不变。节点身份键 `(phase, attempt, step, instanceNo)` SHALL 为稳定出线键；边 SHALL 显式出线。节点 `stepKind` SHALL 为二十一值全词汇（含 `mutation_test`、initialize 基线步词 `clean` 与 9 个归档步词——`cleanup` 在案）。时间戳 SHALL 维持既有口径（db i64 毫秒落库、出线 ISO 串 + null）；DTO SHALL 纯 derive 零字段属性，流水线相位序 / 二十一值 nodes / edges 字段演进 SHALL 走 golden 显式重写流程，bindings 再生成同步前端类型。详情标示「运行中」SHALL 与实际在飞 run 一致；archive 相位完成落账后 `phase_next` 路由 done，详情 MUST NOT 呈运行中假象（有界降级例外——通知重查失败轮保 last-good 的过渡态由 desktop-change-flow-view「通知重查失败降级与有界重试」承载：有界重试、带「刷新失败」内联提示、收敛保证；本条款禁杀的是无界、静默的假态，强度不变）。
 
 详情 SHALL 同时给出该 change 目录内可读产物的清单（经 artifact 插件按 phase 定义清单驱动发现）；archive、code-analyze 与 initialize 相位无产物清单（不产 proposal / design / tasks 类文档），MUST NOT 为 archive / code-analyze / initialize 列挂过程文档。
 
 #### Scenario: 流水线含重试与回跳轨迹
 
-- **WHEN** 某 change 的 PhaseRecord 含同 phase 多次 attempt（fail→retry）与 backtrack_to 记录
+- **WHEN** 某 change 的 PhaseRecord 含同 phase 多次 attempt（fail→决策回溯重做）与 backtrack_to 记录
 - **THEN** 详情按 phase 分组展示全部 attempt，且 backtrack 目标与原因可查
 
 #### Scenario: 归档 change 全状态面（错配修复锚点）
@@ -85,8 +85,13 @@ queries SHALL 聚合单个 change 的详情（**按 id 寻址**），状态面�
 
 #### Scenario: run 执行图全量出线
 
-- **WHEN** 某 change 历经一次含 initialize 相位、archive 相位、feedback 重跑、phase 重试与 backtrack 的 run 后查询详情
-- **THEN** `runs` 出线全史记录；每 run `nodes` 按稳定身份键出线（二十一值全词汇零过滤、mutation_test、initialize 基线步词 clean 与 archive 9 个步词（含 cleanup）在案、feedback 重跑为 `instanceNo` 递增新节点），`edges` 显式出线四 kind；无 `seq` 字段、无 `deriveEdges` 派生残留
+- **WHEN** 某 change 历经一次含 initialize 相位、archive 相位、feedback 重跑（static-check）、phase 决策回溯重做与自环重做的 run 后查询详情
+- **THEN** `runs` 出线全史记录；每 run `nodes` 按稳定身份键出线（二十一值全词汇零过滤、mutation_test、initialize 基线步词 clean 与 archive 9 个步词（含 cleanup）在案、feedback 重跑为 `instanceNo` 递增新节点），`edges` 显式出线（forward / feedback / backtrack 三 kind；`retry` 存量行已屏蔽——决策回溯到自身的重做入口边为 `backtrack`）；无 `seq` 字段、无 `deriveEdges` 派生残留
+
+#### Scenario: 存量 retry 边投影屏蔽
+
+- **WHEN** 库中某历史 run 的边行含 `edge_kind = retry`（旧决策 retry 决议兑现时落库）与前后 forward / backtrack 边
+- **THEN** 该 run 的 `edges` 出线不含 retry 行，其余边按 `edge_seq` 库读序原样出线（边序不变、节点集不变），查询不报错
 
 #### Scenario: 10 站流水线 golden 显式重写
 
@@ -235,3 +240,6 @@ detail 线面 `ChangeRunNodeRecord` SHALL 增四字段出线：`startedAt: numbe
 | `crates/core/workflow/src/queries/detail.rs`（`ChangeRunNodeRecord`） | 线面字段扩展 | 增 `startedAt: number` / `endedAt: number | null` / `tokenInput` / `tokenOutput`（毫秒数口径、纯 derive）；`From<&RunNodeStateRecord>` 直读透出 |
 | `packages/desktop/src/types/generated/bindings.ts` | 类型跟随 | `ChangeRunNodeRecord` 四字段再生成；`bindings:check` 守卫拦截漂移 |
 | `crates/core/workflow/tests/golden/` + `corpus_golden_test.rs` | wire contract 守卫 | detail nodes 投影四字段入 golden 显式重写流程（语料维度见 desktop-corpus-regression delta） |
+| `crates/core/workflow/src/queries/detail.rs`（edges 投影） | 读面屏蔽单点 | `run_entry.edges = store.list_run_edges(&run_id)?.iter().filter(\|record\| record.edge_kind != RunEdgeKind::Retry).map(ChangeRunEdgeRecord::from).collect()` |
+| `crates/core/workflow/src/queries/detail.rs`（DTO） | 线面形状 | `ChangeRunEdgeRecord.edgeKind` 值域不变（四值，`retry` 仅存量解码可达）；纯 derive 零字段属性、golden 显式重写口径不变 |
+| `packages/desktop/src/types/generated/bindings.ts` | 类型面 | 零演进（`edgeKind` 值域仍四值），`bindings:check` 守卫绿 |

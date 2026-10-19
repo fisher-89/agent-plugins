@@ -76,29 +76,29 @@
 - **WHEN** 全部段完成后执行清理
 - **THEN** `_stryker-tmp` 与临时 config 被清、`mutation-seg-<i>.json` 与归并报告原样在位
 
-### Requirement: 双时点反馈边（报告指引式口径）
+### Requirement: 失败升格交决策（报告指引式信息面）
 
-MutationTest 失败 SHALL 按双时点反馈 executor 会话修复（补测试杀突变）：突变执行**中断**（段执行 error / harness 崩 / 超时）SHALL 立即反馈（不等汇总），内容 = 中断错误摘要 + 已产报告路径清单；全部段正常跑完 SHALL 最后汇总突变得分，**仅未达标**（score < threshold）才反馈，内容 = score / threshold 结论摘要 + 原始报告路径清单；达标 SHALL pass 直接收口（机械 checklist 落账，零反馈）。反馈内容 MUST NOT 内联存活突变体清单——明细由 executor 自行读报告定位。本反馈边（反馈边②）为**报告指引式口径**，与 test-execution 反馈边①「修复会话输入面自足、MUST NOT 依赖修复会话自读报告文件」（findings_detail 有界内联）**反向并存**——两口径差异系用户明确决策，MUST NOT 被后来者「统一」掉。反馈 SHALL 走 `FeedbackLoop` 独立计数（label `"mutation-test"`，与 static-check / test-execution 反馈计数器分立、上限 5，MUST NOT 计入相位 retry 预算），超限 SHALL 升格相位 fail（代写 fail checklist，进重试 / 决策路径）。
+MutationTest 失败 SHALL 一律升格相位 fail（零 WorkerAgent 会话，不注入修复、不续注会话），两时点同式：突变执行**中断**（段执行 error / harness 崩 / 超时）与全部段正常跑完但**未达标**（score < threshold）均以固定三段收场——代写一条 fail checklist → `phase_log` 落账 → 截断本相位余下步（`StepFlow::Upgraded`）回 `phase_next` 进决策分叉；达标 SHALL pass 直接收口（机械 checklist 落账、零会话）。升格落账的 `report` SHALL 携完整反馈文本（`feedback_text`，上限 `MAX_REPORT_CHARS = 2000` 字符）：中断时为中断错误摘要 + 已产报告路径清单，未达标时为 score / threshold 结论摘要 + 原始报告路径清单；evidence SHALL 携诊断摘要（`diagnose_brief` 口径）+ 报告目录。反馈内容 MUST NOT 内联存活突变体清单——决策 agent SHALL 依决策 prompt 的指引自行 `read` 段级 / 归并报告定位（报告指引式取向由决策信息面承继）。失败步 `on_fail` SHALL 为 `OnFail::Escalate`（与 test-execution 两步同），MUST NOT 声明 `FeedbackLoop`；失败条目三会话槽位恒 `None`。`OnFail::Escalate` 的归属守卫 SHALL 保证其只出现在 TestExecution / MutationTest 步上。
 
-#### Scenario: 中断立即反馈
+#### Scenario: 中断立即升格
 
 - **WHEN** 第 2 段执行中 harness 崩溃（第 1 段已产报告）
-- **THEN** 立即反馈 executor（不等第 3 段）：中断错误摘要 + 第 1 段报告路径，反馈计数 +1；修复重入后未完段续跑
+- **THEN** 立即升格相位 fail（不等第 3 段跑完）：零 WorkerAgent 会话、一条 fail PhaseRecord（report 携中断错误摘要 + 第 1 段报告路径清单），回 `phase_next` 进决策分叉
 
-#### Scenario: 未达标报告指引式反馈
+#### Scenario: 未达标升格
 
 - **WHEN** 全部段跑完且汇总 score 低于 threshold
-- **THEN** 反馈含 score / threshold 结论摘要与原始报告路径清单，MUST NOT 内联存活突变体明细
+- **THEN** 升格相位 fail：report 携 score / threshold 结论摘要与原始报告路径清单，MUST NOT 内联存活突变体明细；零会话请求
 
-#### Scenario: 达标零反馈收口
+#### Scenario: 达标零会话收口
 
-- **WHEN** 全部段跑完且逐 suite 全部达标
-- **THEN** MutationTest pass，机械 checklist 落账推进，零反馈会话发起
+- **WHEN** 全部段跑完且逐 suite 全部达标（或突变面为空跳过）
+- **THEN** MutationTest pass，机械 checklist 落账进入 PhaseLog，推进下一相位，零 WorkerAgent 会话发起
 
-#### Scenario: 两反馈边口径并存不被统一
+#### Scenario: 两口径并存红线随反馈边退役
 
-- **WHEN** 审阅 test-execution 反馈边①与 MutationTest 反馈边②的 spec 表述
-- **THEN** ①为有界内联自足口径、②为报告指引式口径，两口径显式并存留痕；任何「统一」两口径的改动须经用户重新裁决
+- **WHEN** 审阅 test-execution 与 MutationTest 的失败处置表述
+- **THEN** 两处均为「升格交决策」单一口径，无「有界内联自足 vs 报告指引式反向并存」红线（两反馈边均已不存在）；如未来重引相位内修复会话，须经用户重新裁决并显式提出 spec 变更
 
 ### Requirement: 段级复用门与断点续跑
 
@@ -122,3 +122,13 @@ MutationTest SHALL 以段级复用门保证幂等：段报告在位且输入（�
 
 - **WHEN** 审查 `openspec/config.json` schema 与 `MutationConfig` 结构
 - **THEN** `suite.mutation` 仍为 `{ cwd?, score }`，无 jobs / timeout / 分段预算字段；对应常量在 mutation 执行模块内可考
+
+## Module Contract
+
+| 模块 | 定位 | 关键契约（Function / API） |
+|------|------|------|
+| `crates/core/workflow/src/write/phase_table.rs` | 步声明 | `TEST_EXECUTION_STEPS` 的 MutationTest 步 `on_fail = Some(OnFail::Escalate)` |
+| `crates/core/orchestration/src/walker.rs`（`step_mutation_test`） | 门禁步执行体 | 删反馈循环与 `fix_session`；`Escalate` 前置分支（fail / error 均升格）；保留 runner `Err → Terminal` |
+| `crates/core/orchestration/src/walker.rs`（`step_mutation_test_upgraded_phase_log`） | 升格落账 | report = `feedback_text`（≤2000）、evidence = `diagnose_brief` + 报告目录、三会话槽位 None |
+| `crates/core/orchestration/src/port.rs` | 载荷语义（字段面不变） | `MutationTestOutcome.feedback_text` 消费者由「反馈边修复 prompt」改为「升格 report」 |
+| `crates/core/workflow/src/write/phase_table_test.rs` | 声明守卫 | `Escalate` 仅允许出现在 TestExecution / MutationTest 步的断言 |

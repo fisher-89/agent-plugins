@@ -66,24 +66,29 @@ change 详情页 SHALL 以 react-flow 流程图承载执行史，节点模型 SH
 
 ### Requirement: 时间序边推导
 
-执行图边 SHALL 由后端边表（`runs[].edges`，desktop-change-state-store「run 执行图落库」）直接读取，**不再由列差 Δ 派生**：`deriveEdges` 按 `colIndex` 差派生 forward（Δ>0）/ retry（Δ=0）/ backtrack（Δ<0）的逻辑 SHALL 退役。边 SHALL 以 `edgeKind ∈ { forward, feedback, retry, backtrack }` 显式呈现：
+执行图边 SHALL 由后端边表（`runs[].edges`，desktop-change-state-store「run 执行图落库」）直接读取，**不再由列差 Δ 派生**：`deriveEdges` 按 `colIndex` 差派生 forward（Δ>0）/ retry（Δ=0）/ backtrack（Δ<0）的逻辑 SHALL 退役。边 SHALL 以 `edgeKind ∈ { forward, feedback, retry, backtrack }` 显式呈现（四值词汇为 `RunEdgeKind` 的解码契约，前端类型面不收缩）：
 
 - **forward** 计划序推进（向右或同列计划步）；
 - **feedback** gate 失败回到同 phase agent 步的 step 级回边（phase 内回边，新增）；
-- **retry** phase fail 后同相位重跑；
-- **backtrack** 跨相位回跳（虚线 + `backtrackReason` 边标签）。
+- **retry** phase fail 后同相位重跑——该语义已随决策协议退役（重做本相位改由回溯到自身表达，入口边为 `backtrack`），存量 `retry` 边由查询层投影屏蔽（desktop-change-queries「change 详情聚合」），投影面 MUST NOT 出现该 kind；前端样式分支保留默认渲染，MUST NOT 视为可达形态；
+- **backtrack** 跨相位回跳（虚线 + `backtrackReason` 边标签；目标为失败相位自身即「重做本相位」的重做入口）。
 
-边端点 SHALL 以节点稳定身份键 `(phase, attempt, step, instanceNo)` 寻址（取代「时间序扫描串联 + active 按 startAt 归并插入」）；节点身份键自 `runs[].nodes` 直读（desktop-change-queries「change 详情聚合」），MUST NOT 在前端重新派生节点序。attempt 缺号 SHALL 按 0 兜底（与后端 `detail.rs` 的 `unwrap_or(0)` 同款），startAt 缺失的事件 SHALL 按列表序归并、不丢节点。
+边端点 SHALL 以节点稳定身份键 `(phase, attempt, step, instanceNo)` 寻址（取代「时间序扫描串联 + active 按 startAt 归并插入」）；节点身份键自 `runs[].nodes` 直读（desktop-change-queries「change 详情聚合」），MUST NOT 在前端重新派生节点序。attempt 缺号 SHALL 按 0 兜底（与后端 `detail.rs` 的 `unwrap_or(0)` 同款），startAt 缺失的事件 SHALL 按列表序归并、不丢节点。边端点缺失（历史投影被屏蔽的 `retry` 行、或节点未出线）SHALL 跳过该边且不报错——图面照常渲染其余边。
 
 #### Scenario: 四类边自边表呈现
 
-- **WHEN** 执行史含 proposal#1 → dev-design#1 fail → dev-design#2 pass（同列 retry）、test-execution#1 → test-gen#2（跨站 backtrack）、以及 implement 内 static-check fail → executor 修复（phase 内 feedback）
-- **THEN** 图边自 `runs[].edges` 直读：retry 边同列、backtrack 边虚线带 `backtrackReason`、feedback 边为 phase 内回边、forward 边计划序推进；无 `deriveEdges` Δ 派生逻辑
+- **WHEN** 执行史含 proposal#1 → dev-design#1 fail → dev-design#2 pass（决策回溯到自身重做的同列入口边）、test-execution#1 → test-gen#2（跨站 backtrack）、implement 内 static-check fail → executor 修复（phase 内 feedback），且存量库含 `retry` 边
+- **THEN** 图边自 `runs[].edges` 直读：同列重做入口呈 `backtrack`（虚线、带 `backtrackReason`）、跨站回跳呈 `backtrack`、phase 内回边呈 `feedback`、forward 边计划序推进；`retry` 边不出现（查询层已屏蔽，端点缺失亦跳过）；无 `deriveEdges` Δ 派生逻辑
 
 #### Scenario: 缺号与缺时间戳兜底
 
 - **WHEN** 某事件 `attempt` 为 null 或 startAt 为 null
 - **THEN** 节点不丢失：attempt 以 0 兜底参与列内排序，startAt 缺失者按列表序归并，转换不报错
+
+#### Scenario: retry 边缺席不误渲染
+
+- **WHEN** 以含 `edgeKind: 'retry'` 的边集夹具调用转换函数（模拟旧库未屏蔽或夹具直构）
+- **THEN** 该边按默认样式渲染或按端点缺失跳过，转换不 panic、不产生额外派生边；正常运行的图面不出现该 kind（投影面屏蔽为其唯一来源保证）
 
 ### Requirement: 过程素材挂载规则
 
@@ -550,7 +555,7 @@ initialize 相位（表头一次性基线检查相位，见 desktop-change-orche
 
 | 模块 | 职责 | 关键契约 |
 |------|------|----------|
-| `packages/desktop/src/views/changes/flow/graph.ts` + `types.ts` | 转换层扩展 | 节点模型增运行态与节点类型可辨维度；时间序边推导规则、`PIPELINE_PHASES` 列布局、attempt 缺号兜底不变；纯函数直测保持绿 |
+| `packages/desktop/src/views/changes/flow/graph.ts` + `types.ts` | 转换层扩展 | 节点模型增运行态与节点类型可辨维度；`PIPELINE_PHASES` 列布局、attempt 缺号兜底不变；边转换改 `runs[].edges` 直读（见下两行 `graph.ts` / `graph.test.ts` 契约）；纯函数直测保持绿 |
 | ReactFlow 渲染薄层组件（新） | 图呈现 | `@xyflow/react` v12 subflow（`parentId` + `extent: 'parent'`）；9 列恒定 + 默认 100% 视口 + 滚轮平移（禁滚轮缩放）；eval 实心 / active pulse / stale 半透明 |
 | `packages/desktop/src/views/changes/flow/` 节点 / 列组件 | 运行态渲染 | WorkerAgent / ToolStep / Gate 类型可辨；pulse 运行态与既有 active 视觉同款；收口后回落派生规则 |
 | 右侧抽屉组件（新） | 素材详情 | 二分节【本站文档 / eval report+checklist】（文件表节随 file_log 退役删除）；文档节复用 `renderers/registry`（`ArtifactView`）；单一交互入口 |
@@ -593,3 +598,5 @@ initialize 相位（表头一次性基线检查相位，见 desktop-change-orche
 | `packages/desktop/src/views/changes/flow/run-state.ts` | 步词归一 | `normalizeKind` / `stepWord` 单点补 `clean` ↔ `clean` 映射（二十一值逐词对应） |
 | `packages/desktop/src/types/generated/bindings.ts`（重生成） | 类型跟随 | `ChangeStepKind` / `RunStepKind` 新变体出线；`bindings:check` 守卫拦截过期生成物 |
 | 转换层 / 抽屉 / stdout 面板（零改动） | 结构复用 | initialize 列与步节点经既有 `detail.pipeline` 出线与 runtime step 渲染直达；baseline 输出经既有 `outputRef` stdout 面板回查 |
+| `src/views/changes/flow/graph.ts` | 边转换 | `runs[].edges` 直读、端点缺失 `continue`；零 `deriveEdges` Δ 派生；`retry` 无专属样式分支 |
+| `src/views/changes/flow/graph.test.ts` | 转换层用例 | `retry` fixture 改写为「输入含 retry 边 → 输出图不含该边」的投影锚 |
