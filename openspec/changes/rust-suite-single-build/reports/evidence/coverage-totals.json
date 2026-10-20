@@ -1,0 +1,44 @@
+{
+  "source_files": 209,
+  "groups": {
+    "crates/core": 104,
+    "crates/infra": 79,
+    "crates/tools": 1,
+    "src-tauri/src": 25
+  },
+  "tests_glob_hits": 0,
+  "lines": {
+    "covered": 85784,
+    "count": 88763,
+    "percent": 96.6439
+  },
+  "functions": {
+    "covered": 6713,
+    "count": 7441,
+    "percent": 90.2164
+  },
+  "branches": {
+    "covered": 0,
+    "count": 0
+  },
+  "regions": {
+    "covered": 136675,
+    "count": 140617,
+    "percent": 97.1966
+  },
+  "instantiations": {
+    "covered": 9251,
+    "count": 12030,
+    "percent": 76.8994
+  },
+  "thresholds": {
+    "lines": 90.0,
+    "branches": 85.0,
+    "functions": 90.0
+  },
+  "threshold_pass": {
+    "lines": true,
+    "branches": null,
+    "functions": true
+  }
+}

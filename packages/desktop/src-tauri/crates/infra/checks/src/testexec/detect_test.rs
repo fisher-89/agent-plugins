@@ -3,6 +3,7 @@ use std::path::{Path, PathBuf};
 
 use config::{MutationConfig, TestFramework};
 
+use super::super::runner::execute_plan;
 use super::{detect_plans, extract_semver, is_version_at_least, to_posix, REGISTRY};
 use checks::parser::CoverageFormat;
 
@@ -100,6 +101,130 @@ fn probe_tree(ws: &TempWs) {
 /// `checks::globmatch` 展开对齐 CLI picomatch 语义）。
 const TS_TESTS_GLOB: &str = "**/*.{test,spec}.{ts,tsx}";
 
+/// rust 档新单条命令模板（shell / cmd 两臂逐字同串，占位符原样保留由 runner
+/// 展开）：一条 `cargo llvm-cov --workspace` 同产覆盖率 JSON（`--output-path`）
+/// 与测试 stdout（模板自带 `>` 重定向）。
+const RUST_TEMPLATE: &str = "cargo llvm-cov --workspace --json --output-path \"{coverage_file}\" > \"{results_file}\"";
+
+/// 组合锚覆盖工件样本（llvm-cov JSON：两文件 + totals 三档——branches 计数 0
+/// 走 null 感知跳过）。
+const LLVM_COV_OUTPUT: &str = r#"{
+  "data": [
+    {
+      "files": [
+        { "filename": "/ws/crates/src/lib.rs", "segments": [[1, 1, 3, true, true, false], [2, 1, 0, true, true, false], [3, 1, 2, true, true, false]] },
+        { "filename": "/ws/crates/tests/it.rs", "segments": [[1, 1, 1, true, true, false]] }
+      ],
+      "totals": {
+        "lines": { "count": 4, "covered": 3, "percent": 75.0 },
+        "branches": { "count": 0, "covered": 0, "percent": 0.0 },
+        "functions": { "count": 2, "covered": 2, "percent": 100.0 }
+      }
+    }
+  ]
+}"#;
+
+/// 组合锚结果工件样本（cargo test 文本：两个 `running` 块 / 4 用例行 = 2 ok +
+/// 1 FAILED + 1 ignored；失败详情块置末——`parse_cargo_test` 以块头切段）。
+const CARGO_TEST_OUTPUT: &str = "   Compiling dev-team v0.1.0\n\
+    Finished `test` profile [unoptimized + debuginfo] target(s)\n\
+     Running unittests src/lib.rs (target/llvm-cov-target/debug/deps/dev_team-1a2b)\n\
+running 2 tests\n\
+test parser::parse_ok ... ok\n\
+test parser::skipped_case ... ignored\n\
+\n\
+test result: ok. 1 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out\n\
+     Running tests/it.rs (target/llvm-cov-target/debug/deps/it-3c4d)\n\
+running 2 tests\n\
+test it_works ... ok\n\
+test it_fails ... FAILED\n\
+\n\
+failures:\n\
+\n\
+---- it_fails stdout ----\n\
+assertion failed: left == right\n\
+\n\
+failures:\n\
+    it_fails\n\
+\n\
+test result: FAILED. 1 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out\n";
+
+/// 文本归一：CRLF → LF、逐行去尾随空白、去末尾空行（壳重定向产物差异面；
+/// 工件语义不受影响）。
+fn plain_text(text: &str) -> String {
+    text.replace("\r\n", "\n")
+        .lines()
+        .map(str::trim_end)
+        .collect::<Vec<_>>()
+        .join("\n")
+        .trim_end()
+        .to_owned()
+}
+
+/// 组合锚替身：`cargo` 可执行 shim（`--version` 探测臂直接回版本；执行臂按
+/// `--output-path` 写覆盖工件、stdout 写结果工件、argv 逐行记录以对拍「零改写」）。
+///
+/// 目的路径经环境变量注入（命令串内的引号形态零转义风险——生产模板以
+/// `> "{results_file}"` 形式携带引号）。
+fn install_cargo_shim(ws: &TempWs) -> PathBuf {
+    let dir = ws.root().join("shim");
+    fs::create_dir_all(&dir).expect("创建 shim 目录");
+    #[cfg(target_os = "windows")]
+    {
+        // cmd 经 PATHEXT 解析 .cmd；批处理 CRLF 行终结（LF-only 解析不稳）。
+        // PowerShell 承接参数展开与写盘——`--output-path` 后的正斜杠路径直接
+        // 交给 .NET API（cmd 内建命令对正斜杠路径不稳）。
+        ws.write(
+            "shim/cargo.cmd",
+            "@echo off\r\npowershell -NoProfile -ExecutionPolicy Bypass -File \"%~dp0cargo-shim.ps1\" %*\r\nexit /b %errorlevel%\r\n",
+        );
+        ws.write(
+            "shim/cargo-shim.ps1",
+            "if ($args.Count -gt 0 -and $args[0] -eq '--version') { [Console]::Out.Write(\"cargo 1.90.0`n\"); exit 0 }\n\
+             if ($env:SHIM_ARGV_LOG) { Set-Content -Path $env:SHIM_ARGV_LOG -Value $args }\n\
+             for ($i = 0; $i -lt $args.Count - 1; $i++) {\n\
+               if ($args[$i] -eq '--output-path' -and $env:SHIM_COV_SRC) { Copy-Item -Force $env:SHIM_COV_SRC $args[$i + 1] }\n\
+             }\n\
+             if ($env:SHIM_RESULTS_SRC) { [Console]::Out.Write((Get-Content -Raw $env:SHIM_RESULTS_SRC)) }\n\
+             exit 0\n",
+        );
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        ws.write_executable(
+            "shim/cargo",
+            "#!/bin/sh\n\
+             if [ \"$1\" = \"--version\" ]; then echo \"cargo 1.90.0\"; exit 0; fi\n\
+             if [ -n \"$SHIM_ARGV_LOG\" ]; then\n\
+               : > \"$SHIM_ARGV_LOG\"\n\
+               for arg in \"$@\"; do printf '%s\\n' \"$arg\" >> \"$SHIM_ARGV_LOG\"; done\n\
+             fi\n\
+             prev=\"\"\n\
+             for arg in \"$@\"; do\n\
+               if [ \"$prev\" = \"--output-path\" ] && [ -n \"$SHIM_COV_SRC\" ]; then cp \"$SHIM_COV_SRC\" \"$arg\"; fi\n\
+               prev=\"$arg\"\n\
+             done\n\
+             if [ -n \"$SHIM_RESULTS_SRC\" ]; then cat \"$SHIM_RESULTS_SRC\"; fi\n\
+             exit 0\n",
+        );
+    }
+    dir
+}
+
+/// 替身入参注入（PATH / 环境变量窗口内调用，调用方持 `TEST_ENV_LOCK`）。
+fn set_shim_env(argv_log: &Path, coverage_src: &Path, results_src: &Path) {
+    std::env::set_var("SHIM_ARGV_LOG", argv_log.as_os_str());
+    std::env::set_var("SHIM_COV_SRC", coverage_src.as_os_str());
+    std::env::set_var("SHIM_RESULTS_SRC", results_src.as_os_str());
+}
+
+/// 替身入参清场（窗口退出后调用，避免污染并发用例）。
+fn clear_shim_env() {
+    for key in ["SHIM_ARGV_LOG", "SHIM_COV_SRC", "SHIM_RESULTS_SRC"] {
+        std::env::remove_var(key);
+    }
+}
+
 /// PATH 隔离窗口（RAII）
 struct PathWindow {
     original: Option<std::ffi::OsString>,
@@ -154,9 +279,7 @@ fn 五框架注册表常量与cli逐字对齐() {
     let jest_template = "npx jest --reporters=default --json --outputFile=\"{results_file}\" --silent --coverage --coverageDirectory=\"{report_dir}\" --coverageReporters=json-summary {config_args} {files}";
     let vitest_template = "npx vitest run --sequence.shuffle --reporter=json --outputFile.json=\"{results_file}\" --coverage --coverage.reportsDirectory=\"{report_dir}\" --coverage.reporter=json-summary {config_args} {files}";
     let vite_plus_template = "vp test --sequence.shuffle --reporter=json --outputFile.json=\"{results_file}\" --coverage --coverage.reportsDirectory=\"{report_dir}\" --coverage.reporter=json-summary {config_args} {files}";
-    let rust_shell = "cargo test --workspace; _X=$?; cargo llvm-cov --json --output-path \"{coverage_file}\"; exit $_X";
-    let rust_cmd =
-        "cargo llvm-cov --json --output-path \"{coverage_file}\" & cargo test --workspace";
+    let rust_template = RUST_TEMPLATE;
     let node_test = "node --test --experimental-test-coverage --test-reporter=spec --test-reporter-destination=\"{results_file}\" {files}";
 
     let expected: [(
@@ -202,7 +325,7 @@ fn 五框架注册表常量与cli逐字对齐() {
         (
             "rust",
             "cargo --version",
-            rust_shell,
+            rust_template,
             CoverageFormat::LlvmCov,
             "coverage-summary.json",
             "results.txt",
@@ -249,17 +372,159 @@ fn 五框架注册表常量与cli逐字对齐() {
         assert_eq!(entry.config_flag, want.7, "{} config_flag", want.0);
     }
 
-    // jest cmd 模板与 shell 同串
+    // jest cmd 模板与 shell 同串（AC-7 零改动锚：四档 JS / node-test 模板不受本变更波及）
     let jest = &REGISTRY[0];
     assert_eq!(
         jest.cmd_template, jest.shell_template,
         "jest 双形态模板一致（CLI jest shell/cmd 同 builder 同串）"
     );
-    assert_eq!(REGISTRY[3].cmd_template, rust_cmd);
+
+    // rust 两臂逐字同串（AC-1）：注册表两份字面量零差异
+    assert_eq!(
+        REGISTRY[3].shell_template, REGISTRY[3].cmd_template,
+        "rust 双形态模板逐字同串（单条 llvm-cov 命令）"
+    );
+    assert_eq!(REGISTRY[3].cmd_template, rust_template);
     assert!(
-        !rust_cmd.contains('%') && !rust_cmd.contains("if "),
+        !rust_template.contains('%') && !rust_template.contains("if "),
         "rust cmd 模板不含 cmd 单行解析期展开构造（%var% / if 体）"
     );
+}
+
+/// 正向（AC-1）：rust 条目两臂逐字同串，且两臂各含 `{results_file}` 与
+/// `{coverage_file}` **恰一次**（防重复重定向 / 占位符漏替换）。
+#[test]
+fn rust两臂逐字同串且占位符各恰一次() {
+    let entry = &REGISTRY[3];
+    assert_eq!(entry.framework, "rust", "注册表 rust 条目定位（键序同 CLI）");
+    assert_eq!(
+        entry.shell_template, entry.cmd_template,
+        "shell / cmd 两臂逐字同串"
+    );
+
+    for (arm_name, arm) in [
+        ("shell", entry.shell_template),
+        ("cmd", entry.cmd_template),
+    ] {
+        assert_eq!(
+            arm.matches("{results_file}").count(),
+            1,
+            "{arm_name} 臂 `{{results_file}}` 恰一次（防重复重定向）"
+        );
+        assert_eq!(
+            arm.matches("{coverage_file}").count(),
+            1,
+            "{arm_name} 臂 `{{coverage_file}}` 恰一次（防覆盖工件路径重复）"
+        );
+        assert_eq!(arm, RUST_TEMPLATE, "{arm_name} 臂与新单条串逐字一致");
+    }
+}
+
+/// 正向（AC-1 三不变量，参数化 2 臂 × 4 项）：rust 模板不含双段链的任何残留
+/// 形态——`cargo test`（第二遍测试）、` & `（cmd 无条件链分隔符）、
+/// `; _X=$?`（shell 退出码暂存）、`exit $_X`（shell 退出码透传）。
+#[test]
+fn rust模板三不变量_无链形态残留() {
+    let entry = &REGISTRY[3];
+    for (arm_name, arm) in [
+        ("shell", entry.shell_template),
+        ("cmd", entry.cmd_template),
+    ] {
+        for (token, why) in [
+            ("cargo test", "第二遍全量测试（重复构建）"),
+            (" & ", "cmd 无条件链分隔符（退出码取末段 → 覆盖率假绿）"),
+            ("; _X=$?", "shell 退出码暂存段"),
+            ("exit $_X", "shell 退出码透传段"),
+        ] {
+            assert!(
+                !arm.contains(token),
+                "{arm_name} 臂不得含 {token:?}（{why}），实际: {arm}"
+            );
+        }
+    }
+}
+
+/// 正向（AC-1 正向形态，参数化 2 臂）：两臂均以 `cargo llvm-cov --workspace`
+/// 起手、含 `--json`、覆盖工件经 `--output-path "{coverage_file}"` 落位、以
+/// `> "{results_file}"` 收尾；且不含 `%` / `if `（cmd 单行解析期构造）与
+/// `--target-dir`（`target/debug` 零触碰面）。
+#[test]
+fn rust模板正向形态_workspace与结果重定向() {
+    let entry = &REGISTRY[3];
+    for (arm_name, arm) in [
+        ("shell", entry.shell_template),
+        ("cmd", entry.cmd_template),
+    ] {
+        assert!(
+            arm.starts_with("cargo llvm-cov --workspace"),
+            "{arm_name} 臂以 `cargo llvm-cov --workspace` 起手（全 workspace 口径），实际: {arm}"
+        );
+        assert!(arm.contains("--json"), "{arm_name} 臂 `--json` 在场");
+        assert!(
+            arm.contains("--output-path \"{coverage_file}\""),
+            "{arm_name} 臂覆盖率 JSON 经 --output-path 落位（不进 stdout），实际: {arm}"
+        );
+        assert!(
+            arm.ends_with("> \"{results_file}\""),
+            "{arm_name} 臂以结果重定向收尾（模板自带，runner 零改写），实际: {arm}"
+        );
+        assert!(
+            !arm.contains('%') && !arm.contains("if "),
+            "{arm_name} 臂不含 cmd 单行解析期展开构造（%var% / if 体），实际: {arm}"
+        );
+        assert!(
+            !arm.contains("--target-dir"),
+            "{arm_name} 臂不钉 target 目录（llvm-cov 走 target/llvm-cov-target，不触碰 target/debug），实际: {arm}"
+        );
+    }
+}
+
+/// 边界（D9）：rust 模板占位符子集——零出现 `{files}`（suite 的 includes /
+/// excludes 只决定「是否产 plan」，不参与命令构造）、零出现 `{randomize}`
+/// （rust 无版本特性分支，`--randomize` 追加逻辑只对 jest 生效）、零出现
+/// `{report_dir}`（覆盖工件经 `--output-path "{coverage_file}"` 落位，命令内不
+/// 引用报告目录）。
+#[test]
+fn rust模板占位符子集_不含files_randomize_report_dir() {
+    let entry = &REGISTRY[3];
+    for (arm_name, arm) in [
+        ("shell", entry.shell_template),
+        ("cmd", entry.cmd_template),
+    ] {
+        for (placeholder, why) in [
+            ("{files}", "D9：includes / excludes 不参与命令构造"),
+            ("{randomize}", "rust 无版本特性分支"),
+            ("{report_dir}", "覆盖工件经 --output-path 落位，命令不引用报告目录"),
+        ] {
+            assert_eq!(
+                arm.matches(placeholder).count(),
+                0,
+                "{arm_name} 臂不含 `{placeholder}`（{why}），实际: {arm}"
+            );
+        }
+    }
+}
+
+/// 边界（表驱动 6 字段）：rust 条目字段面不随模板改造漂移——模板串换新，其余
+/// 字段（版本命令 / 覆盖格式 / 双工件名 / 缺省 glob / 配置注入旗标）逐字段等值。
+#[test]
+fn rust条目字段面不变_模板改造零波及() {
+    let entry = &REGISTRY[3];
+    let fields: [(&str, &str, &str); 5] = [
+        ("framework", entry.framework, "rust"),
+        ("version_command", entry.version_command, "cargo --version"),
+        ("coverage_output", entry.coverage_output, "coverage-summary.json"),
+        ("results_output", entry.results_output, "results.txt"),
+        ("default_glob", entry.default_glob, "**/tests/**/*.rs"),
+    ];
+    for (field, actual, want) in fields {
+        assert_eq!(actual, want, "rust 条目字段 {field} 不随模板改造漂移");
+    }
+    assert!(
+        matches!(entry.coverage_format, CoverageFormat::LlvmCov),
+        "rust 条目覆盖格式恒为 llvm-cov"
+    );
+    assert_eq!(entry.config_flag, None, "rust 不支持配置注入（旗标恒 None）");
 }
 
 // ---------------------------------------------------------------------------
@@ -340,8 +605,9 @@ async fn config注入_旗标与绝对posix路径拼接() {
     );
 }
 
-/// 正向：rust suite → plan（coverage_format=llvm-cov、命令模板与 CLI 同源、
-/// default_glob 圈定 tests 树——rust 档缺省 glob 天然无花括号）。
+/// 正向：rust suite → plan（coverage_format=llvm-cov、命令模板为单条
+/// `cargo llvm-cov --workspace` 新串、default_glob 圈定 tests 树——rust 档缺省
+/// glob 天然无花括号；字段面（双工件名 / 版本命令 / 配置旗标）零漂移）。
 #[tokio::test]
 async fn rust_suite探测_llvm_cov档() {
     let _window = PathWindow::enter();
@@ -366,17 +632,57 @@ async fn rust_suite探测_llvm_cov档() {
         vec!["tests/it.rs"],
         "default_glob **/tests/**/*.rs 圈定（src 树不命中）；cwd 相对 POSIX 清单"
     );
-    assert!(
-        plan.shell_template.starts_with("cargo test --workspace"),
-        "命令模板与 CLI 同源（cargo test + llvm-cov 收口）"
+    assert_eq!(
+        plan.shell_template, RUST_TEMPLATE,
+        "shell 模板为新单条 llvm-cov 命令且占位符原样保留（由 runner 展开）"
+    );
+    assert_eq!(
+        plan.cmd_template, RUST_TEMPLATE,
+        "cmd 模板为同一串（两臂逐字同串，平台选臂零行为差异）"
     );
     assert!(
-        plan.shell_template.contains("{coverage_file}"),
-        "占位符原样保留由 runner 展开"
+        plan.shell_template.contains("{coverage_file}")
+            && plan.shell_template.contains("{results_file}"),
+        "双工件占位符原样保留由 runner 展开"
+    );
+    assert!(
+        !plan.shell_template.contains("cargo test")
+            && !plan.shell_template.contains("; _X=$?"),
+        "探测产出的 rust 模板已退役双段链形态，实际: {}",
+        plan.shell_template
     );
     assert!(
         plan.config_args.is_none(),
         "rust 不支持配置注入（未声明即无）"
+    );
+}
+
+/// 边界：平台选臂等价——`plan.template()` 在 Windows 取 `cmd_template`、其余取
+/// `shell_template`；因两臂同串，rust 档平台切换零行为差异。
+#[tokio::test]
+async fn 平台选臂等价_rust两臂同串切换零差异() {
+    let _window = PathWindow::enter();
+    let ws = TempWs::new("rust-arm");
+    probe_tree(&ws);
+
+    let suites = vec![suite("crates", TestFramework::Rust, None, None, None)];
+    let plans = detect_plans(ws.root(), &suites).expect("rust suite 应探测成功");
+    let plan = &plans[0];
+
+    let expected_arm = if cfg!(windows) {
+        plan.cmd_template.as_str()
+    } else {
+        plan.shell_template.as_str()
+    };
+    assert_eq!(
+        plan.template(),
+        expected_arm,
+        "平台选臂语义（Windows → cmd 模板配 cmd /C，其余 → shell 模板配 sh -c）"
+    );
+    assert_eq!(
+        plan.template(),
+        RUST_TEMPLATE,
+        "两臂同串 → 平台选臂结果恒等（切换零行为差异）"
     );
 }
 
@@ -467,8 +773,8 @@ async fn dot前缀祖先目录_glob结果不被误剪() {
     let _ = fs::remove_dir_all(&base);
 }
 
-/// 异常：bun / go / pytest suite 配置 → 显式 Err 记因（无静默跳过分支——
-/// AC-4 反向半边）；不支持注入的框架声明 config 同族显式 Err。
+/// 异常（遍历枚举 3 值）：bun / go / pytest suite 配置 → 显式 Err 记因（无静默
+/// 跳过分支；rust 模板改造未波及 `registry_entry` 路径）。
 #[tokio::test]
 async fn 不支持框架显式err不静默() {
     let _window = PathWindow::enter();
@@ -488,8 +794,16 @@ async fn 不支持框架显式err不静默() {
             "Err 记因指认框架名（{name}），实际: {err}"
         );
     }
+}
 
-    // 配置注入声明校验同族：不支持注入的框架（rust）声明 config → 显式 Err
+/// 异常：rust suite 声明 config → 显式 Err 记因（`config_flag` 恒 `None`——
+/// 模板改造未放宽配置注入校验）。
+#[tokio::test]
+async fn rust_suite声明config_显式err记因root与框架() {
+    let _window = PathWindow::enter();
+    let ws = TempWs::new("rust-config");
+    probe_tree(&ws);
+
     let suites = vec![suite(
         "crates",
         TestFramework::Rust,
@@ -499,9 +813,62 @@ async fn 不支持框架显式err不静默() {
     )];
     let err = detect_plans(ws.root(), &suites).expect_err("不支持注入声明 config 应 Err");
     assert!(
-        err.contains("不支持配置注入"),
-        "配置注入 Err 记因（CLI validateSuiteConfig 同语义），实际: {err}"
+        err.contains("不支持配置注入")
+            && err.contains("crates")
+            && err.contains("rust")
+            && err.contains("Cargo.toml"),
+        "配置注入 Err 记因 suite root / 框架名 / config 值（CLI validateSuiteConfig 同语义），实际: {err}"
     );
+}
+
+/// 边界（表驱动 2 形态）：rust suite 零命中不产 plan 且不 panic——目录下无
+/// `**/tests/**/*.rs`（src 树不命中 rust 缺省 glob）与显式 includes 全不命中两
+/// 形态；混合 suite 时仅命中 suite 产 plan 且 rust 模板仍为新串。
+#[tokio::test]
+async fn rust_suite零命中_不产plan_混合形态仅命中产plan() {
+    let _window = PathWindow::enter();
+    let ws = TempWs::new("rust-zero-hit");
+    // crates 树只有 src（rust 缺省 glob `**/tests/**/*.rs` 不命中）
+    ws.write("crates/src/lib.rs", "pub fn add() {}");
+
+    let suites = vec![suite("crates", TestFramework::Rust, None, None, None)];
+    let plans = detect_plans(ws.root(), &suites).expect("零命中应 Ok（空清单面）");
+    assert!(
+        plans.is_empty(),
+        "目录下无 tests/**/*.rs → 不产 plan（整体不 panic）"
+    );
+
+    // 显式 includes 全不命中同族
+    let suites = vec![suite(
+        "crates",
+        TestFramework::Rust,
+        Some(vec!["**/*.nope".to_owned()]),
+        None,
+        None,
+    )];
+    let plans = detect_plans(ws.root(), &suites).expect("显式 includes 零命中应 Ok");
+    assert!(plans.is_empty(), "显式 includes 全不命中同样不产 plan");
+
+    // 混合：rust 命中 + vite-plus 零命中 → 仅 rust 产 plan，模板仍为新串
+    probe_tree(&ws);
+    let suites = vec![
+        suite(
+            "app",
+            TestFramework::VitePlus,
+            Some(vec!["**/*.nope".to_owned()]),
+            None,
+            None,
+        ),
+        suite("crates", TestFramework::Rust, None, None, None),
+    ];
+    let plans = detect_plans(ws.root(), &suites).expect("混合形态应 Ok");
+    assert_eq!(plans.len(), 1, "仅命中 suite 产 plan");
+    assert_eq!(plans[0].framework, "rust");
+    assert_eq!(
+        plans[0].shell_template, RUST_TEMPLATE,
+        "混合形态下 rust 模板仍为新单条串"
+    );
+    assert_eq!(plans[0].files, vec!["tests/it.rs"], "rust 命中清单");
 }
 
 /// 边界：includes 全不命中 → 该 suite 不产 plan（空清单面）且整体不 panic。
@@ -535,6 +902,114 @@ async fn includes全不命中_不产plan不panic() {
     let plans = detect_plans(ws.root(), &suites).expect("混合应 Ok");
     assert_eq!(plans.len(), 1, "仅命中 suite 产 plan");
     assert_eq!(plans[0].framework, "rust");
+}
+
+// ---------------------------------------------------------------------------
+// 组合锚：detect_plans → execute_plan（真注册表模板 + cargo 替身）
+// ---------------------------------------------------------------------------
+
+/// 正向（AC-2 + AC-4 链路锚）：真实 `detect_plans` 产出的 rust `TestPlan` →
+/// PATH 前置 `cargo` 替身真实执行 → 展开后命令 argv 与模板展开逐字一致
+/// （零注入：无 `cargo test`、无二次重定向）→ `results.txt`（stdout 重定向）与
+/// `coverage-summary.json`（`--output-path`）由同一条命令落位 → 两读取面各自
+/// 解析出用例行与实测块。
+#[tokio::test]
+async fn detect_plans到execute_plan组合_单条命令零改写双工件同落位() {
+    let ws = TempWs::new("rust-chain");
+    ws.write("crates/tests/it.rs", "#[test] fn it_works() {}");
+    let cov_src = ws.write("preset/coverage-summary.json", LLVM_COV_OUTPUT);
+    let res_src = ws.write("preset/results.txt", CARGO_TEST_OUTPUT);
+    let argv_log = ws.root().join("shim").join("argv.log");
+    let shim_dir = install_cargo_shim(&ws);
+    let report_dir = ws.root().join("reports").join("crates_rust");
+    let suites = vec![suite("crates", TestFramework::Rust, None, None, None)];
+
+    // 探测臂：版本探测经替身（`cargo --version`）真实 spawn
+    let plans = {
+        let window = PathWindow::enter();
+        window.prepend(&shim_dir);
+        set_shim_env(&argv_log, &cov_src, &res_src);
+        let plans = detect_plans(ws.root(), &suites);
+        drop(window);
+        clear_shim_env();
+        plans.expect("rust suite 应探测成功")
+    };
+    assert_eq!(plans.len(), 1, "单 suite 单 plan");
+    let plan = &plans[0];
+    assert_eq!(plan.framework, "rust");
+    assert_eq!(plan.id, "crates_rust");
+    assert_eq!(
+        (plan.shell_template.as_str(), plan.cmd_template.as_str()),
+        (RUST_TEMPLATE, RUST_TEMPLATE),
+        "探测产出即新单条模板（两臂逐字同串）"
+    );
+
+    // 执行臂：同一条命令由 PATH 上的替身承接
+    let execution = {
+        let window = PathWindow::enter();
+        window.prepend(&shim_dir);
+        set_shim_env(&argv_log, &cov_src, &res_src);
+        let execution = execute_plan(plan, &report_dir).await;
+        drop(window);
+        clear_shim_env();
+        execution.expect("替身命令应成功退出")
+    };
+
+    assert_eq!(execution.exit_code, 0, "退出码直继承（单条命令）");
+    assert!(
+        execution.error.is_none(),
+        "绿跑零 error 面，实际: {:?}",
+        execution.error
+    );
+
+    // 零改写：展开后的命令 argv = program + 模板逐参（无注入 token、重定向仅模板一次）
+    let expected_argv = vec![
+        "llvm-cov".to_owned(),
+        "--workspace".to_owned(),
+        "--json".to_owned(),
+        "--output-path".to_owned(),
+        to_posix(&report_dir.join("coverage-summary.json")),
+    ];
+    let observed = fs::read_to_string(&argv_log).expect("替身 argv 记录落盘");
+    let observed: Vec<String> = observed
+        .lines()
+        .filter(|line| !line.trim().is_empty())
+        .map(str::to_owned)
+        .collect();
+    assert_eq!(
+        observed, expected_argv,
+        "展开后命令串零改写（无 `cargo test` 注入；`> \"{{results_file}}\"` 由壳承载不入 argv）"
+    );
+
+    // 双工件同落位 + 两读取面解析
+    let results = fs::read_to_string(report_dir.join("results.txt")).expect("结果工件落报告树");
+    assert_eq!(
+        plain_text(&results),
+        plain_text(CARGO_TEST_OUTPUT),
+        "stdout 全量进结果工件（模板自带重定向，单次承载）"
+    );
+    assert!(
+        report_dir.join("coverage-summary.json").is_file(),
+        "覆盖工件由同一命令 `--output-path` 落位"
+    );
+    assert_eq!(execution.cases.len(), 4, "多 running 块用例行全量解析");
+    assert_eq!(
+        execution.source_files.len(),
+        2,
+        "llvm-cov 逐文件覆盖原始计数（两文件条目）"
+    );
+    let measured = execution.measured.expect("覆盖实测块在场");
+    assert_eq!(measured.lines, Some(75.0), "lines 取 totals 实测");
+    assert_eq!(measured.functions, Some(100.0), "functions 取 totals 实测");
+    assert_eq!(
+        measured.branches, None,
+        "llvm-cov 分支计数 0 → null 感知跳过（非假绿）"
+    );
+    assert!(
+        execution.output.is_empty(),
+        "stdout 已进工件、stderr 无输出 → 捕获面为空，实际: {:?}",
+        String::from_utf8_lossy(&execution.output)
+    );
 }
 
 // ---------------------------------------------------------------------------

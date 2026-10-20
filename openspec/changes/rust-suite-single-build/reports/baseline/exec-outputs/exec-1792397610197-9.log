@@ -1,0 +1,179 @@
+$ pnpm run server:check && pnpm run bindings:check && pnpm run client:check
+$ cargo fmt --manifest-path src-tauri/Cargo.toml && cargo clippy --manifest-path src-tauri/Cargo.toml
+   Compiling tauri-build v2.6.3
+   Compiling tauri-plugin v2.6.3
+    Checking webview2-com-sys v0.38.2
+   Compiling bytecount v0.6.9
+   Compiling crossbeam-utils v0.8.23
+    Checking tokio-native-tls v0.3.1
+   Compiling mime_guess v2.0.5
+   Compiling tauri-codegen v2.6.3
+   Compiling pest v2.9.2
+    Checking dirs-sys v0.5.0
+   Compiling getrandom v0.3.4
+   Compiling tauri-runtime-wry v2.11.4
+   Compiling phf_codegen v0.11.3
+    Checking tao v0.35.3
+    Checking keyboard-types v0.7.0
+   Compiling phf v0.11.3
+   Compiling skeptic v0.13.7
+    Checking softbuffer v0.4.8
+    Checking axum-core v0.5.6
+   Compiling parse-zoneinfo v0.3.1
+   Compiling tauri v2.11.6
+    Checking webview2-com v0.38.2
+   Compiling serialize-to-javascript-impl v0.1.2
+   Compiling pin-project-internal v1.1.13
+   Compiling num-traits v0.2.19
+   Compiling windows_x86_64_msvc v0.48.5
+    Checking matchit v0.8.4
+    Checking unicase v2.9.0
+   Compiling pest_meta v2.9.2
+    Checking dirs v6.0.0
+   Compiling chrono-tz-build v0.3.0
+   Compiling tauri-macros v2.6.3
+   Compiling crossbeam-epoch v0.9.21
+    Checking hyper-tls v0.6.0
+    Checking muda v0.19.3
+    Checking serialize-to-javascript v0.1.2
+    Checking hyper-rustls v0.27.10
+   Compiling prost-derive v0.14.4
+    Checking windows-targets v0.53.5
+    Checking rustls-platform-verifier v0.7.0
+    Checking window-vibrancy v0.6.0
+    Checking hyper-timeout v0.5.2
+    Checking axum v0.8.9
+    Checking pin-project v1.1.13
+    Checking tokio-stream v0.1.19
+   Compiling serde_repr v0.1.21
+    Checking tauri-runtime v2.11.3
+    Checking wry v0.55.1
+   Compiling async-trait v0.1.92
+   Compiling bstr v1.13.1
+   Compiling libm v0.2.16
+    Checking lazy_static v1.5.0
+    Checking heck v0.5.0
+   Compiling ref-cast v1.0.27
+    Checking reqwest v0.13.5
+    Checking windows-sys v0.60.2
+    Checking prost v0.14.4
+   Compiling pest_generator v2.9.2
+   Compiling chrono-tz v0.9.0
+   Compiling globset v0.4.20
+   Compiling crossbeam-deque v0.8.8
+    Checking agent v0.1.0 (C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\rust-suite-single-build\packages\desktop\src-tauri\crates\core\agent)
+   Compiling async-stream-impl v0.3.6
+   Compiling ref-cast-impl v1.0.27
+   Compiling serde_derive_internals v0.30.0
+    Checking futures-timer v3.0.4
+    Checking tonic v0.14.6
+   Compiling zerocopy v0.8.57
+    Checking fastrand v2.5.0
+   Compiling pest_derive v2.9.2
+   Compiling chrono v0.4.45
+   Compiling ignore v0.4.33
+    Checking workflow v0.1.0 (C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\rust-suite-single-build\packages\desktop\src-tauri\crates\core\workflow)
+    Checking async-stream v0.3.6
+    Checking windows-targets v0.48.5
+    Checking rig-http v0.43.0
+   Compiling native_model v0.4.20
+   Compiling tauri-plugin-fs v2.5.2
+   Compiling schemars_derive v1.2.2
+   Compiling zerocopy-derive v0.8.57
+   Compiling redb v1.5.1
+    Checking dyn-clone v1.0.20
+   Compiling deunicode v1.6.2
+   Compiling redb v2.6.3
+    Checking tonic-prost v0.14.6
+   Compiling humansize v2.1.3
+   Compiling slug v0.1.6
+   Compiling globwalk v0.9.1
+    Checking rig-reqwest v0.43.0
+    Checking ordered-float v5.5.0
+    Checking windows-sys v0.48.0
+   Compiling native_db v0.8.2
+    Checking bincode v1.3.3
+   Compiling native_model_macro v0.4.20
+    Checking either v1.18.0
+    Checking schemars v1.2.2
+    Checking anstyle v1.0.14
+    Checking clap_lex v1.1.1
+   Compiling unicode-segmentation v1.13.3
+   Compiling rayon-core v1.13.0
+   Compiling winapi v0.3.9
+    Checking orchestration v0.1.0 (C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\rust-suite-single-build\packages\desktop\src-tauri\crates\core\orchestration)
+   Compiling json5 v0.4.1
+    Checking prost-types v0.14.4
+    Checking clap_builder v4.6.7
+    Checking colored v2.2.0
+    Checking sharded-slab v0.1.7
+    Checking rig-core v0.43.0
+   Compiling tera v1.20.1
+   Compiling tauri-plugin-devtools v2.2.1
+   Compiling tauri-plugin-updater v2.12.0
+   Compiling tauri-plugin-dialog v2.7.3
+    Checking exec v0.1.0 (C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\rust-suite-single-build\packages\desktop\src-tauri\crates\infra\exec)
+    Checking config v0.1.0 (C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\rust-suite-single-build\packages\desktop\src-tauri\crates\core\config)
+    Checking matchers v0.2.0
+   Compiling clap_derive v4.6.7
+    Checking tracing-log v0.2.0
+    Checking toml_datetime v0.6.11
+    Checking serde_spanned v0.6.9
+   Compiling native_db_macro v0.8.2
+    Checking nu-ansi-term v0.50.3
+    Checking thread_local v1.1.10
+   Compiling rfd v0.16.0
+    Checking toml_write v0.1.2
+    Checking winnow v0.7.15
+    Checking tracing-subscriber v0.3.23
+    Checking devtools-wire-format v0.6.0
+    Checking itertools v0.11.0
+    Checking tonic-health v0.14.6
+    Checking tonic-web v0.14.6
+    Checking encoding_rs_io v0.1.8
+    Checking crc32fast v1.5.2
+    Checking ringbuf v0.4.8
+    Checking notify-types v2.1.0
+    Checking toml_edit v0.22.27
+   Compiling derive_arbitrary v1.4.2
+    Checking clap v4.6.7
+    Checking home v0.5.12
+    Checking grep-matcher v0.1.9
+    Checking hashbrown v0.14.5
+    Checking memmap2 v0.9.11
+    Checking notify v8.2.0
+    Checking zip v4.6.1
+    Checking devtools-core v0.4.0
+    Checking table_formatter v0.6.1
+   Compiling tokei v13.0.0
+    Checking store v0.1.0 (C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\rust-suite-single-build\packages\desktop\src-tauri\crates\infra\store)
+    Checking term_size v0.3.2
+    Checking etcetera v0.8.0
+    Checking grep-searcher v0.1.17
+    Checking rayon v1.12.0
+    Checking toml v0.8.23
+    Checking checks v0.1.0 (C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\rust-suite-single-build\packages\desktop\src-tauri\crates\core\checks)
+    Checking dashmap v6.2.1
+    Checking clap-cargo v0.13.0
+    Checking local-ip-address v0.5.7
+    Checking tempfile v3.27.0
+   Compiling dev-team v0.1.0 (C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\rust-suite-single-build\packages\desktop\src-tauri)
+    Checking specta-serde v0.0.12
+    Checking arbitrary v1.4.2
+    Checking specta-typescript v0.0.12
+    Checking specta-util v0.0.12
+    Checking minisign-verify v0.2.5
+    Checking watch v0.1.0 (C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\rust-suite-single-build\packages\desktop\src-tauri\crates\infra\watch)
+    Checking tauri-plugin-single-instance v2.4.5
+    Checking vcs-runtime v0.1.0 (C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\rust-suite-single-build\packages\desktop\src-tauri\crates\infra\vcs)
+    Checking tauri-specta v2.0.0-rc.25
+    Checking checks-runtime v0.1.0 (C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\rust-suite-single-build\packages\desktop\src-tauri\crates\infra\checks)
+    Checking rig-memory v0.43.0
+    Checking rig v0.43.0
+    Checking agent-runtime v0.1.0 (C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\rust-suite-single-build\packages\desktop\src-tauri\crates\infra\agent)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 52.75s
+$ pnpm run bindings:export && git diff --exit-code -- src/types/generated
+$ cargo run --quiet -p export-bindings --manifest-path src-tauri/Cargo.toml
+$ vp check --fix && knip
+[1m[94mpass:[39m[0m Formatting completed for checked files [2m(10.5s)[0m
+[1m[94mpass:[39m[0m Found no warnings, lint errors, or type errors in 170 files [2m(3.1s, 16 threads)[0m

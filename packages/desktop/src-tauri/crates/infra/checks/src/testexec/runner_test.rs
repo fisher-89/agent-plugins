@@ -4,10 +4,10 @@ use std::time::Duration;
 use tempfile::TempDir;
 
 use super::{
-    execute_plan, expand_template, non_zero_exit_error,
-    SUITE_COMMAND_TIMEOUT, VERSION_DETECT_TIMEOUT,
+    execute_plan, expand_template, non_zero_exit_error, EXIT_CODE_NO_STATUS, SUITE_COMMAND_TIMEOUT,
+    VERSION_DETECT_TIMEOUT,
 };
-use crate::testexec::detect::TestPlan;
+use crate::testexec::detect::{to_posix, TestPlan};
 use checks::parser::CoverageFormat;
 
 /// node-test spec 绿跑样本（五用例 4 pass 1 skipped + "All files" 覆盖汇总行；
@@ -47,23 +47,96 @@ fn node_test_plan(cwd: &Path, template: String) -> TestPlan {
     }
 }
 
-/// 手工 TestPlan 构造（结果 / 覆盖双工件分离形态——rust 档链形态语义锚用：
-/// 覆盖段与测试段各写各的工件面，实测块读独立 coverage 工件）。
-fn split_outputs_plan(cwd: &Path, template: String) -> TestPlan {
+/// 手工 TestPlan 构造（结果 / 覆盖双工件分离形态——rust 档双工件读取面锚用：
+/// 结果工件承载单条命令的 stdout、覆盖工件由同一命令 `--output-path` 落位）。
+fn rust_plan(cwd: &Path, template: String) -> TestPlan {
     TestPlan {
-        id: "it_chain-shape".to_owned(),
-        framework: "node-test".to_owned(),
+        id: "it_rust-single".to_owned(),
+        framework: "rust".to_owned(),
         root: "app".to_owned(),
         cwd: cwd.to_path_buf(),
-        files: vec!["src/add.test.mjs".to_owned()],
+        files: Vec::new(),
         config_args: None,
         shell_template: template.clone(),
         cmd_template: template,
-        coverage_format: CoverageFormat::NodeTest,
-        coverage_output: "coverage.txt",
+        coverage_format: CoverageFormat::LlvmCov,
+        coverage_output: "coverage-summary.json",
         results_output: "results.txt",
     }
 }
+
+/// 手工 TestPlan 构造（jest 档：istanbul 族结果工件不解析用例行、覆盖实测块读
+/// `coverage-summary.json`——AC-7 runner 侧零改动锚）。
+fn jest_plan(cwd: &Path, template: String) -> TestPlan {
+    TestPlan {
+        id: "it_jest".to_owned(),
+        framework: "jest".to_owned(),
+        root: "app".to_owned(),
+        cwd: cwd.to_path_buf(),
+        files: vec!["src/a.test.ts".to_owned()],
+        config_args: None,
+        shell_template: template.clone(),
+        cmd_template: template,
+        coverage_format: CoverageFormat::Istanbul,
+        coverage_output: "coverage-summary.json",
+        results_output: "results.json",
+    }
+}
+
+/// rust 档结果工件样本（cargo test 文本：两个 `running` 块 / 4 用例行
+/// = 2 ok + 1 FAILED + 1 ignored；失败详情块置末——解析以块头切段）。
+const RUST_RESULTS_OUTPUT: &str = "   Compiling dev-team v0.1.0\n\
+    Finished `test` profile [unoptimized + debuginfo] target(s)\n\
+     Running unittests src/lib.rs (target/llvm-cov-target/debug/deps/dev_team-1a2b)\n\
+running 2 tests\n\
+test parser::parse_ok ... ok\n\
+test parser::skipped_case ... ignored\n\
+\n\
+test result: ok. 1 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out\n\
+     Running tests/it.rs (target/llvm-cov-target/debug/deps/it-3c4d)\n\
+running 2 tests\n\
+test it_works ... ok\n\
+test it_fails ... FAILED\n\
+\n\
+failures:\n\
+\n\
+---- it_fails stdout ----\n\
+assertion failed: left == right\n\
+\n\
+failures:\n\
+    it_fails\n\
+\n\
+test result: FAILED. 1 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out\n";
+
+/// rust 档覆盖工件样本（llvm-cov JSON：两文件 + totals 三档——branches 计数 0
+/// 走 null 感知跳过）。
+const LLVM_COV_OUTPUT: &str = r#"{
+  "data": [
+    {
+      "files": [
+        { "filename": "/ws/crates/src/lib.rs", "segments": [[1, 1, 3, true, true, false], [2, 1, 0, true, true, false], [3, 1, 2, true, true, false]] },
+        { "filename": "/ws/crates/tests/it.rs", "segments": [[1, 1, 1, true, true, false]] }
+      ],
+      "totals": {
+        "lines": { "count": 4, "covered": 3, "percent": 75.0 },
+        "branches": { "count": 0, "covered": 0, "percent": 0.0 },
+        "functions": { "count": 2, "covered": 2, "percent": 100.0 }
+      }
+    }
+  ]
+}"#;
+
+/// istanbul 覆盖汇总样本（jest 档覆盖工件）。
+const ISTANBUL_SUMMARY: &str = r#"{
+  "total": {
+    "lines": { "pct": 88.5 },
+    "branches": { "pct": 70.0 },
+    "functions": { "pct": 91.0 }
+  }
+}"#;
+
+/// istanbul 族结果报告样本（JSON 报告器产物——V1 用例行面不解析）。
+const JEST_RESULTS_JSON: &str = r#"{ "numTotalTests": 1, "numPassedTests": 1 }"#;
 
 /// 把预置文本写到 workspace 外的临时工件源（拷贝命令的 src）。
 fn preset(dir: &Path, name: &str, content: &str) -> PathBuf {
@@ -83,10 +156,10 @@ fn env_window() -> EnvWindow {
     }
 }
 
-/// 结果工件文本归一：CRLF → LF，并去除逐行尾随空白。rust 档 stdout 经注入的
-/// `cargo test > "{results_file}"` 重定向落工件（生产 spawn 为 `cmd /C` 双层包裹），
-/// cmd 会把重定向符前的分隔空格计入 echo 参数——尾随空格是壳解析产物而非工件内容
-/// 语义（stdout 全量落工件不变），故比对前归一。
+/// 结果工件文本归一：CRLF → LF，并去除逐行尾随空白。rust 档 stdout 经模板自带的
+/// `> "{results_file}"` 重定向落工件（生产 spawn 为 `cmd /C` 双层包裹），cmd 会把
+/// 重定向符前的分隔空格计入 echo 参数——尾随空格是壳解析产物而非工件内容语义
+/// （stdout 全量落工件不变），故比对前归一。
 fn artifact_text(text: &str) -> String {
     let lf = text.replace("\r\n", "\n");
     let ends_with_newline = lf.ends_with('\n');
@@ -135,6 +208,181 @@ fn 模板展开五占位符替换_config_args双形态() {
         expanded,
         "run --reporter=json --out=\"/ws/reports/plan/results.json\" --cov-out=\"/ws/reports/plan/coverage.json\" --dir=\"/ws/reports/plan\" --files ",
         "None config_args 剥离前导空白、空 files 置空串"
+    );
+}
+
+/// 正向（生产模板形态）：rust 新单条串展开——两工件路径逐字替换、`{config_args}`
+/// 未注入时连前导空白剥离、`{files}` 不在模板内、`> "{results_file}"` 重定向恰一次。
+#[test]
+fn rust模板展开_双工件路径逐字且重定向恰一次() {
+    let template = "cargo llvm-cov --workspace --json --output-path \"{coverage_file}\" > \"{results_file}\"";
+    let expanded = expand_template(
+        template,
+        "/ws/reports/crates_rust",
+        "/ws/reports/crates_rust/results.txt",
+        "/ws/reports/crates_rust/coverage-summary.json",
+        None,
+        &["tests/it.rs".to_owned()],
+    );
+    assert_eq!(
+        expanded,
+        "cargo llvm-cov --workspace --json --output-path \"/ws/reports/crates_rust/coverage-summary.json\" > \"/ws/reports/crates_rust/results.txt\"",
+        "双工件路径逐字替换（report_dir 不参与本模板、files 不出现）"
+    );
+    assert_eq!(
+        expanded.matches("> \"").count(),
+        1,
+        "结果重定向恰一次（单条命令双工件）"
+    );
+    assert!(
+        !expanded.contains('{'),
+        "零占位符残留（五占位符展开齐备），实际: {expanded}"
+    );
+}
+
+/// 边界（表驱动 4 形态）：`{files}` 清单规模与占位符形态——单元素 / 大清单
+/// （50 项）空格连接逐字；同一占位符多次出现 → 全量替换（`replace` 全量语义）；
+/// 未知占位符（`{unknown}`）逐字保留且不 panic（展开面不做校验拦截）。
+#[test]
+fn 模板展开清单规模与占位符形态() {
+    // 形态一：单元素清单
+    let expanded = expand_template(
+        "run --files {files}",
+        "/ws/reports/plan",
+        "/ws/reports/plan/results.txt",
+        "/ws/reports/plan/coverage-summary.json",
+        None,
+        &["tests/it.rs".to_owned()],
+    );
+    assert_eq!(expanded, "run --files tests/it.rs", "单元素清单逐字展开");
+
+    // 形态二：大清单（50 项）逐字空格连接
+    let many: Vec<String> = (0..50).map(|index| format!("tests/t{index:02}.rs")).collect();
+    let expanded = expand_template(
+        "run --files {files}",
+        "/ws/reports/plan",
+        "/ws/reports/plan/results.txt",
+        "/ws/reports/plan/coverage-summary.json",
+        None,
+        &many,
+    );
+    assert_eq!(
+        expanded,
+        format!("run --files {}", many.join(" ")),
+        "大清单（50 项）空格连接逐字"
+    );
+    assert_eq!(
+        expanded.matches("tests/t").count(),
+        50,
+        "50 项全量在场（不截断不丢项）"
+    );
+
+    // 形态三：同一占位符多次出现 → 全量替换
+    let expanded = expand_template(
+        "{files} | {files} | {results_file} | {results_file}",
+        "/ws/reports/plan",
+        "/ws/reports/plan/results.txt",
+        "/ws/reports/plan/coverage-summary.json",
+        None,
+        &["a.rs".to_owned(), "b.rs".to_owned()],
+    );
+    assert_eq!(
+        expanded, "a.rs b.rs | a.rs b.rs | /ws/reports/plan/results.txt | /ws/reports/plan/results.txt",
+        "同一占位符多次出现全量替换（replace 全量语义）"
+    );
+
+    // 形态四：未知占位符逐字保留且不 panic
+    let expanded = expand_template(
+        "run {unknown} {files}",
+        "/ws/reports/plan",
+        "/ws/reports/plan/results.txt",
+        "/ws/reports/plan/coverage-summary.json",
+        None,
+        &[],
+    );
+    assert_eq!(
+        expanded, "run {unknown} ",
+        "未知占位符逐字保留（不 panic、不清空命令）、空清单置空串"
+    );
+}
+
+/// 异常 / 边界（参数化 4 形态）：空模板 / 全空白模板 → `execute_plan` 前置检查
+/// 显式 `Err` 记因「展开后的命令为空白」（不 spawn、不 panic）；含特殊字符
+///（双引号 / 换行 / emoji）与超长（>1000 字符）的模板经展开后逐字保留（占位符
+/// 替换不做转义、不改写、不截断）。
+#[tokio::test]
+async fn 模板串边界_空与空白err_特殊字符逐字保留() {
+    let _env = env_window();
+    let ws = TempDir::new().expect("临时目录");
+    let cwd = ws.path().join("app");
+    std::fs::create_dir_all(&cwd).expect("创建 suite cwd");
+
+    for (shape, template) in [("空模板", ""), ("全空白模板", "   \n\t  ")] {
+        let plan = rust_plan(&cwd, template.to_owned());
+        let err = execute_plan(&plan, &ws.path().join("reports").join("blank"))
+            .await
+            .expect_err(&format!("{shape} 应显式 Err（展开后的命令为空白）"));
+        assert!(
+            err.contains("展开后的命令为空白"),
+            "{shape} Err 记因空白命令（前置检查零改动），实际: {err}"
+        );
+    }
+
+    // 特殊字符形态：展开面逐字保留（无转义、无改写）
+    let template = "runner \"{results_file}\" --note \"line1\nline2\" --cov \"{coverage_file}\" 🚀 \"{report_dir}\"";
+    let expanded = expand_template(
+        template,
+        "/ws/reports/plan",
+        "/ws/reports/plan/results.txt",
+        "/ws/reports/plan/coverage-summary.json",
+        None,
+        &[],
+    );
+    assert_eq!(
+        expanded,
+        "runner \"/ws/reports/plan/results.txt\" --note \"line1\nline2\" --cov \"/ws/reports/plan/coverage-summary.json\" 🚀 \"/ws/reports/plan\"",
+        "特殊字符（引号 / 换行 / emoji）逐字保留"
+    );
+    assert_eq!(
+        expanded.matches('\n').count(),
+        1,
+        "换行原样保留（未被转义成 `\\n` 字面量）"
+    );
+    assert!(
+        !expanded.contains("\\n") && !expanded.contains("\\\""),
+        "无反斜杠转义注入（占位符替换不做转义），实际: {expanded}"
+    );
+    assert!(
+        expanded.contains('🚀'),
+        "emoji 逐字保留（多字节字符不被切碎），实际: {expanded}"
+    );
+
+    // 超长模板形态：>1000 字符填充段逐字保留（展开面不截断、不误命中填充内
+    // 的伪占位符片段）
+    let filler = "x".repeat(1200);
+    let long_template = format!("runner {filler} \"{{results_file}}\"");
+    let expanded = expand_template(
+        &long_template,
+        "/ws/reports/plan",
+        "/ws/reports/plan/results.txt",
+        "/ws/reports/plan/coverage-summary.json",
+        None,
+        &[],
+    );
+    assert_eq!(
+        expanded,
+        format!("runner {filler} \"/ws/reports/plan/results.txt\""),
+        "超长模板（>1000 字符）逐字展开（填充段零改写）"
+    );
+    assert!(
+        expanded.len() > 1200,
+        "超长模板展开不截断，实际 {} 字符",
+        expanded.len()
+    );
+    assert!(
+        !expanded.contains('{') && !expanded.contains('}'),
+        "占位符在超长模板中同样替换干净，实际尾部: {:?}",
+        expanded.chars().rev().take(40).collect::<String>()
     );
 }
 
@@ -252,17 +500,491 @@ async fn windows引号占位模板_重定向工件落位() {
     assert!(execution.measured.is_some(), "覆盖实测块随工件解析在场");
 }
 
+// ---------------------------------------------------------------------------
+// rust 档单条命令（rust-suite-single-build）：零改写 / 双工件同落位 / 退出码直继承
+// ---------------------------------------------------------------------------
+
+/// 正向（AC-2 零改写锚）：模板自带 `> "{results_file}"` 重定向——展开后的命令串
+/// 与 `expand_template` 直接展开逐字相等，runner 不再插入 `cargo test > …`；
+/// 结果工件全量承载 stdout（重定向恰一次），捕获面只余 stderr。
 #[tokio::test]
-async fn rust档链形态_覆盖段恒执行_尾段退出码透传() {
+async fn rust档零改写_模板自带重定向_命令串原样展开() {
     let _env = env_window();
     let ws = TempDir::new().expect("临时目录");
     let cwd = ws.path().join("app");
     std::fs::create_dir_all(&cwd).expect("创建 suite cwd");
-    let cov_src = preset(ws.path(), "chain-cov-preset.txt", SPEC_OUTPUT);
-    let res_src = preset(ws.path(), "chain-res-preset.txt", SPEC_OUTPUT);
+    let res_src = preset(
+        ws.path(),
+        "rewrite-results-preset.txt",
+        RUST_RESULTS_OUTPUT,
+    );
+    let report_dir = ws.path().join("reports").join("rust-rewrite");
 
-    // 绿跑形态：覆盖段 + 测试段双产出，终码 0
+    // 替身模板：生产形态（模板自带结果重定向）+ stderr 打点
+    let template = if cfg!(windows) {
+        format!(
+            "cmd /C type \"{}\" > \"{{results_file}}\" & 1>&2 echo build-error",
+            res_src.to_string_lossy().replace('/', "\\")
+        )
+    } else {
+        format!(
+            "cp \"{}\" \"{{results_file}}\"; echo build-error >&2",
+            res_src.to_string_lossy()
+        )
+    };
+    let plan = rust_plan(&cwd, template.clone());
+
+    // 执行串即同一纯函数展开的结果：五占位符逐字替换、零后置拼装
+    let expected = expand_template(
+        &template,
+        &to_posix(&report_dir),
+        &to_posix(&report_dir.join("results.txt")),
+        &to_posix(&report_dir.join("coverage-summary.json")),
+        None,
+        &[],
+    );
+    let results_posix = to_posix(&report_dir.join("results.txt"));
+    assert_eq!(
+        expected
+            .matches(&format!("> \"{results_posix}\""))
+            .count(),
+        1,
+        "结果重定向在展开串中恰一次（无 `cargo test >` 二次注入），实际: {expected}"
+    );
+    assert!(
+        !expected.contains("cargo test"),
+        "展开串无 `cargo test` 注入锚点（重定向已进模板），实际: {expected}"
+    );
+
+    let execution = execute_plan(&plan, &report_dir)
+        .await
+        .expect("替身命令应 Ok");
+
+    assert_eq!(execution.exit_code, 0, "退出码透传");
+    assert!(
+        execution.error.is_none(),
+        "绿跑零 error 面，实际: {:?}",
+        execution.error
+    );
+    let results = std::fs::read_to_string(report_dir.join("results.txt"))
+        .expect("结果工件落报告树（模板自带重定向面）");
+    assert_eq!(
+        artifact_text(&results),
+        artifact_text(RUST_RESULTS_OUTPUT),
+        "stdout 全量进结果工件（单次重定向，逐字）"
+    );
+    let merged = String::from_utf8_lossy(&execution.output).replace("\r\n", "\n");
+    assert_eq!(
+        merged, "build-error\n",
+        "output 只余 stderr（stdout 已进工件，未加 `2>&1`）"
+    );
+    assert_eq!(
+        execution.cases.len(),
+        4,
+        "工件解析面不受改写面影响（多 running 块照常解析）"
+    );
+}
+
+/// 正向（AC-4）：一条替身命令同时写 `{results_file}`（stdout 重定向）与
+/// `{coverage_file}`（模拟 `--output-path`）→ 双工件同落位、两读取面均从同一
+/// 命令产物解析（用例行 + 逐文件覆盖 + 实测块）。
+#[tokio::test]
+async fn 单条命令双工件同落位_结果与覆盖同源解析() {
+    let _env = env_window();
+    let ws = TempDir::new().expect("临时目录");
+    let cwd = ws.path().join("app");
+    std::fs::create_dir_all(&cwd).expect("创建 suite cwd");
+    let res_src = preset(ws.path(), "dual-results-preset.txt", RUST_RESULTS_OUTPUT);
+    let cov_src = preset(ws.path(), "dual-coverage-preset.json", LLVM_COV_OUTPUT);
+    let report_dir = ws.path().join("reports").join("rust-dual");
+
+    let template = if cfg!(windows) {
+        format!(
+            "cmd /C type \"{}\" > \"{{coverage_file}}\" & cmd /C type \"{}\" > \"{{results_file}}\"",
+            cov_src.to_string_lossy().replace('/', "\\"),
+            res_src.to_string_lossy().replace('/', "\\"),
+        )
+    } else {
+        format!(
+            "cp \"{}\" \"{{coverage_file}}\"; cat \"{}\" > \"{{results_file}}\"",
+            cov_src.to_string_lossy(),
+            res_src.to_string_lossy(),
+        )
+    };
+    let plan = rust_plan(&cwd, template);
+
+    let execution = execute_plan(&plan, &report_dir)
+        .await
+        .expect("双工件替身命令应 Ok");
+
+    assert_eq!(execution.exit_code, 0, "退出码直继承");
+    assert!(
+        execution.error.is_none(),
+        "双工件齐备零 error 面，实际: {:?}",
+        execution.error
+    );
+    assert!(
+        report_dir.join("results.txt").is_file()
+            && report_dir.join("coverage-summary.json").is_file(),
+        "同一命令产出双工件（results.txt + coverage-summary.json）"
+    );
+    assert_eq!(execution.cases.len(), 4, "结果工件解析出四用例行");
+    assert_eq!(
+        execution.source_files.len(),
+        2,
+        "覆盖工件解析出两文件覆盖原始计数"
+    );
+    let measured = execution.measured.expect("覆盖实测块在场");
+    assert_eq!(measured.lines, Some(75.0), "lines 取 totals 实测");
+    assert_eq!(measured.branches, None, "分支计数 0 → null 感知跳过");
+    assert_eq!(measured.functions, Some(100.0), "functions 取 totals 实测");
+}
+
+/// 正向（解析面零改动锚）：结果工件含多个 `running` 块 + `ok` / `ignored` /
+/// `FAILED` 行 → 用例行全量解析（真件 17 块形态的替身锚），失败用例的错误面自
+/// `---- <name> stdout ----` 块回填。
+#[tokio::test]
+async fn 多running块结果工件解析_用例行全量且失败归因() {
+    let _env = env_window();
+    let ws = TempDir::new().expect("临时目录");
+    let cwd = ws.path().join("app");
+    std::fs::create_dir_all(&cwd).expect("创建 suite cwd");
+    let res_src = preset(ws.path(), "multi-block-preset.txt", RUST_RESULTS_OUTPUT);
+
+    let template = if cfg!(windows) {
+        format!(
+            "cmd /C type \"{}\" > \"{{results_file}}\"",
+            res_src.to_string_lossy().replace('/', "\\")
+        )
+    } else {
+        format!("cp \"{}\" \"{{results_file}}\"", res_src.to_string_lossy())
+    };
+    let plan = rust_plan(&cwd, template);
+
+    let execution = execute_plan(&plan, &ws.path().join("reports").join("rust-blocks"))
+        .await
+        .expect("结果工件替身命令应 Ok");
+
+    assert_eq!(execution.exit_code, 0);
+    let passed = execution
+        .cases
+        .iter()
+        .filter(|case| case.status == checks::model::TestCaseStatus::Passed)
+        .count();
+    let failed = execution
+        .cases
+        .iter()
+        .filter(|case| case.status == checks::model::TestCaseStatus::Failed)
+        .count();
+    let skipped = execution
+        .cases
+        .iter()
+        .filter(|case| case.status == checks::model::TestCaseStatus::Skipped)
+        .count();
+    assert_eq!(execution.cases.len(), 4, "两 running 块四用例行");
+    assert_eq!(
+        (passed, failed, skipped),
+        (2, 1, 1),
+        "状态计数逐档正确（ok / FAILED / ignored）"
+    );
+    let failing = execution
+        .cases
+        .iter()
+        .find(|case| case.name == "it_fails")
+        .expect("失败用例在场");
+    assert_eq!(
+        failing.error_message.as_deref(),
+        Some("left == right"),
+        "失败详情块回填错误消息"
+    );
+    assert!(
+        failing
+            .stack_trace
+            .as_deref()
+            .is_some_and(|trace| trace.contains("assertion failed")),
+        "失败详情块全块入堆栈，实际: {:?}",
+        failing.stack_trace
+    );
+    assert!(
+        execution.error.is_none(),
+        "退出 0 + 结果工件可解析 → 零 error 面，实际: {:?}",
+        execution.error
+    );
+}
+
+/// 异常（AC-5 退出码直继承）：替身命令先产双工件再以 3 退出 → `exit_code = 3`
+/// 原样透传、error 面记因同值；已产工件的 `cases` / `measured` 照常解析（不被
+/// 链式末段洗 0、不产假用例）。
+#[tokio::test]
+async fn 退出码直继承_产双工件后非零() {
+    let _env = env_window();
+    let ws = TempDir::new().expect("临时目录");
+    let cwd = ws.path().join("app");
+    std::fs::create_dir_all(&cwd).expect("创建 suite cwd");
+    let res_src = preset(ws.path(), "red-results-preset.txt", RUST_RESULTS_OUTPUT);
+    let cov_src = preset(ws.path(), "red-coverage-preset.json", LLVM_COV_OUTPUT);
+
+    let template = if cfg!(windows) {
+        format!(
+            "cmd /C type \"{}\" > \"{{coverage_file}}\" & cmd /C type \"{}\" > \"{{results_file}}\" & cmd /C exit /b 3",
+            cov_src.to_string_lossy().replace('/', "\\"),
+            res_src.to_string_lossy().replace('/', "\\"),
+        )
+    } else {
+        format!(
+            "cp \"{}\" \"{{coverage_file}}\"; cp \"{}\" \"{{results_file}}\"; exit 3",
+            cov_src.to_string_lossy(),
+            res_src.to_string_lossy(),
+        )
+    };
+    let plan = rust_plan(&cwd, template);
+
+    let execution = execute_plan(&plan, &ws.path().join("reports").join("rust-red"))
+        .await
+        .expect("被测域失败走产出（不 Err）");
+
+    assert_eq!(execution.exit_code, 3, "退出码直继承（不被前置段洗 0）");
+    assert!(
+        execution
+            .error
+            .as_deref()
+            .is_some_and(|error| error.contains("非零退出") && error.contains('3')),
+        "error 面记因退出码 3，实际: {:?}",
+        execution.error
+    );
+    assert_eq!(
+        execution.cases.len(),
+        4,
+        "已产结果工件照常解析（不产假用例）"
+    );
+    assert!(
+        execution.measured.is_some(),
+        "已产覆盖工件照常解析（覆盖维度不因非零退出丢失）"
+    );
+}
+
+/// 异常（AC-5 假绿路径封闭）：llvm-cov 文件锁失败形态——只产结果工件、以 101
+/// 退出（覆盖率工件缺失）→ `exit_code = 101`、error 记因并携输出尾段、
+/// `measured = None`、`source_files` 为空；**`error.is_some()`**（「工件缺失而
+/// error 为空」不可达，不产假绿）。
+#[tokio::test]
+async fn llvm_cov工件缺失且非零_error面记因不出假绿() {
+    let _env = env_window();
+    let ws = TempDir::new().expect("临时目录");
+    let cwd = ws.path().join("app");
+    std::fs::create_dir_all(&cwd).expect("创建 suite cwd");
+    let res_src = preset(ws.path(), "lock-results-preset.txt", RUST_RESULTS_OUTPUT);
+
+    let template = if cfg!(windows) {
+        format!(
+            "cmd /C type \"{}\" > \"{{results_file}}\" & 1>&2 echo error: failed to build archive: target\\llvm-cov-target\\x.rlib & cmd /C exit /b 101",
+            res_src.to_string_lossy().replace('/', "\\"),
+        )
+    } else {
+        format!(
+            "cp \"{}\" \"{{results_file}}\"; echo \"error: failed to build archive: target/llvm-cov-target/x.rlib\" >&2; exit 101",
+            res_src.to_string_lossy(),
+        )
+    };
+    let plan = rust_plan(&cwd, template);
+
+    let execution = execute_plan(&plan, &ws.path().join("reports").join("rust-lock"))
+        .await
+        .expect("被测域失败走产出（不 Err）");
+
+    assert_eq!(execution.exit_code, 101, "cargo 退出码 101 直继承");
+    let error = execution.error.expect("覆盖率工件缺失而 error 必须记因");
+    assert!(
+        error.contains("非零退出") && error.contains("101"),
+        "error 面记因退出码，实际: {error}"
+    );
+    assert!(
+        error.contains("failed to build archive"),
+        "error 面携输出尾段（文件锁失败归因原料），实际: {error}"
+    );
+    assert!(
+        execution.measured.is_none(),
+        "覆盖率工件未产出 → 实测块 None（null 感知跳过）"
+    );
+    assert!(
+        execution.source_files.is_empty(),
+        "覆盖率工件未产出 → 逐文件覆盖为空（不虚构条目）"
+    );
+    assert_eq!(
+        execution.cases.len(),
+        4,
+        "已产结果工件照常解析（不产假用例）"
+    );
+}
+
+/// 边界（参数化 5 值）：退出码谱 `0` / `1` / `3` / `7` / `255` 逐一透传——
+/// 非零值 `exit_code` 等值且 error 记因同值，`0` 形态零 error。
+#[tokio::test]
+async fn 退出码谱边界_逐一透传与零error() {
+    let _env = env_window();
+    let ws = TempDir::new().expect("临时目录");
+    let cwd = ws.path().join("app");
+    std::fs::create_dir_all(&cwd).expect("创建 suite cwd");
+    let res_src = preset(ws.path(), "spectrum-results-preset.txt", RUST_RESULTS_OUTPUT);
+
+    // 零形态：产结果工件 → 零 error（无工件缺失噪音）
     let green = if cfg!(windows) {
+        format!(
+            "cmd /C type \"{}\" > \"{{results_file}}\"",
+            res_src.to_string_lossy().replace('/', "\\")
+        )
+    } else {
+        format!("cp \"{}\" \"{{results_file}}\"", res_src.to_string_lossy())
+    };
+    let plan = rust_plan(&cwd, green);
+    let execution = execute_plan(&plan, &ws.path().join("reports").join("spec-0"))
+        .await
+        .expect("零形态应 Ok");
+    assert_eq!(execution.exit_code, 0, "退出码 0 透传");
+    assert!(
+        execution.error.is_none(),
+        "退出 0 + 工件可解析 → 零 error，实际: {:?}",
+        execution.error
+    );
+
+    // 非零谱：1 / 3 / 7 / 255 逐值等值透传（首 token 须为 PATH 上可解析程序，
+    // 前置检查面故经 `true;` 承接退出码）
+    for code in [1, 3, 7, 255] {
+        let template = if cfg!(windows) {
+            format!("cmd /C exit /b {code}")
+        } else {
+            format!("true; exit {code}")
+        };
+        let plan = rust_plan(&cwd, template);
+        let execution = execute_plan(&plan, &ws.path().join("reports").join(format!("spec-{code}")))
+            .await
+            .expect("非零退出走产出（不 Err）");
+        assert_eq!(execution.exit_code, code, "退出码 {code} 直继承");
+        assert!(
+            execution
+                .error
+                .as_deref()
+                .is_some_and(|error| error.contains("非零退出")
+                    && error.contains(&code.to_string())),
+            "error 面记因退出码 {code}，实际: {:?}",
+            execution.error
+        );
+    }
+}
+
+/// 边界（表驱动 2 形态）：命令成功但结果工件异常——空工件 → error 含「结果
+/// 工件为空」；工件完全缺失 → error 含「结果工件缺失」；两者 `cases` 为空且
+/// 不 panic。
+#[tokio::test]
+async fn 结果工件空与缺失_error面分化() {
+    let _env = env_window();
+    let ws = TempDir::new().expect("临时目录");
+    let cwd = ws.path().join("app");
+    std::fs::create_dir_all(&cwd).expect("创建 suite cwd");
+    let empty_src = preset(ws.path(), "empty-preset.txt", "");
+
+    // 形态一：命令成功但结果工件为空
+    let empty = if cfg!(windows) {
+        format!(
+            "cmd /C type \"{}\" > \"{{results_file}}\"",
+            empty_src.to_string_lossy().replace('/', "\\")
+        )
+    } else {
+        format!("cp \"{}\" \"{{results_file}}\"", empty_src.to_string_lossy())
+    };
+    let plan = rust_plan(&cwd, empty);
+    let execution = execute_plan(&plan, &ws.path().join("reports").join("empty-results"))
+        .await
+        .expect("空工件形态应 Ok");
+    assert_eq!(execution.exit_code, 0);
+    assert!(
+        execution
+            .error
+            .as_deref()
+            .is_some_and(|error| error.contains("结果工件为空")),
+        "空工件 → error 记因「结果工件为空」，实际: {:?}",
+        execution.error
+    );
+    assert!(execution.cases.is_empty(), "空工件零用例（不产假用例）");
+
+    // 形态二：命令成功但结果工件完全缺失
+    let missing = if cfg!(windows) {
+        "cmd /C exit /b 0".to_owned()
+    } else {
+        "true".to_owned()
+    };
+    let plan = rust_plan(&cwd, missing);
+    let execution = execute_plan(&plan, &ws.path().join("reports").join("missing-results"))
+        .await
+        .expect("缺工件形态应 Ok");
+    assert_eq!(execution.exit_code, 0);
+    assert!(
+        execution
+            .error
+            .as_deref()
+            .is_some_and(|error| error.contains("结果工件缺失")),
+        "缺工件 → error 记因「结果工件缺失」，实际: {:?}",
+        execution.error
+    );
+    assert!(execution.cases.is_empty(), "缺工件零用例（不产假用例）");
+    assert!(execution.measured.is_none(), "覆盖工件同缺 → 实测块 None");
+}
+
+/// 边界（R5 红跑 / 未产覆盖形态）：退出 0 但仅产结果工件 → `measured = None`、
+/// `source_files` 为空、`cases` 正常解析、`error = None`（null 感知跳过——非假绿
+/// 亦非误红）。
+#[tokio::test]
+async fn 退出零但覆盖率工件缺失_null感知跳过() {
+    let _env = env_window();
+    let ws = TempDir::new().expect("临时目录");
+    let cwd = ws.path().join("app");
+    std::fs::create_dir_all(&cwd).expect("创建 suite cwd");
+    let res_src = preset(ws.path(), "no-cov-results-preset.txt", RUST_RESULTS_OUTPUT);
+
+    let template = if cfg!(windows) {
+        format!(
+            "cmd /C type \"{}\" > \"{{results_file}}\"",
+            res_src.to_string_lossy().replace('/', "\\")
+        )
+    } else {
+        format!("cp \"{}\" \"{{results_file}}\"", res_src.to_string_lossy())
+    };
+    let plan = rust_plan(&cwd, template);
+
+    let execution = execute_plan(&plan, &ws.path().join("reports").join("rust-no-cov"))
+        .await
+        .expect("仅产结果工件应 Ok");
+
+    assert_eq!(execution.exit_code, 0, "退出码透传");
+    assert!(
+        execution.error.is_none(),
+        "覆盖率工件缺失按 null 感知跳过（非 error 面），实际: {:?}",
+        execution.error
+    );
+    assert_eq!(execution.cases.len(), 4, "结果工件照常解析四用例行");
+    assert!(
+        execution.measured.is_none(),
+        "覆盖维度 None（判定侧 null 感知跳过）"
+    );
+    assert!(
+        execution.source_files.is_empty(),
+        "逐文件覆盖为空（不虚构条目）"
+    );
+}
+
+/// 边界（AC-7 runner 侧锚）：jest 档手工 `TestPlan` 走既有 spawn 解析面——行为
+/// 与改造前一致：istanbul 族结果工件不产用例行（零用例零 error），实测块读
+/// 覆盖工件。
+#[tokio::test]
+async fn jest档执行面零改动_istanbul结果不产用例行() {
+    let _env = env_window();
+    let ws = TempDir::new().expect("临时目录");
+    let cwd = ws.path().join("app");
+    std::fs::create_dir_all(&cwd).expect("创建 suite cwd");
+    let cov_src = preset(ws.path(), "jest-coverage-preset.json", ISTANBUL_SUMMARY);
+    let res_src = preset(ws.path(), "jest-results-preset.json", JEST_RESULTS_JSON);
+
+    let template = if cfg!(windows) {
         format!(
             "cmd /C type \"{}\" > \"{{coverage_file}}\" & cmd /C type \"{}\" > \"{{results_file}}\"",
             cov_src.to_string_lossy().replace('/', "\\"),
@@ -275,55 +997,26 @@ async fn rust档链形态_覆盖段恒执行_尾段退出码透传() {
             res_src.to_string_lossy(),
         )
     };
-    let plan = split_outputs_plan(&cwd, green);
-    let execution = execute_plan(&plan, &ws.path().join("reports").join("g"))
+    let plan = jest_plan(&cwd, template);
+
+    let execution = execute_plan(&plan, &ws.path().join("reports").join("it_jest"))
         .await
-        .expect("绿跑形态应 Ok");
-    assert_eq!(execution.exit_code, 0, "绿跑终码 0");
+        .expect("jest 档替身命令应 Ok");
+
+    assert_eq!(execution.exit_code, 0, "退出码透传");
     assert!(
         execution.error.is_none(),
-        "绿跑零错误面，实际: {:?}",
+        "jest 档非空结果工件零 error，实际: {:?}",
         execution.error
     );
-    assert_eq!(execution.cases.len(), 5, "测试段结果工件解析五用例");
     assert!(
-        execution.measured.is_some(),
-        "覆盖段产出实测块（& 无条件链——绿跑不产覆盖的旧病免疫）"
+        execution.cases.is_empty(),
+        "istanbul 族结果为 JSON 报告形态（V1 用例行面不解析）"
     );
-
-    // 红跑形态：测试段替身退 3——覆盖段仍执行、终码 3 原样透传
-    let red = if cfg!(windows) {
-        format!(
-            "cmd /C type \"{}\" > \"{{coverage_file}}\" & cmd /C exit /b 3",
-            cov_src.to_string_lossy().replace('/', "\\"),
-        )
-    } else {
-        format!(
-            "cp \"{}\" \"{{coverage_file}}\"; exit 3",
-            cov_src.to_string_lossy(),
-        )
-    };
-    let plan = split_outputs_plan(&cwd, red);
-    let execution = execute_plan(&plan, &ws.path().join("reports").join("r"))
-        .await
-        .expect("红跑形态走产出（不 Err）");
-    assert_eq!(
-        execution.exit_code, 3,
-        "终码 = 尾段（测试步）退出码，不被前置段洗 0"
-    );
-    assert!(
-        execution.measured.is_some(),
-        "红跑覆盖段仍执行（if 体吞尾段旧病免疫），覆盖工件在场"
-    );
-    assert!(
-        execution
-            .error
-            .as_deref()
-            .is_some_and(|error| error.contains("非零退出") && error.contains("3")),
-        "错误面记因尾段退出码，实际: {:?}",
-        execution.error
-    );
-    assert!(execution.cases.is_empty(), "零结果工件零用例（不产假用例）");
+    let measured = execution.measured.expect("istanbul 实测块在场");
+    assert_eq!(measured.lines, Some(88.5));
+    assert_eq!(measured.branches, Some(70.0));
+    assert_eq!(measured.functions, Some(91.0));
 }
 
 /// 异常：裸名程序不可达 → Err 显式记因（程序解析前置——shell 吞缺失不产假
@@ -513,31 +1206,26 @@ fn 超时常量锚定() {
     );
 }
 
-// ---------------------------------------------------------------------------
-// PlanExecution.output（change-flow-show-step-only，AC-7 / D7）：脚本真实输出
-// **合并流**（stdout 字节前缀 + stderr 字节后缀，逐字；**不加 `2>&1`**——rust
-// 档 `cargo test > results_file` 已把 stdout 重定向进结果工件，`2>&1` 会把
-// stderr 混入污染 `parse_cargo_test`）。手工拼接只服务 record 回查，结果工件
-// 解析仍只读 stdout 面；`error` 面仍经合并文本派生。
-// ---------------------------------------------------------------------------
-
-/// 手工 TestPlan 构造（rust 档：`cargo test > {results_file}` 重定向注入面 +
-/// 覆盖工件独立面——output 承载与工件落位两读面）。
-fn rust_plan(cwd: &Path, template: String) -> TestPlan {
-    TestPlan {
-        id: "it_rust-shape".to_owned(),
-        framework: "rust".to_owned(),
-        root: "app".to_owned(),
-        cwd: cwd.to_path_buf(),
-        files: Vec::new(),
-        config_args: None,
-        shell_template: template.clone(),
-        cmd_template: template,
-        coverage_format: CoverageFormat::LlvmCov,
-        coverage_output: "coverage.txt",
-        results_output: "results.txt",
-    }
+/// 边界：退出码缺码哨兵锚定——`-1` 与超时强杀同值（非零 → 子报告
+/// `execution_error` 显式失败，MUST NOT 回落 `0` 造出假绿）。真实缺码面仅
+/// Unix 信号终止可达（Windows `ExitStatus::code()` 恒 `Some`，`unwrap_or` 臂
+/// 不可触达），故按值锚定哨兵。
+#[test]
+fn 退出码缺码哨兵锚定_负一与超时同值() {
+    assert_eq!(
+        EXIT_CODE_NO_STATUS, -1,
+        "缺码哨兵 -1（非零 → error 面显式失败）"
+    );
 }
+
+// ---------------------------------------------------------------------------
+// PlanExecution.output（脚本真实输出合并流）：stdout 字节前缀 + stderr 字节后缀，
+// 逐字，**不加 `2>&1`**——rust 模板
+// `cargo llvm-cov --workspace --json --output-path "{coverage_file}" >
+// "{results_file}"` 已把 stdout 重定向进结果工件，`2>&1` 会把 stderr 混入污染
+// `parse_cargo_test`。手工拼接只服务 record 回查，结果工件解析仍只读 stdout 面；
+// `error` 面仍经合并文本派生。
+// ---------------------------------------------------------------------------
 
 /// 正向：spawn 成功 → `PlanExecution.output` = `stdout_bytes` 前缀 + `stderr_bytes`
 /// 后缀的合并流（逐字，不加 `2>&1`）；工件解析面不受合并流影响（stdout 单独
@@ -607,40 +1295,84 @@ async fn 合并流独立承载_error经合并文本派生() {
     );
 }
 
-/// 正向：rust 档不加 `2>&1`——`cargo test > results.txt` 已重定向 stdout 进
-/// 结果工件（工件落报告树、捕获面为空），`output` 主要为 stderr（编译错误面）。
+/// 边界：rust 档合并流语义保持（模板自带重定向、runner 零改写）——绿跑臂
+/// stdout 进结果工件、`output` 只余 stderr（编译 / `info:` 面）；红跑臂 stderr
+/// 驱动 `error` 面记因，但不倒灌 `output`（`output` 仍逐字只承载脚本真实输出）。
 #[tokio::test]
-async fn rust档不加重定向合并_stdout进工件而output承载stderr() {
+async fn 合并流语义保持_stdout进工件而output只载stderr() {
     let _env = env_window();
     let ws = TempDir::new().expect("临时目录");
     let cwd = ws.path().join("app");
     std::fs::create_dir_all(&cwd).expect("创建 suite cwd");
-    let template = if cfg!(windows) {
-        "cmd /C echo cargo test& 1>&2 echo build-error".to_owned()
-    } else {
-        "echo cargo test; echo build-error >&2".to_owned()
-    };
-    let plan = rust_plan(&cwd, template);
-    let report_dir = ws.path().join("reports").join("rust-shape");
+    let res_src = preset(ws.path(), "stream-results-preset.txt", RUST_RESULTS_OUTPUT);
 
+    // 绿跑臂：stdout 经模板 `>` 进工件、stderr 留捕获面
+    let green = if cfg!(windows) {
+        format!(
+            "cmd /C type \"{}\" > \"{{results_file}}\" & 1>&2 echo build-error",
+            res_src.to_string_lossy().replace('/', "\\")
+        )
+    } else {
+        format!(
+            "cp \"{}\" \"{{results_file}}\"; echo build-error >&2",
+            res_src.to_string_lossy()
+        )
+    };
+    let plan = rust_plan(&cwd, green);
+    let report_dir = ws.path().join("reports").join("rust-stream");
     let execution = execute_plan(&plan, &report_dir)
         .await
-        .expect("重定向注入形态应 Ok");
+        .expect("绿跑臂应 Ok");
 
     assert_eq!(execution.exit_code, 0, "退出码透传");
-    // 重定向注入：首个 `cargo test` 后插 `> "{results_file}"`——stdout 进工件
     let results = std::fs::read_to_string(report_dir.join("results.txt"))
-        .expect("结果工件落报告树（stdout 重定向面）");
+        .expect("结果工件落报告树（模板自带重定向面）");
     assert_eq!(
         artifact_text(&results),
-        "cargo test\n",
+        artifact_text(RUST_RESULTS_OUTPUT),
         "stdout 全量进结果工件（解析面单读面保持）"
     );
-    // 捕获面：加上 `2>&1` 会把 stderr 混入工件面——未加即 output 只余 stderr
     let merged = String::from_utf8_lossy(&execution.output).replace("\r\n", "\n");
     assert_eq!(
         merged, "build-error\n",
-        "output 承载 stderr（编译错误面），stdout 已进工件不进捕获面"
+        "output 只载 stderr（编译错误面），stdout 已进工件不进捕获面"
+    );
+
+    // 红跑臂：stderr 驱动 error 面（合并文本派生），output 不倒灌 error 文案
+    let red = if cfg!(windows) {
+        format!(
+            "cmd /C type \"{}\" > \"{{results_file}}\" & 1>&2 echo compile-error& cmd /C exit /b 7",
+            res_src.to_string_lossy().replace('/', "\\")
+        )
+    } else {
+        format!(
+            "cp \"{}\" \"{{results_file}}\"; echo compile-error >&2; exit 7",
+            res_src.to_string_lossy()
+        )
+    };
+    let plan = rust_plan(&cwd, red);
+    let execution = execute_plan(&plan, &ws.path().join("reports").join("rust-stream-red"))
+        .await
+        .expect("红跑臂走产出（不 Err）");
+
+    assert_eq!(execution.exit_code, 7, "退出码透传（不被前置段洗 0）");
+    let error = execution.error.expect("非零退出错误面在场");
+    assert!(
+        error.contains("非零退出") && error.contains('7'),
+        "error 面记因退出码，实际: {error}"
+    );
+    assert!(
+        error.contains("compile-error"),
+        "error 面经合并文本派生（携 stderr 尾段），实际: {error}"
+    );
+    let merged = String::from_utf8_lossy(&execution.output).replace("\r\n", "\n");
+    assert_eq!(
+        merged, "compile-error\n",
+        "output 逐字只承载脚本真实输出（stderr），不并入 error 文案"
+    );
+    assert!(
+        !merged.contains("非零退出"),
+        "output 不并入 error 尾部语义，实际: {merged:?}"
     );
 }
 
@@ -694,5 +1426,30 @@ async fn 边界_空输出与大输出全量承载() {
         merged.find(&long).expect("stdout 段在场")
             < merged.find("tail-error").expect("stderr 段在场"),
         "合并序恒 stdout 前缀 → stderr 后缀"
+    );
+
+    // rust 档形态：1500 字符 stdout 全量落结果工件（模板 `>` 重定向不截断），
+    // stderr 尾段随 `output` 承载（序恒前缀 → 后缀）
+    let verbose_rust = if cfg!(windows) {
+        format!("cmd /C echo {long} > \"{{results_file}}\" & 1>&2 echo tail-error")
+    } else {
+        format!("echo {long} > \"{{results_file}}\"; echo tail-error >&2")
+    };
+    let plan = rust_plan(&cwd, verbose_rust);
+    let report_dir = ws.path().join("reports").join("long-rust");
+    let execution = execute_plan(&plan, &report_dir)
+        .await
+        .expect("rust 大输出形态应 Ok");
+    let results = std::fs::read_to_string(report_dir.join("results.txt"))
+        .expect("大输出结果工件落报告树");
+    assert_eq!(
+        artifact_text(&results),
+        format!("{long}\n"),
+        "1500 字符 stdout 全量落工件（不截断）"
+    );
+    let merged = String::from_utf8_lossy(&execution.output).replace("\r\n", "\n");
+    assert_eq!(
+        merged, "tail-error\n",
+        "stderr 尾段随 output 承载（stdout 已进工件）"
     );
 }

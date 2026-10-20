@@ -15,12 +15,17 @@ pub(crate) const SUITE_COMMAND_TIMEOUT: Duration = Duration::from_secs(600);
 /// 框架版本探测超时（CLI `timeout: 30_000` 同值）。
 pub(crate) const VERSION_DETECT_TIMEOUT: Duration = Duration::from_secs(30);
 
+/// 退出码不可用时的哨兵值：进程无退出码（Unix 信号终止——Windows
+/// `ExitStatus::code()` 恒 `Some`）与 suite 命令超时强杀同记 `-1`；非零 →
+/// `error` 面显式失败，MUST NOT 回落 `0`（吞成假绿）。
+const EXIT_CODE_NO_STATUS: i32 = -1;
+
 /// 单 suite 执行结果：退出码 / 耗时 / 解析后的用例与覆盖原始计数 / 工件解析
 /// 错误面（`error` 进子报告 findings → summary problems execution_error）/
 /// 脚本真实输出合并流（进 record 单点，不进 error 尾部）。
 #[derive(Debug)]
 pub(crate) struct PlanExecution {
-    /// 命令退出码（超时 / 收口缺码记 -1）
+    /// 命令退出码（超时 / 收口缺码记 `EXIT_CODE_NO_STATUS` 哨兵）
     pub exit_code: i32,
     /// 执行耗时毫秒
     pub duration_ms: f64,
@@ -34,16 +39,11 @@ pub(crate) struct PlanExecution {
     /// 携合并输出有界尾部）
     pub error: Option<String>,
     /// 脚本真实输出合并流（stdout 前缀 + stderr 后缀，**不加 `2>&1`**——rust
-    /// 模板 `cargo test > results_file` 已把 stdout 重定向进结果工件，`2>&1`
-    /// 会把 stderr 混入污染 `parse_cargo_test`）；`mod.rs` 按 plan 序聚合后落
-    /// 单一 `.log` 供人工回查
+    /// 模板 `cargo llvm-cov --workspace --json --output-path "{coverage_file}" >
+    /// "{results_file}"` 已把 stdout 重定向进结果工件，`2>&1` 会把 stderr 混入
+    /// 污染 `parse_cargo_test`）；`mod.rs` 按 plan 序聚合后落单一 `.log` 供人工
+    /// 回查
     pub output: Vec<u8>,
-}
-
-/// 原生写结果文件的框架（经 CLI outputFile / reporter destination 落盘，
-/// 无需 shell `>` 重定向）。
-fn native_output_file(framework: &str) -> bool {
-    matches!(framework, "jest" | "vitest" | "vite-plus" | "node-test")
 }
 
 /// 单 suite 执行全流程：清报告目录 → 模板展开 → 程序解析前置 → spawn
@@ -70,8 +70,9 @@ pub(crate) async fn execute_plan(
     let report_dir_posix = to_posix(report_dir);
 
     // 模板展开（平台选臂：Windows cmd 模板 + cmd /C，其余 shell 模板 +
-    // sh -c——static_check shell spawn 同口径）
-    let mut command = expand_template(
+    // sh -c——static_check shell spawn 同口径）；展开后零改写（结果重定向
+    // 已进 rust 模板，不做任何后置拼装）
+    let command = expand_template(
         plan.template(),
         &report_dir_posix,
         &results_file_posix,
@@ -79,17 +80,6 @@ pub(crate) async fn execute_plan(
         plan.config_args.as_deref(),
         &plan.files,
     );
-
-    // 结果重定向：rust 段 `cargo test` stdout 重定向进结果工件（非原生
-    // output file 框架的 CLI applyResultsRedirect 同语义——`cargo test` 后
-    // 插入重定向，其余文本原样保留）
-    if !native_output_file(&plan.framework) {
-        command = command.replacen(
-            "cargo test",
-            &format!("cargo test > \"{results_file_posix}\""),
-            1,
-        );
-    }
 
     // 程序解析前置检查（spawn cwd = suite cwd 的可达性口径）
     ensure_program_resolvable(&plan.cwd, &command)?;
@@ -124,7 +114,7 @@ pub(crate) async fn execute_plan(
             let _ = child.start_kill();
             let _ = child.wait().await;
             (
-                -1,
+                EXIT_CODE_NO_STATUS,
                 Some(format!(
                     "测试命令超时（{} 秒）强制终止",
                     SUITE_COMMAND_TIMEOUT.as_secs()
@@ -134,9 +124,10 @@ pub(crate) async fn execute_plan(
         }
         Ok((Err(error), _, _)) => return Err(format!("测试命令等待失败: {error}")),
         Ok((Ok(status), stdout_bytes, stderr_bytes)) => {
-            let exit_code = status.code().unwrap_or(-1);
-            // 合并流（rust 模板仅重定向 stdout——编译错误面留在 stderr）；不加
-            // `2>&1`：手工拼接只服务 record 回查，结果工件解析仍只读 stdout 面
+            let exit_code = status.code().unwrap_or(EXIT_CODE_NO_STATUS);
+            // 合并流（rust 模板 `cargo llvm-cov --workspace … > "{results_file}"`
+            // 仅重定向 stdout——编译错误面留在 stderr）；不加 `2>&1`：手工拼接
+            // 只服务 record 回查，结果工件解析仍只读 stdout 面
             let mut output = stdout_bytes;
             output.extend_from_slice(&stderr_bytes);
             let exec_error = if status.success() {

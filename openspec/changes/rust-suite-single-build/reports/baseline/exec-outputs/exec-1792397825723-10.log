@@ -1,0 +1,455 @@
+JSON report written to C:/Users/wps/.dev-team/worktrees/wps-claude-plugin-7166d8c61feeae705846d569251abee6/rust-suite-single-build/openspec/changes/rust-suite-single-build/reports/baseline/packages_desktop_vite-plus/results.json
+[1m[2mnote:[0m[0m You are running [94m`vp test`[39m as a Vite+ built-in command. If you meant to run the test npm script, use [94m`vpr test`[39m instead.
+info: cargo-llvm-cov currently setting cfg(coverage); you can opt-out it by passing --no-cfg-coverage
+   Compiling proc-macro2 v1.0.107
+   Compiling quote v1.0.47
+   Compiling unicode-ident v1.0.26
+   Compiling windows-link v0.2.1
+   Compiling memchr v2.8.3
+   Compiling cfg-if v1.0.5
+   Compiling itoa v1.0.18
+   Compiling serde_core v1.0.229
+   Compiling zmij v1.0.23
+   Compiling bytes v1.12.1
+   Compiling siphasher v1.0.3
+   Compiling percent-encoding v2.3.2
+   Compiling fastrand v2.5.0
+   Compiling hashbrown v0.17.1
+   Compiling equivalent v1.0.2
+   Compiling windows-sys v0.61.2
+   Compiling getrandom v0.4.3
+   Compiling writeable v0.6.4
+   Compiling litemap v0.8.3
+   Compiling pin-project-lite v0.2.17
+   Compiling utf8_iter v1.0.4
+   Compiling aho-corasick v1.1.5
+   Compiling regex-syntax v0.8.11
+   Compiling http v1.5.0
+   Compiling serde v1.0.229
+   Compiling indexmap v2.14.2
+   Compiling icu_normalizer_data v2.3.0
+   Compiling icu_properties_data v2.3.0
+   Compiling fnv v1.0.7
+   Compiling time-core v0.1.9
+   Compiling num-conv v0.2.2
+   Compiling powerfmt v0.2.0
+   Compiling version_check v0.9.5
+   Compiling scopeguard v1.2.0
+   Compiling autocfg v1.5.1
+   Compiling phf_shared v0.13.1
+   Compiling serde_json v1.0.151
+   Compiling semver v1.0.28
+   Compiling once_cell v1.21.4
+   Compiling thiserror v2.0.20
+   Compiling form_urlencoded v1.2.2
+   Compiling libc v0.2.189
+   Compiling stable_deref_trait v1.2.1
+   Compiling glob v0.3.4
+   Compiling bitflags v2.13.2
+   Compiling syn v3.0.6
+   Compiling syn v2.0.119
+   Compiling phf_generator v0.13.1
+   Compiling socket2 v0.6.5
+   Compiling mio v1.2.3
+   Compiling winapi-util v0.1.11
+   Compiling smallvec v1.16.1
+   Compiling anyhow v1.0.104
+   Compiling regex-automata v0.4.18
+   Compiling parking_lot_core v0.9.12
+   Compiling shlex v2.0.1
+   Compiling thiserror v1.0.69
+   Compiling find-msvc-tools v0.1.13
+   Compiling camino v1.2.6
+   Compiling same-file v1.0.6
+   Compiling lock_api v0.4.14
+   Compiling log v0.4.34
+   Compiling base64 v0.23.1
+   Compiling tracing-core v0.1.36
+   Compiling walkdir v2.5.0
+   Compiling cc v1.4.7
+   Compiling synstructure v0.14.0
+   Compiling regex v1.13.1
+   Compiling winnow v1.0.4
+   Compiling futures-core v0.3.34
+   Compiling phf_codegen v0.13.1
+   Compiling rustc_version v0.4.1
+   Compiling thiserror-impl v1.0.69
+   Compiling serde_derive v1.0.229
+   Compiling zerovec-derive v0.11.6
+   Compiling displaydoc v0.2.7
+   Compiling thiserror-impl v2.0.20
+   Compiling zerofrom-derive v0.1.8
+   Compiling yoke-derive v0.8.3
+   Compiling tokio-macros v2.7.2
+   Compiling phf_macros v0.13.1
+   Compiling toml_parser v1.1.3+spec-1.1.0
+   Compiling tracing-attributes v0.1.31
+   Compiling ident_case v1.0.1
+   Compiling typeid v1.0.3
+   Compiling toml_writer v1.1.2+spec-1.1.0
+   Compiling strsim v0.11.1
+   Compiling byteorder v1.5.0
+   Compiling erased-serde v0.4.10
+   Compiling darling_core v0.24.1
+   Compiling tokio v1.53.1
+   Compiling unic-common v0.9.0
+   Compiling dunce v1.0.5
+   Compiling new_debug_unreachable v1.0.6
+   Compiling unic-char-range v0.9.0
+   Compiling phf v0.13.1
+   Compiling unic-ucd-version v0.9.0
+   Compiling zerofrom v0.1.8
+   Compiling string_cache_codegen v0.6.1
+   Compiling unic-char-property v0.9.0
+   Compiling alloc-no-stdlib v2.0.4
+   Compiling futures-sink v0.3.34
+   Compiling tracing v0.1.44
+   Compiling precomputed-hash v0.1.1
+   Compiling dyn-clone v1.0.20
+   Compiling parking_lot v0.12.5
+   Compiling serde_spanned v1.1.1
+   Compiling unic-ucd-ident v0.9.0
+   Compiling alloc-stdlib v0.2.4
+   Compiling quick-xml v0.42.0
+   Compiling generic-array v0.14.7
+   Compiling ctor-proc-macro v0.0.7
+   Compiling web_atoms v0.2.6
+   Compiling brotli-decompressor v5.0.3
+   Compiling string_cache v0.9.0
+   Compiling windows_x86_64_msvc v0.52.6
+   Compiling dtoa v1.0.11
+   Compiling tendril v0.5.1
+   Compiling dtoa-short v0.3.5
+   Compiling ctor v0.8.0
+   Compiling selectors v0.36.1
+   Compiling derive_more-impl v2.1.1
+   Compiling darling_macro v0.24.1
+   Compiling yoke v0.8.3
+   Compiling brotli v8.0.4
+   Compiling cssparser-macros v0.6.1
+   Compiling indexmap v1.9.3
+   Compiling time-macros v0.2.32
+   Compiling uuid v1.26.1
+   Compiling toml_datetime v1.1.1+spec-1.1.0
+   Compiling cargo-platform v0.1.9
+   Compiling deranged v0.5.8
+   Compiling slab v0.4.12
+   Compiling typenum v1.20.1
+   Compiling darling v0.24.1
+   Compiling toml v1.1.6+spec-1.1.0
+   Compiling derive_more v2.1.1
+   Compiling cssparser v0.36.0
+   Compiling futures-channel v0.3.34
+   Compiling serde_derive_internals v0.29.1
+   Compiling zerovec v0.11.8
+   Compiling zerotrie v0.2.5
+   Compiling serde_with_macros v3.23.0
+   Compiling time v0.3.55
+   Compiling servo_arc v0.4.3
+   Compiling markup5ever v0.38.0
+   Compiling bit-vec v0.8.0
+   Compiling rustc-hash v2.1.3
+   Compiling hashbrown v0.12.3
+   Compiling schemars v0.8.22
+   Compiling bit-set v0.8.0
+   Compiling html5ever v0.38.0
+   Compiling schemars_derive v0.8.22
+   Compiling windows-targets v0.52.6
+   Compiling cfb v0.7.3
+   Compiling jsonptr v0.6.3
+   Compiling futures-macro v0.3.34
+   Compiling base64 v0.22.1
+   Compiling foldhash v0.2.0
+   Compiling tinystr v0.8.4
+   Compiling potential_utf v0.1.6
+   Compiling futures-task v0.3.34
+   Compiling futures-io v0.3.34
+   Compiling icu_locale_core v2.3.0
+   Compiling serde-untagged v0.1.9
+   Compiling icu_collections v2.3.0
+   Compiling infer v0.19.0
+   Compiling json-patch v3.0.1
+   Compiling serde_with v3.23.0
+   Compiling block-buffer v0.10.4
+   Compiling crypto-common v0.1.7
+   Compiling tokio-util v0.7.19
+   Compiling cargo_metadata v0.19.2
+   Compiling futures-util v0.3.34
+   Compiling dom_query v0.27.0
+   Compiling http-body v1.1.0
+   Compiling digest v0.10.7
+   Compiling cpufeatures v0.2.17
+   Compiling mime v0.3.17
+   Compiling icu_provider v2.3.1
+   Compiling crossbeam-utils v0.8.23
+   Compiling sha2 v0.10.9
+   Compiling tower-service v0.3.3
+   Compiling paste v1.0.15
+   Compiling plist v1.10.1
+   Compiling specta v2.0.0-rc.25
+   Compiling vswhom-sys v0.1.3
+   Compiling icu_normalizer v2.3.0
+   Compiling icu_properties v2.3.0
+   Compiling heck v0.5.0
+   Compiling httparse v1.10.1
+   Compiling Inflector v0.11.4
+   Compiling windows-link v0.1.3
+   Compiling atomic-waker v1.1.2
+   Compiling option-ext v0.2.0
+   Compiling try-lock v0.2.5
+   Compiling windows-sys v0.59.0
+   Compiling idna_adapter v1.2.2
+   Compiling windows-strings v0.5.1
+   Compiling specta-macros v2.0.0-rc.25
+   Compiling windows-result v0.4.1
+   Compiling unicase v2.9.0
+   Compiling h2 v0.4.19
+   Compiling want v0.3.1
+   Compiling httpdate v1.0.3
+   Compiling idna v1.1.0
+   Compiling windows-result v0.3.4
+   Compiling windows-strings v0.4.2
+   Compiling sync_wrapper v1.0.2
+   Compiling windows-registry v0.6.1
+   Compiling windows-interface v0.59.3
+   Compiling windows-implement v0.60.2
+   Compiling toml_datetime v0.7.5+spec-1.1.0
+   Compiling vswhom v0.1.0
+   Compiling ipnet v2.12.2
+   Compiling tower-layer v0.3.3
+   Compiling url v2.5.8
+   Compiling winnow v0.7.15
+   Compiling dirs-sys v0.5.0
+   Compiling http-body-util v0.1.5
+   Compiling tower v0.5.3
+   Compiling dirs v6.0.0
+   Compiling windows-threading v0.1.0
+   Compiling windows-core v0.61.2
+   Compiling ring v0.17.14
+   Compiling simd-adler32 v0.3.10
+   Compiling crc32fast v1.5.2
+   Compiling urlpattern v0.3.0
+   Compiling zerocopy v0.8.57
+   Compiling unicode-segmentation v1.13.3
+   Compiling rustversion v1.0.23
+   Compiling winreg v0.55.0
+   Compiling toml v0.9.12+spec-1.1.0
+   Compiling hyper v1.11.1
+   Compiling embed-resource v3.0.11
+   Compiling crossbeam-epoch v0.9.21
+   Compiling raw-window-handle v0.6.2
+   Compiling adler2 v2.0.1
+   Compiling cargo_toml v0.22.3
+   Compiling hyper-util v0.1.20
+   Compiling windows-future v0.2.1
+   Compiling tauri-utils v2.9.3
+   Compiling windows-numerics v0.2.0
+   Compiling windows-collections v0.2.0
+   Compiling webview2-com-sys v0.38.2
+   Compiling tauri-winres v0.3.6
+   Compiling getrandom v0.2.17
+   Compiling windows v0.61.3
+   Compiling either v1.18.0
+   Compiling untrusted v0.9.0
+   Compiling zeroize v1.9.0
+   Compiling miniz_oxide v0.9.1
+   Compiling dpi v0.1.2
+   Compiling rand_core v0.6.4
+   Compiling cookie v0.18.2
+   Compiling crossbeam-deque v0.8.8
+   Compiling rustls-pki-types v1.15.1
+   Compiling rustls v0.23.45
+   Compiling encoding_rs v0.8.42
+   Compiling flate2 v1.1.10
+   Compiling miniz_oxide v0.8.9
+   Compiling fdeflate v0.3.7
+   Compiling crossbeam-channel v0.5.17
+   Compiling webview2-com-macros v0.8.1
+   Compiling error-chain v0.12.4
+   Compiling ppv-lite86 v0.2.21
+   Compiling phf_shared v0.11.3
+   Compiling windows-version v0.1.7
+   Compiling core_detect v1.0.0
+   Compiling bitflags v1.3.2
+   Compiling native-tls v0.2.18
+   Compiling pulldown-cmark v0.9.6
+   Compiling multiversion_no_op v1.0.0
+   Compiling subtle v2.6.1
+   Compiling simdutf8 v0.1.5
+   Compiling png v0.17.16
+   Compiling rand_chacha v0.3.1
+   Compiling rustls-webpki v0.103.15
+   Compiling rand v0.8.8
+   Compiling tauri-build v2.6.3
+   Compiling tauri-plugin v2.6.3
+   Compiling schannel v0.1.29
+   Compiling bstr v1.13.1
+   Compiling lazy_static v1.5.0
+   Compiling windows_x86_64_msvc v0.53.1
+   Compiling tauri-runtime v2.11.3
+   Compiling wry v0.55.1
+   Compiling tempfile v3.27.0
+   Compiling phf_generator v0.11.3
+   Compiling ico v0.5.0
+   Compiling tower-http v0.6.11
+   Compiling mime_guess v2.0.5
+   Compiling futures-executor v0.3.34
+   Compiling foundation v0.1.0 (C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\rust-suite-single-build\packages\desktop\src-tauri\crates\core\foundation)
+   Compiling cargo_metadata v0.14.2
+   Compiling bytecount v0.6.9
+   Compiling tauri-runtime-wry v2.11.4
+   Compiling ucd-trie v0.1.7
+   Compiling getrandom v0.3.4
+   Compiling tokio-rustls v0.26.5
+   Compiling tauri-codegen v2.6.3
+   Compiling futures v0.3.34
+   Compiling tokio-native-tls v0.3.1
+   Compiling pest v2.9.2
+   Compiling phf_codegen v0.11.3
+   Compiling phf v0.11.3
+   Compiling itertools v0.14.0
+   Compiling softbuffer v0.4.8
+   Compiling keyboard-types v0.7.0
+   Compiling skeptic v0.13.7
+   Compiling axum-core v0.5.6
+   Compiling parse-zoneinfo v0.3.1
+   Compiling tauri v2.11.6
+   Compiling serialize-to-javascript-impl v0.1.2
+   Compiling pin-project-internal v1.1.13
+   Compiling num-traits v0.2.19
+   Compiling windows_x86_64_msvc v0.48.5
+   Compiling matchit v0.8.4
+   Compiling prost-derive v0.14.4
+   Compiling chrono-tz-build v0.3.0
+   Compiling tauri-macros v2.6.3
+   Compiling pest_meta v2.9.2
+   Compiling muda v0.19.3
+   Compiling serialize-to-javascript v0.1.2
+   Compiling axum v0.8.9
+   Compiling hyper-tls v0.6.0
+   Compiling hyper-rustls v0.27.10
+   Compiling pin-project v1.1.13
+   Compiling windows-targets v0.53.5
+   Compiling rustls-platform-verifier v0.7.0
+   Compiling window-vibrancy v0.6.0
+   Compiling hyper-timeout v0.5.2
+   Compiling tokio-stream v0.1.19
+   Compiling serde_repr v0.1.21
+   Compiling async-trait v0.1.92
+   Compiling libm v0.2.16
+   Compiling ref-cast v1.0.27
+   Compiling reqwest v0.13.5
+   Compiling windows-sys v0.60.2
+   Compiling prost v0.14.4
+   Compiling pest_generator v2.9.2
+   Compiling chrono-tz v0.9.0
+   Compiling globset v0.4.20
+   Compiling agent v0.1.0 (C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\rust-suite-single-build\packages\desktop\src-tauri\crates\core\agent)
+   Compiling ref-cast-impl v1.0.27
+   Compiling async-stream-impl v0.3.6
+   Compiling tonic v0.14.6
+   Compiling serde_derive_internals v0.30.0
+   Compiling futures-timer v3.0.4
+   Compiling pest_derive v2.9.2
+   Compiling ignore v0.4.33
+error: failed to write C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\rust-suite-single-build\packages\desktop\src-tauri\target\llvm-cov-target\debug\deps\libwindows_sys-868c39b1252f75fa.rmeta: 另一个程序正在使用此文件，进程无法访问。 (os error 32)
+
+error: process didn't exit successfully: `C:\Users\wps\.rustup\toolchains\stable-x86_64-pc-windows-msvc\bin\rustc.exe --crate-name windows_sys --edition=2021 C:\Users\wps\.cargo\registry\src\rsproxy.cn-e3de039b2554c837\windows-sys-0.60.2\src\lib.rs --error-format=json --json=diagnostic-rendered-ansi,artifacts,future-incompat --crate-type lib --emit=dep-info,metadata,link -C embed-bitcode=no -C debuginfo=2 --warn=rust_2018_idioms --warn=unsafe_op_in_unsafe_fn --warn=unexpected_cfgs --warn=missing_docs --check-cfg "cfg(windows_raw_dylib, windows_slim_errors)" --cfg "feature=\"Win32\"" --cfg "feature=\"Win32_Foundation\"" --cfg "feature=\"Win32_Graphics\"" --cfg "feature=\"Win32_Graphics_Gdi\"" --cfg "feature=\"Win32_Security\"" --cfg "feature=\"Win32_Storage\"" --cfg "feature=\"Win32_Storage_FileSystem\"" --cfg "feature=\"Win32_System\"" --cfg "feature=\"Win32_System_Com\"" --cfg "feature=\"Win32_System_DataExchange\"" --cfg "feature=\"Win32_System_IO\"" --cfg "feature=\"Win32_System_LibraryLoader\"" --cfg "feature=\"Win32_System_Threading\"" --cfg "feature=\"Win32_System_WindowsProgramming\"" --cfg "feature=\"Win32_UI\"" --cfg "feature=\"Win32_UI_Controls\"" --cfg "feature=\"Win32_UI_Shell\"" --cfg "feature=\"Win32_UI_Shell_Common\"" --cfg "feature=\"Win32_UI_WindowsAndMessaging\"" --cfg "feature=\"default\"" --check-cfg cfg(docsrs,test) --check-cfg "cfg(feature, values(\"Wdk\", \"Wdk_Devices\", \"Wdk_Devices_Bluetooth\", \"Wdk_Devices_HumanInterfaceDevice\", \"Wdk_Foundation\", \"Wdk_Graphics\", \"Wdk_Graphics_Direct3D\", \"Wdk_NetworkManagement\", \"Wdk_NetworkManagement_Ndis\", \"Wdk_NetworkManagement_WindowsFilteringPlatform\", \"Wdk_Storage\", \"Wdk_Storage_FileSystem\", \"Wdk_Storage_FileSystem_Minifilters\", \"Wdk_System\", \"Wdk_System_IO\", \"Wdk_System_Memory\", \"Wdk_System_OfflineRegistry\", \"Wdk_System_Registry\", \"Wdk_System_SystemInformation\", \"Wdk_System_SystemServices\", \"Wdk_System_Threading\", \"Win32\", \"Win32_Data\", \"Win32_Data_HtmlHelp\", \"Win32_Data_RightsManagement\", \"Win32_Devices\", \"Win32_Devices_AllJoyn\", \"Win32_Devices_Beep\", \"Win32_Devices_BiometricFramework\", \"Win32_Devices_Bluetooth\", \"Win32_Devices_Cdrom\", \"Win32_Devices_Communication\", \"Win32_Devices_DeviceAndDriverInstallation\", \"Win32_Devices_DeviceQuery\", \"Win32_Devices_Display\", \"Win32_Devices_Dvd\", \"Win32_Devices_Enumeration\", \"Win32_Devices_Enumeration_Pnp\", \"Win32_Devices_Fax\", \"Win32_Devices_HumanInterfaceDevice\", \"Win32_Devices_Nfc\", \"Win32_Devices_Nfp\", \"Win32_Devices_PortableDevices\", \"Win32_Devices_Properties\", \"Win32_Devices_Pwm\", \"Win32_Devices_Sensors\", \"Win32_Devices_SerialCommunication\", \"Win32_Devices_Tapi\", \"Win32_Devices_Usb\", \"Win32_Devices_WebServicesOnDevices\", \"Win32_Foundation\", \"Win32_Gaming\", \"Win32_Globalization\", \"Win32_Graphics\", \"Win32_Graphics_Dwm\", \"Win32_Graphics_Gdi\", \"Win32_Graphics_GdiPlus\", \"Win32_Graphics_Hlsl\", \"Win32_Graphics_OpenGL\", \"Win32_Graphics_Printing\", \"Win32_Graphics_Printing_PrintTicket\", \"Win32_Management\", \"Win32_Management_MobileDeviceManagementRegistration\", \"Win32_Media\", \"Win32_Media_Audio\", \"Win32_Media_DxMediaObjects\", \"Win32_Media_KernelStreaming\", \"Win32_Media_Multimedia\", \"Win32_Media_Streaming\", \"Win32_Media_WindowsMediaFormat\", \"Win32_NetworkManagement\", \"Win32_NetworkManagement_Dhcp\", \"Win32_NetworkManagement_Dns\", \"Win32_NetworkManagement_InternetConnectionWizard\", \"Win32_NetworkManagement_IpHelper\", \"Win32_NetworkManagement_Multicast\", \"Win32_NetworkManagement_Ndis\", \"Win32_NetworkManagement_NetBios\", \"Win32_NetworkManagement_NetManagement\", \"Win32_NetworkManagement_NetShell\", \"Win32_NetworkManagement_NetworkDiagnosticsFramework\", \"Win32_NetworkManagement_P2P\", \"Win32_NetworkManagement_QoS\", \"Win32_NetworkManagement_Rras\", \"Win32_NetworkManagement_Snmp\", \"Win32_NetworkManagement_WNet\", \"Win32_NetworkManagement_WebDav\", \"Win32_NetworkManagement_WiFi\", \"Win32_NetworkManagement_WindowsConnectionManager\", \"Win32_NetworkManagement_WindowsFilteringPlatform\", \"Win32_NetworkManagement_WindowsFirewall\", \"Win32_NetworkManagement_WindowsNetworkVirtualization\", \"Win32_Networking\", \"Win32_Networking_ActiveDirectory\", \"Win32_Networking_Clustering\", \"Win32_Networking_HttpServer\", \"Win32_Networking_Ldap\", \"Win32_Networking_WebSocket\", \"Win32_Networking_WinHttp\", \"Win32_Networking_WinInet\", \"Win32_Networking_WinSock\", \"Win32_Networking_WindowsWebServices\", \"Win32_Security\", \"Win32_Security_AppLocker\", \"Win32_Security_Authentication\", \"Win32_Security_Authentication_Identity\", \"Win32_Security_Authorization\", \"Win32_Security_Credentials\", \"Win32_Security_Cryptography\", \"Win32_Security_Cryptography_Catalog\", \"Win32_Security_Cryptography_Certificates\", \"Win32_Security_Cryptography_Sip\", \"Win32_Security_Cryptography_UI\", \"Win32_Security_DiagnosticDataQuery\", \"Win32_Security_DirectoryServices\", \"Win32_Security_EnterpriseData\", \"Win32_Security_ExtensibleAuthenticationProtocol\", \"Win32_Security_Isolation\", \"Win32_Security_LicenseProtection\", \"Win32_Security_NetworkAccessProtection\", \"Win32_Security_WinTrust\", \"Win32_Security_WinWlx\", \"Win32_Storage\", \"Win32_Storage_Cabinets\", \"Win32_Storage_CloudFilters\", \"Win32_Storage_Compression\", \"Win32_Storage_DistributedFileSystem\", \"Win32_Storage_FileHistory\", \"Win32_Storage_FileSystem\", \"Win32_Storage_Imapi\", \"Win32_Storage_IndexServer\", \"Win32_Storage_InstallableFileSystems\", \"Win32_Storage_IscsiDisc\", \"Win32_Storage_Jet\", \"Win32_Storage_Nvme\", \"Win32_Storage_OfflineFiles\", \"Win32_Storage_OperationRecorder\", \"Win32_Storage_Packaging\", \"Win32_Storage_Packaging_Appx\", \"Win32_Storage_ProjectedFileSystem\", \"Win32_Storage_StructuredStorage\", \"Win32_Storage_Vhd\", \"Win32_Storage_Xps\", \"Win32_System\", \"Win32_System_AddressBook\", \"Win32_System_Antimalware\", \"Win32_System_ApplicationInstallationAndServicing\", \"Win32_System_ApplicationVerifier\", \"Win32_System_ClrHosting\", \"Win32_System_Com\", \"Win32_System_Com_Marshal\", \"Win32_System_Com_StructuredStorage\", \"Win32_System_Com_Urlmon\", \"Win32_System_ComponentServices\", \"Win32_System_Console\", \"Win32_System_CorrelationVector\", \"Win32_System_DataExchange\", \"Win32_System_DeploymentServices\", \"Win32_System_DeveloperLicensing\", \"Win32_System_Diagnostics\", \"Win32_System_Diagnostics_Ceip\", \"Win32_System_Diagnostics_Debug\", \"Win32_System_Diagnostics_Debug_Extensions\", \"Win32_System_Diagnostics_Etw\", \"Win32_System_Diagnostics_ProcessSnapshotting\", \"Win32_System_Diagnostics_ToolHelp\", \"Win32_System_Diagnostics_TraceLogging\", \"Win32_System_DistributedTransactionCoordinator\", \"Win32_System_Environment\", \"Win32_System_ErrorReporting\", \"Win32_System_EventCollector\", \"Win32_System_EventLog\", \"Win32_System_EventNotificationService\", \"Win32_System_GroupPolicy\", \"Win32_System_HostCompute\", \"Win32_System_HostComputeNetwork\", \"Win32_System_HostComputeSystem\", \"Win32_System_Hypervisor\", \"Win32_System_IO\", \"Win32_System_Iis\", \"Win32_System_Ioctl\", \"Win32_System_JobObjects\", \"Win32_System_Js\", \"Win32_System_Kernel\", \"Win32_System_LibraryLoader\", \"Win32_System_Mailslots\", \"Win32_System_Mapi\", \"Win32_System_Memory\", \"Win32_System_Memory_NonVolatile\", \"Win32_System_MessageQueuing\", \"Win32_System_MixedReality\", \"Win32_System_Ole\", \"Win32_System_PasswordManagement\", \"Win32_System_Performance\", \"Win32_System_Performance_HardwareCounterProfiling\", \"Win32_System_Pipes\", \"Win32_System_Power\", \"Win32_System_ProcessStatus\", \"Win32_System_Recovery\", \"Win32_System_Registry\", \"Win32_System_RemoteDesktop\", \"Win32_System_RemoteManagement\", \"Win32_System_RestartManager\", \"Win32_System_Restore\", \"Win32_System_Rpc\", \"Win32_System_Search\", \"Win32_System_Search_Common\", \"Win32_System_SecurityCenter\", \"Win32_System_Services\", \"Win32_System_SetupAndMigration\", \"Win32_System_Shutdown\", \"Win32_System_StationsAndDesktops\", \"Win32_System_SubsystemForLinux\", \"Win32_System_SystemInformation\", \"Win32_System_SystemServices\", \"Win32_System_Threading\", \"Win32_System_Time\", \"Win32_System_TpmBaseServices\", \"Win32_System_UserAccessLogging\", \"Win32_System_Variant\", \"Win32_System_VirtualDosMachines\", \"Win32_System_WindowsProgramming\", \"Win32_System_Wmi\", \"Win32_UI\", \"Win32_UI_Accessibility\", \"Win32_UI_ColorSystem\", \"Win32_UI_Controls\", \"Win32_UI_Controls_Dialogs\", \"Win32_UI_HiDpi\", \"Win32_UI_Input\", \"Win32_UI_Input_Ime\", \"Win32_UI_Input_KeyboardAndMouse\", \"Win32_UI_Input_Pointer\", \"Win32_UI_Input_Touch\", \"Win32_UI_Input_XboxController\", \"Win32_UI_InteractionContext\", \"Win32_UI_Magnification\", \"Win32_UI_Shell\", \"Win32_UI_Shell_Common\", \"Win32_UI_Shell_PropertiesSystem\", \"Win32_UI_TabletPC\", \"Win32_UI_TextServices\", \"Win32_UI_WindowsAndMessaging\", \"Win32_Web\", \"Win32_Web_InternetExplorer\", \"default\", \"docs\"))" -C metadata=5898a8ac1190f1a7 -C extra-filename=-868c39b1252f75fa --out-dir C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\rust-suite-single-build\packages\desktop\src-tauri\target\llvm-cov-target\debug\deps -L dependency=C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\rust-suite-single-build\packages\desktop\src-tauri\target\llvm-cov-target\debug\deps --extern windows_targets=C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\rust-suite-single-build\packages\desktop\src-tauri\target\llvm-cov-target\debug\deps\libwindows_targets-cb79204816494ca5.rmeta --cap-lints allow -L native=C:\Users\wps\.cargo\registry\src\rsproxy.cn-e3de039b2554c837\windows_x86_64_msvc-0.53.1\lib` (exit code: 1)
+error: could not compile `windows-sys` (lib) due to 1 previous error
+warning: build failed, waiting for other jobs to finish...
+error: process didn't exit successfully: `C:\Users\wps\.rustup\toolchains\stable-x86_64-pc-windows-msvc\bin\cargo.exe test --tests --manifest-path C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\rust-suite-single-build\packages\desktop\src-tauri\Cargo.toml --target-dir C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\rust-suite-single-build\packages\desktop\src-tauri\target\llvm-cov-target` (exit code: 101)
+   Compiling tokio v1.53.1
+   Compiling tauri v2.11.6
+   Compiling rig-http v0.43.0
+   Compiling watch v0.1.0 (C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\rust-suite-single-build\packages\desktop\src-tauri\crates\infra\watch)
+   Compiling checks v0.1.0 (C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\rust-suite-single-build\packages\desktop\src-tauri\crates\core\checks)
+   Compiling config v0.1.0 (C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\rust-suite-single-build\packages\desktop\src-tauri\crates\core\config)
+   Compiling foundation v0.1.0 (C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\rust-suite-single-build\packages\desktop\src-tauri\crates\core\foundation)
+warning: function `段级未知outcome样本runtimeError留痕` should have a snake case name
+   --> crates\core\checks\tests\corpus_golden_test.rs:561:4
+    |
+561 | fn 段级未知outcome样本runtimeError留痕() {
+    |    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: convert the identifier to snake case: `段级未知outcome样本runtime_error留痕`
+    |
+    = note: `#[warn(non_snake_case)]` (part of `#[warn(nonstandard_style)]`) on by default
+
+warning: `checks` (test "corpus_golden_test") generated 1 warning
+warning: function `build_mutation_block分母零与NaN与Inf阈值` should have a snake case name
+   --> crates\core\checks\src\aggregate_test.rs:772:4
+    |
+772 | fn build_mutation_block分母零与NaN与Inf阈值() {
+    |    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: convert the identifier to snake case: `build_mutation_block分母零与_na_n与_inf阈值`
+    |
+    = note: `#[warn(non_snake_case)]` (part of `#[warn(nonstandard_style)]`) on by default
+
+   Compiling tokio-util v0.7.19
+   Compiling agent v0.1.0 (C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\rust-suite-single-build\packages\desktop\src-tauri\crates\core\agent)
+   Compiling tokio-native-tls v0.3.1
+   Compiling tokio-rustls v0.26.5
+   Compiling exec v0.1.0 (C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\rust-suite-single-build\packages\desktop\src-tauri\crates\infra\exec)
+   Compiling h2 v0.4.19
+   Compiling tower v0.5.3
+   Compiling tokio-stream v0.1.19
+   Compiling tauri-plugin-fs v2.5.2
+   Compiling tauri-plugin-updater v2.12.0
+   Compiling tauri-plugin-devtools v2.2.1
+   Compiling tauri-plugin-dialog v2.7.3
+   Compiling dev-team v0.1.0 (C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\rust-suite-single-build\packages\desktop\src-tauri)
+   Compiling workflow v0.1.0 (C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\rust-suite-single-build\packages\desktop\src-tauri\crates\core\workflow)
+warning: `checks` (lib test) generated 1 warning
+   Compiling tower-http v0.6.11
+   Compiling axum v0.8.9
+   Compiling hyper v1.11.1
+   Compiling orchestration v0.1.0 (C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\rust-suite-single-build\packages\desktop\src-tauri\crates\core\orchestration)
+   Compiling store v0.1.0 (C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\rust-suite-single-build\packages\desktop\src-tauri\crates\infra\store)
+   Compiling hyper-util v0.1.20
+   Compiling checks-runtime v0.1.0 (C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\rust-suite-single-build\packages\desktop\src-tauri\crates\infra\checks)
+   Compiling vcs-runtime v0.1.0 (C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\rust-suite-single-build\packages\desktop\src-tauri\crates\infra\vcs)
+   Compiling hyper-rustls v0.27.10
+   Compiling hyper-tls v0.6.0
+   Compiling hyper-timeout v0.5.2
+   Compiling reqwest v0.13.5
+   Compiling tonic v0.14.6
+   Compiling tonic-prost v0.14.6
+   Compiling tonic-web v0.14.6
+   Compiling rig-reqwest v0.43.0
+   Compiling devtools-wire-format v0.6.0
+   Compiling tonic-health v0.14.6
+   Compiling rig-core v0.43.0
+   Compiling devtools-core v0.4.0
+   Compiling tauri-specta v2.0.0-rc.25
+   Compiling tauri-plugin-single-instance v2.4.5
+warning: function `旧json形态缺agentInstanceId键经serde_default读none不炸` should have a snake case name
+    --> crates\infra\store\src\model_test.rs:2603:4
+     |
+2603 | fn 旧json形态缺agentInstanceId键经serde_default读none不炸() {
+     |    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: convert the identifier to snake case: `旧json形态缺agent_instance_id键经serde_default读none不炸`
+     |
+     = note: `#[warn(non_snake_case)]` (part of `#[warn(nonstandard_style)]`) on by default
+
+error: failed to build archive at `C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\rust-suite-single-build\packages\desktop\src-tauri\target\debug\deps\libtauri_plugin_updater-b5588ba4d3186e60.rlib`: failed to rename archive file: 另一个程序正在使用此文件，进程无法访问。 (os error 32)
+
+error: could not compile `tauri-plugin-updater` (lib) due to 1 previous error
+warning: build failed, waiting for other jobs to finish...
+warning: `store` (lib test) generated 1 warning
+warning: associated function `failing` is never used
+   --> crates\core\orchestration\src\steps_test.rs:865:8
+    |
+831 | impl FakeMutationRunner {
+    | ----------------------- associated function in this implementation
+...
+865 |     fn failing(feedback_text: &str) -> Self {
+    |        ^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: method `with_edit` is never used
+    --> crates\core\orchestration\src\walker_test.rs:1024:8
+     |
+ 995 | impl FakeVcs {
+     | ------------ method in this implementation
+...
+1024 |     fn with_edit(self, files: Vec<String>, patch: &str) -> Self {
+     |        ^^^^^^^^^
+
+warning: `orchestration` (lib test) generated 2 warnings

@@ -1,0 +1,381 @@
+{
+  "framework": "rust",
+  "root": "packages/desktop/src-tauri",
+  "timestamp": "2026-10-20T05:23:46.5394677Z",
+  "exit_code": 0,
+  "duration_ms": 254017.0,
+  "summary": {
+    "total": 2219,
+    "passed": 2219,
+    "failed": 0,
+    "skipped": 0
+  },
+  "error_cases": [],
+  "test_files": [],
+  "source_files": [
+    {
+      "file": "C:\\Users\\wps\\.dev-team\\worktrees\\wps-claude-plugin-7166d8c61feeae705846d569251abee6\\rust-suite-single-build\\packages\\desktop\\src-tauri\\src\\bindings\\mod.rs",
+      "coverage": {
+        "lines": 100.0,
+        "branches": null,
+        "functions": null,
+        "total_lines": 22,
+        "covered_lines": 22,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "C:\\Users\\wps\\.dev-team\\worktrees\\wps-claude-plugin-7166d8c61feeae705846d569251abee6\\rust-suite-single-build\\packages\\desktop\\src-tauri\\src\\bindings\\mod_test.rs",
+      "coverage": {
+        "lines": 99.81,
+        "branches": null,
+        "functions": null,
+        "total_lines": 516,
+        "covered_lines": 515,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "C:\\Users\\wps\\.dev-team\\worktrees\\wps-claude-plugin-7166d8c61feeae705846d569251abee6\\rust-suite-single-build\\packages\\desktop\\src-tauri\\src\\commands\\agents\\mod.rs",
+      "coverage": {
+        "lines": 100.0,
+        "branches": null,
+        "functions": null,
+        "total_lines": 46,
+        "covered_lines": 46,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "C:\\Users\\wps\\.dev-team\\worktrees\\wps-claude-plugin-7166d8c61feeae705846d569251abee6\\rust-suite-single-build\\packages\\desktop\\src-tauri\\src\\commands\\agents\\mod_test.rs",
+      "coverage": {
+        "lines": 99.79,
+        "branches": null,
+        "functions": null,
+        "total_lines": 470,
+        "covered_lines": 469,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "C:\\Users\\wps\\.dev-team\\worktrees\\wps-claude-plugin-7166d8c61feeae705846d569251abee6\\rust-suite-single-build\\packages\\desktop\\src-tauri\\src\\commands\\change_flow\\mod.rs",
+      "coverage": {
+        "lines": 85.62,
+        "branches": null,
+        "functions": null,
+        "total_lines": 153,
+        "covered_lines": 131,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "C:\\Users\\wps\\.dev-team\\worktrees\\wps-claude-plugin-7166d8c61feeae705846d569251abee6\\rust-suite-single-build\\packages\\desktop\\src-tauri\\src\\commands\\change_flow\\mod_test.rs",
+      "coverage": {
+        "lines": 96.78,
+        "branches": null,
+        "functions": null,
+        "total_lines": 1336,
+        "covered_lines": 1293,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "C:\\Users\\wps\\.dev-team\\worktrees\\wps-claude-plugin-7166d8c61feeae705846d569251abee6\\rust-suite-single-build\\packages\\desktop\\src-tauri\\src\\commands\\changes\\mod.rs",
+      "coverage": {
+        "lines": 90.23,
+        "branches": null,
+        "functions": null,
+        "total_lines": 133,
+        "covered_lines": 120,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "C:\\Users\\wps\\.dev-team\\worktrees\\wps-claude-plugin-7166d8c61feeae705846d569251abee6\\rust-suite-single-build\\packages\\desktop\\src-tauri\\src\\commands\\changes\\mod_test.rs",
+      "coverage": {
+        "lines": 99.42,
+        "branches": null,
+        "functions": null,
+        "total_lines": 1720,
+        "covered_lines": 1710,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "C:\\Users\\wps\\.dev-team\\worktrees\\wps-claude-plugin-7166d8c61feeae705846d569251abee6\\rust-suite-single-build\\packages\\desktop\\src-tauri\\src\\commands\\config\\mod.rs",
+      "coverage": {
+        "lines": 100.0,
+        "branches": null,
+        "functions": null,
+        "total_lines": 12,
+        "covered_lines": 12,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "C:\\Users\\wps\\.dev-team\\worktrees\\wps-claude-plugin-7166d8c61feeae705846d569251abee6\\rust-suite-single-build\\packages\\desktop\\src-tauri\\src\\commands\\config\\mod_test.rs",
+      "coverage": {
+        "lines": 98.5,
+        "branches": null,
+        "functions": null,
+        "total_lines": 133,
+        "covered_lines": 131,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "C:\\Users\\wps\\.dev-team\\worktrees\\wps-claude-plugin-7166d8c61feeae705846d569251abee6\\rust-suite-single-build\\packages\\desktop\\src-tauri\\src\\commands\\db\\mod.rs",
+      "coverage": {
+        "lines": 100.0,
+        "branches": null,
+        "functions": null,
+        "total_lines": 18,
+        "covered_lines": 18,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "C:\\Users\\wps\\.dev-team\\worktrees\\wps-claude-plugin-7166d8c61feeae705846d569251abee6\\rust-suite-single-build\\packages\\desktop\\src-tauri\\src\\commands\\db\\mod_test.rs",
+      "coverage": {
+        "lines": 100.0,
+        "branches": null,
+        "functions": null,
+        "total_lines": 527,
+        "covered_lines": 527,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "C:\\Users\\wps\\.dev-team\\worktrees\\wps-claude-plugin-7166d8c61feeae705846d569251abee6\\rust-suite-single-build\\packages\\desktop\\src-tauri\\src\\commands\\exec\\agent.rs",
+      "coverage": {
+        "lines": 100.0,
+        "branches": null,
+        "functions": null,
+        "total_lines": 21,
+        "covered_lines": 21,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "C:\\Users\\wps\\.dev-team\\worktrees\\wps-claude-plugin-7166d8c61feeae705846d569251abee6\\rust-suite-single-build\\packages\\desktop\\src-tauri\\src\\commands\\exec\\agent_test.rs",
+      "coverage": {
+        "lines": 100.0,
+        "branches": null,
+        "functions": null,
+        "total_lines": 142,
+        "covered_lines": 142,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "C:\\Users\\wps\\.dev-team\\worktrees\\wps-claude-plugin-7166d8c61feeae705846d569251abee6\\rust-suite-single-build\\packages\\desktop\\src-tauri\\src\\commands\\exec\\mod.rs",
+      "coverage": {
+        "lines": 84.21,
+        "branches": null,
+        "functions": null,
+        "total_lines": 114,
+        "covered_lines": 96,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "C:\\Users\\wps\\.dev-team\\worktrees\\wps-claude-plugin-7166d8c61feeae705846d569251abee6\\rust-suite-single-build\\packages\\desktop\\src-tauri\\src\\commands\\exec\\mod_test.rs",
+      "coverage": {
+        "lines": 99.79,
+        "branches": null,
+        "functions": null,
+        "total_lines": 938,
+        "covered_lines": 936,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "C:\\Users\\wps\\.dev-team\\worktrees\\wps-claude-plugin-7166d8c61feeae705846d569251abee6\\rust-suite-single-build\\packages\\desktop\\src-tauri\\src\\commands\\explores\\mod.rs",
+      "coverage": {
+        "lines": 95.38,
+        "branches": null,
+        "functions": null,
+        "total_lines": 195,
+        "covered_lines": 186,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "C:\\Users\\wps\\.dev-team\\worktrees\\wps-claude-plugin-7166d8c61feeae705846d569251abee6\\rust-suite-single-build\\packages\\desktop\\src-tauri\\src\\commands\\explores\\mod_test.rs",
+      "coverage": {
+        "lines": 99.3,
+        "branches": null,
+        "functions": null,
+        "total_lines": 994,
+        "covered_lines": 987,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "C:\\Users\\wps\\.dev-team\\worktrees\\wps-claude-plugin-7166d8c61feeae705846d569251abee6\\rust-suite-single-build\\packages\\desktop\\src-tauri\\src\\commands\\stats\\mod.rs",
+      "coverage": {
+        "lines": 99.04,
+        "branches": null,
+        "functions": null,
+        "total_lines": 104,
+        "covered_lines": 103,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "C:\\Users\\wps\\.dev-team\\worktrees\\wps-claude-plugin-7166d8c61feeae705846d569251abee6\\rust-suite-single-build\\packages\\desktop\\src-tauri\\src\\commands\\stats\\mod_test.rs",
+      "coverage": {
+        "lines": 95.49,
+        "branches": null,
+        "functions": null,
+        "total_lines": 466,
+        "covered_lines": 445,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "C:\\Users\\wps\\.dev-team\\worktrees\\wps-claude-plugin-7166d8c61feeae705846d569251abee6\\rust-suite-single-build\\packages\\desktop\\src-tauri\\src\\commands\\watch\\mod.rs",
+      "coverage": {
+        "lines": 100.0,
+        "branches": null,
+        "functions": null,
+        "total_lines": 35,
+        "covered_lines": 35,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "C:\\Users\\wps\\.dev-team\\worktrees\\wps-claude-plugin-7166d8c61feeae705846d569251abee6\\rust-suite-single-build\\packages\\desktop\\src-tauri\\src\\commands\\watch\\mod_test.rs",
+      "coverage": {
+        "lines": 95.03,
+        "branches": null,
+        "functions": null,
+        "total_lines": 161,
+        "covered_lines": 153,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "C:\\Users\\wps\\.dev-team\\worktrees\\wps-claude-plugin-7166d8c61feeae705846d569251abee6\\rust-suite-single-build\\packages\\desktop\\src-tauri\\src\\commands\\workspaces\\mod.rs",
+      "coverage": {
+        "lines": 100.0,
+        "branches": null,
+        "functions": null,
+        "total_lines": 20,
+        "covered_lines": 20,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "C:\\Users\\wps\\.dev-team\\worktrees\\wps-claude-plugin-7166d8c61feeae705846d569251abee6\\rust-suite-single-build\\packages\\desktop\\src-tauri\\src\\commands\\workspaces\\mod_test.rs",
+      "coverage": {
+        "lines": 100.0,
+        "branches": null,
+        "functions": null,
+        "total_lines": 306,
+        "covered_lines": 306,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    },
+    {
+      "file": "C:\\Users\\wps\\.dev-team\\worktrees\\wps-claude-plugin-7166d8c61feeae705846d569251abee6\\rust-suite-single-build\\packages\\desktop\\src-tauri\\src\\main.rs",
+      "coverage": {
+        "lines": 0.0,
+        "branches": null,
+        "functions": null,
+        "total_lines": 31,
+        "covered_lines": 0,
+        "total_branches": null,
+        "covered_branches": null,
+        "total_functions": null,
+        "covered_functions": null
+      }
+    }
+  ],
+  "coverage": {
+    "pass": true,
+    "measured": {
+      "lines": 97.16765646413889,
+      "branches": null,
+      "functions": 90.99756690997567
+    },
+    "thresholds": {
+      "lines": 90.0,
+      "branches": 85.0,
+      "functions": 90.0
+    }
+  },
+  "mutation": null
+}

@@ -24,7 +24,8 @@ struct FrameworkEntry {
     /// suite cwd 下探测版本的命令
     version_command: &'static str,
     /// POSIX shell 测试执行模板；`{randomize}` 哨兵仅 jest 使用（按版本
-    /// 展开为 ` --randomize` 或空串），其余文本与 CLI 逐字对齐
+    /// 展开为 ` --randomize` 或空串），其余框架模板文本与 CLI 逐字对齐（rust
+    /// 档为有意偏离，见 REGISTRY 头注释）
     shell_template: &'static str,
     /// Windows cmd 测试执行模板
     cmd_template: &'static str,
@@ -40,8 +41,12 @@ struct FrameworkEntry {
     config_flag: Option<&'static str>,
 }
 
-/// 五框架注册表（常量表移植；模板串与 CLI `test-framework.ts` 逐字对齐——
-/// 唯 rust cmd 臂单侧修复偏离：CLI 保留旧 `if errorlevel` 形态）。
+/// 五框架注册表（常量表移植；jest / vitest / vite-plus / node-test 与 CLI
+/// `test-framework.ts` 逐字对齐，唯 rust 档单条命令**有意偏离** CLI 双段链：
+/// ① `cargo llvm-cov` 自身即跑测试，双段链付两遍全量构建且 target 目录不
+/// 复用；② cmd 臂 `&` 退出码取末段，覆盖率工件缺失仍判绿（假绿）；
+/// ③ llvm-cov 不带 `--workspace` 只测根包 25 文件，与全 workspace 用例
+/// 口径不同源）。
 const REGISTRY: [FrameworkEntry; 5] = [
     FrameworkEntry {
         framework: "jest",
@@ -79,8 +84,8 @@ const REGISTRY: [FrameworkEntry; 5] = [
     FrameworkEntry {
         framework: "rust",
         version_command: "cargo --version",
-        shell_template: "cargo test --workspace; _X=$?; cargo llvm-cov --json --output-path \"{coverage_file}\"; exit $_X",
-        cmd_template: "cargo llvm-cov --json --output-path \"{coverage_file}\" & cargo test --workspace",
+        shell_template: "cargo llvm-cov --workspace --json --output-path \"{coverage_file}\" > \"{results_file}\"",
+        cmd_template: "cargo llvm-cov --workspace --json --output-path \"{coverage_file}\" > \"{results_file}\"",
         coverage_format: CoverageFormat::LlvmCov,
         coverage_output: "coverage-summary.json",
         results_output: "results.txt",
