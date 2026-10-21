@@ -13,6 +13,10 @@ function mount(
   overrides: {
     idPrefix?: string;
     running?: boolean;
+    /** 整面板禁用态（缺省 false：既有用例零回归） */
+    disabled?: boolean;
+    /** 禁用理由文案（缺省不呈现） */
+    disabledReason?: string;
     onSend?: (input: { text: string; permissionMode: AgentPermissionMode }) => void;
     onStop?: () => void;
   } = {},
@@ -25,6 +29,8 @@ function mount(
       label="探索输入"
       placeholder="要探索什么？"
       running={overrides.running ?? false}
+      disabled={overrides.disabled}
+      disabledReason={overrides.disabledReason}
       onSend={onSend}
       onStop={onStop}
     />,
@@ -150,5 +156,116 @@ describe('AgentInput：边界', () => {
     expect(screen.getByTestId('debug-stop') !== null).toBe(true);
     // composer 容器亦前缀化
     expect(screen.getByTestId('debug-composer') !== null).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 整面板禁用态（D14）：`disabled` 与 `running` 语义正交——输入与发送同禁、不呈
+// 停止入口、理由文案呈于工具行上方；`disabled === false` 时既有 running 语义
+// 逐字不变（上方三例即回归锚）。
+// ---------------------------------------------------------------------------
+
+describe('AgentInput：整面板禁用态', () => {
+  it('禁用态全量呈现：输入与发送同禁 + 理由行文本即传入理由', () => {
+    mount({ disabled: true, disabledReason: '流程运行中' });
+
+    expect(promptBox().disabled).toBe(true);
+    expect(screen.getByTestId('explore-send').hasAttribute('disabled')).toBe(true);
+    expect(screen.getByTestId('explore-disabled-reason').textContent).toBe('流程运行中');
+  });
+
+  it('禁用态不顶替 running 呈现：running 且禁用 → 无停止入口、理由行在场', () => {
+    mount({ disabled: true, running: true, disabledReason: '已归档 change 只读' });
+
+    expect(screen.queryByTestId('explore-stop')).toBeNull();
+    expect(screen.getByTestId('explore-disabled-reason').textContent).toBe('已归档 change 只读');
+    expect(screen.getByTestId('explore-send').hasAttribute('disabled')).toBe(true);
+  });
+
+  it('running 语义回归：未禁用时停止入口 / 发送禁用 / 输入可编辑；非 running 时可发送', () => {
+    const runningView = mount({ disabled: false, running: true });
+    expect(screen.getByTestId('explore-stop')).toBeTruthy();
+    expect(screen.getByTestId('explore-send').hasAttribute('disabled')).toBe(true);
+    expect(promptBox().disabled).toBe(false);
+    expect(screen.queryByTestId('explore-disabled-reason')).toBeNull();
+    runningView.rendered.unmount();
+
+    mount({ disabled: false, running: false });
+    expect(screen.queryByTestId('explore-stop')).toBeNull();
+    typeText('可发送');
+    expect(screen.getByTestId('explore-send').hasAttribute('disabled')).toBe(false);
+  });
+
+  it('禁用不止视觉：点击发送与表单提交均零 onSend', () => {
+    const onSend = vi.fn();
+    mount({ disabled: true, disabledReason: '流程运行中', onSend });
+
+    // 文本经 DOM 直填（禁用的 textarea 不接受 change 事件，模拟既有文本）
+    fireEvent.change(promptBox(), { target: { value: '已有文本' } });
+    fireEvent.click(screen.getByTestId('explore-send'));
+    fireEvent.submit(screen.getByTestId('explore-composer'));
+
+    expect(onSend).not.toHaveBeenCalled();
+  });
+
+  it('禁用且无理由文案 → 输入与发送仍禁用、理由行不在场（不渲染空占位）', () => {
+    mount({ disabled: true });
+
+    expect(promptBox().disabled).toBe(true);
+    expect(screen.getByTestId('explore-send').hasAttribute('disabled')).toBe(true);
+    expect(screen.queryByTestId('explore-disabled-reason')).toBeNull();
+  });
+
+  it('空理由串 → 理由行在场且不含字面 undefined、不抛错', () => {
+    expect(() => mount({ disabled: true, disabledReason: '' })).not.toThrow();
+
+    const reason = screen.getByTestId('explore-disabled-reason');
+    expect(reason.textContent).toBe('');
+    expect(reason.textContent).not.toContain('undefined');
+  });
+
+  it('超长与特殊字符理由原样呈现（不截断、按文本节点转义不注入 HTML）', () => {
+    const longReason = '原因'.repeat(400);
+    const longView = mount({ disabled: true, disabledReason: longReason });
+    expect(screen.getByTestId('explore-disabled-reason').textContent).toBe(longReason);
+    longView.rendered.unmount();
+
+    mount({ disabled: true, disabledReason: '流程运行中\n🚀<b>粗体</b>' });
+    const reason = screen.getByTestId('explore-disabled-reason');
+    expect(reason.textContent).toBe('流程运行中\n🚀<b>粗体</b>');
+    expect(reason.querySelector('b'), '文本节点转义：不注入 HTML').toBeNull();
+  });
+
+  it('禁用不清空既有文本与档位：先输入再切禁用 → 文本与档位保留', () => {
+    const { rendered } = mount({ disabled: false });
+    typeText('先输入的文本');
+    fireEvent.change(modeSelect(), { target: { value: 'default' } });
+
+    rendered.rerender(
+      <AgentInput
+        idPrefix="explore"
+        label="探索输入"
+        placeholder="要探索什么？"
+        running={false}
+        disabled
+        disabledReason="流程运行中"
+        onSend={vi.fn()}
+        onStop={vi.fn()}
+      />,
+    );
+
+    expect(promptBox().value).toBe('先输入的文本');
+    expect(modeSelect().value).toBe('default');
+    expect(screen.getByTestId('explore-disabled-reason').textContent).toBe('流程运行中');
+  });
+
+  it('既有发送守卫回归：未禁用时纯空白禁发、非空可发', () => {
+    mount({ disabled: false });
+
+    typeText('   ');
+    expect(screen.getByTestId('explore-send').hasAttribute('disabled')).toBe(true);
+
+    typeText('有效文本');
+    expect(screen.getByTestId('explore-send').hasAttribute('disabled')).toBe(false);
   });
 });

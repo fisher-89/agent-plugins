@@ -26,7 +26,11 @@ type AgentStartSessionParams = {
   permissionMode: AgentStartArgs[3];
   sessionId: AgentStartArgs[4];
   source: AgentStartArgs[5];
+  /** 来源内定位（归属记录 / 清单筛选；MUST NOT 用于寻址） */
+  sourceRef: AgentStartArgs[6];
   agent: AgentStartArgs[7];
+  /** 会话执行根（尾部可选位；null → 后端回落 `root`） */
+  cwd: AgentStartArgs[8];
 };
 
 /** transport 构造观测点：hook 注入（不承载状态，仅透传镜像） */
@@ -51,9 +55,10 @@ function readAgentId(value: unknown): AgentStartSessionParams['agent'] {
   throw new Error(`非法 agent: ${JSON.stringify(value)}`);
 }
 
-/** unknown → string | null（其余形态拒绝） */
+/** unknown → string | null（缺席与 null 同义——未提供即 null；其余形态拒绝） */
 function readNullableString(value: unknown, field: string): string | null {
-  if (typeof value === 'string' || value === null) return value;
+  if (value === undefined || value === null) return null;
+  if (typeof value === 'string') return value;
   throw new Error(`非法 ${field}: ${JSON.stringify(value)}`);
 }
 
@@ -73,7 +78,9 @@ function readSessionParams(body: object | undefined): AgentStartSessionParams {
     source,
     permissionMode: readPermissionMode(get('permissionMode')),
     sessionId: readNullableString(get('sessionId'), 'sessionId'),
+    sourceRef: readNullableString(get('sourceRef'), 'sourceRef'),
     agent: readAgentId(get('agent')),
+    cwd: readNullableString(get('cwd'), 'cwd'),
   };
 }
 
@@ -307,23 +314,17 @@ export class TauriAgentTransport implements ChatTransport<AgentUIMessage> {
   }
 
   /** 发起运行（生成绑定穿透会话参数 + Channel）：early-resolve 轮行经
-   * `onRecord` 透传（不关流）；invoke 失败（启动阶段失败）把错误灌入流。 */
+   * `onRecord` 透传（不关流）；invoke 失败（启动阶段失败）把错误灌入流。
+   * 参数以具名解构就位后按生成绑定的位置签名传递——尾位增位（如 `cwd`）不再
+   * 依赖读参下标魔法，调用点即形状。 */
   private invokeStart(
     channel: Channel<AgentRunMessage>,
     session: AgentStartSessionParams,
     fail: (cause: unknown) => void,
   ): void {
+    const { root, prompt, permissionMode, sessionId, source, sourceRef, agent, cwd } = session;
     commands
-      .agentStart(
-        channel,
-        session.root,
-        session.prompt,
-        session.permissionMode,
-        session.sessionId,
-        session.source,
-        null,
-        session.agent,
-      )
+      .agentStart(channel, root, prompt, permissionMode, sessionId, source, sourceRef, agent, cwd)
       .then((record) => {
         this.onRecord?.(record);
       })

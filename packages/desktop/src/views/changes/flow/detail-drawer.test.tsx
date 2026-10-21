@@ -602,3 +602,164 @@ describe('DetailDrawer：sessionRefreshKey 透传与只读面板', () => {
     ).toBeLessThanOrEqual(1);
   });
 });
+
+// ---------------------------------------------------------------------------
+// 非模态形态（AC-7，D17 / D18）：`<StandardDrawer … modal={false}>`——抽屉不遮
+// 蔽页面其余区域（无遮罩、Viewport 不吃指针事件），关闭经页脚「关闭」或 Esc；
+// 内容分派 / 宽度 / 选中驱动逐字不变。
+// ---------------------------------------------------------------------------
+
+/** `data-modal` 出具点（底层 Viewport）与遮罩节点的查询面。 */
+function drawerViewport(): HTMLElement {
+  const viewport = document.querySelector('[data-slot="drawer-viewport"]');
+  if (viewport === null) throw new Error('抽屉 Viewport 未挂载');
+  return viewport as HTMLElement;
+}
+
+function overlayNode(): Element | null {
+  return document.querySelector('[data-slot="drawer-overlay"]');
+}
+
+/** 抽屉渲染（可注入 onClose 与同树兄弟节点——并读用例的交互面）。 */
+function renderModalLess(
+  worldState: World,
+  selection: DrawerSelection | null,
+  options: {
+    onClose?: () => void;
+    root?: string | null;
+    sibling?: React.JSX.Element;
+  } = {},
+) {
+  return render(
+    <>
+      {options.sibling}
+      <DetailDrawer
+        selection={selection}
+        graph={worldState.graph}
+        materials={worldState.materials}
+        root={options.root === undefined ? ROOT : options.root}
+        changeId={CHANGE_ID}
+        name={NAME}
+        onClose={options.onClose ?? (() => {})}
+      />
+    </>,
+  );
+}
+
+describe('DetailDrawer：非模态形态（并读成立）', () => {
+  it('列头选中 → 内容容器 data-modal="false" 且遮罩节点不在场', async () => {
+    renderModalLess(world(), { scope: 'column', phase: 'implement' });
+
+    await waitFor(() => expect(screen.getByTestId('detail-drawer') !== null).toBe(true));
+    expect(drawerViewport().getAttribute('data-modal')).toBe('false');
+    expect(overlayNode(), '非模态下无遮罩').toBeNull();
+  });
+
+  it('并读成立：抽屉打开时同树兄弟按钮仍可点击（Viewport 不吃指针事件）且抽屉内容照常呈现', async () => {
+    const onSibling = vi.fn();
+    renderModalLess(
+      world([runtimeNode()]),
+      { scope: 'node', nodeId: 'run:implement:2:executor:0' },
+      {
+        sibling: (
+          <button type="button" data-testid="sibling-action" onClick={onSibling}>
+            左栏输入
+          </button>
+        ),
+      },
+    );
+    await waitFor(() => expect(screen.getByTestId('detail-drawer') !== null).toBe(true));
+    // 抽屉内容照常呈现（选中相位素材，分派不变）
+    expect(screen.getByTestId('detail-drawer').textContent).toContain(
+      'implement · attempt 2 · runtime',
+    );
+    expect(overlayNode(), '无遮罩拦截').toBeNull();
+
+    // 并读成立：页面其余区域（左栏 chat 输入位）的点击不被 Viewport 吞掉
+    fireEvent.click(screen.getByTestId('sibling-action'));
+
+    expect(onSibling).toHaveBeenCalledTimes(1);
+  });
+
+  it('页脚「关闭」→ onClose 恰一次（非模态主路径）', async () => {
+    const onClose = vi.fn();
+    renderModalLess(world(), { scope: 'column', phase: 'implement' }, { onClose });
+
+    await waitFor(() => expect(screen.getByTestId('detail-drawer') !== null).toBe(true));
+    fireEvent.click(screen.getByRole('button', { name: '关闭' }));
+
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('Esc 关闭 → onClose 恰一次（不双触发）', async () => {
+    const onClose = vi.fn();
+    renderModalLess(world(), { scope: 'column', phase: 'implement' }, { onClose });
+
+    await waitFor(() => expect(screen.getByTestId('detail-drawer') !== null).toBe(true));
+    fireEvent.keyDown(document, { key: 'Escape' });
+
+    await waitFor(() => expect(onClose).toHaveBeenCalled());
+    expect(onClose, '库自身 dismiss 与兜底不得双触发').toHaveBeenCalledTimes(1);
+  });
+
+  it('selection 为 null → 组件返回 null，零 data-modal 节点', () => {
+    const { container } = renderModalLess(world(), null);
+
+    expect(container.querySelector('[data-modal]')).toBeNull();
+    expect(screen.queryByTestId('detail-drawer')).toBeNull();
+  });
+
+  it('宽度与容器类回归：内容容器 className 仍为 w-[960px] max-w-[85vw]', async () => {
+    renderModalLess(world([runtimeNode()]), {
+      scope: 'node',
+      nodeId: 'run:implement:2:executor:0',
+    });
+
+    await waitFor(() => expect(screen.getByTestId('detail-drawer') !== null).toBe(true));
+    const shell = screen.getByTestId('detail-drawer');
+    expect(shell.className).toContain('w-[960px]');
+    expect(shell.className).toContain('max-w-[85vw]');
+  });
+
+  it('选中面取数失败降级：session_detail reject → 错误态呈现、页脚关闭仍可用、非模态形态不变', async () => {
+    const onClose = vi.fn();
+    invokeMock.mockImplementation((command: string) =>
+      command === 'session_detail' ? Promise.reject('查无此 id') : Promise.resolve(null),
+    );
+    renderModalLess(
+      world([runtimeNode()]),
+      { scope: 'node', nodeId: 'run:implement:2:executor:0' },
+      { onClose },
+    );
+
+    await waitFor(() =>
+      expect(screen.getByTestId('detail-drawer').textContent).toContain('查无此 id'),
+    );
+    expect(drawerViewport().getAttribute('data-modal')).toBe('false');
+    expect(overlayNode(), '非模态不因失败退化').toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: '关闭' }));
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('选中面取数失败降级：read_exec_output reject → 抽屉内错误态不崩、关闭仍可用', async () => {
+    const onClose = vi.fn();
+    invokeMock.mockImplementation((command: string) =>
+      command === 'read_exec_output' ? Promise.reject('输出记录读取失败') : Promise.resolve(null),
+    );
+    renderModalLess(
+      world([outputNode()]),
+      { scope: 'node', nodeId: 'run:implement:2:staticCheck:0' },
+      { onClose },
+    );
+
+    await waitFor(() => expect(screen.getByTestId('stdout-panel') !== null).toBe(true));
+    await waitFor(() =>
+      expect(screen.getByTestId('detail-drawer').textContent).toContain('输出记录读取失败'),
+    );
+    expect(drawerViewport().getAttribute('data-modal')).toBe('false');
+
+    fireEvent.click(screen.getByRole('button', { name: '关闭' }));
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+});

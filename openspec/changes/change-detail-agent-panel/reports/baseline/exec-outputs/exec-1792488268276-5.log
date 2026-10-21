@@ -1,0 +1,209 @@
+✓ Lockfile passes supply-chain policies (verified 10d ago)
+Lockfile is up to date, resolution step is skipped
+Progress: resolved 1, reused 0, downloaded 0, added 0
+Packages are hard linked from the content-addressable store to the virtual store.
+  Content-addressable store is at: C:\Users\wps\AppData\Local\pnpm\store\v11
+  Virtual store is at:             node_modules/.pnpm
+Progress: resolved 671, reused 671, downloaded 0, added 98
+Progress: resolved 671, reused 671, downloaded 0, added 246
+Progress: resolved 671, reused 671, downloaded 0, added 332
+Progress: resolved 671, reused 671, downloaded 0, added 435
+Progress: resolved 671, reused 671, downloaded 0, added 522
+Progress: resolved 671, reused 671, downloaded 0, added 580
+Progress: resolved 671, reused 671, downloaded 0, added 614
+Progress: resolved 671, reused 671, downloaded 0, added 659
+Progress: resolved 671, reused 671, downloaded 0, added 672
+Progress: resolved 671, reused 671, downloaded 0, added 678
+Packages: +679
+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+Progress: resolved 671, reused 671, downloaded 0, added 679, done
+node_modules/esbuild postinstall$ node install.js
+node_modules/esbuild postinstall: Done
+
+dependencies:
++ @ai-sdk/react 4.0.121
++ @base-ui/react 1.8.0
++ @fontsource-variable/geist 5.3.0
++ @shadcn/react 0.3.1
++ @tauri-apps/api 2.11.1
++ @tauri-apps/plugin-dialog 2.7.3
++ @tauri-apps/plugin-updater 2.12.0
++ @xyflow/react 12.11.6
++ ai 7.0.118
++ class-variance-authority 0.7.1
++ cn 0.4.0
++ lucide-react 1.47.0
++ react 19.3.0
++ react-dom 19.3.0
++ react-markdown 10.1.0
++ react-resizable-panels 4.13.2
++ react-router 7.18.4
++ remark-gfm 4.0.1
++ shadcn 4.21.3
++ sonner 2.0.8
++ tw-animate-css 1.4.0
+
+devDependencies:
++ @stryker-mutator/core 9.6.1
++ @stryker-mutator/vitest-runner 9.6.1
++ @tailwindcss/typography 0.5.20
++ @tailwindcss/vite 4.3.3
++ @tauri-apps/cli 2.11.4
++ @testing-library/react 16.3.3
++ @types/json-schema 7.0.15
++ @types/node 24.13.6
++ @types/react 19.3.0
++ @types/react-dom 19.3.0
++ @vitejs/plugin-react 5.2.0
++ @vitest/coverage-v8 4.1.10
++ cross-env 10.1.0
++ jsdom 26.1.0
++ knip 6.37.0
++ oxlint-tsgolint 7.0.2001
++ tailwindcss 4.3.3
++ typescript 5.9.3
++ vite-plus 0.2.9
+
+Done in 25.6s using pnpm v12.10.1
+$ pnpm run server:check && pnpm run bindings:check && pnpm run client:check
+$ cargo fmt --manifest-path src-tauri/Cargo.toml && cargo clippy --manifest-path src-tauri/Cargo.toml
+   Compiling proc-macro2 v1.0.107
+   Compiling quote v1.0.47
+   Compiling unicode-ident v1.0.26
+   Compiling serde_core v1.0.229
+    Checking windows-link v0.2.1
+   Compiling zmij v1.0.23
+   Compiling cfg-if v1.0.5
+    Checking memchr v2.8.3
+   Compiling siphasher v1.0.3
+   Compiling getrandom v0.4.3
+    Checking itoa v1.0.18
+   Compiling fastrand v2.5.0
+    Checking pin-project-lite v0.2.17
+    Checking windows-sys v0.61.2
+   Compiling icu_properties_data v2.3.0
+    Checking bytes v1.12.1
+   Compiling icu_normalizer_data v2.3.0
+   Compiling serde v1.0.229
+   Compiling version_check v0.9.5
+   Compiling num-conv v0.2.2
+   Compiling time-core v0.1.9
+   Compiling autocfg v1.5.1
+   Compiling phf_shared v0.13.1
+   Compiling thiserror v2.0.20
+   Compiling serde_json v1.0.151
+   Compiling libc v0.2.189
+    Checking once_cell v1.21.4
+   Compiling stable_deref_trait v1.2.1
+   Compiling anyhow v1.0.104
+   Compiling winapi-util v0.1.11
+   Compiling phf_generator v0.13.1
+   Compiling bitflags v2.13.2
+    Checking mio v1.2.3
+    Checking socket2 v0.6.5
+    Checking smallvec v1.16.1
+   Compiling aho-corasick v1.1.5
+   Compiling regex-syntax v0.8.11
+   Compiling thiserror v1.0.69
+   Compiling same-file v1.0.6
+   Compiling parking_lot_core v0.9.12
+   Compiling shlex v2.0.1
+   Compiling find-msvc-tools v0.1.13
+    Checking equivalent v1.0.2
+    Checking hashbrown v0.17.1
+   Compiling syn v3.0.6
+   Compiling syn v2.0.119
+   Compiling walkdir v2.5.0
+   Compiling camino v1.2.6
+    Checking http v1.5.0
+   Compiling log v0.4.34
+    Checking tracing-core v0.1.36
+   Compiling semver v1.0.28
+   Compiling cc v1.4.7
+    Checking indexmap v2.14.2
+    Checking futures-core v0.3.34
+   Compiling regex-automata v0.4.18
+   Compiling typeid v1.0.3
+   Compiling rustc_version v0.4.1
+   Compiling phf_codegen v0.13.1
+   Compiling generic-array v0.14.7
+   Compiling glob v0.3.4
+    Checking percent-encoding v2.3.2
+   Compiling ident_case v1.0.1
+   Compiling strsim v0.11.1
+   Compiling litemap v0.8.3
+   Compiling writeable v0.6.4
+   Compiling erased-serde v0.4.10
+   Compiling utf8_iter v1.0.4
+   Compiling scopeguard v1.2.0
+   Compiling new_debug_unreachable v1.0.6
+   Compiling string_cache_codegen v0.6.1
+   Compiling windows_x86_64_msvc v0.52.6
+    Checking futures-sink v0.3.34
+    Checking fnv v1.0.7
+   Compiling lock_api v0.4.14
+   Compiling winnow v1.0.4
+   Compiling precomputed-hash v0.1.1
+   Compiling serde_spanned v1.1.1
+   Compiling toml_writer v1.1.2+spec-1.1.0
+   Compiling ctor-proc-macro v0.0.7
+   Compiling dtoa v1.0.11
+   Compiling web_atoms v0.2.6
+   Compiling parking_lot v0.12.5
+   Compiling tendril v0.5.1
+   Compiling form_urlencoded v1.2.2
+   Compiling selectors v0.36.1
+   Compiling synstructure v0.14.0
+   Compiling darling_core v0.24.1
+   Compiling toml_parser v1.1.3+spec-1.1.0
+   Compiling regex v1.13.1
+   Compiling dtoa-short v0.3.5
+   Compiling uuid v1.26.1
+   Compiling toml_datetime v1.1.1+spec-1.1.0
+   Compiling string_cache v0.9.0
+    Checking deranged v0.5.8
+   Compiling indexmap v1.9.3
+   Compiling time-macros v0.2.32
+    Checking slab v0.4.12
+   Compiling alloc-no-stdlib v2.0.4
+   Compiling byteorder v1.5.0
+   Compiling unic-char-range v0.9.0
+    Checking powerfmt v0.2.0
+   Compiling unic-common v0.9.0
+   Compiling alloc-stdlib v0.2.4
+   Compiling unic-char-property v0.9.0
+   Compiling toml v1.1.6+spec-1.1.0
+   Compiling serde_derive_internals v0.29.1
+    Checking futures-channel v0.3.34
+   Compiling unic-ucd-version v0.9.0
+   Compiling servo_arc v0.4.3
+   Compiling thiserror-impl v1.0.69
+   Compiling phf_macros v0.13.1
+   Compiling serde_derive v1.0.229
+   Compiling zerofrom-derive v0.1.8
+   Compiling yoke-derive v0.8.3
+   Compiling zerovec-derive v0.11.6
+   Compiling displaydoc v0.2.7
+   Compiling thiserror-impl v2.0.20
+   Compiling tokio-macros v2.7.2
+   Compiling tracing-attributes v0.1.31
+   Compiling cssparser-macros v0.6.1
+   Compiling derive_more-impl v2.1.1
+    Checking time v0.3.55
+   Compiling bit-vec v0.8.0
+   Compiling schemars v0.8.22
+   Compiling phf v0.13.1
+    Checking tokio v1.53.1
+   Compiling hashbrown v0.12.3
+   Compiling rustc-hash v2.1.3
+   Compiling darling_macro v0.24.1
+   Compiling zerofrom v0.1.8
+   Compiling derive_more v2.1.1
+   Compiling cfb v0.7.3
+    Checking tracing v0.1.44
+error: failed to write C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\change-detail-agent-panel\packages\desktop\src-tauri\target\debug\deps\libhashbrown-2e0f3c5e3acc04a8.rmeta: 另一个程序正在使用此文件，进程无法访问。 (os error 32)
+
+error: could not compile `hashbrown` (lib) due to 1 previous error
+warning: build failed, waiting for other jobs to finish...
+[ELIFECYCLE] Command failed with exit code 101.
+[ELIFECYCLE] Command failed with exit code 101.

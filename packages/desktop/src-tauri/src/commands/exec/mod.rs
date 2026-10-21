@@ -21,9 +21,33 @@ use store::WorkspaceStores;
 
 use agent::AgentRunMessage;
 
+/// change chat 会话清单的来源词（读侧词汇收在命令层，前端零来源词汇；写侧同
+/// 词由面板的受控常量给出——`source` 是自由字符串，无枚举可耦合）
+const CHANGE_CHAT_SOURCE: &str = "change";
+
 /// root 显式格式检查：空/空白串不进入库解析链路（同 explores 轨道口径）。
 fn is_blank_root(root: &str) -> bool {
     root.trim().is_empty()
+}
+
+/// 执行根解析（双 root 拆分，与 `change_flow_start` 的 exec root 同构）：`cwd`
+/// 非空白即会话执行根（工具沙箱根 / bash `current_dir` / 每轮 `AGENT.md` 读取
+/// 根），目录缺失即显式 `Err`（深埋进引擎工具调用的失败无可归因）；`None` 与
+/// 空白串一并回落 workspace root（既有 exec / explore 轨语义逐字不变）。store
+/// 半边恒 workspace root——本值 MUST NOT 进 `for_root`，否则会静默铸出第二份
+/// workspace 库。
+fn resolve_exec_root(cwd: Option<&str>, root: &str) -> Result<String, String> {
+    // `None` 与空白串同义（前端空串不诱发误报）：一并回落 workspace root
+    let Some(dir) = cwd.map(str::trim).filter(|dir| !dir.is_empty()) else {
+        return Ok(root.to_owned());
+    };
+    if Path::new(dir).is_dir() {
+        return Ok(dir.to_owned());
+    }
+    Err(format!(
+        "worktree 目录不存在（可能已被手动删除）: {dir}；\
+         请恢复目录或手动清理后重建 change"
+    ))
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -39,6 +63,7 @@ pub async fn agent_start(
     source: Option<String>,
     source_ref: Option<String>,
     agent: Option<i64>,
+    cwd: Option<String>,
 ) -> Result<TurnSummary, String> {
     agent_start_with(
         app,
@@ -50,6 +75,7 @@ pub async fn agent_start(
         source,
         source_ref,
         agent,
+        cwd,
     )
     .await
 }
@@ -68,12 +94,18 @@ pub(crate) async fn agent_start_with<R: tauri::Runtime>(
     source: Option<String>,
     source_ref: Option<String>,
     agent: Option<i64>,
+    cwd: Option<String>,
 ) -> Result<TurnSummary, String> {
     if is_blank_root(&root) {
         return Err("非法 root: 不得为空白（无 cwd 无从发起）".to_owned());
     }
+    // 前置校验：执行根解析（双 root 拆分，与 change_flow 的 exec / store 半边
+    // 同构）——`cwd` 非空白即会话执行根，目录缺失显式 Err；None / 空白串回落
+    // workspace root；store 半边恒 `root`（本值不进 `for_root`）
+    let exec_root = resolve_exec_root(cwd.as_deref(), &root)?;
     // 参数转换段：会话引用（None 即 New、Some 即 Continue）+ 来源归属
-    //（缺省 debug）+ 轮级上下文（cwd 恒为当前 workspace root，前端固定传 root）
+    //（缺省 debug）+ 轮级上下文（执行根默认取 workspace root，来源侧可经尾部
+    // `cwd` 覆盖——change 面板即 worktree）
     let session = match session_id {
         None => SessionRef::New,
         Some(id) => SessionRef::Continue { id },
@@ -83,14 +115,15 @@ pub(crate) async fn agent_start_with<R: tauri::Runtime>(
         source_ref,
     };
     let ctx = SessionCtx {
-        workspace_root: Path::new(&root).to_path_buf(),
+        workspace_root: Path::new(&exec_root).to_path_buf(),
         permission_mode,
         // exec / explore 轨道恒 High 档
         model_level: ModelLevel::High,
     };
     // 调用段：组合根 + 内核（解析/快照/编排全部下沉；命令体零解析残留）。
-    // store 半边注入 workspace root 库实例（compose 拆参，design D8；会话仍
-    // 主 root——exec / explore 轨道与 change 域工作面分离，D7 拍板）
+    // store 半边注入 workspace root 库实例（compose 拆参，design D8；双 root
+    // 不变量——`cwd` 只进上方 SessionCtx.workspace_root，`for_root` 恒受
+    // `root` 支配，worktree 路径不派生第二份 workspace 库）
     let stores = app.state::<WorkspaceStores>();
     let registry = app.state::<Arc<StopRegistry>>();
     let streams = app.state::<Arc<SessionStreamRegistry>>();
@@ -258,4 +291,33 @@ pub fn session_detail(
     agent_runtime::session_query(store)
         .find_session_detail(&session_id)
         .map(Some)
+}
+
+/// 某 change 的 chat 会话清单（探测语义薄包装，三段：参数转换 → 内核分页查询
+/// → 错误映射）：`source` 词常量收在本层（前端零来源词汇），`source_ref` 即
+/// change id 原样（不 trim / 不规范化——URL id 即身份键）；同 change 的流程
+/// 会话为四段 `{changeId}/{phase}/{role}/{attempt}`，精确相等过滤下不撞。
+/// blank root → 空页信封（读面语义，与 `agent_sessions` 同口径）。
+#[tauri::command]
+#[specta::specta]
+pub fn list_change_chat_sessions(
+    stores: State<'_, WorkspaceStores>,
+    root: String,
+    id: String,
+    offset: u32,
+    limit: u32,
+) -> Result<SessionPage, String> {
+    if is_blank_root(&root) {
+        return Ok(SessionPage {
+            sessions: Vec::new(),
+            total: 0,
+        });
+    }
+    let store = stores.for_root(&root).map_err(|e| e.to_string())?;
+    agent_runtime::session_query(store).list_sessions(
+        Some(CHANGE_CHAT_SOURCE),
+        Some(&id),
+        offset,
+        limit,
+    )
 }

@@ -1,3 +1,5 @@
+import { useEffect } from 'react';
+
 import { StandardDrawer } from '@/components/standard/drawer';
 
 import type { ArtifactEnvelope } from '../../../types/dto';
@@ -128,7 +130,9 @@ function DrawerContent({
   return <DrawerEmptyPlaceholder />;
 }
 
-/** 右侧抽屉（单列）：遮罩点击或关闭按钮置 selection 为 null（由页面组装层承载状态） */
+/** 右侧抽屉（单列，非模态）：关闭经页脚「关闭」按钮与 Esc 置 selection 为
+ * null（由页面组装层承载状态）；非模态下无「点遮罩关闭」——抽屉不遮蔽页面
+ * 其余区域（左栏通用 Agent 面板保持可交互）。 */
 export function DetailDrawer({
   selection,
   graph,
@@ -139,6 +143,16 @@ export function DetailDrawer({
   sessionRefreshKey,
   onClose,
 }: DetailDrawerProps): React.JSX.Element | null {
+  // Esc 关闭兜底（非模态下 base-ui 的 dismiss 不保证触发）：选中缺席时不挂监
+  // 听；与库自身 dismiss 并存无双触发副作用（`onClose` 置 null 幂等）
+  useEffect(() => {
+    if (selection === null) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [selection, onClose]);
   if (selection === null) return null;
   const node =
     selection.scope === 'node'
@@ -148,6 +162,7 @@ export function DetailDrawer({
   return (
     <StandardDrawer
       data-testid="detail-drawer"
+      modal={false}
       open={true}
       onOpenChange={(next) => {
         if (!next) onClose();

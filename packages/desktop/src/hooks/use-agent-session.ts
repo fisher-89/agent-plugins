@@ -22,6 +22,10 @@ export interface UseAgentSessionParams {
   sessionId: string | null;
   /** 来源归属透传（debug / explore / ...） */
   source: string;
+  /** 来源内定位透传（归属记录 / 清单筛选；未提供即 null——既有消费面零漂移） */
+  sourceRef?: string | null;
+  /** 会话执行根透传（未提供即 null → 后端回落 `root`） */
+  cwd?: string | null;
   /** 会话状态重评估信号：变化即重评估（重放装载 + 是否挂流） */
   refreshKey?: number;
 }
@@ -438,7 +442,7 @@ function useSessionActions(
   stop: () => void;
   reset: () => void;
 } {
-  const { source, sessionId, root } = params;
+  const { source, sourceRef, cwd, sessionId, root } = params;
   const send = chat.sendMessage;
 
   const sendMessage = useCallback(
@@ -456,11 +460,14 @@ function useSessionActions(
           // 未落地 / 失败）时回落来源侧的会话引用——来源已有会话就绝不新铸
           sessionId: mirrors.currentSessionIdRef.current ?? sessionId,
           source,
-          sourceRef: null,
+          // 来源侧归属与执行根原样透传（未提供即 null：执行根回落 root、
+          // 归属 sourceRef 为 null——调试页 / explore 链语义零漂移）
+          sourceRef: sourceRef ?? null,
+          cwd: cwd ?? null,
         },
       });
     },
-    [send, statusRef, mirrors.currentSessionIdRef, sessionId, root, source],
+    [send, statusRef, mirrors.currentSessionIdRef, sessionId, root, source, sourceRef, cwd],
   );
 
   const stop = useCallback(() => {

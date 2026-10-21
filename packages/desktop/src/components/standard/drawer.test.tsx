@@ -260,3 +260,121 @@ describe('StandardDrawer：title 边界与受控三态注入', () => {
     expect(screen.queryByText(CONTENT)).toBeNull();
   });
 });
+
+// ---------------------------------------------------------------------------
+// modal 开关（`StandardDrawer` 增 `modal?: boolean = true`，D17）：`data-modal`
+// 由底层 `components/ui/drawer` 的 Viewport 给出、遮罩仅模态档渲染；`modal` 只
+// 透传底层 `Drawer`，MUST NOT 落进 `DrawerContent` 的 rest（不多出未知 DOM 属性）。
+// ---------------------------------------------------------------------------
+
+/** 底层 Viewport（`data-modal` 的出具点；非本组件 DOM 属性面）。 */
+function drawerViewport(): HTMLElement {
+  const viewport = document.querySelector('[data-slot="drawer-viewport"]');
+  if (viewport === null) throw new Error('抽屉 Viewport 未挂载');
+  return viewport as HTMLElement;
+}
+
+function overlayNode(): Element | null {
+  return document.querySelector('[data-slot="drawer-overlay"]');
+}
+
+describe('StandardDrawer：modal 开关（缺省模态 / 非模态并读）', () => {
+  it('缺省模态：不传 modal（既有调用形态）→ data-modal="true" 且遮罩在场', async () => {
+    render(<StandardDrawer title={TITLE} content={body()} open data-testid={SHELL} />);
+
+    await waitFor(() => expect(screen.getByRole('heading', { name: TITLE }) !== null).toBe(true));
+    expect(drawerViewport().getAttribute('data-modal')).toBe('true');
+    expect(overlayNode(), '模态档遮罩在场').not.toBeNull();
+  });
+
+  it('非模态透传：modal={false} → data-modal="false"、遮罩不在场、标题 / 正文 / 页脚关闭照常', async () => {
+    render(
+      <StandardDrawer title={TITLE} content={body()} open modal={false} data-testid={SHELL} />,
+    );
+
+    await waitFor(() => expect(screen.getByRole('heading', { name: TITLE }) !== null).toBe(true));
+    expect(drawerViewport().getAttribute('data-modal')).toBe('false');
+    expect(overlayNode(), '非模态档无遮罩（页面其余区域可交互）').toBeNull();
+    expect(screen.getByText(CONTENT) !== null).toBe(true);
+    expect(screen.getByRole('button', { name: '关闭' }) !== null).toBe(true);
+  });
+
+  it('显式 modal={true} 与缺省形态 DOM 全等（data-modal / 遮罩 / 内容壳属性）', async () => {
+    const explicit = render(
+      <StandardDrawer title={TITLE} content={body()} open modal data-testid={SHELL} />,
+    );
+    await waitFor(() => expect(screen.getByRole('heading', { name: TITLE }) !== null).toBe(true));
+    const explicitModal = drawerViewport().getAttribute('data-modal');
+    const explicitOverlay = overlayNode() !== null;
+    explicit.unmount();
+
+    render(<StandardDrawer title={TITLE} content={body()} open data-testid={SHELL} />);
+    await waitFor(() => expect(screen.getByRole('heading', { name: TITLE }) !== null).toBe(true));
+
+    expect(drawerViewport().getAttribute('data-modal')).toBe(explicitModal);
+    expect(overlayNode() !== null).toBe(explicitOverlay);
+  });
+
+  it('modal 不落内容壳 DOM 属性面：内容壳无 modal 属性、无未知属性告警', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+    render(
+      <StandardDrawer title={TITLE} content={body()} open modal={false} data-testid={SHELL} />,
+    );
+
+    await waitFor(() => expect(screen.getByRole('heading', { name: TITLE }) !== null).toBe(true));
+    const shell = screen.getByTestId(SHELL);
+    expect(shell.hasAttribute('modal')).toBe(false);
+    expect(
+      consoleError.mock.calls.filter(([message]) =>
+        String(message).includes('React does not recognize'),
+      ),
+      'modal 不进 rest（无未知 DOM 属性告警）',
+    ).toHaveLength(0);
+    consoleError.mockRestore();
+  });
+
+  it('受控档开合：无 trigger、外部驱动 open + modal={false} → 页脚「关闭」回报 onOpenChange(false) 一次', async () => {
+    const onOpenChange = vi.fn<(open: boolean) => void>();
+    const view = render(
+      <StandardDrawer
+        title={TITLE}
+        content={body()}
+        open
+        modal={false}
+        onOpenChange={onOpenChange}
+        data-testid={SHELL}
+      />,
+    );
+    await waitFor(() => expect(screen.getByRole('heading', { name: TITLE }) !== null).toBe(true));
+
+    fireEvent.click(screen.getByRole('button', { name: '关闭' }));
+
+    await waitFor(() => expect(onOpenChange).toHaveBeenCalledTimes(1));
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+    expect(screen.queryByRole('heading', { name: TITLE })).toBeNull();
+
+    // 外部再驱动开启（open 保持由外到内的单向同步：先落 false 再落 true）：
+    // 开合照常（非模态不影响受控语义）
+    view.rerender(
+      <StandardDrawer
+        title={TITLE}
+        content={body()}
+        open={false}
+        modal={false}
+        onOpenChange={onOpenChange}
+        data-testid={SHELL}
+      />,
+    );
+    view.rerender(
+      <StandardDrawer
+        title={TITLE}
+        content={body()}
+        open
+        modal={false}
+        onOpenChange={onOpenChange}
+        data-testid={SHELL}
+      />,
+    );
+    await waitFor(() => expect(screen.getByRole('heading', { name: TITLE }) !== null).toBe(true));
+  });
+});

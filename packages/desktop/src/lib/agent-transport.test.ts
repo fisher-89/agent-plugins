@@ -129,6 +129,8 @@ const SESSION_BODY = {
   sessionId: 'ses-0-1727000000000',
   source: 'explore',
   sourceRef: null,
+  // 执行根尾位（null = 回落 root；会话参数 8 键的既有形态）
+  cwd: null,
 };
 
 /** Channel mock 实例形状（vi.hoisted 内 class 不外泄类型，取其结构）。 */
@@ -189,8 +191,13 @@ describe('TauriAgentTransport：sendMessages', () => {
     void stream.cancel();
 
     const args = startCallArgs();
-    // agent 键恒在（body 无 agent → 缺席值 null 传递）
-    expect(args).toEqual({ ...SESSION_BODY, agent: null, onEvent: expect.any(ChannelMock) });
+    // agent / cwd 键恒在（body 无 agent / cwd → 缺席值 null 传递）
+    expect(args).toEqual({
+      ...SESSION_BODY,
+      agent: null,
+      cwd: null,
+      onEvent: expect.any(ChannelMock),
+    });
     expect(args['root']).toBe(SESSION_BODY.root);
     expect(args['prompt']).toBe(SESSION_BODY.prompt);
     expect(args['permissionMode']).toBe('bypassPermissions');
@@ -589,16 +596,17 @@ describe('TauriAgentTransport：reconnectToStream', () => {
 // ---------------------------------------------------------------------------
 
 describe('TauriAgentTransport：生成绑定调用面', () => {
-  it('经生成绑定入口发起后 invoke 收到 "agent_start"，会话参数 7 字段 camelCase key 与值逐字不变且 body 原样穿透', async () => {
+  it('经生成绑定入口发起后 invoke 收到 "agent_start"，会话参数 8 字段 camelCase key 与值逐字不变且 body 原样穿透', async () => {
     invokeMock.mockResolvedValue(recordRow(13, 'running'));
     const transport = new TauriAgentTransport();
 
     const stream = await send(transport);
     void stream.cancel();
 
-    // 生成绑定位置参数 → invoke 参数对象：恰 8 个 key（会话参数 7 + onEvent）
+    // 生成绑定位置参数 → invoke 参数对象：恰 9 个 key（会话参数 8 + onEvent）
     expect(Object.keys(startCallArgs()).sort()).toEqual([
       'agent',
+      'cwd',
       'onEvent',
       'permissionMode',
       'prompt',
@@ -610,6 +618,7 @@ describe('TauriAgentTransport：生成绑定调用面', () => {
     expect(startCallArgs()).toEqual({
       ...SESSION_BODY,
       agent: null,
+      cwd: null,
       onEvent: expect.any(ChannelMock),
     });
   });
@@ -1229,5 +1238,177 @@ describe('TauriAgentTransport：消费侧取消后的信封处置', () => {
 
     expect(onEvent).not.toHaveBeenCalled();
     expect(onRecord, 'cancel 即终局：不投伪终态').not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// cwd / sourceRef 读参与具名解构后的位置参数序（AC-1 / AC-3 / AC-4）：
+// `readSessionParams` 增读两字段（`readNullableString` 同源校验，不改写不
+// trim），`invokeStart` 按生成绑定位置签名传参（`cwd` 位置 8）；订阅 / 重放面
+// 不携执行根与归属。
+// ---------------------------------------------------------------------------
+
+/** `agent_start` 参数对象的会话参数键集合（含 onEvent 之外的 8 键）。 */
+const SESSION_ARG_KEYS = [
+  'agent',
+  'cwd',
+  'permissionMode',
+  'prompt',
+  'root',
+  'sessionId',
+  'source',
+  'sourceRef',
+];
+
+describe('TauriAgentTransport：cwd 与 sourceRef 透传面', () => {
+  it('body 携 sourceRef + cwd → 逐字到达 agent_start（参数对象 9 键）', async () => {
+    invokeMock.mockResolvedValue(recordRow(13, 'running'));
+    const transport = new TauriAgentTransport();
+
+    const stream = await send(transport, {
+      ...SESSION_BODY,
+      sourceRef: 'chg-1',
+      cwd: 'C:\\demo\\wt',
+    });
+    void stream.cancel();
+
+    const args = startCallArgs();
+    expect(Object.keys(args).sort()).toEqual([...SESSION_ARG_KEYS, 'onEvent'].sort());
+    expect(args['sourceRef']).toBe('chg-1');
+    expect(args['cwd']).toBe('C:\\demo\\wt');
+  });
+
+  it('具名解构后按位置签名传参：8 个会话参数各取互异哨兵值逐键相等（任一错位即红）', async () => {
+    invokeMock.mockResolvedValue(recordRow(13, 'running'));
+    const transport = new TauriAgentTransport();
+
+    const sentinel = {
+      root: 'ROOT-哨兵',
+      prompt: 'PROMPT-哨兵',
+      permissionMode: 'acceptEdits' as const,
+      sessionId: 'SESSION-哨兵',
+      source: 'SOURCE-哨兵',
+      sourceRef: 'SOURCEREF-哨兵',
+      agent: 7,
+      cwd: 'CWD-哨兵',
+    };
+    const stream = await send(transport, sentinel);
+    void stream.cancel();
+
+    expect(startCallArgs()).toEqual({
+      onEvent: expect.any(ChannelMock),
+      ...sentinel,
+    });
+    expect(Object.keys(startCallArgs()).sort()).toEqual([...SESSION_ARG_KEYS, 'onEvent'].sort());
+  });
+
+  it('缺省不漂移：body 不含 cwd / sourceRef → 两键均在且为 null（键集合稳定）', async () => {
+    invokeMock.mockResolvedValue(recordRow(13, 'running'));
+    const transport = new TauriAgentTransport();
+
+    const stream = await send(transport, {
+      root: ROOT,
+      prompt: '缺省两字段',
+      permissionMode: 'default',
+      sessionId: null,
+      source: 'change',
+    });
+    void stream.cancel();
+
+    const args = startCallArgs();
+    expect(Object.keys(args).sort()).toEqual([...SESSION_ARG_KEYS, 'onEvent'].sort());
+    expect(args['cwd']).toBeNull();
+    expect(args['sourceRef']).toBeNull();
+  });
+
+  it('显式 null 与缺席同值：两种 body 的 agent_start 参数对象全等', async () => {
+    invokeMock.mockResolvedValue(recordRow(13, 'running'));
+    const transport = new TauriAgentTransport();
+
+    const absent = await send(transport, { ...SESSION_BODY });
+    void absent.cancel();
+    const absentArgs = startCallArgs();
+
+    const explicit = await send(transport, { ...SESSION_BODY, cwd: null, sourceRef: null });
+    void explicit.cancel();
+    const explicitArgs = startCallArgs();
+
+    // onEvent 为各流独立 Channel 实例（不参与同值比较），其余 8 键逐字段全等
+    expect(explicitArgs).toEqual({ ...absentArgs, onEvent: expect.any(ChannelMock) });
+    expect(explicitArgs['cwd']).toBeNull();
+    expect(explicitArgs['sourceRef']).toBeNull();
+  });
+
+  it('空串原样透传：transport 不 trim、不改写为 null', async () => {
+    invokeMock.mockResolvedValue(recordRow(13, 'running'));
+    const transport = new TauriAgentTransport();
+
+    const stream = await send(transport, { ...SESSION_BODY, cwd: '', sourceRef: '' });
+    void stream.cancel();
+
+    expect(startCallArgs()['cwd']).toBe('');
+    expect(startCallArgs()['sourceRef']).toBe('');
+  });
+
+  it('超长与特殊字符逐字透传（不截断、不转义改写）', async () => {
+    invokeMock.mockResolvedValue(recordRow(13, 'running'));
+    const transport = new TauriAgentTransport();
+    const longCwd = `C:\\${'a'.repeat(1200)}`;
+    const specialRef = 'chg-🚀\nid';
+
+    const stream = await send(transport, { ...SESSION_BODY, cwd: longCwd, sourceRef: specialRef });
+    void stream.cancel();
+
+    expect(startCallArgs()['cwd']).toBe(longCwd);
+    expect(startCallArgs()['sourceRef']).toBe(specialRef);
+  });
+
+  it('未声明的额外字段零影响：transport 只取声明字段，不整体摊开 body', async () => {
+    invokeMock.mockResolvedValue(recordRow(13, 'running'));
+    const transport = new TauriAgentTransport();
+
+    const stream = await send(transport, { ...SESSION_BODY, foo: 'bar', cwd: 'C:\\demo\\wt' });
+    void stream.cancel();
+
+    expect(startCallArgs()).not.toHaveProperty('foo');
+    expect(Object.keys(startCallArgs()).sort()).toEqual([...SESSION_ARG_KEYS, 'onEvent'].sort());
+  });
+
+  it('非法类型拒绝：cwd / sourceRef 各自非串形态 → 「非法 <字段>」拒绝、零 agent_start、零 Channel', async () => {
+    const cases: [Record<string, unknown>, string][] = [
+      [{ cwd: 42 }, '非法 cwd: 42'],
+      [{ cwd: true }, '非法 cwd: true'],
+      [{ sourceRef: 42 }, '非法 sourceRef: 42'],
+      [{ sourceRef: {} }, '非法 sourceRef: {}'],
+    ];
+    for (const [override, message] of cases) {
+      invokeMock.mockReset();
+      ChannelMock.instances.length = 0;
+      const transport = new TauriAgentTransport();
+
+      await expect(send(transport, { ...SESSION_BODY, ...override })).rejects.toThrow(message);
+      expect(
+        invokeMock.mock.calls.filter(([name]) => name === 'agent_start'),
+        `${message} 时零发起`,
+      ).toHaveLength(0);
+      expect(ChannelMock.instances, `${message} 时零流（不建 Channel）`).toHaveLength(0);
+    }
+  });
+
+  it('订阅面回归：reconnectToStream 仅 agent_session_watch，参数键无 cwd / sourceRef', async () => {
+    invokeMock.mockImplementation(hangingWatch);
+    const transport = new TauriAgentTransport();
+
+    const stream = await reconnect(transport);
+    void stream?.cancel();
+
+    const args = watchCallArgs();
+    expect(Object.keys(args).sort()).toEqual(['onEvent', 'root', 'sessionId', 'sinceSeq']);
+    expect(args).not.toHaveProperty('cwd');
+    expect(args).not.toHaveProperty('sourceRef');
+    expect(
+      invokeMock.mock.calls.filter(([name]) => name === 'agent_start'),
+      '订阅面不发起 run',
+    ).toHaveLength(0);
   });
 });

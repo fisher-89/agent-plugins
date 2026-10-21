@@ -1,0 +1,12 @@
+$ pnpm run server:check && pnpm run bindings:check && pnpm run client:check
+$ cargo fmt --manifest-path src-tauri/Cargo.toml && cargo clippy --manifest-path src-tauri/Cargo.toml
+    Checking dev-team v0.1.0 (C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\change-detail-agent-panel\packages\desktop\src-tauri)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 6.17s
+$ pnpm run bindings:export && git diff --exit-code -- src/types/generated
+$ cargo run --quiet -p export-bindings --manifest-path src-tauri/Cargo.toml
+error: failed to build archive at `C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\change-detail-agent-panel\packages\desktop\src-tauri\target\debug\deps\libwinnow-d12b79d17ec3867a.rlib`: failed to rename archive file: 另一个程序正在使用此文件，进程无法访问。 (os error 32)
+
+error: could not compile `winnow` (lib) due to 1 previous error
+[ELIFECYCLE] Command failed with exit code 101.
+[ELIFECYCLE] Command failed with exit code 101.
+[ELIFECYCLE] Command failed with exit code 101.

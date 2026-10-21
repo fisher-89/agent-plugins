@@ -15,8 +15,8 @@ use store::{
 };
 
 use super::{
-    agent_session_transcript, agent_session_watch_with, agent_sessions, agent_start_with,
-    agent_stop, session_detail,
+    agent_session_transcript, agent_session_watch_with, agent_sessions, agent_start,
+    agent_start_with, agent_stop, list_change_chat_sessions, session_detail,
 };
 
 // ---------------------------------------------------------------------------
@@ -570,6 +570,7 @@ async fn agent_start_blank_root守卫err且零落库() {
         None,
         None,
         None,
+        None,
     )
     .await;
 
@@ -603,6 +604,7 @@ async fn agent_start无默认agent时err引导管理页() {
         root.clone(),
         "提示词".to_owned(),
         AgentPermissionMode::BypassPermissions,
+        None,
         None,
         None,
         None,
@@ -642,6 +644,7 @@ async fn agent_start_sdk空配置时config_missing映射err直抵前端() {
         root.clone(),
         "提示词".to_owned(),
         AgentPermissionMode::BypassPermissions,
+        None,
         None,
         None,
         None,
@@ -689,6 +692,7 @@ async fn agent_start成功链路提前resolve返回running轮行且会话行轮�
         root.clone(),
         "提前 resolve 一轮".to_owned(),
         AgentPermissionMode::BypassPermissions,
+        None,
         None,
         None,
         None,
@@ -788,6 +792,7 @@ async fn agent_start参数转换_session引用与来源与agent透传() {
         Some("explore".to_owned()),
         Some("7".to_owned()),
         Some(sdk_id),
+        None,
     )
     .await;
 
@@ -825,6 +830,7 @@ async fn agent_start_kernelscoped_stopregistry托管的命中链经channel流出
         root.clone(),
         "停止链一轮".to_owned(),
         AgentPermissionMode::BypassPermissions,
+        None,
         None,
         None,
         None,
@@ -1449,6 +1455,7 @@ async fn watch与agent_start终态同源_started_at逐字承接() {
         None,
         None,
         None,
+        None,
     )
     .await
     .expect("提前 resolve");
@@ -1502,4 +1509,1060 @@ async fn wait_for_record(captured: &Arc<Mutex<Vec<serde_json::Value>>>) -> serde
         tokio::task::yield_now().await;
         std::thread::sleep(std::time::Duration::from_millis(5));
     }
+}
+
+// ---------------------------------------------------------------------------
+// agent_start 的 cwd 面（双 root 拆分，AC-1 / AC-2）：执行根进 SessionCtx、store
+// 半边恒 workspace root；cwd 缺省 / 空白回落 root；非目录显式 Err（不进引擎、
+// 不推流、不落库）。复用既有装置（Env / app_with_stores / capturing_channel /
+// seed_provider / seed_sdk_default），不新建装置。
+// ---------------------------------------------------------------------------
+
+/// chat 归属的 change id（`source_ref` 身份键；URL id 形态原样使用）。
+const CHAT_CHANGE_ID: &str = "0199a2f0-chat-0001-000000000001";
+
+/// `workspaces/` 子树下 db 文件计数（`for_root` 唯一的落盘观测面——不以
+/// `for_root(&cwd)` 观测，避免断言自身铸库）。
+fn workspace_db_count(env: &Env) -> usize {
+    let dir = env.data_dir.path().join("workspaces");
+    let Ok(entries) = fs::read_dir(&dir) else {
+        return 0;
+    };
+    entries
+        .filter_map(Result::ok)
+        .filter(|entry| entry.path().extension().is_some_and(|ext| ext == "redb"))
+        .count()
+}
+
+/// sdk 默认实例 fixture（非法 base_url：泵即时收敛，不落网络不进重试退避）。
+fn seed_fast_failing_default(stores: &WorkspaceStores, tag: &str) {
+    let provider = seed_provider(
+        stores,
+        &format!("{tag}供应"),
+        "sk-test",
+        "http://bad host/v1",
+        "m-high",
+    );
+    seed_sdk_default(stores, &format!("{tag}实例"), provider);
+}
+
+/// 发起后 root 库内会话清单（断言落库半边的统一读取面）。
+fn sessions_in_root(stores: &WorkspaceStores, root: &str) -> Vec<::agent::SessionSummary> {
+    stores
+        .for_root(root)
+        .expect("for_root 应成功")
+        .list_sessions(None, None)
+        .expect("清单应成功")
+}
+
+#[test]
+fn agent_start薄入口参数面形状_cwd末位十参同序() {
+    // 形状锚：闭包体以 10 个位置实参同序转调命令薄入口（错位 / 缺位即编译失
+    // 败）；闭包永不执行——行为断言归下方 `agent_start_with` 用例，生成绑定逐
+    // 字断言归 `src/bindings/mod_test.rs`（双侧锁形）。
+    let _shape = |app: tauri::AppHandle,
+                  on_event: Channel<super::agent::AgentRunMessage>,
+                  root: String,
+                  prompt: String,
+                  permission_mode: ::agent::AgentPermissionMode,
+                  session_id: Option<String>,
+                  source: Option<String>,
+                  source_ref: Option<String>,
+                  agent: Option<i64>,
+                  cwd: Option<String>| {
+        agent_start(
+            app,
+            on_event,
+            root,
+            prompt,
+            permission_mode,
+            session_id,
+            source,
+            source_ref,
+            agent,
+            cwd,
+        )
+    };
+}
+
+#[tokio::test]
+async fn agent_start_with_cwd真目录作执行根而会话行落root库() {
+    let env = Env::new("cwd-exec-root");
+    let app = app_with_stores(&env);
+    let stores = app.state::<WorkspaceStores>();
+    let root = env.root_of("alpha");
+    seed_fast_failing_default(stores.inner(), "执行根");
+    let worktree = env.ws("wt").to_string_lossy().into_owned();
+
+    let (channel, captured) = capturing_channel();
+    let summary = agent_start_with(
+        app.handle().clone(),
+        channel,
+        root.clone(),
+        "带执行根一轮".to_owned(),
+        AgentPermissionMode::BypassPermissions,
+        None,
+        None,
+        None,
+        None,
+        Some(worktree.clone()),
+    )
+    .await
+    .expect("cwd 为真目录时应成功发起");
+
+    assert_eq!(
+        summary.status,
+        ::agent::AgentRunStatus::Running,
+        "提前 resolve 的 running 态轮行"
+    );
+    assert!(summary.session_id.starts_with("ses-"), "core 铸会话 id");
+
+    let summaries = sessions_in_root(stores.inner(), &root);
+    assert_eq!(
+        summaries.len(),
+        1,
+        "会话行落 workspace root 库（store 半边恒 root）"
+    );
+    assert_eq!(summaries[0].row.id, summary.session_id);
+    assert_eq!(summaries[0].turns.len(), 1, "轮行随会话行落同一库");
+    assert_eq!(
+        summaries[0].turns[0].status,
+        ::agent::AgentRunStatus::Running
+    );
+
+    // 后台泵以 api_error 收敛（不落网络）：终态经 Channel 收尾
+    let record = wait_for_record(&captured).await;
+    assert_eq!(
+        record["record"]["sessionId"],
+        serde_json::json!(summary.session_id),
+        "终态部件同会话"
+    );
+}
+
+#[tokio::test]
+async fn agent_start_with_cwd不派生第二份workspace库() {
+    let env = Env::new("cwd-double-root");
+    let app = app_with_stores(&env);
+    let stores = app.state::<WorkspaceStores>();
+    let root = env.root_of("alpha");
+    seed_fast_failing_default(stores.inner(), "双根");
+    // 基线：先经 root 铸一次库，再计数（此后 cwd 不得再派生文件）
+    stores.inner().for_root(&root).expect("for_root 应成功");
+    let before = workspace_db_count(&env);
+    assert_eq!(before, 1, "基线恰一份 workspace 库");
+
+    // cwd 指向 ws_root 之外的现成目录（数据根自身）：若该值进 `for_root`，
+    // workspaces/ 下会多出一份 db 文件
+    let outside = env.data_dir.path().to_string_lossy().into_owned();
+    agent_start_with(
+        app.handle().clone(),
+        discarding_channel(),
+        root.clone(),
+        "双 root 一轮".to_owned(),
+        AgentPermissionMode::BypassPermissions,
+        None,
+        None,
+        None,
+        None,
+        Some(outside),
+    )
+    .await
+    .expect("执行根存在即可发起");
+
+    assert_eq!(
+        workspace_db_count(&env),
+        before,
+        "cwd 不进 for_root——不派生第二份 workspace 库（双 root 不变量）"
+    );
+    assert_eq!(
+        sessions_in_root(stores.inner(), &root).len(),
+        1,
+        "会话行仍落 root 库"
+    );
+}
+
+#[tokio::test]
+async fn agent_start_with_cwd缺省回落root行为逐字不变() {
+    let env = Env::new("cwd-none");
+    let app = app_with_stores(&env);
+    let stores = app.state::<WorkspaceStores>();
+    let root = env.root_of("alpha");
+    seed_fast_failing_default(stores.inner(), "缺省根");
+
+    let (channel, captured) = capturing_channel();
+    let summary = agent_start_with(
+        app.handle().clone(),
+        channel,
+        root.clone(),
+        "无执行根一轮".to_owned(),
+        AgentPermissionMode::BypassPermissions,
+        None,
+        None,
+        None,
+        None,
+        None,
+    )
+    .await
+    .expect("cwd 缺省零 Err（既有语义逐字不变）");
+
+    assert_eq!(summary.status, ::agent::AgentRunStatus::Running);
+    let summaries = sessions_in_root(stores.inner(), &root);
+    assert_eq!(summaries.len(), 1, "会话行落 root 库");
+    assert_eq!(summaries[0].turns.len(), 1, "轮行 running 落库");
+    let record = wait_for_record(&captured).await;
+    assert_eq!(
+        record["record"]["turnId"],
+        serde_json::json!(summary.turn_id),
+        "Channel 收 record 收尾（终态不依赖 invoke 返回）"
+    );
+}
+
+#[tokio::test]
+async fn agent_start_with_空白cwd回落root不当不存在目录() {
+    for blank in ["", "   ", "\t\n "] {
+        let env = Env::new("cwd-blank");
+        let app = app_with_stores(&env);
+        let stores = app.state::<WorkspaceStores>();
+        let root = env.root_of("alpha");
+        seed_fast_failing_default(stores.inner(), "空白根");
+
+        let summary = agent_start_with(
+            app.handle().clone(),
+            discarding_channel(),
+            root.clone(),
+            "空白 cwd 一轮".to_owned(),
+            AgentPermissionMode::BypassPermissions,
+            None,
+            None,
+            None,
+            None,
+            Some(blank.to_owned()),
+        )
+        .await
+        .unwrap_or_else(|error| panic!("空白 cwd {blank:?} 应回落 root 不报错，实际: {error}"));
+
+        let summaries = sessions_in_root(stores.inner(), &root);
+        assert_eq!(summaries.len(), 1, "空白 cwd {blank:?} 的会话行落 root 库");
+        assert_eq!(summaries[0].row.id, summary.session_id);
+    }
+}
+
+#[tokio::test]
+async fn agent_start_with归属写侧source与source_ref原样落库() {
+    let env = Env::new("cwd-provenance");
+    let app = app_with_stores(&env);
+    let stores = app.state::<WorkspaceStores>();
+    let root = env.root_of("alpha");
+    seed_fast_failing_default(stores.inner(), "归属");
+
+    let summary = agent_start_with(
+        app.handle().clone(),
+        discarding_channel(),
+        root.clone(),
+        "归属一轮".to_owned(),
+        AgentPermissionMode::BypassPermissions,
+        None,
+        Some("change".to_owned()),
+        Some(CHAT_CHANGE_ID.to_owned()),
+        None,
+        Some(env.ws("wt").to_string_lossy().into_owned()),
+    )
+    .await
+    .expect("归属字段不影响发起");
+
+    let summaries = sessions_in_root(stores.inner(), &root);
+    assert_eq!(summaries.len(), 1);
+    assert_eq!(summaries[0].row.id, summary.session_id);
+    assert_eq!(
+        summaries[0].row.provenance.source, "change",
+        "source 写侧原样落库（AC-3 写侧前置）"
+    );
+    assert_eq!(
+        summaries[0].row.provenance.source_ref.as_deref(),
+        Some(CHAT_CHANGE_ID),
+        "source_ref 即 change id（不 trim / 不规范化）"
+    );
+}
+
+#[tokio::test]
+async fn agent_start_with_cwd不存在时显式err且零落库零推流() {
+    let env = Env::new("cwd-missing");
+    let app = app_with_stores(&env);
+    let stores = app.state::<WorkspaceStores>();
+    let root = env.root_of("alpha");
+    let missing = env
+        .ws_root
+        .path()
+        .join("gone-wt")
+        .to_string_lossy()
+        .into_owned();
+
+    let (channel, captured) = capturing_channel();
+    let error = agent_start_with(
+        app.handle().clone(),
+        channel,
+        root.clone(),
+        "目录缺失一轮".to_owned(),
+        AgentPermissionMode::BypassPermissions,
+        None,
+        None,
+        None,
+        None,
+        Some(missing.clone()),
+    )
+    .await
+    .expect_err("cwd 非存在目录必须显式 Err");
+
+    assert!(
+        error.contains("worktree 目录不存在（可能已被手动删除）"),
+        "Err 文案含缺失判据，实际: {error}"
+    );
+    assert!(
+        error.contains(&missing),
+        "Err 文案含路径原文，实际: {error}"
+    );
+    assert!(
+        sessions_in_root(stores.inner(), &root).is_empty(),
+        "未进引擎：零会话行（无会话即无轮行）"
+    );
+    assert!(
+        snapshot_of(&captured).is_empty(),
+        "未进引擎：零信封（不推流）"
+    );
+}
+
+#[tokio::test]
+async fn agent_start_with_cwd指向文件时按is_dir判据err() {
+    let env = Env::new("cwd-file");
+    let app = app_with_stores(&env);
+    let stores = app.state::<WorkspaceStores>();
+    let root = env.root_of("alpha");
+    let file = env.ws_root.path().join("not-a-dir.txt");
+    fs::write(&file, "不是目录").expect("落临时文件 fixture");
+    assert!(file.is_file(), "fixture 确为文件而非目录");
+    let as_dir = file.to_string_lossy().into_owned();
+
+    let (channel, captured) = capturing_channel();
+    let error = agent_start_with(
+        app.handle().clone(),
+        channel,
+        root.clone(),
+        "指向文件一轮".to_owned(),
+        AgentPermissionMode::BypassPermissions,
+        None,
+        None,
+        None,
+        None,
+        Some(as_dir.clone()),
+    )
+    .await
+    .expect_err("cwd 指向文件（存在但非目录）必须 Err");
+
+    assert!(
+        error.contains("worktree 目录不存在（可能已被手动删除）"),
+        "判据是 is_dir 而非 exists，实际: {error}"
+    );
+    assert!(error.contains(&as_dir));
+    assert!(sessions_in_root(stores.inner(), &root).is_empty(), "零落库");
+    assert!(snapshot_of(&captured).is_empty(), "零推流");
+}
+
+#[tokio::test]
+async fn agent_start_with_blank_root守卫先于cwd校验() {
+    let env = Env::new("cwd-guard-order");
+    let app = app_with_stores(&env);
+    let stores = app.state::<WorkspaceStores>();
+
+    for blank in ["", "   "] {
+        let missing = env
+            .ws_root
+            .path()
+            .join("gone-wt")
+            .to_string_lossy()
+            .into_owned();
+        let error = agent_start_with(
+            app.handle().clone(),
+            discarding_channel(),
+            blank.to_owned(),
+            "守卫序一轮".to_owned(),
+            AgentPermissionMode::BypassPermissions,
+            None,
+            None,
+            None,
+            None,
+            Some(missing),
+        )
+        .await
+        .expect_err("blank root 先行 Err");
+
+        assert!(
+            error.contains("非法 root: 不得为空白（无 cwd 无从发起）"),
+            "root 校验先于 cwd 校验（错误面不串味），实际: {error}"
+        );
+        assert!(
+            !error.contains("worktree 目录不存在"),
+            "cwd 校验不得抢先，实际: {error}"
+        );
+    }
+    assert!(
+        stores
+            .inner()
+            .for_root(&env.root_of("alpha"))
+            .expect("for_root 应成功")
+            .list_sessions(None, None)
+            .expect("清单应成功")
+            .is_empty(),
+        "守卫拦截零落库"
+    );
+}
+
+#[tokio::test]
+async fn agent_start_with_cwd超长字符串不截断() {
+    let env = Env::new("cwd-long");
+    let app = app_with_stores(&env);
+    let stores = app.state::<WorkspaceStores>();
+    let root = env.root_of("alpha");
+    let long = "a".repeat(1200);
+    let long_path = env
+        .ws_root
+        .path()
+        .join(&long)
+        .to_string_lossy()
+        .into_owned();
+    assert!(long_path.contains(&long), "fixture 路径含 1200 字符段");
+
+    let error = agent_start_with(
+        app.handle().clone(),
+        discarding_channel(),
+        root.clone(),
+        "超长 cwd 一轮".to_owned(),
+        AgentPermissionMode::BypassPermissions,
+        None,
+        None,
+        None,
+        None,
+        Some(long_path.clone()),
+    )
+    .await
+    .expect_err("超长非存在路径必须 Err");
+
+    assert!(
+        error.contains(&long_path),
+        "文案含完整路径（不截断、不深埋进引擎错误），实际长度: {}",
+        error.len()
+    );
+    assert!(sessions_in_root(stores.inner(), &root).is_empty(), "零落库");
+}
+
+#[tokio::test]
+async fn agent_start_with_cwd特殊字符各自err不panic() {
+    let env = Env::new("cwd-special");
+    let app = app_with_stores(&env);
+    let stores = app.state::<WorkspaceStores>();
+    let root = env.root_of("alpha");
+
+    for special in ["wt\nwith\nnewline", "wt\0null", "工作树-🚀"] {
+        let error = agent_start_with(
+            app.handle().clone(),
+            discarding_channel(),
+            root.clone(),
+            "特殊 cwd 一轮".to_owned(),
+            AgentPermissionMode::BypassPermissions,
+            None,
+            None,
+            None,
+            None,
+            Some(special.to_owned()),
+        )
+        .await
+        .expect_err("非目录的特殊字符串 cwd 必须 Err");
+        assert!(
+            error.contains("worktree 目录不存在"),
+            "特殊字符 cwd {special:?} 走同一 Err 面，实际: {error}"
+        );
+    }
+    assert!(sessions_in_root(stores.inner(), &root).is_empty(), "零落库");
+
+    // 含 emoji 的串若为真目录则接受（UTF-8 路径不作转义改写）
+    seed_fast_failing_default(stores.inner(), "emoji");
+    let unicode_dir = env.ws("工作树-🚀").to_string_lossy().into_owned();
+    let summary = agent_start_with(
+        app.handle().clone(),
+        discarding_channel(),
+        root.clone(),
+        "emoji 目录一轮".to_owned(),
+        AgentPermissionMode::BypassPermissions,
+        None,
+        None,
+        None,
+        None,
+        Some(unicode_dir),
+    )
+    .await
+    .expect("emoji 目录存在即接受");
+
+    let summaries = sessions_in_root(stores.inner(), &root);
+    assert_eq!(summaries.len(), 1, "会话行落 root 库");
+    assert_eq!(summaries[0].row.id, summary.session_id);
+}
+
+#[tokio::test]
+async fn agent_start_with_cwd等于root时与缺省等价() {
+    let env = Env::new("cwd-equals-root");
+    let app = app_with_stores(&env);
+    let stores = app.state::<WorkspaceStores>();
+    let root = env.root_of("alpha");
+    seed_fast_failing_default(stores.inner(), "同根");
+
+    let summary = agent_start_with(
+        app.handle().clone(),
+        discarding_channel(),
+        root.clone(),
+        "cwd 等于 root 一轮".to_owned(),
+        AgentPermissionMode::BypassPermissions,
+        None,
+        None,
+        None,
+        None,
+        Some(root.clone()),
+    )
+    .await
+    .expect("cwd 等于 root（真目录）零 Err");
+
+    let summaries = sessions_in_root(stores.inner(), &root);
+    assert_eq!(summaries.len(), 1, "会话行落同一库");
+    assert_eq!(summaries[0].row.id, summary.session_id);
+    assert_eq!(workspace_db_count(&env), 1, "不派生第二份库");
+}
+
+#[tokio::test]
+async fn agent_start_with_cwd合法而root不可寻址时for_root错误透传() {
+    let env = Env::new("cwd-root-unaddressable");
+    let app = app_with_stores(&env);
+    let stores = app.state::<WorkspaceStores>();
+    let missing_root = env
+        .data_dir
+        .path()
+        .join("absent-ws")
+        .to_string_lossy()
+        .into_owned();
+
+    let error = agent_start_with(
+        app.handle().clone(),
+        discarding_channel(),
+        missing_root,
+        "root 不可寻址一轮".to_owned(),
+        AgentPermissionMode::BypassPermissions,
+        None,
+        None,
+        None,
+        None,
+        Some(env.ws("wt").to_string_lossy().into_owned()),
+    )
+    .await
+    .expect_err("root 不可寻址必须 Err（store 半边不以 cwd 兜底寻址）");
+
+    assert!(
+        error.contains("canonicalize") && error.contains("absent-ws"),
+        "for_root 的 Err 透传不 panic，实际: {error}"
+    );
+    assert_eq!(
+        workspace_db_count(&env),
+        0,
+        "cwd 合法也不为 store 半边铸库（双 root 不变量反向锚）"
+    );
+    assert!(
+        stores
+            .inner()
+            .for_root(&env.root_of("alpha"))
+            .expect("for_root 应成功")
+            .list_sessions(None, None)
+            .expect("清单应成功")
+            .is_empty(),
+        "零落库"
+    );
+}
+
+#[tokio::test]
+async fn agent_start_with_相对路径cwd按is_dir实际结果执行() {
+    let env = Env::new("cwd-relative");
+    let app = app_with_stores(&env);
+    let stores = app.state::<WorkspaceStores>();
+    let root = env.root_of("alpha");
+    seed_fast_failing_default(stores.inner(), "相对路径");
+
+    for relative in [".", ".."] {
+        let before = sessions_in_root(stores.inner(), &root).len();
+        let summary = agent_start_with(
+            app.handle().clone(),
+            discarding_channel(),
+            root.clone(),
+            format!("相对路径 {relative} 一轮"),
+            AgentPermissionMode::BypassPermissions,
+            None,
+            None,
+            None,
+            None,
+            Some(relative.to_owned()),
+        )
+        .await
+        .unwrap_or_else(|error| panic!("相对路径 {relative} 为目录应接受，实际: {error}"));
+
+        let summaries = sessions_in_root(stores.inner(), &root);
+        assert_eq!(
+            summaries.len(),
+            before + 1,
+            "相对 cwd 不 panic 且会话行落 root 库"
+        );
+        assert!(
+            summaries
+                .iter()
+                .any(|item| item.row.id == summary.session_id),
+            "新会话行在 root 库"
+        );
+    }
+}
+
+// ---------------------------------------------------------------------------
+// list_change_chat_sessions：某 change 的 chat 会话清单（探测语义薄包装，AC-3）
+// ——`source` 词常量收在命令层、`source_ref` 即 change id 原样精确匹配（流程
+// 四段 `{changeId}/{phase}/{role}/{attempt}` 与 `<id>x` 前缀混淆项零命中）；
+// blank root / 未知 id / 空串 → 空页信封。
+// ---------------------------------------------------------------------------
+
+/// change chat 会话行 fixture（`source = "change"`；`updated_at` 显式给定以
+/// 驱动分页序，非 mock 时钟——排序键即 fixture 数值）。
+fn seed_chat_session(store: &store::Store, id: &str, source_ref: Option<&str>, updated_at: i64) {
+    store
+        .create_session(&SessionRecord {
+            id: id.to_owned(),
+            engine_session_id: None,
+            config_snapshot: SessionConfigSnapshot {
+                engine: AgentEngineKind::Sdk,
+                agent_instance_id: None,
+                model: Some("m-high".to_owned()),
+                permission_mode: AgentPermissionMode::BypassPermissions,
+            },
+            source: "change".to_owned(),
+            source_ref: source_ref.map(str::to_owned),
+            created_at: updated_at,
+            updated_at,
+        })
+        .expect("落 chat 会话行 fixture");
+}
+
+/// chat 归属 fixture 底座：2 条本 change 的 chat + 1 条流程四段 + 1 条他 change。
+fn seed_chat_world(store: &store::Store) {
+    seed_chat_session(store, "ses-chat-1", Some(CHAT_CHANGE_ID), 1_727_000_000_001);
+    seed_chat_session(store, "ses-chat-2", Some(CHAT_CHANGE_ID), 1_727_000_000_002);
+    let flow_ref = format!("{CHAT_CHANGE_ID}/implement/worker/1");
+    seed_sdk_session(store, "ses-flow-1", None, "change", Some(flow_ref.as_str()));
+    seed_chat_session(
+        store,
+        "ses-other-chat",
+        Some("chg-other"),
+        1_727_000_000_003,
+    );
+}
+
+#[test]
+fn list_change_chat_sessions只命中本change的chat归属会话() {
+    let env = Env::new("chat-list-hit");
+    let app = app_with_stores(&env);
+    let state = app.state::<WorkspaceStores>();
+    let root = env.root_of("alpha");
+    let store = state.for_root(&root).expect("for_root 应成功");
+    seed_chat_world(&store);
+
+    let page = list_change_chat_sessions(
+        state.clone(),
+        root.clone(),
+        CHAT_CHANGE_ID.to_owned(),
+        0,
+        20,
+    )
+    .expect("清单应成功");
+
+    let ids: Vec<&str> = page
+        .sessions
+        .iter()
+        .map(|item| item.row.id.as_str())
+        .collect();
+    assert_eq!(
+        ids,
+        vec!["ses-chat-2", "ses-chat-1"],
+        "updated_at 降序（本 change chat 两条）"
+    );
+    assert_eq!(
+        page.total, 2,
+        "total = 过滤集全量（流程四段与他 change 零命中）"
+    );
+
+    // 调试页 `change` 筛选照常可见（读面不被本命令影响）
+    let debug_page = agent_sessions(state, root, Some("change".to_owned()), None, 0, 20)
+        .expect("调试页清单应成功");
+    assert_eq!(debug_page.total, 4, "同 source 的会话仍全部可见");
+}
+
+#[test]
+fn list_change_chat_sessions与agent_sessions同参数信封逐字段全等() {
+    let env = Env::new("chat-list-equiv");
+    let app = app_with_stores(&env);
+    let state = app.state::<WorkspaceStores>();
+    let root = env.root_of("alpha");
+    let store = state.for_root(&root).expect("for_root 应成功");
+    seed_chat_world(&store);
+    // 轮行随行：chat 会话带一条已收轮（stats.turnCount 对账面）
+    let turn = store
+        .begin_agent_turn("ses-chat-2", 1_727_000_000_500)
+        .expect("begin 轮行 fixture")
+        .id;
+    store
+        .finish_agent_turn(
+            turn,
+            &AgentRunRecord {
+                id: turn,
+                session_id: Some("ses-chat-2".to_owned()),
+                status: AgentRunStatus::Completed,
+                started_at: 1_727_000_000_500,
+                finished_at: Some(1_727_000_001_500),
+                num_turns: Some(1),
+                cost_usd: Some(0.1),
+                duration_ms: Some(1_000),
+                error: None,
+            },
+        )
+        .expect("finish 轮行 fixture");
+
+    let via_chat = list_change_chat_sessions(
+        state.clone(),
+        root.clone(),
+        CHAT_CHANGE_ID.to_owned(),
+        0,
+        20,
+    )
+    .expect("chat 清单应成功");
+    let via_debug = agent_sessions(
+        state,
+        root,
+        Some("change".to_owned()),
+        Some(CHAT_CHANGE_ID.to_owned()),
+        0,
+        20,
+    )
+    .expect("通用清单应成功");
+
+    assert_eq!(via_chat.total, via_debug.total, "total 逐字全等");
+    assert_eq!(
+        via_chat.sessions, via_debug.sessions,
+        "sessions 序与逐字段全等（含轮行 / stats.turnCount）"
+    );
+    assert_eq!(
+        via_chat.sessions[0].stats.turn_count, 1,
+        "轮行与统计随行（聚合面不被薄包装改写）"
+    );
+}
+
+#[test]
+fn list_change_chat_sessions分页信封与updated_at降序() {
+    let env = Env::new("chat-list-paged");
+    let app = app_with_stores(&env);
+    let state = app.state::<WorkspaceStores>();
+    let root = env.root_of("alpha");
+    let store = state.for_root(&root).expect("for_root 应成功");
+    for (id, updated_at) in [
+        ("ses-pg-1", 1_727_000_000_001_i64),
+        ("ses-pg-2", 1_727_000_000_002),
+        ("ses-pg-3", 1_727_000_000_003),
+    ] {
+        seed_chat_session(&store, id, Some(CHAT_CHANGE_ID), updated_at);
+    }
+
+    let first =
+        list_change_chat_sessions(state.clone(), root.clone(), CHAT_CHANGE_ID.to_owned(), 0, 1)
+            .expect("首页应成功");
+    assert_eq!(first.sessions.len(), 1);
+    assert_eq!(
+        first.sessions[0].row.id, "ses-pg-3",
+        "offset 0 取 updated_at 最大者"
+    );
+    assert_eq!(first.total, 3, "total 为过滤集全量（非本页长度）");
+
+    let second =
+        list_change_chat_sessions(state.clone(), root.clone(), CHAT_CHANGE_ID.to_owned(), 1, 1)
+            .expect("第二页应成功");
+    assert_eq!(second.sessions[0].row.id, "ses-pg-2", "offset 1 取第二条");
+    assert_eq!(second.total, 3);
+
+    // 序为 updated_at 降序；并列按 id 降序（行层排定）
+    seed_chat_session(&store, "ses-tie-b", Some(CHAT_CHANGE_ID), 1_727_000_000_009);
+    seed_chat_session(&store, "ses-tie-a", Some(CHAT_CHANGE_ID), 1_727_000_000_009);
+    let tied = list_change_chat_sessions(state, root, CHAT_CHANGE_ID.to_owned(), 0, 2)
+        .expect("并列页应成功");
+    let tied_ids: Vec<&str> = tied
+        .sessions
+        .iter()
+        .map(|item| item.row.id.as_str())
+        .collect();
+    assert_eq!(
+        tied_ids,
+        vec!["ses-tie-b", "ses-tie-a"],
+        "updated_at 并列按 id 降序"
+    );
+}
+
+#[test]
+fn list_change_chat_sessions流程四段与前缀混淆项零误入() {
+    let env = Env::new("chat-list-exact");
+    let app = app_with_stores(&env);
+    let state = app.state::<WorkspaceStores>();
+    let root = env.root_of("alpha");
+    let store = state.for_root(&root).expect("for_root 应成功");
+    for (id, reference) in [
+        (
+            "ses-flow-a",
+            format!("{CHAT_CHANGE_ID}/implement/executor/1"),
+        ),
+        ("ses-flow-b", format!("{CHAT_CHANGE_ID}/test-gen/worker/2")),
+        ("ses-prefix", format!("{CHAT_CHANGE_ID}x")),
+    ] {
+        seed_sdk_session(&store, id, None, "change", Some(reference.as_str()));
+    }
+
+    let page = list_change_chat_sessions(state, root, CHAT_CHANGE_ID.to_owned(), 0, 20)
+        .expect("清单应成功");
+    assert!(
+        page.sessions.is_empty(),
+        "精确相等而非前缀匹配（流程四段与 `<id>x` 零命中），实际: {:?}",
+        page.sessions
+            .iter()
+            .map(|item| item.row.id.as_str())
+            .collect::<Vec<_>>()
+    );
+    assert_eq!(page.total, 0, "total 同样零命中");
+}
+
+#[test]
+fn list_change_chat_sessions_blank_root空页且不寻址库() {
+    let env = Env::new("chat-list-blank");
+    let app = app_with_stores(&env);
+    let state = app.state::<WorkspaceStores>();
+    // 真实数据在位：blank root 守卫先行（不得命中）
+    let store = state
+        .for_root(&env.root_of("alpha"))
+        .expect("for_root 应成功");
+    seed_chat_world(&store);
+    let before = workspace_db_count(&env);
+
+    for blank in ["", "   "] {
+        let page = list_change_chat_sessions(
+            state.clone(),
+            blank.to_owned(),
+            CHAT_CHANGE_ID.to_owned(),
+            0,
+            20,
+        )
+        .expect("blank root 返回空页不报错");
+        assert!(page.sessions.is_empty(), "blank root {blank:?} 零会话");
+        assert_eq!(page.total, 0, "blank root 空页信封 total=0");
+    }
+    assert_eq!(
+        workspace_db_count(&env),
+        before,
+        "守卫先行：不寻址库、不铸新库"
+    );
+}
+
+#[test]
+fn list_change_chat_sessions未知change_id返回空页信封() {
+    let env = Env::new("chat-list-unknown");
+    let app = app_with_stores(&env);
+    let state = app.state::<WorkspaceStores>();
+    let root = env.root_of("alpha");
+    let store = state.for_root(&root).expect("for_root 应成功");
+    seed_chat_world(&store);
+
+    let page = list_change_chat_sessions(state, root, "chg-never-seen".to_owned(), 0, 20)
+        .expect("探测语义选择空页而非 Err");
+    assert!(page.sessions.is_empty());
+    assert_eq!(page.total, 0, "未知 change id → 空页信封（不 Err）");
+}
+
+#[test]
+fn list_change_chat_sessions_id空串只匹配空串source_ref不当全量() {
+    let env = Env::new("chat-list-empty-id");
+    let app = app_with_stores(&env);
+    let state = app.state::<WorkspaceStores>();
+    let root = env.root_of("alpha");
+    let store = state.for_root(&root).expect("for_root 应成功");
+    seed_chat_world(&store);
+    // source_ref 恰为空串的 chat 会话（空串 ≠ 传 None，只命中该条）
+    seed_chat_session(&store, "ses-blank-ref", Some(""), 1_727_000_000_004);
+
+    let page =
+        list_change_chat_sessions(state, root, String::new(), 0, 20).expect("id 空串不 panic");
+    let ids: Vec<&str> = page
+        .sessions
+        .iter()
+        .map(|item| item.row.id.as_str())
+        .collect();
+    assert_eq!(
+        ids,
+        vec!["ses-blank-ref"],
+        "空串作精确 source_ref，不回落全量"
+    );
+    assert_eq!(page.total, 1);
+}
+
+#[test]
+fn list_change_chat_sessions_id特殊与超长原样精确匹配() {
+    let env = Env::new("chat-list-special-id");
+    let app = app_with_stores(&env);
+    let state = app.state::<WorkspaceStores>();
+    let root = env.root_of("alpha");
+    let store = state.for_root(&root).expect("for_root 应成功");
+    let long_id = "chg-".to_owned() + &"0".repeat(1200);
+    assert!(long_id.len() > 1000, "fixture 超长 id");
+    seed_chat_session(&store, "ses-emoji-ref", Some("chg-🚀"), 1_727_000_000_001);
+    seed_chat_session(
+        &store,
+        "ses-newline-ref",
+        Some("chg\nid"),
+        1_727_000_000_002,
+    );
+    seed_chat_session(
+        &store,
+        "ses-long-ref",
+        Some(long_id.as_str()),
+        1_727_000_000_003,
+    );
+
+    for (id, expected) in [
+        ("chg-🚀", "ses-emoji-ref"),
+        ("chg\nid", "ses-newline-ref"),
+        (long_id.as_str(), "ses-long-ref"),
+    ] {
+        let page = list_change_chat_sessions(state.clone(), root.clone(), id.to_owned(), 0, 20)
+            .expect("特殊 / 超长 id 不 panic");
+        assert_eq!(page.total, 1, "原样精确匹配命中一条");
+        assert_eq!(page.sessions[0].row.id, expected);
+    }
+
+    // 零命中的特殊形态同样空页不 panic
+    let miss = list_change_chat_sessions(state, root, "chg-🚀-δ".to_owned(), 0, 20)
+        .expect("零命中不 panic");
+    assert!(miss.sessions.is_empty());
+    assert_eq!(miss.total, 0);
+}
+
+#[test]
+fn list_change_chat_sessions越界offset与极值offset空页且total全量() {
+    let env = Env::new("chat-list-oob");
+    let app = app_with_stores(&env);
+    let state = app.state::<WorkspaceStores>();
+    let root = env.root_of("alpha");
+    let store = state.for_root(&root).expect("for_root 应成功");
+    for index in 1..=3 {
+        seed_chat_session(
+            &store,
+            &format!("ses-oob-{index}"),
+            Some(CHAT_CHANGE_ID),
+            1_727_000_000_000 + index as i64,
+        );
+    }
+
+    let oob = list_change_chat_sessions(
+        state.clone(),
+        root.clone(),
+        CHAT_CHANGE_ID.to_owned(),
+        4,
+        20,
+    )
+    .expect("越界 offset 合法空页");
+    assert!(oob.sessions.is_empty(), "offset = total + 1 空页");
+    assert_eq!(oob.total, 3, "越界空页仍携过滤集全量");
+
+    let extreme = list_change_chat_sessions(
+        state.clone(),
+        root.clone(),
+        CHAT_CHANGE_ID.to_owned(),
+        u32::MAX,
+        20,
+    )
+    .expect("offset 极值不溢出 panic");
+    assert!(extreme.sessions.is_empty(), "offset = u32::MAX 空页");
+    assert_eq!(extreme.total, 3, "total 恒为过滤集全量");
+}
+
+#[test]
+fn list_change_chat_sessions_limit零空页与超上限截断() {
+    let env = Env::new("chat-list-limit");
+    let app = app_with_stores(&env);
+    let state = app.state::<WorkspaceStores>();
+    let root = env.root_of("alpha");
+    let store = state.for_root(&root).expect("for_root 应成功");
+    // 501 条 chat 会话（超大列表边界；limit 上限由 store 侧截断）
+    for index in 0..501 {
+        seed_chat_session(
+            &store,
+            &format!("ses-big-{index:03}"),
+            Some(CHAT_CHANGE_ID),
+            1_727_000_000_000 + index,
+        );
+    }
+
+    let zero =
+        list_change_chat_sessions(state.clone(), root.clone(), CHAT_CHANGE_ID.to_owned(), 0, 0)
+            .expect("limit = 0 合法空页");
+    assert!(zero.sessions.is_empty(), "limit = 0 → 空页");
+    assert_eq!(zero.total, 501, "limit = 0 时 total 仍全量");
+
+    let clamped = list_change_chat_sessions(state, root, CHAT_CHANGE_ID.to_owned(), 0, u32::MAX)
+        .expect("limit 极值不 panic");
+    assert_eq!(
+        clamped.sessions.len(),
+        500,
+        "limit 超 MAX_SESSION_PAGE_LIMIT 截断为 500"
+    );
+    assert_eq!(clamped.total, 501, "total 不受 limit 截断影响");
+}
+
+#[test]
+fn list_change_chat_sessions跨root隔离() {
+    let env = Env::new("chat-list-iso");
+    let app = app_with_stores(&env);
+    let state = app.state::<WorkspaceStores>();
+    let root_a = env.root_of("alpha");
+    let root_b = env.root_of("beta");
+    let store_a = state.for_root(&root_a).expect("for_root 应成功");
+    seed_chat_world(&store_a);
+
+    let in_a = list_change_chat_sessions(state.clone(), root_a, CHAT_CHANGE_ID.to_owned(), 0, 20)
+        .expect("A 库清单应成功");
+    assert_eq!(in_a.total, 2, "A 库命中本 change 的两条 chat");
+
+    let in_b = list_change_chat_sessions(state, root_b, CHAT_CHANGE_ID.to_owned(), 0, 20)
+        .expect("B 库清单应成功");
+    assert!(in_b.sessions.is_empty(), "跨 root 隔离：库位 = root 寻址");
+    assert_eq!(in_b.total, 0);
+}
+
+#[test]
+fn list_change_chat_sessions_root不可寻址err透传不panic() {
+    let env = Env::new("chat-list-root-err");
+    let app = app_with_stores(&env);
+    let state = app.state::<WorkspaceStores>();
+    let missing = env
+        .data_dir
+        .path()
+        .join("absent-ws")
+        .to_string_lossy()
+        .into_owned();
+
+    let error = list_change_chat_sessions(state, missing.clone(), CHAT_CHANGE_ID.to_owned(), 0, 20)
+        .expect_err("root 不可寻址必须 Err");
+    assert!(
+        error.contains("canonicalize") && error.contains("absent-ws"),
+        "for_root 的 Err 透传不 panic（与三查询命令同口径），实际: {error}"
+    );
 }

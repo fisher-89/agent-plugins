@@ -11,6 +11,7 @@ import type {
   ChangeDetail,
   ChangeRunEntry,
   ChangeStepState,
+  SessionPage,
   SessionSummary,
 } from '../../types/dto';
 import { ChangeDetailView } from './change-detail-view';
@@ -96,9 +97,37 @@ function detailIpc(command: string, args: Record<string, unknown> = {}): Promise
     const key = `${String(args.kind)}:${String(args.source)}`;
     return Promise.resolve(key in artifactResults ? artifactResults[key] : null);
   }
+  // 通用 Agent 面板面（desktop-change-chat）：发起提前 resolve 的 running 轮行、
+  // 清单缺省空页、停止幂等空应答；会话单查 / 转录沿用下方空态（既有用例零发起，
+  // 互不影响）
+  if (command === 'agent_start') return Promise.resolve(panelStartRecord());
+  if (command === 'agent_stop') return Promise.resolve(null);
+  if (command === 'list_change_chat_sessions') {
+    return panelListResult === null
+      ? Promise.resolve({ sessions: [], total: 0 })
+      : Promise.resolve(panelListResult(args));
+  }
   // run / 会话命令缺省空态应答（无运行 run / 空会话清单）
   return Promise.resolve(null);
 }
+
+/** 面板发起应答（提前 resolve 的 running 轮行；会话 id 即面板 `cwd` 组合面的报锚）。 */
+function panelStartRecord(): SessionSummary['turns'][number] {
+  return {
+    turnId: 1,
+    sessionId: 'ses-chat-1',
+    status: 'running',
+    startedAt: 1_727_000_000_000,
+    finishedAt: null,
+    numTurns: null,
+    costUsd: null,
+    durationMs: null,
+    error: null,
+  };
+}
+
+/** 面板历史清单应答（按 args 分派；null = 缺省空页）。 */
+let panelListResult: ((args: Record<string, unknown>) => SessionPage) | null = null;
 
 class ResizeObserverStub {
   static instances: ResizeObserverStub[] = [];
@@ -140,6 +169,14 @@ class ResizeObserverStub {
               bottom: 0,
               right: 0,
             },
+            // 分栏（react-resizable-panels）读 `borderBoxSize[0]` 判分支：垫片
+            // 同步给出报告尺寸（jsdom 无布局，尺寸取垫片口径）
+            borderBoxSize: [
+              {
+                inlineSize: (target as HTMLElement).offsetWidth,
+                blockSize: (target as HTMLElement).offsetHeight,
+              },
+            ],
           }) as unknown as ResizeObserverEntry,
       );
       observer.callback(entries, observer);
@@ -1967,28 +2004,34 @@ describe('ChangeDetailView：刷新失败降级与订阅粘性（AC-1 / AC-2 / A
     expect(screen.queryByText('未找到该 change。')).toBeNull();
   });
 
-  it('内联横幅消失（AC-2 视图半边）：失败（横幅在）→ 1s 重试成功 → 横幅出销、图面节点更新到最新轮 detail；横幅位于 header 与动作面板之间（页首整宽 D1）', async () => {
+  it('内联横幅消失（AC-2 视图半边）：失败（横幅在）→ 1s 重试成功 → 横幅出销、图面节点更新到最新轮 detail；横幅收进右栏（header 整宽 → 右栏「横幅 → 动作面板 → 图区」D16）', async () => {
     loadActiveRun(activeRunView());
     planDetailRounds([{ kind: 'ok' }, { kind: 'reject', message: 'db: 注入失败' }, { kind: 'ok' }]);
     renderDetail({ detail: detail(), artifacts: PROPOSAL_ENVELOPES });
     await act(async () => {});
     expect(screen.queryByTestId('run-step-node')).toBeNull();
 
-    // 横幅位于 header 与动作面板之间（页首整宽——DOM 序断言）
+    // DOM 序：header 整宽留在分栏之上；右栏内部序为「横幅 → 动作面板 → 图区」
     await notifyAndFlush();
     const container = screen.getByTestId('refresh-stale-note').parentElement!;
-    const header = container.querySelector('[data-testid="detail-header"]');
     const note = container.querySelector('[data-testid="refresh-stale-note"]');
     const panel = container.querySelector('[data-testid="run-control-panel"]');
+    const column = document.querySelector('[data-slot="resizable-panel-group"]');
+    const header = screen.getByTestId('detail-header');
     expect(
-      header !== null &&
-        note !== null &&
-        (header.compareDocumentPosition(note) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0,
+      column !== null &&
+        (header.compareDocumentPosition(column) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0,
+      'header 整宽在分栏之前（左栏不位移）',
     ).toBe(true);
+    expect(
+      container.querySelector('[data-testid="detail-header"]'),
+      '横幅收进右栏（不在页首整宽层）',
+    ).toBeNull();
     expect(
       note !== null &&
         panel !== null &&
         (note.compareDocumentPosition(panel) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0,
+      '右栏内横幅在动作面板之上',
     ).toBe(true);
 
     // 1s 重试成功（应答携活面步表）→ 横幅出销 + 图面更新到最新轮
@@ -2273,5 +2316,354 @@ describe('ChangeDetailView：通知分流收敛（统一 300ms tick）', () => {
     });
     await flush(300);
     expect(sessionDetailCalls().length, '统一 tick 驱动面板重取').toBeGreaterThan(sessionBaseline);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 左栏通用 Agent 面板分栏（desktop-change-chat，AC-1 / AC-4 / AC-5 / AC-6 /
+// AC-7）：`DetailLoaded` 纵向单列 → `ResizablePanelGroup orientation="horizontal"`
+// （左面板 collapsible + 窄条、右栏「陈旧横幅 → 动作面板 → 图区」），header 整宽
+// 留在分栏之上；折叠真相取分栏命令面（`onResize` 回传），header 开关与窄条展开
+// 共用同一 `toggle()`。组合用例入口 = 本视图（链路最上层）。
+// ---------------------------------------------------------------------------
+
+/** 面板历史清单项 fixture（`list_change_chat_sessions` 应答项）。 */
+function chatSummary(sessionId: string): SessionSummary {
+  return {
+    row: {
+      id: sessionId,
+      remoteSessionId: null,
+      configSnapshot: null,
+      provenance: { source: 'change', sourceRef: CHANGE_ID },
+      createdAt: 1_727_000_000_000,
+      updatedAt: 1_727_000_001_000,
+    },
+    stats: { turnCount: 1, totalDurationMs: null, inputTokens: null, outputTokens: null },
+    turns: [
+      {
+        turnId: 1,
+        sessionId,
+        status: 'completed',
+        startedAt: 1_727_000_000_000,
+        finishedAt: 1_727_000_001_000,
+        numTurns: 1,
+        costUsd: null,
+        durationMs: 1_000,
+        error: null,
+      },
+    ],
+  };
+}
+
+function sessionCommandCalls(name: string): unknown[][] {
+  return invokeMock.mock.calls.filter(([command]) => command === name);
+}
+
+/**
+ * 面板像素宽报告（jsdom 无布局引擎）：把 chat 面板子树的 `offsetWidth` 报告为
+ * 指定值并重放 `ResizeObserver`，驱动分栏 `onResize` 回传折叠真相（`inPixels`
+ * <= 48px 即收起）。折叠断言仍以命令面结果为准（开关文案 / 窄条 testid）。
+ */
+function reportChatPanelWidth(px: number): void {
+  Object.defineProperty(HTMLElement.prototype, 'offsetWidth', {
+    configurable: true,
+    get(this: HTMLElement) {
+      const isChatPanel =
+        this.getAttribute('data-testid') === 'change-chat-panel' ||
+        this.querySelector('[data-testid="change-chat-panel"]') !== null;
+      return isChatPanel ? px : 100;
+    },
+  });
+  act(() => {
+    ResizeObserverStub.flush();
+  });
+}
+
+function panelPrompt(): HTMLTextAreaElement {
+  return screen.getByTestId('change-chat-prompt') as HTMLTextAreaElement;
+}
+
+function panelSend(): HTMLButtonElement {
+  return screen.getByTestId('change-chat-send') as HTMLButtonElement;
+}
+
+async function sendFromPanel(text: string): Promise<void> {
+  fireEvent.change(panelPrompt(), { target: { value: text } });
+  fireEvent.click(panelSend());
+  await act(async () => {});
+  await act(async () => {});
+}
+
+describe('ChangeDetailView：面板分栏骨架与折叠开关', () => {
+  beforeEach(() => {
+    // 清单应答按用例注入（缺省空页）：乱序执行时不得跨用例泄漏
+    panelListResult = null;
+  });
+
+  it('分栏骨架：横向分栏 + 左栏面板 / 右栏图区，header 整宽留在分栏之前', async () => {
+    renderDetail({ detail: detail({ worktree: 'C:\\demo\\wt' }), artifacts: PROPOSAL_ENVELOPES });
+    await screen.findByTestId('flow-graph');
+
+    const group = document.querySelector('[data-slot="resizable-panel-group"]') as HTMLElement;
+    expect(group, '分栏宿主在场').not.toBeNull();
+    expect(group.style.flexDirection, 'orientation="horizontal"（横向分栏）').toBe('row');
+
+    const chatPanel = screen.getByTestId('change-chat-panel');
+    expect(chatPanel.closest('[data-slot="resizable-panel"]'), '面板在分栏面板内').not.toBeNull();
+    expect(
+      screen.getByTestId('flow-graph').closest('[data-slot="resizable-panel"]'),
+      '图区在另一侧分栏面板内',
+    ).not.toBeNull();
+    expect(chatPanel.closest('[data-slot="resizable-panel"]'), '左右两栏为不同面板').not.toBe(
+      screen.getByTestId('flow-graph').closest('[data-slot="resizable-panel"]'),
+    );
+
+    const header = screen.getByTestId('detail-header');
+    expect(
+      (header.compareDocumentPosition(group) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0,
+      'header 位于分栏之前（整宽 D16）',
+    ).toBe(true);
+  });
+
+  it('初拍折叠真相：挂载即展开形态（开关文案展开、面板主体完整渲染）', async () => {
+    renderDetail({ detail: detail(), artifacts: PROPOSAL_ENVELOPES });
+    await screen.findByTestId('flow-graph');
+    reportChatPanelWidth(100);
+
+    expect(screen.getByTestId('detail-chat-toggle').textContent).toBe('隐藏通用 Agent');
+    expect(screen.getByTestId('change-chat-prompt') !== null).toBe(true);
+    expect(screen.queryByTestId('change-chat-expand')).toBeNull();
+  });
+
+  it('面板显隐开关：点击收起（窄条 + 展开文案）、窄条展开入口再点回展开（两入口共用 toggle）', async () => {
+    renderDetail({ detail: detail(), artifacts: PROPOSAL_ENVELOPES });
+    await screen.findByTestId('flow-graph');
+    reportChatPanelWidth(100);
+
+    fireEvent.click(screen.getByTestId('detail-chat-toggle'));
+    reportChatPanelWidth(30);
+
+    await waitFor(() =>
+      expect(screen.getByTestId('detail-chat-toggle').textContent).toBe('显示通用 Agent'),
+    );
+    expect(screen.queryByTestId('change-chat-prompt'), '收起后主体不在场').toBeNull();
+    expect(screen.getByTestId('change-chat-expand') !== null).toBe(true);
+
+    fireEvent.click(screen.getByTestId('change-chat-expand'));
+    reportChatPanelWidth(100);
+
+    await waitFor(() =>
+      expect(screen.getByTestId('detail-chat-toggle').textContent).toBe('隐藏通用 Agent'),
+    );
+    expect(screen.getByTestId('change-chat-prompt') !== null).toBe(true);
+    expect(screen.queryByTestId('change-chat-expand')).toBeNull();
+  });
+
+  it('change id 变化折叠复位：收起后切到另一 change → 折叠复位（开关文案与主体回展开）', async () => {
+    renderDetail({ detail: detail(), artifacts: PROPOSAL_ENVELOPES });
+    await screen.findByTestId('flow-graph');
+    reportChatPanelWidth(100);
+    fireEvent.click(screen.getByTestId('detail-chat-toggle'));
+    reportChatPanelWidth(30);
+    await waitFor(() =>
+      expect(screen.getByTestId('detail-chat-toggle').textContent).toBe('显示通用 Agent'),
+    );
+
+    // 返回列表 → 再入另一 change（URL id 切换）
+    fireEvent.click(screen.getByRole('button', { name: '← 返回列表' }));
+    await waitFor(() => expect(probePathname()).toBe('/changes'));
+    loadFixture({ detail: detail({ id: SECOND_CHANGE_ID }) });
+    fireEvent.click(screen.getByTestId('nav-stub'));
+    await waitFor(() => expect(probePathname()).toBe(`/changes/${SECOND_CHANGE_ID}`));
+    await screen.findByTestId('flow-graph');
+    reportChatPanelWidth(100);
+
+    await waitFor(() =>
+      expect(screen.getByTestId('detail-chat-toggle').textContent).toBe('隐藏通用 Agent'),
+    );
+    expect(screen.getByTestId('change-chat-prompt') !== null).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 面板传参与判据组合面（AC-1 / AC-4 / AC-5 / AC-6）：视图 → 面板 → hook →
+// 会话基建 → transport → agent_start 全链路（内部零 mock）。
+// ---------------------------------------------------------------------------
+
+describe('ChangeDetailView：面板传参与判据组合面', () => {
+  beforeEach(() => {
+    // 清单应答按用例注入（缺省空页）：乱序执行时不得跨用例泄漏
+    panelListResult = null;
+  });
+
+  it('组合：worktree 作执行根、URL id 作 sourceRef，首发即 New（sessionId null）', async () => {
+    renderDetail({ detail: detail({ worktree: 'C:\\demo\\wt' }), artifacts: PROPOSAL_ENVELOPES });
+    await screen.findByTestId('flow-graph');
+
+    await sendFromPanel('就此 change 提问');
+
+    expect(sessionCommandCalls('agent_start')).toHaveLength(1);
+    expect(sessionCommandCalls('agent_start')[0][1]).toMatchObject({
+      cwd: 'C:\\demo\\wt',
+      source: 'change',
+      sourceRef: CHANGE_ID,
+      sessionId: null,
+      prompt: '就此 change 提问',
+    });
+  });
+
+  it('组合：打开即零会话取数（detail 落位后 session_detail / 转录 / 清单均零 invoke）', async () => {
+    renderDetail({ detail: detail({ worktree: 'C:\\demo\\wt' }), artifacts: PROPOSAL_ENVELOPES });
+    await screen.findByTestId('flow-graph');
+    await act(async () => {});
+
+    expect(sessionCommandCalls('session_detail')).toHaveLength(0);
+    expect(sessionCommandCalls('agent_session_transcript')).toHaveLength(0);
+    expect(sessionCommandCalls('list_change_chat_sessions')).toHaveLength(0);
+    expect(screen.getByTestId('change-chat-panel') !== null).toBe(true);
+  });
+
+  it('组合：无 run 的 active 正常收发（发送恰一次且 sessionId 为 null）', async () => {
+    loadActiveRun(null);
+    renderDetail({ detail: detail(), artifacts: PROPOSAL_ENVELOPES });
+    await screen.findByTestId('flow-graph');
+    expect(screen.queryByTestId('change-chat-disabled-reason')).toBeNull();
+
+    await sendFromPanel('空闲态提问');
+
+    expect(sessionCommandCalls('agent_start')).toHaveLength(1);
+    expect(sessionCommandCalls('agent_start')[0][1]).toMatchObject({ sessionId: null });
+  });
+
+  it('组合：run 运行中禁发（理由「流程运行中」、发送零 agent_start、历史仍可用）', async () => {
+    loadActiveRun(activeRunView());
+    panelListResult = () => ({ sessions: [chatSummary('ses-panel-1')], total: 1 });
+    renderDetail({ detail: detail(), artifacts: PROPOSAL_ENVELOPES });
+    await screen.findByTestId('flow-graph');
+
+    expect(screen.getByTestId('change-chat-disabled-reason').textContent).toBe('流程运行中');
+    expect(panelPrompt().disabled).toBe(true);
+    fireEvent.change(panelPrompt(), { target: { value: '不该发出' } });
+    fireEvent.click(panelSend());
+    await act(async () => {});
+    expect(sessionCommandCalls('agent_start')).toHaveLength(0);
+
+    fireEvent.click(screen.getByTestId('change-chat-history'));
+    await act(async () => {});
+    await act(async () => {});
+    expect(sessionCommandCalls('list_change_chat_sessions'), '历史仍可用').toHaveLength(1);
+    expect(screen.getAllByTestId('change-chat-history-item')).toHaveLength(1);
+  });
+
+  it('组合：归档 change 只读（悬空 worktree 形态）→ 理由行 + 全禁发 + 历史仍可切', async () => {
+    panelListResult = () => ({ sessions: [chatSummary('ses-panel-1')], total: 1 });
+    renderDetail({
+      detail: detail({ source: 'archive', worktree: 'C:\\gone\\wt' }),
+      artifacts: PROPOSAL_ENVELOPES,
+    });
+    await screen.findByTestId('flow-graph');
+
+    expect(screen.getByTestId('change-chat-disabled-reason').textContent).toBe(
+      '已归档 change 只读',
+    );
+    expect(panelPrompt().disabled).toBe(true);
+    expect(screen.getByTestId('change-chat-new').disabled).toBe(true);
+
+    fireEvent.click(panelSend());
+    await act(async () => {});
+    expect(sessionCommandCalls('agent_start')).toHaveLength(0);
+
+    fireEvent.click(screen.getByTestId('change-chat-history'));
+    await act(async () => {});
+    await act(async () => {});
+    expect(sessionCommandCalls('list_change_chat_sessions')).toHaveLength(1);
+  });
+
+  it('组合：legacy worktree = null → 面板 cwd 传 null（后端回落 root），图区与动作面板照常', async () => {
+    renderDetail({ detail: detail({ worktree: null }), artifacts: PROPOSAL_ENVELOPES });
+    await screen.findByTestId('flow-graph');
+    expect(screen.getByTestId('change-chat-cwd').textContent).toBe(`执行根：${ROOT}`);
+    expect(screen.getByTestId('run-control-panel') !== null).toBe(true);
+
+    await sendFromPanel('legacy 记录提问');
+
+    const args = sessionCommandCalls('agent_start')[0][1] as Record<string, unknown>;
+    expect(args['cwd']).toBeNull();
+    expect(args['sessionId']).toBeNull();
+  });
+
+  it('组合：无重放风暴——无会话时会话取数恒 0；已选会话时恒 1，均不随 refreshTick 增长', async () => {
+    loadActiveRun(activeRunView());
+    renderDetail({ detail: detail(), artifacts: PROPOSAL_ENVELOPES });
+    await screen.findByTestId('flow-graph');
+    await waitFor(() => expect(ChannelMock.instances.length).toBeGreaterThan(0));
+    const detailsBefore = detailCalls().length;
+
+    // 无会话：N 条密封事件驱动 refreshTick 递增，会话取数恒 0
+    await act(async () => {
+      for (let round = 0; round < 12; round += 1) lastChannel().push({ ipc: 'sessionEvent' });
+    });
+    await waitFor(() => expect(detailCalls().length).toBeGreaterThan(detailsBefore), {
+      timeout: 5000,
+    });
+    expect(sessionCommandCalls('session_detail'), '无会话零取数').toHaveLength(0);
+    expect(sessionCommandCalls('agent_session_transcript')).toHaveLength(0);
+
+    // 已选会话：会话取数恒 1，通知到站不再追加
+    invokeMock.mockImplementation((command: string, args?: Record<string, unknown>) => {
+      if (command === 'list_change_chat_sessions') {
+        return Promise.resolve({ sessions: [chatSummary('ses-panel-1')], total: 1 });
+      }
+      if (command === 'session_detail') return Promise.resolve(chatSummary('ses-panel-1'));
+      if (command === 'agent_session_transcript') return Promise.resolve([]);
+      return detailIpc(command, args);
+    });
+    fireEvent.click(screen.getByTestId('change-chat-history'));
+    await act(async () => {});
+    await act(async () => {});
+    fireEvent.click(screen.getAllByTestId('change-chat-history-item')[0]);
+    await act(async () => {});
+    await act(async () => {});
+    expect(sessionCommandCalls('session_detail')).toHaveLength(1);
+    expect(sessionCommandCalls('agent_session_transcript')).toHaveLength(1);
+
+    const detailsSecond = detailCalls().length;
+    await act(async () => {
+      for (let round = 0; round < 12; round += 1) lastChannel().push({ ipc: 'sessionEvent' });
+    });
+    await waitFor(() => expect(detailCalls().length).toBeGreaterThan(detailsSecond), {
+      timeout: 5000,
+    });
+    expect(sessionCommandCalls('session_detail'), '不随 refreshTick 增长').toHaveLength(1);
+    expect(sessionCommandCalls('agent_session_transcript')).toHaveLength(1);
+  });
+});
+
+describe('ChangeDetailView：抽屉非模态回归与首载降级', () => {
+  it('抽屉挂载 / 卸载回归：列头点击 → detail-drawer 非模态（data-modal="false" + 无遮罩），关闭即卸载', async () => {
+    renderDetail({ detail: detail(), artifacts: PROPOSAL_ENVELOPES });
+    await screen.findByTestId('flow-graph');
+
+    fireEvent.click(screen.getAllByTestId('flow-column')[0]);
+    await screen.findByTestId('detail-drawer');
+
+    const viewport = document.querySelector('[data-slot="drawer-viewport"]');
+    expect(viewport?.getAttribute('data-modal'), '非模态（AC-7）').toBe('false');
+    expect(document.querySelector('[data-slot="drawer-overlay"]'), '无遮罩节点').toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: '关闭' }));
+    await waitFor(() => expect(screen.queryByTestId('detail-drawer')).toBeNull());
+  });
+
+  it('首载失败降级：get_change_detail reject → 降级页、面板零挂载、零 agent 类 invoke', async () => {
+    renderDetail({ detail: 'db: 读详情失败' });
+    await waitFor(() => expect(screen.getByTestId('error-note') !== null).toBe(true));
+
+    expect(screen.getByTestId('error-note').textContent).toContain('db: 读详情失败');
+    expect(screen.queryByTestId('change-chat-panel'), '面板不抢跑').toBeNull();
+    expect(
+      invokeMock.mock.calls.filter(([command]) => String(command).startsWith('agent_')),
+      '零 agent 类 invoke',
+    ).toHaveLength(0);
   });
 });

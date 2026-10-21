@@ -88,7 +88,7 @@ export const commands = {
 	 *  命令体零校验逻辑。
 	 */
 	setDefaultAgentInstance: (id: number) => __TAURI_INVOKE<AgentInstanceRecord>("set_default_agent_instance", { id }),
-	agentStart: (onEvent: Channel<AgentRunMessage>, root: string, prompt: string, permissionMode: AgentPermissionMode, sessionId: string | null, source: string | null, sourceRef: string | null, agent: number | null) => __TAURI_INVOKE<TurnSummary>("agent_start", { onEvent, root, prompt, permissionMode, sessionId, source, sourceRef, agent }),
+	agentStart: (onEvent: Channel<AgentRunMessage>, root: string, prompt: string, permissionMode: AgentPermissionMode, sessionId: string | null, source: string | null, sourceRef: string | null, agent: number | null, cwd: string | null) => __TAURI_INVOKE<TurnSummary>("agent_start", { onEvent, root, prompt, permissionMode, sessionId, source, sourceRef, agent, cwd }),
 	agentStop: (root: string, sessionId: string) => __TAURI_INVOKE<null>("agent_stop", { root, sessionId }),
 	/**
 	 *  会话级实时流订阅（薄包装三段：参数转换 → 注册表订阅 → `Channel` 前向，
@@ -118,6 +118,14 @@ export const commands = {
 	/**  轮统计行（发起顺序） */
 	turns: TurnSummary[],
 } | null>("session_detail", { root, sessionId }),
+	/**
+	 *  某 change 的 chat 会话清单（探测语义薄包装，三段：参数转换 → 内核分页查询
+	 *  → 错误映射）：`source` 词常量收在本层（前端零来源词汇），`source_ref` 即
+	 *  change id 原样（不 trim / 不规范化——URL id 即身份键）；同 change 的流程
+	 *  会话为四段 `{changeId}/{phase}/{role}/{attempt}`，精确相等过滤下不撞。
+	 *  blank root → 空页信封（读面语义，与 `agent_sessions` 同口径）。
+	 */
+	listChangeChatSessions: (root: string, id: string, offset: number, limit: number) => __TAURI_INVOKE<SessionPage>("list_change_chat_sessions", { root, id, offset, limit }),
 	changeFlowStart: (onEvent: Channel<RunNotice>, root: string, id: string, autoNextPhase: boolean) => __TAURI_INVOKE<ChangeRunSummary>("change_flow_start", { onEvent, root, id, autoNextPhase }),
 	changeFlowStop: (root: string, id: string) => __TAURI_INVOKE<null>("change_flow_stop", { root, id }),
 	changeFlowAnswer: (root: string, id: string, answer: string) => __TAURI_INVOKE<null>("change_flow_answer", { root, id, answer }),

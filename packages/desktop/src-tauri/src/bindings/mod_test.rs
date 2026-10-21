@@ -49,7 +49,7 @@ impl Drop for RestoreOnDrop {
     }
 }
 
-/// 36 条命令的生成包装名（camelCase，与 `generate_handler!` 时代命令清单一一
+/// 37 条命令的生成包装名（camelCase，与 `generate_handler!` 时代命令清单一一
 /// 对应；历史缺录为既有滞后债，contains 语义不致红、按现行口径只补录本变更
 /// 自身新命令）。
 const COMMAND_WRAPPERS: &[&str] = &[
@@ -72,6 +72,7 @@ const COMMAND_WRAPPERS: &[&str] = &[
     "agentSessions",
     "agentSessionTranscript",
     "sessionDetail",
+    "listChangeChatSessions",
     "readExplore",
     "scanExplores",
     "exploreDocPath",
@@ -91,7 +92,7 @@ const COMMAND_WRAPPERS: &[&str] = &[
     "workspaceConfig",
 ];
 
-/// 36 条命令的 IPC 命令名（snake_case，invoke 目标；补录口径同上）。
+/// 37 条命令的 IPC 命令名（snake_case，invoke 目标；补录口径同上）。
 const COMMAND_NAMES: &[&str] = &[
     "list_changes",
     "get_change_detail",
@@ -112,6 +113,7 @@ const COMMAND_NAMES: &[&str] = &[
     "agent_sessions",
     "agent_session_transcript",
     "session_detail",
+    "list_change_chat_sessions",
     "read_explore",
     "scan_explores",
     "explore_doc_path",
@@ -311,16 +313,16 @@ fn agent_start绑定签名含尾部agent入参且invoke参数对象恒含agent�
     // 尾部 agent 入参（number | null，末位位置参数形态保持；会话域化后
     // sessionId 取代 resumeSessionId/parentRunId）：
     // 「agentStart typed Channel 首参」逐字断言保持，agent 为末位位置参数
-    let wrapper_head = "agentStart: (onEvent: Channel<AgentRunMessage>, root: string, prompt: string, permissionMode: AgentPermissionMode, sessionId: string | null, source: string | null, sourceRef: string | null, agent: number | null) => ";
+    let wrapper_head = "agentStart: (onEvent: Channel<AgentRunMessage>, root: string, prompt: string, permissionMode: AgentPermissionMode, sessionId: string | null, source: string | null, sourceRef: string | null, agent: number | null, cwd: string | null) => ";
     assert!(
         content.contains(wrapper_head),
-        "agentStart 绑定签名以尾部 agent 入参收尾（typed Channel 首参保持）"
+        "agentStart 绑定签名以尾部 cwd（nullable string）收尾（typed Channel 首参保持，10 参同序）"
     );
     assert!(
         content.contains(
-            "\"agent_start\", { onEvent, root, prompt, permissionMode, sessionId, source, sourceRef, agent }"
+            "\"agent_start\", { onEvent, root, prompt, permissionMode, sessionId, source, sourceRef, agent, cwd }"
         ),
-        "invoke 参数对象恒含 agent 键与 sessionId 键（会话域化参数面）"
+        "invoke 参数对象恒含 agent / cwd 键与 sessionId 键（会话域化 + 执行根参数面）"
     );
 }
 
@@ -851,12 +853,12 @@ fn dto_types清单不残留退役幽灵条目() {
 }
 
 #[test]
-fn command清单补录_archive_change后36条且既有锚点与在册命令保持() {
+fn command清单补录_archive_change后37条且既有锚点与在册命令保持() {
     // 本变更自身新命令补录（历史缺录为既有滞后债，contains 语义不致红、不在
-    // 本变更范围）：条目数 35 → 36（ensure_explore_session），
+    // 本变更范围）：条目数 36 → 37（list_change_chat_sessions），
     // 首尾锚点不变
-    assert_eq!(COMMAND_NAMES.len(), 36, "命令清单恰补录本变更一条");
-    assert_eq!(COMMAND_WRAPPERS.len(), 36, "包装清单恰补录本变更一条");
+    assert_eq!(COMMAND_NAMES.len(), 37, "命令清单恰补录本变更一条");
+    assert_eq!(COMMAND_WRAPPERS.len(), 37, "包装清单恰补录本变更一条");
     assert_eq!(COMMAND_NAMES.first(), Some(&"list_changes"));
     assert_eq!(COMMAND_NAMES.last(), Some(&"workspace_config"));
     assert!(COMMAND_NAMES.contains(&"archive_change"), "invoke 名补录");
@@ -874,6 +876,15 @@ fn command清单补录_archive_change后36条且既有锚点与在册命令保�
     assert!(
         COMMAND_WRAPPERS.contains(&"ensureExploreSession"),
         "包装名补录（ensureExploreSession）"
+    );
+    // 本变更新增命令（某 change 的 chat 会话清单薄包装）
+    assert!(
+        COMMAND_NAMES.contains(&"list_change_chat_sessions"),
+        "invoke 名补录（list_change_chat_sessions）"
+    );
+    assert!(
+        COMMAND_WRAPPERS.contains(&"listChangeChatSessions"),
+        "包装名补录（listChangeChatSessions）"
     );
     // 前轮变更新增命令（explore 工作流类型回填唯一写口）——在册保持
     assert!(
@@ -985,6 +996,14 @@ fn session_page出线为sessions与total两字段且agent_sessions绑定返回�
              { root, source, sourceRef, offset, limit })"
         ),
         "agentSessions 绑定返回 __TAURI_INVOKE<SessionPage>（分页入参透传）"
+    );
+    // listChangeChatSessions：某 change 的 chat 清单薄包装（包装名 / invoke 名 /
+    // 返回 SessionPage 三面逐字）
+    assert!(
+        content.contains(
+            "listChangeChatSessions: (root: string, id: string, offset: number, limit: number) => __TAURI_INVOKE<SessionPage>(\"list_change_chat_sessions\", { root, id, offset, limit })"
+        ),
+        "listChangeChatSessions 绑定返回 __TAURI_INVOKE<SessionPage>（root / id / offset / limit 四参透传）"
     );
 
     // dto.ts 星号 re-export 自动跟随（禁手写旁路反向锚）

@@ -11,6 +11,11 @@ export interface AgentInputProps {
   placeholder?: string;
   /** 运行中：发送禁用 + 停止入口呈现 */
   running: boolean;
+  /** 整面板禁用态（业务判据，如归档只读 / 流程运行中）：输入框与发送同时禁用，
+   * 与 `running` 语义正交（缺省 false） */
+  disabled?: boolean;
+  /** 禁用理由文案（`disabled` 时呈于工具行上方；缺省不呈现） */
+  disabledReason?: string;
   /** 发送上抛（链参数与 stance 组装由上游承担） */
   onSend: (input: { text: string; permissionMode: AgentPermissionMode }) => void;
   /** 停止上抛（触发 agent_stop） */
@@ -58,9 +63,10 @@ function ModeSelect({
   );
 }
 
-/** 工具行：permission-mode 档位 + 停止入口（运行中）+ 发送按钮 */
+/** 工具行：permission-mode 档位 + 停止入口（运行中且未整面板禁用）+ 发送按钮 */
 function ComposerToolbar({
   running,
+  disabled,
   prompt,
   permissionMode,
   sendId,
@@ -71,6 +77,7 @@ function ComposerToolbar({
   onSend,
 }: {
   running: boolean;
+  disabled: boolean;
   prompt: string;
   permissionMode: AgentPermissionMode;
   sendId: string;
@@ -84,7 +91,9 @@ function ComposerToolbar({
     <div className="flex flex-wrap items-center gap-4">
       <ModeSelect id={modeId} value={permissionMode} onChange={onPermissionModeChange} />
       <span className="flex-1" />
-      {running && (
+      {/* 整面板禁用态不呈停止入口（业务只读态下「停止」无意义，且 MUST NOT
+          顶替 `running` 的既有呈现——两标志语义正交） */}
+      {running && !disabled && (
         <button
           type="button"
           className="cursor-pointer rounded-md border border-border bg-background px-4 py-2 text-sm font-medium text-foreground outline-none transition-colors hover:bg-muted"
@@ -98,7 +107,7 @@ function ComposerToolbar({
         type="button"
         className="cursor-pointer rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground outline-none transition-colors hover:bg-primary/90 disabled:pointer-events-none disabled:opacity-50"
         data-testid={sendId}
-        disabled={running || prompt.trim().length === 0}
+        disabled={disabled || running || prompt.trim().length === 0}
         onClick={onSend}
       >
         发送
@@ -110,13 +119,16 @@ function ComposerToolbar({
 /**
  * composer：prompt 输入（原生 styled textarea）+ permission-mode 档位（默认
  * bypassPermissions）+ 发送（运行中禁发）+ 停止入口（运行中呈现）。发送后
- * 输入清空；档位状态本地持有。
+ * 输入清空；档位状态本地持有。整面板禁用态（`disabled`）下 textarea 与发送
+ * 同时禁用并呈理由文案——用户不会「打了字发不出去」。
  */
 export function AgentInput({
   idPrefix,
   label,
   placeholder,
   running,
+  disabled = false,
+  disabledReason,
   onSend,
   onStop,
 }: AgentInputProps): React.JSX.Element {
@@ -144,10 +156,20 @@ export function AgentInput({
         data-testid={`${idPrefix}-prompt`}
         placeholder={placeholder}
         value={prompt}
+        disabled={disabled}
         onChange={(e) => setPrompt(e.target.value)}
       />
+      {disabled && disabledReason !== undefined && (
+        <div
+          className="mb-2 text-xs text-muted-foreground"
+          data-testid={`${idPrefix}-disabled-reason`}
+        >
+          {disabledReason}
+        </div>
+      )}
       <ComposerToolbar
         running={running}
+        disabled={disabled}
         prompt={prompt}
         permissionMode={permissionMode}
         sendId={`${idPrefix}-send`}

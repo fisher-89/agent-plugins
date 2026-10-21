@@ -276,6 +276,10 @@ interface Params {
   sessionId: string | null;
   source?: string;
   refreshKey?: number;
+  /** 来源内定位（未提供即 null——既有消费面零漂移） */
+  sourceRef?: string | null;
+  /** 会话执行根（未提供即 null → 后端回落 root） */
+  cwd?: string | null;
 }
 
 async function mounted(overrides: Partial<Params> = {}) {
@@ -291,6 +295,8 @@ async function mounted(overrides: Partial<Params> = {}) {
         root: props.root,
         sessionId: props.sessionId,
         source: props.source ?? 'debug',
+        sourceRef: props.sourceRef,
+        cwd: props.cwd,
         refreshKey: props.refreshKey,
       }),
     { initialProps: params },
@@ -427,6 +433,7 @@ describe('useAgentSession：单流在挂与发送守卫（AC-3）', () => {
       source: 'debug',
       sourceRef: null,
       agent: null,
+      cwd: null,
     });
 
     // 同轮增量只注入一份（文本无重复、气泡数不翻倍）
@@ -479,6 +486,7 @@ describe('useAgentSession：单流在挂与发送守卫（AC-3）', () => {
       source: 'debug',
       sourceRef: null,
       agent: 7,
+      cwd: null,
     });
   });
 });
@@ -860,5 +868,150 @@ describe('useAgentSession：early-resolve 镜像形态与订阅寻址', () => {
     expect(result.current.messages).toEqual([]);
     expect(result.current.loading).toBe(false);
     expect(invokeMock.mock.calls.length - before, '复位不发新取数').toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// sourceRef / cwd 参数面（AC-3 / AC-4 / D8）：两字段以 `?? null` 透传进发送
+// body——未提供即 null（调试页 / explore 形态零漂移），提供即逐字到达；重放 /
+// 订阅 / 停止面不携执行根与归属。
+// ---------------------------------------------------------------------------
+
+/** 发送一轮并等待其落定（发起流由 Record 收口，便于连发两次）。 */
+async function sendOnce(
+  result: {
+    current: { sendMessage: (input: { prompt: string; permissionMode: 'default' }) => void };
+  },
+  prompt: string,
+): Promise<void> {
+  act(() => {
+    result.current.sendMessage({ prompt, permissionMode: 'default' });
+  });
+  await act(async () => {});
+}
+
+describe('useAgentSession：sourceRef 与 cwd 参数面', () => {
+  it('两字段进发送 body：sourceRef / cwd 逐字到达 agent_start', async () => {
+    const { result } = await mounted({
+      source: 'change',
+      sourceRef: 'chg-1',
+      cwd: 'C:\\demo\\wt',
+    });
+
+    await sendOnce(result, '带执行根一轮');
+
+    expect(argsOf('agent_start')).toEqual({
+      onEvent: expect.any(ChannelMock),
+      root: ROOT,
+      prompt: '带执行根一轮',
+      permissionMode: 'default',
+      sessionId: SESSION_ID,
+      source: 'change',
+      sourceRef: 'chg-1',
+      agent: null,
+      cwd: 'C:\\demo\\wt',
+    });
+  });
+
+  it('未提供即 null：sourceRef 与 cwd 键恒在、值为 null（9 键稳定）', async () => {
+    const { result } = await mounted();
+
+    await sendOnce(result, '既有形态');
+
+    const args = argsOf('agent_start');
+    expect(Object.keys(args).sort()).toEqual([
+      'agent',
+      'cwd',
+      'onEvent',
+      'permissionMode',
+      'prompt',
+      'root',
+      'sessionId',
+      'source',
+      'sourceRef',
+    ]);
+    expect(args['sourceRef']).toBeNull();
+    expect(args['cwd']).toBeNull();
+  });
+
+  it('显式 null 与缺席同值：两次发送的 agent_start 参数对象全等', async () => {
+    const absent = await mounted();
+    await sendOnce(absent.result, '缺席两字段');
+    const absentArgs = argsOf('agent_start');
+    absent.unmount();
+
+    const explicit = await mounted({ sourceRef: null, cwd: null });
+    await sendOnce(explicit.result, '缺席两字段');
+    const explicitArgs = argsOf('agent_start');
+
+    // onEvent 为各流独立 Channel 实例（不参与同值比较），其余 8 键逐字段全等
+    expect(explicitArgs).toEqual({ ...absentArgs, onEvent: expect.any(ChannelMock) });
+    expect(explicitArgs['cwd']).toBeNull();
+    expect(explicitArgs['sourceRef']).toBeNull();
+  });
+
+  it('rerender 换 cwd 即生效：第二次发送携新执行根（无陈旧闭包）', async () => {
+    const { result, rerender } = await mounted({ cwd: 'C:\\a' });
+    await sendOnce(result, '第一次');
+    expect(argsOf('agent_start')['cwd']).toBe('C:\\a');
+
+    deliverRecord(turn(13, 'completed'));
+    await waitFor(() => expect(result.current.running).toBe(false));
+
+    await rerenderWith(rerender, { cwd: 'C:\\b' });
+    await sendOnce(result, '第二次');
+
+    expect(argsOf('agent_start')['cwd']).toBe('C:\\b');
+  });
+
+  it('空态首发携 cwd：sessionId 为 null 且执行根在场（New 语义与执行根并存）', async () => {
+    const { result } = await mounted({ sessionId: null, cwd: 'C:\\demo\\wt' });
+
+    await sendOnce(result, '开新会话');
+
+    const args = argsOf('agent_start');
+    expect(args['sessionId']).toBeNull();
+    expect(args['cwd']).toBe('C:\\demo\\wt');
+  });
+
+  it('空串原样透传：cwd 为空串时不 trim、不改写为 null（后端按空白回落 root）', async () => {
+    const { result } = await mounted({ cwd: '' });
+
+    await sendOnce(result, '空串执行根');
+
+    expect(argsOf('agent_start')['cwd']).toBe('');
+  });
+
+  it('重放面不受 cwd 影响：session_detail / 转录参数仍恰 { root, sessionId }', async () => {
+    await mounted({ cwd: 'C:\\demo\\wt' });
+
+    expect(argsOf('session_detail')).toEqual({ root: ROOT, sessionId: SESSION_ID });
+    expect(argsOf('agent_session_transcript')).toEqual({ root: ROOT, sessionId: SESSION_ID });
+    expect(argsOf('session_detail')).not.toHaveProperty('cwd');
+    expect(argsOf('session_detail')).not.toHaveProperty('sourceRef');
+  });
+
+  it('停止寻址不含两字段：stop() 的 agent_stop 参数恰 { root, sessionId }', async () => {
+    const { result } = await mounted({ sourceRef: 'chg-1', cwd: 'C:\\demo\\wt' });
+
+    act(() => {
+      result.current.stop();
+    });
+
+    expect(argsOf('agent_stop')).toEqual({ root: ROOT, sessionId: SESSION_ID });
+  });
+
+  it('非法 cwd 类型（越过类型签名的脏值）→ 发起前拒绝「非法 cwd」、零 agent_start、running 不置位', async () => {
+    const { result } = await mounted({ cwd: 42 as unknown as string });
+
+    act(() => {
+      result.current.sendMessage({ prompt: '脏执行根', permissionMode: 'default' });
+    });
+    await act(async () => {});
+    await act(async () => {});
+
+    await waitFor(() => expect(result.current.error).toContain('非法 cwd'));
+    expect(callsOf('agent_start')).toHaveLength(0);
+    expect(result.current.running, '脏值不置运行态').toBe(false);
   });
 });
