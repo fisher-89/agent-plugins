@@ -1,8 +1,8 @@
 use std::path::{Path, PathBuf};
-use std::process::Stdio;
 use std::time::Duration;
 
 use exec::SystemCommand;
+use foundation::cancel::CancelFlag;
 
 use super::report::{self, to_posix, STRYKER_TMP_DIR_NAME};
 use super::{mutation_jobs, SegmentFailure, SEGMENT_SPAWN_TIMEOUT_MS};
@@ -33,9 +33,13 @@ pub(crate) struct StrykerSegment<'a> {
 
 /// 段执行：临时 config 写盘（`mutate` = 段清单、`tempDirName` = 共享 sandbox
 /// 全段共用、`concurrency` = 半 CPU）→ `npx --prefix <suite cwd> stryker run
-/// <config>` spawn（超时 + 输出捕获）→ 读回段原始报告（jsonReporter 直写段报告
-/// 路径）。sandbox 清理归调用方（全段后一次——段间零清理）。
-pub(crate) async fn run_segment(segment: &StrykerSegment<'_>) -> Result<String, SegmentFailure> {
+/// <config>` 经 `exec::run_shell` 执行（超时 / 双管道 / 进程树击杀 / 取消单点驻
+/// exec）→ 读回段原始报告（jsonReporter 直写段报告路径）。sandbox 清理归调用方
+///（全段后一次——段间零清理）。
+pub(crate) async fn run_segment(
+    segment: &StrykerSegment<'_>,
+    cancel: CancelFlag,
+) -> Result<String, SegmentFailure> {
     // 程序解析前置（E5：npx 不可达显式 Err——壳会吞缺失程序，先查 PATH）
     ensure_on_path("npx").map_err(SegmentFailure::Fatal)?;
 
@@ -59,47 +63,42 @@ pub(crate) async fn run_segment(segment: &StrykerSegment<'_>) -> Result<String, 
         to_posix(segment.suite_cwd),
         to_posix(&config_path)
     );
-    let mut shell = SystemCommand::script_raw(&command).into_tokio();
-    shell
-        .current_dir(segment.suite_cwd)
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
-    let mut child = shell
-        .spawn()
-        .map_err(|error| SegmentFailure::Fatal(format!("Stryker 命令拉起失败: {error}")))?;
-    let mut stdout_pipe = child.stdout.take();
-    let mut stderr_pipe = child.stderr.take();
-    let waited = tokio::time::timeout(Duration::from_millis(SEGMENT_SPAWN_TIMEOUT_MS), async {
-        let mut stdout_bytes = Vec::new();
-        let mut stderr_bytes = Vec::new();
-        let _ = tokio::join!(
-            read_all(&mut stdout_pipe, &mut stdout_bytes),
-            read_all(&mut stderr_pipe, &mut stderr_bytes),
-        );
-        let status = child.wait().await;
-        (status, stdout_bytes, stderr_bytes)
-    })
+    let run = exec::run_shell(
+        SystemCommand::script_raw(&command),
+        exec::RunOptions {
+            cwd: Some(segment.suite_cwd.to_path_buf()),
+            env: Vec::new(),
+            timeout: Duration::from_millis(SEGMENT_SPAWN_TIMEOUT_MS),
+            cancel,
+        },
+    )
     .await;
-    let (exit_code, output) = match waited {
-        Err(_) => {
-            // 超时：终止并收尸（不悬挂执行链）——段中断即时反馈面（双时点②）
-            let _ = child.start_kill();
-            let _ = child.wait().await;
+    let (exit_code, output) = match run {
+        Err(exec::RunError::Spawn(error)) => {
+            return Err(SegmentFailure::Fatal(format!(
+                "Stryker 命令拉起失败: {error}"
+            )));
+        }
+        Err(exec::RunError::Wait(error)) => {
+            return Err(SegmentFailure::Fatal(format!(
+                "Stryker 段执行等待失败: {error}"
+            )));
+        }
+        // 超时：整树已杀 + 收尸完成——段中断即时反馈面（双时点②）
+        Ok(report) if report.outcome == exec::RunOutcome::TimedOut => {
             return Err(SegmentFailure::Interrupted(format!(
                 "Stryker 段执行超时（{} 秒）强制终止",
                 SEGMENT_SPAWN_TIMEOUT_MS / 1000
             )));
         }
-        Ok((Err(error), _, _)) => {
-            return Err(SegmentFailure::Fatal(format!(
-                "Stryker 段执行等待失败: {error}"
-            )));
+        // 取消：段中断面（MUST NOT 走 Fatal——不把用户停止呈现为环境损坏）
+        Ok(report) if report.outcome == exec::RunOutcome::Cancelled => {
+            return Err(SegmentFailure::Cancelled("Stryker 段执行已取消".to_owned()));
         }
-        Ok((Ok(status), stdout_bytes, stderr_bytes)) => {
-            let mut output = stdout_bytes;
-            output.extend_from_slice(&stderr_bytes);
-            (status.code().unwrap_or(-1), output)
+        Ok(report) => {
+            let mut output = report.stdout;
+            output.extend_from_slice(&report.stderr);
+            (report.exit_code, output)
         }
     };
 
@@ -208,14 +207,6 @@ fn reachable_in(dir: &Path, program: &str) -> bool {
         }
     }
     false
-}
-
-/// 管道读尽（`None` 管道 = 未捕获臂，静默跳过）。
-async fn read_all<R: tokio::io::AsyncRead + Unpin>(pipe: &mut Option<R>, buffer: &mut Vec<u8>) {
-    if let Some(pipe) = pipe.as_mut() {
-        use tokio::io::AsyncReadExt as _;
-        let _ = pipe.read_to_end(buffer).await;
-    }
 }
 
 #[cfg(test)]

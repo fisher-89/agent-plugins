@@ -1846,3 +1846,161 @@ async fn accumulate_node_首见终态无ended零补值() {
     );
     assert_eq!(snap.nodes[0].ended_at, None, "ended 首见 None 零补值零铸造");
 }
+
+// ---------------------------------------------------------------------------
+// 取消双写（test-design「control.rs -> control_test.rs」节，AC-6 / D8 / D9）：
+// `begin_run` 铸造零值 flag、`request_stop` 双写（watch + 进程面原子）、无订阅者
+// 不丢、幂等、miss 面与多 run 隔离、`RunGuard::cancel_flag()` 同一原子。
+// ---------------------------------------------------------------------------
+
+/// 正向：`begin_run` 后 `cancel_flag()` 初值——新 run 零置位，且与 `cancelled()`
+/// 同源观测一致。
+#[tokio::test]
+async fn begin_run后cancel_flag初值零置位() {
+    let control = Arc::new(ChangeFlowControl::default());
+    let guard = control
+        .begin_run(ROOT, CHANGE_ID, "run-flag-init".to_owned(), STARTED_AT)
+        .expect("首次发起应成功");
+
+    assert!(
+        !guard.cancel_flag().is_set(),
+        "新登记 run 的进程面标志零置位（铸造 never()）"
+    );
+    assert!(!guard.cancelled(), "watch 面同样未置位");
+}
+
+/// 正向（AC-6）：`request_stop` 双写——同一调用点同时置位 watch 面与进程面
+///（`guard.cancelled()` 与 `cancel_flag().is_set()` 同刻为真）。
+#[tokio::test]
+async fn request_stop双写_watch面与进程面同刻置位() {
+    let control = Arc::new(ChangeFlowControl::default());
+    let guard = control
+        .begin_run(ROOT, CHANGE_ID, "run-double-write".to_owned(), STARTED_AT)
+        .expect("首次发起应成功");
+
+    assert!(control.request_stop(ROOT, CHANGE_ID), "运行中停止应命中");
+    assert!(guard.cancelled(), "watch 臂置位（send_replace）");
+    assert!(guard.cancel_flag().is_set(), "进程面臂置位（原子 set）");
+}
+
+/// 正向（AC-6）：无订阅者不丢——不取任何 `updates` / `cancelled_wait` 订阅即
+/// `request_stop` → 进程面标志仍为真（`send_replace` 与原子双写均不依赖订阅者）。
+#[tokio::test]
+async fn request_stop无订阅者不丢位() {
+    let control = Arc::new(ChangeFlowControl::default());
+    let guard = control
+        .begin_run(ROOT, CHANGE_ID, "run-no-subscriber".to_owned(), STARTED_AT)
+        .expect("首次发起应成功");
+
+    // 刻意不 subscribe 任何通道
+    assert!(control.request_stop(ROOT, CHANGE_ID));
+    assert!(
+        guard.cancel_flag().is_set(),
+        "无订阅者仍置位（watch send_replace + 原子双写）"
+    );
+}
+
+/// 边界（D9）：`request_stop` 幂等——连调两次均返回 true，标志仍为真，无 panic。
+#[tokio::test]
+async fn request_stop幂等_连调两次均命中() {
+    let control = Arc::new(ChangeFlowControl::default());
+    let guard = control
+        .begin_run(ROOT, CHANGE_ID, "run-idempotent".to_owned(), STARTED_AT)
+        .expect("首次发起应成功");
+
+    assert!(control.request_stop(ROOT, CHANGE_ID), "首次命中断言");
+    assert!(control.request_stop(ROOT, CHANGE_ID), "重复停止仍命中（幂等）");
+    assert!(guard.cancel_flag().is_set(), "重复 set 无副作用");
+}
+
+/// 边界（表驱动 2 形态）：miss 面——未登记键 / 已 `finish` 除名键 → `false`，
+/// 不 panic（已除名 run 的 flag 由在跑 runner 持有，置位与否不再经注册表）。
+#[tokio::test]
+async fn request_stop_miss面两形态() {
+    let control = Arc::new(ChangeFlowControl::default());
+
+    // 形态一：未登记
+    assert!(
+        !control.request_stop(ROOT, CHANGE_ID),
+        "未登记键 → false（不 panic）"
+    );
+
+    // 形态二：已 finish 除名
+    let guard = control
+        .begin_run(ROOT, CHANGE_ID, "run-finish-miss".to_owned(), STARTED_AT)
+        .expect("首次发起应成功");
+    let flag = guard.cancel_flag();
+    guard.finish(ChangeRunStatus::Completed, None);
+    assert!(
+        !control.request_stop(ROOT, CHANGE_ID),
+        "已收口除名键 → false"
+    );
+    assert!(!flag.is_set(), "除名后的停止不再置位旧 flag（已由 runner 持有）");
+}
+
+/// 边界（表驱动 2 形态：异 change id / 异 root）：多 run 隔离——`request_stop`
+/// 只置位目标 run 的 `cancel_flag`，另一 run 恒 false。
+#[tokio::test]
+async fn request_stop多run隔离() {
+    // 形态一：同 root 异 change id
+    let control = Arc::new(ChangeFlowControl::default());
+    let first = control
+        .begin_run(ROOT, CHANGE_ID, "run-a".to_owned(), STARTED_AT)
+        .expect("A 发起应成功");
+    let second = control
+        .begin_run(ROOT, CHANGE_ID_B, "run-b".to_owned(), STARTED_AT)
+        .expect("B 发起应成功");
+    assert!(control.request_stop(ROOT, CHANGE_ID));
+    assert!(first.cancel_flag().is_set(), "目标 run A 置位");
+    assert!(!second.cancel_flag().is_set(), "另一 run B 不受影响");
+
+    // 形态二：异 root 同 change id
+    let control = Arc::new(ChangeFlowControl::default());
+    let here = control
+        .begin_run(ROOT, CHANGE_ID, "run-root-a".to_owned(), STARTED_AT)
+        .expect("root-a 发起应成功");
+    let there = control
+        .begin_run("/ws/root-b", CHANGE_ID, "run-root-b".to_owned(), STARTED_AT)
+        .expect("root-b 发起应成功（异 root 不撞键）");
+    assert!(control.request_stop("/ws/root-b", CHANGE_ID));
+    assert!(there.cancel_flag().is_set(), "root-b 的 run 置位");
+    assert!(!here.cancel_flag().is_set(), "root-a 的 run 不受影响");
+}
+
+/// 边界（D8）：`RunGuard::cancel_flag()` 同一原子——同 guard 连续两次取值相等
+///（`Arc::ptr_eq`），置位后两次取值均读 true。
+#[tokio::test]
+async fn run_guard_cancel_flag同一原子() {
+    let control = Arc::new(ChangeFlowControl::default());
+    let guard = control
+        .begin_run(ROOT, CHANGE_ID, "run-same-arc".to_owned(), STARTED_AT)
+        .expect("首次发起应成功");
+
+    let first = guard.cancel_flag();
+    let second = guard.cancel_flag();
+    assert_eq!(first, second, "两次取值同一原子（身份相等）");
+
+    first.handle().set();
+    assert!(second.is_set(), "一处置位两处可见");
+    assert_eq!(second, guard.cancel_flag(), "置位后仍身份相等");
+}
+
+/// 边界：终态除名后的取消面——`finish` 后 `request_stop` 返回 false、
+/// `snapshot` 为 `None`；含 flag 的 `RunEntry` 随去除名，`Arc` 由在跑 runner
+/// 持有至释放（除名不丢置位能力）。
+#[tokio::test]
+async fn finish除名后flag仍可由runner侧置位() {
+    let control = Arc::new(ChangeFlowControl::default());
+    let guard = control
+        .begin_run(ROOT, CHANGE_ID, "run-after-finish".to_owned(), STARTED_AT)
+        .expect("首次发起应成功");
+    let held = guard.cancel_flag();
+
+    guard.finish(ChangeRunStatus::Completed, None);
+    assert!(control.snapshot(ROOT, CHANGE_ID).is_none(), "终态除名");
+    assert!(!control.request_stop(ROOT, CHANGE_ID), "除名后停止 miss");
+
+    // 在跑 runner 持有的句柄仍可置位（Arc 生命周期不随注册表除名终止）
+    held.handle().set();
+    assert!(held.is_set(), "除名后 flag 仍可置位（runner 持有至释放）");
+}

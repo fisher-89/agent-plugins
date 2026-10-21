@@ -1784,6 +1784,7 @@ async fn 组合根装配_staticcheck步默认recorded落单一log并回填引用
     let output = tools
         .run(ToolStepRequest {
             root: root.clone(),
+            cancel: foundation::cancel::CancelFlag::never(),
             command: ToolCommand::StaticCheck {
                 change_id: CHANGE.to_owned(),
                 slot: foundation::layout::ReportSlot::Test,

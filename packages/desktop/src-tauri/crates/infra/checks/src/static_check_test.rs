@@ -13,8 +13,12 @@ struct EnvWindow {
 }
 
 fn env_window() -> EnvWindow {
+    // poison 容错：单例环境锁被某用例 panic 污染后仍可取用（避免一例失败级联
+    // 拖垮同文件其余用例）
     EnvWindow {
-        _guard: crate::TEST_ENV_LOCK.lock().expect("crate 环境锁不可中毒"),
+        _guard: crate::TEST_ENV_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()),
     }
 }
 
@@ -147,7 +151,9 @@ fn write_shim(ws: &TempWs, name: &str, lines: &[ShimLine<'_>], exit: Option<i32>
 /// 一次 static-check 执行（收口产出；`name` 为输出记录目录派生键；`slot`
 /// 报告槽位——报告锚点 / exec-outputs 落点按槽位派生，check-before-flow-start）。
 async fn check(root: &str, name: &str, slot: ReportSlot) -> Result<StaticCheckOutcome, String> {
-    let output = ProcessStaticCheck::new().run(root, name, slot).await?;
+    let output = ProcessStaticCheck::new()
+        .run(root, name, slot, foundation::cancel::CancelFlag::never())
+        .await?;
     match output {
         ToolStepOutput::StaticCheck(outcome) => Ok(outcome),
         other => panic!("产出应为 StaticCheck 变体，实际: {other:?}"),
@@ -731,4 +737,390 @@ async fn run槽位等价性_语义同锚点异且err面持衡() {
             .expect_err("程序不可达应 Err");
         assert!(!err.is_empty(), "slot={slot:?} Err 串语义持衡");
     }
+}
+
+// ---------------------------------------------------------------------------
+// 超时 / 取消（test-design「static_check.rs -> static_check_test.rs」节，
+// AC-2 / AC-3 / AC-4）：static-check 首获超时预算（此前零超时 → cargo 卡文件
+// 锁时永久悬挂）；取消经 `run_shell` 入口短路与轮询两径收敛为
+// `Err("执行已取消")`。
+// ---------------------------------------------------------------------------
+
+use std::time::{Duration, Instant};
+
+use foundation::cancel::CancelFlag;
+
+use crate::static_check::STATIC_CHECK_TIMEOUT;
+
+/// 在 workspace 根写入自旋 shim（先落自身 pid 再挂起——超时 / 取消臂的「进程
+/// 恒活」形态与「被杀后 pid 回收」断言面）。`2>&1` 由生产侧命令串追加，shim
+/// 自身不必带。
+///
+/// Windows 臂的直接子进程是 `cmd.exe`（无内建 pid 变量），故 `.cmd` 委派 msys
+/// bash 自旋脚本记录 winpid——`taskkill /T /F` 整树击杀后该 pid 必消失（整树
+/// 语义的可稳定观测面）；unix 臂直接以 `sh` 进程 pid 为直接子进程面。
+fn write_spin_shim(ws: &TempWs, name: &str, pid_file: &Path) -> String {
+    #[cfg(windows)]
+    {
+        let script = ws.path().join(format!("{name}.sh"));
+        fs::write(
+            &script,
+            format!(
+                "#!/bin/sh\nwin=$(cat /proc/$$/winpid 2>/dev/null || printf '%s' \"$$\")\nprintf '%s' \"$win\" > \"{}\"\nwhile :; do sleep 0.1; done\n",
+                pid_file.display()
+            ),
+        )
+        .expect("写自旋 bash 脚本失败");
+        let bash = match exec::resolve_shell() {
+            exec::ShellBase::GitBash(path) => path,
+            _ => panic!("自旋 shim 需要 Git for Windows bash（resolve_shell 未探测到 GitBash）"),
+        };
+        let body = format!("@echo off\r\n\"{}\" \"{}\"\r\n", bash.display(), script.display());
+        fs::write(ws.path().join(format!("{name}.cmd")), body).expect("写自旋 shim 失败");
+        format!("{name}.cmd")
+    }
+    #[cfg(not(windows))]
+    {
+        let body = format!(
+            "#!/bin/sh\nprintf '%s' \"$$\" > \"{}\"\nwhile :; do sleep 0.1; done\n",
+            pid_file.display()
+        );
+        let script = ws.path().join(name);
+        fs::write(&script, body).expect("写自旋 shim 失败");
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).expect("补执行位");
+        name.to_owned()
+    }
+}
+
+/// 自旋 shim 落盘的 pid（winpid 口径——`tasklist` / `kill -0` 可探测）。
+fn read_pid(path: &Path) -> Option<u32> {
+    fs::read_to_string(path)
+        .ok()
+        .and_then(|text| text.trim().parse().ok())
+}
+
+/// 等自旋 shim 落 pid（真实时钟握手：虚拟时钟下进程启动不受影响，等待以真实
+/// 睡眠 + 让出表达）。
+async fn wait_pid(path: &Path, budget: Duration) -> u32 {
+    let deadline = Instant::now() + budget;
+    loop {
+        if let Some(pid) = read_pid(path) {
+            return pid;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "等待自旋 shim 落 pid 超时（{budget:?}）"
+        );
+        tokio::task::yield_now().await;
+        std::thread::sleep(Duration::from_millis(10));
+    }
+}
+
+/// pid 存活探测（Windows `tasklist`、unix `kill -0`）。
+#[cfg(windows)]
+fn pid_alive(pid: u32) -> bool {
+    let output = std::process::Command::new("tasklist")
+        .args(["/FI", &format!("PID eq {pid}"), "/NH", "/FO", "CSV"])
+        .output();
+    match output {
+        Ok(output) => String::from_utf8_lossy(&output.stdout).contains(&pid.to_string()),
+        Err(_) => false,
+    }
+}
+
+#[cfg(not(windows))]
+fn pid_alive(pid: u32) -> bool {
+    std::process::Command::new("kill")
+        .args(["-0", &pid.to_string()])
+        .status()
+        .map(|status| status.success())
+        .unwrap_or(false)
+}
+
+/// 等待 pid 消失（杀树是尽力语义 + 平台回收时延，轮询到上界即判定仍存活）。
+fn wait_pid_gone(pid: u32, budget: Duration) -> bool {
+    let deadline = Instant::now() + budget;
+    while Instant::now() < deadline {
+        if !pid_alive(pid) {
+            return true;
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    !pid_alive(pid)
+}
+
+/// 边界（AC-2）：`STATIC_CHECK_TIMEOUT` 常量锚定 1200 s——预算单点消费，取值
+/// 改动即被击杀。
+#[test]
+fn static_check_timeout常量锚定() {
+    assert_eq!(
+        STATIC_CHECK_TIMEOUT,
+        Duration::from_secs(1200),
+        "static-check 超时预算 1200 秒（冷构建约 90 s 的约 3 倍余量）"
+    );
+    assert!(
+        STATIC_CHECK_TIMEOUT > Duration::from_secs(600),
+        "预算须显著高于既有 suite 命令口径（原零超时缺陷不得复发）"
+    );
+}
+
+/// 正向（AC-3）：超时臂——自旋 shim + 虚拟时钟推进越过 `STATIC_CHECK_TIMEOUT`
+/// → `Err` 文案恰为「static-check 命令超时（1200 秒）强制终止」+ 墙钟上界
+///（不悬挂——本变更修复的现状缺陷）+ 目标 pid 消失（`kill_tree` 整树回收锚）。
+#[tokio::test(start_paused = true)]
+async fn 超时臂_到点err且pid消失不悬挂() {
+    let _env = env_window();
+    let ws = TempWs::new("timeout");
+    let _path = PathPrefix::enter(ws.path());
+    let pid_file = ws.path().join("static-pid.txt");
+    let command = write_spin_shim(&ws, "spin-timeout-shim", &pid_file);
+    ws.write_config(Some(&command));
+
+    // 运行体在任务内（主任务负责「等 pid 落盘 → 推进虚拟时钟」的握手）
+    let root_str = ws.root_str();
+    let runner = tokio::spawn(async move {
+        ProcessStaticCheck::new()
+            .run(&root_str, "demo-change", ReportSlot::Test, CancelFlag::never())
+            .await
+    });
+    let pid = wait_pid(&pid_file, Duration::from_secs(60)).await;
+
+    let started = Instant::now();
+    tokio::time::advance(STATIC_CHECK_TIMEOUT + Duration::from_secs(60)).await;
+    let err = runner
+        .await
+        .expect("static-check 任务应正常结束")
+        .expect_err("超时应 Err（不悬挂）");
+    let elapsed = started.elapsed();
+
+    assert_eq!(
+        err, "static-check 命令超时（1200 秒）强制终止",
+        "超时文案逐字（预算秒数由常量拼装）"
+    );
+    assert!(
+        elapsed < Duration::from_secs(120),
+        "墙钟上界（不悬挂，实际 {elapsed:?}）"
+    );
+    assert!(
+        wait_pid_gone(pid, Duration::from_secs(15)),
+        "超时强杀后目标 pid {pid} 应消失（kill_tree 整树回收）"
+    );
+}
+
+/// 正向（AC-4 / D4）：已置位 cancel —— 入口短路不 spawn，直接 `Err("执行已取消")`。
+#[tokio::test]
+async fn 已置位cancel_入口短路零spawn() {
+    let _env = env_window();
+    let ws = TempWs::new("cancel-pre");
+    let _path = PathPrefix::enter(ws.path());
+    let marker = ws.path().join("shim-ran.txt");
+    #[cfg(windows)]
+    let command = {
+        fs::write(
+            ws.path().join("marker-shim.cmd"),
+            format!("@echo off\r\necho ran > \"{}\"\r\n", marker.display()),
+        )
+        .expect("写标记 shim");
+        "marker-shim.cmd".to_owned()
+    };
+    #[cfg(not(windows))]
+    let command = {
+        let script = ws.path().join("marker-shim");
+        fs::write(
+            &script,
+            format!("#!/bin/sh\nprintf ran > \"{}\"\n", marker.display()),
+        )
+        .expect("写标记 shim");
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).expect("补执行位");
+        "marker-shim".to_owned()
+    };
+    ws.write_config(Some(&command));
+
+    let cancel = CancelFlag::never();
+    cancel.handle().set();
+    let started = Instant::now();
+    let output = ProcessStaticCheck::new()
+        .run(&ws.root_str(), "demo-change", ReportSlot::Test, cancel)
+        .await;
+    let err = output.expect_err("取消短路应 Err");
+    assert_eq!(err, "执行已取消", "取消文案（过渡语义）");
+    assert!(!marker.exists(), "入口短路不 spawn（shim 零执行）");
+    assert!(
+        started.elapsed() < Duration::from_secs(5),
+        "短路墙钟近零（不依赖轮询时序）"
+    );
+    let exec_dir = ws.exec_dir("demo-change");
+    assert!(
+        !exec_dir.exists() || fs::read_dir(&exec_dir).map(|mut d| d.next().is_none()).unwrap_or(true),
+        "取消臂不落输出记录引用"
+    );
+}
+
+/// 边界（AC-4 / D4 分支优先级）：**无配置 + 已置位 cancel**——取消短路发生在
+/// `run_shell` 内，故「无配置 / 空命令直过」分支先于 spawn 返回：取消已置位仍
+/// `Ok(passed = true)`（不 `Err`）、零 spawn（无 `.log` 输出记录）、墙钟近零、
+/// report_dir 回填本槽位锚点。
+#[tokio::test]
+async fn 无配置加已置位cancel_仍直过零spawn不err() {
+    let _env = env_window();
+    let ws = TempWs::new("no-config-cancel-pre");
+    ws.write_config(None);
+
+    let cancel = CancelFlag::never();
+    cancel.handle().set();
+    let started = Instant::now();
+    let output = ProcessStaticCheck::new()
+        .run(&ws.root_str(), "demo-change", ReportSlot::Test, cancel)
+        .await
+        .expect("无配置直过先于取消短路（取消已置位亦不 Err）");
+    let elapsed = started.elapsed();
+    let outcome = match output {
+        ToolStepOutput::StaticCheck(outcome) => outcome,
+        other => panic!("产出应为 StaticCheck 变体，实际: {other:?}"),
+    };
+
+    assert!(outcome.passed, "无配置 → passed 直过（非取消 Err）");
+    assert!(
+        outcome.diagnostics.is_empty(),
+        "诊断空（零 spawn 即零输出），实际: {}",
+        outcome.diagnostics
+    );
+    assert_eq!(outcome.output_ref, None, "零 spawn 即无输出记录（不落空 .log）");
+    let expect_suffix = format!("demo-change{SEP}reports{SEP}test");
+    assert!(
+        outcome.report_dir.ends_with(&expect_suffix),
+        "report_dir 仍回填本槽位锚点: {}",
+        outcome.report_dir
+    );
+    assert!(
+        elapsed < Duration::from_secs(5),
+        "直过墙钟近零（不依赖取消轮询时序，实际 {elapsed:?}）"
+    );
+    let exec_dir = ws.exec_dir("demo-change");
+    assert!(
+        !exec_dir.exists()
+            || fs::read_dir(&exec_dir)
+                .map(|mut entries| entries.next().is_none())
+                .unwrap_or(true),
+        "零 spawn 零输出记录（exec-outputs 无新文件）"
+    );
+}
+
+/// 异常（既有前置）：程序不可达——裸名不在 PATH → `ensure_program_resolvable`
+/// 先 Err 记因（`run_shell` 的 `Spawn` 臂因此不可达）。
+#[tokio::test]
+async fn 程序不可达_解析前置err且不spawn() {
+    let _env = env_window();
+    let ws = TempWs::new("unreachable");
+    ws.write_config(Some("definitely-not-on-path-shim"));
+
+    let err = check_test(&ws.root_str(), "demo-change")
+        .await
+        .expect_err("不可达程序应 Err");
+    assert!(
+        err.contains("未找到") && err.contains("PATH 上无对应可执行"),
+        "解析前置记因（spawn 前先解析，Spawn 臂因此不可达）: {err}"
+    );
+}
+
+/// 诊断文本边界用例装置：落盘 shim（给定行）→ 驱动一次 static-check。
+async fn outcome_with_lines(tag: &str, lines: &[ShimLine<'_>]) -> StaticCheckOutcome {
+    let ws = TempWs::new(tag);
+    let _path = PathPrefix::enter(ws.path());
+    let command = write_shim(&ws, "diag-shim", lines, None);
+    ws.write_config(Some(&command));
+    check_test(&ws.root_str(), "demo-change")
+        .await
+        .expect("退出 0 形态应 Ok")
+}
+
+/// 边界（表驱动 3 形态）：诊断文本边界——输出为空 / 超长（>1000 字符）/ 含
+/// 特殊字符（引号、emoji）→ `diagnostics` 逐字（不截断不转义）、`passed` 判定
+/// 不受影响。
+#[tokio::test]
+async fn 诊断文本边界_空超长与特殊字符逐字() {
+    let _env = env_window();
+
+    // 形态一：空输出
+    let empty = outcome_with_lines("diagnostics-empty", &[]).await;
+    assert!(empty.passed, "空输出: 退出 0 → passed");
+    assert!(empty.diagnostics.is_empty(), "空输出: 诊断空");
+
+    // 形态二：超长（>1000 字符）不截断
+    let long = "L".repeat(1200);
+    let oversized = outcome_with_lines("diagnostics-long", &[(long.as_str(), false)]).await;
+    assert!(oversized.passed, "超长输出: 退出 0 → passed");
+    assert_eq!(
+        oversized.diagnostics.lines().count(),
+        1,
+        "超长输出: 单行（未换行拆散）"
+    );
+    assert!(
+        oversized.diagnostics.len() >= 1200,
+        "超长输出: 诊断不截断（实际长度 {}）",
+        oversized.diagnostics.len()
+    );
+
+    // 形态三：特殊字符（引号 / emoji）不转义
+    let special = outcome_with_lines(
+        "diagnostics-special",
+        &[("quote-double-\"-and-emoji-🎉", false)],
+    )
+    .await;
+    assert!(special.passed, "特殊字符: 退出 0 → passed");
+    assert!(
+        special.diagnostics.contains('"') && special.diagnostics.contains("🎉"),
+        "特殊字符: 诊断逐字（不转义），实际: {:?}",
+        special.diagnostics
+    );
+}
+
+/// 正向（AC-4）：运行中 cancel——自旋 shim 落 pid 后挂起，运行中置位 →
+/// `Err("执行已取消")` + 墙钟上界（秒级收敛，不等 `STATIC_CHECK_TIMEOUT`）+
+/// 目标 pid 消失；取消臂不落 diagnostics / 输出记录引用。
+#[tokio::test]
+async fn 运行中cancel_秒级收敛且pid消失不落输出引用() {
+    let _env = env_window();
+    let ws = TempWs::new("cancel-running");
+    let _path = PathPrefix::enter(ws.path());
+    let pid_file = ws.path().join("static-pid-running.txt");
+    let command = write_spin_shim(&ws, "spin-cancel-shim", &pid_file);
+    ws.write_config(Some(&command));
+
+    let cancel = CancelFlag::never();
+    let handle = cancel.handle();
+    let root_str = ws.root_str();
+    let runner = tokio::spawn(async move {
+        ProcessStaticCheck::new()
+            .run(&root_str, "demo-change", ReportSlot::Test, cancel)
+            .await
+    });
+
+    // 等 shim 落 pid（进程已建立）后置位取消
+    let pid = wait_pid(&pid_file, Duration::from_secs(60)).await;
+    let started = Instant::now();
+    handle.set();
+
+    let output = runner.await.expect("run 任务应正常结束");
+    let err = output.expect_err("取消应 Err");
+    assert_eq!(err, "执行已取消", "取消文案（过渡语义）");
+    assert!(
+        started.elapsed() < Duration::from_secs(20),
+        "秒级收敛（不等 1200 s 预算，实际 {:?}）",
+        started.elapsed()
+    );
+    assert!(
+        wait_pid_gone(pid, Duration::from_secs(15)),
+        "取消强杀后目标 pid {pid} 应消失（kill_tree 整树回收）"
+    );
+    let exec_dir = ws.exec_dir("demo-change");
+    assert!(
+        !exec_dir.exists()
+            || fs::read_dir(&exec_dir)
+                .map(|mut entries| entries.next().is_none())
+                .unwrap_or(true),
+        "取消臂不落输出记录引用"
+    );
 }

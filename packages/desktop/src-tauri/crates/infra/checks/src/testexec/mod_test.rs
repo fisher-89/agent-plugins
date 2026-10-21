@@ -59,6 +59,8 @@ fn clear_shim_env() {
     std::env::remove_var("SHIM_DEST");
     std::env::remove_var("SHIM_MARKER");
     std::env::remove_var("SHIM_EXIT");
+    std::env::remove_var("SHIM_SPIN_AFTER");
+    std::env::remove_var("SHIM_PIDFILE");
 }
 
 /// node-test spec 绿跑样本（五用例 4 pass 1 skipped + "All files" 覆盖汇总行；
@@ -133,6 +135,14 @@ impl ChainWs {
             fs::write(
                 root.join("app").join("node-shim.ps1"),
                 "if ($args.Count -gt 0 -and $args[0] -eq '--version') { exit 0 }\n\
+                 if ($env:SHIM_SPIN_AFTER) {\n\
+                   $seen = 0\n\
+                   if ($env:SHIM_MARKER -and (Test-Path $env:SHIM_MARKER)) { $seen = @(Get-Content $env:SHIM_MARKER).Count }\n\
+                   if ($seen -ge [int]$env:SHIM_SPIN_AFTER) {\n\
+                     if ($env:SHIM_PIDFILE) { Set-Content -Path $env:SHIM_PIDFILE -Value $PID -NoNewline -Encoding ascii }\n\
+                     while ($true) { Start-Sleep -Milliseconds 100 }\n\
+                   }\n\
+                 }\n\
                  if ($env:SHIM_RESULTS_SRC -and $env:SHIM_DEST) { Copy-Item -Force $env:SHIM_RESULTS_SRC $env:SHIM_DEST }\n\
                  if ($env:SHIM_DEST -and $env:SHIM_MARKER) { Add-Content -Force -Path $env:SHIM_MARKER -Value 'ran' }\n\
                  Write-Output 'shim-stdout-marker'\n\
@@ -149,6 +159,14 @@ impl ChainWs {
                 &script,
                 "#!/bin/sh\n\
                  if [ \"$1\" = \"--version\" ]; then exit 0; fi\n\
+                 if [ -n \"$SHIM_SPIN_AFTER\" ]; then\n\
+                   seen=0\n\
+                   if [ -n \"$SHIM_MARKER\" ] && [ -f \"$SHIM_MARKER\" ]; then seen=$(wc -l < \"$SHIM_MARKER\"); fi\n\
+                   if [ \"$seen\" -ge \"$SHIM_SPIN_AFTER\" ]; then\n\
+                     if [ -n \"$SHIM_PIDFILE\" ]; then printf '%s' \"$$\" > \"$SHIM_PIDFILE\"; fi\n\
+                     while :; do sleep 0.1; done\n\
+                   fi\n\
+                 fi\n\
                  if [ -n \"$SHIM_RESULTS_SRC\" ] && [ -n \"$SHIM_DEST\" ]; then cp \"$SHIM_RESULTS_SRC\" \"$SHIM_DEST\"; fi\n\
                  if [ -n \"$SHIM_DEST\" ] && [ -n \"$SHIM_MARKER\" ]; then echo ran >> \"$SHIM_MARKER\"; fi\n\
                  echo shim-stdout-marker\n\
@@ -182,8 +200,27 @@ impl ChainWs {
         change_reports(self.root(), CHANGE, slot)
     }
 
-    /// 槽位参数版执行（PATH 前置窗口 + 指定槽位 spawn——baseline 树断言面）。
-    async fn run_slot(&self, slot: ReportSlot) -> Result<ToolStepOutput, String> {
+    /// 双 plan 变体（两个 node-test suite：app / app2——多 plan 中途取消面）：
+    /// 覆写 config 并补第二 suite 输入文件（同一 `node` shim 经 PATH 解析，
+    /// 执行臂计数经 SHIM_MARKER 行数区分 plan 序）。
+    fn two_plan(self) -> Self {
+        fs::write(
+            self.root().join("openspec").join("config.json"),
+            r#"{ "tests": [
+  { "root": "app", "framework": "node-test", "coverage": { "lines": 60, "branches": 70, "functions": 75 } },
+  { "root": "app2", "framework": "node-test", "coverage": { "lines": 60, "branches": 70, "functions": 75 } }
+] }"#,
+        )
+        .expect("覆写双 plan config");
+        fs::create_dir_all(self.root().join("app2").join("src")).expect("创建第二 suite src");
+        fs::write(self.root().join("app2").join("src").join("b.test.mjs"), "test body")
+            .expect("写第二 suite 输入文件");
+        self
+    }
+
+    /// PATH 前置 suite cwd（裸名 `node` 解析到 shim；须在 path_window 窗口内
+    /// 调用——窗口收口恢复原 PATH）。多 plan / 取消面用例在 spawn 任务前置用。
+    fn prepend_path(&self) {
         std::env::set_var(
             "PATH",
             std::env::join_paths(std::iter::once(self.root().join("app")).chain(
@@ -191,8 +228,26 @@ impl ChainWs {
             ))
             .expect("join PATH"),
         );
+    }
+
+    /// 显式取消信号版执行（取消面用例的注入点；PATH 前置同 [`Self::run`]）。
+    async fn run_with(&self, cancel: foundation::cancel::CancelFlag) -> Result<ToolStepOutput, String> {
+        self.prepend_path();
         ProcessTestExecution::new()
-            .run(&self.root_str(), CHANGE, slot)
+            .run(&self.root_str(), CHANGE, ReportSlot::Test, cancel)
+            .await
+    }
+
+    /// 槽位参数版执行（PATH 前置窗口 + 指定槽位 spawn——baseline 树断言面）。
+    async fn run_slot(&self, slot: ReportSlot) -> Result<ToolStepOutput, String> {
+        self.prepend_path();
+        ProcessTestExecution::new()
+            .run(
+                &self.root_str(),
+                CHANGE,
+                slot,
+                foundation::cancel::CancelFlag::never(),
+            )
             .await
     }
 
@@ -226,15 +281,14 @@ impl ChainWs {
     /// ——不依赖 cmd 的 cwd 搜索（NoDefaultCurrentDirectoryInExePath 环境下
     /// cmd 不搜 cwd）。须在 path_window 窗口内调用（窗口收口恢复原 PATH）。
     async fn run(&self) -> Result<ToolStepOutput, String> {
-        std::env::set_var(
-            "PATH",
-            std::env::join_paths(std::iter::once(self.root().join("app")).chain(
-                std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default()),
-            ))
-            .expect("join PATH"),
-        );
+        self.prepend_path();
         ProcessTestExecution::new()
-            .run(&self.root_str(), CHANGE, ReportSlot::Test)
+            .run(
+                &self.root_str(),
+                CHANGE,
+                ReportSlot::Test,
+                foundation::cancel::CancelFlag::never(),
+            )
             .await
     }
 }
@@ -548,7 +602,12 @@ async fn 测试程序不可达_run_err() {
         std::env::set_var("PATH", "");
         // await 须在窗口块内（窗口 guard 持有至执行收口——块尾即恢复原 PATH）
         ProcessTestExecution::new()
-            .run(&root_str, CHANGE, ReportSlot::Test)
+            .run(
+                &root_str,
+                CHANGE,
+                ReportSlot::Test,
+                foundation::cancel::CancelFlag::never(),
+            )
             .await
     };
 
@@ -1447,5 +1506,242 @@ async fn run三态载荷_slot透传_baseline锚与fail载荷() {
         outcome.report_dir.contains("reports/baseline"),
         "Error 态 report_dir = baseline 锚: {}",
         outcome.report_dir
+    );
+}
+
+// ---------------------------------------------------------------------------
+// 取消贯通（test-design「testexec/mod.rs -> mod_test.rs」节，AC-4 / AC-6）：
+// `ProcessTestExecution::run` 的 `cancel` 形参透传 `execute` → 逐 plan
+// `execute_plan(plan, &dir, cancel.clone())`（循环内 clone 共享同一原子）→
+// `exec::run_shell` 入口短路 / 轮询置位两径收敛 `Err("执行已取消")`。
+// ---------------------------------------------------------------------------
+
+/// shim 落盘的 pid（winpid 口径——`tasklist` / `kill -0` 可探测）。
+fn read_pid(path: &Path) -> Option<u32> {
+    fs::read_to_string(path)
+        .ok()
+        .and_then(|text| text.trim().parse().ok())
+}
+
+/// 等 shim 落 pid（真实时钟握手：虚拟时钟下进程启动不受影响，等待以真实睡眠
+/// + 让出表达）。
+async fn wait_pid(path: &Path, budget: std::time::Duration) -> u32 {
+    let deadline = std::time::Instant::now() + budget;
+    loop {
+        if let Some(pid) = read_pid(path) {
+            return pid;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "等待自旋 shim 落 pid 超时（{budget:?}）"
+        );
+        tokio::task::yield_now().await;
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+}
+
+/// pid 存活探测（Windows `tasklist`、unix `kill -0`）。
+#[cfg(windows)]
+fn pid_alive(pid: u32) -> bool {
+    let output = std::process::Command::new("tasklist")
+        .args(["/FI", &format!("PID eq {pid}"), "/NH", "/FO", "CSV"])
+        .output();
+    match output {
+        Ok(output) => String::from_utf8_lossy(&output.stdout).contains(&pid.to_string()),
+        Err(_) => false,
+    }
+}
+
+#[cfg(not(windows))]
+fn pid_alive(pid: u32) -> bool {
+    std::process::Command::new("kill")
+        .args(["-0", &pid.to_string()])
+        .status()
+        .map(|status| status.success())
+        .unwrap_or(false)
+}
+
+/// 等待 pid 消失（杀树是尽力语义 + 平台回收时延，轮询到上界即判定仍存活）。
+fn wait_pid_gone(pid: u32, budget: std::time::Duration) -> bool {
+    let deadline = std::time::Instant::now() + budget;
+    while std::time::Instant::now() < deadline {
+        if !pid_alive(pid) {
+            return true;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+    !pid_alive(pid)
+}
+
+/// 多 plan 装置：双 suite workspace + 预置工件源 + 第 2 个执行臂起自旋（落
+/// pid）——返回（workspace、marker 路径、pid 落位路径）。
+fn two_plan_ws(tag: &str) -> (ChainWs, PathBuf, PathBuf) {
+    let ws = ChainWs::new(tag).two_plan();
+    let spec_src = ws.root().join("preset-results.txt");
+    fs::write(&spec_src, SPEC_OUTPUT).expect("写预置工件");
+    let marker = ws.root().join("shim-marker.log");
+    let pid_file = ws.root().join("plan-pid.txt");
+    set_shim_env(&spec_src, &ws.results_dest(), Some(&marker), None);
+    // 第 1 个执行臂正常退出（marker 落 1 行）→ 第 2 个执行臂自旋挂起
+    std::env::set_var("SHIM_SPIN_AFTER", "1");
+    std::env::set_var("SHIM_PIDFILE", &pid_file);
+    (ws, marker, pid_file)
+}
+
+/// 正向（AC-4）：已置位 cancel 的两形态——① 无既有 summary：首个 plan 即
+/// `Err("执行已取消")` 且零 spawn（执行臂 marker 零增长）；② 既有 summary 新鲜
+/// 且输入未变：复用门先于 spawn 判定 → 用例照旧 `Ok`（取消不影响零 spawn 复用
+/// 语义）。
+#[tokio::test]
+async fn 已置位cancel_首个plan即err且复用门先于spawn判定() {
+    // 形态一：无既有 summary → 首个 plan 的 execute_plan 即取消（零 spawn）
+    {
+        let _window = path_window();
+        let ws = ChainWs::new("cancel-pre-fresh");
+        let spec_src = ws.root().join("preset-results.txt");
+        fs::write(&spec_src, SPEC_OUTPUT).expect("写预置工件");
+        let marker = ws.root().join("shim-marker.log");
+        set_shim_env(&spec_src, &ws.results_dest(), Some(&marker), None);
+        let cancel = foundation::cancel::CancelFlag::never();
+        cancel.handle().set();
+
+        let err = ws
+            .run_with(cancel)
+            .await
+            .expect_err("已置位 cancel 应 Err（基础设施失败面）");
+        assert_eq!(err, "执行已取消", "取消文案（过渡语义）");
+        assert_eq!(ws.marker_count(), 0, "首个 plan 入口短路零 spawn（marker 零增长）");
+        assert!(
+            !ws.reports_dir().join("summary.json").exists(),
+            "取消臂不落 summary（不产部分结论）"
+        );
+    }
+
+    // 形态二：既有新鲜 summary + 输入未变 → 复用分支在 spawn 之前返回 Ok
+    {
+        let _window = path_window();
+        let ws = ChainWs::new("cancel-pre-reuse");
+        let spec_src = ws.root().join("preset-results.txt");
+        fs::write(&spec_src, SPEC_OUTPUT).expect("写预置工件");
+        let marker = ws.root().join("shim-marker.log");
+        set_shim_env(&spec_src, &ws.results_dest(), Some(&marker), None);
+        ws.run().await.expect("首跑应 Ok");
+        let first_ts = ws.summary_timestamp().expect("首跑落 summary");
+        assert_eq!(ws.marker_count(), 1, "首跑恰一次执行");
+
+        let cancel = foundation::cancel::CancelFlag::never();
+        cancel.handle().set();
+        let output = ws
+            .run_with(cancel)
+            .await
+            .expect("复用门先于 spawn 判定 → 已置位 cancel 仍走复用分支");
+        let outcome = match output {
+            ToolStepOutput::TestExecution(outcome) => outcome,
+            other => panic!("产出应为 TestExecution 变体，实际: {other:?}"),
+        };
+        assert_eq!(
+            outcome.conclusion,
+            TestExecutionConclusion::Pass,
+            "复用上次结论（取消未触达 spawn 面）"
+        );
+        assert_eq!(ws.marker_count(), 1, "零 spawn（marker 计数不增长）");
+        assert_eq!(
+            ws.summary_timestamp(),
+            Some(first_ts),
+            "summary 未重写（复用分支）"
+        );
+    }
+}
+
+/// 正向（AC-4）：多 plan 中途取消——第 1 个 plan 完成后置位取消，第 2 个 plan
+/// 观测取消 → 整体 `Err("执行已取消")`（取消不被吞成部分结论）+ 零 summary
+/// 落盘 + 第 2 个 plan 进程被回收。
+#[tokio::test]
+async fn 多plan中途取消_第二plan取消且整体err不落summary() {
+    let _window = path_window();
+    let (ws, marker, pid_file) = two_plan_ws("cancel-multi-plan");
+    let cancel = foundation::cancel::CancelFlag::never();
+    let handle = cancel.handle();
+    let started = std::time::Instant::now();
+    ws.prepend_path();
+    let ws_root = ws.root_str();
+    let runner = tokio::spawn(async move {
+        ProcessTestExecution::new()
+            .run(&ws_root, CHANGE, ReportSlot::Test, cancel)
+            .await
+    });
+
+    // 第 2 个 plan 落 pid（进程已建立且自旋）后置位——此时第 1 个 plan 已完成
+    let pid = wait_pid(&pid_file, std::time::Duration::from_secs(60)).await;
+    handle.set();
+
+    let err = runner
+        .await
+        .expect("run 任务应正常结束")
+        .expect_err("取消应 Err（不落部分结论）");
+    let elapsed = started.elapsed();
+
+    assert_eq!(err, "执行已取消", "取消文案（第 2 个 plan 的 execute_plan 面）");
+    assert_eq!(
+        fs::read_to_string(&marker)
+            .map(|text| text.lines().filter(|line| !line.trim().is_empty()).count())
+            .unwrap_or(0),
+        1,
+        "第 1 个 plan 执行完成（marker 1 行）；第 2 个 plan 停在自旋臂（未走到 marker 追加）"
+    );
+    assert!(
+        !ws.reports_dir().join("summary.json").exists(),
+        "取消臂不落 summary（不吞成部分结论）"
+    );
+    assert!(
+        wait_pid_gone(pid, std::time::Duration::from_secs(15)),
+        "第 2 个 plan 进程被回收（pid {pid} 消失——run_shell 杀树生效）"
+    );
+    assert!(
+        elapsed < std::time::Duration::from_secs(30),
+        "秒级收敛（实际 {elapsed:?}）"
+    );
+}
+
+/// 边界（AC-6 逐层下传锚）：**循环内 clone 共享同一原子**——`run → execute →
+/// 逐 plan execute_plan(plan, &dir, cancel.clone())` 三层形参皆同一原子；第 1
+/// 个 plan 完成后置位，第 2 个 plan 的 `exec::run_shell` 观测到置位并杀树。若
+/// 任一层退化为重新铸造（`never()`），第 2 个 plan 将不受置位影响（自旋进程
+/// 存活、用例挂死）——故 pid 消失 + 秒级收敛即「同一原子跨 plan 可见」的行为面
+/// 证据。
+#[tokio::test]
+async fn 循环内clone共享原子_置位在第二plan链尾可见() {
+    let _window = path_window();
+    let (ws, _marker, pid_file) = two_plan_ws("cancel-clone-identity");
+    let cancel = foundation::cancel::CancelFlag::never();
+    let probe = cancel.clone();
+    let handle = cancel.handle();
+    let started = std::time::Instant::now();
+    ws.prepend_path();
+    let ws_root = ws.root_str();
+    let runner = tokio::spawn(async move {
+        ProcessTestExecution::new()
+            .run(&ws_root, CHANGE, ReportSlot::Test, cancel)
+            .await
+    });
+
+    let pid = wait_pid(&pid_file, std::time::Duration::from_secs(60)).await;
+    handle.set();
+
+    let err = runner
+        .await
+        .expect("run 任务应正常结束")
+        .expect_err("取消应 Err");
+    let elapsed = started.elapsed();
+
+    assert_eq!(err, "执行已取消");
+    assert!(probe.is_set(), "置位对外部 clone 可见（同一原子）");
+    assert!(
+        elapsed < std::time::Duration::from_secs(30),
+        "链尾执行体观测到置位（秒级收敛，实际 {elapsed:?}）"
+    );
+    assert!(
+        wait_pid_gone(pid, std::time::Duration::from_secs(15)),
+        "第 2 个 plan 的进程被回收（pid {pid} 消失——任一层重新铸造则不会消失）"
     );
 }

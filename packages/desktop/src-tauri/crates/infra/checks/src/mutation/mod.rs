@@ -22,6 +22,7 @@ use std::path::{Path, PathBuf};
 use checks::aggregate::{build_mutation_block, derive_plan_id, merge_mutation_blocks};
 use checks::model::{MutationBlock, MutationMeasured, MutationSegReport, MutationTool};
 use config::{TestFramework, TestSuite};
+use foundation::cancel::CancelFlag;
 use orchestration::port::{
     BoxToolFuture, MutationCounts, MutationRunner, MutationSkipReason, MutationTestConclusion,
     MutationTestOutcome, ToolStepOutput,
@@ -51,17 +52,23 @@ pub const SEGMENT_SPAWN_TIMEOUT_MS: u64 = 3_600_000;
 /// 段执行失败面（E5 分流）：`Fatal` = 工具不可达 / 配置不支持 / 写盘失败 →
 /// runner 显式 `Err` 停给用户（与 WorkerAgent 失败同等呈现）；`Interrupted` =
 /// 段中断（harness 崩 / 超时 / 未产出段报告）→ `conclusion = Error` 即时反馈
-/// （双时点②，不等汇总）。
+/// （双时点②，不等汇总）；`Cancelled` = 用户停止（cancel 置位 → 执行体杀整树）→
+/// 与段中断同面收场（`conclusion = Error` + 取消文案）但**不走 `Fatal`**（不把
+/// 用户停止呈现为「环境坏了停给用户」）。变体独立（不复用 `Interrupted` 文案）
+/// 便于后续 stopped 收敛直接映射。
 #[derive(Debug)]
 pub(crate) enum SegmentFailure {
     Fatal(String),
     Interrupted(String),
+    Cancelled(String),
 }
 
 impl std::fmt::Display for SegmentFailure {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Fatal(message) | Self::Interrupted(message) => formatter.write_str(message),
+            Self::Fatal(message) | Self::Interrupted(message) | Self::Cancelled(message) => {
+                formatter.write_str(message)
+            }
         }
     }
 }
@@ -118,12 +125,19 @@ impl Default for ProcessMutation {
 }
 
 impl MutationRunner for ProcessMutation {
-    fn run(&self, root: &str, name: &str, files: &[String], patch: &str) -> BoxToolFuture {
+    fn run(
+        &self,
+        root: &str,
+        name: &str,
+        files: &[String],
+        patch: &str,
+        cancel: CancelFlag,
+    ) -> BoxToolFuture {
         let root = root.to_owned();
         let name = name.to_owned();
         let files = files.to_vec();
         let patch = patch.to_owned();
-        Box::pin(async move { execute(&root, &name, &files, &patch).await })
+        Box::pin(async move { execute(&root, &name, &files, &patch, cancel).await })
     }
 }
 
@@ -133,6 +147,7 @@ async fn execute(
     change: &str,
     files: &[String],
     patch: &str,
+    cancel: CancelFlag,
 ) -> Result<ToolStepOutput, String> {
     let root_path = Path::new(root);
     let report = config::load(root_path);
@@ -159,11 +174,11 @@ async fn execute(
     let mut suite_results: Vec<(String, MutationBlock)> = Vec::new();
     let mut report_paths: Vec<String> = Vec::new();
     let mut stryker_dirs: Vec<PathBuf> = Vec::new();
-    let mut interruption: Option<String> = None;
-    // 失败桶临时面保留：失败（Interrupted / Fatal）的 Stryker 桶临时 config 与
-    // sandbox 不清理，反馈面附路径供单段复现（保留粒度 = 失败桶全临时面——段
-    // index 不上抛（`SegmentFailure` 只携 String）、sandbox 本跨段共享、清单有
-    // 界且失败段 config 必在其中（段串行））；成功面照清，rust 桶无临时面
+    let mut interruption: Option<SegmentFailure> = None;
+    // 失败桶临时面保留：失败（Interrupted / Cancelled）与 Fatal 的 Stryker 桶临时
+    // config 与 sandbox 不清理，反馈面附路径供单段复现（保留粒度 = 失败桶全临时
+    // 面——段 index 不上抛（`SegmentFailure` 只携 String）、sandbox 本跨段共享、
+    // 清单有界且失败段 config 必在其中（段串行））；成功面照清，rust 桶无临时面
     let mut retain: Option<PathBuf> = None;
     for bucket in &runnable {
         let bucket = *bucket;
@@ -171,7 +186,16 @@ async fn execute(
         if bucket.tool == Some(MutationTool::Stryker) {
             stryker_dirs.push(mutation_dir.clone());
         }
-        match run_suite(root_path, &reports_dir, bucket, patch, &mut report_paths).await {
+        match run_suite(
+            root_path,
+            &reports_dir,
+            bucket,
+            patch,
+            &mut report_paths,
+            cancel.clone(),
+        )
+        .await
+        {
             Ok(block) => suite_results.push((bucket.plan_id.clone(), block)),
             Err(SegmentFailure::Fatal(error)) => {
                 if bucket.tool == Some(MutationTool::Stryker) {
@@ -180,11 +204,12 @@ async fn execute(
                 let retained = cleanup_stryker_dirs(&stryker_dirs, retain.as_ref());
                 return Err(format!("{error}{}", retained_artifacts_section(&retained)));
             }
-            Err(SegmentFailure::Interrupted(error)) => {
+            // 中断 / 取消同走「保留失败桶临时面 + 收束」，文案与终态面按变体分
+            Err(failure @ (SegmentFailure::Interrupted(_) | SegmentFailure::Cancelled(_))) => {
                 if bucket.tool == Some(MutationTool::Stryker) {
                     retain = Some(mutation_dir);
                 }
-                interruption = Some(error);
+                interruption = Some(failure);
                 break;
             }
         }
@@ -199,15 +224,20 @@ async fn execute(
         .collect();
 
     // 双时点②中断面：不等汇总、不回填 summary（部分结论不落位）——错误摘要 +
-    // 已产报告路径清单即时反馈
-    if let Some(error) = interruption {
+    // 已产报告路径清单即时反馈（取消面同面收场，仅头行文案为「已取消」）
+    if let Some(failure) = interruption {
         let merged = merge_mutation_blocks(&blocks);
         let (score, threshold, counts) = match &merged {
             Some(block) => (block.score, block.threshold, counts_of(&block.measured)),
             None => (0.0, 0.0, MutationCounts::default()),
         };
+        let head = match &failure {
+            SegmentFailure::Cancelled(_) => "突变执行已取消",
+            // Fatal 不参与取消（`Err` 面已在上一分支收束），此处为既有中断面
+            SegmentFailure::Interrupted(_) | SegmentFailure::Fatal(_) => "突变执行中断",
+        };
         let feedback_text = format!(
-            "突变执行中断：{error}\n已产报告路径：\n{}{}",
+            "{head}：{failure}\n已产报告路径：\n{}{}",
             bullet_paths(&report_paths),
             retained_artifacts_section(&retained)
         );
@@ -409,6 +439,7 @@ async fn run_suite(
     bucket: &SuiteBucket,
     patch: &str,
     report_paths: &mut Vec<String>,
+    cancel: CancelFlag,
 ) -> Result<MutationBlock, SegmentFailure> {
     let mutation_dir = reports_dir.join(&bucket.plan_id).join("mutation");
     std::fs::create_dir_all(&mutation_dir).map_err(|error| {
@@ -452,7 +483,16 @@ async fn run_suite(
             None => {
                 // 旧段报告清除——段报告是本次执行的权威信号（防旧报告被误判）
                 let _ = std::fs::remove_file(&report_path);
-                execute_segment(root_path, &mutation_dir, bucket, chunk, index, patch).await?
+                execute_segment(
+                    root_path,
+                    &mutation_dir,
+                    bucket,
+                    chunk,
+                    index,
+                    patch,
+                    cancel.clone(),
+                )
+                .await?
             }
         };
 
@@ -483,8 +523,9 @@ async fn run_suite(
     Ok(block)
 }
 
-/// 单段执行：补丁切片 / 临时 config 写盘 → spawn（超时 + 输出捕获）→ 段原始报
-/// 告写盘 → 段报告解析。失败按 [`SegmentFailure`] 分流（E5）。
+/// 单段执行：补丁切片 / 临时 config 写盘 → 经 `exec::run_shell` 执行（超时 /
+/// 双管道 / 进程树击杀 / 取消单点驻 exec）→ 段原始报告写盘 → 段报告解析。失败按
+/// [`SegmentFailure`] 分流（E5；取消走 `Cancelled` 变体，与 `Fatal` 面隔离）。
 async fn execute_segment(
     root_path: &Path,
     mutation_dir: &Path,
@@ -492,6 +533,7 @@ async fn execute_segment(
     chunk: &[String],
     index: usize,
     patch: &str,
+    cancel: CancelFlag,
 ) -> Result<MutationSegReport, SegmentFailure> {
     let tool = bucket.tool.expect("可执行桶恒有执行器");
     let raw = match tool {
@@ -510,18 +552,21 @@ async fn execute_segment(
                 &segments::slice_patch(patch, chunk, &exec_rel),
             )
             .map_err(SegmentFailure::Fatal)?;
-            cargo_mutants::run_segment(&patch_path, &bucket.exec_dir).await?
+            cargo_mutants::run_segment(&patch_path, &bucket.exec_dir, cancel).await?
         }
         MutationTool::Stryker => {
-            stryker::run_segment(&stryker::StrykerSegment {
-                suite_cwd: &bucket.exec_dir,
-                mutation_dir,
-                index,
-                files: chunk,
-                project_root: root_path,
-                framework: bucket.framework,
-                suite_config: bucket.suite_config.as_deref(),
-            })
+            stryker::run_segment(
+                &stryker::StrykerSegment {
+                    suite_cwd: &bucket.exec_dir,
+                    mutation_dir,
+                    index,
+                    files: chunk,
+                    project_root: root_path,
+                    framework: bucket.framework,
+                    suite_config: bucket.suite_config.as_deref(),
+                },
+                cancel,
+            )
             .await?
         }
     };

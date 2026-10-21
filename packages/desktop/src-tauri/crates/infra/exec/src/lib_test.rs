@@ -477,3 +477,141 @@ fn exec_output_dir槽位版与layout单点等值() {
         );
     }
 }
+
+
+// ---------------------------------------------------------------------------
+// SystemCommand clone 等价（test-design「lib.rs -> lib_test.rs」节：`#[derive(Debug)]
+// → #[derive(Debug, Clone)]`——`run_shell` 消费命令规格前需可复用）
+// ---------------------------------------------------------------------------
+
+/// 正向：壳包装 clone 后两份各自 `into_std()`，program / argv 逐字相等；原值
+/// clone 后仍可继续使用（未 move）。
+#[test]
+fn system_command_clone等价_壳包装() {
+    let command = SystemCommand::script("echo hi");
+    let cloned = command.clone();
+
+    let original_std = command.into_std();
+    let cloned_std = cloned.into_std();
+    assert_eq!(
+        original_std.get_program(),
+        cloned_std.get_program(),
+        "clone 后 program 逐字相等"
+    );
+    assert_eq!(
+        original_std.get_args().collect::<Vec<_>>(),
+        cloned_std.get_args().collect::<Vec<_>>(),
+        "clone 后 argv 逐字相等"
+    );
+    assert_eq!(
+        original_std.get_program(),
+        OsStr::new(if cfg!(windows) { "cmd" } else { "sh" }),
+        "原值 clone 后仍可继续使用（未 move）"
+    );
+}
+
+/// 正向（表驱动 4 形态）：`bare` / `script` / `script_raw` / `script_with`
+/// 逐形态 clone → program + argv 逐字相等。
+#[test]
+fn system_command_clone等价_四形态() {
+    let bash = PathBuf::from("C:/Git/bin/bash.exe");
+    let cases: Vec<(&str, SystemCommand)> = vec![
+        (
+            "bare 带 argv",
+            SystemCommand::bare("cargo").args(["mutants", "--workspace"]),
+        ),
+        ("script", SystemCommand::script("echo hi")),
+        ("script_raw", SystemCommand::script_raw("npx stryker run")),
+        (
+            "script_with(GitBash)",
+            SystemCommand::script_with(&ShellBase::GitBash(bash), "echo hi"),
+        ),
+    ];
+
+    for (label, command) in cases {
+        let cloned = command.clone();
+        let original_std = command.into_std();
+        let cloned_std = cloned.into_std();
+        assert_eq!(
+            original_std.get_program(),
+            cloned_std.get_program(),
+            "{label}: program 逐字相等"
+        );
+        assert_eq!(
+            original_std.get_args().collect::<Vec<_>>(),
+            cloned_std.get_args().collect::<Vec<_>>(),
+            "{label}: argv 逐字相等"
+        );
+    }
+}
+
+/// 边界：零 argv——`bare("cargo")` clone 后 program 相等、`get_args()` 为空
+/// （不 panic）。
+#[test]
+fn system_command_clone等价_零argv() {
+    let cloned = SystemCommand::bare("cargo").clone();
+    let command = cloned.into_std();
+    assert_eq!(command.get_program(), OsStr::new("cargo"));
+    assert_eq!(
+        command.get_args().count(),
+        0,
+        "零参数 clone 后仍为空 argv（不 panic）"
+    );
+}
+
+/// 边界（参数化 4 形态）：特殊字符与超长 argv / 非 UTF-8 `OsString`——clone 后
+/// 逐字节相等（`OsStr` 的非 UTF-8 面保留）。
+#[test]
+fn system_command_clone等价_特殊字符与超长与非utf8() {
+    let long = "z".repeat(1200);
+    #[cfg(unix)]
+    let non_utf8 = {
+        use std::os::unix::ffi::OsStringExt as _;
+        std::ffi::OsString::from_vec(vec![b'b', 0xFF, 0xFE])
+    };
+    #[cfg(not(unix))]
+    let non_utf8 = std::ffi::OsString::from("非UTF8占位\u{0}");
+
+    let args: Vec<std::ffi::OsString> = vec![
+        std::ffi::OsString::from("he said \"hi\""),
+        std::ffi::OsString::from("line-1\nline-2"),
+        std::ffi::OsString::from("emoji 🎉🚀"),
+        std::ffi::OsString::from(long),
+        non_utf8,
+    ];
+    let command = SystemCommand::bare("prog").args(args.clone());
+    let cloned = command.clone();
+
+    let original_std = command.into_std();
+    let cloned_std = cloned.into_std();
+    assert_eq!(
+        original_std.get_args().collect::<Vec<_>>(),
+        args.iter().map(std::ffi::OsString::as_os_str).collect::<Vec<_>>(),
+        "原始 argv 逐字"
+    );
+    assert_eq!(
+        cloned_std.get_args().collect::<Vec<_>>(),
+        args.iter().map(std::ffi::OsString::as_os_str).collect::<Vec<_>>(),
+        "clone 后 argv 逐字节相等（含非 UTF-8 / 超长 / 特殊字符）"
+    );
+}
+
+/// 边界：`raw` 标记保真——`script_raw` clone 后末参仍为命令串（`raw == true`
+/// 语义不因 clone 退化为 false；Windows 侧唯一可观测面在 tokio `raw_arg`，此处
+/// 以 `into_tokio().as_std()` 对拍 program + 末参）。
+#[test]
+fn system_command_clone等价_raw标记保真() {
+    let script = "npx --prefix 'C:/suite' stryker run '{config}' > '{x}'";
+    let cloned = SystemCommand::script_raw(script).clone();
+    let tokio_command = cloned.into_tokio();
+    let std_command = tokio_command.as_std();
+
+    assert_eq!(
+        std_command.get_program(),
+        OsStr::new(if cfg!(windows) { "cmd" } else { "sh" }),
+        "raw 形态不变（clone 后仍为平台壳）"
+    );
+    let args: Vec<_> = std_command.get_args().collect();
+    assert_eq!(args.len(), 2, "壳标记 + 末参恰两参: {args:?}");
+    assert_eq!(args[1], OsStr::new(script), "末参命令串逐字保真");
+}

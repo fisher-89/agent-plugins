@@ -949,7 +949,8 @@ async fn detect_plans到execute_plan组合_单条命令零改写双工件同落�
         let window = PathWindow::enter();
         window.prepend(&shim_dir);
         set_shim_env(&argv_log, &cov_src, &res_src);
-        let execution = execute_plan(plan, &report_dir).await;
+        let execution =
+            execute_plan(plan, &report_dir, foundation::cancel::CancelFlag::never()).await;
         drop(window);
         clear_shim_env();
         execution.expect("替身命令应成功退出")

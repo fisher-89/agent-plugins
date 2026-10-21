@@ -1,0 +1,1591 @@
+{
+  "outcomes": [
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/checks/src/static_check.rs:35:9: replace <impl StaticCheckRunner for ProcessStaticCheck>::run -> BoxToolFuture with Default::default()",
+          "package": "checks-runtime",
+          "file": "crates/infra/checks/src/static_check.rs",
+          "function": {
+            "function_name": "<impl StaticCheckRunner for ProcessStaticCheck>::run",
+            "return_type": "-> BoxToolFuture",
+            "span": {
+              "start": {
+                "line": 34,
+                "column": 5
+              },
+              "end": {
+                "line": 38,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 35,
+              "column": 9
+            },
+            "end": {
+              "line": 37,
+              "column": 75
+            }
+          },
+          "replacement": "Default::default()",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Unviable",
+      "log_path": "log/crates__infra__checks__src__static_check.rs_line_35_col_9.log",
+      "diff_path": "diff/crates__infra__checks__src__static_check.rs_line_35_col_9.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 8.1027426,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=checks-runtime@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/checks/src/static_check.rs:51:5: replace execute -> Result<ToolStepOutput, String> with Ok(Default::default())",
+          "package": "checks-runtime",
+          "file": "crates/infra/checks/src/static_check.rs",
+          "function": {
+            "function_name": "execute",
+            "return_type": "-> Result<ToolStepOutput, String>",
+            "span": {
+              "start": {
+                "line": 41,
+                "column": 1
+              },
+              "end": {
+                "line": 113,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 51,
+              "column": 5
+            },
+            "end": {
+              "line": 112,
+              "column": 8
+            }
+          },
+          "replacement": "Ok(Default::default())",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Unviable",
+      "log_path": "log/crates__infra__checks__src__static_check.rs_line_51_col_5.log",
+      "diff_path": "diff/crates__infra__checks__src__static_check.rs_line_51_col_5.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 8.9020881,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=checks-runtime@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/checks/src/static_check.rs:103:32: replace == with != in execute",
+          "package": "checks-runtime",
+          "file": "crates/infra/checks/src/static_check.rs",
+          "function": {
+            "function_name": "execute",
+            "return_type": "-> Result<ToolStepOutput, String>",
+            "span": {
+              "start": {
+                "line": 41,
+                "column": 1
+              },
+              "end": {
+                "line": 113,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 103,
+              "column": 32
+            },
+            "end": {
+              "line": 103,
+              "column": 34
+            }
+          },
+          "replacement": "!=",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__infra__checks__src__static_check.rs_line_103_col_32.log",
+      "diff_path": "diff/crates__infra__checks__src__static_check.rs_line_103_col_32.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 16.1055572,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=checks-runtime@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 263.2105106,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--verbose",
+            "--package=checks-runtime@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/checks/src/testexec/mod.rs:77:9: replace <impl TestExecutionRunner for ProcessTestExecution>::run -> BoxToolFuture with Default::default()",
+          "package": "checks-runtime",
+          "file": "crates/infra/checks/src/testexec/mod.rs",
+          "function": {
+            "function_name": "<impl TestExecutionRunner for ProcessTestExecution>::run",
+            "return_type": "-> BoxToolFuture",
+            "span": {
+              "start": {
+                "line": 70,
+                "column": 5
+              },
+              "end": {
+                "line": 80,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 77,
+              "column": 9
+            },
+            "end": {
+              "line": 79,
+              "column": 77
+            }
+          },
+          "replacement": "Default::default()",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__infra__checks__src__testexec__mod.rs_line_77_col_9.log",
+      "diff_path": "diff/crates__infra__checks__src__testexec__mod.rs_line_77_col_9.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 16.4244863,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=checks-runtime@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 264.6246192,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--verbose",
+            "--package=checks-runtime@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/checks/src/mutation/mod.rs:136:9: replace <impl MutationRunner for ProcessMutation>::run -> BoxToolFuture with Default::default()",
+          "package": "checks-runtime",
+          "file": "crates/infra/checks/src/mutation/mod.rs",
+          "function": {
+            "function_name": "<impl MutationRunner for ProcessMutation>::run",
+            "return_type": "-> BoxToolFuture",
+            "span": {
+              "start": {
+                "line": 128,
+                "column": 5
+              },
+              "end": {
+                "line": 141,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 136,
+              "column": 9
+            },
+            "end": {
+              "line": 140,
+              "column": 85
+            }
+          },
+          "replacement": "Default::default()",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__infra__checks__src__mutation__mod.rs_line_136_col_9.log",
+      "diff_path": "diff/crates__infra__checks__src__mutation__mod.rs_line_136_col_9.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 16.6101082,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=checks-runtime@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 264.7568957,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--verbose",
+            "--package=checks-runtime@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/checks/src/testexec/mod.rs:92:5: replace execute -> Result<ToolStepOutput, String> with Ok(Default::default())",
+          "package": "checks-runtime",
+          "file": "crates/infra/checks/src/testexec/mod.rs",
+          "function": {
+            "function_name": "execute",
+            "return_type": "-> Result<ToolStepOutput, String>",
+            "span": {
+              "start": {
+                "line": 83,
+                "column": 1
+              },
+              "end": {
+                "line": 159,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 92,
+              "column": 5
+            },
+            "end": {
+              "line": 158,
+              "column": 7
+            }
+          },
+          "replacement": "Ok(Default::default())",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__infra__checks__src__testexec__mod.rs_line_92_col_5.log",
+      "diff_path": "diff/crates__infra__checks__src__testexec__mod.rs_line_92_col_5.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 16.9367716,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=checks-runtime@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 264.4807822,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--verbose",
+            "--package=checks-runtime@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/checks/src/mutation/mod.rs:538:5: replace execute_segment -> Result<MutationSegReport, SegmentFailure> with Ok(Default::default())",
+          "package": "checks-runtime",
+          "file": "crates/infra/checks/src/mutation/mod.rs",
+          "function": {
+            "function_name": "execute_segment",
+            "return_type": "-> Result<MutationSegReport, SegmentFailure>",
+            "span": {
+              "start": {
+                "line": 526,
+                "column": 1
+              },
+              "end": {
+                "line": 577,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 538,
+              "column": 5
+            },
+            "end": {
+              "line": 576,
+              "column": 91
+            }
+          },
+          "replacement": "Ok(Default::default())",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__infra__checks__src__mutation__mod.rs_line_538_col_5.log",
+      "diff_path": "diff/crates__infra__checks__src__mutation__mod.rs_line_538_col_5.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 9.2437113,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=checks-runtime@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 263.9505086,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--verbose",
+            "--package=checks-runtime@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/checks/src/mutation/mod.rs:68:9: replace <impl std::fmt::Display for SegmentFailure>::fmt -> std::fmt::Result with Ok(Default::default())",
+          "package": "checks-runtime",
+          "file": "crates/infra/checks/src/mutation/mod.rs",
+          "function": {
+            "function_name": "<impl std::fmt::Display for SegmentFailure>::fmt",
+            "return_type": "-> std::fmt::Result",
+            "span": {
+              "start": {
+                "line": 67,
+                "column": 5
+              },
+              "end": {
+                "line": 73,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 68,
+              "column": 9
+            },
+            "end": {
+              "line": 72,
+              "column": 10
+            }
+          },
+          "replacement": "Ok(Default::default())",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__infra__checks__src__mutation__mod.rs_line_68_col_9.log",
+      "diff_path": "diff/crates__infra__checks__src__mutation__mod.rs_line_68_col_9.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 17.4919934,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=checks-runtime@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 264.4499777,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--verbose",
+            "--package=checks-runtime@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/checks/src/mutation/mod.rs:444:5: replace run_suite -> Result<MutationBlock, SegmentFailure> with Ok(Default::default())",
+          "package": "checks-runtime",
+          "file": "crates/infra/checks/src/mutation/mod.rs",
+          "function": {
+            "function_name": "run_suite",
+            "return_type": "-> Result<MutationBlock, SegmentFailure>",
+            "span": {
+              "start": {
+                "line": 433,
+                "column": 1
+              },
+              "end": {
+                "line": 524,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 444,
+              "column": 5
+            },
+            "end": {
+              "line": 523,
+              "column": 14
+            }
+          },
+          "replacement": "Ok(Default::default())",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__infra__checks__src__mutation__mod.rs_line_444_col_5.log",
+      "diff_path": "diff/crates__infra__checks__src__mutation__mod.rs_line_444_col_5.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 12.2496488,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=checks-runtime@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 264.200339,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--verbose",
+            "--package=checks-runtime@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/checks/src/mutation/mod.rs:152:5: replace execute -> Result<ToolStepOutput, String> with Ok(Default::default())",
+          "package": "checks-runtime",
+          "file": "crates/infra/checks/src/mutation/mod.rs",
+          "function": {
+            "function_name": "execute",
+            "return_type": "-> Result<ToolStepOutput, String>",
+            "span": {
+              "start": {
+                "line": 144,
+                "column": 1
+              },
+              "end": {
+                "line": 279,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 152,
+              "column": 5
+            },
+            "end": {
+              "line": 278,
+              "column": 8
+            }
+          },
+          "replacement": "Ok(Default::default())",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__infra__checks__src__mutation__mod.rs_line_152_col_5.log",
+      "diff_path": "diff/crates__infra__checks__src__mutation__mod.rs_line_152_col_5.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 17.1836609,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=checks-runtime@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 265.1308826,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--verbose",
+            "--package=checks-runtime@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/checks/src/mutation/cargo_mutants.rs:44:5: replace run_segment -> Result<String, SegmentFailure> with Ok(String::new())",
+          "package": "checks-runtime",
+          "file": "crates/infra/checks/src/mutation/cargo_mutants.rs",
+          "function": {
+            "function_name": "run_segment",
+            "return_type": "-> Result<String, SegmentFailure>",
+            "span": {
+              "start": {
+                "line": 23,
+                "column": 1
+              },
+              "end": {
+                "line": 110,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 44,
+              "column": 5
+            },
+            "end": {
+              "line": 109,
+              "column": 6
+            }
+          },
+          "replacement": "Ok(String::new())",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__infra__checks__src__mutation__cargo_mutants.rs_line_44_col_5.log",
+      "diff_path": "diff/crates__infra__checks__src__mutation__cargo_mutants.rs_line_44_col_5.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 8.3098293,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=checks-runtime@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 162.7685147,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--verbose",
+            "--package=checks-runtime@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/checks/src/mutation/cargo_mutants.rs:44:5: replace run_segment -> Result<String, SegmentFailure> with Ok(\"xyzzy\".into())",
+          "package": "checks-runtime",
+          "file": "crates/infra/checks/src/mutation/cargo_mutants.rs",
+          "function": {
+            "function_name": "run_segment",
+            "return_type": "-> Result<String, SegmentFailure>",
+            "span": {
+              "start": {
+                "line": 23,
+                "column": 1
+              },
+              "end": {
+                "line": 110,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 44,
+              "column": 5
+            },
+            "end": {
+              "line": 109,
+              "column": 6
+            }
+          },
+          "replacement": "Ok(\"xyzzy\".into())",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__infra__checks__src__mutation__cargo_mutants.rs_line_44_col_5_001.log",
+      "diff_path": "diff/crates__infra__checks__src__mutation__cargo_mutants.rs_line_44_col_5_001.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 14.0233327,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=checks-runtime@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 157.7758624,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--verbose",
+            "--package=checks-runtime@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/checks/src/mutation/cargo_mutants.rs:78:23: replace match guard report.outcome == exec::RunOutcome::TimedOut with true in run_segment",
+          "package": "checks-runtime",
+          "file": "crates/infra/checks/src/mutation/cargo_mutants.rs",
+          "function": {
+            "function_name": "run_segment",
+            "return_type": "-> Result<String, SegmentFailure>",
+            "span": {
+              "start": {
+                "line": 23,
+                "column": 1
+              },
+              "end": {
+                "line": 110,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 78,
+              "column": 23
+            },
+            "end": {
+              "line": 78,
+              "column": 67
+            }
+          },
+          "replacement": "true",
+          "genre": "MatchArmGuard"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__infra__checks__src__mutation__cargo_mutants.rs_line_78_col_23.log",
+      "diff_path": "diff/crates__infra__checks__src__mutation__cargo_mutants.rs_line_78_col_23.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 14.1781826,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=checks-runtime@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 158.1417311,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--verbose",
+            "--package=checks-runtime@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/checks/src/mutation/cargo_mutants.rs:78:23: replace match guard report.outcome == exec::RunOutcome::TimedOut with false in run_segment",
+          "package": "checks-runtime",
+          "file": "crates/infra/checks/src/mutation/cargo_mutants.rs",
+          "function": {
+            "function_name": "run_segment",
+            "return_type": "-> Result<String, SegmentFailure>",
+            "span": {
+              "start": {
+                "line": 23,
+                "column": 1
+              },
+              "end": {
+                "line": 110,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 78,
+              "column": 23
+            },
+            "end": {
+              "line": 78,
+              "column": 67
+            }
+          },
+          "replacement": "false",
+          "genre": "MatchArmGuard"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__infra__checks__src__mutation__cargo_mutants.rs_line_78_col_23_001.log",
+      "diff_path": "diff/crates__infra__checks__src__mutation__cargo_mutants.rs_line_78_col_23_001.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 13.8795293,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=checks-runtime@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 159.5461003,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--verbose",
+            "--package=checks-runtime@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/checks/src/mutation/cargo_mutants.rs:85:23: replace match guard report.outcome == exec::RunOutcome::Cancelled with true in run_segment",
+          "package": "checks-runtime",
+          "file": "crates/infra/checks/src/mutation/cargo_mutants.rs",
+          "function": {
+            "function_name": "run_segment",
+            "return_type": "-> Result<String, SegmentFailure>",
+            "span": {
+              "start": {
+                "line": 23,
+                "column": 1
+              },
+              "end": {
+                "line": 110,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 85,
+              "column": 23
+            },
+            "end": {
+              "line": 85,
+              "column": 68
+            }
+          },
+          "replacement": "true",
+          "genre": "MatchArmGuard"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__infra__checks__src__mutation__cargo_mutants.rs_line_85_col_23.log",
+      "diff_path": "diff/crates__infra__checks__src__mutation__cargo_mutants.rs_line_85_col_23.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 13.9190107,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=checks-runtime@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 159.2961078,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--verbose",
+            "--package=checks-runtime@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/checks/src/mutation/cargo_mutants.rs:85:38: replace == with != in run_segment",
+          "package": "checks-runtime",
+          "file": "crates/infra/checks/src/mutation/cargo_mutants.rs",
+          "function": {
+            "function_name": "run_segment",
+            "return_type": "-> Result<String, SegmentFailure>",
+            "span": {
+              "start": {
+                "line": 23,
+                "column": 1
+              },
+              "end": {
+                "line": 110,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 85,
+              "column": 38
+            },
+            "end": {
+              "line": 85,
+              "column": 40
+            }
+          },
+          "replacement": "!=",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__infra__checks__src__mutation__cargo_mutants.rs_line_85_col_38.log",
+      "diff_path": "diff/crates__infra__checks__src__mutation__cargo_mutants.rs_line_85_col_38.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 14.0653738,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=checks-runtime@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 159.226855,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--verbose",
+            "--package=checks-runtime@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/checks/src/mutation/cargo_mutants.rs:85:23: replace match guard report.outcome == exec::RunOutcome::Cancelled with false in run_segment",
+          "package": "checks-runtime",
+          "file": "crates/infra/checks/src/mutation/cargo_mutants.rs",
+          "function": {
+            "function_name": "run_segment",
+            "return_type": "-> Result<String, SegmentFailure>",
+            "span": {
+              "start": {
+                "line": 23,
+                "column": 1
+              },
+              "end": {
+                "line": 110,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 85,
+              "column": 23
+            },
+            "end": {
+              "line": 85,
+              "column": 68
+            }
+          },
+          "replacement": "false",
+          "genre": "MatchArmGuard"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__infra__checks__src__mutation__cargo_mutants.rs_line_85_col_23_001.log",
+      "diff_path": "diff/crates__infra__checks__src__mutation__cargo_mutants.rs_line_85_col_23_001.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 14.191539,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=checks-runtime@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 159.8056176,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--verbose",
+            "--package=checks-runtime@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/checks/src/mutation/stryker.rs:44:5: replace run_segment -> Result<String, SegmentFailure> with Ok(String::new())",
+          "package": "checks-runtime",
+          "file": "crates/infra/checks/src/mutation/stryker.rs",
+          "function": {
+            "function_name": "run_segment",
+            "return_type": "-> Result<String, SegmentFailure>",
+            "span": {
+              "start": {
+                "line": 34,
+                "column": 1
+              },
+              "end": {
+                "line": 113,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 44,
+              "column": 5
+            },
+            "end": {
+              "line": 112,
+              "column": 6
+            }
+          },
+          "replacement": "Ok(String::new())",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Unviable",
+      "log_path": "log/crates__infra__checks__src__mutation__stryker.rs_line_44_col_5.log",
+      "diff_path": "diff/crates__infra__checks__src__mutation__stryker.rs_line_44_col_5.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 10.5391937,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=checks-runtime@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/checks/src/mutation/stryker.rs:44:5: replace run_segment -> Result<String, SegmentFailure> with Ok(\"xyzzy\".into())",
+          "package": "checks-runtime",
+          "file": "crates/infra/checks/src/mutation/stryker.rs",
+          "function": {
+            "function_name": "run_segment",
+            "return_type": "-> Result<String, SegmentFailure>",
+            "span": {
+              "start": {
+                "line": 34,
+                "column": 1
+              },
+              "end": {
+                "line": 113,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 44,
+              "column": 5
+            },
+            "end": {
+              "line": 112,
+              "column": 6
+            }
+          },
+          "replacement": "Ok(\"xyzzy\".into())",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Unviable",
+      "log_path": "log/crates__infra__checks__src__mutation__stryker.rs_line_44_col_5_001.log",
+      "diff_path": "diff/crates__infra__checks__src__mutation__stryker.rs_line_44_col_5_001.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 14.9459734,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=checks-runtime@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/checks/src/mutation/stryker.rs:88:23: replace match guard report.outcome == exec::RunOutcome::TimedOut with true in run_segment",
+          "package": "checks-runtime",
+          "file": "crates/infra/checks/src/mutation/stryker.rs",
+          "function": {
+            "function_name": "run_segment",
+            "return_type": "-> Result<String, SegmentFailure>",
+            "span": {
+              "start": {
+                "line": 34,
+                "column": 1
+              },
+              "end": {
+                "line": 113,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 88,
+              "column": 23
+            },
+            "end": {
+              "line": 88,
+              "column": 67
+            }
+          },
+          "replacement": "true",
+          "genre": "MatchArmGuard"
+        }
+      },
+      "summary": "Unviable",
+      "log_path": "log/crates__infra__checks__src__mutation__stryker.rs_line_88_col_23.log",
+      "diff_path": "diff/crates__infra__checks__src__mutation__stryker.rs_line_88_col_23.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 20.9555219,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=checks-runtime@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/checks/src/mutation/stryker.rs:88:23: replace match guard report.outcome == exec::RunOutcome::TimedOut with false in run_segment",
+          "package": "checks-runtime",
+          "file": "crates/infra/checks/src/mutation/stryker.rs",
+          "function": {
+            "function_name": "run_segment",
+            "return_type": "-> Result<String, SegmentFailure>",
+            "span": {
+              "start": {
+                "line": 34,
+                "column": 1
+              },
+              "end": {
+                "line": 113,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 88,
+              "column": 23
+            },
+            "end": {
+              "line": 88,
+              "column": 67
+            }
+          },
+          "replacement": "false",
+          "genre": "MatchArmGuard"
+        }
+      },
+      "summary": "Unviable",
+      "log_path": "log/crates__infra__checks__src__mutation__stryker.rs_line_88_col_23_001.log",
+      "diff_path": "diff/crates__infra__checks__src__mutation__stryker.rs_line_88_col_23_001.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 27.3668398,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=checks-runtime@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/checks/src/mutation/stryker.rs:95:23: replace match guard report.outcome == exec::RunOutcome::Cancelled with true in run_segment",
+          "package": "checks-runtime",
+          "file": "crates/infra/checks/src/mutation/stryker.rs",
+          "function": {
+            "function_name": "run_segment",
+            "return_type": "-> Result<String, SegmentFailure>",
+            "span": {
+              "start": {
+                "line": 34,
+                "column": 1
+              },
+              "end": {
+                "line": 113,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 95,
+              "column": 23
+            },
+            "end": {
+              "line": 95,
+              "column": 68
+            }
+          },
+          "replacement": "true",
+          "genre": "MatchArmGuard"
+        }
+      },
+      "summary": "Unviable",
+      "log_path": "log/crates__infra__checks__src__mutation__stryker.rs_line_95_col_23.log",
+      "diff_path": "diff/crates__infra__checks__src__mutation__stryker.rs_line_95_col_23.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 33.7028109,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=checks-runtime@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/checks/src/mutation/stryker.rs:88:38: replace == with != in run_segment",
+          "package": "checks-runtime",
+          "file": "crates/infra/checks/src/mutation/stryker.rs",
+          "function": {
+            "function_name": "run_segment",
+            "return_type": "-> Result<String, SegmentFailure>",
+            "span": {
+              "start": {
+                "line": 34,
+                "column": 1
+              },
+              "end": {
+                "line": 113,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 88,
+              "column": 38
+            },
+            "end": {
+              "line": 88,
+              "column": 40
+            }
+          },
+          "replacement": "!=",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "Unviable",
+      "log_path": "log/crates__infra__checks__src__mutation__stryker.rs_line_88_col_38.log",
+      "diff_path": "diff/crates__infra__checks__src__mutation__stryker.rs_line_88_col_38.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 39.6898488,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=checks-runtime@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/checks/src/mutation/stryker.rs:95:23: replace match guard report.outcome == exec::RunOutcome::Cancelled with false in run_segment",
+          "package": "checks-runtime",
+          "file": "crates/infra/checks/src/mutation/stryker.rs",
+          "function": {
+            "function_name": "run_segment",
+            "return_type": "-> Result<String, SegmentFailure>",
+            "span": {
+              "start": {
+                "line": 34,
+                "column": 1
+              },
+              "end": {
+                "line": 113,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 95,
+              "column": 23
+            },
+            "end": {
+              "line": 95,
+              "column": 68
+            }
+          },
+          "replacement": "false",
+          "genre": "MatchArmGuard"
+        }
+      },
+      "summary": "Unviable",
+      "log_path": "log/crates__infra__checks__src__mutation__stryker.rs_line_95_col_23_001.log",
+      "diff_path": "diff/crates__infra__checks__src__mutation__stryker.rs_line_95_col_23_001.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 46.5329106,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=checks-runtime@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/checks/src/mutation/stryker.rs:95:38: replace == with != in run_segment",
+          "package": "checks-runtime",
+          "file": "crates/infra/checks/src/mutation/stryker.rs",
+          "function": {
+            "function_name": "run_segment",
+            "return_type": "-> Result<String, SegmentFailure>",
+            "span": {
+              "start": {
+                "line": 34,
+                "column": 1
+              },
+              "end": {
+                "line": 113,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 95,
+              "column": 38
+            },
+            "end": {
+              "line": 95,
+              "column": 40
+            }
+          },
+          "replacement": "!=",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "Unviable",
+      "log_path": "log/crates__infra__checks__src__mutation__stryker.rs_line_95_col_38.log",
+      "diff_path": "diff/crates__infra__checks__src__mutation__stryker.rs_line_95_col_38.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 54.5877103,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=checks-runtime@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/checks/src/mutation/cargo_mutants.rs:78:38: replace == with != in run_segment",
+          "package": "checks-runtime",
+          "file": "crates/infra/checks/src/mutation/cargo_mutants.rs",
+          "function": {
+            "function_name": "run_segment",
+            "return_type": "-> Result<String, SegmentFailure>",
+            "span": {
+              "start": {
+                "line": 23,
+                "column": 1
+              },
+              "end": {
+                "line": 110,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 78,
+              "column": 38
+            },
+            "end": {
+              "line": 78,
+              "column": 40
+            }
+          },
+          "replacement": "!=",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "Timeout",
+      "log_path": "log/crates__infra__checks__src__mutation__cargo_mutants.rs_line_78_col_38.log",
+      "diff_path": "diff/crates__infra__checks__src__mutation__cargo_mutants.rs_line_78_col_38.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 14.7283445,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=checks-runtime@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 300.0549033,
+          "process_status": "Timeout",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--verbose",
+            "--package=checks-runtime@0.1.0"
+          ]
+        }
+      ]
+    }
+  ],
+  "total_mutants": 26,
+  "missed": 0,
+  "caught": 15,
+  "timeout": 1,
+  "unviable": 10,
+  "success": 0,
+  "start_time": "2026-10-21T02:00:15.486738Z",
+  "end_time": "2026-10-21T02:10:16.8676234Z",
+  "cargo_mutants_version": "27.1.0"
+}

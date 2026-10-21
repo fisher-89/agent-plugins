@@ -3,6 +3,7 @@ use std::path::Path;
 use std::pin::Pin;
 
 use agent::{AgentEvent, AgentPermissionMode, AgentRunStatus, ModelLevel, SessionProvenance};
+use foundation::cancel::CancelFlag;
 use foundation::layout::ReportSlot;
 use workflow::state::{RunFinishCommand, RunStartCommand};
 use workflow::write::{BacktrackInput, PhaseLogInput, PhaseNextOutcome, PhaseStartOutcome};
@@ -133,12 +134,17 @@ pub enum ToolCommand {
     ArchiveSeal { change_id: String },
 }
 
-/// 工具步请求：workspace 根 + 步命令。
+/// 工具步请求：workspace 根 + 步命令 + 取消信号。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ToolStepRequest {
     /// workspace 根（写面 layout 解析与 spawn cwd）
     pub root: String,
     pub command: ToolCommand,
+    /// 取消信号（run 级进程面标志；walker `run_tool` 单点从 `guard.cancel_flag()`
+    /// 取值填充，各步函数不各自取值。缺省 `CancelFlag::never()` = 永不取消——
+    /// 非取消路径行为零变化）。`Eq` 语义为**身份比较**（同一底层原子才相等），
+    /// 故本载荷 derive 保持不变。
+    pub cancel: CancelFlag,
 }
 
 /// 工具步产出（封闭集，载荷 = 写面原生类型；PhaseNext 体量最大（白名单 +
@@ -315,7 +321,9 @@ pub trait ToolStepPort: Send + Sync {
 /// [`TestExecutionRunner`] 同式）。`slot` 报告槽位：test 缺省 / baseline 基线
 /// 检查——报告锚点与 exec-outputs 记录同锚派生，执行语义零分叉。
 pub trait StaticCheckRunner: Send + Sync {
-    fn run(&self, root: &str, name: &str, slot: ReportSlot) -> BoxToolFuture;
+    /// 取消信号经 infra 执行体观测（`exec::run_shell` 轮询）——core 零 spawn；
+    /// 置位 → 进程树击杀 → 实现侧返回 `Err("执行已取消")`。
+    fn run(&self, root: &str, name: &str, slot: ReportSlot, cancel: CancelFlag) -> BoxToolFuture;
 }
 
 /// test-execution spawn 缝（checks 边界 infra 实现；W4 红线与
@@ -326,7 +334,9 @@ pub trait StaticCheckRunner: Send + Sync {
 /// 消费点（D7）。`slot` 报告槽位：test 缺省（既有 `reports/test` 语义零改动）/
 /// baseline 基线检查（`reports/baseline` 分树隔离）——复用门按本槽位报告树判定。
 pub trait TestExecutionRunner: Send + Sync {
-    fn run(&self, root: &str, name: &str, slot: ReportSlot) -> BoxToolFuture;
+    /// 取消信号经 infra 执行体观测——core 零 spawn；置位 → 进程树击杀 →
+    /// 实现侧返回 `Err("执行已取消")`（不落 plan 级 `execution_error`）。
+    fn run(&self, root: &str, name: &str, slot: ReportSlot, cancel: CancelFlag) -> BoxToolFuture;
 }
 
 /// mutation-test spawn 缝（checks 边界 infra 实现；检查域家族第三成员，W4 红线
@@ -338,7 +348,16 @@ pub trait TestExecutionRunner: Send + Sync {
 /// 取数后由 `steps.rs` 注入，checks-runtime 依赖面零 vcs（清单 / 补丁唯一入口在
 /// vcs 边界）。
 pub trait MutationRunner: Send + Sync {
-    fn run(&self, root: &str, name: &str, files: &[String], patch: &str) -> BoxToolFuture;
+    /// 末位为取消信号（经 infra 执行体观测——core 零 spawn）；置位 → 段执行
+    /// 返回 `SegmentFailure::Cancelled` → `conclusion = Error`（过渡形态）。
+    fn run(
+        &self,
+        root: &str,
+        name: &str,
+        files: &[String],
+        patch: &str,
+        cancel: CancelFlag,
+    ) -> BoxToolFuture;
 }
 
 /// git diff 变更文件上下文缝（infra 实现；W5——git diff 是进程 spawn，落

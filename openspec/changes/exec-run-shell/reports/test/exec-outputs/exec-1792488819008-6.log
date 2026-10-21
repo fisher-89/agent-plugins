@@ -1,0 +1,26 @@
+✓ Lockfile passes supply-chain policies (verified 10d ago)
+Lockfile is up to date, resolution step is skipped
+Progress: resolved 1, reused 0, downloaded 0, added 0
+Packages: -176
+--------------------------------------------------------------------------------
+Progress: resolved 671, reused 671, downloaded 0, added 0, done
+Done in 4.8s using pnpm v12.10.1
+$ pnpm run server:check && pnpm run bindings:check && pnpm run client:check
+$ cargo fmt --manifest-path src-tauri/Cargo.toml && cargo clippy --manifest-path src-tauri/Cargo.toml
+    Checking foundation v0.1.0 (C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\exec-run-shell\packages\desktop\src-tauri\crates\core\foundation)
+    Checking workflow v0.1.0 (C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\exec-run-shell\packages\desktop\src-tauri\crates\core\workflow)
+    Checking config v0.1.0 (C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\exec-run-shell\packages\desktop\src-tauri\crates\core\config)
+    Checking exec v0.1.0 (C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\exec-run-shell\packages\desktop\src-tauri\crates\infra\exec)
+    Checking checks v0.1.0 (C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\exec-run-shell\packages\desktop\src-tauri\crates\core\checks)
+    Checking orchestration v0.1.0 (C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\exec-run-shell\packages\desktop\src-tauri\crates\core\orchestration)
+    Checking store v0.1.0 (C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\exec-run-shell\packages\desktop\src-tauri\crates\infra\store)
+    Checking checks-runtime v0.1.0 (C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\exec-run-shell\packages\desktop\src-tauri\crates\infra\checks)
+    Checking vcs-runtime v0.1.0 (C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\exec-run-shell\packages\desktop\src-tauri\crates\infra\vcs)
+    Checking agent-runtime v0.1.0 (C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\exec-run-shell\packages\desktop\src-tauri\crates\infra\agent)
+    Checking dev-team v0.1.0 (C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\exec-run-shell\packages\desktop\src-tauri)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 11.23s
+$ pnpm run bindings:export && git diff --exit-code -- src/types/generated
+$ cargo run --quiet -p export-bindings --manifest-path src-tauri/Cargo.toml
+$ vp check --fix && knip
+[1m[94mpass:[39m[0m Formatting completed for checked files [2m(9.6s)[0m
+[1m[94mpass:[39m[0m Found no warnings, lint errors, or type errors in 170 files [2m(2.4s, 16 threads)[0m

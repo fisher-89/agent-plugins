@@ -223,7 +223,7 @@ async fn drive(
         }
         // ① phase-next（路由唯一权威；白名单与 next 相位计划步序列 / 产物清单
         //    随响应下发）
-        let next = match step_phase_next(tools, request).await {
+        let next = match step_phase_next(tools, guard, request).await {
             Ok(outcome) => outcome,
             Err(terminal) => return terminal.into_pair(),
         };
@@ -269,6 +269,7 @@ async fn drive(
         if stop_gate {
             let preflight = run_tool::<ArchivePreflight>(
                 tools,
+                guard,
                 &request.main_root,
                 ToolCommand::ArchivePreflight {
                     change_id: request.change_id.clone(),
@@ -702,10 +703,12 @@ async fn run_step(
 
 async fn step_phase_next(
     tools: &Arc<dyn ToolStepPort>,
+    guard: &RunGuard,
     request: &RunRequest,
 ) -> Result<PhaseNextOutcome, Terminal> {
     run_tool(
         tools,
+        guard,
         &request.root,
         ToolCommand::PhaseNext {
             change_id: request.change_id.clone(),
@@ -727,6 +730,7 @@ async fn step_phase_start(
     let phase = ctx.phase;
     let outcome: Result<PhaseStartOutcome, Terminal> = run_tool(
         ctx.tools,
+        ctx.guard,
         &ctx.request.root,
         ToolCommand::PhaseStart {
             change_id: ctx.request.change_id.clone(),
@@ -852,6 +856,7 @@ async fn step_initialize_skipped_phase_log(
     );
     let logged = run_phase_log(
         ctx.tools,
+        ctx.guard,
         ctx.request,
         PhaseLogInput {
             phase: ctx.phase.to_owned(),
@@ -948,6 +953,7 @@ async fn step_static_check(
         );
         let outcome: StaticCheckOutcome = run_tool(
             ctx.tools,
+            ctx.guard,
             &ctx.request.root,
             ToolCommand::StaticCheck {
                 change_id: ctx.request.change_id.clone(),
@@ -1069,6 +1075,7 @@ async fn step_test_execution_escalate(
     );
     let outcome: TestExecutionOutcome = run_tool(
         ctx.tools,
+        ctx.guard,
         &ctx.request.root,
         ToolCommand::TestExecution {
             change_id: ctx.request.change_id.clone(),
@@ -1144,6 +1151,7 @@ async fn step_static_check_terminal(
     );
     let outcome: StaticCheckOutcome = run_tool(
         ctx.tools,
+        ctx.guard,
         &ctx.request.root,
         ToolCommand::StaticCheck {
             change_id: ctx.request.change_id.clone(),
@@ -1206,6 +1214,7 @@ async fn step_test_execution_terminal(
     );
     let outcome: TestExecutionOutcome = run_tool(
         ctx.tools,
+        ctx.guard,
         &ctx.request.root,
         ToolCommand::TestExecution {
             change_id: ctx.request.change_id.clone(),
@@ -1292,6 +1301,7 @@ async fn step_mutation_test_escalate(
     );
     let outcome: MutationTestOutcome = match run_tool::<MutationTestOutcome>(
         ctx.tools,
+        ctx.guard,
         &ctx.request.root,
         ToolCommand::MutationTest {
             change_id: ctx.request.change_id.clone(),
@@ -1540,6 +1550,7 @@ async fn step_phase_log(
         let mutation = cursor.mutation_outcome.take();
         let logged = run_phase_log(
             ctx.tools,
+            ctx.guard,
             ctx.request,
             test_execution_phase_log_input(ctx.phase, &outcome, mutation.as_ref()),
         )
@@ -1562,6 +1573,7 @@ async fn step_phase_log(
         //（test_outcome 分支在前、verdict 分支在后），零 `phase == archive` 特判。
         let logged = run_phase_log(
             ctx.tools,
+            ctx.guard,
             ctx.request,
             PhaseLogInput {
                 phase: ctx.phase.to_owned(),
@@ -1595,6 +1607,7 @@ async fn step_phase_log(
     let failed = checklist.verdict == Verdict::Fail;
     let logged = run_phase_log(
         ctx.tools,
+        ctx.guard,
         ctx.request,
         PhaseLogInput {
             phase: ctx.phase.to_owned(),
@@ -1712,11 +1725,13 @@ async fn step_verdict_gate_terminal(
 /// 用方。
 async fn run_phase_log(
     tools: &Arc<dyn ToolStepPort>,
+    guard: &RunGuard,
     request: &RunRequest,
     input: PhaseLogInput,
 ) -> Result<PhaseLogOutcome, Terminal> {
     run_tool(
         tools,
+        guard,
         &request.root,
         ToolCommand::PhaseLog {
             change_id: request.change_id.clone(),
@@ -1760,6 +1775,7 @@ async fn step_fail_phase_log(
     );
     let logged = run_phase_log(
         tools,
+        guard,
         request,
         PhaseLogInput {
             phase: phase.to_owned(),
@@ -1913,6 +1929,7 @@ async fn step_test_execution_upgraded_phase_log(
     };
     let logged = run_phase_log(
         tools,
+        guard,
         request,
         PhaseLogInput {
             phase: phase.to_owned(),
@@ -1986,6 +2003,7 @@ async fn step_mutation_test_upgraded_phase_log(
     };
     let logged = run_phase_log(
         tools,
+        guard,
         request,
         PhaseLogInput {
             phase: phase.to_owned(),
@@ -2051,6 +2069,7 @@ async fn step_verdict_gate_upgraded_phase_log(
     );
     let logged = run_phase_log(
         tools,
+        guard,
         request,
         PhaseLogInput {
             phase: phase.to_owned(),
@@ -2154,6 +2173,7 @@ async fn step_preflight(
     let instance_no = begin_archive_node(ctx, trace, cursor, kind);
     let payload: ArchivePreflight = match run_tool(
         ctx.tools,
+        ctx.guard,
         &ctx.request.main_root,
         ToolCommand::ArchivePreflight {
             change_id: ctx.request.change_id.clone(),
@@ -2914,6 +2934,7 @@ async fn step_seal(
     let instance_no = begin_archive_node(ctx, trace, cursor, kind);
     let outcome: ArchiveOutcome = match run_tool(
         ctx.tools,
+        ctx.guard,
         &ctx.request.main_root,
         ToolCommand::ArchiveSeal {
             change_id: ctx.request.change_id.clone(),
@@ -3110,6 +3131,7 @@ async fn resolve_deadlock(
             );
             let backtrack: Result<BacktrackOutcome, Terminal> = run_tool(
                 tools,
+                guard,
                 &request.root,
                 ToolCommand::Backtrack {
                     change_id: request.change_id.clone(),
@@ -3194,6 +3216,7 @@ async fn decision_session(
         // 决策会话槽位挂账（写面单点：最新 eval 条目定点改写，幂等覆写）
         let _: DecisionLogOutcome = run_tool(
             tools,
+            guard,
             &request.root,
             ToolCommand::DecisionLog {
                 change_id: request.change_id.clone(),
@@ -3476,8 +3499,14 @@ async fn run_worker(
 }
 
 /// 工具步执行：产出按封闭集窄化（漂移显式失败）；步失败 `Err` 串映射终态。
+///
+/// `guard` 是取消信号的**单点取值来源**：`ToolStepRequest.cancel` 只在此处经
+/// `guard.cancel_flag()` 填充（各步函数不各自取值），使停止信号在步边界
+/// [`check_cancel`] 之外贯通到进程面——运行中的检查域 spawn 被
+/// `exec::run_shell` 的 200 ms 轮询观测并杀树收敛。
 async fn run_tool<V>(
     tools: &Arc<dyn ToolStepPort>,
+    guard: &RunGuard,
     root: &str,
     command: ToolCommand,
     label: &str,
@@ -3489,6 +3518,7 @@ where
         .run(crate::port::ToolStepRequest {
             root: root.to_owned(),
             command,
+            cancel: guard.cancel_flag(),
         })
         .await
     {
@@ -3499,7 +3529,11 @@ where
         .map_err(|_| Terminal::failed(format!("{label} 输出漂移：步命令与产出类型不匹配")))
 }
 
-/// 取消观测：取消信号置位 → 受控 stopped。
+/// 取消观测（步边界）：取消信号置位 → 受控 stopped。
+///
+/// 本函数只在循环顶部一拍（一步边界观测）；**运行中的检查步不等步结束**——
+/// `run_tool` 把同一 run 取消标志经 `ToolStepRequest.cancel` 透传到执行体，
+/// `exec::run_shell` 以 200 ms 轮询观测并杀进程树收敛。
 fn check_cancel(guard: &RunGuard) -> Result<(), Terminal> {
     if guard.cancelled() {
         Err(Terminal::stopped("用户请求停止"))

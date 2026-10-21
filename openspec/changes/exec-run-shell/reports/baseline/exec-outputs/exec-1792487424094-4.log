@@ -1,0 +1,111 @@
+JSON report written to C:/Users/wps/.dev-team/worktrees/wps-claude-plugin-7166d8c61feeae705846d569251abee6/exec-run-shell/openspec/changes/exec-run-shell/reports/baseline/packages_desktop_vite-plus/results.json
+[1m[2mnote:[0m[0m You are running [94m`vp test`[39m as a Vite+ built-in command. If you meant to run the test npm script, use [94m`vpr test`[39m instead.
+info: cargo-llvm-cov currently setting cfg(coverage); you can opt-out it by passing --no-cfg-coverage
+   Compiling foundation v0.1.0 (C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\exec-run-shell\packages\desktop\src-tauri\crates\core\foundation)
+   Compiling agent v0.1.0 (C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\exec-run-shell\packages\desktop\src-tauri\crates\core\agent)
+   Compiling tauri-runtime v2.11.3
+   Compiling wry v0.55.1
+   Compiling config v0.1.0 (C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\exec-run-shell\packages\desktop\src-tauri\crates\core\config)
+   Compiling exec v0.1.0 (C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\exec-run-shell\packages\desktop\src-tauri\crates\infra\exec)
+   Compiling rig-memory v0.43.0
+   Compiling dev-team v0.1.0 (C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\exec-run-shell\packages\desktop\src-tauri)
+   Compiling specta-util v0.0.12
+   Compiling specta-typescript v0.0.12
+   Compiling specta-serde v0.0.12
+   Compiling minisign-verify v0.2.5
+   Compiling tokei v13.0.0
+   Compiling watch v0.1.0 (C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\exec-run-shell\packages\desktop\src-tauri\crates\infra\watch)
+   Compiling export-bindings v0.1.0 (C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\exec-run-shell\packages\desktop\src-tauri\crates\tools\export-bindings)
+   Compiling checks v0.1.0 (C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\exec-run-shell\packages\desktop\src-tauri\crates\core\checks)
+   Compiling workflow v0.1.0 (C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\exec-run-shell\packages\desktop\src-tauri\crates\core\workflow)
+   Compiling tauri-runtime-wry v2.11.4
+   Compiling rig v0.43.0
+   Compiling tauri v2.11.6
+   Compiling orchestration v0.1.0 (C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\exec-run-shell\packages\desktop\src-tauri\crates\core\orchestration)
+   Compiling store v0.1.0 (C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\exec-run-shell\packages\desktop\src-tauri\crates\infra\store)
+warning: function `build_mutation_block分母零与NaN与Inf阈值` should have a snake case name
+   --> crates\core\checks\src\aggregate_test.rs:772:4
+    |
+772 | fn build_mutation_block分母零与NaN与Inf阈值() {
+    |    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: convert the identifier to snake case: `build_mutation_block分母零与_na_n与_inf阈值`
+    |
+    = note: `#[warn(non_snake_case)]` (part of `#[warn(nonstandard_style)]`) on by default
+
+   Compiling checks-runtime v0.1.0 (C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\exec-run-shell\packages\desktop\src-tauri\crates\infra\checks)
+   Compiling vcs-runtime v0.1.0 (C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\exec-run-shell\packages\desktop\src-tauri\crates\infra\vcs)
+warning: function `段级未知outcome样本runtimeError留痕` should have a snake case name
+   --> crates\core\checks\tests\corpus_golden_test.rs:561:4
+    |
+561 | fn 段级未知outcome样本runtimeError留痕() {
+    |    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: convert the identifier to snake case: `段级未知outcome样本runtime_error留痕`
+    |
+    = note: `#[warn(non_snake_case)]` (part of `#[warn(nonstandard_style)]`) on by default
+
+   Compiling agent-runtime v0.1.0 (C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\exec-run-shell\packages\desktop\src-tauri\crates\infra\agent)
+warning: `checks` (lib test) generated 1 warning
+warning: `checks` (test "corpus_golden_test") generated 1 warning
+warning: function `旧json形态缺agentInstanceId键经serde_default读none不炸` should have a snake case name
+    --> crates\infra\store\src\model_test.rs:2603:4
+     |
+2603 | fn 旧json形态缺agentInstanceId键经serde_default读none不炸() {
+     |    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: convert the identifier to snake case: `旧json形态缺agent_instance_id键经serde_default读none不炸`
+     |
+     = note: `#[warn(non_snake_case)]` (part of `#[warn(nonstandard_style)]`) on by default
+
+   Compiling tauri-plugin-fs v2.5.2
+   Compiling tauri-plugin-updater v2.12.0
+   Compiling tauri-plugin-single-instance v2.4.5
+   Compiling tauri-specta v2.0.0-rc.25
+   Compiling tauri-plugin-devtools v2.2.1
+warning: function `快照组装携agentInstanceId与定型双面_json线键camel_case` should have a snake case name
+    --> crates\infra\agent\src\compose_test.rs:1175:10
+     |
+1175 | async fn 快照组装携agentInstanceId与定型双面_json线键camel_case() {
+     |          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: convert the identifier to snake case: `快照组装携agent_instance_id与定型双面_json线键camel_case`
+     |
+     = note: `#[warn(non_snake_case)]` (part of `#[warn(nonstandard_style)]`) on by default
+
+warning: associated function `failing` is never used
+   --> crates\core\orchestration\src\steps_test.rs:865:8
+    |
+831 | impl FakeMutationRunner {
+    | ----------------------- associated function in this implementation
+...
+865 |     fn failing(feedback_text: &str) -> Self {
+    |        ^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: method `with_edit` is never used
+    --> crates\core\orchestration\src\walker_test.rs:1024:8
+     |
+ 995 | impl FakeVcs {
+     | ------------ method in this implementation
+...
+1024 |     fn with_edit(self, files: Vec<String>, patch: &str) -> Self {
+     |        ^^^^^^^^^
+
+   Compiling tauri-plugin-dialog v2.7.3
+warning: `store` (lib test) generated 1 warning
+warning: `agent-runtime` (lib test) generated 1 warning
+warning: `orchestration` (lib test) generated 2 warnings
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 52.20s
+     Running unittests src\lib.rs (target\llvm-cov-target\debug\deps\agent-ed00760de21cc2d9.exe)
+     Running unittests src\lib.rs (target\llvm-cov-target\debug\deps\agent_runtime-0e36c11b3853edc9.exe)
+     Running unittests src\lib.rs (target\llvm-cov-target\debug\deps\checks-907d7576406cbc22.exe)
+     Running tests\corpus_golden_test.rs (target\llvm-cov-target\debug\deps\corpus_golden_test-3569dc83d7c493e8.exe)
+     Running unittests src\lib.rs (target\llvm-cov-target\debug\deps\checks_runtime-590a5916e1ae2899.exe)
+     Running unittests src\lib.rs (target\llvm-cov-target\debug\deps\config-2c1c243542647694.exe)
+     Running unittests src\lib.rs (target\llvm-cov-target\debug\deps\dev_team-6d066c570ea867ac.exe)
+     Running unittests src\main.rs (target\llvm-cov-target\debug\deps\dev_team-2c3aac5dd01fea8d.exe)
+     Running unittests src\lib.rs (target\llvm-cov-target\debug\deps\exec-36ce52bfbf0fd45a.exe)
+     Running unittests src\main.rs (target\llvm-cov-target\debug\deps\export_bindings-db9b96e7d90d5360.exe)
+     Running unittests src\lib.rs (target\llvm-cov-target\debug\deps\foundation-fa39654a8a2e609f.exe)
+     Running unittests src\lib.rs (target\llvm-cov-target\debug\deps\orchestration-24eb4d1c108158ed.exe)
+     Running unittests src\lib.rs (target\llvm-cov-target\debug\deps\store-fd21b3cac5863d0e.exe)
+     Running unittests src\lib.rs (target\llvm-cov-target\debug\deps\vcs_runtime-eda2a4aef3171c18.exe)
+     Running unittests src\lib.rs (target\llvm-cov-target\debug\deps\watch-c9b72cdce151090d.exe)
+     Running unittests src\lib.rs (target\llvm-cov-target\debug\deps\workflow-936fcbe88d1487e8.exe)
+     Running tests\corpus_golden_test.rs (target\llvm-cov-target\debug\deps\corpus_golden_test-11cae39a33a62271.exe)
+
+    Finished report saved to C:/Users/wps/.dev-team/worktrees/wps-claude-plugin-7166d8c61feeae705846d569251abee6/exec-run-shell/openspec/changes/exec-run-shell/reports/baseline/packages_desktop_src-tauri_rust/coverage-summary.json

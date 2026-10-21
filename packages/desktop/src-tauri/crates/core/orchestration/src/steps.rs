@@ -93,6 +93,8 @@ async fn execute(
     run_id: String,
     step: ToolStepRequest,
 ) -> Result<ToolStepOutput, String> {
+    // 取消信号仅作字段透传（不做决策）：三分支互斥消费，无需 clone
+    let cancel = step.cancel;
     match step.command {
         ToolCommand::PhaseNext { change_id, run_id } => {
             let outcome =
@@ -205,7 +207,7 @@ async fn execute(
                 .ok_or_else(|| {
                     format!("change \"{change_id}\" 未建档（无 ChangeRecord），无从执行静态检查")
                 })?;
-            let output = static_check.run(&step.root, &name, slot).await;
+            let output = static_check.run(&step.root, &name, slot, cancel).await;
             audit_outcome(
                 store.as_ref(),
                 &run_id,
@@ -231,7 +233,7 @@ async fn execute(
                 .ok_or_else(|| {
                     format!("change \"{change_id}\" 未建档（无 ChangeRecord），无从执行测试门禁")
                 })?;
-            let output = test_execution.run(&step.root, &name, slot).await;
+            let output = test_execution.run(&step.root, &name, slot, cancel).await;
             audit_outcome(
                 store.as_ref(),
                 &run_id,
@@ -269,7 +271,9 @@ async fn execute(
             // 取数失败显式传播，MUST NOT 降级空清单 / 空补丁）
             let files = vcs.change_edit_set(Path::new(&step.root), "HEAD")?;
             let patch = vcs.change_edit_patch(Path::new(&step.root), "HEAD")?;
-            let output = mutation.run(&step.root, &name, &files, &patch).await;
+            let output = mutation
+                .run(&step.root, &name, &files, &patch, cancel)
+                .await;
             audit_outcome(
                 store.as_ref(),
                 &run_id,

@@ -1,6 +1,7 @@
 use std::sync::{Arc, Mutex};
 
 use agent::{AgentPermissionMode, AgentRunStatus, ModelLevel, SessionProvenance};
+use foundation::cancel::CancelFlag;
 use foundation::layout::ReportSlot;
 
 use crate::port::{
@@ -99,6 +100,8 @@ impl ToolStepPort for RecordingSteps {
 /// 共享供测试侧读）。
 struct ProgrammableRunner {
     calls: Arc<Mutex<Vec<(String, String, ReportSlot)>>>,
+    /// 收到的取消信号（AC-6 形参透传面：身份相等断言原料）
+    cancels: Arc<Mutex<Vec<CancelFlag>>>,
     outcome: StaticCheckOutcome,
 }
 
@@ -110,15 +113,31 @@ impl ProgrammableRunner {
         (
             Self {
                 calls: Arc::clone(&calls),
+                cancels: Arc::new(Mutex::new(Vec::new())),
                 outcome,
             },
             calls,
         )
     }
+
+    /// 取消信号记录句柄（在实例 move 进 `Arc<dyn Trait>` 之前取出）。
+    fn cancel_log(&self) -> Arc<Mutex<Vec<CancelFlag>>> {
+        Arc::clone(&self.cancels)
+    }
 }
 
 impl StaticCheckRunner for ProgrammableRunner {
-    fn run(&self, root: &str, name: &str, slot: ReportSlot) -> crate::port::BoxToolFuture {
+    fn run(
+        &self,
+        root: &str,
+        name: &str,
+        slot: ReportSlot,
+        cancel: CancelFlag,
+    ) -> crate::port::BoxToolFuture {
+        self.cancels
+            .lock()
+            .expect("cancels 锁不可中毒")
+            .push(cancel);
         self.calls
             .lock()
             .expect("calls 锁不可中毒")
@@ -308,6 +327,7 @@ async fn tool_command十变体封闭集且match穷尽分发() {
     let output = steps
         .run(crate::port::ToolStepRequest {
             root: "/tmp/root".to_owned(),
+            cancel: foundation::cancel::CancelFlag::never(),
             command: logged,
         })
         .await
@@ -680,7 +700,12 @@ async fn static_check_runner假实现经arc注入且root_name_slot三元组透�
 
     // 三参透传 + BoxToolFuture resolve 可用（W4 缝；slot=Test 缺省槽位）
     let output = runner
-        .run("/tmp/workspace-root", "demo-change", ReportSlot::Test)
+        .run(
+            "/tmp/workspace-root",
+            "demo-change",
+            ReportSlot::Test,
+            CancelFlag::never(),
+        )
         .await
         .expect("产出应可用");
     match output {
@@ -718,7 +743,12 @@ async fn static_check_runner假实现经arc注入且root_name_slot三元组透�
     });
     let runner: Arc<dyn StaticCheckRunner> = Arc::new(inner);
     let output = runner
-        .run("/tmp/workspace-root", "demo-change", ReportSlot::Baseline)
+        .run(
+            "/tmp/workspace-root",
+            "demo-change",
+            ReportSlot::Baseline,
+            CancelFlag::never(),
+        )
         .await
         .expect("产出应可用");
     assert!(
@@ -874,6 +904,8 @@ use crate::port::{TestExecutionConclusion, TestExecutionOutcome, TestExecutionRu
 /// 读记录）。
 struct ProgrammableTestExecutionRunner {
     calls: Arc<Mutex<Vec<(String, String, ReportSlot)>>>,
+    /// 收到的取消信号（AC-6 形参透传面）
+    cancels: Arc<Mutex<Vec<CancelFlag>>>,
     result: Result<TestExecutionOutcome, String>,
 }
 
@@ -885,15 +917,31 @@ impl ProgrammableTestExecutionRunner {
         (
             Self {
                 calls: Arc::clone(&calls),
+                cancels: Arc::new(Mutex::new(Vec::new())),
                 result,
             },
             calls,
         )
     }
+
+    /// 取消信号记录句柄（在实例 move 进 `Arc<dyn Trait>` 之前取出）。
+    fn cancel_log(&self) -> Arc<Mutex<Vec<CancelFlag>>> {
+        Arc::clone(&self.cancels)
+    }
 }
 
 impl TestExecutionRunner for ProgrammableTestExecutionRunner {
-    fn run(&self, root: &str, name: &str, slot: ReportSlot) -> crate::port::BoxToolFuture {
+    fn run(
+        &self,
+        root: &str,
+        name: &str,
+        slot: ReportSlot,
+        cancel: CancelFlag,
+    ) -> crate::port::BoxToolFuture {
+        self.cancels
+            .lock()
+            .expect("cancels 锁不可中毒")
+            .push(cancel);
         self.calls
             .lock()
             .expect("calls 锁不可中毒")
@@ -974,7 +1022,12 @@ async fn test_execution命令第七变体封闭集且change载荷透传() {
     ));
     let runner: Arc<dyn TestExecutionRunner> = Arc::new(inner);
     let output = runner
-        .run("/tmp/workspace-root", "demo-change", ReportSlot::Test)
+        .run(
+            "/tmp/workspace-root",
+            "demo-change",
+            ReportSlot::Test,
+            CancelFlag::never(),
+        )
         .await
         .expect("产出应可用");
     assert!(
@@ -1040,7 +1093,7 @@ async fn test_execution_runner假实现经arc注入且root_change透传() {
         let runner: Arc<dyn TestExecutionRunner> = Arc::new(inner);
 
         let output = runner
-            .run("/tmp/workspace-root", "walker-change", slot)
+            .run("/tmp/workspace-root", "walker-change", slot, CancelFlag::never())
             .await
             .expect("产出应可用");
         assert!(
@@ -1067,7 +1120,7 @@ async fn test_execution_runner_err臂上抛() {
         ProgrammableTestExecutionRunner::with_result(Err("报告目录创建失败".to_owned()));
     let runner: Arc<dyn TestExecutionRunner> = Arc::new(inner);
     let err = runner
-        .run("/tmp/root", "c", ReportSlot::Baseline)
+        .run("/tmp/root", "c", ReportSlot::Baseline, CancelFlag::never())
         .await
         .expect_err("Err 臂应上抛");
     assert_eq!(err, "报告目录创建失败", "Err(String) 原样（无再包装）");
@@ -1352,6 +1405,7 @@ async fn tool_step_output归档两新变体载荷透传() {
     let output = steps
         .run(crate::port::ToolStepRequest {
             root: "/tmp/root".to_owned(),
+            cancel: foundation::cancel::CancelFlag::never(),
             command: ToolCommand::ArchiveSeal {
                 change_id: CHANGE_ID.to_owned(),
             },
@@ -1629,6 +1683,8 @@ fn sample_mutation_outcome(conclusion: MutationTestConclusion) -> MutationTestOu
 /// `(root, name, files, patch)` 逐字透传 + 可编程产出 / Err(String)。
 struct FakeMutationRunner {
     calls: Arc<Mutex<Vec<(String, String, Vec<String>, String)>>>,
+    /// 收到的取消信号（AC-6 末位形参透传面）
+    cancels: Arc<Mutex<Vec<CancelFlag>>>,
     result: Result<MutationTestOutcome, String>,
 }
 
@@ -1644,15 +1700,32 @@ impl FakeMutationRunner {
         (
             Self {
                 calls: calls.clone(),
+                cancels: Arc::new(Mutex::new(Vec::new())),
                 result,
             },
             calls,
         )
     }
+
+    /// 取消信号记录句柄（在实例 move 进 `Arc<dyn Trait>` 之前取出）。
+    fn cancel_log(&self) -> Arc<Mutex<Vec<CancelFlag>>> {
+        Arc::clone(&self.cancels)
+    }
 }
 
 impl MutationRunner for FakeMutationRunner {
-    fn run(&self, root: &str, name: &str, files: &[String], patch: &str) -> BoxToolFuture {
+    fn run(
+        &self,
+        root: &str,
+        name: &str,
+        files: &[String],
+        patch: &str,
+        cancel: CancelFlag,
+    ) -> BoxToolFuture {
+        self.cancels
+            .lock()
+            .expect("cancels 锁不可中毒")
+            .push(cancel);
         self.calls
             .lock()
             .expect("calls 锁不可中毒")
@@ -1873,7 +1946,13 @@ async fn mutation_runner假实现经arc注入且四参逐字透传() {
     let patch = "diff --git a/src/lib.rs b/src/lib.rs\n--- a/src/lib.rs\n+++ b/src/lib.rs\n"
         .to_owned();
     let output = runner
-        .run("/tmp/workspace-root", "demo-change", &files, &patch)
+        .run(
+            "/tmp/workspace-root",
+            "demo-change",
+            &files,
+            &patch,
+            CancelFlag::never(),
+        )
         .await
         .expect("产出应可用");
     assert!(
@@ -1907,7 +1986,7 @@ async fn mutation_runner_err臂透传不吞且ok臂分发正确() {
         FakeMutationRunner::with_result(Err("cargo mutants 拉起失败（程序不可达？）".to_owned()));
     let runner: Arc<dyn MutationRunner> = Arc::new(inner);
     let err = runner
-        .run("/tmp/root", "c", &[], "")
+        .run("/tmp/root", "c", &[], "", CancelFlag::never())
         .await
         .expect_err("Err 臂应上抛");
     assert_eq!(
@@ -1919,7 +1998,7 @@ async fn mutation_runner_err臂透传不吞且ok臂分发正确() {
         MutationTestConclusion::Fail,
     )));
     let runner: Arc<dyn MutationRunner> = Arc::new(inner);
-    match runner.run("/tmp/root", "c", &[], "").await {
+    match runner.run("/tmp/root", "c", &[], "", CancelFlag::never()).await {
         Ok(ToolStepOutput::MutationTest(outcome)) => {
             assert_eq!(outcome.conclusion, MutationTestConclusion::Fail);
         }
@@ -1938,7 +2017,7 @@ async fn mutation_runner边界入参逐字透传不截断() {
     )));
     let runner: Arc<dyn MutationRunner> = Arc::new(inner);
     runner
-        .run("/tmp/root", "c", &[], "")
+        .run("/tmp/root", "c", &[], "", CancelFlag::never())
         .await
         .expect("空入参应可用");
     {
@@ -1954,7 +2033,7 @@ async fn mutation_runner边界入参逐字透传不截断() {
     // 单元素 + emoji 文件名（POSIX 形态）
     let single = vec!["src/文件 🚀.rs".to_owned()];
     runner
-        .run("/tmp/root", "c", &single, "patch 文本")
+        .run("/tmp/root", "c", &single, "patch 文本", CancelFlag::never())
         .await
         .expect("单元素应可用");
     {
@@ -1965,7 +2044,7 @@ async fn mutation_runner边界入参逐字透传不截断() {
     // 超大清单（1000 项）
     let huge: Vec<String> = (0..1000).map(|index| format!("src/f{index:04}.rs")).collect();
     runner
-        .run("/tmp/root", "c", &huge, "p")
+        .run("/tmp/root", "c", &huge, "p", CancelFlag::never())
         .await
         .expect("超大清单应可用");
     {
@@ -1981,7 +2060,7 @@ async fn mutation_runner边界入参逐字透传不截断() {
     );
     assert!(long_patch.len() > 100_000, "补丁须越过 100KB 刻度");
     runner
-        .run("/tmp/root", "c", &[], &long_patch)
+        .run("/tmp/root", "c", &[], &long_patch, CancelFlag::never())
         .await
         .expect("超长补丁应可用");
     {
@@ -2417,5 +2496,181 @@ fn archive_vcs_port_restore_baseline可注入且载荷捕获与err契约() {
     assert!(
         error.contains("clean"),
         "Err(String) 串契约原样透传（git 语境不吞不静默）: {error}"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// 取消贯通（test-design「port.rs -> port_test.rs」节，AC-6）：`ToolStepRequest.cancel`
+// 字段与三 runner trait 的 `cancel` 形参。`CancelFlag` 的相等语义是身份比较
+//（`Arc::ptr_eq`）——形参透传断言因此以「同一原子」为准，而非状态值。
+// ---------------------------------------------------------------------------
+
+/// 构造只含取消面的最小请求（`root` / `command` 固定，唯一变量是 flag）。
+fn request_with_cancel(cancel: CancelFlag) -> crate::port::ToolStepRequest {
+    crate::port::ToolStepRequest {
+        root: "/tmp/root".to_owned(),
+        command: ToolCommand::StaticCheck {
+            change_id: CHANGE_ID.to_owned(),
+            slot: ReportSlot::Test,
+        },
+        cancel,
+    }
+}
+
+/// 正向：同一 flag（clone）的两份请求相等——`cancel` 的 identity 语义使
+/// `derive(PartialEq)` 原样成立。
+#[test]
+fn tool_step_request同一flag的克隆相等() {
+    let cancel = CancelFlag::never();
+    let first = request_with_cancel(cancel.clone());
+    let second = request_with_cancel(cancel.clone());
+    assert_eq!(first, second, "同 root / command / flag → 请求相等");
+    assert_eq!(first.cancel, second.cancel, "flag 身份相等（同一原子）");
+}
+
+/// 边界：同 root / command 但各自 `never()` → 请求不等（身份比较，非状态值
+/// 比较——两个都未置位也不相等）。
+#[test]
+fn tool_step_request独立flag不相等() {
+    let first = request_with_cancel(CancelFlag::never());
+    let second = request_with_cancel(CancelFlag::never());
+    assert_ne!(first, second, "独立铸造的 flag 使请求不等（身份比较）");
+    assert!(!first.cancel.is_set() && !second.cancel.is_set(), "两者状态相同");
+}
+
+/// 边界：`clone` 保持身份——`let b = a.clone(); assert_eq!(a.cancel, b.cancel);`
+///（clone 共享同一原子，非重新铸造）。
+#[test]
+fn tool_step_request_clone保持flag身份() {
+    let request = request_with_cancel(CancelFlag::never());
+    let cloned = request.clone();
+    assert_eq!(request.cancel, cloned.cancel, "clone 后 flag 身份相等");
+    assert_eq!(request, cloned, "clone 与原件整体相等");
+    cloned.cancel.handle().set();
+    assert!(request.cancel.is_set(), "clone 侧置位对原件可见（同一原子）");
+}
+
+/// 边界（参数化 2 形态）：`Debug` 渲染——`ToolStepRequest` 的派生 `Debug` 与
+/// `CancelFlag` 的手写 `Debug` 协同，含 `cancel: CancelFlag(set = false|true)`。
+#[test]
+fn tool_step_request_debug渲染含cancel形态() {
+    let request = request_with_cancel(CancelFlag::never());
+    let before = format!("{request:?}");
+    assert!(
+        before.contains("cancel: CancelFlag(set = false)"),
+        "未置位渲染: {before}"
+    );
+
+    request.cancel.handle().set();
+    let after = format!("{request:?}");
+    assert!(
+        after.contains("cancel: CancelFlag(set = true)"),
+        "置位后渲染: {after}"
+    );
+}
+
+/// 正向（AC-6）：三 trait 各一假实现接收 `cancel` —— 调用后记录的 flag 与传入
+/// 的 `assert_eq!`（同一原子），三 trait 逐个验证形参在位且原样透传。
+#[tokio::test]
+async fn 三runner_trait接收cancel形参且原样透传() {
+    // StaticCheckRunner
+    let (static_inner, _static_calls) = ProgrammableRunner::with_outcome(StaticCheckOutcome {
+        passed: true,
+        diagnostics: String::new(),
+        output_ref: None,
+        report_dir: String::new(),
+    });
+    let static_log = static_inner.cancel_log();
+    let static_runner: Arc<dyn StaticCheckRunner> = Arc::new(static_inner);
+    let static_cancel = CancelFlag::never();
+    static_runner
+        .run("/tmp/root", "c", ReportSlot::Test, static_cancel.clone())
+        .await
+        .expect("StaticCheckRunner 假件应 Ok");
+    let recorded = static_log.lock().expect("static cancel 锁").clone();
+    assert_eq!(recorded.len(), 1, "恰一次调用");
+    assert_eq!(recorded[0], static_cancel, "第四形参原样透传（同一原子）");
+
+    // TestExecutionRunner
+    let (exec_inner, _exec_calls) = ProgrammableTestExecutionRunner::with_result(Ok(
+        sample_execution_outcome(TestExecutionConclusion::Pass),
+    ));
+    let exec_log = exec_inner.cancel_log();
+    let exec_runner: Arc<dyn TestExecutionRunner> = Arc::new(exec_inner);
+    let exec_cancel = CancelFlag::never();
+    exec_runner
+        .run("/tmp/root", "c", ReportSlot::Test, exec_cancel.clone())
+        .await
+        .expect("TestExecutionRunner 假件应 Ok");
+    let recorded = exec_log.lock().expect("exec cancel 锁").clone();
+    assert_eq!(recorded.len(), 1, "恰一次调用");
+    assert_eq!(recorded[0], exec_cancel, "第四形参原样透传（同一原子）");
+
+    // MutationRunner
+    let (mutation_inner, _mutation_calls) = FakeMutationRunner::with_result(Ok(
+        sample_mutation_outcome(MutationTestConclusion::Pass),
+    ));
+    let mutation_log = mutation_inner.cancel_log();
+    let mutation_runner: Arc<dyn MutationRunner> = Arc::new(mutation_inner);
+    let mutation_cancel = CancelFlag::never();
+    mutation_runner
+        .run("/tmp/root", "c", &[], "", mutation_cancel.clone())
+        .await
+        .expect("MutationRunner 假件应 Ok");
+    let recorded = mutation_log.lock().expect("mutation cancel 锁").clone();
+    assert_eq!(recorded.len(), 1, "恰一次调用");
+    assert_eq!(recorded[0], mutation_cancel, "末位形参原样透传（同一原子）");
+}
+
+/// 边界（表驱动 3 trait）：已置位信号不被丢弃——传入 `never()` 后先 `set()`
+/// 再调 → 假实现内观测 `is_set() == true`（信号原样透传，不重建、不清零）。
+#[tokio::test]
+async fn 三runner_trait已置位信号不被丢弃() {
+    let cancel = CancelFlag::never();
+    cancel.handle().set();
+
+    let (static_inner, _) = ProgrammableRunner::with_outcome(StaticCheckOutcome {
+        passed: true,
+        diagnostics: String::new(),
+        output_ref: None,
+        report_dir: String::new(),
+    });
+    let static_log = static_inner.cancel_log();
+    let static_runner: Arc<dyn StaticCheckRunner> = Arc::new(static_inner);
+    static_runner
+        .run("/tmp/root", "c", ReportSlot::Test, cancel.clone())
+        .await
+        .expect("应 Ok");
+    assert!(
+        static_log.lock().expect("锁")[0].is_set(),
+        "StaticCheckRunner 收到已置位信号（不重建不清零）"
+    );
+
+    let (exec_inner, _) = ProgrammableTestExecutionRunner::with_result(Ok(
+        sample_execution_outcome(TestExecutionConclusion::Pass),
+    ));
+    let exec_log = exec_inner.cancel_log();
+    let exec_runner: Arc<dyn TestExecutionRunner> = Arc::new(exec_inner);
+    exec_runner
+        .run("/tmp/root", "c", ReportSlot::Test, cancel.clone())
+        .await
+        .expect("应 Ok");
+    assert!(
+        exec_log.lock().expect("锁")[0].is_set(),
+        "TestExecutionRunner 收到已置位信号"
+    );
+
+    let (mutation_inner, _) = FakeMutationRunner::with_result(Ok(sample_mutation_outcome(
+        MutationTestConclusion::Pass,
+    )));
+    let mutation_log = mutation_inner.cancel_log();
+    let mutation_runner: Arc<dyn MutationRunner> = Arc::new(mutation_inner);
+    mutation_runner
+        .run("/tmp/root", "c", &[], "", cancel.clone())
+        .await
+        .expect("应 Ok");
+    assert!(
+        mutation_log.lock().expect("锁")[0].is_set(),
+        "MutationRunner 收到已置位信号"
     );
 }

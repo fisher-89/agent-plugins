@@ -1,10 +1,11 @@
 use std::collections::VecDeque;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use agent::{AgentEventKind, AgentRunStatus, ModelLevel};
+use foundation::cancel::CancelFlag;
 
 use crate::control::ChangeFlowControl;
 use crate::port::{
@@ -563,6 +564,12 @@ struct FakeTools {
     /// 收到的 step root 序（RunRequest.root 透传锚的捕获面——exec root 换源
     /// 后写面 root 恒随 request 的防漂移断言）
     roots: Arc<Mutex<Vec<String>>>,
+    /// 收到的 `ToolStepRequest.cancel` 序（步标签 + flag——`run_tool` 单点填充
+    /// 与「13 处调用点共用同一原子」的捕获面）
+    cancels: Arc<Mutex<Vec<(&'static str, CancelFlag)>>>,
+    /// static-check 步挂起臂（置位后该步等待 cancel 置位才返回——「stop 后
+    /// 仍推进到下一次 run_tool」的确定性窗口）
+    hold_static: AtomicBool,
     phase_next: Mutex<VecDeque<PhaseNextOutcome>>,
     static_check: Mutex<VecDeque<StaticCheckOutcome>>,
     /// test-execution 可编程产出序列（pass / fail / error 四态——耗尽回落
@@ -587,6 +594,8 @@ impl FakeTools {
             timeline: Arc::clone(timeline),
             commands: Arc::new(Mutex::new(Vec::new())),
             roots: Arc::new(Mutex::new(Vec::new())),
+            cancels: Arc::new(Mutex::new(Vec::new())),
+            hold_static: AtomicBool::new(false),
             phase_next: Mutex::new(VecDeque::new()),
             static_check: Mutex::new(VecDeque::new()),
             test_execution: Mutex::new(VecDeque::new()),
@@ -613,6 +622,18 @@ impl FakeTools {
     /// roots 捕获柄（assemble 消费 self 前取——exec root 透传锚用例的观察面）。
     fn roots_handle(&self) -> Arc<Mutex<Vec<String>>> {
         Arc::clone(&self.roots)
+    }
+
+    /// cancel 捕获柄（assemble 消费 self 前取——`run_tool` 单点填充观察面）。
+    fn cancels_handle(&self) -> Arc<Mutex<Vec<(&'static str, CancelFlag)>>> {
+        Arc::clone(&self.cancels)
+    }
+
+    /// static-check 步挂起臂：该步捕获请求后等待 cancel 置位才返回（「stop 后
+    /// 仍未收口、继续推进到下一次 run_tool」的确定性握手窗口）。
+    fn hold_static_check(mut self) -> Self {
+        self.hold_static = AtomicBool::new(true);
+        self
     }
 
     fn with_phase_next(mut self, outcomes: Vec<PhaseNextOutcome>) -> Self {
@@ -668,6 +689,26 @@ fn command_label(command: &ToolCommand) -> &'static str {
 impl ToolStepPort for FakeTools {
     fn run(&self, step: ToolStepRequest) -> BoxToolFuture {
         let label = command_label(&step.command);
+        self.cancels
+            .lock()
+            .expect("cancel 捕获锁不可中毒")
+            .push((label, step.cancel.clone()));
+        if label == "static-check" && self.hold_static.load(Ordering::SeqCst) {
+            // 挂起臂：等待取消置位（真实执行体的「轮询置位」收敛面在写面等价
+            // 表达）——测试侧在窗口内 request_stop，随后本步返回、run 继续推进
+            let cancel = step.cancel.clone();
+            return Box::pin(async move {
+                while !cancel.is_set() {
+                    tokio::task::yield_now().await;
+                }
+                Ok(ToolStepOutput::StaticCheck(StaticCheckOutcome {
+                    passed: true,
+                    diagnostics: String::new(),
+                    output_ref: None,
+                    report_dir: String::new(),
+                }))
+            });
+        }
         self.commands
             .lock()
             .expect("命令捕获锁不可中毒")
@@ -4741,8 +4782,14 @@ impl WorkflowSnapshotPort for StubSnapshot {
 struct NullRunner;
 
 impl StaticCheckRunner for NullRunner {
-    // 磁盘面 port 收 (root, name, slot)：假件零记录逻辑，三参原样吞下
-    fn run(&self, _root: &str, _name: &str, _slot: foundation::layout::ReportSlot) -> BoxToolFuture {
+    // 磁盘面 port 收 (root, name, slot, cancel)：假件零记录逻辑，四参原样吞下
+    fn run(
+        &self,
+        _root: &str,
+        _name: &str,
+        _slot: foundation::layout::ReportSlot,
+        _cancel: CancelFlag,
+    ) -> BoxToolFuture {
         Box::pin(async move { Ok(ToolStepOutput::StaticCheck(passing_check())) })
     }
 }
@@ -4751,7 +4798,13 @@ impl StaticCheckRunner for NullRunner {
 struct FailingRunner;
 
 impl StaticCheckRunner for FailingRunner {
-    fn run(&self, _root: &str, _name: &str, _slot: foundation::layout::ReportSlot) -> BoxToolFuture {
+    fn run(
+        &self,
+        _root: &str,
+        _name: &str,
+        _slot: foundation::layout::ReportSlot,
+        _cancel: CancelFlag,
+    ) -> BoxToolFuture {
         Box::pin(async move {
             Ok(ToolStepOutput::StaticCheck(StaticCheckOutcome {
                 passed: false,
@@ -4769,7 +4822,13 @@ impl StaticCheckRunner for FailingRunner {
 struct NullTestExecutionRunner;
 
 impl TestExecutionRunner for NullTestExecutionRunner {
-    fn run(&self, _root: &str, _name: &str, _slot: foundation::layout::ReportSlot) -> BoxToolFuture {
+    fn run(
+        &self,
+        _root: &str,
+        _name: &str,
+        _slot: foundation::layout::ReportSlot,
+        _cancel: CancelFlag,
+    ) -> BoxToolFuture {
         Box::pin(async move {
             Ok(ToolStepOutput::TestExecution(TestExecutionOutcome {
                 conclusion: TestExecutionConclusion::Pass,
@@ -4798,6 +4857,7 @@ impl crate::port::MutationRunner for NullMutationRunner {
         _name: &str,
         _files: &[String],
         _patch: &str,
+        _cancel: CancelFlag,
     ) -> crate::port::BoxToolFuture {
         Box::pin(async move {
             Ok(ToolStepOutput::MutationTest(MutationTestOutcome {
@@ -11355,4 +11415,477 @@ async fn 决策漂移混合序列三序列累加不分流() {
             case.tag
         );
     }
+}
+
+// ---------------------------------------------------------------------------
+// 取消贯通（test-design「walker.rs -> walker_test.rs」节，AC-6 / AC-7 / D10）：
+// `run_tool` 单点从 `guard.cancel_flag()` 填充 `ToolStepRequest.cancel`（13 处
+// 调用点零重复填充）；stop 运行中的检查步 → 假 runner 观测取消并立即 Err →
+// run **秒级收敛 failed**（过渡语义，文案含「执行已取消」），不做 run stopped。
+// ---------------------------------------------------------------------------
+
+/// 可取消的检查步假 runner：进入即挂起（`entered` 置位供测试侧握手），观测到
+/// 取消即返回 `Err("执行已取消")`（真实执行体的「入口短路 / 轮询置位」收敛面
+/// 在 runner 层等价表达）；同时记录收到的 flag（单点填充断言原料）。
+struct CancelableStaticRunner {
+    entered: Arc<std::sync::atomic::AtomicBool>,
+    received: Arc<Mutex<Vec<CancelFlag>>>,
+}
+
+impl CancelableStaticRunner {
+    fn new() -> Self {
+        Self {
+            entered: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            received: Arc::new(Mutex::new(Vec::new())),
+        }
+    }
+}
+
+impl StaticCheckRunner for CancelableStaticRunner {
+    fn run(
+        &self,
+        _root: &str,
+        _name: &str,
+        _slot: foundation::layout::ReportSlot,
+        cancel: CancelFlag,
+    ) -> BoxToolFuture {
+        self.received
+            .lock()
+            .expect("received 锁不可中毒")
+            .push(cancel.clone());
+        self.entered.store(true, Ordering::SeqCst);
+        Box::pin(async move {
+            loop {
+                if cancel.is_set() {
+                    return Err("执行已取消".to_owned());
+                }
+                // 协作让位（本 crate 的 tokio 未启 time 特性——轮询以 yield 表达；
+                // 取消观测在毫秒级窗口内收敛，不构成空转）
+                tokio::task::yield_now().await;
+            }
+        })
+    }
+}
+
+/// 正向（AC-7 组合锚）：stop 运行中的检查步——假 runner 观测取消即 Err，run
+/// 秒级收敛 `Failed`（**过渡形态**，`Finished.reason` 含「执行已取消」），
+/// 不做 run stopped；捕获的 flag 与 `guard.cancel_flag()` 同源。
+#[tokio::test]
+async fn 停止运行中检查步_秒级收敛failed且文案含执行已取消() {
+    let root = TempRoot::new("stop-running-check");
+    root.change(NAME);
+    let db = TestDb::open("stop-running-check");
+    seed_change(db.store.as_ref(), CHANGE_ID, NAME);
+
+    let timeline = Arc::new(Mutex::new(Vec::new()));
+    let (worker, _requests, _sessions) = FakeWorker::new(&timeline).assemble();
+    let runner = CancelableStaticRunner::new();
+    let entered = Arc::clone(&runner.entered);
+    let received = Arc::clone(&runner.received);
+    let steps: Arc<dyn ToolStepPort> = Arc::new(LocalToolSteps::new(
+        Arc::new(SessionAnchors::new()),
+        Arc::new(runner),
+        Arc::new(NullTestExecutionRunner),
+        Arc::new(NullMutationRunner),
+        Arc::new(FakeVcs::clean()),
+        db.store_arc(),
+        "run-1".to_owned(),
+    ));
+    let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StoreSnapshot::new(
+        root.root_str(),
+        db.store_arc(),
+    ));
+    let control = Arc::new(ChangeFlowControl::new());
+
+    let (task, mut rx, history) = spawn_run(worker, steps, snapshot, &control, false, &root.root_str());
+    let _confirmer = spawn_confirmer(&control, true);
+
+    // 检查步进入挂起即运行中窗口
+    wait_for("检查步进入挂起", || entered.load(Ordering::SeqCst)).await;
+    let started = Instant::now();
+    assert!(control.request_stop(ROOT, CHANGE_ID), "运行中置位返回 true");
+
+    let status = task.await.expect("run 任务正常结束");
+    let elapsed = started.elapsed();
+
+    assert_eq!(
+        status,
+        ChangeRunStatus::Failed,
+        "过渡语义：取消收敛 failed（不做 run stopped）"
+    );
+    assert!(
+        elapsed < Duration::from_secs(10),
+        "秒级收敛（不等挂起自然结束，实际 {elapsed:?}）"
+    );
+
+    // 终态与记因经 Finished 流出：文案含「执行已取消」
+    assert!(
+        drain_notices(&mut rx)
+            .iter()
+            .any(|notice| *notice == RunNotice::Finished),
+        "Finished 信封在场"
+    );
+    let finish = history.finish().expect("finish 落包捕获");
+    assert_eq!(finish.status, RunStatus::Failed, "收口落包 failed");
+    assert!(
+        finish
+            .reason
+            .as_deref()
+            .unwrap_or_default()
+            .contains("执行已取消"),
+        "记因含「执行已取消」: {:?}",
+        finish.reason
+    );
+
+    // 单点填充：runner 收到的 flag 已置位（`run_tool` 从 guard 取值，无中间重建）
+    let recorded = received.lock().expect("received 锁").clone();
+    assert!(!recorded.is_empty(), "检查步至少一次进入 runner");
+    assert!(
+        recorded.iter().all(CancelFlag::is_set),
+        "runner 观测到置位（guard.cancel_flag() 单点填充生效）"
+    );
+    assert!(control.snapshot(ROOT, CHANGE_ID).is_none(), "终态除名");
+}
+
+/// 异常：非取消类 `Err` 不被误叙述——假 runner 返回 `Err("boom")` → run failed
+/// 文案为「{label} 失败: boom」，**不含**「执行已取消」（取消文案不误用）。
+#[tokio::test]
+async fn 非取消类err文案不含执行已取消() {
+    let root = TempRoot::new("err-not-cancel");
+    root.change(NAME);
+    let db = TestDb::open("err-not-cancel");
+    seed_change(db.store.as_ref(), CHANGE_ID, NAME);
+
+    let timeline = Arc::new(Mutex::new(Vec::new()));
+    let (worker, _requests, _sessions) = FakeWorker::new(&timeline).assemble();
+    let steps: Arc<dyn ToolStepPort> = Arc::new(LocalToolSteps::new(
+        Arc::new(SessionAnchors::new()),
+        Arc::new(AlwaysFailStaticRunner),
+        Arc::new(NullTestExecutionRunner),
+        Arc::new(NullMutationRunner),
+        Arc::new(FakeVcs::clean()),
+        db.store_arc(),
+        "run-1".to_owned(),
+    ));
+    let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StoreSnapshot::new(
+        root.root_str(),
+        db.store_arc(),
+    ));
+    let control = Arc::new(ChangeFlowControl::new());
+
+    let (task, _rx, history) = spawn_run(worker, steps, snapshot, &control, false, &root.root_str());
+    let _confirmer = spawn_confirmer(&control, true);
+    let status = task.await.expect("run 任务正常结束");
+
+    assert_eq!(status, ChangeRunStatus::Failed, "非取消类失败同样收敛 failed");
+    let finish = history.finish().expect("finish 落包捕获");
+    let reason = finish.reason.as_deref().unwrap_or_default();
+    assert!(reason.contains("boom"), "记因携原错误串: {reason}");
+    assert!(
+        !reason.contains("执行已取消"),
+        "非取消类失败不误用取消文案: {reason}"
+    );
+}
+
+/// 恒败检查步 runner（非取消类 Err 的注入面）。
+struct AlwaysFailStaticRunner;
+
+impl StaticCheckRunner for AlwaysFailStaticRunner {
+    fn run(
+        &self,
+        _root: &str,
+        _name: &str,
+        _slot: foundation::layout::ReportSlot,
+        _cancel: CancelFlag,
+    ) -> BoxToolFuture {
+        Box::pin(async move { Err("boom".to_owned()) })
+    }
+}
+
+// ---------------------------------------------------------------------------
+// `run_tool` 单点填充（test-design「walker.rs -> walker_test.rs」节，AC-6 /
+// D10）：`ToolStepRequest.cancel` 只在 `run_tool` 一处经 `guard.cancel_flag()`
+// 填充（各步函数不各自取值、无中间重建）——常态链零置位、stop 后同一原子贯通。
+// ---------------------------------------------------------------------------
+
+/// 三检查步全链驱动（`implement` 站 static-check + `test-execution` 站
+/// test-execution / mutation-test 各 ≥1 次）——返回捕获序与 run 终态。
+async fn drive_three_gate_steps() -> (Vec<(&'static str, CancelFlag)>, ChangeRunStatus) {
+    let timeline = Arc::new(Mutex::new(Vec::new()));
+    let (worker, _requests, _sessions) = FakeWorker::new(&timeline).assemble();
+    let tools = FakeTools::new(&timeline)
+        .with_phase_next(vec![
+            route_outcome("implement", &["implement"]),
+            route_outcome("test-execution", &[]),
+            done_outcome(),
+        ])
+        .with_static_check(vec![passing_check()])
+        .with_test_execution(vec![execution_outcome(TestExecutionConclusion::Pass, 5)])
+        .with_mutation(vec![mutation_outcome(
+            MutationTestConclusion::Pass,
+            95.0,
+            80.0,
+            "",
+        )]);
+    let cancels = tools.cancels_handle();
+    let (tools, _commands) = tools.assemble();
+
+    let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
+    let control = Arc::new(ChangeFlowControl::new());
+    let (task, _rx, _history) = spawn_run(worker, tools, snapshot, &control, true, "/tmp/root");
+    let _confirmer = spawn_confirmer(&control, true);
+    let status = task.await.expect("run 任务正常结束");
+    let seen = cancels.lock().expect("cancel 捕获锁不可中毒").clone();
+    (seen, status)
+}
+
+/// 正向（AC-6 / D10）：常态 run（未 stop）——每个 `ToolStepRequest.cancel`
+/// 均为未置位，且全部请求共用同一 `guard.cancel_flag()` 原子（13 处调用点零
+/// 重复填充、无中间重建）。
+#[tokio::test]
+async fn run_tool单点填充_常态全链flag未置位且同一原子() {
+    let (seen, status) = drive_three_gate_steps().await;
+
+    assert_eq!(status, ChangeRunStatus::Completed, "常态 run 收口 Completed");
+    assert!(!seen.is_empty(), "工具步请求全部被写面捕获");
+    assert!(
+        seen.iter().all(|(_, flag)| !flag.is_set()),
+        "常态 run 零置位（轮询臂零副作用，不产生假取消）"
+    );
+    let first = seen[0].1.clone();
+    assert!(
+        seen.iter().all(|(_, flag)| *flag == first),
+        "全部请求共用 guard.cancel_flag() 克隆（同一原子）: {:?}",
+        seen.iter().map(|(label, _)| *label).collect::<Vec<_>>()
+    );
+}
+
+/// 正向（AC-6 / D10）：stop 后仍推进到下一次 `run_tool`——static-check 步在
+/// 挂起窗口内被 stop，随后同相位后续工具步（phase-log）捕获的 `cancel` 已是
+/// 置位（`guard.cancel_flag()` 单点填充生效）；run 至步边界收敛受控 stopped。
+#[tokio::test]
+async fn run_tool单点填充_stop后下一次请求携置位() {
+    let root = TempRoot::new("stop-fill-next");
+    root.change(NAME);
+    let db = TestDb::open("stop-fill-next");
+    seed_change(db.store.as_ref(), CHANGE_ID, NAME);
+
+    let timeline = Arc::new(Mutex::new(Vec::new()));
+    let (worker, _requests, _sessions) = FakeWorker::new(&timeline).assemble();
+    let tools = FakeTools::new(&timeline)
+        .with_phase_next(vec![
+            route_outcome("implement", &["implement"]),
+            done_outcome(),
+        ])
+        .with_static_check(vec![passing_check()])
+        .hold_static_check();
+    let cancels = tools.cancels_handle();
+    let (tools, _commands) = tools.assemble();
+
+    let snapshot: Arc<dyn WorkflowSnapshotPort> =
+        Arc::new(StoreSnapshot::new(root.root_str(), db.store_arc()));
+    let control = Arc::new(ChangeFlowControl::new());
+    let (task, _rx, _history) =
+        spawn_run(worker, tools, snapshot, &control, false, &root.root_str());
+    let _confirmer = spawn_confirmer(&control, true);
+
+    // static-check 步进入挂起窗口（请求已被写面捕获）后置位停止
+    wait_for("static-check 步进入挂起", || {
+        cancels
+            .lock()
+            .expect("cancel 捕获锁不可中毒")
+            .iter()
+            .any(|(label, _)| *label == "static-check")
+    })
+    .await;
+    assert!(
+        control.request_stop(ROOT, CHANGE_ID),
+        "运行中置位返回 true（双写：watch + 原子）"
+    );
+
+    let status = task.await.expect("run 任务正常结束");
+    assert_eq!(
+        status,
+        ChangeRunStatus::Stopped,
+        "步边界 check_cancel 收敛受控 stopped"
+    );
+
+    let seen = cancels.lock().expect("cancel 捕获锁不可中毒").clone();
+    let index = seen
+        .iter()
+        .position(|(label, _)| *label == "static-check")
+        .expect("static-check 请求在场");
+    let later = &seen[index + 1..];
+    assert!(
+        !later.is_empty(),
+        "stop 后 run 仍推进到下一次 run_tool（同相位后续步: {:?}）",
+        later.iter().map(|(label, _)| *label).collect::<Vec<_>>()
+    );
+    assert!(
+        later.iter().all(|(_, flag)| flag.is_set()),
+        "stop 后捕获的 cancel 已置位（guard.cancel_flag() 单点填充，无中间重建）"
+    );
+}
+
+/// 正向（AC-6）：多步全链同一原子——一次 run 覆盖 static-check /
+/// test-execution / mutation-test 各 ≥1 次，三检查步捕获的 flag 全部相等
+///（13 处调用点共用 `guard.cancel_flag()` 克隆，单点填充无重建）。
+#[tokio::test]
+async fn 多步全链同一原子_三检查步共用guard原子() {
+    let (seen, status) = drive_three_gate_steps().await;
+    assert_eq!(status, ChangeRunStatus::Completed);
+
+    for label in ["static-check", "test-execution", "mutation-test"] {
+        assert!(
+            seen.iter().any(|(seen_label, _)| *seen_label == label),
+            "检查步 {label} 至少一次进入写面（实际: {:?}）",
+            seen.iter().map(|(seen_label, _)| *seen_label).collect::<Vec<_>>()
+        );
+    }
+
+    let check_flags: Vec<CancelFlag> = seen
+        .iter()
+        .filter(|(label, _)| {
+            matches!(*label, "static-check" | "test-execution" | "mutation-test")
+        })
+        .map(|(_, flag)| flag.clone())
+        .collect();
+    assert!(check_flags.len() >= 3, "三检查步请求各自在案");
+    let anchor = check_flags[0].clone();
+    assert!(
+        check_flags.iter().all(|flag| *flag == anchor),
+        "三检查步共用同一原子（run_tool 单点填充，调用点零重复取值）"
+    );
+}
+
+
+/// 挂起且**不观测** cancel 的检查步假 runner：进入即挂起（`entered` 置位供测试
+/// 侧握手），只按测试侧 `release` 标记返回 `Err("执行已取消")`——walker 若越权
+/// 做步内截止，run 会在未释放时收敛；不越权则一直挂到 runner 契约的 `Err` 抵达。
+struct HangingIgnoreCancelRunner {
+    entered: Arc<AtomicBool>,
+    release: Arc<AtomicBool>,
+    received: Arc<Mutex<Vec<CancelFlag>>>,
+}
+
+impl HangingIgnoreCancelRunner {
+    fn new() -> Self {
+        Self {
+            entered: Arc::new(AtomicBool::new(false)),
+            release: Arc::new(AtomicBool::new(false)),
+            received: Arc::new(Mutex::new(Vec::new())),
+        }
+    }
+}
+
+impl StaticCheckRunner for HangingIgnoreCancelRunner {
+    fn run(
+        &self,
+        _root: &str,
+        _name: &str,
+        _slot: foundation::layout::ReportSlot,
+        cancel: CancelFlag,
+    ) -> BoxToolFuture {
+        self.received
+            .lock()
+            .expect("received 锁不可中毒")
+            .push(cancel.clone());
+        self.entered.store(true, Ordering::SeqCst);
+        let release = Arc::clone(&self.release);
+        Box::pin(async move {
+            // 挂起且**不读** cancel（D10：步内无取消观测面）
+            while !release.load(Ordering::SeqCst) {
+                tokio::task::yield_now().await;
+            }
+            Err("执行已取消".to_owned())
+        })
+    }
+}
+
+/// 边界（AC-7 / D10）：**walker 不作步内截止**——假 runner 挂起且不观测 cancel：
+/// stop 后 run 在观测窗口内不收敛（无步内砍断、无越权 stopped），收口只由 runner
+/// 契约的 `Err` 承接（释放挂起 → `Err("执行已取消")` → run 收敛 failed，文案含
+/// 「执行已取消」）。
+#[tokio::test]
+async fn 挂起且不观测cancel_walker不作步内截止且收口由runner错误承接() {
+    let root = TempRoot::new("hang-ignore-cancel");
+    root.change(NAME);
+    let db = TestDb::open("hang-ignore-cancel");
+    seed_change(db.store.as_ref(), CHANGE_ID, NAME);
+
+    let timeline = Arc::new(Mutex::new(Vec::new()));
+    let (worker, _requests, _sessions) = FakeWorker::new(&timeline).assemble();
+    let runner = HangingIgnoreCancelRunner::new();
+    let entered = Arc::clone(&runner.entered);
+    let release = Arc::clone(&runner.release);
+    let received = Arc::clone(&runner.received);
+    let steps: Arc<dyn ToolStepPort> = Arc::new(LocalToolSteps::new(
+        Arc::new(SessionAnchors::new()),
+        Arc::new(runner),
+        Arc::new(NullTestExecutionRunner),
+        Arc::new(NullMutationRunner),
+        Arc::new(FakeVcs::clean()),
+        db.store_arc(),
+        "run-1".to_owned(),
+    ));
+    let snapshot: Arc<dyn WorkflowSnapshotPort> =
+        Arc::new(StoreSnapshot::new(root.root_str(), db.store_arc()));
+    let control = Arc::new(ChangeFlowControl::new());
+
+    let (task, _rx, history) = spawn_run(worker, steps, snapshot, &control, false, &root.root_str());
+    let _confirmer = spawn_confirmer(&control, true);
+
+    // 检查步进入挂起即运行中窗口
+    wait_for("检查步进入挂起", || entered.load(Ordering::SeqCst)).await;
+    let started = Instant::now();
+    assert!(control.request_stop(ROOT, CHANGE_ID), "运行中置位返回 true");
+
+    // 观测窗口：walker 只在步边界 check_cancel（本变更不引入步内砍断）——挂起
+    // 步未返回前 run MUST NOT 收敛（既不 failed 也不 stopped）
+    let window = Duration::from_millis(800);
+    while started.elapsed() < window {
+        assert!(
+            !task.is_finished(),
+            "walker 不作步内截止（stop 后挂起步仍在跑，run 未收敛，已过 {:?}）",
+            started.elapsed()
+        );
+        tokio::task::yield_now().await;
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    assert!(
+        history.finish().is_none(),
+        "窗口内无终态落包（未越权收敛为 stopped / failed）"
+    );
+    assert!(
+        control.snapshot(ROOT, CHANGE_ID).is_some(),
+        "窗口内 run 仍在册（未提前除名）"
+    );
+    // 单点填充面：runner 持有的是同一 guard flag 且已置位（信号已透传到执行体，
+    // 但执行体「不观测」是 runner 侧的自由——walker 不再兜底）
+    let recorded = received.lock().expect("received 锁").clone();
+    assert!(!recorded.is_empty(), "检查步至少一次进入 runner");
+    assert!(
+        recorded.iter().all(CancelFlag::is_set),
+        "runner 持置位 flag（run_tool 单点填充，无中间重建）"
+    );
+
+    // 收口只由 runner 契约的 Err 承接：释放挂起 → Err("执行已取消") → failed
+    release.store(true, Ordering::SeqCst);
+    let status = task.await.expect("run 任务正常结束");
+    let elapsed = started.elapsed();
+    assert_eq!(
+        status,
+        ChangeRunStatus::Failed,
+        "runner 契约 Err 承接过渡态 failed（不做 run stopped）"
+    );
+    assert!(
+        elapsed < Duration::from_secs(30),
+        "释放后秒级收敛（实际 {elapsed:?}）"
+    );
+    let finish = history.finish().expect("finish 落包捕获");
+    let reason = finish.reason.as_deref().unwrap_or_default();
+    assert!(
+        reason.contains("static-check 失败") && reason.contains("执行已取消"),
+        "记因为 runner 契约 Err（「{{label}} 失败: {{error}}」）: {reason}"
+    );
 }

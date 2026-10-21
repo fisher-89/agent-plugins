@@ -26,6 +26,8 @@ use workflow::state::{
 };
 use workflow::write::{ArchiveOutcome, BacktrackInput, PhaseLogInput, SessionAnchors};
 
+use foundation::cancel::CancelFlag;
+
 use crate::port::{
     ArchiveVcsPort, BoxToolFuture, MutationCounts, MutationSkipReason, MutationTestConclusion,
     MutationTestOutcome, RebaseOutcome, StaticCheckOutcome, StaticCheckRunner,
@@ -432,6 +434,8 @@ impl ChangeStateStore for FakeStore {
 /// slot 报告槽位透传——check-before-flow-start）。
 struct FakeRunner {
     calls: Mutex<Vec<(String, String, ReportSlot)>>,
+    /// 收到的取消信号（AC-6 透传面：身份相等断言原料）
+    cancels: Mutex<Vec<CancelFlag>>,
     result: Result<StaticCheckOutcome, String>,
 }
 
@@ -458,8 +462,14 @@ impl FakeRunner {
     fn with_result(result: Result<StaticCheckOutcome, String>) -> Self {
         Self {
             calls: Mutex::new(Vec::new()),
+            cancels: Mutex::new(Vec::new()),
             result,
         }
+    }
+
+    /// 取消信号记录快照（三分支透传断言面）。
+    fn cancels(&self) -> Vec<CancelFlag> {
+        self.cancels.lock().expect("cancels 锁不可中毒").clone()
     }
 
     /// Err 臂（臂产出 Err(String) 原样上抛 + 审计 error 行的注入面）。
@@ -474,7 +484,17 @@ impl FakeRunner {
 }
 
 impl StaticCheckRunner for FakeRunner {
-    fn run(&self, root: &str, name: &str, slot: ReportSlot) -> BoxToolFuture {
+    fn run(
+        &self,
+        root: &str,
+        name: &str,
+        slot: ReportSlot,
+        cancel: CancelFlag,
+    ) -> BoxToolFuture {
+        self.cancels
+            .lock()
+            .expect("cancels 锁不可中毒")
+            .push(cancel);
         self.calls
             .lock()
             .expect("calls 锁不可中毒")
@@ -488,6 +508,8 @@ impl StaticCheckRunner for FakeRunner {
 /// Err（磁盘面 port 收 name——解析在 steps 消费点；slot 报告槽位透传）。
 struct FakeTestExecutionRunner {
     calls: Arc<Mutex<Vec<(String, String, ReportSlot)>>>,
+    /// 收到的取消信号（AC-6 透传面）
+    cancels: Arc<Mutex<Vec<CancelFlag>>>,
     result: Result<TestExecutionOutcome, String>,
 }
 
@@ -509,8 +531,14 @@ impl FakeTestExecutionRunner {
     fn with_result(result: Result<TestExecutionOutcome, String>) -> Self {
         Self {
             calls: Arc::new(Mutex::new(Vec::new())),
+            cancels: Arc::new(Mutex::new(Vec::new())),
             result,
         }
+    }
+
+    /// 取消信号记录快照（三分支透传断言面）。
+    fn cancels(&self) -> Vec<CancelFlag> {
+        self.cancels.lock().expect("cancels 锁不可中毒").clone()
     }
 
     fn failing(message: &str) -> Self {
@@ -524,7 +552,17 @@ impl FakeTestExecutionRunner {
 }
 
 impl TestExecutionRunner for FakeTestExecutionRunner {
-    fn run(&self, root: &str, name: &str, slot: ReportSlot) -> BoxToolFuture {
+    fn run(
+        &self,
+        root: &str,
+        name: &str,
+        slot: ReportSlot,
+        cancel: CancelFlag,
+    ) -> BoxToolFuture {
+        self.cancels
+            .lock()
+            .expect("cancels 锁不可中毒")
+            .push(cancel);
         self.calls
             .lock()
             .expect("calls 锁不可中毒")
@@ -825,6 +863,8 @@ impl ArchiveVcsPort for FakeVcs {
 /// 观察面）。
 struct FakeMutationRunner {
     calls: Mutex<Vec<(String, String, Vec<String>, String)>>,
+    /// 收到的取消信号（AC-6 透传面）
+    cancels: Mutex<Vec<CancelFlag>>,
     result: Result<MutationTestOutcome, String>,
 }
 
@@ -889,8 +929,14 @@ impl FakeMutationRunner {
     fn with_result(result: Result<MutationTestOutcome, String>) -> Self {
         Self {
             calls: Mutex::new(Vec::new()),
+            cancels: Mutex::new(Vec::new()),
             result,
         }
+    }
+
+    /// 取消信号记录快照（三分支透传断言面）。
+    fn cancels(&self) -> Vec<CancelFlag> {
+        self.cancels.lock().expect("cancels 锁不可中毒").clone()
     }
 
     /// 四参调用记录（root / name / files / patch 透传断言面）。
@@ -906,7 +952,12 @@ impl crate::port::MutationRunner for FakeMutationRunner {
         name: &str,
         files: &[String],
         patch: &str,
+        cancel: CancelFlag,
     ) -> crate::port::BoxToolFuture {
+        self.cancels
+            .lock()
+            .expect("cancels 锁不可中毒")
+            .push(cancel);
         self.calls
             .lock()
             .expect("calls 锁不可中毒")
@@ -926,6 +977,7 @@ async fn run_step(steps: &LocalToolSteps, command: ToolCommand) -> ToolStepOutpu
     steps
         .run(ToolStepRequest {
             root: ROOT.to_owned(),
+            cancel: foundation::cancel::CancelFlag::never(),
             command,
         })
         .await
@@ -1195,6 +1247,7 @@ async fn 成功臂与失败臂皆落行_error行携记因() {
         .steps
         .run(ToolStepRequest {
             root: ROOT.to_owned(),
+            cancel: foundation::cancel::CancelFlag::never(),
             command: ToolCommand::StaticCheck {
                 change_id: CHANGE_ID.to_owned(),
                 slot: ReportSlot::Test,
@@ -1209,6 +1262,7 @@ async fn 成功臂与失败臂皆落行_error行携记因() {
         .steps
         .run(ToolStepRequest {
             root: ROOT.to_owned(),
+            cancel: foundation::cancel::CancelFlag::never(),
             command: ToolCommand::PhaseStart {
                 change_id: "不存在的-change".to_owned(),
                 phase: "proposal".to_owned(),
@@ -1286,6 +1340,7 @@ async fn test_execution臂经记录解析name_未建档零发起() {
         .steps
         .run(ToolStepRequest {
             root: ROOT.to_owned(),
+            cancel: foundation::cancel::CancelFlag::never(),
             command: ToolCommand::TestExecution {
                 change_id: "unregistered-id".to_owned(),
                 slot: ReportSlot::Test,
@@ -1520,6 +1575,7 @@ async fn 摘要截断_超五百字符截断留痕且恰五百不截断() {
         .steps
         .run(ToolStepRequest {
             root: ROOT.to_owned(),
+            cancel: foundation::cancel::CancelFlag::never(),
             command: ToolCommand::TestExecution {
                 change_id: CHANGE_ID.to_owned(),
                 slot: ReportSlot::Test,
@@ -1532,6 +1588,7 @@ async fn 摘要截断_超五百字符截断留痕且恰五百不截断() {
         .steps
         .run(ToolStepRequest {
             root: ROOT.to_owned(),
+            cancel: foundation::cancel::CancelFlag::never(),
             command: ToolCommand::StaticCheck {
                 change_id: CHANGE_ID.to_owned(),
                 slot: ReportSlot::Test,
@@ -1610,6 +1667,7 @@ async fn store故障_落账臂err记因上抛不静默() {
         .steps
         .run(ToolStepRequest {
             root: ROOT.to_owned(),
+            cancel: foundation::cancel::CancelFlag::never(),
             command: ToolCommand::PhaseLog {
                 change_id: CHANGE_ID.to_owned(),
                 phase: "proposal".to_owned(),
@@ -1732,6 +1790,7 @@ async fn store故障_读路径fault经臂err上抛() {
         .steps
         .run(ToolStepRequest {
             root: ROOT.to_owned(),
+            cancel: foundation::cancel::CancelFlag::never(),
             command: ToolCommand::PhaseNext {
                 change_id: CHANGE_ID.to_owned(),
                 run_id: "run-read-fault".to_owned(),
@@ -2158,6 +2217,7 @@ async fn static_check未建档显式err且零发起() {
         .steps
         .run(ToolStepRequest {
             root: ROOT.to_owned(),
+            cancel: foundation::cancel::CancelFlag::never(),
             command: ToolCommand::StaticCheck {
                 change_id: "unregistered-id".to_owned(),
                 slot: ReportSlot::Test,
@@ -2195,6 +2255,7 @@ async fn static_check读故障err传播且零发起() {
         .steps
         .run(ToolStepRequest {
             root: ROOT.to_owned(),
+            cancel: foundation::cancel::CancelFlag::never(),
             command: ToolCommand::StaticCheck {
                 change_id: CHANGE_ID.to_owned(),
                 slot: ReportSlot::Test,
@@ -2271,6 +2332,7 @@ async fn 写面err统一以err_string上抛() {
         .steps
         .run(ToolStepRequest {
             root: ROOT.to_owned(),
+            cancel: foundation::cancel::CancelFlag::never(),
             command: ToolCommand::PhaseNext {
                 change_id: "不存在的-change".to_owned(),
                 run_id: "run-1".to_owned(),
@@ -2285,6 +2347,7 @@ async fn 写面err统一以err_string上抛() {
         .steps
         .run(ToolStepRequest {
             root: ROOT.to_owned(),
+            cancel: foundation::cancel::CancelFlag::never(),
             command: ToolCommand::PhaseStart {
                 change_id: CHANGE_ID.to_owned(),
                 phase: "幽灵相位".to_owned(),
@@ -2305,6 +2368,7 @@ async fn 写面err统一以err_string上抛() {
         .steps
         .run(ToolStepRequest {
             root: ROOT.to_owned(),
+            cancel: foundation::cancel::CancelFlag::never(),
             command: ToolCommand::PhaseLog {
                 change_id: "bad-type-change".to_owned(),
                 phase: "proposal".to_owned(),
@@ -2341,6 +2405,7 @@ async fn runner_err原样透传() {
         .steps
         .run(ToolStepRequest {
             root: ROOT.to_owned(),
+            cancel: foundation::cancel::CancelFlag::never(),
             command: ToolCommand::StaticCheck {
                 change_id: CHANGE_ID.to_owned(),
                 slot: ReportSlot::Test,
@@ -2502,6 +2567,7 @@ async fn test_execution_runner_err原样上抛() {
         .steps
         .run(ToolStepRequest {
             root: ROOT.to_owned(),
+            cancel: foundation::cancel::CancelFlag::never(),
             command: ToolCommand::TestExecution {
                 change_id: CHANGE_ID.to_owned(),
                 slot: ReportSlot::Test,
@@ -2559,6 +2625,7 @@ impl ArchiveEnv {
         steps
             .run(ToolStepRequest {
                 root: self.root_str(),
+                cancel: foundation::cancel::CancelFlag::never(),
                 command,
             })
             .await
@@ -3014,6 +3081,7 @@ async fn 归档两臂不写审计行_相位机臂照常落行() {
         .steps
         .run(ToolStepRequest {
             root: env.root_str(),
+            cancel: foundation::cancel::CancelFlag::never(),
             command: ToolCommand::PhaseNext {
                 change_id: CHANGE_ID.to_owned(),
                 run_id: "run-audit-archive".to_owned(),
@@ -3217,6 +3285,7 @@ async fn mutation_test臂未建档显式err且零发起() {
         .steps
         .run(ToolStepRequest {
             root: ROOT.to_owned(),
+            cancel: foundation::cancel::CancelFlag::never(),
             command: ToolCommand::MutationTest {
                 change_id: "ghost-id".to_owned(),
             },
@@ -3259,6 +3328,7 @@ async fn mutation_test臂vcs取数err传播且runner零发起() {
         .steps
         .run(ToolStepRequest {
             root: ROOT.to_owned(),
+            cancel: foundation::cancel::CancelFlag::never(),
             command: ToolCommand::MutationTest {
                 change_id: CHANGE_ID.to_owned(),
             },
@@ -3292,6 +3362,7 @@ async fn mutation_test臂vcs取数err传播且runner零发起() {
         .steps
         .run(ToolStepRequest {
             root: ROOT.to_owned(),
+            cancel: foundation::cancel::CancelFlag::never(),
             command: ToolCommand::MutationTest {
                 change_id: CHANGE_ID.to_owned(),
             },
@@ -3327,6 +3398,7 @@ async fn mutation_test臂runner_err传播且审计error行() {
         .steps
         .run(ToolStepRequest {
             root: ROOT.to_owned(),
+            cancel: foundation::cancel::CancelFlag::never(),
             command: ToolCommand::MutationTest {
                 change_id: CHANGE_ID.to_owned(),
             },
@@ -3526,6 +3598,7 @@ async fn execute_slot缺省回归与解析miss语义持衡() {
         .steps
         .run(ToolStepRequest {
             root: ROOT.to_owned(),
+            cancel: foundation::cancel::CancelFlag::never(),
             command: ToolCommand::StaticCheck {
                 change_id: "ghost-id".to_owned(),
                 slot: ReportSlot::Baseline,
@@ -3602,5 +3675,193 @@ async fn execute_baseline槽位审计行照常落库() {
         rows[1].reference.as_deref(),
         Some(baseline_report_dir),
         "test_execution 审计行 reference 携 baseline report_dir（直透零改写）"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// 取消透传（test-design「steps.rs -> steps_test.rs」节，AC-6）：`execute` 在
+// `match step.command` 之前取 `let cancel = step.cancel;`，三分支各把同一 flag
+// 移入对应 runner 调用（互斥分支零 clone）；其余七分支零 `cancel` 消费。
+// ---------------------------------------------------------------------------
+
+/// 以显式 flag 驱动一次步执行（取消透传用例的统一入口）。
+async fn run_step_with_cancel(
+    steps: &LocalToolSteps,
+    cancel: CancelFlag,
+    command: ToolCommand,
+) -> Result<ToolStepOutput, String> {
+    steps
+        .run(ToolStepRequest {
+            root: ROOT.to_owned(),
+            cancel,
+            command,
+        })
+        .await
+}
+
+/// 正向（表驱动 3 分支）：三分支透传——传入已置位 flag → 对应 runner 收到的
+/// flag `is_set() == true` 且与 `step.cancel` 身份相等（同一原子）。
+#[tokio::test]
+async fn 三分支取消透传_同一原子且置位可见() {
+    // StaticCheck 分支
+    let db = TestDb::open("cancel-static");
+    seed_change(db.store.as_ref(), CHANGE_ID, NAME, "requirement");
+    let assembled = assemble(
+        db.store_arc(),
+        "run-cancel-static",
+        FakeRunner::passing(),
+        FakeTestExecutionRunner::passing(),
+    );
+    let cancel = CancelFlag::never();
+    cancel.handle().set();
+    run_step_with_cancel(
+        &assembled.steps,
+        cancel.clone(),
+        ToolCommand::StaticCheck {
+            change_id: CHANGE_ID.to_owned(),
+            slot: ReportSlot::Test,
+        },
+    )
+    .await
+    .expect("StaticCheck 分支应 Ok");
+    let recorded = assembled.static_check.cancels();
+    assert_eq!(recorded.len(), 1, "StaticCheck 分支恰一次调用");
+    assert_eq!(recorded[0], cancel, "第四形参同一原子");
+    assert!(recorded[0].is_set(), "置位信号原样透传");
+
+    // TestExecution 分支
+    let db = TestDb::open("cancel-exec");
+    seed_change(db.store.as_ref(), CHANGE_ID, NAME, "requirement");
+    let assembled = assemble(
+        db.store_arc(),
+        "run-cancel-exec",
+        FakeRunner::passing(),
+        FakeTestExecutionRunner::passing(),
+    );
+    let cancel = CancelFlag::never();
+    cancel.handle().set();
+    run_step_with_cancel(
+        &assembled.steps,
+        cancel.clone(),
+        ToolCommand::TestExecution {
+            change_id: CHANGE_ID.to_owned(),
+            slot: ReportSlot::Test,
+        },
+    )
+    .await
+    .expect("TestExecution 分支应 Ok");
+    let recorded = assembled.execution.cancels();
+    assert_eq!(recorded.len(), 1, "TestExecution 分支恰一次调用");
+    assert_eq!(recorded[0], cancel, "第四形参同一原子");
+    assert!(recorded[0].is_set(), "置位信号原样透传");
+
+    // MutationTest 分支
+    let db = TestDb::open("cancel-mutation");
+    seed_change(db.store.as_ref(), CHANGE_ID, NAME, "requirement");
+    let assembled = assemble_with_vcs_and_mutation(
+        db.store_arc(),
+        "run-cancel-mutation",
+        FakeRunner::passing(),
+        FakeTestExecutionRunner::passing(),
+        Arc::new(FakeVcs::clean().with_edit(vec!["src/lib.rs".to_owned()], "diff\n")),
+        Arc::new(FakeMutationRunner::passing()),
+    );
+    let cancel = CancelFlag::never();
+    cancel.handle().set();
+    run_step_with_cancel(
+        &assembled.steps,
+        cancel.clone(),
+        ToolCommand::MutationTest {
+            change_id: CHANGE_ID.to_owned(),
+        },
+    )
+    .await
+    .expect("MutationTest 分支应 Ok");
+    let recorded = assembled.mutation.cancels();
+    assert_eq!(recorded.len(), 1, "MutationTest 分支恰一次调用");
+    assert_eq!(recorded[0], cancel, "末位形参同一原子");
+    assert!(recorded[0].is_set(), "置位信号原样透传");
+}
+
+/// 边界：`never()` 零行为变化——三分支以未置位缺省 flag 走完整执行链 → 假件
+/// 收到的 flag 未置位、产出照旧（不因新增形参改变任何判定）。
+#[tokio::test]
+async fn 三分支never缺省_flag零置位且产出照旧() {
+    let db = TestDb::open("cancel-never");
+    seed_change(db.store.as_ref(), CHANGE_ID, NAME, "requirement");
+    let assembled = assemble(
+        db.store_arc(),
+        "run-cancel-never",
+        FakeRunner::passing(),
+        FakeTestExecutionRunner::passing(),
+    );
+
+    let output = run_step(
+        &assembled.steps,
+        ToolCommand::StaticCheck {
+            change_id: CHANGE_ID.to_owned(),
+            slot: ReportSlot::Test,
+        },
+    )
+    .await;
+    let recorded = assembled.static_check.cancels();
+    assert_eq!(recorded.len(), 1);
+    assert!(!recorded[0].is_set(), "never() 全程零置位");
+    assert!(
+        matches!(output, ToolStepOutput::StaticCheck(outcome) if outcome.passed),
+        "产出照旧（缺省 flag 不改变判定）"
+    );
+
+    let output = run_step(
+        &assembled.steps,
+        ToolCommand::TestExecution {
+            change_id: CHANGE_ID.to_owned(),
+            slot: ReportSlot::Test,
+        },
+    )
+    .await;
+    assert_eq!(assembled.execution.cancels().len(), 1);
+    assert!(
+        matches!(output, ToolStepOutput::TestExecution(outcome) if outcome.conclusion == TestExecutionConclusion::Pass),
+        "TestExecution 产出照旧"
+    );
+}
+
+/// 异常：runner 的取消 `Err` 原样透传——假 runner 返回 `Err("执行已取消")` →
+/// `execute` 原样返回该串（不加前缀、不改文案、不吞成 `Ok`），审计行记 `error`
+/// 同文。
+#[tokio::test]
+async fn runner取消err原样透传且审计记error() {
+    let db = TestDb::open("cancel-err");
+    seed_change(db.store.as_ref(), CHANGE_ID, NAME, "requirement");
+    let assembled = assemble(
+        db.store_arc(),
+        "run-cancel-err",
+        FakeRunner::erring("执行已取消"),
+        FakeTestExecutionRunner::passing(),
+    );
+
+    let err = run_step_with_cancel(
+        &assembled.steps,
+        CancelFlag::never(),
+        ToolCommand::StaticCheck {
+            change_id: CHANGE_ID.to_owned(),
+            slot: ReportSlot::Test,
+        },
+    )
+    .await
+    .expect_err("runner Err 应原样上抛");
+    assert_eq!(err, "执行已取消", "错误串零改写（不加前缀、不吞成 Ok）");
+
+    let rows = db
+        .store
+        .list_change_steps(CHANGE_ID, Some("run-cancel-err"))
+        .expect("读审计行应成功");
+    assert_eq!(rows.len(), 1, "审计行照常落库");
+    assert_eq!(rows[0].status, "error", "审计行记 error 面");
+    assert!(
+        rows[0].summary.contains("执行已取消"),
+        "审计摘要携同文错误串: {}",
+        rows[0].summary
     );
 }

@@ -6,7 +6,16 @@ edition = "2021"
 [dependencies]
 # 报告目录树派生单点（artifact 相对路径 / exec 输出记录同锚）
 foundation = { workspace = true }
-tokio = { workspace = true, features = ["process"] }
+# 统一执行体 run_shell 的特性面（逐项最小，不引 rt / rt-multi-thread / full——
+# 设计不 tokio::spawn，future 只持局部可变借用，故无运行时需求）：
+# - process：Command / Child / ChildStdout / ChildStderr / kill_on_drop；
+# - io-util：AsyncReadExt::read_to_end（双管道排水）；
+# - time：sleep（取消轮询）/ timeout（预算与杀后收尾上界）；
+# - macros：select!（三臂竞速）/ join!（双管道并发排水）。
+tokio = { workspace = true, features = ["process", "io-util", "time", "macros"] }
 
 [dev-dependencies]
 tempfile = { workspace = true }
+# 执行体用例：rt（#[tokio::test]）+ macros（select! 面）+ test-util
+#（超时 / 取消用例的 start_paused + 手动 advance，沿 mutation/*_test.rs 先例）。
+tokio = { workspace = true, features = ["rt", "macros", "test-util"] }

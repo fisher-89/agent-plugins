@@ -6,15 +6,19 @@
 //!   抑制 GUI 进程 spawn 控制台命令的窗口闪烁）——新平台在此加 cfg 臂，
 //!   调用方零改动；
 //! - 进程树击杀：`kill_tree`（Windows `taskkill` / unix `kill`）；
+//! - 进程执行体：[`run_shell`]（超时必填 / 双管道并发排水 / 进程树击杀 / 取消
+//!   四能力单点——检查域四类外部进程的唯一 spawn 收口）；
 //! - 进程输出解读面：[`ProcessOutput`]（错误信息 + 末尾行双面——失败归因
 //!   文本统一装配，替代各调用点自截尾部）。
 
 mod output;
+mod run;
 mod shell;
 
 #[cfg(windows)]
 pub use shell::probe_windows_shell;
 pub use output::ProcessOutput;
+pub use run::{run_shell, RunError, RunOptions, RunOutcome, RunReport};
 pub use shell::{resolve_shell, ShellBase};
 
 use std::ffi::{OsStr, OsString};
@@ -25,8 +29,9 @@ use foundation::layout::ReportSlot;
 
 /// spawn 命令规格：程序 + 逐参 argv。`raw` 为 Windows 命令串原样入线标记
 /// （作用于末参，`raw_arg` 保真——仅 tokio 侧可表达；std 调用点不使用
-/// `script_raw`）。
-#[derive(Debug)]
+/// `script_raw`）。`Clone` 供执行体形式复用（`cwd` / `env` 由
+/// [`RunOptions`] 施加，命令规格本身与目标机无关）。
+#[derive(Debug, Clone)]
 pub struct SystemCommand {
     program: OsString,
     args: Vec<OsString>,

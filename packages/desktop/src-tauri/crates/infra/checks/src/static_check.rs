@@ -1,12 +1,19 @@
 use std::path::{Path, PathBuf};
-use std::process::Stdio;
+use std::time::Duration;
 
+use foundation::cancel::CancelFlag;
 use foundation::layout::ReportSlot;
 use orchestration::port::{BoxToolFuture, StaticCheckOutcome, StaticCheckRunner, ToolStepOutput};
 
+/// static-check 命令超时预算（此前**零超时**——cargo 卡在 `Blocking waiting for
+/// file lock` 时 run 永久悬挂）：冷构建约 90 s + `vite-plus` 约 10 s 的约 3 倍余量。
+/// 代码常量（不进 config schema、非用户可配项）。
+pub(crate) const STATIC_CHECK_TIMEOUT: Duration = Duration::from_secs(1200);
+
 /// static-check 进程执行器（组合根按需构造）：输出记录模式恒
-/// [`exec::ExecOutput::Recorded`]（`run(root, name, slot)` 收 change name 与
-/// 报告槽位，单一交错 `.log` 落盘并回填 `output_ref` 引用，审计 / 回查面）。
+/// [`exec::ExecOutput::Recorded`]（`run(root, name, slot, cancel)` 收 change name
+/// 与报告槽位 + 取消信号，单一交错 `.log` 落盘并回填 `output_ref` 引用，审计 /
+/// 回查面）。
 /// **输出记录单点驻 infra/exec**——本层零私有落盘分支。
 pub struct ProcessStaticCheck;
 
@@ -24,10 +31,10 @@ impl Default for ProcessStaticCheck {
 }
 
 impl StaticCheckRunner for ProcessStaticCheck {
-    fn run(&self, root: &str, name: &str, slot: ReportSlot) -> BoxToolFuture {
+    fn run(&self, root: &str, name: &str, slot: ReportSlot, cancel: CancelFlag) -> BoxToolFuture {
         let root = root.to_owned();
         let name = name.to_owned();
-        Box::pin(async move { execute(&root, &name, slot).await })
+        Box::pin(async move { execute(&root, &name, slot, cancel).await })
     }
 }
 
@@ -35,7 +42,12 @@ impl StaticCheckRunner for ProcessStaticCheck {
 /// 退出码映射 → 单一 `.log` 输出记录。报告目录 / 输出记录按槽位经 layout 单点
 /// 派生（`report_dir` 三分支均回填——无配置分支语义为「本槽位报告树锚点」）；
 /// 执行语义零分叉。
-async fn execute(root: &str, name: &str, slot: ReportSlot) -> Result<ToolStepOutput, String> {
+async fn execute(
+    root: &str,
+    name: &str,
+    slot: ReportSlot,
+    cancel: CancelFlag,
+) -> Result<ToolStepOutput, String> {
     let report_dir = foundation::layout::change_reports(Path::new(root), name, slot)
         .to_string_lossy()
         .into_owned();
@@ -60,26 +72,38 @@ async fn execute(root: &str, name: &str, slot: ReportSlot) -> Result<ToolStepOut
     // 缺失吞成非零退出码——passed=false 反馈边空转烧预算，spawn 前先解析）
     ensure_program_resolvable(root, &command)?;
 
-    let mut command = exec::SystemCommand::script(&format!("{command} 2>&1")).into_tokio();
-    // 仅 stdout 走管道：`2>&1` 已把 stderr 并入同一管道（两 fd 指向同一写端，
-    // 写入顺序即真实顺序——`diagnostics` / record 同流逐字还原终端）
-    command
-        .current_dir(root)
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped());
-    let output = command
-        .output()
-        .await
-        .map_err(|error| format!("static-check 命令拉起失败: {error}"))?;
+    // 命令内 `2>&1` 保留：两 fd 指向同一写端，交错序在 OS 层合并、`stderr` 恒空
+    //——`diagnostics` / record 单流逐字还原终端（执行体只给两路原始字节，不合流）
+    let run = exec::run_shell(
+        exec::SystemCommand::script(&format!("{command} 2>&1")),
+        exec::RunOptions {
+            cwd: Some(Path::new(root).to_path_buf()),
+            env: Vec::new(),
+            timeout: STATIC_CHECK_TIMEOUT,
+            cancel,
+        },
+    )
+    .await
+    .map_err(|failure| format!("static-check 命令{failure}"))?;
+    let run = match run.outcome {
+        exec::RunOutcome::Completed => run,
+        exec::RunOutcome::Cancelled => return Err("执行已取消".to_owned()),
+        exec::RunOutcome::TimedOut => {
+            return Err(format!(
+                "static-check 命令超时（{} 秒）强制终止",
+                STATIC_CHECK_TIMEOUT.as_secs()
+            ))
+        }
+    };
 
-    // 诊断捕获：交错 stdout 原样（`output.stderr` 恒空——2>&1 已在 OS 层合并）；
-    // 插件把合并输出打 stderr、信封承载同文——此处诊断直接进产出，walker 反馈边
-    // 定向注入
-    let diagnostics = String::from_utf8_lossy(&output.stdout).into_owned();
-    let passed = output.status.success();
+    // 诊断捕获：交错 stdout 原样（`run.stderr` 恒空且不读——2>&1 已在 OS 层
+    // 合并）；插件把合并输出打 stderr、信封承载同文——此处诊断直接进产出，walker
+    // 反馈边定向注入
+    let diagnostics = String::from_utf8_lossy(&run.stdout).into_owned();
+    let passed = run.exit_code == 0;
     // 输出记录：默认 recorded——经 infra/exec 单点落单一 `.log`（同锚本槽位报告
     // 树）并回填引用（落盘失败降级 None，不因记录失败阻断检查主流程）
-    let output_ref = exec::record_exec_output(Path::new(root), name, slot, &output.stdout).ok();
+    let output_ref = exec::record_exec_output(Path::new(root), name, slot, &run.stdout).ok();
     Ok(ToolStepOutput::StaticCheck(StaticCheckOutcome {
         passed,
         diagnostics: diagnostics.trim_end().to_owned(),

@@ -39,6 +39,7 @@ use workflow::state::{
 use workflow::write::SessionAnchors;
 
 use super::report::to_posix;
+use super::SegmentFailure;
 use super::{
     bucket_suites, framework_name, mutation_tool, normalize_root, skip_outcome, ProcessMutation,
     EST_MUTANTS_PER_FILE, MUTATION_JOBS_DIVISOR, PER_MUTANT_TIMEOUT_SECS, SEGMENT_BUDGET_MS,
@@ -142,9 +143,18 @@ impl SpawnWindow {
     pub(super) fn install_npx(&self) {
         #[cfg(windows)]
         {
+            // 自旋壳（记录自身 winpid 后恒活）——无内建 pid 变量的 cmd 面经
+            // PowerShell 承接 winpid 落盘；`taskkill /T /F` 整树击杀后该 pid 消失。
+            // 壳路径**绝对内联**（`%~dp0` 在 PATH 解析的裸名调用下退化为 cwd，
+            // 不能用于定位同目录兄弟件）
+            let spin = self.shim.path().join("npx-spin.ps1");
+            if !spin.is_file() {
+                fs::write(&spin, NPX_SPIN_PS1).expect("写假 npx 自旋壳");
+            }
             let target = self.shim.path().join("npx.cmd");
+            let body = NPX_CMD.replace("{spin_script}", &spin.display().to_string());
             if !target.is_file() {
-                fs::write(&target, NPX_CMD).expect("写假 npx.cmd");
+                fs::write(&target, body).expect("写假 npx.cmd");
             }
         }
         #[cfg(not(windows))]
@@ -162,6 +172,15 @@ impl SpawnWindow {
         let path = self.shim.path().join("fake-out.txt");
         fs::write(&path, body).expect("写 canned 输出");
         std::env::set_var("FAKE_SPAWN_OUT_SRC", &path);
+        path
+    }
+
+    /// canned stderr 面（双管道大块并发用例的 stderr 源——stdout 面经
+    /// [`Self::set_out`]，两路各由假执行体独立写出；未设 = stderr 零字节）。
+    pub(super) fn set_err(&self, body: &str) -> PathBuf {
+        let path = self.shim.path().join("fake-err.txt");
+        fs::write(&path, body).expect("写 canned stderr 输出");
+        std::env::set_var("FAKE_SPAWN_ERR_SRC", &path);
         path
     }
 
@@ -185,6 +204,12 @@ impl SpawnWindow {
     /// 可编程超时：记录后自旋挂起（段 spawn 硬超时经虚拟时钟推进触发）。
     pub(super) fn set_sleep(&self, seconds: u64) {
         std::env::set_var("FAKE_SPAWN_SLEEP", seconds.to_string());
+    }
+
+    /// 可编程 pid 落位（假执行体记录自身 winpid——被杀后 pid 回收断言原料；
+    /// 与取消 / 超时臂的「进程确已建立」握手面同源）。
+    pub(super) fn set_pidfile(&self, path: &Path) {
+        std::env::set_var("FAKE_SPAWN_PIDFILE", path);
     }
 
     /// 可编程段报告写出路径（Stryker jsonReporter 直写段报告面模拟）。
@@ -260,11 +285,13 @@ impl Drop for SpawnWindow {
         for key in [
             "FAKE_SPAWN_LOG",
             "FAKE_SPAWN_OUT_SRC",
+            "FAKE_SPAWN_ERR_SRC",
             "FAKE_SPAWN_OUT_ALT",
             "FAKE_SPAWN_ARG_MATCH",
             "FAKE_SPAWN_EXIT",
             "FAKE_SPAWN_EXIT_ALT",
             "FAKE_SPAWN_SLEEP",
+            "FAKE_SPAWN_PIDFILE",
             "FAKE_SPAWN_REPORT",
             "FAKE_SPAWN_CARGO_OUTCOMES",
             "FAKE_SPAWN_CARGO_OUTCOMES_ALT",
@@ -272,6 +299,63 @@ impl Drop for SpawnWindow {
             std::env::remove_var(key);
         }
     }
+}
+
+/// 假执行体落盘的 pid（winpid 口径——`tasklist` / `kill -0` 可探测）。
+pub(super) fn read_pid(path: &Path) -> Option<u32> {
+    fs::read_to_string(path)
+        .ok()
+        .and_then(|text| text.trim().parse().ok())
+}
+
+/// 等假执行体落 pid（真实时钟握手：虚拟时钟下进程启动不受影响，等待以真实
+/// 睡眠 + 让出表达）。
+pub(super) async fn wait_pid(path: &Path, budget: std::time::Duration) -> u32 {
+    let deadline = std::time::Instant::now() + budget;
+    loop {
+        if let Some(pid) = read_pid(path) {
+            return pid;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "等待假执行体落 pid 超时（{budget:?}）"
+        );
+        tokio::task::yield_now().await;
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+}
+
+/// pid 存活探测（Windows `tasklist`、unix `kill -0`）。
+#[cfg(windows)]
+fn pid_alive(pid: u32) -> bool {
+    let output = std::process::Command::new("tasklist")
+        .args(["/FI", &format!("PID eq {pid}"), "/NH", "/FO", "CSV"])
+        .output();
+    match output {
+        Ok(output) => String::from_utf8_lossy(&output.stdout).contains(&pid.to_string()),
+        Err(_) => false,
+    }
+}
+
+#[cfg(not(windows))]
+fn pid_alive(pid: u32) -> bool {
+    std::process::Command::new("kill")
+        .args(["-0", &pid.to_string()])
+        .status()
+        .map(|status| status.success())
+        .unwrap_or(false)
+}
+
+/// 等待 pid 消失（杀树是尽力语义 + 平台回收时延，轮询到上界即判定仍存活）。
+pub(super) fn wait_pid_gone(pid: u32, budget: std::time::Duration) -> bool {
+    let deadline = std::time::Instant::now() + budget;
+    while std::time::Instant::now() < deadline {
+        if !pid_alive(pid) {
+            return true;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+    !pid_alive(pid)
 }
 
 /// msys coreutils 目录（Git for Windows `usr/bin`——`cp` / `mkdir` 等 POSIX
@@ -358,6 +442,10 @@ const MUTANTS_SCRIPT: &str = r#"#!/bin/sh
   fi
   printf 'env|CARGO_TARGET_DIR=%s\n' "${CARGO_TARGET_DIR:-<unset>}"
 } >> "${FAKE_SPAWN_LOG:?}"
+if [ -n "${FAKE_SPAWN_PIDFILE:-}" ]; then
+  fake_winpid=$(cat "/proc/$$/winpid" 2>/dev/null || printf '%s' "$$")
+  printf '%s' "$fake_winpid" > "$FAKE_SPAWN_PIDFILE"
+fi
 if [ -n "${FAKE_SPAWN_SLEEP:-}" ]; then
   while :; do :; done
 fi
@@ -382,6 +470,11 @@ if [ -n "$fake_out" ] && [ -f "$fake_out" ]; then
       printf '%s\n' "$fake_line"
     done < "$fake_out" > "$FAKE_SPAWN_REPORT"
   fi
+fi
+if [ -n "${FAKE_SPAWN_ERR_SRC:-}" ] && [ -f "$FAKE_SPAWN_ERR_SRC" ]; then
+  while IFS= read -r fake_line || [ -n "$fake_line" ]; do
+    printf '%s\n' "$fake_line" >&2
+  done < "$FAKE_SPAWN_ERR_SRC"
 fi
 fake_cargo_outcomes=${FAKE_SPAWN_CARGO_OUTCOMES:-}
 if [ -n "$fake_matched" ]; then
@@ -416,6 +509,10 @@ const UNIX_NPX_SHIM: &str = r#"#!/bin/sh
     printf 'cwd|%s\n' "$(pwd)"
   fi
 } >> "${FAKE_SPAWN_LOG:?}"
+if [ -n "${FAKE_SPAWN_PIDFILE:-}" ]; then
+  fake_winpid=$(cat "/proc/$$/winpid" 2>/dev/null || printf '%s' "$$")
+  printf '%s' "$fake_winpid" > "$FAKE_SPAWN_PIDFILE"
+fi
 if [ -n "${FAKE_SPAWN_SLEEP:-}" ]; then
   while :; do :; done
 fi
@@ -430,6 +527,11 @@ if [ -n "$fake_out" ] && [ -f "$fake_out" ]; then
       printf '%s\n' "$fake_line"
     done < "$fake_out" > "$FAKE_SPAWN_REPORT"
   fi
+fi
+if [ -n "${FAKE_SPAWN_ERR_SRC:-}" ] && [ -f "$FAKE_SPAWN_ERR_SRC" ]; then
+  while IFS= read -r fake_line || [ -n "$fake_line" ]; do
+    printf '%s\n' "$fake_line" >&2
+  done < "$FAKE_SPAWN_ERR_SRC"
 fi
 exit "$fake_exit"
 "#;
@@ -453,12 +555,21 @@ const NPX_CMD: &str = concat!(
     ">>\"%FAKE_SPAWN_LOG%\" echo(cwd^|!CD!\r\n",
     "if defined FAKE_SPAWN_SLEEP goto spin\r\n",
     "if defined FAKE_SPAWN_OUT_SRC type \"!FAKE_SPAWN_OUT_SRC!\"\r\n",
+    "if defined FAKE_SPAWN_ERR_SRC type \"!FAKE_SPAWN_ERR_SRC!\" 1>&2\r\n",
     "if defined FAKE_SPAWN_REPORT if defined FAKE_SPAWN_OUT_SRC copy /y \"!FAKE_SPAWN_OUT_SRC!\" \"!FAKE_SPAWN_REPORT!\" >nul\r\n",
     "if defined FAKE_SPAWN_EXIT exit /b !FAKE_SPAWN_EXIT!\r\n",
     "exit /b 0\r\n",
     ":spin\r\n",
+    "if defined FAKE_SPAWN_PIDFILE powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File \"{spin_script}\"\r\n",
     "goto spin\r\n",
 );
+
+/// Windows 假 `npx.cmd` 的自旋壳（记录自身 winpid 后恒活）：cmd 无内建 pid
+/// 变量，winpid 经 PowerShell 落盘——`taskkill /T /F` 整树击杀后该 pid 必消失
+///（进程树回收的可稳定观测面）。
+#[cfg(windows)]
+const NPX_SPIN_PS1: &str =
+    "if ($env:FAKE_SPAWN_PIDFILE) { Set-Content -Path $env:FAKE_SPAWN_PIDFILE -Value $PID -NoNewline -Encoding ascii }\nwhile ($true) { Start-Sleep -Milliseconds 100 }\n";
 
 // ---------------------------------------------------------------------------
 // canned 面与 config fixture
@@ -599,6 +710,7 @@ async fn run(ws: &ChainWs, files: &[String]) -> Result<ToolStepOutput, String> {
             ws.change,
             files,
             "diff --git a/app/src/lib.rs b/app/src/lib.rs\n",
+            foundation::cancel::CancelFlag::never(),
         )
         .await
 }
@@ -770,7 +882,13 @@ async fn 跳过面_no_executor_无执行器框架记evidence不err() {
     let runner = ProcessMutation::new();
     let files = vec!["app/src/add.test.mjs".to_owned()];
     let output = runner
-        .run(&root.to_string_lossy(), "demo-change", &files, "patch")
+        .run(
+            &root.to_string_lossy(),
+            "demo-change",
+            &files,
+            "patch",
+            foundation::cancel::CancelFlag::never(),
+        )
         .await
         .expect("NoExecutor 面恒 Ok");
     let outcome = outcome_of(output);
@@ -810,7 +928,13 @@ async fn 显式err面_写盘失败停给用户() {
     let runner = ProcessMutation::new();
     let files = vec!["app/src/lib.rs".to_owned()];
     let error = runner
-        .run(&root.to_string_lossy(), "demo-change", &files, "patch")
+        .run(
+            &root.to_string_lossy(),
+            "demo-change",
+            &files,
+            "patch",
+            foundation::cancel::CancelFlag::never(),
+        )
         .await
         .expect_err("写盘失败应显式 Err");
     assert!(
@@ -1327,14 +1451,26 @@ impl ChangeStateStore for FakeStore {
 struct UnusedSeamRunner;
 
 impl StaticCheckRunner for UnusedSeamRunner {
-    fn run(&self, _root: &str, _name: &str, _slot: foundation::layout::ReportSlot) -> BoxToolFuture {
+    fn run(
+        &self,
+        _root: &str,
+        _name: &str,
+        _slot: foundation::layout::ReportSlot,
+        _cancel: foundation::cancel::CancelFlag,
+    ) -> BoxToolFuture {
         let error = "组合根链路不触静态检查缝".to_owned();
         Box::pin(async move { Err::<ToolStepOutput, String>(error) })
     }
 }
 
 impl TestExecutionRunner for UnusedSeamRunner {
-    fn run(&self, _root: &str, _name: &str, _slot: foundation::layout::ReportSlot) -> BoxToolFuture {
+    fn run(
+        &self,
+        _root: &str,
+        _name: &str,
+        _slot: foundation::layout::ReportSlot,
+        _cancel: foundation::cancel::CancelFlag,
+    ) -> BoxToolFuture {
         let error = "组合根链路不触测试执行缝".to_owned();
         Box::pin(async move { Err::<ToolStepOutput, String>(error) })
     }
@@ -1368,6 +1504,7 @@ async fn 组合根链路_localtoolsteps_vcs假件_processmutation假spawn() {
     let output = steps
         .run(ToolStepRequest {
             root: ws.root_str(),
+            cancel: foundation::cancel::CancelFlag::never(),
             command: ToolCommand::MutationTest {
                 change_id: COMBO_CHANGE_ID.to_owned(),
             },
@@ -1923,5 +2060,432 @@ async fn 成功全段_临时产物照清() {
     assert!(
         mutation_dir.join("mutation.json").is_file(),
         "归并报告工件原样在位"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// 取消面（test-design「mutation/mod.rs -> mod_test.rs」节，AC-7 / D13）：
+// `SegmentFailure::Cancelled` 第三变体（`Display` 三臂同型）+ 取消 → 段中断 →
+// `conclusion = Error` + 「突变执行已取消」反馈文案（非 Fatal，不呈现为环境
+// 损坏），与 `Interrupted` 既有文案互不混用。
+// ---------------------------------------------------------------------------
+
+/// 经 `MutationRunner` trait 面带取消信号驱动（生产装配同路径，仅 flag 不同）。
+async fn run_with_cancel(
+    ws: &ChainWs,
+    files: &[String],
+    cancel: foundation::cancel::CancelFlag,
+) -> Result<ToolStepOutput, String> {
+    let runner = ProcessMutation::new();
+    runner
+        .run(
+            &ws.root_str(),
+            ws.change,
+            files,
+            "diff --git a/app/src/lib.rs b/app/src/lib.rs\n",
+            cancel,
+        )
+        .await
+}
+
+/// 正向（D13，遍历枚举 3 变体）：`SegmentFailure::Display` 三臂同型——逐个
+/// `to_string()` 等于载荷串（单串同型，无变体前缀）。
+#[test]
+fn segment_failure_display三臂同型() {
+    let cases = [
+        SegmentFailure::Fatal("a".to_owned()),
+        SegmentFailure::Interrupted("b".to_owned()),
+        SegmentFailure::Cancelled("c".to_owned()),
+    ];
+    for failure in cases {
+        let expected = match &failure {
+            SegmentFailure::Fatal(message)
+            | SegmentFailure::Interrupted(message)
+            | SegmentFailure::Cancelled(message) => message.clone(),
+        };
+        assert_eq!(
+            failure.to_string(),
+            expected,
+            "Display 只呈现载荷串（无变体前缀，三臂同型）"
+        );
+    }
+    // 空载荷边界：三臂一致地呈现空串（无 panic / 无占位改写）
+    assert_eq!(SegmentFailure::Cancelled(String::new()).to_string(), "");
+}
+
+/// 正向（AC-7 组合）：取消 → `conclusion = Error` + 取消文案——自旋假 spawn
+/// 运行中置位 → `feedback_text` 含「突变执行已取消：」与「已产报告路径：」
+///（非 Fatal，不呈现为环境损坏）；段报告 / summary 面不落位（中断不回填）。
+#[tokio::test]
+async fn 取消_conclusion_error且文案为突变执行已取消() {
+    let window = SpawnWindow::enter("cancel-run");
+    let ws = ChainWs::with_config("cancel-run", RUST_APP_CONFIG).with_summary();
+    window.install_fake_cargo(&ws.root.join("app"));
+    window.set_sleep(1); // 记录后自旋挂起（段执行体恒活）
+
+    let files = vec!["app/src/lib.rs".to_owned()];
+    let cancel = foundation::cancel::CancelFlag::never();
+    let handle = cancel.handle();
+    let runner_task = tokio::spawn(async move {
+        let ws_root = ws.root_str();
+        let ws_change = ws.change;
+        let _keep = &ws;
+        ProcessMutation::new()
+            .run(
+                &ws_root,
+                ws_change,
+                &files,
+                "diff --git a/app/src/lib.rs b/app/src/lib.rs\n",
+                cancel,
+            )
+            .await
+    });
+
+    // 等假 spawn 记录出现（运行中窗口）后置位取消
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+    while window.records().is_empty() {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "等待假 spawn 记录超时（20s）"
+        );
+        tokio::task::yield_now().await;
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    handle.set();
+
+    let output = runner_task
+        .await
+        .expect("run 任务应正常结束")
+        .expect("取消面产 Ok 载荷（非 Err）");
+    let outcome = outcome_of(output);
+    assert_eq!(
+        outcome.conclusion,
+        MutationTestConclusion::Error,
+        "取消 → conclusion = Error（过渡语义，非 Fatal Err 面）"
+    );
+    assert_eq!(outcome.skip, None, "取消面非跳过");
+    let feedback = &outcome.feedback_text;
+    assert!(
+        feedback.contains("突变执行已取消："),
+        "取消文案在案（与 Interrupted 的「突变执行中断」互不混用）: {feedback}"
+    );
+    assert!(
+        !feedback.contains("突变执行中断"),
+        "不混用中断文案: {feedback}"
+    );
+    assert!(
+        feedback.contains("已产报告路径："),
+        "反馈携已产报告路径清单: {feedback}"
+    );
+}
+
+/// 边界（D4 入口短路）：已置位 cancel 再 `run` → 首段即 `Cancelled`、假 spawn
+/// 零记录（入口短路不 spawn）、段串行 break（后续桶不执行）。
+#[tokio::test]
+async fn 已置位cancel_入口短路零spawn且首段收敛() {
+    let window = SpawnWindow::enter("cancel-pre");
+    let ws = ChainWs::with_config("cancel-pre", TWO_RUST_CONFIG);
+    window.install_fake_cargo(&ws.root.join("app"));
+    window.install_fake_cargo(&ws.root.join("src-tauri"));
+
+    let files = vec![
+        "app/src/lib.rs".to_owned(),
+        "src-tauri/src/main.rs".to_owned(),
+    ];
+    let cancel = foundation::cancel::CancelFlag::never();
+    cancel.handle().set();
+    let output = run_with_cancel(&ws, &files, cancel)
+        .await
+        .expect("取消面产 Ok 载荷");
+    let outcome = outcome_of(output);
+
+    assert_eq!(outcome.conclusion, MutationTestConclusion::Error);
+    assert!(
+        outcome.feedback_text.contains("突变执行已取消："),
+        "首段即取消: {}",
+        outcome.feedback_text
+    );
+    assert!(
+        window.records().is_empty(),
+        "入口短路零 spawn（取消不拉起进程）"
+    );
+    assert!(
+        !outcome.feedback_text.contains("突变执行中断"),
+        "取消不混用中断文案"
+    );
+}
+
+/// 边界：跳过面顺序零改——`EmptyDiff` 先于取消判定返回 `skip`（取消已置位也
+/// 不影响空 diff 的跳过语义）。
+#[tokio::test]
+async fn 已置位cancel但空diff仍先返回skip() {
+    let _window = SpawnWindow::enter("cancel-skip");
+    let ws = ChainWs::with_config("cancel-skip", RUST_APP_CONFIG);
+
+    let cancel = foundation::cancel::CancelFlag::never();
+    cancel.handle().set();
+    let output = run_with_cancel(&ws, &[], cancel)
+        .await
+        .expect("空清单应 Ok");
+    let outcome = outcome_of(output);
+    assert_eq!(
+        outcome.skip,
+        Some(MutationSkipReason::EmptyDiff),
+        "跳过面先于取消判定（顺序零改）"
+    );
+    assert_eq!(outcome.conclusion, MutationTestConclusion::Pass);
+}
+
+/// 双桶 config（rust app + vitest web——多桶中途取消面：第 1 桶 rust 走段级
+/// 复用门零 spawn，第 2 桶 vitest 走 Stryker 假 spawn 自旋）。
+const RUST_AND_VITEST_CONFIG: &str = r#"{ "tests": [
+  { "root": "app", "framework": "rust", "coverage": { "lines": 80, "branches": 70, "functions": 75 }, "mutation": { "score": 80 } },
+  { "root": "web", "framework": "vitest", "coverage": { "lines": 80, "branches": 70, "functions": 75 }, "mutation": { "score": 80 } }
+] }"#;
+
+/// 双桶中途取消装置：第 1 桶（rust）预置新鲜段报告走复用门（零 spawn），第 2
+/// 桶（vitest）假 `npx` 自旋挂起并落 pid——返回（workspace、pid 落位路径）。
+fn two_bucket_ws(tag: &str) -> (ChainWs, PathBuf) {
+    let ws = ChainWs::with_config(tag, RUST_AND_VITEST_CONFIG).with_summary();
+    let rust_seg_dir = foundation::layout::change_test_reports(&ws.root, ws.change)
+        .join("app_rust")
+        .join("mutation");
+    fs::create_dir_all(&rust_seg_dir).expect("建 rust 突变报告目录");
+    fs::write(rust_seg_dir.join("mutation-seg-0.json"), CARGO_SEG_PASS)
+        .expect("写第 1 桶复用段报告");
+    // 第 2 桶 suite 执行目录（spawn cwd 前置——`current_dir` 施加面）
+    fs::create_dir_all(ws.root.join("web")).expect("建 web suite 执行目录");
+    let pid_file = ws.root.join("npx-pid.txt");
+    (ws, pid_file)
+}
+
+/// 正反向组合锚（AC-7 / D13）：**多桶中途取消**——第 1 桶（rust 复用门）完成
+/// 后置位 → 第 2 桶（Stryker 假 spawn 自旋）观测取消 → 整体 `conclusion =
+/// Error`、反馈文案为「突变执行已取消」（非「突变执行中断」）、第 1 桶报告路径
+/// 在清单内、`summary.json` mutation 位不回填（中断面不落部分结论）+ 第 2 桶
+/// 进程被回收（pid 消失）。
+#[tokio::test]
+async fn 多桶中途取消_第二桶取消且首桶报告路径在案() {
+    let window = SpawnWindow::enter("cancel-multi-bucket");
+    window.install_npx();
+    window.set_sleep(1); // 第 2 桶自旋挂起（第 1 桶零 spawn，不受此键影响）
+    let (ws, pid_file) = two_bucket_ws("cancel-multi-bucket");
+    window.set_pidfile(&pid_file);
+
+    let files = vec!["app/src/lib.rs".to_owned(), "web/src/panel.ts".to_owned()];
+    let cancel = foundation::cancel::CancelFlag::never();
+    let handle = cancel.handle();
+    let ws_root = ws.root_str();
+    let ws_change = ws.change;
+    let runner = tokio::spawn(async move {
+        ProcessMutation::new()
+            .run(
+                &ws_root,
+                ws_change,
+                &files,
+                "diff --git a/app/src/lib.rs b/app/src/lib.rs\n",
+                cancel,
+            )
+            .await
+    });
+
+    // 第 2 桶进程建立（落 pid）后置位——此时第 1 桶（复用门，零 spawn）已完成
+    let pid = wait_pid(&pid_file, std::time::Duration::from_secs(60)).await;
+    handle.set();
+
+    let output = runner
+        .await
+        .expect("run 任务应正常结束")
+        .expect("取消面产 Ok 载荷（非 Err）");
+    let outcome = outcome_of(output);
+    assert_eq!(
+        outcome.conclusion,
+        MutationTestConclusion::Error,
+        "取消 → conclusion = Error（过渡语义，非 Fatal Err 面）"
+    );
+    let feedback = &outcome.feedback_text;
+    assert!(
+        feedback.contains("突变执行已取消："),
+        "取消文案在案（非中断文案）: {feedback}"
+    );
+    assert!(
+        !feedback.contains("突变执行中断"),
+        "取消不混用中断文案: {feedback}"
+    );
+    assert!(
+        feedback.contains("已产报告路径：")
+            && feedback.contains("app_rust")
+            && !feedback.contains("（无）"),
+        "第 1 桶报告路径在清单内（中断不回滚已产报告）: {feedback}"
+    );
+    assert!(
+        wait_pid_gone(pid, std::time::Duration::from_secs(15)),
+        "第 2 桶进程被回收（pid {pid} 消失——kill_tree 生效）"
+    );
+    let summary = read_summary(&ws);
+    assert!(
+        summary["mutation"].is_null(),
+        "中断面不回填 summary mutation 位（部分结论不落位）: {summary}"
+    );
+    assert!(
+        !foundation::layout::change_test_reports(&ws.root, ws.change)
+            .join("web_vitest")
+            .join("mutation")
+            .join("mutation-seg-0.json")
+            .exists(),
+        "取消段零段报告落位（未产出被误读为段完成）"
+    );
+}
+
+/// 边界（D13 逐层下传锚）：**循环内 clone 共享同一原子**——`execute →
+/// run_suite → execute_segment → stryker::run_segment` 四层形参皆经
+/// `cancel.clone()` 下传；置位后链尾执行体（`exec::run_shell`）观测到同一原子并
+/// 杀树。若任一层退化为重新铸造（`never()`），段进程将不受置位影响（pid 存活至
+/// 自旋自然结束、段报告落位）——故 pid 消失 + 零段报告即「同一原子逐层可见」的
+/// 行为面证据。
+#[tokio::test]
+async fn 循环内clone共享原子_置位在链尾执行体可见() {
+    let window = SpawnWindow::enter("cancel-clone-identity");
+    window.install_npx();
+    window.set_sleep(1);
+    let (ws, pid_file) = two_bucket_ws("cancel-clone-identity");
+    window.set_pidfile(&pid_file);
+
+    let files = vec!["app/src/lib.rs".to_owned(), "web/src/panel.ts".to_owned()];
+    let cancel = foundation::cancel::CancelFlag::never();
+    let probe = cancel.clone(); // 置位后仍与链内各层持有者同一原子（身份可观测面）
+    let handle = cancel.handle();
+    let started = std::time::Instant::now();
+    let ws_root = ws.root_str();
+    let ws_change = ws.change;
+    let runner = tokio::spawn(async move {
+        ProcessMutation::new()
+            .run(
+                &ws_root,
+                ws_change,
+                &files,
+                "diff --git a/app/src/lib.rs b/app/src/lib.rs\n",
+                cancel,
+            )
+            .await
+    });
+
+    let pid = wait_pid(&pid_file, std::time::Duration::from_secs(60)).await;
+    handle.set();
+
+    let output = runner
+        .await
+        .expect("run 任务应正常结束")
+        .expect("取消面产 Ok 载荷");
+    let elapsed = started.elapsed();
+    let outcome = outcome_of(output);
+
+    assert_eq!(outcome.conclusion, MutationTestConclusion::Error);
+    assert!(probe.is_set(), "置位对外部 clone 可见（同一原子）");
+    assert!(
+        elapsed < std::time::Duration::from_secs(30),
+        "秒级收敛（不等段自旋自然结束，实际 {elapsed:?}）"
+    );
+    assert!(
+        wait_pid_gone(pid, std::time::Duration::from_secs(15)),
+        "链尾执行体观测到置位并杀树（pid {pid} 消失——任一层重新铸造则不会消失）"
+    );
+}
+
+/// 正向（D13 保留纪律）：**取消后 Stryker 临时面保留**——Stryker 桶段取消 →
+/// 反馈面的保留产物段（`retained_artifacts_section`）附保留路径，且 `_stryker-tmp`
+/// 与临时 config 在盘（与 `Interrupted` / `Fatal` 保留纪律同型：取消不清理失败桶
+/// 临时面，供单段复现）。
+#[tokio::test]
+async fn 取消后stryker临时面保留_保留段与路径在案() {
+    let window = SpawnWindow::enter("cancel-retain");
+    let ws = ChainWs::with_config("cancel-retain", VITEST_CONFIG).with_summary();
+    window.install_npx();
+    fs::create_dir_all(ws.root.join("app")).expect("建 suite 执行目录");
+    window.set_sleep(1); // 记录后自旋挂起（段执行体恒活，运行中窗口可置位）
+    let pid_file = ws.root.join("npx-cancel-retain-pid.txt");
+    window.set_pidfile(&pid_file);
+    // 预置 sandbox 目录（真 Stryker 建置面模拟——保留断言原料在盘）
+    let mutation_dir = foundation::layout::change_test_reports(&ws.root, ws.change)
+        .join("app_vitest")
+        .join("mutation");
+    fs::create_dir_all(mutation_dir.join("_stryker-tmp").join("sandbox-x")).expect("预置 sandbox");
+
+    let files = vec!["app/src/a.ts".to_owned()];
+    let cancel = foundation::cancel::CancelFlag::never();
+    let handle = cancel.handle();
+    let started = std::time::Instant::now();
+    let ws_root = ws.root_str();
+    let ws_change = ws.change;
+    let runner = tokio::spawn(async move {
+        ProcessMutation::new()
+            .run(
+                &ws_root,
+                ws_change,
+                &files,
+                "diff --git a/app/src/a.ts b/app/src/a.ts\n",
+                cancel,
+            )
+            .await
+    });
+
+    // 段进程建立（落 pid）后置位——取消发生在段执行体运行中
+    let pid = wait_pid(&pid_file, std::time::Duration::from_secs(60)).await;
+    handle.set();
+
+    let output = runner
+        .await
+        .expect("run 任务应正常结束")
+        .expect("取消面产 Ok 载荷（非 Err）");
+    let outcome = outcome_of(output);
+    assert_eq!(
+        outcome.conclusion,
+        MutationTestConclusion::Error,
+        "取消 → conclusion = Error（非 Fatal Err 面）"
+    );
+
+    // 临时面在盘（保留纪律：取消不清理失败桶临时 config 与 sandbox）
+    let config_path = mutation_dir.join("mutation-stryker-seg-0.conf.json");
+    assert!(
+        config_path.is_file(),
+        "取消段临时 config 在盘: {}",
+        to_posix(&config_path)
+    );
+    assert!(
+        mutation_dir.join("_stryker-tmp").is_dir(),
+        "取消桶 sandbox `_stryker-tmp` 在盘: {}",
+        to_posix(&mutation_dir)
+    );
+
+    // 反馈面：取消文案 + 保留产物段（保留路径与在盘项逐字一致）
+    let feedback = &outcome.feedback_text;
+    assert!(
+        feedback.contains("突变执行已取消："),
+        "取消头行文案: {feedback}"
+    );
+    assert!(
+        feedback.contains("保留的失败段调试产物"),
+        "保留产物段在案（retained_artifacts_section 非空）: {feedback}"
+    );
+    assert!(
+        feedback.contains(&to_posix(&mutation_dir.join("_stryker-tmp"))),
+        "保留清单附 sandbox 路径: {feedback}"
+    );
+    assert!(
+        feedback.contains(&to_posix(&config_path)),
+        "保留清单附临时 config 路径: {feedback}"
+    );
+    assert!(
+        !feedback.contains("突变执行中断"),
+        "取消不混用中断文案: {feedback}"
+    );
+    assert!(
+        wait_pid_gone(pid, std::time::Duration::from_secs(15)),
+        "取消强杀后段进程 pid {pid} 应消失（kill_tree 生效）"
+    );
+    assert!(
+        started.elapsed() < std::time::Duration::from_secs(30),
+        "秒级收敛（不等段自旋自然结束，实际 {:?}）",
+        started.elapsed()
     );
 }

@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
+use foundation::cancel::CancelFlag;
 use tokio::sync::{broadcast, oneshot, watch};
 
 use crate::state::{
@@ -37,6 +38,9 @@ struct RunEntry {
     /// 递增新实例——节点稳定身份键的分配单点）
     instances: HashMap<(String, u32, ChangeStepKind), u32>,
     cancel: watch::Sender<bool>,
+    /// 进程面取消标志（与 `cancel` watch 同道：watch 供停等 / 应答等待的异步观测，
+    /// 本标志供执行体 `exec::run_shell` 轮询；无订阅者也不丢位）
+    cancel_flag: CancelFlag,
     /// 当前 WorkerAgent 会话 id 槽（停止寻址经既有 StopRegistry）
     session: Mutex<Option<String>>,
     confirm_tx: Mutex<Option<oneshot::Sender<(bool, bool)>>>,
@@ -91,6 +95,9 @@ impl ChangeFlowControl {
                 edges: Vec::new(),
                 instances: HashMap::new(),
                 cancel,
+                // 进程面取消标志（恒 false 起步；`request_stop` 置位，run 除名后
+                // 标志随 Arc 存活至最后一个持有者释放——在跑的 runner 仍能读到）
+                cancel_flag: CancelFlag::never(),
                 session: Mutex::new(None),
                 confirm_tx: Mutex::new(None),
                 answer_tx: Mutex::new(None),
@@ -115,13 +122,20 @@ impl ChangeFlowControl {
     }
 
     /// 置 cancel 标志（停止不必先应答停等）；miss（无运行 run）幂等返回
-    /// false。`send_replace` 直写 watch 槽位——无订阅者时置位不丢（`send`
-    /// 在无 receiver 时是 no-op，迟滞订阅会读不到停止信号）。
+    /// false。**双写**：
+    /// - `send_replace` 直写 watch 槽位——无订阅者时置位不丢（`send` 在无
+    ///   receiver 时是 no-op，迟滞订阅会读不到停止信号）；停等 / 应答等待的
+    ///   异步观测面语义不变；
+    /// - `cancel_flag.handle().set()` 置进程面标志（执行体 200 ms 轮询观测，
+    ///   使运行中的检查域 spawn 可被杀树收敛）。
+    ///
+    /// 两次写均幂等（同刻连续停止不报错、不丢位）。
     pub fn request_stop(&self, root: &str, change_id: &str) -> bool {
         let runs = self.runs.lock().expect("run 注册表锁不可中毒");
         match runs.get(&(root.to_owned(), change_id.to_owned())) {
             Some(entry) => {
                 entry.cancel.send_replace(true);
+                entry.cancel_flag.handle().set();
                 true
             }
             None => false,
@@ -357,6 +371,20 @@ impl RunGuard {
         self.cancel_rx()
             .map(|mut rx| *rx.borrow_and_update())
             .unwrap_or(false)
+    }
+
+    /// 进程面取消标志读取（克隆共享同一底层原子——供 `run_tool` 单点填充
+    /// `ToolStepRequest.cancel`，执行体以 200 ms 轮询观测）。run 已除名（终态
+    /// 收口后）回落 [`CancelFlag::never`]——与 `nodes()` / `edges()` /
+    /// `cancelled()` 的「除名即空路径」纪律同型，不 panic 不 `Err`。
+    pub fn cancel_flag(&self) -> CancelFlag {
+        self.control
+            .runs
+            .lock()
+            .expect("run 注册表锁不可中毒")
+            .get(&self.key)
+            .map(|entry| entry.cancel_flag.clone())
+            .unwrap_or_else(CancelFlag::never)
     }
 
     /// 终态收口：`Finished` 广播（快照面随 publish 落终值）+ 除名。消费

@@ -17,6 +17,7 @@ use checks::model::{
 };
 use checks::{check_integrity, diagnose_findings, is_reusable};
 use config::TestSuite;
+use foundation::cancel::CancelFlag;
 use foundation::layout::ReportSlot;
 use orchestration::port::{
     BoxToolFuture, TestExecutionConclusion, TestExecutionOutcome, TestExecutionRunner,
@@ -66,17 +67,28 @@ impl Default for ProcessTestExecution {
 }
 
 impl TestExecutionRunner for ProcessTestExecution {
-    fn run(&self, root: &str, change: &str, slot: ReportSlot) -> BoxToolFuture {
+    fn run(
+        &self,
+        root: &str,
+        change: &str,
+        slot: ReportSlot,
+        cancel: CancelFlag,
+    ) -> BoxToolFuture {
         let root = root.to_owned();
         let change = change.to_owned();
-        Box::pin(async move { execute(&root, &change, slot).await })
+        Box::pin(async move { execute(&root, &change, slot, cancel).await })
     }
 }
 
 /// 一次 test-execution 执行全链。报告目录按槽位经 layout 单点派生（复用门
 /// `read_existing_summary` / `load_disk_sub_reports` / `prune_roots` 消费本槽位
 /// dir——跨树零复用与 baseline 树内 mtime 复用天然成立，判定逻辑零改动）。
-async fn execute(root: &str, change: &str, slot: ReportSlot) -> Result<ToolStepOutput, String> {
+async fn execute(
+    root: &str,
+    change: &str,
+    slot: ReportSlot,
+    cancel: CancelFlag,
+) -> Result<ToolStepOutput, String> {
     let started_at = OffsetDateTime::now_utc();
     let root_path = Path::new(root);
     let report = config::load(root_path);
@@ -119,7 +131,9 @@ async fn execute(root: &str, change: &str, slot: ReportSlot) -> Result<ToolStepO
     let mut sub_reports = Vec::new();
     let mut merged_output: Vec<u8> = Vec::new();
     for plan in &plans {
-        let execution = runner::execute_plan(plan, &reports_dir.join(&plan.id)).await?;
+        // 逐 plan 多次 spawn：取消标志克隆共享同一原子（段间不失效）
+        let execution =
+            runner::execute_plan(plan, &reports_dir.join(&plan.id), cancel.clone()).await?;
         merged_output.extend_from_slice(&execution.output);
         sub_reports.push(build_sub_report(plan, execution, suites));
     }

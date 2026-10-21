@@ -1,0 +1,2 @@
+JSON report written to C:/Users/wps/.dev-team/worktrees/wps-claude-plugin-7166d8c61feeae705846d569251abee6/exec-run-shell/openspec/changes/exec-run-shell/reports/test/packages_desktop_vite-plus/results.json
+[1m[2mnote:[0m[0m You are running [94m`vp test`[39m as a Vite+ built-in command. If you meant to run the test npm script, use [94m`vpr test`[39m instead.

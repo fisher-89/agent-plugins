@@ -1,16 +1,18 @@
 use std::path::{Path, PathBuf};
-use std::process::Stdio;
 use std::time::{Duration, Instant};
 
 use checks::model::{CoverageMeasured, SourceFileEntry, TestCaseResult};
 use checks::parser::{
     parse_cargo_test, parse_coverage, parse_coverage_measured, parse_spec_report,
 };
+use foundation::cancel::CancelFlag;
 
 use super::detect::{to_posix, TestPlan};
 
-/// suite 命令超时（CLI `runCommand(cmd, cwd, 600000)` 同值）。
-pub(crate) const SUITE_COMMAND_TIMEOUT: Duration = Duration::from_secs(600);
+/// suite 命令超时：rust suite 实测 340–393 s 的约 3 倍余量（原 600 s 仅 1.7 倍
+/// ——热态正常、冷态或多 change 并发即触线；「与 CLI `runCommand(cmd, cwd,
+/// 600000)` 同值」的锚定口径已失效）。代码常量（不进 config schema）。
+pub(crate) const SUITE_COMMAND_TIMEOUT: Duration = Duration::from_secs(1200);
 
 /// 框架版本探测超时（CLI `timeout: 30_000` 同值）。
 pub(crate) const VERSION_DETECT_TIMEOUT: Duration = Duration::from_secs(30);
@@ -51,6 +53,7 @@ pub(crate) struct PlanExecution {
 pub(crate) async fn execute_plan(
     plan: &TestPlan,
     report_dir: &Path,
+    cancel: CancelFlag,
 ) -> Result<PlanExecution, String> {
     let started = Instant::now();
 
@@ -84,53 +87,40 @@ pub(crate) async fn execute_plan(
     // 程序解析前置检查（spawn cwd = suite cwd 的可达性口径）
     ensure_program_resolvable(&plan.cwd, &command)?;
 
-    // spawn + 超时 + 输出捕获（stdout / stderr 并行读防管道填满互锁；
-    // 超时杀子进程收敛 execution_error，不悬挂、不烧反馈边预算）
-    let mut shell = exec::SystemCommand::script_raw(&command).into_tokio();
-    shell
-        .current_dir(&plan.cwd)
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
-    let mut child = shell
-        .spawn()
-        .map_err(|error| format!("测试命令拉起失败: {error}"))?;
-    let mut stdout_pipe = child.stdout.take();
-    let mut stderr_pipe = child.stderr.take();
-    let waited = tokio::time::timeout(SUITE_COMMAND_TIMEOUT, async {
-        let mut stdout_bytes = Vec::new();
-        let mut stderr_bytes = Vec::new();
-        let _ = tokio::join!(
-            read_all(&mut stdout_pipe, &mut stdout_bytes),
-            read_all(&mut stderr_pipe, &mut stderr_bytes),
-        );
-        let status = child.wait().await;
-        (status, stdout_bytes, stderr_bytes)
-    })
-    .await;
-    let (exit_code, exec_error, output) = match waited {
-        Err(_) => {
-            // 超时：终止并收尸（子进程残留不悬挂执行链）；无完整输出可记
-            let _ = child.start_kill();
-            let _ = child.wait().await;
-            (
-                EXIT_CODE_NO_STATUS,
-                Some(format!(
-                    "测试命令超时（{} 秒）强制终止",
-                    SUITE_COMMAND_TIMEOUT.as_secs()
-                )),
-                Vec::new(),
-            )
-        }
-        Ok((Err(error), _, _)) => return Err(format!("测试命令等待失败: {error}")),
-        Ok((Ok(status), stdout_bytes, stderr_bytes)) => {
-            let exit_code = status.code().unwrap_or(EXIT_CODE_NO_STATUS);
+    // 执行体（超时 / 双管道并发排水 / 进程树击杀 / 取消单点驻 exec）；超时收敛
+    // execution_error，不悬挂、不烧反馈边预算
+    let run = exec::run_shell(
+        exec::SystemCommand::script_raw(&command),
+        exec::RunOptions {
+            cwd: Some(plan.cwd.clone()),
+            env: Vec::new(),
+            timeout: SUITE_COMMAND_TIMEOUT,
+            cancel,
+        },
+    )
+    .await
+    .map_err(|failure| format!("测试命令{failure}"))?;
+    let (exit_code, exec_error, output) = match run.outcome {
+        // 取消 → 基础设施失败面（停给用户 / 收敛 run）；MUST NOT 落 plan 级
+        // `execution_error`（那会被当作被测代码问题而产生假失败归因）
+        exec::RunOutcome::Cancelled => return Err("执行已取消".to_owned()),
+        // 超时：无完整输出可记（`exit_code` 走哨兵，summary 记 execution_error）
+        exec::RunOutcome::TimedOut => (
+            EXIT_CODE_NO_STATUS,
+            Some(format!(
+                "测试命令超时（{} 秒）强制终止",
+                SUITE_COMMAND_TIMEOUT.as_secs()
+            )),
+            Vec::new(),
+        ),
+        exec::RunOutcome::Completed => {
+            let exit_code = run.exit_code;
             // 合并流（rust 模板 `cargo llvm-cov --workspace … > "{results_file}"`
             // 仅重定向 stdout——编译错误面留在 stderr）；不加 `2>&1`：手工拼接
             // 只服务 record 回查，结果工件解析仍只读 stdout 面
-            let mut output = stdout_bytes;
-            output.extend_from_slice(&stderr_bytes);
-            let exec_error = if status.success() {
+            let mut output = run.stdout;
+            output.extend_from_slice(&run.stderr);
+            let exec_error = if exit_code == 0 {
                 None
             } else {
                 Some(non_zero_exit_error(exit_code, &output))
@@ -159,14 +149,6 @@ pub(crate) async fn execute_plan(
         error: exec_error.or(parse_error),
         output,
     })
-}
-
-/// 管道读尽（`None` 管道 = 未捕获臂，静默跳过）。
-async fn read_all<R: tokio::io::AsyncRead + Unpin>(pipe: &mut Option<R>, buffer: &mut Vec<u8>) {
-    if let Some(pipe) = pipe.as_mut() {
-        use tokio::io::AsyncReadExt as _;
-        let _ = pipe.read_to_end(buffer).await;
-    }
 }
 
 /// 非零退出错误面：记因退出码并携错误信息 + 输出末尾双段（被测域自身报错

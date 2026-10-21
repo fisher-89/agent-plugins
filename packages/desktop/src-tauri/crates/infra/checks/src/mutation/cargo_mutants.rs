@@ -1,8 +1,9 @@
+use std::ffi::OsString;
 use std::path::Path;
-use std::process::Stdio;
 use std::time::Duration;
 
 use exec::SystemCommand;
+use foundation::cancel::CancelFlag;
 
 use super::{mutation_jobs, SegmentFailure, PER_MUTANT_TIMEOUT_SECS, SEGMENT_SPAWN_TIMEOUT_MS};
 
@@ -23,6 +24,7 @@ const ZERO_MUTANTS_PAYLOAD: &str = r#"{ "caught": 0, "missed": 0, "timeout": 0, 
 pub(crate) async fn run_segment(
     patch_path: &Path,
     exec_dir: &Path,
+    cancel: CancelFlag,
 ) -> Result<String, SegmentFailure> {
     // 段报告落位清场：上一段 / 上次运行的陈旧 outcomes.json MUST NOT 被本段误读
     // （best-effort——目录缺席等失败不阻断，spawn 后报告在位即权威）
@@ -34,50 +36,48 @@ pub(crate) async fn run_segment(
         .arg(mutation_jobs().to_string())
         .args(["--timeout"])
         .arg(PER_MUTANT_TIMEOUT_SECS.to_string());
-    let mut shell = command.into_tokio();
-    shell
-        .current_dir(exec_dir)
-        .env("CARGO_TARGET_DIR", exec_dir.join("target"))
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
-    let mut child = shell.spawn().map_err(|error| {
-        SegmentFailure::Fatal(format!(
-            "cargo mutants 拉起失败（程序不可达？）: {error}；请确认 cargo-mutants 已安装（cargo install cargo-mutants）"
-        ))
-    })?;
-    let mut stdout_pipe = child.stdout.take();
-    let mut stderr_pipe = child.stderr.take();
-    let waited = tokio::time::timeout(Duration::from_millis(SEGMENT_SPAWN_TIMEOUT_MS), async {
-        let mut stdout_bytes = Vec::new();
-        let mut stderr_bytes = Vec::new();
-        let _ = tokio::join!(
-            read_all(&mut stdout_pipe, &mut stdout_bytes),
-            read_all(&mut stderr_pipe, &mut stderr_bytes),
-        );
-        let status = child.wait().await;
-        (status, stdout_bytes, stderr_bytes)
-    })
+    let run = exec::run_shell(
+        command,
+        exec::RunOptions {
+            cwd: Some(exec_dir.to_path_buf()),
+            // 段共享 target dir（增量编译跨段复用，MUST NOT 每段重置）
+            env: vec![(
+                OsString::from("CARGO_TARGET_DIR"),
+                exec_dir.join("target").into_os_string(),
+            )],
+            timeout: Duration::from_millis(SEGMENT_SPAWN_TIMEOUT_MS),
+            cancel,
+        },
+    )
     .await;
-    let (exit_code, output) = match waited {
-        Err(_) => {
-            // 超时：终止并收尸（不悬挂执行链）——段中断即时反馈面（双时点②）
-            let _ = child.start_kill();
-            let _ = child.wait().await;
+    let (exit_code, output) = match run {
+        Err(exec::RunError::Spawn(error)) => {
+            return Err(SegmentFailure::Fatal(format!(
+                "cargo mutants 拉起失败（程序不可达？）: {error}；请确认 cargo-mutants 已安装（cargo install cargo-mutants）"
+            )));
+        }
+        Err(exec::RunError::Wait(error)) => {
+            return Err(SegmentFailure::Fatal(format!(
+                "cargo-mutants 段执行等待失败: {error}"
+            )));
+        }
+        // 超时：整树已杀 + 收尸完成——段中断即时反馈面（双时点②）
+        Ok(report) if report.outcome == exec::RunOutcome::TimedOut => {
             return Err(SegmentFailure::Interrupted(format!(
                 "cargo-mutants 段执行超时（{} 秒）强制终止",
                 SEGMENT_SPAWN_TIMEOUT_MS / 1000
             )));
         }
-        Ok((Err(error), _, _)) => {
-            return Err(SegmentFailure::Fatal(format!(
-                "cargo-mutants 段执行等待失败: {error}"
-            )));
+        // 取消：段中断面（MUST NOT 走 Fatal——不把用户停止呈现为环境损坏）
+        Ok(report) if report.outcome == exec::RunOutcome::Cancelled => {
+            return Err(SegmentFailure::Cancelled(
+                "cargo-mutants 段执行已取消".to_owned(),
+            ));
         }
-        Ok((Ok(status), stdout_bytes, stderr_bytes)) => {
-            let mut output = stdout_bytes;
-            output.extend_from_slice(&stderr_bytes);
-            (status.code().unwrap_or(-1), output)
+        Ok(report) => {
+            let mut output = report.stdout;
+            output.extend_from_slice(&report.stderr);
+            (report.exit_code, output)
         }
     };
 
@@ -101,14 +101,6 @@ pub(crate) async fn run_segment(
 fn segment_failure_message(exit_code: i32, output: &[u8]) -> String {
     let head = format!("cargo-mutants 段执行失败（退出码 {exit_code}，未产出可解析 JSON 段报告）");
     exec::ProcessOutput::new(exit_code, output.to_vec()).failure_message(&head)
-}
-
-/// 管道读尽（`None` 管道 = 未捕获臂，静默跳过）。
-async fn read_all<R: tokio::io::AsyncRead + Unpin>(pipe: &mut Option<R>, buffer: &mut Vec<u8>) {
-    if let Some(pipe) = pipe.as_mut() {
-        use tokio::io::AsyncReadExt as _;
-        let _ = pipe.read_to_end(buffer).await;
-    }
 }
 
 #[cfg(test)]

@@ -276,6 +276,7 @@ async fn 组合链路_真实vcs取数注入fake_runner四参() {
             name: &str,
             files: &[String],
             patch: &str,
+            _cancel: foundation::cancel::CancelFlag,
         ) -> BoxToolFuture {
             self.calls
                 .lock()
@@ -321,7 +322,13 @@ async fn 组合链路_真实vcs取数注入fake_runner四参() {
     };
     let root_str = root.to_string_lossy().into_owned();
     runner
-        .run(&root_str, "demo-change", &files, &patch)
+        .run(
+            &root_str,
+            "demo-change",
+            &files,
+            &patch,
+            foundation::cancel::CancelFlag::never(),
+        )
         .await
         .expect("runner 应可用");
 
