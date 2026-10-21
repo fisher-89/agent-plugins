@@ -19,19 +19,7 @@ const CARGO_OUTCOMES_FILE: &str = "outcomes.json";
 /// 全零计数 → 归并块 valid == 0 → score 100 恒过，空段不拖累 suite 判定）。
 const ZERO_MUTANTS_PAYLOAD: &str = r#"{ "caught": 0, "missed": 0, "timeout": 0, "unviable": 0 }"#;
 
-/// 段执行：`cargo mutants --workspace --in-diff <seg patch> --baseline skip
-/// --jobs <半 CPU> --timeout <PER_MUTANT_TIMEOUT_SECS>` spawn（超时 + 输出捕获，
-/// 段补丁经 argv 传参零 shell 包装）。`--workspace` 必带：suite 根是混合
-/// workspace（根包 + `crates/**` 成员），缺省只扫根包——`crates/**`（业务逻辑
-/// 主场）将永不在突变面内；`--in-diff` 行级过滤把运行面收窄到 diff 交叠突变体。
-/// `CARGO_TARGET_DIR` 锚 suite 执行目录 `target/`——各段共享同一 target dir（增
-/// 量编译跨段复用，MUST NOT 每段重置）。
-///
-/// 段原始报告 = `mutants.out/outcomes.json`（spawn 前清场防陈旧误读；报告在位
-/// 且可解析 → 段完成——工具以非零退出表达未达标等语义不中断，Stryker 报告文件
-/// 面同约定），由调用方写盘。退出 0 且无报告 = diff 与可突变面零交叠
-/// （cargo-mutants 对 EmptyDiff / NoSourceFiles / NoMutants 恒退出 0 且不产报告
-/// ——「无突变体可测」非故障）→ 零突变体段（合成空计数面载荷）。
+/// 段执行
 pub(crate) async fn run_segment(
     patch_path: &Path,
     exec_dir: &Path,

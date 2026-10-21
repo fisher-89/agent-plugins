@@ -132,7 +132,6 @@ fn build_config(segment: &StrykerSegment<'_>, report_path: &Path) -> serde_json:
         .collect();
     let temp_dir = segment.mutation_dir.join(STRYKER_TMP_DIR_NAME);
     let mut config = serde_json::json!({
-        "$schema": "node_modules/@stryker-mutator/core/schema/stryker-schema.json",
         "mutate": mutate,
         "testRunner": runner,
         "plugins": [plugin_package(runner)],

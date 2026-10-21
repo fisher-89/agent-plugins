@@ -1617,7 +1617,7 @@ fn sample_mutation_outcome(conclusion: MutationTestConclusion) -> MutationTestOu
                     .to_owned()
             }
             MutationTestConclusion::Error => {
-                "突变执行中断：cargo-mutants 段执行超时（1800 秒）强制终止\n\
+                "突变执行中断：cargo-mutants 段执行超时（3600 秒）强制终止\n\
                  已产报告路径：\n- mutation/mutation-seg-0.json"
                     .to_owned()
             }

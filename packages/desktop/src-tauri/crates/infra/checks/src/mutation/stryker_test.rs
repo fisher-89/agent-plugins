@@ -1,17 +1,3 @@
-//! `stryker.rs` 的单元测试（test-design「stryker.rs -> stryker_test.rs」
-//! 节）：临时 config 组装（`mutate` = 段清单、`tempDirName` = 共享 sandbox 全段
-//! 同路径、`concurrency` = 半 CPU、`jsonReporter` 直写段报告、runner / 插件包
-//! 映射）+ spawn 模板展开 argv 逐参等值（`npx --prefix <suite cwd> stryker run
-//! <config>`）+ 失败面（非零退出 → 输出捕获 + 中断；超时 → 中断不挂死）+
-//! `ensure_on_path` 前置（E5：不可达显式 Err）+ 清单边界。
-//!
-//! Mock策略（test-design 本节 Mock 表）：子进程 spawn（npx stryker——进程边界）
-//! 经**假 spawn 装置**承载——`mod_test::SpawnWindow`（PATH 前置 `npx` shim +
-//! 记录 argv / cwd + 可编程输出 / 超时自旋挂起 / 非零退出 / ENOENT）；config
-//! 组装 / 模板面为纯函数直驱（StrykerSegment 显式入参）；文件系统经真实
-//! tempdir（清理 / 保留断言真实组合）；`available_parallelism` 不 mock
-//! （concurrency 按真实 CPU 重算关系式）。
-
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
@@ -53,10 +39,6 @@ fn segment<'a>(
     }
 }
 
-/// 正向：config JSON 形态——`mutate` = 段清单逐项（cwd 相对化）、
-/// `tempDirName` = 共享 sandbox（全段共用同一路径——sandbox 建置只发生一
-/// 次）、`concurrency` = 半 CPU 计算值、`jsonReporter.fileName` = 段报告路径、
-/// `disableTypeChecks` / `ignoreStatic` / `reporters` 面在案（AC-5 / D6）。
 #[test]
 fn 临时config组装_共享sandbox与半cpu与json直写() {
     let project = Path::new("/ws/root");
@@ -97,11 +79,7 @@ fn 临时config组装_共享sandbox与半cpu与json直写() {
         serde_json::json!("/ws/root/reports/test/app_vite-plus/mutation/mutation-seg-0.json"),
         "jsonReporter 直写段报告路径"
     );
-    // 固定面：schema / reporters / type checks / ignoreStatic / timeout
-    assert_eq!(
-        config["$schema"],
-        serde_json::json!("node_modules/@stryker-mutator/core/schema/stryker-schema.json")
-    );
+    // 固定面：reporters / type checks / ignoreStatic / timeout
     assert_eq!(config["reporters"], serde_json::json!(["json"]));
     assert_eq!(config["disableTypeChecks"], serde_json::json!(true));
     assert_eq!(config["ignoreStatic"], serde_json::json!(true));
@@ -446,7 +424,7 @@ async fn 超时中断_强制终止不挂死() {
     match result {
         Err(SegmentFailure::Interrupted(message)) => {
             assert!(
-                message.contains("Stryker 段执行超时（1800 秒）强制终止"),
+                message.contains("Stryker 段执行超时（3600 秒）强制终止"),
                 "超时中断文案（双时点②即时反馈面）: {message}"
             );
         }

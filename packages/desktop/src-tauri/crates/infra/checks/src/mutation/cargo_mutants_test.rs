@@ -36,8 +36,8 @@ fn argv模板常量面锚定() {
     assert_eq!(PER_MUTANT_TIMEOUT_SECS, 300, "per-mutant 超时 300 秒");
     assert_eq!(MUTATION_JOBS_DIVISOR, 2, "并发除数 2（半 CPU）");
     assert_eq!(
-        SEGMENT_SPAWN_TIMEOUT_MS, 1_800_000,
-        "段 spawn 硬超时 30 分钟"
+        SEGMENT_SPAWN_TIMEOUT_MS, 3_600_000,
+        "段 spawn 硬超时 60 分钟"
     );
 }
 
@@ -423,7 +423,7 @@ async fn 超时中断_强制终止不挂死() {
     match result {
         Err(SegmentFailure::Interrupted(message)) => {
             assert!(
-                message.contains("cargo-mutants 段执行超时（1800 秒）强制终止"),
+                message.contains("cargo-mutants 段执行超时（3600 秒）强制终止"),
                 "超时中断文案（双时点②即时反馈面）: {message}"
             );
         }

@@ -1,7 +1,10 @@
 dist
 node_modules
 
+# 测试副产物
 mutants.out
+*.profraw
+stryker.config.*.json
 
 src-tauri/target
 src-tauri/gen

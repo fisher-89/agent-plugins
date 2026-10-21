@@ -46,7 +46,7 @@ pub const EST_MUTANTS_PER_FILE: u64 = 10;
 
 /// 段 spawn 硬超时毫秒（防悬挂的最后护栏——[`SEGMENT_GUARD_MS`] 是软目标观察
 /// 面，本值是进程级强杀线；超时 → 段中断即时反馈，不挂死执行链）。
-pub const SEGMENT_SPAWN_TIMEOUT_MS: u64 = 1_800_000;
+pub const SEGMENT_SPAWN_TIMEOUT_MS: u64 = 3_600_000;
 
 /// 段执行失败面（E5 分流）：`Fatal` = 工具不可达 / 配置不支持 / 写盘失败 →
 /// runner 显式 `Err` 停给用户（与 WorkerAgent 失败同等呈现）；`Interrupted` =
