@@ -79,7 +79,6 @@ fn 定义清单恰为七工具且名称_描述_schema齐全() {
             "{name} 的 path 必填"
         );
     }
-    // bash 条目形状：command 必填、timeout_ms 可选（缺省与钳位语义见描述）
     let bash = defs
         .iter()
         .find(|def| def.name == "bash")

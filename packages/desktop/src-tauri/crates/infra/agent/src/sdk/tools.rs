@@ -173,7 +173,7 @@ fn generic_definition(name: &str) -> ToolDefinition {
                 "type": "object",
                 "properties": {
                     "command": { "type": "string", "description": "待执行的命令行（git-bash / sh unix 语法优先，探测失败退 cmd）" },
-                    "timeout_ms": { "type": "integer", "description": "超时毫秒（缺省 120000，钳位 1000-600000，超时终止进程树）" }
+                    "timeout_ms": { "type": "integer", "description": "超时毫秒（缺省 120000；须在 1000-1800000 内，越界报错不执行，超时终止进程树）" }
                 },
                 "required": ["command"]
             }),

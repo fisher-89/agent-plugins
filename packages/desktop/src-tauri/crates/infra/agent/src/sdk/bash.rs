@@ -6,15 +6,13 @@ use exec::ShellBase;
 use serde_json::Value;
 use tokio::process::Command;
 
-/// 超时缺省与钳位边界（claude code 120s 缺省 / 600s 上限口径）：模型可申请
-/// 长超时，活性护栏封顶。
+/// 超时缺省与允许边界（活性护栏封顶 30 分钟）：模型可申请长超时，超范围
+/// 显式拒绝（不静默钳位——钳位会让模型以为 920s 生效而实际只有 600s）。
 const DEFAULT_TIMEOUT_MS: u64 = 120_000;
 const MIN_TIMEOUT_MS: u64 = 1_000;
-const MAX_TIMEOUT_MS: u64 = 600_000;
+const MAX_TIMEOUT_MS: u64 = 1_800_000;
 
-/// bash 工具执行体：`command` 必填、`timeout_ms` 可选（钳位缺省）。流程 =
-/// shell 底座解析 → `tokio::process` 执行（cwd = root）→ 双管道并发排水 →
-/// 超时收口（超时即杀进程树）→ 成功合并输出 / 非零退出码 `Err(退出码 + 输出)`。
+/// bash 工具执行体
 pub(crate) async fn execute(root: &Path, input: &Value) -> Result<String, String> {
     let command = input
         .get("command")
@@ -24,7 +22,7 @@ pub(crate) async fn execute(root: &Path, input: &Value) -> Result<String, String
     if command.trim().is_empty() {
         return Err("command 不得为空".to_owned());
     }
-    let timeout = Duration::from_millis(resolve_timeout_ms(input));
+    let timeout = Duration::from_millis(resolve_timeout_ms(input)?);
     let shell = exec::resolve_shell();
     let mut child = build_command(&shell, &command)
         .current_dir(root)
@@ -77,13 +75,21 @@ pub(crate) async fn execute(root: &Path, input: &Value) -> Result<String, String
     }
 }
 
-/// `timeout_ms` 入参解析：缺省 120s，显式值钳位 `[1s, 600s]`（活性护栏封顶）。
-fn resolve_timeout_ms(input: &Value) -> u64 {
-    input
-        .get("timeout_ms")
-        .and_then(Value::as_u64)
-        .map(|n| n.clamp(MIN_TIMEOUT_MS, MAX_TIMEOUT_MS))
-        .unwrap_or(DEFAULT_TIMEOUT_MS)
+/// `timeout_ms` 入参解析：缺省 120s；显式值须在 `[1s, 30min]` 内，超范围
+/// 显式 Err（模型据此自行调整申请值，而非被静默钳位后误判生效值）。
+fn resolve_timeout_ms(input: &Value) -> Result<u64, String> {
+    let Some(value) = input.get("timeout_ms") else {
+        return Ok(DEFAULT_TIMEOUT_MS);
+    };
+    let Some(n) = value.as_u64() else {
+        return Err("timeout_ms 必须是非负整数毫秒".to_owned());
+    };
+    if !(MIN_TIMEOUT_MS..=MAX_TIMEOUT_MS).contains(&n) {
+        return Err(format!(
+            "timeout_ms 超出允许范围 [{MIN_TIMEOUT_MS}, {MAX_TIMEOUT_MS}] ms: {n}"
+        ));
+    }
+    Ok(n)
 }
 
 /// 按底座组装命令：壳包装（GitBash → `bash -c`、Cmd → `cmd /C`、Sh →

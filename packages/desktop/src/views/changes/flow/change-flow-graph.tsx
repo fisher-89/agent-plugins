@@ -1,4 +1,4 @@
-import { ReactFlow, ReactFlowProvider, type Edge } from '@xyflow/react';
+import { MarkerType, ReactFlow, ReactFlowProvider, type Edge } from '@xyflow/react';
 import { useMemo, type CSSProperties } from 'react';
 
 import '@xyflow/react/dist/style.css';
@@ -15,7 +15,7 @@ type ChartNode = ColumnFlowNode | RunStepFlowNode;
 function edgeStyle(kind: FlowEdgeKind): CSSProperties {
   if (kind === 'backtrack') return { stroke: 'var(--warn)', strokeDasharray: '6 4' };
   if (kind === 'feedback') return { stroke: 'var(--primary)', strokeDasharray: '4 3' };
-  return { stroke: 'var(--border)' };
+  return { stroke: 'var(--primary)' };
 }
 
 interface ChangeFlowGraphProps {
@@ -62,6 +62,7 @@ function toChartEdges(graph: FlowGraph): Edge[] {
     style: edgeStyle(edge.kind),
     labelStyle: { fill: 'var(--warn)', fontSize: 10 },
     labelBgStyle: { fill: 'var(--warn-bg)' },
+    markerEnd: MarkerType.Arrow,
   }));
 }
 

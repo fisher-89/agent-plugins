@@ -126,7 +126,7 @@ async fn command缺失或空串显式err() {
 }
 
 // ---------------------------------------------------------------------------
-// execute：超时收口触达进程树清理 + timeout_ms 钳位（边界）
+// execute：超时收口触达进程树清理 + timeout_ms 边界校验（边界）
 // ---------------------------------------------------------------------------
 
 #[cfg(windows)]
@@ -170,16 +170,48 @@ async fn timeout_ms缺省走120s底座且短命令成功() {
 }
 
 #[tokio::test]
-async fn timeout_ms零值被钳入下限1秒_短命令仍成功() {
-    let dir = tempdir("timeout-clamp");
-    // 若按 0 生效（timeout(0) 立即收口）短命令不可能成功——Ok 即证钳位
-    let output = execute(
-        dir.path(),
-        &json!({ "command": "echo clamped-to-floor", "timeout_ms": 0 }),
-    )
-    .await
-    .expect("timeout_ms=0 钳入下限 1000ms 后短命令应成功");
-    assert!(output.contains("clamped-to-floor"), "{output}");
+async fn timeout_ms越界或非整数显式err_命令不执行() {
+    let dir = tempdir("timeout-reject");
+    // 命令留产物——若被执行则文件在场；越界拒绝必须先于 spawn（入参校验面）
+    let command = "echo should-not-run > leak-from-bash.txt";
+    // 越界上下侧（0 与 1_800_001）+ 非整数形态（float / 字符串 / 负数，as_u64 均不可解析）
+    let rejected = [
+        json!(0),
+        json!(1_800_001),
+        json!(u64::MAX),
+        json!(1.5),
+        json!("1000"),
+        json!(-1),
+    ];
+
+    for bad in rejected {
+        let error = execute(dir.path(), &json!({ "command": command, "timeout_ms": bad }))
+            .await
+            .expect_err("timeout_ms 非法必须 Err");
+        assert!(
+            error.contains("timeout_ms"),
+            "记因指明 timeout_ms 字段: {error}"
+        );
+    }
+    assert!(
+        !dir.path().join("leak-from-bash.txt").exists(),
+        "入参校验先于 spawn：非法 timeout_ms 调用不得执行命令"
+    );
+}
+
+#[tokio::test]
+async fn timeout_ms上下界放行_短命令成功() {
+    let dir = tempdir("timeout-bounds-ok");
+
+    for ok in [json!(1_000), json!(1_800_000)] {
+        let output = execute(
+            dir.path(),
+            &json!({ "command": "echo bounds-ok", "timeout_ms": ok }),
+        )
+        .await
+        .expect("边界值在允许范围内应放行");
+        assert!(output.contains("bounds-ok"), "{output}");
+    }
 }
 
 // ---------------------------------------------------------------------------
