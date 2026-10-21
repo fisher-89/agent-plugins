@@ -2567,7 +2567,7 @@ describe('ChangeDetailView：面板传参与判据组合面', () => {
       '已归档 change 只读',
     );
     expect(panelPrompt().disabled).toBe(true);
-    expect(screen.getByTestId('change-chat-new').disabled).toBe(true);
+    expect(screen.getByTestId<HTMLInputElement>('change-chat-new').disabled).toBe(true);
 
     fireEvent.click(panelSend());
     await act(async () => {});

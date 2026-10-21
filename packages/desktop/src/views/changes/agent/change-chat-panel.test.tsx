@@ -449,7 +449,7 @@ describe('ChangeChatPanel：禁发与只读矩阵', () => {
     expect(screen.getByTestId('change-chat-disabled-reason').textContent).toBe('流程运行中');
     expect(promptBox().disabled).toBe(true);
     expect(sendButton().disabled).toBe(true);
-    expect(screen.getByTestId('change-chat-new').disabled, '新会话一并禁').toBe(true);
+    expect(screen.getByTestId<HTMLInputElement>('change-chat-new').disabled, '新会话一并禁').toBe(true);
 
     await expandHistory();
     expect(callsOf('list_change_chat_sessions'), '历史可切').toHaveLength(1);
@@ -465,7 +465,7 @@ describe('ChangeChatPanel：禁发与只读矩阵', () => {
     );
     expect(promptBox().disabled).toBe(true);
     expect(sendButton().disabled).toBe(true);
-    expect(screen.getByTestId('change-chat-new').disabled).toBe(true);
+    expect(screen.getByTestId<HTMLInputElement>('change-chat-new').disabled).toBe(true);
 
     fireEvent.click(sendButton());
     await act(async () => {});
@@ -504,7 +504,7 @@ describe('ChangeChatPanel：禁发与只读矩阵', () => {
       screen.queryByTestId('change-chat-disabled-reason'),
       'disabled 不顶替 running',
     ).toBeNull();
-    expect(screen.getByTestId('change-chat-new').disabled).toBe(true);
+    expect(screen.getByTestId<HTMLInputElement>('change-chat-new').disabled).toBe(true);
   });
 });
 
