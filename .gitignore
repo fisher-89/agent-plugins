@@ -3,6 +3,9 @@
 !.cursor-plugin
 !.github
 !.gitignore
+!.claude/
+.claude/*
+!.claude/skills/
 memory
 
 node_modules
