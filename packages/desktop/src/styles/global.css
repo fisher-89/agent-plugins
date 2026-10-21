@@ -6,10 +6,7 @@
 @custom-variant dark (&:is(.dark *));
 @plugin '@tailwindcss/typography';
 
-/* app 唯一样式入口：token 单一来源，值直写固定 dark palette hex。
-   app 常驻深色：不设 .dark class、不写 prefers-color-scheme 媒体查询、
-   无主题切换入口；utilities 侧经 `@theme inline` 映射自动生成
-   （bg-primary / text-muted-foreground / bg-pass-bg / bg-muted / ring-ring 等）。 */
+/* app 唯一样式入口 */
 :root {
   --background: oklch(1 0 0);
   --card: oklch(1 0 0);
@@ -18,6 +15,8 @@
   --muted-foreground: oklch(0.556 0 0);
   --primary: oklch(0.205 0 0);
   --primary-foreground: oklch(0.985 0 0);
+  --active: #60a5fa;
+  --active-bg: #172554;
   --pass: #4ade80;
   --pass-bg: #12301f;
   --fail: #f87171;
@@ -60,6 +59,8 @@
   --color-muted-foreground: var(--muted-foreground);
   --color-primary: var(--primary);
   --color-primary-foreground: var(--primary-foreground);
+  --color-active: var(--active);
+  --color-active-bg: var(--active-bg);
   --color-pass: var(--pass);
   --color-pass-bg: var(--pass-bg);
   --color-fail: var(--fail);

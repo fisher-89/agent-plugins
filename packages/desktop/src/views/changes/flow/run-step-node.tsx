@@ -1,4 +1,5 @@
 import { Handle, Position, type Node, type NodeProps } from '@xyflow/react';
+import { Loader2Icon } from 'lucide-react';
 import { useEffect, useState } from 'react';
 
 import { Badge } from '@/components/ui/badge';
@@ -17,8 +18,8 @@ const TICK_MS = 1000;
 
 /** 分组徽章文案（四类节点可辨）。 */
 const GROUP_LABEL: Record<RunStepGroup, string> = {
-  workerAgent: 'WorkerAgent',
-  toolStep: 'ToolStep',
+  workerAgent: 'Agent',
+  toolStep: 'Tool',
   git: 'Git',
   gate: 'Gate',
 };
@@ -52,7 +53,7 @@ const STEP_LABEL: Record<ChangeStepKind, string> = {
 function statusClass(status: ChangeStepStatus): string {
   switch (status) {
     case 'running':
-      return 'border-primary bg-card animate-pulse';
+      return 'border-active bg-card animate-pulse';
     case 'failed':
       return 'border-fail bg-fail-bg';
     case 'stopped':
@@ -64,7 +65,13 @@ function statusClass(status: ChangeStepStatus): string {
 
 /** 状态缀语：running / failed / stopped 呈现，passed 不缀。 */
 function StatusSuffix({ status }: { status: ChangeStepStatus }): React.JSX.Element | null {
-  if (status === 'running') return <span className="text-primary">运行中</span>;
+  if (status === 'running')
+    return (
+      <span className="text-primary">
+        运行中
+        <Loader2Icon />
+      </span>
+    );
   if (status === 'failed') return <span className="text-fail">失败</span>;
   if (status === 'stopped') return <span>已停</span>;
   return null;

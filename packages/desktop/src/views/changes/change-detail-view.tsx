@@ -424,7 +424,7 @@ function useChatPanelState(): {
   setCollapsed: (collapsed: boolean) => void;
 } {
   const panelRef = usePanelRef();
-  const [collapsed, setCollapsed] = useState(false);
+  const [collapsed, setCollapsed] = useState(true);
   const toggle = useCallback(() => {
     const panel = panelRef.current;
     if (panel === null) return;

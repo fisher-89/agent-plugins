@@ -282,7 +282,7 @@ describe('ChangeFlowGraph：runStep 单分类节点渲染', () => {
       'run-step-node',
     );
     expect(failed.getAttribute('data-run-status')).toBe('failed');
-    expect(within(failed).getByTestId('run-step-group').textContent).toBe('ToolStep');
+    expect(within(failed).getByTestId('run-step-group').textContent).toBe('Tool');
     expect(within(failed).getByTestId('run-step-detail').textContent).toBe('2 处诊断');
   });
 

@@ -70,6 +70,7 @@ export default defineConfig({
           'max-lines-per-function': 'off',
           'typescript/no-non-null-assertion': 'off',
           'typescript/no-unsafe-type-assertion': 'off',
+          'typescript/no-unnecessary-type-assertion': 'off',
         },
       },
     ],

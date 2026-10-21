@@ -15,7 +15,7 @@ type ChartNode = ColumnFlowNode | RunStepFlowNode;
 function edgeStyle(kind: FlowEdgeKind): CSSProperties {
   if (kind === 'backtrack') return { stroke: 'var(--warn)', strokeDasharray: '6 4' };
   if (kind === 'feedback') return { stroke: 'var(--primary)', strokeDasharray: '4 3' };
-  return { stroke: 'var(--primary)' };
+  return { stroke: 'var(--chart-2)' };
 }
 
 interface ChangeFlowGraphProps {
@@ -62,7 +62,12 @@ function toChartEdges(graph: FlowGraph): Edge[] {
     style: edgeStyle(edge.kind),
     labelStyle: { fill: 'var(--warn)', fontSize: 10 },
     labelBgStyle: { fill: 'var(--warn-bg)' },
-    markerEnd: MarkerType.Arrow,
+    markerEnd: {
+      type: MarkerType.ArrowClosed,
+      width: 18,
+      height: 18,
+      color: edgeStyle(edge.kind).stroke,
+    },
   }));
 }
 

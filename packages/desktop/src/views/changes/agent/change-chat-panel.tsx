@@ -1,13 +1,7 @@
-/**
- * change 详情左栏通用 Agent 面板（desktop-change-chat）：头区动作面（「新会话」/
- * 「历史 ▾」/ 状态提示行 / 执行根文案）+ `AgentSessionView` 注入形态对话体 +
- * composer 插槽 + 折叠窄条。
- *
- * 纪律：对话与轮行一律经会话级统一组件渲染（面板内零 `eventsToUIMessages` 直
- * 调、零自有转录查询、零消息拼装）；禁发判据只从 `useChangeChat` 取一次并向
- * 下传（`canSend` / `canStart` / `disabledReason`），本文件不做二次判定。
- */
+import { HistoryIcon, PlusCircleIcon } from 'lucide-react';
+
 import { AgentSessionView, type AgentSessionActions } from '@/components/agent';
+import { Button } from '@/components/ui/button';
 import type { SessionSummary } from '@/types/dto';
 
 import { ChangeChatComposer } from './change-chat-composer';
@@ -52,24 +46,26 @@ function ChatHeaderActions({
     <div className="flex shrink-0 items-center gap-2" data-testid="change-chat-actions">
       <span className="text-[13px] font-medium">通用 Agent</span>
       <span className="flex-1" />
-      <button
-        type="button"
-        className="cursor-pointer rounded-md border border-border bg-transparent px-2.5 py-1 text-xs hover:bg-muted disabled:pointer-events-none disabled:opacity-50"
+      <Button
+        variant="link"
+        size="icon"
+        aria-label="新会话"
         data-testid="change-chat-new"
         disabled={!canStart}
         onClick={onNewSession}
       >
-        新会话
-      </button>
-      <button
-        type="button"
-        className="cursor-pointer rounded-md border border-border bg-transparent px-2.5 py-1 text-xs hover:bg-muted"
+        <PlusCircleIcon />
+      </Button>
+      <Button
+        variant="link"
+        size="icon"
+        aria-label="历史会话"
         data-testid="change-chat-history"
         aria-expanded={listOpen}
         onClick={onToggleList}
       >
-        历史 {listOpen ? '▴' : '▾'}
-      </button>
+        <HistoryIcon />
+      </Button>
     </div>
   );
 }
@@ -169,13 +165,7 @@ function CollapsedRail({ onExpand }: { onExpand: () => void }): React.JSX.Elemen
 }
 
 /** 展开态面板体：状态提示 / 执行根文案 / 历史清单 / 对话体 + composer 插槽 */
-function ExpandedBody({
-  state,
-  root,
-}: {
-  state: ChangeChatState;
-  root: string | null;
-}): React.JSX.Element {
+function ExpandedBody({ state }: { state: ChangeChatState }): React.JSX.Element {
   // 提示行：禁用理由优先；否则空态（草案态）文案；有会话且无理由时不占位
   const note = state.disabledReason ?? (state.currentSessionId === null ? DRAFT_NOTE : null);
   return (
@@ -187,12 +177,6 @@ function ExpandedBody({
         onToggleList={state.toggleList}
       />
       {note !== null && <StatusNote text={note} />}
-      <div
-        className="shrink-0 break-all text-[11px] text-muted-foreground"
-        data-testid="change-chat-cwd"
-      >
-        {`执行根：${state.cwd ?? root ?? '—'}`}
-      </div>
       {state.listOpen && <HistoryList state={state} />}
       <AgentSessionView
         session={state.session}
@@ -226,11 +210,7 @@ export function ChangeChatPanel(props: ChangeChatPanelProps): React.JSX.Element 
   });
   return (
     <div className="h-full min-h-0" data-testid="change-chat-panel">
-      {collapsed ? (
-        <CollapsedRail onExpand={onToggleCollapsed} />
-      ) : (
-        <ExpandedBody state={state} root={root} />
-      )}
+      {collapsed ? <CollapsedRail onExpand={onToggleCollapsed} /> : <ExpandedBody state={state} />}
     </div>
   );
 }

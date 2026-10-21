@@ -33,7 +33,7 @@ change 详情页 SHALL 以 react-flow 流程图承载执行史，节点模型 SH
 #### Scenario: 单分类节点呈现
 
 - **WHEN** 打开一个含多 attempt 与 backtrack 的 v2 change 详情
-- **THEN** 图上仅呈现 runtime step 节点（WorkerAgent / ToolStep / Gate / Git 类型可辨，running / failed / stopped / passed 状态如实），无 eval 节点、无 active 节点、无 dashed 灰显的 interrupted 节点
+- **THEN** 图上仅呈现 runtime step 节点（分组徽章 Agent / Tool / Git / Gate，四类可辨；running / failed / stopped / passed 状态如实），无 eval 节点、无 active 节点、无 dashed 灰显的 interrupted 节点
 
 #### Scenario: 运行中由 running 态 runtime 节点承载
 
@@ -257,7 +257,7 @@ phase 列头与 runtime step 节点 SHALL 提供同一交互入口：点击打�
 
 ### Requirement: 运行态节点与实时执行视图
 
-change 详情流程图 SHALL 升级为实时执行视图：运行期间，当前执行位置的 step 节点 SHALL 呈现运行态（pulse 视觉），ToolStep 节点、Git 节点与 Gate 节点 SHALL 与 WorkerAgent 节点同等上图并可辨（四类可区分）。运行态呈现 SHALL 与既有节点模型并存：step 节点 running / failed / stopped / passed 四态如实；`PIPELINE_PHASES` 10 列布局、边表读取规则与空列恒定 MUST NOT 因运行态呈现改变。eval 节点与 active 节点 SHALL 不再上图（相位节点整体退役，见「流程图节点模型与两分类」）。
+change 详情流程图 SHALL 升级为实时执行视图：运行期间，当前执行位置的 step 节点 SHALL 呈现运行态（pulse 视觉），ToolStep 节点、Git 节点与 Gate 节点 SHALL 与 WorkerAgent 节点同等上图并可辨（分组徽章呈 Agent / Tool / Git / Gate，四类可区分）。运行态呈现 SHALL 与既有节点模型并存：step 节点 running / failed / stopped / passed 四态如实；`PIPELINE_PHASES` 10 列布局、边表读取规则与空列恒定 MUST NOT 因运行态呈现改变。eval 节点与 active 节点 SHALL 不再上图（相位节点整体退役，见「流程图节点模型与两分类」）。
 
 运行收口后，图 SHALL 保持**步节点常驻渲染**：已落库执行图节点（`runs[].nodes` 二十一值全词汇）自统一视图派生常驻上图，与运行中实时面走**同一条派生路径**；运行态视觉（pulse）褪去、终态样式呈现。常驻渲染 SHALL 取**全史叠加**（多次 run 的节点全部保留），archive 相位节点随当前 run 常驻。节点身份键 SHALL 为 `(phase, attempt, step, instanceNo)`（自后端直读），前端 `runStepNodes` 的「槽位配对 + `:seq` 后缀堆叠」机制 SHALL 退役。归档步词 SHALL 落到 `RunStepGroup` 的 git / exec / agent 分类（`GROUP_LABEL` 同步），`archive-panel` / `StageList` 六段清单 SHALL 退役（归档六段作为 archive 列 step 节点呈现，不设独立面板）。步词汇归一（库读史 snake 词 → 活面 camel 词，`normalizeKind` / `stepWord` 单点）SHALL 保持二十一值逐词对应：`mutation_test` ↔ `mutationTest`、`cleanup` ↔ `cleanup` 与 `clean` ↔ `clean` 在案、`mutationTest` 归 exec 分类、`cleanup` 与 `clean` 归 git 分类（现有步骤渲染直接吃，零渲染改动）。Cleanup 步的 detail 警告（清理失败 / 跳过注记）SHALL 随节点 detail 面呈现。
 
@@ -580,7 +580,7 @@ initialize 相位（表头一次性基线检查相位，见 desktop-change-orche
 |------|------|----------|
 | `packages/desktop/src/views/changes/flow/graph.ts` + `types.ts` | 转换层扩展 | 节点模型增运行态与节点类型可辨维度；`PIPELINE_PHASES` 列布局、attempt 缺号兜底不变；边转换改 `runs[].edges` 直读（见下两行 `graph.ts` / `graph.test.ts` 契约）；纯函数直测保持绿 |
 | ReactFlow 渲染薄层组件（新） | 图呈现 | `@xyflow/react` v12 subflow（`parentId` + `extent: 'parent'`）；9 列恒定 + 默认 100% 视口 + 滚轮平移（禁滚轮缩放）；eval 实心 / active pulse / stale 半透明 |
-| `packages/desktop/src/views/changes/flow/` 节点 / 列组件 | 运行态渲染 | WorkerAgent / ToolStep / Gate 类型可辨；pulse 运行态与既有 active 视觉同款；收口后回落派生规则 |
+| `packages/desktop/src/views/changes/flow/` 节点 / 列组件 | 运行态渲染 | Agent / Tool / Git / Gate 徽章可辨（`GROUP_LABEL` 展示文案）；pulse 运行态与既有 active 视觉同款；收口后回落派生规则 |
 | 右侧抽屉组件（新） | 素材详情 | 二分节【本站文档 / eval report+checklist】（文件表节随 file_log 退役删除）；文档节复用 `renderers/registry`（`ArtifactView`）；单一交互入口 |
 | `packages/desktop/src/views/changes/change-detail-view.tsx` | id 寻址与单态呈现 | `useParams<'id'>`；`flow-empty` 文档形态分支删除；页内身份源统一（URL id），无 `detail.name` 作寻址残留；归档 change 照常呈图；发起 / 停止 / phase 间确认 / ask 应答卡片；生命周期状态与可用操作对齐；代际徽章、损坏警示条、`WorkflowPanel`（file_log 图外面板）删除 |
 | `packages/desktop/src/views/changes/change-list-view.tsx` | 清单词汇清零与 db 单源 | `InventoryBadge` 与 unparsable 标注删除；清单 db 单源（文档形态条目不再入列，见 desktop-change-queries） |

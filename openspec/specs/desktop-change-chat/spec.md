@@ -84,7 +84,7 @@ change 详情 SHALL 在**左栏**提供常驻的通用 Agent 面板，与右侧�
 
 - **cwd 派生**：change 带 worktree（`detail.worktree !== null`）时 SHALL 以该绝对路径为 cwd；legacy 记录（`worktree === null`）SHALL 回落 workspace root。cwd SHALL 只进会话 cwd 面（工具路径沙箱根 / bash `current_dir` / 每轮 `AGENT.md` 与前置注入的读取根），**store 寻址 SHALL 恒为 workspace root**（双 root 不变量，与 change 流程同构）。
 - **存在性策略**：归档 change（worktree 已被 Cleanup 移除）SHALL 以只读态处理（见「禁发与只读状态矩阵」），MUST NOT 因 cwd 缺失向用户抛发起点 `Err`；非归档 change 的 cwd 缺失 SHALL 由命令层 `is_dir` 探测显式 `Err`（文案含路径），MUST NOT 让失败深埋进引擎工具调用。
-- **提示面**：面板 SHALL 以可见文案点明执行根（worktree 路径文案）；沙箱根收缩（看不到主工作区未提交改动）属既定边界，MUST NOT 以文案承诺跨根可读。
+- **提示面**：执行根（worktree 路径）SHALL 由 change 详情头的 worktree 信息行（`detail-worktree`）可见；面板内 MUST NOT 再复制一条执行根文案行（避免与详情头重复）。沙箱根收缩（看不到主工作区未提交改动）属既定边界，MUST NOT 以文案承诺跨根可读。
 - **范围**：本变更只落 cwd 层——工具面 SHALL 为既有 default 七工具（MUST NOT 为 change 来源新设只读工具集 / 新 `SessionToolset` 变体），提示词前导（stance 模板）显式不在本变更内。
 - **续话一致性留痕**：cwd 不落会话配置快照，故非来源侧（如调试页按 `change` 筛选）续话不会携带 cwd——来源侧 SHALL 恒显式传 cwd；按归属反查 worktree 的隐式兜底为已知缺口，MUST NOT 在本变更内隐式实现。
 
@@ -150,7 +150,7 @@ change 详情 SHALL 在**左栏**提供常驻的通用 Agent 面板，与右侧�
 
 | 组件 | Props | 描述 |
 |------|-------|------|
-| `ChangeChatPanel` | `{ root, changeId, cwd, readOnly, runActive, onToggleCollapsed, collapsed }` | 面板骨架：会话头（「新会话」/「历史 ▾」/ 状态提示行）+ `AgentSessionView` 注入形态 + composer 插槽 + 空态提示行（草案态：发送即开新会话，不做禁用门）+ 折叠条；`data-testid` 挂钩（`change-chat-panel` / `change-chat-new` / `change-chat-history` / `change-chat-note`） |
+| `ChangeChatPanel` | `{ root, changeId, cwd, readOnly, runActive, onToggleCollapsed, collapsed }` | 面板骨架：会话头（新会话 / 历史会话两个图标动作，`aria-label` 提供可访问名 + 状态提示行）+ `AgentSessionView` 注入形态 + composer 插槽 + 空态提示行（草案态：发送即开新会话，不做禁用门）+ 折叠条；`data-testid` 挂钩（`change-chat-panel` / `change-chat-new` / `change-chat-history` / `change-chat-note`） |
 | `ChangeChatComposer` | `{ running, disabled, disabledReason, onSend, onStop }` | `AgentInput` 薄适配（`idPrefix="change-chat"`；文案留在本文件，档位 / 发送 / 停止收口在组件族） |
 
 ### Function: `packages/desktop/src/views/changes/agent/hooks/use-change-chat.ts`（新增）

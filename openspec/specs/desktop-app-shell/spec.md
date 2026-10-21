@@ -302,7 +302,7 @@ desktop 前端样式 SHALL 以 Tailwind v4 为唯一样式体系:
 
 - 样式入口 SHALL 为正式 CSS 文件(`@import "tailwindcss"`);`index.html` 内联 `<style>` MUST 移除,MUST NOT 长期并存第二套手写 CSS 体系
 - 迁移 SHALL 两步走:步骤① 元素级全局样式(`body` / `button` / `#root`)与设计 token 翻入 `@layer base`,与旧类 CSS 共存且视觉零变;步骤② 单 commit 完成类名全量 utilities 化
-- 设计 token SHALL 沿 shadcn 结构命名(`--background` / `--card` / `--border` / `--foreground` / `--muted-foreground` / `--primary` / `--muted` / `--ring` 等),值 SHALL 直写一整套固定深色 hex(蓝色 accent 主色身份保留;浅色阶段基色 `#2563eb` 在深色面上以提亮蓝承载,原始 hex 直写深色面不再可读),SHALL NOT 换用 shadcn 默认 zinc 主题色;`--pass/--fail/--warn` 语义色 SHALL 以自定义 `@theme` token 承载(深色下取「暗底 tint + 亮字」配对);app SHALL 固定深色主题:`:root` 直填 dark 值并声明 `color-scheme: dark`,MUST NOT 引入 `.dark` class / `prefers-color-scheme` 媒体查询 / 主题切换入口
+- 设计 token SHALL 沿 shadcn 结构命名(`--background` / `--card` / `--border` / `--foreground` / `--muted-foreground` / `--primary` / `--muted` / `--ring` 等),值 SHALL 直写一整套固定深色 hex(蓝色 accent 主色身份保留;浅色阶段基色 `#2563eb` 在深色面上以提亮蓝承载,原始 hex 直写深色面不再可读),SHALL NOT 换用 shadcn 默认 zinc 主题色;`--pass/--fail/--warn/--active` 语义色 SHALL 以自定义 `@theme` token 承载(深色下取「暗底 tint + 亮字」配对);app SHALL 固定深色主题:`:root` 直填 dark 值并声明 `color-scheme: dark`,MUST NOT 引入 `.dark` class / `prefers-color-scheme` 媒体查询 / 主题切换入口
 - 布局冻结 SHALL 仅约束迁移步骤①②:期间 main 区 max-width 1100px 居中、header 信息架构、欢迎态/壳态 DOM 结构(控件替换除外)MUST NOT 变化;迁移完成后布局演化由壳层 requirement 承载(如「Sidebar 壳层布局」),main 区 max-width 1100px 居中作为长期形态延续
 - markdown 产物样式 SHALL 经 `@tailwindcss/typography`(`prose`)承载:react-markdown 输出裸元素无类名钩子,MUST NOT 依赖自定义类后代选择器(如 `.markdown-doc pre`);深色观感由 `prose-invert` 承载,链接色对齐 `--primary`
 

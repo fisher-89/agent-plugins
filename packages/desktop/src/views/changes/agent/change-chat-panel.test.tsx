@@ -449,7 +449,9 @@ describe('ChangeChatPanel：禁发与只读矩阵', () => {
     expect(screen.getByTestId('change-chat-disabled-reason').textContent).toBe('流程运行中');
     expect(promptBox().disabled).toBe(true);
     expect(sendButton().disabled).toBe(true);
-    expect(screen.getByTestId<HTMLInputElement>('change-chat-new').disabled, '新会话一并禁').toBe(true);
+    expect(screen.getByTestId<HTMLInputElement>('change-chat-new').disabled, '新会话一并禁').toBe(
+      true,
+    );
 
     await expandHistory();
     expect(callsOf('list_change_chat_sessions'), '历史可切').toHaveLength(1);
@@ -509,19 +511,20 @@ describe('ChangeChatPanel：禁发与只读矩阵', () => {
 });
 
 // ---------------------------------------------------------------------------
-// 执行根提示与折叠窄条
+// 折叠窄条
 // ---------------------------------------------------------------------------
 
-describe('ChangeChatPanel：执行根与折叠形态', () => {
-  it('cwd 为 worktree 时执行根文案含该路径；cwd 为 null 时回落主工作区口径', async () => {
+describe('ChangeChatPanel：折叠形态', () => {
+  it('cwd 两态（worktree / null）面板均正常渲染；执行根文案行已退役（详情头承接）', async () => {
     const withWorktree = await mountPanel();
     expect(screen.getByTestId('change-chat-note').textContent).toBe('发送首条消息即开启新会话');
-    expect(screen.getByTestId('change-chat-cwd').textContent).toBe(`执行根：${WORKTREE}`);
+    expect(screen.queryByTestId('change-chat-cwd')).toBeNull();
     withWorktree.unmount();
 
     await mountPanel({ cwd: null });
-    expect(screen.getByTestId('change-chat-cwd').textContent).toBe(`执行根：${ROOT}`);
     expect(screen.getByTestId('change-chat-panel')).toBeTruthy();
+    expect(screen.getByTestId('change-chat-note').textContent).toBe('发送首条消息即开启新会话');
+    expect(screen.queryByTestId('change-chat-cwd')).toBeNull();
   });
 
   it('collapsed 折叠窄条：展开入口在场、正文（输入框）不在场，点击回调恰一次', async () => {

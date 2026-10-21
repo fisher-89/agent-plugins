@@ -47,65 +47,65 @@ const FAMILIES: Array<{
   {
     runStepKind: 'executor',
     group: 'workerAgent',
-    badge: 'WorkerAgent',
+    badge: 'Agent',
     label: '执行',
     role: 'executor',
   },
   {
     runStepKind: 'evaluator',
     group: 'workerAgent',
-    badge: 'WorkerAgent',
+    badge: 'Agent',
     label: '评估',
     role: 'evaluator',
   },
   {
     runStepKind: 'decision',
     group: 'workerAgent',
-    badge: 'WorkerAgent',
+    badge: 'Agent',
     label: '决策',
     role: 'decision',
   },
   {
     runStepKind: 'phaseStart',
     group: 'toolStep',
-    badge: 'ToolStep',
+    badge: 'Tool',
     label: '开启阶段',
     role: null,
   },
   {
     runStepKind: 'staticCheck',
     group: 'toolStep',
-    badge: 'ToolStep',
+    badge: 'Tool',
     label: '静态检查',
     role: null,
   },
   {
     runStepKind: 'testExecution',
     group: 'toolStep',
-    badge: 'ToolStep',
+    badge: 'Tool',
     label: '测试执行',
     role: null,
   },
   {
     runStepKind: 'mutationTest',
     group: 'toolStep',
-    badge: 'ToolStep',
+    badge: 'Tool',
     label: '突变执行',
     role: null,
   },
-  { runStepKind: 'phaseLog', group: 'toolStep', badge: 'ToolStep', label: '评估落账', role: null },
+  { runStepKind: 'phaseLog', group: 'toolStep', badge: 'Tool', label: '评估落账', role: null },
   { runStepKind: 'verdictGate', group: 'gate', badge: 'Gate', label: 'verdict 门', role: null },
   { runStepKind: 'retryGate', group: 'gate', badge: 'Gate', label: '重试门', role: null },
   { runStepKind: 'whitelistGate', group: 'gate', badge: 'Gate', label: '白名单门', role: null },
-  // 归档 9 步词（AC-2 / AC-9）：git 五步走 Git 徽章、内联两步 ToolStep、两会话步
-  // WorkerAgent（group 与 run-state 分组同源，非 git）；clean（基线恢复）单列其后
-  { runStepKind: 'preflight', group: 'toolStep', badge: 'ToolStep', label: '归档前置', role: null },
+  // 归档 9 步词（AC-2 / AC-9）：git 五步走 Git 徽章、内联两步 Tool、两会话步
+  // Agent（group 与 run-state 分组同源，非 git）；clean（基线恢复）单列其后
+  { runStepKind: 'preflight', group: 'toolStep', badge: 'Tool', label: '归档前置', role: null },
   { runStepKind: 'commit', group: 'git', badge: 'Git', label: 'worktree 提交', role: null },
   { runStepKind: 'rebase', group: 'git', badge: 'Git', label: '分支重放', role: null },
   {
     runStepKind: 'resolveConflicts',
     group: 'workerAgent',
-    badge: 'WorkerAgent',
+    badge: 'Agent',
     label: '解冲突',
     role: 'resolve_conflicts',
   },
@@ -113,13 +113,13 @@ const FAMILIES: Array<{
   {
     runStepKind: 'specSync',
     group: 'workerAgent',
-    badge: 'WorkerAgent',
+    badge: 'Agent',
     label: 'spec 同步',
     role: 'spec_sync',
   },
   { runStepKind: 'cleanup', group: 'git', badge: 'Git', label: 'worktree 清理', role: null },
   { runStepKind: 'clean', group: 'git', badge: 'Git', label: '基线恢复', role: null },
-  { runStepKind: 'seal', group: 'toolStep', badge: 'ToolStep', label: '归档收口', role: null },
+  { runStepKind: 'seal', group: 'toolStep', badge: 'Tool', label: '归档收口', role: null },
   { runStepKind: 'finalize', group: 'git', badge: 'Git', label: '归档落盘', role: null },
 ];
 
@@ -134,7 +134,7 @@ function renderNode(node: RuntimeFlowNode) {
 }
 
 describe('RunStepNode：三分类徽章可辨（AC-5 可辨半边）', () => {
-  it('二十一步词汇逐词渲染：WorkerAgent / ToolStep / Git / Gate 徽章文案、步文案、data-run-group 标记逐族对应', () => {
+  it('二十一步词汇逐词渲染：Agent / Tool / Git / Gate 徽章文案、步文案、data-run-group 标记逐族对应', () => {
     expect(FAMILIES).toHaveLength(21);
     for (const family of FAMILIES) {
       const rendered = renderNode(
@@ -153,7 +153,7 @@ describe('RunStepNode：三分类徽章可辨（AC-5 可辨半边）', () => {
     }
   });
 
-  it('WorkerAgent 徽章走 default 变体（bg-primary），ToolStep / Gate 徽章走 secondary 变体', () => {
+  it('Agent 徽章走 default 变体（bg-primary），Tool / Gate 徽章走 secondary 变体', () => {
     const worker = renderNode(runtimeNode());
     expect(
       within(screen.getByTestId('run-step-node')).getByTestId('run-step-group').className,
@@ -300,13 +300,13 @@ describe('RunStepNode：三分类徽章可辨（AC-5 可辨半边）', () => {
     }
   });
 
-  it('既有三分类徽章回归：workerAgent / toolStep / gate 徽章文案不变，agent 步非 Git 徽章', () => {
+  it('既有三分类徽章回归：workerAgent / toolStep / gate 分组标记不变，徽章文案呈 Agent / Tool / Gate', () => {
     const cases: Array<
       [ChangeStepKind, ChangeStepKind extends never ? never : RuntimeFlowNode['group'], string]
     > = [
-      ['executor', 'workerAgent', 'WorkerAgent'],
-      ['staticCheck', 'toolStep', 'ToolStep'],
-      ['testExecution', 'toolStep', 'ToolStep'],
+      ['executor', 'workerAgent', 'Agent'],
+      ['staticCheck', 'toolStep', 'Tool'],
+      ['testExecution', 'toolStep', 'Tool'],
       ['verdictGate', 'gate', 'Gate'],
     ];
 
@@ -395,7 +395,7 @@ describe('RunStepNode：载荷缺省形态（边界）', () => {
       runtimeNode({ runStepKind: 'phaseStart', group: 'toolStep', role: null, sessionId: null }),
     );
     const node = screen.getByTestId('run-step-node');
-    expect(within(node).getByTestId('run-step-group').textContent).toBe('ToolStep');
+    expect(within(node).getByTestId('run-step-group').textContent).toBe('Tool');
     expect(node.textContent).toContain('attempt 1');
   });
 
@@ -425,7 +425,7 @@ describe('RunStepNode：RunStepNodeData 收敛 { node }（AC-4）', () => {
     expect(container.querySelector('button')).toBeNull();
     expect(screen.queryByTestId('view-session')).toBeNull();
     // 收敛后渲染面零回归：分组徽章 / 步词汇照常可辨
-    expect(within(node).getByTestId('run-step-group').textContent).toBe('WorkerAgent');
+    expect(within(node).getByTestId('run-step-group').textContent).toBe('Agent');
     expect(within(node).getByTestId('run-step-kind').textContent).toBe('执行');
   });
 
@@ -471,9 +471,9 @@ describe('RunStepNode：mutationTest 步节点（AC-2）', () => {
     );
     const node = screen.getByTestId('run-step-node');
     expect(within(node).getByTestId('run-step-kind').textContent).toBe('突变执行');
-    // 归 exec 组列（toolStep 徽章——零渲染改动语义：经 groupOf default 落 toolStep）
+    // 归 exec 组列（Tool 徽章——零渲染改动语义：经 groupOf default 落 toolStep）
     expect(node.getAttribute('data-run-group')).toBe('toolStep');
-    expect(within(node).getByTestId('run-step-group').textContent).toBe('ToolStep');
+    expect(within(node).getByTestId('run-step-group').textContent).toBe('Tool');
     rendered.unmount();
   });
 
@@ -928,7 +928,7 @@ describe('RunStepNode：常驻行与既有锚并存（异常载荷 / D10 排布�
     );
     const node = screen.getByTestId('run-step-node');
     // 既有锚四面在案
-    expect(within(node).getByTestId('run-step-group').textContent).toBe('WorkerAgent');
+    expect(within(node).getByTestId('run-step-group').textContent).toBe('Agent');
     expect(within(node).getByTestId('run-step-kind').textContent).toBe('执行');
     expect(within(node).getByTestId('run-step-detail').textContent).toBe(longDetail);
     // 常驻行同屏（非法 status 走 settled 臂静态分级）

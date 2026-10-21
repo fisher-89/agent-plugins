@@ -895,9 +895,9 @@ describe('ChangeDetailView：run 控制面板与运行 overlay 组装', () => {
       timeout: 5000,
     });
     const executor = screen.getByTestId('rf__node-run:run-1727:implement:1:executor:0');
-    expect(within(executor).getByTestId('run-step-group').textContent).toBe('WorkerAgent');
+    expect(within(executor).getByTestId('run-step-group').textContent).toBe('Agent');
     const check = screen.getByTestId('rf__node-run:run-1727:implement:1:staticCheck:0');
-    expect(within(check).getByTestId('run-step-group').textContent).toBe('ToolStep');
+    expect(within(check).getByTestId('run-step-group').textContent).toBe('Tool');
     expect(within(check).getByTestId('run-step-detail').textContent).toBe('2 处诊断');
     // 节点模型单分类：事件节点挂钩（flow-node）零残留，运行步节点经
     // run-step-node 挂钩可辨
@@ -2404,7 +2404,7 @@ describe('ChangeDetailView：面板分栏骨架与折叠开关', () => {
     renderDetail({ detail: detail({ worktree: 'C:\\demo\\wt' }), artifacts: PROPOSAL_ENVELOPES });
     await screen.findByTestId('flow-graph');
 
-    const group = document.querySelector('[data-slot="resizable-panel-group"]') as HTMLElement;
+    const group = document.querySelector('[data-slot="resizable-panel-group"]')! as HTMLElement;
     expect(group, '分栏宿主在场').not.toBeNull();
     expect(group.style.flexDirection, 'orientation="horizontal"（横向分栏）').toBe('row');
 
@@ -2499,6 +2499,7 @@ describe('ChangeDetailView：面板传参与判据组合面', () => {
   it('组合：worktree 作执行根、URL id 作 sourceRef，首发即 New（sessionId null）', async () => {
     renderDetail({ detail: detail({ worktree: 'C:\\demo\\wt' }), artifacts: PROPOSAL_ENVELOPES });
     await screen.findByTestId('flow-graph');
+    reportChatPanelWidth(100);
 
     await sendFromPanel('就此 change 提问');
 
@@ -2527,6 +2528,7 @@ describe('ChangeDetailView：面板传参与判据组合面', () => {
     loadActiveRun(null);
     renderDetail({ detail: detail(), artifacts: PROPOSAL_ENVELOPES });
     await screen.findByTestId('flow-graph');
+    reportChatPanelWidth(100);
     expect(screen.queryByTestId('change-chat-disabled-reason')).toBeNull();
 
     await sendFromPanel('空闲态提问');
@@ -2540,6 +2542,7 @@ describe('ChangeDetailView：面板传参与判据组合面', () => {
     panelListResult = () => ({ sessions: [chatSummary('ses-panel-1')], total: 1 });
     renderDetail({ detail: detail(), artifacts: PROPOSAL_ENVELOPES });
     await screen.findByTestId('flow-graph');
+    reportChatPanelWidth(100);
 
     expect(screen.getByTestId('change-chat-disabled-reason').textContent).toBe('流程运行中');
     expect(panelPrompt().disabled).toBe(true);
@@ -2562,6 +2565,7 @@ describe('ChangeDetailView：面板传参与判据组合面', () => {
       artifacts: PROPOSAL_ENVELOPES,
     });
     await screen.findByTestId('flow-graph');
+    reportChatPanelWidth(100);
 
     expect(screen.getByTestId('change-chat-disabled-reason').textContent).toBe(
       '已归档 change 只读',
@@ -2582,7 +2586,7 @@ describe('ChangeDetailView：面板传参与判据组合面', () => {
   it('组合：legacy worktree = null → 面板 cwd 传 null（后端回落 root），图区与动作面板照常', async () => {
     renderDetail({ detail: detail({ worktree: null }), artifacts: PROPOSAL_ENVELOPES });
     await screen.findByTestId('flow-graph');
-    expect(screen.getByTestId('change-chat-cwd').textContent).toBe(`执行根：${ROOT}`);
+    reportChatPanelWidth(100);
     expect(screen.getByTestId('run-control-panel') !== null).toBe(true);
 
     await sendFromPanel('legacy 记录提问');
@@ -2596,6 +2600,7 @@ describe('ChangeDetailView：面板传参与判据组合面', () => {
     loadActiveRun(activeRunView());
     renderDetail({ detail: detail(), artifacts: PROPOSAL_ENVELOPES });
     await screen.findByTestId('flow-graph');
+    reportChatPanelWidth(100);
     await waitFor(() => expect(ChannelMock.instances.length).toBeGreaterThan(0));
     const detailsBefore = detailCalls().length;
 
