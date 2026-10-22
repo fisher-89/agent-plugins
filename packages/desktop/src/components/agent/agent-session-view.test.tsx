@@ -127,6 +127,32 @@ function turnDoneEvent(seq: number): AgentEvent {
   };
 }
 
+function failedTurnDoneEvent(seq: number): AgentEvent {
+  return {
+    seq,
+    // 轮行 startedAt = TS + turnId（11/12），事件时戳须晚于轮开始
+    timestampMs: TS + 100 + seq,
+    kind: 'turnDone',
+    subtype: 'api_error',
+    isError: true,
+    numTurns: 1,
+    durationMs: 1,
+    costUsd: null,
+    usage: null,
+    sessionId: 'sdk-1',
+  };
+}
+
+function apiErrorNoticeEvent(seq: number, error: string): AgentEvent {
+  return {
+    seq,
+    timestampMs: TS + 100 + seq,
+    kind: 'systemNotice',
+    subtype: 'api_error',
+    payload: { error },
+  };
+}
+
 function deltaEvent(seq: number, text: string): AgentEvent {
   return {
     seq,
@@ -406,6 +432,53 @@ describe('AgentSessionView：空态与错误面', () => {
     );
     expect(bubbleTexts()).toEqual([]);
     expect(screen.queryByTestId('session-meta')).toBeNull();
+  });
+
+  it('最新轮失败且转录含 api_error → 失败横幅呈现友好文案并保留原始错误', async () => {
+    resetIpc({
+      detail: summary([turn(11, 'failed')]),
+      transcript: [
+        userEvent(0, '复现 invalid uri'),
+        apiErrorNoticeEvent(1, 'API 请求失败: RequestError: invalid uri character'),
+        failedTurnDoneEvent(2),
+      ],
+    });
+    await mountedView({ root: ROOT, sessionId: SESSION_ID });
+
+    await waitFor(() => expect(screen.getByTestId('agent-session-failure')).toBeTruthy());
+    expect(screen.getByTestId('agent-session-failure-title').textContent).toBe('Provider 地址无效');
+    expect(screen.getByTestId('agent-session-failure-hint').textContent).toContain('base_url');
+    expect(screen.getByTestId('agent-session-failure-raw').textContent).toContain(
+      'invalid uri character',
+    );
+    // system 载体不进对话区：只有用户提问气泡
+    expect(bubbleTexts()).toEqual(['复现 invalid uri']);
+  });
+
+  it('上一轮失败、最新轮已完成 → 不展示旧失败横幅', async () => {
+    resetIpc({
+      detail: summary([turn(11, 'failed'), turn(12, 'completed')]),
+      transcript: [
+        userEvent(0, '第一轮'),
+        apiErrorNoticeEvent(1, 'API 请求失败: RequestError: invalid uri character'),
+        failedTurnDoneEvent(2),
+      ],
+    });
+    await mountedView({ root: ROOT, sessionId: SESSION_ID });
+
+    await waitFor(() => expect(screen.getByTestId('session-meta')).toBeTruthy());
+    expect(screen.queryByTestId('agent-session-failure')).toBeNull();
+  });
+
+  it('最新轮停止 → 不展示失败横幅', async () => {
+    resetIpc({
+      detail: summary([turn(11, 'stopped')]),
+      transcript: [userEvent(0, '停止轮')],
+    });
+    await mountedView({ root: ROOT, sessionId: SESSION_ID });
+
+    await waitFor(() => expect(screen.getByTestId('session-meta')).toBeTruthy());
+    expect(screen.queryByTestId('agent-session-failure')).toBeNull();
   });
 
   it('session_detail 返回 null → 空态（不虚构会话元信息、零订阅）', async () => {

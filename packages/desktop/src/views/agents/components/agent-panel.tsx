@@ -1,7 +1,10 @@
 import { useState } from 'react';
 
+import { StandardSelect } from '@/components/standard/select';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Field, FieldGroup, FieldLabel } from '@/components/ui/field';
+import { Input } from '@/components/ui/input';
 
 import type {
   AgentEngineKind,
@@ -46,27 +49,22 @@ function EngineSelect({
   onChange: (value: AgentEngineKind) => void;
 }): React.JSX.Element {
   return (
-    <span className="flex items-center gap-1.5 text-sm">
-      <label className="text-xs text-muted-foreground" htmlFor="agent-engine-kind">
-        engine
-      </label>
-      <select
+    <Field>
+      <FieldLabel>engine</FieldLabel>
+      <StandardSelect
         id="agent-engine-kind"
-        className="rounded-md border border-border bg-transparent px-1.5 py-0.5 text-sm"
         data-testid="agent-engine-kind"
         value={value}
-        onChange={(e) => {
-          const next = ENGINE_OPTIONS.find((option) => option.value === e.target.value);
+        onChange={(value) => {
+          const next = ENGINE_OPTIONS.find((option) => option.value === value);
           if (next) onChange(next.value);
         }}
-      >
-        {ENGINE_OPTIONS.map((option) => (
-          <option key={option.value} value={option.value}>
-            {option.label}
-          </option>
-        ))}
-      </select>
-    </span>
+        items={[
+          { value: '', label: '（未选择）' },
+          ...ENGINE_OPTIONS.map((option) => ({ value: option.value, label: option.label })),
+        ]}
+      />
+    </Field>
   );
 }
 
@@ -81,25 +79,19 @@ function ProviderSelect({
   onChange: (value: number | null) => void;
 }): React.JSX.Element {
   return (
-    <span className="flex items-center gap-1.5 text-sm">
-      <label className="text-xs text-muted-foreground" htmlFor="agent-provider-select">
-        provider
-      </label>
-      <select
+    <Field>
+      <FieldLabel>provider</FieldLabel>
+      <StandardSelect
         id="agent-provider-select"
-        className="rounded-md border border-border bg-transparent px-1.5 py-0.5 text-sm disabled:opacity-50"
         data-testid="agent-provider-select"
         value={value === null ? '' : String(value)}
-        onChange={(e) => onChange(e.target.value === '' ? null : Number(e.target.value))}
-      >
-        <option value="">（未选择）</option>
-        {providers.map((provider) => (
-          <option key={provider.id} value={String(provider.id)}>
-            {provider.name}
-          </option>
-        ))}
-      </select>
-    </span>
+        onChange={(value) => onChange(value === '' ? null : Number(value))}
+        items={[
+          { value: '', label: '（未选择）' },
+          ...providers.map((provider) => ({ value: String(provider.id), label: provider.name })),
+        ]}
+      />
+    </Field>
   );
 }
 
@@ -114,26 +106,23 @@ function AgentFormFields({
   onPatch: (patch: Partial<AgentFormState>) => void;
 }): React.JSX.Element {
   return (
-    <div className="flex flex-wrap items-center gap-2">
-      <span className="flex items-center gap-1.5 text-sm">
-        <label className="text-xs text-muted-foreground" htmlFor="agent-name">
-          名称
-        </label>
-        <input
+    <FieldGroup>
+      <Field>
+        <FieldLabel>名称</FieldLabel>
+        <Input
           id="agent-name"
-          className="w-44 rounded-md border border-border bg-transparent px-1.5 py-0.5 text-sm outline-none focus:ring-1 focus:ring-ring"
           data-testid="agent-name"
           value={form.name}
           onChange={(e) => onPatch({ name: e.target.value })}
         />
-      </span>
+      </Field>
       <EngineSelect onChange={(engine) => onPatch({ engine })} value={form.engine} />
       <ProviderSelect
         onChange={(providerId) => onPatch({ providerId })}
         providers={providers}
         value={form.providerId}
       />
-    </div>
+    </FieldGroup>
   );
 }
 

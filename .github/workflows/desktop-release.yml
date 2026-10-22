@@ -140,7 +140,7 @@ jobs:
           fi
           echo "本腿 latest.json:"
           cat latest.json
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: success()
         with:
           name: ${{ matrix.artifact }}
@@ -156,11 +156,11 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       # Windows 工件是回归红线,缺即真失败;mac 工件允许缺(缺腿容忍)。
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: latest-json-windows
           path: _updater/windows
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         continue-on-error: true
         with:
           name: latest-json-macos

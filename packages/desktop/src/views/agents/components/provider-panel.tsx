@@ -1,7 +1,9 @@
-import { useState } from 'react';
+import { type HTMLInputTypeAttribute, useState } from 'react';
 
 import { StandardSelect } from '@/components/standard/select';
 import { Button } from '@/components/ui/button';
+import { Field, FieldGroup, FieldLabel } from '@/components/ui/field';
+import { Input } from '@/components/ui/input';
 
 import type { AgentProviderProtocol, AgentProviderRecord } from '../../../types/generated/bindings';
 import type { AgentProvidersState } from '../hooks/use-agent-providers';
@@ -64,50 +66,50 @@ type ProviderTextField = Exclude<keyof ProviderFormState, 'id' | 'protocol'>;
 
 /** 表单字段配置（映射驱动渲染；row 圈定换行分组） */
 const PROVIDER_FIELDS: {
-  row: 0 | 1 | 2;
   id: string;
   label: string;
   key: ProviderTextField;
+  type?: HTMLInputTypeAttribute;
   placeholder?: string;
 }[] = [
-  { row: 0, id: 'provider-name', label: '名称', key: 'name' },
+  { id: 'provider-name', label: '名称', key: 'name' },
   {
-    row: 0,
     id: 'provider-base-url',
     label: 'base_url',
     key: 'baseUrl',
   },
-  { row: 1, id: 'provider-api-key', label: 'api_key', key: 'apiKey', placeholder: 'sk-…' },
   {
-    row: 2,
+    id: 'provider-api-key',
+    label: 'api_key',
+    key: 'apiKey',
+    placeholder: 'sk-…',
+    type: 'password',
+  },
+  {
     id: 'provider-model-high',
     label: 'model high',
     key: 'high',
     placeholder: '用于设计、检视、决策等深度思考步骤',
   },
   {
-    row: 2,
     id: 'provider-model-medium',
     label: 'model medium',
     key: 'medium',
     placeholder: '暂未启用',
   },
   {
-    row: 2,
     id: 'provider-model-low',
     label: 'model low',
     key: 'low',
     placeholder: '用于编码、执行测试等快速实现步骤',
   },
   {
-    row: 2,
     id: 'provider-context-length',
     label: 'context_length',
     key: 'contextLength',
     placeholder: '留空 = 跟随缺省 128K',
   },
   {
-    row: 2,
     id: 'provider-max-tokens',
     label: 'max_tokens',
     key: 'maxTokens',
@@ -148,7 +150,10 @@ const SUFFIX_1M = /\[1m\]$/i;
 /** 模型名后缀提示：带后缀的档位与 `context_length` 同时在场时声明「已被覆盖」
  * （清除「两者叠加」的歧义） */
 function suffixHint(form: ProviderFormState): string {
-  const base = '模型名可带 [1m] 后缀（只影响上下文窗长与 anthropic beta，不改输出上限）';
+  const base =
+    form.protocol === 'anthropic'
+      ? '模型名可带 [1m] 后缀（只影响上下文窗长与 anthropic beta，不改输出上限）'
+      : '';
   const suffixed = [
     { tier: 'high', value: form.high },
     { tier: 'medium', value: form.medium },
@@ -178,37 +183,6 @@ function toFormState(editing: AgentProviderRecord | null): ProviderFormState {
         contextLength: editing.contextLength == null ? '' : String(editing.contextLength),
         maxTokens: editing.maxTokens == null ? '' : String(editing.maxTokens),
       };
-}
-
-/** 单行输入（就近表单控件：原生 input + 轨道同款描边样式） */
-function TextField({
-  id,
-  label,
-  value,
-  placeholder,
-  onChange,
-}: {
-  id: string;
-  label: string;
-  value: string;
-  placeholder?: string;
-  onChange: (value: string) => void;
-}): React.JSX.Element {
-  return (
-    <span className="flex items-center gap-1.5 text-sm">
-      <label className="whitespace-nowrap text-xs text-muted-foreground" htmlFor={id}>
-        {label}
-      </label>
-      <input
-        id={id}
-        className="w-44 rounded-md border border-border bg-transparent px-1.5 py-0.5 text-sm outline-none focus:ring-1 focus:ring-ring"
-        data-testid={id}
-        placeholder={placeholder}
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-      />
-    </span>
-  );
 }
 
 /** 表单动作行（取消 / 保存收口） */
@@ -254,13 +228,8 @@ function ProtocolSelect({
   onChange: (protocol: AgentProviderProtocol) => void;
 }): React.JSX.Element {
   return (
-    <span className="flex items-center gap-1.5 text-sm">
-      <label
-        className="whitespace-nowrap text-xs text-muted-foreground"
-        htmlFor="provider-protocol"
-      >
-        协议
-      </label>
+    <Field>
+      <FieldLabel htmlFor="provider-protocol">协议</FieldLabel>
       <StandardSelect
         id="provider-protocol"
         data-testid="provider-protocol"
@@ -270,7 +239,7 @@ function ProtocolSelect({
           if (next !== null) onChange(next);
         }}
       />
-    </span>
+    </Field>
   );
 }
 
@@ -286,34 +255,27 @@ function ProviderFormRows({
   onProtocol: (protocol: AgentProviderProtocol) => void;
 }): React.JSX.Element {
   return (
-    <>
-      {[0, 1, 2].map((row) => (
-        <div
-          key={row}
-          className={
-            row === 0
-              ? 'flex flex-wrap items-center gap-2'
-              : 'mt-2 flex flex-wrap items-center gap-2'
-          }
-        >
-          {row === 0 && <ProtocolSelect onChange={onProtocol} value={form.protocol} />}
-          {PROVIDER_FIELDS.filter((field) => field.row === row).map((field) => (
-            <TextField
-              key={field.id}
-              id={field.id}
-              label={field.label}
-              placeholder={
-                field.key === 'baseUrl'
-                  ? BASE_URL_HINTS[form.protocol].placeholder
-                  : field.placeholder
-              }
-              value={String(form[field.key])}
-              onChange={(value) => onField(field.key, value)}
-            />
-          ))}
-        </div>
+    <FieldGroup>
+      <ProtocolSelect onChange={onProtocol} value={form.protocol} />
+      {PROVIDER_FIELDS.map((field) => (
+        <Field key={field.id} className="w-auto">
+          <FieldLabel htmlFor={field.id}>{field.label}</FieldLabel>
+          <Input
+            id={field.id}
+            data-testid={field.id}
+            type={field.type}
+            autoComplete={field.type === 'password' ? 'off' : 'on'}
+            placeholder={
+              field.key === 'baseUrl'
+                ? BASE_URL_HINTS[form.protocol].placeholder
+                : field.placeholder
+            }
+            value={String(form[field.key])}
+            onChange={(e) => onField(field.key, e.target.value)}
+          ></Input>
+        </Field>
       ))}
-    </>
+    </FieldGroup>
   );
 }
 

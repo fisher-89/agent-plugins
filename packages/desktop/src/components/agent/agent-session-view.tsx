@@ -1,3 +1,5 @@
+import { useMemo } from 'react';
+
 import { Badge } from '@/components/ui/badge';
 import {
   useAgentSession,
@@ -6,6 +8,7 @@ import {
 } from '@/hooks/use-agent-session';
 import type { SessionSummary } from '@/types/generated/bindings';
 
+import { latestAgentFailure, type AgentFailure } from './agent-error';
 import { AgentMessages } from './agent-messages';
 
 /** composer 插槽入参：运行态 + 动作面（插槽内容据此呈现发送 / 停止） */
@@ -70,6 +73,33 @@ function SessionAbsent(): React.JSX.Element {
   );
 }
 
+/** 最新轮失败横幅：友好文案 + 可展开的原始错误（诊断不丢） */
+function AgentFailureBanner({ failure }: { failure: AgentFailure }): React.JSX.Element {
+  return (
+    <div
+      className="mb-2 shrink-0 rounded-md bg-fail-bg px-3 py-2 text-[13px] text-fail"
+      data-testid="agent-session-failure"
+      role="alert"
+    >
+      <div className="font-medium" data-testid="agent-session-failure-title">
+        {failure.title}
+      </div>
+      <div data-testid="agent-session-failure-hint">{failure.hint}</div>
+      {failure.raw !== '' && (
+        <details className="mt-1">
+          <summary className="cursor-pointer text-xs text-muted-foreground">原始错误</summary>
+          <div
+            className="mt-1 break-all font-mono text-xs text-muted-foreground"
+            data-testid="agent-session-failure-raw"
+          >
+            {failure.raw}
+          </div>
+        </details>
+      )}
+    </div>
+  );
+}
+
 /**
  * 会话级唯一渲染入口：元信息行 + 错误横幅 + `AgentMessages` 对话透镜 +
  * composer 插槽。双形态共用同一渲染体与同一 `useAgentSession`：
@@ -88,6 +118,10 @@ export function AgentSessionView(props: AgentSessionViewProps): React.JSX.Elemen
     refreshKey: injected ? undefined : refreshKey,
   });
   const state = session ?? internal;
+  const failure = useMemo(
+    () => latestAgentFailure(state.events, state.chain),
+    [state.events, state.chain],
+  );
   const testId = props['data-testid'] ?? 'agent-session-view';
   if (!injected && (sessionId ?? null) === null) {
     return (
@@ -105,6 +139,7 @@ export function AgentSessionView(props: AgentSessionViewProps): React.JSX.Elemen
   return (
     <div className="flex min-h-0 flex-1 flex-col" data-testid={testId}>
       {state.session !== null && <SessionMeta summary={state.session} running={state.running} />}
+      {failure !== null && <AgentFailureBanner failure={failure} />}
       {state.error !== null && (
         <div
           className="mb-2 shrink-0 break-all text-[13px] text-fail"
