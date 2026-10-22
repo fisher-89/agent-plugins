@@ -12,8 +12,8 @@
 use tauri::{App, Manager};
 
 use store::{
-    AgentEngineKind, AgentInstanceRecord, AgentModelTiers, AgentProviderRecord, WorkspaceStores,
-    CLI_TENANT_RETIRED,
+    AgentEngineKind, AgentInstanceRecord, AgentModelTiers, AgentProviderProtocol,
+    AgentProviderRecord, WorkspaceStores, CLI_TENANT_RETIRED,
 };
 
 use super::{
@@ -77,9 +77,11 @@ fn save_new_provider(
         state.clone(),
         None,
         name.to_owned(),
+        AgentProviderProtocol::Openai,
         "https://api.example.com/v1".to_owned(),
         api_key.to_owned(),
         fixture_tiers(),
+        None,
         None,
     )
 }
@@ -95,9 +97,11 @@ fn save_provider_with_key(
         state.clone(),
         Some(id),
         name.to_owned(),
+        AgentProviderProtocol::Openai,
         "https://api.example.com/v1".to_owned(),
         api_key.to_owned(),
         fixture_tiers(),
+        None,
         None,
     )
 }
@@ -240,9 +244,11 @@ fn provider命令_重名保存err清单不变_更新miss_id_err_name空白err() 
         state.clone(),
         None,
         "   ".to_owned(),
+        AgentProviderProtocol::Openai,
         "https://api.example.com/v1".to_owned(),
         "sk-live-1234567890".to_owned(),
         fixture_tiers(),
+        None,
         None,
     );
     assert!(blank.is_err(), "name 空白应 Err");
@@ -680,10 +686,12 @@ fn save携context_length落库且重开一致() {
             state.clone(),
             None,
             "窗长端点".to_owned(),
+            AgentProviderProtocol::Openai,
             "https://api.example.com/v1".to_owned(),
             "sk-live-1234567890".to_owned(),
             fixture_tiers(),
             Some(200_000),
+            None,
         )
         .expect("新建应成功");
         assert_eq!(created.context_length, Some(200_000), "命令面平参落记录");
@@ -734,10 +742,12 @@ fn save编辑态context_length双向翻转按入参落库() {
         state.clone(),
         Some(created.id),
         "翻转端点".to_owned(),
+        AgentProviderProtocol::Openai,
         "https://api.example.com/v1".to_owned(),
         "".to_owned(),
         fixture_tiers(),
         Some(131_072),
+        None,
     )
     .expect("补窗长编辑应成功");
     assert_eq!(
@@ -751,9 +761,11 @@ fn save编辑态context_length双向翻转按入参落库() {
         state.clone(),
         Some(created.id),
         "翻转端点".to_owned(),
+        AgentProviderProtocol::Openai,
         "https://api.example.com/v1".to_owned(),
         "".to_owned(),
         fixture_tiers(),
+        None,
         None,
     )
     .expect("清窗长编辑应成功");
@@ -775,10 +787,12 @@ fn save_api_key回填与新context_length参正交() {
         state.clone(),
         Some(created.id),
         "正交端点".to_owned(),
+        AgentProviderProtocol::Openai,
         "https://api.example.com/v1".to_owned(),
         "".to_owned(),
         fixture_tiers(),
         Some(200_000),
+        None,
     )
     .expect("编辑应成功");
 
@@ -819,5 +833,613 @@ fn save_agent_provider留空key更新回填原值不落空串() {
             .api_key,
         "secret-1",
         "回填值持久化（非仅返回面）"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// save_agent_provider 保存期校验单点（AC-10）：模型名后缀复用引擎侧同一
+// parse_model_spec（high → medium → low）+ max_tokens 下限 4096，错误串不含
+// api_key；通过后落库（含 [1m] 原文与两新列）
+// ---------------------------------------------------------------------------
+
+/// 全参数直调（保存期校验面用例底座：三档 / 协议 / 双可空列全部显式）。
+#[allow(clippy::too_many_arguments)]
+fn save_full(
+    state: &tauri::State<'_, WorkspaceStores>,
+    id: Option<i64>,
+    name: &str,
+    protocol: AgentProviderProtocol,
+    api_key: &str,
+    high: &str,
+    medium: &str,
+    low: &str,
+    context_length: Option<u64>,
+    max_tokens: Option<u64>,
+) -> Result<AgentProviderRecord, String> {
+    save_agent_provider(
+        state.clone(),
+        id,
+        name.to_owned(),
+        protocol,
+        "https://api.example.com/v1".to_owned(),
+        api_key.to_owned(),
+        AgentModelTiers {
+            high: high.to_owned(),
+            medium: medium.to_owned(),
+            low: low.to_owned(),
+        },
+        context_length,
+        max_tokens,
+    )
+}
+
+#[test]
+fn save合法形态_anthropic携后缀与下限上限逐字段保真且后缀原文落库() {
+    let env = Env::new("save-legal");
+    let app = app_with_stores(&env);
+    let state = app.state::<WorkspaceStores>();
+
+    let saved = save_full(
+        &state,
+        None,
+        "合法端点",
+        AgentProviderProtocol::Anthropic,
+        "sk-ant-legal",
+        "claude-sonnet-4-5[1m]",
+        "claude-medium",
+        "claude-haiku-4-5",
+        Some(200_000),
+        Some(4_096),
+    )
+    .expect("合法形态应保存成功");
+
+    assert_eq!(saved.protocol, AgentProviderProtocol::Anthropic);
+    assert_eq!(
+        saved.max_tokens,
+        Some(4_096),
+        "恰下限放行（>= MIN_OUTPUT_TOKENS）"
+    );
+    assert_eq!(saved.context_length, Some(200_000));
+    assert_eq!(
+        saved.models.high, "claude-sonnet-4-5[1m]",
+        "[1m] 原文原样落库（后缀摘除在引擎侧，保存期不归一化）"
+    );
+    // 回读一致性（真库往返）
+    let listed = list_agent_providers(state.clone()).expect("list 应成功");
+    assert_eq!(listed, vec![saved], "落库记录与返回记录一致");
+}
+
+#[test]
+fn save未配置上限_两种协议均ok且不落缺省字面() {
+    let env = Env::new("save-no-max-tokens");
+    let app = app_with_stores(&env);
+    let state = app.state::<WorkspaceStores>();
+
+    let anthropic = save_full(
+        &state,
+        None,
+        "未配置上限",
+        AgentProviderProtocol::Anthropic,
+        "sk-ant-x",
+        "claude-x",
+        "claude-m",
+        "claude-y",
+        Some(200_000),
+        None,
+    )
+    .expect("未配置上限应保存成功");
+    assert_eq!(
+        anthropic.max_tokens, None,
+        "留空 = 未配置（存 null，不落 32000）"
+    );
+
+    // openai 协议同样不因协议差异拒收（字段照记，R10 边界）
+    let openai = save_full(
+        &state,
+        None,
+        "openai 未配置上限",
+        AgentProviderProtocol::Openai,
+        "sk-live-1234567890",
+        "gpt-4o",
+        "gpt-4o-mini",
+        "gpt-4o-mini",
+        None,
+        None,
+    )
+    .expect("openai 协议未配置上限应保存成功");
+    assert_eq!(openai.max_tokens, None);
+    assert_eq!(openai.context_length, None);
+}
+
+#[test]
+fn save非法后缀按档报错_high_medium_low三档均被校验() {
+    let env = Env::new("save-illegal-suffix-tiers");
+    let app = app_with_stores(&env);
+    let state = app.state::<WorkspaceStores>();
+
+    let cases: [(&str, &str, &str, &str); 3] = [
+        ("x[2m]", "m", "l", "high"),
+        ("h", "m[2m]", "l", "medium"),
+        ("h", "m", "l[2m]", "low"),
+    ];
+    for (high, medium, low, tier) in cases {
+        let error = err_of(save_full(
+            &state,
+            None,
+            "非法后缀端点",
+            AgentProviderProtocol::Anthropic,
+            "sk-ant-x",
+            high,
+            medium,
+            low,
+            None,
+            None,
+        ));
+        assert!(
+            error.contains(tier),
+            "{tier} 档非法应点名档位，实际: {error}"
+        );
+        assert!(error.contains("[2m]"), "错误串含模型名原文，实际: {error}");
+        assert!(
+            error.contains("模型名后缀非法"),
+            "复用引擎侧 ModelSpecError 原文（无第二套规则），实际: {error}"
+        );
+    }
+
+    // 失败无副作用：清单仍空
+    assert!(
+        list_agent_providers(state.clone()).unwrap().is_empty(),
+        "校验失败零落库"
+    );
+}
+
+#[test]
+fn save非法后缀形态表复用引擎侧同一规则() {
+    let env = Env::new("save-illegal-suffix-forms");
+    let app = app_with_stores(&env);
+    let state = app.state::<WorkspaceStores>();
+
+    for raw in ["[8k]", "[]", "[ 1m ]", "x[1m]y", "[1m]", "[2m]"] {
+        let error = err_of(save_full(
+            &state,
+            None,
+            &format!("非法形态 {raw}"),
+            AgentProviderProtocol::Anthropic,
+            "sk-ant-x",
+            raw,
+            "m",
+            "l",
+            None,
+            None,
+        ));
+        assert!(
+            error.contains(raw),
+            "{raw} 的 Err 串与原串逐字对应，实际: {error}"
+        );
+    }
+
+    // 与引擎侧同一函数同一结论（无第二套规则）
+    for raw in ["[8k]", "x[1m]y", "[]"] {
+        assert!(
+            matches!(
+                agent_runtime::parse_model_spec(raw),
+                Err(agent_runtime::ModelSpecError { .. })
+            ),
+            "引擎侧同一函数对 {raw} 同判 Err"
+        );
+    }
+}
+
+#[test]
+fn save上限下限_低于4096拒收且恰下限放行() {
+    let env = Env::new("save-min-output");
+    let app = app_with_stores(&env);
+    let state = app.state::<WorkspaceStores>();
+
+    for tokens in [4_095_u64, 1, 0] {
+        let error = err_of(save_full(
+            &state,
+            None,
+            &format!("下限端点 {tokens}"),
+            AgentProviderProtocol::Anthropic,
+            "sk-ant-x",
+            "claude-x",
+            "m",
+            "l",
+            None,
+            Some(tokens),
+        ));
+        assert!(
+            error.contains("4096"),
+            "下限 {tokens} 拒收且文案含 4096，实际: {error}"
+        );
+        assert!(
+            error.contains(&tokens.to_string()),
+            "文案含被拒取值，实际: {error}"
+        );
+    }
+
+    // 恰下限放行
+    let saved = save_full(
+        &state,
+        None,
+        "下限放行端点",
+        AgentProviderProtocol::Anthropic,
+        "sk-ant-x",
+        "claude-x",
+        "m",
+        "l",
+        None,
+        Some(4_096),
+    )
+    .expect("恰 4096 应保存成功");
+    assert_eq!(saved.max_tokens, Some(4_096));
+}
+
+#[test]
+fn save错误串机密边界_任一err不含api_key明文() {
+    let env = Env::new("save-secret-boundary");
+    let app = app_with_stores(&env);
+    let state = app.state::<WorkspaceStores>();
+    const CANARY: &str = "sk-ant-UNIQUE-LEAK-CANARY";
+
+    let errors = vec![
+        // 非法后缀（high 档）
+        err_of(save_full(
+            &state,
+            None,
+            "机密端点甲",
+            AgentProviderProtocol::Anthropic,
+            CANARY,
+            "x[2m]",
+            "m",
+            "l",
+            None,
+            None,
+        )),
+        // 非法后缀（low 档）
+        err_of(save_full(
+            &state,
+            None,
+            "机密端点乙",
+            AgentProviderProtocol::Anthropic,
+            CANARY,
+            "h",
+            "m",
+            "[1m]",
+            None,
+            None,
+        )),
+        // 上限过小
+        err_of(save_full(
+            &state,
+            None,
+            "机密端点丙",
+            AgentProviderProtocol::Anthropic,
+            CANARY,
+            "h",
+            "m",
+            "l",
+            None,
+            Some(1),
+        )),
+        // store 侧拒绝（重名）
+        {
+            save_full(
+                &state,
+                None,
+                "机密端点丁",
+                AgentProviderProtocol::Anthropic,
+                CANARY,
+                "h",
+                "m",
+                "l",
+                None,
+                None,
+            )
+            .expect("首次保存应成功");
+            err_of(save_full(
+                &state,
+                None,
+                "机密端点丁",
+                AgentProviderProtocol::Anthropic,
+                CANARY,
+                "h",
+                "m",
+                "l",
+                None,
+                None,
+            ))
+        },
+    ];
+
+    for error in errors {
+        assert!(
+            !error.contains(CANARY),
+            "错误串不得含 api_key 明文，实际: {error}"
+        );
+        assert!(
+            !error.contains("api_key"),
+            "错误面只含档位名 / 模型名原文 / 数字下限，实际: {error}"
+        );
+    }
+}
+
+#[test]
+fn save校验顺序_模型名先于上限且档序high先于low() {
+    let env = Env::new("save-validation-order");
+    let app = app_with_stores(&env);
+    let state = app.state::<WorkspaceStores>();
+
+    // ① 模型名非法 + 上限过小同时成立 → 返回模型名错误（① 先于 ②）
+    let error = err_of(save_full(
+        &state,
+        None,
+        "双非法端点",
+        AgentProviderProtocol::Anthropic,
+        "sk-ant-x",
+        "x[2m]",
+        "m",
+        "l",
+        None,
+        Some(1),
+    ));
+    assert!(
+        error.contains("模型名后缀非法") && !error.contains("4096"),
+        "模型名校验先于上限下限，实际: {error}"
+    );
+
+    // ② high 与 low 双非法 → 先报 high（档序 high → medium → low）
+    let error = err_of(save_full(
+        &state,
+        None,
+        "双档非法端点",
+        AgentProviderProtocol::Anthropic,
+        "sk-ant-x",
+        "high[2m]",
+        "m",
+        "low[2m]",
+        None,
+        None,
+    ));
+    assert!(
+        error.contains("high") && error.contains("high[2m]") && !error.contains("low[2m]"),
+        "档序 high 先行，实际: {error}"
+    );
+
+    // ③ 校验前置不产生库 IO 副作用
+    assert!(
+        list_agent_providers(state.clone()).unwrap().is_empty(),
+        "失败后清单计数恒 0（无部分写入）"
+    );
+}
+
+#[test]
+fn save空模型名不新增拒收面_齐备性归启动期() {
+    let env = Env::new("save-empty-model");
+    let app = app_with_stores(&env);
+    let state = app.state::<WorkspaceStores>();
+
+    // 三档全空：Ok（齐备性由启动期 ConfigMissing 承担）
+    let all_blank = save_full(
+        &state,
+        None,
+        "全空档端点",
+        AgentProviderProtocol::Openai,
+        "sk-live-1234567890",
+        "",
+        "",
+        "",
+        None,
+        None,
+    )
+    .expect("三档全空应保存成功（不新增拒收面）");
+    assert_eq!(
+        all_blank.models,
+        AgentModelTiers {
+            high: String::new(),
+            medium: String::new(),
+            low: String::new(),
+        }
+    );
+
+    // 单档空 + 其余带后缀：Ok
+    let single_blank = save_full(
+        &state,
+        None,
+        "单空档端点",
+        AgentProviderProtocol::Anthropic,
+        "sk-ant-x",
+        "",
+        "claude-m[1m]",
+        "claude-y",
+        None,
+        None,
+    )
+    .expect("单档空应保存成功");
+    assert_eq!(single_blank.models.high, "");
+    assert_eq!(single_blank.models.medium, "claude-m[1m]");
+}
+
+#[test]
+fn save重复同id同载荷幂等_行数不增且后缀不叠加() {
+    let env = Env::new("save-upsert-idempotent");
+    let app = app_with_stores(&env);
+    let state = app.state::<WorkspaceStores>();
+
+    let first = save_full(
+        &state,
+        None,
+        "幂等端点",
+        AgentProviderProtocol::Anthropic,
+        "sk-ant-original",
+        "claude-sonnet-4-5[1m]",
+        "claude-m",
+        "claude-haiku-4-5",
+        Some(200_000),
+        Some(8_192),
+    )
+    .expect("首次保存应成功");
+    let count_after_first = list_agent_providers(state.clone()).unwrap().len();
+    assert_eq!(count_after_first, 1, "首次保存落一行");
+
+    // 同 id 同载荷再存（写面为 upsert 整行替换，非 append）
+    let second = save_full(
+        &state,
+        Some(first.id),
+        "幂等端点",
+        AgentProviderProtocol::Anthropic,
+        "sk-ant-original",
+        "claude-sonnet-4-5[1m]",
+        "claude-m",
+        "claude-haiku-4-5",
+        Some(200_000),
+        Some(8_192),
+    )
+    .expect("二次保存应成功");
+    assert_eq!(second.id, first.id, "id 逐字相同（无新 id）");
+    assert_eq!(second.protocol, first.protocol);
+    assert_eq!(second.max_tokens, first.max_tokens);
+    assert_eq!(
+        second.models.high, "claude-sonnet-4-5[1m]",
+        "后缀原文不叠加成 [1m][1m]"
+    );
+    assert_eq!(second.base_url, first.base_url);
+    assert_eq!(second.name, first.name);
+    assert_eq!(second.context_length, first.context_length);
+    let listed = list_agent_providers(state.clone()).unwrap();
+    assert_eq!(listed.len(), 1, "行数不增（无重复行）");
+    assert_eq!(listed[0].id, first.id, "无新 id 分配");
+
+    // 第三次把 api_key 留空：回填原值，仍一行
+    let third = save_full(
+        &state,
+        Some(first.id),
+        "幂等端点",
+        AgentProviderProtocol::Anthropic,
+        "",
+        "claude-sonnet-4-5[1m]",
+        "claude-m",
+        "claude-haiku-4-5",
+        Some(200_000),
+        Some(8_192),
+    )
+    .expect("留空 key 再存应成功");
+    assert_eq!(third.api_key, first.api_key, "回填原值后与首次逐字相同");
+    assert_eq!(list_agent_providers(state.clone()).unwrap().len(), 1);
+}
+
+#[test]
+fn save数值与字符串边界_上限不设拒收且双可空列独立组合() {
+    let env = Env::new("save-numeric-boundary");
+    let app = app_with_stores(&env);
+    let state = app.state::<WorkspaceStores>();
+
+    // max_tokens = u64::MAX：上限不设拒收
+    let huge = save_full(
+        &state,
+        None,
+        "极端上限端点",
+        AgentProviderProtocol::Anthropic,
+        "sk-ant-x",
+        "claude-x",
+        "m",
+        "l",
+        Some(u64::MAX),
+        Some(u64::MAX),
+    )
+    .expect("上限极大应保存成功");
+    assert_eq!(huge.max_tokens, Some(u64::MAX));
+    assert_eq!(huge.context_length, Some(u64::MAX));
+
+    // 双可空列四态独立组合（index 序号区分 name）
+    for (index, (context_length, max_tokens)) in [
+        (None, None),
+        (Some(131_072), None),
+        (None, Some(4_096)),
+        (Some(200_000), Some(32_000)),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let saved = save_full(
+            &state,
+            None,
+            &format!("双空列端点 {index}"),
+            AgentProviderProtocol::Anthropic,
+            "sk-ant-x",
+            "claude-x",
+            "m",
+            "l",
+            context_length,
+            max_tokens,
+        )
+        .expect("双可空列组合应保存成功");
+        assert_eq!(saved.context_length, context_length);
+        assert_eq!(saved.max_tokens, max_tokens);
+    }
+
+    // 超长模型名（>1000 字符）带后缀 + emoji / \0 / 换行：Ok 且落库保真
+    let long_model = format!("{}[1m]", "m".repeat(1_200));
+    let special = save_full(
+        &state,
+        None,
+        "怪值模型端点",
+        AgentProviderProtocol::Anthropic,
+        "sk-ant-x",
+        &long_model,
+        "claude-\u{0}-m",
+        "claude\n-y🎉",
+        None,
+        Some(4_096),
+    )
+    .expect("怪值模型名应保存成功");
+    assert_eq!(special.models.high, long_model, "超长模型名原文保真");
+    assert_eq!(special.models.medium, "claude-\u{0}-m");
+    assert_eq!(special.models.low, "claude\n-y🎉");
+}
+
+#[test]
+fn 组合保存清单重开库_协议与上限与后缀原文三面一致() {
+    let env = Env::new("save-list-reopen");
+    let saved;
+    {
+        let app = app_with_stores(&env);
+        let state = app.state::<WorkspaceStores>();
+        saved = save_full(
+            &state,
+            None,
+            "重开端点",
+            AgentProviderProtocol::Anthropic,
+            "sk-ant-reopen",
+            "claude-sonnet-4-5[1m]",
+            "claude-m[1m]",
+            "claude-haiku-4-5",
+            Some(200_000),
+            Some(8_192),
+        )
+        .expect("保存应成功");
+
+        // 清单回读逐字一致
+        let listed = list_agent_providers(state.clone()).expect("list 应成功");
+        assert_eq!(listed, vec![saved.clone()], "清单回读逐字一致");
+        assert_eq!(listed[0].protocol, AgentProviderProtocol::Anthropic);
+        assert_eq!(listed[0].max_tokens, Some(8_192));
+        assert_eq!(listed[0].models.high, "claude-sonnet-4-5[1m]");
+
+        // 显式取回托管值销毁（redb 文件锁不随 App drop 释放）
+        #[allow(deprecated)]
+        let _stores = app.unmanage::<WorkspaceStores>().expect("应处于托管中");
+    }
+
+    // WorkspaceStores 重开后三面仍一致（v3 版本链顺带落地）
+    let app = app_with_stores(&env);
+    let state = app.state::<WorkspaceStores>();
+    let reopened = list_agent_providers(state.clone()).expect("重开后 list 应成功");
+    assert_eq!(reopened, vec![saved], "重开后记录逐字一致");
+    assert_eq!(reopened[0].max_tokens, Some(8_192), "上限列持久");
+    assert_eq!(
+        reopened[0].models.medium, "claude-m[1m]",
+        "后缀原文持久（不做归一化）"
     );
 }

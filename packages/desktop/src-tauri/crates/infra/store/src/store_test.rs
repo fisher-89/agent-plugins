@@ -13,9 +13,9 @@ use crate::model::{
 };
 use crate::store::{workspace_db_file_name, GLOBAL_DB_FILE_NAME};
 use crate::{
-    AgentEngineKind, AgentInstanceRecord, AgentModelTiers, AgentProviderRecord, AgentRunRecord,
-    ChangeRecord, ExploreRecord, PhaseRecord, SessionConfigSnapshot, SessionRecord, Store,
-    StoreError, WorkspaceRecord, WorkspaceStores,
+    AgentEngineKind, AgentInstanceRecord, AgentModelTiers, AgentProviderProtocol,
+    AgentProviderRecord, AgentRunRecord, ChangeRecord, ExploreRecord, PhaseRecord,
+    SessionConfigSnapshot, SessionRecord, Store, StoreError, WorkspaceRecord, WorkspaceStores,
 };
 use workflow::model::{ChecklistItem, Verdict};
 use workflow::state::{
@@ -3810,9 +3810,11 @@ fn fixture_tiers() -> AgentModelTiers {
 fn fixture_provider(name: &str) -> AgentProviderRecord {
     AgentProviderRecord::new(
         name.to_owned(),
+        AgentProviderProtocol::Openai,
         "https://api.example.com/v1".to_owned(),
         "sk-live-1234567890".to_owned(),
         fixture_tiers(),
+        None,
         None,
     )
 }
@@ -3899,9 +3901,11 @@ fn provider_upsert_name空白err_api_key空串允许落库() {
     // api_key 空串允许落库（新建语义无原值可保）
     let blank_key = AgentProviderRecord::new(
         "空key端点".to_owned(),
+        AgentProviderProtocol::Openai,
         "https://api.example.com/v1".to_owned(),
         String::new(),
         fixture_tiers(),
+        None,
         None,
     );
     let saved = upsert_provider_ok(&store, blank_key);

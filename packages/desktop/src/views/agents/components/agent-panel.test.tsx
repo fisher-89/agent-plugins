@@ -19,9 +19,11 @@ function providerRecord(id: number, name: string): AgentProviderRecord {
   return {
     id,
     name,
+    protocol: 'openai',
     baseUrl: 'https://api.example.com/v1',
     apiKey: 'sk-live-1234567890',
     models: { high: 'm-high', medium: 'm-medium', low: 'm-low' },
+    maxTokens: null,
   };
 }
 

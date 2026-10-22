@@ -1,0 +1,456 @@
+{
+  "outcomes": [
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/commands/agents/mod.rs:61:5: replace save_agent_provider -> Result<AgentProviderRecord, String> with Ok(Default::default())",
+          "package": "dev-team",
+          "file": "src/commands/agents/mod.rs",
+          "function": {
+            "function_name": "save_agent_provider",
+            "return_type": "-> Result<AgentProviderRecord, String>",
+            "span": {
+              "start": {
+                "line": 35,
+                "column": 1
+              },
+              "end": {
+                "line": 96,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 61,
+              "column": 5
+            },
+            "end": {
+              "line": 95,
+              "column": 36
+            }
+          },
+          "replacement": "Ok(Default::default())",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Unviable",
+      "log_path": "log/src__commands__agents__mod.rs_line_61_col_5.log",
+      "diff_path": "diff/src__commands__agents__mod.rs_line_61_col_5.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 14.1204995,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=dev-team@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/store/src/model.rs:1269:9: replace <impl From<AgentProviderRecordV2> for AgentProviderRecord>::from -> Self with Default::default()",
+          "package": "store",
+          "file": "crates/infra/store/src/model.rs",
+          "function": {
+            "function_name": "<impl From<AgentProviderRecordV2> for AgentProviderRecord>::from",
+            "return_type": "-> Self",
+            "span": {
+              "start": {
+                "line": 1268,
+                "column": 5
+              },
+              "end": {
+                "line": 1279,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 1269,
+              "column": 9
+            },
+            "end": {
+              "line": 1278,
+              "column": 10
+            }
+          },
+          "replacement": "Default::default()",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Unviable",
+      "log_path": "log/crates__infra__store__src__model.rs_line_1269_col_9.log",
+      "diff_path": "diff/crates__infra__store__src__model.rs_line_1269_col_9.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 18.3466841,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=store@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/store/src/model.rs:1286:9: replace <impl From<AgentProviderRecord> for AgentProviderRecordV2>::from -> Self with Default::default()",
+          "package": "store",
+          "file": "crates/infra/store/src/model.rs",
+          "function": {
+            "function_name": "<impl From<AgentProviderRecord> for AgentProviderRecordV2>::from",
+            "return_type": "-> Self",
+            "span": {
+              "start": {
+                "line": 1285,
+                "column": 5
+              },
+              "end": {
+                "line": 1294,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 1286,
+              "column": 9
+            },
+            "end": {
+              "line": 1293,
+              "column": 10
+            }
+          },
+          "replacement": "Default::default()",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Unviable",
+      "log_path": "log/crates__infra__store__src__model.rs_line_1286_col_9.log",
+      "diff_path": "diff/crates__infra__store__src__model.rs_line_1286_col_9.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 24.1993788,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=store@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/store/src/model.rs:1202:9: replace <impl From<AgentProviderRecordV1> for AgentProviderRecordV2>::from -> Self with Default::default()",
+          "package": "store",
+          "file": "crates/infra/store/src/model.rs",
+          "function": {
+            "function_name": "<impl From<AgentProviderRecordV1> for AgentProviderRecordV2>::from",
+            "return_type": "-> Self",
+            "span": {
+              "start": {
+                "line": 1201,
+                "column": 5
+              },
+              "end": {
+                "line": 1210,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 1202,
+              "column": 9
+            },
+            "end": {
+              "line": 1209,
+              "column": 10
+            }
+          },
+          "replacement": "Default::default()",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Unviable",
+      "log_path": "log/crates__infra__store__src__model.rs_line_1202_col_9.log",
+      "diff_path": "diff/crates__infra__store__src__model.rs_line_1202_col_9.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 29.9014425,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=store@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/commands/agents/mod.rs:68:62: replace < with <= in save_agent_provider",
+          "package": "dev-team",
+          "file": "src/commands/agents/mod.rs",
+          "function": {
+            "function_name": "save_agent_provider",
+            "return_type": "-> Result<AgentProviderRecord, String>",
+            "span": {
+              "start": {
+                "line": 35,
+                "column": 1
+              },
+              "end": {
+                "line": 96,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 68,
+              "column": 62
+            },
+            "end": {
+              "line": 68,
+              "column": 63
+            }
+          },
+          "replacement": "<=",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "Unviable",
+      "log_path": "log/src__commands__agents__mod.rs_line_68_col_62_002.log",
+      "diff_path": "diff/src__commands__agents__mod.rs_line_68_col_62_002.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 45.0750842,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=dev-team@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/commands/agents/mod.rs:68:62: replace < with > in save_agent_provider",
+          "package": "dev-team",
+          "file": "src/commands/agents/mod.rs",
+          "function": {
+            "function_name": "save_agent_provider",
+            "return_type": "-> Result<AgentProviderRecord, String>",
+            "span": {
+              "start": {
+                "line": 35,
+                "column": 1
+              },
+              "end": {
+                "line": 96,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 68,
+              "column": 62
+            },
+            "end": {
+              "line": 68,
+              "column": 63
+            }
+          },
+          "replacement": ">",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "Unviable",
+      "log_path": "log/src__commands__agents__mod.rs_line_68_col_62_001.log",
+      "diff_path": "diff/src__commands__agents__mod.rs_line_68_col_62_001.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 47.3725059,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=dev-team@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "src/commands/agents/mod.rs:68:62: replace < with == in save_agent_provider",
+          "package": "dev-team",
+          "file": "src/commands/agents/mod.rs",
+          "function": {
+            "function_name": "save_agent_provider",
+            "return_type": "-> Result<AgentProviderRecord, String>",
+            "span": {
+              "start": {
+                "line": 35,
+                "column": 1
+              },
+              "end": {
+                "line": 96,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 68,
+              "column": 62
+            },
+            "end": {
+              "line": 68,
+              "column": 63
+            }
+          },
+          "replacement": "==",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "Unviable",
+      "log_path": "log/src__commands__agents__mod.rs_line_68_col_62.log",
+      "diff_path": "diff/src__commands__agents__mod.rs_line_68_col_62.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 49.6397714,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=dev-team@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/infra/store/src/model.rs:1327:9: replace <impl std::fmt::Debug for AgentProviderRecord>::fmt -> std::fmt::Result with Ok(Default::default())",
+          "package": "store",
+          "file": "crates/infra/store/src/model.rs",
+          "function": {
+            "function_name": "<impl std::fmt::Debug for AgentProviderRecord>::fmt",
+            "return_type": "-> std::fmt::Result",
+            "span": {
+              "start": {
+                "line": 1326,
+                "column": 5
+              },
+              "end": {
+                "line": 1337,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 1327,
+              "column": 9
+            },
+            "end": {
+              "line": 1336,
+              "column": 22
+            }
+          },
+          "replacement": "Ok(Default::default())",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__infra__store__src__model.rs_line_1327_col_9.log",
+      "diff_path": "diff/crates__infra__store__src__model.rs_line_1327_col_9.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 42.8357908,
+          "process_status": "Success",
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=store@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 16.1844069,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "C:\\Users\\wps\\.rustup\\toolchains\\stable-x86_64-pc-windows-msvc\\bin\\cargo.exe",
+            "test",
+            "--verbose",
+            "--package=store@0.1.0"
+          ]
+        }
+      ]
+    }
+  ],
+  "total_mutants": 8,
+  "missed": 0,
+  "caught": 1,
+  "timeout": 0,
+  "unviable": 7,
+  "success": 0,
+  "start_time": "2026-10-22T07:18:17.8205406Z",
+  "end_time": "2026-10-22T07:19:20.524668Z",
+  "cargo_mutants_version": "27.1.0"
+}

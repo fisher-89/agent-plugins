@@ -1,0 +1,25 @@
+JSON report written to C:/Users/wps/.dev-team/worktrees/wps-claude-plugin-7166d8c61feeae705846d569251abee6/provider-protocol/openspec/changes/provider-protocol/reports/baseline/packages_desktop_vite-plus/results.json
+[1m[2mnote:[0m[0m You are running [94m`vp test`[39m as a Vite+ built-in command. If you meant to run the test npm script, use [94m`vpr test`[39m instead.
+info: cargo-llvm-cov currently setting cfg(coverage); you can opt-out it by passing --no-cfg-coverage
+   Compiling foundation v0.1.0 (C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\provider-protocol\packages\desktop\src-tauri\crates\core\foundation)
+   Compiling agent v0.1.0 (C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\provider-protocol\packages\desktop\src-tauri\crates\core\agent)
+   Compiling tauri v2.11.6
+   Compiling webview2-com-sys v0.38.2
+   Compiling ucd-trie v0.1.7
+   Compiling tauri-runtime-wry v2.11.4
+   Compiling redb v2.6.3
+   Compiling native_model v0.4.20
+   Compiling native_db v0.8.2
+   Compiling hyper-rustls v0.27.10
+   Compiling getrandom v0.3.4
+   Compiling mime_guess v2.0.5
+   Compiling tao v0.35.3
+   Compiling phf v0.11.3
+   Compiling rustls-platform-verifier v0.7.0
+   Compiling itertools v0.14.0
+error: failed to write C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\provider-protocol\packages\desktop\src-tauri\target\llvm-cov-target\debug\deps\libfoundation-d9572b33e62e3a89.rmeta: 另一个程序正在使用此文件，进程无法访问。 (os error 32)
+
+error: process didn't exit successfully: `C:\Users\wps\.rustup\toolchains\stable-x86_64-pc-windows-msvc\bin\rustc.exe --crate-name foundation --edition=2021 crates\core\foundation\src\lib.rs --error-format=json --json=diagnostic-rendered-ansi,artifacts,future-incompat --crate-type lib --emit=dep-info,metadata,link -C embed-bitcode=no -C debuginfo=2 --check-cfg cfg(docsrs,test) --check-cfg "cfg(feature, values())" -C metadata=7514f80e42cd2eb1 -C extra-filename=-d9572b33e62e3a89 --out-dir C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\provider-protocol\packages\desktop\src-tauri\target\llvm-cov-target\debug\deps -C incremental=C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\provider-protocol\packages\desktop\src-tauri\target\llvm-cov-target\debug\incremental -L dependency=C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\provider-protocol\packages\desktop\src-tauri\target\llvm-cov-target\debug\deps --extern sha2=C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\provider-protocol\packages\desktop\src-tauri\target\llvm-cov-target\debug\deps\libsha2-1681d3e6622808ae.rmeta -C instrument-coverage --cfg=coverage` (exit code: 1)
+error: could not compile `foundation` (lib) due to 1 previous error
+warning: build failed, waiting for other jobs to finish...
+error: process didn't exit successfully: `C:\Users\wps\.rustup\toolchains\stable-x86_64-pc-windows-msvc\bin\cargo.exe test --tests --manifest-path C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\provider-protocol\packages\desktop\src-tauri\Cargo.toml --target-dir C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\provider-protocol\packages\desktop\src-tauri\target\llvm-cov-target --workspace` (exit code: 101)

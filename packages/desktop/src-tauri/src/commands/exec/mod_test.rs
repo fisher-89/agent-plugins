@@ -10,8 +10,8 @@ use ::agent::{
     StopRegistry,
 };
 use store::{
-    AgentEngineKind, AgentInstanceRecord, AgentModelTiers, AgentProviderRecord, AgentRunRecord,
-    SessionConfigSnapshot, SessionRecord, WorkspaceStores,
+    AgentEngineKind, AgentInstanceRecord, AgentModelTiers, AgentProviderProtocol,
+    AgentProviderRecord, AgentRunRecord, SessionConfigSnapshot, SessionRecord, WorkspaceStores,
 };
 
 use super::{
@@ -101,6 +101,7 @@ fn seed_provider(
         .global()
         .upsert_agent_provider(AgentProviderRecord::new(
             name.to_owned(),
+            AgentProviderProtocol::Openai,
             base_url.to_owned(),
             api_key.to_owned(),
             AgentModelTiers {
@@ -108,6 +109,7 @@ fn seed_provider(
                 medium: "m-medium".to_owned(),
                 low: "m-low".to_owned(),
             },
+            None,
             None,
         ))
         .expect("落 provider fixture")

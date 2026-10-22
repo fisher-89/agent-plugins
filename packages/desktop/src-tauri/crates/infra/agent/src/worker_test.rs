@@ -13,8 +13,8 @@ use agent::{
 use orchestration::port::{RunEventSink, WorkerAgentPort, WorkerRole, WorkerTurnRequest};
 use orchestration::state::RunUpdate;
 use store::{
-    AgentEngineKind, AgentInstanceRecord, AgentModelTiers, AgentProviderRecord,
-    SessionConfigSnapshot, SessionRecord, WorkspaceStores,
+    AgentEngineKind, AgentInstanceRecord, AgentModelTiers, AgentProviderProtocol,
+    AgentProviderRecord, SessionConfigSnapshot, SessionRecord, WorkspaceStores,
 };
 
 /// 父模块导入面（KernelWorkerPort / ComposedTurn 等经 worker 模块可见）。
@@ -148,6 +148,7 @@ fn seed_sdk_default(stores: &WorkspaceStores, name: &str) -> i64 {
         .global()
         .upsert_agent_provider(AgentProviderRecord::new(
             format!("{name}供应"),
+            AgentProviderProtocol::Openai,
             "http://127.0.0.1:9/v1".to_owned(),
             "sk-worker".to_owned(),
             AgentModelTiers {
@@ -155,6 +156,7 @@ fn seed_sdk_default(stores: &WorkspaceStores, name: &str) -> i64 {
                 medium: "m-medium".to_owned(),
                 low: "m-low".to_owned(),
             },
+            None,
             None,
         ))
         .expect("落 provider fixture")
@@ -181,6 +183,7 @@ fn seed_sdk_default_with_blank_provider(stores: &WorkspaceStores) {
         .global()
         .upsert_agent_provider(AgentProviderRecord::new(
             "空配置供应".to_owned(),
+            AgentProviderProtocol::Openai,
             String::new(),
             String::new(),
             AgentModelTiers {
@@ -188,6 +191,7 @@ fn seed_sdk_default_with_blank_provider(stores: &WorkspaceStores) {
                 medium: String::new(),
                 low: String::new(),
             },
+            None,
             None,
         ))
         .expect("落空配置 provider fixture")

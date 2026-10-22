@@ -7,9 +7,9 @@ use workflow::model::{ChecklistItem, Verdict};
 
 use crate::model::{
     pack_checklist_item_key, pack_session_event_key, AgentEngineKind, AgentInstanceRecord,
-    AgentModelTiers, AgentProviderRecord, AgentProviderRecordV1, AgentRunRecord, AgentRunRecordV3,
-    ChecklistItemRecord, PhaseRecord, SessionConfigSnapshot, SessionEventRecord, SessionRecord,
-    WorkspaceRecord,
+    AgentModelTiers, AgentProviderProtocol, AgentProviderRecord, AgentProviderRecordV1,
+    AgentProviderRecordV2, AgentRunRecord, AgentRunRecordV3, ChecklistItemRecord, PhaseRecord,
+    SessionConfigSnapshot, SessionEventRecord, SessionRecord, WorkspaceRecord,
 };
 use crate::store::Store;
 
@@ -496,10 +496,12 @@ fn provider构造new五参载荷与三档models与context_length逐字段保真�
     // 显式窗长：五参构造逐字段保真
     let windowed = AgentProviderRecord::new(
         "自建端点".to_owned(),
+        AgentProviderProtocol::Openai,
         "https://api.example.com/v1".to_owned(),
         "sk-live-1234567890".to_owned(),
         tiers("m-high", "m-medium", "m-low"),
         Some(200_000),
+        None,
     );
     assert_eq!(windowed.id, 0, "new 构造 id 恒置 0");
     assert_eq!(windowed.name, "自建端点");
@@ -519,9 +521,11 @@ fn provider构造new五参载荷与三档models与context_length逐字段保真�
     // 未配置：None 语义入列（不落 0 / 128000 字面）
     let record = AgentProviderRecord::new(
         "自建端点".to_owned(),
+        AgentProviderProtocol::Openai,
         "https://api.example.com/v1".to_owned(),
         "sk-live-1234567890".to_owned(),
         tiers("m-high", "m-medium", "m-low"),
+        None,
         None,
     );
     assert_eq!(record.id, 0, "new 构造 id 恒置 0");
@@ -537,9 +541,11 @@ fn provider构造new五参载荷与三档models与context_length逐字段保真�
 fn provider手写遮蔽debug输出api_key位为末三字符遮蔽形态_全文不含明文key() {
     let record = AgentProviderRecord::new(
         "遮蔽回归".to_owned(),
+        AgentProviderProtocol::Openai,
         "https://api.example.com/v1".to_owned(),
         "sk-live-1234567890".to_owned(),
         tiers("m-high", "m-medium", "m-low"),
+        None,
         None,
     );
 
@@ -566,9 +572,11 @@ fn provider遮蔽debug在api_key空串或长度不足3字符时恒sk三星号全
     for api_key in ["", "a", "ab", "abc"] {
         let record = AgentProviderRecord::new(
             "过短兜底".to_owned(),
+            AgentProviderProtocol::Openai,
             "https://api.example.com/v1".to_owned(),
             api_key.to_owned(),
             tiers("h", "m", "l"),
+            None,
             None,
         );
 
@@ -591,9 +599,11 @@ fn provider遮蔽debug在api_key空串或长度不足3字符时恒sk三星号全
 fn provider构造特殊字符字段clone与partial_eq保真且models三档全空串构造合法() {
     let record = AgentProviderRecord::new(
         "名 字 中文 🎉 \"引号\"\n换行".to_owned(),
+        AgentProviderProtocol::Openai,
         "https://例子.测试/v1 🚀".to_owned(),
         "带 空格 的 \"key\" 🎉\n".to_owned(),
         tiers("", "", ""),
+        None,
         None,
     );
 
@@ -612,21 +622,23 @@ fn provider_roundtrip(record: &AgentProviderRecord) -> AgentProviderRecord {
     let (decoded, version) =
         native_model::decode::<AgentProviderRecord>(bytes).expect("native_model decode 应成功");
     assert_eq!(
-        version, 2,
-        "native_model 版本封装为 version 2（context_length 演进落位）"
+        version, 3,
+        "native_model 版本封装为 version 3（protocol / max_tokens 演进落位）"
     );
     decoded
 }
 
 #[test]
-fn provider嵌装往返v2含context_length双态逐字段相等() {
+fn provider嵌装往返v3含context_length双态逐字段相等() {
     for context_length in [Some(200_000u64), None] {
         let record = AgentProviderRecord::new(
             "往返回归".to_owned(),
+            AgentProviderProtocol::Openai,
             "https://api.example.com/v1".to_owned(),
             "sk-live-1234567890".to_owned(),
             tiers("m-high", "m-medium", "m-low"),
             context_length,
+            None,
         );
 
         let decoded = provider_roundtrip(&record);
@@ -644,18 +656,20 @@ fn provider嵌装往返v2含context_length双态逐字段相等() {
 
 #[test]
 fn provider记录编解码版本断言2() {
-    // envelope 版本演进落位：v2 编码载荷按 v2 解出（版本头 = 2）
+    // envelope 版本演进落位：v3 编码载荷按 v3 解出（版本头 = 3）
     let record = AgentProviderRecord::new(
         "版本头".to_owned(),
+        AgentProviderProtocol::Openai,
         "https://api.example.com/v1".to_owned(),
         "sk-live-1234567890".to_owned(),
         tiers("m-high", "m-medium", "m-low"),
         Some(200_000),
+        None,
     );
     let bytes = native_model::encode(&record).expect("native_model encode 应成功");
     let (_decoded, version) =
         native_model::decode::<AgentProviderRecord>(bytes).expect("native_model decode 应成功");
-    assert_eq!(version, 2, "native_model 版本封装为 version 2");
+    assert_eq!(version, 3, "native_model 版本封装为 version 3");
 }
 
 #[test]
@@ -676,10 +690,10 @@ fn 存量v1行经版本机制升级读入且context_length置none() {
     assert_eq!(legacy_version, 1, "存量形态封装为 version 1");
     assert_eq!(legacy_decoded, legacy, "v1 载荷按 v1 解码逐字段相等");
 
-    // 同一载荷经版本机制自动升级为 v2：context_length = None（旧记录缺列读
-    // 兼容，v3→v4 先例同型），五字段原值保留
+    // 同一载荷经版本机制逐级自动升级至当前形态：context_length = None（旧记录
+    // 缺列读兼容，v3→v4 先例同型），五字段原值保留
     let (upgraded, version) =
-        native_model::decode::<AgentProviderRecord>(legacy_bytes).expect("v1 载荷应升级为 v2");
+        native_model::decode::<AgentProviderRecord>(legacy_bytes).expect("v1 载荷应逐级升级");
     assert_eq!(
         version, 1,
         "decode 返回载荷头版本（升级链源版本）；升级由值面承载（下方逐字段）"
@@ -705,7 +719,9 @@ fn v1_from双向upgrade补none与downgrade丢新字段无损() {
         api_key: "sk-live-1234567890".to_owned(),
         models: tiers("h", "m", "l"),
     };
-    let upgraded = AgentProviderRecord::from(legacy.clone());
+    // 逐级链：v1 → v2（补 context_length）→ v3（补 protocol / max_tokens），
+    // 无跳级 `From`（`ExploreRecord` V1 → V4 先例）
+    let upgraded = AgentProviderRecord::from(AgentProviderRecordV2::from(legacy.clone()));
     assert_eq!(
         upgraded.context_length, None,
         "升级补 context_length = None（缺列读兼容）"
@@ -719,13 +735,16 @@ fn v1_from双向upgrade补none与downgrade丢新字段无损() {
     // downgrade：记录 → V1，丢新字段无损（五字段原形还原；id / name 对齐后比较）
     let mut record = AgentProviderRecord::new(
         "双向供应".to_owned(),
+        AgentProviderProtocol::Openai,
         "https://api.example.com/v1".to_owned(),
         "sk-live-1234567890".to_owned(),
         tiers("h", "m", "l"),
         Some(200_000),
+        None,
     );
     record.id = legacy.id;
-    let downgraded = AgentProviderRecordV1::from(record);
+    // 逆序逐级链：v3 → v2（丢 protocol / max_tokens）→ v1（丢 context_length）
+    let downgraded = AgentProviderRecordV1::from(AgentProviderRecordV2::from(record));
     assert_eq!(downgraded, legacy, "降级还原五字段原形（新字段丢弃无损）");
 }
 
@@ -733,10 +752,12 @@ fn v1_from双向upgrade补none与downgrade丢新字段无损() {
 fn provider遮蔽debug补context_length位且api_key位仍遮蔽() {
     let record = AgentProviderRecord::new(
         "窗长遮蔽".to_owned(),
+        AgentProviderProtocol::Openai,
         "https://api.example.com/v1".to_owned(),
         "sk-live-1234567890".to_owned(),
         tiers("m-high", "m-medium", "m-low"),
         Some(200_000),
+        None,
     );
 
     let debug_text = format!("{record:?}");
@@ -753,9 +774,11 @@ fn provider遮蔽debug补context_length位且api_key位仍遮蔽() {
     // None 形态同在位
     let none_record = AgentProviderRecord::new(
         "缺列遮蔽".to_owned(),
+        AgentProviderProtocol::Openai,
         "https://api.example.com/v1".to_owned(),
         "sk-live-1234567890".to_owned(),
         tiers("m-high", "m-medium", "m-low"),
+        None,
         None,
     );
     assert!(
@@ -768,10 +791,12 @@ fn provider遮蔽debug补context_length位且api_key位仍遮蔽() {
 fn provider_serde线格式含context_length键且null与缺席均解为none() {
     let record = AgentProviderRecord::new(
         "线窗长".to_owned(),
+        AgentProviderProtocol::Openai,
         "https://api.example.com/v1".to_owned(),
         "sk-live-1234567890".to_owned(),
         tiers("m-high", "m-medium", "m-low"),
         Some(200_000),
+        None,
     );
     let value = serde_json::to_value(&record).expect("serde 序列化应成功");
     assert_eq!(
@@ -783,9 +808,11 @@ fn provider_serde线格式含context_length键且null与缺席均解为none() {
     // null 形态：解为 None
     let none_record = AgentProviderRecord::new(
         "线缺列".to_owned(),
+        AgentProviderProtocol::Openai,
         "https://api.example.com/v1".to_owned(),
         "sk-live-1234567890".to_owned(),
         tiers("m-high", "m-medium", "m-low"),
+        None,
         None,
     );
     let none_value = serde_json::to_value(&none_record).expect("序列化应成功");
@@ -853,9 +880,11 @@ fn instance构造new恒id0与is_defaultfalse且engine两变体与provider_id两�
 fn 管理记录serde线格式键名为小驼峰且engine出线cli与sdk串值() {
     let provider = AgentProviderRecord::new(
         "线格式".to_owned(),
+        AgentProviderProtocol::Openai,
         "https://api.example.com/v1".to_owned(),
         "sk-live-1234567890".to_owned(),
         tiers("m-high", "m-medium", "m-low"),
+        None,
         None,
     );
     let provider_value = serde_json::to_value(&provider).expect("serde 序列化应成功");
@@ -2716,15 +2745,18 @@ fn run_node_record_clean词节点往返等值() {
 
     // native_model encode/decode 回环（serde 词面承载——零迁移）
     let bytes = native_model::encode(&record).expect("encode 应成功");
-    let (decoded, version) =
-        native_model::decode::<RunNodeRecord>(bytes).expect("decode 应成功");
+    let (decoded, version) = native_model::decode::<RunNodeRecord>(bytes).expect("decode 应成功");
     assert_eq!(version, 1, "native_model id=16 版本封装 version 1 持衡");
     assert_eq!(decoded, record, "clean 词节点回环逐字段相等");
     assert_eq!(decoded.step, RunStepKind::Clean);
 
     // serde_json 线面：step 词 `clean` 逐字（与 cleanup 词面可辨）+ node_id()
     let value = serde_json::to_value(&record).expect("serde_json 出线应成功");
-    assert_eq!(value["step"], serde_json::json!("clean"), "线词白名单扩展在案");
+    assert_eq!(
+        value["step"],
+        serde_json::json!("clean"),
+        "线词白名单扩展在案"
+    );
     assert_eq!(
         record.node_id(),
         "implement:1:clean:0",
@@ -2752,15 +2784,18 @@ fn run_node_record_cleanup词节点往返等值() {
 
     // native_model encode/decode 回环（serde 词面承载——零迁移）
     let bytes = native_model::encode(&record).expect("encode 应成功");
-    let (decoded, version) =
-        native_model::decode::<RunNodeRecord>(bytes).expect("decode 应成功");
+    let (decoded, version) = native_model::decode::<RunNodeRecord>(bytes).expect("decode 应成功");
     assert_eq!(version, 1, "native_model id=16 版本封装 version 1 持衡");
     assert_eq!(decoded, record, "cleanup 词节点回环逐字段相等");
     assert_eq!(decoded.step, RunStepKind::Cleanup);
 
     // serde_json 线面：step 词 `cleanup` 逐字 + node_id() 身份串含词面
     let value = serde_json::to_value(&record).expect("serde_json 出线应成功");
-    assert_eq!(value["step"], serde_json::json!("cleanup"), "线词白名单扩展在案");
+    assert_eq!(
+        value["step"],
+        serde_json::json!("cleanup"),
+        "线词白名单扩展在案"
+    );
     assert_eq!(
         record.node_id(),
         "implement:1:cleanup:0",
@@ -2847,8 +2882,7 @@ fn run_node_record_step越集词反序列化拒绝持衡() {
         "archive_stage",
         "",
     ] {
-        let back: Result<RunStepKind, _> =
-            serde_json::from_value(serde_json::json!(illegal));
+        let back: Result<RunStepKind, _> = serde_json::from_value(serde_json::json!(illegal));
         assert!(back.is_err(), "RunStepKind 越集词 {illegal:?} 应拒绝");
     }
 }
@@ -2887,7 +2921,10 @@ fn run_node_record四字段全值直复制与timestamp独立() {
     assert_eq!(record.token_output, Some(3_400), "token_output 直复制");
     // timestamp 独立赋值：与 started_at 语义分立（整包同刻 = finished_at）
     assert_eq!(record.timestamp, 1_727_000_300_000);
-    assert_ne!(record.timestamp, record.started_at, "timestamp 与 started_at 不混淆");
+    assert_ne!(
+        record.timestamp, record.started_at,
+        "timestamp 与 started_at 不混淆"
+    );
 }
 
 /// 正向：native_model 编码 → decode 回环四列逐字段一致（id=16 version=1 编解码
@@ -2902,8 +2939,7 @@ fn run_node_record四列编解码回环逐字段一致() {
         1_727_000_300_000,
     );
     let bytes = native_model::encode(&record).expect("encode 应成功");
-    let (decoded, version) =
-        native_model::decode::<RunNodeRecord>(bytes).expect("decode 应成功");
+    let (decoded, version) = native_model::decode::<RunNodeRecord>(bytes).expect("decode 应成功");
     assert_eq!(version, 1, "id=16 version=1 持衡");
     assert_eq!(decoded.started_at, record.started_at);
     assert_eq!(decoded.ended_at, record.ended_at);
@@ -2966,7 +3002,10 @@ fn run_node_record同run多行node_seq递增不撞键身份面持衡() {
         .map(|seq| RunNodeRecord::new("run-same", "chg-demo", seq, &entry, 1).node_key)
         .collect();
     for pair in keys.windows(2) {
-        assert!(pair[0] < pair[1], "同 run node_seq 递增 → node_key 严格增大");
+        assert!(
+            pair[0] < pair[1],
+            "同 run node_seq 递增 → node_key 严格增大"
+        );
     }
     let record = RunNodeRecord::new("run-same", "chg-demo", 7, &entry, 1);
     assert_eq!(record.node_seq(), 7, "node_seq() = 打包键低 64 位");
@@ -3046,8 +3085,8 @@ fn run_node_record编解码再编码字节形态一致() {
 #[test]
 fn run_node_record真件落库读回四列逐字段一致() {
     use workflow::state::{
-        ChangeStateRecord, ChangeStatus, RunFinishCommand, RunNodeEntry as Entry,
-        RunStartCommand, RunStatus,
+        ChangeStateRecord, ChangeStatus, RunFinishCommand, RunNodeEntry as Entry, RunStartCommand,
+        RunStatus,
     };
 
     let db_dir = tempfile::Builder::new()
@@ -3268,4 +3307,608 @@ fn run_node_record_v1线格式冻结守卫_未版本化字段或枚举中插即�
     assert_eq!(decoded.token_input, Some(12_000));
     assert_eq!(decoded.token_output, Some(3_400));
     assert_eq!(decoded.timestamp, 1_727_000_300_000);
+}
+
+// ---------------------------------------------------------------------------
+// provider 协议 / 输出上限两列演进（AC-1 / AC-2 / AC-3）：七参构造、v2→v3
+// 升级链、降级半边、版本头、变体序号锚、模型组注册、serde 线值与拒收面、
+// 遮蔽 Debug 扩位
+// ---------------------------------------------------------------------------
+
+/// 变体序号锚载体（bincode 尾随 u32 变体序号，字节级钉死）。
+#[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+#[native_model::native_model(id = 701, version = 1)]
+struct ProtocolOrdinalAnchor {
+    protocol: AgentProviderProtocol,
+}
+
+#[test]
+fn provider构造new七参载荷协议与上限逐字段保真且id置0() {
+    // anthropic 臂：七字段逐字段保真（protocol 紧跟 name）
+    let anthropic = AgentProviderRecord::new(
+        "端点".to_owned(),
+        AgentProviderProtocol::Anthropic,
+        "https://api.anthropic.com".to_owned(),
+        "sk-ant-x".to_owned(),
+        tiers("claude-x", "claude-m", "claude-y"),
+        Some(200_000),
+        Some(8192),
+    );
+    assert_eq!(anthropic.id, 0, "new 构造 id 恒置 0（写事务内 max+1 覆盖）");
+    assert_eq!(anthropic.name, "端点");
+    assert_eq!(
+        anthropic.protocol,
+        AgentProviderProtocol::Anthropic,
+        "protocol 逐字段保真"
+    );
+    assert_eq!(anthropic.base_url, "https://api.anthropic.com");
+    assert_eq!(anthropic.api_key, "sk-ant-x");
+    assert_eq!(anthropic.models, tiers("claude-x", "claude-m", "claude-y"));
+    assert_eq!(anthropic.context_length, Some(200_000));
+    assert_eq!(anthropic.max_tokens, Some(8192), "max_tokens 逐字段保真");
+
+    // openai 臂 + max_tokens = None（未配置语义，不落缺省字面）
+    let openai = AgentProviderRecord::new(
+        "端点".to_owned(),
+        AgentProviderProtocol::Openai,
+        "https://api.example.com/v1".to_owned(),
+        "sk-x".to_owned(),
+        tiers("h", "m", "l"),
+        None,
+        None,
+    );
+    assert_eq!(openai.protocol, AgentProviderProtocol::Openai);
+    assert_eq!(openai.max_tokens, None, "None = 按协议缺省");
+    assert_ne!(openai, anthropic, "协议 / 上限不同两记录可区分");
+}
+
+#[test]
+fn provider构造可空列四组合逐字段透传零校验零缺省字面() {
+    for (context_length, max_tokens) in [
+        (None, None),
+        (Some(0), None),
+        (None, Some(0)),
+        (Some(u64::MAX), Some(u64::MAX)),
+    ] {
+        let record = AgentProviderRecord::new(
+            "可空列组合".to_owned(),
+            AgentProviderProtocol::Anthropic,
+            "https://api.anthropic.com".to_owned(),
+            "sk-x".to_owned(),
+            tiers("h", "m", "l"),
+            context_length,
+            max_tokens,
+        );
+        assert_eq!(
+            record.context_length, context_length,
+            "context_length 原样透传（组合 {context_length:?} / {max_tokens:?}）"
+        );
+        assert_eq!(
+            record.max_tokens, max_tokens,
+            "max_tokens 原样透传（构造侧零校验、不落 0 / 32000 缺省字面）"
+        );
+        // 往返保真（两列经编解码不漂移）
+        assert_eq!(provider_roundtrip(&record), record);
+    }
+}
+
+#[test]
+fn provider构造字符串边界保真且不新增拒收面() {
+    let long_url = format!("https://例子.测试/{}/v1", "x".repeat(1_200));
+    // 空串 name / base_url / api_key + 三档全空串：构造合法（保存期拒收面在命令层）
+    let blank = AgentProviderRecord::new(
+        String::new(),
+        AgentProviderProtocol::Anthropic,
+        String::new(),
+        String::new(),
+        tiers("", "", ""),
+        None,
+        None,
+    );
+    assert_eq!(blank.name, "", "空 name 构造合法");
+    assert_eq!(blank.base_url, "");
+    assert_eq!(blank.api_key, "");
+    assert_eq!(blank.models, tiers("", "", ""));
+
+    // 超长 base_url + 特殊字符字段：构造合法且保真
+    let special = AgentProviderRecord::new(
+        "名 字\n\u{0}🎉".to_owned(),
+        AgentProviderProtocol::Anthropic,
+        long_url.clone(),
+        "sk-带 空格 🎉".to_owned(),
+        tiers("模型-🎉[1m]", "模型 [1m]", "claude-y"),
+        Some(1),
+        Some(4_096),
+    );
+    assert_eq!(special.base_url, long_url, "超长 base_url 不截断");
+    assert_eq!(special.models.high, "模型-🎉[1m]", "[1m] 原文原样保存");
+    assert_eq!(
+        special.clone(),
+        special,
+        "特殊字符字段 Clone / PartialEq 保真"
+    );
+}
+
+#[test]
+fn provider_v2载荷升级为v3_protocol缺省openai与max_tokens缺省none() {
+    let v2 = AgentProviderRecordV2 {
+        id: 12,
+        name: "存量 v2 供应".to_owned(),
+        base_url: "https://legacy.example.com/v1".to_owned(),
+        api_key: "sk-legacy-1234567890".to_owned(),
+        models: tiers("v2-high", "v2-medium", "v2-low"),
+        context_length: Some(131_072),
+    };
+    let bytes = native_model::encode(&v2).expect("encode v2 应成功");
+
+    // v2 载荷可按 v2 形态解出（版本头 2）
+    let (decoded_v2, version) =
+        native_model::decode::<AgentProviderRecordV2>(bytes.clone()).expect("v2 载荷可按 v2 解码");
+    assert_eq!(version, 2, "v2 形态封装为 version 2");
+    assert_eq!(decoded_v2, v2);
+
+    // 同一载荷逐级升级至 v3：协议缺省 openai、上限未配置，其余逐字段相等
+    let (upgraded, _) =
+        native_model::decode::<AgentProviderRecord>(bytes).expect("v2 载荷应升级为 v3");
+    assert_eq!(
+        upgraded.protocol,
+        AgentProviderProtocol::Openai,
+        "存量行协议缺省 openai（行为零变化）"
+    );
+    assert_eq!(upgraded.max_tokens, None, "存量行上限未配置");
+    assert_eq!(
+        upgraded.context_length,
+        Some(131_072),
+        "已有 context_length 保留"
+    );
+    assert_eq!(upgraded.id, 12);
+    assert_eq!(upgraded.name, "存量 v2 供应");
+    assert_eq!(upgraded.base_url, "https://legacy.example.com/v1");
+    assert_eq!(upgraded.api_key, "sk-legacy-1234567890");
+    assert_eq!(upgraded.models, tiers("v2-high", "v2-medium", "v2-low"));
+}
+
+#[test]
+fn provider_v1载荷经两级链升级读入且新列全缺省() {
+    let v1 = AgentProviderRecordV1 {
+        id: 13,
+        name: "存量 v1 供应".to_owned(),
+        base_url: "https://legacy.example.com/v1".to_owned(),
+        api_key: "sk-legacy-v1-1234567890".to_owned(),
+        models: tiers("v1-high", "v1-medium", "v1-low"),
+    };
+    let bytes = native_model::encode(&v1).expect("encode v1 应成功");
+
+    // v1 → v2 → v3 逐级链（无跳级 From impl）
+    let via_steps = AgentProviderRecord::from(AgentProviderRecordV2::from(v1.clone()));
+    let (via_decode, version) =
+        native_model::decode::<AgentProviderRecord>(bytes).expect("v1 载荷应逐级升级");
+    assert_eq!(version, 1, "decode 返回载荷头版本（升级链源版本）");
+    assert_eq!(via_decode, via_steps, "版本机制升级与逐级 From 链产物一致");
+    assert_eq!(via_decode.protocol, AgentProviderProtocol::Openai);
+    assert_eq!(via_decode.max_tokens, None);
+    assert_eq!(via_decode.context_length, None);
+    assert_eq!(via_decode.id, 13);
+    assert_eq!(via_decode.models, tiers("v1-high", "v1-medium", "v1-low"));
+}
+
+#[test]
+fn provider_v2直达升级与降级半边逐字段对位() {
+    let v1 = AgentProviderRecordV1 {
+        id: 14,
+        name: "直达供应".to_owned(),
+        base_url: "https://api.example.com/v1".to_owned(),
+        api_key: "sk-live-1234567890".to_owned(),
+        models: tiers("h", "m", "l"),
+    };
+
+    // V1 → V2：补 context_length = None
+    let v2 = AgentProviderRecordV2::from(v1.clone());
+    assert_eq!(v2.id, v1.id);
+    assert_eq!(v2.name, v1.name);
+    assert_eq!(v2.base_url, v1.base_url);
+    assert_eq!(v2.api_key, v1.api_key);
+    assert_eq!(v2.models, v1.models);
+    assert_eq!(v2.context_length, None, "V1→V2 补 context_length = None");
+
+    // V2 → V3：补 protocol = Openai 与 max_tokens = None
+    let v3 = AgentProviderRecord::from(v2.clone());
+    assert_eq!(v3.protocol, AgentProviderProtocol::Openai, "V2→V3 补协议");
+    assert_eq!(v3.max_tokens, None, "V2→V3 补上限");
+    assert_eq!(v3.context_length, v2.context_length);
+
+    // 降级半边：V3 → V2 丢 protocol / max_tokens，其余保真
+    let mut record = v3.clone();
+    record.protocol = AgentProviderProtocol::Anthropic;
+    record.max_tokens = Some(8192);
+    let downgraded_v2 = AgentProviderRecordV2::from(record.clone());
+    assert_eq!(
+        downgraded_v2, v2,
+        "V3→V2 丢两新列后与升级源等值（其余保真）"
+    );
+
+    // V2 → V1 再丢 context_length
+    let downgraded_v1 = AgentProviderRecordV1::from(downgraded_v2);
+    assert_eq!(
+        downgraded_v1, v1,
+        "V2→V1 再丢 context_length（不承诺降级数据真实性）"
+    );
+}
+
+#[test]
+fn provider版本头三层逐字为3与2与1() {
+    let record = AgentProviderRecord::new(
+        "版本头".to_owned(),
+        AgentProviderProtocol::Anthropic,
+        "https://api.anthropic.com".to_owned(),
+        "sk-x".to_owned(),
+        tiers("h", "m", "l"),
+        None,
+        Some(8192),
+    );
+    let (_, version) = native_model::decode::<AgentProviderRecord>(
+        native_model::encode(&record).expect("encode v3"),
+    )
+    .expect("decode v3");
+    assert_eq!(
+        version, 3,
+        "当前形态版本头 3（protocol / max_tokens 演进落位）"
+    );
+
+    let v2 = AgentProviderRecordV2 {
+        id: 1,
+        name: "v2".to_owned(),
+        base_url: "u".to_owned(),
+        api_key: "k".to_owned(),
+        models: tiers("h", "m", "l"),
+        context_length: None,
+    };
+    let (_, version) = native_model::decode::<AgentProviderRecordV2>(
+        native_model::encode(&v2).expect("encode v2"),
+    )
+    .expect("decode v2");
+    assert_eq!(version, 2, "v2 中转形态版本头 2");
+
+    let v1 = AgentProviderRecordV1 {
+        id: 1,
+        name: "v1".to_owned(),
+        base_url: "u".to_owned(),
+        api_key: "k".to_owned(),
+        models: tiers("h", "m", "l"),
+    };
+    let (_, version) = native_model::decode::<AgentProviderRecordV1>(
+        native_model::encode(&v1).expect("encode v1"),
+    )
+    .expect("decode v1");
+    assert_eq!(version, 1, "v1 历史形态版本头 1");
+}
+
+#[test]
+fn agent_provider_protocol变体序号锚_openai恰0_anthropic恰1字节级() {
+    let openai = native_model::encode(&ProtocolOrdinalAnchor {
+        protocol: AgentProviderProtocol::Openai,
+    })
+    .expect("encode Openai 锚");
+    let anthropic = native_model::encode(&ProtocolOrdinalAnchor {
+        protocol: AgentProviderProtocol::Anthropic,
+    })
+    .expect("encode Anthropic 锚");
+    assert_eq!(
+        &openai[8..12],
+        &[0, 0, 0, 0],
+        "Openai 编码恰序号 0（u32 小端，变体声明序即解码锚）"
+    );
+    assert_eq!(
+        &anthropic[8..12],
+        &[1, 0, 0, 0],
+        "Anthropic 编码恰序号 1（重排即存量行协议读错）"
+    );
+
+    // 反向解码锚：序号字节 1 → Anthropic 命中
+    let (decoded, _) =
+        native_model::decode::<ProtocolOrdinalAnchor>(anthropic).expect("序号 1 解码应成功");
+    assert_eq!(decoded.protocol, AgentProviderProtocol::Anthropic);
+    // 越界序号拒解不 panic（防静默错位）
+    let mut rogue = native_model::encode(&ProtocolOrdinalAnchor {
+        protocol: AgentProviderProtocol::Openai,
+    })
+    .expect("encode 锚");
+    rogue[8] = 2;
+    assert!(
+        native_model::decode::<ProtocolOrdinalAnchor>(rogue).is_err(),
+        "序号 2 越界必须拒解"
+    );
+}
+
+#[test]
+fn provider模型组注册_当前形态id5版本3且中转形态不入库模型组() {
+    // 注册锚：当前形态 id 5 / version 3；两中转形态同 id 不同版本，仅作升级链
+    // 解码目标（无 `#[native_db]` 派生 → 结构上不可注册进库模型组）
+    assert_eq!(
+        <AgentProviderRecord as native_model::Model>::native_model_id(),
+        5
+    );
+    assert_eq!(
+        <AgentProviderRecord as native_model::Model>::native_model_version(),
+        3
+    );
+    assert_eq!(
+        <AgentProviderRecordV1 as native_model::Model>::native_model_version(),
+        1
+    );
+    assert_eq!(
+        <AgentProviderRecordV2 as native_model::Model>::native_model_version(),
+        2
+    );
+
+    // 全局库（user 维度）以当前形态落库可读：模型组注册成功的运行时半边
+    let dir = tempfile::Builder::new()
+        .prefix("store-test-provider-group-")
+        .tempdir()
+        .expect("创建临时目录失败");
+    let stores = crate::store::WorkspaceStores::open(dir.path()).expect("打开全局库应成功");
+    let record = AgentProviderRecord::new(
+        "组注册".to_owned(),
+        AgentProviderProtocol::Anthropic,
+        "https://api.anthropic.com".to_owned(),
+        "sk-x".to_owned(),
+        tiers("h", "m", "l"),
+        Some(200_000),
+        Some(8192),
+    );
+    let stored = stores
+        .global()
+        .upsert_agent_provider(record)
+        .expect("provider 落库应成功（模型组注册面）");
+    let listed = stores.global().list_agent_providers().expect("清单应成功");
+    assert_eq!(listed, vec![stored.clone()], "清单回读落库记录");
+    assert_eq!(
+        listed[0].protocol,
+        AgentProviderProtocol::Anthropic,
+        "新列经真库往返不漂移"
+    );
+    assert_eq!(listed[0].max_tokens, Some(8192));
+}
+
+#[test]
+fn provider_serde线值协议小驼峰与上限键在案() {
+    let record = AgentProviderRecord::new(
+        "线值".to_owned(),
+        AgentProviderProtocol::Anthropic,
+        "https://api.anthropic.com".to_owned(),
+        "sk-x".to_owned(),
+        tiers("h", "m", "l"),
+        Some(200_000),
+        Some(8192),
+    );
+    let value = serde_json::to_value(&record).expect("serialize 应成功");
+    assert_eq!(
+        value["protocol"],
+        serde_json::json!("anthropic"),
+        "协议线值逐字 anthropic（camelCase 值域）"
+    );
+    assert_eq!(
+        value["maxTokens"],
+        serde_json::json!(8192),
+        "maxTokens 键在线且携数值"
+    );
+
+    let openai = AgentProviderRecord {
+        protocol: AgentProviderProtocol::Openai,
+        ..record.clone()
+    };
+    assert_eq!(
+        serde_json::to_value(&openai).expect("serialize")["protocol"],
+        serde_json::json!("openai"),
+        "协议线值逐字 openai"
+    );
+
+    // None → null，反序列化后与 PartialEq 相等
+    let none_tokens = AgentProviderRecord {
+        max_tokens: None,
+        ..record.clone()
+    };
+    let none_value = serde_json::to_value(&none_tokens).expect("serialize");
+    assert_eq!(none_value["maxTokens"], serde_json::Value::Null);
+    let back: AgentProviderRecord = serde_json::from_value(value).expect("deserialize 应成功");
+    assert_eq!(back, record, "线值往返逐字段相等");
+}
+
+#[test]
+fn provider_serde缺列兼容_协议缺省openai与上限缺省none() {
+    let record = AgentProviderRecord::new(
+        "缺列".to_owned(),
+        AgentProviderProtocol::Openai,
+        "https://api.example.com/v1".to_owned(),
+        "sk-x".to_owned(),
+        tiers("h", "m", "l"),
+        None,
+        None,
+    );
+    let value = serde_json::to_value(&record).expect("serialize");
+
+    // protocol 键缺席 → Openai（#[serde(default)]）
+    let mut no_protocol = value.clone();
+    no_protocol
+        .as_object_mut()
+        .expect("object 形态")
+        .remove("protocol");
+    let back: AgentProviderRecord = serde_json::from_value(no_protocol).expect("缺协议键可读");
+    assert_eq!(
+        back.protocol,
+        AgentProviderProtocol::Openai,
+        "缺列读兼容：协议缺省 openai"
+    );
+
+    // maxTokens 键缺席 → None
+    let mut no_tokens = value.clone();
+    no_tokens
+        .as_object_mut()
+        .expect("object 形态")
+        .remove("maxTokens");
+    let back: AgentProviderRecord = serde_json::from_value(no_tokens).expect("缺上限键可读");
+    assert_eq!(back.max_tokens, None, "缺列读兼容：上限未配置");
+
+    // 两键同时缺席（v2 线格式）→ 记录可读且语义等于升级结果
+    let mut v2_wire = value;
+    {
+        let object = v2_wire.as_object_mut().expect("object 形态");
+        object.remove("protocol");
+        object.remove("maxTokens");
+    }
+    let back: AgentProviderRecord = serde_json::from_value(v2_wire).expect("v2 线格式可读");
+    assert_eq!(back.protocol, AgentProviderProtocol::Openai);
+    assert_eq!(back.max_tokens, None);
+    assert_eq!(back.name, "缺列");
+    assert_eq!(back.models, tiers("h", "m", "l"));
+}
+
+#[test]
+fn provider_serde非法载荷拒收不静默兜底() {
+    let base = serde_json::to_value(AgentProviderRecord::new(
+        "非法载荷".to_owned(),
+        AgentProviderProtocol::Openai,
+        "https://api.example.com/v1".to_owned(),
+        "sk-x".to_owned(),
+        tiers("h", "m", "l"),
+        None,
+        None,
+    ))
+    .expect("serialize");
+
+    // 协议非法线值（大小写变体 / 未知枚举 / 空串 / null）→ Err
+    for illegal in [
+        serde_json::json!("Openai"),
+        serde_json::json!("claude"),
+        serde_json::json!(""),
+        serde_json::Value::Null,
+    ] {
+        let mut value = base.clone();
+        value
+            .as_object_mut()
+            .expect("object 形态")
+            .insert("protocol".to_owned(), illegal.clone());
+        assert!(
+            serde_json::from_value::<AgentProviderRecord>(value).is_err(),
+            "协议非法线值 {illegal} 必须拒收（值域受控，不静默兜底）"
+        );
+    }
+
+    // 上限非法形态（负值 / 小数 / 字符串 / 超 u64 上界）→ Err
+    for illegal in [
+        serde_json::json!(-1),
+        serde_json::json!(1.5),
+        serde_json::json!("8192"),
+        // u64::MAX + 1（超出 u64 上界，serde_json 以 f64 承载后仍须拒解）
+        serde_json::from_str::<serde_json::Value>("18446744073709551616").expect("JSON 数值解析"),
+    ] {
+        let mut value = base.clone();
+        value
+            .as_object_mut()
+            .expect("object 形态")
+            .insert("maxTokens".to_owned(), illegal.clone());
+        assert!(
+            serde_json::from_value::<AgentProviderRecord>(value).is_err(),
+            "上限非法形态 {illegal} 必须拒收"
+        );
+    }
+}
+
+#[test]
+fn provider遮蔽debug含协议与上限两位且api_key位仍遮蔽() {
+    for protocol in [
+        AgentProviderProtocol::Openai,
+        AgentProviderProtocol::Anthropic,
+    ] {
+        let record = AgentProviderRecord::new(
+            "遮蔽扩位".to_owned(),
+            protocol,
+            "https://api.example.com/v1".to_owned(),
+            "sk-live-1234567890".to_owned(),
+            tiers("h", "m", "l"),
+            None,
+            Some(8192),
+        );
+        let debug_text = format!("{record:?}");
+        assert!(
+            debug_text.contains(&format!("protocol: {protocol:?}")),
+            "Debug 输出含 protocol 位（{protocol:?}），实际: {debug_text}"
+        );
+        assert!(
+            debug_text.contains("max_tokens: Some(8192)"),
+            "Debug 输出含 max_tokens 位，实际: {debug_text}"
+        );
+        assert!(
+            debug_text.contains("api_key: \"sk-***890\""),
+            "api_key 位仍为 sk-***abc 遮蔽形态，实际: {debug_text}"
+        );
+        assert!(
+            !debug_text.contains("sk-live-1234567890"),
+            "全文不含明文 key，实际: {debug_text}"
+        );
+    }
+
+    // 两列 None 形态：位不缺失（呈现 None）
+    let none_record = AgentProviderRecord::new(
+        "遮蔽缺列".to_owned(),
+        AgentProviderProtocol::Openai,
+        "https://api.example.com/v1".to_owned(),
+        "sk-live-1234567890".to_owned(),
+        tiers("h", "m", "l"),
+        None,
+        None,
+    );
+    let debug_text = format!("{none_record:?}");
+    assert!(
+        debug_text.contains("context_length: None") && debug_text.contains("max_tokens: None"),
+        "两列 None 时位不缺失，实际: {debug_text}"
+    );
+}
+
+#[test]
+fn provider遮蔽debug兜底与极端上限位面且不改partial_eq() {
+    // api_key 空串 / 长度 < 3：恒 sk-*** 全遮蔽（既有兜底不回归）
+    for api_key in ["", "a", "ab", "abc"] {
+        let record = AgentProviderRecord::new(
+            "兜底".to_owned(),
+            AgentProviderProtocol::Anthropic,
+            "https://api.anthropic.com".to_owned(),
+            api_key.to_owned(),
+            tiers("h", "m", "l"),
+            None,
+            Some(0),
+        );
+        let debug_text = format!("{record:?}");
+        assert!(
+            debug_text.contains("api_key: \"sk-***\""),
+            "api_key={api_key:?} 时全遮蔽，实际: {debug_text}"
+        );
+        assert!(
+            debug_text.contains("max_tokens: Some(0)"),
+            "max_tokens = Some(0) 位面原样呈现，实际: {debug_text}"
+        );
+    }
+
+    let huge = AgentProviderRecord::new(
+        "极端上限".to_owned(),
+        AgentProviderProtocol::Anthropic,
+        "https://api.anthropic.com".to_owned(),
+        "sk-live-1234567890".to_owned(),
+        tiers("h", "m", "l"),
+        Some(u64::MAX),
+        Some(u64::MAX),
+    );
+    assert!(
+        format!("{huge:?}").contains("max_tokens: Some(18446744073709551615)"),
+        "u64::MAX 位面原样呈现"
+    );
+
+    // Debug 不改变 PartialEq：同内容两记录相等；仅协议不同则不等
+    let twin = huge.clone();
+    assert_eq!(twin, huge, "同内容两记录相等");
+    let flipped = AgentProviderRecord {
+        protocol: AgentProviderProtocol::Openai,
+        ..huge
+    };
+    assert_ne!(flipped, twin, "仅 protocol 不同则不等");
 }

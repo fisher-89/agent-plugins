@@ -1,0 +1,43 @@
+$ pnpm run server:check && pnpm run bindings:check && pnpm run client:check
+$ cargo fmt --manifest-path src-tauri/Cargo.toml && cargo clippy --manifest-path src-tauri/Cargo.toml
+   Compiling urlpattern v0.3.0
+   Compiling schemars v0.8.22
+    Checking hyper v1.11.1
+   Compiling winreg v0.55.0
+    Checking windows-core v0.61.2
+    Checking generic-array v0.14.7
+   Compiling toml v0.9.12+spec-1.1.0
+   Compiling dirs-sys v0.5.0
+    Checking glob v0.3.4
+    Checking same-file v1.0.6
+   Compiling crc32fast v1.5.2
+    Checking windows-threading v0.1.0
+   Compiling ring v0.17.14
+   Compiling rustversion v1.0.23
+   Compiling simd-adler32 v0.3.10
+   Compiling zerocopy v0.8.57
+   Compiling embed-resource v3.0.11
+   Compiling dirs v6.0.0
+    Checking anyhow v1.0.104
+    Checking walkdir v2.5.0
+   Compiling crossbeam-epoch v0.9.21
+   Compiling adler2 v2.0.1
+    Checking crypto-common v0.1.7
+    Checking block-buffer v0.10.4
+    Checking windows-future v0.2.1
+    Checking windows-collections v0.2.0
+    Checking windows-numerics v0.2.0
+   Compiling typenum v1.20.1
+    Checking raw-window-handle v0.6.2
+    Checking cpufeatures v0.2.17
+   Compiling cargo_toml v0.22.3
+   Compiling tauri-winres v0.3.6
+    Checking digest v0.10.7
+    Checking regex v1.13.1
+   Compiling tauri-utils v2.9.3
+error: failed to write C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\provider-protocol\packages\desktop\src-tauri\target\debug\deps\libwindows_future-ec3843993beffa1c.rmeta: 另一个程序正在使用此文件，进程无法访问。 (os error 32)
+
+error: could not compile `windows-future` (lib) due to 1 previous error
+warning: build failed, waiting for other jobs to finish...
+[ELIFECYCLE] Command failed with exit code 101.
+[ELIFECYCLE] Command failed with exit code 101.

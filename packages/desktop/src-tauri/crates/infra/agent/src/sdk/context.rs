@@ -9,7 +9,9 @@ const DEFAULT_CONTEXT_WINDOW: u64 = 128 * 1024;
 /// 防线配置（引擎内部，不入 core 契约）：窗长 + 触发比（L2 75% / L3 90%，
 /// 由窗长导出）+ 保护窗 + 单结果 prune 门槛。
 pub(crate) struct ContextDefense {
-    /// 上下文窗长（token 数；provider `context_length` 或缺省启发式）
+    /// 上下文窗长（token 数；来源优先级：该档模型名 `[1m]` 后缀 > provider
+    /// `context_length` > 128K 缺省启发式——后缀 / 填列的解析在调用点完成，
+    /// 本字段只承载生效值）
     context_window: u64,
     /// 保护窗（40k tokens）：最近历史不参与剪裁（余量覆盖响应 token 与
     /// 估算误差）
@@ -35,13 +37,16 @@ impl ContextDefense {
     }
 
     /// L2 触发水位：窗长 75%——水位过线即请求前剪裁。
+    ///
+    /// 饱和乘：`Some(u64::MAX)` 类极端窗长下阈值推导不溢出（正常窗长区间
+    /// 与 `window * 3 / 4` 逐值等价）。
     fn l2_threshold(&self) -> u64 {
-        self.context_window * 3 / 4
+        self.context_window.saturating_mul(3) / 4
     }
 
     /// L3 触发水位：窗长 90%——prune 后仍过线即 LLM compaction。
     fn l3_threshold(&self) -> u64 {
-        self.context_window * 9 / 10
+        self.context_window.saturating_mul(9) / 10
     }
 
     /// L2 触发判定：估算水位过 75% 窗长。
@@ -52,6 +57,13 @@ impl ContextDefense {
     /// L3 触发判定：估算水位过 90% 窗长。
     pub(crate) fn over_l3(&self, history: &[Message]) -> bool {
         estimate_history(history) > self.l3_threshold()
+    }
+
+    /// 生效窗长（token 数；日志 / 诊断面只读访问）：返回**实际生效**值（含
+    /// 128K 缺省解析后的结果），供泵启动日志留痕——调用方不重算缺省，避免
+    /// 双源漂移。水位比 / 保护窗 / prune 门槛 / prune 与 compaction 语义零改。
+    pub(crate) fn window(&self) -> u64 {
+        self.context_window
     }
 }
 

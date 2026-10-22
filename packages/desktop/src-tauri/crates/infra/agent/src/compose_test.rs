@@ -14,8 +14,8 @@ use agent::{
 use crate::store_port::StoreQuery;
 use crate::{compose_turn, ComposedTurn};
 use store::{
-    AgentEngineKind, AgentInstanceRecord, AgentModelTiers, AgentProviderRecord,
-    SessionConfigSnapshot, SessionRecord, WorkspaceStores, CLI_TENANT_RETIRED,
+    AgentEngineKind, AgentInstanceRecord, AgentModelTiers, AgentProviderProtocol,
+    AgentProviderRecord, SessionConfigSnapshot, SessionRecord, WorkspaceStores, CLI_TENANT_RETIRED,
 };
 
 /// sdk provider fixture 的可指定窗长变体（AC-9 组合根接线用）。
@@ -26,6 +26,7 @@ fn seed_provider_with_context_length(
 ) -> i64 {
     let provider = AgentProviderRecord::new(
         name.to_owned(),
+        AgentProviderProtocol::Openai,
         "http://127.0.0.1:9/v1".to_owned(),
         "sk-compose".to_owned(),
         AgentModelTiers {
@@ -34,6 +35,7 @@ fn seed_provider_with_context_length(
             low: "m-low".to_owned(),
         },
         context_length,
+        None,
     );
     stores
         .global()
@@ -102,6 +104,7 @@ impl DualEnv {
 fn seed_provider(stores: &WorkspaceStores, name: &str) -> i64 {
     let provider = AgentProviderRecord::new(
         name.to_owned(),
+        AgentProviderProtocol::Openai,
         "http://127.0.0.1:9/v1".to_owned(),
         "sk-compose".to_owned(),
         AgentModelTiers {
@@ -109,6 +112,7 @@ fn seed_provider(stores: &WorkspaceStores, name: &str) -> i64 {
             medium: "m-medium".to_owned(),
             low: "m-low".to_owned(),
         },
+        None,
         None,
     );
     stores
@@ -232,8 +236,14 @@ async fn 缺省解析默认sdk实例_快照承接provider组装与high档模型(
     let provider_id = seed_provider(&stores, "解析供应");
     seed_sdk_instance(&stores, "解析实例", Some(provider_id));
 
-    let composed = compose_turn(&stores, Arc::new(StopRegistry::new()), Arc::new(SessionStreamRegistry::new()), env.store(), None)
-        .expect("缺省解析应成功");
+    let composed = compose_turn(
+        &stores,
+        Arc::new(StopRegistry::new()),
+        Arc::new(SessionStreamRegistry::new()),
+        env.store(),
+        None,
+    )
+    .expect("缺省解析应成功");
 
     // 快照定型双面（解析产物的可观测投影）：sdk 引擎 + provider high 档模型
     let store = stores.for_root(&env.root()).expect("for_root 应成功");
@@ -269,8 +279,14 @@ async fn 快照模型按轮级档位定型_low轮取低档high轮取高档() {
     let stores = env.stores();
     let provider_id = seed_provider(stores, "双档供应");
     seed_sdk_instance(stores, "双档实例", Some(provider_id));
-    let composed =
-        compose_turn(stores, Arc::new(StopRegistry::new()), Arc::new(SessionStreamRegistry::new()), env.store(), None).expect("解析应成功");
+    let composed = compose_turn(
+        stores,
+        Arc::new(StopRegistry::new()),
+        Arc::new(SessionStreamRegistry::new()),
+        env.store(),
+        None,
+    )
+    .expect("解析应成功");
     let store = stores.for_root(&env.root()).expect("for_root 应成功");
 
     let running = composed
@@ -442,8 +458,14 @@ async fn provider引用完整性守卫使悬空成因不可达_解析照常成�
     );
 
     // provider 完好在库：解析照常成功（默认实例可发起）
-    let composed = compose_turn(&stores, Arc::new(StopRegistry::new()), Arc::new(SessionStreamRegistry::new()), env.store(), None)
-        .expect("provider 完好时缺省解析应成功");
+    let composed = compose_turn(
+        &stores,
+        Arc::new(StopRegistry::new()),
+        Arc::new(SessionStreamRegistry::new()),
+        env.store(),
+        None,
+    )
+    .expect("provider 完好时缺省解析应成功");
     let store = stores.for_root(&env.root()).expect("for_root 应成功");
     let running = composed
         .begin(
@@ -478,8 +500,14 @@ async fn continue快照校验通过时begin成功且会话行不重复建() {
     seed_sdk_session(&store, "ses-continue-ok", Some("sdk-11-1727000000001"));
     seed_transcript(&store, "ses-continue-ok");
 
-    let composed = compose_turn(&stores, Arc::new(StopRegistry::new()), Arc::new(SessionStreamRegistry::new()), env.store(), None)
-        .expect("解析应成功");
+    let composed = compose_turn(
+        &stores,
+        Arc::new(StopRegistry::new()),
+        Arc::new(SessionStreamRegistry::new()),
+        env.store(),
+        None,
+    )
+    .expect("解析应成功");
     let running = composed
         .begin(
             SessionRef::Continue {
@@ -511,8 +539,14 @@ fn continue会话不存在时显式失败() {
     let provider_id = seed_provider(&stores, "续话404供应");
     seed_sdk_instance(&stores, "续话404实例", Some(provider_id));
 
-    let composed = compose_turn(&stores, Arc::new(StopRegistry::new()), Arc::new(SessionStreamRegistry::new()), env.store(), None)
-        .expect("解析应成功");
+    let composed = compose_turn(
+        &stores,
+        Arc::new(StopRegistry::new()),
+        Arc::new(SessionStreamRegistry::new()),
+        env.store(),
+        None,
+    )
+    .expect("解析应成功");
     let error = err_of(composed.begin(
         SessionRef::Continue {
             id: "ses-404".to_owned(),
@@ -553,8 +587,14 @@ fn continue跨引擎续会话被快照比对拒绝() {
         .create_session(&cli_session)
         .expect("落 cli 快照会话行");
 
-    let composed = compose_turn(&stores, Arc::new(StopRegistry::new()), Arc::new(SessionStreamRegistry::new()), env.store(), None)
-        .expect("解析应成功");
+    let composed = compose_turn(
+        &stores,
+        Arc::new(StopRegistry::new()),
+        Arc::new(SessionStreamRegistry::new()),
+        env.store(),
+        None,
+    )
+    .expect("解析应成功");
     let error = err_of(composed.begin(
         SessionRef::Continue {
             id: "ses-cli-made".to_owned(),
@@ -579,8 +619,14 @@ async fn continue未开轮会话首轮放行并定型快照() {
     // 未开轮：无引擎句柄（建档预建空会话形态）
     seed_sdk_session(&store, "ses-fresh", None);
 
-    let composed = compose_turn(&stores, Arc::new(StopRegistry::new()), Arc::new(SessionStreamRegistry::new()), env.store(), None)
-        .expect("解析应成功");
+    let composed = compose_turn(
+        &stores,
+        Arc::new(StopRegistry::new()),
+        Arc::new(SessionStreamRegistry::new()),
+        env.store(),
+        None,
+    )
+    .expect("解析应成功");
     let running = composed
         .begin(
             SessionRef::Continue {
@@ -621,8 +667,14 @@ async fn continue已开轮但句柄未上报仍走续会话治理() {
         .begin_agent_turn("ses-ran", 1727000000000)
         .expect("开轮行");
 
-    let composed = compose_turn(&stores, Arc::new(StopRegistry::new()), Arc::new(SessionStreamRegistry::new()), env.store(), None)
-        .expect("解析应成功");
+    let composed = compose_turn(
+        &stores,
+        Arc::new(StopRegistry::new()),
+        Arc::new(SessionStreamRegistry::new()),
+        env.store(),
+        None,
+    )
+    .expect("解析应成功");
     let running = composed
         .begin(
             SessionRef::Continue {
@@ -665,8 +717,14 @@ async fn 续会话缺引擎句柄不再硬拒_prior_handle透传none照常续接
     seed_sdk_session(&store, "ses-no-remote", None);
     seed_transcript(&store, "ses-no-remote");
 
-    let composed = compose_turn(&stores, Arc::new(StopRegistry::new()), Arc::new(SessionStreamRegistry::new()), env.store(), None)
-        .expect("解析应成功");
+    let composed = compose_turn(
+        &stores,
+        Arc::new(StopRegistry::new()),
+        Arc::new(SessionStreamRegistry::new()),
+        env.store(),
+        None,
+    )
+    .expect("解析应成功");
     let running = composed
         .begin(
             SessionRef::Continue {
@@ -704,8 +762,14 @@ async fn 装配产物真实驱动_sdk轮失败收敛且会话行轮行转录齐�
     let provider_id = seed_provider(&stores, "驱动供应");
     seed_sdk_instance(&stores, "驱动实例", Some(provider_id));
 
-    let composed = compose_turn(&stores, Arc::new(StopRegistry::new()), Arc::new(SessionStreamRegistry::new()), env.store(), None)
-        .expect("解析应成功");
+    let composed = compose_turn(
+        &stores,
+        Arc::new(StopRegistry::new()),
+        Arc::new(SessionStreamRegistry::new()),
+        env.store(),
+        None,
+    )
+    .expect("解析应成功");
 
     let running = composed
         .begin(
@@ -761,9 +825,14 @@ async fn 装配产物含查询面_continue校验经真实库行成立() {
     seed_transcript(&store, "ses-query");
 
     // ComposedTurn 产物即真实装配（query 直查 store 行 → 校验通过形态复用）
-    let composed: ComposedTurn =
-        compose_turn(&stores, Arc::new(StopRegistry::new()), Arc::new(SessionStreamRegistry::new()), env.store(), None)
-            .expect("解析应成功");
+    let composed: ComposedTurn = compose_turn(
+        &stores,
+        Arc::new(StopRegistry::new()),
+        Arc::new(SessionStreamRegistry::new()),
+        env.store(),
+        None,
+    )
+    .expect("解析应成功");
     composed
         .begin(
             SessionRef::Continue {
@@ -1354,7 +1423,11 @@ async fn 跨引擎续会话前置拒_零sink调用零runner开面() {
         .query
         .transcript("ses-cli-made-fake")
         .expect("存量 cli 会话转录重放照常可读");
-    assert_eq!(transcript.len(), 2, "密封转录原样可读（呈现兜底不受拒收影响）");
+    assert_eq!(
+        transcript.len(),
+        2,
+        "密封转录原样可读（呈现兜底不受拒收影响）"
+    );
 }
 
 #[tokio::test]
@@ -1418,8 +1491,14 @@ fn 续会话id边界空串与超长与特殊字符均走会话不存在分支不
     let stores = env.stores();
     let provider_id = seed_provider(&stores, "边界供应");
     seed_sdk_instance(&stores, "边界实例", Some(provider_id));
-    let composed = compose_turn(&stores, Arc::new(StopRegistry::new()), Arc::new(SessionStreamRegistry::new()), env.store(), None)
-        .expect("解析应成功");
+    let composed = compose_turn(
+        &stores,
+        Arc::new(StopRegistry::new()),
+        Arc::new(SessionStreamRegistry::new()),
+        env.store(),
+        None,
+    )
+    .expect("解析应成功");
     for id in [
         "".to_owned(),
         format!("ses-{}", "超".repeat(1100)),
@@ -1481,8 +1560,14 @@ async fn 新会话快照携实例id_缺省与显式路径同填some() {
     drop(running);
 
     // 缺省路径：同经 resolve 取实例、同填 Some
-    let composed = compose_turn(&stores, Arc::new(StopRegistry::new()), Arc::new(SessionStreamRegistry::new()), env.store(), None)
-        .expect("缺省解析应成功");
+    let composed = compose_turn(
+        &stores,
+        Arc::new(StopRegistry::new()),
+        Arc::new(SessionStreamRegistry::new()),
+        env.store(),
+        None,
+    )
+    .expect("缺省解析应成功");
     let running = composed
         .begin(
             SessionRef::New,
@@ -1736,11 +1821,19 @@ async fn 装配产物真实驱动_explore来源runstarted报六工具加专用�
         .expect("占位建档应成功");
     let session_id = record.session_id.clone().expect("建档回写会话指针");
 
-    let composed = compose_turn(&stores, Arc::new(StopRegistry::new()), Arc::new(SessionStreamRegistry::new()), env.store(), None)
-        .expect("解析应成功");
+    let composed = compose_turn(
+        &stores,
+        Arc::new(StopRegistry::new()),
+        Arc::new(SessionStreamRegistry::new()),
+        env.store(),
+        None,
+    )
+    .expect("解析应成功");
     let running = composed
         .begin(
-            SessionRef::Continue { id: session_id.clone() },
+            SessionRef::Continue {
+                id: session_id.clone(),
+            },
             "explore 首轮".to_owned(),
             ctx(&env.root()),
             SessionProvenance {
@@ -1753,8 +1846,7 @@ async fn 装配产物真实驱动_explore来源runstarted报六工具加专用�
 
     // 转录首事件 RunStarted.tools = 六工具保序 + 专用工具（下发面单源）
     let transcript = store.list_session_events(&session_id).expect("转录应成功");
-    let agent::AgentEventKind::RunStarted { tools, .. } =
-        &transcript.first().expect("非空").kind
+    let agent::AgentEventKind::RunStarted { tools, .. } = &transcript.first().expect("非空").kind
     else {
         panic!("转录首事件应为 RunStarted，实际: {:?}", transcript.first());
     };
@@ -1784,8 +1876,14 @@ async fn 装配产物真实驱动_debug来源runstarted报七名() {
     seed_sdk_instance(&stores, "驱动实例debug", Some(provider_id));
     let store = stores.for_root(&env.root()).expect("for_root 应成功");
 
-    let composed = compose_turn(&stores, Arc::new(StopRegistry::new()), Arc::new(SessionStreamRegistry::new()), env.store(), None)
-        .expect("解析应成功");
+    let composed = compose_turn(
+        &stores,
+        Arc::new(StopRegistry::new()),
+        Arc::new(SessionStreamRegistry::new()),
+        env.store(),
+        None,
+    )
+    .expect("解析应成功");
     let running = composed
         .begin(
             SessionRef::New,
@@ -1798,8 +1896,7 @@ async fn 装配产物真实驱动_debug来源runstarted报七名() {
     drop(running.drive(|_output| {}).await);
 
     let transcript = store.list_session_events(&session_id).expect("转录应成功");
-    let agent::AgentEventKind::RunStarted { tools, .. } =
-        &transcript.first().expect("非空").kind
+    let agent::AgentEventKind::RunStarted { tools, .. } = &transcript.first().expect("非空").kind
     else {
         panic!("转录首事件应为 RunStarted，实际: {:?}", transcript.first());
     };
@@ -1825,11 +1922,19 @@ async fn explore装配不破坏失败收敛语义() {
         .expect("占位建档应成功");
     let session_id = record.session_id.clone().expect("建档回写会话指针");
 
-    let composed = compose_turn(&stores, Arc::new(StopRegistry::new()), Arc::new(SessionStreamRegistry::new()), env.store(), None)
-        .expect("解析应成功");
+    let composed = compose_turn(
+        &stores,
+        Arc::new(StopRegistry::new()),
+        Arc::new(SessionStreamRegistry::new()),
+        env.store(),
+        None,
+    )
+    .expect("解析应成功");
     let running = composed
         .begin(
-            SessionRef::Continue { id: session_id.clone() },
+            SessionRef::Continue {
+                id: session_id.clone(),
+            },
             "explore 失败面一轮".to_owned(),
             ctx(&env.root()),
             SessionProvenance {
@@ -2018,9 +2123,7 @@ async fn exec轨真实驱动_注册表订阅端收failed终态且started_at与�
         .expect("begin 应成功");
     let session_id = running.session_id.clone();
     let started_at = running.started_at;
-    let subscription = streams
-        .subscribe(&session_id, 0)
-        .expect("订阅方可即刻接入");
+    let subscription = streams.subscribe(&session_id, 0).expect("订阅方可即刻接入");
 
     let outcome = running.drive(|_output| {}).await;
     let (_events, terminal) = drain_stream(subscription).await;
@@ -2238,4 +2341,252 @@ async fn 两次compose_turn共享同一streams_条目并存互不覆盖() {
         streams.subscribe(&second.session_id, 0).is_some(),
         "change 轨条目并存"
     );
+}
+
+// ---------------------------------------------------------------------------
+// 协议 / 上限旁路（AC-4 / AC-8 组合根接线）：store 协议枚举 → 门面 Protocol
+// 单点映射，max_tokens 与 context_length 同型旁路
+// ---------------------------------------------------------------------------
+
+use crate::sdk::config::Protocol;
+
+/// 协议 / 上限 / 窗长可指定的 provider fixture（组合根解析面用例底座）。
+fn seed_full_provider(
+    stores: &WorkspaceStores,
+    name: &str,
+    protocol: AgentProviderProtocol,
+    high: &str,
+    low: &str,
+    context_length: Option<u64>,
+    max_tokens: Option<u64>,
+) -> i64 {
+    let provider = AgentProviderRecord::new(
+        name.to_owned(),
+        protocol,
+        "http://127.0.0.1:9/v1".to_owned(),
+        "sk-compose".to_owned(),
+        AgentModelTiers {
+            high: high.to_owned(),
+            medium: "m-medium".to_owned(),
+            low: low.to_owned(),
+        },
+        context_length,
+        max_tokens,
+    );
+    stores
+        .global()
+        .upsert_agent_provider(provider)
+        .expect("落 provider fixture")
+        .id
+}
+
+#[test]
+fn map_protocol两臂一对一映射且无第三分支() {
+    // 私有单点映射：两变体各一行，映射不全即失败
+    assert_eq!(
+        super::map_protocol(AgentProviderProtocol::Openai),
+        Protocol::Openai
+    );
+    assert_eq!(
+        super::map_protocol(AgentProviderProtocol::Anthropic),
+        Protocol::Anthropic
+    );
+    // 无兜底缺省：两变体映射结果互异（错映射即协议选臂错）
+    assert_ne!(
+        super::map_protocol(AgentProviderProtocol::Openai),
+        super::map_protocol(AgentProviderProtocol::Anthropic)
+    );
+}
+
+#[test]
+fn resolve_sdk臂透传provider协议且其余字段逐字段保真() {
+    for (protocol, expected) in [
+        (AgentProviderProtocol::Anthropic, Protocol::Anthropic),
+        (AgentProviderProtocol::Openai, Protocol::Openai),
+    ] {
+        let env = DualEnv::new("protocol-passthrough");
+        let stores = env.stores();
+        let provider_id = seed_full_provider(
+            stores,
+            "协议供应",
+            protocol,
+            "claude-x[1m]",
+            "claude-y",
+            Some(200_000),
+            None,
+        );
+        let instance_id = seed_sdk_instance(stores, "协议实例", Some(provider_id));
+
+        let resolved = match super::resolve_agent_engine(stores, Some(instance_id)) {
+            Ok(resolved) => resolved,
+            Err(error) => panic!("解析应成功: {error}"),
+        };
+        assert_eq!(
+            resolved.config.protocol, expected,
+            "provider 协议 {protocol:?} 经 map_protocol 一对一抵达连接配置"
+        );
+        // 其余连接字段逐字段保真（映射不污染其它面）
+        assert_eq!(resolved.config.api_key, "sk-compose");
+        assert_eq!(resolved.config.base_url, "http://127.0.0.1:9/v1");
+        assert_eq!(
+            resolved.config.model_high, "claude-x[1m]",
+            "模型原文透传（后缀不归一化）"
+        );
+        assert_eq!(resolved.config.model_low, "claude-y");
+        assert!(matches!(resolved.kind, crate::EngineKind::Sdk));
+        assert_eq!(resolved.agent_instance_id, instance_id);
+    }
+}
+
+#[test]
+fn resolve_sdk臂透传provider的max_tokens旁路() {
+    let env = DualEnv::new("max-tokens-passthrough");
+    let stores = env.stores();
+    let provider_id = seed_full_provider(
+        stores,
+        "上限供应",
+        AgentProviderProtocol::Anthropic,
+        "claude-x",
+        "claude-y",
+        Some(200_000),
+        Some(8192),
+    );
+    let instance_id = seed_sdk_instance(stores, "上限实例", Some(provider_id));
+
+    let resolved = match super::resolve_agent_engine(stores, Some(instance_id)) {
+        Ok(resolved) => resolved,
+        Err(error) => panic!("解析应成功: {error}"),
+    };
+    assert_eq!(
+        resolved.max_tokens,
+        Some(8192),
+        "provider max_tokens 原样旁路（与 context_window 并列）"
+    );
+    assert_eq!(resolved.context_window, Some(200_000), "窗长旁路互不覆盖");
+}
+
+#[test]
+fn resolve_sdk臂双可空列四组合独立携带且不落缺省字面() {
+    // context_length × max_tokens 四组合：两字段各自独立携带、互不覆盖
+    for (context_length, max_tokens) in [
+        (None, None),
+        (Some(200_000), None),
+        (None, Some(8192)),
+        (Some(131_072), Some(32_000)),
+    ] {
+        let env = DualEnv::new("dual-nullable");
+        let stores = env.stores();
+        let provider_id = seed_full_provider(
+            stores,
+            "双空列供应",
+            AgentProviderProtocol::Anthropic,
+            "claude-x",
+            "claude-y",
+            context_length,
+            max_tokens,
+        );
+        let instance_id = seed_sdk_instance(stores, "双空列实例", Some(provider_id));
+
+        let resolved = match super::resolve_agent_engine(stores, Some(instance_id)) {
+            Ok(resolved) => resolved,
+            Err(error) => panic!("解析应成功: {error}"),
+        };
+        assert_eq!(
+            resolved.context_window, context_length,
+            "窗长列原样携带（组合 {context_length:?} / {max_tokens:?}）"
+        );
+        assert_eq!(
+            resolved.max_tokens, max_tokens,
+            "上限列原样携带（组合 {context_length:?} / {max_tokens:?}）"
+        );
+    }
+
+    // max_tokens = Some(0) 原样携带（解析层不做下限校验，拒面在命令层）
+    let env = DualEnv::new("max-tokens-zero");
+    let stores = env.stores();
+    let provider_id = seed_full_provider(
+        stores,
+        "零上限供应",
+        AgentProviderProtocol::Anthropic,
+        "claude-x",
+        "claude-y",
+        None,
+        Some(0),
+    );
+    let instance_id = seed_sdk_instance(stores, "零上限实例", Some(provider_id));
+    let resolved = match super::resolve_agent_engine(stores, Some(instance_id)) {
+        Ok(resolved) => resolved,
+        Err(error) => panic!("解析应成功: {error}"),
+    };
+    assert_eq!(
+        resolved.max_tokens,
+        Some(0),
+        "Some(0) 原样携带（组合根不夹取不拒收）"
+    );
+}
+
+/// 组合：provider（anthropic + `max_tokens` + `[1m]` 后缀）→ 组合根解析 →
+/// 门面 builder → `runner_for(Sdk)` → `open_session` 首轮：裸名上报、配置原文
+/// 留快照面、协议抵达引擎（三面同源，discard 端点点零触网）。
+#[tokio::test]
+async fn 组合根全链_provider协议与上限与后缀抵达引擎且裸名上报() {
+    let env = DualEnv::new("full-chain");
+    let stores = env.stores();
+    let provider_id = seed_full_provider(
+        stores,
+        "全链供应",
+        AgentProviderProtocol::Anthropic,
+        "claude-x[1m]",
+        "claude-y",
+        Some(64),
+        Some(8192),
+    );
+    let instance_id = seed_sdk_instance(stores, "全链实例", Some(provider_id));
+
+    let resolved = match super::resolve_agent_engine(stores, Some(instance_id)) {
+        Ok(resolved) => resolved,
+        Err(error) => panic!("解析应成功: {error}"),
+    };
+    // 协议与上限抵达解析产物（组合根半边）
+    assert_eq!(resolved.config.protocol, Protocol::Anthropic);
+    assert_eq!(resolved.max_tokens, Some(8192));
+    assert_eq!(resolved.context_window, Some(64));
+
+    // 门面 builder 链（与 compose_turn 内同序）→ 引擎 open 首轮
+    let runner = crate::EngineFacade::new()
+        .with_context_window(resolved.context_window)
+        .with_max_tokens(resolved.max_tokens)
+        .runner_for(resolved.kind, resolved.config.clone())
+        .expect("Sdk 臂构造成功");
+    let mut session = runner
+        .open_session(SessionOpen {
+            injections: agent::SessionInjections::default(),
+            ctx: ctx(&env.root()),
+            session: SessionRef::New,
+            prior_handle: None,
+        })
+        .expect("协议配置 open 应成功（组装不触网）");
+    session
+        .questions
+        .send(agent::TurnQuestion {
+            prompt: "全链一轮".to_owned(),
+        })
+        .await
+        .expect("问题送达");
+
+    let started = session.observations.recv().await.expect("RunStarted");
+    let agent::AgentEventKind::RunStarted { model, .. } = &started else {
+        panic!("首事件应为 RunStarted，实际: {started:?}");
+    };
+    assert_eq!(
+        model.as_deref(),
+        Some("claude-x"),
+        "裸名上报（后缀在引擎侧剥离，配置原文留快照面）"
+    );
+    // R9 双面裁定：配置原文（快照 model 载荷）不随上报归一化
+    assert_eq!(
+        resolved.config.model_high, "claude-x[1m]",
+        "SessionConfigSnapshot.model 仍为配置原文"
+    );
+    drop(session);
 }

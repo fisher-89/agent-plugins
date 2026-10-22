@@ -4,8 +4,9 @@ use std::path::{Path, PathBuf};
 use agent::{AgentEvent, AgentEventKind};
 
 use crate::{
-    AgentEngineKind, AgentInstanceRecord, AgentModelTiers, AgentProviderRecord, RecordEnvelope,
-    RecordsPage, SessionConfigSnapshot, SessionRecord, Store, StoreError,
+    AgentEngineKind, AgentInstanceRecord, AgentModelTiers, AgentProviderProtocol,
+    AgentProviderRecord, RecordEnvelope, RecordsPage, SessionConfigSnapshot, SessionRecord, Store,
+    StoreError,
 };
 use workflow::state::{ChangeStateRecord, ChangeStatus};
 
@@ -163,6 +164,7 @@ fn 注册表按维度分组列出模型且list_models计数与写入量一致() 
 fn fixture_provider(name: &str) -> AgentProviderRecord {
     AgentProviderRecord::new(
         name.to_owned(),
+        AgentProviderProtocol::Openai,
         "https://api.example.com/v1".to_owned(),
         "sk-live-1234567890".to_owned(),
         AgentModelTiers {
@@ -170,6 +172,7 @@ fn fixture_provider(name: &str) -> AgentProviderRecord {
             medium: "m-medium".to_owned(),
             low: "m-low".to_owned(),
         },
+        None,
         None,
     )
 }

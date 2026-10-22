@@ -598,6 +598,9 @@ async fn 重复run_各自exec_id落独立log且前次不被覆写() {
 async fn run_slot_baseline_pass_报告与exec_outputs落baseline树() {
     let _env = env_window();
     let ws = TempWs::new("baseline-pass");
+    // shim 裸名经 PATH 解析（与其余 shim 用例同装置）：不依赖 cmd 的 cwd 搜索，
+    // NoDefaultCurrentDirectoryInExePath 环境下同样命中
+    let _path = PathPrefix::enter(ws.path());
     let command = write_shim(&ws, "baseline-lint", &[("ok", false)], None);
     ws.write_config(Some(&command));
 
@@ -632,6 +635,9 @@ const SEP: &str = std::path::MAIN_SEPARATOR_STR;
 async fn run_slot_baseline_fail_report_dir仍回填baseline锚() {
     let _env = env_window();
     let ws = TempWs::new("baseline-fail");
+    // 同上：shim 裸名靠 PATH 前置可达（cwd 搜索在 NoDefaultCurrentDirectoryInExePath
+    // 环境被禁用，不能作为可达性依赖）
+    let _path = PathPrefix::enter(ws.path());
     let command = write_shim(&ws, "baseline-lint", &[("E0308 类型错误", true)], Some(2));
     ws.write_config(Some(&command));
 
@@ -687,6 +693,9 @@ async fn run槽位等价性_语义同锚点异且err面持衡() {
     let _env = env_window();
     // 等价性：同 shim 同退出码两槽位行为等值
     let ws = TempWs::new("slot-equivalence");
+    // shim 裸名经 PATH 解析（否则两槽位都「命令不可达」→ passed=false 且诊断相同，
+    // 等价性断言在双失败上空转——必须真执行才成立）
+    let _path = PathPrefix::enter(ws.path());
     let command = write_shim(
         &ws,
         "lint",
@@ -710,6 +719,14 @@ async fn run槽位等价性_语义同锚点异且err面持衡() {
     assert!(
         test_outcome.output_ref.is_some() && baseline_outcome.output_ref.is_some(),
         "recorded 引用两槽位均回填"
+    );
+    // 非空转锚：两槽位都真跑到 shim（否则「双不可达」下 passed / 诊断也等值）
+    assert!(
+        test_outcome.diagnostics.contains("warning: unused")
+            && baseline_outcome.diagnostics.contains("warning: unused"),
+        "两槽位均真执行 shim，实际: {:?} / {:?}",
+        test_outcome.diagnostics,
+        baseline_outcome.diagnostics
     );
     assert_ne!(test_outcome.report_dir, baseline_outcome.report_dir, "锚点不同");
     assert!(

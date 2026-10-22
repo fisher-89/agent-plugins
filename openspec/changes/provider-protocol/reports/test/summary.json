@@ -1,0 +1,59 @@
+{
+  "command": "desktop change run: test-execution gate",
+  "conclusion": "pass",
+  "coverage": {
+    "measured": {
+      "branches": 93.08,
+      "functions": 93.41,
+      "lines": 97.01
+    },
+    "pass": true,
+    "thresholds": {
+      "branches": 85.0,
+      "functions": 90.0,
+      "lines": 90.0
+    }
+  },
+  "duration_seconds": 323.0,
+  "failed": 0,
+  "findings": [
+    "全部测试通过且覆盖率达阈值"
+  ],
+  "mutation": {
+    "measured": {
+      "compileError": 13,
+      "detected": 231,
+      "ignored": 64,
+      "killed": 231,
+      "noCoverage": 0,
+      "runtimeError": 0,
+      "survived": 35,
+      "timeout": 0,
+      "total": 343,
+      "undetected": 35
+    },
+    "pass": true,
+    "score": 86.84,
+    "threshold": 80.0
+  },
+  "passed": 2294,
+  "phase": "test-execution",
+  "plans": [
+    {
+      "framework": "vite-plus",
+      "id": "packages_desktop_vite-plus",
+      "path": "reports/test/packages_desktop_vite-plus",
+      "root": "packages/desktop"
+    },
+    {
+      "framework": "rust",
+      "id": "packages_desktop_src-tauri_rust",
+      "path": "reports/test/packages_desktop_src-tauri_rust",
+      "root": "packages/desktop/src-tauri"
+    }
+  ],
+  "problems": [],
+  "skipped": 0,
+  "timestamp": "2026-10-22T07:08:09.3688067Z",
+  "total": 2294
+}

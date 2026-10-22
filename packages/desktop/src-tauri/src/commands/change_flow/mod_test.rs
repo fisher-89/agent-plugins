@@ -9,7 +9,8 @@ use tauri::{App, Manager};
 use ::agent::{SessionStreamRegistry, StopRegistry};
 use orchestration::control::ChangeFlowControl;
 use store::{
-    AgentEngineKind, AgentInstanceRecord, AgentModelTiers, AgentProviderRecord, WorkspaceStores,
+    AgentEngineKind, AgentInstanceRecord, AgentModelTiers, AgentProviderProtocol,
+    AgentProviderRecord, WorkspaceStores,
 };
 use workflow::state::{ChangeStateRecord, ChangeStatus};
 
@@ -121,6 +122,7 @@ fn seed_sdk_default_instance(app: &App<tauri::test::MockRuntime>) {
         .global()
         .upsert_agent_provider(AgentProviderRecord::new(
             "组合根供应".to_owned(),
+            AgentProviderProtocol::Openai,
             String::new(),
             String::new(),
             AgentModelTiers {
@@ -128,6 +130,7 @@ fn seed_sdk_default_instance(app: &App<tauri::test::MockRuntime>) {
                 medium: String::new(),
                 low: String::new(),
             },
+            None,
             None,
         ))
         .expect("落 provider fixture")

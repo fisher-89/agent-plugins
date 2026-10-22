@@ -10,6 +10,8 @@ use agent::AgentRunner;
 pub use compose::{compose_turn, ComposedTurn};
 pub use sdk::config::EngineConfig;
 pub use sdk::log::{append_engine_log, init_engine_log, install_engine_panic_hook};
+pub use sdk::model_spec::{parse_model_spec, ModelSpec, ModelSpecError};
+pub use sdk::runner::MIN_OUTPUT_TOKENS;
 pub use store_port::session_query;
 pub use worker::KernelWorkerPort;
 
@@ -33,13 +35,16 @@ pub type ResumeTranscript =
     std::sync::Arc<dyn Fn(&str) -> Result<Option<Vec<agent::AgentEvent>>, String> + Send + Sync>;
 
 /// 引擎门面：`runner_for` 为引擎构造唯一 match 点（编排层零引擎分支）。
-/// `resume` 装载缝、sdk 引擎窗长载荷与 explore 专用工具 store 句柄随门面
-/// 持有，按引擎分发。
+/// `resume` 装载缝、sdk 引擎可空调参载荷（窗长 / 输出上限）与 explore 专用
+/// 工具 store 句柄随门面持有，按引擎分发。
 pub struct EngineFacade {
     resume: Option<ResumeTranscript>,
-    /// sdk 引擎上下文窗长（组合根旁路载荷，不经 `EngineConfig` 三字段；
-    /// `None` = 128K 缺省启发式）
+    /// sdk 引擎上下文窗长（组合根旁路载荷，不经 `EngineConfig` 连接配置字段
+    /// 面；`None` = 128K 缺省启发式，该档模型名带 `[1m]` 后缀时被覆盖）
     context_window: Option<u64>,
+    /// sdk 引擎输出上限（组合根旁路载荷，不经 `EngineConfig`；`None` = 按
+    /// 协议缺省，仅 anthropic 协议消费）
+    max_tokens: Option<u64>,
     /// workspace 库句柄（组合根注入缝）：per-turn 铸造 `create_explore_note`
     /// 专用工具执行上下文的原料（`None` = 未注入——专用工具上下文缺席）
     explore_note_store: Option<Arc<store::Store>>,
@@ -51,6 +56,7 @@ impl EngineFacade {
         Self {
             resume: None,
             context_window: None,
+            max_tokens: None,
             explore_note_store: None,
         }
     }
@@ -60,17 +66,32 @@ impl EngineFacade {
         Self {
             resume: Some(loader),
             context_window: None,
+            max_tokens: None,
             explore_note_store: None,
         }
     }
 
     /// 携 sdk 引擎上下文窗长的门面（builder 缝，与 `with_resume_transcript`
     /// 同型）：provider 记录 `context_length` 列经组合根旁路抵达 sdk 引擎
-    /// （`EngineConfig` 三字段与 `runner_for` 签名不动）。
+    /// （`EngineConfig` 连接配置字段面与 `runner_for` 签名不动）。语义为
+    /// 「缺省来源」——该档模型名带 `[1m]` 后缀时被后缀覆盖。
     pub fn with_context_window(self, context_window: Option<u64>) -> Self {
         Self {
             resume: self.resume,
             context_window,
+            max_tokens: self.max_tokens,
+            explore_note_store: self.explore_note_store,
+        }
+    }
+
+    /// 携 sdk 引擎输出上限的门面（builder 缝，与 `with_context_window` 同型
+    /// 并列）：provider 记录 `max_tokens` 列经组合根旁路抵达 sdk 引擎
+    /// （MUST NOT 进 `EngineConfig`）；`None` = 按协议缺省。
+    pub fn with_max_tokens(self, max_tokens: Option<u64>) -> Self {
+        Self {
+            resume: self.resume,
+            context_window: self.context_window,
+            max_tokens,
             explore_note_store: self.explore_note_store,
         }
     }
@@ -83,6 +104,7 @@ impl EngineFacade {
         Self {
             resume: self.resume,
             context_window: self.context_window,
+            max_tokens: self.max_tokens,
             explore_note_store: Some(store),
         }
     }
@@ -99,12 +121,15 @@ impl EngineFacade {
     ) -> Result<Box<dyn AgentRunner>, String> {
         match kind {
             EngineKind::Cli => Err(store::CLI_TENANT_RETIRED.to_owned()),
-            EngineKind::Sdk => Ok(Box::new(sdk::runner::SdkRunner::new(
-                engine_cfg,
-                self.resume.clone(),
-                self.context_window,
-                self.explore_note_store.clone(),
-            ))),
+            EngineKind::Sdk => Ok(Box::new(
+                sdk::runner::SdkRunner::new(
+                    engine_cfg,
+                    self.resume.clone(),
+                    self.context_window,
+                    self.explore_note_store.clone(),
+                )
+                .with_max_tokens(self.max_tokens),
+            )),
         }
     }
 }

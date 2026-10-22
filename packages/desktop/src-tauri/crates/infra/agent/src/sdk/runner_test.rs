@@ -6,9 +6,16 @@ use agent::{
     AgentStartError, ModelLevel, SessionCtx, SessionInjections, SessionOpen, SessionRef,
 };
 
-use crate::sdk::config::EngineConfig;
-use crate::sdk::runner::SdkRunner;
+use crate::sdk::config::{EngineConfig, Protocol};
+use crate::sdk::model_spec::{parse_model_spec, BETA_CONTEXT_1M, MILLION_CONTEXT_WINDOW};
+use crate::sdk::runner::{
+    anthropic_provider, build_model, openai_provider, resolve_output_tokens, SdkRunner,
+    MIN_OUTPUT_TOKENS,
+};
 use crate::{EngineFacade, EngineKind, ResumeTranscript};
+use rig::driver::DynModel;
+use rig::operation::Completion;
+use rig::providers::anthropic::AnthropicConfig;
 
 // ---------------------------------------------------------------------------
 // 装置：配置底座、open 入参底座、转录装载缝
@@ -17,6 +24,7 @@ use crate::{EngineFacade, EngineKind, ResumeTranscript};
 /// 端点指向本机 discard 端口（恒拒连，无网络触达真实 provider）。
 fn complete_config() -> EngineConfig {
     EngineConfig {
+        protocol: Protocol::Openai,
         api_key: "sk-test".to_owned(),
         base_url: "http://127.0.0.1:9/v1".to_owned(),
         model_high: "rig-test-model-high".to_owned(),
@@ -179,6 +187,7 @@ fn 单字段缺失open消息区分api_key_base_url双档model成因() {
         (
             "api_key",
             EngineConfig {
+                protocol: Protocol::Openai,
                 api_key: String::new(),
                 base_url: "http://127.0.0.1:9/v1".to_owned(),
                 model_high: "m-h".to_owned(),
@@ -189,6 +198,7 @@ fn 单字段缺失open消息区分api_key_base_url双档model成因() {
         (
             "base_url",
             EngineConfig {
+                protocol: Protocol::Openai,
                 api_key: "k".to_owned(),
                 base_url: String::new(),
                 model_high: "m-h".to_owned(),
@@ -199,6 +209,7 @@ fn 单字段缺失open消息区分api_key_base_url双档model成因() {
         (
             "model_high",
             EngineConfig {
+                protocol: Protocol::Openai,
                 api_key: "k".to_owned(),
                 base_url: "http://127.0.0.1:9/v1".to_owned(),
                 model_high: String::new(),
@@ -209,6 +220,7 @@ fn 单字段缺失open消息区分api_key_base_url双档model成因() {
         (
             "model_low",
             EngineConfig {
+                protocol: Protocol::Openai,
                 api_key: "k".to_owned(),
                 base_url: "http://127.0.0.1:9/v1".to_owned(),
                 model_high: "m-h".to_owned(),
@@ -243,6 +255,7 @@ fn 单字段缺失open消息区分api_key_base_url双档model成因() {
 #[tokio::test]
 async fn 低档缺配仅低档轮失败_高档轮open照常() {
     let half = || EngineConfig {
+        protocol: Protocol::Openai,
         model_low: String::new(),
         ..complete_config()
     };
@@ -765,13 +778,16 @@ async fn explore注入open_session端到端_runstarted报六工具加专用工�
 
     let (dir, store) = temp_store("e2e");
     let (resume, _calls) = loader(Ok(Some(Vec::new()))); // 预建空会话：空史开跑
-    let runner = SdkRunner::new(complete_config(), Some(resume), None, Some(Arc::clone(&store)));
+    let runner = SdkRunner::new(
+        complete_config(),
+        Some(resume),
+        None,
+        Some(Arc::clone(&store)),
+    );
 
     let mut open = open_continue("ses-explore-e2e");
     open.injections = explore_injections();
-    let mut session = runner
-        .open_session(open)
-        .expect("explore 注入 open 应成功");
+    let mut session = runner.open_session(open).expect("explore 注入 open 应成功");
     session
         .questions
         .send(agent::TurnQuestion {
@@ -878,8 +894,12 @@ fn 转录装载失败回归_句柄在场loader两形态仍config_missing() {
 
     // Err 形态：库读取失败
     let (err_loader, err_calls) = loader(Err("库读取失败".to_owned()));
-    let err_runner =
-        SdkRunner::new(complete_config(), Some(err_loader), None, Some(Arc::clone(&store)));
+    let err_runner = SdkRunner::new(
+        complete_config(),
+        Some(err_loader),
+        None,
+        Some(Arc::clone(&store)),
+    );
     let err_error = err_runner
         .open_session(explore_continue_open("ses-loader-err"))
         .expect_err("loader Err 必须 Err");
@@ -893,8 +913,12 @@ fn 转录装载失败回归_句柄在场loader两形态仍config_missing() {
 
     // None 形态：会话不存在
     let (none_loader, none_calls) = loader(Ok(None));
-    let none_runner =
-        SdkRunner::new(complete_config(), Some(none_loader), None, Some(Arc::clone(&store)));
+    let none_runner = SdkRunner::new(
+        complete_config(),
+        Some(none_loader),
+        None,
+        Some(Arc::clone(&store)),
+    );
     let none_error = none_runner
         .open_session(explore_continue_open("ses-loader-none"))
         .expect_err("loader None 必须 Err");
@@ -948,8 +972,7 @@ async fn explore注入new会话continue缺席_上下文none_run照常开跑() {
         panic!("首事件应为 RunStarted，实际: {started:?}");
     };
     assert!(
-        tools.contains(&"create_explore_note".to_owned())
-            && !tools.contains(&"write".to_owned()),
+        tools.contains(&"create_explore_note".to_owned()) && !tools.contains(&"write".to_owned()),
         "下发面按注入组装（与上下文铸造解耦），实际: {tools:?}"
     );
     // user 密封提示词照常产出（泵链路未因上下文 None 中断）
@@ -957,6 +980,574 @@ async fn explore注入new会话continue缺席_上下文none_run照常开跑() {
     assert!(
         matches!(&user, AgentEventKind::Message { role, .. } if role == &AgentMessageRole::User),
         "run 照常开跑，实际: {user:?}"
+    );
+    drop(session);
+}
+
+// ---------------------------------------------------------------------------
+// 协议 / 上限载荷接线（AC-5 / AC-8 / AC-9 / AC-7）：组装面直断（build_model +
+// 两臂 provider 接缝），端点指向本机 discard 端口（恒拒连、不打网络）
+// ---------------------------------------------------------------------------
+
+/// anthropic 协议配置底座（端点 discard，模型名按用例覆写）。
+fn anthropic_config(high: &str, low: &str) -> EngineConfig {
+    EngineConfig {
+        protocol: Protocol::Anthropic,
+        api_key: "sk-ant-test".to_owned(),
+        base_url: "http://127.0.0.1:9/v1".to_owned(),
+        model_high: high.to_owned(),
+        model_low: low.to_owned(),
+    }
+}
+
+/// 指定档位的 Continue open 底座（按档窗长 / 按档解析用例的轮级入口）。
+fn open_continue_at_level(session_id: &str, level: ModelLevel) -> SessionOpen {
+    SessionOpen {
+        ctx: SessionCtx {
+            model_level: level,
+            ..open_continue(session_id).ctx
+        },
+        ..open_continue(session_id)
+    }
+}
+
+#[tokio::test]
+async fn with_max_tokens构造可达且不改变非相关行为() {
+    // builder 缝：四参 new（既有调用点零改）+ 旁路上限载荷
+    let with_payload =
+        SdkRunner::new(complete_config(), None, None, None).with_max_tokens(Some(8192));
+    let without_payload = SdkRunner::new(complete_config(), None, None, None);
+
+    // 载荷不改变非相关行为：两条 runner 的启动校验面逐字一致
+    let with_error = with_payload
+        .open_session(open_continue("ses-payload"))
+        .expect_err("无装载缝续会话必须显式失败");
+    let without_error = without_payload
+        .open_session(open_continue("ses-payload"))
+        .expect_err("同口径失败");
+    assert_eq!(with_error, without_error, "上限载荷不改变启动校验面");
+
+    // 完整配置 New 会话 open 照常成功（载荷不改变开面）
+    drop(
+        with_payload
+            .open_session(open_new())
+            .expect("完整配置 New 会话 open 应成功"),
+    );
+    // SdkRunner::new 四参调用形态编译可达（36 处零改的编译面锚）
+    let _four_args: fn(
+        EngineConfig,
+        Option<ResumeTranscript>,
+        Option<u64>,
+        Option<Arc<Store>>,
+    ) -> SdkRunner = SdkRunner::new;
+}
+
+#[test]
+fn min_output_tokens常量逐字为4096且经crate根可达() {
+    assert_eq!(MIN_OUTPUT_TOKENS, 4_096, "保存期下限单点逐字 4_096");
+    assert_eq!(
+        crate::MIN_OUTPUT_TOKENS,
+        MIN_OUTPUT_TOKENS,
+        "经 crate 根再导出同一常量（保存期与引擎同一门槛，无第二套字面量）"
+    );
+}
+
+#[test]
+fn 双臂组装_openai臂描述面与现状逐字等价() {
+    let cfg = complete_config();
+    let spec = parse_model_spec(&cfg.model_high).expect("无后缀解析成功");
+    let model = build_model(&cfg, &spec, None);
+
+    assert_eq!(model.name(), "openai", "openai 臂 provider 描述名逐字");
+    assert_eq!(
+        model.id(),
+        Some("rig-test-model-high"),
+        "openai 臂 id = 模型名原文（无后缀零改写）"
+    );
+
+    // 带 `[1m]` 后缀的 openai 档：裸名下发（本地窗长仍取 1M，但不发 beta）
+    let suffixed = parse_model_spec("gpt-4o[1m]").expect("后缀解析成功");
+    let model = build_model(&cfg, &suffixed, Some(8192));
+    assert_eq!(model.name(), "openai");
+    assert_eq!(model.id(), Some("gpt-4o"), "openai 臂下发裸名");
+}
+
+#[test]
+fn 双臂组装_anthropic臂描述名为anthropic且id为裸名() {
+    let cfg = anthropic_config("claude-sonnet-4-5[1m]", "claude-haiku-4-5");
+    let spec = parse_model_spec(&cfg.model_high).expect("后缀解析成功");
+    let model = build_model(&cfg, &spec, None);
+
+    assert_eq!(
+        model.name(),
+        "anthropic",
+        "anthropic 臂 provider 描述名逐字"
+    );
+    assert_eq!(
+        model.id(),
+        Some("claude-sonnet-4-5"),
+        "anthropic 臂 id = 裸名（后缀已剥离，反映实际发送）"
+    );
+
+    // 两臂同型：同一变量位接受两臂产物（编译期锚，loop 零改动可消费）
+    let openai_spec = parse_model_spec("gpt-4o").expect("无后缀解析成功");
+    let arms: [DynModel<Completion>; 2] = [
+        build_model(&complete_config(), &openai_spec, None),
+        build_model(&cfg, &spec, None),
+    ];
+    assert_eq!(arms[0].name(), "openai");
+    assert_eq!(arms[1].name(), "anthropic");
+}
+
+#[test]
+fn base_url归一化_anthropic三形态不产生重复版本段() {
+    // 三形态（裸域 / 带 /v1 / 带 /v1/messages）归一化后均无版本段后缀
+    for raw in [
+        "https://api.anthropic.com",
+        "https://api.anthropic.com/v1",
+        "https://api.anthropic.com/v1/messages",
+    ] {
+        let cfg = EngineConfig {
+            protocol: Protocol::Anthropic,
+            base_url: raw.to_owned(),
+            ..anthropic_config("claude-x", "claude-y")
+        };
+        let provider = anthropic_provider(&cfg, &parse_model_spec("claude-x").expect("解析成功"));
+        assert_eq!(
+            provider.base_url, "https://api.anthropic.com",
+            "{raw} 归一化后不产生重复版本段（rig 拼 /v1/messages）"
+        );
+        assert!(
+            !provider.base_url.ends_with("/v1"),
+            "{raw} 归一化后不带版本段，实际: {}",
+            provider.base_url
+        );
+    }
+}
+
+#[test]
+fn base_url归一化_openai臂保持原样拼接() {
+    // openai 契约要求含版本段：引擎不改写（逐字等价现状）
+    for raw in [
+        "http://127.0.0.1:9/v1",
+        "https://api.example.com/v1",
+        "https://gateway.example.com/openai/v1",
+    ] {
+        let cfg = EngineConfig {
+            base_url: raw.to_owned(),
+            ..complete_config()
+        };
+        assert_eq!(
+            openai_provider(&cfg).base_url,
+            raw,
+            "{raw} openai 臂 base_url 原样承接"
+        );
+    }
+    // 尾部斜杠同样原样（引擎不加不减）
+    let cfg = EngineConfig {
+        base_url: "https://api.example.com/v1/".to_owned(),
+        ..complete_config()
+    };
+    assert_eq!(
+        openai_provider(&cfg).base_url,
+        "https://api.example.com/v1/"
+    );
+}
+
+#[tokio::test]
+async fn 裸名上报_runstarted报裸名而非配置原文() {
+    let cfg = anthropic_config("claude-x[1m]", "claude-y");
+    let runner = SdkRunner::new(cfg.clone(), None, None, None);
+    let mut session = runner.open_session(open_new()).expect("open 应成功");
+    session
+        .questions
+        .send(agent::TurnQuestion {
+            prompt: "裸名上报一轮".to_owned(),
+        })
+        .await
+        .expect("问题送达");
+
+    let started = session.observations.recv().await.expect("RunStarted");
+    let AgentEventKind::RunStarted { model, .. } = &started else {
+        panic!("首事件应为 RunStarted，实际: {started:?}");
+    };
+    assert_eq!(
+        model.as_deref(),
+        Some("claude-x"),
+        "RunStarted.model 报裸名（反映实际发送，后缀不随请求下发）"
+    );
+    assert_ne!(
+        model.as_deref(),
+        Some(cfg.model_high.as_str()),
+        "上报值不是配置原文"
+    );
+    drop(session);
+}
+
+#[test]
+fn 输出上限取值链_显式优先_名单内保留官方值_名单外兜底32000() {
+    // rig 名单内模型的官方默认值（claude-opus-4* / claude-sonnet-4* /
+    // claude-haiku-4-5 走 64_000）
+    let rig_default_of = |model: &str| {
+        let provider = AnthropicConfig::new("k").with_base_url("http://127.0.0.1:9/v1");
+        provider.client().completion(model).wire.default_max_tokens
+    };
+
+    // ① provider 显式值优先（不被 rig 官方值覆盖）
+    let in_list = rig_default_of("claude-opus-4-1");
+    assert_eq!(in_list, Some(64_000), "名单内模型有 rig 官方默认值");
+    assert_eq!(
+        resolve_output_tokens(Some(8192), in_list),
+        8192,
+        "显式值优先（MUST NOT 被官方默认值覆盖）"
+    );
+
+    // ② None + 名单内：保留 rig 官方值（不降级）
+    assert_eq!(
+        resolve_output_tokens(None, in_list),
+        64_000,
+        "名单内模型保留官方默认值"
+    );
+    assert_eq!(
+        resolve_output_tokens(None, rig_default_of("claude-sonnet-4-5")),
+        64_000,
+        "claude-sonnet-4* 名单内"
+    );
+    assert_eq!(
+        resolve_output_tokens(None, rig_default_of("claude-haiku-4-5")),
+        64_000,
+        "claude-haiku-4-5 名单内"
+    );
+
+    // ③ None + 名单外（老代 / 第三方网关名）：兜底 32_000
+    for out_of_list in ["claude-3-5-sonnet-20241022", "my-gateway-model-v2"] {
+        let rig_default = rig_default_of(out_of_list);
+        assert_eq!(rig_default, None, "{out_of_list} 不在 rig 名单内");
+        assert_eq!(
+            resolve_output_tokens(None, rig_default),
+            32_000,
+            "{out_of_list} 兜底 32_000（不再触发编码期 max_tokens must be set）"
+        );
+    }
+
+    // 门面零下限校验：极小值原样作为 wire 默认值（拒面在命令层）
+    assert_eq!(resolve_output_tokens(Some(0), None), 0, "Some(0) 原样透传");
+    assert_eq!(
+        resolve_output_tokens(Some(u64::MAX), None),
+        u64::MAX,
+        "u64::MAX 原样透传（引擎不做上限校验）"
+    );
+
+    // anthropic 臂构造不 panic（上限写入 wire 的接线面）
+    let cfg = anthropic_config("claude-x", "claude-y");
+    let spec = parse_model_spec("claude-x").expect("解析成功");
+    for max_tokens in [None, Some(0), Some(4096), Some(u64::MAX)] {
+        assert_eq!(
+            build_model(&cfg, &spec, max_tokens).name(),
+            "anthropic",
+            "上限载荷 {max_tokens:?} 下臂构造可达"
+        );
+    }
+}
+
+#[test]
+fn beta条件发_仅anthropic协议且后缀在场时携1m头() {
+    let betas_of = |protocol: Protocol, raw: &str| {
+        let cfg = EngineConfig {
+            protocol,
+            ..anthropic_config(raw, raw)
+        };
+        let spec = parse_model_spec(raw).expect("解析成功");
+        anthropic_provider(&cfg, &spec).betas
+    };
+
+    // anthropic + `[1m]` → 发 1M beta
+    assert_eq!(
+        betas_of(Protocol::Anthropic, "claude-x[1m]"),
+        vec![BETA_CONTEXT_1M.to_owned()],
+        "anthropic + 后缀 → anthropic-beta 携 1M 标记"
+    );
+    assert_eq!(BETA_CONTEXT_1M, "context-1m-2025-08-07", "beta 头值逐字");
+
+    // anthropic + 无后缀 → 不发
+    assert!(
+        betas_of(Protocol::Anthropic, "claude-x").is_empty(),
+        "anthropic 无后缀不发 beta"
+    );
+
+    // openai + `[1m]` → 不发（本地窗长仍 1M，但不发 beta，R4）
+    let openai_suffixed = parse_model_spec("claude-x[1m]").expect("解析成功");
+    assert_eq!(
+        openai_suffixed.length,
+        Some(MILLION_CONTEXT_WINDOW),
+        "窗长候选仍在（openai 侧本地防线仍按 1M）"
+    );
+    assert_eq!(
+        build_model(&complete_config(), &openai_suffixed, None).name(),
+        "openai",
+        "openai 臂选臂不产生 anthropic provider（结构上无 beta 写入点，故不发 beta）"
+    );
+    // openai + 无后缀 → 不发（同一结构面）
+    let openai_plain = parse_model_spec("claude-x").expect("解析成功");
+    assert_eq!(
+        build_model(&complete_config(), &openai_plain, None).name(),
+        "openai"
+    );
+
+    // 后缀大小写形态同样命中（判定只认可考表示 spec.length）
+    assert_eq!(
+        betas_of(Protocol::Anthropic, "claude-x[1M]"),
+        vec![BETA_CONTEXT_1M.to_owned()],
+        "后缀大小写形态同判"
+    );
+    // 非 1M 后缀在解析面即拒收，不进 beta 判定
+    assert!(
+        parse_model_spec("claude-x[2m]").is_err(),
+        "非 1M 后缀不产生窗长候选，结构上无法触达 beta 分支"
+    );
+}
+
+#[test]
+fn 模型名边界形态组装不panic且裸名保真() {
+    let cfg = anthropic_config("claude-x", "claude-y");
+    // 超长（>1000 字符，带 / 不带后缀）/ emoji / \0 / 换行模型名
+    let long = format!("{}-模型", "m".repeat(1_500));
+    for raw in [
+        long.clone(),
+        format!("{long}[1m]"),
+        "claude-🎉[1m]".to_owned(),
+        "claude-🎉".to_owned(),
+        "claude-\u{0}-x".to_owned(),
+        "claude\nx".to_owned(),
+    ] {
+        let spec = parse_model_spec(&raw).expect("形态应解析成功");
+        let model = build_model(&cfg, &spec, None);
+        assert_eq!(model.name(), "anthropic", "模型名 {raw:?} 下臂构造可达");
+        assert_eq!(model.id(), Some(spec.name.as_str()), "下发裸名保真");
+    }
+}
+
+#[tokio::test]
+async fn 按档窗长_后缀胜出且两档独立解析() {
+    // 同一 runner：high 档带 `[1m]`（1M 窗压过 context_length = 64）→ 无 L2
+    // notice；low 档无后缀（回落 64 窗）→ 有 L2 notice
+    let (resume, _calls) = loader(Ok(Some(oversized_transcript())));
+    let cfg = anthropic_config("claude-x[1m]", "claude-y");
+    let runner = SdkRunner::new(cfg, Some(Arc::clone(&resume)), Some(64), None);
+
+    let mut high = runner
+        .open_session(open_continue_at_level("ses-tier-high", ModelLevel::High))
+        .expect("high 档 open 应成功");
+    high.questions
+        .send(agent::TurnQuestion {
+            prompt: "高档轮".to_owned(),
+        })
+        .await
+        .expect("问题送达");
+    let first_high = high.observations.recv().await.expect("首事件");
+    assert!(
+        matches!(&first_high, AgentEventKind::RunStarted { .. }),
+        "1M 窗压过 context_length → 重建史未越 L2，首事件即 RunStarted，实际: {first_high:?}"
+    );
+    drop(high);
+
+    let mut low = runner
+        .open_session(open_continue_at_level("ses-tier-low", ModelLevel::Low))
+        .expect("low 档 open 应成功");
+    low.questions
+        .send(agent::TurnQuestion {
+            prompt: "低档轮".to_owned(),
+        })
+        .await
+        .expect("问题送达");
+    let first_low = low.observations.recv().await.expect("首事件");
+    let AgentEventKind::SystemNotice { subtype, .. } = &first_low else {
+        panic!("无后缀档回落 64 窗应触 L2 notice，实际: {first_low:?}");
+    };
+    assert_eq!(subtype.as_str(), "context_pruned", "低档 L2 剪裁留痕");
+    let started = low.observations.recv().await.expect("RunStarted");
+    assert!(
+        matches!(&started, AgentEventKind::RunStarted { model, .. } if model.as_deref() == Some("claude-y")),
+        "低档裸名上报，实际: {started:?}"
+    );
+    drop(low);
+}
+
+#[tokio::test]
+async fn 按档窗长_context_length与128k缺省各按档生效() {
+    // 无后缀 + context_window = 64：重建史越 L2 → 有 notice
+    let (resume, _calls) = loader(Ok(Some(oversized_transcript())));
+    let small = SdkRunner::new(complete_config(), Some(resume), Some(64), None);
+    let mut session = small
+        .open_session(open_continue("ses-window-64"))
+        .expect("open 应成功");
+    session
+        .questions
+        .send(agent::TurnQuestion {
+            prompt: "小窗轮".to_owned(),
+        })
+        .await
+        .expect("问题送达");
+    assert!(
+        matches!(
+            session.observations.recv().await.expect("首事件"),
+            AgentEventKind::SystemNotice { .. }
+        ),
+        "context_length = 64 档防线生效（L2 先行剪裁）"
+    );
+    drop(session);
+
+    // 无后缀 + context_window 缺席 / Some(0)：128K 缺省 → 重建史未越线
+    for window in [None, Some(0)] {
+        let (resume, _calls) = loader(Ok(Some(oversized_transcript())));
+        let default_window = SdkRunner::new(complete_config(), Some(resume), window, None);
+        let mut session = default_window
+            .open_session(open_continue("ses-window-default"))
+            .expect("open 应成功");
+        session
+            .questions
+            .send(agent::TurnQuestion {
+                prompt: "缺省窗轮".to_owned(),
+            })
+            .await
+            .expect("问题送达");
+        let first = session.observations.recv().await.expect("首事件");
+        assert!(
+            matches!(&first, AgentEventKind::RunStarted { .. }),
+            "窗长 {window:?} 走 128K 缺省（重建史未越线），实际: {first:?}"
+        );
+        drop(session);
+    }
+
+    // high / low 各带后缀形态：两档窗长各自独立（两档 1M 值互不串档）
+    let (resume, _calls) = loader(Ok(Some(oversized_transcript())));
+    let both_suffixed = EngineConfig {
+        model_high: "claude-x[1m]".to_owned(),
+        model_low: "claude-y[1M]".to_owned(),
+        ..complete_config()
+    };
+    let runner = SdkRunner::new(both_suffixed, Some(resume), Some(64), None);
+    for level in [ModelLevel::High, ModelLevel::Low] {
+        let mut session = runner
+            .open_session(open_continue_at_level("ses-both-suffixed", level))
+            .expect("open 应成功");
+        session
+            .questions
+            .send(agent::TurnQuestion {
+                prompt: "双后缀轮".to_owned(),
+            })
+            .await
+            .expect("问题送达");
+        let first = session.observations.recv().await.expect("首事件");
+        assert!(
+            matches!(&first, AgentEventKind::RunStarted { .. }),
+            "{level:?} 档 1M 后缀覆盖 context_length（无 L2 notice），实际: {first:?}"
+        );
+        drop(session);
+    }
+}
+
+#[tokio::test]
+async fn 非法后缀启动失败_逐档解析且不panic() {
+    // high 档非法：Err 携档位名与 ModelSpecError 原文，不产事件
+    let cfg = EngineConfig {
+        model_high: "x[2m]".to_owned(),
+        ..complete_config()
+    };
+    let error = SdkRunner::new(cfg, None, None, None)
+        .open_session(open_new())
+        .expect_err("非法后缀必须显式失败");
+    let AgentStartError::ConfigMissing(message) = &error else {
+        panic!("应为 ConfigMissing，实际: {error:?}");
+    };
+    assert!(
+        message.contains("model_high") && message.contains("x[2m]"),
+        "文案含档位名与模型名原文，实际: {message}"
+    );
+    assert!(
+        message.contains("模型名后缀非法"),
+        "文案含 ModelSpecError 原文，实际: {message}"
+    );
+
+    // low 档非法：低档轮显式失败，高档轮照常
+    let cfg = EngineConfig {
+        model_low: "x[1m]y".to_owned(),
+        ..complete_config()
+    };
+    let runner = SdkRunner::new(cfg, None, None, None);
+    let error = runner
+        .open_session(open_new_at_level(ModelLevel::Low))
+        .expect_err("低档非法后缀必须显式失败");
+    let AgentStartError::ConfigMissing(message) = &error else {
+        panic!("应为 ConfigMissing，实际: {error:?}");
+    };
+    assert!(
+        message.contains("model_low") && message.contains("x[1m]y"),
+        "低档成因逐字，实际: {message}"
+    );
+    drop(
+        runner
+            .open_session(open_new_at_level(ModelLevel::High))
+            .expect("高档无非法后缀，照常 open"),
+    );
+}
+
+#[test]
+fn 空模型名既有路径_配置校验先于后缀解析() {
+    // 空名不进入 parse 分支：仍是既有三件套缺失文案（不含后缀错误）
+    let cfg = EngineConfig {
+        model_high: String::new(),
+        ..complete_config()
+    };
+    for window in [None, Some(200_000)] {
+        let error = SdkRunner::new(cfg.clone(), None, window, None)
+            .open_session(open_new_at_level(ModelLevel::High))
+            .expect_err("空模型名必须 Err");
+        let AgentStartError::ConfigMissing(message) = &error else {
+            panic!("应为 ConfigMissing，实际: {error:?}");
+        };
+        assert!(
+            message.contains("model_high"),
+            "空名走既有配置缺失成因，实际: {message}"
+        );
+        assert!(
+            !message.contains("后缀"),
+            "空名不产生后缀错误（校验先于 parse），实际: {message}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn 引擎三模块链路_裸名与窗长与上限一次装配不打架() {
+    // 入口 = open_session：model_spec（解析）+ context（按档防线）+ 双臂
+    // build_model（上限载荷）三面同源、单次装配
+    let (resume, _calls) = loader(Ok(Some(oversized_transcript())));
+    let cfg = anthropic_config("claude-x[1m]", "claude-y");
+    let runner =
+        SdkRunner::new(cfg.clone(), Some(resume), Some(64), None).with_max_tokens(Some(8192));
+    let mut session = runner
+        .open_session(open_continue("ses-combined"))
+        .expect("三模块链路 open 应成功");
+    session
+        .questions
+        .send(agent::TurnQuestion {
+            prompt: "三模块链路一轮".to_owned(),
+        })
+        .await
+        .expect("问题送达");
+
+    // 裸名上报 + 1M 窗压过 context_length（无 L2 notice）同一装配产物
+    let first = session.observations.recv().await.expect("首事件");
+    let AgentEventKind::RunStarted { model, .. } = &first else {
+        panic!("三面同源装配下首事件应为 RunStarted，实际: {first:?}");
+    };
+    assert_eq!(model.as_deref(), Some("claude-x"), "裸名上报（后缀剥离）");
+    // 上限载荷经同一 runner 携带（组装面直断的旁路半边）
+    let spec = parse_model_spec(&cfg.model_high).expect("解析成功");
+    assert_eq!(
+        build_model(&cfg, &spec, Some(8192)).name(),
+        "anthropic",
+        "同一配置上限载荷下臂构造可达"
     );
     drop(session);
 }

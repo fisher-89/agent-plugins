@@ -4,8 +4,9 @@ use agent::{
     AgentRunner, RunningTurn, SessionCtx, SessionKernel, SessionProvenance, SessionQuery,
     SessionRef, SessionStreamRegistry, StopRegistry, TurnRequest,
 };
-use store::{AgentEngineKind, Store, WorkspaceStores, CLI_TENANT_RETIRED};
+use store::{AgentEngineKind, AgentProviderProtocol, Store, WorkspaceStores, CLI_TENANT_RETIRED};
 
+use crate::sdk::config::Protocol;
 use crate::store_port::{StoreQuery, StoreSink};
 use crate::{EngineConfig, EngineFacade, EngineKind};
 
@@ -46,11 +47,15 @@ struct ResolvedEngine {
     /// 引擎二值（门面 `EngineKind`，自 store 本地 `AgentEngineKind` 映射；
     /// `Cli` 实例在解析单点即拒，恒 `Sdk`）
     kind: EngineKind,
-    /// 连接配置（sdk 臂由引用 provider 组装）
+    /// 连接配置（sdk 臂由引用 provider 组装；含 `protocol`——协议决定 wire
+    /// 语义，属连接必需项）
     config: EngineConfig,
-    /// sdk 引擎上下文窗长（provider `context_length` 列旁路，不经
-    /// `EngineConfig`；`None` = 未配置走 128K 缺省）
+    /// sdk 引擎上下文窗长（可空调参旁路，不经 `EngineConfig`；`None` = 未配置
+    /// 走 128K 缺省，该档模型名带 `[1m]` 后缀时被覆盖）
     context_window: Option<u64>,
+    /// sdk 引擎输出上限（可空调参旁路，与 `context_window` 并列；`None` = 按
+    /// 协议缺省，仅 anthropic 协议消费）
+    max_tokens: Option<u64>,
     /// 解析目标实例 id（快照 `agent_instance_id` 载荷；缺省与显式路径同经
     /// 解析单点，恒在）
     agent_instance_id: i64,
@@ -117,6 +122,7 @@ pub fn compose_turn(
     let runner: Arc<dyn AgentRunner> = Arc::from(
         EngineFacade::with_resume_transcript(resume)
             .with_context_window(resolved.context_window)
+            .with_max_tokens(resolved.max_tokens)
             .with_explore_note_store(explore_note_store)
             .runner_for(resolved.kind, resolved.config)?,
     );
@@ -202,6 +208,16 @@ impl ComposedTurn {
     }
 }
 
+/// store 协议枚举 → 门面协议枚举（两臂 match；沿 `AgentEngineKind` →
+/// `EngineKind` 双枚举映射先例——store 禁拖引擎门面 crate，故两侧各一枚、
+/// 映射收组合根单点）。
+fn map_protocol(protocol: AgentProviderProtocol) -> Protocol {
+    match protocol {
+        AgentProviderProtocol::Openai => Protocol::Openai,
+        AgentProviderProtocol::Anthropic => Protocol::Anthropic,
+    }
+}
+
 /// 运行发起解析单点（语义自命令层原样平移；解析产物含快照定型双面 + 实例
 /// 外键）。缺省与显式路径同臂：`engine: Cli` 实例一律显式 `Err`
 /// （[`CLI_TENANT_RETIRED`] 逐字文案，不构造引擎、不静默回退）。
@@ -242,14 +258,18 @@ fn resolve_agent_engine(
             Ok(ResolvedEngine {
                 kind: EngineKind::Sdk,
                 config: EngineConfig {
+                    // 协议经双枚举映射进连接配置（选臂只在引擎组装点，解析层
+                    // 不对协议做二次判断）
+                    protocol: map_protocol(provider.protocol),
                     api_key: provider.api_key,
                     base_url: provider.base_url,
                     model_high: provider.models.high,
                     model_low: provider.models.low,
                 },
-                // 窗长旁路：provider 可空列原样携带（None = 缺省启发式在
-                // runner 侧解析，不落缺省字面）
+                // 可空调参旁路：provider 可空列原样携带（None = 缺省在 runner
+                // 侧解析，不落缺省字面）
                 context_window: provider.context_length,
+                max_tokens: provider.max_tokens,
                 agent_instance_id: instance.id,
             })
         }

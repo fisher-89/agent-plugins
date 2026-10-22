@@ -23,7 +23,8 @@ vi.mock('sonner', () => ({
   toast: { error: toastErrorMock },
 }));
 
-/** provider 记录 fixture（serde camelCase 线格式，三档 models + 可空 contextLength）。 */
+/** provider 记录 fixture（serde camelCase 线格式，协议 + 三档 models + 可空
+ * contextLength / maxTokens）。 */
 function provider(
   id: number,
   name: string,
@@ -33,10 +34,12 @@ function provider(
   return {
     id,
     name,
+    protocol: 'openai',
     baseUrl: 'https://api.example.com/v1',
     apiKey,
     models: { high: 'm-high', medium: 'm-medium', low: 'm-low' },
     contextLength,
+    maxTokens: null,
   };
 }
 
@@ -65,10 +68,12 @@ function mockDispatch() {
       const record: AgentProviderRecord = {
         id: numOr('id', stored.length + 1),
         name: textOf('name'),
+        protocol: 'openai',
         baseUrl: textOf('baseUrl'),
         apiKey: textOf('apiKey'),
         models: TIERS,
         contextLength: typeof rawContextLength === 'number' ? rawContextLength : null,
+        maxTokens: null,
       };
       stored = [...stored.filter((row) => row.id !== record.id), record];
       return Promise.resolve(record);
@@ -147,7 +152,9 @@ describe('useAgentProviders：取数收口（挂载一次 + 动作轨道刷新�
         baseUrl: 'https://api.example.com/v1',
         apiKey: 'sk-live-1234567890',
         models: TIERS,
+        protocol: 'openai',
         contextLength: null,
+        maxTokens: null,
       });
       expect(saved?.name).toBe('新端点');
     });
@@ -158,7 +165,9 @@ describe('useAgentProviders：取数收口（挂载一次 + 动作轨道刷新�
       baseUrl: 'https://api.example.com/v1',
       apiKey: 'sk-live-1234567890',
       models: TIERS,
+      protocol: 'openai',
       contextLength: null,
+      maxTokens: null,
     });
     await waitFor(() => expect(countOf('list_agent_providers')).toBe(2));
     await waitFor(() =>
@@ -181,7 +190,9 @@ describe('useAgentProviders：取数收口（挂载一次 + 动作轨道刷新�
         baseUrl: 'https://api.example.com/v1',
         apiKey: 'sk-live-1234567890',
         models: TIERS,
+        protocol: 'openai',
         contextLength: 200000,
+        maxTokens: null,
       });
       expect(saved?.contextLength).toBe(200000);
     });
@@ -192,7 +203,9 @@ describe('useAgentProviders：取数收口（挂载一次 + 动作轨道刷新�
       baseUrl: 'https://api.example.com/v1',
       apiKey: 'sk-live-1234567890',
       models: TIERS,
+      protocol: 'openai',
       contextLength: 200000,
+      maxTokens: null,
     });
   });
 
@@ -211,7 +224,9 @@ describe('useAgentProviders：取数收口（挂载一次 + 动作轨道刷新�
         baseUrl: 'https://api.example.com/v1',
         apiKey: 'sk-live-1234567890',
         models: TIERS,
+        protocol: 'openai',
         contextLength: null,
+        maxTokens: null,
       });
       expect(saved?.contextLength).toBeNull();
     });
@@ -292,7 +307,9 @@ describe('useAgentProviders：错误双轨', () => {
         baseUrl: 'https://api.example.com/v1',
         apiKey: 'sk-live-1234567890',
         models: TIERS,
+        protocol: 'openai',
         contextLength: null,
+        maxTokens: null,
       });
       expect(saved).toBeNull();
     });
@@ -353,7 +370,9 @@ describe('useAgentProviders：错误双轨', () => {
         baseUrl: 'https://api.example.com/v1',
         apiKey: 'sk-live-1234567890',
         models: TIERS,
+        protocol: 'openai',
         contextLength: null,
+        maxTokens: null,
       });
     });
     await act(async () => {
@@ -362,5 +381,205 @@ describe('useAgentProviders：错误双轨', () => {
 
     expect(toastErrorMock).not.toHaveBeenCalled();
     expect(result.current.error).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 协议 / 输出上限入参（DD20 / AC-11 前端半）：`AgentProviderSaveInput` 八参
+// 逐键与命令签名对齐，`maxTokens` 留空 = 按协议缺省存 null（不落 0 / 32000）
+// ---------------------------------------------------------------------------
+
+describe('useAgentProviders：协议与输出上限入参（DD20）', () => {
+  beforeEach(() => {
+    invokeMock.mockReset();
+    toastErrorMock.mockReset();
+    stored = [];
+  });
+
+  it('save 八参逐键与 save_agent_provider 签名对齐（protocol 紧跟 name）', async () => {
+    const response: AgentProviderRecord = {
+      id: 3,
+      name: '协议端点',
+      protocol: 'anthropic',
+      baseUrl: 'https://api.anthropic.com',
+      apiKey: 'sk-ant-x',
+      models: { high: 'claude-x[1m]', medium: 'claude-m', low: 'claude-y' },
+      contextLength: 200000,
+      maxTokens: 8192,
+    };
+    invokeMock.mockImplementation((command: string) => {
+      if (command === 'list_agent_providers') return Promise.resolve([]);
+      return Promise.resolve(response);
+    });
+    const { result } = renderHook(() => useAgentProviders());
+    await settleLoaded();
+
+    let returned: AgentProviderRecord | null = null;
+    await act(async () => {
+      returned = await result.current.save({
+        id: null,
+        name: '协议端点',
+        protocol: 'anthropic',
+        baseUrl: 'https://api.anthropic.com',
+        apiKey: 'sk-ant-x',
+        models: { high: 'claude-x[1m]', medium: 'claude-m', low: 'claude-y' },
+        contextLength: 200000,
+        maxTokens: 8192,
+      });
+    });
+
+    // 逐键断言（键名 = 命令签名序，位置错序即失败）
+    expect(invokeMock).toHaveBeenCalledWith('save_agent_provider', {
+      id: null,
+      name: '协议端点',
+      protocol: 'anthropic',
+      baseUrl: 'https://api.anthropic.com',
+      apiKey: 'sk-ant-x',
+      models: { high: 'claude-x[1m]', medium: 'claude-m', low: 'claude-y' },
+      contextLength: 200000,
+      maxTokens: 8192,
+    });
+    expect(Object.keys(invokeMock.mock.calls[1]?.[1] ?? {})).toEqual([
+      'id',
+      'name',
+      'protocol',
+      'baseUrl',
+      'apiKey',
+      'models',
+      'contextLength',
+      'maxTokens',
+    ]);
+    // 返回值透传记录（hook 零裁剪）
+    expect(returned).toEqual(response);
+  });
+
+  it('maxTokens 留空 → invoke 实参 maxTokens: null（与 contextLength: null 双空并存）', async () => {
+    invokeMock.mockImplementation((command: string) => {
+      if (command === 'list_agent_providers') return Promise.resolve([]);
+      return Promise.resolve(null);
+    });
+    const { result } = renderHook(() => useAgentProviders());
+    await settleLoaded();
+
+    await act(async () => {
+      await result.current.save({
+        id: null,
+        name: '未配置上限',
+        protocol: 'openai',
+        baseUrl: 'https://api.example.com/v1',
+        apiKey: 'sk-live-1234567890',
+        models: TIERS,
+        contextLength: null,
+        maxTokens: null,
+      });
+    });
+
+    const params = invokeMock.mock.calls.find(([name]) => name === 'save_agent_provider')?.[1] as
+      | Record<string, unknown>
+      | undefined;
+    expect(params?.['maxTokens']).toBeNull();
+    expect(params?.['contextLength']).toBeNull();
+    // 留空 = 按协议缺省存 null（MUST NOT 落 0 / 32000 字面）
+    expect(params?.['maxTokens']).not.toBe(0);
+    expect(params?.['maxTokens']).not.toBe(32000);
+  });
+
+  it('maxTokens 数值边界原样透传（0 / 4096 / MAX_SAFE_INTEGER，hook 不做边界校验）', async () => {
+    for (const tokens of [0, 4096, Number.MAX_SAFE_INTEGER]) {
+      invokeMock.mockReset();
+      invokeMock.mockImplementation((command: string) => {
+        if (command === 'list_agent_providers') return Promise.resolve([]);
+        return Promise.resolve(null);
+      });
+      const { result } = renderHook(() => useAgentProviders());
+      await settleLoaded();
+
+      await act(async () => {
+        await result.current.save({
+          id: null,
+          name: `边界端点 ${tokens}`,
+          protocol: 'anthropic',
+          baseUrl: 'https://api.anthropic.com',
+          apiKey: 'sk-ant-x',
+          models: TIERS,
+          contextLength: null,
+          maxTokens: tokens,
+        });
+      });
+
+      const params = invokeMock.mock.calls.find(([name]) => name === 'save_agent_provider')?.[1] as
+        | Record<string, unknown>
+        | undefined;
+      expect(params?.['maxTokens']).toBe(tokens);
+      expect(params?.['contextLength']).toBeNull();
+    }
+  });
+
+  it('list 回读 protocol / maxTokens 原样承载（两变体 + null 与数值，hook 零归一化）', async () => {
+    const rows: AgentProviderRecord[] = [
+      {
+        id: 1,
+        name: 'openai 端点',
+        protocol: 'openai',
+        baseUrl: 'https://api.example.com/v1',
+        apiKey: 'sk-live-1234567890',
+        models: TIERS,
+        contextLength: null,
+        maxTokens: null,
+      },
+      {
+        id: 2,
+        name: 'anthropic 端点',
+        protocol: 'anthropic',
+        baseUrl: 'https://api.anthropic.com',
+        apiKey: 'sk-ant-1234567890',
+        models: TIERS,
+        contextLength: 200000,
+        maxTokens: 8192,
+      },
+    ];
+    invokeMock.mockResolvedValue(rows);
+    const { result } = renderHook(() => useAgentProviders());
+
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    expect(result.current.providers).toEqual(rows);
+    expect(result.current.providers[0].protocol).toBe('openai');
+    expect(result.current.providers[0].maxTokens).toBeNull();
+    expect(result.current.providers[1].protocol).toBe('anthropic');
+    expect(result.current.providers[1].maxTokens).toBe(8192);
+  });
+
+  it('组合：面板提交形态入参（anthropic + 8192 + 三档含 [1m]）经 invoke 载荷逐键对齐', async () => {
+    invokeMock.mockImplementation((command: string) => {
+      if (command === 'list_agent_providers') return Promise.resolve([]);
+      return Promise.resolve(null);
+    });
+    const { result } = renderHook(() => useAgentProviders());
+    await settleLoaded();
+
+    await act(async () => {
+      await result.current.save({
+        id: 7,
+        name: '面板形态端点',
+        protocol: 'anthropic',
+        baseUrl: 'https://api.anthropic.com',
+        apiKey: '',
+        models: { high: 'claude-sonnet-4-5[1m]', medium: 'claude-m', low: 'claude-haiku-4-5' },
+        contextLength: 200000,
+        maxTokens: 8192,
+      });
+    });
+
+    expect(invokeMock).toHaveBeenCalledWith('save_agent_provider', {
+      id: 7,
+      name: '面板形态端点',
+      protocol: 'anthropic',
+      baseUrl: 'https://api.anthropic.com',
+      apiKey: '',
+      models: { high: 'claude-sonnet-4-5[1m]', medium: 'claude-m', low: 'claude-haiku-4-5' },
+      contextLength: 200000,
+      maxTokens: 8192,
+    });
   });
 });

@@ -1,0 +1,244 @@
+✓ Lockfile passes supply-chain policies (verified 11d ago)
+Lockfile is up to date, resolution step is skipped
+Progress: resolved 1, reused 0, downloaded 0, added 0
+Progress: resolved 671, reused 671, downloaded 0, added 142
+Progress: resolved 671, reused 671, downloaded 0, added 274
+Progress: resolved 671, reused 671, downloaded 0, added 355
+Progress: resolved 671, reused 671, downloaded 0, added 482
+Progress: resolved 671, reused 671, downloaded 0, added 541
+Progress: resolved 671, reused 671, downloaded 0, added 568
+Progress: resolved 671, reused 671, downloaded 0, added 615
+Progress: resolved 671, reused 671, downloaded 0, added 661
+Progress: resolved 671, reused 671, downloaded 0, added 679
+Packages: +679 -176
++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++-----------------
+Progress: resolved 671, reused 671, downloaded 0, added 679, done
+node_modules/esbuild postinstall$ node install.js
+node_modules/esbuild postinstall: Done
+Done in 48.9s using pnpm v12.10.1
+$ pnpm run server:check && pnpm run bindings:check && pnpm run client:check
+$ cargo fmt --manifest-path src-tauri/Cargo.toml && cargo clippy --manifest-path src-tauri/Cargo.toml
+   Compiling proc-macro2 v1.0.107
+   Compiling unicode-ident v1.0.26
+   Compiling quote v1.0.47
+   Compiling serde_core v1.0.229
+    Checking windows-link v0.2.1
+   Compiling zmij v1.0.23
+   Compiling cfg-if v1.0.5
+    Checking memchr v2.8.3
+   Compiling siphasher v1.0.3
+   Compiling getrandom v0.4.3
+    Checking itoa v1.0.18
+   Compiling fastrand v2.5.0
+    Checking pin-project-lite v0.2.17
+    Checking windows-sys v0.61.2
+   Compiling serde v1.0.229
+   Compiling icu_properties_data v2.3.0
+    Checking bytes v1.12.1
+   Compiling icu_normalizer_data v2.3.0
+   Compiling version_check v0.9.5
+   Compiling time-core v0.1.9
+   Compiling num-conv v0.2.2
+   Compiling autocfg v1.5.1
+   Compiling phf_shared v0.13.1
+   Compiling serde_json v1.0.151
+   Compiling thiserror v2.0.20
+   Compiling libc v0.2.189
+    Checking once_cell v1.21.4
+   Compiling stable_deref_trait v1.2.1
+   Compiling phf_generator v0.13.1
+   Compiling winapi-util v0.1.11
+   Compiling bitflags v2.13.2
+   Compiling anyhow v1.0.104
+    Checking smallvec v1.16.1
+   Compiling aho-corasick v1.1.5
+   Compiling regex-syntax v0.8.11
+   Compiling thiserror v1.0.69
+   Compiling same-file v1.0.6
+   Compiling find-msvc-tools v0.1.13
+   Compiling shlex v2.0.1
+   Compiling parking_lot_core v0.9.12
+   Compiling walkdir v2.5.0
+    Checking equivalent v1.0.2
+    Checking hashbrown v0.17.1
+   Compiling syn v3.0.6
+   Compiling syn v2.0.119
+   Compiling semver v1.0.28
+   Compiling regex-automata v0.4.18
+   Compiling cc v1.4.7
+    Checking socket2 v0.6.5
+    Checking mio v1.2.3
+   Compiling camino v1.2.6
+    Checking http v1.5.0
+   Compiling log v0.4.34
+    Checking tracing-core v0.1.36
+    Checking indexmap v2.14.2
+   Compiling typeid v1.0.3
+    Checking futures-core v0.3.34
+   Compiling rustc_version v0.4.1
+   Compiling phf_codegen v0.13.1
+   Compiling generic-array v0.14.7
+   Compiling ident_case v1.0.1
+   Compiling strsim v0.11.1
+   Compiling glob v0.3.4
+   Compiling writeable v0.6.4
+    Checking percent-encoding v2.3.2
+   Compiling litemap v0.8.3
+   Compiling erased-serde v0.4.10
+   Compiling utf8_iter v1.0.4
+   Compiling scopeguard v1.2.0
+   Compiling new_debug_unreachable v1.0.6
+   Compiling string_cache_codegen v0.6.1
+   Compiling regex v1.13.1
+    Checking fnv v1.0.7
+   Compiling precomputed-hash v0.1.1
+   Compiling lock_api v0.4.14
+   Compiling winnow v1.0.4
+    Checking futures-sink v0.3.34
+   Compiling windows_x86_64_msvc v0.52.6
+   Compiling serde_spanned v1.1.1
+   Compiling ctor-proc-macro v0.0.7
+   Compiling toml_writer v1.1.2+spec-1.1.0
+   Compiling dtoa v1.0.11
+   Compiling synstructure v0.14.0
+   Compiling darling_core v0.24.1
+   Compiling web_atoms v0.2.6
+   Compiling toml_parser v1.1.3+spec-1.1.0
+   Compiling parking_lot v0.12.5
+   Compiling dtoa-short v0.3.5
+   Compiling tendril v0.5.1
+   Compiling form_urlencoded v1.2.2
+   Compiling selectors v0.36.1
+   Compiling toml_datetime v1.1.1+spec-1.1.0
+   Compiling string_cache v0.9.0
+   Compiling uuid v1.26.1
+    Checking deranged v0.5.8
+   Compiling indexmap v1.9.3
+   Compiling time-macros v0.2.32
+    Checking slab v0.4.12
+   Compiling alloc-no-stdlib v2.0.4
+   Compiling byteorder v1.5.0
+    Checking powerfmt v0.2.0
+   Compiling unic-char-range v0.9.0
+   Compiling unic-common v0.9.0
+   Compiling unic-char-property v0.9.0
+   Compiling alloc-stdlib v0.2.4
+   Compiling toml v1.1.6+spec-1.1.0
+   Compiling unic-ucd-version v0.9.0
+    Checking futures-channel v0.3.34
+   Compiling serde_derive_internals v0.29.1
+   Compiling servo_arc v0.4.3
+   Compiling hashbrown v0.12.3
+   Compiling schemars v0.8.22
+   Compiling thiserror-impl v1.0.69
+   Compiling phf_macros v0.13.1
+   Compiling tracing-attributes v0.1.31
+   Compiling derive_more-impl v2.1.1
+   Compiling cssparser-macros v0.6.1
+   Compiling serde_derive v1.0.229
+   Compiling zerofrom-derive v0.1.8
+   Compiling yoke-derive v0.8.3
+   Compiling zerovec-derive v0.11.6
+   Compiling displaydoc v0.2.7
+   Compiling thiserror-impl v2.0.20
+   Compiling tokio-macros v2.7.2
+    Checking time v0.3.55
+   Compiling rustc-hash v2.1.3
+   Compiling bit-vec v0.8.0
+   Compiling phf v0.13.1
+   Compiling bit-set v0.8.0
+   Compiling schemars_derive v0.8.22
+   Compiling derive_more v2.1.1
+    Checking tokio v1.53.1
+   Compiling cssparser v0.36.0
+   Compiling darling_macro v0.24.1
+    Checking tracing v0.1.44
+   Compiling futures-macro v0.3.34
+   Compiling cfb v0.7.3
+   Compiling zerofrom v0.1.8
+   Compiling yoke v0.8.3
+   Compiling unic-ucd-ident v0.9.0
+   Compiling markup5ever v0.38.0
+   Compiling brotli-decompressor v5.0.3
+   Compiling zerovec v0.11.8
+   Compiling zerotrie v0.2.5
+   Compiling darling v0.24.1
+   Compiling quick-xml v0.42.0
+   Compiling html5ever v0.38.0
+   Compiling base64 v0.23.1
+    Checking futures-io v0.3.34
+   Compiling dyn-clone v1.0.20
+   Compiling dunce v1.0.5
+   Compiling serde_with_macros v3.23.0
+    Checking futures-task v0.3.34
+   Compiling foldhash v0.2.0
+   Compiling tinystr v0.8.4
+   Compiling potential_utf v0.1.6
+   Compiling icu_collections v2.3.0
+   Compiling icu_locale_core v2.3.0
+   Compiling dom_query v0.27.0
+    Checking futures-util v0.3.34
+   Compiling brotli v8.0.4
+   Compiling infer v0.19.0
+   Compiling serde-untagged v0.1.9
+   Compiling ctor v0.8.0
+    Checking http-body v1.1.0
+   Compiling cargo-platform v0.1.9
+   Compiling jsonptr v0.6.3
+   Compiling plist v1.10.1
+    Checking mime v0.3.17
+   Compiling cargo_metadata v0.19.2
+    Checking tower-service v0.3.3
+   Compiling icu_provider v2.3.1
+   Compiling serde_with v3.23.0
+   Compiling json-patch v3.0.1
+   Compiling crossbeam-utils v0.8.23
+   Compiling paste v1.0.15
+    Checking tokio-util v0.7.19
+   Compiling vswhom-sys v0.1.3
+   Compiling icu_properties v2.3.0
+   Compiling icu_normalizer v2.3.0
+   Compiling specta v2.0.0-rc.25
+    Checking windows-link v0.1.3
+   Compiling heck v0.5.0
+   Compiling Inflector v0.11.4
+   Compiling httparse v1.10.1
+   Compiling windows-targets v0.52.6
+   Compiling idna_adapter v1.2.2
+   Compiling specta-macros v2.0.0-rc.25
+    Checking try-lock v0.2.5
+    Checking atomic-waker v1.1.2
+   Compiling windows-sys v0.59.0
+    Checking windows-result v0.4.1
+    Checking windows-strings v0.5.1
+   Compiling idna v1.1.0
+    Checking h2 v0.4.19
+    Checking want v0.3.1
+   Compiling unicase v2.9.0
+    Checking httpdate v1.0.3
+    Checking windows-strings v0.4.2
+    Checking windows-result v0.3.4
+   Compiling windows-interface v0.59.3
+    Checking windows-registry v0.6.1
+   Compiling windows-implement v0.60.2
+    Checking url v2.5.8
+   Compiling vswhom v0.1.0
+    Checking sync_wrapper v1.0.2
+   Compiling toml_datetime v0.7.5+spec-1.1.0
+    Checking typenum v1.20.1
+    Checking tower-layer v0.3.3
+   Compiling option-ext v0.2.0
+    Checking base64 v0.22.1
+   Compiling winnow v0.7.15
+    Checking ipnet v2.12.2
+   Compiling dirs-sys v0.5.0
+    Checking http-body-util v0.1.5
+    Checking tower v0.5.3
+   Compiling dirs v6.0.0
+   Compiling crc32fast v1.5.2
+error: failed to build archive at `C:\Users\wps\.dev-team\worktrees\wps-claude-plugin-7166d8c61feeae705846d569251abee6\provider-protocol\packages\desktop\src-tauri\target\debug\deps\libdirs_sys-ed1a5f5869620add.rlib`: failed to rename archive file: 另一个程序正在使用此文件，进程无法访问。 (os error 32)
+
+error: could not compile `dirs-sys` (lib) due to 1 previous error
+warning: build failed, waiting for other jobs to finish...
+[ELIFECYCLE] Command failed with exit code 101.
+[ELIFECYCLE] Command failed with exit code 101.

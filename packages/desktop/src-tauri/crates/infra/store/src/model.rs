@@ -1138,9 +1138,26 @@ pub(crate) fn mask_api_key(api_key: &str) -> String {
     }
 }
 
+/// agent provider 模型协议（agent 管理域，store 本地枚举）：serde camelCase
+/// 线值 `"openai" | "anthropic"`。持久化的是 provider 的 wire 语义（决定
+/// `base_url` 拼法、认证头与请求参数）——store 禁拖引擎门面 crate（零新增
+/// 依赖），`AgentProviderProtocol` → 门面 `Protocol` 映射收运行发起解析单点
+/// （两臂 match）。**变体声明序即 bincode 解码锚（`Openai`=0 / `Anthropic`=1），
+/// MUST NOT 增删重排**（重排即存量行协议读错、wire 选臂错）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type, Default)]
+#[serde(rename_all = "camelCase")]
+pub enum AgentProviderProtocol {
+    /// openai-compatible 端点（缺省：存量 v2 行升级即本档，行为零变化）
+    #[default]
+    Openai,
+    /// Anthropic Messages 端点及其兼容网关
+    Anthropic,
+}
+
 /// `AgentProviderRecord` 的 version 1 历史形态（仅作 native_model 升级链的
-/// 解码目标，不注册进库模型组）：无 `context_length` 列。存量 v1 行经版本
-/// 机制自动升级为 v2（`context_length = None` 未配置语义，零迁移代码路径）。
+/// 解码目标，不注册进库模型组）：无 `context_length` / `protocol` /
+/// `max_tokens` 列。存量 v1 行经版本机制逐级升级至当前形态（`context_length`
+/// / `max_tokens` 读出 `None`、`protocol` 读出 `openai`，零迁移代码路径）。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 #[native_model(id = 5, version = 1)]
@@ -1149,7 +1166,7 @@ pub(crate) struct AgentProviderRecordV1 {
     pub id: i64,
     /// 展示名
     pub name: String,
-    /// openai 兼容端点 base_url
+    /// 协议对应端点 base_url
     pub base_url: String,
     /// 认证凭据（明文）
     pub api_key: String,
@@ -1157,7 +1174,30 @@ pub(crate) struct AgentProviderRecordV1 {
     pub models: AgentModelTiers,
 }
 
-impl From<AgentProviderRecordV1> for AgentProviderRecord {
+/// `AgentProviderRecord` 的 version 2 历史形态（仅作 native_model 升级链的
+/// 解码目标，不注册进库模型组、不出公共查询面）：有 `context_length`，无
+/// `protocol` / `max_tokens` 列。存量 v2 行经版本机制自动升级为 v3
+/// （`protocol` 读出 `openai`、`max_tokens` 读出 `None`，零迁移代码路径）。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[native_model(id = 5, version = 2, from = AgentProviderRecordV1)]
+pub(crate) struct AgentProviderRecordV2 {
+    /// 记录 id（主键）
+    pub id: i64,
+    /// 展示名
+    pub name: String,
+    /// 协议对应端点 base_url
+    pub base_url: String,
+    /// 认证凭据（明文）
+    pub api_key: String,
+    /// 三档模型标识
+    pub models: AgentModelTiers,
+    /// provider 上下文窗长（可空列）
+    pub context_length: Option<u64>,
+}
+
+/// v1 → v2 升级半边（缺列读兼容：旧记录无窗长配置，未配置语义入列）。
+impl From<AgentProviderRecordV1> for AgentProviderRecordV2 {
     fn from(previous: AgentProviderRecordV1) -> Self {
         Self {
             id: previous.id,
@@ -1165,16 +1205,16 @@ impl From<AgentProviderRecordV1> for AgentProviderRecord {
             base_url: previous.base_url,
             api_key: previous.api_key,
             models: previous.models,
-            // 缺列读兼容：旧记录无窗长配置，未配置语义入列
             context_length: None,
         }
     }
 }
 
-/// 降级半边（native_model `from` 属性要求双向 `From`；运行时无降级读取路径，
-/// `context_length` 以缺省占位——只保升级语义真实性，降级形态不作数据承诺）。
-impl From<AgentProviderRecord> for AgentProviderRecordV1 {
-    fn from(record: AgentProviderRecord) -> Self {
+/// v2 → v1 降级半边（native_model `from` 属性要求双向 `From`；运行时无降级
+/// 读取路径，`context_length` 丢弃——只保升级语义真实性，降级形态不作数据
+/// 承诺）。
+impl From<AgentProviderRecordV2> for AgentProviderRecordV1 {
+    fn from(record: AgentProviderRecordV2) -> Self {
         Self {
             id: record.id,
             name: record.name,
@@ -1188,7 +1228,7 @@ impl From<AgentProviderRecord> for AgentProviderRecordV1 {
 /// agent provider 记录
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
-#[native_model(id = 5, version = 2, from = AgentProviderRecordV1)]
+#[native_model(id = 5, version = 3, from = AgentProviderRecordV2)]
 #[native_db]
 pub struct AgentProviderRecord {
     /// 记录 id（主键，写事务内 max+1 分配）
@@ -1196,38 +1236,86 @@ pub struct AgentProviderRecord {
     pub id: i64,
     /// 展示名（唯一 = 写事务内查重）
     pub name: String,
-    /// openai 兼容端点 base_url（含版本段，如 `https://…/v1`）
+    /// 模型协议（wire 语义与 `base_url` 拼法由此决定；缺省 `openai`——
+    /// 存量行升级即本档）
+    #[serde(default)]
+    pub protocol: AgentProviderProtocol,
+    /// 协议对应端点 base_url（openai 含版本段如 `https://…/v1`；anthropic
+    /// 的 `/v1` / `/messages` 后缀由引擎侧归一化后拼 `/v1/messages`）
     pub base_url: String,
     /// 认证凭据（bearer token，明文）
     // 机密面有意放宽:明文存储与传输（读写单 DTO 即记录本体，无遮蔽信封臂），
     // 遮蔽只在前端展示层，边界表见 specs/desktop-agent-management
     pub api_key: String,
-    /// 三档模型标识（运行发起解析消费固定取 high 档）
+    /// 三档模型标识（运行发起解析消费固定取 high 档；原文可带 `[1m]` 后缀，
+    /// 后缀解析归引擎侧单点）
     pub models: AgentModelTiers,
     /// provider 上下文窗长（token 数；sdk 引擎上下文防线消费）：可空列，
     /// `None` = 未配置（缺省走 128K 启发式；编辑语义留空 = 未配置，MUST NOT
     /// 落 0 或缺省字面）
     #[serde(default)]
     pub context_length: Option<u64>,
+    /// provider 输出上限（token 数；等价 Claude Code 的
+    /// `CLAUDE_CODE_MAX_OUTPUT_TOKENS`）：可空列，`None` = 按协议缺省；仅
+    /// anthropic 协议消费（openai 协议请求保持省略上限），保存期下限 4096
+    #[serde(default)]
+    pub max_tokens: Option<u64>,
+}
+
+/// v2 → v3 升级半边（缺列读兼容：旧记录无协议 / 输出上限列——协议缺省
+/// `openai`（行为零变化）、上限未配置）。
+impl From<AgentProviderRecordV2> for AgentProviderRecord {
+    fn from(previous: AgentProviderRecordV2) -> Self {
+        Self {
+            id: previous.id,
+            name: previous.name,
+            protocol: AgentProviderProtocol::Openai,
+            base_url: previous.base_url,
+            api_key: previous.api_key,
+            models: previous.models,
+            context_length: previous.context_length,
+            max_tokens: None,
+        }
+    }
+}
+
+/// v3 → v2 降级半边（`protocol` / `max_tokens` 丢弃——只保升级语义真实性，
+/// 降级形态不作数据承诺）。
+impl From<AgentProviderRecord> for AgentProviderRecordV2 {
+    fn from(record: AgentProviderRecord) -> Self {
+        Self {
+            id: record.id,
+            name: record.name,
+            base_url: record.base_url,
+            api_key: record.api_key,
+            models: record.models,
+            context_length: record.context_length,
+        }
+    }
 }
 
 impl AgentProviderRecord {
     /// 由连接档案构造新记录：`id` 置 0（写事务内 max+1 分配覆盖）；api_key
-    /// 传空即空（新建语义无原值可保）；`context_length` 传 `None` 即未配置。
+    /// 传空即空（新建语义无原值可保）；`context_length` / `max_tokens` 传
+    /// `None` 即未配置。`protocol` 紧跟 `name`——协议决定 `base_url` 语义。
     pub fn new(
         name: String,
+        protocol: AgentProviderProtocol,
         base_url: String,
         api_key: String,
         models: AgentModelTiers,
         context_length: Option<u64>,
+        max_tokens: Option<u64>,
     ) -> Self {
         Self {
             id: 0,
             name,
+            protocol,
             base_url,
             api_key,
             models,
             context_length,
+            max_tokens,
         }
     }
 }
@@ -1239,10 +1327,12 @@ impl std::fmt::Debug for AgentProviderRecord {
         f.debug_struct("AgentProviderRecord")
             .field("id", &self.id)
             .field("name", &self.name)
+            .field("protocol", &self.protocol)
             .field("base_url", &self.base_url)
             .field("api_key", &mask_api_key(&self.api_key))
             .field("models", &self.models)
             .field("context_length", &self.context_length)
+            .field("max_tokens", &self.max_tokens)
             .finish()
     }
 }

@@ -9,10 +9,12 @@
 //! `.to_string()` 转 `Err(String)`，本类型不进命令签名）。错误约定沿全轨道
 //! 模板：`Err` 由 Tauri 转为前端 reject，MUST NOT 静默吞掉失败。
 
+use agent_runtime::{parse_model_spec, MIN_OUTPUT_TOKENS};
 use tauri::State;
 
 use store::{
-    AgentEngineKind, AgentInstanceRecord, AgentModelTiers, AgentProviderRecord, WorkspaceStores,
+    AgentEngineKind, AgentInstanceRecord, AgentModelTiers, AgentProviderProtocol,
+    AgentProviderRecord, WorkspaceStores,
 };
 
 #[cfg(test)]
@@ -30,19 +32,53 @@ pub fn list_agent_providers(
         .map_err(|e| e.to_string())
 }
 
-/// 保存 provider（新建 / 更新合一，id `None` 新建 / `Some` 整行更新）
+/// 保存 provider（新建 / 更新合一，id `None` 新建 / `Some` 整行更新）。
+///
+/// 参数序：`protocol` 紧跟 `name`——协议决定 `base_url` 语义与 wire，属连接
+/// 配置核心项，签名上显式。
+///
+/// 保存期校验单点（避免「保存成功但跑不起来」）：三档模型名经引擎侧**同一**
+/// `parse_model_spec`（`high → medium → low`，首个非法即 `Err`，不造第二套
+/// 规则）；`max_tokens` 非空时 SHALL `>= MIN_OUTPUT_TOKENS`（`< 4096` 拒收，
+/// 不静默截断或夹到边界）。错误串只含档位名 / 模型名原文 / 下限——结构上
+/// 不含 api_key。
+// 八参为 IPC 命令面定稿签名（design DD16 / DD17：协议紧跟 name，可空调参相邻），
+// 拆结构体只增 IPC 载荷间接且与前端实参序脱耦——沿 `agent_start` 命令面先例。
+#[allow(clippy::too_many_arguments)]
 #[tauri::command]
 #[specta::specta]
 pub fn save_agent_provider(
     stores: State<'_, WorkspaceStores>,
     id: Option<i64>,
     name: String,
+    protocol: AgentProviderProtocol,
     base_url: String,
     api_key: String,
     models: AgentModelTiers,
     context_length: Option<u64>,
+    max_tokens: Option<u64>,
 ) -> Result<AgentProviderRecord, String> {
-    let mut record = AgentProviderRecord::new(name, base_url, api_key, models, context_length);
+    for (tier, raw) in [
+        ("high", &models.high),
+        ("medium", &models.medium),
+        ("low", &models.low),
+    ] {
+        parse_model_spec(raw).map_err(|error| format!("models.{tier} 档{error}"))?;
+    }
+    if let Some(tokens) = max_tokens.filter(|tokens| *tokens < MIN_OUTPUT_TOKENS) {
+        return Err(format!(
+            "max_tokens 过小: {tokens}（输出上限下限 {MIN_OUTPUT_TOKENS}）"
+        ));
+    }
+    let mut record = AgentProviderRecord::new(
+        name,
+        protocol,
+        base_url,
+        api_key,
+        models,
+        context_length,
+        max_tokens,
+    );
     record.id = id.unwrap_or(0);
     if record.id != 0 && record.api_key.is_empty() {
         // 留空 key 回填原值：读存量记录（miss 由 upsert 的行存在校验统一报错）

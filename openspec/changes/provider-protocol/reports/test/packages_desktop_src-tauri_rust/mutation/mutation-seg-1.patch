@@ -1,0 +1,2167 @@
+diff --git a/crates/infra/checks/src/static_check_test.rs b/crates/infra/checks/src/static_check_test.rs
+index 7ea36503e960..4647f281a7a6 100644
+--- a/crates/infra/checks/src/static_check_test.rs
++++ b/crates/infra/checks/src/static_check_test.rs
+@@ -592,6 +592,9 @@ async fn 重复run_各自exec_id落独立log且前次不被覆写() {
+ async fn run_slot_baseline_pass_报告与exec_outputs落baseline树() {
+     let _env = env_window();
+     let ws = TempWs::new("baseline-pass");
++    // shim 裸名经 PATH 解析（与其余 shim 用例同装置）：不依赖 cmd 的 cwd 搜索，
++    // NoDefaultCurrentDirectoryInExePath 环境下同样命中
++    let _path = PathPrefix::enter(ws.path());
+     let command = write_shim(&ws, "baseline-lint", &[("ok", false)], None);
+     ws.write_config(Some(&command));
+ 
+@@ -626,6 +629,9 @@ const SEP: &str = std::path::MAIN_SEPARATOR_STR;
+ async fn run_slot_baseline_fail_report_dir仍回填baseline锚() {
+     let _env = env_window();
+     let ws = TempWs::new("baseline-fail");
++    // 同上：shim 裸名靠 PATH 前置可达（cwd 搜索在 NoDefaultCurrentDirectoryInExePath
++    // 环境被禁用，不能作为可达性依赖）
++    let _path = PathPrefix::enter(ws.path());
+     let command = write_shim(&ws, "baseline-lint", &[("E0308 类型错误", true)], Some(2));
+     ws.write_config(Some(&command));
+ 
+@@ -681,6 +687,9 @@ async fn run槽位等价性_语义同锚点异且err面持衡() {
+     let _env = env_window();
+     // 等价性：同 shim 同退出码两槽位行为等值
+     let ws = TempWs::new("slot-equivalence");
++    // shim 裸名经 PATH 解析（否则两槽位都「命令不可达」→ passed=false 且诊断相同，
++    // 等价性断言在双失败上空转——必须真执行才成立）
++    let _path = PathPrefix::enter(ws.path());
+     let command = write_shim(
+         &ws,
+         "lint",
+@@ -705,6 +714,14 @@ async fn run槽位等价性_语义同锚点异且err面持衡() {
+         test_outcome.output_ref.is_some() && baseline_outcome.output_ref.is_some(),
+         "recorded 引用两槽位均回填"
+     );
++    // 非空转锚：两槽位都真跑到 shim（否则「双不可达」下 passed / 诊断也等值）
++    assert!(
++        test_outcome.diagnostics.contains("warning: unused")
++            && baseline_outcome.diagnostics.contains("warning: unused"),
++        "两槽位均真执行 shim，实际: {:?} / {:?}",
++        test_outcome.diagnostics,
++        baseline_outcome.diagnostics
++    );
+     assert_ne!(test_outcome.report_dir, baseline_outcome.report_dir, "锚点不同");
+     assert!(
+         test_outcome.report_dir.ends_with("reports/test")
+diff --git a/crates/infra/store/src/envelope_test.rs b/crates/infra/store/src/envelope_test.rs
+index 1d840c03ea7f..7516b53b7002 100644
+--- a/crates/infra/store/src/envelope_test.rs
++++ b/crates/infra/store/src/envelope_test.rs
+@@ -4,8 +4,9 @@ use std::path::{Path, PathBuf};
+ use agent::{AgentEvent, AgentEventKind};
+ 
+ use crate::{
+-    AgentEngineKind, AgentInstanceRecord, AgentModelTiers, AgentProviderRecord, RecordEnvelope,
+-    RecordsPage, SessionConfigSnapshot, SessionRecord, Store, StoreError,
++    AgentEngineKind, AgentInstanceRecord, AgentModelTiers, AgentProviderProtocol,
++    AgentProviderRecord, RecordEnvelope, RecordsPage, SessionConfigSnapshot, SessionRecord, Store,
++    StoreError,
+ };
+ use workflow::state::{ChangeStateRecord, ChangeStatus};
+ 
+@@ -163,6 +164,7 @@ fn 注册表按维度分组列出模型且list_models计数与写入量一致()
+ fn fixture_provider(name: &str) -> AgentProviderRecord {
+     AgentProviderRecord::new(
+         name.to_owned(),
++        AgentProviderProtocol::Openai,
+         "https://api.example.com/v1".to_owned(),
+         "sk-live-1234567890".to_owned(),
+         AgentModelTiers {
+@@ -171,6 +173,7 @@ fn fixture_provider(name: &str) -> AgentProviderRecord {
+             low: "m-low".to_owned(),
+         },
+         None,
++        None,
+     )
+ }
+ 
+diff --git a/crates/infra/store/src/lib.rs b/crates/infra/store/src/lib.rs
+index 8fcf5adf81ad..72e7f0947162 100644
+--- a/crates/infra/store/src/lib.rs
++++ b/crates/infra/store/src/lib.rs
+@@ -6,10 +6,10 @@ mod store;
+ 
+ pub use envelope::{ModelInfo, RecordEnvelope, RecordsPage};
+ pub use model::{
+-    AgentEngineKind, AgentInstanceRecord, AgentModelTiers, AgentProviderRecord, AgentRunRecord,
+-    ChangeActivePhase, ChangeRecord, ChecklistItemRecord, ExploreRecord, PhaseRecord,
+-    SessionConfigSnapshot, SessionEventRecord, SessionRecord, StepRecord, WorkspaceRecord,
+-    CLI_TENANT_RETIRED,
++    AgentEngineKind, AgentInstanceRecord, AgentModelTiers, AgentProviderProtocol,
++    AgentProviderRecord, AgentRunRecord, ChangeActivePhase, ChangeRecord, ChecklistItemRecord,
++    ExploreRecord, PhaseRecord, SessionConfigSnapshot, SessionEventRecord, SessionRecord,
++    StepRecord, WorkspaceRecord, CLI_TENANT_RETIRED,
+ };
+ pub use store::{DbDimension, Store, StoreError, WorkspaceStores, EXPLORE_PLACEHOLDER_PREFIX};
+ 
+diff --git a/crates/infra/store/src/model.rs b/crates/infra/store/src/model.rs
+index ba6a0127e7b7..46e0ac1c59ca 100644
+--- a/crates/infra/store/src/model.rs
++++ b/crates/infra/store/src/model.rs
+@@ -1138,9 +1138,26 @@ pub(crate) fn mask_api_key(api_key: &str) -> String {
+     }
+ }
+ 
++/// agent provider 模型协议（agent 管理域，store 本地枚举）：serde camelCase
++/// 线值 `"openai" | "anthropic"`。持久化的是 provider 的 wire 语义（决定
++/// `base_url` 拼法、认证头与请求参数）——store 禁拖引擎门面 crate（零新增
++/// 依赖），`AgentProviderProtocol` → 门面 `Protocol` 映射收运行发起解析单点
++/// （两臂 match）。**变体声明序即 bincode 解码锚（`Openai`=0 / `Anthropic`=1），
++/// MUST NOT 增删重排**（重排即存量行协议读错、wire 选臂错）。
++#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type, Default)]
++#[serde(rename_all = "camelCase")]
++pub enum AgentProviderProtocol {
++    /// openai-compatible 端点（缺省：存量 v2 行升级即本档，行为零变化）
++    #[default]
++    Openai,
++    /// Anthropic Messages 端点及其兼容网关
++    Anthropic,
++}
++
+ /// `AgentProviderRecord` 的 version 1 历史形态（仅作 native_model 升级链的
+-/// 解码目标，不注册进库模型组）：无 `context_length` 列。存量 v1 行经版本
+-/// 机制自动升级为 v2（`context_length = None` 未配置语义，零迁移代码路径）。
++/// 解码目标，不注册进库模型组）：无 `context_length` / `protocol` /
++/// `max_tokens` 列。存量 v1 行经版本机制逐级升级至当前形态（`context_length`
++/// / `max_tokens` 读出 `None`、`protocol` 读出 `openai`，零迁移代码路径）。
+ #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+ #[serde(rename_all = "camelCase")]
+ #[native_model(id = 5, version = 1)]
+@@ -1149,7 +1166,7 @@ pub(crate) struct AgentProviderRecordV1 {
+     pub id: i64,
+     /// 展示名
+     pub name: String,
+-    /// openai 兼容端点 base_url
++    /// 协议对应端点 base_url
+     pub base_url: String,
+     /// 认证凭据（明文）
+     pub api_key: String,
+@@ -1157,7 +1174,30 @@ pub(crate) struct AgentProviderRecordV1 {
+     pub models: AgentModelTiers,
+ }
+ 
+-impl From<AgentProviderRecordV1> for AgentProviderRecord {
++/// `AgentProviderRecord` 的 version 2 历史形态（仅作 native_model 升级链的
++/// 解码目标，不注册进库模型组、不出公共查询面）：有 `context_length`，无
++/// `protocol` / `max_tokens` 列。存量 v2 行经版本机制自动升级为 v3
++/// （`protocol` 读出 `openai`、`max_tokens` 读出 `None`，零迁移代码路径）。
++#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
++#[serde(rename_all = "camelCase")]
++#[native_model(id = 5, version = 2, from = AgentProviderRecordV1)]
++pub(crate) struct AgentProviderRecordV2 {
++    /// 记录 id（主键）
++    pub id: i64,
++    /// 展示名
++    pub name: String,
++    /// 协议对应端点 base_url
++    pub base_url: String,
++    /// 认证凭据（明文）
++    pub api_key: String,
++    /// 三档模型标识
++    pub models: AgentModelTiers,
++    /// provider 上下文窗长（可空列）
++    pub context_length: Option<u64>,
++}
++
++/// v1 → v2 升级半边（缺列读兼容：旧记录无窗长配置，未配置语义入列）。
++impl From<AgentProviderRecordV1> for AgentProviderRecordV2 {
+     fn from(previous: AgentProviderRecordV1) -> Self {
+         Self {
+             id: previous.id,
+@@ -1165,16 +1205,16 @@ impl From<AgentProviderRecordV1> for AgentProviderRecord {
+             base_url: previous.base_url,
+             api_key: previous.api_key,
+             models: previous.models,
+-            // 缺列读兼容：旧记录无窗长配置，未配置语义入列
+             context_length: None,
+         }
+     }
+ }
+ 
+-/// 降级半边（native_model `from` 属性要求双向 `From`；运行时无降级读取路径，
+-/// `context_length` 以缺省占位——只保升级语义真实性，降级形态不作数据承诺）。
+-impl From<AgentProviderRecord> for AgentProviderRecordV1 {
+-    fn from(record: AgentProviderRecord) -> Self {
++/// v2 → v1 降级半边（native_model `from` 属性要求双向 `From`；运行时无降级
++/// 读取路径，`context_length` 丢弃——只保升级语义真实性，降级形态不作数据
++/// 承诺）。
++impl From<AgentProviderRecordV2> for AgentProviderRecordV1 {
++    fn from(record: AgentProviderRecordV2) -> Self {
+         Self {
+             id: record.id,
+             name: record.name,
+@@ -1188,7 +1228,7 @@ impl From<AgentProviderRecord> for AgentProviderRecordV1 {
+ /// agent provider 记录
+ #[derive(Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+ #[serde(rename_all = "camelCase")]
+-#[native_model(id = 5, version = 2, from = AgentProviderRecordV1)]
++#[native_model(id = 5, version = 3, from = AgentProviderRecordV2)]
+ #[native_db]
+ pub struct AgentProviderRecord {
+     /// 记录 id（主键，写事务内 max+1 分配）
+@@ -1196,38 +1236,86 @@ pub struct AgentProviderRecord {
+     pub id: i64,
+     /// 展示名（唯一 = 写事务内查重）
+     pub name: String,
+-    /// openai 兼容端点 base_url（含版本段，如 `https://…/v1`）
++    /// 模型协议（wire 语义与 `base_url` 拼法由此决定；缺省 `openai`——
++    /// 存量行升级即本档）
++    #[serde(default)]
++    pub protocol: AgentProviderProtocol,
++    /// 协议对应端点 base_url（openai 含版本段如 `https://…/v1`；anthropic
++    /// 的 `/v1` / `/messages` 后缀由引擎侧归一化后拼 `/v1/messages`）
+     pub base_url: String,
+     /// 认证凭据（bearer token，明文）
+     // 机密面有意放宽:明文存储与传输（读写单 DTO 即记录本体，无遮蔽信封臂），
+     // 遮蔽只在前端展示层，边界表见 specs/desktop-agent-management
+     pub api_key: String,
+-    /// 三档模型标识（运行发起解析消费固定取 high 档）
++    /// 三档模型标识（运行发起解析消费固定取 high 档；原文可带 `[1m]` 后缀，
++    /// 后缀解析归引擎侧单点）
+     pub models: AgentModelTiers,
+     /// provider 上下文窗长（token 数；sdk 引擎上下文防线消费）：可空列，
+     /// `None` = 未配置（缺省走 128K 启发式；编辑语义留空 = 未配置，MUST NOT
+     /// 落 0 或缺省字面）
+     #[serde(default)]
+     pub context_length: Option<u64>,
++    /// provider 输出上限（token 数；等价 Claude Code 的
++    /// `CLAUDE_CODE_MAX_OUTPUT_TOKENS`）：可空列，`None` = 按协议缺省；仅
++    /// anthropic 协议消费（openai 协议请求保持省略上限），保存期下限 4096
++    #[serde(default)]
++    pub max_tokens: Option<u64>,
++}
++
++/// v2 → v3 升级半边（缺列读兼容：旧记录无协议 / 输出上限列——协议缺省
++/// `openai`（行为零变化）、上限未配置）。
++impl From<AgentProviderRecordV2> for AgentProviderRecord {
++    fn from(previous: AgentProviderRecordV2) -> Self {
++        Self {
++            id: previous.id,
++            name: previous.name,
++            protocol: AgentProviderProtocol::Openai,
++            base_url: previous.base_url,
++            api_key: previous.api_key,
++            models: previous.models,
++            context_length: previous.context_length,
++            max_tokens: None,
++        }
++    }
++}
++
++/// v3 → v2 降级半边（`protocol` / `max_tokens` 丢弃——只保升级语义真实性，
++/// 降级形态不作数据承诺）。
++impl From<AgentProviderRecord> for AgentProviderRecordV2 {
++    fn from(record: AgentProviderRecord) -> Self {
++        Self {
++            id: record.id,
++            name: record.name,
++            base_url: record.base_url,
++            api_key: record.api_key,
++            models: record.models,
++            context_length: record.context_length,
++        }
++    }
+ }
+ 
+ impl AgentProviderRecord {
+     /// 由连接档案构造新记录：`id` 置 0（写事务内 max+1 分配覆盖）；api_key
+-    /// 传空即空（新建语义无原值可保）；`context_length` 传 `None` 即未配置。
++    /// 传空即空（新建语义无原值可保）；`context_length` / `max_tokens` 传
++    /// `None` 即未配置。`protocol` 紧跟 `name`——协议决定 `base_url` 语义。
+     pub fn new(
+         name: String,
++        protocol: AgentProviderProtocol,
+         base_url: String,
+         api_key: String,
+         models: AgentModelTiers,
+         context_length: Option<u64>,
++        max_tokens: Option<u64>,
+     ) -> Self {
+         Self {
+             id: 0,
+             name,
++            protocol,
+             base_url,
+             api_key,
+             models,
+             context_length,
++            max_tokens,
+         }
+     }
+ }
+@@ -1239,10 +1327,12 @@ impl std::fmt::Debug for AgentProviderRecord {
+         f.debug_struct("AgentProviderRecord")
+             .field("id", &self.id)
+             .field("name", &self.name)
++            .field("protocol", &self.protocol)
+             .field("base_url", &self.base_url)
+             .field("api_key", &mask_api_key(&self.api_key))
+             .field("models", &self.models)
+             .field("context_length", &self.context_length)
++            .field("max_tokens", &self.max_tokens)
+             .finish()
+     }
+ }
+diff --git a/crates/infra/store/src/model_test.rs b/crates/infra/store/src/model_test.rs
+index e82b822bcb70..1b87ca3b3025 100644
+--- a/crates/infra/store/src/model_test.rs
++++ b/crates/infra/store/src/model_test.rs
+@@ -7,9 +7,9 @@ use workflow::model::{ChecklistItem, Verdict};
+ 
+ use crate::model::{
+     pack_checklist_item_key, pack_session_event_key, AgentEngineKind, AgentInstanceRecord,
+-    AgentModelTiers, AgentProviderRecord, AgentProviderRecordV1, AgentRunRecord, AgentRunRecordV3,
+-    ChecklistItemRecord, PhaseRecord, SessionConfigSnapshot, SessionEventRecord, SessionRecord,
+-    WorkspaceRecord,
++    AgentModelTiers, AgentProviderProtocol, AgentProviderRecord, AgentProviderRecordV1,
++    AgentProviderRecordV2, AgentRunRecord, AgentRunRecordV3, ChecklistItemRecord, PhaseRecord,
++    SessionConfigSnapshot, SessionEventRecord, SessionRecord, WorkspaceRecord,
+ };
+ use crate::store::Store;
+ 
+@@ -496,10 +496,12 @@ fn provider构造new五参载荷与三档models与context_length逐字段保真
+     // 显式窗长：五参构造逐字段保真
+     let windowed = AgentProviderRecord::new(
+         "自建端点".to_owned(),
++        AgentProviderProtocol::Openai,
+         "https://api.example.com/v1".to_owned(),
+         "sk-live-1234567890".to_owned(),
+         tiers("m-high", "m-medium", "m-low"),
+         Some(200_000),
++        None,
+     );
+     assert_eq!(windowed.id, 0, "new 构造 id 恒置 0");
+     assert_eq!(windowed.name, "自建端点");
+@@ -519,10 +521,12 @@ fn provider构造new五参载荷与三档models与context_length逐字段保真
+     // 未配置：None 语义入列（不落 0 / 128000 字面）
+     let record = AgentProviderRecord::new(
+         "自建端点".to_owned(),
++        AgentProviderProtocol::Openai,
+         "https://api.example.com/v1".to_owned(),
+         "sk-live-1234567890".to_owned(),
+         tiers("m-high", "m-medium", "m-low"),
+         None,
++        None,
+     );
+     assert_eq!(record.id, 0, "new 构造 id 恒置 0");
+     assert_eq!(record.context_length, None, "未配置 None 原样承载");
+@@ -537,10 +541,12 @@ fn provider构造new五参载荷与三档models与context_length逐字段保真
+ fn provider手写遮蔽debug输出api_key位为末三字符遮蔽形态_全文不含明文key() {
+     let record = AgentProviderRecord::new(
+         "遮蔽回归".to_owned(),
++        AgentProviderProtocol::Openai,
+         "https://api.example.com/v1".to_owned(),
+         "sk-live-1234567890".to_owned(),
+         tiers("m-high", "m-medium", "m-low"),
+         None,
++        None,
+     );
+ 
+     let debug_text = format!("{record:?}");
+@@ -566,10 +572,12 @@ fn provider遮蔽debug在api_key空串或长度不足3字符时恒sk三星号全
+     for api_key in ["", "a", "ab", "abc"] {
+         let record = AgentProviderRecord::new(
+             "过短兜底".to_owned(),
++            AgentProviderProtocol::Openai,
+             "https://api.example.com/v1".to_owned(),
+             api_key.to_owned(),
+             tiers("h", "m", "l"),
+             None,
++            None,
+         );
+ 
+         let debug_text = format!("{record:?}");
+@@ -591,10 +599,12 @@ fn provider遮蔽debug在api_key空串或长度不足3字符时恒sk三星号全
+ fn provider构造特殊字符字段clone与partial_eq保真且models三档全空串构造合法() {
+     let record = AgentProviderRecord::new(
+         "名 字 中文 🎉 \"引号\"\n换行".to_owned(),
++        AgentProviderProtocol::Openai,
+         "https://例子.测试/v1 🚀".to_owned(),
+         "带 空格 的 \"key\" 🎉\n".to_owned(),
+         tiers("", "", ""),
+         None,
++        None,
+     );
+ 
+     // 模型层不做字段校验：三档全空串构造合法（校验单点在 store）
+@@ -612,21 +622,23 @@ fn provider_roundtrip(record: &AgentProviderRecord) -> AgentProviderRecord {
+     let (decoded, version) =
+         native_model::decode::<AgentProviderRecord>(bytes).expect("native_model decode 应成功");
+     assert_eq!(
+-        version, 2,
+-        "native_model 版本封装为 version 2（context_length 演进落位）"
++        version, 3,
++        "native_model 版本封装为 version 3（protocol / max_tokens 演进落位）"
+     );
+     decoded
+ }
+ 
+ #[test]
+-fn provider嵌装往返v2含context_length双态逐字段相等() {
++fn provider嵌装往返v3含context_length双态逐字段相等() {
+     for context_length in [Some(200_000u64), None] {
+         let record = AgentProviderRecord::new(
+             "往返回归".to_owned(),
++            AgentProviderProtocol::Openai,
+             "https://api.example.com/v1".to_owned(),
+             "sk-live-1234567890".to_owned(),
+             tiers("m-high", "m-medium", "m-low"),
+             context_length,
++            None,
+         );
+ 
+         let decoded = provider_roundtrip(&record);
+@@ -644,18 +656,20 @@ fn provider嵌装往返v2含context_length双态逐字段相等() {
+ 
+ #[test]
+ fn provider记录编解码版本断言2() {
+-    // envelope 版本演进落位：v2 编码载荷按 v2 解出（版本头 = 2）
++    // envelope 版本演进落位：v3 编码载荷按 v3 解出（版本头 = 3）
+     let record = AgentProviderRecord::new(
+         "版本头".to_owned(),
++        AgentProviderProtocol::Openai,
+         "https://api.example.com/v1".to_owned(),
+         "sk-live-1234567890".to_owned(),
+         tiers("m-high", "m-medium", "m-low"),
+         Some(200_000),
++        None,
+     );
+     let bytes = native_model::encode(&record).expect("native_model encode 应成功");
+     let (_decoded, version) =
+         native_model::decode::<AgentProviderRecord>(bytes).expect("native_model decode 应成功");
+-    assert_eq!(version, 2, "native_model 版本封装为 version 2");
++    assert_eq!(version, 3, "native_model 版本封装为 version 3");
+ }
+ 
+ #[test]
+@@ -676,10 +690,10 @@ fn 存量v1行经版本机制升级读入且context_length置none() {
+     assert_eq!(legacy_version, 1, "存量形态封装为 version 1");
+     assert_eq!(legacy_decoded, legacy, "v1 载荷按 v1 解码逐字段相等");
+ 
+-    // 同一载荷经版本机制自动升级为 v2：context_length = None（旧记录缺列读
+-    // 兼容，v3→v4 先例同型），五字段原值保留
++    // 同一载荷经版本机制逐级自动升级至当前形态：context_length = None（旧记录
++    // 缺列读兼容，v3→v4 先例同型），五字段原值保留
+     let (upgraded, version) =
+-        native_model::decode::<AgentProviderRecord>(legacy_bytes).expect("v1 载荷应升级为 v2");
++        native_model::decode::<AgentProviderRecord>(legacy_bytes).expect("v1 载荷应逐级升级");
+     assert_eq!(
+         version, 1,
+         "decode 返回载荷头版本（升级链源版本）；升级由值面承载（下方逐字段）"
+@@ -705,7 +719,9 @@ fn v1_from双向upgrade补none与downgrade丢新字段无损() {
+         api_key: "sk-live-1234567890".to_owned(),
+         models: tiers("h", "m", "l"),
+     };
+-    let upgraded = AgentProviderRecord::from(legacy.clone());
++    // 逐级链：v1 → v2（补 context_length）→ v3（补 protocol / max_tokens），
++    // 无跳级 `From`（`ExploreRecord` V1 → V4 先例）
++    let upgraded = AgentProviderRecord::from(AgentProviderRecordV2::from(legacy.clone()));
+     assert_eq!(
+         upgraded.context_length, None,
+         "升级补 context_length = None（缺列读兼容）"
+@@ -719,13 +735,16 @@ fn v1_from双向upgrade补none与downgrade丢新字段无损() {
+     // downgrade：记录 → V1，丢新字段无损（五字段原形还原；id / name 对齐后比较）
+     let mut record = AgentProviderRecord::new(
+         "双向供应".to_owned(),
++        AgentProviderProtocol::Openai,
+         "https://api.example.com/v1".to_owned(),
+         "sk-live-1234567890".to_owned(),
+         tiers("h", "m", "l"),
+         Some(200_000),
++        None,
+     );
+     record.id = legacy.id;
+-    let downgraded = AgentProviderRecordV1::from(record);
++    // 逆序逐级链：v3 → v2（丢 protocol / max_tokens）→ v1（丢 context_length）
++    let downgraded = AgentProviderRecordV1::from(AgentProviderRecordV2::from(record));
+     assert_eq!(downgraded, legacy, "降级还原五字段原形（新字段丢弃无损）");
+ }
+ 
+@@ -733,10 +752,12 @@ fn v1_from双向upgrade补none与downgrade丢新字段无损() {
+ fn provider遮蔽debug补context_length位且api_key位仍遮蔽() {
+     let record = AgentProviderRecord::new(
+         "窗长遮蔽".to_owned(),
++        AgentProviderProtocol::Openai,
+         "https://api.example.com/v1".to_owned(),
+         "sk-live-1234567890".to_owned(),
+         tiers("m-high", "m-medium", "m-low"),
+         Some(200_000),
++        None,
+     );
+ 
+     let debug_text = format!("{record:?}");
+@@ -753,10 +774,12 @@ fn provider遮蔽debug补context_length位且api_key位仍遮蔽() {
+     // None 形态同在位
+     let none_record = AgentProviderRecord::new(
+         "缺列遮蔽".to_owned(),
++        AgentProviderProtocol::Openai,
+         "https://api.example.com/v1".to_owned(),
+         "sk-live-1234567890".to_owned(),
+         tiers("m-high", "m-medium", "m-low"),
+         None,
++        None,
+     );
+     assert!(
+         format!("{none_record:?}").contains("context_length: None"),
+@@ -768,10 +791,12 @@ fn provider遮蔽debug补context_length位且api_key位仍遮蔽() {
+ fn provider_serde线格式含context_length键且null与缺席均解为none() {
+     let record = AgentProviderRecord::new(
+         "线窗长".to_owned(),
++        AgentProviderProtocol::Openai,
+         "https://api.example.com/v1".to_owned(),
+         "sk-live-1234567890".to_owned(),
+         tiers("m-high", "m-medium", "m-low"),
+         Some(200_000),
++        None,
+     );
+     let value = serde_json::to_value(&record).expect("serde 序列化应成功");
+     assert_eq!(
+@@ -783,10 +808,12 @@ fn provider_serde线格式含context_length键且null与缺席均解为none() {
+     // null 形态：解为 None
+     let none_record = AgentProviderRecord::new(
+         "线缺列".to_owned(),
++        AgentProviderProtocol::Openai,
+         "https://api.example.com/v1".to_owned(),
+         "sk-live-1234567890".to_owned(),
+         tiers("m-high", "m-medium", "m-low"),
+         None,
++        None,
+     );
+     let none_value = serde_json::to_value(&none_record).expect("序列化应成功");
+     assert_eq!(none_value["contextLength"], serde_json::Value::Null);
+@@ -853,10 +880,12 @@ fn instance构造new恒id0与is_defaultfalse且engine两变体与provider_id两
+ fn 管理记录serde线格式键名为小驼峰且engine出线cli与sdk串值() {
+     let provider = AgentProviderRecord::new(
+         "线格式".to_owned(),
++        AgentProviderProtocol::Openai,
+         "https://api.example.com/v1".to_owned(),
+         "sk-live-1234567890".to_owned(),
+         tiers("m-high", "m-medium", "m-low"),
+         None,
++        None,
+     );
+     let provider_value = serde_json::to_value(&provider).expect("serde 序列化应成功");
+     assert_eq!(provider_value["name"], serde_json::json!("线格式"));
+@@ -2716,15 +2745,18 @@ fn run_node_record_clean词节点往返等值() {
+ 
+     // native_model encode/decode 回环（serde 词面承载——零迁移）
+     let bytes = native_model::encode(&record).expect("encode 应成功");
+-    let (decoded, version) =
+-        native_model::decode::<RunNodeRecord>(bytes).expect("decode 应成功");
++    let (decoded, version) = native_model::decode::<RunNodeRecord>(bytes).expect("decode 应成功");
+     assert_eq!(version, 1, "native_model id=16 版本封装 version 1 持衡");
+     assert_eq!(decoded, record, "clean 词节点回环逐字段相等");
+     assert_eq!(decoded.step, RunStepKind::Clean);
+ 
+     // serde_json 线面：step 词 `clean` 逐字（与 cleanup 词面可辨）+ node_id()
+     let value = serde_json::to_value(&record).expect("serde_json 出线应成功");
+-    assert_eq!(value["step"], serde_json::json!("clean"), "线词白名单扩展在案");
++    assert_eq!(
++        value["step"],
++        serde_json::json!("clean"),
++        "线词白名单扩展在案"
++    );
+     assert_eq!(
+         record.node_id(),
+         "implement:1:clean:0",
+@@ -2752,15 +2784,18 @@ fn run_node_record_cleanup词节点往返等值() {
+ 
+     // native_model encode/decode 回环（serde 词面承载——零迁移）
+     let bytes = native_model::encode(&record).expect("encode 应成功");
+-    let (decoded, version) =
+-        native_model::decode::<RunNodeRecord>(bytes).expect("decode 应成功");
++    let (decoded, version) = native_model::decode::<RunNodeRecord>(bytes).expect("decode 应成功");
+     assert_eq!(version, 1, "native_model id=16 版本封装 version 1 持衡");
+     assert_eq!(decoded, record, "cleanup 词节点回环逐字段相等");
+     assert_eq!(decoded.step, RunStepKind::Cleanup);
+ 
+     // serde_json 线面：step 词 `cleanup` 逐字 + node_id() 身份串含词面
+     let value = serde_json::to_value(&record).expect("serde_json 出线应成功");
+-    assert_eq!(value["step"], serde_json::json!("cleanup"), "线词白名单扩展在案");
++    assert_eq!(
++        value["step"],
++        serde_json::json!("cleanup"),
++        "线词白名单扩展在案"
++    );
+     assert_eq!(
+         record.node_id(),
+         "implement:1:cleanup:0",
+@@ -2847,8 +2882,7 @@ fn run_node_record_step越集词反序列化拒绝持衡() {
+         "archive_stage",
+         "",
+     ] {
+-        let back: Result<RunStepKind, _> =
+-            serde_json::from_value(serde_json::json!(illegal));
++        let back: Result<RunStepKind, _> = serde_json::from_value(serde_json::json!(illegal));
+         assert!(back.is_err(), "RunStepKind 越集词 {illegal:?} 应拒绝");
+     }
+ }
+@@ -2887,7 +2921,10 @@ fn run_node_record四字段全值直复制与timestamp独立() {
+     assert_eq!(record.token_output, Some(3_400), "token_output 直复制");
+     // timestamp 独立赋值：与 started_at 语义分立（整包同刻 = finished_at）
+     assert_eq!(record.timestamp, 1_727_000_300_000);
+-    assert_ne!(record.timestamp, record.started_at, "timestamp 与 started_at 不混淆");
++    assert_ne!(
++        record.timestamp, record.started_at,
++        "timestamp 与 started_at 不混淆"
++    );
+ }
+ 
+ /// 正向：native_model 编码 → decode 回环四列逐字段一致（id=16 version=1 编解码
+@@ -2902,8 +2939,7 @@ fn run_node_record四列编解码回环逐字段一致() {
+         1_727_000_300_000,
+     );
+     let bytes = native_model::encode(&record).expect("encode 应成功");
+-    let (decoded, version) =
+-        native_model::decode::<RunNodeRecord>(bytes).expect("decode 应成功");
++    let (decoded, version) = native_model::decode::<RunNodeRecord>(bytes).expect("decode 应成功");
+     assert_eq!(version, 1, "id=16 version=1 持衡");
+     assert_eq!(decoded.started_at, record.started_at);
+     assert_eq!(decoded.ended_at, record.ended_at);
+@@ -2966,7 +3002,10 @@ fn run_node_record同run多行node_seq递增不撞键身份面持衡() {
+         .map(|seq| RunNodeRecord::new("run-same", "chg-demo", seq, &entry, 1).node_key)
+         .collect();
+     for pair in keys.windows(2) {
+-        assert!(pair[0] < pair[1], "同 run node_seq 递增 → node_key 严格增大");
++        assert!(
++            pair[0] < pair[1],
++            "同 run node_seq 递增 → node_key 严格增大"
++        );
+     }
+     let record = RunNodeRecord::new("run-same", "chg-demo", 7, &entry, 1);
+     assert_eq!(record.node_seq(), 7, "node_seq() = 打包键低 64 位");
+@@ -3046,8 +3085,8 @@ fn run_node_record编解码再编码字节形态一致() {
+ #[test]
+ fn run_node_record真件落库读回四列逐字段一致() {
+     use workflow::state::{
+-        ChangeStateRecord, ChangeStatus, RunFinishCommand, RunNodeEntry as Entry,
+-        RunStartCommand, RunStatus,
++        ChangeStateRecord, ChangeStatus, RunFinishCommand, RunNodeEntry as Entry, RunStartCommand,
++        RunStatus,
+     };
+ 
+     let db_dir = tempfile::Builder::new()
+@@ -3269,3 +3308,607 @@ fn run_node_record_v1线格式冻结守卫_未版本化字段或枚举中插即
+     assert_eq!(decoded.token_output, Some(3_400));
+     assert_eq!(decoded.timestamp, 1_727_000_300_000);
+ }
++
++// ---------------------------------------------------------------------------
++// provider 协议 / 输出上限两列演进（AC-1 / AC-2 / AC-3）：七参构造、v2→v3
++// 升级链、降级半边、版本头、变体序号锚、模型组注册、serde 线值与拒收面、
++// 遮蔽 Debug 扩位
++// ---------------------------------------------------------------------------
++
++/// 变体序号锚载体（bincode 尾随 u32 变体序号，字节级钉死）。
++#[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
++#[native_model::native_model(id = 701, version = 1)]
++struct ProtocolOrdinalAnchor {
++    protocol: AgentProviderProtocol,
++}
++
++#[test]
++fn provider构造new七参载荷协议与上限逐字段保真且id置0() {
++    // anthropic 臂：七字段逐字段保真（protocol 紧跟 name）
++    let anthropic = AgentProviderRecord::new(
++        "端点".to_owned(),
++        AgentProviderProtocol::Anthropic,
++        "https://api.anthropic.com".to_owned(),
++        "sk-ant-x".to_owned(),
++        tiers("claude-x", "claude-m", "claude-y"),
++        Some(200_000),
++        Some(8192),
++    );
++    assert_eq!(anthropic.id, 0, "new 构造 id 恒置 0（写事务内 max+1 覆盖）");
++    assert_eq!(anthropic.name, "端点");
++    assert_eq!(
++        anthropic.protocol,
++        AgentProviderProtocol::Anthropic,
++        "protocol 逐字段保真"
++    );
++    assert_eq!(anthropic.base_url, "https://api.anthropic.com");
++    assert_eq!(anthropic.api_key, "sk-ant-x");
++    assert_eq!(anthropic.models, tiers("claude-x", "claude-m", "claude-y"));
++    assert_eq!(anthropic.context_length, Some(200_000));
++    assert_eq!(anthropic.max_tokens, Some(8192), "max_tokens 逐字段保真");
++
++    // openai 臂 + max_tokens = None（未配置语义，不落缺省字面）
++    let openai = AgentProviderRecord::new(
++        "端点".to_owned(),
++        AgentProviderProtocol::Openai,
++        "https://api.example.com/v1".to_owned(),
++        "sk-x".to_owned(),
++        tiers("h", "m", "l"),
++        None,
++        None,
++    );
++    assert_eq!(openai.protocol, AgentProviderProtocol::Openai);
++    assert_eq!(openai.max_tokens, None, "None = 按协议缺省");
++    assert_ne!(openai, anthropic, "协议 / 上限不同两记录可区分");
++}
++
++#[test]
++fn provider构造可空列四组合逐字段透传零校验零缺省字面() {
++    for (context_length, max_tokens) in [
++        (None, None),
++        (Some(0), None),
++        (None, Some(0)),
++        (Some(u64::MAX), Some(u64::MAX)),
++    ] {
++        let record = AgentProviderRecord::new(
++            "可空列组合".to_owned(),
++            AgentProviderProtocol::Anthropic,
++            "https://api.anthropic.com".to_owned(),
++            "sk-x".to_owned(),
++            tiers("h", "m", "l"),
++            context_length,
++            max_tokens,
++        );
++        assert_eq!(
++            record.context_length, context_length,
++            "context_length 原样透传（组合 {context_length:?} / {max_tokens:?}）"
++        );
++        assert_eq!(
++            record.max_tokens, max_tokens,
++            "max_tokens 原样透传（构造侧零校验、不落 0 / 32000 缺省字面）"
++        );
++        // 往返保真（两列经编解码不漂移）
++        assert_eq!(provider_roundtrip(&record), record);
++    }
++}
++
++#[test]
++fn provider构造字符串边界保真且不新增拒收面() {
++    let long_url = format!("https://例子.测试/{}/v1", "x".repeat(1_200));
++    // 空串 name / base_url / api_key + 三档全空串：构造合法（保存期拒收面在命令层）
++    let blank = AgentProviderRecord::new(
++        String::new(),
++        AgentProviderProtocol::Anthropic,
++        String::new(),
++        String::new(),
++        tiers("", "", ""),
++        None,
++        None,
++    );
++    assert_eq!(blank.name, "", "空 name 构造合法");
++    assert_eq!(blank.base_url, "");
++    assert_eq!(blank.api_key, "");
++    assert_eq!(blank.models, tiers("", "", ""));
++
++    // 超长 base_url + 特殊字符字段：构造合法且保真
++    let special = AgentProviderRecord::new(
++        "名 字\n\u{0}🎉".to_owned(),
++        AgentProviderProtocol::Anthropic,
++        long_url.clone(),
++        "sk-带 空格 🎉".to_owned(),
++        tiers("模型-🎉[1m]", "模型 [1m]", "claude-y"),
++        Some(1),
++        Some(4_096),
++    );
++    assert_eq!(special.base_url, long_url, "超长 base_url 不截断");
++    assert_eq!(special.models.high, "模型-🎉[1m]", "[1m] 原文原样保存");
++    assert_eq!(
++        special.clone(),
++        special,
++        "特殊字符字段 Clone / PartialEq 保真"
++    );
++}
++
++#[test]
++fn provider_v2载荷升级为v3_protocol缺省openai与max_tokens缺省none() {
++    let v2 = AgentProviderRecordV2 {
++        id: 12,
++        name: "存量 v2 供应".to_owned(),
++        base_url: "https://legacy.example.com/v1".to_owned(),
++        api_key: "sk-legacy-1234567890".to_owned(),
++        models: tiers("v2-high", "v2-medium", "v2-low"),
++        context_length: Some(131_072),
++    };
++    let bytes = native_model::encode(&v2).expect("encode v2 应成功");
++
++    // v2 载荷可按 v2 形态解出（版本头 2）
++    let (decoded_v2, version) =
++        native_model::decode::<AgentProviderRecordV2>(bytes.clone()).expect("v2 载荷可按 v2 解码");
++    assert_eq!(version, 2, "v2 形态封装为 version 2");
++    assert_eq!(decoded_v2, v2);
++
++    // 同一载荷逐级升级至 v3：协议缺省 openai、上限未配置，其余逐字段相等
++    let (upgraded, _) =
++        native_model::decode::<AgentProviderRecord>(bytes).expect("v2 载荷应升级为 v3");
++    assert_eq!(
++        upgraded.protocol,
++        AgentProviderProtocol::Openai,
++        "存量行协议缺省 openai（行为零变化）"
++    );
++    assert_eq!(upgraded.max_tokens, None, "存量行上限未配置");
++    assert_eq!(
++        upgraded.context_length,
++        Some(131_072),
++        "已有 context_length 保留"
++    );
++    assert_eq!(upgraded.id, 12);
++    assert_eq!(upgraded.name, "存量 v2 供应");
++    assert_eq!(upgraded.base_url, "https://legacy.example.com/v1");
++    assert_eq!(upgraded.api_key, "sk-legacy-1234567890");
++    assert_eq!(upgraded.models, tiers("v2-high", "v2-medium", "v2-low"));
++}
++
++#[test]
++fn provider_v1载荷经两级链升级读入且新列全缺省() {
++    let v1 = AgentProviderRecordV1 {
++        id: 13,
++        name: "存量 v1 供应".to_owned(),
++        base_url: "https://legacy.example.com/v1".to_owned(),
++        api_key: "sk-legacy-v1-1234567890".to_owned(),
++        models: tiers("v1-high", "v1-medium", "v1-low"),
++    };
++    let bytes = native_model::encode(&v1).expect("encode v1 应成功");
++
++    // v1 → v2 → v3 逐级链（无跳级 From impl）
++    let via_steps = AgentProviderRecord::from(AgentProviderRecordV2::from(v1.clone()));
++    let (via_decode, version) =
++        native_model::decode::<AgentProviderRecord>(bytes).expect("v1 载荷应逐级升级");
++    assert_eq!(version, 1, "decode 返回载荷头版本（升级链源版本）");
++    assert_eq!(via_decode, via_steps, "版本机制升级与逐级 From 链产物一致");
++    assert_eq!(via_decode.protocol, AgentProviderProtocol::Openai);
++    assert_eq!(via_decode.max_tokens, None);
++    assert_eq!(via_decode.context_length, None);
++    assert_eq!(via_decode.id, 13);
++    assert_eq!(via_decode.models, tiers("v1-high", "v1-medium", "v1-low"));
++}
++
++#[test]
++fn provider_v2直达升级与降级半边逐字段对位() {
++    let v1 = AgentProviderRecordV1 {
++        id: 14,
++        name: "直达供应".to_owned(),
++        base_url: "https://api.example.com/v1".to_owned(),
++        api_key: "sk-live-1234567890".to_owned(),
++        models: tiers("h", "m", "l"),
++    };
++
++    // V1 → V2：补 context_length = None
++    let v2 = AgentProviderRecordV2::from(v1.clone());
++    assert_eq!(v2.id, v1.id);
++    assert_eq!(v2.name, v1.name);
++    assert_eq!(v2.base_url, v1.base_url);
++    assert_eq!(v2.api_key, v1.api_key);
++    assert_eq!(v2.models, v1.models);
++    assert_eq!(v2.context_length, None, "V1→V2 补 context_length = None");
++
++    // V2 → V3：补 protocol = Openai 与 max_tokens = None
++    let v3 = AgentProviderRecord::from(v2.clone());
++    assert_eq!(v3.protocol, AgentProviderProtocol::Openai, "V2→V3 补协议");
++    assert_eq!(v3.max_tokens, None, "V2→V3 补上限");
++    assert_eq!(v3.context_length, v2.context_length);
++
++    // 降级半边：V3 → V2 丢 protocol / max_tokens，其余保真
++    let mut record = v3.clone();
++    record.protocol = AgentProviderProtocol::Anthropic;
++    record.max_tokens = Some(8192);
++    let downgraded_v2 = AgentProviderRecordV2::from(record.clone());
++    assert_eq!(
++        downgraded_v2, v2,
++        "V3→V2 丢两新列后与升级源等值（其余保真）"
++    );
++
++    // V2 → V1 再丢 context_length
++    let downgraded_v1 = AgentProviderRecordV1::from(downgraded_v2);
++    assert_eq!(
++        downgraded_v1, v1,
++        "V2→V1 再丢 context_length（不承诺降级数据真实性）"
++    );
++}
++
++#[test]
++fn provider版本头三层逐字为3与2与1() {
++    let record = AgentProviderRecord::new(
++        "版本头".to_owned(),
++        AgentProviderProtocol::Anthropic,
++        "https://api.anthropic.com".to_owned(),
++        "sk-x".to_owned(),
++        tiers("h", "m", "l"),
++        None,
++        Some(8192),
++    );
++    let (_, version) = native_model::decode::<AgentProviderRecord>(
++        native_model::encode(&record).expect("encode v3"),
++    )
++    .expect("decode v3");
++    assert_eq!(
++        version, 3,
++        "当前形态版本头 3（protocol / max_tokens 演进落位）"
++    );
++
++    let v2 = AgentProviderRecordV2 {
++        id: 1,
++        name: "v2".to_owned(),
++        base_url: "u".to_owned(),
++        api_key: "k".to_owned(),
++        models: tiers("h", "m", "l"),
++        context_length: None,
++    };
++    let (_, version) = native_model::decode::<AgentProviderRecordV2>(
++        native_model::encode(&v2).expect("encode v2"),
++    )
++    .expect("decode v2");
++    assert_eq!(version, 2, "v2 中转形态版本头 2");
++
++    let v1 = AgentProviderRecordV1 {
++        id: 1,
++        name: "v1".to_owned(),
++        base_url: "u".to_owned(),
++        api_key: "k".to_owned(),
++        models: tiers("h", "m", "l"),
++    };
++    let (_, version) = native_model::decode::<AgentProviderRecordV1>(
++        native_model::encode(&v1).expect("encode v1"),
++    )
++    .expect("decode v1");
++    assert_eq!(version, 1, "v1 历史形态版本头 1");
++}
++
++#[test]
++fn agent_provider_protocol变体序号锚_openai恰0_anthropic恰1字节级() {
++    let openai = native_model::encode(&ProtocolOrdinalAnchor {
++        protocol: AgentProviderProtocol::Openai,
++    })
++    .expect("encode Openai 锚");
++    let anthropic = native_model::encode(&ProtocolOrdinalAnchor {
++        protocol: AgentProviderProtocol::Anthropic,
++    })
++    .expect("encode Anthropic 锚");
++    assert_eq!(
++        &openai[8..12],
++        &[0, 0, 0, 0],
++        "Openai 编码恰序号 0（u32 小端，变体声明序即解码锚）"
++    );
++    assert_eq!(
++        &anthropic[8..12],
++        &[1, 0, 0, 0],
++        "Anthropic 编码恰序号 1（重排即存量行协议读错）"
++    );
++
++    // 反向解码锚：序号字节 1 → Anthropic 命中
++    let (decoded, _) =
++        native_model::decode::<ProtocolOrdinalAnchor>(anthropic).expect("序号 1 解码应成功");
++    assert_eq!(decoded.protocol, AgentProviderProtocol::Anthropic);
++    // 越界序号拒解不 panic（防静默错位）
++    let mut rogue = native_model::encode(&ProtocolOrdinalAnchor {
++        protocol: AgentProviderProtocol::Openai,
++    })
++    .expect("encode 锚");
++    rogue[8] = 2;
++    assert!(
++        native_model::decode::<ProtocolOrdinalAnchor>(rogue).is_err(),
++        "序号 2 越界必须拒解"
++    );
++}
++
++#[test]
++fn provider模型组注册_当前形态id5版本3且中转形态不入库模型组() {
++    // 注册锚：当前形态 id 5 / version 3；两中转形态同 id 不同版本，仅作升级链
++    // 解码目标（无 `#[native_db]` 派生 → 结构上不可注册进库模型组）
++    assert_eq!(
++        <AgentProviderRecord as native_model::Model>::native_model_id(),
++        5
++    );
++    assert_eq!(
++        <AgentProviderRecord as native_model::Model>::native_model_version(),
++        3
++    );
++    assert_eq!(
++        <AgentProviderRecordV1 as native_model::Model>::native_model_version(),
++        1
++    );
++    assert_eq!(
++        <AgentProviderRecordV2 as native_model::Model>::native_model_version(),
++        2
++    );
++
++    // 全局库（user 维度）以当前形态落库可读：模型组注册成功的运行时半边
++    let dir = tempfile::Builder::new()
++        .prefix("store-test-provider-group-")
++        .tempdir()
++        .expect("创建临时目录失败");
++    let stores = crate::store::WorkspaceStores::open(dir.path()).expect("打开全局库应成功");
++    let record = AgentProviderRecord::new(
++        "组注册".to_owned(),
++        AgentProviderProtocol::Anthropic,
++        "https://api.anthropic.com".to_owned(),
++        "sk-x".to_owned(),
++        tiers("h", "m", "l"),
++        Some(200_000),
++        Some(8192),
++    );
++    let stored = stores
++        .global()
++        .upsert_agent_provider(record)
++        .expect("provider 落库应成功（模型组注册面）");
++    let listed = stores.global().list_agent_providers().expect("清单应成功");
++    assert_eq!(listed, vec![stored.clone()], "清单回读落库记录");
++    assert_eq!(
++        listed[0].protocol,
++        AgentProviderProtocol::Anthropic,
++        "新列经真库往返不漂移"
++    );
++    assert_eq!(listed[0].max_tokens, Some(8192));
++}
++
++#[test]
++fn provider_serde线值协议小驼峰与上限键在案() {
++    let record = AgentProviderRecord::new(
++        "线值".to_owned(),
++        AgentProviderProtocol::Anthropic,
++        "https://api.anthropic.com".to_owned(),
++        "sk-x".to_owned(),
++        tiers("h", "m", "l"),
++        Some(200_000),
++        Some(8192),
++    );
++    let value = serde_json::to_value(&record).expect("serialize 应成功");
++    assert_eq!(
++        value["protocol"],
++        serde_json::json!("anthropic"),
++        "协议线值逐字 anthropic（camelCase 值域）"
++    );
++    assert_eq!(
++        value["maxTokens"],
++        serde_json::json!(8192),
++        "maxTokens 键在线且携数值"
++    );
++
++    let openai = AgentProviderRecord {
++        protocol: AgentProviderProtocol::Openai,
++        ..record.clone()
++    };
++    assert_eq!(
++        serde_json::to_value(&openai).expect("serialize")["protocol"],
++        serde_json::json!("openai"),
++        "协议线值逐字 openai"
++    );
++
++    // None → null，反序列化后与 PartialEq 相等
++    let none_tokens = AgentProviderRecord {
++        max_tokens: None,
++        ..record.clone()
++    };
++    let none_value = serde_json::to_value(&none_tokens).expect("serialize");
++    assert_eq!(none_value["maxTokens"], serde_json::Value::Null);
++    let back: AgentProviderRecord = serde_json::from_value(value).expect("deserialize 应成功");
++    assert_eq!(back, record, "线值往返逐字段相等");
++}
++
++#[test]
++fn provider_serde缺列兼容_协议缺省openai与上限缺省none() {
++    let record = AgentProviderRecord::new(
++        "缺列".to_owned(),
++        AgentProviderProtocol::Openai,
++        "https://api.example.com/v1".to_owned(),
++        "sk-x".to_owned(),
++        tiers("h", "m", "l"),
++        None,
++        None,
++    );
++    let value = serde_json::to_value(&record).expect("serialize");
++
++    // protocol 键缺席 → Openai（#[serde(default)]）
++    let mut no_protocol = value.clone();
++    no_protocol
++        .as_object_mut()
++        .expect("object 形态")
++        .remove("protocol");
++    let back: AgentProviderRecord = serde_json::from_value(no_protocol).expect("缺协议键可读");
++    assert_eq!(
++        back.protocol,
++        AgentProviderProtocol::Openai,
++        "缺列读兼容：协议缺省 openai"
++    );
++
++    // maxTokens 键缺席 → None
++    let mut no_tokens = value.clone();
++    no_tokens
++        .as_object_mut()
++        .expect("object 形态")
++        .remove("maxTokens");
++    let back: AgentProviderRecord = serde_json::from_value(no_tokens).expect("缺上限键可读");
++    assert_eq!(back.max_tokens, None, "缺列读兼容：上限未配置");
++
++    // 两键同时缺席（v2 线格式）→ 记录可读且语义等于升级结果
++    let mut v2_wire = value;
++    {
++        let object = v2_wire.as_object_mut().expect("object 形态");
++        object.remove("protocol");
++        object.remove("maxTokens");
++    }
++    let back: AgentProviderRecord = serde_json::from_value(v2_wire).expect("v2 线格式可读");
++    assert_eq!(back.protocol, AgentProviderProtocol::Openai);
++    assert_eq!(back.max_tokens, None);
++    assert_eq!(back.name, "缺列");
++    assert_eq!(back.models, tiers("h", "m", "l"));
++}
++
++#[test]
++fn provider_serde非法载荷拒收不静默兜底() {
++    let base = serde_json::to_value(AgentProviderRecord::new(
++        "非法载荷".to_owned(),
++        AgentProviderProtocol::Openai,
++        "https://api.example.com/v1".to_owned(),
++        "sk-x".to_owned(),
++        tiers("h", "m", "l"),
++        None,
++        None,
++    ))
++    .expect("serialize");
++
++    // 协议非法线值（大小写变体 / 未知枚举 / 空串 / null）→ Err
++    for illegal in [
++        serde_json::json!("Openai"),
++        serde_json::json!("claude"),
++        serde_json::json!(""),
++        serde_json::Value::Null,
++    ] {
++        let mut value = base.clone();
++        value
++            .as_object_mut()
++            .expect("object 形态")
++            .insert("protocol".to_owned(), illegal.clone());
++        assert!(
++            serde_json::from_value::<AgentProviderRecord>(value).is_err(),
++            "协议非法线值 {illegal} 必须拒收（值域受控，不静默兜底）"
++        );
++    }
++
++    // 上限非法形态（负值 / 小数 / 字符串 / 超 u64 上界）→ Err
++    for illegal in [
++        serde_json::json!(-1),
++        serde_json::json!(1.5),
++        serde_json::json!("8192"),
++        // u64::MAX + 1（超出 u64 上界，serde_json 以 f64 承载后仍须拒解）
++        serde_json::from_str::<serde_json::Value>("18446744073709551616").expect("JSON 数值解析"),
++    ] {
++        let mut value = base.clone();
++        value
++            .as_object_mut()
++            .expect("object 形态")
++            .insert("maxTokens".to_owned(), illegal.clone());
++        assert!(
++            serde_json::from_value::<AgentProviderRecord>(value).is_err(),
++            "上限非法形态 {illegal} 必须拒收"
++        );
++    }
++}
++
++#[test]
++fn provider遮蔽debug含协议与上限两位且api_key位仍遮蔽() {
++    for protocol in [
++        AgentProviderProtocol::Openai,
++        AgentProviderProtocol::Anthropic,
++    ] {
++        let record = AgentProviderRecord::new(
++            "遮蔽扩位".to_owned(),
++            protocol,
++            "https://api.example.com/v1".to_owned(),
++            "sk-live-1234567890".to_owned(),
++            tiers("h", "m", "l"),
++            None,
++            Some(8192),
++        );
++        let debug_text = format!("{record:?}");
++        assert!(
++            debug_text.contains(&format!("protocol: {protocol:?}")),
++            "Debug 输出含 protocol 位（{protocol:?}），实际: {debug_text}"
++        );
++        assert!(
++            debug_text.contains("max_tokens: Some(8192)"),
++            "Debug 输出含 max_tokens 位，实际: {debug_text}"
++        );
++        assert!(
++            debug_text.contains("api_key: \"sk-***890\""),
++            "api_key 位仍为 sk-***abc 遮蔽形态，实际: {debug_text}"
++        );
++        assert!(
++            !debug_text.contains("sk-live-1234567890"),
++            "全文不含明文 key，实际: {debug_text}"
++        );
++    }
++
++    // 两列 None 形态：位不缺失（呈现 None）
++    let none_record = AgentProviderRecord::new(
++        "遮蔽缺列".to_owned(),
++        AgentProviderProtocol::Openai,
++        "https://api.example.com/v1".to_owned(),
++        "sk-live-1234567890".to_owned(),
++        tiers("h", "m", "l"),
++        None,
++        None,
++    );
++    let debug_text = format!("{none_record:?}");
++    assert!(
++        debug_text.contains("context_length: None") && debug_text.contains("max_tokens: None"),
++        "两列 None 时位不缺失，实际: {debug_text}"
++    );
++}
++
++#[test]
++fn provider遮蔽debug兜底与极端上限位面且不改partial_eq() {
++    // api_key 空串 / 长度 < 3：恒 sk-*** 全遮蔽（既有兜底不回归）
++    for api_key in ["", "a", "ab", "abc"] {
++        let record = AgentProviderRecord::new(
++            "兜底".to_owned(),
++            AgentProviderProtocol::Anthropic,
++            "https://api.anthropic.com".to_owned(),
++            api_key.to_owned(),
++            tiers("h", "m", "l"),
++            None,
++            Some(0),
++        );
++        let debug_text = format!("{record:?}");
++        assert!(
++            debug_text.contains("api_key: \"sk-***\""),
++            "api_key={api_key:?} 时全遮蔽，实际: {debug_text}"
++        );
++        assert!(
++            debug_text.contains("max_tokens: Some(0)"),
++            "max_tokens = Some(0) 位面原样呈现，实际: {debug_text}"
++        );
++    }
++
++    let huge = AgentProviderRecord::new(
++        "极端上限".to_owned(),
++        AgentProviderProtocol::Anthropic,
++        "https://api.anthropic.com".to_owned(),
++        "sk-live-1234567890".to_owned(),
++        tiers("h", "m", "l"),
++        Some(u64::MAX),
++        Some(u64::MAX),
++    );
++    assert!(
++        format!("{huge:?}").contains("max_tokens: Some(18446744073709551615)"),
++        "u64::MAX 位面原样呈现"
++    );
++
++    // Debug 不改变 PartialEq：同内容两记录相等；仅协议不同则不等
++    let twin = huge.clone();
++    assert_eq!(twin, huge, "同内容两记录相等");
++    let flipped = AgentProviderRecord {
++        protocol: AgentProviderProtocol::Openai,
++        ..huge
++    };
++    assert_ne!(flipped, twin, "仅 protocol 不同则不等");
++}
+diff --git a/crates/infra/store/src/store_test.rs b/crates/infra/store/src/store_test.rs
+index a65de7d431d9..fc8d2dbef743 100644
+--- a/crates/infra/store/src/store_test.rs
++++ b/crates/infra/store/src/store_test.rs
+@@ -13,9 +13,9 @@ use crate::model::{
+ };
+ use crate::store::{workspace_db_file_name, GLOBAL_DB_FILE_NAME};
+ use crate::{
+-    AgentEngineKind, AgentInstanceRecord, AgentModelTiers, AgentProviderRecord, AgentRunRecord,
+-    ChangeRecord, ExploreRecord, PhaseRecord, SessionConfigSnapshot, SessionRecord, Store,
+-    StoreError, WorkspaceRecord, WorkspaceStores,
++    AgentEngineKind, AgentInstanceRecord, AgentModelTiers, AgentProviderProtocol,
++    AgentProviderRecord, AgentRunRecord, ChangeRecord, ExploreRecord, PhaseRecord,
++    SessionConfigSnapshot, SessionRecord, Store, StoreError, WorkspaceRecord, WorkspaceStores,
+ };
+ use workflow::model::{ChecklistItem, Verdict};
+ use workflow::state::{
+@@ -3810,10 +3810,12 @@ fn fixture_tiers() -> AgentModelTiers {
+ fn fixture_provider(name: &str) -> AgentProviderRecord {
+     AgentProviderRecord::new(
+         name.to_owned(),
++        AgentProviderProtocol::Openai,
+         "https://api.example.com/v1".to_owned(),
+         "sk-live-1234567890".to_owned(),
+         fixture_tiers(),
+         None,
++        None,
+     )
+ }
+ 
+@@ -3899,10 +3901,12 @@ fn provider_upsert_name空白err_api_key空串允许落库() {
+     // api_key 空串允许落库（新建语义无原值可保）
+     let blank_key = AgentProviderRecord::new(
+         "空key端点".to_owned(),
++        AgentProviderProtocol::Openai,
+         "https://api.example.com/v1".to_owned(),
+         String::new(),
+         fixture_tiers(),
+         None,
++        None,
+     );
+     let saved = upsert_provider_ok(&store, blank_key);
+     assert_eq!(saved.api_key, "", "api_key 空串原样落库");
+diff --git a/default_3317518335302303499_0_17116.profraw b/default_3317518335302303499_0_17116.profraw
+new file mode 100644
+index 000000000000..6fe691e7f502
+Binary files /dev/null and b/packages/desktop/src-tauri/default_3317518335302303499_0_17116.profraw differ
+diff --git a/default_3317518335302303499_0_31764.profraw b/default_3317518335302303499_0_31764.profraw
+new file mode 100644
+index 000000000000..a2a0da16a434
+Binary files /dev/null and b/packages/desktop/src-tauri/default_3317518335302303499_0_31764.profraw differ
+diff --git a/default_3317518335302303499_0_37224.profraw b/default_3317518335302303499_0_37224.profraw
+new file mode 100644
+index 000000000000..6fe691e7f502
+Binary files /dev/null and b/packages/desktop/src-tauri/default_3317518335302303499_0_37224.profraw differ
+diff --git a/default_3317518335302303499_0_8228.profraw b/default_3317518335302303499_0_8228.profraw
+new file mode 100644
+index 000000000000..e962cb4059af
+Binary files /dev/null and b/packages/desktop/src-tauri/default_3317518335302303499_0_8228.profraw differ
+diff --git a/src/commands/agents/mod.rs b/src/commands/agents/mod.rs
+index f38330a20e7a..4fa1a40722e5 100644
+--- a/src/commands/agents/mod.rs
++++ b/src/commands/agents/mod.rs
+@@ -9,10 +9,12 @@
+ //! `.to_string()` 转 `Err(String)`，本类型不进命令签名）。错误约定沿全轨道
+ //! 模板：`Err` 由 Tauri 转为前端 reject，MUST NOT 静默吞掉失败。
+ 
++use agent_runtime::{parse_model_spec, MIN_OUTPUT_TOKENS};
+ use tauri::State;
+ 
+ use store::{
+-    AgentEngineKind, AgentInstanceRecord, AgentModelTiers, AgentProviderRecord, WorkspaceStores,
++    AgentEngineKind, AgentInstanceRecord, AgentModelTiers, AgentProviderProtocol,
++    AgentProviderRecord, WorkspaceStores,
+ };
+ 
+ #[cfg(test)]
+@@ -30,19 +32,53 @@ pub fn list_agent_providers(
+         .map_err(|e| e.to_string())
+ }
+ 
+-/// 保存 provider（新建 / 更新合一，id `None` 新建 / `Some` 整行更新）
++/// 保存 provider（新建 / 更新合一，id `None` 新建 / `Some` 整行更新）。
++///
++/// 参数序：`protocol` 紧跟 `name`——协议决定 `base_url` 语义与 wire，属连接
++/// 配置核心项，签名上显式。
++///
++/// 保存期校验单点（避免「保存成功但跑不起来」）：三档模型名经引擎侧**同一**
++/// `parse_model_spec`（`high → medium → low`，首个非法即 `Err`，不造第二套
++/// 规则）；`max_tokens` 非空时 SHALL `>= MIN_OUTPUT_TOKENS`（`< 4096` 拒收，
++/// 不静默截断或夹到边界）。错误串只含档位名 / 模型名原文 / 下限——结构上
++/// 不含 api_key。
++// 八参为 IPC 命令面定稿签名（design DD16 / DD17：协议紧跟 name，可空调参相邻），
++// 拆结构体只增 IPC 载荷间接且与前端实参序脱耦——沿 `agent_start` 命令面先例。
++#[allow(clippy::too_many_arguments)]
+ #[tauri::command]
+ #[specta::specta]
+ pub fn save_agent_provider(
+     stores: State<'_, WorkspaceStores>,
+     id: Option<i64>,
+     name: String,
++    protocol: AgentProviderProtocol,
+     base_url: String,
+     api_key: String,
+     models: AgentModelTiers,
+     context_length: Option<u64>,
++    max_tokens: Option<u64>,
+ ) -> Result<AgentProviderRecord, String> {
+-    let mut record = AgentProviderRecord::new(name, base_url, api_key, models, context_length);
++    for (tier, raw) in [
++        ("high", &models.high),
++        ("medium", &models.medium),
++        ("low", &models.low),
++    ] {
++        parse_model_spec(raw).map_err(|error| format!("models.{tier} 档{error}"))?;
++    }
++    if let Some(tokens) = max_tokens.filter(|tokens| *tokens < MIN_OUTPUT_TOKENS) {
++        return Err(format!(
++            "max_tokens 过小: {tokens}（输出上限下限 {MIN_OUTPUT_TOKENS}）"
++        ));
++    }
++    let mut record = AgentProviderRecord::new(
++        name,
++        protocol,
++        base_url,
++        api_key,
++        models,
++        context_length,
++        max_tokens,
++    );
+     record.id = id.unwrap_or(0);
+     if record.id != 0 && record.api_key.is_empty() {
+         // 留空 key 回填原值：读存量记录（miss 由 upsert 的行存在校验统一报错）
+diff --git a/src/commands/agents/mod_test.rs b/src/commands/agents/mod_test.rs
+index 021de37c0546..8bdb9c089acf 100644
+--- a/src/commands/agents/mod_test.rs
++++ b/src/commands/agents/mod_test.rs
+@@ -12,8 +12,8 @@
+ use tauri::{App, Manager};
+ 
+ use store::{
+-    AgentEngineKind, AgentInstanceRecord, AgentModelTiers, AgentProviderRecord, WorkspaceStores,
+-    CLI_TENANT_RETIRED,
++    AgentEngineKind, AgentInstanceRecord, AgentModelTiers, AgentProviderProtocol,
++    AgentProviderRecord, WorkspaceStores, CLI_TENANT_RETIRED,
+ };
+ 
+ use super::{
+@@ -77,10 +77,12 @@ fn save_new_provider(
+         state.clone(),
+         None,
+         name.to_owned(),
++        AgentProviderProtocol::Openai,
+         "https://api.example.com/v1".to_owned(),
+         api_key.to_owned(),
+         fixture_tiers(),
+         None,
++        None,
+     )
+ }
+ 
+@@ -95,10 +97,12 @@ fn save_provider_with_key(
+         state.clone(),
+         Some(id),
+         name.to_owned(),
++        AgentProviderProtocol::Openai,
+         "https://api.example.com/v1".to_owned(),
+         api_key.to_owned(),
+         fixture_tiers(),
+         None,
++        None,
+     )
+ }
+ 
+@@ -240,10 +244,12 @@ fn provider命令_重名保存err清单不变_更新miss_id_err_name空白err()
+         state.clone(),
+         None,
+         "   ".to_owned(),
++        AgentProviderProtocol::Openai,
+         "https://api.example.com/v1".to_owned(),
+         "sk-live-1234567890".to_owned(),
+         fixture_tiers(),
+         None,
++        None,
+     );
+     assert!(blank.is_err(), "name 空白应 Err");
+ }
+@@ -680,10 +686,12 @@ fn save携context_length落库且重开一致() {
+             state.clone(),
+             None,
+             "窗长端点".to_owned(),
++            AgentProviderProtocol::Openai,
+             "https://api.example.com/v1".to_owned(),
+             "sk-live-1234567890".to_owned(),
+             fixture_tiers(),
+             Some(200_000),
++            None,
+         )
+         .expect("新建应成功");
+         assert_eq!(created.context_length, Some(200_000), "命令面平参落记录");
+@@ -734,10 +742,12 @@ fn save编辑态context_length双向翻转按入参落库() {
+         state.clone(),
+         Some(created.id),
+         "翻转端点".to_owned(),
++        AgentProviderProtocol::Openai,
+         "https://api.example.com/v1".to_owned(),
+         "".to_owned(),
+         fixture_tiers(),
+         Some(131_072),
++        None,
+     )
+     .expect("补窗长编辑应成功");
+     assert_eq!(
+@@ -751,10 +761,12 @@ fn save编辑态context_length双向翻转按入参落库() {
+         state.clone(),
+         Some(created.id),
+         "翻转端点".to_owned(),
++        AgentProviderProtocol::Openai,
+         "https://api.example.com/v1".to_owned(),
+         "".to_owned(),
+         fixture_tiers(),
+         None,
++        None,
+     )
+     .expect("清窗长编辑应成功");
+     assert_eq!(
+@@ -775,10 +787,12 @@ fn save_api_key回填与新context_length参正交() {
+         state.clone(),
+         Some(created.id),
+         "正交端点".to_owned(),
++        AgentProviderProtocol::Openai,
+         "https://api.example.com/v1".to_owned(),
+         "".to_owned(),
+         fixture_tiers(),
+         Some(200_000),
++        None,
+     )
+     .expect("编辑应成功");
+ 
+@@ -821,3 +835,611 @@ fn save_agent_provider留空key更新回填原值不落空串() {
+         "回填值持久化（非仅返回面）"
+     );
+ }
++
++// ---------------------------------------------------------------------------
++// save_agent_provider 保存期校验单点（AC-10）：模型名后缀复用引擎侧同一
++// parse_model_spec（high → medium → low）+ max_tokens 下限 4096，错误串不含
++// api_key；通过后落库（含 [1m] 原文与两新列）
++// ---------------------------------------------------------------------------
++
++/// 全参数直调（保存期校验面用例底座：三档 / 协议 / 双可空列全部显式）。
++#[allow(clippy::too_many_arguments)]
++fn save_full(
++    state: &tauri::State<'_, WorkspaceStores>,
++    id: Option<i64>,
++    name: &str,
++    protocol: AgentProviderProtocol,
++    api_key: &str,
++    high: &str,
++    medium: &str,
++    low: &str,
++    context_length: Option<u64>,
++    max_tokens: Option<u64>,
++) -> Result<AgentProviderRecord, String> {
++    save_agent_provider(
++        state.clone(),
++        id,
++        name.to_owned(),
++        protocol,
++        "https://api.example.com/v1".to_owned(),
++        api_key.to_owned(),
++        AgentModelTiers {
++            high: high.to_owned(),
++            medium: medium.to_owned(),
++            low: low.to_owned(),
++        },
++        context_length,
++        max_tokens,
++    )
++}
++
++#[test]
++fn save合法形态_anthropic携后缀与下限上限逐字段保真且后缀原文落库() {
++    let env = Env::new("save-legal");
++    let app = app_with_stores(&env);
++    let state = app.state::<WorkspaceStores>();
++
++    let saved = save_full(
++        &state,
++        None,
++        "合法端点",
++        AgentProviderProtocol::Anthropic,
++        "sk-ant-legal",
++        "claude-sonnet-4-5[1m]",
++        "claude-medium",
++        "claude-haiku-4-5",
++        Some(200_000),
++        Some(4_096),
++    )
++    .expect("合法形态应保存成功");
++
++    assert_eq!(saved.protocol, AgentProviderProtocol::Anthropic);
++    assert_eq!(
++        saved.max_tokens,
++        Some(4_096),
++        "恰下限放行（>= MIN_OUTPUT_TOKENS）"
++    );
++    assert_eq!(saved.context_length, Some(200_000));
++    assert_eq!(
++        saved.models.high, "claude-sonnet-4-5[1m]",
++        "[1m] 原文原样落库（后缀摘除在引擎侧，保存期不归一化）"
++    );
++    // 回读一致性（真库往返）
++    let listed = list_agent_providers(state.clone()).expect("list 应成功");
++    assert_eq!(listed, vec![saved], "落库记录与返回记录一致");
++}
++
++#[test]
++fn save未配置上限_两种协议均ok且不落缺省字面() {
++    let env = Env::new("save-no-max-tokens");
++    let app = app_with_stores(&env);
++    let state = app.state::<WorkspaceStores>();
++
++    let anthropic = save_full(
++        &state,
++        None,
++        "未配置上限",
++        AgentProviderProtocol::Anthropic,
++        "sk-ant-x",
++        "claude-x",
++        "claude-m",
++        "claude-y",
++        Some(200_000),
++        None,
++    )
++    .expect("未配置上限应保存成功");
++    assert_eq!(
++        anthropic.max_tokens, None,
++        "留空 = 未配置（存 null，不落 32000）"
++    );
++
++    // openai 协议同样不因协议差异拒收（字段照记，R10 边界）
++    let openai = save_full(
++        &state,
++        None,
++        "openai 未配置上限",
++        AgentProviderProtocol::Openai,
++        "sk-live-1234567890",
++        "gpt-4o",
++        "gpt-4o-mini",
++        "gpt-4o-mini",
++        None,
++        None,
++    )
++    .expect("openai 协议未配置上限应保存成功");
++    assert_eq!(openai.max_tokens, None);
++    assert_eq!(openai.context_length, None);
++}
++
++#[test]
++fn save非法后缀按档报错_high_medium_low三档均被校验() {
++    let env = Env::new("save-illegal-suffix-tiers");
++    let app = app_with_stores(&env);
++    let state = app.state::<WorkspaceStores>();
++
++    let cases: [(&str, &str, &str, &str); 3] = [
++        ("x[2m]", "m", "l", "high"),
++        ("h", "m[2m]", "l", "medium"),
++        ("h", "m", "l[2m]", "low"),
++    ];
++    for (high, medium, low, tier) in cases {
++        let error = err_of(save_full(
++            &state,
++            None,
++            "非法后缀端点",
++            AgentProviderProtocol::Anthropic,
++            "sk-ant-x",
++            high,
++            medium,
++            low,
++            None,
++            None,
++        ));
++        assert!(
++            error.contains(tier),
++            "{tier} 档非法应点名档位，实际: {error}"
++        );
++        assert!(error.contains("[2m]"), "错误串含模型名原文，实际: {error}");
++        assert!(
++            error.contains("模型名后缀非法"),
++            "复用引擎侧 ModelSpecError 原文（无第二套规则），实际: {error}"
++        );
++    }
++
++    // 失败无副作用：清单仍空
++    assert!(
++        list_agent_providers(state.clone()).unwrap().is_empty(),
++        "校验失败零落库"
++    );
++}
++
++#[test]
++fn save非法后缀形态表复用引擎侧同一规则() {
++    let env = Env::new("save-illegal-suffix-forms");
++    let app = app_with_stores(&env);
++    let state = app.state::<WorkspaceStores>();
++
++    for raw in ["[8k]", "[]", "[ 1m ]", "x[1m]y", "[1m]", "[2m]"] {
++        let error = err_of(save_full(
++            &state,
++            None,
++            &format!("非法形态 {raw}"),
++            AgentProviderProtocol::Anthropic,
++            "sk-ant-x",
++            raw,
++            "m",
++            "l",
++            None,
++            None,
++        ));
++        assert!(
++            error.contains(raw),
++            "{raw} 的 Err 串与原串逐字对应，实际: {error}"
++        );
++    }
++
++    // 与引擎侧同一函数同一结论（无第二套规则）
++    for raw in ["[8k]", "x[1m]y", "[]"] {
++        assert!(
++            matches!(
++                agent_runtime::parse_model_spec(raw),
++                Err(agent_runtime::ModelSpecError { .. })
++            ),
++            "引擎侧同一函数对 {raw} 同判 Err"
++        );
++    }
++}
++
++#[test]
++fn save上限下限_低于4096拒收且恰下限放行() {
++    let env = Env::new("save-min-output");
++    let app = app_with_stores(&env);
++    let state = app.state::<WorkspaceStores>();
++
++    for tokens in [4_095_u64, 1, 0] {
++        let error = err_of(save_full(
++            &state,
++            None,
++            &format!("下限端点 {tokens}"),
++            AgentProviderProtocol::Anthropic,
++            "sk-ant-x",
++            "claude-x",
++            "m",
++            "l",
++            None,
++            Some(tokens),
++        ));
++        assert!(
++            error.contains("4096"),
++            "下限 {tokens} 拒收且文案含 4096，实际: {error}"
++        );
++        assert!(
++            error.contains(&tokens.to_string()),
++            "文案含被拒取值，实际: {error}"
++        );
++    }
++
++    // 恰下限放行
++    let saved = save_full(
++        &state,
++        None,
++        "下限放行端点",
++        AgentProviderProtocol::Anthropic,
++        "sk-ant-x",
++        "claude-x",
++        "m",
++        "l",
++        None,
++        Some(4_096),
++    )
++    .expect("恰 4096 应保存成功");
++    assert_eq!(saved.max_tokens, Some(4_096));
++}
++
++#[test]
++fn save错误串机密边界_任一err不含api_key明文() {
++    let env = Env::new("save-secret-boundary");
++    let app = app_with_stores(&env);
++    let state = app.state::<WorkspaceStores>();
++    const CANARY: &str = "sk-ant-UNIQUE-LEAK-CANARY";
++
++    let errors = vec![
++        // 非法后缀（high 档）
++        err_of(save_full(
++            &state,
++            None,
++            "机密端点甲",
++            AgentProviderProtocol::Anthropic,
++            CANARY,
++            "x[2m]",
++            "m",
++            "l",
++            None,
++            None,
++        )),
++        // 非法后缀（low 档）
++        err_of(save_full(
++            &state,
++            None,
++            "机密端点乙",
++            AgentProviderProtocol::Anthropic,
++            CANARY,
++            "h",
++            "m",
++            "[1m]",
++            None,
++            None,
++        )),
++        // 上限过小
++        err_of(save_full(
++            &state,
++            None,
++            "机密端点丙",
++            AgentProviderProtocol::Anthropic,
++            CANARY,
++            "h",
++            "m",
++            "l",
++            None,
++            Some(1),
++        )),
++        // store 侧拒绝（重名）
++        {
++            save_full(
++                &state,
++                None,
++                "机密端点丁",
++                AgentProviderProtocol::Anthropic,
++                CANARY,
++                "h",
++                "m",
++                "l",
++                None,
++                None,
++            )
++            .expect("首次保存应成功");
++            err_of(save_full(
++                &state,
++                None,
++                "机密端点丁",
++                AgentProviderProtocol::Anthropic,
++                CANARY,
++                "h",
++                "m",
++                "l",
++                None,
++                None,
++            ))
++        },
++    ];
++
++    for error in errors {
++        assert!(
++            !error.contains(CANARY),
++            "错误串不得含 api_key 明文，实际: {error}"
++        );
++        assert!(
++            !error.contains("api_key"),
++            "错误面只含档位名 / 模型名原文 / 数字下限，实际: {error}"
++        );
++    }
++}
++
++#[test]
++fn save校验顺序_模型名先于上限且档序high先于low() {
++    let env = Env::new("save-validation-order");
++    let app = app_with_stores(&env);
++    let state = app.state::<WorkspaceStores>();
++
++    // ① 模型名非法 + 上限过小同时成立 → 返回模型名错误（① 先于 ②）
++    let error = err_of(save_full(
++        &state,
++        None,
++        "双非法端点",
++        AgentProviderProtocol::Anthropic,
++        "sk-ant-x",
++        "x[2m]",
++        "m",
++        "l",
++        None,
++        Some(1),
++    ));
++    assert!(
++        error.contains("模型名后缀非法") && !error.contains("4096"),
++        "模型名校验先于上限下限，实际: {error}"
++    );
++
++    // ② high 与 low 双非法 → 先报 high（档序 high → medium → low）
++    let error = err_of(save_full(
++        &state,
++        None,
++        "双档非法端点",
++        AgentProviderProtocol::Anthropic,
++        "sk-ant-x",
++        "high[2m]",
++        "m",
++        "low[2m]",
++        None,
++        None,
++    ));
++    assert!(
++        error.contains("high") && error.contains("high[2m]") && !error.contains("low[2m]"),
++        "档序 high 先行，实际: {error}"
++    );
++
++    // ③ 校验前置不产生库 IO 副作用
++    assert!(
++        list_agent_providers(state.clone()).unwrap().is_empty(),
++        "失败后清单计数恒 0（无部分写入）"
++    );
++}
++
++#[test]
++fn save空模型名不新增拒收面_齐备性归启动期() {
++    let env = Env::new("save-empty-model");
++    let app = app_with_stores(&env);
++    let state = app.state::<WorkspaceStores>();
++
++    // 三档全空：Ok（齐备性由启动期 ConfigMissing 承担）
++    let all_blank = save_full(
++        &state,
++        None,
++        "全空档端点",
++        AgentProviderProtocol::Openai,
++        "sk-live-1234567890",
++        "",
++        "",
++        "",
++        None,
++        None,
++    )
++    .expect("三档全空应保存成功（不新增拒收面）");
++    assert_eq!(
++        all_blank.models,
++        AgentModelTiers {
++            high: String::new(),
++            medium: String::new(),
++            low: String::new(),
++        }
++    );
++
++    // 单档空 + 其余带后缀：Ok
++    let single_blank = save_full(
++        &state,
++        None,
++        "单空档端点",
++        AgentProviderProtocol::Anthropic,
++        "sk-ant-x",
++        "",
++        "claude-m[1m]",
++        "claude-y",
++        None,
++        None,
++    )
++    .expect("单档空应保存成功");
++    assert_eq!(single_blank.models.high, "");
++    assert_eq!(single_blank.models.medium, "claude-m[1m]");
++}
++
++#[test]
++fn save重复同id同载荷幂等_行数不增且后缀不叠加() {
++    let env = Env::new("save-upsert-idempotent");
++    let app = app_with_stores(&env);
++    let state = app.state::<WorkspaceStores>();
++
++    let first = save_full(
++        &state,
++        None,
++        "幂等端点",
++        AgentProviderProtocol::Anthropic,
++        "sk-ant-original",
++        "claude-sonnet-4-5[1m]",
++        "claude-m",
++        "claude-haiku-4-5",
++        Some(200_000),
++        Some(8_192),
++    )
++    .expect("首次保存应成功");
++    let count_after_first = list_agent_providers(state.clone()).unwrap().len();
++    assert_eq!(count_after_first, 1, "首次保存落一行");
++
++    // 同 id 同载荷再存（写面为 upsert 整行替换，非 append）
++    let second = save_full(
++        &state,
++        Some(first.id),
++        "幂等端点",
++        AgentProviderProtocol::Anthropic,
++        "sk-ant-original",
++        "claude-sonnet-4-5[1m]",
++        "claude-m",
++        "claude-haiku-4-5",
++        Some(200_000),
++        Some(8_192),
++    )
++    .expect("二次保存应成功");
++    assert_eq!(second.id, first.id, "id 逐字相同（无新 id）");
++    assert_eq!(second.protocol, first.protocol);
++    assert_eq!(second.max_tokens, first.max_tokens);
++    assert_eq!(
++        second.models.high, "claude-sonnet-4-5[1m]",
++        "后缀原文不叠加成 [1m][1m]"
++    );
++    assert_eq!(second.base_url, first.base_url);
++    assert_eq!(second.name, first.name);
++    assert_eq!(second.context_length, first.context_length);
++    let listed = list_agent_providers(state.clone()).unwrap();
++    assert_eq!(listed.len(), 1, "行数不增（无重复行）");
++    assert_eq!(listed[0].id, first.id, "无新 id 分配");
++
++    // 第三次把 api_key 留空：回填原值，仍一行
++    let third = save_full(
++        &state,
++        Some(first.id),
++        "幂等端点",
++        AgentProviderProtocol::Anthropic,
++        "",
++        "claude-sonnet-4-5[1m]",
++        "claude-m",
++        "claude-haiku-4-5",
++        Some(200_000),
++        Some(8_192),
++    )
++    .expect("留空 key 再存应成功");
++    assert_eq!(third.api_key, first.api_key, "回填原值后与首次逐字相同");
++    assert_eq!(list_agent_providers(state.clone()).unwrap().len(), 1);
++}
++
++#[test]
++fn save数值与字符串边界_上限不设拒收且双可空列独立组合() {
++    let env = Env::new("save-numeric-boundary");
++    let app = app_with_stores(&env);
++    let state = app.state::<WorkspaceStores>();
++
++    // max_tokens = u64::MAX：上限不设拒收
++    let huge = save_full(
++        &state,
++        None,
++        "极端上限端点",
++        AgentProviderProtocol::Anthropic,
++        "sk-ant-x",
++        "claude-x",
++        "m",
++        "l",
++        Some(u64::MAX),
++        Some(u64::MAX),
++    )
++    .expect("上限极大应保存成功");
++    assert_eq!(huge.max_tokens, Some(u64::MAX));
++    assert_eq!(huge.context_length, Some(u64::MAX));
++
++    // 双可空列四态独立组合（index 序号区分 name）
++    for (index, (context_length, max_tokens)) in [
++        (None, None),
++        (Some(131_072), None),
++        (None, Some(4_096)),
++        (Some(200_000), Some(32_000)),
++    ]
++    .into_iter()
++    .enumerate()
++    {
++        let saved = save_full(
++            &state,
++            None,
++            &format!("双空列端点 {index}"),
++            AgentProviderProtocol::Anthropic,
++            "sk-ant-x",
++            "claude-x",
++            "m",
++            "l",
++            context_length,
++            max_tokens,
++        )
++        .expect("双可空列组合应保存成功");
++        assert_eq!(saved.context_length, context_length);
++        assert_eq!(saved.max_tokens, max_tokens);
++    }
++
++    // 超长模型名（>1000 字符）带后缀 + emoji / \0 / 换行：Ok 且落库保真
++    let long_model = format!("{}[1m]", "m".repeat(1_200));
++    let special = save_full(
++        &state,
++        None,
++        "怪值模型端点",
++        AgentProviderProtocol::Anthropic,
++        "sk-ant-x",
++        &long_model,
++        "claude-\u{0}-m",
++        "claude\n-y🎉",
++        None,
++        Some(4_096),
++    )
++    .expect("怪值模型名应保存成功");
++    assert_eq!(special.models.high, long_model, "超长模型名原文保真");
++    assert_eq!(special.models.medium, "claude-\u{0}-m");
++    assert_eq!(special.models.low, "claude\n-y🎉");
++}
++
++#[test]
++fn 组合保存清单重开库_协议与上限与后缀原文三面一致() {
++    let env = Env::new("save-list-reopen");
++    let saved;
++    {
++        let app = app_with_stores(&env);
++        let state = app.state::<WorkspaceStores>();
++        saved = save_full(
++            &state,
++            None,
++            "重开端点",
++            AgentProviderProtocol::Anthropic,
++            "sk-ant-reopen",
++            "claude-sonnet-4-5[1m]",
++            "claude-m[1m]",
++            "claude-haiku-4-5",
++            Some(200_000),
++            Some(8_192),
++        )
++        .expect("保存应成功");
++
++        // 清单回读逐字一致
++        let listed = list_agent_providers(state.clone()).expect("list 应成功");
++        assert_eq!(listed, vec![saved.clone()], "清单回读逐字一致");
++        assert_eq!(listed[0].protocol, AgentProviderProtocol::Anthropic);
++        assert_eq!(listed[0].max_tokens, Some(8_192));
++        assert_eq!(listed[0].models.high, "claude-sonnet-4-5[1m]");
++
++        // 显式取回托管值销毁（redb 文件锁不随 App drop 释放）
++        #[allow(deprecated)]
++        let _stores = app.unmanage::<WorkspaceStores>().expect("应处于托管中");
++    }
++
++    // WorkspaceStores 重开后三面仍一致（v3 版本链顺带落地）
++    let app = app_with_stores(&env);
++    let state = app.state::<WorkspaceStores>();
++    let reopened = list_agent_providers(state.clone()).expect("重开后 list 应成功");
++    assert_eq!(reopened, vec![saved], "重开后记录逐字一致");
++    assert_eq!(reopened[0].max_tokens, Some(8_192), "上限列持久");
++    assert_eq!(
++        reopened[0].models.medium, "claude-m[1m]",
++        "后缀原文持久（不做归一化）"
++    );
++}
+diff --git a/src/commands/change_flow/mod_test.rs b/src/commands/change_flow/mod_test.rs
+index 77411f683990..4d05e2e01450 100644
+--- a/src/commands/change_flow/mod_test.rs
++++ b/src/commands/change_flow/mod_test.rs
+@@ -9,7 +9,8 @@ use tauri::{App, Manager};
+ use ::agent::{SessionStreamRegistry, StopRegistry};
+ use orchestration::control::ChangeFlowControl;
+ use store::{
+-    AgentEngineKind, AgentInstanceRecord, AgentModelTiers, AgentProviderRecord, WorkspaceStores,
++    AgentEngineKind, AgentInstanceRecord, AgentModelTiers, AgentProviderProtocol,
++    AgentProviderRecord, WorkspaceStores,
+ };
+ use workflow::state::{ChangeStateRecord, ChangeStatus};
+ 
+@@ -121,6 +122,7 @@ fn seed_sdk_default_instance(app: &App<tauri::test::MockRuntime>) {
+         .global()
+         .upsert_agent_provider(AgentProviderRecord::new(
+             "组合根供应".to_owned(),
++            AgentProviderProtocol::Openai,
+             String::new(),
+             String::new(),
+             AgentModelTiers {
+@@ -129,6 +131,7 @@ fn seed_sdk_default_instance(app: &App<tauri::test::MockRuntime>) {
+                 low: String::new(),
+             },
+             None,
++            None,
+         ))
+         .expect("落 provider fixture")
+         .id;
+diff --git a/src/commands/exec/mod_test.rs b/src/commands/exec/mod_test.rs
+index 72a2d9bab650..9150e1d3651a 100644
+--- a/src/commands/exec/mod_test.rs
++++ b/src/commands/exec/mod_test.rs
+@@ -10,8 +10,8 @@ use ::agent::{
+     StopRegistry,
+ };
+ use store::{
+-    AgentEngineKind, AgentInstanceRecord, AgentModelTiers, AgentProviderRecord, AgentRunRecord,
+-    SessionConfigSnapshot, SessionRecord, WorkspaceStores,
++    AgentEngineKind, AgentInstanceRecord, AgentModelTiers, AgentProviderProtocol,
++    AgentProviderRecord, AgentRunRecord, SessionConfigSnapshot, SessionRecord, WorkspaceStores,
+ };
+ 
+ use super::{
+@@ -101,6 +101,7 @@ fn seed_provider(
+         .global()
+         .upsert_agent_provider(AgentProviderRecord::new(
+             name.to_owned(),
++            AgentProviderProtocol::Openai,
+             base_url.to_owned(),
+             api_key.to_owned(),
+             AgentModelTiers {
+@@ -109,6 +110,7 @@ fn seed_provider(
+                 low: "m-low".to_owned(),
+             },
+             None,
++            None,
+         ))
+         .expect("落 provider fixture")
+         .id

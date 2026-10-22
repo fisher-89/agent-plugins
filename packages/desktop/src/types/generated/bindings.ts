@@ -64,8 +64,19 @@ export const commands = {
 	removeWorkspace: (root: string) => __TAURI_INVOKE<boolean>("remove_workspace", { root }),
 	/**  provider 清单（主键 id 升序）。 */
 	listAgentProviders: () => __TAURI_INVOKE<AgentProviderRecord[]>("list_agent_providers"),
-	/**  保存 provider（新建 / 更新合一，id `None` 新建 / `Some` 整行更新） */
-	saveAgentProvider: (id: number | null, name: string, baseUrl: string, apiKey: string, models: AgentModelTiers, contextLength: number | null) => __TAURI_INVOKE<AgentProviderRecord>("save_agent_provider", { id, name, baseUrl, apiKey, models, contextLength }),
+	/**
+	 *  保存 provider（新建 / 更新合一，id `None` 新建 / `Some` 整行更新）。
+	 * 
+	 *  参数序：`protocol` 紧跟 `name`——协议决定 `base_url` 语义与 wire，属连接
+	 *  配置核心项，签名上显式。
+	 * 
+	 *  保存期校验单点（避免「保存成功但跑不起来」）：三档模型名经引擎侧**同一**
+	 *  `parse_model_spec`（`high → medium → low`，首个非法即 `Err`，不造第二套
+	 *  规则）；`max_tokens` 非空时 SHALL `>= MIN_OUTPUT_TOKENS`（`< 4096` 拒收，
+	 *  不静默截断或夹到边界）。错误串只含档位名 / 模型名原文 / 下限——结构上
+	 *  不含 api_key。
+	 */
+	saveAgentProvider: (id: number | null, name: string, protocol: AgentProviderProtocol, baseUrl: string, apiKey: string, models: AgentModelTiers, contextLength: number | null, maxTokens: number | null) => __TAURI_INVOKE<AgentProviderRecord>("save_agent_provider", { id, name, protocol, baseUrl, apiKey, models, contextLength, maxTokens }),
 	/**  删除 provider：被 agent 引用 reject（含引用方提示，不级联） */
 	deleteAgentProvider: (id: number) => __TAURI_INVOKE<boolean>("delete_agent_provider", { id }),
 	/**  agent 实例清单（主键 id 升序）。 */
@@ -380,17 +391,42 @@ export type AgentPermissionMode =
 /**  跳过全部审批（调试页默认档） */
 "bypassPermissions";
 
+/**
+ *  agent provider 模型协议（agent 管理域，store 本地枚举）：serde camelCase
+ *  线值 `"openai" | "anthropic"`。持久化的是 provider 的 wire 语义（决定
+ *  `base_url` 拼法、认证头与请求参数）——store 禁拖引擎门面 crate（零新增
+ *  依赖），`AgentProviderProtocol` → 门面 `Protocol` 映射收运行发起解析单点
+ *  （两臂 match）。**变体声明序即 bincode 解码锚（`Openai`=0 / `Anthropic`=1），
+ *  MUST NOT 增删重排**（重排即存量行协议读错、wire 选臂错）。
+ */
+export type AgentProviderProtocol = 
+/**  openai-compatible 端点（缺省：存量 v2 行升级即本档，行为零变化） */
+"openai" | 
+/**  Anthropic Messages 端点及其兼容网关 */
+"anthropic";
+
 /**  agent provider 记录 */
 export type AgentProviderRecord = {
 	/**  记录 id（主键，写事务内 max+1 分配） */
 	id: number,
 	/**  展示名（唯一 = 写事务内查重） */
 	name: string,
-	/**  openai 兼容端点 base_url（含版本段，如 `https://…/v1`） */
+	/**
+	 *  模型协议（wire 语义与 `base_url` 拼法由此决定；缺省 `openai`——
+	 *  存量行升级即本档）
+	 */
+	protocol?: AgentProviderProtocol,
+	/**
+	 *  协议对应端点 base_url（openai 含版本段如 `https://…/v1`；anthropic
+	 *  的 `/v1` / `/messages` 后缀由引擎侧归一化后拼 `/v1/messages`）
+	 */
 	baseUrl: string,
 	/**  认证凭据（bearer token，明文） */
 	apiKey: string,
-	/**  三档模型标识（运行发起解析消费固定取 high 档） */
+	/**
+	 *  三档模型标识（运行发起解析消费固定取 high 档；原文可带 `[1m]` 后缀，
+	 *  后缀解析归引擎侧单点）
+	 */
 	models: AgentModelTiers,
 	/**
 	 *  provider 上下文窗长（token 数；sdk 引擎上下文防线消费）：可空列，
@@ -398,6 +434,12 @@ export type AgentProviderRecord = {
 	 *  落 0 或缺省字面）
 	 */
 	contextLength?: number | null,
+	/**
+	 *  provider 输出上限（token 数；等价 Claude Code 的
+	 *  `CLAUDE_CODE_MAX_OUTPUT_TOKENS`）：可空列，`None` = 按协议缺省；仅
+	 *  anthropic 协议消费（openai 协议请求保持省略上限），保存期下限 4096
+	 */
+	maxTokens?: number | null,
 };
 
 /**

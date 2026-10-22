@@ -7,6 +7,7 @@ pub(crate) mod log;
 // `loop` 为 Rust 关键字：文件名按 design 定为 `loop.rs`，模块名以 raw
 // identifier 挂载（`r#loop`）
 pub(crate) mod r#loop;
+pub(crate) mod model_spec;
 pub(crate) mod normalize;
 pub(crate) mod policy;
 pub(crate) mod preamble;
@@ -29,6 +30,8 @@ mod explore_note_test;
 mod log_test;
 #[cfg(test)]
 mod loop_test;
+#[cfg(test)]
+mod model_spec_test;
 #[cfg(test)]
 mod normalize_test;
 #[cfg(test)]

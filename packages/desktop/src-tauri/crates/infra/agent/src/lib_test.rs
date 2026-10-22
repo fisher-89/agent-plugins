@@ -2,6 +2,7 @@ use std::path::Path;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
+use crate::sdk::config::Protocol;
 use crate::sdk::runner::SdkRunner;
 use crate::{
     compose_turn, session_query, ComposedTurn, EngineConfig, EngineFacade, EngineKind,
@@ -49,6 +50,7 @@ fn crate根导出面锚定_组合根与查询面与既有门面re_export可达()
 
     // EngineConfig 三字段零改动承诺回归（构造形态与 empty 占位）
     let config = EngineConfig {
+        protocol: Protocol::Openai,
         api_key: "k".to_owned(),
         base_url: "http://127.0.0.1:9/v1".to_owned(),
         model_high: "mh".to_owned(),
@@ -229,6 +231,7 @@ fn 既有构造路径缺省none不变_续会话校验行为与现状一致() {
 /// 完整配置底座（与 runner_test 同款拒连端点）。
 fn complete_cfg() -> EngineConfig {
     EngineConfig {
+        protocol: Protocol::Openai,
         api_key: "sk-test".to_owned(),
         base_url: "http://127.0.0.1:9/v1".to_owned(),
         model_high: "rig-test-model".to_owned(),
@@ -349,6 +352,7 @@ async fn sdk臂字段str边界怪值原样构造且空串仍逐字段判缺() {
     // 超长（>1000 字符）/ 特殊字符（`\n` `\0` emoji）/ 纯空白：非空即在场，
     // 构造面原样携带不加工（不 panic、不拒绝、不规范化为缺省）
     let weird = EngineConfig {
+        protocol: Protocol::Openai,
         api_key: format!("sk-{}\n\u{0}🎯", "x".repeat(1024)),
         base_url: "   ".to_owned(),
         model_high: format!("m-high-{}", "超".repeat(1200)),
@@ -515,5 +519,224 @@ fn 携store句柄的空配置open仍config_missing显式失败() {
         matches!(error, agent::AgentStartError::ConfigMissing(ref message)
             if message.contains("api_key") && message.contains("base_url") && message.contains("model")),
         "配置三件套校验先于句柄消费，实际: {error:?}"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// with_max_tokens builder 缝（DD14 / AC-8 门面接线半边）：与
+// with_context_window 同型并列，`max_tokens` MUST NOT 进 EngineConfig
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn with_max_tokens分发等价_与直构runner加同载荷行为一致() {
+    // 门面链：new() → with_max_tokens(Some(8192)) → runner_for(Sdk)
+    let via_facade = EngineFacade::new()
+        .with_max_tokens(Some(8192))
+        .runner_for(EngineKind::Sdk, complete_cfg())
+        .expect("Sdk 臂构造成功");
+    // 直构链：SdkRunner::new(四参签名不动) + with_max_tokens
+    let via_direct = SdkRunner::new(complete_cfg(), None, None, None).with_max_tokens(Some(8192));
+
+    // 同一 SessionOpen 下错误面 / 行为面一致（无装载缝续会话的启动校验面）
+    assert_eq!(
+        via_facade
+            .open_session(open_continue("ses-max-tokens"))
+            .expect_err("无装载缝续会话必须显式失败")
+            .to_string(),
+        via_direct
+            .open_session(open_continue("ses-max-tokens"))
+            .expect_err("直构同口径失败")
+            .to_string(),
+        "with_max_tokens 门面分发与直构一致（既有「与直构一致」对拍模式延伸）"
+    );
+    // 载荷不改变非相关行为：New 会话 open 照常成功（拒连端点，组装不触网）
+    let session = via_facade
+        .open_session(agent::SessionOpen {
+            injections: agent::SessionInjections::default(),
+            ctx: agent::SessionCtx {
+                workspace_root: Path::new(r"C:\ws").to_path_buf(),
+                permission_mode: agent::AgentPermissionMode::BypassPermissions,
+                model_level: agent::ModelLevel::High,
+            },
+            session: agent::SessionRef::New,
+            prior_handle: None,
+        })
+        .expect("完整配置 New 会话 open 应成功");
+    drop(session);
+}
+
+#[test]
+fn max_tokens与context_window两载荷互不覆盖_两序链同构() {
+    // 顺序 A：先窗长后上限
+    let forward = EngineFacade::new()
+        .with_context_window(Some(200_000))
+        .with_max_tokens(Some(8192));
+    // 顺序 B：先上限后窗长
+    let backward = EngineFacade::new()
+        .with_max_tokens(Some(8192))
+        .with_context_window(Some(200_000));
+
+    for facade in [&forward, &backward] {
+        assert_eq!(
+            facade.context_window,
+            Some(200_000),
+            "窗长载荷不被上限 builder 覆盖"
+        );
+        assert_eq!(
+            facade.max_tokens,
+            Some(8192),
+            "上限载荷不被窗长 builder 覆盖"
+        );
+    }
+
+    // 两链分发行为一致（带后缀 / 无后缀两组配置分别对拍）
+    for (high, low) in [
+        ("claude-x[1m]".to_owned(), "claude-y".to_owned()),
+        ("gpt-4o".to_owned(), "gpt-4o-mini".to_owned()),
+    ] {
+        let cfg = EngineConfig {
+            model_high: high,
+            model_low: low,
+            ..complete_cfg()
+        };
+        let forward_runner = forward
+            .runner_for(EngineKind::Sdk, cfg.clone())
+            .expect("Sdk 臂构造成功");
+        let backward_runner = backward
+            .runner_for(EngineKind::Sdk, cfg)
+            .expect("Sdk 臂构造成功");
+        assert_eq!(
+            forward_runner
+                .open_session(open_continue("ses-two-payloads"))
+                .expect_err("无装载缝续会话必须显式失败")
+                .to_string(),
+            backward_runner
+                .open_session(open_continue("ses-two-payloads"))
+                .expect_err("同口径失败")
+                .to_string(),
+            "两 builder 顺序不改变分发行为"
+        );
+    }
+}
+
+#[test]
+fn 既有三条构造路径max_tokens缺省none不落缺省字面() {
+    // 三条既有构造路径均不调 with_max_tokens → 载荷恒 None（初始化漏补即刻失败）
+    assert_eq!(EngineFacade::new().max_tokens, None, "new() 缺省 None");
+    let (loader, _calls) = counting_loader(Ok(None));
+    assert_eq!(
+        EngineFacade::with_resume_transcript(loader).max_tokens,
+        None,
+        "with_resume_transcript 缺省 None"
+    );
+    let (_dir, store) = temp_store("max-tokens-default");
+    assert_eq!(
+        EngineFacade::new()
+            .with_explore_note_store(Arc::clone(&store))
+            .max_tokens,
+        None,
+        "with_explore_note_store 缺省 None"
+    );
+    // 缺省档分发行为与现状一致（直构三参 None 同口径）
+    let facade_runner = EngineFacade::new()
+        .runner_for(EngineKind::Sdk, complete_cfg())
+        .expect("Sdk 臂构造成功");
+    let direct_runner = SdkRunner::new(complete_cfg(), None, None, None);
+    assert_eq!(
+        facade_runner
+            .open_session(open_continue("ses-default-none"))
+            .expect_err("无装载缝续会话必须显式失败")
+            .to_string(),
+        direct_runner
+            .open_session(open_continue("ses-default-none"))
+            .expect_err("直构同口径失败")
+            .to_string(),
+        "缺省 None 行为与现状一致"
+    );
+}
+
+#[test]
+fn with_max_tokens载荷三态原样透传且重复调用后者覆盖() {
+    // 门面不做下限 / 上限校验（下限单点在命令层，DD6）：三态构造均可达
+    for payload in [Some(0), Some(1), Some(u64::MAX), None] {
+        let facade = EngineFacade::new().with_max_tokens(payload);
+        assert_eq!(
+            facade.max_tokens, payload,
+            "载荷 {payload:?} 原样透传（门面零校验零夹取）"
+        );
+        // 可分发（构造可达）
+        assert!(
+            facade.runner_for(EngineKind::Sdk, complete_cfg()).is_ok(),
+            "载荷 {payload:?} 下 Sdk 臂构造成功"
+        );
+    }
+
+    // 重复调用 builder：后者覆盖前者（顺序语义）
+    let overridden = EngineFacade::new()
+        .with_max_tokens(Some(4096))
+        .with_max_tokens(Some(32768));
+    assert_eq!(overridden.max_tokens, Some(32768), "重复调用后者覆盖前者");
+}
+
+#[test]
+fn runner_for_sdk臂启动校验成因集不因max_tokens载荷变化() {
+    // 空配置（protocol 缺省 openai）→ ConfigMissing 三成因逐字，载荷不新增变体
+    let runner = EngineFacade::new()
+        .with_max_tokens(Some(8192))
+        .runner_for(EngineKind::Sdk, EngineConfig::empty())
+        .expect("Sdk 臂构造成功");
+    let error = runner
+        .open_session(open_continue("ses-max-tokens-validation"))
+        .expect_err("空配置必须显式失败");
+    let agent::AgentStartError::ConfigMissing(message) = &error else {
+        panic!("应为 ConfigMissing，实际: {error:?}");
+    };
+    for field in ["api_key", "base_url", "model"] {
+        assert!(
+            message.contains(field),
+            "成因集逐字为既有三档（缺 {field}），实际: {message}"
+        );
+    }
+    assert!(
+        !message.contains("max_tokens"),
+        "上限载荷不进启动校验成因集，实际: {message}"
+    );
+}
+
+#[test]
+fn runner_for结构化返回面锚定_引擎具体类型不出门面() {
+    // 返回值仍为 `Result<Box<dyn AgentRunner>, String>`（引擎具体类型不出门面）
+    let signature: fn(
+        &EngineFacade,
+        EngineKind,
+        EngineConfig,
+    ) -> Result<Box<dyn AgentRunner>, String> = EngineFacade::runner_for;
+    let runner =
+        signature(&EngineFacade::new(), EngineKind::Sdk, complete_cfg()).expect("Sdk 臂构造成功");
+    assert!(
+        runner.open_session(open_continue("ses-boxed")).is_err(),
+        "Box<dyn AgentRunner> 经 trait 面可驱动"
+    );
+}
+
+#[test]
+fn crate根导出面锚定_后缀解析与下限常量经根可达() {
+    // 命令层同一函数 / 同一常量消费的前提：crate 根再导出可达（破坏即编译失败）
+    let parse: fn(&str) -> Result<crate::ModelSpec, crate::ModelSpecError> =
+        crate::parse_model_spec;
+    let spec = parse("claude-sonnet-4-5[1m]").expect("后缀解析经 crate 根可达");
+    assert_eq!(spec.name, "claude-sonnet-4-5");
+    assert_eq!(spec.length, Some(1_000_000));
+    assert!(
+        matches!(
+            parse("x[2m]"),
+            Err(crate::ModelSpecError { ref reason, .. }) if !reason.is_empty()
+        ),
+        "ModelSpecError 经 crate 根可达且拒收面一致"
+    );
+    assert_eq!(
+        crate::MIN_OUTPUT_TOKENS,
+        4_096,
+        "保存期下限常量经 crate 根可达（与引擎同一门槛，无第二套字面量）"
     );
 }

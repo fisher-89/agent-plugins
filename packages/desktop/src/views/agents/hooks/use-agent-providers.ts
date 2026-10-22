@@ -4,6 +4,7 @@ import { toast } from 'sonner';
 import {
   commands,
   type AgentModelTiers,
+  type AgentProviderProtocol,
   type AgentProviderRecord,
 } from '../../../types/generated/bindings';
 
@@ -13,15 +14,19 @@ const ACTION_ERROR_PREFIX = {
   remove: '删除 provider 失败：',
 } as const;
 
-/** save 动作入参（id null 新建 / number 更新；apiKey 留空 = 保持原值，由后端回填；
- * contextLength 留空 = 未配置存 null，MUST NOT 落 0 / 128000 缺省字面） */
+/** save 动作入参（id null 新建 / number 更新；protocol 决定 base_url 语义与 wire；
+ * apiKey 留空 = 保持原值，由后端回填；contextLength 留空 = 未配置存 null，
+ * MUST NOT 落 0 / 128000 缺省字面；maxTokens 留空 = 按协议缺省存 null，
+ * 非空须 >= 4096——边界校验单点在后端，入参序与命令签名逐位对齐） */
 interface AgentProviderSaveInput {
   id: number | null;
   name: string;
+  protocol: AgentProviderProtocol;
   baseUrl: string;
   apiKey: string;
   models: AgentModelTiers;
   contextLength: number | null;
+  maxTokens: number | null;
 }
 
 export interface AgentProvidersState {
@@ -85,10 +90,12 @@ function useAgentProvidersActions(refresh: () => void) {
         const record = await commands.saveAgentProvider(
           input.id,
           input.name,
+          input.protocol,
           input.baseUrl,
           input.apiKey,
           input.models,
           input.contextLength,
+          input.maxTokens,
         );
         refresh();
         return record;
