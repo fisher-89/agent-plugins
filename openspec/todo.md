@@ -76,3 +76,5 @@
 - [ ] 【Desktop】change详情，步骤可以查看运行中stdout
 - [ ] 【Desktop】向agent提供db查询工具，可以访问桌面端数据，包含2个工具：1. 列出db的表名、介绍、字段说明；2. 按条件查询，返回数据上限1000条；
 - [ ] 【Desktop】agent provider支持选择模型协议（openai/anthropic）
+- [ ] 【Desktop】分析会话ses-3-1792634053355，中途补充说明后失败
+- [ ] 【Desktop】内置CodeGraph，使用mcp桥接到agent
