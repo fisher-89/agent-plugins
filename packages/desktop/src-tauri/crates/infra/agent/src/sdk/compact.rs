@@ -3,7 +3,7 @@ use rig::driver::DynModel;
 use rig::message::{AssistantContent, Message};
 use rig::operation::Completion;
 
-use crate::sdk::context::{protected_start, ContextDefense};
+use crate::sdk::context::{protected_start, sweep_orphans, ContextDefense};
 
 /// 摘要指令要点集（措辞留实现期打磨窗，要点集不减）。
 const SUMMARY_INSTRUCTION: &str = "这是历史摘要，请勿重复已完成的工作。请将以下对话历史压缩为\
@@ -62,7 +62,9 @@ pub(crate) async fn summarize(
                     compacted.push(Message::user(format!("[历史摘要]\n{summary}")));
                     compacted.push(first.clone());
                     compacted.extend(history.iter().skip(protected.max(1)).cloned());
-                    return Ok(compacted);
+                    // 保护窗起点可能落在结果位（其 tool_use 已被摘要置换）：
+                    // 孤儿结果剔除，保 provider 配对协议
+                    return Ok(sweep_orphans(compacted));
                 }
                 last_error = "摘要响应为空".to_owned();
             }

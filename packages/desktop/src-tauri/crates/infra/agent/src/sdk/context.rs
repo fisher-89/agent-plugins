@@ -234,7 +234,7 @@ fn oldest_unit_range(history: &[Message], protected: usize) -> Option<(usize, us
 /// 孤儿配对清扫：tool_result 的 tool_use 伙伴不在其前（assistant 已被裁）
 /// 时剔除该结果条目（provider 端 tool 配对协议要求成对出现），纯文本位保留；
 /// 清空后无内容的 user 位消息整条移除。
-fn sweep_orphans(history: Vec<Message>) -> Vec<Message> {
+pub(crate) fn sweep_orphans(history: Vec<Message>) -> Vec<Message> {
     let mut answered: HashSet<CallId> = HashSet::new();
     history
         .into_iter()

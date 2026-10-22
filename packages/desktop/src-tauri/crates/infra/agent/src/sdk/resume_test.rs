@@ -170,7 +170,8 @@ fn 单条密封message收三块时重建为单条assistant消息不拆分() {
     )];
 
     let history = rebuild(&transcript).expect("重建应成功");
-    assert_eq!(history.len(), 1, "恰一条 rig assistant 消息（不拆分）");
+    // tool_use 无结果回灌 → 重建侧补一条中断占位结果闭合配对
+    assert_eq!(history.len(), 2, "assistant 消息 + 中断占位结果");
     let Message::Assistant { content, .. } = &history[0] else {
         panic!("应为 assistant 消息");
     };
@@ -390,6 +391,126 @@ fn tool_role结果消息归并回user位重建() {
         "tool role 归并回 user 位且工具名回溯保真，实际: {:?}",
         content[0]
     );
+}
+
+#[test]
+fn 同一assistant的多个工具结果重建为紧随其后的一条user消息() {
+    // 生产转录形态：单条 assistant 密封含两个 tool_use，结果逐条 tool 事件落库
+    let transcript = vec![
+        user_text(0, "任务书"),
+        event(
+            1,
+            AgentEventKind::Message {
+                role: AgentMessageRole::Assistant,
+                blocks: vec![
+                    tool_use_block("tu_a", "grep"),
+                    tool_use_block("tu_b", "read"),
+                ],
+                parent_tool_use_id: None,
+            },
+        ),
+        event(
+            2,
+            AgentEventKind::Message {
+                role: AgentMessageRole::Tool,
+                blocks: vec![AgentBlock::ToolResult {
+                    id: "tu_a".to_owned(),
+                    content: "命中一行".to_owned(),
+                    is_error: false,
+                }],
+                parent_tool_use_id: None,
+            },
+        ),
+        event(
+            3,
+            AgentEventKind::Message {
+                role: AgentMessageRole::Tool,
+                blocks: vec![AgentBlock::ToolResult {
+                    id: "tu_b".to_owned(),
+                    content: "文件内容".to_owned(),
+                    is_error: false,
+                }],
+                parent_tool_use_id: None,
+            },
+        ),
+    ];
+
+    let history = rebuild(&transcript).expect("重建应成功");
+    assert_eq!(
+        history.len(),
+        3,
+        "user 提示 + assistant + 恰一条结果 user 消息（结果不拆条）"
+    );
+    let Message::User { content } = &history[2] else {
+        panic!("工具结果应重建为紧随 assistant 的 user 消息");
+    };
+    assert_eq!(content.len(), 2, "两条结果并入同一条 user 消息");
+    assert!(
+        matches!(&content[0], UserContent::ToolResult(result)
+            if result.call.wire().as_ref() == "tu_a" && result.name.as_str() == "grep"),
+        "结果保序：tu_a 在前，实际: {:?}",
+        content[0]
+    );
+    assert!(
+        matches!(&content[1], UserContent::ToolResult(result)
+            if result.call.wire().as_ref() == "tu_b" && result.name.as_str() == "read"),
+        "结果保序：tu_b 在后，实际: {:?}",
+        content[1]
+    );
+}
+
+#[test]
+fn 结果回灌前停止的尾部调用以合成中断结果闭合配对() {
+    let transcript = vec![
+        user_text(0, "任务书"),
+        event(
+            1,
+            AgentEventKind::Message {
+                role: AgentMessageRole::Assistant,
+                blocks: vec![tool_use_block("tu_stop", "bash")],
+                parent_tool_use_id: None,
+            },
+        ),
+    ];
+
+    let history = rebuild(&transcript).expect("重建应成功");
+    assert_eq!(history.len(), 3, "尾部补恰一条中断结果消息");
+    let Message::User { content } = &history[2] else {
+        panic!("中断占位结果应为 user 消息");
+    };
+    assert!(
+        matches!(&content[0], UserContent::ToolResult(result)
+            if result.call.wire().as_ref() == "tu_stop"
+                && result.name.as_str() == "bash"
+                && matches!(&result.content[0], ToolResultContent::Text(text) if text.text.contains("中断"))),
+        "合成结果与 tool_use 同源配对并标注中断，实际: {:?}",
+        content[0]
+    );
+}
+
+#[test]
+fn 中断后新轮提问前先补齐未应答调用() {
+    // 停止后用户续问：新 user 文本之前必须已有结果消息，否则 provider 判
+    // tool_use 的下一条消息缺 tool_result
+    let transcript = vec![
+        user_text(0, "任务书"),
+        event(
+            1,
+            AgentEventKind::Message {
+                role: AgentMessageRole::Assistant,
+                blocks: vec![tool_use_block("tu_stop", "bash")],
+                parent_tool_use_id: None,
+            },
+        ),
+        user_text(2, "继续"),
+    ];
+
+    let history = rebuild(&transcript).expect("重建应成功");
+    assert_eq!(history.len(), 4, "assistant + 中断结果 + 新轮提问");
+    assert!(matches!(&history[2], Message::User { content }
+        if matches!(&content[0], UserContent::ToolResult(result) if result.call.wire().as_ref() == "tu_stop")));
+    assert!(matches!(&history[3], Message::User { content }
+        if matches!(&content[0], UserContent::Text(text) if text.text == "继续")));
 }
 
 // ---------------------------------------------------------------------------

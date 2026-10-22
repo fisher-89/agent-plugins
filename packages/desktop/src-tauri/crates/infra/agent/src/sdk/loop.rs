@@ -5,7 +5,7 @@ use agent::{AgentBlock, AgentEventKind, AgentMessageRole, AgentPermissionMode, R
 use futures::StreamExt;
 use rig::completion::{CompletionRequest, Usage};
 use rig::driver::DynModel;
-use rig::message::{AssistantContent, Message, ToolCall};
+use rig::message::{AssistantContent, Message, ToolCall, ToolResult, ToolResultContent};
 use rig::operation::Completion;
 use serde_json::Value;
 use tokio::sync::mpsc;
@@ -363,7 +363,9 @@ pub(crate) async fn run(
         }
         // 工具调用逐个：成员校验 → policy → sandbox → 执行 → 回灌（run 不中
         // 断）；0.43 起 tool_result 以 CallId / ToolName 构造（与 tool_use 同
-        // 源配对）
+        // 源配对）。同一 assistant 的全部结果收进一条 user 消息——provider
+        // 要求 tool_use 的下一条消息覆盖全部 tool_result
+        let mut results: Vec<ToolResult> = Vec::with_capacity(tool_calls.len());
         for tool_call in tool_calls {
             let id = tool_call.id.to_string();
             let name = tool_call.function.name.as_str().to_owned();
@@ -373,32 +375,20 @@ pub(crate) async fn run(
             if !dispatched.contains(&name) {
                 let reason = format!("工具不在本轮下发面: {name}");
                 deny(&sender, "tool_unavailable", &name, &reason, &id).await;
-                history.push(Message::tool_result(
-                    tool_call.id,
-                    tool_call.function.name,
-                    reason,
-                ));
+                results.push(outcome_result(tool_call, reason));
                 continue;
             }
             if !policy::allows(turn.permission_mode, &name) {
                 let reason = format!("权限档位不允许该工具: {name}");
                 deny(&sender, "permission_denied", &name, &reason, &id).await;
-                history.push(Message::tool_result(
-                    tool_call.id,
-                    tool_call.function.name,
-                    reason,
-                ));
+                results.push(outcome_result(tool_call, reason));
                 continue;
             }
             let sandboxed = match sandbox_rewrite(&turn.cwd, &name, &input) {
                 Ok(rewritten) => rewritten,
                 Err(reason) => {
                     deny(&sender, "sandbox_denied", &name, &reason, &id).await;
-                    history.push(Message::tool_result(
-                        tool_call.id,
-                        tool_call.function.name,
-                        reason,
-                    ));
+                    results.push(outcome_result(tool_call, reason));
                     continue;
                 }
             };
@@ -441,11 +431,12 @@ pub(crate) async fn run(
                 ));
                 return history; // 消费端关闭：泵自行退出
             }
-            history.push(Message::tool_result(
-                tool_call.id,
-                tool_call.function.name,
-                content,
-            ));
+            results.push(outcome_result(tool_call, content));
+        }
+        // 配对收口：全部结果收进恰一条 user 消息（tool_use 的下一条消息必须
+        // 覆盖全部 tool_result，逐条消息会被 provider 判 400）
+        if !results.is_empty() {
+            history.push(Message::tool_results(results));
         }
         turn_index += 1;
     }
@@ -477,6 +468,16 @@ async fn deny(
         parent_tool_use_id: None,
     };
     let _ = sender.send(result).await;
+}
+
+/// 历史面结果条目：与 tool_use 同源（CallId / ToolName）配对，由调用点聚成
+/// 单条 user 消息。
+fn outcome_result(call: ToolCall, content: String) -> ToolResult {
+    ToolResult {
+        call: call.id,
+        name: call.function.name,
+        content: vec![ToolResultContent::text(content)],
+    }
 }
 
 /// 上下文防线编排（loop 请求前调用点）：L2 prune → notice 转发 → 水位过

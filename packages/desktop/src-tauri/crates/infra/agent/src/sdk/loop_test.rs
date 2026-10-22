@@ -676,6 +676,62 @@ async fn 工具轮第二请求的chat_history含成对tool_result且提示词在
     ));
 }
 
+#[tokio::test]
+async fn 同一assistant多工具调用的第二请求将全部结果收进同一条user消息() {
+    let dir = tempdir("tool-pair-multi");
+    write_file(&dir.path().join("a.txt"), "内容甲");
+    write_file(&dir.path().join("b.txt"), "内容乙");
+    let model = FakeModel::with_turns(vec![
+        vec![
+            raw_tool_call("tu_a", "read", serde_json::json!({ "path": "a.txt" })),
+            raw_tool_call("tu_b", "read", serde_json::json!({ "path": "b.txt" })),
+        ],
+        vec![raw_text("完成")],
+    ]);
+    let turn = loop_turn(dir.path(), AgentPermissionMode::BypassPermissions);
+    let (sender, mut receiver) = mpsc::channel::<AgentEventKind>(256);
+    let handle = RunHandle::default();
+    let dyn_model = model.erased();
+    let task =
+        tokio::spawn(
+            async move { r#loop::run(&dyn_model, &turn, Vec::new(), sender, handle).await },
+        );
+    while receiver.recv().await.is_some() {}
+    task.await.expect("loop 正常结束");
+
+    let requests = model.captured_requests();
+    let second = &requests[1];
+    // 含两条 tool_use 的 assistant 消息下标
+    let assistant_index = second
+        .chat_history
+        .iter()
+        .position(|message| {
+            matches!(message, Message::Assistant { content, .. }
+                if content.iter().filter(|item| matches!(item, AssistantContent::ToolCall(_))).count() == 2)
+        })
+        .expect("请求史含两工具调用的 assistant 消息");
+    assert_eq!(
+        second.chat_history.len(),
+        assistant_index + 2,
+        "结果恰占紧随 assistant 的一条消息（不拆成多条）"
+    );
+    let Message::User { content } = &second.chat_history[assistant_index + 1] else {
+        panic!("tool_use 下一条应为承载全部结果的 user 消息");
+    };
+    let ids: Vec<String> = content
+        .iter()
+        .filter_map(|item| match item {
+            UserContent::ToolResult(result) => Some(result.call.wire().as_ref().to_owned()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        ids,
+        vec!["tu_a".to_owned(), "tu_b".to_owned()],
+        "全部 tool_result 同条消息且保序，实际: {content:?}"
+    );
+}
+
 // ---------------------------------------------------------------------------
 // 重建史注入首轮请求（AC-3 引擎半边：Continue 装载缝闭合的组合断言）
 // ---------------------------------------------------------------------------
