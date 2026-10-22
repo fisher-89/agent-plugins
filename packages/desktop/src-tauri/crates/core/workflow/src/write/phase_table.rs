@@ -82,6 +82,18 @@ const ACCEPTANCE_EVALUATOR_PROMPT: &str = include_str!("../prompts/acceptance-ev
 const CODE_ANALYZE_EXECUTOR_PROMPT: &str = include_str!("../prompts/code-analyze-planner.md");
 const CODE_ANALYZE_EVALUATOR_PROMPT: &str = include_str!("../prompts/code-analyze-evaluator.md");
 
+const INITIALIZE_DESCRIPTION: &str = "检查变更环境和基线代码";
+const PROPOSAL_DESCRIPTION: &str = "需求提案与规格说明";
+const DEV_DESIGN_DESCRIPTION: &str = "详细设计与任务拆解";
+const TEST_DESIGN_DESCRIPTION: &str = "测试设计";
+const IMPLEMENT_DESCRIPTION: &str = "生成功能代码";
+const TEST_GEN_DESCRIPTION: &str = "生成测试代码";
+const TEST_EXECUTION_DESCRIPTION: &str = "执行自动化测试，收集数据与诊断";
+const CODE_REVIEW_DESCRIPTION: &str = "代码审查";
+const ACCEPTANCE_DESCRIPTION: &str = "验收评估";
+const ARCHIVE_DESCRIPTION: &str = "代码回合基线，设计归档";
+const CODE_ANALYZE_DESCRIPTION: &str = "分析代码生成详细设计";
+
 // --- 相位计划步序列（编译期 const 有序序列；kind / role 由 `StepNode` 派生，
 // 门禁步由 step 声明而非 walker 常量注入）---------------------------------
 
@@ -508,20 +520,14 @@ static TEST_EXECUTION_MANIFEST: &[ArtifactSpec] = &[ArtifactSpec {
     title: "测试报告",
 }];
 
-/// requirement 相位表（10 个路由相位 = initialize 一次性表头（确定性基线检查
-/// 相位）+ 8 个 agent 相位 + archive 确定性相位；表头一次性语义由落账机制天然
-/// 成立——pass 持久跳过、Terminal 失败零条目再发起照常路由表头；编译期静态装
-/// 配：14 个角色知识 md 逐条 `include_str!` 显式字面路径；全静态零
-/// 占位故全表 const 化，驻留 `'static` 只读共享）。每相位同时声明计划步序列
-///（steps）与产物清单（artifact_manifest）——计划图单源，walker 不自持步序、
-/// 产物发现不落第二份归属表。
+/// requirement 相位表
 static REQUIREMENT_TABLE: &[PhaseDefinition] = &[
     // initialize：两表表头一次性基线检查相位（确定性相位——executor /
     // evaluator 双缺席、零 artifact_manifest；`INITIALIZE_STEPS` 五步两表共享；
     // backtrackable=false——基线检查不可回溯重做）。
     PhaseDefinition {
         id: INITIALIZE_PHASE_ID,
-        description: "基线检查",
+        description: INITIALIZE_DESCRIPTION,
         steps: INITIALIZE_STEPS,
         artifact_manifest: &[],
         prerequisites: &[],
@@ -531,7 +537,7 @@ static REQUIREMENT_TABLE: &[PhaseDefinition] = &[
     },
     PhaseDefinition {
         id: "proposal",
-        description: "需求提案与规格说明",
+        description: PROPOSAL_DESCRIPTION,
         steps: PROPOSAL_STEPS,
         artifact_manifest: PROPOSAL_MANIFEST,
         prerequisites: &[],
@@ -547,7 +553,7 @@ static REQUIREMENT_TABLE: &[PhaseDefinition] = &[
     },
     PhaseDefinition {
         id: "dev-design",
-        description: "详细设计与任务拆解",
+        description: DEV_DESIGN_DESCRIPTION,
         steps: DEV_DESIGN_STEPS,
         artifact_manifest: DEV_DESIGN_MANIFEST,
         prerequisites: &["proposal"],
@@ -563,7 +569,7 @@ static REQUIREMENT_TABLE: &[PhaseDefinition] = &[
     },
     PhaseDefinition {
         id: "test-design",
-        description: "测试设计",
+        description: TEST_DESIGN_DESCRIPTION,
         steps: TEST_DESIGN_STEPS,
         artifact_manifest: TEST_DESIGN_MANIFEST,
         prerequisites: &["proposal", "dev-design"],
@@ -579,7 +585,7 @@ static REQUIREMENT_TABLE: &[PhaseDefinition] = &[
     },
     PhaseDefinition {
         id: "implement",
-        description: "代码实现",
+        description: IMPLEMENT_DESCRIPTION,
         steps: IMPLEMENT_STEPS,
         artifact_manifest: IMPLEMENT_MANIFEST,
         prerequisites: &["dev-design"],
@@ -595,7 +601,7 @@ static REQUIREMENT_TABLE: &[PhaseDefinition] = &[
     },
     PhaseDefinition {
         id: "test-gen",
-        description: "测试代码生成",
+        description: TEST_GEN_DESCRIPTION,
         steps: TEST_GEN_STEPS,
         artifact_manifest: &[],
         prerequisites: &["test-design", "implement"],
@@ -611,7 +617,7 @@ static REQUIREMENT_TABLE: &[PhaseDefinition] = &[
     },
     PhaseDefinition {
         id: "test-execution",
-        description: "测试执行与诊断",
+        description: TEST_EXECUTION_DESCRIPTION,
         steps: TEST_EXECUTION_STEPS,
         artifact_manifest: TEST_EXECUTION_MANIFEST,
         prerequisites: &["test-gen", "implement"],
@@ -627,7 +633,7 @@ static REQUIREMENT_TABLE: &[PhaseDefinition] = &[
     },
     PhaseDefinition {
         id: "code-review",
-        description: "代码审查",
+        description: CODE_REVIEW_DESCRIPTION,
         steps: CODE_REVIEW_STEPS,
         artifact_manifest: &[],
         prerequisites: &["test-gen", "implement"],
@@ -640,7 +646,7 @@ static REQUIREMENT_TABLE: &[PhaseDefinition] = &[
     },
     PhaseDefinition {
         id: "acceptance",
-        description: "验收评估",
+        description: ACCEPTANCE_DESCRIPTION,
         steps: ACCEPTANCE_STEPS,
         artifact_manifest: &[],
         prerequisites: &["proposal", "dev-design", "implement"],
@@ -657,7 +663,7 @@ static REQUIREMENT_TABLE: &[PhaseDefinition] = &[
     // archive），用户显式确认后才进入本相位。
     PhaseDefinition {
         id: "archive",
-        description: "归档收口",
+        description: ARCHIVE_DESCRIPTION,
         steps: ARCHIVE_STEPS,
         artifact_manifest: &[],
         prerequisites: &[],
@@ -667,21 +673,13 @@ static REQUIREMENT_TABLE: &[PhaseDefinition] = &[
     },
 ];
 
-/// test-only 相位表（7 个路由相位 = initialize 一次性表头（确定性基线检查
-/// 相位）+ 5 个 agent 相位 + archive 确定性相位；表头一次性语义由落账机制
-/// 天然成立——pass 持久跳过、Terminal 失败零条目再发起照常路由表头）：
-/// proposal 复用 requirement 同名 step 静态与 prompt（描述改「测试向提案」，
-/// 是否拆独立 prompt 留待看效果）；code-analyze 为新增 P→E 分析相位
-/// （`CODE_ANALYZE_STEPS` + 两个新增角色 md，零产物清单）；test-design /
-/// test-gen 复用同名 static；test-execution 沿用 desktop 确定性格
-/// （`[PhaseStart, TestExecution, MutationTest, PhaseLog]` 拆步，零 agent，不照搬
-/// 插件侧 Executor→E）；archive 复用 `ARCHIVE_STEPS`。
+/// test-only 相位表
 static TEST_ONLY_TABLE: &[PhaseDefinition] = &[
     // initialize：两表表头一次性基线检查相位（与 requirement 表头同表项形态，
     // `INITIALIZE_STEPS` 两表共享同一 static）。
     PhaseDefinition {
         id: INITIALIZE_PHASE_ID,
-        description: "基线检查",
+        description: INITIALIZE_DESCRIPTION,
         steps: INITIALIZE_STEPS,
         artifact_manifest: &[],
         prerequisites: &[],
@@ -691,7 +689,7 @@ static TEST_ONLY_TABLE: &[PhaseDefinition] = &[
     },
     PhaseDefinition {
         id: "proposal",
-        description: "测试向提案",
+        description: PROPOSAL_DESCRIPTION,
         steps: PROPOSAL_STEPS,
         artifact_manifest: PROPOSAL_MANIFEST,
         prerequisites: &[],
@@ -707,7 +705,7 @@ static TEST_ONLY_TABLE: &[PhaseDefinition] = &[
     },
     PhaseDefinition {
         id: "code-analyze",
-        description: "既有代码分析",
+        description: CODE_ANALYZE_DESCRIPTION,
         steps: CODE_ANALYZE_STEPS,
         artifact_manifest: CODE_ANALYZE_MANIFEST,
         prerequisites: &["proposal"],
@@ -723,7 +721,7 @@ static TEST_ONLY_TABLE: &[PhaseDefinition] = &[
     },
     PhaseDefinition {
         id: "test-design",
-        description: "测试设计",
+        description: TEST_DESIGN_DESCRIPTION,
         steps: TEST_DESIGN_STEPS,
         artifact_manifest: TEST_DESIGN_MANIFEST,
         prerequisites: &["proposal", "code-analyze"],
@@ -739,7 +737,7 @@ static TEST_ONLY_TABLE: &[PhaseDefinition] = &[
     },
     PhaseDefinition {
         id: "test-gen",
-        description: "测试代码生成",
+        description: TEST_GEN_DESCRIPTION,
         steps: TEST_GEN_STEPS,
         artifact_manifest: &[],
         prerequisites: &["test-design"],
@@ -755,7 +753,7 @@ static TEST_ONLY_TABLE: &[PhaseDefinition] = &[
     },
     PhaseDefinition {
         id: "test-execution",
-        description: "测试执行与诊断",
+        description: TEST_EXECUTION_DESCRIPTION,
         steps: TEST_EXECUTION_STEPS,
         artifact_manifest: TEST_EXECUTION_MANIFEST,
         prerequisites: &["test-gen"],
@@ -769,11 +767,9 @@ static TEST_ONLY_TABLE: &[PhaseDefinition] = &[
             model_level: ModelLevel::Low,
         }),
     },
-    // archive：与 requirement 表同形（确定性相位，无 executor / evaluator、
-    // 零 artifact_manifest、固定停止点）。
     PhaseDefinition {
         id: "archive",
-        description: "归档收口",
+        description: ARCHIVE_DESCRIPTION,
         steps: ARCHIVE_STEPS,
         artifact_manifest: &[],
         prerequisites: &[],
@@ -798,17 +794,17 @@ pub fn phase_table(workflow_type: &str) -> Option<&'static [PhaseDefinition]> {
     None
 }
 
-/// 当前相位在表中的全部前置相位（含自身；与插件 `computeAllowedBacktrackPhases`
-/// 同语义）。相位不在表内 → 空集。`idx == 0` 早退保留（表头自身无前序语义，非
-/// initialize 排除机制——排除仅由表内 `backtrackable` 属性承载）；迭代按
-/// `backtrackable` 过滤——`false` 者（表头 initialize）恒不入任何相位的回溯
-/// 白名单。
-///
-/// 「可重做」自排除：`allowed` 含当前相位自身 ⟺ 该相位可重做（`steps` 含
-/// agent 步，`StepNode::role().is_some()`）；零 agent 步相位（test-execution /
-/// archive）自身不入白名单——决策上下文里不存在「重做本相位」选项。判断 MUST
-/// NOT 以相位名硬编码（可重做自步序列派生，零 `PhaseDefinition` 新字段）。
-pub fn allowed_backtrack_phases(table: &[PhaseDefinition], current_phase: &str) -> Vec<String> {
+/// 回溯白名单项：相位 id + 表内自描述的特性文案（决策 agent 判断回溯目标的
+/// 上下文；描述单一来源 = `PhaseDefinition.description`，调用方零第二份文案
+/// 映射）。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BacktrackOption {
+    pub phase: String,
+    pub description: String,
+}
+
+/// 当前相位在表中的全部前置相位项
+pub fn backtrack_options(table: &[PhaseDefinition], current_phase: &str) -> Vec<BacktrackOption> {
     let Some(idx) = table.iter().position(|phase| phase.id == current_phase) else {
         return Vec::new();
     };
@@ -823,7 +819,19 @@ pub fn allowed_backtrack_phases(table: &[PhaseDefinition], current_phase: &str) 
         .iter()
         .filter(|phase| phase.backtrackable)
         .filter(|phase| redoable || phase.id != current_phase)
-        .map(|phase| phase.id.to_owned())
+        .map(|phase| BacktrackOption {
+            phase: phase.id.to_owned(),
+            description: phase.description.to_owned(),
+        })
+        .collect()
+}
+
+/// 当前相位回溯白名单的相位 id 投影（既有 id-only 消费面；过滤语义单源 =
+/// [`backtrack_options`]）。
+pub fn allowed_backtrack_phases(table: &[PhaseDefinition], current_phase: &str) -> Vec<String> {
+    backtrack_options(table, current_phase)
+        .into_iter()
+        .map(|option| option.phase)
         .collect()
 }
 

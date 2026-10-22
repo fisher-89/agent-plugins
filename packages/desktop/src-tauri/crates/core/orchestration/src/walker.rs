@@ -6,9 +6,9 @@ use foundation::layout::{domain_dir_name, ReportSlot};
 use workflow::model::{ChecklistItem, Verdict};
 use workflow::queries::ChangeDetail;
 use workflow::write::{
-    ArchiveOutcome, BacktrackInput, BacktrackOutcome, DecisionLogOutcome, INITIALIZE_PHASE_ID,
-    OnFail, PhaseLogInput, PhaseLogOutcome, PhaseNextError, PhaseNextOutcome, PhaseStartOutcome,
-    StepDefinition, StepNode,
+    ArchiveOutcome, BacktrackInput, BacktrackOption, BacktrackOutcome, DecisionLogOutcome, OnFail,
+    PhaseLogInput, PhaseLogOutcome, PhaseNextError, PhaseNextOutcome, PhaseStartOutcome,
+    StepDefinition, StepNode, INITIALIZE_PHASE_ID,
 };
 
 use crate::control::{ChangeFlowControl, RunGuard};
@@ -215,7 +215,7 @@ async fn drive(
     guard: &RunGuard,
     request: &RunRequest,
 ) -> (ChangeRunStatus, Option<String>) {
-    let mut allowed: Vec<String> = Vec::new();
+    let mut allowed: Vec<BacktrackOption> = Vec::new();
     let mut trace = EdgeTrace::default();
     loop {
         if let Err(terminal) = check_cancel(guard) {
@@ -3079,7 +3079,7 @@ async fn resolve_deadlock(
     request: &RunRequest,
     next: &PhaseNextOutcome,
     error: &PhaseNextError,
-    allowed: &[String],
+    allowed: &[BacktrackOption],
     trace: &mut EdgeTrace,
 ) -> Deadlock {
     let fail_phase = match error {
@@ -3140,7 +3140,7 @@ async fn resolve_deadlock(
                         phase: fail_phase.clone(),
                         to,
                         reason,
-                        allowed: allowed.to_vec(),
+                        allowed: allowed.iter().map(|option| option.phase.clone()).collect(),
                     },
                 },
                 "backtrack",
@@ -3320,7 +3320,7 @@ async fn decision_session(
 fn build_decision_input(
     detail: &ChangeDetail,
     fail_phase: &str,
-    allowed: &[String],
+    allowed: &[BacktrackOption],
 ) -> DecisionInput {
     let station = detail
         .pipeline
@@ -3348,7 +3348,8 @@ fn build_decision_input(
         })
         .unwrap_or_default();
     let mut candidates: Vec<CandidateReport> = Vec::new();
-    for phase in allowed {
+    for option in allowed {
+        let phase = &option.phase;
         if phase == fail_phase {
             continue;
         }

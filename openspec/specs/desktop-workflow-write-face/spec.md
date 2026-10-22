@@ -10,7 +10,7 @@ core/workflow 保持 change 流程状态的 Rust 单一权威（读 + 写），�
 
 core/workflow SHALL 保持 change 流程状态的 Rust 单一权威（读 + 写），持久化载体 SHALL 由 workflow.json 重定义为 workspace 库（desktop-change-state-store；落库经 port 缝由壳层装配 store 实现，core/workflow 零 infra 依赖）。写面 SHALL 提供：
 
-- `phase_next`：相位路由状态机——返回 next_phase、已插值的 executor / evaluator prompt、`allowed_backtrack_phases` 白名单、重试上限判定；`sessionAnchors` 以进程内状态复活（mid-phase interruption 分支可达，重入时中断相位可感知并标定）；
+- `phase_next`：相位路由状态机——返回 next_phase、已插值的 executor / evaluator prompt、`allowed_backtrack_phases` 白名单（项 = 相位 id + 表内特性描述，`backtrack_options` 自相位表 `description` 随行下发）、重试上限判定；`sessionAnchors` 以进程内状态复活（mid-phase interruption 分支可达，重入时中断相位可感知并标定）；
 - `phase_start`：开启阶段并 attempt 计时；
 - `phase_log`：eval 记录落账（checklist 信封 + skipped + 会话槽位，见「eval 条目会话槽位落账」），单事务原子落库；
 - `backtrack`：回跳落账（stale 标记 + 传播 + reason ≤500）；
@@ -254,7 +254,7 @@ step 复用 SHALL 为：initialize 复用 requirement 表头 `INITIALIZE_STEPS`�
 | `crates/core/workflow/src/write/phase_next.rs`（零改动） | 路由 | 表驱动「首个未 pass 相位」天然含 initialize 表头，零特判、零新规则 |
 | `crates/core/workflow/src/state.rs` | `OnFail` 变体面 | 增 `Escalate`（无载荷）；三变体 `FeedbackLoop { limit }` / `Terminal` / `Escalate`，与缺省 `None` 各自语义见 `StepDefinition.on_fail` doc |
 | `crates/core/workflow/src/write/phase_table.rs`（`TEST_EXECUTION_STEPS`） | 步声明单源 | TestExecution / MutationTest 两步 `on_fail: Some(OnFail::Escalate)`（原 `FeedbackLoop { limit: 5 }`） |
-| `crates/core/workflow/src/write/phase_table.rs`（`allowed_backtrack_phases`） | 白名单推导 | `redoable = phase.steps.iter().any(|step| step.node.role().is_some())`；`table[..=idx]` 过滤 `backtrackable` 后 `redoable \|\| phase.id != current_phase` 自排除 |
+| `crates/core/workflow/src/write/phase_table.rs`（`backtrack_options` / `allowed_backtrack_phases`） | 白名单推导 | `redoable = phase.steps.iter().any(|step| step.node.role().is_some())`；`table[..=idx]` 过滤 `backtrackable` 后 `redoable \|\| phase.id != current_phase` 自排除；`backtrack_options` 每项携 `PhaseDefinition.description`（决策上下文特性文案单源），`allowed_backtrack_phases` 为其 id 投影（过滤逻辑零副本） |
 | `crates/core/workflow/src/write/backtrack.rs` | 白名单二次校验 | `to == phase` 在白名单内时受理（重做本相位），否则拒绝且零写 |
 | `crates/core/workflow/src/write/phase_next.rs` | 路由与幂等闸 | `fail_decided`（decision_session_id 在案 ⇒ 不再分叉）语义注释改写；删 `eval_only` 派生，`PhaseNextError` 两变体去 `eval_only` 字段 |
 | `crates/core/workflow/src/write/phase_table_test.rs` | 声明守卫 | `Escalate` 仅允许出现在 TestExecution / MutationTest 步；两步 `on_fail` 期望值断言 |

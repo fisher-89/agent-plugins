@@ -1,7 +1,7 @@
 use std::sync::Mutex;
 
 use super::phase_next::{phase_next, PhaseNextError, SessionAnchors};
-use super::phase_table::MAX_RETRY_TIMES;
+use super::phase_table::{BacktrackOption, MAX_RETRY_TIMES};
 use crate::model::{ChecklistItem, Verdict};
 use crate::state::{
     ChangeStateRecord, ChangeStateStore, ChangeStatus, PhaseStateRecord, RunEdgeStateRecord,
@@ -19,6 +19,12 @@ const CHANGE_NAME_B: &str = "other-change";
 /// 库内不存在的 id（未建档拒绝面）。
 const UNKNOWN_ID: &str = "0198f7a0-0000-7000-8000-0000000000fa";
 const RUN: &str = "run-1";
+
+/// 白名单 id 投影（断言面：既有用例只看相位 id；描述随行由 `phase_table_test`
+/// 与决策 prompt 用例覆盖）。
+fn ids(options: &[BacktrackOption]) -> Vec<&str> {
+    options.iter().map(|option| option.phase.as_str()).collect()
+}
 
 /// requirement 全表相位序（10 相位 = initialize 表头 + 8 路由相位 + archive
 /// 确定性相位；路由全 pass 判定须表内全项在位）。
@@ -364,8 +370,8 @@ fn 初始路由落首相位且prompt携上下文头change名() {
         "executor prompt 主体为静态角色知识文本"
     );
     assert_eq!(
-        outcome.allowed_backtrack_phases,
-        vec!["proposal".to_owned()],
+        ids(&outcome.allowed_backtrack_phases),
+        vec!["proposal"],
         "proposal 白名单 = 恰自身（含自身语义；initialize 表头被 backtrackable 过滤排除——非位置排除）"
     );
     let last = outcome.last_result.expect("表头 pass 条目随行 last_result");
@@ -453,8 +459,8 @@ fn workflow_type_test_only可推进且白名单随test_only表() {
         "test-only 表序下一相位为 code-analyze"
     );
     assert_eq!(
-        outcome.allowed_backtrack_phases,
-        vec!["proposal".to_owned(), "code-analyze".to_owned()],
+        ids(&outcome.allowed_backtrack_phases),
+        vec!["proposal", "code-analyze"],
         "白名单 = test-only 新相位的表序前置集"
     );
     let last = outcome.last_result.expect("有相位史应携 last_result");
@@ -524,14 +530,14 @@ fn workflow_type_test_only表外条目不参与推进判定() {
         "下一相位仍为表内未过相位 archive（表外条目被忽略）"
     );
     assert_eq!(
-        outcome.allowed_backtrack_phases,
+        ids(&outcome.allowed_backtrack_phases),
         vec![
-            "proposal".to_owned(),
-            "code-analyze".to_owned(),
-            "test-design".to_owned(),
-            "test-gen".to_owned(),
-            "test-execution".to_owned(),
-            "archive".to_owned(),
+            "proposal",
+            "code-analyze",
+            "test-design",
+            "test-gen",
+            "test-execution",
+            "archive",
         ],
         "白名单 = test-only 表序前缀集（不含表外相位）"
     );
@@ -551,9 +557,13 @@ fn pass推进到下一相位且白名单随行() {
         "round 归位（锚点 = 首见 PhaseRecord 行数）"
     );
     assert_eq!(
-        outcome.allowed_backtrack_phases,
-        vec!["proposal".to_owned(), "dev-design".to_owned()],
+        ids(&outcome.allowed_backtrack_phases),
+        vec!["proposal", "dev-design"],
         "白名单 = 新相位的表序前置集"
+    );
+    assert_eq!(
+        outcome.allowed_backtrack_phases[1].description, "详细设计与任务拆解",
+        "白名单项携相位特性描述（自相位表 description 下发）"
     );
     let last = outcome.last_result.expect("有相位史应携 last_result");
     assert_eq!(last.phase, "proposal");
@@ -978,8 +988,8 @@ fn backtrack字段落库路由至目标相位() {
         executor.prompt
     );
     assert_eq!(
-        outcome.allowed_backtrack_phases,
-        vec!["proposal".to_owned(), "dev-design".to_owned()],
+        ids(&outcome.allowed_backtrack_phases),
+        vec!["proposal", "dev-design"],
         "白名单 = 目标相位的表序前置集"
     );
 }
@@ -1022,8 +1032,8 @@ fn backtrack标记与stale同行并存仍路由至目标相位() {
         executor.prompt
     );
     assert_eq!(
-        outcome.allowed_backtrack_phases,
-        vec!["proposal".to_owned(), "dev-design".to_owned()],
+        ids(&outcome.allowed_backtrack_phases),
+        vec!["proposal", "dev-design"],
         "白名单 = 目标相位的表序前置集"
     );
     assert_eq!(outcome.round, 1, "新锚点基线 = 全量行数 5，round 自 1 起");
@@ -1433,11 +1443,8 @@ fn 八路由相位pass后路由至archive且零角色spec() {
         "archive 无会话角色 spec（确定性相位）"
     );
     assert_eq!(
-        outcome.allowed_backtrack_phases,
-        ALL_PHASES[1..]
-            .iter()
-            .map(|phase| (*phase).to_owned())
-            .collect::<Vec<_>>(),
+        ids(&outcome.allowed_backtrack_phases),
+        ALL_PHASES[1..].to_vec(),
         "archive 白名单 = 除 initialize 外表序 9 相位（含自身、不含未来相位——表头被 backtrackable 过滤）"
     );
 }
@@ -1576,7 +1583,7 @@ fn archive不在任何相位回溯白名单内() {
         !outcome
             .allowed_backtrack_phases
             .iter()
-            .any(|phase| phase == "archive"),
+            .any(|option| option.phase == "archive"),
         "archive 不在 acceptance 回溯白名单内（末相位仅前向）"
     );
 
@@ -1594,13 +1601,16 @@ fn archive不在任何相位回溯白名单内() {
         outcome
             .allowed_backtrack_phases
             .iter()
-            .filter(|phase| *phase == "archive")
+            .filter(|option| option.phase == "archive")
             .count(),
         1,
         "archive 自身在自身白名单内恰一次（白名单含自身语义）"
     );
     assert_eq!(
-        outcome.allowed_backtrack_phases.last().map(String::as_str),
+        outcome
+            .allowed_backtrack_phases
+            .last()
+            .map(|option| option.phase.as_str()),
         Some("archive"),
         "archive 白名单末位为自身（不含未来相位）"
     );

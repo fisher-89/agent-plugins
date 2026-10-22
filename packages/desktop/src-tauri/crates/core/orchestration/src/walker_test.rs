@@ -28,8 +28,8 @@ use workflow::state::{
     RunNodeEntry, RunStartCommand, RunStatus, RunStepStatus,
 };
 use workflow::write::{
-    phase_table, ArtifactSpec, BacktrackOutcome, DecisionLogOutcome, LastResult, OnFail,
-    PhaseLogOutcome, PhaseNextError, PhaseNextOutcome, PhaseStartOutcome, SessionAnchors,
+    phase_table, ArtifactSpec, BacktrackOption, BacktrackOutcome, DecisionLogOutcome, LastResult,
+    OnFail, PhaseLogOutcome, PhaseNextError, PhaseNextOutcome, PhaseStartOutcome, SessionAnchors,
     StepDefinition, StepNode,
 };
 
@@ -877,6 +877,16 @@ fn route_outcome(phase: &str, allowed: &[&str]) -> PhaseNextOutcome {
 
 /// 预录路由产出装置：executor / evaluator prompt 为**已组装**的静态主体
 /// （`change: c` 上下文头在场——与 phase_next 组装面同形，消费面断言的事实源）；
+/// 回溯白名单 fixture（id-only；描述缺省空串——walker 装置只关心 id 路由）。
+fn allowed_options(ids: &[&str]) -> Vec<BacktrackOption> {
+    ids.iter()
+        .map(|id| BacktrackOption {
+            phase: (*id).to_owned(),
+            description: String::new(),
+        })
+        .collect()
+}
+
 /// `ResolvedPhaseSpec` 去 `agent_type`（编译期结构锚），档位由装置给定。
 fn route_with_round(
     phase: &str,
@@ -898,7 +908,7 @@ fn route_with_round(
             prompt: format!("change: c\n\nEvaluate the {phase} phase for change \"c\"."),
             model_level: ModelLevel::High,
         }),
-        allowed_backtrack_phases: allowed.iter().map(|id| id.to_string()).collect(),
+        allowed_backtrack_phases: allowed_options(allowed),
         last_result,
         error: None,
     }
@@ -928,7 +938,7 @@ fn max_retries_outcome(phase: &str, allowed: &[&str], last_report: &str) -> Phas
         artifact_manifest: Vec::new(),
         executor: None,
         evaluator: None,
-        allowed_backtrack_phases: allowed.iter().map(|id| id.to_string()).collect(),
+        allowed_backtrack_phases: allowed_options(allowed),
         last_result: Some(LastResult {
             phase: phase.to_owned(),
             verdict: Verdict::Fail,
@@ -957,7 +967,7 @@ fn verdict_fail_outcome(
         artifact_manifest: Vec::new(),
         executor: None,
         evaluator: None,
-        allowed_backtrack_phases: allowed.iter().map(|id| id.to_string()).collect(),
+        allowed_backtrack_phases: allowed_options(allowed),
         last_result: Some(LastResult {
             phase: phase.to_owned(),
             verdict: Verdict::Fail,
@@ -1703,7 +1713,7 @@ fn archive_route_outcome() -> PhaseNextOutcome {
         artifact_manifest: manifest_of("archive"),
         executor: None,
         evaluator: None,
-        allowed_backtrack_phases: TABLE.iter().map(|phase| (*phase).to_owned()).collect(),
+        allowed_backtrack_phases: allowed_options(&TABLE),
         last_result: None,
         error: None,
     }

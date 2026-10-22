@@ -6,8 +6,8 @@ use agent::ModelLevel;
 use crate::model::{ChecklistItem, Verdict};
 use crate::state::{ArtifactSpec, ChangeStateStore, PhaseStateRecord, StepDefinition};
 use crate::write::phase_table::{
-    allowed_backtrack_phases, phase_table, PhaseAgentSpec, PhaseDefinition, MAX_RETRY_TIMES,
-    MAX_ROUNDS,
+    backtrack_options, phase_table, BacktrackOption, PhaseAgentSpec, PhaseDefinition,
+    MAX_RETRY_TIMES, MAX_ROUNDS,
 };
 
 /// 进程内会话锚点：(change_id, run_id) → 首见时 PhaseRecord 行数基线。每 run
@@ -85,7 +85,8 @@ pub struct PhaseNextOutcome {
     pub artifact_manifest: Vec<ArtifactSpec>,
     pub executor: Option<ResolvedPhaseSpec>,
     pub evaluator: Option<ResolvedPhaseSpec>,
-    pub allowed_backtrack_phases: Vec<String>,
+    /// 回溯白名单（相位 id + 表内特性描述；决策 prompt 逐条渲染供判断）
+    pub allowed_backtrack_phases: Vec<BacktrackOption>,
     pub last_result: Option<LastResult>,
     pub error: Option<PhaseNextError>,
 }
@@ -360,7 +361,7 @@ fn build_phase_response(
         artifact_manifest: def.artifact_manifest.to_vec(),
         executor: def.executor.as_ref().map(resolve),
         evaluator: def.evaluator.as_ref().map(resolve),
-        allowed_backtrack_phases: allowed_backtrack_phases(table, def.id),
+        allowed_backtrack_phases: backtrack_options(table, def.id),
         last_result,
         error: None,
     }

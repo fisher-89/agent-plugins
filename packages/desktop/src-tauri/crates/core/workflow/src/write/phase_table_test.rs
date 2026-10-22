@@ -3,8 +3,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::write::INITIALIZE_PHASE_ID;
 use super::phase_table::{
-    allowed_backtrack_phases, dependents, phase_table, PhaseAgentSpec, PhaseDefinition,
-    MAX_RETRY_TIMES,
+    allowed_backtrack_phases, backtrack_options, dependents, phase_table, PhaseAgentSpec,
+    PhaseDefinition, MAX_RETRY_TIMES,
 };
 use crate::state::{OnFail, StepDefinition, StepNode};
 
@@ -251,6 +251,10 @@ fn test_only表复用requirement同名steps与prompt() {
         let lhs = phase_of(requirement, id);
         let rhs = phase_of(test_only, id);
         assert_eq!(
+            lhs.description, rhs.description,
+            "相位 {id} 复用 requirement 同名 description"
+        );
+        assert_eq!(
             lhs.steps, rhs.steps,
             "相位 {id} 复用 requirement 同名 steps（步序列逐位等值）"
         );
@@ -282,8 +286,6 @@ fn test_only表复用requirement同名steps与prompt() {
         CODE_ANALYZE_STEP_ORDER.to_vec(),
         "code-analyze 步序 = [PhaseStart, Executor, Evaluator, VerdictGate, PhaseLog]"
     );
-    // 提案相位描述改「测试向提案」（复用 step 静态但人读语义随类型）
-    assert_eq!(phase_of(test_only, "proposal").description, "测试向提案");
 }
 
 /// code-analyze 相位声明（正向 / AC-2）：步序 P→E 五步、VerdictGate
@@ -590,6 +592,41 @@ fn 回溯白名单随表分派两表各按本表序() {
         allowed_backtrack_phases(requirement, "acceptance"),
         expect(&REQUIREMENT_PHASE_ORDER[1..9]),
     );
+}
+
+/// 回溯白名单项携表内特性描述（正向，两表对照）：`backtrack_options` 与
+/// `allowed_backtrack_phases` 同序同 id 投影；每项 description 取本表
+/// `PhaseDefinition.description`（不落第二份文案映射）。
+#[test]
+fn 回溯白名单项携表内特性描述() {
+    let requirement = phase_table("requirement").expect("requirement 应返回 Some");
+
+    let options = backtrack_options(requirement, "acceptance");
+    let option_ids: Vec<String> = options.iter().map(|option| option.phase.clone()).collect();
+    assert_eq!(
+        option_ids,
+        allowed_backtrack_phases(requirement, "acceptance"),
+        "选项 id 序与 id 投影逐项一致"
+    );
+    for option in &options {
+        let def = requirement
+            .iter()
+            .find(|def| def.id == option.phase)
+            .expect("选项 id 恒在表内");
+        assert_eq!(
+            option.description, def.description,
+            "描述取表内自描述字段: {}",
+            option.phase
+        );
+    }
+    assert_eq!(
+        options[0].description, "需求提案与规格说明",
+        "requirement 表 proposal 描述"
+    );
+
+    // 空集面与 id 投影同语义
+    assert!(backtrack_options(requirement, "initialize").is_empty());
+    assert!(backtrack_options(&[], "proposal").is_empty());
 }
 
 #[test]
@@ -2062,7 +2099,7 @@ fn initialize表项确定性声明全字段锚() {
 
         assert_eq!(initialize.id, "initialize", "{workflow_type} 表头 id 逐字");
         assert_eq!(
-            initialize.description, "基线检查",
+            initialize.description, "检查变更环境和基线代码",
             "{workflow_type} initialize description 逐字（人读标签源）"
         );
 

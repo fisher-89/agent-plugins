@@ -8,11 +8,20 @@
 //! Mock策略：无 mock。
 
 use workflow::model::Verdict;
+use workflow::write::BacktrackOption;
 
 use crate::decision::{
     ensure_backtrack_allowed, parse_decision, CandidateReport, DecisionAction, DecisionInput,
     MAX_REASON_CHARS,
 };
+
+/// 白名单项 fixture（id-only；描述缺省空串——预校验只看 id）。
+fn allowed_phase(phase: &str) -> BacktrackOption {
+    BacktrackOption {
+        phase: phase.to_owned(),
+        description: String::new(),
+    }
+}
 
 /// 三动作合法解析（正向，表驱动三变体）：`backtrack`（含 to + reason）/
 /// `stop` / `ask`（含 options 列表）逐变体解析成功。
@@ -183,9 +192,9 @@ fn 字段缺失与冗余三形态() {
 #[test]
 fn 白名单命中放行_非backtrack恒ok() {
     let allowed = vec![
-        "proposal".to_owned(),
-        "dev-design".to_owned(),
-        "implement".to_owned(),
+        allowed_phase("proposal"),
+        allowed_phase("dev-design"),
+        allowed_phase("implement"),
     ];
     let backtrack = DecisionAction::Backtrack {
         to: "dev-design".to_owned(),
@@ -222,7 +231,7 @@ fn 自环非可重做相位backtrack被拒携出路() {
         to: "test-execution".to_owned(),
         reason: "重跑测试".to_owned(),
     };
-    let allowed = vec!["proposal".to_owned(), "test-gen".to_owned()];
+    let allowed = vec![allowed_phase("proposal"), allowed_phase("test-gen")];
     let err = ensure_backtrack_allowed(&action, "test-execution", &allowed)
         .expect_err("零 agent 步自环应 Err");
     assert!(
@@ -243,7 +252,7 @@ fn 越权backtrack预校验err携白名单原文() {
         to: "test-gen".to_owned(),
         reason: "任意".to_owned(),
     };
-    let allowed = vec!["proposal".to_owned(), "dev-design".to_owned()];
+    let allowed = vec![allowed_phase("proposal"), allowed_phase("dev-design")];
     let err = ensure_backtrack_allowed(&action, "implement", &allowed).expect_err("越权应 Err");
     assert!(
         err.contains("test-gen") && err.contains("越权"),
@@ -288,9 +297,9 @@ fn 白名单自含即重做放行() {
         reason: "重做实现".to_owned(),
     };
     let allowed = vec![
-        "proposal".to_owned(),
-        "dev-design".to_owned(),
-        "implement".to_owned(),
+        allowed_phase("proposal"),
+        allowed_phase("dev-design"),
+        allowed_phase("implement"),
     ];
     assert!(
         ensure_backtrack_allowed(&action, "implement", &allowed).is_ok(),
@@ -308,9 +317,9 @@ fn 白名单匹配边界四形态() {
         reason: "任意".to_owned(),
     };
     let allowed = vec![
-        "proposal".to_owned(),
-        "proposal".to_owned(),
-        "dev-design".to_owned(),
+        allowed_phase("proposal"),
+        allowed_phase("proposal"),
+        allowed_phase("dev-design"),
     ];
     assert!(
         ensure_backtrack_allowed(&action, "implement", &allowed).is_ok(),
@@ -318,8 +327,10 @@ fn 白名单匹配边界四形态() {
     );
 
     // 形态二：50 项超大列表（末项命中）
-    let mut allowed: Vec<String> = (0..49).map(|index| format!("phase-{index}")).collect();
-    allowed.push("implement".to_owned());
+    let mut allowed: Vec<BacktrackOption> = (0..49)
+        .map(|index| allowed_phase(&format!("phase-{index}")))
+        .collect();
+    allowed.push(allowed_phase("implement"));
     let action = DecisionAction::Backtrack {
         to: "implement".to_owned(),
         reason: "任意".to_owned(),
@@ -334,7 +345,7 @@ fn 白名单匹配边界四形态() {
         to: String::new(),
         reason: "任意".to_owned(),
     };
-    let err = ensure_backtrack_allowed(&action, "", &["proposal".to_owned()])
+    let err = ensure_backtrack_allowed(&action, "", &[allowed_phase("proposal")])
         .expect_err("空串自环应 Err");
     assert!(err.contains("确定性门禁相位"), "空串按自环拒绝: {err}");
 
@@ -343,7 +354,7 @@ fn 白名单匹配边界四形态() {
         to: "Implement".to_owned(),
         reason: "任意".to_owned(),
     };
-    let allowed = vec!["implement".to_owned()];
+    let allowed = vec![allowed_phase("implement")];
     assert!(
         ensure_backtrack_allowed(&action, "test-gen", &allowed).is_err(),
         "大小写差异不误放行"
@@ -359,7 +370,7 @@ fn decision_input_fail_report字段面() {
         attempt: 2,
         fail_checklist: Vec::new(),
         fail_report: String::new(),
-        allowed: vec!["proposal".to_owned()],
+        allowed: vec![allowed_phase("proposal")],
         candidates: vec![CandidateReport {
             phase: "proposal".to_owned(),
             verdict: Some(Verdict::Pass),

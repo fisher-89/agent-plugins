@@ -11,8 +11,8 @@ use crate::port::{
 };
 use crate::state::{ArchivePreflight, RunUpdate};
 use workflow::write::{
-    ArchiveOutcome, BacktrackInput, BacktrackOutcome, DecisionLogOutcome, PhaseLogInput,
-    PhaseLogOutcome, PhaseNextOutcome, PhaseStartOutcome,
+    ArchiveOutcome, BacktrackInput, BacktrackOption, BacktrackOutcome, DecisionLogOutcome,
+    PhaseLogInput, PhaseLogOutcome, PhaseNextOutcome, PhaseStartOutcome,
 };
 
 // ---------------------------------------------------------------------------
@@ -32,7 +32,16 @@ fn sample_phase_next_outcome() -> PhaseNextOutcome {
         artifact_manifest: Vec::new(),
         executor: None,
         evaluator: None,
-        allowed_backtrack_phases: vec!["proposal".to_owned(), "dev-design".to_owned()],
+        allowed_backtrack_phases: vec![
+            BacktrackOption {
+                phase: "proposal".to_owned(),
+                description: "需求提案与规格说明".to_owned(),
+            },
+            BacktrackOption {
+                phase: "dev-design".to_owned(),
+                description: "详细设计与任务拆解".to_owned(),
+            },
+        ],
         last_result: None,
         error: None,
     }

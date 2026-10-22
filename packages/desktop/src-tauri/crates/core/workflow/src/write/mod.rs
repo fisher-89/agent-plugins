@@ -21,8 +21,8 @@ pub use phase_next::{
 };
 pub use phase_start::{phase_start, PhaseStartOutcome};
 pub use phase_table::{
-    allowed_backtrack_phases, phase_table, PhaseAgentSpec, PhaseDefinition, INITIALIZE_PHASE_ID,
-    MAX_RETRY_TIMES,
+    allowed_backtrack_phases, backtrack_options, phase_table, BacktrackOption, PhaseAgentSpec,
+    PhaseDefinition, INITIALIZE_PHASE_ID, MAX_RETRY_TIMES,
 };
 pub use promote::{promote_explore, PromoteOutcome};
 pub use run::{run_finish, run_start};

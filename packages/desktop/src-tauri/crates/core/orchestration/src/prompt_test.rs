@@ -4,6 +4,7 @@ use crate::prompt::{
     spec_sync_prompt, verdict_fix_prompt,
 };
 use workflow::model::{ChecklistItem, Verdict};
+use workflow::write::BacktrackOption;
 
 #[test]
 fn evaluator_prompt协议附录瘦身形状与红线() {
@@ -73,6 +74,14 @@ fn decision_input(overrides: DecisionInput) -> DecisionInput {
     overrides
 }
 
+/// 回溯白名单项 fixture（相位 id + 表内特性描述）。
+fn allowed_phase(phase: &str, description: &str) -> BacktrackOption {
+    BacktrackOption {
+        phase: phase.to_owned(),
+        description: description.to_owned(),
+    }
+}
+
 fn base_input() -> DecisionInput {
     DecisionInput {
         phase: "test-gen".to_owned(),
@@ -83,7 +92,10 @@ fn base_input() -> DecisionInput {
             evidence: "缺失废弃行承接".to_owned(),
         }],
         fail_report: "## 失败用例明细\n\nexpected '[]' to equal '[a]'".to_owned(),
-        allowed: vec!["proposal".to_owned(), "dev-design".to_owned()],
+        allowed: vec![
+            allowed_phase("proposal", "需求提案与规格说明"),
+            allowed_phase("dev-design", "详细设计与任务拆解"),
+        ],
         candidates: vec![CandidateReport {
             phase: "dev-design".to_owned(),
             verdict: Some(Verdict::Pass),
@@ -184,35 +196,70 @@ fn decision_prompt白名单自注记两形态() {
     let self_included = decision_prompt(&decision_input(DecisionInput {
         phase: "implement".to_owned(),
         allowed: vec![
-            "proposal".to_owned(),
-            "dev-design".to_owned(),
-            "implement".to_owned(),
+            allowed_phase("proposal", "需求提案与规格说明"),
+            allowed_phase("dev-design", "详细设计与任务拆解"),
+            allowed_phase("implement", "代码实现"),
         ],
         ..base_input()
     }));
     assert!(
-        self_included.contains("- implement（= 重做本相位）"),
-        "自含条目追加注记: {self_included}"
+        self_included.contains("- implement（代码实现）（= 重做本相位）"),
+        "自含条目在特性描述后追加注记: {self_included}"
     );
     assert!(
-        self_included.contains("- proposal\n") && self_included.contains("- dev-design\n"),
-        "其余条目零注记"
+        self_included.contains("- proposal（需求提案与规格说明）\n")
+            && self_included.contains("- dev-design（详细设计与任务拆解）\n"),
+        "其余条目携描述且零注记"
     );
     assert!(
-        !self_included.contains("- proposal（= 重做本相位）"),
+        !self_included.contains("- proposal（需求提案与规格说明）（= 重做本相位）"),
         "非自身条目不得误注记"
     );
 
     // 形态二：白名单不含自身（零 agent 步相位）→ 零注记
     let not_included = decision_prompt(&decision_input(DecisionInput {
         phase: "test-execution".to_owned(),
-        allowed: vec!["test-gen".to_owned()],
+        allowed: vec![allowed_phase("test-gen", "测试代码生成")],
         ..base_input()
     }));
     assert!(
         !not_included.contains("（= 重做本相位）"),
         "白名单不含自身 → 零注记"
     );
+}
+
+/// `decision_prompt` 白名单携相位特性描述（正向，表驱动 2 形态）：每条白名单
+/// 行渲染 `- <id>（<description>）`，描述取白名单项随行值；描述空串退化为
+/// id-only 行（不渲染空括号）。
+#[test]
+fn decision_prompt白名单逐条携特性描述() {
+    // 形态一：描述在场 → id + 全角括号描述
+    let described = decision_prompt(&decision_input(DecisionInput {
+        allowed: vec![
+            allowed_phase("proposal", "需求提案与规格说明"),
+            allowed_phase("dev-design", "详细设计与任务拆解"),
+        ],
+        ..base_input()
+    }));
+    assert!(
+        described.contains("- proposal（需求提案与规格说明）\n"),
+        "白名单首条携特性描述: {described}"
+    );
+    assert!(
+        described.contains("- dev-design（详细设计与任务拆解）\n"),
+        "白名单次条携特性描述"
+    );
+
+    // 形态二：描述空串 → id-only 行，不渲染空括号
+    let bare = decision_prompt(&decision_input(DecisionInput {
+        allowed: vec![allowed_phase("proposal", "")],
+        ..base_input()
+    }));
+    assert!(
+        bare.contains("- proposal\n"),
+        "空描述退化为 id-only 行: {bare}"
+    );
+    assert!(!bare.contains("- proposal（）"), "空描述不得渲染空括号");
 }
 
 /// `decision_prompt` 空 / 超长报告（边界，参数化 3 形态）：`fail_report` 空串
@@ -266,20 +313,29 @@ fn decision_prompt集合面边界五形态() {
 
     // allowed 单元素
     let single = decision_prompt(&decision_input(DecisionInput {
-        allowed: vec!["proposal".to_owned()],
+        allowed: vec![allowed_phase("proposal", "需求提案与规格说明")],
         candidates: Vec::new(),
         ..base_input()
     }));
-    assert!(single.contains("- proposal"), "单元素白名单行在场");
+    assert!(
+        single.contains("- proposal（需求提案与规格说明）"),
+        "单元素白名单行在场"
+    );
 
-    // allowed 50 项（逐条出线）
-    let many: Vec<String> = (0..50).map(|index| format!("phase-{index}")).collect();
+    // allowed 50 项（逐条出线；描述空串退化为 id-only 行）
+    let many: Vec<BacktrackOption> = (0..50)
+        .map(|index| allowed_phase(&format!("phase-{index}"), ""))
+        .collect();
     let prompt = decision_prompt(&decision_input(DecisionInput {
         allowed: many.clone(),
         ..base_input()
     }));
-    for phase in &many {
-        assert!(prompt.contains(&format!("- {phase}")), "50 项逐条出线: {phase}");
+    for option in &many {
+        assert!(
+            prompt.contains(&format!("- {}\n", option.phase)),
+            "50 项逐条出线: {}",
+            option.phase
+        );
     }
 
     // candidates verdict 全 None（占位形态稳定）
@@ -368,14 +424,14 @@ fn decision_prompt零占位残留与确定性() {
 }
 
 /// `decision_fix_prompt` 组装（正向）：含驳回原因原文 + 三动作重申 + 白名单一行
-///（`a / b` 形式）。
+///（`id（特性描述） / id（特性描述）` 形式）。
 #[test]
 fn decision_fix_prompt组装含驳回原因三动作与白名单行() {
     let input = decision_input(DecisionInput {
         allowed: vec![
-            "proposal".to_owned(),
-            "dev-design".to_owned(),
-            "implement".to_owned(),
+            allowed_phase("proposal", "需求提案与规格说明"),
+            allowed_phase("dev-design", "详细设计与任务拆解"),
+            allowed_phase("implement", "代码实现"),
         ],
         ..base_input()
     });
@@ -390,8 +446,10 @@ fn decision_fix_prompt组装含驳回原因三动作与白名单行() {
         "三动作重申在场"
     );
     assert!(
-        prompt.contains("可回溯白名单：proposal / dev-design / implement"),
-        "白名单一行（a / b 形式）在场"
+        prompt.contains(
+            "可回溯白名单：proposal（需求提案与规格说明） / dev-design（详细设计与任务拆解） / implement（代码实现）"
+        ),
+        "白名单一行（id + 特性描述）在场"
     );
     assert!(
         prompt.contains("回跳目标须在白名单内") && prompt.contains("ask"),
@@ -472,7 +530,7 @@ fn prompt确定性_同输入重复组装逐字节一致() {
             evidence: "据".to_owned(),
         }],
         fail_report: "失败明细".to_owned(),
-        allowed: vec!["proposal".to_owned()],
+        allowed: vec![allowed_phase("proposal", "需求提案与规格说明")],
         candidates: Vec::new(),
     };
 

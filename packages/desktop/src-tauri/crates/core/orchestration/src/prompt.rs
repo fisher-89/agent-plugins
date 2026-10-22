@@ -1,5 +1,17 @@
+use workflow::write::BacktrackOption;
+
 use crate::decision::{DecisionInput, MAX_REASON_CHARS};
 use crate::verdict::MAX_REPORT_CHARS;
+
+/// 白名单项单行标签：`<相位 id>（<特性描述>）`；描述空串退化为 id-only
+/// （不渲染空括号）。决策 prompt 与纠正文案共用本单点，描述格式零副本。
+fn backtrack_option_label(option: &BacktrackOption) -> String {
+    if option.description.trim().is_empty() {
+        option.phase.clone()
+    } else {
+        format!("{}（{}）", option.phase, option.description)
+    }
+}
 
 /// evaluator 输出协议附录：写通道唯一红线（禁调 MCP phase-log / phase-next /
 /// phase_start / backtrack，落账由桌面 walker 代写）+ 最终消息 checklist JSON
@@ -45,17 +57,19 @@ pub fn decision_prompt(input: &DecisionInput) -> String {
     } else {
         input.fail_report.clone()
     };
-    // 白名单自注记：`allowed` 含失败相位自身 ⟺ 该相位可重做（零 agent 步相位
+    // 白名单逐条渲染「相位 id（表内特性描述）」：描述供决策 agent 判断回溯
+    // 目标；自注记：`allowed` 含失败相位自身 ⟺ 该相位可重做（零 agent 步相位
     // 自排除），重做本相位由白名单自含承载——零新字段
     let allowed = input
         .allowed
         .iter()
-        .map(|phase| {
-            if phase == &input.phase {
-                format!("- {phase}（= 重做本相位）")
+        .map(|option| {
+            let redo_note = if option.phase == input.phase {
+                "（= 重做本相位）"
             } else {
-                format!("- {phase}")
-            }
+                ""
+            };
+            format!("- {}{redo_note}", backtrack_option_label(option))
         })
         .collect::<Vec<_>>()
         .join("\n");
@@ -102,7 +116,12 @@ pub(crate) fn decision_fix_prompt(input: &DecisionInput, error: &str) -> String 
          请仅输出一个决策 JSON（三动作封闭集：backtrack / stop / ask）。\n\n\
          可回溯白名单：{allowed}\n\n\
          回跳目标须在白名单内；无法裁决时用 ask。",
-        allowed = input.allowed.join(" / ")
+        allowed = input
+            .allowed
+            .iter()
+            .map(backtrack_option_label)
+            .collect::<Vec<_>>()
+            .join(" / ")
     )
 }
 

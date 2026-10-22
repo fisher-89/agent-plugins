@@ -1,5 +1,6 @@
 use serde::Deserialize;
 use workflow::model::{ChecklistItem, Verdict};
+use workflow::write::BacktrackOption;
 
 /// 决策 reason 长度上限
 pub(crate) const MAX_REASON_CHARS: usize = 500;
@@ -41,8 +42,9 @@ pub struct DecisionInput {
     /// [`MAX_REPORT_CHARS`](crate::verdict::MAX_REPORT_CHARS)）——决策 prompt
     /// 「失败相位报告」段的唯一来源
     pub fail_report: String,
-    /// phase-next 白名单（walker 缓存，不自相位表推导——守住路由红线）
-    pub allowed: Vec<String>,
+    /// phase-next 白名单（walker 缓存，不自相位表推导——守住路由红线）；每项
+    /// 携相位特性描述（路由层自相位表下发），决策 prompt 逐条渲染供判断
+    pub allowed: Vec<BacktrackOption>,
     /// 候选相位最近 eval report
     pub candidates: Vec<CandidateReport>,
 }
@@ -66,12 +68,12 @@ pub fn parse_decision(text: &str) -> Result<DecisionAction, String> {
 pub fn ensure_backtrack_allowed(
     action: &DecisionAction,
     failed_phase: &str,
-    allowed: &[String],
+    allowed: &[BacktrackOption],
 ) -> Result<(), String> {
     let DecisionAction::Backtrack { to, .. } = action else {
         return Ok(());
     };
-    if allowed.iter().any(|phase| phase == to) {
+    if allowed.iter().any(|option| option.phase == *to) {
         return Ok(());
     }
     if to == failed_phase {
@@ -81,6 +83,10 @@ pub fn ensure_backtrack_allowed(
     }
     Err(format!(
         "越权 backtrack：目标 \"{to}\" 不在白名单内（allowed: {}）",
-        allowed.join(", ")
+        allowed
+            .iter()
+            .map(|option| option.phase.as_str())
+            .collect::<Vec<_>>()
+            .join(", ")
     ))
 }
