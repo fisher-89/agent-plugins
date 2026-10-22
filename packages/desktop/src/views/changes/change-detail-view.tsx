@@ -450,7 +450,7 @@ export function ChangeDetailView({ root }: { root: string | null }) {
   // 回传 false，折叠态真相仍单源）
   useEffect(() => {
     const panel = chatPanelRef.current;
-    if (panel !== null && panel.isCollapsed()) panel.expand();
+    if (panel !== null && !panel.isCollapsed()) panel.collapse();
   }, [id, chatPanelRef]);
 
   // error 已收敛为首载语义（detail 在手的刷新失败落 refreshFailed 走内联横

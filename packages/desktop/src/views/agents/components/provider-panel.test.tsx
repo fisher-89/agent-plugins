@@ -493,9 +493,11 @@ describe('ProviderPanel：模型名后缀提示（DD19）', () => {
     expect(hint).toContain('后缀优先于 context_length');
   });
 
-  it('多档带后缀 → 逐档列出；无后缀 → 不呈现覆盖提示', () => {
+  it('多档带后缀 → 逐档列出；无后缀 → 不呈现覆盖提示（[1m] 基础说明仅 anthropic 档）', async () => {
     mount(fakeState());
     fireEvent.click(screen.getByTestId('provider-new'));
+    // 后缀语义归 anthropic 协议：[1m] 基础说明仅在 anthropic 档呈现
+    await pickProtocol('anthropic');
     typeInto('provider-context-length', '200000');
 
     typeInto('provider-model-high', 'claude-x[1m]');

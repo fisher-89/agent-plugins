@@ -62,6 +62,42 @@ function typeInto(testId: string, value: string) {
   fireEvent.change(screen.getByTestId(testId), { target: { value } });
 }
 
+/** StandardSelect（base-ui Select）：testid 落在 SelectValue span（`data-value`
+ * 承载选中值），trigger 为其外层 button（role=combobox）。 */
+function selectValueEl(testId: string): HTMLElement {
+  return screen.getByTestId(testId);
+}
+
+function selectTrigger(testId: string): HTMLButtonElement {
+  const button = selectValueEl(testId).closest('button');
+  if (!button) throw new Error(`SelectValue 不在触发器按钮内：${testId}`);
+  return button;
+}
+
+/** 打开选择器：base-ui Select 以 mousedown 打开、frame 异步执行，以 listbox
+ * 出现收敛。 */
+async function openSelect(testId: string): Promise<void> {
+  if (screen.queryByRole('listbox')) return;
+  fireEvent.mouseDown(selectTrigger(testId));
+  await screen.findByRole('listbox');
+}
+
+/** 打开选择器并点选指定 label 项：pointerDown 先行满足鼠标选择守卫，click
+ * 提交选中。 */
+async function pickOption(testId: string, label: string): Promise<void> {
+  await openSelect(testId);
+  const option = within(screen.getByRole('listbox')).getByRole('option', { name: label });
+  fireEvent.pointerDown(option);
+  fireEvent.click(option);
+}
+
+/** 当前弹层 option 文本清单（弹层已开；顺序即渲染序）。 */
+function optionLabels(): string[] {
+  return within(screen.getByRole('listbox'))
+    .getAllByRole('option')
+    .map((option) => option.textContent ?? '');
+}
+
 // ---------------------------------------------------------------------------
 // 清单呈现：存量 cli 行只读可删（DD4 / AC-5 前端半边）
 // ---------------------------------------------------------------------------
@@ -142,15 +178,14 @@ describe('AgentPanel：engine 下拉收单值与 canSave 无 cli 分支（AC-8�
     vi.clearAllMocks();
   });
 
-  it('engine 下拉 options 恰 [sdk]（无 cli 档）且表单恒 sdk', () => {
+  it('engine 下拉 options 仅 sdk（无 cli 档）且表单恒 sdk', async () => {
     mount(fakeState());
 
     fireEvent.click(screen.getByTestId('agent-new'));
-    const engineSelect = screen.getByTestId<HTMLSelectElement>('agent-engine-kind');
     // 既有「engine 下拉仅 cli / sdk 二值」断言翻转为单值断言（无 'cli' 档）
-    expect(Array.from(engineSelect.options).map((option) => option.value)).toEqual(['sdk']);
-    expect(Array.from(engineSelect.options).map((option) => option.textContent)).toEqual(['sdk']);
-    expect(engineSelect.value).toBe('sdk');
+    expect(selectValueEl('agent-engine-kind').getAttribute('data-value')).toBe('sdk');
+    await openSelect('agent-engine-kind');
+    expect(optionLabels()).toEqual(['（未选择）', 'sdk']);
   });
 
   it('sdk + 非空名 + provider 齐 → 保存启用且 state.save 恰调一次携全参', async () => {
@@ -158,7 +193,8 @@ describe('AgentPanel：engine 下拉收单值与 canSave 无 cli 分支（AC-8�
 
     fireEvent.click(screen.getByTestId('agent-new'));
     typeInto('agent-name', '新实例');
-    fireEvent.change(screen.getByTestId('agent-provider-select'), { target: { value: '22' } });
+    await pickOption('agent-provider-select', '端点乙');
+    expect(selectValueEl('agent-provider-select').getAttribute('data-value')).toBe('22');
 
     expect(screen.getByTestId<HTMLButtonElement>('agent-save').disabled).toBe(false);
     fireEvent.click(screen.getByTestId('agent-save'));
@@ -175,7 +211,7 @@ describe('AgentPanel：engine 下拉收单值与 canSave 无 cli 分支（AC-8�
     const state = mount(fakeState());
 
     fireEvent.click(screen.getByTestId('agent-new'));
-    fireEvent.change(screen.getByTestId('agent-provider-select'), { target: { value: '11' } });
+    await pickOption('agent-provider-select', '端点甲');
     const save = screen.getByTestId<HTMLButtonElement>('agent-save');
 
     typeInto('agent-name', '');
@@ -228,11 +264,10 @@ describe('AgentPanel：provider 选择器恒启用必选（AC-8）', () => {
 
     fireEvent.click(screen.getByTestId('agent-new'));
     typeInto('agent-name', '恒启用实例');
-    const providerSelect = screen.getByTestId<HTMLSelectElement>('agent-provider-select');
-    expect(providerSelect.disabled).toBe(false);
+    expect(selectTrigger('agent-provider-select').disabled).toBe(false);
 
-    fireEvent.change(providerSelect, { target: { value: '11' } });
-    expect(screen.getByTestId<HTMLSelectElement>('agent-provider-select').value).toBe('11');
+    await pickOption('agent-provider-select', '端点甲');
+    expect(selectValueEl('agent-provider-select').getAttribute('data-value')).toBe('11');
     fireEvent.click(screen.getByTestId('agent-save'));
     await waitFor(() => expect(state.save).toHaveBeenCalledTimes(1));
     expect(state.save).toHaveBeenCalledWith({
@@ -243,28 +278,24 @@ describe('AgentPanel：provider 选择器恒启用必选（AC-8）', () => {
     });
   });
 
-  it('providers 空清单 → 选择器空态呈现、保存不可达（canSave false）不白屏', () => {
+  it('providers 空清单 → 选择器空态呈现、保存不可达（canSave false）不白屏', async () => {
     mount(fakeState(), []);
 
     fireEvent.click(screen.getByTestId('agent-new'));
     typeInto('agent-name', '空清单实例');
-    const providerSelect = screen.getByTestId<HTMLSelectElement>('agent-provider-select');
-    expect(Array.from(providerSelect.options).map((option) => option.textContent)).toEqual([
-      '（未选择）',
-    ]);
+    expect(selectValueEl('agent-provider-select').textContent).toBe('请选择');
+    await openSelect('agent-provider-select');
+    expect(optionLabels()).toEqual(['（未选择）']);
     expect(screen.getByTestId<HTMLButtonElement>('agent-save').disabled).toBe(true);
   });
 
-  it('providers 单元素清单选择器稳定呈现（未选择 + 单档两项）', () => {
+  it('providers 单元素清单选择器稳定呈现（未选择 + 单档两项）', async () => {
     mount(fakeState(), [providerRecord(31, '唯一端点')]);
 
     fireEvent.click(screen.getByTestId('agent-new'));
-    const providerSelect = screen.getByTestId<HTMLSelectElement>('agent-provider-select');
-    expect(Array.from(providerSelect.options).map((option) => option.textContent)).toEqual([
-      '（未选择）',
-      '唯一端点',
-    ]);
-    expect(providerSelect.disabled).toBe(false);
+    await openSelect('agent-provider-select');
+    expect(optionLabels()).toEqual(['（未选择）', '唯一端点']);
+    expect(selectTrigger('agent-provider-select').disabled).toBe(false);
   });
 });
 
