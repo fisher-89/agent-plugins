@@ -1,17 +1,6 @@
-//! 瞬态签名与有限重试策略（执行体诊断面的单点实现）。
-//!
-//! 纪律：
-//! - **字典扩展只改本表**（[`TRANSIENT_SIGNATURES`]）——调用点 MUST NOT 各写一份
-//!   特征串（否则信号面漂移、假阴性无从审计）；
-//! - **刻意不收裸 `failed to write`**：该措辞过泛（真实写盘缺陷会被吞成「环境
-//!   错误」而重试 5 次）；rustc 的 `.rmeta` 写失败已由同一行内的 `os error 32` /
-//!   `另一个程序正在使用此文件` 覆盖；
-//! - `TimedOut` / `Cancelled` **永不命中**：超时重试会把 1200 s 变数小时，取消
-//!   必须立即生效；
-//! - 判定为「整串包含」——表内签名均不含换行，故与「逐行包含」等价。
-
 use std::time::Duration;
 
+use crate::output::is_source_excerpt_line;
 use crate::run::{RunOutcome, RunReport};
 
 /// 瞬态签名封闭表（三族按注释分组；不建族枚举——无消费者读族名）。
@@ -105,12 +94,7 @@ pub struct AttemptTrace {
     pub stderr: Vec<u8>,
 }
 
-/// 瞬态判定核心（三合一判据 + 封闭表匹配）：执行体在 [`RunReport`] **成型之前**
-/// 就要判定（重试循环里 report 尚不存在），故核心落在字节面、公开面
-/// [`is_transient`] 只做委托。
-///
-/// 命中返回**表中原文**（`LNK1104` / `EBUSY` 保持大写形态）——尝试留痕与记录分隔
-/// 头因此稳定可断言。
+/// 瞬态判定核心（三合一判据 + 封闭表匹配）
 pub(crate) fn transient_signature(
     outcome: RunOutcome,
     exit_code: i32,
@@ -123,10 +107,12 @@ pub(crate) fn transient_signature(
     let mut merged = stdout.to_vec();
     merged.extend_from_slice(stderr);
     let text = String::from_utf8_lossy(&merged).to_lowercase();
-    TRANSIENT_SIGNATURES
-        .iter()
-        .copied()
-        .find(|signature| text.contains(&signature.to_lowercase()))
+    TRANSIENT_SIGNATURES.iter().copied().find(|signature| {
+        let needle = signature.to_lowercase();
+        text.lines()
+            .filter(|line| !is_source_excerpt_line(line))
+            .any(|line| line.contains(&needle))
+    })
 }
 
 /// 瞬态判定（对外单一签名）：`Completed` + 非零退出 + 合并输出（stdout ++ stderr）

@@ -1,25 +1,6 @@
-//! 锁占用诊断探针：被锁文件 + 占用者的**归因原料**单点装配。
-//!
-//! 只回答一个问题——「这次非零退出是环境坏（外部进程占着构建产物）还是代码
-//! 问题」，并给出该找谁。三面：
-//!
-//! - [`locked_paths`]：从诊断文本按三种错误串形态（`failed to rename archive
-//!   file` / `failed to write` / `failed to remove`）解析被锁文件路径；
-//! - 私有判据 `blocks_delete`：**只问「是否阻塞 rename / delete」**——以
-//!   `DELETE | FILE_READ_ATTRIBUTES` 访问权 + `FILE_SHARE_READ | WRITE | DELETE`
-//!   全共享打开目标文件一次并立即关闭。打开成功 = 未阻塞；失败且 OS 错误码
-//!   `32`（`ERROR_SHARING_VIOLATION`）= 与 rustc / cargo 失败同条件。探针 MUST
-//!   NOT 独占打开、MUST NOT 写入 / 截断 / 修改时间戳——它 MUST NOT 自己成为
-//!   `os error 32` 的成因（旧「独占打开探测」会把正常读句柄误报成锁，且可能
-//!   反向制造锁冲突）；
-//! - [`lock_holders`]：占用者点名——Windows 经 Restart Manager，非 Windows 降级
-//!   `lsof`（存在则用，不存在即跳过，MUST NOT 阻断主流程）。
-//!
-//! [`attribution_text`] 把上述两面装配成人读原料（占用进程清单 / 被锁文件清单 /
-//! 「未定位占用者」降级说明），供检查域拼进 fault 文案与终局文案——exec 层
-//! **不自带业务文案**（重试次数 / 处置指引归调用方）。
-
 use std::path::{Path, PathBuf};
+
+use crate::output::is_source_excerpt_line;
 
 /// 被锁文件路径的错误串三形态（大小写不敏感的行内包含匹配）。
 const LOCKED_PATH_KEYWORDS: [&str; 3] = [
@@ -40,14 +21,13 @@ pub struct LockHolder {
     pub pid: u32,
 }
 
-/// 诊断文本 → 被锁文件路径清单（三形态解析、按输入原样保留分隔符、去重、≤8）。
-///
-/// 逐行扫描：命中关键词后取**该行关键词之后的剩余片段**为候选 → `trim` → 去前导
-/// `:` 与空白 → 在首个 `": "`（冒号 + 空格；Windows 盘符 `C:\` 是冒号 + 反斜杠，
-/// 不受影响）处截断 → 剥包裹的反引号 / 双引号 / 尾随标点 → 非空才收。零 IO。
+/// 诊断文本 → 被锁文件路径清单
 pub fn locked_paths(diagnostics: &str) -> Vec<PathBuf> {
     let mut paths: Vec<PathBuf> = Vec::new();
     for line in diagnostics.lines() {
+        if is_source_excerpt_line(line) {
+            continue;
+        }
         // ASCII 小写化只动 ASCII 字节，故关键词在原文中的字节位置仍然有效
         let lowered = line.to_ascii_lowercase();
         for keyword in LOCKED_PATH_KEYWORDS {
@@ -124,18 +104,7 @@ pub fn lock_holders(paths: &[PathBuf]) -> Vec<LockHolder> {
     }
 }
 
-/// 归因原料单点：`locked_paths` → 阻塞判据 `blocks_delete` → 点名（阻塞集优先，
-/// 阻塞集空则退化为全部解析路径——「占用已解除」时仍能借 Restart Manager 的近期
-/// 归因给出线索）→ 两行文本：
-///
-/// ```text
-/// 占用进程：<进程名> (pid <pid>)、…
-/// 被锁文件：<路径>、…
-/// ```
-///
-/// 无占用者时首行为「未定位占用者（可能为内核过滤驱动（安全软件），无法归因到
-/// 用户进程）」（内核态持有无法归因到用户进程，MUST NOT 因此判「无锁」）。诊断中
-/// 解析不出路径 → `None`（调用方据此只装配摘要与指引，不拼空段）。
+/// 归因原料单点
 pub fn attribution_text(diagnostics: &str) -> Option<String> {
     let paths = locked_paths(diagnostics);
     if paths.is_empty() {

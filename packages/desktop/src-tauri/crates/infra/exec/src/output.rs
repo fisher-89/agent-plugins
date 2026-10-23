@@ -133,6 +133,25 @@ impl ProcessOutput {
     }
 }
 
+/// rustc / clippy 诊断的源码摘录行判据（`285 |     b"…"` / `285 +     …`）。
+///
+/// 编译错误会把出错源码行原样渲染进诊断输出；该行中的字符串是被测源码文本，
+/// MUST NOT 被瞬态签名匹配或被锁路径解析当作执行环境证据（测试 fixture 里的
+/// `os error 32` / `failed to rename archive file` 曾令确定性编译错误重试 5 次
+/// 并误报环境错误）。瞬态判定与锁归因共用本判据。
+pub(crate) fn is_source_excerpt_line(line: &str) -> bool {
+    let trimmed = line.trim_start();
+    let digits = trimmed
+        .char_indices()
+        .find(|(_, ch)| !ch.is_ascii_digit())
+        .map_or(trimmed.len(), |(index, _)| index);
+    if digits == 0 {
+        return false;
+    }
+    let rest = trimmed[digits..].trim_start();
+    rest.starts_with('|') || rest.starts_with('+')
+}
+
 #[cfg(test)]
 #[path = "output_test.rs"]
 mod output_test;

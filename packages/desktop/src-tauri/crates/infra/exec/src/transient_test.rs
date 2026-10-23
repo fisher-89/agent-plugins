@@ -2,9 +2,9 @@
 //! `RunReport` / `AttemptTrace` / `RetryPolicy` 全部以结构体字面量直构。
 //!
 //! 覆盖面：13 条封闭签名表的逐条命中与大小写不敏感、两路合并匹配、多行噪声、
-//! 三合一判据的三条反例（超时 / 取消 / 绿 / 真红 / 裸 `failed to write`）、字节
-//! 面边界（空 / 单字节 / 大块 / 非 UTF-8 / 特殊字符）、`RetryPolicy` 两构造的
-//! 三常量锚定与直构边界、`AttemptTrace` 字段面。
+//! 诊断源码摘录行排除、三合一判据的三条反例（超时 / 取消 / 绿 / 真红 / 裸
+//! `failed to write`）、字节面边界（空 / 单字节 / 大块 / 非 UTF-8 / 特殊字符）、
+//! `RetryPolicy` 两构造的三常量锚定与直构边界、`AttemptTrace` 字段面。
 
 use std::time::Duration;
 
@@ -151,9 +151,9 @@ fn 两路合并匹配_stdout与stderr各形态() {
 }
 
 /// 正向（参数化 2 形态）：多行与前后噪声——首行 `Compiling …`、末行锁错误 →
-/// 命中；签名前后含 CRLF / 制表符 / 前后空白 → 整串包含匹配仍命中。
+/// 命中；签名前后含 CRLF / 制表符 / 前后空白 → 逐行包含匹配仍命中。
 #[test]
-fn 多行与前后噪声_整串包含匹配() {
+fn 多行与前后噪声_逐行包含匹配() {
     let multiline = b"Compiling core v0.1.0\n   Compiling infra v0.1.0\nerror: failed to rename archive file: /tmp/liba.rlib: os error 32\n";
     assert_eq!(
         is_transient(&failed_stdout(multiline)),
@@ -166,6 +166,28 @@ fn 多行与前后噪声_整串包含匹配() {
         is_transient(&failed_stdout(noisy)),
         Some("EBUSY"),
         "CRLF / 制表符 / 空白噪声不阻断命中"
+    );
+}
+
+/// 回归：编译诊断的源码摘录行不是环境证据——rustc / clippy 报错会引用出错
+/// 源码行（`287 | b"… os error 32"`），fixture 里的签名措辞 MUST NOT 命中；
+/// 同一输出中出现真实错误行时仍应命中。
+#[test]
+fn 源码摘录行不命中_真实错误行仍命中() {
+    let quoted = "error[E0061]: this function takes 4 arguments but 3 arguments were supplied\n   --> crates\\infra\\checks\\src\\environment_test.rs:284:16\n    |\n284 |       let text = fault_text(\n285 | |         5,\n287 |         b\"error: failed to rename archive file: /t/liba.rlib: os error 32\",\n    |\n";
+    assert_eq!(
+        is_transient(&failed_stdout(quoted.as_bytes())),
+        None,
+        "源码摘录行中的签名不构成瞬态证据"
+    );
+
+    let with_real = format!(
+        "{quoted}error: failed to write C:\\w\\target\\lib.rmeta: 另一个程序正在使用此文件 (os error 32)\n"
+    );
+    assert_eq!(
+        is_transient(&failed_stdout(with_real.as_bytes())),
+        Some("os error 32"),
+        "同一输出里的真实错误行仍命中"
     );
 }
 

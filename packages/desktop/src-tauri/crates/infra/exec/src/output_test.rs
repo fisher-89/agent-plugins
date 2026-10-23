@@ -1,7 +1,7 @@
 //! `ProcessOutput` 单元测试：错误行组提取（前 10 组 / 续行 / 遇空止）、
-//! tail 行口径三态、`failure_message` 拼装与空面省略。
+//! tail 行口径三态、`failure_message` 拼装与空面省略、源码摘录行判据。
 
-use super::ProcessOutput;
+use super::{is_source_excerpt_line, ProcessOutput};
 
 #[test]
 fn 错误信息_多行错误续行携带与遇空行止() {
@@ -110,4 +110,24 @@ fn 失败消息_空面省略与双段拼装() {
         no_error.failure_message("测试命令非零退出（7）"),
         "测试命令非零退出（7）\n输出末尾（50 行）：\nplain output line"
     );
+}
+
+/// 源码摘录行判据：编号 gutter 后的 `|` / `+` 命中；无编号行 / 纯数字行 /
+/// 普通错误行不命中（瞬态判定与锁归因共用）。
+#[test]
+fn 源码摘录行判据_两分隔符与反例() {
+    for line in ["284 |     b\"...\"", "  285 | |     5,", "285 +     ..."] {
+        assert!(is_source_excerpt_line(line), "应判定为源码摘录行: {line:?}");
+    }
+    for line in [
+        "",
+        "error: failed to write /t/a.rmeta",
+        "2026 total",
+        "| not numbered",
+    ] {
+        assert!(
+            !is_source_excerpt_line(line),
+            "不应判定为源码摘录行: {line:?}"
+        );
+    }
 }

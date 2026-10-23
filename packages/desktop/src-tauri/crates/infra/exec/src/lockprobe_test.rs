@@ -151,6 +151,24 @@ fn 行尾噪声在首个冒号空格处截断() {
     );
 }
 
+/// 回归：编译诊断引用的源码行不参与路径解析——clippy / rustc 会把出错源码行
+/// 渲染进诊断，其中的 `failed to rename archive file` 后跟的是 fixture 文本里的
+/// 路径；真实错误行照常解析。
+#[test]
+fn 源码摘录行不参与路径解析() {
+    let quoted = "error[E0061]: this function takes 4 arguments but 3 arguments were supplied\n    |\n287 |         b\"error: failed to rename archive file: /t/liba.rlib: os error 32\",\n    |\n";
+    let paths = locked_paths(quoted);
+    assert!(paths.is_empty(), "源码摘录行不产路径: {paths:?}");
+    assert_eq!(attribution_text(quoted), None, "无真实锁证据时不产归因文本");
+
+    let mixed = format!("{quoted}error: failed to write /t/real.rmeta: os error 32\n");
+    assert_eq!(
+        locked_paths(&mixed),
+        vec![PathBuf::from("/t/real.rmeta")],
+        "真实错误行照常解析"
+    );
+}
+
 // ---------------------------------------------------------------------------
 // 边界：盘符冒号 / 包裹引号 / 大小写 / 去重 / 上限
 // ---------------------------------------------------------------------------
