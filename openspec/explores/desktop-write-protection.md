@@ -154,9 +154,10 @@ loop ④ 执行 ──────────┤      ↑ 若用户把 openspec
 | 用户 `write_protection.files[]` | **照抄语义**（相对 glob 加 `**/`、绝对原样、reason 占位符 %s/%t） | 同一份 config，两边必须同解 |
 | Write/Edit → file_path | → `write`/`edit` 的 `path` | 工具名不同，语义一致 |
 | Bash/PowerShell/Shell 三入口 | → `bash` 单入口 | 桌面端只有 bash 工具；Windows 底座 git-bash / `cmd /C` 兜底（`bash.rs`）|
-| `extractFileOps` 三态提取器 | **需 Rust 重译**（约 400 行 TS → 引号/heredoc 掩码 + 4 类正则族 + git 子命令） | 核心工作量所在 |
+| `extractFileOps` 三态提取器 | **需 Rust 重译**（约 400 行 TS → 引号/heredoc 掩码 + 4 类正则族 + git 子命令）；**档 B 追加** `cp`/`dd of=`/`sed -i`/`truncate`/`find -delete` | 核心工作量所在；漏面清单见 §6.5 |
 | `checkBulkRevert` | 需重译（`git stash`/`git clean`/`git restore openspec/changes/**`） | 面向"hook 不可见的批量改写"，桌面端同样不可见 |
 | python/node 豁免 | **不照搬**：裸脚本放行，`-e`/`-c` 明文改判别（已定稿，见 §6.4） | 插件端整体放行是已知旁路，已实测 |
+| 拒绝文案（内置 reason） | **重写为面向 Agent 的处置指令**：不得绕过 + 无法规避即停并通知用户 | 见 §6.6；插件端文案假设有审批通道承接，桌面端没有 |
 | fail-open（非法 stdin → allow） | 对应语义 = config 解析失败只留内置规则 | `config::load` 已保证 |
 | picomatch `matchGlob` | 复用 `checks::globmatch::match_glob`（glob crate + 花括号展开，已覆盖 picomatch 主方言） | 见 D7 |
 
@@ -357,23 +358,27 @@ openspec/config.json 是工作区配置权威，Agent 不得改写：
 - ⚠️ **`->` / `=>` 干扰**：`echo a->b`、JS 箭头函数都曾误判为写目标，前缀守卫 `[^-=]` 是必要护栏。
 - ⚠️ **heredoc 内的 `>` 是数据不是命令**：必须掩码，否则 `cat <<EOF\n> openspec/config.json\nEOF` 误拦。
 - ⚠️ **引号内的 `rm` 不是命令**：命令名定位必须在"引号已掩码"变体上做，参数切片要在"保留引号"变体上做（两变体长度相等、索引互通）。
-- ⚠️ **保护是硬拒绝，无审批通道**：桌面端 policy 是纯函数三档，没有 interactive approval。拦了就是拦了，模型只能通知用户手动改 → phase agent 自动跑时可能出现"重试—再被拦"的额外轮次（可接受，但不该在同一文件上死循环）。
+- ⚠️ **保护是硬拒绝，无审批通道**：桌面端 policy 是纯函数三档，没有 interactive approval。`deny` 又**不中断 run**，所以模型会自然换路重试（write → bash 重定向 → bash `cp` → bash `node -e`，同一文件连撞四五次）。**这条链只能靠拒绝串里的显式指令掐断**（见 §6.6），不能靠引擎机制。
 - ⚠️ **over-record 方向安全、over-block 方向不安全**：插件端 PostToolUse 记录器容忍多记（有对账），但 PreToolUse 保护多拦就是误伤。裁剪提取器时宁可漏 stdout 形态，也别把 `echo foo > notes.txt` 判成受保护。
 
 ---
 
 ## 8. 一句话结论
 
-决策已定稿，形状收敛为：**一个 `protect` 模块（规则装配纯函数 + 判定纯函数）+ 一条 builder 缝（`with_workspace_root`，与 `with_explore_note_store` 同构）+ 一份插件端 shell 提取器的 Rust 重译**。
+八项决策全部定稿，形状收敛为：**一个 `protect` 模块（规则装配纯函数 + 判定纯函数）+ 一条 builder 缝（`with_workspace_root`，与 `with_explore_note_store` 同构）+ 一份插件端 shell 提取器的 Rust 重译（档 B 起）+ 一段面向 Agent 的拒绝指令串**。
 
 真正的工作量分布（非"读配置"）：
 
 ```
 ~10%  配置读入（config::load 已现成，只需并上内置 glob）
 ~15%  builder 缝 + loop 挂点（有先例，改动面清楚）
-~45%  extractFileOps 重译（掩码算法 + 4 类正则族 + git 子命令 + bulk revert）
-~20%  node/python 明文脚本判别（桌面端新增，插件端无参考）
-~10%  测试面（方言对照 / 掩码边界 / 误拦-漏拦双向断言）
+~40%  extractFileOps 重译（掩码算法 + 4 类正则族 + git 子命令 + bulk revert）
+~10%  档 B 五项补充（cp/dd/sed -i/truncate/find -delete）
+~20%  node/python 明文脚本判别（桌面端新增，插件端零参考）
+~5%   拒绝文案（三条串：内置 / 用户无 reason 回落 / 用户 reason 透传）
+~10%  测试面（方言对照 / 掩码边界 / 误拦-漏拦双向断言 / 绕过链回归）
 ```
 
-两个"看起来是设计问题、其实已不是"的点：D2（读配置时机）与 D3（检查点位置）都已定，落地形态由既有结构直接决定。剩下唯一需要你点头的是 **D6 拒绝文案**（沿用插件端「请提供修改方案，通知用户自行操作」还是重写）。
+D2（读配置时机）与 D3（检查点位置）看似设计题，其实由既有结构直接决定；真正的设计判断集中在 **D5/D8（复刻边界：照译 vs 补一档）** 与 **D6（拒绝串承担"掐断换路重试链"的功能）** 两处。
+
+**仍开放的实现选择（非需求歧义）**：D7 glob 函数位置——给 `agent-runtime` 加 `checks` 依赖，或把 `match_glob` 下沉 `foundation`。两者语义等价，取依赖图更干净的那个。
