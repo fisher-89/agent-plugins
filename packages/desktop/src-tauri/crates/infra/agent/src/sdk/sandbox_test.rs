@@ -49,7 +49,7 @@ fn create_dir_link(link: &Path, target: &Path) -> bool {
                 &target.to_string_lossy(),
             ])
             .status();
-        return status.is_ok_and(|status| status.success()) && link.exists();
+        status.is_ok_and(|status| status.success()) && link.exists()
     }
     #[cfg(not(windows))]
     {

@@ -2042,7 +2042,7 @@ fn pipeline十列含initialize表头且archive空站序列() {
         "站序与 requirement 相位表逐位一致"
     );
     assert!(
-        !phases.iter().any(|phase| *phase == "code-analyze"),
+        !phases.contains(&"code-analyze"),
         "requirement 表无 code-analyze（零占位列）"
     );
     assert_eq!(phases[9], "archive", "archive 恒为末列（第 10 列）");
@@ -2099,10 +2099,7 @@ fn pipeline_test_only七列含code_analyze与archive末列() {
     assert_eq!(phases[6], "archive", "archive 为第 7 列（末列）");
     // requirement 独有相位不在 test-only 列序内（零占位）
     for absent in ["dev-design", "implement", "code-review", "acceptance"] {
-        assert!(
-            !phases.iter().any(|phase| *phase == absent),
-            "test-only 列序不含 {absent}"
-        );
+        assert!(!phases.contains(&absent), "test-only 列序不含 {absent}");
     }
     // 全列 attempts 空序列（零 attempt 列恒空数组，不报错）
     assert!(

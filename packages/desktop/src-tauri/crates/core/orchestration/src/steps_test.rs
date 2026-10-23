@@ -841,6 +841,7 @@ impl ArchiveVcsPort for FakeVcs {
 
 /// 可编程 MutationRunner 假件（记录四参 + 可编程产出 / Err——MutationTest 臂
 /// 观察面）。
+#[allow(clippy::type_complexity)]
 struct FakeMutationRunner {
     calls: Mutex<Vec<(String, String, Vec<String>, String)>>,
     /// 收到的取消信号（AC-6 透传面）
@@ -881,27 +882,6 @@ impl FakeMutationRunner {
             },
             report_paths: vec!["reports/test/app_rust/mutation/mutation.json".to_owned()],
             feedback_text: String::new(),
-        }))
-    }
-
-    fn failing(feedback_text: &str) -> Self {
-        Self::with_result(Ok(MutationTestOutcome {
-            fault: None,
-            conclusion: MutationTestConclusion::Fail,
-            skip: None,
-            score: 55.0,
-            threshold: 80.0,
-            counts: MutationCounts {
-                killed: 5,
-                survived: 4,
-                timeout: 0,
-                compile_error: 0,
-                runtime_error: 0,
-                ignored: 1,
-                total: 10,
-            },
-            report_paths: vec!["reports/test/app_rust/mutation/mutation.json".to_owned()],
-            feedback_text: feedback_text.to_owned(),
         }))
     }
 

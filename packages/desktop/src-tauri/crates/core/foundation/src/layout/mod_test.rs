@@ -541,7 +541,7 @@ fn report_slot二值封闭构造互异且派生可用() {
     let _use_twice = (slot, slot);
 
     // Clone / Debug 派生可用
-    let cloned = slot.clone();
+    let cloned = slot;
     assert_eq!(cloned, ReportSlot::Baseline);
     assert!(!format!("{slot:?}").is_empty(), "Debug 出线非空");
 }

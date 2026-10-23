@@ -204,14 +204,12 @@ fn branch_exists两态_在案true缺席false非err() {
         .expect("初始分支应在案")
         .to_owned();
 
-    assert_eq!(
+    assert!(
         git::branch_exists(&root, &existing).expect("在案分支应 Ok"),
-        true,
         "既有分支 → true"
     );
-    assert_eq!(
-        git::branch_exists(&root, "change/absent").expect("缺席分支应 Ok"),
-        false,
+    assert!(
+        !git::branch_exists(&root, "change/absent").expect("缺席分支应 Ok"),
         "不存在 → false（非 Err）"
     );
 }
@@ -317,9 +315,8 @@ fn delete_branch_分支清除且主仓工作区零触碰() {
     git::remove_worktree(&root, &wt).expect("remove 应成功");
     git::delete_branch(&root, "change/to-delete").expect("delete_branch 应成功");
 
-    assert_eq!(
-        git::branch_exists(&root, "change/to-delete").expect("show-ref 应 Ok"),
-        false,
+    assert!(
+        !git::branch_exists(&root, "change/to-delete").expect("show-ref 应 Ok"),
         "分支清除（show-ref miss）"
     );
     assert!(
@@ -347,9 +344,8 @@ fn 补偿序组合_add后remove加delete全链主仓回初态() {
         !list.contains(wt.to_string_lossy().as_ref()),
         "worktree 登记清空，实际 list: {list}"
     );
-    assert_eq!(
-        git::branch_exists(&root, "change/compensate").expect("show-ref 应 Ok"),
-        false,
+    assert!(
+        !git::branch_exists(&root, "change/compensate").expect("show-ref 应 Ok"),
         "分支零残留"
     );
     assert!(root.join("a.txt").is_file(), "主仓树无损（初态在案）");
@@ -366,17 +362,15 @@ fn remove_worktree后分支留存_清理步零触碰() {
     let (_wt_dir, wt) = worktree_slot("remove-branch-kept");
 
     git::add_worktree(&root, &wt, "change/fix-bug").expect("add 应成功");
-    assert_eq!(
+    assert!(
         git::branch_exists(&root, "change/fix-bug").expect("show-ref 应 Ok"),
-        true,
         "前置：分支铸出在案"
     );
     git::remove_worktree(&root, &wt).expect("remove 应成功");
 
     assert!(!wt.exists(), "worktree 目录回收");
-    assert_eq!(
+    assert!(
         git::branch_exists(&root, "change/fix-bug").expect("show-ref 应 Ok"),
-        true,
         "branch change/<name> 留存（worktree remove 不动分支）"
     );
 }
@@ -450,7 +444,7 @@ fn commit_all_fixture(dir: &Path, message: &str) {
 #[test]
 fn process_archive_vcs构造锚_new与default等值可重复构造() {
     let _a = archive_vcs();
-    let _b = ProcessArchiveVcs::default();
+    let _b = ProcessArchiveVcs;
     let _c = ProcessArchiveVcs::new();
 }
 
@@ -584,17 +578,15 @@ fn branch_merged三态_未合入false合入true缺分支err() {
     git(&wt, &["add", "-A"]);
     commit_all_fixture(&wt, "feat");
 
-    assert_eq!(
-        vcs.branch_merged(&root, "change/feature")
+    assert!(
+        !vcs.branch_merged(&root, "change/feature")
             .expect("判定应 Ok"),
-        false,
         "分支未合入 → false"
     );
     git(&root, &["merge", "--no-edit", "change/feature"]);
-    assert_eq!(
+    assert!(
         vcs.branch_merged(&root, "change/feature")
             .expect("判定应 Ok"),
-        true,
         "merge 后 → true"
     );
     let error = vcs
@@ -1863,7 +1855,7 @@ fn change_edit_patch_海量untracked清单经stdin入线不超命令行上限() 
 /// 读取 root 的 info/exclude 全文（装置断言原料；经 git-path 解析——与生产
 /// `resolve_info_exclude` 同口径）。
 fn read_exclude(root: &Path) -> String {
-    let raw = git(&root, &["rev-parse", "--git-path", "info/exclude"]);
+    let raw = git(root, &["rev-parse", "--git-path", "info/exclude"]);
     let raw = raw.trim();
     let path = PathBuf::from(raw);
     let path = if path.is_absolute() {

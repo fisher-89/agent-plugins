@@ -107,7 +107,7 @@ fn 一致summary与子报告全集_三查全过空findings() {
             skipped: 0,
         },
     );
-    let summary = consistent_summary(&[sub.clone()]);
+    let summary = consistent_summary(std::slice::from_ref(&sub));
 
     let findings = check_integrity(&summary, &[sub]);
     assert!(
@@ -163,7 +163,7 @@ fn plan报告缺失与索引缺失双向记因() {
         root: "ghost".to_owned(),
         path: "reports/test/ghost_plan".to_owned(),
     }];
-    let findings = check_integrity(&summary, &[sub.clone()]);
+    let findings = check_integrity(&summary, std::slice::from_ref(&sub));
     assert!(
         findings
             .iter()

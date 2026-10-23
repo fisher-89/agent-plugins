@@ -32,6 +32,7 @@ fn counting_loader(
 // ---------------------------------------------------------------------------
 
 #[test]
+#[allow(clippy::type_complexity)]
 fn crate根导出面锚定_组合根与查询面与既有门面re_export可达() {
     // compose_turn / ComposedTurn 以签名锚定（零调用；store 半边 = 命令层
     // 预解析注入的 workspace root 库实例，design D8 拆参）
@@ -704,6 +705,7 @@ fn runner_for_sdk臂启动校验成因集不因max_tokens载荷变化() {
 }
 
 #[test]
+#[allow(clippy::type_complexity)]
 fn runner_for结构化返回面锚定_引擎具体类型不出门面() {
     // 返回值仍为 `Result<Box<dyn AgentRunner>, String>`（引擎具体类型不出门面）
     let signature: fn(

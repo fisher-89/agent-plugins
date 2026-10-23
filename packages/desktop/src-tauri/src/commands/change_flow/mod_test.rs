@@ -1,3 +1,7 @@
+// 整测串行锁跨 await 持有为刻意语义（PATH 全局替换窗口须整测互斥；tokio
+// 默认单线程 runtime 无跨线程死锁面），clippy 按多线程假设误报。
+#![allow(clippy::await_holding_lock)]
+
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};

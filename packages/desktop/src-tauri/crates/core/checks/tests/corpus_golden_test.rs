@@ -556,6 +556,7 @@ fn golden_mutation_seg_stryker_metrics面全链投影() {
 /// 边界：未知 outcome 样本投影含 runtimeError 计数（宽容不丢数据留痕——cargo
 /// fixture 的 surprising-outcome + 缺 outcome 条目恰 2 计入 runtimeError）。
 #[test]
+#[allow(non_snake_case)]
 fn 段级未知outcome样本runtimeError留痕() {
     let cargo = project_seg_fixture("mutation-seg-cargo");
     assert_eq!(

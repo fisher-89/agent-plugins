@@ -595,7 +595,7 @@ async fn recv_closed与lagged互不混同() {
 fn recv_error变体契约_copy_clone与部分相等() {
     let lagged = SessionStreamRecvError::Lagged(3);
     let copied = lagged; // Copy：不吞载荷
-    let cloned = lagged.clone();
+    let cloned = lagged;
     assert_eq!(lagged, copied, "Copy 后可重复断言丢弃条数");
     assert_eq!(lagged, cloned, "Clone 保留载荷");
     assert_eq!(

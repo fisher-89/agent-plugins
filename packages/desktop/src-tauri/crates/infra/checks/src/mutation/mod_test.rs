@@ -1,22 +1,3 @@
-//! `mutation/mod.rs` 的单元测试（test-design「mod.rs -> mod_test.rs」节）：
-//! `ProcessMutation` 构造（new / Default 等价、无状态零副作用）+ execute 主链
-//! 组合（suite 归桶 E10 → 跳过面 EmptyDiff / NoExecutor 记 evidence 不 Err →
-//! 段级复用门 AC-8 零 spawn 全链 → js suite 全链（Stryker 面假 spawn 真执行）→
-//! 段中断 Error 即时反馈 → 多 suite 多阈值（80 / 70）逐 suite 判定 → 计数归并 →
-//! summary mutation 位回填 E11 → `MutationTestOutcome` 与 `feedback_text` 装配）
-//! + 组合根链路（LocalToolSteps → vcs 假件 → ProcessMutation 假 spawn）+ E5
-//! 显式 Err 面（写盘失败）+ 突变常量锚定（E9）。
-//!
-//! Mock策略（test-design 本节 Mock 表）：子进程 spawn（cargo-mutants / npx
-//! stryker——进程边界）经**假 spawn 装置** [`SpawnWindow`] 承载——PATH 前置
-//! shim + 记录 argv / env / cwd + 可编程输出、超时（自旋挂起 + 虚拟时钟推进）、
-//! 非零退出、ENOENT（PATH 隔离使程序缺席）；装置驻本文件，`stryker_test` /
-//! `cargo_mutants_test` 经 `super::super::mod_test` 共享引用。文件系统经真实
-//! tempdir（`change_test_reports` 布局真实落盘——写盘 / 回填断言真实组合）；
-//! 段级复用门用例零 spawn 复用（AC-8 复用语义自持，与假 spawn 执行链用例互补
-//! ——非规避）；`available_parallelism` 不 mock（jobs / concurrency 期望按真实
-//! CPU 重算关系式）。
-
 use std::ffi::OsString;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -734,7 +715,7 @@ fn read_summary(ws: &ChainWs) -> serde_json::Value {
 #[test]
 fn 构造等价_new与default可重复() {
     let a = ProcessMutation::new();
-    let b = ProcessMutation::default();
+    let b = ProcessMutation;
     let c = ProcessMutation::new();
     // 零字段无状态：类型层等值面（构造零副作用由 move 语义承载）
     let _ = (a, b, c);

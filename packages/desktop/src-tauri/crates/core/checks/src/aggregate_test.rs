@@ -455,7 +455,7 @@ fn 子报告source_files全空_产出null零维面() {
         None,
     )];
     assert!(
-        aggregate_coverage(&[bare.clone()], &suites).is_none(),
+        aggregate_coverage(std::slice::from_ref(&bare), &suites).is_none(),
         "无数据产 None 不产假块"
     );
 
@@ -700,6 +700,7 @@ fn command字段仅存在性断言不锚措辞() {
 use crate::aggregate::{build_mutation_block, merge_mutation_blocks};
 
 /// mutation 计数 fixture（全字段显式）。
+#[allow(clippy::too_many_arguments)]
 fn mutation_counts(
     killed: u64,
     survived: u64,
@@ -769,6 +770,7 @@ fn build_mutation_block分子分母口径_no_coverage入分母不入排除面() 
 /// 100.0（既有语义）；`threshold` = `NaN` → `pass = false`（`>=` 恒假）；
 /// `threshold` = `Inf` → fail。
 #[test]
+#[allow(non_snake_case)]
 fn build_mutation_block分母零与NaN与Inf阈值() {
     // 全 0（零段块边界）→ 100.0
     let block = build_mutation_block(mutation_counts(0, 0, 0, 0, 0, 0, 0, 0), 80.0);
@@ -865,7 +867,7 @@ fn merge_mutation_blocks多段求和与阈值取首块() {
 #[test]
 fn merge_mutation_blocks单段等值透传() {
     let seg = mutation_block(95.5, 80.0, mutation_counts(9, 0, 1, 0, 0, 0, 0, 10));
-    let merged = merge_mutation_blocks(&[seg.clone()]).expect("单段归并不为空");
+    let merged = merge_mutation_blocks(std::slice::from_ref(&seg)).expect("单段归并不为空");
     assert_eq!(merged.measured, seg.measured, "单段计数等值");
     assert_eq!(merged.threshold, seg.threshold, "阈值等值");
     assert_eq!(merged.score, 100.0, "(9+1)/10 = 100.0");

@@ -162,7 +162,7 @@ fn preset_cli_instance(env: &DualEnv, id: i64, name: &str, is_default: bool) -> 
 }
 
 /// sdk 快照的会话行 fixture（Continue 校验通过形态）。
-fn seed_sdk_session(store: &store::Store, id: &str, remote: Option<&str>) -> () {
+fn seed_sdk_session(store: &store::Store, id: &str, remote: Option<&str>) {
     let record = SessionRecord {
         id: id.to_owned(),
         engine_session_id: remote.map(str::to_owned),
@@ -233,11 +233,11 @@ fn debug_provenance() -> SessionProvenance {
 async fn 缺省解析默认sdk实例_快照承接provider组装与high档模型() {
     let env = DualEnv::new("default-sdk");
     let stores = env.stores();
-    let provider_id = seed_provider(&stores, "解析供应");
-    seed_sdk_instance(&stores, "解析实例", Some(provider_id));
+    let provider_id = seed_provider(stores, "解析供应");
+    seed_sdk_instance(stores, "解析实例", Some(provider_id));
 
     let composed = compose_turn(
-        &stores,
+        stores,
         Arc::new(StopRegistry::new()),
         Arc::new(SessionStreamRegistry::new()),
         env.store(),
@@ -336,7 +336,7 @@ async fn 显式cli实例解析_逐字拒收退役文案且零落库() {
     let stores = env.stores();
 
     let error = err_of(compose_turn(
-        &stores,
+        stores,
         Arc::new(StopRegistry::new()),
         Arc::new(SessionStreamRegistry::new()),
         env.store(),
@@ -365,7 +365,7 @@ fn 缺省发起默认实例为存量cli_同臂同文案拒且不清默认标记�
     let stores = env.stores();
 
     let error = err_of(compose_turn(
-        &stores,
+        stores,
         Arc::new(StopRegistry::new()),
         Arc::new(SessionStreamRegistry::new()),
         env.store(),
@@ -400,7 +400,7 @@ fn 空库缺省解析err引导管理页且零落库() {
     let stores = env.stores();
 
     let error = err_of(compose_turn(
-        &stores,
+        stores,
         Arc::new(StopRegistry::new()),
         Arc::new(SessionStreamRegistry::new()),
         env.store(),
@@ -428,7 +428,7 @@ fn 显式不存在agent的id解析err携id记因() {
     let stores = env.stores();
 
     let error = err_of(compose_turn(
-        &stores,
+        stores,
         Arc::new(StopRegistry::new()),
         Arc::new(SessionStreamRegistry::new()),
         env.store(),
@@ -444,8 +444,8 @@ async fn provider引用完整性守卫使悬空成因不可达_解析照常成�
 
     // resolve 单点的「引用 provider 不存在」分支为存量数据兜底：store 写入口
     // 以引用完整性守卫（provider 被引用禁止删除）使悬空状态经真库 API 不可达
-    let provider_id = seed_provider(&stores, "被引用供应");
-    seed_sdk_instance(&stores, "引用实例", Some(provider_id));
+    let provider_id = seed_provider(stores, "被引用供应");
+    seed_sdk_instance(stores, "引用实例", Some(provider_id));
 
     let removed = stores.global().remove_agent_provider(provider_id);
     let error = match removed {
@@ -459,7 +459,7 @@ async fn provider引用完整性守卫使悬空成因不可达_解析照常成�
 
     // provider 完好在库：解析照常成功（默认实例可发起）
     let composed = compose_turn(
-        &stores,
+        stores,
         Arc::new(StopRegistry::new()),
         Arc::new(SessionStreamRegistry::new()),
         env.store(),
@@ -494,14 +494,14 @@ async fn provider引用完整性守卫使悬空成因不可达_解析照常成�
 async fn continue快照校验通过时begin成功且会话行不重复建() {
     let env = DualEnv::new("continue-ok");
     let stores = env.stores();
-    let provider_id = seed_provider(&stores, "续话供应");
-    seed_sdk_instance(&stores, "续话实例", Some(provider_id));
+    let provider_id = seed_provider(stores, "续话供应");
+    seed_sdk_instance(stores, "续话实例", Some(provider_id));
     let store = stores.for_root(&env.root()).expect("for_root 应成功");
     seed_sdk_session(&store, "ses-continue-ok", Some("sdk-11-1727000000001"));
     seed_transcript(&store, "ses-continue-ok");
 
     let composed = compose_turn(
-        &stores,
+        stores,
         Arc::new(StopRegistry::new()),
         Arc::new(SessionStreamRegistry::new()),
         env.store(),
@@ -536,11 +536,11 @@ async fn continue快照校验通过时begin成功且会话行不重复建() {
 fn continue会话不存在时显式失败() {
     let env = DualEnv::new("continue-404");
     let stores = env.stores();
-    let provider_id = seed_provider(&stores, "续话404供应");
-    seed_sdk_instance(&stores, "续话404实例", Some(provider_id));
+    let provider_id = seed_provider(stores, "续话404供应");
+    seed_sdk_instance(stores, "续话404实例", Some(provider_id));
 
     let composed = compose_turn(
-        &stores,
+        stores,
         Arc::new(StopRegistry::new()),
         Arc::new(SessionStreamRegistry::new()),
         env.store(),
@@ -565,8 +565,8 @@ fn continue会话不存在时显式失败() {
 fn continue跨引擎续会话被快照比对拒绝() {
     let env = DualEnv::new("cross-engine");
     let stores = env.stores();
-    let provider_id = seed_provider(&stores, "跨引擎供应");
-    seed_sdk_instance(&stores, "跨引擎实例", Some(provider_id));
+    let provider_id = seed_provider(stores, "跨引擎供应");
+    seed_sdk_instance(stores, "跨引擎实例", Some(provider_id));
     let store = stores.for_root(&env.root()).expect("for_root 应成功");
     // cli 产出的会话以 sdk 解析 Continue：快照 engine ≠ 解析 kind
     let cli_session = SessionRecord {
@@ -588,7 +588,7 @@ fn continue跨引擎续会话被快照比对拒绝() {
         .expect("落 cli 快照会话行");
 
     let composed = compose_turn(
-        &stores,
+        stores,
         Arc::new(StopRegistry::new()),
         Arc::new(SessionStreamRegistry::new()),
         env.store(),
@@ -613,14 +613,14 @@ fn continue跨引擎续会话被快照比对拒绝() {
 async fn continue未开轮会话首轮放行并定型快照() {
     let env = DualEnv::new("unstarted-first-turn");
     let stores = env.stores();
-    let provider_id = seed_provider(&stores, "首轮供应");
-    seed_sdk_instance(&stores, "首轮实例", Some(provider_id));
+    let provider_id = seed_provider(stores, "首轮供应");
+    seed_sdk_instance(stores, "首轮实例", Some(provider_id));
     let store = stores.for_root(&env.root()).expect("for_root 应成功");
     // 未开轮：无引擎句柄（建档预建空会话形态）
     seed_sdk_session(&store, "ses-fresh", None);
 
     let composed = compose_turn(
-        &stores,
+        stores,
         Arc::new(StopRegistry::new()),
         Arc::new(SessionStreamRegistry::new()),
         env.store(),
@@ -658,8 +658,8 @@ async fn continue未开轮会话首轮放行并定型快照() {
 async fn continue已开轮但句柄未上报仍走续会话治理() {
     let env = DualEnv::new("ran-no-handle");
     let stores = env.stores();
-    let provider_id = seed_provider(&stores, "缺柄供应");
-    seed_sdk_instance(&stores, "缺柄实例", Some(provider_id));
+    let provider_id = seed_provider(stores, "缺柄供应");
+    seed_sdk_instance(stores, "缺柄实例", Some(provider_id));
     let store = stores.for_root(&env.root()).expect("for_root 应成功");
     // 无引擎句柄，但已有轮行（开过轮）
     seed_sdk_session(&store, "ses-ran", None);
@@ -668,7 +668,7 @@ async fn continue已开轮但句柄未上报仍走续会话治理() {
         .expect("开轮行");
 
     let composed = compose_turn(
-        &stores,
+        stores,
         Arc::new(StopRegistry::new()),
         Arc::new(SessionStreamRegistry::new()),
         env.store(),
@@ -711,14 +711,14 @@ async fn 续会话缺引擎句柄不再硬拒_prior_handle透传none照常续接
     // ——`prior_handle` 以 Option 原样透传（None），续会话照常发起
     let env = DualEnv::new("remote-missing");
     let stores = env.stores();
-    let provider_id = seed_provider(&stores, "句柄缺失供应");
-    seed_sdk_instance(&stores, "句柄缺失实例", Some(provider_id));
+    let provider_id = seed_provider(stores, "句柄缺失供应");
+    seed_sdk_instance(stores, "句柄缺失实例", Some(provider_id));
     let store = stores.for_root(&env.root()).expect("for_root 应成功");
     seed_sdk_session(&store, "ses-no-remote", None);
     seed_transcript(&store, "ses-no-remote");
 
     let composed = compose_turn(
-        &stores,
+        stores,
         Arc::new(StopRegistry::new()),
         Arc::new(SessionStreamRegistry::new()),
         env.store(),
@@ -759,11 +759,11 @@ async fn 续会话缺引擎句柄不再硬拒_prior_handle透传none照常续接
 async fn 装配产物真实驱动_sdk轮失败收敛且会话行轮行转录齐落库() {
     let env = DualEnv::new("drive-real");
     let stores = env.stores();
-    let provider_id = seed_provider(&stores, "驱动供应");
-    seed_sdk_instance(&stores, "驱动实例", Some(provider_id));
+    let provider_id = seed_provider(stores, "驱动供应");
+    seed_sdk_instance(stores, "驱动实例", Some(provider_id));
 
     let composed = compose_turn(
-        &stores,
+        stores,
         Arc::new(StopRegistry::new()),
         Arc::new(SessionStreamRegistry::new()),
         env.store(),
@@ -818,15 +818,15 @@ async fn 装配产物真实驱动_sdk轮失败收敛且会话行轮行转录齐�
 async fn 装配产物含查询面_continue校验经真实库行成立() {
     let env = DualEnv::new("query-assemble");
     let stores = env.stores();
-    let provider_id = seed_provider(&stores, "查询面供应");
-    seed_sdk_instance(&stores, "查询面实例", Some(provider_id));
+    let provider_id = seed_provider(stores, "查询面供应");
+    seed_sdk_instance(stores, "查询面实例", Some(provider_id));
     let store = stores.for_root(&env.root()).expect("for_root 应成功");
     seed_sdk_session(&store, "ses-query", Some("sdk-77"));
     seed_transcript(&store, "ses-query");
 
     // ComposedTurn 产物即真实装配（query 直查 store 行 → 校验通过形态复用）
     let composed: ComposedTurn = compose_turn(
-        &stores,
+        stores,
         Arc::new(StopRegistry::new()),
         Arc::new(SessionStreamRegistry::new()),
         env.store(),
@@ -875,7 +875,7 @@ fn sdk实例缺provider_id的存量形态解析err引导管理页() {
     let stores = env.stores();
 
     let error = err_of(compose_turn(
-        &stores,
+        stores,
         Arc::new(StopRegistry::new()),
         Arc::new(SessionStreamRegistry::new()),
         env.store(),
@@ -905,12 +905,12 @@ fn sdk实例缺provider_id的存量形态解析err引导管理页() {
 fn resolve_sdk臂透传provider的context_length() {
     let env = DualEnv::new("ctx-window");
     let stores = env.stores();
-    let provider_id = seed_provider_with_context_length(&stores, "窗长供应", Some(200_000));
-    let instance_id = seed_sdk_instance(&stores, "窗长实例", Some(provider_id));
+    let provider_id = seed_provider_with_context_length(stores, "窗长供应", Some(200_000));
+    let instance_id = seed_sdk_instance(stores, "窗长实例", Some(provider_id));
 
     // 解析单点产物（compose_test 为 compose 子模块，可考私有解析产物）：
     // context_window == Some(200_000)，其余装配面不变
-    let resolved = match super::resolve_agent_engine(&stores, Some(instance_id)) {
+    let resolved = match super::resolve_agent_engine(stores, Some(instance_id)) {
         Ok(resolved) => resolved,
         Err(error) => panic!("解析应成功: {error}"),
     };
@@ -934,10 +934,10 @@ fn resolve_provider缺列时透传none不落128k字面() {
     let env = DualEnv::new("ctx-none");
     let stores = env.stores();
     // seed_provider 固定 context_length = None（含 V1 升级读入的旧记录形态）
-    let provider_id = seed_provider(&stores, "缺列供应");
-    let instance_id = seed_sdk_instance(&stores, "缺列实例", Some(provider_id));
+    let provider_id = seed_provider(stores, "缺列供应");
+    let instance_id = seed_sdk_instance(stores, "缺列实例", Some(provider_id));
 
-    let resolved = match super::resolve_agent_engine(&stores, Some(instance_id)) {
+    let resolved = match super::resolve_agent_engine(stores, Some(instance_id)) {
         Ok(resolved) => resolved,
         Err(error) => panic!("解析应成功: {error}"),
     };
@@ -953,7 +953,7 @@ fn resolve_cli臂逐字拒收退役文案() {
     let cli_id = preset_cli_instance(&env, 43, "cli窗长实例", false);
     let stores = env.stores();
 
-    let error = err_of(super::resolve_agent_engine(&stores, Some(cli_id)));
+    let error = err_of(super::resolve_agent_engine(stores, Some(cli_id)));
 
     assert_eq!(
         error, CLI_TENANT_RETIRED,
@@ -973,8 +973,8 @@ fn resolve_cli臂逐字拒收退役文案() {
 async fn 注入实例消费_会话行轮行落注入库且异根库零行() {
     let env = DualEnv::new("inject-isolation");
     let stores = env.stores();
-    let provider_id = seed_provider(&stores, "注入消费供应");
-    let sdk_id = seed_sdk_instance(&stores, "注入消费实例", Some(provider_id));
+    let provider_id = seed_provider(stores, "注入消费供应");
+    let sdk_id = seed_sdk_instance(stores, "注入消费实例", Some(provider_id));
     let root_b = tempfile::Builder::new()
         .prefix("compose-test-inject-other-root-")
         .tempdir()
@@ -984,7 +984,7 @@ async fn 注入实例消费_会话行轮行落注入库且异根库零行() {
     // 注入实例 = for_root(rootA) 预解析（命令层装配同构）
     let injected = env.store();
     let composed = compose_turn(
-        &stores,
+        stores,
         Arc::new(StopRegistry::new()),
         Arc::new(SessionStreamRegistry::new()),
         std::sync::Arc::clone(&injected),
@@ -1241,6 +1241,7 @@ async fn prior_handle透传四形态_句柄原样与none缺省与new恒none() {
 }
 
 #[tokio::test]
+#[allow(non_snake_case)]
 async fn 快照组装携agentInstanceId与定型双面_json线键camel_case() {
     let env = DualEnv::new("snapshot-key");
     let stores = env.stores();
@@ -1472,7 +1473,7 @@ fn 显式agent_id边界零与负数与i64max均miss记因() {
     let stores = env.stores();
     for id in [0_i64, -1, i64::MAX] {
         let error = err_of(compose_turn(
-            &stores,
+            stores,
             Arc::new(StopRegistry::new()),
             Arc::new(SessionStreamRegistry::new()),
             env.store(),
@@ -1489,10 +1490,10 @@ fn 显式agent_id边界零与负数与i64max均miss记因() {
 fn 续会话id边界空串与超长与特殊字符均走会话不存在分支不panic() {
     let env = DualEnv::new("session-id-edge");
     let stores = env.stores();
-    let provider_id = seed_provider(&stores, "边界供应");
-    seed_sdk_instance(&stores, "边界实例", Some(provider_id));
+    let provider_id = seed_provider(stores, "边界供应");
+    seed_sdk_instance(stores, "边界实例", Some(provider_id));
     let composed = compose_turn(
-        &stores,
+        stores,
         Arc::new(StopRegistry::new()),
         Arc::new(SessionStreamRegistry::new()),
         env.store(),
@@ -1521,13 +1522,13 @@ fn 续会话id边界空串与超长与特殊字符均走会话不存在分支不
 async fn 新会话快照携实例id_缺省与显式路径同填some() {
     let env = DualEnv::new("snapshot-instance");
     let stores = env.stores();
-    let provider_id = seed_provider(&stores, "快照供应");
-    let sdk_id = seed_sdk_instance(&stores, "快照实例", Some(provider_id));
+    let provider_id = seed_provider(stores, "快照供应");
+    let sdk_id = seed_sdk_instance(stores, "快照实例", Some(provider_id));
     let store = stores.for_root(&env.root()).expect("for_root 应成功");
 
     // 显式路径：快照携实例 id（DD8）
     let composed = compose_turn(
-        &stores,
+        stores,
         Arc::new(StopRegistry::new()),
         Arc::new(SessionStreamRegistry::new()),
         env.store(),
@@ -1561,7 +1562,7 @@ async fn 新会话快照携实例id_缺省与显式路径同填some() {
 
     // 缺省路径：同经 resolve 取实例、同填 Some
     let composed = compose_turn(
-        &stores,
+        stores,
         Arc::new(StopRegistry::new()),
         Arc::new(SessionStreamRegistry::new()),
         env.store(),
@@ -1811,8 +1812,8 @@ async fn store侧explore来源字面量发起命中装配臂() {
 async fn 装配产物真实驱动_explore来源runstarted报六工具加专用工具() {
     let env = DualEnv::new("drive-explore");
     let stores = env.stores();
-    let provider_id = seed_provider(&stores, "驱动供应explore");
-    seed_sdk_instance(&stores, "驱动实例explore", Some(provider_id));
+    let provider_id = seed_provider(stores, "驱动供应explore");
+    seed_sdk_instance(stores, "驱动实例explore", Some(provider_id));
     let store = stores.for_root(&env.root()).expect("for_root 应成功");
 
     // 预建空会话（占位建档同事务回写）→ Continue 首轮
@@ -1822,7 +1823,7 @@ async fn 装配产物真实驱动_explore来源runstarted报六工具加专用�
     let session_id = record.session_id.clone().expect("建档回写会话指针");
 
     let composed = compose_turn(
-        &stores,
+        stores,
         Arc::new(StopRegistry::new()),
         Arc::new(SessionStreamRegistry::new()),
         env.store(),
@@ -1872,12 +1873,12 @@ async fn 装配产物真实驱动_explore来源runstarted报六工具加专用�
 async fn 装配产物真实驱动_debug来源runstarted报七名() {
     let env = DualEnv::new("drive-debug");
     let stores = env.stores();
-    let provider_id = seed_provider(&stores, "驱动供应debug");
-    seed_sdk_instance(&stores, "驱动实例debug", Some(provider_id));
+    let provider_id = seed_provider(stores, "驱动供应debug");
+    seed_sdk_instance(stores, "驱动实例debug", Some(provider_id));
     let store = stores.for_root(&env.root()).expect("for_root 应成功");
 
     let composed = compose_turn(
-        &stores,
+        stores,
         Arc::new(StopRegistry::new()),
         Arc::new(SessionStreamRegistry::new()),
         env.store(),
@@ -1913,8 +1914,8 @@ async fn 装配产物真实驱动_debug来源runstarted报七名() {
 async fn explore装配不破坏失败收敛语义() {
     let env = DualEnv::new("explore-failure");
     let stores = env.stores();
-    let provider_id = seed_provider(&stores, "驱动供应失败面");
-    seed_sdk_instance(&stores, "驱动实例失败面", Some(provider_id));
+    let provider_id = seed_provider(stores, "驱动供应失败面");
+    seed_sdk_instance(stores, "驱动实例失败面", Some(provider_id));
     let store = stores.for_root(&env.root()).expect("for_root 应成功");
 
     let record = store
@@ -1923,7 +1924,7 @@ async fn explore装配不破坏失败收敛语义() {
     let session_id = record.session_id.clone().expect("建档回写会话指针");
 
     let composed = compose_turn(
-        &stores,
+        stores,
         Arc::new(StopRegistry::new()),
         Arc::new(SessionStreamRegistry::new()),
         env.store(),

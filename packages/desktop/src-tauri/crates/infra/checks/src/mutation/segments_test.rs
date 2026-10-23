@@ -1,11 +1,3 @@
-//! `segments.rs` 的单元测试（test-design「segments.rs -> segments_test.rs」
-//! 节）：分段切分（估算超预算触发 k 段字典序均分、段并集 = 全清单、零交叠）
-//! + 自适应修正（实测速率调段大小——慢于初值变小、快于初值变大）+ 补丁切片
-//! （`--in-diff` 按 `diff --git` 文件段头切片、`+++ b/` 兜底、引用路径解码）。
-//!
-//! Mock策略（test-design 本节 Mock 表）：无——清单 / 补丁文本 / 速率观测值
-//! 均为显式入参，纯函数直测零 mock 零 spawn。
-
 use super::super::{EST_MUTANTS_PER_FILE, SEGMENT_BUDGET_MS, SEGMENT_GUARD_MS};
 use super::{
     adaptive_chunk_size, estimate_duration_ms, segment_count, slice_patch, static_chunk_size,
@@ -17,7 +9,7 @@ fn 静态估算耗时公式面锚定() {
     assert_eq!(estimate_duration_ms(0), 0, "零文件零耗时");
     assert_eq!(
         estimate_duration_ms(1),
-        EST_MUTANTS_PER_FILE as u64 * 2000,
+        EST_MUTANTS_PER_FILE * 2000,
         "单文件 = 10 mutants × 2s = 20s"
     );
     assert_eq!(

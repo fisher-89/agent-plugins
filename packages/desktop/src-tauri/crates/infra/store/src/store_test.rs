@@ -772,7 +772,7 @@ fn 全局库文件损坏时两级库open返回err不静默降级() {
         "错误串以 db: 前缀，实际: {err}"
     );
     assert!(
-        fs::read(&global_path).expect("读取损坏文件失败").len() > 0,
+        !fs::read(&global_path).expect("读取损坏文件失败").is_empty(),
         "fail fast 不破坏现场文件"
     );
 }
@@ -7907,7 +7907,7 @@ fn open_workspace内嵌标定_重开即标定残留() {
     let reopened = open_workspace_ok(&db_path);
     let runs = reopened.list_change_runs("flow-run").expect("list 应成功");
     assert_eq!(runs[0].status, RunStatus::Interrupted, "重开即标定残留");
-    assert_eq!(runs[0].finished_at.is_some(), true, "标定时刻在位");
+    assert!(runs[0].finished_at.is_some(), "标定时刻在位");
     let record = reopened
         .find_change_record("flow-run")
         .expect("读档应成功")

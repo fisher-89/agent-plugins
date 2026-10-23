@@ -1234,7 +1234,7 @@ fn checklist_item_record_native_model往返版本1逐字段保真() {
     assert_eq!(version, 1, "native_model 11:v1 版本封装（零改动）");
     assert_eq!(decoded, record, "打包键与三面载荷往返逐字段相等");
     assert_eq!(decoded.phase_id, 7, "二级索引列往返保真");
-    assert_eq!(decoded.pass, false);
+    assert!(!decoded.pass);
 }
 
 // ---------------------------------------------------------------------------
@@ -2629,6 +2629,7 @@ fn 会话记录降级半边from丢弃实例外键不panic() {
 }
 
 #[test]
+#[allow(non_snake_case)]
 fn 旧json形态缺agentInstanceId键经serde_default读none不炸() {
     // store_port 旧载荷 / 前端旧形态 JSON：缺新键经 `#[serde(default)]` 读 None
     let legacy = serde_json::json!({
@@ -2692,7 +2693,7 @@ fn v2快照bincode布局锚_实例外键紧随engine之后() {
     // + Some 标记 + i64::MAX 值
     let pattern: Vec<u8> = [1_u8, 0, 0, 0, 1]
         .into_iter()
-        .chain(std::iter::repeat(0xFF_u8).take(7))
+        .chain(std::iter::repeat_n(0xFF_u8, 7))
         .chain([0x7F_u8])
         .collect();
     let hits: Vec<usize> = bytes

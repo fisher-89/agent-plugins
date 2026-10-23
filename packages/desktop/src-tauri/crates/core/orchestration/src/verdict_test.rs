@@ -105,7 +105,7 @@ fn checklist行解析_空数组与多行() {
     )
     .expect("多行 checklist 应解析");
     assert_eq!(multi.checklist.len(), 3);
-    assert_eq!(multi.checklist[1].pass, false);
+    assert!(!multi.checklist[1].pass);
     assert_eq!(multi.checklist[1].evidence, "2 用例失败");
 }
 

@@ -299,11 +299,11 @@ fn session_events_of(updates: &[RunUpdate]) -> Vec<(String, agent::AgentEvent)> 
 async fn change来源与permission装配入会话行_engine恒sdk携实例id() {
     let env = DualEnv::new("provenance");
     let stores = env.stores();
-    let default_id = seed_sdk_default(&stores, "装配实例");
+    let default_id = seed_sdk_default(stores, "装配实例");
     let registry = Arc::new(StopRegistry::new());
     let (sink, mut captured) = CapturingSink::capturing();
     let composed: ComposedTurn = compose_turn(
-        &stores,
+        stores,
         Arc::clone(&registry),
         Arc::new(SessionStreamRegistry::new()),
         env.store(),
@@ -368,7 +368,7 @@ async fn change来源与permission装配入会话行_engine恒sdk携实例id() {
 async fn continue会话复用既有行不重复建() {
     let env = DualEnv::new("continue");
     let stores = env.stores();
-    seed_sdk_default(&stores, "续话实例");
+    seed_sdk_default(stores, "续话实例");
     let registry = Arc::new(StopRegistry::new());
     let store = stores.for_root(&env.root()).expect("for_root 应成功");
     seed_sdk_session(
@@ -379,7 +379,7 @@ async fn continue会话复用既有行不重复建() {
     seed_transcript(&store, "ses-flow-continue");
     let (sink, mut captured) = CapturingSink::capturing();
     let composed: ComposedTurn = compose_turn(
-        &stores,
+        stores,
         Arc::clone(&registry),
         Arc::new(SessionStreamRegistry::new()),
         env.store(),
@@ -424,7 +424,7 @@ fn 空库缺省解析err引导管理页且零落库() {
     let stores = env.stores();
 
     let error = match compose_turn(
-        &stores,
+        stores,
         Arc::new(StopRegistry::new()),
         Arc::new(SessionStreamRegistry::new()),
         env.store(),
@@ -454,10 +454,10 @@ async fn open段配置缺失显式err传播且零半成品记录() {
     // 缺失归 begin() open 段显式 Err——错误面不移位、不静默、零半成品记录
     let env = DualEnv::new("open-fail");
     let stores = env.stores();
-    seed_sdk_default_with_blank_provider(&stores);
+    seed_sdk_default_with_blank_provider(stores);
     let (sink, _captured) = CapturingSink::capturing();
     let composed: ComposedTurn = compose_turn(
-        &stores,
+        stores,
         Arc::new(StopRegistry::new()),
         Arc::new(SessionStreamRegistry::new()),
         env.store(),
@@ -502,11 +502,11 @@ async fn open段配置缺失显式err传播且零半成品记录() {
 async fn 泵收集密封转录并透传会话事件_拒连一轮一命收敛() {
     let env = DualEnv::new("pump");
     let stores = env.stores();
-    seed_sdk_default(&stores, "泵收集实例");
+    seed_sdk_default(stores, "泵收集实例");
     let (sink, captured) = CapturingSink::capturing();
     let registry = Arc::new(StopRegistry::new());
     let composed: ComposedTurn = compose_turn(
-        &stores,
+        stores,
         Arc::clone(&registry),
         Arc::new(SessionStreamRegistry::new()),
         env.store(),
@@ -603,11 +603,11 @@ async fn 泵收集密封转录并透传会话事件_拒连一轮一命收敛() {
 async fn 中途停止收敛stopped并保留已收集事件() {
     let env = DualEnv::new("stop");
     let stores = env.stores();
-    seed_sdk_default(&stores, "停止实例");
+    seed_sdk_default(stores, "停止实例");
     let registry = Arc::new(StopRegistry::new());
     let (sink, mut captured) = CapturingSink::capturing();
     let composed: ComposedTurn = compose_turn(
-        &stores,
+        stores,
         Arc::clone(&registry),
         Arc::new(SessionStreamRegistry::new()),
         env.store(),
@@ -663,11 +663,11 @@ async fn 中途停止收敛stopped并保留已收集事件() {
 async fn 三角色provenance定式逐段落库且精确反查命中() {
     let env = DualEnv::new("roles");
     let stores = env.stores();
-    seed_sdk_default(&stores, "角色实例");
+    seed_sdk_default(stores, "角色实例");
     let registry = Arc::new(StopRegistry::new());
     let (sink, mut captured) = CapturingSink::capturing();
     let composed: ComposedTurn = compose_turn(
-        &stores,
+        stores,
         Arc::clone(&registry),
         Arc::new(SessionStreamRegistry::new()),
         env.store(),

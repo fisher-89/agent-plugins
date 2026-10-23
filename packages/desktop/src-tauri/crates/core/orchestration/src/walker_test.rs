@@ -348,6 +348,7 @@ impl FakeWorker {
         self
     }
 
+    #[allow(clippy::type_complexity)]
     fn assemble(
         self,
     ) -> (
@@ -1070,13 +1071,6 @@ impl FakeVcs {
         }
     }
 
-    /// 清单 / 补丁产出面编程（突变执行链组合用例的数据注入）。
-    fn with_edit(self, files: Vec<String>, patch: &str) -> Self {
-        *self.edit_set.lock().expect("vcs 清单锁不可中毒") = files;
-        *self.edit_patch.lock().expect("vcs 补丁锁不可中毒") = patch.to_owned();
-        self
-    }
-
     fn with_dirty(self, dirty: bool) -> Self {
         *self.dirty.lock().expect("vcs 脏锁不可中毒") = dirty;
         self
@@ -1661,6 +1655,7 @@ fn spawn_confirmer_with_specs(
 
 /// 停等载荷捕获回路：每见 `ConfirmWait` 先快照注册表条目（phase + 归档前置
 /// 载荷）后应答——`stop-before-archive` 停等面数据面断言的事实源。
+#[allow(clippy::type_complexity)]
 fn spawn_confirmer_capturing(
     control: &Arc<ChangeFlowControl>,
     proceed: bool,
@@ -2837,9 +2832,7 @@ async fn 越权backtrack软拒一次后续注纠正并stop收敛() {
     );
 
     // 失败原因经 Finished 通知 + 落包捕获面流出
-    assert!(drain_notices(&mut rx)
-        .iter()
-        .any(|notice| *notice == RunNotice::Finished));
+    assert!(drain_notices(&mut rx).contains(&RunNotice::Finished));
     let finish = history.finish().expect("finish 落包捕获");
     assert_eq!(finish.status, RunStatus::Stopped);
     assert!(
@@ -3028,8 +3021,8 @@ async fn 相位间停等确认confirm流出且proceed继续推进() {
         "相位推进间 ConfirmWait 逐相位流出（确认卡片通知面）"
     );
     // 确认后 run 全程仍可观测：步与终态通知照常流出（终态随落包捕获面）
-    assert!(notices.iter().any(|notice| *notice == RunNotice::Step));
-    assert!(notices.iter().any(|notice| *notice == RunNotice::Finished));
+    assert!(notices.contains(&RunNotice::Step));
+    assert!(notices.contains(&RunNotice::Finished));
     let finish = history.finish().expect("finish 落包捕获");
     assert_eq!(finish.status, RunStatus::Completed);
 }
@@ -3087,9 +3080,7 @@ async fn confirm否决收敛stopped且不再发起新相位() {
     );
 
     // 终态与记因经 Finished 流出 + 注册表除名
-    assert!(drain_notices(&mut rx)
-        .iter()
-        .any(|notice| *notice == RunNotice::Finished));
+    assert!(drain_notices(&mut rx).contains(&RunNotice::Finished));
     let finish = history.finish().expect("finish 落包捕获");
     assert_eq!(finish.status, RunStatus::Stopped);
     assert!(
@@ -3168,9 +3159,7 @@ async fn 停止置位收敛stopped且不再发起新相位() {
     );
 
     // Finished 通知流出 + 落包终态 + 注册表除名（run 仅进程内）
-    assert!(drain_notices(&mut rx)
-        .iter()
-        .any(|notice| *notice == RunNotice::Finished));
+    assert!(drain_notices(&mut rx).contains(&RunNotice::Finished));
     let finish = history.finish().expect("finish 落包捕获");
     assert_eq!(finish.status, RunStatus::Stopped);
     assert!(control.snapshot(ROOT, CHANGE_ID).is_none(), "终态除名");
@@ -3227,7 +3216,7 @@ async fn auto确认多相位直通零confirmwait信封终态口径不漂移() {
     );
 
     // 终态口径：completed + 全相位通过 reason（不随 auto 分支漂移）
-    assert!(notices.iter().any(|notice| *notice == RunNotice::Finished));
+    assert!(notices.contains(&RunNotice::Finished));
     let finish = history.finish().expect("finish 落包捕获");
     assert_eq!(finish.status, RunStatus::Completed);
     assert_eq!(
@@ -3300,7 +3289,7 @@ async fn auto确认写面失败显式failed零confirmwait() {
             .all(|notice| *notice != RunNotice::ConfirmWait),
         "失败路径通知流同样零 ConfirmWait"
     );
-    assert!(notices.iter().any(|notice| *notice == RunNotice::Finished));
+    assert!(notices.contains(&RunNotice::Finished));
     let finish = history.finish().expect("finish 落包捕获");
     assert_eq!(finish.status, RunStatus::Failed);
     assert!(
@@ -3393,10 +3382,7 @@ async fn auto确认ask照常停等应答回流后收敛全程零confirmwait() {
             .all(|notice| *notice != RunNotice::ConfirmWait),
         "auto 模式全程零 ConfirmWait 通知"
     );
-    assert!(
-        updates.iter().any(|notice| *notice == RunNotice::Finished),
-        "终态收口照常流出"
-    );
+    assert!(updates.contains(&RunNotice::Finished), "终态收口照常流出");
 
     // 决策会话两轮：ask 挂起前 New 会话 + 应答文本 Continue 同会话重出
     let first_decision_session = sessions
@@ -3966,9 +3952,7 @@ async fn 工具步失败显式failed且原因流出() {
         "失败先行（phase-start 失败零会话发起）"
     );
 
-    assert!(drain_notices(&mut rx)
-        .iter()
-        .any(|notice| *notice == RunNotice::Finished));
+    assert!(drain_notices(&mut rx).contains(&RunNotice::Finished));
     let finish = history.finish().expect("finish 落包捕获");
     assert_eq!(finish.status, RunStatus::Failed);
     assert!(
@@ -4005,9 +3989,7 @@ async fn 会话失败收敛携真因随节点与终态() {
     let status = task.await.expect("run 任务正常结束");
 
     assert_eq!(status, ChangeRunStatus::Failed, "会话失败收敛显式 failed");
-    assert!(drain_notices(&mut rx)
-        .iter()
-        .any(|notice| *notice == RunNotice::Finished));
+    assert!(drain_notices(&mut rx).contains(&RunNotice::Finished));
     let finish = history.finish().expect("finish 落包捕获");
     assert_eq!(finish.status, RunStatus::Failed);
     assert!(
@@ -4319,9 +4301,7 @@ async fn 真实写面组合_决策挂账先于解析_parse失败同样留痕() {
     );
 
     // 终态记因为决策漂移（非挂账失败——挂账已成功先于 parse）
-    assert!(drain_notices(&mut rx)
-        .iter()
-        .any(|notice| *notice == RunNotice::Finished));
+    assert!(drain_notices(&mut rx).contains(&RunNotice::Finished));
     let finish = history.finish().expect("finish 落包捕获");
     assert_eq!(finish.status, RunStatus::Failed);
     let reason = finish.reason.as_deref().unwrap_or_default();
@@ -4620,9 +4600,7 @@ async fn 决策挂账失败显式failed且未达解析() {
     let status = task.await.expect("run 任务正常结束");
     assert_eq!(status, ChangeRunStatus::Failed, "挂账失败显式失败停给用户");
 
-    assert!(drain_notices(&mut rx)
-        .iter()
-        .any(|notice| *notice == RunNotice::Finished));
+    assert!(drain_notices(&mut rx).contains(&RunNotice::Finished));
     let finish = history.finish().expect("finish 落包捕获");
     let reason = finish.reason.as_deref().unwrap_or_default();
     assert!(
@@ -9306,11 +9284,11 @@ fn two_phase_routes() -> Vec<PhaseNextOutcome> {
 }
 
 /// 落包节点摘取：按 (step, instance_no) 圈定。
-fn node_of<'a>(
-    command: &'a RunFinishCommand,
+fn node_of(
+    command: &RunFinishCommand,
     step: workflow::state::RunStepKind,
     instance_no: u32,
-) -> &'a RunNodeEntry {
+) -> &RunNodeEntry {
     command
         .nodes
         .iter()
@@ -9399,9 +9377,7 @@ async fn emit铸造_会话stopped收敛终态节点ended在场() {
         ChangeRunStatus::Stopped,
         "会话 Stopped 收敛 → run stopped"
     );
-    assert!(drain_notices(&mut rx)
-        .iter()
-        .any(|notice| *notice == RunNotice::Finished));
+    assert!(drain_notices(&mut rx).contains(&RunNotice::Finished));
 
     let finish = history.finish().expect("finish 落包捕获");
     let executor = node_of(&finish, workflow::state::RunStepKind::Executor, 0);
@@ -11658,9 +11634,7 @@ async fn 停止运行中检查步_秒级收敛stopped且无failed节点() {
 
     // 终态与记因经 Finished 流出：停因「用户请求停止」，无旧过渡文案
     assert!(
-        drain_notices(&mut rx)
-            .iter()
-            .any(|notice| *notice == RunNotice::Finished),
+        drain_notices(&mut rx).contains(&RunNotice::Finished),
         "Finished 信封在场"
     );
     let finish = history.finish().expect("finish 落包捕获");

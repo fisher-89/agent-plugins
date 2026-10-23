@@ -480,7 +480,7 @@ fn workflow_type_test_only可推进且白名单随test_only表() {
         ("test-gen", 1),
         ("test-execution", 1),
     ] {
-        fake_done.push(entry(phase, attempt, Verdict::Pass, t(attempt as u32)));
+        fake_done.push(entry(phase, attempt, Verdict::Pass, t(attempt)));
     }
     let done = route(&fake_done, RUN, &SessionAnchors::new());
     assert_eq!(
@@ -518,7 +518,7 @@ fn workflow_type_test_only表外条目不参与推进判定() {
         ("implement", 1),
         ("dev-design", 1),
     ] {
-        fake.push(entry(phase, attempt, Verdict::Pass, t(attempt as u32)));
+        fake.push(entry(phase, attempt, Verdict::Pass, t(attempt)));
     }
 
     let outcome = route(&fake, RUN, &SessionAnchors::new());
@@ -740,7 +740,7 @@ fn 重试上限恰达返回max_retries_exceeded() {
                 outcome.error,
                 Some(PhaseNextError::MaxRetriesExceeded {
                     phase: "dev-design".to_owned(),
-                    round: u32::from(MAX_RETRY_TIMES) + 1,
+                    round: MAX_RETRY_TIMES + 1,
                 }),
                 "第 {MAX_RETRY_TIMES} 条 fail 恰达上限（标注变体）"
             );
@@ -1381,12 +1381,7 @@ fn 错误响应不下发计划步与清单() {
 
     let mut outcome = None;
     for attempt in 1..=MAX_RETRY_TIMES {
-        fake.push(entry(
-            "dev-design",
-            attempt,
-            Verdict::Fail,
-            t(u32::from(attempt) + 1),
-        ));
+        fake.push(entry("dev-design", attempt, Verdict::Fail, t(attempt + 1)));
         outcome = Some(route(&fake, RUN, &anchors));
     }
     let outcome = outcome.expect("到达重试上限应有响应");

@@ -1100,12 +1100,14 @@ fn 多层文件树最新mtime提取() {
 
     let pruned = vec![dir.path().join("pruned")];
     // 剪枝目录树外三层文件均在扫描面
-    let newest = newest_input_mtime_ms(&[scan_root.clone()], &pruned).expect("有输入文件");
+    let newest =
+        newest_input_mtime_ms(std::slice::from_ref(&scan_root), &pruned).expect("有输入文件");
     assert!(newest > 0);
 
     // touch 深层文件 → 最新 mtime 递进可观测
     set_mtime(&scan_root.join("src").join("deep").join("c.txt"), 30);
-    let touched = newest_input_mtime_ms(&[scan_root.clone()], &pruned).expect("touch 后仍有输入");
+    let touched =
+        newest_input_mtime_ms(std::slice::from_ref(&scan_root), &pruned).expect("touch 后仍有输入");
     assert!(touched > newest, "touch 递进最新值（剪枝后仍取到输入最新）");
 
     // 多扫描根并集取最大
@@ -1126,7 +1128,7 @@ fn 剪枝面目录内改动不计入() {
     scan_tree(&scan_root);
     let pruned = vec![dir.path().join("pruned"), dir.path().join("reports-dir")];
 
-    let baseline = newest_input_mtime_ms(&[scan_root.clone()], &pruned).expect("基线");
+    let baseline = newest_input_mtime_ms(std::slice::from_ref(&scan_root), &pruned).expect("基线");
 
     // 报告目录（剪枝目录）、dot 目录、node_modules / coverage / target 内推进
     // mtime → 不计入
@@ -1388,10 +1390,9 @@ async fn run_slot_baseline_报告落baseline树与test树零混居() {
     );
     assert!(
         outcome.report_dir.ends_with("reports/baseline")
-            || outcome
+            || !outcome
                 .report_dir
                 .ends_with(&format!("reports{}", std::path::MAIN_SEPARATOR))
-                == false
                 && outcome.report_dir.contains("reports/baseline"),
         "载荷 report_dir = baseline 树锚: {}",
         outcome.report_dir

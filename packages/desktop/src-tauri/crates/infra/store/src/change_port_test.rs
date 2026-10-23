@@ -522,9 +522,8 @@ fn delete_change_record补偿删除_命中true_miss幂等false() {
 
     port.create_change_record(change_archive("flow", "flow", 1000))
         .expect("建档应成功");
-    assert_eq!(
+    assert!(
         port.delete_change_record("flow").unwrap(),
-        true,
         "命中删除返回 Ok(true)"
     );
     assert_eq!(
@@ -532,14 +531,12 @@ fn delete_change_record补偿删除_命中true_miss幂等false() {
         None,
         "补偿删除后建档行消失"
     );
-    assert_eq!(
-        port.delete_change_record("flow").unwrap(),
-        false,
+    assert!(
+        !port.delete_change_record("flow").unwrap(),
         "重复删除幂等 Ok(false)"
     );
-    assert_eq!(
-        port.delete_change_record("从未存在").unwrap(),
-        false,
+    assert!(
+        !port.delete_change_record("从未存在").unwrap(),
         "miss 幂等 Ok(false)"
     );
 }

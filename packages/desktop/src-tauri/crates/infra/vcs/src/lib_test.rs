@@ -122,7 +122,7 @@ fn worktree_root_非git目录err() {
 #[test]
 fn processworktree构造_new与default等值() {
     let _a = ProcessWorktree::new();
-    let _b = ProcessWorktree::default();
+    let _b = ProcessWorktree;
     let _c = ProcessWorktree::new();
     // 无状态空类型：可重复构造即断言面（字段零个，等值由类型层承载）
 }
@@ -273,7 +273,7 @@ fn process_archive_vcs干净仓空面透传() {
     );
 
     // 构造形态：new() 与 Default::default() 等价可用（无状态缝）
-    let _default = ProcessArchiveVcs::default();
+    let _default = ProcessArchiveVcs;
     assert!(
         _default.change_edit_set(&root, "HEAD").is_ok(),
         "Default 构造面同式可用"
@@ -294,6 +294,7 @@ async fn 组合链路_真实vcs取数注入fake_runner四参() {
     use orchestration::port::{BoxToolFuture, MutationRunner, ToolStepOutput};
 
     /// 记录四参的 fake MutationRunner（缝注入面）。
+    #[allow(clippy::type_complexity)]
     struct RecordingMutationRunner {
         calls: std::sync::Mutex<Vec<(String, String, Vec<String>, String)>>,
     }
@@ -548,7 +549,7 @@ fn process_archive_vcs_remove_worktree脏worktree经force仍可移除() {
 #[test]
 fn process_archive_vcs构造_new与default等值() {
     let _a = ProcessArchiveVcs::new();
-    let _b = ProcessArchiveVcs::default();
+    let _b = ProcessArchiveVcs;
     let _c = ProcessArchiveVcs::new();
     // 无状态空类型：可重复构造即断言面（字段零个，等值由类型层承载）
 }
@@ -697,5 +698,5 @@ fn process_archive_vcs_restore_baseline_主仓双保险真件锚() {
 #[test]
 fn process_archive_vcs_restore_baseline构造持衡() {
     let _new = ProcessArchiveVcs::new();
-    let _default = ProcessArchiveVcs::default();
+    let _default = ProcessArchiveVcs;
 }

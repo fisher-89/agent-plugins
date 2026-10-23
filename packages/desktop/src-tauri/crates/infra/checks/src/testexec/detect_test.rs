@@ -274,6 +274,7 @@ impl Drop for PathWindow {
 /// 逐字对齐锚定（jest 模板以 {randomize} 哨兵空展开形态比对——CLI builder
 /// 的特性不支持臂同形态）。
 #[test]
+#[allow(clippy::type_complexity)]
 fn 五框架注册表常量与cli逐字对齐() {
     // CLI FRAMEWORK_REGISTRY 键序（jest / vitest / vite-plus / rust / node-test
     // 为 V1 支持面；bun / go / pytest 在 detect 显式 Err 臂覆盖）

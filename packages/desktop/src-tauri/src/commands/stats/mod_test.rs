@@ -1,12 +1,3 @@
-//! `commands::stats` 的单元测试：`code_stats` 无状态薄包装 + `code_stats_inner`
-//! 领域组装纯函数（AC-3 / AC-6）。
-//!
-//! `#[tauri::command]` 保留原函数可直调，测试不启动 Tauri runtime（queries
-//! mod_test 先例）。文件系统不 mock：以真实 tempdir fixture（`std::env::temp_dir`
-//! + RAII 清理）承载多语言 / 嵌套 / 空目录 / 无效 root；tokei 作为被测函数内部
-//! 真实依赖消费，其计数 / 识别 / ignore 语义不在断言范围——仅断言自研组装层
-//! （同源自洽求和、排序键、深度截断、前缀聚合、Err 通道）。
-
 use std::fs;
 use std::path::{Path, PathBuf};
 

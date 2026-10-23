@@ -116,6 +116,7 @@ struct ProgrammableRunner {
 }
 
 impl ProgrammableRunner {
+    #[allow(clippy::type_complexity)]
     fn with_outcome(
         outcome: StaticCheckOutcome,
     ) -> (Self, Arc<Mutex<Vec<(String, String, ReportSlot)>>>) {
@@ -533,7 +534,7 @@ fn tool_step_output各变体载荷写面原生类型逐字段相等() {
         report_dir: String::new(),
     };
 
-    let outputs = vec![
+    let outputs = [
         ToolStepOutput::PhaseNext(Box::new(next.clone())),
         ToolStepOutput::PhaseStart(start.clone()),
         ToolStepOutput::PhaseLog(log.clone()),
@@ -935,6 +936,7 @@ struct ProgrammableTestExecutionRunner {
 }
 
 impl ProgrammableTestExecutionRunner {
+    #[allow(clippy::type_complexity)]
     fn with_result(
         result: Result<TestExecutionOutcome, String>,
     ) -> (Self, Arc<Mutex<Vec<(String, String, ReportSlot)>>>) {
@@ -1408,7 +1410,7 @@ async fn tool_step_output归档两新变体载荷透传() {
         archived_date: "2026-02-02".to_owned(),
     };
 
-    let outputs = vec![
+    let outputs = [
         ToolStepOutput::ArchivePreflight(preflight.clone()),
         ToolStepOutput::ArchiveSeal(outcome.clone()),
     ];
@@ -1581,10 +1583,10 @@ fn archive_vcs_port面全方法签名编译锚() {
         "main",
         "合入目标分支探测（Preflight / Rebase 消费）"
     );
-    assert_eq!(
-        port.branch_merged(Path::new("/tmp/root"), "change/demo")
+    assert!(
+        !port
+            .branch_merged(Path::new("/tmp/root"), "change/demo")
             .expect("判定应可用"),
-        false,
         "合入段幂等跳过判定（Finalize 消费）"
     );
     assert!(
@@ -1725,6 +1727,7 @@ fn sample_mutation_outcome(conclusion: MutationTestConclusion) -> MutationTestOu
 
 /// 可编程 MutationRunner 假件（ProgrammableRunner 同式）：记录四参
 /// `(root, name, files, patch)` 逐字透传 + 可编程产出 / Err(String)。
+#[allow(clippy::type_complexity)]
 struct FakeMutationRunner {
     calls: Arc<Mutex<Vec<(String, String, Vec<String>, String)>>>,
     /// 收到的取消信号（AC-6 末位形参透传面）
@@ -1733,6 +1736,7 @@ struct FakeMutationRunner {
 }
 
 impl FakeMutationRunner {
+    #[allow(clippy::type_complexity)]
     fn with_result(
         result: Result<MutationTestOutcome, String>,
     ) -> (Self, Arc<Mutex<Vec<(String, String, Vec<String>, String)>>>) {

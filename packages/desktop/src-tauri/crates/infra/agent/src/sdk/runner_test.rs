@@ -1012,6 +1012,7 @@ fn open_continue_at_level(session_id: &str, level: ModelLevel) -> SessionOpen {
 }
 
 #[tokio::test]
+#[allow(clippy::type_complexity)]
 async fn with_max_tokens构造可达且不改变非相关行为() {
     // builder 缝：四参 new（既有调用点零改）+ 旁路上限载荷
     let with_payload =

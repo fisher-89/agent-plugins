@@ -207,6 +207,7 @@ impl Corpus {
     }
 
     /// 开相 + 落账一步（attempt 事务内推导；时间戳全固定；id 寻址）。
+    #[allow(clippy::too_many_arguments)]
     fn run_phase(
         &self,
         change_id: &str,
@@ -260,6 +261,7 @@ impl Corpus {
     /// run 收口整包落库（经 store run 域操作面）：步序列经 orchestration
     /// `finish_command` 组装——十词汇全序列 + 四 kind 边整包喂入（零过滤单点
     /// 同真实写路径），emit 序 = 语料注入序；id 归属键。
+    #[allow(clippy::too_many_arguments)]
     fn run_finish(
         &self,
         change_id: &str,
@@ -1942,8 +1944,8 @@ fn corpusrun中断标定语料_golden对拍() {
 /// `<WORKTREE_ROOT>` 固定占位——golden 确定性；归一只作用 worktree 执行锚
 /// 字符串值，其余投影零改写）。
 fn project_worktree_detail(corpus: &Corpus) -> serde_json::Value {
-    let mut value = serde_json::to_value(&corpus.detail("id-corpus-worktree"))
-        .expect("ChangeDetail 序列化失败");
+    let mut value =
+        serde_json::to_value(corpus.detail("id-corpus-worktree")).expect("ChangeDetail 序列化失败");
     if let Some(worktree) = value
         .get("worktree")
         .and_then(|worktree| worktree.as_str())

@@ -22,6 +22,10 @@
 //! 回退）；name 仅作展示属性与磁盘面供给值（list 归档条目恒裸名、磁盘目录名
 //! 日期前缀不参与出线）。
 
+// 整测串行锁跨 await 持有为刻意语义（PATH 全局替换窗口须整测互斥；tokio
+// 默认单线程 runtime 无跨线程死锁面），clippy 按多线程假设误报。
+#![allow(clippy::await_holding_lock)]
+
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -2851,7 +2855,7 @@ async fn get_change_detail列序随workflow_type出线() {
     assert_eq!(phases[0], "initialize", "initialize 为表头第 1 列");
     assert_eq!(phases[9], "archive", "archive 为末列");
     assert!(
-        !phases.iter().any(|phase| *phase == "code-analyze"),
+        !phases.contains(&"code-analyze"),
         "requirement 列序零 code-analyze 占位"
     );
 }

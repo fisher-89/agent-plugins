@@ -364,8 +364,8 @@ fn archive_total(groups: &[ArchiveGroup]) -> usize {
 // 正向：db 单源全量（active / archived 异 id → 列表 = db 记录全量投影）
 // ---------------------------------------------------------------------------
 
-/// db 多条（active / archived 异 id 异名）→ 列表 = db 记录全量投影：active 组
-/// + 归档月组逐条出线、条目 id 恒在案（首字段）、name 恒裸名；磁盘目录零参与
+/// db 多条（active / archived 异 id 异名）→ 列表 = db 记录全量投影：active 组 +
+/// 归档月组逐条出线、条目 id 恒在案（首字段）、name 恒裸名；磁盘目录零参与
 /// 并集（同名不再去重、磁盘-only 零入列——原「并集与去重」断言反转）。
 #[test]
 fn db单源全量_异id全量投影且id恒在案与name恒裸名() {
