@@ -405,7 +405,10 @@ fn remove_worktree缺席路径err原文语义持衡() {
         "Err 为 git 语境失败: {error}"
     );
     // 普通目录零回收（失败面不吞目录）
-    assert!(plain.join("not-a-repo.txt").is_file(), "非 worktree 目录零触碰");
+    assert!(
+        plain.join("not-a-repo.txt").is_file(),
+        "非 worktree 目录零触碰"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -1411,9 +1414,7 @@ fn change_edit_set_tracked与untracked并入且字典序去重() {
     fs_write(&root, "src/lib.rs", "mod nested;\n");
     fs_write(&root, "文件 名.txt", "特殊名\n");
 
-    let files = vcs
-        .change_edit_set(&root, "HEAD")
-        .expect("清单取数应成功");
+    let files = vcs.change_edit_set(&root, "HEAD").expect("清单取数应成功");
     assert_eq!(
         files,
         vec![
@@ -1431,10 +1432,7 @@ fn change_edit_set_tracked与untracked并入且字典序去重() {
     assert_eq!(unique.len(), files.len(), "清单无重复项");
     // POSIX 归一：反斜杠不出线（git -z 输出恒正斜杠——断言形态面）
     for file in &files {
-        assert!(
-            !file.contains('\\'),
-            "POSIX 归一（反斜杠不出线）: {file}"
-        );
+        assert!(!file.contains('\\'), "POSIX 归一（反斜杠不出线）: {file}");
     }
 }
 
@@ -1447,7 +1445,9 @@ fn change_edit_set_仅tracked与仅untracked两源口径分立() {
 
     // 仅 tracked：改 a.txt
     fs_write(&root, "a.txt", "changed\n");
-    let tracked_only = vcs.change_edit_set(&root, "HEAD").expect("tracked 面应成功");
+    let tracked_only = vcs
+        .change_edit_set(&root, "HEAD")
+        .expect("tracked 面应成功");
     assert_eq!(tracked_only, vec!["a.txt".to_owned()], "清单恰为 diff 面");
 
     // 复位 tracked 改动
@@ -1455,8 +1455,14 @@ fn change_edit_set_仅tracked与仅untracked两源口径分立() {
 
     // 仅 untracked：新建 b.txt
     fs_write(&root, "b.txt", "new\n");
-    let untracked_only = vcs.change_edit_set(&root, "HEAD").expect("untracked 面应成功");
-    assert_eq!(untracked_only, vec!["b.txt".to_owned()], "清单为 ls-files 面");
+    let untracked_only = vcs
+        .change_edit_set(&root, "HEAD")
+        .expect("untracked 面应成功");
+    assert_eq!(
+        untracked_only,
+        vec!["b.txt".to_owned()],
+        "清单为 ls-files 面"
+    );
 }
 
 /// 正向：`base = "HEAD"` 语义——清单恰为本 change 编辑集（worktree 语义：工作
@@ -1527,9 +1533,7 @@ fn change_edit_set_base非法族显式err不panic() {
     let (_dir, root) = init_repo("edit-set-bad-base");
 
     // 空串：前置校验（validate_base）显式拒绝
-    let empty_error = vcs
-        .change_edit_set(&root, "")
-        .expect_err("空 base 应 Err");
+    let empty_error = vcs.change_edit_set(&root, "").expect_err("空 base 应 Err");
     assert!(
         empty_error.contains("base 为空"),
         "空 base 前置校验记因: {empty_error}"
@@ -1574,7 +1578,10 @@ fn change_edit_set_干净仓空vec与超大清单顺序稳定() {
     let mut sorted = bulk.clone();
     sorted.sort();
     assert_eq!(bulk, sorted, "顺序稳定（字典序）");
-    assert!(bulk.windows(2).all(|pair| pair[0] < pair[1]), "严格递增无重复");
+    assert!(
+        bulk.windows(2).all(|pair| pair[0] < pair[1]),
+        "严格递增无重复"
+    );
 }
 
 /// 边界：双源重复（intent-to-add 后 diff 面与 ls-files 面并集）→ 去重单条；
@@ -1763,7 +1770,10 @@ fn change_edit_patch_非git仓与非法base显式err() {
     let empty_error = vcs
         .change_edit_patch(&root, "")
         .expect_err("空 base 应 Err");
-    assert!(empty_error.contains("base 为空"), "同口径前置校验: {empty_error}");
+    assert!(
+        empty_error.contains("base 为空"),
+        "同口径前置校验: {empty_error}"
+    );
     assert!(
         vcs.change_edit_patch(&root, "不存在的rev-xyz").is_err(),
         "非存在 rev 应 Err"
@@ -1878,9 +1888,7 @@ fn ensure幂等_重复调用不重复追加() {
         "sandbox 规则恰一行: {content}"
     );
     assert_eq!(
-        content
-            .matches("mutation-stryker-seg-*.conf.json")
-            .count(),
+        content.matches("mutation-stryker-seg-*.conf.json").count(),
         1,
         "临时 config 规则恰一行: {content}"
     );
@@ -1892,11 +1900,17 @@ fn ensure兼容crlf与补目录() {
     let (_dir, root) = init_repo("ensure-crlf");
     // 预置 CRLF 注释行
     std::fs::create_dir_all(root.join(".git").join("info")).expect("建 info 目录");
-    std::fs::write(root.join(".git").join("info").join("exclude"), "# custom\r\n")
-        .expect("预置 CRLF exclude");
+    std::fs::write(
+        root.join(".git").join("info").join("exclude"),
+        "# custom\r\n",
+    )
+    .expect("预置 CRLF exclude");
     git::ensure_mutation_artifact_exclude(&root).expect("CRLF 仓 ensure 应成功");
     let content = read_exclude(&root);
-    assert!(content.contains("# custom\r\n"), "既有 CRLF 行原样: {content:?}");
+    assert!(
+        content.contains("# custom\r\n"),
+        "既有 CRLF 行原样: {content:?}"
+    );
     assert!(
         content.contains("_stryker-tmp/\r\n"),
         "追加行跟随 CRLF: {content:?}"
@@ -1947,7 +1961,10 @@ fn ensure后_调试产物三面全剔() {
     // 面 3：add -A 后 staged 不含
     git(&root, &["add", "-A"]);
     let staged = git(&root, &["diff", "--cached", "--name-only"]);
-    assert!(!staged.contains("stryker"), "add -A 不收录调试产物: {staged}");
+    assert!(
+        !staged.contains("stryker"),
+        "add -A 不收录调试产物: {staged}"
+    );
     assert!(staged.contains("a.txt"), "普通编辑照常收录");
 }
 
@@ -1960,7 +1977,15 @@ fn ensure撤出intent_to_add残留() {
     // `diff --cached`，但确在索引、add -A / commit 会真正收录）
     std::fs::create_dir_all(root.join("reports")).expect("建 reports 目录");
     fs_write(&root, "reports/mutation-stryker-seg-0.conf.json", "{}\n");
-    git(&root, &["add", "-N", "--", "reports/mutation-stryker-seg-0.conf.json"]);
+    git(
+        &root,
+        &[
+            "add",
+            "-N",
+            "--",
+            "reports/mutation-stryker-seg-0.conf.json",
+        ],
+    );
     let cached = git(&root, &["ls-files", "--cached"]);
     assert!(
         cached.contains("mutation-stryker-seg-0.conf.json"),
@@ -1975,7 +2000,8 @@ fn ensure撤出intent_to_add残留() {
         "残留撤出索引: {cached}"
     );
     assert!(
-        root.join("reports/mutation-stryker-seg-0.conf.json").is_file(),
+        root.join("reports/mutation-stryker-seg-0.conf.json")
+            .is_file(),
         "文件留盘（只撤索引不删文件）"
     );
     // 归档面验收：add -A 后 staged 不含（不进归档提交）
@@ -2008,7 +2034,10 @@ fn ensure_worktree写主仓共享exclude() {
     let _guard = lock_path();
     let (_dir, root) = init_repo("ensure-worktree-main");
     let (_wt_dir, wt) = worktree_slot("ensure-worktree-wt");
-    git(&root, &["worktree", "add", &wt.to_string_lossy(), "-b", "change/wt"]);
+    git(
+        &root,
+        &["worktree", "add", &wt.to_string_lossy(), "-b", "change/wt"],
+    );
 
     // worktree 内深位产物
     let mutation = wt
@@ -2025,8 +2054,7 @@ fn ensure_worktree写主仓共享exclude() {
     git::ensure_mutation_artifact_exclude(&wt).expect("worktree ensure 应成功");
     // 主仓 .git/info/exclude 在案（common dir 共享）
     let main_exclude =
-        std::fs::read_to_string(root.join(".git").join("info").join("exclude"))
-            .unwrap_or_default();
+        std::fs::read_to_string(root.join(".git").join("info").join("exclude")).unwrap_or_default();
     assert!(
         main_exclude.contains("_stryker-tmp/"),
         "主仓 exclude 在案: {main_exclude}"
@@ -2048,7 +2076,10 @@ fn ensure_worktree写主仓共享exclude() {
 /// git 语境错误串（`git()` Err 组装形态：命令串 + 退出码 + stderr 三段在案）。
 fn assert_git_context(error: &str) {
     assert!(error.contains("git"), "错误串携命令语境: {error}");
-    assert!(error.contains("exit") || error.contains("退出"), "错误串携退出码: {error}");
+    assert!(
+        error.contains("exit") || error.contains("退出"),
+        "错误串携退出码: {error}"
+    );
 }
 
 /// tracked 重置（正向 / AC-5 reset 半边）：已跟踪文件改动 + staged 改动 → 恢复
@@ -2065,8 +2096,7 @@ fn restore_baseline_tracked重置_改动与staged回head() {
     let dirty = git(&root, &["status", "--porcelain"]);
     assert!(!dirty.trim().is_empty(), "前置：改动在案");
 
-    let summary =
-        git::restore_baseline(&root, &[".*", "openspec"]).expect("恢复应 Ok");
+    let summary = git::restore_baseline(&root, &[".*", "openspec"]).expect("恢复应 Ok");
     assert!(!summary.is_empty(), "恢复摘要串非空（step detail 消费面）");
 
     let status = git(&root, &["status", "--porcelain"]);
@@ -2194,7 +2224,16 @@ fn restore_baseline_不带x_gitignore免疫与排除面双保险() {
         git(&root, &["add", ".gitignore"]);
         git(
             &root,
-            &["-c", "user.name=fixture", "-c", "user.email=fixture@example.com", "commit", "-q", "-m", "ignore"],
+            &[
+                "-c",
+                "user.name=fixture",
+                "-c",
+                "user.email=fixture@example.com",
+                "commit",
+                "-q",
+                "-m",
+                "ignore",
+            ],
         );
         let modules = root.join("node_modules").join("lib");
         std::fs::create_dir_all(&modules).expect("建依赖树");
@@ -2255,8 +2294,7 @@ fn restore_baseline_非git目录err沿git语境() {
     let _guard = lock_path();
     let (_dir, root) = plain_dir("restore-plain");
 
-    let error = git::restore_baseline(&root, &[".*"])
-        .expect_err("非 git 目录应 Err");
+    let error = git::restore_baseline(&root, &[".*"]).expect_err("非 git 目录应 Err");
     assert_git_context(&error);
 }
 

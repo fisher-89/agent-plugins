@@ -205,7 +205,8 @@ impl Env {
 
     /// id 寻址取详情 Option 面（Ok 拆包——Err 即 panic，非 None 语义面）。
     fn detail_opt(&self, id: &str) -> Option<super::ChangeDetail> {
-        self.detail_result(id).expect("详情读面应 Ok（Err 即失败——非未找到语义）")
+        self.detail_result(id)
+            .expect("详情读面应 Ok（Err 即失败——非未找到语义）")
     }
 }
 
@@ -300,10 +301,7 @@ impl DetailStore {
 
     /// `get_change` 读面 Err 注入（三 kind 任意变体——命中即原样返回）。
     fn arm_get_change_fault(&self, fault: StoreFault) {
-        *self
-            .get_change_fault
-            .lock()
-            .expect("fault 锁不可中毒") = Some(fault);
+        *self.get_change_fault.lock().expect("fault 锁不可中毒") = Some(fault);
     }
 
     /// `list_phase_records` 读面 Err 注入（清单面单区块降级断言面）。
@@ -565,8 +563,14 @@ fn get_change读err_逐字透传零降级() {
 fn store_fault三kind逐变体err原样透传() {
     for (tag, fault) in [
         ("db", StoreFault::Db("db 面注入".to_owned())),
-        ("conflict", StoreFault::Conflict("conflict 面注入".to_owned())),
-        ("not_found", StoreFault::NotFound("not_found 面注入".to_owned())),
+        (
+            "conflict",
+            StoreFault::Conflict("conflict 面注入".to_owned()),
+        ),
+        (
+            "not_found",
+            StoreFault::NotFound("not_found 面注入".to_owned()),
+        ),
     ] {
         let env = Env::new(&format!("fault-kind-{tag}"));
         env.seed(ID_MULTI, "fault-change", T0, None);
@@ -591,13 +595,13 @@ fn get_change读err_磁盘同名目录在场仍err零磁盘回退() {
     let injected = StoreFault::Conflict("注入失败：磁盘在场亦不回退".to_owned());
     env.store.arm_get_change_fault(injected.clone());
 
-    assert_err_is(
-        &env.detail_result(ID_MULTI),
-        &injected,
-    );
+    assert_err_is(&env.detail_result(ID_MULTI), &injected);
     // 磁盘目录未被读取链路触碰（零回退零副作用面）
     assert!(
-        env.layout.changes_root.join("fault-change/proposal.md").exists(),
+        env.layout
+            .changes_root
+            .join("fault-change/proposal.md")
+            .exists(),
         "磁盘目录在场未被消费成 Ok 面（读失败与未找到不混同）"
     );
 }
@@ -656,9 +660,16 @@ fn list_phase_records读err_单区块降级整份仍ok() {
         "清单读 Err 不升级整份 Err（单区块空面哲学），实际: {outcome:?}"
     );
     let detail = outcome.expect("应 Ok").expect("应 Some");
-    assert_eq!(detail.pipeline.len(), 10, "10 站流水线照常（initialize 表头扩位）");
+    assert_eq!(
+        detail.pipeline.len(),
+        10,
+        "10 站流水线照常（initialize 表头扩位）"
+    );
     assert!(
-        detail.pipeline.iter().all(|station| station.attempts.is_empty()),
+        detail
+            .pipeline
+            .iter()
+            .all(|station| station.attempts.is_empty()),
         "list_phase_records Err → 各站 attempts 空（清单面降级）"
     );
     assert!(
@@ -772,7 +783,11 @@ fn 归档change全状态面_十站流水线与runs全量出线() {
         REQUIREMENT_PHASES.to_vec(),
         "10 站 pipeline 全量出线（MUST NOT 落文档形态空面）"
     );
-    assert_eq!(detail.pipeline[1].attempts.len(), 1, "proposal 站条目在案（表头 initialize 后移一位）");
+    assert_eq!(
+        detail.pipeline[1].attempts.len(),
+        1,
+        "proposal 站条目在案（表头 initialize 后移一位）"
+    );
     assert_eq!(detail.pipeline[4].attempts[0].report, "实现完成");
     assert_eq!(detail.runs.len(), 1, "runs 全量出线（非空面）");
     assert_eq!(detail.runs[0].run_id, "run-arch-1");
@@ -787,8 +802,10 @@ fn 归档change全状态面_十站流水线与runs全量出线() {
         detail.artifacts
     );
     assert!(
-        detail.artifacts.iter().any(|artifact| artifact.kind == "markdown-doc"
-            && artifact.source == "tasks.md"),
+        detail
+            .artifacts
+            .iter()
+            .any(|artifact| artifact.kind == "markdown-doc" && artifact.source == "tasks.md"),
         "tasks.md 文档视图照常可达"
     );
 }
@@ -1685,7 +1702,11 @@ fn 详情节点出线_二十一值全词汇零过滤() {
 
     let detail = env.detail(ID_RUNNED);
     let nodes = &detail.runs[0].nodes;
-    assert_eq!(nodes.len(), 21, "二十一值全词汇零过滤（含归档 9 步词、mutation_test 与 clean）");
+    assert_eq!(
+        nodes.len(),
+        21,
+        "二十一值全词汇零过滤（含归档 9 步词、mutation_test 与 clean）"
+    );
     let projected: Vec<RunStepKind> = nodes.iter().map(|node| node.step).collect();
     assert_eq!(projected, ALL_STEP_KINDS.to_vec());
 
@@ -1760,7 +1781,8 @@ fn 详情节点投影_cleanup词与归档git步族形态一致() {
     assert_eq!(wire_nodes[1]["step"], serde_json::json!("cleanup"));
     assert_eq!(wire_nodes[1]["phase"], serde_json::json!("archive"));
     assert_eq!(
-        wire_nodes[1]["detail"], serde_json::json!("已移除 worktree（/tmp/wt）"),
+        wire_nodes[1]["detail"],
+        serde_json::json!("已移除 worktree（/tmp/wt）"),
         "detail 载荷透传（尽力步警告面）"
     );
     assert_eq!(
@@ -1768,7 +1790,11 @@ fn 详情节点投影_cleanup词与归档git步族形态一致() {
         serde_json::Value::Null,
         "git 步族会话槽恒 null（与 commit 同构）"
     );
-    assert_eq!(nodes[0].step, RunStepKind::Commit, "对拍锚：commit 同族在案");
+    assert_eq!(
+        nodes[0].step,
+        RunStepKind::Commit,
+        "对拍锚：commit 同族在案"
+    );
 }
 
 /// 稳定实例键出线：feedback 重跑两节点同 `(phase, attempt, step)` 而
@@ -1840,7 +1866,9 @@ fn 详情边出线_四kind混合屏蔽retry与端点身份串() {
         "其余边按库读序出线（edge_seq 升序，retry 缺席）"
     );
     assert!(
-        edges.iter().all(|edge| edge.edge_kind != RunEdgeKind::Retry),
+        edges
+            .iter()
+            .all(|edge| edge.edge_kind != RunEdgeKind::Retry),
         "投影后零 retry 边"
     );
     assert_eq!(
@@ -2003,7 +2031,11 @@ fn pipeline十列含initialize表头且archive空站序列() {
 
     let detail = env.detail(ID_RUNNED);
     let phases = pipeline_phases(&detail);
-    assert_eq!(phases.len(), 10, "requirement 十列布局（initialize 表头扩位）");
+    assert_eq!(
+        phases.len(),
+        10,
+        "requirement 十列布局（initialize 表头扩位）"
+    );
     assert_eq!(
         phases,
         REQUIREMENT_PHASES.to_vec(),
@@ -2074,7 +2106,10 @@ fn pipeline_test_only七列含code_analyze与archive末列() {
     }
     // 全列 attempts 空序列（零 attempt 列恒空数组，不报错）
     assert!(
-        detail.pipeline.iter().all(|station| station.attempts.is_empty()),
+        detail
+            .pipeline
+            .iter()
+            .all(|station| station.attempts.is_empty()),
         "未落账七列 attempts 全空"
     );
 
@@ -2104,7 +2139,11 @@ fn pipeline两表archive恒为末列() {
         let detail = env.detail(ID_RUNNED);
         let phases = pipeline_phases(&detail);
         assert_eq!(phases.len(), expected_len, "{workflow_type} 列数");
-        assert_eq!(phases[expected_len - 1], "archive", "{workflow_type} 末列恒 archive");
+        assert_eq!(
+            phases[expected_len - 1],
+            "archive",
+            "{workflow_type} 末列恒 archive"
+        );
         assert_eq!(
             phases.iter().position(|phase| *phase == "archive"),
             Some(expected_len - 1),
@@ -2212,7 +2251,10 @@ fn detail产物清单随workflow_type相位表() {
         .iter()
         .map(|artifact| artifact.source.as_str())
         .collect();
-    assert!(paths2.contains(&"proposal.md"), "test-only proposal 产物照常挂列");
+    assert!(
+        paths2.contains(&"proposal.md"),
+        "test-only proposal 产物照常挂列"
+    );
     let code_analyze_doc = detail2
         .artifacts
         .iter()
@@ -2529,7 +2571,11 @@ fn runs节点投影多节点emit序保序() {
             .iter()
             .map(|node| node.step)
             .collect::<Vec<_>>(),
-        vec![RunStepKind::PhaseStart, RunStepKind::Executor, RunStepKind::Evaluator],
+        vec![
+            RunStepKind::PhaseStart,
+            RunStepKind::Executor,
+            RunStepKind::Evaluator
+        ],
         "nodes 投影保序（emit 序）"
     );
 }
@@ -2567,7 +2613,11 @@ fn runs级iso与节点级毫秒数两口径并存() {
         "run 行 finishedAt ISO RFC3339"
     );
     // 节点级毫秒数并存
-    assert_eq!(detail.runs[0].nodes[0].started_at, t(11), "节点级毫秒数口径");
+    assert_eq!(
+        detail.runs[0].nodes[0].started_at,
+        t(11),
+        "节点级毫秒数口径"
+    );
     assert_eq!(detail.runs[0].nodes[0].ended_at, Some(t(12)));
 }
 
@@ -2622,10 +2672,7 @@ fn runs节点投影空run空数组() {
 
     let detail = env.detail(ID_RUNNED);
     assert_eq!(detail.runs.len(), 1);
-    assert!(
-        detail.runs[0].nodes.is_empty(),
-        "零节点 run → nodes 空数组"
-    );
+    assert!(detail.runs[0].nodes.is_empty(), "零节点 run → nodes 空数组");
 }
 
 /// 组合（AC-1 / AC-6 单一形状锚）：RunNodeStateRecord → ChangeRunNodeRecord →
@@ -2648,14 +2695,24 @@ fn runs节点投影线面与活面step_state同形() {
     let value = serde_json::to_value(&detail).expect("序列化应成功");
     let node_wire = &value["runs"][0]["nodes"][0];
     // camelCase 四键逐键在案且值与投影一致（null 不省键）
-    assert_eq!(node_wire["startedAt"], serde_json::json!(1_727_000_000_000_i64));
-    assert_eq!(node_wire["endedAt"], serde_json::Value::Null, "endedAt null 留位");
+    assert_eq!(
+        node_wire["startedAt"],
+        serde_json::json!(1_727_000_000_000_i64)
+    );
+    assert_eq!(
+        node_wire["endedAt"],
+        serde_json::Value::Null,
+        "endedAt null 留位"
+    );
     assert_eq!(node_wire["tokenInput"], serde_json::json!(12_000));
     assert_eq!(node_wire["tokenOutput"], serde_json::Value::Null);
     // 与活面 ChangeStepState 同形：键集恰含四键（camelCase 词面逐字）
     let object = node_wire.as_object().expect("节点线面对象");
     for key in ["startedAt", "endedAt", "tokenInput", "tokenOutput"] {
-        assert!(object.contains_key(key), "节点线面含 {key}（与活面 ChangeStepState 同形）");
+        assert!(
+            object.contains_key(key),
+            "节点线面含 {key}（与活面 ChangeStepState 同形）"
+        );
     }
 }
 
@@ -2715,20 +2772,25 @@ fn initialize站attempts_pass与skipped两形态出线() {
         .find(|station| station.phase == "initialize")
         .expect("initialize 站在案（表头第 1 列）");
     assert_eq!(initialize.attempts.len(), 2, "两形态条目全量出线");
-    assert!(!initialize.attempts[0].skipped, "attempt 1 非跳过（pass 形态）");
+    assert!(
+        !initialize.attempts[0].skipped,
+        "attempt 1 非跳过（pass 形态）"
+    );
     assert_eq!(initialize.attempts[0].attempt, Some(1));
     assert!(
         initialize.attempts[0].checklist.len() == 3,
         "pass 条目机械 checklist 三条目随行"
     );
     assert!(
-        initialize.attempts[0]
-            .report
-            .contains("reports/baseline"),
+        initialize.attempts[0].report.contains("reports/baseline"),
         "report 携 baseline 报告目录（呈现面回查锚）"
     );
     assert!(initialize.attempts[1].skipped, "attempt 2 skipped 形态透出");
-    assert_eq!(initialize.attempts[1].verdict, Verdict::Pass, "skipped 同 pass 语义");
+    assert_eq!(
+        initialize.attempts[1].verdict,
+        Verdict::Pass,
+        "skipped 同 pass 语义"
+    );
     // 三会话槽位恒 None（零 agent 面）
     for attempt in &initialize.attempts {
         assert!(
@@ -2774,7 +2836,10 @@ fn 详情节点投影_clean词与initialize相位形态一致() {
     let wire_nodes = value["runs"][0]["nodes"].as_array().expect("nodes 数组");
     assert_eq!(wire_nodes[1]["step"], serde_json::json!("clean"));
     assert_eq!(wire_nodes[1]["phase"], serde_json::json!("initialize"));
-    assert!(wire_nodes[1]["detail"].as_str().expect("detail 串").contains("已恢复基线"));
+    assert!(wire_nodes[1]["detail"]
+        .as_str()
+        .expect("detail 串")
+        .contains("已恢复基线"));
     assert_eq!(
         wire_nodes[1]["sessionId"],
         serde_json::Value::Null,
@@ -2813,7 +2878,9 @@ fn 详情边投影_全retry出空数组查询ok() {
     );
     let value = serde_json::to_value(&detail).expect("序列化应成功");
     assert!(
-        value["runs"][0]["edges"].as_array().is_some_and(Vec::is_empty),
+        value["runs"][0]["edges"]
+            .as_array()
+            .is_some_and(Vec::is_empty),
         "edges 键恒在场（空数组不省键）"
     );
 }
@@ -2906,7 +2973,10 @@ fn 详情边投影_retry位于首中尾三种位置() {
             .map(|(_, kind)| *kind)
             .collect();
         let actual: Vec<RunEdgeKind> = edges.iter().map(|edge| edge.edge_kind).collect();
-        assert_eq!(actual, expected, "其余边相对序不变（retry 位置 {retry_pos}）");
+        assert_eq!(
+            actual, expected,
+            "其余边相对序不变（retry 位置 {retry_pos}）"
+        );
         assert!(
             edges
                 .iter()

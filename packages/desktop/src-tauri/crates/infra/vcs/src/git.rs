@@ -484,8 +484,7 @@ pub(crate) fn change_edit_set(root: &Path, base: &str) -> Result<Vec<String>, St
 /// 文件名）。一次 ensure 三覆盖：`commit_all` 的 `add -A`、`dirty` 的
 /// `status --porcelain`、本清单的 `ls-files --others --exclude-standard`
 /// 全自动剔除——失败段调试产物留盘复现但 MUST NOT 进归档提交。
-const MUTATION_EXCLUDE_PATTERNS: [&str; 2] =
-    ["_stryker-tmp/", "mutation-stryker-seg-*.conf.json"];
+const MUTATION_EXCLUDE_PATTERNS: [&str; 2] = ["_stryker-tmp/", "mutation-stryker-seg-*.conf.json"];
 
 /// 幂等确保 mutation 调试产物忽略规则写入 workspace `.git/info/exclude`：
 /// 已全在 → 零写盘；缺任一 → 补齐（`.git/info` 目录缺失则创建；行终止符跟随
@@ -509,7 +508,11 @@ pub(crate) fn ensure_mutation_artifact_exclude(root: &Path) -> Result<(), String
                 )
             })?;
         }
-        let newline = if existing.contains("\r\n") { "\r\n" } else { "\n" };
+        let newline = if existing.contains("\r\n") {
+            "\r\n"
+        } else {
+            "\n"
+        };
         let mut updated = existing.clone();
         for pattern in MUTATION_EXCLUDE_PATTERNS {
             if !exclude_line_present(&existing, pattern) {
@@ -536,9 +539,7 @@ fn resolve_info_exclude(root: &Path) -> Result<PathBuf, String> {
     let raw = git(root, &["rev-parse", "--git-path", "info/exclude"])?;
     let trimmed = raw.trim();
     if trimmed.is_empty() {
-        return Err(
-            "mutation 调试产物忽略规则定位失败：git-path info/exclude 输出为空".to_owned(),
-        );
+        return Err("mutation 调试产物忽略规则定位失败：git-path info/exclude 输出为空".to_owned());
     }
     let path = Path::new(trimmed);
     Ok(if path.is_absolute() {

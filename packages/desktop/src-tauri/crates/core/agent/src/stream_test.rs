@@ -109,12 +109,7 @@ fn new与default均为空表_任意id订阅为none且begin后方some() {
     let defaulted = SessionStreamRegistry::default();
     let long_key = "超长会话键".repeat(200);
 
-    for session_id in [
-        "",
-        long_key.as_str(),
-        "特殊\u{0}字符😀\n会话",
-        "ses-1",
-    ] {
+    for session_id in ["", long_key.as_str(), "特殊\u{0}字符😀\n会话", "ses-1"] {
         assert!(
             fresh.subscribe(session_id, 0).is_none(),
             "new() 空表对任意 id（含空串 / 超长 / 特殊字符）订阅为 None"

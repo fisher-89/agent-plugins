@@ -12,7 +12,7 @@
     "bindings:check": "pnpm run bindings:export && git diff --exit-code -- src/types/generated",
     "check": "pnpm run server:check && pnpm run bindings:check && pnpm run client:check",
     "client:check": "vp check --fix && knip",
-    "server:check": "cargo fmt --all --manifest-path src-tauri/Cargo.toml && cargo clippy --manifest-path src-tauri/Cargo.toml --workspace",
+    "server:check": "cargo fmt --all --manifest-path src-tauri/Cargo.toml && cargo clippy --workspace --all-targets --manifest-path src-tauri/Cargo.toml",
     "test": "pnpm run client:test && pnpm run server:test",
     "client:test": "vp test --sequence.shuffle",
     "server:test": "cargo test --workspace --manifest-path src-tauri/Cargo.toml",

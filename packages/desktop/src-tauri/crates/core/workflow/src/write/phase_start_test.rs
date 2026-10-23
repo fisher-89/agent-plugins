@@ -341,7 +341,9 @@ fn workflow_type未知拒绝零写入且test_only可开相() {
     ] {
         let fake = StartStore::with_workflow_type(workflow_type);
 
-        let err = fake.start("proposal").expect_err("未知 workflow_type 应 Err");
+        let err = fake
+            .start("proposal")
+            .expect_err("未知 workflow_type 应 Err");
 
         assert!(
             err.contains("workflow_type"),
@@ -351,10 +353,7 @@ fn workflow_type未知拒绝零写入且test_only可开相() {
             err.contains("requirement") && err.contains("test-only"),
             "文案通吃合法值集，实际: {err}"
         );
-        assert!(
-            !err.contains("仅 requirement"),
-            "旧字样退役，实际: {err}"
-        );
+        assert!(!err.contains("仅 requirement"), "旧字样退役，实际: {err}");
         assert_eq!(fake.start_call_count(), 0, "零写入");
     }
 

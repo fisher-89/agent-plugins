@@ -967,7 +967,15 @@ fn definitions_explore收窄_不含write_保序追加专用工具() {
 
     assert_eq!(
         names,
-        vec!["read", "grep", "glob", "ls", "edit", "bash", "create_explore_note"],
+        vec![
+            "read",
+            "grep",
+            "glob",
+            "ls",
+            "edit",
+            "bash",
+            "create_explore_note"
+        ],
         "六名按 TOOL_NAMES 保序 + 末位追加专用工具，实际: {names:?}"
     );
     assert!(
@@ -1002,7 +1010,10 @@ fn definitions空tools子集_零通用定义_追加面仅剩专用工具() {
     };
     let only_note = definitions(&empty_with_explore);
     assert_eq!(
-        only_note.iter().map(|def| def.name.as_str()).collect::<Vec<_>>(),
+        only_note
+            .iter()
+            .map(|def| def.name.as_str())
+            .collect::<Vec<_>>(),
         vec![EXPLORE_NOTE_TOOL],
         "空子集 + Explore → 仅 create_explore_note"
     );
@@ -1119,10 +1130,22 @@ fn 七通用定义体逐字快照_描述与required面零漂移() {
     let expected: [(&str, &[&str], &str); 7] = [
         ("read", &["path"], "读取文件内容（行号前缀输出）"),
         ("grep", &["path", "pattern"], "行级正则匹配"),
-        ("glob", &["pattern"], "按 glob 模式列出 workspace 内匹配文件（root 相对模式，上限 200 条）"),
+        (
+            "glob",
+            &["pattern"],
+            "按 glob 模式列出 workspace 内匹配文件（root 相对模式，上限 200 条）",
+        ),
         ("ls", &["path"], "列目录：一级条目（目录带 / 后缀），字母序"),
-        ("write", &["path", "content"], "覆写文件（全量覆盖；缺失父目录自动创建）"),
-        ("edit", &["path", "old_string", "new_string"], "精确串替换：old_string 在文件中必须唯一命中（多处需 replace_all）"),
+        (
+            "write",
+            &["path", "content"],
+            "覆写文件（全量覆盖；缺失父目录自动创建）",
+        ),
+        (
+            "edit",
+            &["path", "old_string", "new_string"],
+            "精确串替换：old_string 在文件中必须唯一命中（多处需 replace_all）",
+        ),
         ("bash", &["command"], "执行 shell 命令并返回合并输出"),
     ];
     assert_eq!(expected.len(), TOOL_NAMES.len(), "快照面与封闭清单同宽");
@@ -1139,16 +1162,22 @@ fn 七通用定义体逐字快照_描述与required面零漂移() {
         let actual_required = def.parameters["required"]
             .as_array()
             .unwrap_or_else(|| panic!("{name} required 数组"));
-        let actual: Vec<&str> = actual_required.iter().map(|v| v.as_str().expect("字符串")).collect();
+        let actual: Vec<&str> = actual_required
+            .iter()
+            .map(|v| v.as_str().expect("字符串"))
+            .collect();
         assert_eq!(actual, required, "{name} required 面逐字一致");
         assert_eq!(
-            def.parameters["type"], json!("object"),
+            def.parameters["type"],
+            json!("object"),
             "{name} schema object 类型锚"
         );
     }
 
     // glob 无 path 属性（快照半边）；read 的 offset/limit 属性仍在
-    assert!(by_name("glob").parameters["properties"].get("path").is_none());
+    assert!(by_name("glob").parameters["properties"]
+        .get("path")
+        .is_none());
     assert!(by_name("read").parameters["properties"]["offset"].is_object());
     assert!(by_name("read").parameters["properties"]["limit"].is_object());
 }

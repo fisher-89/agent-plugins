@@ -83,7 +83,9 @@ pub fn change_reports(root: &Path, change: &str, slot: ReportSlot) -> PathBuf {
 
 /// [`change_reports`] 的 change 目录变体（exec-outputs 锚定消费）。
 pub fn change_reports_in(change_dir: &Path, slot: ReportSlot) -> PathBuf {
-    change_dir.join(REPORTS_DIR_NAME).join(report_dir_name(slot))
+    change_dir
+        .join(REPORTS_DIR_NAME)
+        .join(report_dir_name(slot))
 }
 
 /// 把 workspace 根目录与 change 名解析为 change 测试报告目录（缺省槽位命名

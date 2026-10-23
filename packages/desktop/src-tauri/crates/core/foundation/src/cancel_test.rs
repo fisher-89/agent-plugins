@@ -142,11 +142,7 @@ fn 置位后相等关系不变() {
 #[test]
 fn debug渲染_置位前后两形态() {
     let flag = CancelFlag::never();
-    assert_eq!(
-        format!("{flag:?}"),
-        "CancelFlag(set = false)",
-        "未置位渲染"
-    );
+    assert_eq!(format!("{flag:?}"), "CancelFlag(set = false)", "未置位渲染");
 
     flag.handle().set();
     assert_eq!(format!("{flag:?}"), "CancelFlag(set = true)", "置位后渲染");

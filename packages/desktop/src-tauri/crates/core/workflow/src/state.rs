@@ -349,9 +349,7 @@ impl StepNode {
             | StepNode::Rebase
             | StepNode::Merge
             | StepNode::Cleanup
-            | StepNode::Finalize => {
-                StepGroup::Git
-            }
+            | StepNode::Finalize => StepGroup::Git,
             StepNode::VerdictGate | StepNode::RetryGate | StepNode::WhitelistGate => {
                 StepGroup::Gate
             }

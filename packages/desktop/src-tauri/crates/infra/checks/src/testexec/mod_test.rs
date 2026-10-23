@@ -227,8 +227,11 @@ impl ChainWs {
         )
         .expect("覆写双 plan config");
         fs::create_dir_all(self.root().join("app2").join("src")).expect("创建第二 suite src");
-        fs::write(self.root().join("app2").join("src").join("b.test.mjs"), "test body")
-            .expect("写第二 suite 输入文件");
+        fs::write(
+            self.root().join("app2").join("src").join("b.test.mjs"),
+            "test body",
+        )
+        .expect("写第二 suite 输入文件");
         self
     }
 
@@ -249,11 +252,17 @@ impl ChainWs {
         )
         .expect("覆写三 plan config");
         fs::create_dir_all(self.root().join("app2").join("src")).expect("创建第二 suite src");
-        fs::write(self.root().join("app2").join("src").join("b.test.js"), "test body")
-            .expect("写第二 suite 输入文件");
+        fs::write(
+            self.root().join("app2").join("src").join("b.test.js"),
+            "test body",
+        )
+        .expect("写第二 suite 输入文件");
         fs::create_dir_all(self.root().join("app3").join("src")).expect("创建第三 suite src");
-        fs::write(self.root().join("app3").join("src").join("c.test.mjs"), "test body")
-            .expect("写第三 suite 输入文件");
+        fs::write(
+            self.root().join("app3").join("src").join("c.test.mjs"),
+            "test body",
+        )
+        .expect("写第三 suite 输入文件");
 
         let attempt_log = self.npx_attempt_log();
         #[cfg(target_os = "windows")]
@@ -321,7 +330,10 @@ impl ChainWs {
     }
 
     /// 显式取消信号版执行（取消面用例的注入点；PATH 前置同 [`Self::run`]）。
-    async fn run_with(&self, cancel: foundation::cancel::CancelFlag) -> Result<ToolStepOutput, String> {
+    async fn run_with(
+        &self,
+        cancel: foundation::cancel::CancelFlag,
+    ) -> Result<ToolStepOutput, String> {
         self.prepend_path();
         ProcessTestExecution::new()
             .run(&self.root_str(), CHANGE, ReportSlot::Test, cancel)
@@ -1376,15 +1388,21 @@ async fn run_slot_baseline_报告落baseline树与test树零混居() {
     );
     assert!(
         outcome.report_dir.ends_with("reports/baseline")
-            || outcome.report_dir.ends_with(&format!("reports{}", std::path::MAIN_SEPARATOR))
-            == false && outcome.report_dir.contains("reports/baseline"),
+            || outcome
+                .report_dir
+                .ends_with(&format!("reports{}", std::path::MAIN_SEPARATOR))
+                == false
+                && outcome.report_dir.contains("reports/baseline"),
         "载荷 report_dir = baseline 树锚: {}",
         outcome.report_dir
     );
 
     // baseline 树逐文件：summary.json + 逐 suite 子报告 + exec-outputs log
     let baseline = ws.reports_dir_slot(ReportSlot::Baseline);
-    assert!(baseline.join("summary.json").is_file(), "summary.json 落 baseline 树");
+    assert!(
+        baseline.join("summary.json").is_file(),
+        "summary.json 落 baseline 树"
+    );
     assert!(
         baseline.join("app_node-test").join("report.json").is_file(),
         "planId 子报告落 baseline 树"
@@ -1401,7 +1419,11 @@ async fn run_slot_baseline_报告落baseline树与test树零混居() {
     // test 树零混居：同 run 零 reports/test 文件
     let test_tree = ws.reports_dir_slot(ReportSlot::Test);
     assert!(
-        !test_tree.exists() || fs::read_dir(&test_tree).expect("读 test 树").next().is_none(),
+        !test_tree.exists()
+            || fs::read_dir(&test_tree)
+                .expect("读 test 树")
+                .next()
+                .is_none(),
         "reports/test 树零混居（分树隔离）"
     );
 }
@@ -1479,9 +1501,7 @@ async fn 复用门跨树零复用_test树summary不被baseline相位步复用() 
         "baseline run 真实 spawn（test 树 summary 未被跨树复用）"
     );
     assert!(
-        baseline_outcome
-            .report_dir
-            .contains("reports/baseline"),
+        baseline_outcome.report_dir.contains("reports/baseline"),
         "载荷锚 baseline 树: {}",
         baseline_outcome.report_dir
     );
@@ -1715,7 +1735,12 @@ async fn 已置位cancel_首个plan即stopped且复用门先于spawn判定() {
             "fault 面结论取 Fail 占位（不取 Error / Pass）"
         );
         assert_eq!(
-            (outcome.total, outcome.passed, outcome.failed, outcome.skipped),
+            (
+                outcome.total,
+                outcome.passed,
+                outcome.failed,
+                outcome.skipped
+            ),
             (0, 0, 0, 0),
             "fault 面四项计数全 0（不装配半套计数）"
         );
@@ -1926,7 +1951,10 @@ async fn 多plan环境错误继续跑余下plan() {
     );
 
     let Some(RunFault::Environment(text)) = outcome.fault.clone() else {
-        panic!("两个 plan 的环境错误应收口为 Environment fault: {:?}", outcome.fault);
+        panic!(
+            "两个 plan 的环境错误应收口为 Environment fault: {:?}",
+            outcome.fault
+        );
     };
     assert!(
         text.contains("已自动重试 4 次"),
@@ -1942,7 +1970,12 @@ async fn 多plan环境错误继续跑余下plan() {
         "fault 面结论占位 Fail"
     );
     assert_eq!(
-        (outcome.total, outcome.passed, outcome.failed, outcome.skipped),
+        (
+            outcome.total,
+            outcome.passed,
+            outcome.failed,
+            outcome.skipped
+        ),
         (0, 0, 0, 0),
         "fault 在位不装配半套计数"
     );
@@ -1952,7 +1985,6 @@ async fn 多plan环境错误继续跑余下plan() {
     );
     assert!(!outcome.exec_id.is_empty(), "exec_id 照旧回填");
 }
-
 
 // ---------------------------------------------------------------------------
 // 单 plan 环境错误上传 / 聚合优先级 / 三 plan 混合（test-design
@@ -1992,7 +2024,10 @@ async fn 单plan环境错误_fault上传与占位装配() {
     };
 
     let Some(RunFault::Environment(text)) = outcome.fault.clone() else {
-        panic!("单 plan 环境错误应收口为 Environment fault: {:?}", outcome.fault);
+        panic!(
+            "单 plan 环境错误应收口为 Environment fault: {:?}",
+            outcome.fault
+        );
     };
     assert!(
         text.contains("已自动重试 4 次"),
@@ -2008,7 +2043,12 @@ async fn 单plan环境错误_fault上传与占位装配() {
         "fault 面结论取 Fail 占位（不取 Error / Pass）"
     );
     assert_eq!(
-        (outcome.total, outcome.passed, outcome.failed, outcome.skipped),
+        (
+            outcome.total,
+            outcome.passed,
+            outcome.failed,
+            outcome.skipped
+        ),
         (0, 0, 0, 0),
         "fault 面四项计数全 0（不装配半套计数）"
     );
@@ -2134,7 +2174,12 @@ async fn stopped优先于environment_环境错误后取消收口stopped() {
         "fault 面结论占位 Fail"
     );
     assert_eq!(
-        (outcome.total, outcome.passed, outcome.failed, outcome.skipped),
+        (
+            outcome.total,
+            outcome.passed,
+            outcome.failed,
+            outcome.skipped
+        ),
         (0, 0, 0, 0),
         "fault 面四项计数全 0"
     );
@@ -2198,7 +2243,12 @@ async fn 三plan混合_环境错误在中间继续跑完且计数不泄漏() {
         "fault 面结论占位 Fail"
     );
     assert_eq!(
-        (outcome.total, outcome.passed, outcome.failed, outcome.skipped),
+        (
+            outcome.total,
+            outcome.passed,
+            outcome.failed,
+            outcome.skipped
+        ),
         (0, 0, 0, 0),
         "sub_reports 内部装配不泄漏到 outcome（计数仍 0）"
     );

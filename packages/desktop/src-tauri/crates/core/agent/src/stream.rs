@@ -75,16 +75,14 @@ impl SessionStreamRegistry {
     }
 
     /// 订阅句柄：无运行轮（无条目）返回 `None`——「幂等立即结束」的判据。
-    pub fn subscribe(
-        &self,
-        session_id: &str,
-        since_seq: u64,
-    ) -> Option<SessionStreamSubscription> {
+    pub fn subscribe(&self, session_id: &str, since_seq: u64) -> Option<SessionStreamSubscription> {
         let sessions = self.sessions.lock().expect("会话流注册表锁不可中毒");
-        sessions.get(session_id).map(|sender| SessionStreamSubscription {
-            receiver: sender.subscribe(),
-            since_seq,
-        })
+        sessions
+            .get(session_id)
+            .map(|sender| SessionStreamSubscription {
+                receiver: sender.subscribe(),
+                since_seq,
+            })
     }
 }
 

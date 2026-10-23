@@ -286,7 +286,10 @@ pub fn change_detail(
     // test-only 7 列（initialize 首列），archive 列位置随表；无 attempt 记录的站为空序列）
     let mut pipeline: Vec<PhaseEntry> = table
         .iter()
-        .map(|definition| PhaseEntry { phase: definition.id.to_string(), attempts: Vec::new() })
+        .map(|definition| PhaseEntry {
+            phase: definition.id.to_string(),
+            attempts: Vec::new(),
+        })
         .collect();
     for entry in &entries {
         if let Some(station) = pipeline

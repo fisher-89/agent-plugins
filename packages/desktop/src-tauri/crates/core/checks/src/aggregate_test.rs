@@ -827,11 +827,7 @@ fn build_mutation_block边界阈值与极大计数() {
 }
 
 /// mutation 块 fixture（pass / score / threshold 显式——merge 用例构造面）。
-fn mutation_block(
-    score: f64,
-    threshold: f64,
-    counts: MutationMeasured,
-) -> MutationBlock {
+fn mutation_block(score: f64, threshold: f64, counts: MutationMeasured) -> MutationBlock {
     MutationBlock {
         pass: score >= threshold,
         score,
@@ -845,16 +841,8 @@ fn mutation_block(
 /// 既有语义——MUST NOT 新增归并公式）。
 #[test]
 fn merge_mutation_blocks多段求和与阈值取首块() {
-    let seg0 = mutation_block(
-        100.0,
-        80.0,
-        mutation_counts(4, 0, 1, 0, 0, 0, 1, 6),
-    );
-    let seg1 = mutation_block(
-        50.0,
-        70.0,
-        mutation_counts(1, 2, 0, 0, 0, 0, 0, 4),
-    );
+    let seg0 = mutation_block(100.0, 80.0, mutation_counts(4, 0, 1, 0, 0, 0, 1, 6));
+    let seg1 = mutation_block(50.0, 70.0, mutation_counts(1, 2, 0, 0, 0, 0, 0, 4));
     let merged = merge_mutation_blocks(&[seg0.clone(), seg1.clone()]).expect("归并块应在场");
 
     // 各字段和 = 段和
@@ -864,7 +852,10 @@ fn merge_mutation_blocks多段求和与阈值取首块() {
     assert_eq!(merged.measured.ignored, 1);
     assert_eq!(merged.measured.total, 10, "total 求和");
     // 归并块重算 score：(5+1)/(10-1) = 6/9 = 66.67
-    assert_eq!(merged.score, 66.67, "归并块重算 score（计数求和后交 build 单点）");
+    assert_eq!(
+        merged.score, 66.67,
+        "归并块重算 score（计数求和后交 build 单点）"
+    );
     assert_eq!(merged.threshold, 80.0, "阈值取首块（既有语义）");
     assert!(!merged.pass, "66.67 < 80（首块阈值判定）");
     assert_eq!(merged.overrides, None);
@@ -923,7 +914,11 @@ fn merge_mutation_blocks超大列表与顺序无关与大值混合() {
     // 0 / 大值混合段
     let mixed = [
         mutation_block(0.0, 10.0, mutation_counts(0, 0, 0, 0, 0, 0, 0, 0)),
-        mutation_block(100.0, 10.0, mutation_counts(u64::MAX / 8, 0, 0, 0, 0, 0, 0, u64::MAX / 8)),
+        mutation_block(
+            100.0,
+            10.0,
+            mutation_counts(u64::MAX / 8, 0, 0, 0, 0, 0, 0, u64::MAX / 8),
+        ),
     ];
     let merged = merge_mutation_blocks(&mixed).expect("混合段归并不炸");
     assert_eq!(merged.measured.total, u64::MAX / 8, "0 段不扰求和");
@@ -956,7 +951,11 @@ fn aggregate_mutation同式对拍_经summary组装面() {
     };
     let mut sub1 = sub0.clone();
     sub1.framework = "vite-plus".to_owned();
-    sub1.mutation = Some(mutation_block(50.0, 70.0, mutation_counts(1, 2, 0, 0, 0, 0, 0, 4)));
+    sub1.mutation = Some(mutation_block(
+        50.0,
+        70.0,
+        mutation_counts(1, 2, 0, 0, 0, 0, 0, 4),
+    ));
 
     let summary = build_summary_report(&[sub0, sub1], &[], "cmd", OffsetDateTime::UNIX_EPOCH);
     let merged = summary.mutation.expect("归并块应在场");

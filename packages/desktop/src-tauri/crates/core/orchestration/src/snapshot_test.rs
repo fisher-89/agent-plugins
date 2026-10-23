@@ -355,12 +355,16 @@ struct FaultStore {
 impl FaultStore {
     /// `Ok(None)` 形态（未知 id 与真实库未建档同语义的两形态之一）。
     fn none() -> Self {
-        Self { get_change_result: Mutex::new(Ok(None)) }
+        Self {
+            get_change_result: Mutex::new(Ok(None)),
+        }
     }
 
     /// `Err` 形态（三 kind 任意变体——错误串透传断言面）。
     fn fault(fault: StoreFault) -> Self {
-        Self { get_change_result: Mutex::new(Err(fault)) }
+        Self {
+            get_change_result: Mutex::new(Err(fault)),
+        }
     }
 }
 
@@ -483,8 +487,14 @@ fn store读err_错误串逐字透传不再误报不存在() {
 fn store_fault三kind_display前缀逐字透传() {
     for (tag, fault) in [
         ("db", StoreFault::Db("db 面注入".to_owned())),
-        ("conflict", StoreFault::Conflict("conflict 面注入".to_owned())),
-        ("not_found", StoreFault::NotFound("not_found 面注入".to_owned())),
+        (
+            "conflict",
+            StoreFault::Conflict("conflict 面注入".to_owned()),
+        ),
+        (
+            "not_found",
+            StoreFault::NotFound("not_found 面注入".to_owned()),
+        ),
     ] {
         let root = TempRoot::new(&format!("fault-kind-{tag}"));
         root.change(NAME);

@@ -428,10 +428,10 @@ pub fn parse_cargo_mutants_seg(raw: &str) -> Result<MutationSegReport, String> {
             let counts = root
                 .get("summary")
                 .and_then(serde_json::Value::as_object)
-                .or_else(|| {
-                    (cargo_counts_face(root)).then_some(root)
-                })
-                .ok_or_else(|| "cargo-mutants 段报告缺计数面字段（无 mutants 数组 / 计数面）".to_owned())?;
+                .or_else(|| (cargo_counts_face(root)).then_some(root))
+                .ok_or_else(|| {
+                    "cargo-mutants 段报告缺计数面字段（无 mutants 数组 / 计数面）".to_owned()
+                })?;
             tally_cargo_counts(counts, &mut measured);
             return Ok(finish_cargo_seg(measured, duration_ms));
         }
@@ -484,9 +484,16 @@ fn tally_cargo_mutants(mutants: &[serde_json::Value], measured: &mut MutationMea
 
 /// 计数面存在判定（顶层对象直接携 outcome 计数键的形态）。
 fn cargo_counts_face(root: &serde_json::Map<String, serde_json::Value>) -> bool {
-    ["caught", "missed", "timeout", "unviable", "not-mutated", "not_mutated"]
-        .iter()
-        .any(|key| root.contains_key(*key))
+    [
+        "caught",
+        "missed",
+        "timeout",
+        "unviable",
+        "not-mutated",
+        "not_mutated",
+    ]
+    .iter()
+    .any(|key| root.contains_key(*key))
 }
 
 /// cargo-mutants 计数面直读（summary 对象 / 顶层计数键形态）。
@@ -534,8 +541,8 @@ fn normalize_detected(measured: &mut MutationMeasured) {
 /// 逐 mutant 计数面）→ [`MutationSegReport`]（`tool = Stryker`）。结构面严格
 /// （非 JSON / 两计数面俱缺 → `Err`）、词面宽容（未知 status 计 `runtimeError`）。
 pub fn parse_stryker_seg(raw: &str) -> Result<MutationSegReport, String> {
-    let value: serde_json::Value = serde_json::from_str(raw)
-        .map_err(|error| format!("Stryker 段报告解析失败: {error}"))?;
+    let value: serde_json::Value =
+        serde_json::from_str(raw).map_err(|error| format!("Stryker 段报告解析失败: {error}"))?;
     let root = value
         .as_object()
         .ok_or_else(|| "Stryker 段报告结构非法（顶层非对象）".to_owned())?;

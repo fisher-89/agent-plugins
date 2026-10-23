@@ -4,8 +4,8 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock};
 
 use agent::{
-    AgentEvent, AgentEventKind, AgentPermissionMode, SessionPage, SessionProvenance, SessionRow,
-    SessionStats, SessionSummary, TurnSummary, sum_usage_tokens,
+    sum_usage_tokens, AgentEvent, AgentEventKind, AgentPermissionMode, SessionPage,
+    SessionProvenance, SessionRow, SessionStats, SessionSummary, TurnSummary,
 };
 use native_db::{Builder, Database, Models};
 use serde::{Deserialize, Serialize};
@@ -18,7 +18,8 @@ use crate::model::{
     AgentRunRecord, ChangeActivePhase, ChangeRecord, ChecklistItemRecord, ExploreRecord,
     PhaseRecord, RunEdgeRecord, RunNodeRecord, RunRecord, SessionConfigSnapshot,
     SessionEventRecord, SessionEventRecordKey, SessionRecord, StepRecord, StoreMetaRecord,
-    WorkspaceRecord, CLI_TENANT_RETIRED, WORKSPACE_STORE_FORMAT_KEY, WORKSPACE_STORE_FORMAT_VERSION,
+    WorkspaceRecord, CLI_TENANT_RETIRED, WORKSPACE_STORE_FORMAT_KEY,
+    WORKSPACE_STORE_FORMAT_VERSION,
 };
 use workflow::model::{ChecklistItem, Verdict};
 use workflow::state::{

@@ -51,9 +51,7 @@ pub fn failure_reason(transcript: &[agent::AgentEvent]) -> Option<String> {
     // 记因通知缺席（如 CLI 引擎无 api_error 留痕）：退到失败 TurnDone 的 subtype
     transcript.iter().rev().find_map(|event| {
         let AgentEventKind::TurnDone {
-            subtype,
-            is_error,
-            ..
+            subtype, is_error, ..
         } = &event.kind
         else {
             return None;

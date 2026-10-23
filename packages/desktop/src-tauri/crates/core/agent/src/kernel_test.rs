@@ -1263,9 +1263,7 @@ async fn drive的delta与密封同源发布_订阅端序列与输出回调逐条
         .expect("begin 应成功");
     let session_id = running.session_id.clone();
     let started_at = running.started_at;
-    let subscription = streams
-        .subscribe(&session_id, 0)
-        .expect("订阅方可即刻接入");
+    let subscription = streams.subscribe(&session_id, 0).expect("订阅方可即刻接入");
 
     runner
         .feed(vec![
@@ -1289,15 +1287,15 @@ async fn drive的delta与密封同源发布_订阅端序列与输出回调逐条
         "订阅端序列与 on_output 逐条相等（含 delta，载荷逐字）"
     );
     assert_eq!(
-        streamed
-            .iter()
-            .map(|event| event.seq)
-            .collect::<Vec<_>>(),
+        streamed.iter().map(|event| event.seq).collect::<Vec<_>>(),
         vec![1, 2, 3, 4],
         "seq 严格递增（盖戳单点同源）且大于 since_seq"
     );
     assert_eq!(observations[0].seq, 0, "被过滤的恰为首枚 seq 0 事件");
-    assert!(streamed.iter().any(|event| event.kind.is_delta()), "delta 可见");
+    assert!(
+        streamed.iter().any(|event| event.kind.is_delta()),
+        "delta 可见"
+    );
     assert_eq!(terminal, outcome, "终态与 drive 返回同构");
     assert_eq!(terminal.started_at, started_at, "终态携轮起点");
     assert_eq!(
@@ -1341,10 +1339,7 @@ async fn drive_append失败时订阅端得failed终态且此前delta已投递且
     let (streamed, terminal) = drain_stream(subscription).await;
 
     assert_eq!(
-        streamed
-            .iter()
-            .map(|event| event.seq)
-            .collect::<Vec<_>>(),
+        streamed.iter().map(|event| event.seq).collect::<Vec<_>>(),
         vec![1],
         "落库失败前的增量已投递（seq 1；seq 0 被 since_seq 过滤）"
     );
@@ -1605,11 +1600,7 @@ async fn drive停止置位收敛stopped_订阅端终态error为none() {
     let (sink, _calls) = FakeSink::new();
     let registry = Arc::new(StopRegistry::new());
     let streams = Arc::new(SessionStreamRegistry::new());
-    let kernel = SessionKernel::new(
-        Arc::new(sink),
-        Arc::clone(&registry),
-        Arc::clone(&streams),
-    );
+    let kernel = SessionKernel::new(Arc::new(sink), Arc::clone(&registry), Arc::clone(&streams));
     let runner = Arc::new(FakeRunner::with_capacity(8));
 
     let running = kernel

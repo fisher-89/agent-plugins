@@ -17,7 +17,14 @@ use crate::prune::{is_pruned_dir_name, PRUNED_DIR_NAMES};
 fn pruned_dir_names六员逐字锚定与explore决议一致() {
     assert_eq!(
         PRUNED_DIR_NAMES,
-        ["node_modules", "dist", "build", "target", "coverage", ".nyc_output"],
+        [
+            "node_modules",
+            "dist",
+            "build",
+            "target",
+            "coverage",
+            ".nyc_output"
+        ],
         "六员逐字锚定（依赖与工具产物树封闭集——名单扩展一处修改双点生效）"
     );
     // 逐员断言（enum 遍历——单员改名即断，不依赖整组比较的定位能力）
@@ -81,7 +88,14 @@ fn is_pruned_dir_name名单六员逐名命中() {
         );
     }
     // 独立于名单引用的字面量再锚一遍（防止常量被误改后逐名测试随之失效）
-    for name in ["node_modules", "dist", "build", "target", "coverage", ".nyc_output"] {
+    for name in [
+        "node_modules",
+        "dist",
+        "build",
+        "target",
+        "coverage",
+        ".nyc_output",
+    ] {
         assert!(is_pruned_dir_name(name), "字面量 {name:?} 应命中");
     }
 }
@@ -103,7 +117,9 @@ fn is_pruned_dir_name_dot前缀命中() {
 #[test]
 fn is_pruned_dir_name_空串与普通目录名不命中() {
     assert!(!is_pruned_dir_name(""), "空串无前缀无命中 → false");
-    for name in ["src", "crates", "openspec", "packages", "changes", "reports"] {
+    for name in [
+        "src", "crates", "openspec", "packages", "changes", "reports",
+    ] {
         assert!(
             !is_pruned_dir_name(name),
             "普通目录名 {name:?} 不应命中（工件树 / 源码树不剪枝）"
@@ -125,12 +141,12 @@ fn is_pruned_dir_name_形态近邻不误伤() {
         "DIST",
         "Target",
         "COVERAGE",
-        "dist/",       // 带分隔符形态（路径切分归消费点）
-        "/dist",       // 前导分隔符
-        "src/dist",    // 嵌套形态（逐字比对不递归）
+        "dist/",         // 带分隔符形态（路径切分归消费点）
+        "/dist",         // 前导分隔符
+        "src/dist",      // 嵌套形态（逐字比对不递归）
         "node_modules/", // 带尾分隔符
-        " dist",       // 前导空白
-        "dist ",       // 尾随空白
+        " dist",         // 前导空白
+        "dist ",         // 尾随空白
     ] {
         assert!(
             !is_pruned_dir_name(name),
@@ -145,11 +161,17 @@ fn is_pruned_dir_name_形态近邻不误伤() {
 fn is_pruned_dir_name_超长与特殊字符零panic直返bool() {
     // 超长普通名 → false（不 panic）
     let long_plain = "a".repeat(1500);
-    assert!(!is_pruned_dir_name(&long_plain), "超长普通名不命中且不 panic");
+    assert!(
+        !is_pruned_dir_name(&long_plain),
+        "超长普通名不命中且不 panic"
+    );
 
     // 超长名单近邻名 → false（前缀命中即断的形态：名单命中需逐字全等）
     let long_near = format!("node_modules{}", "x".repeat(1000));
-    assert!(!is_pruned_dir_name(&long_near), "超长近邻名不命中（逐字全等）");
+    assert!(
+        !is_pruned_dir_name(&long_near),
+        "超长近邻名不命中（逐字全等）"
+    );
 
     // 超长 dot 名 → true（dot 前缀语义对超长名同样成立）
     let long_dot = format!(".{}", "b".repeat(1000));
@@ -159,6 +181,12 @@ fn is_pruned_dir_name_超长与特殊字符零panic直返bool() {
     assert!(!is_pruned_dir_name("🚀"), "emoji 名不命中且不 panic");
     assert!(is_pruned_dir_name(".🚀"), "dot + emoji 命中（dot 前缀）");
     assert!(!is_pruned_dir_name("突\n变"), "含换行名不命中且不 panic");
-    assert!(!is_pruned_dir_name("\n"), "换行字符自身非 dot 非名单 → false 不 panic");
-    assert!(!is_pruned_dir_name("line\nbreak"), "内嵌换行名不命中且不 panic");
+    assert!(
+        !is_pruned_dir_name("\n"),
+        "换行字符自身非 dot 非名单 → false 不 panic"
+    );
+    assert!(
+        !is_pruned_dir_name("line\nbreak"),
+        "内嵌换行名不命中且不 panic"
+    );
 }

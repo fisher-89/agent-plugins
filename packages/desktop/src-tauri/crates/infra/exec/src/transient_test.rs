@@ -80,7 +80,11 @@ fn 大小写不敏感_三形态均返回表中原文() {
         ("os error 32", "OS ERROR 32", "Os Error 32"),
         ("lnk1104", "LNK1104", "Lnk1104"),
         ("ebusy", "EBUSY", "Ebusy"),
-        ("resource busy or locked", "RESOURCE BUSY OR LOCKED", "Resource Busy Or Locked"),
+        (
+            "resource busy or locked",
+            "RESOURCE BUSY OR LOCKED",
+            "Resource Busy Or Locked",
+        ),
     ];
     // 表内 `LNK1104` / `EBUSY` 原文为大写：断言取实际返回，再由下方表驱动钉住原文
     const CANONICAL: [&str; 4] = ["os error 32", "LNK1104", "EBUSY", "resource busy or locked"];
@@ -431,8 +435,15 @@ fn 直构边界策略三形态() {
         max_attempts: 1,
         ..RetryPolicy::transient()
     };
-    assert_eq!(single.max_attempts, 1, "上限 1 可直构（等价 none 的行为面）");
-    assert_eq!(single.total_budget, Duration::from_secs(1500), "其余字段随动");
+    assert_eq!(
+        single.max_attempts, 1,
+        "上限 1 可直构（等价 none 的行为面）"
+    );
+    assert_eq!(
+        single.total_budget,
+        Duration::from_secs(1500),
+        "其余字段随动"
+    );
 
     let twice = RetryPolicy {
         max_attempts: 2,
@@ -445,7 +456,10 @@ fn 直构边界策略三形态() {
         ..RetryPolicy::transient()
     };
     assert_eq!(no_budget.total_budget, Duration::ZERO, "零预算可直构");
-    assert!(no_budget.total_budget < Duration::from_secs(1), "零预算极小");
+    assert!(
+        no_budget.total_budget < Duration::from_secs(1),
+        "零预算极小"
+    );
 }
 
 // ---------------------------------------------------------------------------

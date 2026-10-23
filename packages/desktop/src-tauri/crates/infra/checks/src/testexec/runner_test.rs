@@ -216,7 +216,8 @@ fn 模板展开五占位符替换_config_args双形态() {
 /// 未注入时连前导空白剥离、`{files}` 不在模板内、`> "{results_file}"` 重定向恰一次。
 #[test]
 fn rust模板展开_双工件路径逐字且重定向恰一次() {
-    let template = "cargo llvm-cov --workspace --json --output-path \"{coverage_file}\" > \"{results_file}\"";
+    let template =
+        "cargo llvm-cov --workspace --json --output-path \"{coverage_file}\" > \"{results_file}\"";
     let expanded = expand_template(
         template,
         "/ws/reports/crates_rust",
@@ -258,7 +259,9 @@ fn 模板展开清单规模与占位符形态() {
     assert_eq!(expanded, "run --files tests/it.rs", "单元素清单逐字展开");
 
     // 形态二：大清单（50 项）逐字空格连接
-    let many: Vec<String> = (0..50).map(|index| format!("tests/t{index:02}.rs")).collect();
+    let many: Vec<String> = (0..50)
+        .map(|index| format!("tests/t{index:02}.rs"))
+        .collect();
     let expanded = expand_template(
         "run --files {files}",
         "/ws/reports/plan",
@@ -288,7 +291,8 @@ fn 模板展开清单规模与占位符形态() {
         &["a.rs".to_owned(), "b.rs".to_owned()],
     );
     assert_eq!(
-        expanded, "a.rs b.rs | a.rs b.rs | /ws/reports/plan/results.txt | /ws/reports/plan/results.txt",
+        expanded,
+        "a.rs b.rs | a.rs b.rs | /ws/reports/plan/results.txt | /ws/reports/plan/results.txt",
         "同一占位符多次出现全量替换（replace 全量语义）"
     );
 
@@ -320,9 +324,13 @@ async fn 模板串边界_空与空白err_特殊字符逐字保留() {
 
     for (shape, template) in [("空模板", ""), ("全空白模板", "   \n\t  ")] {
         let plan = rust_plan(&cwd, template.to_owned());
-        let err = execute_plan(&plan, &ws.path().join("reports").join("blank"), foundation::cancel::CancelFlag::never())
-            .await
-            .expect_err(&format!("{shape} 应显式 Err（展开后的命令为空白）"));
+        let err = execute_plan(
+            &plan,
+            &ws.path().join("reports").join("blank"),
+            foundation::cancel::CancelFlag::never(),
+        )
+        .await
+        .expect_err(&format!("{shape} 应显式 Err（展开后的命令为空白）"));
         assert!(
             err.contains("展开后的命令为空白"),
             "{shape} Err 记因空白命令（前置检查零改动），实际: {err}"
@@ -487,9 +495,13 @@ async fn windows引号占位模板_重定向工件落位() {
     };
     let plan = node_test_plan(&cwd, template);
 
-    let execution = execute_plan(&plan, &ws.path().join("reports").join("it_node-test"), foundation::cancel::CancelFlag::never())
-        .await
-        .expect("引号形态应正常执行");
+    let execution = execute_plan(
+        &plan,
+        &ws.path().join("reports").join("it_node-test"),
+        foundation::cancel::CancelFlag::never(),
+    )
+    .await
+    .expect("引号形态应正常执行");
 
     assert_eq!(execution.exit_code, 0, "退出码透传（引号模板免转引破坏）");
     assert!(
@@ -514,11 +526,7 @@ async fn rust档零改写_模板自带重定向_命令串原样展开() {
     let ws = TempDir::new().expect("临时目录");
     let cwd = ws.path().join("app");
     std::fs::create_dir_all(&cwd).expect("创建 suite cwd");
-    let res_src = preset(
-        ws.path(),
-        "rewrite-results-preset.txt",
-        RUST_RESULTS_OUTPUT,
-    );
+    let res_src = preset(ws.path(), "rewrite-results-preset.txt", RUST_RESULTS_OUTPUT);
     let report_dir = ws.path().join("reports").join("rust-rewrite");
 
     // 替身模板：生产形态（模板自带结果重定向）+ stderr 打点
@@ -546,9 +554,7 @@ async fn rust档零改写_模板自带重定向_命令串原样展开() {
     );
     let results_posix = to_posix(&report_dir.join("results.txt"));
     assert_eq!(
-        expected
-            .matches(&format!("> \"{results_posix}\""))
-            .count(),
+        expected.matches(&format!("> \"{results_posix}\"")).count(),
         1,
         "结果重定向在展开串中恰一次（无 `cargo test >` 二次注入），实际: {expected}"
     );
@@ -662,9 +668,13 @@ async fn 多running块结果工件解析_用例行全量且失败归因() {
     };
     let plan = rust_plan(&cwd, template);
 
-    let execution = execute_plan(&plan, &ws.path().join("reports").join("rust-blocks"), foundation::cancel::CancelFlag::never())
-        .await
-        .expect("结果工件替身命令应 Ok");
+    let execution = execute_plan(
+        &plan,
+        &ws.path().join("reports").join("rust-blocks"),
+        foundation::cancel::CancelFlag::never(),
+    )
+    .await
+    .expect("结果工件替身命令应 Ok");
 
     assert_eq!(execution.exit_code, 0);
     let passed = execution
@@ -740,9 +750,13 @@ async fn 退出码直继承_产双工件后非零() {
     };
     let plan = rust_plan(&cwd, template);
 
-    let execution = execute_plan(&plan, &ws.path().join("reports").join("rust-red"), foundation::cancel::CancelFlag::never())
-        .await
-        .expect("被测域失败走产出（不 Err）");
+    let execution = execute_plan(
+        &plan,
+        &ws.path().join("reports").join("rust-red"),
+        foundation::cancel::CancelFlag::never(),
+    )
+    .await
+    .expect("被测域失败走产出（不 Err）");
 
     assert_eq!(execution.exit_code, 3, "退出码直继承（不被前置段洗 0）");
     assert!(
@@ -789,9 +803,13 @@ async fn llvm_cov工件缺失且非零_error面记因不出假绿() {
     };
     let plan = rust_plan(&cwd, template);
 
-    let execution = execute_plan(&plan, &ws.path().join("reports").join("rust-lock"), foundation::cancel::CancelFlag::never())
-        .await
-        .expect("被测域失败走产出（不 Err）");
+    let execution = execute_plan(
+        &plan,
+        &ws.path().join("reports").join("rust-lock"),
+        foundation::cancel::CancelFlag::never(),
+    )
+    .await
+    .expect("被测域失败走产出（不 Err）");
 
     assert_eq!(execution.exit_code, 101, "cargo 退出码 101 直继承");
     let error = execution.error.expect("覆盖率工件缺失而 error 必须记因");
@@ -826,7 +844,11 @@ async fn 退出码谱边界_逐一透传与零error() {
     let ws = TempDir::new().expect("临时目录");
     let cwd = ws.path().join("app");
     std::fs::create_dir_all(&cwd).expect("创建 suite cwd");
-    let res_src = preset(ws.path(), "spectrum-results-preset.txt", RUST_RESULTS_OUTPUT);
+    let res_src = preset(
+        ws.path(),
+        "spectrum-results-preset.txt",
+        RUST_RESULTS_OUTPUT,
+    );
 
     // 零形态：产结果工件 → 零 error（无工件缺失噪音）
     let green = if cfg!(windows) {
@@ -838,9 +860,13 @@ async fn 退出码谱边界_逐一透传与零error() {
         format!("cp \"{}\" \"{{results_file}}\"", res_src.to_string_lossy())
     };
     let plan = rust_plan(&cwd, green);
-    let execution = execute_plan(&plan, &ws.path().join("reports").join("spec-0"), foundation::cancel::CancelFlag::never())
-        .await
-        .expect("零形态应 Ok");
+    let execution = execute_plan(
+        &plan,
+        &ws.path().join("reports").join("spec-0"),
+        foundation::cancel::CancelFlag::never(),
+    )
+    .await
+    .expect("零形态应 Ok");
     assert_eq!(execution.exit_code, 0, "退出码 0 透传");
     assert!(
         execution.error.is_none(),
@@ -857,16 +883,18 @@ async fn 退出码谱边界_逐一透传与零error() {
             format!("true; exit {code}")
         };
         let plan = rust_plan(&cwd, template);
-        let execution = execute_plan(&plan, &ws.path().join("reports").join(format!("spec-{code}")), foundation::cancel::CancelFlag::never())
-            .await
-            .expect("非零退出走产出（不 Err）");
+        let execution = execute_plan(
+            &plan,
+            &ws.path().join("reports").join(format!("spec-{code}")),
+            foundation::cancel::CancelFlag::never(),
+        )
+        .await
+        .expect("非零退出走产出（不 Err）");
         assert_eq!(execution.exit_code, code, "退出码 {code} 直继承");
         assert!(
-            execution
-                .error
-                .as_deref()
-                .is_some_and(|error| error.contains("非零退出")
-                    && error.contains(&code.to_string())),
+            execution.error.as_deref().is_some_and(
+                |error| error.contains("非零退出") && error.contains(&code.to_string())
+            ),
             "error 面记因退出码 {code}，实际: {:?}",
             execution.error
         );
@@ -891,12 +919,19 @@ async fn 结果工件空与缺失_error面分化() {
             empty_src.to_string_lossy().replace('/', "\\")
         )
     } else {
-        format!("cp \"{}\" \"{{results_file}}\"", empty_src.to_string_lossy())
+        format!(
+            "cp \"{}\" \"{{results_file}}\"",
+            empty_src.to_string_lossy()
+        )
     };
     let plan = rust_plan(&cwd, empty);
-    let execution = execute_plan(&plan, &ws.path().join("reports").join("empty-results"), foundation::cancel::CancelFlag::never())
-        .await
-        .expect("空工件形态应 Ok");
+    let execution = execute_plan(
+        &plan,
+        &ws.path().join("reports").join("empty-results"),
+        foundation::cancel::CancelFlag::never(),
+    )
+    .await
+    .expect("空工件形态应 Ok");
     assert_eq!(execution.exit_code, 0);
     assert!(
         execution
@@ -915,9 +950,13 @@ async fn 结果工件空与缺失_error面分化() {
         "true".to_owned()
     };
     let plan = rust_plan(&cwd, missing);
-    let execution = execute_plan(&plan, &ws.path().join("reports").join("missing-results"), foundation::cancel::CancelFlag::never())
-        .await
-        .expect("缺工件形态应 Ok");
+    let execution = execute_plan(
+        &plan,
+        &ws.path().join("reports").join("missing-results"),
+        foundation::cancel::CancelFlag::never(),
+    )
+    .await
+    .expect("缺工件形态应 Ok");
     assert_eq!(execution.exit_code, 0);
     assert!(
         execution
@@ -952,9 +991,13 @@ async fn 退出零但覆盖率工件缺失_null感知跳过() {
     };
     let plan = rust_plan(&cwd, template);
 
-    let execution = execute_plan(&plan, &ws.path().join("reports").join("rust-no-cov"), foundation::cancel::CancelFlag::never())
-        .await
-        .expect("仅产结果工件应 Ok");
+    let execution = execute_plan(
+        &plan,
+        &ws.path().join("reports").join("rust-no-cov"),
+        foundation::cancel::CancelFlag::never(),
+    )
+    .await
+    .expect("仅产结果工件应 Ok");
 
     assert_eq!(execution.exit_code, 0, "退出码透传");
     assert!(
@@ -1000,9 +1043,13 @@ async fn jest档执行面零改动_istanbul结果不产用例行() {
     };
     let plan = jest_plan(&cwd, template);
 
-    let execution = execute_plan(&plan, &ws.path().join("reports").join("it_jest"), foundation::cancel::CancelFlag::never())
-        .await
-        .expect("jest 档替身命令应 Ok");
+    let execution = execute_plan(
+        &plan,
+        &ws.path().join("reports").join("it_jest"),
+        foundation::cancel::CancelFlag::never(),
+    )
+    .await
+    .expect("jest 档替身命令应 Ok");
 
     assert_eq!(execution.exit_code, 0, "退出码透传");
     assert!(
@@ -1030,9 +1077,13 @@ async fn 裸名程序不可达err显式() {
     std::fs::create_dir_all(&cwd).expect("创建 suite cwd");
     let plan = node_test_plan(&cwd, "no-such-test-runner-xyz --run {files}".to_owned());
 
-    let err = execute_plan(&plan, &ws.path().join("reports").join("p"), foundation::cancel::CancelFlag::never())
-        .await
-        .expect_err("不可达程序应 Err（基础设施失败显式停给用户）");
+    let err = execute_plan(
+        &plan,
+        &ws.path().join("reports").join("p"),
+        foundation::cancel::CancelFlag::never(),
+    )
+    .await
+    .expect_err("不可达程序应 Err（基础设施失败显式停给用户）");
     assert!(
         err.contains("no-such-test-runner-xyz") && err.contains("未找到"),
         "Err 记因裸名与解析失败面，实际: {err}"
@@ -1054,9 +1105,13 @@ async fn 相对cwd程序不可达err显式() {
     };
     let plan = node_test_plan(&cwd, template);
 
-    let err = execute_plan(&plan, &ws.path().join("reports").join("p"), foundation::cancel::CancelFlag::never())
-        .await
-        .expect_err("相对 cwd 不可达应 Err");
+    let err = execute_plan(
+        &plan,
+        &ws.path().join("reports").join("p"),
+        foundation::cancel::CancelFlag::never(),
+    )
+    .await
+    .expect_err("相对 cwd 不可达应 Err");
     assert!(
         err.contains("不可达") && err.contains("相对 suite cwd"),
         "Err 记因相对路径解析面，实际: {err}"
@@ -1078,9 +1133,13 @@ async fn 非零退出且工件不可解析_error面产出() {
     };
     let plan = node_test_plan(&cwd, template);
 
-    let execution = execute_plan(&plan, &ws.path().join("reports").join("p"), foundation::cancel::CancelFlag::never())
-        .await
-        .expect("被测域失败走产出（不 Err）");
+    let execution = execute_plan(
+        &plan,
+        &ws.path().join("reports").join("p"),
+        foundation::cancel::CancelFlag::never(),
+    )
+    .await
+    .expect("被测域失败走产出（不 Err）");
 
     assert_eq!(execution.exit_code, 3, "退出码透传");
     assert!(
@@ -1113,9 +1172,13 @@ async fn 非零退出错误面携带进程报错文本() {
     };
     let plan = node_test_plan(&cwd, template);
 
-    let execution = execute_plan(&plan, &ws.path().join("reports").join("p"), foundation::cancel::CancelFlag::never())
-        .await
-        .expect("被测域失败走产出（不 Err）");
+    let execution = execute_plan(
+        &plan,
+        &ws.path().join("reports").join("p"),
+        foundation::cancel::CancelFlag::never(),
+    )
+    .await
+    .expect("被测域失败走产出（不 Err）");
 
     assert_eq!(execution.exit_code, 7, "退出码透传");
     let error = execution.error.expect("非零退出错误面在场");
@@ -1175,9 +1238,13 @@ async fn 成功退出零工件_解析错误面() {
     };
     let plan = node_test_plan(&cwd, template);
 
-    let execution = execute_plan(&plan, &ws.path().join("reports").join("p"), foundation::cancel::CancelFlag::never())
-        .await
-        .expect("成功退出应 Ok");
+    let execution = execute_plan(
+        &plan,
+        &ws.path().join("reports").join("p"),
+        foundation::cancel::CancelFlag::never(),
+    )
+    .await
+    .expect("成功退出应 Ok");
 
     assert_eq!(execution.exit_code, 0);
     assert!(
@@ -1245,9 +1312,13 @@ async fn 合并流_stdout前缀stderr后缀逐字() {
     };
     let plan = node_test_plan(&cwd, template);
 
-    let execution = execute_plan(&plan, &ws.path().join("reports").join("m"), foundation::cancel::CancelFlag::never())
-        .await
-        .expect("绿跑形态应 Ok");
+    let execution = execute_plan(
+        &plan,
+        &ws.path().join("reports").join("m"),
+        foundation::cancel::CancelFlag::never(),
+    )
+    .await
+    .expect("绿跑形态应 Ok");
 
     assert_eq!(execution.exit_code, 0, "退出码透传");
     let merged = String::from_utf8_lossy(&execution.output).replace("\r\n", "\n");
@@ -1272,9 +1343,13 @@ async fn 合并流独立承载_error经合并文本派生() {
     };
     let plan = node_test_plan(&cwd, template);
 
-    let execution = execute_plan(&plan, &ws.path().join("reports").join("e"), foundation::cancel::CancelFlag::never())
-        .await
-        .expect("被测域失败走产出（不 Err）");
+    let execution = execute_plan(
+        &plan,
+        &ws.path().join("reports").join("e"),
+        foundation::cancel::CancelFlag::never(),
+    )
+    .await
+    .expect("被测域失败走产出（不 Err）");
 
     assert_eq!(execution.exit_code, 7, "退出码透传");
     let merged = String::from_utf8_lossy(&execution.output).replace("\r\n", "\n");
@@ -1353,9 +1428,13 @@ async fn 合并流语义保持_stdout进工件而output只载stderr() {
         )
     };
     let plan = rust_plan(&cwd, red);
-    let execution = execute_plan(&plan, &ws.path().join("reports").join("rust-stream-red"), foundation::cancel::CancelFlag::never())
-        .await
-        .expect("红跑臂走产出（不 Err）");
+    let execution = execute_plan(
+        &plan,
+        &ws.path().join("reports").join("rust-stream-red"),
+        foundation::cancel::CancelFlag::never(),
+    )
+    .await
+    .expect("红跑臂走产出（不 Err）");
 
     assert_eq!(execution.exit_code, 7, "退出码透传（不被前置段洗 0）");
     let error = execution.error.expect("非零退出错误面在场");
@@ -1392,9 +1471,13 @@ async fn 边界_空输出与大输出全量承载() {
         "true".to_owned()
     };
     let plan = node_test_plan(&cwd, quiet);
-    let execution = execute_plan(&plan, &ws.path().join("reports").join("empty"), foundation::cancel::CancelFlag::never())
-        .await
-        .expect("静默命令应 Ok");
+    let execution = execute_plan(
+        &plan,
+        &ws.path().join("reports").join("empty"),
+        foundation::cancel::CancelFlag::never(),
+    )
+    .await
+    .expect("静默命令应 Ok");
     assert_eq!(
         execution.output,
         Vec::<u8>::new(),
@@ -1408,9 +1491,13 @@ async fn 边界_空输出与大输出全量承载() {
         format!("echo {long}; echo tail-error >&2")
     };
     let plan = node_test_plan(&cwd, verbose);
-    let execution = execute_plan(&plan, &ws.path().join("reports").join("long"), foundation::cancel::CancelFlag::never())
-        .await
-        .expect("大输出形态应 Ok");
+    let execution = execute_plan(
+        &plan,
+        &ws.path().join("reports").join("long"),
+        foundation::cancel::CancelFlag::never(),
+    )
+    .await
+    .expect("大输出形态应 Ok");
 
     let merged = String::from_utf8_lossy(&execution.output).into_owned();
     assert!(
@@ -1442,8 +1529,8 @@ async fn 边界_空输出与大输出全量承载() {
     let execution = execute_plan(&plan, &report_dir, foundation::cancel::CancelFlag::never())
         .await
         .expect("rust 大输出形态应 Ok");
-    let results = std::fs::read_to_string(report_dir.join("results.txt"))
-        .expect("大输出结果工件落报告树");
+    let results =
+        std::fs::read_to_string(report_dir.join("results.txt")).expect("大输出结果工件落报告树");
     assert_eq!(
         artifact_text(&results),
         format!("{long}\n"),
@@ -1574,7 +1661,8 @@ async fn 超时臂_负一哨兵与超时文案且目标pid消失() {
     let report_dir = ws.path().join("reports").join("it_node-test");
 
     // 运行体在任务内（主任务负责「等 pid 落盘 → 推进虚拟时钟」的握手）
-    let runner = tokio::spawn(async move { execute_plan(&plan, &report_dir, CancelFlag::never()).await });
+    let runner =
+        tokio::spawn(async move { execute_plan(&plan, &report_dir, CancelFlag::never()).await });
     let pid = wait_pid(&pid_file, Duration::from_secs(60)).await;
 
     let started = Instant::now();
@@ -1623,10 +1711,7 @@ async fn 已置位cancel_fault为stopped且零spawn() {
     std::fs::create_dir_all(&cwd).expect("创建 suite cwd");
     let marker = ws.path().join("suite-ran.txt");
     #[cfg(windows)]
-    let template = format!(
-        "cmd /C \"echo ran > \\\"{}\\\"\"",
-        marker.display()
-    );
+    let template = format!("cmd /C \"echo ran > \\\"{}\\\"\"", marker.display());
     #[cfg(not(windows))]
     let template = format!("sh -c 'printf ran > \"{}\"'", marker.display());
     let plan = node_test_plan(&cwd, template);
@@ -1673,8 +1758,7 @@ async fn 运行中cancel_秒级收敛且pid消失零报告写入() {
 
     let cancel = CancelFlag::never();
     let handle = cancel.handle();
-    let runner =
-        tokio::spawn(async move { execute_plan(&plan, &report_dir, cancel).await });
+    let runner = tokio::spawn(async move { execute_plan(&plan, &report_dir, cancel).await });
 
     // 等 pid 落盘（进程已建立）后置位取消
     let pid = wait_pid(&pid_file, Duration::from_secs(60)).await;
@@ -1742,9 +1826,13 @@ async fn 双管道大块并发_output全长拼接且不互锁() {
     let plan = node_test_plan(&cwd, template);
 
     let started = Instant::now();
-    let execution = execute_plan(&plan, &ws.path().join("reports").join("it_node-test"), CancelFlag::never())
-        .await
-        .expect("双管道并发应 Ok");
+    let execution = execute_plan(
+        &plan,
+        &ws.path().join("reports").join("it_node-test"),
+        CancelFlag::never(),
+    )
+    .await
+    .expect("双管道并发应 Ok");
     let elapsed = started.elapsed();
 
     assert_eq!(execution.exit_code, 0, "退出码透传");
@@ -1879,9 +1967,8 @@ async fn 瞬态耗尽_fault为环境错误且零execution_error() {
     let report_dir = ws.path().join("reports").join("it_node-test");
 
     // 运行体在任务内（主任务负责推进虚拟时钟：4 段退避 15 s 不真等）
-    let runner = tokio::spawn(async move {
-        execute_plan(&plan, &report_dir, CancelFlag::never()).await
-    });
+    let runner =
+        tokio::spawn(async move { execute_plan(&plan, &report_dir, CancelFlag::never()).await });
     advance_until(
         || runner.is_finished(),
         Duration::from_millis(100),
@@ -1895,7 +1982,10 @@ async fn 瞬态耗尽_fault为环境错误且零execution_error() {
 
     assert_eq!(execution.exit_code, 1, "末次非零退出直继承");
     let Some(RunFault::Environment(text)) = execution.fault.clone() else {
-        panic!("瞬态耗尽应产 Environment fault，实际: {:?}", execution.fault);
+        panic!(
+            "瞬态耗尽应产 Environment fault，实际: {:?}",
+            execution.fault
+        );
     };
     assert!(
         text.contains("已自动重试 4 次"),
@@ -1958,9 +2048,8 @@ async fn 瞬态自愈_fault为空且正常解析() {
     let report_dir = ws.path().join("reports").join("it_node-test");
 
     // 运行体在任务内（主任务推进虚拟时钟：1 s 退避不真等）
-    let runner = tokio::spawn(async move {
-        execute_plan(&plan, &report_dir, CancelFlag::never()).await
-    });
+    let runner =
+        tokio::spawn(async move { execute_plan(&plan, &report_dir, CancelFlag::never()).await });
     advance_until(
         || runner.is_finished(),
         Duration::from_millis(100),
@@ -2004,7 +2093,10 @@ async fn 裸failed_to_write不产fault且单次尝试() {
     std::fs::create_dir_all(&cwd).expect("创建 suite cwd");
     let target = cwd.join("libb.rmeta");
     let template = if cfg!(windows) {
-        format!("cmd /C echo error: failed to write {}& exit /b 1", target.display())
+        format!(
+            "cmd /C echo error: failed to write {}& exit /b 1",
+            target.display()
+        )
     } else {
         format!("echo error: failed to write {}; exit 1", target.display())
     };

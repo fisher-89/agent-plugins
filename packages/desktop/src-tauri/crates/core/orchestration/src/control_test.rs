@@ -1909,7 +1909,10 @@ async fn request_stop幂等_连调两次均命中() {
         .expect("首次发起应成功");
 
     assert!(control.request_stop(ROOT, CHANGE_ID), "首次命中断言");
-    assert!(control.request_stop(ROOT, CHANGE_ID), "重复停止仍命中（幂等）");
+    assert!(
+        control.request_stop(ROOT, CHANGE_ID),
+        "重复停止仍命中（幂等）"
+    );
     assert!(guard.cancel_flag().is_set(), "重复 set 无副作用");
 }
 
@@ -1935,7 +1938,10 @@ async fn request_stop_miss面两形态() {
         !control.request_stop(ROOT, CHANGE_ID),
         "已收口除名键 → false"
     );
-    assert!(!flag.is_set(), "除名后的停止不再置位旧 flag（已由 runner 持有）");
+    assert!(
+        !flag.is_set(),
+        "除名后的停止不再置位旧 flag（已由 runner 持有）"
+    );
 }
 
 /// 边界（表驱动 2 形态：异 change id / 异 root）：多 run 隔离——`request_stop`

@@ -563,7 +563,6 @@ fn 最小合法summary解析成功() {
     assert_eq!(roundtrip, parsed, "最小 summary 往返无损");
 }
 
-
 // ---------------------------------------------------------------------------
 // 段级 mutation 报告宽容解析（desktop-fix-mutation-test / AC-4 / AC-9）：
 // parse_cargo_mutants_seg（映射表；未知 outcome 计 runtimeError 保留原文）
@@ -595,7 +594,11 @@ const CARGO_SEG_FULL_MAPPING: &str = r#"{
 fn parse_cargo_mutants_seg全映射表样本逐个归位() {
     let report = parse_cargo_mutants_seg(CARGO_SEG_FULL_MAPPING).expect("映射表样本应解析成功");
     assert_eq!(report.tool, MutationTool::CargoMutants, "执行器标识");
-    assert_eq!(report.tool.as_str(), "cargo_mutants", "线格式 snake_case 词");
+    assert_eq!(
+        report.tool.as_str(),
+        "cargo_mutants",
+        "线格式 snake_case 词"
+    );
     let measured = report.measured;
     assert_eq!(measured.killed, 1, "caught → killed（Caught 大小写归一）");
     assert_eq!(measured.survived, 1, "missed → survived");
@@ -805,7 +808,13 @@ fn parse_stryker_seg_files逐mutant计数面与未知status宽容() {
 /// 显式 `Err`（结构面严格、词面宽容同口径）。
 #[test]
 fn parse_stryker_seg结构破坏族逐一样本err() {
-    for bad in ["", "garbage text", "[1, 2, 3]", r#"{ "metrics": {} }"#, r#"{ "durationMs": 1.0 }"#] {
+    for bad in [
+        "",
+        "garbage text",
+        "[1, 2, 3]",
+        r#"{ "metrics": {} }"#,
+        r#"{ "durationMs": 1.0 }"#,
+    ] {
         let result = parse_stryker_seg(bad);
         assert!(result.is_err(), "结构破坏样本 {bad:?} 应 Err");
         let error = result.expect_err("上一行已断言 Err");
@@ -880,7 +889,10 @@ fn mutation_seg_report类型面_零扩展与大值构造() {
         undetected,
     } = measured;
     assert_eq!((killed, survived, timeout, no_coverage), (1, 2, 3, 4));
-    assert_eq!((compile_error, runtime_error, ignored, total), (5, 6, 7, 28));
+    assert_eq!(
+        (compile_error, runtime_error, ignored, total),
+        (5, 6, 7, 28)
+    );
     assert_eq!((detected, undetected), (4, 6));
 
     assert_eq!(MutationMeasured::default().total, 0, "Default 零占位");

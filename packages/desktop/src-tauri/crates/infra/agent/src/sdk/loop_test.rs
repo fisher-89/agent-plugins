@@ -1805,7 +1805,13 @@ use store::Store;
 fn explore_injections() -> agent::SessionInjections {
     agent::SessionInjections {
         preamble: None,
-        tools: Some(TOOL_NAMES.iter().filter(|n| **n != "write").map(|n| n.to_string()).collect()),
+        tools: Some(
+            TOOL_NAMES
+                .iter()
+                .filter(|n| **n != "write")
+                .map(|n| n.to_string())
+                .collect(),
+        ),
         toolset: Some(SessionToolset::Explore),
     }
 }
@@ -1935,7 +1941,9 @@ async fn explore轮幻觉write调用被成员校验拒绝且run不中断() {
     let payload = serde_json::to_value(notices[0].1).expect("payload 序列化");
     assert_eq!(payload["tool"], serde_json::json!("write"));
     assert!(
-        payload["reason"].as_str().is_some_and(|r| r.contains("下发面")),
+        payload["reason"]
+            .as_str()
+            .is_some_and(|r| r.contains("下发面")),
         "拒绝记因注明不在本轮下发面，实际: {payload}"
     );
 
@@ -1987,7 +1995,9 @@ async fn default轮未知名调用以tool_unavailable拒绝() {
         "未知名以成员校验形态拒绝（迁移自 permission_denied）"
     );
     assert!(
-        !notices.iter().any(|(subtype, _)| *subtype == "permission_denied"),
+        !notices
+            .iter()
+            .any(|(subtype, _)| *subtype == "permission_denied"),
         "未知名不再走 policy 拒绝形态"
     );
     turn_done_of(&events);
@@ -1999,7 +2009,11 @@ async fn default轮未知名调用以tool_unavailable拒绝() {
 async fn 未知名加default档命中成员校验而非policy() {
     let dir = tempdir("member-before-policy");
     let model = FakeModel::with_turns(vec![
-        vec![raw_tool_call("tu_order", "phantom_tool", serde_json::json!({}))],
+        vec![raw_tool_call(
+            "tu_order",
+            "phantom_tool",
+            serde_json::json!({}),
+        )],
         vec![raw_text("继续")],
     ]);
     // Default 档：policy 面该名亦会被拒——但成员校验在先，记因必为
@@ -2019,7 +2033,14 @@ async fn 未知名加default档命中成员校验而非policy() {
 }
 
 /// 真实临时 explore 装置：workspace 库 + 占位建档（会话指针回写）。
-fn explore_fixture(tag: &str) -> (tempfile::TempDir, tempfile::TempDir, Arc<Store>, store::ExploreRecord) {
+fn explore_fixture(
+    tag: &str,
+) -> (
+    tempfile::TempDir,
+    tempfile::TempDir,
+    Arc<Store>,
+    store::ExploreRecord,
+) {
     let dir = tempdir(tag);
     let db_dir = tempdir(&format!("{tag}-db"));
     let store = Arc::new(
@@ -2069,7 +2090,11 @@ async fn explore轮create工具路由执行体_落盘改名真实发生且结果
     );
 
     // 落盘与改名真实发生（真实组合不 mock）
-    let note = dir.path().join("openspec").join("explores").join("api-retry.md");
+    let note = dir
+        .path()
+        .join("openspec")
+        .join("explores")
+        .join("api-retry.md");
     assert!(note.exists(), "笔记文件已落盘");
     assert_eq!(
         std::fs::read_to_string(&note).unwrap(),
@@ -2176,7 +2201,11 @@ async fn explore轮create工具default档被policy拒绝且不触执行体() {
     );
     // 不触执行体：零落盘、记录名不变
     assert!(
-        !dir.path().join("openspec").join("explores").join("api-retry.md").exists(),
+        !dir.path()
+            .join("openspec")
+            .join("explores")
+            .join("api-retry.md")
+            .exists(),
         "拒绝不落盘"
     );
     let still_draft = store
@@ -2214,7 +2243,11 @@ async fn explore轮create工具bypass档放行且执行体承接() {
     assert!(!results[0].2, "放行且执行成功");
     assert_eq!(results[0].1, "openspec/explores/layout-design.md");
     assert!(
-        dir.path().join("openspec").join("explores").join("layout-design.md").exists(),
+        dir.path()
+            .join("openspec")
+            .join("explores")
+            .join("layout-design.md")
+            .exists(),
         "执行体真实落盘"
     );
     assert!(

@@ -48,7 +48,10 @@ fn verdict_fix_prompt解析错误与协议重申在场() {
         prompt.contains("checklist JSON 结构漂移: missing field `verdict`"),
         "解析错误原样插值"
     );
-    assert!(prompt.contains("仅修正最终消息的输出格式"), "保留结论引导在场");
+    assert!(
+        prompt.contains("仅修正最终消息的输出格式"),
+        "保留结论引导在场"
+    );
     // 协议重申复用 evaluator_protocol 单源：红线与 JSON 形状同附录（不落第三份
     // 副本——与 evaluator_prompt 附录逐字节同尾）
     assert!(
@@ -163,7 +166,10 @@ fn decision_prompt失败报告段原文与读报告指引() {
         ..base_input()
     }));
 
-    assert!(prompt.contains(&fail_report), "fail_report 原文逐字渲染（不二次拼装）");
+    assert!(
+        prompt.contains(&fail_report),
+        "fail_report 原文逐字渲染（不二次拼装）"
+    );
     let section = prompt
         .split("## 失败相位报告")
         .nth(1)
@@ -276,10 +282,7 @@ fn decision_prompt空与超长报告三形态() {
         .split("## 失败相位报告")
         .nth(1)
         .expect("失败相位报告段在场");
-    assert!(
-        section.contains("（无报告文本）"),
-        "占位落在报告段内"
-    );
+    assert!(section.contains("（无报告文本）"), "占位落在报告段内");
 
     let exact = "报".repeat(2000);
     let prompt = decision_prompt(&decision_input(DecisionInput {
@@ -293,7 +296,10 @@ fn decision_prompt空与超长报告三形态() {
         fail_report: overlong.clone(),
         ..base_input()
     }));
-    assert!(prompt.contains(&overlong), "3000 字符原样插值不 panic（截断在 walker）");
+    assert!(
+        prompt.contains(&overlong),
+        "3000 字符原样插值不 panic（截断在 walker）"
+    );
     assert!(prompt.contains("## 报告文件"), "段结构不因超长报告破坏");
 }
 
@@ -307,7 +313,12 @@ fn decision_prompt集合面边界五形态() {
         candidates: Vec::new(),
         ..base_input()
     }));
-    for section in ["## 失败相位报告", "## 失败清单", "## 报告文件", "## 决策协议"] {
+    for section in [
+        "## 失败相位报告",
+        "## 失败清单",
+        "## 报告文件",
+        "## 决策协议",
+    ] {
         assert!(empty.contains(section), "空集形态段 {section} 仍在场");
     }
 
@@ -373,7 +384,10 @@ fn decision_prompt_checklist边界三形态() {
         ..base_input()
     }));
     assert!(empty.contains("## 失败清单"), "空 checklist 段仍在场");
-    assert!(!empty.contains("- 覆盖 test-design 全行"), "空 checklist 不虚增行");
+    assert!(
+        !empty.contains("- 覆盖 test-design 全行"),
+        "空 checklist 不虚增行"
+    );
 
     let single = decision_prompt(&decision_input(DecisionInput {
         fail_checklist: vec![ChecklistItem {
@@ -418,7 +432,10 @@ fn decision_prompt零占位残留与确定性() {
     let prompt = decision_prompt(&input);
 
     for placeholder in ["{phase}", "{attempt}", "{fail_report}", "{allowed}", "{{"] {
-        assert!(!prompt.contains(placeholder), "零模板占位残留: {placeholder}");
+        assert!(
+            !prompt.contains(placeholder),
+            "零模板占位残留: {placeholder}"
+        );
     }
     assert_eq!(prompt, decision_prompt(&input), "同输入逐字节一致");
 }
@@ -438,7 +455,8 @@ fn decision_fix_prompt组装含驳回原因三动作与白名单行() {
     let prompt = decision_fix_prompt(&input, "越权 backtrack：目标 \"test-gen\" 不在白名单内");
 
     assert!(
-        prompt.contains("上一轮决策输出被驳回：") && prompt.contains("目标 \"test-gen\" 不在白名单内"),
+        prompt.contains("上一轮决策输出被驳回：")
+            && prompt.contains("目标 \"test-gen\" 不在白名单内"),
         "驳回原因原文在场"
     );
     assert!(
@@ -508,10 +526,7 @@ fn decision_fix_prompt协议一致无退役动作() {
         assert!(fix.contains(action), "纠正文案重申动作 {action}");
         assert!(full.contains(action), "完整 prompt 三动作在案 {action}");
     }
-    assert!(
-        !fix.contains("retry"),
-        "纠正文案零退役 retry 动作: {fix}"
-    );
+    assert!(!fix.contains("retry"), "纠正文案零退役 retry 动作: {fix}");
     assert!(
         full.contains("红线") && fix.contains("回跳目标须在白名单内"),
         "红线语义同源（完整 prompt 红线句 ↔ 纠正文案回跳纪律）"
@@ -626,10 +641,7 @@ fn spec_sync_prompt边界空串超长与特殊字符原样插值() {
 fn spec_sync_prompt静态红线零占位零外部依赖() {
     let prompt = spec_sync_prompt("demo-change");
 
-    assert!(
-        prompt.contains("禁止调用 MCP 工具"),
-        "MCP 禁用红线显式声明"
-    );
+    assert!(prompt.contains("禁止调用 MCP 工具"), "MCP 禁用红线显式声明");
     assert!(!prompt.contains("<role>"), "零 <role> 占位");
     assert!(!prompt.contains("{{"), "零 {{…}} 占位");
     assert!(!prompt.contains("skill"), "零 CLI skill 溯源");

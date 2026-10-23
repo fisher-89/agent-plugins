@@ -543,7 +543,14 @@ fn session_toolset非法线值反序列化err_大小写敏感与未知与空串(
 fn session_injections全字段序列化_toolset线值为explore() {
     let injections = SessionInjections {
         preamble: Some("前导".to_owned()),
-        tools: Some(vec!["read".to_owned(), "grep".to_owned(), "glob".to_owned(), "ls".to_owned(), "edit".to_owned(), "bash".to_owned()]),
+        tools: Some(vec![
+            "read".to_owned(),
+            "grep".to_owned(),
+            "glob".to_owned(),
+            "ls".to_owned(),
+            "edit".to_owned(),
+            "bash".to_owned(),
+        ]),
         toolset: Some(SessionToolset::Explore),
     };
 
@@ -572,7 +579,10 @@ fn session_injections旧线json无toolset字段读出none() {
         Some(vec!["read".to_owned(), "grep".to_owned()]),
         "旧线 tools 位照常承接"
     );
-    assert_eq!(parsed.toolset, None, "缺席 toolset 位 → None（additive 兼容）");
+    assert_eq!(
+        parsed.toolset, None,
+        "缺席 toolset 位 → None（additive 兼容）"
+    );
 }
 
 /// SessionInjections 空对象 `{}` → 三位全 `None`，与 `default()` 等价。
@@ -617,7 +627,10 @@ fn session_injections六名子集加explore组合roundtrip逐字段等值() {
     assert_eq!(parsed, injections, "round-trip 逐字段等值");
     assert_eq!(parsed.tools.as_ref().expect("六名在场").len(), 6);
     assert!(
-        !parsed.tools.expect("六名在场").contains(&"write".to_owned()),
+        !parsed
+            .tools
+            .expect("六名在场")
+            .contains(&"write".to_owned()),
         "探索子集不含 write"
     );
     assert_eq!(parsed.toolset, Some(SessionToolset::Explore));

@@ -113,16 +113,10 @@ pub enum ToolCommand {
     },
     /// static-check 门禁（`change_id` 归键：审计行按 change 可枚举；`slot` 报告
     /// 槽位——test 缺省 / baseline 基线检查，报告落点经 layout 槽位单点派生）
-    StaticCheck {
-        change_id: String,
-        slot: ReportSlot,
-    },
+    StaticCheck { change_id: String, slot: ReportSlot },
     /// test-execution 门禁（确定性测试执行链；id 定位写面与记录，报告目录
     /// 派生经记录 name 解析；`slot` 报告槽位——test 缺省 / baseline 基线检查）
-    TestExecution {
-        change_id: String,
-        slot: ReportSlot,
-    },
+    TestExecution { change_id: String, slot: ReportSlot },
     /// mutation-test 门禁（确定性突变执行链；清单 / 补丁经 vcs 缝取数注入，
     /// 报告目录派生经记录 name 解析）
     MutationTest { change_id: String },

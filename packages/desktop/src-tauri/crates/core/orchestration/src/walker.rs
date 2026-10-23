@@ -826,7 +826,13 @@ async fn step_clean(
         .restore_baseline(Path::new(&ctx.request.root), &exclusion_refs)
     {
         Ok(summary) => {
-            settle_archive_node(ctx, cursor, kind, instance_no, StepSettle::passed(Some(summary)));
+            settle_archive_node(
+                ctx,
+                cursor,
+                kind,
+                instance_no,
+                StepSettle::passed(Some(summary)),
+            );
             Ok(())
         }
         Err(error) => Err(fail_archive_node(

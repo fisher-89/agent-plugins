@@ -1710,7 +1710,11 @@ fn corpus归档前缀样本_golden对拍() {
         "proposal 站 attempt 出线（表头 initialize 空站——错配链结构性退役）"
     );
     let runs = projection["runs"].as_array().expect("runs 为数组");
-    assert_eq!(runs.len(), 2, "run 史全量出线（proposal 史 + archive 相位史）");
+    assert_eq!(
+        runs.len(),
+        2,
+        "run 史全量出线（proposal 史 + archive 相位史）"
+    );
     // archive 站 attempt 在案（空 checklist 落账 pass）
     let archive_station = pipeline
         .iter()
@@ -1719,7 +1723,11 @@ fn corpus归档前缀样本_golden对拍() {
     let archive_attempts = archive_station["attempts"]
         .as_array()
         .expect("attempts 为数组");
-    assert_eq!(archive_attempts.len(), 1, "archive 空 checklist 落账一条尝试");
+    assert_eq!(
+        archive_attempts.len(),
+        1,
+        "archive 空 checklist 落账一条尝试"
+    );
     assert_eq!(archive_attempts[0]["verdict"].as_str(), Some("pass"));
     assert_eq!(archive_attempts[0]["report"].as_str(), Some(""));
     assert!(
@@ -2249,7 +2257,9 @@ fn corpusgolden重写后_diff范围键集断言() {
     let pipeline = value["pipeline"].as_array().expect("pipeline 为数组");
     assert_eq!(pipeline.len(), 10, "归档前缀样本 10 站 pipeline 全量出线");
     assert_eq!(
-        pipeline.last().and_then(|station| station["phase"].as_str()),
+        pipeline
+            .last()
+            .and_then(|station| station["phase"].as_str()),
         Some("archive"),
         "归档前缀样本末列为 archive"
     );
@@ -3260,8 +3270,16 @@ fn corpusrun全史语料_步级时间与token两态golden在案与漂移守卫()
     let started = worker["startedAt"].as_i64().expect("startedAt 数值");
     let ended = worker["endedAt"].as_i64().expect("endedAt 数值");
     assert!(ended > started, "正常起止双值：ended > started");
-    assert_eq!(worker["tokenInput"], serde_json::json!(12345), "tokenInput 带值态");
-    assert_eq!(worker["tokenOutput"], serde_json::json!(6789), "tokenOutput 带值态");
+    assert_eq!(
+        worker["tokenInput"],
+        serde_json::json!(12345),
+        "tokenInput 带值态"
+    );
+    assert_eq!(
+        worker["tokenOutput"],
+        serde_json::json!(6789),
+        "tokenOutput 带值态"
+    );
 
     // running 收口在途样本（evaluator）：endedAt null 出线不省键（键在场）
     let in_flight = find_node("evaluator");
@@ -3272,7 +3290,10 @@ fn corpusrun全史语料_步级时间与token两态golden在案与漂移守卫()
             .contains_key("endedAt"),
         "在途样本 endedAt 键在场"
     );
-    assert!(in_flight["endedAt"].is_null(), "在途 endedAt null 原样（零回填）");
+    assert!(
+        in_flight["endedAt"].is_null(),
+        "在途 endedAt null 原样（零回填）"
+    );
     assert!(in_flight["tokenInput"].is_null());
 
     // token 两态之二：工具步 None（run-1 任一 phase_start 行 tokenInput null）
@@ -3282,7 +3303,10 @@ fn corpusrun全史语料_步级时间与token两态golden在案与漂移守卫()
         .iter()
         .find(|node| node["step"] == "phase_start")
         .expect("run-1 phase_start 在案");
-    assert!(tool_node["tokenInput"].is_null(), "工具步 tokenInput null 两态在案");
+    assert!(
+        tool_node["tokenInput"].is_null(),
+        "工具步 tokenInput null 两态在案"
+    );
     assert!(tool_node["tokenOutput"].is_null());
 
     // 漂移守卫（投影面）：全语料 runs[].nodes[] 四 camelCase 键逐键在场
@@ -3318,7 +3342,10 @@ fn corpusrun全史语料_步级时间与token两态golden在案与漂移守卫()
 
     // 全量序列化零 panic（既有规模语料 + 四字段注入可全量出线）
     let full = serde_json::to_string(&projection).expect("全量序列化应成功");
-    assert!(full.contains("\"tokenInput\":12345"), "全量序列化含 token 带值行");
+    assert!(
+        full.contains("\"tokenInput\":12345"),
+        "全量序列化含 token 带值行"
+    );
     check_or_rewrite("corpus-run-history", &projection);
 }
 
@@ -3343,14 +3370,17 @@ fn corpus归档前缀语料_节点四键漂移守卫() {
     }
     assert_eq!(nodes_seen, 12, "归档前缀语料 12 节点全查（多节点规模锚）");
 
-    let golden_text =
-        fs::read_to_string(golden_dir().join("corpus-archive-prefix.json")).expect("读 golden 失败");
+    let golden_text = fs::read_to_string(golden_dir().join("corpus-archive-prefix.json"))
+        .expect("读 golden 失败");
     let golden: serde_json::Value = serde_json::from_str(&golden_text).expect("golden 解析失败");
     for run in golden["runs"].as_array().expect("golden runs") {
         for node in run["nodes"].as_array().expect("golden nodes") {
             let object = node.as_object().expect("golden 节点对象");
             for key in four_keys {
-                assert!(object.contains_key(key), "golden 节点缺 {key} 键（漂移即红）");
+                assert!(
+                    object.contains_key(key),
+                    "golden 节点缺 {key} 键（漂移即红）"
+                );
             }
         }
     }
@@ -3427,7 +3457,10 @@ fn corpus防御值语料_overrides混防御值直达投影零改写零panic() {
     );
     assert_eq!(executor_row.ended_at, Some(-500), "负值 ended_at 原值落库");
     assert_eq!(executor_row.token_input, Some(111), "入侧单值落库");
-    assert_eq!(executor_row.token_output, None, "出侧缺席 None 原样（零补值）");
+    assert_eq!(
+        executor_row.token_output, None,
+        "出侧缺席 None 原样（零补值）"
+    );
 
     // golden 投影面：project_detail 序列化防御值逐键逐值直达（零改写零回填）
     let projection = project_detail(&corpus, "id-step-defensive");
@@ -3489,7 +3522,10 @@ fn corpus防御值语料_overrides混防御值直达投影零改写零panic() {
 
     // 零 panic：防御值载荷全量序列化成功（负值 / 0 / 单侧 token 原文在案）
     let full = serde_json::to_string(&projection).expect("防御值投影全量序列化应成功");
-    assert!(full.contains("\"startedAt\":-1000"), "负值原文在案（零改写）");
+    assert!(
+        full.contains("\"startedAt\":-1000"),
+        "负值原文在案（零改写）"
+    );
     assert!(full.contains("\"startedAt\":0"), "0 值原文在案（零改写）");
     assert!(full.contains("\"tokenInput\":111"), "入侧单值原文在案");
     assert!(full.contains("\"tokenOutput\":222"), "出侧单值原文在案");
@@ -3566,7 +3602,14 @@ fn build_initialize(tag: &str) -> Corpus {
 
     // initialize run 五节点整包（clean 词样本 + 串行 forward 边）
     let nodes = [
-        step("initialize", 1, ChangeStepKind::PhaseStart, ChangeStepStatus::Passed, None, None),
+        step(
+            "initialize",
+            1,
+            ChangeStepKind::PhaseStart,
+            ChangeStepStatus::Passed,
+            None,
+            None,
+        ),
         step(
             "initialize",
             1,
@@ -3591,7 +3634,14 @@ fn build_initialize(tag: &str) -> Corpus {
             None,
             Some("conclusion=pass total=12 passed=10 failed=0 skipped=2"),
         ),
-        step("initialize", 1, ChangeStepKind::PhaseLog, ChangeStepStatus::Passed, None, None),
+        step(
+            "initialize",
+            1,
+            ChangeStepKind::PhaseLog,
+            ChangeStepStatus::Passed,
+            None,
+            None,
+        ),
     ];
     let edges: Vec<ChangeStepEdge> = nodes
         .windows(2)
@@ -3645,12 +3695,21 @@ fn corpusinitialize语料_golden对拍() {
         "机械 checklist 三条目"
     );
     assert!(
-        attempts[0]["report"].as_str().expect("report").contains("reports/baseline"),
+        attempts[0]["report"]
+            .as_str()
+            .expect("report")
+            .contains("reports/baseline"),
         "report 携 baseline 报告目录"
     );
-    assert_eq!(attempts[1]["skipped"], true, "attempt 2 legacy skipped 形态");
+    assert_eq!(
+        attempts[1]["skipped"], true,
+        "attempt 2 legacy skipped 形态"
+    );
     assert!(
-        attempts[1]["report"].as_str().expect("report").contains("legacy"),
+        attempts[1]["report"]
+            .as_str()
+            .expect("report")
+            .contains("legacy"),
         "跳过因落账可见"
     );
 
@@ -3664,7 +3723,13 @@ fn corpusinitialize语料_golden对拍() {
         .collect();
     assert_eq!(
         words,
-        ["phase_start", "clean", "static_check", "test_execution", "phase_log"],
+        [
+            "phase_start",
+            "clean",
+            "static_check",
+            "test_execution",
+            "phase_log"
+        ],
         "initialize 五节点词面逐位（clean 新词样本在案）"
     );
     let edges = runs[0]["edges"].as_array().expect("edges 数组");

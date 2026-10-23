@@ -305,9 +305,7 @@ async fn execute(
                 vcs.as_ref(),
             )
             .ok_or_else(|| {
-                format!(
-                    "change \"{change_id}\" 不可归档（未建档 / 已归档），无从核对归档前置"
-                )
+                format!("change \"{change_id}\" 不可归档（未建档 / 已归档），无从核对归档前置")
             })?;
             Ok(ToolStepOutput::ArchivePreflight(payload))
         }

@@ -637,7 +637,13 @@ fn workflow_type未知拒绝零写文案通吃两值() {
                 "test-gen",
                 "proposal",
                 "类型未知",
-                &["proposal", "dev-design", "test-design", "implement", "test-gen"],
+                &[
+                    "proposal",
+                    "dev-design",
+                    "test-design",
+                    "implement",
+                    "test-gen",
+                ],
             ))
             .expect_err("未知 workflow_type 应 Err");
 
@@ -676,7 +682,10 @@ fn test_only回溯stale闭包随表内prerequisites() {
     assert_eq!(command.to, "code-analyze");
     assert_closure_set(command, &["test-design", "test-gen", "test-execution"]);
     assert!(
-        !command.stale_dependents.iter().any(|id| id == "code-analyze"),
+        !command
+            .stale_dependents
+            .iter()
+            .any(|id| id == "code-analyze"),
         "目标自身不在闭包内"
     );
     assert!(
@@ -695,7 +704,13 @@ fn test_only回溯stale闭包随表内prerequisites() {
             "test-execution",
             "test-gen",
             "测试代码返工",
-            &["proposal", "code-analyze", "test-design", "test-gen", "test-execution"],
+            &[
+                "proposal",
+                "code-analyze",
+                "test-design",
+                "test-gen",
+                "test-execution",
+            ],
         ))
         .expect("test-only 表内回溯应成功");
     let command2 = &fake2.commands.lock().expect("命令锁不可中毒")[0];

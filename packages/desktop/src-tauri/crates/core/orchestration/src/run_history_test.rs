@@ -152,7 +152,13 @@ fn finish_command_initialize五节点零过滤入包且串行forward边逐位() 
 
     // 五节点零过滤（顺序 = 入参序、词面逐字）
     assert_eq!(command.nodes.len(), 5, "五节点无静默丢弃");
-    let expect_words = ["phase_start", "clean", "static_check", "test_execution", "phase_log"];
+    let expect_words = [
+        "phase_start",
+        "clean",
+        "static_check",
+        "test_execution",
+        "phase_log",
+    ];
     for (index, word) in expect_words.iter().enumerate() {
         assert_eq!(
             command.nodes[index].step.as_str(),

@@ -197,9 +197,13 @@ async fn spawn模板展开_argv逐参等值与报告权威落位() {
     window.set_cargo_outcomes(CARGO_SEG_CANNED);
     let patch_path = ws.write_patch(0, "diff --git a/app/src/lib.rs b/app/src/lib.rs\n");
 
-    let raw = run_segment(&patch_path, &ws.exec_dir, foundation::cancel::CancelFlag::never())
-        .await
-        .expect("假 spawn 段执行应 Ok");
+    let raw = run_segment(
+        &patch_path,
+        &ws.exec_dir,
+        foundation::cancel::CancelFlag::never(),
+    )
+    .await
+    .expect("假 spawn 段执行应 Ok");
     assert_eq!(
         raw.trim_end(),
         CARGO_SEG_CANNED.trim_end(),
@@ -258,12 +262,20 @@ async fn cargo_target_dir多段共享_env断言同一不重置() {
 
     let patch0 = ws.write_patch(0, "diff --git a/app/src/a.rs b/app/src/a.rs\n");
     let patch1 = ws.write_patch(1, "diff --git a/app/src/b.rs b/app/src/b.rs\n");
-    run_segment(&patch0, &ws.exec_dir, foundation::cancel::CancelFlag::never())
-        .await
-        .expect("段 0 应 Ok");
-    run_segment(&patch1, &ws.exec_dir, foundation::cancel::CancelFlag::never())
-        .await
-        .expect("段 1 应 Ok");
+    run_segment(
+        &patch0,
+        &ws.exec_dir,
+        foundation::cancel::CancelFlag::never(),
+    )
+    .await
+    .expect("段 0 应 Ok");
+    run_segment(
+        &patch1,
+        &ws.exec_dir,
+        foundation::cancel::CancelFlag::never(),
+    )
+    .await
+    .expect("段 1 应 Ok");
 
     let records = window.records();
     assert_eq!(records.len(), 2, "两段各恰一次假 spawn");
@@ -303,9 +315,13 @@ async fn 退出零无报告_零突变体段合成空计数面() {
     // 不编程 outcomes —— 假执行体不写报告（真实工具零交叠面同形）
     let patch_path = ws.write_patch(0, "diff --git a/app/src/lib.rs b/app/src/lib.rs\n");
 
-    let raw = run_segment(&patch_path, &ws.exec_dir, foundation::cancel::CancelFlag::never())
-        .await
-        .expect("退出 0 无报告 = 零突变体段（非中断）");
+    let raw = run_segment(
+        &patch_path,
+        &ws.exec_dir,
+        foundation::cancel::CancelFlag::never(),
+    )
+    .await
+    .expect("退出 0 无报告 = 零突变体段（非中断）");
     let parsed = parse_cargo_mutants_seg(&raw).expect("空计数面载荷可解析");
     assert_eq!(
         (
@@ -342,9 +358,13 @@ async fn 陈旧报告清场_上一段残留不误读() {
 
     // 假执行体不写报告（本段零交叠面）——陈旧报告必须被清场而非误读
     let patch_path = ws.write_patch(0, "diff --git a/app/src/lib.rs b/app/src/lib.rs\n");
-    let raw = run_segment(&patch_path, &ws.exec_dir, foundation::cancel::CancelFlag::never())
-        .await
-        .expect("清场后零交叠段应空计数面");
+    let raw = run_segment(
+        &patch_path,
+        &ws.exec_dir,
+        foundation::cancel::CancelFlag::never(),
+    )
+    .await
+    .expect("清场后零交叠段应空计数面");
     let parsed = parse_cargo_mutants_seg(&raw).expect("空计数面载荷可解析");
     assert_eq!(
         parsed.measured.killed, 0,
@@ -368,7 +388,12 @@ async fn 非零退出中断_携退出码与输出尾部捕获() {
     window.set_exit(101);
     let patch_path = ws.write_patch(0, "diff --git a/app/src/lib.rs b/app/src/lib.rs\n");
 
-    let result = run_segment(&patch_path, &ws.exec_dir, foundation::cancel::CancelFlag::never()).await;
+    let result = run_segment(
+        &patch_path,
+        &ws.exec_dir,
+        foundation::cancel::CancelFlag::never(),
+    )
+    .await;
     match result {
         Err(SegmentFailure::Interrupted(message)) => {
             assert!(message.contains("退出码 101"), "携退出码: {message}");
@@ -418,7 +443,12 @@ async fn 超时中断_强制终止且pid消失不挂死() {
     // 段执行在任务内（主任务负责「等 pid 落盘 → 推进虚拟时钟」的握手）
     let exec_dir = ws.exec_dir.clone();
     let runner = tokio::spawn(async move {
-        run_segment(&patch_path, &exec_dir, foundation::cancel::CancelFlag::never()).await
+        run_segment(
+            &patch_path,
+            &exec_dir,
+            foundation::cancel::CancelFlag::never(),
+        )
+        .await
     });
     let pid = wait_pid(&pid_file, Duration::from_secs(60)).await;
 
@@ -473,9 +503,13 @@ async fn 补丁入参边界_空串超大与特殊字符不破坏() {
     for (index, content) in &patches {
         window.reset_records();
         let patch_path = ws.write_patch(*index, content);
-        let raw = run_segment(&patch_path, &ws.exec_dir, foundation::cancel::CancelFlag::never())
-            .await
-            .unwrap_or_else(|error| panic!("段 {index} 边界补丁段执行应 Ok: {error}"));
+        let raw = run_segment(
+            &patch_path,
+            &ws.exec_dir,
+            foundation::cancel::CancelFlag::never(),
+        )
+        .await
+        .unwrap_or_else(|error| panic!("段 {index} 边界补丁段执行应 Ok: {error}"));
         assert_eq!(
             raw.trim_end(),
             CARGO_SEG_CANNED.trim_end(),
@@ -553,9 +587,7 @@ async fn 运行中cancel_段取消变体与文案且秒级收敛() {
 
     let cancel = foundation::cancel::CancelFlag::never();
     let handle = cancel.handle();
-    let runner = tokio::spawn(async move {
-        run_segment(&patch_path, &ws.exec_dir, cancel).await
-    });
+    let runner = tokio::spawn(async move { run_segment(&patch_path, &ws.exec_dir, cancel).await });
 
     let pid = wait_pid(&pid_file, Duration::from_secs(60)).await;
     let started = Instant::now();
@@ -646,7 +678,11 @@ async fn 合并流与大输出_双管道大块逐字节() {
 
         let result = tokio::time::timeout(
             Duration::from_secs(60),
-            run_segment(&patch_path, &ws.exec_dir, foundation::cancel::CancelFlag::never()),
+            run_segment(
+                &patch_path,
+                &ws.exec_dir,
+                foundation::cancel::CancelFlag::never(),
+            ),
         )
         .await
         .expect("空输出形态不应挂死（墙钟上界 60s）");
@@ -696,7 +732,11 @@ async fn 合并流与大输出_双管道大块逐字节() {
         let started = Instant::now();
         let result = tokio::time::timeout(
             Duration::from_secs(60),
-            run_segment(&patch_path, &ws.exec_dir, foundation::cancel::CancelFlag::never()),
+            run_segment(
+                &patch_path,
+                &ws.exec_dir,
+                foundation::cancel::CancelFlag::never(),
+            ),
         )
         .await
         .expect("双管道大块输出不应互锁（并发排水，墙钟上界 60s）");
@@ -712,7 +752,11 @@ async fn 合并流与大输出_双管道大块逐字节() {
             }
             Ok(raw) => panic!("零段报告应中断，实际 Ok: {raw}"),
         };
-        assert!(message.starts_with(HEAD_BIG), "头行段逐字: {}", &message[..message.len().min(80)]);
+        assert!(
+            message.starts_with(HEAD_BIG),
+            "头行段逐字: {}",
+            &message[..message.len().min(80)]
+        );
         let tail = message
             .split_once(TAIL_MARKER)
             .map(|(_, tail)| tail)

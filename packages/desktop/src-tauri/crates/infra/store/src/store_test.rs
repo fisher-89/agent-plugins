@@ -2768,7 +2768,10 @@ fn create_none占位建档_draft前缀名与临时标题形态() {
     );
     assert!(record.created_at > 0, "入库时刻为正毫秒值");
     assert_eq!(record.promoted_to, None, "草稿态默认 promoted_to = None");
-    assert_eq!(record.workflow_type, "requirement", "默认 workflow_type 照常");
+    assert_eq!(
+        record.workflow_type, "requirement",
+        "默认 workflow_type 照常"
+    );
 }
 
 /// 占位建档同事务预建空会话并回写 `session_id`（与显式名建档同口径）。
@@ -2865,10 +2868,7 @@ fn rename同名幂等返回ok且记录不变() {
     assert_eq!(again.name, original.name, "name 不变");
     assert_eq!(again.title, original.title, "title 不变");
     assert_eq!(again.session_id, original.session_id, "会话指针不变");
-    assert_eq!(
-        again.created_at, original.created_at,
-        "created_at 不变"
-    );
+    assert_eq!(again.created_at, original.created_at, "created_at 不变");
     assert!(
         again.updated_at >= original.updated_at,
         "updated_at 至少不早于原值"
@@ -7439,7 +7439,9 @@ fn run节点读面_clean词零过滤原样出线() {
     let nodes: Vec<RunNodeEntry> = all
         .iter()
         .enumerate()
-        .map(|(index, step)| run_node_entry("initialize", 1, *step, RunStepStatus::Passed, index as u32))
+        .map(|(index, step)| {
+            run_node_entry("initialize", 1, *step, RunStepStatus::Passed, index as u32)
+        })
         .collect();
     store
         .start_change_run(&run_start_cmd("run-21", "flow-run", 10_000))
@@ -8475,8 +8477,11 @@ fn list_run_nodes旧行新行混存同run混合解码各自形态零报错() {
             let table: redb::TableDefinition<RawNativeDbKey, &[u8]> =
                 redb::TableDefinition::new(&table_name);
             let mut rows = rw.open_table(table).expect("打开 run 节点物表应成功");
-            rows.insert(RawNativeDbKey(legacy_key.to_be_bytes().to_vec()), payload.as_slice())
-                .expect("注入旧行应成功");
+            rows.insert(
+                RawNativeDbKey(legacy_key.to_be_bytes().to_vec()),
+                payload.as_slice(),
+            )
+            .expect("注入旧行应成功");
         }
         rw.commit().expect("提交注入事务失败");
     }
@@ -8593,24 +8598,30 @@ fn 会话统计输出与sum_usage_tokens同源_两消费方一实现() {
         stamped(0, run_started_kind()),
         stamped(1, message_kind(AgentMessageRole::User)),
         // usage 定值：in 100 + 30 = 130、out 20 + 0 = 20（0 为在场值，非缺席）
-        stamped(2, AgentEventKind::TurnDone {
-            subtype: "success".to_owned(),
-            is_error: false,
-            num_turns: Some(1),
-            duration_ms: Some(1_000),
-            cost_usd: None,
-            usage: serde_json::json!({ "input_tokens": 100, "output_tokens": 20 }),
-            session_id: None,
-        }),
-        stamped(3, AgentEventKind::TurnDone {
-            subtype: "success".to_owned(),
-            is_error: false,
-            num_turns: Some(1),
-            duration_ms: Some(2_000),
-            cost_usd: None,
-            usage: serde_json::json!({ "input_tokens": 30, "output_tokens": 0 }),
-            session_id: None,
-        }),
+        stamped(
+            2,
+            AgentEventKind::TurnDone {
+                subtype: "success".to_owned(),
+                is_error: false,
+                num_turns: Some(1),
+                duration_ms: Some(1_000),
+                cost_usd: None,
+                usage: serde_json::json!({ "input_tokens": 100, "output_tokens": 20 }),
+                session_id: None,
+            },
+        ),
+        stamped(
+            3,
+            AgentEventKind::TurnDone {
+                subtype: "success".to_owned(),
+                is_error: false,
+                num_turns: Some(1),
+                duration_ms: Some(2_000),
+                cost_usd: None,
+                usage: serde_json::json!({ "input_tokens": 30, "output_tokens": 0 }),
+                session_id: None,
+            },
+        ),
     ];
     store
         .append_session_events("ses-same-source", &events)

@@ -64,7 +64,10 @@ fn 单次尝试零分隔头逐字节等同现状() {
 /// 空段头）。
 #[test]
 fn 单次双空输出返回零字节() {
-    assert!(attempts_log(&single(b"", b"", 0)).is_empty(), "双空输出零字节");
+    assert!(
+        attempts_log(&single(b"", b"", 0)).is_empty(),
+        "双空输出零字节"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -226,7 +229,8 @@ fn 特殊字节与非utf8正文逐字节保留() {
 
         let log = attempts_log(&report);
         assert!(
-            log.windows(body.len()).any(|window| window == body.as_slice()),
+            log.windows(body.len())
+                .any(|window| window == body.as_slice()),
             "{label}: 正文逐字节保留在案"
         );
         let head = header(1, 5, exit_code, Some("os error 32"));
@@ -260,7 +264,9 @@ fn 大输出全量拼接不截断() {
         + 2 * big.len();
     assert_eq!(log.len(), expected_len, "两段全量（各 2 × >64 KiB）不截断");
     assert_eq!(
-        String::from_utf8_lossy(&log).matches("===== attempt ").count(),
+        String::from_utf8_lossy(&log)
+            .matches("===== attempt ")
+            .count(),
         2,
         "段数不受输出规模影响"
     );
@@ -287,7 +293,10 @@ fn 环境文案含重试次数与处置指引() {
     );
     assert!(text.contains("排除"), "含处置指引: {text}");
     assert!(text.contains("workspace 父目录"), "指引点名父目录: {text}");
-    assert!(text.contains("逐 worktree"), "指引说明逐 worktree 无效: {text}");
+    assert!(
+        text.contains("逐 worktree"),
+        "指引说明逐 worktree 无效: {text}"
+    );
     assert!(
         text.ends_with(ENV_GUIDANCE),
         "指引单点来自 ENV_GUIDANCE 常量: {text}"
@@ -332,10 +341,7 @@ fn 环境文案摘要取末次错误面() {
     let diagnostics = b"Compiling core v0.1.0\nCompiling infra v0.1.0\nerror: failed to rename archive file: /t/liba.rlib: os error 32\n";
     let text = fault_text(2, 1, diagnostics);
 
-    assert!(
-        text.contains("最后一次诊断："),
-        "非空诊断产摘要段: {text}"
-    );
+    assert!(text.contains("最后一次诊断："), "非空诊断产摘要段: {text}");
     assert!(
         text.contains("error: failed to rename archive file"),
         "摘要含锁错误行: {text}"
@@ -369,7 +375,10 @@ fn 空诊断不产摘要段但次数指引照常() {
     );
     assert!(text.contains("已自动重试 3 次"), "次数照常: {text}");
     assert!(text.ends_with(ENV_GUIDANCE), "指引照常: {text}");
-    assert!(text.contains("被锁文件："), "归因段降级为说明而非空段: {text}");
+    assert!(
+        text.contains("被锁文件："),
+        "归因段降级为说明而非空段: {text}"
+    );
 }
 
 /// 边界（表驱动 3 形态）：超长与特殊字符——诊断含 emoji / 引号 / 换行 / 非 UTF-8
@@ -401,7 +410,10 @@ fn 超长与特殊字符诊断按上限截断() {
     // 形态二：引号 / 换行 / emoji 混排
     let special = "say \"os error 32\"\n\u{0} emoji 🎉 完成\n".to_owned();
     let text = fault_text(2, 1, special.as_bytes());
-    assert!(text.contains("os error 32"), "特殊字符诊断的签名行在案: {text}");
+    assert!(
+        text.contains("os error 32"),
+        "特殊字符诊断的签名行在案: {text}"
+    );
     assert!(text.ends_with(ENV_GUIDANCE), "指引逐字: {text}");
 
     // 形态三：非 UTF-8 原始字节（lossy 不 panic；替换符随摘要行承载）
@@ -429,7 +441,10 @@ fn 超长与特殊字符诊断按上限截断() {
 #[test]
 fn 指引与摘录上限常量锚定() {
     assert!(ENV_GUIDANCE.contains("父目录"), "指引点名父目录");
-    assert!(ENV_GUIDANCE.contains("逐 worktree"), "指引说明逐 worktree 无效");
+    assert!(
+        ENV_GUIDANCE.contains("逐 worktree"),
+        "指引说明逐 worktree 无效"
+    );
     for baseline_phrase in ["请在基线上修复", "基线检查未通过", "基线"] {
         assert!(
             !ENV_GUIDANCE.contains(baseline_phrase),

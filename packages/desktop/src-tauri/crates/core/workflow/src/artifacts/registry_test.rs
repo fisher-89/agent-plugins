@@ -67,7 +67,7 @@ static EMPTY_MANIFEST: &[PhaseDefinition] = &[PhaseDefinition {
     steps: &[],
     artifact_manifest: &[],
     prerequisites: &[],
-            backtrackable: true,
+    backtrackable: true,
     executor: None,
     evaluator: None,
 }];

@@ -140,7 +140,10 @@ fn allows_create_explore_note三档矩阵_default拒两写档放() {
     );
     // BypassPermissions 放
     assert!(
-        allows(AgentPermissionMode::BypassPermissions, "create_explore_note"),
+        allows(
+            AgentPermissionMode::BypassPermissions,
+            "create_explore_note"
+        ),
         "bypassPermissions 档必须放行 create_explore_note"
     );
 }
@@ -151,11 +154,7 @@ fn allows_create_explore_note三档矩阵_default拒两写档放() {
 
 #[test]
 fn 决策表封闭集逐格_三档乘八工具矩阵与档位语义一致() {
-    let tools: Vec<&str> = TOOL_NAMES
-        .iter()
-        .copied()
-        .chain(EXPLORE_NOTE)
-        .collect();
+    let tools: Vec<&str> = TOOL_NAMES.iter().copied().chain(EXPLORE_NOTE).collect();
     assert_eq!(tools.len(), 8, "矩阵列 = 七通用 + 一专用");
 
     for tool in tools {

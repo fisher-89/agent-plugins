@@ -140,7 +140,8 @@ fn record_exec_output落盘并回查逐字节一致() {
     // 同型：单一字节流保真，分离快照不再存在
     let output = b"clippy: warning: unused import\nerror[E0308]: mismatched types\n".to_vec();
 
-    let exec_id = record_exec_output(root.path(), "demo-change", ReportSlot::Test, &output).expect("落盘应成功");
+    let exec_id = record_exec_output(root.path(), "demo-change", ReportSlot::Test, &output)
+        .expect("落盘应成功");
     assert!(!exec_id.is_empty(), "exec_id 非空");
     assert!(
         exec_id.starts_with("exec-"),
@@ -176,11 +177,14 @@ fn record_exec_output落盘并回查逐字节一致() {
 #[test]
 fn record_exec_output两次铸造互异且change隔离() {
     let root = TempRoot::new("unique");
-    let first = record_exec_output(root.path(), "change-a", ReportSlot::Test, b"one").expect("落盘应成功");
-    let second = record_exec_output(root.path(), "change-a", ReportSlot::Test, b"two").expect("落盘应成功");
+    let first =
+        record_exec_output(root.path(), "change-a", ReportSlot::Test, b"one").expect("落盘应成功");
+    let second =
+        record_exec_output(root.path(), "change-a", ReportSlot::Test, b"two").expect("落盘应成功");
     assert_ne!(first, second, "两次铸造 exec_id 互异");
 
-    let third = record_exec_output(root.path(), "change-b", ReportSlot::Test, b"three").expect("落盘应成功");
+    let third = record_exec_output(root.path(), "change-b", ReportSlot::Test, b"three")
+        .expect("落盘应成功");
     assert_eq!(
         read_exec_output(root.path(), "change-a", &first).expect("回查应命中"),
         b"one".to_vec()
@@ -199,7 +203,8 @@ fn record_exec_output两次铸造互异且change隔离() {
 fn read_exec_output已知引用回读同一log() {
     let root = TempRoot::new("same-log");
     let output = "首个 suite 输出\n第二个 suite 输出\n".as_bytes().to_vec();
-    let exec_id = record_exec_output(root.path(), "demo", ReportSlot::Test, &output).expect("落盘应成功");
+    let exec_id =
+        record_exec_output(root.path(), "demo", ReportSlot::Test, &output).expect("落盘应成功");
 
     let read_back = read_exec_output(root.path(), "demo", &exec_id).expect("回查应命中");
     assert_eq!(read_back, output);
@@ -218,7 +223,8 @@ fn read_exec_output_in_change目录定位与root变体同构() {
     // 异锚落盘：模拟 worktree 锚（与 root 非同根）
     let anchor = TempRoot::new("in-anchor");
     let output = "worktree suite 输出\n".as_bytes().to_vec();
-    let exec_id = record_exec_output(anchor.path(), "demo", ReportSlot::Test, &output).expect("落盘应成功");
+    let exec_id =
+        record_exec_output(anchor.path(), "demo", ReportSlot::Test, &output).expect("落盘应成功");
     let change_dir = foundation::layout::resolve(anchor.path())
         .changes_root
         .join("demo");
@@ -249,7 +255,8 @@ fn read_exec_output_in_change目录定位与root变体同构() {
 #[test]
 fn read_exec_output未知与非法exec_id返回none() {
     let root = TempRoot::new("miss");
-    let exec_id = record_exec_output(root.path(), "demo", ReportSlot::Test, b"payload").expect("落盘应成功");
+    let exec_id =
+        record_exec_output(root.path(), "demo", ReportSlot::Test, b"payload").expect("落盘应成功");
 
     assert!(read_exec_output(root.path(), "demo", "exec-unknown").is_none());
     for hostile in ["", "..", "../secret", "a/b", r"a\b", "C:evil", "exec-1.log"] {
@@ -268,7 +275,8 @@ fn read_exec_output未知与非法exec_id返回none() {
 #[test]
 fn record_exec_output空与超长特殊字节保真() {
     let root = TempRoot::new("bytes");
-    let empty = record_exec_output(root.path(), "demo", ReportSlot::Test, b"").expect("空输出落盘应成功");
+    let empty =
+        record_exec_output(root.path(), "demo", ReportSlot::Test, b"").expect("空输出落盘应成功");
     assert_eq!(
         read_exec_output(root.path(), "demo", &empty).expect("空输出应可回查"),
         Vec::<u8>::new(),
@@ -280,7 +288,8 @@ fn record_exec_output空与超长特殊字节保真() {
         long.extend_from_slice(format!("行 {index} 🚀\n").as_bytes());
     }
     long.push(0);
-    let exec_id = record_exec_output(root.path(), "demo", ReportSlot::Test, &long).expect("超长落盘应成功");
+    let exec_id =
+        record_exec_output(root.path(), "demo", ReportSlot::Test, &long).expect("超长落盘应成功");
     let read_back = read_exec_output(root.path(), "demo", &exec_id).expect("回查应命中");
     assert_eq!(read_back.len(), long.len(), "超长全量保真（不截断）");
     assert_eq!(read_back, long, "含 \0 与 emoji 字节逐字保真");
@@ -295,7 +304,8 @@ fn record_exec_output目录不可写时err串语义() {
     std::fs::create_dir_all(reports.parent().expect("父目录")).expect("创建父目录失败");
     std::fs::write(&reports, "占位文件").expect("占位写失败");
 
-    let err = record_exec_output(root.path(), "demo", ReportSlot::Test, b"stdout").expect_err("应 Err");
+    let err =
+        record_exec_output(root.path(), "demo", ReportSlot::Test, b"stdout").expect_err("应 Err");
     assert!(
         err.contains("exec") || err.contains("目录") || err.contains("落盘"),
         "Err 串语境保留: {err}"
@@ -312,7 +322,8 @@ fn record_exec_output重复落盘互不覆写且零err残留() {
     let mut contents: Vec<Vec<u8>> = Vec::new();
     for index in 0..3 {
         let output = format!("第 {index} 次执行输出\n").into_bytes();
-        let exec_id = record_exec_output(root.path(), "demo", ReportSlot::Test, &output).expect("落盘应成功");
+        let exec_id =
+            record_exec_output(root.path(), "demo", ReportSlot::Test, &output).expect("落盘应成功");
         ids.push(exec_id);
         contents.push(output);
     }
@@ -358,8 +369,10 @@ fn record_exec_output重复落盘互不覆写且零err残留() {
 #[test]
 fn record_exec_output_slot_baseline落baseline树且零err残留() {
     let root = TempRoot::new("baseline-record");
-    let first = record_exec_output(root.path(), "demo", ReportSlot::Baseline, b"one").expect("落盘应成功");
-    let second = record_exec_output(root.path(), "demo", ReportSlot::Baseline, b"two").expect("落盘应成功");
+    let first =
+        record_exec_output(root.path(), "demo", ReportSlot::Baseline, b"one").expect("落盘应成功");
+    let second =
+        record_exec_output(root.path(), "demo", ReportSlot::Baseline, b"two").expect("落盘应成功");
     assert_ne!(first, second, "重复铸造互异");
 
     let baseline_dir =
@@ -391,10 +404,18 @@ fn record_exec_output_slot_baseline落baseline树且零err残留() {
 #[test]
 fn read_exec_output_in双锚_baseline与test两树各自可达() {
     let root = TempRoot::new("dual-anchor");
-    let baseline_id =
-        record_exec_output(root.path(), "demo", ReportSlot::Baseline, b"baseline output").expect("落盘应成功");
-    let test_id = record_exec_output(root.path(), "demo", ReportSlot::Test, b"test output").expect("落盘应成功");
-    let change_dir = foundation::layout::resolve(root.path()).changes_root.join("demo");
+    let baseline_id = record_exec_output(
+        root.path(),
+        "demo",
+        ReportSlot::Baseline,
+        b"baseline output",
+    )
+    .expect("落盘应成功");
+    let test_id = record_exec_output(root.path(), "demo", ReportSlot::Test, b"test output")
+        .expect("落盘应成功");
+    let change_dir = foundation::layout::resolve(root.path())
+        .changes_root
+        .join("demo");
 
     // baseline 树 id：首锚 miss → 次锚命中
     assert_eq!(
@@ -416,10 +437,18 @@ fn read_exec_output_in双锚_baseline与test两树各自可达() {
 #[test]
 fn read_exec_output_in跨树唯一无串树() {
     let root = TempRoot::new("cross-tree");
-    let baseline_id =
-        record_exec_output(root.path(), "demo", ReportSlot::Baseline, b"from-baseline-tree").expect("落盘应成功");
-    let test_id = record_exec_output(root.path(), "demo", ReportSlot::Test, b"from-test-tree").expect("落盘应成功");
-    let change_dir = foundation::layout::resolve(root.path()).changes_root.join("demo");
+    let baseline_id = record_exec_output(
+        root.path(),
+        "demo",
+        ReportSlot::Baseline,
+        b"from-baseline-tree",
+    )
+    .expect("落盘应成功");
+    let test_id = record_exec_output(root.path(), "demo", ReportSlot::Test, b"from-test-tree")
+        .expect("落盘应成功");
+    let change_dir = foundation::layout::resolve(root.path())
+        .changes_root
+        .join("demo");
 
     // 各自 id 回查各自内容（零串树）
     assert_ne!(
@@ -442,8 +471,10 @@ fn read_exec_output_in跨树唯一无串树() {
 fn read_exec_output顶层组合_经root变体两树id均可达() {
     let root = TempRoot::new("top-combo");
     let baseline_id =
-        record_exec_output(root.path(), "demo", ReportSlot::Baseline, b"top baseline").expect("落盘应成功");
-    let test_id = record_exec_output(root.path(), "demo", ReportSlot::Test, b"top test").expect("落盘应成功");
+        record_exec_output(root.path(), "demo", ReportSlot::Baseline, b"top baseline")
+            .expect("落盘应成功");
+    let test_id =
+        record_exec_output(root.path(), "demo", ReportSlot::Test, b"top test").expect("落盘应成功");
 
     assert_eq!(
         read_exec_output(root.path(), "demo", &baseline_id).expect("顶层回查 baseline 应命中"),
@@ -463,7 +494,9 @@ fn read_exec_output顶层组合_经root变体两树id均可达() {
 #[test]
 fn exec_output_dir槽位版与layout单点等值() {
     let root = TempRoot::new("dir-derive");
-    let change_dir = foundation::layout::resolve(root.path()).changes_root.join("demo");
+    let change_dir = foundation::layout::resolve(root.path())
+        .changes_root
+        .join("demo");
     for slot in [ReportSlot::Test, ReportSlot::Baseline] {
         assert_eq!(
             super::exec_output_dir(root.path(), "demo", slot),
@@ -477,7 +510,6 @@ fn exec_output_dir槽位版与layout单点等值() {
         );
     }
 }
-
 
 // ---------------------------------------------------------------------------
 // SystemCommand clone 等价（test-design「lib.rs -> lib_test.rs」节：`#[derive(Debug)]
@@ -586,12 +618,16 @@ fn system_command_clone等价_特殊字符与超长与非utf8() {
     let cloned_std = cloned.into_std();
     assert_eq!(
         original_std.get_args().collect::<Vec<_>>(),
-        args.iter().map(std::ffi::OsString::as_os_str).collect::<Vec<_>>(),
+        args.iter()
+            .map(std::ffi::OsString::as_os_str)
+            .collect::<Vec<_>>(),
         "原始 argv 逐字"
     );
     assert_eq!(
         cloned_std.get_args().collect::<Vec<_>>(),
-        args.iter().map(std::ffi::OsString::as_os_str).collect::<Vec<_>>(),
+        args.iter()
+            .map(std::ffi::OsString::as_os_str)
+            .collect::<Vec<_>>(),
         "clone 后 argv 逐字节相等（含非 UTF-8 / 超长 / 特殊字符）"
     );
 }
@@ -725,7 +761,8 @@ fn 既有导出面零变() {
     // `kill_tree(None)`：无 pid 即直接返回（零 spawn、零 panic）
     crate::kill_tree(None);
 
-    let output = crate::ProcessOutput::new(101, b"line-1\nwarning: x\nerror[E0308]: boom\n".to_vec());
+    let output =
+        crate::ProcessOutput::new(101, b"line-1\nwarning: x\nerror[E0308]: boom\n".to_vec());
     let excerpt = output.error_excerpt();
     assert_eq!(
         excerpt, "error[E0308]: boom",

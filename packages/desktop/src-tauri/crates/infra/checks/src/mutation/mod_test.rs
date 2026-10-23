@@ -2326,7 +2326,10 @@ async fn 多桶中途取消_第二桶取消且首桶报告路径在案() {
         outcome.feedback_text
     );
     assert!(
-        outcome.report_paths.iter().any(|path| path.contains("app_rust")),
+        outcome
+            .report_paths
+            .iter()
+            .any(|path| path.contains("app_rust")),
         "第 1 桶已完成段的报告路径保留在案（中断不回滚已产报告）: {:?}",
         outcome.report_paths
     );
@@ -2525,9 +2528,7 @@ async fn 段输出含签名不触发段重试() {
     let window = SpawnWindow::enter("segment-no-retry");
     let ws = ChainWs::with_config("segment-no-retry", RUST_APP_CONFIG).with_summary();
     window.install_fake_cargo(&ws.root.join("app"));
-    window.set_out(
-        "error: failed to rename archive file: /t/liba.rlib: os error 32\n",
-    );
+    window.set_out("error: failed to rename archive file: /t/liba.rlib: os error 32\n");
     window.set_exit(1);
 
     let files = vec!["app/src/lib.rs".to_owned()];

@@ -263,7 +263,10 @@ fn 空白名单任何backtrack均err无跳转出口() {
         reason: "任意".to_owned(),
     };
     let err = ensure_backtrack_allowed(&action, "implement", &[]).expect_err("空白名单应 Err");
-    assert!(err.contains("越权") || err.contains("白名单"), "越权记因: {err}");
+    assert!(
+        err.contains("越权") || err.contains("白名单"),
+        "越权记因: {err}"
+    );
 
     // 自环类文案（to == failed_phase 且空白名单）
     let action = DecisionAction::Backtrack {

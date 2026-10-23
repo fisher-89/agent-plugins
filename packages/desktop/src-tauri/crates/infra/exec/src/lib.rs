@@ -22,11 +22,11 @@ mod run;
 mod shell;
 mod transient;
 
-#[cfg(windows)]
-pub use shell::probe_windows_shell;
 pub use lockprobe::{attribution_text, lock_holders, locked_paths, LockHolder};
 pub use output::ProcessOutput;
 pub use run::{run_shell, RunError, RunOptions, RunOutcome, RunReport};
+#[cfg(windows)]
+pub use shell::probe_windows_shell;
 pub use shell::{resolve_shell, ShellBase};
 pub use transient::{is_transient, AttemptTrace, RetryPolicy};
 
@@ -201,7 +201,10 @@ pub fn record_exec_output(
 }
 
 pub fn read_exec_output(root: &Path, change: &str, exec_id: &str) -> Option<Vec<u8>> {
-    read_exec_output_in(&foundation::layout::resolve(root).changes_root.join(change), exec_id)
+    read_exec_output_in(
+        &foundation::layout::resolve(root).changes_root.join(change),
+        exec_id,
+    )
 }
 
 /// 同 change 目录双锚探测回查（test 槽先 / baseline 槽后）：`exec_id` 进程内
@@ -211,17 +214,22 @@ pub fn read_exec_output_in(change_dir: &Path, exec_id: &str) -> Option<Vec<u8>> 
     if !is_valid_exec_id(exec_id) {
         return None;
     }
-    [ReportSlot::Test, ReportSlot::Baseline].iter().find_map(|slot| {
-        let dir = exec_output_dir_in(change_dir, *slot);
-        std::fs::read(dir.join(format!("{exec_id}.log"))).ok()
-    })
+    [ReportSlot::Test, ReportSlot::Baseline]
+        .iter()
+        .find_map(|slot| {
+            let dir = exec_output_dir_in(change_dir, *slot);
+            std::fs::read(dir.join(format!("{exec_id}.log"))).ok()
+        })
 }
 
 /// 输出记录目录派生（与 test-execution 报告树同锚：`change_reports(root, change,
 /// slot)/`——`report_dir` 与 `exec_id` 同口径、按槽位派生，见
 /// desktop-checks-domain）。
 fn exec_output_dir(root: &Path, change: &str, slot: ReportSlot) -> PathBuf {
-    exec_output_dir_in(&foundation::layout::resolve(root).changes_root.join(change), slot)
+    exec_output_dir_in(
+        &foundation::layout::resolve(root).changes_root.join(change),
+        slot,
+    )
 }
 
 /// [`exec_output_dir`] 的 change 目录变体（`reports/<test|baseline>` 后缀经

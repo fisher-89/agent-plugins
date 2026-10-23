@@ -160,8 +160,10 @@ pub(crate) fn spec_sync_prompt(change: &str) -> String {
 /// 解冲突 prompt（入参为记录供给的 change **name**——prompt 内文面向用户 /
 /// 磁盘目录，恒 name 化）。
 pub(crate) fn merge_conflict_prompt(change: &str, conflicts: &[String]) -> String {
-    let list = conflicts.join("
-");
+    let list = conflicts.join(
+        "
+",
+    );
     format!(
         "你执行 change「{change}」归档链的合入冲突解算段。worktree 内重放分支 change/{change} 至主仓当前分支时以下文件冲突（冲突态已保留，rebase 进行中）：
 

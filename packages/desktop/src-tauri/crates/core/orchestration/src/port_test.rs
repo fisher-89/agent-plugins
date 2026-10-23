@@ -295,7 +295,11 @@ async fn tool_command十变体封闭集且match穷尽分发() {
             "archive-seal",
         ),
     ];
-    assert_eq!(commands.len(), 9, "封闭集九变体在场枚举（另 TestExecution 单测专行）");
+    assert_eq!(
+        commands.len(),
+        9,
+        "封闭集九变体在场枚举（另 TestExecution 单测专行）"
+    );
 
     for (command, label) in &commands {
         assert_eq!(describe(command), *label, "变体 {label} 可辨");
@@ -1115,7 +1119,12 @@ async fn test_execution_runner假实现经arc注入且root_change透传() {
         let runner: Arc<dyn TestExecutionRunner> = Arc::new(inner);
 
         let output = runner
-            .run("/tmp/workspace-root", "walker-change", slot, CancelFlag::never())
+            .run(
+                "/tmp/workspace-root",
+                "walker-change",
+                slot,
+                CancelFlag::never(),
+            )
             .await
             .expect("产出应可用");
         assert!(
@@ -1332,7 +1341,11 @@ fn worker_role_provenance_role段互异不撞号() {
     ];
     sorted.sort();
     sorted.dedup();
-    assert_eq!(sorted.len(), 3, "同 phase 同 attempt 内三角色 source_ref 互异");
+    assert_eq!(
+        sorted.len(),
+        3,
+        "同 phase 同 attempt 内三角色 source_ref 互异"
+    );
     assert!(spec_sync_ref.ends_with("/archive/spec_sync/1"));
     assert!(resolve_ref.ends_with("/archive/resolve_conflicts/1"));
     assert_ne!(
@@ -1417,10 +1430,7 @@ async fn tool_step_output归档两新变体载荷透传() {
         }
         other => panic!("变体漂移: {other:?}"),
     }
-    assert_ne!(
-        outputs[0], outputs[1],
-        "两新变体互异（线面判别可辨）"
-    );
+    assert_ne!(outputs[0], outputs[1], "两新变体互异（线面判别可辨）");
 
     // 命令经 ToolStepRequest 原样到达注入 port（命令面契约）
     let (steps, seen) = RecordingSteps::capturing();
@@ -1436,10 +1446,7 @@ async fn tool_step_output归档两新变体载荷透传() {
     assert!(output.is_ok(), "归档命令经注入 port 可达");
     let captured = seen.lock().expect("锁").clone();
     assert_eq!(captured.len(), 1, "归档命令抵达注入 port");
-    assert!(matches!(
-        captured[0],
-        ToolCommand::ArchiveSeal { .. }
-    ));
+    assert!(matches!(captured[0], ToolCommand::ArchiveSeal { .. }));
 }
 
 /// `ToolStepOutput` 归档两变体异常（异常）：载荷类型不匹配的窄化分支不吞错
@@ -1553,7 +1560,11 @@ fn archive_vcs_port面全方法签名编译锚() {
         fn remove_worktree(&self, _main_root: &Path, _worktree: &Path) -> Result<(), String> {
             Ok(())
         }
-        fn restore_baseline(&self, _worktree: &Path, _exclusions: &[&str]) -> Result<String, String> {
+        fn restore_baseline(
+            &self,
+            _worktree: &Path,
+            _exclusions: &[&str],
+        ) -> Result<String, String> {
             Ok("已恢复基线".to_owned())
         }
     }
@@ -1565,7 +1576,8 @@ fn archive_vcs_port面全方法签名编译锚() {
         branch: "main".to_owned(),
     });
     assert_eq!(
-        port.current_branch(Path::new("/tmp/root")).expect("探测应可用"),
+        port.current_branch(Path::new("/tmp/root"))
+            .expect("探测应可用"),
         "main",
         "合入目标分支探测（Preflight / Rebase 消费）"
     );
@@ -1575,7 +1587,10 @@ fn archive_vcs_port面全方法签名编译锚() {
         false,
         "合入段幂等跳过判定（Finalize 消费）"
     );
-    assert!(!port.dirty(Path::new("/tmp/root"), &[]), "干净探测 → false（Commit 跳过）");
+    assert!(
+        !port.dirty(Path::new("/tmp/root"), &[]),
+        "干净探测 → false（Commit 跳过）"
+    );
     assert!(!port.dirty(Path::new("/tmp/root"), &["openspec"]));
     assert_eq!(
         port.rebase_branch(Path::new("/tmp/wt"), "main")
@@ -1636,7 +1651,11 @@ fn archive_vcs_port面全方法签名编译锚() {
         fn remove_worktree(&self, _main_root: &Path, _worktree: &Path) -> Result<(), String> {
             Err("worktree 移除失败".to_owned())
         }
-        fn restore_baseline(&self, _worktree: &Path, _exclusions: &[&str]) -> Result<String, String> {
+        fn restore_baseline(
+            &self,
+            _worktree: &Path,
+            _exclusions: &[&str],
+        ) -> Result<String, String> {
             Err("git 语境失败".to_owned())
         }
     }
@@ -1645,7 +1664,9 @@ fn archive_vcs_port面全方法签名编译锚() {
         .current_branch(Path::new("/tmp/root"))
         .expect_err("detached HEAD 应显式 Err（不 panic）");
     assert!(error.contains("detached HEAD"), "Err 语汇透传: {error}");
-    assert!(detached.branch_merged(Path::new("/tmp/root"), "change/x").is_err());
+    assert!(detached
+        .branch_merged(Path::new("/tmp/root"), "change/x")
+        .is_err());
     assert!(detached.worktree_snapshot(Path::new("/tmp/wt")).is_err());
     assert!(detached
         .commit_paths(Path::new("/tmp/root"), &["openspec"], "msg")
@@ -1714,10 +1735,7 @@ struct FakeMutationRunner {
 impl FakeMutationRunner {
     fn with_result(
         result: Result<MutationTestOutcome, String>,
-    ) -> (
-        Self,
-        Arc<Mutex<Vec<(String, String, Vec<String>, String)>>>,
-    ) {
+    ) -> (Self, Arc<Mutex<Vec<(String, String, Vec<String>, String)>>>) {
         let calls: Arc<Mutex<Vec<(String, String, Vec<String>, String)>>> =
             Arc::new(Mutex::new(Vec::new()));
         (
@@ -1749,15 +1767,12 @@ impl MutationRunner for FakeMutationRunner {
             .lock()
             .expect("cancels 锁不可中毒")
             .push(cancel);
-        self.calls
-            .lock()
-            .expect("calls 锁不可中毒")
-            .push((
-                root.to_owned(),
-                name.to_owned(),
-                files.to_vec(),
-                patch.to_owned(),
-            ));
+        self.calls.lock().expect("calls 锁不可中毒").push((
+            root.to_owned(),
+            name.to_owned(),
+            files.to_vec(),
+            patch.to_owned(),
+        ));
         let result = self.result.clone();
         Box::pin(async move { result.map(ToolStepOutput::MutationTest) })
     }
@@ -1795,7 +1810,9 @@ fn tool_step_output_mutation_test载荷全字段相等() {
             );
             assert_eq!(extracted.report_paths.len(), 2, "段级 + 归并报告路径清单");
             assert!(
-                extracted.feedback_text.contains("score 87.5 < threshold 90.0"),
+                extracted
+                    .feedback_text
+                    .contains("score 87.5 < threshold 90.0"),
                 "feedback_text 携结论摘要（报告指引式）: {}",
                 extracted.feedback_text
             );
@@ -1837,7 +1854,10 @@ fn mutation_test_outcome形态_已执行与feedback_text面() {
 /// 不出线——装配点 `to_posix` 口径）。
 #[test]
 fn mutation_test_outcome边界_skip占位与posix报告路径() {
-    for skip in [MutationSkipReason::EmptyDiff, MutationSkipReason::NoExecutor] {
+    for skip in [
+        MutationSkipReason::EmptyDiff,
+        MutationSkipReason::NoExecutor,
+    ] {
         let skipped = MutationTestOutcome {
             fault: None,
             conclusion: MutationTestConclusion::Pass,
@@ -1921,7 +1941,10 @@ fn mutation_counts七字段与u64大值构造不panic() {
         total,
     } = counts;
     assert_eq!((killed, survived, timeout), (1, 2, 3));
-    assert_eq!((compile_error, runtime_error, ignored, total), (4, 5, 6, 21));
+    assert_eq!(
+        (compile_error, runtime_error, ignored, total),
+        (4, 5, 6, 21)
+    );
 
     let huge = MutationCounts {
         killed: u64::MAX,
@@ -1949,7 +1972,10 @@ fn mutation载荷零serialize不进ipc_类型面自持() {
     let outcome = consume_in_process(sample_mutation_outcome(MutationTestConclusion::Fail));
     assert_eq!(outcome.conclusion, MutationTestConclusion::Fail);
     // 类型自持：port 流量像自持七字段计数（不经 checks 模型转换出线）
-    assert_eq!(outcome.counts.total, 10, "port 流量像自持（零 checks 依赖）");
+    assert_eq!(
+        outcome.counts.total, 10,
+        "port 流量像自持（零 checks 依赖）"
+    );
 }
 
 /// 正向：`MutationRunner` trait 面——假实现经 `Arc<dyn …>` 注入、四参
@@ -1961,14 +1987,13 @@ async fn mutation_runner假实现经arc注入且四参逐字透传() {
     fn assert_send_sync<T: Send + Sync>() {}
     assert_send_sync::<Arc<dyn MutationRunner>>();
 
-    let (inner, calls) = FakeMutationRunner::with_result(Ok(sample_mutation_outcome(
-        MutationTestConclusion::Pass,
-    )));
+    let (inner, calls) =
+        FakeMutationRunner::with_result(Ok(sample_mutation_outcome(MutationTestConclusion::Pass)));
     let runner: Arc<dyn MutationRunner> = Arc::new(inner);
 
     let files = vec!["src/lib.rs".to_owned(), "src/util.rs".to_owned()];
-    let patch = "diff --git a/src/lib.rs b/src/lib.rs\n--- a/src/lib.rs\n+++ b/src/lib.rs\n"
-        .to_owned();
+    let patch =
+        "diff --git a/src/lib.rs b/src/lib.rs\n--- a/src/lib.rs\n+++ b/src/lib.rs\n".to_owned();
     let output = runner
         .run(
             "/tmp/workspace-root",
@@ -1996,10 +2021,7 @@ async fn mutation_runner假实现经arc注入且四参逐字透传() {
         captured_files, &files,
         "files = 清单入参逐字透传（不截断不改写）"
     );
-    assert_eq!(
-        captured_patch, &patch,
-        "patch = --in-diff 补丁入参逐字透传"
-    );
+    assert_eq!(captured_patch, &patch, "patch = --in-diff 补丁入参逐字透传");
 }
 
 /// 异常：假实现产出 `Err` → `BoxToolFuture` 透传不吞（E5 显式 Err 面的缝侧
@@ -2018,11 +2040,13 @@ async fn mutation_runner_err臂透传不吞且ok臂分发正确() {
         "Err(String) 原样（无再包装）"
     );
 
-    let (inner, _calls) = FakeMutationRunner::with_result(Ok(sample_mutation_outcome(
-        MutationTestConclusion::Fail,
-    )));
+    let (inner, _calls) =
+        FakeMutationRunner::with_result(Ok(sample_mutation_outcome(MutationTestConclusion::Fail)));
     let runner: Arc<dyn MutationRunner> = Arc::new(inner);
-    match runner.run("/tmp/root", "c", &[], "", CancelFlag::never()).await {
+    match runner
+        .run("/tmp/root", "c", &[], "", CancelFlag::never())
+        .await
+    {
         Ok(ToolStepOutput::MutationTest(outcome)) => {
             assert_eq!(outcome.conclusion, MutationTestConclusion::Fail);
         }
@@ -2036,9 +2060,8 @@ async fn mutation_runner_err臂透传不吞且ok臂分发正确() {
 #[tokio::test]
 async fn mutation_runner边界入参逐字透传不截断() {
     // 空清单 + 空补丁
-    let (inner, calls) = FakeMutationRunner::with_result(Ok(sample_mutation_outcome(
-        MutationTestConclusion::Pass,
-    )));
+    let (inner, calls) =
+        FakeMutationRunner::with_result(Ok(sample_mutation_outcome(MutationTestConclusion::Pass)));
     let runner: Arc<dyn MutationRunner> = Arc::new(inner);
     runner
         .run("/tmp/root", "c", &[], "", CancelFlag::never())
@@ -2066,7 +2089,9 @@ async fn mutation_runner边界入参逐字透传不截断() {
     }
 
     // 超大清单（1000 项）
-    let huge: Vec<String> = (0..1000).map(|index| format!("src/f{index:04}.rs")).collect();
+    let huge: Vec<String> = (0..1000)
+        .map(|index| format!("src/f{index:04}.rs"))
+        .collect();
     runner
         .run("/tmp/root", "c", &huge, "p", CancelFlag::never())
         .await
@@ -2170,7 +2195,11 @@ async fn archive_vcs_port清单与补丁两方法trait面() {
         fn remove_worktree(&self, _main_root: &Path, _worktree: &Path) -> Result<(), String> {
             Ok(())
         }
-        fn restore_baseline(&self, _worktree: &Path, _exclusions: &[&str]) -> Result<String, String> {
+        fn restore_baseline(
+            &self,
+            _worktree: &Path,
+            _exclusions: &[&str],
+        ) -> Result<String, String> {
             Ok(String::new())
         }
     }
@@ -2185,8 +2214,7 @@ async fn archive_vcs_port清单与补丁两方法trait面() {
     });
     let root = Path::new("/tmp/ws/root");
     assert_eq!(
-        port.change_edit_set(root, "HEAD")
-            .expect("清单取数应可用"),
+        port.change_edit_set(root, "HEAD").expect("清单取数应可用"),
         vec!["src/lib.rs".to_owned()],
         "trait object 动态分发结果透传"
     );
@@ -2316,10 +2344,10 @@ fn archive_vcs_port_remove_worktree可注入且双参捕获与err契约() {
             self.result.clone()
         }
         fn restore_baseline(&self, worktree: &Path, exclusions: &[&str]) -> Result<String, String> {
-            self.restore_calls
-                .lock()
-                .expect("restore 调用锁")
-                .push((worktree.to_owned(), exclusions.iter().map(|s| (*s).to_owned()).collect()));
+            self.restore_calls.lock().expect("restore 调用锁").push((
+                worktree.to_owned(),
+                exclusions.iter().map(|s| (*s).to_owned()).collect(),
+            ));
             self.restore.clone().expect("restore 可编程面应在场")
         }
     }
@@ -2441,13 +2469,10 @@ fn archive_vcs_port_restore_baseline可注入且载荷捕获与err契约() {
             Ok(())
         }
         fn restore_baseline(&self, worktree: &Path, exclusions: &[&str]) -> Result<String, String> {
-            self.calls
-                .lock()
-                .expect("restore 调用锁")
-                .push((
-                    worktree.to_owned(),
-                    exclusions.iter().map(|s| (*s).to_owned()).collect(),
-                ));
+            self.calls.lock().expect("restore 调用锁").push((
+                worktree.to_owned(),
+                exclusions.iter().map(|s| (*s).to_owned()).collect(),
+            ));
             self.result.clone()
         }
     }
@@ -2491,7 +2516,10 @@ fn archive_vcs_port_restore_baseline可注入且载荷捕获与err契约() {
         probe.calls.lock().expect("restore 调用锁").as_slice(),
         [(
             worktree.clone(),
-            exclusions.iter().map(|s| (*s).to_owned()).collect::<Vec<_>>()
+            exclusions
+                .iter()
+                .map(|s| (*s).to_owned())
+                .collect::<Vec<_>>()
         )],
         "(worktree, exclusions) 载荷原样捕获（D6 排除面透传契约——零改写零换序）"
     );
@@ -2501,7 +2529,9 @@ fn archive_vcs_port_restore_baseline可注入且载荷捕获与err契约() {
         result: Ok(String::new()),
         calls: std::sync::Mutex::new(Vec::new()),
     };
-    probe.restore_baseline(&worktree, &[]).expect("空切片应可用");
+    probe
+        .restore_baseline(&worktree, &[])
+        .expect("空切片应可用");
     assert_eq!(
         probe.calls.lock().expect("restore 调用锁")[0].1,
         Vec::<String>::new(),
@@ -2559,7 +2589,10 @@ fn tool_step_request独立flag不相等() {
     let first = request_with_cancel(CancelFlag::never());
     let second = request_with_cancel(CancelFlag::never());
     assert_ne!(first, second, "独立铸造的 flag 使请求不等（身份比较）");
-    assert!(!first.cancel.is_set() && !second.cancel.is_set(), "两者状态相同");
+    assert!(
+        !first.cancel.is_set() && !second.cancel.is_set(),
+        "两者状态相同"
+    );
 }
 
 /// 边界：`clone` 保持身份——`let b = a.clone(); assert_eq!(a.cancel, b.cancel);`
@@ -2571,7 +2604,10 @@ fn tool_step_request_clone保持flag身份() {
     assert_eq!(request.cancel, cloned.cancel, "clone 后 flag 身份相等");
     assert_eq!(request, cloned, "clone 与原件整体相等");
     cloned.cancel.handle().set();
-    assert!(request.cancel.is_set(), "clone 侧置位对原件可见（同一原子）");
+    assert!(
+        request.cancel.is_set(),
+        "clone 侧置位对原件可见（同一原子）"
+    );
 }
 
 /// 边界（参数化 2 形态）：`Debug` 渲染——`ToolStepRequest` 的派生 `Debug` 与
@@ -2632,9 +2668,8 @@ async fn 三runner_trait接收cancel形参且原样透传() {
     assert_eq!(recorded[0], exec_cancel, "第四形参原样透传（同一原子）");
 
     // MutationRunner
-    let (mutation_inner, _mutation_calls) = FakeMutationRunner::with_result(Ok(
-        sample_mutation_outcome(MutationTestConclusion::Pass),
-    ));
+    let (mutation_inner, _mutation_calls) =
+        FakeMutationRunner::with_result(Ok(sample_mutation_outcome(MutationTestConclusion::Pass)));
     let mutation_log = mutation_inner.cancel_log();
     let mutation_runner: Arc<dyn MutationRunner> = Arc::new(mutation_inner);
     let mutation_cancel = CancelFlag::never();
@@ -2686,9 +2721,8 @@ async fn 三runner_trait已置位信号不被丢弃() {
         "TestExecutionRunner 收到已置位信号"
     );
 
-    let (mutation_inner, _) = FakeMutationRunner::with_result(Ok(sample_mutation_outcome(
-        MutationTestConclusion::Pass,
-    )));
+    let (mutation_inner, _) =
+        FakeMutationRunner::with_result(Ok(sample_mutation_outcome(MutationTestConclusion::Pass)));
     let mutation_log = mutation_inner.cancel_log();
     let mutation_runner: Arc<dyn MutationRunner> = Arc::new(mutation_inner);
     mutation_runner

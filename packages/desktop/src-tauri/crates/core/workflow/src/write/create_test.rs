@@ -788,9 +788,15 @@ fn create透传test_only类型的建档载荷() {
         .expect("合法 workflow_type 应 Ok");
 
     let record = env.store.created_record();
-    assert_eq!(record.workflow_type, "test-only", "落库 workflow_type == 入参");
+    assert_eq!(
+        record.workflow_type, "test-only",
+        "落库 workflow_type == 入参"
+    );
     assert_eq!(record.id, outcome.id, "建档载荷即本次铸出 id");
-    assert_eq!(record.title, "补测试", "title 与 workflow_type 两入参互不串扰");
+    assert_eq!(
+        record.title, "补测试",
+        "title 与 workflow_type 两入参互不串扰"
+    );
     assert!(
         env.change_dir("topic-only").join("explore.md").is_file(),
         "建域照常（workflow_type 为纯载荷，零建域分支）"
@@ -807,7 +813,10 @@ fn create透传requirement类型持衡() {
         .expect("合法 workflow_type 应 Ok");
 
     let record = env.store.created_record();
-    assert_eq!(record.workflow_type, "requirement", "显式 requirement 逐字落库");
+    assert_eq!(
+        record.workflow_type, "requirement",
+        "显式 requirement 逐字落库"
+    );
 }
 
 /// 大小写 / 空白 canonical（边界 / 新增）：首尾空白 + 大写混排 → trim +
@@ -1709,7 +1718,10 @@ fn active上限下第5个创建成功_4条active时() {
         .create("cap-fifth", "第 5 个 change goal")
         .expect("4 条 active 时第 5 个应创建成功");
 
-    assert!(!outcome.id.is_empty(), "CreateOutcome 正常出线（身份锚在案）");
+    assert!(
+        !outcome.id.is_empty(),
+        "CreateOutcome 正常出线（身份锚在案）"
+    );
     assert_eq!(outcome.name, "cap-fifth");
     assert_eq!(env.store.create_call_count(), 1, "db 恰一次建档");
     assert_eq!(env.store.record_count(), 5, "库内 4 种子 + 1 新建档");
@@ -1843,8 +1855,11 @@ fn worktree门槛_目录缺席计零通过且普通文件不计入() {
             .expect("预置目录失败");
     }
     for index in 0..3 {
-        fs::write(files.worktree_root.join(format!("loose-{index}.txt")), "散落文件\n")
-            .expect("预置普通文件失败");
+        fs::write(
+            files.worktree_root.join(format!("loose-{index}.txt")),
+            "散落文件\n",
+        )
+        .expect("预置普通文件失败");
     }
 
     files
@@ -1926,7 +1941,11 @@ fn db与磁盘漂移_3active加5残留合计8目录被门槛拦() {
 fn 前置序_同名active先于上限道拒绝() {
     let env = Env::new("order-same-name");
     for index in 0..5 {
-        let name = if index == 0 { "dupe" } else { &format!("order-fill-{index}") };
+        let name = if index == 0 {
+            "dupe"
+        } else {
+            &format!("order-fill-{index}")
+        };
         env.store.seed(
             &format!("0198f7a0-0000-7000-8000-00000000011{index}"),
             name,
@@ -1934,7 +1953,9 @@ fn 前置序_同名active先于上限道拒绝() {
         );
     }
 
-    let error = env.create("dupe", "同名 goal").expect_err("同名 active 应 Err");
+    let error = env
+        .create("dupe", "同名 goal")
+        .expect_err("同名 active 应 Err");
 
     assert!(
         error.contains("已存在同名建档记录"),

@@ -245,7 +245,11 @@ fn scan两新模型分页主键自然序翻页不重不漏_key数值id信封valu
         .collect();
     let _agent = upsert_agent_ok(
         &global,
-        AgentInstanceRecord::new("扫描实例".to_owned(), AgentEngineKind::Sdk, Some(seeded[0].id)),
+        AgentInstanceRecord::new(
+            "扫描实例".to_owned(),
+            AgentEngineKind::Sdk,
+            Some(seeded[0].id),
+        ),
     );
 
     // 分页扫描：offset/limit 翻页拼接不重不漏（主键自然序）

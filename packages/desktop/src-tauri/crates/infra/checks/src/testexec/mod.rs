@@ -67,13 +67,7 @@ impl Default for ProcessTestExecution {
 }
 
 impl TestExecutionRunner for ProcessTestExecution {
-    fn run(
-        &self,
-        root: &str,
-        change: &str,
-        slot: ReportSlot,
-        cancel: CancelFlag,
-    ) -> BoxToolFuture {
+    fn run(&self, root: &str, change: &str, slot: ReportSlot, cancel: CancelFlag) -> BoxToolFuture {
         let root = root.to_owned();
         let change = change.to_owned();
         Box::pin(async move { execute(&root, &change, slot, cancel).await })

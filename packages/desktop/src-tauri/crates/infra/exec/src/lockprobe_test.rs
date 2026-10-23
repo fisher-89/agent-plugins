@@ -8,8 +8,8 @@
 
 use std::path::{Path, PathBuf};
 
-use super::{attribution_text, lock_holders, locked_paths, LockHolder};
 use super::blocks_delete;
+use super::{attribution_text, lock_holders, locked_paths, LockHolder};
 
 // ---------------------------------------------------------------------------
 // 装置：真实临时文件（持有者句柄 / 只读自证 / 不存在路径）
@@ -90,7 +90,11 @@ fn 三形态解析_反斜杠原样保留() {
 
     for (diagnostics, expected) in cases {
         let paths = locked_paths(diagnostics);
-        assert_eq!(paths.len(), 1, "形态 {diagnostics:?} 恰解析出 1 条路径: {paths:?}");
+        assert_eq!(
+            paths.len(),
+            1,
+            "形态 {diagnostics:?} 恰解析出 1 条路径: {paths:?}"
+        );
         assert_eq!(
             paths[0],
             PathBuf::from(expected),
@@ -120,7 +124,11 @@ fn posix形态解析_正斜杠原样保留() {
 
     for (diagnostics, expected) in cases {
         let paths = locked_paths(diagnostics);
-        assert_eq!(paths, vec![PathBuf::from(expected)], "{diagnostics:?} 路径原样");
+        assert_eq!(
+            paths,
+            vec![PathBuf::from(expected)],
+            "{diagnostics:?} 路径原样"
+        );
     }
 }
 
@@ -162,10 +170,18 @@ fn 盘符冒号不误截() {
 #[test]
 fn 包裹引号与反引号被剥离() {
     let paths = locked_paths("error: failed to remove `D:\\w\\target\\a.rcgu.o`");
-    assert_eq!(paths, vec![PathBuf::from("D:\\w\\target\\a.rcgu.o")], "反引号剥离");
+    assert_eq!(
+        paths,
+        vec![PathBuf::from("D:\\w\\target\\a.rcgu.o")],
+        "反引号剥离"
+    );
 
     let paths = locked_paths("error: failed to write \"D:\\w\\target\\b.rmeta\"");
-    assert_eq!(paths, vec![PathBuf::from("D:\\w\\target\\b.rmeta")], "双引号剥离");
+    assert_eq!(
+        paths,
+        vec![PathBuf::from("D:\\w\\target\\b.rmeta")],
+        "双引号剥离"
+    );
 }
 
 /// 边界（表驱动 2 形态）：大小写不敏感——全大写 / 首字母大写形态与全小写等价解析。
@@ -388,13 +404,17 @@ fn 自锁自证点名到本进程() {
     let holders = lock_holders(std::slice::from_ref(&path));
     drop(holder);
 
-    assert_eq!(holders.len(), 1, "按 (name, pid) 去重后恰 1 条: {holders:?}");
     assert_eq!(
-        holders[0].pid,
-        std::process::id(),
-        "点名到持有句柄的本进程"
+        holders.len(),
+        1,
+        "按 (name, pid) 去重后恰 1 条: {holders:?}"
     );
-    assert!(!holders[0].name.is_empty(), "进程名非空: {:?}", holders[0].name);
+    assert_eq!(holders[0].pid, std::process::id(), "点名到持有句柄的本进程");
+    assert!(
+        !holders[0].name.is_empty(),
+        "进程名非空: {:?}",
+        holders[0].name
+    );
     assert!(
         !holders[0].name.contains('\\') && !holders[0].name.contains('/'),
         "进程名不含路径分隔符: {:?}",
@@ -492,7 +512,10 @@ fn lock_holder两字段面() {
     };
     assert_ne!(other, holder, "pid 参与相等判定");
     let debug = format!("{holder:?}");
-    assert!(debug.contains("HipsDaemon.exe") && debug.contains("1234"), "Debug 可读: {debug}");
+    assert!(
+        debug.contains("HipsDaemon.exe") && debug.contains("1234"),
+        "Debug 可读: {debug}"
+    );
 
     // 载荷边界：空名 / 超长名 / 特殊字符 / pid 极值
     for (name, pid) in [
@@ -500,7 +523,10 @@ fn lock_holder两字段面() {
         ("名".repeat(600), u32::MAX),
         ("a\nb\u{0}c🎉".to_owned(), 1),
     ] {
-        let edge = LockHolder { name: name.clone(), pid };
+        let edge = LockHolder {
+            name: name.clone(),
+            pid,
+        };
         assert_eq!(edge.name, name, "进程名逐字保留");
         assert_eq!(edge.pid, pid, "pid 逐值保留");
     }

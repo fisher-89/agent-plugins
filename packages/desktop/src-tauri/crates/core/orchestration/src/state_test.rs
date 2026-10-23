@@ -232,8 +232,7 @@ fn change_step_kind_clean基线恢复步新臂camel同形与同源() {
     assert_eq!(ChangeStepKind::Clean.as_str(), "clean");
 
     // 双向派生往返等值（rename_all camelCase 线格式持衡）
-    let back: ChangeStepKind =
-        serde_json::from_value(json!("clean")).expect("clean 往返应成功");
+    let back: ChangeStepKind = serde_json::from_value(json!("clean")).expect("clean 往返应成功");
     assert_eq!(back, ChangeStepKind::Clean);
     let round_trip = serde_json::to_value(back).expect("再出线应成功");
     assert_eq!(round_trip, json!("clean"), "往返出线词面恒定");

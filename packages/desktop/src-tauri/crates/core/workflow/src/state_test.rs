@@ -998,7 +998,11 @@ fn step_node与run_step_kind逐字同源二十一值() {
         (StepNode::Evaluator, RunStepKind::Evaluator, "evaluator"),
         (StepNode::Decision, RunStepKind::Decision, "decision"),
         (StepNode::PhaseStart, RunStepKind::PhaseStart, "phase_start"),
-        (StepNode::StaticCheck, RunStepKind::StaticCheck, "static_check"),
+        (
+            StepNode::StaticCheck,
+            RunStepKind::StaticCheck,
+            "static_check",
+        ),
         (
             StepNode::TestExecution,
             RunStepKind::TestExecution,
@@ -1160,7 +1164,10 @@ fn agent_role五值线面snake_case逐字() {
     assert_eq!(wire(AgentRole::Evaluator), json!("evaluator"));
     assert_eq!(wire(AgentRole::Decision), json!("decision"));
     assert_eq!(wire(AgentRole::SpecSync), json!("spec_sync"));
-    assert_eq!(wire(AgentRole::ResolveConflicts), json!("resolve_conflicts"));
+    assert_eq!(
+        wire(AgentRole::ResolveConflicts),
+        json!("resolve_conflicts")
+    );
 
     for (role, word) in [
         (AgentRole::Executor, "executor"),
@@ -1169,8 +1176,7 @@ fn agent_role五值线面snake_case逐字() {
         (AgentRole::SpecSync, "spec_sync"),
         (AgentRole::ResolveConflicts, "resolve_conflicts"),
     ] {
-        let back: AgentRole =
-            serde_json::from_value(json!(word)).expect("合法词往返应成功");
+        let back: AgentRole = serde_json::from_value(json!(word)).expect("合法词往返应成功");
         assert_eq!(back, role, "{word} 往返逐词可辨");
     }
 }
@@ -1279,7 +1285,11 @@ fn on_fail三变体表驱动往返() {
     // 缺省形态：None 与三变体互不可辨——Option::None 不参与封闭集
     let default: Option<OnFail> = None;
     assert!(default.is_none(), "缺省 on_fail = None");
-    assert_ne!(Some(OnFail::Escalate), default, "Some(Escalate) 与 None 可辨");
+    assert_ne!(
+        Some(OnFail::Escalate),
+        default,
+        "Some(Escalate) 与 None 可辨"
+    );
 }
 
 /// `StepDefinition.on_fail` 缺省形态（边界）：`None` 与 `Some(OnFail::Escalate)`

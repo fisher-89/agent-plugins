@@ -185,9 +185,12 @@ async fn timeout_ms越界或非整数显式err_命令不执行() {
     ];
 
     for bad in rejected {
-        let error = execute(dir.path(), &json!({ "command": command, "timeout_ms": bad }))
-            .await
-            .expect_err("timeout_ms 非法必须 Err");
+        let error = execute(
+            dir.path(),
+            &json!({ "command": command, "timeout_ms": bad }),
+        )
+        .await
+        .expect_err("timeout_ms 非法必须 Err");
         assert!(
             error.contains("timeout_ms"),
             "记因指明 timeout_ms 字段: {error}"

@@ -610,7 +610,9 @@ async fn run_slot_baseline_pass_报告与exec_outputs落baseline树() {
 
     assert!(outcome.passed, "pass 场景 passed=true");
     assert!(
-        outcome.report_dir.ends_with(&format!("demo-change{SEP}reports{SEP}baseline")),
+        outcome
+            .report_dir
+            .ends_with(&format!("demo-change{SEP}reports{SEP}baseline")),
         "report_dir = baseline 报告树锚点: {}",
         outcome.report_dir
     );
@@ -619,7 +621,10 @@ async fn run_slot_baseline_pass_报告与exec_outputs落baseline树() {
     let baseline_log = ws
         .exec_dir_slot("demo-change", ReportSlot::Baseline)
         .join(format!("{exec_id}.log"));
-    assert!(baseline_log.is_file(), "输出记录落 baseline exec-outputs: {baseline_log:?}");
+    assert!(
+        baseline_log.is_file(),
+        "输出记录落 baseline exec-outputs: {baseline_log:?}"
+    );
     // test 树零残留（分树隔离）
     assert!(
         !ws.exec_dir("demo-change").exists(),
@@ -652,7 +657,9 @@ async fn run_slot_baseline_fail_report_dir仍回填baseline锚() {
         outcome.diagnostics
     );
     assert!(
-        outcome.report_dir.ends_with(&format!("demo-change{SEP}reports{SEP}baseline")),
+        outcome
+            .report_dir
+            .ends_with(&format!("demo-change{SEP}reports{SEP}baseline")),
         "fail 分支 report_dir 仍回填 baseline 锚: {}",
         outcome.report_dir
     );
@@ -711,7 +718,10 @@ async fn run槽位等价性_语义同锚点异且err面持衡() {
         .await
         .expect("baseline 槽位应 Ok");
 
-    assert_eq!(test_outcome.passed, baseline_outcome.passed, "passed 语义等值");
+    assert_eq!(
+        test_outcome.passed, baseline_outcome.passed,
+        "passed 语义等值"
+    );
     assert_eq!(
         test_outcome.diagnostics, baseline_outcome.diagnostics,
         "diagnostics 语义等值（执行零分叉）"
@@ -728,7 +738,10 @@ async fn run槽位等价性_语义同锚点异且err面持衡() {
         test_outcome.diagnostics,
         baseline_outcome.diagnostics
     );
-    assert_ne!(test_outcome.report_dir, baseline_outcome.report_dir, "锚点不同");
+    assert_ne!(
+        test_outcome.report_dir, baseline_outcome.report_dir,
+        "锚点不同"
+    );
     assert!(
         test_outcome.report_dir.ends_with("reports/test")
             || test_outcome
@@ -793,7 +806,11 @@ fn write_spin_shim(ws: &TempWs, name: &str, pid_file: &Path) -> String {
             exec::ShellBase::GitBash(path) => path,
             _ => panic!("自旋 shim 需要 Git for Windows bash（resolve_shell 未探测到 GitBash）"),
         };
-        let body = format!("@echo off\r\n\"{}\" \"{}\"\r\n", bash.display(), script.display());
+        let body = format!(
+            "@echo off\r\n\"{}\" \"{}\"\r\n",
+            bash.display(),
+            script.display()
+        );
         fs::write(ws.path().join(format!("{name}.cmd")), body).expect("写自旋 shim 失败");
         format!("{name}.cmd")
     }
@@ -900,7 +917,12 @@ async fn 超时臂_fault为环境错误且pid消失不悬挂() {
     let root_str = ws.root_str();
     let runner = tokio::spawn(async move {
         ProcessStaticCheck::new()
-            .run(&root_str, "demo-change", ReportSlot::Test, CancelFlag::never())
+            .run(
+                &root_str,
+                "demo-change",
+                ReportSlot::Test,
+                CancelFlag::never(),
+            )
             .await
     });
     let pid = wait_pid(&pid_file, Duration::from_secs(60)).await;
@@ -983,13 +1005,18 @@ async fn 已置位cancel_fault为stopped且零spawn() {
         "取消 → fault = Stopped（run 收敛 stopped，非 failed）"
     );
     assert!(!outcome.passed, "取消臂 passed 恒 false");
-    assert!(outcome.diagnostics.is_empty(), "取消臂零诊断（未读任何输出）");
+    assert!(
+        outcome.diagnostics.is_empty(),
+        "取消臂零诊断（未读任何输出）"
+    );
     assert!(!marker.exists(), "入口短路不 spawn（shim 零执行）");
     assert!(
         started.elapsed() < Duration::from_secs(5),
         "短路墙钟近零（不依赖轮询时序）"
     );
-    let exec_id = outcome.output_ref.expect("记录面单点回填引用（落盘不阻断）");
+    let exec_id = outcome
+        .output_ref
+        .expect("记录面单点回填引用（落盘不阻断）");
     assert!(
         read_output(&ws, "demo-change", &exec_id).is_empty(),
         "取消短路零尝试字节 → `.log` 空"
@@ -1025,7 +1052,10 @@ async fn 无配置加已置位cancel_仍直过零spawn不err() {
         "诊断空（零 spawn 即零输出），实际: {}",
         outcome.diagnostics
     );
-    assert_eq!(outcome.output_ref, None, "零 spawn 即无输出记录（不落空 .log）");
+    assert_eq!(
+        outcome.output_ref, None,
+        "零 spawn 即无输出记录（不落空 .log）"
+    );
     let expect_suffix = format!("demo-change{SEP}reports{SEP}test");
     assert!(
         outcome.report_dir.ends_with(&expect_suffix),
@@ -1143,7 +1173,8 @@ async fn 运行中cancel_秒级收敛且pid消失() {
     handle.set();
 
     let output = runner.await.expect("run 任务应正常结束");
-    let ToolStepOutput::StaticCheck(outcome) = output.expect("取消不 Err（产出携 fault）") else {
+    let ToolStepOutput::StaticCheck(outcome) = output.expect("取消不 Err（产出携 fault）")
+    else {
         panic!("产出应为 StaticCheck 变体");
     };
     assert_eq!(
@@ -1177,12 +1208,7 @@ async fn 运行中cancel_秒级收敛且pid消失() {
 
 /// 自愈 shim：首次拉起落标记并输出锁文本 + 非零，之后输成功行 + 零退出
 ///（平台双形态；尝试次数由标记文件自身表达，无需计数装置）。
-fn write_selfheal_shim(
-    ws: &TempWs,
-    name: &str,
-    marker: &Path,
-    lock_text: &str,
-) -> String {
+fn write_selfheal_shim(ws: &TempWs, name: &str, marker: &Path, lock_text: &str) -> String {
     #[cfg(windows)]
     {
         let body = format!(
@@ -1278,7 +1304,12 @@ async fn 瞬态耗尽_fault为环境错误且log五段() {
         "error: failed to rename archive file: {}: os error 32",
         locked.display()
     );
-    let command = write_shim(&ws, "lock-always-shim", &[(lock_text.as_str(), false)], Some(1));
+    let command = write_shim(
+        &ws,
+        "lock-always-shim",
+        &[(lock_text.as_str(), false)],
+        Some(1),
+    );
     ws.write_config(Some(&command));
 
     // 运行体在任务内（主任务负责推进虚拟时钟：4 段退避 15 s 不真等）
@@ -1427,7 +1458,9 @@ async fn 真红不产fault且单次尝试() {
     assert!(!outcome.passed, "真红 → passed = false");
     assert_eq!(outcome.fault, None, "真红不产 fault（不吞成环境错误）");
     assert!(
-        outcome.diagnostics.contains("error[E0308]: mismatched types"),
+        outcome
+            .diagnostics
+            .contains("error[E0308]: mismatched types"),
         "诊断为该输出原文: {:?}",
         outcome.diagnostics
     );
@@ -1498,7 +1531,10 @@ async fn fault与passed正交_绿不产fault() {
         .expect("绿跑应 Ok");
 
     assert!(outcome.passed, "退出 0 → passed = true");
-    assert_eq!(outcome.fault, None, "绿不产 fault（fault 面未改 passed 口径）");
+    assert_eq!(
+        outcome.fault, None,
+        "绿不产 fault（fault 面未改 passed 口径）"
+    );
     assert!(
         outcome.diagnostics.contains("os error 32"),
         "诊断照常捕获该文本: {:?}",

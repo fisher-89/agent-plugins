@@ -120,9 +120,13 @@ async fn execute(
     // 输出记录：默认 recorded——经 infra/exec 单点落单一 `.log`（同锚本槽位报告
     // 树）并回填引用（落盘失败降级 None，不因记录失败阻断检查主流程）；重试场景
     // 下正文为全部尝试按序拼接（每段前加 attempt 分隔头，审计不丢上下文）
-    let output_ref =
-        exec::record_exec_output(Path::new(root), name, slot, &environment::attempts_log(&run))
-            .ok();
+    let output_ref = exec::record_exec_output(
+        Path::new(root),
+        name,
+        slot,
+        &environment::attempts_log(&run),
+    )
+    .ok();
     Ok(ToolStepOutput::StaticCheck(StaticCheckOutcome {
         passed,
         diagnostics: diagnostics.trim_end().to_owned(),

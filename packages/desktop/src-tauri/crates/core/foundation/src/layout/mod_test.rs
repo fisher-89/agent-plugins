@@ -496,18 +496,21 @@ fn 报告目录常量组两员逐字锚定() {
 fn change_test_reports_in_change目录后缀与root变体同构() {
     use super::change_test_reports_in;
 
-    let change_dir = PathBuf::from("wt-root").join(DOMAIN_DIR_NAME).join(CHANGES_DIR_NAME).join("demo");
+    let change_dir = PathBuf::from("wt-root")
+        .join(DOMAIN_DIR_NAME)
+        .join(CHANGES_DIR_NAME)
+        .join("demo");
     assert_eq!(
         change_test_reports_in(&change_dir),
-        change_dir.join(REPORTS_DIR_NAME).join(TEST_REPORTS_DIR_NAME),
+        change_dir
+            .join(REPORTS_DIR_NAME)
+            .join(TEST_REPORTS_DIR_NAME),
         "change 目录变体 = 目录直拼 reports/test 后缀"
     );
     // 与 root + change 变体同构（后缀单点——两派生共享同一拼接）
     let temp = TempDir::new("report-in-derive");
     let via_root = change_test_reports(&temp.0, "demo");
-    let via_dir = change_test_reports_in(
-        &resolve(&temp.0).changes_root.join("demo"),
-    );
+    let via_dir = change_test_reports_in(&resolve(&temp.0).changes_root.join("demo"));
     assert_eq!(via_root, via_dir, "root 变体与 change 目录变体同构");
 }
 
@@ -737,14 +740,23 @@ fn change_reports超长与特殊字符change名零清洗零panic() {
     let long_name = "c".repeat(1200);
     let derived = change_reports(&temp.0, &long_name, ReportSlot::Baseline);
     let rendered = derived.to_string_lossy();
-    assert!(rendered.contains(&long_name), "超长 change 名原样拼接零截断");
-    assert!(derived.ends_with("reports/baseline"), "超长名不破坏后缀拼接");
+    assert!(
+        rendered.contains(&long_name),
+        "超长 change 名原样拼接零截断"
+    );
+    assert!(
+        derived.ends_with("reports/baseline"),
+        "超长名不破坏后缀拼接"
+    );
 
     // 特殊字符名原样拼接
     let exotic = "突🚀变\n名";
     let derived = change_reports(&temp.0, exotic, ReportSlot::Baseline);
     let rendered = derived.to_string_lossy();
-    assert!(rendered.contains(exotic), "特殊字符名原样拼接零清洗: {rendered}");
+    assert!(
+        rendered.contains(exotic),
+        "特殊字符名原样拼接零清洗: {rendered}"
+    );
     assert!(derived.ends_with("reports/baseline"));
 }
 
@@ -757,8 +769,14 @@ fn 报告目录常量锚与report_dir_name两臂穷尽映射() {
     use super::report_dir_name;
 
     assert_eq!(BASELINE_REPORTS_DIR_NAME, "baseline", "baseline 后缀逐字");
-    assert_eq!(REPORTS_DIR_NAME, "reports", "reports 后缀逐字（既有组锚随动）");
-    assert_eq!(TEST_REPORTS_DIR_NAME, "test", "test 后缀逐字（既有组锚随动）");
+    assert_eq!(
+        REPORTS_DIR_NAME, "reports",
+        "reports 后缀逐字（既有组锚随动）"
+    );
+    assert_eq!(
+        TEST_REPORTS_DIR_NAME, "test",
+        "test 后缀逐字（既有组锚随动）"
+    );
     assert_ne!(
         TEST_REPORTS_DIR_NAME, BASELINE_REPORTS_DIR_NAME,
         "两槽位后缀互异（分树隔离的常量前提）"
@@ -766,5 +784,8 @@ fn 报告目录常量锚与report_dir_name两臂穷尽映射() {
 
     // 两臂穷尽映射（无第三后缀——封闭二值枚举 match 穷尽）
     assert_eq!(report_dir_name(ReportSlot::Test), TEST_REPORTS_DIR_NAME);
-    assert_eq!(report_dir_name(ReportSlot::Baseline), BASELINE_REPORTS_DIR_NAME);
+    assert_eq!(
+        report_dir_name(ReportSlot::Baseline),
+        BASELINE_REPORTS_DIR_NAME
+    );
 }

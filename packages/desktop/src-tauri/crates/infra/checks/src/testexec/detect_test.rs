@@ -104,7 +104,8 @@ const TS_TESTS_GLOB: &str = "**/*.{test,spec}.{ts,tsx}";
 /// rust 档新单条命令模板（shell / cmd 两臂逐字同串，占位符原样保留由 runner
 /// 展开）：一条 `cargo llvm-cov --workspace` 同产覆盖率 JSON（`--output-path`）
 /// 与测试 stdout（模板自带 `>` 重定向）。
-const RUST_TEMPLATE: &str = "cargo llvm-cov --workspace --json --output-path \"{coverage_file}\" > \"{results_file}\"";
+const RUST_TEMPLATE: &str =
+    "cargo llvm-cov --workspace --json --output-path \"{coverage_file}\" > \"{results_file}\"";
 
 /// 组合锚覆盖工件样本（llvm-cov JSON：两文件 + totals 三档——branches 计数 0
 /// 走 null 感知跳过）。
@@ -396,16 +397,16 @@ fn 五框架注册表常量与cli逐字对齐() {
 #[test]
 fn rust两臂逐字同串且占位符各恰一次() {
     let entry = &REGISTRY[3];
-    assert_eq!(entry.framework, "rust", "注册表 rust 条目定位（键序同 CLI）");
+    assert_eq!(
+        entry.framework, "rust",
+        "注册表 rust 条目定位（键序同 CLI）"
+    );
     assert_eq!(
         entry.shell_template, entry.cmd_template,
         "shell / cmd 两臂逐字同串"
     );
 
-    for (arm_name, arm) in [
-        ("shell", entry.shell_template),
-        ("cmd", entry.cmd_template),
-    ] {
+    for (arm_name, arm) in [("shell", entry.shell_template), ("cmd", entry.cmd_template)] {
         assert_eq!(
             arm.matches("{results_file}").count(),
             1,
@@ -426,10 +427,7 @@ fn rust两臂逐字同串且占位符各恰一次() {
 #[test]
 fn rust模板三不变量_无链形态残留() {
     let entry = &REGISTRY[3];
-    for (arm_name, arm) in [
-        ("shell", entry.shell_template),
-        ("cmd", entry.cmd_template),
-    ] {
+    for (arm_name, arm) in [("shell", entry.shell_template), ("cmd", entry.cmd_template)] {
         for (token, why) in [
             ("cargo test", "第二遍全量测试（重复构建）"),
             (" & ", "cmd 无条件链分隔符（退出码取末段 → 覆盖率假绿）"),
@@ -451,10 +449,7 @@ fn rust模板三不变量_无链形态残留() {
 #[test]
 fn rust模板正向形态_workspace与结果重定向() {
     let entry = &REGISTRY[3];
-    for (arm_name, arm) in [
-        ("shell", entry.shell_template),
-        ("cmd", entry.cmd_template),
-    ] {
+    for (arm_name, arm) in [("shell", entry.shell_template), ("cmd", entry.cmd_template)] {
         assert!(
             arm.starts_with("cargo llvm-cov --workspace"),
             "{arm_name} 臂以 `cargo llvm-cov --workspace` 起手（全 workspace 口径），实际: {arm}"
@@ -487,14 +482,14 @@ fn rust模板正向形态_workspace与结果重定向() {
 #[test]
 fn rust模板占位符子集_不含files_randomize_report_dir() {
     let entry = &REGISTRY[3];
-    for (arm_name, arm) in [
-        ("shell", entry.shell_template),
-        ("cmd", entry.cmd_template),
-    ] {
+    for (arm_name, arm) in [("shell", entry.shell_template), ("cmd", entry.cmd_template)] {
         for (placeholder, why) in [
             ("{files}", "D9：includes / excludes 不参与命令构造"),
             ("{randomize}", "rust 无版本特性分支"),
-            ("{report_dir}", "覆盖工件经 --output-path 落位，命令不引用报告目录"),
+            (
+                "{report_dir}",
+                "覆盖工件经 --output-path 落位，命令不引用报告目录",
+            ),
         ] {
             assert_eq!(
                 arm.matches(placeholder).count(),
@@ -513,7 +508,11 @@ fn rust条目字段面不变_模板改造零波及() {
     let fields: [(&str, &str, &str); 5] = [
         ("framework", entry.framework, "rust"),
         ("version_command", entry.version_command, "cargo --version"),
-        ("coverage_output", entry.coverage_output, "coverage-summary.json"),
+        (
+            "coverage_output",
+            entry.coverage_output,
+            "coverage-summary.json",
+        ),
         ("results_output", entry.results_output, "results.txt"),
         ("default_glob", entry.default_glob, "**/tests/**/*.rs"),
     ];
@@ -524,7 +523,10 @@ fn rust条目字段面不变_模板改造零波及() {
         matches!(entry.coverage_format, CoverageFormat::LlvmCov),
         "rust 条目覆盖格式恒为 llvm-cov"
     );
-    assert_eq!(entry.config_flag, None, "rust 不支持配置注入（旗标恒 None）");
+    assert_eq!(
+        entry.config_flag, None,
+        "rust 不支持配置注入（旗标恒 None）"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -646,8 +648,7 @@ async fn rust_suite探测_llvm_cov档() {
         "双工件占位符原样保留由 runner 展开"
     );
     assert!(
-        !plan.shell_template.contains("cargo test")
-            && !plan.shell_template.contains("; _X=$?"),
+        !plan.shell_template.contains("cargo test") && !plan.shell_template.contains("; _X=$?"),
         "探测产出的 rust 模板已退役双段链形态，实际: {}",
         plan.shell_template
     );

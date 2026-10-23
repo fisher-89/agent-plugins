@@ -34,8 +34,8 @@ use crate::port::{
     TestExecutionConclusion, TestExecutionOutcome, TestExecutionRunner, ToolCommand,
     ToolStepOutput, ToolStepPort, ToolStepRequest, WorktreeSnapshot,
 };
-use foundation::layout::ReportSlot;
 use crate::steps::LocalToolSteps;
+use foundation::layout::ReportSlot;
 
 /// 固定 change **id** 字面量（命令载荷定位键 / 审计行归键 / store 寻址入参
 /// ——一切身份寻址以此为准）。
@@ -486,13 +486,7 @@ impl FakeRunner {
 }
 
 impl StaticCheckRunner for FakeRunner {
-    fn run(
-        &self,
-        root: &str,
-        name: &str,
-        slot: ReportSlot,
-        cancel: CancelFlag,
-    ) -> BoxToolFuture {
+    fn run(&self, root: &str, name: &str, slot: ReportSlot, cancel: CancelFlag) -> BoxToolFuture {
         self.cancels
             .lock()
             .expect("cancels 锁不可中毒")
@@ -555,13 +549,7 @@ impl FakeTestExecutionRunner {
 }
 
 impl TestExecutionRunner for FakeTestExecutionRunner {
-    fn run(
-        &self,
-        root: &str,
-        name: &str,
-        slot: ReportSlot,
-        cancel: CancelFlag,
-    ) -> BoxToolFuture {
+    fn run(&self, root: &str, name: &str, slot: ReportSlot, cancel: CancelFlag) -> BoxToolFuture {
         self.cancels
             .lock()
             .expect("cancels 锁不可中毒")
@@ -704,10 +692,7 @@ impl FakeVcs {
 
     /// 清单取数 Err 注入（MUST NOT 降级空清单的传播面）。
     fn with_edit_set_error(self, error: &str) -> Self {
-        *self
-            .edit_set_error
-            .lock()
-            .expect("vcs 清单错误锁不可中毒") = Some(error.to_owned());
+        *self.edit_set_error.lock().expect("vcs 清单错误锁不可中毒") = Some(error.to_owned());
         self
     }
 
@@ -817,11 +802,7 @@ impl ArchiveVcsPort for FakeVcs {
         {
             return Err(error);
         }
-        let files = self
-            .edit_set
-            .lock()
-            .expect("vcs 清单锁不可中毒")
-            .clone();
+        let files = self.edit_set.lock().expect("vcs 清单锁不可中毒").clone();
         Ok(files)
     }
 
@@ -835,11 +816,7 @@ impl ArchiveVcsPort for FakeVcs {
         {
             return Err(error);
         }
-        let patch = self
-            .edit_patch
-            .lock()
-            .expect("vcs 补丁锁不可中毒")
-            .clone();
+        let patch = self.edit_patch.lock().expect("vcs 补丁锁不可中毒").clone();
         Ok(patch)
     }
 
@@ -964,15 +941,12 @@ impl crate::port::MutationRunner for FakeMutationRunner {
             .lock()
             .expect("cancels 锁不可中毒")
             .push(cancel);
-        self.calls
-            .lock()
-            .expect("calls 锁不可中毒")
-            .push((
-                root.to_owned(),
-                name.to_owned(),
-                files.to_vec(),
-                patch.to_owned(),
-            ));
+        self.calls.lock().expect("calls 锁不可中毒").push((
+            root.to_owned(),
+            name.to_owned(),
+            files.to_vec(),
+            patch.to_owned(),
+        ));
         let result = self.result.clone();
         Box::pin(async move { result.map(ToolStepOutput::MutationTest) })
     }
@@ -2203,7 +2177,10 @@ async fn static_check两分支产出均携输出引用() {
     assert_eq!(rows.len(), 2, "两分支各一条审计行");
     for row in &rows {
         assert_eq!(row.step_kind, StepKind::StaticCheck);
-        assert_eq!(row.status, "ok", "两分支审计行均 ok（失败态走 runner 产出）");
+        assert_eq!(
+            row.status, "ok",
+            "两分支审计行均 ok（失败态走 runner 产出）"
+        );
     }
 }
 
@@ -2310,7 +2287,10 @@ async fn static_check同名形态与重复调用各自解析() {
     assert_eq!(calls.len(), 2, "重复调用各自解析、每次一发（无副作用）");
     for (root, name, slot) in &calls {
         assert_eq!(root, ROOT, "root 逐次透传");
-        assert_eq!(name, "same-name", "id == name 形态解析逐字等于 id（零漂移）");
+        assert_eq!(
+            name, "same-name",
+            "id == name 形态解析逐字等于 id（零漂移）"
+        );
         assert_eq!(slot, &ReportSlot::Test, "slot 缺省槽位透传（零语义漂移）");
     }
     let rows = db
@@ -2628,7 +2608,11 @@ impl ArchiveEnv {
     }
 
     /// 指定 root 的步执行（归档臂的 layout 锚 = 主 workspace root）。
-    async fn run_at(&self, steps: &LocalToolSteps, command: ToolCommand) -> Result<ToolStepOutput, String> {
+    async fn run_at(
+        &self,
+        steps: &LocalToolSteps,
+        command: ToolCommand,
+    ) -> Result<ToolStepOutput, String> {
         steps
             .run(ToolStepRequest {
                 root: self.root_str(),
@@ -2685,10 +2669,15 @@ async fn archive_preflight分支完成度与探测载荷自store与vcs() {
         payload.missing_artifacts
     );
     assert!(
-        !payload.missing_artifacts.contains(&"proposal.md".to_owned()),
+        !payload
+            .missing_artifacts
+            .contains(&"proposal.md".to_owned()),
         "在场产物不入缺席清单"
     );
-    assert!(payload.worktree.is_none(), "legacy 主 root change 无 worktree");
+    assert!(
+        payload.worktree.is_none(),
+        "legacy 主 root change 无 worktree"
+    );
     assert!(
         payload.branch.is_none(),
         "无 worktree 记录即无 change 分支（branch 随 worktree 在场）"
@@ -2950,7 +2939,11 @@ async fn archive_seal分支双写目录改名与status翻转() {
         panic!("产出应为 ArchiveSeal");
     };
     assert_eq!(name, NAME, "归档产出名自记录供给");
-    assert_eq!(archived_date.len(), 10, "归档日期 YYYY-MM-DD: {archived_date}");
+    assert_eq!(
+        archived_date.len(),
+        10,
+        "归档日期 YYYY-MM-DD: {archived_date}"
+    );
 
     // 磁盘半边：active 目录出局、archive 树命中 `YYYY-MM-DD-<name>`
     let active_dir = env.root.path().join("openspec").join("changes").join(NAME);
@@ -2973,7 +2966,10 @@ async fn archive_seal分支双写目录改名与status翻转() {
         .expect("查档应成功")
         .expect("记录在案");
     assert_eq!(record.status, ChangeStatus::Archived, "db status 已翻转");
-    assert!(record.archived_at.is_some(), "archived_at 落值（写事务内铸出）");
+    assert!(
+        record.archived_at.is_some(),
+        "archived_at 落值（写事务内铸出）"
+    );
     assert_eq!(record.name, NAME, "name 不随目录改名变");
 }
 
@@ -3170,7 +3166,11 @@ async fn 归档两臂vcs触点面零调用与按需探测() {
         )
         .await
         .expect("归档前置应可用");
-    assert!(vcs.calls().is_empty(), "legacy 形态零 vcs 调用: {:?}", vcs.calls());
+    assert!(
+        vcs.calls().is_empty(),
+        "legacy 形态零 vcs 调用: {:?}",
+        vcs.calls()
+    );
 
     let _ = env
         .run_at(
@@ -3398,7 +3398,9 @@ async fn mutation_test臂runner_err传播且审计error行() {
         FakeRunner::passing(),
         FakeTestExecutionRunner::passing(),
         Arc::new(FakeVcs::clean().with_edit(vec!["src/lib.rs".to_owned()], "diff --git a/x b/x\n")),
-        Arc::new(FakeMutationRunner::erring("cargo mutants 拉起失败（程序不可达？）")),
+        Arc::new(FakeMutationRunner::erring(
+            "cargo mutants 拉起失败（程序不可达？）",
+        )),
     );
 
     let err = assembled
@@ -3674,7 +3676,11 @@ async fn execute_baseline槽位审计行照常落库() {
         .store
         .list_change_steps(CHANGE_ID, Some("run-baseline"))
         .expect("读审计行应成功");
-    assert_eq!(rows.len(), 2, "baseline 槽位两步各落一条审计行（审计面零改动）");
+    assert_eq!(
+        rows.len(),
+        2,
+        "baseline 槽位两步各落一条审计行（审计面零改动）"
+    );
     assert_eq!(rows[0].step_kind, StepKind::StaticCheck);
     assert_eq!(rows[0].status, "ok");
     assert_eq!(rows[1].step_kind, StepKind::TestExecution);

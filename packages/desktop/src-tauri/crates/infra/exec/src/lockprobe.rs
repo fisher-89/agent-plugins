@@ -70,9 +70,7 @@ pub fn locked_paths(diagnostics: &str) -> Vec<PathBuf> {
 }
 
 /// 路径尾随标点集合（剥句读 / 括号 / 包裹引号）。
-const TRAILING_PUNCTUATION: [char; 11] = [
-    '`', '"', '\'', '。', '，', '.', ',', ';', ':', ')', ']',
-];
+const TRAILING_PUNCTUATION: [char; 11] = ['`', '"', '\'', '。', '，', '.', ',', ';', ':', ')', ']'];
 
 /// 关键词之后的片段 → 裸路径（字符串层可判定的清洗，不做路径规范化——避免改写
 /// 用户可见路径）。
@@ -261,13 +259,24 @@ fn restart_manager_holders(paths: &[PathBuf]) -> Vec<LockHolder> {
             let mut count: u32 = 0;
             let mut reasons: u32 = 0;
             // 首取：缓冲区为空 → 返 `ERROR_MORE_DATA` 并置 `needed`（正常路径）
-            let first = RmGetList(handle, &mut needed, &mut count, std::ptr::null_mut(), &mut reasons);
+            let first = RmGetList(
+                handle,
+                &mut needed,
+                &mut count,
+                std::ptr::null_mut(),
+                &mut reasons,
+            );
             if first == ERROR_SUCCESS || first == ERROR_MORE_DATA {
                 let mut infos: Vec<RM_PROCESS_INFO> =
                     vec![RM_PROCESS_INFO::default(); needed as usize];
                 count = needed;
-                let second =
-                    RmGetList(handle, &mut needed, &mut count, infos.as_mut_ptr(), &mut reasons);
+                let second = RmGetList(
+                    handle,
+                    &mut needed,
+                    &mut count,
+                    infos.as_mut_ptr(),
+                    &mut reasons,
+                );
                 if second == ERROR_SUCCESS {
                     infos.truncate(count as usize);
                     holders = infos

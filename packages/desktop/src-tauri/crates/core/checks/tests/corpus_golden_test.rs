@@ -471,8 +471,8 @@ fn project_seg_fixture(fixture: &str) -> serde_json::Value {
     let report = parsed.unwrap_or_else(|error| panic!("{fixture} 解析失败: {error}"));
     let threshold = 70.0;
     let block = checks::aggregate::build_mutation_block(report.measured, threshold);
-    let merged =
-        checks::aggregate::merge_mutation_blocks(std::slice::from_ref(&block)).expect("单段归并非空");
+    let merged = checks::aggregate::merge_mutation_blocks(std::slice::from_ref(&block))
+        .expect("单段归并非空");
     serde_json::json!({
         "fixture": fixture,
         "tool": report.tool.as_str(),
@@ -506,9 +506,7 @@ fn check_or_rewrite_seg(golden_name: &str, projection: &serde_json::Value) {
         return;
     }
     let expected = fs::read_to_string(&golden_path).unwrap_or_else(|err| {
-        panic!(
-            "段级 golden {golden_name}.json 缺失（先以 {REWRITE_ENV}=1 生成）: {err}"
-        )
+        panic!("段级 golden {golden_name}.json 缺失（先以 {REWRITE_ENV}=1 生成）: {err}")
     });
     assert_eq!(
         normalized, expected,
@@ -600,7 +598,10 @@ fn 段级语料清单_目录与清单一致且规模下限() {
         .map(|entry| entry.file_name().to_string_lossy().into_owned())
         .collect();
     actual.sort();
-    let mut expected: Vec<String> = MUTATION_SEG_FIXTURES.iter().map(|s| s.to_string()).collect();
+    let mut expected: Vec<String> = MUTATION_SEG_FIXTURES
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
     expected.sort();
     assert_eq!(actual, expected, "mutation-seg 目录与清单表不一致");
     assert!(
@@ -610,10 +611,9 @@ fn 段级语料清单_目录与清单一致且规模下限() {
 
     // 损坏面口径：非 JSON seg-report → 解析显式 Err（结构面严格——corpus
     // 损坏族「解析不 panic、显式降级」同口径的严格半边）
-    let err = checks::model::parse_cargo_mutants_seg("{ truncated")
-        .expect_err("损坏 seg-report 应 Err");
+    let err =
+        checks::model::parse_cargo_mutants_seg("{ truncated").expect_err("损坏 seg-report 应 Err");
     assert!(!err.is_empty(), "Err 记因非空（不 panic 不静默）");
-    let err = checks::model::parse_stryker_seg("")
-        .expect_err("空 seg-report 应 Err");
+    let err = checks::model::parse_stryker_seg("").expect_err("空 seg-report 应 Err");
     assert!(!err.is_empty());
 }

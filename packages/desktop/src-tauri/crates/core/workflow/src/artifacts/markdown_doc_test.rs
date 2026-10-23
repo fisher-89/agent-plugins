@@ -75,7 +75,7 @@ static PROPOSAL_ONLY_MANIFEST: &[PhaseDefinition] = &[PhaseDefinition {
     steps: &[],
     artifact_manifest: &[PROPOSAL_DOC],
     prerequisites: &[],
-            backtrackable: true,
+    backtrackable: true,
     executor: None,
     evaluator: None,
 }];
@@ -87,7 +87,7 @@ static TWO_DOC_MANIFEST: &[PhaseDefinition] = &[PhaseDefinition {
     steps: &[],
     artifact_manifest: &[PROPOSAL_DOC, LEGACY_DESIGN_DOC],
     prerequisites: &[],
-            backtrackable: true,
+    backtrackable: true,
     executor: None,
     evaluator: None,
 }];

@@ -646,11 +646,11 @@ fn promote透传test_only类型铸出() {
     assert_eq!(record.workflow_type, "test-only", "透传 test-only 落库");
     assert_eq!(record.name, "test-only-topic", "change 名 = explore.name");
     assert_eq!(outcome.change_name, "test-only-topic");
-    assert!(
-        !note_path.exists(),
-        "move 半边照常（类型不影响搬运语义）"
-    );
-    assert!(env.change_dir("test-only-topic").join("explore.md").is_file());
+    assert!(!note_path.exists(), "move 半边照常（类型不影响搬运语义）");
+    assert!(env
+        .change_dir("test-only-topic")
+        .join("explore.md")
+        .is_file());
 }
 
 /// workflow_type 缺省语义持衡（正向 / 改写）：传 `"requirement"` → 落

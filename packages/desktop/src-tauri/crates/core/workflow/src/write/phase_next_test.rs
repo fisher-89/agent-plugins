@@ -375,7 +375,10 @@ fn 初始路由落首相位且prompt携上下文头change名() {
         "proposal 白名单 = 恰自身（含自身语义；initialize 表头被 backtrackable 过滤排除——非位置排除）"
     );
     let last = outcome.last_result.expect("表头 pass 条目随行 last_result");
-    assert_eq!(last.phase, "initialize", "last_result = 表头条目（最近落账）");
+    assert_eq!(
+        last.phase, "initialize",
+        "last_result = 表头条目（最近落账）"
+    );
     assert_eq!(last.verdict, Verdict::Pass);
 }
 
@@ -1882,10 +1885,8 @@ fn archive空checklist落账推导pass并随后done() {
 #[test]
 fn 无fail条目出可执步序列零分叉() {
     // 形态一：零条目（表头未落账形态 → 落 initialize 表头）
-    let fake = RouteStore::with_record(
-        Some(requirement_record(CHANGE_ID, CHANGE_NAME)),
-        Vec::new(),
-    );
+    let fake =
+        RouteStore::with_record(Some(requirement_record(CHANGE_ID, CHANGE_NAME)), Vec::new());
     let outcome = route(&fake, RUN, &SessionAnchors::new());
     assert!(outcome.error.is_none(), "零条目零分叉");
     assert_eq!(outcome.next_phase.as_deref(), Some("initialize"));

@@ -21,17 +21,29 @@ fn 错误信息_多行错误续行携带与遇空行止() {
 fn 错误信息_多组以省略号分隔且超十组截断() {
     let mut text = String::new();
     for index in 0..12 {
-        text.push_str(&format!("noise {index}\nerror: boom {index}\ndetail a\ndetail b\ndetail c\ndetail d\n"));
+        text.push_str(&format!(
+            "noise {index}\nerror: boom {index}\ndetail a\ndetail b\ndetail c\ndetail d\n"
+        ));
     }
     let output = ProcessOutput::new(1, text.into_bytes());
     let excerpt = output.error_excerpt();
     // 前 10 组、每组 1+3 行（第 4 续行 detail d 不入组）；组间 `…` 行；尾截断 `…`
-    assert!(excerpt.starts_with("error: boom 0\ndetail a\ndetail b\ndetail c"), "首组形态: {excerpt}");
-    assert!(excerpt.contains("\n…\nerror: boom 1\n"), "组间省略号分隔: {excerpt}");
+    assert!(
+        excerpt.starts_with("error: boom 0\ndetail a\ndetail b\ndetail c"),
+        "首组形态: {excerpt}"
+    );
+    assert!(
+        excerpt.contains("\n…\nerror: boom 1\n"),
+        "组间省略号分隔: {excerpt}"
+    );
     assert!(!excerpt.contains("boom 10"), "第 11 组起截断: {excerpt}");
     assert!(excerpt.ends_with("\n…"), "截断尾标记: {excerpt}");
     // 已被前组消费的 detail 行不再开新组（非重叠）
-    assert_eq!(excerpt.matches("detail a").count(), 10, "恰 10 组各携 detail a");
+    assert_eq!(
+        excerpt.matches("detail a").count(),
+        10,
+        "恰 10 组各携 detail a"
+    );
 }
 
 #[test]
@@ -67,7 +79,10 @@ fn 末尾行_行口径三态与crlf正文化() {
     let over: String = (0..51).map(|index| format!("l{index}\n")).collect();
     let over = ProcessOutput::new(1, over.into_bytes());
     let tail = over.tail();
-    assert!(tail.starts_with("…\nl1\n"), "省略号前缀 + l1 起（l0 截掉）: {tail}");
+    assert!(
+        tail.starts_with("…\nl1\n"),
+        "省略号前缀 + l1 起（l0 截掉）: {tail}"
+    );
     assert_eq!(tail.lines().count(), 51, "省略号行 + 50 行");
     // 空输出
     assert_eq!(ProcessOutput::new(1, Vec::new()).tail(), "");
@@ -79,7 +94,10 @@ fn 末尾行_行口径三态与crlf正文化() {
 fn 失败消息_空面省略与双段拼装() {
     // 空输出 → 逐字等于 head（空面无冒号缀语义）
     let empty = ProcessOutput::new(3, Vec::new());
-    assert_eq!(empty.failure_message("工具失败（退出码 3）"), "工具失败（退出码 3）");
+    assert_eq!(
+        empty.failure_message("工具失败（退出码 3）"),
+        "工具失败（退出码 3）"
+    );
     // 有错误行 + 尾部：双段（head 前置、错误信息在前）
     let output = ProcessOutput::new(7, b"before\nerror: could not compile\n".to_vec());
     assert_eq!(

@@ -316,11 +316,21 @@ fn 既有再导出面快照逐名可达_增补不挤掉既有词汇() {
     )> = None;
     let _port_word_shapes: Option<(Box<dyn SessionQuery>, Box<dyn SessionSink>, TurnOutcome)> =
         None;
-    let _kernel_word_shapes: Option<(KernelOutput, RunningTurn, SessionKernel, StopRegistry, TurnRequest)> =
-        None;
+    let _kernel_word_shapes: Option<(
+        KernelOutput,
+        RunningTurn,
+        SessionKernel,
+        StopRegistry,
+        TurnRequest,
+    )> = None;
     let _state_word_shapes: Option<(AgentRunState, RunStateMachine)> = None;
-    let _event_word_shapes: Option<(AgentBlock, AgentDelta, AgentEvent, AgentEventKind, AgentMessageRole)> =
-        None;
+    let _event_word_shapes: Option<(
+        AgentBlock,
+        AgentDelta,
+        AgentEvent,
+        AgentEventKind,
+        AgentMessageRole,
+    )> = None;
     let _usage_fn: fn(&[AgentEvent], &str) -> Option<u64> = crate::sum_usage_tokens;
 
     // 构造形态断言（防「仅被 use」假锚）：增补词汇真实可用
@@ -333,8 +343,7 @@ fn 既有再导出面快照逐名可达_增补不挤掉既有词汇() {
 /// runner_test 非法线值臂同口径、不同进口）。
 #[test]
 fn toolset非法线值经出口反序列化err() {
-    let result: Result<SessionInjections, _> =
-        serde_json::from_str(r#"{"toolset":"unknown"}"#);
+    let result: Result<SessionInjections, _> = serde_json::from_str(r#"{"toolset":"unknown"}"#);
     assert!(
         result.is_err(),
         "出口侧非法 toolset 线值应 serde Err，实际: {result:?}"
@@ -348,7 +357,10 @@ fn crate根路径session_injections_default三位全none() {
     let default_injections = SessionInjections::default();
     assert_eq!(default_injections.preamble, None, "preamble None");
     assert_eq!(default_injections.tools, None, "tools None");
-    assert_eq!(default_injections.toolset, None, "toolset None（增补位缺省）");
+    assert_eq!(
+        default_injections.toolset, None,
+        "toolset None（增补位缺省）"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -426,11 +438,7 @@ async fn crate根路径会话流条目与收尾错误变体可match与比较() {
         }
         other => panic!("应为 Finished，实际: {other:?}"),
     }
-    let closed: SessionStreamRecvError = subscription
-        .recv()
-        .await
-        .err()
-        .expect("排空后 Closed");
+    let closed: SessionStreamRecvError = subscription.recv().await.err().expect("排空后 Closed");
     assert_eq!(closed, crate::SessionStreamRecvError::Closed);
     assert_ne!(closed, crate::SessionStreamRecvError::Lagged(1));
 }
@@ -442,18 +450,12 @@ fn crate根路径default与new等价空表且两实例互不共享() {
     let second = crate::SessionStreamRegistry::new();
 
     first.begin("ses-shared");
-    assert!(
-        first.subscribe("ses-shared", 0).is_some(),
-        "登记处可订阅"
-    );
+    assert!(first.subscribe("ses-shared", 0).is_some(), "登记处可订阅");
     assert!(
         second.subscribe("ses-shared", 0).is_none(),
         "另一实例零条目（空表互不共享）"
     );
-    assert!(
-        second.subscribe("", 0).is_none(),
-        "空表对空白键同样 None"
-    );
+    assert!(second.subscribe("", 0).is_none(), "空表对空白键同样 None");
 }
 
 /// 未登记 id 经根路径订阅 → `None`（re-export 不引入行为分支）。

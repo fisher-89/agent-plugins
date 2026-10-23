@@ -422,8 +422,7 @@ async fn 已定名同名且文件在盘引导转用edit() {
     let env = NoteEnv::new("named-on-disk");
     let (record, context) = env.named_context("named-topic");
     std::fs::create_dir_all(env.explores_root()).expect("创建 explores 目录失败");
-    std::fs::write(env.explores_root().join("named-topic.md"), "在盘原文")
-        .expect("预置笔记失败");
+    std::fs::write(env.explores_root().join("named-topic.md"), "在盘原文").expect("预置笔记失败");
 
     let error = context
         .execute(&json!({ "name": "named-topic", "content": "新内容" }))
@@ -530,7 +529,11 @@ async fn input形态拒绝面_缺字段非字符串与非object显式err() {
     // 非 object Value（string / array / null）
     let env = NoteEnv::new("input-non-object");
     let (_record, context) = env.draft_context();
-    for input in [Value::String("不是对象".to_owned()), json!([1, 2]), Value::Null] {
+    for input in [
+        Value::String("不是对象".to_owned()),
+        json!([1, 2]),
+        Value::Null,
+    ] {
         let error = context
             .execute(&input)
             .await

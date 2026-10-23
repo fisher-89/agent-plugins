@@ -509,7 +509,11 @@ fn turn_outcome多余未知字段忽略且既有字段保真() {
 
     let roundtrip: TurnOutcome =
         serde_json::from_value(serde_json::Value::Object(object)).expect("多余字段忽略");
-    assert_eq!(roundtrip, outcome(), "既有字段逐字段保真（未知字段不入结构）");
+    assert_eq!(
+        roundtrip,
+        outcome(),
+        "既有字段逐字段保真（未知字段不入结构）"
+    );
 }
 
 // ---------------------------------------------------------------------------

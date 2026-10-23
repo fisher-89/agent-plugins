@@ -34,18 +34,18 @@ fn 落位形态_git根同级点worktrees子目录() {
 /// 互异。
 #[test]
 fn 可复现与隔离_同根等值异根互异() {
-    let first = worktree_root_from_toplevel(Path::new("C:\\Projects\\alpha"))
-        .expect("首次派生应成功");
-    let second = worktree_root_from_toplevel(Path::new("C:\\Projects\\alpha"))
-        .expect("再次派生应成功");
+    let first =
+        worktree_root_from_toplevel(Path::new("C:\\Projects\\alpha")).expect("首次派生应成功");
+    let second =
+        worktree_root_from_toplevel(Path::new("C:\\Projects\\alpha")).expect("再次派生应成功");
     assert_eq!(first, second, "同 git 根派生确定可复现");
 
-    let sibling = worktree_root_from_toplevel(Path::new("C:\\Projects\\beta"))
-        .expect("异根派生应成功");
+    let sibling =
+        worktree_root_from_toplevel(Path::new("C:\\Projects\\beta")).expect("异根派生应成功");
     assert_ne!(first, sibling, "同父目录异仓库目录名 → 落位互异");
 
-    let elsewhere = worktree_root_from_toplevel(Path::new("D:\\Projects\\alpha"))
-        .expect("异盘派生应成功");
+    let elsewhere =
+        worktree_root_from_toplevel(Path::new("D:\\Projects\\alpha")).expect("异盘派生应成功");
     assert_ne!(first, elsewhere, "异父目录同名仓库 → 落位互异");
 }
 
@@ -74,8 +74,7 @@ fn change名原样挂尾_零清洗零截断() {
 /// 派生异常：git 根无父目录（单分量相对路径）→ 显式 Err 引导。
 #[test]
 fn worktree_root_from_toplevel_无父目录err() {
-    let error =
-        worktree_root_from_toplevel(Path::new("demo")).expect_err("无父目录应 Err");
+    let error = worktree_root_from_toplevel(Path::new("demo")).expect_err("无父目录应 Err");
     assert!(
         error.contains("无父目录") && error.contains(".worktrees"),
         "Err 携派生语境，实际: {error}"
@@ -218,8 +217,7 @@ fn process_archive_vcs清单与补丁转发与自由函数逐字等值() {
         "trait 转发与自由函数补丁逐字等值"
     );
     assert!(
-        via_port_set.contains(&"a.txt".to_owned())
-            && via_port_set.contains(&"fresh.rs".to_owned()),
+        via_port_set.contains(&"a.txt".to_owned()) && via_port_set.contains(&"fresh.rs".to_owned()),
         "编辑集两类文件在案: {via_port_set:?}"
     );
     assert!(
@@ -242,16 +240,14 @@ fn process_archive_vcs清单与补丁err原文透传() {
     let via_port = port
         .change_edit_set(plain.path(), "HEAD")
         .expect_err("trait 面非 git 目录应 Err");
-    let via_free = super::git::change_edit_set(plain.path(), "HEAD")
-        .expect_err("自由函数非 git 目录应 Err");
+    let via_free =
+        super::git::change_edit_set(plain.path(), "HEAD").expect_err("自由函数非 git 目录应 Err");
     assert_eq!(via_port, via_free, "Err 原文透传不包装不吞");
     assert!(port.change_edit_patch(plain.path(), "HEAD").is_err());
 
     // 非法 base：同口径
     let (_dir, root) = init_repo("lib-err-base");
-    let empty_error = port
-        .change_edit_set(&root, "")
-        .expect_err("空 base 应 Err");
+    let empty_error = port.change_edit_set(&root, "").expect_err("空 base 应 Err");
     assert!(empty_error.contains("base 为空"), "同口径前置校验");
     assert!(port.change_edit_patch(&root, "").is_err());
 }
@@ -264,13 +260,13 @@ fn process_archive_vcs干净仓空面透传() {
     let (_dir, root) = init_repo("lib-clean");
 
     assert_eq!(
-        port.change_edit_set(&root, "HEAD").expect("干净仓清单 Ok 面"),
+        port.change_edit_set(&root, "HEAD")
+            .expect("干净仓清单 Ok 面"),
         Vec::<String>::new(),
         "干净仓空清单透传（与 Err 严格区分）"
     );
     assert_eq!(
-        port
-            .change_edit_patch(&root, "HEAD")
+        port.change_edit_patch(&root, "HEAD")
             .expect("干净仓补丁 Ok 面"),
         "",
         "干净仓空补丁透传"
@@ -291,11 +287,11 @@ fn process_archive_vcs干净仓空面透传() {
 /// spawn 的组合面）。
 #[tokio::test]
 async fn 组合链路_真实vcs取数注入fake_runner四参() {
-    use orchestration::port::{BoxToolFuture, MutationRunner, ToolStepOutput};
     use orchestration::port::MutationCounts;
     use orchestration::port::MutationSkipReason;
     use orchestration::port::MutationTestConclusion;
     use orchestration::port::MutationTestOutcome;
+    use orchestration::port::{BoxToolFuture, MutationRunner, ToolStepOutput};
 
     /// 记录四参的 fake MutationRunner（缝注入面）。
     struct RecordingMutationRunner {
@@ -310,15 +306,12 @@ async fn 组合链路_真实vcs取数注入fake_runner四参() {
             patch: &str,
             _cancel: foundation::cancel::CancelFlag,
         ) -> BoxToolFuture {
-            self.calls
-                .lock()
-                .expect("锁不可中毒")
-                .push((
-                    root.to_owned(),
-                    name.to_owned(),
-                    files.to_vec(),
-                    patch.to_owned(),
-                ));
+            self.calls.lock().expect("锁不可中毒").push((
+                root.to_owned(),
+                name.to_owned(),
+                files.to_vec(),
+                patch.to_owned(),
+            ));
             Box::pin(async move {
                 Ok(ToolStepOutput::MutationTest(MutationTestOutcome {
                     fault: None,
@@ -342,9 +335,7 @@ async fn 组合链路_真实vcs取数注入fake_runner四参() {
     std::fs::write(root.join("src").join("fresh.rs"), "pub fn f() {}\n").expect("写 untracked");
 
     // vcs 缝取数（steps.rs 消费点同式——base 恒 HEAD worktree 语义）
-    let files = vcs
-        .change_edit_set(&root, "HEAD")
-        .expect("清单取数应成功");
+    let files = vcs.change_edit_set(&root, "HEAD").expect("清单取数应成功");
     let patch = vcs
         .change_edit_patch(&root, "HEAD")
         .expect("补丁取数应成功");
@@ -414,8 +405,7 @@ fn process_archive_vcs_remove_worktree目录移除且list不再列出() {
     let (_dir, root) = init_repo("remove-ok");
     let (_wt_dir, wt) = archive_worktree_slot("remove-ok");
 
-    super::git::add_worktree(&root, &wt, "change/fix-bug")
-        .expect("add_worktree 应成功");
+    super::git::add_worktree(&root, &wt, "change/fix-bug").expect("add_worktree 应成功");
     assert!(wt.is_dir(), "前置：worktree 目录在场");
     // git 输出恒 POSIX 分隔符（Windows 路径对拍前归一化）
     let wt_posix = wt.to_string_lossy().replace('\\', "/");
@@ -503,8 +493,7 @@ fn process_archive_vcs_remove_worktree_err携路径与手动指引() {
         .expect_err("非 worktree 目录应 Err");
     let plain_str = plain.path().to_string_lossy().into_owned();
     assert!(
-        error.contains(plain_str.as_str())
-            && error.contains("git worktree remove --force"),
+        error.contains(plain_str.as_str()) && error.contains("git worktree remove --force"),
         "非 worktree 目录同口径 Err 面: {error}"
     );
 }
@@ -517,8 +506,7 @@ fn process_archive_vcs_remove_worktree后分支留存() {
     let (_dir, root) = init_repo("remove-branch");
     let (_wt_dir, wt) = archive_worktree_slot("remove-branch");
 
-    super::git::add_worktree(&root, &wt, "change/fix-bug")
-        .expect("add 应成功");
+    super::git::add_worktree(&root, &wt, "change/fix-bug").expect("add 应成功");
     port.remove_worktree(&root, &wt).expect("remove 应成功");
 
     let branches = git(&root, &["branch", "--list", "change/fix-bug"]);
@@ -537,13 +525,15 @@ fn process_archive_vcs_remove_worktree脏worktree经force仍可移除() {
     let (_dir, root) = init_repo("remove-dirty");
     let (_wt_dir, wt) = archive_worktree_slot("remove-dirty");
 
-    super::git::add_worktree(&root, &wt, "change/dirty-wt")
-        .expect("add 应成功");
+    super::git::add_worktree(&root, &wt, "change/dirty-wt").expect("add 应成功");
     // bootstrap 形态脏面：未提交的 node_modules 目录 + 未跟踪文件
     std::fs::create_dir_all(wt.join("node_modules").join("left-pad"))
         .expect("预置 node_modules 形态目录失败");
-    std::fs::write(wt.join("node_modules").join("left-pad").join("index.js"), "module.exports = 1;\n")
-        .expect("预置脏文件失败");
+    std::fs::write(
+        wt.join("node_modules").join("left-pad").join("index.js"),
+        "module.exports = 1;\n",
+    )
+    .expect("预置脏文件失败");
     std::fs::write(wt.join("scratch.md"), "未提交草稿\n").expect("预置未跟踪文件失败");
 
     port.remove_worktree(&root, &wt)
@@ -610,7 +600,11 @@ fn process_archive_vcs_restore_baseline转发对拍与自由函数等值() {
         );
     }
     assert!(
-        root_a.join("node_modules").join("lib").join("index.js").is_file(),
+        root_a
+            .join("node_modules")
+            .join("lib")
+            .join("index.js")
+            .is_file(),
         "排除面保留（port 侧）"
     );
     assert!(
@@ -672,7 +666,8 @@ fn process_archive_vcs_restore_baseline_主仓双保险真件锚() {
     // worktree 内也放改动（restore 作用面）
     std::fs::write(wt.join("a.txt"), "worktree 编辑\n").expect("写 wt 改动");
 
-    port.restore_baseline(&wt, &[".*", "openspec"]).expect("恢复应 Ok");
+    port.restore_baseline(&wt, &[".*", "openspec"])
+        .expect("恢复应 Ok");
 
     // 主仓未提交改动原样在案（灾难面护栏——restore 仅作用 worktree）
     assert_eq!(

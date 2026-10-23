@@ -171,7 +171,11 @@ async fn 退出码谱_逐值等值透传且不用哨兵() {
         .await
         .unwrap_or_else(|error| panic!("exit {code} 应跑完并返回报告: {error}"));
 
-        assert_eq!(report.outcome, RunOutcome::Completed, "exit {code} 仍为 Completed");
+        assert_eq!(
+            report.outcome,
+            RunOutcome::Completed,
+            "exit {code} 仍为 Completed"
+        );
         assert_eq!(report.exit_code, code, "退出码逐值透传（exit {code}）");
         assert_ne!(report.exit_code, -1, "谱内退出码不得与哨兵 -1 混淆");
     }
@@ -272,7 +276,11 @@ async fn env生效_标记回显且父进程不污染() {
     let report = run_shell(command, with_env).await.expect("env 用例应 Ok");
 
     assert_eq!(report.outcome, RunOutcome::Completed);
-    assert_eq!(String::from_utf8_lossy(&report.stdout), "on", "shim 回显 env 值");
+    assert_eq!(
+        String::from_utf8_lossy(&report.stdout),
+        "on",
+        "shim 回显 env 值"
+    );
     assert!(
         std::env::var_os("RSE_MARK").is_none(),
         "RunOptions.env 逐次施加，不写入父进程环境"
@@ -286,12 +294,19 @@ async fn env规模与形态_空单元素大清单与重复键() {
     let ws = ShimWs::new("env-scale");
 
     // 形态一：空 env（全继承）
-    let empty = ws.shim("env-empty.sh", "#!/bin/sh\nprintf '%s' \"${RSE_MARK:-unset}\"\n");
+    let empty = ws.shim(
+        "env-empty.sh",
+        "#!/bin/sh\nprintf '%s' \"${RSE_MARK:-unset}\"\n",
+    );
     let report = run_shell(empty, options(Duration::from_secs(30)))
         .await
         .expect("空 env 应 Ok");
     assert_eq!(report.outcome, RunOutcome::Completed);
-    assert_eq!(String::from_utf8_lossy(&report.stdout), "unset", "空 env 不注入键");
+    assert_eq!(
+        String::from_utf8_lossy(&report.stdout),
+        "unset",
+        "空 env 不注入键"
+    );
 
     // 形态二：单元素
     let single = ws.shim("env-single.sh", "#!/bin/sh\nprintf '%s' \"$RSE_MARK\"\n");
@@ -317,7 +332,11 @@ async fn env规模与形态_空单元素大清单与重复键() {
         .await
         .expect("大清单 env 应 Ok");
     assert_eq!(report.outcome, RunOutcome::Completed);
-    assert_eq!(String::from_utf8_lossy(&report.stdout), "v49", "第 50 项可见");
+    assert_eq!(
+        String::from_utf8_lossy(&report.stdout),
+        "v49",
+        "第 50 项可见"
+    );
 
     // 形态四：重复键（后值覆盖前值）
     let dup = ws.shim("env-dup.sh", "#!/bin/sh\nprintf '%s' \"$RSE_DUP\"\n");
@@ -347,12 +366,9 @@ async fn cwd不存在目录_spawn面报错且文案起头() {
     let mut with_cwd = options(Duration::from_secs(30));
     with_cwd.cwd = Some(missing);
 
-    let error = run_shell(
-        SystemCommand::script("echo hi"),
-        with_cwd,
-    )
-    .await
-    .expect_err("不存在 cwd 应 Spawn 失败");
+    let error = run_shell(SystemCommand::script("echo hi"), with_cwd)
+        .await
+        .expect_err("不存在 cwd 应 Spawn 失败");
     match &error {
         RunError::Spawn(_) => {}
         other => panic!("不存在 cwd 应 Spawn 面，实际 {other:?}"),
@@ -380,7 +396,13 @@ async fn 程序不可达_spawn面文案无调用点语境() {
     }
     let rendered = error.to_string();
     assert!(rendered.starts_with("拉起失败: "), "类别词起头: {rendered}");
-    for caller_context in ["static-check", "测试命令", "cargo-mutants", "Stryker", "段执行"] {
+    for caller_context in [
+        "static-check",
+        "测试命令",
+        "cargo-mutants",
+        "Stryker",
+        "段执行",
+    ] {
         assert!(
             !rendered.contains(caller_context),
             "调用点语境不入执行体文案（{caller_context}）: {rendered}"
@@ -424,7 +446,11 @@ fn run_options四字段面与派生() {
         retry: RetryPolicy::none(),
     };
     let cloned = options.clone();
-    assert_eq!(cloned.timeout, Duration::from_millis(1500), "timeout 逐值保留");
+    assert_eq!(
+        cloned.timeout,
+        Duration::from_millis(1500),
+        "timeout 逐值保留"
+    );
     assert_eq!(cloned.cwd, options.cwd, "cwd 逐值保留");
     assert_eq!(cloned.env, options.env, "env 逐值保留");
     assert_eq!(cloned.cancel, options.cancel, "cancel 身份保留（同一原子）");
@@ -478,12 +504,9 @@ fn run_outcome三值遍历与copy_eq语义() {
 /// 边界：空脚本——`Completed` + 壳退出码 `0` + 两路输出皆空（不 panic）。
 #[tokio::test]
 async fn 空脚本_零退出与双空输出() {
-    let report = run_shell(
-        SystemCommand::script(""),
-        options(Duration::from_secs(30)),
-    )
-    .await
-    .expect("空脚本应 Ok");
+    let report = run_shell(SystemCommand::script(""), options(Duration::from_secs(30)))
+        .await
+        .expect("空脚本应 Ok");
     assert_eq!(report.outcome, RunOutcome::Completed);
     assert_eq!(report.exit_code, 0, "空脚本壳退出码 0");
     assert!(report.stdout.is_empty(), "stdout 空: {:?}", report.stdout);
@@ -585,7 +608,10 @@ async fn 输出规模边界_四形态逐字节等值() {
         ),
         (
             "双大块",
-            format!("#!/bin/sh\nprintf '%s' \"{0}\"\nprintf '%s' \"{0}\" >&2\n", "q".repeat(big)),
+            format!(
+                "#!/bin/sh\nprintf '%s' \"{0}\"\nprintf '%s' \"{0}\" >&2\n",
+                "q".repeat(big)
+            ),
             vec![b'q'; big],
             vec![b'q'; big],
         ),
@@ -598,8 +624,16 @@ async fn 输出规模边界_四形态逐字节等值() {
             .unwrap_or_else(|error| panic!("{label} 应 Ok: {error}"));
 
         assert_eq!(report.outcome, RunOutcome::Completed, "{label}: Completed");
-        assert_eq!(report.stdout.len(), expected_stdout.len(), "{label}: stdout 长度");
-        assert_eq!(report.stderr.len(), expected_stderr.len(), "{label}: stderr 长度");
+        assert_eq!(
+            report.stdout.len(),
+            expected_stdout.len(),
+            "{label}: stdout 长度"
+        );
+        assert_eq!(
+            report.stderr.len(),
+            expected_stderr.len(),
+            "{label}: stderr 长度"
+        );
         assert_eq!(report.stdout, expected_stdout, "{label}: stdout 逐字节等值");
         assert_eq!(report.stderr, expected_stderr, "{label}: stderr 逐字节等值");
     }
@@ -629,10 +663,24 @@ async fn 双管道并发不互锁_两路大块不丢字节() {
     let elapsed = started.elapsed();
 
     assert_eq!(report.outcome, RunOutcome::Completed);
-    assert_eq!(report.stdout.len(), expected, "stdout 不丢字节（{expected} 字节）");
-    assert_eq!(report.stderr.len(), expected, "stderr 不丢字节（{expected} 字节）");
-    assert!(report.stdout.iter().all(|byte| *byte == b'p'), "stdout 内容形态");
-    assert!(report.stderr.iter().all(|byte| *byte == b'p'), "stderr 内容形态");
+    assert_eq!(
+        report.stdout.len(),
+        expected,
+        "stdout 不丢字节（{expected} 字节）"
+    );
+    assert_eq!(
+        report.stderr.len(),
+        expected,
+        "stderr 不丢字节（{expected} 字节）"
+    );
+    assert!(
+        report.stdout.iter().all(|byte| *byte == b'p'),
+        "stdout 内容形态"
+    );
+    assert!(
+        report.stderr.iter().all(|byte| *byte == b'p'),
+        "stderr 内容形态"
+    );
     assert!(
         elapsed < Duration::from_secs(90),
         "并发排水不互锁（墙钟上界 {elapsed:?}）"
@@ -690,10 +738,7 @@ async fn 超时臂_部分输出可返回不panic() {
         .expect("超时臂应返回报告");
     assert_eq!(report.outcome, RunOutcome::TimedOut);
     assert_eq!(report.exit_code, -1);
-    assert!(
-        started.elapsed() < Duration::from_secs(30),
-        "被杀臂不悬挂"
-    );
+    assert!(started.elapsed() < Duration::from_secs(30), "被杀臂不悬挂");
     // 部分输出或空输出皆合法（不完整面在两被杀臂无消费者）；此处只断言可读回
     let _ = String::from_utf8_lossy(&report.stdout);
     let _ = String::from_utf8_lossy(&report.stderr);
@@ -799,7 +844,11 @@ async fn cancel不误杀_never全程不置位() {
     let report = run_shell(command, options(Duration::from_secs(30)))
         .await
         .expect("常态应 Ok");
-    assert_eq!(report.outcome, RunOutcome::Completed, "不得出现假 Cancelled");
+    assert_eq!(
+        report.outcome,
+        RunOutcome::Completed,
+        "不得出现假 Cancelled"
+    );
     assert_eq!(report.exit_code, 0);
     assert_eq!(report.stdout, b"done");
 }
@@ -865,7 +914,8 @@ async fn 超时臂_pid消失且墙钟上界() {
     );
 
     let started = Instant::now();
-    let runner = tokio::spawn(async move { run_shell(command, options(Duration::from_secs(8))).await });
+    let runner =
+        tokio::spawn(async move { run_shell(command, options(Duration::from_secs(8))).await });
 
     let mut pid = None;
     for _ in 0..400 {
@@ -907,11 +957,7 @@ fn 轮询与收尾上界常量锚定() {
         Duration::from_millis(200),
         "取消轮询粒度 200 ms"
     );
-    assert_eq!(
-        FINISH_GRACE,
-        Duration::from_secs(2),
-        "杀后收尾上界 2 s"
-    );
+    assert_eq!(FINISH_GRACE, Duration::from_secs(2), "杀后收尾上界 2 s");
     assert!(
         CANCEL_POLL_INTERVAL > Duration::ZERO && CANCEL_POLL_INTERVAL < FINISH_GRACE,
         "轮询粒度为正且远小于收尾上界（不构成空转）"
@@ -945,7 +991,6 @@ fn run_report字段面可比较且哨兵同值() {
     assert_ne!(cancelled, report, "结局不同即不等");
     assert!(format!("{report:?}").contains("TimedOut"), "Debug 渲染结局");
 }
-
 
 // ---------------------------------------------------------------------------
 // 正向：瞬态重试面（AC-1）
@@ -1059,7 +1104,11 @@ async fn 瞬态自愈_三次尝试后转绿() {
         .await
         .expect("flaky 自愈应 Ok");
 
-    assert_eq!(report.outcome, RunOutcome::Completed, "耗尽前自愈 → Completed");
+    assert_eq!(
+        report.outcome,
+        RunOutcome::Completed,
+        "耗尽前自愈 → Completed"
+    );
     assert_eq!(report.exit_code, 0, "末次成功退出码直传");
     assert_eq!(report.attempts, 3, "前 2 次红 + 第 3 次绿 = 3 次尝试");
     assert_eq!(report.retried.len(), 2, "末次不入 retried");
@@ -1077,8 +1126,14 @@ async fn 瞬态自愈_三次尝试后转绿() {
             index + 1
         );
     }
-    assert_eq!(report.stdout, b"SUCCESS-OUT", "末次 stdout 不含历史尝试字节");
-    assert_eq!(report.stderr, b"SUCCESS-ERR", "末次 stderr 不含历史尝试字节");
+    assert_eq!(
+        report.stdout, b"SUCCESS-OUT",
+        "末次 stdout 不含历史尝试字节"
+    );
+    assert_eq!(
+        report.stderr, b"SUCCESS-ERR",
+        "末次 stderr 不含历史尝试字节"
+    );
     assert_eq!(attempt_count(&ws, "count.txt"), 3, "shim 恰拉起 3 次");
 }
 
@@ -1235,10 +1290,7 @@ async fn 预算耗尽早停不发起新尝试() {
         .expect("预算早停应 Ok");
     let elapsed = virtual_started.elapsed();
 
-    assert_eq!(
-        report.attempts, 4,
-        "预算耗尽后不再发起新尝试（未到上限 5）"
-    );
+    assert_eq!(report.attempts, 4, "预算耗尽后不再发起新尝试（未到上限 5）");
     assert_eq!(report.retried.len(), 3, "末次不入 retried");
     assert_eq!(
         report.outcome,
@@ -1372,7 +1424,10 @@ async fn 策略是重试面的唯一变量() {
             .await
             .unwrap_or_else(|error| panic!("{label} 应 Ok: {error}"));
 
-        assert_eq!(report.attempts, expected, "{label} → attempts == {expected}");
+        assert_eq!(
+            report.attempts, expected,
+            "{label} → attempts == {expected}"
+        );
         assert_eq!(
             attempt_count(&ws, "count.txt"),
             expected,
@@ -1489,9 +1544,7 @@ async fn 已置位cancel零重试且零spawn() {
     with_retry.retry = RetryPolicy::transient();
 
     let started = Instant::now();
-    let report = run_shell(command, with_retry)
-        .await
-        .expect("入口短路应 Ok");
+    let report = run_shell(command, with_retry).await.expect("入口短路应 Ok");
     let elapsed = started.elapsed();
 
     assert_eq!(report.outcome, RunOutcome::Cancelled);

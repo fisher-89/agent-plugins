@@ -18,7 +18,7 @@ pub struct InstallRun {
     pub summary: String,
 }
 
-/// git 工作面 port 
+/// git 工作面 port
 pub trait WorktreePort: Send + Sync {
     /// worktree 落位父锚：`<git 根父目录>/.worktrees/<git 根目录名>`（workspace
     /// root 可为仓库子目录，git 根经 `rev-parse --show-toplevel` 解析；非 git

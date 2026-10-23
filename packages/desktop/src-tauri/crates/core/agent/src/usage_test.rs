@@ -12,7 +12,7 @@
 //! infra/store 的 store_test.rs 节承载（依赖方向 infra → core，本 crate 不
 //! 反向引用 store）。
 
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 
 use crate::event::{AgentBlock, AgentDelta, AgentEvent, AgentEventKind, AgentMessageRole};
 use crate::usage::sum_usage_tokens;
@@ -123,9 +123,7 @@ fn 超大转录求和与逐值fold一致() {
         events
             .iter()
             .filter_map(|event| match &event.kind {
-                AgentEventKind::TurnDone { usage, .. } => {
-                    usage.get(key).and_then(Value::as_u64)
-                }
+                AgentEventKind::TurnDone { usage, .. } => usage.get(key).and_then(Value::as_u64),
                 _ => None,
             })
             .fold(0u64, u64::saturating_add)
