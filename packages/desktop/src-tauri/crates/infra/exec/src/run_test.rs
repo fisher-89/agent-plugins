@@ -1,15 +1,3 @@
-//! 统一执行体 [`run_shell`] 测试：真实子进程（POSIX shim 经 `resolve_shell`
-//! 探测的解释器拉起）+ 真实 `exec::kill_tree`，零 spawn mock。
-//!
-//! 覆盖面：三值结局（`Completed` / `TimedOut` / `Cancelled`）、退出码透传、
-//! 双管道并发排水（不互锁不丢字节）、`cwd` / `env` 施加、被杀两臂的进程回收与
-//! 墙钟上界、`RunError` 文案与 `RunOptions` / `RunOutcome` 类型面。
-//!
-//! 时钟：超时臂与 `FINISH_GRACE` 有界收尾用 `#[tokio::test(start_paused = true)]`
-//! 的虚拟时钟（手动 `advance`，沿 `mutation/*_test.rs` 既有先例）——不真等预算；
-//! 取消臂用真实时钟（其语义本就是「轮询观测」，暂停时钟会让虚拟时间先于真实
-//! 子进程落盘 pid 而抢跑到超时臂，属装置失真而非被测行为）。
-
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
@@ -809,6 +797,33 @@ async fn cancel不误杀_never全程不置位() {
     assert_eq!(report.outcome, RunOutcome::Completed, "不得出现假 Cancelled");
     assert_eq!(report.exit_code, 0);
     assert_eq!(report.stdout, b"done");
+}
+
+/// 边界（自然退出臂有界排水）：子进程退出后孤儿孙进程仍持有管道写端——
+/// 收尸完成即按 [`FINISH_GRACE`] 收口，不得等孙进程退出才返回。
+///
+/// 装置：shim 起后台 `sleep` 继承 stdout / stderr 后自身退出；后台进程存活期间
+/// 管道 EOF 不会到达。旧实现「先排干再收尸」会一直等到 `sleep` 结束（≈10 s）；
+/// 修复后收尸完成即返回，墙钟有界。`sleep` 不做清理（10 s 后自行退出）。
+#[tokio::test]
+async fn 自然退出_孤儿孙进程持写端时收尸后有界收口() {
+    let ws = ShimWs::new("orphan-pipe");
+    let command = ws.shim(
+        "orphan.sh",
+        "#!/bin/sh\n(sleep 10) &\nprintf 'done'\nexit 0\n",
+    );
+    let started = Instant::now();
+    let report = run_shell(command, options(Duration::from_secs(30)))
+        .await
+        .expect("收尸应正常完成");
+    let elapsed = started.elapsed();
+    assert_eq!(report.outcome, RunOutcome::Completed);
+    assert_eq!(report.exit_code, 0);
+    assert_eq!(report.stdout, b"done", "退出前的输出应已排空");
+    assert!(
+        elapsed < FINISH_GRACE + Duration::from_secs(5),
+        "收尸后排水应有界（墙钟 {elapsed:?}）"
+    );
 }
 
 // ---------------------------------------------------------------------------

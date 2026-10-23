@@ -1,22 +1,3 @@
-//! 统一进程执行体 [`run_shell`]：infra 层 tokio spawn 的唯一收口。
-//!
-//! 四能力单点（此前由各调用点各写一遍且齐不齐）：
-//! - **超时必填**：[`RunOptions::timeout`] 为必填字段（本类型不提供 `Default`、
-//!   无「None 即无限」分支）——「无超时 spawn」在类型层不可表达，杜绝检查域历史
-//!   上「cargo 卡在文件锁等待时永久悬挂」的缺陷复发；
-//! - **双管道并发排水**：stdout / stderr 各一路 `read_to_end` 并发进行（单管道
-//!   串行读会在对侧管道填满时互锁）；
-//! - **进程树击杀**：超时与取消两臂统一 `crate::kill_tree(pid)` 杀整树（Windows
-//!   `taskkill /T /F` 连子孙），再以有界收尸 / 有界排水保证「预算 + 有限收尾」的
-//!   墙钟上界（只杀不收会换形为「杀后悬挂」：子孙若继承了管道写端，排水永不
-//!   EOF）；
-//! - **取消**：以 [`CancelFlag`] 轮询观测（`foundation` 零 tokio 纪律下唯一形态），
-//!   入口先查一次（已置位即不 spawn）。
-//!
-//! 输出面只给 `stdout` / `stderr` 两路原始字节（零改写零截断、**不**预合流）——
-//! 合流顺序（`2>&1` 类 shell 级合流、或「stdout 前缀 + stderr 后缀」手工拼接）归
-//! 调用方，由各自的解读面语义决定。
-
 use std::ffi::OsString;
 use std::path::PathBuf;
 use std::process::Stdio;
@@ -32,10 +13,14 @@ use crate::{kill_tree, SystemCommand};
 /// 无常量可订阅的通知面；200 ms 在「停止秒级收敛」验收面下足够，且不构成空转）。
 const CANCEL_POLL_INTERVAL: Duration = Duration::from_millis(200);
 
-/// 杀后收尾上界（收尸与排水各自有界）：杀树命令本身是尽力语义（`kill -9` 不杀
+/// 收尾上界（收尸与排水各自有界）：杀树命令本身是尽力语义（`kill -9` 不杀
 /// rustc 类子孙），若被杀的壳进程留下持有管道写端的孙进程，无界等待会让
-/// 「超时悬挂」换形为「杀后悬挂」。2 s 覆盖正常收尸时延，异常路径下截断即可
-///（输出不完整面在 TimedOut / Cancelled 两臂无消费者，见 [`RunReport`] doc）。
+/// 「超时悬挂」换形为「杀后悬挂」。同一上界也用于**自然退出臂收尸后的排水**：
+/// 子进程已退出、孙进程仍持写端时（Windows 上 cargo-mutants 超时只杀
+/// `cargo test`、遗留测试可执行文件即典型），无界等 EOF 会把「已结束」换形为
+/// 「悬挂」。2 s 覆盖正常收尸与排空时延，异常路径下截断即可（输出不完整面在
+/// TimedOut / Cancelled 两臂无消费者；Completed 臂仅在孤儿持写端的异常面下
+/// 可能截断，见 [`RunReport`] doc）。
 const FINISH_GRACE: Duration = Duration::from_secs(2);
 
 /// 执行入参：工作目录 / 环境变量 / **必填**超时 / 取消信号。
@@ -69,6 +54,9 @@ pub enum RunOutcome {
 /// `TimedOut` / `Cancelled` 两臂的输出**不保证完整**（被杀进程可能仍有未排出的
 /// 字节；排水以 [`FINISH_GRACE`] 有界截断），四消费点在该两臂均不消费输出
 ///（static-check / testexec 走 `Err` 或空 output，两 mutation 段走固定文案）。
+/// `Completed` 臂正常树输出完整；仅当子进程已退出、孙进程仍持有继承的管道写端
+///（孤儿）时，收尸后的排水同样以 [`FINISH_GRACE`] 截断——该异常面下输出可能
+/// 少掉尾字节，换取执行体不悬挂。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RunReport {
     /// 结局
@@ -206,8 +194,14 @@ enum Race {
     Cancelled,
 }
 
-/// 自然退出臂：「双管道并发排水 → 收尸」一个 future（排水先于收尸与既有各调用点
-/// 同序：进程退出后管道 EOF，两路读尽才 `wait`）。
+/// 自然退出臂：**双管道并发排水与收尸并行**——排水必须先于收尸起步（否则子进程
+/// 写满管道会阻塞在 `write` 上永不退出），但排水本身不能被无限拖住：子进程退出
+/// 不等于管道 EOF，孙进程可能继承写端（Windows 上 cargo-mutants 超时只杀
+/// `cargo test`、遗留测试可执行文件即典型）。故收尸完成后排水最多再等
+/// [`FINISH_GRACE`]，超时以已读字节收口，不悬挂。
+///
+/// 两路管道先 EOF（子进程已关闭写端）时继续等收尸；外层 `select!` 的超时 /
+/// 取消两臂仍守护这一等待。
 async fn await_exit(
     child: &mut Child,
     stdout_pipe: &mut Option<ChildStdout>,
@@ -215,11 +209,26 @@ async fn await_exit(
     stdout_bytes: &mut Vec<u8>,
     stderr_bytes: &mut Vec<u8>,
 ) -> std::io::Result<std::process::ExitStatus> {
-    let _ = tokio::join!(
-        drain(stdout_pipe, stdout_bytes),
-        drain(stderr_pipe, stderr_bytes),
-    );
-    child.wait().await
+    let drain_both = async {
+        let _ = tokio::join!(
+            drain(stdout_pipe, stdout_bytes),
+            drain(stderr_pipe, stderr_bytes),
+        );
+    };
+    tokio::pin!(drain_both);
+    let mut drained = false;
+    let status = tokio::select! {
+        status = child.wait() => status?,
+        () = &mut drain_both => {
+            drained = true;
+            child.wait().await?
+        }
+    };
+    // 收尸已完成：孤儿孙进程可能仍持写端，有界收口不悬挂（排水已完成则无需再等）
+    if !drained {
+        let _ = timeout(FINISH_GRACE, &mut drain_both).await;
+    }
+    Ok(status)
 }
 
 /// 管道读尽至 EOF（错误忽略——沿退役的三份私有 `read_all` 语义：读失败不改变
