@@ -1,34 +1,81 @@
-# 文件锁故障：三篇冻结文档的补丁
+# 文件锁故障：剩余待办补丁
 
 workflow_type: requirement
 
 > **本篇定位**：`rust-suite-single-build` / `exec-run-shell` / `lock-fault-diagnostics`
-> 三篇已进入变更、不可修改。本篇是它们的**增量补丁集**，作为后续变更的依据。
+> 三篇已进入变更，且**主体已落地**（见 §1）。本篇只保留**尚未实现**的补丁项，
+> 作为同一次变更的追加范围。
 >
-> **核心新发现**（三篇均未覆盖）：失败率与「待写产物数 N」成正比，
-> **重试不是兜底而是确定性收敛** —— 每次失败都留下已完成产物，N 单调递减至 0。
-> 实测 2–3 次内通过。详见 §2。
+> **核心依据**：失败率 ∝ 待写产物数 N（`碰撞概率 ≈ 1-(1-p)^N`）。失败不回滚已完成
+> 产物 → **重试是确定性收敛**，N 单调递减至 0。实测 2–3 次内通过（§2）。
 >
-> 来源：2026-10-19 现场取证（日志、指纹、进程监视、S1 实测）。
+> 来源：2026-10-19 现场取证（日志、指纹、进程监视、S1 实测、代码核实）。
 
 ---
 
-## 1. 背景
+## 1. 已落地现状（不再需要改动）
 
-### 1.1 故障现象
+代码核实结果（2026-10-19 当前版本）：
 
-桌面端 change run 的 `initialize` 相位（静态检查 / 测试执行）报：
+| 项 | 位置 | 状态 |
+|---|---|---|
+| S1 单构建模板 | `testexec/detect.rs` rust 档 shell / cmd 两臂 | ✅ `cargo llvm-cov --workspace ... > "{results_file}"` |
+| 删 `applyResultsRedirect` | `testexec/runner.rs` | ✅ 已删（注释明示「展开后零改写」） |
+| `exec::run_shell` | `infra/exec/src/run.rs` | ✅ timeout / 双管道 / `kill_tree` / cancel |
+| 四类 spawn 迁移 | static_check / testexec / cargo_mutants / stryker | ✅ 全用 `RunOptions` |
+| 瞬态签名表 | `exec/src/transient.rs` | ✅ 13 条签名 + `is_transient` |
+| 重试策略 | `RetryPolicy::transient()` / `none()` | ✅ 5 次 / 1500s 预算 |
+| 锁探针 + 归因 | `exec/src/lockprobe.rs` + `attribution_text` | ✅ 接入 `fault_text` |
+| `RunFault` 三载荷 | `orchestration/src/port.rs` | ✅ `Stopped` / `Environment` |
+| walker fault 分派 | `walker.rs` 五处 | ✅ 含 `TXT_ENV_STATIC` / `TXT_ENV_TEST` |
+| 补丁 D（I1） | `initialize` 两检查步仍 `on_fail=Terminal`，重试在 runner 内消化 | ✅ 天然满足 |
+
+**结论：三篇主体 + 补丁 D 已完成。以下 §3 的 6 项是剩余缺口。**
+
+---
+
+## 2. 依据：增量收敛（为何这些补丁有效）
+
+### 2.1 决定性观测
+
+**不做任何干预，静态检查与测试各重试一次即可通过。**
+
+`archive/2026-10-19-test-execution-zero-agent-decision/reports/baseline/exec-outputs/`
+连续 attempt 的 `Compiling` 行数：
+
+| attempt | Compiling | 结果 |
+|---|---|---|
+| 0 | **264** | 失败 `failed to write …libpotential_utf-…rmeta` |
+| 1 | **5** | 失败 |
+| 2 | **0** | 失败 `failed to build archive …`（只剩 rename 收尾） |
+| 3 | 0 | 失败 |
+| 4 | 0 | 失败（`could not compile axum`） |
+| 5 | **192** | 失败（新一轮：static-check 的 `cargo run` 又写 `target/debug`） |
+| 6 | **82** | 失败 |
+| 7 | **2** | 失败 |
+| 8 | **0** | ✅ **成功** |
+
+### 2.2 机制
 
 ```
-error: failed to write ...\target\debug\deps\libfoo-<hash>.rmeta:
-       另一个程序正在使用此文件，进程无法访问。 (os error 32)
+rustc 每写一个 .rlib/.rmeta = 一次「写临时文件 → rename」
+    └─ 概率 p 被内核 minifilter 拦下 = os error 32
+
+一次构建写 N 个产物
+    碰撞概率 ≈ 1 - (1-p)^N
+
+关键：失败不回滚已完成产物
+    attempt 0: N=264 → 大面积失败，但前 200+ 个已落盘
+    attempt 1: N=5   → 只剩尾部少数
+    attempt 2: N=0   → 只剩 rename/清理收尾
+    attempt k: 静默窗口无写入 → 成功
 ```
 
-每次报错文件不同，run 以 Terminal 收敛 failed。
+**重试是「分批填满 target」的确定性收敛，不是碰运气。**
 
-### 1.2 根因（已定论，详见三篇）
+### 2.3 根因（三篇已覆盖，此处仅备查）
 
-两套企业级安全软件的**内核过滤驱动**在 close 时扫描构建产物：
+两套企业级安全软件的**内核 minifilter**：
 
 | 持有者 | 实体 |
 |---|---|
@@ -36,194 +83,185 @@ error: failed to write ...\target\debug\deps\libfoo-<hash>.rmeta:
 | `TBProtect.exe` + `tbprotect64.sys` | 云枢 YunShu（含 Sophos AV 引擎、HIDS） |
 | `System [pid 4]` | 上述驱动的内核态持有 |
 
-关键证据（进程监视器实拍，一次**成功**的静态检查末尾）：
+三个动词全部沦陷：`rename` / `write` / `remove` —— 共同点是需要 **DELETE 共享语义**。
 
-```
-[11:05:33.791] LOCKED export_bindings.exe <= System [pid 4], export-bindings.exe
-[11:05:34.172] LOCKED export_bindings.exe <= System [pid 4], TBProtect.exe [pid 30684], ...
-[11:05:34.553] LOCKED export_bindings.exe <= export-bindings.exe, Huorong Enterprise Security Endpoint Daemon [pid 14028]
-```
-
-三个动词全部沦陷：`rename`（rustc 写 .rlib 收尾）、`write`（.rmeta）、
-`remove`（cargo 增量清理）。共同点：都需要 **DELETE 共享语义**。
-
-**白名单无效的原因**：云枢从未被排除；火绒是企业版，排除项由服务端策略下发。
-
-### 1.3 现象与路径/冷热的关联
-
-| 观测 | 值 |
-|---|---|
-| 失败行出现的盘符 | `C:\` **21 条**，`D:\Projects` **0 条** |
-| exec-outputs 日志总数 | 147 份，含锁错误 **20 份（13.6%）** |
-| worktree 根 | `C:\Users\wps\.dev-team\worktrees\<身份段>\<change>`（`main.rs:18` 的 `DATA_DIR`） |
-| 主仓 | `D:\Projects\wps-claude-plugin`（target 长期热） |
-
-两个假设尚未分离（见 §3.5）：**H1 路径**（C:\Users 被扫描更激进）vs **H2 冷热**（worktree 每次新建 → target 冷 → N 大）。
+环境侧排除（云枢 + 火绒企业版，排除 `C:\Users\wps\.dev-team` 父目录）是根治 **p** 的手段，
+需 IT；代码侧只能压低 **N** 的影响。
 
 ---
 
-## 2. 新机制：增量收敛（补丁的核心依据）
+## 3. 剩余待办补丁
 
-### 2.1 决定性观测
+### P1（最高）增量推进判据：区分「在推进」与「卡死」
 
-**不做任何干预，静态检查与测试各重试一次即可通过。**
-
-从 `archive/2026-10-19-test-execution-zero-agent-decision/reports/baseline/exec-outputs/`
-取到的连续 attempt 序列，按 `Compiling` 行数计数：
-
-| attempt | Compiling 行数 | 结果 |
-|---|---|---|
-| 0 | **264** | 失败 `failed to write …libpotential_utf-…rmeta` |
-| 1 | **5** | 失败 `failed to write …` |
-| 2 | **0** | 失败 `failed to build archive …`（只剩 rename 收尾） |
-| 3 | 0 | 失败 |
-| 4 | 0 | 失败（`could not compile axum`，另一类） |
-| 5 | **192** | 失败（新一轮：static-check 的 `cargo run` 又写 `target/debug`） |
-| 6 | **82** | 失败 |
-| 7 | **2** | 失败 |
-| 8 | **0** | ✅ **成功** |
-
-`desktop-explore-list-archive` 同型（`exec-1792378264380-0` 失败 → `exec-1792379154001-1` 绿）。
-
-### 2.2 机制
-
-```
-rustc 每写一个 .rlib/.rmeta 都是一次「写临时文件 → rename」
-    └─ 概率 p 被内核 minifilter 拦下 = os error 32
-
-一次构建要写 N 个产物
-    碰撞概率 ≈ 1 - (1-p)^N        ← N 越大越接近 1
-
-关键：**失败不回滚已完成的产物**
-     attempt 0: N=264 → 大面积失败，但前 200+ 个已落盘
-     attempt 1: N=5   → 只剩尾部少数
-     attempt 2: N=0   → 全部已建，只剩 rename/清理收尾
-     attempt k: 静默窗口无写入 → 成功
-```
-
-**重试是「分批把 target 填满」的确定性收敛过程，不是碰运气。**
-
-### 2.3 由此解释此前全部矛盾观测
-
-| 观测 | 解释 |
-|---|---|
-| 「关 VSCode 后重试成功」 | 降低写入速率；**且此前失败已填满 target** |
-| 「白名单后重试依然失败」 | 那次只重试 1–2 次，`Compiling` 仍有残余（N>0） |
-| 「不做干预，重试一次就过」 | 上一次 attempt 已完成大部分编译 |
-| 「手动跑不失败」 | 主仓 target 长期热 → N≈0 |
-| 失败全在 `C:\`（21:0） | worktree 每次新建 → target 冷 → N 大；主仓长期热 → N≈0 |
-
-> **推论**：环境侧排除降低 **p**；重试压低 **N 的影响直至归零**。
-> 二者正交，但**只有重试是代码侧可控且实测有效的**。
-
-### 2.4 对早期结论的修正
-
-| 早期表述 | 修正 |
-|---|---|
-| 「重试降级为兜底」 | **重试是主修复**（确定性收敛，实测 2–3 次内通过） |
-| 「没有一项代码修改能解决文件锁」 | **不成立** —— 重试就是代码修改，且能解决 |
-| 「关 VSCode 就成功是纯巧合」 | 方向对但不完整 —— 主因是 N，VSCode/盘符只是影响 p 的次要因子 |
-
----
-
-## 3. 补丁清单
-
-### 3.1 补丁 A：`rust-suite-single-build.md`（篇 1）
-
-**无破坏性补丁**，仅调整两处预期表述：
-
-| 位置 | 建议 |
-|---|---|
-| §1.4 跨相位 target 冲突 | 保留「消除冲突」结论（`target/debug` 确实不再被 test-execution 触碰），但**补充**：消除的是**跨相位新增的 N**，不消除 S1 自身那份冷构建 |
-| §7 风险表 | 追加一行：**S1 只把 N 减半，首次冷构建仍可能失败，必须依赖篇 3 的重试** |
-
-**新增回归观测点**：S1 落地后，单次 test-execution 的 `Compiling` 行数应从「2 段合计」降为「1 段」。
-
----
-
-### 3.2 补丁 B：`exec-run-shell.md`（篇 2）
-
-**无破坏性补丁**，一处语义升级：
-
-| 位置 | 建议 |
-|---|---|
-| §1.1 后果表 | 追加：**残留进程会制造「额外的 N」** —— 被超时/停止杀剩的 rustc 继续写 target，等价于在别的 attempt 里插入一批新写入，直接抬高碰撞概率。这让「杀进程树」从整洁性升级为**正确性** |
-
----
-
-### 3.3 补丁 C：`lock-fault-diagnostics.md`（篇 3，五条）
-
-#### C1 重试定位：从「兜底」改为「主修复」
-
-| 位置 | 原文 | 改为 |
-|---|---|---|
-| §2.4「为什么重试有效」 | 「代码侧唯一能自愈的手段」 | **重试是确定性收敛**：每次失败留下已完成产物，N 单调递减至 0；实测 2–3 次内通过（§2.2） |
-
-#### C2 退避参数上调
+**现状**：`exec/src/run.rs:167` 只有两个早停条件
 
 ```rust
-// 原文
-max_attempts: 5,  backoff: [1s, 2s, 4s, 8s]
-
-// 补丁
-max_attempts: 5,  backoff: [5s, 10s, 20s, 40s],   total_budget: 1500s
+if attempts >= retry.max_attempts || started.elapsed() >= retry.total_budget {
+    return Ok(attempt.into_report(attempts, retried));
+}
 ```
 
-理由：实测静默窗口可能到分钟级；1 s 退避在「只剩 rename 收尾」的 attempt 上撞同一窗口概率高。
-
-#### C3 新增「增量推进」判据（关键）
-
-固定次数不够 —— 需判断「在推进还是卡死」。每次失败后解析输出里的 `Compiling` 行数 `N_i`：
+固定 5 次，**不区分「还在推进」与「同一批写不进去」**。实测两种形态都存在：
 
 ```
-N_i < N_{i-1}          → 在推进，继续重试（可延长预算）
-N_i == N_{i-1} == 0    → 只剩收尾，再试 1–2 次（静默窗口可能极短）
-N_i == N_{i-1} > 0     → 卡死（同一批写不进去），提前放弃 → fault=Environment
+N_i < N_{i-1}         264 → 5 → 0     ← 在推进，值得继续
+N_i == N_{i-1} > 0    例如 50 → 50    ← 卡死，继续重试是浪费
 ```
 
-这使重试从「固定 5 次」升级为「按进展自适应」，避免两个方向上都浪费预算。
+**改动**：
 
-#### C4 `fault=Environment` 触发时机收紧
+```rust
+// exec/src/transient.rs（新）
+/// 从合并输出解析「待编译」计数：`Compiling <crate> v…` 行数。
+/// 无该字样 → 0（非 cargo 构建形态，退化为固定次数语义）。
+pub fn compiling_count(stdout: &[u8], stderr: &[u8]) -> u32;
 
-| 位置 | 补丁 |
-|---|---|
-| §2.6 fault 表 | 保留「重试耗尽 + 命中签名 → Environment」，但**补充前置**：必须先跑完重试。MUST NOT 在首次失败即判 Environment |
-
-#### C5 终局文案补「推进证据」
-
-```
-静态检查无法完成（环境错误）：构建产物被安全软件占用
-  占用进程：TBProtect.exe (云枢)、HipsDaemon.exe (火绒企业版)
-  被锁文件：...\libchrono_tz-...rlib
-  重试进展：待编译 264 → 5 → 0 → 0（3 次后仍失败，判定为卡死）
-  已自动重试 4 次
-  处理：请 IT 在【火绒企业版（服务端策略）】与【云枢】中排除 C:\Users\wps\.dev-team
-        （逐 worktree 排除无效——worktree 动态新建）
+// exec/src/run.rs（重试循环内）
+// 连续两次命中签名且 compiling 计数未下降且 > 0 → 判卡死，提前收口
+let previous = compiling_count_of_last_attempt(...);
+let current  = compiling_count(&attempt.stdout, &attempt.stderr);
+if current > 0 && current >= previous {
+    return Ok(attempt.into_report(attempts, retried));   // 卡死早停
+}
 ```
 
-`Compiling` 序列同时是诊断证据与「重试确实在推进」的用户可见性。
+**注意**：
+- `attempt == 1` 时无 `previous`，不触发早停。
+- `current == 0` 不触发早停 —— 「只剩收尾」恰恰是最该再试的形态（实测 attempt 2/3/4 都是 N=0）。
+- 判据只用于**提前放弃**，不用于延长预算（预算仍是 1500s 硬顶）。
+
+**验收**：shim 制造「连续两次相同 Compiling 计数」→ `attempts < max_attempts` 即收口；
+「计数递减」→ 继续到成功或预算耗尽。
 
 ---
 
-### 3.4 补丁 D：`initialize` 相位的 Terminal 策略（跨篇，三篇均未覆盖）
+### P2 退避参数上调
 
-现状：`initialize` 相位的 static-check / test-execution 声明 `on_fail=Terminal`，
-一失败整个 run 收敛 failed，用户须手动重新发起。
+**现状**（`exec/src/transient.rs:47-53`）：
 
-代价：此前 attempt 已把 target 填到大半（N 从 264 降到 5），却因一次 Terminal 全部浪费。
+```rust
+const RETRY_BACKOFF: [Duration; 4] = [1s, 2s, 4s, 8s];
+```
 
-| 方案 | 做法 | 成本 |
-|---|---|---|
-| **I1（推荐）** | 重试留在 runner 内（篇 3 的 `RetryPolicy`），Terminal 语义不变 —— runner 内部消化，walker 只见最终结论 | 零 walker 改动 |
-| I2（仅当 I1 不够） | walker 层加「同相位自动重入」，把用户手动重试自动化（有预算上限） | 需改相位机语义 |
+**改为**：
 
-**决议**：先做 I1。只有实测「runner 内 5 次仍不够」才考虑 I2。
+```rust
+const RETRY_BACKOFF: [Duration; 4] = [5s, 10s, 20s, 40s];
+```
+
+**理由**：实测静默窗口可达分钟级。1 s 退避在「只剩 rename 收尾」（N=0）的 attempt 上
+大概率撞同一个扫描窗口 —— 而这正是最需要耐心的一档。
+
+**副作用**：成功路径零影响（不命中签名不重试）；只有真需要重试时多等 4+9+16+32 = 61 s
+（最坏 5 次），可接受。
 
 ---
 
-### 3.5 补丁 E：worktree 根位置（探索项，需先做实验）
+### P3 诊断文案补「推进序列」
 
-`packages/desktop/src-tauri/src/main.rs:18`：
+**现状**（`infra/checks/src/environment.rs:91` `fault_text`）：
+
+```
+被锁文件：...
+已自动重试 4 次（每次重试会跳过已完成部分）
+最后一次诊断：
+...
+环境侧处理：请 IT 在【火绒企业版（服务端策略）】与【云枢】中排除 ...
+```
+
+**缺一行**（与 P1 同源，`RunReport.retried` 已带全部字节）：
+
+```
+重试进展：待编译 264 → 5 → 0 → 0（3 次后仍失败，判定为卡死）
+```
+
+**改动**：`fault_text` 增加 `run.retried` 参数（当前签名只有 `attempts` / `exit_code` / `output`），
+按序调 `compiling_count` 生成序列；`attempts == 1` 时不输出该行（未重试，无序列可言）。
+
+**价值**：把「重试确实在推进」变成用户可见证据，同时是 P1 判据的自证材料。
+
+---
+
+### P4 签名表死条目修正
+
+**现状**（`exec/src/transient.rs:33`）：
+
+```rust
+"failed to remove file",   // ← 永不命中
+```
+
+实际错误文本是 `failed to remove C:\...\xxx.rcgu.o`，**不含 "file" 字样**。
+功能上被同一行内的 `os error 32` 兜住，但会误导维护者以为 remove 形态有独立覆盖。
+
+**改为**：
+
+```rust
+"failed to remove",   // 收窄风险低：该短语只出现在删除失败语境
+```
+
+**验收**：`transient_test` 补一条「`failed to remove <path>: 另一个程序…` 命中」的表驱动用例
+（现有用例只覆盖 `failed to remove file`，与生产文本不符）。
+
+---
+
+### P5 test-execution 跨 plan 总预算
+
+**现状**：`testexec/mod.rs` 逐 plan 调 `execute_plan`，每个 plan 各自
+`RetryPolicy::transient()`（per-plan 1500 s），**无跨 plan 总闸**：
+
+```
+rust suite   393s × 最多 5 次 ≈ 1965s（受 per-plan 1500s 预算约束）
+vite-plus     ~15s × 5 次      ≈   75s
+────────────────────────────────────────
+最坏 wall clock ≈ 1575s，walker 侧无总超时
+```
+
+当前配置（1 rust + 1 vite）尚可承受；suite 数量增长后会变成隐患（一个 run 可能挂 40 分钟）。
+
+**改动**：`execute()` 层记录起点，进入下一 plan 前判定：
+
+```rust
+const TESTEXEC_TOTAL_BUDGET: Duration = Duration::from_secs(2400);
+// 超预算 → 剩余 plan 不 spawn，整体以 fault=Environment("测试执行总时长超预算") 收口
+```
+
+**注意**：不要把已完成的 plan 结果丢掉 —— 沿用现有 `fault_outcome` 路径（它本就不写
+summary、不进复用门）。
+
+---
+
+### P6 覆盖率聚合「假通过」
+
+**现状**（`core/checks/src/aggregate.rs:234` `weighted_measured`）：
+
+```rust
+let has_any = sub_reports.iter().any(|report| { ... coverage.is_some() ... });
+if !has_any { return None; }
+// 有任意一个 suite 有覆盖率 → 只用它们的加权，缺覆盖率的 suite 被静默跳过
+```
+
+历史实证（`archive/2026-10-18-desktop-agent-chat-component/reports/baseline/summary.json`）：
+
+```json
+"conclusion": "error",
+"coverage": { "pass": true, "measured": { "lines": 96.21, ... } }   // 数值全来自 vite-plus
+```
+
+rust suite 一个覆盖率数都没产出，聚合面却报 `pass: true`。门禁结论靠 `problems` 兜住了，
+但「覆盖率通过」这句话是假的。
+
+**改动**：某 suite 结论非 pass 且 `coverage == null` 时，向 `problems` 追加一条
+`ProblemType::ExecutionError`（`determine_conclusion` 已把它映射为 `Error`，无需改判定函数）。
+
+**验收**：rust 覆盖率缺失 + vite 覆盖率达标 → `conclusion = error` 且 `coverage` 不入
+`pass: true`（或 `coverage` 为 `None`）。
+
+---
+
+### P7（探索项）worktree 根位置
+
+**现状**（`src-tauri/src/main.rs:18`）：
 
 ```rust
 const DATA_DIR: &str = ".dev-team";
@@ -231,7 +269,16 @@ let data_root: PathBuf = app.path().home_dir()?.join(DATA_DIR);
 // → C:\Users\wps\.dev-team\worktrees\<身份段>\<change>
 ```
 
-H1（路径）与 H2（冷热）尚未分离。**分离实验（5 分钟，不改代码）**：
+支撑数据：失败行 **21 条全在 `C:\`**，`D:\Projects`（主仓）**0 条**。
+
+但两个假设未分离：
+
+```
+H1 路径   C:\Users 被安全软件扫描更激进（N 相同，p 更大）
+H2 冷热   worktree 每次新建 → target 冷 → N 大（与盘符无关）
+```
+
+**先做分离实验（5 分钟，不改代码）**：
 
 ```powershell
 cd "C:\Users\wps\.dev-team\worktrees\<hash>\<change>\packages\desktop\src-tauri"
@@ -243,60 +290,57 @@ pnpm run check
 
 | 结果 | 结论 | 后续 |
 |---|---|---|
-| 成功 | **H1 成立**（路径问题） | 改 `DATA_DIR` 或 target 落位到非用户目录 —— 一个常量 |
-| 仍失败 | **H2 成立**（冷热/写入量） | 只能靠重试 + 环境排除 |
+| 成功 | H1 成立 | 改 `DATA_DIR` 或 target 落位到非用户目录（一个常量） |
+| 仍失败 | H2 成立 | 只能靠重试 + 环境排除 |
 
-> 若 H1 成立，这是**成本最低的根治手段**（不依赖 IT），优先级高于本篇任何其他补丁。
+> 若 H1 成立，这是成本最低的根治手段（不依赖 IT），优先级可升到 P1。
 
 ---
 
 ## 4. 实施顺序与验收
 
-| 顺序 | 内容 | 验收 |
-|---|---|---|
-| 1 | 补丁 C1–C5（重试语义与参数） | 冷 target 上首次失败后 2–3 次内收敛；`Compiling` 序列单调递减并写进诊断 |
-| 2 | 补丁 D（I1） | `initialize` 相位不再因单次瞬态失败终止 run |
-| 3 | 补丁 A、B（表述与风险表） | 文档一致性 |
-| 4 | 补丁 E（先做 junction 实验） | 若 H1 成立，改常量后失败率显著下降 |
+| 顺序 | 补丁 | 改动规模 | 验收 |
+|---|---|---|---|
+| 1 | **P1** 增量判据 | `transient.rs` +`compiling_count`；`run.rs` 重试循环 +8 行 | 卡死形态提前收口；递减形态跑到底 |
+| 2 | **P3** 推进序列文案 | `environment.rs` `fault_text` 加参 | 终局文案含 `待编译 264 → 5 → 0` |
+| 3 | **P2** 退避上调 | 一个常量数组 | 慢档重试不再撞同一窗口 |
+| 4 | **P4** 签名修正 | 一个字符串 + 测试 | remove 形态真实命中 |
+| 5 | **P5** 跨 plan 总预算 | `testexec/mod.rs` +常量 | 多 suite 时 run 墙钟有上界 |
+| 6 | **P6** 覆盖率假通过 | `aggregate.rs` +problem | 缺覆盖率的失败 suite 不再报 pass |
+| 7 | **P7** worktree 根 | 先实验，后决定 | 视 H1/H2 结果 |
 
-**硬验收**：
+**P1–P4 属同一主题**（重试质量），建议一起做；**P5 / P6 独立**；**P7 待实验**。
 
-1. 冷 target（新建 worktree）上，静态检查 / 测试执行**不需要人工干预**即可通过。
-2. 重试耗尽后，终局文案包含占用进程名与 `Compiling` 推进序列。
-3. `N_i == N_{i-1} > 0` 时提前放弃（不烧满 5 次预算）。
+### 硬验收（整体）
+
+1. 冷 target（新建 worktree）上，静态检查 / 测试执行**不需人工干预**即可通过。
+2. 重试耗尽时终局文案含占用进程名 + `Compiling` 推进序列。
+3. `N_i == N_{i-1} > 0` 时提前放弃，不烧满 5 次预算。
 4. 真红（无签名）零重试，行为与现状一致。
+5. 覆盖率缺失的失败 suite 不再让 `coverage` 报 `pass`。
 
 ---
 
-## 5. 优先级（相对三篇的排序调整）
+## 5. 已废弃 / 已实现项（不再实施）
 
-```
-P0  补丁 C1–C5（重试语义 + 自适应判据）   ← 唯一实测「不干预即通过」的代码手段
-P1  环境侧排除（云枢 + 火绒企业版，父目录） ← 降低 p，根治，需 IT
-P2  补丁 E（worktree 根位置，先实验）      ← 若 H1 成立则成本最低的根治
-P3  篇 1 S1                               ← N 总量减半，缩短收敛所需次数
-P4  篇 2 exec（杀树/超时/取消）            ← 消除自造 N，防悬挂
-P5  补丁 D（I1）                          ← initialize 不再因瞬态失败终止
-P6  补丁 A/B（表述）                       ← 文档一致性
-```
-
-> 与三篇原始排序的差异：**重试从 P4 提到 P0**。理由：实测证明它能在 2–3 次内收敛
->（N 单调递减至 0），其余手段只是「降低概率」或「降低单次 N」。
-
----
-
-## 6. 附：已归入三篇的内容（本篇不再展开）
-
-| 内容 | 归属 |
+| 项 | 处置 |
 |---|---|
-| S1 模板合并、覆盖率口径（25 → 209 文件）、`&&` 修复 | 篇 1 `rust-suite-single-build.md` |
-| `exec::run_shell`、`CancelFlag`、四类 spawn 迁移、超时值 | 篇 2 `exec-run-shell.md` |
-| 精确锁探针、Restart Manager 点名、签名表、`RunFault`、walker 分派 | 篇 3 `lock-fault-diagnostics.md` |
+| S1 模板合并 + 覆盖率口径（25 → 209 文件） | ✅ 已实现（篇 1） |
+| `exec::run_shell` / `CancelFlag` / 四类 spawn 迁移 | ✅ 已实现（篇 2） |
+| 精确锁探针 + Restart Manager 点名 | ✅ 已实现（`lockprobe.rs`） |
+| `RunFault` 语义 + walker 五处分派 + 环境文案 | ✅ 已实现（篇 3） |
+| 补丁 D（`initialize` 自动重入 I2） | **废弃** —— 重试已在 runner 内消化（I1），实测 2–3 次足够，无需要改相位机 |
+| target 隔离（注入 `CARGO_TARGET_DIR` / IDE 让路） | **废弃** —— 内核 minifilter 扫任意路径，换目录无效 |
+| 杀软白名单（用户侧） | **降级** —— 云枢未排除 + 火绒企业版服务端策略，仍应推动 IT，但不作为代码方案 |
+| 「关 VSCode 就成功」作为因果 | **废弃** —— 真主因是 N（增量推进），VSCode 仅影响写入速率 |
 
-以下观察项不在本篇范围，需另立小项：
+---
 
-1. **覆盖率聚合静默忽略失败 suite**：`aggregate_coverage` 的 `weighted_measured?` 跳过
-   `coverage=null`，导致「rust 一个数没产却报 pass」（实证：`summary.json` 里
-   `conclusion=error` 但 `coverage.pass=true`，数值全来自 vite-plus）。
-2. **云枢是否提供本地排除 UI**（`TBProtect.exe` 无版本信息，可能云控下发）。
-3. **火绒企业版排除后是否即时生效**（minifilter 通常需重启驱动）。
+## 6. 附：已知但不在本次范围
+
+| # | 项 | 说明 |
+|---|---|---|
+| 1 | rust suite 仍跑两遍测试 | S1 已合并为一条 `cargo llvm-cov`，但 llvm-cov 内部仍会跑测试——属工具行为，无进一步优化空间 |
+| 2 | `export-bindings` 覆盖率 0% | `crates/tools` 无测试；计入分母但不拖累（实测 lines 96.64 ≥ 90）。补测试可另立变更 |
+| 3 | 云枢是否提供本地排除 UI | `TBProtect.exe` 无版本信息，可能云控下发，需 IT 确认 |
+| 4 | 火绒企业版排除是否即时生效 | minifilter 通常需重启驱动 |

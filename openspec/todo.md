@@ -67,14 +67,14 @@
 - [x] 【Desktop】修复问题（证据见change desktop-test-only-flow）：read_exec_output未返回脚本运行日志（返回null）
 - [ ] 【Desktop】如果有运行中agent，关闭桌面端前提示二次确认
 - [x] 【Desktop】归档完成后自动移除worktree，限制最多5个运行中change同时存在，避免worktree占用磁盘空间过大
-- [ ] 【Desktop】归一agent会话渲染，前端使用统一组件，参数是sessionId，调通用接口渲染session会话；组件内根据会话状态（进行中、完成）决定是否监听stream
-- [ ] 【Desktop】Agent会话显示system的warning/error消息
+- [x] 【Desktop】归一agent会话渲染，前端使用统一组件，参数是sessionId，调通用接口渲染session会话；组件内根据会话状态（进行中、完成）决定是否监听stream
+- [x] 【Desktop】Agent会话显示system的warning/error消息
 - [x] 【Desktop】流程启动前，检查static-check和test-execution（不含突变），如无法通过，停止流程并提示用户在基线上修复后重启
 - [x] 【Desktop】移除test-execution阶段的agent执行，测试不通过时，走决策回溯
-- [ ] 【Desktop】change详情增加通用agent，在change环境下运行；通用agent可以开启新会话，恢复历史会话；
+- [x] 【Desktop】change详情增加通用agent，在change环境下运行；通用agent可以开启新会话，恢复历史会话；
 - [ ] 【Desktop】分离开发/测试和release产物使用的db文件
 - [ ] 【Desktop】change详情，步骤可以查看运行中stdout
 - [ ] 【Desktop】向agent提供db查询工具，可以访问桌面端数据，包含2个工具：1. 列出db的表名、介绍、字段说明；2. 按条件查询，返回数据上限1000条；
-- [ ] 【Desktop】agent provider支持选择模型协议（openai/anthropic）
-- [ ] 【Desktop】分析会话ses-3-1792634053355，中途补充说明后失败
+- [x] 【Desktop】agent provider支持选择模型协议（openai/anthropic）
 - [ ] 【Desktop】内置CodeGraph，使用mcp桥接到agent
+- [ ] 【Desktop】归一Agent会话发送

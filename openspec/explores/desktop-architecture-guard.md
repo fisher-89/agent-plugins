@@ -45,13 +45,13 @@ workflow_type: requirement
 【 代码层 】  变更清单（vcs：change_edit_set）∪ import 解析  ⇒ 事实依赖边
 ```
 
-三处关键取舍：
+四处关键取舍：
 
 | 项 | 取舍 | 理由 |
 |---|---|---|
 | 逻辑模块 | **C4 element 即模块**，不另建 LogicalModule 类型 | `c4-dsl-syntax` 已定义四类 kind 的严格层级（`extend` 表包含、`->` 表依赖），父子关系已在 DSL 内自描述，另立一层只会双写 |
 | 物理映射 | **`metadata.path` 即 FileMapping**，且天生是数组 | 一个元素可覆盖多个路径（目录 + 单文件混合），无需新字段 |
-| API 契约 | **不落权威 schema**。需要时从源码提取「对外符号清单」作为派生视图，不写回磁盘 | 契约权威在 specs + ADR；再造一份语言无关 schema 必然与 specs 漂移，且要维护 Rust/TS 两套提取器的对齐 |
+| API 契约 | **不落权威 schema**。需要时从源码提取「对外符号清单」作为派生视图，不写回磁盘 | 契约权威在 specs + ADR（后者长期迁向模块文档，见 §2.6）；再造一份语言无关 schema 必然漂移，且要维护 Rust/TS 两套提取器的对齐 |
 | 模块文档 | **不规定形态，只做关联与检索**（详见 §3.6.2） | 文档该写什么因团队而异；钉死 schema 会把「还没想清楚」变成「落后于文档」。只要能定位到，正文怎么写是作者自由 |
 
 ### 2.1 门禁档位：用 `metadata` 表达 ratchet，零 DSL 变更
@@ -128,13 +128,76 @@ openspec/architecture/config.json     新增，架构域自有
 
 ```
 openspec/architecture/
-├── models/*.c4                模型（结构 + metadata.gate + metadata.path）
+├── models/*.c4                模型（结构 + metadata.gate + metadata.path + metadata.docs）
 ├── decisions/*.md             ADR
 ├── config.json                豁免与扫描排除（§2.4）
 └── reports/*.json             全局报告（change 内的报告仍落 change 的 reports 槽）
 ```
 
-「模型与它的配置、决策、报告同处一目录」的意义是可整体搬动 / 整体 review：一次架构重构的 diff 全落在这一个目录里，而不是跨十几个位置。
+**模块文档放哪**：不进 `architecture/`，而是**跟代码走**——放在元素 `metadata.path` 覆盖的目录内（如 `src/auth/README.md`），或用 `metadata.docs` 显式指向任意位置。理由：文档与它描述的代码应当同生命周期（代码搬走文档跟着搬、代码删了文档该被发现），放进 `architecture/` 会让文档与实现分离，反而更容易过期。
+
+`architecture/` 只装「横跨代码的架构资产」（模型 / 决策 / 策略 / 报告），不装「某个模块自己的说明」。
+
+### 2.6 长期演进：模块文档逐步替代 specs
+
+已定的方向是「模块文档逐步替代 `openspec/specs/`，最终只保留少数主要特性文档」。这条不属于本方案的实施范围，但它决定了本方案必须遵守的几条边界，先说清楚。
+
+#### 两者的当前分工（现状）
+
+```
+openspec/specs/<capability>/spec.md          能力域视角（横向：按功能切）
+  ## ADDED / MODIFIED / REMOVED Requirements
+  ### Requirement: …（SHALL/MUST + Scenario）
+  #### Scenario: WHEN … THEN …
+
+openspec/architecture/models/*.c4            结构单元视角（纵向：按代码切）
+  element package / domain / module / component
+  metadata { path / gate / docs }
+```
+
+两者**不是一一映射**：一个 capability 通常横跨多个 element（`desktop-agent-execution` 涉及 `agent` / `agent-runtime` / `orchestration` 三个元素），一个 element 也常承载多个 capability 的片段。所以「替代」不是改名或搬迁，是**契约载体换型**。
+
+#### 迁移期的四条边界（本方案必须遵守）
+
+| # | 边界 | 理由 |
+|---|---|---|
+| 1 | archi 的**看护**不读 specs | 否则替代完成那天，看护逻辑要整体改写 |
+| 2 | archi 的**检索**不读 specs | 同上；而且检索一旦纳入，用户会开始写「给 archi 看的 spec」，反向锁定迁移 |
+| 3 | 模块文档的 `docs` 关联只认 `metadata.docs` / 邻近 md / ADR **三种来源** | 不新增 spec 来源，避免迁移期出现「文档在 specs 里所以 archi 读 specs」的例外 |
+| 4 | 门禁判定**不依赖** specs 与 element 的映射关系 | 这条映射将来由「模块文档 ↔ element」承担，本方案不预设其形式 |
+
+#### 真正的迁移难点（供将来裁决，不是本方案要解）
+
+替代要成立，必须先回答 specs 现在承担的哪些职责由谁接：
+
+```
+specs 当前职责                                   迁移候选
+─────────────────────────────────────────────────────────────────
+① 契约记录（Requirement: SHOULD/MUST 文本）      → 模块文档正文
+② 可验收断言（Scenario: WHEN/THEN）              → 模块文档需保留可断言结构，
+                                                    否则 acceptance 失去依据
+③ proposal 阶段的能力盘点与「新增/修改」分类      → 需要 element 侧的对照物
+④ 归档 SpecSync 的增量合并（ADDED/MODIFIED/…）    → 这是 workflow 级机制，模块
+                                                    文档若为散文则无「增量合并」
+                                                    可言 → SpecSync 步将消失或改型
+⑤ 测试设计的输入                                  → 实际已不直读 specs（读 design.md），
+                                                    迁移风险低
+⑥ 验收评估的输入                                  → 实际读 proposal.md 的 AC，
+                                                    迁移风险低
+```
+
+关键在 ②④：**spec 的价值有一半在它的结构化程度（Requirement + Scenario 可被机械消费）**。如果模块文档是纯散文，那么：
+
+- acceptance 会退化成「读散文 + 主观判断」，与现在「读 AC + 找实现证据」相比不必然更差，但**失去了可核对的形状**；
+- 归档的 SpecSync 步（`prompt::spec_sync_prompt` 的 ADDED/MODIFIED/REMOVED/RENAMED 合并语义）**没有对应物**——散文没有增量语义。
+
+所以「模块文档替代 specs」若要真正落地，模块文档必须继承一部分结构化能力（至少 Scenario 级的可断言条目），或者接受「SpecSync 步整体退役、归档链缩短」这个后果。这两者都是 workflow 级变更，需要独立 change 承载。
+
+#### 本方案的立场
+
+本方案**不做任何为迁移预铺的设计**，只保证四条边界（上面表）不被违反。这样迁移可以在任何时候独立启动，而架构看护不受牵动。反过来，如果现在就为「未来模块文档」设计 schema，会重蹈 §2 取舍里已否掉的「第三套契约层」——那层东西一旦建起来，迁移反而被它锁死。
+
+一个自然的副作用值得指出：§3.6.2 为当下需求引入的 `metadata.docs`（元素显式指向文档），恰好就是迁移的现成接缝。迁移启动时不需要新增机制——把模块文档写进 `metadata.docs`，它立刻成为 agent 可检索的权威来源；specs 收缩后，工具侧零改动。这是「不做预铺」与「留好接缝」能同时成立的少数情况：接缝是我们本来就要的，不是为将来造的。
 
 ---
 
@@ -291,8 +354,13 @@ test-only 表（7 相位）：initialize → proposal → code-analyze → test-
       { "kind": "pathNotFound", "element": "App.Billing", "path": "./src/billing/",
         "gate": "strict", "message": "metadata.path 指向不存在的目录" },
       { "kind": "noPath", "element": "App.Legacy", "gate": "off",
-        "message": "元素未声明 metadata.path（不参与归属）" }
-    ]
+        "message": "元素未声明 metadata.path（不参与归属）" },
+      { "kind": "docNotFound", "element": "App.Auth", "doc": "./docs/auth.md",
+        "message": "metadata.docs 指向的文件不存在" }
+    ],
+    "docs": {                                 // §3.6.2 关联发现的统计（只读，不影响门禁）
+      "explicit": 6, "adjacent": 11, "adr": 4
+    }
   },
 
   "scan": {
@@ -474,9 +542,15 @@ read          →  「把那份文档读出来」
 | 邻近约定 | 元素 `metadata.path` 目录下的 `*.md`（`README.md` / `ARCH.md` / 任意 md） | 中——按位置推断 |
 | ADR 文本 | `decisions/*.md` 正文出现该元素 FQN | 弱——检索命中，非承诺 |
 
-三者结果合并去重，按强度排序返回。**契约只有 `{ path, title, kind, source }`**——没有要闻摘要、没有正文、没有 schema。将来想加「接口说明文档」这类新形态，只需加一条索引来源，工具契约不变。
+三者结果合并去重，按强度排序返回。**契约只有 `{ path, title, kind, source }`**——没有摘要、没有正文、没有 schema。将来想加「接口说明文档」这类新形态，只需加一条索引来源，工具契约不变。
 
-这条设计的实质是把「模块文档该长什么样」这个问题**延期**而不是**回避**：只要 agent 能定位到文档，文档写成什么样是作者自由。若将来发现某类文档需要结构化（如接口契约），再单独裁决，不动本层。
+**结构校验（只报不拦）**：`metadata.docs` 指向不存在的文件 → 归入 `model.warnings`（`kind: "docNotFound"`），不算 error——文档缺失不影响代码正确性，而且迁移期文档本来就在动。
+
+**扫描路径**：`docs` 的邻近搜索与 `metadata.docs` 的路径校验都在元素 `metadata.path` 覆盖范围内，与 §2.2 的排除规则同一套（测试文件目录里的 md 不算模块文档）。
+
+这条设计的实质是把「模块文档该长什么样」这个问题**延期**而不是**回避**：只要 agent 能定位到文档，文档写成什么样是作者自由。
+
+**检索范围明确不含 `openspec/specs/`**（已定案 16/24）。这条与长期演进路线直接相关，见 §2.6：模块文档将来会替代 specs，因此架构工具不能反过来依赖 specs——否则替代完成那天工具要改。
 
 #### 3.6.3 两个工具
 
@@ -504,11 +578,11 @@ read          →  「把那份文档读出来」
   ]
 }
 
-// 工具 2：archi_search —— 按关键词检索（元素 + 文档混合打分）
+// 工具 2：archi_search —— 按标识符检索（元素 + 文档路径，轻量版）
 {
   "name": "archi_search",
   "parameters": {
-    "query": "必填。关键词 / 元素名片段 / 路径片段",
+    "query": "必填。关键词 / 元素名片段 / 文档路径片段",
     "scope": "可选。'elements' | 'docs' | 'all'（缺省 all）"
   }
 }
@@ -516,10 +590,25 @@ read          →  「把那份文档读出来」
 // 响应
 {
   "elements": [{ "fqn": "App.Auth", "kind": "domain", "summary": "认证与令牌签发" }],
-  "docs":     [{ "path": "openspec/specs/desktop-agent-execution/spec.md",
-                 "title": "desktop-agent-execution", "matched": "auth" }]
+  "docs": [
+    { "path": "src/auth/README.md", "title": "认证模块说明",
+      "kind": "md", "source": "adjacent", "matched": "auth" }
+  ]
 }
 ```
+
+**轻量版检索的确切含义**（已定案 25）：
+
+```
+匹配对象    元素 FQN / element description / metadata 值 /
+            文档路径与文件名（不含文档正文）
+匹配方式    ASCII 大小写不敏感的子串匹配（含驼峰分词：AuthToken → auth / token）
+不做        全文索引、不做文档正文搜索、不做相关度打分（按来源强度排序即可）
+```
+
+不搜正文的理由：正文搜索是 agent 既有 `grep` 工具的活，且 `grep` 能带 context、能正则、能按目录缩窄——架构工具重做一遍只会更差。架构工具的价值在「**知道去哪里找**」，不在「替你去读」。
+
+具体实现量：`ignore::WalkBuilder` 遍历架构域与元素覆盖路径（自动跳过 `node_modules` / `target` / gitignore），文件名与 FQN 做子串匹配，约百行；**不需要倒排索引、不需要缓存、每次现算**（与零持久化原则一致）。
 
 为什么是两个而不是一个：`archi_module` 是**定位**（我已经知道我在看哪个模块），`archi_search` 是**发现**（我还不知道这个功能归谁管）。两者的注入场景不同——dev-design 阶段最需要 search（「这功能该放哪」），implement 阶段最需要 module（「我改的文件属于谁」）。合并成一个工具会让参数语义含混（`element` 与 `query` 互斥），且两个场景拿到的工具面无法差异化收窄。
 
@@ -668,58 +757,141 @@ cargo-modules / cargo-depgraph          → 要 cargo install 二进制
 
 ### 6.4 产物标准（S1 验收阈值）
 
-**基线实测**（HEAD `f5539bbe`，本机 Windows release 构建）：
+#### 6.4.1 目的
+
+这项实测不是技术好奇心，它有四个明确用途：
+
+| # | 目的 | 不做的后果 |
+|---|---|---|
+| 1 | **给回退序一个触发条件** | 「要不要砍 oxc」会变成凭感觉的争论；实测数字是唯一裁决依据 |
+| 2 | **量化唯一不可估的成本** | `ignore` / `globset` / `cargo_metadata` / `syn` / `petgraph` 都在锁内，成本可估；只有 `oxc_*` 是黑箱——特性开关默认会带进一堆小包，不测不知道 |
+| 3 | **守住发版链与开发体感** | 一次 +90 s CI 冷构建直接吃「点发版到出包」的反馈时长；+15 s 本地增量乘上每相位多次的 `static_analysis` 就是分钟级浪费 |
+| 4 | **留下可复核基线** | 半年后有人说「装包怎么这么大」，能翻到「哪次引入、多了多少、当时怎么判的」 |
+
+第 2 条是核心：本方案唯一的设计风险集中在 `oxc` 三个 crate 的体积与编译成本上，其余选型都是「锁内已有，提为直接依赖」。实测就是把唯一的未知变成已知。
+
+#### 6.4.2 基线（HEAD `f5539bbe`，本机 Windows release 构建）
 
 | 指标 | 基线值 | 出处 |
 |---|---|---|
 | 安装包（NSIS） | **6.68 MB**（`dev-team_0.5.26_x64-setup.exe`） | `src-tauri/target/release/bundle/nsis/` |
-| 主二进制 | **26.6 MB**（`dev-team.exe`） | 同目录 |
-| `Cargo.lock` | 999 个包 / 11 548 行 | 文件统计 |
+| 主二进制 | **26.6 MB**（`dev-team.exe`） | `src-tauri/target/release/` |
+| `Cargo.lock` | 999 个包 / 11 548 行 | `grep -c '^name = "' src-tauri/Cargo.lock` |
 | CI 构建 | 双平台 matrix，各腿 `tauri build` 一次 | `.github/workflows/desktop-release.yml` |
-| 单次 archi 检查的对外预算 | 与 `STATIC_CHECK_TIMEOUT = 1200s` 同一相位预算池 | `infra/checks/src/static_check.rs` |
+| 相位预算参照 | `STATIC_CHECK_TIMEOUT = 1200 s` | `infra/checks/src/static_check.rs` |
 
-**阈值**（硬线 = 必须回退设计；软线 = 记录并在 spec 留痕）：
+参照系：**0.5.4 → 0.5.26 十二个版本，安装包只涨了 0.28 MB**。所以「一次引入 +1.5 MB」已经是常态增速的五倍。
 
-| 指标 | 软线 | 硬线 | 超标动作 |
+#### 6.4.3 阈值
+
+| 指标 | 软线 | 硬线 | 超线动作 |
 |---|---|---|---|
-| NSIS 安装包 | +0.8 MB（≈ +12%） | **+1.5 MB（≈ +22%，即 ≤ 8.2 MB）** | 见下回退序 |
+| NSIS 安装包 | +0.8 MB（≈ +12%） | **+1.5 MB（≈ +22%，即 ≤ 8.2 MB）** | 见 6.4.6 回退序 |
 | 主二进制 | +3 MB | **+5 MB（≤ 31.6 MB）** | 同上 |
-| `Cargo.lock` 净新增包数 | ≤ 25 | **≤ 40** | 说明引入面失控，重审特性开关 |
-| CI 冷构建（单腿） | +45 s | **+90 s** | 回退序第 1 步 |
-| 本地增量（改 `archi` 一文件后 `cargo build`） | +8 s | **+15 s** | 检查是否误引了重特性 |
-| 单次 `archi_check` 运行 | 1.5 s | **3 s**（含 200 变更文件 + 5 000 元素量级） | 加并发 / 加结果缓存（进程内） |
+| `Cargo.lock` 净新增包数 | ≤ 25 | **≤ 40** | 引入面失控，先查特性开关 |
+| CI 冷构建（单腿） | +45 s | **+90 s** | 回退序第 ① 步 |
+| 本地增量（改 `archi` 一文件后 `cargo build`） | +8 s | **+15 s** | 查是否误引重特性 |
+| 单次 `archi_check` 运行 | 1.5 s | **3 s**（200 变更文件 + 5 000 元素） | 加并发 / 加进程内缓存 |
 
-**为什么是这些数**：
+`Cargo.lock` 净增包数单独设线，是因为它比体积更早暴露问题：`oxc` 家族按特性会拉进 `compact_str` / `rustc-hash` / `simdutf8` / `bitflags` 等一串小包，净增超 40 基本可断定某个默认开关把不需要的东西带进来了。
 
-- 安装包 +1.5 MB 对应「一个小版本自然增长的量级」——0.5.4→0.5.26 期间安装包只涨了 0.28 MB，一次引入吃掉 5 倍于常态的增长就过量了。
-- CI +90 s 的现实压力来自发版链：双平台各腿跑一次完整 `tauri build`，且 `desktop-release.yml` 用 `Swatinem/rust-cache` 缓存；冷构建每多 90 s 直接体现在「点发版到出包」的反馈时长上。
-- 本地增量 +15 s 直接决定 `run_static_analysis`（`pnpm run -C ./packages/desktop check`）的体感——它已经串了 `cargo fmt + clippy + vp check + knip`，每相位跑多次。
-- `archi_check` 3 s 是「门禁步不能比它检查的东西还慢」的下限直觉：`static_check` 动辄几十秒，archi 若也几十秒，就没人愿意在 implement 里多等一次。
+#### 6.4.4 执行方式
 
-**测量协议**（S1 必须照做并记录进报告）：
+**四段式**：基线 → 变体 → 差分 → 判读。全程**同一台机器**（共享 CI runner 的 CPU/磁盘抖动会淹没差值）。
+
+**A. 基线（在写任何 `Cargo.toml` 之前做完）**
+
+```bash
+cd packages/desktop/src-tauri
+
+# A1 锁内包数
+grep -c '^name = "' Cargo.lock                       # 记 999
+
+# A2 二进制体积（release 语义）
+cargo build --release -p dev-team
+ls -l target/release/dev-team.exe                    # 记 26.6 MB
+
+# A3 编译耗时（含逐 crate 用时）
+cargo build --release -p dev-team --timings
+# 产出 target/cargo-timings/cargo-timing-*.html
+# 只抄「archi 依赖子树 + dev-team 自身」的用时；同时抄总时长作参考
+
+# A4 本地增量（改一行后重编）
+touch crates/core/archi/src/lib.rs && time cargo build -p dev-team
+# Windows: Measure-Command { cargo build -p dev-team }
+# 重复 5 次取中位数
+
+# A5 安装包
+pnpm -C .. run build    # = tauri build；需 TAURI_SIGNING_PRIVATE_KEY 环境变量（见 RELEASE.md）
+ls -l target/release/bundle/nsis/*.exe
+```
+
+`A5` 需要完整 `tauri build` 与签名环境变量。若当时不便，用**代理指标**：`dev-team.exe` 体积 + 前端 `dist/` 总量；但要在记录里注明「安装包为代理值，未实测」。
+
+**B. 变体（加完 `archi` 及其依赖后）**
+
+重复 A1–A5 的**同一批命令**，且 cache 状态可比：
+- 冷测（A3）：`cargo clean -p archi` 后重测，或对比 `--timings` 中新增子树的用时（推荐后者，不必清理全局 cache）
+- 热测（A4）：只 `touch` 同一文件，不动其他
+
+**C. 差分与判读**
 
 ```
-1. 基线：git stash 掉依赖改动，cargo build --release --timings 记录
-         （记总时长 + 各 crate 编译用时），安装包大小取 bundle/nsis 产物
-2. 变体：加依赖后重复同一命令，同机同 profile、同 cache 状态
-3. 差值：只比「目标 crate 及其新增依赖子树」的编译用时，不比全量（cache 噪声大）
-4. 运行期：构造 200 变更文件 + 5000 元素语料，跑 10 次取 p95
-5. 三项（包 / 构建 / 运行）全部落进 crates/core/archi/tests/README.md 的实测表
+差值 = 变体 − 基线
+  全部 ≤ 软线                 → 通过，记录
+  任一项 ∈ (软线, 硬线]        → 通过但留痕：进 spec 的「已知成本」清单，并在 proposal 记录
+  任一项 > 硬线               → 不通过：进 6.4.6 回退序，回退后重测三项
 ```
 
-**超标回退序**（按代价从低到高，每步都验证是否已达硬线）：
+「未测」不等于「通过」：某项确实无法测（例如拿不到 CI 冷构建数据）时，记录「未测 + 原因」，并在 spec 留痕，不得默认视为达标。
+
+**D. 运行期测量（与构建解耦，可独立做）**
+
+```rust
+// crates/core/archi/tests/perf.rs（release 模式跑，`--release` 或 bench profile）
+// 语料：200 个变更文件 + 5000 元素模型，跑 10 次，取 p95
+// 计时用 std::time::Instant；不引 criterion（一次性门禁用不上统计框架）
+```
+
+语料可直接由 §7 的 corpus 生成器扩写，不手造。
+
+**E. 记录落点**
+
+`crates/core/archi/tests/README.md`（与 `checks/tests/golden/README.md` 同风格），表格固定五列：
+
+| 指标 | 基线 | 变体 | 差值 | 判定 |
+|---|---|---|---|---|
+| NSIS 安装包 | 6.68 MB | … | … | 通过 / 超软线留痕 / 超硬线回退 |
+| 主二进制 | 26.6 MB | … | … | |
+| `Cargo.lock` 包数 | 999 | … | … | |
+| 编译（archi 子树） | … | … | … | |
+| 本地增量（中位） | … | … | … | |
+| `archi_check` p95 | … | … | … | |
+
+同步抄一份到 change 的 `design.md`（或 proposal 的「成本实测」小节），让评审者在 review 时直接看到数字，不必翻进 crate 内部。
+
+#### 6.4.5 为什么不常态化跑 CI
+
+共享 runner 的冷启动、磁盘 IO、CPU 型号差异都能吃掉本方案的差值量级（零点几 MB / 几十秒）。常态化跑会得到「天天告警但没人信」的结果，反而消耗阈值公信力。
+
+替代做法：如需自动化，加一条 **`workflow_dispatch` 手动触发**的 workflow，输出实测表作为工件；不进 PR 门禁。这也是 `desktop-release.yml` 的现有风格（`force` 输入即是同类手工扳机）。
+
+#### 6.4.6 超标回退序
+
+按代价从低到高，**每步都要重测**，一旦回到硬线内即停：
 
 ```
 ① 减特性：oxc_parser 只开 parse，不引 oxc_semantic / oxc_codegen / oxc_minifier
-          （我们要的是 import 声明，不需要语义分析）
-② 砍 oxc_resolver（≈ 自算路径 150 行：相对路径拼接 + workspace 包名映射 + tsconfig paths）
-   代价：exports / imports 条件解析退化，语料里相应用例标为「已知不支持」
-③ 砍 oxc_parser 退正则 import
-   代价：type-only 判定与 span 行号（豁免注释定位用）退化，② 的误报率上升
-   这一步已实质违反「type-only 算架构依赖」的裁决，需要重新裁决
+          （我们要的只是 import 声明，不需要语义分析）
+          预期收益最大、代价最小——先试这一步
+② 砍 oxc_resolver → 自算路径约 150 行（相对路径拼接 + workspace 包名映射 + tsconfig paths）
+   代价：exports / imports 条件解析退化，§7.3 语料里相应条目改标「已知不支持」
+③ 砍 oxc_parser → 正则 import
+   代价：type-only 判定与 span 行号（豁免注释定位依赖行号）退化，② 的误报率上升；
+   且实质违反「type-only 算架构依赖」的裁决 → 必须重新裁决，不是实现层能自行决定的
 ```
 
-`Cargo.lock` 净新增包数的软/硬线单独设，是因为它比体积更早暴露问题：oxc 家族按特性会拉进 `compact_str` / `rustc-hash` / `simdutf8` / `bitflags` 等一串小包，若净增超过 40 个，说明某个开关默认把不需要的东西带进来了。
+回退不是失败：序①②都在方案预设的容差内；只有走到③才需要回到设计讨论。
 
 ---
 
@@ -770,11 +942,35 @@ crates/core/archi/tests/
 | 模型为空 | — | status = skipped |
 | 无变更文件 | — | status = noChanges |
 
+### 7.4 文档关联语料（§3.6.2）
+
+| 用例 | 期望 |
+|---|---|
+| `metadata.docs` 指向存在的文件 | `docs` 含该条目，`source: "explicit"`，排第一 |
+| `metadata.docs` 指向不存在的文件 | `model.warnings` 有 `docNotFound`；`docs` 不含该条目 |
+| 元素 `path` 目录下有 `README.md` | `docs` 含该条目，`source: "adjacent"` |
+| `path` 目录在测试夹具内（`__tests__/`） | 其下 md 不出现 |
+| ADR 正文提及元素 FQN | `docs` 含该 ADR，`source: "text"` |
+| 同一文件被显式与邻近同时命中 | 合并为一条，`source` 取强者（`explicit`） |
+| 元素无任何关联文档 | `docs: []`（不报错、不告警） |
+
+### 7.5 检索语料（§3.6.3 轻量版）
+
+| 用例 | 期望 |
+|---|---|
+| `query = "auth"` | 命中 FQN 含 auth 的元素 + 文件名含 auth 的文档 |
+| `query = "AuthToken"`（驼峰） | 命中 `App.Auth.Token`（分词后 auth / token 均匹配） |
+| `query` 命中文档**正文**但不在路径 / FQN 中 | **不命中**（不做全文搜索，这是刻意的） |
+| `query` 命中 `openspec/specs/` 内的内容 | **不命中**（已定案 24） |
+| `scope = "elements"` | `docs` 恒空数组 |
+| `query` 为空串 | `Err`（参数校验） |
+
 | Spike | 内容 | 验证什么 |
 |---|---|---|
 | **S1 解析 + 结构校验** | `core/archi` 跑通 §7.1 / §7.2 语料；`petgraph` 做 SCC 与祖先链判定；写模型命令拒绝非法 DSL；**同时按 §6.4 测量协议出产物实测表** | 解析语义 + 图算法 + 依赖成本量化；零 UI、零门禁 |
 | **S2 交叉核对 + 报告** | `change_edit_set` → `oxc_resolver` 归属 → 对账 → `reports/archi/*.json`；前端一格展示 | 归属判定、gate 档定级、豁免机制、报告槽 |
 | **S3 门禁挂载** | `StepNode::ArchiCheck` 挂 implement → 真实 change 跑出 fail → FeedbackLoop 回 executor → 超限升格；旧 db 验证存量 run 仍可读 | 相位表接线 + bincode 尾部追加纪律 + 端到端手感 |
+| **S4 文档关联与检索** | §7.4 / §7.5 语料；`archi_module` / `archi_search` 两个工具在 dev-design 与 implement 两个场景各跑一次真实会话 | 关联发现、轻量检索、按场景注入是否真的省 token |
 
 ---
 
@@ -805,12 +1001,19 @@ crates/core/archi/tests/
 | 21 | 产物标准 | 安装包 +1.5 MB / 二进制 +5 MB / 锁内净增 ≤ 40 包 / CI 冷构建 +90 s / 本地增量 +15 s / 单次检查 3 s（硬线，见 §6.4）；超线按「减特性 → 砍 resolver → 砍 parser」回退 |
 | 22 | 模块文档 | **不预设文档形态**，只提供「元素 ↔ 文档」关联发现与检索；工具返回**引用**（`{path,title,kind,source}`）不返回正文，正文交 agent 用 `read` 取。三种关联来源：显式 `metadata.docs` / 路径邻近约定 / ADR 文本命中 |
 | 23 | 冲突现场处置 | **保留 rebase 半程**不 abort（沿用 `rebase_branch` 既有「冲突态保留」语义）；配套：`Preflight` MUST 检出 `rebase_head` 在场并挡回，防重跑在中间态 commit |
+| 24 | 检索范围 | **不含 `openspec/specs/`**（亦不含 `changes/`）。检索只覆盖架构域（模型 / ADR / config）+ 元素 `metadata.path` 覆盖的路径 |
+| 25 | 检索实现深度 | **轻量版**：匹配元素 FQN / description / metadata 值 / 文档路径与文件名，ASCII 大小写不敏感子串 + 驼峰分词；不做全文索引、不搜文档正文（正文归 agent 的 `grep`） |
+| 26 | 长期演进 | specs 将来被模块文档逐步替代（最终只留主要特性文档）。本方案**不做预铺**，只守四条边界（§2.6）：看护不读 specs、检索不读 specs、模块文档关联只认三种来源、门禁不依赖 specs↔element 映射 |
 
 ## 9. 未决问题
 
-1. **`archi_search` 的索引范围**——检索只覆盖 `openspec/architecture/` 与元素 `metadata.path` 邻近的 md，还是也覆盖 `openspec/specs/` 与 `openspec/changes/`？（已定案 16 是「不读 specs 做**看护**」，但**检索**是另一回事：dev-design 找「这功能归谁管」时，specs 里往往才是答案。需要区分「看护不读」与「检索可读」。）
-2. **`archi_search` 的实现方式**——真实全文索引（要建倒排 / 用 `ignore` 遍历 + 正则），还是让 agent 直接用既有 `grep` 工具？若后者够用，`archi_search` 可以只做「元素名/描述的结构化搜索」，把文档全文搜索让给 `grep`。倾向前者轻量版（只在标识符层面匹配，不做全文）。
-3. **产物实测的执行者**——S1 的测量协议需要同机同 cache 状态重复构建，CI 环境噪声大。是在开发机记录，还是加一条 workflow 专门跑？
+1. **产物实测的执行者**——S1 的测量协议需要同机同 cache 状态重复构建，CI 环境噪声大。是在开发机手工记录并在 `archi/tests/README.md` 留表，还是加一条 workflow 专门跑？
+
+## 10. 不在本方案范围（需要独立 change）
+
+1. **「模块文档替代 specs」的迁移**——§2.6 已列清难点：specs 现在承担六项职责（契约记录 / 可验收断言 / 能力盘点 / 归档增量合并 / 测试设计输入 / 验收输入）。后两项实际已不直读 specs，风险低；但**可验收断言（Scenario）**与**归档 SpecSync 的增量合并语义**没有散文形态的对应物。迁移若要成立，模块文档需继承可断言结构，或者接受「SpecSync 步退役、归档链缩短」——两者都是 workflow 级变更。
+2. **`archi` 与 specs 的最终关系**——若未来 specs 收缩到「少数主要特性文档」，这些文档与 element 的关系是「特性视角」而非「模块视角」，可能仍需要在架构视图里被引用。届时再裁决，本方案不预设。
+
 
 
 
