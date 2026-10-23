@@ -67,9 +67,9 @@ impl Env {
         let _ = fs::remove_dir_all(&worktree_root);
         Self {
             root,
+            vcs: FakeVcs::new(worktree_root.clone()),
             worktree_root,
             store: CreateStore::new(),
-            vcs: FakeVcs::new(),
         }
     }
 
@@ -87,7 +87,6 @@ impl Env {
     ) -> Result<CreateOutcome, String> {
         create(
             &self.root,
-            &self.worktree_root,
             &self.store,
             &self.vcs,
             name,
@@ -211,6 +210,8 @@ struct VcsProgram {
 }
 
 struct FakeVcs {
+    /// worktree 落位父锚（create 经 port 派生；夹具根由 Env 注入）。
+    worktree_root: PathBuf,
     program: Mutex<VcsProgram>,
     calls: Mutex<Vec<String>>,
     adds: Mutex<Vec<(PathBuf, PathBuf, String)>>,
@@ -218,8 +219,9 @@ struct FakeVcs {
 }
 
 impl FakeVcs {
-    fn new() -> Self {
+    fn new(worktree_root: PathBuf) -> Self {
         Self {
+            worktree_root,
             program: Mutex::new(VcsProgram::default()),
             calls: Mutex::new(Vec::new()),
             adds: Mutex::new(Vec::new()),
@@ -290,6 +292,11 @@ impl FakeVcs {
 }
 
 impl WorktreePort for FakeVcs {
+    fn worktree_root(&self, _main_root: &Path) -> Result<PathBuf, String> {
+        self.record("worktree_root");
+        Ok(self.worktree_root.clone())
+    }
+
     fn probe(&self, _main_root: &Path) -> Result<RepoProbe, String> {
         self.record("probe");
         self.program
@@ -1784,10 +1791,10 @@ fn worktree门槛拒绝_8个直属子目录err文案含对账引导() {
     );
     // 拒绝面零副作用
     assert_eq!(env.store.create_call_count(), 0, "db 零建档调用");
-    assert!(
-        env.vcs.calls().is_empty(),
-        "vcs 零调用（门槛道先于 git 探测），实际: {:?}",
-        env.vcs.calls()
+    assert_eq!(
+        env.vcs.calls(),
+        vec!["worktree_root"],
+        "仅落位派生一次（门槛道先于 probe / add）"
     );
 }
 
@@ -1847,7 +1854,7 @@ fn worktree门槛_目录缺席计零通过且普通文件不计入() {
 
 /// 前置⑨ 异常：`fs::read_dir` 非 NotFound 读错误（worktree_root 为普通文件
 /// 形态）→ 显式 `Err`「worktree 目录扫描失败」（不静默计 0、不伪装通过），
-/// vcs 零调用。
+/// 仅落位派生一次 vcs 调用。
 #[test]
 fn worktree门槛_非notfound读错误显式err() {
     let env = Env::new("threshold-io-err");
@@ -1867,10 +1874,10 @@ fn worktree门槛_非notfound读错误显式err() {
         error.contains("worktree 目录扫描失败"),
         "错误归因扫描失败（不静默计 0），实际: {error}"
     );
-    assert!(
-        env.vcs.calls().is_empty(),
-        "vcs 零调用（读错误道先于 git 探测），实际: {:?}",
-        env.vcs.calls()
+    assert_eq!(
+        env.vcs.calls(),
+        vec!["worktree_root"],
+        "仅落位派生一次（读错误道先于 probe / add）"
     );
 }
 

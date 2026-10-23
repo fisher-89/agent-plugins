@@ -1,10 +1,4 @@
-//! 写面 → vcs 执行的进程内缝（port 属消费者，流量词汇驻 core/workflow；
-//! checks 先例同构——port trait 留 core、进程执行落 infra）。六方法细粒度
-//! 使 create 编排（顺序 / 补偿 / 警告收口）留在 core 单点、vcs 只做进程执行
-//!（design D1）。sync 签名零 tokio（写面 sync 纪律）；测试以进程内脚本化
-//! 假件实现本 trait。
-
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 /// git 探测产出：基线（主仓 HEAD）+ 脏仓位（`git status --porcelain` 非空）。
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -24,11 +18,13 @@ pub struct InstallRun {
     pub summary: String,
 }
 
-/// git 工作面 port 缝：建域（`add_worktree`）/ 探测（`probe` / `branch_exists`）
-/// / 补偿（`remove_worktree` / `delete_branch`）/ 依赖引导（`run_install`）。
-/// 实现驻 infra/vcs（`ProcessWorktree`，组合根装配注入）；`Err` 面为带引导
-/// 文案的 String（调用方直接呈现）。
+/// git 工作面 port 
 pub trait WorktreePort: Send + Sync {
+    /// worktree 落位父锚：`<git 根父目录>/.worktrees/<git 根目录名>`（workspace
+    /// root 可为仓库子目录，git 根经 `rev-parse --show-toplevel` 解析；非 git
+    /// 仓 / 裸仓 / git 不可用均显式 `Err` 引导）。
+    fn worktree_root(&self, main_root: &Path) -> Result<PathBuf, String>;
+
     /// git 可用 + git 仓 + HEAD + 脏仓单点探测（create 前置⑤；git 不可发现 /
     /// 非 git 仓 / 空仓无 HEAD 均显式 `Err` 引导——MUST NOT 静默回退主 root
     /// 创建）。

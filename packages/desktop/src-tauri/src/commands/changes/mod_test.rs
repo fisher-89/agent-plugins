@@ -121,13 +121,29 @@ impl Env {
     }
 }
 
+impl Drop for Env {
+    fn drop(&mut self) {
+        // worktree 新落位在 workspace git 根同级（tempdir 之外），随夹具回收
+        let _ = fs::remove_dir_all(worktree_anchor(self));
+    }
+}
+
+/// 新落位父锚（git 根同级 `.worktrees/<仓库目录名>`）：夹具中 git 根即
+/// ws_root，纯路径派生——非 git 场景同样可断言「零落位」。
+fn worktree_anchor(env: &Env) -> PathBuf {
+    let ws_root = env.ws_root.path();
+    ws_root
+        .parent()
+        .expect("ws_root 应有父目录")
+        .join(vcs_runtime::WORKTREES_DIR_NAME)
+        .join(ws_root.file_name().expect("ws_root 应有目录名"))
+}
+
 /// 以 MockRuntime 建测用 app，并 manage 真实 WorkspaceStores（打开 env 数据
 /// 根的全局库；workspace 库经 for_root 惰性开）。
 fn app_with(env: &Env) -> App<tauri::test::MockRuntime> {
     let app = tauri::test::mock_app();
     let stores = WorkspaceStores::open(env.data_dir.path()).expect("打开测试全局库失败");
-    // 数据根注入（worktrees 落位派生的注入面，与 main.rs setup 同构）
-    app.manage(env.data_dir.path().to_path_buf());
     app.manage(stores);
     // run 控制注册表（get_change_detail 统一视图活面投影读取——main.rs 同构托管）
     app.manage(Arc::new(orchestration::control::ChangeFlowControl::new()));
@@ -610,11 +626,13 @@ async fn create接线_建域落位_返回dto增id且按id立即可见可发起()
         10,
         "created 为 UTC YYYY-MM-DD（取 db 建档 created_at）"
     );
-    let worktree = vcs_runtime::worktree_dir(env.data_dir.path(), &root, "fix-bug");
+    let worktree = vcs_runtime::worktree_root(env.ws_root.path())
+        .expect("worktree 落位派生")
+        .join("fix-bug");
     assert_eq!(
         outcome.worktree,
         worktree.to_string_lossy(),
-        "worktree 落位 = data_root/worktrees/{{身份段}}/<name>（vcs 单点派生）"
+        "worktree 落位 = git 根同级 .worktrees/<仓库目录名>/<name>（vcs 单点派生）"
     );
 
     // 建域磁盘半边：worktree 内目录 + explore.md（goal 原文）；主仓 active 树
@@ -1077,8 +1095,9 @@ fn 不可寻址root开库失败_ok_none空结果语义维持() {
 // ---------------------------------------------------------------------------
 
 /// db 建档携 worktree 执行锚的 active 记录 + worktree 内产物树（merge 前主仓
-/// 两树未命中的读命令夹具）。`id` 与 `name` 刻意相异：磁盘目录名恒由记录
-/// `name` 供给（id → 记录 → name 分辨率单点的比对锚）。
+/// 两树未命中的读命令夹具；落位取存量数据根形态，与新派生解耦——记录路径
+/// 即执行锚）。`id` 与 `name` 刻意相异：磁盘目录名恒由记录 `name` 供给
+///（id → 记录 → name 分辨率单点的比对锚）。
 fn seed_worktree_change(
     env: &Env,
     app: &App<tauri::test::MockRuntime>,
@@ -1142,10 +1161,9 @@ async fn create拒绝映射_非git仓err透传且零产生() {
         .expect("查清单应成功");
     assert!(records.is_empty(), "零建档");
     assert!(!env.changes_dir().exists(), "零目录（主仓 active 树未建）");
-    let worktrees = env.data_dir.path().join("worktrees");
     assert!(
-        !worktrees.exists() || worktrees.read_dir().map(|d| d.count()).unwrap_or(0) == 0,
-        "零 worktree 目录"
+        !worktree_anchor(&env).exists(),
+        "零 worktree 落位（非 git 仓在落位派生处即拒绝）"
     );
 }
 
@@ -2425,7 +2443,8 @@ fn read_exec_output_worktree记录经name定位回读命中() {
     let app = app_with(&env);
     let state = app.state::<WorkspaceStores>();
     let root = env.root();
-    // worktree 锚（数据根下落位，形态与产品 `data_root/worktrees/…/<name>` 同构）
+    // worktree 锚（存量落位形态：数据根下 `worktrees/…/<name>`——记录携带
+    // 路径，与新派生解耦）
     let worktree = env.data_dir.path().join("worktrees").join("add-feature");
     seed_active_with_worktree(&store_of(&app, &root), "add-feature", &worktree);
     // 落盘以 worktree 为锚（record_exec_output 同式——exec root 口径）
@@ -2702,7 +2721,7 @@ async fn create非法workflow_type拒绝_零建档零建域() {
             "零目录创建（校验全 IO 前置）"
         );
         assert!(
-            !env.data_dir.path().join("worktrees").join(&name).exists(),
+            !worktree_anchor(&env).join(&name).exists(),
             "零 worktree 落位"
         );
     }
@@ -2937,7 +2956,7 @@ async fn create_change组合_4条active第5个创建成功() {
         .count();
     assert_eq!(actives, 5, "active 恰 5 条（4 种子 + 1 新建档）");
     assert!(
-        env.data_dir.path().join("worktrees").exists(),
+        worktree_anchor(&env).exists(),
         "worktree 落位根建域（真实 git worktree add 在案）"
     );
     assert!(
@@ -2995,11 +3014,7 @@ async fn create_change组合_第6个请求上限err逐字透传() {
         "零建档（拒绝面零副作用）"
     );
     assert!(
-        !env.data_dir
-            .path()
-            .join("worktrees")
-            .join("cap-sixth")
-            .exists(),
+        !worktree_anchor(&env).join("cap-sixth").exists(),
         "零 worktree 落位"
     );
 }

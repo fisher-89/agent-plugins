@@ -86,21 +86,29 @@ impl Env {
     }
 }
 
+impl Drop for Env {
+    fn drop(&mut self) {
+        // worktree 新落位在 workspace git 根同级（tempdir 之外），随夹具回收
+        let _ = fs::remove_dir_all(worktree_anchor(self));
+    }
+}
+
+/// 新落位父锚（git 根同级 `.worktrees/<仓库目录名>`）：夹具中 git 根即
+/// ws_root，纯路径派生（promote 测试的 ws_root 恒为 git 仓）。
+fn worktree_anchor(env: &Env) -> PathBuf {
+    let ws_root = env.ws_root.path();
+    ws_root
+        .parent()
+        .expect("ws_root 应有父目录")
+        .join(vcs_runtime::WORKTREES_DIR_NAME)
+        .join(ws_root.file_name().expect("ws_root 应有目录名"))
+}
+
 /// 以 MockRuntime 建测用 app，并在其中 manage 真实 WorkspaceStores（打开 env
 /// 数据根的全局库；各 workspace 库经 for_root 惰性开）。
 fn app_with_stores(env: &Env) -> App<tauri::test::MockRuntime> {
     let app = tauri::test::mock_app();
     let stores = WorkspaceStores::open(env.data_dir.path()).expect("打开测试全局库失败");
-    app.manage(stores);
-    app
-}
-
-/// 建测用 app（promote 面）：除 WorkspaceStores 外另 manage 数据根（worktree
-/// 落位派生注入面，与 main.rs setup 同构）。
-fn app_with_data(env: &Env) -> App<tauri::test::MockRuntime> {
-    let app = tauri::test::mock_app();
-    let stores = WorkspaceStores::open(env.data_dir.path()).expect("打开测试全局库失败");
-    app.manage(env.data_dir.path().to_path_buf());
     app.manage(stores);
     app
 }
@@ -896,7 +904,7 @@ async fn promote_explore四步成功_笔记移走记录保留打标() {
         .expect("PATH 锁不可中毒");
     let env = Env::new("promote-ok");
     env.as_git_repo();
-    let app = app_with_data(&env);
+    let app = app_with_stores(&env);
     let state = app.state::<WorkspaceStores>();
     let root = env.root();
     let note = "# 重试策略\n\n- 线索一\n- 线索二";
@@ -916,7 +924,7 @@ async fn promote_explore四步成功_笔记移走记录保留打标() {
     // ① 主仓笔记已删（move 半边）
     assert!(!note_path.exists(), "主仓 explores/api-retry.md 已删");
     // ② worktree 内 change explore.md = 笔记全文
-    let worktree = vcs_runtime::worktree_dir(env.data_dir.path(), &root, "api-retry");
+    let worktree = worktree_anchor(&env).join("api-retry");
     let landed = foundation::layout::resolve(&worktree)
         .changes_root
         .join("api-retry")
@@ -963,7 +971,7 @@ async fn promote_explore四步成功_笔记移走记录保留打标() {
 #[tokio::test]
 async fn promote_explore_blank_root与非kebab显式err零读写() {
     let env = Env::new("promote-reject");
-    let app = app_with_data(&env);
+    let app = app_with_stores(&env);
     let state = app.state::<WorkspaceStores>();
     let root = env.root();
     let note_path = env.note("valid-topic", "# 标题\n正文");
@@ -1012,7 +1020,7 @@ async fn promote_explore_blank_root与非kebab显式err零读写() {
 #[tokio::test]
 async fn promote_explore笔记未落盘或空白拒绝() {
     let env = Env::new("promote-no-note");
-    let app = app_with_data(&env);
+    let app = app_with_stores(&env);
     let state = app.state::<WorkspaceStores>();
     let root = env.root();
     create_explore_record(state.clone(), root.clone(), Some("no-note".to_owned()))
@@ -1067,7 +1075,7 @@ async fn promote_explore笔记未落盘或空白拒绝() {
 #[tokio::test]
 async fn promote_explore已promoted拒绝() {
     let env = Env::new("promote-again");
-    let app = app_with_data(&env);
+    let app = app_with_stores(&env);
     let state = app.state::<WorkspaceStores>();
     let root = env.root();
     let note_path = env.note("done-topic", "# 标题\n正文");
@@ -1119,7 +1127,7 @@ async fn promote_explore透传test_only且move照常() {
         .expect("PATH 锁不可中毒");
     let env = Env::new("promote-wf-test-only");
     env.as_git_repo();
-    let app = app_with_data(&env);
+    let app = app_with_stores(&env);
     let state = app.state::<WorkspaceStores>();
     let root = env.root();
     let note = "# 补测试\n\n目标是给既有模块补测试用例";
@@ -1170,7 +1178,7 @@ async fn promote_explore非法workflow_type拒绝零铸出() {
         .expect("PATH 锁不可中毒");
     let env = Env::new("promote-wf-invalid");
     env.as_git_repo();
-    let app = app_with_data(&env);
+    let app = app_with_stores(&env);
     let state = app.state::<WorkspaceStores>();
     let root = env.root();
     let note_path = env.note("valid-topic", "# 标题\n正文");
@@ -1225,7 +1233,7 @@ async fn promote_explore_workflow_type大小写空白canonical() {
         .expect("PATH 锁不可中毒");
     let env = Env::new("promote-wf-canonical");
     env.as_git_repo();
-    let app = app_with_data(&env);
+    let app = app_with_stores(&env);
     let state = app.state::<WorkspaceStores>();
     let root = env.root();
     let note = "# 规范化\n正文";
@@ -1577,7 +1585,7 @@ fn create_none连续两次建档获得互异占位名() {
 #[tokio::test]
 async fn promote占位记录被门禁显式拒绝引导先定名() {
     let env = Env::new("promote-draft");
-    let app = app_with_data(&env);
+    let app = app_with_stores(&env);
     let state = app.state::<WorkspaceStores>();
     let root = env.root();
     let record = create_explore_record(state.clone(), root.clone(), None).expect("占位建档应成功");
@@ -1616,7 +1624,7 @@ async fn promote占位记录被门禁显式拒绝引导先定名() {
 #[tokio::test]
 async fn promote占位门禁先于笔记读取步序() {
     let env = Env::new("promote-draft-order");
-    let app = app_with_data(&env);
+    let app = app_with_stores(&env);
     let state = app.state::<WorkspaceStores>();
     let root = env.root();
     let record = create_explore_record(state.clone(), root.clone(), None).expect("占位建档应成功");
@@ -1651,7 +1659,7 @@ async fn promote占位门禁先于笔记读取步序() {
 #[tokio::test]
 async fn 用户自建draft前缀名promote同被门禁拦截() {
     let env = Env::new("promote-user-draft");
-    let app = app_with_data(&env);
+    let app = app_with_stores(&env);
     let state = app.state::<WorkspaceStores>();
     let root = env.root();
     // draft-<数字> 为合法 kebab（首段字母、次段数字）——显式名建档可达

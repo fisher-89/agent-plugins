@@ -70,6 +70,31 @@ fn git_impl(
     Ok(String::from_utf8_lossy(&output.stdout).into_owned())
 }
 
+/// git 工作树根（`rev-parse --show-toplevel`）：workspace root 可为仓库子目录，
+/// worktree 落位以 git 根为锚（同级 `.worktrees/<仓库目录名>/`）。非 git 仓 /
+/// 裸仓映射显式引导（与 [`probe`] 同口径）。
+pub(crate) fn toplevel(main_root: &Path) -> Result<PathBuf, String> {
+    let raw = git(main_root, &["rev-parse", "--show-toplevel"]).map_err(|error| {
+        if error.contains("not a git repository") || error.contains("must be run in a work tree") {
+            format!(
+                "主仓 {} 为非 git 仓：change worktree 落位需要 git 仓库，\
+                 请先 git init 并提交",
+                main_root.display()
+            )
+        } else {
+            error
+        }
+    })?;
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return Err(format!(
+            "主仓 {} 的 git 工作树根解析为空（rev-parse --show-toplevel 无输出）",
+            main_root.display()
+        ));
+    }
+    Ok(PathBuf::from(trimmed))
+}
+
 /// 探测三连（git 可用 + git 仓 + HEAD + 脏仓单点）：`rev-parse
 /// --is-inside-work-tree` → `rev-parse HEAD` → `status --porcelain`。非 git
 /// 仓 / 空仓（无 HEAD）各映射显式引导文案（不静默）。

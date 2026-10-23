@@ -7102,7 +7102,7 @@ async fn 归档cleanup缺席幂等跳过_零失败面() {
     let root = TempRoot::new("archive-cleanup-absent");
     root.change(NAME);
     // 缺席 worktree 路径（落位根与主仓分置形态——目录从未建位，与真实
-    // worktrees/{身份段}/ 落位同构）
+    // 记录携带的 worktree 落位同构）
     let worktree = root.0.join("worktrees-seg").join(NAME);
     let worktree = worktree.to_string_lossy().into_owned();
     assert!(

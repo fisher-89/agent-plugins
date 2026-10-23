@@ -6,7 +6,7 @@ use tauri::{AppHandle, Manager, State};
 
 use foundation::layout::resolve;
 use store::WorkspaceStores;
-use vcs_runtime::{worktree_dir, ProcessWorktree};
+use vcs_runtime::ProcessWorktree;
 use workflow::artifacts::{read_artifact as core_read_artifact, ArtifactEnvelope};
 use workflow::queries::{
     self, iso_from_millis, locate_change, ChangeDetail, ChangeList, ChangeRunEdgeRecord,
@@ -208,10 +208,10 @@ pub async fn create_change(
 }
 
 /// [`create_change`] 的泛型测试缝（生产注入 Wry 句柄、测试注入 MockRuntime
-/// 句柄，沿 `archive_change_with` 先例）：装配 vcs 落位派生（data_root 状态）
-/// 与 `ProcessWorktree`，经 `spawn_blocking` 调写面。`title` 显式传入（空白
-/// 回退 `name` 单点在写面）——promote 路径据此继承 `explore.title`；
-/// `workflow_type` 原样透传写面（合法值校验亦在写面）。
+/// 句柄，沿 `archive_change_with` 先例）：装配 vcs 落位派生（git 根同级
+/// `.worktrees/<仓库目录名>/`）与 `ProcessWorktree`，经 `spawn_blocking` 调写面。
+/// `title` 显式传入（空白回退 `name` 单点在写面）——promote 路径据此继承
+/// `explore.title`；`workflow_type` 原样透传写面（合法值校验亦在写面）。
 pub(crate) async fn create_change_with<R: tauri::Runtime>(
     app: AppHandle<R>,
     root: String,
@@ -224,24 +224,14 @@ pub(crate) async fn create_change_with<R: tauri::Runtime>(
         return Err("非法 root: 不得为空白".to_owned());
     }
     let stores = app.state::<WorkspaceStores>();
-    let data_root = app.state::<PathBuf>();
     let store = stores.for_root(&root).map_err(|e| e.to_string())?;
-    // worktree 落位经 vcs 单点派生（data_root/worktrees/{身份段}/<name>）；
-    // 写面 create 以父锚自拼 <name>，此处取其父目录
-    let placement = worktree_dir(data_root.inner(), &root, &name);
-    let Some(worktree_root) = placement.parent() else {
-        return Err(format!(
-            "worktree 落位派生异常（无父目录）: {}",
-            placement.display()
-        ));
-    };
     let main_root = PathBuf::from(root);
-    let worktree_root = worktree_root.to_path_buf();
     let vcs = ProcessWorktree::new();
     tauri::async_runtime::spawn_blocking(move || {
+        // worktree 落位父锚由写面经 vcs port 单点派生（git 根同级
+        // `.worktrees/<仓库目录名>/`），派生时序与前置校验对齐。
         write::create(
             &main_root,
-            &worktree_root,
             store.as_ref(),
             &vcs,
             &name,

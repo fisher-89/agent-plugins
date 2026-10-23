@@ -149,18 +149,17 @@ impl Corpus {
         let _ = fs::remove_dir_all(&worktree_root);
         Self {
             root,
+            vcs: FakeVcs::new(worktree_root.clone()),
             worktree_root,
             _db: db,
             store,
-            vcs: FakeVcs::new(),
         }
     }
 
-    /// create 建域（假件 vcs + worktree 落位夹具根）。
+    /// create 建域（假件 vcs 提供 worktree 落位父锚）。
     fn create(&self, name: &str, goal: &str) -> Result<CreateOutcome, String> {
         create(
             &self.root,
-            &self.worktree_root,
             &self.store,
             &self.vcs,
             name,
@@ -355,11 +354,14 @@ impl Drop for Corpus {
 // （HEAD 检出的最小模拟——真实进程 git 夹具行收 vcs-runtime crate 测试面）
 // ---------------------------------------------------------------------------
 
-struct FakeVcs;
+struct FakeVcs {
+    /// worktree 落位父锚（create 经 port 派生）。
+    worktree_root: PathBuf,
+}
 
 impl FakeVcs {
-    fn new() -> Self {
-        Self
+    fn new(worktree_root: PathBuf) -> Self {
+        Self { worktree_root }
     }
 }
 
@@ -383,6 +385,10 @@ fn mirror_tree(from: &Path, to: &Path) -> Result<(), String> {
 }
 
 impl WorktreePort for FakeVcs {
+    fn worktree_root(&self, _main_root: &Path) -> Result<PathBuf, String> {
+        Ok(self.worktree_root.clone())
+    }
+
     fn probe(&self, _main_root: &Path) -> Result<RepoProbe, String> {
         Ok(RepoProbe {
             head: "0000000000000000000000000000000000000001".to_owned(),
@@ -2521,9 +2527,8 @@ fn 真件create_fs失败补偿_重开db零残留() {
         let store = Store::open_workspace(&db_path).expect("打开 workspace db 失败");
         let error = create(
             ws.path(),
-            &worktree_root,
             &store,
-            &FakeVcs::new(),
+            &FakeVcs::new(worktree_root),
             "fix-bug",
             "补偿路径 goal",
             "fix-bug",

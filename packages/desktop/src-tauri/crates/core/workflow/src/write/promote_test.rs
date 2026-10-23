@@ -56,9 +56,9 @@ impl Env {
         let _ = fs::remove_dir_all(&worktree_root);
         Self {
             root,
+            vcs: FakeVcs::new(worktree_root.clone()),
             worktree_root,
             store: PromoteStore::new(),
-            vcs: FakeVcs::new(),
         }
     }
 
@@ -96,7 +96,6 @@ impl Env {
     ) -> Result<PromoteOutcome, String> {
         promote_explore(
             &self.root,
-            &self.worktree_root,
             &self.store,
             &self.vcs,
             name,
@@ -148,13 +147,16 @@ struct VcsProgram {
 }
 
 struct FakeVcs {
+    /// worktree 落位父锚（create 经 port 派生；夹具根由 Env 注入）。
+    worktree_root: PathBuf,
     program: Mutex<VcsProgram>,
     calls: Mutex<Vec<String>>,
 }
 
 impl FakeVcs {
-    fn new() -> Self {
+    fn new(worktree_root: PathBuf) -> Self {
         Self {
+            worktree_root,
             program: Mutex::new(VcsProgram::default()),
             calls: Mutex::new(Vec::new()),
         }
@@ -181,6 +183,11 @@ impl FakeVcs {
 }
 
 impl WorktreePort for FakeVcs {
+    fn worktree_root(&self, _main_root: &Path) -> Result<PathBuf, String> {
+        self.record("worktree_root");
+        Ok(self.worktree_root.clone())
+    }
+
     fn probe(&self, _main_root: &Path) -> Result<RepoProbe, String> {
         self.record("probe");
         self.program

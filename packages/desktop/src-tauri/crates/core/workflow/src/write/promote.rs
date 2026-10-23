@@ -23,15 +23,12 @@ pub struct PromoteOutcome {
 
 /// promote（move）：调 [`create`](crate::write::create) 建 change（goal = 笔记
 /// 全文、title 显式继承、workflow_type 透传入参），成功后删主仓笔记文件（移走
-/// 半边）。双根注入语义同 create（`main_root` 主仓根、`worktree_root` 落位父
-/// 锚）；目标 change 目录 / 记录 / branch / worktree 冲突面与 workflow_type 合法
-/// 值校验均由 create 前置校验承担（拒绝面零副作用）。
-// 双根 + 两 port + 三标量：入参面为写面组合根装配契约（design「公共函数 / API」
-// 定稿签名），拆结构体只增间接。
-#[allow(clippy::too_many_arguments)]
+/// 半边）。主仓根注入（`main_root`）；worktree 落位父锚由 create 经 vcs port
+/// 单点派生（git 根同级 `.worktrees/<仓库目录名>/`）。目标 change 目录 / 记录 /
+/// branch / worktree 冲突面与 workflow_type 合法值校验均由 create 前置校验承担
+/// （拒绝面零副作用）。
 pub fn promote_explore(
     main_root: &Path,
-    worktree_root: &Path,
     store: &dyn ChangeStateStore,
     vcs: &dyn WorktreePort,
     name: &str,
@@ -39,16 +36,7 @@ pub fn promote_explore(
     title: &str,
     workflow_type: &str,
 ) -> Result<PromoteOutcome, String> {
-    let outcome = super::create(
-        main_root,
-        worktree_root,
-        store,
-        vcs,
-        name,
-        note,
-        title,
-        workflow_type,
-    )?;
+    let outcome = super::create(main_root, store, vcs, name, note, title, workflow_type)?;
     let layout = resolve(main_root);
     let note_path = layout.explores_root.join(format!("{name}.md"));
     match fs::remove_file(&note_path) {

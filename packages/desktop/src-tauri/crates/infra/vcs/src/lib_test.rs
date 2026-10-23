@@ -1,78 +1,60 @@
-//! vcs crate 根（lib.rs）的单元测试（test-design「lib.rs -> lib_test.rs」节）：
-//! worktree 落位派生单点——`data_root/worktrees/{身份段}/<change>` 消费
-//! foundation 身份段（同源单点直调对拍）；同根可复现 / 异根不撞；change 名
-//! 零清洗零截断（清洗权威在 create 前置，本函数零校验的负向锚）；目录名常
-//! 量与无状态装配入口。纯路径推导内存直驱（tempfile 仅取路径字符串，零 git
-//! 零 spawn）。
-//!
-//! `ProcessArchiveVcs.remove_worktree`（worktree-cleanup-and-active-cap / AC-5 /
-//! AC-7）：归档 Cleanup 步执行缝真件面——真实 git tempdir 驱动（`tempfile::
-//! TempDir` 隔离、worktree 落位与主仓分置；git 子进程为被测本体不 mock）：
-//! add 建位 → remove Ok 目录消失与 list 不再列出、转发对拍效果等值、Err 面
-//! 携路径与 `git worktree remove --force {path}` 手动指引、branch 零触碰、脏
-//! worktree 经 `--force` 仍可移除、无状态构造等值。
-
 use std::path::{Path, PathBuf};
 
-use super::{worktree_dir, ProcessWorktree, WORKTREES_DIR_NAME};
+use super::{worktree_root, worktree_root_from_toplevel, ProcessWorktree, WORKTREES_DIR_NAME};
 
-/// 落位形态：`data_root/worktrees/{workspace_identity_segment(ws_root)}/{change}`
-/// ——第三级与 foundation 单点同源（直调对拍）；`WORKTREES_DIR_NAME == "worktrees"`。
+/// 落位形态：`<git 根父目录>/.worktrees/<git 根目录名>`——与数据根 / 身份段
+/// 解耦（不再叠加 hash 段）；`WORKTREES_DIR_NAME == ".worktrees"`。
 #[test]
-fn 落位形态_身份段父目录与foundation单点同源对拍() {
+fn 落位形态_git根同级点worktrees子目录() {
     assert_eq!(
-        WORKTREES_DIR_NAME, "worktrees",
-        "worktrees 子树目录名单点常量"
+        WORKTREES_DIR_NAME, ".worktrees",
+        "git 根同级子树目录名单点常量"
     );
 
-    let data_root = PathBuf::from("C:\\app-data");
-    for (ws_root, change) in [
-        ("C:\\ws\\demo-alpha", "fix-bug"),
-        ("/home/u/repo", "add-feature"),
-        ("C:\\ws\\...", "edge-name"),
+    for toplevel in [
+        Path::new("C:\\Projects\\wpsweb"),
+        Path::new("/home/u/repo"),
+        Path::new("relative-dir\\repo"),
     ] {
-        let placement = worktree_dir(&data_root, ws_root, change);
-        let expected = data_root
+        let expected = toplevel
+            .parent()
+            .expect("夹具 toplevel 恒有父目录")
             .join(WORKTREES_DIR_NAME)
-            .join(foundation::identity::workspace_identity_segment(ws_root))
-            .join(change);
+            .join(toplevel.file_name().expect("夹具 toplevel 恒有目录名"));
         assert_eq!(
-            placement, expected,
-            "落位 = data_root/worktrees/{{身份段}}/<change>（{ws_root}）"
+            worktree_root_from_toplevel(toplevel).expect("落位派生应成功"),
+            expected,
+            "落位 = <git 根父目录>/.worktrees/<git 根目录名>（{}）",
+            toplevel.display()
         );
     }
 }
 
-/// 可复现与隔离：同 (data_root, ws_root, change) 两次派生等值；异 ws_root 同
-/// change → 不同身份段父目录（互不冲突互不可见）。
+/// 可复现与隔离：同 git 根两次派生等值；异 git 根（同父目录 / 异父目录）落位
+/// 互异。
 #[test]
-fn 可复现与隔离_同根等值异根父目录互异() {
-    let data_root = PathBuf::from("C:\\app-data");
-    let first = worktree_dir(&data_root, "C:\\ws\\alpha", "fix-bug");
-    let second = worktree_dir(&data_root, "C:\\ws\\alpha", "fix-bug");
-    assert_eq!(
-        first, second,
-        "同 (data_root, ws_root, change) 派生确定可复现"
-    );
+fn 可复现与隔离_同根等值异根互异() {
+    let first = worktree_root_from_toplevel(Path::new("C:\\Projects\\alpha"))
+        .expect("首次派生应成功");
+    let second = worktree_root_from_toplevel(Path::new("C:\\Projects\\alpha"))
+        .expect("再次派生应成功");
+    assert_eq!(first, second, "同 git 根派生确定可复现");
 
-    let other = worktree_dir(&data_root, "C:\\ws\\beta", "fix-bug");
-    assert_ne!(
-        first.parent(),
-        other.parent(),
-        "异 ws_root 同 change → 身份段父目录不同（互不冲突）"
-    );
-    assert_eq!(
-        first.file_name(),
-        other.file_name(),
-        "change 名尾段不受 workspace 身份影响"
-    );
+    let sibling = worktree_root_from_toplevel(Path::new("C:\\Projects\\beta"))
+        .expect("异根派生应成功");
+    assert_ne!(first, sibling, "同父目录异仓库目录名 → 落位互异");
+
+    let elsewhere = worktree_root_from_toplevel(Path::new("D:\\Projects\\alpha"))
+        .expect("异盘派生应成功");
+    assert_ne!(first, elsewhere, "异父目录同名仓库 → 落位互异");
 }
 
 /// change 名原样挂尾：不做任何清洗 / 截断（清洗权威在 create 前置——本函数
-/// 零校验的负向锚；非法名经此原样透出，由 create 七道前置拒绝）。
+/// 零校验的负向锚；非法名经此原样透出，由 create 前置拒绝）。
 #[test]
 fn change名原样挂尾_零清洗零截断() {
-    let data_root = Path::new("C:\\app-data");
+    let anchor =
+        worktree_root_from_toplevel(Path::new("C:\\Projects\\demo")).expect("落位派生应成功");
     for raw in [
         "Fix-Bug",
         "fix_bug",
@@ -80,13 +62,60 @@ fn change名原样挂尾_零清洗零截断() {
         "fix--bug",
         "超长".repeat(64).as_str(),
     ] {
-        let placement = worktree_dir(data_root, "C:\\ws\\demo", raw);
+        let placement = anchor.join(raw);
         assert!(
             placement.ends_with(Path::new(raw)),
             "change 名零清洗零截断原样挂尾（含多分量名原样透出）: {raw:?} -> {}",
             placement.display()
         );
     }
+}
+
+/// 派生异常：git 根无父目录（单分量相对路径）→ 显式 Err 引导。
+#[test]
+fn worktree_root_from_toplevel_无父目录err() {
+    let error =
+        worktree_root_from_toplevel(Path::new("demo")).expect_err("无父目录应 Err");
+    assert!(
+        error.contains("无父目录") && error.contains(".worktrees"),
+        "Err 携派生语境，实际: {error}"
+    );
+}
+
+/// 真实 git（正向）：workspace root = git 根 → 落位在 git 根同级的
+/// `.worktrees/<仓库目录名>`；workspace root 为仓库子目录时仍锚定 git 根。
+#[test]
+fn worktree_root_真实git_子目录workspace仍锚定git根() {
+    let (base, repo) = init_repo("placement");
+    let expected = base.path().join(WORKTREES_DIR_NAME).join("repo");
+
+    assert_eq!(
+        worktree_root(&repo).expect("git 根 workspace 派生应成功"),
+        expected,
+        "落位 = <git 根父目录>/.worktrees/<仓库目录名>"
+    );
+
+    let nested = repo.join("client").join("app");
+    std::fs::create_dir_all(&nested).expect("建仓库子目录失败");
+    assert_eq!(
+        worktree_root(&nested).expect("子目录 workspace 派生应成功"),
+        expected,
+        "workspace 为仓库子目录时仍以 git 根为锚"
+    );
+}
+
+/// 真实 git（异常）：非 git 目录 → 显式 Err（引导文案与 create probe 同口径）。
+#[test]
+fn worktree_root_非git目录err() {
+    let plain = tempfile::Builder::new()
+        .prefix("vcs-lib-placement-plain-")
+        .tempdir()
+        .expect("创建普通目录失败");
+    let error = worktree_root(plain.path()).expect_err("非 git 目录应 Err");
+    assert!(
+        error.contains("非 git 仓"),
+        "Err 携非 git 仓引导，实际: {error}"
+    );
 }
 
 /// 无状态装配入口：`new()` 与 `Default::default()` 等值可重复构造（组合根
@@ -131,7 +160,10 @@ fn init_repo(tag: &str) -> (tempfile::TempDir, PathBuf) {
         .prefix(&format!("vcs-lib-test-{tag}-"))
         .tempdir()
         .expect("创建仓临时目录失败");
-    let root = dir.path().to_path_buf();
+    // 仓落父 tempdir 的 `repo` 子目录：worktree 新落位在 git 根同级
+    // （`.worktrees/repo`），随父 tempdir 一并回收。
+    let root = dir.path().join("repo");
+    std::fs::create_dir_all(&root).expect("创建仓目录失败");
     git(&root, &["init", "-q"]);
     git(&root, &["config", "user.name", "fixture"]);
     git(&root, &["config", "user.email", "fixture@example.com"]);

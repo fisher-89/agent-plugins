@@ -28,20 +28,38 @@ pub(crate) fn test_path_lock() -> std::sync::MutexGuard<'static, ()> {
         .unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
-/// worktrees 子树目录名（数据根直下，每 workspace 恒一段子树）。
-pub const WORKTREES_DIR_NAME: &str = "worktrees";
+/// worktrees 子树目录名（git 根同级：`<git 根父目录>/.worktrees/<仓库目录名>/`）。
+pub const WORKTREES_DIR_NAME: &str = ".worktrees";
 
-/// worktree 落位派生单点：`data_root/worktrees/{身份段}/<change>`——身份段
-/// 消费 foundation 单点（与 workspace db 文件名同源：同根恒同名、异根必不同
-/// 名）。canonical 锚口径同身份段（命令入参 canonical root 契约，纯字符串
-/// 零路径 IO）；change 名不做任何清洗 / 截断（清洗权威在 create 前置）。
-pub fn worktree_dir(data_root: &Path, workspace_root: &str, change: &str) -> PathBuf {
-    data_root
-        .join(WORKTREES_DIR_NAME)
-        .join(foundation::identity::workspace_identity_segment(
-            workspace_root,
-        ))
-        .join(change)
+/// worktree 落位父锚派生单点
+pub fn worktree_root(workspace_root: &Path) -> Result<PathBuf, String> {
+    let toplevel = git::toplevel(workspace_root)?;
+    worktree_root_from_toplevel(&toplevel)
+}
+
+/// 纯派生：git 根 → 落位父锚（单测直驱，零 git 探测）。
+fn worktree_root_from_toplevel(toplevel: &Path) -> Result<PathBuf, String> {
+    let parent = toplevel
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+        .ok_or_else(|| {
+            format!(
+                "worktree 落位派生异常：git 根 {} 无父目录（无法在同级创建 {}）",
+                toplevel.display(),
+                WORKTREES_DIR_NAME
+            )
+        })?;
+    let repo = toplevel
+        .file_name()
+        .filter(|name| !name.is_empty())
+        .ok_or_else(|| {
+            format!(
+                "worktree 落位派生异常：git 根 {} 无目录名（无法派生 {} 子树）",
+                toplevel.display(),
+                WORKTREES_DIR_NAME
+            )
+        })?;
+    Ok(parent.join(WORKTREES_DIR_NAME).join(repo))
 }
 
 /// git 工作面进程执行器（无状态，组合根按需构造）。
@@ -61,6 +79,10 @@ impl Default for ProcessWorktree {
 }
 
 impl WorktreePort for ProcessWorktree {
+    fn worktree_root(&self, main_root: &Path) -> Result<PathBuf, String> {
+        worktree_root(main_root)
+    }
+
     fn probe(&self, main_root: &Path) -> Result<workflow::write::RepoProbe, String> {
         git::probe(main_root)
     }

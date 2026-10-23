@@ -51,9 +51,6 @@ fn main() {
             //（泵任务 panic 默认只进无控制台的 stderr，日志面补观测）
             agent_runtime::init_engine_log(&data_root.join(LOGS_DIR_NAME));
             agent_runtime::install_engine_panic_hook();
-            // 数据根注入（worktrees 落位派生的注入面，沿 store 注入式打开
-            // 纪律——`create_change` 经 vcs 单点派生 worktree 落位）
-            app.manage(data_root.clone());
             app.manage(stores);
             // watch 订阅注册表：消费页面生命周期由命令面退订承载，此处只挂空表
             app.manage(WatchRegistry::default());

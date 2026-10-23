@@ -2,37 +2,47 @@
 
 ## Purpose
 
-定义 change worktree 双 root 执行能力：写面 create 以主仓 HEAD 为基线为每次创建分配 per-change git worktree（全局数据目录 `worktrees/{身份段}/<name>` + branch `change/<name>`，身份段与 workspace db 文件名同源派生），change run 以 workspace root 为唯一 store 身份锚、worktree 为执行根的双 root 组合执行；配套确定性依赖 bootstrap、脏仓警告不阻止、merge-first 归档引导与 worktree 路径 UI 可见性。
+定义 change worktree 双 root 执行能力：写面 create 以主仓 HEAD 为基线为每次创建分配 per-change git worktree（workspace git 根同级 `.worktrees/<仓库目录名>/<name>` + branch `change/<name>`），change run 以 workspace root 为唯一 store 身份锚、worktree 为执行根的双 root 组合执行；配套确定性依赖 bootstrap、脏仓警告不阻止、merge-first 归档引导与 worktree 路径 UI 可见性。
 
 ## Requirements
 
-### Requirement: worktree 落位与身份派生单点
+### Requirement: worktree 落位单点（git 根同级）
 
-change worktree SHALL 落位于全局数据目录下 `worktrees/` 子树：`<data_root>/worktrees/{身份段}/<change-name>`。身份段 SHALL 为 workspace canonical root 的确定性派生 `{可读段}-{sha256 前 16 字节 32 位小写 hex}`（可读段清洗与截断规则沿既有 `readable_segment` 语义），与 workspace db 文件名（`workspace_db_file_name`）**同源同算法**（去 `.redb` 后缀）——身份段派生 SHALL 收口 foundation 单点纯函数，db 文件名与 worktree 子目录 SHALL 同源消费该单点（同根恒同名、跨重启可复现、异根必不同名；store 内不得残留第二份派生实现）。`worktrees/` 子树与 `workspaces/` 子树 SHALL 相邻而零耦合：worktree 是 git 管理的执行锚，MUST NOT 进入任何 db 维度载体语义（desktop-data-dimensions 零改动），git 树 MUST NOT 感知 db 文件。数据目录根 SHALL 由 desktop-app 注入（沿 store 注入式打开纪律）；跨盘（data 目录与 repo 异盘）的 git worktree 合法，SHALL 接受。
+change worktree SHALL 落位于 **workspace git 根的同级**：`<git 根父目录>/.worktrees/<git 根目录名>/<change-name>`。git 根 SHALL 经 `git rev-parse --show-toplevel` 解析——workspace root 可为仓库子目录（workspace 在 `client/app` 时 worktree 仍落仓库根同级 `.worktrees/<仓库目录名>/`），落位恒锚定 git 根，MUST NOT 以 workspace root 自身为锚。落位派生 SHALL 收口 vcs 边界单点（`vcs-runtime::worktree_root`），并经 `WorktreePort::worktree_root` 缝在写面前置校验时序内消费。worktree 落位与 workspace db 文件名的身份段派生（foundation 单点）SHALL 解耦：worktree 路径 MUST NOT 叠加数据根 / 身份段 hash 段（避免 worktree 路径逼近 Windows MAX_PATH），git 树 MUST NOT 感知 db 文件。worktree 落位与数据目录 SHALL 零耦合（desktop-data-dimensions 零改动）；跨盘（data 目录与 repo 异盘）的 git worktree 合法，SHALL 接受。存量 change 的 worktree 路径以 `ChangeRecord.worktree` 落库为唯一执行锚，本落位变更 MUST NOT 迁移或重算存量地址。
 
-#### Scenario: 同根恒同名可复现
+#### Scenario: git 根同级可复现
 
-- **WHEN** 对同一 workspace root 跨进程重启两次派生 worktree 子目录路径
-- **THEN** 两次派生结果逐字一致，且与该 workspace db 文件名的身份段一致（仅后缀 `.redb` 之差）
+- **WHEN** 对同一 workspace root 跨进程重启两次派生 worktree 落位
+- **THEN** 两次派生结果逐字一致，均为 `<git 根父目录>/.worktrees/<git 根目录名>/<change>`
 
-#### Scenario: 异根必不同名
+#### Scenario: workspace 为仓库子目录仍锚定 git 根
 
-- **WHEN** 两个不同 workspace 各自创建同名 change 的 worktree
-- **THEN** 两个 worktree 落位于不同身份段子目录下，互不冲突、互不可见
+- **WHEN** workspace root 为 git 仓库的子目录（如 `<repo>/client/app`）
+- **THEN** worktree 落位于 `<repo 父目录>/.worktrees/<repo 目录名>/<change>`，MUST NOT 落在子目录内或其同级
+
+#### Scenario: 异仓库互不冲突
+
+- **WHEN** 两个不同 git 仓库各自创建同名 change 的 worktree
+- **THEN** 两个 worktree 落位于各自的 `.worktrees/<仓库目录名>/` 子树下，互不冲突、互不可见
 
 #### Scenario: 子树零耦合
 
-- **WHEN** 审查 worktrees 子树与 workspace 库的消费关系
-- **THEN** db 路径派生只消费 `workspaces/` 子树，worktree 目录派生只消费 `worktrees/` 子树，git 工作树内无 db 文件感知
+- **WHEN** 审查 worktree 落位与 workspace 库的消费关系
+- **THEN** db 路径派生只消费 `workspaces/` 子树（foundation 身份段单点），worktree 落位只消费 git 根，git 工作树内无 db 文件感知
+
+#### Scenario: 存量地址不迁移
+
+- **WHEN** 升级后打开一个存量 change（记录携旧数据根落位的 worktree 路径）
+- **THEN** 执行 / 归档 / 清理均以 `ChangeRecord.worktree` 为准，磁盘目录不移动、不重算
 
 ### Requirement: create 分配 worktree 与分支基线
 
-写面 `create` 对每次成功创建 SHALL 分配同名 worktree：以主仓 HEAD 为基线 `git worktree add` 落位于身份派生目录，并建 branch `change/<name>`——主仓未提交与 staged 改动 MUST NOT 进入 worktree（基线恒 HEAD）。`openspec/changes/<name>/` 目录树与 `explore.md` SHALL 建于 worktree 内（主仓 active 树在 merge 前 MUST NOT 含该目录）。建档 SHALL 记录 worktree 绝对路径与创建基线（`ChangeRecord.worktree` / `base_commit`，字段语义见 desktop-change-state-store）。前置校验 SHALL 在任何 IO 之前覆盖：git 可用性（git 不可发现或主仓非 git 仓 → 显式 `Err` 引导，MUST NOT 静默回退主 root 创建）、branch `change/<name>` 已存在、worktree 目标目录已存在——拒绝面零 worktree、零建档、零目录。进程 spawn（git / bootstrap）SHALL 经 core/workflow 定义、vcs 边界（`crates/infra/vcs`，裸名 `vcs-runtime`）实现的 port 缝承载，core/workflow 零 infra 依赖、零进程 spawn 红线不变。
+写面 `create` 对每次成功创建 SHALL 分配同名 worktree：以主仓 HEAD 为基线 `git worktree add` 落位于 git 根同级 `.worktrees/<仓库目录名>/`，并建 branch `change/<name>`——主仓未提交与 staged 改动 MUST NOT 进入 worktree（基线恒 HEAD）。`openspec/changes/<name>/` 目录树与 `explore.md` SHALL 建于 worktree 内（主仓 active 树在 merge 前 MUST NOT 含该目录）。建档 SHALL 记录 worktree 绝对路径与创建基线（`ChangeRecord.worktree` / `base_commit`，字段语义见 desktop-change-state-store）。前置校验 SHALL 在任何写 IO 之前覆盖：git 可用性（git 不可发现或主仓非 git 仓 → 显式 `Err` 引导，MUST NOT 静默回退主 root 创建）、branch `change/<name>` 已存在、worktree 目标目录已存在——拒绝面零 worktree、零建档、零目录。进程 spawn（git / bootstrap）SHALL 经 core/workflow 定义、vcs 边界（`crates/infra/vcs`，裸名 `vcs-runtime`）实现的 port 缝承载，core/workflow 零 infra 依赖、零进程 spawn 红线不变。
 
 #### Scenario: 成功建域四件套
 
 - **WHEN** 对干净 git 仓 workspace 以合法名称与 goal 调用写面 `create`
-- **THEN** worktree 目录存在于 `worktrees/{身份段}/<name>`、branch `change/<name>` 在案且指向主仓 HEAD、worktree 内 `openspec/changes/<name>/explore.md` 为 goal 原文、db `ChangeRecord` 携 worktree 路径与 base_commit；主仓 active 树无该目录
+- **THEN** worktree 目录存在于 `<git 根父目录>/.worktrees/<git 根目录名>/<name>`、branch `change/<name>` 在案且指向主仓 HEAD、worktree 内 `openspec/changes/<name>/explore.md` 为 goal 原文、db `ChangeRecord` 携 worktree 路径与 base_commit；主仓 active 树无该目录
 
 #### Scenario: git 不可用拒绝
 
@@ -182,8 +192,8 @@ create 产出与 change 详情 SHALL 暴露 worktree 绝对路径（记录带 wo
 
 | 模块 | 职责 | 关键契约 |
 |------|------|----------|
-| `crates/core/foundation`（身份段派生单点，新） | workspace 身份段纯函数 | `{可读段}-{sha256 前 16 字节 32 位 hex}`；db 文件名与 worktree 子目录同源消费；纯函数可密集测试 |
-| `crates/infra/vcs`（新，裸名 `vcs-runtime`，vcs 边界首成员） | git 工作面进程执行 | `git worktree add` / `git status --porcelain` / bootstrap 安装 spawn；PATH 探测前置（沿 bash.rs / static_check 先例）；零 Tauri；→ workflow（port 类型）+ foundation |
+| `crates/core/foundation`（身份段派生单点，新） | workspace 身份段纯函数 | `{可读段}-{sha256 前 16 字节 32 位 hex}`；仅 workspace db 文件名消费（worktree 落位已解耦）；纯函数可密集测试 |
+| `crates/infra/vcs`（新，裸名 `vcs-runtime`，vcs 边界首成员） | git 工作面进程执行 | `git rev-parse --show-toplevel` 落位派生（git 根同级 `.worktrees/<仓库目录名>/`）/ `git worktree add` / `git status --porcelain` / bootstrap 安装 spawn；PATH 探测前置（沿 bash.rs / static_check 先例）；零 Tauri；→ workflow（port 类型）；foundation 仅测试依赖 |
 | `crates/core/workflow/src/write/`（WorktreePort，新） | 写面 → vcs 执行的进程内缝 | port 定义留消费者（core/workflow）；spawn 不进 core；sync 签名 |
 | `crates/core/workflow/src/write/create.rs` | create 建域组合 | 建档（worktree / base_commit）→ worktree add（HEAD 基线）→ worktree 内目录树 + explore.md → bootstrap；扩展校验全 IO 前置；脏仓警告；bootstrap 失败不回滚 |
 | `crates/infra/agent/src/compose.rs` | compose_turn 拆参 | store 半边 = 命令层注入的 workspace root 库实例；cwd 半边经既有 turn 通道；worktree 路径不进 `for_root` |
@@ -192,6 +202,6 @@ create 产出与 change 详情 SHALL 暴露 worktree 绝对路径（记录带 wo
 | `src/commands/changes/mod.rs` | create / detail / artifact 命令面 | `CreateOutcome` 增 `worktree` / `warnings`；`locate_change` worktree 回退供 detail / read_artifact 消费 |
 | `crates/core/workflow/src/queries/` | 读面 worktree 感知 | db status 权威归组；detail 出线 worktree 路径（None → null）；产物发现经 exec root |
 | `packages/desktop/src/views/changes/` | 前端可见性 | create 对话框路径与警告呈现；详情 worktree 信息行（legacy 不渲染） |
-| （零实现触点——本能力清理条款由 desktop-change-archive Cleanup 步承载） | 边界改写 | worktree 清理自动化偿还归属 archive 相位；branch 生命周期仍手动；`worktrees/{身份段}/` 落位与身份段派生单点零改动（目录数扫描由 desktop-change-create 前置⑨消费） |
+| （零实现触点——本能力清理条款由 desktop-change-archive Cleanup 步承载） | 边界改写 | worktree 清理自动化偿还归属 archive 相位；branch 生命周期仍手动；git 根同级 `.worktrees/<仓库目录名>/` 落位单点零改动（目录数扫描由 desktop-change-create 前置⑨消费） |
 | `crates/core/workflow/src/write/create.rs`（零改动面） | worktree 建域 | 基线恒 HEAD、目录树与 bootstrap 语义零改动；initialize 的 clean 步在既有 worktree 面上恢复基线（不新增建域语义） |
 | `crates/infra/vcs`（restore_baseline，新） | 基线恢复 | 经 `ArchiveVcsPort::restore_baseline` 缝执行 `reset --hard` + `clean -fd` 排除面（foundation 名单 + `openspec/`）；仅 worktree 在场时被调用（walker 保证），主仓零重置 |

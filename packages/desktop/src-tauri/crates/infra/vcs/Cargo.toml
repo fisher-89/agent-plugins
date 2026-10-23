@@ -5,11 +5,11 @@ edition = "2021"
 
 [dependencies]
 exec = { workspace = true }
-foundation = { workspace = true }
 orchestration = { workspace = true }
 workflow = { workspace = true }
 
 # 真件测试（真实 git tempdir 仓 / 真实快命令子进程）的夹具装置。
 [dev-dependencies]
+foundation = { workspace = true }
 tempfile = { workspace = true }
 tokio = { workspace = true, features = ["rt", "macros"] }

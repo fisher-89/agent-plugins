@@ -7,7 +7,7 @@ use tauri::{AppHandle, Manager, State};
 
 use foundation::layout::resolve;
 use store::{ExploreRecord, WorkspaceStores, EXPLORE_PLACEHOLDER_PREFIX};
-use vcs_runtime::{worktree_dir, ProcessWorktree};
+use vcs_runtime::ProcessWorktree;
 use workflow::queries::{self, ExploreDoc, ExploreScanEntry};
 use workflow::write::{self, phase_table, PromoteOutcome};
 
@@ -276,16 +276,7 @@ pub async fn promote_explore(
     promote_explore_with(app, root, name, workflow_type).await
 }
 
-/// [`promote_explore`] 的泛型测试缝（生产注入 Wry 句柄、测试注入 MockRuntime
-/// 句柄）：① 占位前缀门禁（`draft-` 前缀记录显式 `Err`——引导先在会话中经
-/// `create_explore_note` 完成定名再启动变更，先于笔记读取——占位名从未落盘，
-/// 「笔记未落盘」错误不足以引导）；② 读主仓笔记全文（未落盘 / 空白 → 显式
-/// `Err` 引导先完成探索）；③ 读 `ExploreRecord`（不存在 / 已 promoted → 显式
-/// `Err`）；④ 经 vcs 落位派生父锚后 `spawn_blocking` 调写面
-/// `workflow::write::promote_explore`（复用 create 建 change + 删主仓笔记
-/// ——move 半边，workflow_type 透传写面）；⑤ 成功后 store
-/// `mark_explore_promoted` 打标（失败 → `Err` 携 change id 与手动恢复指引；
-/// 会话链保留、MUST NOT 删记录）。
+/// [`promote_explore`] 的泛型测试缝
 pub(crate) async fn promote_explore_with<R: tauri::Runtime>(
     app: AppHandle<R>,
     root: String,
@@ -314,7 +305,6 @@ pub(crate) async fn promote_explore_with<R: tauri::Runtime>(
         ));
     }
     let stores = app.state::<WorkspaceStores>();
-    let data_root = app.state::<PathBuf>();
     let store = stores.for_root(&root).map_err(|e| e.to_string())?;
 
     // ② 主仓笔记全文（命中且非空白）
@@ -336,16 +326,9 @@ pub(crate) async fn promote_explore_with<R: tauri::Runtime>(
     }
 
     // ④ 写面：复用 create 建 change（goal = 笔记全文、title = explore.title）
-    // 成功后删主仓笔记（move 半边）
-    let placement = worktree_dir(data_root.inner(), &root, &name);
-    let Some(worktree_root) = placement.parent() else {
-        return Err(format!(
-            "worktree 落位派生异常（无父目录）: {}",
-            placement.display()
-        ));
-    };
+    // 成功后删主仓笔记（move 半边）。worktree 落位父锚由写面经 vcs port 单点
+    // 派生（git 根同级 `.worktrees/<仓库目录名>/`）。
     let main_root = PathBuf::from(root.clone());
-    let worktree_root = worktree_root.to_path_buf();
     let vcs = ProcessWorktree::new();
     let promote_name = name.clone();
     let note_text = note.content;
@@ -354,7 +337,6 @@ pub(crate) async fn promote_explore_with<R: tauri::Runtime>(
     let outcome = tauri::async_runtime::spawn_blocking(move || {
         write::promote_explore(
             &main_root,
-            &worktree_root,
             store_for_promote.as_ref(),
             &vcs,
             &promote_name,
