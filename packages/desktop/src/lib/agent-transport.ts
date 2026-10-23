@@ -222,6 +222,7 @@ export class TauriAgentTransport implements ChatTransport<AgentUIMessage> {
     let closed = false;
     /** 流内 delta 簿记：配对键 → 已开 part kind 集 */
     const openedParts = new Map<string, Set<'text' | 'thinking'>>();
+    const currentToolCalls = new Set<string>();
     const close = () => {
       if (closed) return;
       closed = true;
@@ -231,7 +232,7 @@ export class TauriAgentTransport implements ChatTransport<AgentUIMessage> {
       if (closed) return;
       if (message.ipc === 'event') {
         this.onEvent?.(message.event);
-        for (const chunk of this.eventChunks(message.event, openedParts)) {
+        for (const chunk of this.eventChunks(message.event, openedParts, currentToolCalls)) {
           controller?.enqueue(chunk);
         }
         return;
@@ -266,13 +267,11 @@ export class TauriAgentTransport implements ChatTransport<AgentUIMessage> {
     return { stream, accept, end: close, fail };
   }
 
-  /** 单事件 → chunk 组：键首 delta 补发 provisional 开件组（start +
-   * reset-step + part-start），同键新 kind 仅补 part-start（再发 reset-step
-   * 会剪除本步已累积的另一种部件），同键同 kind 直发累积 chunk；密封/aux
-   * 事件走 adapter 逐事件 chunk 组，簿记整体重武装。 */
+  /** 单事件 → chunk 组 */
   private eventChunks(
     event: AgentEvent,
     openedParts: Map<string, Set<'text' | 'thinking'>>,
+    currentToolCalls: Set<string>,
   ): AgentUIMessageChunk[] {
     if (event.kind === 'messageDelta') {
       const key = event.parentToolUseId ?? '';
@@ -286,16 +285,28 @@ export class TauriAgentTransport implements ChatTransport<AgentUIMessage> {
             : [partStartChunk(key, part)];
       if (opened === undefined) {
         openedParts.set(key, new Set([part]));
+        // provisional 开件组含 start + reset-step：reducer 清空当前 step 部件，
+        // 跨消息配对视野随之失效（后续 result 回退占位卡，不撞 missing part）
+        currentToolCalls.clear();
       } else {
         opened.add(part);
       }
       return [...chunks, ...eventToChunk(event)];
     }
-    // 密封/aux 事件经 start + reset-step 开新消息：reset-step 在 reducer 侧
-    // 清空全部活跃 part，簿记随之整体清空——工具轮后模型再次流式时，裸 delta
-    // 会因 part 已被清而抛 missing reasoning/text part
-    openedParts.clear();
-    return eventToChunk(event);
+    const chunks = eventToChunk(event, currentToolCalls);
+    // 事件开新消息：reset-step 在 reducer 侧清空全部活跃 part，delta 簿记与
+    // 跨消息配对视野随之重武装——工具轮后模型再次流式时，裸 delta 会因 part
+    // 已被清而抛 missing reasoning/text part
+    if (chunks.some((chunk) => chunk.type === 'start')) {
+      openedParts.clear();
+      currentToolCalls.clear();
+      if (event.kind === 'message') {
+        for (const block of event.blocks) {
+          if (block.kind === 'toolUse') currentToolCalls.add(block.id);
+        }
+      }
+    }
+    return chunks;
   }
 
   /** 终态轮行 → 同构 record 部件 chunk 组（与重放两路同构）。 */

@@ -649,6 +649,106 @@ describe('eventToChunk：增量边界', () => {
 });
 
 // ---------------------------------------------------------------------------
+// eventToChunk：实时路跨消息配对视野（currentMessageToolCalls）
+// ---------------------------------------------------------------------------
+
+describe('eventToChunk：实时路跨消息配对视野', () => {
+  const resultEvent = (seq: number, id: string, content: string): AgentEvent =>
+    message(seq, [{ kind: 'toolResult', id, content, isError: false }]);
+
+  it('命中视野的纯结果事件只投 tool-output-available：无消息头、不重投 input（与 toolUse 合住一条消息）', () => {
+    const chunks = eventToChunk(resultEvent(2, 'tu_1', '目录内容'), new Set(['tu_1']));
+
+    expect(chunks).toEqual([
+      {
+        type: 'tool-output-available',
+        toolCallId: 'tu_1',
+        output: { content: '目录内容', isError: false },
+      },
+    ]);
+  });
+
+  it('未命中视野（id 不在集内 / 空集缺省）→ 既有占位卡 chunk 组（缺省参零漂移）', () => {
+    for (const window of [new Set(['tu_other']), new Set<string>()]) {
+      const chunks = eventToChunk(resultEvent(2, 'tu_1', '目录内容'), window);
+      expect(chunks.map((chunk) => chunk.type)).toEqual([
+        'start',
+        'reset-step',
+        'tool-input-available',
+        'tool-output-available',
+      ]);
+    }
+    expect(eventToChunk(resultEvent(2, 'tu_1', '目录内容'))).toEqual(
+      eventToChunk(resultEvent(2, 'tu_1', '目录内容'), new Set()),
+    );
+  });
+
+  it('同事件混含命中与未命中结果：命中项先就地补全（先于消息头），其余块另起新消息', () => {
+    const chunks = eventToChunk(
+      message(2, [
+        { kind: 'toolResult', id: 'tu_1', content: '命中结果', isError: false },
+        { kind: 'toolResult', id: 'tu_9', content: '未命中结果', isError: true },
+      ]),
+      new Set(['tu_1']),
+    );
+
+    expect(chunks.map((chunk) => chunk.type)).toEqual([
+      'tool-output-available',
+      'start',
+      'reset-step',
+      'tool-input-available',
+      'tool-output-available',
+    ]);
+    expect(chunks[0]).toEqual({
+      type: 'tool-output-available',
+      toolCallId: 'tu_1',
+      output: { content: '命中结果', isError: false },
+    });
+    expect(chunks[3]).toEqual({
+      type: 'tool-input-available',
+      toolCallId: 'tu_9',
+      toolName: '工具调用',
+      input: null,
+    });
+  });
+
+  it('重复 id 结果只补首个、后继块不再呈现（与折叠路同口径）', () => {
+    const chunks = eventToChunk(
+      message(2, [
+        { kind: 'toolResult', id: 'tu_1', content: '首个结果', isError: false },
+        { kind: 'toolResult', id: 'tu_1', content: '迟到结果', isError: false },
+      ]),
+      new Set(['tu_1']),
+    );
+
+    expect(chunks).toEqual([
+      {
+        type: 'tool-output-available',
+        toolCallId: 'tu_1',
+        output: { content: '首个结果', isError: false },
+      },
+    ]);
+  });
+
+  it('同事件另有同 id toolUse → 让位本事件 local 配对（不走跨消息补全）', () => {
+    const chunks = eventToChunk(
+      message(2, [
+        { kind: 'toolUse', id: 'tu_1', name: 'Bash', input: { command: 'pwd' } },
+        { kind: 'toolResult', id: 'tu_1', content: '内联结果', isError: false },
+      ]),
+      new Set(['tu_1']),
+    );
+
+    expect(chunks.map((chunk) => chunk.type)).toEqual([
+      'start',
+      'reset-step',
+      'tool-input-available',
+      'tool-output-available',
+    ]);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // 补遗：deltaPartId 直调 / provisionalMessageId 边界 / 纯 delta 折叠为空 /
 // runRecordToUIMessage running 形态（AC-8 锚点面）
 // ---------------------------------------------------------------------------

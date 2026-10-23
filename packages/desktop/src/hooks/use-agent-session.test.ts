@@ -492,6 +492,48 @@ describe('useAgentSession：单流在挂与发送守卫（AC-3）', () => {
 });
 
 // ---------------------------------------------------------------------------
+// 实时流跨消息工具配对（结果事件就地补全，不另起消息）
+// ---------------------------------------------------------------------------
+
+describe('useAgentSession：实时流跨消息工具配对', () => {
+  /** 消息序列内的 Bash 工具部件（类型收窄免断言，断言以 toMatchObject 取值） */
+  function bashToolParts(messages: readonly { parts: readonly { type: string }[] }[]) {
+    return messages.flatMap((message) => message.parts.filter((part) => part.type === 'tool-Bash'));
+  }
+
+  it('toolUse 与随后 toolResult 合住同一消息：单张工具卡 output-available，结果事件不另起气泡', async () => {
+    const { result } = await mounted();
+    act(() => {
+      result.current.sendMessage({ prompt: '跑个命令', permissionMode: 'bypassPermissions' });
+    });
+    await act(async () => {});
+
+    deliverEvent(toolUseEvent(3));
+    await waitFor(() => {
+      const parts = bashToolParts(result.current.messages);
+      expect(parts).toHaveLength(1);
+      expect(parts[0]).toMatchObject({ state: 'input-available', input: { command: 'ls' } });
+    });
+
+    deliverEvent(toolResultEvent(4));
+    await waitFor(() => {
+      const parts = bashToolParts(result.current.messages);
+      expect(parts).toHaveLength(1);
+      expect(parts[0]).toMatchObject({
+        state: 'output-available',
+        input: { command: 'ls' },
+        output: { content: '目录内容', isError: false },
+      });
+    });
+
+    // 结果事件不另起消息：toolUse 消息（evt-3）就地补全，无 evt-4 / 孤儿占位卡
+    expect(messageIds(result.current.messages)).toContain('evt-3');
+    expect(messageIds(result.current.messages)).not.toContain('evt-4');
+    expect(bashToolParts(result.current.messages)).toHaveLength(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // 收口以重放收敛（AC-4）与失败回落（D16）
 // ---------------------------------------------------------------------------
 

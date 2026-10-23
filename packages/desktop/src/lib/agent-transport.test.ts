@@ -108,6 +108,33 @@ function toolResultEvent(seq: number): AgentEvent {
   };
 }
 
+/** 密封 assistant 消息（携两枚工具调用）：逐条结果事件就地补全的 fixture。 */
+function twoToolUseEvent(seq: number): AgentEvent {
+  return {
+    seq,
+    timestampMs: 1727000000000,
+    kind: 'message',
+    role: 'assistant',
+    blocks: [
+      { kind: 'toolUse', id: 'tu_1', name: 'Bash', input: { command: 'ls' } },
+      { kind: 'toolUse', id: 'tu_2', name: 'Read', input: { path: 'a.ts' } },
+    ],
+    parentToolUseId: null,
+  };
+}
+
+/** 指定 id 的密封 tool 结果消息（多工具调用逐条回灌的 fixture）。 */
+function toolResultOf(seq: number, id: string, content: string): AgentEvent {
+  return {
+    seq,
+    timestampMs: 1727000000000,
+    kind: 'message',
+    role: 'tool',
+    blocks: [{ kind: 'toolResult', id, content, isError: false }],
+    parentToolUseId: null,
+  };
+}
+
 function recordRow(turnId: number, status: TurnSummary['status']): TurnSummary {
   return {
     turnId,
@@ -766,14 +793,8 @@ describe('TauriAgentTransport：流内簿记语义', () => {
         toolName: 'Bash',
         input: { command: 'ls' },
       },
-      // 密封 tool 结果让位（无主 toolResult 就地合成占位部件）
-      {
-        type: 'start',
-        messageId: 'evt-2',
-        messageMetadata: { seq: 2, parentToolUseId: null },
-      },
-      { type: 'reset-step' },
-      { type: 'tool-input-available', toolCallId: 'tu_1', toolName: '工具调用', input: null },
+      // 密封 tool 结果就地补全上一条消息的工具部件：不另起消息（无 start /
+      // reset-step）、不重投 input，input 与 output 合住同一条消息
       {
         type: 'tool-output-available',
         toolCallId: 'tu_1',
@@ -789,6 +810,121 @@ describe('TauriAgentTransport：流内簿记语义', () => {
       { type: 'reasoning-start', id: 'r-delta-' },
       { type: 'reasoning-delta', id: 'r-delta-', delta: '再想一步' },
       // Record 收尾
+      {
+        type: 'start',
+        messageId: 'turn-13',
+        messageMetadata: { seq: null, parentToolUseId: null },
+      },
+      { type: 'reset-step' },
+      { type: 'data-run-record', data: row },
+      { type: 'finish' },
+    ]);
+  });
+
+  it('跨消息工具结果就地补全：多工具调用逐条结果事件只投 tool-output-available，不另起消息、不重投 input', async () => {
+    invokeMock.mockResolvedValue(recordRow(13, 'running'));
+    const transport = new TauriAgentTransport();
+
+    const stream = await send(transport);
+    const pumping = drain(stream);
+    lastChannel().onmessage?.({ ipc: 'event', event: twoToolUseEvent(1) });
+    lastChannel().onmessage?.({ ipc: 'event', event: toolResultOf(2, 'tu_1', '目录内容') });
+    lastChannel().onmessage?.({ ipc: 'event', event: toolResultOf(3, 'tu_2', '文件内容') });
+    const row = recordRow(13, 'completed');
+    lastChannel().onmessage?.({ ipc: 'record', record: row });
+    const collected = await pumping;
+
+    expect(collected).toEqual([
+      // 密封 assistant：两枚工具调用同住一条消息
+      {
+        type: 'start',
+        messageId: 'evt-1',
+        messageMetadata: { seq: 1, parentToolUseId: null },
+      },
+      { type: 'reset-step' },
+      {
+        type: 'tool-input-available',
+        toolCallId: 'tu_1',
+        toolName: 'Bash',
+        input: { command: 'ls' },
+      },
+      {
+        type: 'tool-input-available',
+        toolCallId: 'tu_2',
+        toolName: 'Read',
+        input: { path: 'a.ts' },
+      },
+      // 逐条结果事件：就地补全同一消息（无 start / reset-step / 重投 input）
+      {
+        type: 'tool-output-available',
+        toolCallId: 'tu_1',
+        output: { content: '目录内容', isError: false },
+      },
+      // 首条结果补全后配对视野不重置：同消息内第二枚调用仍可就地补全
+      {
+        type: 'tool-output-available',
+        toolCallId: 'tu_2',
+        output: { content: '文件内容', isError: false },
+      },
+      {
+        type: 'start',
+        messageId: 'turn-13',
+        messageMetadata: { seq: null, parentToolUseId: null },
+      },
+      { type: 'reset-step' },
+      { type: 'data-run-record', data: row },
+      { type: 'finish' },
+    ]);
+  });
+
+  it('配对视野随开件重武装：toolUse 与 result 之间插入 delta 后结果事件回退占位卡（不撞 missing tool part）', async () => {
+    invokeMock.mockResolvedValue(recordRow(13, 'running'));
+    const transport = new TauriAgentTransport();
+
+    const stream = await send(transport);
+    const pumping = drain(stream);
+    lastChannel().onmessage?.({ ipc: 'event', event: toolUseEvent(1) });
+    // delta 开 provisional 新消息：reducer 当前 step 部件已清，配对视野失效
+    lastChannel().onmessage?.({ ipc: 'event', event: textDelta(2, '新一段') });
+    lastChannel().onmessage?.({ ipc: 'event', event: toolResultEvent(3) });
+    const row = recordRow(13, 'completed');
+    lastChannel().onmessage?.({ ipc: 'record', record: row });
+    const collected = await pumping;
+
+    expect(collected).toEqual([
+      {
+        type: 'start',
+        messageId: 'evt-1',
+        messageMetadata: { seq: 1, parentToolUseId: null },
+      },
+      { type: 'reset-step' },
+      {
+        type: 'tool-input-available',
+        toolCallId: 'tu_1',
+        toolName: 'Bash',
+        input: { command: 'ls' },
+      },
+      {
+        type: 'start',
+        messageId: 'delta-none',
+        messageMetadata: { seq: 2, parentToolUseId: null },
+      },
+      { type: 'reset-step' },
+      { type: 'text-start', id: 't-delta-' },
+      { type: 'text-delta', id: 't-delta-', delta: '新一段' },
+      // 视野已失效：回退既有「无主 result 就地合成占位卡」形态（安全不抛错）
+      {
+        type: 'start',
+        messageId: 'evt-3',
+        messageMetadata: { seq: 3, parentToolUseId: null },
+      },
+      { type: 'reset-step' },
+      { type: 'tool-input-available', toolCallId: 'tu_1', toolName: '工具调用', input: null },
+      {
+        type: 'tool-output-available',
+        toolCallId: 'tu_1',
+        output: { content: '目录内容', isError: false },
+      },
       {
         type: 'start',
         messageId: 'turn-13',

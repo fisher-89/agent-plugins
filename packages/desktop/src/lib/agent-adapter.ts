@@ -1,18 +1,3 @@
-/**
- * 事件适配层（纯函数，三层结构）：
- *
- * 1. **视野层** `PairingScope`：隔离配对视野差异——`global`（折叠路：跨消息
- *    预扫全部 toolUse 的配对 result）与 `local`（实时路：仅当前 message 内配对）
- *    产出同一类型 `PairedResults`。
- * 2. **语义层** `planBlock`：块语义的**唯一判定点**（四 block 变体 + 无主
- *    toolResult 合成为 `tool` 变体；`null` = 已配对 result 不重复呈现）。
- * 3. **发射层** `plansToParts` / `plansToChunks`：纯机械映射（无判定、无视野），
- *    两路的块呈现由同一份 `BlockPlan[]` 驱动。
- *
- * 两层发射目标形态的等价依赖 ai-sdk 的 data part 与 data chunk **碰巧同形**
- * （辅助载体事件两路共用 `AuxData`）：ai-sdk 主版本升级须复核该前提。
- * 三层均为模块私有（公共面仍为 `eventsToUIMessages` / `eventToChunk` 两个入口）。
- */
 import type { UIMessage, UIMessageChunk } from 'ai';
 
 import type { AgentBlock, AgentEvent, AgentMessageRole, TurnSummary } from '../types/dto';
@@ -389,6 +374,43 @@ function outputChunk(toolCallId: string, output: AgentToolOutput): AgentUIMessag
   return { type: 'tool-output-available', toolCallId, output };
 }
 
+/** 空配对视野（`eventToChunk` 缺省参：既有本事件 `local` 语义） */
+const EMPTY_TOOL_CALLS: ReadonlySet<string> = new Set();
+
+/** 跨消息视野已消费的结果块（合并块及其重复 id 的后继块，均不再另起消息）；
+ * 同事件内另有同 id toolUse 时让位本事件 `local` 配对 */
+function isConsumedResult(
+  block: AgentBlock,
+  currentMessageToolCalls: ReadonlySet<string>,
+  localUseIds: ReadonlySet<string>,
+): block is ToolResultBlock {
+  return (
+    block.kind === 'toolResult' &&
+    currentMessageToolCalls.has(block.id) &&
+    !localUseIds.has(block.id)
+  );
+}
+
+/**
+ * 实时路跨消息视野：命中 `currentMessageToolCalls` 的 toolResult 块返回「首个」
+ * （同 id 后续块视为重复结果，与折叠路同口径）。
+ */
+function mergeableResults(
+  blocks: AgentBlock[],
+  currentMessageToolCalls: ReadonlySet<string>,
+  localUseIds: ReadonlySet<string>,
+): ToolResultBlock[] {
+  const seen = new Set<string>();
+  const merged: ToolResultBlock[] = [];
+  for (const block of blocks) {
+    if (!isConsumedResult(block, currentMessageToolCalls, localUseIds)) continue;
+    if (seen.has(block.id)) continue;
+    seen.add(block.id);
+    merged.push(block);
+  }
+  return merged;
+}
+
 /** message 事件块 → chunk 组（发射层实时路：纯机械，part id 取计划下标） */
 function plansToChunks(plans: BlockPlan[], seq: number): AgentUIMessageChunk[] {
   const chunks: AgentUIMessageChunk[] = [];
@@ -412,10 +434,11 @@ function plansToChunks(plans: BlockPlan[], seq: number): AgentUIMessageChunk[] {
   return chunks;
 }
 
-/**
- * 实时增量：单事件 → chunk 组。
- */
-export function eventToChunk(event: AgentEvent): AgentUIMessageChunk[] {
+/** 实时增量：单事件 → chunk 组 */
+export function eventToChunk(
+  event: AgentEvent,
+  currentMessageToolCalls: ReadonlySet<string> = EMPTY_TOOL_CALLS,
+): AgentUIMessageChunk[] {
   if (event.kind === 'messageDelta') {
     const key = event.parentToolUseId ?? '';
     if (event.delta.kind === 'text') {
@@ -438,9 +461,23 @@ export function eventToChunk(event: AgentEvent): AgentUIMessageChunk[] {
     { type: 'reset-step' },
   ];
   if (event.kind === 'message') {
+    const localUseIds = new Set<string>();
+    for (const block of event.blocks) {
+      if (block.kind === 'toolUse') localUseIds.add(block.id);
+    }
+    const merged = mergeableResults(event.blocks, currentMessageToolCalls, localUseIds);
+    const rest = event.blocks.filter(
+      (block) => !isConsumedResult(block, currentMessageToolCalls, localUseIds),
+    );
+    // 已配对结果先投 output（此刻 reducer 的当前消息仍是 toolUse 那条，就地补全），
+    // 再为新块开件；全部块均就地补全时本事件不产消息头
+    const mergedChunks = merged.map((block) =>
+      outputChunk(block.id, { content: block.content, isError: block.isError }),
+    );
+    if (mergedChunks.length > 0 && rest.length === 0) return mergedChunks;
     // 实时路视野：仅当前 message 内配对（跨消息差异由轮收口重放折叠纠正）
-    const plans = planBlocks(event.blocks, PairingScope.local(event.blocks));
-    return [...header, ...plansToChunks(plans, event.seq)];
+    const plans = planBlocks(rest, PairingScope.local(rest));
+    return [...mergedChunks, ...header, ...plansToChunks(plans, event.seq)];
   }
   return [...header, auxEventData(event)];
 }

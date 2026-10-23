@@ -10,7 +10,7 @@
 
 前端 SHALL 提供 headless 会话基建 hook `use-agent-session`(置于 `packages/desktop/src/hooks/`;由 `use-agent-chat` 收编改名,职责扩为「重放装载 + 状态驱动挂流 + 发送组装 + 停止接线」),内部以 ai-sdk v7 `useChat` 承载对话状态,transport 为自定义 `TauriAgentTransport`(实现 v7 `ChatTransport`),把会话发起 invoke 与**会话订阅 invoke**(Tauri `Channel<AgentRunMessage>`:发起流与订阅流共用同一信封)适配为 `ReadableStream<UIMessageChunk>`。`UIMessage` SHALL 成为前端对话状态的一等模型。基建 SHALL 满足:
 
-- **重放装载**: 打开会话时以会话 id **直查**会话单查命令 `session_detail(root, sessionId)`(携 root 寻址所属 workspace 库),再经会话转录重放取落库**密封转录**,经 `eventsToUIMessages` 纯函数重建 UIMessage 状态(`setMessages`);会话 id 由来源侧显式提供(`sourceRef` 反查取最近一条会话的路径 SHALL 退役;按 `source` / `source_ref` 列出会话供用户显式挑选的**清单筛选**不在此禁令内——属探测语义,选中后仍以 `sessionId` 直查)。重放重建的状态与实时累积收口的状态 SHALL **终态同一形状**(重开恢复 = 重放;两路契约见「事件适配层」的「终态同构 + 过程近似」,终态一致性由收口以重放收敛保证,而非由两条发射实现碰巧一致);`sessionId` 为 null 时不发起任何重放查询、不建立任何订阅。
+- **重放装载**: 打开会话时以会话 id **直查**会话单查命令 `session_detail(root, sessionId)`(携 root 寻址所属 workspace 库),再经会话转录重放取落库**密封转录**,经 `eventsToUIMessages` 纯函数重建 UIMessage 状态(`setMessages`);会话 id 由来源侧显式提供(`sourceRef` 反查取最近一条会话的路径 SHALL 退役;按 `source` / `source_ref` 列出会话供用户显式挑选的**清单筛选**不在此禁令内——属探测语义,选中后仍以 `sessionId` 直查)。重放重建的状态与实时累积收口的状态 SHALL **终态同一形状**(重开恢复 = 重放;两路契约见「事件适配层」的「终态同构 + 过程就地补全」,终态一致性由收口以重放收敛保证,而非由两条发射实现碰巧一致);`sessionId` 为 null 时不发起任何重放查询、不建立任何订阅。
 - **发送穿透**: 发送 SHALL 经 `sendMessage` 以 `ChatRequestOptions.body` 携带应用层会话参数(`root`、`permissionMode`、会话引用 `sessionId`(`Continue` 语义,链尾/当前会话提供,无会话为 null)、`source`、可选 `sourceRef`、可选 `cwd`);会话状态由应用层在发送时刻提供,transport SHALL 为无状态转换器(不进构造闭包、无 ref 插线);会话文本组装(如 explore stance 拼接)SHALL 留在来源侧,基建只收口会话参数。`sourceRef` SHALL 由来源侧按需提供(如 change 详情通用 agent 面板以 change id 归属,见 desktop-change-chat),仅作归属记录与清单筛选,**MUST NOT 用于寻址或重放**;来源未提供时为 null(调试页 / explore 链行为不变)。`cwd` SHALL 同样由来源侧透传(change 环境 = worktree 执行根),只作会话执行根,MUST NOT 参与 store 寻址;来源未提供时缺省 `root`(既有语义)。transport SHALL 对两字段做运行时校验(非法形态即 `Err`,不改写),且会话参数 SHALL 以具名解构进入发起 invoke——MUST NOT 依赖位置参数索引拼接(参数面尾部增位时不得错位)。
 - **增量流式**: 实时路 SHALL 消费 `MessageDelta` 事件——经 `eventToChunk` 映射为 ai-sdk 原生 `text-delta` / `reasoning-delta` chunk 挂 provisional 消息(思考/回复可辨),密封 Message 到达后以密封内容替换;一轮回复 SHALL 呈现为单条连续增长的消息, MUST NOT 出现逐 delta 碎行。实时路的起点 SHALL 双态:发送期由发起流承载(Channel 先于 invoke 建立,零空洞),旁观 / 重挂期由会话订阅流承载(带 `since_seq`);两起点 SHALL 经同一适配与开件簿记单点产生 chunk,MUST NOT 各自实现一份;同一会话同一时刻 SHALL 至多一条在挂流。
 - **停止**: `stop` SHALL 触达 Rust 侧终止命令(MUST NOT 仅截断前端流);后端收敛后经由在挂流(发起流或订阅流)流出的终止终态部件照常进入状态。
@@ -107,18 +107,20 @@
 基建 SHALL 提供纯函数适配层(置于 `packages/desktop/src/lib/agent-adapter.ts`),分三层:入口层、语义层(IR)、发射层:
 
 - `eventsToUIMessages(events: AgentEvent[]): UIMessage[]` — 重放重建(仅消费**密封事件**:会话转录中不存在 delta,delta 不进重放路径)
-- `eventToChunk(event: AgentEvent): UIMessageChunk[]` — 实时增量(含 delta 路;返回**chunk 组**:事件头 + 块 chunk)
+- `eventToChunk(event: AgentEvent, currentMessageToolCalls?: ReadonlySet<string>): UIMessageChunk[]` — 实时增量(含 delta 路;返回**chunk 组**:事件头 + 块 chunk);可选参为**流内跨消息配对视野**(transport 流内簿记:当前 UI 消息内已发出的工具调用 id 集),命中即就地补全
 - **语义层 IR**: `BlockPlan` 为块语义的唯一表达(text / reasoning / tool 三变体;tool 的 `output: null` 即未配对),`planBlock(block, paired): BlockPlan | null` 为**唯一语义点**(四 block 变体 + 无主 toolResult 合成在此收口;`null` = 已配对 result 不重复呈现);孤儿 result 与正常 tool 合并为同一 `tool` 变体(占位工具名 + `input: null`),MUST NOT 在两路各写一遍孤儿判定
-- **视野层**: `PairingScope` 隔离配对视野差异——折叠路 `global`(跨消息预扫全部 toolUse 的配对 result),实时路 `local`(仅当前 message 内配对);两视野 SHALL 产出同一类型 `Map<toolCallId, ToolResultBlock>`,差异 MUST NOT 渗入语义层与发射层
+- **视野层**: `PairingScope` 隔离配对视野差异——折叠路 `global`(跨消息预扫全部 toolUse 的配对 result),实时路 `local`(仅当前 message 内配对);两视野 SHALL 产出同一类型 `Map<toolCallId, ToolResultBlock>`,差异 MUST NOT 渗入语义层与发射层。实时路另有**流内跨消息配对视野**(`eventToChunk` 可选参,transport 按「最近开件消息」簿记并在开出新消息时重武装):命中的 toolResult 块 SHALL 就地补全既有消息里的工具部件——只投 `tool-output-available`,MUST NOT 另起消息 / 重投 input;全部块均命中时该事件 MUST NOT 产消息头(`start` / `reset-step`)
 - **发射层**: `plansToParts` / `plansToChunks` 为纯机械映射(无判定、无视野),两路的块呈现 SHALL 由同一 `BlockPlan[]` 驱动;`plansToChunks` 只产块相关 chunk,事件头(`start` / `reset-step`)仍由 `eventToChunk` 负责
 
 映射 SHALL 为: `runStarted` → `data-run-started` 部件;`messageDelta` → provisional 消息上的 `text-delta`(文本增量)/ `reasoning-delta`(思考增量)chunk,配对键挂部件/消息元数据(键形态随信封定稿);密封 message 的 text block → text 部件(整块收口,替换同键 provisional);thinking block → reasoning 部件;toolUse block → tool 部件 input;同 id toolResult block → 该 tool 部件 output(配对收口于适配层,跨消息按 id 配对,MUST NOT 再由视图层全局扫描);`systemNotice` → `data-system-notice`;`turnDone`(现 runResult,随信封演进) → `data-run-result`(携带 finish 语义);`raw` → `data-raw` 原文透传。
 
-两路契约 SHALL 为**终态同构 + 过程近似**:折叠路(重放 / 收口)与实时路 SHALL 在轮收口后呈同一形状(MUST NOT 出现成对工具卡的分裂或重复);实时流式期间的形状差异(跨消息 tool 配对在实时路只可见 `input-available`、result 到达时闪现第二张占位卡)SHALL 视为**过程近似**——由轮收口以重放折叠纠正,MUST NOT 以「实时路复跑折叠语义」的方式消除(reducer 的配对视野物理上限于当前消息,复用即降级折叠路能力)。视野差异 SHALL 由视野层快照测试显式锁定(同消息配对两视野相等、跨消息配对两视野可辨差异),MUST NOT 由单一路径 fixture 掩饰。
+两路契约 SHALL 为**终态同构 + 过程就地补全**:折叠路(重放 / 收口)与实时路 SHALL 在轮收口后呈同一形状(MUST NOT 出现成对工具卡的分裂或重复);实时流式期间跨消息 tool 配对 SHALL 就地补全——结果事件不另起消息、input 与 output 合住同一条消息(与折叠路同形)。配对视野随开新消息重武装,失效残差(结果与 toolUse 之间插入其他消息 / 订阅起点晚于 toolUse)SHALL 回退既有占位卡形态并由轮收口以重放折叠纠正,MUST NOT 以「实时路复跑折叠语义」的方式消除(reducer 的配对视野物理上限于当前消息,复用即降级折叠路能力)。视野差异 SHALL 由视野层快照测试显式锁定(同消息配对两视野相等、未携流内视野时跨消息配对两视野可辨差异),MUST NOT 由单一路径 fixture 掩饰。
 
 保真 SHALL 锁定: `seq` 可考(进 message id 或部件元数据,保序与 key 稳定;delta chunk 元数据携带源 seq);`parentToolUseId` 可考(进部件元数据,子代理归因依赖它);未知事件 MUST NOT 丢弃(一律 `data-raw` 透传原文)。
 
 穷尽性 SHALL 编译期可探测: `auxEventData` 与 `planBlock` SHALL 以 `const _exhaustive: never` 承接变体穷尽(新增 `AgentEvent` / `AgentBlock` 变体时编译报错提醒,MUST NOT 仅靠 runtime 静默降级 `data-raw`);runtime 未知变体的 `data-raw` 兜底语义照常保留(编译期穷尽 + runtime 兜底两层)。
+
+> 2026-10-23 回溯修订(无 change 流直修):实时路补流内跨消息配对视野(`eventToChunk` 可选参 `currentMessageToolCalls` + transport 按「最近开件消息」簿记),tool 结果到达即就地补全、不再另起第二条消息;视野失效残差(插入其他消息 / 订阅起点晚于 toolUse)维持占位卡回退,终态仍由轮收口以重放折叠保证。
 
 #### Scenario: 全变体映射
 
@@ -134,6 +136,11 @@
 
 - **WHEN** toolUse(id=`t1`)与 toolResult(id=`t1`)分处不同密封 message
 - **THEN** 适配后 `t1` 收敛为单个 tool 部件(input 与 output 同住),视图层无需跨消息扫描配对
+
+#### Scenario: 实时流跨消息工具结果就地补全
+
+- **WHEN** 实时流中密封 assistant(携 toolUse id=`t1`)后,同 id toolResult 以另一事件到达,且其间未插入其他消息
+- **THEN** toolResult 事件只产出 `tool-output-available`(无 `start` / `reset-step`、不重投 input),reducer 归约后 `t1` 的 input 与 output 合住同一条消息(无双卡、无第二条气泡、消息 id 仍为 toolUse 事件的 `evt-<seq>`)
 
 #### Scenario: 保真字段可考
 
@@ -153,11 +160,11 @@
 #### Scenario: 视野差异显式锁定
 
 - **WHEN** toolUse 与同 id toolResult 分处两条密封 message(跨消息配对场景)
-- **THEN** 视野层快照显式断言: `global` 视野折叠为单个 `output-available` 计划、`local` 视野产出 `input-available` 计划 + 孤儿卡 `output-available` 计划(差异具体形态被锁定,防扩大);同消息内配对两视野相等
+- **THEN** 视野层快照显式断言: `global` 视野折叠为单个 `output-available` 计划;`local` 视野(未携流内跨消息视野时的纯函数面)产出 `input-available` 计划 + 孤儿卡 `output-available` 计划(差异具体形态被锁定,防扩大);同消息内配对两视野相等
 
-#### Scenario: 收口折叠纠正双卡
+#### Scenario: 收口折叠纠正残差双卡
 
-- **WHEN** 实时流式期间跨消息 tool 配对闪现「占位卡 + 结果卡」双卡
+- **WHEN** 实时流式期间配对视野已失效(结果与 toolUse 之间插入其他消息 / 订阅起点晚于 toolUse),跨消息 tool 配对闪现「占位卡 + 结果卡」双卡
 - **THEN** 轮收口以重放折叠纠正为单张 `output-available` 工具卡(终态同构),MUST NOT 出现收口后仍双卡或部件重复
 
 #### Scenario: 变体穷尽编译期可探测
