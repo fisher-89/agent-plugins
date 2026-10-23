@@ -40,9 +40,10 @@ pub const MAX_RETRY_TIMES: u32 = 5;
 /// 落账 report 的长度上限（与插件 `phaseLogSchema.report` max 2000 同源）。
 pub(crate) const MAX_REPORT_CHARS: usize = 2000;
 
-/// 回溯 reason 的长度上限（与插件 `backtrackInputSchema.backtrack_reason`
-/// max 500 同源）。
-pub(crate) const MAX_REASON_CHARS: usize = 500;
+/// 回溯 reason 的长度上限（桌面写面自有裁定 1000；决策 prompt 的提示文案
+/// 仍按 500 引导，见 orchestration `decision::MAX_REASON_CHARS`，不受本常量
+/// 影响；插件 `backtrackInputSchema.backtrack_reason` 的 max 500 亦不受影响）。
+pub(crate) const MAX_REASON_CHARS: usize = 1000;
 
 /// requirement 工作流类型键（相位表键之一；其余类型在写面 / 发起前置校验显式
 /// 拒绝）。

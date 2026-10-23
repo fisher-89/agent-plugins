@@ -1,12 +1,3 @@
-//! `decision.rs`（决策解析与白名单预校验）的单元测试（test-design「decision.rs
-//! -> decision_test.rs」节）：三动作封闭集解析（backtrack / stop / ask）、围栏
-//! 容忍（回归锚）、已退役 `retry` 与非法结构一律结构漂移 `Err`（软拒环入口）、
-//! 越权 / 自环 backtrack 预校验（walker 决策会话门）、空白名单出口、
-//! reason 超长解析层透传（分层锚——≤500 拒绝单点归写面 backtrack）、
-//! `DecisionInput.fail_report` 字段面与封闭集边界。
-//! 无进程边界依赖：决策文本与 DecisionInput / 白名单 fixture 内存构造——
-//! Mock策略：无 mock。
-
 use workflow::model::Verdict;
 use workflow::write::BacktrackOption;
 
@@ -122,8 +113,6 @@ fn 非法结构五形态解析err() {
     }
 }
 
-/// reason 长度（边界，参数化 2 值）：501 / 2000 字符解析层原样承接不拒——
-/// ≤500 归写面 `backtrack` 单点拒绝，解析层不设第二道长度门。
 #[test]
 fn reason超长解析层原样承接不崩() {
     for len in [MAX_REASON_CHARS + 1, 2000] {

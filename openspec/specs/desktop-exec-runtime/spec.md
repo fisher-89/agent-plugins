@@ -108,7 +108,13 @@
 
 ### Requirement: 输出解读面与未迁移 spawn 面边界
 
-本执行体 SHALL NOT 改变既有输出解读面与未迁移的 spawn 面：`exec::ProcessOutput`（`error_excerpt` / `tail` / `failure_message`）语义零变；`record_exec_output` / `read_exec_output` / `mint_exec_id` 零变；调用方的 stdout / stderr 合并顺序 MUST 由调用方自行决定（执行体只给两路原始字节）。
+本执行体 SHALL NOT 改变既有输出解读面与未迁移的 spawn 面：`exec::ProcessOutput`（`error_excerpt` / `tail` / `failure_message`）语义零变（口径见下）；`record_exec_output` / `read_exec_output` / `mint_exec_id` 零变；调用方的 stdout / stderr 合并顺序 MUST 由调用方自行决定（执行体只给两路原始字节）。
+
+`ProcessOutput` 三方法的口径 SHALL 为：
+
+- `error_excerpt()`：提取前 10 个错误行组——每组 = 命中错误词表的行 + 后续至多 3 行非空续行（遇空行止；已被前组消费的行不再开新组）；组间以 `…` 行分隔；组数触 10 上限且仍有未扫行时尾加 `…`；无命中返回空串。错误词表为模块内封闭常量：`error` / `unable to` / `panic` / `exception` / `throw` / `failed` / `npm err!` / `traceback`（行内小写包含即命中）。
+- `tail()`：取末尾 50 行（行口径，MUST NOT 回退为字符截断——旧「末 500 字符」口径会把 JS 错误首行截掉）；不足 50 行全给；截断时首行加 `…`；逐行剥尾随 `\r`；空输出返回空串。
+- `failure_message(head)`：`head` +（非空时）「错误信息」段 +（非空时）「输出末尾（50 行）」段；空输出逐字等于 `head`（空面无冒号缀语义）；`error_excerpt` 与 `tail` 允许重叠、不去重。
 
 以下 spawn 面 MUST NOT 迁移进本执行体（各有独立语义）:
 
@@ -121,6 +127,11 @@
 
 - **WHEN** 以非零退出码与合并输出构造 `ProcessOutput` 并调 `failure_message`
 - **THEN** 「错误信息 + 输出末尾（50 行）」双段装配逐字等于本变更前行为（执行体只产字节，不改解读面）
+
+#### Scenario: 错误主因与末尾行口径
+
+- **WHEN** 合并输出含多个错误行组且总行数超过 50
+- **THEN** `error_excerpt` 给前 10 个错误行组（每组错误行 + 至多 3 行非空续行、遇空行止，组间 `…`）；`tail` 只给末尾 50 行（截断时首行 `…`）；`failure_message` 双段可重叠、不内联去重
 
 #### Scenario: 合流顺序归调用方
 

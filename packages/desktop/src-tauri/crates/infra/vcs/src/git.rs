@@ -437,12 +437,14 @@ pub(crate) fn restore_baseline(worktree: &Path, exclusions: &[&str]) -> Result<S
 /// 单），排序去重、POSIX 归一后返回。`base = "HEAD"` 时即本 change 编辑集
 /// （worktree 语义）。git 失败显式 `Err`——MUST NOT 静默降级空清单（空清单会
 /// 误走 diff 空跳过）。取数链路内幂等确保 mutation 调试产物忽略规则（见
-/// [`ensure_mutation_artifact_exclude`]——发生在任何段临时 config 写盘前）。
+/// [`ensure_mutation_artifact_exclude`]——发生在任何段临时 config 写盘前，
+/// **且先于两次 git 列举**：首次调用 / 升级残留场景下，`_stryker-tmp/**` 的
+/// 可插桩源文件不得被当 untracked 纳入突变面）。
 pub(crate) fn change_edit_set(root: &Path, base: &str) -> Result<Vec<String>, String> {
     validate_base(base)?;
+    ensure_mutation_artifact_exclude(root)?;
     let tracked = git(root, &["diff", base, "--name-only", "-z"])?;
     let untracked = git(root, &["ls-files", "--others", "--exclude-standard", "-z"])?;
-    ensure_mutation_artifact_exclude(root)?;
     let mut files = std::collections::BTreeSet::new();
     for raw in [tracked, untracked] {
         for entry in raw.split('\0').filter(|entry| !entry.is_empty()) {

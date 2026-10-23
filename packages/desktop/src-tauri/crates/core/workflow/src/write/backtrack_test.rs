@@ -1,17 +1,3 @@
-//! `write::backtrack` 的单元测试（test-design「backtrack.rs ->
-//! backtrack_test.rs」节）：回跳写操作 port 落库（形参 change **id**、
-//! BacktrackCommand 载荷 `change_id` 随行）——白名单二次校验（越权 Err 零写）、
-//! 双端表位（目标不超前）、reason ≤500、发起相位条目在位校验，全部前置保留；
-//! stale 闭包计算自 persist 迁入本文件——[`BacktrackCommand.stale_dependents`]
-//! = `dependents` BFS 全量闭包（不含目标自身），逐支核对与末端空闭包边界；
-//! `StoreFault` 故障传播；未建档 id 显式 Err。
-//!
-//! Mock策略（test-design 本节 Mock 表）：进程内假件实现 trait（捕获
-//! BacktrackCommand 与 stale_dependents 闭包逐项比对 + 可编程故障）；
-//! `phase_table` 真实组合（不变组件零 mock——闭包期望值按 requirement 前置
-//! 表手工推导）。零写断言 = 假件写命令捕获表为空。id 与 name 字面量各异：
-//! 寻址断言以 id 为键、name 仅展示属性。
-
 use std::sync::Mutex;
 
 use super::backtrack::{backtrack, BacktrackInput};
@@ -427,9 +413,9 @@ fn stale闭包_target为末端acceptance_空闭包() {
     );
 }
 
-/// reason 恰 500 字符 → 成功（≤500 边界含端点）。
+/// reason 恰 1000 字符 → 成功（≤1000 边界含端点）。
 #[test]
-fn reason恰500字符成功() {
+fn reason恰1000字符成功() {
     let fake = BacktrackStore::with_entries(vec![
         pass_entry("proposal", 1, t(1)),
         pass_entry("dev-design", 1, t(2)),
@@ -439,10 +425,10 @@ fn reason恰500字符成功() {
         .run(&input_at(
             "dev-design",
             "proposal",
-            &"因".repeat(500),
+            &"因".repeat(1000),
             &["proposal", "dev-design"],
         ))
-        .expect("恰 500 字符应成功（边界含端点）");
+        .expect("恰 1000 字符应成功（边界含端点）");
 
     assert_eq!(outcome.target, "proposal");
     assert_eq!(
@@ -450,7 +436,7 @@ fn reason恰500字符成功() {
             .reason
             .chars()
             .count(),
-        500
+        1000
     );
 }
 
@@ -479,22 +465,22 @@ fn 越权回溯拒绝且零写() {
     assert_eq!(fake.command_count(), 0, "零写命令");
 }
 
-/// reason 超 500 → `Err` 零写（≤500 约定的写面承载）。
+/// reason 超 1000 → `Err` 零写（≤1000 约定的写面承载）。
 #[test]
-fn reason超长501拒绝零写() {
+fn reason超长1001拒绝零写() {
     let fake = BacktrackStore::with_entries(full_pass_history());
 
     let err = fake
         .run(&input_at(
             "dev-design",
             "proposal",
-            &"因".repeat(501),
+            &"因".repeat(1001),
             &["proposal", "dev-design"],
         ))
-        .expect_err("501 字符应 Err");
+        .expect_err("1001 字符应 Err");
 
     assert!(
-        err.contains("500") && err.contains("501"),
+        err.contains("1000") && err.contains("1001"),
         "错误携带上限与实际值，实际: {err}"
     );
     assert_eq!(fake.command_count(), 0, "零写命令");

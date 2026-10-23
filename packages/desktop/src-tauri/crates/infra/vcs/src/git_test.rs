@@ -1626,6 +1626,51 @@ fn change_edit_set_root不存在或指向文件显式err() {
     );
 }
 
+/// 首次调用即剔除残留：盘上已有旧版本 / 早前失败遗留的 `_stryker-tmp`
+/// 可插桩源文件（`.ts`）与临时 config，且 exclude 尚未在位——`change_edit_set`
+/// 的 ensure 先于两次 git 列举，二者不得作为 untracked 进入清单；ensure 同步
+/// 补齐两条 pattern。
+#[test]
+fn change_edit_set_首次调用即剔除残留调试产物() {
+    let vcs = archive_vcs();
+    let (_dir, root) = init_repo("edit-set-first-call-residue");
+    // 模拟升级 / 早前失败留存：sandbox 内可插桩源文件 + 段临时 config
+    let mutation = root
+        .join("openspec")
+        .join("changes")
+        .join("demo")
+        .join("reports")
+        .join("test")
+        .join("app_vite-plus")
+        .join("mutation");
+    std::fs::create_dir_all(mutation.join("_stryker-tmp").join("sandbox-x").join("src"))
+        .expect("建 sandbox");
+    fs_write(
+        &root,
+        "openspec/changes/demo/reports/test/app_vite-plus/mutation/_stryker-tmp/sandbox-x/src/legacy.ts",
+        "export const legacy = 1;\n",
+    );
+    fs_write(
+        &root,
+        "openspec/changes/demo/reports/test/app_vite-plus/mutation/mutation-stryker-seg-1.conf.json",
+        "{}\n",
+    );
+    // 对照组：普通编辑照常入清单
+    fs_write(&root, "a.txt", "edited\n");
+
+    let files = vcs.change_edit_set(&root, "HEAD").expect("首次调用应成功");
+    assert_eq!(files, vec!["a.txt".to_owned()], "残留调试产物不入清单");
+    let exclude = read_exclude(&root);
+    assert!(
+        exclude.contains("_stryker-tmp/"),
+        "sandbox 规则首次调用即补齐: {exclude}"
+    );
+    assert!(
+        exclude.contains("mutation-stryker-seg-*.conf.json"),
+        "临时 config 规则首次调用即补齐: {exclude}"
+    );
+}
+
 /// 正向：untracked 经 `git add -N` 后补丁含新文件 unified diff hunk（行级
 /// 精度，E2 / 风险 3 定稿——intent-to-add 不回退标记）。
 #[test]

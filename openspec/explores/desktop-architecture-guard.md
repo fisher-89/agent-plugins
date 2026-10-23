@@ -1,145 +1,270 @@
-# 基于 Rust 生态的本地 Agent 架构看护系统自研方案
-## (Local Architecture Guardrails & Evolution System)
+# 桌面端架构看护系统方案（Local Architecture Guardrails · packages/desktop）
+workflow_type: requirement
 
 ---
 
-## 1. 方案愿景与设计哲学
+## 0. 范围与前提
 
-在现代多工程、Monorepo 及全栈项目研发中，架构设计图、技术文档与真实源代码极易发生脱节（即“架构漂移”）。本方案旨在利用 **Rust 生态的高性能工具链**，打造一款纯本地运行的 Agent 架构看护核心引擎。
+本方案只在 `packages/desktop` 一个包内落地：Rust 侧 crate 分层 + Tauri 壳 + React 前端。全部能力自含于桌面端，不依赖任何外部进程型工具链或宿主侧集成，`.c4` 解析、图计算、门禁判定、报告落盘与可视化均由桌面端自有 Rust / TS 代码承担。
 
-### 核心设计哲学：代码与契约即唯一真理 (Code & Contract as Single Source of Truth)
-* **声明式驱动**：架构拓扑、模块划分与 API 定义完全由本地的声明式文件（Markdown / YAML）决定，对 Git 版本控制天然友好。
-* **三位一体联动**：彻底打通 **图（关系）- 文档（契约）- 代码（源码 AST）** 的双向闭环。
-* **刚柔并济看护**：局部利用成熟的 Rust 静态拓扑算法进行“刚性拦截”（如循环依赖、分层违规），结合 LLM 大模型的柔性理解进行“架构重构与用例补全”。
+三条直接从现状推导出的前提：
 
----
+1. **模型解析必须原生**：桌面端 agent 工具面是封闭七件套（`crates/infra/agent/src/sdk/tools.rs` 的 `TOOL_NAMES`），会话的 `mcp_servers` 恒为空（`sdk/loop.rs` 铸 `Vec::new()`，`runner_test` 断言恒空）。没有任何 MCP / node 子进程通道可借来解析 DSL。
+2. **门禁只能落在相位编排里**：桌面端唯一的刚性拦截形态是 `phase_table` 的 `StepNode` + `OnFail::{Terminal, FeedbackLoop}`（`crates/core/workflow/src/write/phase_table.rs`）。不存在、也不会引入 git hook 型提交拦截。
+3. **取数是显式的**：`desktop-file-watch` spec 把「显式取数、无 watch 无轮询」定为纪律，watch 是唯一例外且限「单文件、信号不含内容、前端防抖、后端零去抖」。架构图与门禁结论都走显式命令，不做常驻守护进程。
 
-## 2. 全局概念实体模型 (Global Entity Model)
-
-系统在内存中将工作区（Workspace）抽象为四层级映射网络，初版专注于 **Rust 生态专区** 与 **JS/TS 生态专区** 的独立语言内闭环，暂不引入跨语言依赖的复杂性。
-
-```
-【 架构拓扑层 (图) 】       LogicalModule (逻辑模块节点) ───[ DependsOn / Contains 边 ]
-│
-▼ 1 : 1 物理绑定
-【 属性与契约层 (文档) 】   ModuleDocument (Markdown 文档 + 语言无关 API Schema)
-│
-┌─────────────────────┴─────────────────────┐
-▼ 1 : N 物理映射                            ▼ 1 : N 语义映射
-【 源码文件层 (代码) 】    FileMapping (磁盘路径/包边界)    ApiMapping (接口契约与源码AST)
-```
-
-### 2.1 四大核心映射定义
-
-#### ① 图（关系拓扑 - Topology Graph）
-* **底层引擎**：基于 Rust 生态最成熟的 [`petgraph::graph::DiGraph`](https://github.com "petgraph") 构建。
-* **节点 (Node - LogicalModule)**：代表一个逻辑模块。包含 `id`（全局唯一标识）与 `lang_env`（所属语言环境：Rust 或 JavaScript）。
-* **边 (Edge - Relation)**：
-  * `Contains`：父子关系。用于表达模块的嵌套与边界划分。
-  * `DependsOn`：依赖关系。用于表达模块间的水平调用与引入。
-
-#### ② 模块文档（契约载体 - Module Document）
-* **物理表现**：每个 `LogicalModule` 强绑定一个本地物理 Markdown 文档（例如存放于模块目录下的 `docs/arch.md`）。
-* **元数据区 (Front-matter)**：声明模块的基本属性与绑定的代码物理边界。
-* **API 契约区 (Language-Agnostic Schema)**：引入**语言无关的 YAML/JSON Schema** 声明该模块对外暴露的公共 API 契约，抹平具体编程语言的语法噪点。
-
-#### ③ 文件映射（物理锚点 - File Mapping）
-* **映射机制**：解决“逻辑模块”在不同语言生态下落地的物理边界问题，防止架构浮空。
-* **Rust 生态映射**：支持包级别（映射到独立 `Cargo Package` 目录）或文件级别（映射到特定的 `mod.rs` 或源文件）。
-* **JS/TS 生态映射**：支持 Monorepo 包级别（映射到 `pnpm workspace` 的子包目录）或文件夹级别（包含 `index.ts` 的物理功能文件夹）。
-
-#### ④ API 映射（源码契约核对 - API & AST Mapping）
-* **映射桥梁**：将文档层语言无关的 `Schema` 与源码中真正的符号签名（AST）进行刚性绑定。
-* **Rust 提取核**：基于 [`syn`](https://github.com "syn") 与 [`cargo_metadata`](https://github.com "cargo_metadata")，在对应物理文件中核对带有特异性标记（如属性宏 `#[arch_api(id)]` 或同名函数）的 `pub fn`。
-* **JS/TS 提取核**：基于 [`oxc`](https://github.com "oxc") 家族（`oxc_parser` + `oxc_resolver`），在导出的抽象语法树中，核对是否存在对应的 `export function` 且参数契约完全对齐。
+目标是消解「设计图 / 契约文档 / 真实源码」三者之间的**架构漂移**：模型声明什么，代码就得是什么；漂移在相位门禁处被静态算法拦下，剩下的语义重构交给相位 agent。
 
 ---
 
-## 3. 核心运作管线与数据流转 (Pipeline & Data Flow)
+## 1. 设计原则
 
-当用户通过**直接编辑文档**或通过 **Agent 交互式引导修改** 导致设计（依赖关系、模块划分、API 定义）发生变更时，系统触发以下自动化漏斗模型：
-
-```
-1. 扫描与提取 (Parse) ──> 2. 拓扑图构建 (Build) ──> 3. 刚性防漂移核对 (Lint) ──> 4. 自动化使能 (Act)
-• 读文档提 YAML Schema     • 将模块装载进 petgraph     • 刚性算法: 环路/分层校验     • 差异化生成测试桩代码
-• 调 cargo_metadata / oxc • 建立 Contains/DependsOn   • 源码解 AST 强比对契约     • 喂给 AI Agent 补全用例
-```
-
-### 3.1 变更场景与数据流转细节
-
-#### 场景 A：修改“模块划分”（新增/删除/合并模块）
-1. **物理变更**：用户或 Agent 在工作区新增 `billing.md`，或修改 `order.md` 中的父级目录声明。
-2. **图重建与差分**：Rust 本地守护进程（基于 [`notify`](https://github.com "notify-rs")）捕捉变更，重构 `petgraph`，并与 Git 基线（基于 [`git2-rs`](https://github.com "git2-rs")）比对计算出结构化的 **Topology Diff**。
-3. **脚手架下沉**：Rust 引擎检测到新模块，自动在磁盘对应位置创建 Crate 骨架或 JS/TS 物理文件夹，完成前向代码生成。
-
-#### 场景 B：修改“依赖关系”（改变调用方向）
-1. **拓扑合规检查**：引擎将新边插入 `petgraph`，立即运行环路检测算法（如 `kosaraju_scc`）。若构成循环依赖或违反分层原则，**立刻熔断流转并抛出刚性报错**。
-2. **代码侵入性检查**：若拓扑合规，引擎调用 `cargo_metadata` 或 `oxc_resolver` 反向扫描真实代码。若代码中尚未写入对应的 `use` 或 `import`，在本地提交或 CI 时拦截并提示：“代码落后于设计，是否一键同步构建配置文件？”
-
-#### 场景 C：修改“API 定义”（新增接口、变更字段）
-1. **契约提取**：引擎将更新后的语言无关 YAML 契约对象转化为通用中间表示（IR）。
-2. **AST 碰撞（检测漂移）**：适配器调用 `syn` 或 `oxc_parser` 抓取源码中真实函数的 AST。比对发现源码未及时修改（如字段名对不上），系统判定**“代码与契约发生漂移”**。
-3. **自动化测试使能 (Test Gen)**：测试生成引擎根据新 Schema，**强行重写或更新本地对应的测试文件数据桩（Test Stubs & Mocks）**（如 Rust 的 `#[test]` 或 TS 的 `Vitest` 用例）。由于测试桩由 Schema 刚性驱动，运行本地测试时将直接报错，倒逼开发人员重构源码；同时该 Schema Diff 作为黄金 Context 喂给 AI Agent，由 AI 辅助完成业务源码的柔性重构。
+* **声明式单一事实源**：架构拓扑与模块边界完全由 `openspec/architecture/models/*.c4` 决定，纯文本、git 友好、可 review。
+* **不造第二套契约**：契约层复用既有的 `openspec/specs/<capability>/spec.md`（规格）与 `openspec/architecture/decisions/*.md`（ADR）。本方案不引入「每模块一份 md + 语言无关 YAML API schema」这层中间物。
+* **刚柔分层**：环路 / 分层 / 声明外依赖这类可判定问题用静态算法做刚性拦截（零 LLM、确定性、可复现）；「这样拆对不对」「怎么重构」交相位 agent。
+* **零持久化优先**：模型每次全量解析进内存（与 `code_stats` 每次重新 `tokei` 解析同哲学），不引入第二套存储引擎，不做隐式缓存失效管理。
 
 ---
 
-## 4. 系统 UI 与交互设计 (UI & UX Architecture)
+## 2. 实体模型与映射
 
-针对本地 Agent 工具的轻量化定位，推荐采用 **“左树右图、双屏联动”的非对称画布架构**（可通过 Tauri 构建独立 App 或嵌入 IDE 插件视图）。
+原方案的四层「LogicalModule / ModuleDocument / FileMapping / ApiMapping」在桌面域内收敛为三层：
 
 ```
-┌────────────────────────────────────────────────────────────────────────┐
-│ 🛠️ Project: My_Monorepo (Rust + JS)              [ 基线版本 🟢 | 演进设计 🟡 ]│
-├──────────────┬──────────────────────────────────────────────┬──────────┤
-│ 📂 模块大纲树 │ 🗺️ 架构拓扑主画布 (The Canvas)               │ 📑 详情    │
-│ ├─ 🟢 auth   │                                              │    抽屉  │
-│ ├─ 🟡 order  │     ┌──────────────┐     ┌──────────────┐    │ (Drawer) │
-│ └─ 🟢 billing│     │  auth_service│     │ order_service│    │          │
-│              │     │    (Rust)    │────>│     (TS)     │    │ 🟡 order │
-│              │     └──────────────┘     └──────────────┘    │          │
-│              │            │                      │          │ • 类型:TS│
-│              │            ▼                      ▼          │ • 父级:..│
-│              │     ┌──────────────┐     ┌──────────────┐    │          │
-│              │     │  db_adapter  │<────│ billing_serv │    │ [上下游] │
-│              │     └──────────────┘     └──────────────┘    │          │
-└──────────────┴──────────────────────────────────────────────┴──────────┘
+【 拓扑层 】  C4 element（kind: package / domain / module / component）
+              ├─ extend <parent> { … }   ⇒ Contains（嵌套包含，来自 DSL 结构本身）
+              └─ A -> B "desc"           ⇒ DependsOn（依赖关系，来自显式关系声明）
+                    │
+                    ▼  语义锚点
+【 锚定层 】  metadata { path ['./src/x/', './src/y.ts'] }   ⇒ 1:N 物理边界
+                    │
+                    ▼  交叉核对
+【 代码层 】  变更清单（vcs：change_edit_set）∪ import 解析  ⇒ 事实依赖边
 ```
 
-### 4.1 核心视图交互组件
+三处关键取舍：
 
-* **左侧：模块大纲树 (Hierarchy Tree)**
-  以树状图清晰展示模块的 **Contains（父子包含）** 关系。节点前置状态圆点（🟢 对齐、🟡 演进中/漂移、🔴 违规环路）。
-* **中间：渐进式拓扑画布 (Interactive Canvas)**
-  展示模块的 **DependsOn（依赖调用）** 关系。引入**无级缩放（Semantic Zooming）**机制：远处视角只显示大模块域及粗线，近处视角自动展开节点露出子模块细节。画布默认只渲染当前聚焦模块的一阶（1-hop）上下游连线，防止界面过载。
-* **右侧：全屏/半屏详情抽屉 (Sliding Drawer)**
-  点击任意节点滑出，提供三大核心视图：
-  1. *模块概览*：直接渲染绑定的物理 Markdown 架构文档，支持一键在 IDE 中定位。
-  2. *契约核对*：结构化展示通用 API Schema。发生漂移时红字高亮，并排面对面展示【文档契约】与【源码 AST】的 Diff，提供一键同步按钮。
-  3. *用例管线*：展示当前模块的测试覆盖率状态，提供“一键补充缺失测试桩”的功能入口。
-* **双轨对比视图（Design Review Mode）**
-  演进设计时，图上呈现视觉差分：🟢 绿色节点/连线代表新增，🔴 红色虚线代表删除，🟡 黄色闪烁节点代表 API 发生变更且源码尚未对齐。
+| 项 | 取舍 | 理由 |
+|---|---|---|
+| 逻辑模块 | **C4 element 即模块**，不另建 LogicalModule 类型 | `c4-dsl-syntax` 已定义四类 kind 的严格层级（`extend` 表包含、`->` 表依赖），父子关系已在 DSL 内自描述，另立一层只会双写 |
+| 物理映射 | **`metadata.path` 即 FileMapping**，且天生是数组 | 一个元素可覆盖多个路径（目录 + 单文件混合），无需新字段 |
+| API 契约 | **不落权威 schema**。需要时从源码提取「对外符号清单」作为派生视图，不写回磁盘 | 契约权威在 specs + ADR；再造一份语言无关 schema 必然与 specs 漂移，且要维护 Rust/TS 两套提取器的对齐 |
 
 ---
 
-## 5. 核心技术选型与实验探索 (Tech Stack & Spike)
+## 3. 桌面端落位
 
-为了在快速实现产品的同时保证系统刚性，推荐局部拼装以下 Rust 生态的顶级基础库：
+### 3.1 crate 图（依赖方向已由 spec 预铺）
 
-| 维度 / 功能领域 | 推荐 Rust 生态依赖库 | 在本自研系统中的具体核心作用 |
-| :--- | :--- | :--- |
-| **内存图计算与图算法** | [`petgraph`](https://github.com "petgraph") | 构建多工程拓扑图，负责环路检测（SCC）及上下游影响半径（Blast Radius）遍历。 |
-| **本地文件监听与同步** | [`notify`](https://github.com "notify-rs") | 监听本地 `.md` 文件或源码变更，实现防抖的增量图重构与数据刷新。 |
-| **Rust 源码解析域** | [`syn`](https://github.com "syn") / [`cargo_metadata`](https://github.com "cargo_metadata") | 提取本地 Crate 硬依赖关系；将函数签名字符串转化为 AST 节点用于碰撞。 |
-| **JS/TS 源码解析域** | [`oxc_parser`](https://github.com "oxc") / `oxc_resolver` | 纯 Rust 编写的极速 JS/TS 解析器。模拟 Node.js 模块路径解析，提取 ESM 真实依赖链。 |
-| **本地数据与元数据索引** | [`rusqlite`](https://github.com "rusqlite") | 内嵌嵌入式 SQLite，维护“逻辑模块-物理文件-API 契约符号”的映射索引表。 |
-| **无代码中间类型抽象参考** | [`ts-rs`](https://github.com "ts-rs") / `specta` | 参考其跨语言类型 IR 映射机制，用于将通用契约转换为具体编程语言的语言类型桩。 |
+```
+                  ┌────────────────────────────────┐
+                  │ desktop-app (src-tauri, Tauri) │
+                  └───┬────────┬────────┬───────┬──┘
+                      │        │        │       │
+        ┌─────────────┘        │        │       └──────────────┐
+        ▼                      ▼        ▼                      ▼
+   ┌─────────┐            ┌────────┐ ┌────────┐          ┌───────────┐
+   │ workflow│            │ config │ │ store  │          │ archi  ★  │
+   │ (change)│            │        │ │(native │          │ 新增：纯读 │
+   └────┬────┘            └───┬────┘ │ _db)   │          │ 图 / 规则  │
+        │                     │      └───┬────┘          └─────┬─────┘
+        │                     │          │                     │
+        └──────────┬──────────┴──────────┴─────────────────────┘
+                   ▼
+            ┌────────────┐
+            │ foundation │  目录常量组 / workspace 身份段 / cancel 原语
+            └────────────┘
+
+  workflow ⇄ archi 互不依赖（硬约束，desktop-crate-layout spec 已写死）
+  门禁协议经 orchestration::port 的 trait 缝跨过去
+```
+
+* 新建 `crates/core/archi`：纯逻辑、零 Tauri、零 store、零 spawn。负责 `.c4` 解析、内存图构建、拓扑校验、交叉核对、报告结构体。
+* `crates/core/orchestration` 增第四个 runner trait（见 3.3），使 `workflow` 能挂载门禁步而不认识 archi。
+* 若将来需要 `cargo metadata` 之类进程解析，实现落 `crates/infra/archi`（新建 infra 成员），core 仍只见 trait。
+
+### 3.2 目录常量（foundation）
+
+`foundation::layout` 目前只有 changes / archive / explores 三棵树（`Layout` struct 三字段 + `config_path` + 报告槽派生）。新增三个**派生函数**，不动 `Layout` struct（零构造点波及）：
+
+```
+archi_models_dir(root)     → openspec/architecture/models
+archi_decisions_dir(root)  → openspec/architecture/decisions
+archi_reports_dir(root)    → openspec/architecture/reports      （全局兜底位置）
+```
+
+按 foundation 的「第二个消费者到场才下沉」纪律，这三项落地时需在 `desktop-crate-layout` 的 spec 里登记为新增消费者。
+
+### 3.3 门禁协议（orchestration::port）
+
+照 `StaticCheckRunner` / `TestExecutionRunner` / `MutationRunner` 三兄弟的同型形态加第四个：
+
+```rust
+pub trait ArchiCheckRunner: Send + Sync {
+    /// root = 被检查根（worktree 或主仓根）
+    /// name = change 磁盘名（报告目录派生用）
+    /// slot = 报告槽位
+    /// cancel = 取消信号（置位 → Err("执行已取消")）
+    fn run(&self, root: &str, name: &str, slot: ReportSlot, cancel: CancelFlag) -> BoxToolFuture;
+}
+```
+
+产出走既有的 `ToolStepOutput` 封闭集（新增一个 `ArchiCheck` 变体），`workflow` 侧零 archi 依赖。
+
+### 3.4 门禁挂载点（phase_table）
+
+```
+requirement 表（10 相位）
+initialize     PhaseStart → Clean → StaticCheck(Terminal) → TestExecution(Terminal) → PhaseLog
+proposal       PhaseStart → Executor → Evaluator → VerdictGate → PhaseLog
+dev-design     …
+test-design    …
+implement      PhaseStart → Executor → StaticCheck(FeedbackLoop)
+               → Evaluator → VerdictGate(FeedbackLoop) → PhaseLog
+               ★ 在此插入 ArchiCheck(FeedbackLoop)
+test-gen       …
+test-execution …
+code-review    …（无 executor，仅 evaluator）
+acceptance     ★ 收口前复核（ArchiCheck），再 evaluator → VerdictGate
+archive        Preflight → Commit → Rebase → ResolveConflicts → Merge
+               → SpecSync → Cleanup → Seal → Finalize
+
+test-only 表（7 相位）：initialize → proposal → code-analyze → test-design
+                        → test-gen → test-execution → archive
+```
+
+挂点选择：**implement 相位**（代码刚写完，漂移信息对 executor 最有价值，`FeedbackLoop` 能直接触达修正）+ **acceptance 相位**（收口前的确定性复核）。initialize 基线是否跑 archi check 取决于「基线本身是否要求模型齐全」，见 §8。
+
+变体追加纪律（必须遵守）：
+
+| 枚举 | 位置 | 编码 | 追加方式 |
+|---|---|---|---|
+| `RunStepKind`（21 值） | `workflow/state.rs` | bincode 枚举下标落库 | **只能尾部追加**，中间插入令存量 run 节点行整体错位（源码有明文警告） |
+| `StepNode`（21 值） | `workflow/state.rs` | 仅相位表内存结构，不落库 | 位置自由，仍建议尾部追加保持一致 |
+| `StepKind`（审计八臂） | `workflow/state.rs` | 落 `StepRecord`（`native_model` id=12） | 尾部追加 + `StepRecord` 走版本链 |
+| `ToolStepOutput` | `orchestration/port.rs` | 进程内封闭集 | 尾部追加 |
+| `ReportSlot` | `foundation/layout` | 纯进程内枚举（零 serde / 零 specta） | 加第三值 `Archi` → `reports/archi` |
+
+报告槽选择说明：不复用 `Test` 槽靠文件名前缀区分——`reports/test` 的 `plans[]` 索引语义、覆盖率复用判定、mutation scope 都挂在槽位上，混入架构报告会让三类语义互相污染。加第三槽的成本只是一个 match 臂。
+
+### 3.5 前端
+
+复用既有的画布与渲染资产，不新建可视化体系：
+
+```
+/architecture 路由（app-sidebar 增导航项）
+├─ 左：元素树（来自 extend 结构）              ← 复用 standard 组件
+├─ 中：xyflow 画布（节点 = element，边 = relation）
+│       默认只渲染聚焦元素 1-hop，避免过载
+└─ 右：抽屉
+    ├─ 元素概览（kind / metadata / path 映射）
+    ├─ 相邻报告（最近一次 archi check 的结论与 violations）
+    └─ ADR 列表（markdown-doc-renderer 渲染 decisions/*.md）
+```
+
+数据面沿用 change 详情页那套：specta `Type` 导出 → `src/types/generated/bindings.ts` → `pnpm run bindings:check` 卡住漂移。命令面新增 `commands/archi/` 轨道（`archi_model` / `archi_check_report` / `archi_decision_list` 之类薄命令，三件事纪律：参数转换 → 调用 → 错误映射）。
 
 ---
 
-## 6. 第一阶段最小可行性验证 (Spike Plan)
+## 4. 运作管线
 
-建议自研团队优先通过以下三个独立的超轻量脚本进行技术可行性破局：
+```
+① 加载（Load）        读 models/*.c4 → 解析元素 / 关系 / path 映射 → 内存图
+        │             每次显式命令全量重算，零持久化、零守护进程
+        ▼
+② 校验（Lint）        petgraph 上图算法：环路（SCC）/ 层级合法性 / 浮空元素
+        │             （声明了元素但 metadata.path 全不存在）
+        ▼
+③ 核对（Cross-ref）   change_edit_set(base) 取变更清单
+        │             ∪ path→element 映射 → 每文件的 import 目标归属哪个元素
+        ▼             → 与声明的 relation 对账：缺声明 / 方向错 / 未使用声明 / 目标不在模型
+④ 判定（Verdict）     violations 非空 → 门禁 fail → FeedbackLoop 回 executor
+        │             仅 warnings → pass 但报告留痕
+        ▼
+⑤ 使能（Act）         相位 agent 拿到「契约意图 vs 代码事实」的差异报告做修正
+```
 
-1. **Spike 1（拓扑生成）**：调用 `cargo_metadata` 抓取工作区本地 Crate 列表，利用 `petgraph` 构建内存图并成功打印出拓扑排序结果。
-2. **Spike 2（契约解析）**：使用 `serde_yaml` 读取 Markdown 代码块中的自定义 API 契约，使用 `syn::parse_str` 解析一段 Rust 函数签名字符串，并在内存中完成二者的字段类型核对。
-3. **Spike 3（路径解构）**：调用 `oxc_resolver` 传入带有 `tsconfig` 路径别名（如 `@/components`）的 TS 文件，验证其能否在几微秒内正确输出本地物理磁盘的绝对路径。
+### 4.1 三个变更场景的桌面实现
+
+**场景 A：改模块划分（新增 / 删除 / 合并元素）**
+
+1. 用户在画布或直接编辑 `.c4` 文件改变 `extend` 结构。
+2. 下一次 `archi_model` 命令重算内存图，与 change 的 `base_commit` 基线比对得出结构差分（新增 / 删除 / 移动的节点与边）。
+3. 画布以视觉差分呈现：新增绿、删除红虚线、变更黄。
+4. **不做前向脚手架生成**（自动建 crate / 目录骨架）。理由：面板生成骨架会与 `write_protection`、change 的 worktree 边界、以及「实现由 implement 相位 agent 负责」三方冲突。
+
+**场景 B：改依赖关系（改变调用方向）**
+
+1. 新边插入内存图即刻跑 SCC；成环或逆向分层 → 立刻熔断报错（纯函数，毫秒级，不依赖门禁相位）。
+2. 拓扑合规后再做代码侧核对：`change_edit_set` 拉出本 change 真实改动的文件，看 import 是否已体现新边。未体现 → warning「代码落后于设计」，在门禁相位拦截并给 executor 具体文件清单。
+
+**场景 C：改对外接口（新增符号、变更签名）**
+
+1. 契约变化在 specs / ADR 里表达（不在 DSL 里造第二套 schema）。
+2. 需要符号级核对时才提取源码符号清单（见 §6 分阶段：TS import 级 → Rust crate 级 → 签名级）。
+3. 差异作为黄金 context 交给相位 agent 做柔性重构；**不自动重写测试文件**。测试文件的生成权归 test-gen 相位（该相位独占测试文件生成，且受 `write_protection` 与变更清单 scope 约束）。本方案只产出「差异 + 建议用例点」交给 test-gen 消费。
+
+
+---
+
+## 5. 硬约束清单（动手前必须记住）
+
+| 约束 | 出处 | 违反后果 |
+|---|---|---|
+| `RunStepKind` / `StepKind` 新变体尾部追加 | `workflow/state.rs` bincode 下标落库 | 存量 run 节点行 / 审计行步词整体错位 |
+| `workflow` 与 `archi` 互不依赖 | `desktop-crate-layout` spec | crate 图破，纯读域引入编排行为 |
+| core 禁 Tauri、core 禁 store | 同上 | 解析域被持久化 / 壳层污染 |
+| 七工具封闭集、下发面单源 | `tools.rs` `TOOL_NAMES` / `policy.rs` / `compose.rs` / 16 份 prompts | 越权工具幻觉可执行；prompt 逐字断言测试红 |
+| 显式取数、无 watch 无轮询；watch 仅单文件信号不含内容 | `desktop-file-watch` spec | 画布想自动刷新必须先改 spec，不能偷加目录监听 |
+| 新解析器要带语料金标准 + 过变异门槛 | `checks` 的 `tests/golden` 文化 + `config.json` 的 mutation 80/70 | 变异分不达标，流程在 test-execution 相位卡死 |
+| `config.json` 已知键七项，其余进 `extra` | `core/config/src/lib.rs` `KNOWN_KEYS` | 新增配置不登记 → 静默 passthrough，config 页不展示不校验 |
+| 每 workspace 独立 db、模型演进走 `native_model` 版本链 | `infra/store` | 若架构结论要落库，必须走版本段而非改字段 |
+
+---
+
+## 6. 技术选型（按桌面现状分阶段）
+
+| 领域 | 选型 | 状态 |
+|---|---|---|
+| 内存图与图算法 | `petgraph`（SCC / 拓扑排序 / 邻接遍历） | 已在 `Cargo.lock`（传递依赖），提为直接依赖零新增面 |
+| `.c4` 解析 | **手写子集解析器**（element 关键字、`extend`、`->`、`metadata { path [...] }`、注释、多文件合并） | 新增，语料见 §7 |
+| 变更清单 | 复用 `ArchiveVcsPort::change_edit_set(root, base)`（`git diff <base> --name-only -z` 并上 `ls-files --others`） | 已有，唯一入口 |
+| TS/JS 依赖提取（一期） | 正则 import 解析（`import … from '…'` / `require` / 动态 import），路径归一后与 `metadata.path` 前缀匹配 | 新增，最便宜 |
+| Rust 依赖提取（一期） | `cargo metadata --format-version 1` 经 `exec` 取 crate 级依赖；文件级归属靠 `metadata.path` | 新增（若需进程，实现落 infra） |
+| 符号级提取（二期可选） | `oxc_parser` / `syn` | **不预铺**：桌面无先例，语料成本高；只有「必须函数签名碰撞」时才引 |
+| 代码量 / 语言分布 | `tokei`（`code_stats` 既有） | 已有，可复用于元素体积概览 |
+| 存储 | 默认零持久化；确需落库才用 `store` 的 `native_model` 版本链 | 已有机制 |
+| 前端画布 | `@xyflow/react` + change flow 既有布局 / 抽屉 / 运行态资产 | 已有 |
+| 类型桥 | specta `Type` → `bindings:check` 守门 | 已有 |
+
+---
+
+## 7. 语料与验收（Spike）
+
+任何解析器都必须先有语料、再有实现。语料覆盖历史 `.c4` 的真实写法：注释、多文件合并（`specification` 只取一次）、`metadata` 单值与数组两种形态、`extend` 嵌套、关系描述引号、空模型与非法模型。
+
+```
+crates/core/archi/tests/
+├── corpus/
+│   ├── models/<case>/*.c4              输入
+│   └── expected/<case>.json            期望（elements / relations / path 映射 / 诊断）
+└── golden_test.rs                      对拍（与 crates/core/checks/tests/golden 同风格）
+```
+
+交叉核对的语料至少覆盖八个场景：声明与 import 一致（clean）、未声明的关系（violation）、方向错（violation）、自引用（忽略）、目标不在模型（warning）、声明未被使用（warning）、`metadata.path` 指向不存在的目录（warning）、模型为空（skipped）。
+
+| Spike | 内容 | 验证什么 |
+|---|---|---|
+| **S1 解析 + 图** | `core/archi` 跑通语料对拍：解析 models/*.c4 → elements / relations / path 映射；`petgraph` 做 SCC 与分层判定 | 解析语义 + 图算法；零 UI、零门禁 |
+| **S2 核对 + 报告** | `change_edit_set` 并 path 映射 → import 交叉核对 → `reports/archi/*.json`；前端一格展示报告 | 报告契约、槽位（含「无模型 → skipped」分支） |
+| **S3 门禁挂载** | `StepNode::ArchiCheck` 挂 implement 相位 → 真实 change 跑出一次 fail → FeedbackLoop 回 executor；同时用旧 db 验证存量 run 记录仍可读 | 相位表接线 + bincode 尾部追加纪律 + 端到端手感 |
+
+---
+
+## 8. 未决问题
+
+1. **漂移的可计算定义**——四种候选：① 声明了关系但代码里没有 import（代码落后）；② 代码里有跨元素 import 但模型未声明（模型落后）；③ 层间逆向（如 component → package）；④ 元素声明了却没有有效 `metadata.path`（浮空模块）。四者门禁严格度不同：①② 宜 warning、③④ 宜 violation。需拍板后写进 spec。
+2. **archi 读不读 `openspec/specs/`**——桌面目前对 specs 只有归档 SpecSync 的 agent 会话（按 prompt 读写），无 Rust 读面。若「架构看护」要覆盖 specs 与代码之间的漂移，需给 foundation 加 specs 目录常量并加读取层。这是范围问题不是技术问题。
+3. **模型放在哪个根**——主仓根 vs change 的 worktree 根。change 在 worktree 内改模型时门禁读哪一份？`foundation::layout::resolve` 已被双根注入（create 的双根先例），需要明确口径并在 spec 写死。
+4. **门禁严格度分档**——implement 用 `FeedbackLoop` 已定；acceptance 用 `Terminal` 还是 `FeedbackLoop`、initialize 基线是否跑 archi check，取决于问题 1 的定义。
+5. **agent 是否需要查图能力**——若需要，走 `SessionToolset::Archi` 受控追加（`create_explore_note` 已证明「专用工具不进七工具封闭集」可行），而不是把 `TOOL_NAMES` 从 7 改成 8。本期不做。

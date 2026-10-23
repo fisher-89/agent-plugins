@@ -13,7 +13,7 @@ core/workflow SHALL 保持 change 流程状态的 Rust 单一权威（读 + 写�
 - `phase_next`：相位路由状态机——返回 next_phase、已插值的 executor / evaluator prompt、`allowed_backtrack_phases` 白名单（项 = 相位 id + 表内特性描述，`backtrack_options` 自相位表 `description` 随行下发）、重试上限判定；`sessionAnchors` 以进程内状态复活（mid-phase interruption 分支可达，重入时中断相位可感知并标定）；
 - `phase_start`：开启阶段并 attempt 计时；
 - `phase_log`：eval 记录落账（checklist 信封 + skipped + 会话槽位，见「eval 条目会话槽位落账」），单事务原子落库；
-- `backtrack`：回跳落账（stale 标记 + 传播 + reason ≤500）；
+- `backtrack`：回跳落账（stale 标记 + 传播 + reason ≤1000）；
 - `archive`：归档双写（db status 翻转 + 目录改名，见 desktop-change-state-store「归档双写」）。
 
 状态读取 SHALL 单源自 workspace 库（ChangeRecord / PhaseRecord / ChecklistItemRecord）；desktop MUST NOT 读或写任何 workflow.json。字段演进 SHALL 经 native_model 版本机制治理，MUST NOT 再依赖 JSON 文件形状保形（`persist.rs` raw Value 保形改写随载体退役）。写面 SHALL 保持 sync（store 为同步操作面，写面 MUST NOT 引入 tokio / async runtime）。V1 仅移植 requirement 工作流相位表；bug-fix / test-only 相位表后续独立变更。
@@ -59,7 +59,7 @@ core/workflow SHALL 保持 change 流程状态的 Rust 单一权威（读 + 写�
 
 ### Requirement: backtrack 白名单二次校验与 stale 语义
 
-写面 `backtrack` SHALL 对 `backtrack_to` 做白名单二次校验：`backtrack_to` 不在 `allowed_backtrack_phases` 内 SHALL 被拒绝且不落任何账（越权决议损坏不了状态，状态库零变更）；校验通过 SHALL 落回跳记录、对被跳过相位的 PhaseRecord 打 stale 标记并传播（与回跳落账同一事务语义），`reason` 超过 500 字符 SHALL 被拒绝。`backtrack_to` 与发起相位相同（自环）SHALL 在白名单含该相位时正常受理——这是「重做本相位」的唯一载体（白名单自含规则见「相位定义有序 step 序列与 artifact 清单」）：落账语义为改写最新条目 `backtrack_to` + 目标相位下游 stale 传播，`phase_next` 随后以新 attempt 路由回该相位；白名单不含自身时（零 agent 步相位）自环 SHALL 被拒且状态库零变更。该口径为桌面写面自有裁定（插件侧 `pipeline-backtrack` 的「目标索引必须小于当前相位」约束不适用于桌面路径，插件零改动、两份 spec 各管其面）。
+写面 `backtrack` SHALL 对 `backtrack_to` 做白名单二次校验：`backtrack_to` 不在 `allowed_backtrack_phases` 内 SHALL 被拒绝且不落任何账（越权决议损坏不了状态，状态库零变更）；校验通过 SHALL 落回跳记录、对被跳过相位的 PhaseRecord 打 stale 标记并传播（与回跳落账同一事务语义），`reason` 超过 1000 字符 SHALL 被拒绝。`backtrack_to` 与发起相位相同（自环）SHALL 在白名单含该相位时正常受理——这是「重做本相位」的唯一载体（白名单自含规则见「相位定义有序 step 序列与 artifact 清单」）：落账语义为改写最新条目 `backtrack_to` + 目标相位下游 stale 传播，`phase_next` 随后以新 attempt 路由回该相位；白名单不含自身时（零 agent 步相位）自环 SHALL 被拒且状态库零变更。该口径为桌面写面自有裁定（插件侧 `pipeline-backtrack` 的「目标索引必须小于当前相位」约束不适用于桌面路径，插件零改动、两份 spec 各管其面）。
 
 #### Scenario: 白名单内回跳落账
 
@@ -78,7 +78,7 @@ core/workflow SHALL 保持 change 流程状态的 Rust 单一权威（读 + 写�
 
 #### Scenario: reason 超长被拒绝
 
-- **WHEN** 以超过 500 字符的 reason 调用写面 backtrack
+- **WHEN** 以超过 1000 字符的 reason 调用写面 backtrack
 - **THEN** 调用显式失败，状态库零变更
 
 ### Requirement: 相位表与 prompt 模板单源收敛
@@ -242,7 +242,7 @@ step 复用 SHALL 为：initialize 复用 requirement 表头 `INITIALIZE_STEPS`�
 
 | 模块 | 职责 | 关键契约 |
 |------|------|----------|
-| `crates/core/workflow/src/write/` 写面模块 | change 流程状态域权威写面（db 载体） | `phase_next`（路由 + prompt 插值 + 白名单 + sessionAnchors 进程内锚点）/ `phase_start` / `phase_log`（checklist 信封 + skipped + 会话槽位，单事务原子）/ `backtrack`（stale + 传播 + 白名单二次校验 + reason ≤500）/ `archive`（双写）；落库经 port 缝；sync 无 tokio；`persist.rs` raw Value 保形改写退役 |
+| `crates/core/workflow/src/write/` 写面模块 | change 流程状态域权威写面（db 载体） | `phase_next`（路由 + prompt 插值 + 白名单 + sessionAnchors 进程内锚点）/ `phase_start` / `phase_log`（checklist 信封 + skipped + 会话槽位，单事务原子）/ `backtrack`（stale + 传播 + 白名单二次校验 + reason ≤1000）/ `archive`（双写）；落库经 port 缝；sync 无 tokio；`persist.rs` raw Value 保形改写退役 |
 | 落库 port 缝（新） | core/workflow → store 的进程内缝 | trait 定义落位 design 定稿；desktop-app 装配 store 实现；core/workflow 零 infra 依赖 |
 | core/workflow 相位表（含 prompt 模板，不改） | requirement 工作流相位序单源 | executor / evaluator prompt 模板驻此；TS 侧 `lib/workflow.ts` 冻结；`PIPELINE_PHASES` 保持布局身份 |
 | `crates/core/orchestration`（消费方，不改面） | walker 经 port 缝进程内直调写面 | 依赖方向 orchestration → workflow；walker 零自持转移规则；LocalToolSteps 直调面签名不变（载体在写面内换血） |

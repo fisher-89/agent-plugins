@@ -9,8 +9,7 @@ pub(crate) const MAX_REASON_CHARS: usize = 500;
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(tag = "action", rename_all = "camelCase")]
 pub enum DecisionAction {
-    /// 白名单内自主回溯（reason 必带，≤500）；目标为失败相位自身即「重做本
-    /// 相位」（仅当该相位在白名单内）
+    /// 白名单内自主回溯
     Backtrack { to: String, reason: String },
     /// 受控终止 run
     Stop { reason: String },
@@ -52,7 +51,7 @@ pub struct DecisionInput {
 /// 解析决策最终消息为三动作封闭集：JSON 载体提取 → tag `action` 判别。
 /// 已退役的 `retry`、拼写漂移与未知动作同走 serde 结构漂移 `Err`（由
 /// `decision_session` 软拒环处置，不一次打死 run）；reason 长度透传不设门——
-/// backtrack reason ≤500 归写面 `backtrack` 单点拒绝。
+/// backtrack reason 上限归写面 `backtrack` 单点拒绝（写面裁定 1000）。
 pub fn parse_decision(text: &str) -> Result<DecisionAction, String> {
     let raw = crate::verdict::extract_json(text)?;
     let action: DecisionAction =
