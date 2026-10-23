@@ -19,16 +19,16 @@ rig 0.43.0 已具备两半能力，无需升级/打补丁：
 - 声明基础版：`{ "type": "web_search_20250305", "name": "web_search", "max_uses": 5 }`（兼容老模型与多数网关；`max_uses` 为常量，控制成本）。
 - **server tool 绝不进入** `TOOL_NAMES`、`policy.rs`、`tools::definitions()`、`RunStarted.tools` 或 dispatch 白名单；只走 `additional_params.tools`。
 - 搜索块以 raw provider JSON 作为回放唯一事实源；展示字段（query/results/error）只用于 UI，不参与重建。
-- 时间线展示：搜索卡（标题恒为无状态文本「网络搜索」，body 含查询词 / 来源列表 / 错误）+ 正文底部的引用列表。
+- 时间线展示：搜索卡（标题恒为无状态文本「网络搜索」，body 含查询词 / 来源列表 / 错误，**无实时过程态**）+ 正文底部的引用列表。
 - 来源链接可点击；只允许 `http(s)`，通过 `tauri-plugin-opener` 打开外部浏览器。
 
 ## 改动面
 
 ### 1. core 事件契约 — `crates/core/agent/src/event.rs`
 
-1. `AgentBlock::Text` 增加字段：
+1. `AgentBlock::Text` 增加字段（`Option` 形态：specta 生成可选字段，存量前端 fixture 零改动）：
    ```rust
-   citations: Vec<AgentCitation> // #[serde(default, skip_serializing_if = "Vec::is_empty")]
+   citations: Option<Vec<AgentCitation>> // #[serde(default, skip_serializing_if = "Option::is_none")]
    ```
 2. 新增 `AgentCitation`：`url/title/cited_text: Option<String>` + `raw: serde_json::Value`（原样 wire 引用，回放用）。
 3. 新增 `AgentBlock::WebSearch`（一次 server_tool_use 与其配对 result 收敛为一块）：
@@ -43,11 +43,11 @@ rig 0.43.0 已具备两半能力，无需升级/打补丁：
    }
    ```
 4. 新增 `WebSearchSource { url, title, page_age: Option<String> }`。
-5. `AgentDelta` 增加 `Search { id: String, query: String }`（ephemeral，仅实时提示）。
+5. ~~`AgentDelta` 增加 `Search`~~ **不做**（见「决策落定（第五轮）」：MVP 只要最终可见，实时 delta 整条删除；`AgentDelta` 与 `normalize.rs` 均零改动）。
 6. `crates/core/agent/src/lib.rs` 导出新类型；更新 `event_test.rs` 的 serde 往返/旧 JSON 兼容测试。
 7. `crates/core/orchestration/src/transcript.rs` 的 `AgentBlock::Text` 模式改为 `{ text, .. }`。
 
-> 事件 payload 是 `SerdeJsonCodec` 自描述 JSON，新增变体/带默认值的字段无需 store schema 版本升级；旧事件缺 `citations` 读出空 vec。加字段会带来约 39 处 `AgentBlock::Text` 构造/模式的机械修改（生产代码仅 `loop.rs` 两处、`resume.rs` 一处）。
+> 事件 payload 是 `SerdeJsonCodec` 自描述 JSON，新增变体/带默认值的字段无需 store schema 版本升级；旧事件缺 `citations` 读出 `None`。`AgentBlock::Text` 在 Rust 侧命中 **29 处**（生产代码 `loop.rs` 两处、`resume.rs` 一处，其余为测试）。
 
 ### 2. 引擎：声明、投影、实时增量 — `crates/infra/agent/src/sdk/`
 
@@ -56,7 +56,6 @@ rig 0.43.0 已具备两半能力，无需升级/打补丁：
 - 常量：`WEB_SEARCH_TOOL_KIND = "web_search_20250305"`、`WEB_SEARCH_TOOL_NAME = "web_search"`、`WEB_SEARCH_MAX_USES = 5`、`ANTHROPIC_RAW_CONTENT_KEY = "anthropic_content"`、`CITATIONS_KEY = "citations"`。
 - `provider_tool() -> ProviderToolDefinition`。
 - `raw_content(&Text) -> Option<&Value>`、`citations_of(&Text) -> Vec<AgentCitation>`。
-- `stream_search_delta(&AssistantContent) -> Option<AgentDelta::Search>`：`End` 携带的 raw `server_tool_use` 且 `name == "web_search"` 时取 `input.query`。
 - `project_choice(&[AssistantContent]) -> (Vec<AgentBlock>, Vec<ToolCall>)`：
   - 先按 `tool_use_id` 索引 `web_search_tool_result`；
   - 顺序遍历：server_tool_use → 合并为 `WebSearch`；配对的 result 不重复产出；孤儿 result 产出 `raw_use = None` 的块；其他 raw server 块跳过；
@@ -77,7 +76,7 @@ rig 0.43.0 已具备两半能力，无需升级/打补丁：
 - `'attempt` 返回 `(choice, usage, finish_reason)`（`CompletionResponse::finish_reason()`）。
 - `pause_turn` 续跑：`FinishReason::Other("pause_turn")` 且无客户端 `tool_calls` 时，追加 assistant 消息后直接发下一次请求，不做新用户消息；上限 `PAUSE_TURN_MAX_CONTINUATIONS = 5`，每次发 `SystemNotice.pause_turn_continued`，到顶发 `pause_turn_capped` 并正常收敛。空 choice 不续跑。
 
-`normalize.rs`：`StreamEvent::End { content, .. }` → `web_search::stream_search_delta(content).map(message_delta)`；`Start/Arguments` 仍丢弃。
+`normalize.rs`：**零改动**（不产实时搜索增量；`End` 仍丢弃）。
 
 `compact.rs`：保持不变（摘要请求仍无工具）。
 
@@ -109,19 +108,22 @@ rig 0.43.0 已具备两半能力，无需升级/打补丁：
   - 仅 `protocol === 'anthropic'` 渲染 checkbox（`data-testid="provider-web-search"`），带提示「Anthropic 服务端网页搜索（按次计费）」；
   - 协议切走时清零；submit 传 `webSearch`；列表可加徽标。
 - `views/agents/hooks/use-agent-providers.ts`：输入类型与 positional invoke 末位追加 `webSearch`。
-- `src/lib/agent-adapter.ts`（承载形态见「仍未拍板 1」，以下按倾向的 tool 部件写法）：
+- `src/lib/agent-adapter.ts`：
   - **不新增** `AgentDataParts` 成员；text 计划携带 `citations` 并挂 `providerMetadata: { agent: { citations } }`（空数组不挂）；
   - `BlockPlan` 复用 `tool` 承载搜索：`{ kind:'tool', toolCallId: id, toolName:'web_search', input:{query}, output:{results,error}|null }`；
-  - `planBlock` 处理 `webSearch` 块与 `text.citations`；扩展 global/local 配对：按 `id` 把跨消息的孤儿 result 合并进 use（`pause_turn` 拆分场景）；
-  - `eventToChunk` 处理 `AgentDelta::Search`（发 `tool-input-available`，`toolCallId` = server_tool_use.id）。
-- `src/lib/agent-transport.ts`：search delta 首次出现时开 provisional 消息（`start` + `reset-step` + `tool-input-available`，不发 text/reasoning part-start）。
+  - `planBlock` 处理 `webSearch` 块与 `text.citations`；扩展 global/local 配对：按 `id` 把跨消息的孤儿 result 合并进 use（`pause_turn` 拆分场景）；local 视野下无配对 result 的 use 仍渲染（只显示查询词）；
+  - `eventToChunk`：**零改动**（无搜索 delta）。
+- `src/lib/agent-transport.ts`：**零改动**。
+- `components/agent/agent-messages.tsx`：`useHistoryWindow` 的 `conversationMessages` 过滤条件追加 `message.parts.length > 0`（`pause_turn` 第二段只有孤儿 result 时实时路产出空 parts 消息，见「决策落定（第五轮）」）。
 - 渲染：
   - `components/agent/agent-blocks.tsx` 新增 `WebSearchCard`（summary 恒「网络搜索」；body：查询词、来源列表、错误）、`CitationList`（正文底部、按 url 去重）、`ExternalLink`（校验 http/https）；
   - `components/agent/tool-cards.tsx` 的 `DEFAULT_TOOL_CARDS` 注册 `web_search` → `WebSearchCard`（同步更新 `tool-cards.test.tsx:89` 的键集合断言）。
-- 外链能力（当前仓库没有 opener 插件）：
-  - `tauri-plugin-opener = "2"` 加入 workspace 与 root 依赖；`main.rs` 注册 `tauri_plugin_opener::init()`；
-  - `capabilities/default.json` 增加 `opener:allow-open-url`（限定 `http://*` / `https://*`）；
-  - 前端安装 `@tauri-apps/plugin-opener`。
+- 外链能力：**用官方插件**（已裁定优先插件，不自写 command）：
+  - `tauri-plugin-opener = "2"` 加入 workspace 依赖与 `src-tauri/Cargo.toml` 根依赖；
+  - `src-tauri/src/main.rs` 的 builder 链加 `.plugin(tauri_plugin_opener::init())`（与 `dialog` 同位）；
+  - `capabilities/default.json` 增加 `opener:allow-open-url`，scope 只放 `http://*` / `https://*`（**标识符与 scope 形状实现期核对**：也可能是 `opener:allow-default-urls`，后者含 mailto/tel，需确认能否收窄）；
+  - 前端 `pnpm -C packages/desktop add @tauri-apps/plugin-opener`（当前 `node_modules/@tauri-apps/` 只有 api / cli / plugin-dialog / plugin-updater）；
+  - 调用点收敛到单个 `ExternalLink` 组件，非 http(s) 直接不渲染为链接。
 
 ### 6. 版本
 
@@ -129,16 +131,23 @@ rig 0.43.0 已具备两半能力，无需升级/打补丁：
 
 ## 测试
 
-- `core/agent/src/event_test.rs`：`WebSearch`/`AgentCitation`/`AgentDelta::Search` serde 往返；旧 `Text` JSON 无 citations 兼容。
+- `core/agent/src/event_test.rs`：`WebSearch`/`WebSearchSource`/`AgentCitation` serde 往返；旧 `Text` JSON 无 `citations` 读出 `None`；`AgentBlock` 未知变体与新变体的前后兼容。
 - 新建 `sdk/web_search_test.rs`：use+result 合并、错误 result、孤儿 result、未知 server 块、citations 提取、`replay_raw`/`replay_text` 的 `additional_params` 逐字节等价。
-- `sdk/normalize_test.rs`：server_tool_use End → `Search` delta；普通 text/result End → None。
+- `sdk/normalize_test.rs`：**无新增用例**（End 仍丢弃；若改动该文件即说明实现偏离决策）。
 - `sdk/loop_test.rs`：开关开/关时请求 `additional_params.tools` 精确形状、`RunStarted.tools` 不含 `web_search`；带 server 块的脚本化流产出 `WebSearch` + `Text.citations` 且不触发工具执行；`pause_turn` 续跑两次请求、上限 5 次、正常收敛。
 - `sdk/resume_test.rs`：`WebSearch` 重建为 use→result 两条 raw `AssistantContent`；citations 回填；project→resume 往返语义不变。
 - `runner_test.rs` / `lib_test.rs`：协议门控（Openai + true → false）与 facade 传递。
 - `compose_test.rs`：anthropic/true、openai/true、false 三组映射。
 - store `model_test.rs`：V3→V4 升级默认 false、降级丢字段、V4 版本头、旧 JSON 缺字段；`SessionEventRecord` 含新块的 JSON 往返。
 - `commands/agents/mod_test.rs`：保存/读取 `web_search`；更新全部 `save_agent_provider` 调用点。
-- 前端：`agent-adapter.test.ts`（部件/chunk/delta/跨消息配对）、`agent-transport.test.ts`（provisional 开件）、`provider-panel.test.tsx`（仅 anthropic 可见、默认关、切协议清零、提交载荷）、`use-agent-providers.test.ts`（invoke 参数）、`agent-messages`/新 `agent-blocks` 测试（卡片、引用、外链拦截非 http(s)）。
+- 前端：
+  - `agent-adapter.test.ts`：`webSearch` → tool 部件（`input-available`/`output-available`）、text 计划的 `providerMetadata.agent.citations`、跨消息 use↔result 配对合并、无配对 use 只出查询词；
+  - `provider-panel.test.tsx`：仅 anthropic 可见、默认关、切协议清零、提交载荷；
+  - `use-agent-providers.test.ts`：invoke 位置参数补位；
+  - `agent-messages.test.tsx`：**空 parts 消息不渲染**（新增用例，且既有气泡计数不受影响）；
+  - `tool-cards.test.tsx`：`Object.keys(DEFAULT_TOOL_CARDS)` 加入 `web_search`；
+  - 新 `agent-blocks` 用例：`WebSearchCard`（恒「网络搜索」标题、查询词、来源列表、错误）、`CitationList`（按 url 去重）、`ExternalLink`（非 http(s) 不渲染为链接）。
+- **不做**：`agent-transport.test.ts` 无需因本变更改动（transport 零改动）。
 
 ## 验证
 
@@ -168,7 +177,9 @@ pnpm -C packages/desktop test   # 全量 Rust + 前端
 ## 风险与注意
 
 - **回放保真**：`encrypted_content` 等字段不可推导，`raw_use`/`raw_result` 必须原样保存，展示字段不得参与重建。
-- **pause_turn 跨消息**：搜索可能被拆成两条 assistant 消息（use 在前、result 在后）；回放顺序不乱，前端用跨消息配对合并卡片。
+- **pause_turn 跨消息**：搜索可能被拆成两条 assistant 消息（use 在前、result 在后）；回放顺序不乱，前端靠轮末全局配对合并卡片。
+- **实时空白（已接受）**：无实时 delta，`pause_turn` 期间时间线可能空白数十秒；唯一过程观测点是 `SystemNotice.pause_turn_continued`。
+- **空 parts 消息**：实时路 `pause_turn` 第二段只有孤儿 result，会产出一条 0 部件 assistant 消息——渲染层过滤 `parts.length > 0`（见决策 ⑨）。
 - **连续 assistant 消息**：Anthropic 会合并同角色连续消息；若真机验证发现拒绝，再在 `rebuild` 中合并相邻 assistant。
 - **网关兼容**：开关默认关；不支持的网关以 api_error 失败，不做无工具静默重试。
 - **成本**：`max_uses = 5` 为成本护栏，发布前可按产品意见调整常量。
@@ -297,20 +308,66 @@ body          查询：<query>
 
 `RunStarted` 契约不变；「本轮可用工具」面板看不见 server tool——接受。
 
-## 仍未拍板
+## 决策落定（第五轮）
 
-1. **搜索卡的部件承载三选一**（本轮新增，前端改动面最大）：
+用户裁定：**① MVP 只要最终可见，过程允许空白（选 (iii)：删实时 delta）；② `sweep_orphans` 扩展记入 tasks；③ 空 parts 顺手不渲染；④ 外链优先用官方 opener 插件。**
 
-   | 选项 | 保留 delta？ | 收益 | 成本 |
-   | --- | --- | --- | --- |
-   | (i) `data-web-search` 部件 | 是 | 卡片提前出现、query 提前可见 | 新部件类型 + chunk 组 + transport provisional 分支 + 跨消息配对新写一套 |
-   | (ii) `tool-web_search` 部件 | 是 | 同上；复用 `input-available → output-available` 两态、`DEFAULT_TOOL_CARDS` 注册表、既有 `PairingScope` 骨架 | 扩展 `PairingScope` 收集 `webSearch.id`；`tool-cards.test.tsx:89` 的 `Object.keys` 断言需更新 |
-   | (iii) 删 delta，仅密封时出卡 | **否** | 最省：删 `AgentDelta::Search`、`normalize` 的 `End` 分支、transport provisional 分支 | pause_turn 期间（可能数十秒）时间线完全空白 |
+### ⑦ 删实时 delta —— 采纳 (iii)
 
-   倾向 **(ii)**：`AgentBlock::WebSearch` → `BlockPlan { kind:'tool', toolName:'web_search', input:{query}, output:{results,error} }`，`planToolPart` / `plansToChunks` 零新增分支；语义顾虑是「server tool 混进客户端工具卡体系」，但 `RunStarted.tools` 本就不含它、前端不做交叉校验。
+未选项：(i) `data-web-search` 部件、(ii) `tool-web_search` 部件（均可保留「查询词提前可见」，代价是 provisional 分支与配对扩展）。
 
-2. 转录体积：`raw_result` 含 `encrypted_content`，一次搜索数 KB、JSON 不压缩，是否设上限/压缩？
-3. 外链：`tauri-plugin-opener` vs 自写 `open_external_url` command。
-4. `sweep_orphans` 扩展为「assistant 位 server 块配对清扫」是**必做项**，归入 tasks 或独立 spec 要求视 change 粒度。
-5. `pause_turn` 续跑不计入 `retry.max_attempts`（否则两次 pause_turn 吃掉重试预算），但每次 `usage += turn_usage`；`PAUSE_TURN_MAX_CONTINUATIONS=5` 与 `max_uses=5` 是两个概念，命名要区分，到顶后「正常收敛」需在 SystemNotice 写明原因。
-6. 空 parts 消息：实时路孤儿 server result `return null` 时会留下一条只有 role 标签的 assistant 气泡（`ChatBubble` 无空 parts 跳过规则）——接受视觉瑕疵，还是顺手加「空 parts 不渲染」？
+取舍理由：`pause_turn` 拆消息 + 本地视野配对使实时态本就无法完整（第二段只能靠轮末 global 配对合并），dedicated 实时通道的收益被结构性削平；MVP 以「最终可见」为目标，实时空白是显式接受。
+
+**连带删除面（都是「不做」而非「改」）**：
+
+| 原方案项 | 处置 |
+| --- | --- |
+| `AgentDelta::Search` 变体 | **删**，`AgentDelta` 保持两变体 |
+| `web_search::stream_search_delta` | **删** |
+| `normalize.rs` 的 `End` 分支 | **零改动**（`End` 仍丢弃） |
+| `agent-transport.ts` provisional 搜索开件 | **零改动** |
+| 搜索卡「正在搜索…」/ 超时降级 | 已删（第四轮） |
+
+保留项：`AgentBlock::WebSearch`（密封可见的唯一来源）、`SystemNotice.pause_turn_continued`（续跑留痕，仍是唯一的过程可观测点）。
+
+**可观测性补偿**：`pause_turn` 期间时间线可能空白数十秒，用户在既有「运行中…」标记之外无信息。已接受；保留 `pause_turn_continued` notice 供调试面与后续体检。
+
+### ⑧ 部件承载最终形态 —— tool 部件（(ii) 的「无 delta 版」）
+
+删除 delta ≠ 必须换承载方式。仍用 tool 部件，因为 `planToolPart` / `plansToChunks` / `DEFAULT_TOOL_CARDS` 全部现成：
+
+```
+AgentBlock::WebSearch ──planBlock──▶ { kind:'tool', toolCallId:id, toolName:'web_search',
+                                       input:{query}, output:{results,error}|null }
+
+实时（本地视野）：use 无配对 result → output:null → tool-input-available → 卡片只显查询词
+轮末重放（全局视野）：孤儿 result 并入 use → output 有值 → 卡片显来源列表
+```
+
+语义代价：server tool 与客户端工具共用卡片视觉与注册表。可接受（`RunStarted.tools` 本就不含它，前端不做交叉校验）。
+
+### ⑨ 空 parts 不渲染 —— 记入实现面
+
+- 落点：`components/agent/agent-messages.tsx` 的 `useHistoryWindow`，`conversationMessages` 过滤追加 `message.parts.length > 0`；
+- 理由：`pause_turn` 第二段（只有孤儿 server result）实时路产出一条 0 部件的 assistant 消息；放在渲染层过滤可同时覆盖「实时 chunk 路」与「重放 adapter 路」，且分页计数一并修正；
+- 顺带收益：任何未来「无可见部件的事件消息」都不会再冒出空气泡。
+
+### ⑩ 外链用官方 opener 插件
+
+- Rust：`tauri-plugin-opener = "2"`（workspace + root）、`main.rs` builder 链 `.plugin(tauri_plugin_opener::init())`；
+- 权限：`capabilities/default.json` 加 `opener:allow-open-url`，scope 限定 `http://*` / `https://*`（**实现期核对标识符与 scope 形状**；若只有 `opener:allow-default-urls` 可用，需确认它是否连带放开 `mailto:` / `tel:` —— 若是则改回显式 `allow-open-url` + scope）；
+- 前端：新增依赖 `@tauri-apps/plugin-opener`（当前 `node_modules/@tauri-apps/` 仅 api / cli / plugin-dialog / plugin-updater）；
+- 校验仍在可信侧：仅 `http(s)` 才渲染为链接，`ExternalLink` 是唯一调用点。
+
+### ⑪ `sweep_orphans` 扩展 → 记入 tasks
+
+`crates/infra/agent/src/sdk/context.rs` 的 `sweep_orphans` 从「只认 `UserContent::ToolResult ↔ CallId`」扩展为「同时认 assistant 位 `web_search_tool_result` ↔ `server_tool_use`」：
+
+- 索引源：`AgentBlock::WebSearch` 的 `id`（use 侧）与 `raw_result.tool_use_id`（result 侧）；
+- 清扫对象：assistant 位中 `raw_use == None` 且其 id 在前序中找不到 use 的块，整块剔除；剔除后若该 assistant 消息的 `content` 变空，整条消息移除；
+- 触发点不变（L2 剪裁后 / L3 硬裁后 / 摘要置换后）——三处都调 `sweep_orphans`，扩展后自动生效。
+
+## 仍未拍板（仅剩一项）
+
+1. **`pause_turn` 续跑与重试/用量口径**：续跑 MUST NOT 计入 `retry.max_attempts`（否则两次 `pause_turn` 就吃掉重试预算），但每次续跑 `usage += turn_usage`；`PAUSE_TURN_MAX_CONTINUATIONS = 5` 与 `max_uses = 5` 是两个不同概念，命名须区分；到顶后按「正常收敛」处理，并在 `SystemNotice.pause_turn_capped` 写明原因。请确认这三条。
+2. （非阻塞，可留给 propose 阶段）转录体积：`raw_result` 含 `encrypted_content`，一次搜索数 KB、JSON 不压缩——不设上限也不压缩，接受。
