@@ -1,5 +1,7 @@
 # Anthropic 协议启用云端 Web Search
 
+workflow_type: requirement
+
 ## Context
 
 桌面端 SDK 引擎（`packages/desktop/src-tauri/crates/infra/agent`）目前只向模型下发七个客户端工具，Anthropic 协议下没有服务端工具。用户希望：**provider 协议为 anthropic 时，可按 provider 开关启用 Anthropic 云端 `web_search`，并在会话时间线展示搜索活动与引用来源**。
@@ -17,7 +19,7 @@ rig 0.43.0 已具备两半能力，无需升级/打补丁：
 - 声明基础版：`{ "type": "web_search_20250305", "name": "web_search", "max_uses": 5 }`（兼容老模型与多数网关；`max_uses` 为常量，控制成本）。
 - **server tool 绝不进入** `TOOL_NAMES`、`policy.rs`、`tools::definitions()`、`RunStarted.tools` 或 dispatch 白名单；只走 `additional_params.tools`。
 - 搜索块以 raw provider JSON 作为回放唯一事实源；展示字段（query/results/error）只用于 UI，不参与重建。
-- 时间线展示：实时「正在搜索…」增量 + 落定后的搜索卡（查询词、来源列表、错误）+ 正文引用列表。
+- 时间线展示：搜索卡（标题恒为无状态文本「网络搜索」，body 含查询词 / 来源列表 / 错误）+ 正文底部的引用列表。
 - 来源链接可点击；只允许 `http(s)`，通过 `tauri-plugin-opener` 打开外部浏览器。
 
 ## 改动面
@@ -107,16 +109,15 @@ rig 0.43.0 已具备两半能力，无需升级/打补丁：
   - 仅 `protocol === 'anthropic'` 渲染 checkbox（`data-testid="provider-web-search"`），带提示「Anthropic 服务端网页搜索（按次计费）」；
   - 协议切走时清零；submit 传 `webSearch`；列表可加徽标。
 - `views/agents/hooks/use-agent-providers.ts`：输入类型与 positional invoke 末位追加 `webSearch`。
-- `src/lib/agent-adapter.ts`：
-  - `AgentDataParts` 增加 `'web-search'` / `'citations'`；
-  - `BlockPlan` 增加 `search`，text 计划携带 citations；
-  - `planBlock` 处理 `webSearch` / `text.citations`；扩展 global/local 配对：按 `id` 把跨消息的孤儿 result 合并进 use（`pause_turn` 拆分场景）；
-  - `plansToParts` / `plansToChunks` 产出 `data-web-search` / `data-citations`；
-  - `eventToChunk` 处理 `AgentDelta::Search`（`status: 'searching'`，稳定 id）。
-- `src/lib/agent-transport.ts`：search delta 首次出现时只开 provisional 消息（`start` + `reset-step`，不发 text/reasoning part-start）。
+- `src/lib/agent-adapter.ts`（承载形态见「仍未拍板 1」，以下按倾向的 tool 部件写法）：
+  - **不新增** `AgentDataParts` 成员；text 计划携带 `citations` 并挂 `providerMetadata: { agent: { citations } }`（空数组不挂）；
+  - `BlockPlan` 复用 `tool` 承载搜索：`{ kind:'tool', toolCallId: id, toolName:'web_search', input:{query}, output:{results,error}|null }`；
+  - `planBlock` 处理 `webSearch` 块与 `text.citations`；扩展 global/local 配对：按 `id` 把跨消息的孤儿 result 合并进 use（`pause_turn` 拆分场景）；
+  - `eventToChunk` 处理 `AgentDelta::Search`（发 `tool-input-available`，`toolCallId` = server_tool_use.id）。
+- `src/lib/agent-transport.ts`：search delta 首次出现时开 provisional 消息（`start` + `reset-step` + `tool-input-available`，不发 text/reasoning part-start）。
 - 渲染：
-  - `components/agent/agent-blocks.tsx` 新增 `WebSearchCard`（折叠：查询词、正在搜索、错误、来源列表）、`CitationList`、`ExternalLink`（校验 http/https）；
-  - `components/agent/agent-messages.tsx` 的 `PartView` 分发 `data-web-search` / `data-citations`。
+  - `components/agent/agent-blocks.tsx` 新增 `WebSearchCard`（summary 恒「网络搜索」；body：查询词、来源列表、错误）、`CitationList`（正文底部、按 url 去重）、`ExternalLink`（校验 http/https）；
+  - `components/agent/tool-cards.tsx` 的 `DEFAULT_TOOL_CARDS` 注册 `web_search` → `WebSearchCard`（同步更新 `tool-cards.test.tsx:89` 的键集合断言）。
 - 外链能力（当前仓库没有 opener 插件）：
   - `tauri-plugin-opener = "2"` 加入 workspace 与 root 依赖；`main.rs` 注册 `tauri_plugin_opener::init()`；
   - `capabilities/default.json` 增加 `opener:allow-open-url`（限定 `http://*` / `https://*`）；
@@ -124,7 +125,7 @@ rig 0.43.0 已具备两半能力，无需升级/打补丁：
 
 ### 6. 版本
 
-`packages/desktop/package.json` `0.5.24` → `0.5.25`（用户可见功能变更）。
+`packages/desktop/package.json` `0.5.26` → `0.5.27`（用户可见功能变更）。
 
 ## 测试
 
@@ -159,7 +160,7 @@ pnpm -C packages/desktop test   # 全量 Rust + 前端
 手工 E2E（真机/官方 Anthropic 端点）：
 
 1. 新建 anthropic provider，打开 web search 开关，保存后确认记录持久化、重开应用仍为开。
-2. 发起需要最新信息的问题，确认请求带 `web_search_20250305`，时间线先出现「正在搜索…」，随后出现搜索卡与来源；点击来源用外部浏览器打开。
+2. 发起需要最新信息的问题，确认请求带 `web_search_20250305`，时间线出现标题为「网络搜索」的卡片（先只有查询词，落定后有来源）；点击来源用外部浏览器打开。
 3. 关闭开关再问，确认请求不带工具、时间线无搜索卡。
 4. 带搜索的会话结束后点「续轮」再追问，确认历史重建成功、API 不报 server_tool 缺失、上下文连续。
 5. 用一个不支持 server tools 的兼容网关验证：失败以既有 `api_error` 显式暴露，不静默重试。
@@ -173,3 +174,143 @@ pnpm -C packages/desktop test   # 全量 Rust + 前端
 - **成本**：`max_uses = 5` 为成本护栏，发布前可按产品意见调整常量。
 - **降级**：旧版本桌面无法解码含新字段/新变体的 JSON；仓库不支持降级，需在变更说明中标注。
 - **链接安全**：只允许 http(s)，点击前 `preventDefault()`，禁止 `javascript:`/`file:`。
+
+## 复核（rig 0.43.0 源码级）
+
+上述方案的关键前提逐条核对过，成立；同时发现几处需要修正与讨论。
+
+**成立的前提**
+
+| 断言 | 证据（rig-core-0.43.0 / 本仓库） |
+| --- | --- |
+| provider tool 落到 `additional_params.tools`，再追加进 wire `tools` | `completion/request.rs:700-740`（`merge_provider_tools_into_additional_params` 构造 `{type, …config}`）、`providers/anthropic/completion.rs:2255-2281`（`build_tool_definitions` append） |
+| `ProviderToolDefinition::new(kind).with_config(k,v)` 即 `{type:<kind>, k:v}` | `completion/request.rs:88-116` |
+| 流式终局携带 `pause_turn` | `completion/request.rs:256`（`CompletionResponse::finish_reason`）、`providers/anthropic/streaming/tests.rs:1417-1428`（`pause_turn → FinishReason::Other`） |
+| raw server 块以 `Text { text:"", additional_params.anthropic_content }` 承载，回放要求空文本 | `providers/anthropic/streaming.rs:340-352, 410-432`（`ServerToolUse` / `WebSearchToolResult` 走 `out.text()` + `text_params`）、`completion.rs:610-651`（回放：带 raw 时拒绝非空 text） |
+| text 块回放会带回 citations | `completion.rs:621-626`（`Content::Text { text, citations }`） |
+| citations 流式逐条到达并被数组 concat 累积（不会互相覆盖） | `streaming.rs:306-312`（`CitationsDelta`）+ `operation/completion.rs:481-520`（`AdditionalParams::merge` 注明 "arrays concatenate (streamed citation deltas)"） |
+| 测试可脚本化 `pause_turn` | `operation/completion.rs:90-104`（`Finish.reason` pub）+ `MockStreamEvent::FinalResponse(Finish)` |
+| 测试可伪造 server 块（无需真实 wire 帧） | `MockStreamEvent::TextStart { additional_params }` / `TextAdditionalParams` → `out.text_params` merge；空文本带 params 的 part 不会被丢弃 |
+
+**需要修正的事实**
+
+1. **版本号已过期**：`packages/desktop/package.json` 当前是 `0.5.26`，不是 `0.5.24` → 改为 `0.5.27`。
+2. **改动面计数偏差**：`AgentBlock::Text` 在 Rust 侧命中 **29 处**（非 39）；真正的成本在前端——`{ kind: 'text', text }` 字面量在 `*.test.ts(x)` 里约 20+ 处，而 specta 对 `Vec<AgentCitation>` 生成的是**必填**字段（现状 `bindings.ts:274` 是 `{ kind: "text"; text: string }`），新增字段后这些 fixture 会集体编译失败。建议：前端加一个 `textBlock(text, citations = [])` fixture helper 收敛，或评估 `Option<Vec<_>>`（生成 `citations?: …`，旧代码零改动），再决定。
+3. **`sweep_orphans` 遗漏（实质缺口）**：`sdk/context.rs:230+` 的孤儿清扫只认 `UserContent::ToolResult` ↔ `CallId`。`pause_turn` 会把同一次搜索拆成两条 assistant 消息（use 在前、result 在后），L3 摘要按 `history[1..protected]` 整段替换、L2 按完整轮对裁剪，边界一旦落在两条 assistant 之间，就会留下**没有 server_tool_use 的 web_search_tool_result** → 回放被 Anthropic 拒。方案里「compact 保持不变」不成立：需要让 `sweep_orphans` 感知 assistant 位的 server 块配对（从 raw 的 `id` / `tool_use_id` 建索引，剔除孤儿 result 文本块）。
+4. **rig 有现成解析 API，不必手写**：`anthropic_citations(&message::Text) -> Vec<Citation>`（`completion.rs:591`）已把 `web_search_result_location` 解成 `{ cited_text, url, title, encrypted_index }`。但**展示字段用它是安全的，raw 必须直接取 `additional_params["citations"]` 的原值**——`Citation` 反序列化再序列化会补齐/规范化字段（如 `title: Option` 序列化为 `null`），逐字节保真只有原始 JSON 给得起。与「raw 是回放唯一事实源」的既有决策一致，只是实现路径要写明。
+5. **外链打开可更轻**：`capabilities/default.json` 现在只有 `core:default` + `dialog:allow-open`。引入 `tauri-plugin-opener` 要加依赖 + 注册 + 新权限面。替代：写一个 `open_external_url` command，Rust 侧强校验 `http(s)` 后用系统 opener（`open` crate / `std::process`），前端 `invoke` 即可，权限面不扩、校验点在可信侧。二者都可，但要选一个并写清理由。
+
+**值得讨论（产品/契约层面）**
+
+- **引用的呈现形态**：方案是「正文之后的引用列表」+ `data-citations` 独立部件。另一条路是用 ai SDK text part 的 `providerMetadata` 把 citations 挂在**正文部件自己**上，排版与行内角标都好做，部件数不膨胀。代价是密封前拿不到（citations 只在 `End`/密封时确定）。
+- ~~**搜索卡实时性**：…（超时降级）~~ **已决：不做降级，文案改无状态「网络搜索」**（见「决策落定 ③」）。`server_tool_use` 的 `End` 帧在 `content_block_stop` 才发（`streaming.rs:410-432`），其 `query` 是 `web_search_tool_result` 到达前**唯一**可见信息。
+- **`RunStarted.tools`**：方案规定 server tool 不进 `tools`（正确），但前端「本轮可用工具」面板就完全看不到它。是否加一个 `serverTools: Vec<String>`（旧事件缺字段读出空 vec，成本低）？
+- **pause_turn 与重试/用量**：续跑不应计入 `retry.max_attempts`（否则两次 pause_turn 就吃掉重试预算），但每次续跑都要 `usage += turn_usage`；`PAUSE_TURN_MAX_CONTINUATIONS = 5` 与 `max_uses = 5` 是两个不同概念，命名要区分，且到顶后是「正常收敛」还是「`api_error`」需明说。方案目前是前者，合理，但要在 SystemNotice 里写清到顶原因。
+- **连续 assistant 消息**：`pause_turn` 天然产生 `Assistant → Assistant`。rig 编码侧不做同角色合并（`completion.rs` 的 message 转换逐条映射），依赖 Anthropic 服务端合并。本仓库不支持降级/多网关，风险可接受，但真机验证点应前置到实现期（而不是留到发布前）。
+- **转录体积**：`raw_result` 含 `encrypted_content` + 每条来源的加密索引，一次搜索动辄数 KB；`ServerEventRecord` 是 JSON 自描述、无压缩，10 次搜索的会话可能多出几十 KB。是否接受（`db-inspector` / 导出功能会看到）？
+- **旧版本降级窗口**：`SessionEventRecord` 用 `SerdeJsonCodec`，旧客户端读到含 `webSearch` 块的事件会在**整条事件解码**时失败，不是"少显示一个卡"，而是可能整会话加载报错。仓库不支持降级（既有约定），但这次要明确写进变更说明：升级后不可回退。
+- **`max_uses = 5`**：成本护栏常量。要不要做成 provider 级可配置（表单再加一个输入）？若做，`web_search: bool` 就该是 `web_search: Option<u32>`（None = 关），一次决策省掉以后第二次改 store 版本。
+
+## 数据结构往返（一图）
+
+```
+Anthropic SSE                rig 解码                     本仓库
+─────────────────────────────────────────────────────────────────────────────
+server_tool_use        ──▶  Text{text:"", params:        ──▶  AgentBlock::WebSearch{
+  {id, name, input}          anthropic_content}                id, query, raw_use
+                                                        (End 帧 → AgentDelta::Search)
+web_search_tool_result ──▶  Text{text:"", params:        ──▶  同一个块 += results / error
+  {tool_use_id, content[]}   anthropic_content}                + raw_result
+text + citations_delta ──▶  Text{text, params.citations} ──▶  AgentBlock::Text{text, citations}
+─────────────────────────────────────────────────────────────────────────────
+store（JSON 自描述事件）
+─────────────────────────────────────────────────────────────────────────────
+resume 重建 ──▶  Text{text:"", params.anthropic_content: raw_use}   ← replay_raw
+                 Text{text:"", params.anthropic_content: raw_result} ← replay_raw
+                 Text{text,     params.citations: raw[]}             ← replay_text
+```
+
+> 以下为第四轮决策记录；上文「关键决策」「5. 前端」「风险与注意」中与之冲突的措辞以本节为准。
+
+## 决策落定
+
+### ① citations 挂正文部件（无独立 `data-citations`）
+
+- `AgentDataParts` **不**新增 `'citations'`；text 部件多带一个 `providerMetadata`。
+- `BlockPlan` text 计划携带 `citations`；`plansToParts` 产出
+  `{ type:'text', text, state:'done', providerMetadata: { agent: { citations } } }`（空数组不挂）。
+- 实时路 `textChunks` 的 `text-start` 带同一 metadata。
+- `PartView` text 分支 → `<TextBlock text={part.text} citations={readCitations(part)} />`。
+
+ai 7.0.118 侧三条约束已核实：
+
+| 点 | 证据 |
+| --- | --- |
+| text-start/delta/end 都接受 `providerMetadata` | `node_modules/ai/dist/index.d.ts`（`UIMessageChunk` 三变体各带可选 `providerMetadata`） |
+| 命名空间自定，值须 object | `ProviderMetadata = Record<string, JSONObject>`（`@ai-sdk/provider/dist/index.d.ts:121`）；chunk schema `z.looseObject` + `z.record(z.string(), z.record(z.string(), jsonValue))`（`ai/dist/index.js:2489`），未知键不剥 |
+| 合并语义 = **覆盖**非 merge | `ai/dist/index.js:7669-7695`：`= chunk.providerMetadata ?? existing`；`text-start` 初始化，`text-delta`/`text-end` 覆盖 |
+
+推论：**citations 放一次即可**，不要指望多次 delta 累加。
+
+### ② `web_search: bool` → store v4 定型，`new` 签名不动
+
+- `#[serde(default)] pub web_search: bool`；`AgentProviderRecord::new` **保持 8 参**（默认 false）+ `with_web_search(bool)`——`new` 全仓 **35 处**调用，改签名 = 35 处机械改动，加构造器 = 0 处。
+- `save_agent_provider` 是 command，specta 生成**位置参数**（`bindings.ts:79` 末端 `maxTokens`），追加 `webSearch` 后前端调用点全部补位。
+- `max_uses = 5` 锁为常量；将来可配置需 v5 迁移——现在接受。
+
+顺带收敛：**`AgentBlock::Text.citations` 用 `Option<Vec<AgentCitation>>`**。现状 `bindings.ts:274` 是 `{kind:"text"; text:string}`，若 `citations` 必填，则 **14 个测试文件 / 34 处** `kind:'text'` 字面量集体编译失败；`Option<Vec<_>>` 经 specta 生成 `citations?: AgentCitation[] | null`（与 `contextLength?: number | null` 同式，`bindings.ts:436`），**零 fixture 改动**。`WebSearch.results` 是新类型无存量 fixture，可裸 `Vec` + `#[serde(default, skip_serializing_if)]`。
+
+### ③ 搜索卡文案改为无状态「网络搜索」
+
+```
+summary（恒）   网络搜索
+body          查询：<query>
+              来源：url / title 列表（落定后）
+              错误：<error_code>（error_code 非空时）
+```
+
+- 删除「正在搜索…」文案；**删除超时降级分支**（原方案该条整条作废）。
+- 卡片与 `ToolPairCard` 同构（`details/summary`），`data-testid="block-web-search"`。
+
+**pause_turn 的既定语义（必须写进 spec，否则会被当 bug）**：`pause_turn` 把一次搜索拆成两条 assistant 消息，实时路 `PairingScope.local` 只看当前消息——
+
+- 第一段密封块：卡片有 `query`、无 `results`（未落定）；
+- 第二段密封块：只有孤儿 result → 实时路 **return null**，靠轮末重放（`global` 配对）合并。
+
+即**实时期间卡片停在未落定态直到轮末折叠**。要实时出结果只能让 Rust 延迟发送第一段 sealed Message——牵动事件顺序与持久化，不建议。
+
+### ④ citations 命名空间 → 自有命名 `agent`
+
+判定依据（「provider 外消费即自有命名」）：citations 唯一消费点在 UI（`TextBlock` / 底部列表），属 provider 外；且 `AgentBlock::Text.citations` 已在 Rust 侧归一化为协议中立结构。
+
+- 仓库无 `@ai-sdk/anthropic` 依赖，不存在与官方 provider id 的键冲突。
+- **`providerMetadata` 不落库、不进事件、不进 wire**——原始数据是 `AgentBlock::Text.citations`，metadata 由前端 adapter 现算。故命名**不是持久化契约，改名字成本≈0**。
+
+### ⑤ 引用形态 → 正文底部列表
+
+- `TextBlock` markdown 渲染不变，正文下方追加 `<CitationList />`。
+- 列表项：`title ?? url`；链接走外链校验（只 `http(s)`）。
+- **按 url 去重**（同页可被引多句；`cited_text` 保留首个）。
+- 不做行内角标、不做原句高亮（`cited_text` 已在 raw 内，属后续打磨）。
+
+### ⑥ 不加 `serverTools`
+
+`RunStarted` 契约不变；「本轮可用工具」面板看不见 server tool——接受。
+
+## 仍未拍板
+
+1. **搜索卡的部件承载三选一**（本轮新增，前端改动面最大）：
+
+   | 选项 | 保留 delta？ | 收益 | 成本 |
+   | --- | --- | --- | --- |
+   | (i) `data-web-search` 部件 | 是 | 卡片提前出现、query 提前可见 | 新部件类型 + chunk 组 + transport provisional 分支 + 跨消息配对新写一套 |
+   | (ii) `tool-web_search` 部件 | 是 | 同上；复用 `input-available → output-available` 两态、`DEFAULT_TOOL_CARDS` 注册表、既有 `PairingScope` 骨架 | 扩展 `PairingScope` 收集 `webSearch.id`；`tool-cards.test.tsx:89` 的 `Object.keys` 断言需更新 |
+   | (iii) 删 delta，仅密封时出卡 | **否** | 最省：删 `AgentDelta::Search`、`normalize` 的 `End` 分支、transport provisional 分支 | pause_turn 期间（可能数十秒）时间线完全空白 |
+
+   倾向 **(ii)**：`AgentBlock::WebSearch` → `BlockPlan { kind:'tool', toolName:'web_search', input:{query}, output:{results,error} }`，`planToolPart` / `plansToChunks` 零新增分支；语义顾虑是「server tool 混进客户端工具卡体系」，但 `RunStarted.tools` 本就不含它、前端不做交叉校验。
+
+2. 转录体积：`raw_result` 含 `encrypted_content`，一次搜索数 KB、JSON 不压缩，是否设上限/压缩？
+3. 外链：`tauri-plugin-opener` vs 自写 `open_external_url` command。
+4. `sweep_orphans` 扩展为「assistant 位 server 块配对清扫」是**必做项**，归入 tasks 或独立 spec 要求视 change 粒度。
+5. `pause_turn` 续跑不计入 `retry.max_attempts`（否则两次 pause_turn 吃掉重试预算），但每次 `usage += turn_usage`；`PAUSE_TURN_MAX_CONTINUATIONS=5` 与 `max_uses=5` 是两个概念，命名要区分，到顶后「正常收敛」需在 SystemNotice 写明原因。
+6. 空 parts 消息：实时路孤儿 server result `return null` 时会留下一条只有 role 标签的 assistant 气泡（`ChatBubble` 无空 parts 跳过规则）——接受视觉瑕疵，还是顺手加「空 parts 不渲染」？

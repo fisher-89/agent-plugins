@@ -63,7 +63,7 @@ function RunActions({
   actions: RunActions;
   active: boolean;
 }): React.JSX.Element {
-  const [autoNextPhase, setAutoNextPhase] = useState(false);
+  const [autoNextPhase, setAutoNextPhase] = useState(true);
   return (
     <div className="flex flex-col items-end gap-1">
       <div className="flex items-center gap-2">
@@ -75,7 +75,7 @@ function RunActions({
             onChange={(event) => setAutoNextPhase(event.target.checked)}
             data-testid="run-auto-next-phase"
           />
-          自动确认步骤
+          连续运行
         </label>
         {active ? (
           <Button onClick={() => void actions.stop()} data-testid="run-stop">
@@ -87,10 +87,6 @@ function RunActions({
           </Button>
         )}
       </div>
-      <span className="text-xs text-muted-foreground">
-        自动确认：仅跳过相位间停等；归档前（archive）必停等确认，ask
-        中断、失败与终态收口仍停下等待——归档不自动推进。
-      </span>
     </div>
   );
 }
@@ -370,11 +366,8 @@ export function RunControlPanel({
       aria-label={`change ${name} 运行控制`}
     >
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <h2 className="m-0 text-[15px]">运行控制</h2>
-        <RunActions actions={actions} active={active} />
-      </div>
-      <div className="flex items-center gap-2">
         <RunStatusBadge activeRun={activeRun} lastRun={lastRun} />
+        <RunActions actions={actions} active={active} />
       </div>
       {actions.error !== null && (
         <div

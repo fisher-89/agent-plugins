@@ -88,7 +88,7 @@ describe('RunControlPanel：主操作与生命周期对齐', () => {
 
     fireEvent.click(screen.getByTestId('run-start'));
     expect(start).toHaveBeenCalledTimes(1);
-    expect(start).toHaveBeenLastCalledWith(false);
+    expect(start).toHaveBeenLastCalledWith(true);
   });
 
   it('running：停止为主操作且点击触发 stop、发起入口退位、状态徽章呈运行中', () => {
@@ -148,24 +148,11 @@ describe('RunControlPanel：主操作与生命周期对齐', () => {
 });
 
 describe('RunControlPanel：发起区自动确认开关（AC-4）', () => {
-  it('默认关：复选框未选中；未勾选直接点击发起 → start 携 false 调用恰一次（data-testid 查询）', () => {
+  it('默认开：复选框选中；未勾选直接点击发起 → start 携 true 调用恰一次（data-testid 查询）', () => {
     const start = vi.fn(async () => {});
     renderPanel(runStub({ start }));
 
     const checkbox = screen.getByTestId('run-auto-next-phase');
-    expect((checkbox as HTMLInputElement).checked).toBe(false);
-
-    fireEvent.click(screen.getByTestId('run-start'));
-    expect(start).toHaveBeenCalledTimes(1);
-    expect(start).toHaveBeenLastCalledWith(false);
-  });
-
-  it('勾选开关后点击发起 → start 携 true 调用恰一次（开启后 start 携 autoNextPhase=true）', () => {
-    const start = vi.fn(async () => {});
-    renderPanel(runStub({ start }));
-
-    const checkbox = screen.getByTestId('run-auto-next-phase');
-    fireEvent.click(checkbox);
     expect((checkbox as HTMLInputElement).checked).toBe(true);
 
     fireEvent.click(screen.getByTestId('run-start'));
@@ -173,29 +160,28 @@ describe('RunControlPanel：发起区自动确认开关（AC-4）', () => {
     expect(start).toHaveBeenLastCalledWith(true);
   });
 
-  it('常驻轻提示文案：默认态与开启态均渲染同一行 muted 说明，不随开关状态条件渲染（D5）', () => {
-    renderPanel(runStub());
+  it('勾选开关后点击发起 → start 携 false 调用恰一次（开启后 start 携 autoNextPhase=true）', () => {
+    const start = vi.fn(async () => {});
+    renderPanel(runStub({ start }));
 
-    const hint = screen.getByText(/仅跳过相位间停等/);
-    expect(hint.textContent).toContain('仅跳过相位间停等');
-    expect(hint.textContent).toContain('ask 中断');
-    expect(hint.textContent).toContain('归档不自动推进');
-    expect(hint.className).toContain('text-muted-foreground');
+    const checkbox = screen.getByTestId('run-auto-next-phase');
+    fireEvent.click(checkbox);
+    expect((checkbox as HTMLInputElement).checked).toBe(false);
 
-    // 开启态：同一行文案仍在场（同一 DOM 节点——非条件渲染重建）
-    fireEvent.click(screen.getByTestId('run-auto-next-phase'));
-    expect(screen.getByText(/仅跳过相位间停等/)).toBe(hint);
+    fireEvent.click(screen.getByTestId('run-start'));
+    expect(start).toHaveBeenCalledTimes(1);
+    expect(start).toHaveBeenLastCalledWith(false);
   });
 
   it('运行期开关 disabled 定格：activeRun 在场即冻结（活面判别非状态值枚举）', () => {
     const rendered = renderPanel(runStub(), { activeRun: activeRun(), lastRun: null });
     const checkbox = screen.getByTestId<HTMLInputElement>('run-auto-next-phase');
     expect(checkbox.disabled).toBe(true);
-    expect(checkbox.checked).toBe(false);
+    expect(checkbox.checked).toBe(true);
     rendered.unmount();
   });
 
-  it('终局恢复可编辑且保留上次取值：activeRun 退场后勾选过的开关仍选中（发起以点击时刻值为准）', () => {
+  it('终局恢复可编辑且保留上次取值：activeRun 退场后反选过的开关仍保持（发起以点击时刻值为准）', () => {
     const start = vi.fn(async () => {});
     const first = renderPanel(runStub({ start }));
     fireEvent.click(screen.getByTestId('run-auto-next-phase'));
@@ -211,11 +197,11 @@ describe('RunControlPanel：发起区自动确认开关（AC-4）', () => {
     );
     const checkbox = screen.getByTestId<HTMLInputElement>('run-auto-next-phase');
     expect(checkbox.disabled).toBe(false);
-    expect(checkbox.checked).toBe(true);
+    expect(checkbox.checked).toBe(false);
 
     // 发起以点击时刻开关值为实参：终局后可直接携 true 重发
     fireEvent.click(screen.getByTestId('run-start'));
-    expect(start).toHaveBeenLastCalledWith(true);
+    expect(start).toHaveBeenLastCalledWith(false);
     first.unmount();
   });
 
@@ -225,12 +211,12 @@ describe('RunControlPanel：发起区自动确认开关（AC-4）', () => {
 
     const checkbox = screen.getByTestId<HTMLInputElement>('run-auto-next-phase');
     expect(checkbox.disabled).toBe(false);
-    expect(checkbox.checked).toBe(false);
+    expect(checkbox.checked).toBe(true);
 
     fireEvent.click(checkbox);
-    expect(checkbox.checked).toBe(true);
+    expect(checkbox.checked).toBe(false);
     fireEvent.click(screen.getByTestId('run-start'));
-    expect(start).toHaveBeenLastCalledWith(true);
+    expect(start).toHaveBeenLastCalledWith(false);
   });
 });
 

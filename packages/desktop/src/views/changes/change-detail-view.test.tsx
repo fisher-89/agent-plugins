@@ -546,7 +546,7 @@ describe('ChangeDetailView：页面组装（图区 / 抽屉）', () => {
     const callsBefore = detailCalls().length;
 
     await act(async () => {
-      fireEvent.click(screen.getByRole('button', { name: '刷新详情' }));
+      fireEvent.click(screen.getByTestId('refresh-change-detail-button'));
     });
     await waitFor(() => expect(detailCalls()).toHaveLength(callsBefore + 1));
 
@@ -611,10 +611,10 @@ describe('ChangeDetailView：页面组装（图区 / 抽屉）', () => {
 
     // 刷新请求挂起：loading 置位而既有 detail 在场 → 不回落加载占位
     loadFixture({ detail: detail(), artifacts: PROPOSAL_ENVELOPES, hold: true });
-    fireEvent.click(screen.getByRole('button', { name: '刷新详情' }));
+    fireEvent.click(screen.getByTestId('refresh-change-detail-button'));
     expect(screen.queryByText('加载中…')).toBeNull();
     expect(screen.getByTestId('flow-graph') !== null).toBe(true);
-    expect(screen.getByRole('button', { name: '刷新详情' }).hasAttribute('disabled')).toBe(true);
+    expect(screen.getByTestId('refresh-change-detail-button').hasAttribute('disabled')).toBe(true);
 
     await act(async () => {
       releaseDetail?.();
@@ -824,7 +824,6 @@ describe('ChangeDetailView：run 控制面板与运行 overlay 组装', () => {
       artifacts: PROPOSAL_ENVELOPES,
     });
     await screen.findByTestId('flow-graph');
-    expect(screen.getByTestId('run-control-panel').textContent).toContain('运行控制');
     expect(screen.getByTestId('run-start') !== null).toBe(true);
     expect(screen.queryByTestId('run-stop')).toBeNull();
     expect(screen.queryByTestId('run-status')).toBeNull();
@@ -837,7 +836,7 @@ describe('ChangeDetailView：run 控制面板与运行 overlay 组装', () => {
         onEvent: expect.anything(),
         root: ROOT,
         id: CHANGE_ID,
-        autoNextPhase: false,
+        autoNextPhase: true,
       }),
     );
   });
@@ -1339,7 +1338,7 @@ describe('ChangeDetailView：退役元素零渲染与详情图区恒态', () => 
         onEvent: expect.anything(),
         root: ROOT,
         id: urlId,
-        autoNextPhase: false,
+        autoNextPhase: true,
       }),
     );
 
@@ -1914,19 +1913,11 @@ describe('ChangeDetailView：configSnapshot fixture 携 agentInstanceId 键（AC
     // 既有组装断言保绿（详情 / 图区 / 控制面板恒态不受 fixture 形状随动影响）
     renderDetail({ detail: detail() });
     await screen.findByTestId('flow-graph');
-    expect(screen.getByTestId('run-control-panel').textContent).toContain('运行控制');
   });
 });
 
 // ---------------------------------------------------------------------------
-// 刷新失败降级与订阅粘性（fix-flow-refresh-degradation AC-1 / AC-2 / AC-6 /
-// AC-7 / AC-8 / AC-9）：detail 在手的刷新失败轮 → 内联「刷新失败」横幅
-// （refresh-stale-note，文案含后端错误串原样——观测面）+ 保 last-good（header /
-// 徽章 / 动作面板 / 图面不塌）+ 有界重试自愈（1s 退避、成功轮横幅出销）；
-// error 收敛为首载语义；真 None 清面兜底；失败轮 change_flow_watch 订阅不拆
-// （零重订零丢通知）、停止 / 确认 / 应答动作照常可发（独立 invoke）。
-// 计时面 vi.useFakeTimers + advanceTimersByTime（通知去抖 300ms / 重试退避 1s
-// 逐拍推进）；ChannelMock 直投 RunNotice（订阅链路通知面）。
+// 刷新失败降级与订阅粘性
 // ---------------------------------------------------------------------------
 
 /** get_change_detail 轮剧本（逐轮消费；'ok' 读当前 fixture——loadFixture 可
@@ -2165,7 +2156,7 @@ describe('ChangeDetailView：刷新失败降级与订阅粘性（AC-1 / AC-2 / A
     expect(screen.queryByText('加载中…')).toBeNull();
     expect(screen.getByTestId('flow-graph') !== null).toBe(true);
     expect(screen.getAllByTestId('run-step-node')).toHaveLength(1);
-    expect(screen.getByRole('button', { name: '刷新详情' }).hasAttribute('disabled')).toBe(true);
+    expect(screen.getByTestId('refresh-change-detail-button').hasAttribute('disabled')).toBe(false);
 
     // 门闩释放（成功轮）→ 横幅出销
     await act(async () => {

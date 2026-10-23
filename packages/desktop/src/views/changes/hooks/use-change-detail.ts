@@ -135,7 +135,9 @@ type UnifiedViewPatch = {
   error?: string | null;
   /** 内联失败态（失败轮置错误串；成功 / 真 None 轮清 null；轮启动不清——防提示闪烁） */
   refreshFailed?: string | null;
-  loading?: boolean;
+  /** 仅承载轮落定清面（false）——置位 true 归首载轮 / 手动刷新两个显式入口，
+   * 通知 / 重试等自动轮不触碰（类型收窄：非法置位不可表达） */
+  loading?: false;
 };
 
 /** 取数轮结局判别（effect 据此分派重试调度）：`ok`（Some 与真 None 均计）→
@@ -151,8 +153,9 @@ async function loadUnifiedView(
   hasDetail: () => boolean,
   apply: (next: UnifiedViewPatch) => void,
 ): Promise<UnifiedLoadOutcome> {
-  // 轮启动不清 refreshFailed（重查中提示保持——成功才消失，防提示闪烁）
-  apply({ loading: true, error: null });
+  // 轮启动不清 refreshFailed（重查中提示保持——成功才消失，防提示闪烁）；
+  // loading 置位不归轮本体——首载轮 / 手动刷新各自置位，自动轮零触碰
+  apply({ error: null });
   try {
     const unified = await commands.getChangeDetail(root, id);
     if (isCancelled()) return 'cancelled';
@@ -194,14 +197,15 @@ type UnifiedViewSetters = {
 };
 
 /** 统一视图 partial patch 装配单点（未携带键不触碰既有 state——`'detail' in
- * next` 判别携带面）。 */
+ * next` 判别携带面）；`loading` 仅承载轮落定清面（false）——置位 true 由首载
+ * 轮 / 手动刷新显式发起，自动轮不触碰。 */
 function applyUnifiedPatch(setters: UnifiedViewSetters, next: UnifiedViewPatch): void {
   if ('detail' in next) setters.setDetail(next.detail ?? null);
   if ('activeRun' in next) setters.setActiveRun(next.activeRun ?? null);
   if (next.artifacts !== undefined) setters.setArtifacts(next.artifacts);
   if (next.error !== undefined) setters.setError(next.error);
   if (next.refreshFailed !== undefined) setters.setRefreshFailed(next.refreshFailed);
-  if (next.loading !== undefined) setters.setLoading(next.loading);
+  if (next.loading === false) setters.setLoading(next.loading);
 }
 
 /** 空参复位（root / id 缺席 → 清面静默；内联失败态随面清零）。 */
@@ -214,23 +218,44 @@ function resetUnifiedView(setters: UnifiedViewSetters): void {
   setters.setLoading(false);
 }
 
+/** 首载键判别（`root\0id` 首轮 = 首载阻塞面）：`beginRound` 键首次出现返回
+ * true（调用方据此置 loading），同键后续轮（通知重查 / 退避重试）返回 false；
+ * 空键清面复键（同 id 再进入重新计首载）。文件私有、零导出——沿
+ * [`useRefreshRetry`] 先例。 */
+function useFirstLoadKey(): (key: string | null) => boolean {
+  const keyRef = useRef<string | null>(null);
+  return useCallback((key: string | null): boolean => {
+    if (key === null) {
+      keyRef.current = null;
+      return false;
+    }
+    if (keyRef.current === key) return false;
+    keyRef.current = key;
+    return true;
+  }, []);
+}
+
 /** 统一视图取数轮 effect 本体（空参复位 / 轮驱动 / 轮结局分派单点——函数体
  * 拆出保 [`useChangeDetail`] 在 `max-lines-per-function` 红线内）：`stale` →
  * 调度退避重试（陈旧窗口有界自愈）；`ok` → 归零重试序列（新失败串从 1s 重新
  * 起算）；`error` / `cancelled` → no-op（首载失败不重试）。轮本体不做 cancel
- * ——重试自身 bump 的 tick 重跑 effect 时不得重置退避序列。 */
+ * ——重试自身 bump 的 tick 重跑 effect 时不得重置退避序列。`beginRound` 判别
+ * 该 `root` / `id` 的首轮（首载阻塞面），通知 / 重试等自动轮不置 loading。 */
 function runUnifiedViewEffect(ctx: {
   root: string | null;
   id: string | null;
   retry: RefreshRetry;
   hasDetail: () => boolean;
   setters: UnifiedViewSetters;
+  beginRound: (key: string | null) => boolean;
 }): () => void {
-  const { root, id, retry, hasDetail, setters } = ctx;
+  const { root, id, retry, hasDetail, setters, beginRound } = ctx;
   if (!root || !id) {
+    beginRound(null);
     resetUnifiedView(setters);
     return () => {};
   }
+  if (beginRound(`${root}\u0000${id}`)) setters.setLoading(true);
   let cancelled = false;
   void loadUnifiedView(
     root,
@@ -266,11 +291,16 @@ export function useChangeDetail(root: string | null, id: string | null): ChangeD
   const [refreshFailed, setRefreshFailed] = useState<string | null>(null);
   const [tick, bumpTick] = useReducer((count: number) => count + 1, 0);
   const retry = useRefreshRetry(bumpTick);
+  // 首载键：仅该 `root\0id` 首轮取数置 loading（首载阻塞面）；同键的通知
+  // 重查 / 退避重试为后台刷新，不触碰 loading（按钮不闪禁用、无 Spinner）
+  const beginRound = useFirstLoadKey();
   // 通知触发重查：尾随去抖（窗内到达即重置计时，最后一拍必达）——统一视图
   // 300ms（D8 常量单点）；新意图取代旧重试：手动刷新与通知到达（去抖拍前）
-  // 先作废挂起重试并重置退避序列
+  // 先作废挂起重试并重置退避序列。只有手动刷新置 loading——通知到达即后台
+  // 重查（过程中自动刷新不阻塞加载态）
   const debouncedNotifyRefresh = useDebouncedBump(bumpTick, DETAIL_REFRESH_DEBOUNCE_MS);
   const refresh = useCallback(() => {
+    setLoading(true);
     retry.cancel();
     bumpTick();
   }, [retry, bumpTick]);
@@ -291,8 +321,8 @@ export function useChangeDetail(root: string | null, id: string | null): ChangeD
       setRefreshFailed,
       setLoading,
     };
-    return runUnifiedViewEffect({ root, id, retry, hasDetail, setters });
-  }, [root, id, tick, retry, hasDetail]);
+    return runUnifiedViewEffect({ root, id, retry, hasDetail, setters, beginRound });
+  }, [root, id, tick, retry, hasDetail, beginRound]);
   // 取消通道（D2）：换 root / id 与卸载即作废挂起重试（tick 不入依赖——重试
   // 自身 bump 的 tick 重跑不重置退避序列）
   useEffect(() => () => retry.cancel(), [retry, root, id]);

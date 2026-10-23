@@ -200,6 +200,10 @@ describe('useChangeDetail：加载态、降级信封、错误路径与刷新竞�
     invokeMock.mockReset();
   });
 
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it('挂载后请求未返回前 loading 置位且 artifacts 初始为空数组', () => {
     invokeMock.mockImplementation(() => new Promise<unknown>(() => {}));
     const { result } = renderHook(() => useChangeDetail('/repo', 'add-feature'));
@@ -207,6 +211,48 @@ describe('useChangeDetail：加载态、降级信封、错误路径与刷新竞�
     expect(result.current.artifacts).toEqual([]);
     expect(result.current.detail).toBeNull();
     expect(result.current.error).toBeNull();
+  });
+
+  it('换 id 首轮重新置位 loading（首载键随 root / id 重置）', async () => {
+    let callCount = 0;
+    invokeMock.mockImplementation((command: string) => {
+      if (command !== 'get_change_detail') return Promise.resolve(null);
+      callCount += 1;
+      if (callCount === 1) return Promise.resolve(unified(fakeDetail([])));
+      return new Promise<unknown>(() => {});
+    });
+    const { result, rerender } = renderHook<ChangeDetailState, { id: string }>(
+      (props) => useChangeDetail('/repo', props.id),
+      { initialProps: { id: 'change-a' } },
+    );
+    await act(async () => {});
+    expect(result.current.loading).toBe(false);
+
+    rerender({ id: 'change-b' });
+    await act(async () => {});
+    expect(result.current.loading).toBe(true);
+  });
+
+  it('通知触发的自动重查挂起期间 loading 保持 false（过程中自动刷新不阻塞加载态）', async () => {
+    vi.useFakeTimers();
+    let roundCalls = 0;
+    invokeMock.mockImplementation((command: string) => {
+      if (command !== 'get_change_detail') return Promise.resolve(null);
+      roundCalls += 1;
+      if (roundCalls === 1) return Promise.resolve(unified(fakeDetail([])));
+      return new Promise<unknown>(() => {});
+    });
+    const { result } = renderHook(() => useChangeDetail('/repo', 'add-feature'));
+    await act(async () => {});
+    expect(result.current.detail).not.toBeNull();
+    expect(result.current.loading).toBe(false);
+
+    act(() => {
+      result.current.notifyRefresh();
+    });
+    await flushTimers(300);
+    expect(roundCalls).toBe(2);
+    expect(result.current.loading).toBe(false);
   });
 
   it('read_artifact 返回 null（非 reject）时该产物降级为 Fallback 信封', async () => {
@@ -796,7 +842,7 @@ describe('useChangeDetail：失败轮降级保 last-good 与终态自愈（AC-1 
     expect(result.current.loading).toBe(false);
   });
 
-  it('失败 → 重试发起（loading: true）挂起期间 refreshFailed 保持（轮启动 patch 不清提示——D3 防闪烁）；成功轮才清 null', async () => {
+  it('失败 → 重试发起 挂起期间 refreshFailed 保持（轮启动 patch 不清提示——D3 防闪烁）；成功轮才清 null', async () => {
     vi.useFakeTimers();
     let release!: (value: unknown) => void;
     scriptDetailRounds([
@@ -818,9 +864,9 @@ describe('useChangeDetail：失败轮降级保 last-good 与终态自愈（AC-1 
     const stale = result.current.refreshFailed;
     expect(stale).not.toBeNull();
 
-    // 1s 重试发起并挂起：loading 置位而提示保持（轮启动不清 refreshFailed）
+    // 1s 重试发起并挂起（轮启动不清 refreshFailed）
     await flushTimers(1000);
-    expect(result.current.loading).toBe(true);
+    expect(result.current.loading).toBe(false);
     expect(result.current.refreshFailed).toBe(stale);
 
     // 挂起轮以成功落定：提示才消隐

@@ -9,6 +9,7 @@ import {
   ResizablePanelGroup,
   usePanelRef,
 } from '@/components/ui/resizable';
+import { Spinner } from '@/components/ui/spinner';
 
 import type {
   ActiveRunView,
@@ -59,8 +60,9 @@ function DetailHeader({
     <div className="mb-3" data-testid="detail-header">
       <div className="flex flex-wrap items-center gap-2.5">
         <Button onClick={onBack}>← 返回列表</Button>
-        <Button onClick={refresh} disabled={loading}>
+        <Button onClick={refresh} disabled={loading} data-testid="refresh-change-detail-button">
           刷新详情
+          {loading && <Spinner />}
         </Button>
         <Button data-testid="detail-chat-toggle" onClick={onToggleChat}>
           {chatCollapsed ? '显示通用 Agent' : '隐藏通用 Agent'}

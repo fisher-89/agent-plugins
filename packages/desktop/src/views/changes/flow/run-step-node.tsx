@@ -1,9 +1,9 @@
 import { Handle, Position, type Node, type NodeProps } from '@xyflow/react';
-import { Loader2Icon } from 'lucide-react';
 import { useEffect, useState } from 'react';
 
 import { Badge } from '@/components/ui/badge';
 import { HoverCard, HoverCardContent, HoverCardTrigger } from '@/components/ui/hover-card';
+import { Spinner } from '@/components/ui/spinner';
 
 import type { ChangeStepKind, ChangeStepStatus } from '../../../types/dto';
 import { formatTokens, runningDurationLabel, settledDurationLabel } from './metrics';
@@ -67,9 +67,9 @@ function statusClass(status: ChangeStepStatus): string {
 function StatusSuffix({ status }: { status: ChangeStepStatus }): React.JSX.Element | null {
   if (status === 'running')
     return (
-      <span className="text-primary">
+      <span className="flex text-primary">
         运行中
-        <Loader2Icon />
+        <Spinner />
       </span>
     );
   if (status === 'failed') return <span className="text-fail">失败</span>;
