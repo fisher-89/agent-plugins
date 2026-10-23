@@ -754,3 +754,33 @@ async fn 合并流与大输出_双管道大块逐字节() {
         assert_eq!(window.records().len(), 1, "大块形态恰一次假 spawn");
     }
 }
+
+/// 正向（AC-2）：零重试——段输出含瞬态签名（`os error 32`）+ `exit 1` →
+/// 段尝试次数恰 1（假 spawn 记录仅一条）、分流仍为 `Interrupted`（段层
+/// `RetryPolicy::none()`：签名命中不追加尝试）。
+#[tokio::test]
+async fn 输出含瞬态签名不触发段重试() {
+    let ws = SpawnWs::new("no-retry");
+    let window = SpawnWindow::enter("cargo-no-retry");
+    window.install_fake_cargo(&ws.exec_dir);
+    window.set_out("error: failed to rename archive file: /t/liba.rlib: os error 32");
+    window.set_exit(1);
+    let patch_path = ws.write_patch(0, "diff --git a/app/src/lib.rs b/app/src/lib.rs\n");
+
+    let result = run_segment(
+        &patch_path,
+        &ws.exec_dir,
+        foundation::cancel::CancelFlag::never(),
+    )
+    .await;
+
+    assert!(
+        matches!(result, Err(SegmentFailure::Interrupted(_))),
+        "签名命中不改变分流（仍 Interrupted）: {result:?}"
+    );
+    assert_eq!(
+        window.records().len(),
+        1,
+        "段层零重试：签名命中也不追加尝试（spawn 恰 1 次）"
+    );
+}

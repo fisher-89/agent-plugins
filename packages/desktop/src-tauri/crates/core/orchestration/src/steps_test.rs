@@ -442,6 +442,7 @@ struct FakeRunner {
 impl FakeRunner {
     fn passing() -> Self {
         Self::with_result(Ok(StaticCheckOutcome {
+            fault: None,
             passed: true,
             diagnostics: String::new(),
             // 默认 recorded：引用随产出回填（落盘失败 / 零 spawn 才 None）
@@ -452,6 +453,7 @@ impl FakeRunner {
 
     fn failing(diagnostics: &str) -> Self {
         Self::with_result(Ok(StaticCheckOutcome {
+            fault: None,
             passed: false,
             diagnostics: diagnostics.to_owned(),
             output_ref: Some("exec-1727000000000-2".to_owned()),
@@ -516,6 +518,7 @@ struct FakeTestExecutionRunner {
 impl FakeTestExecutionRunner {
     fn passing() -> Self {
         Self::with_result(Ok(TestExecutionOutcome {
+            fault: None,
             conclusion: TestExecutionConclusion::Pass,
             total: 5,
             passed: 4,
@@ -872,6 +875,7 @@ impl FakeMutationRunner {
     /// EmptyDiff 跳过面缺省形态（零突变语义——非 mutation 用例不被扰动）。
     fn skipping() -> Self {
         Self::with_result(Ok(MutationTestOutcome {
+            fault: None,
             conclusion: MutationTestConclusion::Pass,
             skip: Some(MutationSkipReason::EmptyDiff),
             score: 0.0,
@@ -884,6 +888,7 @@ impl FakeMutationRunner {
 
     fn passing() -> Self {
         Self::with_result(Ok(MutationTestOutcome {
+            fault: None,
             conclusion: MutationTestConclusion::Pass,
             skip: None,
             score: 95.0,
@@ -904,6 +909,7 @@ impl FakeMutationRunner {
 
     fn failing(feedback_text: &str) -> Self {
         Self::with_result(Ok(MutationTestOutcome {
+            fault: None,
             conclusion: MutationTestConclusion::Fail,
             skip: None,
             score: 55.0,
@@ -2501,6 +2507,7 @@ async fn 七缝构造三runner注入_分发臂委托() {
     let fake = Arc::new(FakeStore::new());
     fake.seed_change(CHANGE_ID, NAME);
     let execution = FakeTestExecutionRunner::with_result(Ok(TestExecutionOutcome {
+        fault: None,
         conclusion: TestExecutionConclusion::Pass,
         total: 5,
         passed: 4,
@@ -3627,6 +3634,7 @@ async fn execute_baseline槽位审计行照常落库() {
     let baseline_report_dir = "C:/ws/openspec/changes/demo/openspec/changes/demo/reports/baseline";
     // 可编程产出携 baseline report_dir（reference 供给面）
     let execution = FakeTestExecutionRunner::with_result(Ok(TestExecutionOutcome {
+        fault: None,
         conclusion: TestExecutionConclusion::Pass,
         total: 5,
         passed: 5,
@@ -3827,17 +3835,17 @@ async fn 三分支never缺省_flag零置位且产出照旧() {
     );
 }
 
-/// 异常：runner 的取消 `Err` 原样透传——假 runner 返回 `Err("执行已取消")` →
-/// `execute` 原样返回该串（不加前缀、不改文案、不吞成 `Ok`），审计行记 `error`
-/// 同文。
+/// 异常：runner 的 `Err` 原样透传——假 runner 返回基础设施失败串 → `execute`
+/// 原样返回该串（不加前缀、不改文案、不吞成 `Ok`），审计行记 `error` 同文。
+///（取消已改判 `fault = Stopped` 的正常产出，`Err` 只承载进程拉不起类失败。）
 #[tokio::test]
-async fn runner取消err原样透传且审计记error() {
+async fn runner出错原样透传且审计记error() {
     let db = TestDb::open("cancel-err");
     seed_change(db.store.as_ref(), CHANGE_ID, NAME, "requirement");
     let assembled = assemble(
         db.store_arc(),
         "run-cancel-err",
-        FakeRunner::erring("执行已取消"),
+        FakeRunner::erring("执行体拉起失败：程序不可达"),
         FakeTestExecutionRunner::passing(),
     );
 
@@ -3851,7 +3859,10 @@ async fn runner取消err原样透传且审计记error() {
     )
     .await
     .expect_err("runner Err 应原样上抛");
-    assert_eq!(err, "执行已取消", "错误串零改写（不加前缀、不吞成 Ok）");
+    assert_eq!(
+        err, "执行体拉起失败：程序不可达",
+        "错误串零改写（不加前缀、不吞成 Ok）"
+    );
 
     let rows = db
         .store
@@ -3860,7 +3871,7 @@ async fn runner取消err原样透传且审计记error() {
     assert_eq!(rows.len(), 1, "审计行照常落库");
     assert_eq!(rows[0].status, "error", "审计行记 error 面");
     assert!(
-        rows[0].summary.contains("执行已取消"),
+        rows[0].summary.contains("执行体拉起失败：程序不可达"),
         "审计摘要携同文错误串: {}",
         rows[0].summary
     );

@@ -664,3 +664,28 @@ async fn 合并流与大输出_双管道大块逐字节() {
         assert_eq!(window.records().len(), 1, "大块形态恰一次假 spawn");
     }
 }
+
+/// 正向（AC-2）：零重试——`npx` 输出含瞬态签名（`resource busy or locked`）+
+/// `exit 1` → 段尝试次数恰 1（假 spawn 记录仅一条）、分流仍为 `Interrupted`
+///（段层 `RetryPolicy::none()`：签名命中不追加尝试）。
+#[tokio::test]
+async fn 输出含瞬态签名不触发段重试() {
+    let ws = SpawnWs::new("no-retry");
+    let window = SpawnWindow::enter("stryker-no-retry");
+    window.install_npx();
+    window.set_out("Error: resource busy or locked");
+    window.set_exit(1);
+
+    let files = vec!["app/src/a.ts".to_owned()];
+    let result = run_segment(&ws.segment(&files), foundation::cancel::CancelFlag::never()).await;
+
+    assert!(
+        matches!(result, Err(SegmentFailure::Interrupted(_))),
+        "签名命中不改变分流（仍 Interrupted）: {result:?}"
+    );
+    assert_eq!(
+        window.records().len(),
+        1,
+        "段层零重试：签名命中也不追加尝试（spawn 恰 1 次）"
+    );
+}

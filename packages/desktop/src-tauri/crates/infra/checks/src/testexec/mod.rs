@@ -20,7 +20,7 @@ use config::TestSuite;
 use foundation::cancel::CancelFlag;
 use foundation::layout::ReportSlot;
 use orchestration::port::{
-    BoxToolFuture, TestExecutionConclusion, TestExecutionOutcome, TestExecutionRunner,
+    BoxToolFuture, RunFault, TestExecutionConclusion, TestExecutionOutcome, TestExecutionRunner,
     ToolStepOutput,
 };
 use time::OffsetDateTime;
@@ -83,6 +83,11 @@ impl TestExecutionRunner for ProcessTestExecution {
 /// 一次 test-execution 执行全链。报告目录按槽位经 layout 单点派生（复用门
 /// `read_existing_summary` / `load_disk_sub_reports` / `prune_roots` 消费本槽位
 /// dir——跨树零复用与 baseline 树内 mtime 复用天然成立，判定逻辑零改动）。
+///
+/// **`conclusion = Error` 的成因面收窄**为「结果工件解析失败 / harness 崩 / 框架
+/// 探测失败」；超时与瞬态耗尽由 `fault`（`RunFault::Environment`）承载、取消由
+/// `RunFault::Stopped` 承载，两者 MUST NOT 落 plan 级 `execution_error`（那会被
+/// 当作被测代码问题而产生假失败归因），也不写 summary（半套报告不进复用门）。
 async fn execute(
     root: &str,
     change: &str,
@@ -125,17 +130,46 @@ async fn execute(
         }
     }
 
-    // ③ 逐 suite 执行（模板展开 + spawn + 超时 + 工件解析；子报告随 suite
-    // 阈值组装）——各 suite 脚本真实输出按 plan 序（`plans` 迭代序，字典序稳定）
-    // 聚合为单一合并流，经 `outcome` 落 record 单点
+    // ③ 逐 suite 执行（模板展开 + spawn + 重试 + 归因 + 超时 + 工件解析；子报告
+    // 随 suite 阈值组装）——各 suite 脚本真实输出按 plan 序（`plans` 迭代序，字典
+    // 序稳定）聚合为单一合并流，经 `outcome` 落 record 单点。
+    //
+    // 执行面归因 fold（fault 先于结论）：`Stopped` 记因即 break（取消后 MUST NOT
+    // 继续跑余下 plan）；`Environment` 记首个并继续余下 plan（混合栈里余下 plan
+    // 可能正常，且 `Stopped` 优先于 `Environment` 的聚合规则需要可观测面）；
+    // `None` 照常组子报告
     let mut sub_reports = Vec::new();
     let mut merged_output: Vec<u8> = Vec::new();
+    let mut fault: Option<RunFault> = None;
     for plan in &plans {
         // 逐 plan 多次 spawn：取消标志克隆共享同一原子（段间不失效）
-        let execution =
+        let mut execution =
             runner::execute_plan(plan, &reports_dir.join(&plan.id), cancel.clone()).await?;
         merged_output.extend_from_slice(&execution.output);
-        sub_reports.push(build_sub_report(plan, execution, suites));
+        match execution.fault.take() {
+            Some(RunFault::Stopped) => {
+                fault = Some(RunFault::Stopped);
+                break;
+            }
+            Some(environment_fault) => {
+                fault = fault.or(Some(environment_fault));
+            }
+            None => sub_reports.push(build_sub_report(plan, execution, suites)),
+        }
+    }
+
+    // 任一 plan 有 fault → 直接以 fault 收口：不写 summary、不跑诊断、不落报告
+    // 文件（半套报告不进复用门——`is_reusable` / `check_integrity` 会把坏 plan 的
+    // report 当权威而永久复用），`report_dir` + `exec_id` 照旧回填
+    if let Some(fault) = fault {
+        return Ok(fault_outcome(
+            root_path,
+            change,
+            slot,
+            &reports_dir,
+            &merged_output,
+            fault,
+        ));
     }
 
     // ④ 聚合 → 诊断 → 报告写盘（子报告批量落盘后 summary 写一次；findings
@@ -190,6 +224,34 @@ fn outcome(
         findings_detail: findings_detail(summary, sub_reports),
         report_dir: detect::to_posix(reports_dir),
         exec_id: exec::record_exec_output(root, change, slot, merged_output).unwrap_or_default(),
+        fault: None,
+    })
+}
+
+/// 执行面归因收口（fault 在位时的产出装配）：结论取 `Fail` **占位**（MUST NOT 取
+/// `Error`——后者成因面已收窄为工件解析 / harness 崩 / 框架探测失败，也 MUST NOT
+/// 取 `Pass` 以免被误读为绿）；四项计数 0、诊断双双空串；`report_dir` 与本槽位
+/// 派生同口径、`exec_id` 照旧经 `record_exec_output` 回填（**不写 summary / 不跑
+/// `diagnose_findings` / 不落报告文件**——半套报告不进复用门）。
+fn fault_outcome(
+    root: &Path,
+    change: &str,
+    slot: ReportSlot,
+    reports_dir: &Path,
+    merged_output: &[u8],
+    fault: RunFault,
+) -> ToolStepOutput {
+    ToolStepOutput::TestExecution(TestExecutionOutcome {
+        conclusion: TestExecutionConclusion::Fail,
+        total: 0,
+        passed: 0,
+        failed: 0,
+        skipped: 0,
+        findings_brief: String::new(),
+        findings_detail: String::new(),
+        report_dir: detect::to_posix(reports_dir),
+        exec_id: exec::record_exec_output(root, change, slot, merged_output).unwrap_or_default(),
+        fault: Some(fault),
     })
 }
 

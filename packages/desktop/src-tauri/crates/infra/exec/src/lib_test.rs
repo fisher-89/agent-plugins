@@ -615,3 +615,129 @@ fn system_command_clone等价_raw标记保真() {
     assert_eq!(args.len(), 2, "壳标记 + 末参恰两参: {args:?}");
     assert_eq!(args[1], OsStr::new(script), "末参命令串逐字保真");
 }
+
+// ---------------------------------------------------------------------------
+// 再导出面（`mod transient;` / `mod lockprobe;` 的 crate 根可见性）
+// ---------------------------------------------------------------------------
+
+/// 正向：再导出 `is_transient`——经 `crate::is_transient`（而非模块私有路径）
+/// 判定同一组输入，与瞬态模块自身判据逐值一致（导出的是同一函数，非包装）。
+#[test]
+fn 再导出is_transient与模块判据一致() {
+    let red_locked = crate::RunReport {
+        outcome: crate::RunOutcome::Completed,
+        exit_code: 1,
+        stdout: b"error: failed to rename archive file: /t/liba.rlib: os error 32".to_vec(),
+        stderr: Vec::new(),
+        attempts: 2,
+        retried: Vec::new(),
+    };
+    assert_eq!(
+        crate::is_transient(&red_locked),
+        Some("os error 32"),
+        "crate 根导出的判定函数命中签名"
+    );
+
+    let green = crate::RunReport {
+        outcome: crate::RunOutcome::Completed,
+        exit_code: 0,
+        stdout: b"os error 32".to_vec(),
+        stderr: Vec::new(),
+        attempts: 1,
+        retried: Vec::new(),
+    };
+    assert_eq!(crate::is_transient(&green), None, "绿不因文本命中");
+}
+
+/// 正向（表驱动 2 类型）：再导出 `RetryPolicy` / `AttemptTrace`——经 crate 根
+/// 构造两策略与留痕，三常量与类型表等值。
+#[test]
+fn 再导出retry_policy与attempt_trace() {
+    let none = crate::RetryPolicy::none();
+    let transient = crate::RetryPolicy::transient();
+    assert_eq!(none.max_attempts, 1, "单次策略上限 1");
+    assert_eq!(transient.max_attempts, 5, "瞬态策略上限 5");
+    assert_eq!(
+        transient.backoff,
+        [
+            std::time::Duration::from_secs(1),
+            std::time::Duration::from_secs(2),
+            std::time::Duration::from_secs(4),
+            std::time::Duration::from_secs(8),
+        ],
+        "退避四段"
+    );
+    assert_eq!(
+        transient.total_budget,
+        std::time::Duration::from_secs(1500),
+        "总预算 1500 s"
+    );
+
+    let trace = crate::AttemptTrace {
+        exit_code: 1,
+        transient: Some("EBUSY".to_owned()),
+        stdout: b"out".to_vec(),
+        stderr: b"err".to_vec(),
+    };
+    assert_eq!(trace.exit_code, 1, "留痕字段可读");
+    assert_eq!(trace.transient.as_deref(), Some("EBUSY"));
+    assert_eq!(trace.clone(), trace, "clone / PartialEq 可用");
+}
+
+/// 正向（表驱动 4 项）：再导出 `locked_paths` / `lock_holders` /
+/// `attribution_text` / `LockHolder`——纯函数与类型经 crate 根可用且行为与模块
+/// 内一致。
+#[test]
+fn 再导出锁探针四项() {
+    assert_eq!(
+        crate::locked_paths("error: failed to write /tmp/x.rmeta"),
+        vec![PathBuf::from("/tmp/x.rmeta")],
+        "crate 根导出的路径解析"
+    );
+    assert!(
+        crate::lock_holders(&[]).is_empty(),
+        "空入参点名直接返回空（零系统调用）"
+    );
+    assert_eq!(
+        crate::attribution_text("error[E0308]: mismatched types"),
+        None,
+        "无路径可解析 → None"
+    );
+
+    let holder = crate::LockHolder {
+        name: "HipsDaemon.exe".to_owned(),
+        pid: 4321,
+    };
+    assert_eq!(
+        holder.clone(),
+        crate::LockHolder {
+            name: "HipsDaemon.exe".to_owned(),
+            pid: 4321,
+        },
+        "LockHolder 可在 crate 根构造并比较"
+    );
+}
+
+/// 边界：既有导出面零变——`kill_tree(None)` 零副作用、`ProcessOutput`
+/// 错误面 / 末尾面口径逐字不变（被 `environment::fault_text` 复用）。
+#[test]
+fn 既有导出面零变() {
+    // `kill_tree(None)`：无 pid 即直接返回（零 spawn、零 panic）
+    crate::kill_tree(None);
+
+    let output = crate::ProcessOutput::new(101, b"line-1\nwarning: x\nerror[E0308]: boom\n".to_vec());
+    let excerpt = output.error_excerpt();
+    assert_eq!(
+        excerpt, "error[E0308]: boom",
+        "错误面口径不变（含 error 的行）"
+    );
+    assert!(
+        output.tail().contains("error[E0308]: boom"),
+        "末尾面不剥行（行口径 50 行）"
+    );
+    assert_eq!(
+        crate::ProcessOutput::new(1, Vec::new()).tail(),
+        "",
+        "空输出末尾面为空"
+    );
+}

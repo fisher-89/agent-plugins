@@ -10,7 +10,7 @@ use checks::model::{
 };
 use foundation::layout::{change_reports, change_test_reports, ReportSlot};
 use orchestration::port::{
-    TestExecutionConclusion, TestExecutionOutcome, TestExecutionRunner, ToolStepOutput,
+    RunFault, TestExecutionConclusion, TestExecutionOutcome, TestExecutionRunner, ToolStepOutput,
 };
 
 use super::detect::to_posix;
@@ -53,14 +53,24 @@ fn set_shim_env(results_src: &Path, dest: &Path, marker: Option<&Path>, exit: Op
     }
 }
 
+/// 第二产物目的路径注入（多 plan 面：一次执行臂同时喂两枚 plan 的工件锚；
+/// 缺省不设即既有单工件事形态）。
+fn set_shim_dest_2(dest: &Path) {
+    std::env::set_var("SHIM_DEST_2", dest.to_string_lossy().replace('\\', "/"));
+}
+
 /// 摘除全部 shim 环境键（窗口收口——不污染并行用例）。
 fn clear_shim_env() {
     std::env::remove_var("SHIM_RESULTS_SRC");
     std::env::remove_var("SHIM_DEST");
+    std::env::remove_var("SHIM_DEST_2");
     std::env::remove_var("SHIM_MARKER");
     std::env::remove_var("SHIM_EXIT");
     std::env::remove_var("SHIM_SPIN_AFTER");
     std::env::remove_var("SHIM_PIDFILE");
+    std::env::remove_var("SHIM_LOCK");
+    std::env::remove_var("SHIM_LOCK_FIRST");
+    std::env::remove_var("SHIM_LOCK_COUNT");
 }
 
 /// node-test spec 绿跑样本（五用例 4 pass 1 skipped + "All files" 覆盖汇总行；
@@ -135,7 +145,7 @@ impl ChainWs {
             fs::write(
                 root.join("app").join("node-shim.ps1"),
                 "if ($args.Count -gt 0 -and $args[0] -eq '--version') { exit 0 }\n\
-                 if ($env:SHIM_SPIN_AFTER) {\n\
+                 if ($env:SHIM_LOCK_FIRST) {\n  $locked = 0\n  if ($env:SHIM_LOCK_COUNT -and (Test-Path $env:SHIM_LOCK_COUNT)) { $locked = @(Get-Content $env:SHIM_LOCK_COUNT).Count }\n  if ($locked -lt [int]$env:SHIM_LOCK_FIRST) {\n    if ($env:SHIM_LOCK_COUNT) { Add-Content -Force -Path $env:SHIM_LOCK_COUNT -Value 'locked' }\n    Write-Output $env:SHIM_LOCK\n    exit 1\n  }\n}\n                 if ($env:SHIM_SPIN_AFTER) {\n\
                    $seen = 0\n\
                    if ($env:SHIM_MARKER -and (Test-Path $env:SHIM_MARKER)) { $seen = @(Get-Content $env:SHIM_MARKER).Count }\n\
                    if ($seen -ge [int]$env:SHIM_SPIN_AFTER) {\n\
@@ -144,8 +154,10 @@ impl ChainWs {
                    }\n\
                  }\n\
                  if ($env:SHIM_RESULTS_SRC -and $env:SHIM_DEST) { Copy-Item -Force $env:SHIM_RESULTS_SRC $env:SHIM_DEST }\n\
+                 if ($env:SHIM_RESULTS_SRC -and $env:SHIM_DEST_2) { Copy-Item -Force $env:SHIM_RESULTS_SRC $env:SHIM_DEST_2 }\n\
                  if ($env:SHIM_DEST -and $env:SHIM_MARKER) { Add-Content -Force -Path $env:SHIM_MARKER -Value 'ran' }\n\
                  Write-Output 'shim-stdout-marker'\n\
+                 if ($env:SHIM_LOCK) { Write-Output $env:SHIM_LOCK }\n\
                  if ($env:SHIM_EXIT) { exit ([int]$env:SHIM_EXIT) }\n\
                  exit 0\n",
             )
@@ -159,7 +171,7 @@ impl ChainWs {
                 &script,
                 "#!/bin/sh\n\
                  if [ \"$1\" = \"--version\" ]; then exit 0; fi\n\
-                 if [ -n \"$SHIM_SPIN_AFTER\" ]; then\n\
+                 if [ -n \"$SHIM_LOCK_FIRST\" ]; then\n  locked=0\n  if [ -n \"$SHIM_LOCK_COUNT\" ] && [ -f \"$SHIM_LOCK_COUNT\" ]; then locked=$(wc -l < \"$SHIM_LOCK_COUNT\"); fi\n  if [ \"$locked\" -lt \"$SHIM_LOCK_FIRST\" ]; then\n    if [ -n \"$SHIM_LOCK_COUNT\" ]; then echo locked >> \"$SHIM_LOCK_COUNT\"; fi\n    echo \"$SHIM_LOCK\"\n    exit 1\n  fi\nfi\n                 if [ -n \"$SHIM_SPIN_AFTER\" ]; then\n\
                    seen=0\n\
                    if [ -n \"$SHIM_MARKER\" ] && [ -f \"$SHIM_MARKER\" ]; then seen=$(wc -l < \"$SHIM_MARKER\"); fi\n\
                    if [ \"$seen\" -ge \"$SHIM_SPIN_AFTER\" ]; then\n\
@@ -168,8 +180,10 @@ impl ChainWs {
                    fi\n\
                  fi\n\
                  if [ -n \"$SHIM_RESULTS_SRC\" ] && [ -n \"$SHIM_DEST\" ]; then cp \"$SHIM_RESULTS_SRC\" \"$SHIM_DEST\"; fi\n\
+                 if [ -n \"$SHIM_RESULTS_SRC\" ] && [ -n \"$SHIM_DEST_2\" ]; then cp \"$SHIM_RESULTS_SRC\" \"$SHIM_DEST_2\"; fi\n\
                  if [ -n \"$SHIM_DEST\" ] && [ -n \"$SHIM_MARKER\" ]; then echo ran >> \"$SHIM_MARKER\"; fi\n\
                  echo shim-stdout-marker\n\
+                 if [ -n \"$SHIM_LOCK\" ]; then echo \"$SHIM_LOCK\"; fi\n\
                  exit \"${SHIM_EXIT:-0}\"\n",
             )
             .expect("写 node shim 失败");
@@ -216,6 +230,82 @@ impl ChainWs {
         fs::write(self.root().join("app2").join("src").join("b.test.mjs"), "test body")
             .expect("写第二 suite 输入文件");
         self
+    }
+
+    /// 三 plan 混合变体（node-test 绿 / jest 环境错误 / node-test 绿——「`Environment`
+    /// 之后继续跑完余下 plan」与「`sub_reports` 内部装配不泄漏到 outcome」的观测
+    /// 装置）：覆写三 suite config、补第二 / 第三 suite 输入文件（各框架
+    /// default_glob 可命中），并在 PATH 前置目录内落一枚恒锁 `npx` shim（jest 档
+    /// 命令专用：执行臂逐次记账 → 输出锁文本 → 非零退出，瞬态签名命中后 5 次
+    /// 耗尽转 `Environment`；版本探测臂不计账直接非零）。
+    fn three_plan_mixed(self) -> Self {
+        fs::write(
+            self.root().join("openspec").join("config.json"),
+            r#"{ "tests": [
+  { "root": "app", "framework": "node-test", "coverage": { "lines": 60, "branches": 70, "functions": 75 } },
+  { "root": "app2", "framework": "jest", "coverage": { "lines": 60, "branches": 70, "functions": 75 } },
+  { "root": "app3", "framework": "node-test", "coverage": { "lines": 60, "branches": 70, "functions": 75 } }
+] }"#,
+        )
+        .expect("覆写三 plan config");
+        fs::create_dir_all(self.root().join("app2").join("src")).expect("创建第二 suite src");
+        fs::write(self.root().join("app2").join("src").join("b.test.js"), "test body")
+            .expect("写第二 suite 输入文件");
+        fs::create_dir_all(self.root().join("app3").join("src")).expect("创建第三 suite src");
+        fs::write(self.root().join("app3").join("src").join("c.test.mjs"), "test body")
+            .expect("写第三 suite 输入文件");
+
+        let attempt_log = self.npx_attempt_log();
+        #[cfg(target_os = "windows")]
+        {
+            fs::write(
+                self.root().join("app").join("npx.cmd"),
+                "@echo off\r\npowershell -NoProfile -ExecutionPolicy Bypass -File \"%~dp0npx-shim.ps1\" %*\r\nexit /b %errorlevel%\r\n",
+            )
+            .expect("写 npx.cmd 失败");
+            fs::write(
+                self.root().join("app").join("npx-shim.ps1"),
+                format!(
+                    "if ($args -contains '--version') {{ exit 1 }}\n\
+                     Add-Content -Force -Path '{}' -Value 'attempt'\n\
+                     Write-Output 'error: failed to rename archive file: /t/liba.rlib: os error 32'\n\
+                     exit 1\n",
+                    attempt_log.display()
+                ),
+            )
+            .expect("写 npx-shim.ps1 失败");
+        }
+        #[cfg(not(target_os = "windows"))]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let script = self.root().join("app").join("npx");
+            fs::write(
+                &script,
+                format!(
+                    "#!/bin/sh\n\
+                     for a in \"$@\"; do [ \"$a\" = \"--version\" ] && exit 1; done\n\
+                     echo attempt >> '{}'\n\
+                     echo 'error: failed to rename archive file: /t/liba.rlib: os error 32'\n\
+                     exit 1\n",
+                    attempt_log.display()
+                ),
+            )
+            .expect("写 npx shim 失败");
+            fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).expect("补执行位");
+        }
+        self
+    }
+
+    /// jest 档执行臂记账文件（三 plan 混合面的 spawn 次数观测面）。
+    fn npx_attempt_log(&self) -> PathBuf {
+        self.root().join("npx-attempt.log")
+    }
+
+    /// 第三 suite（app3）的结果工件目的路径（一次执行臂双投面）。
+    fn results_dest_third(&self) -> PathBuf {
+        self.reports_dir()
+            .join("app3_node-test")
+            .join("results.txt")
     }
 
     /// PATH 前置 suite cwd（裸名 `node` 解析到 shim；须在 path_window 窗口内
@@ -1510,10 +1600,11 @@ async fn run三态载荷_slot透传_baseline锚与fail载荷() {
 }
 
 // ---------------------------------------------------------------------------
-// 取消贯通（test-design「testexec/mod.rs -> mod_test.rs」节，AC-4 / AC-6）：
-// `ProcessTestExecution::run` 的 `cancel` 形参透传 `execute` → 逐 plan
+// 取消贯通（test-design「testexec/mod.rs -> mod_test.rs」节，AC-4 / AC-6 /
+// AC-7）：`ProcessTestExecution::run` 的 `cancel` 形参透传 `execute` → 逐 plan
 // `execute_plan(plan, &dir, cancel.clone())`（循环内 clone 共享同一原子）→
-// `exec::run_shell` 入口短路 / 轮询置位两径收敛 `Err("执行已取消")`。
+// `exec::run_shell` 入口短路 / 轮询置位两径收敛为 `fault = Some(Stopped)` 的
+// 正常产出（**不 Err**），聚合层据 fault 早停、不写 summary。
 // ---------------------------------------------------------------------------
 
 /// shim 落盘的 pid（winpid 口径——`tasklist` / `kill -0` 可探测）。
@@ -1588,12 +1679,13 @@ fn two_plan_ws(tag: &str) -> (ChainWs, PathBuf, PathBuf) {
     (ws, marker, pid_file)
 }
 
-/// 正向（AC-4）：已置位 cancel 的两形态——① 无既有 summary：首个 plan 即
-/// `Err("执行已取消")` 且零 spawn（执行臂 marker 零增长）；② 既有 summary 新鲜
-/// 且输入未变：复用门先于 spawn 判定 → 用例照旧 `Ok`（取消不影响零 spawn 复用
-/// 语义）。
+/// 正向（AC-7 / AC-5）：已置位 cancel 的两形态——① 无既有 summary：首个 plan
+/// 即以 `fault = Some(Stopped)` 收口（**不 Err**）、`conclusion = Fail` 占位、
+/// 四项计数 0、诊断双双空串、零 spawn（marker 零增长）、不写 summary；② 既有
+/// summary 新鲜且输入未变：复用门先于 spawn 判定 → 用例照旧 `Ok`（取消不影响
+/// 零 spawn 复用语义）。
 #[tokio::test]
-async fn 已置位cancel_首个plan即err且复用门先于spawn判定() {
+async fn 已置位cancel_首个plan即stopped且复用门先于spawn判定() {
     // 形态一：无既有 summary → 首个 plan 的 execute_plan 即取消（零 spawn）
     {
         let _window = path_window();
@@ -1605,15 +1697,41 @@ async fn 已置位cancel_首个plan即err且复用门先于spawn判定() {
         let cancel = foundation::cancel::CancelFlag::never();
         cancel.handle().set();
 
-        let err = ws
+        let output = ws
             .run_with(cancel)
             .await
-            .expect_err("已置位 cancel 应 Err（基础设施失败面）");
-        assert_eq!(err, "执行已取消", "取消文案（过渡语义）");
-        assert_eq!(ws.marker_count(), 0, "首个 plan 入口短路零 spawn（marker 零增长）");
+            .expect("已置位 cancel 以 fault 收口（不 Err）");
+        let ToolStepOutput::TestExecution(outcome) = output else {
+            panic!("产出应为 TestExecution 变体");
+        };
+        assert_eq!(
+            outcome.fault,
+            Some(RunFault::Stopped),
+            "取消 → fault = Stopped（run 收敛 stopped，非 failed）"
+        );
+        assert_eq!(
+            outcome.conclusion,
+            TestExecutionConclusion::Fail,
+            "fault 面结论取 Fail 占位（不取 Error / Pass）"
+        );
+        assert_eq!(
+            (outcome.total, outcome.passed, outcome.failed, outcome.skipped),
+            (0, 0, 0, 0),
+            "fault 面四项计数全 0（不装配半套计数）"
+        );
+        assert!(
+            outcome.findings_brief.is_empty() && outcome.findings_detail.is_empty(),
+            "fault 面诊断双双空串"
+        );
+        assert!(!outcome.exec_id.is_empty(), "exec_id 照旧回填");
+        assert_eq!(
+            ws.marker_count(),
+            0,
+            "首个 plan 入口短路零 spawn（marker 零增长）"
+        );
         assert!(
             !ws.reports_dir().join("summary.json").exists(),
-            "取消臂不落 summary（不产部分结论）"
+            "取消臂不落 summary（半套报告不进复用门）"
         );
     }
 
@@ -1653,11 +1771,11 @@ async fn 已置位cancel_首个plan即err且复用门先于spawn判定() {
     }
 }
 
-/// 正向（AC-4）：多 plan 中途取消——第 1 个 plan 完成后置位取消，第 2 个 plan
-/// 观测取消 → 整体 `Err("执行已取消")`（取消不被吞成部分结论）+ 零 summary
-/// 落盘 + 第 2 个 plan 进程被回收。
+/// 正向（AC-7 / D14）：多 plan 中途取消——第 1 个 plan 完成后置位取消，第 2 个
+/// plan 观测取消 → 整体 `fault = Some(Stopped)`（**不 Err**）、`conclusion =
+/// Fail` 占位、零 summary 落盘、第 2 个 plan 进程被回收。
 #[tokio::test]
-async fn 多plan中途取消_第二plan取消且整体err不落summary() {
+async fn 多plan中途取消_第二plan取消且整体stopped不落summary() {
     let _window = path_window();
     let (ws, marker, pid_file) = two_plan_ws("cancel-multi-plan");
     let cancel = foundation::cancel::CancelFlag::never();
@@ -1675,13 +1793,25 @@ async fn 多plan中途取消_第二plan取消且整体err不落summary() {
     let pid = wait_pid(&pid_file, std::time::Duration::from_secs(60)).await;
     handle.set();
 
-    let err = runner
+    let output = runner
         .await
         .expect("run 任务应正常结束")
-        .expect_err("取消应 Err（不落部分结论）");
+        .expect("取消以 fault 收口（不 Err）");
     let elapsed = started.elapsed();
+    let ToolStepOutput::TestExecution(outcome) = output else {
+        panic!("产出应为 TestExecution 变体");
+    };
 
-    assert_eq!(err, "执行已取消", "取消文案（第 2 个 plan 的 execute_plan 面）");
+    assert_eq!(
+        outcome.fault,
+        Some(RunFault::Stopped),
+        "第 2 个 plan 取消 → fault = Stopped、`break` 早停"
+    );
+    assert_eq!(
+        outcome.conclusion,
+        TestExecutionConclusion::Fail,
+        "fault 面结论占位 Fail"
+    );
     assert_eq!(
         fs::read_to_string(&marker)
             .map(|text| text.lines().filter(|line| !line.trim().is_empty()).count())
@@ -1728,13 +1858,20 @@ async fn 循环内clone共享原子_置位在第二plan链尾可见() {
     let pid = wait_pid(&pid_file, std::time::Duration::from_secs(60)).await;
     handle.set();
 
-    let err = runner
+    let output = runner
         .await
         .expect("run 任务应正常结束")
-        .expect_err("取消应 Err");
+        .expect("取消以 fault 收口（不 Err）");
     let elapsed = started.elapsed();
+    let ToolStepOutput::TestExecution(outcome) = output else {
+        panic!("产出应为 TestExecution 变体");
+    };
 
-    assert_eq!(err, "执行已取消");
+    assert_eq!(
+        outcome.fault,
+        Some(RunFault::Stopped),
+        "链尾执行体观测到置位 → fault = Stopped"
+    );
     assert!(probe.is_set(), "置位对外部 clone 可见（同一原子）");
     assert!(
         elapsed < std::time::Duration::from_secs(30),
@@ -1743,5 +1880,377 @@ async fn 循环内clone共享原子_置位在第二plan链尾可见() {
     assert!(
         wait_pid_gone(pid, std::time::Duration::from_secs(15)),
         "第 2 个 plan 的进程被回收（pid {pid} 消失——任一层重新铸造则不会消失）"
+    );
+}
+
+/// 正向（AC-5 / D14）：多 plan 的 `Environment` **继续**跑余下 plan——两 plan 均
+/// 以锁文本 + 非零退出收场（`transient()` 各自 5 次耗尽）→ 两个 plan 都被拉起
+/// （marker 2 行，`break` 不发生）、最终 `fault == Some(Environment(..))`（首个）、
+/// `conclusion == Fail` 占位、四项计数 0、不写 summary。
+#[tokio::test]
+async fn 多plan环境错误继续跑余下plan() {
+    let _window = path_window();
+    let ws = ChainWs::new("fault-env-multi-plan").two_plan();
+    let spec_src = ws.root().join("preset-results.txt");
+    fs::write(&spec_src, SPEC_OUTPUT).expect("写预置工件");
+    let marker = ws.root().join("shim-marker.log");
+    set_shim_env(&spec_src, &ws.results_dest(), Some(&marker), None);
+    // 前 5 次 spawn（第 1 个 plan 的 5 次尝试）输出锁文本并非零退出 → 第 1 个 plan
+    // 瞬态耗尽转 fault；第 6 次 spawn（第 2 个 plan）走绿跑面（拷贝工件 + 零退出）
+    std::env::set_var(
+        "SHIM_LOCK",
+        "error: failed to rename archive file: /t/liba.rlib: os error 32",
+    );
+    std::env::set_var("SHIM_LOCK_FIRST", "5");
+    let lock_count = ws.root().join("shim-lock-count.log");
+    std::env::set_var("SHIM_LOCK_COUNT", &lock_count);
+    ws.prepend_path();
+
+    let output = ws.run().await.expect("环境错误以 fault 收口（不 Err）");
+    let ToolStepOutput::TestExecution(outcome) = output else {
+        panic!("产出应为 TestExecution 变体");
+    };
+
+    let marker_rows = fs::read_to_string(&marker)
+        .map(|text| text.lines().filter(|line| !line.trim().is_empty()).count())
+        .unwrap_or(0);
+    // 瞬态锁定面 spawn 记数：第 1 个 plan 5 次尝试（耗尽）；绿跑面 marker 1 行
+    //（第 2 个 plan 在 Environment 之后仍被拉起 → `Environment` 不 break）
+    let locked_spawns = fs::read_to_string(&lock_count)
+        .map(|text| text.lines().filter(|line| !line.trim().is_empty()).count())
+        .unwrap_or(0);
+    assert_eq!(locked_spawns, 5, "第 1 个 plan 恰 5 次尝试（瞬态耗尽）");
+    assert_eq!(
+        marker_rows, 1,
+        "第 2 个 plan 在 Environment 之后仍被拉起（不 break）"
+    );
+
+    let Some(RunFault::Environment(text)) = outcome.fault.clone() else {
+        panic!("两个 plan 的环境错误应收口为 Environment fault: {:?}", outcome.fault);
+    };
+    assert!(
+        text.contains("已自动重试 4 次"),
+        "归因文本携重试次数: {text}"
+    );
+    assert!(
+        text.contains("workspace 父目录") && text.contains("逐 worktree"),
+        "环境侧指引在案: {text}"
+    );
+    assert_eq!(
+        outcome.conclusion,
+        TestExecutionConclusion::Fail,
+        "fault 面结论占位 Fail"
+    );
+    assert_eq!(
+        (outcome.total, outcome.passed, outcome.failed, outcome.skipped),
+        (0, 0, 0, 0),
+        "fault 在位不装配半套计数"
+    );
+    assert!(
+        !ws.reports_dir().join("summary.json").exists(),
+        "fault 面不写 summary（半套报告不进复用门）"
+    );
+    assert!(!outcome.exec_id.is_empty(), "exec_id 照旧回填");
+}
+
+
+// ---------------------------------------------------------------------------
+// 单 plan 环境错误上传 / 聚合优先级 / 三 plan 混合（test-design
+// 「testexec/mod.rs -> mod_test.rs」用例表：AC-5 组合锚 + D12 / D13 / D14）
+// ---------------------------------------------------------------------------
+
+/// 记账文件行数（shim 逐次追加——spawn 次数观测面）。
+fn line_count(path: &Path) -> usize {
+    fs::read_to_string(path)
+        .map(|text| text.lines().filter(|line| !line.trim().is_empty()).count())
+        .unwrap_or(0)
+}
+
+/// 正向（AC-5 组合锚）：**单 plan 的 `Environment` → fault 上传**——单 suite 恒
+/// 锁文本（`transient()` 真 5 次耗尽，全链 `execute_plan`）→
+/// `TestExecutionOutcome.fault == Some(Environment(text))`（文本含「已自动重试
+/// 4 次」与被锁文件原料）、`conclusion == Fail` 占位、四项计数全 0、`findings_*`
+/// 空串、`exec_id` 非空、`report_dir` 为本槽位锚点、不写 summary。
+#[tokio::test]
+async fn 单plan环境错误_fault上传与占位装配() {
+    let _window = path_window();
+    let ws = ChainWs::new("fault-env-single-plan");
+    let unused_src = ws.root().join("unused-results.txt");
+    let lock_count = ws.root().join("shim-lock-count.log");
+    set_shim_env(&unused_src, &ws.results_dest(), None, None);
+    std::env::set_var(
+        "SHIM_LOCK",
+        "error: failed to rename archive file: /t/liba.rlib: os error 32",
+    );
+    std::env::set_var("SHIM_LOCK_FIRST", "9");
+    std::env::set_var("SHIM_LOCK_COUNT", &lock_count);
+    ws.prepend_path();
+
+    let output = ws.run().await.expect("环境错误以 fault 收口（不 Err）");
+    let ToolStepOutput::TestExecution(outcome) = output else {
+        panic!("产出应为 TestExecution 变体");
+    };
+
+    let Some(RunFault::Environment(text)) = outcome.fault.clone() else {
+        panic!("单 plan 环境错误应收口为 Environment fault: {:?}", outcome.fault);
+    };
+    assert!(
+        text.contains("已自动重试 4 次"),
+        "归因文本携重试次数（attempts - 1 = 4）: {text}"
+    );
+    assert!(
+        text.contains("liba.rlib"),
+        "被锁文件原料在案（lockprobe 解析命中）: {text}"
+    );
+    assert_eq!(
+        outcome.conclusion,
+        TestExecutionConclusion::Fail,
+        "fault 面结论取 Fail 占位（不取 Error / Pass）"
+    );
+    assert_eq!(
+        (outcome.total, outcome.passed, outcome.failed, outcome.skipped),
+        (0, 0, 0, 0),
+        "fault 面四项计数全 0（不装配半套计数）"
+    );
+    assert!(
+        outcome.findings_brief.is_empty() && outcome.findings_detail.is_empty(),
+        "fault 面诊断双双空串"
+    );
+    assert!(!outcome.exec_id.is_empty(), "exec_id 照旧回填");
+    assert_eq!(
+        outcome.report_dir,
+        to_posix(&ws.reports_dir()),
+        "report_dir 为本槽位锚点（不因 fault 面漂移）"
+    );
+    assert_eq!(
+        line_count(&lock_count),
+        5,
+        "单 plan 恰 5 次尝试（瞬态策略上限，不再增长）"
+    );
+    assert!(
+        !ws.reports_dir().join("summary.json").exists(),
+        "fault 面不写 summary（半套报告不进复用门）"
+    );
+}
+
+/// 正向（AC-5 / D13）：**不写 summary → 复用门未命中而重跑**——同输入连续两次
+/// `run`（每跑 5 次瞬态耗尽）：两次均 `fault = Some(Environment(..))`、
+/// `<report_dir>/summary.json` 恒不存在（坏 plan 不被当权威永久复用）、第二次
+/// 仍真 spawn（记账 5 → 10）。
+#[tokio::test]
+async fn 单plan环境错误_不写summary且重跑不复用() {
+    let _window = path_window();
+    let ws = ChainWs::new("fault-env-no-summary");
+    let unused_src = ws.root().join("unused-results.txt");
+    let lock_count = ws.root().join("shim-lock-count.log");
+    set_shim_env(&unused_src, &ws.results_dest(), None, None);
+    std::env::set_var(
+        "SHIM_LOCK",
+        "error: failed to rename archive file: /t/liba.rlib: os error 32",
+    );
+    std::env::set_var("SHIM_LOCK_FIRST", "99");
+    std::env::set_var("SHIM_LOCK_COUNT", &lock_count);
+    ws.prepend_path();
+
+    for round in 1..=2usize {
+        let output = ws.run().await.expect("环境错误以 fault 收口（不 Err）");
+        let ToolStepOutput::TestExecution(outcome) = output else {
+            panic!("产出应为 TestExecution 变体");
+        };
+        assert!(
+            matches!(outcome.fault, Some(RunFault::Environment(_))),
+            "第 {round} 跑仍收口为 Environment fault: {:?}",
+            outcome.fault
+        );
+        assert!(
+            !ws.reports_dir().join("summary.json").exists(),
+            "第 {round} 跑不写 summary（无 summary 可复用）"
+        );
+        assert_eq!(
+            line_count(&lock_count),
+            round * 5,
+            "第 {round} 跑真 spawn（复用门未命中 → 重跑坏 plan，不永久复用）"
+        );
+    }
+}
+
+/// 边界（D14）：**`Stopped` 优先于 `Environment`**——两 plan：plan1 恒锁耗尽收
+/// `Environment`、plan2 自旋后置位取消收 `Stopped` → 最终 `fault == Some(Stopped)`
+/// （优先级规则可观测，非「首个胜出」）、`conclusion` 占位 `Fail`、不写 summary、
+/// plan2 进程被回收。
+#[tokio::test]
+async fn stopped优先于environment_环境错误后取消收口stopped() {
+    let _window = path_window();
+    let ws = ChainWs::new("fault-stopped-priority").two_plan();
+    let spec_src = ws.root().join("preset-results.txt");
+    fs::write(&spec_src, SPEC_OUTPUT).expect("写预置工件");
+    let marker = ws.root().join("shim-marker.log");
+    let pid_file = ws.root().join("plan-pid.txt");
+    let lock_count = ws.root().join("shim-lock-count.log");
+    set_shim_env(&spec_src, &ws.results_dest(), Some(&marker), None);
+    // plan1（app）：前 5 次 spawn 恒锁文本（瞬态耗尽 → Environment）；
+    // plan2（app2）：锁计数已满 → 走自旋臂（落 pid 后挂起，等取消）
+    std::env::set_var(
+        "SHIM_LOCK",
+        "error: failed to rename archive file: /t/liba.rlib: os error 32",
+    );
+    std::env::set_var("SHIM_LOCK_FIRST", "5");
+    std::env::set_var("SHIM_LOCK_COUNT", &lock_count);
+    std::env::set_var("SHIM_SPIN_AFTER", "0");
+    std::env::set_var("SHIM_PIDFILE", &pid_file);
+
+    let cancel = foundation::cancel::CancelFlag::never();
+    let handle = cancel.handle();
+    let started = std::time::Instant::now();
+    ws.prepend_path();
+    let ws_root = ws.root_str();
+    let runner = tokio::spawn(async move {
+        ProcessTestExecution::new()
+            .run(&ws_root, CHANGE, ReportSlot::Test, cancel)
+            .await
+    });
+
+    let pid = wait_pid(&pid_file, std::time::Duration::from_secs(60)).await;
+    assert_eq!(line_count(&lock_count), 5, "plan1 已瞬态耗尽（5 次尝试）");
+    handle.set();
+
+    let output = runner
+        .await
+        .expect("run 任务应正常结束")
+        .expect("取消以 fault 收口（不 Err）");
+    let elapsed = started.elapsed();
+    let ToolStepOutput::TestExecution(outcome) = output else {
+        panic!("产出应为 TestExecution 变体");
+    };
+
+    assert_eq!(
+        outcome.fault,
+        Some(RunFault::Stopped),
+        "`Stopped` 优先于首个 `Environment`（聚合规则非「首个胜出」）"
+    );
+    assert_eq!(
+        outcome.conclusion,
+        TestExecutionConclusion::Fail,
+        "fault 面结论占位 Fail"
+    );
+    assert_eq!(
+        (outcome.total, outcome.passed, outcome.failed, outcome.skipped),
+        (0, 0, 0, 0),
+        "fault 面四项计数全 0"
+    );
+    assert!(
+        !ws.reports_dir().join("summary.json").exists(),
+        "取消臂不写 summary"
+    );
+    assert!(
+        wait_pid_gone(pid, std::time::Duration::from_secs(15)),
+        "第 2 个 plan 进程被回收（pid {pid} 消失）"
+    );
+    assert!(
+        elapsed < std::time::Duration::from_secs(120),
+        "秒级收敛（plan1 的 5 次重试按真实时钟，实际 {elapsed:?}）"
+    );
+}
+
+/// 边界（D14）：**三 plan 混合面**——plan1（node-test）绿（`sub_report` 入列）、
+/// plan2（jest）恒锁耗尽收 `Environment`、plan3（node-test）绿 → `Environment`
+/// 不 break（两枚绿 plan 的执行臂记账均在案）、最终 `fault == Some(Environment)`
+/// （首个）、`conclusion == Fail` 占位、四项计数 0（`sub_reports` 内部装配不泄漏
+/// 到 outcome）、不写 summary / 不落 plan 报告文件。
+#[tokio::test]
+async fn 三plan混合_环境错误在中间继续跑完且计数不泄漏() {
+    let _window = path_window();
+    let ws = ChainWs::new("fault-env-three-plan").three_plan_mixed();
+    let spec_src = ws.root().join("preset-results.txt");
+    fs::write(&spec_src, SPEC_OUTPUT).expect("写预置工件");
+    let marker = ws.root().join("shim-marker.log");
+    set_shim_env(&spec_src, &ws.results_dest(), Some(&marker), None);
+    // 一次执行臂双投：plan1（app）与 plan3（app3）各得一枚同源工件
+    set_shim_dest_2(&ws.results_dest_third());
+    ws.prepend_path();
+
+    let output = ws.run().await.expect("环境错误以 fault 收口（不 Err）");
+    let ToolStepOutput::TestExecution(outcome) = output else {
+        panic!("产出应为 TestExecution 变体");
+    };
+
+    assert_eq!(
+        ws.marker_count(),
+        2,
+        "plan1 与 plan3 均被拉起（Environment 之后仍继续跑完余下 plan）"
+    );
+    assert_eq!(
+        line_count(&ws.npx_attempt_log()),
+        5,
+        "plan2 恰 5 次尝试（jest 档瞬态耗尽；版本探测臂不计账）"
+    );
+
+    let Some(RunFault::Environment(text)) = outcome.fault.clone() else {
+        panic!("混合面应收口为 Environment fault: {:?}", outcome.fault);
+    };
+    assert!(
+        text.contains("已自动重试 4 次"),
+        "首个 Environment 的归因文本上传: {text}"
+    );
+    assert_eq!(
+        outcome.conclusion,
+        TestExecutionConclusion::Fail,
+        "fault 面结论占位 Fail"
+    );
+    assert_eq!(
+        (outcome.total, outcome.passed, outcome.failed, outcome.skipped),
+        (0, 0, 0, 0),
+        "sub_reports 内部装配不泄漏到 outcome（计数仍 0）"
+    );
+    assert!(
+        outcome.findings_brief.is_empty() && outcome.findings_detail.is_empty(),
+        "fault 面诊断双双空串"
+    );
+    assert!(
+        !ws.reports_dir().join("summary.json").exists(),
+        "fault 面不写 summary"
+    );
+    assert!(
+        !ws.reports_dir()
+            .join("app_node-test")
+            .join("report.json")
+            .exists(),
+        "fault 面不落 plan 报告文件（半套报告不进复用门）"
+    );
+}
+
+/// 边界（D12）：**`conclusion` 占位不参与门禁**——fault 面直构
+/// `TestExecutionOutcome { conclusion: Pass, fault: Some(Environment(..)) }` →
+/// 载荷原样携带（本层不做「fault + Pass」纠偏，判定归 `walker.rs` 的 fault 前置
+/// 分派）；`conclusion` 三值面零扩展（`as_str` 仍只 `pass` / `fail` / `error`）。
+#[test]
+fn conclusion占位不参与门禁_直构fault不纠偏() {
+    let fault = RunFault::Environment("占用进程：HipsDaemon.exe (pid 1234)".to_owned());
+    let outcome = TestExecutionOutcome {
+        conclusion: TestExecutionConclusion::Pass,
+        total: 3,
+        passed: 3,
+        failed: 0,
+        skipped: 0,
+        findings_brief: "全部测试通过且覆盖率达阈值".to_owned(),
+        findings_detail: String::new(),
+        report_dir: "C:/ws/reports/test".to_owned(),
+        exec_id: "exec-direct".to_owned(),
+        fault: Some(fault.clone()),
+    };
+    assert_eq!(
+        outcome.conclusion,
+        TestExecutionConclusion::Pass,
+        "本层不纠偏「fault + Pass」（原样携带）"
+    );
+    assert_eq!(outcome.fault, Some(fault), "fault 载荷逐字携带");
+    assert_eq!(
+        (
+            TestExecutionConclusion::Pass.as_str(),
+            TestExecutionConclusion::Fail.as_str(),
+            TestExecutionConclusion::Error.as_str()
+        ),
+        ("pass", "fail", "error"),
+        "conclusion 三值面零扩展（无新变体 / 无 fault 专属值）"
     );
 }

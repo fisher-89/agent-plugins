@@ -70,6 +70,8 @@ pub(crate) async fn run_segment(
             env: Vec::new(),
             timeout: Duration::from_millis(SEGMENT_SPAWN_TIMEOUT_MS),
             cancel,
+            // 突变面零重试（同 cargo-mutants 段口径）
+            retry: exec::RetryPolicy::none(),
         },
     )
     .await;

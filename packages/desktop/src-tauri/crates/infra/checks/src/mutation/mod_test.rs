@@ -26,7 +26,7 @@ use checks::model::MutationTool;
 use config::{MutationConfig, TestFramework};
 use orchestration::port::{
     ArchiveVcsPort, BoxToolFuture, MutationRunner, MutationSkipReason, MutationTestConclusion,
-    RebaseOutcome, StaticCheckRunner, TestExecutionRunner, ToolCommand, ToolStepOutput,
+    RebaseOutcome, RunFault, StaticCheckRunner, TestExecutionRunner, ToolCommand, ToolStepOutput,
     ToolStepPort, ToolStepRequest, WorktreeSnapshot,
 };
 use orchestration::LocalToolSteps;
@@ -898,6 +898,7 @@ async fn 跳过面_no_executor_无执行器框架记evidence不err() {
         MutationTestConclusion::Pass,
         "跳过面不判 fail"
     );
+    assert_eq!(outcome.fault, None, "跳过面 fault = None（字面量随动锚）");
     assert!(
         outcome.feedback_text.is_empty(),
         "NoExecutor evidence 记 PhaseLog 面（本载荷零反馈）"
@@ -2064,10 +2065,12 @@ async fn 成功全段_临时产物照清() {
 }
 
 // ---------------------------------------------------------------------------
-// 取消面（test-design「mutation/mod.rs -> mod_test.rs」节，AC-7 / D13）：
-// `SegmentFailure::Cancelled` 第三变体（`Display` 三臂同型）+ 取消 → 段中断 →
-// `conclusion = Error` + 「突变执行已取消」反馈文案（非 Fatal，不呈现为环境
-// 损坏），与 `Interrupted` 既有文案互不混用。
+// 取消面（test-design「mutation/mod.rs -> mod_test.rs」节，AC-7 / D17）：
+// `SegmentFailure::Cancelled` 第三变体（`Display` 三臂同型）+ 取消 → 执行面归因
+// `fault = Some(RunFault::Stopped)` + `conclusion = Fail` 占位 + `feedback_text`
+// 空串（stopped 面不被误读为「需修复」）。取消不走 `Fatal`（不把用户停止呈现为
+// 「环境坏了停给用户」），也不走 `Interrupted` 的 `conclusion = Error` + 「突变
+// 执行中断」文案（变体独立，两套文案互不混用）。
 // ---------------------------------------------------------------------------
 
 /// 经 `MutationRunner` trait 面带取消信号驱动（生产装配同路径，仅 flag 不同）。
@@ -2088,8 +2091,8 @@ async fn run_with_cancel(
         .await
 }
 
-/// 正向（D13，遍历枚举 3 变体）：`SegmentFailure::Display` 三臂同型——逐个
-/// `to_string()` 等于载荷串（单串同型，无变体前缀）。
+/// 正向（AC-7 / 类型定义表 `SegmentFailure` 行，遍历枚举 3 变体）：`Display` 三臂
+/// 同型——逐个 `to_string()` 等于载荷串（单串同型，无变体前缀）。
 #[test]
 fn segment_failure_display三臂同型() {
     let cases = [
@@ -2113,11 +2116,12 @@ fn segment_failure_display三臂同型() {
     assert_eq!(SegmentFailure::Cancelled(String::new()).to_string(), "");
 }
 
-/// 正向（AC-7 组合）：取消 → `conclusion = Error` + 取消文案——自旋假 spawn
-/// 运行中置位 → `feedback_text` 含「突变执行已取消：」与「已产报告路径：」
-///（非 Fatal，不呈现为环境损坏）；段报告 / summary 面不落位（中断不回填）。
+/// 正向（AC-7 组合锚，旧「收敛 failed / Error」断言随裁决改写）：取消 →
+/// `fault = Some(RunFault::Stopped)` + `conclusion = Fail` 占位 + `feedback_text`
+/// 空串（stopped 面不被误读为「需修复」）——自旋假 spawn 运行中置位；非 Fatal
+/// `Err` 面，段报告 / summary 面不落位（中断不回填）。
 #[tokio::test]
-async fn 取消_conclusion_error且文案为突变执行已取消() {
+async fn 取消_fault为stopped且结论占位fail() {
     let window = SpawnWindow::enter("cancel-run");
     let ws = ChainWs::with_config("cancel-run", RUST_APP_CONFIG).with_summary();
     window.install_fake_cargo(&ws.root.join("app"));
@@ -2159,30 +2163,33 @@ async fn 取消_conclusion_error且文案为突变执行已取消() {
         .expect("取消面产 Ok 载荷（非 Err）");
     let outcome = outcome_of(output);
     assert_eq!(
+        outcome.fault,
+        Some(RunFault::Stopped),
+        "取消 → 执行面归因 `Stopped`（节点 stopped、run stopped）"
+    );
+    assert_eq!(
         outcome.conclusion,
-        MutationTestConclusion::Error,
-        "取消 → conclusion = Error（过渡语义，非 Fatal Err 面）"
+        MutationTestConclusion::Fail,
+        "结论取 `Fail` 占位（MUST NOT 取 Error / Pass；fault 在位不参与门禁分派）"
     );
     assert_eq!(outcome.skip, None, "取消面非跳过");
-    let feedback = &outcome.feedback_text;
     assert!(
-        feedback.contains("突变执行已取消："),
-        "取消文案在案（与 Interrupted 的「突变执行中断」互不混用）: {feedback}"
+        outcome.feedback_text.is_empty(),
+        "stopped 面清空反馈文本（不误读为需修复）: {:?}",
+        outcome.feedback_text
     );
     assert!(
-        !feedback.contains("突变执行中断"),
-        "不混用中断文案: {feedback}"
-    );
-    assert!(
-        feedback.contains("已产报告路径："),
-        "反馈携已产报告路径清单: {feedback}"
+        outcome.report_paths.is_empty(),
+        "取消段零段块产出 → 无归并报告路径: {:?}",
+        outcome.report_paths
     );
 }
 
-/// 边界（D4 入口短路）：已置位 cancel 再 `run` → 首段即 `Cancelled`、假 spawn
-/// 零记录（入口短路不 spawn）、段串行 break（后续桶不执行）。
+/// 边界（AC-7 入口短路）：已置位 cancel 再 `run` → 首段即 `Cancelled`、
+/// `fault = Some(Stopped)` + `conclusion = Fail` 占位、假 spawn 零记录（入口
+/// 短路不 spawn）、段串行 break（后续桶不执行）。
 #[tokio::test]
-async fn 已置位cancel_入口短路零spawn且首段收敛() {
+async fn 已置位cancel_入口短路零spawn且收敛stopped() {
     let window = SpawnWindow::enter("cancel-pre");
     let ws = ChainWs::with_config("cancel-pre", TWO_RUST_CONFIG);
     window.install_fake_cargo(&ws.root.join("app"));
@@ -2199,19 +2206,24 @@ async fn 已置位cancel_入口短路零spawn且首段收敛() {
         .expect("取消面产 Ok 载荷");
     let outcome = outcome_of(output);
 
-    assert_eq!(outcome.conclusion, MutationTestConclusion::Error);
+    assert_eq!(
+        outcome.fault,
+        Some(RunFault::Stopped),
+        "首段即取消 → fault = Stopped"
+    );
+    assert_eq!(
+        outcome.conclusion,
+        MutationTestConclusion::Fail,
+        "结论占位 Fail（不取 Error）"
+    );
     assert!(
-        outcome.feedback_text.contains("突变执行已取消："),
-        "首段即取消: {}",
+        outcome.feedback_text.is_empty(),
+        "stopped 面反馈文本清空: {:?}",
         outcome.feedback_text
     );
     assert!(
         window.records().is_empty(),
         "入口短路零 spawn（取消不拉起进程）"
-    );
-    assert!(
-        !outcome.feedback_text.contains("突变执行中断"),
-        "取消不混用中断文案"
     );
 }
 
@@ -2259,11 +2271,11 @@ fn two_bucket_ws(tag: &str) -> (ChainWs, PathBuf) {
     (ws, pid_file)
 }
 
-/// 正反向组合锚（AC-7 / D13）：**多桶中途取消**——第 1 桶（rust 复用门）完成
-/// 后置位 → 第 2 桶（Stryker 假 spawn 自旋）观测取消 → 整体 `conclusion =
-/// Error`、反馈文案为「突变执行已取消」（非「突变执行中断」）、第 1 桶报告路径
-/// 在清单内、`summary.json` mutation 位不回填（中断面不落部分结论）+ 第 2 桶
-/// 进程被回收（pid 消失）。
+/// 正反向组合锚（AC-7 / D17）：**多桶中途取消**——第 1 桶（rust 复用门）完成
+/// 后置位 → 第 2 桶（Stryker 假 spawn 自旋）观测取消 → 整体
+/// `fault = Some(Stopped)` + `conclusion = Fail` 占位、`feedback_text` 空、
+/// 第 1 桶报告路径仍在 `report_paths`、`summary.json` mutation 位不回填（取消面与
+/// `Interrupted` 同型：不落部分结论）+ 第 2 桶进程被回收（pid 消失）。
 #[tokio::test]
 async fn 多桶中途取消_第二桶取消且首桶报告路径在案() {
     let window = SpawnWindow::enter("cancel-multi-bucket");
@@ -2299,24 +2311,24 @@ async fn 多桶中途取消_第二桶取消且首桶报告路径在案() {
         .expect("取消面产 Ok 载荷（非 Err）");
     let outcome = outcome_of(output);
     assert_eq!(
+        outcome.fault,
+        Some(RunFault::Stopped),
+        "第 2 桶取消 → fault = Stopped"
+    );
+    assert_eq!(
         outcome.conclusion,
-        MutationTestConclusion::Error,
-        "取消 → conclusion = Error（过渡语义，非 Fatal Err 面）"
-    );
-    let feedback = &outcome.feedback_text;
-    assert!(
-        feedback.contains("突变执行已取消："),
-        "取消文案在案（非中断文案）: {feedback}"
+        MutationTestConclusion::Fail,
+        "结论占位 Fail（不取 Error）"
     );
     assert!(
-        !feedback.contains("突变执行中断"),
-        "取消不混用中断文案: {feedback}"
+        outcome.feedback_text.is_empty(),
+        "stopped 面反馈文本清空: {:?}",
+        outcome.feedback_text
     );
     assert!(
-        feedback.contains("已产报告路径：")
-            && feedback.contains("app_rust")
-            && !feedback.contains("（无）"),
-        "第 1 桶报告路径在清单内（中断不回滚已产报告）: {feedback}"
+        outcome.report_paths.iter().any(|path| path.contains("app_rust")),
+        "第 1 桶已完成段的报告路径保留在案（中断不回滚已产报告）: {:?}",
+        outcome.report_paths
     );
     assert!(
         wait_pid_gone(pid, std::time::Duration::from_secs(15)),
@@ -2337,7 +2349,7 @@ async fn 多桶中途取消_第二桶取消且首桶报告路径在案() {
     );
 }
 
-/// 边界（D13 逐层下传锚）：**循环内 clone 共享同一原子**——`execute →
+/// 边界（AC-7 逐层下传锚）：**循环内 clone 共享同一原子**——`execute →
 /// run_suite → execute_segment → stryker::run_segment` 四层形参皆经
 /// `cancel.clone()` 下传；置位后链尾执行体（`exec::run_shell`）观测到同一原子并
 /// 杀树。若任一层退化为重新铸造（`never()`），段进程将不受置位影响（pid 存活至
@@ -2380,7 +2392,16 @@ async fn 循环内clone共享原子_置位在链尾执行体可见() {
     let elapsed = started.elapsed();
     let outcome = outcome_of(output);
 
-    assert_eq!(outcome.conclusion, MutationTestConclusion::Error);
+    assert_eq!(
+        outcome.fault,
+        Some(RunFault::Stopped),
+        "链尾观测到置位 → fault = Stopped"
+    );
+    assert_eq!(
+        outcome.conclusion,
+        MutationTestConclusion::Fail,
+        "结论占位 Fail"
+    );
     assert!(probe.is_set(), "置位对外部 clone 可见（同一原子）");
     assert!(
         elapsed < std::time::Duration::from_secs(30),
@@ -2392,9 +2413,10 @@ async fn 循环内clone共享原子_置位在链尾执行体可见() {
     );
 }
 
-/// 正向（D13 保留纪律）：**取消后 Stryker 临时面保留**——Stryker 桶段取消 →
-/// 反馈面的保留产物段（`retained_artifacts_section`）附保留路径，且 `_stryker-tmp`
-/// 与临时 config 在盘（与 `Interrupted` / `Fatal` 保留纪律同型：取消不清理失败桶
+/// 正向（D17 保留纪律）：**取消后 Stryker 临时面保留**——Stryker 桶段取消 →
+/// `fault = Some(Stopped)` + `conclusion = Fail` 占位 + `feedback_text` 空串（保留
+/// 清单的呈现面由 `Interrupted` 分支承载，取消面不写反馈文本），但 `_stryker-tmp`
+/// 与临时 config 仍留在盘上（与 `Interrupted` 保留纪律同型：取消不清理失败桶
 /// 临时面，供单段复现）。
 #[tokio::test]
 async fn 取消后stryker临时面保留_保留段与路径在案() {
@@ -2439,9 +2461,19 @@ async fn 取消后stryker临时面保留_保留段与路径在案() {
         .expect("取消面产 Ok 载荷（非 Err）");
     let outcome = outcome_of(output);
     assert_eq!(
+        outcome.fault,
+        Some(RunFault::Stopped),
+        "取消 → fault = Stopped（非 Fatal Err 面）"
+    );
+    assert_eq!(
         outcome.conclusion,
-        MutationTestConclusion::Error,
-        "取消 → conclusion = Error（非 Fatal Err 面）"
+        MutationTestConclusion::Fail,
+        "结论占位 Fail（不取 Error）"
+    );
+    assert!(
+        outcome.feedback_text.is_empty(),
+        "stopped 面反馈文本清空: {:?}",
+        outcome.feedback_text
     );
 
     // 临时面在盘（保留纪律：取消不清理失败桶临时 config 与 sandbox）
@@ -2457,27 +2489,17 @@ async fn 取消后stryker临时面保留_保留段与路径在案() {
         to_posix(&mutation_dir)
     );
 
-    // 反馈面：取消文案 + 保留产物段（保留路径与在盘项逐字一致）
-    let feedback = &outcome.feedback_text;
+    // 保留纪律与 `Interrupted` 同型：临时面在盘（供单段复现），stopped 面不写
+    // 反馈文本（保留清单的呈现面由 `Interrupted` 分支承载）
     assert!(
-        feedback.contains("突变执行已取消："),
-        "取消头行文案: {feedback}"
+        !outcome.feedback_text.contains("突变执行中断"),
+        "取消不混用中断文案: {:?}",
+        outcome.feedback_text
     );
     assert!(
-        feedback.contains("保留的失败段调试产物"),
-        "保留产物段在案（retained_artifacts_section 非空）: {feedback}"
-    );
-    assert!(
-        feedback.contains(&to_posix(&mutation_dir.join("_stryker-tmp"))),
-        "保留清单附 sandbox 路径: {feedback}"
-    );
-    assert!(
-        feedback.contains(&to_posix(&config_path)),
-        "保留清单附临时 config 路径: {feedback}"
-    );
-    assert!(
-        !feedback.contains("突变执行中断"),
-        "取消不混用中断文案: {feedback}"
+        outcome.report_paths.is_empty(),
+        "取消段零归并报告（已产路径仅为完成段）: {:?}",
+        outcome.report_paths
     );
     assert!(
         wait_pid_gone(pid, std::time::Duration::from_secs(15)),
@@ -2488,4 +2510,95 @@ async fn 取消后stryker临时面保留_保留段与路径在案() {
         "秒级收敛（不等段自旋自然结束，实际 {:?}）",
         started.elapsed()
     );
+}
+
+// ---------------------------------------------------------------------------
+// 零重试与 `fault: None` 字面量面（AC-2 / AC-8）
+// ---------------------------------------------------------------------------
+
+/// 边界（AC-2）：段零重试——段输出含瞬态签名（`os error 32`）+ 非零退出 →
+/// **假 spawn 记录恰 1 次**（段层 `RetryPolicy::none()` 语义：签名命中不追加
+/// 尝试）、分流仍为既有 `Interrupted`（`conclusion = Error` + 中断文案）、
+/// `fault == None`（段层无 fault——`Interrupted` 是产品语义，不是环境坏）。
+#[tokio::test]
+async fn 段输出含签名不触发段重试() {
+    let window = SpawnWindow::enter("segment-no-retry");
+    let ws = ChainWs::with_config("segment-no-retry", RUST_APP_CONFIG).with_summary();
+    window.install_fake_cargo(&ws.root.join("app"));
+    window.set_out(
+        "error: failed to rename archive file: /t/liba.rlib: os error 32\n",
+    );
+    window.set_exit(1);
+
+    let files = vec!["app/src/lib.rs".to_owned()];
+    let output = run(&ws, &files).await.expect("中断面产 Ok 载荷（非 Err）");
+    let outcome = outcome_of(output);
+
+    assert_eq!(
+        window.records().len(),
+        1,
+        "段层零重试：签名命中也不追加尝试（spawn 恰 1 次）"
+    );
+    assert_eq!(
+        outcome.conclusion,
+        MutationTestConclusion::Error,
+        "分流仍为既有 Interrupted（非 fault）"
+    );
+    assert_eq!(
+        outcome.fault, None,
+        "段层不产 fault（段超时 / 非零退出属 Interrupted 产品语义）"
+    );
+    assert!(
+        outcome.feedback_text.contains("突变执行中断"),
+        "中断文案在案: {}",
+        outcome.feedback_text
+    );
+}
+
+/// 边界（AC-8，表驱动 4 形态）：`skip_outcome` / pass / fail / `EmptyDiff` 四
+/// 形态产出经穷尽解构断言 `fault == None`（字面量随动 + 运行期锚）。
+#[tokio::test]
+async fn 四形态产出fault均为none() {
+    // 形态一：EmptyDiff 跳过面
+    {
+        let _window = SpawnWindow::enter("fault-none-empty-diff");
+        let ws = ChainWs::with_config("fault-none-empty-diff", RUST_APP_CONFIG);
+        let output = run(&ws, &[]).await.expect("空清单应 Ok");
+        let outcome = outcome_of(output);
+        assert_eq!(outcome.skip, Some(MutationSkipReason::EmptyDiff));
+        assert_eq!(outcome.fault, None, "跳过面 fault = None");
+        assert_eq!(outcome.conclusion, MutationTestConclusion::Pass);
+    }
+
+    // 形态二：全过（pass）
+    {
+        let window = SpawnWindow::enter("fault-none-pass");
+        let ws = ChainWs::with_config("fault-none-pass", RUST_APP_CONFIG).with_summary();
+        window.install_fake_cargo(&ws.root.join("app"));
+        window.set_cargo_outcomes(CARGO_SEG_PASS);
+        let output = run(&ws, &["app/src/lib.rs".to_owned()])
+            .await
+            .expect("达标段应 Ok");
+        let outcome = outcome_of(output);
+        assert_eq!(outcome.conclusion, MutationTestConclusion::Pass);
+        assert_eq!(outcome.fault, None, "pass 面 fault = None");
+    }
+
+    // 形态三：未达标（fail）
+    {
+        let window = SpawnWindow::enter("fault-none-fail");
+        let ws = ChainWs::with_config("fault-none-fail", RUST_APP_CONFIG).with_summary();
+        window.install_fake_cargo(&ws.root.join("app"));
+        window.set_cargo_outcomes(CARGO_SEG_FAIL);
+        let output = run(&ws, &["app/src/lib.rs".to_owned()])
+            .await
+            .expect("未达标段应 Ok");
+        let outcome = outcome_of(output);
+        assert_eq!(outcome.conclusion, MutationTestConclusion::Fail);
+        assert_eq!(outcome.fault, None, "fail 面 fault = None");
+    }
+
+    // 形态四：无执行器跳过面（NoExecutor）——由既有
+    // `跳过面_no_executor_无执行器框架记evidence不err` 用例的 `fault == None`
+    // 断言承接（同一 `skip_outcome` 装配面，避免重复装置）
 }

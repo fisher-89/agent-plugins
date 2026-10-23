@@ -5,7 +5,7 @@ use foundation::cancel::CancelFlag;
 use foundation::layout::ReportSlot;
 
 use crate::port::{
-    BoxDiffFuture, DiffContextPort, RunEventSink, StaticCheckOutcome, StaticCheckRunner,
+    BoxDiffFuture, DiffContextPort, RunEventSink, RunFault, StaticCheckOutcome, StaticCheckRunner,
     ToolCommand, ToolStepOutput, ToolStepPort, WorkerAgentPort, WorkerRole, WorkerTurnOutcome,
     WorkerTurnRequest, WorkflowSnapshotPort,
 };
@@ -95,6 +95,7 @@ impl ToolStepPort for RecordingSteps {
         self.roots.lock().expect("root 锁不可中毒").push(step.root);
         Box::pin(async move {
             Ok(ToolStepOutput::StaticCheck(StaticCheckOutcome {
+                fault: None,
                 passed: true,
                 diagnostics: String::new(),
                 output_ref: None,
@@ -521,6 +522,7 @@ fn tool_step_output各变体载荷写面原生类型逐字段相等() {
         phase: "implement".to_owned(),
     };
     let check = StaticCheckOutcome {
+        fault: None,
         passed: false,
         diagnostics: "error[E0308]: mismatched".to_owned(),
         output_ref: None,
@@ -591,6 +593,7 @@ fn tool_step_output各变体载荷写面原生类型逐字段相等() {
 #[test]
 fn static_check_outcome字段面双值双诊断形态() {
     let passed_clean = StaticCheckOutcome {
+        fault: None,
         passed: true,
         diagnostics: String::new(),
         output_ref: None,
@@ -600,6 +603,7 @@ fn static_check_outcome字段面双值双诊断形态() {
     assert!(passed_clean.diagnostics.is_empty());
 
     let failed_loud = StaticCheckOutcome {
+        fault: None,
         passed: false,
         diagnostics: "error[E0308]: mismatched types\n  --> src/lib.rs:1:1\nwarning: unused"
             .to_owned(),
@@ -616,6 +620,7 @@ fn static_check_outcome字段面双值双诊断形态() {
     // 输出记录引用随产出透传：Some = 全量输出可经 infra/exec 回查（默认
     // recorded），None = 零 spawn 直过 / 落盘失败降级——两态可辨
     let recorded = StaticCheckOutcome {
+        fault: None,
         passed: false,
         diagnostics: "lint 失败".to_owned(),
         output_ref: Some("exec-1727000000000".to_owned()),
@@ -638,12 +643,14 @@ fn static_check_outcome字段面双值双诊断形态() {
     // report_dir 字段对称面（check-before-flow-start）：pass / fail 两态各携非空
     // 报告目录串（与 TestExecutionOutcome.report_dir 对称——infra 按槽位派生回填）
     let passed_with_dir = StaticCheckOutcome {
+        fault: None,
         passed: true,
         diagnostics: String::new(),
         output_ref: Some("exec-1".to_owned()),
         report_dir: "C:/ws/openspec/changes/c/reports/baseline".to_owned(),
     };
     let failed_with_dir = StaticCheckOutcome {
+        fault: None,
         passed: false,
         diagnostics: "lint 红了".to_owned(),
         output_ref: Some("exec-2".to_owned()),
@@ -659,6 +666,7 @@ fn static_check_outcome字段面双值双诊断形态() {
     );
     // 对称面对拍：TestExecutionOutcome.report_dir 同为 String 字段、可同式构造读取
     let execution = TestExecutionOutcome {
+        fault: None,
         conclusion: TestExecutionConclusion::Pass,
         total: 1,
         passed: 1,
@@ -676,6 +684,7 @@ fn static_check_outcome字段面双值双诊断形态() {
 
     // 空串 / 缺省构造面不 panic（回填语义归 infra 真件节——port 面只锚字段在场）
     let empty_dir = StaticCheckOutcome {
+        fault: None,
         passed: true,
         diagnostics: String::new(),
         output_ref: None,
@@ -699,6 +708,7 @@ async fn static_check_runner假实现经arc注入且root_name_slot三元组透�
     assert_send_sync::<Arc<dyn StaticCheckRunner>>();
 
     let (inner, calls) = ProgrammableRunner::with_outcome(StaticCheckOutcome {
+        fault: None,
         // 默认 recorded：引用随产出回填（载荷语义不变）
         passed: false,
         diagnostics: "lint 失败".to_owned(),
@@ -745,6 +755,7 @@ async fn static_check_runner假实现经arc注入且root_name_slot三元组透�
 
     // slot=Baseline 基线槽位同构透传（枚举遍历——两值原样到达假件）
     let (inner, calls) = ProgrammableRunner::with_outcome(StaticCheckOutcome {
+        fault: None,
         passed: true,
         diagnostics: String::new(),
         output_ref: Some("exec-1727000000000-2".to_owned()),
@@ -822,6 +833,7 @@ async fn box_diff_future别名跨await持有可用() {
     fn make_tool() -> crate::port::BoxToolFuture {
         Box::pin(async {
             Ok(ToolStepOutput::StaticCheck(StaticCheckOutcome {
+                fault: None,
                 passed: true,
                 diagnostics: String::new(),
                 output_ref: None,
@@ -962,6 +974,7 @@ impl TestExecutionRunner for ProgrammableTestExecutionRunner {
 
 fn sample_execution_outcome(conclusion: TestExecutionConclusion) -> TestExecutionOutcome {
     TestExecutionOutcome {
+        fault: None,
         conclusion,
         total: 12,
         passed: 10,
@@ -1654,6 +1667,7 @@ use crate::port::{
 /// 在位；feedback_text 非空携报告路径指引）。
 fn sample_mutation_outcome(conclusion: MutationTestConclusion) -> MutationTestOutcome {
     MutationTestOutcome {
+        fault: None,
         conclusion,
         skip: None,
         score: 87.5,
@@ -1825,6 +1839,7 @@ fn mutation_test_outcome形态_已执行与feedback_text面() {
 fn mutation_test_outcome边界_skip占位与posix报告路径() {
     for skip in [MutationSkipReason::EmptyDiff, MutationSkipReason::NoExecutor] {
         let skipped = MutationTestOutcome {
+            fault: None,
             conclusion: MutationTestConclusion::Pass,
             skip: Some(skip),
             score: 0.0,
@@ -2584,6 +2599,7 @@ fn tool_step_request_debug渲染含cancel形态() {
 async fn 三runner_trait接收cancel形参且原样透传() {
     // StaticCheckRunner
     let (static_inner, _static_calls) = ProgrammableRunner::with_outcome(StaticCheckOutcome {
+        fault: None,
         passed: true,
         diagnostics: String::new(),
         output_ref: None,
@@ -2639,6 +2655,7 @@ async fn 三runner_trait已置位信号不被丢弃() {
     cancel.handle().set();
 
     let (static_inner, _) = ProgrammableRunner::with_outcome(StaticCheckOutcome {
+        fault: None,
         passed: true,
         diagnostics: String::new(),
         output_ref: None,
@@ -2682,4 +2699,397 @@ async fn 三runner_trait已置位信号不被丢弃() {
         mutation_log.lock().expect("锁")[0].is_set(),
         "MutationRunner 收到已置位信号"
     );
+}
+
+// ---------------------------------------------------------------------------
+// 执行面归因 `RunFault` 与三 outcome 的 `fault` 字段面（AC-5 / AC-9）
+// ---------------------------------------------------------------------------
+
+/// 正向（遍历枚举 2 变体）：`RunFault` 两变体直构——同变体等值、异变体不等，
+/// `Environment` 载荷参与相等（不同串不等）。
+#[test]
+fn run_fault两变体与相等语义() {
+    let stopped = RunFault::Stopped;
+    let environment = RunFault::Environment("锁占用".to_owned());
+
+    assert_eq!(stopped, RunFault::Stopped, "Stopped 自反相等");
+    assert_eq!(
+        environment,
+        RunFault::Environment("锁占用".to_owned()),
+        "同载荷相等"
+    );
+    assert_ne!(
+        environment,
+        RunFault::Environment("超时".to_owned()),
+        "载荷参与相等判定"
+    );
+    assert_ne!(stopped, environment, "异变体不等");
+}
+
+/// 正向（表驱动 2 变体）：`clone` 后载荷逐字相等、`Debug` 渲染含变体名与载荷
+///（derive 可读，便于故障定位）。
+#[test]
+fn run_fault_clone与debug面() {
+    for fault in [
+        RunFault::Stopped,
+        RunFault::Environment("静态检查无法完成".to_owned()),
+    ] {
+        let cloned = fault.clone();
+        assert_eq!(cloned, fault, "clone 负载荷逐字相等（非 Arc 共享）");
+
+        let debug = format!("{fault:?}");
+        match &fault {
+            RunFault::Stopped => assert!(debug.contains("Stopped"), "Debug 含变体名: {debug}"),
+            RunFault::Environment(text) => {
+                assert!(debug.contains("Environment"), "Debug 含变体名: {debug}");
+                assert!(debug.contains(text.as_str()), "Debug 含载荷串: {debug}");
+            }
+        }
+    }
+}
+
+/// 边界（表驱动 4 形态）：`RunFault` 载荷边界——空串 / 超长（>1000 字符）/
+/// 特殊字符（换行、`\0`、emoji、中文）/ 中文归因文本 → 构造与相等不 panic、
+/// 载荷逐字保留。
+#[test]
+fn run_fault载荷边界四形态() {
+    let cases = [
+        String::new(),
+        "错".repeat(1200),
+        "line-1\nline-2\u{0}🎉".to_owned(),
+        "占用进程：HipsDaemon.exe (pid 1234)".to_owned(),
+    ];
+    for payload in cases {
+        let fault = RunFault::Environment(payload.clone());
+        let RunFault::Environment(stored) = &fault else {
+            panic!("变体应为 Environment");
+        };
+        assert_eq!(stored, &payload, "载荷逐字保留");
+        assert_eq!(fault.clone(), fault, "clone 后相等");
+    }
+}
+
+/// 正向（表驱动 3 形态）：`StaticCheckOutcome.fault` 三态——`None` /
+/// `Some(Stopped)` / `Some(Environment(..))` 均可构造且 `PartialEq` 区分；
+/// 五字段穷尽解构（无 `..`）证明字段面只增 `fault`。
+#[test]
+fn static_check_outcome_fault三态与字段穷尽() {
+    let base = StaticCheckOutcome {
+        passed: false,
+        diagnostics: "诊断".to_owned(),
+        fault: None,
+        output_ref: Some("exec-1".to_owned()),
+        report_dir: "reports/test".to_owned(),
+    };
+    let stopped = StaticCheckOutcome {
+        fault: Some(RunFault::Stopped),
+        ..base.clone()
+    };
+    let environment = StaticCheckOutcome {
+        fault: Some(RunFault::Environment("环境错误".to_owned())),
+        ..base.clone()
+    };
+
+    assert_eq!(base.fault, None, "None = 结论本身有效");
+    assert!(matches!(stopped.fault, Some(RunFault::Stopped)));
+    assert!(matches!(environment.fault, Some(RunFault::Environment(_))));
+    assert_ne!(base, stopped, "三态互相可辨");
+    assert_ne!(stopped, environment, "两 fault 变体可辨");
+
+    // 穷尽解构：字段集 = passed / diagnostics / fault / output_ref / report_dir
+    let StaticCheckOutcome {
+        passed,
+        diagnostics,
+        fault,
+        output_ref,
+        report_dir,
+    } = environment;
+    assert!(!passed && diagnostics == "诊断" && fault.is_some());
+    assert_eq!(output_ref.as_deref(), Some("exec-1"));
+    assert_eq!(report_dir, "reports/test");
+}
+
+/// 边界：`StaticCheckOutcome` 的 `Eq` 仍成立（含 `fault` 字段）——两份等值
+/// `assert_eq!` + `Eq` 约束编译期断言（`derive(Eq)` 未退化为仅 `PartialEq`）。
+#[test]
+fn static_check_outcome_eq仍成立() {
+    fn require_eq<T: Eq>(_: &T) {}
+
+    let one = StaticCheckOutcome {
+        passed: true,
+        diagnostics: String::new(),
+        fault: Some(RunFault::Environment("同一串".to_owned())),
+        output_ref: None,
+        report_dir: "reports/baseline".to_owned(),
+    };
+    let two = one.clone();
+    assert_eq!(one, two, "同字段两份相等");
+    require_eq(&one);
+    require_eq(&two);
+}
+
+/// 正向（表驱动 3 形态）：`TestExecutionOutcome.fault` 三态各配 `conclusion`
+/// 三值 → 结构可构造、相等按 `conclusion` + `fault` 联合判定；十字段穷尽解构
+/// 证明字段面零扩展（只增 `fault`）。
+#[test]
+fn test_execution_outcome_fault三态与字段穷尽() {
+    let cases = [
+        (TestExecutionConclusion::Pass, None),
+        (TestExecutionConclusion::Fail, Some(RunFault::Stopped)),
+        (
+            TestExecutionConclusion::Error,
+            Some(RunFault::Environment("测试命令超时".to_owned())),
+        ),
+    ];
+
+    let mut built: Vec<TestExecutionOutcome> = Vec::new();
+    for (conclusion, fault) in cases {
+        let outcome = TestExecutionOutcome {
+            conclusion,
+            total: 7,
+            passed: 5,
+            failed: 2,
+            skipped: 0,
+            findings_brief: "摘要".to_owned(),
+            findings_detail: "明细".to_owned(),
+            report_dir: "reports/test".to_owned(),
+            exec_id: "exec-9".to_owned(),
+            fault: fault.clone(),
+        };
+        assert_eq!(outcome.conclusion, conclusion);
+        assert_eq!(outcome.fault, fault, "fault 逐态保留");
+        built.push(outcome);
+    }
+    assert_ne!(built[0], built[1], "fault 参与相等判定");
+    assert_ne!(built[1], built[2], "两 fault 变体可辨");
+
+    // 十字段穷尽解构（字段面 = 9 既有 + fault）
+    let TestExecutionOutcome {
+        conclusion,
+        total,
+        passed,
+        failed,
+        skipped,
+        findings_brief,
+        findings_detail,
+        report_dir,
+        exec_id,
+        fault,
+    } = built.remove(1);
+    assert_eq!(conclusion, TestExecutionConclusion::Fail);
+    assert_eq!((total, passed, failed, skipped), (7, 5, 2, 0));
+    assert!(findings_brief == "摘要" && findings_detail == "明细");
+    assert!(report_dir == "reports/test" && exec_id == "exec-9");
+    assert_eq!(fault, Some(RunFault::Stopped));
+}
+
+/// 边界（遍历枚举 3 值）：`TestExecutionConclusion` 三值面零变——`Pass` / `Fail`
+/// / `Error` 与 `fault = None` 组合后 `as_str()` 仍为 `pass` / `fail` / `error`
+///（无新变体）。
+#[test]
+fn test_execution_conclusion三值面零变() {
+    for (conclusion, expected) in [
+        (TestExecutionConclusion::Pass, "pass"),
+        (TestExecutionConclusion::Fail, "fail"),
+        (TestExecutionConclusion::Error, "error"),
+    ] {
+        assert_eq!(conclusion.as_str(), expected, "线格式词逐字");
+        let outcome = TestExecutionOutcome {
+            conclusion,
+            total: 0,
+            passed: 0,
+            failed: 0,
+            skipped: 0,
+            findings_brief: String::new(),
+            findings_detail: String::new(),
+            report_dir: String::new(),
+            exec_id: String::new(),
+            fault: None,
+        };
+        assert_eq!(outcome.conclusion.as_str(), expected, "载荷侧同样零扩展");
+    }
+}
+
+/// 正向（表驱动 3 形态）：`MutationTestOutcome.fault` 三态与 `f64` 字段——
+/// `score` / `threshold` 取 `0.0` / `NaN` / `Inf` 均可构造、`PartialEq` 按既有
+/// `f64` 语义（无 `Eq`）；八字段穷尽解构。
+#[test]
+fn mutation_test_outcome_fault三态与f64字段() {
+    let cases = [
+        (None, 0.0f64, 0.0f64),
+        (Some(RunFault::Stopped), f64::NAN, 80.0),
+        (
+            Some(RunFault::Environment("段中断".to_owned())),
+            f64::INFINITY,
+            f64::NEG_INFINITY,
+        ),
+    ];
+
+    for (fault, score, threshold) in cases {
+        let outcome = MutationTestOutcome {
+            conclusion: MutationTestConclusion::Fail,
+            skip: None,
+            score,
+            threshold,
+            counts: MutationCounts::default(),
+            report_paths: vec!["reports/app_rust/mutation/merged.json".to_owned()],
+            feedback_text: String::new(),
+            fault: fault.clone(),
+        };
+
+        let MutationTestOutcome {
+            conclusion,
+            skip,
+            score: built_score,
+            threshold: built_threshold,
+            counts,
+            report_paths,
+            feedback_text,
+            fault: built_fault,
+        } = outcome;
+        assert_eq!(conclusion, MutationTestConclusion::Fail);
+        assert_eq!(skip, None);
+        assert_eq!(built_score.to_bits(), score.to_bits(), "f64 逐位保留");
+        assert_eq!(
+            built_threshold.to_bits(),
+            threshold.to_bits(),
+            "阈值逐位保留"
+        );
+        assert_eq!(counts.total, 0);
+        assert_eq!(report_paths.len(), 1);
+        assert!(feedback_text.is_empty());
+        assert_eq!(built_fault, fault);
+    }
+
+    // `PartialEq` 按既有 f64 语义：NaN 不等于自身（无 Eq 派生）
+    let nan_outcome = |score: f64| MutationTestOutcome {
+        conclusion: MutationTestConclusion::Fail,
+        skip: None,
+        score,
+        threshold: 0.0,
+        counts: MutationCounts::default(),
+        report_paths: Vec::new(),
+        feedback_text: String::new(),
+        fault: None,
+    };
+    assert_ne!(
+        nan_outcome(f64::NAN),
+        nan_outcome(f64::NAN),
+        "NaN 不等于自身（无 Eq）"
+    );
+    assert_eq!(nan_outcome(1.5), nan_outcome(1.5), "普通 f64 相等");
+}
+
+/// 边界（封闭集穷尽）：`ToolStepOutput` 十变体穷尽 `match`（无 `_` 臂）编译期
+/// 即证无新变体；门禁变体携带 `fault` 后 `PartialEq` 语义不变。
+#[test]
+fn tool_step_output十变体穷尽零扩展() {
+    fn variant_name(output: &ToolStepOutput) -> &'static str {
+        match output {
+            ToolStepOutput::PhaseNext(_) => "phase-next",
+            ToolStepOutput::PhaseStart(_) => "phase-start",
+            ToolStepOutput::PhaseLog(_) => "phase-log",
+            ToolStepOutput::Backtrack(_) => "backtrack",
+            ToolStepOutput::DecisionLog(_) => "decision-log",
+            ToolStepOutput::StaticCheck(_) => "static-check",
+            ToolStepOutput::TestExecution(_) => "test-execution",
+            ToolStepOutput::MutationTest(_) => "mutation-test",
+            ToolStepOutput::ArchivePreflight(_) => "archive-preflight",
+            ToolStepOutput::ArchiveSeal(_) => "archive-seal",
+        }
+    }
+
+    let check = StaticCheckOutcome {
+        passed: false,
+        diagnostics: String::new(),
+        fault: Some(RunFault::Stopped),
+        output_ref: None,
+        report_dir: String::new(),
+    };
+    let outputs = [
+        ToolStepOutput::StaticCheck(check.clone()),
+        ToolStepOutput::StaticCheck(StaticCheckOutcome {
+            fault: None,
+            ..check.clone()
+        }),
+    ];
+    assert_eq!(variant_name(&outputs[0]), "static-check");
+    assert_eq!(variant_name(&outputs[0]), variant_name(&outputs[1]));
+    assert_ne!(outputs[0], outputs[1], "fault 参与门禁产出相等判定");
+}
+
+/// 边界（表驱动 2 类型）：`ToolStepRequest` / `ToolCommand` 零改——字段集与
+/// 变体载荷逐字解构（本变更不读 `fault` 于请求侧）。
+#[test]
+fn tool_step_request与command零改() {
+    let request = crate::port::ToolStepRequest {
+        root: "C:/ws".to_owned(),
+        command: ToolCommand::StaticCheck {
+            change_id: CHANGE_ID.to_owned(),
+            slot: ReportSlot::Baseline,
+        },
+        cancel: CancelFlag::never(),
+    };
+    let crate::port::ToolStepRequest {
+        root,
+        command,
+        cancel,
+    } = request;
+    assert_eq!(root, "C:/ws", "root 字段面零改");
+    assert!(!cancel.is_set(), "cancel 缺省不置位（never）");
+    match command {
+        ToolCommand::StaticCheck { change_id, slot } => {
+            assert_eq!(change_id, CHANGE_ID, "定位载荷为 change id");
+            assert_eq!(slot, ReportSlot::Baseline, "槽位透传");
+        }
+        other => panic!("命令变体漂移: {other:?}"),
+    }
+}
+
+/// 边界：`fault` 不进既有出线面——`RunUpdate::Step` 载荷（`ChangeStepState`）
+/// 字段穷尽解构（字段集 = 既有 12 项，无 `fault` / `RunFault` 位置）；`RunFault`
+/// 零 `Serialize` 的编译期面由 `bindings:check` 静态脚本承接。
+#[test]
+fn fault不进runupdate载荷面() {
+    let update = RunUpdate::Step {
+        step: crate::state::ChangeStepState {
+            phase: "implement".to_owned(),
+            attempt: 1,
+            step: crate::state::ChangeStepKind::StaticCheck,
+            instance_no: 2,
+            status: crate::state::ChangeStepStatus::Failed,
+            session_id: None,
+            detail: Some("诊断".to_owned()),
+            output_ref: Some("exec-1".to_owned()),
+            started_at: 1_000,
+            ended_at: Some(2_000),
+            token_input: None,
+            token_output: None,
+        },
+    };
+    let RunUpdate::Step { step } = &update else {
+        panic!("变体应为 Step");
+    };
+    let crate::state::ChangeStepState {
+        phase,
+        attempt,
+        step: kind,
+        instance_no,
+        status,
+        session_id,
+        detail,
+        output_ref,
+        started_at,
+        ended_at,
+        token_input,
+        token_output,
+    } = step.clone();
+    assert_eq!(phase, "implement");
+    assert_eq!((attempt, instance_no), (1, 2));
+    assert_eq!(kind, crate::state::ChangeStepKind::StaticCheck);
+    assert_eq!(status, crate::state::ChangeStepStatus::Failed);
+    assert!(session_id.is_none() && token_input.is_none() && token_output.is_none());
+    assert_eq!(detail.as_deref(), Some("诊断"));
+    assert_eq!(output_ref.as_deref(), Some("exec-1"));
+    assert_eq!((started_at, ended_at), (1_000, Some(2_000)));
 }

@@ -758,9 +758,10 @@ async fn run槽位等价性_语义同锚点异且err面持衡() {
 
 // ---------------------------------------------------------------------------
 // 超时 / 取消（test-design「static_check.rs -> static_check_test.rs」节，
-// AC-2 / AC-3 / AC-4）：static-check 首获超时预算（此前零超时 → cargo 卡文件
+// AC-2 / AC-3 / AC-7）：static-check 首获超时预算（此前零超时 → cargo 卡文件
 // 锁时永久悬挂）；取消经 `run_shell` 入口短路与轮询两径收敛为
-// `Err("执行已取消")`。
+// `fault = Some(RunFault::Stopped)` 的正常产出（**不 Err**——旧
+// 「`Err("执行已取消")`」过渡口径已被本变更取代）。
 // ---------------------------------------------------------------------------
 
 use std::time::{Duration, Instant};
@@ -882,11 +883,12 @@ fn static_check_timeout常量锚定() {
     );
 }
 
-/// 正向（AC-3）：超时臂——自旋 shim + 虚拟时钟推进越过 `STATIC_CHECK_TIMEOUT`
-/// → `Err` 文案恰为「static-check 命令超时（1200 秒）强制终止」+ 墙钟上界
-///（不悬挂——本变更修复的现状缺陷）+ 目标 pid 消失（`kill_tree` 整树回收锚）。
+/// 正向（AC-7 / checks-domain）：超时臂 —— 自旋 shim + 虚拟时钟推进越过
+/// `STATIC_CHECK_TIMEOUT` → **`Ok`（不再 `Err`）**、`passed == false`、
+/// `fault == Some(Environment("static-check 命令超时（1200 秒）强制终止"))`
+///（文案逐字锚定 1200 秒）+ 墙钟上界（不悬挂）+ 目标 pid 消失。
 #[tokio::test(start_paused = true)]
-async fn 超时臂_到点err且pid消失不悬挂() {
+async fn 超时臂_fault为环境错误且pid消失不悬挂() {
     let _env = env_window();
     let ws = TempWs::new("timeout");
     let _path = PathPrefix::enter(ws.path());
@@ -905,15 +907,22 @@ async fn 超时臂_到点err且pid消失不悬挂() {
 
     let started = Instant::now();
     tokio::time::advance(STATIC_CHECK_TIMEOUT + Duration::from_secs(60)).await;
-    let err = runner
+    let output = runner
         .await
         .expect("static-check 任务应正常结束")
-        .expect_err("超时应 Err（不悬挂）");
+        .expect("超时不 Err（执行面归因走 fault）");
+    let ToolStepOutput::StaticCheck(outcome) = output else {
+        panic!("产出应为 StaticCheck 变体");
+    };
     let elapsed = started.elapsed();
 
+    assert!(!outcome.passed, "超时臂 passed 恒 false（不吞成绿）");
     assert_eq!(
-        err, "static-check 命令超时（1200 秒）强制终止",
-        "超时文案逐字（预算秒数由常量拼装）"
+        outcome.fault,
+        Some(orchestration::port::RunFault::Environment(
+            "static-check 命令超时（1200 秒）强制终止".to_owned()
+        )),
+        "超时文案逐字（预算秒数由常量拼装）且由 fault 承载"
     );
     assert!(
         elapsed < Duration::from_secs(120),
@@ -925,9 +934,12 @@ async fn 超时臂_到点err且pid消失不悬挂() {
     );
 }
 
-/// 正向（AC-4 / D4）：已置位 cancel —— 入口短路不 spawn，直接 `Err("执行已取消")`。
+/// 正向（AC-7）：已置位 cancel —— 入口短路不 spawn，产出以
+/// `fault = Some(Stopped)` 正常返回（**MUST NOT 返回 `Err`**）、`passed == false`；
+/// 记录面为「单次尝试原样部分字节」（`attempts == 1` → 零分隔头，取消面同样回填
+/// `output_ref`，`exec-outputs` 落空 `.log`）。
 #[tokio::test]
-async fn 已置位cancel_入口短路零spawn() {
+async fn 已置位cancel_fault为stopped且零spawn() {
     let _env = env_window();
     let ws = TempWs::new("cancel-pre");
     let _path = PathPrefix::enter(ws.path());
@@ -960,18 +972,27 @@ async fn 已置位cancel_入口短路零spawn() {
     let started = Instant::now();
     let output = ProcessStaticCheck::new()
         .run(&ws.root_str(), "demo-change", ReportSlot::Test, cancel)
-        .await;
-    let err = output.expect_err("取消短路应 Err");
-    assert_eq!(err, "执行已取消", "取消文案（过渡语义）");
+        .await
+        .expect("取消不 Err（产出携 fault）");
+    let ToolStepOutput::StaticCheck(outcome) = output else {
+        panic!("产出应为 StaticCheck 变体");
+    };
+    assert_eq!(
+        outcome.fault,
+        Some(orchestration::port::RunFault::Stopped),
+        "取消 → fault = Stopped（run 收敛 stopped，非 failed）"
+    );
+    assert!(!outcome.passed, "取消臂 passed 恒 false");
+    assert!(outcome.diagnostics.is_empty(), "取消臂零诊断（未读任何输出）");
     assert!(!marker.exists(), "入口短路不 spawn（shim 零执行）");
     assert!(
         started.elapsed() < Duration::from_secs(5),
         "短路墙钟近零（不依赖轮询时序）"
     );
-    let exec_dir = ws.exec_dir("demo-change");
+    let exec_id = outcome.output_ref.expect("记录面单点回填引用（落盘不阻断）");
     assert!(
-        !exec_dir.exists() || fs::read_dir(&exec_dir).map(|mut d| d.next().is_none()).unwrap_or(true),
-        "取消臂不落输出记录引用"
+        read_output(&ws, "demo-change", &exec_id).is_empty(),
+        "取消短路零尝试字节 → `.log` 空"
     );
 }
 
@@ -1094,11 +1115,12 @@ async fn 诊断文本边界_空超长与特殊字符逐字() {
     );
 }
 
-/// 正向（AC-4）：运行中 cancel——自旋 shim 落 pid 后挂起，运行中置位 →
-/// `Err("执行已取消")` + 墙钟上界（秒级收敛，不等 `STATIC_CHECK_TIMEOUT`）+
-/// 目标 pid 消失；取消臂不落 diagnostics / 输出记录引用。
+/// 正向（AC-7）：运行中 cancel —— 自旋 shim 落 pid 后挂起，运行中置位 →
+/// `Ok` + `fault == Some(Stopped)` + 墙钟上界（秒级收敛，不等
+/// `STATIC_CHECK_TIMEOUT`）+ 目标 pid 消失；记录面为「单次尝试原样部分字节」
+///（`attempts == 1` → 零分隔头，`output_ref` 回填且 `.log` == 已排水部分字节）。
 #[tokio::test]
-async fn 运行中cancel_秒级收敛且pid消失不落输出引用() {
+async fn 运行中cancel_秒级收敛且pid消失() {
     let _env = env_window();
     let ws = TempWs::new("cancel-running");
     let _path = PathPrefix::enter(ws.path());
@@ -1121,8 +1143,15 @@ async fn 运行中cancel_秒级收敛且pid消失不落输出引用() {
     handle.set();
 
     let output = runner.await.expect("run 任务应正常结束");
-    let err = output.expect_err("取消应 Err");
-    assert_eq!(err, "执行已取消", "取消文案（过渡语义）");
+    let ToolStepOutput::StaticCheck(outcome) = output.expect("取消不 Err（产出携 fault）") else {
+        panic!("产出应为 StaticCheck 变体");
+    };
+    assert_eq!(
+        outcome.fault,
+        Some(orchestration::port::RunFault::Stopped),
+        "运行中取消 → fault = Stopped"
+    );
+    assert!(!outcome.passed, "取消臂 passed 恒 false");
     assert!(
         started.elapsed() < Duration::from_secs(20),
         "秒级收敛（不等 1200 s 预算，实际 {:?}）",
@@ -1132,12 +1161,347 @@ async fn 运行中cancel_秒级收敛且pid消失不落输出引用() {
         wait_pid_gone(pid, Duration::from_secs(15)),
         "取消强杀后目标 pid {pid} 应消失（kill_tree 整树回收）"
     );
-    let exec_dir = ws.exec_dir("demo-change");
+    // 记录面：`attempts == 1` → 零分隔头，`.log` 即已排水的部分字节（完整性不
+    // 断言——被杀臂排水有界截断）
+    let exec_id = outcome.output_ref.expect("取消面同样回填 output_ref");
+    let logged = read_output(&ws, "demo-change", &exec_id);
     assert!(
-        !exec_dir.exists()
-            || fs::read_dir(&exec_dir)
-                .map(|mut entries| entries.next().is_none())
-                .unwrap_or(true),
-        "取消臂不落输出记录引用"
+        !String::from_utf8_lossy(&logged).contains("===== attempt"),
+        "单次尝试零分隔头（取消面不加审计头）"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// 组合锚：瞬态重试 → 归因 → fault → 同一 `.log`（AC-1 / AC-3）
+// ---------------------------------------------------------------------------
+
+/// 自愈 shim：首次拉起落标记并输出锁文本 + 非零，之后输成功行 + 零退出
+///（平台双形态；尝试次数由标记文件自身表达，无需计数装置）。
+fn write_selfheal_shim(
+    ws: &TempWs,
+    name: &str,
+    marker: &Path,
+    lock_text: &str,
+) -> String {
+    #[cfg(windows)]
+    {
+        let body = format!(
+            "@echo off\r\nif exist \"{marker}\" (\r\n  exit /b 0\r\n)\r\necho. > \"{marker}\"\r\necho {lock_text}\r\nexit /b 1\r\n",
+            marker = marker.display(),
+            lock_text = lock_text,
+        );
+        fs::write(ws.path().join(format!("{name}.cmd")), body).expect("写自愈 shim");
+        format!("{name}.cmd")
+    }
+    #[cfg(not(windows))]
+    {
+        let body = format!(
+            "#!/bin/sh\nif [ -f \"{marker}\" ]; then\n  exit 0\nfi\n: > \"{marker}\"\nprintf '%s\n' '{lock_text}'\nexit 1\n",
+            marker = marker.display(),
+            lock_text = lock_text,
+        );
+        let script = ws.path().join(name);
+        fs::write(&script, body).expect("写自愈 shim");
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).expect("补执行位");
+        name.to_owned()
+    }
+}
+
+/// 分隔头计数（输出记录回查面：按 `===== attempt ` 子串计数）。
+fn attempt_headers(ws: &TempWs, change: &str, exec_id: &str) -> usize {
+    String::from_utf8_lossy(&read_output(ws, change, exec_id))
+        .matches("===== attempt ")
+        .count()
+}
+
+/// 虚拟时钟闸门：以常驻 `spawn_blocking` 任务抑制 tokio 的「空闲即自动推进」
+/// （沿 `exec::run_test::ClockGate` 同型装置）。暂停时钟下等待真实子进程会让虚拟
+/// 时间成百倍空转，使「退避 1/2/4/8 s 恰不真等」「1500 s 预算不提前耗尽」
+/// 「1200 s 超时臂不被误触」失去确定性；闸门在位时虚拟时间**只**随
+/// [`advance_until`] 前进。
+struct ClockGate {
+    release: Option<std::sync::mpsc::Sender<()>>,
+    task: Option<tokio::task::JoinHandle<()>>,
+}
+
+impl ClockGate {
+    fn new() -> Self {
+        let (release, wait) = std::sync::mpsc::channel::<()>();
+        let task = tokio::task::spawn_blocking(move || {
+            let _ = wait.recv();
+        });
+        Self {
+            release: Some(release),
+            task: Some(task),
+        }
+    }
+}
+
+impl Drop for ClockGate {
+    fn drop(&mut self) {
+        self.release.take();
+        self.task.take();
+    }
+}
+
+/// 重试退避不真等：按 `step` 粒度推进虚拟时钟直到 `until` 为真，真实时间上界
+/// `real_budget`（虚拟推进 ≈ 10 × 真实耗时，故 60 s 真实上界对应 ≤ 600 s 虚拟，
+/// 既不触 1200 s 超时臂也不触 1500 s 总预算）。
+async fn advance_until<F: Fn() -> bool>(until: F, step: Duration, real_budget: Duration) {
+    let deadline = Instant::now() + real_budget;
+    while !until() && Instant::now() < deadline {
+        tokio::time::advance(step).await;
+        // 真实让出：子进程排水 / 收尸在真实时间上进行（虚拟时钟不参与）
+        let _ = tokio::task::spawn_blocking(|| std::thread::sleep(Duration::from_millis(10))).await;
+    }
+    assert!(
+        until(),
+        "推进真实预算 {real_budget:?} 后仍未收敛（暂停时钟下虚拟时间不会自行前进）"
+    );
+}
+
+/// 正向（AC-3 组合锚）：瞬态耗尽 → `fault = Environment`——shim 每次都输出锁文本
+/// 并 `exit 1`（`transient()` 5 次耗尽）→ `Ok`、`passed == false`、
+/// `fault == Some(Environment(text))`；`text` 含「已自动重试 4 次」、被锁文件路径、
+/// 占用者点名或「未定位占用者」降级说明、环境侧指引；`diagnostics` 为末次原文；
+/// `.log` 恰 5 段。退避（1+2+4+8 s）随虚拟时钟推进，不真等。
+#[tokio::test(start_paused = true)]
+async fn 瞬态耗尽_fault为环境错误且log五段() {
+    let _env = env_window();
+    let _gate = ClockGate::new();
+    let ws = TempWs::new("fault-exhaust");
+    let _path = PathPrefix::enter(ws.path());
+    let locked = ws.path().join("liba.rlib");
+    fs::write(&locked, b"body").expect("落盘被锁文件");
+    let lock_text = format!(
+        "error: failed to rename archive file: {}: os error 32",
+        locked.display()
+    );
+    let command = write_shim(&ws, "lock-always-shim", &[(lock_text.as_str(), false)], Some(1));
+    ws.write_config(Some(&command));
+
+    // 运行体在任务内（主任务负责推进虚拟时钟：4 段退避 15 s 不真等）
+    let root = ws.root_str();
+    let runner = tokio::spawn(async move { check_test(&root, "demo-change").await });
+    advance_until(
+        || runner.is_finished(),
+        Duration::from_millis(100),
+        Duration::from_secs(60),
+    )
+    .await;
+    let outcome = runner
+        .await
+        .expect("static-check 任务应正常结束")
+        .expect("耗尽面仍 Ok（执行面归因走 fault）");
+
+    assert!(!outcome.passed, "非零退出 → passed = false");
+    let Some(orchestration::port::RunFault::Environment(text)) = outcome.fault.clone() else {
+        panic!("瞬态耗尽应产 Environment fault，实际: {:?}", outcome.fault);
+    };
+    assert!(
+        text.contains("已自动重试 4 次"),
+        "重试次数按 attempts - 1 计: {text}"
+    );
+    assert!(
+        text.contains(&locked.to_string_lossy().into_owned()),
+        "被锁文件路径在案: {text}"
+    );
+    assert!(
+        text.contains("未定位占用者") || text.contains("占用进程："),
+        "占用者点名或降级说明在案: {text}"
+    );
+    assert!(
+        text.contains("workspace 父目录") && text.contains("逐 worktree"),
+        "环境侧处置指引在案: {text}"
+    );
+    assert!(
+        !text.contains("请在基线上修复"),
+        "环境错误文案与基线红文案零共用句: {text}"
+    );
+    assert_eq!(
+        outcome.diagnostics, lock_text,
+        "diagnostics 为末次尝试原文（trim_end 后）"
+    );
+
+    let exec_id = outcome.output_ref.expect("output_ref 恒回填");
+    assert_eq!(
+        attempt_headers(&ws, "demo-change", &exec_id),
+        5,
+        "耗尽面记录 5 段 attempt 分隔头"
+    );
+    let log = String::from_utf8_lossy(&read_output(&ws, "demo-change", &exec_id)).into_owned();
+    for index in 1..=5 {
+        assert!(
+            log.contains(&format!("===== attempt {index}/5")),
+            "序号 {index}/5 在案: {log}"
+        );
+    }
+    assert!(
+        log.contains("transient=os error 32"),
+        "此前尝试段头携命中签名: {log}"
+    );
+}
+
+/// 正向（AC-1）：瞬态自愈转绿——shim 首次输出锁文本 `exit 1`、第 2 次 `exit 0`
+/// → `passed == true`、`fault == None`、诊断为空；record `.log` 含 2 段（首段
+/// `transient=os error 32`、末段 `transient=-`）。退避（1 s）随虚拟时钟推进，不真等。
+#[tokio::test(start_paused = true)]
+async fn 瞬态自愈转绿_fault为空且log两段() {
+    let _env = env_window();
+    let _gate = ClockGate::new();
+    let ws = TempWs::new("fault-selfheal");
+    let _path = PathPrefix::enter(ws.path());
+    let marker = ws.path().join("ran-once.txt");
+    let locked = ws.path().join("liba.rlib");
+    fs::write(&locked, b"body").expect("落盘被锁文件");
+    let lock_text = format!(
+        "error: failed to rename archive file: {}: os error 32",
+        locked.display()
+    );
+    let command = write_selfheal_shim(&ws, "selfheal-shim", &marker, &lock_text);
+    ws.write_config(Some(&command));
+
+    // 运行体在任务内（主任务推进虚拟时钟：1 s 退避不真等）
+    let root = ws.root_str();
+    let runner = tokio::spawn(async move { check_test(&root, "demo-change").await });
+    advance_until(
+        || runner.is_finished(),
+        Duration::from_millis(100),
+        Duration::from_secs(60),
+    )
+    .await;
+    let outcome = runner
+        .await
+        .expect("static-check 任务应正常结束")
+        .expect("自愈面应 Ok");
+
+    assert!(outcome.passed, "第 2 次尝试转绿 → passed = true");
+    assert_eq!(outcome.fault, None, "自愈后不产 fault（绿不误判环境错误）");
+    assert!(
+        outcome.diagnostics.is_empty(),
+        "末次无输出 → 诊断为空白名单: {:?}",
+        outcome.diagnostics
+    );
+
+    let exec_id = outcome.output_ref.expect("output_ref 恒回填");
+    assert_eq!(
+        attempt_headers(&ws, "demo-change", &exec_id),
+        2,
+        "自愈面记录 2 段"
+    );
+    let log = String::from_utf8_lossy(&read_output(&ws, "demo-change", &exec_id)).into_owned();
+    assert!(
+        log.contains("===== attempt 1/5 · exit=1 · transient=os error 32 ====="),
+        "首段携命中签名: {log}"
+    );
+    assert!(
+        log.contains("===== attempt 2/5 · exit=0 · transient=- ====="),
+        "末段无签名（`transient=-`）: {log}"
+    );
+}
+
+/// 正向（AC-8 / R-1）：真红不产 fault——普通编译错误 + `exit 1` → `passed ==
+/// false`、`fault == None`、单次尝试（`.log` 零分隔头）、`diagnostics` 逐字为该
+/// 输出（`trim_end` 后）。
+#[tokio::test]
+async fn 真红不产fault且单次尝试() {
+    let _env = env_window();
+    let ws = TempWs::new("real-red");
+    let _path = PathPrefix::enter(ws.path());
+    let command = write_shim(
+        &ws,
+        "real-red-shim",
+        &[
+            ("error[E0308]: mismatched types", true),
+            ("  --> src/lib.rs:3:9", false),
+        ],
+        Some(1),
+    );
+    ws.write_config(Some(&command));
+
+    let outcome = check_test(&ws.root_str(), "demo-change")
+        .await
+        .expect("真红仍 Ok 携产出");
+
+    assert!(!outcome.passed, "真红 → passed = false");
+    assert_eq!(outcome.fault, None, "真红不产 fault（不吞成环境错误）");
+    assert!(
+        outcome.diagnostics.contains("error[E0308]: mismatched types"),
+        "诊断为该输出原文: {:?}",
+        outcome.diagnostics
+    );
+
+    let exec_id = outcome.output_ref.expect("output_ref 恒回填");
+    assert_eq!(
+        attempt_headers(&ws, "demo-change", &exec_id),
+        0,
+        "单次尝试零分隔头（既有 record 断言不被破）"
+    );
+}
+
+/// 边界（R-1）：裸 `failed to write <path>` 不产 fault——`fault == None`、单次
+/// 尝试（签名表刻意不收该泛措辞，不当环境错误重试）。
+#[tokio::test]
+async fn 裸failed_to_write不产fault() {
+    let _env = env_window();
+    let ws = TempWs::new("bare-write");
+    let _path = PathPrefix::enter(ws.path());
+    let target = ws.path().join("libb.rmeta");
+    let command = write_shim(
+        &ws,
+        "bare-write-shim",
+        &[(
+            format!("error: failed to write {}", target.display()).as_str(),
+            false,
+        )],
+        Some(1),
+    );
+    ws.write_config(Some(&command));
+
+    let outcome = check_test(&ws.root_str(), "demo-change")
+        .await
+        .expect("非零退出仍 Ok");
+
+    assert!(!outcome.passed, "非零退出 → passed = false");
+    assert_eq!(
+        outcome.fault, None,
+        "裸 `failed to write` 不命中签名 → 不产 fault"
+    );
+
+    let exec_id = outcome.output_ref.expect("output_ref 恒回填");
+    assert_eq!(
+        attempt_headers(&ws, "demo-change", &exec_id),
+        0,
+        "零重试（单次尝试无分隔头）"
+    );
+}
+
+/// 边界（D12）：`fault` 与 `passed` 正交——shim 在 `exit 0` 的同时输出签名文本
+/// → `passed == true`、`fault == None`（绿不产 fault）；`passed` 恒
+/// `exit_code == 0` 口径未被 fault 面改动。
+#[tokio::test]
+async fn fault与passed正交_绿不产fault() {
+    let _env = env_window();
+    let ws = TempWs::new("orthogonal");
+    let _path = PathPrefix::enter(ws.path());
+    let command = write_shim(
+        &ws,
+        "green-signature-shim",
+        &[("test 打印了 os error 32 这句话", false)],
+        Some(0),
+    );
+    ws.write_config(Some(&command));
+
+    let outcome = check_test(&ws.root_str(), "demo-change")
+        .await
+        .expect("绿跑应 Ok");
+
+    assert!(outcome.passed, "退出 0 → passed = true");
+    assert_eq!(outcome.fault, None, "绿不产 fault（fault 面未改 passed 口径）");
+    assert!(
+        outcome.diagnostics.contains("os error 32"),
+        "诊断照常捕获该文本: {:?}",
+        outcome.diagnostics
     );
 }

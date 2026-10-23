@@ -164,11 +164,30 @@ pub enum ToolStepOutput {
     ArchiveSeal(workflow::write::ArchiveOutcome),
 }
 
+/// 执行面归因（检查结论**之外**的原因；`None` 侧 = 结论本身有效）。
+///
+/// `Stopped` = 用户停止（cancel 置位 → 进程树击杀 → `Terminal::stopped`）；
+/// `Environment(String)` = 环境错误摘要（瞬态锁耗尽 / 超时——相位重试必然再失败，
+/// MUST NOT 注回 executor、MUST NOT 升格相位 fail）。
+///
+/// **零 `Serialize`——不出线**：不进 `RunUpdate` / `RunNodeRecord` 载荷、不改
+/// `src/types/generated/bindings.ts`（三 outcome 均只在进程内 walker 消费）。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RunFault {
+    /// 用户停止（节点 `stopped`、run `stopped`）
+    Stopped,
+    /// 环境错误摘要（节点 `failed`、run `failed`；不注回 executor）
+    Environment(String),
+}
+
 /// static-check 门禁产出（passed=false 走定向反馈边）。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StaticCheckOutcome {
     pub passed: bool,
     pub diagnostics: String,
+    /// 执行面归因（`None` = 结论本身有效；在位时 `passed` 不参与门禁分派——
+    /// walker 先查 `fault`）
+    pub fault: Option<RunFault>,
     /// 全量输出引用（`ExecOutput::Recorded { exec_id }`；默认 recorded → 恒回填
     /// `Some(exec_id)`，落盘失败降级 `None`——不阻断检查主流程；反馈边仍只消费
     /// `diagnostics`，全量经本引用回查）
@@ -225,6 +244,9 @@ pub struct TestExecutionOutcome {
     /// `exec::read_exec_output` 回查；与 `report_dir` 同锚同口径，落盘失败空串 =
     /// 未记录——`report_dir` 报告仍为全量权威）
     pub exec_id: String,
+    /// 执行面归因（`None` = 结论本身有效；在位时 `conclusion` 不参与门禁分派——
+    /// walker 先查 `fault`）
+    pub fault: Option<RunFault>,
 }
 
 /// mutation-test 门禁结论三值（`TestExecutionConclusion` 同型；线格式小写词）：
@@ -305,6 +327,10 @@ pub struct MutationTestOutcome {
     /// 反馈文本（反馈边②报告指引式：结论摘要 + 报告路径清单；pass 恒空串；
     /// MUST NOT 内联存活突变体清单——明细由 executor 自行读报告）
     pub feedback_text: String,
+    /// 执行面归因（`None` = 结论本身有效；在位时 `conclusion` 不参与门禁分派——
+    /// walker 先查 `fault`。mutation 面只产 `Stopped`：段超时仍走 `Interrupted` +
+    /// `conclusion = Error`，有意不进 fault）
+    pub fault: Option<RunFault>,
 }
 
 /// ToolStep 契约（进程内缝）：相位机四步由编排侧 [`crate::steps::LocalToolSteps`]
@@ -322,7 +348,9 @@ pub trait ToolStepPort: Send + Sync {
 /// 检查——报告锚点与 exec-outputs 记录同锚派生，执行语义零分叉。
 pub trait StaticCheckRunner: Send + Sync {
     /// 取消信号经 infra 执行体观测（`exec::run_shell` 轮询）——core 零 spawn；
-    /// 置位 → 进程树击杀 → 实现侧返回 `Err("执行已取消")`。
+    /// 置位 → 进程树击杀 → 产出以 `fault = Some(RunFault::Stopped)` 正常返回
+    ///（取消 MUST NOT 以 `Err` 表达——`Err` 只留给进程拉不起 / 程序不可达等基础
+    /// 设施失败）。
     fn run(&self, root: &str, name: &str, slot: ReportSlot, cancel: CancelFlag) -> BoxToolFuture;
 }
 
@@ -335,7 +363,8 @@ pub trait StaticCheckRunner: Send + Sync {
 /// baseline 基线检查（`reports/baseline` 分树隔离）——复用门按本槽位报告树判定。
 pub trait TestExecutionRunner: Send + Sync {
     /// 取消信号经 infra 执行体观测——core 零 spawn；置位 → 进程树击杀 →
-    /// 实现侧返回 `Err("执行已取消")`（不落 plan 级 `execution_error`）。
+    /// 产出以 `fault = Some(RunFault::Stopped)` 正常返回（MUST NOT 返回 `Err`）；
+    /// 取消 MUST NOT 落 plan 级 `execution_error`，也不再跑余下 plan。
     fn run(&self, root: &str, name: &str, slot: ReportSlot, cancel: CancelFlag) -> BoxToolFuture;
 }
 
@@ -348,8 +377,10 @@ pub trait TestExecutionRunner: Send + Sync {
 /// 取数后由 `steps.rs` 注入，checks-runtime 依赖面零 vcs（清单 / 补丁唯一入口在
 /// vcs 边界）。
 pub trait MutationRunner: Send + Sync {
-    /// 末位为取消信号（经 infra 执行体观测——core 零 spawn）；置位 → 段执行
-    /// 返回 `SegmentFailure::Cancelled` → `conclusion = Error`（过渡形态）。
+    /// 末位为取消信号（经 infra 执行体观测——core 零 spawn）；置位 → 进程树击杀
+    /// → 产出以 `fault = Some(RunFault::Stopped)` 正常返回（MUST NOT 以 `Err` /
+    /// `conclusion = Error` 表达取消）。段超时仍走 `Interrupted` +
+    /// `conclusion = Error` + `fault = None`（长跑是产品语义，超时是配置问题）。
     fn run(
         &self,
         root: &str,

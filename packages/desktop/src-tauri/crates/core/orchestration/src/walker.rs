@@ -17,8 +17,8 @@ use crate::decision::{
 };
 use crate::port::{
     ArchiveVcsPort, MutationSkipReason, MutationTestConclusion, MutationTestOutcome, RebaseOutcome,
-    RunHistoryPort, StaticCheckOutcome, TestExecutionConclusion, TestExecutionOutcome, ToolCommand,
-    ToolStepOutput, ToolStepPort, WorkerAgentPort, WorkerRole, WorkerTurnOutcome,
+    RunFault, RunHistoryPort, StaticCheckOutcome, TestExecutionConclusion, TestExecutionOutcome,
+    ToolCommand, ToolStepOutput, ToolStepPort, WorkerAgentPort, WorkerRole, WorkerTurnOutcome,
     WorkerTurnRequest, WorkflowSnapshotPort, WorktreeSnapshot,
 };
 use crate::prompt::{
@@ -62,6 +62,16 @@ const TXT_BASELINE_TEST_ERROR: &str =
     "基线测试执行出错（环境 / 配置问题），请检查配置与环境后重新发起；报告目录 {dir}";
 const TXT_BASELINE_TEST_FAILED: &str =
     "基线测试未通过，请在基线上修复测试后重新发起；报告目录 {dir}";
+
+/// 环境错误终局文案（执行面归因 `RunFault::Environment` 专用——与 `TXT_BASELINE_*`
+/// **零共用引导句**：本组引导「排除安全软件路径」，基线组引导「在基线上修复后
+/// 重新发起」，两态 MUST NOT 复用同一段文案）。
+///
+/// `{fault}` 承载占用者点名 / 被锁文件 / 「已自动重试 N 次」/ 「排除 workspace 父
+/// 目录（逐 worktree 无效）」指引（MUST NOT 在模板里再写一份——那些事实由
+/// checks 域 `environment` 单点装配）；`{dir}` 为报告目录。
+const TXT_ENV_STATIC: &str = "静态检查无法完成（环境错误）：\n{fault}\n报告目录 {dir}";
+const TXT_ENV_TEST: &str = "测试执行无法完成（环境错误）：\n{fault}\n报告目录 {dir}";
 
 /// lean 档无法裁决收敛的原因词族（解冲突后验不通过的收敛原因，词汇单点驻本
 /// 文件）。
@@ -920,6 +930,10 @@ async fn step_executor(
 /// 独立计数 ≤ limit）——失败诊断 Continue 注入同一 executor 会话修复重跑（新
 /// `instance_no` 节点 + `feedback` 边）；超限升格相位 fail（桌面代写 fail
 /// phase-log，不跑 evaluator），回 phase-next 进重试 / 决策分叉。
+///
+/// **fault 先于结论**：产出带 `fault` 时早退——`Environment` → 节点 failed +
+/// `Terminal::failed`（零 worker 调用、零 fail phase_log、不进决策重试）；`Stopped`
+/// → 节点 stopped + run stopped。
 async fn step_static_check(
     ctx: &StepContext<'_>,
     trace: &mut EdgeTrace,
@@ -962,6 +976,21 @@ async fn step_static_check(
             "static-check",
         )
         .await?;
+        // fault 先于结论：环境错误 / 取消不烧反馈边预算（零 executor 会话）、
+        // 不升格相位 fail
+        if let Some(fault) = outcome.fault.as_ref() {
+            return Err(settle_fault(
+                ctx.guard,
+                ctx.phase,
+                cursor.attempt,
+                ChangeStepKind::StaticCheck,
+                instance_no,
+                fault,
+                Some(TXT_ENV_STATIC),
+                &outcome.report_dir,
+                outcome.output_ref.clone(),
+            ));
+        }
         if outcome.passed {
             emit_node(
                 ctx.guard,
@@ -1052,6 +1081,10 @@ async fn step_test_execution(
 /// 截断余下步回 `phase_next` 进决策分叉，零 WorkerAgent 会话）。runner `Err`
 /// 经 `?` 直达 `Terminal`（环境问题不该由决策 agent 裁决，节点留 running 与
 /// terminal 分支同式）。
+///
+/// **fault 先于结论**：`Environment` → 节点 failed + `Terminal::failed`（文案
+/// `TXT_ENV_TEST`，零决策分叉、零 fail phase_log）；`Stopped` → 节点 stopped +
+/// run stopped。
 async fn step_test_execution_escalate(
     ctx: &StepContext<'_>,
     trace: &mut EdgeTrace,
@@ -1084,6 +1117,21 @@ async fn step_test_execution_escalate(
         "test-execution",
     )
     .await?;
+    // fault 先于结论：环境错误 → 节点 failed + Terminal::failed（零决策分叉、零
+    // fail phase_log 代写）；取消 → 节点 stopped + run stopped
+    if let Some(fault) = outcome.fault.as_ref() {
+        return Err(settle_fault(
+            ctx.guard,
+            ctx.phase,
+            cursor.attempt,
+            ChangeStepKind::TestExecution,
+            instance_no,
+            fault,
+            Some(TXT_ENV_TEST),
+            &outcome.report_dir,
+            Some(outcome.exec_id.clone()),
+        ));
+    }
     if outcome.conclusion == TestExecutionConclusion::Pass {
         emit_node(
             ctx.guard,
@@ -1128,6 +1176,9 @@ async fn step_test_execution_escalate(
 /// `output_ref` 回填后 Proceed；fail：failed 节点（detail = 诊断摘要、
 /// `output_ref` 回填）+ `Terminal::failed`（static 红文案携 baseline 报告目录
 /// ——`outcome.report_dir` 供给 `{dir}` 占位）。
+///
+/// **fault 先于结论**：环境错误走 `TXT_ENV_STATIC`（引导排除安全软件路径，
+/// MUST NOT 落基线红文案），取消走 stopped。
 async fn step_static_check_terminal(
     ctx: &StepContext<'_>,
     trace: &mut EdgeTrace,
@@ -1160,6 +1211,21 @@ async fn step_static_check_terminal(
         "static-check",
     )
     .await?;
+    // fault 先于结论：基线环境错误 / 取消走环境文案与 stopped，不落基线红文案
+    //（不误导用户去修基线）
+    if let Some(fault) = outcome.fault.as_ref() {
+        return Err(settle_fault(
+            ctx.guard,
+            ctx.phase,
+            cursor.attempt,
+            ChangeStepKind::StaticCheck,
+            instance_no,
+            fault,
+            Some(TXT_ENV_STATIC),
+            &outcome.report_dir,
+            outcome.output_ref.clone(),
+        ));
+    }
     if outcome.passed {
         emit_node(
             ctx.guard,
@@ -1191,6 +1257,9 @@ async fn step_static_check_terminal(
 /// pass：`passed` + 计数 detail + `output_ref` 回填，`cursor.test_outcome` 挂载
 ///（PhaseLog 机械 checklist 分支天然分派）后 Proceed；Error / Fail：failed 节点
 /// + `Terminal::failed` 分文案（环境 / 测试红可辨，携 baseline 报告目录）。
+///
+/// **fault 先于结论**：环境错误走 `TXT_ENV_TEST`（不落基线红 / 基线错误文案），
+/// 取消走 stopped。
 async fn step_test_execution_terminal(
     ctx: &StepContext<'_>,
     trace: &mut EdgeTrace,
@@ -1223,6 +1292,21 @@ async fn step_test_execution_terminal(
         "test-execution",
     )
     .await?;
+    // fault 先于结论：基线环境错误 → TXT_ENV_TEST（不落基线红 / 基线错误文案），
+    // 取消 → stopped
+    if let Some(fault) = outcome.fault.as_ref() {
+        return Err(settle_fault(
+            ctx.guard,
+            ctx.phase,
+            cursor.attempt,
+            ChangeStepKind::TestExecution,
+            instance_no,
+            fault,
+            Some(TXT_ENV_TEST),
+            &outcome.report_dir,
+            Some(outcome.exec_id.clone()),
+        ));
+    }
     if outcome.conclusion == TestExecutionConclusion::Pass {
         emit_node(
             ctx.guard,
@@ -1278,6 +1362,10 @@ async fn step_mutation_test(
 /// error 两时点同式升格交决策（零会话），达标 pass 直接收口。双时点：全部段跑完
 /// 仅未达标、段中断错误随载荷即时收场（两时点在 walker 侧同走 fail 面）。runner
 /// 显式 `Err` 停给用户（环境问题不进决策）。
+///
+/// **fault 先于结论**：`Stopped`（用户停止）→ 节点 stopped + run stopped
+///（MUST NOT 收敛为 failed + `conclusion = Error` 的升格面）；mutation 不产
+/// `Environment` 面（段超时仍走 `Interrupted` → `conclusion = Error`）。
 async fn step_mutation_test_escalate(
     ctx: &StepContext<'_>,
     trace: &mut EdgeTrace,
@@ -1325,6 +1413,21 @@ async fn step_mutation_test_escalate(
             return Err(terminal);
         }
     };
+    // fault 先于结论：取消 → 节点 stopped + run stopped（MUST NOT 走 fail 升格
+    // 面）；mutation 不产 Environment 面，`template = None` 仅防御性退化
+    if let Some(fault) = outcome.fault.as_ref() {
+        return Err(settle_fault(
+            ctx.guard,
+            ctx.phase,
+            cursor.attempt,
+            ChangeStepKind::MutationTest,
+            instance_no,
+            fault,
+            None,
+            "",
+            None,
+        ));
+    }
     if outcome.conclusion == MutationTestConclusion::Pass {
         // 达标 / 跳过面（null 观察期不判 fail）：零反馈收口，结论落双槽
         emit_node(
@@ -3554,6 +3657,59 @@ fn diagnose_brief(text: &str) -> String {
             "{}…",
             collapsed.chars().take(BRIEF_LIMIT).collect::<String>()
         )
+    }
+}
+
+/// 执行面归因分派单点（`fault` 先于结论）：五处门禁步执行体在 `run_tool` 之后、
+/// 既有 `passed` / `conclusion` 分支**之前**早退到本函数。
+///
+/// - `Stopped` → 节点 `stopped` + `Terminal::stopped`（run 收敛 `stopped`，MUST NOT
+///   呈现为失败）；
+/// - `Environment(text)` → 节点 `failed` + `Terminal::failed`（`template` 非空时把
+///   `{fault}` / `{dir}` 展开），**且 MUST NOT 升格相位 fail / MUST NOT 进决策重试 /
+///   MUST NOT 注回 executor**——环境坏的相位重试必然再失败，反馈预算零消耗。
+#[allow(clippy::too_many_arguments)]
+fn settle_fault(
+    guard: &RunGuard,
+    phase: &str,
+    attempt: u32,
+    step: ChangeStepKind,
+    instance_no: u32,
+    fault: &RunFault,
+    template: Option<&str>,
+    report_dir: &str,
+    output_ref: Option<String>,
+) -> Terminal {
+    match fault {
+        RunFault::Stopped => {
+            emit_node(
+                guard,
+                phase,
+                attempt,
+                step,
+                instance_no,
+                StepSettle::stopped(Some("用户请求停止".to_owned())).with_output_ref(output_ref),
+            );
+            Terminal::stopped("用户请求停止")
+        }
+        RunFault::Environment(text) => {
+            let message = template
+                .map(|template| {
+                    template
+                        .replace("{fault}", text)
+                        .replace("{dir}", report_dir)
+                })
+                .unwrap_or_else(|| text.clone());
+            emit_node(
+                guard,
+                phase,
+                attempt,
+                step,
+                instance_no,
+                StepSettle::failed(Some(diagnose_brief(&message))).with_output_ref(output_ref),
+            );
+            Terminal::failed(message)
+        }
     }
 }
 

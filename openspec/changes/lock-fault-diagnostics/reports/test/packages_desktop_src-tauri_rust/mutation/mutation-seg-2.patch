@@ -1,0 +1,4805 @@
+diff --git a/crates/infra/exec/src/lib.rs b/crates/infra/exec/src/lib.rs
+index 8fa9d955e36e..4cf7e235e7c2 100644
+--- a/crates/infra/exec/src/lib.rs
++++ b/crates/infra/exec/src/lib.rs
+@@ -8,18 +8,27 @@
+ //! - 进程树击杀：`kill_tree`（Windows `taskkill` / unix `kill`）；
+ //! - 进程执行体：[`run_shell`]（超时必填 / 双管道并发排水 / 进程树击杀 / 取消
+ //!   四能力单点——检查域四类外部进程的唯一 spawn 收口）；
++//! - 瞬态签名与有限重试：`transient`（封闭签名表 + [`RetryPolicy`]——构建产物被
++//!   安全软件占用时的自愈面，字典扩展只改该模块一处）；
++//! - 锁占用诊断：`lockprobe`（[`locked_paths`] / [`lock_holders`] /
++//!   [`attribution_text`]——被锁文件 + 占用者的归因原料，供检查域装配环境错误
++//!   文案）；
+ //! - 进程输出解读面：[`ProcessOutput`]（错误信息 + 末尾行双面——失败归因
+ //!   文本统一装配，替代各调用点自截尾部）。
+ 
++mod lockprobe;
+ mod output;
+ mod run;
+ mod shell;
++mod transient;
+ 
+ #[cfg(windows)]
+ pub use shell::probe_windows_shell;
++pub use lockprobe::{attribution_text, lock_holders, locked_paths, LockHolder};
+ pub use output::ProcessOutput;
+ pub use run::{run_shell, RunError, RunOptions, RunOutcome, RunReport};
+ pub use shell::{resolve_shell, ShellBase};
++pub use transient::{is_transient, AttemptTrace, RetryPolicy};
+ 
+ use std::ffi::{OsStr, OsString};
+ use std::path::{Path, PathBuf};
+diff --git a/crates/infra/exec/src/lib_test.rs b/crates/infra/exec/src/lib_test.rs
+index a30f31e34e40..cadf570ea11f 100644
+--- a/crates/infra/exec/src/lib_test.rs
++++ b/crates/infra/exec/src/lib_test.rs
+@@ -615,3 +615,129 @@ fn system_command_clone等价_raw标记保真() {
+     assert_eq!(args.len(), 2, "壳标记 + 末参恰两参: {args:?}");
+     assert_eq!(args[1], OsStr::new(script), "末参命令串逐字保真");
+ }
++
++// ---------------------------------------------------------------------------
++// 再导出面（`mod transient;` / `mod lockprobe;` 的 crate 根可见性）
++// ---------------------------------------------------------------------------
++
++/// 正向：再导出 `is_transient`——经 `crate::is_transient`（而非模块私有路径）
++/// 判定同一组输入，与瞬态模块自身判据逐值一致（导出的是同一函数，非包装）。
++#[test]
++fn 再导出is_transient与模块判据一致() {
++    let red_locked = crate::RunReport {
++        outcome: crate::RunOutcome::Completed,
++        exit_code: 1,
++        stdout: b"error: failed to rename archive file: /t/liba.rlib: os error 32".to_vec(),
++        stderr: Vec::new(),
++        attempts: 2,
++        retried: Vec::new(),
++    };
++    assert_eq!(
++        crate::is_transient(&red_locked),
++        Some("os error 32"),
++        "crate 根导出的判定函数命中签名"
++    );
++
++    let green = crate::RunReport {
++        outcome: crate::RunOutcome::Completed,
++        exit_code: 0,
++        stdout: b"os error 32".to_vec(),
++        stderr: Vec::new(),
++        attempts: 1,
++        retried: Vec::new(),
++    };
++    assert_eq!(crate::is_transient(&green), None, "绿不因文本命中");
++}
++
++/// 正向（表驱动 2 类型）：再导出 `RetryPolicy` / `AttemptTrace`——经 crate 根
++/// 构造两策略与留痕，三常量与类型表等值。
++#[test]
++fn 再导出retry_policy与attempt_trace() {
++    let none = crate::RetryPolicy::none();
++    let transient = crate::RetryPolicy::transient();
++    assert_eq!(none.max_attempts, 1, "单次策略上限 1");
++    assert_eq!(transient.max_attempts, 5, "瞬态策略上限 5");
++    assert_eq!(
++        transient.backoff,
++        [
++            std::time::Duration::from_secs(1),
++            std::time::Duration::from_secs(2),
++            std::time::Duration::from_secs(4),
++            std::time::Duration::from_secs(8),
++        ],
++        "退避四段"
++    );
++    assert_eq!(
++        transient.total_budget,
++        std::time::Duration::from_secs(1500),
++        "总预算 1500 s"
++    );
++
++    let trace = crate::AttemptTrace {
++        exit_code: 1,
++        transient: Some("EBUSY".to_owned()),
++        stdout: b"out".to_vec(),
++        stderr: b"err".to_vec(),
++    };
++    assert_eq!(trace.exit_code, 1, "留痕字段可读");
++    assert_eq!(trace.transient.as_deref(), Some("EBUSY"));
++    assert_eq!(trace.clone(), trace, "clone / PartialEq 可用");
++}
++
++/// 正向（表驱动 4 项）：再导出 `locked_paths` / `lock_holders` /
++/// `attribution_text` / `LockHolder`——纯函数与类型经 crate 根可用且行为与模块
++/// 内一致。
++#[test]
++fn 再导出锁探针四项() {
++    assert_eq!(
++        crate::locked_paths("error: failed to write /tmp/x.rmeta"),
++        vec![PathBuf::from("/tmp/x.rmeta")],
++        "crate 根导出的路径解析"
++    );
++    assert!(
++        crate::lock_holders(&[]).is_empty(),
++        "空入参点名直接返回空（零系统调用）"
++    );
++    assert_eq!(
++        crate::attribution_text("error[E0308]: mismatched types"),
++        None,
++        "无路径可解析 → None"
++    );
++
++    let holder = crate::LockHolder {
++        name: "HipsDaemon.exe".to_owned(),
++        pid: 4321,
++    };
++    assert_eq!(
++        holder.clone(),
++        crate::LockHolder {
++            name: "HipsDaemon.exe".to_owned(),
++            pid: 4321,
++        },
++        "LockHolder 可在 crate 根构造并比较"
++    );
++}
++
++/// 边界：既有导出面零变——`kill_tree(None)` 零副作用、`ProcessOutput`
++/// 错误面 / 末尾面口径逐字不变（被 `environment::fault_text` 复用）。
++#[test]
++fn 既有导出面零变() {
++    // `kill_tree(None)`：无 pid 即直接返回（零 spawn、零 panic）
++    crate::kill_tree(None);
++
++    let output = crate::ProcessOutput::new(101, b"line-1\nwarning: x\nerror[E0308]: boom\n".to_vec());
++    let excerpt = output.error_excerpt();
++    assert_eq!(
++        excerpt, "error[E0308]: boom",
++        "错误面口径不变（含 error 的行）"
++    );
++    assert!(
++        output.tail().contains("error[E0308]: boom"),
++        "末尾面不剥行（行口径 50 行）"
++    );
++    assert_eq!(
++        crate::ProcessOutput::new(1, Vec::new()).tail(),
++        "",
++        "空输出末尾面为空"
++    );
++}
+diff --git a/crates/infra/exec/src/lockprobe.rs b/crates/infra/exec/src/lockprobe.rs
+new file mode 100644
+index 000000000000..3f968035f25a
+--- /dev/null
++++ b/crates/infra/exec/src/lockprobe.rs
+@@ -0,0 +1,345 @@
++//! 锁占用诊断探针：被锁文件 + 占用者的**归因原料**单点装配。
++//!
++//! 只回答一个问题——「这次非零退出是环境坏（外部进程占着构建产物）还是代码
++//! 问题」，并给出该找谁。三面：
++//!
++//! - [`locked_paths`]：从诊断文本按三种错误串形态（`failed to rename archive
++//!   file` / `failed to write` / `failed to remove`）解析被锁文件路径；
++//! - 私有判据 `blocks_delete`：**只问「是否阻塞 rename / delete」**——以
++//!   `DELETE | FILE_READ_ATTRIBUTES` 访问权 + `FILE_SHARE_READ | WRITE | DELETE`
++//!   全共享打开目标文件一次并立即关闭。打开成功 = 未阻塞；失败且 OS 错误码
++//!   `32`（`ERROR_SHARING_VIOLATION`）= 与 rustc / cargo 失败同条件。探针 MUST
++//!   NOT 独占打开、MUST NOT 写入 / 截断 / 修改时间戳——它 MUST NOT 自己成为
++//!   `os error 32` 的成因（旧「独占打开探测」会把正常读句柄误报成锁，且可能
++//!   反向制造锁冲突）；
++//! - [`lock_holders`]：占用者点名——Windows 经 Restart Manager，非 Windows 降级
++//!   `lsof`（存在则用，不存在即跳过，MUST NOT 阻断主流程）。
++//!
++//! [`attribution_text`] 把上述两面装配成人读原料（占用进程清单 / 被锁文件清单 /
++//! 「未定位占用者」降级说明），供检查域拼进 fault 文案与终局文案——exec 层
++//! **不自带业务文案**（重试次数 / 处置指引归调用方）。
++
++use std::path::{Path, PathBuf};
++
++/// 被锁文件路径的错误串三形态（大小写不敏感的行内包含匹配）。
++const LOCKED_PATH_KEYWORDS: [&str; 3] = [
++    "failed to rename archive file",
++    "failed to write",
++    "failed to remove",
++];
++
++/// 单次诊断解析出的被锁文件上限（防极端输出把归因文案撑爆）。
++const LOCKED_PATHS_MAX: usize = 8;
++
++/// 占用者清单项（`(进程名, pid)` 去重后的单条）。
++#[derive(Debug, Clone, PartialEq, Eq)]
++pub struct LockHolder {
++    /// 进程名（Windows `RM_PROCESS_INFO.strAppName` / `lsof` 命令名）
++    pub name: String,
++    /// 进程 id
++    pub pid: u32,
++}
++
++/// 诊断文本 → 被锁文件路径清单（三形态解析、按输入原样保留分隔符、去重、≤8）。
++///
++/// 逐行扫描：命中关键词后取**该行关键词之后的剩余片段**为候选 → `trim` → 去前导
++/// `:` 与空白 → 在首个 `": "`（冒号 + 空格；Windows 盘符 `C:\` 是冒号 + 反斜杠，
++/// 不受影响）处截断 → 剥包裹的反引号 / 双引号 / 尾随标点 → 非空才收。零 IO。
++pub fn locked_paths(diagnostics: &str) -> Vec<PathBuf> {
++    let mut paths: Vec<PathBuf> = Vec::new();
++    for line in diagnostics.lines() {
++        // ASCII 小写化只动 ASCII 字节，故关键词在原文中的字节位置仍然有效
++        let lowered = line.to_ascii_lowercase();
++        for keyword in LOCKED_PATH_KEYWORDS {
++            let Some(index) = lowered.find(keyword) else {
++                continue;
++            };
++            let Some(candidate) = clean_candidate(&line[index + keyword.len()..]) else {
++                continue;
++            };
++            let path = PathBuf::from(candidate);
++            if !paths.contains(&path) {
++                paths.push(path);
++            }
++            if paths.len() >= LOCKED_PATHS_MAX {
++                return paths;
++            }
++        }
++    }
++    paths
++}
++
++/// 路径尾随标点集合（剥句读 / 括号 / 包裹引号）。
++const TRAILING_PUNCTUATION: [char; 11] = [
++    '`', '"', '\'', '。', '，', '.', ',', ';', ':', ')', ']',
++];
++
++/// 关键词之后的片段 → 裸路径（字符串层可判定的清洗，不做路径规范化——避免改写
++/// 用户可见路径）。
++fn clean_candidate(rest: &str) -> Option<String> {
++    let trimmed = rest.trim_start();
++    let trimmed = trimmed.trim_start_matches(':').trim_start();
++    let truncated = match trimmed.find(": ") {
++        Some(index) => &trimmed[..index],
++        None => trimmed,
++    };
++    let stripped = strip_trailing_parenthetical(truncated).trim();
++    let stripped = stripped.trim_start_matches(['`', '"', '\'']);
++    let stripped = stripped.trim_end_matches(TRAILING_PUNCTUATION);
++    let stripped = stripped.trim();
++    (!stripped.is_empty()).then(|| stripped.to_owned())
++}
++
++/// 尾随括注剥离：错误串常把 OS 错误码括在路径之后
++/// （`…libb.rmeta (os error 32)`）。只在括号内含 `error` 时剥离——普通路径里合法
++/// 出现的 `(…)` 片段不被改写。
++fn strip_trailing_parenthetical(text: &str) -> &str {
++    let trimmed = text.trim_end();
++    let Some(without_close) = trimmed.strip_suffix(')') else {
++        return trimmed;
++    };
++    let Some(open) = without_close.rfind(" (") else {
++        return trimmed;
++    };
++    let inner = &without_close[open + 1..];
++    if inner.to_ascii_lowercase().contains("error") {
++        &trimmed[..open]
++    } else {
++        trimmed
++    }
++}
++
++/// 占用者点名（Windows Restart Manager / 非 Windows `lsof` 降级）：按
++/// `(name, pid)` 去重；任一步失败、系统服务不可用或空清单均返回空 vec——**不
++/// `Err`、不 panic、不阻断检查主流程**（只丧失归因文本）。
++pub fn lock_holders(paths: &[PathBuf]) -> Vec<LockHolder> {
++    if paths.is_empty() {
++        return Vec::new();
++    }
++    #[cfg(windows)]
++    {
++        dedup_holders(restart_manager_holders(paths))
++    }
++    #[cfg(not(windows))]
++    {
++        dedup_holders(lsof_holders(paths))
++    }
++}
++
++/// 归因原料单点：`locked_paths` → 阻塞判据 `blocks_delete` → 点名（阻塞集优先，
++/// 阻塞集空则退化为全部解析路径——「占用已解除」时仍能借 Restart Manager 的近期
++/// 归因给出线索）→ 两行文本：
++///
++/// ```text
++/// 占用进程：<进程名> (pid <pid>)、…
++/// 被锁文件：<路径>、…
++/// ```
++///
++/// 无占用者时首行为「未定位占用者（可能为内核过滤驱动（安全软件），无法归因到
++/// 用户进程）」（内核态持有无法归因到用户进程，MUST NOT 因此判「无锁」）。诊断中
++/// 解析不出路径 → `None`（调用方据此只装配摘要与指引，不拼空段）。
++pub fn attribution_text(diagnostics: &str) -> Option<String> {
++    let paths = locked_paths(diagnostics);
++    if paths.is_empty() {
++        return None;
++    }
++    let blocked: Vec<PathBuf> = paths
++        .iter()
++        .filter(|path| blocks_delete(path))
++        .cloned()
++        .collect();
++    let named: &[PathBuf] = if blocked.is_empty() {
++        paths.as_slice()
++    } else {
++        blocked.as_slice()
++    };
++    let holders = lock_holders(named);
++    let holders_text = if holders.is_empty() {
++        "未定位占用者（可能为内核过滤驱动（安全软件），无法归因到用户进程）".to_owned()
++    } else {
++        holders
++            .iter()
++            .map(|holder| format!("{} (pid {})", holder.name, holder.pid))
++            .collect::<Vec<_>>()
++            .join("、")
++    };
++    let paths_text = paths
++        .iter()
++        .map(|path| path.to_string_lossy().into_owned())
++        .collect::<Vec<_>>()
++        .join("、");
++    Some(format!("占用进程：{holders_text}\n被锁文件：{paths_text}"))
++}
++
++/// 判据：以 `DELETE | FILE_READ_ATTRIBUTES` 访问权 + 全共享模式打开一次即关。
++///
++/// 打开成功 → 可 rename / delete（未阻塞）；`Err` 且 OS 错误码 `32`
++///（`ERROR_SHARING_VIOLATION`）→ 存在不允许删除共享的持有者（与 rustc / cargo
++/// 失败同条件）。其余错误（`NotFound` / `AccessDenied`）与打开成功一律判「未
++/// 阻塞」——本判据不承担「文件不存在 / 权限不足」的归因。
++///
++/// 非 Windows 臂恒 `false`：POSIX 无强制共享语义，探针不适用（点名仍走 `lsof`）。
++#[cfg(windows)]
++fn blocks_delete(path: &Path) -> bool {
++    use std::os::windows::fs::OpenOptionsExt;
++
++    /// `DELETE` 标准权限（可否删 = 本判据要问的唯一问题）
++    const DELETE: u32 = 0x0001_0000;
++    /// `FILE_READ_ATTRIBUTES`（最小附加权限：零内容访问，仍能打开属性面）
++    const FILE_READ_ATTRIBUTES: u32 = 0x0000_0080;
++    const FILE_SHARE_READ: u32 = 0x1;
++    const FILE_SHARE_WRITE: u32 = 0x2;
++    const FILE_SHARE_DELETE: u32 = 0x4;
++    /// `ERROR_SHARING_VIOLATION`
++    const ERROR_SHARING_VIOLATION: i32 = 32;
++
++    let opened = std::fs::OpenOptions::new()
++        // 全共享（含 DELETE）：正常读句柄不会被误报为锁；探针自身也不阻挡他人
++        .access_mode(DELETE | FILE_READ_ATTRIBUTES)
++        .share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE)
++        .open(path);
++    match opened {
++        // 打开成功即未阻塞；句柄立即关闭（零残留）
++        Ok(handle) => {
++            drop(handle);
++            false
++        }
++        Err(error) => error.raw_os_error() == Some(ERROR_SHARING_VIOLATION),
++    }
++}
++
++/// 非 Windows 臂：无强制共享语义可探，恒判「未阻塞」（点名仍走 `lsof`）。
++#[cfg(not(windows))]
++fn blocks_delete(_path: &Path) -> bool {
++    false
++}
++
++/// Restart Manager 占用者点名（Windows）：单 session 注册全部点名路径 → `RmGetList`
++/// 两次（首取所需条目数，`ERROR_MORE_DATA` 视为正常）→ 读 `strAppName` +
++/// `dwProcessId`；session MUST 在返回前 `RmEndSession`。任一步失败 / 空清单 →
++/// 空 vec。
++#[cfg(windows)]
++fn restart_manager_holders(paths: &[PathBuf]) -> Vec<LockHolder> {
++    use windows_sys::Win32::Foundation::{ERROR_MORE_DATA, ERROR_SUCCESS};
++    use windows_sys::Win32::System::RestartManager::{
++        RmEndSession, RmGetList, RmRegisterResources, RmStartSession, CCH_RM_SESSION_KEY,
++        RM_PROCESS_INFO,
++    };
++
++    // 路径 → NUL 结尾 UTF-16（`wide` 持有缓冲区，`pointers` 只借其指针）
++    let wide: Vec<Vec<u16>> = paths
++        .iter()
++        .map(|path| {
++            path.to_string_lossy()
++                .encode_utf16()
++                .chain(std::iter::once(0))
++                .collect()
++        })
++        .collect();
++    let files: Vec<*const u16> = wide.iter().map(|units| units.as_ptr()).collect();
++
++    let mut handle: u32 = 0;
++    let mut key: Vec<u16> = vec![0; CCH_RM_SESSION_KEY as usize + 1];
++    let mut holders: Vec<LockHolder> = Vec::new();
++    // SAFETY: 入参均为本函数持有的有效缓冲（session key / 路径宽串指针数组），
++    // 句柄只在 `ERROR_SUCCESS` 时有效，且无论后续成功与否都在返回前 RmEndSession。
++    unsafe {
++        if RmStartSession(&mut handle, 0, key.as_mut_ptr()) != ERROR_SUCCESS {
++            return Vec::new();
++        }
++        let registered = RmRegisterResources(
++            handle,
++            files.len() as u32,
++            files.as_ptr(),
++            0,
++            std::ptr::null(),
++            0,
++            std::ptr::null(),
++        );
++        if registered == ERROR_SUCCESS {
++            let mut needed: u32 = 0;
++            let mut count: u32 = 0;
++            let mut reasons: u32 = 0;
++            // 首取：缓冲区为空 → 返 `ERROR_MORE_DATA` 并置 `needed`（正常路径）
++            let first = RmGetList(handle, &mut needed, &mut count, std::ptr::null_mut(), &mut reasons);
++            if first == ERROR_SUCCESS || first == ERROR_MORE_DATA {
++                let mut infos: Vec<RM_PROCESS_INFO> =
++                    vec![RM_PROCESS_INFO::default(); needed as usize];
++                count = needed;
++                let second =
++                    RmGetList(handle, &mut needed, &mut count, infos.as_mut_ptr(), &mut reasons);
++                if second == ERROR_SUCCESS {
++                    infos.truncate(count as usize);
++                    holders = infos
++                        .iter()
++                        .map(|info| LockHolder {
++                            name: app_name(info),
++                            pid: info.Process.dwProcessId,
++                        })
++                        .collect();
++                }
++            }
++        }
++        let _ = RmEndSession(handle);
++    }
++    holders
++}
++
++/// `RM_PROCESS_INFO.strAppName`（定长 UTF-16，NUL 结尾）→ `String`。
++#[cfg(windows)]
++fn app_name(info: &windows_sys::Win32::System::RestartManager::RM_PROCESS_INFO) -> String {
++    let units = &info.strAppName;
++    let end = units
++        .iter()
++        .position(|unit| *unit == 0)
++        .unwrap_or(units.len());
++    String::from_utf16_lossy(&units[..end])
++}
++
++/// `lsof` 占用者点名（非 Windows 降级）：逐路径 `lsof -F pc -- <path>`，解析
++/// `p<pid>` / `c<name>` 相邻行成对；`lsof` 不可用（不在 PATH）静默跳过——MUST NOT
++/// 阻断主流程、MUST NOT 视为错误。
++#[cfg(not(windows))]
++fn lsof_holders(paths: &[PathBuf]) -> Vec<LockHolder> {
++    let mut holders: Vec<LockHolder> = Vec::new();
++    for path in paths {
++        let Ok(output) = crate::SystemCommand::bare("lsof")
++            .args(["-F", "pc", "--"])
++            .arg(path)
++            .into_std()
++            .output()
++        else {
++            continue;
++        };
++        let text = String::from_utf8_lossy(&output.stdout);
++        let mut pending_pid: Option<u32> = None;
++        for line in text.lines() {
++            if let Some(rest) = line.strip_prefix('p') {
++                pending_pid = rest.trim().parse::<u32>().ok();
++            } else if let Some(rest) = line.strip_prefix('c') {
++                if let Some(pid) = pending_pid.take() {
++                    holders.push(LockHolder {
++                        name: rest.trim().to_owned(),
++                        pid,
++                    });
++                }
++            }
++        }
++    }
++    holders
++}
++
++/// 按 `(name, pid)` 去重（保首次出现序）。
++fn dedup_holders(holders: Vec<LockHolder>) -> Vec<LockHolder> {
++    let mut unique: Vec<LockHolder> = Vec::new();
++    for holder in holders {
++        if !unique.contains(&holder) {
++            unique.push(holder);
++        }
++    }
++    unique
++}
++
++#[cfg(test)]
++#[path = "lockprobe_test.rs"]
++mod lockprobe_test;
+diff --git a/crates/infra/exec/src/lockprobe_test.rs b/crates/infra/exec/src/lockprobe_test.rs
+new file mode 100644
+index 000000000000..10617cbb0aec
+--- /dev/null
++++ b/crates/infra/exec/src/lockprobe_test.rs
+@@ -0,0 +1,633 @@
++//! 锁占用诊断探针测试：零 mock 系统——「另一进程持有」的等价面由**本进程真实
++//! `std::fs::OpenOptions`（`share_mode` 两形态）** 扮演，判据观测的就是真实
++//! `ERROR_SHARING_VIOLATION`；点名经真实 Restart Manager（Windows）/ `lsof`
++//! 降级（非 Windows）。
++//!
++//! 平台隔离（R-8）：判据与 Restart Manager 点名用例以 `#[cfg(windows)]` 门控；
++//! 非 Windows 只测「探针恒 `false`」与「`lsof` 缺失降级」两臂。
++
++use std::path::{Path, PathBuf};
++
++use super::{attribution_text, lock_holders, locked_paths, LockHolder};
++use super::blocks_delete;
++
++// ---------------------------------------------------------------------------
++// 装置：真实临时文件（持有者句柄 / 只读自证 / 不存在路径）
++// ---------------------------------------------------------------------------
++
++/// 临时 workspace（真实落盘文件 + 目录引用）。
++struct ProbeWs {
++    dir: tempfile::TempDir,
++}
++
++impl ProbeWs {
++    fn new(tag: &str) -> Self {
++        let dir = tempfile::Builder::new()
++            .prefix(&format!("lockprobe-{tag}-"))
++            .tempdir()
++            .expect("创建临时 workspace 失败");
++        Self { dir }
++    }
++
++    fn path(&self) -> &Path {
++        self.dir.path()
++    }
++
++    /// 落盘一个带正文的文件并返回其路径（正文用于「只读不扰动」自证）。
++    fn file(&self, name: &str, body: &str) -> PathBuf {
++        let path = self.path().join(name);
++        std::fs::write(&path, body).expect("写临时文件失败");
++        path
++    }
++
++    /// 永不存在的路径（点名 / 判据的 NotFound 臂）。
++    fn missing(&self, name: &str) -> PathBuf {
++        self.path().join("no-such-dir").join(name)
++    }
++}
++
++/// 「另一进程持有」的本进程等价面（Windows）：`share` 由调用方给两形态；句柄存活
++/// 期间判据/点名观察到共享冲突，`drop` 即释放。
++#[cfg(windows)]
++fn hold_with_share(path: &Path, share: u32) -> std::fs::File {
++    use std::os::windows::fs::OpenOptionsExt;
++    std::fs::OpenOptions::new()
++        .read(true)
++        .share_mode(share)
++        .open(path)
++        .expect("以指定 share 模式打开临时文件失败")
++}
++
++/// `FILE_SHARE_READ`（无 delete 共享——与 rustc / cargo 失败的持有形态同条件）。
++#[cfg(windows)]
++const SHARE_READ_ONLY: u32 = 0x1;
++/// `FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE`（全共享——正常读句柄）。
++#[cfg(windows)]
++const SHARE_ALL: u32 = 0x1 | 0x2 | 0x4;
++
++// ---------------------------------------------------------------------------
++// 正向：三形态路径解析
++// ---------------------------------------------------------------------------
++
++/// 正向（表驱动 3 形态）：Windows 路径三错误串形态各解析出 1 条对应路径，分隔符
++/// 按输入原样保留（反斜杠不归一）。
++#[test]
++fn 三形态解析_反斜杠原样保留() {
++    let cases: [(&str, &str); 3] = [
++        (
++            "error: failed to rename archive file: D:\\w\\target\\debug\\deps\\liba.rlib",
++            "D:\\w\\target\\debug\\deps\\liba.rlib",
++        ),
++        (
++            "error: failed to write D:\\w\\target\\libb.rmeta",
++            "D:\\w\\target\\libb.rmeta",
++        ),
++        (
++            "error: failed to remove D:\\w\\target\\c.rcgu.o",
++            "D:\\w\\target\\c.rcgu.o",
++        ),
++    ];
++
++    for (diagnostics, expected) in cases {
++        let paths = locked_paths(diagnostics);
++        assert_eq!(paths.len(), 1, "形态 {diagnostics:?} 恰解析出 1 条路径: {paths:?}");
++        assert_eq!(
++            paths[0],
++            PathBuf::from(expected),
++            "分隔符按输入原样保留（{diagnostics:?}）"
++        );
++    }
++}
++
++/// 正向（表驱动 3 形态）：POSIX 路径三形态各一 → 路径原样（正斜杠保留），无多余
++/// 条目。
++#[test]
++fn posix形态解析_正斜杠原样保留() {
++    let cases: [(&str, &str); 3] = [
++        (
++            "error: failed to rename archive file: /home/u/w/target/debug/build/x/out/liby.rlib",
++            "/home/u/w/target/debug/build/x/out/liby.rlib",
++        ),
++        (
++            "error: failed to write /home/u/w/target/libz.rmeta",
++            "/home/u/w/target/libz.rmeta",
++        ),
++        (
++            "error: failed to remove /home/u/w/target/obj/a.rcgu.o",
++            "/home/u/w/target/obj/a.rcgu.o",
++        ),
++    ];
++
++    for (diagnostics, expected) in cases {
++        let paths = locked_paths(diagnostics);
++        assert_eq!(paths, vec![PathBuf::from(expected)], "{diagnostics:?} 路径原样");
++    }
++}
++
++/// 正向（表驱动 2 形态，D9）：行尾噪声截断——只在首个 `": "`（冒号 + 空格）截断；
++/// 括注形态 `(os error 32)` 亦剥净。
++#[test]
++fn 行尾噪声在首个冒号空格处截断() {
++    let paths = locked_paths("error: failed to rename archive file: D:\\w\\liba.rlib: os error 32");
++    assert_eq!(
++        paths,
++        vec![PathBuf::from("D:\\w\\liba.rlib")],
++        "末尾 `: os error 32` 被首个 \": \" 规则截掉"
++    );
++
++    let paths = locked_paths("error: failed to write D:\\w\\libb.rmeta (os error 32)");
++    assert_eq!(
++        paths,
++        vec![PathBuf::from("D:\\w\\libb.rmeta")],
++        "尾随括注（内含 error）被剥离"
++    );
++}
++
++// ---------------------------------------------------------------------------
++// 边界：盘符冒号 / 包裹引号 / 大小写 / 去重 / 上限
++// ---------------------------------------------------------------------------
++
++/// 边界：盘符冒号不误截——`C:` 后是反斜杠而非空格，不被 `": "` 规则切断。
++#[test]
++fn 盘符冒号不误截() {
++    let paths = locked_paths("error: failed to write C:\\Users\\w\\target\\lib.rmeta");
++    assert_eq!(
++        paths,
++        vec![PathBuf::from("C:\\Users\\w\\target\\lib.rmeta")],
++        "盘符后的冒号（后接反斜杠）不触发截断"
++    );
++}
++
++/// 边界（表驱动 2 形态）：包裹引号与反引号——剥引号后取裸路径。
++#[test]
++fn 包裹引号与反引号被剥离() {
++    let paths = locked_paths("error: failed to remove `D:\\w\\target\\a.rcgu.o`");
++    assert_eq!(paths, vec![PathBuf::from("D:\\w\\target\\a.rcgu.o")], "反引号剥离");
++
++    let paths = locked_paths("error: failed to write \"D:\\w\\target\\b.rmeta\"");
++    assert_eq!(paths, vec![PathBuf::from("D:\\w\\target\\b.rmeta")], "双引号剥离");
++}
++
++/// 边界（表驱动 2 形态）：大小写不敏感——全大写 / 首字母大写形态与全小写等价解析。
++#[test]
++fn 关键词大小写不敏感() {
++    let upper = locked_paths("FAILED TO RENAME ARCHIVE FILE: D:\\w\\liba.rlib");
++    assert_eq!(
++        upper,
++        vec![PathBuf::from("D:\\w\\liba.rlib")],
++        "全大写形态等价解析"
++    );
++
++    let title = locked_paths("Failed To Write D:\\w\\libb.rmeta");
++    assert_eq!(
++        title,
++        vec![PathBuf::from("D:\\w\\libb.rmeta")],
++        "首字母大写形态等价解析"
++    );
++}
++
++/// 边界：多路径去重与顺序——3 条不同路径 + 1 条重复 → 3 条产出，顺序 = 首次
++/// 出现序。
++#[test]
++fn 多路径去重且保首次出现序() {
++    let diagnostics = "error: failed to write /t/a.rmeta\nerror: failed to write /t/b.rmeta\nerror: failed to write /t/a.rmeta\nerror: failed to remove /t/c.rcgu.o";
++    let paths = locked_paths(diagnostics);
++    assert_eq!(
++        paths,
++        vec![
++            PathBuf::from("/t/a.rmeta"),
++            PathBuf::from("/t/b.rmeta"),
++            PathBuf::from("/t/c.rcgu.o"),
++        ],
++        "重复路径去重且保首次出现序"
++    );
++}
++
++/// 边界（D9）：上限 8 条——11 条不同路径 → 恰 8 条产出（不 panic）。
++#[test]
++fn 路径上限八条() {
++    let diagnostics = (0..11)
++        .map(|index| format!("error: failed to write /t/p{index}.rmeta"))
++        .collect::<Vec<_>>()
++        .join("\n");
++
++    let paths = locked_paths(&diagnostics);
++    assert_eq!(paths.len(), 8, "上限 8 条（实际 {paths:?}）");
++    assert_eq!(
++        paths[0],
++        PathBuf::from("/t/p0.rmeta"),
++        "截断保首次出现序（前 8 条）"
++    );
++    assert_eq!(paths[7], PathBuf::from("/t/p7.rmeta"), "第 8 条在案");
++}
++
++// ---------------------------------------------------------------------------
++// 异常：空与无匹配
++// ---------------------------------------------------------------------------
++
++/// 异常（表驱动 4 形态）：空串 / 全空白 / 无关键词的普通报错 / 仅关键词无路径
++/// → 均空（非空判据挡住）。
++#[test]
++fn 空与无匹配四形态皆空() {
++    for (label, diagnostics) in [
++        ("空串", ""),
++        ("全空白", "   \n\t\n  "),
++        ("无关键词", "error[E0308]: mismatched types"),
++        ("仅关键词无路径", "error: failed to write \n"),
++    ] {
++        let paths = locked_paths(diagnostics);
++        assert!(paths.is_empty(), "{label} 应解析出空清单: {paths:?}");
++    }
++
++    let colon_only = locked_paths("error: failed to remove: ");
++    assert!(colon_only.is_empty(), "仅关键词 + 冒号无路径 → 空");
++}
++
++// ---------------------------------------------------------------------------
++// 边界：超长与特殊字符诊断
++// ---------------------------------------------------------------------------
++
++/// 边界（表驱动 3 形态）：>1000 字符诊断（中段含路径）仍解析；路径含空格 /
++/// emoji / 中文 → 原样保留、不 panic。
++#[test]
++fn 超长与特殊字符诊断() {
++    let long = format!(
++        "{}\nerror: failed to write /t/keep.rmeta\n{}",
++        "noise ".repeat(200),
++        "tail ".repeat(200)
++    );
++    assert_eq!(
++        locked_paths(&long),
++        vec![PathBuf::from("/t/keep.rmeta")],
++        "超长诊断中段的路径仍可解析"
++    );
++
++    let spaced = locked_paths("error: failed to write /t/my dir/lib b.rmeta");
++    assert_eq!(
++        spaced,
++        vec![PathBuf::from("/t/my dir/lib b.rmeta")],
++        "路径含空格原样保留"
++    );
++
++    let cjk = locked_paths("error: failed to write /t/构建目录/🎉产物.rmeta");
++    assert_eq!(
++        cjk,
++        vec![PathBuf::from("/t/构建目录/🎉产物.rmeta")],
++        "中文 / emoji 路径原样保留"
++    );
++
++    // 含 NUL 的诊断不 panic（路径片段原样承载）
++    let with_nul = locked_paths("error: failed to write /t/a\u{0}b.rmeta");
++    assert_eq!(with_nul.len(), 1, "含 NUL 的诊断不 panic: {with_nul:?}");
++}
++
++// ---------------------------------------------------------------------------
++// 正向 / 边界：blocks_delete 判据（Windows 强制共享语义）
++// ---------------------------------------------------------------------------
++
++/// 正向（AC-4）：全共享读句柄不误报——另以「读权限 + 全共享」打开 → 判据
++/// `false`（旧「独占打开探测」把正常读句柄误报成锁的形态不复现）。
++#[cfg(windows)]
++#[test]
++fn 全共享读句柄不误报() {
++    let ws = ProbeWs::new("share-all");
++    let path = ws.file("lib.rmeta", "body");
++    let holder = hold_with_share(&path, SHARE_ALL);
++
++    assert!(
++        !blocks_delete(&path),
++        "全共享（含 DELETE）持有者不阻塞删除，判据不得误报"
++    );
++    drop(holder);
++}
++
++/// 正向（AC-4）：无 delete 共享即真阻塞——另以「读权限 + `share = READ`」打开
++/// → 判据 `true`（`raw_os_error == 32` 判据，与 rustc / cargo 失败同条件）。
++#[cfg(windows)]
++#[test]
++fn 无delete共享即真阻塞() {
++    let ws = ProbeWs::new("share-read");
++    let path = ws.file("lib.rmeta", "body");
++    let holder = hold_with_share(&path, SHARE_READ_ONLY);
++
++    assert!(
++        blocks_delete(&path),
++        "持有者不允许 DELETE 共享 → 判据为真（与 cargo 失败同条件）"
++    );
++    drop(holder);
++    assert!(!blocks_delete(&path), "释放句柄后即判未阻塞");
++}
++
++/// 边界（表驱动 2 形态）：不存在路径 → `false`（`NotFound`）；无任何持有者的
++/// 真实文件 → `false`（打开成功）。
++#[cfg(windows)]
++#[test]
++fn 不存在与无持有者皆判未阻塞() {
++    let ws = ProbeWs::new("unblocked");
++    assert!(
++        !blocks_delete(&ws.missing("ghost.rmeta")),
++        "不存在路径判未阻塞（NotFound 不承担归因）"
++    );
++
++    let path = ws.file("free.rmeta", "body");
++    assert!(!blocks_delete(&path), "无持有者的真实文件判未阻塞");
++}
++
++/// 边界（AC-4 / R-4）：只读不扰动自证——判据调用前后文件长度与字节内容不变，
++/// 调用返回后立即可 `rename` / 删除（零残留句柄、探针自身零写）。
++#[cfg(windows)]
++#[test]
++fn 判据只读不扰动() {
++    let ws = ProbeWs::new("readonly");
++    let body = "body-内容-🎉";
++    let path = ws.file("keep.rmeta", body);
++
++    let before = std::fs::read(&path).expect("读原文件");
++    let probe = blocks_delete(&path);
++    let after = std::fs::read(&path).expect("判据后回读");
++    assert_eq!(before, after, "探针不改写文件内容");
++    assert_eq!(
++        std::fs::metadata(&path).expect("取元数据").len(),
++        body.len() as u64,
++        "探针不改文件长度（无 truncate / create 痕迹）"
++    );
++    assert!(!probe, "无持有者时判未阻塞");
++
++    let renamed = ws.path().join("renamed.rmeta");
++    std::fs::rename(&path, &renamed).expect("判据返回后立即可 rename（零残留句柄）");
++    std::fs::remove_file(&renamed).expect("判据返回后立即可删除");
++}
++
++/// 边界：非 Windows 臂恒 `false`——POSIX 无强制共享语义，探针不适用。
++#[cfg(not(windows))]
++#[test]
++fn 判据在非windows平台恒false() {
++    let ws = ProbeWs::new("posix-false");
++    let path = ws.file("lib.rmeta", "body");
++    assert!(!blocks_delete(&path), "非 Windows 恒判未阻塞");
++    assert!(
++        !blocks_delete(&ws.missing("ghost.rmeta")),
++        "非 Windows 不存在路径同样为 false"
++    );
++}
++
++// ---------------------------------------------------------------------------
++// 正向 / 边界：lock_holders 点名
++// ---------------------------------------------------------------------------
++
++/// 正向（AC-3 / D8）：自锁自证——临时文件由本进程以「读权限 + `share = READ`」
++/// 持有 → 点名含本进程（`pid == std::process::id()`），按 `(name, pid)` 去重后
++/// 恰 1 条。
++#[cfg(windows)]
++#[test]
++fn 自锁自证点名到本进程() {
++    let ws = ProbeWs::new("holders-self");
++    let path = ws.file("lib.rmeta", "body");
++    let holder = hold_with_share(&path, SHARE_READ_ONLY);
++
++    let holders = lock_holders(std::slice::from_ref(&path));
++    drop(holder);
++
++    assert_eq!(holders.len(), 1, "按 (name, pid) 去重后恰 1 条: {holders:?}");
++    assert_eq!(
++        holders[0].pid,
++        std::process::id(),
++        "点名到持有句柄的本进程"
++    );
++    assert!(!holders[0].name.is_empty(), "进程名非空: {:?}", holders[0].name);
++    assert!(
++        !holders[0].name.contains('\\') && !holders[0].name.contains('/'),
++        "进程名不含路径分隔符: {:?}",
++        holders[0].name
++    );
++}
++
++/// 正向（AC-3）：释放后空清单——关闭上述句柄后再次点名 → 空 vec（「未定位占用者」
++/// 由 `attribution_text` 装配），两次调用均不 panic。
++#[cfg(windows)]
++#[test]
++fn 释放句柄后清单为空() {
++    let ws = ProbeWs::new("holders-release");
++    let path = ws.file("lib.rmeta", "body");
++    let holder = hold_with_share(&path, SHARE_READ_ONLY);
++    let held = lock_holders(std::slice::from_ref(&path));
++    drop(holder);
++    let released = lock_holders(std::slice::from_ref(&path));
++
++    assert!(!held.is_empty(), "持有期应点名到本进程");
++    assert!(
++        released.is_empty(),
++        "释放后不再点名（归因降级由 attribution_text 装配）: {released:?}"
++    );
++}
++
++/// 边界：多路径与部分存在——其一被本进程无 delete 共享持有、其二不存在 → 只
++/// 归因存在且阻塞者（不存在路径不 panic、不错误点名）。
++#[cfg(windows)]
++#[test]
++fn 多路径部分存在只点名阻塞者() {
++    let ws = ProbeWs::new("holders-mixed");
++    let locked = ws.file("lib.rmeta", "body");
++    let ghost = ws.missing("ghost.rmeta");
++    let holder = hold_with_share(&locked, SHARE_READ_ONLY);
++
++    let holders = lock_holders(&[locked.clone(), ghost]);
++    drop(holder);
++
++    assert_eq!(holders.len(), 1, "只点名存在且阻塞者: {holders:?}");
++    assert_eq!(holders[0].pid, std::process::id(), "点名对象为本进程");
++}
++
++/// 异常（表驱动 3 形态）：空入参 → 空；仅不存在路径 → 空（`NotFound` 静默）；
++/// 空入参不触达系统 API（零 panic、零 Err）。
++#[test]
++fn 空入参与不存在路径皆空清单() {
++    assert!(lock_holders(&[]).is_empty(), "空入参直接返回空");
++
++    let ws = ProbeWs::new("holders-empty");
++    assert!(
++        lock_holders(&[ws.missing("ghost.rmeta")]).is_empty(),
++        "不存在路径静默为空（不 Err、不 panic）"
++    );
++}
++
++/// 异常（AC-4 降级）：非 Windows 平台 `lsof` 缺失 → 空 vec，不 `Err`、不 panic、
++/// 不阻断调用方（spec「MUST NOT 阻断主流程」）。
++#[cfg(not(windows))]
++#[test]
++fn 非windows平台lsof缺失静默降级() {
++    let ws = ProbeWs::new("lsof-missing");
++    let path = ws.file("lib.rmeta", "body");
++
++    // PATH 隔离到空目录：`lsof` 不在 PATH → 静默跳过（不 Err、不 panic）
++    let empty_bin = ws.path().join("empty-bin");
++    std::fs::create_dir_all(&empty_bin).expect("创建空 PATH 目录");
++    let original = std::env::var_os("PATH");
++    std::env::set_var("PATH", &empty_bin);
++
++    let holders = lock_holders(std::slice::from_ref(&path));
++
++    match original {
++        Some(value) => std::env::set_var("PATH", value),
++        None => std::env::remove_var("PATH"),
++    }
++    assert!(holders.is_empty(), "lsof 缺失静默为空: {holders:?}");
++}
++
++/// 边界：`LockHolder` 两字段面——直构 + `PartialEq` / `clone` / `Debug`（点名
++/// 结果的比较与去重基面）。
++#[test]
++fn lock_holder两字段面() {
++    let holder = LockHolder {
++        name: "HipsDaemon.exe".to_owned(),
++        pid: 1234,
++    };
++    assert_eq!(holder.name, "HipsDaemon.exe", "进程名可读");
++    assert_eq!(holder.pid, 1234, "pid 可读");
++    assert_eq!(holder.clone(), holder, "clone 逐字段相等");
++
++    let other = LockHolder {
++        name: "HipsDaemon.exe".to_owned(),
++        pid: 4321,
++    };
++    assert_ne!(other, holder, "pid 参与相等判定");
++    let debug = format!("{holder:?}");
++    assert!(debug.contains("HipsDaemon.exe") && debug.contains("1234"), "Debug 可读: {debug}");
++
++    // 载荷边界：空名 / 超长名 / 特殊字符 / pid 极值
++    for (name, pid) in [
++        (String::new(), 0u32),
++        ("名".repeat(600), u32::MAX),
++        ("a\nb\u{0}c🎉".to_owned(), 1),
++    ] {
++        let edge = LockHolder { name: name.clone(), pid };
++        assert_eq!(edge.name, name, "进程名逐字保留");
++        assert_eq!(edge.pid, pid, "pid 逐值保留");
++    }
++}
++
++// ---------------------------------------------------------------------------
++// 正向 / 异常 / 边界：attribution_text 归因原料
++// ---------------------------------------------------------------------------
++
++/// 正向（AC-3）：点名 + 被锁文件——诊断含真实临时路径且该路径被本进程无 delete
++/// 共享持有 → `Some`，文本含「占用进程：」+ 本进程 pid 与「被锁文件：」+ 该路径
++///（只产原料，不含重试次数 / 处置指引）。
++#[cfg(windows)]
++#[test]
++fn 归因文本含占用进程与被锁文件() {
++    let ws = ProbeWs::new("attribution-named");
++    let path = ws.file("liba.rlib", "body");
++    let holder = hold_with_share(&path, SHARE_READ_ONLY);
++
++    let diagnostics = format!(
++        "error: failed to rename archive file: {}\nCaused by: os error 32",
++        path.display()
++    );
++    let text = attribution_text(&diagnostics).expect("路径可解析即产原料");
++    drop(holder);
++
++    assert!(text.contains("占用进程："), "首行给出占用者: {text}");
++    assert!(
++        text.contains(&format!("(pid {})", std::process::id())),
++        "点名含本进程 pid: {text}"
++    );
++    assert!(text.contains("被锁文件："), "次行给出被锁文件: {text}");
++    assert!(
++        text.contains(&path.to_string_lossy().into_owned()),
++        "被锁文件路径逐字: {text}"
++    );
++    for absent in ["已自动重试", "环境侧处理", "排除"] {
++        assert!(
++            !text.contains(absent),
++            "exec 层不自带业务文案（不得含 {absent}）: {text}"
++        );
++    }
++}
++
++/// 正向（AC-3 / R-3）：空清单降级——诊断含不存在路径（探针判「未阻塞」/ 点名空）
++/// → 文本含「未定位占用者（可能为内核过滤驱动（安全软件），无法归因到用户进程）」
++/// + 被锁文件清单；MUST NOT 判「无锁」、不返回 `None`。
++#[test]
++fn 归因文本空清单降级不判无锁() {
++    let ws = ProbeWs::new("attribution-degrade");
++    let ghost = ws.missing("libb.rlib");
++    let diagnostics = format!(
++        "error: failed to rename archive file: {}\nCaused by: os error 32",
++        ghost.display()
++    );
++
++    let text = attribution_text(&diagnostics).expect("路径可解析即产原料（不因点名空返回 None）");
++
++    assert!(
++        text.contains("未定位占用者（可能为内核过滤驱动（安全软件），无法归因到用户进程）"),
++        "空清单退化为「未定位占用者」说明: {text}"
++    );
++    assert!(
++        text.contains(&ghost.to_string_lossy().into_owned()),
++        "被锁文件清单仍承载路径: {text}"
++    );
++    assert!(!text.contains("无锁"), "MUST NOT 判「无锁」: {text}");
++}
++
++/// 异常（表驱动 2 形态）：空串 / 无关键词诊断 → `None`（调用方据此只装配摘要与
++/// 指引，不拼空段）。
++#[test]
++fn 无路径可解析返回none() {
++    assert_eq!(attribution_text(""), None, "空诊断无路径可解析");
++    assert_eq!(
++        attribution_text("error[E0308]: mismatched types\n  --> src/main.rs:3:9"),
++        None,
++        "无锁关键词诊断不产归因原料"
++    );
++}
++
++/// 边界（表驱动 2 形态）：占用者可读性——多条阻塞路径（同一持有者）→ 每个
++/// `(name, pid)` 去重后不重复；超长诊断（>1000 字符）/ 特殊字符路径 → 文本逐字
++/// 承载，不 panic。
++#[cfg(windows)]
++#[test]
++fn 多阻塞路径去重且特殊路径逐字承载() {
++    let ws = ProbeWs::new("attribution-multi");
++    let first = ws.file("liba.rlib", "a");
++    let second = ws.file("libb.rlib", "b");
++    let holder_first = hold_with_share(&first, SHARE_READ_ONLY);
++    let holder_second = hold_with_share(&second, SHARE_READ_ONLY);
++
++    let diagnostics = format!(
++        "error: failed to rename archive file: {}\nerror: failed to write {}",
++        first.display(),
++        second.display()
++    );
++    let text = attribution_text(&diagnostics).expect("两条路径均可解析");
++    drop(holder_first);
++    drop(holder_second);
++
++    let pid_marker = format!("(pid {})", std::process::id());
++    assert_eq!(
++        text.matches(&pid_marker).count(),
++        1,
++        "同一持有者 (name, pid) 去重后只出现一次: {text}"
++    );
++    assert!(
++        text.contains(&first.to_string_lossy().into_owned())
++            && text.contains(&second.to_string_lossy().into_owned()),
++        "两条被锁文件均在案: {text}"
++    );
++
++    // 超长诊断 + 特殊字符路径：文本逐字承载，不 panic
++    let special = format!(
++        "{}\nerror: failed to write /t/a b/构建 🎉.rmeta\n{}",
++        "noise ".repeat(200),
++        "tail ".repeat(200)
++    );
++    let long_text = attribution_text(&special).expect("超长诊断仍可解析");
++    assert!(
++        long_text.contains("/t/a b/构建 🎉.rmeta"),
++        "特殊字符路径逐字承载: {long_text}"
++    );
++    assert!(
++        long_text.contains("被锁文件："),
++        "超长诊断同样装配被锁文件行: {long_text}"
++    );
++}
+diff --git a/crates/infra/exec/src/run.rs b/crates/infra/exec/src/run.rs
+index 1abef2968b05..f6ade6d235e0 100644
+--- a/crates/infra/exec/src/run.rs
++++ b/crates/infra/exec/src/run.rs
+@@ -1,6 +1,6 @@
+ //! 统一进程执行体 [`run_shell`]：infra 层 tokio spawn 的唯一收口。
+ //!
+-//! 四能力单点（此前由各调用点各写一遍且齐不齐）：
++//! 五能力单点（此前由各调用点各写一遍且齐不齐）：
+ //! - **超时必填**：[`RunOptions::timeout`] 为必填字段（本类型不提供 `Default`、
+ //!   无「None 即无限」分支）——「无超时 spawn」在类型层不可表达，杜绝检查域历史
+ //!   上「cargo 卡在文件锁等待时永久悬挂」的缺陷复发；
+@@ -11,21 +11,27 @@
+ //!   墙钟上界（只杀不收会换形为「杀后悬挂」：子孙若继承了管道写端，排水永不
+ //!   EOF）；
+ //! - **取消**：以 [`CancelFlag`] 轮询观测（`foundation` 零 tokio 纪律下唯一形态），
+-//!   入口先查一次（已置位即不 spawn）。
++//!   入口先查一次（已置位即不 spawn）；
++//! - **有限重试**：命中瞬态签名（见 [`crate::transient`]）时按 [`RetryPolicy`] 重试
++//!   ——循环复用同一执行骨架 [`attempt_once`]（不另写第二条 spawn 路径），每次尝试
++//!   同样观测 `cancel`，总预算自首跑起算硬顶。
+ //!
+ //! 输出面只给 `stdout` / `stderr` 两路原始字节（零改写零截断、**不**预合流）——
+ //! 合流顺序（`2>&1` 类 shell 级合流、或「stdout 前缀 + stderr 后缀」手工拼接）归
+-//! 调用方，由各自的解读面语义决定。
++//! 调用方，由各自的解读面语义决定。本执行体**不自带日志格式**（尝试分隔头 / 归因
++//! 文案归调用方，只提供 [`RunReport::attempts`] / [`RunReport::retried`] 尝试面
++//! 字节）。
+ 
+ use std::ffi::OsString;
+-use std::path::PathBuf;
++use std::path::{Path, PathBuf};
+ use std::process::Stdio;
+ use std::time::Duration;
+ 
+ use foundation::cancel::CancelFlag;
+ use tokio::process::{Child, ChildStderr, ChildStdout};
+-use tokio::time::{sleep, timeout};
++use tokio::time::{sleep, timeout, Instant};
+ 
++use crate::transient::{transient_signature, AttemptTrace, RetryPolicy};
+ use crate::{kill_tree, SystemCommand};
+ 
+ /// 取消轮询间隔：执行体观测取消信号的最小粒度（`foundation::cancel` 零 tokio，
+@@ -38,7 +44,7 @@ const CANCEL_POLL_INTERVAL: Duration = Duration::from_millis(200);
+ ///（输出不完整面在 TimedOut / Cancelled 两臂无消费者，见 [`RunReport`] doc）。
+ const FINISH_GRACE: Duration = Duration::from_secs(2);
+ 
+-/// 执行入参：工作目录 / 环境变量 / **必填**超时 / 取消信号。
++/// 执行入参：工作目录 / 环境变量 / **必填**超时 / 取消信号 / 重试策略。
+ ///
+ /// 刻意不实现 `Default`——`timeout` 无缺省语义（超时必填是本执行体的守门约束）。
+ #[derive(Debug, Clone)]
+@@ -51,6 +57,9 @@ pub struct RunOptions {
+     pub timeout: Duration,
+     /// 取消信号读端（[`CancelFlag::never`] = 永不取消）
+     pub cancel: CancelFlag,
++    /// 重试策略（缺省语义 = 单次执行 [`RetryPolicy::none`]；代码常量，MUST NOT 进
++    /// config schema）
++    pub retry: RetryPolicy,
+ }
+ 
+ /// 执行结局封闭三值。
+@@ -68,7 +77,7 @@ pub enum RunOutcome {
+ ///
+ /// `TimedOut` / `Cancelled` 两臂的输出**不保证完整**（被杀进程可能仍有未排出的
+ /// 字节；排水以 [`FINISH_GRACE`] 有界截断），四消费点在该两臂均不消费输出
+-///（static-check / testexec 走 `Err` 或空 output，两 mutation 段走固定文案）。
++///（static-check / testexec 以归因面收口，两 mutation 段走固定文案）。
+ #[derive(Debug, Clone, PartialEq, Eq)]
+ pub struct RunReport {
+     /// 结局
+@@ -76,10 +85,15 @@ pub struct RunReport {
+     /// 退出码（`TimedOut` / `Cancelled` 与「无可读退出码」同记 `-1` 哨兵——
+     /// MUST NOT 回落 `0` 吞成假绿）
+     pub exit_code: i32,
+-    /// stdout 原始字节
++    /// **末次**尝试的 stdout 原始字节（重试场景下此前尝试的字节只在 [`Self::retried`]
++    /// 中可读——既有消费点的读法零变）
+     pub stdout: Vec<u8>,
+-    /// stderr 原始字节
++    /// **末次**尝试的 stderr 原始字节
+     pub stderr: Vec<u8>,
++    /// 本命令实际尝试次数（≥ 1）
++    pub attempts: u32,
++    /// 此前各次尝试的留痕（**末次不入**；未命中瞬态签名 / 单次执行时恒空）
++    pub retried: Vec<AttemptTrace>,
+ }
+ 
+ /// 执行失败面（进程没跑起来 / 收尸失败——与三值结局正交：三值表达「跑起来之后
+@@ -104,22 +118,116 @@ impl std::fmt::Display for RunError {
+     }
+ }
+ 
+-/// 执行体：spawn（`kill_on_drop`）→ 双管道并发排水 → 三臂竞速（取消轮询 /
+-/// 超时 / 「排水 + 收尸」）→ 被杀两臂杀整树 + 有界收尾。
++/// 执行体：入口短路 → 重试循环（每次尝试 = [`attempt_once`]）→ 尝试面装配。
+ ///
+-/// 三臂 `biased` 序 cancel → timeout → 退出：取消优先于超时，两者都优先于自然
+-/// 退出（同一轮 poll 同时就绪时按此序收敛，不出现「已到期却记 Completed」）。
++/// 循环判定序（每次尝试之后）：非 `Completed`（`TimedOut` / `Cancelled`）即返
++/// （零重试）→ 未命中瞬态签名即返（真红 / 绿）→ 达尝试上限即返末次 → 总预算耗尽
++/// 即返末次 → 退避（同样观测 `cancel`）后进入下一轮。末次尝试的字节留在
++/// [`RunReport::stdout`] / [`RunReport::stderr`]，此前各次进
++/// [`RunReport::retried`]——「转入 `retried`」落在退避成功之后，故 `retried` 恒
++/// 等于「末次之前」的尝试集。
+ pub async fn run_shell(command: SystemCommand, options: RunOptions) -> Result<RunReport, RunError> {
+     let RunOptions {
+         cwd,
+         env,
+         timeout: budget,
+         cancel,
++        retry,
+     } = options;
++    // 总预算自首跑开始起算（非每次尝试一份）
++    let started = Instant::now();
++    let mut attempts: u32 = 0;
++    let mut retried: Vec<AttemptTrace> = Vec::new();
++    loop {
++        attempts += 1;
++        let attempt = attempt_once(&command, cwd.as_deref(), &env, budget, &cancel).await?;
++        // ① 非自然退出（超时 / 取消）零重试：超时重试会把预算放大数倍、取消必须
++        // 立即生效
++        if attempt.outcome != RunOutcome::Completed {
++            return Ok(attempt.into_report(attempts, retried));
++        }
++        // ② 未命中签名（真红 / 绿）零重试——重试策略在位但不触发
++        let Some(signature) = transient_signature(
++            attempt.outcome,
++            attempt.exit_code,
++            &attempt.stdout,
++            &attempt.stderr,
++        ) else {
++            return Ok(attempt.into_report(attempts, retried));
++        };
++        // ③ 上限 / ④ 预算早停：末次结果原样返回（`Completed` + 非零，由调用方按
++        // 瞬态命中断言 fault），末次不入 `retried`
++        if attempts >= retry.max_attempts || started.elapsed() >= retry.total_budget {
++            return Ok(attempt.into_report(attempts, retried));
++        }
++        // ⑤ 退避等待同样观测 cancel（复用既有轮询单点，不新增计时原语）
++        let backoff = retry.backoff[(attempts as usize - 1).min(retry.backoff.len() - 1)];
++        let cancelled = tokio::select! {
++            biased;
++            _ = wait_cancel(&cancel) => true,
++            _ = sleep(backoff) => false,
++        };
++        if cancelled {
++            // 退避期取消：本次尝试已完成（按「末次」字节返回），`attempts` 记已
++            // 完成次数，该次不进 `retried`
++            return Ok(RunReport {
++                outcome: RunOutcome::Cancelled,
++                exit_code: -1,
++                stdout: attempt.stdout,
++                stderr: attempt.stderr,
++                attempts,
++                retried,
++            });
++        }
++        retried.push(AttemptTrace {
++            exit_code: attempt.exit_code,
++            transient: Some(signature.to_owned()),
++            stdout: attempt.stdout,
++            stderr: attempt.stderr,
++        });
++    }
++}
++
++/// 单次尝试产出（重试循环的内部载体；`into_report` 把末次尝试与既有尝试集装配
++/// 成 [`RunReport`]）。
++struct Attempt {
++    outcome: RunOutcome,
++    exit_code: i32,
++    stdout: Vec<u8>,
++    stderr: Vec<u8>,
++}
++
++impl Attempt {
++    /// 末次尝试 + 此前各次尝试 → 对外的 [`RunReport`]。
++    fn into_report(self, attempts: u32, retried: Vec<AttemptTrace>) -> RunReport {
++        RunReport {
++            outcome: self.outcome,
++            exit_code: self.exit_code,
++            stdout: self.stdout,
++            stderr: self.stderr,
++            attempts,
++            retried,
++        }
++    }
++}
++
++/// 单次尝试：spawn（`kill_on_drop`）→ 双管道并发排水 → 三臂竞速（取消轮询 /
++/// 超时 / 「排水 + 收尸」）→ 被杀两臂杀整树 + 有界收尾。
++///
++/// 三臂 `biased` 序 cancel → timeout → 退出：取消优先于超时，两者都优先于自然
++/// 退出（同一轮 poll 同时就绪时按此序收敛，不出现「已到期却记 Completed」）。
++/// 重试循环复用本函数（同一骨架，不另写第二条 spawn 路径）。
++async fn attempt_once(
++    command: &SystemCommand,
++    cwd: Option<&Path>,
++    env: &[(OsString, OsString)],
++    budget: Duration,
++    cancel: &CancelFlag,
++) -> Result<Attempt, RunError> {
+     // 入口短路：已置位即不 spawn（取消用例不必依赖轮询时序；也避免为一次必然被
+     // 杀的调用付出进程建立成本）
+     if cancel.is_set() {
+-        return Ok(RunReport {
++        return Ok(Attempt {
+             outcome: RunOutcome::Cancelled,
+             exit_code: -1,
+             stdout: Vec::new(),
+@@ -127,17 +235,17 @@ pub async fn run_shell(command: SystemCommand, options: RunOptions) -> Result<Ru
+         });
+     }
+ 
+-    let mut shell = command.into_tokio();
++    let mut shell = command.clone().into_tokio();
+     shell
+         .stdin(Stdio::null())
+         .stdout(Stdio::piped())
+         .stderr(Stdio::piped())
+         // future 被 drop（调用方取消等待 / panic）时兜底终止进程
+         .kill_on_drop(true);
+-    if let Some(dir) = &cwd {
++    if let Some(dir) = cwd {
+         shell.current_dir(dir);
+     }
+-    for (key, value) in &env {
++    for (key, value) in env {
+         shell.env(key, value);
+     }
+     let mut child = shell
+@@ -154,7 +262,7 @@ pub async fn run_shell(command: SystemCommand, options: RunOptions) -> Result<Ru
+ 
+     let raced = tokio::select! {
+         biased;
+-        _ = wait_cancel(&cancel) => Race::Cancelled,
++        _ = wait_cancel(cancel) => Race::Cancelled,
+         _ = sleep(budget) => Race::TimedOut,
+         status = await_exit(
+             &mut child,
+@@ -168,7 +276,7 @@ pub async fn run_shell(command: SystemCommand, options: RunOptions) -> Result<Ru
+     let outcome = match raced {
+         Race::Exited(status) => {
+             let status = status.map_err(|error| RunError::Wait(error.to_string()))?;
+-            return Ok(RunReport {
++            return Ok(Attempt {
+                 outcome: RunOutcome::Completed,
+                 // 无可读退出码（unix 信号终止）同记 -1 哨兵，不回落 0
+                 exit_code: status.code().unwrap_or(-1),
+@@ -191,7 +299,7 @@ pub async fn run_shell(command: SystemCommand, options: RunOptions) -> Result<Ru
+         );
+     })
+     .await;
+-    Ok(RunReport {
++    Ok(Attempt {
+         outcome,
+         exit_code: -1,
+         stdout: stdout_bytes,
+diff --git a/crates/infra/exec/src/run_test.rs b/crates/infra/exec/src/run_test.rs
+index 98acd288a5fc..abfc5d12b8a9 100644
+--- a/crates/infra/exec/src/run_test.rs
++++ b/crates/infra/exec/src/run_test.rs
+@@ -1,914 +1,1767 @@
+-//! 统一执行体 [`run_shell`] 测试：真实子进程（POSIX shim 经 `resolve_shell`
+-//! 探测的解释器拉起）+ 真实 `exec::kill_tree`，零 spawn mock。
+-//!
+-//! 覆盖面：三值结局（`Completed` / `TimedOut` / `Cancelled`）、退出码透传、
+-//! 双管道并发排水（不互锁不丢字节）、`cwd` / `env` 施加、被杀两臂的进程回收与
+-//! 墙钟上界、`RunError` 文案与 `RunOptions` / `RunOutcome` 类型面。
+-//!
+-//! 时钟：超时臂与 `FINISH_GRACE` 有界收尾用 `#[tokio::test(start_paused = true)]`
+-//! 的虚拟时钟（手动 `advance`，沿 `mutation/*_test.rs` 既有先例）——不真等预算；
+-//! 取消臂用真实时钟（其语义本就是「轮询观测」，暂停时钟会让虚拟时间先于真实
+-//! 子进程落盘 pid 而抢跑到超时臂，属装置失真而非被测行为）。
+-
+-use std::ffi::OsString;
+-use std::path::{Path, PathBuf};
+-use std::time::{Duration, Instant};
+-
+-use foundation::cancel::CancelFlag;
+-use tempfile::TempDir;
+-
+-use super::{
+-    run_shell, RunError, RunOptions, RunOutcome, RunReport, CANCEL_POLL_INTERVAL, FINISH_GRACE,
+-};
+-use crate::SystemCommand;
+-
+-// ---------------------------------------------------------------------------
+-// 装置：临时 workspace + POSIX shim（解释器经 `resolve_shell` 探测）+ pid 探测
+-// ---------------------------------------------------------------------------
+-
+-/// 测试 workspace：临时目录（shim 脚本 / payload / pid 文件落位）。
+-struct ShimWs {
+-    dir: TempDir,
+-}
+-
+-impl ShimWs {
+-    fn new(tag: &str) -> Self {
+-        let dir = tempfile::Builder::new()
+-            .prefix(&format!("exec-run-{tag}-"))
+-            .tempdir()
+-            .expect("创建临时 workspace 失败");
+-        Self { dir }
+-    }
+-
+-    fn path(&self) -> &Path {
+-        self.dir.path()
+-    }
+-
+-    fn file(&self, name: &str) -> PathBuf {
+-        self.path().join(name)
+-    }
+-
+-    /// 落盘文本文件（payload / 标记 / 任何被 shim 读取的原料）。
+-    fn put(&self, name: &str, body: &str) -> PathBuf {
+-        let path = self.file(name);
+-        std::fs::write(&path, body).expect("写临时文件失败");
+-        path
+-    }
+-
+-    fn put_bytes(&self, name: &str, body: &[u8]) -> PathBuf {
+-        let path = self.file(name);
+-        std::fs::write(&path, body).expect("写临时二进制文件失败");
+-        path
+-    }
+-
+-    /// 落盘 POSIX shim 脚本并返回可直拉的命令（解释器 + 脚本绝对路径）。
+-    fn shim(&self, name: &str, body: &str) -> SystemCommand {
+-        let path = self.put(name, body);
+-        interpreter_command(&path)
+-    }
+-
+-    fn read_pid(&self, name: &str) -> Option<u32> {
+-        std::fs::read_to_string(self.file(name))
+-            .ok()
+-            .and_then(|text| text.trim().parse().ok())
+-    }
+-}
+-
+-/// 解释器命令：Windows 走 `resolve_shell` 探测到的 Git bash（POSIX 语义统一
+-/// 两平台），unix 走 `sh`。脚本文件为唯一入参（无 shell 转义面）。
+-fn interpreter_command(script: &Path) -> SystemCommand {
+-    SystemCommand::bare(interpreter()).arg(script)
+-}
+-
+-#[cfg(windows)]
+-fn interpreter() -> OsString {
+-    match crate::resolve_shell() {
+-        crate::ShellBase::GitBash(path) => path.into_os_string(),
+-        _ => panic!("run_test 需要 Git for Windows bash（resolve_shell 未探测到 GitBash）"),
+-    }
+-}
+-
+-#[cfg(not(windows))]
+-fn interpreter() -> OsString {
+-    OsString::from("sh")
+-}
+-
+-/// 缺省执行入参（`cwd = None` / `env = []` / `cancel = never()`）。
+-fn options(timeout: Duration) -> RunOptions {
+-    RunOptions {
+-        cwd: None,
+-        env: Vec::new(),
+-        timeout,
+-        cancel: CancelFlag::never(),
+-    }
+-}
+-
+-/// pid 存活探测（Windows `tasklist`、unix `kill -0`）。
+-#[cfg(windows)]
+-fn pid_alive(pid: u32) -> bool {
+-    let output = std::process::Command::new("tasklist")
+-        .args(["/FI", &format!("PID eq {pid}"), "/NH", "/FO", "CSV"])
+-        .output();
+-    match output {
+-        Ok(output) => String::from_utf8_lossy(&output.stdout).contains(&pid.to_string()),
+-        Err(_) => false,
+-    }
+-}
+-
+-#[cfg(not(windows))]
+-fn pid_alive(pid: u32) -> bool {
+-    std::process::Command::new("kill")
+-        .args(["-0", &pid.to_string()])
+-        .status()
+-        .map(|status| status.success())
+-        .unwrap_or(false)
+-}
+-
+-/// 等待 pid 消失（杀树是尽力语义 + 平台回收时延，轮询到上界即判定仍存活）。
+-fn wait_pid_gone(pid: u32, budget: Duration) -> bool {
+-    let deadline = Instant::now() + budget;
+-    while Instant::now() < deadline {
+-        if !pid_alive(pid) {
+-            return true;
+-        }
+-        std::thread::sleep(Duration::from_millis(50));
+-    }
+-    !pid_alive(pid)
+-}
+-
+-/// 路径归一（bash `pwd -W` 的 `C:/x` 与 `pwd` 的 `/c/x` 与宿主 cwd 同形比较）。
+-fn normalize_path(raw: &str) -> String {
+-    let lowered = raw.trim().replace('\\', "/").to_lowercase();
+-    let trimmed = lowered
+-        .strip_prefix("/c/")
+-        .or_else(|| lowered.strip_prefix("c:/"))
+-        .map(str::to_owned)
+-        .unwrap_or(lowered);
+-    trimmed.trim_end_matches('/').to_owned()
+-}
+-
+-// ---------------------------------------------------------------------------
+-// 正向：单流 / 退出码谱 / 双缓冲不合流
+-// ---------------------------------------------------------------------------
+-
+-/// 正向：单流正常退出——`Completed` + `exit_code == 0` + stdout 含回显文本 +
+-/// stderr 空（缺省 `cwd = None` / `env = []` / `cancel = never()`）。
+-#[tokio::test]
+-async fn 单流正向_回显文本且零退出() {
+-    let report = run_shell(
+-        SystemCommand::script("echo hi"),
+-        options(Duration::from_secs(30)),
+-    )
+-    .await
+-    .expect("正常退出应 Ok");
+-
+-    assert_eq!(report.outcome, RunOutcome::Completed);
+-    assert_eq!(report.exit_code, 0, "零退出码直传");
+-    let stdout = String::from_utf8_lossy(&report.stdout);
+-    assert!(stdout.contains("hi"), "stdout 含回显文本: {stdout:?}");
+-    assert!(report.stderr.is_empty(), "零 stderr: {:?}", report.stderr);
+-}
+-
+-/// 正向（参数化 4 值）：退出码谱 `0 / 1 / 3 / 255` 逐值等值透传——`outcome`
+-/// 恒 `Completed`（非零退出不是执行体失败面），哨兵 `-1` 不被非零码误用。
+-#[tokio::test]
+-async fn 退出码谱_逐值等值透传且不用哨兵() {
+-    for code in [0i32, 1, 3, 255] {
+-        let report = run_shell(
+-            SystemCommand::script(&format!("exit {code}")),
+-            options(Duration::from_secs(30)),
+-        )
+-        .await
+-        .unwrap_or_else(|error| panic!("exit {code} 应跑完并返回报告: {error}"));
+-
+-        assert_eq!(report.outcome, RunOutcome::Completed, "exit {code} 仍为 Completed");
+-        assert_eq!(report.exit_code, code, "退出码逐值透传（exit {code}）");
+-        assert_ne!(report.exit_code, -1, "谱内退出码不得与哨兵 -1 混淆");
+-    }
+-}
+-
+-/// 正向：双缓冲不合流——执行体不做 `2>&1`、不拼接：stdout / stderr 各自只含
+-/// 本路字节（D14）。
+-#[tokio::test]
+-async fn 双缓冲不合流_两路各自只含本路字节() {
+-    let ws = ShimWs::new("split");
+-    let command = ws.shim(
+-        "split.sh",
+-        "#!/bin/sh\nprintf 'OUT-TOKEN'\nprintf 'ERR-TOKEN' >&2\n",
+-    );
+-
+-    let report = run_shell(command, options(Duration::from_secs(30)))
+-        .await
+-        .expect("正常退出应 Ok");
+-    assert_eq!(report.outcome, RunOutcome::Completed);
+-    assert_eq!(report.stdout, b"OUT-TOKEN", "stdout 只含本路字节");
+-    assert_eq!(report.stderr, b"ERR-TOKEN", "stderr 只含本路字节");
+-}
+-
+-// ---------------------------------------------------------------------------
+-// 正向 / 边界：cwd 与 env 施加
+-// ---------------------------------------------------------------------------
+-
+-/// 正向（表驱动 2 形态）：`cwd` 生效——`Some(tempdir)` 使相对路径探测命中；
+-/// `None` 继承测试进程 cwd（同一探测在该目录不存在）。
+-#[tokio::test]
+-async fn cwd生效_some施加与none继承两形态() {
+-    let ws = ShimWs::new("cwd");
+-    ws.put("probe.txt", "probe-body");
+-    let command_body = "#!/bin/sh\ncat probe.txt 2>/dev/null || printf 'MISS'\n";
+-
+-    // 形态一：cwd = Some(tempdir) → 相对路径探测命中
+-    let mut with_cwd = options(Duration::from_secs(30));
+-    with_cwd.cwd = Some(ws.path().to_path_buf());
+-    let report = run_shell(ws.shim("probe.sh", command_body), with_cwd)
+-        .await
+-        .expect("cwd 施加后应 Ok");
+-    assert_eq!(report.outcome, RunOutcome::Completed);
+-    assert_eq!(
+-        String::from_utf8_lossy(&report.stdout),
+-        "probe-body",
+-        "Some(tempdir) 使相对路径探测命中（current_dir 施加生效）"
+-    );
+-
+-    // 形态二：cwd = None → 继承测试进程 cwd，探测目录不同 → 未命中
+-    let report = run_shell(
+-        ws.shim("probe-inherit.sh", command_body),
+-        options(Duration::from_secs(30)),
+-    )
+-    .await
+-    .expect("继承 cwd 应 Ok");
+-    assert_eq!(report.outcome, RunOutcome::Completed);
+-    assert_ne!(
+-        String::from_utf8_lossy(&report.stdout),
+-        "probe-body",
+-        "cwd = None 时相对探测不落在临时目录（继承测试进程 cwd）"
+-    );
+-}
+-
+-/// 边界（表驱动 2 形态）：`cwd = None` 的继承面以 `pwd` 回显归一后与测试进程
+-/// cwd 相等（`pwd -W` 的 `C:/x` 与宿主 `C:\x` 归一后同形）。
+-#[tokio::test]
+-async fn cwd为none时回显与测试进程cwd同形() {
+-    let ws = ShimWs::new("cwd-pwd");
+-    let command = ws.shim(
+-        "pwd.sh",
+-        "#!/bin/sh\nwin=$(pwd -W 2>/dev/null) && [ -n \"$win\" ] && printf '%s' \"$win\" || printf '%s' \"$(pwd)\"\n",
+-    );
+-    let report = run_shell(command, options(Duration::from_secs(30)))
+-        .await
+-        .expect("pwd 应 Ok");
+-
+-    let printed = String::from_utf8_lossy(&report.stdout).to_string();
+-    let expected = std::env::current_dir()
+-        .expect("取测试进程 cwd")
+-        .to_string_lossy()
+-        .to_string();
+-    assert_eq!(
+-        normalize_path(&printed),
+-        normalize_path(&expected),
+-        "cwd = None 继承测试进程 cwd（printed={printed:?} expected={expected:?}）"
+-    );
+-}
+-
+-/// 正向：`env` 生效——shim 回显 `RSE_MARK` 得 `on`；父进程环境不因
+-/// `RunOptions.env` 被污染（逐次施加，进程级零写入）。
+-#[tokio::test]
+-async fn env生效_标记回显且父进程不污染() {
+-    let ws = ShimWs::new("env");
+-    let command = ws.shim("env.sh", "#!/bin/sh\nprintf '%s' \"${RSE_MARK:-unset}\"\n");
+-
+-    let mut with_env = options(Duration::from_secs(30));
+-    with_env.env = vec![(OsString::from("RSE_MARK"), OsString::from("on"))];
+-    let report = run_shell(command, with_env).await.expect("env 用例应 Ok");
+-
+-    assert_eq!(report.outcome, RunOutcome::Completed);
+-    assert_eq!(String::from_utf8_lossy(&report.stdout), "on", "shim 回显 env 值");
+-    assert!(
+-        std::env::var_os("RSE_MARK").is_none(),
+-        "RunOptions.env 逐次施加，不写入父进程环境"
+-    );
+-}
+-
+-/// 边界（表驱动 4 形态）：`env` 规模与形态——空 / 单元素 / ≥50 项 / 重复键
+-/// （后值覆盖前值）四种形态均 `Completed` 且回显符合预期。
+-#[tokio::test]
+-async fn env规模与形态_空单元素大清单与重复键() {
+-    let ws = ShimWs::new("env-scale");
+-
+-    // 形态一：空 env（全继承）
+-    let empty = ws.shim("env-empty.sh", "#!/bin/sh\nprintf '%s' \"${RSE_MARK:-unset}\"\n");
+-    let report = run_shell(empty, options(Duration::from_secs(30)))
+-        .await
+-        .expect("空 env 应 Ok");
+-    assert_eq!(report.outcome, RunOutcome::Completed);
+-    assert_eq!(String::from_utf8_lossy(&report.stdout), "unset", "空 env 不注入键");
+-
+-    // 形态二：单元素
+-    let single = ws.shim("env-single.sh", "#!/bin/sh\nprintf '%s' \"$RSE_MARK\"\n");
+-    let mut with_single = options(Duration::from_secs(30));
+-    with_single.env = vec![(OsString::from("RSE_MARK"), OsString::from("one"))];
+-    let report = run_shell(single, with_single)
+-        .await
+-        .expect("单元素 env 应 Ok");
+-    assert_eq!(String::from_utf8_lossy(&report.stdout), "one");
+-
+-    // 形态三：≥50 项
+-    let large = ws.shim("env-large.sh", "#!/bin/sh\nprintf '%s' \"$RSE_K49\"\n");
+-    let mut with_large = options(Duration::from_secs(30));
+-    with_large.env = (0..50)
+-        .map(|index| {
+-            (
+-                OsString::from(format!("RSE_K{index}")),
+-                OsString::from(format!("v{index}")),
+-            )
+-        })
+-        .collect();
+-    let report = run_shell(large, with_large)
+-        .await
+-        .expect("大清单 env 应 Ok");
+-    assert_eq!(report.outcome, RunOutcome::Completed);
+-    assert_eq!(String::from_utf8_lossy(&report.stdout), "v49", "第 50 项可见");
+-
+-    // 形态四：重复键（后值覆盖前值）
+-    let dup = ws.shim("env-dup.sh", "#!/bin/sh\nprintf '%s' \"$RSE_DUP\"\n");
+-    let mut with_dup = options(Duration::from_secs(30));
+-    with_dup.env = vec![
+-        (OsString::from("RSE_DUP"), OsString::from("first")),
+-        (OsString::from("RSE_DUP"), OsString::from("second")),
+-    ];
+-    let report = run_shell(dup, with_dup).await.expect("重复键 env 应 Ok");
+-    assert_eq!(
+-        String::from_utf8_lossy(&report.stdout),
+-        "second",
+-        "重复键后值覆盖前值"
+-    );
+-}
+-
+-// ---------------------------------------------------------------------------
+-// 异常：Spawn 面与文案
+-// ---------------------------------------------------------------------------
+-
+-/// 异常：`cwd` 指向不存在的目录 → `Err(RunError::Spawn(_))`，`Display` 以
+-/// 「拉起失败: 」起头（`current_dir` 施加期失败归 `Spawn` 面）。
+-#[tokio::test]
+-async fn cwd不存在目录_spawn面报错且文案起头() {
+-    let ws = ShimWs::new("cwd-missing");
+-    let missing = ws.path().join("no-such-dir").join("nested");
+-    let mut with_cwd = options(Duration::from_secs(30));
+-    with_cwd.cwd = Some(missing);
+-
+-    let error = run_shell(
+-        SystemCommand::script("echo hi"),
+-        with_cwd,
+-    )
+-    .await
+-    .expect_err("不存在 cwd 应 Spawn 失败");
+-    match &error {
+-        RunError::Spawn(_) => {}
+-        other => panic!("不存在 cwd 应 Spawn 面，实际 {other:?}"),
+-    }
+-    assert!(
+-        error.to_string().starts_with("拉起失败: "),
+-        "Spawn 文案以类别词起头: {error}"
+-    );
+-}
+-
+-/// 异常：程序不可达 → `Err(RunError::Spawn(_))`；`Display` 只承载类别词 +
+-/// `io::Error` 原文，不含任何调用点语境前缀（D1：语境由调用点拼）。
+-#[tokio::test]
+-async fn 程序不可达_spawn面文案无调用点语境() {
+-    let error = run_shell(
+-        SystemCommand::bare("no-such-program-xyz-9f3"),
+-        options(Duration::from_secs(30)),
+-    )
+-    .await
+-    .expect_err("不可达程序应 Spawn 失败");
+-
+-    match &error {
+-        RunError::Spawn(_) => {}
+-        other => panic!("不可达程序应 Spawn 面，实际 {other:?}"),
+-    }
+-    let rendered = error.to_string();
+-    assert!(rendered.starts_with("拉起失败: "), "类别词起头: {rendered}");
+-    for caller_context in ["static-check", "测试命令", "cargo-mutants", "Stryker", "段执行"] {
+-        assert!(
+-            !rendered.contains(caller_context),
+-            "调用点语境不入执行体文案（{caller_context}）: {rendered}"
+-        );
+-    }
+-    assert!(
+-        rendered.len() > "拉起失败: ".len(),
+-        "承载 io::Error 原文: {rendered}"
+-    );
+-}
+-
+-/// 异常：`RunError` 两变体渲染——`Spawn` → 「拉起失败: {e}」、`Wait` →
+-/// 「等待失败: {e}」（真实 `child.wait()` io 失败不可稳定构造，此处直构变体）。
+-#[test]
+-fn run_error两变体渲染同型() {
+-    let spawn = RunError::Spawn("<io-spawn>".to_owned());
+-    assert_eq!(spawn.to_string(), "拉起失败: <io-spawn>");
+-    let wait = RunError::Wait("<io-wait>".to_owned());
+-    assert_eq!(wait.to_string(), "等待失败: <io-wait>");
+-
+-    // 变体区分（`PartialEq` 派生）
+-    assert_ne!(spawn, wait, "两变体互不相等");
+-    assert_eq!(spawn.clone(), RunError::Spawn("<io-spawn>".to_owned()));
+-    // 空载荷边界：类别词仍完整（无空串 panic）
+-    assert_eq!(RunError::Wait(String::new()).to_string(), "等待失败: ");
+-}
+-
+-// ---------------------------------------------------------------------------
+-// 边界：类型面 / 空脚本 / 超长串 / 特殊字符 / 非 UTF-8 / 输出规模
+-// ---------------------------------------------------------------------------
+-
+-/// 边界：`RunOptions` 四字段面（`cwd` / `env` / `timeout` / `cancel` 无一缺省，
+-/// `timeout` 必填）+ `Debug` / `Clone` 派生。
+-#[test]
+-fn run_options四字段面与派生() {
+-    let options = RunOptions {
+-        cwd: Some(PathBuf::from("/tmp/exec-run-field")),
+-        env: vec![(OsString::from("K"), OsString::from("V"))],
+-        timeout: Duration::from_millis(1500),
+-        cancel: CancelFlag::never(),
+-    };
+-    let cloned = options.clone();
+-    assert_eq!(cloned.timeout, Duration::from_millis(1500), "timeout 逐值保留");
+-    assert_eq!(cloned.cwd, options.cwd, "cwd 逐值保留");
+-    assert_eq!(cloned.env, options.env, "env 逐值保留");
+-    assert_eq!(cloned.cancel, options.cancel, "cancel 身份保留（同一原子）");
+-
+-    // cwd 的 None 形态同样可表达且可克隆
+-    let none_cwd = RunOptions {
+-        cwd: None,
+-        env: Vec::new(),
+-        timeout: Duration::from_secs(1),
+-        cancel: CancelFlag::never(),
+-    };
+-    assert!(none_cwd.clone().cwd.is_none(), "cwd = None 形态保留");
+-
+-    let debug = format!("{options:?}");
+-    for field in ["cwd", "env", "timeout", "cancel"] {
+-        assert!(debug.contains(field), "Debug 字段面含 {field}: {debug}");
+-    }
+-}
+-
+-/// 边界：`RunOutcome` 三值遍历——分支可区分、`Copy` + `Eq` 语义成立（封闭集，
+-/// 无非法值臂）。
+-#[test]
+-fn run_outcome三值遍历与copy_eq语义() {
+-    let values = [
+-        RunOutcome::Completed,
+-        RunOutcome::TimedOut,
+-        RunOutcome::Cancelled,
+-    ];
+-    for value in values {
+-        let copied = value; // Copy：无需 clone 即可复制
+-        assert!(copied == value, "{value:?} 自反相等");
+-
+-        let matched = match copied {
+-            RunOutcome::Completed => "completed",
+-            RunOutcome::TimedOut => "timed-out",
+-            RunOutcome::Cancelled => "cancelled",
+-        };
+-        let expected = match value {
+-            RunOutcome::Completed => "completed",
+-            RunOutcome::TimedOut => "timed-out",
+-            RunOutcome::Cancelled => "cancelled",
+-        };
+-        assert_eq!(matched, expected, "三值分支可区分");
+-    }
+-    assert_ne!(RunOutcome::Completed, RunOutcome::TimedOut);
+-    assert_ne!(RunOutcome::TimedOut, RunOutcome::Cancelled);
+-    assert_ne!(RunOutcome::Cancelled, RunOutcome::Completed);
+-}
+-
+-/// 边界：空脚本——`Completed` + 壳退出码 `0` + 两路输出皆空（不 panic）。
+-#[tokio::test]
+-async fn 空脚本_零退出与双空输出() {
+-    let report = run_shell(
+-        SystemCommand::script(""),
+-        options(Duration::from_secs(30)),
+-    )
+-    .await
+-    .expect("空脚本应 Ok");
+-    assert_eq!(report.outcome, RunOutcome::Completed);
+-    assert_eq!(report.exit_code, 0, "空脚本壳退出码 0");
+-    assert!(report.stdout.is_empty(), "stdout 空: {:?}", report.stdout);
+-    assert!(report.stderr.is_empty(), "stderr 空: {:?}", report.stderr);
+-}
+-
+-/// 边界：超长命令串（>1000 字符）——`Completed` 且 stdout 逐字全量（不截断、
+-/// 不改写）。
+-#[tokio::test]
+-async fn 超长命令串_输出逐字全量不截断() {
+-    let token = "z".repeat(1200);
+-    let report = run_shell(
+-        SystemCommand::script(&format!("echo {token}")),
+-        options(Duration::from_secs(30)),
+-    )
+-    .await
+-    .expect("超长命令串应 Ok");
+-
+-    assert_eq!(report.outcome, RunOutcome::Completed);
+-    let stdout = String::from_utf8_lossy(&report.stdout).to_string();
+-    assert!(
+-        stdout.contains(&token),
+-        "1200 字符 token 逐字全量（实际长度 {}）",
+-        stdout.trim_end().len()
+-    );
+-}
+-
+-/// 边界（参数化 3 形态）：特殊字符输出——引号 / 换行 / emoji 逐字节保留
+-/// （执行体零转义、零归一化）。
+-#[tokio::test]
+-async fn 特殊字符输出_字节逐字相等() {
+-    let cases: [(&str, &[u8]); 3] = [
+-        ("引号", "he said \"hi\" and 'bye'".as_bytes()),
+-        ("换行", b"line-1\nline-2\n\nline-4\n"),
+-        ("emoji", "🎉 完成 ✅ rocket 🚀".as_bytes()),
+-    ];
+-    for (label, payload) in cases {
+-        let ws = ShimWs::new("special");
+-        let payload_path = ws.put_bytes("payload.bin", payload);
+-        let command = ws.shim(
+-            "special.sh",
+-            &format!("#!/bin/sh\ncat \"{}\"\n", payload_path.display()),
+-        );
+-        let report = run_shell(command, options(Duration::from_secs(30)))
+-            .await
+-            .unwrap_or_else(|error| panic!("{label} 用例应 Ok: {error}"));
+-
+-        assert_eq!(report.outcome, RunOutcome::Completed, "{label}: Completed");
+-        assert_eq!(report.stdout, payload, "{label}: stdout 字节逐字相等");
+-        assert!(report.stderr.is_empty(), "{label}: stderr 空");
+-    }
+-}
+-
+-/// 边界：非 UTF-8 原始字节——shim 输出 `0xFF 0xFE` 等裸字节，执行体不做
+-/// UTF-8 假设、不做 lossy 转换，原始字节逐字保留。
+-#[tokio::test]
+-async fn 非utf8原始字节_逐字保留() {
+-    let ws = ShimWs::new("non-utf8");
+-    let command = ws.shim("raw.sh", "#!/bin/sh\nprintf 'a\\377\\376b'\n");
+-    let report = run_shell(command, options(Duration::from_secs(30)))
+-        .await
+-        .expect("非 UTF-8 输出应 Ok");
+-
+-    assert_eq!(report.outcome, RunOutcome::Completed);
+-    assert_eq!(
+-        report.stdout,
+-        vec![b'a', 0xFF, 0xFE, b'b'],
+-        "非 UTF-8 字节逐字保留（无 lossy 转换）"
+-    );
+-    assert!(
+-        std::str::from_utf8(&report.stdout).is_err(),
+-        "输出确为非 UTF-8 形态"
+-    );
+-}
+-
+-/// 边界（表驱动 4 形态）：输出规模边界——双空 / 仅 stdout 单字节 / 仅 stderr
+-/// 单字节 / 双大块 → `RunReport` 逐字节等值、`Completed`。
+-#[tokio::test]
+-async fn 输出规模边界_四形态逐字节等值() {
+-    let big = 64 * 1024 + 1024;
+-    let cases: [(&str, String, Vec<u8>, Vec<u8>); 4] = [
+-        (
+-            "双空",
+-            "#!/bin/sh\nexit 0\n".to_owned(),
+-            Vec::new(),
+-            Vec::new(),
+-        ),
+-        (
+-            "仅 stdout 单字节",
+-            "#!/bin/sh\nprintf 'S'\n".to_owned(),
+-            b"S".to_vec(),
+-            Vec::new(),
+-        ),
+-        (
+-            "仅 stderr 单字节",
+-            "#!/bin/sh\nprintf 'E' >&2\n".to_owned(),
+-            Vec::new(),
+-            b"E".to_vec(),
+-        ),
+-        (
+-            "双大块",
+-            format!("#!/bin/sh\nprintf '%s' \"{0}\"\nprintf '%s' \"{0}\" >&2\n", "q".repeat(big)),
+-            vec![b'q'; big],
+-            vec![b'q'; big],
+-        ),
+-    ];
+-
+-    for (label, body, expected_stdout, expected_stderr) in cases {
+-        let ws = ShimWs::new("sizes");
+-        let report = run_shell(ws.shim("sizes.sh", &body), options(Duration::from_secs(60)))
+-            .await
+-            .unwrap_or_else(|error| panic!("{label} 应 Ok: {error}"));
+-
+-        assert_eq!(report.outcome, RunOutcome::Completed, "{label}: Completed");
+-        assert_eq!(report.stdout.len(), expected_stdout.len(), "{label}: stdout 长度");
+-        assert_eq!(report.stderr.len(), expected_stderr.len(), "{label}: stderr 长度");
+-        assert_eq!(report.stdout, expected_stdout, "{label}: stdout 逐字节等值");
+-        assert_eq!(report.stderr, expected_stderr, "{label}: stderr 逐字节等值");
+-    }
+-}
+-
+-/// 正向（AC-5）：双管道并发排水不互锁——shim 交替向 stdout / stderr 各写
+-/// >64 KiB（超过管道缓冲；单线程顺序读会互锁）→ 两路字节数精确等于写量
+-/// （不丢字节）+ 墙钟上界断言（不互锁）。
+-#[tokio::test]
+-async fn 双管道并发不互锁_两路大块不丢字节() {
+-    const CHUNK: usize = 2048;
+-    const ROUNDS: usize = 40; // 40 × 2048 = 81,920 > 64 KiB（单路）
+-    let expected = CHUNK * ROUNDS;
+-
+-    let ws = ShimWs::new("dual-pipe");
+-    let body = format!(
+-        "#!/bin/sh\npayload='{payload}'\ni=0\nwhile [ \"$i\" -lt {rounds} ]; do\n  printf '%s' \"$payload\"\n  printf '%s' \"$payload\" >&2\n  i=$((i+1))\ndone\n",
+-        payload = "p".repeat(CHUNK),
+-        rounds = ROUNDS,
+-    );
+-    let command = ws.shim("dual.sh", &body);
+-
+-    let started = Instant::now();
+-    let report = run_shell(command, options(Duration::from_secs(120)))
+-        .await
+-        .expect("双管道并发应 Ok");
+-    let elapsed = started.elapsed();
+-
+-    assert_eq!(report.outcome, RunOutcome::Completed);
+-    assert_eq!(report.stdout.len(), expected, "stdout 不丢字节（{expected} 字节）");
+-    assert_eq!(report.stderr.len(), expected, "stderr 不丢字节（{expected} 字节）");
+-    assert!(report.stdout.iter().all(|byte| *byte == b'p'), "stdout 内容形态");
+-    assert!(report.stderr.iter().all(|byte| *byte == b'p'), "stderr 内容形态");
+-    assert!(
+-        elapsed < Duration::from_secs(90),
+-        "并发排水不互锁（墙钟上界 {elapsed:?}）"
+-    );
+-}
+-
+-// ---------------------------------------------------------------------------
+-// 正向：超时臂（AC-3）
+-// ---------------------------------------------------------------------------
+-
+-/// 正向（AC-3）：超时 → `TimedOut` + `exit_code == -1`，墙钟上界（虚拟时钟推进
+-/// 触发，不真等预算；`kill_tree` + `FINISH_GRACE` 有界收尾）。
+-#[tokio::test(start_paused = true)]
+-async fn 超时臂_timedout与哨兵负一且不悬挂() {
+-    let ws = ShimWs::new("timeout");
+-    let command = ws.shim("spin.sh", "#!/bin/sh\nwhile :; do sleep 0.05; done\n");
+-
+-    tokio::spawn(async {
+-        tokio::task::yield_now().await;
+-        tokio::time::advance(Duration::from_secs(31)).await;
+-    });
+-
+-    let started = Instant::now();
+-    let report = run_shell(command, options(Duration::from_secs(30)))
+-        .await
+-        .expect("超时应返回报告而非 Err");
+-    let elapsed = started.elapsed();
+-
+-    assert_eq!(report.outcome, RunOutcome::TimedOut, "到点 → TimedOut");
+-    assert_eq!(report.exit_code, -1, "超时记 -1 哨兵（MUST NOT 回落 0）");
+-    assert!(
+-        elapsed < Duration::from_secs(30),
+-        "有界收尾不悬挂（墙钟 {elapsed:?}）"
+-    );
+-}
+-
+-/// 边界（AC-3 / D6）：被杀臂输出不完整但 `RunReport` 正常返回——自旋 shim 在
+-/// 超时前已刷出部分字节 → `TimedOut` 臂不 panic、不悬挂（完整性不断言）。
+-#[tokio::test(start_paused = true)]
+-async fn 超时臂_部分输出可返回不panic() {
+-    let ws = ShimWs::new("timeout-partial");
+-    let command = ws.shim(
+-        "spin-partial.sh",
+-        "#!/bin/sh\nprintf 'partial-before-timeout'\nwhile :; do sleep 0.05; done\n",
+-    );
+-
+-    tokio::spawn(async {
+-        tokio::task::yield_now().await;
+-        tokio::time::advance(Duration::from_secs(31)).await;
+-    });
+-
+-    let started = Instant::now();
+-    let report = run_shell(command, options(Duration::from_secs(30)))
+-        .await
+-        .expect("超时臂应返回报告");
+-    assert_eq!(report.outcome, RunOutcome::TimedOut);
+-    assert_eq!(report.exit_code, -1);
+-    assert!(
+-        started.elapsed() < Duration::from_secs(30),
+-        "被杀臂不悬挂"
+-    );
+-    // 部分输出或空输出皆合法（不完整面在两被杀臂无消费者）；此处只断言可读回
+-    let _ = String::from_utf8_lossy(&report.stdout);
+-    let _ = String::from_utf8_lossy(&report.stderr);
+-}
+-
+-// ---------------------------------------------------------------------------
+-// 正向：取消臂（AC-4 / D4）
+-// ---------------------------------------------------------------------------
+-
+-/// 正向（AC-4 / D4）：已置位 cancel 的入口短路——不 spawn、墙钟近零、零输出。
+-#[tokio::test]
+-async fn 已置位cancel_入口短路零spawn() {
+-    let ws = ShimWs::new("cancel-pre");
+-    let marker = ws.file("executed.txt");
+-    let body = format!(
+-        "#!/bin/sh\nprintf 'ran' > \"{}\"\nexit 0\n",
+-        marker.display()
+-    );
+-    let command = ws.shim("marker.sh", &body);
+-
+-    let cancel = CancelFlag::never();
+-    cancel.handle().set();
+-    let mut with_cancel = options(Duration::from_secs(30));
+-    with_cancel.cancel = cancel;
+-
+-    let started = Instant::now();
+-    let report = run_shell(command, with_cancel)
+-        .await
+-        .expect("入口短路应 Ok");
+-    let elapsed = started.elapsed();
+-
+-    assert_eq!(report.outcome, RunOutcome::Cancelled);
+-    assert_eq!(report.exit_code, -1, "取消记 -1 哨兵");
+-    assert!(report.stdout.is_empty(), "短路零输出");
+-    assert!(report.stderr.is_empty(), "短路零输出");
+-    assert!(!marker.exists(), "已置位 cancel 不 spawn（shim 零执行）");
+-    assert!(
+-        elapsed < Duration::from_secs(5),
+-        "入口短路墙钟近零（不依赖轮询时序，实际 {elapsed:?}）"
+-    );
+-}
+-
+-/// 正向（AC-4）：运行中 cancel——shim 先落 pid 文件再自旋；主任务置位
+-/// `CancelHandle::set()` → `Cancelled` + `exit_code == -1` + 目标 pid 消失 +
+-/// 墙钟上界。
+-#[tokio::test]
+-async fn 运行中cancel_目标pid消失且秒级收敛() {
+-    let ws = ShimWs::new("cancel-running");
+-    let pid_file = ws.file("pid.txt");
+-    let command = ws.shim(
+-        "spin-pid.sh",
+-        &format!(
+-            "#!/bin/sh\nwin=$(cat \"/proc/$$/winpid\" 2>/dev/null || printf '%s' \"$$\")\nprintf '%s' \"$win\" > \"{}\"\nwhile :; do sleep 0.1; done\n",
+-            pid_file.display()
+-        ),
+-    );
+-
+-    let cancel = CancelFlag::never();
+-    let handle = cancel.handle();
+-    let mut with_cancel = options(Duration::from_secs(120));
+-    with_cancel.cancel = cancel;
+-
+-    let started = Instant::now();
+-    let runner = tokio::spawn(async move { run_shell(command, with_cancel).await });
+-
+-    // 等 shim 落 pid（真实时钟：取消轮询语义本身依赖 200 ms 粒度）
+-    let mut pid = None;
+-    for _ in 0..200 {
+-        if let Some(value) = ws.read_pid("pid.txt") {
+-            pid = Some(value);
+-            break;
+-        }
+-        tokio::time::sleep(Duration::from_millis(25)).await;
+-    }
+-    let pid = pid.expect("shim 应落 pid 文件（进程已建立）");
+-
+-    handle.set();
+-    let report = runner
+-        .await
+-        .expect("run_shell 任务应正常结束")
+-        .expect("取消臂应返回报告");
+-    let elapsed = started.elapsed();
+-
+-    assert_eq!(report.outcome, RunOutcome::Cancelled, "置位后 → Cancelled");
+-    assert_eq!(report.exit_code, -1, "取消记 -1 哨兵");
+-    assert!(
+-        wait_pid_gone(pid, Duration::from_secs(10)),
+-        "取消后目标 pid {pid} 应消失（kill_tree 生效）"
+-    );
+-    assert!(
+-        elapsed < Duration::from_secs(30),
+-        "秒级收敛（墙钟 {elapsed:?}）"
+-    );
+-}
+-
+-/// 边界：cancel 不误杀——`never()` 全程不置位 + 正常退出脚本 → `Completed`
+-/// （轮询臂零副作用，不产生假 `Cancelled`）。
+-#[tokio::test]
+-async fn cancel不误杀_never全程不置位() {
+-    let ws = ShimWs::new("cancel-noop");
+-    let command = ws.shim("normal.sh", "#!/bin/sh\nprintf 'done'\nexit 0\n");
+-    let report = run_shell(command, options(Duration::from_secs(30)))
+-        .await
+-        .expect("常态应 Ok");
+-    assert_eq!(report.outcome, RunOutcome::Completed, "不得出现假 Cancelled");
+-    assert_eq!(report.exit_code, 0);
+-    assert_eq!(report.stdout, b"done");
+-}
+-
+-// ---------------------------------------------------------------------------
+-// 边界：被杀两臂的 pid 回收（AC-3 / AC-4）
+-// ---------------------------------------------------------------------------
+-
+-/// 边界（AC-3）：超时臂的 pid 回收——桩 shim 先落自身 pid 再自旋，预算到期
+-/// 后 `kill_tree` 使目标 pid 消失（墙钟上界断言不悬挂）。
+-///
+-/// 装置说明：Windows 侧 shim 经 msys bash 承载，`bash &` 起的子孙在 Win32 进程
+-/// 树上不体现为该 bash 的子孙（msys fork 的中间进程），故 pid 断言收敛到
+-/// **直接子进程**——这正是 `run_shell` 契约里 `kill_tree(child.id())` 的可稳定
+-/// 观测面；`taskkill /T /F` 的整树语义由代码审查承接（不构造会遗留孤儿的
+-/// 假树装置，避免装置污染影响其它用例）。
+-#[tokio::test]
+-async fn 超时臂_pid消失且墙钟上界() {
+-    let ws = ShimWs::new("timeout-pid");
+-    let pid_file = ws.file("pid.txt");
+-    let command = ws.shim(
+-        "spin-pid.sh",
+-        &format!(
+-            "#!/bin/sh\nwin=$(cat \"/proc/$$/winpid\" 2>/dev/null || printf '%s' \"$$\")\nprintf '%s' \"$win\" > \"{}\"\nwhile :; do sleep 0.1; done\n",
+-            pid_file.display()
+-        ),
+-    );
+-
+-    let started = Instant::now();
+-    let runner = tokio::spawn(async move { run_shell(command, options(Duration::from_secs(3))).await });
+-
+-    let mut pid = None;
+-    for _ in 0..200 {
+-        if let Some(value) = ws.read_pid("pid.txt") {
+-            pid = Some(value);
+-            break;
+-        }
+-        tokio::time::sleep(Duration::from_millis(25)).await;
+-    }
+-    let pid = pid.expect("桩 shim 应落 pid 文件");
+-
+-    let report = runner
+-        .await
+-        .expect("run_shell 任务应正常结束")
+-        .expect("超时臂应返回报告");
+-    let elapsed = started.elapsed();
+-    assert_eq!(report.outcome, RunOutcome::TimedOut);
+-    assert_eq!(report.exit_code, -1);
+-    assert!(
+-        wait_pid_gone(pid, Duration::from_secs(10)),
+-        "超时被杀后目标 pid {pid} 应消失（kill_tree 生效）"
+-    );
+-    assert!(
+-        elapsed < Duration::from_secs(60),
+-        "被杀臂有界收尾（墙钟 {elapsed:?}）"
+-    );
+-}
+-
+-// ---------------------------------------------------------------------------
+-// 边界：轮询粒度与收尾上界常量锚定
+-// ---------------------------------------------------------------------------
+-
+-/// 边界（表驱动 2 常量）：`CANCEL_POLL_INTERVAL` = 200 ms（轮询粒度）与
+-/// `FINISH_GRACE` = 2 s（有界收尾上界）由常量钉死——取值改动即被击杀。
+-#[test]
+-fn 轮询与收尾上界常量锚定() {
+-    assert_eq!(
+-        CANCEL_POLL_INTERVAL,
+-        Duration::from_millis(200),
+-        "取消轮询粒度 200 ms"
+-    );
+-    assert_eq!(
+-        FINISH_GRACE,
+-        Duration::from_secs(2),
+-        "杀后收尾上界 2 s"
+-    );
+-    assert!(
+-        CANCEL_POLL_INTERVAL > Duration::ZERO && CANCEL_POLL_INTERVAL < FINISH_GRACE,
+-        "轮询粒度为正且远小于收尾上界（不构成空转）"
+-    );
+-}
+-
+-/// 报告类型面：`RunReport` 的 `PartialEq` / `Clone` / `Debug` 可比较且逐字段
+-/// 可断言（`TimedOut` / `Cancelled` 与「无可读退出码」同记 `-1`）。
+-#[test]
+-fn run_report字段面可比较且哨兵同值() {
+-    let report = RunReport {
+-        outcome: RunOutcome::TimedOut,
+-        exit_code: -1,
+-        stdout: b"partial".to_vec(),
+-        stderr: Vec::new(),
+-    };
+-    let clone = report.clone();
+-    assert_eq!(clone, report, "RunReport 逐字段相等");
+-    assert_eq!(clone.exit_code, -1, "超时与无可读退出码同记 -1");
+-
+-    let cancelled = RunReport {
+-        outcome: RunOutcome::Cancelled,
+-        exit_code: -1,
+-        stdout: Vec::new(),
+-        stderr: Vec::new(),
+-    };
+-    assert_ne!(cancelled, report, "结局不同即不等");
+-    assert!(format!("{report:?}").contains("TimedOut"), "Debug 渲染结局");
+-}
++//! 统一执行体 [`run_shell`] 测试：真实子进程（POSIX shim 经 `resolve_shell`
++//! 探测的解释器拉起）+ 真实 `exec::kill_tree`，零 spawn mock。
++//!
++//! 覆盖面：三值结局（`Completed` / `TimedOut` / `Cancelled`）、退出码透传、
++//! 双管道并发排水（不互锁不丢字节）、`cwd` / `env` 施加、被杀两臂的进程回收与
++//! 墙钟上界、`RunError` 文案与 `RunOptions` / `RunOutcome` 类型面。
++//!
++//! 时钟（两类装置，按「断言是否依赖虚拟时间」分）：
++//! - **超时臂**：`#[tokio::test(start_paused = true)]` + 手动 `advance`（沿
++//!   `mutation/*_test.rs` 既有先例）——不真等预算，且「计时器先到」正是被测语义；
++//! - **退避 / 预算面**（[`退避序列_前两段各消费一次`] /
++//!   [`预算耗尽早停不发起新尝试`] / [`零预算首跑后即耗尽`] /
++//!   [`单次等价回归_逐字节同改造前`]）：`start_paused = true` + [`ClockGate`]
++//!   抑制 tokio 的「空闲即自动推进」+ 手动 `advance`。抑制是必需的：真实子进程在
++//!   暂停时钟下等待时，运行时空转会把虚拟时间按 `CANCEL_POLL_INTERVAL` 粒度成百倍
++//!   推进（实测 0.4 s 真实 → 100 s 虚拟），使「退避恰为 1 s / 2 s」「预算恰好耗尽于
++//!   第 N 次」这类断言失去确定性；闸门在位时虚拟时间**只随测试的 `advance` 前进**，
++//!   故退避段与「每次尝试耗时」都可按段精确表达，且不依赖任何真实墙钟绝对量。
++//! - **取消臂 / 落 pid 臂**：真实时钟（语义本就是「轮询观测」，暂停时钟会让虚拟
++//!   时间先于真实子进程落盘 pid 而抢跑）。该两臂的断言只用结构性事实（结局 /
++//!   次数 / pid 消失 / 标记文件）与**宽松上界**（覆盖 msys bash 单次启动 1.3–1.8 s
++//!   的装置成本，仍保有界语义），不断言真实耗时的绝对量。
++
++use std::ffi::OsString;
++use std::path::{Path, PathBuf};
++use std::time::{Duration, Instant};
++
++use foundation::cancel::CancelFlag;
++use tempfile::TempDir;
++
++use super::{
++    run_shell, RunError, RunOptions, RunOutcome, RunReport, CANCEL_POLL_INTERVAL, FINISH_GRACE,
++};
++use crate::transient::RetryPolicy;
++use crate::SystemCommand;
++
++// ---------------------------------------------------------------------------
++// 装置：临时 workspace + POSIX shim（解释器经 `resolve_shell` 探测）+ pid 探测
++// ---------------------------------------------------------------------------
++
++/// 测试 workspace：临时目录（shim 脚本 / payload / pid 文件落位）。
++struct ShimWs {
++    dir: TempDir,
++}
++
++impl ShimWs {
++    fn new(tag: &str) -> Self {
++        let dir = tempfile::Builder::new()
++            .prefix(&format!("exec-run-{tag}-"))
++            .tempdir()
++            .expect("创建临时 workspace 失败");
++        Self { dir }
++    }
++
++    fn path(&self) -> &Path {
++        self.dir.path()
++    }
++
++    fn file(&self, name: &str) -> PathBuf {
++        self.path().join(name)
++    }
++
++    /// 落盘文本文件（payload / 标记 / 任何被 shim 读取的原料）。
++    fn put(&self, name: &str, body: &str) -> PathBuf {
++        let path = self.file(name);
++        std::fs::write(&path, body).expect("写临时文件失败");
++        path
++    }
++
++    fn put_bytes(&self, name: &str, body: &[u8]) -> PathBuf {
++        let path = self.file(name);
++        std::fs::write(&path, body).expect("写临时二进制文件失败");
++        path
++    }
++
++    /// 落盘 POSIX shim 脚本并返回可直拉的命令（解释器 + 脚本绝对路径）。
++    fn shim(&self, name: &str, body: &str) -> SystemCommand {
++        let path = self.put(name, body);
++        interpreter_command(&path)
++    }
++
++    fn read_pid(&self, name: &str) -> Option<u32> {
++        std::fs::read_to_string(self.file(name))
++            .ok()
++            .and_then(|text| text.trim().parse().ok())
++    }
++}
++
++/// 解释器命令：Windows 走 `resolve_shell` 探测到的 Git bash（POSIX 语义统一
++/// 两平台），unix 走 `sh`。脚本文件为唯一入参（无 shell 转义面）。
++fn interpreter_command(script: &Path) -> SystemCommand {
++    SystemCommand::bare(interpreter()).arg(script)
++}
++
++#[cfg(windows)]
++fn interpreter() -> OsString {
++    match crate::resolve_shell() {
++        crate::ShellBase::GitBash(path) => path.into_os_string(),
++        _ => panic!("run_test 需要 Git for Windows bash（resolve_shell 未探测到 GitBash）"),
++    }
++}
++
++#[cfg(not(windows))]
++fn interpreter() -> OsString {
++    OsString::from("sh")
++}
++
++/// 缺省执行入参（`cwd = None` / `env = []` / `cancel = never()`）。
++fn options(timeout: Duration) -> RunOptions {
++    RunOptions {
++        cwd: None,
++        env: Vec::new(),
++        timeout,
++        cancel: CancelFlag::never(),
++        retry: RetryPolicy::none(),
++    }
++}
++
++/// pid 存活探测（Windows `tasklist`、unix `kill -0`）。
++#[cfg(windows)]
++fn pid_alive(pid: u32) -> bool {
++    let output = std::process::Command::new("tasklist")
++        .args(["/FI", &format!("PID eq {pid}"), "/NH", "/FO", "CSV"])
++        .output();
++    match output {
++        Ok(output) => String::from_utf8_lossy(&output.stdout).contains(&pid.to_string()),
++        Err(_) => false,
++    }
++}
++
++#[cfg(not(windows))]
++fn pid_alive(pid: u32) -> bool {
++    std::process::Command::new("kill")
++        .args(["-0", &pid.to_string()])
++        .status()
++        .map(|status| status.success())
++        .unwrap_or(false)
++}
++
++/// 等待 pid 消失（杀树是尽力语义 + 平台回收时延，轮询到上界即判定仍存活）。
++fn wait_pid_gone(pid: u32, budget: Duration) -> bool {
++    let deadline = Instant::now() + budget;
++    while Instant::now() < deadline {
++        if !pid_alive(pid) {
++            return true;
++        }
++        std::thread::sleep(Duration::from_millis(50));
++    }
++    !pid_alive(pid)
++}
++
++/// 路径归一（bash `pwd -W` 的 `C:/x` 与 `pwd` 的 `/c/x` 与宿主 cwd 同形比较）。
++fn normalize_path(raw: &str) -> String {
++    let lowered = raw.trim().replace('\\', "/").to_lowercase();
++    let trimmed = lowered
++        .strip_prefix("/c/")
++        .or_else(|| lowered.strip_prefix("c:/"))
++        .map(str::to_owned)
++        .unwrap_or(lowered);
++    trimmed.trim_end_matches('/').to_owned()
++}
++
++// ---------------------------------------------------------------------------
++// 正向：单流 / 退出码谱 / 双缓冲不合流
++// ---------------------------------------------------------------------------
++
++/// 正向：单流正常退出——`Completed` + `exit_code == 0` + stdout 含回显文本 +
++/// stderr 空（缺省 `cwd = None` / `env = []` / `cancel = never()`）。
++#[tokio::test]
++async fn 单流正向_回显文本且零退出() {
++    let report = run_shell(
++        SystemCommand::script("echo hi"),
++        options(Duration::from_secs(30)),
++    )
++    .await
++    .expect("正常退出应 Ok");
++
++    assert_eq!(report.outcome, RunOutcome::Completed);
++    assert_eq!(report.exit_code, 0, "零退出码直传");
++    let stdout = String::from_utf8_lossy(&report.stdout);
++    assert!(stdout.contains("hi"), "stdout 含回显文本: {stdout:?}");
++    assert!(report.stderr.is_empty(), "零 stderr: {:?}", report.stderr);
++}
++
++/// 正向（参数化 4 值）：退出码谱 `0 / 1 / 3 / 255` 逐值等值透传——`outcome`
++/// 恒 `Completed`（非零退出不是执行体失败面），哨兵 `-1` 不被非零码误用。
++#[tokio::test]
++async fn 退出码谱_逐值等值透传且不用哨兵() {
++    for code in [0i32, 1, 3, 255] {
++        let report = run_shell(
++            SystemCommand::script(&format!("exit {code}")),
++            options(Duration::from_secs(30)),
++        )
++        .await
++        .unwrap_or_else(|error| panic!("exit {code} 应跑完并返回报告: {error}"));
++
++        assert_eq!(report.outcome, RunOutcome::Completed, "exit {code} 仍为 Completed");
++        assert_eq!(report.exit_code, code, "退出码逐值透传（exit {code}）");
++        assert_ne!(report.exit_code, -1, "谱内退出码不得与哨兵 -1 混淆");
++    }
++}
++
++/// 正向：双缓冲不合流——执行体不做 `2>&1`、不拼接：stdout / stderr 各自只含
++/// 本路字节（D14）。
++#[tokio::test]
++async fn 双缓冲不合流_两路各自只含本路字节() {
++    let ws = ShimWs::new("split");
++    let command = ws.shim(
++        "split.sh",
++        "#!/bin/sh\nprintf 'OUT-TOKEN'\nprintf 'ERR-TOKEN' >&2\n",
++    );
++
++    let report = run_shell(command, options(Duration::from_secs(30)))
++        .await
++        .expect("正常退出应 Ok");
++    assert_eq!(report.outcome, RunOutcome::Completed);
++    assert_eq!(report.stdout, b"OUT-TOKEN", "stdout 只含本路字节");
++    assert_eq!(report.stderr, b"ERR-TOKEN", "stderr 只含本路字节");
++}
++
++// ---------------------------------------------------------------------------
++// 正向 / 边界：cwd 与 env 施加
++// ---------------------------------------------------------------------------
++
++/// 正向（表驱动 2 形态）：`cwd` 生效——`Some(tempdir)` 使相对路径探测命中；
++/// `None` 继承测试进程 cwd（同一探测在该目录不存在）。
++#[tokio::test]
++async fn cwd生效_some施加与none继承两形态() {
++    let ws = ShimWs::new("cwd");
++    ws.put("probe.txt", "probe-body");
++    let command_body = "#!/bin/sh\ncat probe.txt 2>/dev/null || printf 'MISS'\n";
++
++    // 形态一：cwd = Some(tempdir) → 相对路径探测命中
++    let mut with_cwd = options(Duration::from_secs(30));
++    with_cwd.cwd = Some(ws.path().to_path_buf());
++    let report = run_shell(ws.shim("probe.sh", command_body), with_cwd)
++        .await
++        .expect("cwd 施加后应 Ok");
++    assert_eq!(report.outcome, RunOutcome::Completed);
++    assert_eq!(
++        String::from_utf8_lossy(&report.stdout),
++        "probe-body",
++        "Some(tempdir) 使相对路径探测命中（current_dir 施加生效）"
++    );
++
++    // 形态二：cwd = None → 继承测试进程 cwd，探测目录不同 → 未命中
++    let report = run_shell(
++        ws.shim("probe-inherit.sh", command_body),
++        options(Duration::from_secs(30)),
++    )
++    .await
++    .expect("继承 cwd 应 Ok");
++    assert_eq!(report.outcome, RunOutcome::Completed);
++    assert_ne!(
++        String::from_utf8_lossy(&report.stdout),
++        "probe-body",
++        "cwd = None 时相对探测不落在临时目录（继承测试进程 cwd）"
++    );
++}
++
++/// 边界（表驱动 2 形态）：`cwd = None` 的继承面以 `pwd` 回显归一后与测试进程
++/// cwd 相等（`pwd -W` 的 `C:/x` 与宿主 `C:\x` 归一后同形）。
++#[tokio::test]
++async fn cwd为none时回显与测试进程cwd同形() {
++    let ws = ShimWs::new("cwd-pwd");
++    let command = ws.shim(
++        "pwd.sh",
++        "#!/bin/sh\nwin=$(pwd -W 2>/dev/null) && [ -n \"$win\" ] && printf '%s' \"$win\" || printf '%s' \"$(pwd)\"\n",
++    );
++    let report = run_shell(command, options(Duration::from_secs(30)))
++        .await
++        .expect("pwd 应 Ok");
++
++    let printed = String::from_utf8_lossy(&report.stdout).to_string();
++    let expected = std::env::current_dir()
++        .expect("取测试进程 cwd")
++        .to_string_lossy()
++        .to_string();
++    assert_eq!(
++        normalize_path(&printed),
++        normalize_path(&expected),
++        "cwd = None 继承测试进程 cwd（printed={printed:?} expected={expected:?}）"
++    );
++}
++
++/// 正向：`env` 生效——shim 回显 `RSE_MARK` 得 `on`；父进程环境不因
++/// `RunOptions.env` 被污染（逐次施加，进程级零写入）。
++#[tokio::test]
++async fn env生效_标记回显且父进程不污染() {
++    let ws = ShimWs::new("env");
++    let command = ws.shim("env.sh", "#!/bin/sh\nprintf '%s' \"${RSE_MARK:-unset}\"\n");
++
++    let mut with_env = options(Duration::from_secs(30));
++    with_env.env = vec![(OsString::from("RSE_MARK"), OsString::from("on"))];
++    let report = run_shell(command, with_env).await.expect("env 用例应 Ok");
++
++    assert_eq!(report.outcome, RunOutcome::Completed);
++    assert_eq!(String::from_utf8_lossy(&report.stdout), "on", "shim 回显 env 值");
++    assert!(
++        std::env::var_os("RSE_MARK").is_none(),
++        "RunOptions.env 逐次施加，不写入父进程环境"
++    );
++}
++
++/// 边界（表驱动 4 形态）：`env` 规模与形态——空 / 单元素 / ≥50 项 / 重复键
++/// （后值覆盖前值）四种形态均 `Completed` 且回显符合预期。
++#[tokio::test]
++async fn env规模与形态_空单元素大清单与重复键() {
++    let ws = ShimWs::new("env-scale");
++
++    // 形态一：空 env（全继承）
++    let empty = ws.shim("env-empty.sh", "#!/bin/sh\nprintf '%s' \"${RSE_MARK:-unset}\"\n");
++    let report = run_shell(empty, options(Duration::from_secs(30)))
++        .await
++        .expect("空 env 应 Ok");
++    assert_eq!(report.outcome, RunOutcome::Completed);
++    assert_eq!(String::from_utf8_lossy(&report.stdout), "unset", "空 env 不注入键");
++
++    // 形态二：单元素
++    let single = ws.shim("env-single.sh", "#!/bin/sh\nprintf '%s' \"$RSE_MARK\"\n");
++    let mut with_single = options(Duration::from_secs(30));
++    with_single.env = vec![(OsString::from("RSE_MARK"), OsString::from("one"))];
++    let report = run_shell(single, with_single)
++        .await
++        .expect("单元素 env 应 Ok");
++    assert_eq!(String::from_utf8_lossy(&report.stdout), "one");
++
++    // 形态三：≥50 项
++    let large = ws.shim("env-large.sh", "#!/bin/sh\nprintf '%s' \"$RSE_K49\"\n");
++    let mut with_large = options(Duration::from_secs(30));
++    with_large.env = (0..50)
++        .map(|index| {
++            (
++                OsString::from(format!("RSE_K{index}")),
++                OsString::from(format!("v{index}")),
++            )
++        })
++        .collect();
++    let report = run_shell(large, with_large)
++        .await
++        .expect("大清单 env 应 Ok");
++    assert_eq!(report.outcome, RunOutcome::Completed);
++    assert_eq!(String::from_utf8_lossy(&report.stdout), "v49", "第 50 项可见");
++
++    // 形态四：重复键（后值覆盖前值）
++    let dup = ws.shim("env-dup.sh", "#!/bin/sh\nprintf '%s' \"$RSE_DUP\"\n");
++    let mut with_dup = options(Duration::from_secs(30));
++    with_dup.env = vec![
++        (OsString::from("RSE_DUP"), OsString::from("first")),
++        (OsString::from("RSE_DUP"), OsString::from("second")),
++    ];
++    let report = run_shell(dup, with_dup).await.expect("重复键 env 应 Ok");
++    assert_eq!(
++        String::from_utf8_lossy(&report.stdout),
++        "second",
++        "重复键后值覆盖前值"
++    );
++}
++
++// ---------------------------------------------------------------------------
++// 异常：Spawn 面与文案
++// ---------------------------------------------------------------------------
++
++/// 异常：`cwd` 指向不存在的目录 → `Err(RunError::Spawn(_))`，`Display` 以
++/// 「拉起失败: 」起头（`current_dir` 施加期失败归 `Spawn` 面）。
++#[tokio::test]
++async fn cwd不存在目录_spawn面报错且文案起头() {
++    let ws = ShimWs::new("cwd-missing");
++    let missing = ws.path().join("no-such-dir").join("nested");
++    let mut with_cwd = options(Duration::from_secs(30));
++    with_cwd.cwd = Some(missing);
++
++    let error = run_shell(
++        SystemCommand::script("echo hi"),
++        with_cwd,
++    )
++    .await
++    .expect_err("不存在 cwd 应 Spawn 失败");
++    match &error {
++        RunError::Spawn(_) => {}
++        other => panic!("不存在 cwd 应 Spawn 面，实际 {other:?}"),
++    }
++    assert!(
++        error.to_string().starts_with("拉起失败: "),
++        "Spawn 文案以类别词起头: {error}"
++    );
++}
++
++/// 异常：程序不可达 → `Err(RunError::Spawn(_))`；`Display` 只承载类别词 +
++/// `io::Error` 原文，不含任何调用点语境前缀（D1：语境由调用点拼）。
++#[tokio::test]
++async fn 程序不可达_spawn面文案无调用点语境() {
++    let error = run_shell(
++        SystemCommand::bare("no-such-program-xyz-9f3"),
++        options(Duration::from_secs(30)),
++    )
++    .await
++    .expect_err("不可达程序应 Spawn 失败");
++
++    match &error {
++        RunError::Spawn(_) => {}
++        other => panic!("不可达程序应 Spawn 面，实际 {other:?}"),
++    }
++    let rendered = error.to_string();
++    assert!(rendered.starts_with("拉起失败: "), "类别词起头: {rendered}");
++    for caller_context in ["static-check", "测试命令", "cargo-mutants", "Stryker", "段执行"] {
++        assert!(
++            !rendered.contains(caller_context),
++            "调用点语境不入执行体文案（{caller_context}）: {rendered}"
++        );
++    }
++    assert!(
++        rendered.len() > "拉起失败: ".len(),
++        "承载 io::Error 原文: {rendered}"
++    );
++}
++
++/// 异常：`RunError` 两变体渲染——`Spawn` → 「拉起失败: {e}」、`Wait` →
++/// 「等待失败: {e}」（真实 `child.wait()` io 失败不可稳定构造，此处直构变体）。
++#[test]
++fn run_error两变体渲染同型() {
++    let spawn = RunError::Spawn("<io-spawn>".to_owned());
++    assert_eq!(spawn.to_string(), "拉起失败: <io-spawn>");
++    let wait = RunError::Wait("<io-wait>".to_owned());
++    assert_eq!(wait.to_string(), "等待失败: <io-wait>");
++
++    // 变体区分（`PartialEq` 派生）
++    assert_ne!(spawn, wait, "两变体互不相等");
++    assert_eq!(spawn.clone(), RunError::Spawn("<io-spawn>".to_owned()));
++    // 空载荷边界：类别词仍完整（无空串 panic）
++    assert_eq!(RunError::Wait(String::new()).to_string(), "等待失败: ");
++}
++
++// ---------------------------------------------------------------------------
++// 边界：类型面 / 空脚本 / 超长串 / 特殊字符 / 非 UTF-8 / 输出规模
++// ---------------------------------------------------------------------------
++
++/// 边界：`RunOptions` 四字段面（`cwd` / `env` / `timeout` / `cancel` 无一缺省，
++/// `timeout` 必填）+ `Debug` / `Clone` 派生。
++#[test]
++fn run_options四字段面与派生() {
++    let options = RunOptions {
++        cwd: Some(PathBuf::from("/tmp/exec-run-field")),
++        env: vec![(OsString::from("K"), OsString::from("V"))],
++        timeout: Duration::from_millis(1500),
++        cancel: CancelFlag::never(),
++        retry: RetryPolicy::none(),
++    };
++    let cloned = options.clone();
++    assert_eq!(cloned.timeout, Duration::from_millis(1500), "timeout 逐值保留");
++    assert_eq!(cloned.cwd, options.cwd, "cwd 逐值保留");
++    assert_eq!(cloned.env, options.env, "env 逐值保留");
++    assert_eq!(cloned.cancel, options.cancel, "cancel 身份保留（同一原子）");
++
++    // cwd 的 None 形态同样可表达且可克隆
++    let none_cwd = RunOptions {
++        cwd: None,
++        env: Vec::new(),
++        timeout: Duration::from_secs(1),
++        cancel: CancelFlag::never(),
++        retry: RetryPolicy::none(),
++    };
++    assert!(none_cwd.clone().cwd.is_none(), "cwd = None 形态保留");
++
++    let debug = format!("{options:?}");
++    for field in ["cwd", "env", "timeout", "cancel"] {
++        assert!(debug.contains(field), "Debug 字段面含 {field}: {debug}");
++    }
++}
++
++/// 边界：`RunOutcome` 三值遍历——分支可区分、`Copy` + `Eq` 语义成立（封闭集，
++/// 无非法值臂）。
++#[test]
++fn run_outcome三值遍历与copy_eq语义() {
++    let values = [
++        RunOutcome::Completed,
++        RunOutcome::TimedOut,
++        RunOutcome::Cancelled,
++    ];
++    for value in values {
++        let copied = value; // Copy：无需 clone 即可复制
++        assert!(copied == value, "{value:?} 自反相等");
++
++        let matched = match copied {
++            RunOutcome::Completed => "completed",
++            RunOutcome::TimedOut => "timed-out",
++            RunOutcome::Cancelled => "cancelled",
++        };
++        let expected = match value {
++            RunOutcome::Completed => "completed",
++            RunOutcome::TimedOut => "timed-out",
++            RunOutcome::Cancelled => "cancelled",
++        };
++        assert_eq!(matched, expected, "三值分支可区分");
++    }
++    assert_ne!(RunOutcome::Completed, RunOutcome::TimedOut);
++    assert_ne!(RunOutcome::TimedOut, RunOutcome::Cancelled);
++    assert_ne!(RunOutcome::Cancelled, RunOutcome::Completed);
++}
++
++/// 边界：空脚本——`Completed` + 壳退出码 `0` + 两路输出皆空（不 panic）。
++#[tokio::test]
++async fn 空脚本_零退出与双空输出() {
++    let report = run_shell(
++        SystemCommand::script(""),
++        options(Duration::from_secs(30)),
++    )
++    .await
++    .expect("空脚本应 Ok");
++    assert_eq!(report.outcome, RunOutcome::Completed);
++    assert_eq!(report.exit_code, 0, "空脚本壳退出码 0");
++    assert!(report.stdout.is_empty(), "stdout 空: {:?}", report.stdout);
++    assert!(report.stderr.is_empty(), "stderr 空: {:?}", report.stderr);
++}
++
++/// 边界：超长命令串（>1000 字符）——`Completed` 且 stdout 逐字全量（不截断、
++/// 不改写）。
++#[tokio::test]
++async fn 超长命令串_输出逐字全量不截断() {
++    let token = "z".repeat(1200);
++    let report = run_shell(
++        SystemCommand::script(&format!("echo {token}")),
++        options(Duration::from_secs(30)),
++    )
++    .await
++    .expect("超长命令串应 Ok");
++
++    assert_eq!(report.outcome, RunOutcome::Completed);
++    let stdout = String::from_utf8_lossy(&report.stdout).to_string();
++    assert!(
++        stdout.contains(&token),
++        "1200 字符 token 逐字全量（实际长度 {}）",
++        stdout.trim_end().len()
++    );
++}
++
++/// 边界（参数化 3 形态）：特殊字符输出——引号 / 换行 / emoji 逐字节保留
++/// （执行体零转义、零归一化）。
++#[tokio::test]
++async fn 特殊字符输出_字节逐字相等() {
++    let cases: [(&str, &[u8]); 3] = [
++        ("引号", "he said \"hi\" and 'bye'".as_bytes()),
++        ("换行", b"line-1\nline-2\n\nline-4\n"),
++        ("emoji", "🎉 完成 ✅ rocket 🚀".as_bytes()),
++    ];
++    for (label, payload) in cases {
++        let ws = ShimWs::new("special");
++        let payload_path = ws.put_bytes("payload.bin", payload);
++        let command = ws.shim(
++            "special.sh",
++            &format!("#!/bin/sh\ncat \"{}\"\n", payload_path.display()),
++        );
++        let report = run_shell(command, options(Duration::from_secs(30)))
++            .await
++            .unwrap_or_else(|error| panic!("{label} 用例应 Ok: {error}"));
++
++        assert_eq!(report.outcome, RunOutcome::Completed, "{label}: Completed");
++        assert_eq!(report.stdout, payload, "{label}: stdout 字节逐字相等");
++        assert!(report.stderr.is_empty(), "{label}: stderr 空");
++    }
++}
++
++/// 边界：非 UTF-8 原始字节——shim 输出 `0xFF 0xFE` 等裸字节，执行体不做
++/// UTF-8 假设、不做 lossy 转换，原始字节逐字保留。
++#[tokio::test]
++async fn 非utf8原始字节_逐字保留() {
++    let ws = ShimWs::new("non-utf8");
++    let command = ws.shim("raw.sh", "#!/bin/sh\nprintf 'a\\377\\376b'\n");
++    let report = run_shell(command, options(Duration::from_secs(30)))
++        .await
++        .expect("非 UTF-8 输出应 Ok");
++
++    assert_eq!(report.outcome, RunOutcome::Completed);
++    assert_eq!(
++        report.stdout,
++        vec![b'a', 0xFF, 0xFE, b'b'],
++        "非 UTF-8 字节逐字保留（无 lossy 转换）"
++    );
++    assert!(
++        std::str::from_utf8(&report.stdout).is_err(),
++        "输出确为非 UTF-8 形态"
++    );
++}
++
++/// 边界（表驱动 4 形态）：输出规模边界——双空 / 仅 stdout 单字节 / 仅 stderr
++/// 单字节 / 双大块 → `RunReport` 逐字节等值、`Completed`。
++#[tokio::test]
++async fn 输出规模边界_四形态逐字节等值() {
++    let big = 64 * 1024 + 1024;
++    let cases: [(&str, String, Vec<u8>, Vec<u8>); 4] = [
++        (
++            "双空",
++            "#!/bin/sh\nexit 0\n".to_owned(),
++            Vec::new(),
++            Vec::new(),
++        ),
++        (
++            "仅 stdout 单字节",
++            "#!/bin/sh\nprintf 'S'\n".to_owned(),
++            b"S".to_vec(),
++            Vec::new(),
++        ),
++        (
++            "仅 stderr 单字节",
++            "#!/bin/sh\nprintf 'E' >&2\n".to_owned(),
++            Vec::new(),
++            b"E".to_vec(),
++        ),
++        (
++            "双大块",
++            format!("#!/bin/sh\nprintf '%s' \"{0}\"\nprintf '%s' \"{0}\" >&2\n", "q".repeat(big)),
++            vec![b'q'; big],
++            vec![b'q'; big],
++        ),
++    ];
++
++    for (label, body, expected_stdout, expected_stderr) in cases {
++        let ws = ShimWs::new("sizes");
++        let report = run_shell(ws.shim("sizes.sh", &body), options(Duration::from_secs(60)))
++            .await
++            .unwrap_or_else(|error| panic!("{label} 应 Ok: {error}"));
++
++        assert_eq!(report.outcome, RunOutcome::Completed, "{label}: Completed");
++        assert_eq!(report.stdout.len(), expected_stdout.len(), "{label}: stdout 长度");
++        assert_eq!(report.stderr.len(), expected_stderr.len(), "{label}: stderr 长度");
++        assert_eq!(report.stdout, expected_stdout, "{label}: stdout 逐字节等值");
++        assert_eq!(report.stderr, expected_stderr, "{label}: stderr 逐字节等值");
++    }
++}
++
++/// 正向（AC-5）：双管道并发排水不互锁——shim 交替向 stdout / stderr 各写
++/// >64 KiB（超过管道缓冲；单线程顺序读会互锁）→ 两路字节数精确等于写量
++/// （不丢字节）+ 墙钟上界断言（不互锁）。
++#[tokio::test]
++async fn 双管道并发不互锁_两路大块不丢字节() {
++    const CHUNK: usize = 2048;
++    const ROUNDS: usize = 40; // 40 × 2048 = 81,920 > 64 KiB（单路）
++    let expected = CHUNK * ROUNDS;
++
++    let ws = ShimWs::new("dual-pipe");
++    let body = format!(
++        "#!/bin/sh\npayload='{payload}'\ni=0\nwhile [ \"$i\" -lt {rounds} ]; do\n  printf '%s' \"$payload\"\n  printf '%s' \"$payload\" >&2\n  i=$((i+1))\ndone\n",
++        payload = "p".repeat(CHUNK),
++        rounds = ROUNDS,
++    );
++    let command = ws.shim("dual.sh", &body);
++
++    let started = Instant::now();
++    let report = run_shell(command, options(Duration::from_secs(120)))
++        .await
++        .expect("双管道并发应 Ok");
++    let elapsed = started.elapsed();
++
++    assert_eq!(report.outcome, RunOutcome::Completed);
++    assert_eq!(report.stdout.len(), expected, "stdout 不丢字节（{expected} 字节）");
++    assert_eq!(report.stderr.len(), expected, "stderr 不丢字节（{expected} 字节）");
++    assert!(report.stdout.iter().all(|byte| *byte == b'p'), "stdout 内容形态");
++    assert!(report.stderr.iter().all(|byte| *byte == b'p'), "stderr 内容形态");
++    assert!(
++        elapsed < Duration::from_secs(90),
++        "并发排水不互锁（墙钟上界 {elapsed:?}）"
++    );
++}
++
++// ---------------------------------------------------------------------------
++// 正向：超时臂（AC-3）
++// ---------------------------------------------------------------------------
++
++/// 正向（AC-3）：超时 → `TimedOut` + `exit_code == -1`，墙钟上界（虚拟时钟推进
++/// 触发，不真等预算；`kill_tree` + `FINISH_GRACE` 有界收尾）。
++#[tokio::test(start_paused = true)]
++async fn 超时臂_timedout与哨兵负一且不悬挂() {
++    let ws = ShimWs::new("timeout");
++    let command = ws.shim("spin.sh", "#!/bin/sh\nwhile :; do sleep 0.05; done\n");
++
++    tokio::spawn(async {
++        tokio::task::yield_now().await;
++        tokio::time::advance(Duration::from_secs(31)).await;
++    });
++
++    let started = Instant::now();
++    let report = run_shell(command, options(Duration::from_secs(30)))
++        .await
++        .expect("超时应返回报告而非 Err");
++    let elapsed = started.elapsed();
++
++    assert_eq!(report.outcome, RunOutcome::TimedOut, "到点 → TimedOut");
++    assert_eq!(report.exit_code, -1, "超时记 -1 哨兵（MUST NOT 回落 0）");
++    assert!(
++        elapsed < Duration::from_secs(30),
++        "有界收尾不悬挂（墙钟 {elapsed:?}）"
++    );
++}
++
++/// 边界（AC-3 / D6）：被杀臂输出不完整但 `RunReport` 正常返回——自旋 shim 在
++/// 超时前已刷出部分字节 → `TimedOut` 臂不 panic、不悬挂（完整性不断言）。
++#[tokio::test(start_paused = true)]
++async fn 超时臂_部分输出可返回不panic() {
++    let ws = ShimWs::new("timeout-partial");
++    let command = ws.shim(
++        "spin-partial.sh",
++        "#!/bin/sh\nprintf 'partial-before-timeout'\nwhile :; do sleep 0.05; done\n",
++    );
++
++    tokio::spawn(async {
++        tokio::task::yield_now().await;
++        tokio::time::advance(Duration::from_secs(31)).await;
++    });
++
++    let started = Instant::now();
++    let report = run_shell(command, options(Duration::from_secs(30)))
++        .await
++        .expect("超时臂应返回报告");
++    assert_eq!(report.outcome, RunOutcome::TimedOut);
++    assert_eq!(report.exit_code, -1);
++    assert!(
++        started.elapsed() < Duration::from_secs(30),
++        "被杀臂不悬挂"
++    );
++    // 部分输出或空输出皆合法（不完整面在两被杀臂无消费者）；此处只断言可读回
++    let _ = String::from_utf8_lossy(&report.stdout);
++    let _ = String::from_utf8_lossy(&report.stderr);
++}
++
++// ---------------------------------------------------------------------------
++// 正向：取消臂（AC-4 / D4）
++// ---------------------------------------------------------------------------
++
++/// 正向（AC-4 / D4）：已置位 cancel 的入口短路——不 spawn、墙钟近零、零输出。
++#[tokio::test]
++async fn 已置位cancel_入口短路零spawn() {
++    let ws = ShimWs::new("cancel-pre");
++    let marker = ws.file("executed.txt");
++    let body = format!(
++        "#!/bin/sh\nprintf 'ran' > \"{}\"\nexit 0\n",
++        marker.display()
++    );
++    let command = ws.shim("marker.sh", &body);
++
++    let cancel = CancelFlag::never();
++    cancel.handle().set();
++    let mut with_cancel = options(Duration::from_secs(30));
++    with_cancel.cancel = cancel;
++
++    let started = Instant::now();
++    let report = run_shell(command, with_cancel)
++        .await
++        .expect("入口短路应 Ok");
++    let elapsed = started.elapsed();
++
++    assert_eq!(report.outcome, RunOutcome::Cancelled);
++    assert_eq!(report.exit_code, -1, "取消记 -1 哨兵");
++    assert!(report.stdout.is_empty(), "短路零输出");
++    assert!(report.stderr.is_empty(), "短路零输出");
++    assert!(!marker.exists(), "已置位 cancel 不 spawn（shim 零执行）");
++    assert!(
++        elapsed < Duration::from_secs(5),
++        "入口短路墙钟近零（不依赖轮询时序，实际 {elapsed:?}）"
++    );
++}
++
++/// 正向（AC-4）：运行中 cancel——shim 先落 pid 文件再自旋；主任务置位
++/// `CancelHandle::set()` → `Cancelled` + `exit_code == -1` + 目标 pid 消失 +
++/// 墙钟上界。
++#[tokio::test]
++async fn 运行中cancel_目标pid消失且秒级收敛() {
++    let ws = ShimWs::new("cancel-running");
++    let pid_file = ws.file("pid.txt");
++    let command = ws.shim(
++        "spin-pid.sh",
++        &format!(
++            "#!/bin/sh\nwin=$(cat \"/proc/$$/winpid\" 2>/dev/null || printf '%s' \"$$\")\nprintf '%s' \"$win\" > \"{}\"\nwhile :; do sleep 0.1; done\n",
++            pid_file.display()
++        ),
++    );
++
++    let cancel = CancelFlag::never();
++    let handle = cancel.handle();
++    let mut with_cancel = options(Duration::from_secs(120));
++    with_cancel.cancel = cancel;
++
++    let started = Instant::now();
++    let runner = tokio::spawn(async move { run_shell(command, with_cancel).await });
++
++    // 等 shim 落 pid（真实时钟：取消轮询语义本身依赖 200 ms 粒度；上界放宽到
++    // 10 s 以覆盖 msys bash 启动延迟的抖动）
++    let mut pid = None;
++    for _ in 0..400 {
++        if let Some(value) = ws.read_pid("pid.txt") {
++            pid = Some(value);
++            break;
++        }
++        tokio::time::sleep(Duration::from_millis(25)).await;
++    }
++    let pid = pid.expect("shim 应落 pid 文件（进程已建立）");
++
++    handle.set();
++    let report = runner
++        .await
++        .expect("run_shell 任务应正常结束")
++        .expect("取消臂应返回报告");
++    let elapsed = started.elapsed();
++
++    assert_eq!(report.outcome, RunOutcome::Cancelled, "置位后 → Cancelled");
++    assert_eq!(report.exit_code, -1, "取消记 -1 哨兵");
++    assert!(
++        wait_pid_gone(pid, Duration::from_secs(10)),
++        "取消后目标 pid {pid} 应消失（kill_tree 生效）"
++    );
++    assert!(
++        elapsed < Duration::from_secs(30),
++        "秒级收敛（墙钟 {elapsed:?}）"
++    );
++}
++
++/// 边界：cancel 不误杀——`never()` 全程不置位 + 正常退出脚本 → `Completed`
++/// （轮询臂零副作用，不产生假 `Cancelled`）。
++#[tokio::test]
++async fn cancel不误杀_never全程不置位() {
++    let ws = ShimWs::new("cancel-noop");
++    let command = ws.shim("normal.sh", "#!/bin/sh\nprintf 'done'\nexit 0\n");
++    let report = run_shell(command, options(Duration::from_secs(30)))
++        .await
++        .expect("常态应 Ok");
++    assert_eq!(report.outcome, RunOutcome::Completed, "不得出现假 Cancelled");
++    assert_eq!(report.exit_code, 0);
++    assert_eq!(report.stdout, b"done");
++}
++
++// ---------------------------------------------------------------------------
++// 边界：被杀两臂的 pid 回收（AC-3 / AC-4）
++// ---------------------------------------------------------------------------
++
++/// 边界（AC-3）：超时臂的 pid 回收——桩 shim 先落自身 pid 再自旋，预算到期
++/// 后 `kill_tree` 使目标 pid 消失（墙钟上界断言不悬挂）。
++///
++/// 装置说明：预算取 8 s（msys bash 单次启动 1.3–1.8 s，且并发满载时会抖动；预算
++/// 必须宽松覆盖「解释器启动 → shim 落 pid 文件」才谈得上「pid 在案后被超时杀掉」，
++/// 同时仍保有界收尾断言 60 s 与 pid 消失探针）。
++///
++/// Windows 侧 shim 经 msys bash 承载，`bash &` 起的子孙在 Win32 进程
++/// 树上不体现为该 bash 的子孙（msys fork 的中间进程），故 pid 断言收敛到
++/// **直接子进程**——这正是 `run_shell` 契约里 `kill_tree(child.id())` 的可稳定
++/// 观测面；`taskkill /T /F` 的整树语义由代码审查承接（不构造会遗留孤儿的
++/// 假树装置，避免装置污染影响其它用例）。
++#[tokio::test]
++async fn 超时臂_pid消失且墙钟上界() {
++    let ws = ShimWs::new("timeout-pid");
++    let pid_file = ws.file("pid.txt");
++    let command = ws.shim(
++        "spin-pid.sh",
++        &format!(
++            "#!/bin/sh\nwin=$(cat \"/proc/$$/winpid\" 2>/dev/null || printf '%s' \"$$\")\nprintf '%s' \"$win\" > \"{}\"\nwhile :; do sleep 0.1; done\n",
++            pid_file.display()
++        ),
++    );
++
++    let started = Instant::now();
++    let runner = tokio::spawn(async move { run_shell(command, options(Duration::from_secs(8))).await });
++
++    let mut pid = None;
++    for _ in 0..400 {
++        if let Some(value) = ws.read_pid("pid.txt") {
++            pid = Some(value);
++            break;
++        }
++        tokio::time::sleep(Duration::from_millis(25)).await;
++    }
++    let pid = pid.expect("桩 shim 应落 pid 文件");
++
++    let report = runner
++        .await
++        .expect("run_shell 任务应正常结束")
++        .expect("超时臂应返回报告");
++    let elapsed = started.elapsed();
++    assert_eq!(report.outcome, RunOutcome::TimedOut);
++    assert_eq!(report.exit_code, -1);
++    assert!(
++        wait_pid_gone(pid, Duration::from_secs(10)),
++        "超时被杀后目标 pid {pid} 应消失（kill_tree 生效）"
++    );
++    assert!(
++        elapsed < Duration::from_secs(60),
++        "被杀臂有界收尾（墙钟 {elapsed:?}）"
++    );
++}
++
++// ---------------------------------------------------------------------------
++// 边界：轮询粒度与收尾上界常量锚定
++// ---------------------------------------------------------------------------
++
++/// 边界（表驱动 2 常量）：`CANCEL_POLL_INTERVAL` = 200 ms（轮询粒度）与
++/// `FINISH_GRACE` = 2 s（有界收尾上界）由常量钉死——取值改动即被击杀。
++#[test]
++fn 轮询与收尾上界常量锚定() {
++    assert_eq!(
++        CANCEL_POLL_INTERVAL,
++        Duration::from_millis(200),
++        "取消轮询粒度 200 ms"
++    );
++    assert_eq!(
++        FINISH_GRACE,
++        Duration::from_secs(2),
++        "杀后收尾上界 2 s"
++    );
++    assert!(
++        CANCEL_POLL_INTERVAL > Duration::ZERO && CANCEL_POLL_INTERVAL < FINISH_GRACE,
++        "轮询粒度为正且远小于收尾上界（不构成空转）"
++    );
++}
++
++/// 报告类型面：`RunReport` 的 `PartialEq` / `Clone` / `Debug` 可比较且逐字段
++/// 可断言（`TimedOut` / `Cancelled` 与「无可读退出码」同记 `-1`）。
++#[test]
++fn run_report字段面可比较且哨兵同值() {
++    let report = RunReport {
++        outcome: RunOutcome::TimedOut,
++        exit_code: -1,
++        stdout: b"partial".to_vec(),
++        stderr: Vec::new(),
++        attempts: 1,
++        retried: Vec::new(),
++    };
++    let clone = report.clone();
++    assert_eq!(clone, report, "RunReport 逐字段相等");
++    assert_eq!(clone.exit_code, -1, "超时与无可读退出码同记 -1");
++
++    let cancelled = RunReport {
++        outcome: RunOutcome::Cancelled,
++        exit_code: -1,
++        stdout: Vec::new(),
++        stderr: Vec::new(),
++        attempts: 1,
++        retried: Vec::new(),
++    };
++    assert_ne!(cancelled, report, "结局不同即不等");
++    assert!(format!("{report:?}").contains("TimedOut"), "Debug 渲染结局");
++}
++
++
++// ---------------------------------------------------------------------------
++// 正向：瞬态重试面（AC-1）
++// ---------------------------------------------------------------------------
++
++/// 尝试计数读取（shim 自身落盘；未写入 → 0）。
++fn attempt_count(ws: &ShimWs, counter: &str) -> u32 {
++    std::fs::read_to_string(ws.file(counter))
++        .ok()
++        .and_then(|text| text.trim().parse().ok())
++        .unwrap_or(0)
++}
++
++/// 尝试次数分支 shim：每次拉起把计数文件 +1；前 `fail_times` 次输出锁文本并
++/// `exit 1`，之后输出成功行并 `exit 0`（重试形态的唯一变量是计数文件）。
++fn retry_shim(ws: &ShimWs, name: &str, counter: &str, fail_times: u32) -> SystemCommand {
++    let counter_path = ws.file(counter);
++    let body = format!(
++        "#!/bin/sh\ncf=\"{cf}\"\nn=$(cat \"$cf\" 2>/dev/null || printf '0')\nn=$((n+1))\nprintf '%s' \"$n\" > \"$cf\"\nif [ \"$n\" -le {fail_times} ]; then\n  printf 'error: failed to rename archive file: /t/liba.rlib: os error 32\n'\n  exit 1\nfi\nprintf 'SUCCESS-OUT'\nprintf 'SUCCESS-ERR' >&2\nexit 0\n",
++        cf = counter_path.display(),
++        fail_times = fail_times,
++    );
++    ws.shim(name, &body)
++}
++
++/// 快速重试策略（仅用于「次数 / 上限」用例：退避压到 20 ms，避免真等
++/// 1 / 2 / 4 / 8 s；退避取值本身由 [`退避序列_前两段各消费一次`] 的按段推进与
++/// `transient_test` 的常量锚定覆盖）。
++fn fast_policy(max_attempts: u32) -> RetryPolicy {
++    RetryPolicy {
++        max_attempts,
++        backoff: [Duration::from_millis(20); 4],
++        total_budget: Duration::from_secs(1500),
++    }
++}
++
++/// 虚拟时钟闸门：以常驻 `spawn_blocking` 任务抑制 tokio 的「空闲即自动推进」。
++///
++/// `tokio::time::pause` 的自动推进是「运行时空转即把时钟推到下一个计时器」，所以
++/// 暂停时钟下等待真实子进程（msys bash 启动 + 管道排水）会让虚拟时间成百倍空转；
++/// 而阻塞线程池里有任务在跑时 tokio 会临时抑制自动推进（`Clock` 的
++/// `inhibit_auto_advance` 计数），虚拟时间因此固定在暂停点，只随 `advance` 前进。
++/// 这正是「退避 / 预算以虚拟时钟表达、不真等」的装置前提。
++///
++/// 释放：Drop 掉通道即让阻塞任务返回（`allow_auto_advance`），避免测试收尾时
++/// 阻塞线程池仍挂在通道上。
++struct ClockGate {
++    release: Option<std::sync::mpsc::Sender<()>>,
++    task: Option<tokio::task::JoinHandle<()>>,
++}
++
++impl ClockGate {
++    fn new() -> Self {
++        let (release, wait) = std::sync::mpsc::channel::<()>();
++        let task = tokio::task::spawn_blocking(move || {
++            let _ = wait.recv();
++        });
++        Self {
++            release: Some(release),
++            task: Some(task),
++        }
++    }
++}
++
++impl Drop for ClockGate {
++    fn drop(&mut self) {
++        self.release.take();
++        self.task.take();
++    }
++}
++
++/// 真实时间等待：虚拟时钟冻结时 `tokio::time::sleep` 不会流逝，只能借阻塞线程池
++/// 等真实时间（顺带持续加固 [`ClockGate`] 的自动推进抑制）。
++async fn real_sleep(duration: Duration) {
++    let _ = tokio::task::spawn_blocking(move || std::thread::sleep(duration)).await;
++}
++
++/// 轮询等待 shim 的尝试计数到达 `want`（真实时间上界 `budget`；返回观察到的计数）。
++///
++/// 暂停时钟下不能用 `tokio::time::sleep` 轮询（那需要推进虚拟时间——会污染被测的
++/// 退避 / 预算取值），故用 [`real_sleep`]。
++async fn wait_attempts(ws: &ShimWs, counter: &str, want: u32, budget: Duration) -> u32 {
++    let deadline = Instant::now() + budget;
++    loop {
++        let count = attempt_count(ws, counter);
++        if count >= want || Instant::now() >= deadline {
++            return count;
++        }
++        real_sleep(Duration::from_millis(25)).await;
++    }
++}
++
++/// 等一次尝试落地并进入退避窗口：shim 写完计数即退出，退避紧随其后开始；真实等待
++/// 覆盖「进程退出 → 管道 EOF → 收尸 → 组 `AttemptTrace`」的装置成本。
++async fn wait_into_backoff() {
++    real_sleep(Duration::from_millis(500)).await;
++}
++
++/// 正向（AC-1 组合锚）：flaky 锁冲突自愈——前 2 次锁文本 + `exit 1`、第 3 次
++/// `exit 0` → `Completed` / `exit_code == 0` / `attempts == 3` /
++/// `retried.len() == 2`（各携签名原文）/ 末次两路字节恰为第 3 次（不含历史尝试）。
++#[tokio::test]
++async fn 瞬态自愈_三次尝试后转绿() {
++    let ws = ShimWs::new("retry-flaky");
++    let command = retry_shim(&ws, "flaky.sh", "count.txt", 2);
++
++    let mut with_retry = options(Duration::from_secs(60));
++    with_retry.retry = RetryPolicy::transient();
++
++    let report = run_shell(command, with_retry)
++        .await
++        .expect("flaky 自愈应 Ok");
++
++    assert_eq!(report.outcome, RunOutcome::Completed, "耗尽前自愈 → Completed");
++    assert_eq!(report.exit_code, 0, "末次成功退出码直传");
++    assert_eq!(report.attempts, 3, "前 2 次红 + 第 3 次绿 = 3 次尝试");
++    assert_eq!(report.retried.len(), 2, "末次不入 retried");
++    for (index, trace) in report.retried.iter().enumerate() {
++        assert_eq!(trace.exit_code, 1, "第 {} 次尝试非零退出", index + 1);
++        assert_eq!(
++            trace.transient.as_deref(),
++            Some("os error 32"),
++            "第 {} 次尝试命中签名原文",
++            index + 1
++        );
++        assert!(
++            String::from_utf8_lossy(&trace.stdout).contains("failed to rename archive file"),
++            "第 {} 次尝试的诊断留痕在案",
++            index + 1
++        );
++    }
++    assert_eq!(report.stdout, b"SUCCESS-OUT", "末次 stdout 不含历史尝试字节");
++    assert_eq!(report.stderr, b"SUCCESS-ERR", "末次 stderr 不含历史尝试字节");
++    assert_eq!(attempt_count(&ws, "count.txt"), 3, "shim 恰拉起 3 次");
++}
++
++/// 正向（AC-1）：退避序列——三次尝试均命中签名后成功。虚拟时钟（[`ClockGate`] 抑制
++/// 自动推进）按段精确推进，断言每段退避的取值与索引：
++/// - 第 1 段 `backoff[0]` ∈ (500 ms, 1 s]：推进 500 ms 并真实等待上界后仍无第 2 次
++///   尝试，再推进 500 ms 即拉起第 2 次；
++/// - 第 2 段 `backoff[1]` ∈ (1 s, 2 s]：同上（推进 1 s 无第 3 次，再推进 1 s 即拉起）；
++/// - 4 s / 8 s 段未被消费：全程虚拟墙钟恰为 1 s + 2 s、`attempts == 3`、
++///   `retried.len() == 2`（`backoff` 索引不越界、不多等）；shim 恰拉起 3 次。
++#[tokio::test(start_paused = true)]
++async fn 退避序列_前两段各消费一次() {
++    let _gate = ClockGate::new();
++    let ws = ShimWs::new("retry-backoff");
++    let command = retry_shim(&ws, "backoff.sh", "count.txt", 2);
++
++    let mut with_retry = options(Duration::from_secs(120));
++    with_retry.retry = RetryPolicy::transient();
++
++    let virtual_started = tokio::time::Instant::now();
++    let runner = tokio::spawn(run_shell(command, with_retry));
++
++    assert_eq!(
++        wait_attempts(&ws, "count.txt", 1, Duration::from_secs(20)).await,
++        1,
++        "第 1 次尝试已拉起"
++    );
++    wait_into_backoff().await;
++
++    // 第 1 段：推进 500 ms 不得越过，补满 1 s 即越过
++    tokio::time::advance(Duration::from_millis(500)).await;
++    assert_eq!(
++        wait_attempts(&ws, "count.txt", 2, Duration::from_secs(3)).await,
++        1,
++        "推进 500 ms 未越过第 1 段（backoff[0] > 500 ms）"
++    );
++    tokio::time::advance(Duration::from_millis(500)).await;
++    assert_eq!(
++        wait_attempts(&ws, "count.txt", 2, Duration::from_secs(20)).await,
++        2,
++        "推进满 1 s 后拉起第 2 次尝试（backoff[0] == 1 s）"
++    );
++    wait_into_backoff().await;
++
++    // 第 2 段：推进 1 s 不得越过，补满 2 s 即越过
++    tokio::time::advance(Duration::from_secs(1)).await;
++    assert_eq!(
++        wait_attempts(&ws, "count.txt", 3, Duration::from_secs(3)).await,
++        2,
++        "推进 1 s 未越过第 2 段（backoff[1] > 1 s）"
++    );
++    tokio::time::advance(Duration::from_secs(1)).await;
++    assert_eq!(
++        wait_attempts(&ws, "count.txt", 3, Duration::from_secs(20)).await,
++        3,
++        "推进满 2 s 后拉起第 3 次尝试（backoff[1] == 2 s）"
++    );
++
++    let report = runner
++        .await
++        .expect("任务应正常结束")
++        .expect("退避序列应 Ok");
++    let elapsed = virtual_started.elapsed();
++
++    assert_eq!(report.outcome, RunOutcome::Completed, "第 3 次转绿");
++    assert_eq!(report.exit_code, 0);
++    assert_eq!(report.attempts, 3, "两次重试后成功");
++    assert_eq!(report.retried.len(), 2, "末次不入 retried");
++    assert_eq!(attempt_count(&ws, "count.txt"), 3, "shim 恰拉起 3 次");
++    assert!(
++        elapsed >= Duration::from_secs(3),
++        "前两段退避（1 s + 2 s）各消费一次（虚拟墙钟 {elapsed:?}）"
++    );
++    assert!(
++        elapsed < Duration::from_millis(3200),
++        "未消费 4 s / 8 s 段（虚拟墙钟 {elapsed:?}）"
++    );
++}
++
++/// 正向（AC-1）：持续锁冲突耗尽——每次都锁文本 + `exit 1` → `attempts == 5`
++///（不再增加）、`retried.len() == 4`、末次 `Completed` + 非零，全程墙钟远小于
++/// 总预算。
++#[tokio::test]
++async fn 持续锁冲突耗尽_上限五次() {
++    let ws = ShimWs::new("retry-exhaust");
++    let command = retry_shim(&ws, "exhaust.sh", "count.txt", u32::MAX);
++
++    let mut with_retry = options(Duration::from_secs(60));
++    with_retry.retry = fast_policy(5);
++
++    let started = Instant::now();
++    let report = run_shell(command, with_retry).await.expect("耗尽面应 Ok");
++    let elapsed = started.elapsed();
++
++    assert_eq!(report.attempts, 5, "上限 5 次后不再增加");
++    assert_eq!(report.retried.len(), 4, "末次不入 retried");
++    assert_eq!(
++        report.retried.len() as u32,
++        report.attempts - 1,
++        "不变量：末次之前的尝试数 == attempts - 1"
++    );
++    assert_eq!(report.outcome, RunOutcome::Completed, "耗尽仍为 Completed");
++    assert_eq!(
++        report.exit_code, 1,
++        "末次非零退出原样返回（由调用方按 fault 收口）"
++    );
++    assert_eq!(attempt_count(&ws, "count.txt"), 5, "spawn 次数 == 上限");
++    assert!(
++        elapsed <= RetryPolicy::transient().total_budget,
++        "全程墙钟受总预算约束（实际 {elapsed:?}）"
++    );
++}
++
++/// 边界（AC-1 / D2）：预算早停——每次尝试耗时以虚拟时钟表达为 600 s（真实子进程
++/// 不真等），总预算 1500 s：第 3 次结束时已用 1200 s（未耗尽）、第 4 次结束时已用
++/// 1800 s（≥ 预算）→ 不再发起第 5 次：`attempts == 4`（未到上限 5）、
++/// `retried.len() == 3`、末次原样返回、第 5 次不 spawn、全程虚拟墙钟未越过
++/// 「总预算 + 单次尝试耗时」。
++#[tokio::test(start_paused = true)]
++async fn 预算耗尽早停不发起新尝试() {
++    let _gate = ClockGate::new();
++    let ws = ShimWs::new("retry-budget");
++    let command = retry_shim(&ws, "budget.sh", "count.txt", u32::MAX);
++
++    let mut with_retry = options(Duration::from_secs(600));
++    with_retry.retry = RetryPolicy {
++        max_attempts: 5,
++        backoff: RetryPolicy::transient().backoff,
++        total_budget: Duration::from_secs(1500),
++    };
++
++    let virtual_started = tokio::time::Instant::now();
++    let runner = tokio::spawn(run_shell(command, with_retry));
++
++    // 前 3 次尝试各耗时 600 s（虚拟）：同时越过此后的退避段（1 / 2 / 4 s）
++    for expected in 1..=3u32 {
++        assert_eq!(
++            wait_attempts(&ws, "count.txt", expected, Duration::from_secs(20)).await,
++            expected,
++            "第 {expected} 次尝试已拉起（预算尚未耗尽）"
++        );
++        wait_into_backoff().await;
++        tokio::time::advance(Duration::from_secs(600)).await;
++    }
++    assert_eq!(
++        wait_attempts(&ws, "count.txt", 4, Duration::from_secs(20)).await,
++        4,
++        "第 4 次尝试已拉起（1200 s < 1500 s 预算）"
++    );
++
++    let report = runner
++        .await
++        .expect("任务应正常结束")
++        .expect("预算早停应 Ok");
++    let elapsed = virtual_started.elapsed();
++
++    assert_eq!(
++        report.attempts, 4,
++        "预算耗尽后不再发起新尝试（未到上限 5）"
++    );
++    assert_eq!(report.retried.len(), 3, "末次不入 retried");
++    assert_eq!(
++        report.outcome,
++        RunOutcome::Completed,
++        "早停末次原样返回（Completed + 非零）"
++    );
++    assert_ne!(report.exit_code, 0, "末次仍为红");
++    assert_eq!(
++        attempt_count(&ws, "count.txt"),
++        4,
++        "第 5 次未 spawn（shim 计数恒 4）"
++    );
++    assert!(
++        elapsed >= Duration::from_secs(1500),
++        "预算判定按累计虚拟墙钟（{elapsed:?}）"
++    );
++    assert!(
++        elapsed <= Duration::from_secs(2100),
++        "总墙钟 ≤ 总预算 + 单次尝试耗时（虚拟 {elapsed:?}）"
++    );
++}
++
++/// 边界：极短预算——`total_budget = ZERO` → 首跑后即判耗尽（`attempts == 1`、
++/// `retried` 空），且预算判定先于退避判定：虚拟时钟零推进（一条退避段都没等）。
++#[tokio::test(start_paused = true)]
++async fn 零预算首跑后即耗尽() {
++    let _gate = ClockGate::new();
++    let ws = ShimWs::new("retry-zero-budget");
++    let command = retry_shim(&ws, "zero.sh", "count.txt", u32::MAX);
++
++    let mut with_retry = options(Duration::from_secs(60));
++    with_retry.retry = RetryPolicy {
++        max_attempts: 5,
++        backoff: RetryPolicy::transient().backoff,
++        total_budget: Duration::ZERO,
++    };
++
++    let virtual_started = tokio::time::Instant::now();
++    let report = run_shell(command, with_retry).await.expect("零预算应 Ok");
++    let elapsed = virtual_started.elapsed();
++
++    assert_eq!(report.attempts, 1, "零预算首跑后即耗尽");
++    assert!(report.retried.is_empty(), "零重试 → retried 空");
++    assert_eq!(
++        elapsed,
++        Duration::ZERO,
++        "零退避等待（未消费任何退避段，虚拟墙钟零推进）"
++    );
++    assert_eq!(attempt_count(&ws, "count.txt"), 1, "只 spawn 一次");
++}
++
++/// 边界（表驱动 2 形态）：自定义上限——`max_attempts = 1` / `2` + 持续命中签名
++/// → 分别 `attempts == 1`（`retried` 空）/ `attempts == 2`（`retried.len() == 1`），
++/// spawn 次数与上限逐值相等。
++#[tokio::test]
++async fn 自定义上限与spawn次数逐值相等() {
++    for max_attempts in [1u32, 2] {
++        let ws = ShimWs::new(&format!("retry-limit-{max_attempts}"));
++        let command = retry_shim(&ws, "limit.sh", "count.txt", u32::MAX);
++
++        let mut with_retry = options(Duration::from_secs(60));
++        with_retry.retry = fast_policy(max_attempts);
++
++        let report = run_shell(command, with_retry)
++            .await
++            .unwrap_or_else(|error| panic!("上限 {max_attempts} 应 Ok: {error}"));
++
++        assert_eq!(
++            report.attempts, max_attempts,
++            "attempts == max_attempts（{max_attempts}）"
++        );
++        assert_eq!(
++            report.retried.len() as u32,
++            max_attempts - 1,
++            "retried.len() == max_attempts - 1（{max_attempts}）"
++        );
++        assert_eq!(
++            attempt_count(&ws, "count.txt"),
++            max_attempts,
++            "spawn 次数逐值等于上限（{max_attempts}）"
++        );
++    }
++}
++
++// ---------------------------------------------------------------------------
++// 正向：零重试面（AC-2）
++// ---------------------------------------------------------------------------
++
++/// 正向（AC-2 / R-1）：真红零重试——普通编译错误 + `exit 1` + `transient()` →
++/// `attempts == 1`、`retried` 空、`Completed`；shim 计数 == 1（策略在位但不触发）。
++#[tokio::test]
++async fn 真红零重试() {
++    let ws = ShimWs::new("retry-real-red");
++    let marker = ws.file("count.txt");
++    let command = ws.shim(
++        "real-red.sh",
++        &format!(
++            "#!/bin/sh\nprintf '1' > \"{}\"\nprintf 'error[E0308]: mismatched types\n'\nprintf '  --> src/lib.rs:3:9\n' >&2\nexit 1\n",
++            marker.display()
++        ),
++    );
++
++    let mut with_retry = options(Duration::from_secs(60));
++    with_retry.retry = RetryPolicy::transient();
++
++    let report = run_shell(command, with_retry).await.expect("真红应 Ok");
++
++    assert_eq!(report.attempts, 1, "非瞬态签名不重试");
++    assert!(report.retried.is_empty(), "零重试 → retried 空");
++    assert_eq!(report.outcome, RunOutcome::Completed, "真红仍是执行成功面");
++    assert_eq!(report.exit_code, 1, "退出码直传");
++    assert_eq!(attempt_count(&ws, "count.txt"), 1, "shim 只跑一次");
++}
++
++/// 正向（AC-2 / AC-8，表驱动 2 策略）：策略是唯一变量——同一 shim（命中签名 +
++/// 非零）在 `none()` 下 `attempts == 1`、在 `transient()`（快速退避）下
++/// `attempts == 5`，证 `none()` 未开重试面。
++#[tokio::test]
++async fn 策略是重试面的唯一变量() {
++    for (label, policy, expected) in [
++        ("none()", RetryPolicy::none(), 1u32),
++        ("transient()", fast_policy(5), 5u32),
++    ] {
++        let ws = ShimWs::new(&format!("retry-policy-{expected}"));
++        let command = retry_shim(&ws, "policy.sh", "count.txt", u32::MAX);
++
++        let mut with_retry = options(Duration::from_secs(60));
++        with_retry.retry = policy;
++
++        let report = run_shell(command, with_retry)
++            .await
++            .unwrap_or_else(|error| panic!("{label} 应 Ok: {error}"));
++
++        assert_eq!(report.attempts, expected, "{label} → attempts == {expected}");
++        assert_eq!(
++            attempt_count(&ws, "count.txt"),
++            expected,
++            "{label} → spawn 次数 == {expected}"
++        );
++    }
++}
++
++/// 正向（AC-8）：单次等价回归——`none()` + `exit 0` + 双路输出 → 四字段与改造
++/// 前逐字节一致，`attempts == 1`、`retried` 空、且虚拟时钟零推进（`max_attempts
++/// == 1` → 循环不进入退避面，一条退避段都不等）。
++#[tokio::test(start_paused = true)]
++async fn 单次等价回归_逐字节同改造前() {
++    let _gate = ClockGate::new();
++    let ws = ShimWs::new("retry-single");
++    let command = ws.shim(
++        "single.sh",
++        "#!/bin/sh\nprintf 'OUT'\nprintf 'ERR' >&2\nexit 0\n",
++    );
++
++    let virtual_started = tokio::time::Instant::now();
++    let report = run_shell(command, options(Duration::from_secs(30)))
++        .await
++        .expect("单次执行应 Ok");
++    let elapsed = virtual_started.elapsed();
++
++    assert_eq!(report.outcome, RunOutcome::Completed);
++    assert_eq!(report.exit_code, 0);
++    assert_eq!(report.stdout, b"OUT", "stdout 逐字节同改造前");
++    assert_eq!(report.stderr, b"ERR", "stderr 逐字节同改造前");
++    assert_eq!(report.attempts, 1, "attempts == 1");
++    assert!(report.retried.is_empty(), "retried 空");
++    assert_eq!(elapsed, Duration::ZERO, "零退避等待（虚拟墙钟零推进）");
++}
++
++/// 正向（AC-8）：末次输出非合流——前两次各输出不同文本后成功 → `stdout` /
++/// `stderr` 不含前两次字节；前两次字节只在 `retried` 按尝试序可读。
++#[tokio::test]
++async fn 末次输出不含历史尝试字节() {
++    let ws = ShimWs::new("retry-last-only");
++    let counter = ws.file("count.txt");
++    let command = ws.shim(
++        "last.sh",
++        &format!(
++            "#!/bin/sh\ncf=\"{cf}\"\nn=$(cat \"$cf\" 2>/dev/null || printf '0')\nn=$((n+1))\nprintf '%s' \"$n\" > \"$cf\"\nif [ \"$n\" -le 2 ]; then\n  printf 'OLD-OUT-%s os error 32' \"$n\"\n  printf 'OLD-ERR-%s' \"$n\" >&2\n  exit 1\nfi\nprintf 'NEW-OUT'\nprintf 'NEW-ERR' >&2\nexit 0\n",
++            cf = counter.display()
++        ),
++    );
++
++    let mut with_retry = options(Duration::from_secs(60));
++    with_retry.retry = fast_policy(5);
++
++    let report = run_shell(command, with_retry).await.expect("末次面应 Ok");
++
++    assert_eq!(report.attempts, 3);
++    assert_eq!(report.stdout, b"NEW-OUT", "末次 stdout 不含前两次字节");
++    assert_eq!(report.stderr, b"NEW-ERR", "末次 stderr 不含前两次字节");
++    assert_eq!(
++        report.retried[0].stdout, b"OLD-OUT-1 os error 32",
++        "第 1 次字节在 retried[0] 可读"
++    );
++    assert_eq!(report.retried[0].stderr, b"OLD-ERR-1");
++    assert_eq!(
++        report.retried[1].stdout, b"OLD-OUT-2 os error 32",
++        "第 2 次字节在 retried[1] 按尝试序可读"
++    );
++    assert_eq!(report.retried[1].stderr, b"OLD-ERR-2");
++}
++
++/// 正向（AC-2）：超时零重试——自旋 shim（输出含签名）+ `transient()` + 虚拟时钟
++/// 到点 → `TimedOut` / `exit_code == -1` / `attempts == 1` / `retried` 空。
++#[tokio::test(start_paused = true)]
++async fn 超时臂零重试() {
++    let ws = ShimWs::new("retry-timeout");
++    let command = ws.shim(
++        "spin-lock.sh",
++        "#!/bin/sh\nprintf 'os error 32\n'\nwhile :; do sleep 0.05; done\n",
++    );
++
++    let mut with_retry = options(Duration::from_secs(30));
++    with_retry.retry = RetryPolicy::transient();
++
++    tokio::spawn(async {
++        tokio::task::yield_now().await;
++        tokio::time::advance(Duration::from_secs(31)).await;
++    });
++
++    let report = run_shell(command, with_retry).await.expect("超时应 Ok");
++
++    assert_eq!(report.outcome, RunOutcome::TimedOut, "到点 → TimedOut");
++    assert_eq!(report.exit_code, -1, "超时记哨兵");
++    assert_eq!(report.attempts, 1, "超时零重试");
++    assert!(report.retried.is_empty(), "超时臂 retried 空");
++}
++
++/// 正向（AC-2 / D4①）：已置位 cancel 零重试——`transient()` + 先置位再调 →
++/// `Cancelled` / `attempts == 1` / `retried` 空 / shim 零执行 / 墙钟近零。
++#[tokio::test]
++async fn 已置位cancel零重试且零spawn() {
++    let ws = ShimWs::new("retry-cancel-pre");
++    let marker = ws.file("executed.txt");
++    let command = ws.shim(
++        "pre.sh",
++        &format!(
++            "#!/bin/sh\nprintf 'ran' > \"{}\"\nprintf 'os error 32\n'\nexit 1\n",
++            marker.display()
++        ),
++    );
++
++    let cancel = CancelFlag::never();
++    cancel.handle().set();
++    let mut with_retry = options(Duration::from_secs(30));
++    with_retry.cancel = cancel;
++    with_retry.retry = RetryPolicy::transient();
++
++    let started = Instant::now();
++    let report = run_shell(command, with_retry)
++        .await
++        .expect("入口短路应 Ok");
++    let elapsed = started.elapsed();
++
++    assert_eq!(report.outcome, RunOutcome::Cancelled);
++    assert_eq!(report.exit_code, -1);
++    assert_eq!(report.attempts, 1, "短路记 1 次（不因重试面增长）");
++    assert!(report.retried.is_empty(), "短路 retried 空");
++    assert!(!marker.exists(), "已置位 cancel 零 spawn");
++    assert!(
++        elapsed < Duration::from_secs(5),
++        "短路墙钟近零（{elapsed:?}）"
++    );
++}
++
++/// 正向（AC-2 / D4③）：运行中 cancel 零重试——shim 落 pid 后自旋并输出签名文本，
++/// 运行中置位 → `Cancelled` / `attempts == 1` / `retried` 空 / pid 消失。
++#[tokio::test]
++async fn 运行中cancel零重试() {
++    let ws = ShimWs::new("retry-cancel-running");
++    let pid_file = ws.file("pid.txt");
++    let command = ws.shim(
++        "spin-pid.sh",
++        &format!(
++            "#!/bin/sh\nwin=$(cat \"/proc/$$/winpid\" 2>/dev/null || printf '%s' \"$$\")\nprintf '%s' \"$win\" > \"{}\"\nprintf 'os error 32\n'\nwhile :; do sleep 0.1; done\n",
++            pid_file.display()
++        ),
++    );
++
++    let cancel = CancelFlag::never();
++    let handle = cancel.handle();
++    let mut with_retry = options(Duration::from_secs(120));
++    with_retry.cancel = cancel;
++    with_retry.retry = RetryPolicy::transient();
++
++    let runner = tokio::spawn(async move { run_shell(command, with_retry).await });
++
++    let mut pid = None;
++    for _ in 0..400 {
++        if let Some(value) = ws.read_pid("pid.txt") {
++            pid = Some(value);
++            break;
++        }
++        tokio::time::sleep(Duration::from_millis(25)).await;
++    }
++    let pid = pid.expect("shim 应落 pid 文件");
++    handle.set();
++
++    let report = runner
++        .await
++        .expect("任务应正常结束")
++        .expect("取消臂应返回报告");
++
++    assert_eq!(report.outcome, RunOutcome::Cancelled);
++    assert_eq!(report.exit_code, -1);
++    assert_eq!(report.attempts, 1, "运行中取消零重试");
++    assert!(report.retried.is_empty(), "取消臂 retried 空");
++    assert!(
++        wait_pid_gone(pid, Duration::from_secs(10)),
++        "取消后目标 pid {pid} 应消失"
++    );
++}
++
++/// 正向（AC-1 / D3 / D4③）：退避期 cancel 即刻生效——第 1 次命中签名后进入退避
++/// （首段拉长到 30 s，窗口足够宽，不依赖 1 s 段的时序余量），窗口内置位 → 不再发起
++/// 第 2 次（shim 计数 == 1）、`Cancelled` / `attempts == 1`（已完成次数）/
++/// `retried` 空（该末次不入）/ `stdout` 取第 1 次字节 / 墙钟远小于剩余退避（有界
++/// 上界 10 s ≪ 30 s，不先等完退避段）。
++#[tokio::test]
++async fn 退避期cancel即刻生效() {
++    let ws = ShimWs::new("retry-cancel-backoff");
++    let command = retry_shim(&ws, "backoff-cancel.sh", "count.txt", u32::MAX);
++
++    let cancel = CancelFlag::never();
++    let handle = cancel.handle();
++    let mut with_retry = options(Duration::from_secs(120));
++    with_retry.cancel = cancel;
++    with_retry.retry = RetryPolicy {
++        backoff: [Duration::from_secs(30); 4],
++        ..RetryPolicy::transient()
++    };
++
++    let runner = tokio::spawn(async move { run_shell(command, with_retry).await });
++
++    // 等第 1 次尝试落计数（此后进入 30 s 退避窗口）
++    let mut counted = 0u32;
++    for _ in 0..400 {
++        counted = attempt_count(&ws, "count.txt");
++        if counted >= 1 {
++            break;
++        }
++        tokio::time::sleep(Duration::from_millis(25)).await;
++    }
++    assert_eq!(counted, 1, "第 1 次尝试已落计数");
++    // 退避窗口起点（≈ 第 1 次尝试完成时刻）
++    let backoff_started = Instant::now();
++    tokio::time::sleep(Duration::from_millis(150)).await;
++    handle.set();
++
++    let report = runner
++        .await
++        .expect("任务应正常结束")
++        .expect("退避期取消应返回报告");
++    let since_attempt = backoff_started.elapsed();
++
++    assert_eq!(
++        report.outcome,
++        RunOutcome::Cancelled,
++        "退避期取消 → Cancelled"
++    );
++    assert_eq!(report.exit_code, -1);
++    assert_eq!(report.attempts, 1, "记已完成次数");
++    assert!(report.retried.is_empty(), "该末次不入 retried");
++    assert!(
++        String::from_utf8_lossy(&report.stdout).contains("failed to rename archive file"),
++        "stdout 取第 1 次字节: {:?}",
++        String::from_utf8_lossy(&report.stdout)
++    );
++    assert_eq!(attempt_count(&ws, "count.txt"), 1, "不再发起第 2 次尝试");
++    assert!(
++        since_attempt < Duration::from_secs(10),
++        "不先等完 30 s 退避段（实际 {since_attempt:?}）"
++    );
++}
++
++/// 边界：退避期 cancel（两次尝试后）——第 1、2 次命中，第 2 次之后的退避窗口
++/// （`backoff[1]` 拉长到 30 s，窗口宽到不依赖时序余量）内取消 → `attempts == 2`、
++/// `retried.len() == 1`（第 1 次已入栈，第 2 次为「刚完成的末次」不入栈）、
++/// `stdout` 取第 2 次字节、不再发起第 3 次。
++#[tokio::test]
++async fn 退避期cancel在两次尝试后() {
++    let ws = ShimWs::new("retry-cancel-backoff2");
++    let command = retry_shim(&ws, "backoff-cancel2.sh", "count.txt", u32::MAX);
++
++    let cancel = CancelFlag::never();
++    let handle = cancel.handle();
++    let mut with_retry = options(Duration::from_secs(120));
++    with_retry.cancel = cancel;
++    // 首段归零（第 2 次尝试紧跟第 1 次）、次段拉长到 30 s：取消窗口宽到不依赖
++    // 时序余量，同时钉住「第 2 次重试消费 `backoff[1]`」
++    with_retry.retry = RetryPolicy {
++        backoff: [
++            Duration::ZERO,
++            Duration::from_secs(30),
++            Duration::ZERO,
++            Duration::ZERO,
++        ],
++        ..RetryPolicy::transient()
++    };
++
++    let runner = tokio::spawn(async move { run_shell(command, with_retry).await });
++
++    let mut counted = 0u32;
++    for _ in 0..800 {
++        counted = attempt_count(&ws, "count.txt");
++        if counted >= 2 {
++            break;
++        }
++        tokio::time::sleep(Duration::from_millis(25)).await;
++    }
++    assert_eq!(counted, 2, "第 2 次尝试已落计数");
++    tokio::time::sleep(Duration::from_millis(150)).await;
++    handle.set();
++
++    let report = runner
++        .await
++        .expect("任务应正常结束")
++        .expect("退避期取消应返回报告");
++
++    assert_eq!(report.outcome, RunOutcome::Cancelled);
++    assert_eq!(report.exit_code, -1);
++    assert_eq!(report.attempts, 2, "记已完成次数（2）");
++    assert_eq!(report.retried.len(), 1, "第 1 次入栈、第 2 次为末次不入栈");
++    assert_eq!(report.retried[0].exit_code, 1, "第 1 次尝试留痕在栈内可读");
++    assert!(
++        String::from_utf8_lossy(&report.stdout).contains("failed to rename archive file"),
++        "stdout 取第 2 次字节"
++    );
++    assert_eq!(attempt_count(&ws, "count.txt"), 2, "不再发起第 3 次尝试");
++}
++
++/// 异常：spawn 失败不重试——程序不可达 + `transient()` → 首次尝试即
++/// `Err(RunError::Spawn(_))`（无 `RunReport` 可携 `attempts`）。
++#[tokio::test]
++async fn spawn失败不重试() {
++    let mut with_retry = options(Duration::from_secs(30));
++    with_retry.retry = RetryPolicy::transient();
++
++    let error = run_shell(SystemCommand::bare("no-such-program-xyz-retry"), with_retry)
++        .await
++        .expect_err("不可达程序应 Spawn 失败");
++    match error {
++        RunError::Spawn(_) => {}
++        other => panic!("应为 Spawn 面，实际 {other:?}"),
++    }
++}
++
++/// 边界：双管道 + 大输出在重试面——每次尝试 stdout / stderr 各 >64 KiB（含
++/// 签名）后成功 → `retried` 每次字节数精确等于写量、末次同样全量（排水语义与
++/// 单次一致，不互锁）。
++#[tokio::test]
++async fn 重试面大输出双管道不丢字节() {
++    let ws = ShimWs::new("retry-big");
++    let mut failing_with_signature = vec![b'q'; 64 * 1024 + 7];
++    failing_with_signature.extend_from_slice(b" os error 32");
++    let failing_path = ws.put_bytes("failing.bin", &failing_with_signature);
++    let ok_bytes = vec![b'z'; 64 * 1024 + 3];
++    let ok_path = ws.put_bytes("ok.bin", &ok_bytes);
++    let counter = ws.file("count.txt");
++
++    let command = ws.shim(
++        "big.sh",
++        &format!(
++            "#!/bin/sh\ncf=\"{cf}\"\nn=$(cat \"$cf\" 2>/dev/null || printf '0')\nn=$((n+1))\nprintf '%s' \"$n\" > \"$cf\"\nif [ \"$n\" -le 1 ]; then\n  cat \"{fail}\"\n  cat \"{fail}\" >&2\n  exit 1\nfi\ncat \"{ok}\"\ncat \"{ok}\" >&2\nexit 0\n",
++            cf = counter.display(),
++            fail = failing_path.display(),
++            ok = ok_path.display(),
++        ),
++    );
++
++    let mut with_retry = options(Duration::from_secs(120));
++    with_retry.retry = fast_policy(5);
++
++    let report = run_shell(command, with_retry)
++        .await
++        .expect("大输出重试应 Ok");
++
++    assert_eq!(report.attempts, 2, "一次重试后成功");
++    assert_eq!(
++        report.retried[0].stdout.len(),
++        failing_with_signature.len(),
++        "此前尝试 stdout 字节数精确等于写量"
++    );
++    assert_eq!(
++        report.retried[0].stderr.len(),
++        failing_with_signature.len(),
++        "此前尝试 stderr 字节数精确等于写量"
++    );
++    assert_eq!(report.stdout, ok_bytes, "末次 stdout 全量无丢字节");
++    assert_eq!(report.stderr, ok_bytes, "末次 stderr 全量无丢字节");
++}
++
++/// 边界：`RunOptions.retry` 字段面——必填字段可读、缺省装置给 `none()`、
++/// `Debug` 含该字段（生产四调用点均显式给值的编译期面由静态检查覆盖）。
++#[test]
++fn run_options_retry必填字段面() {
++    let base = options(Duration::from_secs(1));
++    assert_eq!(base.retry, RetryPolicy::none(), "缺省装置给 none()");
++
++    let with_transient = RunOptions {
++        retry: RetryPolicy::transient(),
++        ..base.clone()
++    };
++    assert_eq!(
++        with_transient.retry.max_attempts, 5,
++        "retry 字段可直构为瞬态策略"
++    );
++    assert!(
++        with_transient.cwd.is_none() && with_transient.env.is_empty(),
++        "其余字段随动（其余字段面零变）"
++    );
++
++    let debug = format!("{with_transient:?}");
++    assert!(debug.contains("retry"), "Debug 含 retry 字段: {debug}");
++}
++
++/// 边界（表驱动 2 常量）：重试面相关常量与单次面常量同源锚定——
++/// `RetryPolicy::transient().total_budget` 为 1500 s（执行体预算判定取值面），
++/// 取消轮询 / 收尾上界不受重试面影响。
++#[test]
++fn 重试预算与收尾常量锚定() {
++    assert_eq!(
++        RetryPolicy::transient().total_budget,
++        Duration::from_secs(1500),
++        "重试总预算 1500 s"
++    );
++    assert_eq!(
++        RetryPolicy::none().total_budget,
++        Duration::from_secs(1500),
++        "单次策略取同类常量（不消费）"
++    );
++    assert_eq!(CANCEL_POLL_INTERVAL, Duration::from_millis(200));
++    assert_eq!(FINISH_GRACE, Duration::from_secs(2));
++}
+diff --git a/crates/infra/exec/src/transient.rs b/crates/infra/exec/src/transient.rs
+new file mode 100644
+index 000000000000..36b0fbe7969f
+--- /dev/null
++++ b/crates/infra/exec/src/transient.rs
+@@ -0,0 +1,145 @@
++//! 瞬态签名与有限重试策略（执行体诊断面的单点实现）。
++//!
++//! 纪律：
++//! - **字典扩展只改本表**（[`TRANSIENT_SIGNATURES`]）——调用点 MUST NOT 各写一份
++//!   特征串（否则信号面漂移、假阴性无从审计）；
++//! - **刻意不收裸 `failed to write`**：该措辞过泛（真实写盘缺陷会被吞成「环境
++//!   错误」而重试 5 次）；rustc 的 `.rmeta` 写失败已由同一行内的 `os error 32` /
++//!   `另一个程序正在使用此文件` 覆盖；
++//! - `TimedOut` / `Cancelled` **永不命中**：超时重试会把 1200 s 变数小时，取消
++//!   必须立即生效；
++//! - 判定为「整串包含」——表内签名均不含换行，故与「逐行包含」等价。
++
++use std::time::Duration;
++
++use crate::run::{RunOutcome, RunReport};
++
++/// 瞬态签名封闭表（三族按注释分组；不建族枚举——无消费者读族名）。
++///
++/// 现场来源（企业级安全软件的 minifilter 驱动持有 `target/` 下构建产物）：
++/// `rename` / `write` / `remove` 三动词失败，报错形态落三族之一。
++const TRANSIENT_SIGNATURES: [&str; 13] = [
++    // Windows 文件锁族（DELETE 共享语义冲突）
++    "os error 32",
++    "os error 5",
++    "另一个程序正在使用此文件",
++    "being used by another process",
++    "failed to rename archive file",
++    "failed to remove file",
++    "Access is denied",
++    // MSVC 链接器族（.pdb / .lib 被占用或未关闭）
++    "LNK1104",
++    // POSIX / Node 族（文件句柄 / 可执行文件被占用）
++    "EBUSY",
++    "ETXTBSY",
++    "Text file busy",
++    "EPERM: operation not permitted",
++    "resource busy or locked",
++];
++
++/// 重试上限（首跑 + 4 次重试）：5 次足以跨越安全软件的扫描窗口（实测碰撞多在
++/// 前 3 次内自愈），又不把单步墙钟放大到不可接受的量级。
++const RETRY_MAX_ATTEMPTS: u32 = 5;
++
++/// 重试退避四段（第 k 次重试前等待 `RETRY_BACKOFF[k - 1]`）：1 / 2 / 4 / 8 s
++/// 递增覆盖「杀软扫描完一个文件」的典型窗口，同时避免空转重试。
++const RETRY_BACKOFF: [Duration; 4] = [
++    Duration::from_secs(1),
++    Duration::from_secs(2),
++    Duration::from_secs(4),
++    Duration::from_secs(8),
++];
++
++/// 重试面**总预算**（自首跑开始时刻起算，非「每次尝试一份」）：1500 s 只够一次
++/// 慢挂（`static-check` / suite 的单次预算 1200 s）+ 少量余量；超预算即不再发起
++/// 新尝试，把末次结果原样返回——墙钟上界 = 总预算 + 单次尝试预算（有界）。
++const RETRY_TOTAL_BUDGET: Duration = Duration::from_secs(1500);
++
++/// 重试策略（构造面经 [`RetryPolicy::none`] / [`RetryPolicy::transient`] 收口）。
++///
++/// 三参数为**代码常量**（与既有超时预算同性质），MUST NOT 进 config schema——
++/// 观察期后再议用户可配。字段 `pub` 供执行体兄弟模块读取与测试断言。
++#[derive(Debug, Clone, PartialEq, Eq)]
++pub struct RetryPolicy {
++    /// 尝试次数上限（≥ 1；`1` = 单次执行）
++    pub max_attempts: u32,
++    /// 逐次退避（索引 `attempts - 1` 取档，越界退化到末档）
++    pub backoff: [Duration; 4],
++    /// 总预算（自首跑起算；每次重试尝试开始前判定）
++    pub total_budget: Duration,
++}
++
++impl RetryPolicy {
++    /// 单次执行（缺省语义）：`max_attempts = 1`，退避与预算不消费。取值即本变更
++    /// 前的行为（`attempts == 1 && retried` 空）。
++    pub fn none() -> RetryPolicy {
++        RetryPolicy {
++            max_attempts: 1,
++            backoff: RETRY_BACKOFF,
++            total_budget: RETRY_TOTAL_BUDGET,
++        }
++    }
++
++    /// 瞬态重试：`max_attempts = 5`（首跑 + 4 次重试）、退避 `[1, 2, 4, 8] s`、
++    /// 总预算 1500 s。
++    pub fn transient() -> RetryPolicy {
++        RetryPolicy {
++            max_attempts: RETRY_MAX_ATTEMPTS,
++            backoff: RETRY_BACKOFF,
++            total_budget: RETRY_TOTAL_BUDGET,
++        }
++    }
++}
++
++/// 此前各次尝试的留痕（**末次不入**——末次结果仍在 [`RunReport`] 四个既有字段
++/// 上；本类型只承载「重试过什么」的审计面）。
++#[derive(Debug, Clone, PartialEq, Eq)]
++pub struct AttemptTrace {
++    /// 该次尝试的退出码（`TimedOut` / `Cancelled` 不入 `retried`，故不为 -1 哨兵）
++    pub exit_code: i32,
++    /// 命中的签名原文（未命中 `None`——单独留痕便于审计「为何重试」）
++    pub transient: Option<String>,
++    /// 该次尝试的 stdout 原始字节
++    pub stdout: Vec<u8>,
++    /// 该次尝试的 stderr 原始字节
++    pub stderr: Vec<u8>,
++}
++
++/// 瞬态判定核心（三合一判据 + 封闭表匹配）：执行体在 [`RunReport`] **成型之前**
++/// 就要判定（重试循环里 report 尚不存在），故核心落在字节面、公开面
++/// [`is_transient`] 只做委托。
++///
++/// 命中返回**表中原文**（`LNK1104` / `EBUSY` 保持大写形态）——尝试留痕与记录分隔
++/// 头因此稳定可断言。
++pub(crate) fn transient_signature(
++    outcome: RunOutcome,
++    exit_code: i32,
++    stdout: &[u8],
++    stderr: &[u8],
++) -> Option<&'static str> {
++    if outcome != RunOutcome::Completed || exit_code == 0 {
++        return None;
++    }
++    let mut merged = stdout.to_vec();
++    merged.extend_from_slice(stderr);
++    let text = String::from_utf8_lossy(&merged).to_lowercase();
++    TRANSIENT_SIGNATURES
++        .iter()
++        .copied()
++        .find(|signature| text.contains(&signature.to_lowercase()))
++}
++
++/// 瞬态判定（对外单一签名）：`Completed` + 非零退出 + 合并输出（stdout ++ stderr）
++/// 命中签名表任一原文，三者同时满足才命中；`TimedOut` / `Cancelled` 恒 `None`。
++pub fn is_transient(report: &RunReport) -> Option<&'static str> {
++    transient_signature(
++        report.outcome,
++        report.exit_code,
++        &report.stdout,
++        &report.stderr,
++    )
++}
++
++#[cfg(test)]
++#[path = "transient_test.rs"]
++mod transient_test;
+diff --git a/crates/infra/exec/src/transient_test.rs b/crates/infra/exec/src/transient_test.rs
+new file mode 100644
+index 000000000000..9a903a53c9f0
+--- /dev/null
++++ b/crates/infra/exec/src/transient_test.rs
+@@ -0,0 +1,534 @@
++//! 瞬态签名与有限重试策略测试：纯 std 判定（零 IO / 零 spawn / 零时钟），
++//! `RunReport` / `AttemptTrace` / `RetryPolicy` 全部以结构体字面量直构。
++//!
++//! 覆盖面：13 条封闭签名表的逐条命中与大小写不敏感、两路合并匹配、多行噪声、
++//! 三合一判据的三条反例（超时 / 取消 / 绿 / 真红 / 裸 `failed to write`）、字节
++//! 面边界（空 / 单字节 / 大块 / 非 UTF-8 / 特殊字符）、`RetryPolicy` 两构造的
++//! 三常量锚定与直构边界、`AttemptTrace` 字段面。
++
++use std::time::Duration;
++
++use super::{is_transient, transient_signature, AttemptTrace, RetryPolicy};
++use crate::run::{RunOutcome, RunReport};
++
++// ---------------------------------------------------------------------------
++// 装置：`RunReport` 字面量构造（不 spawn、不落盘）
++// ---------------------------------------------------------------------------
++
++/// 直构执行报告（被测 API 的显式入参；`attempts` / `retried` 与判定无关，
++/// 取最小合法值）。
++fn report(outcome: RunOutcome, exit_code: i32, stdout: &[u8], stderr: &[u8]) -> RunReport {
++    RunReport {
++        outcome,
++        exit_code,
++        stdout: stdout.to_vec(),
++        stderr: stderr.to_vec(),
++        attempts: 1,
++        retried: Vec::new(),
++    }
++}
++
++/// 非零退出的 `stdout` 单路命中形态（判定面最常用形态）。
++fn failed_stdout(bytes: &[u8]) -> RunReport {
++    report(RunOutcome::Completed, 1, bytes, b"")
++}
++
++// ---------------------------------------------------------------------------
++// 正向：封闭签名表逐条命中
++// ---------------------------------------------------------------------------
++
++/// 正向（表驱动 13 条封闭表）：签名表逐条命中 —— `Completed` 且 `exit_code = 1`
++/// 且 `stdout` 含该行签名时返回**表中原文**（`LNK1104` 保持大写、`os error 32`
++/// 保持小写，不返回输出片段）。
++#[test]
++fn 签名表逐条命中_返回表中原文() {
++    // 封闭表 13 条（Windows 锁族 7 / MSVC 1 / POSIX·Node 5）——逐条硬编码即
++    // 「删条目 / 改写法即被击杀」
++    const TABLE: [&str; 13] = [
++        "os error 32",
++        "os error 5",
++        "另一个程序正在使用此文件",
++        "being used by another process",
++        "failed to rename archive file",
++        "failed to remove file",
++        "Access is denied",
++        "LNK1104",
++        "EBUSY",
++        "ETXTBSY",
++        "Text file busy",
++        "EPERM: operation not permitted",
++        "resource busy or locked",
++    ];
++
++    for signature in TABLE {
++        let stdout = format!("error: {signature}: detail");
++        let hit = is_transient(&failed_stdout(stdout.as_bytes()));
++        assert_eq!(
++            hit,
++            Some(signature),
++            "签名 {signature:?} 应命中且返回表中原文"
++        );
++    }
++}
++
++/// 正向（参数化 3 形态 × 抽样 4 条）：大小写不敏感——全大写 / 首字母大写 /
++/// 全小写三形态注入 → 均命中且返回**表中原文**（不是输出里的变形）。
++#[test]
++fn 大小写不敏感_三形态均返回表中原文() {
++    // (表中原文, 全大写, 首字母大写) —— 中文条目不参与大小写变换
++    const CASES: [(&str, &str, &str); 4] = [
++        ("os error 32", "OS ERROR 32", "Os Error 32"),
++        ("lnk1104", "LNK1104", "Lnk1104"),
++        ("ebusy", "EBUSY", "Ebusy"),
++        ("resource busy or locked", "RESOURCE BUSY OR LOCKED", "Resource Busy Or Locked"),
++    ];
++    // 表内 `LNK1104` / `EBUSY` 原文为大写：断言取实际返回，再由下方表驱动钉住原文
++    const CANONICAL: [&str; 4] = ["os error 32", "LNK1104", "EBUSY", "resource busy or locked"];
++
++    for (index, (_, upper, title)) in CASES.iter().enumerate() {
++        for variant in [upper, title] {
++            let stdout = format!("error: {variant}");
++            let hit = is_transient(&failed_stdout(stdout.as_bytes()))
++                .unwrap_or_else(|| panic!("形态 {variant:?} 应命中（大小写不敏感）"));
++            assert_eq!(
++                hit, CANONICAL[index],
++                "返回表中原文而非输出片段（输入 {variant:?}）"
++            );
++        }
++    }
++}
++
++/// 正向（表驱动 3 形态）：两路合并匹配——签名只在 `stderr`（`stdout` 空）→
++/// 命中；只在 `stdout`（`stderr` 空）→ 命中；两路各含不同签名 → 命中且取合并
++/// 文本中**靠前**的命中原文。
++#[test]
++fn 两路合并匹配_stdout与stderr各形态() {
++    // 形态一：只在 stderr
++    let only_stderr = report(RunOutcome::Completed, 1, b"", b"fatal: EBUSY");
++    assert_eq!(
++        is_transient(&only_stderr),
++        Some("EBUSY"),
++        "仅 stderr 含签名应命中"
++    );
++
++    // 形态二：只在 stdout
++    let only_stdout = report(RunOutcome::Completed, 1, b"fatal: ETXTBSY", b"");
++    assert_eq!(
++        is_transient(&only_stdout),
++        Some("ETXTBSY"),
++        "仅 stdout 含签名应命中"
++    );
++
++    // 形态三：两路各含不同签名 → 合并顺序 stdout 在前，故取 stdout 侧签名
++    let both = report(
++        RunOutcome::Completed,
++        1,
++        b"stdout-side: os error 32",
++        b"stderr-side: resource busy or locked",
++    );
++    assert_eq!(
++        is_transient(&both),
++        Some("os error 32"),
++        "合并 = stdout ++ stderr，命中取合并文本中靠前者"
++    );
++
++    // 对照：交换两路内容即取 stderr 侧（证明合并顺序确实影响选择）
++    let swapped = report(
++        RunOutcome::Completed,
++        1,
++        b"stdout-side: resource busy or locked",
++        b"stderr-side: os error 32",
++    );
++    assert_eq!(
++        is_transient(&swapped),
++        Some("os error 32"),
++        "表内靠前者优先于合并顺序（表迭代序决定选中项）"
++    );
++}
++
++/// 正向（参数化 2 形态）：多行与前后噪声——首行 `Compiling …`、末行锁错误 →
++/// 命中；签名前后含 CRLF / 制表符 / 前后空白 → 整串包含匹配仍命中。
++#[test]
++fn 多行与前后噪声_整串包含匹配() {
++    let multiline = b"Compiling core v0.1.0\n   Compiling infra v0.1.0\nerror: failed to rename archive file: /tmp/liba.rlib: os error 32\n";
++    assert_eq!(
++        is_transient(&failed_stdout(multiline)),
++        Some("os error 32"),
++        "多行输出的末行签名应命中"
++    );
++
++    let noisy = b"\tea\r\n  EBUSY\t \r\n";
++    assert_eq!(
++        is_transient(&failed_stdout(noisy)),
++        Some("EBUSY"),
++        "CRLF / 制表符 / 空白噪声不阻断命中"
++    );
++}
++
++// ---------------------------------------------------------------------------
++// 异常：三合一判据的三条反例
++// ---------------------------------------------------------------------------
++
++/// 异常（AC-2）：`TimedOut` 恒不命中——输出全文含 `os error 32` 且 `exit_code`
++/// 非零仍 `None`（超时重试会把 1200 s 放大成数小时）。
++#[test]
++fn timedout恒不命中() {
++    let timed_out = report(
++        RunOutcome::TimedOut,
++        -1,
++        b"error: failed to rename archive file: /tmp/x.rlib: os error 32",
++        b"",
++    );
++    assert_eq!(
++        is_transient(&timed_out),
++        None,
++        "超时臂零重试：输出含签名也不得命中"
++    );
++}
++
++/// 异常（AC-2）：`Cancelled` 恒不命中——输出含 `failed to rename archive file`
++/// 仍 `None`（取消必须立即生效）。
++#[test]
++fn cancelled恒不命中() {
++    let cancelled = report(
++        RunOutcome::Cancelled,
++        -1,
++        b"error: failed to rename archive file: /tmp/x.rlib",
++        b"",
++    );
++    assert_eq!(
++        is_transient(&cancelled),
++        None,
++        "取消臂零重试：输出含签名也不得命中"
++    );
++}
++
++/// 异常：绿输出不命中——`exit_code == 0` 时即便输出含签名（测试用例自打印该
++/// 串）也 `None`（绿不因文本重试）。
++#[test]
++fn 零退出不命中() {
++    let green = report(
++        RunOutcome::Completed,
++        0,
++        "test 打印了 os error 32 这句话\nok".as_bytes(),
++        b"",
++    );
++    assert_eq!(is_transient(&green), None, "绿不因文本重试");
++}
++
++/// 异常（AC-2 / R-1）：真红不命中——普通编译错误 `error[E0308]: mismatched types`
++/// 不属瞬态签名表 → `None`。
++#[test]
++fn 真红不命中() {
++    let real_red = report(
++        RunOutcome::Completed,
++        1,
++        b"",
++        b"error[E0308]: mismatched types\n  --> src/main.rs:3:9",
++    );
++    assert_eq!(
++        is_transient(&real_red),
++        None,
++        "普通编译错误不重试（不吞成环境错误）"
++    );
++}
++
++// ---------------------------------------------------------------------------
++// 边界：裸措辞、字节面、特殊字符、哨兵
++// ---------------------------------------------------------------------------
++
++/// 边界（表驱动 2 形态，AC-1 / D5）：裸 `failed to write <path>`（无 `os error`
++/// 码、无锁措辞）→ `None`；同串外加 `os error 32` → 命中（同 line 覆盖口径）。
++#[test]
++fn 裸failed_to_write_n不命中而同串带错误码命中() {
++    let bare = b"error: failed to write /tmp/x.rmeta\n";
++    assert_eq!(
++        is_transient(&failed_stdout(bare)),
++        None,
++        "裸措辞过泛，刻意不收（真实写盘缺陷不得被吞成环境错误）"
++    );
++
++    let with_code = b"error: failed to write /tmp/x.rmeta: os error 32\n";
++    assert_eq!(
++        is_transient(&failed_stdout(with_code)),
++        Some("os error 32"),
++        "同行内的 os error 32 覆盖写盘失败面"
++    );
++}
++
++/// 边界（表驱动 4 形态）：输出字节边界——双空 → `None`；单字节 → `None`；
++/// >64 KiB 且签名在末尾 → 命中（不截断判定）；非 UTF-8 原始字节（`0xFF 0xFE`
++/// + 签名）→ lossy 后仍命中、不 panic。
++#[test]
++fn 输出字节边界_四形态() {
++    // 形态一：双空
++    let empty = report(RunOutcome::Completed, 1, b"", b"");
++    assert_eq!(is_transient(&empty), None, "双空输出无签名可命中");
++
++    // 形态二：单字节
++    let single = report(RunOutcome::Completed, 1, b"x", b"");
++    assert_eq!(is_transient(&single), None, "单字节无签名");
++
++    // 形态三：>64 KiB 且签名在末尾（判定不截断）
++    let mut big = vec![b'x'; 64 * 1024 + 1024];
++    big.extend_from_slice(b"\nerror: EBUSY");
++    assert_eq!(
++        is_transient(&report(RunOutcome::Completed, 1, &big, b"")),
++        Some("EBUSY"),
++        "大块输出末尾的签名不被截断丢弃"
++    );
++
++    // 形态四：非 UTF-8 原始字节（lossy 后仍可判）
++    let mut raw = vec![0xFF_u8, 0xFE];
++    raw.extend_from_slice(b" error: os error 32");
++    assert_eq!(
++        is_transient(&report(RunOutcome::Completed, 1, &raw, b"")),
++        Some("os error 32"),
++        "非 UTF-8 字节 lossy 后仍命中且不 panic"
++    );
++}
++
++/// 边界（参数化 2 形态）：特殊字符诊断——签名混在含引号 / 换行 / `\0` / emoji
++/// 的输出中 → 命中且不 panic；中文签名单独一臂验证 UTF-8 比对。
++#[test]
++fn 特殊字符诊断_两形态() {
++    let quoted = "say \"os error 32\" then\n\u{0} emoji 🎉 完成".as_bytes();
++    assert_eq!(
++        is_transient(&failed_stdout(quoted)),
++        Some("os error 32"),
++        "引号 / 换行 / NUL / emoji 混排不阻断命中"
++    );
++
++    let chinese = "错误：另一个程序正在使用此文件，进程无法访问。".as_bytes();
++    assert_eq!(
++        is_transient(&failed_stdout(chinese)),
++        Some("另一个程序正在使用此文件"),
++        "中文签名经 UTF-8 比对命中"
++    );
++}
++
++/// 边界（表驱动 2 形态）：`Completed` + `-1` 哨兵——「无可读退出码」也属
++/// `exit_code != 0`，故有签名即命中；无签名 → `None`（哨兵不被误读为绿）。
++#[test]
++fn completed负一哨兵_两形态() {
++    let with_signature = report(RunOutcome::Completed, -1, b"LNK1104: cannot open file", b"");
++    assert_eq!(
++        is_transient(&with_signature),
++        Some("LNK1104"),
++        "哨兵 -1 属非零，签名命中"
++    );
++
++    let no_signature = report(RunOutcome::Completed, -1, b"", b"");
++    assert_eq!(
++        is_transient(&no_signature),
++        None,
++        "哨兵不被误读为绿，但无签名仍不命中"
++    );
++}
++
++/// 边界（表驱动 4 组输入）：私有判定核心直驱——`transient_signature(outcome,
++/// exit_code, stdout, stderr)` 与 `is_transient(&report)` 对同一组输入逐值
++/// 一致（公开面只做委托，判定逻辑单点）。
++#[test]
++fn 私有判定核心与公开面逐值一致() {
++    let cases: [(RunOutcome, i32, &[u8], &[u8]); 4] = [
++        (RunOutcome::Completed, 1, b"os error 32", b""),
++        (RunOutcome::Completed, 0, b"os error 32", b""),
++        (RunOutcome::TimedOut, -1, b"EBUSY", b""),
++        (RunOutcome::Completed, 1, b"", b"Access is denied"),
++    ];
++
++    for (outcome, exit_code, stdout, stderr) in cases {
++        let core = transient_signature(outcome, exit_code, stdout, stderr);
++        let public = is_transient(&report(outcome, exit_code, stdout, stderr));
++        assert_eq!(
++            core, public,
++            "私有核心与公开面对 ({outcome:?}, {exit_code}, {stdout:?}, {stderr:?}) 逐值一致"
++        );
++    }
++}
++
++// ---------------------------------------------------------------------------
++// 正向 / 边界：RetryPolicy 两构造与字段面
++// ---------------------------------------------------------------------------
++
++/// 正向（AC-1）：`RetryPolicy::transient()` 三常量锚定——`max_attempts == 5`
++/// （首跑 + 4 次重试）、`backoff == [1, 2, 4, 8] s`、`total_budget == 1500 s`
++///（改值即被击杀）。
++#[test]
++fn transient策略三常量锚定() {
++    let policy = RetryPolicy::transient();
++    assert_eq!(policy.max_attempts, 5, "首跑 + 4 次重试");
++    assert_eq!(
++        policy.backoff,
++        [
++            Duration::from_secs(1),
++            Duration::from_secs(2),
++            Duration::from_secs(4),
++            Duration::from_secs(8),
++        ],
++        "退避四段递增"
++    );
++    assert_eq!(
++        policy.total_budget,
++        Duration::from_secs(1500),
++        "总预算 1500 s（自首跑起算）"
++    );
++}
++
++/// 正向（AC-2）：`RetryPolicy::none()` 单次语义——`max_attempts == 1`；
++/// `backoff` / `total_budget` 取同类常量值（不被消费）；连续两次调用相等。
++#[test]
++fn none策略单次语义且两次调用相等() {
++    let policy = RetryPolicy::none();
++    assert_eq!(policy.max_attempts, 1, "单次执行，退避与预算不消费");
++    assert_eq!(
++        policy.backoff,
++        [
++            Duration::from_secs(1),
++            Duration::from_secs(2),
++            Duration::from_secs(4),
++            Duration::from_secs(8),
++        ],
++        "退避取同类常量值（不消费）"
++    );
++    assert_eq!(
++        policy.total_budget,
++        Duration::from_secs(1500),
++        "预算取同类常量值（不消费）"
++    );
++    assert_eq!(RetryPolicy::none(), policy, "两次调用相等（纯构造）");
++}
++
++/// 边界（表驱动 2 形态）：`RetryPolicy` 相等 / clone / Debug 派生面——
++/// `none() != transient()`；`transient().clone() == transient()`；`Debug` 渲染
++/// 含 `max_attempts` / `total_budget`。
++#[test]
++fn 策略相等clone与debug面() {
++    assert_ne!(
++        RetryPolicy::none(),
++        RetryPolicy::transient(),
++        "单次与瞬态重试互不相等"
++    );
++    assert_eq!(
++        RetryPolicy::transient().clone(),
++        RetryPolicy::transient(),
++        "clone 后逐字段相等"
++    );
++
++    let debug = format!("{:?}", RetryPolicy::transient());
++    for field in ["max_attempts", "backoff", "total_budget"] {
++        assert!(debug.contains(field), "Debug 含字段 {field}: {debug}");
++    }
++}
++
++/// 边界（表驱动 3 形态）：字段直构边界策略——`max_attempts = 1` / `2`、
++/// `total_budget = ZERO` 均可读且构造无 `panic`（为执行体重试用例提供装置；
++/// 生产构造面仍收口于两 fn）。
++#[test]
++fn 直构边界策略三形态() {
++    let single = RetryPolicy {
++        max_attempts: 1,
++        ..RetryPolicy::transient()
++    };
++    assert_eq!(single.max_attempts, 1, "上限 1 可直构（等价 none 的行为面）");
++    assert_eq!(single.total_budget, Duration::from_secs(1500), "其余字段随动");
++
++    let twice = RetryPolicy {
++        max_attempts: 2,
++        ..RetryPolicy::transient()
++    };
++    assert_eq!(twice.max_attempts, 2, "上限 2 可直构（一次重试）");
++
++    let no_budget = RetryPolicy {
++        total_budget: Duration::ZERO,
++        ..RetryPolicy::transient()
++    };
++    assert_eq!(no_budget.total_budget, Duration::ZERO, "零预算可直构");
++    assert!(no_budget.total_budget < Duration::from_secs(1), "零预算极小");
++}
++
++// ---------------------------------------------------------------------------
++// 正向 / 边界：AttemptTrace 字段面
++// ---------------------------------------------------------------------------
++
++/// 正向（AC-1）：`AttemptTrace` 四字段面——构造后可读、`clone` 载荷逐字节
++/// 相等、`PartialEq` 自反；`transient: None`（未命中）同样合法。
++#[test]
++fn attempt_trace四字段面() {
++    let trace = AttemptTrace {
++        exit_code: 1,
++        transient: Some("os error 32".to_owned()),
++        stdout: b"out".to_vec(),
++        stderr: b"err".to_vec(),
++    };
++
++    assert_eq!(trace.exit_code, 1, "退出码可读");
++    assert_eq!(
++        trace.transient.as_deref(),
++        Some("os error 32"),
++        "命中签名原文可读"
++    );
++    assert_eq!(trace.stdout, b"out", "stdout 字节可读");
++    assert_eq!(trace.stderr, b"err", "stderr 字节可读");
++
++    let cloned = trace.clone();
++    assert_eq!(cloned, trace, "clone 载荷逐字节相等");
++    assert_eq!(cloned.stdout, trace.stdout, "stdout 逐字节相等");
++    assert_eq!(cloned.stderr, trace.stderr, "stderr 逐字节相等");
++    assert_eq!(cloned, cloned, "PartialEq 自反");
++
++    let unmatched = AttemptTrace {
++        exit_code: 1,
++        transient: None,
++        stdout: Vec::new(),
++        stderr: Vec::new(),
++    };
++    assert!(unmatched.transient.is_none(), "未命中签名的留痕合法");
++    assert_ne!(unmatched, trace, "命中断言参与相等判定");
++}
++
++/// 边界（表驱动 4 形态）：`AttemptTrace` 输出边界——双空 / 单字节 / 大块 /
++/// 非 UTF-8 字段原样保留（零改写零截断）；`transient` 取空串（防御性直构，
++/// 生产不产生）不 panic。
++#[test]
++fn attempt_trace输出边界四形态() {
++    let big = vec![b'q'; 64 * 1024 + 1];
++    let raw = vec![0xFF_u8, 0xFE, 0x00];
++
++    let cases: [(&str, Vec<u8>, Vec<u8>); 4] = [
++        ("双空", Vec::new(), Vec::new()),
++        ("单字节", b"S".to_vec(), b"E".to_vec()),
++        ("大块", big.clone(), big.clone()),
++        ("非 UTF-8", raw.clone(), raw.clone()),
++    ];
++
++    for (label, stdout, stderr) in cases {
++        let trace = AttemptTrace {
++            exit_code: 255,
++            transient: None,
++            stdout: stdout.clone(),
++            stderr: stderr.clone(),
++        };
++        assert_eq!(trace.stdout, stdout, "{label}: stdout 原样保留");
++        assert_eq!(trace.stderr, stderr, "{label}: stderr 原样保留");
++        assert_eq!(trace.stdout.len(), stdout.len(), "{label}: 零截断");
++    }
++
++    // 防御性直构：transient 为空串不 panic（生产不产生该形态）
++    let empty_signature = AttemptTrace {
++        exit_code: 1,
++        transient: Some(String::new()),
++        stdout: Vec::new(),
++        stderr: Vec::new(),
++    };
++    assert_eq!(
++        empty_signature.transient.as_deref(),
++        Some(""),
++        "空串签名可读且不 panic"
++    );
++    assert!(
++        format!("{empty_signature:?}").contains("AttemptTrace"),
++        "Debug 派生可读"
++    );
++}
+diff --git a/crates/infra/vcs/src/lib_test.rs b/crates/infra/vcs/src/lib_test.rs
+index 18f9e63c5013..b8d7e32d89fc 100644
+--- a/crates/infra/vcs/src/lib_test.rs
++++ b/crates/infra/vcs/src/lib_test.rs
+@@ -289,6 +289,7 @@ async fn 组合链路_真实vcs取数注入fake_runner四参() {
+                 ));
+             Box::pin(async move {
+                 Ok(ToolStepOutput::MutationTest(MutationTestOutcome {
++                    fault: None,
+                     conclusion: MutationTestConclusion::Pass,
+                     skip: Some(MutationSkipReason::EmptyDiff),
+                     score: 0.0,

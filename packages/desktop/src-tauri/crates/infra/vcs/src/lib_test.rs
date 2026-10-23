@@ -289,6 +289,7 @@ async fn 组合链路_真实vcs取数注入fake_runner四参() {
                 ));
             Box::pin(async move {
                 Ok(ToolStepOutput::MutationTest(MutationTestOutcome {
+                    fault: None,
                     conclusion: MutationTestConclusion::Pass,
                     skip: Some(MutationSkipReason::EmptyDiff),
                     score: 0.0,

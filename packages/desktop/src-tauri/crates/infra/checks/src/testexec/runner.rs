@@ -6,6 +6,9 @@ use checks::parser::{
     parse_cargo_test, parse_coverage, parse_coverage_measured, parse_spec_report,
 };
 use foundation::cancel::CancelFlag;
+use orchestration::port::RunFault;
+
+use crate::environment;
 
 use super::detect::{to_posix, TestPlan};
 
@@ -24,7 +27,7 @@ const EXIT_CODE_NO_STATUS: i32 = -1;
 
 /// 单 suite 执行结果：退出码 / 耗时 / 解析后的用例与覆盖原始计数 / 工件解析
 /// 错误面（`error` 进子报告 findings → summary problems execution_error）/
-/// 脚本真实输出合并流（进 record 单点，不进 error 尾部）。
+/// 脚本真实输出合并流（进 record 单点，不进 error 尾部）/ 执行面归因。
 #[derive(Debug)]
 pub(crate) struct PlanExecution {
     /// 命令退出码（超时 / 收口缺码记 `EXIT_CODE_NO_STATUS` 哨兵）
@@ -37,19 +40,22 @@ pub(crate) struct PlanExecution {
     pub source_files: Vec<SourceFileEntry>,
     /// 全局覆盖实测块（采集失败 / 无数据为 `None`）
     pub measured: Option<CoverageMeasured>,
-    /// 执行 / 解析错误面（非基础设施失败——进 findings 供诊断归因；非零退出
-    /// 携合并输出有界尾部）
+    /// 执行 / 解析错误面（**收窄后**语义：只承载被测代码 / 工件 / harness 面——
+    /// 非零退出携合并输出有界尾部、工件缺失 / 不可解析；环境面（超时 / 瞬态耗尽）
+    /// 恒 `None`，由 [`Self::fault`] 承载）
     pub error: Option<String>,
     /// 脚本真实输出合并流（stdout 前缀 + stderr 后缀，**不加 `2>&1`**——rust
     /// 模板 `cargo llvm-cov --workspace --json --output-path "{coverage_file}" >
     /// "{results_file}"` 已把 stdout 重定向进结果工件，`2>&1` 会把 stderr 混入
     /// 污染 `parse_cargo_test`）；`mod.rs` 按 plan 序聚合后落单一 `.log` 供人工
-    /// 回查
+    /// 回查。重试场景下为各次尝试按序拼接（每段前加 attempt 分隔头）
     pub output: Vec<u8>,
+    /// 执行面归因（`None` = 结论本身有效；在位时跳过工件解析、`error` 恒 `None`）
+    pub fault: Option<RunFault>,
 }
 
 /// 单 suite 执行全流程：清报告目录 → 模板展开 → 程序解析前置 → spawn
-///（超时 + 捕获）→ 工件解析。
+///（超时 + 瞬态重试 + 捕获）→ 执行面归因（fault 在位即早返）→ 工件解析。
 pub(crate) async fn execute_plan(
     plan: &TestPlan,
     report_dir: &Path,
@@ -87,8 +93,8 @@ pub(crate) async fn execute_plan(
     // 程序解析前置检查（spawn cwd = suite cwd 的可达性口径）
     ensure_program_resolvable(&plan.cwd, &command)?;
 
-    // 执行体（超时 / 双管道并发排水 / 进程树击杀 / 取消单点驻 exec）；超时收敛
-    // execution_error，不悬挂、不烧反馈边预算
+    // 执行体（超时 / 双管道并发排水 / 进程树击杀 / 取消单点驻 exec；瞬态重试
+    // 利用 cargo 增量进度自愈——已建成 crate 不重建，剩余待写文件递减）
     let run = exec::run_shell(
         exec::SystemCommand::script_raw(&command),
         exec::RunOptions {
@@ -96,37 +102,59 @@ pub(crate) async fn execute_plan(
             env: Vec::new(),
             timeout: SUITE_COMMAND_TIMEOUT,
             cancel,
+            retry: exec::RetryPolicy::transient(),
         },
     )
     .await
     .map_err(|failure| format!("测试命令{failure}"))?;
-    let (exit_code, exec_error, output) = match run.outcome {
-        // 取消 → 基础设施失败面（停给用户 / 收敛 run）；MUST NOT 落 plan 级
-        // `execution_error`（那会被当作被测代码问题而产生假失败归因）
-        exec::RunOutcome::Cancelled => return Err("执行已取消".to_owned()),
-        // 超时：无完整输出可记（`exit_code` 走哨兵，summary 记 execution_error）
-        exec::RunOutcome::TimedOut => (
-            EXIT_CODE_NO_STATUS,
-            Some(format!(
-                "测试命令超时（{} 秒）强制终止",
-                SUITE_COMMAND_TIMEOUT.as_secs()
-            )),
-            Vec::new(),
-        ),
-        exec::RunOutcome::Completed => {
-            let exit_code = run.exit_code;
-            // 合并流（rust 模板 `cargo llvm-cov --workspace … > "{results_file}"`
-            // 仅重定向 stdout——编译错误面留在 stderr）；不加 `2>&1`：手工拼接
-            // 只服务 record 回查，结果工件解析仍只读 stdout 面
-            let mut output = run.stdout;
-            output.extend_from_slice(&run.stderr);
-            let exec_error = if exit_code == 0 {
-                None
-            } else {
-                Some(non_zero_exit_error(exit_code, &output))
-            };
-            (exit_code, exec_error, output)
-        }
+    let output = environment::attempts_log(&run);
+    // 超时 / 取消无退出码语义：走 `-1` 哨兵（MUST NOT 回落 0 吞成假绿）
+    let exit_code = match run.outcome {
+        exec::RunOutcome::Completed => run.exit_code,
+        exec::RunOutcome::TimedOut | exec::RunOutcome::Cancelled => EXIT_CODE_NO_STATUS,
+    };
+    // 执行面归因先于结论：超时 / 瞬态耗尽 / 取消走 `fault`（MUST NOT 落 plan 级
+    // `execution_error`——那会被当作被测代码问题而产生假失败归因）；fault 在位即
+    // 早返并跳过工件解析（陈旧工件不参与，避免假绿与复用门污染）
+    let fault = match run.outcome {
+        // 超时不是被测代码问题：`fault` 承载环境面
+        exec::RunOutcome::TimedOut => Some(RunFault::Environment(format!(
+            "测试命令超时（{} 秒）强制终止",
+            SUITE_COMMAND_TIMEOUT.as_secs()
+        ))),
+        // 取消 → 停给用户（run 收敛 stopped），MUST NOT 返回 `Err`
+        exec::RunOutcome::Cancelled => Some(RunFault::Stopped),
+        exec::RunOutcome::Completed => exec::is_transient(&run).map(|_| {
+            let mut merged = run.stdout.clone();
+            merged.extend_from_slice(&run.stderr);
+            RunFault::Environment(environment::fault_text(
+                run.attempts,
+                run.exit_code,
+                &merged,
+            ))
+        }),
+    };
+    if let Some(fault) = fault {
+        return Ok(PlanExecution {
+            exit_code,
+            duration_ms: started.elapsed().as_millis() as f64,
+            cases: Vec::new(),
+            source_files: Vec::new(),
+            measured: None,
+            error: None,
+            output,
+            fault: Some(fault),
+        });
+    }
+    // 合并流（rust 模板 `cargo llvm-cov --workspace … > "{results_file}"` 仅重定向
+    // stdout——编译错误面留在 stderr）；不加 `2>&1`：手工拼接只服务 record 回查，
+    // 结果工件解析仍只读 stdout 面。真红（无瞬态签名）才落 `execution_error`
+    let exec_error = if exit_code == 0 {
+        None
+    } else {
+        let mut merged = run.stdout.clone();
+        merged.extend_from_slice(&run.stderr);
+        Some(non_zero_exit_error(exit_code, &merged))
     };
 
     // 工件解析（结果 + 覆盖两个读取面；缺失 / 不可解析进错误面，不 Err）
@@ -148,6 +176,7 @@ pub(crate) async fn execute_plan(
         measured,
         error: exec_error.or(parse_error),
         output,
+        fault: None,
     })
 }
 

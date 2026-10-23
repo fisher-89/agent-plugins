@@ -25,7 +25,7 @@ use config::{TestFramework, TestSuite};
 use foundation::cancel::CancelFlag;
 use orchestration::port::{
     BoxToolFuture, MutationCounts, MutationRunner, MutationSkipReason, MutationTestConclusion,
-    MutationTestOutcome, ToolStepOutput,
+    MutationTestOutcome, RunFault, ToolStepOutput,
 };
 
 /// 突变执行并发除数：jobs = `max(1, available_parallelism() / MUTATION_JOBS_DIVISOR)`
@@ -52,10 +52,11 @@ pub const SEGMENT_SPAWN_TIMEOUT_MS: u64 = 3_600_000;
 /// 段执行失败面（E5 分流）：`Fatal` = 工具不可达 / 配置不支持 / 写盘失败 →
 /// runner 显式 `Err` 停给用户（与 WorkerAgent 失败同等呈现）；`Interrupted` =
 /// 段中断（harness 崩 / 超时 / 未产出段报告）→ `conclusion = Error` 即时反馈
-/// （双时点②，不等汇总）；`Cancelled` = 用户停止（cancel 置位 → 执行体杀整树）→
-/// 与段中断同面收场（`conclusion = Error` + 取消文案）但**不走 `Fatal`**（不把
-/// 用户停止呈现为「环境坏了停给用户」）。变体独立（不复用 `Interrupted` 文案）
-/// 便于后续 stopped 收敛直接映射。
+///（双时点②，不等汇总）；`Cancelled` = 用户停止（cancel 置位 → 执行体杀整树）→
+/// 产出以 `fault = Some(RunFault::Stopped)` 正常返回（节点 stopped、run stopped），
+/// **不走 `Fatal`**（不把用户停止呈现为「环境坏了停给用户」）、也不走
+/// `conclusion = Error` + 取消文案的升格面（不把用户停止呈现为失败）。变体独立
+/// （不复用 `Interrupted` 文案）便于终态面按变体直接映射。
 #[derive(Debug)]
 pub(crate) enum SegmentFailure {
     Fatal(String),
@@ -223,19 +224,33 @@ async fn execute(
         .map(|(_, block)| block.clone())
         .collect();
 
-    // 双时点②中断面：不等汇总、不回填 summary（部分结论不落位）——错误摘要 +
-    // 已产报告路径清单即时反馈（取消面同面收场，仅头行文案为「已取消」）
+    // 中断 / 取消同走「保留失败桶临时面 + 收束」，终态面按变体分派（取消失败面改判
+    // 为 `fault = Stopped`，见下方 interruption 分支）
     if let Some(failure) = interruption {
         let merged = merge_mutation_blocks(&blocks);
         let (score, threshold, counts) = match &merged {
             Some(block) => (block.score, block.threshold, counts_of(&block.measured)),
             None => (0.0, 0.0, MutationCounts::default()),
         };
-        let head = match &failure {
-            SegmentFailure::Cancelled(_) => "突变执行已取消",
-            // Fatal 不参与取消（`Err` 面已在上一分支收束），此处为既有中断面
-            SegmentFailure::Interrupted(_) | SegmentFailure::Fatal(_) => "突变执行中断",
-        };
+        if matches!(failure, SegmentFailure::Cancelled(_)) {
+            // 用户停止 → 执行面归因（walker 收敛 stopped）：结论取 `Fail` 占位
+            //（MUST NOT 取 `Error`；fault 在位时不参与门禁分派）、`feedback_text`
+            // 清空（stopped 面不消费它，保留会被误读为「需修复」）；已产报告路径
+            // 与失败桶临时面保留纪律不变
+            return Ok(ToolStepOutput::MutationTest(MutationTestOutcome {
+                conclusion: MutationTestConclusion::Fail,
+                skip: None,
+                score,
+                threshold,
+                counts,
+                report_paths,
+                feedback_text: String::new(),
+                fault: Some(RunFault::Stopped),
+            }));
+        }
+        // 双时点②中断面：不等汇总、不回填 summary（部分结论不落位）——错误摘要 +
+        // 已产报告路径清单即时反馈
+        let head = "突变执行中断";
         let feedback_text = format!(
             "{head}：{failure}\n已产报告路径：\n{}{}",
             bullet_paths(&report_paths),
@@ -249,6 +264,7 @@ async fn execute(
             counts,
             report_paths,
             feedback_text,
+            fault: None,
         }));
     }
 
@@ -275,6 +291,7 @@ async fn execute(
         counts: counts_of(&merged.measured),
         report_paths,
         feedback_text,
+        fault: None,
     }))
 }
 
@@ -427,6 +444,7 @@ fn skip_outcome(skip: MutationSkipReason) -> ToolStepOutput {
         counts: MutationCounts::default(),
         report_paths: Vec::new(),
         feedback_text: String::new(),
+        fault: None,
     })
 }
 

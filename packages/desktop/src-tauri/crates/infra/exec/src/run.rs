@@ -1,12 +1,37 @@
+//! 统一进程执行体 [`run_shell`]：infra 层 tokio spawn 的唯一收口。
+//!
+//! 五能力单点（此前由各调用点各写一遍且齐不齐）：
+//! - **超时必填**：[`RunOptions::timeout`] 为必填字段（本类型不提供 `Default`、
+//!   无「None 即无限」分支）——「无超时 spawn」在类型层不可表达，杜绝检查域历史
+//!   上「cargo 卡在文件锁等待时永久悬挂」的缺陷复发；
+//! - **双管道并发排水**：stdout / stderr 各一路 `read_to_end` 并发进行（单管道
+//!   串行读会在对侧管道填满时互锁）；
+//! - **进程树击杀**：超时与取消两臂统一 `crate::kill_tree(pid)` 杀整树（Windows
+//!   `taskkill /T /F` 连子孙），再以有界收尸 / 有界排水保证「预算 + 有限收尾」的
+//!   墙钟上界（只杀不收会换形为「杀后悬挂」：子孙若继承了管道写端，排水永不
+//!   EOF）；
+//! - **取消**：以 [`CancelFlag`] 轮询观测（`foundation` 零 tokio 纪律下唯一形态），
+//!   入口先查一次（已置位即不 spawn）；
+//! - **有限重试**：命中瞬态签名（见 [`crate::transient`]）时按 [`RetryPolicy`] 重试
+//!   ——循环复用同一执行骨架 [`attempt_once`]（不另写第二条 spawn 路径），每次尝试
+//!   同样观测 `cancel`，总预算自首跑起算硬顶。
+//!
+//! 输出面只给 `stdout` / `stderr` 两路原始字节（零改写零截断、**不**预合流）——
+//! 合流顺序（`2>&1` 类 shell 级合流、或「stdout 前缀 + stderr 后缀」手工拼接）归
+//! 调用方，由各自的解读面语义决定。本执行体**不自带日志格式**（尝试分隔头 / 归因
+//! 文案归调用方，只提供 [`RunReport::attempts`] / [`RunReport::retried`] 尝试面
+//! 字节）。
+
 use std::ffi::OsString;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::time::Duration;
 
 use foundation::cancel::CancelFlag;
 use tokio::process::{Child, ChildStderr, ChildStdout};
-use tokio::time::{sleep, timeout};
+use tokio::time::{sleep, timeout, Instant};
 
+use crate::transient::{transient_signature, AttemptTrace, RetryPolicy};
 use crate::{kill_tree, SystemCommand};
 
 /// 取消轮询间隔：执行体观测取消信号的最小粒度（`foundation::cancel` 零 tokio，
@@ -23,7 +48,7 @@ const CANCEL_POLL_INTERVAL: Duration = Duration::from_millis(200);
 /// 可能截断，见 [`RunReport`] doc）。
 const FINISH_GRACE: Duration = Duration::from_secs(2);
 
-/// 执行入参：工作目录 / 环境变量 / **必填**超时 / 取消信号。
+/// 执行入参：工作目录 / 环境变量 / **必填**超时 / 取消信号 / 重试策略。
 ///
 /// 刻意不实现 `Default`——`timeout` 无缺省语义（超时必填是本执行体的守门约束）。
 #[derive(Debug, Clone)]
@@ -36,6 +61,9 @@ pub struct RunOptions {
     pub timeout: Duration,
     /// 取消信号读端（[`CancelFlag::never`] = 永不取消）
     pub cancel: CancelFlag,
+    /// 重试策略（缺省语义 = 单次执行 [`RetryPolicy::none`]；代码常量，MUST NOT 进
+    /// config schema）
+    pub retry: RetryPolicy,
 }
 
 /// 执行结局封闭三值。
@@ -53,7 +81,7 @@ pub enum RunOutcome {
 ///
 /// `TimedOut` / `Cancelled` 两臂的输出**不保证完整**（被杀进程可能仍有未排出的
 /// 字节；排水以 [`FINISH_GRACE`] 有界截断），四消费点在该两臂均不消费输出
-///（static-check / testexec 走 `Err` 或空 output，两 mutation 段走固定文案）。
+///（static-check / testexec 以归因面收口，两 mutation 段走固定文案）。
 /// `Completed` 臂正常树输出完整；仅当子进程已退出、孙进程仍持有继承的管道写端
 ///（孤儿）时，收尸后的排水同样以 [`FINISH_GRACE`] 截断——该异常面下输出可能
 /// 少掉尾字节，换取执行体不悬挂。
@@ -64,10 +92,15 @@ pub struct RunReport {
     /// 退出码（`TimedOut` / `Cancelled` 与「无可读退出码」同记 `-1` 哨兵——
     /// MUST NOT 回落 `0` 吞成假绿）
     pub exit_code: i32,
-    /// stdout 原始字节
+    /// **末次**尝试的 stdout 原始字节（重试场景下此前尝试的字节只在 [`Self::retried`]
+    /// 中可读——既有消费点的读法零变）
     pub stdout: Vec<u8>,
-    /// stderr 原始字节
+    /// **末次**尝试的 stderr 原始字节
     pub stderr: Vec<u8>,
+    /// 本命令实际尝试次数（≥ 1）
+    pub attempts: u32,
+    /// 此前各次尝试的留痕（**末次不入**；未命中瞬态签名 / 单次执行时恒空）
+    pub retried: Vec<AttemptTrace>,
 }
 
 /// 执行失败面（进程没跑起来 / 收尸失败——与三值结局正交：三值表达「跑起来之后
@@ -92,22 +125,116 @@ impl std::fmt::Display for RunError {
     }
 }
 
-/// 执行体：spawn（`kill_on_drop`）→ 双管道并发排水 → 三臂竞速（取消轮询 /
-/// 超时 / 「排水 + 收尸」）→ 被杀两臂杀整树 + 有界收尾。
+/// 执行体：入口短路 → 重试循环（每次尝试 = [`attempt_once`]）→ 尝试面装配。
 ///
-/// 三臂 `biased` 序 cancel → timeout → 退出：取消优先于超时，两者都优先于自然
-/// 退出（同一轮 poll 同时就绪时按此序收敛，不出现「已到期却记 Completed」）。
+/// 循环判定序（每次尝试之后）：非 `Completed`（`TimedOut` / `Cancelled`）即返
+/// （零重试）→ 未命中瞬态签名即返（真红 / 绿）→ 达尝试上限即返末次 → 总预算耗尽
+/// 即返末次 → 退避（同样观测 `cancel`）后进入下一轮。末次尝试的字节留在
+/// [`RunReport::stdout`] / [`RunReport::stderr`]，此前各次进
+/// [`RunReport::retried`]——「转入 `retried`」落在退避成功之后，故 `retried` 恒
+/// 等于「末次之前」的尝试集。
 pub async fn run_shell(command: SystemCommand, options: RunOptions) -> Result<RunReport, RunError> {
     let RunOptions {
         cwd,
         env,
         timeout: budget,
         cancel,
+        retry,
     } = options;
+    // 总预算自首跑开始起算（非每次尝试一份）
+    let started = Instant::now();
+    let mut attempts: u32 = 0;
+    let mut retried: Vec<AttemptTrace> = Vec::new();
+    loop {
+        attempts += 1;
+        let attempt = attempt_once(&command, cwd.as_deref(), &env, budget, &cancel).await?;
+        // ① 非自然退出（超时 / 取消）零重试：超时重试会把预算放大数倍、取消必须
+        // 立即生效
+        if attempt.outcome != RunOutcome::Completed {
+            return Ok(attempt.into_report(attempts, retried));
+        }
+        // ② 未命中签名（真红 / 绿）零重试——重试策略在位但不触发
+        let Some(signature) = transient_signature(
+            attempt.outcome,
+            attempt.exit_code,
+            &attempt.stdout,
+            &attempt.stderr,
+        ) else {
+            return Ok(attempt.into_report(attempts, retried));
+        };
+        // ③ 上限 / ④ 预算早停：末次结果原样返回（`Completed` + 非零，由调用方按
+        // 瞬态命中断言 fault），末次不入 `retried`
+        if attempts >= retry.max_attempts || started.elapsed() >= retry.total_budget {
+            return Ok(attempt.into_report(attempts, retried));
+        }
+        // ⑤ 退避等待同样观测 cancel（复用既有轮询单点，不新增计时原语）
+        let backoff = retry.backoff[(attempts as usize - 1).min(retry.backoff.len() - 1)];
+        let cancelled = tokio::select! {
+            biased;
+            _ = wait_cancel(&cancel) => true,
+            _ = sleep(backoff) => false,
+        };
+        if cancelled {
+            // 退避期取消：本次尝试已完成（按「末次」字节返回），`attempts` 记已
+            // 完成次数，该次不进 `retried`
+            return Ok(RunReport {
+                outcome: RunOutcome::Cancelled,
+                exit_code: -1,
+                stdout: attempt.stdout,
+                stderr: attempt.stderr,
+                attempts,
+                retried,
+            });
+        }
+        retried.push(AttemptTrace {
+            exit_code: attempt.exit_code,
+            transient: Some(signature.to_owned()),
+            stdout: attempt.stdout,
+            stderr: attempt.stderr,
+        });
+    }
+}
+
+/// 单次尝试产出（重试循环的内部载体；`into_report` 把末次尝试与既有尝试集装配
+/// 成 [`RunReport`]）。
+struct Attempt {
+    outcome: RunOutcome,
+    exit_code: i32,
+    stdout: Vec<u8>,
+    stderr: Vec<u8>,
+}
+
+impl Attempt {
+    /// 末次尝试 + 此前各次尝试 → 对外的 [`RunReport`]。
+    fn into_report(self, attempts: u32, retried: Vec<AttemptTrace>) -> RunReport {
+        RunReport {
+            outcome: self.outcome,
+            exit_code: self.exit_code,
+            stdout: self.stdout,
+            stderr: self.stderr,
+            attempts,
+            retried,
+        }
+    }
+}
+
+/// 单次尝试：spawn（`kill_on_drop`）→ 双管道并发排水 → 三臂竞速（取消轮询 /
+/// 超时 / 「排水 + 收尸」）→ 被杀两臂杀整树 + 有界收尾。
+///
+/// 三臂 `biased` 序 cancel → timeout → 退出：取消优先于超时，两者都优先于自然
+/// 退出（同一轮 poll 同时就绪时按此序收敛，不出现「已到期却记 Completed」）。
+/// 重试循环复用本函数（同一骨架，不另写第二条 spawn 路径）。
+async fn attempt_once(
+    command: &SystemCommand,
+    cwd: Option<&Path>,
+    env: &[(OsString, OsString)],
+    budget: Duration,
+    cancel: &CancelFlag,
+) -> Result<Attempt, RunError> {
     // 入口短路：已置位即不 spawn（取消用例不必依赖轮询时序；也避免为一次必然被
     // 杀的调用付出进程建立成本）
     if cancel.is_set() {
-        return Ok(RunReport {
+        return Ok(Attempt {
             outcome: RunOutcome::Cancelled,
             exit_code: -1,
             stdout: Vec::new(),
@@ -115,17 +242,17 @@ pub async fn run_shell(command: SystemCommand, options: RunOptions) -> Result<Ru
         });
     }
 
-    let mut shell = command.into_tokio();
+    let mut shell = command.clone().into_tokio();
     shell
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         // future 被 drop（调用方取消等待 / panic）时兜底终止进程
         .kill_on_drop(true);
-    if let Some(dir) = &cwd {
+    if let Some(dir) = cwd {
         shell.current_dir(dir);
     }
-    for (key, value) in &env {
+    for (key, value) in env {
         shell.env(key, value);
     }
     let mut child = shell
@@ -142,7 +269,7 @@ pub async fn run_shell(command: SystemCommand, options: RunOptions) -> Result<Ru
 
     let raced = tokio::select! {
         biased;
-        _ = wait_cancel(&cancel) => Race::Cancelled,
+        _ = wait_cancel(cancel) => Race::Cancelled,
         _ = sleep(budget) => Race::TimedOut,
         status = await_exit(
             &mut child,
@@ -156,7 +283,7 @@ pub async fn run_shell(command: SystemCommand, options: RunOptions) -> Result<Ru
     let outcome = match raced {
         Race::Exited(status) => {
             let status = status.map_err(|error| RunError::Wait(error.to_string()))?;
-            return Ok(RunReport {
+            return Ok(Attempt {
                 outcome: RunOutcome::Completed,
                 // 无可读退出码（unix 信号终止）同记 -1 哨兵，不回落 0
                 exit_code: status.code().unwrap_or(-1),
@@ -179,7 +306,7 @@ pub async fn run_shell(command: SystemCommand, options: RunOptions) -> Result<Ru
         );
     })
     .await;
-    Ok(RunReport {
+    Ok(Attempt {
         outcome,
         exit_code: -1,
         stdout: stdout_bytes,

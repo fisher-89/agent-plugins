@@ -1,0 +1,2910 @@
+diff --git a/Cargo.lock b/Cargo.lock
+index d6832bd1c791..0b9c897c88bc 100644
+--- a/Cargo.lock
++++ b/Cargo.lock
+@@ -2926,6 +2926,7 @@ dependencies = [
+  "foundation",
+  "tempfile",
+  "tokio",
++ "windows-sys 0.61.2",
+ ]
+ 
+ [[package]]
+diff --git a/crates/core/orchestration/src/port.rs b/crates/core/orchestration/src/port.rs
+index 2874e159b76b..969fb9758af8 100644
+--- a/crates/core/orchestration/src/port.rs
++++ b/crates/core/orchestration/src/port.rs
+@@ -164,11 +164,30 @@ pub enum ToolStepOutput {
+     ArchiveSeal(workflow::write::ArchiveOutcome),
+ }
+ 
++/// 执行面归因（检查结论**之外**的原因；`None` 侧 = 结论本身有效）。
++///
++/// `Stopped` = 用户停止（cancel 置位 → 进程树击杀 → `Terminal::stopped`）；
++/// `Environment(String)` = 环境错误摘要（瞬态锁耗尽 / 超时——相位重试必然再失败，
++/// MUST NOT 注回 executor、MUST NOT 升格相位 fail）。
++///
++/// **零 `Serialize`——不出线**：不进 `RunUpdate` / `RunNodeRecord` 载荷、不改
++/// `src/types/generated/bindings.ts`（三 outcome 均只在进程内 walker 消费）。
++#[derive(Debug, Clone, PartialEq, Eq)]
++pub enum RunFault {
++    /// 用户停止（节点 `stopped`、run `stopped`）
++    Stopped,
++    /// 环境错误摘要（节点 `failed`、run `failed`；不注回 executor）
++    Environment(String),
++}
++
+ /// static-check 门禁产出（passed=false 走定向反馈边）。
+ #[derive(Debug, Clone, PartialEq, Eq)]
+ pub struct StaticCheckOutcome {
+     pub passed: bool,
+     pub diagnostics: String,
++    /// 执行面归因（`None` = 结论本身有效；在位时 `passed` 不参与门禁分派——
++    /// walker 先查 `fault`）
++    pub fault: Option<RunFault>,
+     /// 全量输出引用（`ExecOutput::Recorded { exec_id }`；默认 recorded → 恒回填
+     /// `Some(exec_id)`，落盘失败降级 `None`——不阻断检查主流程；反馈边仍只消费
+     /// `diagnostics`，全量经本引用回查）
+@@ -225,6 +244,9 @@ pub struct TestExecutionOutcome {
+     /// `exec::read_exec_output` 回查；与 `report_dir` 同锚同口径，落盘失败空串 =
+     /// 未记录——`report_dir` 报告仍为全量权威）
+     pub exec_id: String,
++    /// 执行面归因（`None` = 结论本身有效；在位时 `conclusion` 不参与门禁分派——
++    /// walker 先查 `fault`）
++    pub fault: Option<RunFault>,
+ }
+ 
+ /// mutation-test 门禁结论三值（`TestExecutionConclusion` 同型；线格式小写词）：
+@@ -305,6 +327,10 @@ pub struct MutationTestOutcome {
+     /// 反馈文本（反馈边②报告指引式：结论摘要 + 报告路径清单；pass 恒空串；
+     /// MUST NOT 内联存活突变体清单——明细由 executor 自行读报告）
+     pub feedback_text: String,
++    /// 执行面归因（`None` = 结论本身有效；在位时 `conclusion` 不参与门禁分派——
++    /// walker 先查 `fault`。mutation 面只产 `Stopped`：段超时仍走 `Interrupted` +
++    /// `conclusion = Error`，有意不进 fault）
++    pub fault: Option<RunFault>,
+ }
+ 
+ /// ToolStep 契约（进程内缝）：相位机四步由编排侧 [`crate::steps::LocalToolSteps`]
+@@ -322,7 +348,9 @@ pub trait ToolStepPort: Send + Sync {
+ /// 检查——报告锚点与 exec-outputs 记录同锚派生，执行语义零分叉。
+ pub trait StaticCheckRunner: Send + Sync {
+     /// 取消信号经 infra 执行体观测（`exec::run_shell` 轮询）——core 零 spawn；
+-    /// 置位 → 进程树击杀 → 实现侧返回 `Err("执行已取消")`。
++    /// 置位 → 进程树击杀 → 产出以 `fault = Some(RunFault::Stopped)` 正常返回
++    ///（取消 MUST NOT 以 `Err` 表达——`Err` 只留给进程拉不起 / 程序不可达等基础
++    /// 设施失败）。
+     fn run(&self, root: &str, name: &str, slot: ReportSlot, cancel: CancelFlag) -> BoxToolFuture;
+ }
+ 
+@@ -335,7 +363,8 @@ pub trait StaticCheckRunner: Send + Sync {
+ /// baseline 基线检查（`reports/baseline` 分树隔离）——复用门按本槽位报告树判定。
+ pub trait TestExecutionRunner: Send + Sync {
+     /// 取消信号经 infra 执行体观测——core 零 spawn；置位 → 进程树击杀 →
+-    /// 实现侧返回 `Err("执行已取消")`（不落 plan 级 `execution_error`）。
++    /// 产出以 `fault = Some(RunFault::Stopped)` 正常返回（MUST NOT 返回 `Err`）；
++    /// 取消 MUST NOT 落 plan 级 `execution_error`，也不再跑余下 plan。
+     fn run(&self, root: &str, name: &str, slot: ReportSlot, cancel: CancelFlag) -> BoxToolFuture;
+ }
+ 
+@@ -348,8 +377,10 @@ pub trait TestExecutionRunner: Send + Sync {
+ /// 取数后由 `steps.rs` 注入，checks-runtime 依赖面零 vcs（清单 / 补丁唯一入口在
+ /// vcs 边界）。
+ pub trait MutationRunner: Send + Sync {
+-    /// 末位为取消信号（经 infra 执行体观测——core 零 spawn）；置位 → 段执行
+-    /// 返回 `SegmentFailure::Cancelled` → `conclusion = Error`（过渡形态）。
++    /// 末位为取消信号（经 infra 执行体观测——core 零 spawn）；置位 → 进程树击杀
++    /// → 产出以 `fault = Some(RunFault::Stopped)` 正常返回（MUST NOT 以 `Err` /
++    /// `conclusion = Error` 表达取消）。段超时仍走 `Interrupted` +
++    /// `conclusion = Error` + `fault = None`（长跑是产品语义，超时是配置问题）。
+     fn run(
+         &self,
+         root: &str,
+diff --git a/crates/core/orchestration/src/port_test.rs b/crates/core/orchestration/src/port_test.rs
+index 84b1aad2dbb2..f483da06c9f4 100644
+--- a/crates/core/orchestration/src/port_test.rs
++++ b/crates/core/orchestration/src/port_test.rs
+@@ -5,7 +5,7 @@ use foundation::cancel::CancelFlag;
+ use foundation::layout::ReportSlot;
+ 
+ use crate::port::{
+-    BoxDiffFuture, DiffContextPort, RunEventSink, StaticCheckOutcome, StaticCheckRunner,
++    BoxDiffFuture, DiffContextPort, RunEventSink, RunFault, StaticCheckOutcome, StaticCheckRunner,
+     ToolCommand, ToolStepOutput, ToolStepPort, WorkerAgentPort, WorkerRole, WorkerTurnOutcome,
+     WorkerTurnRequest, WorkflowSnapshotPort,
+ };
+@@ -95,6 +95,7 @@ impl ToolStepPort for RecordingSteps {
+         self.roots.lock().expect("root 锁不可中毒").push(step.root);
+         Box::pin(async move {
+             Ok(ToolStepOutput::StaticCheck(StaticCheckOutcome {
++                fault: None,
+                 passed: true,
+                 diagnostics: String::new(),
+                 output_ref: None,
+@@ -521,6 +522,7 @@ fn tool_step_output各变体载荷写面原生类型逐字段相等() {
+         phase: "implement".to_owned(),
+     };
+     let check = StaticCheckOutcome {
++        fault: None,
+         passed: false,
+         diagnostics: "error[E0308]: mismatched".to_owned(),
+         output_ref: None,
+@@ -591,6 +593,7 @@ fn tool_step_output各变体载荷写面原生类型逐字段相等() {
+ #[test]
+ fn static_check_outcome字段面双值双诊断形态() {
+     let passed_clean = StaticCheckOutcome {
++        fault: None,
+         passed: true,
+         diagnostics: String::new(),
+         output_ref: None,
+@@ -600,6 +603,7 @@ fn static_check_outcome字段面双值双诊断形态() {
+     assert!(passed_clean.diagnostics.is_empty());
+ 
+     let failed_loud = StaticCheckOutcome {
++        fault: None,
+         passed: false,
+         diagnostics: "error[E0308]: mismatched types\n  --> src/lib.rs:1:1\nwarning: unused"
+             .to_owned(),
+@@ -616,6 +620,7 @@ fn static_check_outcome字段面双值双诊断形态() {
+     // 输出记录引用随产出透传：Some = 全量输出可经 infra/exec 回查（默认
+     // recorded），None = 零 spawn 直过 / 落盘失败降级——两态可辨
+     let recorded = StaticCheckOutcome {
++        fault: None,
+         passed: false,
+         diagnostics: "lint 失败".to_owned(),
+         output_ref: Some("exec-1727000000000".to_owned()),
+@@ -638,12 +643,14 @@ fn static_check_outcome字段面双值双诊断形态() {
+     // report_dir 字段对称面（check-before-flow-start）：pass / fail 两态各携非空
+     // 报告目录串（与 TestExecutionOutcome.report_dir 对称——infra 按槽位派生回填）
+     let passed_with_dir = StaticCheckOutcome {
++        fault: None,
+         passed: true,
+         diagnostics: String::new(),
+         output_ref: Some("exec-1".to_owned()),
+         report_dir: "C:/ws/openspec/changes/c/reports/baseline".to_owned(),
+     };
+     let failed_with_dir = StaticCheckOutcome {
++        fault: None,
+         passed: false,
+         diagnostics: "lint 红了".to_owned(),
+         output_ref: Some("exec-2".to_owned()),
+@@ -659,6 +666,7 @@ fn static_check_outcome字段面双值双诊断形态() {
+     );
+     // 对称面对拍：TestExecutionOutcome.report_dir 同为 String 字段、可同式构造读取
+     let execution = TestExecutionOutcome {
++        fault: None,
+         conclusion: TestExecutionConclusion::Pass,
+         total: 1,
+         passed: 1,
+@@ -676,6 +684,7 @@ fn static_check_outcome字段面双值双诊断形态() {
+ 
+     // 空串 / 缺省构造面不 panic（回填语义归 infra 真件节——port 面只锚字段在场）
+     let empty_dir = StaticCheckOutcome {
++        fault: None,
+         passed: true,
+         diagnostics: String::new(),
+         output_ref: None,
+@@ -699,6 +708,7 @@ async fn static_check_runner假实现经arc注入且root_name_slot三元组透
+     assert_send_sync::<Arc<dyn StaticCheckRunner>>();
+ 
+     let (inner, calls) = ProgrammableRunner::with_outcome(StaticCheckOutcome {
++        fault: None,
+         // 默认 recorded：引用随产出回填（载荷语义不变）
+         passed: false,
+         diagnostics: "lint 失败".to_owned(),
+@@ -745,6 +755,7 @@ async fn static_check_runner假实现经arc注入且root_name_slot三元组透
+ 
+     // slot=Baseline 基线槽位同构透传（枚举遍历——两值原样到达假件）
+     let (inner, calls) = ProgrammableRunner::with_outcome(StaticCheckOutcome {
++        fault: None,
+         passed: true,
+         diagnostics: String::new(),
+         output_ref: Some("exec-1727000000000-2".to_owned()),
+@@ -822,6 +833,7 @@ async fn box_diff_future别名跨await持有可用() {
+     fn make_tool() -> crate::port::BoxToolFuture {
+         Box::pin(async {
+             Ok(ToolStepOutput::StaticCheck(StaticCheckOutcome {
++                fault: None,
+                 passed: true,
+                 diagnostics: String::new(),
+                 output_ref: None,
+@@ -962,6 +974,7 @@ impl TestExecutionRunner for ProgrammableTestExecutionRunner {
+ 
+ fn sample_execution_outcome(conclusion: TestExecutionConclusion) -> TestExecutionOutcome {
+     TestExecutionOutcome {
++        fault: None,
+         conclusion,
+         total: 12,
+         passed: 10,
+@@ -1654,6 +1667,7 @@ use crate::port::{
+ /// 在位；feedback_text 非空携报告路径指引）。
+ fn sample_mutation_outcome(conclusion: MutationTestConclusion) -> MutationTestOutcome {
+     MutationTestOutcome {
++        fault: None,
+         conclusion,
+         skip: None,
+         score: 87.5,
+@@ -1825,6 +1839,7 @@ fn mutation_test_outcome形态_已执行与feedback_text面() {
+ fn mutation_test_outcome边界_skip占位与posix报告路径() {
+     for skip in [MutationSkipReason::EmptyDiff, MutationSkipReason::NoExecutor] {
+         let skipped = MutationTestOutcome {
++            fault: None,
+             conclusion: MutationTestConclusion::Pass,
+             skip: Some(skip),
+             score: 0.0,
+@@ -2584,6 +2599,7 @@ fn tool_step_request_debug渲染含cancel形态() {
+ async fn 三runner_trait接收cancel形参且原样透传() {
+     // StaticCheckRunner
+     let (static_inner, _static_calls) = ProgrammableRunner::with_outcome(StaticCheckOutcome {
++        fault: None,
+         passed: true,
+         diagnostics: String::new(),
+         output_ref: None,
+@@ -2639,6 +2655,7 @@ async fn 三runner_trait已置位信号不被丢弃() {
+     cancel.handle().set();
+ 
+     let (static_inner, _) = ProgrammableRunner::with_outcome(StaticCheckOutcome {
++        fault: None,
+         passed: true,
+         diagnostics: String::new(),
+         output_ref: None,
+@@ -2683,3 +2700,396 @@ async fn 三runner_trait已置位信号不被丢弃() {
+         "MutationRunner 收到已置位信号"
+     );
+ }
++
++// ---------------------------------------------------------------------------
++// 执行面归因 `RunFault` 与三 outcome 的 `fault` 字段面（AC-5 / AC-9）
++// ---------------------------------------------------------------------------
++
++/// 正向（遍历枚举 2 变体）：`RunFault` 两变体直构——同变体等值、异变体不等，
++/// `Environment` 载荷参与相等（不同串不等）。
++#[test]
++fn run_fault两变体与相等语义() {
++    let stopped = RunFault::Stopped;
++    let environment = RunFault::Environment("锁占用".to_owned());
++
++    assert_eq!(stopped, RunFault::Stopped, "Stopped 自反相等");
++    assert_eq!(
++        environment,
++        RunFault::Environment("锁占用".to_owned()),
++        "同载荷相等"
++    );
++    assert_ne!(
++        environment,
++        RunFault::Environment("超时".to_owned()),
++        "载荷参与相等判定"
++    );
++    assert_ne!(stopped, environment, "异变体不等");
++}
++
++/// 正向（表驱动 2 变体）：`clone` 后载荷逐字相等、`Debug` 渲染含变体名与载荷
++///（derive 可读，便于故障定位）。
++#[test]
++fn run_fault_clone与debug面() {
++    for fault in [
++        RunFault::Stopped,
++        RunFault::Environment("静态检查无法完成".to_owned()),
++    ] {
++        let cloned = fault.clone();
++        assert_eq!(cloned, fault, "clone 负载荷逐字相等（非 Arc 共享）");
++
++        let debug = format!("{fault:?}");
++        match &fault {
++            RunFault::Stopped => assert!(debug.contains("Stopped"), "Debug 含变体名: {debug}"),
++            RunFault::Environment(text) => {
++                assert!(debug.contains("Environment"), "Debug 含变体名: {debug}");
++                assert!(debug.contains(text.as_str()), "Debug 含载荷串: {debug}");
++            }
++        }
++    }
++}
++
++/// 边界（表驱动 4 形态）：`RunFault` 载荷边界——空串 / 超长（>1000 字符）/
++/// 特殊字符（换行、`\0`、emoji、中文）/ 中文归因文本 → 构造与相等不 panic、
++/// 载荷逐字保留。
++#[test]
++fn run_fault载荷边界四形态() {
++    let cases = [
++        String::new(),
++        "错".repeat(1200),
++        "line-1\nline-2\u{0}🎉".to_owned(),
++        "占用进程：HipsDaemon.exe (pid 1234)".to_owned(),
++    ];
++    for payload in cases {
++        let fault = RunFault::Environment(payload.clone());
++        let RunFault::Environment(stored) = &fault else {
++            panic!("变体应为 Environment");
++        };
++        assert_eq!(stored, &payload, "载荷逐字保留");
++        assert_eq!(fault.clone(), fault, "clone 后相等");
++    }
++}
++
++/// 正向（表驱动 3 形态）：`StaticCheckOutcome.fault` 三态——`None` /
++/// `Some(Stopped)` / `Some(Environment(..))` 均可构造且 `PartialEq` 区分；
++/// 五字段穷尽解构（无 `..`）证明字段面只增 `fault`。
++#[test]
++fn static_check_outcome_fault三态与字段穷尽() {
++    let base = StaticCheckOutcome {
++        passed: false,
++        diagnostics: "诊断".to_owned(),
++        fault: None,
++        output_ref: Some("exec-1".to_owned()),
++        report_dir: "reports/test".to_owned(),
++    };
++    let stopped = StaticCheckOutcome {
++        fault: Some(RunFault::Stopped),
++        ..base.clone()
++    };
++    let environment = StaticCheckOutcome {
++        fault: Some(RunFault::Environment("环境错误".to_owned())),
++        ..base.clone()
++    };
++
++    assert_eq!(base.fault, None, "None = 结论本身有效");
++    assert!(matches!(stopped.fault, Some(RunFault::Stopped)));
++    assert!(matches!(environment.fault, Some(RunFault::Environment(_))));
++    assert_ne!(base, stopped, "三态互相可辨");
++    assert_ne!(stopped, environment, "两 fault 变体可辨");
++
++    // 穷尽解构：字段集 = passed / diagnostics / fault / output_ref / report_dir
++    let StaticCheckOutcome {
++        passed,
++        diagnostics,
++        fault,
++        output_ref,
++        report_dir,
++    } = environment;
++    assert!(!passed && diagnostics == "诊断" && fault.is_some());
++    assert_eq!(output_ref.as_deref(), Some("exec-1"));
++    assert_eq!(report_dir, "reports/test");
++}
++
++/// 边界：`StaticCheckOutcome` 的 `Eq` 仍成立（含 `fault` 字段）——两份等值
++/// `assert_eq!` + `Eq` 约束编译期断言（`derive(Eq)` 未退化为仅 `PartialEq`）。
++#[test]
++fn static_check_outcome_eq仍成立() {
++    fn require_eq<T: Eq>(_: &T) {}
++
++    let one = StaticCheckOutcome {
++        passed: true,
++        diagnostics: String::new(),
++        fault: Some(RunFault::Environment("同一串".to_owned())),
++        output_ref: None,
++        report_dir: "reports/baseline".to_owned(),
++    };
++    let two = one.clone();
++    assert_eq!(one, two, "同字段两份相等");
++    require_eq(&one);
++    require_eq(&two);
++}
++
++/// 正向（表驱动 3 形态）：`TestExecutionOutcome.fault` 三态各配 `conclusion`
++/// 三值 → 结构可构造、相等按 `conclusion` + `fault` 联合判定；十字段穷尽解构
++/// 证明字段面零扩展（只增 `fault`）。
++#[test]
++fn test_execution_outcome_fault三态与字段穷尽() {
++    let cases = [
++        (TestExecutionConclusion::Pass, None),
++        (TestExecutionConclusion::Fail, Some(RunFault::Stopped)),
++        (
++            TestExecutionConclusion::Error,
++            Some(RunFault::Environment("测试命令超时".to_owned())),
++        ),
++    ];
++
++    let mut built: Vec<TestExecutionOutcome> = Vec::new();
++    for (conclusion, fault) in cases {
++        let outcome = TestExecutionOutcome {
++            conclusion,
++            total: 7,
++            passed: 5,
++            failed: 2,
++            skipped: 0,
++            findings_brief: "摘要".to_owned(),
++            findings_detail: "明细".to_owned(),
++            report_dir: "reports/test".to_owned(),
++            exec_id: "exec-9".to_owned(),
++            fault: fault.clone(),
++        };
++        assert_eq!(outcome.conclusion, conclusion);
++        assert_eq!(outcome.fault, fault, "fault 逐态保留");
++        built.push(outcome);
++    }
++    assert_ne!(built[0], built[1], "fault 参与相等判定");
++    assert_ne!(built[1], built[2], "两 fault 变体可辨");
++
++    // 十字段穷尽解构（字段面 = 9 既有 + fault）
++    let TestExecutionOutcome {
++        conclusion,
++        total,
++        passed,
++        failed,
++        skipped,
++        findings_brief,
++        findings_detail,
++        report_dir,
++        exec_id,
++        fault,
++    } = built.remove(1);
++    assert_eq!(conclusion, TestExecutionConclusion::Fail);
++    assert_eq!((total, passed, failed, skipped), (7, 5, 2, 0));
++    assert!(findings_brief == "摘要" && findings_detail == "明细");
++    assert!(report_dir == "reports/test" && exec_id == "exec-9");
++    assert_eq!(fault, Some(RunFault::Stopped));
++}
++
++/// 边界（遍历枚举 3 值）：`TestExecutionConclusion` 三值面零变——`Pass` / `Fail`
++/// / `Error` 与 `fault = None` 组合后 `as_str()` 仍为 `pass` / `fail` / `error`
++///（无新变体）。
++#[test]
++fn test_execution_conclusion三值面零变() {
++    for (conclusion, expected) in [
++        (TestExecutionConclusion::Pass, "pass"),
++        (TestExecutionConclusion::Fail, "fail"),
++        (TestExecutionConclusion::Error, "error"),
++    ] {
++        assert_eq!(conclusion.as_str(), expected, "线格式词逐字");
++        let outcome = TestExecutionOutcome {
++            conclusion,
++            total: 0,
++            passed: 0,
++            failed: 0,
++            skipped: 0,
++            findings_brief: String::new(),
++            findings_detail: String::new(),
++            report_dir: String::new(),
++            exec_id: String::new(),
++            fault: None,
++        };
++        assert_eq!(outcome.conclusion.as_str(), expected, "载荷侧同样零扩展");
++    }
++}
++
++/// 正向（表驱动 3 形态）：`MutationTestOutcome.fault` 三态与 `f64` 字段——
++/// `score` / `threshold` 取 `0.0` / `NaN` / `Inf` 均可构造、`PartialEq` 按既有
++/// `f64` 语义（无 `Eq`）；八字段穷尽解构。
++#[test]
++fn mutation_test_outcome_fault三态与f64字段() {
++    let cases = [
++        (None, 0.0f64, 0.0f64),
++        (Some(RunFault::Stopped), f64::NAN, 80.0),
++        (
++            Some(RunFault::Environment("段中断".to_owned())),
++            f64::INFINITY,
++            f64::NEG_INFINITY,
++        ),
++    ];
++
++    for (fault, score, threshold) in cases {
++        let outcome = MutationTestOutcome {
++            conclusion: MutationTestConclusion::Fail,
++            skip: None,
++            score,
++            threshold,
++            counts: MutationCounts::default(),
++            report_paths: vec!["reports/app_rust/mutation/merged.json".to_owned()],
++            feedback_text: String::new(),
++            fault: fault.clone(),
++        };
++
++        let MutationTestOutcome {
++            conclusion,
++            skip,
++            score: built_score,
++            threshold: built_threshold,
++            counts,
++            report_paths,
++            feedback_text,
++            fault: built_fault,
++        } = outcome;
++        assert_eq!(conclusion, MutationTestConclusion::Fail);
++        assert_eq!(skip, None);
++        assert_eq!(built_score.to_bits(), score.to_bits(), "f64 逐位保留");
++        assert_eq!(
++            built_threshold.to_bits(),
++            threshold.to_bits(),
++            "阈值逐位保留"
++        );
++        assert_eq!(counts.total, 0);
++        assert_eq!(report_paths.len(), 1);
++        assert!(feedback_text.is_empty());
++        assert_eq!(built_fault, fault);
++    }
++
++    // `PartialEq` 按既有 f64 语义：NaN 不等于自身（无 Eq 派生）
++    let nan_outcome = |score: f64| MutationTestOutcome {
++        conclusion: MutationTestConclusion::Fail,
++        skip: None,
++        score,
++        threshold: 0.0,
++        counts: MutationCounts::default(),
++        report_paths: Vec::new(),
++        feedback_text: String::new(),
++        fault: None,
++    };
++    assert_ne!(
++        nan_outcome(f64::NAN),
++        nan_outcome(f64::NAN),
++        "NaN 不等于自身（无 Eq）"
++    );
++    assert_eq!(nan_outcome(1.5), nan_outcome(1.5), "普通 f64 相等");
++}
++
++/// 边界（封闭集穷尽）：`ToolStepOutput` 十变体穷尽 `match`（无 `_` 臂）编译期
++/// 即证无新变体；门禁变体携带 `fault` 后 `PartialEq` 语义不变。
++#[test]
++fn tool_step_output十变体穷尽零扩展() {
++    fn variant_name(output: &ToolStepOutput) -> &'static str {
++        match output {
++            ToolStepOutput::PhaseNext(_) => "phase-next",
++            ToolStepOutput::PhaseStart(_) => "phase-start",
++            ToolStepOutput::PhaseLog(_) => "phase-log",
++            ToolStepOutput::Backtrack(_) => "backtrack",
++            ToolStepOutput::DecisionLog(_) => "decision-log",
++            ToolStepOutput::StaticCheck(_) => "static-check",
++            ToolStepOutput::TestExecution(_) => "test-execution",
++            ToolStepOutput::MutationTest(_) => "mutation-test",
++            ToolStepOutput::ArchivePreflight(_) => "archive-preflight",
++            ToolStepOutput::ArchiveSeal(_) => "archive-seal",
++        }
++    }
++
++    let check = StaticCheckOutcome {
++        passed: false,
++        diagnostics: String::new(),
++        fault: Some(RunFault::Stopped),
++        output_ref: None,
++        report_dir: String::new(),
++    };
++    let outputs = [
++        ToolStepOutput::StaticCheck(check.clone()),
++        ToolStepOutput::StaticCheck(StaticCheckOutcome {
++            fault: None,
++            ..check.clone()
++        }),
++    ];
++    assert_eq!(variant_name(&outputs[0]), "static-check");
++    assert_eq!(variant_name(&outputs[0]), variant_name(&outputs[1]));
++    assert_ne!(outputs[0], outputs[1], "fault 参与门禁产出相等判定");
++}
++
++/// 边界（表驱动 2 类型）：`ToolStepRequest` / `ToolCommand` 零改——字段集与
++/// 变体载荷逐字解构（本变更不读 `fault` 于请求侧）。
++#[test]
++fn tool_step_request与command零改() {
++    let request = crate::port::ToolStepRequest {
++        root: "C:/ws".to_owned(),
++        command: ToolCommand::StaticCheck {
++            change_id: CHANGE_ID.to_owned(),
++            slot: ReportSlot::Baseline,
++        },
++        cancel: CancelFlag::never(),
++    };
++    let crate::port::ToolStepRequest {
++        root,
++        command,
++        cancel,
++    } = request;
++    assert_eq!(root, "C:/ws", "root 字段面零改");
++    assert!(!cancel.is_set(), "cancel 缺省不置位（never）");
++    match command {
++        ToolCommand::StaticCheck { change_id, slot } => {
++            assert_eq!(change_id, CHANGE_ID, "定位载荷为 change id");
++            assert_eq!(slot, ReportSlot::Baseline, "槽位透传");
++        }
++        other => panic!("命令变体漂移: {other:?}"),
++    }
++}
++
++/// 边界：`fault` 不进既有出线面——`RunUpdate::Step` 载荷（`ChangeStepState`）
++/// 字段穷尽解构（字段集 = 既有 12 项，无 `fault` / `RunFault` 位置）；`RunFault`
++/// 零 `Serialize` 的编译期面由 `bindings:check` 静态脚本承接。
++#[test]
++fn fault不进runupdate载荷面() {
++    let update = RunUpdate::Step {
++        step: crate::state::ChangeStepState {
++            phase: "implement".to_owned(),
++            attempt: 1,
++            step: crate::state::ChangeStepKind::StaticCheck,
++            instance_no: 2,
++            status: crate::state::ChangeStepStatus::Failed,
++            session_id: None,
++            detail: Some("诊断".to_owned()),
++            output_ref: Some("exec-1".to_owned()),
++            started_at: 1_000,
++            ended_at: Some(2_000),
++            token_input: None,
++            token_output: None,
++        },
++    };
++    let RunUpdate::Step { step } = &update else {
++        panic!("变体应为 Step");
++    };
++    let crate::state::ChangeStepState {
++        phase,
++        attempt,
++        step: kind,
++        instance_no,
++        status,
++        session_id,
++        detail,
++        output_ref,
++        started_at,
++        ended_at,
++        token_input,
++        token_output,
++    } = step.clone();
++    assert_eq!(phase, "implement");
++    assert_eq!((attempt, instance_no), (1, 2));
++    assert_eq!(kind, crate::state::ChangeStepKind::StaticCheck);
++    assert_eq!(status, crate::state::ChangeStepStatus::Failed);
++    assert!(session_id.is_none() && token_input.is_none() && token_output.is_none());
++    assert_eq!(detail.as_deref(), Some("诊断"));
++    assert_eq!(output_ref.as_deref(), Some("exec-1"));
++    assert_eq!((started_at, ended_at), (1_000, Some(2_000)));
++}
+diff --git a/crates/core/orchestration/src/steps_test.rs b/crates/core/orchestration/src/steps_test.rs
+index 82adcb06f3dc..3484a71166bf 100644
+--- a/crates/core/orchestration/src/steps_test.rs
++++ b/crates/core/orchestration/src/steps_test.rs
+@@ -442,6 +442,7 @@ struct FakeRunner {
+ impl FakeRunner {
+     fn passing() -> Self {
+         Self::with_result(Ok(StaticCheckOutcome {
++            fault: None,
+             passed: true,
+             diagnostics: String::new(),
+             // 默认 recorded：引用随产出回填（落盘失败 / 零 spawn 才 None）
+@@ -452,6 +453,7 @@ impl FakeRunner {
+ 
+     fn failing(diagnostics: &str) -> Self {
+         Self::with_result(Ok(StaticCheckOutcome {
++            fault: None,
+             passed: false,
+             diagnostics: diagnostics.to_owned(),
+             output_ref: Some("exec-1727000000000-2".to_owned()),
+@@ -516,6 +518,7 @@ struct FakeTestExecutionRunner {
+ impl FakeTestExecutionRunner {
+     fn passing() -> Self {
+         Self::with_result(Ok(TestExecutionOutcome {
++            fault: None,
+             conclusion: TestExecutionConclusion::Pass,
+             total: 5,
+             passed: 4,
+@@ -872,6 +875,7 @@ impl FakeMutationRunner {
+     /// EmptyDiff 跳过面缺省形态（零突变语义——非 mutation 用例不被扰动）。
+     fn skipping() -> Self {
+         Self::with_result(Ok(MutationTestOutcome {
++            fault: None,
+             conclusion: MutationTestConclusion::Pass,
+             skip: Some(MutationSkipReason::EmptyDiff),
+             score: 0.0,
+@@ -884,6 +888,7 @@ impl FakeMutationRunner {
+ 
+     fn passing() -> Self {
+         Self::with_result(Ok(MutationTestOutcome {
++            fault: None,
+             conclusion: MutationTestConclusion::Pass,
+             skip: None,
+             score: 95.0,
+@@ -904,6 +909,7 @@ impl FakeMutationRunner {
+ 
+     fn failing(feedback_text: &str) -> Self {
+         Self::with_result(Ok(MutationTestOutcome {
++            fault: None,
+             conclusion: MutationTestConclusion::Fail,
+             skip: None,
+             score: 55.0,
+@@ -2501,6 +2507,7 @@ async fn 七缝构造三runner注入_分发臂委托() {
+     let fake = Arc::new(FakeStore::new());
+     fake.seed_change(CHANGE_ID, NAME);
+     let execution = FakeTestExecutionRunner::with_result(Ok(TestExecutionOutcome {
++        fault: None,
+         conclusion: TestExecutionConclusion::Pass,
+         total: 5,
+         passed: 4,
+@@ -3627,6 +3634,7 @@ async fn execute_baseline槽位审计行照常落库() {
+     let baseline_report_dir = "C:/ws/openspec/changes/demo/openspec/changes/demo/reports/baseline";
+     // 可编程产出携 baseline report_dir（reference 供给面）
+     let execution = FakeTestExecutionRunner::with_result(Ok(TestExecutionOutcome {
++        fault: None,
+         conclusion: TestExecutionConclusion::Pass,
+         total: 5,
+         passed: 5,
+@@ -3827,17 +3835,17 @@ async fn 三分支never缺省_flag零置位且产出照旧() {
+     );
+ }
+ 
+-/// 异常：runner 的取消 `Err` 原样透传——假 runner 返回 `Err("执行已取消")` →
+-/// `execute` 原样返回该串（不加前缀、不改文案、不吞成 `Ok`），审计行记 `error`
+-/// 同文。
++/// 异常：runner 的 `Err` 原样透传——假 runner 返回基础设施失败串 → `execute`
++/// 原样返回该串（不加前缀、不改文案、不吞成 `Ok`），审计行记 `error` 同文。
++///（取消已改判 `fault = Stopped` 的正常产出，`Err` 只承载进程拉不起类失败。）
+ #[tokio::test]
+-async fn runner取消err原样透传且审计记error() {
++async fn runner出错原样透传且审计记error() {
+     let db = TestDb::open("cancel-err");
+     seed_change(db.store.as_ref(), CHANGE_ID, NAME, "requirement");
+     let assembled = assemble(
+         db.store_arc(),
+         "run-cancel-err",
+-        FakeRunner::erring("执行已取消"),
++        FakeRunner::erring("执行体拉起失败：程序不可达"),
+         FakeTestExecutionRunner::passing(),
+     );
+ 
+@@ -3851,7 +3859,10 @@ async fn runner取消err原样透传且审计记error() {
+     )
+     .await
+     .expect_err("runner Err 应原样上抛");
+-    assert_eq!(err, "执行已取消", "错误串零改写（不加前缀、不吞成 Ok）");
++    assert_eq!(
++        err, "执行体拉起失败：程序不可达",
++        "错误串零改写（不加前缀、不吞成 Ok）"
++    );
+ 
+     let rows = db
+         .store
+@@ -3860,7 +3871,7 @@ async fn runner取消err原样透传且审计记error() {
+     assert_eq!(rows.len(), 1, "审计行照常落库");
+     assert_eq!(rows[0].status, "error", "审计行记 error 面");
+     assert!(
+-        rows[0].summary.contains("执行已取消"),
++        rows[0].summary.contains("执行体拉起失败：程序不可达"),
+         "审计摘要携同文错误串: {}",
+         rows[0].summary
+     );
+diff --git a/crates/core/orchestration/src/walker.rs b/crates/core/orchestration/src/walker.rs
+index 387c6ac8e794..1cf4095c0d94 100644
+--- a/crates/core/orchestration/src/walker.rs
++++ b/crates/core/orchestration/src/walker.rs
+@@ -17,8 +17,8 @@ use crate::decision::{
+ };
+ use crate::port::{
+     ArchiveVcsPort, MutationSkipReason, MutationTestConclusion, MutationTestOutcome, RebaseOutcome,
+-    RunHistoryPort, StaticCheckOutcome, TestExecutionConclusion, TestExecutionOutcome, ToolCommand,
+-    ToolStepOutput, ToolStepPort, WorkerAgentPort, WorkerRole, WorkerTurnOutcome,
++    RunFault, RunHistoryPort, StaticCheckOutcome, TestExecutionConclusion, TestExecutionOutcome,
++    ToolCommand, ToolStepOutput, ToolStepPort, WorkerAgentPort, WorkerRole, WorkerTurnOutcome,
+     WorkerTurnRequest, WorkflowSnapshotPort, WorktreeSnapshot,
+ };
+ use crate::prompt::{
+@@ -63,6 +63,16 @@ const TXT_BASELINE_TEST_ERROR: &str =
+ const TXT_BASELINE_TEST_FAILED: &str =
+     "基线测试未通过，请在基线上修复测试后重新发起；报告目录 {dir}";
+ 
++/// 环境错误终局文案（执行面归因 `RunFault::Environment` 专用——与 `TXT_BASELINE_*`
++/// **零共用引导句**：本组引导「排除安全软件路径」，基线组引导「在基线上修复后
++/// 重新发起」，两态 MUST NOT 复用同一段文案）。
++///
++/// `{fault}` 承载占用者点名 / 被锁文件 / 「已自动重试 N 次」/ 「排除 workspace 父
++/// 目录（逐 worktree 无效）」指引（MUST NOT 在模板里再写一份——那些事实由
++/// checks 域 `environment` 单点装配）；`{dir}` 为报告目录。
++const TXT_ENV_STATIC: &str = "静态检查无法完成（环境错误）：\n{fault}\n报告目录 {dir}";
++const TXT_ENV_TEST: &str = "测试执行无法完成（环境错误）：\n{fault}\n报告目录 {dir}";
++
+ /// lean 档无法裁决收敛的原因词族（解冲突后验不通过的收敛原因，词汇单点驻本
+ /// 文件）。
+ const LEAN_AGENT_FAILED: &str = "agent 会话失败";
+@@ -920,6 +930,10 @@ async fn step_executor(
+ /// 独立计数 ≤ limit）——失败诊断 Continue 注入同一 executor 会话修复重跑（新
+ /// `instance_no` 节点 + `feedback` 边）；超限升格相位 fail（桌面代写 fail
+ /// phase-log，不跑 evaluator），回 phase-next 进重试 / 决策分叉。
++///
++/// **fault 先于结论**：产出带 `fault` 时早退——`Environment` → 节点 failed +
++/// `Terminal::failed`（零 worker 调用、零 fail phase_log、不进决策重试）；`Stopped`
++/// → 节点 stopped + run stopped。
+ async fn step_static_check(
+     ctx: &StepContext<'_>,
+     trace: &mut EdgeTrace,
+@@ -962,6 +976,21 @@ async fn step_static_check(
+             "static-check",
+         )
+         .await?;
++        // fault 先于结论：环境错误 / 取消不烧反馈边预算（零 executor 会话）、
++        // 不升格相位 fail
++        if let Some(fault) = outcome.fault.as_ref() {
++            return Err(settle_fault(
++                ctx.guard,
++                ctx.phase,
++                cursor.attempt,
++                ChangeStepKind::StaticCheck,
++                instance_no,
++                fault,
++                Some(TXT_ENV_STATIC),
++                &outcome.report_dir,
++                outcome.output_ref.clone(),
++            ));
++        }
+         if outcome.passed {
+             emit_node(
+                 ctx.guard,
+@@ -1052,6 +1081,10 @@ async fn step_test_execution(
+ /// 截断余下步回 `phase_next` 进决策分叉，零 WorkerAgent 会话）。runner `Err`
+ /// 经 `?` 直达 `Terminal`（环境问题不该由决策 agent 裁决，节点留 running 与
+ /// terminal 分支同式）。
++///
++/// **fault 先于结论**：`Environment` → 节点 failed + `Terminal::failed`（文案
++/// `TXT_ENV_TEST`，零决策分叉、零 fail phase_log）；`Stopped` → 节点 stopped +
++/// run stopped。
+ async fn step_test_execution_escalate(
+     ctx: &StepContext<'_>,
+     trace: &mut EdgeTrace,
+@@ -1084,6 +1117,21 @@ async fn step_test_execution_escalate(
+         "test-execution",
+     )
+     .await?;
++    // fault 先于结论：环境错误 → 节点 failed + Terminal::failed（零决策分叉、零
++    // fail phase_log 代写）；取消 → 节点 stopped + run stopped
++    if let Some(fault) = outcome.fault.as_ref() {
++        return Err(settle_fault(
++            ctx.guard,
++            ctx.phase,
++            cursor.attempt,
++            ChangeStepKind::TestExecution,
++            instance_no,
++            fault,
++            Some(TXT_ENV_TEST),
++            &outcome.report_dir,
++            Some(outcome.exec_id.clone()),
++        ));
++    }
+     if outcome.conclusion == TestExecutionConclusion::Pass {
+         emit_node(
+             ctx.guard,
+@@ -1128,6 +1176,9 @@ async fn step_test_execution_escalate(
+ /// `output_ref` 回填后 Proceed；fail：failed 节点（detail = 诊断摘要、
+ /// `output_ref` 回填）+ `Terminal::failed`（static 红文案携 baseline 报告目录
+ /// ——`outcome.report_dir` 供给 `{dir}` 占位）。
++///
++/// **fault 先于结论**：环境错误走 `TXT_ENV_STATIC`（引导排除安全软件路径，
++/// MUST NOT 落基线红文案），取消走 stopped。
+ async fn step_static_check_terminal(
+     ctx: &StepContext<'_>,
+     trace: &mut EdgeTrace,
+@@ -1160,6 +1211,21 @@ async fn step_static_check_terminal(
+         "static-check",
+     )
+     .await?;
++    // fault 先于结论：基线环境错误 / 取消走环境文案与 stopped，不落基线红文案
++    //（不误导用户去修基线）
++    if let Some(fault) = outcome.fault.as_ref() {
++        return Err(settle_fault(
++            ctx.guard,
++            ctx.phase,
++            cursor.attempt,
++            ChangeStepKind::StaticCheck,
++            instance_no,
++            fault,
++            Some(TXT_ENV_STATIC),
++            &outcome.report_dir,
++            outcome.output_ref.clone(),
++        ));
++    }
+     if outcome.passed {
+         emit_node(
+             ctx.guard,
+@@ -1191,6 +1257,9 @@ async fn step_static_check_terminal(
+ /// pass：`passed` + 计数 detail + `output_ref` 回填，`cursor.test_outcome` 挂载
+ ///（PhaseLog 机械 checklist 分支天然分派）后 Proceed；Error / Fail：failed 节点
+ /// + `Terminal::failed` 分文案（环境 / 测试红可辨，携 baseline 报告目录）。
++///
++/// **fault 先于结论**：环境错误走 `TXT_ENV_TEST`（不落基线红 / 基线错误文案），
++/// 取消走 stopped。
+ async fn step_test_execution_terminal(
+     ctx: &StepContext<'_>,
+     trace: &mut EdgeTrace,
+@@ -1223,6 +1292,21 @@ async fn step_test_execution_terminal(
+         "test-execution",
+     )
+     .await?;
++    // fault 先于结论：基线环境错误 → TXT_ENV_TEST（不落基线红 / 基线错误文案），
++    // 取消 → stopped
++    if let Some(fault) = outcome.fault.as_ref() {
++        return Err(settle_fault(
++            ctx.guard,
++            ctx.phase,
++            cursor.attempt,
++            ChangeStepKind::TestExecution,
++            instance_no,
++            fault,
++            Some(TXT_ENV_TEST),
++            &outcome.report_dir,
++            Some(outcome.exec_id.clone()),
++        ));
++    }
+     if outcome.conclusion == TestExecutionConclusion::Pass {
+         emit_node(
+             ctx.guard,
+@@ -1278,6 +1362,10 @@ async fn step_mutation_test(
+ /// error 两时点同式升格交决策（零会话），达标 pass 直接收口。双时点：全部段跑完
+ /// 仅未达标、段中断错误随载荷即时收场（两时点在 walker 侧同走 fail 面）。runner
+ /// 显式 `Err` 停给用户（环境问题不进决策）。
++///
++/// **fault 先于结论**：`Stopped`（用户停止）→ 节点 stopped + run stopped
++///（MUST NOT 收敛为 failed + `conclusion = Error` 的升格面）；mutation 不产
++/// `Environment` 面（段超时仍走 `Interrupted` → `conclusion = Error`）。
+ async fn step_mutation_test_escalate(
+     ctx: &StepContext<'_>,
+     trace: &mut EdgeTrace,
+@@ -1325,6 +1413,21 @@ async fn step_mutation_test_escalate(
+             return Err(terminal);
+         }
+     };
++    // fault 先于结论：取消 → 节点 stopped + run stopped（MUST NOT 走 fail 升格
++    // 面）；mutation 不产 Environment 面，`template = None` 仅防御性退化
++    if let Some(fault) = outcome.fault.as_ref() {
++        return Err(settle_fault(
++            ctx.guard,
++            ctx.phase,
++            cursor.attempt,
++            ChangeStepKind::MutationTest,
++            instance_no,
++            fault,
++            None,
++            "",
++            None,
++        ));
++    }
+     if outcome.conclusion == MutationTestConclusion::Pass {
+         // 达标 / 跳过面（null 观察期不判 fail）：零反馈收口，结论落双槽
+         emit_node(
+@@ -3557,6 +3660,59 @@ fn diagnose_brief(text: &str) -> String {
+     }
+ }
+ 
++/// 执行面归因分派单点（`fault` 先于结论）：五处门禁步执行体在 `run_tool` 之后、
++/// 既有 `passed` / `conclusion` 分支**之前**早退到本函数。
++///
++/// - `Stopped` → 节点 `stopped` + `Terminal::stopped`（run 收敛 `stopped`，MUST NOT
++///   呈现为失败）；
++/// - `Environment(text)` → 节点 `failed` + `Terminal::failed`（`template` 非空时把
++///   `{fault}` / `{dir}` 展开），**且 MUST NOT 升格相位 fail / MUST NOT 进决策重试 /
++///   MUST NOT 注回 executor**——环境坏的相位重试必然再失败，反馈预算零消耗。
++#[allow(clippy::too_many_arguments)]
++fn settle_fault(
++    guard: &RunGuard,
++    phase: &str,
++    attempt: u32,
++    step: ChangeStepKind,
++    instance_no: u32,
++    fault: &RunFault,
++    template: Option<&str>,
++    report_dir: &str,
++    output_ref: Option<String>,
++) -> Terminal {
++    match fault {
++        RunFault::Stopped => {
++            emit_node(
++                guard,
++                phase,
++                attempt,
++                step,
++                instance_no,
++                StepSettle::stopped(Some("用户请求停止".to_owned())).with_output_ref(output_ref),
++            );
++            Terminal::stopped("用户请求停止")
++        }
++        RunFault::Environment(text) => {
++            let message = template
++                .map(|template| {
++                    template
++                        .replace("{fault}", text)
++                        .replace("{dir}", report_dir)
++                })
++                .unwrap_or_else(|| text.clone());
++            emit_node(
++                guard,
++                phase,
++                attempt,
++                step,
++                instance_no,
++                StepSettle::failed(Some(diagnose_brief(&message))).with_output_ref(output_ref),
++            );
++            Terminal::failed(message)
++        }
++    }
++}
++
+ /// 当前 UTC unix 毫秒（时钟早于 epoch 取 0，不 panic）——run 收口时刻铸造
+ /// 点（finish 整包同刻，corpus 确定性由测试注入 started_at / 假 history 承
+ /// 载，本时钟只在生产路径消费）。
+diff --git a/crates/core/orchestration/src/walker_test.rs b/crates/core/orchestration/src/walker_test.rs
+index f18be7182f8d..56581da9be57 100644
+--- a/crates/core/orchestration/src/walker_test.rs
++++ b/crates/core/orchestration/src/walker_test.rs
+@@ -10,7 +10,8 @@ use foundation::cancel::CancelFlag;
+ use crate::control::ChangeFlowControl;
+ use crate::port::{
+     ArchiveVcsPort, BoxToolFuture, BoxTurnFuture, MutationCounts, MutationSkipReason,
+-    MutationTestConclusion, MutationTestOutcome, RebaseOutcome, RunHistoryPort, StaticCheckOutcome,
++    MutationTestConclusion, MutationTestOutcome, RebaseOutcome, RunFault, RunHistoryPort,
++    StaticCheckOutcome,
+     StaticCheckRunner, TestExecutionConclusion, TestExecutionOutcome, TestExecutionRunner,
+     ToolCommand, ToolStepOutput, ToolStepPort, ToolStepRequest, WorkerAgentPort, WorkerRole,
+     WorkerTurnOutcome, WorkerTurnRequest, WorkflowSnapshotPort, WorktreeSnapshot,
+@@ -702,6 +703,7 @@ impl ToolStepPort for FakeTools {
+                     tokio::task::yield_now().await;
+                 }
+                 Ok(ToolStepOutput::StaticCheck(StaticCheckOutcome {
++                    fault: None,
+                     passed: true,
+                     diagnostics: String::new(),
+                     output_ref: None,
+@@ -782,6 +784,7 @@ impl ToolStepPort for FakeTools {
+                     .expect("static-check 队列锁不可中毒")
+                     .pop_front()
+                     .unwrap_or(StaticCheckOutcome {
++                        fault: None,
+                         passed: true,
+                         diagnostics: String::new(),
+                         output_ref: None,
+@@ -798,6 +801,7 @@ impl ToolStepPort for FakeTools {
+                     .expect("test-execution 队列锁不可中毒")
+                     .pop_front()
+                     .unwrap_or(TestExecutionOutcome {
++                        fault: None,
+                         conclusion: TestExecutionConclusion::Pass,
+                         total: 0,
+                         passed: 0,
+@@ -820,6 +824,7 @@ impl ToolStepPort for FakeTools {
+                     .expect("mutation-test 队列锁不可中毒")
+                     .pop_front()
+                     .unwrap_or(MutationTestOutcome {
++                        fault: None,
+                         conclusion: MutationTestConclusion::Pass,
+                         skip: Some(MutationSkipReason::EmptyDiff),
+                         score: 0.0,
+@@ -983,6 +988,7 @@ fn verdict_fail_outcome(
+ 
+ fn passing_check() -> StaticCheckOutcome {
+     StaticCheckOutcome {
++        fault: None,
+         passed: true,
+         diagnostics: String::new(),
+         output_ref: None,
+@@ -992,6 +998,7 @@ fn passing_check() -> StaticCheckOutcome {
+ 
+ fn failing_check(diagnostics: &str) -> StaticCheckOutcome {
+     StaticCheckOutcome {
++        fault: None,
+         passed: false,
+         diagnostics: diagnostics.to_owned(),
+         output_ref: None,
+@@ -4817,6 +4824,7 @@ impl StaticCheckRunner for FailingRunner {
+     ) -> BoxToolFuture {
+         Box::pin(async move {
+             Ok(ToolStepOutput::StaticCheck(StaticCheckOutcome {
++                fault: None,
+                 passed: false,
+                 diagnostics: "clippy 未过: E0308".to_owned(),
+                 output_ref: None,
+@@ -4841,6 +4849,7 @@ impl TestExecutionRunner for NullTestExecutionRunner {
+     ) -> BoxToolFuture {
+         Box::pin(async move {
+             Ok(ToolStepOutput::TestExecution(TestExecutionOutcome {
++                fault: None,
+                 conclusion: TestExecutionConclusion::Pass,
+                 total: 0,
+                 passed: 0,
+@@ -4871,6 +4880,7 @@ impl crate::port::MutationRunner for NullMutationRunner {
+     ) -> crate::port::BoxToolFuture {
+         Box::pin(async move {
+             Ok(ToolStepOutput::MutationTest(MutationTestOutcome {
++                fault: None,
+                 conclusion: MutationTestConclusion::Pass,
+                 skip: Some(MutationSkipReason::EmptyDiff),
+                 score: 0.0,
+@@ -4897,6 +4907,7 @@ fn futures_poll(rx: &mut tokio::sync::broadcast::Receiver<RunNotice>) -> Option<
+ /// test-execution 门禁产出 fixture
+ fn execution_outcome(conclusion: TestExecutionConclusion, total: u64) -> TestExecutionOutcome {
+     TestExecutionOutcome {
++        fault: None,
+         conclusion,
+         total,
+         passed: total.saturating_sub(1),
+@@ -5084,6 +5095,7 @@ fn escalate_test_outcome(
+     findings_detail: &str,
+ ) -> TestExecutionOutcome {
+     TestExecutionOutcome {
++        fault: None,
+         conclusion,
+         total: 5,
+         passed: 4,
+@@ -8598,6 +8610,7 @@ fn mutation_outcome(
+     feedback_text: &str,
+ ) -> MutationTestOutcome {
+     MutationTestOutcome {
++        fault: None,
+         conclusion,
+         skip: None,
+         score,
+@@ -8630,6 +8643,7 @@ fn escalate_mutation_outcome(
+     report_paths: Vec<String>,
+ ) -> MutationTestOutcome {
+     MutationTestOutcome {
++        fault: None,
+         conclusion,
+         skip: None,
+         score: 55.0,
+@@ -9174,6 +9188,7 @@ async fn 机械checklist第三条evidence三态映射() {
+ 
+     // 态②：diff 空跳过（EmptyDiff）→ 「diff 空跳过」
+     let (pass, evidence) = evidence_of(MutationTestOutcome {
++        fault: None,
+         conclusion: MutationTestConclusion::Pass,
+         skip: Some(MutationSkipReason::EmptyDiff),
+         score: 0.0,
+@@ -9188,6 +9203,7 @@ async fn 机械checklist第三条evidence三态映射() {
+ 
+     // 态③：NoExecutor → 「null（未跑）」附注「无突变执行器」
+     let (pass, evidence) = evidence_of(MutationTestOutcome {
++        fault: None,
+         conclusion: MutationTestConclusion::Pass,
+         skip: Some(MutationSkipReason::NoExecutor),
+         score: 0.0,
+@@ -9769,6 +9785,7 @@ fn json_usize(value: u64) -> serde_json::Value {
+ /// 报告树锚点，与 walker Terminal 文案 {dir} 供给面同形）。
+ fn baseline_check(passed: bool) -> StaticCheckOutcome {
+     StaticCheckOutcome {
++        fault: None,
+         passed,
+         diagnostics: if passed {
+             String::new()
+@@ -9782,6 +9799,7 @@ fn baseline_check(passed: bool) -> StaticCheckOutcome {
+ 
+ fn baseline_execution(conclusion: TestExecutionConclusion) -> TestExecutionOutcome {
+     TestExecutionOutcome {
++        fault: None,
+         conclusion,
+         total: 12,
+         passed: 10,
+@@ -11430,13 +11448,16 @@ async fn 决策漂移混合序列三序列累加不分流() {
+ // ---------------------------------------------------------------------------
+ // 取消贯通（test-design「walker.rs -> walker_test.rs」节，AC-6 / AC-7 / D10）：
+ // `run_tool` 单点从 `guard.cancel_flag()` 填充 `ToolStepRequest.cancel`（13 处
+-// 调用点零重复填充）；stop 运行中的检查步 → 假 runner 观测取消并立即 Err →
+-// run **秒级收敛 failed**（过渡语义，文案含「执行已取消」），不做 run stopped。
++// 调用点零重复填充）；stop 运行中的检查步 → 假 runner 观测取消并以
++// `fault = Some(Stopped)` 正常返回产出 → 该步节点 `stopped`、run **秒级收敛
++// stopped**（MUST NOT 收敛 failed；取消 MUST NOT 以 `Err` 表达——本变更取代
++// 既有「run failed 的过渡形态」，此处不留第二套口径）。
+ // ---------------------------------------------------------------------------
+ 
+ /// 可取消的检查步假 runner：进入即挂起（`entered` 置位供测试侧握手），观测到
+-/// 取消即返回 `Err("执行已取消")`（真实执行体的「入口短路 / 轮询置位」收敛面
+-/// 在 runner 层等价表达）；同时记录收到的 flag（单点填充断言原料）。
++/// 取消即以 `fault = Some(RunFault::Stopped)` 正常返回产出（真实执行体的「入口
++/// 短路 / 轮询置位」收敛面在 runner 层等价表达；取消 MUST NOT 以 `Err` 表达）；
++/// 同时记录收到的 flag（单点填充断言原料）。
+ struct CancelableStaticRunner {
+     entered: Arc<std::sync::atomic::AtomicBool>,
+     received: Arc<Mutex<Vec<CancelFlag>>>,
+@@ -11467,7 +11488,14 @@ impl StaticCheckRunner for CancelableStaticRunner {
+         Box::pin(async move {
+             loop {
+                 if cancel.is_set() {
+-                    return Err("执行已取消".to_owned());
++                    // 取消 → 执行面归因产出（fault = Stopped），MUST NOT 返回 Err
++                    return Ok(ToolStepOutput::StaticCheck(StaticCheckOutcome {
++                        passed: false,
++                        diagnostics: String::new(),
++                        fault: Some(RunFault::Stopped),
++                        output_ref: Some("exec-cancelled-static".to_owned()),
++                        report_dir: "reports/test".to_owned(),
++                    }));
+                 }
+                 // 协作让位（本 crate 的 tokio 未启 time 特性——轮询以 yield 表达；
+                 // 取消观测在毫秒级窗口内收敛，不构成空转）
+@@ -11477,11 +11505,12 @@ impl StaticCheckRunner for CancelableStaticRunner {
+     }
+ }
+ 
+-/// 正向（AC-7 组合锚）：stop 运行中的检查步——假 runner 观测取消即 Err，run
+-/// 秒级收敛 `Failed`（**过渡形态**，`Finished.reason` 含「执行已取消」），
+-/// 不做 run stopped；捕获的 flag 与 `guard.cancel_flag()` 同源。
++/// 正向（AC-7 组合锚）：stop 运行中的检查步——假 runner 观测取消即以
++/// `fault = Some(Stopped)` 正常返回，该步节点收敛 `stopped`、run 秒级收敛
++/// `Stopped`（MUST NOT 为 `failed`：无 failed 节点、图上不呈现「执行已取消」
++/// 失败文案）；捕获的 flag 与 `guard.cancel_flag()` 同源。
+ #[tokio::test]
+-async fn 停止运行中检查步_秒级收敛failed且文案含执行已取消() {
++async fn 停止运行中检查步_秒级收敛stopped且无failed节点() {
+     let root = TempRoot::new("stop-running-check");
+     root.change(NAME);
+     let db = TestDb::open("stop-running-check");
+@@ -11520,15 +11549,15 @@ async fn 停止运行中检查步_秒级收敛failed且文案含执行已取消(
+ 
+     assert_eq!(
+         status,
+-        ChangeRunStatus::Failed,
+-        "过渡语义：取消收敛 failed（不做 run stopped）"
++        ChangeRunStatus::Stopped,
++        "取消 → run 收敛 stopped（MUST NOT 呈现为失败）"
+     );
+     assert!(
+         elapsed < Duration::from_secs(10),
+         "秒级收敛（不等挂起自然结束，实际 {elapsed:?}）"
+     );
+ 
+-    // 终态与记因经 Finished 流出：文案含「执行已取消」
++    // 终态与记因经 Finished 流出：停因「用户请求停止」，无旧过渡文案
+     assert!(
+         drain_notices(&mut rx)
+             .iter()
+@@ -11536,16 +11565,52 @@ async fn 停止运行中检查步_秒级收敛failed且文案含执行已取消(
+         "Finished 信封在场"
+     );
+     let finish = history.finish().expect("finish 落包捕获");
+-    assert_eq!(finish.status, RunStatus::Failed, "收口落包 failed");
++    assert_eq!(
++        finish.status,
++        RunStatus::Stopped,
++        "收口落包 stopped（取消不作 failed）"
++    );
++    let reason = finish.reason.as_deref().unwrap_or_default();
+     assert!(
+-        finish
+-            .reason
+-            .as_deref()
+-            .unwrap_or_default()
+-            .contains("执行已取消"),
+-        "记因含「执行已取消」: {:?}",
++        reason.contains("用户请求停止"),
++        "记因为停因「用户请求停止」: {:?}",
+         finish.reason
+     );
++    assert!(
++        !reason.contains("执行已取消"),
++        "取消不再落旧「执行已取消」失败文案: {reason}"
++    );
++
++    // 节点面：该检查步 settled stopped，全图无 failed 节点残留
++    let node = finish
++        .nodes
++        .iter()
++        .find(|node| node.step.as_str() == "static_check")
++        .expect("static_check 节点应在案");
++    assert_eq!(
++        node.status,
++        RunStepStatus::Stopped,
++        "取消步节点 status = stopped（非 failed）"
++    );
++    assert!(
++        node.detail
++            .as_deref()
++            .is_some_and(|detail| detail.contains("用户请求停止")),
++        "节点 detail 记停因: {:?}",
++        node.detail
++    );
++    assert_eq!(
++        node.output_ref.as_deref(),
++        Some("exec-cancelled-static"),
++        "stopped 节点保留输出引用（全量可回查）"
++    );
++    assert!(
++        !finish
++            .nodes
++            .iter()
++            .any(|node| node.status == RunStepStatus::Failed),
++        "无 failed 节点（stopped 与 failed 不混用）"
++    );
+ 
+     // 单点填充：runner 收到的 flag 已置位（`run_tool` 从 guard 取值，无中间重建）
+     let recorded = received.lock().expect("received 锁").clone();
+@@ -11557,10 +11622,11 @@ async fn 停止运行中检查步_秒级收敛failed且文案含执行已取消(
+     assert!(control.snapshot(ROOT, CHANGE_ID).is_none(), "终态除名");
+ }
+ 
+-/// 异常：非取消类 `Err` 不被误叙述——假 runner 返回 `Err("boom")` → run failed
+-/// 文案为「{label} 失败: boom」，**不含**「执行已取消」（取消文案不误用）。
++/// 异常：runner 的 `Err` 面不被误叙述为取消——假 runner 返回 `Err("boom")` →
++/// run failed，文案为「{label} 失败: boom」，**不含**停因文案「用户请求停止」
++/// （`Err` 只承载基础设施失败，与 `fault = Stopped` 正常返回的停止面可辨）。
+ #[tokio::test]
+-async fn 非取消类err文案不含执行已取消() {
++async fn 非取消类err收敛failed且文案含原错误串() {
+     let root = TempRoot::new("err-not-cancel");
+     root.change(NAME);
+     let db = TestDb::open("err-not-cancel");
+@@ -11591,9 +11657,13 @@ async fn 非取消类err文案不含执行已取消() {
+     let finish = history.finish().expect("finish 落包捕获");
+     let reason = finish.reason.as_deref().unwrap_or_default();
+     assert!(reason.contains("boom"), "记因携原错误串: {reason}");
++    assert!(
++        !reason.contains("用户请求停止"),
++        "Err 面不误用停因文案（与 fault=Stopped 面可辨）: {reason}"
++    );
+     assert!(
+         !reason.contains("执行已取消"),
+-        "非取消类失败不误用取消文案: {reason}"
++        "Err 面不落旧「执行已取消」文案: {reason}"
+     );
+ }
+ 
+@@ -11770,8 +11840,9 @@ async fn 多步全链同一原子_三检查步共用guard原子() {
+ 
+ 
+ /// 挂起且**不观测** cancel 的检查步假 runner：进入即挂起（`entered` 置位供测试
+-/// 侧握手），只按测试侧 `release` 标记返回 `Err("执行已取消")`——walker 若越权
+-/// 做步内截止，run 会在未释放时收敛；不越权则一直挂到 runner 契约的 `Err` 抵达。
++/// 侧握手），只按测试侧 `release` 标记以 `fault = Some(RunFault::Stopped)` 正常
++/// 返回产出（取消 MUST NOT 以 `Err` 表达）——walker 若越权做步内截止，run 会在
++/// 未释放时收敛；不越权则一直挂到 runner 正常返回。
+ struct HangingIgnoreCancelRunner {
+     entered: Arc<AtomicBool>,
+     release: Arc<AtomicBool>,
+@@ -11807,17 +11878,24 @@ impl StaticCheckRunner for HangingIgnoreCancelRunner {
+             while !release.load(Ordering::SeqCst) {
+                 tokio::task::yield_now().await;
+             }
+-            Err("执行已取消".to_owned())
++            // 释放后按新契约走执行面归因产出（取消 → fault = Stopped，不 Err）
++            Ok(ToolStepOutput::StaticCheck(StaticCheckOutcome {
++                passed: false,
++                diagnostics: String::new(),
++                fault: Some(RunFault::Stopped),
++                output_ref: Some("exec-hang-stopped".to_owned()),
++                report_dir: "reports/test".to_owned(),
++            }))
+         })
+     }
+ }
+ 
+ /// 边界（AC-7 / D10）：**walker 不作步内截止**——假 runner 挂起且不观测 cancel：
+ /// stop 后 run 在观测窗口内不收敛（无步内砍断、无越权 stopped），收口只由 runner
+-/// 契约的 `Err` 承接（释放挂起 → `Err("执行已取消")` → run 收敛 failed，文案含
+-/// 「执行已取消」）。
++/// 正常返回的产出承接（释放挂起 → `fault = Some(Stopped)` → run 收敛 `Stopped`，
++/// 文案含「用户请求停止」——MUST NOT 收敛 failed、MUST NOT 落「执行已取消」）。
+ #[tokio::test]
+-async fn 挂起且不观测cancel_walker不作步内截止且收口由runner错误承接() {
++async fn 挂起且不观测cancel_walker不作步内截止且收口由runner产出承接() {
+     let root = TempRoot::new("hang-ignore-cancel");
+     root.change(NAME);
+     let db = TestDb::open("hang-ignore-cancel");
+@@ -11879,23 +11957,889 @@ async fn 挂起且不观测cancel_walker不作步内截止且收口由runner错
+         "runner 持置位 flag（run_tool 单点填充，无中间重建）"
+     );
+ 
+-    // 收口只由 runner 契约的 Err 承接：释放挂起 → Err("执行已取消") → failed
++    // 收口只由 runner 正常返回的产出承接：释放挂起 → fault = Stopped → stopped
+     release.store(true, Ordering::SeqCst);
+     let status = task.await.expect("run 任务正常结束");
+     let elapsed = started.elapsed();
+     assert_eq!(
+         status,
+-        ChangeRunStatus::Failed,
+-        "runner 契约 Err 承接过渡态 failed（不做 run stopped）"
++        ChangeRunStatus::Stopped,
++        "runner 产出承接 stopped（取消 MUST NOT 收敛 failed）"
+     );
+     assert!(
+         elapsed < Duration::from_secs(30),
+         "释放后秒级收敛（实际 {elapsed:?}）"
+     );
+     let finish = history.finish().expect("finish 落包捕获");
++    assert_eq!(finish.status, RunStatus::Stopped, "落包终态 stopped");
+     let reason = finish.reason.as_deref().unwrap_or_default();
+     assert!(
+-        reason.contains("static-check 失败") && reason.contains("执行已取消"),
+-        "记因为 runner 契约 Err（「{{label}} 失败: {{error}}」）: {reason}"
++        reason.contains("用户请求停止"),
++        "记因为停因「用户请求停止」: {reason}"
++    );
++    assert!(
++        !reason.contains("执行已取消") && !reason.contains("static-check 失败"),
++        "不再落旧「{{label}} 失败: 执行已取消」口径: {reason}"
++    );
++    let node = finish
++        .nodes
++        .iter()
++        .find(|node| node.step.as_str() == "static_check")
++        .expect("static_check 节点应在案");
++    assert_eq!(
++        node.status,
++        RunStepStatus::Stopped,
++        "释放后该步节点 stopped（非 failed）"
++    );
++    // AC-8：fault 面不被误叙述为环境错误（环境文案只服务 `Environment` 变体）
++    assert!(
++        !reason.contains("无法完成（环境错误）") && !reason.contains("排除 workspace 父目录"),
++        "Stopped 面不落环境文案: {reason}"
++    );
++}
++
++// ---------------------------------------------------------------------------
++// 执行面归因分派（AC-5 / AC-6 / AC-7）：`fault` 先于结论、零 worker、零升格
++// ---------------------------------------------------------------------------
++
++/// `static-check` 归因产出 fixture（`fault` 在位即早退，`passed` 不参与分派）。
++fn faulted_check(fault: RunFault, report_dir: &str) -> StaticCheckOutcome {
++    StaticCheckOutcome {
++        passed: false,
++        diagnostics: "锁占用诊断".to_owned(),
++        fault: Some(fault),
++        output_ref: Some("exec-static-fault".to_owned()),
++        report_dir: report_dir.to_owned(),
++    }
++}
++
++/// `test-execution` 归因产出 fixture。
++fn faulted_execution(fault: RunFault, report_dir: &str) -> TestExecutionOutcome {
++    TestExecutionOutcome {
++        fault: Some(fault),
++        conclusion: TestExecutionConclusion::Fail,
++        total: 0,
++        passed: 0,
++        failed: 0,
++        skipped: 0,
++        findings_brief: String::new(),
++        findings_detail: String::new(),
++        report_dir: report_dir.to_owned(),
++        exec_id: "exec-test-fault".to_owned(),
++    }
++}
++
++/// `mutation-test` 归因产出 fixture（mutation 面只产 `Stopped`）。
++fn faulted_mutation(fault: RunFault) -> MutationTestOutcome {
++    MutationTestOutcome {
++        fault: Some(fault),
++        conclusion: MutationTestConclusion::Fail,
++        skip: None,
++        score: 55.0,
++        threshold: 80.0,
++        counts: MutationCounts::default(),
++        report_paths: vec!["reports/test/app_rust/mutation/mutation-seg-0.json".to_owned()],
++        feedback_text: String::new(),
++    }
++}
++
++/// 正向（AC-5 组合锚）：`Environment` → 零 worker 且 run failed——test-execution
++/// 相位（无 agent 步）的 TestExecution 步带 `fault` → run 收敛 `Failed`、
++/// **零 WorkerAgent 请求**（executor / evaluator / decision 全零）、零
++/// `phase-log` 代写、无 `decision-log` 分叉、终态 reason 为 `TXT_ENV_TEST`
++/// 替换后文本（含归因文本与报告目录、占位零残留）、MutationTest 零 spawn。
++#[tokio::test]
++async fn 环境错误_零worker且run失败() {
++    let env_text = "占用进程：HipsDaemon.exe (pid 1234)\n被锁文件：D:\\w\\target\\liba.rlib\n\
++                    已自动重试 4 次（每次重试会跳过已完成部分）\n\
++                    环境侧处理：请 IT 排除 workspace 父目录（逐 worktree 排除无效）"
++        .to_owned();
++    let timeline = Arc::new(Mutex::new(Vec::new()));
++    let (worker, requests, _sessions) = FakeWorker::new(&timeline).assemble();
++    let (tools, commands) = FakeTools::new(&timeline)
++        .with_phase_next(vec![route_outcome("test-execution", &[]), done_outcome()])
++        .with_test_execution(vec![faulted_execution(
++            RunFault::Environment(env_text.clone()),
++            "C:/ws/openspec/changes/c/reports/test",
++        )])
++        .assemble();
++    let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
++    let control = Arc::new(ChangeFlowControl::new());
++
++    let (task, _rx, history) = spawn_run(worker, tools, snapshot, &control, false, "/tmp/root");
++    let status = task.await.expect("run 任务正常结束");
++    assert_eq!(
++        status,
++        ChangeRunStatus::Failed,
++        "环境错误 → run 收敛 failed（不注回 executor、不升格重试）"
++    );
++
++    assert!(
++        requests.lock().expect("请求锁").is_empty(),
++        "零 WorkerAgent 请求（executor / evaluator / decision 全零）"
++    );
++    let timeline = timeline.lock().expect("时间线锁");
++    assert!(
++        !timeline.iter().any(|label| label == "phase-log"),
++        "零 phase-log 代写（不升格相位 fail）: {timeline:?}"
++    );
++    assert!(
++        !timeline.iter().any(|label| label == "decision-log"),
++        "零决策分叉: {timeline:?}"
++    );
++    drop(timeline);
++
++    assert!(
++        !commands
++            .lock()
++            .expect("命令锁")
++            .iter()
++            .any(|command| matches!(command, ToolCommand::MutationTest { .. })),
++        "环境错误早退 → 后续 MutationTest 步零 spawn"
++    );
++
++    let finish = history.finish().expect("收口落包捕获");
++    let reason = finish.reason.expect("Terminal 记因应在案");
++    assert!(
++        reason.contains("测试执行无法完成（环境错误）"),
++        "终态文案 = 环境错误模板: {reason}"
++    );
++    assert!(
++        reason.contains(env_text.as_str()),
++        "环境归因文本经 {{fault}} 嵌入（模板不写第二份）: {reason}"
++    );
++    assert!(
++        reason.contains("C:/ws/openspec/changes/c/reports/test"),
++        "报告目录经 {{dir}} 嵌入: {reason}"
++    );
++    assert!(
++        !reason.contains("{fault}") && !reason.contains("{dir}"),
++        "占位零残留: {reason}"
++    );
++    assert!(
++        !reason.contains("请在基线上修复测试后重新发起"),
++        "与基线红文案零共用句: {reason}"
++    );
++
++    let node = finish
++        .nodes
++        .iter()
++        .find(|node| node.step.as_str() == "test_execution")
++        .expect("test_execution 节点应在案");
++    assert_eq!(node.status, RunStepStatus::Failed, "节点 settled failed");
++    assert_eq!(
++        node.output_ref.as_deref(),
++        Some("exec-test-fault"),
++        "failed 节点保留输出引用"
++    );
++    assert!(
++        !finish
++            .nodes
++            .iter()
++            .any(|node| node.step.as_str() == "mutation_test"),
++        "后续步未起节点（fault 早退）"
++    );
++}
++
++/// 正向（AC-7 组合锚）：`Stopped` → 节点 stopped + run stopped——TestExecution
++/// 步带 `fault = Some(Stopped)` → run 收敛 `Stopped`（`Failed` 不出现）、节点
++/// `stopped`、detail 含「用户请求停止」、后续 MutationTest 步零 spawn（早停）。
++#[tokio::test]
++async fn 取消_节点stopped且run收敛stopped() {
++    let timeline = Arc::new(Mutex::new(Vec::new()));
++    let (worker, requests, _sessions) = FakeWorker::new(&timeline).assemble();
++    let (tools, commands) = FakeTools::new(&timeline)
++        .with_phase_next(vec![route_outcome("test-execution", &[]), done_outcome()])
++        .with_test_execution(vec![faulted_execution(
++            RunFault::Stopped,
++            "C:/ws/openspec/changes/c/reports/test",
++        )])
++        .assemble();
++    let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
++    let control = Arc::new(ChangeFlowControl::new());
++
++    let (task, _rx, history) = spawn_run(worker, tools, snapshot, &control, false, "/tmp/root");
++    let status = task.await.expect("run 任务正常结束");
++
++    assert_eq!(
++        status,
++        ChangeRunStatus::Stopped,
++        "取消 → run 收敛 stopped（MUST NOT 呈现为失败）"
++    );
++    assert!(
++        requests.lock().expect("请求锁").is_empty(),
++        "取消面零 WorkerAgent 请求"
++    );
++    assert!(
++        !commands
++            .lock()
++            .expect("命令锁")
++            .iter()
++            .any(|command| matches!(command, ToolCommand::MutationTest { .. })),
++        "取消后余下步零 spawn（早停）"
++    );
++
++    let finish = history.finish().expect("收口落包捕获");
++    assert_eq!(
++        finish.status,
++        workflow::state::RunStatus::Stopped,
++        "落库终态同为 stopped"
++    );
++    let node = finish
++        .nodes
++        .iter()
++        .find(|node| node.step.as_str() == "test_execution")
++        .expect("test_execution 节点应在案");
++    assert_eq!(node.status, RunStepStatus::Stopped, "节点 settled stopped");
++    assert!(
++        node.detail
++            .as_deref()
++            .is_some_and(|detail| detail.contains("用户请求停止")),
++        "节点 detail 记因「用户请求停止」: {:?}",
++        node.detail
++    );
++    assert!(
++        !finish
++            .nodes
++            .iter()
++            .any(|node| node.status == RunStepStatus::Failed),
++        "无 failed 节点（stopped 与 failed 不混用）"
++    );
++    assert!(
++        finish
++            .reason
++            .as_deref()
++            .is_some_and(|reason| reason.contains("用户请求停止")),
++        "终态记因 = 用户请求停止: {:?}",
++        finish.reason
++    );
++}
++
++/// 正向（AC-7）：mutation 面 `Stopped` 分派——`template = None` 面（mutation 步
++/// 只产 `Stopped`）→ 终态记因为归因文本原样、节点 stopped、零 worker；
++/// `feedback_text` 空不被渲染为「需修复」。
++#[tokio::test]
++async fn mutation取消_文案原样且零worker() {
++    let timeline = Arc::new(Mutex::new(Vec::new()));
++    let (worker, requests, _sessions) = FakeWorker::new(&timeline).assemble();
++    let (tools, _commands) = FakeTools::new(&timeline)
++        .with_phase_next(vec![route_outcome("test-execution", &[]), done_outcome()])
++        .with_test_execution(vec![execution_outcome(TestExecutionConclusion::Pass, 5)])
++        .with_mutation(vec![faulted_mutation(RunFault::Stopped)])
++        .assemble();
++    let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
++    let control = Arc::new(ChangeFlowControl::new());
++
++    let (task, _rx, history) = spawn_run(worker, tools, snapshot, &control, false, "/tmp/root");
++    let status = task.await.expect("run 任务正常结束");
++
++    assert_eq!(
++        status,
++        ChangeRunStatus::Stopped,
++        "mutation 取消 → run stopped"
++    );
++    assert!(
++        requests.lock().expect("请求锁").is_empty(),
++        "mutation 步无 agent 面（零 worker 请求）"
++    );
++
++    let finish = history.finish().expect("收口落包捕获");
++    let node = finish
++        .nodes
++        .iter()
++        .find(|node| node.step.as_str() == "mutation_test")
++        .expect("mutation_test 节点应在案");
++    assert_eq!(node.status, RunStepStatus::Stopped);
++    assert!(
++        finish
++            .reason
++            .as_deref()
++            .is_some_and(|reason| reason.contains("用户请求停止")),
++        "template = None 面终态文案为归因文本原样: {:?}",
++        finish.reason
++    );
++    assert!(
++        !finish
++            .nodes
++            .iter()
++            .any(|node| node.step.as_str() == "phase_log"),
++        "取消面不落 phase_log 步节点"
+     );
+ }
++
++/// 边界（D15）：`fault` 先于结论——`Environment` + `passed = true`（理论上矛盾的
++/// 组合）仍收敛 `Failed`（不因绿放行）；`Stopped` + `conclusion = Pass` 仍收敛
++/// `Stopped`。两形态同测于 test-execution 相位（无 agent 步，零 worker 基线）。
++#[tokio::test]
++async fn fault先于结论_绿不抵环境错误() {
++    let cases = [
++        (
++            "Environment + Pass 结论",
++            faulted_execution(
++                RunFault::Environment("环境坏".to_owned()),
++                "C:/ws/reports/test",
++            ),
++            ChangeRunStatus::Failed,
++        ),
++        (
++            "Stopped + Pass 结论",
++            faulted_execution(RunFault::Stopped, "C:/ws/reports/test"),
++            ChangeRunStatus::Stopped,
++        ),
++    ];
++
++    for (label, outcome, expected) in cases {
++        let timeline = Arc::new(Mutex::new(Vec::new()));
++        let (worker, requests, _sessions) = FakeWorker::new(&timeline).assemble();
++        let (tools, _commands) = FakeTools::new(&timeline)
++            .with_phase_next(vec![route_outcome("test-execution", &[]), done_outcome()])
++            .with_test_execution(vec![outcome])
++            .assemble();
++        let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
++        let control = Arc::new(ChangeFlowControl::new());
++
++        let (task, _rx, _history) =
++            spawn_run(worker, tools, snapshot, &control, false, "/tmp/root");
++        let status = task.await.expect("run 任务正常结束");
++
++        assert_eq!(status, expected, "{label}: fault 先于结论（结论不参与分派）");
++        assert!(
++            requests.lock().expect("请求锁").is_empty(),
++            "{label}: 零 worker 请求（不交决策裁决）"
++        );
++    }
++}
++
++/// 正向（AC-5）：反馈计数不增长——implement 相位 static-check 带 `fault`（`passed
++/// = true` 的矛盾组合）→ static-check 命令恰 1 次（不因红重跑反馈边 5 次）、
++/// executor 请求恰 1 条（无修复轮）、零 evaluator 请求、零 `phase-log` 代写、节点
++/// failed 恰一条终态行。
++#[tokio::test]
++async fn 环境错误不烧反馈边预算() {
++    let timeline = Arc::new(Mutex::new(Vec::new()));
++    let (worker, requests, _sessions) = FakeWorker::new(&timeline).assemble();
++    let (tools, commands) = FakeTools::new(&timeline)
++        .with_phase_next(vec![route_outcome("implement", &["implement"]), done_outcome()])
++        .with_static_check(vec![StaticCheckOutcome {
++            passed: true,
++            diagnostics: String::new(),
++            fault: Some(RunFault::Environment("锁占用：库文件被安全软件持有".to_owned())),
++            output_ref: Some("exec-static-fault".to_owned()),
++            report_dir: "C:/ws/openspec/changes/c/reports/test".to_owned(),
++        }])
++        .assemble();
++    let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
++    let control = Arc::new(ChangeFlowControl::new());
++
++    let (task, _rx, history) = spawn_run(worker, tools, snapshot, &control, false, "/tmp/root");
++    let status = task.await.expect("run 任务正常结束");
++
++    assert_eq!(status, ChangeRunStatus::Failed, "fault 优先于 passed");
++    {
++        let requests = requests.lock().expect("请求锁");
++        assert_eq!(requests.len(), 1, "仅相位首发 executor，无修复轮续注");
++        assert_eq!(requests[0].role, WorkerRole::Executor, "唯一请求为 executor");
++    }
++    {
++        let commands = commands.lock().expect("命令锁");
++        let static_calls = commands
++            .iter()
++            .filter(|command| matches!(command, ToolCommand::StaticCheck { .. }))
++            .count();
++        assert_eq!(static_calls, 1, "static-check 命令恰 1 次（不烧反馈边预算）");
++    }
++    {
++        let timeline = timeline.lock().expect("时间线锁");
++        assert!(
++            !timeline.iter().any(|label| label == "phase-log"),
++            "零 phase-log 代写（不升格相位 fail）: {timeline:?}"
++        );
++    }
++
++    let finish = history.finish().expect("收口落包捕获");
++    let static_nodes = finish
++        .nodes
++        .iter()
++        .filter(|node| node.step.as_str() == "static_check")
++        .collect::<Vec<_>>();
++    assert_eq!(static_nodes.len(), 1, "static-check 恰一条终态节点");
++    assert_eq!(static_nodes[0].status, RunStepStatus::Failed);
++    assert!(
++        finish
++            .reason
++            .as_deref()
++            .is_some_and(|reason| reason.contains("静态检查无法完成（环境错误）")),
++        "终态文案为环境模板: {:?}",
++        finish.reason
++    );
++}
++
++/// 边界（表驱动 3 形态）：`{dir}` 替换——`report_dir` 为空串 / 含空格与中文 /
++/// 超长路径 → 模板替换后无 `{dir}` 残留、路径逐字（不转义、不截断）。
++#[tokio::test]
++async fn 文案dir占位替换逐字() {
++    let long_dir = format!("C:/ws/{}", "很长的目录名/".repeat(120));
++    let dirs = [
++        String::new(),
++        "C:/ws/my dir/中文 目录/reports".to_owned(),
++        long_dir.clone(),
++    ];
++
++    for dir in dirs {
++        let timeline = Arc::new(Mutex::new(Vec::new()));
++        let (worker, _requests, _sessions) = FakeWorker::new(&timeline).assemble();
++        let (tools, _commands) = FakeTools::new(&timeline)
++            .with_phase_next(vec![route_outcome("implement", &["implement"]), done_outcome()])
++            .with_static_check(vec![faulted_check(
++                RunFault::Environment("环境坏".to_owned()),
++                &dir,
++            )])
++            .assemble();
++        let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
++        let control = Arc::new(ChangeFlowControl::new());
++
++        let (task, _rx, history) =
++            spawn_run(worker, tools, snapshot, &control, false, "/tmp/root");
++        let status = task.await.expect("run 任务正常结束");
++        assert_eq!(status, ChangeRunStatus::Failed);
++
++        let reason = history
++            .finish()
++            .expect("收口落包捕获")
++            .reason
++            .expect("Terminal 记因应在案");
++        assert!(
++            !reason.contains("{dir}") && !reason.contains("{fault}"),
++            "占位零残留（dir={dir:?}）: {reason}"
++        );
++        assert!(
++            reason.contains("报告目录 "),
++            "模板骨架在案（dir={dir:?}）: {reason}"
++        );
++        if !dir.is_empty() {
++            assert!(
++                reason.contains(dir.as_str()),
++                "路径逐字承载（不转义不截断，dir 长度 {}）: {reason}",
++                dir.len()
++            );
++        }
++    }
++}
++
++/// 边界（D15，表驱动 2 形态）：`Environment` 空串与超长——空串 → reason 含模板
++/// 骨架、无空占位残留、不 panic；>1000 字符 → reason 逐字承载。
++#[tokio::test]
++async fn 环境文案空串与超长载荷() {
++    let payloads = [String::new(), "错".repeat(1200)];
++
++    for payload in payloads {
++        let timeline = Arc::new(Mutex::new(Vec::new()));
++        let (worker, _requests, _sessions) = FakeWorker::new(&timeline).assemble();
++        let (tools, _commands) = FakeTools::new(&timeline)
++            .with_phase_next(vec![route_outcome("implement", &["implement"]), done_outcome()])
++            .with_static_check(vec![faulted_check(
++                RunFault::Environment(payload.clone()),
++                "C:/ws/reports/test",
++            )])
++            .assemble();
++        let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
++        let control = Arc::new(ChangeFlowControl::new());
++
++        let (task, _rx, history) =
++            spawn_run(worker, tools, snapshot, &control, false, "/tmp/root");
++        let status = task.await.expect("run 任务正常结束");
++        assert_eq!(status, ChangeRunStatus::Failed, "载荷长度 {}", payload.len());
++
++        let reason = history
++            .finish()
++            .expect("收口落包捕获")
++            .reason
++            .expect("Terminal 记因应在案");
++        assert!(
++            reason.contains("静态检查无法完成（环境错误）"),
++            "模板骨架在案: {reason}"
++        );
++        assert!(
++            reason.contains(payload.as_str()),
++            "载荷逐字承载（长度 {}）",
++            payload.len()
++        );
++        // 节点 detail 经 `diagnose_brief` 有界摘要（既有口径：超长载荷在节点面
++        // 被折叠，终态 reason 仍全量）
++        assert!(
++            reason.len() >= payload.len(),
++            "终态文案不短于载荷（无静默丢弃）"
++        );
++    }
++}
++
++/// 正向（AC-6 可辨）：基线 static-check 环境错误 vs 基线真红——同一
++/// `step_static_check_terminal` 步两形态：
++/// - `fault = Some(Environment(text))` → 终态 reason 为 `TXT_ENV_STATIC` 替换后
++///   文本（含「静态检查无法完成（环境错误）」+ 归因文本 + 报告目录），**不含**
++///   「请在基线上修复后重新发起」；
++/// - `fault = None` + `passed = false` → 终态 reason 含「基线静态检查未通过」+
++///   报告目录（既有基线红文案零变），两组文案互斥可辨。
++#[tokio::test]
++async fn 基线静态检查_环境错误与真红文案可辨() {
++    // 形态一：环境错误
++    {
++        let root = TempRoot::new("init-static-env");
++        root.change(NAME);
++        let worktree = root.0.join("openspec/changes").join(NAME);
++        let db = TestDb::open("init-static-env");
++        seed_change_with_worktree(db.store.as_ref(), &worktree);
++
++        let timeline = Arc::new(Mutex::new(Vec::new()));
++        let (worker, requests, _sessions) = FakeWorker::new(&timeline).assemble();
++        let env_text = "占用进程：HipsDaemon.exe (pid 1234)\n被锁文件：D:\\w\\target\\liba.rlib\n\
++                        已自动重试 4 次（每次重试会跳过已完成部分）";
++        let (tools, _commands) = FakeTools::new(&timeline)
++            .with_phase_next(vec![route_outcome("initialize", &[])])
++            .with_static_check(vec![faulted_check(
++                RunFault::Environment(env_text.to_owned()),
++                &format!("/ws/openspec/changes/{NAME}/reports/baseline"),
++            )])
++            .assemble();
++        let vcs = Arc::new(FakeVcs::clean());
++        let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
++        let control = Arc::new(ChangeFlowControl::new());
++
++        let (task, _rx, history) = spawn_run_with_vcs(
++            worker,
++            tools,
++            vcs,
++            snapshot,
++            &control,
++            false,
++            &worktree.to_string_lossy(),
++            &root.root_str(),
++            None,
++        );
++        let status = task.await.expect("run 任务正常结束");
++        assert_eq!(status, ChangeRunStatus::Failed, "环境错误 → run failed");
++        assert!(
++            requests.lock().expect("请求锁").is_empty(),
++            "基线检查步无 agent（零 worker 请求）"
++        );
++
++        let finish = history.finish().expect("收口落包捕获");
++        let reason = finish.reason.expect("Terminal 记因应在案");
++        assert!(
++            reason.contains("静态检查无法完成（环境错误）"),
++            "环境文案头行: {reason}"
++        );
++        assert!(reason.contains(env_text), "归因文本嵌入: {reason}");
++        assert!(
++            reason.contains("reports/baseline"),
++            "报告目录代入: {reason}"
++        );
++        assert!(
++            !reason.contains("请在基线上修复后重新发起"),
++            "环境错误不落基线红文案: {reason}"
++        );
++        assert!(
++            !reason.contains("基线静态检查未通过"),
++            "环境错误不落基线红头行: {reason}"
++        );
++    }
++
++    // 形态二：基线真红对照（文案零变）
++    {
++        let root = TempRoot::new("init-static-red-ctrl");
++        root.change(NAME);
++        let worktree = root.0.join("openspec/changes").join(NAME);
++        let db = TestDb::open("init-static-red-ctrl");
++        seed_change_with_worktree(db.store.as_ref(), &worktree);
++
++        let timeline = Arc::new(Mutex::new(Vec::new()));
++        let (worker, _requests, _sessions) = FakeWorker::new(&timeline).assemble();
++        let (tools, _commands) = FakeTools::new(&timeline)
++            .with_phase_next(vec![route_outcome("initialize", &[])])
++            .with_static_check(vec![baseline_check(false)])
++            .assemble();
++        let vcs = Arc::new(FakeVcs::clean());
++        let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
++        let control = Arc::new(ChangeFlowControl::new());
++
++        let (task, _rx, history) = spawn_run_with_vcs(
++            worker,
++            tools,
++            vcs,
++            snapshot,
++            &control,
++            false,
++            &worktree.to_string_lossy(),
++            &root.root_str(),
++            None,
++        );
++        let status = task.await.expect("run 任务正常结束");
++        assert_eq!(status, ChangeRunStatus::Failed, "基线红 → run failed");
++
++        let reason = history
++            .finish()
++            .expect("收口落包捕获")
++            .reason
++            .expect("Terminal 记因应在案");
++        assert!(
++            reason.contains("基线静态检查未通过"),
++            "基线红文案零变: {reason}"
++        );
++        assert!(
++            reason.contains("reports/baseline"),
++            "基线红文案携报告目录: {reason}"
++        );
++        assert!(
++            !reason.contains("无法完成（环境错误）"),
++            "基线红不落环境文案（两组零共用句）: {reason}"
++        );
++    }
++}
++
++/// 正向（AC-6 可辨）：基线 test-execution 环境错误——`step_test_execution_terminal`
++/// 收到 `fault = Some(Environment(text))` → run `Failed`、终态 reason 为
++/// `TXT_ENV_TEST` 替换后文本（含「测试执行无法完成（环境错误）」+ 归因文本 +
++/// 基线报告目录、占位零残留），**不含** `TXT_BASELINE_TEST_ERROR` /
++/// `TXT_BASELINE_TEST_FAILED` 的引导句（「请检查配置与环境后重新发起」/
++/// 「请在基线上修复测试后重新发起」）——环境错误与基线红两态不共用文案；
++/// 节点 settled failed 且保留 `exec_id` 输出引用。
++#[tokio::test]
++async fn 基线测试执行_环境错误不落基线红文案() {
++    let root = TempRoot::new("init-test-env");
++    root.change(NAME);
++    let worktree = root.0.join("openspec/changes").join(NAME);
++    let db = TestDb::open("init-test-env");
++    seed_change_with_worktree(db.store.as_ref(), &worktree);
++
++    let timeline = Arc::new(Mutex::new(Vec::new()));
++    let (worker, requests, _sessions) = FakeWorker::new(&timeline).assemble();
++    let env_text = "占用进程：HipsDaemon.exe (pid 1234)\n被锁文件：D:\\w\\target\\liba.rlib\n\
++                    已自动重试 4 次（每次重试会跳过已完成部分）\n\
++                    环境侧处理：请 IT 排除 workspace 父目录（逐 worktree 排除无效）";
++    let (tools, commands) = FakeTools::new(&timeline)
++        .with_phase_next(vec![route_outcome("initialize", &[])])
++        .with_static_check(vec![baseline_check(true)])
++        .with_test_execution(vec![faulted_execution(
++            RunFault::Environment(env_text.to_owned()),
++            &format!("/ws/openspec/changes/{NAME}/reports/baseline"),
++        )])
++        .assemble();
++    let vcs = Arc::new(FakeVcs::clean());
++    let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
++    let control = Arc::new(ChangeFlowControl::new());
++
++    let (task, _rx, history) = spawn_run_with_vcs(
++        worker,
++        tools,
++        vcs,
++        snapshot,
++        &control,
++        false,
++        &worktree.to_string_lossy(),
++        &root.root_str(),
++        None,
++    );
++    let status = task.await.expect("run 任务正常结束");
++    assert_eq!(
++        status,
++        ChangeRunStatus::Failed,
++        "基线 test-execution 环境错误 → run failed（不升格、不交决策）"
++    );
++    assert!(
++        requests.lock().expect("请求锁").is_empty(),
++        "基线 test-execution 步无 agent（零 worker 请求）"
++    );
++
++    let finish = history.finish().expect("收口落包捕获");
++    let reason = finish.reason.expect("Terminal 记因应在案");
++    assert!(
++        reason.contains("测试执行无法完成（环境错误）"),
++        "环境文案头行: {reason}"
++    );
++    assert!(reason.contains(env_text), "归因文本经 {{fault}} 嵌入: {reason}");
++    assert!(
++        reason.contains("reports/baseline"),
++        "基线报告目录经 {{dir}} 嵌入: {reason}"
++    );
++    assert!(
++        !reason.contains("{fault}") && !reason.contains("{dir}"),
++        "占位零残留: {reason}"
++    );
++    assert!(
++        !reason.contains("请检查配置与环境后重新发起"),
++        "环境错误不落 TXT_BASELINE_TEST_ERROR: {reason}"
++    );
++    assert!(
++        !reason.contains("请在基线上修复测试后重新发起"),
++        "环境错误不落 TXT_BASELINE_TEST_FAILED: {reason}"
++    );
++    assert!(
++        !reason.contains("基线测试执行出错") && !reason.contains("基线测试未通过"),
++        "环境错误不落基线红头行: {reason}"
++    );
++
++    let node = finish
++        .nodes
++        .iter()
++        .find(|node| node.step.as_str() == "test_execution")
++        .expect("test_execution 节点应在案");
++    assert_eq!(node.status, RunStepStatus::Failed, "节点 settled failed");
++    assert_eq!(
++        node.output_ref.as_deref(),
++        Some("exec-test-fault"),
++        "failed 节点保留 exec_id 输出引用"
++    );
++    let commands = commands.lock().expect("命令锁");
++    assert_eq!(
++        commands
++            .iter()
++            .filter(|command| matches!(command, ToolCommand::StaticCheck { .. }))
++            .count(),
++        1,
++        "static-check 已绿（单次执行）"
++    );
++    assert_eq!(
++        commands
++            .iter()
++            .filter(|command| matches!(command, ToolCommand::TestExecution { .. }))
++            .count(),
++        1,
++        "test-execution 恰一次（环境错误不回注执行体）"
++    );
++    assert!(
++        commands
++            .iter()
++            .all(|command| !matches!(command, ToolCommand::MutationTest { .. })),
++        "环境错误早退 → 后续 MutationTest 步零 spawn"
++    );
++}
++
++/// 边界（AC-7 表驱动 3 面）：**三面取消一致性**——static-check（实现相位反馈环
++/// 前置：不烧反馈边预算、零续注 prompt）/ test-execution（升格前置）/ mutation-test
++/// 三面分别收 `fault = Some(Stopped)` → 均节点 `stopped` + run `Stopped`（无
++/// failed 节点）、终态记因「用户请求停止」、落库终态同 `Stopped`、零 `phase-log`
++/// 代写。
++#[tokio::test]
++async fn 三面取消一致性_节点stopped且run收敛stopped() {
++    /// 单面装置：（面标签、相位路由、static-check 队列、test-execution 队列、
++    /// mutation 队列、目标步名）。
++    type CancelCase = (
++        &'static str,
++        PhaseNextOutcome,
++        Vec<StaticCheckOutcome>,
++        Vec<TestExecutionOutcome>,
++        Vec<MutationTestOutcome>,
++        &'static str,
++    );
++    let cases: [CancelCase; 3] = [
++        (
++            "static-check 面",
++            route_outcome("implement", &["implement"]),
++            vec![faulted_check(RunFault::Stopped, "C:/ws/reports/test")],
++            Vec::new(),
++            Vec::new(),
++            "static_check",
++        ),
++        (
++            "test-execution 面",
++            route_outcome("test-execution", &[]),
++            Vec::new(),
++            vec![faulted_execution(RunFault::Stopped, "C:/ws/reports/test")],
++            Vec::new(),
++            "test_execution",
++        ),
++        (
++            "mutation 面",
++            route_outcome("test-execution", &[]),
++            Vec::new(),
++            vec![execution_outcome(TestExecutionConclusion::Pass, 5)],
++            vec![faulted_mutation(RunFault::Stopped)],
++            "mutation_test",
++        ),
++    ];
++
++    for (label, phase_next, static_check, test_execution, mutation, target) in cases {
++        let timeline = Arc::new(Mutex::new(Vec::new()));
++        let (worker, requests, _sessions) = FakeWorker::new(&timeline).assemble();
++        let (tools, commands) = FakeTools::new(&timeline)
++            .with_phase_next(vec![phase_next, done_outcome()])
++            .with_static_check(static_check)
++            .with_test_execution(test_execution)
++            .with_mutation(mutation)
++            .assemble();
++        let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(StubSnapshot);
++        let control = Arc::new(ChangeFlowControl::new());
++
++        let (task, _rx, history) = spawn_run(worker, tools, snapshot, &control, false, "/tmp/root");
++        let status = task.await.expect("run 任务正常结束");
++        assert_eq!(
++            status,
++            ChangeRunStatus::Stopped,
++            "{label}: 取消 → run 收敛 stopped（MUST NOT 呈现为失败）"
++        );
++
++        let finish = history.finish().expect("收口落包捕获");
++        assert_eq!(
++            finish.status,
++            RunStatus::Stopped,
++            "{label}: 落库终态同为 stopped"
++        );
++        let node = finish
++            .nodes
++            .iter()
++            .find(|node| node.step.as_str() == target)
++            .unwrap_or_else(|| panic!("{label}: {target} 节点应在案"));
++        assert_eq!(node.status, RunStepStatus::Stopped, "{label}: 节点 stopped");
++        assert!(
++            node.detail
++                .as_deref()
++                .is_some_and(|detail| detail.contains("用户请求停止")),
++            "{label}: 节点 detail 记因「用户请求停止」: {:?}",
++            node.detail
++        );
++        assert!(
++            !finish
++                .nodes
++                .iter()
++                .any(|node| node.status == RunStepStatus::Failed),
++            "{label}: 无 failed 节点（stopped 与 failed 不混用）"
++        );
++        assert!(
++            !finish
++                .nodes
++                .iter()
++                .any(|node| node.step.as_str() == "phase_log"),
++            "{label}: 取消面不落 phase_log 步节点"
++        );
++        assert!(
++            finish
++                .reason
++                .as_deref()
++                .is_some_and(|reason| reason.contains("用户请求停止")),
++            "{label}: 终态记因 = 用户请求停止: {:?}",
++            finish.reason
++        );
++
++        // 零反馈边续注：static-check 面恰一次门禁命令（不因红重跑 5 次）
++        let static_calls = commands
++            .lock()
++            .expect("命令锁")
++            .iter()
++            .filter(|command| matches!(command, ToolCommand::StaticCheck { .. }))
++            .count();
++        let expected_static = if target == "static_check" { 1 } else { 0 };
++        assert_eq!(
++            static_calls, expected_static,
++            "{label}: static-check 命令次数（取消面不烧反馈边预算）"
++        );
++        // 实现相位 static-check 面只有相位首发 executor（无修复轮）；另两面无 agent 步
++        assert!(
++            requests
++                .lock()
++                .expect("请求锁")
++                .iter()
++                .all(|request| !request.prompt.contains("静态检查未通过")),
++            "{label}: 零反馈续注 prompt"
++        );
++    }
++}
+diff --git a/crates/infra/checks/src/environment.rs b/crates/infra/checks/src/environment.rs
+new file mode 100644
+index 000000000000..609debbdfaf2
+--- /dev/null
++++ b/crates/infra/checks/src/environment.rs
+@@ -0,0 +1,130 @@
++//! 检查域环境归因装配单点（static-check 与 test-execution 共用；MUST NOT 两写）。
++//!
++//! 两个职责：
++//! - [`attempts_log`]：输出记录内容形态——单次尝试**逐字节同现状**（`stdout ++
++//!   stderr`，零分隔头）；发生过重试则各次尝试按序拼接、每段前加分隔头（审计不丢
++//!   上下文）；
++//! - [`fault_text`]：`RunFault::Environment` 的人读文本——占用者点名 / 被锁文件
++//!   （原料来自 [`exec::attribution_text`]）+ 「已自动重试 N 次」+ 末次诊断摘要 +
++//!   环境侧处理指引。
++//!
++//! exec 层只供事实原料与尝试面字节（MUST NOT 自带业务文案：尝试分隔头 / 归因文案
++//! 归调用方），故重试次数与处置指引的措辞单点驻本模块；本模块为**纯函数**（零 io
++//! / 零 async）。
++
++use exec::{ProcessOutput, RetryPolicy, RunReport};
++
++/// 环境侧处理指引（用户 / IT 侧动作）：排除 **workspace 父目录**（逐 worktree
++/// 排除无效——worktree 动态新建），并建议一并排除包管理器缓存。与基线红文案
++/// （「请在基线上修复后重新发起」）零共用句，故两态可辨。
++const ENV_GUIDANCE: &str = "环境侧处理：请 IT 在【火绒企业版（服务端策略）】与【云枢】中排除 \
++     workspace 父目录（逐 worktree 排除无效——worktree 动态新建），建议一并排除 `.cargo` 与 \
++     pnpm 缓存目录后重新发起。";
++
++/// 末次诊断摘要的字符上限（诊断全量已在输出记录 / 报告目录，本处只需可读主因）。
++const DIAGNOSIS_EXCERPT_LIMIT: usize = 2000;
++
++/// 输出记录内容装配（`exec::ExecOutput::Recorded` 的单一 `.log` 正文）。
++///
++/// - `attempts == 1 && retried.is_empty()`（未重试）→ **原样** `stdout ++ stderr`
++///   ——逐字节同单次执行（既有 record 断言不被破）；
++/// - 发生过重试 → `retried` 按序在前、末次在后，每段一段分隔头
++///   `===== attempt {n}/{max} · exit={exit_code} · transient={命中签名或 -} =====`
++///   + 该次的 `stdout ++ stderr`。
++pub(crate) fn attempts_log(report: &RunReport) -> Vec<u8> {
++    if report.attempts <= 1 && report.retried.is_empty() {
++        let mut plain = report.stdout.clone();
++        plain.extend_from_slice(&report.stderr);
++        return plain;
++    }
++    let max = RetryPolicy::transient().max_attempts;
++    let mut log: Vec<u8> = Vec::new();
++    for (index, trace) in report.retried.iter().enumerate() {
++        push_attempt(
++            &mut log,
++            index as u32 + 1,
++            max,
++            trace.exit_code,
++            trace.transient.as_deref(),
++            &trace.stdout,
++            &trace.stderr,
++        );
++    }
++    push_attempt(
++        &mut log,
++        report.attempts,
++        max,
++        report.exit_code,
++        exec::is_transient(report),
++        &report.stdout,
++        &report.stderr,
++    );
++    log
++}
++
++/// 单段（分隔头 + 该次合并流）追加：段内顺序为 stdout 前缀 + stderr 后缀（不
++/// `2>&1`、不交错重排）。
++fn push_attempt(
++    log: &mut Vec<u8>,
++    attempt: u32,
++    max: u32,
++    exit_code: i32,
++    transient: Option<&str>,
++    stdout: &[u8],
++    stderr: &[u8],
++) {
++    let signature = transient.unwrap_or("-");
++    log.extend_from_slice(
++        format!("===== attempt {attempt}/{max} · exit={exit_code} · transient={signature} =====\n")
++            .as_bytes(),
++    );
++    log.extend_from_slice(stdout);
++    log.extend_from_slice(stderr);
++}
++
++/// 环境错误人读文本（`RunFault::Environment` 的唯一装配点）：归因原料（占用者 /
++/// 被锁文件）+ 重试事实 + 末次诊断摘要 + 处置指引。
++///
++/// `attempts` / `exit_code` / `output` 取**末次**尝试（`static-check` 传
++/// `&run.stdout`——命令串带 `2>&1`，`stderr` 恒空；test-execution 传合并流）。
++/// 诊断摘要复用 [`ProcessOutput`] 的既有截断口径（不自造「取末尾 N 字符」）。
++pub(crate) fn fault_text(attempts: u32, exit_code: i32, output: &[u8]) -> String {
++    let diagnostics = String::from_utf8_lossy(output);
++    let attribution = exec::attribution_text(&diagnostics).unwrap_or_else(|| {
++        // 解析不出路径（非文件锁形态的瞬态签名，如链接器 / Node 错误）→ 只给降级
++        // 说明，不拼空段
++        "被锁文件：未能从诊断文本中解析出路径（可能非文件锁形态）".to_owned()
++    });
++    let output_read = ProcessOutput::new(exit_code, output.to_vec());
++    let mut excerpt = output_read.error_excerpt();
++    if excerpt.is_empty() {
++        excerpt = output_read.tail();
++    }
++    let excerpt = clip_chars(&excerpt, DIAGNOSIS_EXCERPT_LIMIT);
++    let mut text = attribution;
++    text.push('\n');
++    text.push_str(&format!(
++        "已自动重试 {} 次（每次重试会跳过已完成部分）",
++        attempts.saturating_sub(1)
++    ));
++    if !excerpt.is_empty() {
++        text.push_str("\n最后一次诊断：\n");
++        text.push_str(&excerpt);
++    }
++    text.push('\n');
++    text.push_str(ENV_GUIDANCE);
++    text
++}
++
++/// chars 口径有界截断（≤ limit 原样；超限取前 limit 字符 + 省略号）。
++fn clip_chars(text: &str, limit: usize) -> String {
++    if text.chars().count() <= limit {
++        text.to_owned()
++    } else {
++        format!("{}…", text.chars().take(limit).collect::<String>())
++    }
++}
++
++#[cfg(test)]
++#[path = "environment_test.rs"]
++mod environment_test;
+diff --git a/crates/infra/checks/src/environment_test.rs b/crates/infra/checks/src/environment_test.rs
+new file mode 100644
+index 000000000000..c52b4c4ef580
+--- /dev/null
++++ b/crates/infra/checks/src/environment_test.rs
+@@ -0,0 +1,444 @@
++//! 检查域环境归因装配测试：`attempts_log` / `fault_text` 均为纯函数（零 io /
++//! 零 async），`RunReport` / `AttemptTrace` 以结构体字面量直构；归因原料经真实
++//! `exec::lockprobe::attribution_text` 与 `exec::ProcessOutput` 组合（不 mock
++//! ——摘要口径与归因原料正是被测语义），诊断路径取真实 `tempfile` 路径使探针零
++//! 阻塞返回。
++
++use exec::{AttemptTrace, RunOutcome, RunReport};
++
++use super::{attempts_log, fault_text, DIAGNOSIS_EXCERPT_LIMIT, ENV_GUIDANCE};
++
++// ---------------------------------------------------------------------------
++// 装置：`RunReport` / `AttemptTrace` 字面量构造
++// ---------------------------------------------------------------------------
++
++/// 单次执行报告（`attempts == 1` 且 `retried` 空 = 未重试形态）。
++fn single(stdout: &[u8], stderr: &[u8], exit_code: i32) -> RunReport {
++    RunReport {
++        outcome: RunOutcome::Completed,
++        exit_code,
++        stdout: stdout.to_vec(),
++        stderr: stderr.to_vec(),
++        attempts: 1,
++        retried: Vec::new(),
++    }
++}
++
++/// 此前尝试的留痕（`transient = None` 表示该次未命中签名）。
++fn trace(exit_code: i32, transient: Option<&str>, stdout: &[u8], stderr: &[u8]) -> AttemptTrace {
++    AttemptTrace {
++        exit_code,
++        transient: transient.map(str::to_owned),
++        stdout: stdout.to_vec(),
++        stderr: stderr.to_vec(),
++    }
++}
++
++/// 分隔头（与实现同式的期望值构造：段头逐字锚定，含 `·` 分隔符与末尾 `=====`）。
++fn header(attempt: u32, max: u32, exit_code: i32, signature: Option<&str>) -> String {
++    format!(
++        "===== attempt {attempt}/{max} · exit={exit_code} · transient={} =====\n",
++        signature.unwrap_or("-")
++    )
++}
++
++// ---------------------------------------------------------------------------
++// 正向 / 边界：attempts_log 单次语义（零分隔头）
++// ---------------------------------------------------------------------------
++
++/// 正向（AC-8 / D11）：单次零分隔头——`attempts = 1`、`retried = []` → 返回恰为
++/// `stdout ++ stderr`（逐字节），不含 `===== attempt` 前缀（既有 record 断言不被
++/// 破）。
++#[test]
++fn 单次尝试零分隔头逐字节等同现状() {
++    let log = attempts_log(&single(b"out\n", b"err\n", 0));
++    assert_eq!(log, b"out\nerr\n", "单次尝试逐字节等同 `stdout ++ stderr`");
++    assert!(
++        !String::from_utf8_lossy(&log).contains("===== attempt"),
++        "单次尝试不产生分隔头: {:?}",
++        String::from_utf8_lossy(&log)
++    );
++}
++
++/// 边界：单次双空——`attempts = 1` + 双空输出 → 返回空 `Vec`（零字节，不产生
++/// 空段头）。
++#[test]
++fn 单次双空输出返回零字节() {
++    assert!(attempts_log(&single(b"", b"", 0)).is_empty(), "双空输出零字节");
++}
++
++// ---------------------------------------------------------------------------
++// 正向：attempts_log 重试面
++// ---------------------------------------------------------------------------
++
++/// 正向（AC-3）：重试两段——`retried` 一条 + 末次成功 → 两段按序，`max` 恒 5，
++/// 末次段头 `transient=-`。
++#[test]
++fn 重试两段按序且段头逐字() {
++    let report = RunReport {
++        outcome: RunOutcome::Completed,
++        exit_code: 0,
++        stdout: b"a2".to_vec(),
++        stderr: b"e2".to_vec(),
++        attempts: 2,
++        retried: vec![trace(1, Some("os error 32"), b"a1", b"e1")],
++    };
++
++    let expected = format!(
++        "{}{}{}{}",
++        header(1, 5, 1, Some("os error 32")),
++        "a1e1",
++        header(2, 5, 0, None),
++        "a2e2",
++    );
++    assert_eq!(
++        String::from_utf8_lossy(&attempts_log(&report)),
++        expected,
++        "两段按尝试序，末次段头 transient=-"
++    );
++}
++
++/// 正向（表驱动 5 段）：耗尽面——`retried` 4 条 + 末次同（`exit_code = 1`）→ 恰
++/// 5 段，序号 1..5 递增，每段前恰一个换行；总长度 == Σ(段头 + 该次双路字节)。
++#[test]
++fn 耗尽面五段序号递增且总长度可核() {
++    let mut retried = Vec::new();
++    for _ in 0..4 {
++        retried.push(trace(1, Some("os error 32"), b"xx", b"yy"));
++    }
++    let report = RunReport {
++        outcome: RunOutcome::Completed,
++        exit_code: 1,
++        stdout: b"os error 32".to_vec(),
++        stderr: b"".to_vec(),
++        attempts: 5,
++        retried,
++    };
++
++    let log = attempts_log(&report);
++    let text = String::from_utf8_lossy(&log).into_owned();
++
++    assert_eq!(
++        text.matches("===== attempt ").count(),
++        5,
++        "瞬态耗尽恰 5 段: {text}"
++    );
++    let mut expected_len = 0usize;
++    for attempt in 1..=5u32 {
++        let expected_header = header(attempt, 5, 1, Some("os error 32"));
++        assert!(
++            text.contains(&expected_header),
++            "第 {attempt} 段段头逐字在案: {expected_header:?} | {text}"
++        );
++        expected_len += expected_header.len();
++    }
++    // 前 4 段正文各 4 字节（"xx" + "yy"），末次正文 12 字节（"os error 32"）
++    expected_len += 4 * 4 + "os error 32".len();
++    assert_eq!(log.len(), expected_len, "总长度 == Σ(段头 + 该次双路字节)");
++
++    // 序号递增（1/5 … 5/5 逐段在案）
++    let mut cursor = 0usize;
++    for attempt in 1..=5u32 {
++        let marker = format!("===== attempt {attempt}/5");
++        let found = text[cursor..]
++            .find(&marker)
++            .unwrap_or_else(|| panic!("第 {attempt} 段序号缺失: {text}"));
++        cursor += found + marker.len();
++    }
++}
++
++/// 正向（AC-8）：段内合流顺序——该段 `stdout = A`、`stderr = B` → 段内正文为
++/// `AB`（stdout 前缀 + stderr 后缀，不 `2>&1`、不交错重排）。
++#[test]
++fn 段内正文为stdout前缀加stderr后缀() {
++    let report = RunReport {
++        outcome: RunOutcome::Completed,
++        exit_code: 0,
++        stdout: b"C".to_vec(),
++        stderr: b"D".to_vec(),
++        attempts: 2,
++        retried: vec![trace(1, Some("os error 32"), b"A", b"B")],
++    };
++
++    let text = String::from_utf8_lossy(&attempts_log(&report)).into_owned();
++    assert!(text.contains("\nAB"), "第 1 段正文为 AB: {text}");
++    assert!(
++        text.contains(&format!("AB{}", header(2, 5, 0, None))),
++        "段间紧邻（正文后直接下一段段头）: {text}"
++    );
++    assert!(text.ends_with("CD"), "末次正文为 stdout + stderr: {text}");
++}
++
++/// 边界：未命中此前尝试——`retried` 中一条 `transient = None` → 该段头渲染
++/// `transient=-`（不写 `None`、不省略字段）。
++#[test]
++fn 未命中此前尝试的段头渲染短横() {
++    let report = RunReport {
++        outcome: RunOutcome::Completed,
++        exit_code: 0,
++        stdout: b"ok".to_vec(),
++        stderr: Vec::new(),
++        attempts: 2,
++        retried: vec![trace(1, None, b"red", b"")],
++    };
++
++    let text = String::from_utf8_lossy(&attempts_log(&report)).into_owned();
++    assert!(
++        text.contains(&header(1, 5, 1, None)),
++        "未命中留痕渲染 transient=-: {text}"
++    );
++    assert!(!text.contains("None"), "不写 Rust 的 None 字样: {text}");
++}
++
++// ---------------------------------------------------------------------------
++// 边界：attempts_log 字节面
++// ---------------------------------------------------------------------------
++
++/// 边界（表驱动 3 形态）：特殊字节与非 UTF-8——段头 `exit_code` 取 `-1` 哨兵 /
++/// `255`；正文含非 UTF-8（`0xFF 0xFE`）、`\0`、emoji → 正文逐字节保留（本函数
++/// **不做 lossy**），段头为 ASCII。
++#[test]
++fn 特殊字节与非utf8正文逐字节保留() {
++    let raw = vec![0xFF_u8, 0xFE, 0x00, b'a'];
++    let emoji = "🎉 完成".as_bytes().to_vec();
++    let nul = vec![b'a', 0u8, b'b'];
++
++    let cases: [(&str, i32, Vec<u8>); 3] = [
++        ("非 UTF-8", -1, raw),
++        ("emoji", 255, emoji),
++        ("NUL", 1, nul),
++    ];
++
++    for (label, exit_code, body) in cases {
++        let mut retried = vec![trace(1, Some("os error 32"), b"", b"")];
++        // 让末次尝试携带该形态正文（`transient` 由 `is_transient` 复算：exit_code
++        // 非零且无签名 → None）
++        retried[0].stdout = body.clone();
++        retried[0].exit_code = exit_code;
++        let report = RunReport {
++            outcome: RunOutcome::Completed,
++            exit_code,
++            stdout: body.clone(),
++            stderr: Vec::new(),
++            attempts: 2,
++            retried,
++        };
++
++        let log = attempts_log(&report);
++        assert!(
++            log.windows(body.len()).any(|window| window == body.as_slice()),
++            "{label}: 正文逐字节保留在案"
++        );
++        let head = header(1, 5, exit_code, Some("os error 32"));
++        assert!(
++            log.starts_with(head.as_bytes()),
++            "{label}: 段头为 ASCII 且 exit_code 逐值渲染（{exit_code}）"
++        );
++    }
++}
++
++/// 边界：大输出不截断——每次尝试正文 >64 KiB → 全量拼接，段头计数与段数不变
++///（审计不丢上下文）。
++#[test]
++fn 大输出全量拼接不截断() {
++    let big = vec![b'q'; 64 * 1024 + 1];
++    let report = RunReport {
++        outcome: RunOutcome::Completed,
++        exit_code: 1,
++        stdout: big.clone(),
++        stderr: big.clone(),
++        attempts: 2,
++        retried: vec![trace(1, Some("os error 32"), &big, &big)],
++    };
++
++    let log = attempts_log(&report);
++    // 此前尝试携命中签名（`retried` 留痕），末次由 `is_transient(&report)` 复算——
++    // 正文为纯 `q` 字节、无签名 → 段头 `transient=-`
++    let expected_len = header(1, 5, 1, Some("os error 32")).len()
++        + 2 * big.len()
++        + header(2, 5, 1, None).len()
++        + 2 * big.len();
++    assert_eq!(log.len(), expected_len, "两段全量（各 2 × >64 KiB）不截断");
++    assert_eq!(
++        String::from_utf8_lossy(&log).matches("===== attempt ").count(),
++        2,
++        "段数不受输出规模影响"
++    );
++}
++
++// ---------------------------------------------------------------------------
++// 正向 / 边界：fault_text 装配
++// ---------------------------------------------------------------------------
++
++/// 正向（AC-3）：重试次数与指引——`attempts = 5`、非零退出、诊断含锁文本 →
++/// 含「已自动重试 4 次」+「每次重试会跳过已完成部分」+ `ENV_GUIDANCE`（含
++/// 「排除 workspace 父目录」与「逐 worktree」无效说明）。
++#[test]
++fn 环境文案含重试次数与处置指引() {
++    let text = fault_text(
++        5,
++        1,
++        b"error: failed to rename archive file: /t/liba.rlib: os error 32",
++    );
++
++    assert!(
++        text.contains("已自动重试 4 次（每次重试会跳过已完成部分）"),
++        "重试次数 = attempts - 1 且带说明: {text}"
++    );
++    assert!(text.contains("排除"), "含处置指引: {text}");
++    assert!(text.contains("workspace 父目录"), "指引点名父目录: {text}");
++    assert!(text.contains("逐 worktree"), "指引说明逐 worktree 无效: {text}");
++    assert!(
++        text.ends_with(ENV_GUIDANCE),
++        "指引单点来自 ENV_GUIDANCE 常量: {text}"
++    );
++}
++
++/// 正向（AC-3）：占用者原料嵌入——诊断含真实临时路径（存在且无持有者）→ 文本
++/// 含该路径（被锁文件）与「未定位占用者」降级说明（探针真实调用，空清单不阻断）。
++#[test]
++fn 环境文案嵌入被锁文件与未定位占用者() {
++    let dir = tempfile::Builder::new()
++        .prefix("checks-env-attribution-")
++        .tempdir()
++        .expect("创建临时目录失败");
++    let path = dir.path().join("liba.rlib");
++    std::fs::write(&path, b"body").expect("写临时文件失败");
++    let diagnostics = format!(
++        "error: failed to rename archive file: {}\nCaused by: os error 32",
++        path.display()
++    );
++
++    let text = fault_text(3, 1, diagnostics.as_bytes());
++
++    assert!(
++        text.contains(&path.to_string_lossy().into_owned()),
++        "被锁文件路径逐字在案: {text}"
++    );
++    assert!(
++        text.contains("未定位占用者"),
++        "无持有者时给「未定位占用者」降级说明: {text}"
++    );
++    assert!(
++        text.contains("已自动重试 2 次"),
++        "次数按 attempts - 1 计: {text}"
++    );
++}
++
++/// 正向：末次诊断摘要——多行输出（前置 `Compiling …` + 末行锁错误）→ 摘要取末次
++/// 错误面（含签名行），沿用 `ProcessOutput` 口径（不自造截断）。
++#[test]
++fn 环境文案摘要取末次错误面() {
++    let diagnostics = b"Compiling core v0.1.0\nCompiling infra v0.1.0\nerror: failed to rename archive file: /t/liba.rlib: os error 32\n";
++    let text = fault_text(2, 1, diagnostics);
++
++    assert!(
++        text.contains("最后一次诊断："),
++        "非空诊断产摘要段: {text}"
++    );
++    assert!(
++        text.contains("error: failed to rename archive file"),
++        "摘要含锁错误行: {text}"
++    );
++    assert!(text.contains("os error 32"), "摘要含错误码行: {text}");
++}
++
++/// 边界：次数边界——`attempts = 1`（生产仅在早停面出现）→ 「已自动重试 0 次」，
++/// 不 panic、无空括号 / 负值。
++#[test]
++fn 次数边界零重试不产负值() {
++    let text = fault_text(1, 1, b"error: os error 32");
++
++    assert!(
++        text.contains("已自动重试 0 次"),
++        "最小合法 attempts 渲染 0 次: {text}"
++    );
++    assert!(!text.contains("已自动重试 -1 次"), "不得出现负值: {text}");
++    assert!(!text.contains("已自动重试 次"), "不得出现空次数: {text}");
++}
++
++/// 边界：空输出——`diagnostics` 为空 `&[]` → 摘要段降级为空（不出现空段头、不
++/// panic），次数与指引照常在案。
++#[test]
++fn 空诊断不产摘要段但次数指引照常() {
++    let text = fault_text(4, 1, &[]);
++
++    assert!(
++        !text.contains("最后一次诊断："),
++        "空诊断不产摘要段头: {text}"
++    );
++    assert!(text.contains("已自动重试 3 次"), "次数照常: {text}");
++    assert!(text.ends_with(ENV_GUIDANCE), "指引照常: {text}");
++    assert!(text.contains("被锁文件："), "归因段降级为说明而非空段: {text}");
++}
++
++/// 边界（表驱动 3 形态）：超长与特殊字符——诊断含 emoji / 引号 / 换行 / 非 UTF-8
++/// 字节 → lossy 不 panic，摘要按上限截断、指引逐字。
++#[test]
++fn 超长与特殊字符诊断按上限截断() {
++    // 形态一：>2000 字符正文（无错误关键词 → 摘要走 `tail()`，进而被 chars 上限
++    // 截断）
++    let long_body = (0..60)
++        .map(|_| "z".repeat(100))
++        .collect::<Vec<_>>()
++        .join("\n");
++    let text = fault_text(5, 1, long_body.as_bytes());
++    let after = text
++        .split("最后一次诊断：\n")
++        .nth(1)
++        .expect("超长诊断应产摘要段");
++    let excerpt = after
++        .split("\n环境侧处理")
++        .next()
++        .expect("摘要段以指引前的换行收尾");
++    assert_eq!(
++        excerpt.chars().count(),
++        DIAGNOSIS_EXCERPT_LIMIT + 1,
++        "摘要按 DIAGNOSIS_EXCERPT_LIMIT 截断并加省略号"
++    );
++    assert!(text.ends_with(ENV_GUIDANCE), "指引逐字不受截断影响");
++
++    // 形态二：引号 / 换行 / emoji 混排
++    let special = "say \"os error 32\"\n\u{0} emoji 🎉 完成\n".to_owned();
++    let text = fault_text(2, 1, special.as_bytes());
++    assert!(text.contains("os error 32"), "特殊字符诊断的签名行在案: {text}");
++    assert!(text.ends_with(ENV_GUIDANCE), "指引逐字: {text}");
++
++    // 形态三：非 UTF-8 原始字节（lossy 不 panic；替换符随摘要行承载）
++    let mut raw = b"error: os error 32 ".to_vec();
++    raw.extend_from_slice(&[0xFF, 0xFE]);
++    raw.push(b'\n');
++    let text = fault_text(2, 1, &raw);
++    assert!(
++        text.contains("os error 32"),
++        "非 UTF-8 诊断 lossy 后可读: {text}"
++    );
++    assert!(
++        text.contains('\u{FFFD}'),
++        "非 UTF-8 字节转替换符后不 panic: {text}"
++    );
++}
++
++// ---------------------------------------------------------------------------
++// 边界：常量锚定
++// ---------------------------------------------------------------------------
++
++/// 边界（表驱动 2 常量）：`ENV_GUIDANCE` 含「父目录」与「逐 worktree」两个关键
++/// 短语且与基线红文案零共用句（AC-6 的原料面）；诊断摘录上限常量 >0 且为可读
++/// 规模。
++#[test]
++fn 指引与摘录上限常量锚定() {
++    assert!(ENV_GUIDANCE.contains("父目录"), "指引点名父目录");
++    assert!(ENV_GUIDANCE.contains("逐 worktree"), "指引说明逐 worktree 无效");
++    for baseline_phrase in ["请在基线上修复", "基线检查未通过", "基线"] {
++        assert!(
++            !ENV_GUIDANCE.contains(baseline_phrase),
++            "与基线红文案零共用句（不得含 {baseline_phrase}）"
++        );
++    }
++
++    // 取值经局部绑定断言（避免 `assertions_on_constants` 噪声）
++    let limit = DIAGNOSIS_EXCERPT_LIMIT;
++    assert!(limit > 0, "摘录上限为正（实际 {limit}）");
++    assert!(limit >= 500, "摘录上限足够承载主因（实际 {limit}）");
++}
+diff --git a/crates/infra/checks/src/lib.rs b/crates/infra/checks/src/lib.rs
+index 5e3dc8f4cfa2..de79c76b7501 100644
+--- a/crates/infra/checks/src/lib.rs
++++ b/crates/infra/checks/src/lib.rs
+@@ -1,3 +1,4 @@
++mod environment;
+ mod static_check;
+ mod testexec;
+ 
+diff --git a/crates/infra/checks/src/mutation/cargo_mutants.rs b/crates/infra/checks/src/mutation/cargo_mutants.rs
+index fbe5206a8f45..a0707276c9c0 100644
+--- a/crates/infra/checks/src/mutation/cargo_mutants.rs
++++ b/crates/infra/checks/src/mutation/cargo_mutants.rs
+@@ -47,6 +47,9 @@ pub(crate) async fn run_segment(
+             )],
+             timeout: Duration::from_millis(SEGMENT_SPAWN_TIMEOUT_MS),
+             cancel,
++            // 突变面零重试（长跑是产品语义，段内重试会放大墙钟；断点续跑已由段级
++            // 复用门承担）
++            retry: exec::RetryPolicy::none(),
+         },
+     )
+     .await;
+diff --git a/crates/infra/checks/src/mutation/cargo_mutants_test.rs b/crates/infra/checks/src/mutation/cargo_mutants_test.rs
+index 1935911c7b66..5d00222e6426 100644
+--- a/crates/infra/checks/src/mutation/cargo_mutants_test.rs
++++ b/crates/infra/checks/src/mutation/cargo_mutants_test.rs
+@@ -754,3 +754,33 @@ async fn 合并流与大输出_双管道大块逐字节() {
+         assert_eq!(window.records().len(), 1, "大块形态恰一次假 spawn");
+     }
+ }
++
++/// 正向（AC-2）：零重试——段输出含瞬态签名（`os error 32`）+ `exit 1` →
++/// 段尝试次数恰 1（假 spawn 记录仅一条）、分流仍为 `Interrupted`（段层
++/// `RetryPolicy::none()`：签名命中不追加尝试）。
++#[tokio::test]
++async fn 输出含瞬态签名不触发段重试() {
++    let ws = SpawnWs::new("no-retry");
++    let window = SpawnWindow::enter("cargo-no-retry");
++    window.install_fake_cargo(&ws.exec_dir);
++    window.set_out("error: failed to rename archive file: /t/liba.rlib: os error 32");
++    window.set_exit(1);
++    let patch_path = ws.write_patch(0, "diff --git a/app/src/lib.rs b/app/src/lib.rs\n");
++
++    let result = run_segment(
++        &patch_path,
++        &ws.exec_dir,
++        foundation::cancel::CancelFlag::never(),
++    )
++    .await;
++
++    assert!(
++        matches!(result, Err(SegmentFailure::Interrupted(_))),
++        "签名命中不改变分流（仍 Interrupted）: {result:?}"
++    );
++    assert_eq!(
++        window.records().len(),
++        1,
++        "段层零重试：签名命中也不追加尝试（spawn 恰 1 次）"
++    );
++}

@@ -1,3 +1,4 @@
+mod environment;
 mod static_check;
 mod testexec;
 

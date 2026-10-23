@@ -1,3 +1,27 @@
+//! 统一执行体 [`run_shell`] 测试：真实子进程（POSIX shim 经 `resolve_shell`
+//! 探测的解释器拉起）+ 真实 `exec::kill_tree`，零 spawn mock。
+//!
+//! 覆盖面：三值结局（`Completed` / `TimedOut` / `Cancelled`）、退出码透传、
+//! 双管道并发排水（不互锁不丢字节）、自然退出臂收尸后有界排水（孤儿孙进程持写端
+//! 不悬挂）、`cwd` / `env` 施加、被杀两臂的进程回收与
+//! 墙钟上界、`RunError` 文案与 `RunOptions` / `RunOutcome` 类型面。
+//!
+//! 时钟（两类装置，按「断言是否依赖虚拟时间」分）：
+//! - **超时臂**：`#[tokio::test(start_paused = true)]` + 手动 `advance`（沿
+//!   `mutation/*_test.rs` 既有先例）——不真等预算，且「计时器先到」正是被测语义；
+//! - **退避 / 预算面**（[`退避序列_前两段各消费一次`] /
+//!   [`预算耗尽早停不发起新尝试`] / [`零预算首跑后即耗尽`] /
+//!   [`单次等价回归_逐字节同改造前`]）：`start_paused = true` + [`ClockGate`]
+//!   抑制 tokio 的「空闲即自动推进」+ 手动 `advance`。抑制是必需的：真实子进程在
+//!   暂停时钟下等待时，运行时空转会把虚拟时间按 `CANCEL_POLL_INTERVAL` 粒度成百倍
+//!   推进（实测 0.4 s 真实 → 100 s 虚拟），使「退避恰为 1 s / 2 s」「预算恰好耗尽于
+//!   第 N 次」这类断言失去确定性；闸门在位时虚拟时间**只随测试的 `advance` 前进**，
+//!   故退避段与「每次尝试耗时」都可按段精确表达，且不依赖任何真实墙钟绝对量。
+//! - **取消臂 / 落 pid 臂**：真实时钟（语义本就是「轮询观测」，暂停时钟会让虚拟
+//!   时间先于真实子进程落盘 pid 而抢跑）。该两臂的断言只用结构性事实（结局 /
+//!   次数 / pid 消失 / 标记文件）与**宽松上界**（覆盖 msys bash 单次启动 1.3–1.8 s
+//!   的装置成本，仍保有界语义），不断言真实耗时的绝对量。
+
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
@@ -8,6 +32,7 @@ use tempfile::TempDir;
 use super::{
     run_shell, RunError, RunOptions, RunOutcome, RunReport, CANCEL_POLL_INTERVAL, FINISH_GRACE,
 };
+use crate::transient::RetryPolicy;
 use crate::SystemCommand;
 
 // ---------------------------------------------------------------------------
@@ -88,6 +113,7 @@ fn options(timeout: Duration) -> RunOptions {
         env: Vec::new(),
         timeout,
         cancel: CancelFlag::never(),
+        retry: RetryPolicy::none(),
     }
 }
 
@@ -419,6 +445,7 @@ fn run_options四字段面与派生() {
         env: vec![(OsString::from("K"), OsString::from("V"))],
         timeout: Duration::from_millis(1500),
         cancel: CancelFlag::never(),
+        retry: RetryPolicy::none(),
     };
     let cloned = options.clone();
     assert_eq!(cloned.timeout, Duration::from_millis(1500), "timeout 逐值保留");
@@ -432,6 +459,7 @@ fn run_options四字段面与派生() {
         env: Vec::new(),
         timeout: Duration::from_secs(1),
         cancel: CancelFlag::never(),
+        retry: RetryPolicy::none(),
     };
     assert!(none_cwd.clone().cwd.is_none(), "cwd = None 形态保留");
 
@@ -755,9 +783,10 @@ async fn 运行中cancel_目标pid消失且秒级收敛() {
     let started = Instant::now();
     let runner = tokio::spawn(async move { run_shell(command, with_cancel).await });
 
-    // 等 shim 落 pid（真实时钟：取消轮询语义本身依赖 200 ms 粒度）
+    // 等 shim 落 pid（真实时钟：取消轮询语义本身依赖 200 ms 粒度；上界放宽到
+    // 10 s 以覆盖 msys bash 启动延迟的抖动）
     let mut pid = None;
-    for _ in 0..200 {
+    for _ in 0..400 {
         if let Some(value) = ws.read_pid("pid.txt") {
             pid = Some(value);
             break;
@@ -805,6 +834,11 @@ async fn cancel不误杀_never全程不置位() {
 /// 装置：shim 起后台 `sleep` 继承 stdout / stderr 后自身退出；后台进程存活期间
 /// 管道 EOF 不会到达。旧实现「先排干再收尸」会一直等到 `sleep` 结束（≈10 s）；
 /// 修复后收尸完成即返回，墙钟有界。`sleep` 不做清理（10 s 后自行退出）。
+///
+/// 上界取值 = [`FINISH_GRACE`] + 8 s（而非 + 5 s）：本文件的 shim 走 msys bash，
+/// 单次启动 1.3–1.8 s、并行满载（数十真实子进程用例）可抖到 4 s 量级，设备成本
+/// 直接落在被测墙钟里。10 s 上界仍**严格区分**新旧语义——旧实现必须等孙进程
+/// 退出（≈`sleep 10`）才 EOF，即「启动 + 10 s」；新实现是「启动 + ≤2 s」。
 #[tokio::test]
 async fn 自然退出_孤儿孙进程持写端时收尸后有界收口() {
     let ws = ShimWs::new("orphan-pipe");
@@ -821,7 +855,7 @@ async fn 自然退出_孤儿孙进程持写端时收尸后有界收口() {
     assert_eq!(report.exit_code, 0);
     assert_eq!(report.stdout, b"done", "退出前的输出应已排空");
     assert!(
-        elapsed < FINISH_GRACE + Duration::from_secs(5),
+        elapsed < FINISH_GRACE + Duration::from_secs(8),
         "收尸后排水应有界（墙钟 {elapsed:?}）"
     );
 }
@@ -833,7 +867,11 @@ async fn 自然退出_孤儿孙进程持写端时收尸后有界收口() {
 /// 边界（AC-3）：超时臂的 pid 回收——桩 shim 先落自身 pid 再自旋，预算到期
 /// 后 `kill_tree` 使目标 pid 消失（墙钟上界断言不悬挂）。
 ///
-/// 装置说明：Windows 侧 shim 经 msys bash 承载，`bash &` 起的子孙在 Win32 进程
+/// 装置说明：预算取 8 s（msys bash 单次启动 1.3–1.8 s，且并发满载时会抖动；预算
+/// 必须宽松覆盖「解释器启动 → shim 落 pid 文件」才谈得上「pid 在案后被超时杀掉」，
+/// 同时仍保有界收尾断言 60 s 与 pid 消失探针）。
+///
+/// Windows 侧 shim 经 msys bash 承载，`bash &` 起的子孙在 Win32 进程
 /// 树上不体现为该 bash 的子孙（msys fork 的中间进程），故 pid 断言收敛到
 /// **直接子进程**——这正是 `run_shell` 契约里 `kill_tree(child.id())` 的可稳定
 /// 观测面；`taskkill /T /F` 的整树语义由代码审查承接（不构造会遗留孤儿的
@@ -851,10 +889,10 @@ async fn 超时臂_pid消失且墙钟上界() {
     );
 
     let started = Instant::now();
-    let runner = tokio::spawn(async move { run_shell(command, options(Duration::from_secs(3))).await });
+    let runner = tokio::spawn(async move { run_shell(command, options(Duration::from_secs(8))).await });
 
     let mut pid = None;
-    for _ in 0..200 {
+    for _ in 0..400 {
         if let Some(value) = ws.read_pid("pid.txt") {
             pid = Some(value);
             break;
@@ -913,6 +951,8 @@ fn run_report字段面可比较且哨兵同值() {
         exit_code: -1,
         stdout: b"partial".to_vec(),
         stderr: Vec::new(),
+        attempts: 1,
+        retried: Vec::new(),
     };
     let clone = report.clone();
     assert_eq!(clone, report, "RunReport 逐字段相等");
@@ -923,7 +963,838 @@ fn run_report字段面可比较且哨兵同值() {
         exit_code: -1,
         stdout: Vec::new(),
         stderr: Vec::new(),
+        attempts: 1,
+        retried: Vec::new(),
     };
     assert_ne!(cancelled, report, "结局不同即不等");
     assert!(format!("{report:?}").contains("TimedOut"), "Debug 渲染结局");
+}
+
+
+// ---------------------------------------------------------------------------
+// 正向：瞬态重试面（AC-1）
+// ---------------------------------------------------------------------------
+
+/// 尝试计数读取（shim 自身落盘；未写入 → 0）。
+fn attempt_count(ws: &ShimWs, counter: &str) -> u32 {
+    std::fs::read_to_string(ws.file(counter))
+        .ok()
+        .and_then(|text| text.trim().parse().ok())
+        .unwrap_or(0)
+}
+
+/// 尝试次数分支 shim：每次拉起把计数文件 +1；前 `fail_times` 次输出锁文本并
+/// `exit 1`，之后输出成功行并 `exit 0`（重试形态的唯一变量是计数文件）。
+fn retry_shim(ws: &ShimWs, name: &str, counter: &str, fail_times: u32) -> SystemCommand {
+    let counter_path = ws.file(counter);
+    let body = format!(
+        "#!/bin/sh\ncf=\"{cf}\"\nn=$(cat \"$cf\" 2>/dev/null || printf '0')\nn=$((n+1))\nprintf '%s' \"$n\" > \"$cf\"\nif [ \"$n\" -le {fail_times} ]; then\n  printf 'error: failed to rename archive file: /t/liba.rlib: os error 32\n'\n  exit 1\nfi\nprintf 'SUCCESS-OUT'\nprintf 'SUCCESS-ERR' >&2\nexit 0\n",
+        cf = counter_path.display(),
+        fail_times = fail_times,
+    );
+    ws.shim(name, &body)
+}
+
+/// 快速重试策略（仅用于「次数 / 上限」用例：退避压到 20 ms，避免真等
+/// 1 / 2 / 4 / 8 s；退避取值本身由 [`退避序列_前两段各消费一次`] 的按段推进与
+/// `transient_test` 的常量锚定覆盖）。
+fn fast_policy(max_attempts: u32) -> RetryPolicy {
+    RetryPolicy {
+        max_attempts,
+        backoff: [Duration::from_millis(20); 4],
+        total_budget: Duration::from_secs(1500),
+    }
+}
+
+/// 虚拟时钟闸门：以常驻 `spawn_blocking` 任务抑制 tokio 的「空闲即自动推进」。
+///
+/// `tokio::time::pause` 的自动推进是「运行时空转即把时钟推到下一个计时器」，所以
+/// 暂停时钟下等待真实子进程（msys bash 启动 + 管道排水）会让虚拟时间成百倍空转；
+/// 而阻塞线程池里有任务在跑时 tokio 会临时抑制自动推进（`Clock` 的
+/// `inhibit_auto_advance` 计数），虚拟时间因此固定在暂停点，只随 `advance` 前进。
+/// 这正是「退避 / 预算以虚拟时钟表达、不真等」的装置前提。
+///
+/// 释放：Drop 掉通道即让阻塞任务返回（`allow_auto_advance`），避免测试收尾时
+/// 阻塞线程池仍挂在通道上。
+struct ClockGate {
+    release: Option<std::sync::mpsc::Sender<()>>,
+    task: Option<tokio::task::JoinHandle<()>>,
+}
+
+impl ClockGate {
+    fn new() -> Self {
+        let (release, wait) = std::sync::mpsc::channel::<()>();
+        let task = tokio::task::spawn_blocking(move || {
+            let _ = wait.recv();
+        });
+        Self {
+            release: Some(release),
+            task: Some(task),
+        }
+    }
+}
+
+impl Drop for ClockGate {
+    fn drop(&mut self) {
+        self.release.take();
+        self.task.take();
+    }
+}
+
+/// 真实时间等待：虚拟时钟冻结时 `tokio::time::sleep` 不会流逝，只能借阻塞线程池
+/// 等真实时间（顺带持续加固 [`ClockGate`] 的自动推进抑制）。
+async fn real_sleep(duration: Duration) {
+    let _ = tokio::task::spawn_blocking(move || std::thread::sleep(duration)).await;
+}
+
+/// 轮询等待 shim 的尝试计数到达 `want`（真实时间上界 `budget`；返回观察到的计数）。
+///
+/// 暂停时钟下不能用 `tokio::time::sleep` 轮询（那需要推进虚拟时间——会污染被测的
+/// 退避 / 预算取值），故用 [`real_sleep`]。
+async fn wait_attempts(ws: &ShimWs, counter: &str, want: u32, budget: Duration) -> u32 {
+    let deadline = Instant::now() + budget;
+    loop {
+        let count = attempt_count(ws, counter);
+        if count >= want || Instant::now() >= deadline {
+            return count;
+        }
+        real_sleep(Duration::from_millis(25)).await;
+    }
+}
+
+/// 等一次尝试落地并进入退避窗口：shim 写完计数即退出，退避紧随其后开始；真实等待
+/// 覆盖「进程退出 → 管道 EOF → 收尸 → 组 `AttemptTrace`」的装置成本。
+async fn wait_into_backoff() {
+    real_sleep(Duration::from_millis(500)).await;
+}
+
+/// 正向（AC-1 组合锚）：flaky 锁冲突自愈——前 2 次锁文本 + `exit 1`、第 3 次
+/// `exit 0` → `Completed` / `exit_code == 0` / `attempts == 3` /
+/// `retried.len() == 2`（各携签名原文）/ 末次两路字节恰为第 3 次（不含历史尝试）。
+#[tokio::test]
+async fn 瞬态自愈_三次尝试后转绿() {
+    let ws = ShimWs::new("retry-flaky");
+    let command = retry_shim(&ws, "flaky.sh", "count.txt", 2);
+
+    let mut with_retry = options(Duration::from_secs(60));
+    with_retry.retry = RetryPolicy::transient();
+
+    let report = run_shell(command, with_retry)
+        .await
+        .expect("flaky 自愈应 Ok");
+
+    assert_eq!(report.outcome, RunOutcome::Completed, "耗尽前自愈 → Completed");
+    assert_eq!(report.exit_code, 0, "末次成功退出码直传");
+    assert_eq!(report.attempts, 3, "前 2 次红 + 第 3 次绿 = 3 次尝试");
+    assert_eq!(report.retried.len(), 2, "末次不入 retried");
+    for (index, trace) in report.retried.iter().enumerate() {
+        assert_eq!(trace.exit_code, 1, "第 {} 次尝试非零退出", index + 1);
+        assert_eq!(
+            trace.transient.as_deref(),
+            Some("os error 32"),
+            "第 {} 次尝试命中签名原文",
+            index + 1
+        );
+        assert!(
+            String::from_utf8_lossy(&trace.stdout).contains("failed to rename archive file"),
+            "第 {} 次尝试的诊断留痕在案",
+            index + 1
+        );
+    }
+    assert_eq!(report.stdout, b"SUCCESS-OUT", "末次 stdout 不含历史尝试字节");
+    assert_eq!(report.stderr, b"SUCCESS-ERR", "末次 stderr 不含历史尝试字节");
+    assert_eq!(attempt_count(&ws, "count.txt"), 3, "shim 恰拉起 3 次");
+}
+
+/// 正向（AC-1）：退避序列——三次尝试均命中签名后成功。虚拟时钟（[`ClockGate`] 抑制
+/// 自动推进）按段精确推进，断言每段退避的取值与索引：
+/// - 第 1 段 `backoff[0]` ∈ (500 ms, 1 s]：推进 500 ms 并真实等待上界后仍无第 2 次
+///   尝试，再推进 500 ms 即拉起第 2 次；
+/// - 第 2 段 `backoff[1]` ∈ (1 s, 2 s]：同上（推进 1 s 无第 3 次，再推进 1 s 即拉起）；
+/// - 4 s / 8 s 段未被消费：全程虚拟墙钟恰为 1 s + 2 s、`attempts == 3`、
+///   `retried.len() == 2`（`backoff` 索引不越界、不多等）；shim 恰拉起 3 次。
+#[tokio::test(start_paused = true)]
+async fn 退避序列_前两段各消费一次() {
+    let _gate = ClockGate::new();
+    let ws = ShimWs::new("retry-backoff");
+    let command = retry_shim(&ws, "backoff.sh", "count.txt", 2);
+
+    let mut with_retry = options(Duration::from_secs(120));
+    with_retry.retry = RetryPolicy::transient();
+
+    let virtual_started = tokio::time::Instant::now();
+    let runner = tokio::spawn(run_shell(command, with_retry));
+
+    assert_eq!(
+        wait_attempts(&ws, "count.txt", 1, Duration::from_secs(20)).await,
+        1,
+        "第 1 次尝试已拉起"
+    );
+    wait_into_backoff().await;
+
+    // 第 1 段：推进 500 ms 不得越过，补满 1 s 即越过
+    tokio::time::advance(Duration::from_millis(500)).await;
+    assert_eq!(
+        wait_attempts(&ws, "count.txt", 2, Duration::from_secs(3)).await,
+        1,
+        "推进 500 ms 未越过第 1 段（backoff[0] > 500 ms）"
+    );
+    tokio::time::advance(Duration::from_millis(500)).await;
+    assert_eq!(
+        wait_attempts(&ws, "count.txt", 2, Duration::from_secs(20)).await,
+        2,
+        "推进满 1 s 后拉起第 2 次尝试（backoff[0] == 1 s）"
+    );
+    wait_into_backoff().await;
+
+    // 第 2 段：推进 1 s 不得越过，补满 2 s 即越过
+    tokio::time::advance(Duration::from_secs(1)).await;
+    assert_eq!(
+        wait_attempts(&ws, "count.txt", 3, Duration::from_secs(3)).await,
+        2,
+        "推进 1 s 未越过第 2 段（backoff[1] > 1 s）"
+    );
+    tokio::time::advance(Duration::from_secs(1)).await;
+    assert_eq!(
+        wait_attempts(&ws, "count.txt", 3, Duration::from_secs(20)).await,
+        3,
+        "推进满 2 s 后拉起第 3 次尝试（backoff[1] == 2 s）"
+    );
+
+    let report = runner
+        .await
+        .expect("任务应正常结束")
+        .expect("退避序列应 Ok");
+    let elapsed = virtual_started.elapsed();
+
+    assert_eq!(report.outcome, RunOutcome::Completed, "第 3 次转绿");
+    assert_eq!(report.exit_code, 0);
+    assert_eq!(report.attempts, 3, "两次重试后成功");
+    assert_eq!(report.retried.len(), 2, "末次不入 retried");
+    assert_eq!(attempt_count(&ws, "count.txt"), 3, "shim 恰拉起 3 次");
+    assert!(
+        elapsed >= Duration::from_secs(3),
+        "前两段退避（1 s + 2 s）各消费一次（虚拟墙钟 {elapsed:?}）"
+    );
+    assert!(
+        elapsed < Duration::from_millis(3200),
+        "未消费 4 s / 8 s 段（虚拟墙钟 {elapsed:?}）"
+    );
+}
+
+/// 正向（AC-1）：持续锁冲突耗尽——每次都锁文本 + `exit 1` → `attempts == 5`
+///（不再增加）、`retried.len() == 4`、末次 `Completed` + 非零，全程墙钟远小于
+/// 总预算。
+#[tokio::test]
+async fn 持续锁冲突耗尽_上限五次() {
+    let ws = ShimWs::new("retry-exhaust");
+    let command = retry_shim(&ws, "exhaust.sh", "count.txt", u32::MAX);
+
+    let mut with_retry = options(Duration::from_secs(60));
+    with_retry.retry = fast_policy(5);
+
+    let started = Instant::now();
+    let report = run_shell(command, with_retry).await.expect("耗尽面应 Ok");
+    let elapsed = started.elapsed();
+
+    assert_eq!(report.attempts, 5, "上限 5 次后不再增加");
+    assert_eq!(report.retried.len(), 4, "末次不入 retried");
+    assert_eq!(
+        report.retried.len() as u32,
+        report.attempts - 1,
+        "不变量：末次之前的尝试数 == attempts - 1"
+    );
+    assert_eq!(report.outcome, RunOutcome::Completed, "耗尽仍为 Completed");
+    assert_eq!(
+        report.exit_code, 1,
+        "末次非零退出原样返回（由调用方按 fault 收口）"
+    );
+    assert_eq!(attempt_count(&ws, "count.txt"), 5, "spawn 次数 == 上限");
+    assert!(
+        elapsed <= RetryPolicy::transient().total_budget,
+        "全程墙钟受总预算约束（实际 {elapsed:?}）"
+    );
+}
+
+/// 边界（AC-1 / D2）：预算早停——每次尝试耗时以虚拟时钟表达为 600 s（真实子进程
+/// 不真等），总预算 1500 s：第 3 次结束时已用 1200 s（未耗尽）、第 4 次结束时已用
+/// 1800 s（≥ 预算）→ 不再发起第 5 次：`attempts == 4`（未到上限 5）、
+/// `retried.len() == 3`、末次原样返回、第 5 次不 spawn、全程虚拟墙钟未越过
+/// 「总预算 + 单次尝试耗时」。
+#[tokio::test(start_paused = true)]
+async fn 预算耗尽早停不发起新尝试() {
+    let _gate = ClockGate::new();
+    let ws = ShimWs::new("retry-budget");
+    let command = retry_shim(&ws, "budget.sh", "count.txt", u32::MAX);
+
+    let mut with_retry = options(Duration::from_secs(600));
+    with_retry.retry = RetryPolicy {
+        max_attempts: 5,
+        backoff: RetryPolicy::transient().backoff,
+        total_budget: Duration::from_secs(1500),
+    };
+
+    let virtual_started = tokio::time::Instant::now();
+    let runner = tokio::spawn(run_shell(command, with_retry));
+
+    // 前 3 次尝试各耗时 600 s（虚拟）：同时越过此后的退避段（1 / 2 / 4 s）
+    for expected in 1..=3u32 {
+        assert_eq!(
+            wait_attempts(&ws, "count.txt", expected, Duration::from_secs(20)).await,
+            expected,
+            "第 {expected} 次尝试已拉起（预算尚未耗尽）"
+        );
+        wait_into_backoff().await;
+        tokio::time::advance(Duration::from_secs(600)).await;
+    }
+    assert_eq!(
+        wait_attempts(&ws, "count.txt", 4, Duration::from_secs(20)).await,
+        4,
+        "第 4 次尝试已拉起（1200 s < 1500 s 预算）"
+    );
+
+    let report = runner
+        .await
+        .expect("任务应正常结束")
+        .expect("预算早停应 Ok");
+    let elapsed = virtual_started.elapsed();
+
+    assert_eq!(
+        report.attempts, 4,
+        "预算耗尽后不再发起新尝试（未到上限 5）"
+    );
+    assert_eq!(report.retried.len(), 3, "末次不入 retried");
+    assert_eq!(
+        report.outcome,
+        RunOutcome::Completed,
+        "早停末次原样返回（Completed + 非零）"
+    );
+    assert_ne!(report.exit_code, 0, "末次仍为红");
+    assert_eq!(
+        attempt_count(&ws, "count.txt"),
+        4,
+        "第 5 次未 spawn（shim 计数恒 4）"
+    );
+    assert!(
+        elapsed >= Duration::from_secs(1500),
+        "预算判定按累计虚拟墙钟（{elapsed:?}）"
+    );
+    assert!(
+        elapsed <= Duration::from_secs(2100),
+        "总墙钟 ≤ 总预算 + 单次尝试耗时（虚拟 {elapsed:?}）"
+    );
+}
+
+/// 边界：极短预算——`total_budget = ZERO` → 首跑后即判耗尽（`attempts == 1`、
+/// `retried` 空），且预算判定先于退避判定：虚拟时钟零推进（一条退避段都没等）。
+#[tokio::test(start_paused = true)]
+async fn 零预算首跑后即耗尽() {
+    let _gate = ClockGate::new();
+    let ws = ShimWs::new("retry-zero-budget");
+    let command = retry_shim(&ws, "zero.sh", "count.txt", u32::MAX);
+
+    let mut with_retry = options(Duration::from_secs(60));
+    with_retry.retry = RetryPolicy {
+        max_attempts: 5,
+        backoff: RetryPolicy::transient().backoff,
+        total_budget: Duration::ZERO,
+    };
+
+    let virtual_started = tokio::time::Instant::now();
+    let report = run_shell(command, with_retry).await.expect("零预算应 Ok");
+    let elapsed = virtual_started.elapsed();
+
+    assert_eq!(report.attempts, 1, "零预算首跑后即耗尽");
+    assert!(report.retried.is_empty(), "零重试 → retried 空");
+    assert_eq!(
+        elapsed,
+        Duration::ZERO,
+        "零退避等待（未消费任何退避段，虚拟墙钟零推进）"
+    );
+    assert_eq!(attempt_count(&ws, "count.txt"), 1, "只 spawn 一次");
+}
+
+/// 边界（表驱动 2 形态）：自定义上限——`max_attempts = 1` / `2` + 持续命中签名
+/// → 分别 `attempts == 1`（`retried` 空）/ `attempts == 2`（`retried.len() == 1`），
+/// spawn 次数与上限逐值相等。
+#[tokio::test]
+async fn 自定义上限与spawn次数逐值相等() {
+    for max_attempts in [1u32, 2] {
+        let ws = ShimWs::new(&format!("retry-limit-{max_attempts}"));
+        let command = retry_shim(&ws, "limit.sh", "count.txt", u32::MAX);
+
+        let mut with_retry = options(Duration::from_secs(60));
+        with_retry.retry = fast_policy(max_attempts);
+
+        let report = run_shell(command, with_retry)
+            .await
+            .unwrap_or_else(|error| panic!("上限 {max_attempts} 应 Ok: {error}"));
+
+        assert_eq!(
+            report.attempts, max_attempts,
+            "attempts == max_attempts（{max_attempts}）"
+        );
+        assert_eq!(
+            report.retried.len() as u32,
+            max_attempts - 1,
+            "retried.len() == max_attempts - 1（{max_attempts}）"
+        );
+        assert_eq!(
+            attempt_count(&ws, "count.txt"),
+            max_attempts,
+            "spawn 次数逐值等于上限（{max_attempts}）"
+        );
+    }
+}
+
+// ---------------------------------------------------------------------------
+// 正向：零重试面（AC-2）
+// ---------------------------------------------------------------------------
+
+/// 正向（AC-2 / R-1）：真红零重试——普通编译错误 + `exit 1` + `transient()` →
+/// `attempts == 1`、`retried` 空、`Completed`；shim 计数 == 1（策略在位但不触发）。
+#[tokio::test]
+async fn 真红零重试() {
+    let ws = ShimWs::new("retry-real-red");
+    let marker = ws.file("count.txt");
+    let command = ws.shim(
+        "real-red.sh",
+        &format!(
+            "#!/bin/sh\nprintf '1' > \"{}\"\nprintf 'error[E0308]: mismatched types\n'\nprintf '  --> src/lib.rs:3:9\n' >&2\nexit 1\n",
+            marker.display()
+        ),
+    );
+
+    let mut with_retry = options(Duration::from_secs(60));
+    with_retry.retry = RetryPolicy::transient();
+
+    let report = run_shell(command, with_retry).await.expect("真红应 Ok");
+
+    assert_eq!(report.attempts, 1, "非瞬态签名不重试");
+    assert!(report.retried.is_empty(), "零重试 → retried 空");
+    assert_eq!(report.outcome, RunOutcome::Completed, "真红仍是执行成功面");
+    assert_eq!(report.exit_code, 1, "退出码直传");
+    assert_eq!(attempt_count(&ws, "count.txt"), 1, "shim 只跑一次");
+}
+
+/// 正向（AC-2 / AC-8，表驱动 2 策略）：策略是唯一变量——同一 shim（命中签名 +
+/// 非零）在 `none()` 下 `attempts == 1`、在 `transient()`（快速退避）下
+/// `attempts == 5`，证 `none()` 未开重试面。
+#[tokio::test]
+async fn 策略是重试面的唯一变量() {
+    for (label, policy, expected) in [
+        ("none()", RetryPolicy::none(), 1u32),
+        ("transient()", fast_policy(5), 5u32),
+    ] {
+        let ws = ShimWs::new(&format!("retry-policy-{expected}"));
+        let command = retry_shim(&ws, "policy.sh", "count.txt", u32::MAX);
+
+        let mut with_retry = options(Duration::from_secs(60));
+        with_retry.retry = policy;
+
+        let report = run_shell(command, with_retry)
+            .await
+            .unwrap_or_else(|error| panic!("{label} 应 Ok: {error}"));
+
+        assert_eq!(report.attempts, expected, "{label} → attempts == {expected}");
+        assert_eq!(
+            attempt_count(&ws, "count.txt"),
+            expected,
+            "{label} → spawn 次数 == {expected}"
+        );
+    }
+}
+
+/// 正向（AC-8）：单次等价回归——`none()` + `exit 0` + 双路输出 → 四字段与改造
+/// 前逐字节一致，`attempts == 1`、`retried` 空、且虚拟时钟零推进（`max_attempts
+/// == 1` → 循环不进入退避面，一条退避段都不等）。
+#[tokio::test(start_paused = true)]
+async fn 单次等价回归_逐字节同改造前() {
+    let _gate = ClockGate::new();
+    let ws = ShimWs::new("retry-single");
+    let command = ws.shim(
+        "single.sh",
+        "#!/bin/sh\nprintf 'OUT'\nprintf 'ERR' >&2\nexit 0\n",
+    );
+
+    let virtual_started = tokio::time::Instant::now();
+    let report = run_shell(command, options(Duration::from_secs(30)))
+        .await
+        .expect("单次执行应 Ok");
+    let elapsed = virtual_started.elapsed();
+
+    assert_eq!(report.outcome, RunOutcome::Completed);
+    assert_eq!(report.exit_code, 0);
+    assert_eq!(report.stdout, b"OUT", "stdout 逐字节同改造前");
+    assert_eq!(report.stderr, b"ERR", "stderr 逐字节同改造前");
+    assert_eq!(report.attempts, 1, "attempts == 1");
+    assert!(report.retried.is_empty(), "retried 空");
+    assert_eq!(elapsed, Duration::ZERO, "零退避等待（虚拟墙钟零推进）");
+}
+
+/// 正向（AC-8）：末次输出非合流——前两次各输出不同文本后成功 → `stdout` /
+/// `stderr` 不含前两次字节；前两次字节只在 `retried` 按尝试序可读。
+#[tokio::test]
+async fn 末次输出不含历史尝试字节() {
+    let ws = ShimWs::new("retry-last-only");
+    let counter = ws.file("count.txt");
+    let command = ws.shim(
+        "last.sh",
+        &format!(
+            "#!/bin/sh\ncf=\"{cf}\"\nn=$(cat \"$cf\" 2>/dev/null || printf '0')\nn=$((n+1))\nprintf '%s' \"$n\" > \"$cf\"\nif [ \"$n\" -le 2 ]; then\n  printf 'OLD-OUT-%s os error 32' \"$n\"\n  printf 'OLD-ERR-%s' \"$n\" >&2\n  exit 1\nfi\nprintf 'NEW-OUT'\nprintf 'NEW-ERR' >&2\nexit 0\n",
+            cf = counter.display()
+        ),
+    );
+
+    let mut with_retry = options(Duration::from_secs(60));
+    with_retry.retry = fast_policy(5);
+
+    let report = run_shell(command, with_retry).await.expect("末次面应 Ok");
+
+    assert_eq!(report.attempts, 3);
+    assert_eq!(report.stdout, b"NEW-OUT", "末次 stdout 不含前两次字节");
+    assert_eq!(report.stderr, b"NEW-ERR", "末次 stderr 不含前两次字节");
+    assert_eq!(
+        report.retried[0].stdout, b"OLD-OUT-1 os error 32",
+        "第 1 次字节在 retried[0] 可读"
+    );
+    assert_eq!(report.retried[0].stderr, b"OLD-ERR-1");
+    assert_eq!(
+        report.retried[1].stdout, b"OLD-OUT-2 os error 32",
+        "第 2 次字节在 retried[1] 按尝试序可读"
+    );
+    assert_eq!(report.retried[1].stderr, b"OLD-ERR-2");
+}
+
+/// 正向（AC-2）：超时零重试——自旋 shim（输出含签名）+ `transient()` + 虚拟时钟
+/// 到点 → `TimedOut` / `exit_code == -1` / `attempts == 1` / `retried` 空。
+#[tokio::test(start_paused = true)]
+async fn 超时臂零重试() {
+    let ws = ShimWs::new("retry-timeout");
+    let command = ws.shim(
+        "spin-lock.sh",
+        "#!/bin/sh\nprintf 'os error 32\n'\nwhile :; do sleep 0.05; done\n",
+    );
+
+    let mut with_retry = options(Duration::from_secs(30));
+    with_retry.retry = RetryPolicy::transient();
+
+    tokio::spawn(async {
+        tokio::task::yield_now().await;
+        tokio::time::advance(Duration::from_secs(31)).await;
+    });
+
+    let report = run_shell(command, with_retry).await.expect("超时应 Ok");
+
+    assert_eq!(report.outcome, RunOutcome::TimedOut, "到点 → TimedOut");
+    assert_eq!(report.exit_code, -1, "超时记哨兵");
+    assert_eq!(report.attempts, 1, "超时零重试");
+    assert!(report.retried.is_empty(), "超时臂 retried 空");
+}
+
+/// 正向（AC-2 / D4①）：已置位 cancel 零重试——`transient()` + 先置位再调 →
+/// `Cancelled` / `attempts == 1` / `retried` 空 / shim 零执行 / 墙钟近零。
+#[tokio::test]
+async fn 已置位cancel零重试且零spawn() {
+    let ws = ShimWs::new("retry-cancel-pre");
+    let marker = ws.file("executed.txt");
+    let command = ws.shim(
+        "pre.sh",
+        &format!(
+            "#!/bin/sh\nprintf 'ran' > \"{}\"\nprintf 'os error 32\n'\nexit 1\n",
+            marker.display()
+        ),
+    );
+
+    let cancel = CancelFlag::never();
+    cancel.handle().set();
+    let mut with_retry = options(Duration::from_secs(30));
+    with_retry.cancel = cancel;
+    with_retry.retry = RetryPolicy::transient();
+
+    let started = Instant::now();
+    let report = run_shell(command, with_retry)
+        .await
+        .expect("入口短路应 Ok");
+    let elapsed = started.elapsed();
+
+    assert_eq!(report.outcome, RunOutcome::Cancelled);
+    assert_eq!(report.exit_code, -1);
+    assert_eq!(report.attempts, 1, "短路记 1 次（不因重试面增长）");
+    assert!(report.retried.is_empty(), "短路 retried 空");
+    assert!(!marker.exists(), "已置位 cancel 零 spawn");
+    assert!(
+        elapsed < Duration::from_secs(5),
+        "短路墙钟近零（{elapsed:?}）"
+    );
+}
+
+/// 正向（AC-2 / D4③）：运行中 cancel 零重试——shim 落 pid 后自旋并输出签名文本，
+/// 运行中置位 → `Cancelled` / `attempts == 1` / `retried` 空 / pid 消失。
+#[tokio::test]
+async fn 运行中cancel零重试() {
+    let ws = ShimWs::new("retry-cancel-running");
+    let pid_file = ws.file("pid.txt");
+    let command = ws.shim(
+        "spin-pid.sh",
+        &format!(
+            "#!/bin/sh\nwin=$(cat \"/proc/$$/winpid\" 2>/dev/null || printf '%s' \"$$\")\nprintf '%s' \"$win\" > \"{}\"\nprintf 'os error 32\n'\nwhile :; do sleep 0.1; done\n",
+            pid_file.display()
+        ),
+    );
+
+    let cancel = CancelFlag::never();
+    let handle = cancel.handle();
+    let mut with_retry = options(Duration::from_secs(120));
+    with_retry.cancel = cancel;
+    with_retry.retry = RetryPolicy::transient();
+
+    let runner = tokio::spawn(async move { run_shell(command, with_retry).await });
+
+    let mut pid = None;
+    for _ in 0..400 {
+        if let Some(value) = ws.read_pid("pid.txt") {
+            pid = Some(value);
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+    let pid = pid.expect("shim 应落 pid 文件");
+    handle.set();
+
+    let report = runner
+        .await
+        .expect("任务应正常结束")
+        .expect("取消臂应返回报告");
+
+    assert_eq!(report.outcome, RunOutcome::Cancelled);
+    assert_eq!(report.exit_code, -1);
+    assert_eq!(report.attempts, 1, "运行中取消零重试");
+    assert!(report.retried.is_empty(), "取消臂 retried 空");
+    assert!(
+        wait_pid_gone(pid, Duration::from_secs(10)),
+        "取消后目标 pid {pid} 应消失"
+    );
+}
+
+/// 正向（AC-1 / D3 / D4③）：退避期 cancel 即刻生效——第 1 次命中签名后进入退避
+/// （首段拉长到 30 s，窗口足够宽，不依赖 1 s 段的时序余量），窗口内置位 → 不再发起
+/// 第 2 次（shim 计数 == 1）、`Cancelled` / `attempts == 1`（已完成次数）/
+/// `retried` 空（该末次不入）/ `stdout` 取第 1 次字节 / 墙钟远小于剩余退避（有界
+/// 上界 10 s ≪ 30 s，不先等完退避段）。
+#[tokio::test]
+async fn 退避期cancel即刻生效() {
+    let ws = ShimWs::new("retry-cancel-backoff");
+    let command = retry_shim(&ws, "backoff-cancel.sh", "count.txt", u32::MAX);
+
+    let cancel = CancelFlag::never();
+    let handle = cancel.handle();
+    let mut with_retry = options(Duration::from_secs(120));
+    with_retry.cancel = cancel;
+    with_retry.retry = RetryPolicy {
+        backoff: [Duration::from_secs(30); 4],
+        ..RetryPolicy::transient()
+    };
+
+    let runner = tokio::spawn(async move { run_shell(command, with_retry).await });
+
+    // 等第 1 次尝试落计数（此后进入 30 s 退避窗口）
+    let mut counted = 0u32;
+    for _ in 0..400 {
+        counted = attempt_count(&ws, "count.txt");
+        if counted >= 1 {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+    assert_eq!(counted, 1, "第 1 次尝试已落计数");
+    // 退避窗口起点（≈ 第 1 次尝试完成时刻）
+    let backoff_started = Instant::now();
+    tokio::time::sleep(Duration::from_millis(150)).await;
+    handle.set();
+
+    let report = runner
+        .await
+        .expect("任务应正常结束")
+        .expect("退避期取消应返回报告");
+    let since_attempt = backoff_started.elapsed();
+
+    assert_eq!(
+        report.outcome,
+        RunOutcome::Cancelled,
+        "退避期取消 → Cancelled"
+    );
+    assert_eq!(report.exit_code, -1);
+    assert_eq!(report.attempts, 1, "记已完成次数");
+    assert!(report.retried.is_empty(), "该末次不入 retried");
+    assert!(
+        String::from_utf8_lossy(&report.stdout).contains("failed to rename archive file"),
+        "stdout 取第 1 次字节: {:?}",
+        String::from_utf8_lossy(&report.stdout)
+    );
+    assert_eq!(attempt_count(&ws, "count.txt"), 1, "不再发起第 2 次尝试");
+    assert!(
+        since_attempt < Duration::from_secs(10),
+        "不先等完 30 s 退避段（实际 {since_attempt:?}）"
+    );
+}
+
+/// 边界：退避期 cancel（两次尝试后）——第 1、2 次命中，第 2 次之后的退避窗口
+/// （`backoff[1]` 拉长到 30 s，窗口宽到不依赖时序余量）内取消 → `attempts == 2`、
+/// `retried.len() == 1`（第 1 次已入栈，第 2 次为「刚完成的末次」不入栈）、
+/// `stdout` 取第 2 次字节、不再发起第 3 次。
+#[tokio::test]
+async fn 退避期cancel在两次尝试后() {
+    let ws = ShimWs::new("retry-cancel-backoff2");
+    let command = retry_shim(&ws, "backoff-cancel2.sh", "count.txt", u32::MAX);
+
+    let cancel = CancelFlag::never();
+    let handle = cancel.handle();
+    let mut with_retry = options(Duration::from_secs(120));
+    with_retry.cancel = cancel;
+    // 首段归零（第 2 次尝试紧跟第 1 次）、次段拉长到 30 s：取消窗口宽到不依赖
+    // 时序余量，同时钉住「第 2 次重试消费 `backoff[1]`」
+    with_retry.retry = RetryPolicy {
+        backoff: [
+            Duration::ZERO,
+            Duration::from_secs(30),
+            Duration::ZERO,
+            Duration::ZERO,
+        ],
+        ..RetryPolicy::transient()
+    };
+
+    let runner = tokio::spawn(async move { run_shell(command, with_retry).await });
+
+    let mut counted = 0u32;
+    for _ in 0..800 {
+        counted = attempt_count(&ws, "count.txt");
+        if counted >= 2 {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+    assert_eq!(counted, 2, "第 2 次尝试已落计数");
+    tokio::time::sleep(Duration::from_millis(150)).await;
+    handle.set();
+
+    let report = runner
+        .await
+        .expect("任务应正常结束")
+        .expect("退避期取消应返回报告");
+
+    assert_eq!(report.outcome, RunOutcome::Cancelled);
+    assert_eq!(report.exit_code, -1);
+    assert_eq!(report.attempts, 2, "记已完成次数（2）");
+    assert_eq!(report.retried.len(), 1, "第 1 次入栈、第 2 次为末次不入栈");
+    assert_eq!(report.retried[0].exit_code, 1, "第 1 次尝试留痕在栈内可读");
+    assert!(
+        String::from_utf8_lossy(&report.stdout).contains("failed to rename archive file"),
+        "stdout 取第 2 次字节"
+    );
+    assert_eq!(attempt_count(&ws, "count.txt"), 2, "不再发起第 3 次尝试");
+}
+
+/// 异常：spawn 失败不重试——程序不可达 + `transient()` → 首次尝试即
+/// `Err(RunError::Spawn(_))`（无 `RunReport` 可携 `attempts`）。
+#[tokio::test]
+async fn spawn失败不重试() {
+    let mut with_retry = options(Duration::from_secs(30));
+    with_retry.retry = RetryPolicy::transient();
+
+    let error = run_shell(SystemCommand::bare("no-such-program-xyz-retry"), with_retry)
+        .await
+        .expect_err("不可达程序应 Spawn 失败");
+    match error {
+        RunError::Spawn(_) => {}
+        other => panic!("应为 Spawn 面，实际 {other:?}"),
+    }
+}
+
+/// 边界：双管道 + 大输出在重试面——每次尝试 stdout / stderr 各 >64 KiB（含
+/// 签名）后成功 → `retried` 每次字节数精确等于写量、末次同样全量（排水语义与
+/// 单次一致，不互锁）。
+#[tokio::test]
+async fn 重试面大输出双管道不丢字节() {
+    let ws = ShimWs::new("retry-big");
+    let mut failing_with_signature = vec![b'q'; 64 * 1024 + 7];
+    failing_with_signature.extend_from_slice(b" os error 32");
+    let failing_path = ws.put_bytes("failing.bin", &failing_with_signature);
+    let ok_bytes = vec![b'z'; 64 * 1024 + 3];
+    let ok_path = ws.put_bytes("ok.bin", &ok_bytes);
+    let counter = ws.file("count.txt");
+
+    let command = ws.shim(
+        "big.sh",
+        &format!(
+            "#!/bin/sh\ncf=\"{cf}\"\nn=$(cat \"$cf\" 2>/dev/null || printf '0')\nn=$((n+1))\nprintf '%s' \"$n\" > \"$cf\"\nif [ \"$n\" -le 1 ]; then\n  cat \"{fail}\"\n  cat \"{fail}\" >&2\n  exit 1\nfi\ncat \"{ok}\"\ncat \"{ok}\" >&2\nexit 0\n",
+            cf = counter.display(),
+            fail = failing_path.display(),
+            ok = ok_path.display(),
+        ),
+    );
+
+    let mut with_retry = options(Duration::from_secs(120));
+    with_retry.retry = fast_policy(5);
+
+    let report = run_shell(command, with_retry)
+        .await
+        .expect("大输出重试应 Ok");
+
+    assert_eq!(report.attempts, 2, "一次重试后成功");
+    assert_eq!(
+        report.retried[0].stdout.len(),
+        failing_with_signature.len(),
+        "此前尝试 stdout 字节数精确等于写量"
+    );
+    assert_eq!(
+        report.retried[0].stderr.len(),
+        failing_with_signature.len(),
+        "此前尝试 stderr 字节数精确等于写量"
+    );
+    assert_eq!(report.stdout, ok_bytes, "末次 stdout 全量无丢字节");
+    assert_eq!(report.stderr, ok_bytes, "末次 stderr 全量无丢字节");
+}
+
+/// 边界：`RunOptions.retry` 字段面——必填字段可读、缺省装置给 `none()`、
+/// `Debug` 含该字段（生产四调用点均显式给值的编译期面由静态检查覆盖）。
+#[test]
+fn run_options_retry必填字段面() {
+    let base = options(Duration::from_secs(1));
+    assert_eq!(base.retry, RetryPolicy::none(), "缺省装置给 none()");
+
+    let with_transient = RunOptions {
+        retry: RetryPolicy::transient(),
+        ..base.clone()
+    };
+    assert_eq!(
+        with_transient.retry.max_attempts, 5,
+        "retry 字段可直构为瞬态策略"
+    );
+    assert!(
+        with_transient.cwd.is_none() && with_transient.env.is_empty(),
+        "其余字段随动（其余字段面零变）"
+    );
+
+    let debug = format!("{with_transient:?}");
+    assert!(debug.contains("retry"), "Debug 含 retry 字段: {debug}");
+}
+
+/// 边界（表驱动 2 常量）：重试面相关常量与单次面常量同源锚定——
+/// `RetryPolicy::transient().total_budget` 为 1500 s（执行体预算判定取值面），
+/// 取消轮询 / 收尾上界不受重试面影响。
+#[test]
+fn 重试预算与收尾常量锚定() {
+    assert_eq!(
+        RetryPolicy::transient().total_budget,
+        Duration::from_secs(1500),
+        "重试总预算 1500 s"
+    );
+    assert_eq!(
+        RetryPolicy::none().total_budget,
+        Duration::from_secs(1500),
+        "单次策略取同类常量（不消费）"
+    );
+    assert_eq!(CANCEL_POLL_INTERVAL, Duration::from_millis(200));
+    assert_eq!(FINISH_GRACE, Duration::from_secs(2));
 }

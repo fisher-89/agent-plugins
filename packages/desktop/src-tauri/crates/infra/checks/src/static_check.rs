@@ -3,7 +3,11 @@ use std::time::Duration;
 
 use foundation::cancel::CancelFlag;
 use foundation::layout::ReportSlot;
-use orchestration::port::{BoxToolFuture, StaticCheckOutcome, StaticCheckRunner, ToolStepOutput};
+use orchestration::port::{
+    BoxToolFuture, RunFault, StaticCheckOutcome, StaticCheckRunner, ToolStepOutput,
+};
+
+use crate::environment;
 
 /// static-check 命令超时预算（此前**零超时**——cargo 卡在 `Blocking waiting for
 /// file lock` 时 run 永久悬挂）：冷构建约 90 s + `vite-plus` 约 10 s 的约 3 倍余量。
@@ -38,9 +42,10 @@ impl StaticCheckRunner for ProcessStaticCheck {
     }
 }
 
-/// 一次 static-check 执行全流程：配置读取 → spawn（`2>&1` 交错）→ 诊断拼接 →
-/// 退出码映射 → 单一 `.log` 输出记录。报告目录 / 输出记录按槽位经 layout 单点
-/// 派生（`report_dir` 三分支均回填——无配置分支语义为「本槽位报告树锚点」）；
+/// 一次 static-check 执行全流程：配置读取 → spawn（`2>&1` 交错、瞬态重试）→
+/// 执行面归因（超时 / 取消 / 瞬态耗尽 → `fault`）→ 诊断拼接 → 退出码映射 →
+/// 单一 `.log` 输出记录。报告目录 / 输出记录按槽位经 layout 单点派生
+///（`report_dir` 三分支均回填——无配置分支语义为「本槽位报告树锚点」）；
 /// 执行语义零分叉。
 async fn execute(
     root: &str,
@@ -63,6 +68,7 @@ async fn execute(
         return Ok(ToolStepOutput::StaticCheck(StaticCheckOutcome {
             passed: true,
             diagnostics: String::new(),
+            fault: None,
             output_ref: None,
             report_dir,
         }));
@@ -81,19 +87,29 @@ async fn execute(
             env: Vec::new(),
             timeout: STATIC_CHECK_TIMEOUT,
             cancel,
+            // 检查域开瞬态重试（构建产物被安全软件占用时自愈）
+            retry: exec::RetryPolicy::transient(),
         },
     )
     .await
     .map_err(|failure| format!("static-check 命令{failure}"))?;
-    let run = match run.outcome {
-        exec::RunOutcome::Completed => run,
-        exec::RunOutcome::Cancelled => return Err("执行已取消".to_owned()),
-        exec::RunOutcome::TimedOut => {
-            return Err(format!(
-                "static-check 命令超时（{} 秒）强制终止",
-                STATIC_CHECK_TIMEOUT.as_secs()
+
+    // 执行面归因（fault）先于结论：`Err` 只留给「进程拉不起 / 收尸失败」等基础
+    // 设施失败；超时 / 取消 / 瞬态耗尽走 `fault`，`passed` 口径仍为
+    // `exit_code == 0`（MUST NOT 升三值）
+    let fault = match run.outcome {
+        exec::RunOutcome::Completed => exec::is_transient(&run).map(|_| {
+            RunFault::Environment(environment::fault_text(
+                run.attempts,
+                run.exit_code,
+                &run.stdout,
             ))
-        }
+        }),
+        exec::RunOutcome::TimedOut => Some(RunFault::Environment(format!(
+            "static-check 命令超时（{} 秒）强制终止",
+            STATIC_CHECK_TIMEOUT.as_secs()
+        ))),
+        exec::RunOutcome::Cancelled => Some(RunFault::Stopped),
     };
 
     // 诊断捕获：交错 stdout 原样（`run.stderr` 恒空且不读——2>&1 已在 OS 层
@@ -102,11 +118,15 @@ async fn execute(
     let diagnostics = String::from_utf8_lossy(&run.stdout).into_owned();
     let passed = run.exit_code == 0;
     // 输出记录：默认 recorded——经 infra/exec 单点落单一 `.log`（同锚本槽位报告
-    // 树）并回填引用（落盘失败降级 None，不因记录失败阻断检查主流程）
-    let output_ref = exec::record_exec_output(Path::new(root), name, slot, &run.stdout).ok();
+    // 树）并回填引用（落盘失败降级 None，不因记录失败阻断检查主流程）；重试场景
+    // 下正文为全部尝试按序拼接（每段前加 attempt 分隔头，审计不丢上下文）
+    let output_ref =
+        exec::record_exec_output(Path::new(root), name, slot, &environment::attempts_log(&run))
+            .ok();
     Ok(ToolStepOutput::StaticCheck(StaticCheckOutcome {
         passed,
         diagnostics: diagnostics.trim_end().to_owned(),
+        fault,
         output_ref,
         report_dir,
     }))

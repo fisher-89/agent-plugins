@@ -47,6 +47,9 @@ pub(crate) async fn run_segment(
             )],
             timeout: Duration::from_millis(SEGMENT_SPAWN_TIMEOUT_MS),
             cancel,
+            // 突变面零重试（长跑是产品语义，段内重试会放大墙钟；断点续跑已由段级
+            // 复用门承担）
+            retry: exec::RetryPolicy::none(),
         },
     )
     .await;

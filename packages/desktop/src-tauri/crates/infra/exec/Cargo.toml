@@ -14,6 +14,15 @@ foundation = { workspace = true }
 # - macros：select!（三臂竞速）/ join!（双管道并发排水）。
 tokio = { workspace = true, features = ["process", "io-util", "time", "macros"] }
 
+# Windows 目标的系统 API 绑定（平台条件依赖——非 Windows 目标零新增编译依赖；
+# 依赖方向与分层零变，见 desktop-crate-layout「平台条件依赖的落位例外」）。
+# 唯一用途：锁占用诊断的**占用者点名**（Restart Manager：RmStartSession /
+# RmRegisterResources / RmGetList / RmEndSession / RM_PROCESS_INFO）。精确探针
+# 本身走 std `OpenOptionsExt` 的 `access_mode` / `share_mode`，故只开这一个
+# feature——不引 `Win32` 全量 / `Win32_Storage_FileSystem` / `Win32_Security`。
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_System_RestartManager"] }
+
 [dev-dependencies]
 tempfile = { workspace = true }
 # 执行体用例：rt（#[tokio::test]）+ macros（select! 面）+ test-util
