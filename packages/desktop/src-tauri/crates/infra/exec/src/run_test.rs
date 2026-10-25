@@ -889,20 +889,9 @@ async fn 自然退出_孤儿孙进程持写端时收尸后有界收口() {
 // 边界：被杀两臂的 pid 回收（AC-3 / AC-4）
 // ---------------------------------------------------------------------------
 
-/// 边界（AC-3）：超时臂的 pid 回收——桩 shim 先落自身 pid 再自旋，预算到期
-/// 后 `kill_tree` 使目标 pid 消失（墙钟上界断言不悬挂）。
-///
-/// 装置说明：预算取 8 s（msys bash 单次启动 1.3–1.8 s，且并发满载时会抖动；预算
-/// 必须宽松覆盖「解释器启动 → shim 落 pid 文件」才谈得上「pid 在案后被超时杀掉」，
-/// 同时仍保有界收尾断言 60 s 与 pid 消失探针）。
-///
-/// Windows 侧 shim 经 msys bash 承载，`bash &` 起的子孙在 Win32 进程
-/// 树上不体现为该 bash 的子孙（msys fork 的中间进程），故 pid 断言收敛到
-/// **直接子进程**——这正是 `run_shell` 契约里 `kill_tree(child.id())` 的可稳定
-/// 观测面；`taskkill /T /F` 的整树语义由代码审查承接（不构造会遗留孤儿的
-/// 假树装置，避免装置污染影响其它用例）。
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn 超时臂_pid消失且墙钟上界() {
+    let _gate = ClockGate::new();
     let ws = ShimWs::new("timeout-pid");
     let pid_file = ws.file("pid.txt");
     let command = ws.shim(
@@ -913,31 +902,56 @@ async fn 超时臂_pid消失且墙钟上界() {
         ),
     );
 
+    let budget = Duration::from_secs(30);
     let started = Instant::now();
-    let runner =
-        tokio::spawn(async move { run_shell(command, options(Duration::from_secs(8))).await });
+    let runner = tokio::spawn(async move { run_shell(command, options(budget)).await });
 
+    // 真实时间等 shim 落 pid：窗口与虚拟预算解耦，启动慢不再误杀用例
     let mut pid = None;
-    for _ in 0..400 {
+    let deadline = Instant::now() + Duration::from_secs(30);
+    while Instant::now() < deadline {
         if let Some(value) = ws.read_pid("pid.txt") {
             pid = Some(value);
             break;
         }
-        tokio::time::sleep(Duration::from_millis(25)).await;
+        real_sleep(Duration::from_millis(25)).await;
     }
-    let pid = pid.expect("桩 shim 应落 pid 文件");
+
+    // 预算到期（虚拟时钟显式推进）→ 进入杀树 + FINISH_GRACE 收尾
+    tokio::time::advance(budget + Duration::from_secs(1)).await;
+
+    // 收尾期显式泵虚拟时钟：杀树失败时管道排水持续占用阻塞线程池，自动推进被
+    // 抑制（见函数 doc），必须显式推进才能让 FINISH_GRACE 有界收口
+    let pump = tokio::spawn(async {
+        loop {
+            real_sleep(Duration::from_millis(10)).await;
+            tokio::time::advance(FINISH_GRACE).await;
+        }
+    });
 
     let report = runner
         .await
         .expect("run_shell 任务应正常结束")
         .expect("超时臂应返回报告");
+    pump.abort();
     let elapsed = started.elapsed();
+    let pid = pid.unwrap_or_else(|| {
+        panic!(
+            "桩 shim 应落 pid 文件（outcome={:?}, exit={}, stderr={}）",
+            report.outcome,
+            report.exit_code,
+            String::from_utf8_lossy(&report.stderr)
+        )
+    });
+
     assert_eq!(report.outcome, RunOutcome::TimedOut);
     assert_eq!(report.exit_code, -1);
-    assert!(
-        wait_pid_gone(pid, Duration::from_secs(10)),
-        "超时被杀后目标 pid {pid} 应消失（kill_tree 生效）"
-    );
+    if !wait_pid_gone(pid, Duration::from_secs(10)) {
+        // 失败路径清理：目标进程仍持管道写端时，阻塞排水任务会让运行时收尾
+        // 永久等待（用例挂死而非报红）——先杀树，再落到断言失败
+        crate::kill_tree(Some(pid));
+        panic!("超时被杀后目标 pid {pid} 应消失（kill_tree 生效）");
+    }
     assert!(
         elapsed < Duration::from_secs(60),
         "被杀臂有界收尾（墙钟 {elapsed:?}）"

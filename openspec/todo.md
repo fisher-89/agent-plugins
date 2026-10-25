@@ -78,3 +78,4 @@
 - [x] 【Desktop】agent provider支持选择模型协议（openai/anthropic）
 - [ ] 【Desktop】内置CodeGraph，使用mcp桥接到agent
 - [ ] 【Desktop】归一Agent会话发送
+- [ ] 【Desktop】修复：变更流程决策时等待用户应答，回答后流程继续，但是变更依然显示等待应答窗口
