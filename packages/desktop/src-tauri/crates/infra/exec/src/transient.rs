@@ -1,3 +1,22 @@
+//! 瞬态签名与有限重试策略（执行体诊断面的单点实现）。
+//!
+//! 纪律：
+//! - **字典扩展只改本表**（[`TRANSIENT_SIGNATURES`]）——调用点 MUST NOT 各写一份
+//!   特征串（否则信号面漂移、假阴性无从审计）；
+//! - **刻意不收裸 `failed to write`**：该措辞过泛（真实写盘缺陷会被吞成「环境
+//!   错误」而重试 5 次）；rustc 的 `.rmeta` 写失败已由同一行内的 `os error 32` /
+//!   `另一个程序正在使用此文件` 覆盖；
+//! - `TimedOut` / `Cancelled` **永不命中**：超时重试会把 1200 s 变数小时，取消
+//!   必须立即生效；
+//! - 判定为**逐行包含**（[`str::lines`] 后按表内签名逐行做包含匹配；表内签名
+//!   均不含换行），且 rustc / clippy 诊断的**源码摘录行先被剔除**
+//!   （[`is_source_excerpt_line`]：`287 | b"… os error 32"` 这类被引用的源码
+//!   文本不是执行环境的证据）；
+//! - **增量推进判据单点驻本模块**（[`compiling_count`] / [`progress_series`] /
+//!   [`is_progress_stalled`]）：执行体与检查域各只调用，MUST NOT 重算计数口径
+//!   （否则「为何早停」与「早停的自证材料」会对不上）；该判据只用于**提前放弃**，
+//!   MUST NOT 用于延长预算。
+
 use std::time::Duration;
 
 use crate::output::is_source_excerpt_line;
@@ -7,6 +26,11 @@ use crate::run::{RunOutcome, RunReport};
 ///
 /// 现场来源（企业级安全软件的 minifilter 驱动持有 `target/` 下构建产物）：
 /// `rename` / `write` / `remove` 三动词失败，报错形态落三族之一。
+///
+/// `remove` 形态取 `failed to remove`（**不含** `file`）：生产文本为
+/// `failed to remove <path>`，带 `file` 的旧条目永不命中（功能上被同行
+/// `os error 32` 兜住，但会误导维护者以为 remove 形态有独立覆盖）；收窄风险低
+/// ——该短语只出现在删除失败语境。
 const TRANSIENT_SIGNATURES: [&str; 13] = [
     // Windows 文件锁族（DELETE 共享语义冲突）
     "os error 32",
@@ -14,7 +38,7 @@ const TRANSIENT_SIGNATURES: [&str; 13] = [
     "另一个程序正在使用此文件",
     "being used by another process",
     "failed to rename archive file",
-    "failed to remove file",
+    "failed to remove",
     "Access is denied",
     // MSVC 链接器族（.pdb / .lib 被占用或未关闭）
     "LNK1104",
@@ -30,13 +54,16 @@ const TRANSIENT_SIGNATURES: [&str; 13] = [
 /// 前 3 次内自愈），又不把单步墙钟放大到不可接受的量级。
 const RETRY_MAX_ATTEMPTS: u32 = 5;
 
-/// 重试退避四段（第 k 次重试前等待 `RETRY_BACKOFF[k - 1]`）：1 / 2 / 4 / 8 s
-/// 递增覆盖「杀软扫描完一个文件」的典型窗口，同时避免空转重试。
+/// 重试退避四段（第 k 次重试前等待 `RETRY_BACKOFF[k - 1]`）：5 / 10 / 20 / 40 s
+/// 慢档——实测安全软件的静默窗口可达分钟级，秒级退避在「只剩 rename 收尾」
+/// （待编译计数已归零、只剩最后一两个产物）的尝试上大概率撞同一个扫描窗口，而那
+/// 正是最需要耐心的一档。成功路径零影响（未命中签名不重试），只有真需要重试时才
+/// 多等：最坏 5 次共 75 s，仍远低于 [`RETRY_TOTAL_BUDGET`] 硬顶。
 const RETRY_BACKOFF: [Duration; 4] = [
-    Duration::from_secs(1),
-    Duration::from_secs(2),
-    Duration::from_secs(4),
-    Duration::from_secs(8),
+    Duration::from_secs(5),
+    Duration::from_secs(10),
+    Duration::from_secs(20),
+    Duration::from_secs(40),
 ];
 
 /// 重试面**总预算**（自首跑开始时刻起算，非「每次尝试一份」）：1500 s 只够一次
@@ -69,7 +96,7 @@ impl RetryPolicy {
         }
     }
 
-    /// 瞬态重试：`max_attempts = 5`（首跑 + 4 次重试）、退避 `[1, 2, 4, 8] s`、
+    /// 瞬态重试：`max_attempts = 5`（首跑 + 4 次重试）、退避 `[5, 10, 20, 40] s`、
     /// 总预算 1500 s。
     pub fn transient() -> RetryPolicy {
         RetryPolicy {
@@ -124,6 +151,59 @@ pub fn is_transient(report: &RunReport) -> Option<&'static str> {
         &report.stdout,
         &report.stderr,
     )
+}
+
+/// 待编译计数（「什么是一个待编译单位」这条易漂移口径的**单点**）：合并输出
+/// （`stdout ++ stderr`，UTF-8 lossy）按 [`str::lines`] 逐行，去前导空白后以
+/// `Compiling ` 为前缀的行数（rustc / cargo 原文形态，**大小写敏感**、含尾随
+/// 空格）；无该字样 → `0`。
+///
+/// `lines()` 天然吃掉 CRLF 的 `\r`（与既有判定口径一致）。无该字样的输出
+/// （Node / 链接器 / 真红）退化为固定次数语义：每次尝试计数恒 `0`，卡死判据因此
+/// 恒判否，重试照旧走满上限 / 预算（既有行为零变）。
+///
+/// 零 IO / 零 spawn / 零 panic。检查域 MUST NOT 重算本口径——装配文案只经
+/// [`progress_series`] 取数。
+pub fn compiling_count(stdout: &[u8], stderr: &[u8]) -> u32 {
+    let mut merged = stdout.to_vec();
+    merged.extend_from_slice(stderr);
+    String::from_utf8_lossy(&merged)
+        .lines()
+        .filter(|line| line.trim_start().starts_with("Compiling "))
+        .count() as u32
+}
+
+/// 按尝试序的待编译计数序列：`retried` 逐条在前、末次尝试在后。
+///
+/// 长度 = `retried.len() + 1`；生产不变量（`run.rs` 的入栈动作在退避成功之后）
+/// 下 `retried.len() + 1 == attempts`，故长度等于 `attempts`；未重试即长度 1。
+/// 与执行体重试循环内的计数序列**同源同值**（两处共用 [`compiling_count`]，字节
+/// 零改写零截断是等值的前提）——故 [`RunReport`] 无需新增字段。
+pub fn progress_series(report: &RunReport) -> Vec<u32> {
+    let mut series: Vec<u32> = report
+        .retried
+        .iter()
+        .map(|trace| compiling_count(&trace.stdout, &trace.stderr))
+        .collect();
+    series.push(compiling_count(&report.stdout, &report.stderr));
+    series
+}
+
+/// 卡死判据：末两次计数**非降**且末值 `> 0`（`series.len() < 2` 恒 `false`）。
+///
+/// 「非降」而非「相等」——「新增 crate 数抵消已完成 crate 数」的上升形态同属写不
+/// 进去；末值 `0`（只剩 rename / 清理收尾）恒判否，那恰恰是最该再试的一档。
+///
+/// 判据只用于**提前放弃**，MUST NOT 用于延长预算：`attempts == 1` 无前值不触发，
+/// `TimedOut` / `Cancelled` / 真红（无签名）三条既有零重试面与判据无关。
+pub fn is_progress_stalled(series: &[u32]) -> bool {
+    let Some((last, previous)) = series.split_last() else {
+        return false;
+    };
+    let Some(previous) = previous.last() else {
+        return false;
+    };
+    *last > 0 && *last >= *previous
 }
 
 #[cfg(test)]

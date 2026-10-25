@@ -14,7 +14,8 @@
 //!   入口先查一次（已置位即不 spawn）；
 //! - **有限重试**：命中瞬态签名（见 [`crate::transient`]）时按 [`RetryPolicy`] 重试
 //!   ——循环复用同一执行骨架 [`attempt_once`]（不另写第二条 spawn 路径），每次尝试
-//!   同样观测 `cancel`，总预算自首跑起算硬顶。
+//!   同样观测 `cancel`，总预算自首跑起算硬顶；重试间按 `Compiling` 行计数判推进 /
+//!   卡死（推进序列的取数面为 [`crate::transient::progress_series`]）。
 //!
 //! 输出面只给 `stdout` / `stderr` 两路原始字节（零改写零截断、**不**预合流）——
 //! 合流顺序（`2>&1` 类 shell 级合流、或「stdout 前缀 + stderr 后缀」手工拼接）归
@@ -31,7 +32,9 @@ use foundation::cancel::CancelFlag;
 use tokio::process::{Child, ChildStderr, ChildStdout};
 use tokio::time::{sleep, timeout, Instant};
 
-use crate::transient::{transient_signature, AttemptTrace, RetryPolicy};
+use crate::transient::{
+    compiling_count, is_progress_stalled, transient_signature, AttemptTrace, RetryPolicy,
+};
 use crate::{kill_tree, SystemCommand};
 
 /// 取消轮询间隔：执行体观测取消信号的最小粒度（`foundation::cancel` 零 tokio，
@@ -127,12 +130,15 @@ impl std::fmt::Display for RunError {
 
 /// 执行体：入口短路 → 重试循环（每次尝试 = [`attempt_once`]）→ 尝试面装配。
 ///
-/// 循环判定序（每次尝试之后）：非 `Completed`（`TimedOut` / `Cancelled`）即返
-/// （零重试）→ 未命中瞬态签名即返（真红 / 绿）→ 达尝试上限即返末次 → 总预算耗尽
-/// 即返末次 → 退避（同样观测 `cancel`）后进入下一轮。末次尝试的字节留在
-/// [`RunReport::stdout`] / [`RunReport::stderr`]，此前各次进
-/// [`RunReport::retried`]——「转入 `retried`」落在退避成功之后，故 `retried` 恒
-/// 等于「末次之前」的尝试集。
+/// 循环判定序（每次尝试之后）：①非 `Completed`（`TimedOut` / `Cancelled`）即返
+/// （零重试）→ ②未命中瞬态签名即返（真红 / 绿）→ ③卡死判否（[`is_progress_stalled`]）
+/// 即返末次 → ④达尝试上限即返末次 → ⑤总预算耗尽即返末次 → ⑥退避（同样观测
+/// `cancel`）后进入下一轮。末次尝试的字节留在 [`RunReport::stdout`] /
+/// [`RunReport::stderr`]，此前各次进 [`RunReport::retried`]——「转入 `retried`」落在
+/// 退避成功之后，故 `retried` 恒等于「末次之前」的尝试集。
+///
+/// 卡死只**提前放弃**，MUST NOT 延长预算（`total_budget` 仍是硬顶）；`attempts == 1`
+/// 无前值不触发；末次计数 `0`（只剩收尾）不触发。
 pub async fn run_shell(command: SystemCommand, options: RunOptions) -> Result<RunReport, RunError> {
     let RunOptions {
         cwd,
@@ -145,9 +151,15 @@ pub async fn run_shell(command: SystemCommand, options: RunOptions) -> Result<Ru
     let started = Instant::now();
     let mut attempts: u32 = 0;
     let mut retried: Vec<AttemptTrace> = Vec::new();
+    // 按尝试序的待编译计数序列：只用于卡死早停判定，**不进** `RunReport`（读侧
+    // 由 `transient::progress_series` 反推，两处共用 `compiling_count` 故值必然一致）
+    let mut counts: Vec<u32> = Vec::new();
     loop {
         attempts += 1;
         let attempt = attempt_once(&command, cwd.as_deref(), &env, budget, &cancel).await?;
+        // 每次尝试立即记账（先于三臂判定：被杀两臂的输出不消费计数，但先记账使
+        // 「序列长度 == 尝试次数」在正常路径上恒成立）
+        counts.push(compiling_count(&attempt.stdout, &attempt.stderr));
         // ① 非自然退出（超时 / 取消）零重试：超时重试会把预算放大数倍、取消必须
         // 立即生效
         if attempt.outcome != RunOutcome::Completed {
@@ -162,12 +174,17 @@ pub async fn run_shell(command: SystemCommand, options: RunOptions) -> Result<Ru
         ) else {
             return Ok(attempt.into_report(attempts, retried));
         };
-        // ③ 上限 / ④ 预算早停：末次结果原样返回（`Completed` + 非零，由调用方按
+        // ③ 卡死早停：末两次计数非降且末值 > 0 = 同一批写不进去 → 提前放弃，不烧满
+        // `max_attempts`（末次结果原样返回，末次不入 `retried`）
+        if is_progress_stalled(&counts) {
+            return Ok(attempt.into_report(attempts, retried));
+        }
+        // ④ 上限 / ⑤ 预算早停：末次结果原样返回（`Completed` + 非零，由调用方按
         // 瞬态命中断言 fault），末次不入 `retried`
         if attempts >= retry.max_attempts || started.elapsed() >= retry.total_budget {
             return Ok(attempt.into_report(attempts, retried));
         }
-        // ⑤ 退避等待同样观测 cancel（复用既有轮询单点，不新增计时原语）
+        // ⑥ 退避等待同样观测 cancel（复用既有轮询单点，不新增计时原语）
         let backoff = retry.backoff[(attempts as usize - 1).min(retry.backoff.len() - 1)];
         let cancelled = tokio::select! {
             biased;

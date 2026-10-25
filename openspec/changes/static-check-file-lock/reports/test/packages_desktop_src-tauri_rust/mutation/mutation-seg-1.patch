@@ -1,0 +1,1616 @@
+diff --git a/crates/infra/checks/src/testexec/runner.rs b/crates/infra/checks/src/testexec/runner.rs
+index 8f7cba52a8be..9341d9707a83 100644
+--- a/crates/infra/checks/src/testexec/runner.rs
++++ b/crates/infra/checks/src/testexec/runner.rs
+@@ -131,6 +131,7 @@ pub(crate) async fn execute_plan(
+                 run.attempts,
+                 run.exit_code,
+                 &merged,
++                &run.retried,
+             ))
+         }),
+     };
+diff --git a/crates/infra/checks/src/testexec/runner_test.rs b/crates/infra/checks/src/testexec/runner_test.rs
+index a1dae1338981..b9a93a1c5686 100644
+--- a/crates/infra/checks/src/testexec/runner_test.rs
++++ b/crates/infra/checks/src/testexec/runner_test.rs
+@@ -2015,6 +2015,10 @@ async fn 瞬态耗尽_fault为环境错误且零execution_error() {
+         "fault 在位即跳过工件解析"
+     );
+ 
++    assert!(
++        !text.contains("重试进展"),
++        "非 cargo 形态（全 0 计数）不产推进序列行: {text}"
++    );
+     let output = String::from_utf8_lossy(&execution.output).into_owned();
+     assert_eq!(
+         output.matches("===== attempt ").count(),
+@@ -2128,3 +2132,236 @@ async fn 裸failed_to_write不产fault且单次尝试() {
+         "单次尝试零分隔头"
+     );
+ }
++
++// ---------------------------------------------------------------------------
++// 正向（AC-5 组合锚）：合并流推进序列到 fault
++// （`runner::execute_plan` → `exec::run_shell` → `environment::fault_text`（合并流）
++// → `PlanExecution.fault`）
++// ---------------------------------------------------------------------------
++
++/// 按尝试序输出 `Compiling` 行数的 suite 模板（平台双形态）：第 n 次尝试
++/// **stdout** 输出 `counts[n - 1]` 行 `   Compiling crate v0.1.0`，**stderr**
++/// 输出 `lock_text` 并 `exit 1`（合并流面：末次 `stderr` 已并入 `output`，故
++/// `Compiling` 行不得被计两次）；超出清单的尝试输出 0 行。返回可直接作模板的
++/// shim 绝对路径（tempdir 路径无空格，首 token 即程序）。
++fn write_counting_template(
++    dir: &Path,
++    name: &str,
++    counter: &Path,
++    counts: &[u32],
++    lock_text: &str,
++) -> String {
++    #[cfg(windows)]
++    {
++        let counts_array = counts
++            .iter()
++            .map(u32::to_string)
++            .collect::<Vec<_>>()
++            .join(",");
++        let ps1 = dir.join(format!("{name}-shim.ps1"));
++        let body = format!(
++            "$cf = '{cf}'\n$n = 0\nif (Test-Path $cf) {{ $n = [int](Get-Content $cf -Raw) }}\n$n = $n + 1\nSet-Content -Path $cf -Value $n -NoNewline -Encoding ascii\n$counts = @({counts})\n$count = 0\nif ($n -le $counts.Count) {{ $count = $counts[$n - 1] }}\nfor ($i = 0; $i -lt $count; $i++) {{ Write-Output '   Compiling crate v0.1.0' }}\n[Console]::Error.WriteLine('{lock}')\nexit 1\n",
++            cf = counter.display(),
++            counts = counts_array,
++            lock = lock_text,
++        );
++        std::fs::write(&ps1, body).expect("写计数 shim 脚本失败");
++        let wrapper = dir.join(format!("{name}.cmd"));
++        std::fs::write(
++            &wrapper,
++            format!(
++                "@echo off\r\npowershell -NoProfile -ExecutionPolicy Bypass -File \"%~dp0{name}-shim.ps1\" %*\r\nexit /b %errorlevel%\r\n"
++            ),
++        )
++        .expect("写计数 shim 失败");
++        wrapper.display().to_string()
++    }
++    #[cfg(not(windows))]
++    {
++        let mut arms = String::new();
++        for (index, count) in counts.iter().enumerate() {
++            arms.push_str(&format!("  {}) count={count} ;;\n", index + 1));
++        }
++        let path = dir.join(format!("{name}.sh"));
++        let body = format!(
++            "#!/bin/sh\ncf=\"{cf}\"\nn=$(cat \"$cf\" 2>/dev/null || printf '0')\nn=$((n+1))\nprintf '%s' \"$n\" > \"$cf\"\ncount=0\ncase \"$n\" in\n{arms}esac\ni=0\nwhile [ \"$i\" -lt \"$count\" ]; do\n  printf '   Compiling crate v0.1.0\\n'\n  i=$((i+1))\ndone\nprintf '%s\\n' '{lock}' >&2\nexit 1\n",
++            cf = counter.display(),
++            arms = arms,
++            lock = lock_text,
++        );
++        std::fs::write(&path, body).expect("写计数 shim 失败");
++        use std::os::unix::fs::PermissionsExt;
++        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).expect("补执行位");
++        path.display().to_string()
++    }
++}
++
++/// 正向（AC-5 组合锚）：合并流推进序列到 fault——suite 模板按尝试分支输出
++/// 264 / 5 / 5 行 `Compiling`（stdout）+ 锁文本（stderr）→ 卡死早停 →
++/// `fault == Some(Environment(text))`，`text` 含
++/// `重试进展：待编译 264 → 5 → 5（末两次无进展，判定为卡死）`（末次 `stderr`
++/// 已并入 `output`，不重复计数）；`output` 段数与 `attempts` 一致（3 段）。
++#[tokio::test(start_paused = true)]
++async fn 合并流推进序列到fault文本() {
++    let _env = env_window();
++    let _gate = ClockGate::new();
++    let ws = TempDir::new().expect("临时目录");
++    let cwd = ws.path().join("app");
++    std::fs::create_dir_all(&cwd).expect("创建 suite cwd");
++    let locked = cwd.join("liba.rlib");
++    std::fs::write(&locked, b"body").expect("落盘被锁文件");
++    let lock_text = format!(
++        "error: failed to rename archive file: {}: os error 32",
++        locked.display()
++    );
++    let counter = ws.path().join("attempt-count.txt");
++    let template =
++        write_counting_template(ws.path(), "counting", &counter, &[264, 5, 5], &lock_text);
++    let plan = node_test_plan(&cwd, template);
++    let report_dir = ws.path().join("reports").join("it_node-test");
++
++    let runner =
++        tokio::spawn(async move { execute_plan(&plan, &report_dir, CancelFlag::never()).await });
++    advance_until(
++        || runner.is_finished(),
++        Duration::from_millis(100),
++        Duration::from_secs(120),
++    )
++    .await;
++    let execution = runner
++        .await
++        .expect("suite 任务应正常结束")
++        .expect("卡死面仍 Ok（执行面归因走 fault）");
++
++    assert_eq!(execution.exit_code, 1, "末次非零退出直继承");
++    let Some(RunFault::Environment(text)) = execution.fault.clone() else {
++        panic!(
++            "卡死形态应产 Environment fault，实际: {:?}",
++            execution.fault
++        );
++    };
++    assert!(
++        text.contains("重试进展：待编译 264 → 5 → 5（末两次无进展，判定为卡死）"),
++        "合并流序列行与判定语在案（无重复计数）: {text}"
++    );
++    assert!(
++        text.contains("已自动重试 2 次"),
++        "attempts == 3 → 重试 2 次: {text}"
++    );
++    assert!(
++        execution.error.is_none(),
++        "fault 在位 → plan 级 execution_error 恒 None: {:?}",
++        execution.error
++    );
++    let output = String::from_utf8_lossy(&execution.output).into_owned();
++    assert_eq!(
++        output.matches("===== attempt ").count(),
++        3,
++        "output 段数与 attempts（3）一致: {output}"
++    );
++    for index in 1..=3 {
++        assert!(
++            output.contains(&format!("===== attempt {index}/5")),
++            "序号 {index}/5 在案: {output}"
++        );
++    }
++}
++
++/// 正向（AC-5）：卡死判定语（两次尝试）——两次尝试同为 50 行 `Compiling` +
++/// 锁文本 → `text` 含 `（末两次无进展，判定为卡死）`；`execution.output` 恰 2 段。
++#[tokio::test(start_paused = true)]
++async fn 两次相同计数产卡死判定语() {
++    let _env = env_window();
++    let _gate = ClockGate::new();
++    let ws = TempDir::new().expect("临时目录");
++    let cwd = ws.path().join("app");
++    std::fs::create_dir_all(&cwd).expect("创建 suite cwd");
++    let locked = cwd.join("libc.rlib");
++    std::fs::write(&locked, b"body").expect("落盘被锁文件");
++    let lock_text = format!(
++        "error: failed to rename archive file: {}: os error 32",
++        locked.display()
++    );
++    let counter = ws.path().join("attempt-count.txt");
++    let template = write_counting_template(ws.path(), "stall", &counter, &[50, 50], &lock_text);
++    let plan = node_test_plan(&cwd, template);
++    let report_dir = ws.path().join("reports").join("it_node-test");
++
++    let runner =
++        tokio::spawn(async move { execute_plan(&plan, &report_dir, CancelFlag::never()).await });
++    advance_until(
++        || runner.is_finished(),
++        Duration::from_millis(100),
++        Duration::from_secs(120),
++    )
++    .await;
++    let execution = runner
++        .await
++        .expect("suite 任务应正常结束")
++        .expect("卡死面仍 Ok");
++
++    let Some(RunFault::Environment(text)) = execution.fault.clone() else {
++        panic!(
++            "卡死形态应产 Environment fault，实际: {:?}",
++            execution.fault
++        );
++    };
++    assert!(
++        text.contains("重试进展：待编译 50 → 50（末两次无进展，判定为卡死）"),
++        "两次相同计数 → 判定语: {text}"
++    );
++    assert_eq!(
++        String::from_utf8_lossy(&execution.output)
++            .matches("===== attempt ")
++            .count(),
++        2,
++        "output 恰 2 段"
++    );
++    assert_eq!(execution.exit_code, 1, "末次非零退出直继承");
++    assert!(
++        execution.cases.is_empty() && execution.measured.is_none(),
++        "fault 在位即跳过工件解析"
++    );
++}
++
++/// 边界（AC-8）：`PlanExecution` 字段面零变——八字段（`exit_code` /
++/// `duration_ms` / `cases` / `source_files` / `measured` / `error` / `output` /
++/// `fault`）在绿跑面逐字段可读且形态同改造前（字段集无新增）。
++#[tokio::test]
++async fn plan_execution字段面零变() {
++    let _env = env_window();
++    let ws = TempDir::new().expect("临时目录");
++    let cwd = ws.path().join("app");
++    std::fs::create_dir_all(&cwd).expect("创建 suite cwd");
++    let spec_src = preset(ws.path(), "preset-results.txt", SPEC_OUTPUT);
++    let template = if cfg!(windows) {
++        format!(
++            "cmd /C type {} > {{results_file}}",
++            spec_src.to_string_lossy().replace('/', "\\")
++        )
++    } else {
++        format!("cp \"{}\" \"{{results_file}}\"", spec_src.to_string_lossy())
++    };
++    let plan = node_test_plan(&cwd, template);
++    let report_dir = ws.path().join("reports").join("it_node-test");
++
++    let execution = execute_plan(&plan, &report_dir, CancelFlag::never())
++        .await
++        .expect("绿跑应 Ok");
++
++    assert_eq!(execution.exit_code, 0, "exit_code 字段可读");
++    assert!(execution.duration_ms >= 0.0, "duration_ms 字段可读");
++    assert_eq!(execution.cases.len(), 5, "cases 字段可读（五用例行）");
++    assert!(execution.source_files.is_empty(), "source_files 字段可读");
++    assert!(
++        execution.measured.is_some(),
++        "measured 字段可读（node-test 覆盖实测块）"
++    );
++    assert_eq!(execution.error, None, "error 字段可读（绿面无错）");
++    assert_eq!(
++        execution.output,
++        Vec::<u8>::new(),
++        "output 字段可读（模板把 stdout 重定向进工件 → 合并流为空）"
++    );
++    assert_eq!(execution.fault, None, "fault 字段可读（绿面无归因）");
++}
+diff --git a/crates/infra/exec/src/lib.rs b/crates/infra/exec/src/lib.rs
+index 235b5048f7bf..5d3c4a5fdc3d 100644
+--- a/crates/infra/exec/src/lib.rs
++++ b/crates/infra/exec/src/lib.rs
+@@ -9,7 +9,8 @@
+ //! - 进程执行体：[`run_shell`]（超时必填 / 双管道并发排水 / 进程树击杀 / 取消
+ //!   四能力单点——检查域四类外部进程的唯一 spawn 收口）；
+ //! - 瞬态签名与有限重试：`transient`（封闭签名表 + [`RetryPolicy`]——构建产物被
+-//!   安全软件占用时的自愈面，字典扩展只改该模块一处）；
++//!   安全软件占用时的自愈面，字典扩展只改该模块一处；含增量推进判据（`Compiling`
++//!   行计数 / 序列 / 卡死判定 [`is_progress_stalled`]））；
+ //! - 锁占用诊断：`lockprobe`（[`locked_paths`] / [`lock_holders`] /
+ //!   [`attribution_text`]——被锁文件 + 占用者的归因原料，供检查域装配环境错误
+ //!   文案）；
+@@ -28,7 +29,9 @@ pub use run::{run_shell, RunError, RunOptions, RunOutcome, RunReport};
+ #[cfg(windows)]
+ pub use shell::probe_windows_shell;
+ pub use shell::{resolve_shell, ShellBase};
+-pub use transient::{is_transient, AttemptTrace, RetryPolicy};
++pub use transient::{
++    compiling_count, is_progress_stalled, is_transient, progress_series, AttemptTrace, RetryPolicy,
++};
+ 
+ use std::ffi::{OsStr, OsString};
+ use std::path::{Path, PathBuf};
+diff --git a/crates/infra/exec/src/lib_test.rs b/crates/infra/exec/src/lib_test.rs
+index f9cabf6a22d5..dc98dcd1fa35 100644
+--- a/crates/infra/exec/src/lib_test.rs
++++ b/crates/infra/exec/src/lib_test.rs
+@@ -696,12 +696,12 @@ fn 再导出retry_policy与attempt_trace() {
+     assert_eq!(
+         transient.backoff,
+         [
+-            std::time::Duration::from_secs(1),
+-            std::time::Duration::from_secs(2),
+-            std::time::Duration::from_secs(4),
+-            std::time::Duration::from_secs(8),
++            std::time::Duration::from_secs(5),
++            std::time::Duration::from_secs(10),
++            std::time::Duration::from_secs(20),
++            std::time::Duration::from_secs(40),
+         ],
+-        "退避四段"
++        "退避四段（慢档 5 / 10 / 20 / 40 s）"
+     );
+     assert_eq!(
+         transient.total_budget,
+@@ -778,3 +778,102 @@ fn 既有导出面零变() {
+         "空输出末尾面为空"
+     );
+ }
++
++// ---------------------------------------------------------------------------
++// 再导出面（D15：增量推进判据三函数的 crate 根可见性）
++// ---------------------------------------------------------------------------
++
++/// 正向（表驱动 3 项，D15）：`compiling_count` / `progress_series` /
++/// `is_progress_stalled` 经 **crate 根**可达，且与模块内判据逐值一致（导出的是
++/// 同一函数，非包装）。
++#[test]
++fn 再导出推进判据三函数() {
++    // `compiling_count`
++    assert_eq!(
++        crate::compiling_count(b"   Compiling a v0.1.0\n", b""),
++        1,
++        "crate 根计数函数命中 rustc 缩进形态"
++    );
++    assert_eq!(
++        crate::compiling_count(b"   Compiling a v0.1.0\n", b""),
++        crate::transient::compiling_count(b"   Compiling a v0.1.0\n", b""),
++        "根导出与模块内逐值一致"
++    );
++
++    // `progress_series`
++    let report = crate::RunReport {
++        outcome: crate::RunOutcome::Completed,
++        exit_code: 1,
++        stdout: b"   Compiling a v0.1.0\n   Compiling b v0.1.0\n".to_vec(),
++        stderr: Vec::new(),
++        attempts: 1,
++        retried: Vec::new(),
++    };
++    assert_eq!(
++        crate::progress_series(&report),
++        vec![2],
++        "crate 根序列函数按尝试序取数"
++    );
++    assert_eq!(
++        crate::progress_series(&report),
++        crate::transient::progress_series(&report),
++        "根导出与模块内逐值一致"
++    );
++
++    // `is_progress_stalled`
++    assert!(
++        crate::is_progress_stalled(&[50, 50]),
++        "crate 根卡死判据命中末两次相等"
++    );
++    assert_eq!(
++        crate::is_progress_stalled(&[50, 50]),
++        crate::transient::is_progress_stalled(&[50, 50]),
++        "根导出与模块内逐值一致"
++    );
++}
++
++/// 异常（表驱动 3 形态）：退化输入经 crate 根取值与模块内直调逐值一致（空序列 /
++/// 双空字节 / 全 0 序列 → `false` / `0` / `false`），不 panic。
++#[test]
++fn 再导出面边界输入一致性() {
++    assert!(!crate::is_progress_stalled(&[]), "空序列不 panic");
++    assert_eq!(
++        crate::is_progress_stalled(&[]),
++        crate::transient::is_progress_stalled(&[]),
++        "空序列根导出与模块内一致"
++    );
++
++    assert_eq!(crate::compiling_count(b"", b""), 0, "双空字节计数 0");
++    assert_eq!(
++        crate::compiling_count(b"", b""),
++        crate::transient::compiling_count(b"", b""),
++        "双空字节根导出与模块内一致"
++    );
++
++    assert!(!crate::is_progress_stalled(&[0, 0]), "全 0 序列判否");
++    assert_eq!(
++        crate::is_progress_stalled(&[0, 0]),
++        crate::transient::is_progress_stalled(&[0, 0]),
++        "全 0 序列根导出与模块内一致"
++    );
++}
++
++/// 边界（编译期面）：`checks` 侧 `use exec::{progress_series, is_progress_stalled};`
++/// 的取数路径在用例内以 `crate::` 路径解析成功表达——任一新项未再导出即编译失败
++/// （本函数即解析点）。
++#[test]
++fn 导出面路径解析成功() {
++    let series = crate::progress_series(&crate::RunReport {
++        outcome: crate::RunOutcome::Completed,
++        exit_code: 1,
++        stdout: Vec::new(),
++        stderr: Vec::new(),
++        attempts: 1,
++        retried: Vec::new(),
++    });
++    assert_eq!(series.len(), 1, "一次尝试即长度 1");
++    assert!(
++        !crate::is_progress_stalled(&series),
++        "单值序列不判卡死（检查域视图取数面）"
++    );
++}
+diff --git a/crates/infra/exec/src/run.rs b/crates/infra/exec/src/run.rs
+index bf2370e080d3..a13ad02dc6fe 100644
+--- a/crates/infra/exec/src/run.rs
++++ b/crates/infra/exec/src/run.rs
+@@ -14,7 +14,8 @@
+ //!   入口先查一次（已置位即不 spawn）；
+ //! - **有限重试**：命中瞬态签名（见 [`crate::transient`]）时按 [`RetryPolicy`] 重试
+ //!   ——循环复用同一执行骨架 [`attempt_once`]（不另写第二条 spawn 路径），每次尝试
+-//!   同样观测 `cancel`，总预算自首跑起算硬顶。
++//!   同样观测 `cancel`，总预算自首跑起算硬顶；重试间按 `Compiling` 行计数判推进 /
++//!   卡死（推进序列的取数面为 [`crate::transient::progress_series`]）。
+ //!
+ //! 输出面只给 `stdout` / `stderr` 两路原始字节（零改写零截断、**不**预合流）——
+ //! 合流顺序（`2>&1` 类 shell 级合流、或「stdout 前缀 + stderr 后缀」手工拼接）归
+@@ -31,7 +32,9 @@ use foundation::cancel::CancelFlag;
+ use tokio::process::{Child, ChildStderr, ChildStdout};
+ use tokio::time::{sleep, timeout, Instant};
+ 
+-use crate::transient::{transient_signature, AttemptTrace, RetryPolicy};
++use crate::transient::{
++    compiling_count, is_progress_stalled, transient_signature, AttemptTrace, RetryPolicy,
++};
+ use crate::{kill_tree, SystemCommand};
+ 
+ /// 取消轮询间隔：执行体观测取消信号的最小粒度（`foundation::cancel` 零 tokio，
+@@ -127,12 +130,15 @@ impl std::fmt::Display for RunError {
+ 
+ /// 执行体：入口短路 → 重试循环（每次尝试 = [`attempt_once`]）→ 尝试面装配。
+ ///
+-/// 循环判定序（每次尝试之后）：非 `Completed`（`TimedOut` / `Cancelled`）即返
+-/// （零重试）→ 未命中瞬态签名即返（真红 / 绿）→ 达尝试上限即返末次 → 总预算耗尽
+-/// 即返末次 → 退避（同样观测 `cancel`）后进入下一轮。末次尝试的字节留在
+-/// [`RunReport::stdout`] / [`RunReport::stderr`]，此前各次进
+-/// [`RunReport::retried`]——「转入 `retried`」落在退避成功之后，故 `retried` 恒
+-/// 等于「末次之前」的尝试集。
++/// 循环判定序（每次尝试之后）：①非 `Completed`（`TimedOut` / `Cancelled`）即返
++/// （零重试）→ ②未命中瞬态签名即返（真红 / 绿）→ ③卡死判否（[`is_progress_stalled`]）
++/// 即返末次 → ④达尝试上限即返末次 → ⑤总预算耗尽即返末次 → ⑥退避（同样观测
++/// `cancel`）后进入下一轮。末次尝试的字节留在 [`RunReport::stdout`] /
++/// [`RunReport::stderr`]，此前各次进 [`RunReport::retried`]——「转入 `retried`」落在
++/// 退避成功之后，故 `retried` 恒等于「末次之前」的尝试集。
++///
++/// 卡死只**提前放弃**，MUST NOT 延长预算（`total_budget` 仍是硬顶）；`attempts == 1`
++/// 无前值不触发；末次计数 `0`（只剩收尾）不触发。
+ pub async fn run_shell(command: SystemCommand, options: RunOptions) -> Result<RunReport, RunError> {
+     let RunOptions {
+         cwd,
+@@ -145,9 +151,15 @@ pub async fn run_shell(command: SystemCommand, options: RunOptions) -> Result<Ru
+     let started = Instant::now();
+     let mut attempts: u32 = 0;
+     let mut retried: Vec<AttemptTrace> = Vec::new();
++    // 按尝试序的待编译计数序列：只用于卡死早停判定，**不进** `RunReport`（读侧
++    // 由 `transient::progress_series` 反推，两处共用 `compiling_count` 故值必然一致）
++    let mut counts: Vec<u32> = Vec::new();
+     loop {
+         attempts += 1;
+         let attempt = attempt_once(&command, cwd.as_deref(), &env, budget, &cancel).await?;
++        // 每次尝试立即记账（先于三臂判定：被杀两臂的输出不消费计数，但先记账使
++        // 「序列长度 == 尝试次数」在正常路径上恒成立）
++        counts.push(compiling_count(&attempt.stdout, &attempt.stderr));
+         // ① 非自然退出（超时 / 取消）零重试：超时重试会把预算放大数倍、取消必须
+         // 立即生效
+         if attempt.outcome != RunOutcome::Completed {
+@@ -162,12 +174,17 @@ pub async fn run_shell(command: SystemCommand, options: RunOptions) -> Result<Ru
+         ) else {
+             return Ok(attempt.into_report(attempts, retried));
+         };
+-        // ③ 上限 / ④ 预算早停：末次结果原样返回（`Completed` + 非零，由调用方按
++        // ③ 卡死早停：末两次计数非降且末值 > 0 = 同一批写不进去 → 提前放弃，不烧满
++        // `max_attempts`（末次结果原样返回，末次不入 `retried`）
++        if is_progress_stalled(&counts) {
++            return Ok(attempt.into_report(attempts, retried));
++        }
++        // ④ 上限 / ⑤ 预算早停：末次结果原样返回（`Completed` + 非零，由调用方按
+         // 瞬态命中断言 fault），末次不入 `retried`
+         if attempts >= retry.max_attempts || started.elapsed() >= retry.total_budget {
+             return Ok(attempt.into_report(attempts, retried));
+         }
+-        // ⑤ 退避等待同样观测 cancel（复用既有轮询单点，不新增计时原语）
++        // ⑥ 退避等待同样观测 cancel（复用既有轮询单点，不新增计时原语）
+         let backoff = retry.backoff[(attempts as usize - 1).min(retry.backoff.len() - 1)];
+         let cancelled = tokio::select! {
+             biased;
+diff --git a/crates/infra/exec/src/run_test.rs b/crates/infra/exec/src/run_test.rs
+index 2cbf15b64031..896c11d5fa64 100644
+--- a/crates/infra/exec/src/run_test.rs
++++ b/crates/infra/exec/src/run_test.rs
+@@ -8,7 +8,7 @@ use tempfile::TempDir;
+ use super::{
+     run_shell, RunError, RunOptions, RunOutcome, RunReport, CANCEL_POLL_INTERVAL, FINISH_GRACE,
+ };
+-use crate::transient::RetryPolicy;
++use crate::transient::{progress_series, RetryPolicy};
+ use crate::SystemCommand;
+ 
+ // ---------------------------------------------------------------------------
+@@ -1017,7 +1017,7 @@ fn retry_shim(ws: &ShimWs, name: &str, counter: &str, fail_times: u32) -> System
+ }
+ 
+ /// 快速重试策略（仅用于「次数 / 上限」用例：退避压到 20 ms，避免真等
+-/// 1 / 2 / 4 / 8 s；退避取值本身由 [`退避序列_前两段各消费一次`] 的按段推进与
++/// 5 / 10 / 20 / 40 s 慢档；退避取值本身由 [`退避序列_前两段各消费一次`] 的按段推进与
+ /// `transient_test` 的常量锚定覆盖）。
+ fn fast_policy(max_attempts: u32) -> RetryPolicy {
+     RetryPolicy {
+@@ -1027,6 +1027,61 @@ fn fast_policy(max_attempts: u32) -> RetryPolicy {
+     }
+ }
+ 
++/// 按尝试序输出 `Compiling` 行数的 shim：第 n 次尝试输出 `counts[n - 1]` 行
++/// `   Compiling crate{i} v0.1.0` + 锁文本并 `exit 1`；超出清单的尝试输出 0 行。
++/// `succeed_from = Some(k)` 时第 k 次起转绿（`SUCCESS-OUT` / `SUCCESS-ERR` +
++/// `exit 0`）。尝试次数由计数文件自身表达（沿用既有 `attempt_count` 装置）。
++fn counting_shim(
++    ws: &ShimWs,
++    name: &str,
++    counter: &str,
++    counts: &[u32],
++    succeed_from: Option<u32>,
++) -> SystemCommand {
++    let counter_path = ws.file(counter);
++    let mut arms = String::new();
++    for (index, count) in counts.iter().enumerate() {
++        arms.push_str(&format!(
++            "  {}) count={count} ;;
++",
++            index + 1
++        ));
++    }
++    let success = match succeed_from {
++        Some(at) => format!(
++            "if [ \"$n\" -ge {at} ]; then
++  printf 'SUCCESS-OUT'
++  printf 'SUCCESS-ERR' >&2
++  exit 0
++fi
++"
++        ),
++        None => String::new(),
++    };
++    let body = format!(
++        "#!/bin/sh
++cf=\"{cf}\"
++n=$(cat \"$cf\" 2>/dev/null || printf '0')
++n=$((n+1))
++printf '%s' \"$n\" > \"$cf\"
++{success}count=0
++case \"$n\" in
++{arms}esac
++i=0
++while [ \"$i\" -lt \"$count\" ]; do
++  printf '   Compiling crate%d v0.1.0\n' \"$i\"
++  i=$((i+1))
++done
++printf 'error: failed to rename archive file: /t/liba.rlib: os error 32\n'
++exit 1
++",
++        cf = counter_path.display(),
++        success = success,
++        arms = arms,
++    );
++    ws.shim(name, &body)
++}
++
+ /// 虚拟时钟闸门：以常驻 `spawn_blocking` 任务抑制 tokio 的「空闲即自动推进」。
+ ///
+ /// `tokio::time::pause` 的自动推进是「运行时空转即把时钟推到下一个计时器」，所以
+@@ -1137,12 +1192,13 @@ async fn 瞬态自愈_三次尝试后转绿() {
+     assert_eq!(attempt_count(&ws, "count.txt"), 3, "shim 恰拉起 3 次");
+ }
+ 
+-/// 正向（AC-1）：退避序列——三次尝试均命中签名后成功。虚拟时钟（[`ClockGate`] 抑制
+-/// 自动推进）按段精确推进，断言每段退避的取值与索引：
+-/// - 第 1 段 `backoff[0]` ∈ (500 ms, 1 s]：推进 500 ms 并真实等待上界后仍无第 2 次
+-///   尝试，再推进 500 ms 即拉起第 2 次；
+-/// - 第 2 段 `backoff[1]` ∈ (1 s, 2 s]：同上（推进 1 s 无第 3 次，再推进 1 s 即拉起）；
+-/// - 4 s / 8 s 段未被消费：全程虚拟墙钟恰为 1 s + 2 s、`attempts == 3`、
++/// 正向（AC-3）：退避序列——三次尝试均命中签名后成功。虚拟时钟（[`ClockGate`] 抑制
++/// 自动推进）按段精确推进，断言每段退避的取值与索引（取值即
++/// `RetryPolicy::transient().backoff`，慢档 5 / 10 / 20 / 40 s）：
++/// - 第 1 段 `backoff[0] == 5 s`：推进 4.5 s 并真实等待上界后仍无第 2 次尝试，
++///   再推进 500 ms 即拉起第 2 次；
++/// - 第 2 段 `backoff[1] == 10 s`：同上（推进 5 s 无第 3 次，再推进 5 s 即拉起）；
++/// - 20 s / 40 s 段未被消费：全程虚拟墙钟恰为 5 s + 10 s、`attempts == 3`、
+ ///   `retried.len() == 2`（`backoff` 索引不越界、不多等）；shim 恰拉起 3 次。
+ #[tokio::test(start_paused = true)]
+ async fn 退避序列_前两段各消费一次() {
+@@ -1163,33 +1219,33 @@ async fn 退避序列_前两段各消费一次() {
+     );
+     wait_into_backoff().await;
+ 
+-    // 第 1 段：推进 500 ms 不得越过，补满 1 s 即越过
+-    tokio::time::advance(Duration::from_millis(500)).await;
++    // 第 1 段：推进 4.5 s 不得越过，补满 5 s 即越过
++    tokio::time::advance(Duration::from_millis(4500)).await;
+     assert_eq!(
+         wait_attempts(&ws, "count.txt", 2, Duration::from_secs(3)).await,
+         1,
+-        "推进 500 ms 未越过第 1 段（backoff[0] > 500 ms）"
++        "推进 4.5 s 未越过第 1 段（backoff[0] > 4.5 s）"
+     );
+     tokio::time::advance(Duration::from_millis(500)).await;
+     assert_eq!(
+         wait_attempts(&ws, "count.txt", 2, Duration::from_secs(20)).await,
+         2,
+-        "推进满 1 s 后拉起第 2 次尝试（backoff[0] == 1 s）"
++        "推进满 5 s 后拉起第 2 次尝试（backoff[0] == 5 s）"
+     );
+     wait_into_backoff().await;
+ 
+-    // 第 2 段：推进 1 s 不得越过，补满 2 s 即越过
+-    tokio::time::advance(Duration::from_secs(1)).await;
++    // 第 2 段：推进 5 s 不得越过，补满 10 s 即越过
++    tokio::time::advance(Duration::from_secs(5)).await;
+     assert_eq!(
+         wait_attempts(&ws, "count.txt", 3, Duration::from_secs(3)).await,
+         2,
+-        "推进 1 s 未越过第 2 段（backoff[1] > 1 s）"
++        "推进 5 s 未越过第 2 段（backoff[1] > 5 s）"
+     );
+-    tokio::time::advance(Duration::from_secs(1)).await;
++    tokio::time::advance(Duration::from_secs(5)).await;
+     assert_eq!(
+-        wait_attempts(&ws, "count.txt", 3, Duration::from_secs(20)).await,
++        wait_attempts(&ws, "count.txt", 3, Duration::from_secs(30)).await,
+         3,
+-        "推进满 2 s 后拉起第 3 次尝试（backoff[1] == 2 s）"
++        "推进满 10 s 后拉起第 3 次尝试（backoff[1] == 10 s）"
+     );
+ 
+     let report = runner
+@@ -1204,12 +1260,245 @@ async fn 退避序列_前两段各消费一次() {
+     assert_eq!(report.retried.len(), 2, "末次不入 retried");
+     assert_eq!(attempt_count(&ws, "count.txt"), 3, "shim 恰拉起 3 次");
+     assert!(
+-        elapsed >= Duration::from_secs(3),
+-        "前两段退避（1 s + 2 s）各消费一次（虚拟墙钟 {elapsed:?}）"
++        elapsed >= Duration::from_secs(15),
++        "前两段退避（5 s + 10 s）各消费一次（虚拟墙钟 {elapsed:?}）"
++    );
++    assert!(
++        elapsed < Duration::from_secs(20),
++        "未消费 20 s / 40 s 段（虚拟墙钟 {elapsed:?}）"
++    );
++}
++
++// ---------------------------------------------------------------------------
++// 正向 / 异常 / 边界：推进计数与卡死早停（AC-1 / AC-2 组合锚）
++// ---------------------------------------------------------------------------
++
++/// 正向（AC-1 组合锚）：卡死早停——shim 每次都输出同一份 50 行
++/// `   Compiling <crate> v0.1.0` + 锁文本并 `exit 1`（末两次计数相等）→ 第 2 次
++/// 尝试后即收口：`attempts == 2 < 5`、`retried.len() == 1`（携签名原文）、末次
++/// `Completed` + `exit_code == 1`、shim 计数 == 2（第 3 次零 spawn）、虚拟墙钟
++/// 仅消费 `backoff[0]`（5 s）。
++#[tokio::test(start_paused = true)]
++async fn 卡死早停_两次尝试即收口() {
++    let _gate = ClockGate::new();
++    let ws = ShimWs::new("stall-early");
++    let command = counting_shim(&ws, "stall.sh", "count.txt", &[50; 5], None);
++
++    let mut with_retry = options(Duration::from_secs(60));
++    with_retry.retry = RetryPolicy::transient();
++
++    let virtual_started = tokio::time::Instant::now();
++    let runner = tokio::spawn(run_shell(command, with_retry));
++
++    assert_eq!(
++        wait_attempts(&ws, "count.txt", 1, Duration::from_secs(20)).await,
++        1,
++        "第 1 次尝试已拉起"
++    );
++    wait_into_backoff().await;
++    tokio::time::advance(Duration::from_secs(5)).await;
++
++    let report = runner
++        .await
++        .expect("任务应正常结束")
++        .expect("卡死早停应 Ok");
++    let elapsed = virtual_started.elapsed();
++
++    assert_eq!(
++        report.attempts, 2,
++        "卡死形态提前放弃（attempts < max_attempts）"
++    );
++    assert_eq!(report.retried.len(), 1, "末次不入 retried");
++    assert_eq!(report.retried[0].exit_code, 1, "此前尝试非零退出");
++    assert_eq!(
++        report.retried[0].transient.as_deref(),
++        Some("os error 32"),
++        "此前尝试携命中签名原文"
++    );
++    assert_eq!(report.outcome, RunOutcome::Completed, "早停仍为 Completed");
++    assert_eq!(
++        report.exit_code, 1,
++        "末次非零退出原样返回（由调用方按 fault 收口）"
++    );
++    assert_eq!(
++        progress_series(&report),
++        vec![50, 50],
++        "推进序列末两次相等（卡死自证材料）"
++    );
++    assert_eq!(attempt_count(&ws, "count.txt"), 2, "第 3 次零 spawn");
++    assert!(
++        elapsed >= Duration::from_secs(5),
++        "消费第 1 段退避（虚拟墙钟 {elapsed:?}）"
+     );
+     assert!(
+-        elapsed < Duration::from_millis(3200),
+-        "未消费 4 s / 8 s 段（虚拟墙钟 {elapsed:?}）"
++        elapsed < Duration::from_secs(10),
++        "卡死不延长预算：仅消费一段（虚拟墙钟 {elapsed:?}）"
++    );
++}
++
++/// 正向（AC-2 组合锚）：递减继续重试——第 1 次 264 行、第 2 次 5 行、第 3 次
++/// 0 行 `Compiling` + 锁文本，第 4 次 `exit 0` → 不早停：`attempts == 4`、
++/// `retried.len() == 3`、`exit_code == 0`、shim 计数 == 4。
++#[tokio::test]
++async fn 递减继续重试_不早停() {
++    let ws = ShimWs::new("stall-decreasing");
++    let command = counting_shim(&ws, "decreasing.sh", "count.txt", &[264, 5, 0], Some(4));
++
++    let mut with_retry = options(Duration::from_secs(60));
++    with_retry.retry = fast_policy(5);
++
++    let report = run_shell(command, with_retry).await.expect("递减面应 Ok");
++
++    assert_eq!(report.attempts, 4, "递减形态一路重试到成功");
++    assert_eq!(report.retried.len(), 3, "末次不入 retried");
++    assert_eq!(report.exit_code, 0, "第 4 次转绿");
++    assert_eq!(attempt_count(&ws, "count.txt"), 4, "shim 恰拉起 4 次");
++    assert_eq!(
++        progress_series(&report),
++        vec![264, 5, 0, 0],
++        "递减序列不触发卡死判定"
++    );
++}
++
++/// 异常（AC-2 抑制臂）：末值归零不早停——第 1 次 264 行 `Compiling` + 锁文本，
++/// 此后每次都仅锁文本（计数 0）→ 序列 `[264, 0, 0, 0, 0]` 末值 `0` 不触发卡死
++/// → 跑满上限 `attempts == 5`、`retried.len() == 4`（`fast_policy(5)` 以 20 ms
++/// 退避表达次数面）。
++#[tokio::test]
++async fn 末值归零不早停() {
++    let ws = ShimWs::new("stall-zero-tail");
++    let command = counting_shim(&ws, "zero-tail.sh", "count.txt", &[264], None);
++
++    let mut with_retry = options(Duration::from_secs(60));
++    with_retry.retry = fast_policy(5);
++
++    let report = run_shell(command, with_retry).await.expect("耗尽面应 Ok");
++
++    assert_eq!(report.attempts, 5, "末值 0 不早停 → 跑满上限");
++    assert_eq!(report.retried.len(), 4, "末次不入 retried");
++    assert_eq!(
++        progress_series(&report),
++        vec![264, 0, 0, 0, 0],
++        "末值 0（只剩收尾）恒判否"
++    );
++}
++
++/// 异常（R-1 对照臂）：上升计数判卡死——第 1 次 5 行、第 2 次 9 行 `Compiling`
++/// + 锁文本 → 判据为「非降」而非「相等」→ `attempts == 2`（第 3 次零 spawn）。
++#[tokio::test]
++async fn 上升计数判卡死() {
++    let ws = ShimWs::new("stall-rising");
++    let command = counting_shim(&ws, "rising.sh", "count.txt", &[5, 9], None);
++
++    let mut with_retry = options(Duration::from_secs(60));
++    with_retry.retry = fast_policy(5);
++
++    let report = run_shell(command, with_retry).await.expect("卡死面应 Ok");
++
++    assert_eq!(report.attempts, 2, "上升形态同属「写不进去」→ 早停");
++    assert_eq!(attempt_count(&ws, "count.txt"), 2, "第 3 次零 spawn");
++    assert_eq!(progress_series(&report), vec![5, 9], "上升序列在案");
++}
++
++/// 边界（AC-1）：首跑不触发——首跑 50 行 `Compiling` + 锁文本、`max_attempts = 1`
++/// （直构策略）→ `attempts == 1`、`retried` 空（无前值不判卡死）。
++#[tokio::test]
++async fn 首跑不触发卡死判据() {
++    let ws = ShimWs::new("stall-first");
++    let command = counting_shim(&ws, "first.sh", "count.txt", &[50], None);
++
++    let mut with_retry = options(Duration::from_secs(60));
++    with_retry.retry = RetryPolicy {
++        max_attempts: 1,
++        ..RetryPolicy::transient()
++    };
++
++    let report = run_shell(command, with_retry).await.expect("单次面应 Ok");
++
++    assert_eq!(report.attempts, 1, "上限 1 → 首跑即收口");
++    assert!(report.retried.is_empty(), "零重试 → retried 空");
++    assert_eq!(attempt_count(&ws, "count.txt"), 1, "只 spawn 一次");
++    assert_eq!(progress_series(&report), vec![50], "长度 1 无前值");
++}
++
++/// 边界：卡死臂末次不入 `retried`——卡死早停（`attempts == 2`）时
++/// `retried.len() == 1` 且 `retried[0]` 携第 1 次字节；末次字节留在 `stdout`
++/// （既有不回滚语义，不两写）。
++#[tokio::test]
++async fn 卡死臂末次不入retried() {
++    let ws = ShimWs::new("stall-retried");
++    let counter = ws.file("count.txt");
++    let command = ws.shim(
++        "stall-bytes.sh",
++        &format!(
++            "#!/bin/sh\ncf=\"{cf}\"\nn=$(cat \"$cf\" 2>/dev/null || printf '0')\nn=$((n+1))\nprintf '%s' \"$n\" > \"$cf\"\ni=0\nwhile [ \"$i\" -lt 50 ]; do\n  printf '   Compiling crate%d v0.1.0\\n' \"$i\"\n  i=$((i+1))\ndone\nprintf 'ATTEMPT-%s os error 32\\n' \"$n\"\nexit 1\n",
++            cf = counter.display()
++        ),
++    );
++
++    let mut with_retry = options(Duration::from_secs(60));
++    with_retry.retry = fast_policy(5);
++
++    let report = run_shell(command, with_retry).await.expect("卡死面应 Ok");
++
++    assert_eq!(report.attempts, 2, "两次尝试后早停");
++    assert_eq!(report.retried.len(), 1, "末次不入 retried");
++    let first = String::from_utf8_lossy(&report.retried[0].stdout).into_owned();
++    assert!(
++        first.contains("ATTEMPT-1"),
++        "第 1 次字节在 retried[0]: {first}"
++    );
++    assert!(!first.contains("ATTEMPT-2"), "retried[0] 不含末次字节");
++    let last = String::from_utf8_lossy(&report.stdout).into_owned();
++    assert!(last.contains("ATTEMPT-2"), "末次字节留在 stdout: {last}");
++    assert!(!last.contains("ATTEMPT-1"), "末次仅含本次字节");
++}
++
++/// 边界：大输出在早停面不丢字节——每次尝试 `stdout` / `stderr` 各 `>64 KiB` 且
++/// 含 1 行 `Compiling` + 签名 → 卡死早停后 `retried[0]` 字节数精确等于第 1 次
++/// 写量、末次同样全量（排水语义与单次一致）。
++#[tokio::test]
++async fn 卡死早停面大输出不丢字节() {
++    let ws = ShimWs::new("stall-big");
++    let mut payload = vec![b'q'; 64 * 1024 + 11];
++    payload.extend_from_slice(b"\n   Compiling big v0.1.0\n");
++    payload.extend_from_slice(b"error: failed to rename archive file: /t/big.rlib: os error 32\n");
++    assert!(payload.len() > 64 * 1024, "样本超过 64 KiB");
++    let payload_path = ws.put_bytes("big.bin", &payload);
++    let counter = ws.file("count.txt");
++    let command = ws.shim(
++        "stall-big.sh",
++        &format!(
++            "#!/bin/sh\ncf=\"{cf}\"\nn=$(cat \"$cf\" 2>/dev/null || printf '0')\nn=$((n+1))\nprintf '%s' \"$n\" > \"$cf\"\ncat \"{payload}\"\ncat \"{payload}\" >&2\nexit 1\n",
++            cf = counter.display(),
++            payload = payload_path.display(),
++        ),
++    );
++
++    let mut with_retry = options(Duration::from_secs(120));
++    with_retry.retry = fast_policy(5);
++
++    let report = run_shell(command, with_retry)
++        .await
++        .expect("大输出早停应 Ok");
++
++    assert_eq!(report.attempts, 2, "两次尝试后早停（计数 1 == 1）");
++    assert_eq!(
++        report.retried[0].stdout.len(),
++        payload.len(),
++        "此前尝试 stdout 字节数精确等于写量"
++    );
++    assert_eq!(
++        report.retried[0].stderr.len(),
++        payload.len(),
++        "此前尝试 stderr 字节数精确等于写量"
++    );
++    assert_eq!(report.stdout.len(), payload.len(), "末次 stdout 全量");
++    assert_eq!(report.stderr.len(), payload.len(), "末次 stderr 全量");
++    assert_eq!(
++        progress_series(&report),
++        vec![2, 2],
++        "两路各 1 行 Compiling（合并口径）仍计数，且末两次相等"
+     );
+ }
+ 
+@@ -1235,6 +1524,11 @@ async fn 持续锁冲突耗尽_上限五次() {
+         report.attempts - 1,
+         "不变量：末次之前的尝试数 == attempts - 1"
+     );
++    assert_eq!(
++        progress_series(&report),
++        vec![0; 5],
++        "非 cargo 全 0 形态：新臂在位但不触发早停"
++    );
+     assert_eq!(report.outcome, RunOutcome::Completed, "耗尽仍为 Completed");
+     assert_eq!(
+         report.exit_code, 1,
+@@ -1290,6 +1584,11 @@ async fn 预算耗尽早停不发起新尝试() {
+         .expect("预算早停应 Ok");
+     let elapsed = virtual_started.elapsed();
+ 
++    assert_eq!(
++        progress_series(&report),
++        vec![0; 4],
++        "计数全 0 序列恒判否（新臂不干扰预算判定）"
++    );
+     assert_eq!(report.attempts, 4, "预算耗尽后不再发起新尝试（未到上限 5）");
+     assert_eq!(report.retried.len(), 3, "末次不入 retried");
+     assert_eq!(
+@@ -1334,6 +1633,11 @@ async fn 零预算首跑后即耗尽() {
+ 
+     assert_eq!(report.attempts, 1, "零预算首跑后即耗尽");
+     assert!(report.retried.is_empty(), "零重试 → retried 空");
++    assert_eq!(
++        progress_series(&report),
++        vec![0],
++        "全 0 序列判否，卡死臂不干扰预算判定"
++    );
+     assert_eq!(
+         elapsed,
+         Duration::ZERO,
+diff --git a/crates/infra/exec/src/transient.rs b/crates/infra/exec/src/transient.rs
+index 36b0fbe7969f..f3af505ad44a 100644
+--- a/crates/infra/exec/src/transient.rs
++++ b/crates/infra/exec/src/transient.rs
+@@ -8,7 +8,11 @@
+ //!   `另一个程序正在使用此文件` 覆盖；
+ //! - `TimedOut` / `Cancelled` **永不命中**：超时重试会把 1200 s 变数小时，取消
+ //!   必须立即生效；
+-//! - 判定为「整串包含」——表内签名均不含换行，故与「逐行包含」等价。
++//! - 判定为「整串包含」——表内签名均不含换行，故与「逐行包含」等价；
++//! - **增量推进判据单点驻本模块**（[`compiling_count`] / [`progress_series`] /
++//!   [`is_progress_stalled`]）：执行体与检查域各只调用，MUST NOT 重算计数口径
++//!   （否则「为何早停」与「早停的自证材料」会对不上）；该判据只用于**提前放弃**，
++//!   MUST NOT 用于延长预算。
+ 
+ use std::time::Duration;
+ 
+@@ -18,6 +22,11 @@ use crate::run::{RunOutcome, RunReport};
+ ///
+ /// 现场来源（企业级安全软件的 minifilter 驱动持有 `target/` 下构建产物）：
+ /// `rename` / `write` / `remove` 三动词失败，报错形态落三族之一。
++///
++/// `remove` 形态取 `failed to remove`（**不含** `file`）：生产文本为
++/// `failed to remove <path>`，带 `file` 的旧条目永不命中（功能上被同行
++/// `os error 32` 兜住，但会误导维护者以为 remove 形态有独立覆盖）；收窄风险低
++/// ——该短语只出现在删除失败语境。
+ const TRANSIENT_SIGNATURES: [&str; 13] = [
+     // Windows 文件锁族（DELETE 共享语义冲突）
+     "os error 32",
+@@ -25,7 +34,7 @@ const TRANSIENT_SIGNATURES: [&str; 13] = [
+     "另一个程序正在使用此文件",
+     "being used by another process",
+     "failed to rename archive file",
+-    "failed to remove file",
++    "failed to remove",
+     "Access is denied",
+     // MSVC 链接器族（.pdb / .lib 被占用或未关闭）
+     "LNK1104",
+@@ -41,13 +50,16 @@ const TRANSIENT_SIGNATURES: [&str; 13] = [
+ /// 前 3 次内自愈），又不把单步墙钟放大到不可接受的量级。
+ const RETRY_MAX_ATTEMPTS: u32 = 5;
+ 
+-/// 重试退避四段（第 k 次重试前等待 `RETRY_BACKOFF[k - 1]`）：1 / 2 / 4 / 8 s
+-/// 递增覆盖「杀软扫描完一个文件」的典型窗口，同时避免空转重试。
++/// 重试退避四段（第 k 次重试前等待 `RETRY_BACKOFF[k - 1]`）：5 / 10 / 20 / 40 s
++/// 慢档——实测安全软件的静默窗口可达分钟级，秒级退避在「只剩 rename 收尾」
++/// （待编译计数已归零、只剩最后一两个产物）的尝试上大概率撞同一个扫描窗口，而那
++/// 正是最需要耐心的一档。成功路径零影响（未命中签名不重试），只有真需要重试时才
++/// 多等：最坏 5 次共 75 s，仍远低于 [`RETRY_TOTAL_BUDGET`] 硬顶。
+ const RETRY_BACKOFF: [Duration; 4] = [
+-    Duration::from_secs(1),
+-    Duration::from_secs(2),
+-    Duration::from_secs(4),
+-    Duration::from_secs(8),
++    Duration::from_secs(5),
++    Duration::from_secs(10),
++    Duration::from_secs(20),
++    Duration::from_secs(40),
+ ];
+ 
+ /// 重试面**总预算**（自首跑开始时刻起算，非「每次尝试一份」）：1500 s 只够一次
+@@ -80,7 +92,7 @@ impl RetryPolicy {
+         }
+     }
+ 
+-    /// 瞬态重试：`max_attempts = 5`（首跑 + 4 次重试）、退避 `[1, 2, 4, 8] s`、
++    /// 瞬态重试：`max_attempts = 5`（首跑 + 4 次重试）、退避 `[5, 10, 20, 40] s`、
+     /// 总预算 1500 s。
+     pub fn transient() -> RetryPolicy {
+         RetryPolicy {
+@@ -140,6 +152,59 @@ pub fn is_transient(report: &RunReport) -> Option<&'static str> {
+     )
+ }
+ 
++/// 待编译计数（「什么是一个待编译单位」这条易漂移口径的**单点**）：合并输出
++/// （`stdout ++ stderr`，UTF-8 lossy）按 [`str::lines`] 逐行，去前导空白后以
++/// `Compiling ` 为前缀的行数（rustc / cargo 原文形态，**大小写敏感**、含尾随
++/// 空格）；无该字样 → `0`。
++///
++/// `lines()` 天然吃掉 CRLF 的 `\r`（与既有判定口径一致）。无该字样的输出
++/// （Node / 链接器 / 真红）退化为固定次数语义：每次尝试计数恒 `0`，卡死判据因此
++/// 恒判否，重试照旧走满上限 / 预算（既有行为零变）。
++///
++/// 零 IO / 零 spawn / 零 panic。检查域 MUST NOT 重算本口径——装配文案只经
++/// [`progress_series`] 取数。
++pub fn compiling_count(stdout: &[u8], stderr: &[u8]) -> u32 {
++    let mut merged = stdout.to_vec();
++    merged.extend_from_slice(stderr);
++    String::from_utf8_lossy(&merged)
++        .lines()
++        .filter(|line| line.trim_start().starts_with("Compiling "))
++        .count() as u32
++}
++
++/// 按尝试序的待编译计数序列：`retried` 逐条在前、末次尝试在后。
++///
++/// 长度 = `retried.len() + 1`；生产不变量（`run.rs` 的入栈动作在退避成功之后）
++/// 下 `retried.len() + 1 == attempts`，故长度等于 `attempts`；未重试即长度 1。
++/// 与执行体重试循环内的计数序列**同源同值**（两处共用 [`compiling_count`]，字节
++/// 零改写零截断是等值的前提）——故 [`RunReport`] 无需新增字段。
++pub fn progress_series(report: &RunReport) -> Vec<u32> {
++    let mut series: Vec<u32> = report
++        .retried
++        .iter()
++        .map(|trace| compiling_count(&trace.stdout, &trace.stderr))
++        .collect();
++    series.push(compiling_count(&report.stdout, &report.stderr));
++    series
++}
++
++/// 卡死判据：末两次计数**非降**且末值 `> 0`（`series.len() < 2` 恒 `false`）。
++///
++/// 「非降」而非「相等」——「新增 crate 数抵消已完成 crate 数」的上升形态同属写不
++/// 进去；末值 `0`（只剩 rename / 清理收尾）恒判否，那恰恰是最该再试的一档。
++///
++/// 判据只用于**提前放弃**，MUST NOT 用于延长预算：`attempts == 1` 无前值不触发，
++/// `TimedOut` / `Cancelled` / 真红（无签名）三条既有零重试面与判据无关。
++pub fn is_progress_stalled(series: &[u32]) -> bool {
++    let Some((last, previous)) = series.split_last() else {
++        return false;
++    };
++    let Some(previous) = previous.last() else {
++        return false;
++    };
++    *last > 0 && *last >= *previous
++}
++
+ #[cfg(test)]
+ #[path = "transient_test.rs"]
+ mod transient_test;
+diff --git a/crates/infra/exec/src/transient_test.rs b/crates/infra/exec/src/transient_test.rs
+index aa233d6345af..f4ed8e3d4b5f 100644
+--- a/crates/infra/exec/src/transient_test.rs
++++ b/crates/infra/exec/src/transient_test.rs
+@@ -4,11 +4,16 @@
+ //! 覆盖面：13 条封闭签名表的逐条命中与大小写不敏感、两路合并匹配、多行噪声、
+ //! 三合一判据的三条反例（超时 / 取消 / 绿 / 真红 / 裸 `failed to write`）、字节
+ //! 面边界（空 / 单字节 / 大块 / 非 UTF-8 / 特殊字符）、`RetryPolicy` 两构造的
+-//! 三常量锚定与直构边界、`AttemptTrace` 字段面。
++//! 三常量锚定与直构边界、`AttemptTrace` 字段面；增量推进判据三函数
++//! （[`compiling_count`] / [`progress_series`] / [`is_progress_stalled`]）的
++//! 口径 / 序 / 长度 / 字节面边界。
+ 
+ use std::time::Duration;
+ 
+-use super::{is_transient, transient_signature, AttemptTrace, RetryPolicy};
++use super::{
++    compiling_count, is_progress_stalled, is_transient, progress_series, transient_signature,
++    AttemptTrace, RetryPolicy,
++};
+ use crate::run::{RunOutcome, RunReport};
+ 
+ // ---------------------------------------------------------------------------
+@@ -33,6 +38,29 @@ fn failed_stdout(bytes: &[u8]) -> RunReport {
+     report(RunOutcome::Completed, 1, bytes, b"")
+ }
+ 
++/// 此前尝试的留痕（留痕面最常用形态：非零退出 + 命中签名）。
++fn trace(stdout: &[u8], stderr: &[u8]) -> AttemptTrace {
++    AttemptTrace {
++        exit_code: 1,
++        transient: Some("os error 32".to_owned()),
++        stdout: stdout.to_vec(),
++        stderr: stderr.to_vec(),
++    }
++}
++
++/// N 行 `Compiling <crate> v0.1.0`（rustc 缩进形态：三空格前缀）的原始字节。
++fn compiling_lines(count: u32) -> Vec<u8> {
++    (0..count)
++        .map(|index| {
++            format!(
++                "   Compiling crate{index} v0.1.0
++"
++            )
++        })
++        .collect::<String>()
++        .into_bytes()
++}
++
+ // ---------------------------------------------------------------------------
+ // 正向：封闭签名表逐条命中
+ // ---------------------------------------------------------------------------
+@@ -43,14 +71,15 @@ fn failed_stdout(bytes: &[u8]) -> RunReport {
+ #[test]
+ fn 签名表逐条命中_返回表中原文() {
+     // 封闭表 13 条（Windows 锁族 7 / MSVC 1 / POSIX·Node 5）——逐条硬编码即
+-    // 「删条目 / 改写法即被击杀」
++    // 「删条目 / 改写法即被击杀」；第 6 条为收窄后的 `failed to remove`
++    // （**不含** `file`——生产文本为 `failed to remove <path>`）
+     const TABLE: [&str; 13] = [
+         "os error 32",
+         "os error 5",
+         "另一个程序正在使用此文件",
+         "being used by another process",
+         "failed to rename archive file",
+-        "failed to remove file",
++        "failed to remove",
+         "Access is denied",
+         "LNK1104",
+         "EBUSY",
+@@ -356,9 +385,9 @@ fn 私有判定核心与公开面逐值一致() {
+ // 正向 / 边界：RetryPolicy 两构造与字段面
+ // ---------------------------------------------------------------------------
+ 
+-/// 正向（AC-1）：`RetryPolicy::transient()` 三常量锚定——`max_attempts == 5`
+-/// （首跑 + 4 次重试）、`backoff == [1, 2, 4, 8] s`、`total_budget == 1500 s`
+-///（改值即被击杀）。
++/// 正向（AC-3）：`RetryPolicy::transient()` 三常量锚定——`max_attempts == 5`
++/// （首跑 + 4 次重试）、`backoff == [5, 10, 20, 40] s`（慢档）、
++/// `total_budget == 1500 s`（改值即被击杀）。
+ #[test]
+ fn transient策略三常量锚定() {
+     let policy = RetryPolicy::transient();
+@@ -366,12 +395,12 @@ fn transient策略三常量锚定() {
+     assert_eq!(
+         policy.backoff,
+         [
+-            Duration::from_secs(1),
+-            Duration::from_secs(2),
+-            Duration::from_secs(4),
+-            Duration::from_secs(8),
++            Duration::from_secs(5),
++            Duration::from_secs(10),
++            Duration::from_secs(20),
++            Duration::from_secs(40),
+         ],
+-        "退避四段递增"
++        "退避四段递增（慢档）"
+     );
+     assert_eq!(
+         policy.total_budget,
+@@ -389,10 +418,10 @@ fn none策略单次语义且两次调用相等() {
+     assert_eq!(
+         policy.backoff,
+         [
+-            Duration::from_secs(1),
+-            Duration::from_secs(2),
+-            Duration::from_secs(4),
+-            Duration::from_secs(8),
++            Duration::from_secs(5),
++            Duration::from_secs(10),
++            Duration::from_secs(20),
++            Duration::from_secs(40),
+         ],
+         "退避取同类常量值（不消费）"
+     );
+@@ -546,3 +575,437 @@ fn attempt_trace输出边界四形态() {
+         "Debug 派生可读"
+     );
+ }
++
++// ---------------------------------------------------------------------------
++// 正向 / 边界（P4）：remove 形态措辞收窄（经 `is_transient` 公共面）
++// ---------------------------------------------------------------------------
++
++/// 正向（表驱动 2 形态，AC-4）：`failed to remove` 真实命中——生产文本
++/// `failed to remove D:\…\x.rcgu.o`（同一行无 `os error` 码）→ 返回**表内原文**；
++/// 带旧措辞 `failed to remove file` 的输入同样返回 `failed to remove`（表中已无
++/// `file` 分支——返回的是表内原文而非输出片段）。
++#[test]
++fn remove形态真实命中_返回表内原文() {
++    let production = b"error: failed to remove D:\\w\\target\\debug\\deps\\x.rcgu.o";
++    assert_eq!(
++        is_transient(&failed_stdout(production)),
++        Some("failed to remove"),
++        "生产 remove 文本命中且返回表内原文"
++    );
++    assert!(
++        !String::from_utf8_lossy(production).contains("os error"),
++        "该形态可单独命中（不靠同行错误码兜住）"
++    );
++
++    let legacy = b"error: failed to remove file: /t/x.rcgu.o";
++    let hit = is_transient(&failed_stdout(legacy));
++    assert_eq!(hit, Some("failed to remove"), "旧措辞输入仍命中");
++    assert!(
++        !hit.unwrap_or_default().contains("file"),
++        "返回原文不含 `file`（表内已无该分支）"
++    );
++}
++
++// ---------------------------------------------------------------------------
++// 正向 / 异常 / 边界：`compiling_count`（待编译计数口径单点）
++// ---------------------------------------------------------------------------
++
++/// 正向（表驱动 3 形态）：多行计数——rustc 缩进形态两路合并口径（`stdout ++
++/// stderr`）、非 `Compiling` 行（`Finished …`）不计数。
++#[test]
++fn 编译计数_多行与两路合并() {
++    // 形态一：stdout 两行
++    assert_eq!(
++        compiling_count(b"   Compiling a v0.1.0\n   Compiling b v0.2.0\n", b""),
++        2,
++        "stdout 侧两行计数"
++    );
++
++    // 形态二：stderr 侧另含 1 行（两路合并）
++    assert_eq!(
++        compiling_count(
++            b"   Compiling a v0.1.0\n   Compiling b v0.2.0\n",
++            b"   Compiling c v0.3.0\n",
++        ),
++        3,
++        "合并 = stdout ++ stderr，两路都计"
++    );
++
++    // 形态三：末行 `Finished dev …` 不计数
++    assert_eq!(
++        compiling_count(
++            b"   Compiling a v0.1.0\n    Finished dev [unoptimized] target(s)\n",
++            b"",
++        ),
++        1,
++        "Finished 行不计数"
++    );
++}
++
++/// 异常（表驱动 6 形态）：非 cargo 输出恒 `0`——锁错误行 / 普通编译错误 /
++/// 全小写 `compiling` / 无尾随空格的 `Compiling` / 前缀不成立的 `Compilingx` /
++/// 行中出现的 `Compiling`（非行首）均不计数。
++#[test]
++fn 编译计数_非cargo输出恒零() {
++    const NON_CARGO: [&[u8]; 6] = [
++        b"error: failed to rename archive file: /t/liba.rlib: os error 32",
++        b"error[E0308]: mismatched types",
++        b"compiling a v0.1.0",
++        b"Compiling",
++        b"Compilingx",
++        b"error: Compiling failed",
++    ];
++
++    for body in NON_CARGO {
++        assert_eq!(
++            compiling_count(body, b""),
++            0,
++            "非 cargo 形态 {:?} 计数为 0",
++            String::from_utf8_lossy(body)
++        );
++    }
++}
++
++/// 边界（表驱动 7 形态）：前导空白与行内形态——零缩进 / 空格 / 制表符 / 混合
++/// 空白均计数；`Compiling ` 后直接换行（无 crate 名）仍计数；行首 `\0` 或 emoji
++/// 前置不计数（`trim_start` 只去空白）。
++#[test]
++fn 编译计数_前导空白与行内形态() {
++    assert_eq!(
++        compiling_count(b"Compiling a v0.1.0\n", b""),
++        1,
++        "零缩进形态计数"
++    );
++    assert_eq!(
++        compiling_count(b"   Compiling a v0.1.0\n", b""),
++        1,
++        "空格缩进计数"
++    );
++    assert_eq!(
++        compiling_count(b"\tCompiling a v0.1.0\n", b""),
++        1,
++        "制表符缩进计数"
++    );
++    assert_eq!(
++        compiling_count(b" \t \t Compiling a v0.1.0\n", b""),
++        1,
++        "混合空白缩进计数"
++    );
++    assert_eq!(
++        compiling_count(b"Compiling \n", b""),
++        1,
++        "无 crate 名的 `Compiling ` 仍计数（含尾随空格）"
++    );
++    assert_eq!(
++        compiling_count(b"\0Compiling a v0.1.0\n", b""),
++        0,
++        "行首 NUL 不属空白 → 不计数"
++    );
++    assert_eq!(
++        compiling_count("🎉Compiling a v0.1.0\n".as_bytes(), b""),
++        0,
++        "行首 emoji 不属空白 → 不计数"
++    );
++}
++
++/// 边界（表驱动 5 形态）：字节面边界——双空 / 单字节 / >64 KiB 且 5000 行
++/// `Compiling`（不截断）/ 非 UTF-8 前缀字节（lossy 后仍计数、不 panic）/
++/// 纯 CRLF 行尾（`lines()` 吃 `\r`）。
++#[test]
++fn 编译计数_字节面边界() {
++    // 形态一：双空
++    assert_eq!(compiling_count(b"", b""), 0, "双空输出计数 0");
++
++    // 形态二：单字节
++    assert_eq!(compiling_count(b"x", b""), 0, "单字节计数 0");
++
++    // 形态三：大块（>64 KiB）且 5000 行 Compiling —— 不截断
++    let big = compiling_lines(5000);
++    assert!(big.len() > 64 * 1024, "样本确实超过 64 KiB");
++    assert_eq!(compiling_count(&big, b""), 5000, "大块逐行全量计数");
++
++    // 形态四：非 UTF-8 前缀字节（lossy 不 panic）
++    let mut raw = vec![0xFF_u8, 0xFE];
++    raw.extend_from_slice(b"\nCompiling x v0.1.0\n");
++    assert_eq!(
++        compiling_count(&raw, b""),
++        1,
++        "非 UTF-8 前缀 lossy 后仍计数（该行不计数、下一行计数）"
++    );
++
++    // 形态五：纯 CRLF 行尾（`lines()` 天然吃掉 `\r`）
++    assert_eq!(
++        compiling_count(b"   Compiling a v0.1.0\r\n   Compiling b v0.1.0\r\n", b""),
++        2,
++        "CRLF 行尾逐行计数"
++    );
++}
++
++// ---------------------------------------------------------------------------
++// 正向 / 边界：`progress_series`（按尝试序的计数序列）
++// ---------------------------------------------------------------------------
++
++/// 正向：未重试长度 1——`attempts == 1`、`retried` 空、`stdout` 5 行
++/// `Compiling` → `vec![5]`（长度 1 == `attempts`）。
++#[test]
++fn 推进序列_未重试长度一() {
++    let report = RunReport {
++        outcome: RunOutcome::Completed,
++        exit_code: 1,
++        stdout: compiling_lines(5),
++        stderr: Vec::new(),
++        attempts: 1,
++        retried: Vec::new(),
++    };
++
++    let series = progress_series(&report);
++    assert_eq!(series, vec![5], "未重试即长度 1 且取末次计数");
++    assert_eq!(series.len() as u32, report.attempts, "长度 == attempts");
++}
++
++/// 正向：序与长度（生产形态）——`retried` 三条（264 / 5 / 0 行）+ 末次 0 行、
++/// `attempts == 4` → `[264, 5, 0, 0]`（按尝试序，末次在后，长度 == `attempts`）。
++#[test]
++fn 推进序列_按尝试序与长度() {
++    let report = RunReport {
++        outcome: RunOutcome::Completed,
++        exit_code: 1,
++        stdout: b"error: os error 32\n".to_vec(),
++        stderr: Vec::new(),
++        attempts: 4,
++        retried: vec![
++            trace(&compiling_lines(264), b""),
++            trace(&compiling_lines(5), b""),
++            trace(&compiling_lines(0), b""),
++        ],
++    };
++
++    let series = progress_series(&report);
++    assert_eq!(series, vec![264, 5, 0, 0], "按尝试序排列，末次在后");
++    assert_eq!(series.len() as u32, report.attempts, "长度 == attempts");
++}
++
++/// 边界（表驱动 2 形态）：耗尽与越界长度——`retried` 4 条 + 末次 → 长度 5
++/// （`transient()` 上限形态）；`retried` 5 条直构（越出生产不变量）→ 长度 6、
++/// 零 panic。
++#[test]
++fn 推进序列_耗尽与越界长度() {
++    let exhausted = RunReport {
++        outcome: RunOutcome::Completed,
++        exit_code: 1,
++        stdout: Vec::new(),
++        stderr: Vec::new(),
++        attempts: 5,
++        retried: vec![
++            trace(&compiling_lines(10), b""),
++            trace(&compiling_lines(8), b""),
++            trace(&compiling_lines(3), b""),
++            trace(&compiling_lines(1), b""),
++        ],
++    };
++    assert_eq!(
++        progress_series(&exhausted),
++        vec![10, 8, 3, 1, 0],
++        "上限形态长度 5（== attempts）"
++    );
++
++    let overflow = RunReport {
++        outcome: RunOutcome::Completed,
++        exit_code: 1,
++        stdout: Vec::new(),
++        stderr: Vec::new(),
++        attempts: 6,
++        retried: vec![
++            trace(&compiling_lines(1), b""),
++            trace(&compiling_lines(1), b""),
++            trace(&compiling_lines(1), b""),
++            trace(&compiling_lines(1), b""),
++            trace(&compiling_lines(1), b""),
++        ],
++    };
++    assert_eq!(
++        progress_series(&overflow).len(),
++        6,
++        "越界直构长度 = retried.len() + 1，不 panic"
++    );
++}
++
++/// 边界（表驱动 2 形态）：直构违反不变量——`attempts = 3` 但 `retried = []`
++/// → 长度 1（doc 口径「长度 = `retried.len() + 1`」，不按 `attempts` 补齐）；
++/// `attempts = 0` 直构同样不 panic。
++#[test]
++fn 推进序列_直构违反不变量() {
++    let mismatched = RunReport {
++        outcome: RunOutcome::Completed,
++        exit_code: 1,
++        stdout: compiling_lines(3),
++        stderr: Vec::new(),
++        attempts: 3,
++        retried: Vec::new(),
++    };
++    assert_eq!(
++        progress_series(&mismatched),
++        vec![3],
++        "序列按 retried 反推，不按 attempts 补齐"
++    );
++
++    let zero_attempts = RunReport {
++        outcome: RunOutcome::Completed,
++        exit_code: 0,
++        stdout: Vec::new(),
++        stderr: Vec::new(),
++        attempts: 0,
++        retried: Vec::new(),
++    };
++    assert_eq!(
++        progress_series(&zero_attempts),
++        vec![0],
++        "attempts == 0 直构不 panic"
++    );
++}
++
++/// 边界（表驱动 3 形态）：两路合并与字节形态——某 `retried` 条目的
++/// `Compiling` 行仅在 `stderr` → 计入该位；末次 `stderr` 侧含 `Compiling` 行 →
++/// 计入末位；非 UTF-8 / emoji / `\0` 混排 → lossy 计数不 panic。
++#[test]
++fn 推进序列_两路合并与字节形态() {
++    // 形态一：retried 条目的 Compiling 行只在 stderr
++    let stderr_side = RunReport {
++        outcome: RunOutcome::Completed,
++        exit_code: 1,
++        stdout: b"error: os error 32\n".to_vec(),
++        stderr: Vec::new(),
++        attempts: 2,
++        retried: vec![trace(b"", &compiling_lines(2))],
++    };
++    assert_eq!(
++        progress_series(&stderr_side),
++        vec![2, 0],
++        "此前尝试的 stderr 侧 Compiling 行计入该位"
++    );
++
++    // 形态二：末次 stderr 侧含 Compiling 行
++    let last_stderr = RunReport {
++        outcome: RunOutcome::Completed,
++        exit_code: 1,
++        stdout: b"error: os error 32\n".to_vec(),
++        stderr: compiling_lines(4),
++        attempts: 2,
++        retried: vec![trace(&compiling_lines(7), b"")],
++    };
++    assert_eq!(
++        progress_series(&last_stderr),
++        vec![7, 4],
++        "末次两路合并计数"
++    );
++
++    // 形态三：非 UTF-8 / emoji / NUL 混排 → lossy 计数不 panic
++    let mut raw = vec![0xFF_u8, 0xFE, b'\n'];
++    raw.extend_from_slice("🎉\u{0} noise\n   Compiling a v0.1.0\n".as_bytes());
++    let messy = RunReport {
++        outcome: RunOutcome::Completed,
++        exit_code: 1,
++        stdout: raw,
++        stderr: Vec::new(),
++        attempts: 1,
++        retried: Vec::new(),
++    };
++    assert_eq!(
++        progress_series(&messy),
++        vec![1],
++        "特殊字符混排下计数不 panic"
++    );
++}
++
++// ---------------------------------------------------------------------------
++// 正向 / 异常 / 边界：`is_progress_stalled`（卡死判据）
++// ---------------------------------------------------------------------------
++
++/// 正向（表驱动 4 形态）：判卡死——末两次相等 `[50, 50]` / 末尾相等
++/// `[264, 5, 5]` / **上升** `[5, 9]`（非降而非相等）/ `[u32::MAX, u32::MAX]`
++/// → `true`。
++#[test]
++fn 判据_末两次非降判卡死() {
++    const STALLED: [&[u32]; 4] = [&[50, 50], &[264, 5, 5], &[5, 9], &[u32::MAX, u32::MAX]];
++
++    for series in STALLED {
++        assert!(
++            is_progress_stalled(series),
++            "序列 {series:?} 应判卡死（末值 > 0 且非降）"
++        );
++    }
++}
++
++/// 异常（表驱动 5 形态）：推进或收尾不卡死——递减 `[264, 5]` /
++/// `[264, 5, 0]` / `[264, 5, 0, 0]` / `[9, 5]` / 末值归零 `[10, 0]` → `false`。
++#[test]
++fn 判据_递减与末值归零不卡死() {
++    const PROGRESSING: [&[u32]; 5] = [&[264, 5], &[264, 5, 0], &[264, 5, 0, 0], &[9, 5], &[10, 0]];
++
++    for series in PROGRESSING {
++        assert!(
++            !is_progress_stalled(series),
++            "序列 {series:?} 不判卡死（递减或末值 0）"
++        );
++    }
++}
++
++/// 边界（表驱动 3 形态）：空与单值——`[]` / `[50]`（`attempts == 1` 无前值）/
++/// `[0]` → 均 `false`。
++#[test]
++fn 判据_空与单值不卡死() {
++    assert!(!is_progress_stalled(&[]), "空序列无前值");
++    assert!(!is_progress_stalled(&[50]), "单值无前值（首跑不触发）");
++    assert!(!is_progress_stalled(&[0]), "单值 0 判否");
++}
++
++/// 边界（表驱动 4 形态）：全 0 与大列表——`[0, 0]` / `[0, 0, 0, 0]` 末值 0 恒
++/// 判否；`[0, 3]` 前值 0、末值 > 0 仍判卡死；1000 项全等判卡死（超大列表不
++/// 退化）。
++#[test]
++fn 判据_全零与大列表() {
++    assert!(!is_progress_stalled(&[0, 0]), "全 0 判否");
++    assert!(!is_progress_stalled(&[0, 0, 0, 0]), "全 0 长序列判否");
++    assert!(
++        is_progress_stalled(&[0, 3]),
++        "前值 0、末值 > 0 仍属「写不进去」"
++    );
++
++    let huge = vec![7u32; 1000];
++    assert!(is_progress_stalled(&huge), "1000 项全等（超大列表）判卡死");
++}
++
++// ---------------------------------------------------------------------------
++// 边界：`RetryPolicy` 常量关系与两构造
++// ---------------------------------------------------------------------------
++
++/// 边界（表驱动 3 形态）：常量关系与两构造——`backoff` 四段严格递增且总和
++/// `75 s < total_budget`（最坏重试总等待仍远低于硬顶）；`none()` 的
++/// `backoff` / `total_budget` 取同类常量（不被消费）；`none() != transient()`。
++#[test]
++fn 策略常量关系与两构造边界() {
++    let transient = RetryPolicy::transient();
++    for pair in transient.backoff.windows(2) {
++        assert!(
++            pair[0] < pair[1],
++            "退避四段严格递增：{:?} 不小于 {:?}",
++            pair[0],
++            pair[1]
++        );
++    }
++    let total_wait: Duration = transient.backoff.iter().sum();
++    assert_eq!(total_wait, Duration::from_secs(75), "四段总和 75 s");
++    assert!(
++        total_wait < transient.total_budget,
++        "最坏重试总等待 75 s 远低于总预算 1500 s"
++    );
++
++    let none = RetryPolicy::none();
++    assert_eq!(none.backoff, transient.backoff, "none 取同类退避常量");
++    assert_eq!(
++        none.total_budget, transient.total_budget,
++        "none 取同类预算常量"
++    );
++    assert_eq!(none.max_attempts, 1, "none 单次执行");
++    assert_ne!(none, transient, "两构造互不相等");
++}

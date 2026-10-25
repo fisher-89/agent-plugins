@@ -1,0 +1,2246 @@
+diff --git a/crates/core/checks/src/aggregate.rs b/crates/core/checks/src/aggregate.rs
+index 0d8ecbb8bdde..1d0bf18d1c34 100644
+--- a/crates/core/checks/src/aggregate.rs
++++ b/crates/core/checks/src/aggregate.rs
+@@ -101,11 +101,17 @@ pub fn coverage_meets_thresholds(
+ /// 全局覆盖聚合：全局阈值（首个 suite 的阈值，缺省 80 / 70 / 75）+ 实测块
+ /// + per-suite override 组（CLI `computeCoverageResult` 同语义）。
+ ///
+-/// 无实测数据 → `None`（覆盖采集失败语义，判定按 null 感知跳过）。
++/// 无实测数据 → `None`（覆盖采集失败语义，判定按 null 感知跳过）；**采集不完整**
++/// （任一 suite 结论非 pass 且无覆盖率块，见 [`misses_coverage`]）同样收敛 `None`
++/// ——与「无实测数据 → `None`」同源的不可测语义：部分 suite 的达标数值 MUST NOT
++/// 被呈现为整体通过（`pass == true` 是假话）。
+ pub fn aggregate_coverage(
+     sub_reports: &[SubReport],
+     suites: &[TestSuite],
+ ) -> Option<CoverageBlock> {
++    if sub_reports.iter().any(misses_coverage) {
++        return None;
++    }
+     let thresholds = suites
+         .first()
+         .map(|suite| to_thresholds(&suite.coverage))
+@@ -424,11 +430,30 @@ fn default_glob(framework: &config::TestFramework) -> &'static str {
+ // problems 归并与 summary 组装
+ // ---------------------------------------------------------------------------
+ 
++/// 覆盖率**采集完整性**判据单点（归因 [`collect_problems`] 与收敛
++/// [`aggregate_coverage`] 共用，MUST NOT 各写一份——否则会出现「报了缺失却不收敛」
++/// 或反之）：
++///
++/// 「自身结论非 pass」（非零退出 / 有失败用例 / 覆盖块自判未达）**且**「`coverage ==
++/// None`」（覆盖率采集缺失）→ 该 suite 的覆盖数据缺席，聚合面不可报通过。
++fn misses_coverage(report: &SubReport) -> bool {
++    let non_pass = report.exit_code != 0
++        || report.summary.failed > 0
++        || report.coverage.as_ref().is_some_and(|block| !block.pass);
++    non_pass && report.coverage.is_none()
++}
++
+ /// 问题归并（CLI `collectProblems` 同语义）：失败用例逐条（至多 10 条）
+ /// test_failure；非零退出且零失败、或零失败携 findings → execution_error。
++///
++/// 另含**覆盖率采集缺失**归因（`ProblemType::ExecutionError`，见
++/// [`misses_coverage`]）：每 suite 至多一条，与该 suite 已有 `execution_error` 去重
++/// （既有条目消息面零改写）；[`build_summary_report`] 的「`has_execution_error →
++/// Error`」映射零改，故缺测 suite 把整份结论定为不可测。
+ fn collect_problems(sub_reports: &[SubReport]) -> Vec<Problem> {
+     let mut problems = Vec::new();
+     for report in sub_reports {
++        let mut has_execution_error = false;
+         if report.summary.failed > 0 {
+             let failures = report
+                 .error_cases
+@@ -457,6 +482,7 @@ fn collect_problems(sub_reports: &[SubReport]) -> Vec<Problem> {
+                 problem_type: ProblemType::ExecutionError,
+                 message: detail,
+             });
++            has_execution_error = true;
+         } else if report.summary.failed == 0
+             && report
+                 .findings
+@@ -472,6 +498,17 @@ fn collect_problems(sub_reports: &[SubReport]) -> Vec<Problem> {
+                     .and_then(|findings| findings.first().cloned())
+                     .unwrap_or_default(),
+             });
++            has_execution_error = true;
++        }
++        if !has_execution_error && misses_coverage(report) {
++            problems.push(Problem {
++                framework: report.framework.clone(),
++                problem_type: ProblemType::ExecutionError,
++                message: format!(
++                    "覆盖率采集缺失（退出码 {}）：该 suite 结论非通过且未产出覆盖率数据",
++                    report.exit_code
++                ),
++            });
+         }
+     }
+     problems
+diff --git a/crates/core/checks/src/aggregate_test.rs b/crates/core/checks/src/aggregate_test.rs
+index 76272f283ba0..49b9ac29d97d 100644
+--- a/crates/core/checks/src/aggregate_test.rs
++++ b/crates/core/checks/src/aggregate_test.rs
+@@ -561,28 +561,30 @@ fn suite范围_缺省glob花括号命中() {
+ // build_summary_report（汇总组装）
+ // ---------------------------------------------------------------------------
+ 
+-/// 正向：计数合并 / problems 归并 / plans 路径索引 / coverage 块 / conclusion
+-/// 判定组装逐字段相等。
++/// 正向（AC-7 分支 a，改写既有语料的「齐全」臂）：全测齐全零变——两 suite 均产
++/// 覆盖率（vite-plus 90% / rust 92%，均达阈）、全绿 → `coverage == Some(pass:
++/// true)`、`measured` 加权逐值、`problems` 与改造前逐字节相同（无新增
++/// `execution_error`）、`conclusion == Pass`；计数合并 / plans 索引 / `phase` /
++/// `command` 透传 / mutation 恒 `None` 既有断言零变。
+ #[test]
+-fn 汇总组装逐字段相等() {
+-    let suites = vec![suite(
+-        "src/app",
+-        TestFramework::VitePlus,
+-        config_thresholds(80.0, 70.0, 75.0),
+-        Some(vec!["**/*.rs".to_owned()]),
+-        None,
+-    )];
++fn 汇总组装逐字段相等_全测齐全() {
++    let suites = vec![
++        suite(
++            "src/app",
++            TestFramework::VitePlus,
++            config_thresholds(80.0, 70.0, 75.0),
++            Some(vec!["**/*.ts".to_owned()]),
++            None,
++        ),
++        suite(
++            "crates",
++            TestFramework::Rust,
++            config_thresholds(80.0, 70.0, 75.0),
++            Some(vec!["**/*.rs".to_owned()]),
++            None,
++        ),
++    ];
+ 
+-    let failing_case = TestCaseResult {
+-        name: "math > rejects NaN".to_owned(),
+-        file: None,
+-        duration_ms: None,
+-        status: TestCaseStatus::Failed,
+-        line: None,
+-        error_type: Some("AssertionError".to_owned()),
+-        error_message: Some("expected 1 to equal 2".to_owned()),
+-        stack_trace: None,
+-    };
+     let passing_case = TestCaseResult {
+         name: "math > adds".to_owned(),
+         file: None,
+@@ -597,15 +599,37 @@ fn 汇总组装逐字段相等() {
+     let mut vite = sub_report(
+         "src/app",
+         "vite-plus",
+-        counts(2, 1, 1, 0),
+-        vec![entry("src/app/main.rs", 10, 9, None, None, None, None)],
+-        None,
++        counts(2, 2, 0, 0),
++        vec![entry("src/app/main.ts", 10, 9, None, None, None, None)],
++        Some(block(
++            true,
++            measured(Some(90.0), None, None),
++            thresholds(80.0, 70.0, 75.0),
++        )),
++    );
++    vite.error_cases = vec![passing_case];
++    let rust = sub_report(
++        "crates",
++        "rust",
++        counts(3, 3, 0, 0),
++        vec![entry(
++            "crates/foo/src/lib.rs",
++            25,
++            23,
++            None,
++            None,
++            None,
++            None,
++        )],
++        Some(block(
++            true,
++            measured(Some(92.0), None, None),
++            thresholds(80.0, 70.0, 75.0),
++        )),
+     );
+-    vite.error_cases = vec![failing_case.clone(), passing_case];
+-    let node = sub_report(".", "node-test", counts(3, 3, 0, 0), Vec::new(), None);
+ 
+     let summary = build_summary_report(
+-        &[vite, node],
++        &[vite, rust],
+         &suites,
+         "desktop change run: test-execution gate",
+         OffsetDateTime::now_utc(),
+@@ -613,8 +637,8 @@ fn 汇总组装逐字段相等() {
+ 
+     // 计数合并
+     assert_eq!(summary.total, 5);
+-    assert_eq!(summary.passed, 4);
+-    assert_eq!(summary.failed, 1);
++    assert_eq!(summary.passed, 5);
++    assert_eq!(summary.failed, 0);
+     assert_eq!(summary.skipped, 0);
+ 
+     // 固定串与 command 透传
+@@ -624,23 +648,18 @@ fn 汇总组装逐字段相等() {
+         "command 透传入参（措辞不锚定桌面固定串，仅存在性/透传面）"
+     );
+ 
+-    // problems 归并：失败用例逐条 test_failure（passed 态同列 error_cases 不产）
+-    assert_eq!(summary.problems.len(), 1, "仅失败用例产 problem");
+-    assert_eq!(summary.problems[0].framework, "vite-plus");
+-    assert_eq!(
+-        summary.problems[0].problem_type,
+-        crate::model::ProblemType::TestFailure
+-    );
+-    assert_eq!(
+-        summary.problems[0].message,
+-        "Test \"math > rejects NaN\" failed: expected 1 to equal 2"
++    // problems 归并：全测齐全 → 零 problem（无新增 execution_error）
++    assert!(
++        summary.problems.is_empty(),
++        "全测齐全零归因（缺测判据不误报）: {:?}",
++        summary.problems
+     );
+ 
+-    // coverage 块：多子报告自全部逐文件条目加权聚合（vite 条目 9/10 → 90%；
+-    // branches / functions 零有效数据 → None 零维面）
++    // coverage 块：多子报告自全部逐文件条目加权聚合（9/10 + 23/25 = 32/35 →
++    // 91.43%；branches / functions 零有效数据 → None 零维面）
+     let coverage = summary.coverage.as_ref().expect("有覆盖数据应产块");
+-    assert!(coverage.pass, "lines 90% ≥ 80% 且 None 维度跳过");
+-    assert_eq!(coverage.measured, measured(Some(90.0), None, None));
++    assert!(coverage.pass, "lines 91.43% ≥ 80% 且 None 维度跳过");
++    assert_eq!(coverage.measured, measured(Some(91.43), None, None));
+     assert_eq!(coverage.thresholds, thresholds(80.0, 70.0, 75.0));
+ 
+     // mutation 恒 None（V1 不移植）
+@@ -654,10 +673,10 @@ fn 汇总组装逐字段相等() {
+         summary.plans[0].path,
+         format!("reports/test/{}", summary.plans[0].id)
+     );
+-    assert_eq!(summary.plans[1].id, derive_plan_id(".", "node-test"));
++    assert_eq!(summary.plans[1].id, derive_plan_id("crates", "rust"));
+ 
+-    // conclusion：failed=1 且无 execution_error、无覆盖块 → fail
+-    assert_eq!(summary.conclusion, Conclusion::Fail);
++    // conclusion：全绿 + 覆盖达阈 + 无 execution_error → pass
++    assert_eq!(summary.conclusion, Conclusion::Pass);
+ }
+ 
+ /// 边界：零子报告 → 空汇总（四计数 0、problems 空不 panic）。
+@@ -989,3 +1008,604 @@ fn aggregate_mutation同式对拍_经summary组装面() {
+         }
+     }
+ }
++
++// ---------------------------------------------------------------------------
++// 覆盖率采集完整性（AC-7 / D11–D14：`misses_coverage` 单点判据）
++// ---------------------------------------------------------------------------
++
++/// 失败用例 fixture（`TestFailure` 归因原料）。
++fn failed_case(name: &str, message: &str) -> TestCaseResult {
++    TestCaseResult {
++        name: name.to_owned(),
++        file: None,
++        duration_ms: None,
++        status: TestCaseStatus::Failed,
++        line: None,
++        error_type: Some("AssertionError".to_owned()),
++        error_message: Some(message.to_owned()),
++        stack_trace: None,
++    }
++}
++
++/// 通例子报告构造（退出码 / 计数 / 覆盖块逐面显式）。
++#[allow(clippy::too_many_arguments)]
++fn report_with(
++    root: &str,
++    framework: &str,
++    exit_code: i32,
++    summary: CaseSummary,
++    source_files: Vec<SourceFileEntry>,
++    coverage: Option<CoverageBlock>,
++    error_cases: Vec<TestCaseResult>,
++    findings: Option<Vec<String>>,
++) -> SubReport {
++    let mut report = sub_report(root, framework, summary, source_files, coverage);
++    report.exit_code = exit_code;
++    report.error_cases = error_cases;
++    report.findings = findings;
++    report
++}
++
++/// 有覆盖率且达阈的绿色子报告（vite 96.21%）。
++fn covered_report(root: &str, framework: &str) -> SubReport {
++    report_with(
++        root,
++        framework,
++        0,
++        counts(1, 1, 0, 0),
++        vec![entry("src/lib.rs", 1000, 962, None, None, None, None)],
++        Some(block(
++            true,
++            measured(Some(96.21), None, None),
++            thresholds(80.0, 70.0, 75.0),
++        )),
++        Vec::new(),
++        None,
++    )
++}
++
++/// 正向（AC-7 组合锚）：缺测归因——rust suite `exit_code = 1` + 一条失败用例 +
++/// `coverage = None`、vite-plus 96.21% 达标 → `conclusion == Error`、
++/// `coverage == None`（**不为** `Some(pass: true)`）、`problems` 含恰 1 条
++/// `ExecutionError`（`framework == "rust"`、消息含「覆盖率采集缺失」与退出码 1）。
++#[test]
++fn 缺测归因_结论升格为不可测() {
++    let suites = vec![
++        suite(
++            "crates",
++            TestFramework::Rust,
++            config_thresholds(80.0, 70.0, 75.0),
++            Some(vec!["**/*.rs".to_owned()]),
++            None,
++        ),
++        suite(
++            "src/app",
++            TestFramework::VitePlus,
++            config_thresholds(80.0, 70.0, 75.0),
++            Some(vec!["**/*.ts".to_owned()]),
++            None,
++        ),
++    ];
++    let rust = report_with(
++        "crates",
++        "rust",
++        1,
++        counts(1, 0, 1, 0),
++        Vec::new(),
++        None,
++        vec![failed_case("parser > parse", "assertion failed")],
++        None,
++    );
++    let vite = covered_report("src/app", "vite-plus");
++
++    let summary = build_summary_report(
++        &[rust, vite],
++        &suites,
++        "desktop change run: test-execution gate",
++        OffsetDateTime::now_utc(),
++    );
++
++    assert_eq!(
++        summary.conclusion,
++        Conclusion::Error,
++        "缺测套件把整份结论定为不可测"
++    );
++    assert!(
++        summary.coverage.is_none(),
++        "采集不完整 → 覆盖块收敛 None（不得为 pass: true）: {:?}",
++        summary.coverage
++    );
++
++    let execution_errors = summary
++        .problems
++        .iter()
++        .filter(|problem| problem.problem_type == crate::model::ProblemType::ExecutionError)
++        .collect::<Vec<_>>();
++    assert_eq!(
++        execution_errors.len(),
++        1,
++        "缺测恰归因一条: {execution_errors:?}"
++    );
++    assert_eq!(execution_errors[0].framework, "rust", "归因挂缺测套件框架");
++    assert!(
++        execution_errors[0].message.contains("覆盖率采集缺失"),
++        "消息点名覆盖率缺失: {}",
++        execution_errors[0].message
++    );
++    assert!(
++        execution_errors[0].message.contains("退出码 1"),
++        "消息携退出码: {}",
++        execution_errors[0].message
++    );
++    // 失败用例归因仍在（problems 顺序按 suite 迭代序：test_failure 先、缺测后）
++    assert_eq!(
++        summary.problems[0].problem_type,
++        crate::model::ProblemType::TestFailure,
++        "失败用例归因排在缺测归因之前（同一 suite 内既有条目零改写）"
++    );
++}
++
++/// 正向（表驱动 2 形态）：`aggregate_coverage` 采集完整性收敛——混合两报告
++/// （一缺测、一有覆盖率且达标）→ `None`（既有实现会报 `Some(pass: true)`，本
++/// 用例即击杀点）；两报告均有覆盖率 → `Some` 且加权 / 阈值逐值同改造前。
++#[test]
++fn 覆盖聚合_采集完整性收敛() {
++    let suites = vec![suite(
++        "crates",
++        TestFramework::Rust,
++        config_thresholds(80.0, 70.0, 75.0),
++        Some(vec!["**/*.rs".to_owned()]),
++        None,
++    )];
++    let missing = report_with(
++        "crates",
++        "rust",
++        1,
++        counts(1, 0, 1, 0),
++        Vec::new(),
++        None,
++        vec![failed_case("it > x", "boom")],
++        None,
++    );
++    let covered = covered_report("src/app", "vite-plus");
++
++    assert!(
++        aggregate_coverage(&[missing.clone(), covered.clone()], &suites).is_none(),
++        "任一 suite 缺测 → 整体收敛 None（不报假通过）"
++    );
++
++    let both = aggregate_coverage(&[covered.clone(), covered], &suites).expect("两者皆有覆盖率");
++    assert_eq!(
++        both.measured,
++        measured(Some(96.2), None, None),
++        "加权逐值同改造前（962/1000 两位舍入）"
++    );
++    assert_eq!(both.thresholds, thresholds(80.0, 70.0, 75.0));
++    assert!(both.pass, "96.21% ≥ 80% 达标");
++}
++
++/// 异常（AC-7）：去重不追加第二条——suite `exit_code = 1` + `failed == 0` +
++/// `coverage == None`（既有 `execution_error` 臂命中）→ 该 suite `execution_error`
++/// **恰 1 条**、消息仍为既有形态（`Exit code 1`，零改写）。
++#[test]
++fn 去重不追加第二条缺测归因() {
++    let suites = vec![suite(
++        "crates",
++        TestFramework::Rust,
++        config_thresholds(80.0, 70.0, 75.0),
++        Some(vec!["**/*.rs".to_owned()]),
++        None,
++    )];
++    let report = report_with(
++        "crates",
++        "rust",
++        1,
++        counts(2, 2, 0, 0),
++        Vec::new(),
++        None,
++        Vec::new(),
++        None,
++    );
++
++    let summary = build_summary_report(&[report], &suites, "cmd", OffsetDateTime::now_utc());
++
++    let execution_errors = summary
++        .problems
++        .iter()
++        .filter(|problem| problem.problem_type == crate::model::ProblemType::ExecutionError)
++        .collect::<Vec<_>>();
++    assert_eq!(
++        execution_errors.len(),
++        1,
++        "每 suite 至多一条 execution_error"
++    );
++    assert_eq!(execution_errors[0].message, "Exit code 1", "既有形态零改写");
++    assert!(
++        !execution_errors[0].message.contains("覆盖率采集缺失"),
++        "已命中既有臂即不再追加缺测第二条"
++    );
++}
++
++/// 异常（D14 形态）：失败用例 + 缺测双归因——suite `exit_code = 0` +
++/// `failed = 2` + `coverage == None` → `problems` 含 2 条 `TestFailure` + 1 条
++/// `ExecutionError`（覆盖率缺失）、`conclusion == Error`（由 `Fail` 升格留痕）、
++/// `coverage == None`。
++#[test]
++fn 失败用例与缺测双归因() {
++    let suites = vec![suite(
++        "src/app",
++        TestFramework::VitePlus,
++        config_thresholds(80.0, 70.0, 75.0),
++        Some(vec!["**/*.ts".to_owned()]),
++        None,
++    )];
++    let report = report_with(
++        "src/app",
++        "vite-plus",
++        0,
++        counts(2, 0, 2, 0),
++        Vec::new(),
++        None,
++        vec![
++            failed_case("math > a", "expected 1 to equal 2"),
++            failed_case("math > b", "expected 3 to equal 4"),
++        ],
++        None,
++    );
++
++    let summary = build_summary_report(&[report], &suites, "cmd", OffsetDateTime::now_utc());
++
++    let failures = summary
++        .problems
++        .iter()
++        .filter(|problem| problem.problem_type == crate::model::ProblemType::TestFailure)
++        .count();
++    let execution_errors = summary
++        .problems
++        .iter()
++        .filter(|problem| problem.problem_type == crate::model::ProblemType::ExecutionError)
++        .count();
++    assert_eq!(failures, 2, "两条失败用例逐条归因");
++    assert_eq!(execution_errors, 1, "缺测另计一条");
++    assert_eq!(
++        summary.conclusion,
++        Conclusion::Error,
++        "缺测把 Fail 升格为 Error"
++    );
++    assert!(summary.coverage.is_none(), "覆盖块收敛 None");
++}
++
++/// 异常：全体缺覆盖率且全绿——全部子报告 `exit 0` / `failed 0` /
++/// `coverage == None`（均非 pass 判否）→ 无新增 problem、`coverage == None`
++/// （既有口径）、`conclusion == Pass`（口径不变）。
++#[test]
++fn 全体缺覆盖率且全绿不产新增归因() {
++    let suites = vec![suite(
++        "crates",
++        TestFramework::Rust,
++        config_thresholds(80.0, 70.0, 75.0),
++        Some(vec!["**/*.rs".to_owned()]),
++        None,
++    )];
++    let rust = report_with(
++        "crates",
++        "rust",
++        0,
++        counts(3, 3, 0, 0),
++        Vec::new(),
++        None,
++        Vec::new(),
++        None,
++    );
++    let vite = report_with(
++        "src/app",
++        "vite-plus",
++        0,
++        counts(2, 2, 0, 0),
++        Vec::new(),
++        None,
++        Vec::new(),
++        None,
++    );
++
++    let summary = build_summary_report(&[rust, vite], &suites, "cmd", OffsetDateTime::now_utc());
++
++    assert!(
++        summary.problems.is_empty(),
++        "全绿无归因: {:?}",
++        summary.problems
++    );
++    assert!(
++        summary.coverage.is_none(),
++        "无覆盖率数据 → None（既有口径）"
++    );
++    assert_eq!(summary.conclusion, Conclusion::Pass, "全绿结论不变");
++}
++
++/// 边界（表驱动 2 形态）：单子报告与有覆盖率未达阈——单子报告
++/// `coverage == None` → `aggregate_coverage` 恒 `None`（既有短路，不属「缺测」
++/// 新增面）；单子报告 `coverage == Some(pass: false)` → 不判缺测（有覆盖率）、
++/// `coverage` 保留 `Some(pass: false)`、既有 `CoverageFailure` problem 零变。
++#[test]
++fn 单子报告与有覆盖率未达阈() {
++    let suites = vec![suite(
++        "crates",
++        TestFramework::Rust,
++        config_thresholds(80.0, 70.0, 75.0),
++        Some(vec!["**/*.rs".to_owned()]),
++        None,
++    )];
++    let bare = report_with(
++        "crates",
++        "rust",
++        0,
++        counts(1, 1, 0, 0),
++        Vec::new(),
++        None,
++        Vec::new(),
++        None,
++    );
++    assert!(
++        aggregate_coverage(std::slice::from_ref(&bare), &suites).is_none(),
++        "单子报告无覆盖块 → None（既有短路）"
++    );
++
++    let below = report_with(
++        "crates",
++        "rust",
++        0,
++        counts(1, 1, 0, 0),
++        vec![entry(
++            "crates/foo/src/lib.rs",
++            10,
++            5,
++            None,
++            None,
++            None,
++            None,
++        )],
++        Some(block(
++            false,
++            measured(Some(50.0), None, None),
++            thresholds(80.0, 70.0, 75.0),
++        )),
++        Vec::new(),
++        None,
++    );
++    let summary = build_summary_report(&[below], &suites, "cmd", OffsetDateTime::now_utc());
++    let coverage = summary.coverage.as_ref().expect("有覆盖率 → 保留覆盖块");
++    assert!(!coverage.pass, "未达阈保持 pass: false");
++    assert_eq!(coverage.measured, measured(Some(50.0), None, None));
++    assert!(
++        summary
++            .problems
++            .iter()
++            .any(|problem| problem.problem_type == crate::model::ProblemType::CoverageFailure),
++        "既有 CoverageFailure 归因零变: {:?}",
++        summary.problems
++    );
++    assert!(
++        !summary
++            .problems
++            .iter()
++            .any(|problem| problem.problem_type == crate::model::ProblemType::ExecutionError),
++        "有覆盖率不判缺测（不追加 execution_error）"
++    );
++    assert_eq!(summary.conclusion, Conclusion::Fail, "覆盖未达 → Fail");
++}
++
++/// 边界：超大列表——50 条 sub_reports 中恰 1 条缺测 → `coverage == None`、
++/// 新增 `execution_error` 恰 1 条、其余 49 条问题面零改。
++#[test]
++fn 超大列表恰一条缺测() {
++    let suites = vec![suite(
++        "crates",
++        TestFramework::Rust,
++        config_thresholds(80.0, 70.0, 75.0),
++        Some(vec!["**/*.rs".to_owned()]),
++        None,
++    )];
++    let mut reports: Vec<SubReport> = (0..49)
++        .map(|index| covered_report(&format!("suite{index}"), "rust"))
++        .collect();
++    reports.push(report_with(
++        "missing",
++        "vite-plus",
++        1,
++        counts(1, 0, 1, 0),
++        Vec::new(),
++        None,
++        vec![failed_case("x > y", "boom")],
++        None,
++    ));
++
++    let summary = build_summary_report(&reports, &suites, "cmd", OffsetDateTime::now_utc());
++
++    assert!(summary.coverage.is_none(), "任一缺测即收敛 None");
++    assert_eq!(
++        summary
++            .problems
++            .iter()
++            .filter(|problem| problem.problem_type == crate::model::ProblemType::ExecutionError)
++            .count(),
++        1,
++        "50 条中恰 1 条缺测 → 恰 1 条 execution_error"
++    );
++    assert_eq!(
++        summary.total,
++        49 + 1,
++        "计数合并不因缺测面变化（各报告 total 逐值相加）"
++    );
++    assert_eq!(summary.conclusion, Conclusion::Error, "缺测使结论不可测");
++}
++
++/// 边界（表驱动 3 形态）：判据边界值——`exit_code = -1`（哨兵）配
++/// `failed > 0` 与 `coverage == None` → 计入缺测（非零）；`failed = u64::MAX`
++/// 配 `coverage == None` → 计入且计数不溢出；`exit_code = 255` 配
++/// `coverage == Some(pass: true)` → 不计入（有覆盖率）。
++#[test]
++fn 判据边界值() {
++    let suites = vec![suite(
++        "crates",
++        TestFramework::Rust,
++        config_thresholds(80.0, 70.0, 75.0),
++        Some(vec!["**/*.rs".to_owned()]),
++        None,
++    )];
++
++    let sentinel = report_with(
++        "crates",
++        "rust",
++        -1,
++        counts(1, 0, 1, 0),
++        Vec::new(),
++        None,
++        vec![failed_case("a", "b")],
++        None,
++    );
++    let summary = build_summary_report(&[sentinel], &suites, "cmd", OffsetDateTime::now_utc());
++    let message = summary
++        .problems
++        .iter()
++        .find(|problem| problem.problem_type == crate::model::ProblemType::ExecutionError)
++        .map(|problem| problem.message.clone())
++        .expect("哨兵退出码计入缺测");
++    assert!(message.contains("退出码 -1"), "哨兵逐值可读: {message}");
++
++    let saturated = report_with(
++        "crates",
++        "rust",
++        1,
++        counts(u64::MAX, 0, u64::MAX, 0),
++        Vec::new(),
++        None,
++        Vec::new(),
++        None,
++    );
++    let summary = build_summary_report(&[saturated], &suites, "cmd", OffsetDateTime::now_utc());
++    assert_eq!(summary.failed, u64::MAX, "极大失败计数原样合并（不溢出）");
++    assert_eq!(
++        summary
++            .problems
++            .iter()
++            .filter(|problem| problem.problem_type == crate::model::ProblemType::ExecutionError)
++            .count(),
++        1,
++        "极大计数仍计入缺测"
++    );
++
++    let covered = report_with(
++        "crates",
++        "rust",
++        255,
++        counts(1, 1, 0, 0),
++        vec![entry(
++            "crates/foo/src/lib.rs",
++            10,
++            9,
++            None,
++            None,
++            None,
++            None,
++        )],
++        Some(block(
++            true,
++            measured(Some(90.0), None, None),
++            thresholds(80.0, 70.0, 75.0),
++        )),
++        Vec::new(),
++        None,
++    );
++    let summary = build_summary_report(&[covered], &suites, "cmd", OffsetDateTime::now_utc());
++    assert!(
++        summary
++            .problems
++            .iter()
++            .all(|problem| !problem.message.contains("覆盖率采集缺失")),
++        "有覆盖率即不判缺测（既有 Exit code 臂照旧，缺测判据未参与）: {:?}",
++        summary.problems
++    );
++    assert_eq!(
++        summary.conclusion,
++        Conclusion::Error,
++        "结论由既有 Exit code 臂定（缺测判据零贡献）"
++    );
++}
++
++/// 边界：空集与序列化面——零子报告 → 空汇总不 panic（既有）；缺测归因面
++/// summary 可序列化且 `coverage: null`、`problems[].type == "execution_error"`
++/// （落盘面消费形态）。
++#[test]
++fn 缺测面汇总可序列化() {
++    let suites = vec![suite(
++        "crates",
++        TestFramework::Rust,
++        config_thresholds(80.0, 70.0, 75.0),
++        Some(vec!["**/*.rs".to_owned()]),
++        None,
++    )];
++    let report = report_with(
++        "crates",
++        "rust",
++        0,
++        counts(1, 0, 1, 0),
++        Vec::new(),
++        None,
++        vec![failed_case("a", "b")],
++        None,
++    );
++
++    let summary = build_summary_report(&[report], &suites, "cmd", OffsetDateTime::now_utc());
++    let json = serde_json::to_string(&summary).expect("缺测面汇总应可序列化");
++
++    assert!(
++        json.contains("\"conclusion\":\"error\""),
++        "结论线格式: {json}"
++    );
++    assert!(
++        json.contains("\"coverage\":null"),
++        "覆盖块线格式为 null: {json}"
++    );
++    assert!(
++        json.contains("\"type\":\"execution_error\""),
++        "缺测归因线格式: {json}"
++    );
++}
++
++/// 边界：组合链路 aggregate → reuse（入口 = 本模块）——缺测归因产出的 summary 经
++/// `checks::is_reusable` → `false`（`conclusion == Error` 的既有判定，零代码
++/// 改动）：半可信报告不被复用；全测齐全的 summary → `true`（既有口径）。
++#[test]
++fn 缺测汇总不进复用门() {
++    let suites = vec![suite(
++        "crates",
++        TestFramework::Rust,
++        config_thresholds(80.0, 70.0, 75.0),
++        Some(vec!["**/*.rs".to_owned()]),
++        None,
++    )];
++    let missing = report_with(
++        "crates",
++        "rust",
++        0,
++        counts(1, 0, 1, 0),
++        Vec::new(),
++        None,
++        vec![failed_case("a", "b")],
++        None,
++    );
++    let summary = build_summary_report(&[missing], &suites, "cmd", OffsetDateTime::now_utc());
++    assert_eq!(summary.conclusion, Conclusion::Error);
++    assert!(
++        !crate::is_reusable(&summary, None),
++        "Error 结论不可复用（既有判定，零代码改动）"
++    );
++
++    let green = covered_report("crates", "rust");
++    let summary = build_summary_report(&[green], &suites, "cmd", OffsetDateTime::now_utc());
++    assert_eq!(summary.conclusion, Conclusion::Pass);
++    assert!(
++        crate::is_reusable(&summary, None),
++        "全测齐全 → 可复用（既有口径）"
++    );
++}
+diff --git a/crates/infra/checks/src/environment.rs b/crates/infra/checks/src/environment.rs
+index 609debbdfaf2..ab2725d5c2c9 100644
+--- a/crates/infra/checks/src/environment.rs
++++ b/crates/infra/checks/src/environment.rs
+@@ -1,18 +1,21 @@
+ //! 检查域环境归因装配单点（static-check 与 test-execution 共用；MUST NOT 两写）。
+ //!
+-//! 两个职责：
++//! 三个职责：
+ //! - [`attempts_log`]：输出记录内容形态——单次尝试**逐字节同现状**（`stdout ++
+ //!   stderr`，零分隔头）；发生过重试则各次尝试按序拼接、每段前加分隔头（审计不丢
+ //!   上下文）；
+ //! - [`fault_text`]：`RunFault::Environment` 的人读文本——占用者点名 / 被锁文件
+-//!   （原料来自 [`exec::attribution_text`]）+ 「已自动重试 N 次」+ 末次诊断摘要 +
+-//!   环境侧处理指引。
++//!   （原料来自 [`exec::attribution_text`]）+ 「已自动重试 N 次」+ 可选「重试进展」
++//!   行 + 末次诊断摘要 + 环境侧处理指引；
++//! - [`progress_line`]：重试进展行（各次尝试的待编译计数序列 + 卡死判定附语）——
++//!   计数口径单点驻 `exec::transient`，本模块**不重算**（只经
++//!   [`exec::progress_series`] / [`exec::is_progress_stalled`] 取数）。
+ //!
+ //! exec 层只供事实原料与尝试面字节（MUST NOT 自带业务文案：尝试分隔头 / 归因文案
+ //! 归调用方），故重试次数与处置指引的措辞单点驻本模块；本模块为**纯函数**（零 io
+ //! / 零 async）。
+ 
+-use exec::{ProcessOutput, RetryPolicy, RunReport};
++use exec::{AttemptTrace, ProcessOutput, RetryPolicy, RunOutcome, RunReport};
+ 
+ /// 环境侧处理指引（用户 / IT 侧动作）：排除 **workspace 父目录**（逐 worktree
+ /// 排除无效——worktree 动态新建），并建议一并排除包管理器缓存。与基线红文案
+@@ -83,12 +86,19 @@ fn push_attempt(
+ }
+ 
+ /// 环境错误人读文本（`RunFault::Environment` 的唯一装配点）：归因原料（占用者 /
+-/// 被锁文件）+ 重试事实 + 末次诊断摘要 + 处置指引。
++/// 被锁文件）+ 重试事实 + 可选「重试进展」行 + 末次诊断摘要 + 处置指引。
+ ///
+ /// `attempts` / `exit_code` / `output` 取**末次**尝试（`static-check` 传
+-/// `&run.stdout`——命令串带 `2>&1`，`stderr` 恒空；test-execution 传合并流）。
+-/// 诊断摘要复用 [`ProcessOutput`] 的既有截断口径（不自造「取末尾 N 字符」）。
+-pub(crate) fn fault_text(attempts: u32, exit_code: i32, output: &[u8]) -> String {
++/// `&run.stdout`——命令串带 `2>&1`，`stderr` 恒空；test-execution 传合并流），
++/// `retried` 为此前各次尝试的留痕（末次在 `output` 里）。诊断摘要复用
++/// [`ProcessOutput`] 的既有截断口径（不自造「取末尾 N 字符」）；推进序列行长度为
++/// `O(attempts)`（至多 5 个数字）。
++pub(crate) fn fault_text(
++    attempts: u32,
++    exit_code: i32,
++    output: &[u8],
++    retried: &[AttemptTrace],
++) -> String {
+     let diagnostics = String::from_utf8_lossy(output);
+     let attribution = exec::attribution_text(&diagnostics).unwrap_or_else(|| {
+         // 解析不出路径（非文件锁形态的瞬态签名，如链接器 / Node 错误）→ 只给降级
+@@ -101,12 +111,28 @@ pub(crate) fn fault_text(attempts: u32, exit_code: i32, output: &[u8]) -> String
+         excerpt = output_read.tail();
+     }
+     let excerpt = clip_chars(&excerpt, DIAGNOSIS_EXCERPT_LIMIT);
++    // 计数口径单点驻 `exec::transient`：本模块只构造一次性「视图报告」取序列，零
++    // 计数逻辑。test-execution 侧传入的已是 `stdout ++ stderr` 合并流，故末次只填
++    // `stdout`、`stderr` 留空（否则同一段字节被计两次）；`outcome` 只为构造视图，
++    // 计数不看它。
++    let series = exec::progress_series(&RunReport {
++        outcome: RunOutcome::Completed,
++        exit_code,
++        stdout: output.to_vec(),
++        stderr: Vec::new(),
++        attempts,
++        retried: retried.to_vec(),
++    });
+     let mut text = attribution;
+     text.push('\n');
+     text.push_str(&format!(
+         "已自动重试 {} 次（每次重试会跳过已完成部分）",
+         attempts.saturating_sub(1)
+     ));
++    if let Some(line) = progress_line(&series) {
++        text.push('\n');
++        text.push_str(&line);
++    }
+     if !excerpt.is_empty() {
+         text.push_str("\n最后一次诊断：\n");
+         text.push_str(&excerpt);
+@@ -116,6 +142,29 @@ pub(crate) fn fault_text(attempts: u32, exit_code: i32, output: &[u8]) -> String
+     text
+ }
+ 
++/// 重试进展行（`None` = 不输出该行）：
++/// - `attempts == 1`（`series.len() < 2`，未重试）——无进展可言；
++/// - 序列各次计数全为 `0`（非 cargo 构建形态，如 Node / 链接器报错）——退化语义下
++///   计数无可读信息。
++///
++/// 其余一律输出（`[264, 0]` 也输出——确有推进可读）；卡死判定经
++/// [`exec::is_progress_stalled`] 取（本模块不重算判据）。
++fn progress_line(series: &[u32]) -> Option<String> {
++    if series.len() < 2 || series.iter().all(|count| *count == 0) {
++        return None;
++    }
++    let counts = series
++        .iter()
++        .map(u32::to_string)
++        .collect::<Vec<_>>()
++        .join(" → ");
++    let mut line = format!("重试进展：待编译 {counts}");
++    if exec::is_progress_stalled(series) {
++        line.push_str("（末两次无进展，判定为卡死）");
++    }
++    Some(line)
++}
++
+ /// chars 口径有界截断（≤ limit 原样；超限取前 limit 字符 + 省略号）。
+ fn clip_chars(text: &str, limit: usize) -> String {
+     if text.chars().count() <= limit {
+diff --git a/crates/infra/checks/src/environment_test.rs b/crates/infra/checks/src/environment_test.rs
+index 6f132e8561de..5804fca5ff1b 100644
+--- a/crates/infra/checks/src/environment_test.rs
++++ b/crates/infra/checks/src/environment_test.rs
+@@ -285,6 +285,7 @@ fn 环境文案含重试次数与处置指引() {
+         5,
+         1,
+         b"error: failed to rename archive file: /t/liba.rlib: os error 32",
++        &[],
+     );
+ 
+     assert!(
+@@ -318,7 +319,7 @@ fn 环境文案嵌入被锁文件与未定位占用者() {
+         path.display()
+     );
+ 
+-    let text = fault_text(3, 1, diagnostics.as_bytes());
++    let text = fault_text(3, 1, diagnostics.as_bytes(), &[]);
+ 
+     assert!(
+         text.contains(&path.to_string_lossy().into_owned()),
+@@ -339,7 +340,7 @@ fn 环境文案嵌入被锁文件与未定位占用者() {
+ #[test]
+ fn 环境文案摘要取末次错误面() {
+     let diagnostics = b"Compiling core v0.1.0\nCompiling infra v0.1.0\nerror: failed to rename archive file: /t/liba.rlib: os error 32\n";
+-    let text = fault_text(2, 1, diagnostics);
++    let text = fault_text(2, 1, diagnostics, &[]);
+ 
+     assert!(text.contains("最后一次诊断："), "非空诊断产摘要段: {text}");
+     assert!(
+@@ -353,7 +354,7 @@ fn 环境文案摘要取末次错误面() {
+ /// 不 panic、无空括号 / 负值。
+ #[test]
+ fn 次数边界零重试不产负值() {
+-    let text = fault_text(1, 1, b"error: os error 32");
++    let text = fault_text(1, 1, b"error: os error 32", &[]);
+ 
+     assert!(
+         text.contains("已自动重试 0 次"),
+@@ -367,7 +368,7 @@ fn 次数边界零重试不产负值() {
+ /// panic），次数与指引照常在案。
+ #[test]
+ fn 空诊断不产摘要段但次数指引照常() {
+-    let text = fault_text(4, 1, &[]);
++    let text = fault_text(4, 1, &[], &[]);
+ 
+     assert!(
+         !text.contains("最后一次诊断："),
+@@ -391,7 +392,7 @@ fn 超长与特殊字符诊断按上限截断() {
+         .map(|_| "z".repeat(100))
+         .collect::<Vec<_>>()
+         .join("\n");
+-    let text = fault_text(5, 1, long_body.as_bytes());
++    let text = fault_text(5, 1, long_body.as_bytes(), &[]);
+     let after = text
+         .split("最后一次诊断：\n")
+         .nth(1)
+@@ -409,7 +410,7 @@ fn 超长与特殊字符诊断按上限截断() {
+ 
+     // 形态二：引号 / 换行 / emoji 混排
+     let special = "say \"os error 32\"\n\u{0} emoji 🎉 完成\n".to_owned();
+-    let text = fault_text(2, 1, special.as_bytes());
++    let text = fault_text(2, 1, special.as_bytes(), &[]);
+     assert!(
+         text.contains("os error 32"),
+         "特殊字符诊断的签名行在案: {text}"
+@@ -420,7 +421,7 @@ fn 超长与特殊字符诊断按上限截断() {
+     let mut raw = b"error: os error 32 ".to_vec();
+     raw.extend_from_slice(&[0xFF, 0xFE]);
+     raw.push(b'\n');
+-    let text = fault_text(2, 1, &raw);
++    let text = fault_text(2, 1, &raw, &[]);
+     assert!(
+         text.contains("os error 32"),
+         "非 UTF-8 诊断 lossy 后可读: {text}"
+@@ -457,3 +458,264 @@ fn 指引与摘录上限常量锚定() {
+     assert!(limit > 0, "摘录上限为正（实际 {limit}）");
+     assert!(limit >= 500, "摘录上限足够承载主因（实际 {limit}）");
+ }
++
++// ---------------------------------------------------------------------------
++// 正向 / 异常 / 边界：fault_text 的「重试进展」行（AC-5 / D6–D8）
++// ---------------------------------------------------------------------------
++
++/// N 行 `   Compiling <crate> v0.1.0`（rustc 缩进形态）的原始字节。
++fn compiling_lines(count: u32) -> Vec<u8> {
++    (0..count)
++        .map(|index| format!("   Compiling crate{index} v0.1.0\n"))
++        .collect::<String>()
++        .into_bytes()
++}
++
++/// 锁错误行（含可解析路径，归因段非降级形态）。
++const LOCK_LINE: &[u8] = b"error: failed to rename archive file: /t/liba.rlib: os error 32";
++
++/// 正向（AC-5）：推进序列行——`attempts = 4`、`retried` 三条（264 / 5 / 0 行 +
++/// 锁文本）、末次 `output` 仅锁文本 → 文本含
++/// `重试进展：待编译 264 → 5 → 0 → 0`；行位在「已自动重试 3 次…」之后、
++/// 「最后一次诊断：」之前；不含卡死判定语。
++#[test]
++fn 环境文案含推进序列行且行位在案() {
++    let retried = vec![
++        trace(1, Some("os error 32"), &compiling_lines(264), LOCK_LINE),
++        trace(1, Some("os error 32"), &compiling_lines(5), LOCK_LINE),
++        trace(1, Some("os error 32"), &compiling_lines(0), LOCK_LINE),
++    ];
++
++    let text = fault_text(4, 1, LOCK_LINE, &retried);
++
++    assert!(
++        text.contains("重试进展：待编译 264 → 5 → 0 → 0"),
++        "四个计数按尝试序成行: {text}"
++    );
++    assert!(
++        !text.contains("判定为卡死"),
++        "递减形态不产卡死判定语: {text}"
++    );
++
++    let attempts_at = text.find("已自动重试 3 次").expect("次数行在案");
++    let progress_at = text.find("重试进展：").expect("推进序列行在案");
++    let diagnosis_at = text.find("最后一次诊断：").expect("诊断段在案");
++    assert!(
++        attempts_at < progress_at,
++        "序列行在次数行之后（{attempts_at} < {progress_at}）"
++    );
++    assert!(
++        progress_at < diagnosis_at,
++        "序列行在诊断段之前（{progress_at} < {diagnosis_at}）"
++    );
++}
++
++/// 正向（AC-5）：卡死判定附语——`attempts = 2`、两次输出各 50 行 `Compiling` +
++/// 锁文本 → 含 `重试进展：待编译 50 → 50（末两次无进展，判定为卡死）`。
++#[test]
++fn 环境文案卡死判定附语() {
++    let mut first = compiling_lines(50);
++    first.extend_from_slice(LOCK_LINE);
++    let mut last = compiling_lines(50);
++    last.extend_from_slice(LOCK_LINE);
++    let retried = vec![trace(1, Some("os error 32"), &first, b"")];
++
++    let text = fault_text(2, 1, &last, &retried);
++
++    assert!(
++        text.contains("重试进展：待编译 50 → 50（末两次无进展，判定为卡死）"),
++        "卡死时同一行追加判定附语: {text}"
++    );
++}
++
++/// 异常（AC-5 抑制臂）：`attempts == 1` 无该行——`retried` 空、`output` 含 264 行
++/// `Compiling` + 锁文本 → 无「重试进展」字样；归因段 / 次数行（「已自动重试 0
++/// 次」）/ 摘要 / 指引照旧。
++#[test]
++fn 单次尝试不产推进序列行() {
++    let mut output = compiling_lines(264);
++    output.extend_from_slice(LOCK_LINE);
++
++    let text = fault_text(1, 1, &output, &[]);
++
++    assert!(!text.contains("重试进展"), "未重试不产序列行: {text}");
++    assert!(text.contains("已自动重试 0 次"), "次数行照旧: {text}");
++    assert!(text.contains("最后一次诊断："), "摘要照旧: {text}");
++    assert!(text.ends_with(ENV_GUIDANCE), "指引照旧: {text}");
++}
++
++/// 异常（AC-5 抑制臂）：序列全 `0` 无该行——`attempts = 3`、`retried` 两条仅锁
++/// 文本、末次仅锁文本（非 cargo 形态）→ 无「重试进展」；其余段零变。
++#[test]
++fn 序列全零不产推进序列行() {
++    let retried = vec![
++        trace(1, Some("os error 32"), b"", LOCK_LINE),
++        trace(1, Some("os error 32"), b"", LOCK_LINE),
++    ];
++
++    let text = fault_text(3, 1, LOCK_LINE, &retried);
++
++    assert!(!text.contains("重试进展"), "全 0 序列无可读进展: {text}");
++    assert!(text.contains("已自动重试 2 次"), "次数行照旧: {text}");
++    assert!(text.ends_with(ENV_GUIDANCE), "指引照旧: {text}");
++}
++
++/// 边界（D8）：部分归零仍输出——序列 `[264, 0]`（`attempts = 2`）→ 输出
++/// `重试进展：待编译 264 → 0`（确有推进可读），且不含卡死判定语。
++#[test]
++fn 部分归零仍输推进序列行() {
++    let retried = vec![trace(
++        1,
++        Some("os error 32"),
++        &compiling_lines(264),
++        LOCK_LINE,
++    )];
++
++    let text = fault_text(2, 1, LOCK_LINE, &retried);
++
++    assert!(
++        text.contains("重试进展：待编译 264 → 0"),
++        "部分归零照常输出: {text}"
++    );
++    assert!(!text.contains("判定为卡死"), "末值 0 不判卡死: {text}");
++}
++
++/// 边界（AC-5 上限）：耗尽面五数字——`attempts = 5`、序列
++/// `[10, 8, 3, 1, 0]` → 行含 5 个数字，不含判定语（末值 `0`）。
++#[test]
++fn 耗尽面推进序列五数字() {
++    let retried = vec![
++        trace(1, Some("os error 32"), &compiling_lines(10), LOCK_LINE),
++        trace(1, Some("os error 32"), &compiling_lines(8), LOCK_LINE),
++        trace(1, Some("os error 32"), &compiling_lines(3), LOCK_LINE),
++        trace(1, Some("os error 32"), &compiling_lines(1), LOCK_LINE),
++    ];
++
++    let text = fault_text(5, 1, LOCK_LINE, &retried);
++
++    assert!(
++        text.contains("重试进展：待编译 10 → 8 → 3 → 1 → 0"),
++        "上限面五个数字按尝试序: {text}"
++    );
++    assert!(!text.contains("判定为卡死"), "末值 0 不判卡死: {text}");
++    let numbers = text
++        .split("重试进展：待编译 ")
++        .nth(1)
++        .and_then(|rest| rest.split('\n').next())
++        .unwrap_or_default()
++        .matches(" → ")
++        .count();
++    assert_eq!(numbers, 4, "五个数字之间恰四个箭头");
++}
++
++/// 边界：直构违反不变量——`attempts = 3` 但 `retried = []`（直构语料）→ 视图
++/// 序列长度 1 → 无「重试进展」、不 panic（抑制条件按序列而非 `attempts` 判）。
++#[test]
++fn 直构违反不变量不产推进序列行() {
++    let mut output = compiling_lines(264);
++    output.extend_from_slice(LOCK_LINE);
++
++    let text = fault_text(3, 1, &output, &[]);
++
++    assert!(
++        !text.contains("重试进展"),
++        "序列长度 1 即不输出（不按 attempts 判）: {text}"
++    );
++    assert!(
++        text.contains("已自动重试 2 次"),
++        "次数仍按 attempts: {text}"
++    );
++}
++
++/// 边界（表驱动 3 形态）：诊断与序列共存字节面——`output` 含 emoji / 引号 /
++/// 换行 / `\0` / 非 UTF-8（`0xFF 0xFE`）+ `Compiling` 行 → lossy 不 panic、序列
++/// 行逐字在案、摘要按 `DIAGNOSIS_EXCERPT_LIMIT` 截断、`ENV_GUIDANCE` 结尾逐字。
++#[test]
++fn 诊断与序列共存字节面() {
++    // 形态一：emoji / 引号 / NUL 混排
++    let mut special = compiling_lines(2);
++    special.extend_from_slice("say \"os error 32\"\n\u{0} emoji 🎉 完成\n".as_bytes());
++    let text = fault_text(
++        2,
++        1,
++        &special,
++        &[trace(1, Some("os error 32"), &compiling_lines(7), b"")],
++    );
++    assert!(
++        text.contains("重试进展：待编译 7 → 2"),
++        "特殊字符不阻断序列行: {text}"
++    );
++    assert!(text.ends_with(ENV_GUIDANCE), "指引逐字结尾: {text}");
++
++    // 形态二：非 UTF-8 原始字节
++    let mut raw = compiling_lines(1);
++    raw.extend_from_slice(b"error: os error 32 ");
++    raw.extend_from_slice(&[0xFF, 0xFE]);
++    raw.push(b'\n');
++    let text = fault_text(
++        2,
++        1,
++        &raw,
++        &[trace(1, Some("os error 32"), &compiling_lines(3), b"")],
++    );
++    assert!(
++        text.contains("重试进展：待编译 3 → 1"),
++        "非 UTF-8 lossy 后序列行照旧: {text}"
++    );
++    assert!(
++        text.contains('\u{FFFD}'),
++        "非 UTF-8 字节转替换符后不 panic: {text}"
++    );
++
++    // 形态三：attempts = 5 + >2000 字符诊断（摘要按上限截断）
++    let long_body = (0..30)
++        .map(|_| "z".repeat(100))
++        .collect::<Vec<_>>()
++        .join("\n");
++    assert!(long_body.chars().count() > DIAGNOSIS_EXCERPT_LIMIT);
++    let long = long_body.clone().into_bytes();
++    let text = fault_text(
++        5,
++        1,
++        &long,
++        &[
++            trace(1, Some("os error 32"), &compiling_lines(4), b""),
++            trace(1, Some("os error 32"), &compiling_lines(3), b""),
++            trace(1, Some("os error 32"), &compiling_lines(2), b""),
++            trace(1, Some("os error 32"), &compiling_lines(1), b""),
++        ],
++    );
++    assert!(
++        text.contains("重试进展：待编译 4 → 3 → 2 → 1 → 0"),
++        "五段序列在案（末值 0 不带判定语）: {text}"
++    );
++    let after = text
++        .split("最后一次诊断：\n")
++        .nth(1)
++        .expect("超长诊断应产摘要段");
++    let excerpt = after
++        .split("\n环境侧处理")
++        .next()
++        .expect("摘要段以指引前的换行收尾");
++    assert_eq!(
++        excerpt.chars().count(),
++        DIAGNOSIS_EXCERPT_LIMIT + 1,
++        "摘要按上限截断并加省略号"
++    );
++    assert!(text.ends_with(ENV_GUIDANCE), "指引逐字不受截断影响");
++}
++
++/// 边界：`attempts` 大值防御——`attempts = u32::MAX`（直构）→
++/// 「已自动重试 4294967294 次」不溢出、不 panic、无空括号。
++#[test]
++fn attempts大值防御不溢出() {
++    let text = fault_text(u32::MAX, 1, LOCK_LINE, &[]);
++
++    assert!(
++        text.contains("已自动重试 4294967294 次"),
++        "saturating 计数逐值可读: {text}"
++    );
++    assert!(!text.contains("已自动重试 次"), "无空次数: {text}");
++    assert!(!text.contains("已自动重试 -"), "无负值: {text}");
++    assert!(text.ends_with(ENV_GUIDANCE), "指引照旧: {text}");
++}
+diff --git a/crates/infra/checks/src/static_check.rs b/crates/infra/checks/src/static_check.rs
+index 62f18a620c28..13455e0527de 100644
+--- a/crates/infra/checks/src/static_check.rs
++++ b/crates/infra/checks/src/static_check.rs
+@@ -103,6 +103,7 @@ async fn execute(
+                 run.attempts,
+                 run.exit_code,
+                 &run.stdout,
++                &run.retried,
+             ))
+         }),
+         exec::RunOutcome::TimedOut => Some(RunFault::Environment(format!(
+diff --git a/crates/infra/checks/src/static_check_test.rs b/crates/infra/checks/src/static_check_test.rs
+index 351bf637abd4..08a053497408 100644
+--- a/crates/infra/checks/src/static_check_test.rs
++++ b/crates/infra/checks/src/static_check_test.rs
+@@ -1372,6 +1372,10 @@ async fn 瞬态耗尽_fault为环境错误且log五段() {
+         log.contains("transient=os error 32"),
+         "此前尝试段头携命中签名: {log}"
+     );
++    assert!(
++        !text.contains("重试进展"),
++        "非 cargo 形态（全 0 计数）不产推进序列行: {text}"
++    );
+ }
+ 
+ /// 正向（AC-1）：瞬态自愈转绿——shim 首次输出锁文本 `exit 1`、第 2 次 `exit 0`
+@@ -1541,3 +1545,190 @@ async fn fault与passed正交_绿不产fault() {
+         outcome.diagnostics
+     );
+ }
++
++// ---------------------------------------------------------------------------
++// 正向 / 异常（AC-5 组合锚）：推进判据 → fault 文本全链
++// （`static_check::execute` → `exec::run_shell`（重试 + 卡死早停）→
++// `environment::fault_text` → `StaticCheckOutcome.fault`）
++// ---------------------------------------------------------------------------
++
++/// 按尝试序输出 `Compiling` 行数的 shim（平台双形态：Windows `.cmd` +
++/// PowerShell、POSIX sh）：第 n 次尝试输出 `counts[n - 1]` 行
++/// `   Compiling crate v0.1.0` + `lock_text` 并 `exit 1`；超出清单的尝试输出 0 行。
++/// 返回 config 应登记的裸名（Windows 带 `.cmd` 后缀）。
++fn write_counting_shim(
++    ws: &TempWs,
++    name: &str,
++    counter: &Path,
++    counts: &[u32],
++    lock_text: &str,
++) -> String {
++    #[cfg(windows)]
++    {
++        let counts_array = counts
++            .iter()
++            .map(u32::to_string)
++            .collect::<Vec<_>>()
++            .join(",");
++        let body = format!(
++            "$cf = '{cf}'\n$n = 0\nif (Test-Path $cf) {{ $n = [int](Get-Content $cf -Raw) }}\n$n = $n + 1\nSet-Content -Path $cf -Value $n -NoNewline -Encoding ascii\n$counts = @({counts})\n$count = 0\nif ($n -le $counts.Count) {{ $count = $counts[$n - 1] }}\nfor ($i = 0; $i -lt $count; $i++) {{ Write-Output '   Compiling crate v0.1.0' }}\nWrite-Output '{lock}'\nexit 1\n",
++            cf = counter.display(),
++            counts = counts_array,
++            lock = lock_text,
++        );
++        fs::write(ws.path().join(format!("{name}-shim.ps1")), body).expect("写计数 shim 脚本失败");
++        let wrapper = format!(
++            "@echo off\r\npowershell -NoProfile -ExecutionPolicy Bypass -File \"%~dp0{name}-shim.ps1\" %*\r\nexit /b %errorlevel%\r\n"
++        );
++        fs::write(ws.path().join(format!("{name}.cmd")), wrapper).expect("写计数 shim 失败");
++        format!("{name}.cmd")
++    }
++    #[cfg(not(windows))]
++    {
++        let mut arms = String::new();
++        for (index, count) in counts.iter().enumerate() {
++            arms.push_str(&format!("  {}) count={count} ;;\n", index + 1));
++        }
++        let body = format!(
++            "#!/bin/sh\ncf=\"{cf}\"\nn=$(cat \"$cf\" 2>/dev/null || printf '0')\nn=$((n+1))\nprintf '%s' \"$n\" > \"$cf\"\ncount=0\ncase \"$n\" in\n{arms}esac\ni=0\nwhile [ \"$i\" -lt \"$count\" ]; do\n  printf '   Compiling crate v0.1.0\\n'\n  i=$((i+1))\ndone\nprintf '%s\\n' '{lock}'\nexit 1\n",
++            cf = counter.display(),
++            arms = arms,
++            lock = lock_text,
++        );
++        let script = ws.path().join(name);
++        fs::write(&script, body).expect("写计数 shim 失败");
++        use std::os::unix::fs::PermissionsExt;
++        fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).expect("补执行位");
++        name.to_owned()
++    }
++}
++
++/// 正向（AC-5 组合锚）：卡死推进序列到 fault——shim 第 1 次 264 行、第 2 / 3
++/// 次 5 行 `Compiling` + 锁文本 + `exit 1` → 卡死早停（`attempts == 3 < 5`）→
++/// `passed == false`、`fault == Some(Environment(text))`，`text` 含
++/// `重试进展：待编译 264 → 5 → 5（末两次无进展，判定为卡死）`、「已自动重试 2
++/// 次」、被锁文件路径与指引；输出记录恰 3 段 attempt 分隔头；`diagnostics` 为
++/// 末次原文（`trim_end`）。
++#[tokio::test(start_paused = true)]
++async fn 卡死推进序列到fault文本() {
++    let _env = env_window();
++    let _gate = ClockGate::new();
++    let ws = TempWs::new("stall-sequence");
++    let _path = PathPrefix::enter(ws.path());
++    let locked = ws.path().join("liba.rlib");
++    fs::write(&locked, b"body").expect("落盘被锁文件");
++    let lock_text = format!(
++        "error: failed to rename archive file: {}: os error 32",
++        locked.display()
++    );
++    let counter = ws.path().join("attempt-count.txt");
++    let command = write_counting_shim(&ws, "stall-shim", &counter, &[264, 5, 5], &lock_text);
++    ws.write_config(Some(&command));
++
++    let root = ws.root_str();
++    let runner = tokio::spawn(async move { check_test(&root, "demo-change").await });
++    advance_until(
++        || runner.is_finished(),
++        Duration::from_millis(100),
++        Duration::from_secs(120),
++    )
++    .await;
++    let outcome = runner
++        .await
++        .expect("static-check 任务应正常结束")
++        .expect("卡死面仍 Ok（执行面归因走 fault）");
++
++    assert!(!outcome.passed, "非零退出 → passed = false");
++    let Some(orchestration::port::RunFault::Environment(text)) = outcome.fault.clone() else {
++        panic!("卡死形态应产 Environment fault，实际: {:?}", outcome.fault);
++    };
++    assert!(
++        text.contains("重试进展：待编译 264 → 5 → 5（末两次无进展，判定为卡死）"),
++        "推进序列行与卡死判定语在案: {text}"
++    );
++    assert!(
++        text.contains("已自动重试 2 次"),
++        "attempts == 3 → 重试 2 次: {text}"
++    );
++    assert!(
++        text.contains(&locked.to_string_lossy().into_owned()),
++        "被锁文件路径在案: {text}"
++    );
++    assert!(
++        text.contains("workspace 父目录") && text.contains("逐 worktree"),
++        "环境侧指引在案: {text}"
++    );
++
++    let exec_id = outcome.output_ref.expect("output_ref 恒回填");
++    assert_eq!(
++        attempt_headers(&ws, "demo-change", &exec_id),
++        3,
++        "输出记录恰 3 段 attempt 分隔头（早停面不再烧满 5 次）"
++    );
++    let lines = outcome.diagnostics.lines().collect::<Vec<_>>();
++    assert_eq!(lines.len(), 6, "末次原文 5 行 Compiling + 1 行锁文本");
++    assert!(
++        lines[..5]
++            .iter()
++            .all(|line| line.trim_start().starts_with("Compiling ")),
++        "诊断为末次尝试的原文（Compiling 行）: {:?}",
++        outcome.diagnostics
++    );
++    assert_eq!(
++        lines.last().copied(),
++        Some(lock_text.as_str()),
++        "诊断末行为锁文本（trim_end 后）"
++    );
++}
++
++/// 正向（AC-2 组合锚）：递减推进无判定语——shim 第 1 / 2 / 3 次分别 264 / 5 / 0
++/// 行 `Compiling` + 锁文本、此后恒 0 行 → 递减序列不早停、跑满上限：`text` 含
++/// 五个数字（264 → 5 → 0 → 0 → 0）、无卡死判定语；`attempts` 由 5 段分隔头表达。
++#[tokio::test(start_paused = true)]
++async fn 递减推进无卡死判定语() {
++    let _env = env_window();
++    let _gate = ClockGate::new();
++    let ws = TempWs::new("stall-decreasing");
++    let _path = PathPrefix::enter(ws.path());
++    let locked = ws.path().join("libb.rlib");
++    fs::write(&locked, b"body").expect("落盘被锁文件");
++    let lock_text = format!(
++        "error: failed to rename archive file: {}: os error 32",
++        locked.display()
++    );
++    let counter = ws.path().join("attempt-count.txt");
++    let command = write_counting_shim(&ws, "decreasing-shim", &counter, &[264, 5, 0], &lock_text);
++    ws.write_config(Some(&command));
++
++    let root = ws.root_str();
++    let runner = tokio::spawn(async move { check_test(&root, "demo-change").await });
++    advance_until(
++        || runner.is_finished(),
++        Duration::from_millis(100),
++        Duration::from_secs(120),
++    )
++    .await;
++    let outcome = runner
++        .await
++        .expect("static-check 任务应正常结束")
++        .expect("耗尽面仍 Ok");
++
++    let Some(orchestration::port::RunFault::Environment(text)) = outcome.fault.clone() else {
++        panic!("瞬态耗尽应产 Environment fault，实际: {:?}", outcome.fault);
++    };
++    assert!(
++        text.contains("重试进展：待编译 264 → 5 → 0 → 0 → 0"),
++        "递减序列五个数字在案: {text}"
++    );
++    assert!(!text.contains("判定为卡死"), "末值 0 不产判定语: {text}");
++    assert!(
++        text.contains("已自动重试 4 次"),
++        "跑满上限（attempts == 5）: {text}"
++    );
++    let exec_id = outcome.output_ref.expect("output_ref 恒回填");
++    assert_eq!(
++        attempt_headers(&ws, "demo-change", &exec_id),
++        5,
++        "跑满上限 → 5 段分隔头"
++    );
++}
+diff --git a/crates/infra/checks/src/testexec/mod.rs b/crates/infra/checks/src/testexec/mod.rs
+index 5e0fc3a5d199..e956d8559b1e 100644
+--- a/crates/infra/checks/src/testexec/mod.rs
++++ b/crates/infra/checks/src/testexec/mod.rs
+@@ -9,6 +9,7 @@ mod report_test;
+ 
+ use std::collections::BTreeSet;
+ use std::path::{Path, PathBuf};
++use std::time::{Duration, Instant};
+ 
+ use checks::aggregate::{build_summary_report, coverage_meets_thresholds};
+ use checks::model::{
+@@ -50,6 +51,12 @@ const DETAIL_CASES_PER_SUITE_LIMIT: usize = 20;
+ /// 修复边明细总字符预算（chars 口径；超限截断尾注指向报告目录）。
+ const DETAIL_TOTAL_LIMIT: usize = 12000;
+ 
++/// **跨 plan 总预算**（自本次执行开始时刻起算）：单 plan 的单次尝试预算
++/// （`SUITE_COMMAND_TIMEOUT = 1200 s`）的两倍有余，当前形态（1 rust + 1 vite）
++/// 实测最坏 ≈ 1575 s（含瞬态重试退避），留约 1.5 倍余量。与既有超时预算同性质
++/// 的**代码常量**，MUST NOT 进 config schema；suite 数量增长时复核本值。
++const TESTEXEC_TOTAL_BUDGET: Duration = Duration::from_secs(2400);
++
+ /// test-execution 进程执行器（无状态，组合根按需构造）。
+ pub struct ProcessTestExecution;
+ 
+@@ -70,7 +77,7 @@ impl TestExecutionRunner for ProcessTestExecution {
+     fn run(&self, root: &str, change: &str, slot: ReportSlot, cancel: CancelFlag) -> BoxToolFuture {
+         let root = root.to_owned();
+         let change = change.to_owned();
+-        Box::pin(async move { execute(&root, &change, slot, cancel).await })
++        Box::pin(async move { execute(&root, &change, slot, cancel, TESTEXEC_TOTAL_BUDGET).await })
+     }
+ }
+ 
+@@ -82,13 +89,22 @@ impl TestExecutionRunner for ProcessTestExecution {
+ /// 探测失败」；超时与瞬态耗尽由 `fault`（`RunFault::Environment`）承载、取消由
+ /// `RunFault::Stopped` 承载，两者 MUST NOT 落 plan 级 `execution_error`（那会被
+ /// 当作被测代码问题而产生假失败归因），也不写 summary（半套报告不进复用门）。
++///
++/// **跨 plan 总预算**：进入每个 plan 之前判定一次 —— 超预算余下 plan MUST NOT
++/// spawn，沿**既有** fault 路径收口（不写 summary、不跑诊断、不落报告文件，半套
++/// 报告不进复用门；`report_dir` / `exec_id` 照旧回填）。已完成 plan 的结果随 fault
++/// 收口一并丢弃（工件仍在报告树可人工回查）；既有 fault 不被预算文案覆盖
++/// （`Stopped` 优先于 `Environment`）。
+ async fn execute(
+     root: &str,
+     change: &str,
+     slot: ReportSlot,
+     cancel: CancelFlag,
++    total_budget: Duration,
+ ) -> Result<ToolStepOutput, String> {
+     let started_at = OffsetDateTime::now_utc();
++    // 跨 plan 总预算起点（与 `started_at` 同一次取时 / 同量级）
++    let budget_started = Instant::now();
+     let root_path = Path::new(root);
+     let report = config::load(root_path);
+     let suites = &report.config.tests;
+@@ -135,7 +151,20 @@ async fn execute(
+     let mut sub_reports = Vec::new();
+     let mut merged_output: Vec<u8> = Vec::new();
+     let mut fault: Option<RunFault> = None;
+-    for plan in &plans {
++    for (index, plan) in plans.iter().enumerate() {
++        // 跨 plan 总预算：进 plan 之前判定一次（首个 plan 边界 `elapsed ≈ 0` 恒不
++        // 触发）；超预算余下 plan MUST NOT spawn，沿既有 fault 收口。`fault.is_none()`
++        // 守卫使既有 `Stopped` / `Environment` 不被覆盖（`Stopped` 优先）
++        if budget_started.elapsed() >= total_budget {
++            if fault.is_none() {
++                fault = Some(RunFault::Environment(format!(
++                    "测试执行总时长超预算（{} 秒）：余下 {} 个 suite 未执行",
++                    total_budget.as_secs(),
++                    plans.len() - index
++                )));
++            }
++            break;
++        }
+         // 逐 plan 多次 spawn：取消标志克隆共享同一原子（段间不失效）
+         let mut execution =
+             runner::execute_plan(plan, &reports_dir.join(&plan.id), cancel.clone()).await?;
+diff --git a/crates/infra/checks/src/testexec/mod_test.rs b/crates/infra/checks/src/testexec/mod_test.rs
+index 3c207d34726d..0d93949fd19e 100644
+--- a/crates/infra/checks/src/testexec/mod_test.rs
++++ b/crates/infra/checks/src/testexec/mod_test.rs
+@@ -15,7 +15,8 @@ use orchestration::port::{
+ 
+ use super::detect::to_posix;
+ use super::{
+-    findings_brief, findings_detail, newest_input_mtime_ms, outcome, ProcessTestExecution,
++    execute, findings_brief, findings_detail, newest_input_mtime_ms, outcome, ProcessTestExecution,
++    TESTEXEC_TOTAL_BUDGET,
+ };
+ 
+ /// 设置 shim 环境面（预置工件源 / 目的工件路径 / marker 路径 / 退出码；
+@@ -71,6 +72,7 @@ fn clear_shim_env() {
+     std::env::remove_var("SHIM_LOCK");
+     std::env::remove_var("SHIM_LOCK_FIRST");
+     std::env::remove_var("SHIM_LOCK_COUNT");
++    std::env::remove_var("SHIM_SLEEP_MS");
+ }
+ 
+ /// node-test spec 绿跑样本（五用例 4 pass 1 skipped + "All files" 覆盖汇总行；
+@@ -145,6 +147,7 @@ impl ChainWs {
+             fs::write(
+                 root.join("app").join("node-shim.ps1"),
+                 "if ($args.Count -gt 0 -and $args[0] -eq '--version') { exit 0 }\n\
++                 if ($env:SHIM_SLEEP_MS) { Start-Sleep -Milliseconds ([int]$env:SHIM_SLEEP_MS) }\n\
+                  if ($env:SHIM_LOCK_FIRST) {\n  $locked = 0\n  if ($env:SHIM_LOCK_COUNT -and (Test-Path $env:SHIM_LOCK_COUNT)) { $locked = @(Get-Content $env:SHIM_LOCK_COUNT).Count }\n  if ($locked -lt [int]$env:SHIM_LOCK_FIRST) {\n    if ($env:SHIM_LOCK_COUNT) { Add-Content -Force -Path $env:SHIM_LOCK_COUNT -Value 'locked' }\n    Write-Output $env:SHIM_LOCK\n    exit 1\n  }\n}\n                 if ($env:SHIM_SPIN_AFTER) {\n\
+                    $seen = 0\n\
+                    if ($env:SHIM_MARKER -and (Test-Path $env:SHIM_MARKER)) { $seen = @(Get-Content $env:SHIM_MARKER).Count }\n\
+@@ -171,6 +174,7 @@ impl ChainWs {
+                 &script,
+                 "#!/bin/sh\n\
+                  if [ \"$1\" = \"--version\" ]; then exit 0; fi\n\
++                 if [ -n \"$SHIM_SLEEP_MS\" ]; then sleep $((SHIM_SLEEP_MS / 1000)); fi\n\
+                  if [ -n \"$SHIM_LOCK_FIRST\" ]; then\n  locked=0\n  if [ -n \"$SHIM_LOCK_COUNT\" ] && [ -f \"$SHIM_LOCK_COUNT\" ]; then locked=$(wc -l < \"$SHIM_LOCK_COUNT\"); fi\n  if [ \"$locked\" -lt \"$SHIM_LOCK_FIRST\" ]; then\n    if [ -n \"$SHIM_LOCK_COUNT\" ]; then echo locked >> \"$SHIM_LOCK_COUNT\"; fi\n    echo \"$SHIM_LOCK\"\n    exit 1\n  fi\nfi\n                 if [ -n \"$SHIM_SPIN_AFTER\" ]; then\n\
+                    seen=0\n\
+                    if [ -n \"$SHIM_MARKER\" ] && [ -f \"$SHIM_MARKER\" ]; then seen=$(wc -l < \"$SHIM_MARKER\"); fi\n\
+@@ -433,7 +437,9 @@ impl Drop for PathWindowGuard {
+ /// 正向：绿跑全链组合——tempdir workspace + 真实 config tests[]（node-test
+ /// suite）+ 真实命令 shim（拷贝预置 spec 工件到占位路径、退出 0）→
+ /// ToolStepOutput::TestExecution conclusion=pass、四计数正确、summary.json 与
+-/// planId/report.json 落 change_test_reports 推导目录（AC-5）。
++/// planId/report.json 落 change_test_reports 推导目录（AC-5）。生产调用方
++/// `ProcessTestExecution::run` 以 `TESTEXEC_TOTAL_BUDGET` 全预算执行（预算内零行为
++/// 变化——本用例即该档的全链锚）。
+ #[tokio::test]
+ async fn 绿跑全链_pass结论_四计数与报告落盘() {
+     let ws = ChainWs::new("green-chain");
+@@ -1913,8 +1919,9 @@ async fn 循环内clone共享原子_置位在第二plan链尾可见() {
+ /// 以锁文本 + 非零退出收场（`transient()` 各自 5 次耗尽）→ 两个 plan 都被拉起
+ /// （marker 2 行，`break` 不发生）、最终 `fault == Some(Environment(..))`（首个）、
+ /// `conclusion == Fail` 占位、四项计数 0、不写 summary。
+-#[tokio::test]
++#[tokio::test(start_paused = true)]
+ async fn 多plan环境错误继续跑余下plan() {
++    let _gate = ClockGate::new();
+     let _window = path_window();
+     let ws = ChainWs::new("fault-env-multi-plan").two_plan();
+     let spec_src = ws.root().join("preset-results.txt");
+@@ -1931,8 +1938,28 @@ async fn 多plan环境错误继续跑余下plan() {
+     let lock_count = ws.root().join("shim-lock-count.log");
+     std::env::set_var("SHIM_LOCK_COUNT", &lock_count);
+     ws.prepend_path();
++    let ws_root = ws.root_str();
++    let runner = tokio::spawn(async move {
++        ProcessTestExecution::new()
++            .run(
++                &ws_root,
++                CHANGE,
++                ReportSlot::Test,
++                foundation::cancel::CancelFlag::never(),
++            )
++            .await
++    });
++    advance_until(
++        || runner.is_finished(),
++        std::time::Duration::from_millis(100),
++        std::time::Duration::from_secs(120),
++    )
++    .await;
++    let output = runner
++        .await
++        .expect("run 任务应正常结束")
++        .expect("环境错误以 fault 收口（不 Err）");
+ 
+-    let output = ws.run().await.expect("环境错误以 fault 收口（不 Err）");
+     let ToolStepOutput::TestExecution(outcome) = output else {
+         panic!("产出应为 TestExecution 变体");
+     };
+@@ -1992,6 +2019,56 @@ async fn 多plan环境错误继续跑余下plan() {
+ // 「testexec/mod.rs -> mod_test.rs」用例表：AC-5 组合锚 + D12 / D13 / D14）
+ // ---------------------------------------------------------------------------
+ 
++/// 虚拟时钟闸门：以常驻 `spawn_blocking` 任务抑制 tokio 的「空闲即自动推进」
++/// （沿 `runner_test` / `static_check_test` 同型装置）。暂停时钟下等待真实子进程
++/// 会让虚拟时间成百倍空转；闸门在位时虚拟时间**只**随 [`advance_until`] 前进
++/// ——重试慢档（5 / 10 / 20 / 40 s，两轮 150 s）因此不真等。
++struct ClockGate {
++    release: Option<std::sync::mpsc::Sender<()>>,
++    task: Option<tokio::task::JoinHandle<()>>,
++}
++
++impl ClockGate {
++    fn new() -> Self {
++        let (release, wait) = std::sync::mpsc::channel::<()>();
++        let task = tokio::task::spawn_blocking(move || {
++            let _ = wait.recv();
++        });
++        Self {
++            release: Some(release),
++            task: Some(task),
++        }
++    }
++}
++
++impl Drop for ClockGate {
++    fn drop(&mut self) {
++        self.release.take();
++        self.task.take();
++    }
++}
++
++/// 推进虚拟时钟直到 `until` 为真（真实时间上界 `real_budget`）：每步 `step`
++/// 虚拟 + 10 ms 真实让出（子进程排水 / 收尸在真实时间上进行）。
++async fn advance_until<F: Fn() -> bool>(
++    until: F,
++    step: std::time::Duration,
++    real_budget: std::time::Duration,
++) {
++    let deadline = std::time::Instant::now() + real_budget;
++    while !until() && std::time::Instant::now() < deadline {
++        tokio::time::advance(step).await;
++        let _ = tokio::task::spawn_blocking(|| {
++            std::thread::sleep(std::time::Duration::from_millis(10))
++        })
++        .await;
++    }
++    assert!(
++        until(),
++        "推进真实预算 {real_budget:?} 后仍未收敛（暂停时钟下虚拟时间不会自行前进）"
++    );
++}
++
+ /// 记账文件行数（shim 逐次追加——spawn 次数观测面）。
+ fn line_count(path: &Path) -> usize {
+     fs::read_to_string(path)
+@@ -2004,8 +2081,9 @@ fn line_count(path: &Path) -> usize {
+ /// `TestExecutionOutcome.fault == Some(Environment(text))`（文本含「已自动重试
+ /// 4 次」与被锁文件原料）、`conclusion == Fail` 占位、四项计数全 0、`findings_*`
+ /// 空串、`exec_id` 非空、`report_dir` 为本槽位锚点、不写 summary。
+-#[tokio::test]
++#[tokio::test(start_paused = true)]
+ async fn 单plan环境错误_fault上传与占位装配() {
++    let _gate = ClockGate::new();
+     let _window = path_window();
+     let ws = ChainWs::new("fault-env-single-plan");
+     let unused_src = ws.root().join("unused-results.txt");
+@@ -2018,8 +2096,28 @@ async fn 单plan环境错误_fault上传与占位装配() {
+     std::env::set_var("SHIM_LOCK_FIRST", "9");
+     std::env::set_var("SHIM_LOCK_COUNT", &lock_count);
+     ws.prepend_path();
++    let ws_root = ws.root_str();
++    let runner = tokio::spawn(async move {
++        ProcessTestExecution::new()
++            .run(
++                &ws_root,
++                CHANGE,
++                ReportSlot::Test,
++                foundation::cancel::CancelFlag::never(),
++            )
++            .await
++    });
++    advance_until(
++        || runner.is_finished(),
++        std::time::Duration::from_millis(100),
++        std::time::Duration::from_secs(120),
++    )
++    .await;
++    let output = runner
++        .await
++        .expect("run 任务应正常结束")
++        .expect("环境错误以 fault 收口（不 Err）");
+ 
+-    let output = ws.run().await.expect("环境错误以 fault 收口（不 Err）");
+     let ToolStepOutput::TestExecution(outcome) = output else {
+         panic!("产出应为 TestExecution 变体");
+     };
+@@ -2078,8 +2176,9 @@ async fn 单plan环境错误_fault上传与占位装配() {
+ /// `run`（每跑 5 次瞬态耗尽）：两次均 `fault = Some(Environment(..))`、
+ /// `<report_dir>/summary.json` 恒不存在（坏 plan 不被当权威永久复用）、第二次
+ /// 仍真 spawn（记账 5 → 10）。
+-#[tokio::test]
++#[tokio::test(start_paused = true)]
+ async fn 单plan环境错误_不写summary且重跑不复用() {
++    let _gate = ClockGate::new();
+     let _window = path_window();
+     let ws = ChainWs::new("fault-env-no-summary");
+     let unused_src = ws.root().join("unused-results.txt");
+@@ -2094,7 +2193,28 @@ async fn 单plan环境错误_不写summary且重跑不复用() {
+     ws.prepend_path();
+ 
+     for round in 1..=2usize {
+-        let output = ws.run().await.expect("环境错误以 fault 收口（不 Err）");
++        let ws_root = ws.root_str();
++        let runner = tokio::spawn(async move {
++            ProcessTestExecution::new()
++                .run(
++                    &ws_root,
++                    CHANGE,
++                    ReportSlot::Test,
++                    foundation::cancel::CancelFlag::never(),
++                )
++                .await
++        });
++        advance_until(
++            || runner.is_finished(),
++            std::time::Duration::from_millis(100),
++            std::time::Duration::from_secs(120),
++        )
++        .await;
++        let output = runner
++            .await
++            .expect("run 任务应正常结束")
++            .expect("环境错误以 fault 收口（不 Err）");
++
+         let ToolStepOutput::TestExecution(outcome) = output else {
+             panic!("产出应为 TestExecution 变体");
+         };
+@@ -2119,8 +2239,9 @@ async fn 单plan环境错误_不写summary且重跑不复用() {
+ /// `Environment`、plan2 自旋后置位取消收 `Stopped` → 最终 `fault == Some(Stopped)`
+ /// （优先级规则可观测，非「首个胜出」）、`conclusion` 占位 `Fail`、不写 summary、
+ /// plan2 进程被回收。
+-#[tokio::test]
++#[tokio::test(start_paused = true)]
+ async fn stopped优先于environment_环境错误后取消收口stopped() {
++    let _gate = ClockGate::new();
+     let _window = path_window();
+     let ws = ChainWs::new("fault-stopped-priority").two_plan();
+     let spec_src = ws.root().join("preset-results.txt");
+@@ -2151,9 +2272,22 @@ async fn stopped优先于environment_环境错误后取消收口stopped() {
+             .await
+     });
+ 
+-    let pid = wait_pid(&pid_file, std::time::Duration::from_secs(60)).await;
++    advance_until(
++        || pid_file.exists(),
++        std::time::Duration::from_millis(100),
++        std::time::Duration::from_secs(120),
++    )
++    .await;
++    let pid = read_pid(&pid_file).expect("自旋 shim 应落 pid");
+     assert_eq!(line_count(&lock_count), 5, "plan1 已瞬态耗尽（5 次尝试）");
+     handle.set();
++    // 取消观测是 200 ms 轮询（虚拟时钟）：置位后继续推进，使轮询就绪
++    advance_until(
++        || runner.is_finished(),
++        std::time::Duration::from_millis(100),
++        std::time::Duration::from_secs(120),
++    )
++    .await;
+ 
+     let output = runner
+         .await
+@@ -2203,8 +2337,9 @@ async fn stopped优先于environment_环境错误后取消收口stopped() {
+ /// 不 break（两枚绿 plan 的执行臂记账均在案）、最终 `fault == Some(Environment)`
+ /// （首个）、`conclusion == Fail` 占位、四项计数 0（`sub_reports` 内部装配不泄漏
+ /// 到 outcome）、不写 summary / 不落 plan 报告文件。
+-#[tokio::test]
++#[tokio::test(start_paused = true)]
+ async fn 三plan混合_环境错误在中间继续跑完且计数不泄漏() {
++    let _gate = ClockGate::new();
+     let _window = path_window();
+     let ws = ChainWs::new("fault-env-three-plan").three_plan_mixed();
+     let spec_src = ws.root().join("preset-results.txt");
+@@ -2214,8 +2349,28 @@ async fn 三plan混合_环境错误在中间继续跑完且计数不泄漏() {
+     // 一次执行臂双投：plan1（app）与 plan3（app3）各得一枚同源工件
+     set_shim_dest_2(&ws.results_dest_third());
+     ws.prepend_path();
++    let ws_root = ws.root_str();
++    let runner = tokio::spawn(async move {
++        ProcessTestExecution::new()
++            .run(
++                &ws_root,
++                CHANGE,
++                ReportSlot::Test,
++                foundation::cancel::CancelFlag::never(),
++            )
++            .await
++    });
++    advance_until(
++        || runner.is_finished(),
++        std::time::Duration::from_millis(100),
++        std::time::Duration::from_secs(120),
++    )
++    .await;
++    let output = runner
++        .await
++        .expect("run 任务应正常结束")
++        .expect("环境错误以 fault 收口（不 Err）");
+ 
+-    let output = ws.run().await.expect("环境错误以 fault 收口（不 Err）");
+     let ToolStepOutput::TestExecution(outcome) = output else {
+         panic!("产出应为 TestExecution 变体");
+     };
+@@ -2305,3 +2460,348 @@ fn conclusion占位不参与门禁_直构fault不纠偏() {
+         "conclusion 三值面零扩展（无新变体 / 无 fault 专属值）"
+     );
+ }
++
++// ---------------------------------------------------------------------------
++// 跨 plan 总预算（AC-6 / D9–D10：`execute(.., total_budget)` 第五参注入）
++// ---------------------------------------------------------------------------
++
++/// 正向（AC-6）：`TESTEXEC_TOTAL_BUDGET` 常量锚定——`2400 s`（改值即被击杀），
++/// 且大于单 plan 单次尝试预算（1200 s）两倍（留余量）。生产唯一调用方
++/// `ProcessTestExecution::run` 传该常量（由 `绿跑全链` 等全链用例表达）。
++#[test]
++fn 测试执行总预算常量锚定() {
++    let budget = TESTEXEC_TOTAL_BUDGET;
++    assert_eq!(
++        budget,
++        std::time::Duration::from_secs(2400),
++        "跨 plan 总预算 2400 s"
++    );
++    assert!(
++        budget >= std::time::Duration::from_secs(1200) * 2,
++        "预算不小于单 plan 单次尝试预算的两倍（实际 {budget:?}）"
++    );
++}
++
++/// 正向（AC-6 组合锚）：超预算余下 plan 零 spawn——两 plan 装置 + 300 ms 预算
++/// （首个 plan 的真实 spawn 耗时 1.5 s ≫ 预算，故「首边界不触发 / 第二边界必越」
++/// 确定成立）→ marker 仅 1 行（余下 plan **零 spawn**）、`fault =
++/// Some(Environment(text))` 且 `text` 含「测试执行总时长超预算」与「余下 1 个
++/// suite 未执行」、`conclusion == Fail` 占位、四计数 0、诊断双双空串、
++/// `report_dir` / `exec_id` 回填、`reports/test` 无 `summary.json`。
++#[tokio::test]
++async fn 超预算余下plan零spawn() {
++    let _window = path_window();
++    let ws = ChainWs::new("budget-overrun").two_plan();
++    let spec_src = ws.root().join("preset-results.txt");
++    fs::write(&spec_src, SPEC_OUTPUT).expect("写预置工件");
++    let marker = ws.root().join("shim-marker.log");
++    set_shim_env(&spec_src, &ws.results_dest(), Some(&marker), None);
++    set_shim_dest_2(&ws.reports_dir().join("app2_node-test").join("results.txt"));
++    // 首个 plan 的真实 spawn 耗时 ≫ 预算（2.5 s vs 1 s）——不依赖时序抖动
++    std::env::set_var("SHIM_SLEEP_MS", "2500");
++    ws.prepend_path();
++
++    let output = execute(
++        &ws.root_str(),
++        CHANGE,
++        ReportSlot::Test,
++        foundation::cancel::CancelFlag::never(),
++        std::time::Duration::from_secs(1),
++    )
++    .await
++    .expect("超预算仍 Ok（沿既有 fault 路径收口）");
++
++    let ToolStepOutput::TestExecution(outcome) = output else {
++        panic!("产出应为 TestExecution 变体");
++    };
++
++    assert_eq!(
++        ws.marker_count(),
++        1,
++        "余下 1 个 plan 零 spawn（marker 仅 1 行）"
++    );
++    let Some(RunFault::Environment(text)) = outcome.fault.clone() else {
++        panic!("超预算应产 Environment fault，实际: {:?}", outcome.fault);
++    };
++    assert!(
++        text.contains("测试执行总时长超预算"),
++        "fault 文案点名预算: {text}"
++    );
++    assert!(
++        text.contains("余下 1 个 suite 未执行"),
++        "fault 文案点名未执行数量: {text}"
++    );
++    assert_eq!(
++        outcome.conclusion,
++        TestExecutionConclusion::Fail,
++        "fault 面结论取 Fail 占位"
++    );
++    assert_eq!(
++        (
++            outcome.total,
++            outcome.passed,
++            outcome.failed,
++            outcome.skipped
++        ),
++        (0, 0, 0, 0),
++        "fault 面四项计数全 0"
++    );
++    assert!(
++        outcome.findings_brief.is_empty() && outcome.findings_detail.is_empty(),
++        "fault 面诊断双双空串"
++    );
++    assert_eq!(
++        outcome.report_dir,
++        to_posix(&ws.reports_dir()),
++        "report_dir 为本槽位锚点"
++    );
++    assert!(!outcome.exec_id.is_empty(), "exec_id 照旧回填");
++    assert!(
++        !ws.reports_dir().join("summary.json").exists(),
++        "预算收口不写 summary（半套报告不进复用门）"
++    );
++
++    // 已完成 plan 的工件可回查（工件不删，仅 summary 缺失）
++    let first_results = ws.results_dest();
++    assert!(
++        first_results.exists(),
++        "首个 plan 的 results.txt 仍在报告树"
++    );
++    assert_eq!(
++        fs::read_to_string(&first_results).unwrap_or_default(),
++        artifact_normalized(),
++        "首个 plan 工件内容完整"
++    );
++    assert!(
++        !ws.reports_dir()
++            .join("app_node-test")
++            .join("report.json")
++            .exists(),
++        "预算收口不落 plan 子报告"
++    );
++}
++
++/// 工件文本归一（CRLF / 去尾随空白——shim 拷贝可能引入平台行尾差异）。
++fn artifact_normalized() -> String {
++    SPEC_OUTPUT
++        .lines()
++        .map(str::trim_end)
++        .collect::<Vec<_>>()
++        .join("\n")
++        + "\n"
++}
++
++/// 边界：零预算边界——`execute(.., Duration::ZERO)` → 首个 plan 边界即触发
++/// （生产常量下 `elapsed ≈ 0 ≪ 2400 s` 恒不触发）：全部 plan 零 spawn（marker
++/// 0 行）、`text` 含「余下 N 个 suite 未执行」且 `N == plans.len()`、无 summary、
++/// `exec_id` 仍回填（空合并流落空 `.log` 可回查）。
++#[tokio::test]
++async fn 零预算边界全部plan零spawn() {
++    let _window = path_window();
++    let ws = ChainWs::new("budget-zero").two_plan();
++    let spec_src = ws.root().join("preset-results.txt");
++    fs::write(&spec_src, SPEC_OUTPUT).expect("写预置工件");
++    let marker = ws.root().join("shim-marker.log");
++    set_shim_env(&spec_src, &ws.results_dest(), Some(&marker), None);
++    ws.prepend_path();
++
++    let output = execute(
++        &ws.root_str(),
++        CHANGE,
++        ReportSlot::Test,
++        foundation::cancel::CancelFlag::never(),
++        std::time::Duration::ZERO,
++    )
++    .await
++    .expect("零预算仍 Ok（fault 收口）");
++
++    let ToolStepOutput::TestExecution(outcome) = output else {
++        panic!("产出应为 TestExecution 变体");
++    };
++
++    assert_eq!(ws.marker_count(), 0, "全部 plan 零 spawn");
++    let Some(RunFault::Environment(text)) = outcome.fault.clone() else {
++        panic!("零预算应产 Environment fault，实际: {:?}", outcome.fault);
++    };
++    assert!(
++        text.contains("余下 2 个 suite 未执行"),
++        "N == plans.len()（2）: {text}"
++    );
++    assert!(
++        !ws.reports_dir().join("summary.json").exists(),
++        "零预算不写 summary"
++    );
++    assert!(!outcome.exec_id.is_empty(), "exec_id 仍回填");
++    let empty_log = exec::read_exec_output(ws.root(), CHANGE, &outcome.exec_id)
++        .expect("空合并流落空 .log 可回查");
++    assert!(empty_log.is_empty(), "零 spawn → 合并流为空");
++}
++
++/// 异常（AC-6）：预算不覆盖既有 `Stopped`——预置 cancel + 一个量级不触发首边界
++/// 的预算（5 s）→ `fault == Some(Stopped)`（不是超预算文案）；入口短路零 spawn
++/// （`Stopped` 面既有 break 先于后续 plan 的预算判定）。
++#[tokio::test]
++async fn 预算不覆盖既有stopped() {
++    let _window = path_window();
++    let ws = ChainWs::new("budget-stopped");
++    let spec_src = ws.root().join("preset-results.txt");
++    fs::write(&spec_src, SPEC_OUTPUT).expect("写预置工件");
++    let marker = ws.root().join("shim-marker.log");
++    set_shim_env(&spec_src, &ws.results_dest(), Some(&marker), None);
++    ws.prepend_path();
++
++    let cancel = foundation::cancel::CancelFlag::never();
++    cancel.handle().set();
++    let output = execute(
++        &ws.root_str(),
++        CHANGE,
++        ReportSlot::Test,
++        cancel,
++        std::time::Duration::from_secs(5),
++    )
++    .await
++    .expect("取消以 fault 收口（不 Err）");
++
++    let ToolStepOutput::TestExecution(outcome) = output else {
++        panic!("产出应为 TestExecution 变体");
++    };
++    assert_eq!(
++        outcome.fault,
++        Some(RunFault::Stopped),
++        "`Stopped` 优先于预算文案（既有 fault 不被覆盖）"
++    );
++    assert_eq!(ws.marker_count(), 0, "入口短路零 spawn");
++}
++
++/// 异常（AC-6 异常臂）：预算不覆盖既有 `Environment`——三 plan 混合装置（中间
++/// jest 档瞬态耗尽 → `Environment(锁文案)`，`fault.is_none()` 守卫使其不被覆盖）
++/// + 5 s 预算（jest 档 5 次尝试的虚拟退避推进期间真实耗时必越）→ 最终 `fault`
++/// 仍为首个 `Environment`（文案含锁文本、**不含**「超预算」）；进入第三 plan 边界
++/// 时零 spawn。
++#[tokio::test(start_paused = true)]
++async fn 预算不覆盖既有environment() {
++    let _gate = ClockGate::new();
++    let _window = path_window();
++    let ws = ChainWs::new("budget-env").three_plan_mixed();
++    let spec_src = ws.root().join("preset-results.txt");
++    fs::write(&spec_src, SPEC_OUTPUT).expect("写预置工件");
++    let marker = ws.root().join("shim-marker.log");
++    set_shim_env(&spec_src, &ws.results_dest(), Some(&marker), None);
++    set_shim_dest_2(&ws.results_dest_third());
++    ws.prepend_path();
++
++    let ws_root = ws.root_str();
++    let runner = tokio::spawn(async move {
++        execute(
++            &ws_root,
++            CHANGE,
++            ReportSlot::Test,
++            foundation::cancel::CancelFlag::never(),
++            std::time::Duration::from_secs(5),
++        )
++        .await
++    });
++    advance_until(
++        || runner.is_finished(),
++        std::time::Duration::from_millis(100),
++        std::time::Duration::from_secs(120),
++    )
++    .await;
++    let output = runner
++        .await
++        .expect("run 任务应正常结束")
++        .expect("环境错误以 fault 收口（不 Err）");
++
++    let ToolStepOutput::TestExecution(outcome) = output else {
++        panic!("产出应为 TestExecution 变体");
++    };
++    let Some(RunFault::Environment(text)) = outcome.fault.clone() else {
++        panic!("应保持 Environment fault，实际: {:?}", outcome.fault);
++    };
++    assert!(
++        text.contains("os error 32"),
++        "既有环境文案（锁文本）在案: {text}"
++    );
++    assert!(
++        !text.contains("超预算"),
++        "既有 Environment 不被预算文案覆盖: {text}"
++    );
++    assert_eq!(line_count(&ws.npx_attempt_log()), 5, "jest 档 5 次尝试");
++    assert_eq!(ws.marker_count(), 1, "第三 plan 零 spawn（预算收口）");
++    assert!(
++        !ws.results_dest_third().exists(),
++        "第三 plan 工件未产（零 spawn）"
++    );
++    assert!(
++        !ws.reports_dir().join("summary.json").exists(),
++        "fault 面不写 summary"
++    );
++}
++
++/// 边界（AC-6 连带 + AC-8）：复用门不进——预算收口后 `reports/test` 无 summary
++/// → 同一输入再跑（全预算常量）→ 不复用（marker 增长，重新 spawn）并写 summary。
++#[tokio::test]
++async fn 预算收口后复用门不进() {
++    let _window = path_window();
++    let ws = ChainWs::new("budget-reuse").two_plan();
++    let spec_src = ws.root().join("preset-results.txt");
++    fs::write(&spec_src, SPEC_OUTPUT).expect("写预置工件");
++    let marker = ws.root().join("shim-marker.log");
++    set_shim_env(&spec_src, &ws.results_dest(), Some(&marker), None);
++    set_shim_dest_2(&ws.reports_dir().join("app2_node-test").join("results.txt"));
++    std::env::set_var("SHIM_SLEEP_MS", "2500");
++    ws.prepend_path();
++
++    let first = execute(
++        &ws.root_str(),
++        CHANGE,
++        ReportSlot::Test,
++        foundation::cancel::CancelFlag::never(),
++        std::time::Duration::from_secs(1),
++    )
++    .await
++    .expect("超预算仍 Ok");
++    let ToolStepOutput::TestExecution(first_outcome) = first else {
++        panic!("产出应为 TestExecution 变体");
++    };
++    assert!(
++        matches!(first_outcome.fault, Some(RunFault::Environment(_))),
++        "第一跑超预算收口为 Environment fault: {:?}",
++        first_outcome.fault
++    );
++    assert_eq!(ws.marker_count(), 1, "第一跑只跑首个 plan");
++    assert!(
++        !ws.reports_dir().join("summary.json").exists(),
++        "第一跑无 summary（复用门无可复用面）"
++    );
++
++    // 第二跑：全预算（生产常量）→ 不复用，重新 spawn 两个 plan 并写 summary
++    std::env::remove_var("SHIM_SLEEP_MS");
++    let second = execute(
++        &ws.root_str(),
++        CHANGE,
++        ReportSlot::Test,
++        foundation::cancel::CancelFlag::never(),
++        TESTEXEC_TOTAL_BUDGET,
++    )
++    .await
++    .expect("全预算应 Ok");
++    let ToolStepOutput::TestExecution(second_outcome) = second else {
++        panic!("产出应为 TestExecution 变体");
++    };
++    assert_eq!(
++        ws.marker_count(),
++        3,
++        "第二跑真 spawn 两个 plan（1 + 2 行，未复用半套报告）"
++    );
++    assert_eq!(second_outcome.fault, None, "全预算面无 fault");
++    assert_eq!(
++        second_outcome.conclusion,
++        TestExecutionConclusion::Pass,
++        "全预算绿跑结论 Pass"
++    );
++    assert!(
++        ws.reports_dir().join("summary.json").exists(),
++        "全预算写 summary（此后可进复用门）"
++    );
++}

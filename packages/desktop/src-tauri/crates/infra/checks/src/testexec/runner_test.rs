@@ -2015,6 +2015,10 @@ async fn 瞬态耗尽_fault为环境错误且零execution_error() {
         "fault 在位即跳过工件解析"
     );
 
+    assert!(
+        !text.contains("重试进展"),
+        "非 cargo 形态（全 0 计数）不产推进序列行: {text}"
+    );
     let output = String::from_utf8_lossy(&execution.output).into_owned();
     assert_eq!(
         output.matches("===== attempt ").count(),
@@ -2127,4 +2131,237 @@ async fn 裸failed_to_write不产fault且单次尝试() {
         0,
         "单次尝试零分隔头"
     );
+}
+
+// ---------------------------------------------------------------------------
+// 正向（AC-5 组合锚）：合并流推进序列到 fault
+// （`runner::execute_plan` → `exec::run_shell` → `environment::fault_text`（合并流）
+// → `PlanExecution.fault`）
+// ---------------------------------------------------------------------------
+
+/// 按尝试序输出 `Compiling` 行数的 suite 模板（平台双形态）：第 n 次尝试
+/// **stdout** 输出 `counts[n - 1]` 行 `   Compiling crate v0.1.0`，**stderr**
+/// 输出 `lock_text` 并 `exit 1`（合并流面：末次 `stderr` 已并入 `output`，故
+/// `Compiling` 行不得被计两次）；超出清单的尝试输出 0 行。返回可直接作模板的
+/// shim 绝对路径（tempdir 路径无空格，首 token 即程序）。
+fn write_counting_template(
+    dir: &Path,
+    name: &str,
+    counter: &Path,
+    counts: &[u32],
+    lock_text: &str,
+) -> String {
+    #[cfg(windows)]
+    {
+        let counts_array = counts
+            .iter()
+            .map(u32::to_string)
+            .collect::<Vec<_>>()
+            .join(",");
+        let ps1 = dir.join(format!("{name}-shim.ps1"));
+        let body = format!(
+            "$cf = '{cf}'\n$n = 0\nif (Test-Path $cf) {{ $n = [int](Get-Content $cf -Raw) }}\n$n = $n + 1\nSet-Content -Path $cf -Value $n -NoNewline -Encoding ascii\n$counts = @({counts})\n$count = 0\nif ($n -le $counts.Count) {{ $count = $counts[$n - 1] }}\nfor ($i = 0; $i -lt $count; $i++) {{ Write-Output '   Compiling crate v0.1.0' }}\n[Console]::Error.WriteLine('{lock}')\nexit 1\n",
+            cf = counter.display(),
+            counts = counts_array,
+            lock = lock_text,
+        );
+        std::fs::write(&ps1, body).expect("写计数 shim 脚本失败");
+        let wrapper = dir.join(format!("{name}.cmd"));
+        std::fs::write(
+            &wrapper,
+            format!(
+                "@echo off\r\npowershell -NoProfile -ExecutionPolicy Bypass -File \"%~dp0{name}-shim.ps1\" %*\r\nexit /b %errorlevel%\r\n"
+            ),
+        )
+        .expect("写计数 shim 失败");
+        wrapper.display().to_string()
+    }
+    #[cfg(not(windows))]
+    {
+        let mut arms = String::new();
+        for (index, count) in counts.iter().enumerate() {
+            arms.push_str(&format!("  {}) count={count} ;;\n", index + 1));
+        }
+        let path = dir.join(format!("{name}.sh"));
+        let body = format!(
+            "#!/bin/sh\ncf=\"{cf}\"\nn=$(cat \"$cf\" 2>/dev/null || printf '0')\nn=$((n+1))\nprintf '%s' \"$n\" > \"$cf\"\ncount=0\ncase \"$n\" in\n{arms}esac\ni=0\nwhile [ \"$i\" -lt \"$count\" ]; do\n  printf '   Compiling crate v0.1.0\\n'\n  i=$((i+1))\ndone\nprintf '%s\\n' '{lock}' >&2\nexit 1\n",
+            cf = counter.display(),
+            arms = arms,
+            lock = lock_text,
+        );
+        std::fs::write(&path, body).expect("写计数 shim 失败");
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).expect("补执行位");
+        path.display().to_string()
+    }
+}
+
+/// 正向（AC-5 组合锚）：合并流推进序列到 fault——suite 模板按尝试分支输出
+/// 264 / 5 / 5 行 `Compiling`（stdout）+ 锁文本（stderr）→ 卡死早停 →
+/// `fault == Some(Environment(text))`，`text` 含
+/// `重试进展：待编译 264 → 5 → 5（末两次无进展，判定为卡死）`（末次 `stderr`
+/// 已并入 `output`，不重复计数）；`output` 段数与 `attempts` 一致（3 段）。
+#[tokio::test(start_paused = true)]
+async fn 合并流推进序列到fault文本() {
+    let _env = env_window();
+    let _gate = ClockGate::new();
+    let ws = TempDir::new().expect("临时目录");
+    let cwd = ws.path().join("app");
+    std::fs::create_dir_all(&cwd).expect("创建 suite cwd");
+    let locked = cwd.join("liba.rlib");
+    std::fs::write(&locked, b"body").expect("落盘被锁文件");
+    let lock_text = format!(
+        "error: failed to rename archive file: {}: os error 32",
+        locked.display()
+    );
+    let counter = ws.path().join("attempt-count.txt");
+    let template =
+        write_counting_template(ws.path(), "counting", &counter, &[264, 5, 5], &lock_text);
+    let plan = node_test_plan(&cwd, template);
+    let report_dir = ws.path().join("reports").join("it_node-test");
+
+    let runner =
+        tokio::spawn(async move { execute_plan(&plan, &report_dir, CancelFlag::never()).await });
+    advance_until(
+        || runner.is_finished(),
+        Duration::from_millis(100),
+        Duration::from_secs(120),
+    )
+    .await;
+    let execution = runner
+        .await
+        .expect("suite 任务应正常结束")
+        .expect("卡死面仍 Ok（执行面归因走 fault）");
+
+    assert_eq!(execution.exit_code, 1, "末次非零退出直继承");
+    let Some(RunFault::Environment(text)) = execution.fault.clone() else {
+        panic!(
+            "卡死形态应产 Environment fault，实际: {:?}",
+            execution.fault
+        );
+    };
+    assert!(
+        text.contains("重试进展：待编译 264 → 5 → 5（末两次无进展，判定为卡死）"),
+        "合并流序列行与判定语在案（无重复计数）: {text}"
+    );
+    assert!(
+        text.contains("已自动重试 2 次"),
+        "attempts == 3 → 重试 2 次: {text}"
+    );
+    assert!(
+        execution.error.is_none(),
+        "fault 在位 → plan 级 execution_error 恒 None: {:?}",
+        execution.error
+    );
+    let output = String::from_utf8_lossy(&execution.output).into_owned();
+    assert_eq!(
+        output.matches("===== attempt ").count(),
+        3,
+        "output 段数与 attempts（3）一致: {output}"
+    );
+    for index in 1..=3 {
+        assert!(
+            output.contains(&format!("===== attempt {index}/5")),
+            "序号 {index}/5 在案: {output}"
+        );
+    }
+}
+
+/// 正向（AC-5）：卡死判定语（两次尝试）——两次尝试同为 50 行 `Compiling` +
+/// 锁文本 → `text` 含 `（末两次无进展，判定为卡死）`；`execution.output` 恰 2 段。
+#[tokio::test(start_paused = true)]
+async fn 两次相同计数产卡死判定语() {
+    let _env = env_window();
+    let _gate = ClockGate::new();
+    let ws = TempDir::new().expect("临时目录");
+    let cwd = ws.path().join("app");
+    std::fs::create_dir_all(&cwd).expect("创建 suite cwd");
+    let locked = cwd.join("libc.rlib");
+    std::fs::write(&locked, b"body").expect("落盘被锁文件");
+    let lock_text = format!(
+        "error: failed to rename archive file: {}: os error 32",
+        locked.display()
+    );
+    let counter = ws.path().join("attempt-count.txt");
+    let template = write_counting_template(ws.path(), "stall", &counter, &[50, 50], &lock_text);
+    let plan = node_test_plan(&cwd, template);
+    let report_dir = ws.path().join("reports").join("it_node-test");
+
+    let runner =
+        tokio::spawn(async move { execute_plan(&plan, &report_dir, CancelFlag::never()).await });
+    advance_until(
+        || runner.is_finished(),
+        Duration::from_millis(100),
+        Duration::from_secs(120),
+    )
+    .await;
+    let execution = runner
+        .await
+        .expect("suite 任务应正常结束")
+        .expect("卡死面仍 Ok");
+
+    let Some(RunFault::Environment(text)) = execution.fault.clone() else {
+        panic!(
+            "卡死形态应产 Environment fault，实际: {:?}",
+            execution.fault
+        );
+    };
+    assert!(
+        text.contains("重试进展：待编译 50 → 50（末两次无进展，判定为卡死）"),
+        "两次相同计数 → 判定语: {text}"
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&execution.output)
+            .matches("===== attempt ")
+            .count(),
+        2,
+        "output 恰 2 段"
+    );
+    assert_eq!(execution.exit_code, 1, "末次非零退出直继承");
+    assert!(
+        execution.cases.is_empty() && execution.measured.is_none(),
+        "fault 在位即跳过工件解析"
+    );
+}
+
+/// 边界（AC-8）：`PlanExecution` 字段面零变——八字段（`exit_code` /
+/// `duration_ms` / `cases` / `source_files` / `measured` / `error` / `output` /
+/// `fault`）在绿跑面逐字段可读且形态同改造前（字段集无新增）。
+#[tokio::test]
+async fn plan_execution字段面零变() {
+    let _env = env_window();
+    let ws = TempDir::new().expect("临时目录");
+    let cwd = ws.path().join("app");
+    std::fs::create_dir_all(&cwd).expect("创建 suite cwd");
+    let spec_src = preset(ws.path(), "preset-results.txt", SPEC_OUTPUT);
+    let template = if cfg!(windows) {
+        format!(
+            "cmd /C type {} > {{results_file}}",
+            spec_src.to_string_lossy().replace('/', "\\")
+        )
+    } else {
+        format!("cp \"{}\" \"{{results_file}}\"", spec_src.to_string_lossy())
+    };
+    let plan = node_test_plan(&cwd, template);
+    let report_dir = ws.path().join("reports").join("it_node-test");
+
+    let execution = execute_plan(&plan, &report_dir, CancelFlag::never())
+        .await
+        .expect("绿跑应 Ok");
+
+    assert_eq!(execution.exit_code, 0, "exit_code 字段可读");
+    assert!(execution.duration_ms >= 0.0, "duration_ms 字段可读");
+    assert_eq!(execution.cases.len(), 5, "cases 字段可读（五用例行）");
+    assert!(execution.source_files.is_empty(), "source_files 字段可读");
+    assert!(
+        execution.measured.is_some(),
+        "measured 字段可读（node-test 覆盖实测块）"
+    );
+    assert_eq!(execution.error, None, "error 字段可读（绿面无错）");
+    assert_eq!(
+        execution.output,
+        Vec::<u8>::new(),
+        "output 字段可读（模板把 stdout 重定向进工件 → 合并流为空）"
+    );
+    assert_eq!(execution.fault, None, "fault 字段可读（绿面无归因）");
 }

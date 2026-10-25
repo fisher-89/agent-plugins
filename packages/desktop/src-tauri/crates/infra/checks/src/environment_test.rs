@@ -285,6 +285,7 @@ fn 环境文案含重试次数与处置指引() {
         5,
         1,
         b"error: failed to rename archive file: /t/liba.rlib: os error 32",
+        &[],
     );
 
     assert!(
@@ -318,7 +319,7 @@ fn 环境文案嵌入被锁文件与未定位占用者() {
         path.display()
     );
 
-    let text = fault_text(3, 1, diagnostics.as_bytes());
+    let text = fault_text(3, 1, diagnostics.as_bytes(), &[]);
 
     assert!(
         text.contains(&path.to_string_lossy().into_owned()),
@@ -339,7 +340,7 @@ fn 环境文案嵌入被锁文件与未定位占用者() {
 #[test]
 fn 环境文案摘要取末次错误面() {
     let diagnostics = b"Compiling core v0.1.0\nCompiling infra v0.1.0\nerror: failed to rename archive file: /t/liba.rlib: os error 32\n";
-    let text = fault_text(2, 1, diagnostics);
+    let text = fault_text(2, 1, diagnostics, &[]);
 
     assert!(text.contains("最后一次诊断："), "非空诊断产摘要段: {text}");
     assert!(
@@ -353,7 +354,7 @@ fn 环境文案摘要取末次错误面() {
 /// 不 panic、无空括号 / 负值。
 #[test]
 fn 次数边界零重试不产负值() {
-    let text = fault_text(1, 1, b"error: os error 32");
+    let text = fault_text(1, 1, b"error: os error 32", &[]);
 
     assert!(
         text.contains("已自动重试 0 次"),
@@ -367,7 +368,7 @@ fn 次数边界零重试不产负值() {
 /// panic），次数与指引照常在案。
 #[test]
 fn 空诊断不产摘要段但次数指引照常() {
-    let text = fault_text(4, 1, &[]);
+    let text = fault_text(4, 1, &[], &[]);
 
     assert!(
         !text.contains("最后一次诊断："),
@@ -391,7 +392,7 @@ fn 超长与特殊字符诊断按上限截断() {
         .map(|_| "z".repeat(100))
         .collect::<Vec<_>>()
         .join("\n");
-    let text = fault_text(5, 1, long_body.as_bytes());
+    let text = fault_text(5, 1, long_body.as_bytes(), &[]);
     let after = text
         .split("最后一次诊断：\n")
         .nth(1)
@@ -409,7 +410,7 @@ fn 超长与特殊字符诊断按上限截断() {
 
     // 形态二：引号 / 换行 / emoji 混排
     let special = "say \"os error 32\"\n\u{0} emoji 🎉 完成\n".to_owned();
-    let text = fault_text(2, 1, special.as_bytes());
+    let text = fault_text(2, 1, special.as_bytes(), &[]);
     assert!(
         text.contains("os error 32"),
         "特殊字符诊断的签名行在案: {text}"
@@ -420,7 +421,7 @@ fn 超长与特殊字符诊断按上限截断() {
     let mut raw = b"error: os error 32 ".to_vec();
     raw.extend_from_slice(&[0xFF, 0xFE]);
     raw.push(b'\n');
-    let text = fault_text(2, 1, &raw);
+    let text = fault_text(2, 1, &raw, &[]);
     assert!(
         text.contains("os error 32"),
         "非 UTF-8 诊断 lossy 后可读: {text}"
@@ -456,4 +457,265 @@ fn 指引与摘录上限常量锚定() {
     let limit = DIAGNOSIS_EXCERPT_LIMIT;
     assert!(limit > 0, "摘录上限为正（实际 {limit}）");
     assert!(limit >= 500, "摘录上限足够承载主因（实际 {limit}）");
+}
+
+// ---------------------------------------------------------------------------
+// 正向 / 异常 / 边界：fault_text 的「重试进展」行（AC-5 / D6–D8）
+// ---------------------------------------------------------------------------
+
+/// N 行 `   Compiling <crate> v0.1.0`（rustc 缩进形态）的原始字节。
+fn compiling_lines(count: u32) -> Vec<u8> {
+    (0..count)
+        .map(|index| format!("   Compiling crate{index} v0.1.0\n"))
+        .collect::<String>()
+        .into_bytes()
+}
+
+/// 锁错误行（含可解析路径，归因段非降级形态）。
+const LOCK_LINE: &[u8] = b"error: failed to rename archive file: /t/liba.rlib: os error 32";
+
+/// 正向（AC-5）：推进序列行——`attempts = 4`、`retried` 三条（264 / 5 / 0 行 +
+/// 锁文本）、末次 `output` 仅锁文本 → 文本含
+/// `重试进展：待编译 264 → 5 → 0 → 0`；行位在「已自动重试 3 次…」之后、
+/// 「最后一次诊断：」之前；不含卡死判定语。
+#[test]
+fn 环境文案含推进序列行且行位在案() {
+    let retried = vec![
+        trace(1, Some("os error 32"), &compiling_lines(264), LOCK_LINE),
+        trace(1, Some("os error 32"), &compiling_lines(5), LOCK_LINE),
+        trace(1, Some("os error 32"), &compiling_lines(0), LOCK_LINE),
+    ];
+
+    let text = fault_text(4, 1, LOCK_LINE, &retried);
+
+    assert!(
+        text.contains("重试进展：待编译 264 → 5 → 0 → 0"),
+        "四个计数按尝试序成行: {text}"
+    );
+    assert!(
+        !text.contains("判定为卡死"),
+        "递减形态不产卡死判定语: {text}"
+    );
+
+    let attempts_at = text.find("已自动重试 3 次").expect("次数行在案");
+    let progress_at = text.find("重试进展：").expect("推进序列行在案");
+    let diagnosis_at = text.find("最后一次诊断：").expect("诊断段在案");
+    assert!(
+        attempts_at < progress_at,
+        "序列行在次数行之后（{attempts_at} < {progress_at}）"
+    );
+    assert!(
+        progress_at < diagnosis_at,
+        "序列行在诊断段之前（{progress_at} < {diagnosis_at}）"
+    );
+}
+
+/// 正向（AC-5）：卡死判定附语——`attempts = 2`、两次输出各 50 行 `Compiling` +
+/// 锁文本 → 含 `重试进展：待编译 50 → 50（末两次无进展，判定为卡死）`。
+#[test]
+fn 环境文案卡死判定附语() {
+    let mut first = compiling_lines(50);
+    first.extend_from_slice(LOCK_LINE);
+    let mut last = compiling_lines(50);
+    last.extend_from_slice(LOCK_LINE);
+    let retried = vec![trace(1, Some("os error 32"), &first, b"")];
+
+    let text = fault_text(2, 1, &last, &retried);
+
+    assert!(
+        text.contains("重试进展：待编译 50 → 50（末两次无进展，判定为卡死）"),
+        "卡死时同一行追加判定附语: {text}"
+    );
+}
+
+/// 异常（AC-5 抑制臂）：`attempts == 1` 无该行——`retried` 空、`output` 含 264 行
+/// `Compiling` + 锁文本 → 无「重试进展」字样；归因段 / 次数行（「已自动重试 0
+/// 次」）/ 摘要 / 指引照旧。
+#[test]
+fn 单次尝试不产推进序列行() {
+    let mut output = compiling_lines(264);
+    output.extend_from_slice(LOCK_LINE);
+
+    let text = fault_text(1, 1, &output, &[]);
+
+    assert!(!text.contains("重试进展"), "未重试不产序列行: {text}");
+    assert!(text.contains("已自动重试 0 次"), "次数行照旧: {text}");
+    assert!(text.contains("最后一次诊断："), "摘要照旧: {text}");
+    assert!(text.ends_with(ENV_GUIDANCE), "指引照旧: {text}");
+}
+
+/// 异常（AC-5 抑制臂）：序列全 `0` 无该行——`attempts = 3`、`retried` 两条仅锁
+/// 文本、末次仅锁文本（非 cargo 形态）→ 无「重试进展」；其余段零变。
+#[test]
+fn 序列全零不产推进序列行() {
+    let retried = vec![
+        trace(1, Some("os error 32"), b"", LOCK_LINE),
+        trace(1, Some("os error 32"), b"", LOCK_LINE),
+    ];
+
+    let text = fault_text(3, 1, LOCK_LINE, &retried);
+
+    assert!(!text.contains("重试进展"), "全 0 序列无可读进展: {text}");
+    assert!(text.contains("已自动重试 2 次"), "次数行照旧: {text}");
+    assert!(text.ends_with(ENV_GUIDANCE), "指引照旧: {text}");
+}
+
+/// 边界（D8）：部分归零仍输出——序列 `[264, 0]`（`attempts = 2`）→ 输出
+/// `重试进展：待编译 264 → 0`（确有推进可读），且不含卡死判定语。
+#[test]
+fn 部分归零仍输推进序列行() {
+    let retried = vec![trace(
+        1,
+        Some("os error 32"),
+        &compiling_lines(264),
+        LOCK_LINE,
+    )];
+
+    let text = fault_text(2, 1, LOCK_LINE, &retried);
+
+    assert!(
+        text.contains("重试进展：待编译 264 → 0"),
+        "部分归零照常输出: {text}"
+    );
+    assert!(!text.contains("判定为卡死"), "末值 0 不判卡死: {text}");
+}
+
+/// 边界（AC-5 上限）：耗尽面五数字——`attempts = 5`、序列
+/// `[10, 8, 3, 1, 0]` → 行含 5 个数字，不含判定语（末值 `0`）。
+#[test]
+fn 耗尽面推进序列五数字() {
+    let retried = vec![
+        trace(1, Some("os error 32"), &compiling_lines(10), LOCK_LINE),
+        trace(1, Some("os error 32"), &compiling_lines(8), LOCK_LINE),
+        trace(1, Some("os error 32"), &compiling_lines(3), LOCK_LINE),
+        trace(1, Some("os error 32"), &compiling_lines(1), LOCK_LINE),
+    ];
+
+    let text = fault_text(5, 1, LOCK_LINE, &retried);
+
+    assert!(
+        text.contains("重试进展：待编译 10 → 8 → 3 → 1 → 0"),
+        "上限面五个数字按尝试序: {text}"
+    );
+    assert!(!text.contains("判定为卡死"), "末值 0 不判卡死: {text}");
+    let numbers = text
+        .split("重试进展：待编译 ")
+        .nth(1)
+        .and_then(|rest| rest.split('\n').next())
+        .unwrap_or_default()
+        .matches(" → ")
+        .count();
+    assert_eq!(numbers, 4, "五个数字之间恰四个箭头");
+}
+
+/// 边界：直构违反不变量——`attempts = 3` 但 `retried = []`（直构语料）→ 视图
+/// 序列长度 1 → 无「重试进展」、不 panic（抑制条件按序列而非 `attempts` 判）。
+#[test]
+fn 直构违反不变量不产推进序列行() {
+    let mut output = compiling_lines(264);
+    output.extend_from_slice(LOCK_LINE);
+
+    let text = fault_text(3, 1, &output, &[]);
+
+    assert!(
+        !text.contains("重试进展"),
+        "序列长度 1 即不输出（不按 attempts 判）: {text}"
+    );
+    assert!(
+        text.contains("已自动重试 2 次"),
+        "次数仍按 attempts: {text}"
+    );
+}
+
+/// 边界（表驱动 3 形态）：诊断与序列共存字节面——`output` 含 emoji / 引号 /
+/// 换行 / `\0` / 非 UTF-8（`0xFF 0xFE`）+ `Compiling` 行 → lossy 不 panic、序列
+/// 行逐字在案、摘要按 `DIAGNOSIS_EXCERPT_LIMIT` 截断、`ENV_GUIDANCE` 结尾逐字。
+#[test]
+fn 诊断与序列共存字节面() {
+    // 形态一：emoji / 引号 / NUL 混排
+    let mut special = compiling_lines(2);
+    special.extend_from_slice("say \"os error 32\"\n\u{0} emoji 🎉 完成\n".as_bytes());
+    let text = fault_text(
+        2,
+        1,
+        &special,
+        &[trace(1, Some("os error 32"), &compiling_lines(7), b"")],
+    );
+    assert!(
+        text.contains("重试进展：待编译 7 → 2"),
+        "特殊字符不阻断序列行: {text}"
+    );
+    assert!(text.ends_with(ENV_GUIDANCE), "指引逐字结尾: {text}");
+
+    // 形态二：非 UTF-8 原始字节
+    let mut raw = compiling_lines(1);
+    raw.extend_from_slice(b"error: os error 32 ");
+    raw.extend_from_slice(&[0xFF, 0xFE]);
+    raw.push(b'\n');
+    let text = fault_text(
+        2,
+        1,
+        &raw,
+        &[trace(1, Some("os error 32"), &compiling_lines(3), b"")],
+    );
+    assert!(
+        text.contains("重试进展：待编译 3 → 1"),
+        "非 UTF-8 lossy 后序列行照旧: {text}"
+    );
+    assert!(
+        text.contains('\u{FFFD}'),
+        "非 UTF-8 字节转替换符后不 panic: {text}"
+    );
+
+    // 形态三：attempts = 5 + >2000 字符诊断（摘要按上限截断）
+    let long_body = (0..30)
+        .map(|_| "z".repeat(100))
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(long_body.chars().count() > DIAGNOSIS_EXCERPT_LIMIT);
+    let long = long_body.clone().into_bytes();
+    let text = fault_text(
+        5,
+        1,
+        &long,
+        &[
+            trace(1, Some("os error 32"), &compiling_lines(4), b""),
+            trace(1, Some("os error 32"), &compiling_lines(3), b""),
+            trace(1, Some("os error 32"), &compiling_lines(2), b""),
+            trace(1, Some("os error 32"), &compiling_lines(1), b""),
+        ],
+    );
+    assert!(
+        text.contains("重试进展：待编译 4 → 3 → 2 → 1 → 0"),
+        "五段序列在案（末值 0 不带判定语）: {text}"
+    );
+    let after = text
+        .split("最后一次诊断：\n")
+        .nth(1)
+        .expect("超长诊断应产摘要段");
+    let excerpt = after
+        .split("\n环境侧处理")
+        .next()
+        .expect("摘要段以指引前的换行收尾");
+    assert_eq!(
+        excerpt.chars().count(),
+        DIAGNOSIS_EXCERPT_LIMIT + 1,
+        "摘要按上限截断并加省略号"
+    );
+    assert!(text.ends_with(ENV_GUIDANCE), "指引逐字不受截断影响");
+}
+
+/// 边界：`attempts` 大值防御——`attempts = u32::MAX`（直构）→
+/// 「已自动重试 4294967294 次」不溢出、不 panic、无空括号。
+#[test]
+fn attempts大值防御不溢出() {
+    let text = fault_text(u32::MAX, 1, LOCK_LINE, &[]);
+
+    assert!(
+        text.contains("已自动重试 4294967294 次"),
+        "saturating 计数逐值可读: {text}"
+    );
+    assert!(!text.contains("已自动重试 次"), "无空次数: {text}");
+    assert!(!text.contains("已自动重试 -"), "无负值: {text}");
+    assert!(text.ends_with(ENV_GUIDANCE), "指引照旧: {text}");
 }

@@ -1,18 +1,21 @@
 //! 检查域环境归因装配单点（static-check 与 test-execution 共用；MUST NOT 两写）。
 //!
-//! 两个职责：
+//! 三个职责：
 //! - [`attempts_log`]：输出记录内容形态——单次尝试**逐字节同现状**（`stdout ++
 //!   stderr`，零分隔头）；发生过重试则各次尝试按序拼接、每段前加分隔头（审计不丢
 //!   上下文）；
 //! - [`fault_text`]：`RunFault::Environment` 的人读文本——占用者点名 / 被锁文件
-//!   （原料来自 [`exec::attribution_text`]）+ 「已自动重试 N 次」+ 末次诊断摘要 +
-//!   环境侧处理指引。
+//!   （原料来自 [`exec::attribution_text`]）+ 「已自动重试 N 次」+ 可选「重试进展」
+//!   行 + 末次诊断摘要 + 环境侧处理指引；
+//! - [`progress_line`]：重试进展行（各次尝试的待编译计数序列 + 卡死判定附语）——
+//!   计数口径单点驻 `exec::transient`，本模块**不重算**（只经
+//!   [`exec::progress_series`] / [`exec::is_progress_stalled`] 取数）。
 //!
 //! exec 层只供事实原料与尝试面字节（MUST NOT 自带业务文案：尝试分隔头 / 归因文案
 //! 归调用方），故重试次数与处置指引的措辞单点驻本模块；本模块为**纯函数**（零 io
 //! / 零 async）。
 
-use exec::{ProcessOutput, RetryPolicy, RunReport};
+use exec::{AttemptTrace, ProcessOutput, RetryPolicy, RunOutcome, RunReport};
 
 /// 环境侧处理指引（用户 / IT 侧动作）：排除 **workspace 父目录**（逐 worktree
 /// 排除无效——worktree 动态新建），并建议一并排除包管理器缓存。与基线红文案
@@ -83,12 +86,19 @@ fn push_attempt(
 }
 
 /// 环境错误人读文本（`RunFault::Environment` 的唯一装配点）：归因原料（占用者 /
-/// 被锁文件）+ 重试事实 + 末次诊断摘要 + 处置指引。
+/// 被锁文件）+ 重试事实 + 可选「重试进展」行 + 末次诊断摘要 + 处置指引。
 ///
 /// `attempts` / `exit_code` / `output` 取**末次**尝试（`static-check` 传
-/// `&run.stdout`——命令串带 `2>&1`，`stderr` 恒空；test-execution 传合并流）。
-/// 诊断摘要复用 [`ProcessOutput`] 的既有截断口径（不自造「取末尾 N 字符」）。
-pub(crate) fn fault_text(attempts: u32, exit_code: i32, output: &[u8]) -> String {
+/// `&run.stdout`——命令串带 `2>&1`，`stderr` 恒空；test-execution 传合并流），
+/// `retried` 为此前各次尝试的留痕（末次在 `output` 里）。诊断摘要复用
+/// [`ProcessOutput`] 的既有截断口径（不自造「取末尾 N 字符」）；推进序列行长度为
+/// `O(attempts)`（至多 5 个数字）。
+pub(crate) fn fault_text(
+    attempts: u32,
+    exit_code: i32,
+    output: &[u8],
+    retried: &[AttemptTrace],
+) -> String {
     let diagnostics = String::from_utf8_lossy(output);
     let attribution = exec::attribution_text(&diagnostics).unwrap_or_else(|| {
         // 解析不出路径（非文件锁形态的瞬态签名，如链接器 / Node 错误）→ 只给降级
@@ -101,12 +111,28 @@ pub(crate) fn fault_text(attempts: u32, exit_code: i32, output: &[u8]) -> String
         excerpt = output_read.tail();
     }
     let excerpt = clip_chars(&excerpt, DIAGNOSIS_EXCERPT_LIMIT);
+    // 计数口径单点驻 `exec::transient`：本模块只构造一次性「视图报告」取序列，零
+    // 计数逻辑。test-execution 侧传入的已是 `stdout ++ stderr` 合并流，故末次只填
+    // `stdout`、`stderr` 留空（否则同一段字节被计两次）；`outcome` 只为构造视图，
+    // 计数不看它。
+    let series = exec::progress_series(&RunReport {
+        outcome: RunOutcome::Completed,
+        exit_code,
+        stdout: output.to_vec(),
+        stderr: Vec::new(),
+        attempts,
+        retried: retried.to_vec(),
+    });
     let mut text = attribution;
     text.push('\n');
     text.push_str(&format!(
         "已自动重试 {} 次（每次重试会跳过已完成部分）",
         attempts.saturating_sub(1)
     ));
+    if let Some(line) = progress_line(&series) {
+        text.push('\n');
+        text.push_str(&line);
+    }
     if !excerpt.is_empty() {
         text.push_str("\n最后一次诊断：\n");
         text.push_str(&excerpt);
@@ -114,6 +140,29 @@ pub(crate) fn fault_text(attempts: u32, exit_code: i32, output: &[u8]) -> String
     text.push('\n');
     text.push_str(ENV_GUIDANCE);
     text
+}
+
+/// 重试进展行（`None` = 不输出该行）：
+/// - `attempts == 1`（`series.len() < 2`，未重试）——无进展可言；
+/// - 序列各次计数全为 `0`（非 cargo 构建形态，如 Node / 链接器报错）——退化语义下
+///   计数无可读信息。
+///
+/// 其余一律输出（`[264, 0]` 也输出——确有推进可读）；卡死判定经
+/// [`exec::is_progress_stalled`] 取（本模块不重算判据）。
+fn progress_line(series: &[u32]) -> Option<String> {
+    if series.len() < 2 || series.iter().all(|count| *count == 0) {
+        return None;
+    }
+    let counts = series
+        .iter()
+        .map(u32::to_string)
+        .collect::<Vec<_>>()
+        .join(" → ");
+    let mut line = format!("重试进展：待编译 {counts}");
+    if exec::is_progress_stalled(series) {
+        line.push_str("（末两次无进展，判定为卡死）");
+    }
+    Some(line)
 }
 
 /// chars 口径有界截断（≤ limit 原样；超限取前 limit 字符 + 省略号）。

@@ -4,11 +4,16 @@
 //! 覆盖面：13 条封闭签名表的逐条命中与大小写不敏感、两路合并匹配、多行噪声、
 //! 诊断源码摘录行排除、三合一判据的三条反例（超时 / 取消 / 绿 / 真红 / 裸
 //! `failed to write`）、字节面边界（空 / 单字节 / 大块 / 非 UTF-8 / 特殊字符）、
-//! `RetryPolicy` 两构造的三常量锚定与直构边界、`AttemptTrace` 字段面。
+//! `RetryPolicy` 两构造的三常量锚定与直构边界、`AttemptTrace` 字段面；增量推进
+//! 判据三函数（[`compiling_count`] / [`progress_series`] / [`is_progress_stalled`]）
+//! 的口径 / 序 / 长度 / 字节面边界。
 
 use std::time::Duration;
 
-use super::{is_transient, transient_signature, AttemptTrace, RetryPolicy};
+use super::{
+    compiling_count, is_progress_stalled, is_transient, progress_series, transient_signature,
+    AttemptTrace, RetryPolicy,
+};
 use crate::run::{RunOutcome, RunReport};
 
 // ---------------------------------------------------------------------------
@@ -33,6 +38,29 @@ fn failed_stdout(bytes: &[u8]) -> RunReport {
     report(RunOutcome::Completed, 1, bytes, b"")
 }
 
+/// 此前尝试的留痕（留痕面最常用形态：非零退出 + 命中签名）。
+fn trace(stdout: &[u8], stderr: &[u8]) -> AttemptTrace {
+    AttemptTrace {
+        exit_code: 1,
+        transient: Some("os error 32".to_owned()),
+        stdout: stdout.to_vec(),
+        stderr: stderr.to_vec(),
+    }
+}
+
+/// N 行 `Compiling <crate> v0.1.0`（rustc 缩进形态：三空格前缀）的原始字节。
+fn compiling_lines(count: u32) -> Vec<u8> {
+    (0..count)
+        .map(|index| {
+            format!(
+                "   Compiling crate{index} v0.1.0
+"
+            )
+        })
+        .collect::<String>()
+        .into_bytes()
+}
+
 // ---------------------------------------------------------------------------
 // 正向：封闭签名表逐条命中
 // ---------------------------------------------------------------------------
@@ -43,14 +71,15 @@ fn failed_stdout(bytes: &[u8]) -> RunReport {
 #[test]
 fn 签名表逐条命中_返回表中原文() {
     // 封闭表 13 条（Windows 锁族 7 / MSVC 1 / POSIX·Node 5）——逐条硬编码即
-    // 「删条目 / 改写法即被击杀」
+    // 「删条目 / 改写法即被击杀」；第 6 条为收窄后的 `failed to remove`
+    // （**不含** `file`——生产文本为 `failed to remove <path>`）
     const TABLE: [&str; 13] = [
         "os error 32",
         "os error 5",
         "另一个程序正在使用此文件",
         "being used by another process",
         "failed to rename archive file",
-        "failed to remove file",
+        "failed to remove",
         "Access is denied",
         "LNK1104",
         "EBUSY",
@@ -378,9 +407,9 @@ fn 私有判定核心与公开面逐值一致() {
 // 正向 / 边界：RetryPolicy 两构造与字段面
 // ---------------------------------------------------------------------------
 
-/// 正向（AC-1）：`RetryPolicy::transient()` 三常量锚定——`max_attempts == 5`
-/// （首跑 + 4 次重试）、`backoff == [1, 2, 4, 8] s`、`total_budget == 1500 s`
-///（改值即被击杀）。
+/// 正向（AC-3）：`RetryPolicy::transient()` 三常量锚定——`max_attempts == 5`
+/// （首跑 + 4 次重试）、`backoff == [5, 10, 20, 40] s`（慢档）、
+/// `total_budget == 1500 s`（改值即被击杀）。
 #[test]
 fn transient策略三常量锚定() {
     let policy = RetryPolicy::transient();
@@ -388,12 +417,12 @@ fn transient策略三常量锚定() {
     assert_eq!(
         policy.backoff,
         [
-            Duration::from_secs(1),
-            Duration::from_secs(2),
-            Duration::from_secs(4),
-            Duration::from_secs(8),
+            Duration::from_secs(5),
+            Duration::from_secs(10),
+            Duration::from_secs(20),
+            Duration::from_secs(40),
         ],
-        "退避四段递增"
+        "退避四段递增（慢档）"
     );
     assert_eq!(
         policy.total_budget,
@@ -411,10 +440,10 @@ fn none策略单次语义且两次调用相等() {
     assert_eq!(
         policy.backoff,
         [
-            Duration::from_secs(1),
-            Duration::from_secs(2),
-            Duration::from_secs(4),
-            Duration::from_secs(8),
+            Duration::from_secs(5),
+            Duration::from_secs(10),
+            Duration::from_secs(20),
+            Duration::from_secs(40),
         ],
         "退避取同类常量值（不消费）"
     );
@@ -567,4 +596,438 @@ fn attempt_trace输出边界四形态() {
         format!("{empty_signature:?}").contains("AttemptTrace"),
         "Debug 派生可读"
     );
+}
+
+// ---------------------------------------------------------------------------
+// 正向 / 边界（P4）：remove 形态措辞收窄（经 `is_transient` 公共面）
+// ---------------------------------------------------------------------------
+
+/// 正向（表驱动 2 形态，AC-4）：`failed to remove` 真实命中——生产文本
+/// `failed to remove D:\…\x.rcgu.o`（同一行无 `os error` 码）→ 返回**表内原文**；
+/// 带旧措辞 `failed to remove file` 的输入同样返回 `failed to remove`（表中已无
+/// `file` 分支——返回的是表内原文而非输出片段）。
+#[test]
+fn remove形态真实命中_返回表内原文() {
+    let production = b"error: failed to remove D:\\w\\target\\debug\\deps\\x.rcgu.o";
+    assert_eq!(
+        is_transient(&failed_stdout(production)),
+        Some("failed to remove"),
+        "生产 remove 文本命中且返回表内原文"
+    );
+    assert!(
+        !String::from_utf8_lossy(production).contains("os error"),
+        "该形态可单独命中（不靠同行错误码兜住）"
+    );
+
+    let legacy = b"error: failed to remove file: /t/x.rcgu.o";
+    let hit = is_transient(&failed_stdout(legacy));
+    assert_eq!(hit, Some("failed to remove"), "旧措辞输入仍命中");
+    assert!(
+        !hit.unwrap_or_default().contains("file"),
+        "返回原文不含 `file`（表内已无该分支）"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// 正向 / 异常 / 边界：`compiling_count`（待编译计数口径单点）
+// ---------------------------------------------------------------------------
+
+/// 正向（表驱动 3 形态）：多行计数——rustc 缩进形态两路合并口径（`stdout ++
+/// stderr`）、非 `Compiling` 行（`Finished …`）不计数。
+#[test]
+fn 编译计数_多行与两路合并() {
+    // 形态一：stdout 两行
+    assert_eq!(
+        compiling_count(b"   Compiling a v0.1.0\n   Compiling b v0.2.0\n", b""),
+        2,
+        "stdout 侧两行计数"
+    );
+
+    // 形态二：stderr 侧另含 1 行（两路合并）
+    assert_eq!(
+        compiling_count(
+            b"   Compiling a v0.1.0\n   Compiling b v0.2.0\n",
+            b"   Compiling c v0.3.0\n",
+        ),
+        3,
+        "合并 = stdout ++ stderr，两路都计"
+    );
+
+    // 形态三：末行 `Finished dev …` 不计数
+    assert_eq!(
+        compiling_count(
+            b"   Compiling a v0.1.0\n    Finished dev [unoptimized] target(s)\n",
+            b"",
+        ),
+        1,
+        "Finished 行不计数"
+    );
+}
+
+/// 异常（表驱动 6 形态）：非 cargo 输出恒 `0`——锁错误行 / 普通编译错误 /
+/// 全小写 `compiling` / 无尾随空格的 `Compiling` / 前缀不成立的 `Compilingx` /
+/// 行中出现的 `Compiling`（非行首）均不计数。
+#[test]
+fn 编译计数_非cargo输出恒零() {
+    const NON_CARGO: [&[u8]; 6] = [
+        b"error: failed to rename archive file: /t/liba.rlib: os error 32",
+        b"error[E0308]: mismatched types",
+        b"compiling a v0.1.0",
+        b"Compiling",
+        b"Compilingx",
+        b"error: Compiling failed",
+    ];
+
+    for body in NON_CARGO {
+        assert_eq!(
+            compiling_count(body, b""),
+            0,
+            "非 cargo 形态 {:?} 计数为 0",
+            String::from_utf8_lossy(body)
+        );
+    }
+}
+
+/// 边界（表驱动 7 形态）：前导空白与行内形态——零缩进 / 空格 / 制表符 / 混合
+/// 空白均计数；`Compiling ` 后直接换行（无 crate 名）仍计数；行首 `\0` 或 emoji
+/// 前置不计数（`trim_start` 只去空白）。
+#[test]
+fn 编译计数_前导空白与行内形态() {
+    assert_eq!(
+        compiling_count(b"Compiling a v0.1.0\n", b""),
+        1,
+        "零缩进形态计数"
+    );
+    assert_eq!(
+        compiling_count(b"   Compiling a v0.1.0\n", b""),
+        1,
+        "空格缩进计数"
+    );
+    assert_eq!(
+        compiling_count(b"\tCompiling a v0.1.0\n", b""),
+        1,
+        "制表符缩进计数"
+    );
+    assert_eq!(
+        compiling_count(b" \t \t Compiling a v0.1.0\n", b""),
+        1,
+        "混合空白缩进计数"
+    );
+    assert_eq!(
+        compiling_count(b"Compiling \n", b""),
+        1,
+        "无 crate 名的 `Compiling ` 仍计数（含尾随空格）"
+    );
+    assert_eq!(
+        compiling_count(b"\0Compiling a v0.1.0\n", b""),
+        0,
+        "行首 NUL 不属空白 → 不计数"
+    );
+    assert_eq!(
+        compiling_count("🎉Compiling a v0.1.0\n".as_bytes(), b""),
+        0,
+        "行首 emoji 不属空白 → 不计数"
+    );
+}
+
+/// 边界（表驱动 5 形态）：字节面边界——双空 / 单字节 / >64 KiB 且 5000 行
+/// `Compiling`（不截断）/ 非 UTF-8 前缀字节（lossy 后仍计数、不 panic）/
+/// 纯 CRLF 行尾（`lines()` 吃 `\r`）。
+#[test]
+fn 编译计数_字节面边界() {
+    // 形态一：双空
+    assert_eq!(compiling_count(b"", b""), 0, "双空输出计数 0");
+
+    // 形态二：单字节
+    assert_eq!(compiling_count(b"x", b""), 0, "单字节计数 0");
+
+    // 形态三：大块（>64 KiB）且 5000 行 Compiling —— 不截断
+    let big = compiling_lines(5000);
+    assert!(big.len() > 64 * 1024, "样本确实超过 64 KiB");
+    assert_eq!(compiling_count(&big, b""), 5000, "大块逐行全量计数");
+
+    // 形态四：非 UTF-8 前缀字节（lossy 不 panic）
+    let mut raw = vec![0xFF_u8, 0xFE];
+    raw.extend_from_slice(b"\nCompiling x v0.1.0\n");
+    assert_eq!(
+        compiling_count(&raw, b""),
+        1,
+        "非 UTF-8 前缀 lossy 后仍计数（该行不计数、下一行计数）"
+    );
+
+    // 形态五：纯 CRLF 行尾（`lines()` 天然吃掉 `\r`）
+    assert_eq!(
+        compiling_count(b"   Compiling a v0.1.0\r\n   Compiling b v0.1.0\r\n", b""),
+        2,
+        "CRLF 行尾逐行计数"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// 正向 / 边界：`progress_series`（按尝试序的计数序列）
+// ---------------------------------------------------------------------------
+
+/// 正向：未重试长度 1——`attempts == 1`、`retried` 空、`stdout` 5 行
+/// `Compiling` → `vec![5]`（长度 1 == `attempts`）。
+#[test]
+fn 推进序列_未重试长度一() {
+    let report = RunReport {
+        outcome: RunOutcome::Completed,
+        exit_code: 1,
+        stdout: compiling_lines(5),
+        stderr: Vec::new(),
+        attempts: 1,
+        retried: Vec::new(),
+    };
+
+    let series = progress_series(&report);
+    assert_eq!(series, vec![5], "未重试即长度 1 且取末次计数");
+    assert_eq!(series.len() as u32, report.attempts, "长度 == attempts");
+}
+
+/// 正向：序与长度（生产形态）——`retried` 三条（264 / 5 / 0 行）+ 末次 0 行、
+/// `attempts == 4` → `[264, 5, 0, 0]`（按尝试序，末次在后，长度 == `attempts`）。
+#[test]
+fn 推进序列_按尝试序与长度() {
+    let report = RunReport {
+        outcome: RunOutcome::Completed,
+        exit_code: 1,
+        stdout: b"error: os error 32\n".to_vec(),
+        stderr: Vec::new(),
+        attempts: 4,
+        retried: vec![
+            trace(&compiling_lines(264), b""),
+            trace(&compiling_lines(5), b""),
+            trace(&compiling_lines(0), b""),
+        ],
+    };
+
+    let series = progress_series(&report);
+    assert_eq!(series, vec![264, 5, 0, 0], "按尝试序排列，末次在后");
+    assert_eq!(series.len() as u32, report.attempts, "长度 == attempts");
+}
+
+/// 边界（表驱动 2 形态）：耗尽与越界长度——`retried` 4 条 + 末次 → 长度 5
+/// （`transient()` 上限形态）；`retried` 5 条直构（越出生产不变量）→ 长度 6、
+/// 零 panic。
+#[test]
+fn 推进序列_耗尽与越界长度() {
+    let exhausted = RunReport {
+        outcome: RunOutcome::Completed,
+        exit_code: 1,
+        stdout: Vec::new(),
+        stderr: Vec::new(),
+        attempts: 5,
+        retried: vec![
+            trace(&compiling_lines(10), b""),
+            trace(&compiling_lines(8), b""),
+            trace(&compiling_lines(3), b""),
+            trace(&compiling_lines(1), b""),
+        ],
+    };
+    assert_eq!(
+        progress_series(&exhausted),
+        vec![10, 8, 3, 1, 0],
+        "上限形态长度 5（== attempts）"
+    );
+
+    let overflow = RunReport {
+        outcome: RunOutcome::Completed,
+        exit_code: 1,
+        stdout: Vec::new(),
+        stderr: Vec::new(),
+        attempts: 6,
+        retried: vec![
+            trace(&compiling_lines(1), b""),
+            trace(&compiling_lines(1), b""),
+            trace(&compiling_lines(1), b""),
+            trace(&compiling_lines(1), b""),
+            trace(&compiling_lines(1), b""),
+        ],
+    };
+    assert_eq!(
+        progress_series(&overflow).len(),
+        6,
+        "越界直构长度 = retried.len() + 1，不 panic"
+    );
+}
+
+/// 边界（表驱动 2 形态）：直构违反不变量——`attempts = 3` 但 `retried = []`
+/// → 长度 1（doc 口径「长度 = `retried.len() + 1`」，不按 `attempts` 补齐）；
+/// `attempts = 0` 直构同样不 panic。
+#[test]
+fn 推进序列_直构违反不变量() {
+    let mismatched = RunReport {
+        outcome: RunOutcome::Completed,
+        exit_code: 1,
+        stdout: compiling_lines(3),
+        stderr: Vec::new(),
+        attempts: 3,
+        retried: Vec::new(),
+    };
+    assert_eq!(
+        progress_series(&mismatched),
+        vec![3],
+        "序列按 retried 反推，不按 attempts 补齐"
+    );
+
+    let zero_attempts = RunReport {
+        outcome: RunOutcome::Completed,
+        exit_code: 0,
+        stdout: Vec::new(),
+        stderr: Vec::new(),
+        attempts: 0,
+        retried: Vec::new(),
+    };
+    assert_eq!(
+        progress_series(&zero_attempts),
+        vec![0],
+        "attempts == 0 直构不 panic"
+    );
+}
+
+/// 边界（表驱动 3 形态）：两路合并与字节形态——某 `retried` 条目的
+/// `Compiling` 行仅在 `stderr` → 计入该位；末次 `stderr` 侧含 `Compiling` 行 →
+/// 计入末位；非 UTF-8 / emoji / `\0` 混排 → lossy 计数不 panic。
+#[test]
+fn 推进序列_两路合并与字节形态() {
+    // 形态一：retried 条目的 Compiling 行只在 stderr
+    let stderr_side = RunReport {
+        outcome: RunOutcome::Completed,
+        exit_code: 1,
+        stdout: b"error: os error 32\n".to_vec(),
+        stderr: Vec::new(),
+        attempts: 2,
+        retried: vec![trace(b"", &compiling_lines(2))],
+    };
+    assert_eq!(
+        progress_series(&stderr_side),
+        vec![2, 0],
+        "此前尝试的 stderr 侧 Compiling 行计入该位"
+    );
+
+    // 形态二：末次 stderr 侧含 Compiling 行
+    let last_stderr = RunReport {
+        outcome: RunOutcome::Completed,
+        exit_code: 1,
+        stdout: b"error: os error 32\n".to_vec(),
+        stderr: compiling_lines(4),
+        attempts: 2,
+        retried: vec![trace(&compiling_lines(7), b"")],
+    };
+    assert_eq!(
+        progress_series(&last_stderr),
+        vec![7, 4],
+        "末次两路合并计数"
+    );
+
+    // 形态三：非 UTF-8 / emoji / NUL 混排 → lossy 计数不 panic
+    let mut raw = vec![0xFF_u8, 0xFE, b'\n'];
+    raw.extend_from_slice("🎉\u{0} noise\n   Compiling a v0.1.0\n".as_bytes());
+    let messy = RunReport {
+        outcome: RunOutcome::Completed,
+        exit_code: 1,
+        stdout: raw,
+        stderr: Vec::new(),
+        attempts: 1,
+        retried: Vec::new(),
+    };
+    assert_eq!(
+        progress_series(&messy),
+        vec![1],
+        "特殊字符混排下计数不 panic"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// 正向 / 异常 / 边界：`is_progress_stalled`（卡死判据）
+// ---------------------------------------------------------------------------
+
+/// 正向（表驱动 4 形态）：判卡死——末两次相等 `[50, 50]` / 末尾相等
+/// `[264, 5, 5]` / **上升** `[5, 9]`（非降而非相等）/ `[u32::MAX, u32::MAX]`
+/// → `true`。
+#[test]
+fn 判据_末两次非降判卡死() {
+    const STALLED: [&[u32]; 4] = [&[50, 50], &[264, 5, 5], &[5, 9], &[u32::MAX, u32::MAX]];
+
+    for series in STALLED {
+        assert!(
+            is_progress_stalled(series),
+            "序列 {series:?} 应判卡死（末值 > 0 且非降）"
+        );
+    }
+}
+
+/// 异常（表驱动 5 形态）：推进或收尾不卡死——递减 `[264, 5]` /
+/// `[264, 5, 0]` / `[264, 5, 0, 0]` / `[9, 5]` / 末值归零 `[10, 0]` → `false`。
+#[test]
+fn 判据_递减与末值归零不卡死() {
+    const PROGRESSING: [&[u32]; 5] = [&[264, 5], &[264, 5, 0], &[264, 5, 0, 0], &[9, 5], &[10, 0]];
+
+    for series in PROGRESSING {
+        assert!(
+            !is_progress_stalled(series),
+            "序列 {series:?} 不判卡死（递减或末值 0）"
+        );
+    }
+}
+
+/// 边界（表驱动 3 形态）：空与单值——`[]` / `[50]`（`attempts == 1` 无前值）/
+/// `[0]` → 均 `false`。
+#[test]
+fn 判据_空与单值不卡死() {
+    assert!(!is_progress_stalled(&[]), "空序列无前值");
+    assert!(!is_progress_stalled(&[50]), "单值无前值（首跑不触发）");
+    assert!(!is_progress_stalled(&[0]), "单值 0 判否");
+}
+
+/// 边界（表驱动 4 形态）：全 0 与大列表——`[0, 0]` / `[0, 0, 0, 0]` 末值 0 恒
+/// 判否；`[0, 3]` 前值 0、末值 > 0 仍判卡死；1000 项全等判卡死（超大列表不
+/// 退化）。
+#[test]
+fn 判据_全零与大列表() {
+    assert!(!is_progress_stalled(&[0, 0]), "全 0 判否");
+    assert!(!is_progress_stalled(&[0, 0, 0, 0]), "全 0 长序列判否");
+    assert!(
+        is_progress_stalled(&[0, 3]),
+        "前值 0、末值 > 0 仍属「写不进去」"
+    );
+
+    let huge = vec![7u32; 1000];
+    assert!(is_progress_stalled(&huge), "1000 项全等（超大列表）判卡死");
+}
+
+// ---------------------------------------------------------------------------
+// 边界：`RetryPolicy` 常量关系与两构造
+// ---------------------------------------------------------------------------
+
+/// 边界（表驱动 3 形态）：常量关系与两构造——`backoff` 四段严格递增且总和
+/// `75 s < total_budget`（最坏重试总等待仍远低于硬顶）；`none()` 的
+/// `backoff` / `total_budget` 取同类常量（不被消费）；`none() != transient()`。
+#[test]
+fn 策略常量关系与两构造边界() {
+    let transient = RetryPolicy::transient();
+    for pair in transient.backoff.windows(2) {
+        assert!(
+            pair[0] < pair[1],
+            "退避四段严格递增：{:?} 不小于 {:?}",
+            pair[0],
+            pair[1]
+        );
+    }
+    let total_wait: Duration = transient.backoff.iter().sum();
+    assert_eq!(total_wait, Duration::from_secs(75), "四段总和 75 s");
+    assert!(
+        total_wait < transient.total_budget,
+        "最坏重试总等待 75 s 远低于总预算 1500 s"
+    );
+
+    let none = RetryPolicy::none();
+    assert_eq!(none.backoff, transient.backoff, "none 取同类退避常量");
+    assert_eq!(
+        none.total_budget, transient.total_budget,
+        "none 取同类预算常量"
+    );
+    assert_eq!(none.max_attempts, 1, "none 单次执行");
+    assert_ne!(none, transient, "两构造互不相等");
 }

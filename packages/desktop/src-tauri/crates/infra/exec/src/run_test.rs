@@ -8,7 +8,7 @@ use tempfile::TempDir;
 use super::{
     run_shell, RunError, RunOptions, RunOutcome, RunReport, CANCEL_POLL_INTERVAL, FINISH_GRACE,
 };
-use crate::transient::RetryPolicy;
+use crate::transient::{progress_series, RetryPolicy};
 use crate::SystemCommand;
 
 // ---------------------------------------------------------------------------
@@ -1031,7 +1031,7 @@ fn retry_shim(ws: &ShimWs, name: &str, counter: &str, fail_times: u32) -> System
 }
 
 /// 快速重试策略（仅用于「次数 / 上限」用例：退避压到 20 ms，避免真等
-/// 1 / 2 / 4 / 8 s；退避取值本身由 [`退避序列_前两段各消费一次`] 的按段推进与
+/// 5 / 10 / 20 / 40 s 慢档；退避取值本身由 [`退避序列_前两段各消费一次`] 的按段推进与
 /// `transient_test` 的常量锚定覆盖）。
 fn fast_policy(max_attempts: u32) -> RetryPolicy {
     RetryPolicy {
@@ -1039,6 +1039,61 @@ fn fast_policy(max_attempts: u32) -> RetryPolicy {
         backoff: [Duration::from_millis(20); 4],
         total_budget: Duration::from_secs(1500),
     }
+}
+
+/// 按尝试序输出 `Compiling` 行数的 shim：第 n 次尝试输出 `counts[n - 1]` 行
+/// `   Compiling crate{i} v0.1.0` + 锁文本并 `exit 1`；超出清单的尝试输出 0 行。
+/// `succeed_from = Some(k)` 时第 k 次起转绿（`SUCCESS-OUT` / `SUCCESS-ERR` +
+/// `exit 0`）。尝试次数由计数文件自身表达（沿用既有 `attempt_count` 装置）。
+fn counting_shim(
+    ws: &ShimWs,
+    name: &str,
+    counter: &str,
+    counts: &[u32],
+    succeed_from: Option<u32>,
+) -> SystemCommand {
+    let counter_path = ws.file(counter);
+    let mut arms = String::new();
+    for (index, count) in counts.iter().enumerate() {
+        arms.push_str(&format!(
+            "  {}) count={count} ;;
+",
+            index + 1
+        ));
+    }
+    let success = match succeed_from {
+        Some(at) => format!(
+            "if [ \"$n\" -ge {at} ]; then
+  printf 'SUCCESS-OUT'
+  printf 'SUCCESS-ERR' >&2
+  exit 0
+fi
+"
+        ),
+        None => String::new(),
+    };
+    let body = format!(
+        "#!/bin/sh
+cf=\"{cf}\"
+n=$(cat \"$cf\" 2>/dev/null || printf '0')
+n=$((n+1))
+printf '%s' \"$n\" > \"$cf\"
+{success}count=0
+case \"$n\" in
+{arms}esac
+i=0
+while [ \"$i\" -lt \"$count\" ]; do
+  printf '   Compiling crate%d v0.1.0\n' \"$i\"
+  i=$((i+1))
+done
+printf 'error: failed to rename archive file: /t/liba.rlib: os error 32\n'
+exit 1
+",
+        cf = counter_path.display(),
+        success = success,
+        arms = arms,
+    );
+    ws.shim(name, &body)
 }
 
 /// 虚拟时钟闸门：以常驻 `spawn_blocking` 任务抑制 tokio 的「空闲即自动推进」。
@@ -1151,12 +1206,13 @@ async fn 瞬态自愈_三次尝试后转绿() {
     assert_eq!(attempt_count(&ws, "count.txt"), 3, "shim 恰拉起 3 次");
 }
 
-/// 正向（AC-1）：退避序列——三次尝试均命中签名后成功。虚拟时钟（[`ClockGate`] 抑制
-/// 自动推进）按段精确推进，断言每段退避的取值与索引：
-/// - 第 1 段 `backoff[0]` ∈ (500 ms, 1 s]：推进 500 ms 并真实等待上界后仍无第 2 次
-///   尝试，再推进 500 ms 即拉起第 2 次；
-/// - 第 2 段 `backoff[1]` ∈ (1 s, 2 s]：同上（推进 1 s 无第 3 次，再推进 1 s 即拉起）；
-/// - 4 s / 8 s 段未被消费：全程虚拟墙钟恰为 1 s + 2 s、`attempts == 3`、
+/// 正向（AC-3）：退避序列——三次尝试均命中签名后成功。虚拟时钟（[`ClockGate`] 抑制
+/// 自动推进）按段精确推进，断言每段退避的取值与索引（取值即
+/// `RetryPolicy::transient().backoff`，慢档 5 / 10 / 20 / 40 s）：
+/// - 第 1 段 `backoff[0] == 5 s`：推进 4.5 s 并真实等待上界后仍无第 2 次尝试，
+///   再推进 500 ms 即拉起第 2 次；
+/// - 第 2 段 `backoff[1] == 10 s`：同上（推进 5 s 无第 3 次，再推进 5 s 即拉起）；
+/// - 20 s / 40 s 段未被消费：全程虚拟墙钟恰为 5 s + 10 s、`attempts == 3`、
 ///   `retried.len() == 2`（`backoff` 索引不越界、不多等）；shim 恰拉起 3 次。
 #[tokio::test(start_paused = true)]
 async fn 退避序列_前两段各消费一次() {
@@ -1177,33 +1233,33 @@ async fn 退避序列_前两段各消费一次() {
     );
     wait_into_backoff().await;
 
-    // 第 1 段：推进 500 ms 不得越过，补满 1 s 即越过
-    tokio::time::advance(Duration::from_millis(500)).await;
+    // 第 1 段：推进 4.5 s 不得越过，补满 5 s 即越过
+    tokio::time::advance(Duration::from_millis(4500)).await;
     assert_eq!(
         wait_attempts(&ws, "count.txt", 2, Duration::from_secs(3)).await,
         1,
-        "推进 500 ms 未越过第 1 段（backoff[0] > 500 ms）"
+        "推进 4.5 s 未越过第 1 段（backoff[0] > 4.5 s）"
     );
     tokio::time::advance(Duration::from_millis(500)).await;
     assert_eq!(
         wait_attempts(&ws, "count.txt", 2, Duration::from_secs(20)).await,
         2,
-        "推进满 1 s 后拉起第 2 次尝试（backoff[0] == 1 s）"
+        "推进满 5 s 后拉起第 2 次尝试（backoff[0] == 5 s）"
     );
     wait_into_backoff().await;
 
-    // 第 2 段：推进 1 s 不得越过，补满 2 s 即越过
-    tokio::time::advance(Duration::from_secs(1)).await;
+    // 第 2 段：推进 5 s 不得越过，补满 10 s 即越过
+    tokio::time::advance(Duration::from_secs(5)).await;
     assert_eq!(
         wait_attempts(&ws, "count.txt", 3, Duration::from_secs(3)).await,
         2,
-        "推进 1 s 未越过第 2 段（backoff[1] > 1 s）"
+        "推进 5 s 未越过第 2 段（backoff[1] > 5 s）"
     );
-    tokio::time::advance(Duration::from_secs(1)).await;
+    tokio::time::advance(Duration::from_secs(5)).await;
     assert_eq!(
-        wait_attempts(&ws, "count.txt", 3, Duration::from_secs(20)).await,
+        wait_attempts(&ws, "count.txt", 3, Duration::from_secs(30)).await,
         3,
-        "推进满 2 s 后拉起第 3 次尝试（backoff[1] == 2 s）"
+        "推进满 10 s 后拉起第 3 次尝试（backoff[1] == 10 s）"
     );
 
     let report = runner
@@ -1218,12 +1274,245 @@ async fn 退避序列_前两段各消费一次() {
     assert_eq!(report.retried.len(), 2, "末次不入 retried");
     assert_eq!(attempt_count(&ws, "count.txt"), 3, "shim 恰拉起 3 次");
     assert!(
-        elapsed >= Duration::from_secs(3),
-        "前两段退避（1 s + 2 s）各消费一次（虚拟墙钟 {elapsed:?}）"
+        elapsed >= Duration::from_secs(15),
+        "前两段退避（5 s + 10 s）各消费一次（虚拟墙钟 {elapsed:?}）"
     );
     assert!(
-        elapsed < Duration::from_millis(3200),
-        "未消费 4 s / 8 s 段（虚拟墙钟 {elapsed:?}）"
+        elapsed < Duration::from_secs(20),
+        "未消费 20 s / 40 s 段（虚拟墙钟 {elapsed:?}）"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// 正向 / 异常 / 边界：推进计数与卡死早停（AC-1 / AC-2 组合锚）
+// ---------------------------------------------------------------------------
+
+/// 正向（AC-1 组合锚）：卡死早停——shim 每次都输出同一份 50 行
+/// `   Compiling <crate> v0.1.0` + 锁文本并 `exit 1`（末两次计数相等）→ 第 2 次
+/// 尝试后即收口：`attempts == 2 < 5`、`retried.len() == 1`（携签名原文）、末次
+/// `Completed` + `exit_code == 1`、shim 计数 == 2（第 3 次零 spawn）、虚拟墙钟
+/// 仅消费 `backoff[0]`（5 s）。
+#[tokio::test(start_paused = true)]
+async fn 卡死早停_两次尝试即收口() {
+    let _gate = ClockGate::new();
+    let ws = ShimWs::new("stall-early");
+    let command = counting_shim(&ws, "stall.sh", "count.txt", &[50; 5], None);
+
+    let mut with_retry = options(Duration::from_secs(60));
+    with_retry.retry = RetryPolicy::transient();
+
+    let virtual_started = tokio::time::Instant::now();
+    let runner = tokio::spawn(run_shell(command, with_retry));
+
+    assert_eq!(
+        wait_attempts(&ws, "count.txt", 1, Duration::from_secs(20)).await,
+        1,
+        "第 1 次尝试已拉起"
+    );
+    wait_into_backoff().await;
+    tokio::time::advance(Duration::from_secs(5)).await;
+
+    let report = runner
+        .await
+        .expect("任务应正常结束")
+        .expect("卡死早停应 Ok");
+    let elapsed = virtual_started.elapsed();
+
+    assert_eq!(
+        report.attempts, 2,
+        "卡死形态提前放弃（attempts < max_attempts）"
+    );
+    assert_eq!(report.retried.len(), 1, "末次不入 retried");
+    assert_eq!(report.retried[0].exit_code, 1, "此前尝试非零退出");
+    assert_eq!(
+        report.retried[0].transient.as_deref(),
+        Some("os error 32"),
+        "此前尝试携命中签名原文"
+    );
+    assert_eq!(report.outcome, RunOutcome::Completed, "早停仍为 Completed");
+    assert_eq!(
+        report.exit_code, 1,
+        "末次非零退出原样返回（由调用方按 fault 收口）"
+    );
+    assert_eq!(
+        progress_series(&report),
+        vec![50, 50],
+        "推进序列末两次相等（卡死自证材料）"
+    );
+    assert_eq!(attempt_count(&ws, "count.txt"), 2, "第 3 次零 spawn");
+    assert!(
+        elapsed >= Duration::from_secs(5),
+        "消费第 1 段退避（虚拟墙钟 {elapsed:?}）"
+    );
+    assert!(
+        elapsed < Duration::from_secs(10),
+        "卡死不延长预算：仅消费一段（虚拟墙钟 {elapsed:?}）"
+    );
+}
+
+/// 正向（AC-2 组合锚）：递减继续重试——第 1 次 264 行、第 2 次 5 行、第 3 次
+/// 0 行 `Compiling` + 锁文本，第 4 次 `exit 0` → 不早停：`attempts == 4`、
+/// `retried.len() == 3`、`exit_code == 0`、shim 计数 == 4。
+#[tokio::test]
+async fn 递减继续重试_不早停() {
+    let ws = ShimWs::new("stall-decreasing");
+    let command = counting_shim(&ws, "decreasing.sh", "count.txt", &[264, 5, 0], Some(4));
+
+    let mut with_retry = options(Duration::from_secs(60));
+    with_retry.retry = fast_policy(5);
+
+    let report = run_shell(command, with_retry).await.expect("递减面应 Ok");
+
+    assert_eq!(report.attempts, 4, "递减形态一路重试到成功");
+    assert_eq!(report.retried.len(), 3, "末次不入 retried");
+    assert_eq!(report.exit_code, 0, "第 4 次转绿");
+    assert_eq!(attempt_count(&ws, "count.txt"), 4, "shim 恰拉起 4 次");
+    assert_eq!(
+        progress_series(&report),
+        vec![264, 5, 0, 0],
+        "递减序列不触发卡死判定"
+    );
+}
+
+/// 异常（AC-2 抑制臂）：末值归零不早停——第 1 次 264 行 `Compiling` + 锁文本，
+/// 此后每次都仅锁文本（计数 0）→ 序列 `[264, 0, 0, 0, 0]` 末值 `0` 不触发卡死
+/// → 跑满上限 `attempts == 5`、`retried.len() == 4`（`fast_policy(5)` 以 20 ms
+/// 退避表达次数面）。
+#[tokio::test]
+async fn 末值归零不早停() {
+    let ws = ShimWs::new("stall-zero-tail");
+    let command = counting_shim(&ws, "zero-tail.sh", "count.txt", &[264], None);
+
+    let mut with_retry = options(Duration::from_secs(60));
+    with_retry.retry = fast_policy(5);
+
+    let report = run_shell(command, with_retry).await.expect("耗尽面应 Ok");
+
+    assert_eq!(report.attempts, 5, "末值 0 不早停 → 跑满上限");
+    assert_eq!(report.retried.len(), 4, "末次不入 retried");
+    assert_eq!(
+        progress_series(&report),
+        vec![264, 0, 0, 0, 0],
+        "末值 0（只剩收尾）恒判否"
+    );
+}
+
+/// 异常（R-1 对照臂）：上升计数判卡死——第 1 次 5 行、第 2 次 9 行 `Compiling`
+/// + 锁文本 → 判据为「非降」而非「相等」→ `attempts == 2`（第 3 次零 spawn）。
+#[tokio::test]
+async fn 上升计数判卡死() {
+    let ws = ShimWs::new("stall-rising");
+    let command = counting_shim(&ws, "rising.sh", "count.txt", &[5, 9], None);
+
+    let mut with_retry = options(Duration::from_secs(60));
+    with_retry.retry = fast_policy(5);
+
+    let report = run_shell(command, with_retry).await.expect("卡死面应 Ok");
+
+    assert_eq!(report.attempts, 2, "上升形态同属「写不进去」→ 早停");
+    assert_eq!(attempt_count(&ws, "count.txt"), 2, "第 3 次零 spawn");
+    assert_eq!(progress_series(&report), vec![5, 9], "上升序列在案");
+}
+
+/// 边界（AC-1）：首跑不触发——首跑 50 行 `Compiling` + 锁文本、`max_attempts = 1`
+/// （直构策略）→ `attempts == 1`、`retried` 空（无前值不判卡死）。
+#[tokio::test]
+async fn 首跑不触发卡死判据() {
+    let ws = ShimWs::new("stall-first");
+    let command = counting_shim(&ws, "first.sh", "count.txt", &[50], None);
+
+    let mut with_retry = options(Duration::from_secs(60));
+    with_retry.retry = RetryPolicy {
+        max_attempts: 1,
+        ..RetryPolicy::transient()
+    };
+
+    let report = run_shell(command, with_retry).await.expect("单次面应 Ok");
+
+    assert_eq!(report.attempts, 1, "上限 1 → 首跑即收口");
+    assert!(report.retried.is_empty(), "零重试 → retried 空");
+    assert_eq!(attempt_count(&ws, "count.txt"), 1, "只 spawn 一次");
+    assert_eq!(progress_series(&report), vec![50], "长度 1 无前值");
+}
+
+/// 边界：卡死臂末次不入 `retried`——卡死早停（`attempts == 2`）时
+/// `retried.len() == 1` 且 `retried[0]` 携第 1 次字节；末次字节留在 `stdout`
+/// （既有不回滚语义，不两写）。
+#[tokio::test]
+async fn 卡死臂末次不入retried() {
+    let ws = ShimWs::new("stall-retried");
+    let counter = ws.file("count.txt");
+    let command = ws.shim(
+        "stall-bytes.sh",
+        &format!(
+            "#!/bin/sh\ncf=\"{cf}\"\nn=$(cat \"$cf\" 2>/dev/null || printf '0')\nn=$((n+1))\nprintf '%s' \"$n\" > \"$cf\"\ni=0\nwhile [ \"$i\" -lt 50 ]; do\n  printf '   Compiling crate%d v0.1.0\\n' \"$i\"\n  i=$((i+1))\ndone\nprintf 'ATTEMPT-%s os error 32\\n' \"$n\"\nexit 1\n",
+            cf = counter.display()
+        ),
+    );
+
+    let mut with_retry = options(Duration::from_secs(60));
+    with_retry.retry = fast_policy(5);
+
+    let report = run_shell(command, with_retry).await.expect("卡死面应 Ok");
+
+    assert_eq!(report.attempts, 2, "两次尝试后早停");
+    assert_eq!(report.retried.len(), 1, "末次不入 retried");
+    let first = String::from_utf8_lossy(&report.retried[0].stdout).into_owned();
+    assert!(
+        first.contains("ATTEMPT-1"),
+        "第 1 次字节在 retried[0]: {first}"
+    );
+    assert!(!first.contains("ATTEMPT-2"), "retried[0] 不含末次字节");
+    let last = String::from_utf8_lossy(&report.stdout).into_owned();
+    assert!(last.contains("ATTEMPT-2"), "末次字节留在 stdout: {last}");
+    assert!(!last.contains("ATTEMPT-1"), "末次仅含本次字节");
+}
+
+/// 边界：大输出在早停面不丢字节——每次尝试 `stdout` / `stderr` 各 `>64 KiB` 且
+/// 含 1 行 `Compiling` + 签名 → 卡死早停后 `retried[0]` 字节数精确等于第 1 次
+/// 写量、末次同样全量（排水语义与单次一致）。
+#[tokio::test]
+async fn 卡死早停面大输出不丢字节() {
+    let ws = ShimWs::new("stall-big");
+    let mut payload = vec![b'q'; 64 * 1024 + 11];
+    payload.extend_from_slice(b"\n   Compiling big v0.1.0\n");
+    payload.extend_from_slice(b"error: failed to rename archive file: /t/big.rlib: os error 32\n");
+    assert!(payload.len() > 64 * 1024, "样本超过 64 KiB");
+    let payload_path = ws.put_bytes("big.bin", &payload);
+    let counter = ws.file("count.txt");
+    let command = ws.shim(
+        "stall-big.sh",
+        &format!(
+            "#!/bin/sh\ncf=\"{cf}\"\nn=$(cat \"$cf\" 2>/dev/null || printf '0')\nn=$((n+1))\nprintf '%s' \"$n\" > \"$cf\"\ncat \"{payload}\"\ncat \"{payload}\" >&2\nexit 1\n",
+            cf = counter.display(),
+            payload = payload_path.display(),
+        ),
+    );
+
+    let mut with_retry = options(Duration::from_secs(120));
+    with_retry.retry = fast_policy(5);
+
+    let report = run_shell(command, with_retry)
+        .await
+        .expect("大输出早停应 Ok");
+
+    assert_eq!(report.attempts, 2, "两次尝试后早停（计数 1 == 1）");
+    assert_eq!(
+        report.retried[0].stdout.len(),
+        payload.len(),
+        "此前尝试 stdout 字节数精确等于写量"
+    );
+    assert_eq!(
+        report.retried[0].stderr.len(),
+        payload.len(),
+        "此前尝试 stderr 字节数精确等于写量"
+    );
+    assert_eq!(report.stdout.len(), payload.len(), "末次 stdout 全量");
+    assert_eq!(report.stderr.len(), payload.len(), "末次 stderr 全量");
+    assert_eq!(
+        progress_series(&report),
+        vec![2, 2],
+        "两路各 1 行 Compiling（合并口径）仍计数，且末两次相等"
     );
 }
 
@@ -1248,6 +1537,11 @@ async fn 持续锁冲突耗尽_上限五次() {
         report.retried.len() as u32,
         report.attempts - 1,
         "不变量：末次之前的尝试数 == attempts - 1"
+    );
+    assert_eq!(
+        progress_series(&report),
+        vec![0; 5],
+        "非 cargo 全 0 形态：新臂在位但不触发早停"
     );
     assert_eq!(report.outcome, RunOutcome::Completed, "耗尽仍为 Completed");
     assert_eq!(
@@ -1304,6 +1598,11 @@ async fn 预算耗尽早停不发起新尝试() {
         .expect("预算早停应 Ok");
     let elapsed = virtual_started.elapsed();
 
+    assert_eq!(
+        progress_series(&report),
+        vec![0; 4],
+        "计数全 0 序列恒判否（新臂不干扰预算判定）"
+    );
     assert_eq!(report.attempts, 4, "预算耗尽后不再发起新尝试（未到上限 5）");
     assert_eq!(report.retried.len(), 3, "末次不入 retried");
     assert_eq!(
@@ -1348,6 +1647,11 @@ async fn 零预算首跑后即耗尽() {
 
     assert_eq!(report.attempts, 1, "零预算首跑后即耗尽");
     assert!(report.retried.is_empty(), "零重试 → retried 空");
+    assert_eq!(
+        progress_series(&report),
+        vec![0],
+        "全 0 序列判否，卡死臂不干扰预算判定"
+    );
     assert_eq!(
         elapsed,
         Duration::ZERO,

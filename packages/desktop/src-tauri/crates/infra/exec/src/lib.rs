@@ -9,7 +9,8 @@
 //! - 进程执行体：[`run_shell`]（超时必填 / 双管道并发排水 / 进程树击杀 / 取消
 //!   四能力单点——检查域四类外部进程的唯一 spawn 收口）；
 //! - 瞬态签名与有限重试：`transient`（封闭签名表 + [`RetryPolicy`]——构建产物被
-//!   安全软件占用时的自愈面，字典扩展只改该模块一处）；
+//!   安全软件占用时的自愈面，字典扩展只改该模块一处；含增量推进判据（`Compiling`
+//!   行计数 / 序列 / 卡死判定 [`is_progress_stalled`]））；
 //! - 锁占用诊断：`lockprobe`（[`locked_paths`] / [`lock_holders`] /
 //!   [`attribution_text`]——被锁文件 + 占用者的归因原料，供检查域装配环境错误
 //!   文案）；
@@ -28,7 +29,9 @@ pub use run::{run_shell, RunError, RunOptions, RunOutcome, RunReport};
 #[cfg(windows)]
 pub use shell::probe_windows_shell;
 pub use shell::{resolve_shell, ShellBase};
-pub use transient::{is_transient, AttemptTrace, RetryPolicy};
+pub use transient::{
+    compiling_count, is_progress_stalled, is_transient, progress_series, AttemptTrace, RetryPolicy,
+};
 
 use std::ffi::{OsStr, OsString};
 use std::path::{Path, PathBuf};

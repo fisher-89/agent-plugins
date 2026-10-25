@@ -1372,6 +1372,10 @@ async fn 瞬态耗尽_fault为环境错误且log五段() {
         log.contains("transient=os error 32"),
         "此前尝试段头携命中签名: {log}"
     );
+    assert!(
+        !text.contains("重试进展"),
+        "非 cargo 形态（全 0 计数）不产推进序列行: {text}"
+    );
 }
 
 /// 正向（AC-1）：瞬态自愈转绿——shim 首次输出锁文本 `exit 1`、第 2 次 `exit 0`
@@ -1539,5 +1543,192 @@ async fn fault与passed正交_绿不产fault() {
         outcome.diagnostics.contains("os error 32"),
         "诊断照常捕获该文本: {:?}",
         outcome.diagnostics
+    );
+}
+
+// ---------------------------------------------------------------------------
+// 正向 / 异常（AC-5 组合锚）：推进判据 → fault 文本全链
+// （`static_check::execute` → `exec::run_shell`（重试 + 卡死早停）→
+// `environment::fault_text` → `StaticCheckOutcome.fault`）
+// ---------------------------------------------------------------------------
+
+/// 按尝试序输出 `Compiling` 行数的 shim（平台双形态：Windows `.cmd` +
+/// PowerShell、POSIX sh）：第 n 次尝试输出 `counts[n - 1]` 行
+/// `   Compiling crate v0.1.0` + `lock_text` 并 `exit 1`；超出清单的尝试输出 0 行。
+/// 返回 config 应登记的裸名（Windows 带 `.cmd` 后缀）。
+fn write_counting_shim(
+    ws: &TempWs,
+    name: &str,
+    counter: &Path,
+    counts: &[u32],
+    lock_text: &str,
+) -> String {
+    #[cfg(windows)]
+    {
+        let counts_array = counts
+            .iter()
+            .map(u32::to_string)
+            .collect::<Vec<_>>()
+            .join(",");
+        let body = format!(
+            "$cf = '{cf}'\n$n = 0\nif (Test-Path $cf) {{ $n = [int](Get-Content $cf -Raw) }}\n$n = $n + 1\nSet-Content -Path $cf -Value $n -NoNewline -Encoding ascii\n$counts = @({counts})\n$count = 0\nif ($n -le $counts.Count) {{ $count = $counts[$n - 1] }}\nfor ($i = 0; $i -lt $count; $i++) {{ Write-Output '   Compiling crate v0.1.0' }}\nWrite-Output '{lock}'\nexit 1\n",
+            cf = counter.display(),
+            counts = counts_array,
+            lock = lock_text,
+        );
+        fs::write(ws.path().join(format!("{name}-shim.ps1")), body).expect("写计数 shim 脚本失败");
+        let wrapper = format!(
+            "@echo off\r\npowershell -NoProfile -ExecutionPolicy Bypass -File \"%~dp0{name}-shim.ps1\" %*\r\nexit /b %errorlevel%\r\n"
+        );
+        fs::write(ws.path().join(format!("{name}.cmd")), wrapper).expect("写计数 shim 失败");
+        format!("{name}.cmd")
+    }
+    #[cfg(not(windows))]
+    {
+        let mut arms = String::new();
+        for (index, count) in counts.iter().enumerate() {
+            arms.push_str(&format!("  {}) count={count} ;;\n", index + 1));
+        }
+        let body = format!(
+            "#!/bin/sh\ncf=\"{cf}\"\nn=$(cat \"$cf\" 2>/dev/null || printf '0')\nn=$((n+1))\nprintf '%s' \"$n\" > \"$cf\"\ncount=0\ncase \"$n\" in\n{arms}esac\ni=0\nwhile [ \"$i\" -lt \"$count\" ]; do\n  printf '   Compiling crate v0.1.0\\n'\n  i=$((i+1))\ndone\nprintf '%s\\n' '{lock}'\nexit 1\n",
+            cf = counter.display(),
+            arms = arms,
+            lock = lock_text,
+        );
+        let script = ws.path().join(name);
+        fs::write(&script, body).expect("写计数 shim 失败");
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).expect("补执行位");
+        name.to_owned()
+    }
+}
+
+/// 正向（AC-5 组合锚）：卡死推进序列到 fault——shim 第 1 次 264 行、第 2 / 3
+/// 次 5 行 `Compiling` + 锁文本 + `exit 1` → 卡死早停（`attempts == 3 < 5`）→
+/// `passed == false`、`fault == Some(Environment(text))`，`text` 含
+/// `重试进展：待编译 264 → 5 → 5（末两次无进展，判定为卡死）`、「已自动重试 2
+/// 次」、被锁文件路径与指引；输出记录恰 3 段 attempt 分隔头；`diagnostics` 为
+/// 末次原文（`trim_end`）。
+#[tokio::test(start_paused = true)]
+async fn 卡死推进序列到fault文本() {
+    let _env = env_window();
+    let _gate = ClockGate::new();
+    let ws = TempWs::new("stall-sequence");
+    let _path = PathPrefix::enter(ws.path());
+    let locked = ws.path().join("liba.rlib");
+    fs::write(&locked, b"body").expect("落盘被锁文件");
+    let lock_text = format!(
+        "error: failed to rename archive file: {}: os error 32",
+        locked.display()
+    );
+    let counter = ws.path().join("attempt-count.txt");
+    let command = write_counting_shim(&ws, "stall-shim", &counter, &[264, 5, 5], &lock_text);
+    ws.write_config(Some(&command));
+
+    let root = ws.root_str();
+    let runner = tokio::spawn(async move { check_test(&root, "demo-change").await });
+    advance_until(
+        || runner.is_finished(),
+        Duration::from_millis(100),
+        Duration::from_secs(120),
+    )
+    .await;
+    let outcome = runner
+        .await
+        .expect("static-check 任务应正常结束")
+        .expect("卡死面仍 Ok（执行面归因走 fault）");
+
+    assert!(!outcome.passed, "非零退出 → passed = false");
+    let Some(orchestration::port::RunFault::Environment(text)) = outcome.fault.clone() else {
+        panic!("卡死形态应产 Environment fault，实际: {:?}", outcome.fault);
+    };
+    assert!(
+        text.contains("重试进展：待编译 264 → 5 → 5（末两次无进展，判定为卡死）"),
+        "推进序列行与卡死判定语在案: {text}"
+    );
+    assert!(
+        text.contains("已自动重试 2 次"),
+        "attempts == 3 → 重试 2 次: {text}"
+    );
+    assert!(
+        text.contains(&locked.to_string_lossy().into_owned()),
+        "被锁文件路径在案: {text}"
+    );
+    assert!(
+        text.contains("workspace 父目录") && text.contains("逐 worktree"),
+        "环境侧指引在案: {text}"
+    );
+
+    let exec_id = outcome.output_ref.expect("output_ref 恒回填");
+    assert_eq!(
+        attempt_headers(&ws, "demo-change", &exec_id),
+        3,
+        "输出记录恰 3 段 attempt 分隔头（早停面不再烧满 5 次）"
+    );
+    let lines = outcome.diagnostics.lines().collect::<Vec<_>>();
+    assert_eq!(lines.len(), 6, "末次原文 5 行 Compiling + 1 行锁文本");
+    assert!(
+        lines[..5]
+            .iter()
+            .all(|line| line.trim_start().starts_with("Compiling ")),
+        "诊断为末次尝试的原文（Compiling 行）: {:?}",
+        outcome.diagnostics
+    );
+    assert_eq!(
+        lines.last().copied(),
+        Some(lock_text.as_str()),
+        "诊断末行为锁文本（trim_end 后）"
+    );
+}
+
+/// 正向（AC-2 组合锚）：递减推进无判定语——shim 第 1 / 2 / 3 次分别 264 / 5 / 0
+/// 行 `Compiling` + 锁文本、此后恒 0 行 → 递减序列不早停、跑满上限：`text` 含
+/// 五个数字（264 → 5 → 0 → 0 → 0）、无卡死判定语；`attempts` 由 5 段分隔头表达。
+#[tokio::test(start_paused = true)]
+async fn 递减推进无卡死判定语() {
+    let _env = env_window();
+    let _gate = ClockGate::new();
+    let ws = TempWs::new("stall-decreasing");
+    let _path = PathPrefix::enter(ws.path());
+    let locked = ws.path().join("libb.rlib");
+    fs::write(&locked, b"body").expect("落盘被锁文件");
+    let lock_text = format!(
+        "error: failed to rename archive file: {}: os error 32",
+        locked.display()
+    );
+    let counter = ws.path().join("attempt-count.txt");
+    let command = write_counting_shim(&ws, "decreasing-shim", &counter, &[264, 5, 0], &lock_text);
+    ws.write_config(Some(&command));
+
+    let root = ws.root_str();
+    let runner = tokio::spawn(async move { check_test(&root, "demo-change").await });
+    advance_until(
+        || runner.is_finished(),
+        Duration::from_millis(100),
+        Duration::from_secs(120),
+    )
+    .await;
+    let outcome = runner
+        .await
+        .expect("static-check 任务应正常结束")
+        .expect("耗尽面仍 Ok");
+
+    let Some(orchestration::port::RunFault::Environment(text)) = outcome.fault.clone() else {
+        panic!("瞬态耗尽应产 Environment fault，实际: {:?}", outcome.fault);
+    };
+    assert!(
+        text.contains("重试进展：待编译 264 → 5 → 0 → 0 → 0"),
+        "递减序列五个数字在案: {text}"
+    );
+    assert!(!text.contains("判定为卡死"), "末值 0 不产判定语: {text}");
+    assert!(
+        text.contains("已自动重试 4 次"),
+        "跑满上限（attempts == 5）: {text}"
+    );
+    let exec_id = outcome.output_ref.expect("output_ref 恒回填");
+    assert_eq!(
+        attempt_headers(&ws, "demo-change", &exec_id),
+        5,
+        "跑满上限 → 5 段分隔头"
     );
 }

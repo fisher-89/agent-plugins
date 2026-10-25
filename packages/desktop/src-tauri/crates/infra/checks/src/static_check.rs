@@ -103,6 +103,7 @@ async fn execute(
                 run.attempts,
                 run.exit_code,
                 &run.stdout,
+                &run.retried,
             ))
         }),
         exec::RunOutcome::TimedOut => Some(RunFault::Environment(format!(

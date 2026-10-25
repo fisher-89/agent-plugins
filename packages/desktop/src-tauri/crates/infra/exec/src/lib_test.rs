@@ -696,12 +696,12 @@ fn 再导出retry_policy与attempt_trace() {
     assert_eq!(
         transient.backoff,
         [
-            std::time::Duration::from_secs(1),
-            std::time::Duration::from_secs(2),
-            std::time::Duration::from_secs(4),
-            std::time::Duration::from_secs(8),
+            std::time::Duration::from_secs(5),
+            std::time::Duration::from_secs(10),
+            std::time::Duration::from_secs(20),
+            std::time::Duration::from_secs(40),
         ],
-        "退避四段"
+        "退避四段（慢档 5 / 10 / 20 / 40 s）"
     );
     assert_eq!(
         transient.total_budget,
@@ -776,5 +776,104 @@ fn 既有导出面零变() {
         crate::ProcessOutput::new(1, Vec::new()).tail(),
         "",
         "空输出末尾面为空"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// 再导出面（D15：增量推进判据三函数的 crate 根可见性）
+// ---------------------------------------------------------------------------
+
+/// 正向（表驱动 3 项，D15）：`compiling_count` / `progress_series` /
+/// `is_progress_stalled` 经 **crate 根**可达，且与模块内判据逐值一致（导出的是
+/// 同一函数，非包装）。
+#[test]
+fn 再导出推进判据三函数() {
+    // `compiling_count`
+    assert_eq!(
+        crate::compiling_count(b"   Compiling a v0.1.0\n", b""),
+        1,
+        "crate 根计数函数命中 rustc 缩进形态"
+    );
+    assert_eq!(
+        crate::compiling_count(b"   Compiling a v0.1.0\n", b""),
+        crate::transient::compiling_count(b"   Compiling a v0.1.0\n", b""),
+        "根导出与模块内逐值一致"
+    );
+
+    // `progress_series`
+    let report = crate::RunReport {
+        outcome: crate::RunOutcome::Completed,
+        exit_code: 1,
+        stdout: b"   Compiling a v0.1.0\n   Compiling b v0.1.0\n".to_vec(),
+        stderr: Vec::new(),
+        attempts: 1,
+        retried: Vec::new(),
+    };
+    assert_eq!(
+        crate::progress_series(&report),
+        vec![2],
+        "crate 根序列函数按尝试序取数"
+    );
+    assert_eq!(
+        crate::progress_series(&report),
+        crate::transient::progress_series(&report),
+        "根导出与模块内逐值一致"
+    );
+
+    // `is_progress_stalled`
+    assert!(
+        crate::is_progress_stalled(&[50, 50]),
+        "crate 根卡死判据命中末两次相等"
+    );
+    assert_eq!(
+        crate::is_progress_stalled(&[50, 50]),
+        crate::transient::is_progress_stalled(&[50, 50]),
+        "根导出与模块内逐值一致"
+    );
+}
+
+/// 异常（表驱动 3 形态）：退化输入经 crate 根取值与模块内直调逐值一致（空序列 /
+/// 双空字节 / 全 0 序列 → `false` / `0` / `false`），不 panic。
+#[test]
+fn 再导出面边界输入一致性() {
+    assert!(!crate::is_progress_stalled(&[]), "空序列不 panic");
+    assert_eq!(
+        crate::is_progress_stalled(&[]),
+        crate::transient::is_progress_stalled(&[]),
+        "空序列根导出与模块内一致"
+    );
+
+    assert_eq!(crate::compiling_count(b"", b""), 0, "双空字节计数 0");
+    assert_eq!(
+        crate::compiling_count(b"", b""),
+        crate::transient::compiling_count(b"", b""),
+        "双空字节根导出与模块内一致"
+    );
+
+    assert!(!crate::is_progress_stalled(&[0, 0]), "全 0 序列判否");
+    assert_eq!(
+        crate::is_progress_stalled(&[0, 0]),
+        crate::transient::is_progress_stalled(&[0, 0]),
+        "全 0 序列根导出与模块内一致"
+    );
+}
+
+/// 边界（编译期面）：`checks` 侧 `use exec::{progress_series, is_progress_stalled};`
+/// 的取数路径在用例内以 `crate::` 路径解析成功表达——任一新项未再导出即编译失败
+/// （本函数即解析点）。
+#[test]
+fn 导出面路径解析成功() {
+    let series = crate::progress_series(&crate::RunReport {
+        outcome: crate::RunOutcome::Completed,
+        exit_code: 1,
+        stdout: Vec::new(),
+        stderr: Vec::new(),
+        attempts: 1,
+        retried: Vec::new(),
+    });
+    assert_eq!(series.len(), 1, "一次尝试即长度 1");
+    assert!(
+        !crate::is_progress_stalled(&series),
+        "单值序列不判卡死（检查域视图取数面）"
     );
 }

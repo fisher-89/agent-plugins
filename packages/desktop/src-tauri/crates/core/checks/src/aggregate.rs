@@ -101,11 +101,17 @@ pub fn coverage_meets_thresholds(
 /// 全局覆盖聚合：全局阈值（首个 suite 的阈值，缺省 80 / 70 / 75）+ 实测块
 /// + per-suite override 组（CLI `computeCoverageResult` 同语义）。
 ///
-/// 无实测数据 → `None`（覆盖采集失败语义，判定按 null 感知跳过）。
+/// 无实测数据 → `None`（覆盖采集失败语义，判定按 null 感知跳过）；**采集不完整**
+/// （任一 suite 结论非 pass 且无覆盖率块，见 [`misses_coverage`]）同样收敛 `None`
+/// ——与「无实测数据 → `None`」同源的不可测语义：部分 suite 的达标数值 MUST NOT
+/// 被呈现为整体通过（`pass == true` 是假话）。
 pub fn aggregate_coverage(
     sub_reports: &[SubReport],
     suites: &[TestSuite],
 ) -> Option<CoverageBlock> {
+    if sub_reports.iter().any(misses_coverage) {
+        return None;
+    }
     let thresholds = suites
         .first()
         .map(|suite| to_thresholds(&suite.coverage))
@@ -424,11 +430,30 @@ fn default_glob(framework: &config::TestFramework) -> &'static str {
 // problems 归并与 summary 组装
 // ---------------------------------------------------------------------------
 
+/// 覆盖率**采集完整性**判据单点（归因 [`collect_problems`] 与收敛
+/// [`aggregate_coverage`] 共用，MUST NOT 各写一份——否则会出现「报了缺失却不收敛」
+/// 或反之）：
+///
+/// 「自身结论非 pass」（非零退出 / 有失败用例 / 覆盖块自判未达）**且**「`coverage ==
+/// None`」（覆盖率采集缺失）→ 该 suite 的覆盖数据缺席，聚合面不可报通过。
+fn misses_coverage(report: &SubReport) -> bool {
+    let non_pass = report.exit_code != 0
+        || report.summary.failed > 0
+        || report.coverage.as_ref().is_some_and(|block| !block.pass);
+    non_pass && report.coverage.is_none()
+}
+
 /// 问题归并（CLI `collectProblems` 同语义）：失败用例逐条（至多 10 条）
 /// test_failure；非零退出且零失败、或零失败携 findings → execution_error。
+///
+/// 另含**覆盖率采集缺失**归因（`ProblemType::ExecutionError`，见
+/// [`misses_coverage`]）：每 suite 至多一条，与该 suite 已有 `execution_error` 去重
+/// （既有条目消息面零改写）；[`build_summary_report`] 的「`has_execution_error →
+/// Error`」映射零改，故缺测 suite 把整份结论定为不可测。
 fn collect_problems(sub_reports: &[SubReport]) -> Vec<Problem> {
     let mut problems = Vec::new();
     for report in sub_reports {
+        let mut has_execution_error = false;
         if report.summary.failed > 0 {
             let failures = report
                 .error_cases
@@ -457,6 +482,7 @@ fn collect_problems(sub_reports: &[SubReport]) -> Vec<Problem> {
                 problem_type: ProblemType::ExecutionError,
                 message: detail,
             });
+            has_execution_error = true;
         } else if report.summary.failed == 0
             && report
                 .findings
@@ -471,6 +497,17 @@ fn collect_problems(sub_reports: &[SubReport]) -> Vec<Problem> {
                     .as_ref()
                     .and_then(|findings| findings.first().cloned())
                     .unwrap_or_default(),
+            });
+            has_execution_error = true;
+        }
+        if !has_execution_error && misses_coverage(report) {
+            problems.push(Problem {
+                framework: report.framework.clone(),
+                problem_type: ProblemType::ExecutionError,
+                message: format!(
+                    "覆盖率采集缺失（退出码 {}）：该 suite 结论非通过且未产出覆盖率数据",
+                    report.exit_code
+                ),
             });
         }
     }

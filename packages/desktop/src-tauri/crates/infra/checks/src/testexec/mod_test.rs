@@ -15,7 +15,8 @@ use orchestration::port::{
 
 use super::detect::to_posix;
 use super::{
-    findings_brief, findings_detail, newest_input_mtime_ms, outcome, ProcessTestExecution,
+    execute, findings_brief, findings_detail, newest_input_mtime_ms, outcome, ProcessTestExecution,
+    TESTEXEC_TOTAL_BUDGET,
 };
 
 /// 设置 shim 环境面（预置工件源 / 目的工件路径 / marker 路径 / 退出码；
@@ -71,6 +72,7 @@ fn clear_shim_env() {
     std::env::remove_var("SHIM_LOCK");
     std::env::remove_var("SHIM_LOCK_FIRST");
     std::env::remove_var("SHIM_LOCK_COUNT");
+    std::env::remove_var("SHIM_SLEEP_MS");
 }
 
 /// node-test spec 绿跑样本（五用例 4 pass 1 skipped + "All files" 覆盖汇总行；
@@ -145,6 +147,7 @@ impl ChainWs {
             fs::write(
                 root.join("app").join("node-shim.ps1"),
                 "if ($args.Count -gt 0 -and $args[0] -eq '--version') { exit 0 }\n\
+                 if ($env:SHIM_SLEEP_MS) { Start-Sleep -Milliseconds ([int]$env:SHIM_SLEEP_MS) }\n\
                  if ($env:SHIM_LOCK_FIRST) {\n  $locked = 0\n  if ($env:SHIM_LOCK_COUNT -and (Test-Path $env:SHIM_LOCK_COUNT)) { $locked = @(Get-Content $env:SHIM_LOCK_COUNT).Count }\n  if ($locked -lt [int]$env:SHIM_LOCK_FIRST) {\n    if ($env:SHIM_LOCK_COUNT) { Add-Content -Force -Path $env:SHIM_LOCK_COUNT -Value 'locked' }\n    Write-Output $env:SHIM_LOCK\n    exit 1\n  }\n}\n                 if ($env:SHIM_SPIN_AFTER) {\n\
                    $seen = 0\n\
                    if ($env:SHIM_MARKER -and (Test-Path $env:SHIM_MARKER)) { $seen = @(Get-Content $env:SHIM_MARKER).Count }\n\
@@ -171,6 +174,7 @@ impl ChainWs {
                 &script,
                 "#!/bin/sh\n\
                  if [ \"$1\" = \"--version\" ]; then exit 0; fi\n\
+                 if [ -n \"$SHIM_SLEEP_MS\" ]; then sleep $((SHIM_SLEEP_MS / 1000)); fi\n\
                  if [ -n \"$SHIM_LOCK_FIRST\" ]; then\n  locked=0\n  if [ -n \"$SHIM_LOCK_COUNT\" ] && [ -f \"$SHIM_LOCK_COUNT\" ]; then locked=$(wc -l < \"$SHIM_LOCK_COUNT\"); fi\n  if [ \"$locked\" -lt \"$SHIM_LOCK_FIRST\" ]; then\n    if [ -n \"$SHIM_LOCK_COUNT\" ]; then echo locked >> \"$SHIM_LOCK_COUNT\"; fi\n    echo \"$SHIM_LOCK\"\n    exit 1\n  fi\nfi\n                 if [ -n \"$SHIM_SPIN_AFTER\" ]; then\n\
                    seen=0\n\
                    if [ -n \"$SHIM_MARKER\" ] && [ -f \"$SHIM_MARKER\" ]; then seen=$(wc -l < \"$SHIM_MARKER\"); fi\n\
@@ -433,7 +437,9 @@ impl Drop for PathWindowGuard {
 /// 正向：绿跑全链组合——tempdir workspace + 真实 config tests[]（node-test
 /// suite）+ 真实命令 shim（拷贝预置 spec 工件到占位路径、退出 0）→
 /// ToolStepOutput::TestExecution conclusion=pass、四计数正确、summary.json 与
-/// planId/report.json 落 change_test_reports 推导目录（AC-5）。
+/// planId/report.json 落 change_test_reports 推导目录（AC-5）。生产调用方
+/// `ProcessTestExecution::run` 以 `TESTEXEC_TOTAL_BUDGET` 全预算执行（预算内零行为
+/// 变化——本用例即该档的全链锚）。
 #[tokio::test]
 async fn 绿跑全链_pass结论_四计数与报告落盘() {
     let ws = ChainWs::new("green-chain");
@@ -1913,8 +1919,9 @@ async fn 循环内clone共享原子_置位在第二plan链尾可见() {
 /// 以锁文本 + 非零退出收场（`transient()` 各自 5 次耗尽）→ 两个 plan 都被拉起
 /// （marker 2 行，`break` 不发生）、最终 `fault == Some(Environment(..))`（首个）、
 /// `conclusion == Fail` 占位、四项计数 0、不写 summary。
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn 多plan环境错误继续跑余下plan() {
+    let _gate = ClockGate::new();
     let _window = path_window();
     let ws = ChainWs::new("fault-env-multi-plan").two_plan();
     let spec_src = ws.root().join("preset-results.txt");
@@ -1931,8 +1938,28 @@ async fn 多plan环境错误继续跑余下plan() {
     let lock_count = ws.root().join("shim-lock-count.log");
     std::env::set_var("SHIM_LOCK_COUNT", &lock_count);
     ws.prepend_path();
+    let ws_root = ws.root_str();
+    let runner = tokio::spawn(async move {
+        ProcessTestExecution::new()
+            .run(
+                &ws_root,
+                CHANGE,
+                ReportSlot::Test,
+                foundation::cancel::CancelFlag::never(),
+            )
+            .await
+    });
+    advance_until(
+        || runner.is_finished(),
+        std::time::Duration::from_millis(100),
+        std::time::Duration::from_secs(120),
+    )
+    .await;
+    let output = runner
+        .await
+        .expect("run 任务应正常结束")
+        .expect("环境错误以 fault 收口（不 Err）");
 
-    let output = ws.run().await.expect("环境错误以 fault 收口（不 Err）");
     let ToolStepOutput::TestExecution(outcome) = output else {
         panic!("产出应为 TestExecution 变体");
     };
@@ -1992,6 +2019,56 @@ async fn 多plan环境错误继续跑余下plan() {
 // 「testexec/mod.rs -> mod_test.rs」用例表：AC-5 组合锚 + D12 / D13 / D14）
 // ---------------------------------------------------------------------------
 
+/// 虚拟时钟闸门：以常驻 `spawn_blocking` 任务抑制 tokio 的「空闲即自动推进」
+/// （沿 `runner_test` / `static_check_test` 同型装置）。暂停时钟下等待真实子进程
+/// 会让虚拟时间成百倍空转；闸门在位时虚拟时间**只**随 [`advance_until`] 前进
+/// ——重试慢档（5 / 10 / 20 / 40 s，两轮 150 s）因此不真等。
+struct ClockGate {
+    release: Option<std::sync::mpsc::Sender<()>>,
+    task: Option<tokio::task::JoinHandle<()>>,
+}
+
+impl ClockGate {
+    fn new() -> Self {
+        let (release, wait) = std::sync::mpsc::channel::<()>();
+        let task = tokio::task::spawn_blocking(move || {
+            let _ = wait.recv();
+        });
+        Self {
+            release: Some(release),
+            task: Some(task),
+        }
+    }
+}
+
+impl Drop for ClockGate {
+    fn drop(&mut self) {
+        self.release.take();
+        self.task.take();
+    }
+}
+
+/// 推进虚拟时钟直到 `until` 为真（真实时间上界 `real_budget`）：每步 `step`
+/// 虚拟 + 10 ms 真实让出（子进程排水 / 收尸在真实时间上进行）。
+async fn advance_until<F: Fn() -> bool>(
+    until: F,
+    step: std::time::Duration,
+    real_budget: std::time::Duration,
+) {
+    let deadline = std::time::Instant::now() + real_budget;
+    while !until() && std::time::Instant::now() < deadline {
+        tokio::time::advance(step).await;
+        let _ = tokio::task::spawn_blocking(|| {
+            std::thread::sleep(std::time::Duration::from_millis(10))
+        })
+        .await;
+    }
+    assert!(
+        until(),
+        "推进真实预算 {real_budget:?} 后仍未收敛（暂停时钟下虚拟时间不会自行前进）"
+    );
+}
+
 /// 记账文件行数（shim 逐次追加——spawn 次数观测面）。
 fn line_count(path: &Path) -> usize {
     fs::read_to_string(path)
@@ -2004,8 +2081,9 @@ fn line_count(path: &Path) -> usize {
 /// `TestExecutionOutcome.fault == Some(Environment(text))`（文本含「已自动重试
 /// 4 次」与被锁文件原料）、`conclusion == Fail` 占位、四项计数全 0、`findings_*`
 /// 空串、`exec_id` 非空、`report_dir` 为本槽位锚点、不写 summary。
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn 单plan环境错误_fault上传与占位装配() {
+    let _gate = ClockGate::new();
     let _window = path_window();
     let ws = ChainWs::new("fault-env-single-plan");
     let unused_src = ws.root().join("unused-results.txt");
@@ -2018,8 +2096,28 @@ async fn 单plan环境错误_fault上传与占位装配() {
     std::env::set_var("SHIM_LOCK_FIRST", "9");
     std::env::set_var("SHIM_LOCK_COUNT", &lock_count);
     ws.prepend_path();
+    let ws_root = ws.root_str();
+    let runner = tokio::spawn(async move {
+        ProcessTestExecution::new()
+            .run(
+                &ws_root,
+                CHANGE,
+                ReportSlot::Test,
+                foundation::cancel::CancelFlag::never(),
+            )
+            .await
+    });
+    advance_until(
+        || runner.is_finished(),
+        std::time::Duration::from_millis(100),
+        std::time::Duration::from_secs(120),
+    )
+    .await;
+    let output = runner
+        .await
+        .expect("run 任务应正常结束")
+        .expect("环境错误以 fault 收口（不 Err）");
 
-    let output = ws.run().await.expect("环境错误以 fault 收口（不 Err）");
     let ToolStepOutput::TestExecution(outcome) = output else {
         panic!("产出应为 TestExecution 变体");
     };
@@ -2078,8 +2176,9 @@ async fn 单plan环境错误_fault上传与占位装配() {
 /// `run`（每跑 5 次瞬态耗尽）：两次均 `fault = Some(Environment(..))`、
 /// `<report_dir>/summary.json` 恒不存在（坏 plan 不被当权威永久复用）、第二次
 /// 仍真 spawn（记账 5 → 10）。
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn 单plan环境错误_不写summary且重跑不复用() {
+    let _gate = ClockGate::new();
     let _window = path_window();
     let ws = ChainWs::new("fault-env-no-summary");
     let unused_src = ws.root().join("unused-results.txt");
@@ -2094,7 +2193,28 @@ async fn 单plan环境错误_不写summary且重跑不复用() {
     ws.prepend_path();
 
     for round in 1..=2usize {
-        let output = ws.run().await.expect("环境错误以 fault 收口（不 Err）");
+        let ws_root = ws.root_str();
+        let runner = tokio::spawn(async move {
+            ProcessTestExecution::new()
+                .run(
+                    &ws_root,
+                    CHANGE,
+                    ReportSlot::Test,
+                    foundation::cancel::CancelFlag::never(),
+                )
+                .await
+        });
+        advance_until(
+            || runner.is_finished(),
+            std::time::Duration::from_millis(100),
+            std::time::Duration::from_secs(120),
+        )
+        .await;
+        let output = runner
+            .await
+            .expect("run 任务应正常结束")
+            .expect("环境错误以 fault 收口（不 Err）");
+
         let ToolStepOutput::TestExecution(outcome) = output else {
             panic!("产出应为 TestExecution 变体");
         };
@@ -2119,8 +2239,9 @@ async fn 单plan环境错误_不写summary且重跑不复用() {
 /// `Environment`、plan2 自旋后置位取消收 `Stopped` → 最终 `fault == Some(Stopped)`
 /// （优先级规则可观测，非「首个胜出」）、`conclusion` 占位 `Fail`、不写 summary、
 /// plan2 进程被回收。
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn stopped优先于environment_环境错误后取消收口stopped() {
+    let _gate = ClockGate::new();
     let _window = path_window();
     let ws = ChainWs::new("fault-stopped-priority").two_plan();
     let spec_src = ws.root().join("preset-results.txt");
@@ -2151,9 +2272,22 @@ async fn stopped优先于environment_环境错误后取消收口stopped() {
             .await
     });
 
-    let pid = wait_pid(&pid_file, std::time::Duration::from_secs(60)).await;
+    advance_until(
+        || pid_file.exists(),
+        std::time::Duration::from_millis(100),
+        std::time::Duration::from_secs(120),
+    )
+    .await;
+    let pid = read_pid(&pid_file).expect("自旋 shim 应落 pid");
     assert_eq!(line_count(&lock_count), 5, "plan1 已瞬态耗尽（5 次尝试）");
     handle.set();
+    // 取消观测是 200 ms 轮询（虚拟时钟）：置位后继续推进，使轮询就绪
+    advance_until(
+        || runner.is_finished(),
+        std::time::Duration::from_millis(100),
+        std::time::Duration::from_secs(120),
+    )
+    .await;
 
     let output = runner
         .await
@@ -2203,8 +2337,9 @@ async fn stopped优先于environment_环境错误后取消收口stopped() {
 /// 不 break（两枚绿 plan 的执行臂记账均在案）、最终 `fault == Some(Environment)`
 /// （首个）、`conclusion == Fail` 占位、四项计数 0（`sub_reports` 内部装配不泄漏
 /// 到 outcome）、不写 summary / 不落 plan 报告文件。
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn 三plan混合_环境错误在中间继续跑完且计数不泄漏() {
+    let _gate = ClockGate::new();
     let _window = path_window();
     let ws = ChainWs::new("fault-env-three-plan").three_plan_mixed();
     let spec_src = ws.root().join("preset-results.txt");
@@ -2214,8 +2349,28 @@ async fn 三plan混合_环境错误在中间继续跑完且计数不泄漏() {
     // 一次执行臂双投：plan1（app）与 plan3（app3）各得一枚同源工件
     set_shim_dest_2(&ws.results_dest_third());
     ws.prepend_path();
+    let ws_root = ws.root_str();
+    let runner = tokio::spawn(async move {
+        ProcessTestExecution::new()
+            .run(
+                &ws_root,
+                CHANGE,
+                ReportSlot::Test,
+                foundation::cancel::CancelFlag::never(),
+            )
+            .await
+    });
+    advance_until(
+        || runner.is_finished(),
+        std::time::Duration::from_millis(100),
+        std::time::Duration::from_secs(120),
+    )
+    .await;
+    let output = runner
+        .await
+        .expect("run 任务应正常结束")
+        .expect("环境错误以 fault 收口（不 Err）");
 
-    let output = ws.run().await.expect("环境错误以 fault 收口（不 Err）");
     let ToolStepOutput::TestExecution(outcome) = output else {
         panic!("产出应为 TestExecution 变体");
     };
@@ -2303,5 +2458,350 @@ fn conclusion占位不参与门禁_直构fault不纠偏() {
         ),
         ("pass", "fail", "error"),
         "conclusion 三值面零扩展（无新变体 / 无 fault 专属值）"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// 跨 plan 总预算（AC-6 / D9–D10：`execute(.., total_budget)` 第五参注入）
+// ---------------------------------------------------------------------------
+
+/// 正向（AC-6）：`TESTEXEC_TOTAL_BUDGET` 常量锚定——`2400 s`（改值即被击杀），
+/// 且大于单 plan 单次尝试预算（1200 s）两倍（留余量）。生产唯一调用方
+/// `ProcessTestExecution::run` 传该常量（由 `绿跑全链` 等全链用例表达）。
+#[test]
+fn 测试执行总预算常量锚定() {
+    let budget = TESTEXEC_TOTAL_BUDGET;
+    assert_eq!(
+        budget,
+        std::time::Duration::from_secs(2400),
+        "跨 plan 总预算 2400 s"
+    );
+    assert!(
+        budget >= std::time::Duration::from_secs(1200) * 2,
+        "预算不小于单 plan 单次尝试预算的两倍（实际 {budget:?}）"
+    );
+}
+
+/// 正向（AC-6 组合锚）：超预算余下 plan 零 spawn——两 plan 装置 + 300 ms 预算
+/// （首个 plan 的真实 spawn 耗时 1.5 s ≫ 预算，故「首边界不触发 / 第二边界必越」
+/// 确定成立）→ marker 仅 1 行（余下 plan **零 spawn**）、`fault =
+/// Some(Environment(text))` 且 `text` 含「测试执行总时长超预算」与「余下 1 个
+/// suite 未执行」、`conclusion == Fail` 占位、四计数 0、诊断双双空串、
+/// `report_dir` / `exec_id` 回填、`reports/test` 无 `summary.json`。
+#[tokio::test]
+async fn 超预算余下plan零spawn() {
+    let _window = path_window();
+    let ws = ChainWs::new("budget-overrun").two_plan();
+    let spec_src = ws.root().join("preset-results.txt");
+    fs::write(&spec_src, SPEC_OUTPUT).expect("写预置工件");
+    let marker = ws.root().join("shim-marker.log");
+    set_shim_env(&spec_src, &ws.results_dest(), Some(&marker), None);
+    set_shim_dest_2(&ws.reports_dir().join("app2_node-test").join("results.txt"));
+    // 首个 plan 的真实 spawn 耗时 ≫ 预算（2.5 s vs 1 s）——不依赖时序抖动
+    std::env::set_var("SHIM_SLEEP_MS", "2500");
+    ws.prepend_path();
+
+    let output = execute(
+        &ws.root_str(),
+        CHANGE,
+        ReportSlot::Test,
+        foundation::cancel::CancelFlag::never(),
+        std::time::Duration::from_secs(1),
+    )
+    .await
+    .expect("超预算仍 Ok（沿既有 fault 路径收口）");
+
+    let ToolStepOutput::TestExecution(outcome) = output else {
+        panic!("产出应为 TestExecution 变体");
+    };
+
+    assert_eq!(
+        ws.marker_count(),
+        1,
+        "余下 1 个 plan 零 spawn（marker 仅 1 行）"
+    );
+    let Some(RunFault::Environment(text)) = outcome.fault.clone() else {
+        panic!("超预算应产 Environment fault，实际: {:?}", outcome.fault);
+    };
+    assert!(
+        text.contains("测试执行总时长超预算"),
+        "fault 文案点名预算: {text}"
+    );
+    assert!(
+        text.contains("余下 1 个 suite 未执行"),
+        "fault 文案点名未执行数量: {text}"
+    );
+    assert_eq!(
+        outcome.conclusion,
+        TestExecutionConclusion::Fail,
+        "fault 面结论取 Fail 占位"
+    );
+    assert_eq!(
+        (
+            outcome.total,
+            outcome.passed,
+            outcome.failed,
+            outcome.skipped
+        ),
+        (0, 0, 0, 0),
+        "fault 面四项计数全 0"
+    );
+    assert!(
+        outcome.findings_brief.is_empty() && outcome.findings_detail.is_empty(),
+        "fault 面诊断双双空串"
+    );
+    assert_eq!(
+        outcome.report_dir,
+        to_posix(&ws.reports_dir()),
+        "report_dir 为本槽位锚点"
+    );
+    assert!(!outcome.exec_id.is_empty(), "exec_id 照旧回填");
+    assert!(
+        !ws.reports_dir().join("summary.json").exists(),
+        "预算收口不写 summary（半套报告不进复用门）"
+    );
+
+    // 已完成 plan 的工件可回查（工件不删，仅 summary 缺失）
+    let first_results = ws.results_dest();
+    assert!(
+        first_results.exists(),
+        "首个 plan 的 results.txt 仍在报告树"
+    );
+    assert_eq!(
+        fs::read_to_string(&first_results).unwrap_or_default(),
+        artifact_normalized(),
+        "首个 plan 工件内容完整"
+    );
+    assert!(
+        !ws.reports_dir()
+            .join("app_node-test")
+            .join("report.json")
+            .exists(),
+        "预算收口不落 plan 子报告"
+    );
+}
+
+/// 工件文本归一（CRLF / 去尾随空白——shim 拷贝可能引入平台行尾差异）。
+fn artifact_normalized() -> String {
+    SPEC_OUTPUT
+        .lines()
+        .map(str::trim_end)
+        .collect::<Vec<_>>()
+        .join("\n")
+        + "\n"
+}
+
+/// 边界：零预算边界——`execute(.., Duration::ZERO)` → 首个 plan 边界即触发
+/// （生产常量下 `elapsed ≈ 0 ≪ 2400 s` 恒不触发）：全部 plan 零 spawn（marker
+/// 0 行）、`text` 含「余下 N 个 suite 未执行」且 `N == plans.len()`、无 summary、
+/// `exec_id` 仍回填（空合并流落空 `.log` 可回查）。
+#[tokio::test]
+async fn 零预算边界全部plan零spawn() {
+    let _window = path_window();
+    let ws = ChainWs::new("budget-zero").two_plan();
+    let spec_src = ws.root().join("preset-results.txt");
+    fs::write(&spec_src, SPEC_OUTPUT).expect("写预置工件");
+    let marker = ws.root().join("shim-marker.log");
+    set_shim_env(&spec_src, &ws.results_dest(), Some(&marker), None);
+    ws.prepend_path();
+
+    let output = execute(
+        &ws.root_str(),
+        CHANGE,
+        ReportSlot::Test,
+        foundation::cancel::CancelFlag::never(),
+        std::time::Duration::ZERO,
+    )
+    .await
+    .expect("零预算仍 Ok（fault 收口）");
+
+    let ToolStepOutput::TestExecution(outcome) = output else {
+        panic!("产出应为 TestExecution 变体");
+    };
+
+    assert_eq!(ws.marker_count(), 0, "全部 plan 零 spawn");
+    let Some(RunFault::Environment(text)) = outcome.fault.clone() else {
+        panic!("零预算应产 Environment fault，实际: {:?}", outcome.fault);
+    };
+    assert!(
+        text.contains("余下 2 个 suite 未执行"),
+        "N == plans.len()（2）: {text}"
+    );
+    assert!(
+        !ws.reports_dir().join("summary.json").exists(),
+        "零预算不写 summary"
+    );
+    assert!(!outcome.exec_id.is_empty(), "exec_id 仍回填");
+    let empty_log = exec::read_exec_output(ws.root(), CHANGE, &outcome.exec_id)
+        .expect("空合并流落空 .log 可回查");
+    assert!(empty_log.is_empty(), "零 spawn → 合并流为空");
+}
+
+/// 异常（AC-6）：预算不覆盖既有 `Stopped`——预置 cancel + 一个量级不触发首边界
+/// 的预算（5 s）→ `fault == Some(Stopped)`（不是超预算文案）；入口短路零 spawn
+/// （`Stopped` 面既有 break 先于后续 plan 的预算判定）。
+#[tokio::test]
+async fn 预算不覆盖既有stopped() {
+    let _window = path_window();
+    let ws = ChainWs::new("budget-stopped");
+    let spec_src = ws.root().join("preset-results.txt");
+    fs::write(&spec_src, SPEC_OUTPUT).expect("写预置工件");
+    let marker = ws.root().join("shim-marker.log");
+    set_shim_env(&spec_src, &ws.results_dest(), Some(&marker), None);
+    ws.prepend_path();
+
+    let cancel = foundation::cancel::CancelFlag::never();
+    cancel.handle().set();
+    let output = execute(
+        &ws.root_str(),
+        CHANGE,
+        ReportSlot::Test,
+        cancel,
+        std::time::Duration::from_secs(5),
+    )
+    .await
+    .expect("取消以 fault 收口（不 Err）");
+
+    let ToolStepOutput::TestExecution(outcome) = output else {
+        panic!("产出应为 TestExecution 变体");
+    };
+    assert_eq!(
+        outcome.fault,
+        Some(RunFault::Stopped),
+        "`Stopped` 优先于预算文案（既有 fault 不被覆盖）"
+    );
+    assert_eq!(ws.marker_count(), 0, "入口短路零 spawn");
+}
+
+/// 异常（AC-6 异常臂）：预算不覆盖既有 `Environment`——三 plan 混合装置（中间
+/// jest 档瞬态耗尽 → `Environment(锁文案)`，`fault.is_none()` 守卫使其不被覆盖）
+/// + 5 s 预算（jest 档 5 次尝试的虚拟退避推进期间真实耗时必越）→ 最终 `fault`
+/// 仍为首个 `Environment`（文案含锁文本、**不含**「超预算」）；进入第三 plan 边界
+/// 时零 spawn。
+#[tokio::test(start_paused = true)]
+async fn 预算不覆盖既有environment() {
+    let _gate = ClockGate::new();
+    let _window = path_window();
+    let ws = ChainWs::new("budget-env").three_plan_mixed();
+    let spec_src = ws.root().join("preset-results.txt");
+    fs::write(&spec_src, SPEC_OUTPUT).expect("写预置工件");
+    let marker = ws.root().join("shim-marker.log");
+    set_shim_env(&spec_src, &ws.results_dest(), Some(&marker), None);
+    set_shim_dest_2(&ws.results_dest_third());
+    ws.prepend_path();
+
+    let ws_root = ws.root_str();
+    let runner = tokio::spawn(async move {
+        execute(
+            &ws_root,
+            CHANGE,
+            ReportSlot::Test,
+            foundation::cancel::CancelFlag::never(),
+            std::time::Duration::from_secs(5),
+        )
+        .await
+    });
+    advance_until(
+        || runner.is_finished(),
+        std::time::Duration::from_millis(100),
+        std::time::Duration::from_secs(120),
+    )
+    .await;
+    let output = runner
+        .await
+        .expect("run 任务应正常结束")
+        .expect("环境错误以 fault 收口（不 Err）");
+
+    let ToolStepOutput::TestExecution(outcome) = output else {
+        panic!("产出应为 TestExecution 变体");
+    };
+    let Some(RunFault::Environment(text)) = outcome.fault.clone() else {
+        panic!("应保持 Environment fault，实际: {:?}", outcome.fault);
+    };
+    assert!(
+        text.contains("os error 32"),
+        "既有环境文案（锁文本）在案: {text}"
+    );
+    assert!(
+        !text.contains("超预算"),
+        "既有 Environment 不被预算文案覆盖: {text}"
+    );
+    assert_eq!(line_count(&ws.npx_attempt_log()), 5, "jest 档 5 次尝试");
+    assert_eq!(ws.marker_count(), 1, "第三 plan 零 spawn（预算收口）");
+    assert!(
+        !ws.results_dest_third().exists(),
+        "第三 plan 工件未产（零 spawn）"
+    );
+    assert!(
+        !ws.reports_dir().join("summary.json").exists(),
+        "fault 面不写 summary"
+    );
+}
+
+/// 边界（AC-6 连带 + AC-8）：复用门不进——预算收口后 `reports/test` 无 summary
+/// → 同一输入再跑（全预算常量）→ 不复用（marker 增长，重新 spawn）并写 summary。
+#[tokio::test]
+async fn 预算收口后复用门不进() {
+    let _window = path_window();
+    let ws = ChainWs::new("budget-reuse").two_plan();
+    let spec_src = ws.root().join("preset-results.txt");
+    fs::write(&spec_src, SPEC_OUTPUT).expect("写预置工件");
+    let marker = ws.root().join("shim-marker.log");
+    set_shim_env(&spec_src, &ws.results_dest(), Some(&marker), None);
+    set_shim_dest_2(&ws.reports_dir().join("app2_node-test").join("results.txt"));
+    std::env::set_var("SHIM_SLEEP_MS", "2500");
+    ws.prepend_path();
+
+    let first = execute(
+        &ws.root_str(),
+        CHANGE,
+        ReportSlot::Test,
+        foundation::cancel::CancelFlag::never(),
+        std::time::Duration::from_secs(1),
+    )
+    .await
+    .expect("超预算仍 Ok");
+    let ToolStepOutput::TestExecution(first_outcome) = first else {
+        panic!("产出应为 TestExecution 变体");
+    };
+    assert!(
+        matches!(first_outcome.fault, Some(RunFault::Environment(_))),
+        "第一跑超预算收口为 Environment fault: {:?}",
+        first_outcome.fault
+    );
+    assert_eq!(ws.marker_count(), 1, "第一跑只跑首个 plan");
+    assert!(
+        !ws.reports_dir().join("summary.json").exists(),
+        "第一跑无 summary（复用门无可复用面）"
+    );
+
+    // 第二跑：全预算（生产常量）→ 不复用，重新 spawn 两个 plan 并写 summary
+    std::env::remove_var("SHIM_SLEEP_MS");
+    let second = execute(
+        &ws.root_str(),
+        CHANGE,
+        ReportSlot::Test,
+        foundation::cancel::CancelFlag::never(),
+        TESTEXEC_TOTAL_BUDGET,
+    )
+    .await
+    .expect("全预算应 Ok");
+    let ToolStepOutput::TestExecution(second_outcome) = second else {
+        panic!("产出应为 TestExecution 变体");
+    };
+    assert_eq!(
+        ws.marker_count(),
+        3,
+        "第二跑真 spawn 两个 plan（1 + 2 行，未复用半套报告）"
+    );
+    assert_eq!(second_outcome.fault, None, "全预算面无 fault");
+    assert_eq!(
+        second_outcome.conclusion,
+        TestExecutionConclusion::Pass,
+        "全预算绿跑结论 Pass"
+    );
+    assert!(
+        ws.reports_dir().join("summary.json").exists(),
+        "全预算写 summary（此后可进复用门）"
     );
 }

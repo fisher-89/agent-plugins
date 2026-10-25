@@ -1,0 +1,845 @@
+===== attempt 1/5 · exit=101 · transient=os error 32 =====
+$ pnpm run server:check && pnpm run bindings:check && pnpm run client:check
+$ cargo fmt --all --manifest-path src-tauri/Cargo.toml && cargo clippy --workspace --all-targets --manifest-path src-tauri/Cargo.toml
+    Checking checks-runtime v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\static-check-file-lock\packages\desktop\src-tauri\crates\infra\checks)
+error[E0061]: this function takes 4 arguments but 3 arguments were supplied
+   --> crates\infra\checks\src\environment_test.rs:284:16
+    |
+284 |       let text = fault_text(
+    |  ________________^^^^^^^^^^-
+285 | |         5,
+286 | |         1,
+287 | |         b"error: failed to rename archive file: /t/liba.rlib: os error 32",
+288 | |     );
+    | |_____- argument #4 of type `&[exec::AttemptTrace]` is missing
+    |
+note: function defined here
+   --> crates\infra\checks\src\environment.rs:96:15
+    |
+ 96 | pub(crate) fn fault_text(
+    |               ^^^^^^^^^^
+...
+100 |     retried: &[AttemptTrace],
+    |     ------------------------
+help: provide the argument
+    |
+284 |     let text = fault_text(
+...
+287 |         b"error: failed to rename archive file: /t/liba.rlib: os error 32",
+288 ~         /* &[exec::AttemptTrace] */,
+289 ~     );
+    |
+
+error[E0061]: this function takes 4 arguments but 3 arguments were supplied
+   --> crates\infra\checks\src\environment_test.rs:321:16
+    |
+321 |     let text = fault_text(3, 1, diagnostics.as_bytes());
+    |                ^^^^^^^^^^------------------------------ argument #4 of type `&[exec::AttemptTrace]` is missing
+    |
+note: function defined here
+   --> crates\infra\checks\src\environment.rs:96:15
+    |
+ 96 | pub(crate) fn fault_text(
+    |               ^^^^^^^^^^
+...
+100 |     retried: &[AttemptTrace],
+    |     ------------------------
+help: provide the argument
+    |
+321 |     let text = fault_text(3, 1, diagnostics.as_bytes(), /* &[exec::AttemptTrace] */);
+    |                                                       +++++++++++++++++++++++++++++
+
+error[E0061]: this function takes 4 arguments but 3 arguments were supplied
+   --> crates\infra\checks\src\environment_test.rs:342:16
+    |
+342 |     let text = fault_text(2, 1, diagnostics);
+    |                ^^^^^^^^^^------------------- argument #4 of type `&[exec::AttemptTrace]` is missing
+    |
+note: function defined here
+   --> crates\infra\checks\src\environment.rs:96:15
+    |
+ 96 | pub(crate) fn fault_text(
+    |               ^^^^^^^^^^
+...
+100 |     retried: &[AttemptTrace],
+    |     ------------------------
+help: provide the argument
+    |
+342 |     let text = fault_text(2, 1, diagnostics, /* &[exec::AttemptTrace] */);
+    |                                            +++++++++++++++++++++++++++++
+
+error[E0061]: this function takes 4 arguments but 3 arguments were supplied
+   --> crates\infra\checks\src\environment_test.rs:356:16
+    |
+356 |     let text = fault_text(1, 1, b"error: os error 32");
+    |                ^^^^^^^^^^----------------------------- argument #4 of type `&[exec::AttemptTrace]` is missing
+    |
+note: function defined here
+   --> crates\infra\checks\src\environment.rs:96:15
+    |
+ 96 | pub(crate) fn fault_text(
+    |               ^^^^^^^^^^
+...
+100 |     retried: &[AttemptTrace],
+    |     ------------------------
+help: provide the argument
+    |
+356 |     let text = fault_text(1, 1, b"error: os error 32", /* &[exec::AttemptTrace] */);
+    |                                                      +++++++++++++++++++++++++++++
+
+error[E0061]: this function takes 4 arguments but 3 arguments were supplied
+   --> crates\infra\checks\src\environment_test.rs:370:16
+    |
+370 |     let text = fault_text(4, 1, &[]);
+    |                ^^^^^^^^^^----------- argument #4 of type `&[exec::AttemptTrace]` is missing
+    |
+note: function defined here
+   --> crates\infra\checks\src\environment.rs:96:15
+    |
+ 96 | pub(crate) fn fault_text(
+    |               ^^^^^^^^^^
+...
+100 |     retried: &[AttemptTrace],
+    |     ------------------------
+help: provide the argument
+    |
+370 |     let text = fault_text(4, 1, &[], /* &[exec::AttemptTrace] */);
+    |                                    +++++++++++++++++++++++++++++
+
+error[E0061]: this function takes 4 arguments but 3 arguments were supplied
+   --> crates\infra\checks\src\environment_test.rs:394:16
+    |
+394 |     let text = fault_text(5, 1, long_body.as_bytes());
+    |                ^^^^^^^^^^---------------------------- argument #4 of type `&[exec::AttemptTrace]` is missing
+    |
+note: function defined here
+   --> crates\infra\checks\src\environment.rs:96:15
+    |
+ 96 | pub(crate) fn fault_text(
+    |               ^^^^^^^^^^
+...
+100 |     retried: &[AttemptTrace],
+    |     ------------------------
+help: provide the argument
+    |
+394 |     let text = fault_text(5, 1, long_body.as_bytes(), /* &[exec::AttemptTrace] */);
+    |                                                     +++++++++++++++++++++++++++++
+
+error[E0061]: this function takes 4 arguments but 3 arguments were supplied
+   --> crates\infra\checks\src\environment_test.rs:412:16
+    |
+412 |     let text = fault_text(2, 1, special.as_bytes());
+    |                ^^^^^^^^^^-------------------------- argument #4 of type `&[exec::AttemptTrace]` is missing
+    |
+note: function defined here
+   --> crates\infra\checks\src\environment.rs:96:15
+    |
+ 96 | pub(crate) fn fault_text(
+    |               ^^^^^^^^^^
+...
+100 |     retried: &[AttemptTrace],
+    |     ------------------------
+help: provide the argument
+    |
+412 |     let text = fault_text(2, 1, special.as_bytes(), /* &[exec::AttemptTrace] */);
+    |                                                   +++++++++++++++++++++++++++++
+
+error[E0061]: this function takes 4 arguments but 3 arguments were supplied
+   --> crates\infra\checks\src\environment_test.rs:423:16
+    |
+423 |     let text = fault_text(2, 1, &raw);
+    |                ^^^^^^^^^^------------ argument #4 of type `&[exec::AttemptTrace]` is missing
+    |
+note: function defined here
+   --> crates\infra\checks\src\environment.rs:96:15
+    |
+ 96 | pub(crate) fn fault_text(
+    |               ^^^^^^^^^^
+...
+100 |     retried: &[AttemptTrace],
+    |     ------------------------
+help: provide the argument
+    |
+423 |     let text = fault_text(2, 1, &raw, /* &[exec::AttemptTrace] */);
+    |                                     +++++++++++++++++++++++++++++
+
+For more information about this error, try `rustc --explain E0061`.
+error: could not compile `checks-runtime` (lib test) due to 8 previous errors
+[ELIFECYCLE] Command failed with exit code 101.
+[ELIFECYCLE] Command failed with exit code 101.
+===== attempt 2/5 · exit=101 · transient=os error 32 =====
+$ pnpm run server:check && pnpm run bindings:check && pnpm run client:check
+$ cargo fmt --all --manifest-path src-tauri/Cargo.toml && cargo clippy --workspace --all-targets --manifest-path src-tauri/Cargo.toml
+    Checking checks-runtime v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\static-check-file-lock\packages\desktop\src-tauri\crates\infra\checks)
+error[E0061]: this function takes 4 arguments but 3 arguments were supplied
+   --> crates\infra\checks\src\environment_test.rs:284:16
+    |
+284 |       let text = fault_text(
+    |  ________________^^^^^^^^^^-
+285 | |         5,
+286 | |         1,
+287 | |         b"error: failed to rename archive file: /t/liba.rlib: os error 32",
+288 | |     );
+    | |_____- argument #4 of type `&[exec::AttemptTrace]` is missing
+    |
+note: function defined here
+   --> crates\infra\checks\src\environment.rs:96:15
+    |
+ 96 | pub(crate) fn fault_text(
+    |               ^^^^^^^^^^
+...
+100 |     retried: &[AttemptTrace],
+    |     ------------------------
+help: provide the argument
+    |
+284 |     let text = fault_text(
+...
+287 |         b"error: failed to rename archive file: /t/liba.rlib: os error 32",
+288 ~         /* &[exec::AttemptTrace] */,
+289 ~     );
+    |
+
+error[E0061]: this function takes 4 arguments but 3 arguments were supplied
+   --> crates\infra\checks\src\environment_test.rs:321:16
+    |
+321 |     let text = fault_text(3, 1, diagnostics.as_bytes());
+    |                ^^^^^^^^^^------------------------------ argument #4 of type `&[exec::AttemptTrace]` is missing
+    |
+note: function defined here
+   --> crates\infra\checks\src\environment.rs:96:15
+    |
+ 96 | pub(crate) fn fault_text(
+    |               ^^^^^^^^^^
+...
+100 |     retried: &[AttemptTrace],
+    |     ------------------------
+help: provide the argument
+    |
+321 |     let text = fault_text(3, 1, diagnostics.as_bytes(), /* &[exec::AttemptTrace] */);
+    |                                                       +++++++++++++++++++++++++++++
+
+error[E0061]: this function takes 4 arguments but 3 arguments were supplied
+   --> crates\infra\checks\src\environment_test.rs:342:16
+    |
+342 |     let text = fault_text(2, 1, diagnostics);
+    |                ^^^^^^^^^^------------------- argument #4 of type `&[exec::AttemptTrace]` is missing
+    |
+note: function defined here
+   --> crates\infra\checks\src\environment.rs:96:15
+    |
+ 96 | pub(crate) fn fault_text(
+    |               ^^^^^^^^^^
+...
+100 |     retried: &[AttemptTrace],
+    |     ------------------------
+help: provide the argument
+    |
+342 |     let text = fault_text(2, 1, diagnostics, /* &[exec::AttemptTrace] */);
+    |                                            +++++++++++++++++++++++++++++
+
+error[E0061]: this function takes 4 arguments but 3 arguments were supplied
+   --> crates\infra\checks\src\environment_test.rs:356:16
+    |
+356 |     let text = fault_text(1, 1, b"error: os error 32");
+    |                ^^^^^^^^^^----------------------------- argument #4 of type `&[exec::AttemptTrace]` is missing
+    |
+note: function defined here
+   --> crates\infra\checks\src\environment.rs:96:15
+    |
+ 96 | pub(crate) fn fault_text(
+    |               ^^^^^^^^^^
+...
+100 |     retried: &[AttemptTrace],
+    |     ------------------------
+help: provide the argument
+    |
+356 |     let text = fault_text(1, 1, b"error: os error 32", /* &[exec::AttemptTrace] */);
+    |                                                      +++++++++++++++++++++++++++++
+
+error[E0061]: this function takes 4 arguments but 3 arguments were supplied
+   --> crates\infra\checks\src\environment_test.rs:370:16
+    |
+370 |     let text = fault_text(4, 1, &[]);
+    |                ^^^^^^^^^^----------- argument #4 of type `&[exec::AttemptTrace]` is missing
+    |
+note: function defined here
+   --> crates\infra\checks\src\environment.rs:96:15
+    |
+ 96 | pub(crate) fn fault_text(
+    |               ^^^^^^^^^^
+...
+100 |     retried: &[AttemptTrace],
+    |     ------------------------
+help: provide the argument
+    |
+370 |     let text = fault_text(4, 1, &[], /* &[exec::AttemptTrace] */);
+    |                                    +++++++++++++++++++++++++++++
+
+error[E0061]: this function takes 4 arguments but 3 arguments were supplied
+   --> crates\infra\checks\src\environment_test.rs:394:16
+    |
+394 |     let text = fault_text(5, 1, long_body.as_bytes());
+    |                ^^^^^^^^^^---------------------------- argument #4 of type `&[exec::AttemptTrace]` is missing
+    |
+note: function defined here
+   --> crates\infra\checks\src\environment.rs:96:15
+    |
+ 96 | pub(crate) fn fault_text(
+    |               ^^^^^^^^^^
+...
+100 |     retried: &[AttemptTrace],
+    |     ------------------------
+help: provide the argument
+    |
+394 |     let text = fault_text(5, 1, long_body.as_bytes(), /* &[exec::AttemptTrace] */);
+    |                                                     +++++++++++++++++++++++++++++
+
+error[E0061]: this function takes 4 arguments but 3 arguments were supplied
+   --> crates\infra\checks\src\environment_test.rs:412:16
+    |
+412 |     let text = fault_text(2, 1, special.as_bytes());
+    |                ^^^^^^^^^^-------------------------- argument #4 of type `&[exec::AttemptTrace]` is missing
+    |
+note: function defined here
+   --> crates\infra\checks\src\environment.rs:96:15
+    |
+ 96 | pub(crate) fn fault_text(
+    |               ^^^^^^^^^^
+...
+100 |     retried: &[AttemptTrace],
+    |     ------------------------
+help: provide the argument
+    |
+412 |     let text = fault_text(2, 1, special.as_bytes(), /* &[exec::AttemptTrace] */);
+    |                                                   +++++++++++++++++++++++++++++
+
+error[E0061]: this function takes 4 arguments but 3 arguments were supplied
+   --> crates\infra\checks\src\environment_test.rs:423:16
+    |
+423 |     let text = fault_text(2, 1, &raw);
+    |                ^^^^^^^^^^------------ argument #4 of type `&[exec::AttemptTrace]` is missing
+    |
+note: function defined here
+   --> crates\infra\checks\src\environment.rs:96:15
+    |
+ 96 | pub(crate) fn fault_text(
+    |               ^^^^^^^^^^
+...
+100 |     retried: &[AttemptTrace],
+    |     ------------------------
+help: provide the argument
+    |
+423 |     let text = fault_text(2, 1, &raw, /* &[exec::AttemptTrace] */);
+    |                                     +++++++++++++++++++++++++++++
+
+For more information about this error, try `rustc --explain E0061`.
+error: could not compile `checks-runtime` (lib test) due to 8 previous errors
+[ELIFECYCLE] Command failed with exit code 101.
+[ELIFECYCLE] Command failed with exit code 101.
+===== attempt 3/5 · exit=101 · transient=os error 32 =====
+$ pnpm run server:check && pnpm run bindings:check && pnpm run client:check
+$ cargo fmt --all --manifest-path src-tauri/Cargo.toml && cargo clippy --workspace --all-targets --manifest-path src-tauri/Cargo.toml
+    Checking checks-runtime v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\static-check-file-lock\packages\desktop\src-tauri\crates\infra\checks)
+error[E0061]: this function takes 4 arguments but 3 arguments were supplied
+   --> crates\infra\checks\src\environment_test.rs:284:16
+    |
+284 |       let text = fault_text(
+    |  ________________^^^^^^^^^^-
+285 | |         5,
+286 | |         1,
+287 | |         b"error: failed to rename archive file: /t/liba.rlib: os error 32",
+288 | |     );
+    | |_____- argument #4 of type `&[exec::AttemptTrace]` is missing
+    |
+note: function defined here
+   --> crates\infra\checks\src\environment.rs:96:15
+    |
+ 96 | pub(crate) fn fault_text(
+    |               ^^^^^^^^^^
+...
+100 |     retried: &[AttemptTrace],
+    |     ------------------------
+help: provide the argument
+    |
+284 |     let text = fault_text(
+...
+287 |         b"error: failed to rename archive file: /t/liba.rlib: os error 32",
+288 ~         /* &[exec::AttemptTrace] */,
+289 ~     );
+    |
+
+error[E0061]: this function takes 4 arguments but 3 arguments were supplied
+   --> crates\infra\checks\src\environment_test.rs:321:16
+    |
+321 |     let text = fault_text(3, 1, diagnostics.as_bytes());
+    |                ^^^^^^^^^^------------------------------ argument #4 of type `&[exec::AttemptTrace]` is missing
+    |
+note: function defined here
+   --> crates\infra\checks\src\environment.rs:96:15
+    |
+ 96 | pub(crate) fn fault_text(
+    |               ^^^^^^^^^^
+...
+100 |     retried: &[AttemptTrace],
+    |     ------------------------
+help: provide the argument
+    |
+321 |     let text = fault_text(3, 1, diagnostics.as_bytes(), /* &[exec::AttemptTrace] */);
+    |                                                       +++++++++++++++++++++++++++++
+
+error[E0061]: this function takes 4 arguments but 3 arguments were supplied
+   --> crates\infra\checks\src\environment_test.rs:342:16
+    |
+342 |     let text = fault_text(2, 1, diagnostics);
+    |                ^^^^^^^^^^------------------- argument #4 of type `&[exec::AttemptTrace]` is missing
+    |
+note: function defined here
+   --> crates\infra\checks\src\environment.rs:96:15
+    |
+ 96 | pub(crate) fn fault_text(
+    |               ^^^^^^^^^^
+...
+100 |     retried: &[AttemptTrace],
+    |     ------------------------
+help: provide the argument
+    |
+342 |     let text = fault_text(2, 1, diagnostics, /* &[exec::AttemptTrace] */);
+    |                                            +++++++++++++++++++++++++++++
+
+error[E0061]: this function takes 4 arguments but 3 arguments were supplied
+   --> crates\infra\checks\src\environment_test.rs:356:16
+    |
+356 |     let text = fault_text(1, 1, b"error: os error 32");
+    |                ^^^^^^^^^^----------------------------- argument #4 of type `&[exec::AttemptTrace]` is missing
+    |
+note: function defined here
+   --> crates\infra\checks\src\environment.rs:96:15
+    |
+ 96 | pub(crate) fn fault_text(
+    |               ^^^^^^^^^^
+...
+100 |     retried: &[AttemptTrace],
+    |     ------------------------
+help: provide the argument
+    |
+356 |     let text = fault_text(1, 1, b"error: os error 32", /* &[exec::AttemptTrace] */);
+    |                                                      +++++++++++++++++++++++++++++
+
+error[E0061]: this function takes 4 arguments but 3 arguments were supplied
+   --> crates\infra\checks\src\environment_test.rs:370:16
+    |
+370 |     let text = fault_text(4, 1, &[]);
+    |                ^^^^^^^^^^----------- argument #4 of type `&[exec::AttemptTrace]` is missing
+    |
+note: function defined here
+   --> crates\infra\checks\src\environment.rs:96:15
+    |
+ 96 | pub(crate) fn fault_text(
+    |               ^^^^^^^^^^
+...
+100 |     retried: &[AttemptTrace],
+    |     ------------------------
+help: provide the argument
+    |
+370 |     let text = fault_text(4, 1, &[], /* &[exec::AttemptTrace] */);
+    |                                    +++++++++++++++++++++++++++++
+
+error[E0061]: this function takes 4 arguments but 3 arguments were supplied
+   --> crates\infra\checks\src\environment_test.rs:394:16
+    |
+394 |     let text = fault_text(5, 1, long_body.as_bytes());
+    |                ^^^^^^^^^^---------------------------- argument #4 of type `&[exec::AttemptTrace]` is missing
+    |
+note: function defined here
+   --> crates\infra\checks\src\environment.rs:96:15
+    |
+ 96 | pub(crate) fn fault_text(
+    |               ^^^^^^^^^^
+...
+100 |     retried: &[AttemptTrace],
+    |     ------------------------
+help: provide the argument
+    |
+394 |     let text = fault_text(5, 1, long_body.as_bytes(), /* &[exec::AttemptTrace] */);
+    |                                                     +++++++++++++++++++++++++++++
+
+error[E0061]: this function takes 4 arguments but 3 arguments were supplied
+   --> crates\infra\checks\src\environment_test.rs:412:16
+    |
+412 |     let text = fault_text(2, 1, special.as_bytes());
+    |                ^^^^^^^^^^-------------------------- argument #4 of type `&[exec::AttemptTrace]` is missing
+    |
+note: function defined here
+   --> crates\infra\checks\src\environment.rs:96:15
+    |
+ 96 | pub(crate) fn fault_text(
+    |               ^^^^^^^^^^
+...
+100 |     retried: &[AttemptTrace],
+    |     ------------------------
+help: provide the argument
+    |
+412 |     let text = fault_text(2, 1, special.as_bytes(), /* &[exec::AttemptTrace] */);
+    |                                                   +++++++++++++++++++++++++++++
+
+error[E0061]: this function takes 4 arguments but 3 arguments were supplied
+   --> crates\infra\checks\src\environment_test.rs:423:16
+    |
+423 |     let text = fault_text(2, 1, &raw);
+    |                ^^^^^^^^^^------------ argument #4 of type `&[exec::AttemptTrace]` is missing
+    |
+note: function defined here
+   --> crates\infra\checks\src\environment.rs:96:15
+    |
+ 96 | pub(crate) fn fault_text(
+    |               ^^^^^^^^^^
+...
+100 |     retried: &[AttemptTrace],
+    |     ------------------------
+help: provide the argument
+    |
+423 |     let text = fault_text(2, 1, &raw, /* &[exec::AttemptTrace] */);
+    |                                     +++++++++++++++++++++++++++++
+
+For more information about this error, try `rustc --explain E0061`.
+error: could not compile `checks-runtime` (lib test) due to 8 previous errors
+[ELIFECYCLE] Command failed with exit code 101.
+[ELIFECYCLE] Command failed with exit code 101.
+===== attempt 4/5 · exit=101 · transient=os error 32 =====
+$ pnpm run server:check && pnpm run bindings:check && pnpm run client:check
+$ cargo fmt --all --manifest-path src-tauri/Cargo.toml && cargo clippy --workspace --all-targets --manifest-path src-tauri/Cargo.toml
+    Checking checks-runtime v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\static-check-file-lock\packages\desktop\src-tauri\crates\infra\checks)
+error[E0061]: this function takes 4 arguments but 3 arguments were supplied
+   --> crates\infra\checks\src\environment_test.rs:284:16
+    |
+284 |       let text = fault_text(
+    |  ________________^^^^^^^^^^-
+285 | |         5,
+286 | |         1,
+287 | |         b"error: failed to rename archive file: /t/liba.rlib: os error 32",
+288 | |     );
+    | |_____- argument #4 of type `&[exec::AttemptTrace]` is missing
+    |
+note: function defined here
+   --> crates\infra\checks\src\environment.rs:96:15
+    |
+ 96 | pub(crate) fn fault_text(
+    |               ^^^^^^^^^^
+...
+100 |     retried: &[AttemptTrace],
+    |     ------------------------
+help: provide the argument
+    |
+284 |     let text = fault_text(
+...
+287 |         b"error: failed to rename archive file: /t/liba.rlib: os error 32",
+288 ~         /* &[exec::AttemptTrace] */,
+289 ~     );
+    |
+
+error[E0061]: this function takes 4 arguments but 3 arguments were supplied
+   --> crates\infra\checks\src\environment_test.rs:321:16
+    |
+321 |     let text = fault_text(3, 1, diagnostics.as_bytes());
+    |                ^^^^^^^^^^------------------------------ argument #4 of type `&[exec::AttemptTrace]` is missing
+    |
+note: function defined here
+   --> crates\infra\checks\src\environment.rs:96:15
+    |
+ 96 | pub(crate) fn fault_text(
+    |               ^^^^^^^^^^
+...
+100 |     retried: &[AttemptTrace],
+    |     ------------------------
+help: provide the argument
+    |
+321 |     let text = fault_text(3, 1, diagnostics.as_bytes(), /* &[exec::AttemptTrace] */);
+    |                                                       +++++++++++++++++++++++++++++
+
+error[E0061]: this function takes 4 arguments but 3 arguments were supplied
+   --> crates\infra\checks\src\environment_test.rs:342:16
+    |
+342 |     let text = fault_text(2, 1, diagnostics);
+    |                ^^^^^^^^^^------------------- argument #4 of type `&[exec::AttemptTrace]` is missing
+    |
+note: function defined here
+   --> crates\infra\checks\src\environment.rs:96:15
+    |
+ 96 | pub(crate) fn fault_text(
+    |               ^^^^^^^^^^
+...
+100 |     retried: &[AttemptTrace],
+    |     ------------------------
+help: provide the argument
+    |
+342 |     let text = fault_text(2, 1, diagnostics, /* &[exec::AttemptTrace] */);
+    |                                            +++++++++++++++++++++++++++++
+
+error[E0061]: this function takes 4 arguments but 3 arguments were supplied
+   --> crates\infra\checks\src\environment_test.rs:356:16
+    |
+356 |     let text = fault_text(1, 1, b"error: os error 32");
+    |                ^^^^^^^^^^----------------------------- argument #4 of type `&[exec::AttemptTrace]` is missing
+    |
+note: function defined here
+   --> crates\infra\checks\src\environment.rs:96:15
+    |
+ 96 | pub(crate) fn fault_text(
+    |               ^^^^^^^^^^
+...
+100 |     retried: &[AttemptTrace],
+    |     ------------------------
+help: provide the argument
+    |
+356 |     let text = fault_text(1, 1, b"error: os error 32", /* &[exec::AttemptTrace] */);
+    |                                                      +++++++++++++++++++++++++++++
+
+error[E0061]: this function takes 4 arguments but 3 arguments were supplied
+   --> crates\infra\checks\src\environment_test.rs:370:16
+    |
+370 |     let text = fault_text(4, 1, &[]);
+    |                ^^^^^^^^^^----------- argument #4 of type `&[exec::AttemptTrace]` is missing
+    |
+note: function defined here
+   --> crates\infra\checks\src\environment.rs:96:15
+    |
+ 96 | pub(crate) fn fault_text(
+    |               ^^^^^^^^^^
+...
+100 |     retried: &[AttemptTrace],
+    |     ------------------------
+help: provide the argument
+    |
+370 |     let text = fault_text(4, 1, &[], /* &[exec::AttemptTrace] */);
+    |                                    +++++++++++++++++++++++++++++
+
+error[E0061]: this function takes 4 arguments but 3 arguments were supplied
+   --> crates\infra\checks\src\environment_test.rs:394:16
+    |
+394 |     let text = fault_text(5, 1, long_body.as_bytes());
+    |                ^^^^^^^^^^---------------------------- argument #4 of type `&[exec::AttemptTrace]` is missing
+    |
+note: function defined here
+   --> crates\infra\checks\src\environment.rs:96:15
+    |
+ 96 | pub(crate) fn fault_text(
+    |               ^^^^^^^^^^
+...
+100 |     retried: &[AttemptTrace],
+    |     ------------------------
+help: provide the argument
+    |
+394 |     let text = fault_text(5, 1, long_body.as_bytes(), /* &[exec::AttemptTrace] */);
+    |                                                     +++++++++++++++++++++++++++++
+
+error[E0061]: this function takes 4 arguments but 3 arguments were supplied
+   --> crates\infra\checks\src\environment_test.rs:412:16
+    |
+412 |     let text = fault_text(2, 1, special.as_bytes());
+    |                ^^^^^^^^^^-------------------------- argument #4 of type `&[exec::AttemptTrace]` is missing
+    |
+note: function defined here
+   --> crates\infra\checks\src\environment.rs:96:15
+    |
+ 96 | pub(crate) fn fault_text(
+    |               ^^^^^^^^^^
+...
+100 |     retried: &[AttemptTrace],
+    |     ------------------------
+help: provide the argument
+    |
+412 |     let text = fault_text(2, 1, special.as_bytes(), /* &[exec::AttemptTrace] */);
+    |                                                   +++++++++++++++++++++++++++++
+
+error[E0061]: this function takes 4 arguments but 3 arguments were supplied
+   --> crates\infra\checks\src\environment_test.rs:423:16
+    |
+423 |     let text = fault_text(2, 1, &raw);
+    |                ^^^^^^^^^^------------ argument #4 of type `&[exec::AttemptTrace]` is missing
+    |
+note: function defined here
+   --> crates\infra\checks\src\environment.rs:96:15
+    |
+ 96 | pub(crate) fn fault_text(
+    |               ^^^^^^^^^^
+...
+100 |     retried: &[AttemptTrace],
+    |     ------------------------
+help: provide the argument
+    |
+423 |     let text = fault_text(2, 1, &raw, /* &[exec::AttemptTrace] */);
+    |                                     +++++++++++++++++++++++++++++
+
+For more information about this error, try `rustc --explain E0061`.
+error: could not compile `checks-runtime` (lib test) due to 8 previous errors
+[ELIFECYCLE] Command failed with exit code 101.
+[ELIFECYCLE] Command failed with exit code 101.
+===== attempt 5/5 · exit=101 · transient=os error 32 =====
+$ pnpm run server:check && pnpm run bindings:check && pnpm run client:check
+$ cargo fmt --all --manifest-path src-tauri/Cargo.toml && cargo clippy --workspace --all-targets --manifest-path src-tauri/Cargo.toml
+    Checking checks-runtime v0.1.0 (D:\Projects\.worktrees\wps-claude-plugin\static-check-file-lock\packages\desktop\src-tauri\crates\infra\checks)
+error[E0061]: this function takes 4 arguments but 3 arguments were supplied
+   --> crates\infra\checks\src\environment_test.rs:284:16
+    |
+284 |       let text = fault_text(
+    |  ________________^^^^^^^^^^-
+285 | |         5,
+286 | |         1,
+287 | |         b"error: failed to rename archive file: /t/liba.rlib: os error 32",
+288 | |     );
+    | |_____- argument #4 of type `&[exec::AttemptTrace]` is missing
+    |
+note: function defined here
+   --> crates\infra\checks\src\environment.rs:96:15
+    |
+ 96 | pub(crate) fn fault_text(
+    |               ^^^^^^^^^^
+...
+100 |     retried: &[AttemptTrace],
+    |     ------------------------
+help: provide the argument
+    |
+284 |     let text = fault_text(
+...
+287 |         b"error: failed to rename archive file: /t/liba.rlib: os error 32",
+288 ~         /* &[exec::AttemptTrace] */,
+289 ~     );
+    |
+
+error[E0061]: this function takes 4 arguments but 3 arguments were supplied
+   --> crates\infra\checks\src\environment_test.rs:321:16
+    |
+321 |     let text = fault_text(3, 1, diagnostics.as_bytes());
+    |                ^^^^^^^^^^------------------------------ argument #4 of type `&[exec::AttemptTrace]` is missing
+    |
+note: function defined here
+   --> crates\infra\checks\src\environment.rs:96:15
+    |
+ 96 | pub(crate) fn fault_text(
+    |               ^^^^^^^^^^
+...
+100 |     retried: &[AttemptTrace],
+    |     ------------------------
+help: provide the argument
+    |
+321 |     let text = fault_text(3, 1, diagnostics.as_bytes(), /* &[exec::AttemptTrace] */);
+    |                                                       +++++++++++++++++++++++++++++
+
+error[E0061]: this function takes 4 arguments but 3 arguments were supplied
+   --> crates\infra\checks\src\environment_test.rs:342:16
+    |
+342 |     let text = fault_text(2, 1, diagnostics);
+    |                ^^^^^^^^^^------------------- argument #4 of type `&[exec::AttemptTrace]` is missing
+    |
+note: function defined here
+   --> crates\infra\checks\src\environment.rs:96:15
+    |
+ 96 | pub(crate) fn fault_text(
+    |               ^^^^^^^^^^
+...
+100 |     retried: &[AttemptTrace],
+    |     ------------------------
+help: provide the argument
+    |
+342 |     let text = fault_text(2, 1, diagnostics, /* &[exec::AttemptTrace] */);
+    |                                            +++++++++++++++++++++++++++++
+
+error[E0061]: this function takes 4 arguments but 3 arguments were supplied
+   --> crates\infra\checks\src\environment_test.rs:356:16
+    |
+356 |     let text = fault_text(1, 1, b"error: os error 32");
+    |                ^^^^^^^^^^----------------------------- argument #4 of type `&[exec::AttemptTrace]` is missing
+    |
+note: function defined here
+   --> crates\infra\checks\src\environment.rs:96:15
+    |
+ 96 | pub(crate) fn fault_text(
+    |               ^^^^^^^^^^
+...
+100 |     retried: &[AttemptTrace],
+    |     ------------------------
+help: provide the argument
+    |
+356 |     let text = fault_text(1, 1, b"error: os error 32", /* &[exec::AttemptTrace] */);
+    |                                                      +++++++++++++++++++++++++++++
+
+error[E0061]: this function takes 4 arguments but 3 arguments were supplied
+   --> crates\infra\checks\src\environment_test.rs:370:16
+    |
+370 |     let text = fault_text(4, 1, &[]);
+    |                ^^^^^^^^^^----------- argument #4 of type `&[exec::AttemptTrace]` is missing
+    |
+note: function defined here
+   --> crates\infra\checks\src\environment.rs:96:15
+    |
+ 96 | pub(crate) fn fault_text(
+    |               ^^^^^^^^^^
+...
+100 |     retried: &[AttemptTrace],
+    |     ------------------------
+help: provide the argument
+    |
+370 |     let text = fault_text(4, 1, &[], /* &[exec::AttemptTrace] */);
+    |                                    +++++++++++++++++++++++++++++
+
+error[E0061]: this function takes 4 arguments but 3 arguments were supplied
+   --> crates\infra\checks\src\environment_test.rs:394:16
+    |
+394 |     let text = fault_text(5, 1, long_body.as_bytes());
+    |                ^^^^^^^^^^---------------------------- argument #4 of type `&[exec::AttemptTrace]` is missing
+    |
+note: function defined here
+   --> crates\infra\checks\src\environment.rs:96:15
+    |
+ 96 | pub(crate) fn fault_text(
+    |               ^^^^^^^^^^
+...
+100 |     retried: &[AttemptTrace],
+    |     ------------------------
+help: provide the argument
+    |
+394 |     let text = fault_text(5, 1, long_body.as_bytes(), /* &[exec::AttemptTrace] */);
+    |                                                     +++++++++++++++++++++++++++++
+
+error[E0061]: this function takes 4 arguments but 3 arguments were supplied
+   --> crates\infra\checks\src\environment_test.rs:412:16
+    |
+412 |     let text = fault_text(2, 1, special.as_bytes());
+    |                ^^^^^^^^^^-------------------------- argument #4 of type `&[exec::AttemptTrace]` is missing
+    |
+note: function defined here
+   --> crates\infra\checks\src\environment.rs:96:15
+    |
+ 96 | pub(crate) fn fault_text(
+    |               ^^^^^^^^^^
+...
+100 |     retried: &[AttemptTrace],
+    |     ------------------------
+help: provide the argument
+    |
+412 |     let text = fault_text(2, 1, special.as_bytes(), /* &[exec::AttemptTrace] */);
+    |                                                   +++++++++++++++++++++++++++++
+
+error[E0061]: this function takes 4 arguments but 3 arguments were supplied
+   --> crates\infra\checks\src\environment_test.rs:423:16
+    |
+423 |     let text = fault_text(2, 1, &raw);
+    |                ^^^^^^^^^^------------ argument #4 of type `&[exec::AttemptTrace]` is missing
+    |
+note: function defined here
+   --> crates\infra\checks\src\environment.rs:96:15
+    |
+ 96 | pub(crate) fn fault_text(
+    |               ^^^^^^^^^^
+...
+100 |     retried: &[AttemptTrace],
+    |     ------------------------
+help: provide the argument
+    |
+423 |     let text = fault_text(2, 1, &raw, /* &[exec::AttemptTrace] */);
+    |                                     +++++++++++++++++++++++++++++
+
+For more information about this error, try `rustc --explain E0061`.
+error: could not compile `checks-runtime` (lib test) due to 8 previous errors
+[ELIFECYCLE] Command failed with exit code 101.
+[ELIFECYCLE] Command failed with exit code 101.

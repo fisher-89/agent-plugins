@@ -9,6 +9,7 @@ mod report_test;
 
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
+use std::time::{Duration, Instant};
 
 use checks::aggregate::{build_summary_report, coverage_meets_thresholds};
 use checks::model::{
@@ -50,6 +51,12 @@ const DETAIL_CASES_PER_SUITE_LIMIT: usize = 20;
 /// 修复边明细总字符预算（chars 口径；超限截断尾注指向报告目录）。
 const DETAIL_TOTAL_LIMIT: usize = 12000;
 
+/// **跨 plan 总预算**（自本次执行开始时刻起算）：单 plan 的单次尝试预算
+/// （`SUITE_COMMAND_TIMEOUT = 1200 s`）的两倍有余，当前形态（1 rust + 1 vite）
+/// 实测最坏 ≈ 1575 s（含瞬态重试退避），留约 1.5 倍余量。与既有超时预算同性质
+/// 的**代码常量**，MUST NOT 进 config schema；suite 数量增长时复核本值。
+const TESTEXEC_TOTAL_BUDGET: Duration = Duration::from_secs(2400);
+
 /// test-execution 进程执行器（无状态，组合根按需构造）。
 pub struct ProcessTestExecution;
 
@@ -70,7 +77,7 @@ impl TestExecutionRunner for ProcessTestExecution {
     fn run(&self, root: &str, change: &str, slot: ReportSlot, cancel: CancelFlag) -> BoxToolFuture {
         let root = root.to_owned();
         let change = change.to_owned();
-        Box::pin(async move { execute(&root, &change, slot, cancel).await })
+        Box::pin(async move { execute(&root, &change, slot, cancel, TESTEXEC_TOTAL_BUDGET).await })
     }
 }
 
@@ -82,13 +89,22 @@ impl TestExecutionRunner for ProcessTestExecution {
 /// 探测失败」；超时与瞬态耗尽由 `fault`（`RunFault::Environment`）承载、取消由
 /// `RunFault::Stopped` 承载，两者 MUST NOT 落 plan 级 `execution_error`（那会被
 /// 当作被测代码问题而产生假失败归因），也不写 summary（半套报告不进复用门）。
+///
+/// **跨 plan 总预算**：进入每个 plan 之前判定一次 —— 超预算余下 plan MUST NOT
+/// spawn，沿**既有** fault 路径收口（不写 summary、不跑诊断、不落报告文件，半套
+/// 报告不进复用门；`report_dir` / `exec_id` 照旧回填）。已完成 plan 的结果随 fault
+/// 收口一并丢弃（工件仍在报告树可人工回查）；既有 fault 不被预算文案覆盖
+/// （`Stopped` 优先于 `Environment`）。
 async fn execute(
     root: &str,
     change: &str,
     slot: ReportSlot,
     cancel: CancelFlag,
+    total_budget: Duration,
 ) -> Result<ToolStepOutput, String> {
     let started_at = OffsetDateTime::now_utc();
+    // 跨 plan 总预算起点（与 `started_at` 同一次取时 / 同量级）
+    let budget_started = Instant::now();
     let root_path = Path::new(root);
     let report = config::load(root_path);
     let suites = &report.config.tests;
@@ -135,7 +151,20 @@ async fn execute(
     let mut sub_reports = Vec::new();
     let mut merged_output: Vec<u8> = Vec::new();
     let mut fault: Option<RunFault> = None;
-    for plan in &plans {
+    for (index, plan) in plans.iter().enumerate() {
+        // 跨 plan 总预算：进 plan 之前判定一次（首个 plan 边界 `elapsed ≈ 0` 恒不
+        // 触发）；超预算余下 plan MUST NOT spawn，沿既有 fault 收口。`fault.is_none()`
+        // 守卫使既有 `Stopped` / `Environment` 不被覆盖（`Stopped` 优先）
+        if budget_started.elapsed() >= total_budget {
+            if fault.is_none() {
+                fault = Some(RunFault::Environment(format!(
+                    "测试执行总时长超预算（{} 秒）：余下 {} 个 suite 未执行",
+                    total_budget.as_secs(),
+                    plans.len() - index
+                )));
+            }
+            break;
+        }
         // 逐 plan 多次 spawn：取消标志克隆共享同一原子（段间不失效）
         let mut execution =
             runner::execute_plan(plan, &reports_dir.join(&plan.id), cancel.clone()).await?;

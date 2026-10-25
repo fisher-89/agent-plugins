@@ -131,6 +131,7 @@ pub(crate) async fn execute_plan(
                 run.attempts,
                 run.exit_code,
                 &merged,
+                &run.retried,
             ))
         }),
     };
